@@ -34,8 +34,8 @@ updated: 2026-11-16
 
 验证（2026-11-17，负载 4 到 6）：`bun run test:affected --since master` 的 bun 与 vitest 项通过（vitest 94 个文件 706 项），唯一失败是 `sdk.test.ts` 的两条（组件子路径漏列 DateInput 的类型），在最新 master 上同样失败（w00025 t10 的提交 d5eb7b6a3 引入），不是本分支；`plugins.e2e` 3 项通过。e2e 里原有的“其它分区没有示例插件的配置项”辅助函数在 master 上已经不对（Agent 的工具绑定归到了 Profile 分区，“其它”分区空了、导航被停用），改成分区停用时直接通过。
 
-实现审查进行中：后端（nb-host、暂存区、路由、合同）omp 默认模型，页面 Sonnet；审查 worktree `.worktree/w00046-t16-review`。
+实现审查（2026-11-17）：页面 Sonnet 13 条（[处理](evidences/impl-review-r1-sonnet-disposition.txt)）；后端（nb-host、暂存区、路由、合同）omp 默认模型有效发现 10 条，中 5、低 5（[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-omp-disposition.txt)），都已修并补测试。收口验证：类型检查、相关 bun 测试、`plugins.e2e` 3 项通过，`test:affected --since master` 只有 master 上已有的 `sdk.test.ts` 两项失败。
 
 ## 下一步
 
-处理两路实现审查，合入 master；切片 6（Windows 拖放）等 pc-notype。
+已合入 master（不 push）。切片 6（Windows 拖放真机手测）等 pc-notype 能构建。
