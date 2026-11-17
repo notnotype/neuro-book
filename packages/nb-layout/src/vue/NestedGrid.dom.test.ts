@@ -1166,6 +1166,21 @@ describe("NestedGrid 交换", () => {
         expect(wrapper.find("[data-swap-backdrop]").exists()).toBe(false);
     });
 
+    it("`moving`：过渡在走时为真、结束为假；时长为 0（减少动态效果）时一轮过渡都不开，一直为假", async () => {
+        const wrapper = await mountColumn();
+        const exposed = wrapper.vm as unknown as {moving: boolean};
+        expect(exposed.moving).toBe(false);
+        await wrapper.setProps({swap: swap(1, A, B), ...toB()});
+        expect(exposed.moving).toBe(true);
+        await vi.waitFor(() => expect(exposed.moving).toBe(false));
+
+        const still = await mountColumn("0ms");
+        const stillExposed = still.vm as unknown as {moving: boolean};
+        await still.setProps({swap: swap(1, A, B), ...toB()});
+        expect(stillExposed.moving).toBe(false);
+        expect(still.find("[data-leaf='a1']").exists()).toBe(false);
+    });
+
     it("给了交换但这一轮没有布局变化：作废，后面的布局变化照常过渡，不滑", async () => {
         const wrapper = await mountColumn();
         await wrapper.setProps({swap: swap(1, A, B)});

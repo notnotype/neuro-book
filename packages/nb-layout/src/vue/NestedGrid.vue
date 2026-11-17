@@ -621,6 +621,10 @@ defineExpose({
     shapedLeaves,
     /** 这一刻在交换里的叶（节点 id，含滑出去的）：宿主在这段时间不换别的画法时读它。过渡结束就空了。 */
     swappingLeaves,
+    /**
+     * 这一刻有没有布局过渡在走（整个网格的）。宿主要等过渡结束再换画法时读它，按“为假”这个状态判，不按由真变假：减少动态效果时一轮过渡都不开，它一直为假。
+     */
+    moving: computed(() => motion.moving.value),
 });
 </script>
 

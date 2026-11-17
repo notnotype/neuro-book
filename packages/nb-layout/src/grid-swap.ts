@@ -203,6 +203,15 @@ export function planSwap(input: {
     };
 }
 
+/**
+ * 新给的交换碰不碰进行中的带：离开或换上来的叶有一片在带的某一组里。碰的是重定向（滑到一半点回来、换到第三组）；不碰的是别处的另一次交换，
+ * 网格同时只有一条带，要先把进行中的送到终点（`decideMotion` 的 `settleFirst`）。
+ */
+export function swapTouchesBand(swap: GridSwap, band: GridSwapBand): boolean {
+    const ids = [...swap.leaving, ...swap.entering];
+    return band.groups.some((group) => ids.some((id) => group.leaves.has(id)));
+}
+
 /** 元素在 `rect` 时裁切窗在它自己坐标里的位置（`clip-path`）。内缩可以为负：窗比元素大的那边不裁。 */
 export function swapWindowClip(band: GridSwapBand, rect: GridRect): string {
     const {window} = band;

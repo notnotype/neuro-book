@@ -191,6 +191,53 @@ describe("decideMotion 与交换（docs/specs/ui/nested-grid.md 的“交换”�
         expect(holding.kind === "move" && holding.swap === undefined && holding.swapSkipped === undefined).toBe(true);
     });
 
+    /** 左右两列各放一组叶，中间是主区：两个区域各自的交换。 */
+    function columns(left: readonly string[], right: readonly string[]): GridPlacementItem<unknown>[] {
+        const side = (id: string, group: readonly string[]): GridNodeInput<string> => (group.length === 1
+            ? {kind: "leaf", id: group[0] as string, ref: group[0] as string, size: {width: 200, height: 0}}
+            : {kind: "branch", id, orientation: "vertical", size: {width: 200, height: 0}, children: group.map((child) => ({kind: "leaf" as const, id: child, ref: child, size: {width: 0, height: 150}}))});
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [side("left", left), leaf("main", 298), side("right", right)]}, {sashSize: 1});
+        return [...placeGrid(grid.root()!, grid.layout(EXTENT), EXTENT, 1).items];
+    }
+
+    it("交换进行中别处又来一次交换（和带不相交）：先把进行中的送到终点，这一次按空带规划，只带这一次的两组，上一轮滑出去的项不带进来", () => {
+        const memory = EMPTY_GRID_MOTION_MEMORY();
+        expect(decideMotion(frame({items: columns(["a1"], ["x1"])}), memory).kind).toBe("none");
+        const first = decideMotion(frame({items: columns(["b1"], ["x1"]), previous: columns(["a1"], ["x1"]), swap: swap(["a1"], ["b1"])}), memory);
+        if (first.kind !== "move" || first.swap === undefined) throw new Error("应当按交换走");
+        expect(first.settleFirst).toBeUndefined();
+        const second = decideMotion(frame({
+            items: [...columns(["b1"], ["y1"]), ...first.leaving],
+            previous: [...columns(["b1"], ["x1"]), ...first.leaving],
+            swap: {...swap(["x1"], ["y1"]), token: 2, axis: "width"},
+            band: first.swap,
+            bandNow: [-200, 200],
+            busy: new Set(["b1"]),
+        }), memory);
+        if (second.kind !== "move" || second.swap === undefined) throw new Error("应当按交换走");
+        expect(second.settleFirst).toBe(true);
+        expect(second.swap.axis).toBe("width");
+        expect(second.swap.groups.map((group) => [...group.leaves])).toEqual([["x1"], ["y1"]]);
+        expect(second.leaving.some((item) => item.key === "leaf:a1")).toBe(false);
+    });
+
+    it("交换进行中点回正在滑出去的那组（和带相交）：不收尾，从此刻接着走，带上还是这两组", () => {
+        const memory = EMPTY_GRID_MOTION_MEMORY();
+        expect(decideMotion(frame({items: columns(["a1"], ["x1"])}), memory).kind).toBe("none");
+        const first = decideMotion(frame({items: columns(["b1"], ["x1"]), previous: columns(["a1"], ["x1"]), swap: swap(["a1"], ["b1"])}), memory);
+        if (first.kind !== "move" || first.swap === undefined) throw new Error("应当按交换走");
+        const back = decideMotion(frame({
+            items: [...columns(["a1"], ["x1"]), ...first.leaving],
+            previous: [...columns(["b1"], ["x1"]), ...first.leaving],
+            swap: {...swap(["b1"], ["a1"]), token: 2},
+            band: first.swap,
+            bandNow: [-200, 200],
+        }), memory);
+        if (back.kind !== "move" || back.swap === undefined) throw new Error("应当按交换走");
+        expect(back.settleFirst).toBeUndefined();
+        expect(back.swap.groups.map((group) => [...group.leaves]).sort()).toEqual([["a1"], ["b1"]]);
+    });
+
     it("交换进行中来了一次不是交换的布局变化：滑出去的那组接着留着、终点不变，带不换", () => {
         const memory = warmedColumn();
         const first = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"])}), memory);
