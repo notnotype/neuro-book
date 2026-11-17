@@ -14,7 +14,7 @@ import {DOMSerializer} from "@tiptap/pm/model";
 import {chipView, renderChipIcon} from "../chip/chip";
 import {codecFor} from "../language/codec/codec";
 import type {MarkdownLanguage} from "../language/language";
-import {isLargeStickerBlock, LARGE_STICKER_CLASS} from "../language/syntax/sticker";
+import {isLargeStickerBlock, LARGE_STICKER_CLASS, STICKER_NODE, stickerGapClasses} from "../language/syntax/sticker";
 import {showsAsChip} from "../targets";
 import {STATIC_VIEWS} from "./static-views";
 import type {StaticView, StaticViewHost} from "./static-views";
@@ -109,6 +109,21 @@ function decorateLinks(root: HTMLElement, host: StaticViewHost): void {
     }
 }
 
+function hasSticker(block: PMNode): boolean {
+    let found = false;
+    block.forEach((child) => (found ||= child.type.name === STICKER_NODE));
+    return found;
+}
+
+/** 文本块的元素里的表情元素按出现顺序就是节点里的表情（文本块里没有别的文本块）。 */
+function decorateStickers(block: PMNode, dom: HTMLElement): void {
+    if (isLargeStickerBlock(block)) dom.classList.add(LARGE_STICKER_CLASS);
+    const gaps = stickerGapClasses(block);
+    dom.querySelectorAll<HTMLElement>(".nb-sticker").forEach((element, index) => {
+        for (const name of (gaps[index] ?? "").split(" ")) if (name !== "") element.classList.add(name);
+    });
+}
+
 export class DisplayRenderer {
     readonly #root: HTMLElement;
     readonly #language: MarkdownLanguage;
@@ -119,6 +134,8 @@ export class DisplayRenderer {
     #blocks: Block[] = [];
     /** 正在生成的块里建出的静态视图：替换或卸载这一块时逐个释放。 */
     #collecting: StaticView[] = [];
+    /** 正在生成的块里有表情的文本块与它的元素。 */
+    #stickerBlocks: Array<{readonly node: PMNode; readonly dom: HTMLElement}> = [];
 
     constructor(root: HTMLElement, language: MarkdownLanguage, schema: Schema, host: StaticViewHost) {
         this.#root = root;
@@ -135,14 +152,15 @@ export class DisplayRenderer {
                 return view.contentDOM === undefined ? view.dom : {dom: view.dom, contentDOM: view.contentDOM};
             };
         }
-        // 只有表情的文本块带上大图的类名（stickers.md 输出 11），判断与编辑器的装饰是同一个函数。
+        // 有表情的文本块记下来，整块生成完再给表情加大小与间隙的类名（stickers.md 输出 11），判断与编辑器的装饰是同一组函数。
+        // 生成文本块元素时它的内容还没填进去，所以不能在这里直接加。
         for (const [name, type] of Object.entries(schema.nodes)) {
             const original = nodes[name];
             if (!type.isTextblock || original === undefined) continue;
             nodes[name] = (node: PMNode) => {
-                if (!isLargeStickerBlock(node)) return original(node);
+                if (!hasSticker(node)) return original(node);
                 const rendered = DOMSerializer.renderSpec(this.#host.document, original(node));
-                (rendered.dom as HTMLElement).classList.add(LARGE_STICKER_CLASS);
+                this.#stickerBlocks.push({node, dom: rendered.dom as HTMLElement});
                 return rendered.contentDOM === undefined ? rendered.dom : {dom: rendered.dom, contentDOM: rendered.contentDOM};
             };
         }
@@ -175,9 +193,11 @@ export class DisplayRenderer {
     /** 生成一块。画不出来（外来方言的 `renderHTML` 抛错之类）时按它的文字显示，只影响这一块（输出 1）。 */
     #render(node: PMNode): Omit<Block, "key"> {
         this.#collecting = [];
+        this.#stickerBlocks = [];
         try {
             const dom = this.#serializer.serializeNode(node, {document: this.#host.document});
             if (dom.nodeType === 1) decorateLinks(dom as HTMLElement, this.#host);
+            for (const block of this.#stickerBlocks) decorateStickers(block.node, block.dom);
             return {dom, views: this.#collecting};
         } catch (error) {
             for (const view of this.#collecting) view.destroy?.();
@@ -188,6 +208,7 @@ export class DisplayRenderer {
             return {dom: pre, views: []};
         } finally {
             this.#collecting = [];
+            this.#stickerBlocks = [];
         }
     }
 

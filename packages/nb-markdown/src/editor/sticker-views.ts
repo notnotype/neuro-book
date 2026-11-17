@@ -1,8 +1,8 @@
 /**
- * 编辑器里的表情（docs/specs/agent/stickers.md 输出 10–12、21）：节点视图用与展示器相同的 `buildSticker`；只有表情的文本块由装饰
- * 带上大图的类名，判断与展示器是同一个函数（`isLargeStickerBlock`）。
+ * 编辑器里的表情（docs/specs/agent/stickers.md 输出 10–12、21）：节点视图用与展示器相同的 `buildSticker`；只有表情的文本块带上
+ * 大图的类名、紧挨文字的表情带上间隙的类名，都由装饰给，判断与展示器是同一组函数（`isLargeStickerBlock`、`stickerGapClasses`）。
  *
- * 大小放在装饰里、不放进节点视图：节点视图只在它自己的节点变了时更新，同一段里别处打字时它不会重算。
+ * 大小与间隙放在装饰里、不放进节点视图：节点视图只在它自己的节点变了时更新，同一段里别处打字时它不会重算。
  */
 
 import {Extension} from "@tiptap/core";
@@ -11,7 +11,7 @@ import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 import type {NodeView} from "@tiptap/pm/view";
 
-import {isLargeStickerBlock, LARGE_STICKER_CLASS, rawOf, STICKER_NODE} from "../language/syntax/sticker";
+import {isLargeStickerBlock, LARGE_STICKER_CLASS, rawOf, STICKER_NODE, stickerGapClasses} from "../language/syntax/sticker";
 import {buildSticker} from "../language/syntax/sticker/view";
 import type {MarkdownViewHost} from "./view-host";
 
@@ -29,12 +29,20 @@ function stickerView(node: PMNode, host: MarkdownViewHost | null, document: Docu
     };
 }
 
-/** 文档里只有表情的文本块各一个节点装饰。 */
-function largeBlocks(doc: PMNode, from = 0, to = doc.content.size): Decoration[] {
+/** 范围里的文本块：只有表情的整块一个装饰，紧挨文字的表情各一个装饰。 */
+function stickerDecorations(doc: PMNode, from = 0, to = doc.content.size): Decoration[] {
     const decorations: Decoration[] = [];
     doc.nodesBetween(from, to, (node, pos) => {
         if (!node.isTextblock) return true;
         if (isLargeStickerBlock(node)) decorations.push(Decoration.node(pos, pos + node.nodeSize, {class: LARGE_STICKER_CLASS}));
+        const gaps = stickerGapClasses(node);
+        let index = 0;
+        node.forEach((child, offset) => {
+            if (child.type.name !== STICKER_NODE) return;
+            const names = gaps[index] ?? "";
+            index += 1;
+            if (names !== "") decorations.push(Decoration.node(pos + 1 + offset, pos + 1 + offset + child.nodeSize, {class: names}));
+        });
         return false;
     });
     return decorations;
@@ -54,7 +62,7 @@ export const MarkdownStickerViews = Extension.create<{host: MarkdownViewHost | n
             new Plugin<DecorationSet>({
                 key: blocksKey,
                 state: {
-                    init: (_config, state) => DecorationSet.create(state.doc, largeBlocks(state.doc)),
+                    init: (_config, state) => DecorationSet.create(state.doc, stickerDecorations(state.doc)),
                     apply: (tr, previous) => {
                         if (!tr.docChanged) return previous;
                         // 只重算这次改到的文本块：映射旧的装饰，再把改动范围里的去掉、重新判断。
@@ -67,7 +75,7 @@ export const MarkdownStickerViews = Extension.create<{host: MarkdownViewHost | n
                             const $to = tr.doc.resolve(to);
                             const start = $from.depth > 0 ? $from.before(Math.min($from.depth, 1)) : from;
                             const end = $to.depth > 0 ? $to.after(Math.min($to.depth, 1)) : to;
-                            set = set.remove(set.find(start, end)).add(tr.doc, largeBlocks(tr.doc, start, end));
+                            set = set.remove(set.find(start, end)).add(tr.doc, stickerDecorations(tr.doc, start, end));
                         }));
                         return set;
                     },

@@ -267,14 +267,26 @@
  * 前后留一点间隙。宽按图片比例（`<img>` 带宽高属性，加载前就占好位置）。
  */
 .nb-markdown .nb-sticker.is-loading {
-    margin-inline: 0.15em;
     color: var(--text-muted);
 }
 
+/* 紧挨文字的一侧留间隙（`stickerGapClasses`）；表情之间、空白旁边不加，并排的表情之间只隔一个空格。 */
+.nb-markdown .nb-sticker--gap-start {
+    margin-inline-start: 0.15em;
+}
+
+.nb-markdown .nb-sticker--gap-end {
+    margin-inline-end: 0.15em;
+}
+
+/*
+ * 对齐到汉字字形的中心（基线以上约 0.34 个字高，浏览器里量的），不用 `middle`：它对的是西文小写字母的中线，比汉字低约 0.1 个
+ * 字高。行内块里没有行，基线是下外边距的边：图高 1.6em、上下外边距各 -0.3em 时，`-0.16em` 让图的中心落在基线以上 0.34em。
+ */
 .nb-markdown .nb-sticker.has-image {
     display: inline-block;
-    margin: -0.3em 0.15em;
-    vertical-align: middle;
+    margin-block: -0.3em;
+    vertical-align: -0.16em;
     line-height: 0;
 }
 
@@ -287,6 +299,7 @@
 
 .nb-markdown .nb-sticker-block .nb-sticker.has-image {
     margin-block: 0;
+    vertical-align: bottom;
 }
 
 .nb-markdown .nb-sticker-block .nb-sticker__image {

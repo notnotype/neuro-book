@@ -88,3 +88,28 @@ export function isLargeStickerBlock(block: PMNode): boolean {
 
 /** 大图的文本块带的类名。 */
 export const LARGE_STICKER_CLASS = "nb-sticker-block";
+
+/** 表情紧挨文字的一侧带的类名（那一侧留间隙）。 */
+export const STICKER_GAP_START = "nb-sticker--gap-start";
+export const STICKER_GAP_END = "nb-sticker--gap-end";
+
+/**
+ * 文本块里每个表情要带的间隙类名，按出现顺序：只在紧挨文字（不是空白结尾或开头的文字）的一侧留间隙，表情与表情之间、空白
+ * 旁边、块的两头不留，免得几个并排的表情之间比一个空格还宽。编辑器的装饰与展示器共用。
+ */
+export function stickerGapClasses(block: PMNode): string[] {
+    const children: PMNode[] = [];
+    block.forEach((child) => children.push(child));
+    const touchesText = (neighbour: PMNode | undefined, side: "before" | "after"): boolean => {
+        if (neighbour === undefined || !neighbour.isText) return false;
+        const text = neighbour.text ?? "";
+        return side === "before" ? /\S$/u.test(text) : /^\S/u.test(text);
+    };
+    const classes: string[] = [];
+    children.forEach((child, index) => {
+        if (child.type.name !== STICKER_NODE) return;
+        const names = [touchesText(children[index - 1], "before") ? STICKER_GAP_START : "", touchesText(children[index + 1], "after") ? STICKER_GAP_END : ""];
+        classes.push(names.filter((name) => name !== "").join(" "));
+    });
+    return classes;
+}

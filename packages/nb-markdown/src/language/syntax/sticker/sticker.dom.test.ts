@@ -119,6 +119,13 @@ describe("展示器", () => {
         expect(large).toEqual([":a:", ":a: :b: :c:", ":a:"]);
     });
 
+    it("只在紧挨文字的一侧留间隙：表情之间、空白旁边、块的两头不留", async () => {
+        const {root} = display("啦:a:明 :b: :c::d:\n", undefined);
+        await settledDisplay(root);
+        const gaps = [...root.querySelectorAll(".nb-sticker")].map((element) => [element.classList.contains("nb-sticker--gap-start"), element.classList.contains("nb-sticker--gap-end")]);
+        expect(gaps).toEqual([[true, true], [false, false], [false, false], [false, false]]);
+    });
+
     it("卸载时取消还在查的、释放已显示的", async () => {
         const stickers = catalog([":a:"]);
         const {root, unmount} = display(":a: :b:\n", stickers.resolver);
@@ -169,6 +176,16 @@ describe("编辑器", () => {
         expect(paragraph()?.classList.contains("nb-sticker-block")).toBe(false);
         instance.commands.deleteRange({from: 2, to: 3});
         expect(paragraph()?.classList.contains("nb-sticker-block")).toBe(true);
+    });
+
+    it("间隙随旁边的编辑更新", () => {
+        const instance = editor("x :a:\n", undefined);
+        const sticker = () => instance.view.dom.querySelector(".nb-sticker");
+        expect(sticker()?.classList.contains("nb-sticker--gap-end")).toBe(false);
+        instance.commands.setTextSelection(instance.state.doc.content.size - 1);
+        type(instance, "好");
+        expect(sticker()?.classList.contains("nb-sticker--gap-end")).toBe(true);
+        expect(sticker()?.classList.contains("nb-sticker--gap-start")).toBe(false);
     });
 
     it("从展示器复制来的 HTML 粘贴回来仍是表情，不变成图片；纯文字粘贴的写法留作文字", () => {
