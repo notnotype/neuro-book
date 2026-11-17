@@ -24,6 +24,12 @@ updated: 2026-11-17
 1. （2026-11-17）t09 做完后做本 Task（开发者：“可以继续 t25”）。
 2. （2026-11-17，计划第一稿的六条待确认，开发者答“可以”，都照推荐）声明的 `kind` 只管值为空的行、不做新输入类型；图标替换类型图标、按钮仍是改类型菜单；显示名替换属性名、真名只在悬停与改名时出现；范围是整部作品按属性名、不分文件夹类型；同名冲突 id 最小的整条生效、其余忽略并记诊断；没有真实贡献者时用测试插件经真实插件运行时验证、Lab 放场景，设定插件以后自己贡献。
 
+## 进度与收口
+
+2026-11-17：代码已合入 master（b7bfdd504，worktree 与分支已删）。三片：贡献点 `markdown.properties` 与声明的取得（3ad3bae77）、属性面板的图标、显示名与空值类型及 Lab 场景（ac1940c09）、经真实插件运行时的集成测试（e1897cc7b）；CHANGELOG 已写（`[Unreleased]`）。前端实现审查（Claude Sonnet，阻断 0、重要 1、建议 9，[报告](evidences/impl-review.txt)），处理见 [`evidences/impl-review-disposition.txt`](evidences/impl-review-disposition.txt)，修正在 b7bfdd504：空显示名按没给、每个属性名查一次、改名回车后的焦点、名字按钮的名称带真名、测试缺口补齐（8 个变异全抓）、集成测试走真实的窗口翻译引擎。合入前 `e2e/markdown-properties.e2e.ts` 5 条通过（无声明时行为不变）。
+
+Spec 输出 59–61、场景 31 仍是 planned，晋升 `implemented` 等开发者批准。未验证、留给开发者：设定插件真实贡献时的外观（本 Task 没有真实贡献者）、暗色主题下名字按钮与图标的外观（Lab 只看了亮色）、第三方插件的图标类名没有构建进应用时不显示（已知限制，已写进 Spec）。
+
 ## 下一步
 
 Spec 已写（planned）：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 59–61 与场景 31。计划：[plan.md](plan.md)（三片：合同与取得、面板与界面、收口）；审查按“任务简单”降级，只做前端实现审查（Sonnet）。在 worktree `.worktree/w00025-t25-property-contributions` 里实施。
