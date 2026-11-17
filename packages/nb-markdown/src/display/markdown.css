@@ -19,6 +19,19 @@
     margin-top: var(--markdown-block-gap, 0.75em);
 }
 
+/*
+ * 块间距分两层（近似：同组靠近、异组拉开）：带框或底色的大块（提示块、HTML 卡片、单独一段的图片）前后是 1.5 倍间距；居中的对齐
+ * 块多用作小标题，与它引出的下一块贴近到一半。都按 `--markdown-block-gap` 算，编辑器的纸面与对话里的展示器各自成比例。
+ */
+.nb-markdown > :is(.nb-callout, .nb-html-embed, p:has(> .nb-markdown-image-node:only-child)) + *,
+.nb-markdown > * + :is(.nb-callout, .nb-html-embed, p:has(> .nb-markdown-image-node:only-child)) {
+    margin-top: calc(var(--markdown-block-gap, 0.75em) * 1.5);
+}
+
+.nb-markdown > align + * {
+    margin-top: calc(var(--markdown-block-gap, 0.75em) / 2);
+}
+
 .nb-markdown h1 {
     font-size: 1.6em;
     font-weight: 600;
