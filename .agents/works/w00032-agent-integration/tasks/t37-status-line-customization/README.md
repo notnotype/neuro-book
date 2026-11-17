@@ -17,12 +17,12 @@ updated: 2026-11-16
 - 右栏窄时右边按顺序从前往后收进悬停，费用最后收。
 - 不做 Claude Code 那种配一条命令；5 小时与 7 天限额留到做订阅登录时。
 
-合同：开工写计划时定（`agent/conversation.md` 状态栏一节、`agent/contributions.md` 新贡献点、设置项）。
+计划：[plan.md](plan.md)。合同：[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 15 到 18 与新输出、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md) 的“状态栏”、[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md) 的新贡献点 `agent.statusItems`；写 Spec 在计划确认之后。
 
 ## 当前状态
 
-2026-11-16 从 t29 拆出，尚未开工；草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `StatusLineDraft`。
+2026-11-17 开工，计划写好（[plan.md](plan.md)），等开发者确认；草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `StatusLineDraft`。
 
 ## 下一步
 
-t36 之后开工，按 implementation-planning 写计划。
+开发者确认计划后：写 Spec（标 planned）、开 worktree、按切片实施。
