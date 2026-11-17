@@ -175,7 +175,7 @@ function defineLayoutDocStore(bound: boolean) {
         }
 
         /** 有效可见的标签键（输出 17）。 */
-        const visibleTabs = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: effectiveMaximized.value}));
+        const visibleTabs = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: effectiveMaximized.value, fillers: projection.value.fillers}));
 
         async function save(): Promise<void> {
             if (timer !== null) clearTimeout(timer);

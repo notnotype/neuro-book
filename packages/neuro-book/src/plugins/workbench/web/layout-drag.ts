@@ -9,7 +9,7 @@
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
  */
 
-import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, isPanelShown, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, removeTab, resolveLayoutDrop, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, removeTab, resolveLayoutDrop, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, GridRect, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
 import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops, translateTabStrip} from "@notnotype/nb-layout/vue";
 import type {DragSession, TabStripHeld, TabStripSnapshot} from "@notnotype/nb-layout/vue";
@@ -378,6 +378,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 工具面板整个头都算标签条（动作区经 `data-no-drag` 不接收）；编辑组的头里还有提示条，只有标签条那一行算，头以下是正文。
         const editor = doc.panels[id]?.role === "editor";
         const strip = rectOf(root.querySelector(editor ? `[data-panel-strip="${escape(id)}"]` : `[data-panel-head="${escape(id)}"]`));
+        // 收成标题行的分节只有标题那一行，正文零面积（docs/specs/ui/workbench-layout.md 输出 25 第 7 行）：一列全部收起时垫底的那一节外框拉到了底，
+        // 下面那片卡片底照旧不是落点，指针与键盘的候选一致。
+        if (strip !== null && !editor && isSectionCollapsed(doc, id)) return {id, frame: {...card, bottom: strip.bottom}, body: {...card, top: strip.bottom, bottom: strip.bottom}, strip};
         return {id, frame: card, body: strip === null ? card : {...card, top: strip.bottom}, strip};
     }
 

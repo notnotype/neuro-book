@@ -495,6 +495,51 @@ describe("带容器的区域", () => {
         expect(plain.layout.sizes.sidebar?.width).toBeGreaterThan(0);
     });
 
+    describe("一列全部收成标题行时最后一节垫底（输出 11）", () => {
+        it("最后一节不配收起策略、按比例分、最小高度是面板头，吸收这一列剩下的空间；前面几节照旧收成标题行；有一节展开着照常", () => {
+            const all = regions({s1: {container: "A", collapsed: true}, s2: {container: "A", collapsed: true}});
+            // 视图声明了最大高度也照样吸收：垫底的那一节是收起的，内容不显示，下面不留空。
+            const capped: Partial<LayoutProjectionOptions> = {constraints: (id, panel) => (id === "s2" ? {minimumSize: {width: 160, height: 80}, maximumSize: {width: Number.POSITIVE_INFINITY, height: 300}} : OPTIONS.constraints(id, panel))};
+            const {projection, layout} = solve(all, EXTENT, capped);
+            expect([...projection.fillers]).toEqual(["s2"]);
+            expect(childOf(projection.input, "s1")?.collapse).toMatchObject({collapsed: true, collapsedSize: OPTIONS.headHeight});
+            const s2 = childOf(projection.input, "s2");
+            expect([s2?.collapse, s2?.sizing, s2?.minimumSize?.height]).toEqual([undefined, "weight", OPTIONS.headHeight]);
+            expect(layout.sizes.s1?.height).toBe(OPTIONS.headHeight);
+            expect(layout.sizes.s2?.height).toBe((layout.sizes.side?.height ?? 0) - OPTIONS.headHeight - 1);
+            expect(layout.issues).toEqual([]);
+
+            const one = solve(regions({s1: {container: "A", collapsed: true}}), EXTENT);
+            expect(one.projection.fillers.size).toBe(0);
+            expect(childOf(one.projection.input, "s2")?.collapse).toMatchObject({collapsed: false});
+        });
+
+        it("垫底的那一节在文档里仍是收起的：意图不写回，写回前后布局一样；展开它就是普通的展开", () => {
+            const all = regions({s1: {container: "A", collapsed: true}, s2: {container: "A", collapsed: true}});
+            const {projection, layout} = solve(all, EXTENT);
+            const written = rebaseIntents(all, layout.sizes, projection.collapsedTo, fixedNodesOf(projection.input));
+            expect(sizeOf(written.tree.root, "s2")).toEqual(sizeOf(all.tree.root, "s2"));
+            expect(solve(written, EXTENT).layout.sizes).toEqual(layout.sizes);
+            const opened = solve(okDoc(setPanelCollapsed(all, "s2", false)), EXTENT);
+            expect(opened.projection.fillers.size).toBe(0);
+            expect(opened.layout.sizes.s2?.height).toBe(layout.sizes.s2?.height);
+        });
+
+        it("有入口条的区域（包装分支的内层）同样垫底", () => {
+            const doc = docOf(V([H(["activitybar", V(["sidebar", "s1"], "side"), "ea", V(["auxiliarybar", "a1", "a2"], "aux")], "body"), "statusbar"], "root"), {
+                sidebar: ANCHORS.sidebar,
+                s1: {container: "A"},
+                auxiliarybar: {tabs: [], active: null, entries: ["X"], activeContainer: "X"},
+                a1: {container: "X", collapsed: true},
+                a2: {container: "X", collapsed: true},
+            });
+            const {projection, layout} = solve(doc, EXTENT, {regionStrip: (region) => (region === "sidebar" ? null : {height: 32, mergeSole: true})});
+            expect([...projection.fillers]).toEqual(["a2"]);
+            expect(layout.sizes.a2?.height).toBe((layout.sizes["aux:sections"]?.height ?? 0) - OPTIONS.headHeight - 1);
+            expect(layout.issues).toEqual([]);
+        });
+    });
+
     describe("入口条（输出 47）", () => {
         const STRIP: Partial<LayoutProjectionOptions> = {regionStrip: (region) => (region === "sidebar" ? null : {height: 32, mergeSole: true})};
         const strip = (doc: LayoutDoc, overrides: Partial<LayoutProjectionOptions> = {}) => solve(doc, EXTENT, {...STRIP, ...overrides});

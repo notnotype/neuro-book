@@ -84,6 +84,8 @@ const sectionBox = async (page: Page, view: string): Promise<Box> => box(page, a
 const headOf = (page: Page, view: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"])`);
 /** 分节头里的框架按钮；`command` 是命令名（`nbook.view.` 之后的部分）。 */
 const frame = (page: Page, view: string, command: string) => headOf(page, view).locator(`[data-panel-action="nbook.view.${command}"]`);
+/** 分节的标题行是展开、收起的开关（输出 20）：能收起时标题按钮带 `aria-expanded`。 */
+const fold = (page: Page, view: string) => headOf(page, view).locator("[data-panel-tab][aria-expanded]");
 const editorContent = (page: Page) => page.locator('[data-content="editor:g0"]');
 /**
  * 区域挨着编辑区的那条边界。分隔线的名称里是两侧节点的 id：区域这一侧显示一个分节时是那个分节，显示几个时是区域的分支，
@@ -189,17 +191,17 @@ test.describe("产品页", () => {
         return sectionOf(page, SESSIONS);
     }
 
-    test("隐藏、收成标题行、最大化：形态互不等价；收起或隐藏退出最大化；最大化不落盘；显示区域不动分节的收起；隐藏时焦点到活动栏条目（输出 11、13、16；验收 5）", async ({page}) => {
+    test("隐藏、收成标题行、最大化：形态互不等价；最大化着点标题只激活、还原后点标题收起；最大化不落盘；显示区域不动分节的收起；隐藏时焦点到活动栏条目（输出 11、13、16；验收 5）", async ({page}) => {
         await open(page);
         await expectToggleAtRight(page);
         // 侧栏的两个分节上下排：资源管理器收成标题行，高度等于面板头，记在分节自己的记录上。
         const explorer = await sectionOf(page, EXPLORER);
         const expanded = (await box(page, explorer)).height;
-        await frame(page, EXPLORER, "set-panel-collapsed").click();
+        await fold(page, EXPLORER).click();
         await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
         // 先等收起写进记录，再展开，最后等展开也写进去：下面读到的修订号才是这两次写入之后的，不会被迟到的写入抬高。
         await expect.poll(async () => (await saved(page))?.doc.panels[explorer]?.collapsed).toBe(true);
-        await frame(page, EXPLORER, "set-panel-collapsed").click();
+        await fold(page, EXPLORER).click();
         await expect.poll(async () => (await box(page, explorer)).height).toBe(expanded);
         await expect.poll(async () => (await saved(page))?.doc.panels[explorer]?.collapsed ?? false).toBe(false);
 
@@ -226,13 +228,16 @@ test.describe("产品页", () => {
         await open(page);
         expect((await box(page, explorer)).height).toBe(expanded);
 
-        // 收起这个分节退出最大化，别的面板的内容恢复。
+        // 最大化着标题前没有展开标记，点标题只激活、不收起（还原靠还原按钮，输出 20）；还原之后点标题收起，别的面板的内容恢复。
         await frame(page, EXPLORER, "toggle-panel-maximized").click();
         await parked(page, '[data-content="editor:g0"]');
-        await frame(page, EXPLORER, "set-panel-collapsed").click();
-        await expect(frame(page, EXPLORER, "toggle-panel-maximized")).toHaveAttribute("aria-pressed", "false");
-        await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
+        await expect(fold(page, EXPLORER)).toHaveCount(0);
+        await headOf(page, EXPLORER).locator("[data-panel-tab]").click();
+        await expect(frame(page, EXPLORER, "toggle-panel-maximized")).toHaveAttribute("aria-pressed", "true");
+        await frame(page, EXPLORER, "toggle-panel-maximized").click();
         await unparked(page, '[data-content="editor:g0"]');
+        await fold(page, EXPLORER).click();
+        await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
 
         // 分节收成标题行时隐藏区域，再显示：区域回来，分节的收起不动（输出 11 的表）。
         await regionToggle(page, "sidebar").click();
@@ -240,7 +245,7 @@ test.describe("产品页", () => {
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
         await regionToggle(page, "sidebar").click();
         await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
-        await frame(page, EXPLORER, "set-panel-collapsed").click();
+        await fold(page, EXPLORER).click();
         await expect.poll(async () => (await box(page, explorer)).height).toBe(expanded);
 
         // 底部面板隐藏后从状态栏显示，回到原来的高度。
@@ -391,7 +396,7 @@ test.describe("产品页", () => {
         await frame(page, EXPLORER, "toggle-panel-maximized").click();
         await parked(page, '[data-content="editor:g0"]');
         await expect(editorContent(page)).toHaveCount(1);
-        await frame(page, EXPLORER, "set-panel-collapsed").focus();
+        await frame(page, EXPLORER, "toggle-panel-maximized").focus();
         for (let step = 0; step < 6; step++) {
             await page.keyboard.press("Tab");
             expect(await page.evaluate(() => document.activeElement?.closest('[data-content="editor:g0"]') ?? null)).toBeNull();
@@ -454,20 +459,35 @@ test.describe("产品页", () => {
         await unparked(page, '[data-content="view:nbook.agent.sessions"]');
     });
 
-    test("侧栏这一列全部收成标题行：页面大小不变，标题行排在上面，再展开能回来（输出 11）", async ({page}) => {
+    test("侧栏这一列全部收成标题行：页面大小不变，标题行排在上面，最后一节垫底、卡片满高，内容照旧停放，这一列的分隔线拖不动；点标题展开能回来（输出 11）", async ({page}) => {
         await open(page);
         // 默认的侧栏就是上下两个分节（输出 1）。
         const [sessions, explorer] = [await sectionOf(page, SESSIONS), await sectionOf(page, EXPLORER)];
         const editor = await box(page, "g0");
-        await frame(page, SESSIONS, "set-panel-collapsed").click();
-        await frame(page, EXPLORER, "set-panel-collapsed").click();
-        await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
-        expect((await box(page, sessions)).height).toBe(32);
+        const before = [await box(page, sessions), await box(page, explorer)];
+        const [upperView, lowerView] = before[0]!.y < before[1]!.y ? [SESSIONS, EXPLORER] : [EXPLORER, SESSIONS];
+        const [upper, lower] = before[0]!.y < before[1]!.y ? [sessions, explorer] : [explorer, sessions];
+        const columnBottom = Math.max(...before.map((rect) => rect.y + rect.height));
+        await fold(page, upperView).click();
+        await fold(page, lowerView).click();
+        await expect.poll(async () => (await box(page, upper)).height).toBe(32);
+        // 最下面那一节垫底：外框拉到这一列的底，卡片满高；它仍是收起的，内容停放，标题前的标记朝右。
+        await expect.poll(async () => {
+            const rect = await box(page, lower);
+            return rect.y + rect.height;
+        }).toBeCloseTo(columnBottom, 0);
+        await expect.poll(async () => (await saved(page))?.doc.panels[lower]?.collapsed).toBe(true);
+        await parked(page, `[data-content="view:${lowerView}"]`);
+        await expect(fold(page, lowerView)).toHaveAttribute("aria-expanded", "false");
         // 编辑组不动：列收起不是整行变矮。
         expect(await box(page, "g0")).toEqual(editor);
-        await frame(page, SESSIONS, "set-panel-collapsed").click();
-        await expect.poll(async () => (await box(page, sessions)).height).toBeGreaterThan(400);
-        expect((await box(page, explorer)).height).toBe(32);
+        // 这一列两节之间的分隔线拖不动（展开靠点标题），线照画。
+        const panes = page.locator('[data-workbench-surface] [data-sash-kind="panes"]').first();
+        await expect(panes).toHaveAttribute("aria-disabled", "true");
+        await fold(page, upperView).click();
+        await expect.poll(async () => (await box(page, upper)).height).toBeGreaterThan(400);
+        expect((await box(page, lower)).height).toBe(32);
+        await expect(panes).not.toHaveAttribute("aria-disabled", "true");
     });
 
     test("从零拉回：按着拖的过程中内容就出现，按回零内容回到停放，再拉出又出现，松手后保持（输出 12）", async ({page}) => {
@@ -632,7 +652,7 @@ test.describe("产品页", () => {
         await page.setViewportSize({width: 840, height: 900});
         await expect.poll(async () => (await box(page, side)).width).toBeLessThan(wide);
         // 窄的时候做一次会保存的操作：收起会话这个分节。
-        await frame(page, SESSIONS, "set-panel-collapsed").click();
+        await fold(page, SESSIONS).click();
         await expect.poll(async () => (await saved(page))?.doc.panels[sessions]?.collapsed).toBe(true);
         expect(regionSize((await saved(page))!.doc, "sidebar")?.width).toBe(wide);
         await page.setViewportSize({width: 1440, height: 900});
@@ -687,7 +707,8 @@ test.describe("产品页", () => {
             return [
                 ...read("[data-workbench-shell]", {"background-color": "--shell-ground", "color": "--text-main", "font-family": "--font-ui"}),
                 ...read(`[data-shell-card="${section}"]`, {"background-color": "--panel-surface"}),
-                ...read(`[data-panel-head="${section}"] h2`, {"color": "--text-secondary"}),
+                // 展开着的分节标题是主字色，收成标题行时退成次要字色（输出 20，w00026 t29）。
+                ...read(`[data-panel-head="${section}"] h2`, {"color": "--text-main"}),
                 ...read("[data-workbench-status-bar]", {"background-color": "--shell-chrome-surface", "border-top-color": "--shell-chrome-line", "color": "--text-secondary"}),
             ];
         }, side);

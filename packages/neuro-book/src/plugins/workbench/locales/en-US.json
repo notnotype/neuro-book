@@ -282,7 +282,12 @@
         },
         "activityBar": "Activity Bar",
         "drag": {
-            "hint": "Press Space to pick up and drag"
+            "hint": "Press Space to pick up and drag",
+            "hintFold": "Press Enter to expand or collapse, Space to pick up and drag"
+        },
+        "fold": {
+            "expand": "Expand {{title}}",
+            "collapse": "Collapse {{title}}"
         },
         "drop": {
             "sector": {

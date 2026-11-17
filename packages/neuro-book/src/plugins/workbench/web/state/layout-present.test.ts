@@ -157,6 +157,17 @@ describe("有效可见", () => {
         expect(effectiveVisibleTabs(collapsed, {...FACTS, sizes, preview: pulled}).has("view:files")).toBe(true);
     });
 
+    test("垫底的分节（全部收起时最后一节，外框拉到了底，输出 11）：已提交与预览里都不算拉出来，别的手势的预览不让它的内容露出来", () => {
+        // “大纲”换进“文件”的容器：侧栏两节，都收起时“文件”在后面垫底。
+        const paired = withPanel(doc(), OUTLINE, {container: doc().panels[FILES]?.container as string, collapsed: true});
+        const collapsed = withPanel(paired, FILES, {collapsed: true});
+        const tall = {...SIZES, [FILES]: {width: 300, height: 600}};
+        expect(effectiveVisibleTabs(collapsed, {...FACTS, sizes: tall}).has("view:files")).toBe(false);
+        expect(effectiveVisibleTabs(collapsed, {...FACTS, sizes: tall, preview: tall, fillers: new Set([FILES])}).has("view:files")).toBe(false);
+        // 不是垫底的、预览里真被拉开的照旧算拉出来（上一条）。
+        expect(effectiveVisibleTabs(collapsed, {...FACTS, sizes: tall, preview: tall}).has("view:files")).toBe(true);
+    });
+
     test("区域从零拉回时按拖动中的几何：还没松手，内容就出现（输出 12）", () => {
         const zeroed = withPanel(doc(), "sidebar", {collapsed: true});
         const sizes = {...SIZES, [FILES]: {width: 0, height: 400}};

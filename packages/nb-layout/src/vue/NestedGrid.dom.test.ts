@@ -337,6 +337,27 @@ describe("命中结果映射到分界线的状态", () => {
         expect(zeroSash.hasAttribute("data-sash-hover")).toBe(false);
     });
 
+    it("宿主让某条分隔线不能拖（`sashDisabled`）：只这一条不进命中、不可聚焦，线照画；别的照常", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        stubLayout(wrapper);
+        await nextTick();
+        const sash = () => wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        const hover = async () => {
+            wrapper.get<HTMLElement>("[data-leaf='top']").element.dispatchEvent(pointerEvent("pointermove", 303, 100));
+            await nextTick();
+        };
+        await hover();
+        expect([sash().hasAttribute("aria-disabled"), sash().getAttribute("data-sash-hover")]).toEqual([false, "true"]);
+        await wrapper.setProps({sashDisabled: (ref: {branch: string}) => ref.branch === "root"});
+        await hover();
+        expect([sash().getAttribute("aria-disabled"), sash().getAttribute("tabindex"), sash().hasAttribute("data-sash-hover")]).toEqual(["true", "-1", false]);
+        expect(sash().querySelector(".sash-seam")).not.toBeNull();
+        const others = [...(wrapper.element as HTMLElement).querySelectorAll<HTMLElement>("[data-sash]")].filter((item) => !item.dataset.sash?.startsWith("root:"));
+        expect(others.length).toBeGreaterThan(0);
+        expect(others.every((item) => item.getAttribute("aria-disabled") !== "true")).toBe(true);
+    });
+
     it("收起为零的分支里，叶之间的分隔线长度为零：不可聚焦、不进命中、键盘不调整；展开后恢复", async () => {
         // docs/specs/ui/nested-grid.md 的“分支的收起”：一列三片叶，收起策略配在这一列上。
         const column = (collapsed: boolean): Grid<string> => createGrid<string>({

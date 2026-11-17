@@ -56,6 +56,8 @@ const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:
 /** 只含这个视图的活动栏入口（输出 22、41：入口是容器的，只含一个视图的入口写着它的视图 id）。 */
 const entry = (page: Page, viewId: string) => page.locator(`[data-tool-band] [data-tool-view="${viewId}"]`);
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
+/** 分节的标题行是展开、收起的开关（输出 20）：能收起时标题按钮带 `aria-expanded`。 */
+const fold = (page: Page, panel: string) => head(page, panel).locator("[data-panel-tab][aria-expanded]");
 const sample = (page: Page, viewId: string) => page.locator(`[data-sample-view="${viewId}"]`);
 const content = (page: Page, viewId: string) => page.locator(`[data-content="view:${viewId}"]`);
 const shell = (page: Page) => page.locator("[data-workbench-shell]");
@@ -520,11 +522,11 @@ test.describe("产品页：拖放", () => {
 
     test("收成标题行的分节：落在它的标题行上是前半，在它前面插一节，它自己还收着（输出 11、25 第 7 行、40）", async ({page}) => {
         await open(page);
-        // 容器里有两节才有收起按钮：先把丁放到甲那一节的后半。
+        // 容器里有两节才能收起：先把丁放到甲那一节的后半。
         const alpha = await sectionOf(page, A);
         await dropAt(page, tab(page, D), await inLeaf(page, alpha, {x: 0.5, y: 0.9}));
         await expect.poll(() => regionOf(page, D)).toBe("sidebar");
-        await frame(page, alpha, "set-panel-collapsed").click();
+        await fold(page, alpha).click();
         await expect.poll(async () => (await leaf(page, alpha).boundingBox())!.height).toBe(32);
         // 往区域里放视图只新建分节，不并进已有的分节（输出 40）：乙在甲的前面成一节，甲还是收着的。
         await dropAt(page, entry(page, B), await centerOf(head(page, alpha)));
@@ -713,16 +715,18 @@ test.describe("产品页：拖放", () => {
         await expect(ghost(page)).toHaveCount(0);
     });
 
-    test("收起按钮只给侧栏、右栏的分节，容器里只有一节时没有；底部面板的分节不折叠（输出 20）", async ({page}) => {
+    test("展开标记只给侧栏、右栏的分节，容器里只有一节时没有；底部面板的分节不折叠；框架按钮里没有收起（输出 20）", async ({page}) => {
         await open(page);
         const [alpha, omega] = [await sectionOf(page, A), await sectionOf(page, E)];
-        await expect(frame(page, alpha, "set-panel-collapsed")).toHaveCount(0);
-        await expect(frame(page, omega, "set-panel-collapsed")).toHaveCount(0);
+        await expect(fold(page, alpha)).toHaveCount(0);
+        await expect(fold(page, omega)).toHaveCount(0);
         await dropAt(page, tab(page, D), await inLeaf(page, alpha, {x: 0.5, y: 0.92}));
         await expect.poll(() => regionOf(page, D)).toBe("sidebar");
-        await expect(frame(page, alpha, "set-panel-collapsed")).toHaveCount(1);
-        // 收成标题行之后点标题展开（输出 20）：头只写标题，没有别的标签可点。
-        await frame(page, alpha, "set-panel-collapsed").click();
+        await expect(fold(page, alpha)).toHaveCount(1);
+        await expect(head(page, alpha).locator("[data-panel-fold]")).toHaveCount(1);
+        await expect(frame(page, alpha, "set-panel-collapsed")).toHaveCount(0);
+        // 点标题收成标题行，再点标题展开（输出 20）：标题行是开关。
+        await fold(page, alpha).click();
         await expect.poll(async () => (await leaf(page, alpha).boundingBox())!.height).toBe(32);
         await tab(page, A).click();
         await expect.poll(async () => (await leaf(page, alpha).boundingBox())!.height).toBeGreaterThan(32);
@@ -782,7 +786,7 @@ test.describe("产品页：拖放", () => {
         await dropAt(page, tab(page, D), await inLeaf(page, await sectionOf(page, A), {x: 0.5, y: 0.92}));
         await expect.poll(() => regionOf(page, D)).toBe("sidebar");
         const delta = await sectionOf(page, D);
-        await frame(page, delta, "set-panel-collapsed").click();
+        await fold(page, delta).click();
         await expect.poll(async () => (await leaf(page, delta).boundingBox())!.height).toBe(32);
         // 放到戊那一节的前半：整块移动，收起清掉，不会变成零宽。
         await dropAt(page, tab(page, D), await inLeaf(page, await sectionOf(page, E), {x: 0.08, y: 0.6}));

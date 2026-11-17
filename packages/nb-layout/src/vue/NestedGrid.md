@@ -112,6 +112,8 @@ type NestedGridProps = {
     sashKind?: (sash: {branch: string; before: string; after: string}) => string | undefined;
     /** 写在分隔线元素上的内联样式（多半是 CSS 变量），宿主据此在线所占的那一条里画东西；位置与尺寸由网格写，同名属性被覆盖。默认不写。 */
     sashStyle?: (sash: {branch: string; before: string; after: string}) => Record<string, string> | undefined;
+    /** 宿主让这条分隔线此刻不能拖（指针、键盘都不行，线照画），例如一列分节全部收成标题行时；缺省都能拖。 */
+    sashDisabled?: (sash: {branch: string; before: string; after: string}) => boolean;
     /**
      * 叶在外框里画成的卡片：inset 是相对外框上右下左的内缩，radius 是左上、右上、右下、左下的圆角，都是 CSS 长度。过渡中外框露出、盖住保持尺寸的内层时按它裁；默认按外框的矩形裁。
      * 给了 fill 时形状可以伸出外框（内缩为负）：外框里的东西照旧裁在外框里，伸出去的部分画成 fill，这块外框画在别的外框下面，伸到邻居那里的部分被邻居盖住。

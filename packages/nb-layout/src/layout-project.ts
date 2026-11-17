@@ -67,6 +67,11 @@ export interface LayoutProjection {
     readonly regionAnchors: ReadonlyMap<string, string>;
     /** 这一次呈现出来的入口条（`regionStrip`）。 */
     readonly strips: ReadonlyArray<LayoutStripPlacement>;
+    /**
+     * 垫底的分节（docs/specs/ui/workbench-layout.md 输出 11）：一列分节全部收成标题行时最后一节，呈现里按比例分、吸收这一列剩下的空间，卡片满高；
+     * 文档里它仍是收起的（内容停放、意图不写回），宿主按“收起”画它、只是外框更长。
+     */
+    readonly fillers: ReadonlySet<string>;
 }
 
 const STRIP_PREFIX = "strip:";
@@ -95,7 +100,7 @@ const isBarInput = (node: GridNodeInput<string>): boolean => node.kind === "leaf
  *   这个节点是分节的叶时，一个节点只有一份收起策略，给区域用；这个分节自己这时不算收起（`isSectionCollapsed`，输出 11：区域只显示一个分节时它不收成标题行）。区域里的分节（`region` 非空）只会收成标题行：
  *   只有一列的区域（侧栏、右栏）里直接排在纵向分支里的分节有；底部面板里的、区域里被左右拆开的没有收起策略，它们之间的边界停在最小尺寸。
  */
-function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: LayoutProjectionOptions, regionAnchors: ReadonlyMap<string, string>, region: PanelName | null = null): void {
+function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: LayoutProjectionOptions, regionAnchors: ReadonlyMap<string, string>, fillers: Set<string>, region: PanelName | null = null): void {
     if (node.kind === "leaf") return;
     const main = axisOf(node.orientation);
     // 按比例分的子节点，意图只记兄弟之间的比例（`rebaseIntents`：有收起、隐藏的兄弟或区域的锚时不写像素），当不了 `restoreSize`：
@@ -113,25 +118,38 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
         const inner = node.children[1];
         if (inner === undefined) return;
         inner.sizing = "weight";
-        if (inner.kind === "branch") assignByParent(doc, inner, options, regionAnchors, region);
+        if (inner.kind === "branch") assignByParent(doc, inner, options, regionAnchors, fillers, region);
         return;
     }
+    // 一列分节全部收成标题行：网格会把剩下的空间留空，卡片是按叶画的，空出来的地方就没有卡片。最后一节不配收起策略、按比例分、最小高度是面板头，
+    // 吸收剩下的空间（垫底）。这一列的分隔线宿主要设成不能拖（`fillers`、NestedGrid 的 `sashDisabled`）：拖开时预览里它在吸收，松手后它回到标题行，
+    // 结果和预览对不上。按呈现出来的子节点数（放不下收走的不算），只在一列都是分节的叶时这样做。
+    const column = region !== null && REGION_ORIENTATION[region] === "vertical" && node.orientation === "vertical";
+    const sections = node.children.filter((child) => child.kind === "leaf" && doc.panels[child.id]?.role === "tool");
+    const filler = column && sections.length > 1 && sections.length === node.children.length && sections.every((child) => isSectionCollapsed(doc, child.id)) ? sections.at(-1) : undefined;
     for (const child of node.children) {
         const sizing: GridSizing = isFixedChild(doc, node.children, child) ? "fixed" : "weight";
         child.sizing = sizing;
         const anchor = doc.panels[regionAnchors.get(child.id) ?? ""];
         if (anchor?.name !== undefined) {
             child.collapse = collapseOf(child, anchor.collapsed === true, 0);
-            if (child.kind === "branch") assignByParent(doc, child, options, regionAnchors, anchor.name);
+            if (child.kind === "branch") assignByParent(doc, child, options, regionAnchors, fillers, anchor.name);
             continue;
         }
         if (child.kind === "branch") {
-            assignByParent(doc, child, options, regionAnchors, region);
+            assignByParent(doc, child, options, regionAnchors, fillers, region);
             continue;
         }
         const panel = doc.panels[child.id];
         if (panel?.role !== "tool") continue;
         if (region !== null && (REGION_ORIENTATION[region] !== "vertical" || node.orientation !== "vertical")) continue;
+        if (child === filler) {
+            // 视图声明的最大高度也不算：它要吸收这一列剩下的全部，不然下面又留空（它是收起的，内容不显示）。
+            child.minimumSize = {width: child.minimumSize?.width ?? 0, height: options.headHeight};
+            child.maximumSize = {width: child.maximumSize?.width ?? GRID_UNBOUNDED, height: GRID_UNBOUNDED};
+            fillers.add(child.id);
+            continue;
+        }
         child.collapse = collapseOf(child, isSectionCollapsed(doc, child.id), node.orientation === "vertical" ? options.headHeight : 0);
     }
 }
@@ -244,8 +262,9 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
 
     const input = project(doc.tree.root, null);
     if (input === null) throw new Error("布局文档的树里没有可呈现的节点：校验应该已经拒绝");
-    assignByParent(doc, input, options, regionAnchors);
-    return {input, collapsedTo, regionAnchors, strips, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
+    const fillers = new Set<string>();
+    assignByParent(doc, input, options, regionAnchors, fillers);
+    return {input, collapsedTo, regionAnchors, strips, fillers, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
 }
 
 function minimumOf(node: GridNodeInput<string>, axis: keyof GridExtent, parentAxis: keyof GridExtent | null, sashSize: (branchId: string, index: number) => number): number {
