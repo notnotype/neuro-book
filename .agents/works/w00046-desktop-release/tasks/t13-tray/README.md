@@ -31,8 +31,8 @@ updated: 2026-11-16
 
 收口验证（2026-11-16，负载约 9 到 20）：`bun test src/desktop/` 125 项通过；`bun run test:affected --since c3088ead3` 通过（其间一次全量里 `pack.test.ts`、`plugins.test.ts` 因负载超时，单独重跑通过）；类型检查通过；e2e `desktop-settings`、`desktop-update` 7 项通过。
 
-Windows 上的验收（切片 6）要等 pc-notype 能构建（t18 里 Defender 删了 Hutch，等开发者处理）。`desktop/src/bun/index.ts` 不在包的类型检查里；用临时 tsconfig 把 `electrobun/main` 指到 2.0.6 的源码检查过，只有基线就有的 4 处事件名类型错误。
+Windows 上的验收（切片 6，2026-11-17，开发者恢复 hutch.exe 之后）：测试版在 pc-notype 上构建与安装通过，托盘主流程通过，证据见 [windows-acceptance-r1.txt](evidences/windows-acceptance-r1.txt)。通过的：设置 `tray` 后图标建出来（16 像素，100% 缩放）；窗口开着时提示“NeuroBook”，关掉最后一个窗口后没有可见窗口、四个进程与服务端都在、提示变成“NeuroBook（在后台运行）”；托盘“打开”开出窗口，最小化的窗口被还原；后台时再次启动应用开出窗口（第二个实例退出）；后台时结束服务端进程，壳弹出“服务意外退出”对话框，文字是“现在没有打开的窗口。”，选重新启动后服务端回来、托盘图标还在、没有窗口；托盘“退出”无工作时先删图标、服务端有序停止（`forced=false exitCode=0`）、进程全部退出、通知区域没有残影。局限：托盘点击是向壳的托盘窗口发 Electrobun 的回调消息（真实点击由 Windows 转成它，没有验证那一段），菜单项用 WM_KEYDOWN 选；UIA 的 Invoke 不产生这两种消息、菜单也不暴露菜单项。没做：有工作在跑时的退出对话框（单元测试覆盖，没有造一个真工作）、开机自启加 `tray`、后台 30 分钟后再打开、改缩放后的图标、Explorer 重启后图标重建、图标建不出来后的重试、Esc 与 Enter 与点 X。
 
 ## 下一步
 
-切片 6（Windows 探针与验收）等 pc-notype 能构建；验收清单另加：图标建不出来后的重试（开机自启时任务栏未就绪）、“有工作在跑”对话框点 X 等于取消、Esc 与 Enter。通过后 Spec 条目晋升由开发者批准。
+切片 6 余下的几项要在 Windows 上做：开机自启加 `tray`（顺带验图标建不出来后的重试）、有工作在跑时的退出对话框（含 Esc、Enter、点 X）、后台 30 分钟后再打开、改缩放后的图标、Explorer 重启。通过后 Spec 条目晋升由开发者批准。
