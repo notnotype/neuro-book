@@ -217,8 +217,11 @@ test("选择文件夹上传安装（输出 11、场景 18）：不带 node_modul
         }, selector);
     expect(await dropInto("[data-plugins-page]")).toBe(true);
     await expect(page.locator("[data-plugin-problem]")).toContainText("拖入一个插件文件夹");
-    // 落在页面以外（设置窗口的侧栏）：窗口兜底拦下，提示拖到内容区。
+    // 落在设置窗口里页面根以外的位置（侧栏）：同样是落点，这里是单个文件，所以还是提示拖入文件夹。
     expect(await dropInto("[data-settings-nav='nbook.plugins.installed']")).toBe(true);
+    await expect(page.locator("[data-plugin-problem]")).toContainText("拖入一个插件文件夹");
+    // 落在设置窗口以外（工作台的标题栏）：窗口兜底拦下、不安装，提示拖到内容区。
+    expect(await dropInto("[data-workbench-titlebar]")).toBe(true);
     await expect(page.locator("[data-plugin-problem]")).toContainText("拖到插件页的内容区");
     await expect(page.locator("[data-plugins-page]")).toBeVisible();
     expect(await leftovers()).toEqual([]);

@@ -7,7 +7,7 @@
  * HTTP/2 以上才允许，本机回环是 HTTP/1.1。用 `XMLHttpRequest` 是为了有上传进度；`fetch` 看不到。
  */
 
-import {encodeFrameHeader, frameBytes, UPLOAD_LIMITS, uploadPathProblem} from "nbook/plugin-platform/shared/plugin-upload";
+import {encodeFrameHeader, frameBytes, UPLOAD_LIMITS, UploadError, UploadPathSet, uploadPathProblem} from "nbook/plugin-platform/shared/plugin-upload";
 import type {CollectedFolder, CollectOptions} from "nbook/shared/collected-folder";
 
 /** 上传路由的地址（挂在 `/api/nbook.plugins/` 下）。 */
@@ -40,6 +40,23 @@ export function pluginFolderProblem(folder: CollectedFolder): {readonly kind: "n
     if (paths.includes("package.json")) return null;
     const nested = new Set(paths.filter((path) => /^[^/]+\/package\.json$/u.test(path)).map((path) => path.split("/")[0]!));
     return nested.size === 1 ? {kind: "nested", name: [...nested][0]!} : {kind: "no-manifest"};
+}
+
+/**
+ * 同一个文件夹里有没有撞名的路径（只差大小写或归一化形式、文件与目录同名）：单个路径的规则收集时已经查过，撞名要看整批。服务端
+ * 会拒绝并不留下上传，页面先查省得白传一次。没有撞名时交回 null。
+ */
+export function pathCollision(folder: CollectedFolder): string | null {
+    const seen = new UploadPathSet();
+    for (const {path} of folder.files) {
+        try {
+            seen.add(path);
+        } catch (error) {
+            if (error instanceof UploadError) return `${path}：${error.message}`;
+            throw error;
+        }
+    }
+    return null;
 }
 
 export type UploadFailureCode = "upload-too-large" | "upload-busy" | "upload-path-invalid" | "upload-malformed" | "upload-failed" | "unreachable";
@@ -129,5 +146,5 @@ function parseSuccess(text: string): UploadOutcome {
     } catch {
         // 落到下面的失败。
     }
-    return {ok: false, code: "upload-failed", detail: "服务端的应答不对"};
+    return {ok: false, code: "upload-failed", detail: "unexpected server response"};
 }

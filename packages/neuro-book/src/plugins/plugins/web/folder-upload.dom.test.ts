@@ -9,7 +9,7 @@ import {readUploadStream, UploadError} from "nbook/plugin-platform/shared/plugin
 import type {UploadFileSink} from "nbook/plugin-platform/shared/plugin-upload";
 import type {CollectedFolder} from "nbook/shared/collected-folder";
 
-import {buildUploadBody, createFolderUploadClient, pluginFolderProblem} from "./folder-upload";
+import {buildUploadBody, createFolderUploadClient, pathCollision, pluginFolderProblem} from "./folder-upload";
 import type {UploadRequest} from "./folder-upload";
 
 function folderOf(files: Record<string, string>): CollectedFolder {
@@ -46,6 +46,14 @@ describe("像不像一个插件", () => {
         expect(pluginFolderProblem(folderOf({"my-plugin/package.json": "{}", "my-plugin/dist/a.js": "1", "notes.txt": "n"}))).toEqual({kind: "nested", name: "my-plugin"});
         expect(pluginFolderProblem(folderOf({"a/package.json": "{}", "b/package.json": "{}"}))).toEqual({kind: "no-manifest"});
         expect(pluginFolderProblem(folderOf({"readme.md": "x", "deep/er/package.json": "{}"}))).toEqual({kind: "no-manifest"});
+    });
+});
+
+describe("同一个文件夹里的撞名", () => {
+    it("只差大小写、文件与目录同名都查得出，指出是哪一条；没有撞名时没有结果", () => {
+        expect(pathCollision(folderOf({"Dist/a.js": "1", "dist/b.js": "2"}))).toBeNull();
+        expect(pathCollision(folderOf({"a.js": "1", "A.js": "2"}))).toContain("A.js");
+        expect(pathCollision(folderOf({"lib": "1", "lib/index.js": "2"}))).toContain("lib/index.js");
     });
 });
 
@@ -121,7 +129,7 @@ describe("上传客户端", () => {
             [403, JSON.stringify({error: {code: "origin-not-allowed", message: "不接受来源的写请求。"}}), {ok: false, code: "upload-failed", detail: "不接受来源的写请求。"}],
             [413, "", {ok: false, code: "upload-too-large", detail: ""}],
             [502, "<html>", {ok: false, code: "upload-failed", detail: "HTTP 502"}],
-            [200, "不是 JSON", {ok: false, code: "upload-failed", detail: "服务端的应答不对"}],
+            [200, "不是 JSON", {ok: false, code: "upload-failed", detail: "unexpected server response"}],
         ];
         for (const [status, text, expected] of answers) {
             const {client, requests} = clientWith();

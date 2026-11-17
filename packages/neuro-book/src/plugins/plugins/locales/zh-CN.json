@@ -24,11 +24,11 @@
         "overlay": "松开以安装插件",
         "progress": "正在上传 {{percent}}%",
         "source": "拖入的文件夹 {{name}}（{{files}} 个文件，{{size}}）",
-        "expired": "拖入的文件夹已经失效，重新拖入",
+        "expired": "上传的文件夹已经失效，重新选择或拖入",
         "notFolder": "拖入一个插件文件夹",
         "archive": "先解压，再拖入解出的文件夹",
         "noManifest": "这个文件夹的根目录没有 package.json，不像是构建好的插件",
-        "nested": "插件好像在 {{name}} 里，把它拖进来",
+        "nested": "插件好像在 {{name}} 里，选它或把它拖进来",
         "busyNow": "正在处理上一个文件夹",
         "outside": "拖到插件页的内容区",
         "problem": {

@@ -24,11 +24,11 @@
         "overlay": "Drop to install the plugin",
         "progress": "Uploading {{percent}}%",
         "source": "Dropped folder {{name}} ({{files}} files, {{size}})",
-        "expired": "The dropped folder is no longer available. Drop it again",
+        "expired": "The uploaded folder is no longer available. Choose or drop it again",
         "notFolder": "Drop one plugin folder",
         "archive": "Extract it first, then drop the extracted folder",
         "noManifest": "This folder has no package.json at its root, so it does not look like a built plugin",
-        "nested": "The plugin seems to be inside {{name}}. Drop that folder instead",
+        "nested": "The plugin seems to be inside {{name}}. Choose or drop that folder instead",
         "busyNow": "Still working on the previous folder",
         "outside": "Drop onto the plugins page content",
         "problem": {

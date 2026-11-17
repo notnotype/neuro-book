@@ -112,10 +112,10 @@ function registry(initial: PluginListEntry[], options: {readonly safeMode?: bool
     };
 }
 
-async function open(client: Registry, locale: "zh-CN" | "en-US" = "zh-CN", windowPlugins: {problems(): ReadonlyArray<PluginProblem>; onChange(listener: () => void): () => void} | null = null, folderUpload: FolderUploadClient | null = null) {
+async function open(client: Registry, locale: "zh-CN" | "en-US" = "zh-CN", windowPlugins: {problems(): ReadonlyArray<PluginProblem>; onChange(listener: () => void): () => void} | null = null, folderUpload: FolderUploadClient | null = null, host: HTMLElement = document.body) {
     // 页面的文字来自窗口的翻译端口：用宿主引擎登记本插件的目录，语言与 `locale` 属性同一个来源。
     const port = testTextPort(locale, {"nbook.plugins": pluginsCatalogs});
-    const wrapper = mount(PluginsPage, {props: {registry: client, locale, windowPlugins, folderUpload}, attachTo: document.body, global: {provide: provideText(port)}});
+    const wrapper = mount(PluginsPage, {props: {registry: client, locale, windowPlugins, folderUpload}, attachTo: host, global: {provide: provideText(port)}});
     mounted.push(wrapper);
     await flushPromises();
     return wrapper;
@@ -623,7 +623,7 @@ describe("PluginsPage 的文件夹上传", () => {
 
         fake.answerNext({ok: false, code: "path-rejected", detail: {detail: "上传已失效，重新拖入文件夹"}});
         await drop([directory("plugin", PLUGIN)]);
-        expect(problemReason()).toBe("拖入的文件夹已经失效，重新拖入");
+        expect(problemReason()).toBe("上传的文件夹已经失效，重新选择或拖入");
     });
 
     it("上传失败：按失败码写原因、不开确认框、没有残留的上传可删（服务端已删）", async () => {
@@ -651,7 +651,7 @@ describe("PluginsPage 的文件夹上传", () => {
             [[directory("a", PLUGIN), directory("b", PLUGIN)], "拖入一个插件文件夹"],
             [[], "拖入一个插件文件夹"],
             [[directory("plugin", {"readme.md": "x"})], "这个文件夹的根目录没有 package.json，不像是构建好的插件"],
-            [[directory("outer", {"my-plugin": {"package.json": "{}", "a.js": "1"}, "notes.txt": "n"})], "插件好像在 my-plugin 里，把它拖进来"],
+            [[directory("outer", {"my-plugin": {"package.json": "{}", "a.js": "1"}, "notes.txt": "n"})], "插件好像在 my-plugin 里，选它或把它拖进来"],
         ];
         for (const [entries, expected] of cases) {
             await drop(entries);
@@ -667,7 +667,8 @@ describe("PluginsPage 的文件夹上传", () => {
         drag(root(), "drop", [directory("plugin", PLUGIN)]);
         await flushPromises();
         expect(document.querySelector("[data-plugin-upload-progress]")?.textContent).toContain("正在上传");
-        expect(disabled(document.querySelector("[data-plugin-choose-folder]"))).toBe(true);
+        // 上传中按钮保持可聚焦（键盘用户不丢焦点），只是不响应。
+        expect(document.querySelector("[data-plugin-choose-folder]")?.getAttribute("aria-disabled")).toBe("true");
         await drop([directory("plugin", PLUGIN)]);
         expect(problemReason()).toBe("正在处理上一个文件夹");
         settle();
@@ -729,5 +730,61 @@ describe("PluginsPage 的文件夹上传", () => {
         await flushPromises();
         expect(up.calls).toEqual(["upload plugin dist/index.js,package.json"]);
         expect(document.querySelector("[role=dialog]")).not.toBeNull();
+    });
+
+    it("设置窗口里页面根以外的位置（侧栏、列表下面的空白）也是落点；窗口以外才提示拖到插件页", async () => {
+        const up = uploader();
+        const region = document.createElement("div");
+        region.setAttribute("data-settings-window", "");
+        const mountPoint = document.createElement("div");
+        const sidebar = document.createElement("aside");
+        region.append(sidebar, mountPoint);
+        document.body.append(region);
+        await open(registry([BUILTIN]).client, "zh-CN", null, up.client, mountPoint);
+        const over = drag(sidebar, "dragover");
+        await flushPromises();
+        expect(over.defaultPrevented).toBe(true);
+        expect((over as unknown as {dataTransfer: {dropEffect: string}}).dataTransfer.dropEffect).toBe("copy");
+        expect(document.querySelector("[data-plugin-drop]")).not.toBeNull();
+        drag(sidebar, "drop", [directory("plugin", PLUGIN)]);
+        await flushPromises();
+        expect(up.calls).toEqual(["upload plugin dist/index.js,package.json"]);
+        // 窗口以外：不安装，拖动的效果是不允许。
+        const outside = document.createElement("div");
+        document.body.append(outside);
+        const outsideOver = drag(outside, "dragover");
+        expect((outsideOver as unknown as {dataTransfer: {dropEffect: string}}).dataTransfer.dropEffect).toBe("none");
+        await flushPromises();
+        expect(document.querySelector("[data-plugin-drop]")).toBeNull();
+    });
+
+    it("收集或上传途中页面卸载：上传到了的用 keepalive 删掉，不再预览、不再往页面里写", async () => {
+        const up = uploader();
+        const fake = registry([BUILTIN]);
+        const wrapper = await open(fake.client, "zh-CN", null, up.client);
+        const settle = up.holdNext();
+        drag(root(), "drop", [directory("plugin", PLUGIN)]);
+        await flushPromises();
+        wrapper.unmount();
+        mounted.splice(mounted.indexOf(wrapper), 1);
+        settle();
+        await flushPromises();
+        expect(up.calls.at(-1)).toBe(`discard ${UPLOAD_ID} keepalive`);
+        expect(fake.calls).toEqual(["list"]);
+    });
+
+    it("选出的文件夹是空的：说明没有清单，不是什么反应都没有；同一批里撞名的路径在上传之前就拒绝", async () => {
+        const up = uploader();
+        await open(registry([BUILTIN]).client, "zh-CN", null, up.client);
+        const input = document.querySelector<HTMLInputElement>("[data-plugin-folder-input]")!;
+        Object.defineProperty(input, "files", {configurable: true, value: []});
+        input.dispatchEvent(new Event("change", {bubbles: true}));
+        await flushPromises();
+        expect(problemReason()).toBe("这个文件夹的根目录没有 package.json，不像是构建好的插件");
+
+        await drop([directory("plugin", {"package.json": "{}", "Index.js": "1", "index.js": "2"})]);
+        expect(problemReason()).toBe("文件夹里有不能上传的文件名");
+        expect(document.querySelector(".plugins-page__problem-line")?.textContent).toContain("index.js");
+        expect(up.calls).toEqual([]);
     });
 });

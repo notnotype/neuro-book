@@ -21,7 +21,7 @@ import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, Pl
 import {pluginsText, usePluginsText} from "../text";
 import type {PluginsTextKey} from "../text";
 import {builtinPluginTextKey} from "../../shared/builtin-names";
-import {COLLECT_OPTIONS, pluginFolderProblem} from "../folder-upload";
+import {COLLECT_OPTIONS, pathCollision, pluginFolderProblem} from "../folder-upload";
 import type {FolderUploadClient, UploadFailureCode} from "../folder-upload";
 
 defineOptions({name: "PluginsPage"});
@@ -139,6 +139,8 @@ const folderInput = shallowRef<HTMLInputElement | null>(null);
 /** 页面上传了、还没交给安装的那个上传的 id；页面离开或取消时删它。已发出安装请求就不再记，由服务端在安装结束时删。 */
 let heldUpload: string | null = null;
 let uploadAbort: AbortController | null = null;
+/** 页面已卸载：收集或上传在途时用户离开了，之后收尾的步骤不再往页面里写，已经上传的删掉。 */
+let disposed = false;
 const uninstallOpen = ref(false);
 const uninstalling = ref<PluginListItem | null>(null);
 /** 打开对话框的控件不在了时焦点的落点（第三方插件的小标题）；函数 ref 记下。 */
@@ -371,10 +373,10 @@ async function installFolder(collect: () => Promise<CollectResult>): Promise<voi
         return;
     }
     busy.value = "upload";
-    uploadPercent.value = 0;
     problem.value = null;
     try {
         const collected = await collect();
+        if (disposed) return;
         if (!collected.ok) {
             const {reason, lines} = collectProblemLines(collected.problem);
             await showProblem(collected.problem.kind, reason, lines);
@@ -386,9 +388,20 @@ async function installFolder(collect: () => Promise<CollectResult>): Promise<voi
             await showProblem("no-manifest", verdict.kind === "nested" ? text("upload.nested", {name: verdict.name}) : text("upload.noManifest"), []);
             return;
         }
+        const collision = pathCollision(folder);
+        if (collision !== null) {
+            await showProblem("path-invalid", text("upload.problem.path-invalid"), [collision]);
+            return;
+        }
         uploadAbort = new AbortController();
+        uploadPercent.value = 0;
         const uploaded = await client.upload(folder, {signal: uploadAbort.signal, onProgress: (sent, total) => (uploadPercent.value = total === 0 ? 100 : Math.floor((sent * 100) / total))});
         uploadAbort = null;
+        if (disposed) {
+            // 页面在上传途中卸载了：上传到了就删（卸载那一刻 `heldUpload` 还没有它）。
+            if (uploaded.ok) void client.discard(uploaded.id, {keepalive: true});
+            return;
+        }
         if (!uploaded.ok) {
             await showProblem(uploaded.code, text(`upload.errors.${uploaded.code}` satisfies `upload.errors.${UploadFailureCode}`), uploaded.detail === "" ? [] : [uploaded.detail]);
             return;
@@ -436,42 +449,44 @@ function onFolderPicked(): void {
     const files = Array.from(input?.files ?? []);
     // 清空，选同一个文件夹第二次时才会再触发 change。
     if (input !== null) input.value = "";
-    if (files.length > 0) void installFolder(() => Promise.resolve(collectInputFiles(files, COLLECT_OPTIONS)));
+    // 空文件夹没有文件可上传：说清楚没有清单，不要什么反应都没有。
+    if (files.length === 0) void showProblem("no-manifest", text("upload.noManifest"), []);
+    else void installFolder(() => Promise.resolve(collectInputFiles(files, COLLECT_OPTIONS)));
 }
 
-/** 落点是插件页的根：拖着文件经过时显示覆盖层，松手时读出条目（只能在事件的同步段里读）。 */
-function onDragOver(event: DragEvent): void {
-    if (props.folderUpload == null || !dragHasFiles(event.dataTransfer)) return;
-    event.preventDefault();
-    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
-    dragging.value = true;
-}
-
-function onDragLeave(event: DragEvent): void {
-    const related = event.relatedTarget;
-    if (related instanceof Node && pageRoot.value?.contains(related) === true) return;
-    dragging.value = false;
-}
-
-function onDrop(event: DragEvent): void {
-    if (props.folderUpload == null || !dragHasFiles(event.dataTransfer)) return;
-    event.preventDefault();
-    dragging.value = false;
-    void dropped(readDrop(event.dataTransfer!));
+/** 设置窗口里的任何位置（侧栏、标题、列表下面的空白）都是落点：页面根只有内容那么高，只认它会让空白处的松手被当成“落在别处”。 */
+function inDropRegion(target: EventTarget | null): boolean {
+    const region = pageRoot.value?.closest("[data-settings-window]") ?? pageRoot.value;
+    return target instanceof Node && region?.contains(target) === true;
 }
 
 /**
- * 窗口上的兜底：松手落在别处（侧栏、标题、经 Portal 的确认框遮罩）时浏览器的缺省动作是把文件当文档打开、整页导航走。这里只拦下这件事并
- * 提示一句；真正接收的是页面根上的处理（它先 `preventDefault`，所以这里看到 `defaultPrevented` 就不再处理）。
+ * 窗口上的拖放（页面挂载期间，给了上传客户端才处理）：含文件的拖动一律 `preventDefault`（落在没人接的地方，浏览器的缺省动作是把
+ * 文件当文档打开、整页导航走）；落在设置窗口里的当作拖入，其余提示拖到插件页。拖动经过时显示覆盖层，离开窗口（`relatedTarget` 为空）或松手
+ * 时收起。松手时在事件的同步段里读出条目，之后异步遍历。
  */
-function guardWindow(event: DragEvent): void {
-    if (props.folderUpload == null || event.defaultPrevented || !dragHasFiles(event.dataTransfer)) return;
+function onWindowDragOver(event: DragEvent): void {
+    if (props.folderUpload == null || !dragHasFiles(event.dataTransfer)) return;
     event.preventDefault();
-    if (event.type !== "drop") return;
+    const inside = inDropRegion(event.target);
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = inside ? "copy" : "none";
+    dragging.value = inside;
+}
+
+function onWindowDragLeave(event: DragEvent): void {
+    if (event.relatedTarget === null) dragging.value = false;
+}
+
+function onWindowDrop(event: DragEvent): void {
+    if (props.folderUpload == null || !dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
     dragging.value = false;
+    if (inDropRegion(event.target)) {
+        void dropped(readDrop(event.dataTransfer!));
+        return;
+    }
     void showProblem("drop-outside", text(busy.value !== null || previewOpen.value ? "upload.busyNow" : "upload.outside"), []);
 }
-const guardEvents = ["dragover", "drop"] as const;
 const leavePage = (): void => discardHeld(true);
 
 async function toggle(item: PluginListItem, enabled: boolean): Promise<void> {
@@ -541,20 +556,25 @@ function closeUninstall(open: boolean): void {
 
 onMounted(() => {
     void refresh();
-    for (const name of guardEvents) window.addEventListener(name, guardWindow);
+    window.addEventListener("dragover", onWindowDragOver);
+    window.addEventListener("dragleave", onWindowDragLeave);
+    window.addEventListener("drop", onWindowDrop);
     window.addEventListener("pagehide", leavePage);
 });
 
 onBeforeUnmount(() => {
-    for (const name of guardEvents) window.removeEventListener(name, guardWindow);
+    window.removeEventListener("dragover", onWindowDragOver);
+    window.removeEventListener("dragleave", onWindowDragLeave);
+    window.removeEventListener("drop", onWindowDrop);
     window.removeEventListener("pagehide", leavePage);
+    disposed = true;
     uploadAbort?.abort();
     discardHeld(true);
 });
 </script>
 
 <template>
-    <div ref="pageRoot" class="plugins-page" data-plugins-page :data-plugins-state="state" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
+    <div ref="pageRoot" class="plugins-page" data-plugins-page :data-plugins-state="state" >
         <!-- 拖着文件经过：盖住整页，写“松开以安装插件”。自己不收事件（pointer-events: none），松手仍落在页面根上。 -->
         <div v-if="dragging" class="plugins-page__drop" aria-hidden="true" data-plugin-drop>
             <span class="i-lucide-folder-down plugins-page__drop-icon"></span>
@@ -582,7 +602,7 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="folderUpload" class="plugins-page__folder">
                 <span class="plugins-page__muted">{{ text('upload.hint') }}</span>
-                <Button type="button" variant="secondary" size="sm" :disabled="busy !== null" data-plugin-choose-folder @click="folderInput?.click()">{{ text('upload.choose') }}</Button>
+                <Button type="button" variant="secondary" size="sm" :aria-disabled="busy !== null ? 'true' : undefined" data-plugin-choose-folder @click="busy === null && folderInput?.click()">{{ text('upload.choose') }}</Button>
                 <!-- 选目录：浏览器给的文件列表带相对路径（webkitRelativePath）。藏起来，由上面的按钮打开。 -->
                 <input :ref="bindFolderInput" type="file" class="plugins-page__folder-input" tabindex="-1" aria-hidden="true" data-plugin-folder-input @change="onFolderPicked" />
             </div>
@@ -698,8 +718,6 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-    /* 撑满设置窗口的内容区：标题下面与列表下面的空白也是落点。 */
-    min-height: 100%;
 }
 
 /* 拖入的覆盖层：盖住整页、不收指针事件，松手仍落在页面根上。 */
@@ -708,8 +726,10 @@ onBeforeUnmount(() => {
     inset: 0;
     z-index: 1;
     display: flex;
-    align-items: center;
+    /* 页面比视口高时整页正中可能在视口之外：文字靠上放。 */
+    align-items: flex-start;
     justify-content: center;
+    padding-top: var(--space-7);
     gap: var(--space-2);
     border: 2px dashed var(--accent-main);
     border-radius: var(--radius-panel);
