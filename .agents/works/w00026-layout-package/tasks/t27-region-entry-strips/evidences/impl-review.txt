@@ -1,0 +1,144 @@
+## 审查报告：w00026 t27 实现（`c56ab99a7..7e661be1a`，被审提交 `7e661be1a`）
+
+**范围与方法**：先读测试，再读实现。我跑了 `bun test adjacency.test.ts`（12 条通过）和 `vue-tsc -p tsconfig.web.json`（无输出，通过）。我用 `bun -e` 对 `layoutCardEdges` 试了几种尺寸组合，没有写文件。机器上没有可用的浏览器，所以下面带“需浏览器核实”的条目来自读代码和规范推理，不是实测。每条都写了怎样在真实浏览器里复现。
+
+### 1. 按下的块在滑动中被再点一次时，会跳到终点，不会从此刻接着滑（需浏览器核实）
+- **严重程度**：重要
+- **类别**：正确性
+- **位置**：`WorkbenchToolStrip.vue` 的 `onIndicatorTransitionEnd`（`@transitionend` 与 `@transitioncancel` 共用）、`placeIndicator`
+- **现象**：先点 A→B，滑到一半再点 C（或点回 A）。
+  - `indicator.value` 改变后，浏览器取消正在跑的 `transform` 过渡并新起一段，同时派发 `transitioncancel`。
+  - 处理函数把 `sliding` 设为 false，`data-sliding` 被摘掉。
+  - 这个属性一摘，`transition-property` 里不再含 `transform`，按 CSS Transitions 规则，新起的那一段也被取消，块一步跳到终点。
+- **为什么是问题**：验收 33 与输出 22 写的是“按下的块和内容同时走”“滚到一半再点回，从这一刻往回滚”。网格里的内容是接着走的，块却跳变。评审页的演示里块是由进度驱动的，重定向时是连续的。
+- **如何核实**：e2e 里加载页面，`--motion-layout` 设成 6000ms，不暂停动画。
+  1. 点样例乙，等 1 秒真实时间，再点“项目”。
+  2. 逐帧读 `getComputedStyle([data-tool-indicator]).transform` 的 `f` 值，预期单调往回走。按上面的分析会看到一帧内直接等于“项目”入口的 `offsetTop`。
+  3. 在块上挂 `transitioncancel` 监听，可以看到它在第二次点击之后触发。
+- **为什么现有测试看不到**：新 e2e 用 `animation.pause()` 加 `currentTime` 定格，是在没有真实时间流逝、也没有 transition 事件的条件下量的。重定向段只量了内容的 `upper`，没量 `indicator`。
+- **建议改法**：
+  - 不要在 `transitioncancel` 上清 `sliding`，只在 `transitionend` 上清。
+  - 清之前先确认没有别的 transform 过渡还在跑：`el.getAnimations().every((a) => !("transitionProperty" in a) || a.transitionProperty !== "transform")`。
+  - 更稳的做法是常开 `transform` 过渡，需要“直接到位”的写入再用一次性的 `transition: none` 类，避免靠摘属性取消过渡。
+
+### 2. 块的滑动由“按下的入口 id 变了”触发，和侧栏内容什么时候滚不一致；`sliding` 还可能一直为真
+- **严重程度**：重要
+- **类别**：正确性 / 与 Spec 不一致
+- **位置**：`WorkbenchToolStrip.vue` 的 `placeIndicator`（`if (placedOn !== null && placedOn !== id) sliding.value = true`）、`WorkbenchShell.vue` 的 `prepareSidebarSwap`（只在 `selectEntry` 里调）
+- **现象一**：内容只在“点入口”这一条路径上滚（`selectEntry` → `prepareSidebarSwap`）。块却在任何一次“按下的入口换了”时都滑 470ms，包括：
+  - `nbook.view.open` 命令、“移动到”、拖动落进入口、当前容器空了而换容器；
+  - 活动栏隐藏时只能靠命令切换的情形。
+  - 输出 42 写明这几条路径“不滚”，也没有一条写块要滑。结果是内容瞬间换，块滑 470ms。
+- **现象二**：`sliding` 被置真，但这一次 `moved` 为假时没有 `transform` 变化，就没有 `transitionend`。
+  - 例如当前容器 A 空了，B 补到 A 原来的位置。
+  - 此后任何一次位置变化（窗口高度变化让入口重排、收进“更多”）都会带 470ms 过渡，块落后于按钮。这与 `.md` 写的“窗口缩放、收进更多直接到位”相反。
+  - 减少动态效果时时长为 0，不派发过渡事件，`sliding` 也一直为真，但无害。
+- **如何核实**：
+  - 现象一：在 e2e 里执行 `nbook.view.open` 打开另一个容器的视图，读 `[data-tool-indicator]` 的 `data-sliding`，会是 `""`，同时侧栏没有 `[data-swap]`。
+  - 现象二：把当前容器的唯一一个视图用“移动到”挪走，再缩小窗口高度，块会带过渡。
+- **建议改法**：让“滑”由发起方决定。
+  - 入口按钮的 `@click` 与“更多”的 `select` 里先记 `slideTo = id`，`placeIndicator` 只在 `pressed id === slideTo` 时置 `sliding`，用完立刻清掉。这样和 `selectEntry` 的交换同源。
+  - 同时在设 `sliding` 的那一步，如果 `moved` 为假，就不置。
+
+### 3. 量块位置用 `offsetLeft/offsetTop`，拖动入口时祖先元素有 `translate`/`transform`，可能量到 0（需浏览器核实）
+- **严重程度**：重要（核实后可降为建议）
+- **类别**：正确性 / 隐含假设
+- **位置**：`WorkbenchToolStrip.vue` 的 `placeIndicator`（`button.offsetLeft/offsetTop`）；`layout-drag.ts` 约 357–367 行给被拖的入口外层写 `translate`；`.workbench-tool-strip__frame--moving` 的 `transform` 过渡
+- **现象**：`.md` 里写的“拖动中入口换位是按钮外层的 `transform`，不进 `offsetTop`”只对元素自己的 transform 成立。
+  - 按我对 Chromium 的记忆（需实测），带 `transform`、`translate` 的祖先会成为 `offsetParent`。
+  - 若如此，被拖的入口所在外层有 `translate` 时，它里面按钮的 `offsetTop/offsetLeft` 是相对这一层的，约等于 0。
+  - 而拖动中 `toolEntries` 用的是预览文档，每次预览变化都会重新触发 `placeIndicator`。
+  - 最常见的场景是拖当前（按下的）容器的图标：按下的块可能跳到条目区左上角，直到放下。
+- **如何核实**：Playwright 里按住当前容器的入口拖动一小段，每帧读 `[data-tool-indicator]` 的 `transform`，同时读 `button.offsetParent?.className`。如果 `offsetParent` 变成 `workbench-tool-strip__frame`，就成立。
+- **建议改法**：不依赖 `offsetParent`。
+  - 用 `button.getBoundingClientRect()` 减 `bandEl.getBoundingClientRect()` 再加 `scrollTop`。但这会带上 transform，拖动中应直接不更新，或按入口序号和固定 38px 加 `rowGap` 算。
+  - 至少加一句 `button.offsetParent === bandEl` 的判断，不满足时不更新。
+
+### 4. 侧栏交换读 `toolEntries`（`renderedDoc`，拖动预览），却和 `doc` 的 `sidebarShowing`、`regionContainers` 混用
+- **严重程度**：建议
+- **类别**：不变量 / 隐含耦合
+- **位置**：`WorkbenchShell.vue` 的 `prepareSidebarSwap`（`current`、`order` 来自 `toolEntries`；`sidebarShowing`、`containers` 来自 `doc`）
+- **现象**：同一个函数里，当前容器与入口顺序读预览，分节清单与可见性读已提交文档。文件顶部 97 行的注释写着“活动栏不跟预览”，而 `toolEntries` 一直读 `renderedDoc`（366 行，本 Task 之前就是这样）。
+- **为什么是问题**：鼠标拖动期间点不了入口，常规路径不会触发。但键盘或命令路径下预览与已提交文档不一致时，`direction` 与 `leaving` 可能对不上，网格会按“没用上”忽略。
+- **建议改法**：`current` 与 `order` 改取 `regionContainers(doc.value, "sidebar")` 和 `doc.panels[anchor].activeContainer`，或者在函数头写明为什么读预览。
+
+### 5. 页面或活动栏一挂上，按下的块就淡入 470ms
+- **严重程度**：建议
+- **类别**：正确性（视觉）
+- **位置**：`WorkbenchToolStrip.vue` 的 `onMounted(placeIndicator)`、`.workbench-tool-strip__indicator` 的 `opacity` 过渡
+- **现象**：挂载时先渲染 `opacity: 0`；`placeIndicator` 读 `offsetLeft` 会强制样式重算，把 0 记成“变化前”的值；随后 `data-shown` 才设上，于是 0→1 走 `transition: opacity var(--motion-layout)`。每次进入项目或活动栏重挂，当前入口的按下底色都是淡出来的。
+- **如何核实**：刷新页面，首帧截图读块的 `opacity`，应是 0 到 1 的中间值。
+- **建议改法**：首次定位时不带过渡。例如首次放置时加一次性的 `data-placed` 类，或先写 `data-shown` 与位置，下一帧再开 `opacity` 过渡。
+
+### 6. 分隔线 `::before` 的投影在相连的那一端漏到活动栏上（需浏览器核实）
+- **严重程度**：建议
+- **类别**：不变量（输出 19：相连的边没有投影）
+- **位置**：`WorkbenchSurface.vue` 末尾 `panes` 分隔线的 `::before`（`box-shadow: var(--shell-card-shadow)`、`clip-path: inset(8px -8px)`）；`sashStyleOf`（`first.left` 为 `joined` 时 `--shell-sash-fill-start` 为 `0px`）
+- **现象**：卡片自己的相连边靠外层 `slot` 的 `overflow: hidden` 把投影裁掉。`::before` 在分隔线上，不在 `slot` 里，沿长轴往两头各放出 8px。
+  - 和活动栏相连的那一端，这 8px 的阴影落在活动栏上。浅色主题是一道约 2px 的短淡影。
+  - 深色主题（`vars.css` 404 行，`0 0 0 1px` 的 8% 描边环）是一个 1px 的点。
+  - 另一端挨着半缝，与卡片自己的侧影一致，没问题。
+- **如何核实**：浅色、深色两个主题下，侧栏容器有两节时，放大活动栏与侧栏相连处、两节之间那一行（`scale 8` 以上）。
+- **建议改法**：在 `sashStyleOf` 里对相连的一端把 `::before` 的对应一侧也裁成 0（例如用变量把该侧的 `clip-path` 水平裁切设为 0）。
+
+### 7. 滑动期间在新容器的标签上起拖，落点几何是滑动中途的（本来就有的缺口，现在多了一个入口）
+- **严重程度**：建议
+- **类别**：竞态
+- **位置**：`layout-drag.ts` 的 `geometryOf`（量 DOM 上的 `[data-shell-card]` 矩形）；`workbench-containers.e2e.ts` 1074 行附近新加的“滚完再拿标签”
+- **现象**：切换后 470ms 内，换上来的叶是可交互的（Spec 只要求旧的不可交互）。这时在它的标签上按下起拖，`measureGeometry` 量到的是滑到一半的矩形，整个拖动期间落点判定都错位，直到下一次重量。
+- **为什么是问题**：作者已经在测试里绕开了这一点（加了等待），但没有在产品里处理，也没有记进已知限制。
+- **如何核实**：慢放过渡（`--motion-layout: 3000ms`）后点入口，在 1 秒时按住新容器上一节的标签拖到编辑区，观察落点预览的位置。
+- **建议改法**：交换期间把换上来的叶也标成 `busy`/不起拖，或者拖动开始时若有 `[data-swap]` 就等过渡结束再量。至少写进 `WorkbenchSurface.md` 的已知限制。
+
+### 8. 测试没有覆盖的判据
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`e2e/workbench-containers.e2e.ts`（新用例与旧用例）、`adjacency.test.ts`
+- **缺口**：
+  - 按下的块被打断（第 1 条）和命令路径（第 2 条）都没有用例；块的位置只在暂停动画后读，量不到真实的 transition 事件行为。
+  - Spec 输出 42 的“拖动落进入口、‘移动到’、当前容器空了引起的换容器不滚”没有任何一条断言“没有 `[data-swap]`”。
+  - “侧栏隐藏或拖到零时不滚、有最大化分节时照常过渡”没有测。
+  - 平铺主题（macos）下 `panes` 的 `::before` 底色，以及深色下投影描边，只有 `lab-workbench-surface` 里线颜色“非透明”的断言，没有量像素。
+  - `cornersOf`、`sashStyleOf`、`capLeaves` 的多叶行为只在 `workbench-views.e2e.ts` 的一个用例里间接覆盖（上节左右圆角、下节同理），没有单元测试。
+- **旧用例的修改**：
+  - 191 行的“切回容器”改为量 `frameTop`，且把“超出外框”的判据保留，符合新行为，没有放宽。
+  - `[gapHit, cornerHit, innerHit]` 从 `[false,false,true]` 改成 `[true,true,true,false]` 是随新画法改的预期，合理。
+  - 1074 行加的等待只是让量到的位置稳定，不是放宽断言。
+
+### 9. 重复与别扭之处，以及每次布局变化的额外开销
+- **严重程度**：建议
+- **类别**：代码质量 / 性能
+- **位置**：
+  - `adjacency.ts` 的 `leafIdsOf` 与 `WorkbenchSurface.vue` 209 行的 `leafIdsOf` 是两份相同的函数，`firstLeafOf`/`lastLeafOf` 又是第三、第四份同类递归。
+  - `WorkbenchSurface.vue` 的 `sashKind` 与 `sashStyleOf` 各自 `findBranch`，`sashStyleOf` 里还会再调一次 `sashKindOf`。每条线每次渲染做三遍同样的判断。
+  - 卡片圆角的 CSS 回退链 `var(--shell-corner-tl, var(--shell-card-radius, 0px))` 在 603、725、726 行重复；内容外层用逻辑属性 `border-end-*`，圆角变量是物理方向，从右到左排版时会对反（工作台目前只有从左到右）。
+  - `placeIndicator` 挂在 `() => props.entries` 上，`toolEntries` 在拖动预览的每一帧都换新数组，每次都做 `querySelectorAll` 加强制布局读。
+- **开销估计**：侧栏树约 10 片叶，`layoutCardEdges` 加 `regionOf` 每帧不到 0.05ms；`placeIndicator` 每次一次强制布局，量级也在亚毫秒。没有发现需要改的性能问题，可读性上值得收一收。
+- **建议改法**：把 `leafIdsOf` 放进 `adjacency.ts` 导出，`WorkbenchSurface.vue` 复用。`placeIndicator` 的监听改成按“按下 id + 摆出来的 id 列表 + 条目区尺寸”的字符串键。
+
+### 10. Spec 写“两张卡片之间隔一条缝”，实际是三条缝（和评审页一致）
+- **严重程度**：建议
+- **类别**：文档 / Spec 对齐
+- **位置**：`WorkbenchShell.vue` 的 `prepareSidebarSwap`（交换不给 `window`）、`WorkbenchSurface.vue` 的 `gridSwap`（`gap: cardGap`）、Spec 输出 42
+- **现象**：交换的窗口取离开与换上来的叶外框的外接矩形，外框本身已含上下各一条缝（`outer`，nbook 主题 `--shell-gap: 4px`）。步长再加一条 `swap.gap`，所以两张卡片之间是 4 + 4 + 4 = 12px，不是 4px。
+- **为什么记**：评审页的演示也是这么做的（`step = H + GAP`，卡片内缩 `GAP`），开发者确认的就是这个样子，所以实现忠实于参照。但 Spec 的字面“隔一条缝”不准确。
+- **建议改法**：改 Spec 为“相邻两张卡片之间是外框的上下缝加一条缝”，或把 `gap` 写成 `-cardGap` 让间距真是一条缝，二选一，需要开发者定。
+
+### 已核实、没有问题的方面
+- **`layoutCardEdges` 的几何**：我试了几种情形，结果合理，没有发现错误的 `joined`。
+  - 侧栏一列两节，其中一节高度降为 0：另一节照常和活动栏相连，零高度那一节不影响相连判断。
+  - 两节宽度同时降为 0：活动栏的右边回到 `inner`，侧栏左边为 `inner`。
+  - 只有一节宽度降为 0：只影响它自己。
+- **拖动预览与已提交文档**：`groupOf` 用 `props.doc`（即 `renderedDoc`），和呈现树、`roleOf` 同源；空位 `slotPanel` 自成一组，和空位相邻的边按半缝处理，符合计划。
+- **交换的消费时机**：`freshSwap` 在属性写入的那一刻记下、下一个 tick 作废，宿主在同一个同步段里给交换和提交，不会留给后面不相干的布局变化。
+- **分隔线键**：`sashLooks` 按叶 id 对的键存，两个容器的分隔线键不同；`SashHandle` 注册键（分支加序号）和它不是同一把，没有互相覆盖。
+- **最大化与隐藏**：最大化时分隔线 `data-obscured` 为 `visibility: hidden`，`::before` 一起隐藏。侧栏隐藏、最大化的非侧栏面板时 `sidebarShowing` 为假，不发交换。
+- **合并 `7e661be1a`**：只有 `WorkbenchSurface.vue` 一处冲突，解析是把 `panelTitleDomId` 的 import 与 `aria-labelledby` 取 master，把 `data-shell-join` 的去除取本分支，正确。
+- **第 2 片修正 `1133eeb8c`**：我没有发现新问题。`planSwap` 里带上的几组按叶重取、`SashHandle` 的 `detached`、`useRenderOrder` 排除离开的线，读下来自洽，改动有对应单元用例。
+
+### 各级数量
+- 阻断：0
+- 重要：3（第 1、2、3 条；第 1、3 条需在浏览器里核实）
+- 建议：7（第 4 到 10 条）
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10

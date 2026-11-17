@@ -138,8 +138,22 @@ updated: 2026-11-17
 - 把 master 并进分支：`7e661be1a`（master 上 w00032 t36 改了 `WorkbenchShell`、`WorkbenchSurface`、面板头；冲突只在 `WorkbenchSurface` 的一行导入，两边都留）。
 - 收口验证（合并之后）：`bun run test:affected --since master` 除 neuro-book 的 `src/sdk/sdk.test.ts` 两条外都过；那两条在 master 上同样失败（nb-ui 新加的 `DateInput`、`TagInput` 没列进 SDK，来自 w00025 t10 第 1 片 `d5eb7b6a3`），不是本 Task 引入的；neuro-book、nb-layout 类型检查；`docs:check`、`governance:check`；e2e `workbench-containers`、`workbench-views`、`workbench-live-drag`、`lab-workbench-surface` 90 条过。合并之前另跑过 `lab-grid-swap`、`lab-grid-structure`、`lab-grid-panels`、`lab-nested-grid`（第 2 片的修正之后，116 条里含这四个）。
 - 帧时间（计划里的风险，无头浏览器、开发模式，负载 4 到 8，只作量级参考）：静止 17ms 一帧；Lab 结构场景里已有的普通过渡平均 39 到 42ms；交换平均 46 到 51ms、p95 67 到 100ms。交换比普通过渡慢一到两成，同一量级；真机没量。
-- 实现审查待处理：对本 Task 的提交范围（`c56ab99a7..7e661be1a`，第 2 片已审过一轮，这次看第 1、3 片、第 2 片的修正与合并）在后台派 Claude Sonnet，不等它。
+- 实现审查（Claude Sonnet，2026-11-17，[`evidences/impl-review.txt`](evidences/impl-review.txt)，提交范围 `c56ab99a7..7e661be1a`）：10 条，重要 3、建议 7。逐条对照代码核实；修正单独提交（``f0922874f``）：
+
+  | 条 | 内容 | 处理 |
+  |---|---|---|
+  | 1 | 按下的块滑到一半又点了别的入口：`transitioncancel` 摘掉滑动标记，新起的那一段跟着被取消，块跳到终点 | 成立，改：不听 `transitioncancel`，`transitionend` 来时还有别的 `transform` 过渡在走也不摘；补 e2e（真实时间里点回，之后 8 帧块都在半路、一帧比一帧靠近“项目”；在页面里挂上旧的“取消就摘标记”，第 0 帧就到终点，用例失败） |
+  | 2 | 块在任何一次“按下的入口换了”时都滑，命令、拖动落进入口、“移动到”、当前容器空了时内容不滚、块却滑；挪不了位置时 `sliding` 一直为真 | 成立，改：`WorkbenchShell` 把交换的 `token` 交给活动栏（`slideToken`），和内容滚动同源，只有那一次滑；别的原因挪了位置直接到位、同时摘掉标记；补 e2e（命令打开另一个容器的视图：没有 `[data-swap]`，块没有 `data-sliding`、没有 `transform` 过渡，就在新入口上） |
+  | 3 | `offsetTop` 相对 `offsetParent`，拖动中按钮外层带 `translate` 时它可能成了 `offsetParent`，块量到 0 | 成立（浏览器里核实：实时布局里拖按下的入口，按钮的 `offsetParent` 成了带 `translate` 的外层，`offsetTop` 是 0），改：沿 `offsetParent` 一路加到条目区；补进 `workbench-live-drag` 的“活动栏里换序”（块在被拖的入口占着的那一格） |
+  | 4 | 交换读 `toolEntries`（拖动预览）却和已提交的文档混用 | 成立，改：当前容器与入口顺序也读已提交的文档 |
+  | 5 | 页面一挂上块就淡入 470ms | 成立，改：有了入口的第一次放置画进 DOM、强制算一次样式之后才开过渡（`data-settled`）；补 e2e（页面加载时块上没有 `opacity` 的 `transitionrun`；在页面里把过渡改回常开，读到 `opacity` 0.997、用例失败） |
+  | 6 | 分隔线 `::before` 的投影在相连的那一端落到活动栏上 | 成立，改：相连的一端不放投影（`--shell-sash-shadow-*`）；补进 :426（卡片左边外 1、3、5、7px，线这一行和上面一节同色；在页面里把这两个变量写回 -8px，左边外 1px 由 235 变成 228，用例失败） |
+  | 7 | 滚动中在换上来的分节上起拖，落点几何是半路的 | 部分成立：实时布局起拖前宿主先 `settleMotion`，交换一并送到终点，量到的是终点；只有落点指示（关掉实时布局、键盘拿起）在滚动那几百毫秒里起拖时量到半路的。记为已知限制，写进 `WorkbenchSurface.md`，记进待确认清单 |
+  | 8 | 测试缺口 | 部分补：第 1、2、3、5、6 条的用例见各条；拖动落进入口、“移动到”、当前容器空了不滚，和命令一样都不经 `selectEntry`（交换只在那里发），只补命令这一条；侧栏隐藏、拖到零、有最大化分节时发不发交换是 `prepareSidebarSwap` 开头的一行条件，不另补；平铺主题下 `panes` 的底色与 `cornersOf` 等的多叶单元测试不补（缝为 0 时这一条就是卡片里的线，e2e :426、:487 已在浅色、深色下量像素） |
+  | 9 | `leafIdsOf` 两份、`firstLeafOf`/`lastLeafOf` 另两份；`placeIndicator` 每次预览都量 | 成立，改：`leafIdsOf` 从 `adjacency.ts` 导出、表面复用，删掉另两份；块的监听改成按“摆出来的入口与按下的、条目区高度、`slideToken`”的键。`sashKindOf` 每条线算几遍、圆角回退链重复不改（每帧不到 0.05ms，审查也这么量） |
+  | 10 | Spec 写“隔一条缝”，实际是各自的外缝加一条缝（和评审页一致） | 成立，改 Spec 输出 42 的措辞，按评审页的样子写（这个取舍待确认清单 2026-11-16 那一行已记着）；输出 22 同时写明只有滚过去的那一次滑、命令打开视图不滚 |
+- 实现审查修正的验证：neuro-book 类型检查；`adjacency.test.ts`；e2e `workbench-containers`、`workbench-views`、`lab-workbench-surface` 68 条，`workbench-live-drag` 23 条与修正后新改的两条（第 5 条的淡入、第 3 条的那一格）过；第 1、3、5、6 条的用例都在页面里还原旧行为跑过，确认会失败。
 
 ## 下一步
 
-合入 master；实现审查回来后处理，修正单独提交。接着做 [t28](../t28-panel-entry-strips/README.md)。
+实现审查的修正合入 master 后完成。接着做 [t28](../t28-panel-entry-strips/README.md)。
