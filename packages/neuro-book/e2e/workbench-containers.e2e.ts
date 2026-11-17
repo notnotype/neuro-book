@@ -570,7 +570,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         }
     });
 
-    test("侧栏切换容器：整张卡片竖着滚过去，列外不画，活动栏一直相连、不换画法，按下的块和内容同时走；滚到一半点回来，从这一刻往回滚，结束时两节原样（ui/workbench-layout 输出 22、42；验收 33）", async ({page}) => {
+    test("侧栏切换容器：卡片不动（外框、缝与右边两个圆角都在原处），里面的内容竖着滚过去，卡片外不画，活动栏一直相连、不换画法，按下的块和内容同时走；滚到一半点回来，从这一刻往回滚，结束时两节原样（ui/workbench-layout 输出 22、42；验收 33）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const bar = page.locator('[data-shell-card="activitybar"]');
@@ -580,6 +580,13 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const column = {top: Math.min(...homes.map((home) => home.y)), bottom: Math.max(...homes.map((home) => home.y + home.height)), center: homes[0]!.x + homes[0]!.width / 2};
         const status = await box(page, "statusbar");
         expect(status.y).toBeGreaterThanOrEqual(column.bottom - 1);
+        // 这一列的卡片（两节拼成一张）与缝宽：滚动中卡片就在这里不动。
+        const card = await page.evaluate((ids) => {
+            const rects = ids.map((id) => document.querySelector(`[data-shell-card="${id}"]`)!.getBoundingClientRect());
+            const gap = Number.parseFloat(getComputedStyle(document.querySelector("[data-workbench-surface]")!).getPropertyValue("--shell-gap"));
+            return {top: Math.min(...rects.map((rect) => rect.top)), bottom: Math.max(...rects.map((rect) => rect.bottom)), left: rects[0]!.left, right: rects[0]!.right, gap};
+        }, sections);
+        expect(card.gap).toBeGreaterThan(0);
         const indicatorAt = () => page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector("[data-tool-indicator]")!).transform).f);
         const entryTop = async (container: string) => page.evaluate((container) => {
             const button = [...document.querySelectorAll<HTMLElement>("[data-tool-entry]")].find((element) => element.dataset.toolEntry === container)!;
@@ -605,7 +612,13 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         };
         const near = (a: number[] | undefined, b: number[] | undefined): boolean => a !== undefined && b !== undefined && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) <= 6);
         const statusPoint = [column.center, status.y + status.height / 2] as const;
-        const [statusColor] = await colorsAt([statusPoint]);
+        // 卡片上下的缝、右上与右下圆角外面的那一点：静止时是窗体底，滚动中也不变（卡片的边与角不动，内容不画到卡片外）。
+        const still = [
+            statusPoint,
+            [column.center, card.top - card.gap / 2], [column.center, card.bottom + card.gap / 2],
+            [card.right - 1.5, card.top + 1.5], [card.right - 1.5, card.bottom - 1.5],
+        ] as const;
+        const stillColors = await colorsAt(still);
 
         await page.addStyleTag({content: ":root { --motion-layout: 6000ms !important; }"});
         const duration = 6000;
@@ -625,6 +638,10 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
                 outInert: frames.filter((frame) => frame.dataset.swap === "out").every((frame) => frame.inert),
                 join: card.dataset.shellJoin ?? null, cap: card.dataset.shellCap ?? null, seam: card.dataset.shellJoinSeam ?? null,
                 indicator: new DOMMatrix(getComputedStyle(document.querySelector("[data-tool-indicator]")!).transform).f,
+                backdrop: (() => {
+                    const rect = document.querySelector("[data-shell-swap-card]")?.getBoundingClientRect();
+                    return rect === undefined ? null : {top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right};
+                })(),
             };
         }, {fraction, duration, upper: upper!});
         const finish = () => page.evaluate(() => {
@@ -643,14 +660,19 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             if (fraction === 0) {
                 expect(at.out).toBeCloseTo(column.top, 0);
                 step = at.in - at.out;
-                expect(step).toBeGreaterThan(column.bottom - column.top);
+                // 一次滚“卡片的高加一条缝”：内容裁在卡片里，滑走的与换上来的之间隔一条缝。
+                expect(step).toBeCloseTo(card.bottom - card.top + card.gap, 0);
             }
+            expect(at.backdrop).not.toBeNull();
+            for (const key of ["top", "bottom", "left", "right"] as const) expect(at.backdrop![key]).toBeCloseTo(card[key], 0);
             expect(at.in - at.out).toBeCloseTo(step, 0);
             expect({outInert: at.outInert, join: at.join, cap: at.cap, seam: at.seam}).toEqual({outInert: true, join: "start", cap: null, seam: ""});
             if (fraction > 0) expect(at.indicator).toBeGreaterThan(fromEntry);
             expect(at.indicator).toBeLessThan(toEntry);
-            const [below] = await colorsAt([statusPoint]);
-            expect(near(below, statusColor), `状态栏 ${String(below)}，原来 ${String(statusColor)}`).toBe(true);
+            const colors = await colorsAt(still);
+            for (const [index, point] of still.entries()) {
+                expect(near(colors[index], stillColors[index]), `滚到 ${String(fraction)} 时 (${point.join(", ")}) 是 ${String(colors[index])}，静止时 ${String(stillColors[index])}`).toBe(true);
+            }
         }
         // 滑到四成点回“项目”：它从此刻的位置往回走，两张卡片不叠。
         const before = await pauseAt(0.4);
@@ -661,7 +683,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         for (const fraction of [0.3, 0.7]) {
             const at = await pauseAt(fraction);
             expect(at.upper!).toBeGreaterThan(before.upper!);
-            expect(at.out - at.in).toBeGreaterThan(column.bottom - column.top);
+            expect(at.out - at.in).toBeCloseTo(step, 0);
             expect(at.cap).toBeNull();
         }
         await finish();

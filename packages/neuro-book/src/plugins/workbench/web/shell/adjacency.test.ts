@@ -10,7 +10,7 @@ import {viewSection} from "../state/containers";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "../state/default-tree";
 import {createLayoutPolicy, layoutProjectionOptions} from "../state/layout-constraints";
 import type {ViewCatalog} from "../views/registry";
-import {cardInset, joinedToBar, layoutCardEdges, maximizedCardEdges, sashKindOf} from "./adjacency";
+import {cardInset, cardInsetPx, joinedToBar, layoutCardEdges, maximizedCardEdges, sashKindOf} from "./adjacency";
 import type {CardSide} from "./adjacency";
 
 const VIEW = (location: "sidebar" | "auxiliarybar" | "panel") => ({title: {"zh-CN": location, "en-US": location}, icon: "i", location, layout: "scroll" as const});
@@ -113,6 +113,8 @@ describe("卡片的边", () => {
         expect(cardInset({kind: "outer", occupied: 1})).toBe("max(0px, calc(var(--shell-gap, 0px) - 1px))");
         expect(cardInset(inner(2))).toBe("max(0px, calc(var(--shell-gap, 0px) / 2 - 1px))");
         expect(cardInset(joined)).toBe("0px");
+        // 按读到的缝宽算成数（交换的裁切窗），和上面的式子同一个规则；占用比缝还宽时不小于 0。
+        expect([outer, {kind: "outer", occupied: 1} as const, inner(2), joined, inner(10)].map((side) => cardInsetPx(side, 4))).toEqual([4, 3, 1, 0, 0]);
     });
 });
 

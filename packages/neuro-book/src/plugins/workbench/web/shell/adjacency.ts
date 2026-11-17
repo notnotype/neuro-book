@@ -140,6 +140,18 @@ export function cardInset(side: CardSide): string {
     }
 }
 
+/** 同 `cardInset`，按读到的缝宽（px）算成数：给只收数的地方（交换的裁切窗）。两处的规则要一起改。 */
+export function cardInsetPx(side: CardSide, gap: number): number {
+    switch (side.kind) {
+        case "outer":
+            return Math.max(0, gap - side.occupied);
+        case "joined":
+            return 0;
+        case "inner":
+            return Math.max(0, gap / 2 - side.occupied / 2);
+    }
+}
+
 /**
  * 最大化的面板盖住除条以外的全部区域（输出 13）：它的矩形不来自布局，四边都挨着窗体，左边有活动栏时挨着活动栏；被盖住的面板不动，它们的边照旧。活动栏这时不和底下的侧栏相连。
  */

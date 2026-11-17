@@ -1095,7 +1095,7 @@ describe("NestedGrid 交换", () => {
     const contents = [...A, ...B, "main"].map((leaf) => ({key: `view-${leaf}`, leaf, insetTop: 32, active: true}));
     const swap = (token: number, leaving: string[], entering: string[]) => ({token, leaving, entering, axis: "height" as const, direction: 1 as const, gap: 8});
 
-    async function mountColumn(motion = "30ms") {
+    async function mountColumn(motion = "30ms", extraSlots: Record<string, (props: never) => unknown> = {}) {
         // happy-dom 没有布局引擎：按仓库既有做法（`useGridLayout.dom.test.ts`）桩掉布局盒，给出容器尺寸。
         // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
         const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
@@ -1109,7 +1109,7 @@ describe("NestedGrid 交换", () => {
         const wrapper = mount(NestedGrid, {
             attachTo: attachContainer(),
             props: {node: start.root(), layout: start.layout(CONTAINER), contents},
-            slots: {content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey)},
+            slots: {content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey), ...extraSlots},
         });
         wrappers.push(wrapper);
         wrapper.element.style.setProperty("--motion-layout", motion);
@@ -1146,6 +1146,24 @@ describe("NestedGrid 交换", () => {
         await vi.waitFor(() => expect(wrapper.find("[data-leaf='a1']").exists()).toBe(false));
         expect(wrapper.find("[data-swap]").exists()).toBe(false);
         expect(exposed.swappingLeaves.size).toBe(0);
+    });
+
+    it("静止的底：交换进行中在所有外框下面、铺满两组外框的外接矩形，拿到裁切窗的内缩与圆角；交换结束就摘掉", async () => {
+        const wrapper = await mountColumn("30ms", {
+            "swap-backdrop": (({inset, radius}: {inset: readonly number[]; radius: readonly string[] | null}) => h("i", {"data-backdrop-inset": inset.join(","), "data-backdrop-radius": radius?.join(",") ?? ""})) as (props: never) => unknown,
+        });
+        expect(wrapper.find("[data-swap-backdrop]").exists()).toBe(false);
+        const radius = ["0px", "12px", "12px", "0px"] as const;
+        await wrapper.setProps({swap: {...swap(1, A, B), window: {inset: [4, 2, 4, 0], radius}}, ...toB()});
+        const backdrop = wrapper.get("[data-swap-backdrop]");
+        const style = (backdrop.element as HTMLElement).style;
+        expect({left: style.left, top: style.top, width: style.width, height: style.height}).toEqual({left: "0px", top: "0px", width: "300px", height: `${String(CONTAINER.height)}px`});
+        expect(backdrop.get("[data-backdrop-inset]").attributes()).toMatchObject({"data-backdrop-inset": "4,2,4,0", "data-backdrop-radius": radius.join(",")});
+        // 在所有外框之前（外框按 DOM 序叠在它上面）。
+        const order = [...wrapper.element.children].filter((element) => element.matches("[data-swap-backdrop], .nb-grid-frame"));
+        expect(order[0]?.hasAttribute("data-swap-backdrop")).toBe(true);
+        await vi.waitFor(() => expect(wrapper.find("[data-leaf='a1']").exists()).toBe(false));
+        expect(wrapper.find("[data-swap-backdrop]").exists()).toBe(false);
     });
 
     it("给了交换但这一轮没有布局变化：作废，后面的布局变化照常过渡，不滑", async () => {

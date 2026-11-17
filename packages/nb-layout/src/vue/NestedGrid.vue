@@ -108,6 +108,11 @@ defineSlots<{
     overlay?(): unknown;
     /** 浮动窗的手柄：网格根的直接子元素，矩形同浮动窗，叠在它的内容上面（放在外框里会被内容层盖住）。外层不接指针，里面的控件自己开。 */
     "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
+    /**
+     * 交换进行中静止的底：一层在所有外框下面、矩形是两组外框的外接矩形，交换结束（滑出去的项摘掉的同一次渲染）就摘掉。`inset` 是裁切窗在这一层里的四边内缩
+     * （px：上、右、下、左），`radius` 是窗的四个角；宿主在里面画不动的东西（例如一张卡片，外框这期间不画自己的卡片），内容在它上面滑。
+     */
+    "swap-backdrop"?(props: {inset: readonly [number, number, number, number]; radius: readonly [string, string, string, string] | null}): unknown;
     empty(): unknown;
 }>();
 
@@ -151,6 +156,14 @@ function swapSideOf(item: GridLayerItem<unknown>): "in" | "out" | undefined {
     if (item.kind === "content") return swapSide.value.leaves.get(item.leaf);
     return swapSide.value.keys.get(item.key);
 }
+/** 静止的底（`swap-backdrop`）：交换进行中才有。 */
+const swapBackdrop = computed(() => {
+    const band = motion.band.value;
+    if (band === null) return null;
+    const {outer, window} = band;
+    const inset = [window.y - outer.y, outer.x + outer.width - (window.x + window.width), outer.y + outer.height - (window.y + window.height), window.x - outer.x] as const;
+    return {style: gridRectStyle(outer), inset, radius: band.radius};
+});
 /** 这一刻在交换里的叶（节点 id，含离开的）：过渡结束就空了。 */
 const swappingLeaves = computed<ReadonlySet<string>>(() => new Set(swapSide.value.leaves.keys()));
 /** 带上的项按裁切窗裁：窗在网格里不动，每一帧的裁切跟着元素此刻的矩形，和 `left`/`top` 同一段过渡。 */
@@ -614,6 +627,10 @@ defineExpose({
 <template>
     <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId" :aria-owns="order.ariaOwns.value" @keydown="focus.onKeydown" @focusin="focus.onFocusin">
         <span v-if="order.outOfOrder.value" :ref="(el) => (focus.enterSentinel.value = el as HTMLElement | null)" tabindex="-1" aria-hidden="true"></span>
+        <!-- 在所有外框之前：外框不写 z-index，按 DOM 序叠在它上面。 -->
+        <div v-if="swapBackdrop !== null && $slots['swap-backdrop'] !== undefined" class="nb-grid-swap-backdrop" data-swap-backdrop aria-hidden="true" :style="swapBackdrop.style">
+            <slot name="swap-backdrop" :inset="swapBackdrop.inset" :radius="swapBackdrop.radius"></slot>
+        </div>
         <template v-for="item in order.items.value" :key="item.key">
             <div
                 v-if="item.kind === 'leaf'"
@@ -693,6 +710,11 @@ defineExpose({
     left: 0;
     overflow: clip;
     contain: layout;
+}
+
+.nb-grid-swap-backdrop {
+    position: absolute;
+    pointer-events: none;
 }
 
 /* 内容自己的裁切框，不是叶外框：飞过别的叶时不被它们裁。 */
