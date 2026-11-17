@@ -24,7 +24,7 @@ import type {ToolChange} from "../shared/profile-tools";
 import {agentText} from "../shared/text";
 import {withAgentsChoice, withApprovalChoice, withModelChoice, withSkillsChoice} from "./profile-edits";
 import {changeAgentsBinding} from "../shared/profile-agents";
-import {declaredSkills} from "../shared/profile-skills";
+import {declaredAllowlist} from "../shared/profile-allowlist";
 import type {SkillsClient} from "./skills";
 import {profileViews, toolChangeContext} from "./profile-view";
 import {createSettingWriter} from "./setting-writes";
@@ -179,7 +179,7 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
 
             /** Skill 白名单的写法同可派的子代理：`"all"` 的声明按此刻的目录展开（skills.md 的“输入与前置条件”）。 */
             const changeSkills = (key: string, change: ToolChange): Promise<SettingWriteResult> => {
-                const declared = declaredSkills(entries.value.find((candidate) => candidate.key === key)?.skills, (deps.skills?.entries.value ?? []).map((skill) => skill.id));
+                const declared = declaredAllowlist(entries.value.find((candidate) => candidate.key === key)?.skills, (deps.skills?.entries.value ?? []).map((skill) => skill.id));
                 return settingEdits.apply((current) => withSkillsChoice(current, key, changeAgentsBinding(current[key]?.skills, declared, change)));
             };
 

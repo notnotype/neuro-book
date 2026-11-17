@@ -29,6 +29,8 @@ const ProfileSettingSchema = Type.Object({
     agents: Type.Optional(ToolBindingSchema),
     /** 可用的 Skill 在 Profile 声明之外加、减的（profile-settings.md 输出 26）；形状与规则同工具绑定。 */
     skills: Type.Optional(ToolBindingSchema),
+    /** 提示词里列的表情包在 Profile 声明之外加、减的（profile-settings.md 输出 27）；形状与规则同工具绑定。 */
+    stickers: Type.Optional(ToolBindingSchema),
 }, {additionalProperties: false});
 
 export const ToolBindingsSchema = Type.Record(Type.String({minLength: 1}), ToolBindingSchema);

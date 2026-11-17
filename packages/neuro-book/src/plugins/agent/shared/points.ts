@@ -90,6 +90,10 @@ const ProfileDeclarationSchema = Type.Object({
     skills: Type.Optional(Type.Object({
         allowed: Type.Union([Type.Array(Type.String({minLength: 1})), Type.Literal("all")]),
     }, {additionalProperties: false})),
+    /** 提示词里列哪些表情包（表情包 id），`"all"` 是表情目录里的全部；不写就是空白名单（contributions.md 输出 23）。 */
+    stickers: Type.Optional(Type.Object({
+        allowed: Type.Union([Type.Array(Type.String({minLength: 1})), Type.Literal("all")]),
+    }, {additionalProperties: false})),
     /**
      * 开场指令：对话第一屏“试试这些”，点了填进输入框（contributions.md 输出 21）。只显示前 3 条；不设条数上限，多写的不显示，
      * 不因为一段展示用的文字拒绝整个 Profile。

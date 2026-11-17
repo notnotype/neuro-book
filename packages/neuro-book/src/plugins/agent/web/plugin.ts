@@ -50,7 +50,7 @@ import type {SettingWriteResult} from "nbook/shared/settings";
 import {createStatusItems} from "./status-items";
 import {createStatusLineWriter} from "./status-line-writes";
 import {statusLinePage, statusCatalog} from "./status-line-page";
-import {profileSkills} from "../shared/profile-skills";
+import {profileAllowlist} from "../shared/profile-allowlist";
 import {agentText} from "../shared/text";
 import {settingsPage} from "nbook/ui/settings/settings-page";
 import {createAgentActivity} from "./activity";
@@ -218,7 +218,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const profiles = shallowRef<readonly ProfileEntry[]>([]);
             const skills = createSkillsClient(remote, context.signal, (message) => report("skills-failed", message));
             /** 一个 Profile 的 Skill 白名单（skills.md 的“输入与前置条件”），与服务端认标签用的同一个换算。 */
-            const allowedSkills = (profile: string): readonly string[] => profileSkills(
+            const allowedSkills = (profile: string): readonly string[] => profileAllowlist(
                 profiles.value.find((entry) => entry.key === profile)?.skills,
                 settings.get(agentSettings.settings.profileSettings)[profile]?.skills,
                 (skills.entries.value ?? []).map((entry) => entry.id),

@@ -13,7 +13,7 @@ import type {ModelCapabilities, ModelNeedGap} from "../shared/model-needs";
 import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-tools";
 import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import {profileAgents} from "../shared/profile-agents";
-import {declaredSkills, profileSkills} from "../shared/profile-skills";
+import {declaredAllowlist, profileAllowlist} from "../shared/profile-allowlist";
 import {groupSkills} from "../shared/skills";
 import {skillProblemText} from "./skill-problem";
 import type {SkillEntry, SkillGroup} from "../shared/skills";
@@ -349,8 +349,8 @@ function skillsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
     const {text} = input;
     const ids = catalog.map((skill) => skill.id);
     const binding = input.settings[entry.key]?.skills;
-    const declared = new Set(declaredSkills(entry.skills, ids));
-    const allowed = profileSkills(entry.skills, binding, ids);
+    const declared = new Set(declaredAllowlist(entry.skills, ids));
+    const allowed = profileAllowlist(entry.skills, binding, ids);
     const allowedSet = new Set(allowed);
     const byId = new Map(catalog.map((skill) => [skill.id, skill]));
     const row = (skill: SkillEntry, extra: {readonly restorable?: boolean} = {}): ProfileToolRow => ({

@@ -75,7 +75,7 @@ export interface SkillMenuTexts {
 
 export interface SkillMenuInput {
     readonly entries: readonly SkillEntry[] | null;
-    /** 这个会话的 Profile 的白名单（`profileSkills`）。 */
+    /** 这个会话的 Profile 的白名单（`profileAllowlist`）。 */
     readonly allowed: readonly string[];
     readonly recent: readonly string[];
     readonly texts: SkillMenuTexts;
