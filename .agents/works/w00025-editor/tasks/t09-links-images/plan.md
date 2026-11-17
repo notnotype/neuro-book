@@ -37,7 +37,7 @@ Spec（已写，planned）：[`workspace/files.md`](../../../../../docs/specs/wo
 ### 后端（`packages/neuro-book/src/plugins/files/`）
 
 - **上传路由** `backend/upload-route.ts`，由 `backend/plugin.ts` 的服务端入口挂到同一个路由器（`addThemeAssetRoutes` 旁边）。
-- **代次**：只在请求到达时核对：`registry.list()` 里这个 id 正在运行、代次等于 URL 里的，否则 410 `generation-gone`；**不**为写入打开项目根（`raw-route.ts` 的 `createProjectRoots` 已经导出，读取路由在用，写入用不到它，也不必“抽出”什么）。身份由项目实例打开时核对。核对之后、取租约之前项目换代的窄竞争里写入落在新一代的同一个目录，Spec 已写成已知限制。
+- **代次**：请求到达时先核对：`registry.list()` 里这个 id 正在运行、代次等于 URL 里的，否则 410 `generation-gone`；通过后立刻取一份租约并持有到写完（租约带代次，不等于 URL 里的为 410；读完请求体后租约被收回为 410），所以不会为写入启动项目；**不**为写入打开项目根（`raw-route.ts` 的 `createProjectRoots` 已经导出，读取路由在用，写入用不到它）。身份由项目实例打开时核对。（第一稿写成“只在请求到达时核对、核对与取租约之间的窄竞争是已知限制”，实现审查在真实项目上复现了排队与读体期间项目停止后被重新启动，改成持有租约。）
 - **检查顺序**：来源（带了 `Sec-Fetch-Site` 且不是 `same-origin` 为 403，不带的交给 nb-host 已做的 `Origin` 核对）→ 代次 → 名字（单段、主名不空、扩展名在允许集合里）→ 读请求体并限长 32 MiB（在处理器里边收边数，不用放在来源与代次核对之前的中间件，分块传输也数字节；超过 413）→ 按字节判定类型（415 `unsupported-type`）→ 扩展名与类型一致（415 `extension-mismatch`）→ 写入。
 - **写入**：`ownFiles.write("projects://<id>/<路径>", …)`，请求的 `signal`（`c.req.raw.signal`）交给它：请求体收完之前取消确定没写，之后取消是结果未知。`exists=rename` 先 `list` 父目录（不存在算空）挑出第一个空着的 `名字 2.扩展名`……（至多 `名字 100`），只写一次；写时仍 `conflict`（并发）就从下一个候选继续；只有被占用才换名字，别的失败立即结束。目标是目录、链接（含悬空）时写入链回 `not-a-file`、`not-found`，路由改报 `conflict` 并按“被占用”处理。
 - **状态码**：写一张专用的 `WRITE_STATUS` 表（`shared/` 里，服务端路由与浏览器客户端共用，码表与 Spec 的表一致），不复用读取路由的 `failureResponse`（它把码改成 `not-found`）；`unknown-outcome` 502、`project-unavailable` 503、`not-a-directory` 409；错误体 `{error: {code, message}}`，不照主题素材路由的 `{code, detail}`。
@@ -113,7 +113,7 @@ Spec（已写，planned）：[`workspace/files.md`](../../../../../docs/specs/wo
 ## 不做与风险
 
 - 不做：拖放；SVG、BMP、AVIF 的上传；多选文件；压缩、改名、缩放；图片说明与对齐的界面；删图片时删磁盘文件；链接卡片里搜文件；`user://` 的上传；给目录项加修改时间；`accept` 参数（t15 要收别的类型时另开）。
-- 已知限制（Spec 已写）：代次竞争落在新一代；内容文件夹里 `same`、`sibling` 存的图是未列入项、`sibling` 建出的子目录是没有正文的节点；`www.example.com` 这类输入按相对地址写；“最近的图”按名字倒序，同秒的几张次序与时间相反。
+- 已知限制（Spec 已写）：读请求体没有空闲超时；内容文件夹里 `same`、`sibling` 存的图是未列入项、`sibling` 建出的子目录是没有正文的节点；`www.example.com` 这类输入按相对地址写；“最近的图”按名字倒序，同秒的几张次序与时间相反。
 - 风险：控件重挂后宿主能力指向旧实例。切片 3 先写测试、再改，见上。
 - 风险：粘贴插件抢了普通的粘贴。判据写成函数，DOM 测试逐类对照。
 - 风险：Link 自带的点击插件吞掉新的点击处理。优先级与“只在修饰键时接手”写进注释，DOM 测试覆盖 Ctrl 点与单击。

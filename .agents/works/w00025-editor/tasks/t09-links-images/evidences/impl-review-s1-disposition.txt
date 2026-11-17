@@ -1,0 +1,18 @@
+t09 第 1 片（后端）实现审查的处理（审查者：Claude Opus 子代理，omp 的 Codex 额度用完；报告见 impl-review-s1.txt）
+被审提交 ef9a1b942；修正提交 81f8c7d64（分支 feat/w00025-t09-links-images）
+
+1 重要 成立，已改：路由核对代次后立刻取租约并持有到写完，取到的代次不符为 410；读完请求体后看租约有没有被收回，收回为 410、不写、不启动新的一代。Spec 删去“窄竞争落在新一代”的已知限制。测试两条（真实 Bun.serve：上传途中宽限期满项目不停且写在同一代；上传途中子进程被杀得 410、没有新代次、没有文件）。
+2 重要 成立，已改：写入链回 not-found 时，只有目标自己在父目录列表里才算“被占用”（409），否则回 404 not-found（路径中间的悬空链接）；没有登记的项目本来就是 410，Spec 码表 404 一行不再写“没有这个项目”。
+3 建议 已改：名字超过 255 字节两种模式统一 400 invalid-address；rename 加了序号才超长另有说明。
+4 建议 已改：没有点的名字没有扩展名；夹具加 `资料/png`。
+5 建议 已改：状态码兜底改成显式映射表（403 → cross-site，宿主分发层的没有码的 403 就是 Origin 不被允许）；2xx 读不到响应体按取消或断开报 cancelled、network；2xx 而体不认得报 unknown-outcome。
+6 建议 已改：ensureParents 的 mkdir 遇 EACCES、EPERM、EROFS 回 permission-denied，写法同 entry-ops 与 rooted；文本创建的 createParents 同受益。
+7 建议 已改：占用按名字原样比较，大小写不敏感的文件系统靠写入时的冲突重试；测试按本机文件系统是否区分大小写给期望。
+8 建议 部分改：空 Origin 断言改成确定的 403，另加不带 Origin 的本机请求 201；outside-root、protected-path 断言码；补 permission-denied（root 下跳过，权限位对 root 无效）、project-unavailable（接纳关闭）、上传途中项目停止两条。未补：路由里“至多 2 个上传”的接线测试（Gate 类已测，路由接线要靠固定等待观察“第三个还没进入”，不值得）；root-gone、unknown-outcome 与项目层面的 not-found 在真实项目上稳定触发不了。
+9 建议 不改，记为已知限制：读请求体没有空闲超时，两条停住不发也不断开的上传会占着名额；要求异常的客户端，机制与测试的成本不对等。Spec 边界已写一句。
+10 建议 已改：扩展名查表用 Object.hasOwn。
+11 重要 成立，已改：作品根下 parent 地址不带结尾斜杠；list 失败且不是 not-found 时按失败结束，不再静默当空（这一分支没有稳定的反例，变异检查里是等价变异）。
+12 建议 已改：target-gone、unavailable、not-provided 映射 project-unavailable，timeout 映射 unknown-outcome，其余 io-failed，原码写进 message。未加诊断记录：路由没有诊断出口，原码已在响应说明里。
+
+变异检查：路由与客户端的修正 14 个变异里 13 个被测试抓住，余下 1 个（list 失败当空）是等价变异；补大小写用例后“taken 不分大小写”也被抓住。
+顺带：写测试时发现第 2 片粘贴插件的缺口（切走再切回来，旧状态里放弃的占位又被画出），已在 8dc15b9f9 修，并写进 markdown-editing.md 输出 55（切到别的文件时没传的不再传）。
