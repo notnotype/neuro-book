@@ -29,6 +29,13 @@ updated: 2026-11-16
 
 与计划 r4 的出入：合同的输入是带可选 `path`、`upload` 的对象（远程合同要求输入是对象 schema，不能用联合），二者给一个，否则 `path-rejected`；上传进度按字节百分比显示（XHR 的上传进度），不是文件数；`src/shared/collected-folder.ts` 放文件夹的形状与限额（后端类型检查没有 DOM 库，浏览器入口模块也被它编译）。
 
+| 5 e2e | e396e2b96（变基后提交号会变） | `plugins.e2e`：真实 Chrome、生产构建，“选择文件夹”传带 `node_modules` 的目录，预览写文件数、安装目录没有 `node_modules`、暂存目录清空、取消预览也清空；拖入单个文件与落在页面以外的提示 |
+| 架构 | 5e1080339 | 上传分帧移到 `plugin-platform/shared`（`architecture.test` 规定通用插件管理不引用应用的代码） |
+
+验证（2026-11-17，负载 4 到 6）：`bun run test:affected --since master` 的 bun 与 vitest 项通过（vitest 94 个文件 706 项），唯一失败是 `sdk.test.ts` 的两条（组件子路径漏列 DateInput 的类型），在最新 master 上同样失败（w00025 t10 的提交 d5eb7b6a3 引入），不是本分支；`plugins.e2e` 3 项通过。e2e 里原有的“其它分区没有示例插件的配置项”辅助函数在 master 上已经不对（Agent 的工具绑定归到了 Profile 分区，“其它”分区空了、导航被停用），改成分区停用时直接通过。
+
+实现审查进行中：后端（nb-host、暂存区、路由、合同）omp 默认模型，页面 Sonnet；审查 worktree `.worktree/w00046-t16-review`。
+
 ## 下一步
 
-切片 5 的 e2e 通过后启动实现审查（nb-host 与服务端：omp 默认模型；页面：Sonnet），处理后合入 master；切片 6（Windows 拖放）等 pc-notype。
+处理两路实现审查，合入 master；切片 6（Windows 拖放）等 pc-notype。
