@@ -471,6 +471,13 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             expect(same(middleOnSash, middleInCard), `线的中间 ${String(middleOnSash)}，卡片 ${String(middleInCard)}`).toBe(false);
             expect(same(ringOnSash, ringInCard), `线右边外的 1px ${String(ringOnSash)}，卡片右边外 ${String(ringInCard)}`).toBe(true);
             expect(same(groundOnSash, groundInCard), `窗体底 ${String(groundOnSash)}，${String(groundInCard)}`).toBe(true);
+            // 线的左端和活动栏相连：卡片左边外的 8px 里（半缝与活动栏），线这一行和上面一节同一列一样，线不往活动栏上放投影。
+            const leftward = [1, 3, 5, 7];
+            const onBar = await colorsAt(leftward.flatMap((dx) => [[left - dx, sashY], [left - dx, above]] as const));
+            for (const [index, dx] of leftward.entries()) {
+                const [onSash, inCard] = [onBar[index * 2], onBar[index * 2 + 1]];
+                expect(same(onSash, inCard), `卡片左边外 ${String(dx)}px：线这一行 ${String(onSash)}，上面 ${String(inCard)}`).toBe(true);
+            }
         };
         await check();
         // 明暗按设置走（缺省浅色，不跟系统）：写设置文件切到深色，用完写回空设置，同一个服务上后面的用例照旧是浅色。
@@ -663,6 +670,75 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(entry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(indicatorAt).toBe(fromEntry);
         await expect(bar).toHaveAttribute("data-shell-join", "start");
+    });
+
+    test("按下的块：页面打开时直接在位、不淡入；滑到一半点回来，从这一刻接着往回滑、不跳到终点；用命令换容器时内容不滚，块直接到位（ui/workbench-layout 输出 22、42）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await page.addInitScript(() => {
+            const host = window as unknown as {__indicatorFaded: boolean};
+            host.__indicatorFaded = false;
+            document.addEventListener("transitionrun", (event) => {
+                if (event.propertyName === "opacity" && (event.target as Element).matches("[data-tool-indicator]")) host.__indicatorFaded = true;
+            }, true);
+        });
+        await open(page);
+        const run = (command: string, args: Record<string, unknown>) => page.evaluate(({name, detail}) => window.dispatchEvent(new CustomEvent(name, {detail})), {name: SAMPLE_VIEWS_RUN_EVENT, detail: {command, args}});
+        const indicator = page.locator("[data-tool-indicator]");
+        const indicatorAt = () => page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector("[data-tool-indicator]")!).transform).f);
+        const entryTop = async (container: string) => page.evaluate((container) => {
+            const button = [...document.querySelectorAll<HTMLElement>("[data-tool-entry]")].find((element) => element.dataset.toolEntry === container)!;
+            return button.offsetTop;
+        }, container);
+        const [fromEntry, toEntry] = [await entryTop(PROJECT_CONTAINER), await entryTop(`view:${B}`)];
+        expect(toEntry).toBeGreaterThan(fromEntry);
+        await expect.poll(indicatorAt).toBe(fromEntry);
+        expect(await page.evaluate(() => (window as unknown as {__indicatorFaded: boolean}).__indicatorFaded)).toBe(false);
+        await page.addStyleTag({content: ":root { --motion-layout: 6000ms !important; }"});
+        const click = (container: string) => page.evaluate((selector) => document.querySelector<HTMLElement>(selector)!.click(), `[data-tool-entry="${container}"]`);
+
+        // 真实时间里滑（不暂停动画）：点样例乙，块走出一段后点回“项目”。之后的每一帧块都还在半路、一帧比一帧靠近“项目”。
+        await click(`view:${B}`);
+        await expect.poll(indicatorAt).toBeGreaterThan(fromEntry + (toEntry - fromEntry) / 5);
+        await click(PROJECT_CONTAINER);
+        const frames = await page.evaluate(() => new Promise<number[]>((resolve) => {
+            const values: number[] = [];
+            const sample = (): void => {
+                values.push(new DOMMatrix(getComputedStyle(document.querySelector("[data-tool-indicator]")!).transform).f);
+                if (values.length < 8) requestAnimationFrame(sample);
+                else resolve(values);
+            };
+            requestAnimationFrame(sample);
+        }));
+        for (const [index, value] of frames.entries()) {
+            expect(value, `点回后第 ${String(index)} 帧：${frames.join(", ")}`).toBeGreaterThan(fromEntry + 1);
+            if (index > 0) expect(value, `点回后第 ${String(index)} 帧：${frames.join(", ")}`).toBeLessThanOrEqual(frames[index - 1]! + 0.5);
+        }
+        await expect(indicator).toHaveAttribute("data-sliding", "");
+        await page.evaluate(() => {
+            for (const animation of document.getAnimations()) {
+                if (animation.effect?.getComputedTiming().endTime === Number.POSITIVE_INFINITY) animation.play();
+                else animation.finish();
+            }
+        });
+        await expect(indicator).not.toHaveAttribute("data-sliding");
+        await expect.poll(indicatorAt).toBe(fromEntry);
+        await expect(page.locator("[data-workbench-surface] [data-swap]")).toHaveCount(0);
+
+        // 命令打开样例乙：侧栏切过去但不滚，块下一帧就在乙的入口上，没有在滑。
+        await run("nbook.view.open", {viewId: B});
+        await expect(entry(page, `view:${B}`)).toHaveAttribute("aria-pressed", "true");
+        const after = await page.evaluate(() => new Promise<{swap: number; sliding: boolean; moving: number; at: number}>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                const element = document.querySelector<HTMLElement>("[data-tool-indicator]")!;
+                resolve({
+                    swap: document.querySelectorAll("[data-workbench-surface] [data-swap]").length,
+                    sliding: element.hasAttribute("data-sliding"),
+                    moving: element.getAnimations().filter((animation) => (animation as Animation & {transitionProperty?: string}).transitionProperty === "transform").length,
+                    at: new DOMMatrix(getComputedStyle(element).transform).f,
+                });
+            }));
+        }));
+        expect(after).toEqual({swap: 0, sliding: false, moving: 0, at: toEntry});
     });
 
     test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {

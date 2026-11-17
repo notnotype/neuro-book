@@ -8,7 +8,7 @@ import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnot
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
 
-import {cardInset, joinedToBar, layoutCardEdges, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
+import {cardInset, joinedToBar, layoutCardEdges, leafIdsOf, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
 import type {CardEdges, CardSide} from "../shell/adjacency";
 import {layoutContents, panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
 import "./hover-actions.css";
@@ -205,7 +205,6 @@ const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
  * 缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”：隐藏、拖到零的区域降到零，离开的节点留在过渡里）这一刻的布局已经是终点：零宽，或不在呈现里。
  * 卡片四边、相连与场景图沿用它最后一次有尺寸时的，不然缩回去的第一帧卡片就少了外边距、换了圆角。只记呈现着、有尺寸的叶，缩完、回来了就用新算的。
  */
-const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "leaf" ? [node.id] : node.children.flatMap(leafIdsOf));
 const presentedLeaves = computed(() => new Set(leafIdsOf(props.projection.input)));
 const outgoingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.outgoingLeaves ?? new Set());
 const shapedLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.shapedLeaves ?? new Set());
@@ -351,9 +350,6 @@ function sashKind(sash: SashRef): string | undefined {
     return branch === null ? undefined : sashKindOf(branch, sash.before, sash.after, roleOf, groupOf);
 }
 
-const firstLeafOf = (node: GridNodeInput<string>): string => (node.kind === "leaf" ? node.id : firstLeafOf(node.children[0] as GridNodeInput<string>));
-const lastLeafOf = (node: GridNodeInput<string>): string => (node.kind === "leaf" ? node.id : lastLeafOf(node.children.at(-1) as GridNodeInput<string>));
-
 /**
  * 同一张卡片里两块之间的分隔线（`panes`）占着 1px，两张卡片各自贴到外框边，这一条里没有卡片：线两端会露出窗体底，深色的外框也在这里断开。
  * 这一条按卡片的范围画底色与两端的投影（样式见下面的 `panes` 分隔线），这里给范围：线前面那一块在长轴方向的两边内缩，同一列（排）的两块这两边贴着同样的东西。
@@ -362,13 +358,17 @@ function sashStyleOf(sash: SashRef): Record<string, string> | undefined {
     const branch = findBranch(props.projection.input, sash.branch);
     const before = branch?.children.find((child) => child.id === sash.before);
     if (branch === null || before === undefined || sashKindOf(branch, sash.before, sash.after, roleOf, groupOf) !== "panes") return undefined;
-    const first = cardOf(firstLeafOf(before));
-    const last = cardOf(lastLeafOf(before));
+    const leaves = leafIdsOf(before);
+    const first = cardOf(leaves[0] ?? "");
+    const last = cardOf(leaves.at(-1) ?? "");
     if (first === undefined || last === undefined) return undefined;
     // 纵向的分支里是横着的一条，两端是左右；横向的分支里是竖着的一条，两端是上下。
     const [start, end] = branch.orientation === "vertical" ? [first.left, last.right] : [first.top, last.bottom];
     const style: Record<string, string> = {"--shell-sash-fill-start": cardInset(start), "--shell-sash-fill-end": cardInset(end)};
-    const bar = capLeaves.value.has(firstLeafOf(before)) ? cardOf(ACTIVITY_BAR) : undefined;
+    // 相连的那一端（侧栏挨着活动栏）卡片自己的投影由外层裁掉，这一条也不往外放投影，否则落在活动栏上（输出 19）。
+    if (start.kind === "joined") style["--shell-sash-shadow-start"] = "0px";
+    if (end.kind === "joined") style["--shell-sash-shadow-end"] = "0px";
+    const bar = capLeaves.value.has(leaves[0] ?? "") ? cardOf(ACTIVITY_BAR) : undefined;
     if (bar !== undefined) style["--shell-sash-cap"] = cardInset(bar.right);
     return style;
 }
@@ -545,7 +545,7 @@ defineExpose({
 /*
  * 这条线占的那 1px 也是卡片（`sashStyleOf` 给范围）：底色同卡片，带卡片的投影，接上两边卡片的外框与投影。线与悬停线画在上面。
  * 画底的那一块沿主轴往两边各多伸 8px、再裁回这 1px：只有 1px 高（宽）的元素做模糊投影，侧边的投影只有整张卡片的几分之一，伸长了才和卡片侧边一样深；
- * 沿长轴放出 8px，投影露在卡片外面。平铺主题缝为 0、没有投影，结果是一条贯通的线。
+ * 沿长轴放出 8px，投影露在卡片外面；相连的那一端不放（`--shell-sash-shadow-*` 为 0）。平铺主题缝为 0、没有投影，结果是一条贯通的线。
  */
 .workbench-surface :deep(.nb-grid-sash[data-sash-kind="panes"]::before) {
     position: absolute;
@@ -557,12 +557,12 @@ defineExpose({
 
 .workbench-surface :deep(.nb-grid-sash.nb-splitter__sash--vertical[data-sash-kind="panes"]::before) {
     inset: -8px var(--shell-sash-fill-end, 0px) -8px var(--shell-sash-fill-start, 0px);
-    clip-path: inset(8px -8px);
+    clip-path: inset(8px var(--shell-sash-shadow-end, -8px) 8px var(--shell-sash-shadow-start, -8px));
 }
 
 .workbench-surface :deep(.nb-grid-sash.nb-splitter__sash--horizontal[data-sash-kind="panes"]::before) {
     inset: var(--shell-sash-fill-start, 0px) -8px var(--shell-sash-fill-end, 0px) -8px;
-    clip-path: inset(-8px 8px);
+    clip-path: inset(var(--shell-sash-shadow-start, -8px) 8px var(--shell-sash-shadow-end, -8px) 8px);
 }
 
 /*

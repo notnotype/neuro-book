@@ -3,7 +3,7 @@
  * 活动栏（同名 .md）：上段列侧栏的容器，一个容器一个入口；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
  */
 import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 
@@ -53,7 +53,12 @@ const props = withDefaults(defineProps<{
     placeholder?: string | null;
     /** 这个入口盖一层并入的高亮：拖着的视图放下会并进这个容器（输出 45）。 */
     highlighted?: string | null;
-}>(), {items: () => [], dragHint: "", placeholder: null, highlighted: null});
+    /**
+     * 侧栏切换容器时整张卡片滚过去的那一次（宿主给的交换的 `token`）：和按下的入口在同一次更新里变，按下的块这一次才滑过去，和内容同时走。
+     * 别的途径换了当前容器（命令、“移动到”、拖动落进入口、当前容器空了）内容不滚，块也直接到位。
+     */
+    slideToken?: number;
+}>(), {items: () => [], dragHint: "", placeholder: null, highlighted: null, slideToken: 0});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
@@ -113,39 +118,84 @@ const shownEntries = computed((previous?: ReadonlyArray<ToolStripEntry>) => {
 const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 
 /**
- * 按下的底色是条目区里一个独立的块（输出 22），位置是按下的那个入口：当前容器换了，它和侧栏的内容同时滑过去（`data-sliding`，时长与曲线同布局过渡）。
- * 只在按下的入口从一个换成另一个的那一次带过渡：窗口缩放、入口收进“更多”时直接到位；拖动中入口换位是按钮外层的 `transform`，不进 `offsetTop`，
- * 块直接到终点，和按钮的滑动差一段（已知限制）。没有按下的（侧栏隐藏）时留在原处淡出，再按下时在新的位置淡入，不滑。
+ * 按下的底色是条目区里一个独立的块（输出 22），位置是按下的那个入口。侧栏切换容器、内容滚过去的那一次（`slideToken` 变了），它和内容同时滑过去
+ * （`data-sliding`，时长与曲线同布局过渡）；别的时候直接到位：窗口缩放、入口收进“更多”、拖动中入口换位、别的途径换了当前容器。
+ * 没有按下的（侧栏隐藏）时留在原处淡出，再按下时在新的位置淡入，不滑；第一次放下时不淡入（`data-settled` 之前没有过渡）。
  */
 const indicator = ref<{readonly x: number; readonly y: number; readonly width: number; readonly height: number} | null>(null);
 const indicatorShown = ref(false);
 const sliding = ref(false);
+const settled = ref(false);
+const indicatorEl = ref<HTMLElement | null>(null);
 let placedOn: string | null = null;
+let placedToken = props.slideToken;
+
+/**
+ * 入口相对条目区的位置：沿 `offsetParent` 一路加到条目区。`offset*` 是排版的位置、不含 `transform`，拖动中按钮外层带着换位的 `translate`
+ * （它可能成了按钮的 `offsetParent`）也量到的是终点；量不到条目区（还没挂上）时是 null。
+ */
+function entryOffset(button: HTMLElement): {readonly x: number; readonly y: number} | null {
+    const band = bandEl.value;
+    let x = 0;
+    let y = 0;
+    for (let element: HTMLElement | null = button; element !== band; element = element.offsetParent as HTMLElement | null) {
+        if (element === null) return null;
+        x += element.offsetLeft;
+        y += element.offsetTop;
+    }
+    return {x, y};
+}
 
 function placeIndicator(): void {
     const id = shownEntries.value.find((entry) => entry.pressed)?.id ?? null;
+    const switched = props.slideToken !== placedToken;
+    placedToken = props.slideToken;
     const button = id === null ? undefined : [...(bandEl.value?.querySelectorAll<HTMLElement>("[data-tool-entry]") ?? [])].find((element) => element.dataset.toolEntry === id);
-    if (id === null || button === undefined) {
+    const at = button === undefined ? null : entryOffset(button);
+    if (id === null || button === undefined || at === null) {
         indicatorShown.value = false;
         placedOn = null;
+        settleAfterFirstPlacement();
         return;
     }
-    const next = {x: button.offsetLeft, y: button.offsetTop, width: button.offsetWidth, height: button.offsetHeight};
+    const next = {...at, width: button.offsetWidth, height: button.offsetHeight};
     const current = indicator.value;
     const moved = current === null || current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height;
-    if (placedOn !== null && placedOn !== id) sliding.value = true;
+    // 挪了位置才改：滑到一半又点了别的入口，接着滑（过渡从此刻的位置重定向）；别的原因挪了位置（缩放、拖动换位）直接到位。
+    if (moved) sliding.value = switched && placedOn !== null && placedOn !== id;
     placedOn = id;
     indicatorShown.value = true;
     if (moved) indicator.value = next;
+    settleAfterFirstPlacement();
 }
 
-// 入口、摆出来的入口变了（条目区的尺寸变了也会重算 `strip`）：画完再量。
-watch([() => props.entries, () => strip.value], placeIndicator, {flush: "post"});
+/**
+ * 第一次放下不淡入：有了入口的那一次放置（挂上时文档可能还没到、入口是空的）画进 DOM 之后，强制算一次样式（过渡的起点就是放好的样子），
+ * 再打开过渡。那一次没有按下的（侧栏隐藏着），之后按下时照常淡入。
+ */
+let settling = false;
+function settleAfterFirstPlacement(): void {
+    if (settled.value || settling || shownEntries.value.length === 0) return;
+    settling = true;
+    void nextTick(() => {
+        indicatorEl.value?.getBoundingClientRect();
+        settled.value = true;
+    });
+}
+
+/** 按下的入口、摆出来的入口、条目区的高度与这一次是不是滚过去：拖动预览每一帧都换新的 `entries` 数组，只按这几样比，不每帧量。 */
+const indicatorKey = computed(() => `${shownEntries.value.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}`).join(",")}|${String(available.value)}|${String(props.slideToken)}`);
+watch(indicatorKey, placeIndicator, {flush: "post"});
 onMounted(placeIndicator);
 
-/** 滑完（或被打断）再摘掉过渡：滑到一半摘掉，块就一下子到终点。 */
+/**
+ * 滑完再摘掉过渡。滑到一半又换了一次（又点了别的入口）时浏览器先取消上一段、马上开始下一段：这时摘掉，下一段也跟着没了，块一下子到终点；
+ * 所以不听 `transitioncancel`，`transitionend` 来时还有别的 `transform` 过渡在走也不摘。
+ */
 function onIndicatorTransitionEnd(event: TransitionEvent): void {
-    if (event.propertyName === "transform") sliding.value = false;
+    if (event.propertyName !== "transform") return;
+    const running = (event.currentTarget as HTMLElement).getAnimations().some((animation) => (animation as Animation & {transitionProperty?: string}).transitionProperty === "transform");
+    if (!running) sliding.value = false;
 }
 
 const indicatorStyle = computed(() => {
@@ -158,14 +208,15 @@ const indicatorStyle = computed(() => {
     <nav class="workbench-tool-strip" :aria-label="label">
         <div ref="bandEl" class="workbench-tool-strip__entries" data-tool-band>
             <span
+                ref="indicatorEl"
                 class="workbench-tool-strip__indicator"
                 data-tool-indicator
                 aria-hidden="true"
                 :data-shown="indicatorShown ? '' : undefined"
                 :data-sliding="sliding ? '' : undefined"
+                :data-settled="settled ? '' : undefined"
                 :style="indicatorStyle"
                 @transitionend="onIndicatorTransitionEnd"
-                @transitioncancel="onIndicatorTransitionEnd"
             ></span>
             <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
             <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
@@ -332,14 +383,17 @@ const indicatorStyle = computed(() => {
     background: var(--skin-activitybar-hover, var(--bg-hover));
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--motion-layout) var(--ease-layout);
 }
 
 .workbench-tool-strip__indicator[data-shown] {
     opacity: 1;
 }
 
-.workbench-tool-strip__indicator[data-sliding] {
+.workbench-tool-strip__indicator[data-settled] {
+    transition: opacity var(--motion-layout) var(--ease-layout);
+}
+
+.workbench-tool-strip__indicator[data-settled][data-sliding] {
     transition: opacity var(--motion-layout) var(--ease-layout), transform var(--motion-layout) var(--ease-layout);
 }
 

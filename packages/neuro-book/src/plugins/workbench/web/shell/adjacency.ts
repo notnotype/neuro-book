@@ -80,7 +80,8 @@ function sideOf(path: ReadonlyArray<Step>, axis: Orientation, direction: -1 | 1,
     return {side: {kind: "outer", occupied}, neighbor: null};
 }
 
-const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "leaf" ? [node.id] : node.children.flatMap(leafIdsOf));
+/** 一棵子树里的叶，按从前到后的顺序。 */
+export const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "leaf" ? [node.id] : node.children.flatMap(leafIdsOf));
 
 export function layoutCardEdges(input: CardInput): Readonly<Record<string, CardEdges>> {
     const cards: Record<string, CardEdges> = {};
