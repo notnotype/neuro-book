@@ -43,4 +43,6 @@ updated: 2026-11-17
 
 ## 下一步
 
-设计已定。2026-11-17 开发者说“t09 可以开工”（并问上传接口做好了没有：没有，接口是本 Task 第 1 片）。Spec 已写（planned）：[`workspace/files.md`](../../../../../docs/specs/workspace/files.md) 的“写入图片”与场景 12，[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 52–58 与场景 27–30。计划第一稿：[plan.md](plan.md)，末尾“待确认”七条等开发者看；确认后前后端分开审查（第 1 片后端交 omp，其余前端交 Sonnet）再实施。
+设计已定。2026-11-17 开发者说“t09 可以开工”（并问上传接口做好了没有：没有，接口是本 Task 第 1 片）。Spec 已写（planned）：[`workspace/files.md`](../../../../../docs/specs/workspace/files.md) 的“写入图片”与场景 12，[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 52–58 与场景 27–30。计划第一稿：[plan.md](plan.md)，末尾“待确认”七条等开发者看；开发者 2026-11-17 说“可以，没问题”（待确认七条都照推荐）。前后端分开做设计审查：后端部分交 omp（默认模型），前端部分交 Claude Sonnet，说明与报告在 `/tmp/review-w00025-t09-design/`，处理完再实施。
+
+执行位置：`.worktree/w00025-t09-links-images`，分支 `feat/w00025-t09-links-images`。
