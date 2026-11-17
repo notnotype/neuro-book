@@ -658,7 +658,7 @@ onBeforeUnmount(() => {
                 <div ref="root" @keydown="onBodyKeydown"></div>
             </div>
         </div>
-        <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" :margin-drawn="marginDrawn" />
+        <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" :margin-drawn="marginDrawn" :base="viewHost.base" :media="media" />
     </div>
 </template>
 

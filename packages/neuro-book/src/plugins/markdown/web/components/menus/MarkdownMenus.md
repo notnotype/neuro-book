@@ -5,7 +5,7 @@
 
 # MarkdownMenus
 
-Markdown 控件的菜单层（[`workbench/markdown-editing.md`](../../../../../../../../docs/specs/workbench/markdown-editing.md)）：放选区菜单、斜杠菜单、块按钮、右键菜单与它们共用的注音、双语卡片（`MarkdownTextPrompt`）。`editor` 由控件给，重挂、换文档时控件按实例更新，这一层不持有跨组件的状态。
+Markdown 控件的菜单层（[`workbench/markdown-editing.md`](../../../../../../../../docs/specs/workbench/markdown-editing.md)）：放选区菜单、斜杠菜单、块按钮、右键菜单与它们共用的注音、双语、链接卡片（`MarkdownTextPrompt`）和插图卡片（`MarkdownImageCard`）。`editor` 由控件给，`base`（此刻正在编辑的文件的地址，按函数取）与 `media`（插图能力，null 是宿主没有提供）也由控件给，重挂、换文档时控件按实例更新，这一层不持有跨组件的状态。
 
 ## 注音与双语的卡片（输出 9）
 
@@ -14,8 +14,21 @@ Markdown 控件的菜单层（[`workbench/markdown-editing.md`](../../../../../.
 - 在可写的正文里点注音小字（不带修饰键）：选中这段注音、打开卡片修改；卡片开着时点另一段的小字，卡片留着，换成那一段、重新预填。
 - 换文档、变只读时卡片关上。
 
+## 链接卡片（输出 52、57）
+
+- 入口：选区菜单与工具栏的链接按钮（发 `prompt: link`）、Ctrl+K（⌘K）。Ctrl+K 听滚动容器上的 `keydown`：焦点要在正文里（属性面板的输入框里不算）、可写、输入法没有在组字、此刻能加链接（代码块里不能）；拦下以后浏览器自己的 Ctrl+K 不再触发。其余情形不拦。
+- 卡片是 `MarkdownTextPrompt` 的宽版（`wide`）：光标在链接里或选区碰到链接时预填这条链接的地址（`sharedHref`），多一个“去掉链接”（`link-remove`，断开的链环图标）；碰到的几条地址不同时不预填、输入框与确认不能用（`locked`），只能去掉链接。`javascript:` 这类地址不能确认（`accepts`）。
+- 确认时 `linkRequest`（`link-input.ts`）把输入换成要写的链接：`project://` 开头的作品地址改写成相对当前文件的写法（片段与查询原样接在后面），别的原样；光标处没有链接要插入一段文字时文字取文件名（去掉扩展名）或网址本身。确认后焦点回到正文。
+- 卡片开着时选区仍画成选中（`holdSelection`）；没有选区时在光标处画一条竖线（`holdCaret`）。选区菜单与批注浮层让位。
+
+## 插图卡片（输出 54、58）
+
+- 入口：工具栏的图片按钮、斜杠菜单“块”组里的“图片”（都发 `prompt: image`）。只读、此刻不能放图片（代码块里）时不开；卡片开着时光标处画竖线。
+- 选定一张图（`insert`）：作品里的图写成相对当前文件的地址（`relativeTarget`），说明取文件名去掉扩展名；网址的图原样，说明取路径最后一段。经 `menus.run('image', {src, alt})` 执行，卡片收起、焦点回到正文。换文档、变只读时卡片关上。
+- 列表、搜索、上传与各种状态在 `MarkdownImageCard`（同目录），媒体能力在 `../../media.ts`。
+
 ## 批注（输出 28–35）
 
 批注的浮层、“写”的状态与 Ctrl+Alt+M 由 `comments/MarkdownCommentLayer`（同目录 `comments/`）负责，这一层只做两件事：选区菜单的“批注”按钮、右键菜单的“添加批注”调它的 `beginAdd`，块菜单的“批注”调 `beginAddBlock`（文字块先选中自己的文字，再同 `beginAdd`）；注音与双语卡片开着、右键菜单开着时告诉它“不弹”（`blocked`），批注在“写”时让选区菜单不显示（`suspended`）。
 
-`state:local`：正在写注音还是双语、卡片的预填与有没有移除；批注是否在“写”、右键菜单是否开着。
+`state:local`：正在写注音、双语还是链接、卡片的预填与有没有移除、链接地址是否混杂、插图卡片开着与否；批注是否在“写”、右键菜单是否开着。

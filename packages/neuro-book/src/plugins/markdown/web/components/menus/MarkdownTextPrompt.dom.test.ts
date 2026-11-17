@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 /** 与宿主（`MarkdownMenus`）一样：先关着挂上，再打开。 */
-async function open(props: {initial?: string; removeLabel?: string} = {}) {
+async function open(props: {initial?: string; removeLabel?: string; removeIcon?: string; wide?: boolean; locked?: boolean; accepts?: (text: string) => boolean} = {}) {
     const wrapper = mount(MarkdownTextPrompt, {props: {open: false, session: 0, anchor, label: "注音", confirmLabel: "确定", ...props}, attachTo: document.body});
     mounted.push(wrapper);
     await wrapper.setProps({open: true, session: 1});
@@ -85,5 +85,47 @@ describe("MarkdownTextPrompt", () => {
         await flushPromises();
         expect(input.value).toBe("lín");
         expect(document.activeElement).toBe(input);
+    });
+
+    it("accepts：不接受的文字（例如 javascript: 地址）不能确认——按钮置灰、回车不提交；空文字仍是取消；改成可接受的就能确认", async () => {
+        const {wrapper, input} = await open({accepts: (text) => !text.startsWith("javascript:")});
+        const confirm = document.body.querySelector<HTMLButtonElement>("[data-markdown-text-prompt] button[aria-label='确定']");
+        if (confirm === null) throw new Error("没有确认按钮");
+        type(input, "javascript:alert(1)");
+        await flushPromises();
+        expect(confirm.disabled).toBe(true);
+        press(input, "Enter");
+        expect(wrapper.emitted("submit")).toBeUndefined();
+        expect(wrapper.emitted("cancel")).toBeUndefined();
+        type(input, "https://example.com");
+        await flushPromises();
+        expect(confirm.disabled).toBe(false);
+        press(input, "Enter");
+        expect(wrapper.emitted("submit")).toEqual([["https://example.com"]]);
+        type(input, "");
+        press(input, "Enter");
+        expect(wrapper.emitted("cancel")).toHaveLength(1);
+    });
+
+    it("locked：输入框与确认都不能用，只剩移除；焦点进卡片的“移除”按钮上，Esc 仍能取消", async () => {
+        const {wrapper} = await open({locked: true, removeLabel: "去掉链接", removeIcon: "i-lucide-unlink"});
+        const input = document.body.querySelector<HTMLInputElement>("[data-markdown-text-prompt] input");
+        const confirm = document.body.querySelector<HTMLButtonElement>("[data-markdown-text-prompt] button[aria-label='确定']");
+        const remove = document.body.querySelector<HTMLButtonElement>("[data-markdown-text-prompt] button[aria-label='去掉链接']");
+        expect(input?.disabled).toBe(true);
+        expect(confirm?.disabled).toBe(true);
+        expect(remove?.querySelector(".i-lucide-unlink")).not.toBeNull();
+        expect(document.activeElement).toBe(remove);
+        press(remove as Element, "Escape");
+        expect(wrapper.emitted("cancel")).toHaveLength(1);
+        remove?.click();
+        expect(wrapper.emitted("remove")).toHaveLength(1);
+    });
+
+    it("wide：链接地址的宽卡片带修饰类", async () => {
+        await open({wide: true});
+        expect(document.body.querySelector("[data-markdown-text-prompt]")?.classList.contains("markdown-text-prompt--wide")).toBe(true);
+        await open();
+        expect(document.body.querySelectorAll("[data-markdown-text-prompt]")[1]?.classList.contains("markdown-text-prompt--wide")).toBe(false);
     });
 });

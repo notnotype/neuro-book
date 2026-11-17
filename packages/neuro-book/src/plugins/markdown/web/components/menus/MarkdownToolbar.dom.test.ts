@@ -7,11 +7,11 @@ import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contr
 
 import MarkdownToolbar from "./MarkdownToolbar.vue";
 
-function fixture(options: {readonly?: boolean; link?: boolean; bold?: boolean; contributed?: boolean} = {}) {
+function fixture(options: {readonly?: boolean; linkActive?: boolean; bold?: boolean; contributed?: boolean} = {}) {
     const runs: unknown[] = [];
     const editing: EditorEditing = {
         run: () => true,
-        active: (action) => action === "bold" && options.bold === true,
+        active: (action) => (action === "bold" && options.bold === true) || (action === "link" && options.linkActive === true),
         enabled: () => true,
         hasSelection: computed(() => false),
     };
@@ -21,7 +21,7 @@ function fixture(options: {readonly?: boolean; link?: boolean; bold?: boolean; c
         label: (key) => key,
         shortcut: () => null,
         matches: () => false,
-        has: () => options.link === true,
+        has: () => false,
         run: (action, args) => runs.push(["run", action, args]),
         execute: (command) => runs.push(["execute", command]),
         contributed: () => (options.contributed === true ? [[entry]] : []),
@@ -58,9 +58,24 @@ describe("MarkdownToolbar", () => {
         expect(button("bullet-list").attributes("disabled")).toBeDefined();
     });
 
-    it("链接命令不在目录里时没有链接按钮，登记后有", () => {
-        expect(fixture().button("link").exists()).toBe(false);
-        expect(fixture({link: true}).button("link").exists()).toBe(true);
+    it("链接、图片按钮在文字颜色之后、列表之前（输出 1）；点了发 prompt 让菜单层开卡片，不直接执行命令", async () => {
+        const {wrapper, runs, button} = fixture();
+        const titles = wrapper.findAll("button").map((found) => found.attributes("title") ?? "");
+        expect(titles.indexOf("link")).toBeGreaterThan(titles.indexOf("highlight"));
+        expect(titles.indexOf("image")).toBe(titles.indexOf("link") + 1);
+        expect(titles.indexOf("bullet-list")).toBeGreaterThan(titles.indexOf("image"));
+        await button("link").trigger("click");
+        await button("image").trigger("click");
+        expect(wrapper.emitted("prompt")).toEqual([["link"], ["image"]]);
+        expect(runs).toEqual([]);
+    });
+
+    it("光标在链接里时链接按钮是按下的；只读时链接、图片按钮置灰", () => {
+        expect(fixture({linkActive: true}).button("link").attributes("aria-pressed")).toBe("true");
+        expect(fixture().button("link").attributes("aria-pressed")).toBe("false");
+        const {button} = fixture({readonly: true});
+        expect(button("link").attributes("disabled")).toBeDefined();
+        expect(button("image").attributes("disabled")).toBeDefined();
     });
 
     it("贡献的 inline 项排在内置按钮之后，点了走贡献项的路径", async () => {

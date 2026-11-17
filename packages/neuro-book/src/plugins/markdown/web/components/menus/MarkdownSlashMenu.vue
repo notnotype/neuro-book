@@ -14,14 +14,14 @@ import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/ed
 import {markdownReportKey} from "../../parts/report";
 
 const props = defineProps<{editor: Editor | null; scroller: HTMLElement | null; editing: EditorEditing; menus: EditorMenus; readonly: boolean; binding: string | null}>();
-const emit = defineEmits<{(event: "prompt", action: "bilingual"): void; (event: "closed"): void}>();
+const emit = defineEmits<{(event: "prompt", action: "bilingual" | "image"): void; (event: "closed"): void}>();
 
 const report = inject(markdownReportKey, null);
 
 const BUILTIN: ReadonlyArray<{readonly id: string; readonly actions: ReadonlyArray<EditingActionId>}> = [
     {id: "basic", actions: ["paragraph", "heading-1", "heading-2", "heading-3"]},
     {id: "lists", actions: ["bullet-list", "ordered-list", "task-list"]},
-    {id: "blocks", actions: ["quote", "callout", "code-block", "divider", "table", "bilingual", "properties"]},
+    {id: "blocks", actions: ["quote", "callout", "code-block", "divider", "table", "image", "bilingual", "properties"]},
 ];
 
 /** 菜单的状态只在组件里，不写插件视图（`MarkdownControl.md`）。 */
@@ -85,7 +85,7 @@ function choose(id: string): void {
     removeSlashQuery(editor);
     match.value = null;
     if (id.startsWith("contributed:")) props.menus.runContributed(EDITOR_SLASH_POINT, id.slice("contributed:".length));
-    else if (id === "bilingual") emit("prompt", "bilingual");
+    else if (id === "bilingual" || id === "image") emit("prompt", id);
     else props.menus.run(id as EditingActionId);
 }
 

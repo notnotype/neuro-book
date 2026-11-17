@@ -13,6 +13,9 @@ export interface ImageNotice {
     readonly params?: Readonly<Record<string, string>>;
 }
 
+/** 失败时图可能已经写进作品的码：结果未知、断开、调用方取消（请求体发完之后取消同样可能已经写下）。 */
+export const maybeStored = (code: string): boolean => code === "unknown-outcome" || code === "network" || code === "cancelled";
+
 /**
  * 一张图的失败给用户看什么。按码分：粘贴插件自己的码（`not-allowed-here`、`not-inserted`）、客户端的码（`unavailable`、`cancelled`、
  * `network`）与服务端的码表（docs/specs/workspace/files.md 的“写入图片”）。`stored` 为真的（结果未知、取消、断开）说明图可能已经在作品里。

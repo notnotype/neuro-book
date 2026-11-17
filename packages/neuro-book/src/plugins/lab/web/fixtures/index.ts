@@ -5,6 +5,7 @@ import type EditorGroupHead from "nbook/plugins/editor/web/components/EditorGrou
 import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
+import type MarkdownImageCard from "nbook/plugins/markdown/web/components/menus/MarkdownImageCard.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
@@ -831,6 +832,21 @@ export const labFixtures: LabFixture[] = [
             {id: "recycle", label: "回收：每种编辑器只留 2 个控件", input: {props: {groupId: "g0", wrapTabs: true}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
+    }),
+    defineLabFixture<typeof MarkdownImageCard>({
+        component: "MarkdownImageCard",
+        // 卡片的数据来自夹具里的假文件服务；场景决定数据与宿主状态，`english` 用英文界面。需要的锚点、菜单文字与插图能力由夹具给出。
+        scenes: [
+            {id: "list", label: "存放目录里的图：缩略图、名字过长截中间、坏图画占位", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "loading", label: "读取中", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "empty", label: "没有图", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "error", label: "读不了：说明原因", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "truncated", label: "查到的比显示的多：末尾一行提示", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "no-library", label: "宿主没有提供插图能力：只能插入网址的图片，上传置灰", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "unbound", label: "没有绑定作品：列表为空，上传置灰", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "english", label: "英文界面", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+        ],
+        load: async () => (await import("./editor-scene/MarkdownImageCardFixture.vue")).default,
     }),
     defineLabFixture<typeof ImageViewer>({
         component: "ImageViewer",

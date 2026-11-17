@@ -399,6 +399,15 @@
                 },
                 "properties": {
                     "title": "添加属性"
+                },
+                "link": {
+                    "title": "链接"
+                },
+                "link-remove": {
+                    "title": "去掉链接"
+                },
+                "image": {
+                    "title": "图片"
                 }
             },
             "view": {
@@ -656,6 +665,18 @@
         "imageNotInserted": "“{{name}}”已经存进作品（{{address}}），但没能插入",
         "imageNotAllowedHere": "这里不能插入图片",
         "imageUnavailable": "没有打开作品，不能保存图片",
-        "imageFailed": "“{{name}}”没有插入：{{detail}}"
+        "imageFailed": "“{{name}}”没有插入：{{detail}}",
+        "promptLink": "链接地址",
+        "imageCardLabel": "插入图片",
+        "imageCardPlaceholder": "搜索图片，或粘贴网址",
+        "imageCardUpload": "上传",
+        "imageCardUploading": "正在上传…",
+        "imageCardLoading": "正在读取",
+        "imageCardEmpty": "没有匹配的图片",
+        "imageCardMore": "还有更多，请输入更多字",
+        "imageCardUrl": "插入网址的图片",
+        "imageCardFailed": "读不了：{{detail}}",
+        "imageCardUrlOnly": "粘贴图片网址即可插入",
+        "imageCardNoPreview": "无法预览"
     }
 }

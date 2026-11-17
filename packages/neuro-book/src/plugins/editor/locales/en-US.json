@@ -399,6 +399,15 @@
                 },
                 "properties": {
                     "title": "Add Property"
+                },
+                "link": {
+                    "title": "Link"
+                },
+                "link-remove": {
+                    "title": "Remove Link"
+                },
+                "image": {
+                    "title": "Image"
                 }
             },
             "view": {
@@ -659,6 +668,18 @@
         "imageNotInserted": "“{{name}}” was saved to the project ({{address}}) but could not be inserted",
         "imageNotAllowedHere": "Images can’t be inserted here",
         "imageUnavailable": "No project is open, so images can’t be saved",
-        "imageFailed": "“{{name}}” was not inserted: {{detail}}"
+        "imageFailed": "“{{name}}” was not inserted: {{detail}}",
+        "promptLink": "Link address",
+        "imageCardLabel": "Insert image",
+        "imageCardPlaceholder": "Search images, or paste a URL",
+        "imageCardUpload": "Upload",
+        "imageCardUploading": "Uploading…",
+        "imageCardLoading": "Loading",
+        "imageCardEmpty": "No matching images",
+        "imageCardMore": "There are more results. Type more to narrow them down",
+        "imageCardUrl": "Insert the image at this URL",
+        "imageCardFailed": "Couldn’t load images: {{detail}}",
+        "imageCardUrlOnly": "Paste an image URL to insert it",
+        "imageCardNoPreview": "No preview"
     }
 }

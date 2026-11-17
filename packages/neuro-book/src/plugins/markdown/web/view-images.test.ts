@@ -10,7 +10,7 @@ import type {ImageFailure} from "@notnotype/nb-markdown/editor";
 import type {UploadResult} from "nbook/plugins/files/shared/upload";
 
 import {createMarkdownMedia} from "./media";
-import {createViewImages, imageFailureNotice} from "./view-images";
+import {createViewImages, imageFailureNotice, maybeStored} from "./view-images";
 
 const CURRENT = "project://卷一/第一章.md";
 const png = (name = "image.png", type = "image/png") => new File([new Uint8Array([1, 2, 3])], name, {type});
@@ -94,5 +94,12 @@ describe("失败给用户看什么（输出 55）", () => {
         images.failed(failure("too-large"));
         images.failed(failure("not-allowed-here"));
         expect(notices).toEqual([{key: "imageTooLarge", params: {name: "a.png"}}, {key: "imageNotAllowedHere"}]);
+    });
+});
+
+describe("maybeStored", () => {
+    it("结果未知、断开、取消说明图可能已经在作品里；别的失败是确定没写", () => {
+        for (const code of ["unknown-outcome", "network", "cancelled"]) expect(maybeStored(code)).toBe(true);
+        for (const code of ["too-large", "unsupported-type", "conflict", "unavailable", "io-failed"]) expect(maybeStored(code)).toBe(false);
     });
 });
