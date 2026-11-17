@@ -53,7 +53,9 @@ updated: 2026-11-17
 
 切片 5（白名单与槽）在分支提交 `72ccaced9`：`agent.profiles` 声明加 `stickers?`，`profileSettings` 每项加 `stickers?`，Profile 目录条目带 `stickers`；白名单合成文件改名为 `agent/shared/profile-allowlist.ts`（`declaredAllowlist`、`profileAllowlist`，Skill 与表情包共用）；`agent/backend/stickers/extension.ts` 的纯函数 `stickersSection` 与扩展 `nbook.agent.stickers`，`nbook.agent` 服务端可选依赖 `stickersServiceKey`。测试 `agent/stickers-slot.test.ts` 4 条（纯函数 3 条、内核测试会话 1 条：槽进系统块、别处同名表情不改槽、去掉白名单后槽没了），变异 4 个全杀；agent 的 bun 444 条与 web 56 条通过。
 
+切片 6（设置页的“表情包”一节）在分支提交 `e24daecfa`：`nbook.stickers` 的远程服务加 `packs`（表情包概要，带缩略图地址）；`agent/web/sticker-packs.ts` 客户端；`profile-view.ts` 的 `stickersField`；`profile-edits.ts` 的 `withAgentsChoice`、`withSkillsChoice` 合成 `withAllowlistChoice`；`ProfileToolsSection`、`AddToolsDialog` 加 `kind: "stickers"`（行首 24px 缩略图）；中英文字；Lab 的写作助手样本带一组表情包。测试：`profile-page.dom.test.ts` 加 2 条，变异 3 个全杀。
+
 ## 下一步
 
-- 切片 6（Profile 设置的“表情包”一节，前端）：`ProfileToolsSection.vue` 的 `kind` 加 `"stickers"`（行带第一个常用表情的缩略图），补 `profiles.stickers.*` 文字；`web/profile-edits.ts` 把 agents、skills 两份逐字相同的选择函数合成一个按字段名的；`profile-view.ts` 抽按来源分组的绑定字段；目录经 `nbook.stickers` 的远程服务取（浏览器里需要说明与 common，`BrowserStickerPack` 不带这些：设置页可能要另一个远程方法，或扩充浏览器目录）。
+- 切片 7（收口）：e2e `e2e/stickers.e2e.ts`（新：一段回复里的表情显示、窗口启动恢复时先占位后成图）与覆盖 Profile 设置页、Markdown 编辑器的已有 e2e 文件；完整构建与 `check:dist`；Spec 逐条核对、补实现合同与证据、晋升；实现审查（前端 Sonnet，后端 Opus 或 omp：开前先看 omp 的缺省模型是不是 sol）；处理后合入 master。
 - 收口时跑 `check:dist`（完整构建的最后一步）。
