@@ -19,9 +19,9 @@ updated: 2026-11-16
 
 - 计划经两轮设计审查定为 r3（第 1 轮 omp 13 条、Sonnet 13 条，[处理](evidences/design-review-r1-disposition.txt)；第 2 轮 omp 撞上额度上限、改派 Opus 9 条，[处理](evidences/design-review-r2-disposition.txt)）。最小尺寸从消息钩子改成子类化窗口过程，C 里不链接库、用相对路径编译，依据是 [探针](evidences/min-size-probe-r1.txt)。
 - 切片 1 窗口按钮（5488ac50e）、切片 2 回到书架（284ece566）：单元、DOM 测试与 e2e（desktop-frame、welcome、workbench-titlebar，18 + 5 条）通过；本机带桌面能力标记的 Chrome 截图对照过亮色、悬停与高对比度。
-- 切片 3 最小尺寸（607813710、1824618f9）：类型检查、`src/desktop` 109 条测试（含 C 纯函数在 Linux 上经 cc 的 5 条、初始外框 5 条）通过；完整 C 源在 Linux 上能编译。**Windows 实测没做成**：pc-notype 上 Windows Defender 今天 05:28 起把 Hutch 的 `hutch.exe` 判成 `Trojan:Win32/Bearfoos.A!ml`（机器学习规则）并删除，Hutch 构建跑不起来；改 Defender 设置要开发者决定。验收脚本已写好放在 pc-notype 的 `nb-w00046\t18`。
+- 切片 3 最小尺寸（607813710、1824618f9）：类型检查、`src/desktop` 109 条测试（含 C 纯函数在 Linux 上经 cc 的 5 条、初始外框 5 条）通过；完整 C 源在 Linux 上能编译。Windows 实测（2026-11-17，开发者恢复 hutch.exe 之后）通过，见 [windows-acceptance-r1.txt](evidences/windows-acceptance-r1.txt)：外框最小跟踪尺寸 816×568（客户区 800×560），最大化、最小化、还原与第二个窗口都正常，开发者看得到的标志入口：有未保存的内容时点标志，WebView2 弹出离开询问，取消后留在原页。脚本在这次对着 master 上的新页面改过两处（应用现在先停在书架，要先点书卡进作品；文件夹要点展开箭头）。
 - 已知的旁支：高对比度模式下标题栏里 nb-ui 图标类画的图标（布局按钮等）会消失，是图标类的既有问题，不在本 Task。
 
 ## 下一步
 
-开发者处理 Defender 对 hutch.exe 的拦截后，在 pc-notype 上构建测试版、跑 `t18\check.ts` 与 PrintWindow 截图；实现审查回来后处理；然后合入。
+实现审查（omp 与 Sonnet，已处理）与 Windows 验收都完成，已变基到 master 并合入（不 push）。没做的：PrintWindow 截图对照标题栏按钮外观（开发者试用时已经看过），高对比度模式下的图标类问题属于既有问题。
