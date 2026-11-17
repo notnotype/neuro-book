@@ -27,6 +27,8 @@ import {descriptor} from "./plugin";
 import {projectFilesContract} from "./shared/contracts";
 import type {ChangesMessage} from "./shared/contracts";
 import {UPLOAD_MAX_BYTES} from "./shared/upload";
+import {createFilesClient} from "./web/client";
+import type {Fetcher} from "./web/client";
 
 let tmp = "";
 const harnesses: Array<{stop(): Promise<void>}> = [];
@@ -316,6 +318,65 @@ describe("真实的 HTTP 连接（Bun.serve）", () => {
         await ok.arrayBuffer();
         expect(await readdir(join(book, "插图"))).toEqual(["ok.png"]);
         expect(await staged()).toEqual([]);
+    });
+});
+
+describe("浏览器客户端的 upload（经真实的 HTTP 连到真实的路由）", () => {
+    /** 客户端的请求是同源的相对地址：测试里补上真实服务的地址、带上同源的头。 */
+    async function client() {
+        const s = await scene();
+        const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: (request) => s.dispatch(request)});
+        const origin = `http://127.0.0.1:${String(server.port)}`;
+        s.allowed.add(origin);
+        harnesses.push({stop: async () => {
+            await server.stop(true);
+        }});
+        const requests: string[] = [];
+        const fetcher: Fetcher = (url, init) => {
+            requests.push(url);
+            return fetch(`${origin}${url}`, {...init, headers: {origin, "sec-fetch-site": "same-origin"}});
+        };
+        const bound = createFilesClient({} as never, {} as never, {} as never, {id: s.h.project.id, generation: s.lease.generation}, fetcher).service;
+        const unbound = createFilesClient({} as never, {} as never, {} as never, null, fetcher).service;
+        return {...s, bound, unbound, requests};
+    }
+
+    it("成功：返回写下的地址；已存在默认 conflict，rename 给 名字 2 并带 renamed；错误码取自响应体", async () => {
+        const {book, bound} = await client();
+        expect(await bound.upload("project://插图/a.png", new Blob([PNG]))).toEqual({ok: true, address: "project://插图/a.png", renamed: false});
+        expect(await read(book, "插图/a.png")).toEqual(PNG);
+        expect(await bound.upload("project://插图/a.png", PNG_2)).toMatchObject({ok: false, code: "conflict"});
+        expect(await bound.upload("project://插图/a.png", PNG_2, {exists: "rename"})).toEqual({ok: true, address: "project://插图/a 2.png", renamed: true});
+        expect(await bound.upload("project://插图/b.png", JPEG)).toMatchObject({ok: false, code: "extension-mismatch"});
+        expect(await bound.upload("project://.nbook/b.png", PNG)).toMatchObject({ok: false, code: "protected-path"});
+    });
+
+    it("不发出请求：没有绑定作品、不是 project://、地址不合法为 unavailable；超过 32 MiB 在客户端就 too-large", async () => {
+        const {book, bound, unbound, requests} = await client();
+        expect(await unbound.upload("project://插图/a.png", PNG)).toMatchObject({ok: false, code: "unavailable"});
+        expect(await bound.upload("user://插图/a.png", PNG)).toMatchObject({ok: false, code: "unavailable"});
+        expect(await bound.upload("不是地址", PNG)).toMatchObject({ok: false, code: "unavailable"});
+        expect(await bound.upload("project://插图/big.png", new Uint8Array(UPLOAD_MAX_BYTES + 1))).toMatchObject({ok: false, code: "too-large"});
+        // 这几次都没有发出请求，不是发出去被服务端拒绝。
+        expect(requests).toEqual([]);
+        expect(await readdir(book).then((names) => names.includes("插图"))).toBe(false);
+    });
+
+    it("调用方取消：cancelled，不当成一定没写；服务连不上：network", async () => {
+        const {bound} = await client();
+        const abort = new AbortController();
+        abort.abort();
+        expect(await bound.upload("project://插图/a.png", PNG, {signal: abort.signal})).toMatchObject({ok: false, code: "cancelled"});
+        const dead = createFilesClient({} as never, {} as never, {} as never, {id: "x", generation: 1}, () => Promise.reject(new TypeError("Failed to fetch"))).service;
+        expect(await dead.upload("project://插图/a.png", PNG)).toMatchObject({ok: false, code: "network"});
+    });
+
+    it("响应体不认得时按状态码兜底（413 是 too-large），不是 JSON 也不抛出", async () => {
+        const odd = (status: number): Fetcher => () => Promise.resolve(new Response("<html>bad gateway</html>", {status}));
+        for (const [status, expected] of [[413, "too-large"], [502, "unknown-outcome"], [418, "io-failed"]] as const) {
+            const service = createFilesClient({} as never, {} as never, {} as never, {id: "x", generation: 1}, odd(status)).service;
+            expect(await service.upload("project://插图/a.png", PNG)).toMatchObject({ok: false, code: expected});
+        }
     });
 });
 

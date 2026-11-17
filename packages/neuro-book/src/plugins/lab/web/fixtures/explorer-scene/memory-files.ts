@@ -452,6 +452,7 @@ export function createMemoryFiles(seed: MemorySeed): MemoryFiles {
     const files: FilesService = {
         // Lab 里没有服务端，没有字节路由；内存文件只有文本。
         rawUrl: () => null,
+        upload: () => Promise.resolve({ok: false, code: "unavailable", detail: "Lab 里没有服务端，不能上传"}),
         list: (address) => {
             const at = resolve(address);
             return later("ok" in at ? at : listing(at.root, at.path));

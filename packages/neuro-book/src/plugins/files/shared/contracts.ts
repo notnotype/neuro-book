@@ -15,6 +15,7 @@ import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 
 import {FILES_FAILURES} from "./failures";
+import type {UploadExists, UploadResult} from "./upload";
 import type {FilesFailureCode} from "./failures";
 import {parseResource} from "./resource";
 import type {Scheme} from "./resource";
@@ -404,6 +405,12 @@ export interface FilesService {
     watch(scheme: Scheme, listener: (message: WatchMessage) => void): () => void;
     /** 按地址读取字节的 URL（docs/specs/workspace/files.md 的“按地址读取字节”），本页面同源；没有绑定项目时 `project://` 为 null。 */
     rawUrl(address: string): string | null;
+    /**
+     * 往作品里写一张图片（docs/specs/workspace/files.md 的“写入图片”）：`project://` 地址、`PUT` 原始字节，只新建不覆盖；
+     * `exists` 缺省 `fail`（已存在为 `conflict`），`rename` 时取第一个空着的 `名字 N`。没有绑定项目或地址不是 `project://` 时
+     * 不发出请求、结果是 `unavailable`。
+     */
+    upload(address: string, body: Blob | Uint8Array, options?: {readonly exists?: UploadExists; readonly signal?: AbortSignal}): Promise<UploadResult>;
 }
 
 /** 上传主题场景素材：`PUT` 原始字节，成功回 `{address}`，失败回 `{code, detail}`（docs/specs/theme/editor.md 的“写场景素材”）。 */
@@ -453,6 +460,14 @@ export function rawUrlOf(address: string, project: {readonly id: string; readonl
     const path = parsed.resource.path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
     if (parsed.resource.scheme === "user") return `/api/nbook.files/raw/user/${path}`;
     return project === null ? null : `/api/nbook.files/raw/project/${encodeURIComponent(project.id)}/${String(project.generation)}/${path}`;
+}
+
+/** 上传的 URL：与读取同一个地址，只有 `project://`；地址不合法、不是 `project://` 或没有绑定项目时为 null。 */
+export function uploadUrlOf(address: string, project: {readonly id: string; readonly generation: number} | null, exists: UploadExists = "fail"): string | null {
+    const parsed = parseResource(address);
+    if (!parsed.ok || parsed.resource.scheme !== "project") return null;
+    const url = rawUrlOf(address, project);
+    return url === null ? null : `${url}${exists === "rename" ? "?exists=rename" : ""}`;
 }
 
 /** 浏览器里的插件依赖它取得按调用方的文件客户端。 */
