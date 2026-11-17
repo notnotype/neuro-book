@@ -363,6 +363,14 @@ describe("宿主给的图标、显示名与类型（输出 60）", () => {
         expect(row(wrapper, "地点").find("button.markdown-properties__type .i-lucide-text").exists()).toBe(true);
         await openKinds(row(wrapper, "视角"));
         expect(menuItems().map((item) => [item.textContent?.trim(), item.getAttribute("aria-checked")])).toEqual([["文字", "true"], ["数字", "false"], ["勾选", "false"], ["日期", "false"], ["列表", "false"]]);
+        // 按钮的名称写出当前类型，不写图标是什么。
+        expect(row(wrapper, "视角").get("button.markdown-properties__type").attributes("aria-label")).toBe("类型：文字");
+    });
+
+    it("声明的类型不让类型菜单里别的项置灰：空值的行声明为日期，五种类型都能选", async () => {
+        const {wrapper} = panel(RAW, {describe});
+        await openKinds(row(wrapper, "时间"));
+        expect(menuItems().map((item) => [item.textContent?.trim(), item.getAttribute("aria-checked"), item.getAttribute("aria-disabled")])).toEqual([["文字", "false", null], ["数字", "false", null], ["勾选", "false", null], ["日期", "true", null], ["列表", "false", null]]);
     });
 
     it("显示名换掉名字一列、摘要与输入的可访问名称；提示带真名；`data-property-name` 仍是真名", async () => {

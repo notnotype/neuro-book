@@ -79,7 +79,9 @@ async function start(plugins: ReadonlyArray<PluginDefinition>) {
     cleanups.push(() => wrapper.unmount());
     // 第一次挂载要等 Vitest 转换编辑器的模块。
     await waitUntil("面板出现", () => (document.querySelector("[data-markdown-properties]") === null ? null : true), {timeoutMs: 20_000});
-    return {store, wrapper, application, engine};
+    const doc = area.documentOf(groupId);
+    if (doc === null) throw new Error("没有取到文档");
+    return {store, wrapper, application, engine, doc};
 }
 
 const panel = (): HTMLElement => document.querySelector("[data-markdown-properties]") as HTMLElement;
@@ -87,7 +89,7 @@ const row = (name: string): HTMLElement => panel().querySelector(`[data-property
 
 describe("属性声明的贡献（经真实的插件运行时）", () => {
     it("声明按名字生效：摘要与行里是显示名、图标，空值的行按声明的类型输入；文件字节不变", async () => {
-        const {wrapper, engine} = await start([contributor("test.canon", {
+        const {wrapper, engine, doc} = await start([contributor("test.canon", {
             pov: {name: "视角", icon: "i-lucide-eye", label: "叙述视角"},
             when: {name: "时间", kind: "date"},
             words: {name: "字数目标", kind: "number", label: {"zh-CN": "预计字数", "en-US": "Word goal"}},
@@ -101,12 +103,16 @@ describe("属性声明的贡献（经真实的插件运行时）", () => {
         expect(row("字数目标").querySelector('[data-property-kind="number"]')).not.toBeNull();
         expect(row("地点").querySelector(".markdown-properties__type .i-lucide-text")).not.toBeNull();
         expect(wrapper.html()).not.toContain("Word goal");
+        // 空值的行按声明的类型显示，文件不因此改动（没有改动的输入、文档不脏）。
+        expect(doc.text.value).toBe(FRONTMATTER);
+        expect(doc.dirty.value).toBe(false);
         // 界面语言经窗口的翻译引擎切换：按语言的显示名跟着变，别的行不动。
         engine.setLocale("en-US");
         await waitUntil("英文显示名", () => (row("字数目标").querySelector(".markdown-properties__name")?.textContent === "Word goal" ? true : null));
         expect(row("视角").querySelector(".markdown-properties__name")?.textContent).toBe("叙述视角");
         engine.setLocale("zh-CN");
         await waitUntil("中文显示名", () => (row("字数目标").querySelector(".markdown-properties__name")?.textContent === "预计字数" ? true : null));
+        expect(doc.dirty.value).toBe(false);
     });
 
     it("同名冲突：id 码元顺序最小的整条生效，被忽略的记一条诊断；不合格的声明被贡献点拒绝、不生效", async () => {
