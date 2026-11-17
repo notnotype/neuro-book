@@ -28,6 +28,8 @@ updated: 2026-11-05
 
 2026-11-17：t27 拆成两个（[待确认清单](pending-confirmations.md)）：[t27](tasks/t27-region-entry-strips/README.md) 留一个容器一张卡片与侧栏切换容器的滚动，右栏与底部面板的入口条拆到 [t28](tasks/t28-panel-entry-strips/README.md)。顺序 t27 → t28 → t26 → t14。
 
+2026-11-17：开发者要求重新设计面板头与分节全部收起的样子，新建 [t29](tasks/t29-panel-head-redesign/README.md)（评审板逐轮定稿）。t28 并成一行的头就是这个面板头，所以 t28 的 nb-layout 两片照常先做，画出入口条的那一片排在 t29 定稿之后；t29 定稿后的实现和 t28 那一片前后挨着做。
+
 2026-11-17：t27 合入 master（`bcc1d3528`），实现审查在后台。
 
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
