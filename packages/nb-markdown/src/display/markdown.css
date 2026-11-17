@@ -10,6 +10,11 @@
     line-height: var(--markdown-line-height, 1.7);
 }
 
+/* 段落与列表项的末行不只剩一两个字（不支持的浏览器忽略）。 */
+.nb-markdown :is(p, li) {
+    text-wrap: pretty;
+}
+
 .nb-markdown > * + * {
     margin-top: var(--markdown-block-gap, 0.75em);
 }
@@ -135,6 +140,14 @@
     text-underline-offset: 0.3em;
 }
 
+/*
+ * 盖住文件引用小块的批注：批注是链接外面的一层，波浪线按它画，默认偏移会落在小块下边框外、与边框叠成两条线。收到基线下面，
+ * 落进小块里。
+ */
+.nb-markdown comment:has(.nb-chip-link) {
+    text-underline-offset: 0;
+}
+
 /* 块批注里的块之间留与顶层同样的间隔（顶层的间隔只给直接子元素，见文件开头）。 */
 .nb-markdown .nb-comment-block > * + * {
     margin-top: var(--markdown-block-gap, 0.75em);
@@ -216,6 +229,14 @@
     /* Safari 只认带前缀的；带前缀的写在前面，见 nb-ui styles.css 里 backdrop-filter 那条。 */
     -webkit-user-select: none;
     user-select: none;
+}
+
+/*
+ * 展示器里的注音是原生的 `ruby`：行高写死时浏览器不为读音加高这一行，块首行的读音会伸进上面的块间距、几乎贴着上一块。含注音
+ * 的块行距加 0.45em（约一行读音的高度），读音上方留出空，仍贴着它注的字。
+ */
+.nb-markdown-display :is(p, h1, h2, h3, h4, h5, h6):has(ruby) {
+    line-height: calc(var(--markdown-line-height, 1.7) * 1em + 0.45em);
 }
 
 /*
@@ -328,7 +349,7 @@
     content: attr(data-bilingual-text);
     display: block;
     margin-bottom: 0.25em;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: 0.85em;
 }
 
@@ -341,10 +362,15 @@
  * 高亮（输出 15、24）：没有颜色时的底色；带颜色的写在行内样式里，盖过这里。不用 `--status-warning-bg`：它是给面板底色配的
  * 浅色，叠在偏暖的浅色纸面上几乎看不出来。
  */
+/* 底色比字左右多出一点（负外边距抵消，文字位置不动），折行时每段各自带边。 */
 .nb-markdown mark {
-    border-radius: 2px;
+    margin-inline: -0.15em;
+    border-radius: 4px;
     background: color-mix(in srgb, var(--status-warning) 32%, transparent);
+    padding: 0.05em 0.15em;
     color: inherit;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
 }
 
 /* 上标、下标（输出 15）。 */
@@ -380,7 +406,7 @@
 }
 
 .nb-markdown .nb-raw-inline-html {
-    border-radius: 3px;
+    border-radius: 4px;
     padding: 0 0.2em;
 }
 
@@ -523,9 +549,19 @@
     background: var(--bg-hover);
 }
 
+/*
+ * 源码与原样块同一档字号；折行显示，不横向切掉（读者看不出右边还有）。底色往黑色里调一点：亮暗两套里都比纸面略深，不像
+ * `--bg-hover` 那样在暗色里翻成比纸面亮。
+ */
 .nb-markdown .nb-html-embed__source {
     margin: 0;
     border-radius: 0;
+    background: color-mix(in srgb, black 5%, var(--bg-panel));
+    padding: 0.75rem 1rem;
+    font-size: 0.85em;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .nb-markdown .nb-html-embed__frame {

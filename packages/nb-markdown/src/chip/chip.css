@@ -102,7 +102,7 @@
  * 被拆成几段元素：外框的上下边每段都画，左边与圆角画在首段前面的图标上，右边与圆角只画在末段的结尾，看起来仍是一个小块。
  */
 .nb-chip-link {
-    padding: 0.05em 0;
+    padding: 0;
     border-block: 1px solid color-mix(in srgb, var(--text-main) 16%, transparent);
     background: color-mix(in srgb, var(--text-main) 9%, var(--bg-panel));
     color: var(--text-main);
@@ -112,6 +112,7 @@
 }
 
 .nb-chip-link--end {
+    margin-inline-end: 0.1rem;
     padding-inline-end: 0.38rem;
     border-inline-end: 1px solid color-mix(in srgb, var(--text-main) 16%, transparent);
     border-start-end-radius: 0.4rem;
@@ -124,7 +125,7 @@
  */
 .nb-chip-link__icon {
     display: inline;
-    padding: 0.05em 0.25rem 0.05em 0.38rem;
+    padding: 0 0.25rem 0 0.38rem;
     margin-inline-start: 0.1rem;
     border: 1px solid color-mix(in srgb, var(--text-main) 16%, transparent);
     border-inline-end: 0;
