@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t27-region-entry-strips
-status: active
+status: done
 updated: 2026-11-17
 ---
 
@@ -154,6 +154,8 @@ updated: 2026-11-17
   | 10 | Spec 写“隔一条缝”，实际是各自的外缝加一条缝（和评审页一致） | 成立，改 Spec 输出 42 的措辞，按评审页的样子写（这个取舍待确认清单 2026-11-16 那一行已记着）；输出 22 同时写明只有滚过去的那一次滑、命令打开视图不滚 |
 - 实现审查修正的验证：neuro-book 类型检查；`adjacency.test.ts`；e2e `workbench-containers`、`workbench-views`、`lab-workbench-surface` 68 条，`workbench-live-drag` 23 条与修正后新改的两条（第 5 条的淡入、第 3 条的那一格）过；第 1、3、5、6 条的用例都在页面里还原旧行为跑过，确认会失败。
 
+- 实现审查的修正合入 master（`07f7e7e24`），本 Task 完成。
+
 ## 下一步
 
-实现审查的修正合入 master 后完成。接着做 [t28](../t28-panel-entry-strips/README.md)。
+无。右栏、底部面板的入口条在 [t28](../t28-panel-entry-strips/README.md)。
