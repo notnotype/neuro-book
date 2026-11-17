@@ -1,0 +1,35 @@
+t09 Spec 晋升前的逐条核对（2026-11-17，代码已合入 master，ffa4dca8f）
+范围：workspace/files.md“写入图片”与场景 12；workspace/resources.md 的 find `extensions`；workbench/markdown-editing.md 输出 1、6、11、52 到 58、命令表、场景 27 到 30；workspace/markdown-dialect.md 输出 18 的“新建时写相对地址”。
+测试路径都在 packages/ 下：BE = neuro-book/src/plugins/files/upload-route.test.ts；FS = files/files.test.ts；MD = nb-markdown/src/editor；MM = neuro-book/src/plugins/markdown/web；E2E = neuro-book/e2e/markdown-links-images.e2e.ts
+
+== 实现且有测试 ==
+files 写入图片：地址与客户端、代次与租约、只收图片与类型判定、不覆盖与 rename、取消与结果未知、码表、来源、提交与变更事件、并发上限（Gate 类）、场景 12 —— BE（真实项目子进程、真实 Bun.serve 的分块与断开）。
+resources find extensions —— FS（先过滤再截断、不分大小写、无扩展名不算、合同拒绝不合规值）。
+输出 1、6、11（入口）—— MarkdownToolbar.dom.test.ts（顺序、prompt 事件、按下态、只读）、MarkdownMenus.dom.test.ts（选区菜单的链接按钮、斜杠菜单“图片”）；E2E。
+输出 52 链接卡片 —— MD links-images.dom.test.ts（整条链接、夹图的链接、不安全地址、label）、MM link-input.test.ts（相对地址、编码、label）、MarkdownMenus.dom.test.ts（Ctrl+K、预填、去掉链接、混杂地址 locked、javascript:、焦点位置）、MarkdownTextPrompt.dom.test.ts；E2E 场景 27。
+输出 53 打开链接 —— MD image-paste.dom.test.ts（Ctrl 点、单击选中被点的整条链接、Shift/Alt、默认动作取消）、MM MarkdownControl.dom.test.ts（openLink 分类：作品文件、外部网址、javascript:、片段）、MarkdownCommentLayer.dom.test.ts（链接优先）；E2E（Ctrl 点开新标签页与编辑器区标签、只读文档不叠开）。
+输出 54 插图卡片 —— MarkdownMenus.dom.test.ts（列表倒序、上下键回车、搜索、网址、上传、选文件框开着不收、迟到与取消的结果丢弃、三种宿主状态）、MM media.test.ts、image-card-text.test.ts；E2E 场景 29。
+输出 55 粘贴图片 —— MD image-paste.dom.test.ts（判据逐类、占位与串行、一张失败、换文档与换回、只读、销毁、Shift+Insert 与 Ctrl+Shift+V、代码块）；MM view-images.test.ts；E2E 场景 28（系统剪贴板接口放一张 PNG，核对文件头与宽高）。
+输出 56 存放与命名 —— editor/shared/image-location.test.ts（四种位置、不合规退回缺省）、MM media.test.ts（pastedName、localName、destination）；E2E（same、sibling 与 imageFolder）。
+输出 57 地址的写法 —— nb-markdown targets.test.ts、neuro-book markdown/shared/targets.test.ts（4000 对随机往返）、link-input.test.ts。
+输出 58 只读与不可用 —— MarkdownMenus.dom.test.ts、MarkdownControl.dom.test.ts（未绑定作品给通知、Lab 照原来的粘贴）；E2E 场景 30。
+命令表 —— editing-commands.test.ts（link、link-remove、image 的前置条件与参数）。
+
+== 与 Spec 字面不一致，已改 Spec 贴实现 ==
+- 输出 55：代码块等不能放图片的位置，实现是吞掉粘贴并给通知（Spec 原写“照原来的粘贴”）；已改 Spec。
+- 输出 55：切到别的文件时没传的不再传（Spec 原写“占位还在”）；已改 Spec。
+- 命令表：`nbook.edit.link` 的参数多了 `label?`；已补。
+- 输出 53：单击选中整条链接改由 MarkdownLinkOpener 实现（原以为是 Tiptap 自带的，真实浏览器里它选中的是之前的链接）。
+
+== 没有实现或没有核实（晋升前要定） ==
+- 输出 53“文件不在时给出通知”：Ctrl 点一个已不存在的作品文件，现在是交 `nbook.editor.open` 打开一个标签，是否有通知没有核对（打开命令的结果在 `menus.execute` 里被丢弃）。待核对，可能要补。
+- 输出 54：选文件框开着时窗口失焦不收卡片，只在 DOM 测试里模拟了 focusout；桌面壳里的系统选文件框未验证（Playwright 的 setInputFiles 绕过它）。
+- 输出 55：系统剪贴板的四类真实内容（Windows 截图、文件管理器复制文件、网页复制图、Word 里的图）只按形状逐类写了判据测试，真机未验证；Chromium 把剪贴板位图重编码成 PNG（e2e 只比文件头与宽高）。
+- 场景 28 的 40 MiB 粘贴：后端用例（33 MiB 分块）与客户端不发出覆盖，端到端没有造几十兆的位图。
+- 输出 52、54 的窄屏（390px）、英文界面：Lab 场景可看，没有 e2e。
+- 已知限制（Spec 已写）：读请求体无空闲超时；内容文件夹里 same/sibling 存的图是未列入项；`www.example.com` 按相对地址写。
+
+== 晋升步骤（等开发者批准） ==
+1. files.md、resources.md、markdown-editing.md 去掉条目级“（planned）”，status 保持 implemented，补“实现合同”与“证据”（指向上面的测试与代码）。
+2. markdown-dialect.md 输出 18 去掉“新建时写相对地址（planned）”标记。
+3. 上面“没有实现或没有核实”的第一条先定：补通知，或 Spec 改成“打开命令照常处理（不存在的文件由编辑区显示读取失败）”。

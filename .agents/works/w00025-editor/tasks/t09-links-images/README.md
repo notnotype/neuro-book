@@ -48,3 +48,5 @@ updated: 2026-11-17
 执行位置：`.worktree/w00025-t09-links-images`，分支 `feat/w00025-t09-links-images`。
 
 进度（2026-11-17）：第 1 片（后端）与第 2 片（nb-markdown 的动作、Ctrl 点链接、粘贴插件）已提交；第 1 片的实现审查交 Claude Opus（阻断 0、重要 3、建议 9，[报告](evidences/impl-review-s1.txt)），处理见 [`evidences/impl-review-s1-disposition.txt`](evidences/impl-review-s1-disposition.txt)，修正在 81f8c7d64。第 3 片（能力与设置）、第 4 片（链接卡片、插图卡片与入口）已提交；第 5 片的 e2e（[`e2e/markdown-links-images.e2e.ts`](../../../../../packages/neuro-book/e2e/markdown-links-images.e2e.ts)，场景 27 到 30，真实 Chrome 的键盘、剪贴板与上传）通过。第 2 到 4 片的前端实现审查交 Claude Sonnet（阻断 0、重要 3、建议 12，[报告](evidences/impl-review-s24.txt)），处理见 [`evidences/impl-review-s24-disposition.txt`](evidences/impl-review-s24-disposition.txt)。
+
+收口（2026-11-17）：代码已合入 master（ffa4dca8f，worktree 与分支已删）；合入前相关 e2e 六个文件 104 条通过（两条负载下的计时用例单独重跑通过）。Spec 晋升前的逐条核对见 [`evidences/spec-check.txt`](evidences/spec-check.txt)：条目都有实现与测试，有几处与 Spec 字面不一致的已改 Spec，还有一条没核实（输出 53“文件不在时给出通知”）与几项只能真机试用的未验证项；晋升 `implemented` 等开发者批准。
