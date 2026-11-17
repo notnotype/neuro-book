@@ -461,9 +461,26 @@ describe("表情包（stickers.md 输出 19、profile-settings.md 输出 27）",
         await waitUntil("恢复默认后清掉", () => profileSettings(settings)["nbook.agent.main"]?.stickers === undefined || null);
     });
 
-    it("没有表情包时没有这一节", async () => {
-        const {wrapper} = open({stickerPacks: packsClient([])});
+    it("声明了表情包的 Profile：去掉的写进 removed、收进“已去掉”，加回清掉这一项", async () => {
+        const remote = fakeRemote({listed: () => [{...MAIN, stickers: {allowed: ["user.lyra"]}}]});
+        const {wrapper, settings} = open({remote, stickerPacks: packsClient([summary("lyra")])});
         await ready(wrapper);
+        const section = () => wrapper.get("[data-profile-stickers]");
+        await section().get("[data-profile-tool='user.lyra'] [data-profile-tool-remove]").trigger("click");
+        await waitUntil("写下 removed", () => profileSettings(settings)["nbook.agent.main"]?.stickers !== undefined || null);
+        expect(profileSettings(settings)["nbook.agent.main"]?.stickers).toEqual({added: [], removed: ["user.lyra"]});
+        await section().get("[data-profile-tool-group='removed'] [data-profile-tool-add-back]").trigger("click");
+        await waitUntil("加回后清掉", () => profileSettings(settings)["nbook.agent.main"]?.stickers === undefined || null);
+        expect(profileSettings(settings)["nbook.agent.main"]?.skills).toBeUndefined();
+    });
+
+    it("表情包都删光了：白名单里的列在“已删除或不可用”；从来没有过表情包、也没有设置的 Profile 没有这一节", async () => {
+        const remote = fakeRemote({listed: () => [{...MAIN, stickers: {allowed: ["user.lyra"]}}, MINE]});
+        const {wrapper} = open({remote, stickerPacks: packsClient([])});
+        await ready(wrapper);
+        expect(wrapper.get("[data-profile-stickers] [data-profile-tool-group='gone'] [data-profile-tool='user.lyra']").text()).toContain("user.lyra");
+        await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
+        await waitUntil("换到 mine", () => wrapper.find("[data-profile-detail='user.mine']").exists() || null);
         expect(wrapper.find("[data-profile-stickers]").exists()).toBe(false);
     });
 });

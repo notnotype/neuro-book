@@ -9,7 +9,7 @@ import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Page} from "@playwright/test";
+import type {Locator, Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {localModelSettings} from "nbook/plugins/agent/testing/endpoint";
@@ -79,9 +79,9 @@ async function openConversation(page: Page): Promise<void> {
     await expect(input(page)).toBeVisible();
 }
 
-/** 回复里的一个表情：换成了图、图读得出来（取图路由给了图片字节）。 */
-async function expectImage(page: Page, raw: string): Promise<void> {
-    const image = page.locator(`.nb-sticker[data-sticker="${raw}"] img`).first();
+/** `scope` 里的一个表情：换成了图、图读得出来（取图路由给了图片字节）。 */
+async function expectImage(scope: Page | Locator, raw: string): Promise<void> {
+    const image = scope.locator(`.nb-sticker[data-sticker="${raw}"] img`).first();
     await expect(image).toHaveAttribute("alt", raw);
     await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete && (element as HTMLImageElement).naturalWidth > 0)).toBe(true);
 }
@@ -139,7 +139,8 @@ test("验收 4：编辑器里表情是一个整体，别处打字只改打字处
     await page.locator("[data-explorer-row=\"project://表情.md\"]").dblclick();
     const prose = page.locator("[data-editor-group-active] [data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
     await expect(prose).toBeVisible();
-    await expectImage(page, ":lyra/开心:");
+    // 只在编辑器里找：右栏恢复的对话里也有这个表情。
+    await expectImage(prose, ":lyra/开心:");
 
     // 光标从“好”后面按一次右方向键就跨过表情（输出 21）。
     await prose.locator("p").first().click();

@@ -63,4 +63,6 @@ export interface MarkdownViewHost {
     readonly images?: MarkdownViewImages | undefined;
     /** 表情目录（docs/specs/agent/stickers.md 输出 10）；没有时表情写法显示原文。节点视图建立时读。 */
     readonly stickers?: StickerResolver | undefined;
+    /** 节点视图里的失败（例如表情目录查询失败）记诊断的出口；没有时丢掉。 */
+    readonly report?: ((message: string, error: unknown) => void) | undefined;
 }

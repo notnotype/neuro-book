@@ -16,7 +16,7 @@ import {buildSticker} from "../language/syntax/sticker/view";
 import type {MarkdownViewHost} from "./view-host";
 
 function stickerView(node: PMNode, host: MarkdownViewHost | null, document: Document): NodeView {
-    const element = buildSticker(document, rawOf(node), host?.stickers ?? undefined);
+    const element = buildSticker(document, rawOf(node), host?.stickers ?? undefined, (error) => host?.report?.("编辑器查不到表情，显示原文", error));
     element.dom.contentEditable = "false";
     return {
         dom: element.dom,
@@ -75,7 +75,9 @@ export const MarkdownStickerViews = Extension.create<{host: MarkdownViewHost | n
                             const $to = tr.doc.resolve(to);
                             const start = $from.depth > 0 ? $from.before(Math.min($from.depth, 1)) : from;
                             const end = $to.depth > 0 ? $to.after(Math.min($to.depth, 1)) : to;
-                            set = set.remove(set.find(start, end)).add(tr.doc, stickerDecorations(tr.doc, start, end));
+                            // `find` 也给只在边界上相接的装饰（前一块、后一块的），而 `nodesBetween` 不重算它们：只去掉落在范围里的。
+                            const inside = set.find(start, end).filter((decoration) => decoration.from >= start && decoration.to <= end);
+                            set = set.remove(inside).add(tr.doc, stickerDecorations(tr.doc, start, end));
                         }));
                         return set;
                     },

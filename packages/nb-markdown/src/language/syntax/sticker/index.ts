@@ -9,7 +9,7 @@ import {InputRule, Node} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import type {MarkedExtension, Tokens} from "marked";
 
-import {stickerAt, stickerEndingAt} from "../../../stickers";
+import {parseSticker, stickerAt, stickerEndingAt} from "../../../stickers";
 import type {MarkdownSyntax} from "../types";
 
 export const STICKER_NODE = "sticker";
@@ -30,7 +30,11 @@ export const MarkdownSticker = Node.create({
     },
     parseHTML() {
         // 表情元素整个认成这个叶子节点，里面的 `<img>` 不再解析：粘贴回来是表情，不会被核心的 Image 认成图片（输出 24）。
-        return [{tag: "span[data-sticker]", getAttrs: (dom) => ({raw: (dom as HTMLElement).dataset.sticker ?? ""})}];
+        // 外来的 HTML 里 `data-sticker` 不是写法时不认（节点的原文必须读得回同一个写法），落回普通文字。
+        return [{tag: "span[data-sticker]", getAttrs: (dom) => {
+            const raw = (dom as HTMLElement).dataset.sticker ?? "";
+            return parseSticker(raw) === null ? false : {raw};
+        }}];
     },
     // 剪贴板的 HTML 与没有视图时的样子：带原文，别处粘贴得到文字。
     renderHTML({node}) {

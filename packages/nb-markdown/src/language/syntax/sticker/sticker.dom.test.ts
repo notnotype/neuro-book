@@ -178,6 +178,18 @@ describe("编辑器", () => {
         expect(paragraph()?.classList.contains("nb-sticker-block")).toBe(true);
     });
 
+    it("别的块里打字、删掉整块，相邻的只有表情的块仍是大图", () => {
+        const instance = editor(":a:\n\n你好\n\n:b:\n", undefined);
+        const large = () => [...instance.view.dom.querySelectorAll("p")].map((paragraph) => paragraph.classList.contains("nb-sticker-block"));
+        expect(large()).toEqual([true, false, true]);
+        instance.commands.setTextSelection(6);
+        type(instance, "呀");
+        expect(large()).toEqual([true, false, true]);
+        const middle = instance.state.doc.child(1);
+        instance.commands.deleteRange({from: instance.state.doc.child(0).nodeSize, to: instance.state.doc.child(0).nodeSize + middle.nodeSize});
+        expect(large()).toEqual([true, true]);
+    });
+
     it("间隙随旁边的编辑更新", () => {
         const instance = editor("x :a:\n", undefined);
         const sticker = () => instance.view.dom.querySelector(".nb-sticker");
@@ -194,6 +206,12 @@ describe("编辑器", () => {
         instance.view.pasteHTML("<p>前<span class=\"nb-sticker\" data-sticker=\":lyra/开心:\" title=\":lyra/开心:\"><img class=\"nb-sticker__image\" alt=\":lyra/开心:\" src=\"/api/nbook.stickers/image/user.lyra/a.webp\"></span>后</p>");
         expect(JSON.stringify(json(instance))).toContain("\"type\":\"sticker\"");
         expect(JSON.stringify(json(instance))).not.toContain("\"type\":\"image\"");
+        // 外来的 HTML 里 `data-sticker` 不是写法：不认成表情，落回文字，这一块照样写得出。
+        const foreign = editor("x\n", undefined);
+        foreign.commands.setTextSelection(2);
+        foreign.view.pasteHTML("<p>前<span data-sticker=\"**x y**\">q</span>后</p>");
+        expect(JSON.stringify(json(foreign))).not.toContain("\"type\":\"sticker\"");
+        expect(codecFor(foreign.schema, language).write(foreign.state.doc, codecFor(foreign.schema, language).read("x\n").map).ok).toBe(true);
         const plain = editor("x\n", undefined);
         plain.commands.setTextSelection(2);
         plain.view.pasteText(":abc:");

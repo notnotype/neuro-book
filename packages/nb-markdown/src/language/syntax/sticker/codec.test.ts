@@ -76,5 +76,16 @@ describe("写", () => {
 
     it("同一块里加了留作文字的写法，别处的写法不变", () => {
         expect(appended("你好 _斜体_ 和 __粗体__\n", text(" :abc: 新增"))).toBe("你好 _斜体_ 和 __粗体__ \\:abc: 新增\n");
+        // 文字以 `:名字` 结尾、后面紧跟表情：结尾的冒号来自表情，文字里那个冒号要转义。
+        expect(appended("你好 _斜体_ 和 __粗体__\n", text(" 时间:ab"), sticker(":c:"))).toBe("你好 _斜体_ 和 __粗体__ 时间\\:ab:c:\n");
+    });
+
+    it("标题、表格单元格、强调与链接里的表情写得出读得回", () => {
+        for (const source of ["# 标题:a:\n", "| 甲 | 乙 |\n| --- | --- |\n| :a: | x:b:y |\n", "**粗:a:体** [链:b:接](x.md)\n"]) {
+            const read = codec.read(source);
+            const result = codec.write(read.doc, read.map);
+            expect(result.ok && result.text).toBe(source);
+            expect(JSON.stringify(read.doc.toJSON())).toContain("\"type\":\"sticker\"");
+        }
     });
 });

@@ -182,15 +182,28 @@ export function renderInline(parent: PMNode, context: WriteContext, place: Inlin
         if (writer === undefined) throw new Unrepresentable(`没有 ${mark.type.name} 标记的写法`);
         return writer;
     };
+    // 行内节点的写法：文字的转义要看紧随其后写出的第一个字（例如表情写法开头的冒号与文字末尾的 `:名字` 配成写法），所以写文字
+    // 之前可能先写出下一个节点，结果按位置记下，轮到它时直接用。
+    const written = new Map<number, string>();
+    const writeNode = (index: number): string => {
+        let output = written.get(index);
+        if (output === undefined) {
+            const child = children[index] as PMNode;
+            const writer = writers.inline.get(child.type.name);
+            if (writer === undefined) throw new Unrepresentable(`没有 ${child.type.name} 的写法`);
+            const previous = index === 0 ? null : (children[index - 1] as PMNode);
+            const next = index === children.length - 1 ? null : (children[index + 1] as PMNode);
+            output = writer(child, context, {previous, next, place});
+            written.set(index, output);
+        }
+        return output;
+    };
     children.forEach((child, index) => {
-        const previous = index === 0 ? null : (children[index - 1] as PMNode);
         const next = index === children.length - 1 ? null : (children[index + 1] as PMNode);
         for (const run of plan.closes[index] as Run[]) out.push(cell(writerOf(run.mark).close(run.mark, context, run)));
         for (const run of plan.opens[index] as Run[]) out.push(cell(writerOf(run.mark).open(run.mark, context, run)));
         if (!child.isText) {
-            const writer = writers.inline.get(child.type.name);
-            if (writer === undefined) throw new Unrepresentable(`没有 ${child.type.name} 的写法`);
-            out.push(cell(writer(child, context, {previous, next, place})));
+            out.push(cell(writeNode(index)));
             return;
         }
         const content = child.text as string;
@@ -200,7 +213,7 @@ export function renderInline(parent: PMNode, context: WriteContext, place: Inlin
             return;
         }
         const lineEnd = next === null || next.type.name === "hardBreak";
-        const after = next === null ? "" : next.isText ? ((next.text as string)[0] as string) : next.type.name === "hardBreak" ? "\n" : "￼";
+        const after = next === null ? "" : next.isText ? ((next.text as string)[0] as string) : next.type.name === "hardBreak" ? "\n" : (writeNode(index + 1)[0] ?? "￼");
         out.push(escapeText(content, {lineStart: last() === "" || last() === "\n", lineEnd, before: last(), after, place, full: context.options.escape === "full", definitions: context.definitions}));
     });
     for (const run of plan.tail) out.push(cell(writerOf(run.mark).close(run.mark, context, run)));

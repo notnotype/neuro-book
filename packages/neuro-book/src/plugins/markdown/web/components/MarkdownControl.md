@@ -55,7 +55,7 @@ type Emits = {
 - 属性的图标、显示名与类型（[`workbench/markdown-editing.md`](../../../../../../../docs/specs/workbench/markdown-editing.md) 输出 59–61）：插件入口按贡献点 `markdown.properties` 建好 `describe`（`../properties-catalog.ts`，声明现查、显示名经窗口翻译端口解析），经注入键 `markdownPropertiesDescribeKey` 交给控件，控件原样传给属性面板的 `describe`；没有注入（Lab、组件测试）时面板照旧。
 - 批注页边（[`workbench/markdown-editing.md`](../../../../../../../docs/specs/workbench/markdown-editing.md) 输出 33）：开关（`menus.commentMargin`，这部作品的本机记录）开着、控件够宽才画。宽度量控件根 `.markdown-control-root` 的容器宽度（不含滚动条，页边卡片把短文档撑出滚动条时不会因此少一截而来回闪），出现在“版心 + 页边宽 + 空 + 两侧最小留白”（1032px，版心取 `--markdown-measure`）、已画出的在窄于它 32px 时收起（迟滞）；常量在 `menus/comments/margin-layout.ts` 与本文件。画出来时滚动容器加 `padding-inline-end`（页边宽加空），版心自然居中在剩下的宽度里，左移半个页边宽；根上带 `data-comment-margin`，主题的两侧场景图据此不画。`marginDrawn` 算一份，下传给批注层（浮层据此不出，页边据此画）。句柄交出 `comments.count`（文档里批注的条数，每个事务现算），没有菜单层时不交出。
 
-`state:local`：编辑器实例与当前绑定；控件宽度与页边画不画。`state:inject`：方言目录、资产地址与插图能力（`markdownMediaKey`，`nbook.markdown` 交出组件时提供），以及窗口的翻译端口（[`ui/i18n.md`](../../../../../../../docs/specs/ui/i18n.md)）：引用小块的悬停提示与图片的说明经它取，`markdownViewContext()` 把它带进节点视图里挂的图片，换语言时不重建编辑器：图片跟着端口重画，引用小块的悬停提示由控件重算一次。`env:timer`：输入后的结算延迟与记下光标的延迟，卸载与结算时清除。
+`state:local`：编辑器实例与当前绑定；控件宽度与页边画不画。`state:inject`：方言目录、资产地址与插图能力（`markdownMediaKey`，`nbook.markdown` 交出组件时提供）、表情目录（`markdownStickersKey`）与诊断出口（`markdownReportKey`，节点视图里的失败经它记诊断），以及窗口的翻译端口（[`ui/i18n.md`](../../../../../../../docs/specs/ui/i18n.md)）：引用小块的悬停提示与图片的说明经它取，`markdownViewContext()` 把它带进节点视图里挂的图片，换语言时不重建编辑器：图片跟着端口重画，引用小块的悬停提示由控件重算一次。`env:timer`：输入后的结算延迟与记下光标的延迟，卸载与结算时清除。
 
 ## 不支持
 

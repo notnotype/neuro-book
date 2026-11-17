@@ -10,8 +10,8 @@
     line-height: var(--markdown-line-height, 1.7);
 }
 
-/* 段落与列表项的末行不只剩一两个字（不支持的浏览器忽略）。 */
-.nb-markdown :is(p, li) {
+/* 段落与列表项的末行不只剩一两个字（不支持的浏览器忽略）。只给展示器：编辑器里打字时末几行会随输入重排。 */
+.nb-markdown-display :is(p, li) {
     text-wrap: pretty;
 }
 
@@ -22,9 +22,11 @@
 /*
  * 块间距分两层（近似：同组靠近、异组拉开）：带框或底色的大块（提示块、HTML 卡片、单独一段的图片）前后是 1.5 倍间距；居中的对齐
  * 块多用作小标题，与它引出的下一块贴近到一半。都按 `--markdown-block-gap` 算，编辑器的纸面与对话里的展示器各自成比例。
+ * “单独一段的图片”按元素判断：编辑器在以不可编辑节点结尾的段落末尾加一个 `br.ProseMirror-trailingBreak`，也算；图片旁边只有
+ * 文字（没有别的元素）的段落也会被当成单独一段（CSS 看不到文字节点，已知限制）。
  */
-.nb-markdown > :is(.nb-callout, .nb-html-embed, p:has(> .nb-markdown-image-node:only-child)) + *,
-.nb-markdown > * + :is(.nb-callout, .nb-html-embed, p:has(> .nb-markdown-image-node:only-child)) {
+.nb-markdown > :is(.nb-callout, .nb-html-embed, p:has(> .nb-markdown-image-node:only-child), p:has(> .nb-markdown-image-node:first-child + br.ProseMirror-trailingBreak:last-child)) + *,
+.nb-markdown > * + :is(.nb-callout, .nb-html-embed, p:has(> .nb-markdown-image-node:only-child), p:has(> .nb-markdown-image-node:first-child + br.ProseMirror-trailingBreak:last-child)) {
     margin-top: calc(var(--markdown-block-gap, 0.75em) * 1.5);
 }
 
@@ -331,13 +333,17 @@
     max-width: none;
 }
 
+/* 大图高度固定、宽按比例；比文本块还宽的（横幅表情、窄对话栏）缩到块宽，图在框里按比例放下。 */
 .nb-markdown .nb-sticker-block .nb-sticker.has-image {
+    max-width: 100%;
     margin-block: 0;
     vertical-align: bottom;
 }
 
 .nb-markdown .nb-sticker-block .nb-sticker__image {
     height: var(--nb-sticker-large-size, 120px);
+    max-width: 100%;
+    object-fit: contain;
 }
 
 .nb-markdown .nb-sticker.ProseMirror-selectednode {
