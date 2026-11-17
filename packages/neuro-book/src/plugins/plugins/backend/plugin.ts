@@ -38,6 +38,8 @@ export const pluginsBackendPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
+        // 启动即激活：上传路由（`/api/nbook.plugins/uploads`）随入口挂上，插件页不必先发一次远程调用才有它。
+        activationEvents: ["onStartup"],
         // 依赖诊断：诊断先于其余插件激活（docs/specs/runtime/server-host.md）。
         dependencies: [{key: diagnosticsKey}, {key: pluginInventoryKey}, {key: pluginUploadsKey}],
         contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],

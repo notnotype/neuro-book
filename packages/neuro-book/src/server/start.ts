@@ -152,6 +152,9 @@ export function startServer(options: StartServerOptions): RunningServer {
             stopping: () => devTask?.stop() ?? Promise.resolve(),
         });
     }
+    // 上传暂存区：宿主能力里建（要诊断存储），停止开始时就先停（取消正在接收的上传，与 HTTP 排空并行），免得半帧上传把排空拖到截止。
+    let pluginUploads: PluginUploads | null = null;
+    extensions.push({stopping: () => pluginUploads?.stop() ?? Promise.resolve()});
     extensions.push({
         attach: (context) => {
             application = context.application;
@@ -222,7 +225,8 @@ export function startServer(options: StartServerOptions): RunningServer {
             {
                 id: "host.plugin-uploads",
                 key: pluginUploadsKey,
-                create: () => createPluginUploads({root: join(options.config.stateRoot, "plugin-uploads"), clock: systemClock, record: (record) => void context.store.record(record)}),
+                create: () => (pluginUploads ??= createPluginUploads({root: join(options.config.stateRoot, "plugin-uploads"), clock: systemClock, record: (record) => void context.store.record(record)})),
+                // 兜底：停止开始时扩展已经停过它；`stop` 幂等。
                 release: (uploads: PluginUploads) => uploads.stop(),
             },
             // 内置插件按插件 id 找第三方插件包里的目录（agent.skills 这类声明目录的贡献）；本次启动登记的插件，与文件端点同一份。

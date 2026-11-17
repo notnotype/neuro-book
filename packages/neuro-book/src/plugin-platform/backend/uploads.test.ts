@@ -240,23 +240,62 @@ describe("个数上限与清理", () => {
         expect(await listing(root)).toEqual([first.id, second.id].sort());
     });
 
-    it("stop：撤销清扫的计时器；之后正在接收的请求下一次写盘失败、不留目录", async () => {
+    it("stop：撤销清扫的计时器、取消正在接收的上传（连只发了半个帧头、不再发数据的也立即结束）并等它们收尾；之后不再接纳，零字节的帧也不收", async () => {
         const {uploads, root, clock} = setup();
         await uploads.receive(body(frames({"a.txt": "1"})));
         expect(clock.pending()).toBe(1);
-        let push!: (chunk: Uint8Array) => void;
         const stalled = new ReadableStream<Uint8Array>({
             start(controller) {
-                push = (chunk) => controller.enqueue(chunk);
+                // 只发了帧头长度的前两个字节，之后不再发、也不断开。
+                controller.enqueue(new Uint8Array([0, 0]));
             },
         });
         const receiving = uploads.receive(stalled).catch((thrown: unknown) => thrown);
         await Bun.sleep(5);
-        uploads.stop();
+        await uploads.stop();
         expect(clock.pending()).toBe(0);
-        push(frames({"b.txt": "2"}));
         const error = await receiving;
         expect(error).toBeInstanceOf(UploadServerError);
+        expect((error as UploadServerError).code).toBe("upload-failed");
         expect((await listing(root)).length).toBe(1);
+        // 幂等；停止之后新的接收一律拒绝，没有内容的文件（零字节的帧）也一样。
+        await uploads.stop();
+        for (const bytes of [frames({"b.txt": "2"}), frames({"empty.txt": ""})]) {
+            expect(await uploads.receive(body(bytes)).catch((thrown: unknown) => thrown)).toBeInstanceOf(UploadServerError);
+        }
+        expect((await listing(root)).length).toBe(1);
+    });
+
+    it("满了的时候两个接收同时到：淘汰与占位在同一个同步段里，总数不超限（一个收下、一个 upload-busy）", async () => {
+        const {uploads, root} = setup({maxUploads: 1});
+        await uploads.receive(body(frames({"a.txt": "1"})));
+        const settled = await Promise.allSettled([uploads.receive(body(frames({"b.txt": "2"}))), uploads.receive(body(frames({"c.txt": "3"})))]);
+        expect(settled.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+        const rejected = settled.find((result): result is PromiseRejectedResult => result.status === "rejected")!;
+        expect((rejected.reason as UploadServerError).code).toBe("upload-busy");
+        expect(await listing(root)).toHaveLength(1);
+    });
+
+    // 写盘只写了一部分时不能把截断的文件当成功：用系统真实的文件大小限制（prlimit --fsize）造短写，子进程里调公开的 receive。
+    it.skipIf(Bun.which("prlimit") === null)("短写：文件大小限制让写入只写进一部分，整个上传失败，不留下截断的文件", async () => {
+        const script = join(tmp, "short-write.ts");
+        const root = join(tmp, "short-write-root");
+        await writeFile(script, `
+            import {createPluginUploads} from ${JSON.stringify(join(import.meta.dir, "uploads"))};
+            import {encodeFrameHeader} from ${JSON.stringify(join(import.meta.dir, "..", "shared", "plugin-upload"))};
+            const content = new Uint8Array(4096).fill(7);
+            const header = encodeFrameHeader("data.bin", content.length);
+            const bytes = new Uint8Array(header.length + content.length);
+            bytes.set(header); bytes.set(content, header.length);
+            const uploads = createPluginUploads({root: ${JSON.stringify(root)}, clock: {now: () => 0, schedule: () => () => undefined}, record: () => undefined});
+            const result = await uploads.receive(new Blob([bytes]).stream()).then(() => "succeeded", (error) => error.code);
+            console.log(result);
+            await uploads.stop();
+        `);
+        const child = Bun.spawn(["prlimit", "--fsize=1024:1024", process.execPath, script], {stdout: "pipe", stderr: "pipe"});
+        const out = (await new Response(child.stdout).text()).trim();
+        await child.exited;
+        expect(out).toBe("upload-failed");
+        expect(await readdir(root).catch(() => [])).toEqual([]);
     });
 });

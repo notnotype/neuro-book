@@ -43,7 +43,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", {fatal: true});
 
 /** Windows 的保留设备名：不分大小写，带扩展名也算（`nul.txt`）。 */
-const RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu;
+const RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])$/iu;
 const FORBIDDEN_CHARACTER = /[\\:<>"|?*\u0000-\u001f\u007f]|\p{Cs}/u;
 
 /**
@@ -52,7 +52,9 @@ const FORBIDDEN_CHARACTER = /[\\:<>"|?*\u0000-\u001f\u007f]|\p{Cs}/u;
  */
 export function uploadPathProblem(path: string): string | null {
     if (path === "") return "路径是空的";
-    if (encoder.encode(path).length > MAX_PATH_BYTES) return `路径超过 ${String(MAX_PATH_BYTES)} 字节`;
+    // 长度按写盘的形式（NFC）与原样两者中较长的算：NFC 不保证变短，只查原样会放过规范化之后超限的名字，落盘时才以 ENAMETOOLONG 失败。
+    const written = normalizeUploadPath(path);
+    if (Math.max(encoder.encode(path).length, encoder.encode(written).length) > MAX_PATH_BYTES) return `路径超过 ${String(MAX_PATH_BYTES)} 字节`;
     if (path.startsWith("/")) return "路径不能以 / 开头";
     for (const segment of path.split("/")) {
         if (segment === "") return "路径里有空的一段";
@@ -60,7 +62,7 @@ export function uploadPathProblem(path: string): string | null {
         if (FORBIDDEN_CHARACTER.test(segment)) return `路径里有不能用的字符：${segment}`;
         if (segment.endsWith(" ") || segment.endsWith(".")) return `名字不能以空格或点结尾：${segment}`;
         if (RESERVED_NAME.test(segment.split(".")[0] ?? "")) return `${segment} 是 Windows 的保留名`;
-        if (encoder.encode(segment).length > MAX_SEGMENT_BYTES) return `名字超过 ${String(MAX_SEGMENT_BYTES)} 字节：${segment}`;
+        if (Math.max(encoder.encode(segment).length, encoder.encode(normalizeUploadPath(segment)).length) > MAX_SEGMENT_BYTES) return `名字超过 ${String(MAX_SEGMENT_BYTES)} 字节：${segment}`;
     }
     return null;
 }
@@ -130,6 +132,8 @@ export interface ReadUploadOptions {
     readonly limits?: UploadLimits;
     /** 帧头通过检查之后、读内容之前调用；`path` 已是 NFC 形式。 */
     open(path: string, size: number): Promise<UploadFileSink>;
+    /** 中止：取消读流（正在等数据的读立即结束，调用方按自己的原因报失败）。 */
+    readonly signal?: AbortSignal;
 }
 
 /**
@@ -139,6 +143,10 @@ export interface ReadUploadOptions {
 export async function readUploadStream(body: ReadableStream<Uint8Array>, options: ReadUploadOptions): Promise<{readonly files: number; readonly bytes: number}> {
     const limits = options.limits ?? UPLOAD_LIMITS;
     const reader = body.getReader();
+    // 不等对方：它不再发数据、也不断开时，取消可能一直不完成；读到的结束会让下面按“在一帧中间结束”失败，调用方知道自己中止过。
+    const cancelRead = (): void => void reader.cancel().catch(() => undefined);
+    if (options.signal?.aborted === true) cancelRead();
+    else options.signal?.addEventListener("abort", cancelRead, {once: true});
     const paths = new UploadPathSet();
     let files = 0;
     let total = 0;
@@ -227,9 +235,10 @@ export async function readUploadStream(body: ReadableStream<Uint8Array>, options
         if (files === 0) throw new UploadError("upload-malformed", "请求体是空的");
         return {files, bytes: total};
     } catch (error) {
-        // 不等对方：它还在发的时候取消可能一直不完成。
-        void reader.cancel().catch(() => undefined);
+        cancelRead();
         if (sink !== null) await (sink as UploadFileSink).abort().catch(() => undefined);
         throw error;
+    } finally {
+        options.signal?.removeEventListener("abort", cancelRead);
     }
 }

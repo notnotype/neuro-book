@@ -94,6 +94,10 @@ describe("上传的路径规则", () => {
     });
 
     it("不合规的路径：空、绝对、空段、点段、反斜杠、冒号、控制字符、Windows 不合法的字符、结尾的空格与点、保留名、过长", () => {
+        // COM¹ 这类上标数字的写法，Windows 也当设备名。
+        for (const path of ["COM\u00b9", "LPT\u00b2.txt", "com\u00b3/a.txt"]) expect(uploadPathProblem(path)).not.toBeNull();
+        // NFC 之后变长：原样 200 字节、规范化后 400 字节，超过单段上限的要在这里就拒绝，不等落盘时 ENAMETOOLONG。
+        expect(uploadPathProblem("\u0344".repeat(100))).not.toBeNull();
         const bad = ["", "/a", "a//b", "a/", "./a", "a/./b", "../a", "a/..", "a\\b", "C:/a", "a:b", "a\u0000b", "a\tb", "a<b", "a>b", 'a"b', "a|b", "a?b", "a*b", "a ", "a.", "dir /a", "CON", "con", "nul.txt", "a/PRN.md", "COM1", "lpt9.x", "a".repeat(256), `${"a/".repeat(600)}a`, "\ud800"];
         for (const path of bad) expect(uploadPathProblem(path)).not.toBeNull();
         expect(uploadPathProblem("com10")).toBeNull();

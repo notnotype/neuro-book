@@ -44,8 +44,11 @@ export interface PluginUploads {
     use<T>(id: string, fn: (directory: string) => Promise<T>): Promise<{readonly ok: true; readonly value: T} | {readonly ok: false}>;
     /** 删除；不存在算成功；使用中的等用完再删。 */
     discard(id: string): Promise<void>;
-    /** 撤销清扫的计时器；之后的接收照样能做，只是不再定时清理（宿主停止时调用）。 */
-    stop(): void;
+    /**
+     * 宿主开始停止时调用：不再接纳新的接收、取消正在接收的（连还在等请求体的也立即结束）、撤销清扫的计时器，交回的 Promise 在
+     * 这些接收都收尾（已写的部分已删）之后完成。幂等。
+     */
+    stop(): Promise<void>;
 }
 
 export const pluginUploadsKey: ServiceKey<PluginUploads> = defineServiceKey<PluginUploads>("plugin-platform/uploads");
@@ -84,15 +87,21 @@ export function createPluginUploads(options: PluginUploadsOptions): PluginUpload
     let cleared: Promise<void> | null = null;
     let cancelSweep: (() => void) | null = null;
     let stopped = false;
+    /** 正在接收的上传：停止时逐个取消，并等它们收尾。 */
+    const receiving = new Set<{readonly abort: AbortController; readonly done: Promise<unknown>}>();
 
     const directoryOf = (id: string): string => join(options.root, id);
 
-    /** 删除一个上传的目录与登记；目录删不掉只记诊断（下次清空），登记照样去掉。 */
-    async function remove(id: string): Promise<void> {
-        entries.delete(id);
+    /** 删除一个上传的目录；删不掉只记诊断（下次清空）。登记要先同步去掉（`entries.delete`），不然等磁盘时容量与登记对不上。 */
+    async function purge(id: string): Promise<void> {
         await rm(directoryOf(id), {recursive: true, force: true}).catch((error: unknown) => {
             options.record({level: "warn", event: "plugins.upload.cleanup-failed", message: "删除上传暂存目录失败，下次清空", data: {id}, error});
         });
+    }
+
+    async function remove(id: string): Promise<void> {
+        entries.delete(id);
+        await purge(id);
     }
 
     function sweep(): void {
@@ -118,31 +127,41 @@ export function createPluginUploads(options: PluginUploadsOptions): PluginUpload
         return cleared;
     }
 
-    /** 占位：满了先淘汰最久没被用过的可用上传，都在接收或使用中才拒绝。 */
-    async function reserve(): Promise<string> {
+    /**
+     * 占位：满了先淘汰最久没被用过的可用上传，都在接收或使用中才拒绝。检查、淘汰的登记与新项的登记在同一个同步段里做完，
+     * 之后才等磁盘删旧目录：中间有 await 的话，另一个接收会看到空位、一起占位而超出个数上限。交回的 `evicted` 由调用方删目录。
+     */
+    function reserve(): {readonly id: string; readonly evicted: string | null} {
+        let evicted: string | null = null;
         if (entries.size >= maxUploads) {
-            let oldest: string | null = null;
             for (const [id, entry] of entries) {
                 if (entry.state !== "ready" || entry.users > 0) continue;
-                if (oldest === null || entry.lastUsed < entries.get(oldest)!.lastUsed) oldest = id;
+                if (evicted === null || entry.lastUsed < entries.get(evicted)!.lastUsed) evicted = id;
             }
-            if (oldest === null) throw new UploadServerError("upload-busy", `同时在处理的上传已有 ${String(maxUploads)} 个，稍后再试`);
-            await remove(oldest);
+            if (evicted === null) throw new UploadServerError("upload-busy", `同时在处理的上传已有 ${String(maxUploads)} 个，稍后再试`);
+            entries.delete(evicted);
         }
         const id = randomUUID();
         entries.set(id, {state: "receiving", users: 0, lastUsed: options.clock.now(), deleting: false});
-        return id;
+        return {id, evicted};
     }
 
     /** 往暂存目录里写一个文件：`wx` 独占新建，不写临时名再改名（交回之前没人读这个目录）。 */
     async function openFile(directory: string, path: string): Promise<UploadFileSink> {
+        // 停止之后连没有内容的文件（零字节的帧）也不再收。
+        if (stopped) throw new UploadServerError("upload-failed", "服务端正在停止");
         const target = join(directory, ...path.split("/"));
         await mkdir(dirname(target), {recursive: true});
         const handle = await open(target, "wx");
         return {
             write: async (chunk) => {
                 if (stopped) throw new UploadServerError("upload-failed", "服务端正在停止");
-                await handle.write(chunk);
+                // 写可能只写了一部分（磁盘满、文件大小限制）：写满为止，一个字节也写不进就失败，不把截断的文件当成功。
+                for (let offset = 0; offset < chunk.length;) {
+                    const {bytesWritten} = await handle.write(chunk, offset);
+                    if (bytesWritten === 0) throw new UploadServerError("upload-failed", "写不进更多的内容（磁盘满了或超出文件大小限制）");
+                    offset += bytesWritten;
+                }
             },
             end: () => handle.close(),
             abort: () => handle.close(),
@@ -151,21 +170,37 @@ export function createPluginUploads(options: PluginUploadsOptions): PluginUpload
 
     return {
         async receive(body) {
+            if (stopped) throw new UploadServerError("upload-failed", "服务端正在停止");
             await ensureCleared();
-            const id = await reserve();
+            if (stopped) throw new UploadServerError("upload-failed", "服务端正在停止");
+            const {id, evicted} = reserve();
+            if (evicted !== null) void purge(evicted);
             const directory = directoryOf(id);
+            const abort = new AbortController();
+            const task = (async () => {
+                try {
+                    await mkdir(directory, {recursive: true});
+                    const result = await readUploadStream(body, {limits, signal: abort.signal, open: (path) => openFile(directory, path)});
+                    // 停止时取消读流，读到的结束被当成“在一帧中间结束”；结果是否算成功由 `stopped` 定。
+                    if (stopped) throw new UploadServerError("upload-failed", "服务端正在停止");
+                    const entry = entries.get(id);
+                    if (entry === undefined) throw new UploadServerError("upload-failed", "上传在接收期间被清掉了");
+                    entry.state = "ready";
+                    entry.lastUsed = options.clock.now();
+                    return {id, files: result.files, bytes: result.bytes};
+                } catch (error) {
+                    await remove(id);
+                    if (stopped) throw new UploadServerError("upload-failed", "服务端正在停止", {cause: error});
+                    if (error instanceof UploadError || error instanceof UploadServerError) throw error;
+                    throw new UploadServerError("upload-failed", `写上传暂存目录失败：${error instanceof Error ? error.message : String(error)}`, {cause: error});
+                }
+            })();
+            const tracked = {abort, done: task.catch(() => undefined)};
+            receiving.add(tracked);
             try {
-                await mkdir(directory, {recursive: true});
-                const result = await readUploadStream(body, {limits, open: (path) => openFile(directory, path)});
-                const entry = entries.get(id);
-                if (entry === undefined) throw new UploadServerError("upload-failed", "上传在接收期间被清掉了");
-                entry.state = "ready";
-                entry.lastUsed = options.clock.now();
-                return {id, files: result.files, bytes: result.bytes};
-            } catch (error) {
-                await remove(id);
-                if (error instanceof UploadError || error instanceof UploadServerError) throw error;
-                throw new UploadServerError("upload-failed", `写上传暂存目录失败：${error instanceof Error ? error.message : String(error)}`, {cause: error});
+                return await task;
+            } finally {
+                receiving.delete(tracked);
             }
         },
 
@@ -194,10 +229,13 @@ export function createPluginUploads(options: PluginUploadsOptions): PluginUpload
             await remove(id);
         },
 
-        stop() {
+        async stop() {
             stopped = true;
             cancelSweep?.();
             cancelSweep = null;
+            const pending = [...receiving];
+            for (const item of pending) item.abort.abort();
+            await Promise.all(pending.map((item) => item.done));
         },
     };
 }
