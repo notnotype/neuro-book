@@ -1,0 +1,99 @@
+## 第三轮设计审查：t28 计划第 3 稿
+
+**方法与限制**：全程只读代码，没有跑单元测试、类型检查和 e2e，也没有做实验。下面关于 Vue 同一轮刷新里卸载与挂载先后的结论来自对 Vue 内部顺序的了解（`beforeUnmount` 同步执行，`mounted` 排在 post 队列），没有在这个仓库里验证。关于 `inert` 让焦点落到 body 的结论来自 HTML 的 focus fixup 规则，没有在真实浏览器里复现，涉及它的地方我都标了。
+
+### 一、第二轮 12 条的处理
+
+| 条 | 判定 | 理由 |
+|---|---|---|
+| 1 离开的叶按新状态画 | 解决了 | 沿用 `lastPresented` 的思路可行：离开的叶不在 `presentedLeaves` 里，`drawnAsBefore` 为真（`WorkbenchSurface.vue:285`）。但 `lastPresented` 现在只记卡片四边和场景图，没有 `merged`，入口条叶也没有记录（见第 4 条）。 |
+| 2 底部面板标题与拖动源断档 | 解决了 | 不写标题挪到了第 5 片，第 3 片列了 9 个 e2e。第 5 片自己的验证清单偏短（见第 7 条）。 |
+| 3 入口与头抢宽度 | 部分解决 | 顺序有了。但视图接管的两侧列收不进“⋯”，DOM 用例量不了宽度（见第 3 条）。 |
+| 4 最大化焦点与还原头先消失 | 部分解决 | 并、分、还原路径上卸载时记焦点可行。最大化方向因“过渡结束才换”，焦点在入口条被 `inert` 时就已丢失（第 1 条）。“过渡结束”的信号目前不存在（第 2 条）。 |
+| 5 送到终点会结束所有过渡 | 解决了 | 已照实写成已知限制。 |
+| 6 规则放在 `update()` 里测不到 | 解决了 | 标记放在纯函数里可测。有一处细节要写明（见第 5 条）。 |
+| 7 0 宽缝画不画线 | 解决了 | 这条缝本来就不画线，计划写的手段不对（见第 6 条）。 |
+| 8 引用与跨区域单视图入口 | 解决了 | 引用已改，规则已定。 |
+| 9 只减了最小高度 | 解决了 | 最小、最大一起减。 |
+| 10 头换叶时视图头重建 | 解决了 | 焦点走第 4 条的机制，会话列表在视图里（`ConversationHost.vue:59`），跟着 `head-slots` 走。最大化方向的焦点问题归第 1 条。 |
+| 11 `collapsedTo` | 解决了 | 不登记，补用例。 |
+| 12 不采纳上游的理由一半是推断 | 解决了 | 已标明推断，代价已记入待确认清单。 |
+
+### 二、新发现
+
+### 1. 最大化方向“过渡结束才换”：焦点在过渡开始时就丢了，之后 470ms 整窗的卡片没有头（重要）
+- **位置**：`plan.md:60、61、65`；`NestedGrid.vue:210-214、647`（`obscuredLeaves`、`:inert`）；`WorkbenchSurface.vue:433-435`（`onFocusOut`）；`WorkbenchPanelHead.vue:95-97`。
+- **现象**：计划写最大化、还原的过渡里“照过渡开始前的样子，过渡结束才换”，最大化时入口条叶“和别的叶一样被盖住”。照字面实现，最大化开始的那一刻：
+  - 入口条的帧立刻被 `obscuredLeaves` 标成 `inert`，入口条里的头（含刚按下的最大化按钮）还在，但不可交互。
+  - 变大的叶没有头，入口条里的头又被它盖住，所以 470ms 里整窗的卡片上没有头，还原按钮不可达。
+  - 过渡结束时才发生“入口条的头卸载、叶的头挂上”。
+  - 焦点这时早已因 `inert` 落到 body（我没有在浏览器里复现这一步，依据是 focus fixup 规则），`onFocusOut` 也已把 `focusedPanel` 置空。所以 `WorkbenchPanelHead` 卸载时 `activeElement` 是 body，什么都记不到，焦点不会交接。
+- **与别处矛盾**：`plan.md:65` 和待确认清单写的是“最大化时内容的上边在过渡开始时让出 32px”，这等于叶一开始就画自己的头。同一方向里两处写法互相矛盾。
+- **为什么测不出来**：happy-dom 没有 `inert` 的焦点修正，`WorkbenchPanelHead` 的 DOM 测试会通过，真实浏览器里键盘最大化后焦点还是丢。
+- **建议改法**：
+  - 最大化方向开始就换：在同一轮刷新里卸载入口条的头、挂上叶的头，入口条叶这期间的 `merged` 槽属性强制为 null，避免同一块面板出现两个 `data-panel-head` 和重复的标签 DOM id。
+  - 只有还原方向延后到过渡结束。
+  - 焦点记录改在 `state.maximized` 的 `flush: "pre"` watcher 里读 `document.activeElement`（第二轮第 4 条的建议），这样不依赖卸载时机。
+  - 验收加 e2e：键盘在入口条里按最大化，`activeElement` 是叶里的还原按钮；再按一次还原，焦点回到入口条里的最大化按钮。
+
+### 2. “过渡结束”的信号不存在，减少动态效果下会卡在旧画法（重要）
+- **位置**：`plan.md:60`；`NestedGrid.vue:240、607-624`（只暴露 `outgoingLeaves`、`shapedLeaves`、`swappingLeaves`）；`useGridMotion.ts:155、278-280`；`grid-motion.ts:340-356`。
+- **现象**：最大化、还原时变大变小的叶是 `following` 叶，不在 `keptSize` 里，所以不进 `shapedLeaves`，也不是离开的叶，不进 `outgoingLeaves`。`moving` 在 `useGridMotion` 里有，但 `NestedGrid` 没有暴露。表面没有任何办法知道这一轮过渡什么时候结束。
+- **后果**：
+  - 要加的是 nb-layout 的新公开接口，不在计划“约束”列出的几样里（`plan.md:23`），也不在第 2 片，nested-grid 的 Spec 和 `NestedGrid.md` 也没有对应改动项。
+  - 减少动态效果时 `update()` 直接走 `stop()`（`useGridMotion.ts:280`），`moving` 从未变真。如果“沿用旧画法”的释放写成 moving 由真变假的边沿，头会永远停在旧画法。
+  - `moving` 是整个网格的，别的区域同时在长出来或缩回去时，会把这一块的换头一起推迟。
+- **建议改法**：
+  - 第 2 片让 `NestedGrid` 暴露 `moving`（或发 `settled` 事件），Spec 与 `NestedGrid.md` 一起改。
+  - 释放条件写成“`moving` 为假”的电平判断，不用边沿。
+  - 沿用的画法在提交 `maximized` 的同一个同步段里记下。
+  - 补一个减少动态效果的用例。
+  - 在计划里写明“别的过渡会推迟换头”是已知限制。
+
+### 3. 让位顺序对视图接管的两侧列没有出路，160px 的验收在 DOM 测试里写不出来（重要）
+- **位置**：`plan.md:70、72`；`ConversationHost.vue:52-57`；`views.md` 输出 19；`packages/neuro-book/vitest.config.ts`（happy-dom）。
+- **现象**：
+  - 默认右栏的对话接管标题区。左右两列是视图用 Teleport 送进来的元素，工作台不知道里面有什么，收不进“⋯”。
+  - 计划的顺序“截断标题、收入口、视图动作收进‘⋯’、框架按钮最后”里，第三步只对工作台自己画的 `actions` 槽有效。
+  - 右栏最窄 160px：当前入口加“更多”、两个框架按钮约 52px、接管列的内容，没有一级可以让。结果仍是撑出条外或被裁，按钮够不着。这正是第二轮第 3 条要避免的。
+- **验收**：计划写“补 160px 的 DOM 用例：入口、标题、按钮都在条里、够得着”。happy-dom 没有排版，`getBoundingClientRect` 全是 0，这个断言写出来是空的。
+- **建议改法**：
+  - 定一个条宽阈值，窄于它时 `head-slots` 置 null，走已有的“头回到视图内容里”的路径（`views.md` 输出 19 的“别的情况”）。
+  - 160px 的验收写成 Lab 场景加 e2e，用真实宽度断言每个控件的矩形都在条内，并用 `elementFromPoint` 确认够得着。
+
+### 4. `lastPresented` 并不记“并成一行”，入口条叶离开时也没有信息可用（建议）
+- **位置**：`plan.md:60`；`WorkbenchSurface.vue:257、260-271、285`；`layout-present.ts:25-34`。
+- **现象**：计划说“表面已有的 `lastPresented`”。实际它只记 `cards` 和 `scene`，按叶 id 存。要用在这里，至少要补三处：
+  - 加 `merged` 字段，在同一个 sync watcher 里写。
+  - `layoutContents` 是只读文档的纯函数，要能按叶给 `insetTop` 覆盖值。
+  - 入口条叶自己：区域因最后一节被拖走、放不下被收走而不再呈现入口条时，入口条叶会留着缩回去，但 `strips` 里已经没有它，叶插槽拿不到 `{region, merged}` 与入口列表。470ms 里条会先变空再缩。需要为入口条叶也记最后一次的样子。
+- **建议改法**：把“`lastPresented` 增加 `merged` 与入口条叶记录”写进第 3 片，并补一条“区域因最后一节离开而入口条缩回去时入口仍在”的逐帧断言。
+
+### 5. “先收尾”标记要连同“按空带重新规划”一起返回（建议）
+- **位置**：`plan.md:45-47`；`grid-swap.ts:125、140-146、149-155`；`useGridMotion.ts:261-269`。
+- **现象**：`planSwap` 在 `band` 非空时沿用旧带的轴、外接矩形、窗口和步长，并保留不相交的旧组。如果 `decideMotion` 只是在原有结果上加一个“先收尾”标记，`update()` 的 `stop()` 把带清掉之后，这一轮的 `plan` 里仍带着旧组，`starts` 会为旧组的项写起点。`busy` 也是在 `stop()` 之前读的（`busyLeaves()`）。
+- **建议改法**：计划写明“带标记时按 `band: null`、`now: []`、`busy: 空` 重新规划”。单元测试断言不相交的新交换返回的 `band.groups` 只含这一次的两组、轴取新交换的。
+
+### 6. 0 宽缝：事实更正，计划写的手段对它不起作用（建议）
+- **位置**：`plan.md:62`；`SashHandle.vue:296`（`v-if="!seamOnly"`）；`WorkbenchSurface.vue:389-406`。
+- **现象**：宽度为 0 的缝不渲染 `.sash-seam` 和 `.sash-line`，所以它本来就没有线。第二轮第 7 条的前提不成立。计划写的“`sashStyleOf` 对它不给线”也不是机制：`sashStyleOf` 只给 `panes` 卡片底填充的几个变量，不控制线。
+- **建议改法**：不用改 `sashStyleOf`，把这条改成验收断言：像素读数确认缝处无线，并确认 `panes` 的 `::before` 在 0 高度盒上被 clip 后没有像素。
+
+### 7. 验收清单有两处缺口（建议）
+- **位置**：`plan.md:113、115`；`lab-workbench-surface.e2e.ts:67-99`；`workbench-shell.e2e.ts:84、295、736`；`workbench-float.e2e.ts:28、598`；`workbench-drag-cost.e2e.ts:138`。
+- **现象**：
+  - 第 3 片改了 `WorkbenchSurface` 的属性与插槽，列的 9 个 e2e 里没有 `lab-workbench-surface`，它引用了 `[data-panel-tab]`。
+  - 第 5 片是真正拿掉底部面板 `[data-panel-tab]`、把计数搬到入口的一片，验证只列了 `workbench-live-drag`、`workbench-dnd`、`workbench-containers`、`background-tasks` 四个。上面的 `workbench-shell`、`workbench-float`、`workbench-drag-cost` 都按标题标签找头，我没有逐个核对它们找的是不是底部面板的头。
+- **建议改法**：第 3 片补 `lab-workbench-surface`；第 5 片的验证和第 3 片同样列全引用 `[data-panel-tab]` 的 e2e，逐个核对是否涉及底部面板。
+
+### 三、仔细检查后没有发现问题的方面
+- **卸载与挂载的先后**：同一轮刷新里旧头卸载、新头挂上，焦点交接的先后可行（`beforeUnmount` 同步、`mounted` 在 post），和 `recoverFocus` 的 `nextTick` 不冲突（`WorkbenchShell.vue:493-501`）。这是对 Vue 内部顺序的判断，没有在仓库里验证。
+- **规则 B 的误触发**：`collapse` 是由文档与尺寸同步算出的计算属性（`layout-doc-store.ts:133-140`），放不下收走与交换提交在同一次发布里，不会在交换后补发第二次几何变化把交换截断。
+- **规则 A 的相交判据**：按叶 id 判相交没有问题，原来的重定向路径不受影响。
+- **交换带的分组**：入口条与内层之间的缝两侧不都在组里，所以留在原位，不跟着滑。
+- **窗口内缩与圆角**：`swapColumn` 的取边规则对入口条下面的节正确：上边相连，内缩为 0，上两个角直、下两个角圆。
+
+### 数量
+阻断 0，重要 3（第 1、2、3 条），建议 4（第 4、5、6、7 条）。
+
+有效发现的编号：1、2、3、4、5、6、7

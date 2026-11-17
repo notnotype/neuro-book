@@ -1,6 +1,6 @@
 # t28 计划：右栏与底部面板的入口条与切换容器
 
-第 3 稿（2026-11-17）：按第二轮设计审查（[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)，12 条）改；第 2 稿按第一轮（[`evidences/design-review.txt`](evidences/design-review.txt)，14 条）改，逐条的处理在 Task README。第 1 稿从 t27 拆出来；t27 计划第 3 稿里入口条的部分（提交 `c56ab99a7` 的 `tasks/t27-region-entry-strips/plan.md`）与 t27 第二轮设计审查（[`design-review-r2.txt`](../t27-region-entry-strips/evidences/design-review-r2.txt)）转过来的几条是起点。
+第 4 稿（2026-11-17）：按第三轮设计审查（[`evidences/design-review-r3.txt`](evidences/design-review-r3.txt)，7 条，都在第 3 片）改，并去掉“交换中别的布局变化先收尾”那条规则（和已有的合同用例冲突，见下）。第 3 稿按第二轮（[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)，12 条）改；第 2 稿按第一轮（[`evidences/design-review.txt`](evidences/design-review.txt)，14 条）改，逐条的处理在 Task README。第 1 稿从 t27 拆出来；t27 计划第 3 稿里入口条的部分（提交 `c56ab99a7` 的 `tasks/t27-region-entry-strips/plan.md`）与 t27 第二轮设计审查（[`design-review-r2.txt`](../t27-region-entry-strips/evidences/design-review-r2.txt)）转过来的几条是起点。
 
 ## Context
 
@@ -43,8 +43,9 @@
 ### 交换的两条通用规则与静止的底：`packages/nb-layout/src/grid-swap.ts`、`vue/useGridMotion.ts`、`vue/NestedGrid.vue`
 
 - 同时只有一个交换（第一轮第 3 条）：新的交换和进行中的带不相交（离开、换上来的叶都不在带的组里，按叶 id 判）时，先收尾再规划；相交的照旧是重定向，从此刻接着滚（t27 的“滚到一半点回来”是相交）。
-- 交换中来了一次不带交换、几何确实变了（`placementMoved`）的布局变化（第一轮第 12 条：实际新增的只有别的区域显隐这一类，拖分隔线、窗口缩放本来就收尾）：先收尾，这一次照普通过渡走。
-- “先收尾”是 `decideMotion` 返回的一个标记（第二轮第 6 条），纯函数里判，单元测试测不相交、几何变了、点回来三类；`update()` 照标记先 `stop()` 再开这一轮。收尾和 `settleMotion` 一样，是整个网格进行中的过渡一起到终点（第二轮第 5 条：别处正在长出来、缩回去的也一起），已知限制照实写。
+- 交换中来了一次不带交换的布局变化：不收尾，照已有的合同（`useGridMotion.dom.test.ts` 的“交换进行中来了一次不是交换的布局变化：滑出去的那组接着留着、终点不变，带不换”）。第一轮第 12 条说的“别的区域显隐时裁切窗与静止的底停在开始时的位置”记为已知限制：只在交换的 470ms 里又显隐别的区域时出现，滚完就对上；为它改这条合同不值得。
+- “先收尾”是 `decideMotion` 返回的一个标记（第二轮第 6 条），纯函数里判：带标记时这一轮按空带重新规划（`band: null`、`now: []`、`busy` 为空，第三轮第 5 条），上一轮留着滑出去的项不带进这一轮；单元测试测不相交（返回的带只含这一次的两组、轴取新交换的）、点回来（不带标记）两类。`update()` 照标记先 `stop()` 再开这一轮。
+- `NestedGrid` 暴露 `moving`（这一刻有没有过渡在走，第三轮第 2 条）：表面要在过渡结束后再换画法时按它判，判“为假”这个状态、不判由真变假（减少动态效果时它一直为假）。Spec 与 `NestedGrid.md` 同步。收尾和 `settleMotion` 一样，是整个网格进行中的过渡一起到终点（第二轮第 5 条：别处正在长出来、缩回去的也一起），已知限制照实写。
 - `swap-backdrop` 插槽：交换进行时在窗口矩形上画一层宿主给的东西，在外框下面，交换结束摘掉；窗口等于静止时的外观，结束那一帧外框换回自己画卡片与摘掉底在同一次渲染里。
 
 ### 尺寸与入口：`web/state/layout-constraints.ts`、`web/state/layout-present.ts`
@@ -57,9 +58,9 @@
 ### 表面：`web/components/WorkbenchSurface.vue`
 
 - 入口条叶在叶插槽里画新插槽 `strip`（`{region, merged}`）；并成一行的那一节自己不画头。
-- 画成并成一行（第二轮第 1、4 条）：投影的 `merged`，但正在离开的叶照它最后一次呈现的样子（表面已有的 `lastPresented`，交换里滑出去的、缩回去的都算），所以滑出去的那一节不冒出自己的头、内容不下跳；最大化、还原的过渡里那一节照过渡开始前的样子，过渡结束才换（还原时头不会在整窗的卡片上先消失）。补逐帧用例：离开的那一节在滑出的 470ms 里没有头、内容不下跳；还原过渡中整窗的卡片一直有头。
-- 头换了地方时焦点跟过去（第二轮第 4、10 条）：`WorkbenchPanelHead` 卸载时，焦点在它里面就记下“哪块面板、哪个元素”（标题或 `data-panel-action` 的命令），同一块面板的头在同一轮刷新里挂上时把焦点交给同一个元素；没有新头就照现有的焦点规则。并、分、最大化、还原、预览里翻转都走这一条。视图自己的状态（例如对话的会话列表开着没有）在视图里，跟着 `head-slots` 走，不丢。
-- 入口条叶与下面之间那条 0 宽的缝不画线（第二轮第 7 条）：入口条与分节是一张卡片，`sashStyleOf` 对它不给线，逐帧验收里读这条缝的像素。
+- 画成并成一行（第二轮第 1、4 条，第三轮第 1、2、4 条）：投影的 `merged`，但正在离开的叶照它最后一次呈现的样子：`lastPresented` 加记 `merged`，入口条叶也记最后一次的入口与并进来的那一节（区域最后一节离开、入口条缩回去时条里照旧有东西）；`layoutContents` 收一个按叶覆盖上边的参数。所以滑出去的那一节不冒出自己的头、内容不下跳。最大化方向在提交的那一刻就换：那一节的叶画自己的头，入口条叶这期间不带 `merged`（同一块面板不出现两个头）；还原方向等过渡结束（`moving` 为假）才把头搬回入口条，所以还原过渡中整窗的卡片一直有头。别的区域同时在过渡时搬回会跟着推迟，已知限制。补逐帧用例：离开的那一节在滑出的 470ms 里没有头、内容不下跳；区域最后一节离开时入口条缩回去的过程中入口还在；还原过渡中整窗的卡片一直有头；减少动态效果时还原立即搬回。
+- 头换了地方时焦点跟过去（第二轮第 4、10 条，第三轮第 1 条）：在会让头搬家的那次提交之前（`state.maximized`、文档的 `flush: "pre"` watcher，此刻旧头还在、没被 `inert`）读 `document.activeElement`，在某块面板的头里就记下“哪块面板、哪个元素”（标题或 `data-panel-action` 的命令）；同一块面板的新头挂上时把焦点交给同一个元素，没有新头就照现有的焦点规则。并、分、最大化、还原、预览里翻转都走这一条。验收加 e2e：键盘在入口条里按最大化，焦点在叶里的还原按钮上；再按还原，焦点回到入口条里的最大化按钮。视图自己的状态（例如对话的会话列表开着没有）在视图里，跟着 `head-slots` 走，不丢。
+- 入口条叶与下面之间那条 0 宽的缝不画线（第二轮第 7 条）：宽度为 0 的缝本来就不画线（`SashHandle` 的 `seamOnly`，第三轮第 6 条更正），只在验收里读这条缝的像素，确认没有线、`panes` 的底也没露出来。
 - 卡片：入口条叶和分节同组（`groupOf` 先认入口条叶），拼成一张卡片，沿用 t27 第 1 片的规则。
 - 一片叶代表哪块面板（第一轮第 1、8 条，t27 第二轮第 2 条）：`panelOf(leaf)` 对入口条叶返回 `merged`（没有并时是 null，和活动栏一样）；焦点在入口条里时当前面板是那一节、标签与动作的命令照常；悬停动作的范围按面板比，入口条的卡片也带 `data-hover-actions-scope`。拖动几何里并成一行的那一节的外框是入口条叶与它的叶的并集（`geometryOf` 的 `frame`），标题行按面板 id 在整个表面里找头。
 - 最大化（t27 第二轮第 1 条、第一轮第 9 条）：最大化并成一行的那一节时它自己画头（含还原按钮），入口条叶和别的叶一样被盖住，还原过渡结束后回到并成一行。另一条路（入口条不算被盖住）不可行：`maximizePlacement` 让不盖住的叶保持原矩形，入口条会以原来的宽度浮在整窗的面板上。焦点按上面“头换了地方时焦点跟过去”；最大化时内容的上边在过渡开始时让出 32px，不随过渡渐变（待确认清单）。
@@ -67,7 +68,7 @@
 ### 入口条：新组件 `web/components/WorkbenchRegionStrip.vue`（同名 `.md`、Lab 场景）、`WorkbenchShell.vue`、`WorkbenchPanelHead.vue`
 
 - 横着排：右栏是容器图标（按下底色），底部面板是容器标题（下划线）；当前容器的入口总在外面，放不下时排在后面的收进“更多”（复用 `layoutStrip`）。
-- 这一行放不下时的让位（第二轮第 3 条）：先截断标题，再把入口收进“更多”（当前容器的入口总在外面），再把视图动作收进“⋯”，框架按钮最后；接管标题区时两侧列按内容收窄、不撑出条外。补 160px（右栏最窄）的 DOM 用例：入口、标题、按钮都在条里、够得着。
+- 这一行放不下时的让位（第二轮第 3 条，第三轮第 3 条）：先截断标题，再把入口收进“更多”（当前容器的入口总在外面），再把视图动作收进“⋯”，框架按钮最后。视图接管标题区时两侧列是视图送进来的、收不进“⋯”：头那一段窄于一个阈值（由第 3 片按接管的两侧列实际宽度定）时 `head-slots` 给 null，走已有的“头回到视图内容里”（`views.md` 输出 19）。160px（右栏最窄）的验收写成 Lab 场景加 e2e：真实宽度下每个控件的矩形都在条里，`elementFromPoint` 够得着。
 - 并成一行时入口之后接那一节的头，占这一行剩下的宽度：右栏接标题、视图动作、框架按钮；底部面板的入口本身就是标题，只接视图动作与框架按钮（待确认清单）。头用 `WorkbenchPanelHead` 的同一套（元素照旧带那一节的 `data-panel-head`、按面板 id 发 `head-slots`），加一个“嵌在入口条里”的写法：不画自己的底与高度；底部面板不画看得见的标题，但留着隐藏的标题元素（`panelTitleDomId`，内容区的 `region` 名称从它来）。
 - 视图接管标题区（第一轮第 1 条，`views.md` 输出 19，默认右栏的对话就是这样）：并成一行时接管照常，三列排在入口之后剩下的宽度里，居中按这段宽度算；头在入口条与自己的叶之间换（并、分、最大化）时 `head-slots` 先 null 再给新的，视图的内容跟过去。
 - 底部面板并成一行时（第一轮第 7 条；第 5 片才做，第二轮第 2 条：之前它照旧写标题，标题照旧是拖动源，入口成为拖动源的那一片再拿掉）：计数写在那个容器的入口上（只含一个视图的容器，同那个视图的标签；输出 17），活动栏的入口照旧不写；焦点落到“标题”的地方（`recoverFocus` 找 `[data-panel-tab]`）找不到标签时落到入口；拖这一节就是拖入口（`data-tool-view`）。
@@ -109,10 +110,10 @@
 ## 切片
 
 1. **nb-layout：入口条叶与并成一行**。投影选项、`strips`、并成一行的最小与最大高度、`collapsedTo`、导出的 id 函数、`assignByParent`、说明。验证：`layout-project.test.ts`（有分节时包装分支的形状与 id；一节、几节；空区域没有入口条；拖到零、隐藏、放不下收走时一起没、`merged` 不翻转；预览文档摘掉一节后 `merged` 是剩下那一节；并成一行时区域最小、最大高度同只有一节、几节时多一行；包装了的区域节点不在 `collapsedTo` 里；`rebaseIntents` 写回的区域尺寸不变，含不显示的兄弟分节；唯一的分节没有收起策略）、nb-layout 全部测试与类型检查。
-2. **nb-layout：交换的两条规则**（和第 1 片分开提交）。`decideMotion` 的“先收尾”标记。验证：`useGridMotion.dom.test.ts`（不相交的新交换、交换中几何变了、点回来三类）；e2e `lab-grid-swap` 加“滚到一半点另一列”“交换中另一块叶长出来”两条（Lab 场景加一列）。
-3. **工作台画出入口条与并成一行**（t29 定稿之后）：`regionStrip`、`layoutContents`/`hasRoom`、入口与意图、`focusLandings`、表面的插槽、“叶代表哪块面板”、画成并成一行（离开与最大化过渡里沿用）、头换地方时焦点跟过去、`WorkbenchRegionStrip`、`useEntryIndicator`、让位顺序。底部面板并成一行时照旧写标题。验证：`layout-present.test.ts`、`adjacency.test.ts`、新组件与 `WorkbenchPanelHead` 的 DOM 测试（并成一行加接管时 `slots` 不为 null；160px；头换地方焦点跟过去）、Lab 场景；e2e 跑引用右栏、底部面板头的全部文件（`workbench-views`、`workbench-shell`、`workbench-containers`、`workbench-live-drag`、`workbench-dnd`、`workbench-float`、`workbench-drag-cost`、`background-tasks`、`agent-conversation`，超过 8 个，写 `NB_E2E_WIDE`：头从分节的叶搬进入口条叶，按叶找头的用例都可能受影响），逐个给改法。
+2. **nb-layout：交换的两条规则**（和第 1 片分开提交）。`decideMotion` 的“先收尾”标记。`NestedGrid` 暴露 `moving`。验证：`useGridMotion.dom.test.ts`（不相交的新交换、点回来两类）、`NestedGrid.dom.test.ts`（`moving` 在过渡中为真、结束为假、减少动效时一直为假）；e2e `lab-grid-swap` 加“滚到一半点另一列”（Lab 场景加一列）。
+3. **工作台画出入口条与并成一行**（t29 定稿之后）：`regionStrip`、`layoutContents`/`hasRoom`、入口与意图、`focusLandings`、表面的插槽、“叶代表哪块面板”、画成并成一行（离开与最大化过渡里沿用）、头换地方时焦点跟过去、`WorkbenchRegionStrip`、`useEntryIndicator`、让位顺序。底部面板并成一行时照旧写标题。验证：`layout-present.test.ts`、`adjacency.test.ts`、新组件与 `WorkbenchPanelHead` 的 DOM 测试（并成一行加接管时 `slots` 不为 null；160px；头换地方焦点跟过去）、Lab 场景；e2e 跑引用右栏、底部面板头的全部文件（`workbench-views`、`workbench-shell`、`workbench-containers`、`workbench-live-drag`、`workbench-dnd`、`workbench-float`、`workbench-drag-cost`、`background-tasks`、`agent-conversation`、`lab-workbench-surface`，超过 8 个，写 `NB_E2E_WIDE`：头从分节的叶搬进入口条叶，按叶找头的用例都可能受影响），逐个给改法。动手前先按 t29 定下的头重写这一片的设计，单独交一次设计审查（第三轮之后它是新的对象：t29 会改头的画法）。
 4. **左右滚动切换**：宿主按区域给交换、窗口内缩、静止的底、选中标记随 `slideToken` 滑。验证：e2e `workbench-containers`（逐帧：入口条与卡片不动、内容在卡片里、卡片外没有像素、头那一段在点的那一刻换、离开的那一节滑出时没有头、下划线与按下底色同时走、滚到一半点回来、侧栏与右栏前后脚切换时侧栏送到终点）。
-5. **入口条的拖放与底部面板不写标题**：条 id 按区域、入口带一组、落点表、跨区域搬容器、单视图入口跨区域、预览里并成一行翻转时的标题行；底部面板并成一行时拿掉标题、计数写到入口、拖入口。验证：`layout-drag`、`entry-drop` 相关单元测试，e2e `workbench-live-drag`、`workbench-dnd`、`workbench-containers`、`background-tasks`（通知计数搬到入口）。
+5. **入口条的拖放与底部面板不写标题**：条 id 按区域、入口带一组、落点表、跨区域搬容器、单视图入口跨区域、预览里并成一行翻转时的标题行；底部面板并成一行时拿掉标题、计数写到入口、拖入口。验证：`layout-drag`、`entry-drop` 相关单元测试，e2e 同第 3 片的清单（逐个核对引用 `[data-panel-tab]` 的地方是不是底部面板的头），`background-tasks` 断言通知计数搬到入口。
 
 每片单独提交、跑上面的验证。
 
@@ -134,7 +135,7 @@
 ## 不做与风险
 
 - 不做：标签切换的动画；入口条本身的移动（入口条不能移动，ADR 0046）；卡片层（t27 第二轮第 11 条、本轮第 13 条，待开发者定）。
-- 已知限制：几个区域前后脚切换、交换中别的区域显隐时，整个网格进行中的过渡一起到终点（不只是前一个滚动）。
+- 已知限制：几个区域前后脚切换时，整个网格进行中的过渡一起到终点（不只是前一个滚动）；交换的 470ms 里又显隐别的区域时，裁切窗与静止的底停在开始时的位置，滚完才对上；还原过渡中别的区域也在过渡时，头搬回入口条跟着推迟。
 - 风险：入口条叶让区域在呈现里多一层分支，按呈现节点认区域的地方（`regionAnchors` 的消费者 `commitGesture`、实时布局按叶找区域、落点分区、`sceneCorners`）要逐个核对；第 1 片先跑 `layout-project`、`layout-drag` 相关的单元测试。
 - 风险：交换中外框不画卡片、底由插槽画，结束那一帧两者要在同一次渲染里换，第 3 片逐帧看。
 - 风险：并成一行的头跨两片叶，按叶认面板的地方（焦点、悬停、落点、`geometryOf`、`head-slots`）第 2 片逐个改并补用例；漏改的表现是动作不显示、命令取不到面板、落点判错、接管的头回到内容里。
