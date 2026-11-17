@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t37 对话状态栏的自定义：评审</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+.lead { margin: 0 0 24px; color: var(--muted); }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.badge { display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: 10px; font-size: 13px; vertical-align: 2px; }
+.badge--open { background: #fdecea; color: var(--mark); }
+.badge--done { background: #e7f3ec; color: #1e6b3a; }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 720px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p, .ref p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.ref { margin: 0 0 16px; }
+.ref img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.ref--narrow img { max-width: 420px; }
+ul.points { margin: 8px 0 0; padding-left: 1.3em; font-size: 15px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<h1>t37 对话状态栏的自定义</h1>
+<p class="lead">界面是 t29 评审板第 1 轮已经定下的稿（图沿用那一轮的）。这一版把它连同实现方案一起摆出来，请看两道待定的问题；其余写明“已定”的只是让你核对，不需要再答。</p>
+
+<section data-nbdev-question="drag-sort" data-nbdev-type="single" data-nbdev-recommend="drag">
+  <h2><span class="badge badge--open" data-nbdev-skip>待定</span>设置里怎样排序？</h2>
+  <p class="rec"><strong>推荐 A：原生拖动加“上移、下移”按钮。</strong>拖动是你定下的做法；仓库里没有现成的排序列表，原生拖放几十行就够，不为它引库。按钮同时是键盘与触屏的路径，所以不是可有可无的。</p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="drag" data-nbdev-label="A 拖动加上移下移">
+      <h3>A 拖动加上移、下移</h3>
+      <p>每行左边是拖动柄，右边是上移、下移按钮。拖动只在同一侧（左边或右边）内排序，不能拖到另一侧。图见下面“设置里的样子”。</p>
+    </div>
+    <div class="cand" data-nbdev-option="buttons" data-nbdev-label="B 只做上移下移">
+      <h3>B 只做上移、下移</h3>
+      <p>去掉拖动柄，只留按钮。省一块代码与测试；每一项最多十来个，按钮足够，但与你之前说的“拖动或上移下移”相比少了拖动。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="cache-ttl" data-nbdev-type="single" data-nbdev-recommend="estimate">
+  <h2><span class="badge badge--open" data-nbdev-skip>待定</span>缓存倒计时的数据从哪来？</h2>
+  <p class="rec"><strong>推荐 A：按“最近一次回复的时间加 5 分钟”估，只对接口是 Anthropic 的服务商显示。</strong>服务商不会告诉我们缓存还剩多久，只能估。其它服务商没有明确的保留规则，这一项在它们那里不显示（即使在设置里勾上了）。</p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="estimate" data-nbdev-label="A 估算，只给 Anthropic">
+      <h3>A 估算，只给 Anthropic</h3>
+      <p>显示“还剩 3:12”，到点变成“已过期”，提示下一次请求会重新写缓存。数字是估的：用了网关、或服务商改了保留时间，就不准。Spec 与代码注释都写明“是估计”。</p>
+    </div>
+    <div class="cand" data-nbdev-option="drop" data-nbdev-label="B 这一版不做缓存倒计时">
+      <h3>B 这一版不做缓存倒计时</h3>
+      <p>目录里先只有上下文、用量、费用、模型四项（外加插件的项）。不会有估错的风险；以后服务商把缓存剩余时间放进响应里时再加。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="badge badge--done" data-nbdev-skip>已定</span>设置里的样子</h2>
+  <p class="rec">新分区“状态栏”（AI 一组）：顶上一条预览，下面“左边”“右边”两组，每行一个勾选加说明、插件的项标“插件”、拖动柄与上移下移。全局一份，存用户设置。</p>
+  <figure class="ref"><img src="r1/status-settings.webp" alt="设置里的“状态栏”：预览条、左边两项、右边四项，每行有勾选、说明、拖动柄、上移下移"></figure>
+</section>
+
+<section>
+  <h2><span class="badge badge--done" data-nbdev-skip>已定</span>右键菜单</h2>
+  <p class="rec">在状态栏上右键，弹出勾选菜单，列出全部可选项（插件的项标“插件”），最后一项“状态栏设置…”打开上面的设置页。勾一下立刻生效，写进同一份设置。</p>
+  <figure class="ref ref--narrow"><img src="r1/status-menu.webp" alt="右键状态栏：勾选菜单，最后一项“状态栏设置…”"></figure>
+</section>
+
+<section>
+  <h2><span class="badge badge--done" data-nbdev-skip>已定</span>改过之后与窄的时候</h2>
+  <p class="rec">缺省与现在完全一样，升级后不变。右栏窄时，右边按顺序从前往后收进悬停，费用最后收。</p>
+  <figure class="ref ref--narrow"><img src="r1/status-custom.webp" alt="五种情形：缺省、只留上下文与费用、开模型与缓存倒计时加插件的字数、缓存已过期、右栏窄 280px"></figure>
+  <table>
+    <thead><tr><th>可选的项</th><th>在哪一边</th><th>缺省</th></tr></thead>
+    <tbody>
+      <tr><td>上下文用量</td><td>左</td><td>开</td></tr>
+      <tr><td>用量与缓存命中（累计、输入、输出、缓存命中合成一项）</td><td>右</td><td>开</td></tr>
+      <tr><td>费用</td><td>右</td><td>开</td></tr>
+      <tr><td>模型与推理档</td><td>右</td><td>关</td></tr>
+      <tr><td>缓存倒计时（见上面的待定）</td><td>右</td><td>关</td></tr>
+      <tr><td>插件经贡献点加的项（标“插件”）</td><td>插件声明，左或右</td><td>插件声明，缺省关</td></tr>
+    </tbody>
+  </table>
+  <ul class="points">
+    <li>总显示、不能关的提醒：运行阶段与用时、等你处理、等重发、费用超过告警线、“全部放行”警告、非默认模式标记、断线。</li>
+    <li>每一项的左右由目录定，不能在两边之间移动。</li>
+    <li>不做：配一条命令（Claude Code 那种）、5 小时与 7 天限额、每个会话单独一份设置。</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="badge badge--done" data-nbdev-skip>已定</span>怎么做（要点，全文见计划）</h2>
+  <ul class="points">
+    <li>nb-agent-ui 里一个纯函数把“内置五项加插件的项”和用户设置合成要显示的清单；设置为空时就是现在的状态栏。设置只记改过的顺序与显隐。</li>
+    <li>状态栏组件把五个内置项拆开，按清单画；窄时用 ResizeObserver 量宽度、从前往后收进悬停。</li>
+    <li>新贡献点 <code>agent.statusItems</code> 给插件加项；新用户设置项 <code>nbook.agent/statusLine</code>。</li>
+    <li>分五片实施，每片一个提交，片内跑所改包的全量测试与覆盖它的 e2e。</li>
+  </ul>
+</section>
+</main>
+</body>
+</html>

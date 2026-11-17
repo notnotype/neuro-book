@@ -1,0 +1,71 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t37-status-line-customization",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t37 对话状态栏的自定义：评审",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "21888b0b033693610bcb8a1124dae3a39957f12a8dc1e4fab9c0a1aa7ac43d83",
+    "files": [
+        "index.html",
+        "r1/status-custom.webp",
+        "r1/status-menu.webp",
+        "r1/status-settings.webp"
+    ],
+    "questions": [
+        {
+            "id": "drag-sort",
+            "type": "single",
+            "label": "设置里怎样排序？",
+            "options": [
+                {
+                    "value": "drag",
+                    "label": "A 拖动加上移下移"
+                },
+                {
+                    "value": "buttons",
+                    "label": "B 只做上移下移"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "drag"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "cache-ttl",
+            "type": "single",
+            "label": "缓存倒计时的数据从哪来？",
+            "options": [
+                {
+                    "value": "estimate",
+                    "label": "A 估算，只给 Anthropic"
+                },
+                {
+                    "value": "drop",
+                    "label": "B 这一版不做缓存倒计时"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "estimate"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-17T14:28:20.591Z"
+}

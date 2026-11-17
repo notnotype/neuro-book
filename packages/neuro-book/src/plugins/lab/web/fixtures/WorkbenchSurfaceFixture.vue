@@ -8,12 +8,14 @@
 import {
     activateTab,
     edgeTargetOf,
+    findTreeNode,
     isSectionCollapsed,
     moveTabToEdge,
     openPanelAtEdge,
     presentationCollapse,
     projectLayoutDoc,
     rebaseIntents,
+    sectionCollapseBlock,
     setActiveContainer,
     setPanelCollapsed,
     setPanelHidden,
@@ -78,7 +80,7 @@ const collapse = computed(() => (extent.value === null ? {removed: new Set<strin
 const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed})));
 /** 分节的头只写标题（输出 20），内容是以标题命名的 region：和外壳用同一个判定。 */
 const titleOnly = computed(() => titleOnlyPanels(doc.value));
-const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value}));
+const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value, fillers: projection.value.fillers}));
 
 /** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8），之后把锚归整到和分节一致（输出 41、43），和产品的 store 同一个次序。库拒绝时文档不变。 */
 function commit(operation: (current: LayoutDoc) => LayoutResult): void {
@@ -132,21 +134,38 @@ function headTabs(panelId: string): PanelHeadTab[] {
     });
 }
 
-/** 头都是分节的：隐藏的是整个区域，记在锚上，锚没有头，所以没有“隐藏”按钮。收不成标题行的分节（底部面板的、区域唯一显示的）点“收起”被库拒绝，文档不变。 */
+/** 头都是分节的：隐藏的是整个区域，记在锚上，锚没有头，所以没有“隐藏”按钮。收起不是按钮，是标题行（输出 20）。 */
 function frameActions(panelId: string): PanelFrameAction[] {
-    return [
-        {id: "collapse", label: "收起", icon: "i-lucide-chevrons-down", disabled: false, pressed: isSectionCollapsed(doc.value, panelId)},
-        {id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: maximized.value === panelId},
-    ];
+    return [{id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: maximized.value === panelId}];
+}
+
+/** 展开标记，同外壳的 `foldOf`：只写标题、上下排、库说能收成标题行、没有被最大化。 */
+function foldOf(panelId: string): {readonly collapsed: boolean} | null {
+    const vertical = findTreeNode(doc.value.tree.root, panelId)?.parent?.orientation === "vertical";
+    if (!titleOnly.value.has(panelId) || !vertical || sectionCollapseBlock(doc.value, panelId) !== null || maximized.value === panelId) return null;
+    return {collapsed: isSectionCollapsed(doc.value, panelId)};
+}
+
+/** 点标题，同外壳的 `activateTab` 与 store 的 `activate`：能收起、展开着、视图没接管标题区、点的是当前标签时收起，否则激活，收着的同时展开。 */
+function activateFromHead(panelId: string, key: string): void {
+    const fold = foldOf(panelId);
+    if (fold !== null && !fold.collapsed && viewHeadOf(panelId) === null && doc.value.panels[panelId]?.active === key) {
+        commit((current) => setPanelCollapsed(current, panelId, true));
+        return;
+    }
+    commit((current) => {
+        const activated = activateTab(current, key);
+        return activated.ok && isSectionCollapsed(current, panelId) ? setPanelCollapsed(activated.doc, panelId, false) : activated;
+    });
+}
+
+function toggleFold(panelId: string): void {
+    const fold = foldOf(panelId);
+    if (fold !== null) commit((current) => setPanelCollapsed(current, panelId, !fold.collapsed));
 }
 
 function runFrame(panelId: string, action: string): void {
-    if (action === "maximize") {
-        maximized.value = maximized.value === panelId ? null : panelId;
-        return;
-    }
-    if (maximized.value === panelId) maximized.value = null;
-    if (action === "collapse") commit((current) => setPanelCollapsed(current, panelId, !isSectionCollapsed(current, panelId)));
+    if (action === "maximize") maximized.value = maximized.value === panelId ? null : panelId;
 }
 
 const sidebarShowing = computed(() => regionVisible(doc.value, "sidebar", {removed: collapse.value.removed, maximized: maximized.value}, visible.value));
@@ -235,7 +254,10 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
                         :title-only="titleOnly.has(panelId)"
                         :frame-actions="frameActions(panelId)"
                         :view-head="viewHeadOf(panelId)"
-                        @activate="(key) => commit((current) => activateTab(current, key))"
+                        :fold="foldOf(panelId)"
+                        :fold-label="foldOf(panelId)?.collapsed === true ? '展开' : '收起'"
+                        @activate="(key) => activateFromHead(panelId, key)"
+                        @toggle-fold="toggleFold(panelId)"
                         @head-slots="(slots) => (headSlots = slots)"
                         @action="(action) => runFrame(panelId, action)"
                         @context-menu="(key) => (lastMenu = key)"

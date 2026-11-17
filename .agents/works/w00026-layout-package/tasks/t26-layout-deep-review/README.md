@@ -30,7 +30,7 @@ updated: 2026-11-16
 
 ## 当前状态
 
-2026-11-16 开审，四份报告都交了（各自的汇总在 `reports/` 的 `design-summary.txt`、`docs-summary.txt`、`api-summary.txt`、`perf-summary.txt`，还没存进 `evidences/`）。没有阻断；重要 15 条（设计 2、文档 4、API 7、性能 2），建议 31 条。抽查的几条在代码里属实。
+2026-11-16 开审，四份报告都交了。2026-11-17 扫过密钥（没有命中）后按审查者各存一份：[`evidences/deep-review-design.txt`](evidences/deep-review-design.txt)、[`deep-review-docs.txt`](evidences/deep-review-docs.txt)、[`deep-review-api.txt`](evidences/deep-review-api.txt)（含接入草稿与实验）、[`deep-review-perf.txt`](evidences/deep-review-perf.txt)，每份开头是汇总，后面按条号。没有阻断；重要 15 条（设计 2、文档 4、API 7、性能 2），建议 31 条。抽查的几条在代码里属实。
 
 - 准备直接修的（2026-11-16 在会话里报给开发者，不用答）：
   - 正确性：拖到边缘拆分时新面板 id 和已有的重了会静默覆盖别的面板（api-06，已实验）；布局文档放进 Vue 的 `ref` 抛 `DataCloneError`（api-08，已实验）；`edgeTarget`、`seamAccepts` 这类规则只在落点判定时查、写入时不查（api-02）；`useSashGesture` 换根元素时旧元素的监听没摘（design-03）；校验没拦住条的 id 写错的布局记录（design-04）。
@@ -53,4 +53,4 @@ updated: 2026-11-16
 
 ## 下一步
 
-t27 合入后从 master 开分支：先在 e2e 环境量性能基线（拖边界、实时拖动、侧栏显隐、静止时每秒的动画帧回调、样式重算与排版次数、`dragCardRefresh` 的 60、30 档），再修“准备直接修的”、e2e 辅助函数移开指针、`ui/workbench-layout` 晋升、`ui/nested-grid` 重写；通用库的拆法写成提案交开发者看。报告扫过密钥后存进 `evidences/`。
+t27 合入后从 master 开分支：先在 e2e 环境量性能基线（拖边界、实时拖动、侧栏显隐、静止时每秒的动画帧回调、样式重算与排版次数、`dragCardRefresh` 的 60、30 档），再修“准备直接修的”、e2e 辅助函数移开指针、`ui/workbench-layout` 晋升、`ui/nested-grid` 重写；通用库的拆法写成提案交开发者看。

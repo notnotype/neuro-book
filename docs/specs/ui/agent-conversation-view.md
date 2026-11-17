@@ -326,7 +326,13 @@ Markdown 扩展在本规范中只预留，不要求实现。
 
 ### 状态栏
 
-输入框下面一行小字。左边：上下文圆环与百分比（点击打开上下文检查器，90% 起变红）、运行阶段与用时（不写具体哪一步）、等重发、等你批准或回答、费用告警、非默认模式的标记（“全部放行”用警告色）、断线时的连接状态（需要操作时提供重连）。右边：累计 tokens、输入、输出、缓存命中、费用，图标与轮末用量相同，明细在悬停。状态栏窄于 400px 时右边只留缓存命中与费用（服务商不报缓存时留累计），累计、输入、输出在悬停里；左边放不下时省略，不挤右边。没选会话时不画数据项（上下文圆环、tokens 与费用），提醒项（非默认模式的标记、断线）照常。
+输入框下面一行小字。左边：上下文圆环与百分比（点击打开上下文检查器，90% 起变红）、运行阶段与用时（不写具体哪一步）、等重发、等你批准或回答、费用告警、非默认模式的标记（“全部放行”用警告色）、断线时的连接状态（需要操作时提供重连）。右边：累计 tokens、输入、输出、缓存命中、费用，图标与轮末用量相同，明细在悬停。没选会话时不画数据项（上下文圆环、tokens 与费用），提醒项（非默认模式的标记、断线）照常。
+
+**可选项与次序**（planned）：上面的数据项可以由用户开关、排序。状态栏有一份目录，每项有 `id`、所在一侧（`left`、`right`）、标题、说明、缺省显隐与来源：内置四项是 `context`（左，缺省开，上下文圆环与百分比）、`usage`（右，开，累计、输入、输出、缓存命中合成一项）、`cost`（右，开）、`model`（右，关，模型与推理档，一行文字）；宿主经注册表的 `statusItems` 再加自己的项（带 `side`、`title`、`description?`、`defaultVisible?`，缺省关）。视图的属性 `statusLine` 是用户设置 `{order?: string[]; visible?: Record<string, boolean>}`（`order` 是用户排过的 id 次序，可以不全；`visible` 是用户改过的显隐；都只记改过的），不给等于空对象。解算：每一侧先放 `order` 里出现的、按它的先后，再放没出现的、按目录顺序；显隐取 `visible[id] ?? 缺省`；目录里没有的 id 忽略（来源的插件被停用后设置照样留着，回来时生效）。空设置解出的就是上一段写的状态栏。提醒类（运行阶段与用时、等你批准或回答、等重发、费用超过告警线、非默认模式的标记、“全部放行”的警告、断线）不在目录里，总显示、不受设置影响。
+
+**窄时**（planned）：右边的项按次序从前往后收进悬停，放得下为止，所以次序最后的（缺省是费用）最后收；收起的项的文字合在悬停那一块里。左边放不下时省略，不挤右边。收起与否只看状态栏自己的宽度。
+
+**右键菜单**（planned）：在状态栏上右键，弹出勾选菜单，列出目录里全部的项（插件的项标“插件”），勾选状态是当前的显隐，最后一项“状态栏设置…”。点一项发出 `statusLine.toggle {id}`（宿主改设置），“状态栏设置…”发出 `statusLine.openSettings`。没有 `statusLine` 能力的宿主（不处理这两个 action）不受影响：视图只是多画一个菜单，`statusLine` 属性与这两个 action 都是可选的，不给 `statusLine` 时不弹菜单。
 
 ### 会话列表
 
@@ -387,6 +393,7 @@ type AgentSessionListItem = {
 | 中断与排队 | `run.continue`、`queued.edit {id}`、`queued.remove {id}` |
 | 审批模式 | `approval.set {mode}` |
 | 恢复 | `availability.act {action}`、`connection.reconnect` |
+| 状态栏 | `statusLine.toggle {id}`、`statusLine.openSettings`（planned，见“状态栏”） |
 | 面板数据 | `attachments.query {search, offset}`、`linkedAgents.refresh`、`systemPrompt.load {refresh}`、`tree.activate {entryId}`、`tree.copyId {entryId}`、`context.selectTrace {traceId}`、`context.refresh` |
 | 工作区变更 | `changes.select {path}`、`changes.accept {path}`、`changes.acceptAll`、`changes.refresh`、`changes.openInbox` |
 | Workflow | `workflow.submit {runId, answers}`、`workflow.cancel {toolCallId}` |

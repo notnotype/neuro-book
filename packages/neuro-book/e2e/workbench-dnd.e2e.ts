@@ -732,6 +732,32 @@ test.describe("产品页：拖放", () => {
         await expect.poll(async () => (await leaf(page, alpha).boundingBox())!.height).toBeGreaterThan(32);
     });
 
+    test("一列全部收起时垫底那一节下面的卡片底不是停靠的落点：和收起的分节下面原来那片空白一样，反馈是浮动打开，取消不写；它的标题行照旧是落点（输出 11、25 第 7 行）", async ({page}) => {
+        await open(page);
+        const alpha = await sectionOf(page, A);
+        await dropAt(page, tab(page, D), await inLeaf(page, alpha, {x: 0.5, y: 0.92}));
+        await expect.poll(() => regionOf(page, D)).toBe("sidebar");
+        const delta = await sectionOf(page, D);
+        await fold(page, alpha).click();
+        await fold(page, delta).click();
+        // 丁垫底：外框拉到这一列的底，比标题行高得多。
+        await expect.poll(async () => (await leaf(page, delta).boundingBox())!.height).toBeGreaterThan(200);
+        const writes = await writesOf(page);
+        await dragTo(page, entry(page, C), await inLeaf(page, delta, {x: 0.5, y: 0.7}));
+        await expect(ghost(page)).toBeVisible();
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "float");
+        await page.keyboard.press("Escape");
+        await expect(ghost(page)).toHaveCount(0);
+        await page.mouse.up();
+        expect(await writesOf(page)).toBe(writes);
+        // 标题行是前半：落在丁的标题上，丙在它前面成一节，丁还收着。
+        await dropAt(page, entry(page, C), await centerOf(head(page, delta)));
+        await expect(sample(page, C)).toBeVisible();
+        const [placed, still] = [(await leaf(page, await sectionOf(page, C)).boundingBox())!, (await leaf(page, delta).boundingBox())!];
+        expect(placed.y).toBeLessThan(still.y);
+        await expect(fold(page, delta)).toHaveAttribute("aria-expanded", "false");
+    });
+
     test("键盘：从活动栏入口拿起，起点就在活动栏，方向键在入口与空位之间移动，Enter 只换序；当前容器与显隐不变（输出 22、31、45）", async ({page}) => {
         await open(page);
         const before = await entriesOf(page);
