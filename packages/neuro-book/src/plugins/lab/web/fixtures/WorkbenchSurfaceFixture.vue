@@ -3,6 +3,7 @@
  * WorkbenchSurface 的场景（docs/specs/ui/workbench-layout.md，断言在 e2e/lab-workbench-surface.e2e.ts）。夹具自己扮演工作台：`侧栏 | (编辑组 g0 | g1) | 右栏`，下面是底部面板。
  * 五个视图都没写容器，各是自己的隐式容器（`view:a` 到 `view:e`）：侧栏有 A（当前）、B 两个容器，右栏有 C（当前）、D，底部面板有 E。一个区域只显示当前容器的分节，活动栏一个容器一个入口。
  * 文档、呈现树、有效可见、活动栏的入口与点了做什么都用产品的纯函数算（`state/`），只是不存盘、不接命令系统。按钮做拖放与菜单会提交的那些结构变化；真实的拖动手势在外壳切换时接上。
+ * “标题区”场景里右栏的视图 C 接管标题区（docs/specs/workbench/views.md 输出 19），用一段示例内容（新建、Profile 图标与会话标题、更多）演示三列。
  */
 import {
     activateTab,
@@ -20,10 +21,11 @@ import {
 } from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-layout";
 import {IconButton} from "@notnotype/nb-ui/components";
-import {computed, ref, shallowRef} from "vue";
+import {computed, ref, shallowRef, Teleport} from "vue";
 
 import WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
-import type {PanelFrameAction, PanelHeadTab} from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
+import type {PanelFrameAction, PanelHeadTab, PanelViewHead} from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
+import type {PanelHeadSlots} from "nbook/plugins/workbench/web/views/view-head";
 import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
@@ -183,6 +185,13 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 const visibleText = computed(() => [...visible.value].sort().join(" "));
+
+/** “标题区”场景：视图 C 所在的只写标题的面板交给它标题区。 */
+const HEAD_VIEW = tabKey({kind: "view", viewId: "c"});
+const headSlots = shallowRef<PanelHeadSlots | null>(null);
+function viewHeadOf(panelId: string): PanelViewHead | null {
+    return props.scene === "view-head" && titleOnly.value.has(panelId) && doc.value.panels[panelId]?.active === HEAD_VIEW ? {key: "c:1", popup: {expanded: false}} : null;
+}
 </script>
 
 <template>
@@ -225,7 +234,9 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
                         :id-prefix="idPrefix"
                         :title-only="titleOnly.has(panelId)"
                         :frame-actions="frameActions(panelId)"
+                        :view-head="viewHeadOf(panelId)"
                         @activate="(key) => commit((current) => activateTab(current, key))"
+                        @head-slots="(slots) => (headSlots = slots)"
                         @action="(action) => runFrame(panelId, action)"
                         @context-menu="(key) => (lastMenu = key)"
                     >
@@ -238,6 +249,19 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
                     <GridStructureLeaf :id="labelOf(contentKey)" :create-instance="createInstance" />
                 </template>
             </WorkbenchSurface>
+            <template v-if="headSlots !== null">
+                <Teleport :to="headSlots.start">
+                    <IconButton size="xs" icon-class="i-lucide-plus" aria-label="新建对话" />
+                </Teleport>
+                <Teleport :to="headSlots.title">
+                    <span class="i-lucide-feather workbench-surface-fixture__head-icon" aria-hidden="true"></span>
+                    <span class="workbench-surface-fixture__head-title">第三章节奏调整</span>
+                    <span class="i-lucide-chevron-down workbench-surface-fixture__head-icon" aria-hidden="true"></span>
+                </Teleport>
+                <Teleport :to="headSlots.end">
+                    <IconButton size="xs" icon-class="i-lucide-ellipsis" aria-label="更多" />
+                </Teleport>
+            </template>
         </div>
     </div>
 </template>
@@ -297,5 +321,19 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
     background: var(--panel-surface);
     color: var(--text-secondary);
     font-size: var(--text-xs);
+}
+
+/* “标题区”场景的示例内容：送进面板头的标题按钮里，只放文字与图标。 */
+.workbench-surface-fixture__head-icon {
+    flex-shrink: 0;
+    width: 1.1em;
+    height: 1.1em;
+    color: var(--accent-text);
+}
+
+.workbench-surface-fixture__head-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 </style>

@@ -16,6 +16,7 @@ import AgentContextMeter from "./AgentContextMeter.vue";
 import AgentModelPicker from "./AgentModelPicker.vue";
 import AgentRoleModelPicker from "./AgentRoleModelPicker.vue";
 import AgentQueuedMessages from "./AgentQueuedMessages.vue";
+import AgentNoticeCard from "./AgentNoticeCard.vue";
 import {useAgentRenderers, useAgentText} from "../host";
 import {useEditorHandle} from "./use-editor-handle";
 import {tokenAction, type ViewAction} from "../view-action";
@@ -178,7 +179,11 @@ const sendTitle = computed(() => {
 /** 上次运行被中断：空着也能发，发出去就是继续（docs/specs/agent/conversation.md 输出 9）。 */
 const resuming = computed(() => composer.value.resume === true && !running.value);
 
+/** 不可用的原因优先于别的占位（ui/agent-conversation-view.md 的“输入框与待处理区”）：输入框只读，写打字的提示没有意义。 */
 const placeholder = computed(() => {
+    const availability = props.ctx.availability;
+    const reason = availability.status === "ready" ? "" : availability.title ?? availability.message;
+    if (reason !== "") return reason;
     if (resuming.value) return t("composer.placeholderResume");
     if (!running.value) return t("composer.placeholder");
     const {steer, followup} = deliveries.value;
@@ -357,7 +362,8 @@ defineExpose({
 <template>
     <footer class="acv-composer" :class="{'is-expanded': expanded}" data-agent-composer>
         <AgentQueuedMessages :queued="composer.queued" @edit="emit('action', {type: 'queued.edit', id: $event})" @remove="emit('action', {type: 'queued.remove', id: $event})" />
-        <p v-if="props.ctx.availability.message !== ''" class="acv-composer__notice" role="status" data-composer-availability>
+        <AgentNoticeCard v-if="props.ctx.availability.status === 'profile-unavailable'" :notice="props.ctx.availability" @act="emit('action', {type: 'availability.act', action: $event})" />
+        <p v-else-if="props.ctx.availability.message !== ''" class="acv-composer__notice" role="status" data-composer-availability>
             <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
             <span class="acv-composer__notice-text">{{ props.ctx.availability.message }}</span>
             <Button v-for="item in props.ctx.availability.actions" :key="item.id" size="sm" variant="subtle" :data-availability-action="item.id" @click="emit('action', {type: 'availability.act', action: item.id})">{{ item.label }}</Button>
@@ -590,7 +596,6 @@ defineExpose({
     flex-shrink: 0;
     gap: 6px;
     padding: 8px 12px;
-    border-top: var(--border-w) solid var(--border-color);
     container-type: inline-size;
 }
 

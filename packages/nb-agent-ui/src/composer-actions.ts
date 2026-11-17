@@ -96,12 +96,14 @@ export function sendBlockedReason(live: ReadonlySet<string>, states: ReadonlyMap
 }
 
 /**
- * 只改状态、不需要宿主再动手的输入框 action：草稿回声（只换文字不换版本，编辑器认得这是自己的回声）、模式、模型与思考
- * 档位。其余返回 null，由宿主处理；附件的登记、重试与移除既要改状态又要上传或释放，也不在这里。
+ * 只改状态、不需要宿主再动手的输入框 action：草稿回声（只换文字不换版本，编辑器认得这是自己的回声）、填入（换文字也换版本，
+ * 编辑器才会显示它）、模式、模型与思考档位。其余返回 null，由宿主处理；附件的登记、重试与移除既要改状态又要上传或释放，也不在这里。
+ * 宿主要存草稿时（填入的文字也算草稿）在这之外自己存。
  */
 export function applyComposerAction(composer: ComposerView, action: AgentViewAction): ComposerView | null {
     switch (action.type) {
         case "composer.draftChanged": return {...composer, draft: {text: action.text, version: composer.draft.version}};
+        case "composer.fill": return {...composer, draft: {text: action.text, version: composer.draft.version + 1}};
         case "mode.set": return {...composer, mode: action.mode};
         case "model.set": return {...composer, modelKey: action.modelKey};
         case "thinking.set": return {...composer, thinking: action.level};

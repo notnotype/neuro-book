@@ -12,8 +12,10 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {shallowRef} from "vue";
+import {computed, shallowRef} from "vue";
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
+import {PROVIDERS_SECTION, ROLES_SECTION} from "nbook/plugins/models/shared/contracts";
+import {testTextPort} from "nbook/shared/testing/text-port";
 import type {AgentConversationContext, AssistantMessageView, ComposerModelView, MessageView, PendingApprovalView, PendingInputView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
 
 import {EVENT_INLINE_BYTES} from "./backend/frames";
@@ -21,12 +23,14 @@ import {MAIN_PROFILE} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION} from "./shared/permissions";
 import type {Rule} from "./shared/permissions";
 import {agentProfile} from "./shared/points";
+import {AGENT_TEXT_NAMESPACE} from "./shared/text";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
 import type {AgentWorld, SessionsClient} from "./testing/world";
 import {createAgentActivity} from "./web/activity";
 import {createSessionList} from "./web/session-list";
+import {agentCatalogs} from "./web/text";
 import {createSessionHost, displayToolName, RELEASE_DELAY_MS} from "./web/session-host";
 import type {SessionHost, SessionHostDeps} from "./web/session-host";
 import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./web/request-entries";
@@ -65,9 +69,10 @@ function testPlugin(): PluginDefinition {
     })]};
 }
 
-async function world(): Promise<AgentWorld> {
+/** `extra` 盖在本机端点的设置上（例如多加一家服务商）。 */
+async function world(extra: Readonly<Record<string, unknown>> = {}): Promise<AgentWorld> {
     counter += 1;
-    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [testPlugin()], userSettings: {...localModelSettings(endpoint.baseUrl, {compactionRole: true}), "nbook.agent/profileSettings": {[PROFILE]: {approvalMode: "ask"}}}});
+    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [testPlugin()], userSettings: {...localModelSettings(endpoint.baseUrl, {compactionRole: true}), "nbook.agent/profileSettings": {[PROFILE]: {approvalMode: "ask"}}, ...extra}});
     worlds.push(created);
     return created;
 }
@@ -77,7 +82,8 @@ interface Harness {
     readonly client: SessionsClient;
     readonly recent: {value: string | null};
     readonly copied: string[];
-    readonly settingsOpened: {count: number};
+    /** 每次打开设置给的去处；不带去处时是 null。 */
+    readonly settingsOpened: ({readonly section: string; readonly focus?: string; readonly layer?: string} | null)[];
     readonly requestsOpened: {readonly sessionId: string; readonly request?: number}[];
     ctx(): AgentConversationContext;
 }
@@ -88,7 +94,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
     const {client} = await w.window(`sh-${String(windows)}`);
     const recent = {value: null as string | null};
     const copied: string[] = [];
-    const settingsOpened = {count: 0};
+    const settingsOpened: ({readonly section: string; readonly focus?: string; readonly layer?: string} | null)[] = [];
     const requestsOpened: {readonly sessionId: string; readonly request?: number}[] = [];
     const host = createSessionHost({
         remote: client,
@@ -104,13 +110,12 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         rememberRules: async () => ({ok: true}),
         models: () => [{key: "local/m", label: "M", supportsImages: false}],
         roles: () => null,
+        providers: () => null,
         drafts: {read: async () => null, write: () => undefined},
         attachments: {upload: async () => ({ok: false, code: "not-used"})},
         profiles: () => [{key: PROFILE, name: "测试", description: "", source: "test", status: "ok", icon: "i-lucide-feather"}],
         copy: (value) => void copied.push(value),
-        openSettings: () => {
-            settingsOpened.count += 1;
-        },
+        openSettings: (target) => void settingsOpened.push(target ?? null),
         openRequests: (target) => void requestsOpened.push(target),
         openAddress: () => undefined,
         openLink: () => undefined,
@@ -611,6 +616,26 @@ describe("命令、草稿与输入历史（输出 28–30）", () => {
         await idle(h);
         await h.host.open(b);
         expect(stored.has(a)).toBe(false);
+    });
+
+    test("开场指令（composer.fill）：没选会话时也换掉输入框的文字、换版本；有会话时存成这个会话的草稿", async () => {
+        const w = await world();
+        const stored = new Map<string, string>();
+        const h = await harness(w, {drafts: {read: async (session) => stored.get(session) ?? null, write: (session, text) => void stored.set(session, text)}});
+        const before = h.ctx().composer.draft.version;
+        h.host.act({type: "composer.fill", text: "帮我润色一段环境描写"});
+        await until("填进去", () => h.ctx().composer.draft.text === "帮我润色一段环境描写");
+        expect(h.ctx().composer.draft.version).toBeGreaterThan(before);
+
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        const session = h.host.sessionId.value!;
+        h.host.act({type: "composer.fill", text: "规划第三幕的细纲"});
+        expect(h.ctx().composer.draft.text).toBe("规划第三幕的细纲");
+        // 切走时草稿落盘（与打的字同一条路），切回来还在。
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        expect(stored.get(session)).toBe("规划第三幕的细纲");
+        await h.host.open(session);
+        await until("读回来", () => h.ctx().composer.draft.text === "规划第三幕的细纲");
     });
 
     test("输入历史：当前路径上用户的话，最新在前，去重，不含补充说明", async () => {
@@ -1268,8 +1293,77 @@ describe("中断、设置与模型（输出 7–9）", () => {
         await until("不可用", () => fresh.ctx().availability.status === "profile-unavailable");
         expect(fresh.ctx().composer.modelKey).toBe("没有/这个模型");
         expect(fresh.ctx().composer.models.at(-1)).toMatchObject({key: "没有/这个模型", unavailable: expect.any(String)});
+        // 没有更具体的卡：标题写原因，按钮打开模型服务（输出 42 的最后一种）。
+        expect(fresh.ctx().availability).toMatchObject({title: "conversation.model.unknown", actions: [{id: "open-settings"}]});
         fresh.host.act({type: "availability.act", action: "open-settings"});
-        expect(fresh.settingsOpened.count).toBe(1);
+        expect(fresh.settingsOpened).toEqual([{section: PROVIDERS_SECTION, layer: "user"}]);
+    });
+
+    /** 提示卡用真的目录（严格模式：缺键、缺插值参数会抛），断言写出来的字。 */
+    const zh = () => testTextPort("zh-CN", {[AGENT_TEXT_NAMESPACE]: agentCatalogs});
+    const DEEP_UNBOUND = {key: "role:deep", name: "深度", axis: "gradient", modelLabel: null, status: "unbound"} as const;
+
+    test("profileKey 是响应式的：打开一个会话时先是主创，快照到了换成它的 Profile（第一屏按它取开场指令，conversation.md 输出 41）", async () => {
+        const w = await world();
+        const h = await started(w);
+        const fresh = await harness(w);
+        const key = computed(() => fresh.host.profileKey());
+        expect(key.value).toBe(MAIN_PROFILE);
+        await fresh.host.open(h.host.sessionId.value!);
+        await until("换成会话的 Profile", () => key.value === PROFILE);
+    });
+
+    test("提示卡：没选会话时只判一家服务商都没有，按钮打开服务商页的添加窗口；还没读到、有服务商时不出", async () => {
+        const w = await world();
+        const providers = shallowRef<readonly {id: string; name: string}[] | null>(null);
+        const h = await harness(w, {text: zh(), providers: () => providers.value});
+        expect(h.ctx().session).toBeNull();
+        expect(h.ctx().availability.status).toBe("ready");
+        providers.value = [];
+        await until("出卡", () => h.ctx().availability.status === "profile-unavailable");
+        expect(h.ctx().availability).toMatchObject({title: "还没有可用的模型", actions: [{id: "add-provider", label: "添加服务商"}]});
+        h.host.act({type: "availability.act", action: "add-provider"});
+        expect(h.settingsOpened).toEqual([{section: PROVIDERS_SECTION, focus: "add", layer: "user"}]);
+        providers.value = [{id: "local", name: "本机"}];
+        await until("卡消失", () => h.ctx().availability.status === "ready");
+    });
+
+    test("提示卡：角色没绑定写出角色与 Profile，去绑定打开角色页、定位到这个角色；服务商一家都没有时先说添加", async () => {
+        const w = await world();
+        const providers = shallowRef<readonly {id: string; name: string}[] | null>([{id: "local", name: "本机"}]);
+        const h = await harness(w, {text: zh(), providers: () => providers.value, roles: () => [DEEP_UNBOUND]});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        h.host.act({type: "model.set", modelKey: "role:deep"});
+        await until("出卡", () => h.ctx().availability.status === "profile-unavailable");
+        expect(h.ctx().availability).toMatchObject({title: "“深度”角色还没绑定模型", message: "测试用“深度”角色的模型对话。", actions: [{id: "bind-role", label: "去绑定"}]});
+        h.host.act({type: "availability.act", action: "bind-role"});
+        expect(h.settingsOpened.at(-1)).toEqual({section: ROLES_SECTION, focus: "deep", layer: "user"});
+
+        providers.value = [];
+        await until("换成添加服务商", () => h.ctx().availability.actions[0]?.id === "add-provider");
+        // 卡换了，旧卡的按钮不再有去处。
+        h.host.act({type: "availability.act", action: "bind-role"});
+        expect(h.settingsOpened).toHaveLength(1);
+    });
+
+    test("提示卡：没有密钥写出服务商；绑在角色上时说明写角色，直接选的写模型；设置密钥打开服务商页、定位到这家", async () => {
+        const local = localModelSettings(endpoint.baseUrl, {compactionRole: true});
+        const roles = local["nbook.models/roles"] as {items: {id: string; model: string | null}[]};
+        const w = await world({
+            "nbook.models/providers": [...(local["nbook.models/providers"] as unknown[]), {id: "keyed", kind: "custom", name: "KeyCo", baseUrl: endpoint.baseUrl, api: "openai-completions", auth: "bearer", models: [{id: "k", enabled: true, contextWindow: 32_000}]}],
+            "nbook.models/roles": {items: roles.items.map((role) => (role.id === "deep" ? {...role, model: "keyed/k"} : role))},
+        });
+        const h = await harness(w, {text: zh(), providers: () => [{id: "local", name: "本机"}, {id: "keyed", name: "KeyCo"}], roles: () => [{...DEEP_UNBOUND, status: "no-credentials"}]});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+
+        h.host.act({type: "model.set", modelKey: "role:deep"});
+        await until("出卡", () => h.ctx().availability.status === "profile-unavailable");
+        expect(h.ctx().availability).toMatchObject({title: "KeyCo 还没有设置密钥", message: "“深度”角色绑定的模型要用 KeyCo 的密钥。", actions: [{id: "set-key", label: "设置密钥"}]});
+        h.host.act({type: "availability.act", action: "set-key"});
+        expect(h.settingsOpened.at(-1)).toEqual({section: PROVIDERS_SECTION, focus: "keyed", layer: "user"});
+
+        h.host.act({type: "model.set", modelKey: "keyed/k"});
+        await until("写模型", () => h.ctx().availability.message === "keyed/k 要用 KeyCo 的密钥。");
     });
 
     test("归档：显示原因，能恢复", async () => {

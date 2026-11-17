@@ -15,7 +15,7 @@ export type {
     CompactionView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
     ToolResultView, TriggerMenu, TriggerMenuContext, TriggerMenuItem, UsageSummaryView, UsageView, UserMessageView,
-    WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView,
+    WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView, AgentWelcomeView,
 } from "./types";
 export type {
     MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, MarkdownPreviewPort, PromptAttachment, PromptAttachmentKind, PromptDraft,
@@ -38,7 +38,7 @@ export type {AgentTextKey} from "./text";
 export {acceptSubmission, applyComposerAction, nextMode} from "./composer-actions";
 export {createAgentContext} from "./context";
 export type {AgentContextPatch} from "./context";
-export {createHarnessTranscript, logSeqOf} from "./harness";
+export {createHarnessTranscript, logSeqOf, modelErrorText} from "./harness";
 export {createKernelTranscript} from "./kernel-transcript";
 export type {KernelAnchor, KernelIssuer, KernelMeta, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
 export type {HarnessTranscript, TranscriptProblem} from "./harness";

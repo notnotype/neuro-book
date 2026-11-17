@@ -301,6 +301,14 @@ describe("贡献", () => {
         await say(other, "取个名");
         expect(endpoint.requests[next]!.model).toBe("big");
     });
+
+    test("输出 21：声明的开场指令进目录；多于 3 条照样接受、Profile 照样可用（只显示前 3 条是界面的事）", async () => {
+        const starters = ["写一段雨夜", "列出人物表", "检查时间线", "第四条"].map((text) => ({text, icon: "i-lucide-feather"}));
+        const writer = agentProfile("test.starter.writer", {name: "开场", description: "测试用", tools: {required: [], optional: []}, starters});
+        const plugin: PluginDefinition = {id: "test.starter", entries: [defineEntry({id: "server", location: "server", activationEvents: [writer.activationEvent], contributions: [writer.contribution], activate: () => ({contributions: {"agent.profiles": {"test.starter.writer": defineProfile({id: "test.starter.writer", version: "1", name: "开场", description: "测试用", system: "你写开场。", pluginExtensions: {exclude: ["session-meta"]}})}}})})]};
+        const w = await world([plugin]);
+        expect(w.service.profiles().find((profile) => profile.key === "test.starter.writer")).toMatchObject({status: "ok", starters});
+    });
 });
 
 describe("会话", () => {

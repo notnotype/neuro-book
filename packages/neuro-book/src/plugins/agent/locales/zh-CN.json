@@ -205,6 +205,24 @@
             "roleUnbound": "此 Profile 需要的模型角色未绑定模型。",
             "unavailable": "不可用"
         },
+        "notice": {
+            "noProvider": {
+                "title": "还没有可用的模型",
+                "body": "先添加一个服务商（DeepSeek、OpenAI、本机的 Ollama 都行），再回来对话。",
+                "action": "添加服务商"
+            },
+            "roleUnbound": {
+                "title": "“{{role}}”角色还没绑定模型",
+                "body": "{{profile}}用“{{role}}”角色的模型对话。",
+                "action": "去绑定"
+            },
+            "noCredentials": {
+                "title": "{{provider}} 还没有设置密钥",
+                "bodyRole": "“{{role}}”角色绑定的模型要用 {{provider}} 的密钥。",
+                "bodyModel": "{{model}} 要用 {{provider}} 的密钥。",
+                "action": "设置密钥"
+            }
+        },
         "mode": {
             "normal": "普通",
             "discuss": "讨论",
@@ -248,6 +266,7 @@
             "running": "Agent：{{running}} 运行中"
         },
         "listFailed": "无法获取会话列表（{{code}}）。",
+        "welcomeTitle": "NeuroBook 创作工作区",
         "pickProfile": "选择 Profile",
         "renameTitle": "改名",
         "rename": "改名",
@@ -290,6 +309,19 @@
         },
         "author": {
             "otherSession": "另一个会话"
+        },
+        "subagents": {
+            "title": "子代理",
+            "entry": "子代理：{{count}} 个",
+            "entryAttention": "子代理：{{count}} 个，有要你看的",
+            "total": "{{count}} 个",
+            "running": "{{count}} 个在跑",
+            "waiting": "{{count}} 个等你处理",
+            "unnamed": "子代理",
+            "hint": "点一行进入子会话；运行中的悬停可停止。",
+            "stop": "停止 {{name}}",
+            "question": "在问父 Agent",
+            "interrupted": "已中断"
         },
         "subagent": {
             "spawn": "派子代理",

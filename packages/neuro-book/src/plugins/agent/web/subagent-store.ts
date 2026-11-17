@@ -8,6 +8,8 @@ import {GENERIC_TOOL_RENDERER} from "@notnotype/nb-agent-ui";
 import type {AgentViewRegistry} from "@notnotype/nb-agent-ui";
 import type {Text} from "@notnotype/nb-ui/text";
 
+import type {RunResult} from "@notnotype/nb-harness/kernel/contracts";
+
 import type {CommandStatus} from "../shared/subagents";
 import type {SubagentData} from "./session-host";
 
@@ -21,6 +23,13 @@ export interface SubagentStore {
     status(jobId: string): Promise<CommandStatus | null>;
     /** 以用户的身份停掉一个任务。 */
     kill(jobId: string): Promise<void>;
+    /**
+     * 停掉一个后代会话这次的运行（conversation.md 输出 43）：与在那个会话里按停止同一条路，排队的消息与会话都留着；孙代理也能停。
+     * 停不成时在会话的提示里写原因。
+     */
+    stopRun(sessionId: string): Promise<void>;
+    /** 一个后代会话某次运行的收口结果；读不到交回 null。收口了的结果不会变，调用方可以缓存。 */
+    runResult(sessionId: string, runId: string): Promise<RunResult | null>;
 }
 
 export const subagentStoreKey: InjectionKey<SubagentStore> = Symbol("nbook.agent/subagent-store");
