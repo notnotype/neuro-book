@@ -30,7 +30,7 @@ import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {containerEntries, focusLandings, moveTargetsOf, panelTitle, sidebarVisible, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
+import {focusLandings, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -378,7 +378,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
 // ── 活动栏 ────────────────────────────────────────────────────────────────
 
 /** 活动栏说的“侧栏可见”（输出 22）：入口的按下态与点了做什么都问它。 */
-const sidebarShowing = computed(() => sidebarVisible(doc.value, {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>));
+const sidebarShowing = computed(() => regionVisible(doc.value, "sidebar", {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>));
 
 /** 视图的标题；声明消失的视图写它的 id，和面板头的标签一样（输出 4）。 */
 const viewTitle = (viewId: string): string => {
@@ -387,7 +387,7 @@ const viewTitle = (viewId: string): string => {
 };
 
 /** 上段的入口：侧栏里的容器，按入口顺序（输出 22、41）。成员是声明消失的视图时照样有入口，点了能看到占位。 */
-const toolEntries = computed((): ToolStripEntry[] => containerEntries(renderedDoc.value, catalog.value, state.value.containers).map((entry) => {
+const toolEntries = computed((): ToolStripEntry[] => regionEntries(renderedDoc.value, "sidebar", catalog.value, state.value.containers).map((entry) => {
     const label = text(entry.label.title);
     const views = entry.views.map(viewTitle);
     // 容器的名称就是它唯一那个视图的标题时，悬停文字不把同一个词写两遍。
@@ -409,7 +409,7 @@ const sidebarSwap = shallowRef<Omit<GridSwap, "gap" | "window"> | null>(null);
  */
 function prepareSidebarSwap(next: string): void {
     // 读已提交的文档，不读入口（`toolEntries` 是拖动预览的）：交换比的是网格上一帧与这一次提交，两头都是已提交的。
-    const entries = containerEntries(doc.value, catalog.value, state.value.containers);
+    const entries = regionEntries(doc.value, "sidebar", catalog.value, state.value.containers);
     const current = entries.find((entry) => entry.current)?.id;
     const maximized = state.value.maximized;
     if (current === undefined || current === next || !sidebarShowing.value || (maximized !== null && regionOf(doc.value, maximized) === "sidebar")) return;
@@ -427,7 +427,7 @@ function prepareSidebarSwap(next: string): void {
 
 /** 点入口（输出 22）。焦点不在这里管：鼠标点不抢焦点，原处看不见了由下面“焦点”一节的规则接走（输出 42）。 */
 function selectEntry(container: string): void {
-    const intent = toolEntryIntent(doc.value, container, {sidebarVisible: sidebarShowing.value});
+    const intent = regionEntryIntent(doc.value, "sidebar", container, {regionVisible: sidebarShowing.value});
     if (intent.kind === "show") {
         prepareSidebarSwap(intent.container);
         props.layout.actions.showContainer(intent.container);
@@ -501,7 +501,8 @@ const reachable = (element: HTMLElement | null | undefined): element is HTMLElem
 
 /** 落点在界面上对应的元素；不保证看得见，调用方用 `reachable` 筛。 */
 function landingElement(root: HTMLElement, landing: FocusLanding): HTMLElement | null {
-    if (landing.kind === "entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(landing.container)}"]`);
+    // 侧栏的入口在活动栏（`data-tool-entry`），右栏、底部面板的在入口条（`data-region-entry`）；容器 id 在三个区域里不重。
+    if (landing.kind === "entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(landing.container)}"], [data-region-entry="${CSS.escape(landing.container)}"]`);
     const tab = root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(landing.panel)}"] [data-panel-tab][tabindex="0"]`);
     if (landing.kind === "tab") return tab;
     // 切到的分节：里面第一个能聚焦的；内容还没加载出来、或它收成了标题行时给它的标题。

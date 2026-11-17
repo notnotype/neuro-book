@@ -7,7 +7,7 @@ import {defaultLayoutDoc} from "./default-tree";
 import {moveContainerTo, sectionLanding, settleContainers} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import type {VisibilityFacts} from "./layout-present";
-import {containerEntries, effectiveVisibleTabs, focusLandings, layoutContents, layoutStructureKey, moveTargetsOf, panelTitle, sidebarVisible, titleOnlyPanels, toolEntryIntent} from "./layout-present";
+import {effectiveVisibleTabs, focusLandings, layoutContents, layoutStructureKey, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels} from "./layout-present";
 import {createLayoutPolicy, PANEL_HEAD_HEIGHT} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 
@@ -65,6 +65,12 @@ describe("内容项", () => {
             {key: "tab:a", leaf: "g0", insetTop: 34, active: false},
             {key: "tab:b", leaf: "g0", insetTop: 34, active: true},
         ]);
+    });
+
+    test("画成并成一行的分节：头在入口条里，内容从叶的上边开始；别的照旧让出头（输出 47）", () => {
+        const contents = layoutContents(doc(), () => 0, new Set([CHAT]));
+        expect(contents.filter((item) => item.leaf === CHAT).map((item) => item.insetTop)).toEqual([0]);
+        expect(contents.filter((item) => item.leaf === FILES).map((item) => item.insetTop)).toEqual([PANEL_HEAD_HEIGHT]);
     });
 });
 
@@ -168,6 +174,12 @@ describe("有效可见", () => {
         expect(effectiveVisibleTabs(collapsed, {...FACTS, sizes: tall, preview: tall}).has("view:files")).toBe(true);
     });
 
+    test("并成一行的分节叶里没有头：比一行头矮也有地方放内容（输出 47）", () => {
+        const short = {...SIZES, [CHAT]: {width: 300, height: 20}};
+        expect(effectiveVisibleTabs(doc(), {...FACTS, sizes: short}).has("view:chat")).toBe(false);
+        expect(effectiveVisibleTabs(doc(), {...FACTS, sizes: short, merged: new Set([CHAT])}).has("view:chat")).toBe(true);
+    });
+
     test("区域从零拉回时按拖动中的几何：还没松手，内容就出现（输出 12）", () => {
         const zeroed = withPanel(doc(), "sidebar", {collapsed: true});
         const sizes = {...SIZES, [FILES]: {width: 0, height: 400}};
@@ -198,41 +210,54 @@ describe("活动栏的入口（输出 22、41）", () => {
     const GROUPED: ViewCatalog = new Map([...CATALOG].map(([id, view]) => [id, id === "files" || id === "outline" ? {...view, container: GROUP} : view]));
 
     test("一个容器一项，按入口顺序；侧栏的当前容器标出来；别的区域的容器不列", () => {
-        expect(containerEntries(doc(), CATALOG).map((entry) => [entry.id, entry.views, entry.current])).toEqual([["view:files", ["files"], true], ["view:outline", ["outline"], false]]);
-        expect(containerEntries(doc(), CATALOG).map((entry) => entry.label)).toEqual([{title: {"zh-CN": "文件", "en-US": "Files"}, icon: "i-a"}, {title: {"zh-CN": "大纲", "en-US": "Outline"}, icon: "i-b"}]);
+        expect(regionEntries(doc(), "sidebar", CATALOG).map((entry) => [entry.id, entry.views, entry.current])).toEqual([["view:files", ["files"], true], ["view:outline", ["outline"], false]]);
+        expect(regionEntries(doc(), "sidebar", CATALOG).map((entry) => entry.label)).toEqual([{title: {"zh-CN": "文件", "en-US": "Files"}, icon: "i-a"}, {title: {"zh-CN": "大纲", "en-US": "Outline"}, icon: "i-b"}]);
     });
 
     test("声明的容器装着几个视图：只有一项，名称与图标用容器声明的，成员按分节的先后", () => {
-        const entries = containerEntries(defaultLayoutDoc(GROUPED, GROUPS), GROUPED, GROUPS);
+        const entries = regionEntries(defaultLayoutDoc(GROUPED, GROUPS), "sidebar", GROUPED, GROUPS);
         expect(entries).toEqual([{id: GROUP, label: {title: {"zh-CN": "项目", "en-US": "Project"}, icon: "i-group"}, views: ["files", "outline"], current: true}]);
     });
 
     test("成员是声明消失的视图：照样有入口，名称写视图 id，没有图标可取", () => {
-        expect(containerEntries(doc(), new Map()).map((entry) => [entry.id, entry.label])).toEqual([["view:files", {title: "files", icon: null}], ["view:outline", {title: "outline", icon: null}]]);
+        expect(regionEntries(doc(), "sidebar", new Map()).map((entry) => [entry.id, entry.label])).toEqual([["view:files", {title: "files", icon: null}], ["view:outline", {title: "outline", icon: null}]]);
+    });
+
+    test("右栏、底部面板同样一个容器一项，标出各自的当前容器（输出 47）", () => {
+        expect(regionEntries(doc(), "auxiliarybar", CATALOG).map((entry) => [entry.id, entry.current])).toEqual([["view:chat", true]]);
+        expect(regionEntries(doc(), "panel", CATALOG).map((entry) => [entry.id, entry.current])).toEqual([["view:output", true]]);
+        const away = settleContainers(must(moveContainerTo(doc(), "view:files", "auxiliarybar", POLICY)));
+        expect(regionEntries(away, "auxiliarybar", CATALOG).map((entry) => [entry.id, entry.current])).toEqual([["view:chat", false], ["view:files", true]]);
     });
 
     test("容器搬到右栏后不在活动栏里，搬回来排在最后；侧栏一个容器都没有时是空的", () => {
         const away = settleContainers(must(moveContainerTo(doc(), "view:files", "auxiliarybar", POLICY)));
-        expect(containerEntries(away, CATALOG).map((entry) => [entry.id, entry.current])).toEqual([["view:outline", true]]);
+        expect(regionEntries(away, "sidebar", CATALOG).map((entry) => [entry.id, entry.current])).toEqual([["view:outline", true]]);
         const back = settleContainers(must(moveContainerTo(away, "view:files", "sidebar", POLICY)));
-        expect(containerEntries(back, CATALOG).map((entry) => [entry.id, entry.current])).toEqual([["view:outline", false], ["view:files", true]]);
-        expect(containerEntries(defaultLayoutDoc(new Map()), new Map())).toEqual([]);
+        expect(regionEntries(back, "sidebar", CATALOG).map((entry) => [entry.id, entry.current])).toEqual([["view:outline", false], ["view:files", true]]);
+        expect(regionEntries(defaultLayoutDoc(new Map()), "sidebar", new Map())).toEqual([]);
     });
 
     describe("点了做什么", () => {
         test("不是当前容器：切到它，不管侧栏此刻可不可见", () => {
-            expect(toolEntryIntent(doc(), "view:outline", {sidebarVisible: true})).toEqual({kind: "show", container: "view:outline"});
-            expect(toolEntryIntent(doc(), "view:outline", {sidebarVisible: false})).toEqual({kind: "show", container: "view:outline"});
+            expect(regionEntryIntent(doc(), "sidebar", "view:outline", {regionVisible: true})).toEqual({kind: "show", container: "view:outline"});
+            expect(regionEntryIntent(doc(), "sidebar", "view:outline", {regionVisible: false})).toEqual({kind: "show", container: "view:outline"});
         });
 
         test("是当前容器：侧栏可见就隐藏侧栏，不可见（隐藏着、拖到零）就展开", () => {
-            expect(toolEntryIntent(doc(), "view:files", {sidebarVisible: true})).toEqual({kind: "hide"});
-            expect(toolEntryIntent(doc(), "view:files", {sidebarVisible: false})).toEqual({kind: "show", container: "view:files"});
+            expect(regionEntryIntent(doc(), "sidebar", "view:files", {regionVisible: true})).toEqual({kind: "hide"});
+            expect(regionEntryIntent(doc(), "sidebar", "view:files", {regionVisible: false})).toEqual({kind: "show", container: "view:files"});
+        });
+
+        test("右栏、底部面板一样：是当前容器且区域可见就隐藏，否则切到它并展开", () => {
+            expect(regionEntryIntent(doc(), "auxiliarybar", "view:chat", {regionVisible: true})).toEqual({kind: "hide"});
+            expect(regionEntryIntent(doc(), "auxiliarybar", "view:chat", {regionVisible: false})).toEqual({kind: "show", container: "view:chat"});
+            expect(regionEntryIntent(doc(), "panel", "view:chat", {regionVisible: true})).toEqual({kind: "none"});
         });
 
         test("不在侧栏里的容器（在别的区域、没有成员）什么都不做", () => {
-            expect(toolEntryIntent(doc(), "view:chat", {sidebarVisible: true})).toEqual({kind: "none"});
-            expect(toolEntryIntent(doc(), "custom:nobody", {sidebarVisible: true})).toEqual({kind: "none"});
+            expect(regionEntryIntent(doc(), "sidebar", "view:chat", {regionVisible: true})).toEqual({kind: "none"});
+            expect(regionEntryIntent(doc(), "sidebar", "custom:nobody", {regionVisible: true})).toEqual({kind: "none"});
         });
     });
 
@@ -241,30 +266,36 @@ describe("活动栏的入口（输出 22、41）", () => {
         const visibleOf = (current: LayoutDoc, facts: VisibilityFacts = FACTS) => effectiveVisibleTabs(current, facts);
 
         test("占着地方就算；分节收成标题行也算", () => {
-            expect(sidebarVisible(doc(), NONE, visibleOf(doc()))).toBe(true);
+            expect(regionVisible(doc(), "sidebar", NONE, visibleOf(doc()))).toBe(true);
             // 两个分节都收成标题行：没有一个视图有效可见，侧栏照样占着地方。
             const two = settleContainers(must(moveTabToEdge(doc(), {tab: "view:outline", target: sectionLanding(doc(), "sidebar", "view:files")!, container: "view:files"}, POLICY)));
             const folded = must(setPanelCollapsed(must(setPanelCollapsed(two, FILES, true)), OUTLINE, true));
             expect(visibleOf(folded).has("view:files")).toBe(false);
-            expect(sidebarVisible(folded, NONE, visibleOf(folded))).toBe(true);
+            expect(regionVisible(folded, "sidebar", NONE, visibleOf(folded))).toBe(true);
         });
 
         test("隐藏、拖到零、被别的面板最大化盖住、显示着的分节都被收走：不算", () => {
             const hidden = must(setPanelHidden(doc(), "sidebar", true));
-            expect(sidebarVisible(hidden, NONE, visibleOf(hidden))).toBe(false);
+            expect(regionVisible(hidden, "sidebar", NONE, visibleOf(hidden))).toBe(false);
             const zeroed = must(setPanelCollapsed(doc(), "sidebar", true));
-            expect(sidebarVisible(zeroed, NONE, visibleOf(zeroed))).toBe(false);
-            expect(sidebarVisible(doc(), {...NONE, maximized: CHAT}, visibleOf(doc(), {...FACTS, maximized: CHAT}))).toBe(false);
-            expect(sidebarVisible(doc(), {...NONE, maximized: FILES}, visibleOf(doc(), {...FACTS, maximized: FILES}))).toBe(true);
+            expect(regionVisible(zeroed, "sidebar", NONE, visibleOf(zeroed))).toBe(false);
+            expect(regionVisible(doc(), "sidebar", {...NONE, maximized: CHAT}, visibleOf(doc(), {...FACTS, maximized: CHAT}))).toBe(false);
+            expect(regionVisible(doc(), "sidebar", {...NONE, maximized: FILES}, visibleOf(doc(), {...FACTS, maximized: FILES}))).toBe(true);
             const removed = new Set([FILES]);
-            expect(sidebarVisible(doc(), {...NONE, removed}, visibleOf(doc(), {...FACTS, removed}))).toBe(false);
+            expect(regionVisible(doc(), "sidebar", {...NONE, removed}, visibleOf(doc(), {...FACTS, removed}))).toBe(false);
+        });
+
+        test("右栏同样：隐藏了不算，显示着算（输出 47 的按下态）", () => {
+            expect(regionVisible(doc(), "auxiliarybar", NONE, visibleOf(doc()))).toBe(true);
+            const hidden = must(setPanelHidden(doc(), "auxiliarybar", true));
+            expect(regionVisible(hidden, "auxiliarybar", NONE, visibleOf(hidden))).toBe(false);
         });
 
         test("从零拉回来：文档里还记着拖到零，内容已经按拖动中的几何可见，就算可见", () => {
             const zeroed = must(setPanelCollapsed(doc(), "sidebar", true));
             const sizes = {...SIZES, [FILES]: {width: 0, height: 400}};
             const pulling = visibleOf(zeroed, {...FACTS, sizes, preview: {...sizes, [FILES]: {width: 200, height: 400}}});
-            expect(sidebarVisible(zeroed, NONE, pulling)).toBe(true);
+            expect(regionVisible(zeroed, "sidebar", NONE, pulling)).toBe(true);
         });
     });
 });
@@ -292,9 +323,9 @@ describe("焦点所在的面板看不见之后的落点（输出 16、42）", ()
         return result.doc;
     };
 
-    test("面板还显示着（内容被停放）：它头上的标签，侧栏的再加它那个容器的入口", () => {
+    test("面板还显示着（内容被停放）：它头上的标签，再是它那个容器的入口（侧栏的在活动栏，右栏的在入口条）", () => {
         expect(focusLandings(doc(), FILES)).toEqual([{kind: "tab", panel: FILES}, {kind: "entry", container: "view:files"}]);
-        expect(focusLandings(doc(), CHAT)).toEqual([{kind: "tab", panel: CHAT}]);
+        expect(focusLandings(doc(), CHAT)).toEqual([{kind: "tab", panel: CHAT}, {kind: "entry", container: "view:chat"}]);
     });
 
     test("切走了容器、区域还显示着：新容器的第一个分节，再是活动栏里原来那个容器的入口", () => {
@@ -302,7 +333,7 @@ describe("焦点所在的面板看不见之后的落点（输出 16、42）", ()
         expect(focusLandings(switched, FILES)).toEqual([{kind: "section", panel: OUTLINE}, {kind: "entry", container: "view:files"}]);
     });
 
-    test("区域隐藏了：侧栏的去活动栏里它那个容器的入口；右栏、底部面板的容器没有入口，没有落点", () => {
+    test("区域隐藏了：侧栏的去活动栏里它那个容器的入口；右栏、底部面板的入口条跟着缩没了，没有落点", () => {
         expect(focusLandings(must(setPanelHidden(doc(), "sidebar", true)), FILES)).toEqual([{kind: "entry", container: "view:files"}]);
         expect(focusLandings(must(setPanelHidden(doc(), "auxiliarybar", true)), CHAT)).toEqual([]);
         expect(focusLandings(must(setPanelHidden(doc(), "panel", true)), OUTPUT)).toEqual([]);

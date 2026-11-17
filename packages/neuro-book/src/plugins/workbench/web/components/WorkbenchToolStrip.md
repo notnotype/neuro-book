@@ -88,4 +88,4 @@ type Emits = {
 
 ## 不支持
 
-不自己处理拖动。不判断点了做什么（见 `state/layout-present.ts` 的 `toolEntryIntent`），不执行命令。
+不自己处理拖动。不判断点了做什么（见 `state/layout-present.ts` 的 `regionEntryIntent`），不执行命令。

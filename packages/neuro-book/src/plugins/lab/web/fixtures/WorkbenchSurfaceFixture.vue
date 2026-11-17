@@ -32,7 +32,7 @@ import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/co
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import {collapseOrder, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import {implicitContainerOf, moveContainerTo, sectionLanding, settleContainers} from "nbook/plugins/workbench/web/state/containers";
-import {containerEntries, effectiveVisibleTabs, sidebarVisible, titleOnlyPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
+import {effectiveVisibleTabs, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels} from "nbook/plugins/workbench/web/state/layout-present";
 import type {ViewCatalog} from "nbook/plugins/workbench/web/views/registry";
 import {applyEntryDrop} from "nbook/plugins/workbench/web/entry-drop";
 import {CUSTOM_CONTAINER_PREFIX} from "nbook/plugins/workbench/shared/views";
@@ -149,10 +149,10 @@ function runFrame(panelId: string, action: string): void {
     if (action === "collapse") commit((current) => setPanelCollapsed(current, panelId, !isSectionCollapsed(current, panelId)));
 }
 
-const sidebarShowing = computed(() => sidebarVisible(doc.value, {removed: collapse.value.removed, maximized: maximized.value}, visible.value));
+const sidebarShowing = computed(() => regionVisible(doc.value, "sidebar", {removed: collapse.value.removed, maximized: maximized.value}, visible.value));
 
 /** 一个容器一个入口（输出 22、41）；这里的容器都只含一个视图时入口就是那个视图的，D 并进 B 的容器后那个入口含两个视图。 */
-const entries = computed<ToolStripEntry[]>(() => containerEntries(doc.value, CATALOG).map((entry) => {
+const entries = computed<ToolStripEntry[]>(() => regionEntries(doc.value, "sidebar", CATALOG).map((entry) => {
     const titles = entry.views.map((viewId) => VIEWS.find((item) => item.id === viewId)?.label ?? viewId);
     const label = typeof entry.label.title === "string" ? entry.label.title : entry.id;
     return {id: entry.id, label, icon: entry.label.icon, tooltip: titles.length === 1 ? label : `${label}：${titles.join("、")}`, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && sidebarShowing.value};
@@ -165,7 +165,7 @@ const STRIP_ITEMS: ReadonlyArray<ToolStripItem> = [
 
 /** 点入口（输出 22）：和产品的外壳用同一个判定。焦点的去向是外壳的事，夹具不管。 */
 function selectEntry(container: string): void {
-    const intent = toolEntryIntent(doc.value, container, {sidebarVisible: sidebarShowing.value});
+    const intent = regionEntryIntent(doc.value, "sidebar", container, {regionVisible: sidebarShowing.value});
     if (intent.kind === "show") {
         maximized.value = null;
         commit((current) => showContainer(current, "sidebar", intent.container));
