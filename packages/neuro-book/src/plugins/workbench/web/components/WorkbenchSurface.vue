@@ -3,7 +3,7 @@
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
 import {createGrid, hiddenRegionsAtZero, isContainerAnchor, isPanelShown, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
-import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
+import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, GridSwap, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
@@ -37,7 +37,12 @@ const props = withDefaults(defineProps<{
     dragging?: boolean;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, dragging: false, floats: () => []});
+    /**
+     * 切换容器时整张卡片滚过去（输出 42，网格的交换）：和那次提交在同一个同步段里给，`token` 变了才算新的。缝宽由这里按主题补上：
+     * 两张卡片之间隔一条缝。
+     */
+    swap?: Omit<GridSwap, "gap"> | null;
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, dragging: false, floats: () => [], swap: null});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -85,12 +90,16 @@ watch(extent, (next) => emit("extent", next), {immediate: true, flush: "sync"});
 
 /** 主题写在文档根上，换主题或明暗时文档根的属性与内联变量会变，这时重读。 */
 let themeObserver: MutationObserver | null = null;
+/** 主题的缝宽（px）：交换的两张卡片之间隔它。 */
+const cardGap = ref(0);
 function readCardGap(): void {
     const root = rootEl.value;
     if (root === null) return;
     const value = Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-gap"));
-    emit("card-gap", Number.isFinite(value) ? value : 0);
+    cardGap.value = Number.isFinite(value) ? value : 0;
+    emit("card-gap", cardGap.value);
 }
+const gridSwap = computed<GridSwap | null>(() => (props.swap === null ? null : {...props.swap, gap: cardGap.value}));
 onMounted(() => {
     readCardGap();
     themeObserver = new MutationObserver(readCardGap);
@@ -200,6 +209,8 @@ const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "lea
 const presentedLeaves = computed(() => new Set(leafIdsOf(props.projection.input)));
 const outgoingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.outgoingLeaves ?? new Set());
 const shapedLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.shapedLeaves ?? new Set());
+/** 这一刻在交换里的叶（切换容器滚过去的两张卡片）：它们不算“角接过去”，活动栏前后都相连，不换画法。 */
+const swappingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.swappingLeaves ?? new Set());
 /**
  * 活动栏刚从断开变成相连时连上的那一列（`capLeaves`）：侧栏显示（从零宽长出来）。一直相连、只是换了一列（切换容器）时不算，
  * 别的变化与这一轮过渡结束都清掉。按 id 的列表比，同一列重算出来的卡片不算变化。
@@ -254,9 +265,10 @@ const sceneOf = (id: string): PanelName | undefined => (drawnAsBefore(id) ? last
  * - 侧栏右上、右下的圆角（几节时是最上面一块的右上角、最下面一块的右下角，组内的角本来是直的）跟着外框的右沿：缩到零时正好落在活动栏右边，
  *   成了活动栏的两个角，摘掉侧栏后画面不变；显示时反过来，长完了换回相连的画法，画面同样不变。
  * 所以活动栏的角不过渡：断开、相连的那一刻它的角都被盖着。中间那条短线随着淡出（隐藏）、淡入（显示）。
- * 只认缩回去的和活动栏刚连上的（`freshlyJoined`）：切换容器时活动栏前后都相连，不换画法（换的话图标会左右挪一下）。
+ * 只认缩回去的和活动栏刚连上的（`freshlyJoined`）：切换容器时活动栏前后都相连，不换画法（换的话图标会左右挪一下）；切换时整张卡片滚过去的那些叶
+ * （`swappingLeaves`）留着画到滚完，也不算。
  */
-const capLeaves = computed<ReadonlySet<string>>(() => new Set([...shapedLeaves.value].filter((id) => id !== ACTIVITY_BAR && joinedToBar(edgesOf(id)?.left) && (drawnAsBefore(id) || freshlyJoined.value.has(id)))));
+const capLeaves = computed<ReadonlySet<string>>(() => new Set([...shapedLeaves.value].filter((id) => id !== ACTIVITY_BAR && !swappingLeaves.value.has(id) && joinedToBar(edgesOf(id)?.left) && (drawnAsBefore(id) || freshlyJoined.value.has(id)))));
 
 /** 这块卡片的四边：离开的叶用最后一次呈现的；面板的角接过去的这段，活动栏照断开的样子。 */
 function cardOf(id: string): CardEdges | undefined {
@@ -438,6 +450,7 @@ defineExpose({
             :sash-kind="sashKind"
             :sash-style="sashStyleOf"
             :leaf-shape="shapeOf"
+            :swap="gridSwap"
             @gesture-update="onGesturePreview"
             @gesture-end="onGestureSettled"
             @gesture-cancel="onGestureSettled"

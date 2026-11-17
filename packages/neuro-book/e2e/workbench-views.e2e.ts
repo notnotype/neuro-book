@@ -950,7 +950,9 @@ test.describe("产品页：测试插件贡献的视图", () => {
             };
             return [
                 ...read(".workbench-tool-strip", {"background-color": "--panel-surface"}),
-                ...read(".workbench-tool-strip__item--active", {"color": "--accent-text", "background-color": "--bg-hover"}),
+                ...read(".workbench-tool-strip__item--active", {"color": "--accent-text"}),
+                // 按下的底色是条目区里一个独立的块（输出 22）。
+                ...read("[data-tool-indicator]", {"background-color": "--bg-hover"}),
                 ...read(`[data-shell-card="${CSS.escape(side)}"]`, {"background-color": "--panel-surface"}),
             ].filter((item) => item.own !== item.token);
         }, side);

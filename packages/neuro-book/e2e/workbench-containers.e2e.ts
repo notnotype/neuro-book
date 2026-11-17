@@ -188,7 +188,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(after.panels[upper]?.collapsed ?? false).toBe(false);
     });
 
-    test("切回容器、侧栏从隐藏到显示：停放过的内容跟着外框一起长出来，每一帧都不超出外框；侧栏显示时整列从活动栏边上横着长出来，隐藏时整列留着缩回去（ui/nested-grid 的内容层与过渡）", async ({page}) => {
+    test("切回容器、侧栏从隐藏到显示：切回时整张卡片滚进来、隐藏显示时长出来缩回去，停放过的内容跟着外框走，每一帧都不超出外框；侧栏显示时整列从活动栏边上横着长出来，隐藏时整列留着缩回去（ui/nested-grid 的内容层、过渡与交换）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const explorer = await sectionOf(page, EXPLORER);
@@ -230,10 +230,10 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             }
             return rows;
         }, {selector, leafId: explorer});
-        const expectInside = (rows: Awaited<ReturnType<typeof framesAfter>>, grows: "frameHeight" | "frameWidth") => {
-            const final = rows.at(-1)?.[grows] ?? 0;
+        const expectInside = (rows: Awaited<ReturnType<typeof framesAfter>>, changes: "frameHeight" | "frameWidth" | "frameTop") => {
+            const final = rows.at(-1)?.[changes] ?? 0;
             // 确实量到了过渡中间的帧，不是一下子到终点。
-            expect(rows.some((row) => row[grows] < final - 50)).toBe(true);
+            expect(rows.some((row) => Math.abs(row[changes] - final) > 50)).toBe(true);
             for (const row of rows) {
                 expect(row.contentTop).toBeGreaterThanOrEqual(row.frameTop - 1);
                 expect(row.contentBottom).toBeLessThanOrEqual(row.frameBottom + 1);
@@ -242,11 +242,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             }
         };
 
-        // 切到样例甲的容器，再切回“项目”。
+        // 切到样例甲的容器，再切回“项目”：整张卡片竖着滚进来（输出 42），高度不变、上边在走。
         await entry(page, `view:${A}`).click();
         await expect(leaf(page, explorer)).toHaveCount(0);
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`), "frameHeight");
+        expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`), "frameTop");
 
         // 点当前容器的入口隐藏侧栏：整列作为一块缩回活动栏边上（按拖到零画，缩到零），每一帧全高、左边不动，内容被外框裁着，过渡结束前还画着。
         // 面板头与内容贴着外框在动的右边，整块往左平移出去，不是停在原地被外框像幕布一样盖上。
@@ -401,7 +401,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const [shownCorner] = await colorsAt([[shown!.x + shown!.width - 1.5, top + 1.5]]);
         expect(near(shownCorner, surface)).toBe(true);
 
-        // 切到另一个只有一节的容器：换上来的一节从上往下长，活动栏前后都相连，过渡中也不换画法（换的话图标会左右挪）。
+        // 切到另一个只有一节的容器：整张卡片滚过去（输出 42），活动栏前后都相连，过渡中也不换画法（换的话图标会左右挪）。
         await page.evaluate((selector) => document.querySelector<HTMLElement>(selector)!.click(), `[data-tool-entry="view:${B}"]`);
         await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const switching = await page.evaluate(({duration}) => {
@@ -561,6 +561,108 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             }
             await expect(moving).toHaveCount(0);
         }
+    });
+
+    test("侧栏切换容器：整张卡片竖着滚过去，列外不画，活动栏一直相连、不换画法，按下的块和内容同时走；滚到一半点回来，从这一刻往回滚，结束时两节原样（ui/workbench-layout 输出 22、42；验收 33）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const bar = page.locator('[data-shell-card="activitybar"]');
+        const sections = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
+        const homes = await Promise.all(sections.map((id) => box(page, id)));
+        const [upper] = homes[0]!.y < homes[1]!.y ? sections : [...sections].reverse();
+        const column = {top: Math.min(...homes.map((home) => home.y)), bottom: Math.max(...homes.map((home) => home.y + home.height)), center: homes[0]!.x + homes[0]!.width / 2};
+        const status = await box(page, "statusbar");
+        expect(status.y).toBeGreaterThanOrEqual(column.bottom - 1);
+        const indicatorAt = () => page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector("[data-tool-indicator]")!).transform).f);
+        const entryTop = async (container: string) => page.evaluate((container) => {
+            const button = [...document.querySelectorAll<HTMLElement>("[data-tool-entry]")].find((element) => element.dataset.toolEntry === container)!;
+            return button.offsetTop;
+        }, container);
+        const [fromEntry, toEntry] = [await entryTop(PROJECT_CONTAINER), await entryTop(`view:${B}`)];
+        expect(toEntry).toBeGreaterThan(fromEntry);
+        await expect.poll(indicatorAt).toBe(fromEntry);
+
+        const colorsAt = async (points: ReadonlyArray<readonly [number, number]>): Promise<number[][]> => {
+            const png = await page.screenshot();
+            return page.evaluate(async ({data, points}) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${data}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d")!;
+                context.drawImage(image, 0, 0);
+                return points.map(([x, y]) => [...context.getImageData(Math.floor(x), Math.floor(y), 1, 1).data].slice(0, 3));
+            }, {data: png.toString("base64"), points});
+        };
+        const near = (a: number[] | undefined, b: number[] | undefined): boolean => a !== undefined && b !== undefined && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) <= 6);
+        const statusPoint = [column.center, status.y + status.height / 2] as const;
+        const [statusColor] = await colorsAt([statusPoint]);
+
+        await page.addStyleTag({content: ":root { --motion-layout: 6000ms !important; }"});
+        const duration = 6000;
+        const click = (container: string) => page.evaluate((selector) => document.querySelector<HTMLElement>(selector)!.click(), `[data-tool-entry="${container}"]`);
+        const started = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const pauseAt = (fraction: number) => page.evaluate(({fraction, duration, upper}) => {
+            for (const animation of document.getAnimations()) {
+                animation.pause();
+                animation.currentTime = fraction * duration;
+            }
+            const frames = [...document.querySelectorAll<HTMLElement>("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-swap]")];
+            const top = (side: string) => frames.filter((frame) => frame.dataset.swap === side).map((frame) => frame.getBoundingClientRect().top);
+            const card = document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!;
+            const upperFrame = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${upper}"]`);
+            return {
+                in: Math.min(...top("in")), out: Math.min(...top("out")), upper: upperFrame?.getBoundingClientRect().top ?? null,
+                outInert: frames.filter((frame) => frame.dataset.swap === "out").every((frame) => frame.inert),
+                join: card.dataset.shellJoin ?? null, cap: card.dataset.shellCap ?? null, seam: card.dataset.shellJoinSeam ?? null,
+                indicator: new DOMMatrix(getComputedStyle(document.querySelector("[data-tool-indicator]")!).transform).f,
+            };
+        }, {fraction, duration, upper: upper!});
+        const finish = () => page.evaluate(() => {
+            for (const animation of document.getAnimations()) {
+                if (animation.effect?.getComputedTiming().endTime === Number.POSITIVE_INFINITY) animation.play();
+                else animation.finish();
+            }
+        });
+
+        // 切到样例乙（入口在后面）：乙从下面进来，“项目”往上出去，两张卡片相距列高加一条缝，一起走。
+        await click(`view:${B}`);
+        await started();
+        let step = 0;
+        for (const fraction of [0, 0.1, 0.3]) {
+            const at = await pauseAt(fraction);
+            if (fraction === 0) {
+                expect(at.out).toBeCloseTo(column.top, 0);
+                step = at.in - at.out;
+                expect(step).toBeGreaterThan(column.bottom - column.top);
+            }
+            expect(at.in - at.out).toBeCloseTo(step, 0);
+            expect({outInert: at.outInert, join: at.join, cap: at.cap, seam: at.seam}).toEqual({outInert: true, join: "start", cap: null, seam: ""});
+            if (fraction > 0) expect(at.indicator).toBeGreaterThan(fromEntry);
+            expect(at.indicator).toBeLessThan(toEntry);
+            const [below] = await colorsAt([statusPoint]);
+            expect(near(below, statusColor), `状态栏 ${String(below)}，原来 ${String(statusColor)}`).toBe(true);
+        }
+        // 滑到四成点回“项目”：它从此刻的位置往回走，两张卡片不叠。
+        const before = await pauseAt(0.4);
+        await click(PROJECT_CONTAINER);
+        await started();
+        const restarted = await pauseAt(0);
+        expect(restarted.upper).toBeCloseTo(before.upper!, 0);
+        for (const fraction of [0.3, 0.7]) {
+            const at = await pauseAt(fraction);
+            expect(at.upper!).toBeGreaterThan(before.upper!);
+            expect(at.out - at.in).toBeGreaterThan(column.bottom - column.top);
+            expect(at.cap).toBeNull();
+        }
+        await finish();
+        await expect(page.locator("[data-workbench-surface] [data-swap]")).toHaveCount(0);
+        expect(await Promise.all(sections.map((id) => box(page, id)))).toEqual(homes);
+        await expect(entry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(indicatorAt).toBe(fromEntry);
+        await expect(bar).toHaveAttribute("data-shell-join", "start");
     });
 
     test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {
@@ -972,6 +1074,8 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await open(page);
         await entry(page, `view:${A}`).click();
         await expect(sample(page, A)).toBeVisible();
+        // 切换时整张卡片滚进来（输出 42）：滚完再拿标签，不然量到的位置在按下时已经变了。
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
         await expect.poll(async () => (await saved(page))?.panels.sidebar?.activeContainer).toBe(`view:${A}`);
         const writes = await writesOf(page);
         const right = await box(page, await sectionOf(page, CONVERSATION));

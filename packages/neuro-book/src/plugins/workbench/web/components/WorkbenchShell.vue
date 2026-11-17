@@ -6,7 +6,7 @@ import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
+import type {GridExtent, GridSwap, LayoutDoc} from "@notnotype/nb-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
@@ -329,10 +329,37 @@ const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntrie
 
 const hostEl = ref<HTMLElement | null>(null);
 
+/** 侧栏切换容器时整张卡片滚过去（输出 42）：`WorkbenchSurface` 补上缝宽交给网格。 */
+const sidebarSwap = shallowRef<Omit<GridSwap, "gap"> | null>(null);
+
+/**
+ * 点入口切换容器之前（同一个同步段里接着提交）：侧栏显示着、里面没有最大化的分节时，给网格一次交换，离开的是当前容器的分节、换上来的是新容器的，
+ * 方向按入口顺序。隐藏着、拖到零时按显示长出来（不滚）；有最大化的分节时切换会退出最大化，上一帧是整窗的矩形，照常过渡。列的是文档里的分节，
+ * 没呈现出来的（放不下收走的）由网格忽略。
+ */
+function prepareSidebarSwap(next: string): void {
+    const current = toolEntries.value.find((entry) => entry.current)?.id;
+    const maximized = state.value.maximized;
+    if (current === undefined || current === next || !sidebarShowing.value || (maximized !== null && regionOf(doc.value, maximized) === "sidebar")) return;
+    const containers = regionContainers(doc.value, "sidebar");
+    const sectionsOf = (id: string): string[] => [...(containers.find((container) => container.id === id)?.sections ?? [])];
+    const order = toolEntries.value.map((entry) => entry.id);
+    sidebarSwap.value = {
+        token: (sidebarSwap.value?.token ?? 0) + 1,
+        leaving: sectionsOf(current),
+        entering: sectionsOf(next),
+        axis: "height",
+        direction: order.indexOf(next) > order.indexOf(current) ? 1 : -1,
+    };
+}
+
 /** 点入口（输出 22）。焦点不在这里管：鼠标点不抢焦点，原处看不见了由下面“焦点”一节的规则接走（输出 42）。 */
 function selectEntry(container: string): void {
     const intent = toolEntryIntent(doc.value, container, {sidebarVisible: sidebarShowing.value});
-    if (intent.kind === "show") props.layout.actions.showContainer(intent.container);
+    if (intent.kind === "show") {
+        prepareSidebarSwap(intent.container);
+        props.layout.actions.showContainer(intent.container);
+    }
     if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: "sidebar", hidden: true});
 }
 
@@ -666,6 +693,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :disabled="!state.ready"
                 :title-only-panels="titleOnlyPanelIds"
                 :slot-panel="dragSlotPanel"
+                :swap="sidebarSwap"
                 context-key="workbench"
                 @extent="onExtent"
                 @card-gap="(gap) => layout.actions.acceptCardGap(gap)"

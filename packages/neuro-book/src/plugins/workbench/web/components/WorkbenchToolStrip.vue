@@ -3,7 +3,7 @@
  * 活动栏（同名 .md）：上段列侧栏的容器，一个容器一个入口；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
  */
 import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, ref} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 
@@ -111,11 +111,62 @@ const shownEntries = computed((previous?: ReadonlyArray<ToolStripEntry>) => {
     return previous !== undefined && sameItems(previous, next) ? previous : next;
 });
 const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
+
+/**
+ * 按下的底色是条目区里一个独立的块（输出 22），位置是按下的那个入口：当前容器换了，它和侧栏的内容同时滑过去（`data-sliding`，时长与曲线同布局过渡）。
+ * 只在按下的入口从一个换成另一个的那一次带过渡：窗口缩放、入口收进“更多”时直接到位；拖动中入口换位是按钮外层的 `transform`，不进 `offsetTop`，
+ * 块直接到终点，和按钮的滑动差一段（已知限制）。没有按下的（侧栏隐藏）时留在原处淡出，再按下时在新的位置淡入，不滑。
+ */
+const indicator = ref<{readonly x: number; readonly y: number; readonly width: number; readonly height: number} | null>(null);
+const indicatorShown = ref(false);
+const sliding = ref(false);
+let placedOn: string | null = null;
+
+function placeIndicator(): void {
+    const id = shownEntries.value.find((entry) => entry.pressed)?.id ?? null;
+    const button = id === null ? undefined : [...(bandEl.value?.querySelectorAll<HTMLElement>("[data-tool-entry]") ?? [])].find((element) => element.dataset.toolEntry === id);
+    if (id === null || button === undefined) {
+        indicatorShown.value = false;
+        placedOn = null;
+        return;
+    }
+    const next = {x: button.offsetLeft, y: button.offsetTop, width: button.offsetWidth, height: button.offsetHeight};
+    const current = indicator.value;
+    const moved = current === null || current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height;
+    if (placedOn !== null && placedOn !== id) sliding.value = true;
+    placedOn = id;
+    indicatorShown.value = true;
+    if (moved) indicator.value = next;
+}
+
+// 入口、摆出来的入口变了（条目区的尺寸变了也会重算 `strip`）：画完再量。
+watch([() => props.entries, () => strip.value], placeIndicator, {flush: "post"});
+onMounted(placeIndicator);
+
+/** 滑完（或被打断）再摘掉过渡：滑到一半摘掉，块就一下子到终点。 */
+function onIndicatorTransitionEnd(event: TransitionEvent): void {
+    if (event.propertyName === "transform") sliding.value = false;
+}
+
+const indicatorStyle = computed(() => {
+    const at = indicator.value;
+    return at === null ? {} : {transform: `translate(${String(at.x)}px, ${String(at.y)}px)`, width: `${String(at.width)}px`, height: `${String(at.height)}px`};
+});
 </script>
 
 <template>
     <nav class="workbench-tool-strip" :aria-label="label">
         <div ref="bandEl" class="workbench-tool-strip__entries" data-tool-band>
+            <span
+                class="workbench-tool-strip__indicator"
+                data-tool-indicator
+                aria-hidden="true"
+                :data-shown="indicatorShown ? '' : undefined"
+                :data-sliding="sliding ? '' : undefined"
+                :style="indicatorStyle"
+                @transitionend="onIndicatorTransitionEnd"
+                @transitioncancel="onIndicatorTransitionEnd"
+            ></span>
             <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
             <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
                 <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
@@ -194,6 +245,9 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 }
 
 .workbench-tool-strip__entries {
+    position: relative;
+    /* 按下的块（`z-index: -1`）画在按钮下面、条目区里面：绝对定位的元素缺省画在普通流的按钮上面。 */
+    isolation: isolate;
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
@@ -256,8 +310,37 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 }
 
 .workbench-tool-strip .workbench-tool-strip__item--active {
-    background: var(--skin-activitybar-hover, var(--bg-hover));
     color: var(--skin-activitybar-active, var(--accent-text));
+}
+
+/* 按下的入口自己不画底：底是下面这个块，悬停时也不另画一层。 */
+.workbench-tool-strip .workbench-tool-strip__item--active,
+.workbench-tool-strip .workbench-tool-strip__item--active:hover {
+    background: transparent;
+}
+
+/*
+ * 按下的块（`placeIndicator`）：条目区里的第一个子元素，画在按钮下面，跟着条目区滚动。位置在 `transform` 上，只有换入口的那一次带过渡；
+ * 显示、隐藏是透明度。`left`/`top` 为 0，`transform` 给位置（`offsetLeft`、`offsetTop` 相对条目区）。
+ */
+.workbench-tool-strip__indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+    border-radius: var(--radius-control);
+    background: var(--skin-activitybar-hover, var(--bg-hover));
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--motion-layout) var(--ease-layout);
+}
+
+.workbench-tool-strip__indicator[data-shown] {
+    opacity: 1;
+}
+
+.workbench-tool-strip__indicator[data-sliding] {
+    transition: opacity var(--motion-layout) var(--ease-layout), transform var(--motion-layout) var(--ease-layout);
 }
 
 /* 并入的高亮：和面板并入的盖层同一种填充与描边（`--layout-merge-*`），压在按下与悬停的样子上面：拖动中指针就停在这个入口上。 */
