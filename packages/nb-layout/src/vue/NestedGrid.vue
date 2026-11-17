@@ -14,6 +14,7 @@ import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, wa
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
 import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect, type GridSashPlacement} from "../grid-rects";
 import {settleFloatMoves} from "../grid-motion";
+import {swapSides, swapWindowClip, type GridSwap} from "../grid-swap";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
@@ -67,6 +68,11 @@ const props = withDefaults(defineProps<{
      * 不给时按外框的矩形裁。
      */
     leafShape?: ((leaf: string) => GridLeafShape | undefined) | undefined;
+    /**
+     * 交换（docs/specs/ui/nested-grid.md 的“交换”）：下一次布局变化里一组叶换成另一组时像胶片一样整块平移。和这次布局变化在同一个同步段里给，
+     * `token` 变了才算一次新的；只用于 `token` 变了之后的第一次布局变化，这一轮刷新结束就作废。
+     */
+    swap?: GridSwap | null;
 }>(), {
     disabled: false,
     contextKey: "",
@@ -80,6 +86,7 @@ const props = withDefaults(defineProps<{
     sashKind: undefined,
     sashStyle: undefined,
     leafShape: undefined,
+    swap: null,
 });
 
 const emit = defineEmits<{
@@ -121,12 +128,44 @@ const snapHost = useSashSnap();
 
 const parking = useLeafParking();
 const {parked} = parking;
-const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()});
+const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule(), onSwapSkipped: (reason) => emit("issues", [reason])});
 const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
-const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.map((item) => item.node.id)));
+const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
 const outgoingLeaves = computed<ReadonlySet<string>>(() => (motion.shrinking.value.size === 0 ? leavingLeaves.value : new Set([...leavingLeaves.value, ...motion.shrinking.value])));
+/** 交换进行中带上每一项是换上来的还是离开的（`data-swap`）。 */
+const swapSide = computed(() => swapSides(motion.band.value));
+/** 这一刻在交换里的叶（节点 id，含离开的）：过渡结束就空了。 */
+const swappingLeaves = computed<ReadonlySet<string>>(() => new Set((motion.band.value?.groups ?? []).flatMap((group) => [...group.leaves])));
+/** 带上的项按裁切窗裁：窗在网格里不动，每一帧的裁切跟着元素此刻的矩形，和 `left`/`top` 同一段过渡。 */
+function swapClip(key: string, rect: GridRect): string | undefined {
+    const band = motion.band.value;
+    return band === null || !swapSide.value.has(key) ? undefined : swapWindowClip(band, rect);
+}
+const swapClipStyle = (key: string, rect: GridRect): Record<string, string> => {
+    const clip = swapClip(key, rect);
+    return clip === undefined ? {} : {clipPath: clip};
+};
+
+/**
+ * 宿主给的交换只在 `token` 变了的那一轮刷新里有效：在属性写进来的那一刻（同步）记下，布局变化的 watcher 用掉它；这一轮没有布局变化
+ * （点了没有改变布局、提交被拒）时 `nextTick` 作废，不留给后面不相干的布局变化。宿主在同一个同步段里给交换、提交布局，两者在同一轮刷新里到。
+ */
+let freshSwap: GridSwap | null = null;
+watch(() => props.swap?.token, () => {
+    const swap = props.swap;
+    freshSwap = swap;
+    if (swap === null) return;
+    void nextTick(() => {
+        if (freshSwap === swap) freshSwap = null;
+    });
+}, {flush: "sync"});
+function takeSwap(): GridSwap | null {
+    const swap = freshSwap;
+    freshSwap = null;
+    return swap;
+}
 
 /** 摆放的容器：实测盒；还没挂上时退回布局发布的根节点尺寸。 */
 const placementExtent = computed<GridExtent>(() => rootExtent() ?? {width: 0, height: 0});
@@ -207,6 +246,7 @@ const contentLayer = useContentLayer({
         return element != null && host?.activeElement != null && element.contains(host.activeElement);
     },
     onParked: (contentKey) => emit("content-parked", contentKey),
+    swapClip,
     lifted: () => props.lifted,
     liftedRect: () => liftedRect,
 });
@@ -219,7 +259,8 @@ const focus = useGridFocus({root: rootEl, layers, order});
 
 function sashBoxStyle(sash: GridSashPlacement<unknown>): Record<string, string> {
     const host = props.sashStyle?.({branch: sash.branch.id, before: sash.before, after: sash.after});
-    return {...host, position: "absolute", ...gridRectStyle(growing.value.get(sash.key) ?? sash.rect)};
+    const rect = growing.value.get(sash.key) ?? sash.rect;
+    return {...host, position: "absolute", ...gridRectStyle(rect), ...swapClipStyle(sash.key, rect)};
 }
 
 /** 分隔线控制的窗格：外框里只剩面板头时，真正被调整的是活动的内容。 */
@@ -238,6 +279,25 @@ function isZeroLength(sash: GridSashPlacement<unknown>): boolean {
 }
 
 function sashProps(sash: GridSashPlacement<unknown>) {
+    // 交换里滑出去的分隔线：两侧已经不在布局里，尺寸用冻结的，不能拖。
+    if (sash.frozen !== undefined) {
+        return {
+            branchId: sash.branch.id,
+            index: sash.index,
+            axis: sash.axis,
+            size: sash.size,
+            beforePx: sash.frozen.beforePx,
+            afterPx: sash.frozen.afterPx,
+            disabled: true,
+            ends: sash.ends,
+            ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
+            ariaControls: domIdOf(`leaf:${sash.controls}`),
+            ariaMin: 0,
+            ariaMax: Math.round(sash.branchLength),
+            ariaNow: Math.round(sash.frozen.beforePx),
+            ariaValueText: text("splitter.pixels", {size: Math.round(sash.frozen.beforePx)}),
+        };
+    }
     const sizes = renderLayout.value.sizes;
     const nowPx = Math.max(0, sizes[sash.before]?.[sash.axis] ?? 0);
     const panel = buildGridBranchPanels(sash.branch.children, renderLayout.value, sash.axis)[sash.index];
@@ -306,6 +366,7 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         dpr: dpr.value,
         previewing: preview.value !== null,
         holding: liftedKey !== null || props.dragging,
+        swap: takeSwap(),
     });
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
@@ -517,6 +578,8 @@ defineExpose({
      * 见 `GridLeafShape.fill`），读到的就是这一轮的。过渡结束就空了。
      */
     shapedLeaves,
+    /** 这一刻在交换里的叶（节点 id，含滑出去的）：宿主在这段时间不换别的画法时读它。过渡结束就空了。 */
+    swappingLeaves,
 });
 </script>
 
@@ -535,14 +598,15 @@ defineExpose({
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
+                :data-swap="swapSide.get(item.key)"
                 :inert="obscuredLeaves.has(item.node.id) || outgoingLeaves.has(item.node.id)"
-                :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...frameClip(item), ...floatLayer(item.node.id, 0)}"
+                :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...frameClip(item), ...swapClipStyle(item.key, growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
                     <slot name="leaf" :node="item.node"></slot>
                 </div>
             </div>
-            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashKind?.({branch: item.branch.id, before: item.before, after: item.after})" :data-moving="structureMoving(item.key) ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
+            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashKind?.({branch: item.branch.id, before: item.before, after: item.after})" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSide.get(item.key)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
             <div
                 v-else
                 :id="domIdOf(item.key)"
@@ -557,6 +621,7 @@ defineExpose({
                 :data-leaving="leavingLeaves.has(item.leaf) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
                 :data-by-leaf="contentLayer.byLeafRect(item) ? '' : undefined"
+                :data-swap="swapSide.get(item.key)"
                 :inert="contentLayer.isParked(item)"
                 :style="{...contentLayer.frameStyle(item), ...(contentLayer.isLifted(item) ? {} : floatLayer(item.leaf, 1))}"
             >
@@ -705,10 +770,23 @@ defineExpose({
         box-shadow var(--motion-layout) var(--ease-dialog-leave), background-color var(--motion-layout) var(--ease-dialog-leave), border-radius var(--motion-layout) var(--ease-dialog-leave);
 }
 
-/* 离开了、在过渡里缩回去的叶与它的内容：已经不在布局里，不接指针，命中判定看到的是底下。 */
+/* 离开了、在过渡里缩回去或滑出去的叶、它的内容与分隔线：已经不在布局里，不接指针，命中判定看到的是底下。 */
 .nb-grid-frame[data-leaving],
-.nb-grid-content[data-leaving] {
+.nb-grid-content[data-leaving],
+.nb-nested-grid > .nb-grid-sash[data-leaving] {
     pointer-events: none;
+}
+
+/*
+ * 交换里带上的项（docs/specs/ui/nested-grid.md 的“交换”）：裁切窗随位置同一段过渡，窗在网格里不动。只给带上的项加：别的项的 `clip-path`
+ * （按卡片裁的外框、按叶摆的内容）是每一帧按盒算的，带过渡会让它在头变高时慢半拍。写在上面两条过渡后面，特异性更高。
+ */
+.nb-grid-frame[data-moving][data-swap],
+.nb-grid-content[data-moving][data-swap],
+.nb-grid-sash[data-moving][data-swap] {
+    transition:
+        left var(--motion-layout) var(--ease-layout), top var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout),
+        clip-path var(--motion-layout) var(--ease-layout);
 }
 
 /* 手势中的窗跟手：别的布局变化正在过渡时也不带拖尾。写在 [data-moving] 后面，同样的特异性后写的赢。 */

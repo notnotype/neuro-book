@@ -18,6 +18,8 @@
 
 不是手势、也不是容器尺寸变化引起的布局变化时，外框与分隔线带 `data-moving`，用 `--motion-layout`、`--ease-layout` 过渡。前后都有尺寸的叶，内容逐帧跟外框，叶里的 `ResizeObserver` 每帧都会收到尺寸，不要把过渡中的尺寸当事实记下来；叶里嵌的 grid 按容器尺寸变化处理，进行中的手势会被取消。新叶与从零出来的叶内容一开始就是最终尺寸，这期间又有变化也不跟外框；外框只有右边在动时（从左边长出来），面板头与内容贴着右边整块平移进来，外框与内容外层带 `data-anchor-right`，过渡结束就摘掉；左边在动时（从右边长出来）贴左边本来就跟着它走。纵向不贴：从上边长出来时照旧从上往下露出来（贴下边要让面板头那一条里也画内容，那一条现在被裁掉，见下）。这些叶的内容外层在过渡中按叶的矩形摆、带 `data-by-leaf`：内容体往下挪一个面板头，面板头那一条用 `clip-path` 裁掉（不挡面板头的指针），外层的上边就是外框的上边，叶从零长出来、缩到零时内容一直紧贴面板头下面；过渡结束换回内容自己的矩形，位置相同、不跳。宿主在过渡中量内容外层，量到的是叶的矩形，要量内容的位置量内容体。宿主给了 `leafShape`（叶在外框里画成的卡片：四边的内缩与四个角的圆角）时，这些叶的外框按它裁，内容外层裁掉面板头那一条、另外三边也按它裁（只圆下面两个角），露出来的一截始终是一张完整的卡片，不动的那边留着缝、角是圆的；不给时按外框的矩形裁，卡片在不动的那边被直着切掉。卡片的投影在裁切外面，过渡中没有。浮动窗不按它裁（窗的投影画在外框自身）。一整棵子树新开出来时（区域展开时的整列；顶替同一位置上别的节点的不算）作为一块，沿它在父分支里的主轴从上一帧两个兄弟之间的缝长出来（没有缝时从不动的那条边），里面的叶、分隔线与内容不各自长。离开的叶立即消失，只有一种例外：一整棵子树离开、它前后的兄弟这一帧合拢（或它在一头、挨着的兄弟这一帧伸到了它原来的那一头，所在的分支被摊平也算）、它下面还有挂着的内容、又不在拖动中（没有拿起的内容，宿主的 `dragging` 也不为真）时（例如宿主把整列移走），它留在过渡里作为一块缩回那道缝，带 `data-leaving`、`inert`、不接指针，内容停放（焦点照常交出去）但过渡结束前还画着，同样贴着在动的那条边整块平移出去，结束才摘掉。还在树里、这一轮降到零的叶（宿主收起它，例如把隐藏的区域按拖到零画）一样：停放、`inert`，过渡结束前面板头与内容还画着，贴着在动的那条边缩回去，不带 `data-leaving`。
 
+交换（`swap`，[Spec](../../../../docs/specs/ui/nested-grid.md) 的“交换”）：宿主在一次布局变化之前给出离开的叶、换上来的叶、轴、方向与间距，这次变化里两组不按上面的长出来、消失，而是像胶片一样整块平移，相邻两组相距裁切窗沿轴的长度加间距。裁切窗是两组的外接矩形（可以按 `window.inset` 内缩、按 `window.radius` 圆角），在网格里不动：带上的外框、内容外层与分隔线各自的 `clip-path` 是窗在它坐标里的位置，起点那一帧就写上，和 `left`/`top` 同一段过渡。带上的项带 `data-swap`（`in` 换上来的、`out` 离开的）；离开的一组带 `data-leaving`、`inert`，内容停放（焦点在里面时这一刻发 `content-parked`），过渡结束前还画着；组里的分隔线留着、跟着滑，两侧尺寸冻结在离开前、不能拖。`swap` 和那次布局变化在同一个同步段里给，`token` 变了才算一次新的，只用于之后的第一次布局变化，这一轮刷新结束就作废。宿主按文档列的叶对不上呈现时（被收走、没呈现出来），不在呈现里的忽略；忽略之后有一边为空、或离开的叶还在别的过渡里时照常过渡，原因经 `issues` 交回。交换进行中又来一次时，读每一组此刻的位置，整条带重新开始一段完整的过渡：要换上的那组已经在带上就从它此刻的位置往回走，否则接在方向那头最外面那组的后面。拖动中、减少动态效果时不交换。
+
 ## 交互
 
 指针在分隔线命中带内按下会开始一次会话；细指针命中边距为 5px，触摸粗指针为 15px。交叉处最多同时调整一条宽度轴和一条高度轴，两条线一起亮，交汇的一端连着（悬停线两端挨着哪条外层分隔线由 `placeGrid` 按树结构算）。拖动期间只从按下时冻结的树、布局、容器尺寸、contextKey 与 revision 求解预览，所有受影响的子树尺寸实时跟随；松手仅提交一次。没有有效变化不会提交。提交的 `changes` 每项对应一个分支，给出该分支全部直接子节点沿主轴的 px（`baseline` 为按下时的值，`target` 为结果）、`active`、`compensated` 与有变化的 `collapsed`；宿主用 `grid.resizeBranches(changes)` 一次原子落账。提交由 `onGestureCommit` 同步接纳；拒绝会回滚预览并报告诊断。接纳后宿主应发布与提交匹配的新 `layout`，否则下一 tick 回到已发布布局并报告问题。
@@ -76,6 +78,8 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 | `data-moving` | 外框与分隔线 | 过渡进行中 |
 | `data-anchor-right` | 外框与内容外层 | 过渡中里面那层（`data-leaf-content` 与内容体）贴右边；没有时贴左上 |
 | `data-by-leaf` | 内容外层 | 过渡中按叶的矩形摆（含面板头那一条，裁掉）；有它时外层的矩形不是内容的位置 |
+| `data-swap` | 外框、内容外层与分隔线 | 交换进行中，值是 `in`（换上来的）或 `out`（离开的）；带它时 `clip-path` 是裁切窗，不是 `leafShape` |
+| `data-leaving` | 外框、内容外层与分隔线 | 离开了、在过渡里留着（缩回去，或交换里滑出去），不接指针 |
 | `data-sash` | 分隔线 | 值是 `分支 id:序号`；`data-sash-hover`、`-active`、`-revealed`、`-cross` 是它的状态 |
 | `--motion-layout`、`--ease-layout` | 继承来的 CSS 变量 | 过渡的时长与曲线，由 nb-ui 的 `tokens.css` 提供，减少动态效果时为 0；宿主没给就没有过渡 |
 | `--nb-splitter-seam`、`--nb-splitter-seam-inset` | 继承来的 CSS 变量 | 分隔线静止接缝的颜色与两端缩进 |
@@ -112,6 +116,11 @@ type NestedGridProps = {
      * 给了 fill 时形状可以伸出外框（内缩为负）：外框里的东西照旧裁在外框里，伸出去的部分画成 fill，这块外框画在别的外框下面，伸到邻居那里的部分被邻居盖住。
      */
     leafShape?: (leaf: string) => {inset: [string, string, string, string]; radius: [string, string, string, string]; fill?: string} | undefined;
+    /**
+     * 交换：下一次布局变化里一组叶换成另一组时整块平移（见上）。和那次布局变化在同一个同步段里给，token 变了才算新的；默认 null。
+     * window.inset 是外接矩形上右下左的内缩（px），window.radius 是四个角（CSS 长度）。
+     */
+    swap?: {token: number; leaving: ReadonlyArray<string>; entering: ReadonlyArray<string>; axis: "width" | "height"; direction: 1 | -1; gap: number; window?: {inset: [number, number, number, number]; radius?: [string, string, string, string]}} | null;
 };
 
 type NestedGridEmits = {
@@ -137,7 +146,7 @@ type NestedGridSlots = {
 };
 ```
 
-Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 三个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少；另有 `outgoingLeaves`：过渡里缩回去、还画着的叶（节点 id 集合），留着缩回去的离开的叶（已经不在 `node` 里）与这一轮降到零的叶（还在，尺寸已经是零）；宿主按它们缩回去之前的样子画挨着的东西（例如相连的卡片），不按这一刻的布局，过渡结束就空了。还有 `shapedLeaves`：这一刻外框按 `leafShape` 裁的叶（长出来的、缩回去的、内容不跟外框的），宿主要在这段时间换一种形状时读它。两者插槽渲染时读到的都是这一轮的。未声明 attrs 按 Vue 单根行为落到外层承载 div，不透传到递归 Splitter 或叶容器。
+Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 三个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少；另有 `outgoingLeaves`：过渡里缩回去、还画着的叶（节点 id 集合），留着缩回去的离开的叶（已经不在 `node` 里）与这一轮降到零的叶（还在，尺寸已经是零）；宿主按它们缩回去之前的样子画挨着的东西（例如相连的卡片），不按这一刻的布局，过渡结束就空了。还有 `shapedLeaves`：这一刻外框按 `leafShape` 裁的叶（长出来的、缩回去的、内容不跟外框的），宿主要在这段时间换一种形状时读它；`swappingLeaves`：这一刻在交换里的叶（含滑出去的），宿主在这段时间不换别的画法时读它。三者插槽渲染时读到的都是这一轮的。未声明 attrs 按 Vue 单根行为落到外层承载 div，不透传到递归 Splitter 或叶容器。
 
 ## 状态与边界
 
