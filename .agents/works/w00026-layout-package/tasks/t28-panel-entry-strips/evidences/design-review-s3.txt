@@ -1,0 +1,132 @@
+报告没能写进指定的文件。往 `/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t28-s3-design/findings.txt` 追加、用 Write 工具写，两种方式都被权限拒绝（提示是敏感文件）。我没有换路径绕过。下面是完整报告，只读，没改仓库。如果允许写那个路径，我可以原样追加进去。
+
+# t28 第 3 片设计审查（第 5 稿）
+
+阻断 0，重要 5（1 到 5），建议 5（6 到 10）。
+
+### 1. 接管标题区“窄于阈值时 head-slots 给 null”：判据自指，现有回退也不是这条路
+- 严重程度：重要
+- 位置：plan“入口条”第 2 条；`WorkbenchPanelHead.vue:93-116`；`WorkbenchShell.vue:278-288`；`agent/web/ConversationHost.vue:50-56`
+- 现象与问题：
+  - 计划按“接管的两侧列实际宽度”定阈值。这个宽度是视图把内容送进去之后才有的。给 null、内容拆走，宽度归 0，判据翻回“够宽”，再给 slots，如此来回翻。计划没写迟滞。
+  - 现有回退（views.md 输出 19）靠的是 `headOf(viewId)` 为 null，于是 `panelViewHead()` 返回 null，面板头整个换回普通画法。只把 `head-slots` 给 null，面板头仍是三列接管画法，两格空着，标题按钮里没有字，视图又在内容里画一份头。
+- 建议：
+  - 阈值改成“头这一段可用宽度小于一个常量”，常量由接管的内置视图声明。
+  - 判定放在 Shell 的 `panelViewHead()`，返回 null 走现有整条回退。
+  - 必要时加迟滞。
+
+### 2. 对齐验收的目标值不成立
+- 严重程度：重要
+- 位置：plan“第 3 片按 t29 的头”第 3 条；`WorkbenchPanelHead.vue:296,371-399,443-448,464-473`；`tokens.css:37-38`（`--space-1` 为 2px，`--space-2` 为 4px）
+- 现象与问题：
+  - 展开标记不止一个左缘。
+    - 普通头：2px 头内边距、4px 标题格内边距、9px 外边距，合计离卡片 15px。
+    - 接管头（默认右栏的对话）：4px 头内边距，加 24px 的 `__fold` 按钮里 14px chevron 居中的 5px，合计 9px，差 6px。
+    - 一列里同时有这两种头时，入口图标只能对齐其中一种，“三条左缘差不超过 1px”写不成统一断言。
+  - 底部面板分节头的标题文字离叶 6px（2 加 4）。入口若按 `.nb-tab` 写，水平内边距是 `calc(var(--control-px) * 0.8)`：nbook 和 macos 11.2px，editorial 8px，aurora 9.6px。下划线与悬停底色画在按钮上，文字落不到 6px，计划没选解法。
+  - 右栏图标左缘要落在 15px，24px 按钮得从约 11px 起，不在 2/4px 的刻度上。
+  - 9px、5px 这类写死的数已有 t29 一份，入口条再加一份，没有共用变量。
+- 建议：
+  - 先定标记左缘的唯一基准，抽成共用的 CSS 变量。
+  - 写明底部面板入口的内边距与点击热区怎么给。
+  - 计划里写出两个区域各自的预期偏移数。
+
+### 3. 条里“当前面板”只在聚焦那一刻换算，切容器后过期
+- 严重程度：重要
+- 位置：plan“一片叶代表哪块面板”、第 3 片第 2 条；`WorkbenchSurface.vue:430-463`；`layout-doc-store.ts:413-416,534-540`；`panel-commands.ts:85,117,133`
+- 现象与问题：
+  - `pointerPanel`、`focusedPanel` 和 store 的 `currentPanel` 都缓存事件时刻的面板 id。
+  - 在入口条里点或 Enter 切容器，`merged` 从 A 变 B 或 null，焦点没动，没有新的 `focusin`，这三个值还是 A。违反输出 36 “焦点在入口条里时当前面板是并进来的那一节”。
+  - 无 `panelId` 的快捷键命令落在已隐藏的 A 上。`toggleMaximized(A)` 把 `maximized` 记成 A，切回 A 的容器时 A 突然被最大化。
+  - `recoverFocus` 因焦点没丢而直接返回，不会纠正。
+  - 悬停同理：内容的滚动条要等指针再动才跟上。
+  - 活动栏没有这个问题，因为它的入口不代表面板。
+- 建议：
+  - 存叶 id，现换算。
+  - `merged` 变了就重新 `emit("focus-panel")`。
+  - 补用例：入口条里切到单分节容器后 `currentPanel` 是新分节，切到几节的容器后是 null。
+
+### 4. 第 3 片到第 5 片之间，条里的入口已是拖动源，入口段不属于任何落点几何
+- 严重程度：重要
+- 位置：`layout-drag.ts:841-846`（`fromElement`）、`:371-396`（`geometryOf`、`measureGeometry`）；plan 第 56 行与切片 3、5
+- 现象与问题：
+  - 第 3 片要求入口带 `data-tool-entry`（`focusLandings` 等按它找）。`fromElement` 对任何带它的元素都当拖动源：单视图入口起一场完整的实时布局拖动，多视图入口起 `container` 拖动，而 `containerDrop` 只认活动栏带，拖起来放不下去。
+  - 入口条整行不在文档里，`measureGeometry` 只遍历文档的叶。并成一行时 `strip` 只取入口之后那段头，所以条的入口段不属于任何面板的 `strip` 或 `body`，落点分区没写。
+  - 每片单独合入 master，这个中间态会出现在产品里。
+- 建议：
+  - 第 3 片的入口先加 `data-no-drag`，或只带新属性，第 5 片再接入拖放。
+  - 计划写明第 3 片落地后入口段的行为。
+  - 加 e2e：拖入口什么也不发生。
+
+### 5. 第 3 片底部面板“照旧写标题”与“入口条”一节矛盾
+- 严重程度：重要
+- 位置：plan 第 72、74、125 行与对齐条
+- 现象与问题：
+  - “入口条”一节说底部面板并成一行不画看得见的标题，第 74 行又说这件事第 5 片才做，之前照旧写标题。
+  - 按“照旧写标题”，第 3 片的并成一行是入口标题、同名标题、动作三段，同一行有两份相同的字，这个中间态会合入。
+  - 对齐 e2e 量“入口文字”对“哪个标题”没写。
+- 建议：二选一并写进计划。
+  - 把“不写标题、留隐藏标题元素、计数写到入口”提到第 3 片。
+  - 保留“照旧写标题”，但写明中间态的样子，对齐只量没并的分节头。
+
+### 6. 条里的头在 `merged` 从 A 变 B 时是同一个实例
+- 严重程度：建议
+- 位置：`WorkbenchShell.vue:290-310`；`WorkbenchPanelHead.vue:98-106`
+- 现象与问题：
+  - 计划没写要不要按面板 id 加 `key`。无 key 时实例被复用，旧面板的 `head-slots` 永远收不到 null，`panelHeadSlots` 留着指向已拆元素的 A 项。
+  - 视图没有申请标题区的 B 会把 B 项删掉。
+  - 焦点交接“同一块面板的新头挂上”在这条路径上不触发。
+- 建议：给条里的头 `:key="merged"`，并把“换容器时头是新实例”和对应焦点用例写进计划。
+
+### 7. 入口条叶的卡片缺 `data-panel-role`
+- 严重程度：建议
+- 位置：`WorkbenchSurface.vue:185,526,665-667`；`adjacency.ts:177-182`
+- 现象与问题：
+  - `roleOf(strip 叶 id)` 为 null，卡片没有底色（底色规则按 `[data-panel-role]` 选），`data-hover-actions-scope` 的条件也永远为假。
+  - 计划只写了 `groupOf`。
+- 建议：
+  - 把叶的角色收成一处，入口条叶返回 `tool`。
+  - 补 DOM 测试。
+  - 补 0 宽 `panes` 缝的 `sashStyleOf` 用例。
+
+### 8. 还原结束时搬头有一次没过渡的 32px 跳变
+- 严重程度：建议
+- 位置：plan“表面”第 3 条与“最大化”一条；`NestedGrid.vue:403-418`；`useGridMotion.ts:205-236`
+- 现象与问题：
+  - 还原过渡中卡片顶上是两行：入口条一行，叶里的头一行。`moving` 变假时头搬回条里，内容上边从 32 变 0，内容整块上跳 32px，没有过渡。计划只把最大化方向的 32px 记进了待确认清单。
+  - `moving` 读取时机不一致：Surface 的 `contents` 在渲染时读，叶插槽里的头在 NestedGrid 渲染时读，中间隔着 `motion.update`。还原提交那一次两者差一次渲染，会靠再渲染一次纠正，不会上屏，但多一次渲染和头的来回。
+- 建议：
+  - 把“并成一行画成什么”收成 Surface 里一个计算属性，内容上边与插槽都读它，还原提交时锁住。
+  - 跳变写进待确认清单，或让内容上边随外框渐变。
+
+### 9. e2e 清单漏文件
+- 严重程度：建议
+- 位置：plan 切片 3 的清单
+- 现象与问题：用 `data-panel-head`、`data-panel-tab`、`data-hover-actions`、`data-shell-card` 在 e2e 目录里查，还漏了：
+  - `editor-area.e2e.ts`：262 行右栏对话头选择器，348 行拖右栏宽度，1157-1159 行新建底部面板容器。
+  - `files-explorer.e2e.ts`：142 行同一个对话头选择器。
+  - `themes.e2e.ts`：246、642 行 `[data-shell-card="auxiliarybar"]`、场景图、右栏下角对比度，右栏卡片由一片变两片。
+  - `desktop-frame` 和 `workbench-titlebar` 引用了右栏，是否量几何还没核。
+- 建议：清单补上前三个，其余两个查完后在计划里写“已查，不受影响”。
+
+### 10. “并成一行的头一律不给 fold”只改了 prop
+- 严重程度：建议
+- 位置：`WorkbenchShell.vue:192-204,317-333`
+- 现象与问题：
+  - `activateTab`、`toggleFold`、`headReserved`、`drag-hint`、`fold-label` 仍各自调 `foldOf`。
+  - 预览里翻转的那一节：`headReserved` 多扣 20px，提示文字用 `shell.drag.hintFold`，和画面不一致。
+  - 以后若有别的路径在并进来的头上点标题，会走“展开着点标题收起”。
+- 建议：让 `foldOf` 自己读 `renderedPresentation().strips`，这一节是某条 `merged` 时返回 null，几处自然一致。
+
+## 未发现问题的方面
+- `fillerColumns` 能在 `:sections` 里找到垫底的叶，`assignByParent` 对包装分支把 `region` 传给内层，全部收起的垫底成立；垫底那一节的悬停范围仍是头自己，与入口条卡片范围不冲突。
+- `panelOf` 对内容层、外框、浮动窗和嵌套 grid 的处理不受入口条叶影响；指针在入口之间的空白处仍落在条叶外框里，换算 `merged` 即可。
+- “并 ⇒ lone-section”在同一份文档上方向一致。
+- 0 宽缝的 `clip-path` 把投影裁没。
+- `geometryOf` 对收起分节只取标题行，不受入口条叶影响。
+- `moving` 按“为假”判，能覆盖减少动态效果。
+
+有效发现编号：1 到 10。
+
+没有跑任何单元测试或类型检查（审查 worktree 没装依赖）。
+
