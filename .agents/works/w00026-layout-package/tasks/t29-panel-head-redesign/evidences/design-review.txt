@@ -1,0 +1,171 @@
+# t29 计划第 1 稿设计审查
+
+我只读代码，没有改仓库、没有写文件。下面两条数字来自在 worktree 里用 `bun -e` 对真实的 `createGrid().layout`、`branchSashPanels`、`solveSashDrag` 做的内联实验：
+
+- 实验没有经过浏览器和 `NestedGrid` 的会话。但 `grid-gesture.ts:178-184` 里拖动会话喂给求解器的就是 `branchSashPanels(branch)` 与 `layout.sizes`，所以这一条与真实运行时等价。
+- t28 包装分支的布局是我手工搭的，没有经过 `projectLayoutDoc`。
+
+### 1. 只改分配，“最后一行拉长”不会生效；t28 的包装分支里还会出诊断
+
+严重程度：阻断
+位置：`packages/nb-layout/src/grid-geometry.ts:479`（叶的夹取）、`:322`（分支的 `derivedHigh`）、`:193`；计划“全部收起时最后一行拉到底”一节
+
+**现象：**计划把改动写成“网格分配里，剩下的空间给最后一个子节点，它仍是收起的”。读代码，有三处会把拉长截回去：
+
+1. `measure` 对叶取 `min(space.height, nodeBounds.maximumSize.height)`。收起的叶经 `constraintsOf` 是刚性的 `collapsedSize`，所以即使 `allocateSashPanels` 多给了空间，叶仍被截成 32。
+2. 随后 `total` 仍是 64，`measure` 末尾的“未被吸收”检查被 `children.every(collapsed)` 压住，**连诊断都不会有，只会静默没效果**。
+3. `constraintOnAxis` 里分支主轴上的 `derivedHigh` 等于子节点刚性上限之和。t28 包装之后，`:sections` 内层分支的 `maximumSize.height` 就是这个和。
+
+**实验（t28 包装形状：入口条 fixed 36 + `reg:sections` 内含两个收起叶，容器高 600）：**
+- 现状：`reg:sections` 高 65，`reg` 高 102。
+- 诊断：`分支 reg 的 height：没有按比例分配的节点，剩余 498 未被吸收` 与 `分支 reg 的可用空间 600 有 498 未被任何子节点吸收`。
+- 内层的 `constraints` 是 `maximumSize.height = 65`。内层是 weight，被自己的上限夹住，吸收不了余量。
+
+**为什么是问题：**
+- “收起时尺寸 = `collapsedSize`”是 `nested-grid.md` 的“分支的收起”与 `workbench-layout.md` 输出 11（“分节高度等于面板头”）的不变量。计划没有把它列为被修改的合同，实际要改的点却不止分配。
+- 计划要在 `layout-project.ts` 对 `:sections` 设 `"last"`，而计划里没有任何一句涉及 `constraintOnAxis`，t28 的包装分支用不了。
+- `collapsedRest` 还要贯穿 `instantiate`（`grid.ts:92-104`）与 `grid-snapshot.ts` 的 `restore`。后者的 `declared` 记录只拷 min、max、sizing、collapse，选项会丢。
+
+**如何核实：**在 `grid-geometry.test.ts` 里建一个包装分支，两个收起叶，断言 `layoutOf` 的 `sizes[最后一个叶].height` 是剩余高度，且 `issues` 为空。当前代码上必然失败。
+
+**建议改法：**
+- 计划补一节“约束与夹取”，写明：`collapsedRest: "last"` 且全部收起时，`measure` 对最后一个叶不按 `maximumSize` 夹；分支主轴的 `derivedHigh` 放开；`constraints[]` 的输出怎么写；与“收起 ⇒ 尺寸 = `collapsedSize`”的关系。
+- Spec 的措辞（“高度等于面板头”）同步改。
+- 先在切片 1 的验证里加包装分支的用例。
+
+### 2. “拖它上面那条缝，上一节按阈值展开”在拉长之后求解器会拒绝
+
+严重程度：重要
+位置：`packages/nb-layout/src/sash-drag.ts:242-245`（`boundsFit`）；`grid-gesture.ts:178-184`；计划“收起策略的手势照旧”一句
+
+**现象：**拖动会话用 `branchSashPanels` 的面板（收起叶刚性 32..32）和 `layout.sizes` 当基线。拉长后基线是 `[32, 567]`，各面板有效上限之和是 64，`boundsFit()` 为假，求解器直接放弃。
+
+**实验：**
+- 基线 `[32,567]`、`deltaPx: 100`：`sizesPx` 不变，`collapsed: {}`，issue 为 `当前有效范围装不下分支总量 599px，本次调整不改变几何`。
+- 对照现状基线 `[32,32]`：同样不动，issue 为 `面板 a 的恢复空间不足（可用 32px），保持收起`。
+
+**为什么是问题：**今天全部收起时这条缝本来就拖不开（容量 32）。所以“照旧”不成立，计划等于新承诺一个能力，但没写求解器怎么改。`SashPanel` 与 `solveSashDrag` 完全没有“余量由最后一个收起叶吸收”的概念，需要改 `boundsFit`、`capacityFor`、`settleSides`。`planBranchResize` 里 `allocateAxis(candidate, …)` 的守恒检查也要一起看。
+
+**建议改法：**要么删掉这句承诺，明写“全部收起时缝不可拖，只能点标题或命令展开”；要么给求解器设计一个等价于“最后一个面板上限放开”的入口，并列出单元测试。
+
+### 3. 预览把拉长的收起分节判成“拉出来”，所有无关手势都会让它的内容露出来
+
+严重程度：重要
+位置：`web/state/layout-present.ts:42-67`（`hasRoom`、`pulledOut`）；`web/components/WorkbenchSurface.vue:135`（`preview.value = next.changes.length === 0 ? null : next.layout.sizes`）
+
+**现象：**`pulledOut = facts.preview !== null && hasRoom(panel, facts.preview[id])`。拉长后收起分节的预览高度是 568，大于 `PANEL_HEAD_HEIGHT`，`hasRoom` 为真。`preview` 是**整个布局的尺寸表**，任何手势（拖侧栏宽度那根缝，也算）进入预览都会触发。于是这一节的活动标签在拖动期间被判成可见，内容出现在“收起的”分节里。
+
+**为什么计划的缓解不够：**计划写“收起的分节只在预览把它判成展开时才算”，但 `VisibilityFacts.preview` 与 `emit("preview", sizes)` 只传尺寸，没有收起信息。接口要加，计划没写：
+- `GridGesturePreview.changes[].collapsed` → 表面 → store 的 `preview` → `VisibilityFacts`，这条链路要新增。
+- 实时布局拖动（`renderedProjection` 来自候选文档）是另一条路，`effectiveVisibleTabs` 用的是已提交文档，不能共用。
+
+**如何核实：**e2e 里全部收起后拖侧栏宽度，断言被拉长那节的 `[data-content]` 仍处于停放状态。
+
+### 4. 拉长后收起分节的“正文”有了面积，落点与键盘候选的既有约定被破坏
+
+严重程度：重要
+位置：`packages/nb-layout/src/layout-drop.ts:118-125`、`:165`、`:506`；`web/layout-drag.ts` 的 `geometryOf`（`body: {...card, top: strip.bottom}`）
+
+**现象：**约定是“收成标题行的分节正文零面积，整块都是前半”（`sectionHalf` 注释）。拉长后，`geometryOf` 量到的 `card` 是满高，`body` 从标题行下沿起有 536px 面积：
+- 指针：`hasArea(body)` 为真，落在下半（`y >= (top+bottom)/2`）会判成“它之后”。
+- 键盘：`layout-drop.ts:506` 对 `isSectionCollapsed` 的分节只枚举 `edges.slice(0,1)`，只有“之前”。
+- 指针和键盘从此给出不同的候选，`layoutDropSectors` 还会在这块空白卡片上画两半的分区。
+
+另外，`geometryOf` 里 `frame` 取整张卡片。落到卡片底部空白区原先是“没有卡片”，现在是有效落点。这可能恰好是想要的行为（拖到空白处 = 追加到最后），但需要作为设计决定写出来，而不是副作用。
+
+**建议改法：**计划里增加“落点几何”一节。要么让 `geometryOf` 对收起分节仍报告零面积的 `body`（用 `isSectionCollapsed` 判），保持旧约定；要么明确改成“空白处 = 追加”，并同步改键盘枚举、`layoutDropSectors` 与 Spec 输出 25 第 7 行。
+
+### 5. “点标题行”在标记里只落成了点按钮文字，整行不是开关
+
+严重程度：重要
+位置：`web/components/WorkbenchPanelHead.vue:318-327`（`.workbench-panel-head__handle` 是 `display:block` 的 `button`，按内容收缩）；评审板文字“整行就是开关，和 VS Code 一样”；计划“点标题：有 `fold` 时切换收起”
+
+**现象：**按钮只有文字那么宽，标题右边的空白区点了没有任何反应。开发者选的是“整行就是开关”。计划没有说 `<button>` 要铺满，也没有说整行是否同时是拖动源（拖动源只认 `[data-panel-tab]`，也就是按钮本身）。视图接管标题区时，`view-handle` 在三列里居中，左右都是空白，不可点。
+
+**建议改法：**把按钮改成铺满标题那一格（`flex: 1`、`width: 100%`），标记放进按钮里；接管标题区时，整行（含左右列的空白）如何判点击要写清，并保证框架按钮（`data-no-drag` 的兄弟）点击不冒成切换。再补 `aria-controls` 指向内容 `region`（`panelTabpanelDomId`）。
+
+### 6. “发 `toggle-collapsed` 并照旧激活”有两种执行顺序，其中一种会立刻切回去
+
+严重程度：重要
+位置：`web/state/layout-doc-store.ts:459-462`（`activate` 已对收起的分节自动展开）；`web/commands/panel-commands.ts:99-103`（命令不带 `collapsed` 是切换）；`WorkbenchShell.vue` 的 `activateTab`
+
+**现象：**今天点收起的标题 = `activate` = 展开。计划让标题点击同时发 `toggle-collapsed` 和 `activate`，顺序没写：
+- 先 `activate` 后切换：`activate` 已展开，命令在最新文档上读到“没收起”，于是再收起，净效果为零。
+- 先切换后 `activate`：正确，但依赖 `apply` 的串行。
+
+**还有三处计划没覆盖：**
+- 双击：两次点击切换两次，展开又收起。要么接受并写进 Spec，要么限速。
+- 空格：`drag-session.ts:292` 在 `keyboard.sourceAt` 返回 `null`（视图 `movable:false`、拖动关闭）或 `startKeyboard` 失败时不拦截，原生按钮的空格激活会触发 click。这类标题上空格就变成了切换，而计划写的是“空格照旧拿起拖动”。
+- “点标题让焦点进这块面板”这个原有用途，在展开的分节上被改成收起。计划只在风险里一笔带过，没有给出展开着时怎么聚焦（例如点击后收起，焦点留在标题）。
+
+**建议改法：**不要两个事件。头只发一个 `activate`（或 `toggle`），由 Shell 一处决定：展开着且可收起 → `setPanelCollapsed(panel, true)` 并激活；收着 → `activate`（它已会展开）。Spec 同步写明。
+
+### 7. 视图接管标题区时，标记放哪里、对齐判据与 aria 模型都没落地
+
+严重程度：重要
+位置：`WorkbenchPanelHead.vue` 的 `--view` 模式（三列网格，标题居中；`sideWidth` 取左右两侧较宽者）；计划“视图接管标题区时……展开标记单独可点”
+
+**问题：**
+- 没写标记在三列的哪一格。放进左列会改变 `sideWidth`，标题的居中位置随之偏移；放在视图的 `headStart` 里则是视图的地盘（`data-no-drag`）。
+- 接管时标题是居中的，所以“几行收起的标题行左缘在一条竖线上”“收起的行与展开的头标记、标题横坐标相同”对会话分节不成立。
+- 无障碍模型不一致：普通头里标记“不单独占焦点”，接管时变成**第二个 Tab 停靠点**，要有可访问名称、`aria-expanded`，还要和标题按钮上已有的 `aria-haspopup`/`aria-expanded`（`popup.expanded`，会话列表开着没有）区分开。
+- 颜色规则只写了 `.workbench-panel-head__title`。`view-handle` 现在是 `--text-main`，收起时同样要退成次要字色，计划没提。
+
+**建议改法：**给接管模式画一份单独的示意图，写出标记位置、`sideWidth` 的计算，以及“对齐判据”在这个模式下的豁免。
+
+### 8. “悬停才出”：框架按钮目前不在 `[data-hover-actions]` 里；最大化的按下状态会随悬停消失
+
+严重程度：重要
+位置：`web/components/hover-actions.css`；`WorkbenchPanelHead.vue:183`（只有视图动作区带 `data-hover-actions`）；`WorkbenchShell.vue:178-195`（`headReserved`）
+
+**现象与问题：**
+- 计划写“沿用现有显示范围”，但 CSS 规则挂在 `[data-hover-actions]` 上，框架按钮的容器（`workbench-panel-head__actions` 里的 `IconButton`）没有这个属性。需要显式加，计划没提。
+- 现有写法对“菜单开着”（`:has([aria-expanded="true"], [data-state="open"])`）保持可见。最大化按钮是 `aria-pressed`，不在豁免里。最大化之后还原按钮和“已最大化”的状态指示都随悬停淡出，而此前收起按钮的按下底色是收起状态的唯一指示，现在连它也拿掉了。
+- 键盘用户：按钮仍在 Tab 序里且 `:focus-within` 会显示，这点没问题。触摸设备走 `@media (hover: hover)` 之外一直显示，也没问题。
+- `headReserved`：`frames = 2 + collapsible`，拿掉收起按钮后要改成 2；标记占位的宽度（约 14px 加间距）要计入。计划说“按面板宽度算放几个按钮不变”，其实常数要改，否则每个可收起分节多预留 26px。
+- 拉长的卡片整块是 `data-hover-actions-scope`，鼠标放在下面的空白处会让那一行的按钮显示出来，有点反常。
+
+**建议改法：**把 `aria-pressed="true"` 加进豁免（或最大化时恒显）；在计划里列出 `headReserved` 的新算法；决定空白区是否算悬停范围。
+
+### 9. 对齐判据多数无法在 e2e 里按矩形量出来，漏了开发者会看的几处
+
+严重程度：建议
+位置：计划“对齐（开发者附言）”一段
+
+- “标记的左缘离卡片左缘与正文第一层的缩进对齐”没有参照。正文第一层缩进因视图而异：`Tree` 是 `calc(var(--space-5) * level + var(--space-2))` 加行内边距，会话列表另一套。要指定一个具体视图（资源管理器）和容差，或者落一个共享的 CSS 变量；否则 e2e 写不出来。
+- “标记、标题、按钮在 32px 里竖直居中，中心线相差不超过 0.5px”：量元素矩形的中心，两者必然相等，量不出 12px 字与 14px 图标的光学错位。要量字形，用 `Range.getBoundingClientRect` 或截图像素比对。
+- 没有被点名但开发者会看出来的：收起行之间的分隔线（`panes` 的 1px sash，在拉长后最后一行标题下方、卡片空白区上沿是否还有线）、无标记的头（`fold` 为空的分节，比如区域里被左右拆开的）与有标记的头标题左缘差一个标记宽度、平铺与卡片两种主题、深色。
+- “收起的行与展开的头标记、标题横坐标相同”要用同一个节的两个状态比较，不是同一列里的行与行。
+
+### 10. 质疑上游：这是不是该落在 `nb-layout` 的原语里
+
+严重程度：建议
+位置：计划“关键设计”第一节；`layout-project.ts` 的 `assignByParent`
+
+**现象：**`grid-geometry.ts:193` 把“全部收起留空”写成有意的，计划为此新增一个分支原语选项，要动分配、夹取、约束、求解器、快照恢复（见 1、2）。收益只是工作台一个状态的卡片画法。
+
+**候选：**在投影层处理——全部收起时，最后一个分节不配收起策略，作为普通 weight 叶，最小高度设为头高；内容停放仍由 `isSectionCollapsed`（文档）决定，`effectiveVisibleTabs` 已按它排除。这样 `nb-layout` 不用改。
+- 代价：这个状态下不能经拖缝展开最后一节（今天也不行）；预览里“拉出来”的问题（第 3 条）仍然存在；拖动中一节展开时最后一行的策略切换要核对。
+- 好处：不触碰 `sash-drag`、`snapshot`、约束传播，t28 的包装分支也直接可用。
+我没有实验验证这个候选，只是读代码得出的方向，由开发者与你取舍。
+
+### 11. 展开非末行时“外框已经在那里、上面几行不动”不成立
+
+严重程度：建议
+位置：计划“收起策略的手势照旧”一句
+
+只有展开的恰好是最后一行时才成立。点上面某一行展开，它按 `restoreToShare` 取份额，最后一行从拉长的高度缩回 32，行与行之间的边界会移动。过渡动画要核对（`grid-motion.ts` 对“最后一行由长变短”的处理，我没有验证）。计划的验证清单没有这条。
+
+### 未发现问题的方面
+
+- `rebaseIntents` 跳过收起分节：`layout-doc.ts:477` 的 `isSkipped` 含 `isSectionCollapsed`，拉长不影响它。
+- `minimumOf`、放不下收走：收起节点在父主轴上取 `collapsedSize`，与外框实际长度无关，不受影响。
+- 拖动起拖：`drag-session.ts:onClick` 的 `takeClick` 会吞掉拖动后的 click，拖动不会误切换。
+- 命令层：`nbook.view.set-panel-collapsed` 不带 `collapsed` 即切换，已存在。
+- `grid-focus` 按 DOM 顺序走，不看矩形，拉长不影响 Tab 顺序。
+
+### 数量与发现编号
+
+阻断 1，重要 7，建议 3。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11
