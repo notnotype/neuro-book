@@ -8,6 +8,7 @@ export * from "./layout-project";
 export * from "./layout-drop";
 export * from "./live-drop";
 export type {GridContentInput, GridFloatInput, GridLeafShape, GridRect} from "./grid-rects";
+export type {GridSwap, GridSwapWindow} from "./grid-swap";
 export * from "./sash-drag";
 export {
     DRAG_GESTURE_DEFAULTS,

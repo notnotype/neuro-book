@@ -11,6 +11,8 @@ import type {Ref} from "vue";
 
 import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
 import type {GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
+import {planSwap} from "../grid-swap";
+import type {GridSwap, GridSwapBand} from "../grid-swap";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
 
@@ -30,6 +32,13 @@ export interface GridMotionFrame {
     readonly previewing: boolean;
     /** 有拿起的内容（实时布局拖动中）：离开的叶不留。 */
     readonly holding?: boolean;
+    /** 这一次布局变化要按交换走（`token` 刚变的那一次，由 `NestedGrid` 判）。 */
+    readonly swap?: GridSwap | null;
+    /** 进行中的交换，与带上每组此刻的偏移（下标同 `band.groups`，`update` 从 DOM 读）。 */
+    readonly band?: GridSwapBand | null;
+    readonly bandNow?: ReadonlyArray<number>;
+    /** 正在别的过渡里的叶（节点 id）：长出来、缩回去的。 */
+    readonly busy?: ReadonlySet<string>;
 }
 
 /** 上一次判定时记下的事实：判容器尺寸、缩放与手势收尾要比它。 */
@@ -62,12 +71,16 @@ export interface GridMotionMove {
     readonly shrinking: ReadonlySet<string>;
     /** 此刻为零的叶（节点 id）：上一轮在缩的叶仍在这里面的接着缩。 */
     readonly zero: ReadonlySet<string>;
+    /** 这一轮开始的交换（`planSwap`）：带上的几组。没有时进行中的交换照旧。 */
+    readonly swap?: GridSwapBand;
+    /** 给了交换但没用上的原因（这一轮照常过渡）。 */
+    readonly swapSkipped?: string;
 }
 
-/** 在过渡里留着缩回去的离开的叶（`leavingPlacements`）。 */
-export type GridLeavingItem = Extract<GridPlacementItem<unknown>, {readonly kind: "leaf"}>;
+/** 在过渡里留着的离开的项：缩回去的叶（`leavingPlacements`），交换里滑出去的叶与分隔线（`planSwap`）。 */
+export type GridLeavingItem = GridPlacementItem<unknown>;
 
-const withoutLeaving = (list: ReadonlyArray<GridLayerItem<unknown>>): ReadonlyArray<GridLayerItem<unknown>> => list.filter((item) => item.kind !== "leaf" || item.leaving !== true);
+const withoutLeaving = (list: ReadonlyArray<GridLayerItem<unknown>>): ReadonlyArray<GridLayerItem<unknown>> => list.filter((item) => item.kind === "content" || item.leaving !== true);
 
 /** 根尺寸是子项加出来的（621.9999999999999 与 622），差一点舍入不算容器变了：算成变了，程序调整的过渡会直接跳到终点。 */
 const EXTENT_TOLERANCE_PX = 0.5;
@@ -103,8 +116,8 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const kept = keptSizeStarts({items: frame.items, previous: frame.previous, entering, following, leaving});
     // 上一轮还在缩回去的叶（`input.items` 里带 `leaving` 的）：这一轮又有别的变化时接着留着缩完，不然它缩到一半就没了。回到树里的、这一轮重新判成离开的不算。
     const present = new Set([...frame.items, ...leaving].map((item) => item.key));
-    const still = input.items.filter((item): item is GridLeavingItem => item.kind === "leaf" && item.leaving === true && !present.has(item.key));
-    return {
+    const still = input.items.filter((item): item is GridLeavingItem => item.kind !== "content" && item.leaving === true && !present.has(item.key));
+    const move: GridMotionMove = {
         kind: "move",
         entering: new Map([...entering, ...kept]),
         following,
@@ -115,9 +128,30 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         shrinking: shrinkingLeaves(frame.items, frame.previous),
         zero: zeroLeaves(frame.items),
     };
+    if (input.swap == null || frame.holding === true) return move;
+    const plan = planSwap({swap: input.swap, items: frame.items, previous: frame.previous, band: input.band ?? null, now: input.bandNow ?? [], busy: input.busy ?? new Set()});
+    if (plan.kind === "skip") return {...move, swapSkipped: plan.reason};
+    // 带上的项整块平移，不按别的规则长、缩、跟外框；进行中的交换里留着的项换成这一轮的终点，被摘掉的组一起去掉。
+    const banded = new Set([...plan.starts.keys(), ...(input.band?.groups ?? []).flatMap((group) => group.home.map((item) => item.key))]);
+    const without = (keys: ReadonlySet<string>): ReadonlySet<string> => new Set([...keys].filter((key) => !banded.has(key)));
+    return {
+        ...move,
+        entering: new Map([...[...move.entering].filter(([key]) => !banded.has(key)), ...plan.starts]),
+        following: without(move.following),
+        flying: without(move.flying),
+        keptSize: without(move.keptSize),
+        rightAnchored: without(move.rightAnchored),
+        leaving: [...move.leaving.filter((item) => !banded.has(item.key)), ...plan.leaving],
+        swap: plan.band,
+    };
 }
 
-export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly onSettled: () => void}) {
+export function useGridMotion(options: {
+    readonly root: Readonly<Ref<HTMLElement | null>>;
+    readonly onSettled: () => void;
+    /** 给了交换但没用上（这一轮照常过渡）：原因交给宿主记诊断。 */
+    readonly onSwapSkipped?: (reason: string) => void;
+}) {
     const moving = ref(false);
     /** 新项第一帧的矩形；下一轮写终点，过渡才启动。 */
     const growing = shallowRef<ReadonlyMap<string, GridRect>>(new Map());
@@ -135,6 +169,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     const held = shallowRef<ReadonlySet<string>>(new Set());
     /** 降到零的叶（节点 id，`shrinkingLeaves`）：停放、不可交互，过渡结束（`stop`）前头与内容还画着。只在过渡中有。 */
     const shrinking = shallowRef<ReadonlySet<string>>(new Set());
+    /** 进行中的交换（docs/specs/ui/nested-grid.md 的“交换”）：带上的几组；过渡结束（`stop`）就清掉。 */
+    const band = shallowRef<GridSwapBand | null>(null);
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();
     /** 正落地的内容项：内容体一次到终点尺寸，不跟着外框。它从小卡的矩形出发，跟着走就是先压成小卡再逐帧长回去。 */
@@ -169,6 +205,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         anchoredRight.value = new Set();
         held.value = new Set();
         shrinking.value = new Set();
+        band.value = null;
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
     }
@@ -189,11 +226,13 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         flying.value = new Set([...(flying.value), ...move.flying]);
         // `move.leaving` 里有上一轮还没缩完的（`decideMotion` 接着留）；不在里面的是又回到了树里。
         leaving.value = move.leaving;
+        if (move.swap !== undefined) band.value = move.swap;
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
         const entering = move.entering;
         if (entering.size === 0) return;
         // 过渡中又来一次变化时，已经画着的项的起点是上一帧的矩形，也就是上一轮的终点，正是它此刻在走的那次过渡的终点：样式写回这个值不打断那次过渡
         // （CSS 过渡里终点没变就接着走），下一帧写新终点时从此刻的位置反向，不跳。所以不用读 DOM 取当前位置；起点不再是上一轮的终点时这条就不成立了。
+        // 交换是例外：起点是读到的此刻位置（`bandOffsets`），写起点的那一帧不带过渡标记，进行中的过渡就停在那里，下一帧整条带重新开始一段完整的过渡。
         growing.value = entering;
         // 先让第一帧的矩形进到样式里（强制一次布局），再写终点：否则浏览器把两次改动并成一次，过渡不启动。
         void nextTick(() => {
@@ -202,14 +241,38 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         });
     }
 
+    /**
+     * 带上每组此刻的偏移：读它第一块叶的外框此刻的位置（过渡中的计算样式就是这一刻画着的值），减去它在原位的位置。只在交换进行中又来一次交换时读，
+     * 平常的过渡不读 DOM。读不到（元素不在了）的按它这一轮的终点。
+     */
+    function bandOffsets(current: GridSwapBand): number[] {
+        const children = [...(options.root.value?.children ?? [])] as HTMLElement[];
+        return current.groups.map((group) => {
+            const leaf = group.home.find((item) => item.kind === "leaf");
+            const element = leaf?.kind === "leaf" ? children.find((child) => child.dataset.leaf === leaf.node.id) : undefined;
+            if (leaf === undefined || element === undefined) return group.offset;
+            const style = getComputedStyle(element);
+            const position = Number.parseFloat(current.axis === "width" ? style.left : style.top);
+            return Number.isFinite(position) ? position - (current.axis === "width" ? leaf.rect.x : leaf.rect.y) : group.offset;
+        });
+    }
+
+    /** 正在别的过渡里的叶（长出来、缩回去，内容不跟外框的那些）：这时不交换。 */
+    function busyLeaves(): ReadonlySet<string> {
+        if (!moving.value) return new Set();
+        return new Set([...[...keptSize.value].map((key) => key.replace(/^leaf:/, "")), ...shrinking.value]);
+    }
+
     /** 布局变了（渲染之前调）。 */
     function update(frame: GridMotionFrame): void {
-        const decision = decideMotion(frame, memory);
+        const current = band.value;
+        const decision = decideMotion(frame.swap == null ? frame : {...frame, band: current, bandNow: current === null ? [] : bandOffsets(current), busy: busyLeaves()}, memory);
         if (decision.kind === "stop") {
             stop();
             return;
         }
         if (decision.kind === "none") return;
+        if (decision.swapSkipped !== undefined) options.onSwapSkipped?.(decision.swapSkipped);
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
         if (duration > 0) start(duration, decision);
@@ -256,6 +319,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         anchoredRight,
         held,
         shrinking,
+        band,
         update,
         land,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */

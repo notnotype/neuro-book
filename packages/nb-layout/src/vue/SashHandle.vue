@@ -34,6 +34,11 @@ const props = defineProps<{
     ariaMax: number;
     ariaNow: number;
     ariaValueText: string;
+    /**
+     * 已经不在布局里、只是还画着的线（交换里滑出去的，`NestedGrid` 的“交换”）：不向手势 scope 登记，也不跟着悬停、拖动亮。
+     * 它和树里同一分支同一序号的线同键（例如两个容器的分节都在同一个区域分支里），登记了会盖掉、之后摘掉时连带删掉活线的登记。读屏读不到它。
+     */
+    detached?: boolean;
 }>();
 
 /**
@@ -64,12 +69,12 @@ const inert = computed(() => props.disabled || seamOnly.value);
 /** 一侧收到了零（拖到零、隐藏的区域按拖到零画）：那一侧没有东西，静止接缝只会贴在窗口边或条上，不画；命中、悬停线与拖动照旧。 */
 const besideZero = computed(() => props.beforePx <= 0 || props.afterPx <= 0);
 
-const isHovered = computed(() => scope.hovered.has(key.value));
-const isActive = computed(() => scope.active.has(key.value));
+const isHovered = computed(() => props.detached !== true && scope.hovered.has(key.value));
+const isActive = computed(() => props.detached !== true && scope.active.has(key.value));
 /** T/十字：两根轴同时命中时两条线一起点亮，与实际可开拖的参与集合完全同源。 */
-const isCross = computed(() => scope.hovered.has(key.value) && scope.hovered.size > 1);
+const isCross = computed(() => isHovered.value && scope.hovered.size > 1);
 /** 已满足停留时长（或正在拖、键盘聚焦）的线才显示装饰；`hovered` 只决定光标。 */
-const isRevealed = computed(() => isLit(key.value));
+const isRevealed = computed(() => props.detached !== true && isLit(key.value));
 
 /** 同一 scope 里任一条线（含外层分支的）此刻亮不亮；键盘聚焦只亮一条，不需要连。 */
 function isLit(lineKey: string): boolean {
@@ -95,21 +100,21 @@ function setRef(value: unknown): void {
 }
 
 /**
- * 元素或身份（分支 id、序号、轴）变了都要重新登记。注销时带上元素：scope 只注销仍是当前登记项的那一份，
- * 重挂时新元素先登记、旧元素后注销也不会把新的误删。
+ * 元素或身份（分支 id、序号、轴）变了、离开或回到布局（`detached`）都要重新登记。注销时带上元素：scope 只注销仍是当前登记项的那一份，
+ * 重挂时新元素先登记、旧元素后注销也不会把新的误删；同键的两条线一条离开、一条回来，谁先跑都一样。
  */
 function reRegister(): void {
     if (registered !== null) {
         scope.unregisterSash(registered.branchId, registered.index, registered.element);
         registered = null;
     }
-    if (element !== null) {
+    if (element !== null && props.detached !== true) {
         scope.registerSash({branchId: props.branchId, sashIndex: props.index, axis: props.axis, element});
         registered = {branchId: props.branchId, index: props.index, element};
     }
 }
 
-watch(() => [props.branchId, props.index, props.axis], reRegister);
+watch(() => [props.branchId, props.index, props.axis, props.detached], reRegister);
 
 /** 装饰元素：常驻的静止接缝与悬停/拖动才亮的装饰带，几何都只写在自己身上。 */
 let seamEl: HTMLElement | null = null;
@@ -265,6 +270,8 @@ onBeforeUnmount(() => {
         :aria-valuenow="props.ariaNow"
         :aria-valuetext="props.ariaValueText"
         :aria-disabled="inert ? 'true' : undefined"
+        :aria-hidden="detached ? 'true' : undefined"
+        :inert="detached === true"
         :data-disabled="seamOnly ? 'true' : undefined"
         :tabindex="inert ? -1 : 0"
         class="nb-splitter__sash"

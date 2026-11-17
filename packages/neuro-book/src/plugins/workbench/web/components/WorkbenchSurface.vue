@@ -2,14 +2,14 @@
 /**
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
-import {createGrid, hiddenRegionsAtZero, isContainerAnchor, isPanelShown, regionNodeOf, treeLeaves} from "@notnotype/nb-layout";
-import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
+import {createGrid, hiddenRegionsAtZero, isContainerAnchor, isPanelShown, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
+import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, GridSwap, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
 
-import {cardInset, layoutCardEdges, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
-import type {CardEdges} from "../shell/adjacency";
+import {cardInset, joinedToBar, layoutCardEdges, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
+import type {CardEdges, CardSide} from "../shell/adjacency";
 import {layoutContents, panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
 import "./hover-actions.css";
 
@@ -37,7 +37,12 @@ const props = withDefaults(defineProps<{
     dragging?: boolean;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, dragging: false, floats: () => []});
+    /**
+     * 切换容器时整张卡片滚过去（输出 42，网格的交换）：和那次提交在同一个同步段里给，`token` 变了才算新的。缝宽由这里按主题补上：
+     * 两张卡片之间隔一条缝。
+     */
+    swap?: Omit<GridSwap, "gap"> | null;
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, dragging: false, floats: () => [], swap: null});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -85,12 +90,16 @@ watch(extent, (next) => emit("extent", next), {immediate: true, flush: "sync"});
 
 /** 主题写在文档根上，换主题或明暗时文档根的属性与内联变量会变，这时重读。 */
 let themeObserver: MutationObserver | null = null;
+/** 主题的缝宽（px）：交换的两张卡片之间隔它。 */
+const cardGap = ref(0);
 function readCardGap(): void {
     const root = rootEl.value;
     if (root === null) return;
     const value = Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-gap"));
-    emit("card-gap", Number.isFinite(value) ? value : 0);
+    cardGap.value = Number.isFinite(value) ? value : 0;
+    emit("card-gap", cardGap.value);
 }
+const gridSwap = computed<GridSwap | null>(() => (props.swap === null ? null : {...props.swap, gap: cardGap.value}));
 onMounted(() => {
     readCardGap();
     themeObserver = new MutationObserver(readCardGap);
@@ -158,6 +167,8 @@ const contents = computed(() => {
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
 
 const roleOf = (id: string): "tool" | "editor" | null => props.doc.panels[id]?.role ?? null;
+/** 卡片组（输出 19）：工具面板按区域，一个区域里相邻的几块拼成一张卡片；实时布局的空位自成一块，四周照旧留缝。 */
+const groupOf = (id: string): string | null => (id === props.slotPanel ? null : regionOf(props.doc, id));
 
 /** 呈现里的区域的锚就是打开着的空区域（ADR 0050）：有分节时锚不进呈现树。它没有头，画宿主给的提示。 */
 const isEmptyRegion = (id: string): boolean => {
@@ -183,8 +194,9 @@ const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
         sizes: preview.value ?? host.layout.value.sizes,
         sashSizes: host.layout.value.sashSizes,
         activitybar: ACTIVITY_BAR,
+        activitybarGroup: "sidebar",
         plain: PLAIN,
-        isTool: (id) => roleOf(id) === "tool",
+        groupOf,
     });
     return props.maximized === null ? computedCards : maximizedCardEdges(computedCards, props.maximized, ACTIVITY_BAR);
 });
@@ -197,17 +209,19 @@ const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "lea
 const presentedLeaves = computed(() => new Set(leafIdsOf(props.projection.input)));
 const outgoingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.outgoingLeaves ?? new Set());
 const shapedLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.shapedLeaves ?? new Set());
+/** 这一刻在交换里的叶（切换容器滚过去的两张卡片）：它们不算“角接过去”，活动栏前后都相连，不换画法。 */
+const swappingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.swappingLeaves ?? new Set());
 /**
- * 活动栏刚从断开变成相连时连上的那块面板（`capLeaf`）：显示（从零宽长出来）、从两节的容器切到一节的。一直相连、只是换了一块（切到另一个只有一节的容器）时不算，
- * 别的变化与这一轮过渡结束都清掉。
+ * 活动栏刚从断开变成相连时连上的那一列（`capLeaves`）：侧栏显示（从零宽长出来）。一直相连、只是换了一列（切换容器）时不算，
+ * 别的变化与这一轮过渡结束都清掉。按 id 的列表比，同一列重算出来的卡片不算变化。
  */
-const freshlyJoined = shallowRef<string | null>(null);
-const barJoinedTo = (all: Readonly<Record<string, CardEdges>>): string | null => (all[ACTIVITY_BAR]?.right.kind === "joined" ? Object.keys(all).find((id) => all[id]?.left.kind === "joined") ?? null : null);
-watch(() => barJoinedTo(cards.value), (leaf, previous) => {
-    freshlyJoined.value = previous === null ? leaf : null;
+const freshlyJoined = shallowRef<ReadonlySet<string>>(new Set());
+const barJoinedKey = (all: Readonly<Record<string, CardEdges>>): string => Object.keys(all).filter((id) => id !== ACTIVITY_BAR && joinedToBar(all[id]?.left)).sort().join("\n");
+watch(() => barJoinedKey(cards.value), (leaves, previous) => {
+    freshlyJoined.value = previous === "" && leaves !== "" ? new Set(leaves.split("\n")) : new Set();
 }, {flush: "sync"});
 watch(shapedLeaves, (shaped) => {
-    if (shaped.size === 0) freshlyJoined.value = null;
+    if (shaped.size === 0) freshlyJoined.value = new Set();
 });
 const lastPresented = {cards: new Map<string, CardEdges>(), scene: new Map<string, PanelName>()};
 /** 活动栏最近一次没和面板相连时右边的样子：面板长出来的这段活动栏照这个画（`cardOf`）。 */
@@ -243,65 +257,79 @@ const edgesOf = (id: string): CardEdges | undefined => (drawnAsBefore(id) ? last
 const sceneOf = (id: string): PanelName | undefined => (drawnAsBefore(id) ? lastPresented.scene.get(id) : sceneCorners.value.get(id));
 
 /**
- * 侧栏的角接过去（docs/specs/ui/workbench-layout.md 输出 19，开发者 2026-11-16 在 t25 的 join-motion 评审页上选丙）：和活动栏相连的工具面板
- * 隐藏缩回去、显示长出来的这段（外框按卡片裁，`shapedLeaves`），两张卡片画成一张、右边那两个圆角跟着面板的右沿走。做法：
+ * 侧栏的角接过去（docs/specs/ui/workbench-layout.md 输出 19，开发者 2026-11-16 在 t25 的 join-motion 评审页上选丙）：和活动栏相连的侧栏
+ * 隐藏缩回去、显示长出来的这段（外框按卡片裁，`shapedLeaves`），活动栏和侧栏画成一张、侧栏右边那两个圆角跟着它的右沿走。侧栏一列几节时整列一起（`capLeaves`）。做法：
  * - 活动栏照断开的样子画（右边留半缝、四个角都圆）：显示时用它上一次断开时的右边（`separatedBarRight`），隐藏时这一刻的布局本来就是断开的；
- * - 面板的形状往左伸到活动栏右边那个圆角起头的地方，左边两个角是直的，伸出去的部分是活动栏的底色、压在活动栏下面（`GridLeafShape.fill`），
- *   盖住活动栏的圆角与半缝，只在它们空着的地方露出来，活动栏的图标与悬停底色照旧在上面；
- * - 面板右边的两个圆角跟着外框的右沿：缩到零时正好落在活动栏右边，成了活动栏的两个角，摘掉面板后画面不变；显示时反过来，长完了换回相连的画法，画面同样不变。
+ * - 侧栏每一块的形状往左伸到活动栏右边那个圆角起头的地方，左边的角是直的，伸出去的部分是活动栏的底色、压在活动栏下面（`GridLeafShape.fill`），
+ *   盖住活动栏的圆角与半缝，只在它们空着的地方露出来，活动栏的图标与悬停底色照旧在上面；组内的块之间没有缝，伸出去的部分连成一条；
+ * - 侧栏右上、右下的圆角（几节时是最上面一块的右上角、最下面一块的右下角，组内的角本来是直的）跟着外框的右沿：缩到零时正好落在活动栏右边，
+ *   成了活动栏的两个角，摘掉侧栏后画面不变；显示时反过来，长完了换回相连的画法，画面同样不变。
  * 所以活动栏的角不过渡：断开、相连的那一刻它的角都被盖着。中间那条短线随着淡出（隐藏）、淡入（显示）。
- * 只认缩回去的和活动栏刚连上的（`freshlyJoined`）：切到另一个只有一节的容器时，换上来的一节从上往下长，活动栏前后都相连，不换画法（换的话图标会左右挪一下）。
+ * 只认缩回去的和活动栏刚连上的（`freshlyJoined`）：切换容器时活动栏前后都相连，不换画法（换的话图标会左右挪一下）；切换时整张卡片滚过去的那些叶
+ * （`swappingLeaves`）留着画到滚完，也不算。
  */
-const capLeaf = computed<string | null>(() => [...shapedLeaves.value].find((id) => id !== ACTIVITY_BAR && edgesOf(id)?.left.kind === "joined" && (drawnAsBefore(id) || id === freshlyJoined.value)) ?? null);
+const capLeaves = computed<ReadonlySet<string>>(() => new Set([...shapedLeaves.value].filter((id) => id !== ACTIVITY_BAR && !swappingLeaves.value.has(id) && joinedToBar(edgesOf(id)?.left) && (drawnAsBefore(id) || freshlyJoined.value.has(id)))));
 
 /** 这块卡片的四边：离开的叶用最后一次呈现的；面板的角接过去的这段，活动栏照断开的样子。 */
 function cardOf(id: string): CardEdges | undefined {
     const card = edgesOf(id);
-    if (id !== ACTIVITY_BAR || card === undefined || capLeaf.value === null || card.right.kind !== "joined") return card;
+    if (id !== ACTIVITY_BAR || card === undefined || capLeaves.value.size === 0 || !joinedToBar(card.right)) return card;
     return {...card, right: separatedBarRight};
 }
 
-function insetOf(id: string): Record<string, string> {
-    const edges = cardOf(id);
-    return edges === undefined ? {} : {padding: [edges.top, edges.right, edges.bottom, edges.left].map(cardInset).join(" ")};
+const ROUND = "var(--shell-card-radius, 0px)";
+/** 四个角（左上、右上、右下、左下）：一个角圆当且仅当它两侧的边都不相连（输出 19）。 */
+function cornersOf(edges: CardEdges): readonly [string, string, string, string] {
+    const open = (a: CardSide, b: CardSide): string => (a.kind !== "joined" && b.kind !== "joined" ? ROUND : "0px");
+    return [open(edges.top, edges.left), open(edges.top, edges.right), open(edges.bottom, edges.right), open(edges.bottom, edges.left)];
 }
 
-/** 活动栏与工具面板相连时，相接的一侧不圆（活动栏是 start，面板是 end）；不留缝的是 `insetOf`。 */
+/** 卡片在外框里的内边距与四个角：写在外框里那一层（`slot`）和内容外层上，卡片与内容的裁切读同一组角（`--shell-corner-*`）。 */
+function insetOf(id: string): Record<string, string> {
+    const edges = cardOf(id);
+    if (edges === undefined) return {};
+    const [topLeft, topRight, bottomRight, bottomLeft] = cornersOf(edges);
+    return {
+        padding: [edges.top, edges.right, edges.bottom, edges.left].map(cardInset).join(" "),
+        "--shell-corner-tl": topLeft,
+        "--shell-corner-tr": topRight,
+        "--shell-corner-br": bottomRight,
+        "--shell-corner-bl": bottomLeft,
+    };
+}
+
+/** 活动栏与侧栏相连（活动栏是 start，侧栏的块是 end）。圆角由 `insetOf` 的四个角给，这里只是给测试与主题看的标记。 */
 function joinOf(id: string): "start" | "end" | undefined {
     const edges = cardOf(id);
-    if (edges?.right.kind === "joined") return "start";
-    if (edges?.left.kind === "joined") return "end";
+    if (joinedToBar(edges?.right)) return "start";
+    if (joinedToBar(edges?.left)) return "end";
     return undefined;
 }
 
-/** 面板的角接过去的这段（`capLeaf`），只写在活动栏上：隐藏是 `leave`，显示是 `enter`。 */
+/** 侧栏的角接过去的这段（`capLeaves`），只写在活动栏上：隐藏是 `leave`，显示是 `enter`。 */
 function capOf(id: string): "enter" | "leave" | undefined {
-    const cap = capLeaf.value;
-    if (id !== ACTIVITY_BAR || cap === null) return undefined;
-    return drawnAsBefore(cap) ? "leave" : "enter";
+    if (id !== ACTIVITY_BAR || capLeaves.value.size === 0) return undefined;
+    return [...capLeaves.value].some(drawnAsBefore) ? "leave" : "enter";
 }
 
-/** 活动栏和右边的工具面板之间那条短线：相连时画，面板的角接过去的这段也画（随着淡出、淡入，见 `capOf`）。 */
-const barSeamOf = (id: string): "" | undefined => (id === ACTIVITY_BAR && (capLeaf.value !== null || cardOf(id)?.right.kind === "joined") ? "" : undefined);
+/** 活动栏和侧栏之间那条短线：相连时画，侧栏的角接过去的这段也画（随着淡出、淡入，见 `capOf`）。 */
+const barSeamOf = (id: string): "" | undefined => (id === ACTIVITY_BAR && (capLeaves.value.size > 0 || joinedToBar(cardOf(id)?.right)) ? "" : undefined);
 
 /**
  * 卡片在外框里的形状（NestedGrid 的 `leafShape`）：过渡中外框露出、盖住保持尺寸的面板时按它裁，露出来的一截是一张完整的卡片。
- * 和 `insetOf`、`joinOf` 同一来源，离开的叶用最后一次呈现的；相连的一侧不圆。圆角按物理方向给（工作台只有从左到右）。
- * 面板的角接过去的这段，面板往左伸过活动栏的半缝与一个圆角（见 `capLeaf`）。
+ * 和 `insetOf` 同一来源（四边与四个角），离开的叶用最后一次呈现的。圆角按物理方向给（工作台只有从左到右）。
+ * 侧栏的角接过去的这段，侧栏的每一块往左伸过活动栏的半缝与一个圆角（见 `capLeaves`）。
  */
 function shapeOf(id: string): GridLeafShape | undefined {
     const edges = cardOf(id);
     if (edges === undefined || PLAIN.has(id)) return undefined;
-    const round = "var(--shell-card-radius, 0px)";
-    const join = joinOf(id);
-    const left = join === "end" ? "0px" : round;
-    const right = join === "start" ? "0px" : round;
     const inset = [cardInset(edges.top), cardInset(edges.right), cardInset(edges.bottom), cardInset(edges.left)] as const;
-    const bar = id === capLeaf.value ? cardOf(ACTIVITY_BAR) : undefined;
-    if (bar === undefined) return {inset, radius: [left, right, right, left]};
+    const radius = cornersOf(edges);
+    const bar = capLeaves.value.has(id) ? cardOf(ACTIVITY_BAR) : undefined;
+    if (bar === undefined) return {inset, radius};
     return {
-        inset: [inset[0], inset[1], inset[2], `calc(-1 * (${round} + ${cardInset(bar.right)}))`],
-        radius: ["0px", right, right, "0px"],
+        inset: [inset[0], inset[1], inset[2], `calc(-1 * (${ROUND} + ${cardInset(bar.right)}))`],
+        radius,
         fill: "var(--skin-activitybar-surface, var(--panel-surface))",
     };
 }
@@ -316,9 +344,33 @@ function findBranch(node: GridNodeInput<string>, id: string): GridBranchInput<st
     return null;
 }
 
-function sashKind(sash: {readonly branch: string; readonly before: string; readonly after: string}): string | undefined {
+type SashRef = {readonly branch: string; readonly before: string; readonly after: string};
+
+function sashKind(sash: SashRef): string | undefined {
     const branch = findBranch(props.projection.input, sash.branch);
-    return branch === null ? undefined : sashKindOf(branch, sash.before, sash.after, roleOf);
+    return branch === null ? undefined : sashKindOf(branch, sash.before, sash.after, roleOf, groupOf);
+}
+
+const firstLeafOf = (node: GridNodeInput<string>): string => (node.kind === "leaf" ? node.id : firstLeafOf(node.children[0] as GridNodeInput<string>));
+const lastLeafOf = (node: GridNodeInput<string>): string => (node.kind === "leaf" ? node.id : lastLeafOf(node.children.at(-1) as GridNodeInput<string>));
+
+/**
+ * 同一张卡片里两块之间的分隔线（`panes`）占着 1px，两张卡片各自贴到外框边，这一条里没有卡片：线两端会露出窗体底，深色的外框也在这里断开。
+ * 这一条按卡片的范围画底色与两端的投影（样式见下面的 `panes` 分隔线），这里给范围：线前面那一块在长轴方向的两边内缩，同一列（排）的两块这两边贴着同样的东西。
+ */
+function sashStyleOf(sash: SashRef): Record<string, string> | undefined {
+    const branch = findBranch(props.projection.input, sash.branch);
+    const before = branch?.children.find((child) => child.id === sash.before);
+    if (branch === null || before === undefined || sashKindOf(branch, sash.before, sash.after, roleOf, groupOf) !== "panes") return undefined;
+    const first = cardOf(firstLeafOf(before));
+    const last = cardOf(lastLeafOf(before));
+    if (first === undefined || last === undefined) return undefined;
+    // 纵向的分支里是横着的一条，两端是左右；横向的分支里是竖着的一条，两端是上下。
+    const [start, end] = branch.orientation === "vertical" ? [first.left, last.right] : [first.top, last.bottom];
+    const style: Record<string, string> = {"--shell-sash-fill-start": cardInset(start), "--shell-sash-fill-end": cardInset(end)};
+    const bar = capLeaves.value.has(firstLeafOf(before)) ? cardOf(ACTIVITY_BAR) : undefined;
+    if (bar !== undefined) style["--shell-sash-cap"] = cardInset(bar.right);
+    return style;
 }
 
 // ── 指针与焦点在哪块面板 ──────────────────────────────────────────────────
@@ -396,7 +448,9 @@ defineExpose({
             :floats="floats"
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"
+            :sash-style="sashStyleOf"
             :leaf-shape="shapeOf"
+            :swap="gridSwap"
             @gesture-update="onGesturePreview"
             @gesture-end="onGestureSettled"
             @gesture-cancel="onGestureSettled"
@@ -438,7 +492,6 @@ defineExpose({
                         :role="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? 'region' : 'tabpanel') : undefined"
                         :aria-labelledby="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? panelTitleDomId(idPrefix, contentKey) : panelTabDomId(idPrefix, contentKey)) : undefined"
                         :data-panel-role="roleOf(leaf) ?? undefined"
-                        :data-shell-join="joinOf(leaf)"
                     >
                         <slot name="content" :content-key="contentKey" :panel-id="leaf" :active="active"></slot>
                     </div>
@@ -480,13 +533,51 @@ defineExpose({
 }
 
 /*
- * 工具面板之间的线按主题（卡片主题里两节之间有缝，不画），沿长轴两端按主题缩进（悬停线也是）。编辑组之间的线和外壳的接缝一样取 `--shell-seam`、贯通整个高度：
- * 一组一张卡片，卡片主题里缝就是分界，不画线（开发者 2026-11-16）；当初编辑区是一张卡片、组画在里面，才要一条看得见的线。
+ * 同一张卡片里几节之间的线（`panes`，输出 19）是开放式分割线：颜色按主题，沿长轴两端按主题缩进（悬停线也是）。编辑组之间的线和外壳的接缝一样取
+ * `--shell-seam`、贯通整个高度：一组一张卡片，卡片主题里缝就是分界，不画线（开发者 2026-11-16）。
  */
 .workbench-surface :deep(.nb-grid-sash[data-sash-kind="panes"]) {
     --nb-splitter-seam: var(--shell-pane-divider, var(--divider));
     --nb-splitter-seam-inset: var(--shell-pane-divider-inset, 0px);
     --sash-line-inset: var(--shell-pane-divider-inset, 0px);
+}
+
+/*
+ * 这条线占的那 1px 也是卡片（`sashStyleOf` 给范围）：底色同卡片，带卡片的投影，接上两边卡片的外框与投影。线与悬停线画在上面。
+ * 画底的那一块沿主轴往两边各多伸 8px、再裁回这 1px：只有 1px 高（宽）的元素做模糊投影，侧边的投影只有整张卡片的几分之一，伸长了才和卡片侧边一样深；
+ * 沿长轴放出 8px，投影露在卡片外面。平铺主题缝为 0、没有投影，结果是一条贯通的线。
+ */
+.workbench-surface :deep(.nb-grid-sash[data-sash-kind="panes"]::before) {
+    position: absolute;
+    background: var(--panel-surface);
+    box-shadow: var(--shell-card-shadow, none);
+    content: "";
+    pointer-events: none;
+}
+
+.workbench-surface :deep(.nb-grid-sash.nb-splitter__sash--vertical[data-sash-kind="panes"]::before) {
+    inset: -8px var(--shell-sash-fill-end, 0px) -8px var(--shell-sash-fill-start, 0px);
+    clip-path: inset(8px -8px);
+}
+
+.workbench-surface :deep(.nb-grid-sash.nb-splitter__sash--horizontal[data-sash-kind="panes"]::before) {
+    inset: var(--shell-sash-fill-start, 0px) -8px var(--shell-sash-fill-end, 0px) -8px;
+    clip-path: inset(-8px 8px);
+}
+
+/*
+ * 侧栏的角接过去的这段（`capLeaves`）：每一块往左伸过活动栏右边的半缝，伸出去的部分是活动栏的底色；伸出去的部分裁在各自的外框里，两块之间这一行没有，
+ * 由这条线往左补上同样宽的一截（`--shell-sash-cap`）。只补半缝：这一行在侧栏中间，活动栏在这里是直的，圆角只在它的两头。
+ */
+.workbench-surface :deep(.nb-grid-sash.nb-splitter__sash--vertical[data-sash-kind="panes"]::after) {
+    position: absolute;
+    top: 0;
+    right: 100%;
+    bottom: 0;
+    width: var(--shell-sash-cap, 0px);
+    background: var(--skin-activitybar-surface, var(--panel-surface));
+    content: "";
+    pointer-events: none;
 }
 
 .workbench-surface__slot {
@@ -508,7 +599,8 @@ defineExpose({
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    border-radius: var(--shell-card-radius, 0px);
+    /* 四个角各自按两侧相不相连（`insetOf`）；没有写的（浮动窗）按卡片的圆角。 */
+    border-radius: var(--shell-corner-tl, var(--shell-card-radius, 0px)) var(--shell-corner-tr, var(--shell-card-radius, 0px)) var(--shell-corner-br, var(--shell-card-radius, 0px)) var(--shell-corner-bl, var(--shell-card-radius, 0px));
     box-shadow: var(--shell-card-shadow, none);
 }
 
@@ -520,16 +612,6 @@ defineExpose({
 .workbench-surface__card[data-shell-slot] {
     background: transparent;
     box-shadow: none;
-}
-
-.workbench-surface__card[data-shell-join="start"] {
-    border-start-end-radius: 0;
-    border-end-end-radius: 0;
-}
-
-.workbench-surface__card[data-shell-join="end"] {
-    border-start-start-radius: 0;
-    border-end-start-radius: 0;
 }
 
 /* 相连的活动栏与面板之间一条两端不碰顶底的短线；不需要时主题把颜色设成透明。 */
@@ -640,8 +722,8 @@ defineExpose({
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    border-end-start-radius: var(--shell-card-radius, 0px);
-    border-end-end-radius: var(--shell-card-radius, 0px);
+    border-end-start-radius: var(--shell-corner-bl, var(--shell-card-radius, 0px));
+    border-end-end-radius: var(--shell-corner-br, var(--shell-card-radius, 0px));
 }
 
 /* 飞行中压在别的面板上面（输出 15）：内容平时透明，露出卡片的底与场景图；飞的时候离开了卡片，要自己带底，不和下面的字叠在一起。 */
@@ -658,9 +740,5 @@ defineExpose({
     flex-direction: column;
     min-height: 0;
     max-height: calc(100% - 56px);
-}
-
-.workbench-surface__content-clip[data-shell-join="end"] {
-    border-end-start-radius: 0;
 }
 </style>

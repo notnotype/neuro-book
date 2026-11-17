@@ -63,6 +63,12 @@ export interface GridSashPlacement<R> {
     readonly ends: GridSashEnds;
     /** 所属分支的主轴长度：`aria-valuemax` 的上限。 */
     readonly branchLength: number;
+    /**
+     * 交换里离开的一组中的分隔线（`planSwap`）：矩形是它滑到的终点，过渡结束就摘掉。两侧的节点已经不在布局里，两侧的尺寸冻结在离开前的
+     * （`frozen`），不然按新布局取到零、判成“一侧为零”把线藏掉。
+     */
+    readonly leaving?: true;
+    readonly frozen?: {readonly beforePx: number; readonly afterPx: number};
 }
 
 export type GridPlacementItem<R> = ({readonly kind: "leaf"} & GridLeafPlacement<R>) | ({readonly kind: "sash"} & GridSashPlacement<R>);

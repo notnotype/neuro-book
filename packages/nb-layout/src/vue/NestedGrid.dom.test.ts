@@ -1081,3 +1081,116 @@ describe("NestedGrid 浮动窗", () => {
         expect(wrapper.get("[data-content=\"x\"]").attributes("data-float-gesture")).toBe("move");
     });
 });
+
+describe("NestedGrid 交换", () => {
+    /** 侧栏一列放一组叶（A 两块，B 一块），右边是主区；每块叶一个内容项。 */
+    const column = (group: readonly string[]): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+        group.length === 1
+            ? {kind: "leaf", id: group[0] as string, ref: group[0] as string, size: {width: 300, height: 0}}
+            : {kind: "branch", id: "side", orientation: "vertical", size: {width: 300, height: 0}, children: group.map((id) => ({kind: "leaf" as const, id, ref: id, size: {width: 0, height: 300}}))},
+        {kind: "leaf", id: "main", ref: "main", size: {width: 699, height: 0}},
+    ]}, {sashSize: SASH});
+    const A = ["a1", "a2"];
+    const B = ["b1"];
+    const contents = [...A, ...B, "main"].map((leaf) => ({key: `view-${leaf}`, leaf, insetTop: 32, active: true}));
+    const swap = (token: number, leaving: string[], entering: string[]) => ({token, leaving, entering, axis: "height" as const, direction: 1 as const, gap: 8});
+
+    async function mountColumn(motion = "30ms") {
+        // happy-dom 没有布局引擎：按仓库既有做法（`useGridLayout.dom.test.ts`）桩掉布局盒，给出容器尺寸。
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const start = column(A);
+        const wrapper = mount(NestedGrid, {
+            attachTo: attachContainer(),
+            props: {node: start.root(), layout: start.layout(CONTAINER), contents},
+            slots: {content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey)},
+        });
+        wrappers.push(wrapper);
+        wrapper.element.style.setProperty("--motion-layout", motion);
+        // 第一次布局回调只记下尺寸、不过渡：先发布一次同样的布局。
+        const again = column(A);
+        await wrapper.setProps({node: again.root(), layout: again.layout(CONTAINER)});
+        return wrapper;
+    }
+    const toB = () => {
+        const next = column(B);
+        return {node: next.root(), layout: next.layout(CONTAINER)};
+    };
+
+    it("离开的一组提交那一刻停放、焦点交出，过渡结束前还画着；组里的分隔线留着、不能拖；换上来的标 in", async () => {
+        const wrapper = await mountColumn();
+        (wrapper.get("[data-inside='view-a1']").element as HTMLElement).focus();
+        await wrapper.setProps({swap: swap(1, A, B), ...toB()});
+        expect(wrapper.emitted("content-parked")).toEqual([["view-a1"]]);
+        const leaving = wrapper.get("[data-leaf='a1']");
+        expect(leaving.attributes("data-swap")).toBe("out");
+        expect(leaving.attributes("inert")).toBeDefined();
+        const content = wrapper.get("[data-content='view-a1']").element as HTMLElement;
+        expect(content.hasAttribute("inert")).toBe(true);
+        expect(content.style.visibility).toBe("");
+        expect(wrapper.get("[data-leaf='b1']").attributes("data-swap")).toBe("in");
+        expect(wrapper.get("[data-content='view-b1']").attributes("data-swap")).toBe("in");
+        const sash = wrapper.findAll(".nb-grid-sash").find((item) => item.attributes("data-swap") === "out");
+        expect(sash?.attributes("aria-disabled")).toBe("true");
+        expect(sash?.attributes("data-leaving")).toBeDefined();
+        // 主区不在带上。
+        expect(wrapper.get("[data-leaf='main']").attributes("data-swap")).toBeUndefined();
+        const exposed = wrapper.vm as unknown as {swappingLeaves: ReadonlySet<string>};
+        expect([...exposed.swappingLeaves].sort()).toEqual(["a1", "a2", "b1"]);
+        await vi.waitFor(() => expect(wrapper.find("[data-leaf='a1']").exists()).toBe(false));
+        expect(wrapper.find("[data-swap]").exists()).toBe(false);
+        expect(exposed.swappingLeaves.size).toBe(0);
+    });
+
+    it("给了交换但这一轮没有布局变化：作废，后面的布局变化照常过渡，不滑", async () => {
+        const wrapper = await mountColumn();
+        await wrapper.setProps({swap: swap(1, A, B)});
+        await nextTick();
+        await wrapper.setProps(toB());
+        expect(wrapper.find("[data-swap]").exists()).toBe(false);
+        // 照常过渡：被顶替的旧叶立即消失，不留着。
+        expect(wrapper.find("[data-leaf='a1']").exists()).toBe(false);
+        expect(wrapper.emitted("issues")).toBeUndefined();
+    });
+
+    it("宿主列的叶对不上呈现、忽略之后为空：照常过渡，经 issues 交回原因", async () => {
+        const wrapper = await mountColumn();
+        await wrapper.setProps({swap: swap(1, ["hidden"], B), ...toB()});
+        expect(wrapper.find("[data-swap]").exists()).toBe(false);
+        expect(wrapper.emitted("issues")?.flat().some((issue) => String(issue).includes("hidden"))).toBe(true);
+    });
+
+    it("滑到一半点回去：同一分支同一序号的线一条滑出去、一条回来，回来的那条照样能拖；滑出去的线对读屏隐藏", async () => {
+        const wrapper = await mountColumn();
+        const C = ["c1", "c2"];
+        const toC = column(C);
+        // A 与 C 的分节都在分支 side 里：两条线都是 side:0。
+        await wrapper.setProps({swap: swap(1, A, C), node: toC.root(), layout: toC.layout(CONTAINER)});
+        const out = wrapper.findAll(".nb-grid-sash").find((item) => item.attributes("data-swap") === "out");
+        expect(out?.attributes("aria-hidden")).toBe("true");
+        expect(out?.attributes("inert")).toBeDefined();
+        const back = column(A);
+        await wrapper.setProps({swap: {...swap(2, C, A), direction: -1}, node: back.root(), layout: back.layout(CONTAINER)});
+        await vi.waitFor(() => expect(wrapper.find("[data-swap]").exists()).toBe(false));
+        const scope = wrapper.get<HTMLElement>("[data-grid-scope]").element;
+        stubRect(scope, {left: 0, top: 0, right: CONTAINER.width, bottom: CONTAINER.height});
+        const live = wrapper.get<HTMLElement>('[data-sash="side:0"]').element;
+        stubRect(live, {left: 0, top: 299, right: 300, bottom: 300});
+        live.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(wrapper.emitted("gesture-start")).toBeDefined();
+    });
+
+    it("减少动态效果：直接换，不交换", async () => {
+        const wrapper = await mountColumn("0ms");
+        await wrapper.setProps({swap: swap(1, A, B), ...toB()});
+        expect(wrapper.find("[data-swap]").exists()).toBe(false);
+        expect(wrapper.find("[data-leaf='a1']").exists()).toBe(false);
+    });
+});

@@ -155,6 +155,56 @@ describe("decideMotion", () => {
     });
 });
 
+describe("decideMotion 与交换（docs/specs/ui/nested-grid.md 的“交换”）", () => {
+    /** 左边一列放一组叶，右边是主区。 */
+    function column(group: readonly string[]): GridPlacementItem<unknown>[] {
+        const side: GridNodeInput<string> = group.length === 1
+            ? {kind: "leaf", id: group[0] as string, ref: group[0] as string, size: {width: 300, height: 0}}
+            : {kind: "branch", id: "side", orientation: "vertical", size: {width: 300, height: 0}, children: group.map((id) => ({kind: "leaf" as const, id, ref: id, size: {width: 0, height: 150}}))};
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [side, leaf("main", 399)]}, {sashSize: 1});
+        return [...placeGrid(grid.root()!, grid.layout(EXTENT), EXTENT, 1).items];
+    }
+    const swap = (leaving: string[], entering: string[]) => ({token: 1, leaving, entering, axis: "height" as const, direction: 1 as const, gap: 8});
+    function warmedColumn(): GridMotionMemory {
+        const memory = EMPTY_GRID_MOTION_MEMORY();
+        expect(decideMotion(frame({items: column(["a1", "a2"])}), memory).kind).toBe("none");
+        return memory;
+    }
+
+    it("带上的项整块平移，不按别的规则长、跟外框；离开的一组与组里的分隔线留着，矩形是终点", () => {
+        const memory = warmedColumn();
+        const decision = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"])}), memory);
+        if (decision.kind !== "move" || decision.swap === undefined) throw new Error("应当按交换走");
+        const b1 = column(["b1"]).find((item) => item.key === "leaf:b1")!;
+        expect(decision.entering.get("leaf:b1")).toEqual({...b1.rect, y: b1.rect.y + EXTENT.height + 8});
+        expect(decision.keptSize.has("leaf:b1")).toBe(false);
+        expect(decision.following.has("leaf:b1")).toBe(false);
+        expect(decision.leaving.map((item) => [item.kind, item.leaving])).toEqual([["leaf", true], ["sash", true], ["leaf", true]]);
+        // 主区不在带上：照常（这次它没动）；侧栏与主区之间那条线换了两侧节点，照已有的规则从旧线的位置出发。
+        expect(decision.entering.has("leaf:main")).toBe(false);
+    });
+
+    it("离开的叶还在别的过渡里：不交换，交回原因，照常过渡；拖动中不交换也不报", () => {
+        const busy = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"]), busy: new Set(["a1"])}), warmedColumn());
+        expect(busy.kind === "move" && busy.swap === undefined && busy.swapSkipped?.includes("a1")).toBe(true);
+        const holding = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"]), holding: true}), warmedColumn());
+        expect(holding.kind === "move" && holding.swap === undefined && holding.swapSkipped === undefined).toBe(true);
+    });
+
+    it("交换进行中来了一次不是交换的布局变化：滑出去的那组接着留着、终点不变，带不换", () => {
+        const memory = warmedColumn();
+        const first = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"])}), memory);
+        if (first.kind !== "move") throw new Error("应当过渡");
+        // 主区窄了一点（第二次发布）：这一帧的项里带着上一轮留着的离开项。
+        const wider = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [{kind: "leaf", id: "b1", ref: "b1", size: {width: 320, height: 0}}, leaf("main", 379)]}, {sashSize: 1});
+        const next = [...placeGrid(wider.root()!, wider.layout(EXTENT), EXTENT, 1).items];
+        const second = decideMotion(frame({items: [...next, ...first.leaving], previous: [...column(["b1"]), ...first.leaving]}), memory);
+        if (second.kind !== "move") throw new Error("应当过渡");
+        expect(second.swap).toBeUndefined();
+        expect(second.leaving).toEqual(first.leaving);
+    });
+});
+
 describe("过渡中内容跟外框的叶", () => {
     const cleanups: Array<() => void> = [];
     afterEach(() => {

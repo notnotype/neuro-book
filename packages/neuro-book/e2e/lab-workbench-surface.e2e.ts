@@ -340,14 +340,16 @@ test.describe("卡片按邻接算", () => {
         expect(panel.left).toBe(2);
     });
 
-    test("分隔线按两侧是什么分种类：卡片主题里一块一张卡片，缝就是分界，主体、工具面板、编辑组之间都不画线；平铺主题里三种都画", async ({page}) => {
+    test("分隔线按两侧是什么分种类：卡片主题里卡片之间、编辑组之间缝就是分界，不画线；一张卡片里几节之间画开放式分割线；平铺主题里三种都画（输出 19）", async ({page}) => {
         const seams = async () => {
             await act(page, "d-below-b");
             const color = (kind: string) => page.locator(`.nb-grid-sash[data-sash-kind="${kind}"] .sash-seam`).first().evaluate((element) => getComputedStyle(element).backgroundColor);
             return {shell: await color("shell"), editors: await color("editors"), panes: await color("panes")};
         };
         await open(page, "cards");
-        expect(await seams()).toEqual({shell: "rgba(0, 0, 0, 0)", editors: "rgba(0, 0, 0, 0)", panes: "rgba(0, 0, 0, 0)"});
+        const cards = await seams();
+        expect({shell: cards.shell, editors: cards.editors}).toEqual({shell: "rgba(0, 0, 0, 0)", editors: "rgba(0, 0, 0, 0)"});
+        expect(cards.panes).not.toBe("rgba(0, 0, 0, 0)");
         await open(page, "default", "macos");
         const flat = await seams();
         for (const color of Object.values(flat)) expect(color).not.toBe("rgba(0, 0, 0, 0)");

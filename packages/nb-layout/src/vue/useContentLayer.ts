@@ -59,6 +59,8 @@ export function useContentLayer(options: {
     readonly moving: () => boolean;
     /** 落地的卡片下面还画着的内容项：停放着，过渡结束前还看得见。 */
     readonly held: () => ReadonlySet<string>;
+    /** 交换进行中带上的项在矩形 `rect` 时的裁切（`clip-path`，见 `swapWindowClip`）；不在带上为 undefined。 */
+    readonly swapClip?: (item: GridContentPlacement, rect: GridRect) => string | undefined;
     /** 这个内容项此刻含焦点吗。 */
     readonly holdsFocus: (key: string) => boolean;
     readonly onParked: (contentKey: string) => void;
@@ -77,7 +79,8 @@ export function useContentLayer(options: {
 
     function isParked(item: GridContentPlacement): boolean {
         if (isLifted(item)) return false;
-        return !item.active || item.rect === null || options.parkedLeaves.value.has(item.leaf) || zero.value.has(item.key) || options.obscuredLeaves().has(item.leaf);
+        // 缩回去的叶（离开了留在过渡里的、这一轮降到零的）里的内容停放：缩到零的本来就是零，交换里滑出去的尺寸不变，也在提交那一刻交出焦点。
+        return !item.active || item.rect === null || options.parkedLeaves.value.has(item.leaf) || zero.value.has(item.key) || options.obscuredLeaves().has(item.leaf) || options.outgoingLeaves().has(item.leaf);
     }
 
     /** 布局变了（渲染之前调，DOM 还没变，焦点还在里面）。 */
@@ -143,7 +146,8 @@ export function useContentLayer(options: {
             return {...gridRectStyle(rect), "--nb-grid-inset": `${item.insetTop}px`, clipPath: byLeafClip(item), ...hidden};
         }
         const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
-        return {...gridRectStyle(rect), ...hidden};
+        const clip = options.swapClip?.(item, rect);
+        return {...gridRectStyle(rect), ...(clip === undefined ? {} : {clipPath: clip}), ...hidden};
     }
 
     /** 拿起的不写尺寸，由样式撑满卡片；跟外框的是 100%；否则是最终尺寸，停放时是最后的非零尺寸。 */
