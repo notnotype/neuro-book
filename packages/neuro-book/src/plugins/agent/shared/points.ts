@@ -1,5 +1,5 @@
 /**
- * `nbook.agent` 拥有的贡献点与激活事件（docs/specs/agent/contributions.md、compaction.md、skills.md）。只在服务端：会话、工具与扩展都在服务端跑。
+ * `nbook.agent` 拥有的贡献点与激活事件（docs/specs/agent/contributions.md、compaction.md、skills.md）。只在服务端：会话、工具与扩展都在服务端跑。状态栏的项（`agent.statusItems`，只在浏览器入口）在 `status-item-point.ts`。
  *
  * 声明只放序列化得了的部分（第三方插件的贡献点经清单登记）；实现在提供方入口激活时交出。提供方入口要自己写上对应的激活
  * 事件（`agentToolContribution` 这类助手一起给出），`nbook.agent` 在用到时触发。

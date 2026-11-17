@@ -60,10 +60,27 @@ export const PROFILES_SECTION = "nbook.agent.profiles";
 /** “Skill”页（skills.md 输出 25）：只有页面，没有配置项。 */
 export const SKILLS_SECTION = "nbook.agent.skills";
 
+/** “状态栏”页（conversation.md 输出 46）：`statusLine` 由页面画，不进“其它”。 */
+export const STATUS_LINE_SECTION = "nbook.agent.status-line";
+
 /** “权限规则”页（permissions.md 输出 22）：这几项由页面画，不进“其它”。 */
 export const PERMISSIONS_SECTION = "nbook.agent.permissions";
 
+/** 状态栏的设置（conversation.md 输出 45）：只记改过的次序与显隐；形状同 nb-agent-ui 的 `StatusLineSetting`。 */
+export const StatusLineSchema = Type.Object({
+    order: Type.Optional(Type.Array(Type.String({minLength: 1}), {maxItems: 64})),
+    visible: Type.Optional(Type.Record(Type.String({minLength: 1}), Type.Boolean())),
+}, {additionalProperties: false});
+
 export const agentSettings = defineSettings("nbook.agent", {
+    statusLine: {
+        schema: StatusLineSchema,
+        default: {},
+        title: agentText("settings.statusLine.title"),
+        description: agentText("settings.statusLine.description"),
+        layers: ["user"],
+        section: STATUS_LINE_SECTION,
+    },
     permissionRules: {
         schema: RulesSchema,
         default: [],

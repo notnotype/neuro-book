@@ -38,6 +38,7 @@ import type ModelRow from "nbook/plugins/models/web/components/ModelRow.vue";
 import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDetail.vue";
 import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
 import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
+import type StatusLinePage from "nbook/plugins/agent/web/components/StatusLinePage.vue";
 import type ProfileDetail from "nbook/plugins/agent/web/components/ProfileDetail.vue";
 import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue";
 import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
@@ -1147,6 +1148,15 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {layer: "user"}}},
             ],
             load: async () => withProjectsText((await import("./WorksSettingsPageFixture.vue")).default),
+        }),
+        defineLabFixture<typeof StatusLinePage>({
+            component: "StatusLinePage",
+            scenes: [
+                {id: "default", label: "缺省：左边上下文，右边用量与费用，模型默认关", input: {props: {setting: {}}}},
+                {id: "customized", label: "改过：用量排到费用后面，开了模型与插件的字数", input: {props: {setting: {order: ["cost", "usage"], visible: {model: true, "x.words": true}}, pluginItems: [{id: "x.words", side: "left", title: "本会话改的字数", description: "来自插件“字数统计”", defaultVisible: false, source: "x"}]}}},
+                {id: "readonly", label: "配置写不了：勾选与按钮都停用", input: {props: {setting: {}, writable: false}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/StatusLineFixture.vue")).default),
         }),
         defineLabFixture<typeof PermissionRulesPage>({
             component: "PermissionRulesPage",

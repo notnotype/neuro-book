@@ -387,6 +387,43 @@ test("状态栏的活动条目：等用户时显示，点一下切到那个会�
     await expect(item).toHaveCount(0);
 });
 
+test("状态栏可自定义（conversation.md 输出 45、46）：右键勾选模型、“状态栏设置…”打开设置页，把模型上移到最前后顺序变，刷新还在", async ({page}) => {
+    await script("好的。");
+    await openConversation(page);
+    await send(page, "先说一句");
+    // 设置页的预览里也有一条状态栏：这里只取对话自己的那条。
+    const status = page.locator("[data-agent-status]:not([data-status-line-preview] *)");
+    const rightOrder = () => status.locator("[data-status-right] [data-status-item]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-item")));
+    // 本机端点没有单价，费用项不画（有数据才画）：右边只有用量。
+    await expect.poll(rightOrder).toEqual(["usage"]);
+    await expect(status.locator("[data-status-model]")).toHaveCount(0);
+
+    // 右键勾选：模型出现在右边最后。
+    await status.click({button: "right", position: {x: 20, y: 10}});
+    await page.getByRole("menuitemcheckbox", {name: "模型与推理档"}).click();
+    await expect.poll(rightOrder).toEqual(["usage", "model"]);
+
+    // 菜单最后一项打开设置，落在“状态栏”页；把“模型”上移两次到最前（设置页列全部项，含这里没有数据的费用）。
+    await status.click({button: "right", position: {x: 20, y: 10}});
+    await page.getByRole("menuitem", {name: "状态栏设置…"}).click();
+    const settingsPage = page.locator("[data-status-line-page]");
+    await expect(settingsPage).toBeVisible();
+    const rows = () => settingsPage.locator("[data-status-group='right'] [data-status-row]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
+    await expect.poll(rows).toEqual(["usage", "cost", "model"]);
+    await settingsPage.locator("[data-status-row='model'] [data-status-move-up]").click();
+    await expect.poll(rows).toEqual(["usage", "model", "cost"]);
+    await settingsPage.locator("[data-status-row='model'] [data-status-move-up]").click();
+    await expect.poll(rows).toEqual(["model", "usage", "cost"]);
+    await expect.poll(rightOrder).toEqual(["model", "usage"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-settings-window]")).toHaveCount(0);
+
+    // 设置存在用户层：刷新后还是这样。
+    await page.reload();
+    await expect(page.locator("[data-agent-status] [data-status-right]")).toBeVisible();
+    await expect.poll(rightOrder).toEqual(["model", "usage"]);
+});
+
 test("模型选择器：面板与输入框同宽；选没绑定的角色出提示卡，“去绑定”打开角色页、焦点在这个角色上；绑定之后不刷新页面就恢复；状态栏窄时留缓存与费用", async ({page}, testInfo) => {
     await openConversation(page);
     await send(page, "先说一句");

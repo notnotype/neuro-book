@@ -94,6 +94,10 @@
         "notSaved": "权限规则"
     },
     "settings": {
+        "statusLine": {
+            "title": "对话状态栏",
+            "description": "输入框下面那一行显示哪些项、按什么顺序；只记改过的，在“状态栏”页里改"
+        },
         "toolBindings": {
             "title": "Agent 工具绑定",
             "description": "按 Profile 增减工具：added 加上 Profile 没写的工具，removed 去掉可选的工具（必需的去不掉）"
@@ -416,6 +420,10 @@
         }
     },
     "settingsPages": {
+        "status-line": {
+            "title": "状态栏",
+            "description": "输入框下面那一行显示什么、按什么顺序"
+        },
         "permissions": {
             "title": "权限规则",
             "description": "哪些工具调用放行、询问或拒绝"
@@ -428,6 +436,17 @@
             "title": "Skill",
             "description": "放进 Skill 文件夹的 Skill、它们的状态与初始化"
         }
+    },
+    "statusLine": {
+        "left": "左边",
+        "right": "右边",
+        "preview": "预览",
+        "plugin": "插件",
+        "moveUp": "上移",
+        "moveDown": "下移",
+        "moveUpOf": "上移“{{name}}”",
+        "moveDownOf": "下移“{{name}}”",
+        "notSaved": "状态栏设置"
     },
     "profiles": {
         "loading": "正在读取 Profile…",
