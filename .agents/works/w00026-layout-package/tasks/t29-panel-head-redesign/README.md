@@ -59,8 +59,14 @@ updated: 2026-11-17
   | 8 | 收起后要显式聚焦标题；可访问描述要写 Enter | 成立，改 |
   | 9 | 把 `aria-pressed` 加进通用悬停规则会影响视图动作 | 成立，改：只给框架按钮的容器加修饰 `data-hover-actions="frame"` 带豁免 |
 
-- 第 1 片（投影里的垫底与 `fillers`）先写在 worktree `.worktree/w00026-t29-panel-head`（分支 `feat/w00026-t29-panel-head`）：`layout-project.test.ts` 加 3 条，变异检查（关掉垫底，3 条都失败）；还没提交，补上最大高度与 `sashDisabled` 后一起提交。
+- 第 1 片（nb-layout：垫底的那一节与 `sashDisabled`）提交在分支 `feat/w00026-t29-panel-head`：`bdbe32154`。投影里一列分节全部收起时最后一节按比例分、最小是面板头、最大不限，交出 `fillers`；`NestedGrid` 加宿主钩子 `sashDisabled`。
+  - 验证：`layout-project.test.ts` 加 3 条（垫底、写回、t28 包装分支里同样；含视图声明了最大高度）、`NestedGrid.dom.test.ts` 加 1 条（钩子前后对比）；nb-layout 全部 576 + 247 条与类型检查。变异检查：关掉垫底，3 条都失败。
+- 第 2 片（工作台：头、悬停、可见性与落点几何）提交在分支上：`84bdcb83f`。`WorkbenchPanelHead` 的 `fold`、整行开关、接管模式的单独标记、`data-hover-actions="frame"`；Shell 一处决定点击（展开着收起、收着展开）、最大化着不给标记、按已提交的文档算、拿掉收起按钮、`headReserved`；表面的 `sashDisabled`、垫底的那一节内容不活动、收起的分节悬停范围在头上；`effectiveVisibleTabs` 排除 `fillers`；`geometryOf` 对收起的分节只取标题行。对齐：标记往里 9px、和标题隔 5px，量下来与资源管理器树第一层的箭头、文字左缘都对齐（差 0px）。
+  - 实施中发现：垫底的那一节外框拉长后内容层照外框摆出了它的内容（可见性已按收起排除，但内容项是按外框摆的），改成表面把它的内容项设为不活动；只给垫底的，别的收起的分节被拉开时内容照旧在拖动中出现（输出 12）。没有标记的头标题按钮先也铺满了，`workbench-dnd` 的“面板头空白处不起拖”抓到，改成只有带标记的头铺满。
+  - 验证：`WorkbenchPanelHead` 的 DOM 测试 9 条（新加 4 条）、`layout-present.test.ts`（新加垫底不算拉出来）、workbench 全部单元测试 531 + 134 条、类型检查；e2e 9 个文件 246 条（`workbench-containers`、`workbench-shell`、`workbench-dnd`、`files-explorer`、`editor-area`、`workbench-views`、`lab-workbench-surface`、`agent-conversation`、`workbench-live-drag`，`NB_E2E_WIDE` 写了理由）：第一遍 5 条失败，2 条是悬停范围的选择器同时选中了两组按钮、1 条是标题字色按新设计改、1 条是上面说的铺满、1 条是 `files-explorer` 的触摸拖动单独重跑即过；改完重跑这 5 条与新加的 2 条全过。新加的 e2e：标题行开关（点、Enter、双击）、全部收起时卡片满高与右下角、拖侧栏宽度时垫底的内容照旧停放、对齐与悬停（含最大化着还原一直在）；原来点收起按钮的用例改成点标题。
+  - 截图（浅色，e2e 环境）看过：展开悬停、一节收起、全部收起三张与评审板的甲一致。
+- Spec 改动（master）：`ui/workbench-layout` 输出 11（垫底）、20（标记、整行开关、按钮悬停、对齐、字色）、25 第 7 行（垫底下面不是落点）；`workbench/views` 输出 10；`ui/nested-grid` 的分隔线宿主钩子。
 
 ## 下一步
 
-按第 3 稿实施：第 1 片补最大高度与 `sashDisabled`、提交；第 2 片工作台的头与全部收起。
+合入 master；实现审查（Claude Sonnet）在后台，回来后处理，修正单独提交。之后做 t28 第 3 片的设计（按这个头重写）。
