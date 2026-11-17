@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t29-panel-head-redesign",
+    "artifactId": "review",
+    "answerId": "20261117T105654887Z-ee6fa47d",
+    "artifactVersion": 1,
+    "contentHash": "68ce5511739746bcfdea497b011dc078a244967190bf9038ba2f9d661328ec75",
+    "submittedAt": "2026-11-17T10:56:53.239Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "all-collapsed": "fill",
+        "head-style": "jia",
+        "title-click": "toggle"
+    },
+    "comments": {
+        "head-style": "记得细节检查一下，看看对齐了没"
+    },
+    "note": null
+}
