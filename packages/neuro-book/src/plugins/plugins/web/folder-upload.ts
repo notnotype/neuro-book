@@ -1,13 +1,13 @@
 /**
  * 插件页把拖入或选出的文件夹上传到服务端的上传暂存区（docs/specs/runtime/plugin-install.md 输出 11）：拼分帧的请求体、检查文件夹像
  * 不像一个插件、发出请求并把结果译成页面要用的几种。读文件夹本身是 `nbook/ui/dropped-folder`，帧格式与限额、路径规则是
- * `nbook/shared/plugin-upload`（服务端用同一份）。
+ * `nbook/plugin-platform/shared/plugin-upload`（服务端用同一份）。
  *
  * 请求体是 `Blob`：由 `File` 拼成的 `Blob` 不把内容复制进内存，浏览器发送时才读。不用 `fetch` 的流式请求体：Chromium 只在
  * HTTP/2 以上才允许，本机回环是 HTTP/1.1。用 `XMLHttpRequest` 是为了有上传进度；`fetch` 看不到。
  */
 
-import {encodeFrameHeader, frameBytes, UPLOAD_LIMITS, uploadPathProblem} from "nbook/shared/plugin-upload";
+import {encodeFrameHeader, frameBytes, UPLOAD_LIMITS, uploadPathProblem} from "nbook/plugin-platform/shared/plugin-upload";
 import type {CollectedFolder, CollectOptions} from "nbook/shared/collected-folder";
 
 /** 上传路由的地址（挂在 `/api/nbook.plugins/` 下）。 */

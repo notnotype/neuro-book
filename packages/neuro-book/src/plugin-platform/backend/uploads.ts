@@ -20,8 +20,8 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
-import {readUploadStream, UPLOAD_LIMITS, UploadError} from "nbook/shared/plugin-upload";
-import type {UploadFileSink, UploadLimits} from "nbook/shared/plugin-upload";
+import {readUploadStream, UPLOAD_LIMITS, UploadError} from "nbook/plugin-platform/shared/plugin-upload";
+import type {UploadFileSink, UploadLimits} from "nbook/plugin-platform/shared/plugin-upload";
 
 /** 服务端这一侧的失败：同时在接收的上传已满（`upload-busy`）、写盘失败（`upload-failed`）。 */
 export class UploadServerError extends Error {

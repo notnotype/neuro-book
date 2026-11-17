@@ -9,7 +9,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
-import {UPLOAD_LIMITS} from "nbook/shared/plugin-upload";
+import {UPLOAD_LIMITS} from "nbook/plugin-platform/shared/plugin-upload";
 import {collectFolder, collectInputFiles, dragHasFiles, readDrop} from "nbook/ui/dropped-folder";
 import type {CollectProblem, CollectResult, DroppedItem} from "nbook/ui/dropped-folder";
 

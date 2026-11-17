@@ -12,7 +12,7 @@ import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createPluginUploads} from "nbook/plugin-platform/backend/uploads";
-import {encodeFrameHeader} from "nbook/shared/plugin-upload";
+import {encodeFrameHeader} from "nbook/plugin-platform/shared/plugin-upload";
 
 import {createPluginUploadRoutes} from "./backend/upload-route";
 

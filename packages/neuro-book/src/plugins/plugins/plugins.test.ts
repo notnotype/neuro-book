@@ -22,7 +22,7 @@ import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/b
 import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {createPluginUploads, pluginUploadsKey} from "nbook/plugin-platform/backend/uploads";
 import type {PluginUploads} from "nbook/plugin-platform/backend/uploads";
-import {encodeFrameHeader} from "nbook/shared/plugin-upload";
+import {encodeFrameHeader} from "nbook/plugin-platform/shared/plugin-upload";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
 import {pluginsBackendPlugin} from "./backend/plugin";

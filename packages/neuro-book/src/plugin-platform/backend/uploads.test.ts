@@ -9,8 +9,8 @@ import {join} from "node:path";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {encodeFrameHeader, UploadError} from "nbook/shared/plugin-upload";
-import type {UploadErrorCode} from "nbook/shared/plugin-upload";
+import {encodeFrameHeader, UploadError} from "nbook/plugin-platform/shared/plugin-upload";
+import type {UploadErrorCode} from "nbook/plugin-platform/shared/plugin-upload";
 
 import {createPluginUploads, UploadServerError} from "./uploads";
 import type {PluginUploadsOptions} from "./uploads";

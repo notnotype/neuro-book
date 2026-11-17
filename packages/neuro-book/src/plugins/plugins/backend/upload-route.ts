@@ -1,6 +1,6 @@
 /**
  * 插件文件夹的上传路由（docs/specs/runtime/plugin-install.md 输出 11 与“边界与兼容”的上传接口）：`POST /api/nbook.plugins/uploads`
- * 接收整个文件夹（请求体是分帧的流，帧格式见 `nbook/shared/plugin-upload`）并交回上传 id，`DELETE /api/nbook.plugins/uploads/<id>`
+ * 接收整个文件夹（请求体是分帧的流，帧格式见 `nbook/plugin-platform/shared/plugin-upload`）并交回上传 id，`DELETE /api/nbook.plugins/uploads/<id>`
  * 删除一个上传。失败体是 `{code, detail}`。
  *
  * 不用 `bodyLimit`：它在没有 `Content-Length` 时会把整份请求体读进内存才判断；上限在流里数（`readUploadStream`）。声明了
@@ -14,8 +14,8 @@ import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 
 import {UploadServerError} from "nbook/plugin-platform/backend/uploads";
 import type {PluginUploads} from "nbook/plugin-platform/backend/uploads";
-import {UPLOAD_LIMITS, UploadError} from "nbook/shared/plugin-upload";
-import type {UploadLimits} from "nbook/shared/plugin-upload";
+import {UPLOAD_LIMITS, UploadError} from "nbook/plugin-platform/shared/plugin-upload";
+import type {UploadLimits} from "nbook/plugin-platform/shared/plugin-upload";
 
 const STATUS = {"upload-too-large": 413, "upload-path-invalid": 400, "upload-malformed": 400, "upload-busy": 429, "upload-failed": 500} as const;
 

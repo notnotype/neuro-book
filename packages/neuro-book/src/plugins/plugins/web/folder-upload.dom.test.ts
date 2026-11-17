@@ -5,8 +5,8 @@
 
 import {describe, expect, it} from "vitest";
 
-import {readUploadStream, UploadError} from "nbook/shared/plugin-upload";
-import type {UploadFileSink} from "nbook/shared/plugin-upload";
+import {readUploadStream, UploadError} from "nbook/plugin-platform/shared/plugin-upload";
+import type {UploadFileSink} from "nbook/plugin-platform/shared/plugin-upload";
 import type {CollectedFolder} from "nbook/shared/collected-folder";
 
 import {buildUploadBody, createFolderUploadClient, pluginFolderProblem} from "./folder-upload";
