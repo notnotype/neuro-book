@@ -6,6 +6,10 @@
 export {blockAt, blockTextRange, canConvertTo, insertSlashBlock, removeSlashBlock, selectBlock, selectBlockText, selectWholeBlock} from "./block-actions";
 export type {BlockKind, BlockTarget} from "./block-actions";
 export {markdownEditingActions} from "./editing-actions";
+export {canInsertImages, insertImages} from "./images";
+export type {ImageToInsert} from "./images";
+export {isSafeHref, linksTouching, sharedHref} from "./links";
+export type {LinkRange} from "./links";
 export type {EditingAction, EditingArgs} from "./editing-actions";
 export {addBlockComment, canCommentBlockAt, commentsAt, commentsAtPos, commentsEndingAt, findComment, gotoComment, listComments, markShownComment, MarkdownCommentMarkers, MarkdownShownComment, matchComment, nextTerritory, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody, territoryAt, territoryOf} from "./comments";
 export type {CommentInfo, CommentRef} from "./comments";

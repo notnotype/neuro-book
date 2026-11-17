@@ -10,6 +10,8 @@ import {canMoveBlock, deleteBlock, duplicateBlock, moveBlock, selectedBlock, unw
 import {addBlockComment, canCommentBlockAt, findComment, removeComment, setCommentBody} from "./comments";
 import type {CommentRef} from "./comments";
 import {requestProperties} from "./frontmatter";
+import {canInsertImages, insertImages} from "./images";
+import {canLink, linksTouching, setLinkHref, unsetLinks} from "./links";
 
 export type EditingArgs = Readonly<Record<string, unknown>>;
 
@@ -217,6 +219,17 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
     divider: {
         run: (editor) => editor.chain().focus().setHorizontalRule().run(),
         enabled: (editor) => editor.can().setHorizontalRule(),
+    },
+    // 链接与图片（输出 52、54）：卡片在宿主那边，确认时带着地址来执行。链接按“碰到的整条链接”算，见 `links.ts`。
+    link: {
+        run: (editor, args) => typeof args.href === "string" && setLinkHref(editor, args.href, typeof args.label === "string" ? args.label : undefined),
+        active: (editor) => linksTouching(editor).length > 0,
+        enabled: (editor) => canLink(editor),
+    },
+    "link-remove": {run: (editor) => unsetLinks(editor), enabled: (editor) => editor.isEditable && linksTouching(editor).length > 0},
+    image: {
+        run: (editor, args) => typeof args.src === "string" && insertImages(editor, [{src: args.src, alt: typeof args.alt === "string" ? args.alt : ""}]),
+        enabled: (editor) => canInsertImages(editor),
     },
     // 新建 frontmatter 或展开属性面板（输出 48）：随时可用，焦点由宿主交给面板。
     properties: {run: (editor) => requestProperties(editor), enabled: (editor) => editor.isEditable},

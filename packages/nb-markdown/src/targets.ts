@@ -56,6 +56,42 @@ export function classifyScheme(target: string): Target {
 /** 这一类目标的链接显示成引用小块：外部链接是普通链接，别的都是小块（输出 27）。 */
 export const showsAsChip = (target: Target): boolean => target.kind !== "external";
 
+/** `scheme://路径`（只认这一种带 `://` 的资源地址）拆成方案与路径各段；不是这个形状为 null。 */
+function resourceParts(address: string): {readonly scheme: string; readonly segments: readonly string[]} | null {
+    const match = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/(.*)$/su.exec(address);
+    if (match === null) return null;
+    return {scheme: (match[1] as string).toLowerCase(), segments: (match[2] as string).split("/")};
+}
+
+/**
+ * 从文档 `from` 指向文件 `to` 的相对路径（资源地址，如 `project://设定/林雪.md`，两个都必须是资源地址，路径各段是原样的名字、没编码）：
+ * 同一方案才有相对写法，方案不同或 `to` 没有路径为 null。结果是 `插图/a.png`、`../设定/林雪.md` 这种，不带编码。
+ */
+export function relativeAddress(from: string, to: string): string | null {
+    const source = resourceParts(from);
+    const target = resourceParts(to);
+    if (source === null || target === null || source.scheme !== target.scheme) return null;
+    const directory = source.segments.slice(0, -1);
+    const file = target.segments;
+    if (file.length === 0 || file.at(-1) === "") return null;
+    let common = 0;
+    while (common < directory.length && common < file.length - 1 && directory[common] === file[common]) common += 1;
+    return [...Array.from({length: directory.length - common}, () => ".."), ...file.slice(common)].join("/");
+}
+
+/**
+ * 写进链接与图片的地址：文档在 `from`、目标是资源地址 `to` 时写相对地址，经宿主的 `encodeFile` 编码（`%`、`#`、`?`，读回仍是同一个
+ * 文件）；第一段含 `:` 的在前面加 `./`，否则它会被当成方案（也过不了链接的地址检查）。写不出相对地址（方案不同、没有所在文件）
+ * 时为 null，调用方按原样写。
+ */
+export function relativeTarget(from: string | null, to: string, targets: MarkdownTargets): string | null {
+    if (from === null) return null;
+    const relative = relativeAddress(from, to);
+    if (relative === null) return null;
+    const encoded = targets.encodeFile(relative);
+    return (encoded.split("/")[0] as string).includes(":") ? `./${encoded}` : encoded;
+}
+
 /** 不认任何文件方案的宿主用的分类：`encodeFile` 原样返回。 */
 export const schemeTargets: MarkdownTargets = {
     classify: (target) => classifyScheme(target),

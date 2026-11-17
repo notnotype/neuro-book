@@ -9,5 +9,5 @@ export {namesOf} from "./names";
 export type {SyntaxNameSource} from "./names";
 export {say} from "./locale";
 export type {MarkdownLocale, MarkdownText} from "./locale";
-export {classifyScheme, decodeTarget, lastSegment, pathPart, schemeOf, schemeTargets, showsAsChip} from "./targets";
+export {classifyScheme, decodeTarget, lastSegment, pathPart, relativeAddress, relativeTarget, schemeOf, schemeTargets, showsAsChip} from "./targets";
 export type {MarkdownTargets, Target, TargetKind} from "./targets";
