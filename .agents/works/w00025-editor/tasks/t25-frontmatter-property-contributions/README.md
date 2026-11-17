@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t25-frontmatter-property-contributions
-status: active
+status: done
 updated: 2026-11-17
 ---
 
@@ -28,8 +28,8 @@ updated: 2026-11-17
 
 2026-11-17：代码已合入 master（b7bfdd504，worktree 与分支已删）。三片：贡献点 `markdown.properties` 与声明的取得（3ad3bae77）、属性面板的图标、显示名与空值类型及 Lab 场景（ac1940c09）、经真实插件运行时的集成测试（e1897cc7b）；CHANGELOG 已写（`[Unreleased]`）。前端实现审查（Claude Sonnet，阻断 0、重要 1、建议 9，[报告](evidences/impl-review.txt)），处理见 [`evidences/impl-review-disposition.txt`](evidences/impl-review-disposition.txt)，修正在 b7bfdd504：空显示名按没给、每个属性名查一次、改名回车后的焦点、名字按钮的名称带真名、测试缺口补齐（8 个变异全抓）、集成测试走真实的窗口翻译引擎。合入前 `e2e/markdown-properties.e2e.ts` 5 条通过（无声明时行为不变）。
 
-Spec 输出 59–61、场景 31 仍是 planned，晋升 `implemented` 等开发者批准。未验证、留给开发者：设定插件真实贡献时的外观（本 Task 没有真实贡献者）、暗色主题下名字按钮与图标的外观（Lab 只看了亮色）、第三方插件的图标类名没有构建进应用时不显示（已知限制，已写进 Spec）。
+Spec 输出 59–61、场景 31 已晋升（2026-11-17 开发者批准；逐条核对见 [`evidences/spec-check.txt`](evidences/spec-check.txt)）。未验证、留给开发者：设定插件真实贡献时的外观（本 Task 没有真实贡献者）、暗色主题下名字按钮与图标的外观（Lab 只看了亮色）、第三方插件的图标类名没有构建进应用时不显示（已知限制，已写进 Spec）。
 
 ## 下一步
 
-等开发者批准后，按 Spec 晋升前的逐条核对（每个输出条目与场景对应实现与测试）把输出 59–61、场景 31 晋升为 `implemented`；设定插件（w00039 一系）以后自己贡献声明时，再看真实外观。
+本 Task 完成。设定插件（w00039 一系）以后自己贡献声明时，再看真实外观。

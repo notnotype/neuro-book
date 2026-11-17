@@ -33,3 +33,8 @@ resources find extensions —— FS（先过滤再截断、不分大小写、无
 1. files.md、resources.md、markdown-editing.md 去掉条目级“（planned）”，status 保持 implemented，补“实现合同”与“证据”（指向上面的测试与代码）。
 2. markdown-dialect.md 输出 18 去掉“新建时写相对地址（planned）”标记。
 3. 上面“没有实现或没有核实”的第一条先定：补通知，或 Spec 改成“打开命令照常处理（不存在的文件由编辑区显示读取失败）”。
+
+== 晋升（2026-11-17，开发者说“可以晋升”）==
+已去掉 workbench/markdown-editing.md 输出 52–58、命令表三行、工具栏与选区菜单与斜杠菜单的链接与图片项、设置“图片存放位置”、场景 27–30，workspace/files.md“写入图片”与场景 12，workspace/markdown-dialect.md 输出 18 的“新建时写相对地址”的 planned 标记；证据一节补了实现入口与合同测试，实现合同补了两条不变量（MarkdownLinkOpener 与默认动作、粘贴占位的登记顺序与失败码）。
+“没有实现或没有核实”的第一条（输出 53 文件不在时给出通知）：核对代码，`menus.execute("nbook.editor.open", …)` 不返回结果，打开命令对不存在的文件照常开一个标签，由编辑区显示读取失败，没有通知。晋升时按 writing-specs 的“Spec 改成贴实现”处理：输出 53 改写成“文件不在时与别处打开不存在的文件一样：开一个标签，编辑区显示读取失败，不另给通知”。这是产品行为的取舍，开发者可以改判为补通知（需要 `menus.execute` 返回结果并在卡片动作里给通知，另开 Task）。
+其余几项只能真机试用的未验证项（选文件框开着时窗口失焦、系统剪贴板四类真实内容、几十兆位图的端到端、窄屏与英文界面的 e2e）仍是未验证，没有写进 Spec。
