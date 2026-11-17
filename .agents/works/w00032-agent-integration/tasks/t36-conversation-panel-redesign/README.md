@@ -128,16 +128,17 @@ updated: 2026-11-16
 
 ## 下一步
 
-已合入 master。等开发者：
+Spec 条目已晋升（2026-11-17，开发者同日定晋升不必审批、回写直接写）：views 输出 19、workbench-layout 输出 20 的相关几句、agent-conversation-view 的顶栏与第一屏与提示卡与 `composer.fill`、conversation 输出 35 的返回与 41 到 44、settings-window 输出 15 的 `focus`、settings-pages 输出 18、harness/models 与 runtime 输出 77 的 `role`、`provider`、models/service 输出 8、contributions 输出 21、builtin-profiles 输出 17。已知缺口写进了 views.md 的 Smoke：“面板收着时按标题只展开、不通知视图”没有自动化测试。
 
-1. 批准 Spec 晋升：本 Task 标 planned 的条目（views 输出 19、workbench-layout 输出 20、agent-conversation-view 的顶栏与第一屏与提示卡、conversation 输出 35 的返回与 41 到 44、settings-window 输出 15 的 `focus`、settings-pages 输出 18、harness/models、runtime 输出 77、models/service 输出 8、contributions 输出 21、builtin-profiles 输出 17）晋升 `implemented` 并补实现合同与证据。
-2. 定实现审查带出的两处取舍（上面“待确认”的第 14、18 条）。
+仍待开发者定：实现审查带出的两处取舍（上面“待确认”的第 14、18 条）。
 
 另外发现、不属于本 Task 的：
 
 - `lab-scenes.e2e.ts` 在 master 上被 `ThemeEditor` 的 404 挡住，布局基线比对从没跑到，背后有 31 个场景的越界（见上文）。
 - `src/sdk/sdk.test.ts` 在 master 上两条失败：nb-ui 新增的 `DateInput`、`TagInput` 没列进 SDK（w00025）。
 - `agent-conversation.e2e.ts` 里两条“按状态换场景”（w00041 t14）在整个文件连着跑时偶发 `fetch failed: other side closed`，单独跑通过；推断是测试连假端点控制口的连接被断开后又被复用，未在 master 上单独验证。
+
+回写（2026-11-17 已写）：`packages/neuro-book/AGENTS.md`（给别的插件用的接口一开始放 `shared/contracts.ts`）、`docs/standards/code/frontend.md`（`watch` 数组源、`defineProps` 函数属性写函数类型）。
 
 实施时定下的细节：
 

@@ -19,7 +19,7 @@ current Work/Task 以 [工作入口](../works/AGENTS.md) 为准，legacy provena
 
 ## 反思回写
 
-回写的通用做法在用户级 Skill `task-reflection`（`~/.agents/skills/task-reflection/`）。没装它的宿主照本节和根 `AGENTS.md` 的约定，在交付末尾列出回写建议表，经开发者批准后再写。本仓库的回写位置：
+回写的通用做法在用户级 Skill `task-reflection`（`~/.agents/skills/task-reflection/`）。没装它的宿主照本节和根 `AGENTS.md` 的约定，直接写入并在交付末尾列出写了什么，不等开发者批准（开发者 2026-11-17 定；这条盖过用户级 Skill 里“经批准再写”的写法）。本仓库的回写位置：
 
 | 内容 | 写到 |
 |---|---|

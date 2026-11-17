@@ -4,7 +4,7 @@
 
 ## Vue 与交互
 
-- 使用 Composition API 和仓库现有函数式风格；props、emits、slot 与 template ref 保持类型完整。派生状态用 `computed`，`watch` 只承载副作用并负责停止订阅、计时器和请求。
+- 使用 Composition API 和仓库现有函数式风格；props、emits、slot 与 template ref 保持类型完整。派生状态用 `computed`，`watch` 只承载副作用并负责停止订阅、计时器和请求。`watch` 多个值时用数组源 `[() => a, () => b]`（逐项比较），不在 getter 里返回新数组或新对象：getter 每次返回新引用，依赖一变回调就跑，“只在变化时”的意图落空。`defineProps` 里的函数属性写成函数类型（`() => string | null`），不写 `Ctx["method"]` 这样的索引类型：Vue 编译器会按方法的返回值生成运行时校验，开发模式下传函数报类型不符，类型检查与单元测试都看不到，只有挂进 Lab 才暴露。
 - 通用能力优先复用现有组件、错误映射、通知和面板工具；具体入口由最近的作用域 `AGENTS.md` 登记。
 - 交互控件使用语义 HTML、键盘可达名称、正确的 disabled/focus 状态；图标按钮提供可访问名称或 Tooltip。用户文字面向第一次使用 NeuroBook 的普通作者。
 - 从深层 `ref`、`reactive`（含响应式的 `Map`、`Set`）取出的是代理：要交给结构化复制的值（写配置、`postMessage`、IndexedDB）不放进去，`structuredClone` 会对代理抛错，用 `shallowRef` 或交出前 `toRaw`；拿取出的值与原对象比身份（`===`、作 `Map` 或 `Set` 的键）时，先 `toRaw` 再比。

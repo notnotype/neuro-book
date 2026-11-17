@@ -31,7 +31,7 @@
 不创建 `*-draft.md` 与 `*-current.md` 两份正文。能力实现后，原文件从 `planned` 原地晋升为 `implemented`。
 
 - **已实现的 Spec 加新行为**：整块新能力另起一份 Spec；在已有能力上加几条行为时，新条目末尾标“（planned）”，实现并验证后去掉标记，不写 Task 编号。
-- **已实现、待晋升**：`planned` 的 Spec 实现后照常写三条证据标签（见[实现合同与证据](#实现合同与证据)）；注册表“说明”列只写一句范围并加“待晋升”，不写实施历程。晋升为 `implemented` 由开发者批准。
+- **已实现、待晋升**：`planned` 的 Spec 实现后照常写三条证据标签（见[实现合同与证据](#实现合同与证据)）；注册表“说明”列只写一句范围并加“待晋升”，不写实施历程。晋升为 `implemented` 不需要开发者批准（开发者 2026-11-17 定）：证据写全、逐条核对通过后由实施者自行晋升，并在交付说明里写明晋升了哪些。
 
 提案的 `draft`、`reviewing` 表示方案尚未批准；Spec 的 `planned` 表示目标行为已经批准。未批准需求不能进入 `planned` Spec。
 
@@ -129,7 +129,7 @@ owners:
 4. **计划**：`plan.md` 写内部设计、切片与验收映射（Spec 编号 → 测试），见 [`implementation-planning`](../../.agents/skills/implementation-planning/SKILL.md)。
 5. **验收先行**：每片先写这片对应条目的合同测试并看它失败，再实现到通过；交付前做变异检查。
 6. **审查**：按 [`reviewing`](../../.agents/skills/reviewing/SKILL.md) 审查设计与实现。
-7. **收口**：按固定标签写证据；全部有证据后，经开发者批准晋升 `implemented`。
+7. **收口**：按固定标签写证据；全部有证据、逐条核对通过后自行晋升 `implemented`，不等开发者批准（开发者 2026-11-17 定）。
 
 单元层面不要求严格的 TDD；测试覆盖 Spec 条目与失败方式（[测试写法](../testing/README.md#测试写法)）。界面类改动另由 Component Lab 场景验收。Work/Task 引用提案与 Spec，记录实现、验证和交接，不复制正文。
 
