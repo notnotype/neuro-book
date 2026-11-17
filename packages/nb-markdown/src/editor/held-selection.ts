@@ -1,7 +1,8 @@
 /**
  * 保持选区高亮（docs/specs/workbench/markdown-editing.md 输出 9）：焦点去了正文外面的输入框（注音卡片）时，浏览器不再画正文的选区，
  * 用户看不出要改的是哪几个字。宿主打开这类输入时把当前选区画成装饰，关上时撤掉。装饰随文档变化移动；换文档时编辑器的状态整个
- * 重建，插件状态回到空。只是装饰：不进撤销历史，也不改选区。
+ * 重建，插件状态回到空。只是装饰：不进撤销历史，也不改选区。没有选区（链接卡片、插图卡片在光标处）时在光标处画一条竖线
+ * （`holdCaret`，输出 52、54）。
  */
 
 import {Extension} from "@tiptap/core";
@@ -9,11 +10,20 @@ import type {Editor} from "@tiptap/core";
 import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 
-type Hold = {readonly ranges: ReadonlyArray<{readonly from: number; readonly to: number}>; readonly blocks?: ReadonlyArray<{readonly from: number; readonly to: number}>} | "release";
+type Hold = {readonly ranges: ReadonlyArray<{readonly from: number; readonly to: number}>; readonly blocks?: ReadonlyArray<{readonly from: number; readonly to: number}>; readonly caret?: number} | "release";
 
 const heldSelectionKey = new PluginKey<DecorationSet>("markdownHeldSelection");
 
 export const HELD_SELECTION_CLASS = "nb-markdown-held-selection";
+export const HELD_CARET_CLASS = "nb-markdown-held-caret";
+
+/** 光标处的竖线：一个不可编辑的空挂件，样式在 `display/markdown.css`。 */
+function caretWidget(): HTMLElement {
+    const element = document.createElement("span");
+    element.className = HELD_CARET_CLASS;
+    element.setAttribute("aria-hidden", "true");
+    return element;
+}
 
 export const MarkdownHeldSelection = Extension.create({
     name: "markdownHeldSelection",
@@ -25,7 +35,13 @@ export const MarkdownHeldSelection = Extension.create({
                 apply(tr, held) {
                     const hold = tr.getMeta(heldSelectionKey) as Hold | undefined;
                     if (hold === "release") return DecorationSet.empty;
-                    if (hold !== undefined) return DecorationSet.create(tr.doc, [...hold.ranges.map(({from, to}) => Decoration.inline(from, to, {class: HELD_SELECTION_CLASS})), ...(hold.blocks ?? []).map(({from, to}) => Decoration.node(from, to, {class: HELD_SELECTION_CLASS}))]);
+                    if (hold !== undefined) {
+                        return DecorationSet.create(tr.doc, [
+                            ...hold.ranges.map(({from, to}) => Decoration.inline(from, to, {class: HELD_SELECTION_CLASS})),
+                            ...(hold.blocks ?? []).map(({from, to}) => Decoration.node(from, to, {class: HELD_SELECTION_CLASS})),
+                            ...(hold.caret === undefined ? [] : [Decoration.widget(hold.caret, caretWidget, {side: -1, key: "held-caret"})]),
+                        ]);
+                    }
                     return held.map(tr.mapping, tr.doc);
                 },
             },
@@ -40,6 +56,14 @@ export function holdSelection(editor: Editor): boolean {
     if (selection.empty) return false;
     const ranges = selection.ranges.map((range) => ({from: range.$from.pos, to: range.$to.pos}));
     editor.view.dispatch(editor.state.tr.setMeta(heldSelectionKey, {ranges} satisfies Hold).setMeta("addToHistory", false));
+    return true;
+}
+
+/** 选区是空的时在光标处画一条竖线，直到 `releaseSelection`；选区不空（该用 `holdSelection`）时什么都不画，返回 false。 */
+export function holdCaret(editor: Editor): boolean {
+    const {selection} = editor.state;
+    if (!selection.empty) return false;
+    editor.view.dispatch(editor.state.tr.setMeta(heldSelectionKey, {ranges: [], caret: selection.from} satisfies Hold).setMeta("addToHistory", false));
     return true;
 }
 

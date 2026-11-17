@@ -14,7 +14,7 @@ export type {LinkRange} from "./links";
 export type {EditingAction, EditingArgs} from "./editing-actions";
 export {addBlockComment, canCommentBlockAt, commentsAt, commentsAtPos, commentsEndingAt, findComment, gotoComment, listComments, markShownComment, MarkdownCommentMarkers, MarkdownShownComment, matchComment, nextTerritory, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody, territoryAt, territoryOf} from "./comments";
 export type {CommentInfo, CommentRef} from "./comments";
-export {holdBlock, holdSelection, releaseSelection} from "./held-selection";
+export {holdBlock, holdCaret, holdSelection, releaseSelection} from "./held-selection";
 export {selectRubyAt, selectedRubyText} from "./ruby-text";
 export {createMarkdownEditorExtensions} from "./markdown-editor-extensions";
 export {activeSlash, dismissSlash, markdownSlashKey, removeSlashQuery} from "./slash-trigger";

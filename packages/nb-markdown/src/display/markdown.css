@@ -252,6 +252,17 @@
     background: var(--selection-bg);
 }
 
+/* 没有选区时卡片开着（链接、插图），光标处的一条竖线：焦点在卡片里，浏览器不画正文的光标。 */
+.nb-markdown .nb-markdown-held-caret {
+    display: inline-block;
+    width: 0;
+    height: 1.2em;
+    margin-inline: -1px;
+    border-inline-start: 2px solid var(--accent, currentColor);
+    vertical-align: text-bottom;
+    pointer-events: none;
+}
+
 /* 双语对照（输出 13）：原文上方一行弱色的译文。 */
 .nb-markdown .nb-bilingual-block::before {
     content: attr(data-bilingual-text);
