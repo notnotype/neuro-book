@@ -2,14 +2,15 @@
  * 表情目录（docs/specs/agent/stickers.md 输出 1–6）：按根扫描表情包，核对清单与图片，监视用户的表情包文件夹，变了重扫并通知。
  *
  * 根有用户与插件两种来源：用户的一个，启动时给定并建好；插件的每个 `stickers.packs` 贡献一个，随贡献的发布与撤回增删。
- * 监视用非递归的 `fs.watch`：用户的根与其中每个表情包文件夹。任何一处变了都重扫整个用户的根（用户的表情包通常不多）。
- * 插件的表情包装在版本目录里、一次运行里不变，不监视。
+ * 监视用非递归的 `fs.watch`：用户的根与其中每个表情包文件夹。任何一处变了都重扫整个用户的根（用户的表情包通常不多）；
+ * 没变的图片（修改时间、大小与 inode 相同）沿用上一次的核对结果，重扫只读清单、`lstat` 每张图。插件的表情包装在版本目录里、
+ * 一次运行里不变，不监视。
  *
- * 图片在扫描时读一遍：按开头的字节判定类型、取宽高（`Bun.Image`）、算版本（修改时间与大小）。取图路由读的时候再判一次，
- * 扫描之后被换掉的文件不会按旧的结论给出去。
+ * 图片第一次见到时读一遍：按开头的字节判定类型、取宽高（`Bun.Image`）、算版本（修改时间、大小与 inode）。取图路由读的时候再判
+ * 一次，扫描之后被换掉的文件不会按旧的结论给出去。
  */
 
-import {watch, type FSWatcher} from "node:fs";
+import {watch, type FSWatcher, type Stats} from "node:fs";
 import {lstat, mkdir, readdir, readFile} from "node:fs/promises";
 import {join, sep} from "node:path";
 
@@ -63,8 +64,13 @@ export class StickerCatalog {
     #roots: StickerRoot[];
     readonly #byRoot = new Map<string, Array<{readonly item: StickerPackItem; readonly findings: PackFindings}>>();
     #items = new Map<string, StickerPackItem>();
-    /** 上一次写过诊断的问题，按表情包 id（JSON）。 */
+    /** 上一次写过诊断的问题，按表情包 id（JSON）。每次合成目录后去掉不再出现的（表情包删了、不再重复）。 */
     readonly #reported = new Map<string, string>();
+    /**
+     * 各根上一次扫描核对过的图片，按路径：文件的修改时间、大小与 inode 都没变时不再读字节、不再解码。重扫一个根时只留这次还在的，
+     * 所以不随删掉的图增长。
+     */
+    readonly #images = new Map<string, Map<string, {readonly stamp: string; readonly result: ImageRead}>>();
     readonly #listeners = new Set<() => void>();
     readonly #watchers = new Map<string, FSWatcher>();
     readonly #pending = new Map<string, () => void>();
@@ -113,6 +119,7 @@ export class StickerCatalog {
         await this.#queue(async () => {
             this.#roots = this.#roots.filter((candidate) => candidate.key !== key);
             this.#byRoot.delete(key);
+            this.#images.delete(key);
             return this.#derive();
         });
     }
@@ -147,17 +154,23 @@ export class StickerCatalog {
     /** 由各根的扫描结果合成目录，写变了的诊断；交回内容是否变了。 */
     #derive(): boolean {
         const next = new Map<string, StickerPackItem>();
+        const touched = new Set<string>();
+        const reportOnce = (key: string, value: unknown, write: () => unknown): void => {
+            touched.add(key);
+            this.#reportOnce(key, value, write);
+        };
         for (const root of [...this.#roots].sort((left, right) => byCodeUnit(left.key, right.key))) {
             for (const {item, findings} of this.#byRoot.get(root.key) ?? []) {
                 const kept = next.get(item.entry.id);
                 if (kept !== undefined) {
-                    this.#reportOnce(`duplicate:${item.entry.id}:${item.root}`, {}, () => this.#options.report("pack-duplicate", `表情包 ${item.entry.id} 被带来两次，用 ${kept.directory}，不列 ${item.directory}`, {id: item.entry.id, kept: kept.root, skipped: item.root}));
+                    reportOnce(`duplicate:${item.entry.id}:${item.root}`, {}, () => this.#options.report("pack-duplicate", `表情包 ${item.entry.id} 被带来两次，用 ${kept.directory}，不列 ${item.directory}`, {id: item.entry.id, kept: kept.root, skipped: item.root}));
                     continue;
                 }
                 next.set(item.entry.id, item);
-                this.#reportFindings(item.entry.id, findings);
+                this.#reportFindings(item.entry.id, findings, reportOnce);
             }
         }
+        for (const key of [...this.#reported.keys()]) if (!touched.has(key)) this.#reported.delete(key);
         const changed = next.size !== this.#items.size || [...next].some(([id, item]) => {
             const before = this.#items.get(id);
             return before === undefined || before.directory !== item.directory || JSON.stringify(before.entry) !== JSON.stringify(item.entry);
@@ -166,10 +179,10 @@ export class StickerCatalog {
         return changed;
     }
 
-    #reportFindings(id: string, findings: PackFindings): void {
-        this.#reportOnce(`pack:${id}`, findings.invalid ?? null, () => findings.invalid !== undefined && this.#options.report("pack-invalid", `表情包 ${id} 无效：${findings.invalid.code}`, {id, problem: findings.invalid}));
-        this.#reportOnce(`fields:${id}`, findings.ignored, () => findings.ignored.length > 0 && this.#options.report("field-ignored", `表情包 ${id} 忽略了不合规则的字段 ${findings.ignored.join("、")}`, {id, fields: findings.ignored}));
-        this.#reportOnce(`stickers:${id}`, findings.stickers, () => findings.stickers.length > 0 && this.#options.report("sticker-invalid", `表情包 ${id} 有 ${String(findings.stickers.length)} 项不列：${findings.stickers.join("；")}`, {id, stickers: findings.stickers}));
+    #reportFindings(id: string, findings: PackFindings, reportOnce: (key: string, value: unknown, write: () => unknown) => void): void {
+        reportOnce(`pack:${id}`, findings.invalid ?? null, () => findings.invalid !== undefined && this.#options.report("pack-invalid", `表情包 ${id} 无效：${findings.invalid.code}`, {id, problem: findings.invalid}));
+        reportOnce(`fields:${id}`, findings.ignored, () => findings.ignored.length > 0 && this.#options.report("field-ignored", `表情包 ${id} 忽略了不合规则的字段 ${findings.ignored.join("、")}`, {id, fields: findings.ignored}));
+        reportOnce(`stickers:${id}`, findings.stickers, () => findings.stickers.length > 0 && this.#options.report("sticker-invalid", `表情包 ${id} 有 ${String(findings.stickers.length)} 项不列：${findings.stickers.join("；")}`, {id, stickers: findings.stickers}));
     }
 
     /** 问题与上一次写过的相同时不写（输出 5）。 */
@@ -186,15 +199,27 @@ export class StickerCatalog {
             return [];
         });
         const packs = [];
+        const previous = this.#images.get(root.key) ?? new Map();
+        const images = new Map<string, {readonly stamp: string; readonly result: ImageRead}>();
+        const read = async (path: string, file: string): Promise<ImageRead> => {
+            const info = await lstat(path).catch(() => null);
+            if (info === null) return {ok: false, reason: "文件不在"};
+            const stamp = `${String(info.mtimeMs)}-${String(info.size)}-${String(info.ino)}`;
+            const cached = previous.get(path);
+            const result = cached?.stamp === stamp ? cached.result : await readImage(path, file, info);
+            images.set(path, {stamp, result});
+            return result;
+        };
         // 按名字排序：readdir 的顺序随文件系统变，诊断的先后要稳定。文件与以点开头的条目不是表情包；链接照样列出，状态是无效。
         for (const child of children.sort((left, right) => byCodeUnit(left.name, right.name))) {
             if (child.name.startsWith(".") || !(child.isDirectory() || child.isSymbolicLink())) continue;
-            packs.push(await this.#readPack(root, join(root.root, child.name), child.name, child.isSymbolicLink()));
+            packs.push(await this.#readPack(root, join(root.root, child.name), child.name, child.isSymbolicLink(), read));
         }
+        this.#images.set(root.key, images);
         return packs;
     }
 
-    async #readPack(root: StickerRoot, directory: string, folder: string, link: boolean): Promise<{readonly item: StickerPackItem; readonly findings: PackFindings}> {
+    async #readPack(root: StickerRoot, directory: string, folder: string, link: boolean, readImage: (path: string, file: string) => Promise<ImageRead>): Promise<{readonly item: StickerPackItem; readonly findings: PackFindings}> {
         const base = {id: packId(root.prefix, folder), folder, source: root.source, ...(root.plugin === undefined ? {} : {plugin: root.plugin})};
         const invalid = (problem: StickerPackProblem) => ({item: {directory, root: root.key, entry: {...base, title: folder, status: "invalid" as const, problem, stickers: []}}, findings: {invalid: problem, ignored: [], stickers: []}});
         if (link) return invalid({code: "symlink"});
@@ -305,14 +330,17 @@ export async function checkImage(bytes: Uint8Array, file: string): Promise<Image
     return {ok: true, type, width: size.width, height: size.height};
 }
 
-/** 扫描时核对一张表情图：普通文件、不是链接，再核对字节；交回版本（修改时间与大小）。 */
-async function readImage(path: string, file: string): Promise<{readonly ok: true; readonly width: number; readonly height: number; readonly version: string} | {readonly ok: false; readonly reason: string}> {
-    const info = await lstat(path).catch(() => null);
-    if (info === null) return {ok: false, reason: "文件不在"};
+type ImageRead = {readonly ok: true; readonly width: number; readonly height: number; readonly version: string} | {readonly ok: false; readonly reason: string};
+
+/**
+ * 扫描时核对一张表情图：普通文件、不是链接，再核对字节；交回版本。版本带 inode：换成另一个文件（原子替换）时即使大小与修改时间
+ * 相同也会变，取图路由才敢按版本长期缓存。
+ */
+async function readImage(path: string, file: string, info: Stats): Promise<ImageRead> {
     if (info.isSymbolicLink()) return {ok: false, reason: "文件是链接"};
     if (!info.isFile()) return {ok: false, reason: "不是普通文件"};
     if (info.size > IMAGE_MAX_BYTES) return {ok: false, reason: "超过 2 MiB"};
     const checked = await checkImage(new Uint8Array(await readFile(path)), file);
     if (!checked.ok) return checked;
-    return {ok: true, width: checked.width, height: checked.height, version: `${String(Math.round(info.mtimeMs))}-${String(info.size)}`};
+    return {ok: true, width: checked.width, height: checked.height, version: `${String(Math.round(info.mtimeMs))}-${String(info.size)}-${String(info.ino)}`};
 }

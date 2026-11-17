@@ -5,7 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {mkdir, rm, symlink, writeFile} from "node:fs/promises";
+import {mkdir, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -21,13 +21,13 @@ import type {WorkspaceFiles} from "nbook/plugins/files/shared/workspace-files";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
 
-import {browserCatalog} from "./backend/browser-catalog";
+import {browserCatalog, browserSummaries} from "./backend/browser-catalog";
 import {StickerCatalog} from "./backend/catalog";
 import {stickersBackendPlugin} from "./backend/plugin";
 import {pluginPackRoots} from "./backend/plugin-roots";
 import {createStickerRoutes} from "./backend/routes";
 import {descriptor} from "./plugin";
-import {BROWSER_STICKERS_MAX, stickerImageUrl, stickersServiceKey} from "./shared/contracts";
+import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, stickerImageUrl, stickersServiceKey} from "./shared/contracts";
 import type {StickerPackEntry, StickerPacksDeclaration, StickersService} from "./shared/contracts";
 
 const PIXEL = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (char) => char.charCodeAt(0));
@@ -170,6 +170,43 @@ describe("表情目录", () => {
         });
     });
 
+    test("输出 5：有问题的表情包删掉再放回来，诊断再写一次", async () => {
+        const {world, user, service, events} = await scene(async (user) => pack(join(user, "broken"), "{不是 JSON"));
+        const invalid = () => events().filter((item) => item.event === "stickers.pack-invalid").length;
+        expect(invalid()).toBe(1);
+        await rm(join(user, "broken"), {recursive: true});
+        await waitUntil("删掉后不列", () => {
+            world.clock.advance(200);
+            return byId(service, "user.broken") === undefined || null;
+        });
+        await pack(join(user, "broken"), "{不是 JSON");
+        await waitUntil("放回来又写一次", () => {
+            world.clock.advance(200);
+            return invalid() === 2 || null;
+        });
+    });
+
+    test("“边界与兼容”的版本：图片换成另一个文件后，大小与修改时间都相同，版本照样变", async () => {
+        counter += 1;
+        const user = join(tmp, `v${String(counter)}`);
+        await lyra(join(user, "lyra"));
+        const path = join(user, "lyra", "happy.png");
+        // 整秒的修改时间：写回时不丢精度，替换前后确实相同。
+        const time = 1_700_000_000;
+        await utimes(path, time, time);
+        const root = {key: "user", source: "user" as const, prefix: "user", root: user, watch: false};
+        const catalog = await StickerCatalog.open({roots: [root], clock: {now: () => 0, schedule: () => () => undefined} as never, report: () => undefined});
+        catalogs.push(catalog);
+        const version = () => catalog.item("user.lyra")?.entry.stickers.find((sticker) => sticker.name === "开心")?.version;
+        const before = version();
+        await writeFile(`${path}.tmp`, await png(64, 64));
+        await utimes(`${path}.tmp`, time, time);
+        await rename(`${path}.tmp`, path);
+        await catalog.addRoot(root);
+        expect(version()).toBeDefined();
+        expect(version()).not.toBe(before);
+    });
+
     test("输出 6：插件来源随贡献的发布与撤回出现、消失；目录不可用写诊断；同一插件两个贡献里同名的文件夹取码元顺序先到的", async () => {
         counter += 1;
         const root = join(tmp, `p${String(counter)}`);
@@ -250,5 +287,22 @@ describe("浏览器目录", () => {
         expect(result.map((pack) => pack.id)).toEqual(["user.a", "user.c"]);
         expect(result[1]?.stickers[0]).toEqual({name: "n0", width: 8, height: 8, url: "/api/nbook.stickers/image/user.c/f0.png?v=1-1"});
         expect(reports).toEqual(["catalog-truncated"]);
+    });
+
+    test("输出 18、19：目录与设置页的概要序列化后不超过远程消息的预算，放不下的表情包整包不进、写诊断", () => {
+        const longFile = `${"f".repeat(240)}.png`;
+        const packs = Array.from({length: 12}, (_, pack): StickerPackEntry => ({id: `user.p${String(pack).padStart(2, "0")}`, folder: `p${String(pack)}`, source: "user", title: "长".repeat(200), description: "说".repeat(200), status: "ok", stickers: Array.from({length: 400}, (_, index) => ({name: `名${String(index)}`, file: longFile, common: false, width: 8, height: 8, version: "1-1"}))}));
+        const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+        const reports: string[] = [];
+        const result = browserCatalog(packs, (code) => reports.push(code));
+        expect(result.length).toBeGreaterThan(0);
+        expect(result.length).toBeLessThan(packs.length);
+        expect(bytes(result)).toBeLessThanOrEqual(BROWSER_BYTES_MAX);
+        expect(reports).toEqual(["catalog-truncated"]);
+        const many = Array.from({length: 3000}, (_, index) => ({...packs[0] as StickerPackEntry, id: `user.s${String(index).padStart(4, "0")}`, stickers: []}));
+        const summaries = browserSummaries(many, (code) => reports.push(code));
+        expect(summaries.length).toBeLessThan(many.length);
+        expect(bytes(summaries)).toBeLessThanOrEqual(BROWSER_BYTES_MAX);
+        expect(reports).toEqual(["catalog-truncated", "catalog-truncated"]);
     });
 });

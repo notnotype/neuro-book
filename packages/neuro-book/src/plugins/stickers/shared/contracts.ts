@@ -26,6 +26,11 @@ export const IMAGE_MAX_SIDE = 1024;
 export const TEXT_MAX = 200;
 /** 浏览器目录合计至多这么多个表情（输出 18）。 */
 export const BROWSER_STICKERS_MAX = 5000;
+/**
+ * 交给浏览器的目录与概要，序列化后合计至多这么多字节（输出 18）：远程调用的单条消息至多 1 MiB（nb-host 的 `RPC_MAX_MESSAGE_BYTES`），
+ * 超了整个窗口断开；留出消息外壳的余量。个数的上限挡不住长 id、长文件名与长说明。
+ */
+export const BROWSER_BYTES_MAX = 768 * 1024;
 
 /** 文件夹名：1–64 个小写字母、数字与连字符，不以连字符开头或结尾，没有连续的连字符。 */
 export const FOLDER_NAME = /^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$/u;
