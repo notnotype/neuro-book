@@ -310,3 +310,123 @@ describe("请求分发", () => {
         expect(await (await request("/api/acme.files/x", {headers: {origin: "null"}})).text()).toBe("GET");
     });
 });
+
+describe("请求体的转交", () => {
+    /** 真实的 `Bun.serve`，处理函数是分发器：和宿主 HTTP 端口同一条路径。 */
+    function serve(setupRoutes: (routes: RouteTable) => void) {
+        const {routes, dispatch, errors} = setup();
+        setupRoutes(routes);
+        const server = Bun.serve({port: 0, hostname: "127.0.0.1", idleTimeout: 0, fetch: dispatch});
+        return {url: `http://127.0.0.1:${String(server.port)}`, errors, stop: () => server.stop(true)};
+    }
+
+    it("上传边发边收：处理函数在客户端还没发完时已经读到前面的块（不先把整个请求体收进内存）", async () => {
+        let firstSeen!: () => void;
+        const seen = new Promise<void>((resolve) => (firstSeen = resolve));
+        const received: number[] = [];
+        const {url, stop} = serve((routes) => mount(routes, routeHandle("acme.files", {
+            fetch: async (request) => {
+                const reader = request.body!.getReader();
+                for (;;) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    received.push(value.length);
+                    firstSeen();
+                }
+                return Response.json({received: received.reduce((sum, size) => sum + size, 0)});
+            },
+        })));
+        try {
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => (release = resolve));
+            const chunk = new Uint8Array(64 * 1024);
+            const body = new ReadableStream<Uint8Array>({
+                async start(controller) {
+                    controller.enqueue(chunk);
+                    // 第二块要等处理函数确认读到了第一块；整体缓冲的转交永远等不到它。
+                    await Promise.race([seen, new Promise((_, reject) => setTimeout(() => reject(new Error("处理函数没有在请求体发完之前读到数据")), 5_000))]);
+                    release();
+                    controller.enqueue(chunk);
+                    controller.close();
+                },
+            });
+            const response = await fetch(`${url}/api/acme.files/upload`, {method: "POST", body, duplex: "half"} as RequestInit);
+            await gate;
+            expect(await response.json()).toEqual({received: 2 * chunk.length});
+        } finally {
+            await stop();
+        }
+    });
+
+    it("慢慢读一个大请求体：进程内存的增长远小于请求体（转交不把整个请求体收进内存）", async () => {
+        const totalMiB = 112;
+        const {url, stop} = serve((routes) => mount(routes, routeHandle("acme.files", {
+            fetch: async (request) => {
+                const reader = request.body!.getReader();
+                let size = 0;
+                for (;;) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    size += value.length;
+                    // 读得比客户端发得慢：整个请求体若被另一条分支缓存下来，内存会随已读的量一路涨。
+                    await Bun.sleep(2);
+                }
+                return Response.json({size});
+            },
+        })));
+        try {
+            Bun.gc(true);
+            const base = process.memoryUsage().rss;
+            let peak = 0;
+            const sampler = setInterval(() => void (peak = Math.max(peak, process.memoryUsage().rss - base)), 20);
+            const chunk = new Uint8Array(1024 * 1024);
+            let produced = 0;
+            const body = new ReadableStream<Uint8Array>({
+                pull(controller) {
+                    produced += 1;
+                    controller.enqueue(chunk);
+                    if (produced === totalMiB) controller.close();
+                },
+            }, {highWaterMark: 0});
+            const response = await fetch(`${url}/api/acme.files/upload`, {method: "POST", body, duplex: "half"} as RequestInit);
+            clearInterval(sampler);
+            expect(await response.json()).toEqual({size: totalMiB * chunk.length});
+            // 流式转交时本机实测增长约 35 MiB，整个请求体被缓存时约 100 MiB。
+            expect(peak / 1024 / 1024).toBeLessThan(70);
+        } finally {
+            await stop();
+        }
+    });
+
+    it("客户端中途断开：处理函数读请求体的流以中止结束，不一直挂着", async () => {
+        let outcome: Promise<string> | null = null;
+        const {url, stop} = serve((routes) => mount(routes, routeHandle("acme.files", {
+            fetch: (request) => {
+                outcome = (async () => {
+                    const reader = request.body!.getReader();
+                    try {
+                        for (;;) if ((await reader.read()).done) return "done";
+                    } catch {
+                        return "aborted";
+                    }
+                })();
+                return new Promise<Response>(() => undefined);
+            },
+        })));
+        try {
+            const controller = new AbortController();
+            const body = new ReadableStream<Uint8Array>({
+                start(stream) {
+                    stream.enqueue(new Uint8Array(1024));
+                },
+            });
+            const pending = fetch(`${url}/api/acme.files/upload`, {method: "POST", body, duplex: "half", signal: controller.signal} as RequestInit).catch(() => undefined);
+            await waitUntil("处理函数开始读请求体", () => outcome !== null);
+            controller.abort();
+            await pending;
+            expect(await Promise.race([outcome!, new Promise<string>((resolve) => setTimeout(() => resolve("still reading"), 5_000))])).toBe("aborted");
+        } finally {
+            await stop();
+        }
+    });
+});
