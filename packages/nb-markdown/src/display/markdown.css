@@ -262,24 +262,31 @@
 }
 
 /*
- * 表情（docs/specs/agent/stickers.md 输出 10–12）：夹在文字里约两倍字高，只有表情的文本块里显示成大图。还没查到或认不出时是
- * 写法的原文，查询中淡一些。宽按图片比例（`<img>` 带宽高属性，加载前就占好位置）。
+ * 表情（docs/specs/agent/stickers.md 输出 10–12）。还没查到或认不出时是写法的原文，按普通文字排，查询中用弱色。换成图后：夹在
+ * 文字里约 1.6 倍字高，上下用负外边距收回，不撑高这一行（有没有表情的行一样高）；只有表情的文本块里是大图，照常占高度。
+ * 前后留一点间隙。宽按图片比例（`<img>` 带宽高属性，加载前就占好位置）。
  */
-.nb-markdown .nb-sticker {
-    display: inline-block;
-    vertical-align: middle;
-    line-height: 1;
+.nb-markdown .nb-sticker.is-loading {
+    margin-inline: 0.15em;
+    color: var(--text-muted);
 }
 
-.nb-markdown .nb-sticker.is-loading {
-    opacity: 0.5;
+.nb-markdown .nb-sticker.has-image {
+    display: inline-block;
+    margin: -0.3em 0.15em;
+    vertical-align: middle;
+    line-height: 0;
 }
 
 .nb-markdown .nb-sticker__image {
     display: block;
     width: auto;
-    height: var(--nb-sticker-size, 2em);
+    height: var(--nb-sticker-size, 1.6em);
     max-width: none;
+}
+
+.nb-markdown .nb-sticker-block .nb-sticker.has-image {
+    margin-block: 0;
 }
 
 .nb-markdown .nb-sticker-block .nb-sticker__image {

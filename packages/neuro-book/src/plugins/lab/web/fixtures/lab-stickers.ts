@@ -20,7 +20,7 @@ const STICKERS: Readonly<Record<string, LabSticker>> = {
 };
 
 function picture(name: string, sticker: LabSticker): string {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${String(sticker.width)}" height="${String(sticker.height)}"><rect width="100%" height="100%" rx="24" fill="${sticker.color}"/><text x="50%" y="56%" font-size="36" text-anchor="middle" fill="white">${name}</text></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${String(sticker.width)}" height="${String(sticker.height)}"><rect width="100%" height="100%" rx="10" fill="${sticker.color}"/><text x="50%" y="56%" font-size="36" text-anchor="middle" fill="white">${name}</text></svg>`;
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 

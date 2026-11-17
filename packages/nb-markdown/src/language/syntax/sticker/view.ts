@@ -2,7 +2,8 @@
  * 表情的样子（docs/specs/agent/stickers.md 输出 10、12）：展示器的静态视图与编辑器的节点视图都用 `buildSticker`，生成的元素结构与
  * 类名相同。普通 DOM，不用 Vue。
  *
- * 先显示写法的原文（带 `is-loading`），宿主端口交回表情后换成图；认不出、端口失败或图读不出来时留原文。没有端口时一直是原文。
+ * 先显示写法的原文（带 `is-loading`），宿主端口交回表情后换成图（带 `has-image`）；认不出、端口失败或图读不出来时留原文。没有
+ * 端口时一直是原文。
  */
 
 import {parseSticker} from "../../../stickers";
@@ -26,7 +27,7 @@ export function buildSticker(document: Document, raw: string, resolve: StickerRe
     const controller = new AbortController();
     let release: (() => void) | null = null;
     const showText = (): void => {
-        dom.classList.remove("is-loading");
+        dom.classList.remove("is-loading", "has-image");
         dom.replaceChildren(raw);
     };
     resolve(ref, controller.signal).then((found) => {
@@ -49,6 +50,7 @@ export function buildSticker(document: Document, raw: string, resolve: StickerRe
         image.addEventListener("load", () => dom.classList.remove("is-loading"), {once: true});
         image.addEventListener("error", showText, {once: true});
         image.src = found.url;
+        dom.classList.add("has-image");
         dom.replaceChildren(image);
     }, (error: unknown) => {
         if (controller.signal.aborted) return;
