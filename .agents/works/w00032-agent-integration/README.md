@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 # NeuroBook 接入 Agent
@@ -75,7 +75,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-15 | t33 开工：开发者确认[计划](tasks/t33-plugin-skills/plan.md)（6 个待确认项按推荐），用 autonomous-delivery 推进到 Task 完成（[t33](tasks/t33-plugin-skills/README.md)） |
 | 2026-11-16 | t33 合入；开发者批准 t33 的 Spec 条目去掉 planned，t33 完成（[t33](tasks/t33-plugin-skills/README.md)）。开发者定：下一步做 [t29](tasks/t29-ui-polish-after-t15/README.md)；t31、t16、t13 移出本 Work、各开新 Work，本 Work 只剩 t29 与 [t35](tasks/t35-request-trace-followups/README.md) |
 | 2026-11-16 | t29 合入；开发者批准 t29 的 Spec 条目去掉 planned，t29 完成。开发者确认 [t36](tasks/t36-conversation-panel-redesign/README.md) 的[计划](tasks/t36-conversation-panel-redesign/plan.md)，6 个待定项按推荐，开工（[t29](tasks/t29-ui-polish-after-t15/README.md)） |
-| 2026-11-17 | t36 合入：视图的标题区（对话写在面板头上）、头改三列与子会话返回、第一屏与开场指令、模型不可用的提示卡与设置定位、子代理入口与浮层；前端实现审查 20 条（重要 4），成立的已修。Spec 条目已晋升、回写已写（开发者同日定这两件事不必审批，规范已改），待开发者定审查带出的两处取舍（[t36](tasks/t36-conversation-panel-redesign/README.md)） |
+| 2026-11-17 | t36 合入：视图的标题区（对话写在面板头上）、头改三列与子会话返回、第一屏与开场指令、模型不可用的提示卡与设置定位、子代理入口与浮层；前端实现审查 20 条（重要 4），成立的已修。Spec 条目已晋升、回写已写（开发者同日定这两件事不必审批，规范已改），审查带出的两处取舍开发者定保持现状，t36 完成（[t36](tasks/t36-conversation-panel-redesign/README.md)） |
 
 ## 待确认
 

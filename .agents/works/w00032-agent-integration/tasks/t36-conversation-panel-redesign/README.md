@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t36-conversation-panel-redesign
-status: active
-updated: 2026-11-16
+status: done
+updated: 2026-11-17
 ---
 
 # 对话面板改版：面板头、第一屏、子会话与子代理管理、模型不可用提示
@@ -130,7 +130,7 @@ updated: 2026-11-16
 
 Spec 条目已晋升（2026-11-17，开发者同日定晋升不必审批、回写直接写）：views 输出 19、workbench-layout 输出 20 的相关几句、agent-conversation-view 的顶栏与第一屏与提示卡与 `composer.fill`、conversation 输出 35 的返回与 41 到 44、settings-window 输出 15 的 `focus`、settings-pages 输出 18、harness/models 与 runtime 输出 77 的 `role`、`provider`、models/service 输出 8、contributions 输出 21、builtin-profiles 输出 17。已知缺口写进了 views.md 的 Smoke：“面板收着时按标题只展开、不通知视图”没有自动化测试。
 
-仍待开发者定：实现审查带出的两处取舍（上面“待确认”的第 14、18 条）。
+实现审查带出的两处取舍（上面“待确认”的第 14、18 条）：开发者 2026-11-17 定保持现状、不改：没有模型可用时第一屏的开场指令仍可点；400px 右栏里的居中标题不改。t36 完成。
 
 另外发现、不属于本 Task 的：
 
