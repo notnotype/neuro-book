@@ -115,6 +115,12 @@ updated: 2026-11-17
 - 计划改成[第 4 稿](plan.md)：只留本 Task 的部分，交换按上表改。第 3 稿原文在提交 `c56ab99a7`。
 - 这是同一对象的第二轮；第 4 稿不再整体送审，第 2 片先在 Lab 里把交换做出来、用逐帧 e2e 证明，提交后在后台派实现审查。
 
+- `ui/nested-grid` 加“交换”“分隔线的宿主样式”两条与验收 11（planned，master `d29f50222`）。
+- 第 2 片（nb-layout 的交换过渡）提交在分支上：`689cb5ecc`。纯函数在 `grid-swap.ts`（带上几组、每组原位的项与终点偏移；重定向时读每组此刻的位置、整条带写成起点重新开始，不靠浏览器改终点时的接着走）；`useGridMotion` 合并进已有的过渡判定；`NestedGrid` 的 `swap` 属性、`data-swap`、`swappingLeaves`；内容层的停放加上“属于缩回去的叶”（交换里滑出去的叶尺寸不变，原来不算停放、焦点不交出）。Lab 场景 `NestedGrid` 的 `swap`。
+  - 验证：`grid-swap.test.ts` 10 条；`NestedGrid.dom.test.ts` 的交换 4 条；nb-layout 全部 568 + 238 条；nb-layout、neuro-book 类型检查；e2e `lab-grid-swap`（4 条：第一帧起列外没有像素、两组整块平移且距离不变、组里的分隔线跟着滑、点回正在滑出去的那组从此刻往回走且重新开始完整的 6000ms、换到第三组三组不相交、减少动效直接换）与 `lab-grid-structure`、`lab-grid-panels`、`lab-nested-grid` 共 50 条过；`docs:check`、`governance:check`。
+  - 变异检查：拿掉 `token` 的作废、拿掉停放的新条件，DOM 用例失败；拿掉起点那一帧的裁切，e2e 在第一帧读到列下面露出 B 的绿色。
+  - 实现审查（Claude Sonnet，后台）进行中，说明在仓库外；不等它，做第 3 片。
+
 ## 下一步
 
-第 2 片：nb-layout 的交换过渡（先写 `ui/nested-grid` 的“过渡”条目），Lab 场景与 `lab-grid-swap` 逐帧 e2e；提交后后台派实现审查，接着做第 3 片（侧栏接线、选中标记）。
+第 3 片：侧栏切换容器时发 `swap`、`capLeaves` 排除交换里的叶、活动栏选中标记的块（先写 `ui/workbench-layout` 输出 22、42）；第 2 片的实现审查回来后处理，修正单独提交。
