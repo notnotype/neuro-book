@@ -24,7 +24,7 @@ export interface ViewHeadControl {
     press(): void;
 }
 
-/** 每一代上下文一份：实例换代时外壳拿到新的一份，旧的那份不再收到位置与按下，视图手里的旧引用自然作废。 */
+/** 每一代上下文一份：实例换代时外壳拿到新的一份；旧的那份的位置被清成 null，之后不再收到位置与按下。 */
 export function createViewHead(context: ViewContext): ViewHeadControl {
     const slots = shallowRef<PanelHeadSlots | null>(null);
     const listeners = new Set<() => void>();

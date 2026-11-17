@@ -12,7 +12,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {shallowRef} from "vue";
+import {computed, shallowRef} from "vue";
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
 import {PROVIDERS_SECTION, ROLES_SECTION} from "nbook/plugins/models/shared/contracts";
 import {testTextPort} from "nbook/shared/testing/text-port";
@@ -83,7 +83,7 @@ interface Harness {
     readonly recent: {value: string | null};
     readonly copied: string[];
     /** 每次打开设置给的去处；不带去处时是 null。 */
-    readonly settingsOpened: ({readonly section: string; readonly focus?: string} | null)[];
+    readonly settingsOpened: ({readonly section: string; readonly focus?: string; readonly layer?: string} | null)[];
     readonly requestsOpened: {readonly sessionId: string; readonly request?: number}[];
     ctx(): AgentConversationContext;
 }
@@ -94,7 +94,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
     const {client} = await w.window(`sh-${String(windows)}`);
     const recent = {value: null as string | null};
     const copied: string[] = [];
-    const settingsOpened: ({readonly section: string; readonly focus?: string} | null)[] = [];
+    const settingsOpened: ({readonly section: string; readonly focus?: string; readonly layer?: string} | null)[] = [];
     const requestsOpened: {readonly sessionId: string; readonly request?: number}[] = [];
     const host = createSessionHost({
         remote: client,
@@ -1296,12 +1296,22 @@ describe("中断、设置与模型（输出 7–9）", () => {
         // 没有更具体的卡：标题写原因，按钮打开模型服务（输出 42 的最后一种）。
         expect(fresh.ctx().availability).toMatchObject({title: "conversation.model.unknown", actions: [{id: "open-settings"}]});
         fresh.host.act({type: "availability.act", action: "open-settings"});
-        expect(fresh.settingsOpened).toEqual([{section: PROVIDERS_SECTION}]);
+        expect(fresh.settingsOpened).toEqual([{section: PROVIDERS_SECTION, layer: "user"}]);
     });
 
     /** 提示卡用真的目录（严格模式：缺键、缺插值参数会抛），断言写出来的字。 */
     const zh = () => testTextPort("zh-CN", {[AGENT_TEXT_NAMESPACE]: agentCatalogs});
     const DEEP_UNBOUND = {key: "role:deep", name: "深度", axis: "gradient", modelLabel: null, status: "unbound"} as const;
+
+    test("profileKey 是响应式的：打开一个会话时先是主创，快照到了换成它的 Profile（第一屏按它取开场指令，conversation.md 输出 41）", async () => {
+        const w = await world();
+        const h = await started(w);
+        const fresh = await harness(w);
+        const key = computed(() => fresh.host.profileKey());
+        expect(key.value).toBe(MAIN_PROFILE);
+        await fresh.host.open(h.host.sessionId.value!);
+        await until("换成会话的 Profile", () => key.value === PROFILE);
+    });
 
     test("提示卡：没选会话时只判一家服务商都没有，按钮打开服务商页的添加窗口；还没读到、有服务商时不出", async () => {
         const w = await world();
@@ -1313,7 +1323,7 @@ describe("中断、设置与模型（输出 7–9）", () => {
         await until("出卡", () => h.ctx().availability.status === "profile-unavailable");
         expect(h.ctx().availability).toMatchObject({title: "还没有可用的模型", actions: [{id: "add-provider", label: "添加服务商"}]});
         h.host.act({type: "availability.act", action: "add-provider"});
-        expect(h.settingsOpened).toEqual([{section: PROVIDERS_SECTION, focus: "add"}]);
+        expect(h.settingsOpened).toEqual([{section: PROVIDERS_SECTION, focus: "add", layer: "user"}]);
         providers.value = [{id: "local", name: "本机"}];
         await until("卡消失", () => h.ctx().availability.status === "ready");
     });
@@ -1327,7 +1337,7 @@ describe("中断、设置与模型（输出 7–9）", () => {
         await until("出卡", () => h.ctx().availability.status === "profile-unavailable");
         expect(h.ctx().availability).toMatchObject({title: "“深度”角色还没绑定模型", message: "测试用“深度”角色的模型对话。", actions: [{id: "bind-role", label: "去绑定"}]});
         h.host.act({type: "availability.act", action: "bind-role"});
-        expect(h.settingsOpened.at(-1)).toEqual({section: ROLES_SECTION, focus: "deep"});
+        expect(h.settingsOpened.at(-1)).toEqual({section: ROLES_SECTION, focus: "deep", layer: "user"});
 
         providers.value = [];
         await until("换成添加服务商", () => h.ctx().availability.actions[0]?.id === "add-provider");
@@ -1350,7 +1360,7 @@ describe("中断、设置与模型（输出 7–9）", () => {
         await until("出卡", () => h.ctx().availability.status === "profile-unavailable");
         expect(h.ctx().availability).toMatchObject({title: "KeyCo 还没有设置密钥", message: "“深度”角色绑定的模型要用 KeyCo 的密钥。", actions: [{id: "set-key", label: "设置密钥"}]});
         h.host.act({type: "availability.act", action: "set-key"});
-        expect(h.settingsOpened.at(-1)).toEqual({section: PROVIDERS_SECTION, focus: "keyed"});
+        expect(h.settingsOpened.at(-1)).toEqual({section: PROVIDERS_SECTION, focus: "keyed", layer: "user"});
 
         h.host.act({type: "model.set", modelKey: "keyed/k"});
         await until("写模型", () => h.ctx().availability.message === "keyed/k 要用 KeyCo 的密钥。");

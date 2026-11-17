@@ -25,6 +25,7 @@ Agent 对话的纯视图：会话的头、消息流、待处理区、输入框�
 - 有 `sessions` 插槽时点标题开会话列表（`sessionsOpen`）；送到视图之外时，按下由宿主经 `sessionsOpen` 转来。
 - 头的溢出菜单（有会话时才有）在“分轮视图”和“原始视图”之间切换，发出 `update:viewMode`。
 - 登记的顶栏动作（注册表的 `headerActions`）：`when` 为假的不显示；允许常驻（`pinnable`）的按 `order` 取前两个，以图标按钮放在溢出菜单按钮左边，其余收进溢出菜单，排在内置项之后、“原始视图”之前；角标数写在名字后（`名字 (N)`）。点了发出它的 `target.action`。
+- 第一屏：点最近对话的卡片发 `session.select`；点“查看全部”打开会话列表（同点标题）；点一条开场指令发 `composer.fill`（带指令全文，宿主换掉输入框里的字），随后聚焦输入框。
 - 点击整轮摘要行或思维链摘要行展开或收起；已结束的轮次默认收起，思维链默认折叠，手动操作过的轮次不再跟随自动收起。含 `ctx.activeCalls` 里调用的轮次（后台子代理、后台命令还在跑）不自动收起，手动收起照常。
 - 等用户的事项分两组：带 `source`（后代会话的）或 `async`（异步提问）的进停靠区，输入框照常可用；其余是阻塞的，由同步向导替换输入框。同步向导在时停靠区收成一条、排在它下面。停靠区的读屏播报在视图层常驻的 `role="status"` 区里（文字带来源），不随停靠区挂卸。切换会话（`ctx.session.id` 变化）时每一轮重新挂载，展开记录随之清空。
 - 每条消息角色行右端有消息操作（复制、编辑、重试、从此处分支及插件登记的操作），点击发出对应 action。常显，颜色弱；有多个分支时分支切换在操作条最前。
@@ -79,6 +80,8 @@ type AgentConversationViewProps = {
     sessionsOpen?: boolean;
     /** 没选会话时头上的图标：新会话会用的 Profile。默认 null，不画图标。 */
     draftProfile?: {name: string; icon: string} | null;
+    /** 第一屏的数据（欢迎、最近对话、开场指令，形状见 `stream/AgentWelcome.md`）；默认 null，没有消息时只写“还没有消息”。 */
+    welcome?: AgentWelcomeView | null;
 };
 
 type AgentConversationViewEmits = {
@@ -112,7 +115,7 @@ type AgentConversationViewExpose = {
 ## 状态
 
 - 未选择会话（`ctx.session` 为 null）：头写“新对话”，图标是 `draftProfile` 的，左边空、没有溢出菜单；消息流为空态。
-- 没有消息：消息流显示空态文字。
+- 没有消息：不在加载、给了 `welcome` 时显示第一屏（[`AgentWelcome`](stream/AgentWelcome.md)，竖直居中在消息区里），否则写“还没有消息”。
 - `ctx.availability.status` 不是 `ready`：输入框只读，并在输入框上方显示说明。
 
 ## 不支持

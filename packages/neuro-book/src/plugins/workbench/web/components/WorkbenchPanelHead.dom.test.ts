@@ -4,8 +4,9 @@
  */
 
 import {mount} from "@vue/test-utils";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {afterEach, describe, expect, it} from "vitest";
-import {defineComponent, h, nextTick, ref, shallowRef, Teleport} from "vue";
+import {defineComponent, h, ref, shallowRef, Teleport} from "vue";
 import type {PropType} from "vue";
 
 import type {PanelHeadSlots} from "../views/view-head";
@@ -63,17 +64,14 @@ function mountHead(initial: PanelViewHead | null) {
     return {wrapper, viewHead, given, activated};
 }
 
-async function settle(): Promise<void> {
-    for (let index = 0; index < 3; index += 1) await nextTick();
-}
-
 const handle = () => document.querySelector<HTMLButtonElement>("[data-panel-tab]")!;
+/** 按钮里此刻写的字：视图送进来的，或声明标题。 */
+const shown = (): string | undefined => document.querySelector("[data-panel-tab]")?.textContent?.trim();
 
 describe("WorkbenchPanelHead 的标题区", () => {
     it("视图接管时：内容送进三列，标题按钮仍是拖动源、带工作台的 id 与拖动描述，名称是视图送进来的文字", async () => {
         const {given} = mountHead({key: "nbook.agent.conversation:1", popup: {expanded: false}});
-        await settle();
-        expect(given).toHaveLength(1);
+        await waitUntil("交出位置、内容送进标题按钮", () => given.length === 1 && shown() === "第三章节奏调整");
         expect(given[0]?.handle).toBe(handle());
         expect(handle().id).toBe(panelTabDomId("probe", TAB.id));
         expect(handle().getAttribute("data-panel-tab")).toBe(TAB.id);
@@ -92,7 +90,7 @@ describe("WorkbenchPanelHead 的标题区", () => {
 
     it("内容区的名称来自隐藏的声明标题，与按钮写什么无关", async () => {
         mountHead({key: "nbook.agent.conversation:1", popup: null});
-        await settle();
+        await waitUntil("视图的字送进按钮", () => shown() === "第三章节奏调整");
         const title = document.getElementById(panelTitleDomId("probe", TAB.id))!;
         expect(title.hidden).toBe(true);
         expect(title.textContent).toBe("对话");
@@ -100,15 +98,12 @@ describe("WorkbenchPanelHead 的标题区", () => {
 
     it("弹出状态写到按钮上；点按钮发 activate", async () => {
         const {viewHead, activated} = mountHead({key: "nbook.agent.conversation:1", popup: {expanded: false}});
-        await settle();
-        expect(handle().getAttribute("aria-haspopup")).toBe("dialog");
+        await waitUntil("写上弹出状态", () => handle().getAttribute("aria-haspopup") === "dialog");
         expect(handle().getAttribute("aria-expanded")).toBe("false");
         viewHead.value = {key: "nbook.agent.conversation:1", popup: {expanded: true}};
-        await settle();
-        expect(handle().getAttribute("aria-expanded")).toBe("true");
+        await waitUntil("展开", () => handle().getAttribute("aria-expanded") === "true");
         viewHead.value = {key: "nbook.agent.conversation:1", popup: null};
-        await settle();
-        expect(handle().hasAttribute("aria-haspopup")).toBe(false);
+        await waitUntil("不弹出东西", () => !handle().hasAttribute("aria-haspopup"));
         expect(handle().hasAttribute("aria-expanded")).toBe(false);
         handle().click();
         expect(activated).toEqual([TAB.id]);
@@ -116,27 +111,23 @@ describe("WorkbenchPanelHead 的标题区", () => {
 
     it("实例换代时交一组新的位置；不再接管时交 null，按钮写回声明标题", async () => {
         const {viewHead, given} = mountHead({key: "nbook.agent.conversation:1", popup: null});
-        await settle();
+        await waitUntil("第一组位置", () => given.length === 1);
         viewHead.value = {key: "nbook.agent.conversation:2", popup: null};
-        await settle();
-        expect(given).toHaveLength(2);
+        await waitUntil("换代后的一组位置", () => given.length === 2 && shown() === "第三章节奏调整");
         expect(given[1]).not.toBeNull();
         expect(given[1]!.title).not.toBe(given[0]!.title);
         expect(handle().textContent?.trim()).toBe("第三章节奏调整");
 
         viewHead.value = null;
-        await settle();
-        expect(given.at(-1)).toBeNull();
-        expect(handle().textContent?.trim()).toBe("对话");
+        await waitUntil("交回 null、写回声明标题", () => given.at(-1) === null && shown() === "对话");
         // 视图的内容回到视图自己那里。
         expect(document.querySelector("[data-probe-view] [data-probe-title]")).not.toBeNull();
     });
 
     it("没有接管时照旧：不交位置，按钮写声明标题", async () => {
         const {given} = mountHead(null);
-        await settle();
+        await waitUntil("画出面板头", () => shown() === "对话");
         expect(given).toEqual([]);
-        expect(handle().textContent?.trim()).toBe("对话");
         expect(document.querySelector("[data-panel-head-start]")).toBeNull();
     });
 });

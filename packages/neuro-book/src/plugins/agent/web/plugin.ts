@@ -340,7 +340,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                     providers: () => modelsSnapshot.value?.providers.map((provider) => ({id: provider.id, name: provider.name})) ?? null,
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
-                    openSettings: (target) => void (target === undefined ? commands.execute(OPEN_SETTINGS_COMMAND) : commands.execute(OPEN_SETTINGS_COMMAND, target)),
+                    openSettings: (target) => {
+                        void (target === undefined ? commands.execute(OPEN_SETTINGS_COMMAND) : commands.execute(OPEN_SETTINGS_COMMAND, target)).then((result) => {
+                            if (!result.ok) report("open-settings-failed", `opening settings ${target?.section ?? ""} failed: ${result.code}`);
+                        });
+                    },
                     openRequests: (target) => void commands.execute(OPEN_REQUESTS_COMMAND, target),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),

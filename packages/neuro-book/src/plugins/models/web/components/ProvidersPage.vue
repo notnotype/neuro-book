@@ -294,7 +294,8 @@ const page = ref<HTMLElement | null>(null);
 watch([() => props.focus, snapshot], async ([focus, current]) => {
     if (focus === null || current === null) return;
     const target = props.takeFocus();
-    if (target === null) return;
+    // 取走之后再看能不能写：不能写时页面上的“添加服务商”是停用的，这里也不替用户打开（取走免得等着的值留下来）。
+    if (target === null || (target === "add" && disabled.value)) return;
     if (target === "add") {
         await openAdd();
         return;

@@ -63,10 +63,13 @@ describe("视图实例的标题区", () => {
         expect(head!.slots.value).toBeNull();
     });
 
-    it("渲染出错时没有标题区；重试渲染换一代，标题区也换一份新的", async () => {
+    it("渲染出错时没有标题区；重试渲染换一代，标题区也换一份新的；旧的那份位置清成 null，之后收不到位置与按下", async () => {
         const instances = instancesFor({"test.head": true});
         await ready(instances, "test.head");
         const first = instances.headOf("test.head")!;
+        const pressed: string[] = [];
+        first.head.onTitlePress(() => pressed.push("old"));
+        first.setSlots({start: {} as HTMLElement, title: {} as HTMLElement, end: {} as HTMLElement, handle: {} as HTMLElement});
         const generation = instances.instances.get("test.head")!.generation;
         instances.renderError("test.head", generation, "boom");
         expect(instances.headOf("test.head")).toBeNull();
@@ -76,6 +79,10 @@ describe("视图实例的标题区", () => {
         expect(second).not.toBeNull();
         expect(second!.head).not.toBe(first.head);
         expect(viewHeadOf(instances.contextOf("test.head")!)).toBe(second!.head);
+        second!.setSlots({start: {} as HTMLElement, title: {} as HTMLElement, end: {} as HTMLElement, handle: {} as HTMLElement});
+        second!.press();
+        expect(first.head.slots.value).toBeNull();
+        expect(pressed).toEqual([]);
     });
 
     it("没申请的视图没有标题区，它的 context 也取不到", async () => {

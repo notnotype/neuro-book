@@ -108,6 +108,44 @@ describe("SubagentsEntry", () => {
         expect(wrapper.find("[data-subagents-dot]").exists()).toBe(false);
     });
 
+    it("一次打开里每次运行只取一次：取不到的不随后代的进度重取，关掉再开才再试；停止、中断的不取", async () => {
+        const done = item("d", "root", {runs: [{runId: "r1", reason: "completed", endedAt: NOW}]});
+        const stopped = item("s", "root", {runs: [{runId: "r1", reason: "aborted", endedAt: NOW}]});
+        const running = (tools: number) => item("a", "root", {state: "running", tools});
+        const {wrapper, store, fetched} = render([done, stopped, running(1)]);
+        const push = (...items: TreeItem[]) => {
+            store.data.value = {...store.data.value, tree: new Map(items.map((entry) => [entry.id, entry]))};
+        };
+        await wrapper.get("[data-subagents-entry]").trigger("click");
+        await flushPromises();
+        push(done, stopped, running(2));
+        await flushPromises();
+        push(done, stopped, running(3));
+        await flushPromises();
+        expect(fetched).toEqual(["d:r1"]);
+
+        await wrapper.get("[data-subagents-entry]").trigger("click");
+        await waitUntil("浮层关了", () => rows().length === 0);
+        await wrapper.get("[data-subagents-entry]").trigger("click");
+        await flushPromises();
+        expect(fetched).toEqual(["d:r1", "d:r1"]);
+    });
+
+    it("后代都没了时浮层关掉：之后又有了后代，入口回来、浮层不自己弹开", async () => {
+        const {wrapper, store} = render([item("a", "root", {state: "running"})]);
+        await wrapper.get("[data-subagents-entry]").trigger("click");
+        await flushPromises();
+        expect(rows()).toHaveLength(1);
+        const tree = store.data.value.tree;
+        store.data.value = {...store.data.value, tree: new Map()};
+        await flushPromises();
+        expect(wrapper.find("[data-subagents-entry]").exists()).toBe(false);
+        store.data.value = {...store.data.value, tree};
+        await flushPromises();
+        expect(wrapper.find("[data-subagents-entry]").exists()).toBe(true);
+        expect(rows()).toHaveLength(0);
+    });
+
     it("点一行发 select 并关掉浮层；运行中的行有停止，只停那个会话这次的运行", async () => {
         const {wrapper, stopped} = render([item("a", "root", {state: "running"}), item("d", "root", {runs: [{runId: "r1", reason: "completed", endedAt: NOW}]})]);
         await wrapper.get("[data-subagents-entry]").trigger("click");

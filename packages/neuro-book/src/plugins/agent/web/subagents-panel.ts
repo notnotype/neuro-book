@@ -8,7 +8,7 @@ import type {RunResult} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {TreeItem} from "../shared/subagents";
 import {displayToolName} from "./session-host";
-import {shortTarget, waitingOf} from "./subagent-card";
+import {RUN_REASON, shortTarget, waitingOf} from "./subagent-card";
 import type {Step, WaitingFor} from "./subagent-card";
 
 /** 与子代理卡片同一套状态（输出 33）；`unknown` 是还没运行过、也不在跑的。 */
@@ -31,8 +31,6 @@ export interface PanelRow {
     readonly startedAt?: number;
     readonly step?: Step;
 }
-
-const RUN_REASON: Readonly<Record<string, RowState>> = {finished: "done", completed: "done", error: "failed", aborted: "aborted", interrupted: "interrupted"};
 
 function rowOf(item: TreeItem, depth: number): PanelRow {
     const base = {id: item.id, depth, icon: item.profileIcon ?? "i-lucide-bot", profile: item.profile, task: item.name ?? ""};

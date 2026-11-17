@@ -168,7 +168,7 @@ export interface SessionHostDeps {
     readonly profiles: () => readonly ProfileEntry[];
     readonly copy: (text: string) => void;
     /** 打开设置；给了 `target` 时到那个分区、交给那一页 `focus`（settings-window.md 输出 15）。 */
-    readonly openSettings: (target?: {readonly section: string; readonly focus?: string}) => void;
+    readonly openSettings: (target?: {readonly section: string; readonly focus?: string; readonly layer?: "user" | "project"}) => void;
     /** 打开“模型请求”页，只看这个会话；带 `request` 时选中那一次（request-trace.md 的入口）。 */
     readonly openRequests: (target: {readonly sessionId: string; readonly request?: number}) => void;
     readonly openAddress: (address: string) => void;
@@ -213,7 +213,7 @@ export interface SessionHost {
     /** 新建并打开；`profile` 缺省用主创。 */
     create(profile?: string): Promise<string | null>;
     act(action: AgentViewAction): void;
-    /** 当前会话的 Profile；还没有会话时是新建要用的主创。`$` 菜单按它取白名单。 */
+    /** 当前会话的 Profile；还没有会话时是新建要用的主创。`$` 菜单按它取白名单。响应式：快照到了会跟着变。 */
     profileKey(): string;
     /** 组件借用，交回归还函数。 */
     borrow(): () => void;
@@ -1300,6 +1300,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     }
 
     function profileKey(): string {
+        // `current` 与 transcript 不是响应式的：先读 `revision`，渲染函数与 computed 读它时，快照到了（meta 填上 Profile）会跟着重算。
+        void revision.value;
         return current?.transcript.meta()?.profile ?? MAIN_PROFILE;
     }
 

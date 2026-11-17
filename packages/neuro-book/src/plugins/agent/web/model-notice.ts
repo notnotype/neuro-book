@@ -43,8 +43,11 @@ export interface ModelNotice {
     readonly message: string;
     readonly icon: string;
     readonly action: {readonly id: string; readonly label: string};
-    /** 按钮打开设置到哪里（settings/settings-window.md 输出 15 的 `section` 与 `focus`）。 */
-    readonly target: {readonly section: string; readonly focus?: string};
+    /**
+     * 按钮打开设置到哪里（settings/settings-window.md 输出 15 的 `section`、`focus` 与 `layer`）。模型的两页只在用户标签下可用：
+     * 窗口上次停在“本作品”时不带 `layer` 会落在不可用的说明上，`focus` 也等不到页面，所以都带 `layer: "user"`。
+     */
+    readonly target: {readonly section: string; readonly focus?: string; readonly layer: "user"};
 }
 
 /** 按顺序取第一张符合的卡；不用出卡时为 null。 */
@@ -58,7 +61,7 @@ export function modelNotice(input: ModelNoticeInput): ModelNotice | null {
             message: t("conversation.notice.noProvider.body"),
             icon: "i-lucide-plug-zap",
             action: {id: "add-provider", label: t("conversation.notice.noProvider.action")},
-            target: {section: PROVIDERS_SECTION, focus: "add"},
+            target: {section: PROVIDERS_SECTION, focus: "add", layer: "user"},
         };
     }
     if (!input.session || failure === null) return null;
@@ -69,7 +72,7 @@ export function modelNotice(input: ModelNoticeInput): ModelNotice | null {
             message: t("conversation.notice.roleUnbound.body", {role, profile: input.profileName}),
             icon: "i-lucide-link-2-off",
             action: {id: "bind-role", label: t("conversation.notice.roleUnbound.action")},
-            target: {section: ROLES_SECTION, focus: failure.role},
+            target: {section: ROLES_SECTION, focus: failure.role, layer: "user"},
         };
     }
     if (failure.code === "no-credentials" && failure.provider !== undefined) {
@@ -84,7 +87,7 @@ export function modelNotice(input: ModelNoticeInput): ModelNotice | null {
             message,
             icon: "i-lucide-key-round",
             action: {id: "set-key", label: t("conversation.notice.noCredentials.action")},
-            target: {section: PROVIDERS_SECTION, focus: providerId},
+            target: {section: PROVIDERS_SECTION, focus: providerId, layer: "user"},
         };
     }
     return {
@@ -92,6 +95,6 @@ export function modelNotice(input: ModelNoticeInput): ModelNotice | null {
         message: "",
         icon: "i-lucide-circle-alert",
         action: {id: "open-settings", label: t("conversation.openSettings")},
-        target: {section: PROVIDERS_SECTION},
+        target: {section: PROVIDERS_SECTION, layer: "user"},
     };
 }

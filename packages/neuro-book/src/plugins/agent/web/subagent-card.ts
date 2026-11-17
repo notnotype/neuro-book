@@ -54,7 +54,8 @@ export type WaitingFor = {readonly kind: "approval"; readonly tool: string} | {r
 type Details = {readonly sessionId?: string; readonly jobId?: string; readonly runId?: string; readonly status?: string; readonly line?: string; readonly code?: string; readonly jobs?: readonly {readonly runId?: string; readonly state?: string; readonly line?: string}[]};
 
 const TERMINAL: Readonly<Record<string, CardState>> = {completed: "done", failed: "failed", aborted: "aborted", interrupted: "interrupted"};
-const RUN_REASON: Readonly<Record<string, CardState>> = {finished: "done", completed: "done", error: "failed", aborted: "aborted", interrupted: "interrupted"};
+/** 运行的收口原因 → 状态；卡片与子代理浮层共用（输出 33、43 的“同一套状态”）。 */
+export const RUN_REASON: Readonly<Record<string, "done" | "failed" | "aborted" | "interrupted">> = {finished: "done", completed: "done", error: "failed", aborted: "aborted", interrupted: "interrupted"};
 const NAME_CHARS = 30;
 
 const detailsOf = (call: ToolCallView): Details => (call.result?.details ?? {}) as Details;

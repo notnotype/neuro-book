@@ -66,17 +66,23 @@ export function useViewInstances(options: {
         return markRaw({id: viewId, generation, visible: visible as Readonly<Ref<boolean>>, location: location as Readonly<Ref<ViewLocation | null>>});
     }
 
+    /** 旧一代的标题区先清掉位置：视图手里留着的旧引用读到 null，不会往已拆掉的元素里送内容。 */
+    function retireHead(viewId: string): void {
+        heads.get(viewId)?.setSlots(null);
+        heads.delete(viewId);
+    }
+
     /** 换一代上下文；申请了标题区的同时换一份标题区。 */
     function setContext(viewId: string, generation: number): void {
         const context = contextFor(viewId, generation);
         contexts.set(viewId, context);
+        retireHead(viewId);
         if (wantsHead.get(viewId) === true) heads.set(viewId, createViewHead(context));
-        else heads.delete(viewId);
     }
 
     function dropContext(viewId: string): void {
         contexts.delete(viewId);
-        heads.delete(viewId);
+        retireHead(viewId);
     }
 
     async function load(viewId: string): Promise<void> {

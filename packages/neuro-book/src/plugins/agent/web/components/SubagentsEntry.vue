@@ -42,15 +42,28 @@ const summaryText = computed(() => [
     ...(summary.value.waiting > 0 ? [t("conversation.subagents.waiting", {count: summary.value.waiting})] : []),
 ].join(" · "));
 
-/** 开着时列出的出错都算看过，收口了的行去取结果；开着期间新出现的也一样。 */
-watch([open, rows], ([isOpen, list]) => {
+/**
+ * 开着时列出的出错都算看过；完成与出错的行去取这次运行的结果（第二行只写这两种），开着期间新出现的也一样。一次打开里每次运行只试一次：
+ * 行随后代的进度频繁重算，取不到的不能跟着每次重算再取（输出 43 的“同一次运行只取一次”），关掉再开才再试。
+ */
+const tried = new Set<string>();
+watch([open, rows], ([isOpen, list], previous) => {
     if (!isOpen || store === null) return;
+    if (previous?.[0] !== true) tried.clear();
     props.seen.markRows(list);
     for (const row of list) {
         const ended = row.ended;
-        if (ended !== null) props.results.load(row.id, ended.runId, () => store.runResult(row.id, ended.runId));
+        if (ended === null || (row.state !== "done" && row.state !== "failed")) continue;
+        const key = `${row.id}:${ended.runId}`;
+        if (tried.has(key)) continue;
+        tried.add(key);
+        props.results.load(row.id, ended.runId, () => store.runResult(row.id, ended.runId));
     }
 }, {immediate: true});
+// 后代都没了（切到没有子代理的会话）：入口不画，浮层也关掉，免得之后有了后代时自己弹开。
+watch(() => rows.value.length, (count) => {
+    if (count === 0) open.value = false;
+});
 
 const STATE_ICON: Readonly<Partial<Record<RowState, string>>> = {
     waiting: "i-lucide-shield-alert",
@@ -361,6 +374,18 @@ function stop(row: PanelRow): void {
 .sa-row:focus-within .sa-row__stop {
     opacity: 1;
     pointer-events: auto;
+}
+
+/* 触屏没有悬停：运行中的行常显停止，状态让出它的位置。 */
+@media (hover: none) {
+    .sa-row__stop {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .sa-row.is-running .sa-row__state {
+        visibility: hidden;
+    }
 }
 
 /* 浮层的外框是 Popover 的元素，scoped 够不到：经 `contentClass` 挂上这个类。原子类在 Tailwind 的 utilities 层里，这里不分层，盖得过它的 p-3。 */

@@ -77,7 +77,8 @@ onBeforeUnmount(() => {
 });
 
 // 第一屏出现时（切到没有消息的会话、新建、没选会话）重取最近对话：别处新建、改名、归档过，这里不知道（conversation.md 输出 41）。
-watch(() => [props.host.ctx.value.session?.id ?? null, props.host.ctx.value.messages.length === 0] as const, ([, empty]) => {
+// 两个源分别比较：getter 交回新数组时 ctx 每变一次都算变了，第一屏开着期间会一直重取。
+watch([() => props.host.ctx.value.session?.id ?? null, () => props.host.ctx.value.messages.length === 0], ([, empty]) => {
     if (empty) void props.recent.refresh();
 }, {immediate: true});
 
