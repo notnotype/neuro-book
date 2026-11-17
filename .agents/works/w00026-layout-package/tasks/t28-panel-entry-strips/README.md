@@ -103,6 +103,8 @@ updated: 2026-11-17
 - 第 2 片（交换的“先收尾”与 `moving`）提交在分支上：`58e171af2`。`swapTouchesBand`；`decideMotion` 对和进行中的带不相交的新交换返回 `settleFirst`、按空带规划、不带上一轮滑出去的项，`update()` 先 `stop()`；`NestedGrid` 暴露 `moving`。Lab 交换场景加横向交换的右列。Spec `ui/nested-grid` 的“交换”与验收 11 同步（master）。
   - 验证：`useGridMotion.dom.test.ts` 加不相交、点回来两条；`NestedGrid.dom.test.ts` 加 `moving`（含时长为 0）；e2e `lab-grid-swap` 5 条（新加“滑到一半点另一列”）；nb-layout 全部 573 + 246 条与类型检查。变异检查：把“先收尾”关掉，单元用例与新 e2e 都失败。
 
+- 第 1、2 片先合入 master（`d80ab6a4a`）：宿主还没开 `regionStrip`，产品行为不变；t29、t26 也要改 nb-layout，早合免得分叉。合入前在分支上重跑 `workbench-containers` 的侧栏切换三条与 `lab-workbench-surface`，20 条过。
+
 ## 下一步
 
 第 3 片等 t29 定稿：按定下的头重写这一片的设计，单独交一次设计审查，再动手。
