@@ -23,7 +23,8 @@ export const MarkdownSticker = Node.create({
     group: "inline",
     inline: true,
     atom: true,
-    selectable: true,
+    // 不可单独选中：方向键一步跨过（输出 21）。可选中时第一下先选中它，接着打字会把表情替换掉。
+    selectable: false,
     addAttributes() {
         return {raw: {default: "", rendered: false}};
     },

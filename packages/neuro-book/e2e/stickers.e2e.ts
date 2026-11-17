@@ -5,7 +5,7 @@
 
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
@@ -21,6 +21,8 @@ import type {ProcessHandle, ProductServer} from "./fixtures";
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 
 let tmp = "";
+let projectDir = "";
+let stateRoot = "";
 let server: ProductServer;
 let endpoint: ProcessHandle & {control: string; child: ReturnType<typeof spawn>};
 
@@ -33,8 +35,8 @@ const lastRequest = async () => JSON.stringify((await control("/requests") as {m
 
 test.beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "stickers");
-    const projectDir = join(tmp, "Book");
-    const stateRoot = join(tmp, "state");
+    projectDir = join(tmp, "Book");
+    stateRoot = join(tmp, "state");
     const id = randomUUID();
     await mkdir(join(projectDir, ".nbook"), {recursive: true});
     await writeFile(join(projectDir, ".nbook/project.json"), JSON.stringify({schema: 1, id}));
@@ -97,6 +99,9 @@ test("验收 1、2：提示词里有白名单里的常用表情；回复里的�
     await expect(page.locator(".nb-sticker-block .nb-sticker[data-sticker=':lyra/开心:']")).toHaveCount(0);
     await expect(page.locator(".nb-sticker[data-sticker=':lyra/没有:']")).toHaveText(":lyra/没有:");
     await expect(page.getByText("时间 10:30:00", {exact: false})).toBeVisible();
+    // 行内小图不撑高这一行：带图的一段与只有文字的一段一样高（两段都只有一行）。
+    const height = (raw: string) => page.locator(`p:has(> .nb-sticker[data-sticker="${raw}"])`).evaluate((element) => element.getBoundingClientRect().height);
+    expect(Math.abs(await height(":lyra/开心:") - await height(":lyra/没有:"))).toBeLessThan(0.5);
 
     const sent = await lastRequest();
     expect(sent).toContain(":lyra/开心: — 被夸的时候");
@@ -106,4 +111,65 @@ test("验收 1、2：提示词里有白名单里的常用表情；回复里的�
     await page.reload();
     await expect(input(page)).toBeVisible();
     await expectImage(page, ":lyra/开心:");
+});
+
+test("输出 18：清单里加了表情，浏览器的目录经通知更新，之后的回复里新表情显示成图", async ({page}) => {
+    await openConversation(page);
+    await writeFile(join(stateRoot, "user", "stickers", "lyra", "stickers.json"), JSON.stringify({title: "星璃", stickers: [
+        {name: "开心", file: "happy.png", when: "被夸的时候", common: true},
+        {name: "害羞", file: "shy.png", common: true},
+        {name: "比心", file: "heart.png"},
+    ]}));
+    await writeFile(join(stateRoot, "user", "stickers", "lyra", "heart.png"), PIXEL);
+    // 服务端重扫完（取图路由认得新图）才发：先发会按旧目录显示原文。目录变了的通知在重扫完时就发出，浏览器取新目录的那次调用
+    // 早于这条消息与模型的回复。
+    await expect.poll(async () => (await fetch(new URL("/api/nbook.stickers/image/user.lyra/heart.png", server.url))).status).toBe(200);
+    await script(":lyra/比心:");
+    await input(page).click();
+    await page.keyboard.type("比个心");
+    await page.keyboard.press("Enter");
+    await expectImage(page, ":lyra/比心:");
+});
+
+test("验收 4：编辑器里表情是一个整体，别处打字只改打字处；打出写法变成表情，紧接着退格还原、写回时开头的冒号转义", async ({page}) => {
+    const file = join(projectDir, "表情.md");
+    await writeFile(file, "好:lyra/开心:和_斜体_\n");
+    await page.goto(new URL("/?project=book", server.url).href);
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    await page.locator("[data-explorer-row=\"project://表情.md\"]").dblclick();
+    const prose = page.locator("[data-editor-group-active] [data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
+    await expect(prose).toBeVisible();
+    await expectImage(page, ":lyra/开心:");
+
+    // 光标从“好”后面按一次右方向键就跨过表情（输出 21）。
+    await prose.locator("p").first().click();
+    await expect(prose).toBeFocused();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.type("呀");
+    await page.keyboard.press("Control+s");
+    await expect.poll(() => readFile(file, "utf8")).toBe("好:lyra/开心:呀和_斜体_\n");
+
+    // 新的一行打出写法变成表情节点（输出 22），保存后是原文。
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type(":lyra/害羞:");
+    await expect(prose.locator(".nb-sticker[data-sticker=':lyra/害羞:']")).toHaveCount(1);
+    // 退格一次删掉整个表情（输出 21）；再打一遍，留着。
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await expect(prose.locator(".nb-sticker[data-sticker=':lyra/害羞:']")).toHaveCount(0);
+    await page.keyboard.type(":lyra/害羞:");
+    await expect(prose.locator(".nb-sticker[data-sticker=':lyra/害羞:']")).toHaveCount(1);
+
+    // 打出写法后紧接着退格：还原成打出的文字，写回时开头的冒号转义（输出 22、23）。
+    await page.keyboard.press("Enter");
+    await page.keyboard.type(":abc:");
+    await expect(prose.locator(".nb-sticker[data-sticker=':abc:']")).toHaveCount(1);
+    await page.keyboard.press("Backspace");
+    await expect(prose.locator(".nb-sticker[data-sticker=':abc:']")).toHaveCount(0);
+    await page.keyboard.press("Control+s");
+    await expect.poll(() => readFile(file, "utf8")).toBe("好:lyra/开心:呀和_斜体_\n\n:lyra/害羞:\n\n\\:abc:\n");
 });
