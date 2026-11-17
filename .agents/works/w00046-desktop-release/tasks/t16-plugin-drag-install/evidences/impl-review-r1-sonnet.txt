@@ -1,0 +1,57 @@
+## F1 [中] 根元素 min-height: 100% 在设置窗口里撑不满，标题下面与列表下面的空白不是落点（读代码推断，没跑）
+位置：packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.vue:701-702（样式）；PluginsPage.md 布局 2a 与“拖入或选择文件夹”的描述；对照 plugins/settings/web/components/SettingsWindow.vue:367-368、646-649 与 SettingsPageFrame.vue:89-94。
+问题：插件分区声明的是 layout: "column"（web/plugin.ts SECTION），所以页面挂在 ScrollArea 里的 .settings-window__column（只有 max-width: 720px 和内边距，高度是 auto）下面，中间的 .settings-page-frame 是 height: 100%。百分比高度的参照物是 auto 高度的父元素，height: 100% 与 min-height: 100% 都按 auto 算，根元素只有内容那么高。只有 layout: "fill" 的分区才走 .settings-window__fill 的 flex 链拿到整块高度。
+触发场景：用户把文件夹拖到列表下面的空白、或内容区 720px 之外靠右的空白（分区比 720px 宽时）。松手落在页面根之外，窗口兜底 guardWindow 把它当“落在别处”，提示“拖到插件页的内容区”，没有上传。用户眼里那就是插件页的内容区。PluginsPage.md 写的“根元素撑满设置窗口的内容区（标题下面与列表下面的空白也是落点）”与实现不符。
+建议改法：二选一。(a) 要真撑满：把插件分区改成 layout: "fill"，页面自己负责滚动与最大宽度（改动面大，要连带看设置窗口 fill 页的标题与内边距）。(b) 接受只有内容区域是落点：删掉 min-height: 100% 与 md 里那句，兜底提示的文案改成不暗示“内容区”（例如“拖到插件列表上”），并在 md 写明落点范围。我倾向 (b)，成本低。
+## F2 [低] 页面卸载发生在“收集”阶段时，上传仍会继续并留下没人删的上传（读代码推断）
+位置：PluginsPage.vue:366-413（installFolder）、548-553（onBeforeUnmount）。
+问题：uploadAbort 要到 await collect() 之后才创建（389 行）。卸载发生在遍历目录（readEntries/file() 逐项异步）期间时，onBeforeUnmount 里的 uploadAbort?.abort() 作用在 null 上，discardHeld(true) 也因 heldUpload 还是 null 什么都不做。收集完成后 installFolder 照常 new AbortController、client.upload 整个发出，成功后 heldUpload = uploaded.id，再没有任何路径删它（pagehide 监听也已卸掉）。违反 Spec 输出 11 “页面离开时请求删除”。
+触发场景：拖入较大的文件夹（几千个文件，逐个 entry.file() 要几秒），在收集完成前用左栏切到别的设置分区。服务端 1 小时后清扫，期间占 8 个名额之一并占磁盘。
+建议改法：installFolder 开头建 AbortController 并在每个 await 之后检查 signal.aborted（或设 unmounted 标志），卸载时 abort；收集阶段被中止就直接 return，不上传。顺手在 PluginsPage.dom.test.ts 补一条“收集中卸载不发上传”的用例（替身的 readEntries 挂起，卸载后放行）。
+## F3 [低] 覆盖层的文字在整页正中，页面比视口高时在可视区之外（读代码推断）
+位置：PluginsPage.vue:706-721（.plugins-page__drop，inset: 0 + align-items/justify-content: center）。
+问题：覆盖层铺满根元素，根元素是内容高度（见 F1），而内容区在 ScrollArea 里滚动。6 个内置插件加第三方插件的列表，在 600px 以下高度的设置窗口里已经比视口高；页面滚到顶时“松开以安装插件”在根元素垂直正中，可能落在视口之外，用户只看到一圈虚线框与一层淡色。
+建议改法：文字块用 position: sticky; top: 50%（或 top 取视口内的固定位置）放到视口里；或虚线框与文字改画在 position: sticky 的内层，高度取 100cqh。低严重度：虚线框与淡色仍然提示“这里可放”。
+## F4 [低] “选择文件夹…”在上传期间 disabled，键盘用户丢焦点，与页面自己写的约定不一致（读代码推断；Chromium 对“正在聚焦的按钮变成 disabled”的处理未实测）
+位置：PluginsPage.vue:585（:disabled="busy !== null"）；对照 515-518 blockedFor 的注释“正在操作的那个保持可聚焦（键盘用户不丢焦点），重复操作由处理函数忽略”。
+问题：路径安装的“安装…”按钮用 blockedFor('preview')，操作中的按钮保持可聚焦；“选择文件夹…”却整体停用。键盘用户选完文件夹后按钮立刻 disabled，焦点落到 body；预览框关闭时 Dialog 还焦点的目标（打开前的焦点）也就是 body。installFolder 本身已经在 busy 时拒绝重入，不需要靠 disabled 防。
+建议改法：改成 :disabled="blockedFor('upload')" 并用 aria-busy 标出进行中，与“安装…”一致；busy 的取值 'upload' 已经存在。
+## F5 [低] 页面收集时没查“同批路径撞名”，Spec 说页面在上传前就拒绝
+位置：web/folder-upload.ts:20-26（COLLECT_OPTIONS 只传 uploadPathProblem）；shared/plugin-upload.ts:78-100 的 UploadPathSet 注释写“页面收集时与服务端接收时各用一份”，但全仓只有服务端读取器用它（grep UploadPathSet 只命中 plugin-upload.ts:85、142）。
+问题：Spec 输出 11 把“只差大小写或归一化形式、一条是另一条的上层目录”列在“相对路径不合规”之内，并说页面在上传之前拒绝不合规的路径。页面只做了逐条的 uploadPathProblem，撞名要等整份上传到服务端才被拒（upload-path-invalid，不留下上传，所以数据是安全的）。dropped-folder.dom.test.ts 与 PluginsPage.dom.test.ts 也都没有撞名用例。
+建议改法：CollectOptions.pathProblem 换成有状态的检查（每次收集 new UploadPathSet，accept() 里调 add），或在 collectFolder 收尾时对全部路径跑一遍；补一条“Foo.js 与 foo.js 页面拒绝、不上传”的用例。收益有限（本机回环，最多多传 64 MiB 后被拒），所以标低；若不做，把 Spec 那句改成“逐条不合规”。
+## F6 [低] 页面自己生成的详情行是写死的中文，英文界面也显示中文
+位置：PluginsPage.vue:354（`${found.path}：${found.detail}`，全角冒号）；detail 来自 shared/plugin-upload.ts:53-67 uploadPathProblem（“路径里有不能用的字符：…”等中文）；web/folder-upload.ts:132 parseSuccess 的 detail “服务端的应答不对”；服务端失败的 detail（upload-route.ts 里的中文）经 uploaded.detail 原样列出（PluginsPage.vue:393）。
+问题：reason 行走 i18n 目录，下面的详情行不走。英文界面下 path-invalid 的完整两行是“The folder has a file name that cannot be uploaded / a/b?.js：路径里有不能用的字符：b?.js”。服务端诊断原文原样列出与既有的 detailOf 做法一致，可以接受；但页面自己（客户端）生成的两处不该写死中文。
+建议改法：uploadPathProblem 改成交回结构化原因（{kind, segment}）由页面按目录出文字，服务端再自己拼中文详情；parseSuccess 的 detail 换成空串（reason 行已经说了“服务端没有收下”）。至少把全角冒号换成按语言的写法。
+## F7 [低] nb-host 自己的拒绝（403、404、503）全被折成“服务端没有收下这个文件夹”，没有用页面已有的路由失败码文案
+位置：web/folder-upload.ts:60-73（failureOf）、PluginsPage.vue:393。
+问题：failureOf 对 {error: {code, message}} 只取 message，code 统一成 upload-failed。页面其它路径用 reasonOf/remoteFailureText 把路由层失败码（forbidden、unavailable 等）译成界面文字，上传这一路却把 nb-host 的英文 message 当详情行列出。非插件所有者拿到 403、服务停止时 503，用户看到“服务端没有收下这个文件夹”加一行英文诊断，看不出是权限还是服务不可用。
+建议改法：failureOf 识别 error.code 属于 RemoteFailureCode 时把它原样交回（UploadOutcome 增加一支，或 UploadFailureCode 并上 RemoteFailureCode），页面走 reasonOf。若 nb-host 的 HTTP 拒绝码与 RemoteFailureCode 不是同一张表，则先核对再定；我没有核对到这一点，标“未验证”。
+## F8 [低] 文案里“拖”字对“选择文件夹…”这条路不准
+位置：locales/zh-CN.json 与 en-US.json 的 upload.expired（“重新拖入”）、upload.nested（“把它拖进来”）、upload.notFolder、upload.noManifest 相邻的提示、upload.archive。
+问题：用“选择文件夹…”选了一个多嵌套一层的文件夹，提示“插件好像在 my-plugin 里，把它拖进来”；英文 “Drop that folder instead”。用户用的是选择器。upload.source 的“拖入的文件夹 X”是 Spec 逐字规定的，不动。
+建议改法：nested、expired 改成不带动作方式的说法（“插件好像在 {{name}} 里，换成选择这个文件夹”需要区分入口；更简单的：“插件好像在 {{name}} 里，请改选这个文件夹”，两条路都说得通），expired 写“上传的文件夹已经失效，请重新选择或拖入”。
+## F9 [低] 上传没有超时也没有取消入口；收集阶段显示“正在上传 0%”
+位置：web/folder-upload.ts:101-120（XMLHttpRequest 没设 timeout，只有 signal 取消）；PluginsPage.vue:373-374（busy = "upload"，uploadPercent = 0 在 collect 之前就设）。
+问题：(1) 服务端停住不回应时，XHR 永远不结算，busy 一直是 "upload"，整页的写控件全部停用，唯一出路是关掉设置窗口；signal 只在页面卸载时才 abort，界面上没有取消按钮。(2) 收集阶段（逐个 file() 读元数据，几千个文件要数秒）就显示“正在上传 0%”，措辞不准。
+建议改法：(1) 进度行旁加“取消”（调 uploadAbort.abort()，结果映射成静默收尾）；XHR 设一个宽松的 timeout 或按“多久没有进度”判停滞。(2) uploadPercent 在 collect 之后才置 0，收集期间用不带百分比的“正在读取文件夹…”。本机回环下很少发生，标低。
+## F10 [低] 选择了空文件夹或浏览器给出空列表时没有任何反馈
+位置：PluginsPage.vue:439（`if (files.length > 0) void installFolder(...)`）。
+问题：files 为空就静默返回。Chromium 里选空目录时是否触发 change 没有实测；触发时用户点了“选择文件夹…”、选了目录，页面毫无反应。
+建议改法：空列表时走 showProblem("no-manifest", text("upload.noManifest"))（“没有 package.json”恰好说得通），或直接让 collectInputFiles 在 files 为空时交回 no-manifest 的结果。
+## F11 [低] dragleave 靠 relatedTarget 判断离开，在 Chromium 对“从系统拖入文件”是否可靠没有查实；失败时的表现是覆盖层闪一下
+位置：PluginsPage.vue:450-454。
+依据：我查了资料（WebSearch）：Chromium 有一条代码评审写明它曾把边界拖放事件的 relatedTarget 置 null、随后改为设成进入或离开的元素；WebKit 与 Safari 仍是恒为 null（WebKit bug 242627）。没找到把“Chrome 当前版本、从系统拖入文件”这一种情形写死的出处，也没有实际跑；WebView2 与 Chromium 同源，同样未验证。
+分析：若 relatedTarget 为 null，页面内子元素之间移动会让 dragleave 把 dragging 置 false，随后的 dragover（浏览器约每 50ms 触发）又置回 true，表现是覆盖层偶尔闪一下，不会卡死（覆盖层 pointer-events: none，不会引起 dragleave 的重入）。dragenter 没有写：Chromium 上只对 dragover 做 preventDefault 就能放，MDN 的文件拖放示例也只写 dragover 与 drop；覆盖层最迟在第一次 dragover 显示，没有漏出问题（推断）。
+建议改法：dragleave 里不用 relatedTarget，改用 clientX/clientY 判断是否出了根元素的 getBoundingClientRect（离开窗口时坐标为 0,0 或在范围外），或做一次短延时（一个 dragover 周期）再收起。要不要改看真机一次；在 e2e 里用合成的 DragEvent 带 relatedTarget 验证不到这一点。
+## F12 [低] 验收与文档的缺口（读代码核对）
+1. PluginsPage.md 写“松手或拖动结束时收起”，实现里没有 dragend 处理（dragend 对来自系统的文件拖动本来不会触发，所以实现没问题，是文档多写了）。去掉“拖动结束”。
+2. 真实的 drop 里目录分支（webkitGetAsEntry 在同步段读到的 FileSystemDirectoryEntry、readEntries 分批）在浏览器里没有任何验证：dom 测试用的 directory() 替身 readEntries 同步回调、分批只在 dropped-folder.dom.test.ts 里用替身；e2e 只有 setInputFiles 选择文件夹（走 collectInputFiles）与合成的单个 File 的 drop（Chromium 里合成 DataTransfer 的文件项能给出真实的 FileSystemFileEntry，所以“不是文件夹”这一支是真实 API）。Playwright 造不出目录条目，这是平台限制，不是遗漏；建议在 t16 记录里写一条真机手测清单：从资源管理器/文件管理器拖入一个含子目录的文件夹，确认有覆盖层、预览显示文件数、node_modules 没上传；超过 100 项的目录（readEntries 分批）；在 WebView2 桌面窗口里同样拖一次（桌面壳是否放行外部拖放没有在本轮核对，标未验证）。
+3. Lab：PluginsPageFixture.vue 给每个场景都传了 folderUpload，所以“选择文件夹…”在所有场景可见；但替身的 upload 从不调 onProgress，“busy”场景只在用户真的选出文件夹后才挂起，上传进度行与覆盖层在 Lab 里没有静态场景。可以在夹具里给一个场景（例如 "busy"）让 upload 回报几次进度后挂起，或加属性预置 dragging/uploadPercent；要不要做取决于 Lab 场景是否要求“无交互就能看见”。
+4. 其余核对无问题：readDrop 在 onDrop 的同步段调用（PluginsPage.vue:460）；pointer-events: none 已写；window 上 dragover/drop/pagehide 在 onMounted 登记、onBeforeUnmount 移除且名字一致；确认安装时 heldUpload = null 在 await 之前（299 行）；各条失败路径 busy/uploadPercent 都由 finally 收尾；预览打开期间 busy 为 null 与路径安装一致（Dialog 是模态，别的写控件够不到）；readEntries 循环读到空数组、深度上限、skip 在读子项之前判断、限额顺序（路径→单文件→文件数→总量）合理；locales.test.ts 的对照无需改（两个目录键集一致）；src/ui/dropped-folder.ts 放在 ui/ 符合 packages/neuro-book/AGENTS.md（只引用 ui/ 与 shared/）。
+## F13 [低] 更正 F12 第 4 点，并记 locales.test.ts 的一处语义问题
+更正：我在 F12 里写“locales.test.ts 的对照无需改”不准确。它已经改了（plugins/plugins/locales.test.ts 的表里有全部 upload.* 键，值与两个 JSON 一致，不在 diff 范围的路径过滤里所以没看到）。
+问题：该表的文件头说明 LEGACY 是“迁移前（提交 8dfda688b）代码里的双语字面量”，用来防迁移改错文字；upload.* 是新增文字，不是迁移前就有的，却被抄进同一张表，表名与注释不再准确（表里“旧的 {name} 写法”也成了对新键的人为约束）。位置：plugins/plugins/locales.test.ts 表里 upload.* 各行与文件头注释。
+建议改法：要么把新增键另列一张表（例如 ADDED）并在文件头说明，要么在文件头加一句“迁移之后新增的键也登记在这里，值与目录逐字相同”。纯可维护性，标低。
+REVIEW-END
