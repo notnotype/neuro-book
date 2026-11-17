@@ -6,7 +6,7 @@
  */
 
 import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
@@ -66,10 +66,15 @@ async function openSettings(page: Page, section: string): Promise<void> {
 
 const pluginRow = (page: Page, id: string) => page.locator(`[data-plugin-row="${id}"]`);
 const settingRow = (page: Page) => page.locator(`[data-settings-row="${SETTING}"]`);
-/** “其它”分区里没有示例插件的配置项。分区本身还在（Agent 的工具绑定没有归到别的分区）：先等那一行，免得分区还没画出来就数到 0。 */
+/**
+ * “其它”分区里没有示例插件的配置项。没有别的配置项时整个分区是停用的（Agent 的工具绑定已经归到 Profile 分区），那时示例插件的配置项
+ * 自然不在里面；还有别的项时先等任意一行画出来，免得分区还没画出来就数到 0。
+ */
 async function expectNotInOther(page: Page): Promise<void> {
-    await page.locator("[data-settings-nav='other']").click();
-    await expect(page.locator("[data-settings-row='nbook.agent/toolBindings']")).toBeVisible();
+    const other = page.locator("[data-settings-nav='other']");
+    if (await other.isDisabled()) return;
+    await other.click();
+    await expect(page.locator("[data-settings-row]").first()).toBeVisible();
     await expect(settingRow(page)).toHaveCount(0);
 }
 const readJson = async (path: string): Promise<unknown> => parseJsonc(await readFile(path, "utf8")) as unknown;
@@ -163,4 +168,59 @@ test("入口激活失败的插件：重启后插件页这一行显示“入口�
     await expect(row.locator("[data-plugin-problems='entries']")).toContainText("1 个入口没有运行");
     await expect(row.locator("[data-plugin-problem-line]")).toContainText("入口 server（server）激活失败：provide is not a function");
     await expect(page.locator("[data-plugins-snapshot]")).toBeVisible();
+});
+
+test("选择文件夹上传安装（输出 11、场景 18）：不带 node_modules，预览写明来源，装好后暂存目录清空；取消预览也清空；拖入的不是文件夹、落在页面以外都有提示、页面不被导航走", async ({page}) => {
+    const problems: string[] = [];
+    watchConsole(page, problems);
+    // 一个构建好的插件文件夹：清单加一个子目录里的文件，另有一个 node_modules（页面不该上传它）。
+    const source = join(tmp, "dropped");
+    await mkdir(join(source, "dist"), {recursive: true});
+    await mkdir(join(source, "node_modules", "dep"), {recursive: true});
+    await writeFile(join(source, "package.json"), JSON.stringify({publisher: "example", name: "dropped", version: "1.0.0", displayName: "Dropped", engines: {neurobook: ">=0.1.0"}}));
+    await writeFile(join(source, "dist", "notes.txt"), "构建产物");
+    await writeFile(join(source, "node_modules", "dep", "index.js"), "module.exports = 1;\n");
+
+    await restart(page);
+    await openSettings(page, "nbook.plugins.installed");
+    const uploads = join(stateRoot, "plugin-uploads");
+    const leftovers = async (): Promise<string[]> => (await readdir(uploads).catch(() => [])).sort();
+
+    // 取消预览：页面请求删除，暂存目录清空。
+    const chooser = page.locator("[data-plugin-folder-input]");
+    await chooser.setInputFiles(source);
+    const dialog = page.getByRole("dialog", {name: "安装插件"});
+    await expect(dialog).toContainText("拖入的文件夹 dropped（2 个文件，");
+    expect(await leftovers()).toHaveLength(1);
+    await dialog.getByRole("button", {name: "取消"}).click();
+    await expect.poll(leftovers).toEqual([]);
+
+    // 确认安装：服务端装好后自己删暂存目录；安装目录里有清单与子目录里的文件，没有 node_modules。
+    await chooser.setInputFiles(source);
+    await expect(dialog).toContainText("拖入的文件夹 dropped（2 个文件，");
+    await dialog.getByRole("button", {name: "安装"}).click();
+    await expect(pluginRow(page, "example.dropped").locator("[data-plugin-pending='install']")).toBeVisible();
+    await expect.poll(leftovers).toEqual([]);
+    const installed = join(stateRoot, "plugins", "example.dropped", "1.0.0");
+    expect(await exists(join(installed, "package.json"))).toBe(true);
+    expect(await readFile(join(installed, "dist", "notes.txt"), "utf8")).toBe("构建产物");
+    expect(await exists(join(installed, "node_modules"))).toBe(false);
+
+    // 拖入单个文件：提示拖入文件夹，不上传，页面没有被导航走。合成的 DataTransfer 只能验“不是文件夹”这一支。
+    const dropInto = (selector: string) =>
+        page.evaluate((target) => {
+            const transfer = new DataTransfer();
+            transfer.items.add(new File(["x"], "a.txt"));
+            const event = new DragEvent("drop", {dataTransfer: transfer, bubbles: true, cancelable: true});
+            document.querySelector(target)!.dispatchEvent(event);
+            return event.defaultPrevented;
+        }, selector);
+    expect(await dropInto("[data-plugins-page]")).toBe(true);
+    await expect(page.locator("[data-plugin-problem]")).toContainText("拖入一个插件文件夹");
+    // 落在页面以外（设置窗口的侧栏）：窗口兜底拦下，提示拖到内容区。
+    expect(await dropInto("[data-settings-nav='nbook.plugins.installed']")).toBe(true);
+    await expect(page.locator("[data-plugin-problem]")).toContainText("拖到插件页的内容区");
+    await expect(page.locator("[data-plugins-page]")).toBeVisible();
+    expect(await leftovers()).toEqual([]);
+    expect(problems).toEqual([]);
 });
