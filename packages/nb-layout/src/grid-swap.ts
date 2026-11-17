@@ -41,6 +41,8 @@ export interface GridSwapGroup {
 
 export interface GridSwapBand {
     readonly axis: GridAxis;
+    /** 两组外框的外接矩形（相对网格根），裁切窗按 `GridSwap.window.inset` 从它内缩；静止的底（`swap-backdrop`）画在它上面。整个交换里不动。 */
+    readonly outer: GridRect;
     /** 裁切窗（相对网格根）：整个交换里不动。 */
     readonly window: GridRect;
     readonly radius: readonly [string, string, string, string] | null;
@@ -135,9 +137,9 @@ export function planSwap(input: {
     const leavingHome = groupItems(previous, leaving);
     const enteringHome = groupItems(items, entering);
     const rectsOf = (list: ReadonlyArray<GridLayerItem<unknown>>): GridRect[] => list.flatMap((item) => (item.kind === "leaf" ? [item.rect] : []));
+    const outer = band?.outer ?? (union([...rectsOf(leavingHome), ...rectsOf(enteringHome)]) as GridRect);
     let window = band?.window;
     if (window === undefined) {
-        const outer = union([...rectsOf(leavingHome), ...rectsOf(enteringHome)]) as GridRect;
         const [top, right, bottom, left] = swap.window?.inset ?? [0, 0, 0, 0];
         window = {x: outer.x + left, y: outer.y + top, width: Math.max(0, outer.width - left - right), height: Math.max(0, outer.height - top - bottom)};
     }
@@ -189,6 +191,7 @@ export function planSwap(input: {
         kind: "swap",
         band: {
             axis,
+            outer,
             window,
             radius: band?.radius ?? swap.window?.radius ?? null,
             step,

@@ -19,7 +19,7 @@
 
 分隔线按两侧是什么分（`data-sash-kind`）：同一张卡片里几节之间（`panes`）是开放式分割线，取 `--shell-pane-divider`，沿长轴两端缩进 `--shell-pane-divider-inset`；线所占的那 1px 也是卡片：表面经 `NestedGrid` 的 `sashStyle` 给出卡片在长轴方向的范围（`--shell-sash-fill-start`、`--shell-sash-fill-end`），分隔线的 `::before` 在这段里画卡片底色与两端的投影，线两端不露窗体底、深色的外框不断开。编辑组之间（`editors`）和别的卡片之间（`shell`）取 `--shell-seam`，贯通整个高度；卡片主题里缝就是分界，这两种线透明，平铺主题里画。
 
-切换容器时整张卡片滚过去（输出 42）：宿主经 `swap` 给离开、换上来的分节与方向（不含缝宽），表面补上主题的缝宽（`--shell-gap`）交给 `NestedGrid` 的 `swap`。滚动中的叶（`NestedGrid` 的 `swappingLeaves`）照它们离开前、终点的样子画，不算上面的“角接过去”：活动栏前后都和侧栏相连，不换画法。
+切换容器时卡片不动、里面的内容滚过去（输出 42）：宿主经 `swap` 给离开、换上来的分节与方向（不含缝宽与裁切窗），表面补上主题的缝宽（`--shell-gap`）与裁切窗交给 `NestedGrid` 的 `swap`：窗是这一列的卡片（外框按卡片的四边内缩、四个角照卡片的）。静止的卡片画在 `swap-backdrop` 里（`data-shell-swap-card`，外层同外框里那一层，相连那一边的投影照样裁掉），滑动的外框这期间不画自己的底与投影、不挂主题的场景图，只带着头与内容滑。滚动中的叶（`NestedGrid` 的 `swappingLeaves`）照它们离开前、终点的样子画，不算上面的“角接过去”：活动栏前后都和侧栏相连，不换画法。
 
 `390×844` 由 w00026 t11 的手机呈现决定；在它之前窄屏只是挤（开发者 2026-11-06 接受）。
 
@@ -51,7 +51,7 @@ type Props = {
     slotPanel?: string | null;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
-    /** 切换容器时整张卡片滚过去：和那次提交在同一个同步段里给，token 变了才算新的；缝宽由表面补。默认 null。 */
+    /** 切换容器时卡片不动、内容滚过去：和那次提交在同一个同步段里给，token 变了才算新的；缝宽与裁切窗由表面补。默认 null。 */
     swap?: {token: number; leaving: ReadonlyArray<string>; entering: ReadonlyArray<string>; axis: "width" | "height"; direction: 1 | -1} | null;
     /** 禁用边界手势；默认 false。 */
     disabled?: boolean;

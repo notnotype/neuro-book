@@ -375,8 +375,8 @@ const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntrie
 
 const hostEl = ref<HTMLElement | null>(null);
 
-/** 侧栏切换容器时整张卡片滚过去（输出 42）：`WorkbenchSurface` 补上缝宽交给网格。 */
-const sidebarSwap = shallowRef<Omit<GridSwap, "gap"> | null>(null);
+/** 侧栏切换容器时卡片不动、里面的内容滚过去（输出 42）：`WorkbenchSurface` 补上缝宽与裁切窗交给网格。 */
+const sidebarSwap = shallowRef<Omit<GridSwap, "gap" | "window"> | null>(null);
 
 /**
  * 点入口切换容器之前（同一个同步段里接着提交）：侧栏显示着、里面没有最大化的分节时，给网格一次交换，离开的是当前容器的分节、换上来的是新容器的，

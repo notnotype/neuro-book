@@ -8,7 +8,7 @@ import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnot
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
 
-import {cardInset, joinedToBar, layoutCardEdges, leafIdsOf, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
+import {cardInset, cardInsetPx, joinedToBar, layoutCardEdges, leafIdsOf, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
 import type {CardEdges, CardSide} from "../shell/adjacency";
 import {layoutContents, panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
 import "./hover-actions.css";
@@ -38,10 +38,10 @@ const props = withDefaults(defineProps<{
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /**
-     * 切换容器时整张卡片滚过去（输出 42，网格的交换）：和那次提交在同一个同步段里给，`token` 变了才算新的。缝宽由这里按主题补上：
-     * 两张卡片之间隔一条缝。
+     * 切换容器时卡片不动、里面的内容滚过去（输出 42，网格的交换）：和那次提交在同一个同步段里给，`token` 变了才算新的。缝宽与裁切窗由这里按主题补上：
+     * 内容裁在这一列的卡片里，滑走的与换上来的之间隔一条缝。
      */
-    swap?: Omit<GridSwap, "gap"> | null;
+    swap?: Omit<GridSwap, "gap" | "window"> | null;
 }>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, dragging: false, floats: () => [], swap: null});
 
 const emit = defineEmits<{
@@ -90,7 +90,7 @@ watch(extent, (next) => emit("extent", next), {immediate: true, flush: "sync"});
 
 /** 主题写在文档根上，换主题或明暗时文档根的属性与内联变量会变，这时重读。 */
 let themeObserver: MutationObserver | null = null;
-/** 主题的缝宽（px）：交换的两张卡片之间隔它。 */
+/** 主题的缝宽（px）：交换里滑走的内容与换上来的内容之间隔它，裁切窗按它算卡片的内缩。 */
 const cardGap = ref(0);
 function readCardGap(): void {
     const root = rootEl.value;
@@ -99,7 +99,19 @@ function readCardGap(): void {
     cardGap.value = Number.isFinite(value) ? value : 0;
     emit("card-gap", cardGap.value);
 }
-const gridSwap = computed<GridSwap | null>(() => (props.swap === null ? null : {...props.swap, gap: cardGap.value}));
+/**
+ * 侧栏切换容器时卡片不动、里面的内容滚过去（输出 42；开发者 2026-11-17：“滚动的时候，边框位置不要变，右上角右下角要依旧保持圆角”）。
+ * 裁切窗就是这一列的卡片：外框按卡片的四边内缩、四个角照卡片的。静止的卡片画在网格的 `swap-backdrop` 里，滑动的外框这期间不画自己的卡片
+ * （`data-swap`，见样式），只带着头与内容滑。
+ */
+const gridSwap = computed<GridSwap | null>(() => {
+    if (props.swap === null) return null;
+    const column = swapColumn.value;
+    const gap = cardGap.value;
+    if (column === null) return {...props.swap, gap};
+    const inset = [cardInsetPx(column.top, gap), cardInsetPx(column.right, gap), cardInsetPx(column.bottom, gap), cardInsetPx(column.left, gap)] as const;
+    return {...props.swap, gap, window: {inset, radius: cornersOf(column)}};
+});
 onMounted(() => {
     readCardGap();
     themeObserver = new MutationObserver(readCardGap);
@@ -188,6 +200,26 @@ const sceneCorners = computed<ReadonlyMap<string, PanelName>>(() => new Map((["s
 })));
 
 /** 卡片跟着拖动中的预览走：相连与否按拖动中的几何算（输出 19）。 */
+/**
+ * 交换的这一列的卡片的四边：换上来的那几块在新布局里的边（离开的那几块已经不在新布局里）。上下取最外面那块的（组里相邻的边是相连的），左右同一列都一样。
+ */
+const swapColumn = computed<CardEdges | null>(() => {
+    const entering = (props.swap?.entering ?? []).flatMap((id) => {
+        const edges = cards.value[id];
+        return edges === undefined ? [] : [edges];
+    });
+    const first = entering[0];
+    if (first === undefined) return null;
+    const side = (key: keyof CardEdges): CardSide => entering.map((edges) => edges[key]).find((found) => found.kind !== "joined") ?? first[key];
+    return {top: side("top"), right: side("right"), bottom: side("bottom"), left: side("left")};
+});
+/** 静止的卡片：外层同 `slot`（按内缩留出缝、裁掉相连那一边的投影），里面一张卡片，角照这一列的；主题的场景图也画在它上面，不随内容滑。 */
+function swapBackdropStyle(inset: readonly number[]): Record<string, string> {
+    const [topLeft, topRight, bottomRight, bottomLeft] = swapColumn.value === null ? [ROUND, ROUND, ROUND, ROUND] : cornersOf(swapColumn.value);
+    return {padding: inset.map((value) => `${String(value)}px`).join(" "), "--shell-corner-tl": topLeft, "--shell-corner-tr": topRight, "--shell-corner-br": bottomRight, "--shell-corner-bl": bottomLeft};
+}
+const swapScene = computed(() => (props.swap?.entering ?? []).map((id) => sceneCorners.value.get(id)).find((scene) => scene !== undefined));
+
 const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
     const computedCards = layoutCardEdges({
         root: props.projection.input,
@@ -264,7 +296,7 @@ const sceneOf = (id: string): PanelName | undefined => (drawnAsBefore(id) ? last
  * - 侧栏右上、右下的圆角（几节时是最上面一块的右上角、最下面一块的右下角，组内的角本来是直的）跟着外框的右沿：缩到零时正好落在活动栏右边，
  *   成了活动栏的两个角，摘掉侧栏后画面不变；显示时反过来，长完了换回相连的画法，画面同样不变。
  * 所以活动栏的角不过渡：断开、相连的那一刻它的角都被盖着。中间那条短线随着淡出（隐藏）、淡入（显示）。
- * 只认缩回去的和活动栏刚连上的（`freshlyJoined`）：切换容器时活动栏前后都相连，不换画法（换的话图标会左右挪一下）；切换时整张卡片滚过去的那些叶
+ * 只认缩回去的和活动栏刚连上的（`freshlyJoined`）：切换容器时活动栏前后都相连，不换画法（换的话图标会左右挪一下）；切换时内容滚过去的那些叶
  * （`swappingLeaves`）留着画到滚完，也不算。
  */
 const capLeaves = computed<ReadonlySet<string>>(() => new Set([...shapedLeaves.value].filter((id) => id !== ACTIVITY_BAR && !swappingLeaves.value.has(id) && joinedToBar(edgesOf(id)?.left) && (drawnAsBefore(id) || freshlyJoined.value.has(id)))));
@@ -469,7 +501,7 @@ defineExpose({
                         :data-shell-cap="capOf(node.id)"
                         :data-shell-slot="node.id === slotPanel ? '' : undefined"
                         :data-panel-role="roleOf(node.id) ?? undefined"
-                        :data-panel-name="sceneOf(node.id)"
+                        :data-panel-name="swappingLeaves.has(node.id) ? undefined : sceneOf(node.id)"
                         :data-hover-actions-scope="roleOf(node.id) === null ? undefined : ''"
                         :data-hover-actions-active="actionsShownOn(node.id) ? '' : undefined"
                     >
@@ -482,6 +514,11 @@ defineExpose({
                             <slot v-else-if="roleOf(node.id) === 'tool'" name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
                         </template>
                     </div>
+                </div>
+            </template>
+            <template #swap-backdrop="{inset}">
+                <div class="workbench-surface__slot" :style="swapBackdropStyle(inset)">
+                    <div class="workbench-surface__card" data-panel-role="tool" data-shell-swap-card :data-panel-name="swapScene"></div>
                 </div>
             </template>
             <template #content="{contentKey, leaf, active}">
@@ -606,6 +643,12 @@ defineExpose({
 
 .workbench-surface__card[data-panel-role] {
     background: var(--panel-surface);
+}
+
+/* 侧栏切换滚动中：卡片由静止的底画（`swap-backdrop`），滑动的外框不画自己的底与投影，只带着头与内容（输出 42）。 */
+.workbench-surface :deep(.nb-grid-frame[data-swap]) .workbench-surface__card {
+    background: transparent;
+    box-shadow: none;
 }
 
 /* 空位：放下才有卡片（输出 38）。写在角色的底色后面，同样的特异性后写的赢。 */
