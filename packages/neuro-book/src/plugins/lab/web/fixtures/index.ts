@@ -114,6 +114,15 @@ import {rowDemoSettings, sceneThemeSetting, SETTINGS_WINDOW_SCENES, snippetsSett
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
 
 /** 属性面板的样例：一章的五个属性，每种类型一个，开头一行注释。 */
+/** `declared` 场景里的属性声明（输出 59、60）：键只在那个场景里出现，别的属性面板场景不受影响。 */
+const PROPERTY_DECLARATIONS: Readonly<Record<string, {icon?: string; label?: string; kind?: "text" | "number" | "checkbox" | "date" | "list"}>> = {
+    叙事视角: {icon: "i-lucide-eye", label: "视角"},
+    截稿日: {icon: "i-lucide-calendar-clock", kind: "date"},
+    预计字数: {kind: "number"},
+    定稿: {kind: "checkbox"},
+    关键词: {icon: "i-lucide-tags", kind: "list"},
+};
+
 const PROPERTIES_SAMPLE = "---\n# 第十二章\n视角: 林雪\n时间: 2025-12-21\n地点: [青石镇, 北山]\n字数目标: 4000\n已定稿: false\n---\n";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
@@ -746,11 +755,14 @@ export const labFixtures: LabFixture[] = [
             {id: "long", label: "很长的名字与值", input: {props: {raw: "---\n这一章里出场的所有人物与他们的别名: [林雪, 雪儿, 沈舟, 舟哥, 掌柜, 渡口的船夫, 北山的猎户]\n一句很长的提要: 雪是后半夜落下来的，林雪推开客栈的窗，镇子已经白了一层，石板路上只剩一行脚印\n---\n"}, model: {open: true}}},
             {id: "readonly", label: "只读", input: {props: {raw: PROPERTIES_SAMPLE, readonly: true}, model: {open: true}}},
             {id: "english", label: "英文界面", input: {props: {raw: "---\npov: Lin Xue\ndate: 2025-12-21\nplaces: [Qingshi, North Hill]\nword goal: 4000\nfinal: false\n---\n"}, model: {open: false}}},
+            // 宿主按属性名给图标、显示名与类型（输出 60）：`describe` 是运行期的函数，下面的 `runtimeProps` 给；只有这个场景里的键（`叙事视角` 等）有声明，别的场景不受影响。
+            {id: "declared", label: "插件的声明：图标、显示名、空值按声明的类型输入", input: {props: {raw: "---\n叙事视角: 林雪\n截稿日:\n预计字数:\n定稿:\n关键词:\n地点: 青石镇\n---\n"}, model: {open: true}}},
         ],
         load: async () => withMarkdownSceneText(createSubjectFixture<typeof MarkdownProperties>((await import("@notnotype/nb-markdown/editor")).MarkdownProperties, {
             events: ["commit", "update:open", "leave"],
             writeBack: {commit: {layer: "props", key: "raw"}},
             class: "w-full max-w-[720px]",
+            runtimeProps: {describe: (name: string) => PROPERTY_DECLARATIONS[name] ?? null},
         })),
     }),
     defineLabFixture<typeof MarkdownImage>({

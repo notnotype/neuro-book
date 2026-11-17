@@ -7,7 +7,9 @@
 import {flushPromises, mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
-import {nextTick} from "vue";
+import {nextTick, ref} from "vue";
+
+import type {PropertyDescription} from "./model";
 
 import MarkdownProperties from "./MarkdownProperties.vue";
 
@@ -26,7 +28,7 @@ afterEach(() => {
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
 });
 
-function panel(raw: string, options: {open?: boolean; readonly?: boolean} = {}): Mounted {
+function panel(raw: string, options: {open?: boolean; readonly?: boolean; describe?: (name: string) => PropertyDescription | null} = {}): Mounted {
     const commits: string[] = [];
     const opens: boolean[] = [];
     const leaves: number[] = [];
@@ -35,6 +37,7 @@ function panel(raw: string, options: {open?: boolean; readonly?: boolean} = {}):
             raw,
             open: options.open ?? true,
             readonly: options.readonly ?? false,
+            ...(options.describe === undefined ? {} : {describe: options.describe}),
             onCommit: (next: string) => {
                 commits.push(next);
                 void wrapper.setProps({raw: next});
@@ -330,5 +333,115 @@ describe("键盘与结算（输出 49、50）", () => {
         await wrapper.setProps({raw: "---\n甲: 四\n---\n"});
         expect(vm.pending).toBe(false);
         expect(field(wrapper, "甲").element.value).toBe("四");
+    });
+});
+
+describe("宿主给的图标、显示名与类型（输出 60）", () => {
+    const RAW = "---\n视角: 林雪\n时间:\n字数目标:\n已定稿:\n标签:\n地点: 青石镇\n---\n";
+    const locale = ref<"zh-CN" | "en-US">("zh-CN");
+    const declared: Readonly<Record<string, PropertyDescription>> = {
+        视角: {icon: "i-lucide-eye", label: "叙述视角"},
+        时间: {kind: "date"},
+        字数目标: {kind: "number"},
+        已定稿: {kind: "checkbox"},
+        标签: {kind: "list", label: "标签"},
+    };
+    const describe = (name: string): PropertyDescription | null => {
+        const found = declared[name];
+        if (found === undefined) return null;
+        // 显示名按界面语言取：在渲染里调用，语言变了面板跟着变。
+        return name === "视角" ? {...found, label: locale.value === "zh-CN" ? "叙述视角" : "Point of view"} : found;
+    };
+
+    it("声明的图标换掉类型图标，按钮仍是改类型的菜单（当前类型打勾）；没有声明的行照旧", async () => {
+        const {wrapper} = panel(RAW, {describe});
+        expect(row(wrapper, "视角").find("button.markdown-properties__type .i-lucide-eye").exists()).toBe(true);
+        expect(row(wrapper, "地点").find("button.markdown-properties__type .i-lucide-text").exists()).toBe(true);
+        await openKinds(row(wrapper, "视角"));
+        expect(menuItems().map((item) => [item.textContent?.trim(), item.getAttribute("aria-checked")])).toEqual([["文字", "true"], ["数字", "false"], ["勾选", "false"], ["日期", "false"], ["列表", "false"]]);
+    });
+
+    it("显示名换掉名字一列、摘要与输入的可访问名称；提示带真名；`data-property-name` 仍是真名", async () => {
+        const {wrapper} = panel(RAW, {describe, open: false});
+        expect(wrapper.get("[data-property-summary]").text()).toBe("叙述视角 林雪 · 时间 · 字数目标 · 已定稿 · 标签 · 地点 青石镇");
+        await wrapper.get("button[aria-expanded]").trigger("click");
+        const line = row(wrapper, "视角");
+        expect(line.get(".markdown-properties__name").text()).toBe("叙述视角");
+        expect(line.get(".markdown-properties__name").attributes("title")).toBe("叙述视角（视角）");
+        expect(line.get<HTMLInputElement>('input[aria-label="叙述视角"]').element.value).toBe("林雪");
+        expect(row(wrapper, "地点").get<HTMLInputElement>(".markdown-properties__name input").element.value).toBe("地点");
+    });
+
+    it("语言切换：显示名跟着变", async () => {
+        const {wrapper} = panel(RAW, {describe});
+        expect(row(wrapper, "视角").get(".markdown-properties__name").text()).toBe("叙述视角");
+        locale.value = "en-US";
+        await nextTick();
+        expect(row(wrapper, "视角").get(".markdown-properties__name").text()).toBe("Point of view");
+        locale.value = "zh-CN";
+    });
+
+    it("点显示名才变成输入框，输入框里是真名；改名写回的是真键，改好后没有声明的新名字显示它自己", async () => {
+        const {wrapper, commits, raw} = panel(RAW, {describe});
+        await row(wrapper, "视角").get("button.markdown-properties__name--label").trigger("click");
+        await nextTick();
+        const input = row(wrapper, "视角").get<HTMLInputElement>(".markdown-properties__name input");
+        expect(input.element.value).toBe("视角");
+        await typeInto(input, "视点");
+        await input.trigger("keydown", {key: "Enter"});
+        expect(commits).toHaveLength(1);
+        expect(raw()).toBe("---\n视点: 林雪\n时间:\n字数目标:\n已定稿:\n标签:\n地点: 青石镇\n---\n");
+        expect(row(wrapper, "视点").get<HTMLInputElement>(".markdown-properties__name input").element.value).toBe("视点");
+    });
+
+    it("点显示名后什么也没改就离开：回到显示名，不写回", async () => {
+        const {wrapper, commits} = panel(RAW, {describe});
+        await row(wrapper, "视角").get("button.markdown-properties__name--label").trigger("click");
+        await nextTick();
+        const input = row(wrapper, "视角").get<HTMLInputElement>(".markdown-properties__name input");
+        input.element.focus();
+        input.element.blur();
+        await flushPromises();
+        expect(commits).toEqual([]);
+        expect(row(wrapper, "视角").find("button.markdown-properties__name--label").exists()).toBe(true);
+    });
+
+    it("空值的行按声明的类型输入（日期、数字、勾选、列表），打开不改文件；输入后照常写回", async () => {
+        const {wrapper, commits, raw} = panel(RAW, {describe});
+        expect(commits).toEqual([]);
+        expect(row(wrapper, "时间").find('[data-property-kind="date"] [data-reka-date-field-segment="year"]').exists()).toBe(true);
+        expect(row(wrapper, "字数目标").get('[data-property-kind="number"] input').attributes("inputmode")).toBe("decimal");
+        expect(row(wrapper, "已定稿").find('[data-property-kind="checkbox"] [role="checkbox"], [data-property-kind="checkbox"] input[type="checkbox"]').exists()).toBe(true);
+        expect(row(wrapper, "标签").find('[data-property-kind="list"]').exists()).toBe(true);
+        const number = field(wrapper, "字数目标");
+        await typeInto(number, "4000");
+        await number.trigger("keydown", {key: "Enter"});
+        expect(raw()).toContain("字数目标: 4000\n");
+        // 勾选：空值显示成不勾选，点了才写回。
+        await row(wrapper, "已定稿").get('[data-property-kind="checkbox"]').find("label, [role=\"checkbox\"], input").trigger("click");
+        expect(raw()).toContain("已定稿: true\n");
+    });
+
+    it("有值的行仍按值推断，声明的类型不改它也不报错；值与声明不符时照值显示", async () => {
+        const {wrapper, commits} = panel("---\n视角: 林雪\n时间: 随便写写\n---\n", {describe: (name) => (name === "时间" || name === "视角" ? {kind: "date"} : null)});
+        expect(row(wrapper, "视角").find('[data-property-kind="text"]').exists()).toBe(true);
+        expect(row(wrapper, "时间").find('[data-property-kind="text"]').exists()).toBe(true);
+        expect(commits).toEqual([]);
+    });
+
+    it("这次挂载里在类型菜单选过的类型盖过声明；表示不了的行的图标不换；只读时显示名照样出、不能点着改名", async () => {
+        const {wrapper, commits} = panel("---\n时间:\n嵌套:\n  a: 1\n---\n", {describe: (name) => (name === "时间" ? {kind: "date"} : name === "嵌套" ? {icon: "i-lucide-eye", label: "嵌套的"} : null)});
+        expect(row(wrapper, "时间").find('[data-property-kind="date"]').exists()).toBe(true);
+        await openKinds(row(wrapper, "时间"));
+        const text = menuItems().find((item) => item.textContent?.trim() === "文字");
+        text?.click();
+        await flushPromises();
+        expect(row(wrapper, "时间").find('[data-property-kind="text"]').exists()).toBe(true);
+        expect(commits).toEqual([]);
+        expect(row(wrapper, "嵌套").find(".markdown-properties__type .i-lucide-braces").exists()).toBe(true);
+        expect(row(wrapper, "嵌套").get(".markdown-properties__name").text()).toBe("嵌套的");
+        const readonly = panel(RAW, {describe, readonly: true});
+        expect(row(readonly.wrapper, "视角").get(".markdown-properties__name").text()).toBe("叙述视角");
+        expect(row(readonly.wrapper, "视角").find("button.markdown-properties__name--label").exists()).toBe(false);
     });
 });

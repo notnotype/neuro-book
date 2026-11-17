@@ -20,6 +20,7 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
 import {markdownMediaKey} from "../media";
+import {markdownPropertiesDescribeKey} from "../properties-catalog";
 import {createViewImages} from "../view-images";
 import {classifyTarget} from "../../shared/targets";
 import {MARGIN_GAP, MARGIN_WIDTH} from "./menus/comments/margin-layout";
@@ -62,6 +63,9 @@ interface MarkdownViewState {
 }
 
 const text = useMarkdownText();
+
+/** 属性的图标、显示名与类型（输出 59 到 61）：插件入口按贡献点建好，没有注入（Lab、组件测试）时面板照旧。 */
+const describeProperty = inject(markdownPropertiesDescribeKey, undefined);
 
 /** 插图能力（输出 54 到 58）：没有提供时（Lab、不带编辑器区的场景）粘贴照原来的粘贴、插图卡片只能插网址。 */
 const media = inject(markdownMediaKey, null);
@@ -655,7 +659,7 @@ onBeforeUnmount(() => {
         <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
         <div ref="scroller" class="markdown-control__scroller relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
             <div class="markdown-control">
-                <MarkdownProperties v-if="frontmatter !== null && isWholeFrontmatter(frontmatter)" :key="props.binding?.token" ref="properties" class="markdown-control__properties" :raw="frontmatter" :open="propertiesShown" :readonly="props.readonly" @commit="commitFrontmatter" @update:open="setPropertiesOpen" @leave="leaveProperties" />
+                <MarkdownProperties v-if="frontmatter !== null && isWholeFrontmatter(frontmatter)" :key="props.binding?.token" ref="properties" class="markdown-control__properties" :raw="frontmatter" :open="propertiesShown" :readonly="props.readonly" :describe="describeProperty" @commit="commitFrontmatter" @update:open="setPropertiesOpen" @leave="leaveProperties" />
                 <div ref="root" @keydown="onBodyKeydown"></div>
             </div>
         </div>

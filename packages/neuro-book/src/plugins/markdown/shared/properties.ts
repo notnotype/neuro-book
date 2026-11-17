@@ -22,10 +22,14 @@ export const PropertyDeclarationSchema = Type.Object({
     /** Iconify 类名（`i-lucide-user`）；要在构建里有对应的样式，同菜单贡献的 `icon`。 */
     icon: Type.Optional(Type.String({pattern: "^i-[a-z0-9]+(?:-[a-z0-9]+)+$"})),
     label: Type.Optional(TextSchema),
-    kind: Type.Optional(Type.Union(PROPERTY_KINDS.map((kind) => Type.Literal(kind)))),
+    kind: Type.Optional(Type.Union([Type.Literal("text"), Type.Literal("number"), Type.Literal("checkbox"), Type.Literal("date"), Type.Literal("list")])),
 // `name` 之外至少给一项；别的字段不收，以后只追加。
 }, {additionalProperties: false, minProperties: 2});
 
 export type PropertyDeclaration = Static<typeof PropertyDeclarationSchema>;
+
+/** `PROPERTY_KINDS` 与 schema 里的字面量一致：不一致时这里编译失败。 */
+const _sameKinds: Array<NonNullable<PropertyDeclaration["kind"]>> = [...PROPERTY_KINDS];
+void _sameKinds;
 
 export const propertiesPoint: ContributionPointDefinition<PropertyDeclaration> = {id: MARKDOWN_PROPERTIES_POINT, implementation: "none", idPrefix: "plugin", schema: PropertyDeclarationSchema};

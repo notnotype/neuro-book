@@ -12,9 +12,15 @@ import {computed, nextTick, ref, useTemplateRef, watch} from "vue";
 
 import {useMarkdownText} from "../../host/text";
 import {addProperty, convertKind, readProperties, removeProperty, renameProperty, replaceYaml, writeValue, yamlOf} from "./model";
-import type {EditableKind, EditableValue, PropertiesProblem, PropertyKind, PropertyRow} from "./model";
+import type {EditableKind, EditableValue, PropertiesProblem, PropertyDescription, PropertyKind, PropertyRow} from "./model";
 
-const props = withDefaults(defineProps<{raw: string; open: boolean; readonly?: boolean}>(), {readonly: false});
+const props = withDefaults(defineProps<{
+    raw: string;
+    open: boolean;
+    readonly?: boolean;
+    /** 按属性名给图标、显示名与类型（输出 60）；不传、或返回 null 的行照旧。在渲染里调用，所以它读的响应式状态（界面语言）变了面板跟着变。 */
+    describe?: (name: string) => PropertyDescription | null;
+}>(), {readonly: false, describe: undefined});
 
 const emit = defineEmits<{
     (event: "commit", raw: string): void;
@@ -78,6 +84,7 @@ watch(() => props.raw, () => {
     // 自己的写回先清掉了草稿再发 `commit`；这里还有草稿，就是宿主换了原文（撤销、外部修改）。
     draft.value = null;
     fenceRejected.value = false;
+    renaming.value = null;
 });
 
 // 编辑中变成只读（例如文件被外部删除）：还没写回的输入放弃（输出 51）。
@@ -92,10 +99,31 @@ watch(() => problem.value === null, (fixed) => {
     if (fixed) mode.value = "properties";
 });
 
-/** 这一行按什么类型输入：空值按选过的类型，其余按推断。 */
+const descriptionOf = (row: PropertyRow): PropertyDescription | null => props.describe?.(row.name) ?? null;
+
+/** 这一行按什么类型输入：空值按这次挂载里选过的类型，没选过按声明的类型，都没有是文字；有值的行按值推断，声明不改它。 */
 function kindOf(row: PropertyRow): PropertyKind {
-    if (row.kind === "text" && row.value === null) return chosen.value.get(row.name) ?? "text";
+    if (row.kind === "text" && row.value === null) return chosen.value.get(row.name) ?? descriptionOf(row)?.kind ?? "text";
     return row.kind;
+}
+
+/** 显示名：声明的 `label`，没有就是真名。摘要、名字一列与各输入的可访问名称都用它。 */
+const labelOf = (row: PropertyRow): string => descriptionOf(row)?.label ?? row.name;
+
+/** 名字一列的提示：有显示名时带上真名。 */
+const nameTitleOf = (row: PropertyRow): string => {
+    const label = labelOf(row);
+    return label === row.name ? row.name : `${label}（${row.name}）`;
+};
+
+/** 类型图标：声明的图标换掉按类型取的；表示不了的行（“{ }”）不换：它说的是“这一行只读”。 */
+const iconOf = (row: PropertyRow): string => (row.kind === "complex" ? ICONS.complex : descriptionOf(row)?.icon ?? ICONS[kindOf(row)]);
+
+/** 有显示名的行：点名字才变成输入框（输入框里是真名），免得把显示名当成键改了。 */
+const renaming = ref<number | null>(null);
+function startRename(row: PropertyRow): void {
+    renaming.value = row.index;
+    void nextTick(() => root.value?.querySelector<HTMLInputElement>(`[data-property-name-cell="${String(row.index)}"] input`)?.focus());
 }
 
 function emitRaw(next: string | null): boolean {
@@ -179,6 +207,7 @@ function settle(how: "enter" | "blur" | "flush"): void {
     const row = rows.value[target.index];
     if (row === undefined) return;
     if (target.kind === "name") {
+        renaming.value = null;
         // 空值选过的类型跟着名字走。
         if (emitRaw(renameProperty(props.raw, target.index, current.text))) {
             const kind = chosen.value.get(row.name);
@@ -198,6 +227,7 @@ function onFocusout(target: Target, event: FocusEvent): void {
     if (into instanceof Node && (event.currentTarget as HTMLElement).contains(into)) return;
     if (draft.value !== null && sameTarget(draft.value.target, target)) settle("blur");
     else if (target.kind === "new" && draft.value === null) adding.value = false;
+    else if (target.kind === "name") renaming.value = null;
 }
 
 function onEnter(target: Target, event: KeyboardEvent): void {
@@ -260,10 +290,11 @@ const oneLine = (source: string): string => source.replace(/\s*\r?\n\s*/gu, " ")
 const summary = computed(() =>
     rows.value
         .map((row) => {
-            if (row.kind === "complex") return row.name;
-            if (row.kind === "checkbox") return `${row.name} ${text.t(row.value ? "properties.yes" : "properties.no")}`;
-            if (row.kind === "list") return `${row.name} ${row.value.join(text.t("properties.listSeparator"))}`.trim();
-            return row.value === null ? row.name : `${row.name} ${String(row.value)}`.trim();
+            const name = labelOf(row);
+            if (row.kind === "complex") return name;
+            if (row.kind === "checkbox") return `${name} ${text.t(row.value ? "properties.yes" : "properties.no")}`;
+            if (row.kind === "list") return `${name} ${row.value.join(text.t("properties.listSeparator"))}`.trim();
+            return row.value === null ? name : `${name} ${String(row.value)}`.trim();
         })
         .join(" · "),
 );
@@ -458,15 +489,17 @@ defineExpose({
             <div v-for="row in rows" :key="row.index" class="markdown-properties__row" :data-property-name="row.name">
                 <DropdownMenu v-if="!props.readonly && row.kind !== 'complex'" :items="kindItems(row)" @select="(kind: string) => changeKind(row, kind as EditableKind)">
                     <button type="button" class="markdown-properties__type nb-ui-focus-ring" :title="text.t('properties.kindMenu', {kind: text.t(`properties.kinds.${kindOf(row)}`)})" :aria-label="text.t('properties.kindMenu', {kind: text.t(`properties.kinds.${kindOf(row)}`)})">
-                        <span :class="ICONS[kindOf(row)]" aria-hidden="true" />
+                        <span :class="iconOf(row)" aria-hidden="true" />
                     </button>
                 </DropdownMenu>
                 <span v-else class="markdown-properties__type" :title="text.t(`properties.kinds.${kindOf(row)}`)">
-                    <span :class="ICONS[kindOf(row)]" aria-hidden="true" />
+                    <span :class="iconOf(row)" aria-hidden="true" />
                 </span>
 
-                <span v-if="props.readonly || !row.renamable" class="markdown-properties__name" :title="row.name">{{ row.name }}</span>
-                <span v-else class="markdown-properties__name" @focusout="onFocusout({kind: 'name', index: row.index}, $event)" @keydown.enter="onEnter({kind: 'name', index: row.index}, $event)">
+                <span v-if="props.readonly || !row.renamable" class="markdown-properties__name" :title="nameTitleOf(row)">{{ labelOf(row) }}</span>
+                <!-- 有显示名：点名字才变成输入框，输入框里是真名。 -->
+                <button v-else-if="labelOf(row) !== row.name && renaming !== row.index" type="button" class="markdown-properties__name markdown-properties__name--label nb-ui-focus-ring" :title="nameTitleOf(row)" @click="startRename(row)">{{ labelOf(row) }}</button>
+                <span v-else class="markdown-properties__name" :data-property-name-cell="row.index" @focusout="onFocusout({kind: 'name', index: row.index}, $event)" @keydown.enter="onEnter({kind: 'name', index: row.index}, $event)">
                     <Input
                         :model-value="draftOf({kind: 'name', index: row.index}) ?? row.name"
                         variant="bare"
@@ -478,23 +511,23 @@ defineExpose({
 
                 <span class="markdown-properties__value" :data-property-kind="kindOf(row)" :data-property-row="row.index" :data-property-stop="row.kind === 'complex' ? undefined : ''">
                     <span v-if="row.kind === 'complex'" class="markdown-properties__complex" :title="row.source">{{ oneLine(row.source) }}</span>
-                    <Checkbox v-else-if="row.kind === 'checkbox'" :model-value="row.value" :readonly="props.readonly" @update:model-value="(value: boolean) => writeRow(row, {kind: 'checkbox', value})"><span class="sr-only">{{ row.name }}</span></Checkbox>
+                    <Checkbox v-else-if="kindOf(row) === 'checkbox'" :model-value="row.kind === 'checkbox' ? row.value : false" :readonly="props.readonly" @update:model-value="(value: boolean) => writeRow(row, {kind: 'checkbox', value})"><span class="sr-only">{{ labelOf(row) }}</span></Checkbox>
                     <DateInput
                         v-else-if="kindOf(row) === 'date'"
                         :model-value="row.kind === 'date' ? row.value : null"
                         variant="bare"
                         size="sm"
                         :readonly="props.readonly"
-                        :aria-label="row.name"
+                        :aria-label="labelOf(row)"
                         @update:model-value="(value: string | null) => writeDate(row, value)"
                     />
                     <TagInput
-                        v-else-if="row.kind === 'list'"
-                        :model-value="[...row.value]"
+                        v-else-if="kindOf(row) === 'list'"
+                        :model-value="row.kind === 'list' ? [...row.value] : []"
                         variant="bare"
                         size="sm"
                         :readonly="props.readonly"
-                        :aria-label="row.name"
+                        :aria-label="labelOf(row)"
                         @update:model-value="(value: string[]) => writeRow(row, {kind: 'list', value})"
                     />
                     <span v-else class="markdown-properties__input" @focusout="onFocusout({kind: 'value', index: row.index}, $event)" @keydown.enter="onEnter({kind: 'value', index: row.index}, $event)">
@@ -504,7 +537,7 @@ defineExpose({
                             size="sm"
                             :inputmode="kindOf(row) === 'number' ? 'decimal' : undefined"
                             :readonly="props.readonly"
-                            :aria-label="row.name"
+                            :aria-label="labelOf(row)"
                             :class="kindOf(row) === 'number' ? 'markdown-properties__tabular' : ''"
                             @update:model-value="(value: string) => setDraft({kind: 'value', index: row.index}, value)"
                         />
@@ -513,8 +546,8 @@ defineExpose({
 
                 <!-- 表示不了的一行没有可输入的值：上下方向键的这一站是它的“在源码里改”。 -->
                 <span class="markdown-properties__action" :data-property-stop="row.kind === 'complex' ? '' : undefined" :data-property-row="row.kind === 'complex' ? row.index : undefined">
-                    <IconButton v-if="row.kind === 'complex'" size="xs" icon-class="i-lucide-code" :title="text.t('properties.editSource', {name: row.name})" @click="revealInSource(row.line)" />
-                    <IconButton v-else-if="!props.readonly" size="xs" icon-class="i-lucide-x" class="markdown-properties__remove" :title="text.t('properties.remove', {name: row.name})" @click="remove(row)" />
+                    <IconButton v-if="row.kind === 'complex'" size="xs" icon-class="i-lucide-code" :title="text.t('properties.editSource', {name: labelOf(row)})" @click="revealInSource(row.line)" />
+                    <IconButton v-else-if="!props.readonly" size="xs" icon-class="i-lucide-x" class="markdown-properties__remove" :title="text.t('properties.remove', {name: labelOf(row)})" @click="remove(row)" />
                 </span>
             </div>
 
@@ -655,6 +688,16 @@ span.markdown-properties__type {
     color: var(--text-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* 有显示名的行：看起来与普通的名字一样，点了才变成输入框。 */
+.markdown-properties__name--label {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: start;
+    cursor: text;
 }
 
 .markdown-properties__name :deep(input) {
