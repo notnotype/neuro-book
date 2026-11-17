@@ -1166,6 +1166,27 @@ describe("NestedGrid 交换", () => {
         expect(wrapper.emitted("issues")?.flat().some((issue) => String(issue).includes("hidden"))).toBe(true);
     });
 
+    it("滑到一半点回去：同一分支同一序号的线一条滑出去、一条回来，回来的那条照样能拖；滑出去的线对读屏隐藏", async () => {
+        const wrapper = await mountColumn();
+        const C = ["c1", "c2"];
+        const toC = column(C);
+        // A 与 C 的分节都在分支 side 里：两条线都是 side:0。
+        await wrapper.setProps({swap: swap(1, A, C), node: toC.root(), layout: toC.layout(CONTAINER)});
+        const out = wrapper.findAll(".nb-grid-sash").find((item) => item.attributes("data-swap") === "out");
+        expect(out?.attributes("aria-hidden")).toBe("true");
+        expect(out?.attributes("inert")).toBeDefined();
+        const back = column(A);
+        await wrapper.setProps({swap: {...swap(2, C, A), direction: -1}, node: back.root(), layout: back.layout(CONTAINER)});
+        await vi.waitFor(() => expect(wrapper.find("[data-swap]").exists()).toBe(false));
+        const scope = wrapper.get<HTMLElement>("[data-grid-scope]").element;
+        stubRect(scope, {left: 0, top: 0, right: CONTAINER.width, bottom: CONTAINER.height});
+        const live = wrapper.get<HTMLElement>('[data-sash="side:0"]').element;
+        stubRect(live, {left: 0, top: 299, right: 300, bottom: 300});
+        live.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(wrapper.emitted("gesture-start")).toBeDefined();
+    });
+
     it("减少动态效果：直接换，不交换", async () => {
         const wrapper = await mountColumn("0ms");
         await wrapper.setProps({swap: swap(1, A, B), ...toB()});

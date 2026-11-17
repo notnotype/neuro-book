@@ -134,19 +134,30 @@ const {moving, growing, following, flying, keptSize, anchoredRight, held} = moti
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
 const outgoingLeaves = computed<ReadonlySet<string>>(() => (motion.shrinking.value.size === 0 ? leavingLeaves.value : new Set([...leavingLeaves.value, ...motion.shrinking.value])));
-/** 交换进行中带上每一项是换上来的还是离开的（`data-swap`）。 */
-const swapSide = computed(() => swapSides(motion.band.value));
-/** 这一刻在交换里的叶（节点 id，含离开的）：过渡结束就空了。 */
-const swappingLeaves = computed<ReadonlySet<string>>(() => new Set((motion.band.value?.groups ?? []).flatMap((group) => [...group.leaves])));
-/** 带上的项按裁切窗裁：窗在网格里不动，每一帧的裁切跟着元素此刻的矩形，和 `left`/`top` 同一段过渡。 */
-function swapClip(key: string, rect: GridRect): string | undefined {
+/**
+ * 交换进行中每一项在带上是换上来的还是离开的（`data-swap`）。叶与内容项按它们的叶属于哪一组认，所以交换开始之后才挂上来的内容项也裁在窗里；
+ * 分隔线按组里记下的键认。
+ */
+const swapSide = computed(() => {
     const band = motion.band.value;
-    return band === null || !swapSide.value.has(key) ? undefined : swapWindowClip(band, rect);
+    const leaves = new Map<string, "in" | "out">();
+    band?.groups.forEach((group, index) => {
+        for (const leaf of group.leaves) leaves.set(leaf, index === band.target ? "in" : "out");
+    });
+    return {leaves, keys: swapSides(band)};
+});
+function swapSideOf(item: GridLayerItem<unknown>): "in" | "out" | undefined {
+    if (item.kind === "leaf") return swapSide.value.leaves.get(item.node.id);
+    if (item.kind === "content") return swapSide.value.leaves.get(item.leaf);
+    return swapSide.value.keys.get(item.key);
 }
-const swapClipStyle = (key: string, rect: GridRect): Record<string, string> => {
-    const clip = swapClip(key, rect);
-    return clip === undefined ? {} : {clipPath: clip};
-};
+/** 这一刻在交换里的叶（节点 id，含离开的）：过渡结束就空了。 */
+const swappingLeaves = computed<ReadonlySet<string>>(() => new Set(swapSide.value.leaves.keys()));
+/** 带上的项按裁切窗裁：窗在网格里不动，每一帧的裁切跟着元素此刻的矩形，和 `left`/`top` 同一段过渡。 */
+function swapClipStyle(item: GridLayerItem<unknown>, rect: GridRect): Record<string, string> {
+    const band = motion.band.value;
+    return band === null || swapSideOf(item) === undefined ? {} : {clipPath: swapWindowClip(band, rect)};
+}
 
 /**
  * 宿主给的交换只在 `token` 变了的那一轮刷新里有效：在属性写进来的那一刻（同步）记下，布局变化的 watcher 用掉它；这一轮没有布局变化
@@ -246,21 +257,34 @@ const contentLayer = useContentLayer({
         return element != null && host?.activeElement != null && element.contains(host.activeElement);
     },
     onParked: (contentKey) => emit("content-parked", contentKey),
-    swapClip,
+    swapClip: (item, rect) => swapClipStyle(item, rect).clipPath,
     lifted: () => props.lifted,
     liftedRect: () => liftedRect,
 });
 /** 渲染层的全部项，树序：每块叶后面紧跟属于它的内容。 */
 const layers = computed<ReadonlyArray<GridLayerItem<unknown>>>(() => layerItems(placement.value?.items ?? [], contentLayer.placements.value));
 
-const order = useRenderOrder(layers, instanceId, (item) => item.kind === "content" && contentLayer.isParked(item));
+// 交换里滑出去的分隔线对读屏隐藏（`detached`），不列进 `aria-owns`。
+const order = useRenderOrder(layers, instanceId, (item) => (item.kind === "content" && contentLayer.isParked(item)) || (item.kind === "sash" && item.leaving === true));
 const {domIdOf} = order;
 const focus = useGridFocus({root: rootEl, layers, order});
 
-function sashBoxStyle(sash: GridSashPlacement<unknown>): Record<string, string> {
-    const host = props.sashStyle?.({branch: sash.branch.id, before: sash.before, after: sash.after});
+/**
+ * 宿主给分隔线的种类与样式（`sashKind`、`sashStyle`），按每次渲染记下：交换里滑出去的线两侧已经不在宿主的布局里，问宿主只会得到错的结果，
+ * 沿用它离开前最后一次的。不在渲染层里的线的记录在布局变化时清掉（见 `layers` 的 watcher）。
+ */
+const sashLooks = new Map<string, {readonly kind: string | undefined; readonly style: Record<string, string> | undefined}>();
+function sashLookOf(sash: GridSashPlacement<unknown>): {readonly kind: string | undefined; readonly style: Record<string, string> | undefined} {
+    if (sash.leaving === true) return sashLooks.get(sash.key) ?? {kind: undefined, style: undefined};
+    const ref = {branch: sash.branch.id, before: sash.before, after: sash.after};
+    const look = {kind: props.sashKind?.(ref), style: props.sashStyle?.(ref)};
+    sashLooks.set(sash.key, look);
+    return look;
+}
+
+function sashBoxStyle(sash: GridSashPlacement<unknown> & {readonly kind: "sash"}): Record<string, string> {
     const rect = growing.value.get(sash.key) ?? sash.rect;
-    return {...host, position: "absolute", ...gridRectStyle(rect), ...swapClipStyle(sash.key, rect)};
+    return {...sashLookOf(sash).style, position: "absolute", ...gridRectStyle(rect), ...swapClipStyle(sash, rect)};
 }
 
 /** 分隔线控制的窗格：外框里只剩面板头时，真正被调整的是活动的内容。 */
@@ -289,6 +313,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
             beforePx: sash.frozen.beforePx,
             afterPx: sash.frozen.afterPx,
             disabled: true,
+            detached: true,
             ends: sash.ends,
             ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
             ariaControls: domIdOf(`leaf:${sash.controls}`),
@@ -309,6 +334,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
         beforePx: nowPx,
         afterPx: Math.max(0, sizes[sash.after]?.[sash.axis] ?? 0),
         disabled: gesturesDisabled.value || isZeroLength(sash),
+        detached: false,
         ends: sash.ends,
         ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
         ariaControls: controlledIds(sash.controls),
@@ -371,6 +397,8 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
+    const rendered = new Set(layers.value.map((item) => item.key));
+    for (const key of sashLooks.keys()) if (!rendered.has(key)) sashLooks.delete(key);
     if (props.maximized != null) raisedLeaf.value = props.maximized.leaf;
     const before = old?.[1] ?? null;
     if (liftedKey !== null || before === null) return;
@@ -569,7 +597,7 @@ defineExpose({
     placeLifted,
     placeFloat,
     /**
-     * 缩回去、过渡结束前还画着的叶（节点 id）：离开了的（已经不在 `node` 里）与降到零的（还在，尺寸已经是零）。宿主按它们缩回去之前的样子
+     * 离开、过渡结束前还画着的叶（节点 id）：离开了的（已经不在 `node` 里，缩回去或交换里滑出去）与降到零的（还在，尺寸已经是零）。宿主按它们离开之前的样子
      * 画挨着的东西（相连的卡片），不按这一刻的布局：那已经是终点了。过渡结束就空了。
      */
     outgoingLeaves,
@@ -598,15 +626,15 @@ defineExpose({
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
-                :data-swap="swapSide.get(item.key)"
+                :data-swap="swapSideOf(item)"
                 :inert="obscuredLeaves.has(item.node.id) || outgoingLeaves.has(item.node.id)"
-                :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...frameClip(item), ...swapClipStyle(item.key, growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
+                :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...frameClip(item), ...swapClipStyle(item, growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
                     <slot name="leaf" :node="item.node"></slot>
                 </div>
             </div>
-            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashKind?.({branch: item.branch.id, before: item.before, after: item.after})" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSide.get(item.key)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
+            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashLookOf(item).kind" :data-moving="structureMoving(item.key) ? '' : undefined" :data-swap="swapSideOf(item)" :data-leaving="item.leaving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
             <div
                 v-else
                 :id="domIdOf(item.key)"
@@ -621,7 +649,7 @@ defineExpose({
                 :data-leaving="leavingLeaves.has(item.leaf) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
                 :data-by-leaf="contentLayer.byLeafRect(item) ? '' : undefined"
-                :data-swap="swapSide.get(item.key)"
+                :data-swap="swapSideOf(item)"
                 :inert="contentLayer.isParked(item)"
                 :style="{...contentLayer.frameStyle(item), ...(contentLayer.isLifted(item) ? {} : floatLayer(item.leaf, 1))}"
             >

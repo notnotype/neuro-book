@@ -101,10 +101,10 @@ function groupItems(list: ReadonlyArray<GridLayerItem<unknown>>, leaves: Readonl
 const overlaps = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => [...a].some((id) => b.has(id));
 
 interface Live {
-    leaves: ReadonlySet<string>;
-    home: ReadonlyArray<GridLayerItem<unknown>>;
+    readonly leaves: ReadonlySet<string>;
+    readonly home: ReadonlyArray<GridLayerItem<unknown>>;
     /** 此刻的偏移。 */
-    now: number;
+    readonly now: number;
 }
 
 /**
@@ -143,19 +143,20 @@ export function planSwap(input: {
     }
     const step = band?.step ?? along(axis, window) + swap.gap;
 
-    // 带上的几组：进行中的交换里的照旧，刚离开树的那组（第一次交换时是唯一的一组）按上一帧的矩形放在它此刻的位置。
-    const live: Live[] = (band?.groups ?? []).map((group, index) => ({leaves: group.leaves, home: group.home, now: input.now[index] ?? group.offset}));
-    const left = live.find((group) => overlaps(group.leaves, leaving));
-    if (left === undefined) live.push({leaves: leaving, home: leavingHome, now: 0});
-    else Object.assign(left, {leaves: leaving, home: leavingHome});
+    // 带上的几组，此刻的偏移：进行中的交换里的照旧；刚离开树的那组（第一次交换时是唯一的一组）与要换上的那组的项按这两帧的重取。
+    const banded: Live[] = (band?.groups ?? []).map((group, index) => {
+        const now = input.now[index] ?? group.offset;
+        if (overlaps(group.leaves, leaving)) return {leaves: leaving, home: leavingHome, now};
+        if (overlaps(group.leaves, entering)) return {leaves: entering, home: enteringHome, now};
+        return {leaves: group.leaves, home: group.home, now};
+    });
+    const live = banded.some((group) => group.leaves === leaving) ? banded : [...banded, {leaves: leaving, home: leavingHome, now: 0}];
     // 要换上的那组已经在带上（滑出去一半又被点回来）：从它此刻的位置往回走；否则接在方向那头最外面那组的后面。
-    let target = live.find((group) => overlaps(group.leaves, entering));
+    let target = live.find((group) => group.leaves === entering);
     if (target === undefined) {
         const outermost = Math.max(...live.map((group) => swap.direction * group.now));
         target = {leaves: entering, home: enteringHome, now: swap.direction * (outermost + step)};
         live.push(target);
-    } else {
-        Object.assign(target, {leaves: entering, home: enteringHome});
     }
     const delta = -target.now;
     const outside = (group: Live, offset: number): boolean => {
