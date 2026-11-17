@@ -84,6 +84,15 @@ export function panelConstraints(panel: PanelRecord, region: PanelName | null, c
 }
 
 /**
+ * 入口条叶顶上被卡片缩掉的那一截（输出 47）：卡片在叶里按主题的缝往里缩，入口条叶只有这一行，缩掉的要加回叶上，卡片里才是完整的一行头高
+ * （分节的叶比头高，缩掉的是正文那段，不用加）。右栏顶上贴着窗体，缩一整条缝；底部面板顶上挨着编辑区、隔一条分隔线，缩半条缝减半条线。
+ * 和 `shell/adjacency.ts` 的 `cardInset` 是同一套规则，两处一起改。
+ */
+function stripTopInset(region: PanelName, gap: number): number {
+    return region === "auxiliarybar" ? Math.max(0, gap) : Math.max(0, gap / 2 - SASH_PX / 2);
+}
+
+/**
  * `doc` 是要投影的那份文档：约束按面板所在的区域取，区域要从树里问。拿它去投影别的文档（拖动的预览）时，在这份文档里没有的面板按“不在区域里”算。
  */
 export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>; readonly cardGap?: number; readonly squeezed?: boolean}): LayoutProjectionOptions {
@@ -101,7 +110,7 @@ export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonl
         collapseThreshold: SHELL_DRAG_COLLAPSE_THRESHOLD,
         sashSize: SASH_PX,
         // 右栏、底部面板卡片顶上一行是入口条，当前容器只有一节时那一节的头并进这一行（输出 47）；侧栏的入口在活动栏上。
-        regionStrip: (region) => (region === "sidebar" ? null : {height: PANEL_HEAD_HEIGHT, mergeSole: true}),
+        regionStrip: (region) => (region === "sidebar" ? null : {height: PANEL_HEAD_HEIGHT + stripTopInset(region, input.cardGap ?? 0), mergeSole: true}),
         ...(input.removed === undefined ? {} : {removed: input.removed}),
     };
 }

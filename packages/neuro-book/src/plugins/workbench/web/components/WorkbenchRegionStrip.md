@@ -1,0 +1,73 @@
+---
+标签: [state:local]
+别名: ["入口条", "右栏入口条", "底部面板入口条"]
+---
+
+# WorkbenchRegionStrip
+
+右栏、底部面板卡片顶上的入口条（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 47）：区域里一个容器一个入口（输出 41），是这个区域的容器切换器。当前容器只有一节时，那一节的头由宿主放进默认插槽，接在入口后面，不多占一行。列哪些容器、点了做什么、头里画什么都由宿主定。
+
+## 布局
+
+占满入口条叶（32px 高的一行），左内边距同面板头。
+
+- **右栏**（`variant: "icons"`）：24px 的图标按钮，16px 的图标居中，按下是底色。第一个入口的图标左缘落在 `--workbench-fold-inset`（[`panel-metrics.css`](panel-metrics.css)）：和分节头的展开标记、资源管理器树第一层的箭头同一条竖线。
+- **底部面板**（`variant: "titles"`）：标题按钮，水平内边距固定 4px（不随主题变），按下是按钮宽度上的一条下划线，同面板头标签带的选中标记。第一个入口的文字和分节头的标题文字同一条竖线。
+- **并进来的头**：默认插槽，占这一行剩下的宽度。
+- **放不下时的让位**：先缩并进来的头（它的标题截断），缩到 `headMinWidth` 以下之前，排在后面的入口收进末尾的“更多”，当前容器的入口总在外面。头里视图动作收进“⋯”、框架按钮最后，由头自己按宿主给的预算做（[`WorkbenchPanelHead`](WorkbenchPanelHead.md)）。标题入口的宽度在一行看不见的量尺里量。
+
+## 交互
+
+- 点入口、Enter 发 `select`（宿主按 `regionEntryIntent` 切换容器或隐藏区域）；按下鼠标不抢焦点。
+- 右键与菜单键发 `context-menu`，坐标是视口坐标（菜单键时在入口下面）。
+- 每个入口是一个 Tab 停靠，同活动栏，没有方向键导航。读屏是一组带 `aria-pressed` 的按钮，组的名称是 `label`；图标入口的可访问名称是容器名称，标题入口就是它写的字。
+- 入口这一片还不是拖动源，也不是落点（入口带 `data-region-entry`，不带活动栏入口的 `data-tool-entry`），拖放在 w00026 t28 第 5 片接上。
+
+## 数据
+
+```ts
+interface RegionStripEntry {
+    /** 容器 id。 */
+    readonly id: string;
+    /** 容器的名称。 */
+    readonly label: string;
+    /** 没有图标可取时是 null，画占位图标。 */
+    readonly icon: string | null;
+    /** 悬停文字：写出容器里的各个视图。 */
+    readonly tooltip: string;
+    /** 区域的当前容器：放不下时它总在外面。 */
+    readonly current: boolean;
+    /** 当前容器且区域可见；至多一项。 */
+    readonly pressed: boolean;
+}
+
+defineProps<{
+    /** 区域：写在根上（`data-region-strip`）。 */
+    region: string;
+    /** 入口这一组的可访问名称。 */
+    label: string;
+    moreLabel: string;
+    entries: ReadonlyArray<RegionStripEntry>;
+    variant: "icons" | "titles";
+    /** 并进来的头至少要留多宽；没有并进来的头时是 0（缺省）。 */
+    headMinWidth?: number;
+}>();
+
+defineEmits<{
+    (event: "select", id: string): void;
+    (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
+}>();
+```
+
+插槽：默认插槽是并进来的那一节的头（宿主以面板 id 为 `key`，换了并进来的那一节就是新的头）。
+
+标记：根 `data-region-strip`（区域）；入口 `data-region-entry`（容器 id）、按下的 `data-pressed`；“更多” `data-region-more`。
+
+## 状态
+
+只有量出来的宽度（整条的宽、标题入口各自的宽），随尺寸观察更新。
+
+## 不支持
+
+- 选中标记的滑动（右栏的按下底色、底部面板的下划线随内容滚过去）：t28 第 4 片。
+- 入口的拖放：t28 第 5 片。

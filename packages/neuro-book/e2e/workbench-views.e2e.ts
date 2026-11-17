@@ -726,8 +726,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(0);
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
         expect((await saved(page))?.doc.panels.auxiliarybar).toMatchObject({activeContainer: `view:${D}`, entries: [`view:${A}`, `view:${D}`]});
-        // 打开菜单的入口不在了：焦点到这个容器第一个分节的标题，不落到页面上（输出 16）。
-        await expect(tab(page, D)).toBeFocused();
+        // 打开菜单的那个活动栏入口不在了：焦点到这个容器在右栏入口条上的入口（ui/workbench-layout 输出 47），不落到页面上（输出 16）。
+        await expect(page.locator(`[data-region-strip="auxiliarybar"] [data-region-entry="view:${D}"]`)).toBeFocused();
     });
 
     test("键盘：分节标题上按菜单键打开“移动到”菜单，按 Escape 关闭，焦点回到标题，不落到页面上（输出 16、20、23）", async ({page}) => {
@@ -990,12 +990,16 @@ test.describe("产品页：测试插件贡献的视图", () => {
             };
         }, side);
         // 同一张卡片里几节之间的线：丙移进样例甲的容器，侧栏显示上下两个分节，一个容器一张卡片，两节之间是开放式分割线（取 `--shell-pane-divider`）。
-        const paneSeams = () => page.evaluate(() => [...document.querySelectorAll('[data-sash-kind="panes"]')].map((sash) => {
-            const seam = sash.querySelector(".sash-seam")!;
+        // 右栏、底部面板的入口条和下面分节之间也是同一张卡片里的缝，宽度为 0、不画线（ui/workbench-layout 输出 47）：只量画了线的。
+        const paneSeams = () => page.evaluate(() => [...document.querySelectorAll('[data-sash-kind="panes"]')].flatMap((sash) => {
+            const seam = sash.querySelector<HTMLElement>(".sash-seam");
+            if (seam === null) return [];
             const style = getComputedStyle(seam);
-            const [start, end] = (seam as HTMLElement).dataset.axis === "width" ? [style.top, style.bottom] : [style.left, style.right];
-            return {color: style.backgroundColor, start, end};
+            const [start, end] = seam.dataset.axis === "width" ? [style.top, style.bottom] : [style.left, style.right];
+            return [{color: style.backgroundColor, start, end}];
         }));
+        const stripSeams = () => page.evaluate(() => [...document.querySelectorAll('[data-sash-kind="panes"]')].filter((sash) => (sash.getAttribute("aria-label") ?? "").includes("strip:")).map((sash) => sash.querySelector(".sash-seam") === null));
+        expect(await stripSeams()).not.toContain(false);
         const nbook = await shellLook();
         expect(nbook.editorRadius).toBe("12px");
         expect(nbook.activityCorners).toEqual(["12px", "0px"]);

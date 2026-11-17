@@ -124,6 +124,166 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(page.getByRole("menu")).toHaveCount(0);
     }
 
+    /** 命令面板里执行一条命令（不带参数：面板类命令落在当前面板上）。 */
+    async function runCommand(page: Page, title: string): Promise<void> {
+        const combobox = page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"});
+        await expect(async () => {
+            await page.keyboard.press("Control+Shift+P");
+            await expect(combobox).toBeFocused({timeout: 500});
+        }).toPass();
+        await combobox.fill(title);
+        await page.getByRole("option", {name: new RegExp(title, "u")}).first().click();
+    }
+
+    const opacityOf = (locator: ReturnType<Page["locator"]>) => () => locator.evaluate((element) => getComputedStyle(element).opacity);
+    const leftOf = (page: Page, selector: string): Promise<number> => page.locator(selector).first().evaluate((element) => element.getBoundingClientRect().left);
+
+    test("右栏的入口条：卡片顶上一行，当前容器只有一节时它的头并在这一行里、没有展开标记；入口图标对齐分节头的展开标记；指针在正文上时条里的按钮出现；入口不起拖；在条里切容器后当前面板是新并进来的那一节（ui/workbench-layout 输出 20、36、47）", async ({page}) => {
+        await open(page);
+        const strip = page.locator('[data-region-strip="auxiliarybar"]');
+        await expect(strip).toBeVisible();
+        // 默认右栏只有对话一个容器、一节：它的头在入口条里，它自己的叶里没有头，条里没有展开标记（区域唯一的分节收不成标题行）。
+        const conversation = await sectionOf(page, CONVERSATION);
+        await expect(strip.locator(`[data-panel-head="${conversation}"]`)).toHaveCount(1);
+        await expect(leaf(page, conversation).locator("[data-panel-head]")).toHaveCount(0);
+        await expect(strip.locator("[data-panel-fold]")).toHaveCount(0);
+        // 一个容器一个入口（样例插件在右栏另有容器），对话那个按下着、排在最前。
+        const entries = await strip.locator("[data-region-entry]").count();
+        await expect(strip.locator('[data-region-entry][aria-pressed="true"]')).toHaveCount(1);
+        await expect(strip.locator("[data-region-entry]").first()).toHaveAttribute("aria-pressed", "true");
+        // 入口条和那一节拼成一张卡片：条的底就是那一节的顶。
+        const stripBox = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
+        const sectionBox = await box(page, conversation);
+        expect(Math.abs(stripBox.y + stripBox.height - sectionBox.y)).toBeLessThanOrEqual(1);
+
+        // 对齐：入口图标离卡片左缘，等于侧栏分节头的展开标记离卡片左缘（都对资源管理器树第一层的箭头）。
+        const explorer = await sectionOf(page, EXPLORER);
+        const iconInset = await leftOf(page, '[data-region-strip="auxiliarybar"] [data-region-entry] .workbench-region-strip__icon') - await leftOf(page, '[data-shell-card="strip:auxiliarybar"]');
+        const foldInset = await leftOf(page, `[data-panel-head="${explorer}"] span[data-panel-fold]`) - await leftOf(page, `[data-shell-card="${explorer}"]`);
+        expect(Math.abs(iconInset - foldInset), `入口图标 ${String(iconInset)}，展开标记 ${String(foldInset)}`).toBeLessThanOrEqual(1);
+
+        // 悬停范围是这块面板，跨入口条叶与分节的叶：指针在对话的正文上，条里的框架按钮出现。
+        const frameActions = strip.locator('[data-hover-actions="frame"]');
+        await page.mouse.move(700, 450);
+        await expect.poll(opacityOf(frameActions)).toBe("0");
+        await page.mouse.move(sectionBox.x + sectionBox.width / 2, sectionBox.y + sectionBox.height / 2);
+        await expect.poll(opacityOf(frameActions)).toBe("1");
+
+        // 入口在这一片不是拖动源：按住拖开不起拖影。
+        const entryBox = (await strip.locator("[data-region-entry]").first().boundingBox())!;
+        await page.mouse.move(entryBox.x + entryBox.width / 2, entryBox.y + entryBox.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(entryBox.x + 80, entryBox.y + 120, {steps: 6});
+        await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+        await page.mouse.up();
+
+        // 资源管理器移进右栏的新容器：右栏切到它，它的头并进入口条，两个入口。
+        await moveViaMenu(page, EXPLORER, "新容器（右栏）");
+        await expect(strip.locator(`[data-panel-head="${explorer}"]`)).toHaveCount(1);
+        await expect(strip.locator("[data-region-entry]")).toHaveCount(entries + 1);
+        // 键盘在入口条里切回对话：焦点留在入口上没动，并进来的那一节换成对话，当前面板跟着换；不带面板的命令落在对话上。
+        await strip.locator("[data-region-entry]").first().focus();
+        await page.keyboard.press("Enter");
+        await expect(strip.locator(`[data-panel-head="${conversation}"]`)).toHaveCount(1);
+        await expect(strip.locator("[data-region-entry]").first()).toBeFocused();
+        await runCommand(page, "最大化/还原面板");
+        await expect(page.locator(`[data-panel-head="${conversation}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`)).toHaveAttribute("aria-pressed", "true");
+    });
+
+    test("入口条里最大化、还原时焦点跟着头走；右栏拖到最窄时当前容器的入口与“更多”在外面，条里每个按钮都在条里、点得到（ui/workbench-layout 输出 13、47）", async ({page}) => {
+        await open(page);
+        const conversation = await sectionOf(page, CONVERSATION);
+        const maximizeIn = (scope: string) => page.locator(`${scope} [data-panel-head="${conversation}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`);
+        const inStrip = maximizeIn('[data-region-strip="auxiliarybar"]');
+        const inLeaf = maximizeIn(`${LEAF}[data-leaf="${conversation}"]`);
+        // 键盘在入口条里按最大化：头搬进那一节自己的叶，焦点在叶里的还原按钮上；再按还原，过渡结束头回到入口条，焦点回到条里的同一个按钮。
+        await inStrip.focus();
+        await page.keyboard.press("Enter");
+        await expect(inLeaf).toHaveAttribute("aria-pressed", "true");
+        await expect(inLeaf).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(inStrip).toBeVisible();
+        await expect(inStrip).toBeFocused();
+        await expect(inStrip).toHaveAttribute("aria-pressed", "false");
+
+        // 右栏拖到最窄（区域至少 160，视图声明的更大最小值也算）：右栏左边那条线往右拖到比 160 再窄 10px，停在最小宽度上；
+        // 拖得更远会过了收起的门槛、整块拖到零（输出 12），那就不是这里要看的。
+        const stripFrame = leaf(page, "strip:auxiliarybar");
+        const before = (await stripFrame.boundingBox())!;
+        const handle = await page.evaluate((edge) => {
+            const lines = [...document.querySelectorAll('[data-workbench-surface] [role="separator"]')].filter((element) => (element.getAttribute("aria-label") ?? "").endsWith("的宽度")).map((element) => element.getBoundingClientRect());
+            const best = lines.sort((a, b) => Math.abs(a.right - edge) - Math.abs(b.right - edge))[0]!;
+            return {x: best.left + best.width / 2, y: best.top + best.height / 2};
+        }, before.x);
+        await page.mouse.move(handle.x, handle.y);
+        await page.mouse.down();
+        await page.mouse.move(handle.x + before.width - 150, handle.y, {steps: 8});
+        await page.mouse.up();
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        const narrowest = Math.round((await stripFrame.boundingBox())!.width);
+        expect(narrowest).toBeGreaterThanOrEqual(160);
+        expect(narrowest).toBeLessThanOrEqual(185);
+        expect((await saved(page))?.panels.auxiliarybar?.collapsed).not.toBe(true);
+        const strip = page.locator('[data-region-strip="auxiliarybar"]');
+        await expect(strip.locator('[data-region-entry][aria-pressed="true"]')).toBeVisible();
+        const offenders = await strip.evaluate((root) => {
+            const card = root.closest("[data-shell-card]")!.getBoundingClientRect();
+            return [...root.querySelectorAll<HTMLElement>("button")].filter((button) => button.offsetParent !== null && button.closest("[aria-hidden='true']") === null).flatMap((button) => {
+                const rect = button.getBoundingClientRect();
+                const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                return rect.left >= card.left - 0.5 && rect.right <= card.right + 0.5 && hit !== null && button.contains(hit) ? [] : [button.getAttribute("aria-label") ?? button.textContent ?? "?"];
+            });
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    test("底部面板的入口条：入口写容器的标题，第一个入口的文字和分节头的标题文字离卡片左缘一样（ui/workbench-layout 输出 47）", async ({page}) => {
+        await open(page);
+        // 资源管理器移进底部面板的新容器，会话再移进它那个容器：底部面板这个容器左右两节，入口条只有入口，两节各自画头写标题。
+        await moveViaMenu(page, EXPLORER, "新容器（底部面板）");
+        await moveViaMenu(page, SESSIONS, "资源管理器");
+        const strip = page.locator('[data-region-strip="panel"]');
+        await expect(strip.locator("[data-panel-head]")).toHaveCount(0);
+        await expect(strip.locator('[data-region-entry][aria-pressed="true"]')).toHaveText("资源管理器");
+        const [explorer, sessions] = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
+        const first = (await box(page, explorer)).x < (await box(page, sessions)).x ? explorer : sessions;
+        const entryInset = await leftOf(page, '[data-region-strip="panel"] [data-region-entry] .workbench-region-strip__title') - await leftOf(page, '[data-shell-card="strip:panel"]');
+        const titleInset = await leftOf(page, `[data-panel-head="${first}"] .workbench-panel-head__label`) - await leftOf(page, `[data-shell-card="${first}"]`);
+        expect(Math.abs(entryInset - titleInset), `入口文字 ${String(entryInset)}，分节标题 ${String(titleInset)}`).toBeLessThanOrEqual(1);
+    });
+
+    test("右栏当前容器有几节：入口条只有入口，各节在自己的叶里画头、能收起；全部收起时入口条在上，最后一节垫底到卡片的底，这一列的分隔线拖不动（ui/workbench-layout 输出 11、47）", async ({page}) => {
+        await open(page);
+        // 资源管理器移进右栏的新容器，会话再移进它那个容器：右栏这个容器两节（都不接管标题区，标题按钮就是开关）。
+        await moveViaMenu(page, EXPLORER, "新容器（右栏）");
+        await moveViaMenu(page, SESSIONS, "资源管理器");
+        const [explorer, sessions] = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
+        const strip = page.locator('[data-region-strip="auxiliarybar"]');
+        await expect(strip.locator("[data-panel-head]")).toHaveCount(0);
+        await expect(leaf(page, explorer).locator("[data-panel-head]")).toHaveCount(1);
+        await expect(leaf(page, sessions).locator("[data-panel-head]")).toHaveCount(1);
+        const stripBox = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
+        const [first, second] = [await box(page, explorer), await box(page, sessions)];
+        const [upperView, lowerView] = first.y < second.y ? [EXPLORER, SESSIONS] : [SESSIONS, EXPLORER];
+        const [upper, lower] = first.y < second.y ? [explorer, sessions] : [sessions, explorer];
+        const columnBottom = Math.max(first.y + first.height, second.y + second.height);
+        await collapseButton(page, upperView).click();
+        await collapseButton(page, lowerView).click();
+        await expect.poll(async () => (await box(page, upper)).height).toBe(32);
+        await expect.poll(async () => {
+            const rect = await box(page, lower);
+            return Math.round(rect.y + rect.height);
+        }).toBe(Math.round(columnBottom));
+        // 入口条还在最上面，不动。
+        const stillStrip = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
+        expect(stillStrip).toEqual(stripBox);
+        expect((await box(page, upper)).y).toBeGreaterThanOrEqual(stripBox.y + stripBox.height - 1);
+        await expect(content(page, lowerView)).toHaveAttribute("inert", "");
+        // 两节之间的分隔线拖不动（展开靠点标题）。
+        const between = page.getByRole("separator", {name: new RegExp(`调整 (?:${upper} 与 ${lower}|${lower} 与 ${upper}) 的`, "u")});
+        await expect(between).toHaveAttribute("aria-disabled", "true");
+    });
+
     test("分节的标题行是展开、收起的开关：点标题、Enter 切换，双击回到原样；全部收起时最后一节垫底、卡片满高、右下角是圆的，拖侧栏宽度时它的内容照旧停放（ui/workbench-layout 输出 11、20）", async ({page}) => {
         await open(page);
         const [sessions, explorer] = [await sectionOf(page, SESSIONS), await sectionOf(page, EXPLORER)];
@@ -593,7 +753,8 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const same = (a: number[] | undefined, b: number[] | undefined): boolean => a !== undefined && b !== undefined && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) <= 3);
         const check = async () => {
             const geometry = await page.evaluate(([upper]) => {
-                const sash = document.querySelector<HTMLElement>('[data-workbench-surface] > [data-grid-scope] > [data-sash-kind="panes"]')!.getBoundingClientRect();
+                // 侧栏两节之间那条线：入口条和下面分节之间的 0 宽的缝也是同一类，按名字认（名字里有上面那一节，是高度）。
+                const sash = [...document.querySelectorAll<HTMLElement>('[data-workbench-surface] > [data-grid-scope] > [data-sash-kind="panes"]')].find((element) => (element.getAttribute("aria-label") ?? "").includes(upper) && (element.getAttribute("aria-label") ?? "").endsWith("的高度"))!.getBoundingClientRect();
                 const card = document.querySelector<HTMLElement>(`[data-shell-card="${upper}"]`)!.getBoundingClientRect();
                 return {sashY: sash.top + sash.height / 2, left: card.left, right: card.right};
             }, [upper!] as const);
@@ -641,7 +802,8 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const sessions = await sectionOf(page, SESSIONS);
         const [explorerTop, sessionsTop] = await Promise.all([explorer, sessions].map(async (id) => (await page.locator(`[data-shell-card="${id}"]`).boundingBox())!.y));
         const upper = explorerTop! < sessionsTop! ? explorer : sessions;
-        const sash = await page.locator('[data-workbench-surface] > [data-grid-scope] > [data-sash-kind="panes"]').boundingBox();
+        // 侧栏两节之间那条线（右栏、底部面板的入口条和下面分节之间也有一条 0 宽的同类缝，不要它）。
+        const sash = await page.getByRole("separator", {name: new RegExp(`^调整 (?:${explorer} 与 ${sessions}|${sessions} 与 ${explorer}) 的高度$`, "u")}).boundingBox();
         const card = await bar.boundingBox();
         expect(sash).not.toBeNull();
         const divider = sash!.y + sash!.height / 2, middle = card!.y + card!.height / 2, top = card!.y;
@@ -919,7 +1081,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         });
         /** 点一下开关，逐帧量这一节的外框与内容体，直到网格的过渡结束。只记外框还在、内容看得见的帧。 */
         const film = () => page.evaluate(async (target) => {
-            const rows: Array<{frameTop: number; frameBottom: number; frameHeight: number; bodyTop: number; shrinking: boolean; bottomGapHit: boolean}> = [];
+            const rows: Array<{frameTop: number; frameBottom: number; frameHeight: number; bodyTop: number; stripBottom: number | null; shrinking: boolean; bottomGapHit: boolean}> = [];
             document.querySelector<HTMLElement>('[data-titlebar-layout="panel"]')!.click();
             for (let frame = 0; frame < 90; frame += 1) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -932,7 +1094,8 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
                     const padBottom = Number.parseFloat(getComputedStyle(frameEl.querySelector<HTMLElement>("[data-shell-card]")!.parentElement!).paddingBottom);
                     const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.bottom - padBottom / 2);
                     const bottomGapHit = hit !== null && (frameEl.contains(hit) || hit.closest(`[data-content-leaf="${target.leaf}"]`) !== null);
-                    rows.push({frameTop: rect.top, frameBottom: rect.bottom, frameHeight: rect.height, bodyTop: body.top, shrinking: frameEl.hasAttribute("inert"), bottomGapHit});
+                    const strip = document.querySelector('[data-workbench-surface] > [data-grid-scope] > [data-leaf="strip:panel"]')?.getBoundingClientRect() ?? null;
+                    rows.push({frameTop: rect.top, frameBottom: rect.bottom, frameHeight: rect.height, bodyTop: body.top, stripBottom: strip === null ? null : strip.bottom, shrinking: frameEl.hasAttribute("inert"), bottomGapHit});
                 }
                 if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
             }
@@ -942,13 +1105,18 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             const frame = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${target.leaf}"]`)!.getBoundingClientRect();
             return document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-content="${CSS.escape(target.content)}"]`)!.getBoundingClientRect().top - frame.top;
         }, target);
-        expect(inset).toBeGreaterThan(0);
-        /** 下边不动；内容体的上边一直是外框的上边加面板头（按内容自己的矩形过渡时会落后，最多压住面板头一整条）。 */
+        // 底部面板这个容器只有一节：它的头并在卡片顶上的入口条里（ui/workbench-layout 输出 47），叶里没有头，内容贴着外框的上边。
+        expect(inset).toBe(0);
+        /**
+         * 下边不动；内容体的上边一直是外框的上边（按内容自己的矩形过渡时会落后）；头所在的入口条叶跟着一起走，它的下边就是这一节外框的上边，内容不压住它。
+         */
         const expectSliding = (rows: Awaited<ReturnType<typeof film>>) => {
             const bottom = rows[0]!.frameBottom;
             for (const row of rows) {
                 expect(row.frameBottom).toBeCloseTo(bottom, 0);
                 expect(row.bodyTop - row.frameTop).toBeCloseTo(inset, 0);
+                expect(row.stripBottom).not.toBeNull();
+                expect(Math.abs(row.stripBottom! - row.frameTop)).toBeLessThanOrEqual(1);
             }
         };
 

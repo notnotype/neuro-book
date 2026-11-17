@@ -200,6 +200,7 @@ const stripPlacements = computed(() => new Map(props.projection.strips.map((stri
  * 别的区域同时在过渡时跟着推迟，已知限制。
  */
 const restoring = shallowRef<string | null>(null);
+const floatingPanels = computed<ReadonlySet<string>>(() => new Set(props.floats.map((float) => float.id)));
 watch(() => props.maximized, (next, previous) => {
     if (previous === null || next === previous) return;
     restoring.value = previous;
@@ -214,11 +215,14 @@ watch(() => gridEl.value?.moving === true, (moving) => {
 
 /**
  * 入口条叶此刻画成并着哪一节，表面里只有这一处决定（正文的上边、叶插槽画不画头、入口条里接不接头、悬停与焦点的面板都读它）：投影的 `merged`；
- * 正在离开的入口条叶用最后一次呈现的；那一节最大化着或还在还原过渡里时是 null，它在自己的叶里画头，同一块面板不出现两个头。
+ * 正在离开的入口条叶用最后一次呈现的；那一节最大化着或还在还原过渡里时是 null，它在自己的叶里画头，同一块面板不出现两个头；它是实时布局的空位时也是 null。
  */
 function mergedIn(stripLeaf: string): string | null {
     const merged = drawnAsBefore(stripLeaf) ? lastPresented.strips.get(stripLeaf) ?? null : stripPlacements.value.get(stripLeaf)?.merged ?? null;
-    return merged === null || merged === props.maximized || merged === restoring.value ? null : merged;
+    // 实时布局预览里的空位（拿起了它唯一的视图）什么都不画，头也不留在入口条里（输出 38）；浮起来的那一节画在浮动窗里，窗有自己的头，
+    // 缩走的入口条照最后一次呈现的样子画时也不再接它的头。
+    if (merged === null || merged === props.maximized || merged === restoring.value || merged === props.slotPanel || floatingPanels.value.has(merged)) return null;
+    return merged;
 }
 /** 此刻叶里不画头的分节：并在入口条里的，以及正在离开、离开前并着的（滑出去时不冒出自己的头，内容不下跳）。 */
 const headless = computed<ReadonlySet<string>>(() => {
@@ -227,7 +231,8 @@ const headless = computed<ReadonlySet<string>>(() => {
         const merged = mergedIn(leaf);
         if (merged !== null) panels.add(merged);
     }
-    for (const id of lastPresented.headless) if (drawnAsBefore(id) && id !== props.maximized) panels.add(id);
+    // 浮起来的那一节画在浮动窗里，窗有自己的头：从入口条下面飞出去的那一刻起内容就让出头。
+    for (const id of lastPresented.headless) if (drawnAsBefore(id) && id !== props.maximized && !floatingPanels.value.has(id)) panels.add(id);
     return panels;
 });
 /** 叶代表哪块面板：入口条叶是并进来的那一节，没有并时不代表面板（和活动栏一样）。 */

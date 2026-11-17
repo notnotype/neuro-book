@@ -27,8 +27,8 @@
 
 - 边界的手势、Tab 与 F6 的顺序、位移过渡都来自 `NestedGrid`。F6 的命令由宿主绑，调 `moveFocus`。
 - 手势落账发 `gesture-commit`，宿主写回文档；组件不写文档。
-- 视图动作随鼠标显示的范围是整块面板：指针或焦点在这块面板的外框或内容上时，给卡片写 `data-hover-actions-active`。不能悬停的设备一直显示。
-- 焦点换了面板发 `focus-panel`。内容被停放时焦点还在里面，发 `content-parked`，焦点去哪由宿主定。
+- 视图动作随鼠标显示的范围是整块面板：指针或焦点在这块面板的外框或内容上时，给卡片写 `data-hover-actions-active`。不能悬停的设备一直显示。头并在入口条里的分节，范围跨入口条叶与它自己的叶（入口条叶代表并进来的那一节）。
+- 焦点换了面板发 `focus-panel`。指针与焦点按叶记，面板按此刻的投影现算：在入口条里点入口切了容器，焦点没动，并进来的那一节一换就再发一次。内容被停放时焦点还在里面，发 `content-parked`，焦点去哪由宿主定。
 - 工具面板的内容带 `role="tabpanel"`，和面板头里的标签互相引用（`idPrefix`）。
 
 ## 数据
@@ -82,6 +82,8 @@ type Slots = {
     head?(props: {panelId: string; idPrefix: string}): unknown;
     /** 打开着的空区域：区域的锚只在区域里一个分节都没有时进呈现树（ADR 0050），这时卡片里画它，不画头。 */
     "empty-region"?(props: {panelId: string}): unknown;
+    /** 右栏、底部面板卡片顶上的入口条：`merged` 是此刻画在这一行里的那一节（它的头在这里），没有时是 null。 */
+    strip?(props: {region: PanelName; merged: string | null; idPrefix: string}): unknown;
     /** 内容项。工具视图的 `contentKey` 是 `view:<id>`，编辑器标签是 `tab:<id>`，空的编辑组是 `editor:<面板 id>`；挪到别的面板时实例不重建。 */
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
     /** 拿起的内容项上面那一条头。 */
@@ -125,3 +127,9 @@ attrs 落在根元素上。
 一列分节全部收成标题行时（投影的 `fillers`，最后一节垫底、外框拉到了底，[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 11）：这一列的分隔线经 `NestedGrid` 的 `sashDisabled` 不能拖；垫底的那一节内容项不活动（不显示、不可交互）；收起的分节卡片上不写悬停范围（头自己写），指针停在垫底的空白里不显示它的按钮。
 
 侧栏切换容器滚动的那几百毫秒里（`swap`），换上来的分节外框在半路、已经可以交互。实时布局起拖前宿主先 `settleMotion`，量到的是终点；落点指示（设置关掉了实时布局，或用键盘拿起）这时起拖量到的是半路的几何，到下一次重量之前落点错位（已知限制）。
+
+## 入口条与并成一行
+
+右栏、底部面板顶上的入口条（投影的 `strips`，[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 47）是呈现树里的一片叶，不在文档里：它的角色算工具面板、卡片组算它的区域，所以和下面的分节拼成一张卡片；叶里画宿主的 `strip` 插槽。
+
+“画成并成一行”在表面里只有一处决定（`mergedIn`），正文的上边、分节的叶里画不画头、入口条里接不接头、悬停与焦点的面板都读它：投影的 `merged`；正在离开的叶照最后一次呈现的样子（滑出去的那一节不冒出自己的头）；那一节最大化着时在自己的叶里画头，还原时等网格没有过渡（`moving` 为假）才搬回入口条（输出 13）。

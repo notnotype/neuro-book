@@ -945,7 +945,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :more-label="message('common.more')"
                         :entries="regionStripEntries(region)"
                         :variant="region === 'panel' ? 'titles' : 'icons'"
-                        :head-min-width="merged === null ? 0 : headReserved(merged)"
+                        :head-min-width="merged === null ? 0 : headReserved(merged) - stripEntriesReserve(region)"
                         @select="(id) => selectRegionEntry(region, id)"
                         @context-menu="openContainerMenu"
                     >

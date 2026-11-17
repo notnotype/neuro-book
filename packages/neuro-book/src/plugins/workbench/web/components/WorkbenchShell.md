@@ -12,7 +12,8 @@
 外壳根占满页面（父级给它确定的宽高），底色是主题的 `--shell-ground`（卡片主题里是窗体底；平铺的主题没有这个变量，用面板底色），字体 `--font-ui`。
 
 - 标题栏：固定 36px，在树之外（[`WorkbenchTitleBar`](WorkbenchTitleBar.md)）。
-- 活动栏：[`WorkbenchToolStrip`](WorkbenchToolStrip.md)，上段一项一个侧栏里的视图容器（`containerEntries`；Spec 输出 22、41），底段是 `chrome` 给的全局项。
+- 活动栏：[`WorkbenchToolStrip`](WorkbenchToolStrip.md)，上段一项一个侧栏里的视图容器（`regionEntries`；Spec 输出 22、41），底段是 `chrome` 给的全局项。
+- 右栏、底部面板的入口条：[`WorkbenchRegionStrip`](WorkbenchRegionStrip.md)，画在表面的 `strip` 插槽里（Spec 输出 47）。当前容器只有一节时，那一节的头放进它的默认插槽，和分节自己的叶里的头是同一组属性与事件（`toolHeadProps`、`toolHeadEvents`），以面板为 `key`。并进来的头没有展开标记（`foldOf` 排除此刻投影里并进来的）；视图接管标题区时，头那一段的布局宽度小于 `VIEW_HEAD_MIN_PX` 就不接管（`views.md` 输出 19）。
 - 工具面板：[`WorkbenchPanelHead`](WorkbenchPanelHead.md) 加视图内容（[`WorkbenchViewFrame`](WorkbenchViewFrame.md)）。视图动作由共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md) 画在面板头，按面板宽度算放几个按钮，其余收进“⋯”：一个截断的标签、其余只留图标的宽度总要留给标签带。
 - 视图的标题区（[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 19）：只写标题的面板里，活动视图申请了标题区、实例就绪时，面板头改成三列，交来的位置按面板记下，再分给此刻在这块面板里的那个实例；视图换面板时旧面板头拆掉与新面板头画出的先后不定，按面板记就与先后无关。点标题时先记下面板收没收：收着只展开，展开着才通知视图；这时展开、收起走头上单独的展开标记（`toggle-fold`）。
 - 编辑区：树里每块 `role: "editor"` 的面板是 `editorArea` 提供者的一个组组件（属性 `panelId`、`context: {visible}`，别的面板最大化盖住它时 `visible` 为假），提供者的区级组件在外壳根上挂一次，交出标签的拖动；提供者换了才重挂。没有提供者时编辑组里是欢迎文字，那块面板有标签时写不可用的原因。
@@ -23,7 +24,9 @@
 - 拖动边界的结果交给 store 的 `commitGesture`，布局发布的尺寸交给 `acceptPresented`；记录读完之前边界不能拖。
 - 面板头的框架按钮执行命令（浮动、`toggle-panel-maximized`）；面板头上没有隐藏按钮，区域的显隐在活动栏入口、状态栏与命令上，可用与原因取命令系统的可用性。
 - 收起不是框架按钮，是标题行（Spec 输出 20）：只写标题、上下排、没有被最大化的面板给头 `fold`（带容器的区域里底部面板的分节与区域此刻唯一显示的分节没有，`sectionCollapseBlock`；收没收问 `isSectionCollapsed`；都按已提交的文档算）。点标题在 `activateTab` 一处决定：展开着、视图没接管标题区、点的是当前标签时执行 `set-panel-collapsed` 收起，否则照旧激活（收着的会展开）；接管标题区时单独的展开标记发 `toggle-fold`。分节标题与浮动窗视图标签的右键或菜单键开“移动到”（Spec 输出 23）：别的容器（写容器的标题，与活动栏同一个结果）、三个区域的“新容器”、浮动、“重置位置”；目标表与命令面板同一份（`moveTargetsOf`），各项经 `nbook.view.move-view` 执行。视图、它所在的面板与容器、交付状态或代际一变菜单就关。
-- 活动栏的入口按 `toolEntryIntent`（Spec 输出 22）：不是当前容器就切到它（store 的 `showContainer`，侧栏隐藏或拖到零时同时展开）；是当前容器时，侧栏可见就隐藏侧栏，不可见就展开。按下态是“当前容器且侧栏可见”（`sidebarVisible`），至多一项。入口的右键或菜单键开容器的菜单（Spec 输出 44）：这一步只有“重置”（store 的 `moveContainer`，搬回声明的区域），容器已经在声明的区域、或是用户拖出来的容器时没有菜单项，菜单不开。
+- 头在入口条与分节的叶之间搬家（并、分、最大化、还原、换了并进来的那一节）时，焦点进头时记下的元素（标题、框架按钮的命令、接管标题区的展开标记）交给同一块面板新头里的同一个元素，只在焦点已经丢了的时候（Spec 输出 13）。
+- 入口条的入口按 `regionEntryIntent`，同活动栏，隐藏区域执行 `set-part-hidden`（Spec 输出 47）。
+- 活动栏的入口按 `regionEntryIntent`（Spec 输出 22）：不是当前容器就切到它（store 的 `showContainer`，侧栏隐藏或拖到零时同时展开）；是当前容器时，侧栏可见就隐藏侧栏，不可见就展开。按下态是“当前容器且侧栏可见”（`regionVisible`），至多一项。入口的右键或菜单键开容器的菜单（Spec 输出 44）：这一步只有“重置”（store 的 `moveContainer`，搬回声明的区域），容器已经在声明的区域、或是用户拖出来的容器时没有菜单项，菜单不开。
 - 状态栏的面板按钮执行 `set-part-hidden`；重试、放弃转给 store。
 - 焦点所在的面板看不见了（内容被停放，或整块面板不显示了：切走容器、隐藏区域、搬走）而焦点因此丢了：按 `focusLandings` 的先后找第一个看得见的落点，同一面板头上的标签、切走容器时新容器的第一个分节、活动栏里它那个容器的入口，都没有时外壳根（Spec 输出 16、42）。焦点没丢（比如还在刚按的活动栏入口上）或在外壳之外时不动。
 - F6 由 `attachPaneFocus` 接到命令，调表面的 `moveFocus`。

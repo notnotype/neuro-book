@@ -165,7 +165,9 @@ test.describe("内容跟着视图走", () => {
         expect(moved.x).toBeGreaterThanOrEqual(editor.x + editor.width - 1);
         const content = await rectOf(page, "[data-content='view:a']");
         expect(content.x).toBe(moved.x);
-        expect(content.y).toBe(moved.y + 32);
+        // A 的容器在右栏只有这一节：它的头并在右栏顶上的入口条里（输出 47），叶里没有头，内容从叶的上边开始。
+        await expect(page.locator(`[data-region-strip='auxiliarybar'] [data-panel-head='${section("a")}']`)).toHaveCount(1);
+        expect(content.y).toBe(moved.y);
         await expect.poll(() => visibleTabs(page)).toEqual(expect.arrayContaining(["view:a", "view:b"]));
         expect(await visibleTabs(page)).not.toContain("view:c");
     });

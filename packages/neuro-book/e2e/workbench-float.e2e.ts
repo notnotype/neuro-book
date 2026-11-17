@@ -438,15 +438,28 @@ test.describe("应用内浮动", () => {
             }
             return rows;
         }, {button, view: E});
-        /** 每一帧内容的左、右、下边就是外框的，上边是外框的上边加面板头：同一个起点、同一个终点、同一条曲线，不是两张卡片错开。 */
-        const expectOneCard = (rows: Awaited<ReturnType<typeof film>>) => {
-            const head = rows.at(-1)!.content.y - rows.at(-1)!.frame.y;
-            expect(head).toBeGreaterThan(0);
-            for (const {frame, content: inner, contentOnTop} of rows) {
+        /**
+         * 每一帧内容的左、右、下边就是外框的：同一个起点、同一个终点、同一条曲线，不是两张卡片错开；内容一直盖在外框上面。
+         * 上边是外框的上边加面板头。戊是底部面板唯一的一节，头并在入口条里（ui/workbench-layout 输出 47），叶里没有头：浮出去时内容的上边距从 0
+         * 跟着过渡长到浮动窗的头高，停靠回去时从头高缩回 0（内容层按起止两个内容矩形过渡），一路朝终点走、不回跳。
+         */
+        const expectOneCard = (rows: Awaited<ReturnType<typeof film>>, headed: boolean) => {
+            const insetOf = (row: (typeof rows)[number]) => row.content.y - row.frame.y;
+            const [start, head] = [insetOf(rows[0]!), insetOf(rows.at(-1)!)];
+            if (headed) expect(head).toBeGreaterThan(0);
+            else expect(head).toBe(0);
+            const [low, high, direction] = [Math.min(start, head), Math.max(start, head), Math.sign(head - start)];
+            let previous = start;
+            for (const row of rows) {
+                const {frame, content: inner, contentOnTop} = row;
                 expect(Math.abs(inner.x - frame.x)).toBeLessThanOrEqual(1);
                 expect(Math.abs(inner.x + inner.width - (frame.x + frame.width))).toBeLessThanOrEqual(1);
                 expect(Math.abs(inner.y + inner.height - (frame.y + frame.height))).toBeLessThanOrEqual(1);
-                expect(Math.abs(inner.y - frame.y - head)).toBeLessThanOrEqual(1);
+                const inset = insetOf(row);
+                expect(inset).toBeGreaterThanOrEqual(low - 1);
+                expect(inset).toBeLessThanOrEqual(high + 1);
+                expect((inset - previous) * direction).toBeGreaterThanOrEqual(-1);
+                previous = inset;
                 expect(contentOnTop).toBe(true);
             }
         };
@@ -459,14 +472,14 @@ test.describe("应用内浮动", () => {
         const floatBox = await boxOf(page, panel);
         expect(near(floating.find((row) => row.float)!.frame, source)).toBe(true);
         expect(floating.some(({frame}) => !near(frame, source) && !near(frame, floatBox))).toBe(true);
-        expectOneCard(floating);
+        expectOneCard(floating, true);
 
         // 停靠：窗的叶回到树里的第一帧，外框还在窗的位置，从那里飞回去；内容跟着、压在外框上面。
         const docking = await film(`[data-panel-head="${panel}"] [data-panel-action="nbook.view.dock"]`);
         await expect(moving).toHaveCount(0);
         expect(near(docking.find((row) => !row.float)!.frame, floatBox)).toBe(true);
         expect(docking.some(({frame}) => !near(frame, floatBox) && !near(frame, source))).toBe(true);
-        expectOneCard(docking);
+        expectOneCard(docking, false);
     });
 
     test("缩放：角与边的手柄，有最小尺寸；放下写一次；键盘缩放与移动", async ({page}) => {

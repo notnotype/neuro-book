@@ -56,6 +56,11 @@ async function box(page: Page, id: string): Promise<Box> {
     return found;
 }
 
+/** 底部面板这一块的高：顶上的入口条（ui/workbench-layout 输出 47）加分节，记忆的尺寸是这一整块的。 */
+async function panelRegionHeight(page: Page, section: string): Promise<number> {
+    return (await box(page, "strip:panel")).height + (await box(page, section)).height;
+}
+
 /** 所有叶外框的矩形（取整），用来比较“放大后回到原样”。 */
 const leafRects = (page: Page): Promise<Record<string, number[]>> => page.evaluate((selector) => Object.fromEntries([...document.querySelectorAll(selector)].map((element) => {
     const {x, y, width, height} = element.getBoundingClientRect();
@@ -423,7 +428,7 @@ test.describe("产品页", () => {
         await shrunk(page, sessions);
         await expect(toggle).toHaveText("显示面板");
         await toggle.click();
-        await expect.poll(async () => (await box(page, sessions)).height).toBe(200);
+        await expect.poll(() => panelRegionHeight(page, sessions)).toBe(200);
         await expect(toggle).toHaveText("隐藏面板");
     });
 
@@ -450,12 +455,12 @@ test.describe("产品页", () => {
         const sessions = await sessionsToPanel(page);
         await panelSash(page).focus();
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, sessions)).height).toBe(0);
+        await expect.poll(() => panelRegionHeight(page, sessions)).toBe(0);
         await expect(panelSash(page)).toBeVisible();
         await parked(page, '[data-content="view:nbook.agent.sessions"]');
         await expect.poll(async () => (await saved(page))?.doc.panels.panel?.collapsed).toBe(true);
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, sessions)).height).toBe(200);
+        await expect.poll(() => panelRegionHeight(page, sessions)).toBe(200);
         await unparked(page, '[data-content="view:nbook.agent.sessions"]');
     });
 

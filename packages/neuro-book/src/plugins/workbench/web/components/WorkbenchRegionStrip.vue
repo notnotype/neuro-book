@@ -69,8 +69,10 @@ function onEntryContextMenu(id: string, event: MouseEvent): void {
  * 所以不会量了又变。标题入口的宽各不相同，在一行看不见的量尺里量（它总是摆出全部入口）。
  */
 const rootEl = ref<HTMLElement | null>(null);
+const entriesEl = ref<HTMLElement | null>(null);
 const measureEl = ref<HTMLElement | null>(null);
 const rootWidth = ref<number | null>(null);
+const entryGap = ref(0);
 const titleWidths = ref<ReadonlyMap<string, number>>(new Map());
 
 function measure(): void {
@@ -79,6 +81,7 @@ function measure(): void {
     const style = getComputedStyle(root);
     const width = root.clientWidth - (Number.parseFloat(style.paddingLeft) || 0) - (Number.parseFloat(style.paddingRight) || 0);
     rootWidth.value = width > 0 ? width : null;
+    entryGap.value = entriesEl.value === null ? 0 : Number.parseFloat(getComputedStyle(entriesEl.value).columnGap) || 0;
     const ruler = measureEl.value;
     if (props.variant !== "titles" || ruler === null) return;
     const next = new Map<string, number>();
@@ -102,7 +105,10 @@ const strip = computed(() => {
     const room = rootWidth.value;
     const all = {shown: props.entries.map((entry) => entry.id), hidden: [] as string[]};
     if (room === null || (props.variant === "titles" && titleWidths.value.size === 0)) return all;
-    return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: widthOf(entry.id)})), Math.max(0, room - props.headMinWidth), ICON_ENTRY_PX);
+    // 当前容器的入口加“更多”总放得下：条再窄也不让它收进“更多”，挤的是并进来的头。
+    const current = props.entries.find((entry) => entry.current);
+    const floor = current === undefined ? 0 : widthOf(current.id) + ICON_ENTRY_PX + entryGap.value;
+    return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: widthOf(entry.id)})), Math.max(floor, room - props.headMinWidth), ICON_ENTRY_PX, entryGap.value);
 });
 const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
 const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
@@ -110,7 +116,7 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 
 <template>
     <div ref="rootEl" class="workbench-region-strip" :class="`workbench-region-strip--${variant}`" :data-region-strip="region">
-        <div class="workbench-region-strip__entries" role="group" :aria-label="label">
+        <div ref="entriesEl" class="workbench-region-strip__entries" role="group" :aria-label="label">
             <Tooltip v-for="entry in shownEntries" :key="entry.id" :text="entry.tooltip" side="bottom">
                 <button
                     type="button"
