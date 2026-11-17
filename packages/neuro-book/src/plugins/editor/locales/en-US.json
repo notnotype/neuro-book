@@ -99,6 +99,9 @@
                     },
                     "code": {
                         "title": "Code Editor"
+                    },
+                    "images": {
+                        "title": "Images"
                     }
                 }
             }
@@ -200,6 +203,28 @@
                     "title": "Floating at the Bottom"
                 }
             }
+        },
+        "imageLocation": {
+            "title": "Image location",
+            "description": "Where new images are saved",
+            "choices": {
+                "folder": {
+                    "title": "A folder in the project root"
+                },
+                "root": {
+                    "title": "The project root"
+                },
+                "same": {
+                    "title": "The same folder as the current file"
+                },
+                "sibling": {
+                    "title": "A subfolder next to the current file"
+                }
+            }
+        },
+        "imageFolder": {
+            "title": "Image folder",
+            "description": "Used by “A folder in the project root” and “A subfolder next to the current file”. Nested names are fine (assets/images). It cannot start with /, contain .., or be under .nbook; otherwise “插图” is used"
         }
     },
     "categories": {
@@ -625,6 +650,15 @@
         "blockMenu": "Block Menu",
         "pasteUnsupported": "This browser cannot paste from the menu. Use Ctrl+V.",
         "pasteDenied": "Clipboard access was denied. Use Ctrl+V.",
-        "pasteEmpty": "The clipboard has no text. Use Ctrl+V for images or files."
+        "pasteEmpty": "The clipboard has no text. Use Ctrl+V for images or files.",
+        "imageTooLarge": "“{{name}}” is over 32 MiB and was not inserted",
+        "imageUnsupported": "“{{name}}” is not a PNG, JPEG, GIF or WebP image and was not inserted",
+        "imageNameInvalid": "“{{name}}” has a name that can’t be used and was not inserted",
+        "imageFolderDenied": "The image folder in the project can’t be written to, so “{{name}}” was not inserted",
+        "imageMaybeStored": "“{{name}}” was not inserted. It may already be saved in the project; check the image folder",
+        "imageNotInserted": "“{{name}}” was saved to the project ({{address}}) but could not be inserted",
+        "imageNotAllowedHere": "Images can’t be inserted here",
+        "imageUnavailable": "No project is open, so images can’t be saved",
+        "imageFailed": "“{{name}}” was not inserted: {{detail}}"
     }
 }

@@ -8,6 +8,7 @@ import {Type} from "typebox";
 import type {WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
 import {defineSetting, defineSettings} from "nbook/shared/settings";
 
+import {IMAGE_FOLDER_DEFAULT} from "./image-location";
 import {editorText} from "./text";
 
 export const EDITOR_SECTION = "nbook.editor";
@@ -20,6 +21,7 @@ export const EDITOR_SECTION_DECLARATION: WrittenSettingsSectionDeclaration = {
     groups: [
         {id: "tabs"},
         {id: "saving"},
+        {id: "images"},
         {id: "code"},
     ],
 };
@@ -118,6 +120,39 @@ export const autoSaveDelaySetting = defineSetting({
     group: "saving",
     order: 20,
     ui: {unit: editorText("settings.autoSaveDelay.unit")},
+});
+
+/** 粘贴与上传的图片存进哪个目录（docs/specs/workbench/markdown-editing.md 输出 56）：合成规则在 `image-location.ts`。 */
+export const imageLocationSetting = defineSetting({
+    plugin: "nbook.editor",
+    name: "imageLocation",
+    schema: Type.Union([Type.Literal("folder"), Type.Literal("root"), Type.Literal("same"), Type.Literal("sibling")]),
+    default: "folder",
+    description: editorText("settings.imageLocation.description"),
+    section: EDITOR_SECTION,
+    group: "images",
+    order: 10,
+    choices: [
+        {value: "folder"},
+        {value: "root"},
+        {value: "same"},
+        {value: "sibling"},
+    ],
+});
+
+/**
+ * 存放目录的名字：`folder` 时是作品根下的目录，`sibling` 时是当前文件所在目录下的子目录。设置窗口里不检查它合不合规
+ * （schema 只限长度与控制字符），用到时由 `normalizeImageFolder` 判断，不合规按缺省。
+ */
+export const imageFolderSetting = defineSetting({
+    plugin: "nbook.editor",
+    name: "imageFolder",
+    schema: Type.String({maxLength: 200, pattern: "^[^\\u0000-\\u001f\\u007f]*$"}),
+    default: IMAGE_FOLDER_DEFAULT,
+    description: editorText("settings.imageFolder.description"),
+    section: EDITOR_SECTION,
+    group: "images",
+    order: 20,
 });
 
 /**

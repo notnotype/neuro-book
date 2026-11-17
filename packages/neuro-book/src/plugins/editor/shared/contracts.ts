@@ -16,6 +16,10 @@ import type {EditingActionId, EditorEditing} from "./editing";
 
 export {EDITING_ACTIONS} from "./editing";
 export type {EditingActionId, EditorEditing} from "./editing";
+// 图片存放位置的设置与目录规则：Markdown 插件读它们（docs/specs/workbench/markdown-editing.md 输出 56）。
+export {IMAGE_FOLDER_DEFAULT, imageDirectory, normalizeImageFolder} from "./image-location";
+export type {ImageLocation} from "./image-location";
+export {imageFolderSetting, imageLocationSetting} from "./settings";
 import type {Component} from "vue";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
@@ -166,8 +170,8 @@ export interface EditorMenus {
     readonly commentMargin: Readonly<Ref<boolean>>;
     /** 键位写法按平台写好（剪贴板这类不是命令的动作用）。 */
     keyLabel(keybinding: string): string;
-    /** 给用户看的一条通知（`menus.<key>`）。 */
-    notify(key: string): void;
+    /** 给用户看的一条通知（`menus.<key>`）；文字里有 `{{name}}` 的按 `params` 填。 */
+    notify(key: string, params?: Readonly<Record<string, string | number>>): void;
     reportError(error: unknown): void;
 }
 

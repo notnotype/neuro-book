@@ -97,7 +97,7 @@ export function createEditorMenus(options: {
         toolbarPlacement: computed(() => options.toolbarPlacement.value),
         commentMargin: computed(() => options.commentMargin.value),
         keyLabel: (keybinding) => formatKeybinding(keybinding, options.platform),
-        notify: (key) => options.notify(editorText(`menus.${key}` as never)),
+        notify: (key, params) => options.notify(editorText(`menus.${key}` as never, params)),
         reportError: options.report,
     };
 }
