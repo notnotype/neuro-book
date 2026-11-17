@@ -18,6 +18,8 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
+import {createPluginUploads, pluginUploadsKey} from "nbook/plugin-platform/backend/uploads";
+import type {PluginUploads} from "nbook/plugin-platform/backend/uploads";
 import {createPluginPackages, pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
 import {installedPlugins, NO_PREPARED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {pluginProblems} from "nbook/plugin-platform/shared/problems";
@@ -215,6 +217,13 @@ export function startServer(options: StartServerOptions): RunningServer {
                     // 插件页列表时才调用，那时运行实例已经建好：本实例（服务端）此刻的入口失败、受阻与被拒的贡献。
                     problems: () => (application === null ? [] : pluginProblems(application.plugins.catalog(), "server")),
                 }),
+            },
+            // 插件文件夹的上传暂存区（plugin-install 输出 11）；与插件管理同一个状态根，清扫计时器随宿主停止撤销。
+            {
+                id: "host.plugin-uploads",
+                key: pluginUploadsKey,
+                create: () => createPluginUploads({root: join(options.config.stateRoot, "plugin-uploads"), clock: systemClock, record: (record) => void context.store.record(record)}),
+                release: (uploads: PluginUploads) => uploads.stop(),
             },
             // 内置插件按插件 id 找第三方插件包里的目录（agent.skills 这类声明目录的贡献）；本次启动登记的插件，与文件端点同一份。
             {id: "host.plugin-packages", key: pluginPackagesKey, create: () => createPluginPackages(installed, NEUROBOOK_PROFILE.format)},
