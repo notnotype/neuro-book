@@ -153,7 +153,11 @@ export const MarkdownImagePaste = Extension.create<{host: MarkdownViewHost | nul
                     },
                 },
                 props: {
-                    decorations: (state) => key.getState(state),
+                    // 只画还在传的：换文档时放弃的任务，它的占位仍留在存下来的旧状态里（那个状态没有机会收尾），换回来时不能再画出“正在上传”。
+                    decorations: (state) => {
+                        const set = key.getState(state);
+                        return set === undefined ? null : DecorationSet.create(state.doc, set.find(undefined, undefined, (spec) => jobs.has(String(spec.id))));
+                    },
                     handlePaste(view, event) {
                         const images = host.images;
                         const data = event.clipboardData;
@@ -176,9 +180,10 @@ export const MarkdownImagePaste = Extension.create<{host: MarkdownViewHost | nul
                         const {tr} = view.state;
                         tr.deleteSelection();
                         tr.setMeta(key, {add: {id, count: files.length, pos: tr.selection.from}} satisfies Meta);
-                        view.dispatch(tr);
+                        // 先登记任务再派发：占位只画登记着的任务的（见 `decorations`）。
                         const controller = new AbortController();
                         jobs.set(id, controller);
+                        view.dispatch(tr);
                         void run(view, id, files, layout, controller);
                         return true;
                     },

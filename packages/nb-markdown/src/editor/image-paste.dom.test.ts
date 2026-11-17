@@ -248,6 +248,22 @@ describe("放弃与告知（输出 55 的时序）", () => {
         expect(harness.editor.view.dom.querySelectorAll("img").length).toBe(0);
     });
 
+    it("换文档再换回来：放弃的占位不再画，没传的也不会接着传", async () => {
+        const {host, uploads} = hostOf();
+        const harness = open("甲乙\n", host);
+        harness.select(2);
+        paste(harness.editor, {files: [file("a.png"), file("b.png")]});
+        expect(widgets(harness.editor)).toBe(1);
+        const original = harness.editor.state;
+        const other = harness.codec.read("别的文件\n");
+        harness.editor.view.updateState(EditorState.create({doc: other.doc, plugins: harness.editor.state.plugins}));
+        uploads[0]?.resolve(done("project://章/a.png"));
+        await flush();
+        harness.editor.view.updateState(original);
+        expect(widgets(harness.editor)).toBe(0);
+        expect(uploads).toHaveLength(1);
+    });
+
     it("变成只读：传完的不插入、告诉宿主，后面的不再传", async () => {
         const {host, uploads, failures} = hostOf();
         const harness = open("甲乙\n", host);
