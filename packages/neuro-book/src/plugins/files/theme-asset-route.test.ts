@@ -100,7 +100,8 @@ describe("写主题场景素材", () => {
 
     it("SVG 与别的内容拒绝，不留文件", async () => {
         const {user, put} = await scene();
-        for (const body of ['<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "hello", new Uint8Array([0x89, 0x50])]) {
+        // GIF 是图片，但主题素材只收静态位图（共用的判定认得它，这里的允许集合不含它）。
+        for (const body of ['<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "hello", new Uint8Array([0x89, 0x50]), new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0])]) {
             const response = await put(body, {"content-type": "image/png"});
             expect(response.status).toBe(415);
             expect(await response.json()).toMatchObject({code: "unsupported-type"});

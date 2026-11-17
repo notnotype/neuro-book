@@ -133,6 +133,7 @@ describe("导入", () => {
         ["图标路径不是 .svg", {"package.json": text(manifestOf({...good, light: {icons: {files: "assets/files.png"}}})), "assets/files.png": new Uint8Array([1])}, /只收 \.svg/u],
         ["工作态场景不在包里", {"package.json": text(manifestOf({...good, light: {workingScene: "assets/w.webp"}}))}, /不在包里/u],
         ["工作态场景不是图片", {"package.json": text(manifestOf({...good, light: {workingScene: "assets/w.webp"}})), "assets/w.webp": new Uint8Array([1, 2, 3, 4])}, /不是 PNG/u],
+        ["场景图是 GIF（共用的判定认得它，主题素材不收）", {"package.json": text(manifestOf({...good, light: {scene: "assets/x.webp"}})), "assets/x.webp": new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0])}, /不是 PNG/u],
         ["场景图不是图片", {"package.json": text(manifestOf({...good, light: {scene: "assets/x.webp"}})), "assets/x.webp": new Uint8Array([1, 2, 3, 4])}, /不是 PNG/u],
         ["没有主题贡献", {"package.json": text({...identity, contributes: [{capability: "commands", id: "local.x.c", declaration: {}}]})}, /没有主题|不合格/u],
     ])("坏包：%s，整个拒绝", (_name, content, reason) => {
