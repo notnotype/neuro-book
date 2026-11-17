@@ -194,7 +194,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const explorer = await sectionOf(page, EXPLORER);
         /** 在页面里点一下，逐帧量这一节的外框与内容，直到网格的过渡结束。只记内容看得见的帧。 */
         const framesAfter = (selector: string) => page.evaluate(async ({selector, leafId}) => {
-            const rows: Array<{frameLeft: number; frameRight: number; frameWidth: number; frameTop: number; frameBottom: number; frameHeight: number; contentLeft: number; contentRight: number; contentTop: number; contentBottom: number; headRight: number; bodyRight: number; gapHit: boolean; cornerHit: boolean; innerHit: boolean}> = [];
+            const rows: Array<{frameLeft: number; frameRight: number; frameWidth: number; frameTop: number; frameBottom: number; frameHeight: number; contentLeft: number; contentRight: number; contentTop: number; contentBottom: number; headRight: number; bodyRight: number; gapHit: boolean; cornerHit: boolean; innerHit: boolean; rightCornerHit: boolean}> = [];
             document.querySelector<HTMLElement>(selector)!.click();
             for (let frame = 0; frame < 90; frame += 1) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -212,6 +212,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
                     const radius = Number.parseFloat(getComputedStyle(card).borderTopLeftRadius);
                     const cardLeft = leaf.left + Number.parseFloat(pad.paddingLeft);
                     const cardTop = leaf.top + Number.parseFloat(pad.paddingTop);
+                    const cardRight = leaf.right - Number.parseFloat(pad.paddingRight);
                     const inLeaf = (x: number, y: number): boolean => {
                         const hit = document.elementFromPoint(x, y);
                         return hit !== null && (frameEl.contains(hit) || hit.closest(`[data-content-leaf="${leafId}"]`) !== null);
@@ -222,6 +223,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
                         gapHit: inLeaf((leaf.left + cardLeft) / 2, leaf.top + leaf.height / 2),
                         cornerHit: inLeaf(cardLeft + 1, cardTop + 1),
                         innerHit: inLeaf(cardLeft + radius, cardTop + radius),
+                        rightCornerHit: inLeaf(cardRight - 1, cardTop + 1),
                     });
                 }
                 if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
@@ -276,10 +278,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             expect(row.headRight).toBeCloseTo(row.frameRight, 0);
             expect(row.bodyRight).toBeCloseTo(row.frameRight, 0);
         }
-        // 露出来的一截始终是一张完整的卡片：和活动栏之间的缝还在，左上角是圆的（按外框的直角矩形裁时，卡片在左边被直着切掉，缝没了、角是尖的）。
+        // 露出来的一截始终是一张完整的卡片（按外框的直角矩形裁时右上角是尖的）。“项目”两节，整列和活动栏相连（输出 19）：长出来的这段角接过去，
+        // 左边贴着活动栏、没有缝，左上角是直的（伸到活动栏底下），右上角是圆的。
         const middle = showing.filter((row) => row.frameWidth > 60 && row.frameWidth < settled.frameWidth - 1);
         expect(middle.length).toBeGreaterThan(0);
-        for (const row of middle) expect([row.gapHit, row.cornerHit, row.innerHit]).toEqual([false, false, true]);
+        for (const row of middle) expect([row.gapHit, row.cornerHit, row.innerHit, row.rightCornerHit]).toEqual([true, true, true, false]);
     });
 
     test("活动栏与只有一节的侧栏相连：隐藏、显示时两张卡片画成一张，侧栏右边的两个圆角跟着它的右沿走，缩到零时正好成了活动栏的角；中间一直不露缝（ui/workbench-layout 输出 19）", async ({page}) => {
@@ -418,6 +421,146 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(switching).toEqual({moving: true, join: "start", cap: null, right: shown!.x + shown!.width});
         await expect(moving).toHaveCount(0);
         await expect(entry(page, `view:${B}`)).toHaveAttribute("aria-pressed", "true");
+    });
+
+    test("一个容器一张卡片：“项目”的两节拼成一张、整列和活动栏相连，两节之间是两端缩进的线，线所在的那 1px 也是卡片，浅色深色都不露底、外框不断开（ui/workbench-layout 输出 19）", async ({page}) => {
+        await open(page);
+        const sections = [await sectionOf(page, SESSIONS), await sectionOf(page, EXPLORER)];
+        const tops = await Promise.all(sections.map(async (id) => (await page.locator(`[data-shell-card="${id}"]`).boundingBox())!.y));
+        const [upper, lower] = tops[0]! < tops[1]! ? sections : [...sections].reverse();
+        const column = await page.evaluate(([upper, lower]) => {
+            const card = (id: string) => document.querySelector<HTMLElement>(`[data-shell-card="${id}"]`)!;
+            const radii = (id: string) => ["top-left", "top-right", "bottom-right", "bottom-left"].map((corner) => getComputedStyle(card(id)).getPropertyValue(`border-${corner}-radius`));
+            return {upper: radii(upper), lower: radii(lower), joins: [card(upper).dataset.shellJoin, card(lower).dataset.shellJoin]};
+        }, [upper!, lower!] as const);
+        expect(column).toEqual({upper: ["0px", "12px", "0px", "0px"], lower: ["0px", "0px", "12px", "0px"], joins: ["end", "end"]});
+
+        /** 截一块图，读几个点的颜色（在页面里解码，不加依赖）。 */
+        const colorsAt = async (points: ReadonlyArray<readonly [number, number]>): Promise<number[][]> => {
+            const png = await page.screenshot();
+            return page.evaluate(async ({data, points}) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${data}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d")!;
+                context.drawImage(image, 0, 0);
+                return points.map(([x, y]) => [...context.getImageData(Math.floor(x), Math.floor(y), 1, 1).data].slice(0, 3));
+            }, {data: png.toString("base64"), points});
+        };
+        const same = (a: number[] | undefined, b: number[] | undefined): boolean => a !== undefined && b !== undefined && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) <= 3);
+        const check = async () => {
+            const geometry = await page.evaluate(([upper]) => {
+                const sash = document.querySelector<HTMLElement>('[data-workbench-surface] > [data-grid-scope] > [data-sash-kind="panes"]')!.getBoundingClientRect();
+                const card = document.querySelector<HTMLElement>(`[data-shell-card="${upper}"]`)!.getBoundingClientRect();
+                return {sashY: sash.top + sash.height / 2, left: card.left, right: card.right};
+            }, [upper!] as const);
+            const {sashY, right, left} = geometry;
+            // 线的右端缩进里（离卡片右边 3px）、线的中间、卡片右边外的第 1px（深色是外框，浅色是投影）、再往外 3px 的窗体底；
+            // 各和上面一节底部同一列比（离线 6px，那里是空的卡片底）。
+            const above = sashY - 6;
+            const [endOnSash, endInCard, middleOnSash, middleInCard, ringOnSash, ringInCard, groundOnSash, groundInCard] = await colorsAt([
+                [right - 3, sashY], [right - 3, above],
+                [(left + right) / 2, sashY], [(left + right) / 2, above],
+                [right + 0.5, sashY], [right + 0.5, above],
+                [right + 3, sashY], [right + 3, above],
+            ]);
+            expect(same(endOnSash, endInCard), `线的右端 ${String(endOnSash)}，卡片 ${String(endInCard)}`).toBe(true);
+            expect(same(middleOnSash, middleInCard), `线的中间 ${String(middleOnSash)}，卡片 ${String(middleInCard)}`).toBe(false);
+            expect(same(ringOnSash, ringInCard), `线右边外的 1px ${String(ringOnSash)}，卡片右边外 ${String(ringInCard)}`).toBe(true);
+            expect(same(groundOnSash, groundInCard), `窗体底 ${String(groundOnSash)}，${String(groundInCard)}`).toBe(true);
+        };
+        await check();
+        // 明暗按设置走（缺省浅色，不跟系统）：写设置文件切到深色，用完写回空设置，同一个服务上后面的用例照旧是浅色。
+        const settings = join(tmp, "state", "settings.json");
+        await writeFile(settings, JSON.stringify({"nbook.workbench/appearance": "dark"}));
+        try {
+            await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+            await check();
+        } finally {
+            await writeFile(settings, "{}");
+        }
+    });
+
+    test("侧栏两节时角照样接过去：隐藏、显示的每一刻，两节之间那一行在活动栏与侧栏之间也不露底，侧栏右上角是圆的（ui/workbench-layout 输出 19）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const bar = page.locator('[data-shell-card="activitybar"]');
+        const moving = page.locator("[data-workbench-surface] [data-moving]");
+        await expect(bar).toHaveAttribute("data-shell-join", "start");
+        const explorer = await sectionOf(page, EXPLORER);
+        const sessions = await sectionOf(page, SESSIONS);
+        const [explorerTop, sessionsTop] = await Promise.all([explorer, sessions].map(async (id) => (await page.locator(`[data-shell-card="${id}"]`).boundingBox())!.y));
+        const upper = explorerTop! < sessionsTop! ? explorer : sessions;
+        const sash = await page.locator('[data-workbench-surface] > [data-grid-scope] > [data-sash-kind="panes"]').boundingBox();
+        const card = await bar.boundingBox();
+        expect(sash).not.toBeNull();
+        const divider = sash!.y + sash!.height / 2, middle = card!.y + card!.height / 2, top = card!.y;
+        await page.addStyleTag({content: ":root { --motion-layout: 6000ms !important; }"});
+        // 活动栏右边那条短线是有意画的，过渡中随着淡出、淡入，正好竖着穿过这一行：藏掉它，这一行读的是它下面的颜色。
+        await page.addStyleTag({content: "[data-shell-join-seam]::after { display: none !important; }"});
+        const duration = 6000;
+
+        const colorsAt = async (points: ReadonlyArray<readonly [number, number]>): Promise<number[][]> => {
+            const png = await page.screenshot();
+            return page.evaluate(async ({data, points}) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${data}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d")!;
+                context.drawImage(image, 0, 0);
+                return points.map(([x, y]) => [...context.getImageData(Math.floor(x), Math.floor(y), 1, 1).data].slice(0, 3));
+            }, {data: png.toString("base64"), points});
+        };
+        const near = (a: number[] | undefined, b: number[] | undefined): boolean => a !== undefined && b !== undefined && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) <= 6);
+        const [ground, surface] = await colorsAt([[card!.x - 2, middle], [card!.x + 4, middle]]);
+        expect(near(ground, surface)).toBe(false);
+
+        /** 点一下入口，过渡停在这几个时刻：读两节之间那一行从活动栏里一点到侧栏外框左边的像素，和上面一节的右上角。 */
+        const sample = async (fractions: readonly number[]) => {
+            await page.evaluate((selector) => document.querySelector<HTMLElement>(selector)!.click(), `[data-tool-entry="${PROJECT_CONTAINER}"]`);
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            const rows = [];
+            for (const fraction of fractions) {
+                const at = await page.evaluate(({fraction, duration, leafId}) => {
+                    for (const animation of document.getAnimations()) {
+                        animation.pause();
+                        animation.currentTime = fraction * duration;
+                    }
+                    const barBox = document.querySelector('[data-shell-card="activitybar"]')!.getBoundingClientRect();
+                    const leafBox = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`)!.getBoundingClientRect();
+                    return {barRight: barBox.right, leafLeft: leafBox.left, leafRight: leafBox.right, cap: document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!.dataset.shellCap ?? null};
+                }, {fraction, duration, leafId: upper});
+                const span = Math.max(0, Math.floor(at.leafLeft + 2 - (at.barRight - 6)));
+                const [capCorner, ...row] = await colorsAt([
+                    [at.leafRight - 3.5, top + 1.5],
+                    ...Array.from({length: span}, (_, index) => [at.barRight - 6 + index, divider] as const),
+                ]);
+                rows.push({...at, width: at.leafRight - at.leafLeft, capCorner, row});
+            }
+            await page.evaluate(() => {
+                for (const animation of document.getAnimations()) {
+                    if (animation.effect?.getComputedTiming().endTime === Number.POSITIVE_INFINITY) animation.play();
+                    else animation.finish();
+                }
+            });
+            return rows;
+        };
+        // 先隐藏、再显示：网格自己的计时按放慢的时长，等它结束了再点下一次。
+        for (const kind of ["leave", "enter"] as const) {
+            const rows = await sample([0.1, 0.3, 0.6]);
+            expect(rows.map((row) => row.cap)).toEqual(rows.map(() => kind));
+            for (const row of rows) {
+                expect(near(row.capCorner, ground), `${kind} 右上角 ${String(row.capCorner)}`).toBe(true);
+                row.row.forEach((pixel, index) => expect(near(pixel, surface), `${kind} 两节之间那一行第 ${String(index)} 个 ${String(pixel)}`).toBe(true));
+            }
+            await expect(moving).toHaveCount(0);
+        }
     });
 
     test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {

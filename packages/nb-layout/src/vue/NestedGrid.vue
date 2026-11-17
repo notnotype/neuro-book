@@ -58,6 +58,11 @@ const props = withDefaults(defineProps<{
     /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
     sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
     /**
+     * 写在分隔线元素上的内联样式（多半是 CSS 变量），宿主据此在线所占的那一条里画东西，例如两张拼起来的卡片之间那一条的底色。
+     * 位置与尺寸由网格写，这里给的同名属性被覆盖。
+     */
+    sashStyle?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => Record<string, string> | undefined) | undefined;
+    /**
      * 宿主在叶的外框里画成的卡片（`GridLeafShape`）。过渡中外框露出、盖住保持尺寸的内层时，外框与内容外层按它裁，露出来的一截始终是一张完整的卡片；
      * 不给时按外框的矩形裁。
      */
@@ -73,6 +78,7 @@ const props = withDefaults(defineProps<{
     dragging: false,
     floats: () => [],
     sashKind: undefined,
+    sashStyle: undefined,
     leafShape: undefined,
 });
 
@@ -211,8 +217,9 @@ const order = useRenderOrder(layers, instanceId, (item) => item.kind === "conten
 const {domIdOf} = order;
 const focus = useGridFocus({root: rootEl, layers, order});
 
-function sashStyle(rect: GridRect): Record<string, string> {
-    return {position: "absolute", ...gridRectStyle(rect)};
+function sashBoxStyle(sash: GridSashPlacement<unknown>): Record<string, string> {
+    const host = props.sashStyle?.({branch: sash.branch.id, before: sash.before, after: sash.after});
+    return {...host, position: "absolute", ...gridRectStyle(growing.value.get(sash.key) ?? sash.rect)};
 }
 
 /** 分隔线控制的窗格：外框里只剩面板头时，真正被调整的是活动的内容。 */
@@ -535,7 +542,7 @@ defineExpose({
                     <slot name="leaf" :node="item.node"></slot>
                 </div>
             </div>
-            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashKind?.({branch: item.branch.id, before: item.before, after: item.after})" :data-moving="structureMoving(item.key) ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashStyle(growing.get(item.key) ?? item.rect)" />
+            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashKind?.({branch: item.branch.id, before: item.before, after: item.after})" :data-moving="structureMoving(item.key) ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashBoxStyle(item)" />
             <div
                 v-else
                 :id="domIdOf(item.key)"

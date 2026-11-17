@@ -987,8 +987,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
                 divider,
             };
         }, side);
-        // 工具面板之间的线：丙移进样例甲的容器，侧栏显示上下两个分节，它们之间是一条工具面板之间的线（取 `--shell-pane-divider`）。
-        // nbook 一节一张卡片，两节之间有缝，线是透明的；缩进留给悬停线。
+        // 同一张卡片里几节之间的线：丙移进样例甲的容器，侧栏显示上下两个分节，一个容器一张卡片，两节之间是开放式分割线（取 `--shell-pane-divider`）。
         const paneSeams = () => page.evaluate(() => [...document.querySelectorAll('[data-sash-kind="panes"]')].map((sash) => {
             const seam = sash.querySelector(".sash-seam")!;
             const style = getComputedStyle(seam);
@@ -1009,7 +1008,13 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(nbook.seams).toEqual(["rgba(0, 0, 0, 0)"]);
 
         await moveViaMenu(page, C, "样例甲");
-        await expect.poll(paneSeams).toEqual([{color: "rgba(0, 0, 0, 0)", start: "10px", end: "10px"}]);
+        // nbook 画 `--divider`，沿长轴两端各缩进 10px，不碰卡片边（输出 19）。
+        await expect.poll(paneSeams).toEqual([{color: nbook.divider, start: "10px", end: "10px"}]);
+        // 两节拼成一张卡片、整列和活动栏相连：上面一节下面两个角、下面一节上面两个角是直的，左边都不留缝。
+        const column = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-shell-join="end"]')]
+            .map((card) => ({top: card.getBoundingClientRect().top, corners: ["top-left", "top-right", "bottom-right", "bottom-left"].map((corner) => getComputedStyle(card).getPropertyValue(`border-${corner}-radius`))}))
+            .sort((a, b) => a.top - b.top).map((card) => card.corners));
+        expect(column).toEqual([["0px", "12px", "0px", "0px"], ["0px", "0px", "12px", "0px"]]);
 
         const settings = join(tmp, "state", "settings.json");
         try {
