@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：分节全部收起与面板头</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands--one { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 640px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img, .shot { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：分节全部收起与面板头</h1>
+
+<section>
+  <h2>现状与参照</h2>
+  <img class="shot" src="r1/now-product.webp" alt="现状：展开、会话收起、全部收起">
+  <table>
+    <thead><tr><th></th><th>现状</th><th>VS Code</th></tr></thead>
+    <tbody>
+      <tr><td>全部收起</td><td>卡片缩成两行，下面露出窗体底，活动栏一直到底</td><td>标题行排在上面，下面是侧栏自己的底</td></tr>
+      <tr><td>头</td><td>32px；12px 粗体次要字色；浮动、收起、最大化常在</td><td>22px；左边展开标记；动作悬停才出</td></tr>
+      <tr><td>收起的行</td><td>和展开的头一样，只是收起按钮按下</td><td>标记朝右</td></tr>
+      <tr><td>点标题行</td><td>激活这一节，收着时展开</td><td>展开、收起来回切</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section data-nbdev-question="all-collapsed" data-nbdev-type="single" data-nbdev-recommend="fill">
+  <h2>一个容器的分节全部收起时，卡片怎么画？</h2>
+  <p class="rec"><strong>推荐甲：卡片和活动栏照旧连成满高的一列，空出来的是卡片自己的底；收起的行排在上面，和 VS Code 一样。</strong></p>
+  <div class="cands" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+    <div class="cand">
+      <h3>现状</h3>
+      <img src="r1/collapsed-shrink.webp" alt="现状：卡片缩成两行">
+    </div>
+    <div class="cand" data-nbdev-option="fill" data-nbdev-label="甲 卡片满高，标题行在上">
+      <h3>甲 卡片满高，标题行在上</h3>
+      <img src="r1/collapsed-fill.webp" alt="甲">
+    </div>
+    <div class="cand" data-nbdev-option="lock" data-nbdev-label="乙 不许全部收起">
+      <h3>乙 不许全部收起</h3>
+      <img src="r1/collapsed-lock.webp" alt="乙">
+      <p>只剩一节展开时，它的收起按钮停用。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="head-style" data-nbdev-type="single" data-nbdev-recommend="jia">
+  <h2>面板头画成哪一种？</h2>
+  <p class="rec"><strong>推荐甲：静止时只剩标记与标题，按钮悬停才出；收起、展开看标记的方向，不用再找哪个按钮按下了。</strong></p>
+  <div class="cands cands--one">
+    <div class="cand">
+      <h3>现状</h3>
+      <img src="r1/head-now.webp" alt="现状">
+    </div>
+    <div class="cand" data-nbdev-option="jia" data-nbdev-label="甲 标记在左，按钮悬停才出">
+      <h3>甲 标记在左，按钮悬停才出</h3>
+      <img src="r1/head-jia.webp" alt="甲">
+      <p>收起按钮拿掉，由标记与点标题行代替；浮动、最大化和视图动作一起悬停才出。收起的行标题退成次要字色。</p>
+    </div>
+    <div class="cand" data-nbdev-option="yi" data-nbdev-label="乙 整行像列表行，标记在右">
+      <h3>乙 整行像列表行，标记在右</h3>
+      <img src="r1/head-yi.webp" alt="乙">
+      <p>标题 13px 常规字重；悬停时整行一层淡底。</p>
+    </div>
+    <div class="cand" data-nbdev-option="bing" data-nbdev-label="丙 紧凑小标题">
+      <h3>丙 紧凑小标题</h3>
+      <img src="r1/head-bing.webp" alt="丙">
+      <p>头 26px，标题 11px 次要字色、略加字距，标记在右。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="title-click" data-nbdev-type="single" data-nbdev-recommend="toggle">
+  <h2>点分节的标题行做什么？</h2>
+  <p class="rec"><strong>推荐甲：有了展开标记，整行就是开关，和 VS Code 一样；键盘在标题上按 Enter 同样切换，空格照旧拿起拖动。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="toggle" data-nbdev-label="甲 展开、收起来回切">
+      <h3>甲 展开、收起来回切</h3>
+      <p>展开着的点一下收起，收着的点一下展开；按钮上的点击不算。</p>
+    </div>
+    <div class="cand" data-nbdev-option="expand-only" data-nbdev-label="乙 只展开（现状）">
+      <h3>乙 只展开（现状）</h3>
+      <p>点标题激活这一节，收着时展开；收起只能用按钮或拖。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>头的高度</td><td>32px 不变：右栏、底部面板的入口条（t28）也是这一行高，并成一行的头要放得进去</td></tr>
+      <tr><td>底部面板的分节</td><td>照旧不折叠，头不画展开标记</td></tr>
+    </tbody>
+  </table>
+</section>
+</main>
+</body>
+</html>
