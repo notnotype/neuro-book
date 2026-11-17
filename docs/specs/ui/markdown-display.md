@@ -40,7 +40,7 @@ interface MarkdownDisplayProps {
 }
 ```
 
-表情写法（[agent.stickers](../agent/stickers.md)）经宿主端口查表情（planned）：宿主给 `resolveSticker(raw, signal)`，交回 `{url, width, height, release()}` 或 null（认不出）；目录还没到时它等到有结果为止，期间显示占位。展示器与 Markdown 编辑器用同一个端口；没有提供时表情写法显示原文。
+表情写法（[agent.stickers](../agent/stickers.md)）经宿主端口查表情：宿主给 `resolveSticker(raw, signal)`，交回 `{url, width, height, release()}` 或 null（认不出）；目录还没到时它等到有结果为止，期间显示占位。展示器与 Markdown 编辑器用同一个端口；没有提供时表情写法显示原文。
 
 ```ts
 

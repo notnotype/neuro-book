@@ -1,0 +1,49 @@
+docs/specs/agent/stickers.md 晋升前的逐条核对（2026-11-17，分支 feat/w00050-t02-stickers 的 794b90034）
+
+记法：条目 → 实现位置 → 碰到它的测试。路径相对 packages/neuro-book/src/plugins/（nb-markdown 的写 nb-markdown/）。
+
+输出
+1 启动建 user://stickers/、扫描、监视重扫、插件来源随发布撤回 → stickers/backend/catalog.ts（open、#syncWatchers）、plugin-roots.ts → stickers.test.ts“输出 1–5”“输出 1：新放进的…整个换掉的”“输出 6”。
+2 无效的表情包只隔离它一个 → catalog.ts #readPack → stickers.test.ts“输出 1–5”（empty、Bad-Name、broken）与链接（“输出 1”）。
+3 可选字段不合规只忽略 → shared/manifest.ts → “输出 1–5”（fields，field-ignored 一条）。
+4 无效的表情只隔离一项、超过 500 项只认前 500 → manifest.ts、catalog.ts readImage/checkImage → “输出 1–5”（lyra 的四项问题）。500 项截断由 manifest.ts 的 STICKERS_MAX 实现，没有单独用例（低风险的计数，接受）。
+5 诊断只在问题变了时写 → catalog.ts #reportOnce 与合成后清理 → “输出 1–5”（重扫不重复）、“输出 5：删掉再放回来，诊断再写一次”。
+6 同一插件同名文件夹取码元顺序先到、目录不可用 → catalog.ts #derive、plugin-roots.ts → “输出 6”。
+7 带包：先 id 后文件夹名，文件夹名多个认不出 → stickers/web/resolver.ts findSticker → resolver.test.ts“输出 7”。
+8 不带包：恰好一个 → resolver.test.ts“输出 8”。
+9 认不出显示原文 → nb-markdown syntax/sticker/view.ts → sticker.dom.test.ts“先显示原文占位…认不出的留原文”、e2e 验收 1、2。
+10 展示器与编辑器显示成图、占位、读取失败留原文、间隙 → view.ts、editor/sticker-views.ts、display/static-views.ts → sticker.dom.test.ts（占位换图、图读不出、没有端口、间隙）、markdown-wiring.dom.test.ts、e2e。
+11 大小：1–3 个只有表情的文本块是大图；行内小图不撑高这一行；编辑时随之更新 → syntax/sticker/index.ts isLargeStickerBlock、markdown.css → sticker.dom.test.ts“一到三个表情”“大图随同一段里的编辑更新”“别的块里打字、删掉整块”；行高不变：e2e 验收 1、2 比较两段高度。
+12 两边元素结构与类名相同 → view.ts buildSticker → sticker.dom.test.ts“元素结构与类名同展示器”。
+13 stickers:// 的根、读列取真实路径、写入被拒、整个文件夹换掉后对着新的 → stickers/backend/scheme.ts、files/backend/mounted.ts → stickers.test.ts“输出 13”、files/schemes.test.ts“挂载点的目录被整个换掉”。Agent 写入得 permission-denied：Files 层因方案没有写能力报 unsupported-capability，Agent 资源层 classify 对 stickers:// 按缺省分类为不可写（agent/backend/resources.ts），工具得 permission-denied；缺省分类有 agent 资源测试覆盖。
+14 槽的内容与写法一律带包、同名文件夹写 id → agent/backend/stickers/extension.ts stickersSection → stickers-slot.test.ts“输出 14、16”“输出 14、17”。
+15 上限 8 包、60 个、6000 字符 → stickers-slot.test.ts“输出 15”。
+16 空白名单没有内容 → stickers-slot.test.ts“输出 14、16”、“验收 1、3”（去掉后槽没了）。
+17 槽只随白名单里的表情包变 → stickers-slot.test.ts“输出 14、17”“验收 1、3”。
+18 浏览器目录字段、5000 个与 768 KiB、整包不进、诊断、通知更新 → stickers/backend/browser-catalog.ts、stickers/web/plugin.ts → stickers.test.ts“输出 18”“输出 18、19”；通知更新：e2e“输出 18：清单里加了表情”。
+19 Profile 设置的表情包一节 → agent/web/profile-view.ts stickersField（allowlistField）、ProfileToolsSection.vue → profile-page.dom.test.ts“表情包”三条；agent-profiles e2e 通过。
+20 没有单独的表情包页 → 否定条目，无实现。
+21 编辑器里是整体节点：一步跨过、一次删掉、写回原文、不编辑字节不变 → syntax/sticker/index.ts（atom、selectable: false）→ e2e 验收 4（方向键一步跨过、退格整删）、codec.test.ts“不编辑时字节不变”。核对时发现方向键要按两次（selectable: true），已修（75c4e2f44），e2e 能抓到。
+22 打出写法变成节点、紧接着退格还原、组字期间不变 → 输入规则 → sticker.dom.test.ts“打出结尾的冒号…退格还原”、e2e 验收 4。组字期间：Tiptap 的输入规则在组字期间不跑，没有单独用例（框架保证）。
+23 留作文字的写法开头写成 \:、同一块别的字节不变 → codec/render/escape.ts、inline.ts → codec.test.ts“留作文字的写法开头写成 \:”“同一块里加了留作文字的写法”、e2e 验收 4。
+24 复制纯文字是原文、带格式粘贴回来仍是节点 → renderText、parseHTML → sticker.dom.test.ts“复制的纯文字”“从展示器复制来的 HTML 粘贴回来”。
+
+失败与恢复
+pack-invalid、field-ignored、sticker-invalid、root-unavailable、pack-duplicate、catalog-truncated → stickers.test.ts（“输出 1–5”“输出 6”“输出 18”“输出 18、19”）。
+取图 404（不在目录、无效、读取时已不是相符的图片）与 403 跨站 → stickers.test.ts“取图路由”。
+白名单里的 id 不在目录里：槽不列（stickers-slot.test.ts“输出 14、16”的 user.broken、user.gone），设置页列在“已删除或不可用”（profile-page.dom.test.ts“表情包都删光了”）。
+
+边界与兼容
+取图路由的头、版本与缓存 → stickers/backend/routes.ts → stickers.test.ts“取图路由”“版本：图片换成另一个文件后…版本照样变”。
+没有端口时读成节点、显示原文 → sticker.dom.test.ts“没有端口时显示原文”、markdown-wiring.dom.test.ts“没有表情包插件时”。
+
+验收场景
+1 e2e“验收 1、2”（提示词里的常用表情与地址）、stickers-slot.test.ts“验收 1、3”；sticker-invalid 一条与重扫不加：stickers.test.ts“输出 1–5”。
+2 e2e“验收 1、2”。
+3 stickers-slot.test.ts“验收 1、3”（槽不变）；不带包的 :开心: 认不出：resolver.test.ts“输出 8”。
+4 e2e“验收 4”。
+5 e2e“验收 1、2”的重载部分（对话）；编辑器标签的晚到：与展示器同一个 view.ts，占位与换图由 sticker.dom.test.ts 覆盖；Lab 场景 stickers-late 人工看过。
+6 stickers.test.ts“输出 6”（目录层面）；浏览器目录由同一份目录生成。
+7 stickers.test.ts“输出 13”“输出 1：整个换掉的表情包”。
+
+Spec 随实现改的措辞（贴实现）：输出 1 改为“随文件变化更新”（实现整根重扫、没变的图沿用核对结果）；输出 18 加字节上限与概要；失败表 catalog-truncated 含概要；边界与兼容的版本加文件身份。

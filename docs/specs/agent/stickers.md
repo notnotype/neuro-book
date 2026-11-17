@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.stickers
 owners:
   - nbook.stickers
@@ -81,7 +81,7 @@ interface StickerPackManifest {
 
 ### 目录
 
-1. `nbook.stickers` 启动时建好 `user://stickers/`（已有的不动）、扫一遍，之后按 `user://stickers/` 的文件变化重扫变了的表情包；插件来源随 `stickers.packs` 的发布与撤回出现、消失，插件的目录不监视。
+1. `nbook.stickers` 启动时建好 `user://stickers/`（已有的不动）、扫一遍，之后随 `user://stickers/` 的文件变化更新；插件来源随 `stickers.packs` 的发布与撤回出现、消失，插件的目录不监视。
 2. 无效的表情包只隔离它一个：照样列出，状态 `invalid`，`problem` 写原因。算无效的：没有 `stickers.json`、它超过 256 KiB、读不懂或不是对象、`stickers` 不是数组、文件夹名不合规则、文件夹是链接。
 3. 表情包的可选字段（`title`、`description`）不合规则时只忽略那个字段，表情包照常可用。
 4. 无效的表情只隔离它一项，这一项不列，别的照常。算无效的：名字不合规则、同包重名（后出现的）、`when` 超长、文件不在、是链接、扩展名不对、字节不是相符的图片、超过 2 MiB 或 1024 像素。`stickers` 超过 500 项时只认前 500 项。
@@ -113,7 +113,7 @@ interface StickerPackManifest {
 
 ### 浏览器一侧的目录
 
-18. 浏览器一侧的目录只带显示要用的：每个有效的表情包的 id、文件夹名，每个有效表情的名字、宽、高与取图地址；不带说明与“什么时候用”。合计至多 5000 个表情，多出的表情包整包不进浏览器目录（按 id 的码元顺序取），写诊断 `stickers.catalog-truncated`；`stickers://` 与槽不受这条影响。目录变了经通知更新。
+18. 浏览器一侧的目录只带显示要用的：每个有效的表情包的 id、文件夹名，每个有效表情的名字、宽、高与取图地址；不带说明与“什么时候用”。合计至多 5000 个表情、序列化后至多 768 KiB（远程调用单条消息的上限以内），放不下的表情包整包不进浏览器目录（按 id 的码元顺序取），写诊断 `stickers.catalog-truncated`；Profile 设置用的表情包概要按同样的字节上限取。`stickers://` 与槽不受这条影响。目录变了经通知更新。
 
 ### 界面
 
@@ -151,7 +151,7 @@ interface StickerPackManifest {
 | 可选字段不合规（输出 3） | 忽略这个字段，诊断 `stickers.field-ignored` |
 | 表情无效、超过 500 项（输出 4） | 不列，诊断 `stickers.sticker-invalid`（一个表情包一条，列出几项） |
 | 插件目录不可用、同名（输出 6） | 诊断 `stickers.root-unavailable`、`stickers.pack-duplicate` |
-| 浏览器目录超过上限（输出 18） | 诊断 `stickers.catalog-truncated` |
+| 浏览器目录或表情包概要超过上限（输出 18） | 诊断 `stickers.catalog-truncated` |
 | 取图：表情包或表情不在目录里、表情无效、读取时文件已不是相符的图片或超过 2 MiB | 404 `not-found` |
 | 取图：跨站请求 | 403 `cross-site`，规则同按地址读取字节（[workspace.files](../workspace/files.md)） |
 | 白名单里的 id 不在目录里 | 不报错；槽不列它，Profile 设置里列在“已删除或不可用” |
@@ -159,7 +159,7 @@ interface StickerPackManifest {
 ## 边界与兼容
 
 - 公开接口：清单的形状、贡献点 `stickers.packs`、表情写法、`stickers://` 的布局、Profile 声明的 `stickers` 字段。
-- 取图路由 `GET /api/nbook.stickers/image/<表情包 id>/<文件名>?v=<版本>`：版本由文件的修改时间与大小算出，随浏览器目录交出。路由经文件服务读 `stickers://<表情包 id>/<文件名>`，只给目录里有效的表情；读取时再按字节判定类型与大小，`Content-Type` 取判定的类型；加 `X-Content-Type-Options: nosniff`、`Content-Security-Policy: sandbox`、`ETag`；带了版本且与当前一致时 `Cache-Control: private, max-age=31536000, immutable`，否则 `no-cache`。
+- 取图路由 `GET /api/nbook.stickers/image/<表情包 id>/<文件名>?v=<版本>`：版本由文件的修改时间、大小与文件身份算出（换成另一个文件时即使大小与修改时间相同也会变），随浏览器目录交出。路由经文件服务读 `stickers://<表情包 id>/<文件名>`，只给目录里有效的表情；读取时再按字节判定类型与大小，`Content-Type` 取判定的类型；加 `X-Content-Type-Options: nosniff`、`Content-Security-Policy: sandbox`、`ETag`；带了版本且与当前一致时 `Cache-Control: private, max-age=31536000, immutable`，否则 `no-cache`。
 - 表情写法是 nb-markdown 的内置方言，没有标签名，声明投到 `markdown.dialects`（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md)）。查表情经 nb-markdown 的宿主端口，没有提供端口时（Lab、组件测试、别的宿主）写法照样读成节点、显示原文。
 
 ## 验收与 Smoke
@@ -174,6 +174,20 @@ interface StickerPackManifest {
 
 Smoke：真实浏览器里打开 Lab 的表情场景（展示器与编辑器各一个），与 e2e 里一个会话的回复显示。
 
+## 实现合同
+
+- **公开入口**：nb-markdown 包入口的写法函数（`stickerAt`、`parseSticker`、`stickerEndingAt`、`isStickerName`、`isStickerPack`）与类型 `StickerResolver`、`ResolvedSticker`；宿主端口 `MarkdownHost.stickers`（展示器）、`MarkdownViewHost.stickers` 与 `report`（编辑器）；内置方言 `nbook.markdown.sticker`；贡献点 `stickers.packs`；地址 `stickers://`；取图路由 `GET /api/nbook.stickers/image/<id>/<file>`；`nbook.stickers` 的远程合同（`catalog`、`packs`、事件 `changed`）与服务 `stickersServiceKey`、浏览器服务 `stickerResolverKey`；Profile 声明的 `stickers` 与 `profileSettings[key].stickers`；扩展 `nbook.agent.stickers` 交槽 `stickers`。
+- **owner 与依赖方向**：`nbook.stickers` 持有表情目录、`stickers://`（`nbook.files` 的挂载方案）、取图路由与浏览器目录，插件包目录经平台服务 `plugin-platform/packages` 取（可选依赖）；`nbook.agent` 可选依赖 `stickersServiceKey`，持有白名单与槽，白名单的合成与 Skill 共用 `shared/profile-allowlist.ts`；`nbook.markdown` 可选依赖 `stickerResolverKey`，经 `withHost` 交给 nb-markdown 的展示器与编辑器。nb-markdown 不依赖应用，只认端口。
+- **关键不变量**：
+  - 读写法、打字时的输入规则与写回时的转义共用一个判断（`stickers.ts` 的 `stickerAt`）；文字后面紧跟别的行内节点时，转义参考那个节点写出的第一个字（`codec.test.ts`“同一块里加了留作文字的写法，别处的写法不变”）。
+  - 节点的原文一定是一个写法：读、输入规则与粘贴（`parseHTML` 校验）都只造合法的原文，写回原样（`sticker.dom.test.ts`“从展示器复制来的 HTML 粘贴回来”）。
+  - 大图与间隙的类名由展示器的块后处理与编辑器的装饰给，判断是同一组函数；编辑器只重算改到的顶层块，相邻块的装饰不动（`sticker.dom.test.ts`“别的块里打字、删掉整块”）。
+  - 交给浏览器的目录与概要按序列化字节装入，不超过远程单条消息上限（`stickers.test.ts`“目录与设置页的概要序列化后不超过远程消息的预算”）。
+  - 稳定槽的文字只随白名单里的表情包变（`stickers-slot.test.ts`“输出 14、17”）。
+
 ## 证据
 
 - 批准依据：开发者在 2026-11-17 的对话里确认：表情写法、两种大小、在 Agent 回复里显示、按 Skill 的方式选包、第一版不做用户发表情、先用占位图（“其他的都同意”）；表情写法做成方言、编辑器也能用（“可以，都同意”）；设计审查后改为 nb-markdown 的内置方言加宿主端口、槽里一律教带包的写法、在 Files 修挂载点被换掉后的重开（“没问题”）。Task：[`w00050 t02`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t02-sticker-system/README.md)。
+- 实现入口：[`plugins/stickers/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/stickers/backend/plugin.ts)、[`plugins/stickers/web/plugin.ts`](../../../packages/neuro-book/src/plugins/stickers/web/plugin.ts)、[`agent/backend/stickers/extension.ts`](../../../packages/neuro-book/src/plugins/agent/backend/stickers/extension.ts)、[`nb-markdown/src/stickers.ts`](../../../packages/nb-markdown/src/stickers.ts)、[`nb-markdown/src/language/syntax/sticker/index.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/index.ts)
+- 合同测试：[`stickers.test.ts`](../../../packages/neuro-book/src/plugins/stickers/stickers.test.ts)、[`web/resolver.test.ts`](../../../packages/neuro-book/src/plugins/stickers/web/resolver.test.ts)、[`web/markdown-wiring.dom.test.ts`](../../../packages/neuro-book/src/plugins/stickers/web/markdown-wiring.dom.test.ts)、[`stickers-slot.test.ts`](../../../packages/neuro-book/src/plugins/agent/stickers-slot.test.ts)、[`profile-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts)、[`nb-markdown stickers.test.ts`](../../../packages/nb-markdown/src/stickers.test.ts)、[`sticker/codec.test.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/codec.test.ts)、[`sticker/sticker.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/sticker.dom.test.ts)
+- Smoke：[`e2e/stickers.e2e.ts`](../../../packages/neuro-book/e2e/stickers.e2e.ts)

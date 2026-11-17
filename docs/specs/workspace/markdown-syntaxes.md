@@ -24,7 +24,7 @@ owners:
 
 - **方言声明**：一种方言的静态信息（顺序、标签名、字数规则），投到贡献点 `markdown.dialects`。
 - **方言实现**：一种方言的语法模块（schema、读法、写法、编辑视图），投到贡献点 `markdown.syntaxes`。
-- **内置方言**：批注、注音、双语、对齐、文字标记、可渲染 HTML、提示块、表情（planned，写法与显示见 [agent.stickers](../agent/stickers.md)）。它们的声明投到 `markdown.dialects`，实现由 `nbook.markdown` 直接持有，不经贡献点交付。
+- **内置方言**：批注、注音、双语、对齐、文字标记、可渲染 HTML、提示块、表情（写法与显示见 [agent.stickers](../agent/stickers.md)）。它们的声明投到 `markdown.dialects`，实现由 `nbook.markdown` 直接持有，不经贡献点交付。
 - **核心语法**：CommonMark 与 GFM 的部分与原样保留，由 `nbook.markdown` 直接持有，不是方言。
 - **语言**：核心语法加上全部生效的方言组成的一份读写规则，有自己的 schema。
 - **生效**：一种方言进入语言（输出 3）。没生效的方言，它的写法按 [workspace.markdown-dialect](markdown-dialect.md) 输出 9 原样保留。

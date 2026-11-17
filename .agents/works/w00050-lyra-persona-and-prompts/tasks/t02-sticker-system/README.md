@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-sticker-system
-status: active
+status: done
 updated: 2026-11-17
 ---
 
@@ -15,7 +15,7 @@ updated: 2026-11-17
 2. **表情包提供者（Provider）与提示词 Slot**：支持由表情包提供者（Provider）贡献表情包资源，并向 Profile 模板提供对应的表情包提示词 Slot（声明常用表情包与使用语境）。
 3. **`stickers://` 虚拟目录**：完整的表情包目录（Catalog）挂载在 `stickers://` 虚拟目录方案下，供 Agent 按需浏览检索与前端渲染解析。
 
-合同：[`docs/specs/agent/stickers.md`](../../../../../docs/specs/agent/stickers.md)（planned）；另改 `agent/contributions.md`、`agent/profile-settings.md`（见计划）。计划：[`plan.md`](plan.md)。
+合同：[`docs/specs/agent/stickers.md`](../../../../../docs/specs/agent/stickers.md)（已晋升 implemented）；另改 `agent/contributions.md`、`agent/profile-settings.md`（见计划）。计划：[`plan.md`](plan.md)。
 
 ## 决定
 
@@ -37,7 +37,19 @@ updated: 2026-11-17
 
 ## 当前状态
 
-2026-11-17（`active`）：设计审查做完（前端 Sonnet 12 条、后端 Opus 11 条），处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)；Spec 与计划已按审查修订为第二版。
+2026-11-17（`done`）：全部切片与实现审查的修正已合入 master（快进到 `c98332833`），分支与 worktree 已删。Spec `agent/stickers.md` 逐条核对后晋升 `implemented`（核对见 [`evidences/spec-check.txt`](evidences/spec-check.txt)），相关 5 份 Spec 的 planned 标记去掉，注册表移到已实现。
+
+收口（切片 7）：
+
+- e2e `e2e/stickers.e2e.ts` 三条：提示词里的常用表情与地址、回复里行内小图与大图、认不出留原文、有无表情的段落一样高、重载后照样成图；改了清单后浏览器目录经通知更新；编辑器里方向键一步跨过、退格整删、打出写法成节点、紧接着退格还原、保存后的原文与 `\:`。逐条核对时这条 e2e 查出方向键要按两次才跨过表情（第一下选中、接着打字会替换掉），节点改为不可单独选中（`75c4e2f44`）。
+- 实现审查：前端 Sonnet 10 条（阻断 1：编辑器相邻块的大图装饰被清掉）、后端 omp 有效 7 条（90 分钟截停，原会话续跑补完）；处理见 [`evidences/impl-review-disposition.txt`](evidences/impl-review-disposition.txt)，报告在同目录 `impl-review-frontend.txt`、`impl-review-backend.txt`。修正 `ab4935650`（前端）、`794b90034`（后端），变基后为 master 上同名提交。不改的：图片说明里的写法也被转义（窄）、清单 JSON 深度限制（过度防御）、可选依赖只解析一次（运行时保证激活顺序，不成立）；待观察：流式输出时表情图随块重建会不会闪（审查者推断，未验证）。
+- 验证：nb-markdown 全部 bun 与 vitest、typecheck；neuro-book 的 stickers、agent、files bun 测试，markdown、stickers、agent/web vitest，typecheck；完整构建与 `check:dist`；e2e stickers、agent-profiles（变基后重跑）、markdown-editing、lab-markdown、lab-scenes。lab-scenes 第 41 行失败是分支之前就有的：ThemeEditor 的假素材名 404（在分支起点 `cd468dcf6` 上同样失败），它挡住的版面比对另有 AgentDock、BackgroundCommandCard、SubagentCard、ProfileSettingsPage 四个组件的面板舞台在手机画布上横向溢出，与本 Task 无关，已报开发者。
+- 变基时 `agent/web/plugin.ts` 与 master 的状态栏改动（w00032 t37）冲突两处，两边都保留。
+- Lyra 的用户 Profile 模板用的是标准布局时，稳定槽 `*` 已经带上 `stickers`，不用另写 `<Slot name="stickers" />`。
+
+历程：
+
+设计审查做完（前端 Sonnet 12 条、后端 Opus 11 条），处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)；Spec 与计划已按审查修订为第二版。
 
 切片 1（nb-markdown 的 `sticker` 方言）在分支 `feat/w00050-t02-stickers`（worktree `.worktree/w00050-t02-stickers`）提交 `0d98c87a1`，未合入：写法判断（`src/stickers.ts`）、读写与 `\:` 转义、编辑器节点与输入规则、大图装饰、宿主端口 `stickers`，neuro-book 的注入键 `markdownStickersKey` 已接到 `MarkdownControl` 与 `MarkdownHosted`（应用里还没有提供方，切片 4 接）。Lab：`MarkdownDisplay` 的 `stickers`、`stickers-late`，`EditorGroup` 的 `stickers`。验证：nb-markdown 全部 bun 与 vitest、neuro-book 的 markdown 插件测试与类型检查通过；变异 7 个杀死 6 个，活下来的是多余的 `parseHTML` 优先级，已去掉。
 
@@ -57,5 +69,5 @@ updated: 2026-11-17
 
 ## 下一步
 
-- 切片 7（收口）：e2e `e2e/stickers.e2e.ts`（新：一段回复里的表情显示、窗口启动恢复时先占位后成图）与覆盖 Profile 设置页、Markdown 编辑器的已有 e2e 文件；完整构建与 `check:dist`；Spec 逐条核对、补实现合同与证据、晋升；实现审查（前端 Sonnet，后端 Opus 或 omp：开前先看 omp 的缺省模型是不是 sol）；处理后合入 master。
-- 收口时跑 `check:dist`（完整构建的最后一步）。
+- 星璃的表情图（决定 6：现在是占位图，另起）。
+- 待观察：流式输出时表情图会不会闪，开发者看对话时留意；确有闪烁再改（复用块里已显示的表情元素，或按写法缓存查到的结果）。
