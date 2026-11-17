@@ -154,7 +154,8 @@ export async function readUploadStream(body: ReadableStream<Uint8Array>, options
         if (total > limits.maxTotalBytes) throw new UploadError("upload-too-large", `上传超过 ${String(limits.maxTotalBytes)} 字节`);
     };
 
-    const startFile = async (headerBytes: Uint8Array): Promise<void> => {
+    /** 帧头通过检查、落盘口开好之后，下一个阶段：有内容读内容，没有内容直接收齐、回到下一帧的长度。 */
+    const startFile = async (headerBytes: Uint8Array): Promise<"length" | "content"> => {
         let parsed: unknown;
         try {
             parsed = JSON.parse(decoder.decode(headerBytes));
@@ -175,15 +176,10 @@ export async function readUploadStream(body: ReadableStream<Uint8Array>, options
         addTotal(4 + headerBytes.length + size);
         sink = await options.open(normalized, size);
         remaining = size;
-        if (size === 0) {
-            await sink.end();
-            sink = null;
-            phase = "length";
-            have = 0;
-            collected = new Uint8Array(4);
-        } else {
-            phase = "content";
-        }
+        if (size > 0) return "content";
+        await sink.end();
+        sink = null;
+        return "length";
     };
 
     try {
@@ -219,7 +215,11 @@ export async function readUploadStream(body: ReadableStream<Uint8Array>, options
                     collected = new Uint8Array(length);
                     have = 0;
                 } else {
-                    await startFile(collected);
+                    phase = await startFile(collected);
+                    if (phase === "length") {
+                        have = 0;
+                        collected = new Uint8Array(4);
+                    }
                 }
             }
         }
