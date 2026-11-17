@@ -281,6 +281,10 @@
             "withProject": "The workbench is ready. Current project: {{name}}"
         },
         "activityBar": "Activity Bar",
+        "regionStrip": {
+            "auxiliarybar": "Secondary side bar containers",
+            "panel": "Panel containers"
+        },
         "drag": {
             "hint": "Press Space to pick up and drag",
             "hintFold": "Press Enter to expand or collapse, Space to pick up and drag"

@@ -100,6 +100,8 @@ export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonl
         headHeight: PANEL_HEAD_HEIGHT,
         collapseThreshold: SHELL_DRAG_COLLAPSE_THRESHOLD,
         sashSize: SASH_PX,
+        // 右栏、底部面板卡片顶上一行是入口条，当前容器只有一节时那一节的头并进这一行（输出 47）；侧栏的入口在活动栏上。
+        regionStrip: (region) => (region === "sidebar" ? null : {height: PANEL_HEAD_HEIGHT, mergeSole: true}),
         ...(input.removed === undefined ? {} : {removed: input.removed}),
     };
 }

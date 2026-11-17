@@ -1,0 +1,259 @@
+<script setup lang="ts">
+/**
+ * 右栏、底部面板的入口条（同名 .md；docs/specs/ui/workbench-layout.md 输出 47）：区域卡片顶上一行，一个容器一个入口，右栏画图标、底部面板画标题。
+ * 当前容器只有一节时，那一节的头由宿主放进默认插槽，接在入口后面占这一行剩下的宽度。点了只发 `select` 或 `context-menu`，做什么由宿主定。
+ */
+import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
+
+import {layoutStrip} from "../items/item-strip";
+import "./panel-metrics.css";
+
+/** 一个入口：区域里的一个容器（输出 41、47）。 */
+export interface RegionStripEntry {
+    /** 容器 id。 */
+    readonly id: string;
+    /** 容器的名称：图标入口的可访问名称，标题入口写出来的字，也是“更多”菜单里的文字。 */
+    readonly label: string;
+    /** 成员视图的声明都不在时没有图标可取，是 null：画中性的占位图标。 */
+    readonly icon: string | null;
+    /** 悬停文字：写出容器里的各个视图。 */
+    readonly tooltip: string;
+    /** 区域的当前容器：放不下时它总在外面。 */
+    readonly current: boolean;
+    /** 当前容器且区域可见；至多一项。 */
+    readonly pressed: boolean;
+}
+
+const PLACEHOLDER_ICON = "i-lucide-circle-help";
+/** 图标入口的宽（24px 的按钮）与“更多”的宽。 */
+const ICON_ENTRY_PX = 24;
+
+defineOptions({name: "WorkbenchRegionStrip"});
+
+const props = withDefaults(defineProps<{
+    /** 这条入口条属于哪个区域：写在根上，宿主、测试与拖放按它找。 */
+    region: string;
+    /** 入口这一组的可访问名称。 */
+    label: string;
+    moreLabel: string;
+    entries: ReadonlyArray<RegionStripEntry>;
+    /** 右栏是图标（按下底色），底部面板是标题（下划线）。 */
+    variant: "icons" | "titles";
+    /**
+     * 并进来的头至少要留多宽（截断的标题、视图动作、框架按钮）：入口放不下时先收进“更多”，头不被挤到这个宽度以下（让位顺序见 .md）。
+     * 没有并进来的头时是 0。
+     */
+    headMinWidth?: number;
+}>(), {headMinWidth: 0});
+
+const emit = defineEmits<{
+    (event: "select", id: string): void;
+    /** 入口的右键菜单（键盘是菜单键）；坐标是视口坐标。 */
+    (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
+}>();
+
+/** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在入口下面。 */
+function onEntryContextMenu(id: string, event: MouseEvent): void {
+    event.preventDefault();
+    if (event.button === 0 && event.clientX === 0 && event.clientY === 0 && event.currentTarget instanceof Element) {
+        const rect = event.currentTarget.getBoundingClientRect();
+        emit("context-menu", id, {x: rect.left, y: rect.bottom});
+        return;
+    }
+    emit("context-menu", id, {x: event.clientX, y: event.clientY});
+}
+
+/**
+ * 放不下时排在后面的收进“更多”，当前容器的入口总在外面（输出 47）。入口能用的宽是整条减去并进来的头至少要留的宽，与摆出来几个入口无关，
+ * 所以不会量了又变。标题入口的宽各不相同，在一行看不见的量尺里量（它总是摆出全部入口）。
+ */
+const rootEl = ref<HTMLElement | null>(null);
+const measureEl = ref<HTMLElement | null>(null);
+const rootWidth = ref<number | null>(null);
+const titleWidths = ref<ReadonlyMap<string, number>>(new Map());
+
+function measure(): void {
+    const root = rootEl.value;
+    if (root === null) return;
+    const style = getComputedStyle(root);
+    const width = root.clientWidth - (Number.parseFloat(style.paddingLeft) || 0) - (Number.parseFloat(style.paddingRight) || 0);
+    rootWidth.value = width > 0 ? width : null;
+    const ruler = measureEl.value;
+    if (props.variant !== "titles" || ruler === null) return;
+    const next = new Map<string, number>();
+    for (const element of ruler.querySelectorAll<HTMLElement>("[data-measure-entry]")) next.set(element.dataset.measureEntry ?? "", element.offsetWidth);
+    titleWidths.value = next;
+}
+
+let observer: ResizeObserver | null = null;
+onMounted(() => {
+    measure();
+    if (typeof ResizeObserver !== "function" || rootEl.value === null) return;
+    observer = new ResizeObserver(measure);
+    observer.observe(rootEl.value);
+});
+onBeforeUnmount(() => observer?.disconnect());
+// 换了入口（名称、个数）时标题入口的宽要重量；量尺在下一次渲染之后才是新的。
+watch(() => props.entries.map((entry) => entry.label).join("\n"), () => requestAnimationFrame(measure), {flush: "post"});
+
+const widthOf = (id: string): number => (props.variant === "icons" ? ICON_ENTRY_PX : titleWidths.value.get(id) ?? 0);
+const strip = computed(() => {
+    const room = rootWidth.value;
+    const all = {shown: props.entries.map((entry) => entry.id), hidden: [] as string[]};
+    if (room === null || (props.variant === "titles" && titleWidths.value.size === 0)) return all;
+    return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: widthOf(entry.id)})), Math.max(0, room - props.headMinWidth), ICON_ENTRY_PX);
+});
+const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
+const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
+</script>
+
+<template>
+    <div ref="rootEl" class="workbench-region-strip" :class="`workbench-region-strip--${variant}`" :data-region-strip="region">
+        <div class="workbench-region-strip__entries" role="group" :aria-label="label">
+            <Tooltip v-for="entry in shownEntries" :key="entry.id" :text="entry.tooltip" side="bottom">
+                <button
+                    type="button"
+                    class="workbench-region-strip__entry nb-ui-focus-ring-inset"
+                    :aria-label="variant === 'icons' ? entry.label : undefined"
+                    :aria-pressed="entry.pressed"
+                    :data-region-entry="entry.id"
+                    :data-pressed="entry.pressed ? '' : undefined"
+                    @mousedown.prevent
+                    @click="emit('select', entry.id)"
+                    @contextmenu="onEntryContextMenu(entry.id, $event)"
+                >
+                    <span v-if="variant === 'icons'" class="workbench-region-strip__icon" :class="entry.icon ?? PLACEHOLDER_ICON" aria-hidden="true"></span>
+                    <span v-else class="workbench-region-strip__title">{{ entry.label }}</span>
+                </button>
+            </Tooltip>
+            <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="bottom" align="start" @select="(id: string) => emit('select', id)">
+                <IconButton size="xs" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-region-strip__more" data-region-more />
+            </DropdownMenu>
+        </div>
+        <div class="workbench-region-strip__head">
+            <slot></slot>
+        </div>
+        <!-- 标题入口的量尺：一行看不见的全部入口，不占位置，不进可访问树。 -->
+        <div v-if="variant === 'titles'" ref="measureEl" class="workbench-region-strip__ruler" aria-hidden="true">
+            <span v-for="entry in entries" :key="entry.id" class="workbench-region-strip__entry" :data-measure-entry="entry.id">
+                <span class="workbench-region-strip__title">{{ entry.label }}</span>
+            </span>
+        </div>
+    </div>
+</template>
+
+<style scoped>
+.workbench-region-strip {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    /* 左内边距同面板头，入口的对齐从卡片左缘算（下面两种入口各自补到目标线）。 */
+    padding-inline: var(--space-1) var(--space-2);
+    overflow: hidden;
+    user-select: none;
+}
+
+.workbench-region-strip__entries {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+/* 并进来的头占这一行剩下的宽度：入口先排满，头从剩下的里缩，缩到 `headMinWidth` 以下之前入口先收进“更多”。 */
+.workbench-region-strip__head {
+    display: flex;
+    flex: 1 1 0;
+    align-self: stretch;
+    min-width: 0;
+}
+
+/* 并进来的头在这一行里横着占满剩下的宽度；它在分节里是竖排卡片的第一行，那里的 32px 定的是高。 */
+.workbench-region-strip__head :slotted(.workbench-panel-head) {
+    flex: 1 1 auto;
+    height: 100%;
+    min-width: 0;
+}
+
+.workbench-region-strip__entry {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    height: 24px;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    transition: color var(--motion-fast) var(--ease-layout), background-color var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-region-strip__entry:hover {
+    color: var(--text-main);
+}
+
+/* 右栏：24px 的图标按钮，16px 的图标居中；第一个入口的图标左缘落在展开标记那条线上（panel-metrics.css）。按下是底色。 */
+.workbench-region-strip--icons .workbench-region-strip__entry {
+    width: 24px;
+    border-radius: var(--radius-button-sm);
+}
+
+.workbench-region-strip--icons .workbench-region-strip__entries > :first-child {
+    margin-inline-start: calc(var(--workbench-fold-inset) - var(--space-1) - 4px);
+}
+
+.workbench-region-strip--icons .workbench-region-strip__entry:hover,
+.workbench-region-strip--icons .workbench-region-strip__entry[data-pressed] {
+    background: var(--bg-hover);
+}
+
+.workbench-region-strip--icons .workbench-region-strip__entry[data-pressed] {
+    color: var(--accent-text);
+}
+
+.workbench-region-strip__icon {
+    width: 16px;
+    height: 16px;
+}
+
+/*
+ * 底部面板：标题入口，水平内边距固定 4px（不随主题变），第一个入口的文字和分节头的标题文字在一条竖线上（头的左内边距加标题格的内边距）。
+ * 按下是按钮宽度上的一条下划线，同面板头标签带的选中标记。
+ */
+.workbench-region-strip--titles .workbench-region-strip__entry {
+    padding-inline: var(--space-2);
+    font-weight: var(--weight-medium);
+}
+
+.workbench-region-strip--titles .workbench-region-strip__entry[data-pressed] {
+    color: var(--text-main);
+}
+
+.workbench-region-strip--titles .workbench-region-strip__entry::after {
+    position: absolute;
+    bottom: 0;
+    height: 2px;
+    background: transparent;
+    content: "";
+    inset-inline: 0;
+    transition: background-color var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-region-strip--titles .workbench-region-strip__entry[data-pressed]::after {
+    background: var(--accent-main);
+}
+
+.workbench-region-strip__ruler {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    visibility: hidden;
+    pointer-events: none;
+}
+</style>

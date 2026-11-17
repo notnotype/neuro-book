@@ -5,8 +5,8 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, GridSwap, LayoutDoc} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import type {GridExtent, GridSwap, LayoutDoc, PanelName} from "@notnotype/nb-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
@@ -30,7 +30,7 @@ import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {focusLandings, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
+import {focusLandings, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -50,6 +50,8 @@ import {SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
 import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
 import WorkbenchPanelHead from "./WorkbenchPanelHead.vue";
 import type {PanelFrameAction, PanelHeadTab, PanelViewHead} from "./WorkbenchPanelHead.vue";
+import WorkbenchRegionStrip from "./WorkbenchRegionStrip.vue";
+import type {RegionStripEntry} from "./WorkbenchRegionStrip.vue";
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
@@ -182,6 +184,13 @@ const FRAME_BUTTON_PX = 26;
 const HEAD_PADDING_PX = 20;
 const titleOnlyPanelIds = computed(() => titleOnlyPanels(doc.value));
 /**
+ * 此刻画出来的投影里并进入口条的分节（输出 47）：它是区域唯一的分节，按已提交的文档也收不成标题行；实时布局拖动的预览里并进来的那一节
+ * 在已提交的文档里可能还有兄弟，所以展开标记另外按这个排除，头上的几处（标记、点标题、留宽、可访问描述）都经 `foldOf`。
+ */
+const mergedNow = computed(() => mergedSections(props.layout.actions.renderedPresentation()));
+/** 并进入口条的那一节在哪个区域。 */
+const mergedRegionOf = (panelId: string): PanelName | null => props.layout.actions.renderedPresentation().strips.find((strip) => strip.merged === panelId)?.region ?? null;
+/**
  * 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。
  * 带容器的区域里再问库：底部面板的分节、区域此刻唯一显示的分节收不成标题行（输出 11），也没有按钮。和 `setPanelCollapsed` 拒绝的是同一个判定。
  */
@@ -192,7 +201,7 @@ const collapsibleIn = (source: LayoutDoc, panelId: string): boolean => findTreeN
  * 每块头的模板与点击都要问好几次，`collapsibleIn` 要在树里找节点，所以一份文档只算一次。
  */
 const folds = computed<ReadonlyMap<string, {readonly collapsed: boolean}>>(() => new Map([...titleOnlyPanelIds.value].flatMap((panelId) => (
-    collapsibleIn(doc.value, panelId) && state.value.maximized !== panelId ? [[panelId, {collapsed: isSectionCollapsed(doc.value, panelId)}] as const] : []
+    collapsibleIn(doc.value, panelId) && state.value.maximized !== panelId && !mergedNow.value.has(panelId) ? [[panelId, {collapsed: isSectionCollapsed(doc.value, panelId)}] as const] : []
 ))));
 const foldOf = (panelId: string): {readonly collapsed: boolean} | null => folds.value.get(panelId) ?? null;
 /** 展开标记占的宽度：标题按钮里标记前的 9px、标记 14px、标记与标题之间 5px（WorkbenchPanelHead 的样式）；接管标题区时单独的按钮是 24px 加间距，比这个窄。 */
@@ -202,7 +211,19 @@ function headReserved(panelId: string): number {
     // 浮动窗只有“回到停靠”；树里是浮动、最大化（收起不是按钮了，是标题前的标记）。
     const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2;
     const others = titleOnlyPanelIds.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
-    return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX + (foldOf(panelId) === null ? 0 : FOLD_MARK_PX);
+    const region = mergedRegionOf(panelId);
+    return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX + (foldOf(panelId) === null ? 0 : FOLD_MARK_PX) + (region === null ? 0 : stripEntriesReserve(region));
+}
+
+/**
+ * 并进入口条时入口占的宽（`headReserved` 要扣掉）：至少摆得下当前容器的入口加“更多”。右栏是 24px 的图标；底部面板的标题入口宽度各不相同，
+ * 按一个短标题估（入口条自己按量到的宽收进“更多”，这里只是给视图动作的预算）。
+ */
+const STRIP_ICON_ENTRY_PX = 26;
+const STRIP_TITLE_ENTRY_PX = 72;
+function stripEntriesReserve(region: PanelName): number {
+    const shown = Math.min(2, regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).length);
+    return shown * (region === "panel" ? STRIP_TITLE_ENTRY_PX : STRIP_ICON_ENTRY_PX) + STRIP_ICON_ENTRY_PX;
 }
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
@@ -283,9 +304,18 @@ function headOfPanel(panelId: string) {
     return viewId === null || control === null ? null : {viewId, control};
 }
 
+/**
+ * 并进入口条时视图接管标题区的最小宽度（views.md 输出 19）：头那一段（入口条叶的宽减去入口与框架按钮）窄于它时不接管，头回到普通画法、视图在自己的内容里画头。
+ * 只看布局给的宽度，不看视图送进来的内容，所以不会自己来回翻。按对话视图两侧列的实际宽度定；有第二个接管标题区的视图时改成视图声明。
+ */
+const VIEW_HEAD_MIN_PX = 220;
 function panelViewHead(panelId: string): PanelViewHead | null {
     const found = headOfPanel(panelId);
-    return found === null ? null : {key: `${found.viewId}:${String(instances.generations.value.get(found.viewId) ?? 0)}`, popup: found.control.head.titlePopup.value};
+    if (found === null) return null;
+    const region = mergedRegionOf(panelId);
+    const stripWidth = region === null ? null : state.value.presented[regionStripLeafId(region)]?.width ?? null;
+    if (region !== null && stripWidth !== null && stripWidth - stripEntriesReserve(region) - FRAME_BUTTON_PX * 2 - HEAD_PADDING_PX < VIEW_HEAD_MIN_PX) return null;
+    return {key: `${found.viewId}:${String(instances.generations.value.get(found.viewId) ?? 0)}`, popup: found.control.head.titlePopup.value};
 }
 
 /** 面板头交来的位置，按面板记。 */
@@ -331,6 +361,41 @@ function activateTab(panelId: string, key: string): void {
 function toggleFold(panelId: string): void {
     const fold = foldOf(panelId);
     if (fold !== null) run(SET_PANEL_COLLAPSED_COMMAND, {panelId, collapsed: !fold.collapsed});
+}
+
+/**
+ * 工具面板的头：画在分节自己的叶里，或并成一行时画在区域的入口条里（输出 47），两处同一组属性与事件。
+ */
+function toolHeadProps(panelId: string, idPrefix: string): InstanceType<typeof WorkbenchPanelHead>["$props"] {
+    const fold = foldOf(panelId);
+    const title = text(panelTitle(renderedDoc.value, catalog.value, panelId));
+    const viewHead = panelViewHead(panelId);
+    return {
+        panelId,
+        label: title,
+        tabs: headTabs(panelId),
+        active: renderedDoc.value.panels[panelId]?.active ?? null,
+        moreLabel: message("common.more"),
+        idPrefix,
+        // 接管标题区时 Enter 是视图的（对话开会话列表），可访问描述不写“展开或收起”。
+        dragHint: message(fold === null || viewHead !== null ? "shell.drag.hint" : "shell.drag.hintFold"),
+        draggingTab: dragPlaceholder.value,
+        titleOnly: titleOnlyPanelIds.value.has(panelId),
+        frameActions: frameActionsOf(panelId),
+        viewHead,
+        fold,
+        foldLabel: fold === null ? "" : message(fold.collapsed ? "shell.fold.expand" : "shell.fold.collapse", {title}),
+    };
+}
+function toolHeadEvents(panelId: string): Record<string, (...args: never[]) => void> {
+    return {
+        activate: (key: string) => activateTab(panelId, key),
+        "toggle-fold": () => toggleFold(panelId),
+        "head-slots": (slots: PanelHeadSlots | null) => setPanelHeadSlots(panelId, slots),
+        reorder: (key: string, delta: -1 | 1) => props.layout.actions.reorderTab(key, delta),
+        action: (action: string) => run(action, {panelId}),
+        "context-menu": (key: string, at: {readonly x: number; readonly y: number}) => openMoveMenu(key, at),
+    };
 }
 
 // ── “移动到” ──────────────────────────────────────────────────────────────
@@ -436,6 +501,27 @@ function selectEntry(container: string): void {
     if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: "sidebar", hidden: true});
 }
 
+/** 右栏、底部面板此刻可见（入口条的按下态与点击，输出 47）。 */
+const regionShowing = (region: PanelName): boolean => regionVisible(doc.value, region, {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>);
+
+/** 右栏、底部面板入口条的入口：区域里的容器，按入口顺序（输出 41、47），和活动栏同一个求值；按下态是当前容器且区域可见。 */
+function regionStripEntries(region: PanelName): RegionStripEntry[] {
+    const showing = regionShowing(region);
+    return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => {
+        const label = text(entry.label.title);
+        const views = entry.views.map(viewTitle);
+        const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
+        return {id: entry.id, label, icon: entry.label.icon, tooltip, current: entry.current, pressed: entry.current && showing};
+    });
+}
+
+/** 点入口条的入口（输出 47）：同活动栏，不是当前容器就切到它（隐藏、拖到零时同时展开），是当前容器且区域可见就隐藏区域。滚过去的样子在第 4 片。 */
+function selectRegionEntry(region: PanelName, container: string): void {
+    const intent = regionEntryIntent(doc.value, region, container, {regionVisible: regionShowing(region)});
+    if (intent.kind === "show") props.layout.actions.showContainer(intent.container);
+    if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: region, hidden: true});
+}
+
 // ── 入口的右键菜单 ────────────────────────────────────────────────────────
 
 const containerMenu = shallowRef<{readonly container: string; readonly x: number; readonly y: number} | null>(null);
@@ -523,6 +609,37 @@ function recoverFocus(candidates: (root: HTMLElement) => ReadonlyArray<HTMLEleme
         const active = root.ownerDocument.activeElement;
         if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null) return;
         (candidates(root).find(reachable) ?? root).focus({preventScroll: true});
+    });
+}
+
+/**
+ * 头换了地方时焦点跟过去（输出 13、47）：同一块面板的头在入口条与它自己的叶之间搬家（并成一行、分开、最大化、还原、入口条里换了并进来的那一节），
+ * 旧头卸掉时焦点在它上面就丢了。焦点进头时记下“哪块面板、哪个元素”（标题、框架按钮的命令、接管标题区时单独的展开标记）；同一块面板的新头挂上、
+ * 而焦点已经丢了（在 body 上，或在停放的内容里）时，交给新头里同一个元素，没有就给新头的标题。焦点没丢就不动。
+ */
+let headFocus: {readonly panel: string; readonly selector: string} | null = null;
+function onHostFocusIn(event: FocusEvent): void {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const head = target?.closest<HTMLElement>("[data-panel-head]") ?? null;
+    if (target === null || head === null) {
+        headFocus = null;
+        return;
+    }
+    const action = target.closest<HTMLElement>("[data-panel-action]")?.dataset.panelAction;
+    const selector = action !== undefined ? `[data-panel-action="${CSS.escape(action)}"]` : target.closest("[data-panel-fold]") !== null && target.tagName === "BUTTON" ? "button[data-panel-fold]" : "[data-panel-tab]";
+    headFocus = {panel: head.dataset.panelHead ?? "", selector};
+}
+function onHeadMounted(panelId: string): void {
+    const remembered = headFocus;
+    if (remembered === null || remembered.panel !== panelId) return;
+    void nextTick(() => {
+        const root = hostEl.value;
+        if (root === null) return;
+        const active = root.ownerDocument.activeElement;
+        if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null && active.isConnected) return;
+        const heads = [...root.querySelectorAll<HTMLElement>(`[data-panel-head="${CSS.escape(panelId)}"]`)];
+        const target = heads.map((head) => head.querySelector<HTMLElement>(remembered.selector) ?? head.querySelector<HTMLElement>("[data-panel-tab]")).find(reachable);
+        target?.focus({preventScroll: true});
     });
 }
 
@@ -732,7 +849,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
 </script>
 
 <template>
-    <div ref="hostEl" class="workbench-shell-host" tabindex="-1">
+    <div ref="hostEl" class="workbench-shell-host" tabindex="-1" @focusin="onHostFocusIn">
         <div class="workbench-shell" data-workbench-shell :data-layout-diagnostics="diagnostics" :data-panel-count="panelCount">
             <div class="workbench-shell__titlebar-slot" data-shell-titlebar :style="{height: titlebarHeight}">
                 <WorkbenchTitleBar
@@ -815,32 +932,30 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     <template v-if="renderedDoc.panels[panelId]?.role === 'editor'">
                         <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :dragging-tab="dragPlaceholder" :frame-actions="editorFrameActions(panelId)" />
                     </template>
-                    <WorkbenchPanelHead
-                        v-else
-                        :panel-id="panelId"
-                        :label="text(panelTitle(renderedDoc, catalog, panelId))"
-                        :tabs="headTabs(panelId)"
-                        :active="renderedDoc.panels[panelId]?.active ?? null"
-                        :more-label="message('common.more')"
-                        :id-prefix="idPrefix"
-                        :drag-hint="message(foldOf(panelId) === null || panelViewHead(panelId) !== null ? 'shell.drag.hint' : 'shell.drag.hintFold')"
-                        :dragging-tab="dragPlaceholder"
-                        :title-only="titleOnlyPanelIds.has(panelId)"
-                        :frame-actions="frameActionsOf(panelId)"
-                        :view-head="panelViewHead(panelId)"
-                        :fold="foldOf(panelId)"
-                        :fold-label="foldOf(panelId) === null ? '' : message(foldOf(panelId)?.collapsed === true ? 'shell.fold.expand' : 'shell.fold.collapse', {title: text(panelTitle(renderedDoc, catalog, panelId))})"
-                        @activate="(key) => activateTab(panelId, key)"
-                        @toggle-fold="toggleFold(panelId)"
-                        @head-slots="(slots) => setPanelHeadSlots(panelId, slots)"
-                        @reorder="(key, delta) => layout.actions.reorderTab(key, delta)"
-                        @action="(action) => run(action, {panelId})"
-                        @context-menu="openMoveMenu"
-                    >
+                    <WorkbenchPanelHead v-else v-bind="toolHeadProps(panelId, idPrefix)" v-on="toolHeadEvents(panelId)" @vue:mounted="onHeadMounted(panelId)">
                         <template v-if="headActions.has(panelId)" #actions>
                             <TitleActions :model="headActions.get(panelId)!.model" :identity="viewIdentity(headActions.get(panelId)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(panelId)!.viewId, key)" />
                         </template>
                     </WorkbenchPanelHead>
+                </template>
+                <template #strip="{region, merged, idPrefix}">
+                    <WorkbenchRegionStrip
+                        :region="region"
+                        :label="message(region === 'panel' ? 'shell.regionStrip.panel' : 'shell.regionStrip.auxiliarybar')"
+                        :more-label="message('common.more')"
+                        :entries="regionStripEntries(region)"
+                        :variant="region === 'panel' ? 'titles' : 'icons'"
+                        :head-min-width="merged === null ? 0 : headReserved(merged)"
+                        @select="(id) => selectRegionEntry(region, id)"
+                        @context-menu="openContainerMenu"
+                    >
+                        <!-- 并进来的那一节的头：同分节的头，以面板为 key，换了并进来的那一节就是新的头（head-slots 先 null 再给新的、焦点交接）。 -->
+                        <WorkbenchPanelHead v-if="merged !== null" :key="merged" v-bind="toolHeadProps(merged, idPrefix)" v-on="toolHeadEvents(merged)" @vue:mounted="onHeadMounted(merged)">
+                            <template v-if="headActions.has(merged)" #actions>
+                                <TitleActions :model="headActions.get(merged)!.model" :identity="viewIdentity(headActions.get(merged)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(merged)!.viewId, key)" />
+                            </template>
+                        </WorkbenchPanelHead>
+                    </WorkbenchRegionStrip>
                 </template>
                 <template #lifted-head="{contentKey}">
                     <div class="workbench-shell__card-head" data-drag-card-head>

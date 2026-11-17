@@ -701,8 +701,10 @@ describe("呈现事实", () => {
         store.actions.acceptPresented({g0: {width: 611, height: 600}});
         store.actions.setPartHidden("statusbar", true);
         expect(sizeIn(store.state.doc, "g0").width).toBe(611);
-        // 区域只显示一个分节时，呈现树里代表区域的就是这个分节：尺寸写给区域，拖到零记在锚上，分节自己不变成标题行（输出 11）。
-        store.actions.commitGesture({[side]: {width: 222, height: 878}}, {[aux]: true});
+        // 侧栏只显示一个分节时，呈现树里代表区域的就是这个分节：尺寸写给区域；右栏顶上有入口条（输出 47），代表区域的是包装分支（id 是区域节点的）。
+        // 拖到零都记在锚上，分节自己不变成标题行（输出 11）。
+        const auxRegion = regionNodeOf(store.state.doc as LayoutDoc, "auxiliarybar")!.node.id;
+        store.actions.commitGesture({[side]: {width: 222, height: 878}}, {[auxRegion]: true});
         await settled(store);
         const saved = await savedDoc(storage, USER);
         expect(regionSize(saved, "sidebar").width).toBe(222);
@@ -788,12 +790,13 @@ describe("呈现事实", () => {
         store.actions.setPartHidden("statusbar", true);
         store.actions.activate("view:test.side");
         expect(widths()).toEqual(before);
-        // 拖面板的高度：侧栏、右栏这次没动，还是压缩的结果。
-        store.actions.commitGesture({...squeezed, g0: {width: 300, height: 400}, [lower]: {width: 300, height: 300}}, {});
+        // 拖面板的高度：侧栏、右栏这次没动，还是压缩的结果。底部面板顶上有入口条，代表区域的是包装分支（输出 47）。
+        const panelRegion = regionNodeOf(store.actions.document(), "panel")!.node.id;
+        store.actions.commitGesture({...squeezed, g0: {width: 300, height: 400}, [lower]: {width: 300, height: 268}, [panelRegion]: {width: 300, height: 300}}, {});
         expect(widths()).toEqual(before);
         expect(regionSize(store.actions.document(), "panel").height).toBe(300);
         // 拖侧栏的边界：写。
-        store.actions.commitGesture({...squeezed, [side]: {width: 200, height: 700}, g0: {width: 260, height: 400}, [lower]: {width: 260, height: 300}}, {});
+        store.actions.commitGesture({...squeezed, [side]: {width: 200, height: 700}, g0: {width: 260, height: 400}, [lower]: {width: 260, height: 268}, [panelRegion]: {width: 260, height: 300}}, {});
         expect(regionSize(store.actions.document(), "sidebar").width).toBe(200);
     });
 

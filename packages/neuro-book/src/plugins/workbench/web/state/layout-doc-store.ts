@@ -23,7 +23,7 @@ import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainer
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
 import {collapseOrder, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
-import {effectiveVisibleTabs, regionOccupied} from "./layout-present";
+import {effectiveVisibleTabs, mergedSections, regionOccupied} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
 
@@ -175,7 +175,7 @@ function defineLayoutDocStore(bound: boolean) {
         }
 
         /** 有效可见的标签键（输出 17）。 */
-        const visibleTabs = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: effectiveMaximized.value, fillers: projection.value.fillers}));
+        const visibleTabs = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: effectiveMaximized.value, fillers: projection.value.fillers, merged: mergedSections(projection.value)}));
 
         async function save(): Promise<void> {
             if (timer !== null) clearTimeout(timer);

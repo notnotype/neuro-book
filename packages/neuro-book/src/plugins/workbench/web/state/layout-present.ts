@@ -3,7 +3,7 @@
  */
 
 import {findTab, hiddenRegionsAtZero, isFloating, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridContentInput, GridExtent, LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-layout";
+import type {GridContentInput, GridExtent, LayoutDoc, LayoutProjection, PanelName, PanelRecord} from "@notnotype/nb-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
 
@@ -43,6 +43,11 @@ export interface VisibilityFacts {
     readonly fillers?: ReadonlySet<string>;
     /** 并成一行的分节（投影的 `strips`）：头在入口条里，叶里没有头，有高度就有地方放内容。 */
     readonly merged?: ReadonlySet<string>;
+}
+
+/** 投影里并进入口条的分节（输出 47）：它们的头在区域的入口条里。 */
+export function mergedSections(projection: Pick<LayoutProjection, "strips">): ReadonlySet<string> {
+    return new Set(projection.strips.flatMap((strip) => (strip.merged === null ? [] : [strip.merged])));
 }
 
 function hasRoom(id: string, panel: PanelRecord, size: GridExtent | undefined, merged: ReadonlySet<string> | undefined): boolean {

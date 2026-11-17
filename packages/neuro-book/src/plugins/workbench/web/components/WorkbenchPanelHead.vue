@@ -7,6 +7,7 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 import type {PanelHeadSlots} from "../views/view-head";
 import {panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
 import "./hover-actions.css";
+import "./panel-metrics.css";
 
 export interface PanelHeadTab {
     /** 标签键；事件原样带回。 */
@@ -386,12 +387,12 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
 }
 
 /*
- * 对齐（开发者 2026-11-17：“看看对齐了没”）：标记与资源管理器树第一层的展开箭头在一条竖线上，标题与树第一层的文字在一条竖线上。树的行内边距 8px，
- * 16px 的框里 14px 的箭头居中，文字在框后 4px：箭头离卡片左缘 15px、文字离 34px。头的左内边距加标题格的内边距是 6px，所以标记再往里 9px、
- * 和标题隔 5px。树的这几个数改了，这里跟着改（e2e 量两者的左缘，差不超过 1px）。
+ * 对齐（开发者 2026-11-17：“看看对齐了没”）：标记与资源管理器树第一层的展开箭头在一条竖线上（`--workbench-fold-inset`，panel-metrics.css），
+ * 标题与树第一层的文字在一条竖线上：文字在箭头的 16px 框后 4px，离卡片 34px。头的左内边距加标题格的内边距之后，标记再往里补到那条线，
+ * 14px 的标记后隔 5px 是标题。
  */
 .workbench-panel-head__handle > .workbench-panel-head__chevron {
-    margin-inline-start: 9px;
+    margin-inline-start: calc(var(--workbench-fold-inset) - var(--space-1) - var(--space-2));
 }
 
 .workbench-panel-head__handle:has(> .workbench-panel-head__chevron) {
