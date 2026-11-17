@@ -27,6 +27,16 @@ export type EditableValue =
 
 export type EditableKind = EditableValue["kind"];
 
+/**
+ * 宿主按属性名给的显示信息（docs/specs/workbench/markdown-editing.md 输出 60）：图标（Iconify 类名）换掉类型图标，显示名换掉属性名
+ * 一列、摘要与输入的可访问名称（已是当前界面语言的字符串），类型只管值为空的行按什么输入。三项都可以没有。
+ */
+export type PropertyDescription = {
+    readonly icon?: string;
+    readonly label?: string;
+    readonly kind?: EditableKind;
+};
+
 export type PropertyRow = {
     /** 在映射里的下标：编辑都按它定位。 */
     readonly index: number;

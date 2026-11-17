@@ -17,17 +17,21 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {IMAGE_FOLDER_DEFAULT, imageFolderSetting, imageLocationSetting} from "nbook/plugins/editor/shared/contracts";
 import {filesKey, projectFilesContract} from "nbook/plugins/files/shared/contracts";
-import {settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {windowProjectKey} from "nbook/shared/projects";
+import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 
 import {descriptor} from "../plugin";
 import {markdownKey, MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../shared/contracts";
 import type {MarkdownService} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
+import {propertiesPoint} from "../shared/properties";
 import {colorsPort, markdownColorsKey, markdownColorsStore, memoryColors} from "./colors";
 import type {MarkdownColors} from "./colors";
 import {createMarkdownMedia, markdownMediaKey} from "./media";
+import {createPropertyDescriptions, markdownPropertiesDescribeKey} from "./properties-catalog";
+import type {DescribeProperty} from "./properties-catalog";
 import type {MarkdownMedia} from "./media";
 import {markdownPropertiesOpenKey, memoryPropertiesOpen, propertiesOpenPort, propertiesOpenStore} from "./properties-open";
 import type {PropertiesOpen} from "./properties-open";
@@ -45,6 +49,7 @@ interface Host {
     readonly colors: MarkdownColors;
     readonly propertiesOpen: PropertiesOpen;
     readonly media: MarkdownMedia;
+    readonly describeProperty: DescribeProperty;
 }
 
 /**
@@ -68,6 +73,7 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
             provideToChildren(markdownColorsKey, host.colors);
             provideToChildren(markdownPropertiesOpenKey, host.propertiesOpen);
             provideToChildren(markdownMediaKey, host.media);
+            provideToChildren(markdownPropertiesDescribeKey, host.describeProperty);
             const exposed = forwardExpose(expose);
             return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props, ref: exposed}, slots));
         },
@@ -76,12 +82,12 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
 
 export const markdownBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [dialectsPoint, {id: MARKDOWN_SYNTAXES_POINT, implementation: "required", validate: validateSyntaxContribution}],
+    contributionPoints: [dialectsPoint, propertiesPoint, {id: MARKDOWN_SYNTAXES_POINT, implementation: "required", validate: validateSyntaxContribution}],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}, {key: windowProjectKey, required: false}, {key: settingsKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}, {key: windowProjectKey, required: false}, {key: settingsKey, required: false}, {key: windowTextKey, required: false}],
         provides: [markdownKey],
         receives: [MARKDOWN_SYNTAXES_POINT],
         activate: async (context) => {
@@ -114,7 +120,14 @@ export const markdownBrowserPlugin: PluginDefinition = {
                     ? {location: () => settings.instance.get(imageLocationSetting), folder: () => settings.instance.get(imageFolderSetting)}
                     : {location: () => "folder", folder: () => IMAGE_FOLDER_DEFAULT},
             });
-            const host: Host = {catalog, assets, report, colors, propertiesOpen, media};
+            // 属性的图标、显示名与类型（`properties-catalog.ts`）：声明现查，显示名经窗口的翻译端口解析。
+            const text = await windowTextPort(context.services, () => (settings.status === "resolved" ? displayLocale(settings.instance) : "zh-CN"));
+            const describeProperty = createPropertyDescriptions({
+                declarations: context.declarations,
+                text: (display) => text.t(display),
+                conflict: (name, kept, ignored) => diagnostics.record({level: "warn", event: "markdown.properties.conflict", message: `属性 ${name} 的声明 ${ignored} 与 ${kept} 同名，${kept} 生效、${ignored} 被忽略`, data: {name, kept, ignored}, source: {plugin: descriptor.id}}),
+            });
+            const host: Host = {catalog, assets, report, colors, propertiesOpen, media, describeProperty};
             // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
             const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
                 withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});

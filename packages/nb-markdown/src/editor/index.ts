@@ -20,5 +20,6 @@ export {activeSlash, dismissSlash, markdownSlashKey, removeSlashQuery} from "./s
 export type {SlashMatch} from "./slash-trigger";
 export {REFRESH_REFERENCE_LINKS} from "./reference-links";
 export {default as MarkdownProperties} from "./properties/MarkdownProperties.vue";
+export type {PropertyDescription} from "./properties/model";
 export {FRONTMATTER_REQUEST, setFrontmatterEol} from "./frontmatter";
 export type {ImageFailure, ImageUploadResult, MarkdownViewAssets, MarkdownViewHost, MarkdownViewImages} from "./view-host";
