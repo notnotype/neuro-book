@@ -46,7 +46,7 @@ interface MediaScene {
     readonly bound?: boolean;
     readonly uploadReply?: (address: string) => UploadResult;
     /** 换掉按名字找图：测迟到的结果。 */
-    readonly find?: (query: string) => Promise<FilesResult<FindResult>>;
+    readonly find?: (query: string, signal: AbortSignal | undefined) => Promise<{readonly ok: true; readonly value: FindResult} | {readonly ok: false; readonly detail: string}>;
 }
 
 /** 存放目录里有 `entries`（文件名），按名字找得到 `found`；`upload` 记下地址。 */
@@ -62,9 +62,9 @@ function mediaOf(scene: MediaScene = {}) {
             },
             rawUrl: (address) => `/raw/${address.slice("project://".length)}`,
         },
-        find: (input) => {
+        find: (input, options) => {
             searches.push(input.query);
-            return scene.find?.(input.query) ?? Promise.resolve({ok: true, value: {items: [...(scene.found ?? [])], truncated: false}});
+            return scene.find?.(input.query, options.signal) ?? Promise.resolve({ok: true, value: {items: [...(scene.found ?? [])], truncated: false}});
         },
         bound: scene.bound ?? true,
         settings: {location: () => "folder", folder: () => "插图"},
@@ -379,10 +379,17 @@ describe("插图卡片（输出 54、58）", () => {
 
     it("迟到的结果丢弃：输入又变了、前一次的结果后到也不覆盖当前的；卡片关了再开，上一次没回来的结果也不进新的列表", async () => {
         const pending: Array<{query: string; resolve: (name: string) => void}> = [];
-        await open({find: (query) => new Promise((resolve) => pending.push({query, resolve: (name) => resolve({ok: true, value: {items: [{path: name, name}], truncated: false}})}))});
+        // 与真实的远程调用一样：被中止的请求不是挂着不回，而是立刻回一个 `cancelled` 失败。
+        await open({find: (query, signal) => new Promise((resolve) => {
+            pending.push({query, resolve: (name) => resolve({ok: true, value: {items: [{path: name, name}], truncated: false}})});
+            signal?.addEventListener("abort", () => resolve({ok: false, detail: "已取消"}), {once: true});
+        })});
         await typeInto(query(), "林");
         await vi.waitFor(() => expect(pending.map((entry) => entry.query)).toEqual(["林"]));
         await typeInto(query(), "雪");
+        // 第一次请求已被中止、立刻回了“已取消”（第二次请求还在等停手的延迟里）：不能显示成读取失败。
+        await flushPromises();
+        expect(card()?.textContent).not.toContain("imageCardFailed");
         await vi.waitFor(() => expect(pending.map((entry) => entry.query)).toEqual(["林", "雪"]));
         pending[1]?.resolve("雪.png");
         await vi.waitFor(() => expect(rows()).toEqual(["雪.png"]));

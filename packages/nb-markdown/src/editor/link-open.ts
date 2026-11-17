@@ -6,6 +6,8 @@
  *   `<a>` 取这条链接在文档里的范围。
  * - **Ctrl（⌘）点打开**：打开什么由宿主定（`MarkdownViewHost.openLink`）：作品里的文件在编辑器区打开，外部网址开新标签页。宿主
  *   此刻没有打开的能力（Lab 等）时不接手，当作单击。
+ * - **浏览器自己不跟随编辑器里的链接**：`<a>` 带着 `target="_blank"` 与真实的 `href`，可写时 `contenteditable` 吞掉了默认动作，只读时
+ *   它就是普通链接，会和上面的打开叠成两次（作品里的相对链接还会在新标签页里打开一个 404 页）。所以 `click` 上一律取消默认动作。
  * - 优先级高过 Link 自带的点击插件（1000），所以先到这里；Shift、Alt 加点（扩展选区）与不在链接上的点击返回 false，交给编辑器。
  */
 
@@ -39,6 +41,13 @@ export const MarkdownLinkOpener = Extension.create<{host: MarkdownViewHost | nul
             new Plugin({
                 key: new PluginKey("markdownLinkOpener"),
                 props: {
+                    handleDOMEvents: {
+                        click(view, event) {
+                            const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+                            if (anchor !== null && view.dom.contains(anchor)) event.preventDefault();
+                            return false;
+                        },
+                    },
                     handleClick(view, _pos, event) {
                         if (event.button !== 0) return false;
                         const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;

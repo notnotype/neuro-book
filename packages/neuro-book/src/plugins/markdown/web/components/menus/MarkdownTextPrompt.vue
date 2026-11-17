@@ -74,7 +74,7 @@ function onKeydown(event: KeyboardEvent): void {
 <template>
     <AnchoredPopover :open="props.open" :anchor="props.anchor" side="bottom">
         <div ref="box" class="markdown-text-prompt" :class="{'markdown-text-prompt--wide': props.wide === true}" data-markdown-menu-layer data-markdown-text-prompt @keydown="onKeydown" @focusout="onFocusOut">
-            <Input v-model="value" variant="bare" size="sm" class="min-w-0 flex-1" :aria-label="props.label" :disabled="props.locked === true" :invalid="!acceptable" />
+            <Input v-model="value" variant="bare" size="sm" class="min-w-0 flex-1" :aria-label="props.label" :disabled="props.locked === true" :invalid="props.locked !== true && !acceptable" />
             <IconButton v-if="props.removeLabel !== undefined" size="xs" :icon-class="props.removeIcon ?? 'i-lucide-trash-2'" :title="props.removeLabel" :aria-label="props.removeLabel" @click="emit('remove')" />
             <IconButton size="xs" icon-class="i-lucide-check" :title="props.confirmLabel" :aria-label="props.confirmLabel" :disabled="!acceptable" @click="confirm" />
         </div>

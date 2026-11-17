@@ -61,7 +61,7 @@ export function createViewImages(media: MarkdownMedia, current: () => string | n
             const address = media.destination(current(), name);
             if (address === null) return {ok: false, code: "unavailable", detail: "当前文件不在作品里，不能保存图片"};
             const result = await media.upload(address, file, signal);
-            return result.ok ? {ok: true, address: result.address, alt: ""} : {ok: false, code: result.code, detail: result.detail};
+            return result.ok ? {ok: true, address: result.address, alt: ""} : {ok: false, code: result.code, detail: result.detail, stored: maybeStored(result.code)};
         },
         failed: (failure) => {
             const notice = imageFailureNotice(failure);

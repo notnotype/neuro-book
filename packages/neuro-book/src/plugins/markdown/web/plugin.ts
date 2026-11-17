@@ -104,7 +104,11 @@ export const markdownBrowserPlugin: PluginDefinition = {
             const projectFiles = bound ? context.remote.use(projectFilesContract) : null;
             const media = createMarkdownMedia({
                 files: context.services.require(filesKey),
-                find: projectFiles === null ? null : (input, options) => projectFiles.find({query: input.query, limit: input.limit, extensions: [...input.extensions]}, options) as never,
+                find: projectFiles === null ? null : async (input, options) => {
+                    const found = await projectFiles.find({query: input.query, limit: input.limit, extensions: [...input.extensions]}, options);
+                    // 远程失败的 `detail` 是任意结构的原因：卡片只显示一行说明，不是字符串时用码。
+                    return found.ok ? {ok: true, value: found.value} : {ok: false, detail: typeof found.detail === "string" ? found.detail : String(found.code)};
+                },
                 bound,
                 settings: settings.status === "resolved"
                     ? {location: () => settings.instance.get(imageLocationSetting), folder: () => settings.instance.get(imageFolderSetting)}

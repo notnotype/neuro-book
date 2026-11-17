@@ -45,7 +45,7 @@ function hostOf(options: {readonly images?: boolean; readonly base?: string | nu
         ...(options.images === false ? {} : {images: {
             upload: (picked, signal) => new Promise<ImageUploadResult>((resolve) => {
                 uploads.push({file: picked, signal, resolve});
-                signal.addEventListener("abort", () => resolve({ok: false, code: "cancelled", detail: "已取消"}), {once: true});
+                signal.addEventListener("abort", () => resolve({ok: false, code: "cancelled", detail: "已取消", stored: true}), {once: true});
             }),
             failed: (failure) => failures.push(failure),
         }}),
@@ -153,7 +153,7 @@ describe("粘贴一张图（输出 55）", () => {
         expect(uploads.map((upload) => upload.file.name)).toEqual(["a.png", "b.png"]);
         uploads[1]?.resolve(done("project://章/b.png"));
         await flush();
-        uploads[2]?.resolve({ok: false, code: "unknown-outcome", detail: "结果未知"});
+        uploads[2]?.resolve({ok: false, code: "unknown-outcome", detail: "结果未知", stored: true});
         await flush();
         expect(failures.map((failure) => [failure.file, failure.stored])).toEqual([["a.png", false], ["c.png", true]]);
         expect(widgets(harness.editor)).toBe(0);
@@ -294,12 +294,20 @@ describe("放弃与告知（输出 55 的时序）", () => {
         const harness = open("甲乙\n", host);
         harness.select(2);
         expect(paste(harness.editor, {files: [file("a.png")], text: "一段文字"})).toEqual({handled: false, prevented: 0});
-        (harness.editor.view as unknown as {input: {shiftKey: boolean}}).input.shiftKey = true;
+        // ProseMirror 记在 `view.input`：Ctrl+Shift+V（键码 86）是纯文字粘贴，不接手；Shift+Insert（键码 45）是经典的普通粘贴，接手。
+        const input = (harness.editor.view as unknown as {input: {shiftKey: boolean; lastKeyCode: number}}).input;
+        input.shiftKey = true;
+        input.lastKeyCode = 86;
         expect(paste(harness.editor, {files: [file("a.png")]})).toEqual({handled: false, prevented: 0});
-        (harness.editor.view as unknown as {input: {shiftKey: boolean}}).input.shiftKey = false;
+        input.lastKeyCode = 45;
+        expect(paste(harness.editor, {files: [file("a.png")]})).toEqual({handled: true, prevented: 1});
+        input.shiftKey = false;
+        input.lastKeyCode = 0;
+        // 上面 Shift+Insert 那次放了占位、开始传：只读之前先让它收尾，免得它的结果混进后面的断言。
+        uploads[0]?.resolve({ok: false, code: "too-large", detail: "过大"});
         harness.editor.setEditable(false);
         expect(paste(harness.editor, {files: [file("a.png")]})).toEqual({handled: false, prevented: 0});
-        expect(uploads).toEqual([]);
+        expect(uploads).toHaveLength(1);
     });
 });
 
@@ -346,6 +354,21 @@ describe("按住 Ctrl 点链接（输出 53）", () => {
         expect(clicked(harness.editor, {altKey: true}, "林雪").handled).toBe(false);
         harness.editor.setEditable(false);
         expect(clicked(harness.editor, {}, "林雪").handled).toBe(false);
+    });
+
+    it("编辑器里的链接一律不让浏览器自己跟随（只读时它是普通的 <a target=_blank>，会和打开叠成两次）", () => {
+        const {host} = hostOf();
+        const harness = open("见[林雪](a.md)乙\n", host);
+        for (const editable of [true, false]) {
+            harness.editor.setEditable(editable);
+            const anchor = harness.editor.view.dom.querySelector("a") as HTMLAnchorElement;
+            const event = new MouseEvent("click", {button: 0, bubbles: true, cancelable: true, ctrlKey: true});
+            anchor.dispatchEvent(event);
+            expect([editable, event.defaultPrevented]).toEqual([editable, true]);
+        }
+        const text = new MouseEvent("click", {button: 0, bubbles: true, cancelable: true});
+        harness.editor.view.dom.querySelector("p")?.dispatchEvent(text);
+        expect(text.defaultPrevented).toBe(false);
     });
 
     it("宿主此刻没有打开的能力：Ctrl 点也不接手，照单击", () => {

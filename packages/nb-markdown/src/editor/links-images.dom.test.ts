@@ -116,6 +116,32 @@ describe("链接：改地址按整条链接（输出 52）", () => {
     });
 });
 
+describe("链接里带图片：整条链接仍是一整条（输出 52）", () => {
+    const MIXED = "见[前文![图](a.png)后文](https://old.com)吧\n";
+
+    it("链接里夹一张图：光标在前面的字里改地址，图片与后文一起换成新地址；去掉链接去掉整条", () => {
+        const changed = open(MIXED);
+        changed.select(changed.at("前文") + 1);
+        expect(act(changed.editor, "link", {href: "https://new.com"})).toBe(true);
+        expect(changed.write()).toBe("见[前文![图](a.png)后文](https://new.com)吧\n");
+        const removed = open(MIXED);
+        removed.select(removed.at("后文") + 1);
+        expect(act(removed.editor, "link-remove")).toBe(true);
+        expect(removed.write()).toBe("见前文![图](a.png)后文吧\n");
+    });
+
+    it("只含图片的链接：选中图片时碰到这条链接，可以改地址、去掉链接", () => {
+        const harness = open("见[![图](a.png)](https://old.com)吧\n");
+        const image = harness.at("见") + 1;
+        harness.select(image, image + 1);
+        expect(linksTouching(harness.editor).map((range) => range.href)).toEqual(["https://old.com"]);
+        expect(act(harness.editor, "link", {href: "https://new.com"})).toBe(true);
+        expect(harness.write()).toBe("见[![图](a.png)](https://new.com)吧\n");
+        expect(act(harness.editor, "link-remove")).toBe(true);
+        expect(harness.write()).toBe("见![图](a.png)吧\n");
+    });
+});
+
 describe("链接：加链接（输出 52）", () => {
     it("选着字：选中的字成为链接文字", () => {
         const harness = open("见林雪吧\n");
@@ -141,7 +167,7 @@ describe("链接：加链接（输出 52）", () => {
     it("不安全的地址（javascript:、data:、空）不写，文档不变；代码块里不能加链接", () => {
         const harness = open("见吧\n");
         harness.select(harness.at("吧"));
-        for (const href of ["javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,x", "", "   "]) expect(act(harness.editor, "link", {href})).toBe(false);
+        for (const href of ["javascript:alert(1)", " JavaScript:alert(1)", "java\tscript:alert(1)", "jav\nascript:alert(1)", "\u0001javascript:x", "data:text/html,x", "", "   "]) expect(act(harness.editor, "link", {href})).toBe(false);
         expect(harness.write()).toBe("见吧\n");
         const code = open("```js\nlet a\n```\n");
         code.select(code.at("let"));

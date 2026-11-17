@@ -53,8 +53,9 @@ export const EDITING_ACTIONS = {
     bilingual: {kind: "block", icon: "i-lucide-book-open-text", args: "text"},
     divider: {kind: "block", icon: "i-lucide-minus"},
     table: {kind: "block", icon: "i-lucide-table"},
-    // 在插图卡片里选了图才带着地址执行（输出 54）。
-    image: {kind: "block", icon: "i-lucide-image", args: "image"},
+    // 在插图卡片里选了图才带着地址执行（输出 54）。前置条件同 Spec 命令表：能写、能格式化（`canFormat`）。表格单元格里
+    // `canConvertBlock` 恒为假，登记成 `block` 时卡片里选了图命令被拒、静默插不进去。
+    image: {kind: "format", icon: "i-lucide-image", args: "image"},
     "block-up": {kind: "move", icon: "i-lucide-arrow-up", keybinding: "Alt+ArrowUp"},
     "block-down": {kind: "move", icon: "i-lucide-arrow-down", keybinding: "Alt+ArrowDown"},
     "block-duplicate": {kind: "move", icon: "i-lucide-copy-plus"},

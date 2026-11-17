@@ -67,7 +67,12 @@ describe("upload：粘贴的图按时间命名、存进存放目录、重名加�
 
     it("服务端的失败原样带码与说明", async () => {
         const {images} = setup({reply: {ok: false, code: "too-large", detail: "图片至多 33554432 字节"}});
-        expect(await images.upload(png(), new AbortController().signal)).toEqual({ok: false, code: "too-large", detail: "图片至多 33554432 字节"});
+        expect(await images.upload(png(), new AbortController().signal)).toEqual({ok: false, code: "too-large", detail: "图片至多 33554432 字节", stored: false});
+        // 结果未知、取消、断开：图可能已经在作品里，由宿主判，插件只转交。
+        for (const code of ["unknown-outcome", "cancelled", "network"] as const) {
+            const maybe = setup({reply: {ok: false, code, detail: "x"}});
+            expect(await maybe.images.upload(png(), new AbortController().signal)).toEqual({ok: false, code, detail: "x", stored: true});
+        }
     });
 });
 

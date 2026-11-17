@@ -17,17 +17,24 @@ export interface LinkRange {
 }
 
 /** 会在页面里执行或带走数据的方案：不写成链接（Tiptap 的默认检查对 `setLink` 之外的写入不起作用，这里自己拦）。 */
-const UNSAFE_SCHEME = /^\s*(?:javascript|vbscript|data):/iu;
+const UNSAFE_SCHEME = /^(?:javascript|vbscript|data):/iu;
 
-export const isSafeHref = (href: string): boolean => href.trim() !== "" && !UNSAFE_SCHEME.test(href);
+/** 浏览器解析地址时会去掉空白与控制字符（`java\tscript:` 与 `javascript:` 同义），所以先去掉再判。 */
+export const isSafeHref = (href: string): boolean => {
+    const bare = href.replace(/[\u0000-\u0020\u007f]/gu, "");
+    return bare !== "" && !UNSAFE_SCHEME.test(bare);
+};
 
 const linkType = (editor: Editor): MarkType | undefined => editor.schema.marks.link;
 
-/** 一个文本块里的全部链接（连续的、同一个标记的文字合成一条）。 */
-function linksIn(parentStart: number, parent: {forEach(f: (child: {isText: boolean; marks: readonly Mark[]; nodeSize: number}, offset: number) => void): void}, type: MarkType): LinkRange[] {
+/**
+ * 一个文本块里的全部链接（连续的、同一个标记的行内内容合成一条）。链接标记也加在图片节点上（`[![图](a.png)后文](地址)`），所以不只看
+ * 文字：图片夹在链接里时链接仍是一整条，只含图片的链接也认得（同 `reference-links.ts` 的 `linkRanges`）。
+ */
+function linksIn(parentStart: number, parent: {forEach(f: (child: {marks: readonly Mark[]; nodeSize: number}, offset: number) => void): void}, type: MarkType): LinkRange[] {
     const found: LinkRange[] = [];
     parent.forEach((child, offset) => {
-        const mark = child.isText ? child.marks.find((candidate) => candidate.type === type) : undefined;
+        const mark = child.marks.find((candidate) => candidate.type === type);
         if (mark === undefined) return;
         const from = parentStart + offset;
         const last = found.at(-1);

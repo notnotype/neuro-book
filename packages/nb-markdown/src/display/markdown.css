@@ -252,6 +252,15 @@
     background: var(--selection-bg);
 }
 
+/* 粘贴图片时放在光标处的占位（`editor/image-paste.ts`）：弱色斜体，一眼看出不是正文里的字；点不进去、选不中。 */
+.nb-markdown .nb-markdown-image-uploading {
+    margin-inline: 2px;
+    color: var(--text-muted);
+    font-size: 0.9em;
+    font-style: italic;
+    user-select: none;
+}
+
 /* 没有选区时卡片开着（链接、插图），光标处的一条竖线：焦点在卡片里，浏览器不画正文的光标。 */
 .nb-markdown .nb-markdown-held-caret {
     display: inline-block;

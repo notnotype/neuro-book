@@ -110,25 +110,25 @@ interface HostTarget {
 }
 const indirectHost = (target: HostTarget): MarkdownViewHost => ({
     base: () => target.current?.base() ?? null,
-    get context() {
+    get context(): MarkdownViewHost["context"] {
         return target.current?.context;
     },
-    get assets() {
+    get assets(): MarkdownViewHost["assets"] {
         return target.current?.assets ?? null;
     },
-    get chips() {
+    get chips(): MarkdownViewHost["chips"] {
         return target.current?.chips ?? nbookChips;
     },
-    get imageMissing() {
+    get imageMissing(): MarkdownViewHost["imageMissing"] {
         return target.current?.imageMissing;
     },
-    get openLink() {
+    get openLink(): MarkdownViewHost["openLink"] {
         return target.current?.openLink;
     },
-    get images() {
+    get images(): MarkdownViewHost["images"] {
         return target.current?.images;
     },
-} as MarkdownViewHost);
+});
 
 /** 编辑器挂在这里：稿纸（`.markdown-control`）里排在属性面板之后。 */
 const root = ref<HTMLElement | null>(null);
@@ -634,7 +634,8 @@ onBeforeUnmount(() => {
         // 只从 DOM 上拿下：实例由标签的实例槽保留，标签关闭或换编辑器时编辑器区释放它。
         editor.unmount();
     }
-    // 新的挂载可能已经先接手了（`current` 不再是我们的）：只清自己的。
+    // Vue 先卸载旧控件、再挂新的，所以这里 `current` 正常还是我们的；防御一下：已经不是我们的（别的挂载先接手了）就不清。
+    // 这只管宿主的指向：重叠挂载时上面的 `editor.unmount()` 仍会销毁新挂载刚建好的视图，所以先挂后卸的顺序本来就不受支持。
     if (hostTarget !== null && hostTarget.current === viewHost) hostTarget.current = null;
     hostTarget = null;
     editor = null;

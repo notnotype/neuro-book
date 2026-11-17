@@ -54,12 +54,22 @@ const key = new PluginKey<DecorationSet>("markdownImagePaste");
 
 type Meta = {readonly add: Placeholder & {readonly pos: number}} | {readonly move: {readonly id: string; readonly pos: number}} | {readonly remove: string};
 
+/**
+ * ProseMirror 判“纯文字粘贴”的办法（`view.input` 不是公开接口，升级 prosemirror-view 时要核对这一处）：Shift 按着，而且这次粘贴
+ * 不是 Shift+Insert（Insert 键码 45，那是 Windows、Linux 上经典的普通粘贴）。
+ */
+const isPlainPaste = (view: EditorView): boolean => {
+    const input = (view as unknown as {input?: {shiftKey?: boolean; lastKeyCode?: number}}).input;
+    return input?.shiftKey === true && input.lastKeyCode !== 45;
+};
+
 /** 占位挂件：`side: 1`，在它的位置插入内容时挂件被推到内容之后，所以连着插几张图，占位总在最后一张的后面。 */
 function widgetFor(host: MarkdownViewHost, placeholder: Placeholder, pos: number): Decoration {
     return Decoration.widget(pos, () => {
         const element = document.createElement("span");
         element.className = "nb-markdown-image-uploading";
         element.contentEditable = "false";
+        element.setAttribute("role", "status");
         element.setAttribute("data-image-uploading", placeholder.id);
         element.textContent = markdownTextIn(host.context).t("imagePaste.uploading", {count: placeholder.count});
         return element;
@@ -114,7 +124,7 @@ export const MarkdownImagePaste = Extension.create<{host: MarkdownViewHost | nul
                     if (controller.signal.aborted) break;
                     const result = await images.upload(file, controller.signal);
                     if (!result.ok) {
-                        images.failed({file: file.name, code: result.code, detail: result.detail, stored: result.code === "unknown-outcome" || result.code === "cancelled" || result.code === "network"});
+                        images.failed({file: file.name, code: result.code, detail: result.detail, stored: result.stored === true});
                         continue;
                     }
                     // 插入那一刻的地址：传的过程中文件可能被改名或移动。
@@ -162,8 +172,8 @@ export const MarkdownImagePaste = Extension.create<{host: MarkdownViewHost | nul
                         const images = host.images;
                         const data = event.clipboardData;
                         if (images === undefined || data === null || !view.editable) return false;
-                        // 纯文字粘贴（Ctrl+Shift+V）：ProseMirror 记在 `input.shiftKey`，不接手图片。
-                        if ((view as unknown as {input?: {shiftKey?: boolean}}).input?.shiftKey === true) return false;
+                        // 纯文字粘贴（Ctrl+Shift+V）不接手图片。
+                        if (isPlainPaste(view)) return false;
                         // 同步取出文件：事件结束后剪贴板的内容就清空了。
                         const files = imageFilesOf(data);
                         if (files === null) return false;

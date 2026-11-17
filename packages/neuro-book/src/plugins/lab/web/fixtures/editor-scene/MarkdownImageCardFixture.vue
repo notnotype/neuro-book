@@ -5,7 +5,7 @@
  * 查到的比显示的多、宿主没有提供插图能力、提供了但没有绑定作品、上传要两秒；`english` 用英文界面。选定图片只记事件（`insert`），
  * 不真的往哪里写。
  */
-import {computed, onMounted, shallowRef} from "vue";
+import {computed, shallowRef} from "vue";
 
 import type {EditorMenus} from "nbook/plugins/editor/shared/contracts";
 import {editorText} from "nbook/plugins/editor/shared/text";
@@ -14,10 +14,13 @@ import type {MarkdownMedia} from "nbook/plugins/markdown/web/media";
 import MarkdownImageCard from "nbook/plugins/markdown/web/components/menus/MarkdownImageCard.vue";
 
 import {useLabEventSink} from "../../lab-event-sink";
+import {useLabSubject} from "../../lab-subject";
 import type {LabFixtureProps} from "../../lab-subject";
 import {provideEditorText} from "./editor-text";
 
 const props = defineProps<LabFixtureProps>();
+/** 场景输入里的 `open`、`session`、`current` 传给卡片；`anchor`、`menus`、`media` 是运行期的东西，由夹具按场景给（登记里的 `anchor`、`media` 占位为 null）。 */
+const subject = useLabSubject<typeof MarkdownImageCard>(() => props.input);
 const text = provideEditorText(props.scene);
 const record = useLabEventSink();
 
@@ -60,25 +63,18 @@ const menus = {
 } as unknown as EditorMenus;
 
 const anchorElement = shallowRef<HTMLElement | null>(null);
-const open = shallowRef(false);
-// 浮层要等锚点挂上再开。
-onMounted(() => {
-    open.value = true;
-});
 const anchor = computed(() => anchorElement.value);
 </script>
 
 <template>
-    <div class="h-full w-full p-6">
-        <div ref="anchorElement" class="inline-block h-6 w-0.5 bg-[var(--accent)]" aria-hidden="true" />
+    <div class="h-full w-full">
+        <div ref="anchorElement" class="ml-6 mt-6 inline-block h-6 w-0.5 bg-[var(--accent)]" aria-hidden="true" />
         <MarkdownImageCard
             data-lab-subject
-            :open="open"
-            :session="1"
+            v-bind="subject.bindings.value"
             :anchor="anchor"
             :menus="menus"
             :media="media"
-            current="project://卷一/第一章.md"
             @insert="(image) => record('insert', image)"
             @cancel="record('cancel')"
             @dismiss="record('dismiss')"

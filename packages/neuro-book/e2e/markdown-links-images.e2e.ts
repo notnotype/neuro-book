@@ -94,6 +94,7 @@ async function select(page: Page, skip: number, length: number): Promise<void> {
     for (let step = 0; step < skip; step += 1) await page.keyboard.press("ArrowRight");
     for (let step = 0; step < length; step += 1) await page.keyboard.press("Shift+ArrowRight");
     if (length > 0) await syncedSelection(page, length);
+    else await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
 async function save(page: Page): Promise<void> {
@@ -199,6 +200,56 @@ test("场景 27：按住 Ctrl 点作品里的链接在编辑器区打开，不�
     const popup = page.context().waitForEvent("page");
     await prose(page).locator("a", {hasText: "官网"}).click({modifiers: ["Control"]});
     expect((await popup).url()).toBe("https://example.com/");
+});
+
+test("场景 27：链接里夹着图片：改地址改的是整条（图片与后面的字一起），去掉链接也是整条", async ({page}) => {
+    await put("notes/link-image.md", "见[前文![图](../插图/a.png)后文](https://old.com)吧\n");
+    await openFile(page, "notes/link-image.md");
+    // 光标在“前文”的两个字中间。
+    await select(page, 2, 0);
+    await page.keyboard.press("Control+k");
+    await expect(textPrompt(page).locator("input")).toHaveValue("https://old.com");
+    await textPrompt(page).locator("input").fill("https://new.com");
+    await page.keyboard.press("Enter");
+    await save(page);
+    await expect.poll(() => disk("notes/link-image.md")).toBe("见[前文![图](../插图/a.png)后文](https://new.com)吧\n");
+    await select(page, 2, 0);
+    await page.keyboard.press("Control+k");
+    await textPrompt(page).getByRole("button", {name: "去掉链接"}).click();
+    await save(page);
+    await expect.poll(() => disk("notes/link-image.md")).toBe("见前文![图](../插图/a.png)后文吧\n");
+});
+
+test("场景 27：只读文档里单击链接不被浏览器带走，按住 Ctrl 点外部链接只开一个新标签页（浏览器自己不跟随 <a target=_blank>）", async ({page}) => {
+    await put("notes/link-readonly.md", "见[官网](https://example.com/)\n");
+    await page.context().route("https://example.com/**", (route) => route.fulfill({contentType: "text/html", body: "<title>example</title>"}));
+    await openFile(page, "notes/link-readonly.md");
+    await rm(join(projectDir, "notes/link-readonly.md"));
+    await expect(toolbarButton(page, "链接")).toBeDisabled();
+    const pages: Page[] = [];
+    page.context().on("page", (opened) => pages.push(opened));
+    // 不按 Ctrl 的单击只选中，浏览器自己也不带走（只读时 `<a>` 是普通链接）；之后按住 Ctrl 点才打开，一共只开一个。
+    await prose(page).locator("a", {hasText: "官网"}).click();
+    await prose(page).locator("a", {hasText: "官网"}).click({modifiers: ["Control"]});
+    await expect.poll(() => pages.length).toBe(1);
+    // 第一个页面加载完，浏览器自己的那一次（如果有）也早已发出：仍只有一个。
+    await (pages[0] as Page).waitForLoadState();
+    expect(pages.length).toBe(1);
+});
+
+test("场景 29：表格单元格里用插图卡片选图（命令层也放行），图落在这个单元格里", async ({page}) => {
+    dirs.push("插图");
+    await put("插图/a.png", pngOf(4, 4));
+    await put("notes/image-cell.md", "| 甲 | 乙 |\n| --- | --- |\n| 丙 | 丁 |\n");
+    await openFile(page, "notes/image-cell.md");
+    await prose(page).locator("td", {hasText: "丙"}).click();
+    await page.keyboard.press("End");
+    await toolbarButton(page, "图片").click();
+    await expect(imageCard(page).locator("[data-markdown-image-row]")).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    await expect(prose(page).locator("td .nb-markdown-image-node")).toHaveCount(1);
+    await save(page);
+    await expect.poll(() => disk("notes/image-cell.md")).toContain("丙![a](../插图/a.png)");
 });
 
 test("场景 27：光标在空行按 Ctrl+K 填网址，插入一段文字就是网址本身的链接", async ({page}) => {

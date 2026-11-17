@@ -57,17 +57,18 @@ let uploadingNow: AbortController | null = null;
 /** 每次请求加一：迟到的结果（输入又变了、卡片关了再开）丢弃。 */
 let sequence = 0;
 
+/** 放弃在途的读取：序号加一，被中止的请求返回的 `cancelled`（真实的远程调用中止后立刻回来）也算迟到的结果，丢掉。 */
 function stopSearch(): void {
     if (searchTimer !== null) clearTimeout(searchTimer);
     searchTimer = null;
     loading?.abort();
     loading = null;
+    sequence += 1;
 }
 
 async function refresh(): Promise<void> {
     const media = props.media;
     stopSearch();
-    sequence += 1;
     const mine = sequence;
     if (media === null || urlMode.value) {
         items.value = [];
@@ -97,7 +98,6 @@ async function refresh(): Promise<void> {
 watch(() => [props.open, props.session] as const, async ([open]) => {
     if (!open) {
         stopSearch();
-        sequence += 1;
         uploadingNow?.abort();
         return;
     }
@@ -284,13 +284,15 @@ function markBroken(address: string): void {
                             <span class="markdown-image-card__directory">{{ truncateStart(image.directory, DIRECTORY_MAX) }}</span>
                         </span>
                     </button>
-                    <p v-if="status === 'loading' && items.length === 0" class="markdown-image-card__note" role="status"><Spinner size="sm" /> {{ props.menus.label("imageCardLoading") }}</p>
-                    <p v-else-if="status === 'error'" class="markdown-image-card__note markdown-image-card__note--error" role="status">{{ props.menus.label("imageCardFailed", {detail: failure}) }}</p>
-                    <p v-else-if="status === 'idle'" class="markdown-image-card__note" role="status">{{ props.menus.label("imageCardUrlOnly") }}</p>
-                    <p v-else-if="status === 'ready' && items.length === 0" class="markdown-image-card__note" role="status">{{ props.menus.label("imageCardEmpty") }}</p>
-                    <p v-if="status === 'ready' && truncated" class="markdown-image-card__note" role="status">{{ props.menus.label("imageCardMore") }}</p>
                 </template>
             </div>
+            <template v-if="!urlMode">
+                <p v-if="status === 'loading' && items.length === 0" class="markdown-image-card__note" role="status"><Spinner size="sm" /> {{ props.menus.label("imageCardLoading") }}</p>
+                <p v-else-if="status === 'error'" class="markdown-image-card__note markdown-image-card__note--error" role="status">{{ props.menus.label("imageCardFailed", {detail: failure}) }}</p>
+                <p v-else-if="status === 'idle'" class="markdown-image-card__note" role="status">{{ props.menus.label("imageCardUrlOnly") }}</p>
+                <p v-else-if="status === 'ready' && items.length === 0" class="markdown-image-card__note" role="status">{{ props.menus.label("imageCardEmpty") }}</p>
+                <p v-if="status === 'ready' && truncated" class="markdown-image-card__note" role="status">{{ props.menus.label("imageCardMore") }}</p>
+            </template>
         </div>
     </AnchoredPopover>
 </template>
@@ -317,6 +319,11 @@ function markBroken(address: string): void {
     padding: 4px;
     overflow-y: auto;
     border-top: var(--border-w, 1px) solid var(--divider);
+}
+
+/* 没有行（读取中、没有结果、读不了）时列表没有内容：不画分隔线与内边距，状态说明紧接在输入下面。 */
+.markdown-image-card__list:empty {
+    display: none;
 }
 
 .markdown-image-card__row {

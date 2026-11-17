@@ -10,7 +10,7 @@ import type {InjectionKey} from "vue";
 
 import {imageDirectory} from "nbook/plugins/editor/shared/contracts";
 import type {ImageLocation} from "nbook/plugins/editor/shared/contracts";
-import type {FilesResult, FilesService, FindResult} from "nbook/plugins/files/shared/contracts";
+import type {FilesService, FindResult} from "nbook/plugins/files/shared/contracts";
 import type {UploadResult} from "nbook/plugins/files/shared/upload";
 
 /** 插图卡片一次列出的图片数。 */
@@ -55,8 +55,8 @@ export const markdownMediaKey: InjectionKey<MarkdownMedia> = Symbol("nbook.markd
 
 export interface MediaSources {
     readonly files: Pick<FilesService, "list" | "upload" | "rawUrl">;
-    /** 远程 `find`；没有绑定作品时为 null。 */
-    readonly find: ((input: {query: string; limit: number; extensions: readonly string[]}, options: {signal?: AbortSignal}) => Promise<FilesResult<FindResult>>) | null;
+    /** 远程 `find`（失败只留说明）；没有绑定作品时为 null。 */
+    readonly find: ((input: {query: string; limit: number; extensions: readonly string[]}, options: {signal?: AbortSignal}) => Promise<{readonly ok: true; readonly value: FindResult} | {readonly ok: false; readonly detail: string}>) | null;
     readonly bound: boolean;
     readonly settings: {location(): ImageLocation; folder(): string};
     /** 本机时间；测试注入。 */
