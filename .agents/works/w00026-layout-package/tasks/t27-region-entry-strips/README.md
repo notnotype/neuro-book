@@ -131,6 +131,15 @@ updated: 2026-11-17
     | 6 | 滑出去的线对读屏仍是可见的分隔线 | 成立，改：`aria-hidden`、`inert`，不列进 `aria-owns` |
     | 7 | 说明与写法：`outgoingLeaves` 的说明没提滑出去的叶；`planSwap` 里就地改对象；窗口应等于静止时的外观 | 成立，改说明、改成重建列表；从键反解叶 id 只此一处，不另加函数 |
 
+- 第 2 片实现审查的修正提交在分支上：`1133eeb8c`。
+- `ui/workbench-layout` 输出 22（按下的块随切换滑动）、42（侧栏切换整张卡片竖着滚）与验收 33（planned，master `b5eb42e4c`）。
+- 第 3 片（侧栏接线与活动栏按下的块）提交在分支上：`f1a51ab32`。`WorkbenchShell` 点入口切换前给交换（侧栏显示着、没有最大化的分节时；方向按入口顺序），`WorkbenchSurface` 补上缝宽、“角接过去”不算交换里的叶；活动栏按下的底色换成条目区里一个块（`data-tool-indicator`），只在按下的入口换了的那一次滑动。
+  - 改了旧用例：`workbench-containers` :191 的“切回容器”原来断言两节从零高长出来，现在断言整张卡片滚进来（上边在走、高度不变）；:1073 切到样例甲后马上拿它的标签，现在要等滚完再拿（滚动中量到的位置在按下时已经变了，不是产品问题）；`workbench-views` :934 按下的底色改读那个块。
+- 把 master 并进分支：`7e661be1a`（master 上 w00032 t36 改了 `WorkbenchShell`、`WorkbenchSurface`、面板头；冲突只在 `WorkbenchSurface` 的一行导入，两边都留）。
+- 收口验证（合并之后）：`bun run test:affected --since master` 除 neuro-book 的 `src/sdk/sdk.test.ts` 两条外都过；那两条在 master 上同样失败（nb-ui 新加的 `DateInput`、`TagInput` 没列进 SDK，来自 w00025 t10 第 1 片 `d5eb7b6a3`），不是本 Task 引入的；neuro-book、nb-layout 类型检查；`docs:check`、`governance:check`；e2e `workbench-containers`、`workbench-views`、`workbench-live-drag`、`lab-workbench-surface` 90 条过。合并之前另跑过 `lab-grid-swap`、`lab-grid-structure`、`lab-grid-panels`、`lab-nested-grid`（第 2 片的修正之后，116 条里含这四个）。
+- 帧时间（计划里的风险，无头浏览器、开发模式，负载 4 到 8，只作量级参考）：静止 17ms 一帧；Lab 结构场景里已有的普通过渡平均 39 到 42ms；交换平均 46 到 51ms、p95 67 到 100ms。交换比普通过渡慢一到两成，同一量级；真机没量。
+- 实现审查待处理：对本 Task 的提交范围（`c56ab99a7..7e661be1a`，第 2 片已审过一轮，这次看第 1、3 片、第 2 片的修正与合并）在后台派 Claude Sonnet，不等它。
+
 ## 下一步
 
-第 3 片：侧栏切换容器时发 `swap`、`capLeaves` 排除交换里的叶、活动栏选中标记的块（先写 `ui/workbench-layout` 输出 22、42）；第 2 片的实现审查回来后处理，修正单独提交。
+合入 master；实现审查回来后处理，修正单独提交。接着做 [t28](../t28-panel-entry-strips/README.md)。
