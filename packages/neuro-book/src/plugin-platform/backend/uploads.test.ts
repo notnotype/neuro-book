@@ -133,6 +133,9 @@ describe("接收与使用", () => {
         expect(error).toBeInstanceOf(UploadServerError);
         expect((error as UploadServerError).code).toBe("upload-failed");
         expect(records).toContain("plugins.upload.root-failed");
+        // 说明不带暂存目录的绝对路径，完整的系统错误在诊断里。
+        expect((error as UploadServerError).message).not.toContain(root);
+        expect(records).toContain("plugins.upload.write-failed");
     });
 });
 

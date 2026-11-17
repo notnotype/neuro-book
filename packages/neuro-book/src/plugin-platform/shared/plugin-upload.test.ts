@@ -120,6 +120,16 @@ describe("上传的路径规则", () => {
         expect(() => turkish.add("σας.txt")).toThrow(UploadError);
         expect(() => turkish.add("σασ.txt")).toThrow(UploadError);
     });
+
+    it("撞名失败不留下半条路径；很深的合法路径照常登记", () => {
+        const set = new UploadPathSet();
+        set.add("a/b.js");
+        expect(() => set.add("a/b.js/c/d.js")).toThrow(UploadError);
+        // 上一次失败没有把 `a/b.js/c` 留成目录：同名的文件可以登记。
+        expect(set.add("a/b.js2")).toBe("a/b.js2");
+        const deep = Array.from({length: 170}, (_, index) => `d${String(index)}`).join("/");
+        for (let file = 0; file < 200; file += 1) set.add(`${deep}/f${String(file)}.js`);
+    });
 });
 
 describe("分帧的读取", () => {

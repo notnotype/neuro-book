@@ -192,7 +192,9 @@ export function createPluginUploads(options: PluginUploadsOptions): PluginUpload
                     await remove(id);
                     if (stopped) throw new UploadServerError("upload-failed", "服务端正在停止", {cause: error});
                     if (error instanceof UploadError || error instanceof UploadServerError) throw error;
-                    throw new UploadServerError("upload-failed", `写上传暂存目录失败：${error instanceof Error ? error.message : String(error)}`, {cause: error});
+                    // 系统错误的文字带暂存目录的绝对路径：只进诊断，给页面的说明不带路径。
+                    options.record({level: "warn", event: "plugins.upload.write-failed", message: "写上传暂存目录失败", data: {id}, error});
+                    throw new UploadServerError("upload-failed", "服务端写上传暂存目录失败", {cause: error});
                 }
             })();
             const tracked = {abort, done: task.catch(() => undefined)};

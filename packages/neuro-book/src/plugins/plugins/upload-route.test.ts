@@ -99,6 +99,30 @@ describe("上传路由", () => {
         }
     });
 
+    it("客户端上传到一半断开：服务端收尾，暂存区不留目录", async () => {
+        const {url, root, uploads} = start();
+        const controller = new AbortController();
+        // 一个文件写了一部分、下一帧只有半个头，然后停住等待。
+        const first = frames({"a.txt": "12345"});
+        const stalled = new ReadableStream<Uint8Array>({
+            start(stream) {
+                stream.enqueue(first);
+                stream.enqueue(new Uint8Array([0, 0]));
+            },
+        });
+        const sending = fetch(`${url}/uploads`, {method: "POST", body: stalled, duplex: "half", signal: controller.signal} as RequestInit).catch((error: unknown) => error);
+        // 等第一个文件落盘（上传在接收中，登记了一个目录）。
+        for (let tries = 0; tries < 200 && (await readdir(root).catch(() => [])).length === 0; tries += 1) await Bun.sleep(25);
+        expect((await readdir(root)).length).toBe(1);
+        controller.abort();
+        await sending;
+        for (let tries = 0; tries < 200 && (await readdir(root)).length > 0; tries += 1) await Bun.sleep(25);
+        expect(await readdir(root)).toEqual([]);
+        // 断开后新的上传照常收。
+        expect((await post(url, chunked(frames({"b.txt": "1"})))).status).toBe(200);
+        await uploads.stop();
+    });
+
     it("请求声明了 Content-Length 且超限：当场 413，不读请求体", async () => {
         const limits = {maxFiles: 5, maxTotalBytes: 100, maxFileBytes: 60};
         const {url, root} = start(limits);

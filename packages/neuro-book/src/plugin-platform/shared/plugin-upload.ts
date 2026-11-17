@@ -80,25 +80,46 @@ function collisionKey(path: string): string {
     return normalizeUploadPath(path).toUpperCase().toLowerCase();
 }
 
+/** 路径树的一个节点：`file` 为真表示有一条路径恰好在这里结束（文件）；有子节点表示它是目录。 */
+interface PathNode {
+    file: boolean;
+    readonly children: Map<string, PathNode>;
+}
+
 /**
  * 一次上传里已收到的路径：检查新路径与已有的会不会撞名（只差大小写或归一化形式），或一个是另一个的上层目录（文件与目录同名）。
  * 页面收集时与服务端接收时各用一份。
+ *
+ * 按段建树，每段只存一次：存每条路径的全部上层前缀，内存会随“文件数乘深度的平方”增长（整条至多 1024 字节、至多 10000 个
+ * 文件，合法的深路径就能把接收端撑到数百 MiB）；树的大小只随各段的字节数增长。
  */
 export class UploadPathSet {
-    readonly #files = new Set<string>();
-    readonly #directories = new Set<string>();
+    readonly #root: PathNode = {file: false, children: new Map()};
 
     /** 不合规时抛 `UploadError("upload-path-invalid")`；合规就登记并交回写盘用的 NFC 路径。 */
     add(path: string): string {
         const problem = uploadPathProblem(path);
         if (problem !== null) throw new UploadError("upload-path-invalid", problem);
-        const key = collisionKey(path);
-        const segments = key.split("/");
-        const ancestors = segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join("/"));
-        if (this.#files.has(key) || this.#directories.has(key)) throw new UploadError("upload-path-invalid", `路径重复或与别的路径撞名：${path}`);
-        for (const ancestor of ancestors) if (this.#files.has(ancestor)) throw new UploadError("upload-path-invalid", `${path} 的上层目录与一个文件同名`);
-        this.#files.add(key);
-        for (const ancestor of ancestors) this.#directories.add(ancestor);
+        const segments = collisionKey(path).split("/");
+        // 先查后建：撞名时不留下半条路径。顺着已有的节点走，走到没有节点的地方，后面的一定是新的，不会再撞。
+        let node = this.#root;
+        for (const [index, segment] of segments.entries()) {
+            const next = node.children.get(segment);
+            if (next === undefined) break;
+            if (index === segments.length - 1) throw new UploadError("upload-path-invalid", `路径重复或与别的路径撞名：${path}`);
+            if (next.file) throw new UploadError("upload-path-invalid", `${path} 的上层目录与一个文件同名`);
+            node = next;
+        }
+        node = this.#root;
+        for (const segment of segments) {
+            let next = node.children.get(segment);
+            if (next === undefined) {
+                next = {file: false, children: new Map()};
+                node.children.set(segment, next);
+            }
+            node = next;
+        }
+        node.file = true;
         return normalizeUploadPath(path);
     }
 }

@@ -94,7 +94,7 @@ async function world() {
     apps.push(window);
     expect(await window.startup).toMatchObject({status: "available"});
     const registry = (captured as unknown as ActivationContext).remote.use(pluginsRegistryContract);
-    return {base, registry, uploads};
+    return {base, registry, uploads, window};
 }
 
 /** 一个上传的文件夹：分帧的请求体交给上传暂存区，交回它的 id。 */
@@ -140,6 +140,26 @@ describe("nbook.plugins/registry", () => {
         // 路径与上传二者给一个：两个都给、都不给都是 path-rejected，不碰文件系统。
         expect(await registry.inspect({path: base, upload: id})).toMatchObject({ok: false, code: "path-rejected", detail: {detail: expect.stringContaining("其中一个")}});
         expect(await registry.install({})).toMatchObject({ok: false, code: "path-rejected"});
+    });
+
+    it("发出安装之后立刻关掉窗口：服务端的安装照常做完，暂存的上传被删掉", async () => {
+        const {base, registry, uploads, window} = await world();
+        const id = await uploaded(uploads, {"package.json": JSON.stringify({publisher: "example", name: "closing", version: "1.0.0", engines: {neurobook: ">=0.1.0"}})});
+        const uploadsRoot = join(base, "state", "plugin-uploads");
+        // 服务端开始用这个上传（安装已经到了服务端）才关窗：关得更早，请求根本没发出去，测不到“发出之后”。
+        const started = Promise.withResolvers<void>();
+        const realUse = uploads.use.bind(uploads);
+        uploads.use = ((id: string, fn: (directory: string) => Promise<unknown>) => {
+            started.resolve();
+            return realUse(id, fn);
+        }) as PluginUploads["use"];
+        void registry.install({upload: id}).catch(() => undefined);
+        await started.promise;
+        expect(await window.stop()).toMatchObject({status: "closed"});
+        for (let tries = 0; tries < 200 && (await readdir(uploadsRoot)).length > 0; tries += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(await readdir(uploadsRoot)).toEqual([]);
+        // 安装确实做完了：安装目录里有它。
+        expect(await readdir(join(base, "state", "plugins"))).toContain("example.closing");
     });
 
     it("上传的文件夹里的插件不合格：清单无效照常给 manifest-invalid 与逐条问题，安装失败后上传照样被删", async () => {
