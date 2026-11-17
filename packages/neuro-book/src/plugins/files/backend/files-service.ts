@@ -186,7 +186,11 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
                     }
                     if (entry.kind !== "file") continue;
                     // 先过滤再排序与截断：按类型找不会被别的文件挤出 `limit`。
-                    if (wanted !== null && !wanted.has(entry.name.slice(entry.name.lastIndexOf(".") + 1).toLowerCase())) continue;
+                    // 没有点的名字没有扩展名（名叫 `png` 的文件不是图片）。
+                    if (wanted !== null) {
+                        const dot = entry.name.lastIndexOf(".");
+                        if (dot < 0 || !wanted.has(entry.name.slice(dot + 1).toLowerCase())) continue;
+                    }
                     const rank = findRank(entry, path, needle);
                     if (rank !== null) hits.push({item: {path, name: entry.name, ...(entry.title === undefined ? {} : {title: entry.title})}, rank});
                 }

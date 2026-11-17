@@ -5,7 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
@@ -19,7 +19,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {Hono} from "hono";
 
 import {definitionAt} from "nbook/manifest";
-import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
+import {GRACE_MS, killSpawnedProjects, leaseOf, projectHarness, revoked} from "nbook/server/testing/projects";
 
 import {filesBackendPlugin} from "./backend/plugin";
 import {CONCURRENT_UPLOADS, Gate} from "./backend/upload-route";
@@ -93,9 +93,9 @@ async function scene() {
     const dispatch = createDispatcher({admission, routes, hostRoutes: new Hono(), staticFiles: null, reportError: () => undefined, allowOrigin: (origin: string) => allowed.has(origin)});
     const book = join(h.root, "Book");
     /** 响应体读完准入才算请求结束，否则停止时的排空一直等：这里先读完。 */
-    const put = async (path: string, body: Uint8Array | string | ReadableStream<Uint8Array>, init: {readonly query?: string; readonly headers?: Record<string, string>; readonly id?: string; readonly generation?: number} = {}): Promise<Response> => {
+    const put = async (path: string, body: Uint8Array | string | ReadableStream<Uint8Array>, init: {readonly query?: string; readonly headers?: Record<string, string>; readonly id?: string; readonly generation?: number; readonly noOrigin?: boolean} = {}): Promise<Response> => {
         const url = `http://127.0.0.1:4217/api/nbook.files/raw/project/${init.id ?? h.project.id}/${String(init.generation ?? lease.generation)}/${encodePath(path)}${init.query ?? ""}`;
-        const response = await dispatch(new Request(url, {method: "PUT", body, headers: {origin: ORIGIN, ...init.headers}, ...(body instanceof ReadableStream ? {duplex: "half"} : {})} as RequestInit));
+        const response = await dispatch(new Request(url, {method: "PUT", body, headers: init.noOrigin === true ? init.headers : {origin: ORIGIN, ...init.headers}, ...(body instanceof ReadableStream ? {duplex: "half"} : {})} as RequestInit));
         return new Response(await response.arrayBuffer(), {status: response.status, headers: response.headers});
     };
     const staged = async (): Promise<string[]> => readdir(join(book, ".nbook", "staging")).catch(() => []);
@@ -229,7 +229,7 @@ describe("写入图片（Spec 验收场景 12）", () => {
         const hidden = await put(".nbook/a.png", PNG);
         expect([hidden.status, await code(hidden)]).toEqual([404, "protected-path"]);
         const upper = await put(".NBOOK/a.png", PNG);
-        expect(upper.status).toBe(404);
+        expect([upper.status, await code(upper)]).toEqual([404, "protected-path"]);
         await writeFile(join(book, "插图"), "我是文件");
         const blocked = await put("插图/a.png", PNG);
         expect([blocked.status, await code(blocked)]).toEqual([409, "not-a-directory"]);
@@ -239,7 +239,8 @@ describe("写入图片（Spec 验收场景 12）", () => {
         expect([nobody.status, await code(nobody)]).toEqual([410, "generation-gone"]);
         await mkdir(join(h.root, "outside"), {recursive: true});
         await symlink(join(h.root, "outside"), join(book, "外链"));
-        expect((await put("外链/a.png", PNG)).status).toBe(404);
+        const escaped = await put("外链/a.png", PNG);
+        expect([escaped.status, await code(escaped)]).toEqual([404, "outside-root"]);
         expect(await readdir(join(h.root, "outside"))).toEqual([]);
         // 空段：`..` 在 URL 里会被请求自己折叠掉，路由看不到，由文件服务的地址规则拒绝的是空段。
         expect((await put("图//a.png", PNG)).status).toBe(400);
@@ -255,9 +256,79 @@ describe("写入图片（Spec 验收场景 12）", () => {
         expect((await put("插图/t.png", PNG)).status).toBe(201);
         const foreign = await put("插图/u.png", PNG, {headers: {origin: "http://evil.example"}});
         expect(foreign.status).toBe(403);
-        const missingOrigin = await put("插图/v.png", PNG, {headers: {origin: ""}});
-        expect([201, 403]).toContain(missingOrigin.status);
-        expect((await readdir(join(book, "插图"))).sort()).toEqual(["s.png", "t.png", ...(missingOrigin.status === 201 ? ["v.png"] : [])]);
+        // 空的 Origin 头不是“没带”：分发层一律拒绝；真正没带（本机进程）才放行。
+        expect((await put("插图/v.png", PNG, {headers: {origin: ""}})).status).toBe(403);
+        expect((await put("插图/w.png", PNG, {noOrigin: true})).status).toBe(201);
+        expect((await readdir(join(book, "插图"))).sort()).toEqual(["s.png", "t.png", "w.png"]);
+    });
+
+    it("名字：超过 255 字节两种模式都是 400 invalid-address；rename 加了序号才超长另有说明；扩展名查表不读原型链上的东西", async () => {
+        const {book, put} = await scene();
+        const long = `${"长".repeat(90)}.png`;
+        for (const query of ["", "?exists=rename"]) {
+            const response = await put(`图/${long}`, PNG, {query});
+            expect([query, response.status, await code(response)]).toEqual([query, 400, "invalid-address"]);
+        }
+        // 原名刚好 255 字节：能写；已有同名时加了序号就超了，说明里写“加了序号”。
+        const exact = `${"长".repeat(83)}ab.png`;
+        expect(new TextEncoder().encode(exact).byteLength).toBe(255);
+        expect((await put(`图/${exact}`, PNG)).status).toBe(201);
+        const grown = await put(`图/${exact}`, PNG_2, {query: "?exists=rename"});
+        expect([grown.status, await code(grown)]).toEqual([400, "invalid-address"]);
+        for (const name of ["a.constructor", "a.__proto__"]) {
+            const response = await put(`图/${name}`, PNG);
+            expect([name, response.status, await code(response)]).toEqual([name, 415, "unsupported-type"]);
+        }
+        expect(await readdir(join(book, "图"))).toEqual([exact]);
+    });
+
+    it("作品根：rename 在根下也挑得出名字，同名的悬空链接算被占用", async () => {
+        const {book, put} = await scene();
+        await writeFile(join(book, "a.png"), PNG);
+        await symlink("missing.png", join(book, "dangling.png"));
+        const first = await put("a.png", PNG_2, {query: "?exists=rename"});
+        expect([first.status, await first.json()]).toEqual([201, {address: "project://a 2.png", renamed: true}]);
+        const dangling = await put("dangling.png", PNG_2, {query: "?exists=rename"});
+        expect([dangling.status, await dangling.json()]).toEqual([201, {address: "project://dangling 2.png", renamed: true}]);
+        expect(await readdir(book)).not.toContain("missing.png");
+    });
+
+    it("rename 只把完全同名的当作被占用；大小写不敏感的文件系统上 `A.png` 与 `a.png` 是同一个，靠写入时的冲突重试换名", async () => {
+        const {book, put} = await scene();
+        await mkdir(join(book, "图"), {recursive: true});
+        await writeFile(join(book, "图", "A.png"), PNG);
+        const insensitive = await stat(join(book, "图", "a.png")).then(() => true, () => false);
+        const response = await put("图/a.png", PNG_2, {query: "?exists=rename"});
+        expect([response.status, await response.json()]).toEqual([201, {address: insensitive ? "project://图/a 2.png" : "project://图/a.png", renamed: insensitive}]);
+    });
+
+    it("路径中间是指向不存在目标的链接：404 not-found，不当成“目标被占用”；rename 同样", async () => {
+        const {book, put} = await scene();
+        await symlink("missing-dir", join(book, "悬空目录"));
+        for (const query of ["", "?exists=rename"]) {
+            const response = await put("悬空目录/a.png", PNG, {query});
+            expect([query, response.status, await code(response)]).toEqual([query, 404, "not-found"]);
+        }
+    });
+
+    it.skipIf(process.getuid?.() === 0)("父目录只读又要现建子目录：403 permission-denied（root 不受权限位约束，不在此测）", async () => {
+        const {book, put} = await scene();
+        await mkdir(join(book, "只读"), {recursive: true});
+        await chmod(join(book, "只读"), 0o555);
+        try {
+            const response = await put("只读/新/a.png", PNG);
+            expect([response.status, await code(response)]).toEqual([403, "permission-denied"]);
+        } finally {
+            await chmod(join(book, "只读"), 0o755);
+        }
+    });
+
+    it("作品开始停止接纳之后：取不到租约，503 project-unavailable，不写", async () => {
+        const {h, book, put} = await scene();
+        h.manager.stopAdmission();
+        const response = await put("插图/a.png", PNG);
+        expect([response.status, await code(response)]).toEqual([503, "project-unavailable"]);
+        expect(await readdir(book).then((names) => names.includes("插图"))).toBe(false);
     });
 });
 
@@ -265,14 +336,86 @@ describe("真实的 HTTP 连接（Bun.serve）", () => {
     /** 把分发器挂到真实的端口上：分块传输、连接中断都经真实的套接字。 */
     async function listening() {
         const s = await scene();
-        const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: (request) => s.dispatch(request)});
+        /**
+         * 路由开始读请求体的时刻：包一层只在被读时才拉取的流（`highWaterMark: 0`）。路由先取租约、再读请求体，
+         * 所以“已经在读”说明租约已经取到。
+         */
+        let reading = false;
+        const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: (request) => {
+            const source = request.body?.getReader();
+            if (source === undefined) return s.dispatch(request);
+            const watched = new ReadableStream<Uint8Array>({
+                async pull(controller) {
+                    reading = true;
+                    const next = await source.read();
+                    if (next.done) controller.close();
+                    else controller.enqueue(next.value);
+                },
+                cancel: (reason) => source.cancel(reason),
+            }, {highWaterMark: 0});
+            return s.dispatch(new Request(request.url, {method: request.method, headers: request.headers, body: watched, duplex: "half"} as RequestInit));
+        }});
         s.allowed.add(`http://127.0.0.1:${String(server.port)}`);
         const base = `http://127.0.0.1:${String(server.port)}/api/nbook.files/raw/project/${s.h.project.id}/${String(s.lease.generation)}`;
         harnesses.push({stop: async () => {
             await server.stop(true);
         }});
-        return {...s, base};
+        return {...s, base, isReading: () => reading};
     }
+
+    /** 先发出文件头、后面的字节等 `release` 才发：上传停在“正在读请求体”。 */
+    function held() {
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        let step = 0;
+        const body = new ReadableStream<Uint8Array>({
+            async pull(controller) {
+                if (step === 0) {
+                    step = 1;
+                    controller.enqueue(PNG);
+                    return;
+                }
+                await gate;
+                controller.enqueue(bytes(1, 2, 3));
+                controller.close();
+            },
+        });
+        return {body, release};
+    }
+
+    it("上传途中宽限期满：路由持有租约，项目不停、写在同一代，不会为这次上传启动新的一代", async () => {
+        const {h, book, base, lease, isReading} = await listening();
+        const {body, release} = held();
+        const pending = fetch(`${base}/${encodePath("插图/late.png")}`, {method: "PUT", body, duplex: "half"} as RequestInit);
+        await waitUntil("路由开始读请求体", isReading);
+        // 路由在读请求体时手里有一份租约：放掉测试自己的那份、宽限期走完，项目仍在这一代。
+        lease.release();
+        h.clock.advance(GRACE_MS);
+        expect(h.manager.running(h.project.id)).toEqual({generation: lease.generation, state: "running"});
+        release();
+        const response = await pending;
+        expect([response.status, await response.json()]).toEqual([201, {address: "project://插图/late.png", renamed: false}]);
+        expect((await read(book, "插图/late.png")).byteLength).toBe(PNG.byteLength + 3);
+        expect(h.manager.running(h.project.id)?.generation).toBe(lease.generation);
+    });
+
+    it("上传途中这一代被收回（项目子进程崩溃）：410 generation-gone，不启动新的一代，没有文件", async () => {
+        const {h, book, base, lease, isReading, staged} = await listening();
+        const {body, release} = held();
+        const pending = fetch(`${base}/${encodePath("插图/late.png")}`, {method: "PUT", body, duplex: "half"} as RequestInit);
+        await waitUntil("路由开始读请求体", isReading);
+        const listed = await h.manager.list();
+        const pid = listed.ok ? listed.value.find((item) => item.id === h.project.id)?.pid ?? null : null;
+        if (pid === null) throw new Error("项目没有在运行");
+        process.kill(pid, "SIGKILL");
+        await revoked(lease);
+        release();
+        const response = await pending;
+        expect([response.status, ((await response.json()) as {error: {code: string}}).error.code]).toEqual([410, "generation-gone"]);
+        expect(h.manager.running(h.project.id)).toBeNull();
+        expect(await readdir(book).then((names) => names.includes("插图"))).toBe(false);
+        expect(await staged()).toEqual([]);
+    });
 
     it("分块传输的 33 MiB：413，磁盘上没有文件；之后同一个连接池里的正常上传不受影响", async () => {
         const {book, base} = await listening();
@@ -371,12 +514,27 @@ describe("浏览器客户端的 upload（经真实的 HTTP 连到真实的路由
         expect(await dead.upload("project://插图/a.png", PNG)).toMatchObject({ok: false, code: "network"});
     });
 
-    it("响应体不认得时按状态码兜底（413 是 too-large），不是 JSON 也不抛出", async () => {
+    it("响应体不认得时按状态码兜底（不靠码表的书写顺序），不是 JSON 也不抛出", async () => {
         const odd = (status: number): Fetcher => () => Promise.resolve(new Response("<html>bad gateway</html>", {status}));
-        for (const [status, expected] of [[413, "too-large"], [502, "unknown-outcome"], [418, "io-failed"]] as const) {
+        const expected = [[400, "invalid-address"], [403, "cross-site"], [404, "not-found"], [409, "conflict"], [410, "generation-gone"], [413, "too-large"], [415, "unsupported-type"], [418, "io-failed"], [500, "io-failed"], [502, "unknown-outcome"], [503, "project-unavailable"]] as const;
+        for (const [status, code] of expected) {
             const service = createFilesClient({} as never, {} as never, {} as never, {id: "x", generation: 1}, odd(status)).service;
-            expect(await service.upload("project://插图/a.png", PNG)).toMatchObject({ok: false, code: expected});
+            expect([status, await service.upload("project://插图/a.png", PNG)]).toEqual([status, expect.objectContaining({ok: false, code})]);
         }
+    });
+
+    it("2xx 而响应体读不到或不认得：图已经写下，不报成别的写入失败（读体时被取消是 cancelled、断开是 network，体不认得是 unknown-outcome）", async () => {
+        const broken = (): Fetcher => () => Promise.resolve(new Response(new ReadableStream<Uint8Array>({start: (controller) => controller.error(new TypeError("连接断了"))}), {status: 201}));
+        const service = (fetcher: Fetcher) => createFilesClient({} as never, {} as never, {} as never, {id: "x", generation: 1}, fetcher).service;
+        expect(await service(broken()).upload("project://插图/a.png", PNG)).toMatchObject({ok: false, code: "network"});
+        const abort = new AbortController();
+        const cancelled: Fetcher = () => {
+            abort.abort();
+            return broken()("", {});
+        };
+        expect(await service(cancelled).upload("project://插图/a.png", PNG, {signal: abort.signal})).toMatchObject({ok: false, code: "cancelled"});
+        const strange: Fetcher = () => Promise.resolve(new Response('{"ok":true}', {status: 201}));
+        expect(await service(strange).upload("project://插图/a.png", PNG)).toMatchObject({ok: false, code: "unknown-outcome"});
     });
 });
 

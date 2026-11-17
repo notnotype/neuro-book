@@ -6,8 +6,9 @@
  * 建暂存、交项目实例在提交链里提交（排他创建、记账、变更事件）；服务端的 `ownFiles` 不认 `project://`（保留名，只有项目实例里才
  * 有），所以不能直接写 `project://`。路径包含、符号链接与控制目录的规则由那条链执行，这里不再写一份。
  *
- * 代次只在请求到达时按登记核对一次（不为写入打开项目根，也不为一次上传启动项目）：核对之后、取租约之前项目换代的窄竞争里，
- * 写入落在新一代的同一个目录，Spec 写成已知限制。
+ * 代次：请求到达时先按登记核对（陈旧的代次不为它启动项目），通过后立刻取一份租约并持有到写完。租约带代次，取到的不是 URL 里的
+ * 那一代（核对与取租约之间项目换了代）为 410；持有期间这一代不会因宽限期满而停止，写入链里的取租约必然拿到同一代，所以排队与
+ * 读请求体的时间里项目停了也不会被这次上传重新启动。租约被收回（项目崩溃、被强制结束）时读完请求体后不写、回 410。
  *
  * 字节整份读进内存（上限内有界），同一时刻至多处理 `CONCURRENT_UPLOADS` 个上传，其余排队：每个上传在路由里峰值约两份字节。
  */
@@ -33,7 +34,7 @@ const NAME_MAX_BYTES = 255;
 
 export interface UploadRouteSources {
     /** 项目登记；实例里没有它（只装了文件服务的测试场地）时为 null，一律 503。 */
-    readonly projects: Pick<ProjectsService, "list"> | null;
+    readonly projects: Pick<ProjectsService, "list" | "acquire"> | null;
     /** 服务端的文件服务：写入与列目录（挑 `exists=rename` 的名字）。 */
     readonly files: Pick<WorkspaceFiles, "write" | "list">;
 }
@@ -41,19 +42,20 @@ export interface UploadRouteSources {
 const failure = (code: UploadServerFailure, message: string): Response => Response.json({error: {code, message}}, {status: UPLOAD_FAILURE_STATUS[code]});
 
 /**
- * 写入链交回的失败换成路由的码。目标处已有东西（普通文件之外的目录、链接，包括指向不存在目标的链接）写入链回 `not-a-file`、
- * `not-found`，对上传都是“目标被占用”；不认识的码一律 `io-failed`，原码写进说明。
+ * 写入链交回的失败换成路由的码。路由层（远程调用）的码不在上传码表里：项目实例没起来或没提供（`target-gone`、`unavailable`、
+ * `not-provided`）是确定没写的 `project-unavailable`，写请求超时不知道结果；别的不认识的码是 `io-failed`，原码写进说明。
  */
-function failureOf(result: Extract<ServerFilesResult<unknown>, {ok: false}>): {readonly code: UploadServerFailure; readonly occupied: boolean} {
+function failureOf(result: Extract<ServerFilesResult<unknown>, {ok: false}>): {readonly code: UploadServerFailure; readonly message: string} {
+    if (isUploadServerFailure(result.code)) return {code: result.code, message: result.detail};
     switch (result.code) {
-        case "conflict":
-        case "not-a-file":
-            return {code: "conflict", occupied: true};
-        case "not-found":
-            // 指向不存在目标的链接：换个名字多半也不行（父目录里的链接同理），不当成“被占用”去试下一个。
-            return {code: "conflict", occupied: false};
+        case "target-gone":
+        case "unavailable":
+        case "not-provided":
+            return {code: "project-unavailable", message: `${result.detail}（${result.code}）`};
+        case "timeout":
+            return {code: "unknown-outcome", message: `${result.detail}（${result.code}）`};
         default:
-            return {code: isUploadServerFailure(result.code) ? result.code : "io-failed", occupied: false};
+            return {code: "io-failed", message: `${result.detail}（${result.code}）`};
     }
 }
 
@@ -131,14 +133,14 @@ export function addUploadRoutes(app: Hono<{Bindings: HttpRouteEnv}>, sources: Up
         if (!Number.isSafeInteger(generation) || generation < 1 || path === null || path === "") return failure("invalid-address", "地址不合法");
         if (sources.projects === null) return failure("project-unavailable", "这个实例没有项目登记。");
 
-        // 代次：只服务正在运行的那一代；宽限期里的项目仍是同一代。
+        // 代次：只服务正在运行的那一代（宽限期里的项目仍是同一代）；陈旧的代次在这里就挡住，不为它取租约。
         const listed = await sources.projects.list();
         if (!listed.ok) return failure("project-unavailable", `项目登记表不可用：${listed.detail}`);
         const project = listed.value.find((item) => item.id === id);
         const running = project !== undefined && (project.state === "running" || project.state === "idle-grace") ? project.generation : null;
         if (running !== generation) return failure("generation-gone", `作品 ${id} 的第 ${String(generation)} 代不在运行`);
 
-        // 名字：主名不空、扩展名在允许的集合里。
+        // 名字：主名不空、扩展名在允许的集合里、长度合法（原名与加了序号的名字分开报，见下面的 rename 循环）。
         const slash = path.lastIndexOf("/");
         const directory = slash < 0 ? "" : path.slice(0, slash);
         const name = path.slice(slash + 1);
@@ -146,49 +148,84 @@ export function addUploadRoutes(app: Hono<{Bindings: HttpRouteEnv}>, sources: Up
         const stem = dot < 0 ? name : name.slice(0, dot);
         const extension = dot < 0 ? "" : name.slice(dot + 1).toLowerCase();
         if (stem === "") return failure("invalid-address", "名字的主名不能为空");
-        const expected = UPLOAD_EXTENSIONS[extension];
+        // 表是普通对象：`constructor`、`__proto__` 这类名字会读到原型上的东西。
+        const expected = Object.hasOwn(UPLOAD_EXTENSIONS, extension) ? UPLOAD_EXTENSIONS[extension] : undefined;
         if (expected === undefined) return failure("unsupported-type", "只收 PNG、JPEG、GIF 或 WebP 图片，名字的扩展名要是 png、jpg、jpeg、gif 或 webp");
+        if (byteLength(name) > NAME_MAX_BYTES) return failure("invalid-address", `名字太长（至多 ${String(NAME_MAX_BYTES)} 字节）`);
         const exists = new URL(request.url).searchParams.get("exists") === "rename" ? "rename" : "fail";
 
         // 提前判：声明的长度已经超过上限就不读了（分块传输没有这个头，下面还会边收边数）。
         const declared = Number(request.headers.get("content-length"));
         if (Number.isFinite(declared) && declared > UPLOAD_MAX_BYTES) return failure("too-large", `图片至多 ${String(UPLOAD_MAX_BYTES)} 字节`);
 
-        return gate.run(async () => {
-            if (request.signal.aborted) return failure("io-failed", "请求已取消");
-            const bytes = await readBody(request, UPLOAD_MAX_BYTES);
-            if (bytes === "too-large") return failure("too-large", `图片至多 ${String(UPLOAD_MAX_BYTES)} 字节`);
-            const type = sniffImageType(bytes);
-            if (type === null) return failure("unsupported-type", "不是 PNG、JPEG、GIF 或 WebP 图片");
-            if (type !== expected) return failure("extension-mismatch", `文件内容是 ${type}，扩展名对不上`);
+        const acquired = await sources.projects.acquire(id);
+        if (acquired.status === "rejected") {
+            return failure(acquired.reason === "unknown-project" || acquired.reason === "generation-gone" ? "generation-gone" : "project-unavailable", `打不开作品 ${id}：${acquired.reason}（${acquired.detail}）`);
+        }
+        const {lease} = acquired;
+        try {
+            // 核对与取租约之间项目换了代：取到的是新一代，这次上传不写进去。
+            if (lease.generation !== generation) return failure("generation-gone", `作品 ${id} 的第 ${String(generation)} 代不在运行`);
+            return await gate.run(async () => {
+                if (request.signal.aborted) return failure("io-failed", "请求已取消");
+                const bytes = await readBody(request, UPLOAD_MAX_BYTES);
+                if (bytes === "too-large") return failure("too-large", `图片至多 ${String(UPLOAD_MAX_BYTES)} 字节`);
+                const type = sniffImageType(bytes);
+                if (type === null) return failure("unsupported-type", "不是 PNG、JPEG、GIF 或 WebP 图片");
+                if (type !== expected) return failure("extension-mismatch", `文件内容是 ${type}，扩展名对不上`);
+                // 传的过程中这一代被收回（项目崩溃或被强制结束）：写入链会为它启动新的一代，所以这里就停。
+                if (lease.revoked.aborted) return failure("generation-gone", `作品 ${id} 的第 ${String(generation)} 代已经结束`);
 
-            const parent = `projects://${id}/${directory}`;
-            const addressOf = (fileName: string): string => `projects://${id}/${directory === "" ? "" : `${directory}/`}${fileName}`;
-            const options = {expect: "absent", createParents: true, signal: request.signal} as const;
-            const done = (fileName: string, renamed: boolean): Response => Response.json({address: `project://${directory === "" ? "" : `${directory}/`}${fileName}`, renamed}, {status: 201});
+                const prefix = directory === "" ? "" : `${directory}/`;
+                const parent = directory === "" ? `projects://${id}` : `projects://${id}/${directory}`;
+                const addressOf = (fileName: string): string => `projects://${id}/${prefix}${fileName}`;
+                const options = {expect: "absent", createParents: true, signal: request.signal} as const;
+                const done = (fileName: string, renamed: boolean): Response => Response.json({address: `project://${prefix}${fileName}`, renamed}, {status: 201});
+                /** 目标自己在父目录里（含指向不存在目标的链接）：它被占用了。 */
+                const listedInParent = async (fileName: string): Promise<boolean> => {
+                    const listing = await sources.files.list(parent, {signal: request.signal});
+                    return listing.ok && !("kind" in listing.value) && listing.value.entries.some((entry) => entry.name === fileName);
+                };
+                /** 写一次：`occupied` 是目标被占用（换个名字可能成），别的失败是确定的响应。 */
+                const writeOnce = async (fileName: string): Promise<"written" | "occupied" | Response> => {
+                    const written = await sources.files.write(addressOf(fileName), bytes, options);
+                    if (written.ok) return "written";
+                    if (written.code === "conflict" || written.code === "not-a-file") return "occupied";
+                    // `not-found`：目标处是指向不存在目标的链接，或路径中间有这样的链接；只有目标自己在父目录里才算被占用。
+                    if (written.code === "not-found" && await listedInParent(fileName)) return "occupied";
+                    const failed = failureOf(written);
+                    return failure(failed.code, failed.message);
+                };
 
-            if (exists === "fail") {
-                const written = await sources.files.write(addressOf(name), bytes, options);
-                if (written.ok) return done(name, false);
-                return failure(failureOf(written).code, written.detail);
-            }
+                if (exists === "fail") {
+                    const outcome = await writeOnce(name);
+                    if (outcome === "written") return done(name, false);
+                    return outcome === "occupied" ? failure("conflict", `${name} 已经存在`) : outcome;
+                }
 
-            // `rename`：先看父目录里已有哪些名字（不存在算空，不区分大小写：大小写不敏感的文件系统上 `A.png` 与 `a.png` 是同一个），
-            // 挑第一个空着的候选只写一次；写时仍被占用（并发）就接着试下一个，别的失败立即结束。
-            const taken = new Set<string>();
-            const existing = await sources.files.list(parent, {signal: request.signal});
-            if (existing.ok && !("kind" in existing.value)) for (const entry of existing.value.entries) taken.add(entry.name.toLowerCase());
-            for (let n = 1; n <= UPLOAD_RENAME_LIMIT; n += 1) {
-                const fileName = candidate(stem, extension, n);
-                if (taken.has(fileName.toLowerCase())) continue;
-                if (byteLength(fileName) > NAME_MAX_BYTES) return failure("invalid-address", "加了序号的名字太长");
-                const written = await sources.files.write(addressOf(fileName), bytes, options);
-                if (written.ok) return done(fileName, n > 1);
-                const failed = failureOf(written);
-                if (!failed.occupied) return failure(failed.code, written.detail);
-                taken.add(fileName.toLowerCase());
-            }
-            return failure("conflict", `${name} 与它的序号名字 ${String(UPLOAD_RENAME_LIMIT)} 个以内都被占用`);
-        });
+                // `rename`：先看父目录里已有哪些名字（不存在算空），挑第一个空着的候选写一次；写时仍被占用（并发、大小写不敏感的文件
+                // 系统上的同名）就接着试下一个，别的失败立即结束。
+                const taken = new Set<string>();
+                const existing = await sources.files.list(parent, {signal: request.signal});
+                if (existing.ok) {
+                    if (!("kind" in existing.value)) for (const entry of existing.value.entries) taken.add(entry.name);
+                } else if (existing.code !== "not-found") {
+                    const failed = failureOf(existing);
+                    return failure(failed.code, failed.message);
+                }
+                for (let n = 1; n <= UPLOAD_RENAME_LIMIT; n += 1) {
+                    const fileName = candidate(stem, extension, n);
+                    if (taken.has(fileName)) continue;
+                    if (byteLength(fileName) > NAME_MAX_BYTES) return failure("invalid-address", "加了序号的名字太长");
+                    const outcome = await writeOnce(fileName);
+                    if (outcome === "written") return done(fileName, n > 1);
+                    if (outcome !== "occupied") return outcome;
+                    taken.add(fileName);
+                }
+                return failure("conflict", `${name} 与它的序号名字 ${String(UPLOAD_RENAME_LIMIT)} 个以内都被占用`);
+            });
+        } finally {
+            lease.release();
+        }
     });
 }
