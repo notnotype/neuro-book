@@ -32,4 +32,4 @@ Spec 输出 59–61、场景 31 仍是 planned，晋升 `implemented` 等开发�
 
 ## 下一步
 
-Spec 已写（planned）：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 59–61 与场景 31。计划：[plan.md](plan.md)（三片：合同与取得、面板与界面、收口）；审查按“任务简单”降级，只做前端实现审查（Sonnet）。在 worktree `.worktree/w00025-t25-property-contributions` 里实施。
+等开发者批准后，按 Spec 晋升前的逐条核对（每个输出条目与场景对应实现与测试）把输出 59–61、场景 31 晋升为 `implemented`；设定插件（w00039 一系）以后自己贡献声明时，再看真实外观。
