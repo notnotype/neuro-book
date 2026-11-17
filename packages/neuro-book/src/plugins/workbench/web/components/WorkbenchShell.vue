@@ -384,12 +384,14 @@ const sidebarSwap = shallowRef<Omit<GridSwap, "gap"> | null>(null);
  * 没呈现出来的（放不下收走的）由网格忽略。
  */
 function prepareSidebarSwap(next: string): void {
-    const current = toolEntries.value.find((entry) => entry.current)?.id;
+    // 读已提交的文档，不读入口（`toolEntries` 是拖动预览的）：交换比的是网格上一帧与这一次提交，两头都是已提交的。
+    const entries = containerEntries(doc.value, catalog.value, state.value.containers);
+    const current = entries.find((entry) => entry.current)?.id;
     const maximized = state.value.maximized;
     if (current === undefined || current === next || !sidebarShowing.value || (maximized !== null && regionOf(doc.value, maximized) === "sidebar")) return;
     const containers = regionContainers(doc.value, "sidebar");
     const sectionsOf = (id: string): string[] => [...(containers.find((container) => container.id === id)?.sections ?? [])];
-    const order = toolEntries.value.map((entry) => entry.id);
+    const order = entries.map((entry) => entry.id);
     sidebarSwap.value = {
         token: (sidebarSwap.value?.token ?? 0) + 1,
         leaving: sectionsOf(current),
@@ -757,6 +759,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :entries="toolEntries"
                         :placeholder="toolPlaceholder"
                         :highlighted="mergeEntry"
+                        :slide-token="sidebarSwap?.token ?? 0"
                         :items="stripItems"
                         :drag-hint="message('shell.drag.hint')"
                         @select="selectEntry"

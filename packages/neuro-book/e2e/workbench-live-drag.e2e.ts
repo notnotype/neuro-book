@@ -796,7 +796,7 @@ test.describe("实时布局", () => {
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
-    test("活动栏里换序：别的图标滑开（真的播了过渡），被拖的图标自己竖着跟手，没有拖影", async ({page}) => {
+    test("活动栏里换序：别的图标滑开（真的播了过渡），被拖的图标自己竖着跟手，没有拖影；按下的块在它占着的那一格", async ({page}) => {
         await open(page);
         const entries = page.locator("[data-tool-band] [data-tool-entry]");
         expect(await entries.count()).toBeGreaterThan(1);
@@ -810,6 +810,8 @@ test.describe("实时布局", () => {
             }).observe(document.querySelector("[data-tool-band]") as Element, {subtree: true, attributes: true, attributeFilter: ["class"]});
         });
         const firstId = await entries.first().getAttribute("data-tool-entry");
+        await expect(entries.first()).toHaveAttribute("aria-pressed", "true");
+        const bandTop = (await page.locator("[data-tool-band]").boundingBox())!.y;
         await lift(page, entries.first());
         await expect(page.locator("[data-lifted]")).toHaveCount(0);
         await page.mouse.move(second.x + second.width / 2, second.y + second.height - 2, {steps: 6});
@@ -822,6 +824,8 @@ test.describe("实时布局", () => {
             return box !== null && box.y <= y && y <= box.y + box.height;
         }).toBe(true);
         // 抓住的点在指针下：按在图标中间拿起的，指针不在它的上沿（这个入口的视图也是侧栏里一节的标题，按它的矩形算抓点会夹成 0，图标挂在指针下面）。
+        // 按下的块在被拖的入口占着的那一格（第二格），不跟着按钮外层的 `translate` 量成 0。
+        expect(await page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector("[data-tool-indicator]")!).transform).f)).toBeCloseTo(second.y - bandTop, 0);
         const grabbed = await dragged.boundingBox();
         expect(grabbed).not.toBeNull();
         expect((second.y + second.height - 2 - (grabbed?.y ?? 0)) / (grabbed?.height ?? 1)).toBeGreaterThan(0.25);
