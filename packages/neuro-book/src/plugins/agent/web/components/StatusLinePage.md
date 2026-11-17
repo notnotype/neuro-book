@@ -1,5 +1,5 @@
 ---
-标签: [state:inject, state:local]
+标签: [state:inject, state:local, env:portal, env:global]
 别名: ["状态栏设置", "Status Line Page"]
 ---
 
@@ -11,13 +11,13 @@
 
 自上而下：预览，“左边”一组，“右边”一组。
 
-- **预览**：一条真实的状态栏（nb-agent-ui 的 `AgentStatusBar`）加样本数据，随设置变；显隐、次序与窄时收起都是它自己的算法。插件的项在预览里不跑插件的代码，画一枚写着标题的占位。
+- **预览**：一条真实的状态栏（nb-agent-ui 的 `AgentStatusBar`）加样本数据，随设置变，整块 `inert`（只读，没有右键菜单、tab 停靠点与悬停提示）；显隐、次序与窄时收起都是它自己的算法。插件的项在预览里不跑插件的代码，画一枚写着标题的占位。
 - **每一组**：一个小标题，下面每一项一行：拖动柄、勾选（标题加说明）、插件的项标“插件”、“上移”“下移”两个图标按钮。第一项没有“上移”、最后一项没有“下移”（停用）。
 
 ## 交互
 
 - 勾选发 `toggle`，带项 id；改的是显隐，立即写一次设置。
-- 上移、下移与拖动都发 `move`，带项 id 与目标位置（这一侧里的第几位）。拖动用原生拖放，只在同一侧内排序：别的一侧的行不是落点，落点行的上沿画一条线。每一项的左右由目录定，不能移到另一侧。
+- 拖动发 `move`，带项 id 与目标位置（这一侧里的第几位）；上移、下移发 `shift`，带项 id 与 -1 或 1，位置由写入时按最新的次序算，所以同一项连点几下每次都挪一格。拖动用原生拖放，只在同一侧内排序：别的一侧的行不是落点，落点线向上拖画在目标行上沿、向下拖画在下沿。每一项的左右由目录定，不能移到另一侧。
 - `writable` 为假（层坏了或连不上）时勾选、按钮与拖动都停用。
 
 ## 数据
@@ -33,6 +33,7 @@ type StatusLinePageProps = {
 type StatusLinePageEmits = {
     toggle: [id: string];
     move: [id: string, to: number];
+    shift: [id: string, delta: number];
 };
 ```
 
@@ -50,3 +51,4 @@ type StatusLinePageEmits = {
 
 - `state:inject`：翻译端口。
 - `state:local`：拖动时的“正在拖哪一项、落在第几行”，只是界面状态，松手即清。
+- `env:portal`、`env:global`：来自内嵌的预览（`AgentStatusBar`）：它的右键菜单挂在 `body` 里，`ResizeObserver` 与文档监听也照挂；预览整块 `inert`，用户碰不到这些。

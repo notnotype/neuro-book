@@ -424,7 +424,7 @@ test("状态栏可自定义（conversation.md 输出 45、46）：右键勾选�
     await expect.poll(rightOrder).toEqual(["model", "usage"]);
 });
 
-test("模型选择器：面板与输入框同宽；选没绑定的角色出提示卡，“去绑定”打开角色页、焦点在这个角色上；绑定之后不刷新页面就恢复；状态栏窄时留缓存与费用", async ({page}, testInfo) => {
+test("模型选择器：面板与输入框同宽；选没绑定的角色出提示卡，“去绑定”打开角色页、焦点在这个角色上；绑定之后不刷新页面就恢复；状态栏窄时用量照样可见", async ({page}, testInfo) => {
     await openConversation(page);
     await send(page, "先说一句");
     await expect(page.locator("[data-agent-status]")).toBeVisible();

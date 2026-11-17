@@ -37,6 +37,7 @@ export function statusLinePage(component: Component, deps: {
                 writable: props.context.writable.value,
                 onToggle: (id: string) => void deps.writer.toggle(id).then(reportIfFailed),
                 onMove: (id: string, to: number) => void deps.writer.move(id, to).then(reportIfFailed),
+                onShift: (id: string, delta: number) => void deps.writer.shift(id, delta).then(reportIfFailed),
             });
         },
     });

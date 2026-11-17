@@ -56,6 +56,15 @@ describe("状态栏设置的写入（输出 45）", () => {
         expect(current(settings)).toEqual({visible: {"x.words": true}});
     });
 
+    it("上移下移按写的那一刻的位置算：同一项连点两下挪两格，不是一格", async () => {
+        const settings = settingsWith();
+        const writer = createStatusLineWriter(settings, () => catalog);
+        await Promise.all([writer.shift("usage", 1), writer.shift("usage", 1)]);
+        expect(current(settings)).toEqual({order: ["cost", "model", "usage"]});
+        await writer.shift("usage", -5);
+        expect(current(settings)).toEqual({});
+    });
+
     it("目录是写的那一刻取的：插件的项停用后设置里它的显隐照样留着", async () => {
         const settings = settingsWith({[agentSettings.settings.statusLine.key]: {visible: {"x.words": true}}});
         const writer = createStatusLineWriter(settings, () => statusLineCatalog());
@@ -130,6 +139,19 @@ describe("“状态栏”设置页（输出 46）", () => {
         expect(current(settings)).toEqual({});
         drag("model", "usage");
         await waitUntil("拖动写进设置", () => current(settings).order?.join() === "model,usage,cost");
+        await flushPromises();
+
+        // 落点线：向下拖画在目标行下沿（落下后排在它的位置，也就是它的后面），向上拖画在上沿。
+        row("model").dispatchEvent(new DragEvent("dragstart", {bubbles: true}));
+        row("cost").dispatchEvent(new DragEvent("dragover", {bubbles: true, cancelable: true}));
+        await flushPromises();
+        expect(row("cost").classList.contains("is-over-after")).toBe(true);
+        row("model").dispatchEvent(new DragEvent("dragend", {bubbles: true}));
+        row("usage").dispatchEvent(new DragEvent("dragstart", {bubbles: true}));
+        row("model").dispatchEvent(new DragEvent("dragover", {bubbles: true, cancelable: true}));
+        await flushPromises();
+        expect(row("model").classList.contains("is-over")).toBe(true);
+        row("usage").dispatchEvent(new DragEvent("dragend", {bubbles: true}));
     });
 });
 

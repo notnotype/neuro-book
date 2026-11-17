@@ -17,6 +17,7 @@ import type {StatusLineItem, StatusLineSetting} from "../../status-line";
 import type {AgentConversationContext} from "../../types";
 import {useAgentText} from "../host";
 import {isDocked} from "../../wizard";
+import RenderGuard from "../parts/RenderGuard.vue";
 import AgentContextMeter from "./AgentContextMeter.vue";
 
 const props = defineProps<{
@@ -159,7 +160,8 @@ const widths = shallowReactive(new Map<string, number>());
 const slots = new Map<string, HTMLElement>();
 const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
     barWidth.value = barRef.value?.clientWidth ?? 0;
-    for (const [id, element] of slots) if (element.offsetWidth > 0) widths.set(id, element.offsetWidth);
+    // 宽度 0（组件还在加载、加载失败、没有内容）也记：它是量到了，只是不占位。
+    for (const [id, element] of slots) widths.set(id, element.offsetWidth);
 });
 onBeforeUnmount(() => observer?.disconnect());
 
@@ -182,11 +184,11 @@ function bindSlot(id: string, element: unknown): void {
 }
 
 const collapsedIds = computed<ReadonlySet<string>>(() => {
-    const measured = rightItems.value.map((item) => widths.get(item.id) ?? 0);
-    // 还没量到（首次渲染、没有布局的环境）时不收。
-    if (barWidth.value === 0 || measured.some((width) => width === 0)) return new Set();
-    const count = collapsedCount(measured, barWidth.value - PADDING - LEFT_MIN, GAP, MORE_WIDTH);
-    return new Set(rightItems.value.slice(0, count).map((item) => item.id));
+    // 还没量到（首次渲染、没有布局的环境）时不收；量到宽度 0 的项不占位，不参与计数。
+    if (barWidth.value === 0 || rightItems.value.some((item) => !widths.has(item.id))) return new Set();
+    const sized = rightItems.value.filter((item) => widths.get(item.id)! > 0);
+    const count = collapsedCount(sized.map((item) => widths.get(item.id)!), barWidth.value - PADDING - LEFT_MIN, GAP, MORE_WIDTH);
+    return new Set(sized.slice(0, count).map((item) => item.id));
 });
 const collapsedText = computed(() => rightItems.value.filter((item) => collapsedIds.value.has(item.id)).map(textOf).join(" · "));
 
@@ -194,9 +196,16 @@ const collapsedText = computed(() => rightItems.value.filter((item) => collapsed
 
 /** `ContextMenu` 要常挂着、靠 `open` 的变化定位与夹取：打开时才挂上的话它不会量自己，菜单会伸出视口。 */
 const menu = ref({open: false, x: 0, y: 0});
+/** 打开菜单时焦点在哪：菜单把焦点拿走，选了项、Esc、Tab 关闭时还回去（点到菜单外时焦点已跟着用户走了，不抢）。 */
+let opener: HTMLElement | null = null;
+function onMenuClose(reason: "select" | "outside" | "escape" | "tab"): void {
+    if (reason !== "outside" && opener?.isConnected) opener.focus();
+    opener = null;
+}
 function onContextMenu(event: MouseEvent): void {
     if (props.statusLine === undefined) return;
     event.preventDefault();
+    opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     menu.value = {open: true, x: event.clientX, y: event.clientY};
 }
 const menuItems = computed<ContextMenuItem[]>(() => [
@@ -220,7 +229,12 @@ const menuItems = computed<ContextMenuItem[]>(() => [
                     <AgentContextMeter v-if="usage.contextLimit !== null && usage.contextLimit > 0" :used="usage.contextTokens" :limit="usage.contextLimit" :interactive="inspectable" @inspect="emit('inspect')" />
                     <span v-else class="acv-status__context">{{ formatTokens(usage.contextTokens) }}</span>
                 </template>
-                <component :is="hostComponents.get(item.id)" v-else :ctx="props.ctx" :data-status-item="item.id" />
+                <span v-else class="acv-status__host" :data-status-item="item.id">
+                    <RenderGuard :source="`statusItem:${item.id}`">
+                        <component :is="hostComponents.get(item.id)" :ctx="props.ctx" />
+                        <template #fallback />
+                    </RenderGuard>
+                </span>
             </template>
             <span v-if="phase !== null" class="acv-status__phase" :data-tone="phase.tone" data-status-phase>
                 <span v-if="phase.tone === 'wait'" class="acv-status__dot" aria-hidden="true" />
@@ -264,7 +278,10 @@ const menuItems = computed<ContextMenuItem[]>(() => [
                     <span class="i-lucide-circle-dollar-sign" aria-hidden="true" />{{ costText }}
                 </span>
                 <span v-else-if="item.id === 'model'" class="acv-status__metric" data-status-model>{{ modelText }}</span>
-                <component :is="hostComponents.get(item.id)" v-else :ctx="props.ctx" />
+                <RenderGuard v-else :source="`statusItem:${item.id}`">
+                    <component :is="hostComponents.get(item.id)" :ctx="props.ctx" />
+                    <template #fallback />
+                </RenderGuard>
             </span>
         </div>
         <ContextMenu
@@ -273,6 +290,7 @@ const menuItems = computed<ContextMenuItem[]>(() => [
             :x="menu.x"
             :y="menu.y"
             :items="menuItems"
+            @request-close="onMenuClose"
             @update:open="menu = {...menu, open: $event}"
         />
     </div>
@@ -406,8 +424,16 @@ const menuItems = computed<ContextMenuItem[]>(() => [
     align-items: center;
 }
 
+.acv-status__host {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+}
+
+/* 收起的槽仍要能量宽：脱离文档流并贴到状态栏左缘，宽度不超过状态栏，不撑出横向滚动。 */
 .acv-status__slot.is-collapsed {
     position: absolute;
+    inset-inline-start: 0;
     visibility: hidden;
     pointer-events: none;
 }

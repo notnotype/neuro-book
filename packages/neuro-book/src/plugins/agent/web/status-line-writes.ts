@@ -3,7 +3,7 @@
  * （`setting-writes.ts`），连点几下也不会互相盖掉；每次对写的那一刻读到的值求改动，别处抢先写了就按新值再求一次。
  */
 
-import {moveStatusItem, toggleStatusItem} from "@notnotype/nb-agent-ui";
+import {moveStatusItem, resolveStatusLine, toggleStatusItem} from "@notnotype/nb-agent-ui";
 import type {StatusLineItem, StatusLineSetting} from "@notnotype/nb-agent-ui";
 
 import type {SettingsService, SettingWriteResult} from "nbook/shared/settings";
@@ -16,6 +16,8 @@ export interface StatusLineWriter {
     toggle(id: string): Promise<SettingWriteResult>;
     /** 把一项移到它那一侧的第 `to` 位。 */
     move(id: string, to: number): Promise<SettingWriteResult>;
+    /** 把一项在它那一侧里挪 `delta` 位（上移 -1、下移 +1）：位置在写的那一刻按最新的次序算，同一项连点几下每次都挪一格。 */
+    shift(id: string, delta: number): Promise<SettingWriteResult>;
 }
 
 /** `catalog` 在写的那一刻取：插件的项随停用与启用变，不能在这里固定一份。 */
@@ -25,5 +27,11 @@ export function createStatusLineWriter(settings: SettingsService, catalog: () =>
     return {
         toggle: (id) => edit((current, items) => toggleStatusItem(items, current, id)),
         move: (id, to) => edit((current, items) => moveStatusItem(items, current, id, to)),
+        shift: (id, delta) => edit((current, items) => {
+            const {left, right} = resolveStatusLine(items, current);
+            const side = left.some((item) => item.id === id) ? left : right;
+            const at = side.findIndex((item) => item.id === id);
+            return at < 0 ? current : moveStatusItem(items, current, id, at + delta);
+        }),
     };
 }

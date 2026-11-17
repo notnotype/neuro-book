@@ -34,6 +34,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
+import {settingsFailureText} from "nbook/ui/settings/setting-text";
 
 import {Type} from "typebox";
 
@@ -198,7 +199,12 @@ export const agentBrowserPlugin: PluginDefinition = {
             /** 菜单里勾选没写成功：与设置页同样交给通知（页面里走窗口的通知，这里没有窗口，直接发）。 */
             const reportStatusLineFailure = (result: SettingWriteResult): void => {
                 if (result.ok) return;
-                void notifications.notify({tone: "warning", title: agentText("statusLine.notSaved"), message: agentText("conversation.reject.other", {code: result.code})});
+                void notifications.notify({tone: "warning", title: agentText("statusLine.notSaved"), message: settingsFailureText(result.code, result.detail, text)});
+            };
+            const openSettings = (target?: {readonly section: string; readonly layer?: "user" | "project"}): void => {
+                void (target === undefined ? commands.execute(OPEN_SETTINGS_COMMAND) : commands.execute(OPEN_SETTINGS_COMMAND, target)).then((result) => {
+                    if (!result.ok) report("open-settings-failed", `opening settings ${target?.section ?? ""} failed: ${result.code}`);
+                });
             };
             /** 状态栏里插件加的项（conversation.md 输出 45）：目录与登记项；写入走同一个队列，菜单与设置页共用。 */
             const statusItems = createStatusItems((message) => report("status-item-failed", message));
@@ -357,11 +363,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     providers: () => modelsSnapshot.value?.providers.map((provider) => ({id: provider.id, name: provider.name})) ?? null,
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
-                    openSettings: (target) => {
-                        void (target === undefined ? commands.execute(OPEN_SETTINGS_COMMAND) : commands.execute(OPEN_SETTINGS_COMMAND, target)).then((result) => {
-                            if (!result.ok) report("open-settings-failed", `opening settings ${target?.section ?? ""} failed: ${result.code}`);
-                        });
-                    },
+                    openSettings,
                     openRequests: (target) => void commands.execute(OPEN_REQUESTS_COMMAND, target),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
@@ -519,7 +521,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         });
                         return () => {
                             const host = hostAt(position);
-                            return h(ConversationHost, {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry: registry.value, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, head, statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND, {section: STATUS_LINE_SECTION, layer: "user"})}});
+                            return h(ConversationHost, {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry: registry.value, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, head, statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})}});
                         };
                     },
                 });

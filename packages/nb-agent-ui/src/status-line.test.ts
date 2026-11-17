@@ -70,14 +70,15 @@ describe("写回", () => {
 });
 
 describe("窄时收项", () => {
-    it("放得下一项不收；放不下从第一项起收，收了就多一个“…”的位置；最后一项总留着", () => {
+    it("放得下一项不收；放不下从第一项起收，收了就多一个“…”的位置；最后一项也放不下时全收", () => {
         const widths = [80, 40, 50];
         expect(collapsedCount(widths, 200, 8, 16)).toBe(0);
         expect(collapsedCount(widths, 130, 8, 16)).toBe(1);
         expect(collapsedCount(widths, 121, 8, 16)).toBe(2);
         expect(collapsedCount(widths, 80, 8, 16)).toBe(2);
-        expect(collapsedCount(widths, 10, 8, 16)).toBe(2);
-        expect(collapsedCount([30], 5, 8, 16)).toBe(0);
+        expect(collapsedCount(widths, 10, 8, 16)).toBe(3);
+        expect(collapsedCount([30], 40, 8, 16)).toBe(0);
+        expect(collapsedCount([30], 5, 8, 16)).toBe(1);
         expect(collapsedCount([], 5, 8, 16)).toBe(0);
     });
 });

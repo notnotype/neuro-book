@@ -39,7 +39,11 @@ export function createStatusItems(report: (message: string) => void): StatusItem
                     const loaded = await handle.implementation().load();
                     return "default" in (loaded as object) ? (loaded as {default: Component}).default : loaded as Component;
                 },
-                onError: (error) => report(`Status item ${handle.id} failed to load: ${error instanceof Error ? error.message : String(error)}`),
+                // 不重试；`fail()` 把失败交给状态栏里这一项外面的 RenderGuard，这一项不画，别的项照常。
+                onError: (error, _retry, fail) => {
+                    report(`Status item ${handle.id} failed to load: ${error instanceof Error ? error.message : String(error)}`);
+                    fail();
+                },
             }));
             components.set(handle, component);
         }

@@ -24,6 +24,8 @@ const emit = defineEmits<{
     toggle: [id: string];
     /** 把一项移到它那一侧的第 `to` 位（拖动与上移下移共用）。 */
     move: [id: string, to: number];
+    /** 上移、下移：在这一侧里挪几位；位置由写入时按最新的次序算。 */
+    shift: [id: string, delta: number];
 }>();
 
 const t = useAgentPageText();
@@ -82,6 +84,13 @@ function drop(side: "left" | "right", index: number): void {
     if (from === null || from.side !== side) return;
     emit("move", from.id, index);
 }
+/** 落点线：向上拖画在目标行上沿，向下拖画在下沿（落下后拖的这一项排在目标行的位置）。 */
+function isOver(group: {side: "left" | "right"; rows: readonly {id: string}[]}, index: number, edge: "before" | "after"): boolean {
+    const from = dragging.value;
+    if (from === null || from.side !== group.side || overIndex.value !== index || from.id === group.rows[index]?.id) return false;
+    const fromIndex = group.rows.findIndex((row) => row.id === from.id);
+    return (fromIndex > index) === (edge === "before");
+}
 function dragEnd(): void {
     dragging.value = null;
     overIndex.value = null;
@@ -90,7 +99,8 @@ function dragEnd(): void {
 
 <template>
     <div class="status-line-page" data-status-line-page>
-        <div class="status-line-page__preview" data-status-line-preview>
+        <!-- 预览只读：inert 去掉它的右键菜单、tab 停靠点与悬停提示。 -->
+        <div class="status-line-page__preview" data-status-line-preview inert>
             <span class="status-line-page__label">{{ t("statusLine.preview") }}</span>
             <AgentStatusBar :ctx="sampleContext" :registry="previewRegistry" :status-line="props.setting" />
         </div>
@@ -101,7 +111,7 @@ function dragEnd(): void {
                     v-for="(row, index) in group.rows"
                     :key="row.id"
                     class="status-line-page__row"
-                    :class="{'is-dragging': dragging?.id === row.id, 'is-over': dragging !== null && dragging.side === group.side && overIndex === index && dragging.id !== row.id}"
+                    :class="{'is-dragging': dragging?.id === row.id, 'is-over': isOver(group, index, 'before'), 'is-over-after': isOver(group, index, 'after')}"
                     :data-status-row="row.id"
                     :draggable="props.writable"
                     @dragstart="dragStart($event, row.id, group.side)"
@@ -127,7 +137,7 @@ function dragEnd(): void {
                             :aria-label="t('statusLine.moveUpOf', {name: port.t(row.title)})"
                             :disabled="!props.writable || index === 0"
                             data-status-move-up
-                            @click="emit('move', row.id, index - 1)"
+                            @click="emit('shift', row.id, -1)"
                         />
                         <IconButton
                             size="xs"
@@ -136,7 +146,7 @@ function dragEnd(): void {
                             :aria-label="t('statusLine.moveDownOf', {name: port.t(row.title)})"
                             :disabled="!props.writable || index === group.rows.length - 1"
                             data-status-move-down
-                            @click="emit('move', row.id, index + 1)"
+                            @click="emit('shift', row.id, 1)"
                         />
                     </span>
                 </li>
@@ -207,9 +217,13 @@ function dragEnd(): void {
     opacity: 0.5;
 }
 
-/* 落点：落下后这一项排到这一行的位置，上沿画一条线。 */
+/* 落点：落下后这一项排到这一行的位置；向上拖画在上沿，向下拖画在下沿。 */
 .status-line-page__row.is-over {
     box-shadow: inset 0 2px 0 0 var(--accent-main);
+}
+
+.status-line-page__row.is-over-after {
+    box-shadow: inset 0 -2px 0 0 var(--accent-main);
 }
 
 .status-line-page__grip {

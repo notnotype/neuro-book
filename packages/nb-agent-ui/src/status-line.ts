@@ -104,15 +104,14 @@ export function moveStatusItem(catalog: readonly StatusLineItem[], setting: Stat
 
 /**
  * 右边从前往后收几项（docs/specs/ui/agent-conversation-view.md 的“状态栏”窄时）：`widths` 是右边各项的自然宽度（按次序），
- * `available` 是右边最多能占的宽度。放不下就从第一项起收；收起任何一项后多一个“…”的位置（`moreWidth`）。最后一项总留着，
- * 它也放不下时由左边让（左边会省略），所以交回的数最多是项数减一。
+ * `available` 是右边最多能占的宽度。放不下就从第一项起收；收起任何一项后多一个“…”的位置（`moreWidth`）。最后一项也放不下时
+ * 它也收起，右边只剩“…”，所以交回的数最多是项数；这样右边不会把左边的提醒挤没。
  */
 export function collapsedCount(widths: readonly number[], available: number, gap: number, moreWidth: number): number {
-    if (widths.length <= 1) return 0;
-    for (let collapsed = 0; collapsed < widths.length - 1; collapsed += 1) {
+    for (let collapsed = 0; collapsed < widths.length; collapsed += 1) {
         const kept = widths.slice(collapsed);
         const total = kept.reduce((sum, width) => sum + width, 0) + gap * (kept.length - 1) + (collapsed > 0 ? moreWidth + gap : 0);
         if (total <= available) return collapsed;
     }
-    return widths.length - 1;
+    return widths.length;
 }

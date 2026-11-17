@@ -149,3 +149,88 @@ describe("AgentStatusBar", () => {
         expect(bar(createAgentContext({connection: {status: "disconnected", actionRequired: false}})).get("[data-status-connection]").text()).toBe("连接断开");
     });
 });
+
+describe("AgentStatusBar 窄时收项与宿主项的隔离（conversation.md 输出 45、contributions.md 输出 22）", () => {
+    // jsdom 没有布局：用按 data-status-item 给宽度的假布局代替，状态栏宽 200（右边可用 200 - 24 - 72 = 104）。
+    const WIDTHS: Record<string, number> = {usage: 120, cost: 40, "x.empty": 0, "x.w": 30};
+    const originals = {observer: globalThis.ResizeObserver, offset: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth"), client: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth")};
+    let barWidth = 200;
+    class FakeObserver {
+        private readonly callback: () => void;
+        constructor(callback: () => void) { this.callback = callback; }
+        observe(): void { queueMicrotask(this.callback); }
+        unobserve(): void {}
+        disconnect(): void {}
+    }
+    const install = (): void => {
+        globalThis.ResizeObserver = FakeObserver as unknown as typeof ResizeObserver;
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", {configurable: true, get() { const id = (this as HTMLElement).getAttribute("data-status-item"); return id === null ? 0 : WIDTHS[id] ?? 0; }});
+        Object.defineProperty(HTMLElement.prototype, "clientWidth", {configurable: true, get() { return (this as HTMLElement).hasAttribute("data-agent-status") ? barWidth : 0; }});
+    };
+    afterEach(() => {
+        globalThis.ResizeObserver = originals.observer;
+        for (const [name, descriptor] of [["offsetWidth", originals.offset], ["clientWidth", originals.client]] as const) {
+            if (descriptor === undefined) delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+            else Object.defineProperty(HTMLElement.prototype, name, descriptor);
+        }
+        barWidth = 200;
+    });
+
+    const Words = defineComponent({setup: () => () => h("span", "w")});
+    const Empty = defineComponent({setup: () => () => null});
+    const Broken = defineComponent({setup: () => () => { throw new Error("坏组件"); }});
+    const plugin = (id: string, component: ReturnType<typeof defineComponent>) => ({id, component, side: "right" as const, title: id, source: "x"});
+    const settle = async (): Promise<void> => { await flushPromises(); await flushPromises(); };
+    const open = async (items: ReturnType<typeof plugin>[], width = 200) => {
+        install();
+        barWidth = width;
+        const view = withLine(createAgentContext({usage}), {visible: Object.fromEntries(items.map((item) => [item.id, true]))}, createAgentViewRegistry([{source: "t", statusItems: items}]));
+        await settle();
+        return view;
+    };
+    const collapsed = (view: ReturnType<typeof withLine>) => view.findAll(".is-collapsed").map((node) => node.attributes("data-status-item"));
+
+    it("放不下从前往后收进“…”，放宽后回来；最后一项也放不下时全收", async () => {
+        const view = await open([plugin("x.w", Words)]);
+        // 120 + 40 + 30 + 间距 12 = 202 > 104：收用量，剩 40 + 30 + “…” 与间距 = 98。
+        expect(collapsed(view)).toEqual(["usage"]);
+        expect(view.find("[data-status-more]").exists()).toBe(true);
+
+        const tight = await open([plugin("x.w", Words)], 120);
+        expect(collapsed(tight)).toEqual(["usage", "cost", "x.w"]);
+        expect(tight.find("[data-status-more]").exists()).toBe(true);
+
+        const wide = await open([plugin("x.w", Words)], 400);
+        expect(collapsed(wide)).toEqual([]);
+        expect(wide.find("[data-status-more]").exists()).toBe(false);
+    });
+
+    it("宽度为 0 的项（没有内容、还在加载）不占位，也不让别的项失去收起", async () => {
+        const view = await open([plugin("x.w", Words), plugin("x.empty", Empty)]);
+        expect(collapsed(view)).toEqual(["usage"]);
+    });
+
+    it("宿主项渲染时抛错：只这一项不画，状态栏其余项与提醒照常", async () => {
+        install();
+        const view = withLine(createAgentContext({usage, connection: {status: "disconnected"}}), {visible: {"x.broken": true}}, createAgentViewRegistry([{source: "t", statusItems: [plugin("x.broken", Broken)]}]));
+        await settle();
+        expect(view.find("[data-status-usage]").exists()).toBe(true);
+        expect(view.find("[data-status-cost]").exists()).toBe(true);
+        expect(view.find("[data-status-connection]").exists()).toBe(true);
+    });
+
+    it("右键菜单关闭后焦点回到打开前的地方：选项、Esc 都回；点到菜单外不抢", async () => {
+        const input = document.createElement("textarea");
+        document.body.append(input);
+        const view = withLine(createAgentContext({usage}), {});
+        for (const close of [() => (document.body.querySelector("[role='menuitemcheckbox']") as HTMLElement).click(), () => document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}))]) {
+            input.focus();
+            await view.get("[data-agent-status]").trigger("contextmenu", {clientX: 10, clientY: 10});
+            await settle();
+            expect(document.activeElement).not.toBe(input);
+            close();
+            await settle();
+            expect(document.activeElement).toBe(input);
+        }
+    });
+});
