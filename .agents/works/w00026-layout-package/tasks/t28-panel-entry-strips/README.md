@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t28-panel-entry-strips
-status: planned
+status: active
 updated: 2026-11-17
 ---
 
@@ -36,8 +36,16 @@ updated: 2026-11-17
 
 ## 当前状态
 
-2026-11-17 经 nbdev 新建，尚未开工。排在 t27 之后、t26 之前（Work README 的推进顺序）。
+2026-11-17 经 nbdev 新建。排在 t27 之后、t26 之前（Work README 的推进顺序）。
+
+- t27 合入 master 后（`bcc1d3528`）开工。计划 [`plan.md`](plan.md) 第 1 稿：四片（nb-layout 的入口条叶；工作台画出入口条与并成一行；左右滚动切换；入口条的拖放）。对“输入”里第二轮审查转过来的几条的回答：
+  - 第 1 条（最大化）：最大化并成一行的那一节时它自己画头（审查给的第二条路），入口条叶照常被盖住。
+  - 第 2 条（头跨两片叶）：“只有一节”按文档判；`panelOf` 拿到入口条叶时换成并进来的那一节，悬停动作的范围按面板比，`geometryOf` 按面板 id 在整个表面里找头。
+  - 第 8 条（拖放）：入口带推广成一组，来源收起后的平移按呈现树的叶取、推广到三个区域。
+  - 第 9 条（最小高度）：并成一行的那一节最小 48，区域合计仍 80；几节时每节照旧 80。
+  - 第 12 条后半、第 14 条：入口条叶的 id 由库导出构造与反解；唯一的分节不配收起策略；入口条只在区域呈现出至少一节时有。
+- 实施在 worktree `.worktree/w00026-t28-panel-entry-strips`（分支 `feat/w00026-t28-panel-entry-strips`，从 master `4d85e928c` 开）。
 
 ## 下一步
 
-t27 合入后按 implementation-planning 写计划，交设计审查。
+第 1 稿交设计审查（Claude Sonnet，阻塞），处理完再动手第 1 片。
