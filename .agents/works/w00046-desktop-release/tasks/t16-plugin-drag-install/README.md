@@ -38,4 +38,4 @@ updated: 2026-11-16
 
 ## 下一步
 
-已合入 master（不 push）。切片 6（Windows 拖放真机手测）等 pc-notype 能构建。
+已合入 master（不 push）。切片 6（Windows，2026-11-17）：测试版上通过，证据见 [windows-acceptance-r1.txt](evidences/windows-acceptance-r1.txt)：产品窗口树里有窗口登记了 COM 拖放目标（WebView2 允许外部拖放）；用浏览器自己的拖放通道（CDP）送入一个带 250 个文件子目录的文件夹（超过 `readEntries` 一批 100 个），页面读到 251 个文件、跳过 `node_modules`，预览写“拖入的文件夹 WinHello（251 个文件，12 KiB）”，安装后安装目录里有清单与 250 个文件、没有 `node_modules`，暂存目录清空。没做的是真实鼠标从资源管理器拖一次（OS 到 WebView2 那一段），还有 `dragleave` 在 WebView2 里的行为、落在设置侧栏与窗口以外，需要开发者手测，手测清单见上面的切片 6。

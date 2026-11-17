@@ -15,6 +15,7 @@ import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import {diagnosticText} from "nbook/shared/localized-text";
 import type {TextResolver} from "nbook/shared/localized-text";
 
+import {BACK_TO_SHELF_COMMAND} from "../shared/contracts";
 import type {projectsRemoteContract, ShelfStats} from "../shared/contracts";
 import {projectsText} from "../shared/text";
 
@@ -33,7 +34,6 @@ export interface WelcomeHostOptions {
     /** 没有文件服务时为 null：没有快捷入口，“新建章节”说明原因。 */
     readonly files: Pick<FilesService, "list" | "create"> | null;
     readonly commands: Pick<CommandService, "execute">;
-    readonly navigateDocument: (href: string) => void;
     /** 新章节的文件名与失败原因按它给出（当前显示语言）。 */
     readonly text: TextResolver;
     readonly now: () => number;
@@ -148,7 +148,7 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
                 "onNew-chapter": () => void newChapter(),
                 onOpen: (address: string) => execute("nbook.editor.open", {address, mode: "permanent"}),
                 onReveal: (address: string) => execute("nbook.files.reveal", {address, expand: true}),
-                onShelf: () => options.navigateDocument("/"),
+                onShelf: () => execute(BACK_TO_SHELF_COMMAND, {}),
             });
         },
     });

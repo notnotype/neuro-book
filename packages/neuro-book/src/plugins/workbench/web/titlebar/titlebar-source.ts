@@ -32,6 +32,11 @@ export interface ShellChrome {
     menus(text: TextResolver): MenuGroup[];
     /** 命令面板的快捷键，按平台写好；没有声明时为 null。 */
     searchShortcut(): string | null;
+    /**
+     * 一条别的插件提供的命令此刻的标题；命令不在目录里（提供它的入口没装、还没激活或已停止）时为 null。标题栏用它决定画不画
+     * 指向这条命令的入口（作品下拉的“回到书架”、可点的标志），与菜单“命令不在目录里不显示”同一规则（workbench/menus 输出 1）。
+     */
+    commandTitle(id: string, text: TextResolver): string | null;
     statusEntries(text: TextResolver): StripEntry[];
     titleEntries(text: TextResolver): StripEntry[];
     activityEntries(text: TextResolver): ActivityEntry[];
@@ -131,6 +136,11 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
             void version.value;
             const command = commands.get(OPEN_COMMANDS_ID);
             return command.ok && command.value.keybinding !== undefined ? formatKeybinding(command.value.keybinding, options.platform) : null;
+        },
+        commandTitle: (id, text) => {
+            void version.value;
+            const command = commands.get(id);
+            return command.ok ? text.t(command.value.title) : null;
         },
         statusEntries: (text) => entries(options.statusItems, text),
         titleEntries: (text) => entries(options.titleItems, text),

@@ -28,8 +28,6 @@ export interface DesktopFrameState {
     readonly maximized: boolean;
     /** 页面自己画了标题栏（`[data-desktop-titlebar]`）；为 false 时宿主画后备标题栏。 */
     readonly pageTitlebar: boolean;
-    /** 窗口在前台：不在前台时按钮字形变淡。 */
-    readonly focused: boolean;
     /** 文档标题，后备标题栏显示它。 */
     readonly title: string;
 }
@@ -47,8 +45,6 @@ export interface DesktopFrame {
 export interface DesktopFrameGlobal {
     /** 预加载脚本定义的能力标记（`DESKTOP_FRAME_MARKER`），值为 1 表示窗口没有系统标题栏。 */
     readonly __nbookDesktopFrame?: unknown;
-    addEventListener(type: "focus" | "blur", listener: () => void): void;
-    removeEventListener(type: "focus" | "blur", listener: () => void): void;
     requestAnimationFrame(callback: () => void): number;
     cancelAnimationFrame(handle: number): void;
 }
@@ -65,7 +61,7 @@ export const DESKTOP_TITLEBAR_SELECTOR = "[data-desktop-titlebar]";
 
 export function createDesktopFrame(options: DesktopFrameOptions): DesktopFrame {
     const {document} = options;
-    const state = shallowRef<DesktopFrameState>({maximized: false, pageTitlebar: false, focused: document.hasFocus(), title: document.title});
+    const state = shallowRef<DesktopFrameState>({maximized: false, pageTitlebar: false, title: document.title});
     if (options.global[DESKTOP_FRAME_MARKER] !== 1) {
         return {enabled: false, state, control() {}, dispose() {}};
     }
@@ -101,12 +97,6 @@ export function createDesktopFrame(options: DesktopFrameOptions): DesktopFrame {
     });
     titleObserver.observe(document.head, {childList: true, subtree: true, characterData: true});
 
-    const onFocus = (): void => update({focused: true});
-    // 焦点进了页面里的 iframe（HTML 预览）时窗口也收到 blur，但它仍在前台：以 `document.hasFocus()` 为准。
-    const onBlur = (): void => update({focused: document.hasFocus()});
-    options.global.addEventListener("focus", onFocus);
-    options.global.addEventListener("blur", onBlur);
-
     const unlisten = options.bridge.listen((message) => {
         if (message.type === "window-state" && message.maximized !== state.value.maximized) update({maximized: message.maximized});
     });
@@ -132,8 +122,6 @@ export function createDesktopFrame(options: DesktopFrameOptions): DesktopFrame {
             titlebarObserver.disconnect();
             titleObserver.disconnect();
             if (frame !== null) options.global.cancelAnimationFrame(frame);
-            options.global.removeEventListener("focus", onFocus);
-            options.global.removeEventListener("blur", onBlur);
             unlisten();
         },
     };

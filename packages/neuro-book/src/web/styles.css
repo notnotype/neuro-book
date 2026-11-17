@@ -134,7 +134,10 @@ html:has(.nb-workbench-page) {
  */
 html[data-desktop-frame] {
     --nb-window-frame-height: 36px;
-    --nb-window-controls-width: 138px;
+    /* 窗口按钮组（DesktopFrame.vue）：左边一段放分隔线，然后三个按钮的命中区。组宽只由这三个值算出，页面的标题栏按它留位。 */
+    --nb-window-control-width: 34px;
+    --nb-window-controls-lead: 18px;
+    --nb-window-controls-width: calc(var(--nb-window-controls-lead) + 3 * var(--nb-window-control-width));
     --nb-window-frame-offset: 0px;
     --nb-viewport-block: 100%;
     overflow: hidden;

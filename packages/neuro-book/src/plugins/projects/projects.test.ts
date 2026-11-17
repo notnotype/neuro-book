@@ -298,9 +298,10 @@ describe("Spec projects 场景 11：打开项目", () => {
 });
 
 describe("Spec projects 输出 10：命令登记", () => {
-    it("产品的浏览器插件装配后，“打开项目”与“欢迎”在本窗口的命令表里（人类可见、当前可用）", async () => {
+    it("产品的浏览器插件装配后，“打开项目”“回到书架”与“欢迎”在本窗口的命令表里（人类可见、当前可用）；“回到书架”整页导航到 /", async () => {
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "window-1"}});
         let commands: CommandService | null = null;
+        const navigations: string[] = [];
         const plugins = [
             browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}),
             ...["nbook.state", "nbook.settings", "nbook.commands", "nbook.storage", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
@@ -313,7 +314,7 @@ describe("Spec projects 输出 10：命令登记", () => {
             {
                 capabilities: [
                     {id: "window.project", key: windowProjectKey, create: () => ({project: null})},
-                    {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: () => undefined, reloadDocument: () => undefined, openExternal: () => "opened" as const, currentUrl: () => "http://localhost/", replaceUrl: () => undefined})},
+                    {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href), reloadDocument: () => undefined, openExternal: () => "opened" as const, currentUrl: () => "http://localhost/", replaceUrl: () => undefined})},
                     ...standaloneSettings("browser", tmp, {windowProject: false}).capabilities,
                 ],
                 plugins,
@@ -331,6 +332,12 @@ describe("Spec projects 输出 10：命令登记", () => {
         const welcome = commands!.get("nbook.help.welcome");
         expect(welcome).toMatchObject({ok: true, value: {source: "nbook.projects"}});
         expect(welcome.ok && projectsTextIn("zh-CN").t(welcome.value.title)).toBe("欢迎");
+        // “回到书架”（commands.md 的“命令目录（项目）”）：工作台的作品下拉、标志与文件菜单执行它。
+        const shelf = commands!.get("nbook.project.back-to-shelf");
+        expect(shelf).toMatchObject({ok: true, value: {source: "nbook.projects", effect: "read"}});
+        expect(shelf.ok && projectsTextIn("zh-CN").t(shelf.value.title)).toBe("回到书架");
+        expect(await commands!.execute("nbook.project.back-to-shelf", {}, {source: "user"})).toEqual({ok: true, value: null});
+        expect(navigations).toEqual(["/"]);
         await app.stop();
     });
 });

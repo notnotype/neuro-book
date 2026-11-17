@@ -1,0 +1,123 @@
+# w00050 t02 表情包设计审查（后端部分）
+
+审查对象：/tmp/review-w00050-t02-design/plan.md、/tmp/review-w00050-t02-design/stickers.md；代码与 Spec 读自审查 worktree（提交 ae9d79954）。
+
+### 1. 内置插件经 `stickers.packs` 交表情包走不通：插件包查询对内置插件交回 null
+
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：plan.md:104（待确认第 2 项）、plan.md:32；stickers.md:31、61；packages/neuro-book/src/plugin-platform/backend/packages.ts:21-25、44-46；packages/neuro-book/src/plugins/agent/backend/skills/plugin-roots.ts:33-37；docs/specs/runtime/plugin-code-loading.md:56；docs/specs/agent/skills.md:20
+- **现象**：计划说“内置表情包不另设 `builtin` 来源，由内置插件经 `stickers.packs` 交出（ADR 0027）”，Spec 术语也写“内置插件也走这里”。而 `stickers.packs` 照 `agent.skills` 的做法取目录，`agent.skills` 的接收者经 `PluginPackages.directory(plugin, path)` 取真实路径；这个查询只认本次启动的第三方插件，`byId` 由 `installed`（安装目录里的插件）建，内置插件 `current === undefined` 直接交回 null（packages.ts:44-46，plugin-code-loading.md 输出 11 明写“插件不在本次启动的第三方插件里（含内置插件）时交回空”）。结果是内置插件声明 `stickers.packs` 只会得到 `stickers.root-unavailable` 诊断，一个表情包都出不来。skills.md:20 正因为这个写了“内置插件不经 `agent.skills` 带 Skill（内置的走 `builtin` 来源）”，计划把这条的结论反了过来却没解决它的原因。
+- **为什么是问题**：开发者第 8 条决定是“待确认的默认值照计划”，这项默认值照字面实现就是坏的；以后要随应用分发一个默认表情包（例如星璃的正式图）时会撞上。ADR 0027 决策 1 本身也写了内置插件“随产品打包、不经安装”，安装目录查询不覆盖它们是有意的。
+- **如何核实**：读 packages.ts:40-52，`createPluginPackages(installed, …)` 只按 `installed` 建表；读 plugin-roots.ts:33-37，null 时报 `skills-root-unavailable` 后 return。
+- **建议改法**：二选一并写进 Spec：（a）照 Skill 保留 `builtin` 来源（启动时给定目录、不监视），id 前缀 `builtin.`；（b）若坚持“比 Skill 少一种来源”，就要先改 `plugin-platform/packages` 让内置插件也能解析随应用打包的目录（这是平台合同变更，要改 plugin-code-loading.md 输出 11，Skill 也应一起受益），并在计划里列为前置切片。第一版没有内置表情包时，最简单的是 Spec 直接写“第一版没有内置表情包，内置插件不经 `stickers.packs` 交表情包”，删掉“内置插件也走这里”。
+
+### 2. 远程服务 `catalog()` 一次交回全部表情包，没有总量上限，会超过 RPC 单条 1 MiB 而断开整条连接
+
+- **严重程度**：重要；**类别**：正确性 / 安全与性能
+- **位置**：plan.md:36-37、92；stickers.md:53-59、124；packages/nb-host/src/shared/socket.ts:16；docs/specs/runtime/plugin-channel.md:117
+- **现象**：计划让浏览器在窗口启动时调一次 `catalog()`，交回“表情包与表情，含图片 URL”。Spec 只给了单个表情包的上限（500 项、每项 `when` 至多 200 字符），没有表情包个数或目录总量的上限。按 UTF-8 中文 3 字节估：一项 = 名字至多 96 字节 + `when` 至多 600 字节 + 文件名 + 图片 URL（`/api/nbook.stickers/image/<id>/<编码后的文件名>`，中文文件名 URL 编码后每字 9 字节）+ JSON 键，约 0.8–1 KB；一个满额的表情包约 400–500 KB，两个就过 1 MiB。plugin-channel.md 输出 2 写明“单条消息上限 1 MiB，超过即断开”，断开的是整个窗口的 RPC 链路，不只是这次调用。计划把“数百个表情包”的耗时列为“只按上限估算”的未验证边界，但这里没有可估的上限。
+- **为什么是问题**：用户放进两个大表情包、或装一个带多包的插件，窗口就会反复断线重连（每次重连又取一次目录），表现为整个应用不可用，而不是“表情显示原文”。浏览器侧 `lookup` 只需要名字到 URL，`when`、`description` 是给模型的，送给浏览器是白占体积。
+- **如何核实**：读 socket.ts:16 `RPC_MAX_MESSAGE_BYTES = 1024 * 1024`；按 Spec 上限构造两个 500 项、`when` 200 个汉字的清单，`JSON.stringify` 目录后看字节数。
+- **建议改法**：（1）浏览器目录只带 `lookup` 要的字段：表情包 id、文件夹名、状态、每项的名字与图片 URL（或只给文件名，URL 由 id 与文件名在浏览器拼），不带 `when`、`description`；（2）Spec 加目录总量的上限（例如有效表情包总数或表情总数），超出的按码元序截掉并写诊断；或按表情包分页取（`catalog()` 只给包列表，`pack(id)` 再取表情）。把上限写进“输入与前置条件”表和失败与恢复表，并在 `routes.test`/远程服务测试里按上限构造一次满额目录核对不超过消息上限。
+
+### 3. 取图路由“照 raw-route.ts”没说清读文件经谁：raw-route 的安全来自 Files 内部的 RootedRoot，别的插件不能引用；扫描时的检查在读取时已经过期
+
+- **严重程度**：重要；**类别**：安全与性能 / 正确性
+- **位置**：plan.md:35；stickers.md:57、83、140-141、147；packages/neuro-book/src/plugins/files/backend/raw-route.ts:172-193；packages/neuro-book/src/plugins/agent/backend/attachments.ts:131-151；docs/adr/0027-builtin-and-third-party-plugins-are-equal.md:43
+- **现象**：（a）raw-route 的路径包含、链接与根身份核对全在 `serveFile` 调的 `root.resolve`/`root.read`（files/backend/rooted.ts 的 `openRoot`）。ADR 0027 写明“插件只经合同模块引用别的插件，不 import 宿主内部模块或别的插件的实现”，`nbook.stickers` 不能直接用 `serveFile`/`openRoot`，只能照抄一份或经 `WorkspaceFiles` 读。计划没选，照字面实现最容易写成 `readFile(join(包目录, file))`。（b）输出 3 的“是链接、超过 2 MiB、扩展名”只在扫描时判；扫描后文件被换成链接（指到包外）、被换成大文件、或扩展名是 `.png` 而内容是 HTML/SVG，路由都要在读取时再判。Spec 只说“只给清单里列出的、有效的表情”与“`Content-Type` 按字节判定（只认四种）”，没说字节不是这四种时回什么、读取时是否再限 2 MiB；失败与恢复表也没有这两行。（c）扫描时不判字节类型，一个 `.png` 扩展名、内容不是图片的表情会被列为有效、进提示词，显示时却一定失败。
+- **为什么是问题**：读取时不再判，就靠扫描结果做安全决定（TOCTOU）；没有写明的分支，实现者会退回 `application/octet-stream` 照样给出字节，等于这条路由能按清单名读包目录外的链接目标。
+- **如何核实**：读 raw-route.ts:172-193 与 rooted.ts 的 `resolve`；对照仓库里已有的同类做法 attachments.ts:137，它经 `files.read("sessions://…")` 读，由 Files 做全部路径与链接规则。
+- **建议改法**：路由照 `agent/backend/attachments.ts` 的写法：先按目录核对 `<id>/<文件名>` 是清单里有效的一项（同步查目录），再经 `WorkspaceFiles.read("stickers://<id>/<文件名>")` 读，让 `stickers://` 的挂载与授权规则（容器与挂载点逐次核对是真实目录、不跟到挂载点外）兜住链接与换目录；读到的字节超过 2 MiB 或 `sniffImageType` 为 null 时回 404 `not-found`（或单列 `unsupported-image`），写进失败与恢复表；扫描时也按文件头判一次，不是四种图片的表情记为无效（输出 3 加一条），提示词不列它。ETag 用 Files 交回的基线（内容哈希），见第 9 条关于缓存的建议。
+
+### 4. 用整个文件夹替换一个表情包（常见的更新方式）后，`stickers://<id>/` 在使用期间一直是 `root-gone`，目录与挂载点对不上
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：plan.md:34；stickers.md:81、99-101、137；packages/neuro-book/src/plugins/files/backend/mounted.ts:5-7、252-273、321-329；packages/neuro-book/src/plugins/files/backend/rooted.ts:420-428；docs/specs/workspace/resources.md:151
+- **现象**：`stickers://` 照 `skills://` 用 `MountDeclaration.container/directory` 指到各包文件夹。Files 对挂载点按名字缓存已打开的根，根打开时记下设备号、inode 与创建时间，之后每次操作核对，对不上为 `root-gone`、不重新解析（rooted.ts:428）；挂载点只在“没有借用且空闲满 5 分钟”时关闭，每个新请求都会取消空闲计时（mounted.ts:259-262、321-329）。用户更新表情包最常见的做法是删掉 `user://stickers/lyra/` 再放进新的同名文件夹（解压、同步工具、`mv` 替换）。目录这边按监视重扫，新包是 `ok`；`stickers://user.lyra/` 却一直对着旧 inode，读、列都是 `root-gone`，只要 5 分钟内有人再读（对话里显示表情、Agent 列目录），就一直恢复不了。若取图路由按第 3 条的建议经 `stickers://` 读，所有图都会 404。
+- **为什么是问题**：Spec 输出 1、11 与失败表都承诺“修好文件后重扫恢复”，而这条路上重扫不能让挂载点恢复；`skills://` 有同样的缺陷，但 Skill 很少整体替换、也没有每次显示都打一次的热路径，表情包两者都有。
+- **如何核实**：在 Files 的测试场地注册一个挂载方案，挂载点指向容器下的 `a/`；读一次 `x://m/f`，`rm -rf a && mkdir a && 写 f`，再读：得 `root-gone`；5 分钟内每分钟读一次，一直是 `root-gone`。
+- **建议改法**：在 Files 层修（`skills://` 一起受益）：挂载方案的打开遇到 `root-gone` 时丢掉这个挂载点、按当前声明重开一次（声明本身已经核对容器与挂载点是真实目录，重开不会越界）；或给 `MountedSchemeSpec` 加一个让注册方作废某个挂载点的入口，目录重扫到某包的目录身份变了时调用。不在 Files 修的话，Spec 要把“替换整个文件夹后最多 5 分钟空闲才恢复、期间持续使用则不恢复”写成已知限制——这不可接受，建议修。验收加一条：替换整个表情包文件夹后，`stickers://` 与取图都看到新内容。
+
+### 5. 不带包的写法按“全部表情包里恰好一个”现算：别处新增一个同名表情，就让这个会话历史里的表情全部变回原文，并改写它的系统块
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：stickers.md:88（输出 5）、104（输出 12 的最短写法）、107（输出 15）、130、154（场景 3）；plan.md:41
+- **现象**：显示时每次按当前目录解析原文，不带包的 `:开心:` 在“全部有效表情包”里不止一个即认不出。场景 3 把后果写成了验收：另一个用户表情包里也有 `开心`，“对话里 `:开心:` 显示原文”。这意味着：（a）任何人往 `user://stickers/` 放一个包或装一个插件，只要撞名，所有 Profile 所有会话里过去的 Agent 回复中的 `:开心:` 重开后都变成原文——Spec 130 行只把“表情包删了或改名”列为会变回原文的情形，没提“别处新增”；（b）输出 12 的最短写法同样按全部表情包算，一个不在白名单里、这个 Profile 根本用不到的包，会改掉这个 Profile 的稳定槽文字，系统块位于请求最前，改一个字整段前缀缓存失效；（c）模型在历史里看到自己大量写过 `:开心:`，新槽改成 `:lyra/开心:` 后它仍倾向照历史写短形式，新回复也认不出。
+- **为什么是问题**：“解析结果不随目录变”（plan.md:41）只保住了语法树，显示结果仍随一个无关的包变；Discord 的做法是消息里存表情的唯一 id（`<:name:id>`），名字撞了也不影响旧消息，这是参照有、方案没有的一项。
+- **如何核实**：照场景 3 的 Given，先显示一条含 `:开心:` 的回复（图），再放进第二个含 `开心` 的包、重开会话：按输出 5 它变为原文。
+- **建议改法**（交开发者定，涉及决定 1 的细化，不改其写法）：不带包的写法撞名时按确定的优先序取一个，而不是认不出——例如“用户的在前，再按表情包 id 的码元序”；最短写法也按同一优先序算，只在会被别的包抢走时才加前缀。这样新增插件包（排在用户包之后）不改旧消息、不改槽。若坚持撞名即认不出，至少把“别处新增同名表情会让旧消息变回原文”写进不承诺与副作用一节，并让槽对白名单里的包一律写 `:文件夹名/名字:`（不随无关包变，代价是每个表情多几个 token），把（b）（c）消掉。
+
+### 6. 清单上限与无效粒度没写清：一项的 `when` 超长会让整个表情包无效，超 500 项不知是截还是整包无效，`stickers.json` 本身没有字节上限
+
+- **严重程度**：重要；**类别**：正确性 / 文档
+- **位置**：stickers.md:53-59（上限表）、82（输出 2 “不合清单的形状”）、83（输出 3 列举的单项原因）、137-138；对照 docs/specs/agent/skills.md:67 与 packages/neuro-book/src/plugins/agent/backend/skills/package.ts:55、86-105
+- **现象**：（a）输出 3 列的单项无效原因只有：名字、同包重名、文件不在、扩展名、超过 2 MiB、是链接。`when` 超过 200 字、`common` 不是布尔、`file` 不是字符串或含 `/`、项不是对象，都不在其中，按输出 2 只能归到“不合清单的形状”，整包 `invalid`——与“无效的表情只隔离它一项”的意图相反，作者写错一个 `when` 就让整个表情包从提示词里消失。（b）`stickers` 超过 500 项是整包无效、截前 500、还是多出的逐项无效，没有写；`title`、`description` 超长是整包无效还是忽略该字段，也没有写（Skill 对可选字段不合规是“只忽略那个字段并写诊断”，skills.md:67，`package.ts` 的 `ignored`）。（c）`stickers.json` 没有字节上限：500 项 × 每项约 1 KB 才 0.5 MB，但实现照字面会整份读进来再校验，一个误放的 100 MB JSON 会在每次重扫时整份读入、解析。
+- **为什么是问题**：后续切片照字面实现时，TypeBox 一个 `Type.Object` 校验清单是最自然的写法，它会让任何一项不合规就整份失败，正好落进（a）；测试映射（plan.md:78）只写“输出 1–4”，这些边界没有判据。
+- **如何核实**：逐条对照输出 2、3 的列举与上限表的每一行，找每种违反分别归哪一条。
+- **建议改法**：Spec 按三层写清：清单层（读不懂、根不是对象、`stickers` 不是数组、文件超过一个字节上限如 1 MiB）→ 整包无效；表情层（项不是对象、`name`/`file` 缺或不合规则、`when` 超长或 `common` 类型不对、文件问题）→ 只这一项无效；可选的包层字段（`title`、`description` 超长或类型不对）→ 忽略该字段、写诊断，照 Skill。500 项明确为“只取前 500 项，多出的不列，写一条诊断”或“整包无效”二选一。失败与恢复表补对应诊断码与“修好后重扫恢复”。`catalog.test.ts` 按每一层各写一个用例。
+
+### 7. 槽只限了常用表情的个数，没限表情包段落；也没写表情包的地址，模型从槽里找不到“完整目录”具体在哪
+
+- **严重程度**：建议；**类别**：正确性 / 安全与性能
+- **位置**：stickers.md:58、104-106（输出 12–14）、99（输出 10）；plan.md:103
+- **现象**：（a）输出 12 给“白名单里每个有效的表情包一段：显示名与说明”，输出 13 的 60 个上限只管常用表情；白名单是 `"all"` 或用户加了很多包时，段落数没有上限，每段 `title`+`description` 至多 400 字符（中文约 1200 字节），全部进系统块。60 行常用表情本身最坏约 60×（写法约 100 字节 + `when` 600 字节）≈ 42 KB，约 1.4 万 token（按内核口径字节/3），也没有按 token 的总预算；Skill 的正文有 `SKILL_BODY_TOKENS` 预算，这里没有。（b）段落只写显示名与说明，不写表情包 id 或 `stickers://<id>/` 地址；`stickers://` 的根（输出 10）由 `nbook.stickers` 列出、不认识 Profile，标不出哪些在白名单里（`skills://` 的根会标 `invoke`，schemes.ts:164-172）。模型要“按需翻完整目录”时，只能从根里按显示名猜是哪一个。（c）输出 13 按表情包 id 的码元序取 60 个，而白名单合成本身有序（`profileSkills` 声明的在前、用户加的在后）；码元序下插件包（`a…`–`t…` 开头）排在 `user.*` 之前，一个声明 `"all"` 的 Profile 会先把插件包的常用表情占满 60 个，用户自己的包反被截掉。
+- **为什么是问题**：系统块大小随别人装的包无界增长，又处在前缀最前面；模型找不到自己能用的包的完整目录，输出 12 的“完整目录在 `stickers://`”就落不到实处。
+- **如何核实**：按上限表算最坏槽长；对照 schemes.ts:164-172 与输出 10 的根字段。
+- **建议改法**：每段写出地址（`stickers://<id>/stickers.json`）；给整个槽一个字节或 token 预算（例如约 2000 token），表情包段落与常用表情一起计，超出的段落只列 id 一行或不列，末尾写“还有更多”；取 60 个的顺序改为白名单合成的顺序（声明的、用户加的），或用户来源在前。
+
+### 8. “每个表情包每次重扫至多一条”诊断会在每次改动时重复报同一个问题；Skill 是变了才报
+
+- **严重程度**：建议；**类别**：代码质量 / 文档
+- **位置**：stickers.md:83（输出 3）、137-138；packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts:78-79、216-224、258-259
+- **现象**：输出 3 写“每个表情包每次重扫至多一条”。表情包目录被监视，用户往包里拖一张图、改一次清单，就重扫这个包；按字面每次都会再报一遍同样的“缺文件”“扩展名不对”。SkillCatalog 专门做了去重：`#replace` 只在问题与上次不同时报 `skill-invalid`，`#ignoredReported` 让“同样的只报一次，每次重扫都报会刷满诊断”（catalog.ts:78-79 的注释）。计划说“形状照 SkillCatalog”，Spec 却写成了每次报。
+- **为什么是问题**：用户边整理边放图时，诊断列表被同一条刷满；验收场景 1 写“诊断有一条”，若监视在测试里多触发一次重扫，按 Spec 字面会有两条，测试会时好时坏。
+- **如何核实**：对照 catalog.ts:216-224 的比较逻辑与输出 3 的措辞。
+- **建议改法**：输出 2、3 改为“问题与上次重扫不同时写一条诊断（同一包内的无效项合并成一条）”，与 Skill 一致；场景 1 的判据写成“至少一条且内容列出那一项”或在等目录稳定后断言。
+
+### 9. 取图路由没写缓存头；照 raw-route 的 `no-cache`，每次显示每个表情都要回源，且 ETag 的算法没定
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：stickers.md:147；plan.md:35；packages/neuro-book/src/plugins/files/backend/raw-route.ts:178-184；packages/neuro-book/src/plugins/agent/backend/attachments.ts:140-149
+- **现象**：Spec 只写了 `ETag`，没写 `Cache-Control`。照 raw-route 会是 `no-cache`（raw-route.ts:181），浏览器每次渲染一张表情都发一次条件请求；一段长对话里几十个表情、虚拟列表滚动反复挂载，就是几十次往返，每次服务端都要做一次解析（若按第 3 条经 Files 读，`read` 会先读整份字节再算基线，304 只省了传输）。raw-route 的 ETag 来自 `stats` 的 ino/ctime/mtime/size，走 Files 的 `read` 拿不到 stats，只有内容哈希。同仓库的附件路由用内容寻址名 + `Cache-Control: private, immutable, max-age=31536000`（attachments.ts:140-149）。
+- **为什么是问题**：这是对话显示的热路径；不写清，实现会照搬 raw-route 的保守做法。
+- **如何核实**：读 raw-route.ts:179-184 的响应头。
+- **建议改法**：浏览器目录里的图片 URL 带上扫描时得到的版本（例如 `?v=<ino-size-mtime 的短哈希>`，或扫描时算的内容哈希），路由核对版本与当前一致才给、不一致回 404（或重定向到新版本），响应写 `Cache-Control: private, immutable, max-age=…`；ETag 用同一个版本值。Spec 的“边界与兼容”写明这一点，`routes.test.ts` 断言版本不符时不给旧缓存。
+
+### 10. 没写启动时建好 `user://stickers/`：不建则监视挂不上，用户之后新建这个文件夹也不会被发现
+
+- **严重程度**：建议；**类别**：正确性 / 文档
+- **位置**：stickers.md:81（输出 1）、129；packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts:90-93、318-319；packages/neuro-book/src/plugins/files/shared/schemes.ts:72（`container` 注释“注册方在激活时建好”）
+- **现象**：输出 1 说“按 `user://stickers/` 的文件变化重扫”，副作用一节说“应用不写”。监视用非递归 `fs.watch(user/stickers)`：目录不存在时 `watch` 抛 ENOENT（SkillCatalog 在这里静默跳过，catalog.ts:318-319），之后用户新建 `user://stickers/lyra/` 不会触发任何重扫，直到重启。SkillCatalog 在 `open` 时先 `mkdir` 用户根（catalog.ts:90-93），`stickers://` 的方案容器按合同也要注册方在激活时建好。Spec 没写这一步，且“应用不写”的措辞会让实现者不敢建。
+- **为什么是问题**：全新安装时没有这个文件夹，正是用户第一次按说明放表情包的场景；照 Spec 字面实现，第一次放进去的表情包要重启才出现。
+- **如何核实**：读 catalog.ts:93 与 318-319。
+- **建议改法**：输出 1 加一句“`nbook.stickers` 启动时建好空的 `user://stickers/`（只建这一层，不写表情包）”，副作用一节相应改为“应用只建容器文件夹，不写表情包”；`catalog.test.ts` 加“启动时没有文件夹，之后放进表情包被发现”的用例。
+
+### 11. 验收映射对不上：场景 1、3 映射到只装扩展的内核测试，取图路由的安全规则没有编号判据
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：plan.md:68、76-86；stickers.md:140-141、147、152、154；packages/neuro-book/src/plugins/agent/testing/world.ts:1-5
+- **现象**：（a）场景 1 的 Given 是真实的 `user://stickers/lyra/`、Profile 设置里加包，Then 还要求一条 `stickers.sticker-invalid` 诊断——这条诊断出自 `nbook.stickers` 的目录，不是扩展；计划把它映射到 `agent/backend/stickers/extension.test.ts`（“内核测试工具看 `outline()`”），只装扩展的内核测试里没有目录、设置与诊断。要照字面写成，需要在 `agent/testing/world.ts` 的场地里再装 `nbook.stickers`（场地现在只装 files、models、agent），计划没提。（b）场景 3 的 Then 一半是显示（“对话里 `:开心:` 显示原文”），属于前端，同样映射到了 `extension.test.ts`。（c）取图路由的规则（只给有效项、跨站 403、`nosniff`、`sandbox`、ETag、字节判型）写在“边界与兼容”和失败表里，没有编号输出，也没有验收场景，映射表只写“取图路由 → routes.test.ts”，判据无从对照；第 3、9 条补的读取时判型、上限、版本也要落到这里。
+- **为什么是问题**：切片 4 的实现者照映射写内核测试会发现场景 1 写不出来，要么降级成断言 `outline()` 而丢掉诊断判据，要么临时扩场地；切片 2 的路由测试没有判据可依。
+- **如何核实**：读 world.ts 头部注释的装配清单；逐条对照场景 1、3 的 Then 与映射表。
+- **建议改法**：场景 1 映射到“agent 测试场地加装 `nbook.stickers`”的集成测试，并把这件事写进切片 4；场景 3 拆成槽的部分（后端）与显示的部分（方言 dom 测试）；取图路由的规则编成输出（例如输出 19–22），映射到 `routes.test.ts` 的逐条用例。
+
+## 未发现问题的方面
+
+- 插件划分与依赖方向：`nbook.agent` 可选依赖 `nbook.stickers`、后者不认识 Profile，没有环；可选依赖的边也参与静态排序（runtime/services.md:126），`nbook.stickers` 先于 `nbook.agent` 激活。槽的扩展 `nbook.agent.stickers` 由 `nbook.agent` 自己的入口交出（同 `SKILLS_EXTENSION`、`SUBAGENTS_EXTENSION`，agent/backend/plugin.ts:79、186），不依赖 `onAgentSession:open` 去激活别的提供方，contributions.md 输出 2、3 的等待环问题不适用。
+- `files.schemes` 只收内置插件的注册：`nbook.stickers` 是内置插件，方案名 `stickers` 不在保留名里，可以注册。
+- 表情包 id 跨来源不会撞：插件 id 恒为 `publisher.name`（plugin-manifest.md:48），插件包 id 至少两个点，用户包 id `user.<文件夹名>` 只有一个点，文件夹名不含点；撞上的只会是同一插件两个贡献里的同名文件夹，Spec 输出 4 已处理。
+- 槽内容随目录或白名单变：不会触发 `prefix-unstable`（只比进行中这一轮的消息，harness/profile.md:101），也不改变 Profile 哈希、不要求重渲染已提交的轮（哈希只由 id 与 `version` 算，extensions.md:108）；可变内容的稳定槽有先例（`subagents` 槽随白名单变）。代价是系统块前缀缓存失效，见第 5、7 条。
+- 白名单合成通用化：`profile-skills.ts` 只有 22 行、两个函数不带 Skill 语义，改名共用风险低，Skill 现有测试足以兜底。
+- 专用取图路由本身有理由：Files 的按地址读取字节只服务 `project://` 与 `user://`，把它扩到任意已注册方案会让浏览器经 HTTP 读 `sessions://`、`profiles://` 等，面更大；用户包虽能走现有 `/api/nbook.files/raw/user/stickers/…`，插件包不行。问题在路由的读法与缓存，见第 3、9 条。
+
+## 对待确认项的判断
+
+- 大图约 120 像素、槽至多 60 个常用表情、每包 500 项、每张 2 MiB、说明 200 字：数值本身可以；但缺目录总量上限（第 2 条）、`stickers.json` 字节上限与超限的处理粒度（第 6 条）、槽的总预算（第 7 条），需补齐后再定。
+- 内置表情包不另设 `builtin` 来源、由内置插件经 `stickers.packs` 交出：照现有平台走不通，内置插件取不到插件包目录（第 1 条）；建议第一版写明“没有内置表情包”，以后要内置时再加 `builtin` 来源，或先改平台的插件包查询。
+- 编辑器里打出未知名字也变成表情节点：属前端审查范围；从后端看它让“解析结果不随目录变”成立，与第 5 条无冲突，但第 5 条说的“显示结果仍随无关的包变”依然存在。
+
+## 各级数量
+
+阻断 1（第 1 条）；重要 5（第 2、3、4、5、6 条）；建议 5（第 7、8、9、10、11 条）。共 11 条。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11

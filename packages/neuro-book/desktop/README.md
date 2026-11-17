@@ -6,7 +6,8 @@ Windows 桌面版的主进程与壳自己的页面。行为合同是 [`runtime/d
 |---|---|
 | `src/bun/index.ts` | 主进程：窗口、对话框、导航、桥、退出的拦截，WebView2 检查，接 Electrobun 的更新器 |
 | `src/bun/preload.ts` | 产品窗口的预加载脚本：页面标题与新窗口请求经事件桥交给壳；无标题栏的窗口另定义能力标记 `__nbookDesktopFrame` |
-| `src/bun/win32.ts` | 无标题栏的窗口经 `bun:ffi` 补窗口样式（最大化限在工作区）、按 DPI 设窗口图标 |
+| `src/bun/win32.ts` | 无标题栏的窗口经 `bun:ffi` 补窗口样式（最大化限在工作区）、按 DPI 设窗口图标、给产品窗口装最小尺寸的窗口过程 |
+| `src/bun/min-size.c` | 产品窗口最小尺寸的窗口过程（子类化，`WM_GETMINMAXINFO` 抬高最小跟踪尺寸）；主进程运行时用 `bun:ffi` 的 `cc` 编译，写法上的约束在源码开头 |
 | `src/views/shell/index.html` | 启动页与壳的对话框（同一页，按壳交来的状态显示） |
 | `electrobun.config.ts`、`hutch.config.ts` | Electrobun 与 Hutch 的配置，版本固定 |
 | `assets/neurobook.ico` | 应用图标（16–256，都从不带边框的 SVG 渲染），从 [`brand/logo/06-production/desktop/windows/`](../../../brand/logo/06-production/desktop/windows/) 复制，品牌那边重新生成后跟着换；嵌进程序与安装程序，也复制进包供窗口图标加载 |
@@ -27,7 +28,7 @@ Windows 桌面版的主进程与壳自己的页面。行为合同是 [`runtime/d
 
 `NBOOK_STATE_ROOT` 只收绝对路径：Electrobun 的启动器以安装里的 `app\bin` 为工作目录启动主进程，不传原来的工作目录。
 
-窗口外框（desktop-shell 输出 10）：WebView2 主版本不低于 123 时窗口用 `titleBarStyle: "hiddenInset"`，页面画按钮、用 CSS `app-region` 标拖动区域；更旧的 WebView2 退回系统标题栏。升级 Electrobun 时复测：`hiddenInset` 的窗口最大化是否落在工作区（`win32.ts` 补样式所依赖的行为），以及沙箱页面里的 `app-region` 是否仍回 `HTCAPTION`（w00046 t03 的 `evidences/windows-frame-r1.txt` 与它的脚本）。
+窗口外框（desktop-shell 输出 10）：WebView2 主版本不低于 123 时窗口用 `titleBarStyle: "hiddenInset"`，页面画按钮、用 CSS `app-region` 标拖动区域；更旧的 WebView2 退回系统标题栏。升级 Electrobun 时复测：`hiddenInset` 的窗口最大化是否落在工作区（`win32.ts` 补样式所依赖的行为），以及沙箱页面里的 `app-region` 是否仍回 `HTCAPTION`（w00046 t03 的 `evidences/windows-frame-r1.txt` 与它的脚本）。最小尺寸（`min-size.c`）也要复测：Electrobun 有了 `minWidth`/`minHeight`（上游 PR blackboardsh/electrobun#478 那类接口）就改用它、删掉子类化；它若自己也换窗口过程，确认我们的过程仍在链上（w00046 t18 的 `evidences/min-size-probe-r1.txt`）。
 
 `src/bun/` 只在 Hutch 构建的应用里运行，类型检查不覆盖它（`preload.ts`、`win32.ts` 例外，不依赖 Electrobun，纳入应用包的类型检查）（Electrobun 的类型由 Hutch 提供）；它的行为靠 Windows 上的实测把关，记录在 w00046 t08 的证据里。
 

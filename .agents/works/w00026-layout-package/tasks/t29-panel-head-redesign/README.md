@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t29-panel-head-redesign
-status: active
+status: done
 updated: 2026-11-17
 ---
 
@@ -67,6 +67,23 @@ updated: 2026-11-17
   - 截图（浅色，e2e 环境）看过：展开悬停、一节收起、全部收起三张与评审板的甲一致。
 - Spec 改动（master）：`ui/workbench-layout` 输出 11（垫底）、20（标记、整行开关、按钮悬停、对齐、字色）、25 第 7 行（垫底下面不是落点）；`workbench/views` 输出 10；`ui/nested-grid` 的分隔线宿主钩子。
 
+- 实现审查（Claude Sonnet，2026-11-17，[`evidences/impl-review.txt`](evidences/impl-review.txt)；前两次没跑成：一次撞 5 小时额度，一次审查者的沙箱读不到 worktree，第三次 diff 预先存成文件、给了目录权限）：9 条，阻断 0、重要 2、建议 7。逐条核实都成立，修正提交 `d6df53763`、合入 `184830c33`：
+
+  | 条 | 内容 | 处理 |
+  |---|---|---|
+  | 1 | “最大化着还原一直在”的 e2e 指针、焦点都在面板上，删掉豁免也照样过 | 成立，改：最大化后指针移到标题栏、焦点移出，同一个头里的视图动作透明作对照，框架按钮仍显示；还原后同样条件下框架按钮透明。变异检查：去掉豁免，这一步失败 |
+  | 2 | Lab 夹具还有旧的“收起”框架按钮，没给 `fold`，可见性没传 `fillers`；头的 Lab 场景没有标记 | 成立，改：夹具给 `fold`、点标题按外壳与 store 同一条规则切换、传 `fillers`；头加“分节、展开、收起、长英文标题、最大化着、接管标题区”六个场景；Lab e2e 改成点标题，并补全部收起时垫底不算可见 |
+  | 3 | 接管标题区时标题按钮的可访问描述写“按 Enter 展开或收起”，实际 Enter 开会话列表 | 成立，改：接管时照旧写拖动提示 |
+  | 4 | `headReserved` 给标记留 20px，实际 28px | 成立，改：28px，注释写清由哪几个数加起来 |
+  | 5 | 标题格改成 flex 并撑满后，只写名称的标题文字贴顶、没有标记的按钮被拉成整行高 | 成立，改：标题格里竖直居中，只有带标记的按钮撑满整行高 |
+  | 6 | 计划承诺的验证没落地：垫底下面不是落点、按呈现数、展开上面一节时卡片上下边不动、分隔线真拖不动、双击用例可能没切就过 | 成立，补：dnd 用例（垫底下面的反馈与原来那片空白一样是“浮动打开”，取消不写；它的标题行照旧是前半）、`layout-project` 按呈现数、展开上面一节时列的上下边不动、`workbench-shell` 里真拖一次分隔线尺寸不变、双击用 `MutationObserver` 记下 `aria-expanded` 先 false 后 true。没补的两项：空格在拖不了的标题上切换（e2e 里没有不可移动的视图，键盘拖动的代码 t29 没改）、接管模式单独标记的 e2e（右栏默认只有对话一节，收不起来；头的 DOM 测试覆盖了标记发 `toggle-fold`，外壳里它和点标题走同一条命令） |
+  | 7 | `WorkbenchShell.md` 两处过时 | 成立，改 |
+  | 8 | `foldOf` 没和只写标题绑定，以后多标签的竖排面板既没有标记也没有收起按钮 | 成立，改：`foldOf` 只给只写标题的头 |
+  | 9 | 每块头的渲染里 `foldOf` 求值三四次，各走一遍树 | 成立，改：按已提交的文档算一张表，`foldLabel` 只在有标记时算 |
+
+  - 验证：nb-layout 578 条；neuro-book 类型检查、`WorkbenchPanelHead` 的 DOM 测试、`layout-present.test.ts`；e2e `workbench-containers`、`workbench-shell`、`workbench-dnd`、`lab-workbench-surface`、`workbench-views` 共 125 条，第一遍 3 条失败（Lab 头的框架按钮数还按两个算、Lab 夹具点收着的标题没展开、垫底下面的反馈我预期错了），改后重跑这 3 条所在的 18 条过。
+  - Spec `ui/workbench-layout` 输出 25 第 7 行照实写：垫底那一节下面不是停靠的落点，反馈是浮动打开，同不在面板上的地方。
+
 ## 下一步
 
-合入 master；实现审查（Claude Sonnet）在后台，回来后处理，修正单独提交。之后做 t28 第 3 片的设计（按这个头重写）。
+无。t29 完成。

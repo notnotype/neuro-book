@@ -1,0 +1,31 @@
+t13 Windows 验收（pc-notype，2026-11-17）：Hutch 0.29.0 构建的测试版（io.github.notnotype.neurobook.t18test，含 t13、t16、t18，设置 closeLastWindow=tray），脚本 t13check.ts；只读 UIA、CDP、窗口消息，没有截屏与鼠标键盘输入。
+托盘点击是向壳的 TrayWindowClass 窗口发 Electrobun 2.0.6 的回调消息（WM_USER+100，lParam=WM_LBUTTONUP 或 WM_RBUTTONUP），菜单项选择是向弹出菜单窗口发 WM_KEYDOWN（下箭头、回车）。Windows 把真实点击转成这条消息，这里没有验证那一段。UIA 的 Invoke 不产生这两种消息，菜单也不暴露菜单项，所以不用它们。
+Win11 把新托盘图标放进溢出区；只对测试应用那一项在注册表 HKCU\Control Panel\NotifyIconSettings 里临时设了 IsPromoted=1，让 UIA 看得到，验收后已删除。
+输出里的中文在控制台编码下乱码，是字节对的。
+
+step 0 settings written: {"nbook.editor/autoSave":"off","nbook.desktop/closeLastWindow":"tray"}
+step 1 shell.log tray lines: ["2026-11-17T16:35:49.035Z desktop.tray.created size=16","2026-11-17T16:40:23.333Z desktop.tray.created size=16","2026-11-17T16:47:39.601Z desktop.tray.created size=16","2026-11-17T16:48:41.506Z desktop.tray.created size=16","2026-11-17T16:54:47.937Z desktop.tray.created size=16","2026-11-17T17:00:11.192Z desktop.tray.created size=16","2026-11-17T17:05:37.476Z desktop.tray.created size=16","2026-11-17T17:06:04.889Z desktop.tray.removed","2026-11-17T17:06:33.627Z desktop.tray.created size=16"]
+step 1 tray buttons (UIA, filter NeuroBook): ["Shell_TrayWnd: NeuroBook","buttons-total: 33"]
+step 2 after closing the last window: visible windows=0, app processes before=4 after=4, server answering=200
+step 2 tray tooltip (UIA): ["Shell_TrayWnd: NeuroBook NeuroBook（在后台运行）","buttons-total: 32"]
+step 2 shell.log: ["2026-11-17T16:48:41.506Z desktop.tray.created size=16","2026-11-17T16:54:47.937Z desktop.tray.created size=16","2026-11-17T17:00:11.192Z desktop.tray.created size=16","2026-11-17T17:05:37.476Z desktop.tray.created size=16","2026-11-17T17:06:04.889Z desktop.tray.removed","2026-11-17T17:06:33.627Z desktop.tray.created size=16"]
+step 3 tray window: found; click: posted left
+step 3 popup windows: ["popup pid=46652 offscreen=False name=","popups-done"]
+step 3 menu items: []
+step 3 choose open: chose item 1
+step 3 after tray open: windows=1 pages=1
+step 4 minimized: window 160x28 client 0x0 minTrack 0x0 dpi 96 zoomed=false iconic=true
+step 4 after tray open: window 1280x800 client 1264x792 minTrack 816x568 dpi 96 zoomed=false iconic=false
+step 5 second launch while in background: windows=1, shell processes=4
+step 5b killed server pid 46572
+step 5b dialog text: "NeuroBook 的服务意外退出（退出码 1） 现在没有打开的窗口。 C:\\Users\\notnotype\\nb-w00046\\t18\\state\\logs\\desktop 重新启动服务 稍后"; visible windows=1
+step 5b tray tooltip: ["Shell_TrayWnd: NeuroBook NeuroBook（在后台运行）","buttons-total: 33"]
+step 5b after restart: server answering=200, visible windows=0, tray=["Shell_TrayWnd: NeuroBook NeuroBook（在后台运行）","buttons-total: 32"]
+step 5b shell.log: ["2026-11-17T17:06:04.961Z desktop.server.stopped forced=false exitCode=0","2026-11-17T17:06:33.611Z desktop.server.ready pid=46572","2026-11-17T17:06:56.644Z desktop.server.exited exitCode=1","2026-11-17T17:06:58.987Z desktop.server.ready pid=50188"]
+step 5b reopen via tray: posted left
+step 5b chose item 1
+step 6 click: posted right
+step 6 choose quit: chose item 2
+step 6 after tray quit: app processes=0, tray buttons=["not-found","buttons-total: 31"]
+step 6 shell.log tail: ["2026-11-17T17:06:53.853Z exit 0","2026-11-17T17:06:56.644Z desktop.server.exited exitCode=1","2026-11-17T17:07:10.001Z desktop.tray.removed","2026-11-17T17:07:10.061Z desktop.server.stopped forced=false exitCode=0","2026-11-17T17:07:10.062Z exit 0"]
+RESULT ok

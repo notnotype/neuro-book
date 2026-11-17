@@ -14,13 +14,15 @@
 - 桌面窗口里（没有系统标题栏）它就是窗口的拖动区域（[`runtime.browser-host`](../../../../../../../docs/specs/runtime/browser-host.md) 的“窗口外框”）：根带 `data-desktop-titlebar`，向宿主声明“页面自己画了标题栏”，宿主据此不画后备标题栏；这是宿主的合同，`data-workbench-titlebar` 是工作台自己的钩子，两者并存。空白处 `app-region: drag`，有点击或悬停行为的一切（按钮、链接、输入框、菜单栏与菜单触发器、可聚焦元素、条目）`no-drag`；这组规则写在非 scoped 的样式块里，才命中得了 nb-ui `Menubar` 内部渲染的触发器。右栏末尾留出窗口按钮的宽度（`--nb-window-controls-width`，普通浏览器里是 0），逐级让位把它算进 `chrome`；三栏仍左右等分，两侧够宽时搜索在窗口正中。双击空白处最大化由系统做，组件不处理。
 - 菜单项禁用时以原因作提示（`title` 与 `aria-description`）；勾选项显示勾。
 - 项目名过长时截断，提示里有全文。
+- 标志：给了 `shelf`（“回到书架”命令的标题）时是一个按钮，名字与悬停提示是它，带焦点环、是普通的 Tab 停靠点（在项目切换之前）；悬停与按下是标题栏按钮同样的底色，标志墨色不变。没给时只是图案。两种都包在同一个盒子（`.workbench-titlebar__brand-box`）里，盒子的左右内边距之和等于测量层复本的左右外边距之和，让位的切换点不受影响。桌面窗口里它是按钮、不是拖动区域：标志这一块不能拖窗口（开发者要标志可点，接受这个代价）。
 
 ## 交互
 
 - 菜单会话：Alt（单独按下再松开）或 F10 聚焦菜单入口（完整时是第一组，否则是“菜单”按钮），或任一菜单打开，都开始一次会话，记下标题栏之外的上一个焦点。菜单关闭后焦点落回入口（Escape、选中一项）时，焦点回到那个位置；焦点在菜单入口上、菜单都关着时按 Escape 也是。用户点了别处、或把焦点挪到搜索与布局按钮再按 Escape，不还焦点。
 - 会话开始时焦点在原生输入框里（`input`、`textarea`；编辑器区里的除外）：菜单里的撤销、重做禁用并说明原因，根上带 `data-titlebar-native-editing`。
 - 菜单里的键盘由 nb-ui `Menubar`、`DropdownMenu` 负责（上下键、Home、End、Enter、Escape）。
-- 搜索按钮发 `search`；布局按钮发 `toggle-part`；项目切换在有项目时点开列出“打开项目…”，没有项目时直接发 `open-project`。
+- 搜索按钮发 `search`；布局按钮发 `toggle-part`；项目切换在有项目时点开列出“打开项目…”与（给了 `shelf` 时）“回到书架”，没有项目时直接发 `open-project`。
+- 标志按钮发 `back-to-shelf`；按下后指针移动超过 4px 再松开不算点击（想拖窗口却按在了标志上），键盘触发的照常。
 
 ## 数据
 
@@ -34,6 +36,8 @@ type Props = {
     searchShortcut: string | null;
     layout: {sidebar: LayoutButton; panel: LayoutButton; auxiliarybar: LayoutButton};
     items: StripEntry[];
+    /** “回到书架”命令的标题；命令不在目录里（没装书架插件）时为 null 或不给：作品下拉没有这一项，标志不可点。 */
+    shelf?: string | null;
 };
 type Emits = {
     run: [command: string, args: Readonly<Record<string, unknown>>];
@@ -41,6 +45,7 @@ type Emits = {
     "toggle-part": [part: "sidebar" | "panel" | "auxiliarybar"];
     "open-project": [];
     "run-item": [itemId: string];
+    "back-to-shelf": [];
 };
 ```
 

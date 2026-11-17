@@ -399,24 +399,32 @@ export const labFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof WorkbenchPanelHead>({
         component: "WorkbenchPanelHead",
-        events: ["activate", "action", "context-menu"],
+        events: ["activate", "action", "context-menu", "toggle-fold"],
         writeBack: {activate: {layer: "props", key: "active"}},
         class: "w-full",
         scenes: (() => {
             const tab = (id: string, label: string, icon: string) => ({id: `view:${id}`, label, icon});
             const tabs = [tab("files", "资源管理器", "i-lucide-files"), tab("search", "搜索", "i-lucide-search"), tab("outline", "大纲", "i-lucide-list-tree"), tab("chat", "对话", "i-lucide-message-square"), tab("output", "输出", "i-lucide-terminal")];
             const named = [
-                {id: "collapse", label: "收起", icon: "i-lucide-chevrons-down", disabled: false, pressed: false},
+                {id: "float", label: "浮动", icon: "i-lucide-picture-in-picture-2", disabled: false},
                 {id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: false},
                 {id: "hide", label: "隐藏", icon: "i-lucide-x", disabled: false},
             ];
             const base = {panelId: "sidebar", label: "侧栏", moreLabel: "更多", active: "view:files"};
+            // 分节只写标题（输出 20）：能收成标题行时标题前有展开标记，整行是开关；框架按钮悬停才出，Lab 里指针移上去看。
+            const section = {...base, panelId: "section:files", tabs: tabs.slice(0, 1), titleOnly: true, frameActions: named.slice(0, 2)};
             return [
                 {id: "default", label: "几个标签、框架按钮", input: {props: {...base, tabs: tabs.slice(0, 3), frameActions: named}}},
                 {id: "many", label: "标签多：放不下时逐级让位（拖窄画布看）", input: {props: {...base, tabs, frameActions: named}}},
                 {id: "anonymous", label: "无名面板：没有隐藏按钮", input: {props: {...base, panelId: "p-1", label: "面板", tabs: tabs.slice(0, 2), frameActions: named.slice(0, 2)}}},
-                {id: "disabled", label: "框架按钮不可用", input: {props: {...base, tabs: tabs.slice(0, 2), frameActions: [{...named[0]!, disabled: true, reason: "编辑组不能收起"}, named[1]!, named[2]!]}}},
+                {id: "disabled", label: "框架按钮不可用", input: {props: {...base, tabs: tabs.slice(0, 2), frameActions: [{...named[0]!, disabled: true, reason: "这个视图不能浮动"}, named[1]!, named[2]!]}}},
                 {id: "empty", label: "没有标签：显示名称", input: {props: {...base, tabs: [], active: null, frameActions: named}}},
+                {id: "section", label: "分节：只写标题，不能收起（底部面板的、区域唯一的）", input: {props: section}},
+                {id: "fold-open", label: "分节：展开着，标题前的标记朝下", input: {props: {...section, fold: {collapsed: false}}}},
+                {id: "fold-collapsed", label: "分节：收成标题行，标记朝右、标题退成次要字色", input: {props: {...section, fold: {collapsed: true}}}},
+                {id: "fold-long", label: "分节：英文长标题被截断，标记不被挤掉", input: {props: {...section, tabs: [tab("files", "Workspace Explorer With A Rather Long Title", "i-lucide-files")], fold: {collapsed: false}}}},
+                {id: "fold-maximized", label: "分节：最大化着，没有标记，还原按钮按下、一直显示", input: {props: {...section, frameActions: [named[0]!, {...named[1]!, label: "还原", pressed: true}]}}},
+                {id: "fold-view-head", label: "分节：视图接管标题区，展开标记是左列最前面单独的按钮", input: {props: {...section, viewHead: {key: "c:1", popup: {expanded: false}}, fold: {collapsed: false}, foldLabel: "收起 资源管理器"}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue"),
@@ -540,7 +548,7 @@ export const labFixtures: LabFixture[] = [
                 context: null, icon: null, placement: "inline" as const,
             });
             const menus = [
-                {id: "file", label: "文件", sections: [[entry("nbook.project.open", "打开项目")], [entry("nbook.editor.save", "保存", {reason: "活动文档没有需要保存的修改"}), entry("nbook.editor.save-all", "全部保存")]]},
+                {id: "file", label: "文件", sections: [[entry("nbook.project.open", "打开项目"), entry("nbook.project.back-to-shelf", "回到书架")], [entry("nbook.editor.save", "保存", {reason: "活动文档没有需要保存的修改"}), entry("nbook.editor.save-all", "全部保存")]]},
                 {id: "edit", label: "编辑", sections: [[entry("nbook.edit.undo", "撤销", {reason: "没有活动的编辑器"}), entry("nbook.edit.redo", "重做", {reason: "没有活动的编辑器"})]]},
                 {id: "view", label: "视图", sections: [[entry("nbook.quick-open.open-commands", "命令面板", {shortcut: "Ctrl+Shift+P"})], [entry("nbook.view.set-part-hidden", "侧栏", {args: {part: "sidebar"}, checked: true}), entry("nbook.view.set-part-hidden", "右栏", {args: {part: "auxiliarybar"}, checked: false})], [entry("nbook.app.reload", "重新载入")]]},
                 {id: "help", label: "帮助", sections: [[entry("nbook.help.documentation", "文档")]]},
@@ -548,14 +556,15 @@ export const labFixtures: LabFixture[] = [
             const layout = {sidebar: {pressed: true, disabled: false}, panel: {pressed: true, disabled: false}, auxiliarybar: {pressed: false, disabled: false}};
             const base = {menus, searchShortcut: "Ctrl+Shift+P", layout, items: []};
             return [
-                {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部"}}},
-                {id: "no-project", label: "没有项目", input: {props: {...base, project: null}}},
+                {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部", shelf: "回到书架"}}},
+                {id: "no-project", label: "没有项目", input: {props: {...base, project: null, shelf: "回到书架"}}},
+                {id: "no-shelf", label: "没有书架插件：作品下拉没有“回到书架”，标志不可点", input: {props: {...base, project: "雾港"}}},
                 {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
                 {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
             ];
         })(),
         // 场景 `long` 一直是英文界面，id 被 e2e 引用，所以点名。
-        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchTitleBar>((await import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue")).default, {events: ["run", "search", "toggle-part", "open-project", "run-item"], class: "w-full"}), ["long"]),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchTitleBar>((await import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue")).default, {events: ["run", "search", "toggle-part", "open-project", "run-item", "back-to-shelf"], class: "w-full"}), ["long"]),
     }),
     defineLabFixture<typeof WorkbenchItemStrip>({
         component: "WorkbenchItemStrip",

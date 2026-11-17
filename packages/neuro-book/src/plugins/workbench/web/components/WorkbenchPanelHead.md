@@ -49,7 +49,7 @@ type PanelFrameAction = {
     disabled: boolean;
     /** 不可用的原因，作为悬停提示；可用时不给。 */
     reason?: string;
-    /** 切换类按钮是否开着（收起、最大化），写到 `aria-pressed`；不是切换类时不给。 */
+    /** 切换类按钮是否开着（最大化），写到 `aria-pressed`；不是切换类时不给。按下的框架按钮一直显示（不随悬停隐藏）。 */
     pressed?: boolean;
 };
 

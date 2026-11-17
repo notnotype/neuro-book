@@ -31,7 +31,7 @@ import {clockKey, windowNavigationKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
-import {projectsRemoteContract} from "../shared/contracts";
+import {BACK_TO_SHELF_COMMAND, projectsRemoteContract} from "../shared/contracts";
 import {projectCoverUrl} from "../shared/cover";
 import {projectsText} from "../shared/text";
 import {createBookshelfHome} from "./bookshelf-home";
@@ -46,6 +46,14 @@ import {createWorksPage, WORKS_SECTION, WORKS_SECTION_DECLARATION} from "./works
 import {createWelcomeHost, WELCOME_PAGE_ID} from "./welcome";
 
 const DECLARATION: WrittenCommandDeclaration = {...OPEN_PROJECT_DECLARATION, args: Type.Object({}, {additionalProperties: false})};
+/** “回到书架”：只离开当前页面、不改数据（read）；整页导航会打断 Agent 所在的窗口，同“打开项目”不给 Agent。 */
+const BACK_TO_SHELF_DECLARATION: WrittenCommandDeclaration = {
+    category: projectsText("commands.nbook.project.back-to-shelf.category"),
+    description: "Leave the work open in this window and go back to the bookshelf. The page reloads; unsaved changes are guarded by the editor's leave prompt.",
+    args: Type.Object({}, {additionalProperties: false}),
+    effect: "read",
+    expose: {agent: "never"},
+};
 
 export const BOOKSHELF_HOME_ID = "nbook.projects.bookshelf";
 /** 标题省略，登记时补成约定键 `home.bookshelf.title`。 */
@@ -57,6 +65,8 @@ export const WELCOME_COMMAND = "nbook.help.welcome";
 /** 标题栏菜单里归作品插件的条目（docs/specs/ui/workbench-shell.md 外壳四输出 29）：文件组的打开项目、帮助组的欢迎。 */
 const TITLEBAR_MENU_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: TitlebarMenuItemDeclaration}> = [
     {id: "nbook.projects.menu.open", declaration: {group: "file", section: "1_open", command: OPEN_PROJECT_COMMAND}},
+    // 同节同序时按 id 排，不写 order 会排到“打开项目”前面。
+    {id: "nbook.projects.menu.shelf", declaration: {group: "file", section: "1_open", order: 1, command: BACK_TO_SHELF_COMMAND}},
     {id: "nbook.projects.menu.welcome", declaration: {group: "help", section: "1_help", order: 1, command: WELCOME_COMMAND}},
 ];
 const WELCOME_DECLARATION: WrittenCommandDeclaration = {
@@ -82,6 +92,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
         dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}, {key: publicStateKey}, {key: windowProjectKey}, {key: filesKey, required: false}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION},
+            {capability: COMMANDS_POINT, id: BACK_TO_SHELF_COMMAND, declaration: BACK_TO_SHELF_DECLARATION},
             {capability: COMMANDS_POINT, id: WELCOME_COMMAND, declaration: WELCOME_DECLARATION},
             ...TITLEBAR_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
             {capability: WORKBENCH_HOME_POINT, id: BOOKSHELF_HOME_ID, declaration: HOME_DECLARATION},
@@ -168,7 +179,6 @@ export const projectsBrowserPlugin: PluginDefinition = {
                     remote,
                     files: files.status === "resolved" ? files.instance : null,
                     commands,
-                    navigateDocument: (href) => navigation.navigateDocument(href),
                     text,
                     now: () => clock.now(),
                     shortcut: () => {
@@ -181,6 +191,11 @@ export const projectsBrowserPlugin: PluginDefinition = {
             return {contributions: {
                 [COMMANDS_POINT]: {
                     [OPEN_PROJECT_COMMAND]: {run: () => openProject(host)},
+                    // 与欢迎页原来的“回到书架”同一个动作；离开时的未保存保护是编辑器的 beforeunload（shared/host.ts 的 WindowNavigation）。
+                    [BACK_TO_SHELF_COMMAND]: {run: () => {
+                        navigation.navigateDocument("/");
+                        return {ok: true, value: null};
+                    }},
                     [WELCOME_COMMAND]: {run: () => commands.execute(OPEN_PAGE_COMMAND, {id: WELCOME_PAGE_ID}, {source: "user"})},
                 },
                 [WORKBENCH_HOME_POINT]: {[BOOKSHELF_HOME_ID]: home},

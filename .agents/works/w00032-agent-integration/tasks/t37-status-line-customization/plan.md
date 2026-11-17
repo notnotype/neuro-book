@@ -37,7 +37,7 @@
 ### nb-agent-ui：状态栏组件（`AgentStatusBar.vue`）
 
 - 新属性 `statusLine?: {left: string[]; right: string[]}`（解算后的可见 id 序列，由宿主给；不给时用缺省，包内其它使用方 nb-story 不受影响）。
-- 内置的四项各拆成小组件放进 `src/vue/composer/status/`：`StatusContext`（原圆环）、`StatusUsage`（累计、输入、输出、缓存命中，明细在悬停）、`StatusCost`、`StatusModel`（`ctx.composer.effectiveModel` 加推理档，一行文字）。
+- 内置的四项（上下文圆环、用量、费用、模型与推理档）直接写在 `AgentStatusBar.vue` 的模板里，按目录项的 id 分支（实施时定：拆成四个小组件每个都要同名文档，而它们只在这里用）。
 - 提醒类仍在左边固定位置，不受设置影响；插件的项按目录里的 `side` 与次序画。
 - **窄时收项**：右侧项按序渲染；`ResizeObserver` 量状态栏可用宽度，从第一项起把放不下的标成收起（不画），悬停那一块（现在用量的悬停）列出所有被收起项的文字；费用最后收。每项的自然宽度量到后记着，收起后宽度变大时能判断放不放得下。
 - 右键：状态栏根监听 `contextmenu`，视图自己用 `ContextMenu` 画勾选项（列目录里全部项，插件的项标“插件”），点一项发出 `statusLine.toggle {id}`，最后“状态栏设置…”发出 `statusLine.openSettings`；这两个是 `ViewAction`，宿主处理。视图的属性 `statusLine` 不给时不弹菜单。

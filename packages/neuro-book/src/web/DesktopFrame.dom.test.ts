@@ -46,8 +46,6 @@ function setup(options: {marker: boolean; shellReceives?: boolean}) {
         ...(options.shellReceives === false ? {} : {__electrobunSendToHost: (message: unknown) => sent.push(message)}),
     };
     const global = {
-        addEventListener: (type: "focus" | "blur", listener: () => void) => window.addEventListener(type, listener),
-        removeEventListener: (type: "focus" | "blur", listener: () => void) => window.removeEventListener(type, listener),
         requestAnimationFrame: (callback: () => void) => window.requestAnimationFrame(callback),
         cancelAnimationFrame: (handle: number) => window.cancelAnimationFrame(handle),
         ...(options.marker ? {[DESKTOP_FRAME_MARKER]: 1} : {}),
@@ -117,9 +115,13 @@ describe("窗口外框", () => {
             await view.get(`[data-desktop-control="${action}"]`).trigger("click");
         }
         expect(sent).toEqual([{type: "window-control", action: "minimize"}, {type: "window-control", action: "toggle-maximize"}, {type: "window-control", action: "close"}]);
+        // 图标：最大化是一个方块，还原是两个叠着的方块（多一条路径）。
+        const icon = () => view.get('[data-desktop-control="toggle-maximize"] svg').element.children.length;
+        expect(icon()).toBe(1);
         shell({type: "window-state", maximized: true});
         await view.vm.$nextTick();
         expect(view.get('[data-desktop-control="toggle-maximize"]').attributes("aria-label")).toBe("还原");
+        expect(icon()).toBe(2);
         shell({type: "window-state", maximized: false});
         await view.vm.$nextTick();
         expect(view.get('[data-desktop-control="toggle-maximize"]').attributes("aria-label")).toBe("最大化");

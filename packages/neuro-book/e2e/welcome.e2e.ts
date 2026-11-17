@@ -109,3 +109,30 @@ test("快捷入口、最近打开与“帮助 > 欢迎”：打开大纲打开�
     await page.waitForURL((url) => url.pathname === "/" && !url.searchParams.has("project"));
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-workbench-home", "nbook.projects.bookshelf");
 });
+
+test("标题栏回到书架的三个入口：作品下拉、文件菜单（排在“打开项目”之后）、标志（ui/workbench-shell 输出 28、29）", async ({page}) => {
+    const atShelf = async (): Promise<void> => {
+        await page.waitForURL((url) => url.pathname === "/" && !url.searchParams.has("project"));
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-workbench-home", "nbook.projects.bookshelf");
+    };
+    const titlebar = page.locator("[data-workbench-titlebar]");
+
+    await open(page);
+    await titlebar.locator("[data-titlebar-project]").click();
+    const projectMenu = page.locator("[role=\"menu\"][data-state=\"open\"]");
+    await expect(projectMenu.getByRole("menuitem")).toHaveText(["打开项目…", "回到书架"]);
+    await projectMenu.getByRole("menuitem", {name: "回到书架"}).click();
+    await atShelf();
+
+    await open(page);
+    await titlebar.locator("[role=\"menuitem\"]", {hasText: "文件"}).click();
+    const fileMenu = page.locator("[role=\"menu\"][data-state=\"open\"]");
+    const names = await fileMenu.getByRole("menuitem").allTextContents();
+    expect(names.findIndex((name) => name.startsWith("回到书架"))).toBe(names.findIndex((name) => name.startsWith("打开项目")) + 1);
+    await fileMenu.getByRole("menuitem", {name: "回到书架"}).click();
+    await atShelf();
+
+    await open(page);
+    await titlebar.getByRole("button", {name: "回到书架"}).click();
+    await atShelf();
+});

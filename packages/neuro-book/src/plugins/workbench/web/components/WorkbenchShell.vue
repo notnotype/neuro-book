@@ -180,21 +180,23 @@ const TAB_TRUNCATED_PX = 96;
 const TAB_ICON_PX = 28;
 const FRAME_BUTTON_PX = 26;
 const HEAD_PADDING_PX = 20;
+const titleOnlyPanelIds = computed(() => titleOnlyPanels(doc.value));
 /**
  * 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。
  * 带容器的区域里再问库：底部面板的分节、区域此刻唯一显示的分节收不成标题行（输出 11），也没有按钮。和 `setPanelCollapsed` 拒绝的是同一个判定。
  */
 const collapsibleIn = (source: LayoutDoc, panelId: string): boolean => findTreeNode(source.tree.root, panelId)?.parent?.orientation === "vertical" && sectionCollapseBlock(source, panelId) === null;
 /**
- * 面板头的展开标记（输出 20）：能收成标题行、没有被最大化（最大化着点标题只激活，还原靠还原按钮）。按已提交的文档算，和 `titleOnlyPanels` 一样：
- * 拖动中预览里这一列只剩一节时标记不跟着消失，标题不横跳。
+ * 面板头的展开标记（输出 20）：只写标题的头（标记画在标题按钮里）、能收成标题行、没有被最大化（最大化着点标题只激活，还原靠还原按钮）。
+ * 按已提交的文档算，和 `titleOnlyPanels` 一样：拖动中预览里这一列只剩一节时标记不跟着消失，标题不横跳。
+ * 每块头的模板与点击都要问好几次，`collapsibleIn` 要在树里找节点，所以一份文档只算一次。
  */
-function foldOf(panelId: string): {readonly collapsed: boolean} | null {
-    if (!collapsibleIn(doc.value, panelId) || state.value.maximized === panelId) return null;
-    return {collapsed: isSectionCollapsed(doc.value, panelId)};
-}
-/** 展开标记加它和标题之间的间距。 */
-const FOLD_MARK_PX = 20;
+const folds = computed<ReadonlyMap<string, {readonly collapsed: boolean}>>(() => new Map([...titleOnlyPanelIds.value].flatMap((panelId) => (
+    collapsibleIn(doc.value, panelId) && state.value.maximized !== panelId ? [[panelId, {collapsed: isSectionCollapsed(doc.value, panelId)}] as const] : []
+))));
+const foldOf = (panelId: string): {readonly collapsed: boolean} | null => folds.value.get(panelId) ?? null;
+/** 展开标记占的宽度：标题按钮里标记前的 9px、标记 14px、标记与标题之间 5px（WorkbenchPanelHead 的样式）；接管标题区时单独的按钮是 24px 加间距，比这个窄。 */
+const FOLD_MARK_PX = 28;
 function headReserved(panelId: string): number {
     const panel = renderedDoc.value.panels[panelId];
     // 浮动窗只有“回到停靠”；树里是浮动、最大化（收起不是按钮了，是标题前的标记）。
@@ -229,7 +231,6 @@ function tabsIn(source: LayoutDoc, panelId: string): PanelHeadTab[] {
     });
 }
 
-const titleOnlyPanelIds = computed(() => titleOnlyPanels(doc.value));
 /** 面板头的标签在标题后接视图的计数（views 输出 17）；活动栏的入口不接，所以只在这里加。 */
 const headTabs = (panelId: string): PanelHeadTab[] => tabsIn(renderedDoc.value, panelId).map((tab) => {
     const viewId = viewIdOf(tab.id);
@@ -477,6 +478,9 @@ function closeContainerMenu(reason: ContextMenuCloseReason): void {
 
 /** “打开项目”的命令 id：项目插件的公开合同，工作台不为它依赖项目插件的模块。 */
 const OPEN_PROJECT_COMMAND = "nbook.project.open";
+/** “回到书架”的命令 id（同上）：命令在目录里时标题栏才画回书架的入口。 */
+const BACK_TO_SHELF_COMMAND = "nbook.project.back-to-shelf";
+const shelfTitle = computed(() => props.chrome?.commandTitle(BACK_TO_SHELF_COMMAND, resolver) ?? null);
 
 const titleMenus = computed(() => props.chrome?.menus(resolver) ?? []);
 const panelVisible = computed(() => props.layout.actions.partVisible("panel"));
@@ -740,10 +744,12 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     :search-shortcut="chrome.searchShortcut()"
                     :layout="layoutButtons"
                     :items="chrome.titleEntries(resolver)"
+                    :shelf="shelfTitle"
                     @run="(command, args) => run(command, {...args})"
                     @search="run(OPEN_COMMANDS_ID)"
                     @toggle-part="(part) => run(SET_PART_HIDDEN_COMMAND, {part})"
                     @open-project="run(OPEN_PROJECT_COMMAND)"
+                    @back-to-shelf="run(BACK_TO_SHELF_COMMAND)"
                     @run-item="(id) => chrome?.runItem(id)"
                 />
                 <div v-else class="workbench-shell__titlebar">
@@ -821,13 +827,13 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :active="renderedDoc.panels[panelId]?.active ?? null"
                         :more-label="message('common.more')"
                         :id-prefix="idPrefix"
-                        :drag-hint="message(foldOf(panelId) === null ? 'shell.drag.hint' : 'shell.drag.hintFold')"
+                        :drag-hint="message(foldOf(panelId) === null || panelViewHead(panelId) !== null ? 'shell.drag.hint' : 'shell.drag.hintFold')"
                         :dragging-tab="dragPlaceholder"
                         :title-only="titleOnlyPanelIds.has(panelId)"
                         :frame-actions="frameActionsOf(panelId)"
                         :view-head="panelViewHead(panelId)"
                         :fold="foldOf(panelId)"
-                        :fold-label="message(foldOf(panelId)?.collapsed === true ? 'shell.fold.expand' : 'shell.fold.collapse', {title: text(panelTitle(renderedDoc, catalog, panelId))})"
+                        :fold-label="foldOf(panelId) === null ? '' : message(foldOf(panelId)?.collapsed === true ? 'shell.fold.expand' : 'shell.fold.collapse', {title: text(panelTitle(renderedDoc, catalog, panelId))})"
                         @activate="(key) => activateTab(panelId, key)"
                         @toggle-fold="toggleFold(panelId)"
                         @head-slots="(slots) => setPanelHeadSlots(panelId, slots)"
