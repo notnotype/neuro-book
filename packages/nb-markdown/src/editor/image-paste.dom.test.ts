@@ -304,14 +304,13 @@ describe("放弃与告知（输出 55 的时序）", () => {
 });
 
 describe("按住 Ctrl 点链接（输出 53）", () => {
-    function clicked(editor: Editor, modifiers: {readonly ctrlKey?: boolean; readonly metaKey?: boolean}, text = "设定"): {handled: boolean; prevented: boolean} {
+    function clicked(editor: Editor, modifiers: {readonly ctrlKey?: boolean; readonly metaKey?: boolean; readonly shiftKey?: boolean; readonly altKey?: boolean}, text = "设定"): {handled: boolean; prevented: boolean} {
         const anchor = Array.from(editor.view.dom.querySelectorAll("a")).find((candidate) => candidate.textContent?.includes(text));
         if (anchor === undefined) throw new Error("没有这条链接");
         const event = new MouseEvent("click", {button: 0, bubbles: true, cancelable: true, ...modifiers});
         Object.defineProperty(event, "target", {value: anchor});
-        // 真实的点击先由 mousedown 把光标放到点击处，`click` 才触发；Link 的单击选中是在当前光标处延伸标记。
+        // 不先把光标放进被点的链接：ProseMirror 的选区在点击处理时还是点击之前的（浏览器的光标要等 `selectionchange` 才同步进来）。
         const pos = editor.view.posAtDOM(anchor, 0) + 1;
-        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos)));
         const handled = editor.view.someProp("handleClick", (handle) => handle(editor.view, pos, event)) === true;
         return {handled, prevented: event.defaultPrevented};
     }
@@ -326,14 +325,27 @@ describe("按住 Ctrl 点链接（输出 53）", () => {
         expect(harness.editor.state.selection.empty).toBe(true);
     });
 
-    it("单击照旧：Tiptap 的 Link 选中整条链接，宿主没被调用", () => {
+    it("单击选中被点的那条整条链接，宿主没被调用；光标原来在别的链接里也一样（不是之前的选区）", () => {
         const {host, opened} = hostOf();
-        const harness = open("见[林雪的设定](设定/林雪.md)吧\n", host);
-        harness.select(1);
+        const harness = open("见[林雪的设定](设定/林雪.md)与[官网](https://example.com)\n", host);
+        // 光标先放进“官网”，再点“林雪的设定”：选中的必须是被点的这一条。
+        harness.select(harness.editor.state.doc.textContent.indexOf("官网") + 2);
         expect(clicked(harness.editor, {}).handled).toBe(true);
         expect(opened).toEqual([]);
         const {from, to} = harness.editor.state.selection;
         expect(harness.editor.state.doc.textBetween(from, to)).toBe("林雪的设定");
+        expect(clicked(harness.editor, {}, "官网").handled).toBe(true);
+        expect(harness.editor.state.doc.textBetween(harness.editor.state.selection.from, harness.editor.state.selection.to)).toBe("官网");
+    });
+
+    it("Shift、Alt 加点（扩展选区）与不在链接上的点击不接手；只读时单击不选中", () => {
+        const {host} = hostOf();
+        const harness = open("见[林雪](a.md)乙\n", host);
+        harness.select(1);
+        expect(clicked(harness.editor, {shiftKey: true}, "林雪").handled).toBe(false);
+        expect(clicked(harness.editor, {altKey: true}, "林雪").handled).toBe(false);
+        harness.editor.setEditable(false);
+        expect(clicked(harness.editor, {}, "林雪").handled).toBe(false);
     });
 
     it("宿主此刻没有打开的能力：Ctrl 点也不接手，照单击", () => {

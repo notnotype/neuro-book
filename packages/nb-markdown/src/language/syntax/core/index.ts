@@ -407,7 +407,8 @@ export const coreExtensions: ReadonlyArray<AnyExtension> = [
     SingleParagraphCell,
     SingleParagraphHeader,
     Image.configure({inline: true, allowBase64: false, HTMLAttributes: {class: "nb-markdown-image-node"}}),
-    MarkdownLink.configure({openOnClick: false, enableClickSelection: true, linkOnPaste: false, autolink: false, isAllowedUri: (url, {defaultValidate}) => defaultValidate(url) || keepsHref(url)}),
+    // 单击选中整条链接由编辑器的 `MarkdownLinkOpener` 做：Tiptap 自带的（`enableClickSelection`）在点击处理时读的是点击之前的选区，点到一条链接选中的是之前光标所在的那条。
+    MarkdownLink.configure({openOnClick: false, enableClickSelection: false, linkOnPaste: false, autolink: false, isAllowedUri: (url, {defaultValidate}) => defaultValidate(url) || keepsHref(url)}),
     MarkdownStyle,
 ];
 
