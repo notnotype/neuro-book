@@ -51,6 +51,8 @@ const entry = (page: Page, viewId: string) => page.locator(`[data-tool-entry="vi
 /** 视图的分节：区域里一个视图一个分节（输出 40），id 是 `section:<视图 id>`。 */
 const section = (viewId: string): string => `section:${viewId}`;
 const frameButton = (page: Page, panel: string, action: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-action="${action}"]`);
+/** 能收成标题行的分节的标题：整行是展开、收起的开关（输出 20）。 */
+const foldTitle = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-tab][aria-expanded]`);
 
 const rectOf = (page: Page, selector: string) => page.evaluate((target) => {
     const {x, y, width, height} = document.querySelector(target)!.getBoundingClientRect();
@@ -68,7 +70,8 @@ test.describe("面板头", () => {
         expect(await leftOf("[data-view-action]")).toBeLessThan(await leftOf("[data-panel-action]"));
         // 只写标题：没有标签带。
         await expect(page.locator(`${head} [role='tablist']`)).toHaveCount(0);
-        await expect(page.locator(`${head} [data-panel-action]`)).toHaveCount(2);
+        // 框架按钮只有最大化：收起不是按钮，是标题行（输出 20）。
+        await expect(page.locator(`${head} [data-panel-action]`)).toHaveCount(1);
         // 隐藏是区域的事：哪个分节的头上都没有隐藏按钮。
         await act(page, "c-to-new-panel");
         await expect(page.locator("[data-panel-head]:has([data-panel-tab='view:c'])")).toBeVisible();
@@ -178,11 +181,16 @@ test.describe("有效可见", () => {
         // 收成标题行只给侧栏、右栏里不止一节的容器（输出 12、20）：D 成为 B 那个容器的第二节，侧栏切到 B。
         await act(page, "d-below-b");
         await expect.poll(() => visibleTabs(page)).toEqual(expect.arrayContaining(["view:b", "view:d"]));
-        await frameButton(page, section("b"), "collapse").click();
+        await foldTitle(page, section("b")).click();
         await expect.poll(() => visibleTabs(page)).not.toContain("view:b");
         expect((await rectOf(page, `[data-leaf='${section("b")}']`)).height).toBe(32);
-        await frameButton(page, section("b"), "collapse").click();
-        await expect.poll(() => visibleTabs(page)).toContain("view:b");
+        // 两节都收起：D 垫底、外框拉到底，仍不算可见（输出 11）。
+        await foldTitle(page, section("d")).click();
+        await expect.poll(() => visibleTabs(page)).not.toContain("view:d");
+        expect((await rectOf(page, `[data-leaf='${section("d")}']`)).height).toBeGreaterThan(32);
+        await foldTitle(page, section("d")).click();
+        await foldTitle(page, section("b")).click();
+        await expect.poll(() => visibleTabs(page)).toEqual(expect.arrayContaining(["view:b", "view:d"]));
 
         // 点当前容器按下着的入口：侧栏隐藏（输出 22）。
         await entry(page, "b").click();

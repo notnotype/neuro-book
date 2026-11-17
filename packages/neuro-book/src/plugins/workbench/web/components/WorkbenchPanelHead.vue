@@ -348,9 +348,11 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
 }
 
 .workbench-panel-head__title {
+    /* 撑满头的高度，好让能收起的标题按钮整行可点；里面照旧竖直居中（只写名称的文字、没有标记的按钮都不被拉高）。 */
     display: flex;
     flex: 1 1 auto;
     align-self: stretch;
+    align-items: center;
     min-width: 0;
     margin: 0;
     padding-inline-start: var(--space-2);
@@ -393,8 +395,9 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
 }
 
 .workbench-panel-head__handle:has(> .workbench-panel-head__chevron) {
-    /* 能收起时整行是开关（输出 20）：铺满标题这一格。别的头按钮只有标题那么宽，空白处不起拖（输出 24）。 */
+    /* 能收起时整行是开关（输出 20）：铺满标题这一格，上下也到头的边。别的头按钮只有标题那么大，空白处不起拖（输出 24）。 */
     flex: 1 1 auto;
+    align-self: stretch;
     gap: 5px;
 }
 
