@@ -51,7 +51,9 @@ updated: 2026-11-17
 
 切片 4（浏览器一侧）在分支提交 `a3dbbef4c`：`stickers/web/resolver.ts`（按 Spec 输出 7、8 查表情；目录到之前的查询等着，没取到过就失败时回答认不出，取到过的留着）、`web/plugin.ts`（先订阅再取），描述位置加回 `browser`、登记进 `src/web/plugins.ts`；`nbook.markdown` 浏览器入口可选依赖 `stickerResolverKey`，在 `withHost` 里提供 `markdownStickersKey`。测试：`resolver.test.ts` 4 条、`markdown-wiring.dom.test.ts` 2 条（经真实 `nbook.markdown`），变异（不提供注入键）被抓住。
 
+切片 5（白名单与槽）在分支提交 `72ccaced9`：`agent.profiles` 声明加 `stickers?`，`profileSettings` 每项加 `stickers?`，Profile 目录条目带 `stickers`；白名单合成文件改名为 `agent/shared/profile-allowlist.ts`（`declaredAllowlist`、`profileAllowlist`，Skill 与表情包共用）；`agent/backend/stickers/extension.ts` 的纯函数 `stickersSection` 与扩展 `nbook.agent.stickers`，`nbook.agent` 服务端可选依赖 `stickersServiceKey`。测试 `agent/stickers-slot.test.ts` 4 条（纯函数 3 条、内核测试会话 1 条：槽进系统块、别处同名表情不改槽、去掉白名单后槽没了），变异 4 个全杀；agent 的 bun 444 条与 web 56 条通过。
+
 ## 下一步
 
-- 切片 5（白名单与槽，`nbook.agent` 服务端）：`agent.profiles` 声明加 `stickers?`、`profileSettings` 加 `stickers?`，白名单合成通用化（`agent/shared/profile-skills.ts`），扩展 `nbook.agent.stickers` 交槽 `stickers`（Spec 输出 14–17），可选依赖 `stickersServiceKey`；测试经真实的 `nbook.stickers` 服务端服务加内核测试工具看请求。
+- 切片 6（Profile 设置的“表情包”一节，前端）：`ProfileToolsSection.vue` 的 `kind` 加 `"stickers"`（行带第一个常用表情的缩略图），补 `profiles.stickers.*` 文字；`web/profile-edits.ts` 把 agents、skills 两份逐字相同的选择函数合成一个按字段名的；`profile-view.ts` 抽按来源分组的绑定字段；目录经 `nbook.stickers` 的远程服务取（浏览器里需要说明与 common，`BrowserStickerPack` 不带这些：设置页可能要另一个远程方法，或扩充浏览器目录）。
 - 收口时跑 `check:dist`（完整构建的最后一步）。
