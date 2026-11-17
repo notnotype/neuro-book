@@ -484,6 +484,14 @@ test.describe("产品页", () => {
         // 这一列两节之间的分隔线拖不动（展开靠点标题），线照画。
         const panes = page.locator('[data-workbench-surface] [data-sash-kind="panes"]').first();
         await expect(panes).toHaveAttribute("aria-disabled", "true");
+        const [upperBefore, lowerBefore] = [await box(page, upper), await box(page, lower)];
+        const line = (await panes.boundingBox())!;
+        await page.mouse.move(line.x + line.width / 2, line.y + line.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(line.x + line.width / 2, line.y + line.height / 2 + 120, {steps: 6});
+        await page.mouse.up();
+        expect([await box(page, upper), await box(page, lower)]).toEqual([upperBefore, lowerBefore]);
+        await expect.poll(async () => (await saved(page))?.doc.panels[upper]?.collapsed).toBe(true);
         await fold(page, upperView).click();
         await expect.poll(async () => (await box(page, upper)).height).toBeGreaterThan(400);
         expect((await box(page, lower)).height).toBe(32);

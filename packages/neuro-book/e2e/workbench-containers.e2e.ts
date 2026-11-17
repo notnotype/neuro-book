@@ -144,9 +144,14 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(collapseButton(page, upperView)).toBeFocused();
         await page.keyboard.press("Enter");
         await expect.poll(async () => (await box(page, upper)).height).toBe(tall);
-        // 双击切两次，回到原样。
+        // 双击切两次，回到原样：两次切换都发生了（先收起再展开），不是两次都没动。
+        await collapseButton(page, upperView).evaluate((element) => {
+            const seen: string[] = [];
+            (window as unknown as {foldSeen: string[]}).foldSeen = seen;
+            new MutationObserver(() => seen.push(element.getAttribute("aria-expanded") ?? "")).observe(element, {attributes: true, attributeFilter: ["aria-expanded"]});
+        });
         await collapseButton(page, upperView).dblclick();
-        await expect.poll(async () => (await saved(page))?.panels[upper]?.collapsed ?? false).toBe(false);
+        await expect.poll(() => page.evaluate(() => (window as unknown as {foldSeen: string[]}).foldSeen)).toEqual(["false", "true"]);
         await expect.poll(async () => (await box(page, upper)).height).toBe(tall);
 
         // 全部收起：最后一节垫底，外框到这一列的底；卡片右下角是圆的（那一点是窗体底），标题行下面是卡片的底。
@@ -193,6 +198,14 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(content(page, lowerView)).toHaveAttribute("inert", "");
         await page.mouse.up();
         await expect(content(page, lowerView)).toHaveAttribute("inert", "");
+        // 点上面那一节展开：它按份额长出来，垫底的那一节缩回标题行，这一列的上下边不动。
+        const [top, bottom] = [(await box(page, upper)).y, (await box(page, lower)).y + (await box(page, lower)).height];
+        await collapseButton(page, upperView).click();
+        await expect.poll(async () => (await box(page, lower)).height).toBe(32);
+        expect((await box(page, upper)).y).toBe(top);
+        const settled = await box(page, lower);
+        expect(settled.y + settled.height).toBe(bottom);
+        await expect(content(page, upperView)).not.toHaveAttribute("inert", "");
     });
 
     test("面板头的样子：标记与资源管理器树第一层的展开箭头、标题与树的文字左缘对齐；标记与标题在头里竖直居中；收起前后不横移；按钮悬停才出，焦点在头里时出；最大化着还原按钮一直在（ui/workbench-layout 输出 20）", async ({page}) => {
@@ -235,11 +248,19 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await page.mouse.move(900, 500);
         await collapseButton(page, EXPLORER).focus();
         await expect.poll(() => frameActions.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
-        // 最大化着还原按钮一直在：它是这块面板此刻状态的唯一指示。
+        // 最大化着还原按钮一直在：它是这块面板此刻状态的唯一指示。最大化的面板盖住了整个表面，所以指针移到标题栏、焦点移出去，
+        // 同一个头里的视图动作透明（证明不是悬停、焦点让它们显示），框架按钮仍然显示。
         await page.locator(`[data-panel-head="${explorer}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`).click();
-        await page.locator("body").click({position: {x: 900, y: 500}});
-        await page.mouse.move(900, 500);
+        await page.mouse.move(700, 8);
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        const viewActions = page.locator(`[data-panel-head="${explorer}"] [data-hover-actions=""]`);
+        await expect.poll(() => viewActions.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
         await expect.poll(() => frameActions.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+        // 还原之后同样的指针与焦点下，框架按钮回到透明。
+        await page.locator(`[data-panel-head="${explorer}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`).click();
+        await page.mouse.move(700, 8);
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await expect.poll(() => frameActions.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
     });
 
     test("切到别的容器再切回来：两个分节的先后、高度与收起都是原样，实例、输入与滚动保留；记录里的尺寸意图前后相同（验收 24；输出 42）", async ({page}) => {

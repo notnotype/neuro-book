@@ -525,6 +525,19 @@ describe("带容器的区域", () => {
             expect(opened.layout.sizes.s2?.height).toBe(layout.sizes.s2?.height);
         });
 
+        it("按呈现数：放不下收走的那一节不算，剩下的全部收起时最后呈现的那一节垫底；收得只剩一节时不垫底", () => {
+            const all = docOf(V([H(["activitybar", V(["sidebar", "s1", "s2", "s3"], "side"), "ea"], "body"), "statusbar"], "root"), {
+                sidebar: ANCHORS.sidebar,
+                s1: {container: "A", collapsed: true},
+                s2: {container: "A", collapsed: true},
+                s3: {container: "A", collapsed: true},
+            });
+            expect([...solve(all, EXTENT, {removed: new Set(["s3"])}).projection.fillers]).toEqual(["s2"]);
+            const lone = solve(all, EXTENT, {removed: new Set(["s2", "s3"])});
+            expect(lone.projection.fillers.size).toBe(0);
+            expect(lone.layout.issues).toEqual([]);
+        });
+
         it("有入口条的区域（包装分支的内层）同样垫底", () => {
             const doc = docOf(V([H(["activitybar", V(["sidebar", "s1"], "side"), "ea", V(["auxiliarybar", "a1", "a2"], "aux")], "body"), "statusbar"], "root"), {
                 sidebar: ANCHORS.sidebar,
