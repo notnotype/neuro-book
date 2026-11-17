@@ -5,7 +5,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {moveStatusItem, resolveStatusLine, statusLineCatalog, toggleStatusItem} from "./status-line";
+import {collapsedCount, moveStatusItem, resolveStatusLine, statusLineCatalog, toggleStatusItem} from "./status-line";
 import type {StatusLineItem} from "./status-line";
 
 const plugin = (id: string, side: "left" | "right", defaultVisible = false): StatusLineItem => ({id, side, title: id, defaultVisible, source: "x.words"});
@@ -66,5 +66,18 @@ describe("写回", () => {
         const first = moveStatusItem(catalog, {visible: {model: true}}, "model", 0);
         expect(first).toEqual({order: ["model", "usage", "cost"], visible: {model: true}});
         expect(toggleStatusItem(catalog, first, "usage")).toEqual({order: ["model", "usage", "cost"], visible: {model: true, usage: false}});
+    });
+});
+
+describe("窄时收项", () => {
+    it("放得下一项不收；放不下从第一项起收，收了就多一个“…”的位置；最后一项总留着", () => {
+        const widths = [80, 40, 50];
+        expect(collapsedCount(widths, 200, 8, 16)).toBe(0);
+        expect(collapsedCount(widths, 130, 8, 16)).toBe(1);
+        expect(collapsedCount(widths, 121, 8, 16)).toBe(2);
+        expect(collapsedCount(widths, 80, 8, 16)).toBe(2);
+        expect(collapsedCount(widths, 10, 8, 16)).toBe(2);
+        expect(collapsedCount([30], 5, 8, 16)).toBe(0);
+        expect(collapsedCount([], 5, 8, 16)).toBe(0);
     });
 });

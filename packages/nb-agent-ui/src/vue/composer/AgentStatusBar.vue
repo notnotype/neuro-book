@@ -1,14 +1,19 @@
 <script setup lang="ts">
 /**
- * 输入框下面一行小字（docs/specs/agent/conversation.md 输出 15–18）。左边是现在怎样了，右边是累计的用量，图标与轮末的用量相同。
- * 视图不自己计时：用时按宿主给的 `ctx.now` 算。
+ * 输入框下面一行小字（docs/specs/agent/conversation.md 输出 15–18、45）。左边是现在怎样了，右边是累计的用量，图标与轮末的用量相同。
+ * 视图不自己计时：用时按宿主给的 `ctx.now` 算。数据项（上下文、用量、费用、模型与宿主加的项）按用户设置 `statusLine` 显示与排序，
+ * 提醒类总显示；右边放不下时从前往后收进悬停（见同名 .md）。
  */
-import {computed} from "vue";
-import {Spinner, Tooltip} from "@notnotype/nb-ui/components";
+import {computed, onBeforeUnmount, ref, shallowReactive} from "vue";
+import {ContextMenu, Spinner, Tooltip} from "@notnotype/nb-ui/components";
+import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 
+import {THINKING_LEVEL_KEYS} from "../../composer-actions";
 import {formatCost, formatDuration, formatTokens} from "../../process-summary";
 import {visibleEntries} from "../../registry";
 import type {AgentViewRegistry} from "../../registry";
+import {collapsedCount, resolveStatusLine, statusLineCatalog} from "../../status-line";
+import type {StatusLineItem, StatusLineSetting} from "../../status-line";
 import type {AgentConversationContext} from "../../types";
 import {useAgentText} from "../host";
 import {isDocked} from "../../wizard";
@@ -17,18 +22,23 @@ import AgentContextMeter from "./AgentContextMeter.vue";
 const props = defineProps<{
     ctx: AgentConversationContext;
     registry: AgentViewRegistry;
+    /** 用户的状态栏设置；不给时按缺省显示，也不弹右键菜单。 */
+    statusLine?: StatusLineSetting;
 }>();
 
-const emit = defineEmits<{(e: "inspect"): void}>();
+const emit = defineEmits<{
+    (e: "inspect"): void;
+    (e: "toggle", id: string): void;
+    (e: "openSettings"): void;
+}>();
 
 const inspectable = computed(() => props.ctx.interaction.canInspectContext === true);
 
-const {t} = useAgentText();
+const {t, text} = useAgentText();
 
 /** 停止超过这么久还没停下，多半是工具不理会中止。 */
 const STOP_SLOW_MS = 10_000;
 
-const items = computed(() => visibleEntries(props.registry.list("statusItems"), props.ctx));
 const usage = computed(() => props.ctx.usage);
 const elapsed = computed(() => {
     const started = props.ctx.run.startedAt;
@@ -83,50 +93,194 @@ const detail = computed(() => t("status.detail", {
 const hasSession = computed(() => props.ctx.session !== null);
 const hasUsage = computed(() => hasSession.value && usage.value.totalTokens > 0);
 const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : `${String(Math.round(usage.value.cacheHitRate * 100))}%`));
+
+// ─── 可选项与次序 ───────────────────────────────────────────────────────
+
+const hostEntries = computed(() => props.registry.list("statusItems"));
+const catalog = computed<StatusLineItem[]>(() => statusLineCatalog(hostEntries.value.map((entry) => ({
+    id: entry.id, side: entry.side, title: entry.title, defaultVisible: entry.defaultVisible ?? false,
+    ...(entry.description === undefined ? {} : {description: entry.description}),
+    ...(entry.source === undefined ? {} : {source: entry.source}),
+}))));
+const resolved = computed(() => resolveStatusLine(catalog.value, props.statusLine ?? {}));
+/** 宿主项的组件：`when` 为假的这一刻不画。 */
+const hostComponents = computed(() => new Map(visibleEntries(hostEntries.value, props.ctx).map((entry) => [entry.id, entry.component] as const)));
+
+const thinkingText = computed(() => {
+    const level = props.ctx.composer.thinking;
+    if (level === null || level === undefined) return "";
+    const key = THINKING_LEVEL_KEYS[level];
+    return key === undefined ? level : t(key);
+});
+/** 模型与推理档：一行文字；没有解析出模型时没有。 */
+const modelText = computed(() => {
+    const model = props.ctx.composer.effectiveModel;
+    if (!hasSession.value || model === null || model === undefined) return "";
+    return thinkingText.value === "" ? model : `${model} · ${thinkingText.value}`;
+});
+const usageText = computed(() => `${formatTokens(usage.value.totalTokens)} · ${detail.value}`);
+
+/** 这一刻能画出东西的项：数据项要有数据，宿主项要它的组件在。 */
+function present(id: string): boolean {
+    switch (id) {
+        case "context": return hasSession.value && ((usage.value.contextLimit !== null && usage.value.contextLimit > 0) || usage.value.contextTokens > 0);
+        case "usage": return hasUsage.value;
+        case "cost": return hasSession.value && costText.value !== null;
+        case "model": return modelText.value !== "";
+        default: return hostComponents.value.has(id);
+    }
+}
+const leftItems = computed(() => resolved.value.left.filter((item) => item.visible && present(item.id)));
+const rightItems = computed(() => resolved.value.right.filter((item) => item.visible && present(item.id)));
+
+/** 收起的项在悬停里写的字：数据项写自己的内容，宿主项只有标题（组件的内容这里拿不到）。 */
+function textOf(item: StatusLineItem): string {
+    switch (item.id) {
+        case "usage": return usageText.value;
+        case "cost": return costText.value ?? "";
+        case "model": return modelText.value;
+        default: return text(item.title);
+    }
+}
+
+// ─── 窄时收项 ───────────────────────────────────────────────────────────
+
+/** 右边至少让出的左边宽度：圆环与百分比。 */
+const LEFT_MIN = 72;
+/** 状态栏的左右内边距、项之间的间距、“…”占的宽度：与下面的样式一致。 */
+const PADDING = 24;
+const GAP = 6;
+const MORE_WIDTH = 16;
+
+const barRef = ref<HTMLElement | null>(null);
+const barWidth = ref(0);
+/** 各项的自然宽度：收起的项仍在页面里（不可见、不占位），所以量得到，放宽之后据此判断放不放得下。 */
+const widths = shallowReactive(new Map<string, number>());
+const slots = new Map<string, HTMLElement>();
+const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+    barWidth.value = barRef.value?.clientWidth ?? 0;
+    for (const [id, element] of slots) if (element.offsetWidth > 0) widths.set(id, element.offsetWidth);
+});
+onBeforeUnmount(() => observer?.disconnect());
+
+function bindBar(element: unknown): void {
+    barRef.value = element instanceof HTMLElement ? element : null;
+    if (barRef.value !== null) observer?.observe(barRef.value);
+}
+function bindSlot(id: string, element: unknown): void {
+    const previous = slots.get(id);
+    if (element instanceof HTMLElement) {
+        if (previous !== element) {
+            if (previous !== undefined) observer?.unobserve(previous);
+            slots.set(id, element);
+            observer?.observe(element);
+        }
+    } else if (previous !== undefined) {
+        observer?.unobserve(previous);
+        slots.delete(id);
+    }
+}
+
+const collapsedIds = computed<ReadonlySet<string>>(() => {
+    const measured = rightItems.value.map((item) => widths.get(item.id) ?? 0);
+    // 还没量到（首次渲染、没有布局的环境）时不收。
+    if (barWidth.value === 0 || measured.some((width) => width === 0)) return new Set();
+    const count = collapsedCount(measured, barWidth.value - PADDING - LEFT_MIN, GAP, MORE_WIDTH);
+    return new Set(rightItems.value.slice(0, count).map((item) => item.id));
+});
+const collapsedText = computed(() => rightItems.value.filter((item) => collapsedIds.value.has(item.id)).map(textOf).join(" · "));
+
+// ─── 右键菜单 ───────────────────────────────────────────────────────────
+
+/** `ContextMenu` 要常挂着、靠 `open` 的变化定位与夹取：打开时才挂上的话它不会量自己，菜单会伸出视口。 */
+const menu = ref({open: false, x: 0, y: 0});
+function onContextMenu(event: MouseEvent): void {
+    if (props.statusLine === undefined) return;
+    event.preventDefault();
+    menu.value = {open: true, x: event.clientX, y: event.clientY};
+}
+const menuItems = computed<ContextMenuItem[]>(() => [
+    ...[...resolved.value.left, ...resolved.value.right].map((item): ContextMenuItem => ({
+        label: item.source === undefined ? text(item.title) : `${text(item.title)} · ${t("status.line.plugin")}`,
+        type: "checkbox",
+        checked: item.visible,
+        ...(item.description === undefined ? {} : {title: text(item.description)}),
+        action: () => emit("toggle", item.id),
+    })),
+    {separator: true},
+    {label: t("status.line.settings"), iconClass: "i-lucide-settings", action: () => emit("openSettings")},
+]);
 </script>
 
 <template>
-    <div class="acv-status" data-agent-status>
+    <div :ref="bindBar" class="acv-status" data-agent-status @contextmenu="onContextMenu">
         <div class="acv-status__left">
-        <AgentContextMeter v-if="hasSession && usage.contextLimit !== null && usage.contextLimit > 0" :used="usage.contextTokens" :limit="usage.contextLimit" :interactive="inspectable" @inspect="emit('inspect')" />
-        <span v-else-if="hasSession && usage.contextTokens > 0" class="acv-status__context">{{ formatTokens(usage.contextTokens) }}</span>
-        <span v-if="phase !== null" class="acv-status__phase" :data-tone="phase.tone" data-status-phase>
-            <span v-if="phase.tone === 'wait'" class="acv-status__dot" aria-hidden="true" />
-            <Spinner v-else-if="phase.spin" size="sm" :label="phase.text" />
-            <span class="acv-status__text">{{ phase.text }}</span>
-        </span>
-        <span v-if="usage.costState === 'warned'" class="acv-status__flag is-warn" data-status-cost-warned>{{ t("status.costWarned") }}</span>
-        <span v-if="modeFlag" class="acv-status__flag is-accent" data-status-mode><span :class="modeFlag.icon ?? 'i-lucide-circle-dot'" aria-hidden="true" />{{ t("status.modeFlag", {mode: modeFlag.label}) }}</span>
-        <span v-if="yolo" class="acv-status__flag is-danger" data-status-yolo><span class="i-lucide-triangle-alert" aria-hidden="true" />{{ t("status.yolo") }}</span>
-        <span v-if="disconnected" class="acv-status__flag is-warn" data-status-connection>{{ props.ctx.connection.status === "connecting" ? t("status.connecting") : t("status.disconnected") }}</span>
-        <component :is="item.component" v-for="item in items" :key="item.id" :ctx="props.ctx" />
-        </div>
-        <Tooltip v-if="hasUsage" :text="detail" side="top">
-            <span class="acv-status__usage" tabindex="0" :aria-label="detail" data-status-usage>
-                <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-zap" aria-hidden="true" />{{ formatTokens(usage.totalTokens) }}</span>
-                <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-arrow-down" aria-hidden="true" />{{ formatTokens(usage.input ?? 0) }}</span>
-                <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-arrow-up" aria-hidden="true" />{{ formatTokens(usage.output ?? 0) }}</span>
-                <component
-                    :is="inspectable ? 'button' : 'span'"
-                    v-if="cachePercent !== null"
-                    v-bind="inspectable ? {type: 'button', 'aria-haspopup': 'dialog', 'aria-label': t('panel.context.open')} : {}"
-                    class="acv-status__metric"
-                    :class="{'is-button': inspectable}"
-                    data-status-cache
-                    @click="inspectable && emit('inspect')"
-                ><span class="i-lucide-database-zap" aria-hidden="true" />{{ cachePercent }}</component>
+            <template v-for="item in leftItems" :key="item.id">
+                <template v-if="item.id === 'context'">
+                    <AgentContextMeter v-if="usage.contextLimit !== null && usage.contextLimit > 0" :used="usage.contextTokens" :limit="usage.contextLimit" :interactive="inspectable" @inspect="emit('inspect')" />
+                    <span v-else class="acv-status__context">{{ formatTokens(usage.contextTokens) }}</span>
+                </template>
+                <component :is="hostComponents.get(item.id)" v-else :ctx="props.ctx" :data-status-item="item.id" />
+            </template>
+            <span v-if="phase !== null" class="acv-status__phase" :data-tone="phase.tone" data-status-phase>
+                <span v-if="phase.tone === 'wait'" class="acv-status__dot" aria-hidden="true" />
+                <Spinner v-else-if="phase.spin" size="sm" :label="phase.text" />
+                <span class="acv-status__text">{{ phase.text }}</span>
             </span>
-        </Tooltip>
-        <span v-if="hasSession && costText !== null" class="acv-status__metric acv-status__cost" :class="{'is-warn': usage.costState === 'warned'}" :title="costTitle" data-status-cost>
-            <span class="i-lucide-circle-dollar-sign" aria-hidden="true" />{{ costText }}
-        </span>
+            <span v-if="usage.costState === 'warned'" class="acv-status__flag is-warn" data-status-cost-warned>{{ t("status.costWarned") }}</span>
+            <span v-if="modeFlag" class="acv-status__flag is-accent" data-status-mode><span :class="modeFlag.icon ?? 'i-lucide-circle-dot'" aria-hidden="true" />{{ t("status.modeFlag", {mode: modeFlag.label}) }}</span>
+            <span v-if="yolo" class="acv-status__flag is-danger" data-status-yolo><span class="i-lucide-triangle-alert" aria-hidden="true" />{{ t("status.yolo") }}</span>
+            <span v-if="disconnected" class="acv-status__flag is-warn" data-status-connection>{{ props.ctx.connection.status === "connecting" ? t("status.connecting") : t("status.disconnected") }}</span>
+        </div>
+        <div class="acv-status__right" data-status-right>
+            <Tooltip v-if="collapsedIds.size > 0" :text="collapsedText" side="top">
+                <span class="acv-status__more" tabindex="0" :aria-label="collapsedText" data-status-more><span class="i-lucide-ellipsis" aria-hidden="true" /></span>
+            </Tooltip>
+            <span
+                v-for="item in rightItems"
+                :key="item.id"
+                :ref="(element) => bindSlot(item.id, element)"
+                class="acv-status__slot"
+                :class="{'is-collapsed': collapsedIds.has(item.id)}"
+                :data-status-item="item.id"
+            >
+                <Tooltip v-if="item.id === 'usage'" :text="detail" side="top">
+                    <span class="acv-status__usage" tabindex="0" :aria-label="detail" data-status-usage>
+                        <span class="acv-status__metric"><span class="i-lucide-zap" aria-hidden="true" />{{ formatTokens(usage.totalTokens) }}</span>
+                        <span class="acv-status__metric"><span class="i-lucide-arrow-down" aria-hidden="true" />{{ formatTokens(usage.input ?? 0) }}</span>
+                        <span class="acv-status__metric"><span class="i-lucide-arrow-up" aria-hidden="true" />{{ formatTokens(usage.output ?? 0) }}</span>
+                        <component
+                            :is="inspectable ? 'button' : 'span'"
+                            v-if="cachePercent !== null"
+                            v-bind="inspectable ? {type: 'button', 'aria-haspopup': 'dialog', 'aria-label': t('panel.context.open')} : {}"
+                            class="acv-status__metric"
+                            :class="{'is-button': inspectable}"
+                            data-status-cache
+                            @click="inspectable && emit('inspect')"
+                        ><span class="i-lucide-database-zap" aria-hidden="true" />{{ cachePercent }}</component>
+                    </span>
+                </Tooltip>
+                <span v-else-if="item.id === 'cost'" class="acv-status__metric acv-status__cost" :class="{'is-warn': usage.costState === 'warned'}" :title="costTitle" data-status-cost>
+                    <span class="i-lucide-circle-dollar-sign" aria-hidden="true" />{{ costText }}
+                </span>
+                <span v-else-if="item.id === 'model'" class="acv-status__metric" data-status-model>{{ modelText }}</span>
+                <component :is="hostComponents.get(item.id)" v-else :ctx="props.ctx" />
+            </span>
+        </div>
+        <ContextMenu
+            v-if="props.statusLine !== undefined"
+            :open="menu.open"
+            :x="menu.x"
+            :y="menu.y"
+            :items="menuItems"
+            @update:open="menu = {...menu, open: $event}"
+        />
     </div>
 </template>
 
 <style scoped>
 .acv-status {
-    /* 下面的窄宽规则按状态栏自己的宽度：它的祖先没有别的查询容器。 */
-    container-type: inline-size;
+    position: relative;
     display: flex;
     flex-shrink: 0;
     align-items: center;
@@ -238,16 +392,38 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
     outline-offset: 1px;
 }
 
-/* 窄的时候右边只留缓存命中与费用（开发者 2026-11-06），累计、输入、输出在悬停里。右栏默认就窄，缓存命中不能让。 */
-@container (max-width: 400px) {
-    .acv-status__metric--detail {
-        display: none;
-    }
-
-    /* 服务商不报缓存时留累计：悬停明细要有个地方可指。 */
-    .acv-status__usage:not(:has([data-status-cache])) .acv-status__metric--detail:first-child {
-        display: inline-flex;
-    }
+/* 右边的项不收缩；放不下的由脚本从前往后收：收起的项仍在页面里（量得到宽度）但不占位、看不见。 */
+.acv-status__right {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 6px;
 }
 
+.acv-status__slot {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+}
+
+.acv-status__slot.is-collapsed {
+    position: absolute;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.acv-status__more {
+    display: inline-flex;
+    width: 16px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    cursor: default;
+}
+
+.acv-status__more:focus-visible {
+    outline: 2px solid var(--focus-outline);
+    outline-offset: 1px;
+}
 </style>

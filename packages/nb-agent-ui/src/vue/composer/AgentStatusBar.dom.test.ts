@@ -1,8 +1,11 @@
-import {mount} from "@vue/test-utils";
-import {describe, expect, it} from "vitest";
+import {flushPromises, mount} from "@vue/test-utils";
+import {afterEach, describe, expect, it} from "vitest";
+import {defineComponent, h} from "vue";
 
 import {createAgentContext} from "../../context";
 import {createAgentViewRegistry} from "../../registry";
+import type {AgentViewContribution} from "../../registry";
+import type {StatusLineSetting} from "../../status-line";
 import type {AgentConversationContext, SessionView} from "../../types";
 import AgentStatusBar from "./AgentStatusBar.vue";
 
@@ -11,6 +14,69 @@ const SESSION: SessionView = {id: "s1", title: "第三章", summary: "", profile
 /** 数据项只在有会话时画（见下面“没选会话”）：别的用例都在一个会话里看。 */
 const bar = (ctx: AgentConversationContext, options: {readonly session?: boolean} = {}) => mount(AgentStatusBar, {props: {ctx: options.session === false ? ctx : {...ctx, session: ctx.session ?? SESSION}, registry}});
 const usage = {contextTokens: 16_300, contextLimit: 128_000, totalTokens: 162_400, input: 101_200, output: 3_100, cacheRead: 58_100, cacheWrite: 0, cacheHitRate: 0.62, cost: 0.07, currency: "USD" as const};
+
+afterEach(() => {
+    document.body.innerHTML = "";
+});
+
+const WordCount = defineComponent({setup: () => () => h("span", {"data-words": ""}, "改了 1,234 字")});
+const hostItems: AgentViewContribution = {source: "test", statusItems: [{id: "x.words", component: WordCount, side: "left", title: "本会话改的字数", source: "字数统计"}]};
+const hostRegistry = createAgentViewRegistry([hostItems]);
+const withLine = (ctx: AgentConversationContext, statusLine: StatusLineSetting, reg = registry) => mount(AgentStatusBar, {props: {ctx: {...ctx, session: ctx.session ?? SESSION}, registry: reg, statusLine}, attachTo: document.body});
+const shownIds = (view: ReturnType<typeof withLine>) => view.findAll("[data-status-item]").map((node) => node.attributes("data-status-item"));
+
+describe("AgentStatusBar 的可选项（conversation.md 输出 45）", () => {
+    it("空设置与不给设置一样：左边上下文，右边用量与费用，模型与宿主的项默认不显示", () => {
+        const plain = bar(createAgentContext({usage}));
+        const empty = withLine(createAgentContext({usage, composer: {effectiveModel: "Claude Sonnet"}}), {}, hostRegistry);
+        expect(shownIds(empty)).toEqual(["usage", "cost"]);
+        expect(empty.find("[data-context-meter]").exists()).toBe(true);
+        expect(empty.find("[data-words]").exists()).toBe(false);
+        expect(empty.find("[data-status-model]").exists()).toBe(false);
+        expect(empty.get("[data-status-usage]").text()).toBe(plain.get("[data-status-usage]").text());
+    });
+
+    it("设置改显隐与次序：关掉用量、打开模型与宿主的项、费用排到前面；提醒类不受设置影响", () => {
+        const modes = [{key: "normal", label: "普通"}, {key: "plan", label: "计划"}];
+        const ctx = createAgentContext({usage, composer: {effectiveModel: "Claude Sonnet", thinking: "low", modes, mode: "plan"}, connection: {status: "disconnected"}});
+        const view = withLine(ctx, {order: ["model", "cost"], visible: {usage: false, model: true, "x.words": true}}, hostRegistry);
+        expect(shownIds(view)).toEqual(["x.words", "model", "cost"]);
+        expect(view.get("[data-status-model]").text()).toBe("Claude Sonnet · 低");
+        expect(view.find("[data-status-usage]").exists()).toBe(false);
+
+        // 全关了：数据项都没有，提醒还在。
+        const none = withLine(ctx, {visible: {context: false, usage: false, cost: false}});
+        expect(shownIds(none)).toEqual([]);
+        expect(none.find("[data-context-meter]").exists()).toBe(false);
+        expect(none.find("[data-status-mode]").exists()).toBe(true);
+        expect(none.find("[data-status-connection]").exists()).toBe(true);
+    });
+
+    it("右键弹勾选菜单（宿主的项标来源），点一项发 toggle、点“状态栏设置…”发 openSettings；不给设置时不弹", async () => {
+        const view = withLine(createAgentContext({usage}), {visible: {usage: false}}, hostRegistry);
+        await view.get("[data-agent-status]").trigger("contextmenu", {clientX: 40, clientY: 40});
+        await flushPromises();
+        const items = [...document.body.querySelectorAll<HTMLElement>("[role='menuitemcheckbox'], [role='menuitem']")];
+        const labels = items.map((item) => item.textContent?.trim());
+        expect(labels).toEqual(["上下文用量", "本会话改的字数 · 插件", "用量与缓存命中", "费用", "模型与推理档", "状态栏设置…"]);
+        expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual(["true", "false", "false", "true", "false", null]);
+        items[2]!.click();
+        await flushPromises();
+        expect(view.emitted("toggle")).toEqual([["usage"]]);
+        expect(document.body.querySelector("[role='menu']")).toBeNull();
+
+        await view.get("[data-agent-status]").trigger("contextmenu", {clientX: 40, clientY: 40});
+        await flushPromises();
+        [...document.body.querySelectorAll<HTMLElement>("[role='menuitem']")].at(-1)!.click();
+        await flushPromises();
+        expect(view.emitted("openSettings")).toHaveLength(1);
+
+        const plain = bar(createAgentContext({usage}));
+        await plain.get("[data-agent-status]").trigger("contextmenu");
+        await flushPromises();
+        expect(document.body.querySelector("[role='menu']")).toBeNull();
+    });
+});
 
 describe("AgentStatusBar", () => {
     it("没选会话：不画上下文、用量与费用；提醒项（非默认模式、全部放行）照常", () => {
