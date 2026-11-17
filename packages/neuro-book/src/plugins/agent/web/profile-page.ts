@@ -22,10 +22,11 @@ import type {ProfileSetting, ToolBinding} from "../shared/settings";
 import {changeToolBinding, userProfileAddress, withToolBinding} from "../shared/profile-tools";
 import type {ToolChange} from "../shared/profile-tools";
 import {agentText} from "../shared/text";
-import {withAgentsChoice, withApprovalChoice, withModelChoice, withSkillsChoice} from "./profile-edits";
+import {withAllowlistChoice, withApprovalChoice, withModelChoice} from "./profile-edits";
 import {changeAgentsBinding} from "../shared/profile-agents";
 import {declaredAllowlist} from "../shared/profile-allowlist";
 import type {SkillsClient} from "./skills";
+import type {StickerPacksClient} from "./sticker-packs";
 import {profileViews, toolChangeContext} from "./profile-view";
 import {createSettingWriter} from "./setting-writes";
 import type {SettingWriter} from "./setting-writes";
@@ -80,6 +81,8 @@ export interface ProfilePageDeps {
     readonly report: (code: string, message: string) => void;
     /** 窗口的 Skill 目录：Skill 一节要它；不给时这一节不画。 */
     readonly skills?: SkillsClient;
+    /** 表情包列表：表情包一节要它；不给或取不到时这一节不画（stickers.md 输出 19）。 */
+    readonly stickerPacks?: StickerPacksClient;
 }
 
 export function profilesPage(component: Component, deps: ProfilePageDeps): Component {
@@ -125,6 +128,7 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
             onMounted(async () => {
                 deps.models.ensure();
                 deps.skills?.ensure();
+                deps.stickerPacks?.ensure();
                 void deps.pluginNames().then((names) => {
                     pluginNames.value = names;
                 });
@@ -161,6 +165,7 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 pluginName,
                 text: deps.text,
                 skills: deps.skills?.entries.value ?? null,
+                stickerPacks: deps.stickerPacks?.entries.value ?? null,
             }));
 
             /** 写的那一刻对当时的值求改动，按这时的目录换算（用到的是 Profile 本来就有哪些工具）。 */
@@ -174,13 +179,19 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
             /** 白名单的改动按写的那一刻的声明换算：加声明里有的就是撤销“去掉”（profile-settings.md 输出 25）。 */
             const changeAgents = (key: string, change: ToolChange): Promise<SettingWriteResult> => {
                 const declared = entries.value.find((candidate) => candidate.key === key)?.agents?.allowed ?? [];
-                return settingEdits.apply((current) => withAgentsChoice(current, key, changeAgentsBinding(current[key]?.agents, declared, change)));
+                return settingEdits.apply((current) => withAllowlistChoice(current, key, "agents", changeAgentsBinding(current[key]?.agents, declared, change)));
             };
 
             /** Skill 白名单的写法同可派的子代理：`"all"` 的声明按此刻的目录展开（skills.md 的“输入与前置条件”）。 */
             const changeSkills = (key: string, change: ToolChange): Promise<SettingWriteResult> => {
                 const declared = declaredAllowlist(entries.value.find((candidate) => candidate.key === key)?.skills, (deps.skills?.entries.value ?? []).map((skill) => skill.id));
-                return settingEdits.apply((current) => withSkillsChoice(current, key, changeAgentsBinding(current[key]?.skills, declared, change)));
+                return settingEdits.apply((current) => withAllowlistChoice(current, key, "skills", changeAgentsBinding(current[key]?.skills, declared, change)));
+            };
+
+            /** 表情包白名单的写法同 Skill（stickers.md 的“白名单”）。 */
+            const changeStickers = (key: string, change: ToolChange): Promise<SettingWriteResult> => {
+                const declared = declaredAllowlist(entries.value.find((candidate) => candidate.key === key)?.stickers, (deps.stickerPacks?.entries.value ?? []).map((pack) => pack.id));
+                return settingEdits.apply((current) => withAllowlistChoice(current, key, "stickers", changeAgentsBinding(current[key]?.stickers, declared, change)));
             };
 
             return () => h(component, {
@@ -196,10 +207,17 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 onRemoveTool: (key: string, id: string) => void changeTools(key, {remove: [id]}).then(reportIfFailed),
                 onRestoreTools: (key: string) => void bindingEdits.apply((current) => withToolBinding(current, key, undefined)).then(reportIfFailed),
                 onRemoveAgent: (key: string, id: string) => void changeAgents(key, {remove: [id]}).then(reportIfFailed),
-                onRestoreAgents: (key: string) => void settingEdits.apply((current) => withAgentsChoice(current, key, undefined)).then(reportIfFailed),
+                onRestoreAgents: (key: string) => void settingEdits.apply((current) => withAllowlistChoice(current, key, "agents", undefined)).then(reportIfFailed),
                 onRemoveSkill: (key: string, id: string) => void changeSkills(key, {remove: [id]}).then(reportIfFailed),
                 onAddBackSkill: (key: string, id: string) => void changeSkills(key, {add: [id]}).then(reportIfFailed),
-                onRestoreSkills: (key: string) => void settingEdits.apply((current) => withSkillsChoice(current, key, undefined)).then(reportIfFailed),
+                onRestoreSkills: (key: string) => void settingEdits.apply((current) => withAllowlistChoice(current, key, "skills", undefined)).then(reportIfFailed),
+                onRemoveSticker: (key: string, id: string) => void changeStickers(key, {remove: [id]}).then(reportIfFailed),
+                onAddBackSticker: (key: string, id: string) => void changeStickers(key, {add: [id]}).then(reportIfFailed),
+                onRestoreStickers: (key: string) => void settingEdits.apply((current) => withAllowlistChoice(current, key, "stickers", undefined)).then(reportIfFailed),
+                addStickers: async (key: string, change: ToolChange): Promise<string | null> => {
+                    const result = await changeStickers(key, change);
+                    return result.ok ? null : settingsFailureText(result.code, result.detail, deps.text);
+                },
                 addSkills: async (key: string, change: ToolChange): Promise<string | null> => {
                     const result = await changeSkills(key, change);
                     return result.ok ? null : settingsFailureText(result.code, result.detail, deps.text);

@@ -4,7 +4,7 @@
 
 # ProfileToolsSection
 
-Profile 设置页的绑定列表一节（[`agent/profile-settings.md`](../../../../../../../docs/specs/agent/profile-settings.md) 输出 10–13、25）：工具一节只列模型看到的工具，按提供者分组，另外经 [`AddToolsDialog`](AddToolsDialog.md) 添加。“可派的子代理”一节用同一个组件（`kind: "agents"`）：一行一个 Profile，`effect` 一列写“推荐”“我加的”，已删除或不可用的一行警告、能去掉；文字取 `profiles.agents.*`。“Skill”一节同样（`kind: "skills"`，输出 26）：按来源分组，我的、各插件一组（组头是插件名，撞名时带插件 id）、内置，组 id 是 `user`、`plugin:<插件 id>`、`builtin`；`effect` 一列写“未初始化”“无效”“我加的”，无效的悬停写原因；用户去掉的行（`restorable`）收在最后一组“已去掉”，行尾是“加回”而不是“×”；文字取 `profiles.skills.*`。
+Profile 设置页的绑定列表一节（[`agent/profile-settings.md`](../../../../../../../docs/specs/agent/profile-settings.md) 输出 10–13、25）：工具一节只列模型看到的工具，按提供者分组，另外经 [`AddToolsDialog`](AddToolsDialog.md) 添加。“可派的子代理”一节用同一个组件（`kind: "agents"`）：一行一个 Profile，`effect` 一列写“推荐”“我加的”，已删除或不可用的一行警告、能去掉；文字取 `profiles.agents.*`。“Skill”一节同样（`kind: "skills"`，输出 26）：按来源分组，我的、各插件一组（组头是插件名，撞名时带插件 id）、内置，组 id 是 `user`、`plugin:<插件 id>`、`builtin`；`effect` 一列写“未初始化”“无效”“我加的”，无效的悬停写原因；用户去掉的行（`restorable`）收在最后一组“已去掉”，行尾是“加回”而不是“×”；文字取 `profiles.skills.*`。“表情包”一节同样（`kind: "stickers"`，输出 27，[`agent/stickers.md`](../../../../../../../docs/specs/agent/stickers.md) 输出 19）：分组是我的、各插件一组；名字一列是显示名（不用等宽字），前面一张 24px 的缩略图（第一个常用表情，没有表情时留同样大的空位）；`summary` 是表情数与说明；文字取 `profiles.stickers.*`。
 
 ## 布局
 
@@ -26,12 +26,12 @@ defineProps<{
     disabled?: boolean;                                                 // 缺省 false
     addTools?: (change: ToolChange) => Promise<string | null>;          // 失败原因，成功 null
     initialAdd?: boolean;                                               // 起始打开对话框（Lab 用），缺省 false
-    kind?: "tools" | "agents" | "skills";                               // 哪一节：选文字前缀，缺省 tools
+    kind?: "tools" | "agents" | "skills" | "stickers";                  // 哪一节：选文字前缀，缺省 tools
 }>();
 defineEmits<{
     (e: "remove", id: string): void;
     (e: "restore"): void;
-    (e: "add-back", id: string): void;                                  // “已去掉”一行的“加回”（只有 Skill 一节有）
+    (e: "add-back", id: string): void;                                  // “已去掉”一行的“加回”（Skill、表情包两节有）
 }>();
 ```
 

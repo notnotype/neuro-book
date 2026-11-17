@@ -26,6 +26,8 @@ import ProfileDetail from "./components/ProfileDetail.vue";
 import ProfileSettingsPage from "./components/ProfileSettingsPage.vue";
 import {createProfileWriters, profilesPage} from "./profile-page";
 import type {SkillsClient} from "./skills";
+import type {StickerPacksClient} from "./sticker-packs";
+import type {StickerPackSummary} from "nbook/plugins/stickers/shared/contracts";
 import {agentCatalogs} from "./text";
 
 const cleanup: Array<() => void> = [];
@@ -93,7 +95,7 @@ function fakeRemote(options: {readonly listed?: () => readonly ProfileEntry[]; r
     };
 }
 
-function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonly writable?: boolean; readonly values?: Readonly<Record<string, unknown>>; readonly snapshot?: ModelsSnapshot | null; readonly openAddress?: (address: string) => void; readonly skills?: SkillsClient} = {}) {
+function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonly writable?: boolean; readonly values?: Readonly<Record<string, unknown>>; readonly snapshot?: ModelsSnapshot | null; readonly openAddress?: (address: string) => void; readonly skills?: SkillsClient; readonly stickerPacks?: StickerPacksClient} = {}) {
     const text = createHostTextEngine({locale: "zh-CN", strict: true});
     text.register("nbook.agent", agentCatalogs.catalogs, agentCatalogs.source);
     text.register("nbook.models", modelsCatalogs.catalogs, modelsCatalogs.source);
@@ -115,6 +117,7 @@ function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonl
         openAddress: options.openAddress ?? (() => undefined),
         report: () => undefined,
         ...(options.skills === undefined ? {} : {skills: options.skills}),
+        ...(options.stickerPacks === undefined ? {} : {stickerPacks: options.stickerPacks}),
     });
     const context = {
         id: "nbook.agent.profiles",
@@ -427,6 +430,41 @@ describe("Skill（skills.md 的白名单）", () => {
         const {wrapper} = open();
         await ready(wrapper);
         expect(wrapper.find("[data-profile-skills]").exists()).toBe(false);
+    });
+});
+
+describe("表情包（stickers.md 输出 19、profile-settings.md 输出 27）", () => {
+    const summary = (folder: string, extra: Partial<StickerPackSummary> = {}): StickerPackSummary => ({id: `user.${folder}`, folder, source: "user", title: folder, status: "ok", count: 3, thumbnail: `/api/nbook.stickers/image/user.${folder}/a.png?v=1-1`, ...extra});
+    const packsClient = (entries: readonly StickerPackSummary[]): StickerPacksClient => ({entries: shallowRef(entries), ensure: () => undefined});
+    const profileSettings = (settings: ReturnType<typeof open>["settings"]) => settings.get(agentSettings.settings.profileSettings);
+
+    it("没有声明的 Profile：添加写进 added；行带显示名、表情数与缩略图，插件的一组按插件名；恢复默认清掉这一项", async () => {
+        const {wrapper, settings} = open({stickerPacks: packsClient([summary("lyra", {title: "星璃", description: "星璃的表情"}), summary("cats", {id: "acme.cute.cats", source: "plugin", plugin: {id: "acme.cute", title: "可爱表情"}, thumbnail: null})])});
+        await ready(wrapper);
+        const section = () => wrapper.get("[data-profile-stickers]");
+        expect(section().findAll("[data-profile-tool]")).toHaveLength(0);
+        await section().get("[data-profile-tools-add]").trigger("click");
+        // 页面上每一节都有自己的“添加”对话框：取表情包这一节的。
+        const dialog = section().findComponent({name: "AddToolsDialog"});
+        await waitUntil("对话框", () => dialog.props("open") === true || null);
+        expect(dialog.props("candidates").map((group: {provider: string}) => group.provider)).toEqual(["我的表情包", "可爱表情"]);
+        // 对话框的“完成”交出选中的项（选项的点选另有工具一节的用例）。
+        dialog.vm.$emit("done", {add: ["user.lyra"]});
+        await waitUntil("写下 added", () => profileSettings(settings)["nbook.agent.main"]?.stickers !== undefined || null);
+        expect(profileSettings(settings)["nbook.agent.main"]?.stickers).toEqual({added: ["user.lyra"], removed: []});
+        await waitUntil("列出星璃", () => section().find("[data-profile-tool='user.lyra']").exists() || null);
+        const row = section().get("[data-profile-tool='user.lyra']");
+        expect(row.text()).toContain("星璃");
+        expect(row.text()).toContain("3 个表情 · 星璃的表情");
+        expect(row.get("img").attributes("src")).toBe("/api/nbook.stickers/image/user.lyra/a.png?v=1-1");
+        await section().get("[data-profile-tools-restore]").trigger("click");
+        await waitUntil("恢复默认后清掉", () => profileSettings(settings)["nbook.agent.main"]?.stickers === undefined || null);
+    });
+
+    it("没有表情包时没有这一节", async () => {
+        const {wrapper} = open({stickerPacks: packsClient([])});
+        await ready(wrapper);
+        expect(wrapper.find("[data-profile-stickers]").exists()).toBe(false);
     });
 });
 

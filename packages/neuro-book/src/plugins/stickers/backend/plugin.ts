@@ -16,7 +16,7 @@ import {pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
 import {clockKey, stateRootKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
-import {packsPoint, STICKERS_POINT, STICKERS_SCHEME, stickersCatalogContract, stickersServiceKey} from "../shared/contracts";
+import {packsPoint, packSummary, STICKERS_POINT, STICKERS_SCHEME, stickersCatalogContract, stickersServiceKey} from "../shared/contracts";
 import {browserCatalog} from "./browser-catalog";
 import {StickerCatalog} from "./catalog";
 import {pluginPackRoots} from "./plugin-roots";
@@ -47,7 +47,10 @@ export const stickersBackendPlugin: PluginDefinition = {
             return {
                 services: [provideService(stickersServiceKey, {list: () => catalog.list(), onChanged: (listener) => catalog.onChanged(listener)})],
                 remote: [provideRemote(stickersCatalogContract, () => ({
-                    methods: {catalog: (_input, call) => call.ok(browserCatalog(catalog.list(), report))},
+                    methods: {
+                        catalog: (_input, call) => call.ok(browserCatalog(catalog.list(), report)),
+                        packs: (_input, call) => call.ok(catalog.list().map(packSummary)),
+                    },
                     events: {
                         changed: {
                             subscribe(_filter, sink, call) {

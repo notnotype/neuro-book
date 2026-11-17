@@ -21,11 +21,13 @@ const props = withDefaults(defineProps<{
     addAgents?: (key: string, change: ToolChange) => Promise<string | null>;
     /** “添加 Skill”的“完成”：同上（skills.md 的白名单）。 */
     addSkills?: (key: string, change: ToolChange) => Promise<string | null>;
+    /** “添加表情包”的“完成”：同上（stickers.md 输出 19）。 */
+    addStickers?: (key: string, change: ToolChange) => Promise<string | null>;
     /** “新建并打开”：交回新的 key，或失败原因；交回时目录里已经有它。 */
     createProfile?: (name: string) => Promise<{readonly key: string} | {readonly reason: string}>;
     /** 确认后的删除：交回时目录里已经没有它，失败由包装通知。 */
     deleteProfile?: (key: string) => Promise<void>;
-}>(), {writable: true, initial: undefined, addTools: async () => null, addAgents: async () => null, addSkills: async () => null, createProfile: async () => ({reason: ""}), deleteProfile: async () => undefined});
+}>(), {writable: true, initial: undefined, addTools: async () => null, addAgents: async () => null, addSkills: async () => null, addStickers: async () => null, createProfile: async () => ({reason: ""}), deleteProfile: async () => undefined});
 
 const emit = defineEmits<{
     (e: "retry"): void;
@@ -39,6 +41,9 @@ const emit = defineEmits<{
     (e: "remove-skill", key: string, id: string): void;
     (e: "add-back-skill", key: string, id: string): void;
     (e: "restore-skills", key: string): void;
+    (e: "remove-sticker", key: string, id: string): void;
+    (e: "add-back-sticker", key: string, id: string): void;
+    (e: "restore-stickers", key: string): void;
 }>();
 
 const text = useAgentPageText();
@@ -161,6 +166,18 @@ const pickerOptions = computed(() => ordered.value.map((profile) => ({value: pro
                         @remove="(id) => emit('remove-skill', current!.key, id)"
                         @add-back="(id) => emit('add-back-skill', current!.key, id)"
                         @restore="emit('restore-skills', current!.key)"
+                    />
+                    <!-- Skill 一节下面（profile-settings.md 输出 27）：有表情包时才有 -->
+                    <ProfileToolsSection
+                        v-if="current.stickers !== null"
+                        kind="stickers"
+                        :tools="current.stickers"
+                        :disabled="!writable"
+                        :add-tools="(change) => addStickers(current!.key, change)"
+                        data-profile-stickers
+                        @remove="(id) => emit('remove-sticker', current!.key, id)"
+                        @add-back="(id) => emit('add-back-sticker', current!.key, id)"
+                        @restore="emit('restore-stickers', current!.key)"
                     />
                 </ProfileDetail>
             </div>

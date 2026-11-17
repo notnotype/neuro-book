@@ -17,6 +17,7 @@ import {declaredAllowlist, profileAllowlist} from "../shared/profile-allowlist";
 import {groupSkills} from "../shared/skills";
 import {skillProblemText} from "./skill-problem";
 import type {SkillEntry, SkillGroup} from "../shared/skills";
+import type {StickerPackSummary} from "nbook/plugins/stickers/shared/contracts";
 import type {ProfileSetting} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf} from "./profile-edits";
@@ -70,8 +71,10 @@ export interface ProfileToolRow {
     readonly detail: string;
     readonly required: boolean;
     readonly gone: boolean;
-    /** 用户去掉的（只有 Skill 一节有）：行尾是“加回”，不是去掉。 */
+    /** 用户去掉的（Skill、表情包两节有）：行尾是“加回”，不是去掉。 */
     readonly restorable?: boolean;
+    /** 表情包一节：第一个常用表情的缩略图地址。 */
+    readonly thumbnail?: string;
 }
 
 export interface ProfileToolGroup {
@@ -130,6 +133,8 @@ export interface ProfileView {
     readonly agents: ProfileToolsField | null;
     /** Skill 一节（skills.md 的白名单）：Skill 目录还没取到时为 null。 */
     readonly skills: ProfileToolsField | null;
+    /** 表情包一节（stickers.md 输出 19）：表情包列表取不到或没有表情包时为 null。 */
+    readonly stickers: ProfileToolsField | null;
 }
 
 const usable = (provider: SnapshotProvider, model: SnapshotModel): boolean => hasCredentials(provider) && model.enabled && model.status === "ok";
@@ -387,6 +392,66 @@ function skillsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
     return {groups, count: listed.filter((skill) => skill.status !== "invalid").length, modified: binding !== undefined, candidates};
 }
 
+/**
+ * 表情包一节（stickers.md 输出 19、profile-settings.md 输出 27）：分组与规则同 Skill 一节：我的在前、各插件一组；白名单里、列表中
+ * 已经没有的一组“已删除或不可用”；用户去掉的收在最后，能加回。行是显示名、说明、表情数与第一个常用表情的缩略图。后台的 Profile
+ * 没有对话，不给这一节；还没有任何表情包时也不给。
+ */
+function stickersField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
+    const packs = input.stickerPacks;
+    if (packs === null || packs === undefined || packs.length === 0 || entry.tools === undefined || entry.hidden === true) return null;
+    const {text} = input;
+    const ids = packs.map((pack) => pack.id);
+    const binding = input.settings[entry.key]?.stickers;
+    const declared = new Set(declaredAllowlist(entry.stickers, ids));
+    const allowed = profileAllowlist(entry.stickers, binding, ids);
+    const allowedSet = new Set(allowed);
+    const byId = new Map(packs.map((pack) => [pack.id, pack]));
+    const row = (pack: StickerPackSummary, extra: {readonly restorable?: boolean} = {}): ProfileToolRow => {
+        const count = text.t(agentText("profiles.stickers.count", {count: pack.count}));
+        const summary = pack.description === undefined ? count : `${count} · ${pack.description}`;
+        return {
+            id: pack.id,
+            name: pack.title,
+            effect: pack.status === "invalid" ? text.t(agentText("profiles.stickers.invalid")) : declared.has(pack.id) || extra.restorable === true ? "" : text.t(agentText("profiles.stickers.userAdded")),
+            danger: pack.status === "invalid",
+            summary,
+            detail: [pack.id, summary].join("\n"),
+            required: false,
+            gone: false,
+            ...(pack.thumbnail === null ? {} : {thumbnail: pack.thumbnail}),
+            ...extra,
+        };
+    };
+    const goneRow = (id: string): ProfileToolRow => ({id, name: id, effect: "", danger: false, summary: text.t(agentText("profiles.stickers.gone")), detail: text.t(agentText("profiles.stickers.gone")), required: false, gone: true});
+    /** 我的一组在前，各插件按显示名（没有时插件 id）各一组。 */
+    const grouped = (list: readonly StickerPackSummary[]) => {
+        const groups = new Map<string, {readonly id: string; readonly provider: string; readonly items: StickerPackSummary[]}>();
+        for (const pack of list) {
+            const key = pack.source === "user" ? "user" : `plugin:${pack.plugin?.id ?? ""}`;
+            const provider = pack.source === "user" ? text.t(agentText("profiles.stickers.groups.user")) : pack.plugin?.title ?? pack.plugin?.id ?? "";
+            const group = groups.get(key) ?? {id: key, provider, items: []};
+            group.items.push(pack);
+            groups.set(key, group);
+        }
+        return [...groups.values()].sort((left, right) => (left.id === "user" ? -1 : right.id === "user" ? 1 : left.provider.localeCompare(right.provider)));
+    };
+    const listed = allowed.map((id) => byId.get(id)).filter((pack): pack is StickerPackSummary => pack !== undefined);
+    const gone = allowed.filter((id) => !byId.has(id));
+    const removed = (binding?.removed ?? []).map((id) => byId.get(id)).filter((pack): pack is StickerPackSummary => pack !== undefined && pack.status !== "invalid");
+    const groups: ProfileToolGroup[] = [
+        ...grouped(listed).map((group) => ({id: group.id, provider: group.provider, tools: group.items.map((pack) => row(pack))})),
+        ...(gone.length === 0 ? [] : [{id: GONE_GROUP, provider: text.t(agentText("profiles.stickers.goneGroup")), tools: gone.map(goneRow)}]),
+        ...(removed.length === 0 ? [] : [{id: REMOVED_GROUP, provider: text.t(agentText("profiles.stickers.removedGroup")), tools: removed.map((pack) => row(pack, {restorable: true}))}]),
+    ];
+    const candidates = grouped(packs.filter((pack) => pack.status !== "invalid" && !allowedSet.has(pack.id))).map((group) => ({
+        id: group.id,
+        provider: group.provider,
+        tools: group.items.map((pack): ProfileToolCandidate => ({...row(pack), providerName: pack.id, blocked: false})),
+    }));
+    return {groups, count: listed.filter((pack) => pack.status !== "invalid").length, modified: binding !== undefined, candidates};
+}
+
 function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
     if (entry.tools === undefined) return null;
     const {text, catalog} = input;
@@ -443,6 +508,8 @@ export interface ProfileViewsInput {
     readonly text: TextResolver;
     /** Skill 目录；还没取到时为 null，Skill 一节不画。 */
     readonly skills?: readonly SkillEntry[] | null;
+    /** 表情包列表；取不到时为 null，表情包一节不画。 */
+    readonly stickerPacks?: readonly StickerPackSummary[] | null;
 }
 
 /** 来源的显示名：左栏与工具的提供者用同一套词。 */
@@ -475,6 +542,7 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
             tools: toolsField(entry, input),
             agents: agentsField(entry, input),
             skills: skillsField(entry, input),
+            stickers: stickersField(entry, input),
         };
     });
 }

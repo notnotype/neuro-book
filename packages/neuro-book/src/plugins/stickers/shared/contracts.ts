@@ -105,6 +105,37 @@ const BrowserStickerSchema = Type.Object({name: Type.String(), width: Type.Numbe
 const BrowserPackSchema = Type.Object({id: Type.String(), folder: Type.String(), stickers: Type.Array(BrowserStickerSchema)}, {additionalProperties: false});
 export type BrowserStickerPack = Static<typeof BrowserPackSchema>;
 
+/** 设置页用的表情包概要（输出 19）：每个表情包一行，带第一个常用表情的缩略图地址（没有常用的取第一个，没有表情为 null）。 */
+const PackSummarySchema = Type.Object({
+    id: Type.String(),
+    folder: Type.String(),
+    source: Type.Union([Type.Literal("user"), Type.Literal("plugin")]),
+    plugin: Type.Optional(Type.Object({id: Type.String(), title: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false})),
+    title: Type.String(),
+    description: Type.Optional(Type.String()),
+    status: Type.Union([Type.Literal("ok"), Type.Literal("invalid")]),
+    problem: Type.Optional(Type.String()),
+    count: Type.Integer({minimum: 0}),
+    thumbnail: Type.Union([Type.String(), Type.Null()]),
+}, {additionalProperties: false});
+export type StickerPackSummary = Static<typeof PackSummarySchema>;
+
+export function packSummary(pack: StickerPackEntry): StickerPackSummary {
+    const first = pack.stickers.find((sticker) => sticker.common) ?? pack.stickers[0];
+    return {
+        id: pack.id,
+        folder: pack.folder,
+        source: pack.source,
+        ...(pack.plugin === undefined ? {} : {plugin: pack.plugin}),
+        title: pack.title,
+        ...(pack.description === undefined ? {} : {description: pack.description}),
+        status: pack.status,
+        ...(pack.problem === undefined ? {} : {problem: pack.problem.code}),
+        count: pack.stickers.length,
+        thumbnail: first === undefined ? null : stickerImageUrl(pack.id, first),
+    };
+}
+
 /** 浏览器目录（输出 18）：先订阅 `changed` 再取。 */
 export const stickersCatalogContract = defineRemoteService({
     id: "nbook.stickers/catalog",
@@ -113,6 +144,8 @@ export const stickersCatalogContract = defineRemoteService({
     callers: ["browser"],
     methods: {
         catalog: {input: Type.Object({}, {additionalProperties: false}), output: Type.Array(BrowserPackSchema), effect: "read"},
+        /** 设置页的表情包列表（含无效的）。 */
+        packs: {input: Type.Object({}, {additionalProperties: false}), output: Type.Array(PackSummarySchema), effect: "read"},
     },
     events: {
         changed: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Object({}, {additionalProperties: false})},

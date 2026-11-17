@@ -11,6 +11,7 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {stickersCatalogContract} from "nbook/plugins/stickers/shared/contracts";
 import type {CommandImplementation, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
@@ -62,6 +63,7 @@ import {createFileMentions} from "./mentions";
 import {createSkillInit} from "./skill-init";
 import type {SkillInit} from "./skill-init";
 import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu} from "./skills";
+import {createStickerPacksClient} from "./sticker-packs";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
@@ -217,6 +219,8 @@ export const agentBrowserPlugin: PluginDefinition = {
             const project = windowProject.project?.id ?? null;
             const profiles = shallowRef<readonly ProfileEntry[]>([]);
             const skills = createSkillsClient(remote, context.signal, (message) => report("skills-failed", message));
+            // 表情包列表只给 Profile 设置页（stickers.md 输出 19）：没装 `nbook.stickers` 时取不到，那一节不画。
+            const stickerPacks = createStickerPacksClient(context.remote.use(stickersCatalogContract), context.signal, (message) => report("sticker-packs-failed", message));
             /** 一个 Profile 的 Skill 白名单（skills.md 的“输入与前置条件”），与服务端认标签用的同一个换算。 */
             const allowedSkills = (profile: string): readonly string[] => profileAllowlist(
                 profiles.value.find((entry) => entry.key === profile)?.skills,
@@ -710,6 +714,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         openAddress,
                         report,
                         skills,
+                        stickerPacks,
                     })), [STATUS_LINE_SECTION]: settingsPage(async () => statusLinePage((await import("./components/StatusLinePage.vue")).default, {settings, items: statusItems, writer: statusLineWriter, text})), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report})), [SKILLS_SECTION]: settingsPage(async () => {
                         const [{skillsPage}, {default: page}] = await Promise.all([import("./skills-page"), import("./components/SkillsSettingsPage.vue")]);
                         return skillsPage(page, {skills, remote, openAddress, notify: (input) => void notifications.notify(input), report});
