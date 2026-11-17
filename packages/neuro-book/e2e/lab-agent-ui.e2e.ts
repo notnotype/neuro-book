@@ -687,3 +687,31 @@ test.describe("状态栏的可选项（docs/specs/agent/conversation.md 输出 4
         expect(await lastAction(page)).toEqual({type: "statusLine.openSettings"});
     });
 });
+
+test.describe("状态栏设置页（docs/specs/agent/conversation.md 输出 46）", () => {
+    const rows = (page: Page, side: "left" | "right") => page.locator(`[data-status-group='${side}'] [data-status-row]`).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
+
+    test("缺省：左右两组按目录次序；预览与列表一致；首行不能上移、末行不能下移", async ({page}) => {
+        await openScene(page, "StatusLinePage", "default");
+        expect(await rows(page, "left")).toEqual(["context"]);
+        expect(await rows(page, "right")).toEqual(["usage", "cost", "model"]);
+        await expect(page.locator("[data-status-row='usage'] [data-status-move-up]")).toBeDisabled();
+        await expect(page.locator("[data-status-row='model'] [data-status-move-down]")).toBeDisabled();
+        await expect(page.locator("[data-status-line-preview] [data-status-item='usage']")).toBeVisible();
+        await expect(page.locator("[data-status-line-preview] [data-status-item='model']")).toHaveCount(0);
+    });
+
+    test("改过的设置：次序按设置排，插件的项带“插件”标记、预览里画着", async ({page}) => {
+        await openScene(page, "StatusLinePage", "customized");
+        expect(await rows(page, "right")).toEqual(["cost", "usage", "model"]);
+        expect(await rows(page, "left")).toEqual(["context", "x.words"]);
+        await expect(page.locator("[data-status-row='x.words']")).toContainText("插件");
+        await expect(page.locator("[data-status-line-preview] [data-status-item='x.words']")).toBeVisible();
+    });
+
+    test("配置写不了：勾选与上移下移都停用", async ({page}) => {
+        await openScene(page, "StatusLinePage", "readonly");
+        await expect(page.locator("[data-status-row='cost'] [data-status-move-down]")).toBeDisabled();
+        await expect(page.locator("[data-status-row='cost'] input[type='checkbox'], [data-status-row='cost'] [role='checkbox']").first()).toBeDisabled();
+    });
+});
