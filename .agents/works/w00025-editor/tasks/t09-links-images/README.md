@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t09-links-images
-status: planned
-updated: 2026-11-16
+status: active
+updated: 2026-11-17
 ---
 
 # 链接与图片的插入
@@ -43,4 +43,4 @@ updated: 2026-11-16
 
 ## 下一步
 
-设计已定。先实施 t10，之后写本 Task 的 Spec 与计划（上传接口是后端，计划审查按前后端分开派）。
+设计已定。2026-11-17 开发者说“t09 可以开工”（并问上传接口做好了没有：没有，接口是本 Task 第 1 片）。Spec 已写（planned）：[`workspace/files.md`](../../../../../docs/specs/workspace/files.md) 的“写入图片”与场景 12，[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 52–58 与场景 27–30。计划第一稿：[plan.md](plan.md)，末尾“待确认”七条等开发者看；确认后前后端分开审查（第 1 片后端交 omp，其余前端交 Sonnet）再实施。
