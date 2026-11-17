@@ -184,13 +184,23 @@ const HEAD_PADDING_PX = 20;
  * 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。
  * 带容器的区域里再问库：底部面板的分节、区域此刻唯一显示的分节收不成标题行（输出 11），也没有按钮。和 `setPanelCollapsed` 拒绝的是同一个判定。
  */
-const collapsibleHere = (panelId: string): boolean => findTreeNode(renderedDoc.value.tree.root, panelId)?.parent?.orientation === "vertical" && sectionCollapseBlock(renderedDoc.value, panelId) === null;
+const collapsibleIn = (source: LayoutDoc, panelId: string): boolean => findTreeNode(source.tree.root, panelId)?.parent?.orientation === "vertical" && sectionCollapseBlock(source, panelId) === null;
+/**
+ * 面板头的展开标记（输出 20）：能收成标题行、没有被最大化（最大化着点标题只激活，还原靠还原按钮）。按已提交的文档算，和 `titleOnlyPanels` 一样：
+ * 拖动中预览里这一列只剩一节时标记不跟着消失，标题不横跳。
+ */
+function foldOf(panelId: string): {readonly collapsed: boolean} | null {
+    if (!collapsibleIn(doc.value, panelId) || state.value.maximized === panelId) return null;
+    return {collapsed: isSectionCollapsed(doc.value, panelId)};
+}
+/** 展开标记加它和标题之间的间距。 */
+const FOLD_MARK_PX = 20;
 function headReserved(panelId: string): number {
     const panel = renderedDoc.value.panels[panelId];
-    // 浮动窗只有“回到停靠”；树里是最大化、浮动，加上收起。
-    const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2 + (collapsibleHere(panelId) ? 1 : 0);
+    // 浮动窗只有“回到停靠”；树里是浮动、最大化（收起不是按钮了，是标题前的标记）。
+    const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2;
     const others = titleOnlyPanelIds.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
-    return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
+    return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX + (foldOf(panelId) === null ? 0 : FOLD_MARK_PX);
 }
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
@@ -250,7 +260,6 @@ function frameActionsOf(panelId: string): PanelFrameAction[] {
     const floatable = viewId !== null && catalog.value.get(viewId)?.floatable !== false && catalog.value.get(viewId)?.movable !== false;
     return [
         ...(floatable ? [describe(FLOAT_COMMAND, "i-lucide-picture-in-picture-2", "commands.nbook.view.float.title")] : []),
-        ...(collapsibleHere(panelId) ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", isSectionCollapsed(renderedDoc.value, panelId))] : []),
         describe(TOGGLE_PANEL_MAXIMIZED_COMMAND, "i-lucide-maximize-2", "commands.nbook.view.toggle-panel-maximized.title", state.value.maximized === panelId),
     ];
 }
@@ -300,12 +309,27 @@ watchEffect(() => {
     }
 });
 
-/** 点标题：面板收着时只展开；展开着才通知视图（它开自己的列表）。收没收要在 `activate` 之前记下，它会把面板展开。 */
+/**
+ * 点标题（输出 20）：能收成标题行的分节，标题行是开关——展开着点它收起，收着点它展开（`activate` 会把它展开）；视图接管标题区时标题按钮是视图的，
+ * 展开着点它照旧通知视图（它开自己的列表），收起走单独的标记（`toggleFold`）。别的面板照旧只激活。只在这里决定，头只发一个事件：两个事件有先后，
+ * 先激活（它会展开）再切换就又收回去了。收没收要在 `activate` 之前记下。
+ */
 function activateTab(panelId: string, key: string): void {
     const control = headOfPanel(panelId)?.control ?? null;
+    const fold = foldOf(panelId);
+    if (fold !== null && !fold.collapsed && control === null && key === doc.value.panels[panelId]?.active) {
+        run(SET_PANEL_COLLAPSED_COMMAND, {panelId, collapsed: true});
+        return;
+    }
     const collapsed = isSectionCollapsed(renderedDoc.value, panelId);
     props.layout.actions.activate(key);
     if (control !== null && !collapsed) control.press();
+}
+
+/** 视图接管标题区时单独的展开标记：在展开、收起之间切。 */
+function toggleFold(panelId: string): void {
+    const fold = foldOf(panelId);
+    if (fold !== null) run(SET_PANEL_COLLAPSED_COMMAND, {panelId, collapsed: !fold.collapsed});
 }
 
 // ── “移动到” ──────────────────────────────────────────────────────────────
@@ -797,12 +821,15 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :active="renderedDoc.panels[panelId]?.active ?? null"
                         :more-label="message('common.more')"
                         :id-prefix="idPrefix"
-                        :drag-hint="message('shell.drag.hint')"
+                        :drag-hint="message(foldOf(panelId) === null ? 'shell.drag.hint' : 'shell.drag.hintFold')"
                         :dragging-tab="dragPlaceholder"
                         :title-only="titleOnlyPanelIds.has(panelId)"
                         :frame-actions="frameActionsOf(panelId)"
                         :view-head="panelViewHead(panelId)"
+                        :fold="foldOf(panelId)"
+                        :fold-label="message(foldOf(panelId)?.collapsed === true ? 'shell.fold.expand' : 'shell.fold.collapse', {title: text(panelTitle(renderedDoc, catalog, panelId))})"
                         @activate="(key) => activateTab(panelId, key)"
+                        @toggle-fold="toggleFold(panelId)"
                         @head-slots="(slots) => setPanelHeadSlots(panelId, slots)"
                         @reorder="(key, delta) => layout.actions.reorderTab(key, delta)"
                         @action="(action) => run(action, {panelId})"

@@ -52,7 +52,14 @@ const props = withDefaults(defineProps<{
     frameActions?: ReadonlyArray<PanelFrameAction>;
     /** 只写标题时活动视图接管了标题区：整行改成三列，左、中、右的位置交给视图（`head-slots`）。 */
     viewHead?: PanelViewHead | null;
-}>(), {draggingTab: null, idPrefix: "workbench-panel", dragHint: "", titleOnly: false, frameActions: () => [], viewHead: null});
+    /**
+     * 这块面板在这里能收成标题行（docs/specs/ui/workbench-layout.md 输出 20）：标题前画展开标记，标题按钮带 `aria-expanded`，点它由宿主切换。
+     * 不给就不画标记（底部面板的分节、区域唯一的分节、浮动窗、最大化着的面板）。
+     */
+    fold?: {readonly collapsed: boolean} | null;
+    /** 接管标题区时单独的展开标记的可访问名称（`fold` 给了才用）。 */
+    foldLabel?: string;
+}>(), {draggingTab: null, idPrefix: "workbench-panel", dragHint: "", titleOnly: false, frameActions: () => [], viewHead: null, fold: null, foldLabel: ""});
 
 const emit = defineEmits<{
     (event: "activate", id: string): void;
@@ -63,6 +70,8 @@ const emit = defineEmits<{
     (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
     /** 接管标题区时几个位置画出来了（换了）或拆掉了（null）。 */
     (event: "head-slots", slots: PanelHeadSlots | null): void;
+    /** 接管标题区时点了单独的展开标记：宿主切换收起（标题按钮这时是视图的）。 */
+    (event: "toggle-fold"): void;
 }>();
 
 defineSlots<{
@@ -101,9 +110,19 @@ onBeforeUnmount(() => {
  * 量的是两侧内容自己的宽度（两格都不拉伸），不是列宽，所以不会自己把自己撑大。
  */
 const endColumn = ref<HTMLElement | null>(null);
-const startExtent = useLayoutExtent(computed(() => (viewHeadShown.value ? headStart.value : null)));
+const startColumn = ref<HTMLElement | null>(null);
+const startExtent = useLayoutExtent(computed(() => (viewHeadShown.value ? startColumn.value : null)));
 const endExtent = useLayoutExtent(computed(() => (viewHeadShown.value ? endColumn.value : null)));
 const sideWidth = computed(() => Math.ceil(Math.max(startExtent.value?.width ?? 0, endExtent.value?.width ?? 0)));
+
+/**
+ * 点标题：先把焦点放到按钮上再交给宿主。有的浏览器（Safari、macOS 上的 Firefox）点按钮不聚焦，宿主切换收起之后焦点要在标题上，
+ * 当前面板与快捷键才落在这块面板（输出 20）。
+ */
+function onTitleClick(event: MouseEvent, id: string): void {
+    (event.currentTarget as HTMLElement).focus({preventScroll: true});
+    emit("activate", id);
+}
 
 /** 只写标题时的右键：菜单键打出来的 `contextmenu` 没有可靠的指针坐标，菜单开在标题下面。标签带的右键在 `TabStrip` 里。 */
 function onTitleContextMenu(event: MouseEvent, id: string): void {
@@ -118,11 +137,35 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
 </script>
 
 <template>
-    <header class="workbench-panel-head" :class="{'workbench-panel-head--view': viewHeadShown}" :style="viewHeadShown ? {'--view-head-side': `${sideWidth}px`} : undefined" :data-panel-head="panelId">
+    <!-- 收着时悬停范围就是这一行（它下面可能是垫底拉长的空卡片，指针停在那里不显示按钮）；展开着时范围是整张卡片，由表面写。 -->
+    <header
+        class="workbench-panel-head"
+        :class="{'workbench-panel-head--view': viewHeadShown}"
+        :style="viewHeadShown ? {'--view-head-side': `${sideWidth}px`} : undefined"
+        :data-panel-head="panelId"
+        :data-collapsed="fold?.collapsed === true ? '' : undefined"
+        :data-hover-actions-scope="fold?.collapsed === true ? '' : undefined"
+    >
         <!-- 只写标题时内容 region 的名称指向它（docs/specs/ui/workbench-layout.md 输出 20），不指向标题按钮：视图接管标题区时按钮写的是视图的内容。 -->
         <span v-if="activeTab !== null" :id="panelTitleDomId(idPrefix, activeTab.id)" hidden>{{ activeTab.label }}</span>
         <template v-if="viewHeadShown">
-            <div :key="`start:${viewHead!.key}`" ref="headStart" class="workbench-panel-head__view-start" data-no-drag data-panel-head-start></div>
+            <div ref="startColumn" class="workbench-panel-head__view-side">
+                <!-- 接管时标题按钮是视图的（弹会话列表），展开标记单独一个按钮，算进两侧等宽，标题照旧居中。 -->
+                <button
+                    v-if="fold !== null"
+                    type="button"
+                    class="workbench-panel-head__fold nb-ui-focus-ring-inset"
+                    :aria-label="foldLabel"
+                    :aria-expanded="!fold.collapsed"
+                    :aria-controls="panelTabpanelDomId(idPrefix, activeTab!.id)"
+                    data-no-drag
+                    data-panel-fold
+                    @click="emit('toggle-fold')"
+                >
+                    <span class="workbench-panel-head__chevron i-lucide-chevron-right" aria-hidden="true"></span>
+                </button>
+                <div :key="`start:${viewHead!.key}`" ref="headStart" class="workbench-panel-head__view-start" data-no-drag data-panel-head-start></div>
+            </div>
             <h2 class="workbench-panel-head__view-title">
                 <!-- 按钮是工作台的：拖动、空格拿起与右键菜单不经过视图。视图只往里面那格送文字与图标。 -->
                 <button
@@ -153,9 +196,15 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                     tabindex="0"
                     :data-panel-tab="activeTab.id"
                     :aria-description="dragHint === '' ? undefined : dragHint"
-                    @click="emit('activate', activeTab!.id)"
+                    :aria-expanded="fold === null ? undefined : !fold.collapsed"
+                    :aria-controls="fold === null ? undefined : panelTabpanelDomId(idPrefix, activeTab.id)"
+                    @click="onTitleClick($event, activeTab!.id)"
                     @contextmenu="onTitleContextMenu($event, activeTab!.id)"
-                >{{ activeTab.label }}</button>
+                >
+                    <!-- 整行是开关：按钮铺满标题这一格，标记在按钮里（点它和点标题一样）。 -->
+                    <span v-if="fold !== null" class="workbench-panel-head__chevron i-lucide-chevron-right" aria-hidden="true" data-panel-fold></span>
+                    <span class="workbench-panel-head__label">{{ activeTab.label }}</span>
+                </button>
             </h2>
             <TabStrip
                 v-else-if="items.length > 0"
@@ -183,7 +232,8 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
             <div v-if="$slots.actions !== undefined" class="workbench-panel-head__actions" data-no-drag data-hover-actions>
                 <slot name="actions"></slot>
             </div>
-            <div v-if="frameActions.length > 0" class="workbench-panel-head__actions" data-no-drag>
+            <!-- 框架按钮和视图动作同一个显示范围（悬停才出）；按下的（最大化着时的还原）一直显示，豁免只给这个容器（hover-actions.css）。 -->
+            <div v-if="frameActions.length > 0" class="workbench-panel-head__actions" data-no-drag data-hover-actions="frame">
                 <IconButton
                     v-for="action in frameActions"
                     :key="action.id"
@@ -298,16 +348,54 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
 }
 
 .workbench-panel-head__title {
+    display: flex;
     flex: 1 1 auto;
+    align-self: stretch;
     min-width: 0;
     margin: 0;
     padding-inline-start: var(--space-2);
     overflow: hidden;
-    color: var(--text-secondary);
+    color: var(--text-main);
     font-size: var(--text-xs);
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* 收成标题行时标题退一档（输出 20）。 */
+.workbench-panel-head[data-collapsed] .workbench-panel-head__title,
+.workbench-panel-head[data-collapsed] .workbench-panel-head__view-handle {
+    color: var(--text-secondary);
+}
+
+/*
+ * 展开标记：和资源管理器树的展开箭头同一种画法（向右的 chevron，展开时转 90 度，同一档尺寸与时长），这样标记与树的箭头对得齐、动得一样。
+ */
+.workbench-panel-head__chevron {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    color: var(--text-secondary);
+    transition: transform var(--motion-move) var(--ease-layout);
+}
+
+[aria-expanded="true"] > .workbench-panel-head__chevron {
+    transform: rotate(90deg);
+}
+
+/*
+ * 对齐（开发者 2026-11-17：“看看对齐了没”）：标记与资源管理器树第一层的展开箭头在一条竖线上，标题与树第一层的文字在一条竖线上。树的行内边距 8px，
+ * 16px 的框里 14px 的箭头居中，文字在框后 4px：箭头离卡片左缘 15px、文字离 34px。头的左内边距加标题格的内边距是 6px，所以标记再往里 9px、
+ * 和标题隔 5px。树的这几个数改了，这里跟着改（e2e 量两者的左缘，差不超过 1px）。
+ */
+.workbench-panel-head__handle > .workbench-panel-head__chevron {
+    margin-inline-start: 9px;
+}
+
+.workbench-panel-head__handle:has(> .workbench-panel-head__chevron) {
+    /* 能收起时整行是开关（输出 20）：铺满标题这一格。别的头按钮只有标题那么宽，空白处不起拖（输出 24）。 */
+    flex: 1 1 auto;
+    gap: 5px;
 }
 
 /* 标签与标题是拖动源：触摸按住起拖，不滚动。 */
@@ -316,14 +404,22 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
 }
 
 .workbench-panel-head__handle {
-    display: block;
-    max-width: 100%;
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
     overflow: hidden;
     color: inherit;
     font: inherit;
-    text-overflow: ellipsis;
     white-space: nowrap;
     touch-action: none;
+}
+
+.workbench-panel-head__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .workbench-panel-head__actions {
@@ -358,8 +454,26 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     gap: var(--space-1);
 }
 
-.workbench-panel-head__view-start {
+.workbench-panel-head__view-side {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
     justify-self: start;
+}
+
+/* 接管标题区时单独的展开标记。 */
+.workbench-panel-head__fold {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-button-sm, var(--radius-control));
+}
+
+.workbench-panel-head__fold:hover {
+    background: var(--bg-hover);
 }
 
 /* 右列里没有内容时不占一格间距；左列始终在（它是网格的第一列）。 */

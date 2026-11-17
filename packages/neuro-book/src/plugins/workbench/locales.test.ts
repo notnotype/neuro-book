@@ -426,6 +426,10 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "notificationCenter.detailOnly": {"zh-CN": "详情", "en-US": "Details"},
     "notificationCenter.sentAt": {"zh-CN": "发出于 {time}", "en-US": "Sent {time}"},
     "time.yesterday": {"zh-CN": "昨天", "en-US": "Yesterday"},
+    // w00026 t29：分节的标题行是展开、收起的开关。
+    "shell.drag.hintFold": {"zh-CN": "按 Enter 展开或收起，按空格拿起并拖动", "en-US": "Press Enter to expand or collapse, Space to pick up and drag"},
+    "shell.fold.expand": {"zh-CN": "展开 {title}", "en-US": "Expand {title}"},
+    "shell.fold.collapse": {"zh-CN": "收起 {title}", "en-US": "Collapse {title}"},
 };
 
 /**

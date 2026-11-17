@@ -104,7 +104,7 @@ test.describe("面板头", () => {
     test("视图动作随鼠标显示，范围是整块面板：外框和内容都算，别的面板不算", async ({page}) => {
         await open(page);
         const head = `[data-panel-head='${section("a")}']`;
-        const action = page.locator(`${head} [data-hover-actions]`);
+        const action = page.locator(`${head} [data-hover-actions=""]`);
         const opacity = () => action.evaluate((element) => getComputedStyle(element).opacity);
 
         await page.locator("[data-content='view:c']").hover();

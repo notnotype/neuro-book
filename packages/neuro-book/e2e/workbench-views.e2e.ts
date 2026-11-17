@@ -308,7 +308,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const scroller = view.locator("[data-view-scroller]");
         const bar = view.locator("[data-overlay-scrollbar]");
         // 丙自己声明了一个收进“⋯”的动作：面板头里的动作区只有“⋯”。
-        const actions = headOf(page, C).locator("[data-hover-actions]");
+        const actions = headOf(page, C).locator("[data-hover-actions=\"\"]");
         const more = actions.locator("[data-title-actions-more]");
         await expect(scroller).toBeVisible();
 

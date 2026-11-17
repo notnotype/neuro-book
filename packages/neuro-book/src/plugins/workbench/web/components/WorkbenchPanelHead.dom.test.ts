@@ -10,7 +10,7 @@ import {defineComponent, h, ref, shallowRef, Teleport} from "vue";
 import type {PropType} from "vue";
 
 import type {PanelHeadSlots} from "../views/view-head";
-import {panelTabDomId, panelTitleDomId} from "../state/layout-present";
+import {panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
 import WorkbenchPanelHead from "./WorkbenchPanelHead.vue";
 import type {PanelViewHead} from "./WorkbenchPanelHead.vue";
 
@@ -129,5 +129,60 @@ describe("WorkbenchPanelHead 的标题区", () => {
         await waitUntil("画出面板头", () => shown() === "对话");
         expect(given).toEqual([]);
         expect(document.querySelector("[data-panel-head-start]")).toBeNull();
+    });
+});
+
+describe("WorkbenchPanelHead 的展开标记（ui/workbench-layout.md 输出 20）", () => {
+    function mountFold(fold: {collapsed: boolean} | null, viewHead: PanelViewHead | null = null) {
+        const events: string[] = [];
+        const wrapper = mount(WorkbenchPanelHead, {
+            attachTo: document.body,
+            props: {
+                panelId: "s1", label: "侧栏", tabs: [TAB], active: TAB.id, moreLabel: "更多", idPrefix: "probe", dragHint: "按 Enter 展开或收起", titleOnly: true,
+                frameActions: [{id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false}],
+                viewHead, fold, foldLabel: fold?.collapsed === true ? "展开 对话" : "收起 对话",
+                onActivate: (id: string) => events.push(`activate:${id}`),
+                onToggleFold: () => events.push("toggle-fold"),
+            },
+        });
+        mounted.push(wrapper);
+        return {wrapper, events};
+    }
+    const head = () => document.querySelector<HTMLElement>("[data-panel-head]")!;
+
+    it("能收起时：标记在标题按钮里、标题前；按钮带 aria-expanded 与 aria-controls；点它先聚焦再发 activate，切换由宿主做", async () => {
+        const {events} = mountFold({collapsed: false});
+        const button = handle();
+        expect(button.firstElementChild?.hasAttribute("data-panel-fold")).toBe(true);
+        expect([button.getAttribute("aria-expanded"), button.getAttribute("aria-controls")]).toEqual(["true", panelTabpanelDomId("probe", TAB.id)]);
+        button.click();
+        expect(document.activeElement).toBe(button);
+        expect(events).toEqual([`activate:${TAB.id}`]);
+        expect(head().hasAttribute("data-collapsed")).toBe(false);
+    });
+
+    it("收着时：aria-expanded 为假，头写 data-collapsed，悬停范围就是这一行", () => {
+        mountFold({collapsed: true});
+        expect(handle().getAttribute("aria-expanded")).toBe("false");
+        expect(head().hasAttribute("data-collapsed")).toBe(true);
+        expect(head().hasAttribute("data-hover-actions-scope")).toBe(true);
+    });
+
+    it("不能收起时没有标记、没有 aria-expanded；框架按钮在悬停才出的容器里（frame）", () => {
+        mountFold(null);
+        expect(document.querySelector("[data-panel-fold]")).toBeNull();
+        expect(handle().hasAttribute("aria-expanded")).toBe(false);
+        expect(document.querySelector("[data-panel-action='maximize']")?.closest("[data-hover-actions]")?.getAttribute("data-hover-actions")).toBe("frame");
+    });
+
+    it("视图接管标题区时：标记是左列里单独的按钮，有名称与 aria-expanded，点它发 toggle-fold；标题按钮照旧是视图的弹层开关", async () => {
+        const {events} = mountFold({collapsed: false}, {key: "nbook.agent.conversation:1", popup: {expanded: false}});
+        await waitUntil("画出接管的头", () => document.querySelector("[data-panel-head-start]") !== null);
+        const fold = document.querySelector<HTMLButtonElement>("button[data-panel-fold]")!;
+        expect([fold.getAttribute("aria-label"), fold.getAttribute("aria-expanded")]).toEqual(["收起 对话", "true"]);
+        expect(fold.closest("[data-panel-tab]")).toBeNull();
+        expect(handle().getAttribute("aria-haspopup")).toBe("dialog");
+        fold.click();
+        expect(events).toEqual(["toggle-fold"]);
     });
 });

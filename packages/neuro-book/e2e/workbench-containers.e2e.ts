@@ -56,7 +56,8 @@ async function sectionOf(page: Page, view: string): Promise<string> {
     return id;
 }
 const tab = (page: Page, view: string) => page.locator(`[data-panel-tab="view:${view}"]`);
-const collapseButton = (page: Page, view: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"]) [data-panel-action="nbook.view.set-panel-collapsed"]`);
+/** 分节的标题行是展开、收起的开关（输出 20）：能收起时标题按钮带 `aria-expanded`。 */
+const collapseButton = (page: Page, view: string) => page.locator(`[data-panel-head] [data-panel-tab="view:${view}"][aria-expanded]`);
 /** 活动栏里一个容器的入口（输出 22）；样例视图的容器是 `view:<视图 id>`。 */
 const entry = (page: Page, container: string) => page.locator(`[data-tool-entry="${container}"]`);
 const pressedEntries = (page: Page) => page.locator('[data-tool-entry][aria-pressed="true"]');
@@ -123,6 +124,124 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(page.getByRole("menu")).toHaveCount(0);
     }
 
+    test("分节的标题行是展开、收起的开关：点标题、Enter 切换，双击回到原样；全部收起时最后一节垫底、卡片满高、右下角是圆的，拖侧栏宽度时它的内容照旧停放（ui/workbench-layout 输出 11、20）", async ({page}) => {
+        await open(page);
+        const [sessions, explorer] = [await sectionOf(page, SESSIONS), await sectionOf(page, EXPLORER)];
+        const before = [await box(page, sessions), await box(page, explorer)];
+        const [upperView, lowerView] = before[0]!.y < before[1]!.y ? [SESSIONS, EXPLORER] : [EXPLORER, SESSIONS];
+        const [upper, lower] = before[0]!.y < before[1]!.y ? [sessions, explorer] : [explorer, sessions];
+        const tall = (await box(page, upper)).height;
+        // 点标题收起、再点展开。
+        await collapseButton(page, upperView).click();
+        await expect.poll(async () => (await box(page, upper)).height).toBe(32);
+        await expect(collapseButton(page, upperView)).toHaveAttribute("aria-expanded", "false");
+        await collapseButton(page, upperView).click();
+        await expect.poll(async () => (await box(page, upper)).height).toBe(tall);
+        // Enter 是按钮的点击，同样切换；焦点在标题上。
+        await collapseButton(page, upperView).focus();
+        await page.keyboard.press("Enter");
+        await expect.poll(async () => (await box(page, upper)).height).toBe(32);
+        await expect(collapseButton(page, upperView)).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect.poll(async () => (await box(page, upper)).height).toBe(tall);
+        // 双击切两次，回到原样。
+        await collapseButton(page, upperView).dblclick();
+        await expect.poll(async () => (await saved(page))?.panels[upper]?.collapsed ?? false).toBe(false);
+        await expect.poll(async () => (await box(page, upper)).height).toBe(tall);
+
+        // 全部收起：最后一节垫底，外框到这一列的底；卡片右下角是圆的（那一点是窗体底），标题行下面是卡片的底。
+        const columnBottom = Math.max(...before.map((rect) => rect.y + rect.height));
+        await collapseButton(page, upperView).click();
+        await collapseButton(page, lowerView).click();
+        await expect.poll(async () => {
+            const rect = await box(page, lower);
+            return Math.round(rect.y + rect.height);
+        }).toBe(Math.round(columnBottom));
+        await expect(content(page, lowerView)).toHaveAttribute("inert", "");
+        await page.mouse.move(900, 600);
+        const card = (await page.locator(`[data-shell-card="${lower}"]`).boundingBox())!;
+        const colorsAt = async (points: ReadonlyArray<readonly [number, number]>): Promise<number[][]> => {
+            const png = await page.screenshot();
+            return page.evaluate(async ({data, points}) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${data}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d")!;
+                context.drawImage(image, 0, 0);
+                return points.map(([x, y]) => [...context.getImageData(Math.floor(x), Math.floor(y), 1, 1).data].slice(0, 3));
+            }, {data: png.toString("base64"), points});
+        };
+        const same = (a: number[] | undefined, b: number[] | undefined): boolean => a !== undefined && b !== undefined && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) <= 3);
+        const [cornerOut, cardMiddle, belowRows, ground] = await colorsAt([
+            [card.x + card.width - 1.5, card.y + card.height - 1.5],
+            [card.x + card.width / 2, card.y + card.height - 20],
+            [card.x + card.width / 2, card.y + 80],
+            [card.x + card.width + 2, card.y + card.height - 20],
+        ]);
+        expect(same(cardMiddle, belowRows), `标题行下面 ${String(belowRows)}，卡片底 ${String(cardMiddle)}`).toBe(true);
+        expect(same(cardMiddle, ground), `卡片底 ${String(cardMiddle)} 不该是窗体底 ${String(ground)}`).toBe(false);
+        expect(same(cornerOut, ground), `右下角外 ${String(cornerOut)}，窗体底 ${String(ground)}`).toBe(true);
+        // 拖侧栏的宽度（别的手势的预览）：垫底的那一节内容照旧停放。
+        const sash = (await sidebarSash(page).boundingBox())!;
+        const y = sash.y + sash.height / 2;
+        await page.mouse.move(sash.x + sash.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(sash.x + sash.width / 2 + 40, y, {steps: 4});
+        await expect(content(page, lowerView)).toHaveAttribute("inert", "");
+        await page.mouse.up();
+        await expect(content(page, lowerView)).toHaveAttribute("inert", "");
+    });
+
+    test("面板头的样子：标记与资源管理器树第一层的展开箭头、标题与树的文字左缘对齐；标记与标题在头里竖直居中；收起前后不横移；按钮悬停才出，焦点在头里时出；最大化着还原按钮一直在（ui/workbench-layout 输出 20）", async ({page}) => {
+        await open(page);
+        const explorer = await sectionOf(page, EXPLORER);
+        const measure = () => page.evaluate((panel) => {
+            const rect = (element: Element | null) => {
+                const found = element?.getBoundingClientRect();
+                return found === undefined ? null : {left: found.left, top: found.top, bottom: found.bottom, center: (found.top + found.bottom) / 2};
+            };
+            const head = document.querySelector(`[data-panel-head="${panel}"]`)!;
+            const twisty = document.querySelector("[data-explorer-twisty] > span");
+            return {
+                head: rect(head), chevron: rect(head.querySelector("span[data-panel-fold]")), label: rect(head.querySelector(".workbench-panel-head__label")),
+                twisty: rect(twisty), treeLabel: rect(twisty?.closest("[data-explorer-twisty]")?.parentElement?.querySelector("[data-explorer-label]") ?? null),
+            };
+        }, explorer);
+        const open1 = await measure();
+        expect(open1.twisty).not.toBeNull();
+        expect(Math.abs(open1.chevron!.left - open1.twisty!.left), `标记 ${String(open1.chevron!.left)}，树的箭头 ${String(open1.twisty!.left)}`).toBeLessThanOrEqual(1);
+        expect(Math.abs(open1.label!.left - open1.treeLabel!.left), `标题 ${String(open1.label!.left)}，树的文字 ${String(open1.treeLabel!.left)}`).toBeLessThanOrEqual(1);
+        expect(Math.abs(open1.chevron!.center - open1.head!.center)).toBeLessThanOrEqual(1);
+        expect(Math.abs(open1.label!.center - open1.head!.center)).toBeLessThanOrEqual(1);
+        // 收起前后标记与标题的横坐标不变。
+        await collapseButton(page, EXPLORER).click();
+        await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
+        const folded = await measure();
+        expect([folded.chevron!.left, folded.label!.left]).toEqual([open1.chevron!.left, open1.label!.left]);
+        await collapseButton(page, EXPLORER).click();
+        await expect.poll(async () => (await box(page, explorer)).height).toBeGreaterThan(32);
+
+        // 按钮悬停才出：指针在别处、焦点不在头里时透明；指针移到这块面板上显示。
+        const frameActions = page.locator(`[data-panel-head="${explorer}"] [data-hover-actions="frame"]`);
+        await page.locator("body").click({position: {x: 900, y: 500}});
+        await page.mouse.move(900, 500);
+        await expect.poll(() => frameActions.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
+        await page.locator(`[data-panel-head="${explorer}"]`).hover({position: {x: 60, y: 16}});
+        await expect.poll(() => frameActions.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+        // 焦点在头里（键盘）也显示。
+        await page.mouse.move(900, 500);
+        await collapseButton(page, EXPLORER).focus();
+        await expect.poll(() => frameActions.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+        // 最大化着还原按钮一直在：它是这块面板此刻状态的唯一指示。
+        await page.locator(`[data-panel-head="${explorer}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`).click();
+        await page.locator("body").click({position: {x: 900, y: 500}});
+        await page.mouse.move(900, 500);
+        await expect.poll(() => frameActions.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+    });
+
     test("切到别的容器再切回来：两个分节的先后、高度与收起都是原样，实例、输入与滚动保留；记录里的尺寸意图前后相同（验收 24；输出 42）", async ({page}) => {
         await open(page);
         // 搭一个两个分节的容器：样例乙移进样例甲的容器，成为它最后一个分节，侧栏切到这个容器（输出 23）。
@@ -176,8 +295,8 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(sample(page, A)).toBeVisible();
         await expect.poll(heights).toEqual(expected);
         expect((await box(page, upper)).y).toBeLessThan((await box(page, lower)).y);
-        await expect(collapseButton(page, B)).toHaveAttribute("aria-pressed", "true");
-        await expect(collapseButton(page, A)).toHaveAttribute("aria-pressed", "false");
+        await expect(collapseButton(page, B)).toHaveAttribute("aria-expanded", "false");
+        await expect(collapseButton(page, A)).toHaveAttribute("aria-expanded", "true");
         expect(await instances()).toEqual(before);
         await expect(input).toHaveValue("乙的草稿");
         await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(120);

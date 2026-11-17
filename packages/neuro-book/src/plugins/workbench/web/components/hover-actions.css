@@ -10,7 +10,8 @@
 }
 
 @media (hover: hover) {
-    [data-hover-actions-scope]:not(:hover):not(:focus-within):not([data-hover-actions-active]) [data-hover-actions]:not(:has([aria-expanded="true"], [data-state="open"])) {
+    /* 框架按钮（`data-hover-actions="frame"`）里有按下的（最大化着时的还原）也一直显示：它是这块面板此刻状态的唯一指示。只给框架按钮，视图动作照旧。 */
+    [data-hover-actions-scope]:not(:hover):not(:focus-within):not([data-hover-actions-active]) [data-hover-actions]:not(:has([aria-expanded="true"], [data-state="open"])):not([data-hover-actions="frame"]:has([aria-pressed="true"])) {
         opacity: 0;
     }
 }

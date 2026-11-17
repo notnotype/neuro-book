@@ -37,6 +37,8 @@ export interface VisibilityFacts {
     /** 放不下被收走的面板。 */
     readonly removed: ReadonlySet<string>;
     readonly maximized: string | null;
+    /** 垫底的分节（投影的 `fillers`）：收着、外框拉到了底，预览里也不算拉出来。 */
+    readonly fillers?: ReadonlySet<string>;
 }
 
 function hasRoom(panel: PanelRecord, size: GridExtent | undefined): boolean {
@@ -64,7 +66,7 @@ export function effectiveVisibleTabs(recorded: LayoutDoc, facts: VisibilityFacts
         const region = regionOf(doc, id);
         const anchor = region === null ? undefined : doc.panels[regionNodeOf(doc, region)?.anchor ?? ""];
         const committed = !isSectionCollapsed(doc, id) && anchor?.collapsed !== true && hasRoom(panel, facts.sizes[id]);
-        const pulledOut = facts.preview !== null && hasRoom(panel, facts.preview[id]);
+        const pulledOut = facts.preview !== null && facts.fillers?.has(id) !== true && hasRoom(panel, facts.preview[id]);
         // 最大化盖在上面，矩形不来自布局结果。
         if (committed || pulledOut || facts.maximized === id) visible.add(panel.active);
     }

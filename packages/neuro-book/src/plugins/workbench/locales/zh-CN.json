@@ -282,7 +282,12 @@
         },
         "activityBar": "活动栏",
         "drag": {
-            "hint": "按空格拿起并拖动"
+            "hint": "按空格拿起并拖动",
+            "hintFold": "按 Enter 展开或收起，按空格拿起并拖动"
+        },
+        "fold": {
+            "expand": "展开 {{title}}",
+            "collapse": "收起 {{title}}"
         },
         "drop": {
             "sector": {

@@ -2,7 +2,7 @@
 /**
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
-import {createGrid, hiddenRegionsAtZero, isContainerAnchor, isPanelShown, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
+import {createGrid, hiddenRegionsAtZero, isContainerAnchor, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
 import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, GridSwap, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
@@ -170,7 +170,11 @@ const vEditorHead: Directive<HTMLElement> = {
 };
 
 const contents = computed(() => {
-    const items = layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW);
+    // 垫底的分节（投影的 `fillers`，一列全部收起时最后一节，输出 11）外框拉到了底，内容层会按外框摆出它的内容：它仍是收起的，内容不显示、不可交互。
+    // 只给垫底的：别的收起的分节外框只有标题行高，被拉开时内容在拖动中就出现（输出 12）。
+    const fillers = props.projection.fillers;
+    const laid = layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW);
+    const items = fillers.size === 0 ? laid : laid.map((item) => (fillers.has(item.leaf) ? {...item, active: false} : item));
     const {lifted} = props;
     if (lifted === null || items.some((item) => item.key === lifted.key)) return items;
     // 预览把来源摘掉了：内容项还得在，不然实例就卸了。它的叶可能也不在了，矩形由 `placeLifted` 给。
@@ -405,6 +409,22 @@ function sashStyleOf(sash: SashRef): Record<string, string> | undefined {
     return style;
 }
 
+/**
+ * 一列分节全部收成标题行时（投影的 `fillers`，最后一节垫底、外框拉到了底）这一列的分隔线不能拖（docs/specs/ui/workbench-layout.md 输出 11）：
+ * 拖开时预览里垫底的那一节在吸收，松手后它回到标题行、刚展开的那一节吸收，结果和预览对不上。展开靠点标题或命令。
+ */
+const fillerColumns = computed<ReadonlySet<string>>(() => {
+    const columns = new Set<string>();
+    const visit = (node: GridNodeInput<string>): void => {
+        if (node.kind === "leaf") return;
+        if (node.children.some((child) => props.projection.fillers.has(child.id))) columns.add(node.id);
+        node.children.forEach(visit);
+    };
+    if (props.projection.fillers.size > 0) visit(props.projection.input);
+    return columns;
+});
+const sashDisabledOf = (sash: SashRef): boolean => fillerColumns.value.has(sash.branch);
+
 // ── 指针与焦点在哪块面板 ──────────────────────────────────────────────────
 
 const pointerPanel = shallowRef<string | null>(null);
@@ -481,6 +501,7 @@ defineExpose({
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"
             :sash-style="sashStyleOf"
+            :sash-disabled="sashDisabledOf"
             :leaf-shape="shapeOf"
             :swap="gridSwap"
             @gesture-update="onGesturePreview"
@@ -502,7 +523,7 @@ defineExpose({
                         :data-shell-slot="node.id === slotPanel ? '' : undefined"
                         :data-panel-role="roleOf(node.id) ?? undefined"
                         :data-panel-name="swappingLeaves.has(node.id) ? undefined : sceneOf(node.id)"
-                        :data-hover-actions-scope="roleOf(node.id) === null ? undefined : ''"
+                        :data-hover-actions-scope="roleOf(node.id) === null || isSectionCollapsed(doc, node.id) ? undefined : ''"
                         :data-hover-actions-active="actionsShownOn(node.id) ? '' : undefined"
                     >
                         <slot v-if="node.id === ACTIVITY_BAR" name="activitybar"></slot>
