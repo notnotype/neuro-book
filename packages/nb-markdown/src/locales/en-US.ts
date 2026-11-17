@@ -55,6 +55,7 @@ export default {
         add: "Add property",
         newName: "Property name",
         rename: "Property name: {{name}}",
+        labeledName: "{{label}} ({{name}})",
         remove: "Remove property {{name}}",
         editSource: "Edit {{name}} in source",
         duplicate: "A property with this name exists",

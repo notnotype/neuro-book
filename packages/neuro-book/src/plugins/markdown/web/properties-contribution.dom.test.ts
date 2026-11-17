@@ -15,6 +15,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createApplication} from "nbook/application";
+import {windowTextKey} from "nbook/shared/window-text-key";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
@@ -40,6 +42,8 @@ const FRONTMATTER = "---\n视角: 林雪\n时间:\n字数目标:\n地点: 青石
 const contributor = (id: string, declarations: Readonly<Record<string, unknown>>): PluginDefinition => ({id, contributions: Object.entries(declarations).map(([name, declaration]) => ({capability: "markdown.properties", id: `${id}.${name}`, declaration})), entries: []});
 
 async function start(plugins: ReadonlyArray<PluginDefinition>) {
+    // 窗口的翻译引擎是产品的实现，像真实的窗口那样作为宿主能力交给插件（`nbook.markdown` 经 `windowTextKey` 取它的端口）：切语言只调它的 `setLocale`。
+    const engine = createHostTextEngine({locale: "zh-CN", strict: true});
     const memory = createMemoryFiles({project: [["a.md", FRONTMATTER]], user: []});
     let components: MarkdownComponents | null = null;
     const files: PluginDefinition = {id: "nbook.files", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], provides: [filesKey], activate: () => ({services: [provideService(filesKey, memory.files)]})})]};
@@ -52,7 +56,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>) {
     const diagnostics = createDiagnosticsPlugin({location: "browser", store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
     const application = createApplication(
         {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {capabilities: [], plugins: [diagnostics, files, markdownBrowserPlugin, ...plugins, probe], requiredPlugins: [diagnostics.id, "nbook.markdown", "test.probe"], gates: []},
+        {capabilities: [{id: "window.text", key: windowTextKey, create: () => engine}], plugins: [diagnostics, files, markdownBrowserPlugin, ...plugins, probe], requiredPlugins: [diagnostics.id, "nbook.markdown", "test.probe"], gates: []},
     );
     cleanups.push(async () => {
         await application.stop();
@@ -75,7 +79,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>) {
     cleanups.push(() => wrapper.unmount());
     // 第一次挂载要等 Vitest 转换编辑器的模块。
     await waitUntil("面板出现", () => (document.querySelector("[data-markdown-properties]") === null ? null : true), {timeoutMs: 20_000});
-    return {store, wrapper, application};
+    return {store, wrapper, application, engine};
 }
 
 const panel = (): HTMLElement => document.querySelector("[data-markdown-properties]") as HTMLElement;
@@ -83,7 +87,7 @@ const row = (name: string): HTMLElement => panel().querySelector(`[data-property
 
 describe("属性声明的贡献（经真实的插件运行时）", () => {
     it("声明按名字生效：摘要与行里是显示名、图标，空值的行按声明的类型输入；文件字节不变", async () => {
-        const {wrapper} = await start([contributor("test.canon", {
+        const {wrapper, engine} = await start([contributor("test.canon", {
             pov: {name: "视角", icon: "i-lucide-eye", label: "叙述视角"},
             when: {name: "时间", kind: "date"},
             words: {name: "字数目标", kind: "number", label: {"zh-CN": "预计字数", "en-US": "Word goal"}},
@@ -97,6 +101,12 @@ describe("属性声明的贡献（经真实的插件运行时）", () => {
         expect(row("字数目标").querySelector('[data-property-kind="number"]')).not.toBeNull();
         expect(row("地点").querySelector(".markdown-properties__type .i-lucide-text")).not.toBeNull();
         expect(wrapper.html()).not.toContain("Word goal");
+        // 界面语言经窗口的翻译引擎切换：按语言的显示名跟着变，别的行不动。
+        engine.setLocale("en-US");
+        await waitUntil("英文显示名", () => (row("字数目标").querySelector(".markdown-properties__name")?.textContent === "Word goal" ? true : null));
+        expect(row("视角").querySelector(".markdown-properties__name")?.textContent).toBe("叙述视角");
+        engine.setLocale("zh-CN");
+        await waitUntil("中文显示名", () => (row("字数目标").querySelector(".markdown-properties__name")?.textContent === "预计字数" ? true : null));
     });
 
     it("同名冲突：id 码元顺序最小的整条生效，被忽略的记一条诊断；不合格的声明被贡献点拒绝、不生效", async () => {

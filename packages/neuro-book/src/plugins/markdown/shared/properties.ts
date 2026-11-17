@@ -13,9 +13,6 @@ import {TextSchema} from "nbook/shared/text";
 
 export const MARKDOWN_PROPERTIES_POINT = "markdown.properties";
 
-/** 声明里能给的类型：面板已有的五种可编辑类型，不含表示不了的“{ }”。 */
-export const PROPERTY_KINDS = ["text", "number", "checkbox", "date", "list"] as const;
-
 export const PropertyDeclarationSchema = Type.Object({
     /** 属性名：精确、区分大小写地等于 frontmatter 里键的文字；非空、不含控制字符。 */
     name: Type.String({pattern: "^[^\\u0000-\\u001f\\u007f]+$"}),
@@ -28,8 +25,7 @@ export const PropertyDeclarationSchema = Type.Object({
 
 export type PropertyDeclaration = Static<typeof PropertyDeclarationSchema>;
 
-/** `PROPERTY_KINDS` 与 schema 里的字面量一致：不一致时这里编译失败。 */
-const _sameKinds: Array<NonNullable<PropertyDeclaration["kind"]>> = [...PROPERTY_KINDS];
-void _sameKinds;
+/** 声明里能给的类型：面板已有的五种可编辑类型，不含表示不了的“{ }”。 */
+export type PropertyKind = NonNullable<PropertyDeclaration["kind"]>;
 
 export const propertiesPoint: ContributionPointDefinition<PropertyDeclaration> = {id: MARKDOWN_PROPERTIES_POINT, implementation: "none", idPrefix: "plugin", schema: PropertyDeclarationSchema};

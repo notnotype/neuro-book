@@ -339,6 +339,10 @@ describe("键盘与结算（输出 49、50）", () => {
 describe("宿主给的图标、显示名与类型（输出 60）", () => {
     const RAW = "---\n视角: 林雪\n时间:\n字数目标:\n已定稿:\n标签:\n地点: 青石镇\n---\n";
     const locale = ref<"zh-CN" | "en-US">("zh-CN");
+    // 语言切换的用例断言失败时也要还原，免得把英文留给后面的用例。
+    afterEach(() => {
+        locale.value = "zh-CN";
+    });
     const declared: Readonly<Record<string, PropertyDescription>> = {
         视角: {icon: "i-lucide-eye", label: "叙述视角"},
         时间: {kind: "date"},
@@ -378,7 +382,6 @@ describe("宿主给的图标、显示名与类型（输出 60）", () => {
         locale.value = "en-US";
         await nextTick();
         expect(row(wrapper, "视角").get(".markdown-properties__name").text()).toBe("Point of view");
-        locale.value = "zh-CN";
     });
 
     it("点显示名才变成输入框，输入框里是真名；改名写回的是真键，改好后没有声明的新名字显示它自己", async () => {
@@ -392,6 +395,65 @@ describe("宿主给的图标、显示名与类型（输出 60）", () => {
         expect(commits).toHaveLength(1);
         expect(raw()).toBe("---\n视点: 林雪\n时间:\n字数目标:\n已定稿:\n标签:\n地点: 青石镇\n---\n");
         expect(row(wrapper, "视点").get<HTMLInputElement>(".markdown-properties__name input").element.value).toBe("视点");
+    });
+
+    it("显示名进每种输入的可访问名称，也进移除与“在源码里改”的提示", async () => {
+        const named: Readonly<Record<string, PropertyDescription>> = {
+            时间: {kind: "date", label: "发生时间"},
+            标签: {kind: "list", label: "标签集"},
+            已定稿: {kind: "checkbox", label: "是否定稿"},
+            字数目标: {label: "目标字数"},
+            嵌套: {label: "嵌套的"},
+        };
+        const {wrapper} = panel("---\n时间:\n标签:\n已定稿:\n字数目标: 4000\n嵌套:\n  a: 1\n---\n", {describe: (name) => named[name] ?? null});
+        expect(row(wrapper, "时间").find('[aria-label="发生时间"]').exists()).toBe(true);
+        expect(row(wrapper, "标签").find('[aria-label="标签集"]').exists()).toBe(true);
+        expect(row(wrapper, "已定稿").findAll(".sr-only").map((item) => item.text())).toContain("是否定稿");
+        expect(row(wrapper, "字数目标").find('input[aria-label="目标字数"]').exists()).toBe(true);
+        expect(row(wrapper, "字数目标").get(".markdown-properties__remove").attributes("title")).toBe("移除属性 目标字数");
+        expect(row(wrapper, "嵌套").find('[title="在源码里改 嵌套的"]').exists()).toBe(true);
+    });
+
+    it("有显示名的名字按钮：名称带真名，免得读屏听不出它对应哪个键", () => {
+        const {wrapper} = panel(RAW, {describe});
+        expect(row(wrapper, "视角").get("button.markdown-properties__name--label").attributes("aria-label")).toBe("叙述视角（视角）");
+    });
+
+    it("改成另一个有显示名的名字：这一行回到显示名按钮，焦点留在名字上", async () => {
+        const named = (name: string): PropertyDescription | null => (name === "视角" ? {label: "叙述视角"} : name === "视点" ? {label: "视点L"} : null);
+        const {wrapper, raw} = panel("---\n视角: 林雪\n---\n", {describe: named});
+        await row(wrapper, "视角").get("button.markdown-properties__name--label").trigger("click");
+        await nextTick();
+        const input = row(wrapper, "视角").get<HTMLInputElement>(".markdown-properties__name input");
+        await typeInto(input, "视点");
+        await input.trigger("keydown", {key: "Enter"});
+        await flushPromises();
+        expect(raw()).toBe("---\n视点: 林雪\n---\n");
+        const button = row(wrapper, "视点").get<HTMLButtonElement>("button.markdown-properties__name--label");
+        expect(button.text()).toBe("视点L");
+        expect(document.activeElement).toBe(button.element);
+    });
+
+    it("点了显示名、输入框里的字没改成别的就回车：不写回，回到显示名", async () => {
+        const {wrapper, commits} = panel(RAW, {describe});
+        await row(wrapper, "视角").get("button.markdown-properties__name--label").trigger("click");
+        await nextTick();
+        const input = row(wrapper, "视角").get<HTMLInputElement>(".markdown-properties__name input");
+        await typeInto(input, "视角");
+        await input.trigger("keydown", {key: "Enter"});
+        await flushPromises();
+        expect(commits).toEqual([]);
+        expect(row(wrapper, "视角").find("button.markdown-properties__name--label").exists()).toBe(true);
+    });
+
+    it("点了显示名之后宿主换了原文（撤销、外部修改）：回到显示名，不留着输入框", async () => {
+        const {wrapper} = panel(RAW, {describe});
+        await row(wrapper, "视角").get("button.markdown-properties__name--label").trigger("click");
+        await nextTick();
+        expect(row(wrapper, "视角").find(".markdown-properties__name input").exists()).toBe(true);
+        await wrapper.setProps({raw: RAW.replace("林雪", "苏晴")});
+        expect(row(wrapper, "视角").find(".markdown-properties__name input").exists()).toBe(false);
+        expect(row(wrapper, "视角").find("button.markdown-properties__name--label").exists()).toBe(true);
     });
 
     it("点显示名后什么也没改就离开：回到显示名，不写回", async () => {

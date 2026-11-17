@@ -65,6 +65,7 @@ export default {
         add: "添加属性",
         newName: "属性名",
         rename: "属性名：{{name}}",
+        labeledName: "{{label}}（{{name}}）",
         remove: "移除属性 {{name}}",
         editSource: "在源码里改 {{name}}",
         duplicate: "已有同名属性",

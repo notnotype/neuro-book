@@ -50,6 +50,19 @@ describe("createPropertyDescriptions", () => {
         expect(find("地点")).toBeNull();
     });
 
+    it("空的显示名（空串、没有当前语言的语言表、只有空白）等于没给：不出现 label，图标与类型照给", () => {
+        const {describe: find, setLocale} = setup([
+            {id: "a.blank", declaration: {name: "甲", label: "", icon: "i-lucide-eye"}},
+            {id: "a.spaces", declaration: {name: "乙", label: "  ", kind: "date"}},
+            {id: "a.table", declaration: {name: "丙", label: {"zh-CN": "丙的名字"}, kind: "number"}},
+        ]);
+        expect(find("甲")).toEqual({icon: "i-lucide-eye"});
+        expect(find("乙")).toEqual({kind: "date"});
+        expect(find("丙")).toEqual({label: "丙的名字", kind: "number"});
+        setLocale("en-US");
+        expect(find("丙")).toEqual({kind: "number"});
+    });
+
     it("label 按当前界面语言取：语言切换后下一次查就是新的", () => {
         const {describe: find, setLocale} = setup([{id: "nbook.canon.pov", declaration: {name: "视角", label: {"zh-CN": "叙述视角", "en-US": "Point of view"}}}]);
         expect(find("视角")?.label).toBe("叙述视角");

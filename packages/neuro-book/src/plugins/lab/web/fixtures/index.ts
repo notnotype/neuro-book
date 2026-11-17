@@ -16,6 +16,7 @@ import type {InlineChip} from "@notnotype/nb-markdown/chip";
 import type {MarkdownDisplay, MarkdownImage} from "@notnotype/nb-markdown/display";
 import type {PromptAttachmentStrip, PromptEditor, PromptPasteFrame, PromptTextView} from "@notnotype/nb-markdown/prompt";
 import type {MarkdownProperties} from "@notnotype/nb-markdown/editor";
+import type {PropertyDescription} from "nbook/plugins/markdown/web/properties-catalog";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -113,16 +114,20 @@ import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./sh
 import {rowDemoSettings, sceneThemeSetting, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
 
-/** 属性面板的样例：一章的五个属性，每种类型一个，开头一行注释。 */
-/** `declared` 场景里的属性声明（输出 59、60）：键只在那个场景里出现，别的属性面板场景不受影响。 */
-const PROPERTY_DECLARATIONS: Readonly<Record<string, {icon?: string; label?: string; kind?: "text" | "number" | "checkbox" | "date" | "list"}>> = {
+/** `declared` 开头的几个场景里的属性声明（输出 59、60）：键只在那些场景里出现，别的属性面板场景不受影响。 */
+const PROPERTY_DECLARATIONS: Readonly<Record<string, PropertyDescription>> = {
     叙事视角: {icon: "i-lucide-eye", label: "视角"},
     截稿日: {icon: "i-lucide-calendar-clock", kind: "date"},
     预计字数: {kind: "number"},
     定稿: {kind: "checkbox"},
     关键词: {icon: "i-lucide-tags", kind: "list"},
+    人物别名: {icon: "i-lucide-users", label: "出场人物与他们的别名（含绰号、尊称与外号，写在这里是为了让设定插件能按名字找到人）"},
+    人物关系: {icon: "i-lucide-eye", label: "人物之间的关系"},
+    pov: {icon: "i-lucide-eye", label: "Point of view"},
+    due: {kind: "date", label: "Due date"},
 };
 
+/** 属性面板的样例：一章的五个属性，每种类型一个，开头一行注释。 */
 const PROPERTIES_SAMPLE = "---\n# 第十二章\n视角: 林雪\n时间: 2025-12-21\n地点: [青石镇, 北山]\n字数目标: 4000\n已定稿: false\n---\n";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
@@ -757,6 +762,9 @@ export const labFixtures: LabFixture[] = [
             {id: "english", label: "英文界面", input: {props: {raw: "---\npov: Lin Xue\ndate: 2025-12-21\nplaces: [Qingshi, North Hill]\nword goal: 4000\nfinal: false\n---\n"}, model: {open: false}}},
             // 宿主按属性名给图标、显示名与类型（输出 60）：`describe` 是运行期的函数，下面的 `runtimeProps` 给；只有这个场景里的键（`叙事视角` 等）有声明，别的场景不受影响。
             {id: "declared", label: "插件的声明：图标、显示名、空值按声明的类型输入", input: {props: {raw: "---\n叙事视角: 林雪\n截稿日:\n预计字数:\n定稿:\n关键词:\n地点: 青石镇\n---\n"}, model: {open: true}}},
+            {id: "declared-long", label: "插件的声明：很长的显示名；表示不了的行有显示名、图标不换", input: {props: {raw: "---\n人物别名: [林雪, 雪儿]\n人物关系:\n  林雪: 姐妹\n  沈舟: 旧识\n---\n"}, model: {open: true}}},
+            {id: "declared-readonly", label: "插件的声明：只读（显示名照出，不能点着改名）", input: {props: {raw: "---\n叙事视角: 林雪\n截稿日: 2025-12-21\n预计字数: 4000\n定稿: true\n关键词: [雪, 客栈]\n---\n", readonly: true}, model: {open: true}}},
+            {id: "declared-english", label: "插件的声明：英文的显示名", input: {props: {raw: "---\npov: Lin Xue\ndue:\nword goal: 4000\n---\n"}, model: {open: true}}},
         ],
         load: async () => withMarkdownSceneText(createSubjectFixture<typeof MarkdownProperties>((await import("@notnotype/nb-markdown/editor")).MarkdownProperties, {
             events: ["commit", "update:open", "leave"],

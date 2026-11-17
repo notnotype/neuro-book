@@ -68,6 +68,7 @@ const LEGACY: Readonly<Record<string, Legacy>> = {
     "properties.add": {"zh-CN": "添加属性", "en-US": "Add property"},
     "properties.newName": {"zh-CN": "属性名", "en-US": "Property name"},
     "properties.rename": {"zh-CN": "属性名：{name}", "en-US": "Property name: {name}"},
+    "properties.labeledName": {"zh-CN": "{label}（{name}）", "en-US": "{label} ({name})"},
     "properties.remove": {"zh-CN": "移除属性 {name}", "en-US": "Remove property {name}"},
     "properties.editSource": {"zh-CN": "在源码里改 {name}", "en-US": "Edit {name} in source"},
     "properties.duplicate": {"zh-CN": "已有同名属性", "en-US": "A property with this name exists"},

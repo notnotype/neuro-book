@@ -99,7 +99,12 @@ watch(() => problem.value === null, (fixed) => {
     if (fixed) mode.value = "properties";
 });
 
-const descriptionOf = (row: PropertyRow): PropertyDescription | null => props.describe?.(row.name) ?? null;
+/**
+ * 每个属性名查一次声明，摘要与各行共用这一份：行在一次渲染里要问好几次（图标、显示名、类型），逐次现查既慢，也可能让摘要
+ * 与行看到不同的声明。属性列表或 `describe` 读的响应式状态（界面语言）变了才重查；声明本身的增减不触发它（输出 61 的已知限制）。
+ */
+const descriptions = computed(() => new Map(rows.value.map((row) => [row.name, props.describe?.(row.name) ?? null] as const)));
+const descriptionOf = (row: PropertyRow): PropertyDescription | null => descriptions.value.get(row.name) ?? null;
 
 /** 这一行按什么类型输入：空值按这次挂载里选过的类型，没选过按声明的类型，都没有是文字；有值的行按值推断，声明不改它。 */
 function kindOf(row: PropertyRow): PropertyKind {
@@ -110,10 +115,10 @@ function kindOf(row: PropertyRow): PropertyKind {
 /** 显示名：声明的 `label`，没有就是真名。摘要、名字一列与各输入的可访问名称都用它。 */
 const labelOf = (row: PropertyRow): string => descriptionOf(row)?.label ?? row.name;
 
-/** 名字一列的提示：有显示名时带上真名。 */
+/** 名字一列的提示与有显示名时名字按钮的名称：带上真名。 */
 const nameTitleOf = (row: PropertyRow): string => {
     const label = labelOf(row);
-    return label === row.name ? row.name : `${label}（${row.name}）`;
+    return label === row.name ? row.name : text.t("properties.labeledName", {label, name: row.name});
 };
 
 /** 类型图标：声明的图标换掉按类型取的；表示不了的行（“{ }”）不换：它说的是“这一行只读”。 */
@@ -214,6 +219,8 @@ function settle(how: "enter" | "blur" | "flush"): void {
             chosen.value.delete(row.name);
             if (kind !== undefined) chosen.value.set(current.text.trim(), kind);
         }
+        // 新名字也有显示名时，名字格从输入框变回按钮，输入框随之卸载：焦点不能掉到页面上。
+        if (how === "enter") void nextTick(() => root.value?.querySelector<HTMLElement>(`[data-property-name-cell="${String(row.index)}"] input, [data-property-name-button="${String(row.index)}"]`)?.focus());
         return;
     }
     if (row.kind === "complex") return;
@@ -498,7 +505,7 @@ defineExpose({
 
                 <span v-if="props.readonly || !row.renamable" class="markdown-properties__name" :title="nameTitleOf(row)">{{ labelOf(row) }}</span>
                 <!-- 有显示名：点名字才变成输入框，输入框里是真名。 -->
-                <button v-else-if="labelOf(row) !== row.name && renaming !== row.index" type="button" class="markdown-properties__name markdown-properties__name--label nb-ui-focus-ring" :title="nameTitleOf(row)" @click="startRename(row)">{{ labelOf(row) }}</button>
+                <button v-else-if="labelOf(row) !== row.name && renaming !== row.index" type="button" class="markdown-properties__name markdown-properties__name--label nb-ui-focus-ring" :data-property-name-button="row.index" :title="nameTitleOf(row)" :aria-label="nameTitleOf(row)" @click="startRename(row)">{{ labelOf(row) }}</button>
                 <span v-else class="markdown-properties__name" :data-property-name-cell="row.index" @focusout="onFocusout({kind: 'name', index: row.index}, $event)" @keydown.enter="onEnter({kind: 'name', index: row.index}, $event)">
                     <Input
                         :model-value="draftOf({kind: 'name', index: row.index}) ?? row.name"
