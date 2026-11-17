@@ -34,7 +34,7 @@ owners:
 ## 输入与前置条件
 
 - 列表对已登录用户可见；安装、启用、禁用、卸载与升级只允许插件所有者执行，其它用户得到 403。操作对整个实例生效。
-- **安装的输入**是服务端可读的一个本地文件夹路径，文件夹根目录有插件清单 `package.json`。Desktop 由本机文件选择器取得路径；服务端部署时路径位于服务器上。
+- **安装的输入**有两种：服务端可读的一个本地文件夹路径，或页面上传的一个文件夹（planned，输出 11）；文件夹根目录都要有插件清单 `package.json`。Desktop 由本机文件选择器取得路径；服务端部署时路径位于服务器上。上传的文件夹存进服务端的上传暂存区后，预览、确认与安装都按它的暂存目录当作源文件夹，规则与路径输入完全相同。
 - 复制范围：清单有 `files` 字段时按 npm 的规则复制：每项是相对插件文件夹的 glob，命中目录时递归包含其全部内容，`!` 开头的项排除；npm 总是包含的文件照样包含（`package.json`、根目录的 README、LICENSE 或 LICENCE、`main` 与 `bin` 指向的文件）。不支持 npm 的扩展 glob（例如 `+(dist|lib)`），写了时安装以 `manifest-invalid` 拒绝。没有 `files` 时复制整个文件夹。两种情况都排除 `node_modules` 与 `.git`。复制后必须包含全部入口文件，以及清单 `l10n.locales` 列出的全部消息目录 `locales/<语言>.json`（[`runtime.plugin-manifest`](plugin-manifest.md) 输出 12）。
 - 路径边界：`files` 中的项必须是相对路径且不越出源文件夹；复制范围内的任何路径（包括路径中间的目录）是符号链接时安装被拒绝，被排除项剪掉的路径不在范围内；源文件夹不得位于 `<State Root>/plugins/` 之内。
 - 插件 id 已安装、版本不同时，安装请求按升级处理；版本与当前版本或待切换版本相同时拒绝（“已安装相同版本”），开发者需要提高版本号，或先卸载、重启后再安装。插件处于卸载中时，安装同一插件被拒绝，提示先重启。
@@ -60,6 +60,15 @@ owners:
 9. **生效时机可见。** 插件管理界面写明安装、卸载、升级、启用与禁用在下一次启动后生效；有待生效变化时，列表在对应插件上显示它，并提示重启。
 10. **显示名与问题。** 列表的每一项另带清单的显示名与说明（`displayName`、`description`，内置插件与没写的为空），以及服务端实例此刻的问题：入口激活失败（阶段、原因与错误消息）、入口受阻（原因与缺的服务）、贡献被拒（贡献点、贡献 id、原因与说明）。浏览器一侧的问题由各窗口经 `window.plugins.problems()` 查本窗口的（[`runtime.browser-host`](browser-host.md)）。插件页在 id 旁边写显示名、下面写说明（内置插件的名称与说明由插件页按界面语言给出），有问题的插件标出问题数并逐条列出原因（服务端的是打开页面时的快照，本窗口的随变化更新）；没有的不占位。作者装上插件后不开控制台就能看到“为什么没出现”。
 
+11. **上传的文件夹（planned）。** 插件页接受从系统拖入的一个文件夹，也提供“选择文件夹”（键盘与浏览器的入口，同一条路），页面把文件夹一次上传到上传暂存区，之后的预览、确认、安装与路径输入相同；预览的来源写“拖入的文件夹 <名字>（N 个文件，大小）”。
+    - 页面不上传任何深度的 `node_modules` 与 `.git`；符号链接在浏览器里读到的是目标内容，上传后是普通文件（与路径安装不同，已知限制）。读某个文件失败时这次上传作废，提示读取或上传没有完成。
+    - 页面在上传之前就拒绝并提示：拖入的不是文件夹（单个文件、多个条目，压缩包另说“先解压，再拖入解出的文件夹”）；根目录没有 `package.json` 而恰有一个子目录有时，提示插件好像在这个子目录里；超过上限（10000 个文件、总 64 MiB 含分帧头、单个文件 32 MiB）；相对路径不合规（见“上传暂存区”）；上传、预览或确认框开着时再拖入。
+    - 上传是一个请求，请求体按顺序带着全部文件，服务端边读边写，全部写好才交回上传 id；请求中途断开、超限或任一文件不合规，已写的部分删掉，不留下上传。
+    - 上传的相对路径一律按 Windows 也合法的规则检查（不论服务端在什么系统上）：用 `/` 分段；没有空段、`.`、`..`；不以 `/` 开头；没有 `\`、`:`、控制字符与 `<>"|?*`；段不以空格或点结尾、不是 Windows 保留名（`CON`、`NUL`、`COM1` 等，不分大小写、带扩展名也算）；段至多 255 字节、整条至多 1024 字节。同一次上传里两条路径只差大小写或 Unicode 归一化形式、或一条是另一条的上层目录，都不合规。
+    - 上传 id 由服务端签发，只认本次运行内登记过的；`inspect`、`install` 的输入是 `{path}` 或 `{upload}`，用不了的上传 id（不存在、已删、已过期）以 `path-rejected` 拒绝，详情说明上传已失效。上传交回之后只读：状态是“可用”或“使用中”（预览或安装正在读它）；使用中收到删除请求，等用完再删。
+    - 页面在预览失败、取消、页面离开时请求删除，**已经发出安装请求的上传页面不再删**，由服务端在安装结束（成功或失败）时删。删除不存在的上传算成功。服务端另外每 10 分钟删掉 1 小时没有被用过的可用上传；第一次用到暂存区时清空整个目录（只跑一次）；删除失败只记诊断，留给下次清空。
+    - 同时存在的上传至多 8 个，接收开始就占位；满了时淘汰最久没被用过的可用上传，没有可淘汰的才以 `upload-busy` 拒绝。服务端停止时取消正在接收的上传。
+
 ## 状态与转换
 
 | 当前用户状态 | 事件 | 下一状态 | 说明 |
@@ -73,6 +82,7 @@ owners:
 | 已启用、已禁用 | 升级（安装另一版本） | 保持原用户状态，记下待切换版本 | 下一次启动时切换 |
 | 任意 | 启动时不兼容或清单无效 | 用户状态不变，不登记 | 原因可查询 |
 
+- 上传（planned）的状态：接收中（占位、边读边写）→ 可用 → 使用中（预览或安装读它）→ 已删除；接收失败直接已删除。使用中收到删除请求记下，最后一个使用者用完再删；可用的被淘汰或过期清扫时删，使用中的不淘汰、不清扫。
 - 同一插件的安装、升级、卸载、启停请求串行执行；执行中收到的同一插件的新请求等待前一个完成。
 - 在同一次运行中，启用与禁用互相覆盖：例如禁用后再启用，重启后为已启用。卸载与待切换版本不能撤销，要撤回只能重启后再操作（卸载后重新安装、升级后安装旧版本）。
 - 插件登记表的写入是原子的：读者只看到完整的旧表或新表。服务端运行时命令行（`nbook plugin`）同时修改登记表，各自的修改都保留，不互相覆盖；一个进程正在准备、尚未提交的安装不会被另一个进程当作残留删除。
@@ -90,13 +100,14 @@ owners:
 
 - 写入 `<State Root>/plugins/<插件 id>/<版本>/` 与 `<State Root>/plugins/plugins.json`。
 - **运行中的版本目录。** 一个状态根只跑一个服务端（[`runtime.server-host`](server-host.md) 的“实例认领”）。运行中的服务端只用登记表里各插件的 `version`，它只在启动时切换；运行期间的安装、升级与卸载只写登记表与新的版本目录，不删、不改在用的目录（被取代的待切换版本从未被加载过）。所以服务端运行期间按需装载入口代码、经文件端点读文件不会找不到文件。
+- 上传暂存区（planned）：`<State Root>/plugin-uploads/<上传 id>/`，不在 `plugins/` 之内；寿命见输出 11，服务端启动后第一次用到时清空，所以残留的上传不会跨启动留下。
 - 插件的私有存储、配置与密钥的位置与格式归 [`runtime.plugin-api`](plugin-api.md)；卸载时按用户选择删除。
 - 插件写入作品的内容属于用户数据，任何操作都不删除。
 - 安装、卸载、升级、启动时切换版本各写一条诊断记录（插件 id、版本、结果、原因）。
 
 ## 失败与恢复
 
-插件管理接口的业务失败码。每个方法只返回自己的那一组：列表只有 `registry-failed`；预览与安装是 `manifest-invalid`、`catalog-invalid`、`incompatible-engine`、`already-installed`、`uninstall-pending`、`path-rejected`、`entry-missing`、`copy-failed`、`registry-failed`；启用、禁用与卸载是 `builtin-fixed`、`not-installed`、`uninstall-pending`、`registry-failed`。
+插件管理接口的业务失败码。每个方法只返回自己的那一组：列表只有 `registry-failed`；预览与安装（输入 `{upload}` 时的失效按 `path-rejected`）是 `manifest-invalid`、`catalog-invalid`、`incompatible-engine`、`already-installed`、`uninstall-pending`、`path-rejected`、`entry-missing`、`copy-failed`、`registry-failed`；启用、禁用与卸载是 `builtin-fixed`、`not-installed`、`uninstall-pending`、`registry-failed`。
 
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
@@ -110,6 +121,11 @@ owners:
 | `copy-failed` | 复制中途失败（磁盘满、权限、源文件被移除），已复制的部分已删除 | 排除原因后重试 |
 | `not-installed` | 操作的第三方插件未安装 | 刷新列表 |
 | `builtin-fixed` | 对内置插件执行启用、禁用或卸载 | 无 |
+| `upload-too-large` | 上传超过上限（单个文件、总量或文件数）（planned；上传路由，413） | 缩小文件夹后重试 |
+| `upload-busy` | 同时在接收的上传已满且没有可淘汰的（planned；429） | 稍后再试 |
+| `upload-path-invalid` | 上传的相对路径不合规或重名（planned；400） | 修改插件文件名后重试 |
+| `upload-malformed` | 上传请求体的分帧不对，或空请求体（planned；400） | 重试；反复出现是页面与服务端版本不一致 |
+| `upload-failed` | 上传写盘失败（planned；500） | 排除原因后重试 |
 | `registry-failed` | 插件登记表读不了、结构不符合，或写入失败（含拿不到写入锁）；本次操作没有生效，已复制的目录已删除 | 查看服务端诊断，排除原因后重试；登记表结构损坏时修复或移走它 |
 
 - **登记表写入失败**：本次操作失败，已复制的目录删除，登记表与运行状态回到操作前。
@@ -121,7 +137,8 @@ owners:
 
 - **owner**：runtime（加载器与安装）。清单规则归 `runtime.plugin-manifest`，运行中即时生效归 `runtime.plugin-hot-plug`，代码装载归 `runtime.plugin-code-loading`。
 - **信任与授权**：信任所有插件，安装即授予插件完全信任；安装确认界面是唯一的告知点，不可跳过。服务端部署时只有插件所有者（部署者的 `admin` 身份）能安装与管理插件。
-- **路径**：安装只接受服务端本地路径，不接受 URL，不从网络下载。
+- **路径**：安装只接受服务端本地路径或页面上传的文件夹（planned），不接受 URL，不从网络下载。
+- **上传接口**（planned）：`nbook.plugins` 贡献的 HTTP 路由 `/api/nbook.plugins/uploads`：`POST` 建并接收（请求体按“4 字节大端的头长度 N（1 到 2048）、N 字节 UTF-8 JSON `{path, size}`、`size` 字节内容”重复，帧边界上流结束才算完整；`size` 先于读内容检查）与 `DELETE /uploads/<id>`；上限在流里计数，不依赖 `Content-Length`。上传失败体是 `{code, detail}`。请求体的上限受 HTTP 端口的请求体上限约束（[`runtime.server-host`](server-host.md) 的已知限制）。插件管理的远程合同版本随之升到 6（输入加 `{upload}`）。
 - **兼容**：`<State Root>/plugins/` 的目录布局与 `plugins.json` 是持久格式，变化时需要迁移说明。第三方 id 不得以 `nbook.` 开头，保证内置插件的命名空间。产品版本的兼容承诺见 [`runtime.plugin-api`](plugin-api.md)。
 - **迁移**：现有 State Root 没有 `plugins/` 目录，首次需要时创建；不影响现有用户数据。
 
@@ -145,8 +162,10 @@ owners:
 16. **待切换期间换版本与卸载中安装。** 0.1.0 运行、0.2.0 待切换时安装 0.3.0：重启后运行 0.3.0，0.2.0 与 0.1.0 的目录都被删除；在登记表改记 0.3.0 之前结束进程，重启后运行 0.2.0，0.3.0 的目录被删除。卸载中的插件再安装得到 `uninstall-pending`。
 17. **消息目录。** 清单 `l10n` 列出的某份目录不是合法 JSON、叶子不是字符串或缺了源语言的目录时，预览与安装都得到 `catalog-invalid`，详情指出文件与键路径；`files` 没有包含 `locales/` 时预览通过、安装得到 `catalog-invalid`；两种情况都不留下安装目录与登记表记录。
 
+18. **上传的文件夹（planned）。** Given 一个已构建的示例插件文件夹（含一个 `node_modules` 子目录）；When 在插件页“选择文件夹”选它；Then 预览显示文件数与大小且没有 `node_modules` 里的文件，确认安装后列表显示“重启后安装”，暂存目录被删；拖入单个文件、压缩包、少了 `package.json` 的文件夹时给出对应提示、不上传；路径含 `..`、保留名或只差大小写的两个文件的上传被服务端拒绝并不留下上传；发出安装后立即关闭窗口，安装照常完成；上传请求中途断开，暂存区不留目录。
+
 Smoke：示例外部插件完成场景 1、3、8、12、13，在真实服务端与 Chromium 上运行，使用临时 State Root（[测试与临时根合同](../../testing/README.md)）。
 
 ## 证据
 
-- 批准依据：消息目录的复制与 `catalog-invalid` 依据[《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md)（2026-10-27 接受）；[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P8 与 P11；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 1、3、4 条；[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)；插件登记表文件名 `plugins.json`、复制范围与路径边界、拒绝同版本重装、允许降级并提示、各操作的提交点、插件管理限插件所有者、安全模式环境变量名、插件管理由内置插件 `nbook.plugins` 提供，由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文；操作在下一次启动生效、热升级移至 `runtime.plugin-hot-plug`、重启生效的升级、内置插件列出但不能启停与卸载、产品版本，由开发者 2026-10-17 在 [w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md) 中确认。
+- 批准依据：消息目录的复制与 `catalog-invalid` 依据[《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md)（2026-10-27 接受）；[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P8 与 P11；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 1、3、4 条；[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)；插件登记表文件名 `plugins.json`、复制范围与路径边界、拒绝同版本重装、允许降级并提示、各操作的提交点、插件管理限插件所有者、安全模式环境变量名、插件管理由内置插件 `nbook.plugins` 提供，由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文；操作在下一次启动生效、热升级移至 `runtime.plugin-hot-plug`、重启生效的升级、内置插件列出但不能启停与卸载、产品版本，上传的文件夹（输出 11、上传接口、失败码 `upload-*`、场景 18，planned）由开发者 2026-11-17 在 [w00046 t16 的计划](../../../.agents/works/w00046-desktop-release/tasks/t16-plugin-drag-install/plan.md)中确认（上限与 nb-host 的转交改为流式）；由开发者 2026-10-17 在 [w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md) 中确认。
