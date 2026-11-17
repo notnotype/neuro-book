@@ -39,6 +39,8 @@ updated: 2026-11-17
 
 2026-11-17（`active`）：设计审查做完（前端 Sonnet 12 条、后端 Opus 11 条），处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)；Spec 与计划已按审查修订为第二版。
 
+切片 1（nb-markdown 的 `sticker` 方言）在分支 `feat/w00050-t02-stickers`（worktree `.worktree/w00050-t02-stickers`）提交 `0d98c87a1`，未合入：写法判断（`src/stickers.ts`）、读写与 `\:` 转义、编辑器节点与输入规则、大图装饰、宿主端口 `stickers`，neuro-book 的注入键 `markdownStickersKey` 已接到 `MarkdownControl` 与 `MarkdownHosted`（应用里还没有提供方，切片 4 接）。Lab：`MarkdownDisplay` 的 `stickers`、`stickers-late`，`EditorGroup` 的 `stickers`。验证：nb-markdown 全部 bun 与 vitest、neuro-book 的 markdown 插件测试与类型检查通过；变异 7 个杀死 6 个，活下来的是多余的 `parseHTML` 优先级，已去掉。
+
 ## 下一步
 
-- 按计划切片实施，先做切片 1（nb-markdown 的 `sticker` 方言），做完给开发者看 Lab。
+- 开发者看过 Lab 后做切片 2（Files 挂载点重开）。
