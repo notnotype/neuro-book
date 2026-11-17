@@ -4,10 +4,9 @@
  * 被测的 `nbstory serve` 由各用例自己启动与停止。
  */
 
-import {tmpdir} from "node:os";
-import {join} from "node:path";
-
 import {defineConfig} from "@playwright/test";
+
+import {resolveAgentPlaywrightRoot} from "@notnotype/neuro-book-test-support/paths";
 
 export default defineConfig({
     testDir: ".",
@@ -17,6 +16,7 @@ export default defineConfig({
     timeout: 90_000,
     expect: {timeout: 15_000},
     reporter: [["list"]],
-    outputDir: join(tmpdir(), "neuro-book", "playwright", "nb-story"),
+    // 按检出分开：几个 worktree 共用一个输出目录时，开跑会清掉别的会话的失败现场，`--last-failed` 也读到别人的清单。
+    outputDir: resolveAgentPlaywrightRoot("nb-story", import.meta.dirname),
     use: {channel: "chrome", headless: true, trace: "retain-on-failure", screenshot: "only-on-failure", viewport: {width: 1440, height: 900}, launchOptions: {ignoreDefaultArgs: ["--hide-scrollbars"]}},
 });

@@ -1,6 +1,7 @@
-import {lstatSync, realpathSync} from "node:fs";
+import {createHash} from "node:crypto";
+import {existsSync, lstatSync, realpathSync} from "node:fs";
 import {tmpdir} from "node:os";
-import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
+import {basename, dirname, isAbsolute, relative, resolve, sep} from "node:path";
 
 /** Agent 路径解析所读取的公开环境变量集合。 */
 export type AgentPathEnvironment = NodeJS.ProcessEnv & {
@@ -92,6 +93,37 @@ export function resolveAgentCacheRoot(name: string, env: AgentPathEnvironment = 
     assertSafeSegment(name, "cache name");
     const root = resolve(resolveAgentTempRoot(env), "cache", name);
     assertShortPath(root, "Agent cache 根");
+    return root;
+}
+
+/** 检出根：从 `from` 往上找第一个有 `.git` 的目录（主工作区里是目录，worktree 里是文件）；一路没有就是 `from` 自己。 */
+export function findCheckoutRoot(from: string): string {
+    const start = resolve(from);
+    for (let current = start; ; current = dirname(current)) {
+        if (existsSync(resolve(current, ".git"))) return current;
+        if (dirname(current) === current) return start;
+    }
+}
+
+/**
+ * 一个检出在共享临时根下的名字：目录名（只留安全字符、截到 24 个）加整条路径的哈希前 8 位。哈希让两个位置不同、目录名相同的
+ * 检出（例如两份克隆）不撞；目录名让人一眼认出是哪个 worktree；整体不超过 33 个字符，Windows 下的路径预算有余。
+ */
+export function checkoutKey(checkoutRoot: string): string {
+    const root = resolve(checkoutRoot);
+    const name = basename(root).replaceAll(/[^A-Za-z0-9._-]/gu, "-").slice(0, 24);
+    return `${name}-${createHash("sha256").update(root).digest("hex").slice(0, 8)}`;
+}
+
+/**
+ * Playwright 的输出目录（`outputDir`）：`<Agent 临时根>/playwright/<套件>/<检出名>`。按检出分开，是因为 Playwright 每次开跑都清空
+ * 输出目录，失败用例的 trace 与错误现场、`--last-failed` 读的 `.last-run.json` 也在里面：几个 worktree 共用一个目录时，一个会话
+ * 开跑就清掉别的会话刚留下的失败现场，`--last-failed` 还会重跑别人的失败清单。`packageDir` 是配置所在的目录（`import.meta.dirname`）。
+ */
+export function resolveAgentPlaywrightRoot(suite: string, packageDir: string, env: AgentPathEnvironment = process.env): string {
+    assertSafeSegment(suite, "playwright suite");
+    const root = resolve(resolveAgentTempRoot(env), "playwright", suite, checkoutKey(findCheckoutRoot(packageDir)));
+    assertShortPath(root, "Playwright 输出目录");
     return root;
 }
 

@@ -199,6 +199,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - 受影响的测试用 `bun run test:affected` 选出并运行，选择方式见[测试分类与运行](#测试分类与运行)；不默认跑全量。它缺省只看还没提交的改动：在分支上收口、合入前验证时改动都已提交，不加 `--since master` 就一条也选不到（w00026 t25）。
 - 浏览器 e2e 由 `test:affected` 选不到文件（`--tier e2e` 是整包），靠人挑：改了什么就跑覆盖它的文件。合入前的清单只跑一次，之后只重跑覆盖改动的文件和失败项；开第二轮大范围前先说清哪条证据失效了，说不出就不跑。已知会因别的 Work 失败的文件不跑了再读结果。大范围 e2e 跑着的时候不改清单里的测试文件、不重新构建：一个 worker 时测试文件是跑到它才加载的，构建产物也是边跑边读，中途改了，后面跑的已经不是开始时那份代码（w00025 t04）。
 - `packages/neuro-book` 的 Playwright 配置替这条把关：一次选中超过 8 个文件时拒绝运行（`e2e/wide-run-guard.ts`，整包也算；`--last-failed`、`--list`、`-g` 放行），确实要大范围跑时命令前加 `NB_E2E_WIDE="这轮要消除什么不确定性"`，理由打印在日志里。写理由时写具体的不确定性，“最后验证”不算。
+- Playwright 的输出目录（失败用例的 trace 与错误现场、`--last-failed` 读的 `.last-run.json`）按检出分开，在 `<系统Temp>/neuro-book/playwright/<套件>/<检出名>/` 下，检出名是检出目录名（截到 24 个字符）加整条路径的哈希前 8 位（`@notnotype/neuro-book-test-support/paths` 的 `resolveAgentPlaywrightRoot`，`neuro-book` 与 `nb-story` 两份配置都用它）。几个 worktree 同时跑 e2e 不会互相清掉失败现场，`--last-failed` 只读本检出上一次的失败。同一个检出里每次开跑仍会清空自己的目录：要留的失败现场先拷走，或先看完再开跑（w00025 t24；此前各检出共用 `playwright/neuro-book`，t17 收口时失败现场被别的会话清掉）。
 - 新增默认显示的视图、活动条目或设置项时，受影响范围要包括假定初始布局的外壳 e2e（`workbench-*`、`plugins`）；新增或改动 Lab 场景的组件，还要跑 `lab-scenes`。
 - lab-scenes 被与本 Task 无关的既有失败（加载失败、页面错误）挡在版面检查之前时，新增或改过的场景用 `nbdev shot` 截图，报告里的 `measure`（越界、光晕与外扩环被裁）与 lab-scenes 是同一套测量，可代替重跑。
 - 提交前先看到验证结果：测试与提交不写在同一条命令里。

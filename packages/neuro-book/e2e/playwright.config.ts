@@ -4,10 +4,9 @@
  * 被测服务由各用例自己启动与停止（生产构建与开发会话各一套），不用 webServer：用例要控制它们的停止与退出码。
  */
 
-import {tmpdir} from "node:os";
-import {join} from "node:path";
-
 import {defineConfig} from "@playwright/test";
+
+import {resolveAgentPlaywrightRoot} from "@notnotype/neuro-book-test-support/paths";
 
 import {guardWideRun} from "./wide-run-guard";
 
@@ -21,7 +20,8 @@ export default defineConfig({
     timeout: 60_000,
     expect: {timeout: 15_000},
     reporter: [["list"]],
-    outputDir: join(tmpdir(), "neuro-book", "playwright", "neuro-book"),
+    // 按检出分开：Playwright 每次开跑清空输出目录，trace、错误现场与 `--last-failed` 的清单都在里面，几个 worktree 共用时会互相清掉、互相读到。
+    outputDir: resolveAgentPlaywrightRoot("neuro-book", import.meta.dirname),
     // 默认减少动态效果：约 113 个用例在程序开关后马上量几何，470ms 的外框过渡会让它们量到中间值。测动画的用例用
     // `page.emulateMedia({reducedMotion: "no-preference"})` 开回来。
     use: {channel: "chrome", headless: true, trace: "retain-on-failure", contextOptions: {reducedMotion: "reduce"}},
