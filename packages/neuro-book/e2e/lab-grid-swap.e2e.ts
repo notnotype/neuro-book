@@ -196,6 +196,42 @@ test("滑到一半换到第三组：接在最外面那组后面，三组同向�
     expect((await page.locator("[data-leaf='c1']").boundingBox())!.y).toBeCloseTo(column.top, 0);
 });
 
+test("滑到一半点另一列（右列横向交换）：网格同时只有一条带，左列直接到终点、滑出去的摘掉，右列从静止开始一段完整的交换", async ({page}) => {
+    await open(page);
+    const column = await columnOf(page);
+    const home = (await page.locator("[data-leaf='x1']").boundingBox())!;
+    await act(page, "B");
+    await started(page);
+    const mid = await pauseAt(page, 0.4);
+    expect(mid.b1!.top).toBeGreaterThan(column.top + 1);
+    await act(page, "Y");
+    await started(page);
+    const state = () => page.evaluate(() => {
+        const frame = (id: string) => document.querySelector<HTMLElement>(`[data-lab-subject] > [data-leaf="${id}"]`);
+        const rect = (id: string) => {
+            const found = frame(id)?.getBoundingClientRect();
+            return found === undefined ? null : {x: found.x, y: found.y, top: found.top};
+        };
+        return {a1: rect("a1"), b1: rect("b1"), b1Swap: frame("b1")?.dataset.swap ?? null, x1Swap: frame("x1")?.dataset.swap ?? null, y1Swap: frame("y1")?.dataset.swap ?? null};
+    });
+    const now = await state();
+    expect({a1: now.a1, b1Swap: now.b1Swap, x1Swap: now.x1Swap, y1Swap: now.y1Swap}).toEqual({a1: null, b1Swap: null, x1Swap: "out", y1Swap: "in"});
+    expect(now.b1!.top).toBeCloseTo(column.top, 0);
+    // 右列这一段从静止开始、完整：起点在 x1 原位的右边一个步长（列宽加间距），只沿横向走。
+    const start = await page.evaluate(({duration}) => {
+        for (const animation of document.getAnimations()) {
+            animation.pause();
+            animation.currentTime = 0;
+        }
+        const rect = (id: string) => document.querySelector(`[data-lab-subject] > [data-leaf="${id}"]`)!.getBoundingClientRect();
+        void duration;
+        return {x1: {x: rect("x1").x, y: rect("x1").y}, y1: {x: rect("y1").x, y: rect("y1").y}};
+    }, {duration: DURATION});
+    expect(start.x1.x).toBeCloseTo(home.x, 0);
+    expect(start.y1.x).toBeCloseTo(home.x + home.width + GAP, 0);
+    expect(start.y1.y).toBeCloseTo(home.y, 0);
+});
+
 test("减少动态效果：直接换，不交换", async ({page}) => {
     await open(page, false);
     await act(page, "B");

@@ -11,7 +11,7 @@ import type {Ref} from "vue";
 
 import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
 import type {GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
-import {planSwap} from "../grid-swap";
+import {planSwap, swapTouchesBand} from "../grid-swap";
 import type {GridSwap, GridSwapBand} from "../grid-swap";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
@@ -75,6 +75,11 @@ export interface GridMotionMove {
     readonly swap?: GridSwapBand;
     /** 给了交换但没用上的原因（这一轮照常过渡）。 */
     readonly swapSkipped?: string;
+    /**
+     * 这一轮开始前先把进行中的过渡全部送到终点（`stop`）：新的交换和进行中的带不相交（`swapTouchesBand`）。这一轮按空带规划，
+     * 上一轮留着滑出去的项不在 `leaving` 里。
+     */
+    readonly settleFirst?: true;
 }
 
 /** 在过渡里留着的离开的项：缩回去的叶（`leavingPlacements`），交换里滑出去的叶与分隔线（`planSwap`）。 */
@@ -129,10 +134,14 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         zero: zeroLeaves(frame.items),
     };
     if (input.swap == null || frame.holding === true) return move;
-    const plan = planSwap({swap: input.swap, items: frame.items, previous: frame.previous, band: input.band ?? null, now: input.bandNow ?? [], busy: input.busy ?? new Set()});
+    // 同时只有一条带：别处的另一次交换先把进行中的送到终点，这一轮当作静止时开始（docs/specs/ui/nested-grid.md 的“交换”）。
+    const settle = input.band != null && !swapTouchesBand(input.swap, input.band);
+    const plan = settle
+        ? planSwap({swap: input.swap, items: frame.items, previous: frame.previous, band: null, now: [], busy: new Set()})
+        : planSwap({swap: input.swap, items: frame.items, previous: frame.previous, band: input.band ?? null, now: input.bandNow ?? [], busy: input.busy ?? new Set()});
     if (plan.kind === "skip") return {...move, swapSkipped: plan.reason};
     // 带上的项整块平移，不按别的规则长、缩、跟外框；进行中的交换里留着的项换成这一轮的终点，被摘掉的组一起去掉。
-    const banded = new Set([...plan.starts.keys(), ...(input.band?.groups ?? []).flatMap((group) => group.home.map((item) => item.key))]);
+    const banded = new Set([...plan.starts.keys(), ...(settle ? [] : input.band?.groups ?? []).flatMap((group) => group.home.map((item) => item.key))]);
     const without = (keys: ReadonlySet<string>): ReadonlySet<string> => new Set([...keys].filter((key) => !banded.has(key)));
     return {
         ...move,
@@ -141,8 +150,9 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         flying: without(move.flying),
         keptSize: without(move.keptSize),
         rightAnchored: without(move.rightAnchored),
-        leaving: [...move.leaving.filter((item) => !banded.has(item.key)), ...plan.leaving],
+        leaving: [...(settle ? leaving : move.leaving).filter((item) => !banded.has(item.key)), ...plan.leaving],
         swap: plan.band,
+        ...(settle ? {settleFirst: true as const} : {}),
     };
 }
 
@@ -273,6 +283,7 @@ export function useGridMotion(options: {
         }
         if (decision.kind === "none") return;
         if (decision.swapSkipped !== undefined) options.onSwapSkipped?.(decision.swapSkipped);
+        if (decision.settleFirst === true) stop();
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
         if (duration > 0) start(duration, decision);
