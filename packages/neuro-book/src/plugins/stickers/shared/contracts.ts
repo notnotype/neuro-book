@@ -6,6 +6,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
+import type {StickerResolver} from "@notnotype/nb-markdown";
 import type {ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
@@ -96,6 +97,9 @@ export interface StickersService {
 }
 
 export const stickersServiceKey: ServiceKey<StickersService> = defineServiceKey<StickersService>("nbook.stickers/catalog");
+
+/** 浏览器一侧给 `nbook.markdown` 的服务：按写法查表情（nb-markdown 的宿主端口 `stickers`）。 */
+export const stickerResolverKey: ServiceKey<StickerResolver> = defineServiceKey<StickerResolver>("nbook.stickers/resolver");
 
 const BrowserStickerSchema = Type.Object({name: Type.String(), width: Type.Number(), height: Type.Number(), url: Type.String()}, {additionalProperties: false});
 const BrowserPackSchema = Type.Object({id: Type.String(), folder: Type.String(), stickers: Type.Array(BrowserStickerSchema)}, {additionalProperties: false});
