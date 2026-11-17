@@ -68,6 +68,23 @@ describe("找文件（workspace/resources.md 的“找文件”）", () => {
         expect(cut.ok && cut.value.items).toHaveLength(2);
     });
 
+    it("extensions：只找这些扩展名的文件（不分大小写），先过滤再截断：章节文件再多也不会把图片挤出 limit；不传时照旧", async () => {
+        const chapters = Object.fromEntries(Array.from({length: 30}, (_, index) => [`正文/林雪的第${String(index)}章.md`, "x"]));
+        const {window} = await scene({project: {...chapters, "资料/林雪.png": "x", "资料/林雪.JPG": "x", "资料/林雪.txt": "x", "资料/无扩展名": "x"}});
+        const client = remote(window).use(projectFilesContract);
+        const images = await client.find({query: "林", limit: 5, extensions: ["png", "jpg"]});
+        if (!images.ok) throw new Error(images.code);
+        expect(images.value.items.map((item) => item.path).sort()).toEqual(["资料/林雪.JPG", "资料/林雪.png"]);
+        expect(images.value.truncated).toBe(false);
+        const plain = await client.find({query: "林", limit: 5});
+        // 不过滤时同档按路径排，30 个章节在图片前面，图片被挤出前 5 个。
+        expect(plain).toMatchObject({ok: true, value: {truncated: true}});
+        expect(plain.ok && plain.value.items.some((item) => item.path.endsWith(".png"))).toBe(false);
+        expect(await client.find({query: "林", extensions: ["svg"]})).toMatchObject({ok: true, value: {items: []}});
+        // 不合规的扩展名（带点、大写、空）在合同里被拒。
+        for (const bad of [[".png"], ["PNG"], [""], Array.from({length: 17}, () => "png")]) expect(await client.find({query: "林", extensions: bad})).toMatchObject({ok: false});
+    });
+
     it("内容文件夹里的章节带标题，按标题也找得到", async () => {
         const {window} = await scene({project: {
             "正文.content/content.xml": '<content><item name="a.md" title="雨夜"/></content>',

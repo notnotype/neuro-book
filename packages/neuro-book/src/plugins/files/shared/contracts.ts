@@ -221,7 +221,8 @@ export const STAGE_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 const methods = {
     list: {input: PathInput, output: ListingSchema, effect: "read", errors},
     /** 按名字或标题找文件（docs/specs/workspace/resources.md 的“找文件”）。 */
-    find: {input: Type.Object({query: Type.String(), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 100}))}, {additionalProperties: false}), output: FindResultSchema, effect: "read", errors},
+    /** `extensions`（可选，w00025 t09 加，版本不变：旧调用方不传，行为照旧）：小写、不带点的扩展名，至多 16 个，只找名字带这些扩展名的文件。 */
+    find: {input: Type.Object({query: Type.String(), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 100})), extensions: Type.Optional(Type.Array(Type.String({minLength: 1, maxLength: 16, pattern: "^[a-z0-9]+$"}), {maxItems: 16}))}, {additionalProperties: false}), output: FindResultSchema, effect: "read", errors},
     read: {input: PathInput, output: FileTextSchema, effect: "read", errors},
     /** `follow`：跟随链接到最终目标（根外也给），只接受服务端的 `nbook.files`（写入接口的 `readPath`）。 */
     realPath: {input: Type.Object({path: Type.String(), follow: Type.Optional(Type.Literal(true))}, {additionalProperties: false}), output: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("other")])}, {additionalProperties: false}), effect: "read", errors},

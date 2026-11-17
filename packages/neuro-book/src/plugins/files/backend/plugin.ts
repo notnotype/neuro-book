@@ -113,7 +113,7 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
     return {
         methods: {
             list: (input) => service.list(input.path),
-            find: (input) => service.find(input.query, input.limit),
+            find: (input) => service.find(input.query, input.limit, input.extensions),
             read: (input) => service.read(input.path),
             realPath: async (input) => {
                 if (input.follow !== true) return service.realPath(input.path);
