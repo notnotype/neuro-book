@@ -88,6 +88,8 @@ const LEGACY: Readonly<Record<string, Legacy>> = {
     "properties.problem.notMapping": {"zh-CN": "第 {line} 行：顶层不是“名字: 值”的属性。", "en-US": "Line {line}: the top level isn't name: value properties."},
     "properties.problem.multipleDocuments": {"zh-CN": "第 {line} 行：有多个 YAML 文档。", "en-US": "Line {line}: more than one YAML document."},
     "properties.problem.documentMarker": {"zh-CN": "第 {line} 行：有 YAML 文档标记或指令。", "en-US": "Line {line}: YAML document marker or directive."},
+    // 图片粘贴（w00025 t09 新增）
+    "imagePaste.uploading": {"zh-CN": "正在上传 {count} 张图片", "en-US": "Uploading {count} image(s)"},
     "properties.problem.flowMapping": {"zh-CN": "第 {line} 行：属性写在一行的花括号里，不能按属性改。", "en-US": "Line {line}: properties inside braces on one line can't be edited as properties."},
 };
 

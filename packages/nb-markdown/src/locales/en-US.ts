@@ -81,4 +81,8 @@ export default {
             flowMapping: "Line {{line}}: properties inside braces on one line can't be edited as properties.",
         },
     },
+    /** Pasting images in the editor (`editor/image-paste.ts`). */
+    imagePaste: {
+        uploading: "Uploading {{count}} image(s)",
+    },
 } satisfies Catalog;

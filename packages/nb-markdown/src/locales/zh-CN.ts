@@ -91,4 +91,8 @@ export default {
             flowMapping: "第 {{line}} 行：属性写在一行的花括号里，不能按属性改。",
         },
     },
+    /** 编辑器里的图片粘贴（`editor/image-paste.ts`，docs/specs/workbench/markdown-editing.md 输出 55）。 */
+    imagePaste: {
+        uploading: "正在上传 {{count}} 张图片",
+    },
 } satisfies Catalog;

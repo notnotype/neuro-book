@@ -8,6 +8,7 @@ export type {BlockKind, BlockTarget} from "./block-actions";
 export {markdownEditingActions} from "./editing-actions";
 export {canInsertImages, insertImages} from "./images";
 export type {ImageToInsert} from "./images";
+export {imageFilesOf} from "./image-paste";
 export {isSafeHref, linksTouching, sharedHref} from "./links";
 export type {LinkRange} from "./links";
 export type {EditingAction, EditingArgs} from "./editing-actions";

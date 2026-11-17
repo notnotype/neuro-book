@@ -9,6 +9,7 @@
  */
 
 import type {Editor} from "@tiptap/core";
+import type {EditorState} from "@tiptap/pm/state";
 import {Fragment} from "@tiptap/pm/model";
 import type {Node as PMNode, NodeType} from "@tiptap/pm/model";
 import {TextSelection} from "@tiptap/pm/state";
@@ -30,13 +31,14 @@ export function canInsertImages(editor: Editor): boolean {
     return $from.parent.inlineContent && $from.parent.canReplaceWith($from.index(), $to.index(), type);
 }
 
-const imageNode = (type: NodeType, image: ImageToInsert): PMNode => type.create({src: image.src, alt: image.alt ?? ""});
+export const imageNode = (type: NodeType, image: ImageToInsert): PMNode => type.create({src: image.src, alt: image.alt ?? ""});
 
-/** 在表格里（单元格只放一段）。 */
-function inTable(editor: Editor): boolean {
-    const {$from} = editor.state.selection;
-    for (let depth = $from.depth; depth > 0; depth -= 1) if ($from.node(depth).type.spec.tableRole !== undefined) return true;
-    return false;
+/** 几张图怎么落：在不在表格里的空段落、且有几张时各占一段，其余行内依次插入（表格单元格只放一段，劈开会写出不可写的文档）。 */
+export function imageLayout(state: EditorState, count: number): "inline" | "paragraphs" {
+    const {$from, empty} = state.selection;
+    if (!empty || count < 2 || $from.parent.type.name !== "paragraph" || $from.parent.content.size !== 0) return "inline";
+    for (let depth = $from.depth; depth > 0; depth -= 1) if ($from.node(depth).type.spec.tableRole !== undefined) return "inline";
+    return "paragraphs";
 }
 
 /** 把图片插在光标处（规则见文件头）；成功后光标在最后一张图的后面。没有图、不能放返回 false。 */
@@ -44,9 +46,9 @@ export function insertImages(editor: Editor, images: readonly ImageToInsert[]): 
     const type = imageType(editor);
     if (type === undefined || images.length === 0 || !canInsertImages(editor)) return false;
     const {state} = editor;
-    const {$from, from, to, empty} = state.selection;
+    const {$from, from, to} = state.selection;
     const {tr} = state;
-    if (empty && images.length > 1 && $from.parent.type.name === "paragraph" && $from.parent.content.size === 0 && !inTable(editor)) {
+    if (imageLayout(state, images.length) === "paragraphs") {
         const paragraph = state.schema.nodes.paragraph as NodeType;
         const paragraphs = images.map((image) => paragraph.create(null, imageNode(type, image)));
         const start = $from.before();

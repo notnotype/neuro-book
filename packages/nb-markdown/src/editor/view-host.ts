@@ -16,6 +16,30 @@ export interface MarkdownViewAssets {
     onChange(address: string, listener: () => void): () => void;
 }
 
+/** 一张图传完的结果：`address` 是存进作品里的资源地址（`project://插图/a.png`），`alt` 是说明。失败带宿主的码与说明。 */
+export type ImageUploadResult =
+    | {readonly ok: true; readonly address: string; readonly alt: string}
+    | {readonly ok: false; readonly code: string; readonly detail: string};
+
+/** 粘贴时一张图没有传成、或传成了没有插入。`stored`：图可能已经在作品里（结果未知、取消、传完了没有插入）。 */
+export interface ImageFailure {
+    readonly file: string;
+    readonly code: string;
+    readonly detail: string;
+    readonly stored: boolean;
+}
+
+/**
+ * 粘贴图片要的宿主能力（docs/specs/workbench/markdown-editing.md 输出 55）：把一张图存进作品，失败时告诉用户。没有它（提示词编辑器、
+ * Lab 的场景）的编辑器不接手图片的粘贴，照原来的粘贴。
+ */
+export interface MarkdownViewImages {
+    /** 存一张图：宿主按设置算目录与名字、按浏览器给的类型预检（不是允许的格式不上传）、调文件服务；`signal` 取消时尽快放弃。 */
+    upload(file: File, signal: AbortSignal): Promise<ImageUploadResult>;
+    /** 一张图的失败（含传完了却没能插入的）：宿主给用户一条通知。 */
+    failed(failure: ImageFailure): void;
+}
+
 export interface MarkdownViewHost {
     base(): string | null;
     /**
@@ -29,4 +53,8 @@ export interface MarkdownViewHost {
     readonly chips: ChipEnv;
     /** 图片不显示时的说明。 */
     readonly imageMissing?: MarkdownText;
+    /** 按住 Ctrl（⌘）点链接时调用，`href` 是链接的地址：宿主按分类打开（输出 53）。没有时 Ctrl 点链接不做什么。事件发生时才读，换挂载不重建扩展。 */
+    readonly openLink?: (href: string) => void;
+    /** 粘贴图片的能力；事件发生时才读。 */
+    readonly images?: MarkdownViewImages;
 }
