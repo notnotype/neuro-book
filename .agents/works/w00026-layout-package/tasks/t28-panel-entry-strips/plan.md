@@ -1,6 +1,6 @@
 # t28 计划：右栏与底部面板的入口条与切换容器
 
-第 4 稿（2026-11-17）：按第三轮设计审查（[`evidences/design-review-r3.txt`](evidences/design-review-r3.txt)，7 条，都在第 3 片）改，并去掉“交换中别的布局变化先收尾”那条规则（和已有的合同用例冲突，见下）。第 3 稿按第二轮（[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)，12 条）改；第 2 稿按第一轮（[`evidences/design-review.txt`](evidences/design-review.txt)，14 条）改，逐条的处理在 Task README。第 1 稿从 t27 拆出来；t27 计划第 3 稿里入口条的部分（提交 `c56ab99a7` 的 `tasks/t27-region-entry-strips/plan.md`）与 t27 第二轮设计审查（[`design-review-r2.txt`](../t27-region-entry-strips/evidences/design-review-r2.txt)）转过来的几条是起点。
+第 5 稿（2026-11-17）：t29 合入（`87a899193`）后按定下的面板头重写第 3 片，改动集中在新加的“第 3 片按 t29 的头”一节，入口条“交互同活动栏”一句更正（活动栏没有方向键，第 4 稿写错了）；第 3 片动手前单独交一次设计审查。第 4 稿按第三轮设计审查（[`evidences/design-review-r3.txt`](evidences/design-review-r3.txt)，7 条，都在第 3 片）改，并去掉“交换中别的布局变化先收尾”那条规则（和已有的合同用例冲突，见下）。第 3 稿按第二轮（[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)，12 条）改；第 2 稿按第一轮（[`evidences/design-review.txt`](evidences/design-review.txt)，14 条）改，逐条的处理在 Task README。第 1 稿从 t27 拆出来；t27 计划第 3 稿里入口条的部分（提交 `c56ab99a7` 的 `tasks/t27-region-entry-strips/plan.md`）与 t27 第二轮设计审查（[`design-review-r2.txt`](../t27-region-entry-strips/evidences/design-review-r2.txt)）转过来的几条是起点。
 
 ## Context
 
@@ -18,7 +18,7 @@
 
 已做（开发者 2026-11-17 改判 t27 的侧栏切换后，提交 `b88d9c708`、合入 `a670baa38`）：nb-layout 的静止的底（`swap-backdrop`）、带记下两组外框的外接矩形；侧栏切换时卡片不动、内容在卡片里滚。本计划里右栏、底部面板的切换照用。
 
-和 [t29](../t29-panel-head-redesign/README.md) 的关系：并成一行的头就是工具面板的面板头，t29 正在重新设计它（展开标记、按钮悬停才出、点标题行做什么），第 3 片排在 t29 定稿之后，照定下的头画。
+和 [t29](../t29-panel-head-redesign/README.md) 的关系：并成一行的头就是工具面板的面板头。t29 已合入（`87a899193`）：能收成标题行的分节标题前有展开标记、整行是开关；视图动作与框架按钮悬停才出（最大化着的还原一直在）；收起按钮拿掉；一列全部收起时最后一节垫底、卡片满高。第 3 片照它画，见“第 3 片按 t29 的头”。
 
 约束：nb-layout 要做成通用库（t26）。这次往 nb-layout 里加的都由宿主驱动：投影选项 `regionStrip`、交换的插槽 `swap-backdrop`、交换的两条通用规则（同时只有一个交换；交换中来了别的布局变化先送到终点）。
 
@@ -72,9 +72,20 @@
 - 并成一行时入口之后接那一节的头，占这一行剩下的宽度：右栏接标题、视图动作、框架按钮；底部面板的入口本身就是标题，只接视图动作与框架按钮（待确认清单）。头用 `WorkbenchPanelHead` 的同一套（元素照旧带那一节的 `data-panel-head`、按面板 id 发 `head-slots`），加一个“嵌在入口条里”的写法：不画自己的底与高度；底部面板不画看得见的标题，但留着隐藏的标题元素（`panelTitleDomId`，内容区的 `region` 名称从它来）。
 - 视图接管标题区（第一轮第 1 条，`views.md` 输出 19，默认右栏的对话就是这样）：并成一行时接管照常，三列排在入口之后剩下的宽度里，居中按这段宽度算；头在入口条与自己的叶之间换（并、分、最大化）时 `head-slots` 先 null 再给新的，视图的内容跟过去。
 - 底部面板并成一行时（第一轮第 7 条；第 5 片才做，第二轮第 2 条：之前它照旧写标题，标题照旧是拖动源，入口成为拖动源的那一片再拿掉）：计数写在那个容器的入口上（只含一个视图的容器，同那个视图的标签；输出 17），活动栏的入口照旧不写；焦点落到“标题”的地方（`recoverFocus` 找 `[data-panel-tab]`）找不到标签时落到入口；拖这一节就是拖入口（`data-tool-view`）。
-- 交互同活动栏：点入口发 `select`（宿主按 `regionEntryIntent` 切换或隐藏），右键与菜单键发 `context-menu`（输出 44），左右方向键在入口之间走，读屏是一组带 `aria-pressed` 的按钮。F6 停在入口条叶上时焦点回到上次在这一条里的入口，没有就是按下的那个。
+- 交互同活动栏：点入口、Enter 发 `select`（宿主按 `regionEntryIntent` 切换或隐藏），右键与菜单键发 `context-menu`（输出 44），每个入口是一个 Tab 停靠（活动栏没有方向键导航，这里也不加），读屏是一组带 `aria-pressed` 的按钮。F6 停在入口条叶上时焦点回到上次在这一条里的入口，没有就是按下的那个。
 - 选中标记：抽出 `WorkbenchToolStrip` 里按下块的逻辑成组合函数 `useEntryIndicator`（按轴量、沿 `offsetParent` 加到条目区、`slideToken`、`data-settled`、只在过渡真结束时摘标记），活动栏与入口条共用；底部面板是一条下划线，右栏是按下底色。宿主按区域给 `slideToken`，只有内容滚过去的那一次滑。
 - 交换时头那一段（第一轮第 10 条）：入口条不动，并进来的头在点的那一刻换成新容器的（新容器有几节时这一段空出来，新的头随内容滑进来）；记进待确认清单，逐帧验收里断言这一点。
+
+### 第 3 片按 t29 的头：`WorkbenchPanelHead.vue`、`WorkbenchRegionStrip.vue`、`WorkbenchSurface.vue`、`WorkbenchShell.vue`
+
+t29 定下的头（Spec 输出 11、20，`views.md` 输出 10、19）和上面几节相交的地方如下，其余照上面几节。
+
+- **并成一行的头没有展开标记**：并成一行要求容器在文档里恰有一节、而且呈现着，这时区域里显示的分节只有这一节，`sectionCollapseBlock` 给 `lone-section`，Shell 的 `foldOf` 给 null：入口条里不出现标记，点标题、Enter 只激活，空格拿起拖动这一节（同 t29 没有标记的头）。“并”按容器在文档里的分节数，“能收”按区域呈现的分节数，两个判定各管各的，这里只依赖“并的那一节不能收”这一个方向：nb-layout 的 `layout-project.test.ts` 在同一份文档上断言 `strips[].merged` 不为 null 时这一节的 `sectionCollapseBlock` 是 `lone-section`（显示、隐藏、拖到零、预览文档摘掉一节几种）；`WorkbenchRegionStrip` 的 DOM 测试断言条里没有 `[data-panel-fold]`。几节的容器被放不下收得只剩一节时不并，那一节在自己的叶里画头，能不能收照 t29。
+- **悬停才出的范围跨两片叶**：入口一直显示；并进来的头的视图动作与框架按钮照 t29 悬停才出，范围是这块面板，入口条叶和分节的叶是同一块面板。做法沿用表面已有的“按面板记指针与焦点”：`panelOf` 把入口条叶换成 `merged`（上面“一片叶代表哪块面板”已有），`pointerPanel` 与 `focusedPanel` 都经它，所以 `onFocusIn` 里“文档里有这块面板”的检查对入口条也成立；入口条的卡片在 `merged` 不为 null 时带 `data-hover-actions-scope`，`data-hover-actions-active` 按 `actionsShownOn(merged)` 写，分节的叶照旧按自己。结果是指针在正文上时入口条里的按钮出现，指针或焦点在入口条上时正文的滚动条也出现（`views.md` 输出 12 的范围同样是这块面板）。没有并时入口条的卡片不带范围，条里没有会隐藏的东西。最大化着的那一节在自己的叶里画头，按下的还原照 t29 一直显示。
+- **入口与头对齐**（开发者给 t29 的附言“记得细节检查一下，看看对齐了没”同样适用）：右栏入口条第一个入口的图标左缘，和这一列分节头的展开标记左缘（也就是资源管理器树第一层的箭头）在一条竖线上；底部面板入口条第一个入口的标题文字左缘，和底部面板分节头的标题文字左缘在一条竖线上。入口是面板头那一档的按钮（24px，在 32px 的条里竖直居中），右栏的按下底色、底部面板的下划线画在按钮上。右栏并成一行时，那一节的标题接在最后一个入口（或“更多”）之后，间距同头里控件之间的间距，字号、字重、字色同 t29 的标题（12px、600、主字色）。e2e 量这三条左缘与竖直中心，差不超过 1px；截图给开发者时浅色与平铺主题（macos）各一张。
+- **全部收起**：右栏当前容器有几节、全部收成标题行时 t29 的垫底照常：入口条在上面不动，下面几行标题，最后一节垫底拉到卡片的底。垫底在 `:sections` 分支里（第 1 片的包装，t29 的投影用例已覆盖）；表面的 `fillerColumns` 在投影的输入里找垫底的叶的父分支，找到的就是 `:sections`，这一列的分隔线不可拖；入口条和 `:sections` 之间那条 0 宽的缝本来就不可拖。e2e 补这一条：入口条在上、卡片满高、右下角圆、`:sections` 里的分隔线拖不动。
+- **头里的宽度**：`headReserved` 对并进入口条的那一节扣掉入口占的宽度（当前容器的入口加“更多”），不加展开标记的宽度（`foldOf` 是 null）；框架按钮按 t29 是浮动、最大化两个。让位顺序照上面“入口条”一节。
+- **焦点交接认的元素**：上面“头换了地方时焦点跟过去”记下的元素是标题按钮、`data-panel-action` 的命令，再加接管标题区时单独的展开标记（`[data-panel-fold]`，t29）；新头没有同一个元素时落到新头的标题。例如容器从一节变成几节（头从入口条搬回分节的叶），新头的标题按钮里多了展开标记，焦点照样落到标题。
 
 ### 右栏、底部面板切换容器时滚过去：`WorkbenchShell.vue`、`WorkbenchSurface.vue`
 
@@ -101,7 +112,7 @@
 
 条目级 planned，各片动手前写：
 
-- `docs/specs/ui/workbench-layout.md`：输出 6（入口条与最小、最大高度：并成一行时区域同只有一节时，几节时多一行入口条）、输出 25 第 2、7 行（入口条这一行的落点表、跨区域的单视图入口）、输出 11（入口条下面唯一的分节不收成标题行）、输出 13（最大化并成一行的那一节时它自己画头、还原过渡结束才回到入口条、焦点交给新头的同一个元素）、输出 17（底部面板入口条的入口写计数）、输出 20（头的高度、并成一行、接管标题区排在剩下的宽度里、底部面板留隐藏的标题元素）、输出 36（焦点在入口条里时当前面板是并进来的那一节）、输出 42（右栏、底部面板切换的样子；几个区域前后脚切换、交换中别的区域显隐时进行中的过渡一起送到终点；头那一段在点的那一刻换，离开的那一节滑出时没有头）、输出 44 到 46（入口条上的菜单与拖放，跨区域搬容器）、输出 47（入口条的位置、何时有、内容、交互、放不下时的让位）；验收场景补右栏、底部面板的切换、并成一行加视图接管、拖放。
+- `docs/specs/ui/workbench-layout.md`：输出 6（入口条与最小、最大高度：并成一行时区域同只有一节时，几节时多一行入口条）、输出 25 第 2、7 行（入口条这一行的落点表、跨区域的单视图入口）、输出 11（入口条下面唯一的分节不收成标题行）、输出 13（最大化并成一行的那一节时它自己画头、还原过渡结束才回到入口条、焦点交给新头的同一个元素）、输出 17（底部面板入口条的入口写计数）、输出 20（头的高度、并成一行、并进来的头没有展开标记、悬停范围跨入口条、入口与头对齐、接管标题区排在剩下的宽度里、底部面板留隐藏的标题元素）、输出 36（焦点在入口条里时当前面板是并进来的那一节）、输出 42（右栏、底部面板切换的样子；几个区域前后脚切换、交换中别的区域显隐时进行中的过渡一起送到终点；头那一段在点的那一刻换，离开的那一节滑出时没有头）、输出 44 到 46（入口条上的菜单与拖放，跨区域搬容器）、输出 47（入口条的位置、何时有、内容、交互、放不下时的让位）；验收场景补右栏、底部面板的切换、并成一行加视图接管、拖放。
 - `docs/specs/workbench/views.md` 输出 19：并成一行时接管标题区的位置。
 - `docs/specs/ui/nested-grid.md`：交换的 `swap-backdrop`、同时只有一个交换、交换中来了别的布局变化。
 - `docs/specs/ui/workbench-layout.md` 的术语“呈现树”：右栏、底部面板有分节时多一片入口条叶，只在呈现里、不进文档。投影的写法在 `layout-project.ts` 的模块头与导出函数的注释里，不另立 Spec。
@@ -111,7 +122,7 @@
 
 1. **nb-layout：入口条叶与并成一行**。投影选项、`strips`、并成一行的最小与最大高度、`collapsedTo`、导出的 id 函数、`assignByParent`、说明。验证：`layout-project.test.ts`（有分节时包装分支的形状与 id；一节、几节；空区域没有入口条；拖到零、隐藏、放不下收走时一起没、`merged` 不翻转；预览文档摘掉一节后 `merged` 是剩下那一节；并成一行时区域最小、最大高度同只有一节、几节时多一行；包装了的区域节点不在 `collapsedTo` 里；`rebaseIntents` 写回的区域尺寸不变，含不显示的兄弟分节；唯一的分节没有收起策略）、nb-layout 全部测试与类型检查。
 2. **nb-layout：交换的两条规则**（和第 1 片分开提交）。`decideMotion` 的“先收尾”标记。`NestedGrid` 暴露 `moving`。验证：`useGridMotion.dom.test.ts`（不相交的新交换、点回来两类）、`NestedGrid.dom.test.ts`（`moving` 在过渡中为真、结束为假、减少动效时一直为假）；e2e `lab-grid-swap` 加“滚到一半点另一列”（Lab 场景加一列）。
-3. **工作台画出入口条与并成一行**（t29 定稿之后）：`regionStrip`、`layoutContents`/`hasRoom`、入口与意图、`focusLandings`、表面的插槽、“叶代表哪块面板”、画成并成一行（离开与最大化过渡里沿用）、头换地方时焦点跟过去、`WorkbenchRegionStrip`、`useEntryIndicator`、让位顺序。底部面板并成一行时照旧写标题。验证：`layout-present.test.ts`、`adjacency.test.ts`、新组件与 `WorkbenchPanelHead` 的 DOM 测试（并成一行加接管时 `slots` 不为 null；160px；头换地方焦点跟过去）、Lab 场景；e2e 跑引用右栏、底部面板头的全部文件（`workbench-views`、`workbench-shell`、`workbench-containers`、`workbench-live-drag`、`workbench-dnd`、`workbench-float`、`workbench-drag-cost`、`background-tasks`、`agent-conversation`、`lab-workbench-surface`，超过 8 个，写 `NB_E2E_WIDE`：头从分节的叶搬进入口条叶，按叶找头的用例都可能受影响），逐个给改法。动手前先按 t29 定下的头重写这一片的设计，单独交一次设计审查（第三轮之后它是新的对象：t29 会改头的画法）。
+3. **工作台画出入口条与并成一行**（照 t29 的头）：`regionStrip`、`layoutContents`/`hasRoom`、入口与意图、`focusLandings`、表面的插槽、“叶代表哪块面板”（含悬停与焦点的面板）、画成并成一行（离开与最大化过渡里沿用）、头换地方时焦点跟过去、`WorkbenchRegionStrip`、`useEntryIndicator`、让位顺序、入口与头对齐。底部面板并成一行时照旧写标题。验证：`layout-project.test.ts`（“并的那一节不能收”）、`layout-present.test.ts`、`adjacency.test.ts`、新组件与 `WorkbenchPanelHead` 的 DOM 测试（并成一行加接管时 `slots` 不为 null；条里没有展开标记；头换地方焦点跟过去）、Lab 场景（160px）；e2e 另补：入口与头的三条左缘、悬停范围跨两片叶（指针在正文上入口条里的按钮出现）、右栏几节全部收起时入口条在上与垫底；e2e 跑引用右栏、底部面板头的全部文件（`workbench-views`、`workbench-shell`、`workbench-containers`、`workbench-live-drag`、`workbench-dnd`、`workbench-float`、`workbench-drag-cost`、`background-tasks`、`agent-conversation`、`lab-workbench-surface`，超过 8 个，写 `NB_E2E_WIDE`：头从分节的叶搬进入口条叶，按叶找头的用例都可能受影响），逐个给改法。动手前先按 t29 定下的头重写这一片的设计，单独交一次设计审查（第三轮之后它是新的对象：t29 会改头的画法）。
 4. **左右滚动切换**：宿主按区域给交换、窗口内缩、静止的底、选中标记随 `slideToken` 滑。验证：e2e `workbench-containers`（逐帧：入口条与卡片不动、内容在卡片里、卡片外没有像素、头那一段在点的那一刻换、离开的那一节滑出时没有头、下划线与按下底色同时走、滚到一半点回来、侧栏与右栏前后脚切换时侧栏送到终点）。
 5. **入口条的拖放与底部面板不写标题**：条 id 按区域、入口带一组、落点表、跨区域搬容器、单视图入口跨区域、预览里并成一行翻转时的标题行；底部面板并成一行时拿掉标题、计数写到入口、拖入口。验证：`layout-drag`、`entry-drop` 相关单元测试，e2e 同第 3 片的清单（逐个核对引用 `[data-panel-tab]` 的地方是不是底部面板的头），`background-tasks` 断言通知计数搬到入口。
 
@@ -119,7 +130,8 @@
 
 ## 验收映射
 
-- 输出 6、11、20、47（入口条的几何、并成一行、最小高度）→ `layout-project.test.ts`、`layout-present.test.ts`、e2e `workbench-views`、`workbench-shell`。
+- 输出 6、11、20、47（入口条的几何、并成一行、最小高度、并的那一节没有展开标记、入口与头对齐、全部收起时入口条在上）→ `layout-project.test.ts`、`layout-present.test.ts`、`WorkbenchRegionStrip` 的 DOM 测试、e2e `workbench-views`、`workbench-shell`、`workbench-containers`。
+- `views.md` 输出 10、12（悬停范围是这块面板，跨入口条叶与分节的叶）→ e2e `workbench-views`。
 - 输出 13、36（最大化、焦点、当前面板）→ e2e `workbench-shell`、`workbench-views`。
 - 输出 17、20 与 `views.md` 输出 19（计数、隐藏的标题元素、接管标题区）→ `WorkbenchPanelHead` 的 DOM 测试、e2e `workbench-views`。
 - 输出 42（右栏、底部面板切换的样子）→ e2e `workbench-containers`。
