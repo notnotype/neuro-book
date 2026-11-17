@@ -1,0 +1,91 @@
+# w00025 t25 实现审查报告（ceac2293e..a17a06873，审查依据实现 worktree 实测）
+
+## 1. 空的显示名通过 schema，面板上名字消失、输入的可访问名称变成空串
+- 严重程度：重要；类别：正确性（前端专项：可访问名称）
+- 位置：packages/neuro-book/src/plugins/markdown/shared/properties.ts:22-24（`label` 用 `TextSchema`）；packages/nb-markdown/src/editor/properties/MarkdownProperties.vue:111（`labelOf` 用 `??`）、:501、:521-540
+- 现象：`label: ""`、`label: {}`（TextSchema 的语言映射允许零个键）、`label: "  "` 都是合格声明（`{name, label: ""}` 满足 minProperties: 2；`Value.Check` 实测返回 true）。窗口翻译端口把 `{}` 解析成 ""（`resolveLocaleMap` 末尾 `?? ""`）。`labelOf` 用 `descriptionOf(row)?.label ?? row.name`，"" 不触发回退。实测挂载 `describe: () => ({label: ""})`：名字列是一个无文字的 `<button title="（视角）">`（零宽、鼠标点不到，只能 Tab 到）；值输入 `aria-label=""`；收起摘要变成 "林雪 · 时间 · …"，视角那一项没有名字；`nameTitleOf` 给出 "（视角）"。读屏用户既拿不到显示名也拿不到真名，这正是计划要求“可访问名称用 label、title 带真名”要避免的情形。
+- 如何核实：/tmp/review-w00025-t25/exp/probe.dom.test.ts（"empty label" 用例，配置 /tmp/review-w00025-t25/exp/vitest.config.ts，在 packages/nb-markdown 下 `bunx vitest run --config <该配置> -t "empty label"`），输出里能看到 `title="（视角）"` 与 `aria-label=""`。
+- 建议改法：两层都防。(1) 取得层 `properties-catalog.ts`：`sources.text(label)` 结果 `.trim() === ""` 时不给 `label`（按“没给”处理，同没有声明）。(2) schema：字符串形态 `minLength`/`\S` 约束，语言映射 `minProperties: 1` 不好在共享的 TextSchema 里改，就只靠第 (1) 层。再补一条测试：空显示名的行照旧显示真名。
+
+## 2. 测试没有守住“显示名进各输入的可访问名称”：变异后全部存活
+- 严重程度：建议（测试缺口）；类别：测试
+- 位置：packages/nb-markdown/src/editor/properties/MarkdownProperties.dom.test.ts:337-447（新增 describe 块）；被漏测的实现在 MarkdownProperties.vue 的勾选框 sr-only（:514）、DateInput/TagInput 的 `:aria-label`、移除与“在源码里改”按钮的 `title`（:549-550）
+- 现象：新测试只有两处用显示名断言可访问名称：`视角` 的文字输入（`input[aria-label="叙述视角"]`）与摘要。别的声明里带 label 的只有 `标签`，而它的显示名“标签”与真名相同，等于没测。我在 /tmp 的副本上做了变异（复制 packages/nb-markdown/src 到 /tmp/review-w00025-t25/exp/mut，改完用同一份 DOM 测试跑），结果 26 条测试全过（活下来）：
+  - M1：勾选框的 `<span class="sr-only">`、`DateInput`、`TagInput` 的名称改回 `row.name`；
+  - M2：移除按钮与“在源码里改”按钮的 `title` 改回 `row.name`；
+  - M3：去掉 `watch(() => props.raw)` 里的 `renaming.value = null`；
+  - M4：去掉 `settle` 里名字分支的 `renaming.value = null`。
+  M3、M4 对应“改名成别的有显示名的名字后行的形态”“宿主换原文后不留着输入框”，也没有用例。计划“验收映射”写的是“显示名出现在名字列与摘要、点名字改名时输入框是真名”，实现多做了这几处（计划里写“各输入的可访问名称”），但测试没跟上。
+- 建议改法：给 `时间`（date）、`标签`（list，label 与真名不同）、`已定稿`（checkbox）都声明不同于真名的 label，断言 `aria-label` 与勾选框的 sr-only 文字；加一条移除按钮 title 的断言；加一条“改名成另一个有显示名的名字后，这一行是显示名按钮而不是留着输入框”和“点显示名后宿主换原文（setProps raw），回到按钮”。
+
+## 3. 点显示名改名、回车写回后，改成的新名字也有显示名时，焦点掉到 body
+- 严重程度：建议；类别：正确性（键盘操作）
+- 位置：MarkdownProperties.vue:206-217（settle 名字分支）与模板 :500-502（`v-else-if` 切换元素）
+- 现象：点名字的按钮 → 变输入框 → 改成“视点”（另一个声明里 label 为“视点L”的名字）→ Enter。`settle` 清了 `renaming`，这一行的名字格马上变回 `<button>`，输入框被卸载，`document.activeElement` 是 `BODY`（实测，输出 `AFTER ENTER active: BODY`）。改成没有显示名的新名字时输入框留在原地，焦点不丢，所以只有“新名字也有声明”才掉焦点，很少见但没有处理。同一文件的 `remove`、`settle` 的新属性分支都写了“焦点不能掉到页面上”并用 `nextTick(focusStop)`，这里漏了。回车写回后焦点停在哪一格，Spec 输出 47–50 的键盘约定也没有说要掉到页面上。
+- 如何核实：/tmp/review-w00025-t25/exp/probe.dom.test.ts 的 "rename keyboard focus"。
+- 建议改法：回车结算后，若这一行回到按钮形态，`nextTick` 后把焦点给这一行的名字按钮（或值输入），与 `remove` 一致；或让改名后保持输入框直到离开。不改也行，但要么在 `.md` 里写明。
+
+## 4. “界面语言切换后显示名跟着变”没有经真实的翻译端口测过；场景 31 的几步只在 DOM 层用手写替身测
+- 严重程度：建议（测试缺口）；类别：测试
+- 位置：MarkdownProperties.dom.test.ts:342-352、:363-368（`locale` 是测试里的 ref，`describe` 自己读它）；properties-contribution.dom.test.ts:68（`provideText(testTextPort("zh-CN", …))`，没有提供 `windowTextKey`，插件走 `windowTextPort` 的“没有引擎”退路）
+- 现象：实现靠一条链保证语言切换后重画：窗口引擎的 `port.t` 读 `locale`/`version`（src/web/host/text-engine.ts:104-112，我读了代码，链条是通的）→ `createPropertyDescriptions` 的 `text.t(label)` → 面板渲染里调 `describe`。链条两头测过：目录单元测试里用替身切 `locale` 变量、面板 DOM 测试里 `describe` 读一个 ref；中间“真实端口的 `t` 是否建立 Vue 依赖”没有任何自动化测试，集成用例里端口退路固定是 zh-CN、`label` 的 en-US 分支只断言“没出现 Word goal”。Spec 验收场景 31 的“把界面语言切成英文”“点 时间 的图标选文字”“点显示名改名”三步，经真实应用运行时的用例一步都没有（计划验收映射写的是 `plugin.dom.test.ts` 同类集成用例覆盖输出 61、场景 31）。若以后有人把 `text.t` 换成读取一次就缓存的写法，现有测试全绿而语言切换失效。
+- 建议改法：集成用例里提供 `windowTextKey`（真实的 `createTextEngine` 或带 `locale` ref 的最小端口），切语言后断言摘要与名字列。改名与“选文字盖过声明”两步若 e2e 已覆盖，在计划里标明，不必再加。
+
+## 5. 显示名在别的属性的真名或显示名相同时，名字列与读屏名称无法区分；显示名按钮没有“属性名”语义
+- 严重程度：建议；类别：正确性（可访问性）/ 设计
+- 位置：MarkdownProperties.vue:501（名字按钮）、:521-540（各输入 `:aria-label="labelOf(row)"`）
+- 现象：(a) 视角声明 `label: "地点"`，同一文件另有真名 `地点` 的行：实测名字列两行都写“地点”，两个值输入都是 `aria-label="地点"`，摘要里是“地点 林雪 · … · 地点 青石镇”；只有 `title` 才带真名（“地点（视角）”），而 title 在触屏与多数读屏下读不到。(b) 没有显示名的行，名字输入是 `aria-label="属性名：时间"`；有显示名的行，名字是一个 `<button>`，可访问名称就是“叙述视角”，读屏听不出它是“点了改属性名”，也不含真名。Spec 输出 60 写的是“各输入的可访问名称显示 label，名称的提示带真名”，实现按字面做了，所以问题在 Spec 层：读屏用户没有任何手段确认“叙述视角”对应哪个键，改名按钮的名称还和普通行的约定（“属性名：…”）不一致。
+- 如何核实：/tmp/review-w00025-t25/exp/probe.dom.test.ts 的 "label same as other name" 用例（看输出里的两个 `aria-label="地点"`）。
+- 建议改法：名字按钮用 `aria-label` = 已有目录键 `properties.rename`（“属性名：{{name}}”，带真名），可见文字仍是显示名；值输入的可访问名称可以用“显示名（真名）”与 title 一致。若开发者认为 label 重名属于贡献者自己的责任，写进 Spec 输出 60 的不承诺里即可，但按钮的名称仍建议修。
+
+## 6. 提示里的括号写死成全角（、），英文界面也是 “Point of view（视角）”
+- 严重程度：建议；类别：代码质量（i18n）
+- 位置：MarkdownProperties.vue:115-118（`nameTitleOf`：`` `${label}（${row.name}）` ``）
+- 现象：提示文字是用模板字符串拼的，括号是中文全角。组件里别的带名字的提示都走目录（`text.t('properties.rename', {name})`、`properties.remove`），这一条是唯一拼出来的、会进英文界面的用户可见文字，英文界面实测形如 `Point of view（视角）`。
+- 建议改法：在 nb-markdown 的 `properties.*` 目录加一条（如 `properties.nameWithLabel`: "{{label}}（{{name}}）" / "{{label}} ({{name}})"），用 `text.t` 取；Spec 与 `.md` 里“显示名（真名）”的写法不动。
+
+## 7. `describe` 每行每次渲染被调用约 4 到 5 次，每次重新校验所有 `markdown.properties` 声明；摘要与行可能给出不同的快照
+- 严重程度：建议；类别：安全与性能 / 不变量
+- 位置：MarkdownProperties.vue:102（`descriptionOf`）、:106、:111、:120（`kindOf`、`labelOf`、`iconOf` 各自调用）、:290-300（`summary` computed）；properties-catalog.ts:48（`declarations.list(...).filter(...)`）；nb-runtime/src/plugins/host.ts:293-302（`list` 遍历整张贡献目录，对本贡献点的每条登记重新跑 `#validation`，含一次 TypeBox `Value.Check`）
+- 现象：实测（/tmp/review-w00025-t25/exp/count.dom.test.ts）5 行的面板一次挂载调用 `describe` 22 次，敲一个键重画一次又是 22 次（约 4.4 次/行）。`Value.Check(PropertyDeclarationSchema, …)` 实测约 10 微秒/次（/tmp/review-w00025-t25/bench.ts，Bun），每次 `list` 对每条声明做一遍，所以代价约为 声明数 × 10 微秒 × 4.4 × 行数 / 每次渲染；估算 30 条声明、20 个属性时每次按键约 26 毫秒（估算，未在真实页面量）。目前只有设定插件这类少量声明，不构成问题；但这是在输入框每次按键都跑的路径。另一个后果是同一次渲染里同一行被查多次，结果依赖“目录在这几次调用之间不变”，而 `summary` 是 computed（按响应式依赖缓存，声明变了不重算）、行是每次渲染现查，两处在“插件装卸后又触发一次无关重画”时会给出不一致的名字（摘要旧、行新）。这是已知限制“面板正显示着时插件增减不即时重画”的一个更具体的表现，不算新回归，但只要改成每行每次渲染查一次就能一并消掉。
+- 如何核实：运行上面两个脚本；看 host.ts:298 的 `#validation(record)`。
+- 建议改法：面板里用一个 `computed(() => new Map(rows.value.map(row => [row.name, props.describe?.(row.name) ?? null])))`，`descriptionOf` 查这张表（摘要与行共用同一份快照，声明变化的刷新语义不变：下一次 rows 或 locale 变化时更新）；若要严格保留“每次渲染现查”，改成在 `v-for` 里每行取一次再往下传。目录层也可以在 `createPropertyDescriptions` 里不用改。
+
+## 8. `PROPERTY_KINDS` 与 schema 联合的“一致性检查”只检查一个方向；联合字面量在四处各写一份；`PROPERTY_KINDS` 没有使用者
+- 严重程度：建议；类别：代码质量
+- 位置：shared/properties.ts:17、:25、:31-33；web/properties-catalog.ts:26-30（`PropertyDescription` 副本）；lab/web/fixtures/index.ts:117（`kind?: "text" | "number" | …` 再写一遍）；nb-markdown model.ts 的 `EditableKind`
+- 现象：`const _sameKinds: Array<NonNullable<PropertyDeclaration["kind"]>> = [...PROPERTY_KINDS]` 只证明数组里的每个字面量都在联合里；联合里多一项（例如有人加 `Type.Literal("complex")`）仍编译通过，注释却写“不一致时这里编译失败”。`PROPERTY_KINDS` 全仓库除这里与 `contracts.ts` 的再导出外没有使用者，schema 里的联合又手写了一遍五个 `Type.Literal`。web 端 `PropertyDescription` 副本与 nb-markdown 的 `PropertyDescription` 的核对是靠 `MarkdownControl.vue` 把 `DescribeProperty` 传给面板的 `describe` 属性时的赋值检查（vue-tsc 通过了，我跑了 web/backend/nb-markdown 三个类型检查都是 exit 0），也是单向：web 副本比 nb-markdown 窄时不报错。
+- 建议改法：schema 用 `Type.Union(PROPERTY_KINDS.map(kind => Type.Literal(kind)))`（或相反，用 `Type.Unsafe`/`satisfies` 保证联合与数组互为子集），删掉再导出的 `PROPERTY_KINDS` 若没有消费者；或把检查写成两个方向（`Exclude<联合, 数组元素>` 为 never）。Lab 里的联合改成引用类型（`PropertyDescription`）。
+
+## 9. 同名冲突的诊断只在“渲染到这个名字的行”时才记；`reported` 永不清空
+- 严重程度：建议；类别：不变量 / 设计
+- 位置：web/properties-catalog.ts:41-52；web/plugin.ts（`conflict` 回调）
+- 现象：冲突检测寄生在 `describe(name)` 里：只有某个文件的面板里出现了 `视角` 这一行，才会记 `markdown.properties.conflict`。两个插件同时声明了 `视角` 但没有打开过带这个属性的文件，诊断面板里什么也没有；Spec 输出 61 写的是“同名冲突时被忽略的声明各记一条诊断”，没有说要等到用上。另外 `reported` 是 `Set<string>`，永不清空：插件卸载再装回（同一对 id）时，冲突解除又复现也不再记（只有第一次）；不会无界增长（上界是 id 对的数量），所以只是语义问题。诊断记录发生在 Vue 渲染里，属于渲染期副作用（`diagnostics.record` 在这里只是追加到 store，实测没有导致重复渲染）。
+- 如何核实：读 properties-catalog.ts:41-52；集成测试 properties-contribution.dom.test.ts:99-105 的冲突用例里文件本身就带 `视角:`，所以没有暴露这一点。
+- 建议改法：二选一，并在 Spec 输出 61 写明：要么保留“用到才记”（注释里写明理由，并在 `.md` 或 Spec 里说“冲突在第一次用到这个名字时记”）；要么在插件入口里按贡献目录整体检测（激活时与目录变化时对 `list()` 按 name 分组），不依赖渲染。对窄场景倾向前者，只是补一句说明。
+
+## 10. Lab 与文档的小问题：被挤走的注释、拆开的 import、场景没有覆盖新的版式风险
+- 严重程度：建议；类别：代码质量 / 文档
+- 位置：
+  a) packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:116-117：原来属于 `PROPERTIES_SAMPLE` 的注释 `/** 属性面板的样例：一章的五个属性…*/` 被新插入的 `PROPERTY_DECLARATIONS` 挤到它前面，现在两条 JSDoc 叠在一起，`PROPERTIES_SAMPLE`（:126）没有注释；
+  b) packages/neuro-book/src/plugins/markdown/web/plugin.ts:30-34：新 import 插在 `import {createMarkdownMedia…} from "./media"` 与 `import type {MarkdownMedia} from "./media"` 之间，拆开了同一模块的两行；
+  c) Lab 的 `declared` 场景（fixtures/index.ts:757）是中文界面、`label` 全是静态字符串；没有英文界面的声明场景（计划写“带声明的与英文界面的”），没有很长的显示名（名字列 6em 截断，按钮与输入的字号是否一致只能靠截图）、没有“显示名 + 表示不了的行”、只读下的显示名；新增的名字按钮是 `<button>` 加 `font: inherit`，而同列的输入用 `--text-sm`，是否与读写切换时抖动没有场景可看；
+  d) packages/nb-markdown/src/editor/properties/MarkdownProperties.md:69 的 `state:local` 没有列新加的 `renaming`（正在改名的那一行）；
+  e) 测试：MarkdownProperties.dom.test.ts:342 的 `locale` 是模块级 ref，“语言切换”用例在断言之后才恢复成 `zh-CN`，断言失败时会把 `en-US` 留给后面的用例，造成连环失败，应该放进 `afterEach` 或每个用例自己建一个。
+- 建议改法：a、b 直接改；c 补两个场景（英文 + 长显示名/只读）并截图；d、e 照改。
+
+## 9a. 对第 9 条的订正
+- 第 9 条里“实测没有导致重复渲染”这句话没有实测依据，改为：诊断存储在 nb-runtime/src/diagnostics 里不依赖 Vue（grep 无 `from "vue"`），所以渲染期记诊断不会触发响应式更新，结论是读代码得出的。其余内容不变。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- 渲染不改文件：在 /tmp 的探针里对声明为日期、列表、勾选的空值行做了聚焦、失焦、退格、回车，`commit` 都没有触发（只有用户真的输入、点勾选才写回）；`kindOf` 优先级（选过的 > 声明的 > 文字）、有值的行不受声明影响、表示不了的“{ }”行的图标与类型不受声明影响，与计划一致，现有 DOM 测试也守得住（我没有在这几处找到活下来的变异）。
+- 响应性：真实窗口引擎的 `port.t` 读 `locale` 与 `version`（text-engine.ts:104-112），面板在渲染与 computed 里调用 `describe`，依赖建立得起来；没有文字端口时退回 `computed(fallback)` 也读响应式设置。
+- 贡献点登记：浏览器与项目两个位置都登记；实测（/tmp/review-w00025-t25/proj.test.ts，在实现 worktree 里 `bun test`）项目位置的实例里顶层声明被接受、不合格的被拒、没有任何诊断；server 位置与 `markdown.dialects` 一样是 pending（unknown-point），不是回归。`contribution-prefixes.test.ts` 自动覆盖新贡献点的前缀规则。
+- 没有注入 `describe` 时（Lab、组件测试）`inject(key, undefined)` 不报警，面板与改动前一致；`withDefaults` 里 `describe: undefined` 无副作用。
+- 类型检查：packages/neuro-book 的 `tsc --noEmit`、`vue-tsc -p tsconfig.web.json`，packages/nb-markdown 的 `bun run typecheck` 都 exit 0；`bunx vitest run src/plugins/markdown/web/properties`（2 条）通过；`bun scripts/ci/agent-governance.ts` 无失败无警告（测试写法没有 spyOn、固定等待、假计时器、mock.module、.only、.skip）。
+- 同名冲突取 id 最小、去重的逻辑本身（单元与集成）正确；`reported` 不会无界增长（上界是 id 对数）。
+- 未跑 e2e 与开发服务（说明要求）。需要主 Agent 在 e2e 里确认的：无声明时 `markdown-properties.e2e.ts` 行为不变；`.markdown-properties__name--label` 按钮在亮色与暗色下的字号与颜色、长显示名截断（第 10 条 c）。
+
+## 汇总
+- 阻断 0；重要 1（第 1 条）；建议 9（第 2 到 10 条；第 9a 条是订正，不单独计数）。
+- 有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10
