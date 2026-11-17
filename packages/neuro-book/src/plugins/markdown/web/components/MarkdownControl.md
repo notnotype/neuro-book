@@ -42,7 +42,9 @@ type Emits = {
 - 正文被别处改了（另一组的输入、磁盘的新内容、裁决）时只把不同的那一段换掉，这次替换不进撤销历史，本组已有的撤销步骤映射过去后仍可用；原文对照换成按新正文读入的（没变的块以新原文为来源）。回执为 `conflict` 时保留自己的内容，裁决后同样按这种方式换成文档的正文。
 - 显示（方言 Spec 输出 9、11–16、19、23）：批注的正文带波浪线，块批注左侧一条虚线；注音小字在上；双语的译文行在原文上方；提示块按类型有图标与颜色，带折叠标记的可以点标题行折叠（折叠状态按编辑状态记、不写回；光标进去或内容被改到时自动展开）；任务项有复选框；原样块与原样片段显示源码；可渲染 HTML 是源码卡片。颜色都取主题 token。
 - 文件被外部删除后只读：之前敲下、还在 150 ms 延迟里的输入照常交出（文档在已删除时仍接受输入回执）。
-- 链接点击不打开（编辑器里点链接是要编辑它）。
+- 链接：单击是编辑（Tiptap 的 Link 选中整条链接）；按住 Ctrl（⌘）点才打开（[`workbench/markdown-editing.md`](../../../../../../../docs/specs/workbench/markdown-editing.md) 输出 53）：作品里的文件与用户资产经编辑器区菜单执行 `nbook.editor.open`，外部网址（`http`、`https`、`mailto`，`classifyTarget` 的缺省规则）用临时的 `<a target=\"_blank\">` 点一下，文件内的片段与别的方案不处理；没有编辑器区（Lab、组件测试）时不提供打开，Ctrl 点也不接手。批注层让出链接上的 Ctrl 点（同一段文字既是链接又是批注时链接优先）。
+- 宿主给扩展的能力经间接对象：编辑器实例跨挂载复用（标签移组、拆分时控件卸载重挂），扩展建一次，所以扩展里放的不是某一次挂载的闭包，而是读“当前挂载”的 `HostTarget`（存在实例槽里，每次挂载换成这次的 `viewHost`，卸载时清空）。`base()`、`openLink`、`images` 都在事件发生时才读。实例槽里的对象 `markRaw`：槽被包进响应式时编辑器实例不能被代理。
+- 粘贴图片（输出 55、58）：`viewHost.images` 来自注入的 `markdownMediaKey`（`../media.ts`）与 `view-images.ts`：没有提供媒体能力时不装，粘贴照原来的粘贴；提供了、没绑定作品时装上，粘贴被接手、上传返回 `unavailable` 并给通知。存放目录与文件名按设置与当前文件算，失败的通知经 `menus.notify(key, params)`（`menus.image*`）。
 - 在格式的边界打字（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 62）：引入第三方编辑扩展时，逐项核对它影响输入的默认值（自动转换、标记是否包含边界、输入规则），与 Spec 不符的显式关掉，并在 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组里补一行。
 - 纸面（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 32）：界面字体，版心 720px（含左右各 48px 留白）、上 64px 下 120px、正文 17px、行距 1.95、段距 1.1em。这些值是控件根上的变量（`--markdown-measure`、`--markdown-padding-*`、`--markdown-font-size`、`--markdown-line-height`、`--markdown-block-gap`），以后做成偏好时只换变量。
 - 上次的光标（输出 30）：第一次为这份文档建编辑状态、标签记着光标时，把选区放到记下的位置（正文变短时夹到末尾）并滚到它；编辑状态还在时用它自己的选区。光标停下 1 秒、失焦或换文档时把选区活动端交给 `binding.remember`。
@@ -52,7 +54,7 @@ type Emits = {
 
 - 批注页边（[`workbench/markdown-editing.md`](../../../../../../../docs/specs/workbench/markdown-editing.md) 输出 33）：开关（`menus.commentMargin`，这部作品的本机记录）开着、控件够宽才画。宽度量控件根 `.markdown-control-root` 的容器宽度（不含滚动条，页边卡片把短文档撑出滚动条时不会因此少一截而来回闪），出现在“版心 + 页边宽 + 空 + 两侧最小留白”（1032px，版心取 `--markdown-measure`）、已画出的在窄于它 32px 时收起（迟滞）；常量在 `menus/comments/margin-layout.ts` 与本文件。画出来时滚动容器加 `padding-inline-end`（页边宽加空），版心自然居中在剩下的宽度里，左移半个页边宽；根上带 `data-comment-margin`，主题的两侧场景图据此不画。`marginDrawn` 算一份，下传给批注层（浮层据此不出，页边据此画）。句柄交出 `comments.count`（文档里批注的条数，每个事务现算），没有菜单层时不交出。
 
-`state:local`：编辑器实例与当前绑定；控件宽度与页边画不画。`state:inject`：方言目录与资产地址（`nbook.markdown` 交出组件时提供），以及窗口的翻译端口（[`ui/i18n.md`](../../../../../../../docs/specs/ui/i18n.md)）：引用小块的悬停提示与图片的说明经它取，`markdownViewContext()` 把它带进节点视图里挂的图片，换语言时不重建编辑器：图片跟着端口重画，引用小块的悬停提示由控件重算一次。`env:timer`：输入后的结算延迟与记下光标的延迟，卸载与结算时清除。
+`state:local`：编辑器实例与当前绑定；控件宽度与页边画不画。`state:inject`：方言目录、资产地址与插图能力（`markdownMediaKey`，`nbook.markdown` 交出组件时提供），以及窗口的翻译端口（[`ui/i18n.md`](../../../../../../../docs/specs/ui/i18n.md)）：引用小块的悬停提示与图片的说明经它取，`markdownViewContext()` 把它带进节点视图里挂的图片，换语言时不重建编辑器：图片跟着端口重画，引用小块的悬停提示由控件重算一次。`env:timer`：输入后的结算延迟与记下光标的延迟，卸载与结算时清除。
 
 ## 不支持
 

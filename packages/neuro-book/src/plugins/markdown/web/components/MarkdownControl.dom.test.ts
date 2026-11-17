@@ -5,6 +5,7 @@
  */
 
 import type {Editor} from "@tiptap/core";
+import {Slice} from "@tiptap/pm/model";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
@@ -24,7 +25,7 @@ import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {holdSelection, listComments, markdownEditingActions} from "@notnotype/nb-markdown/editor";
 
 import {EDITING_ACTIONS, editorMenusKey, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
-import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
+import type {EditorControlHandle, EditorMenus, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
@@ -34,6 +35,8 @@ import {createAssetUrls, markdownAssetsKey} from "../parts/asset-urls";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
 import {memoryPropertiesOpen, markdownPropertiesOpenKey} from "../properties-open";
 import type {PropertiesOpen} from "../properties-open";
+import {createMarkdownMedia, markdownMediaKey} from "../media";
+import type {MarkdownMedia} from "../media";
 import {markdownCatalogs} from "../text";
 import MarkdownControl from "./MarkdownControl.vue";
 
@@ -65,7 +68,7 @@ interface Opened {
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
-async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean} = {}): Promise<Opened> {
+async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean; readonly media?: MarkdownMedia; readonly wrapMenus?: (menus: EditorMenus) => EditorMenus} = {}): Promise<Opened> {
     const memory = area?.memory ?? createMemoryFiles({project: [["a.md", text]], user: []});
     const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
@@ -92,7 +95,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerTabHandle(tabId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, [markdownPropertiesOpenKey as symbol]: propertiesOpen, ...(options.menus === true ? {[editorMenusKey as symbol]: options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port)} : {})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, [markdownPropertiesOpenKey as symbol]: propertiesOpen, ...(options.menus === true ? {[editorMenusKey as symbol]: ((menus) => (options.wrapMenus === undefined ? menus : options.wrapMenus(menus)))(options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port))} : {}), ...(options.media === undefined ? {} : {[markdownMediaKey as symbol]: options.media})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
     return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper, propertiesOpen};
@@ -1040,5 +1043,124 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         expect(handle.comments?.count.value).toBe(3);
         const plain = await opened(TWO);
         expect(plain.handle.comments).toBeUndefined();
+    });
+});
+
+describe("链接与图片的宿主（markdown-editing.md 输出 53、55、58）", () => {
+    const png = (name = "image.png", type = "image/png"): File => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])], name, {type});
+    /** 走 ProseMirror 的粘贴入口：只有一张图、没有文字。 */
+    const pasteImage = (editor: Editor, file: File): boolean => {
+        const event = {clipboardData: {files: [file], getData: () => ""}, preventDefault: () => undefined} as unknown as ClipboardEvent;
+        return editor.view.someProp("handlePaste", (handle) => handle(editor.view, event, Slice.empty)) === true;
+    };
+    /** 真实的 `createMarkdownMedia`，只有文件服务的 `upload` 记下收到的地址。 */
+    function mediaOf(options: {readonly bound?: boolean; readonly location?: "folder" | "root" | "same" | "sibling"} = {}) {
+        const uploads: string[] = [];
+        const media = createMarkdownMedia({
+            files: {
+                list: () => Promise.resolve({ok: true, value: {folder: "plain", contentRoot: null, entries: []}}),
+                upload: (address) => {
+                    uploads.push(address);
+                    return Promise.resolve({ok: true, address, renamed: false});
+                },
+                rawUrl: () => null,
+            },
+            find: null,
+            bound: options.bound ?? true,
+            settings: {location: () => options.location ?? "folder", folder: () => "插图"},
+            now: () => new Date(2026, 10, 17, 14, 5, 33),
+        });
+        return {media, uploads};
+    }
+    /** 编辑器区的通知与命令：记下，不真的执行。 */
+    function recorded() {
+        const notices: Array<{key: string; params?: unknown}> = [];
+        const executed: Array<{command: string; args?: unknown}> = [];
+        const wrapMenus = (menus: EditorMenus): EditorMenus => ({
+            ...menus,
+            notify: (key, params) => notices.push({key, ...(params === undefined ? {} : {params})}),
+            execute: (command, args) => executed.push({command, ...(args === undefined ? {} : {args})}),
+        });
+        return {notices, executed, wrapMenus};
+    }
+
+    it("粘贴一张图：按设置存进作品，成功的插进光标处，正文里是相对当前文件的地址", async () => {
+        const {media, uploads} = mediaOf();
+        const {editor, binding, handle} = await opened("甲乙\n", undefined, undefined, {menus: true, media});
+        editor.commands.setTextSelection(endOfBlock(editor, 0));
+        expect(pasteImage(editor, png())).toBe(true);
+        await waitUntil("图片插进了正文", () => (editor.state.doc.textContent === "甲乙" && editor.view.dom.querySelector("img, .nb-markdown-image") !== null ? true : null));
+        expect(uploads).toEqual(["project://插图/粘贴的图片 20261117-140533.png"]);
+        handle.flushPendingChange();
+        expect(binding.text.value).toContain("插图/粘贴的图片 20261117-140533.png");
+    });
+
+    it("控件卸载后在同一个标签的实例槽里重挂：粘贴仍按当前文件存放（宿主读当前挂载，不读第一次挂载的）", async () => {
+        const {media, uploads} = mediaOf({location: "sibling"});
+        const first = await opened("甲乙\n", undefined, undefined, {menus: true, media});
+        first.wrapper.unmount();
+        const again = await opened("甲乙\n", {area: first.area, memory: first.memory}, undefined, {menus: true, media});
+        // 同一个槽里的同一个编辑器实例：撤销历史等都留着，换的只是挂载。
+        expect(again.editor).toBe(first.editor);
+        again.editor.commands.setTextSelection(endOfBlock(again.editor, 0));
+        expect(pasteImage(again.editor, png())).toBe(true);
+        await waitUntil("上传发出了", () => (uploads.length > 0 ? true : null));
+        expect(uploads).toEqual(["project://插图/粘贴的图片 20261117-140533.png"]);
+    });
+
+    it("宿主提供了、但没有绑定作品：粘贴被接手，不上传，给一条通知；宿主没有提供（Lab）：照原来的粘贴", async () => {
+        const unbound = recorded();
+        const {media, uploads} = mediaOf({bound: false});
+        const first = await opened("甲乙\n", undefined, undefined, {menus: true, media, wrapMenus: unbound.wrapMenus});
+        first.editor.commands.setTextSelection(endOfBlock(first.editor, 0));
+        expect(pasteImage(first.editor, png())).toBe(true);
+        await waitUntil("给了通知", () => (unbound.notices.length > 0 ? true : null));
+        expect(unbound.notices).toEqual([{key: "imageUnavailable"}]);
+        expect(uploads).toEqual([]);
+        const lab = await opened("甲乙\n", undefined, undefined, {menus: true});
+        lab.editor.commands.setTextSelection(endOfBlock(lab.editor, 0));
+        expect(pasteImage(lab.editor, png())).toBe(false);
+    });
+
+    it("按住 Ctrl 点链接：作品里的文件交编辑器区打开，外部网址新标签页，`javascript:` 与文件内的片段不处理；单击与没有编辑器区时不接手", async () => {
+        const {notices, executed, wrapMenus} = recorded();
+        const {editor} = await opened("[设定](设定/林雪.md)与[官网](https://example.com)与[脚本](javascript:alert(1))与[本页](#标题)\n", undefined, undefined, {menus: true, wrapMenus});
+        const anchor = (label: string): HTMLAnchorElement => {
+            const found = [...editor.view.dom.querySelectorAll("a")].find((element) => element.textContent === label);
+            if (found === undefined) throw new Error(`没有链接 ${label}`);
+            return found;
+        };
+        const click = (label: string, init: MouseEventInit): boolean => {
+            const target = anchor(label);
+            const event = new MouseEvent("click", {bubbles: true, cancelable: true, button: 0, ...init});
+            Object.defineProperty(event, "target", {value: target});
+            const pos = editor.view.posAtDOM(target, 0) + 1;
+            editor.commands.setTextSelection(pos);
+            return editor.view.someProp("handleClick", (handle) => handle(editor.view, pos, event)) === true;
+        };
+        // happy-dom 的临时 `<a>` 点击不会开标签页：记下点的是什么（真实浏览器按 `target="_blank"` 开新标签页，e2e 里看）。
+        const clicked: Array<{href: string; target: string; rel: string}> = [];
+        const originalClick = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function recordClick(this: HTMLAnchorElement): void {
+            clicked.push({href: this.href, target: this.target, rel: this.rel});
+        };
+        cleanups.push(() => {
+            HTMLAnchorElement.prototype.click = originalClick;
+        });
+        expect(click("设定", {ctrlKey: true})).toBe(true);
+        expect(executed).toEqual([{command: "nbook.editor.open", args: {address: "project://设定/林雪.md", mode: "permanent"}}]);
+        // 外部网址：临时的 `<a target="_blank">` 点一下（浏览器按它开新标签页），不经编辑器区。
+        expect(click("官网", {ctrlKey: true})).toBe(true);
+        expect(clicked).toEqual([{href: "https://example.com/", target: "_blank", rel: "noopener noreferrer"}]);
+        expect(executed).toHaveLength(1);
+        clicked.length = 0;
+        // 不按 Ctrl 的单击：选中整条链接，不打开。
+        executed.length = 0;
+        click("设定", {});
+        expect(executed).toEqual([]);
+        for (const label of ["脚本", "本页"]) click(label, {metaKey: true});
+        expect(executed).toEqual([]);
+        expect(clicked).toEqual([]);
+        expect(notices).toEqual([]);
     });
 });

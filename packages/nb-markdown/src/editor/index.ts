@@ -22,4 +22,4 @@ export type {SlashMatch} from "./slash-trigger";
 export {REFRESH_REFERENCE_LINKS} from "./reference-links";
 export {default as MarkdownProperties} from "./properties/MarkdownProperties.vue";
 export {FRONTMATTER_REQUEST, setFrontmatterEol} from "./frontmatter";
-export type {MarkdownViewAssets, MarkdownViewHost} from "./view-host";
+export type {ImageFailure, ImageUploadResult, MarkdownViewAssets, MarkdownViewHost, MarkdownViewImages} from "./view-host";

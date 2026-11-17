@@ -3,7 +3,7 @@
 import {Editor} from "@tiptap/core";
 import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
-import {computed, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
+import {computed, inject, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
 import "@notnotype/nb-markdown/markdown.css";
 
@@ -19,6 +19,9 @@ import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
+import {markdownMediaKey} from "../media";
+import {createViewImages} from "../view-images";
+import {classifyTarget} from "../../shared/targets";
 import {MARGIN_GAP, MARGIN_WIDTH} from "./menus/comments/margin-layout";
 import {languageFor} from "../language-registry";
 import {usePropertiesOpen} from "../properties-open";
@@ -60,6 +63,29 @@ interface MarkdownViewState {
 
 const text = useMarkdownText();
 
+/** 插图能力（输出 54 到 58）：没有提供时（Lab、不带编辑器区的场景）粘贴照原来的粘贴、插图卡片只能插网址。 */
+const media = inject(markdownMediaKey, null);
+
+/**
+ * 打开链接（输出 53）：作品里的文件与用户资产在编辑器区打开；外部网址在新标签页打开（用临时的 `<a>`：`window.open` 打开
+ * `mailto:` 会留下空白标签页）；文件内的片段（`#标题`）与别的方案不处理。“外部”只有 `http`、`https`、`mailto`（`classifyTarget`
+ * 的缺省规则），所以写在文件里的 `javascript:` 一类不会被执行。没有编辑器区（`menus` 为 null）时没有这个能力。
+ */
+function openLink(href: string): void {
+    const target = href.trim();
+    if (target === "" || target.startsWith("#")) return;
+    const classified = classifyTarget(target, bound?.address.value ?? null);
+    if (classified.kind === "external") {
+        const anchor = document.createElement("a");
+        anchor.href = target;
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        anchor.click();
+        return;
+    }
+    if ((classified.kind === "work" || classified.kind === "user") && classified.address !== null) menus?.execute("nbook.editor.open", {address: classified.address, mode: "permanent"});
+}
+
 /**
  * 方言外观（引用小块、图片）要的宿主信息：地址按函数取，换文档不重建扩展；`context` 带着注入的翻译端口，节点视图挂的图片
  * 跟着端口换语言。引用小块的悬停提示是算装饰时取的字符串，不跟着端口，换语言时由下面的 `watch` 重算。
@@ -70,7 +96,39 @@ const viewHost: MarkdownViewHost = {
     assets: inject(markdownAssetsKey, null),
     chips: nbookChips,
     imageMissing: NBOOK_IMAGE_MISSING,
+    ...(menus === null ? {} : {openLink}),
+    ...(media === null ? {} : {images: createViewImages(media, () => bound?.address.value ?? null, (key, params) => menus?.notify(key, params))}),
 };
+
+/**
+ * 扩展里放的宿主：读“当前这次挂载”的 `viewHost`。编辑器实例存在标签的实例槽里，控件卸载（拆分、移动标签）后在新位置重挂
+ * 时复用它，扩展不重建，所以扩展里不能直接放某一次挂载的 `viewHost`（它的 `base()` 读的 `bound` 在那次卸载后是 null）。
+ * 事件发生时才读：粘贴与点链接的处理都在事件里取 `host.images`、`host.openLink`。
+ */
+interface HostTarget {
+    current: MarkdownViewHost | null;
+}
+const indirectHost = (target: HostTarget): MarkdownViewHost => ({
+    base: () => target.current?.base() ?? null,
+    get context() {
+        return target.current?.context;
+    },
+    get assets() {
+        return target.current?.assets ?? null;
+    },
+    get chips() {
+        return target.current?.chips ?? nbookChips;
+    },
+    get imageMissing() {
+        return target.current?.imageMissing;
+    },
+    get openLink() {
+        return target.current?.openLink;
+    },
+    get images() {
+        return target.current?.images;
+    },
+} as MarkdownViewHost);
 
 /** 编辑器挂在这里：稿纸（`.markdown-control`）里排在属性面板之后。 */
 const root = ref<HTMLElement | null>(null);
@@ -81,6 +139,7 @@ const currentEditor = shallowRef<Editor | null>(null);
 const menuLayer = useTemplateRef<InstanceType<typeof MarkdownMenus>>("menuLayer");
 /** 这个实例建好时取定的语言（docs/specs/workspace/markdown-syntaxes.md 输出 7）：与 `editor` 同时设上、同时清空。 */
 let language: MarkdownLanguage | null = null;
+let hostTarget: HostTarget | null = null;
 let bound: TextEditorBinding | null = null;
 let detach: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -127,6 +186,8 @@ const quietly = (current: Editor, change: (tr: Transaction) => void): void => {
 interface KeptEditor {
     readonly editor: Editor;
     readonly language: MarkdownLanguage;
+    /** 扩展里的宿主读它：每次挂载换成这次的 `viewHost`，卸载时清空。 */
+    readonly target: HostTarget;
 }
 
 // `nb-markdown`：正文的样子与展示器共用（nb-markdown 的 `display/markdown.css`）。
@@ -528,20 +589,25 @@ onMounted(() => {
     if (kept !== null) {
         editor = kept.editor;
         language = kept.language;
+        hostTarget = kept.target;
+        hostTarget.current = viewHost;
         editor.mount(root.value);
         editor.setOptions({editorProps: {attributes: attributes()}});
     } else {
         const current = languageFor(catalog);
+        const target: HostTarget = {current: viewHost};
         const created = new Editor({
             element: root.value,
-            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? "", host: viewHost, commentMarkerLabel: menus === null ? null : menus.label("commentMarker")}),
+            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? "", host: indirectHost(target), commentMarkerLabel: menus === null ? null : menus.label("commentMarker")}),
             editable: !props.readonly,
             editorProps: {attributes: attributes()},
         });
-        props.host.state = {editor: created, language: current} satisfies KeptEditor;
+        // 标记为原始对象：槽被包进响应式（测试工具把属性深度代理）时，编辑器实例不能被代理，否则它内部的原生对象（MutationObserver）方法调用失败。
+        props.host.state = markRaw({editor: created, language: current, target} satisfies KeptEditor);
         props.host.dispose = () => created.destroy();
         editor = created;
         language = current;
+        hostTarget = target;
     }
     // 事件处理器属于这一次挂载的组件，卸载时摘掉；实例本身留在槽里。
     editor.on("update", onUpdate);
@@ -568,6 +634,9 @@ onBeforeUnmount(() => {
         // 只从 DOM 上拿下：实例由标签的实例槽保留，标签关闭或换编辑器时编辑器区释放它。
         editor.unmount();
     }
+    // 新的挂载可能已经先接手了（`current` 不再是我们的）：只清自己的。
+    if (hostTarget !== null && hostTarget.current === viewHost) hostTarget.current = null;
+    hostTarget = null;
     editor = null;
     currentEditor.value = null;
     language = null;

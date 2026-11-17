@@ -15,7 +15,9 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {filesKey} from "nbook/plugins/files/shared/contracts";
+import {IMAGE_FOLDER_DEFAULT, imageFolderSetting, imageLocationSetting} from "nbook/plugins/editor/shared/contracts";
+import {filesKey, projectFilesContract} from "nbook/plugins/files/shared/contracts";
+import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {windowProjectKey} from "nbook/shared/projects";
 
@@ -25,6 +27,8 @@ import type {MarkdownService} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
 import {colorsPort, markdownColorsKey, markdownColorsStore, memoryColors} from "./colors";
 import type {MarkdownColors} from "./colors";
+import {createMarkdownMedia, markdownMediaKey} from "./media";
+import type {MarkdownMedia} from "./media";
 import {markdownPropertiesOpenKey, memoryPropertiesOpen, propertiesOpenPort, propertiesOpenStore} from "./properties-open";
 import type {PropertiesOpen} from "./properties-open";
 import {createAssetUrls, markdownAssetsKey} from "./parts/asset-urls";
@@ -40,6 +44,7 @@ interface Host {
     readonly report: MarkdownReport;
     readonly colors: MarkdownColors;
     readonly propertiesOpen: PropertiesOpen;
+    readonly media: MarkdownMedia;
 }
 
 /**
@@ -62,6 +67,7 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
             provideToChildren(markdownReportKey, host.report);
             provideToChildren(markdownColorsKey, host.colors);
             provideToChildren(markdownPropertiesOpenKey, host.propertiesOpen);
+            provideToChildren(markdownMediaKey, host.media);
             const exposed = forwardExpose(expose);
             return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props, ref: exposed}, slots));
         },
@@ -75,7 +81,7 @@ export const markdownBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}, {key: windowProjectKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}, {key: windowProjectKey, required: false}, {key: settingsKey, required: false}],
         provides: [markdownKey],
         receives: [MARKDOWN_SYNTAXES_POINT],
         activate: async (context) => {
@@ -93,7 +99,18 @@ export const markdownBrowserPlugin: PluginDefinition = {
             const project = await context.services.resolve(windowProjectKey);
             const bound = project.status === "resolved" && project.instance.project !== null;
             const propertiesOpen = bound && storage.status === "resolved" ? propertiesOpenPort(propertiesOpenStore.create(context, {storage: storage.instance, diagnostics})) : memoryPropertiesOpen();
-            const host: Host = {catalog, assets, report, colors, propertiesOpen};
+            // 插图的存放与列出（`media.ts`）：设置服务没有装时用缺省的存放位置；没有绑定作品时能力在，但上传不可用、列表为空。
+            const settings = await context.services.resolve(settingsKey);
+            const projectFiles = bound ? context.remote.use(projectFilesContract) : null;
+            const media = createMarkdownMedia({
+                files: context.services.require(filesKey),
+                find: projectFiles === null ? null : (input, options) => projectFiles.find({query: input.query, limit: input.limit, extensions: [...input.extensions]}, options) as never,
+                bound,
+                settings: settings.status === "resolved"
+                    ? {location: () => settings.instance.get(imageLocationSetting), folder: () => settings.instance.get(imageFolderSetting)}
+                    : {location: () => "folder", folder: () => IMAGE_FOLDER_DEFAULT},
+            });
+            const host: Host = {catalog, assets, report, colors, propertiesOpen, media};
             // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
             const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
                 withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});

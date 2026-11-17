@@ -10,7 +10,7 @@
 ## 行为
 
 - **何时弹**：三条路，都不需要正文有焦点，只读文档也弹；光标走进批注（点击、方向键）、没按 Ctrl 的悬停与点击都不弹。
-  - **按住 Ctrl（⌘ 也行）悬停或点击**：滚动容器上的 `pointermove`，Ctrl 或 ⌘ 按着、目标在 `comment`、`.nb-comment-block` 里就立刻按指针坐标取位置（`posAtCoords`，取不到时用元素的 `posAtDOM`）再 `commentsAtPos` 取批注，没有就不弹；先停在批注上再按下 Ctrl 也弹（文档上的 `keydown`，用最后一次 `pointermove` 的位置）；按住 Ctrl 点击（`click`）同样弹，并把这张卡片记为“点开的”。Ctrl 加按下时在捕获阶段 `preventDefault`，不让 ProseMirror 把这次点击当成“选中整个块”，光标也不动。
+  - **按住 Ctrl（⌘ 也行）悬停或点击**：滚动容器上的 `pointermove`，Ctrl 或 ⌘ 按着、目标在 `comment`、`.nb-comment-block` 里就立刻按指针坐标取位置（`posAtCoords`，取不到时用元素的 `posAtDOM`）再 `commentsAtPos` 取批注，没有就不弹；先停在批注上再按下 Ctrl 也弹（文档上的 `keydown`，用最后一次 `pointermove` 的位置）；按住 Ctrl 点击（`click`）同样弹，并把这张卡片记为“点开的”。Ctrl 加按下时在捕获阶段 `preventDefault`，不让 ProseMirror 把这次点击当成“选中整个块”，光标也不动。点在链接上（`a[href]`）的 Ctrl 点击除外：链接优先（[`workbench/markdown-editing.md`](../../../../../../../../../docs/specs/workbench/markdown-editing.md) 输出 53），这里不取消默认动作、不弹卡片，留给 `MarkdownLinkOpener` 打开链接；悬停与小符号照旧。
   - **点小符号**：批注末尾的小符号（`MarkdownCommentMarkers`，`[data-comment-marker]`）在 `click` 里处理：用 `posAtDOM` 取符号的位置，卡片里是在这里结束的批注（`commentsEndingAt`），点开的；再点同一个符号收起。符号上的 `mousedown` 在捕获阶段 `preventDefault`，不移动光标、不夺焦。
   - **键盘**：光标在批注里按 Ctrl+Alt+M 直接进“写”。
 - **关与收**：“点开的”卡片鼠标离开不收，也不被悬停换掉或降级（读意见时手碰一下 Ctrl 不影响）；卡片对着的批注没了（撤销、外部重载）就收起，批注回来时不自己弹出；按 Ctrl 悬停出来的卡片指针离开批注文字、又没进卡片 `closeDelay`（约 0.25 秒）后收起，进了卡片取消收起。两种都在正文里按下指针（没按 Ctrl）、改了文档（输入）、选区不空、Esc（`document` 上的 `keydown`，只读文档也一样）、换文档、变只读、开始写时立刻收起，点开的另外在卡片与正文之外按下指针（`document` 上的 `pointerdown`）时收起；收起之后同一次悬停不再弹，指针离开批注文字再回来才重新算（点击正文之后指针停着按 Ctrl 也不弹）。页边画着、别的弹层开着、正在写时本层不处理 Ctrl 点击与点符号，留给 ProseMirror。注音与双语卡片、右键菜单开着（`blocked`）、页边画着（`marginDrawn`）、正在写时不弹。

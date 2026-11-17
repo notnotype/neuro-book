@@ -336,6 +336,20 @@ describe("打开与收起（输出 30、38）", () => {
         await vi.waitFor(() => expect(popover()).toBeNull());
     });
 
+    it("既是链接又是批注的文字：按住 Ctrl 点链接不弹卡片、浏览器的默认动作不取消（链接优先，输出 53）；点批注里不是链接的字照旧", async () => {
+        const {editor} = harness("甲<comment body=\"一条\">乙[链接](a.md)丙</comment>丁\n");
+        const link = [...editor.view.dom.querySelectorAll("a")].find((element) => element.textContent === "链接");
+        if (link === undefined) throw new Error("没有链接");
+        const down = new MouseEvent("mousedown", {bubbles: true, cancelable: true, ctrlKey: true});
+        link.dispatchEvent(down);
+        expect(down.defaultPrevented).toBe(false);
+        link.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, ctrlKey: true, clientX: 5, clientY: 5}));
+        await settle();
+        expect(popover()).toBeNull();
+        await ctrlClick(editor, "乙");
+        expect(popover()?.textContent).toContain("一条");
+    });
+
     it("程序改的文档（不进历史：重载、写回回填）不收起开着的卡片，选区不空时收起", async () => {
         const {editor} = harness(TWO);
         await peekOpen(editor, "乙丙");
