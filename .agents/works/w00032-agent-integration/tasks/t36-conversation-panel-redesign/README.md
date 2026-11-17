@@ -73,6 +73,38 @@ updated: 2026-11-16
 - E. 没选会话时状态栏仍显示提醒项（断线、全部放行、模式标记），平时这几项都不出现，看起来是空的。
 - F. 点开场指令会替换输入框里已有的文字（旧应用也是这样）。
 
+## 实现审查（Sonnet，2026-11-17）
+
+审 `master...HEAD`（合入 master 之后，含后端小改），20 条：阻断 0、重要 4、建议 16，报告在 [`evidences/impl-review.txt`](evidences/impl-review.txt)。
+
+| 条 | 处理 | 怎么改、为什么 |
+|---|---|---|
+| 1 | 成立，要改 | 第一屏刷新的 `watch` 改成两个分别比较的源；getter 交回新数组时 ctx 每变一次都重取 |
+| 2 | 成立，要改 | `profileKey()` 先读 `revision`，渲染函数读它时快照到了会重算；补 `session-host.test.ts`，变异检查过 |
+| 3 | 成立，要改 | 一次打开里每次运行只试一次，关掉再开才再试；补 DOM 测试，变异检查过 |
+| 4 | 成立，要改 | 只为完成与出错的行取结果 |
+| 5 | 成立，要改 | `AgentConversationView.md` 补 `welcome`、第一屏与 `composer.fill` |
+| 6 | 成立，要改 | 提示卡的去处都带 `layer: "user"`（模型两页只在用户标签下可用）；测试的期望跟着改 |
+| 7 | 成立，要改 | 服务商页不能写时 `focus: "add"` 取走后不打开添加窗口 |
+| 8 | 不成立 | 服务端只听回环地址（nb-host），浏览器与服务端在同一台机器，两个时刻是同一个时钟 |
+| 9 | 成立，要改 | 没有悬停的设备上运行中的行常显停止 |
+| 10 | 部分改 | 补“旧一代的标题区收不到位置与按下”的单元测试；“面板收着时按标题只展开”在外壳里，外壳没有 DOM 测试夹具，接受只靠 e2e 与代码 |
+| 11 | 成立，要改 | 换代、拆上下文时旧标题区的位置清成 null |
+| 12 | 成立，要改 | 打开设置失败写诊断 |
+| 13 | 成立，但接受取舍 | 快照里没有父会话 id，要另加“祖先还没读到”的标记才能不画新建；这段只有一次请求的时间，读失败时点新建只是多建一个顶层会话 |
+| 14 | 待开发者定 | 输入框只读时开场指令仍可点，见下面“待确认” |
+| 15 | 不改 | 现有调用方都带 `section`，搜索中只给 `focus` 的情形没有入口 |
+| 16 | 成立，要改 | 收口原因表只留卡片那一份，浮层引用它 |
+| 17 | 成立，要改 | 后代都没了时浮层关掉；补 DOM 测试，变异检查过 |
+| 18 | 待开发者定 | 400px 右栏里居中的标题偏窄，见下面“待确认” |
+| 19 | 成立，要改 | 面板头的 DOM 测试改成等可观察的结果 |
+| 20 | 成立，要改 | nb-harness 包内补“快照带 `role`、`provider`” |
+
+待确认（实现审查带出的两处产品取舍）：
+
+- 第 14 条：没选会话、一家服务商都没有时，第一屏的开场指令照样能点，点了把字填进只读的输入框。推荐：输入框不能用时指令块停用（仍显示），等提示卡的问题解决再能点。
+- 第 18 条：标题按整行居中时，两侧各留较宽一侧的宽度；默认 400px 的右栏、有子代理入口时，审查者估算标题只剩四五个字（没量）。推荐：先在 Lab 里量一次；确实太窄时，放不下最小宽度就改成标题靠左占满剩下的宽度，放得下才居中。
+
 ## 当前状态
 
 2026-11-16 开工，计划已确认；设计审查处理完，修订后的计划经开发者确认（决定 9），开始实施。草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `ConversationRound2Draft`、`ModelNoticeDraft`、`SubagentsDraft`；实现的 worktree 是 `.worktree/w00032-t36-impl`，分支 `feat/w00032-t36-conversation-panel`。
@@ -88,6 +120,7 @@ updated: 2026-11-16
 | 5 子代理管理 | `1b7971d94` | Spec conversation 输出 43（master `ff25ef9f4`）；纯函数 5 条、DOM 3 条、agent 插件全量 428 条；e2e `agent-subagents`（含新的“子代理管理”）、`agent-conversation` 通过（279 行那条第一次连假端点断开，单独重跑通过）；`lab-scenes` 只剩 31 个旧越界 |
 | 6 宿主接线 | `0a730471a` | Spec conversation 输出 44（master）；类型检查与架构测试；agent 与 workbench 的 bun 957 条、vitest 184 条；e2e `agent-conversation`（新的“写在面板头上”）、`agent-subagents`、`workbench-views`、`lab-workbench-surface` 75 条通过 |
 | 并入 master | `e4582a577` | 没有冲突；`bun install`；五个包的类型检查通过；`test:affected --since master` 只有 `src/sdk/sdk.test.ts` 两条失败，master 上同样失败（nb-ui 新增 `DateInput`、`TagInput` 没列进 SDK，w00025 的改动），与本 Task 无关 |
+| 收口 | `663c05a2b`，合入 master `5dd6b0f3e` | 去重后的 9 个 e2e 文件合入后一次跑完 147 条，失败 3 条：`lab-scenes` 只剩 31 个旧越界；`agent-conversation` 356 行、`agent-subagents` 88 行都是测试连假端点控制口时被断开（`fetch failed: other side closed`），单独重跑通过。审查修正后重跑 `agent-conversation`、`agent-subagents`、`workbench-views` 59 条，356 行那条又断开一次、单独重跑通过 |
 
 - 第 3 片把宿主给 `welcome`、`draftProfile` 与 `recentSessions` 的接线从第 6 片提前（plan.md 已改），第一屏的 e2e 才能端到端跑。
 - 第 4 片的 Spec 已在 master（`57e2eac1f`）：conversation 输出 42、settings-window 输出 15 的 `focus`、settings-pages 输出 18。
@@ -95,7 +128,16 @@ updated: 2026-11-16
 
 ## 下一步
 
-收口：去重后的 9 个 e2e 文件合入 master 后一次跑完（进行中），前端实现审查（Sonnet，说明在仓库外，后端小改单列）进行中。之后处理审查结论、合入 master、请开发者批准 Spec 晋升，删掉实现与草稿以外的 worktree。
+已合入 master。等开发者：
+
+1. 批准 Spec 晋升：本 Task 标 planned 的条目（views 输出 19、workbench-layout 输出 20、agent-conversation-view 的顶栏与第一屏与提示卡、conversation 输出 35 的返回与 41 到 44、settings-window 输出 15 的 `focus`、settings-pages 输出 18、harness/models、runtime 输出 77、models/service 输出 8、contributions 输出 21、builtin-profiles 输出 17）晋升 `implemented` 并补实现合同与证据。
+2. 定实现审查带出的两处取舍（上面“待确认”的第 14、18 条）。
+
+另外发现、不属于本 Task 的：
+
+- `lab-scenes.e2e.ts` 在 master 上被 `ThemeEditor` 的 404 挡住，布局基线比对从没跑到，背后有 31 个场景的越界（见上文）。
+- `src/sdk/sdk.test.ts` 在 master 上两条失败：nb-ui 新增的 `DateInput`、`TagInput` 没列进 SDK（w00025）。
+- `agent-conversation.e2e.ts` 里两条“按状态换场景”（w00041 t14）在整个文件连着跑时偶发 `fetch failed: other side closed`，单独跑通过；推断是测试连假端点控制口的连接被断开后又被复用，未在 master 上单独验证。
 
 实施时定下的细节：
 
