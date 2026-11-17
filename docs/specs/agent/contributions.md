@@ -36,6 +36,7 @@ owners:
 |---|---|---|---|
 | `agent.extensions` | 实现 | `{tags?: string[]; dependsOn?: string[]}` | `<插件 id>.<名>` |
 | `agent.tools` | 实现 | 工具声明里可序列化的部分（说明、参数、`providerName?`、`version`、`finish`、`concurrency`、`strict`、`effect` 的固定值）加 `group?: string`、`defaultForAll?: boolean`、`customFormat?: {syntax: "lark", definition: string}`（原样转给内核，模型按这份语法写参数） | `<插件 id>.<名>`，规则同 [`harness/models.md`](../harness/models.md) 的工具 id |
+| `agent.statusItems` | 实现（只接受浏览器入口；planned） | `{title: Text, description?: Text, side: "left" \| "right", defaultVisible?: boolean}` | `<插件 id>.<名>` |
 | `agent.profiles` | 实现 | `{name, description, tools: {required: string[]; optional: string[]}, role?: string, hidden?: boolean, defaultTools?: false, icon?: string, modelNeeds?: {vision?: boolean; thinking?: boolean; minContext?: number}}`（`icon` planned） | `<插件 id>.<名>` |
 
 - 实现：扩展是内核 `defineExtension` 的结果；工具是工厂 `{create(会话上下文): ToolImplementation}`，实现可以给按参数求等级的 `effect` 函数；Profile 是内核 `defineProfile` 的结果。工厂的第二个参数 `services` 带这个会话的资源视图 `services.resources`，工具经它按资源地址读写（[`agent.resources`](resources.md)）；`services.artifacts` 以宿主身份保存大结果的全文（同一 Spec 输出 11）。
@@ -73,6 +74,7 @@ owners:
 19. Profile 声明可派的子代理：`agent.profiles` 的声明加 `agents?: {allowed: string[]; recommended?: string[]}`，值是 Profile 的 key；`recommended` 里不在 `allowed` 的项忽略。不声明就是空白名单。Profile 目录的条目带上声明的 `agents`，白名单的合成与用途见 [`subagents.md`](subagents.md)。
 20. Profile 声明可用的 Skill：`agent.profiles` 的声明加 `skills?: {allowed: string[] | "all"}`，值是 Skill 的 id，`"all"` 是 Skill 目录里的全部；不声明就是空白名单。白名单的合成与用途见 [`skills.md`](skills.md)。
 21. Profile 的开场指令：`agent.profiles` 的声明加 `starters?: {text: string; icon?: string}[]`（`text` 非空，`icon` 是图标 class），对话第一屏的“试试这些”用它（[conversation.md](conversation.md) 输出 41）。只显示前 3 条，多写的不显示，不因此拒绝整个声明；文字与 `name` 一样不翻译。用户级 Profile 没有声明，没有开场指令。
+22. 对话状态栏的项（planned）：`agent.statusItems` 的贡献在对话状态栏的目录里多一项（[conversation.md](conversation.md) 输出 45），实现 `{load(): Promise<Component>}`，组件的属性是 `{ctx}`（对话视图的 `AgentConversationContext`），画一小段行内内容；声明里 `side` 决定在左在右，`defaultVisible` 缺省关（用户勾上才显示），标题与说明是设置页与右键菜单里的文字，来源插件显示为“插件”。只接受浏览器入口的贡献，写在顶层是 `implementation-required`、写在服务端入口下是 `invalid-declaration`。组件渲染出错时只这一项不画（状态栏其余项照常）。插件被停用或撤回后这一项从目录里消失，设置里关于它的显隐与次序保留，插件回来时生效。
 
 ## 状态与转换
 
