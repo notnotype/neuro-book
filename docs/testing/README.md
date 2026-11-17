@@ -33,6 +33,12 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 
 **e2e 里操作 Monaco。** 点正文按编辑器的外框（`.monaco-editor`）定位，不按 `.view-lines`：它随滚动整体平移，按它的位置点会点到可见区外面，Playwright 报 `html intercepts pointer events`。Monaco 把空格画成不换行空格（`\u00a0`），按文字找 token 或读一行的文字时两种空格都要认（w00025 t05）。
 
+**第三方库处理点击、选区、剪贴板的行为，在真实浏览器里验证。** 组件测试里手工调库的处理函数（`handleClick`、`handlePaste`）时，选区、事件目标都是测试自己摆的，看不出库在真实事件顺序里读到什么。Tiptap 的 Link 自带“单击选中整条链接”（`enableClickSelection`）在点击处理时读的是点击之前的选区：DOM 用例先把光标放进链接再调处理函数，一直通过；真实 Chrome 里点一条链接，选中的是之前光标所在的那条（w00025 t09，写 e2e 时才发现）。接入这类库的交互时，e2e 里用真实的点击、按键与系统剪贴板接口走一遍，并从页面读编辑器的状态（`[data-editor-prose]` 元素上的 `editor.state.selection`）；光标先放在别处，再点目标。
+
+**审查里“从代码推断、未验证”的结论，先写一条能失败的 e2e。** 审查者读 Tiptap 源码推断“只读文档里 Ctrl 点链接会被浏览器跟随、叠成两次打开”；第一版 e2e 只点了一次 Ctrl，改坏修复后仍然通过，等于没证明。把用例加强到能区分（先单击、再 Ctrl 点，数新开的页：不修时 3 个，修后 1 个），再对修复做变异检查（去掉修复、重建、用例失败，恢复后再通过），才算核实（w00025 t09）。结论成立与否都以这一步为准，不凭推断改，也不凭推断驳回。
+
+**组件测试经 `@vue/test-utils` 的 `mount` 传入的属性会被深度代理。** 控件把编辑器实例这类带原生对象（`MutationObserver`、DOM 节点）的东西存进属性里的槽（`props.host.state`），重挂载时从代理里读出的实例会让原生方法报 `Cannot read private member`，生产里槽不是响应式的所以没事。存进这类槽的对象用 `markRaw` 标记，实例不被代理（w00025 t09，`MarkdownControl.vue` 的实例槽）。
+
 **测“换文档”的组件测试，由父组件持有当前绑定。** 组件的属性里带 `ref`（例如编辑器区交给控件的文档绑定）时，`@vue/test-utils` 把这个属性另存，`setProps` 改不到，测试会一直停在第一份文档上、断言照样跑完。像真实的父组件（`EditorGroup`）那样，用一个渲染函数组件持有当前绑定的 `shallowRef`，改它再等 `nextTick`（w00025 t20）。
 
 **组件测试经用户操作触发子组件的事件。** 测父组件怎样处理子组件的事件（菜单项、确认框的确认）时，像用户一样打开菜单、点那一项，不对子组件 `vm.$emit`：直接发事件绕过了子组件真实的事件先后，界面坏着测试也照样过（w00032 t30：AlertDialog 先发 `update:open(false)` 再发 `confirm`，清空从没发出去）。happy-dom 里打开 nb-ui 的 DropdownMenu：聚焦触发器、发 ArrowDown、等几轮 `nextTick`，再到 `document.body` 里找 `[role=menuitem]`。
