@@ -64,6 +64,11 @@ const props = withDefaults(defineProps<{
      */
     sashStyle?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => Record<string, string> | undefined) | undefined;
     /**
+     * 宿主让这条分隔线此刻不能拖（指针、键盘都不行，线照画）：例如一列分节全部收成标题行时（垫底的那一节在吸收余量，拖开时预览与结果对不上）。
+     * 不给就都能拖；交换里滑出去的、零长的线照旧不能拖。
+     */
+    sashDisabled?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => boolean) | undefined;
+    /**
      * 宿主在叶的外框里画成的卡片（`GridLeafShape`）。过渡中外框露出、盖住保持尺寸的内层时，外框与内容外层按它裁，露出来的一截始终是一张完整的卡片；
      * 不给时按外框的矩形裁。
      */
@@ -85,6 +90,7 @@ const props = withDefaults(defineProps<{
     floats: () => [],
     sashKind: undefined,
     sashStyle: undefined,
+    sashDisabled: undefined,
     leafShape: undefined,
     swap: null,
 });
@@ -346,7 +352,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
         size: sash.size,
         beforePx: nowPx,
         afterPx: Math.max(0, sizes[sash.after]?.[sash.axis] ?? 0),
-        disabled: gesturesDisabled.value || isZeroLength(sash),
+        disabled: gesturesDisabled.value || isZeroLength(sash) || props.sashDisabled?.({branch: sash.branch.id, before: sash.before, after: sash.after}) === true,
         detached: false,
         ends: sash.ends,
         ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
