@@ -47,6 +47,8 @@ updated: 2026-11-17
 
 切片 2（Files 挂载点重开）在分支提交 `fb5a4218e`：请求在打开着的挂载点上得到 `root-gone` 时摘下它（`retire`）、按当前声明重开一次再做，旧挂载点等借用结算后关闭；`files/schemes.test.ts` 原“验收 8”断言旧行为（一直 `root-gone` 到空闲关闭），改写成新行为；变异（去掉重试）被抓住；files、agent 资源与 Skill 测试 342 条通过。收口的实现审查要专门看这一片的并发（共享路径）。
 
+切片 3（`nbook.stickers` 服务端）在分支提交 `03c509d20`：`src/plugins/stickers/`（`shared/contracts.ts` 贡献点 `stickers.packs`、条目、远程服务 `nbook.stickers/catalog` 与服务键 `stickersServiceKey`；`shared/manifest.ts` 清单三层核对；`backend/catalog.ts` 扫描、监视、诊断只在变了时写，宽高用 `Bun.Image`，不加依赖；`plugin-roots.ts`、`scheme.ts`、`routes.ts`（经 `WorkspaceFiles` 读 `stickers://`，读到后再核对字节）、`browser-catalog.ts`、`plugin.ts`）；登记进 `src/manifest.ts` 与 `src/server/plugins.ts`，描述的位置暂时只有 `server`（浏览器入口在切片 4 加回 `browser`）。测试 `stickers.test.ts` 6 条，变异 6 个全杀。备注：直接经文件服务写 `stickers://` 得 `unsupported-capability`（方案没有写能力），Agent 写入在资源层被分类为不可写，得 `permission-denied`，与 Spec 输出 13 一致。
+
 ## 下一步
 
-- 切片 3（`nbook.stickers` 后端：清单、目录、`stickers://`、取图路由、远程服务）。
+- 切片 4（浏览器一侧）：`nbook.stickers` 的浏览器入口（取目录、订阅 `changed`、提供 `StickerResolver`），描述位置加 `browser` 并登记进 `src/web/plugins.ts`；`nbook.markdown` 的浏览器入口可选依赖它，在应用级提供 `markdownStickersKey`（键在 `markdown/web/parts/stickers.ts`，`MarkdownControl` 与 `MarkdownHosted` 已经 inject）；解析带包与不带包的写法按 Spec 输出 7、8；跑 `check:dist`。
