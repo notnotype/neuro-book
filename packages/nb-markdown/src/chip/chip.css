@@ -118,8 +118,12 @@
     border-end-end-radius: 0.4rem;
 }
 
+/*
+ * 图标这一段与后面的文字段一样是普通行内框：背景与上下边按同一个字体的内容区画，两段等高、接得上。行内块（inline-flex）的高度
+ * 按图标算，会比文字段高出一截、上下错开。
+ */
 .nb-chip-link__icon {
-    display: inline-flex;
+    display: inline;
     padding: 0.05em 0.25rem 0.05em 0.38rem;
     margin-inline-start: 0.1rem;
     border: 1px solid color-mix(in srgb, var(--text-main) 16%, transparent);
@@ -127,8 +131,12 @@
     border-start-start-radius: 0.4rem;
     border-end-start-radius: 0.4rem;
     background: color-mix(in srgb, var(--text-main) 9%, var(--bg-panel));
-    vertical-align: baseline;
     user-select: none;
+}
+
+.nb-chip-link__icon > .nb-chip__icon {
+    display: inline-block;
+    vertical-align: -0.12em;
 }
 
 /* 装饰的元素在链接元素里面：链接自己的下划线与颜色要在外层去掉，小块里只有外框。 */

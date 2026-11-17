@@ -211,8 +211,8 @@
  * （docs/specs/workbench/markdown-editing.md 输出 26）。
  */
 .nb-markdown .nb-ruby-text {
-    color: var(--text-muted);
-    font-size: 0.6em;
+    color: color-mix(in srgb, var(--text-main) 72%, transparent);
+    font-size: 0.7em;
     /* Safari 只认带前缀的；带前缀的写在前面，见 nb-ui styles.css 里 backdrop-filter 那条。 */
     -webkit-user-select: none;
     user-select: none;
@@ -402,7 +402,7 @@
 .nb-markdown .nb-callout {
     --callout-color: var(--status-info);
     --callout-bg: var(--status-info-bg);
-    border-left: 3px solid var(--callout-color);
+    border: 1px solid color-mix(in srgb, var(--callout-color) 22%, transparent);
     border-radius: 6px;
     background: var(--callout-bg);
     padding: 0.5em 1em;
