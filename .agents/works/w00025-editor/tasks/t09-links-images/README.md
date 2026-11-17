@@ -43,6 +43,6 @@ updated: 2026-11-17
 
 ## 下一步
 
-设计已定。2026-11-17 开发者说“t09 可以开工”（并问上传接口做好了没有：没有，接口是本 Task 第 1 片）。Spec 已写（planned）：[`workspace/files.md`](../../../../../docs/specs/workspace/files.md) 的“写入图片”与场景 12，[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 52–58 与场景 27–30。计划第一稿：[plan.md](plan.md)，末尾“待确认”七条等开发者看；开发者 2026-11-17 说“可以，没问题”（待确认七条都照推荐）。前后端分开做设计审查：后端部分交 omp（默认模型），前端部分交 Claude Sonnet，说明与报告在 `/tmp/review-w00025-t09-design/`，处理完再实施。
+设计已定。2026-11-17 开发者说“t09 可以开工”（并问上传接口做好了没有：没有，接口是本 Task 第 1 片）。Spec 已写（planned）：[`workspace/files.md`](../../../../../docs/specs/workspace/files.md) 的“写入图片”与场景 12，[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 52–58 与场景 27–30。计划第一稿：[plan.md](plan.md)，末尾“待确认”七条等开发者看；开发者 2026-11-17 说“可以，没问题”（待确认七条都照推荐）。前后端分开做设计审查：后端部分原本交 omp，额度用完（429）改派 Claude Opus（阻断 1、重要 7、建议 6，[报告](evidences/design-review-backend.txt)），前端部分交 Claude Sonnet（重要 11、建议 4，[报告](evidences/design-review-frontend.txt)），逐条处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)。计划改为第二稿（[plan.md](plan.md)）：上传写入改经 `projects://`、`find` 加可选的扩展名过滤、共用的类型判定改形状、插图能力用独立注入键、链接动作自己写范围、粘贴有占位与串行的时序；Spec 同步改过。第二稿末尾“审查后定下的几处”七条是我替开发者定的，开发者可改。
 
 执行位置：`.worktree/w00025-t09-links-images`，分支 `feat/w00025-t09-links-images`。
