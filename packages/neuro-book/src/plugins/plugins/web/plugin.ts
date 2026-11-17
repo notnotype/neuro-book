@@ -22,6 +22,8 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 import {descriptor} from "../plugin";
 import {pluginsRegistryContract} from "../shared/contracts";
 import type {PluginsRegistry} from "../shared/contracts";
+import {createFolderUploadClient} from "./folder-upload";
+import type {FolderUploadClient} from "./folder-upload";
 import {pluginsText} from "./text";
 
 /** 设置分区 id：内置插件以 `nbook.` 开头，点分小写段。 */
@@ -51,8 +53,10 @@ export const pluginsBrowserPlugin: PluginDefinition = {
             const windowPlugins = await context.services.resolve(windowPluginsKey);
             const registry = context.remote.use(pluginsRegistryContract);
             const locale = await windowLocale(context.services, () => displayLocale(settings));
+            // 上传文件夹的请求由这个客户端发（页面不自己伸出去发请求）；同源的 `/api/nbook.plugins/uploads`。
+            const folderUpload = createFolderUploadClient();
             const page: SettingsPageImplementation = {
-                load: async () => withRegistry((await import("./components/PluginsPage.vue")).default, registry, locale, windowPlugins.status === "resolved" ? windowPlugins.instance : null),
+                load: async () => withRegistry((await import("./components/PluginsPage.vue")).default, registry, locale, windowPlugins.status === "resolved" ? windowPlugins.instance : null, folderUpload),
             };
             return {contributions: {[SETTINGS_PAGES_POINT]: {[PLUGINS_SECTION]: page}}};
         },
@@ -63,10 +67,10 @@ export const pluginsBrowserPlugin: PluginDefinition = {
  * 设置窗口只给页面一个 `context` 属性；合同客户端与当前显示语言由这里补上。用渲染函数写：插件的合同测试在 bun test
  * 里导入本文件，Bun 不能加载 `.vue`，`.vue` 只在 `load()` 里动态导入。
  */
-function withRegistry(page: Component, registry: PluginsRegistry, locale: Readonly<{value: DisplayLocale}>, windowPlugins: WindowPlugins | null): Component {
+function withRegistry(page: Component, registry: PluginsRegistry, locale: Readonly<{value: DisplayLocale}>, windowPlugins: WindowPlugins | null, folderUpload: FolderUploadClient): Component {
     return defineComponent({
         name: "PluginsSettingsSection",
         props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},
-        setup: () => () => h(page, {registry, locale: locale.value, windowPlugins}),
+        setup: () => () => h(page, {registry, locale: locale.value, windowPlugins, folderUpload}),
     });
 }

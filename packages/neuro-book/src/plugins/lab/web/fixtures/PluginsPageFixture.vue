@@ -13,6 +13,7 @@ import {computed, provide, watch} from "vue";
 
 import type {InstallPreview, PluginListEntry, PluginProblem, PluginsRegistry} from "nbook/plugins/plugins/shared/contracts";
 import PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
+import type {FolderUploadClient} from "nbook/plugins/plugins/web/folder-upload";
 import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
@@ -119,12 +120,12 @@ const registry: PluginsRegistry = {
         if (props.scene === "failed") return Promise.resolve({ok: false as const, code: "registry-failed" as const, detail: {detail: "插件登记表不是合法 JSON"}});
         return Promise.resolve({ok: true as const, value: {safeMode: props.scene === "safe-mode", plugins}});
     },
-    inspect: async ({path}: {path: string}) => {
-        record("inspect", {path});
+    inspect: async ({path, upload}: {path?: string; upload?: string}) => {
+        record("inspect", {path, upload});
         return {ok: true as const, value: PREVIEW[base] ?? {id: "example.new", version: "1.0.0", installed: null, relation: "install" as const, blocked: [], unchecked: []}};
     },
-    install: async ({path}: {path: string}) => {
-        record("install", {path});
+    install: async ({path, upload}: {path?: string; upload?: string}) => {
+        record("install", {path, upload});
         return failing() ?? {ok: true as const, value: {plugin: set(third("example.new", "1.0.0", {pending: [{kind: "install"}]}))}};
     },
     enable: async ({id}: {id: string}) => {
@@ -140,6 +141,16 @@ const registry: PluginsRegistry = {
         return failingManage() ?? {ok: true as const, value: {plugin: set({...find(id), state: "uninstalling", pending: [{kind: "uninstall"}]})}};
     },
 };
+/** 上传的客户端也是替身：收下文件夹、交回一个 id，并记进事件 tab；真实的请求体与路由由单元测试与 e2e 覆盖。 */
+const folderUpload: FolderUploadClient = {
+    upload: async (folder) => {
+        record("upload", {name: folder.name, files: folder.files.length, bytes: folder.bytes});
+        return base === "busy" ? never() : {ok: true as const, id: "00000000-0000-4000-8000-000000000001", files: folder.files.length, bytes: folder.bytes};
+    },
+    discard: async (id) => {
+        record("discard", {id});
+    },
+};
 const bindings = computed(() => subject.bindings.value);
 
 const sceneLocale = (): string => (typeof bindings.value.locale === "string" ? bindings.value.locale : "zh-CN");
@@ -151,5 +162,5 @@ watch(sceneLocale, (locale) => text.setLocale(locale));
 </script>
 
 <template>
-    <PluginsPage v-bind="bindings" :registry="registry" :window-plugins="windowPlugins" data-lab-subject />
+    <PluginsPage v-bind="bindings" :registry="registry" :window-plugins="windowPlugins" :folder-upload="folderUpload" data-lab-subject />
 </template>
