@@ -32,9 +32,11 @@
 - 单写者（omp 4、9）：动作进一个串行队列，只保留最新的一个待做动作；每个动作是一次 PowerShell，在同一条命令里取桌面目录、按字面量路径重查 `NeuroBook.lnk`（是不是快捷方式、目标是不是本安装的 `launcher.exe`，照 Electrobun `deleteWindowsShortcutIfTargets` 的展开与比较）再删或建；建时先写同目录的临时名再改名，同名文件已存在就不动。返回 `removed`、`created`、`kept-other`、`already` 或失败原因，壳记 `desktop.shortcut.*` 日志。壳进入停止中时不再接新动作，等在途那一次（截止 5 秒，到时结束那个 PowerShell 进程）再继续停止。
 - PowerShell 调用（omp 7）：`%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -EncodedCommand <UTF-16LE 的固定脚本>`，路径与名字经环境变量传入，脚本里用 `-LiteralPath`，输出 UTF-8；桌面目录用 `[Environment]::GetFolderPath('DesktopDirectory')`，取空或不是绝对路径时诊断并停。文件名按频道（stable 是 `NeuroBook.lnk`，其它频道照 Electrobun 的 `windowsDisplayName`）。
 
-### 位置与打开（`nbook.desktop` 新增服务端入口）
+### 位置与打开（实施时改，2026-11-18）
 
-- `src/plugins/desktop/backend/plugin.ts`：远程合同 `nbook.desktop/places`（provider server，callers browser），一个方法 `open({place: "state-root" | "library"})`：服务端自己取路径（状态根；作品目录照 `nbook.projects` 的 `library()` 规则），`realpath` 解析后交 `openExistingFolder`。结果是码：`ok`、`missing`（不存在：中性提示“第一次新建作品时会建出这个文件夹”）、`not-directory`、`not-accessible`、`no-desktop`、`open-failed`；原因原文只进诊断，不回页面。描述的 `locations` 加 `server`。
+- 原计划在 `nbook.desktop` 加服务端入口与 `nbook.desktop/places` 合同。实施时发现跨插件的运行时导入只能指向对方的 `shared/contracts.ts`（`architecture.test`），`nbook.desktop` 取不到作品目录的规则，于是拆成两处、都不用新入口：
+  - 作品目录：`nbook.projects/projects` 加 `revealLibrary`（合同版本 3 → 4，不在 SDK 里公开），服务端自己按设置取路径，交 `nbook/backend/open-folder` 新加的 `revealFolder`（先 `realpath`，区分 `missing`、`not-directory`、`not-accessible`、`no-desktop`、`open-failed`，原因原文只进诊断）。
+  - 状态根：页面经桥发 `open-state-root`（不带路径），壳用 `Utils.openPath` 打开自己知道的状态根，打不开只记日志。壳就在用户的桌面会话里，也避开了服务端在 SSH 会话里起的情形（omp 11）。
 - 状态根的路径由壳的 `install-facts` 给页面显示；作品目录的路径由页面经 `nbook.projects/projects` 的 `library` 取。
 
 ### 向导组件（`src/plugins/desktop/web/components/FirstRunWizard.vue` 与 `.md`）
@@ -82,7 +84,7 @@
 
 1. **Spec**（第 2 稿在 master 上提交）。
 2. **安装事实、设置与快捷方式**：核心 `install-facts.ts`、`desktop-shortcut.ts`（判定、单写者队列）与测试；桥消息与解析测试；配置项；页面交值的修正与测试；Windows 端口与壳接线。`bun test src/desktop`、相关 vitest、`bun run typecheck`。
-3. **服务端位置**：`nbook.desktop/places` 合同、服务端入口、测试（真实目录：存在、不存在、链接、不可访问、不是目录；没有桌面）。
+3. **打开位置**：`revealFolder` 与测试（真实目录：存在、链接、不存在、文件、不可访问；没有桌面）、`revealLibrary`、桥消息 `open-state-root`。
 4. **文字目录与缩略图**：语言目录与登记；缩略图脚本与 8 张图；机检。
 5. **向导组件**：`FirstRunWizard` 与 `.md`、Lab 场景（四步、便携版没有前两行、写入失败、结果未知、位置不存在、英文、390 宽、英文加 390 宽、暗色、矮视口）、dom 测试（步进、跳过、Esc、退回保留值、各控件发出的事件、回车只在按钮上前进、卡片的方向键与 Tab、读屏文字随步变、换步后焦点在主按钮）。
 6. **宿主接线与 e2e**：入口、浮层、命令、记录、命令写值、安装事实。e2e：先在 `e2e/fixtures` 做共用的模拟壳（发 `install-facts`、记下发给壳的消息）、`startProductServer` 加预置“已看过向导”的选项，六个模拟壳的 e2e 改用它；新 `desktop-first-run.e2e.ts`：第一次出现、走完四步写进用户层与记录、再开不出现、命令能再打开、浏览器里不出现也不加载向导的包、便携没有前两行、Esc 跳过写记录、升级用户（已有设置与作品、没有记录）出现一次、记录写不成时下次还出现、设置写失败时控件回到原值并有说明、动效的计算样式（`transition-duration` 与减少动态效果为 0）；`text-selection.e2e.ts` 加向导的路径。
