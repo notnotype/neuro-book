@@ -112,6 +112,10 @@
 | 6 | NeuroBook 界面接线、设置、会话行与活动 | 用户能停、能继续 | 同上，加 e2e |
 | — | 界面的实现审查（前端） | | |
 
+实施中的调整（2026-11-18）：
+- 第 2、3 片合成一次提交：第 2 片让收口时剩下的话转成留着，放行在第 3 片，单独提交时现有用例与真实行为都停在“话卡住”的中间状态。
+- 每片的验证：`bun run test:affected --with-consumers` 会跑 neuro-book 全量，改为本包 `bun run test` 加 nb-agent-ui、nb-story、neuro-book 的 `typecheck` 与 neuro-book 的 `bun test src/plugins/agent`；第 4 片起再加 `test:affected`。负载高时超时的用例先单独重跑，再在主工作区（不带改动）对照。
+
 第 2 片之前先把清单里的探针改成正式测试（放 `src/kernel/run/buffer.test.ts`，按 Spec 编号命名），先看它们按旧行为失败，再实现。
 
 ## 验收映射
