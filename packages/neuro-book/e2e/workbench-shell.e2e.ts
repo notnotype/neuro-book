@@ -616,10 +616,17 @@ test.describe("产品页", () => {
         }
         const conversation = await sectionOf(page, CONVERSATION);
         expect(stops).toContain("activitybar");
-        expect(stops).toContain("strip:panel");
-        const strip = stops.indexOf("strip:auxiliarybar");
-        expect(strip, JSON.stringify(stops)).toBeGreaterThanOrEqual(0);
-        expect(stops.indexOf(conversation), JSON.stringify(stops)).toBeGreaterThan(strip);
+        // 两条入口条都是一站。底部面板缺省那一节（后台任务）是空列表，没有可聚焦的东西，F6 跳过它；入口条排在区域的分节之前是投影的树序
+        //（layout-project.test.ts），F6 按树序走，这里在右栏逐站核对一次。
+        expect(stops, JSON.stringify(stops)).toContain("strip:panel");
+        expect(stops.indexOf("strip:auxiliarybar"), JSON.stringify(stops)).toBeGreaterThanOrEqual(0);
+        expect(stops.indexOf(conversation), JSON.stringify(stops)).toBeGreaterThan(stops.indexOf("strip:auxiliarybar"));
+        // Shift+F6 反着走：从分节回到它的入口条。
+        await panelToggle(page).focus();
+        for (let step = 0; step < stops.length && await part() !== conversation; step += 1) await page.keyboard.press("F6");
+        expect(await part()).toBe(conversation);
+        await page.keyboard.press("Shift+F6");
+        expect(await part()).toBe("strip:auxiliarybar");
     });
 
     test("保存失败：状态栏显示“布局未保存”，库恢复后点“重试”补上（验收 12）", async ({page}) => {

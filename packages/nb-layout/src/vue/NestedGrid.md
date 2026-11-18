@@ -86,7 +86,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 
 `contextKey` 在 `useGridLayout` 与 `NestedGrid` 里要写成同一个值，`revision` 要从 `host` 转给组件：对不上时提交被拒绝，界面表现为拖不动，只有接了 `@issues` 才看得到原因。
 
-`useGridLayout` 消费 `grid`、`extent`、`contextKey`，发布 `node`、`layout`、`revision`；它同步验证手势、一次 `resizeBranches` 成功之后才调选项里的 `onApplied(commit, result)`。`onApplied` 是“已经落账”的通知，不是第二道拒绝门：它抛错只报 `issues`，不反悔已提交的几何；自身提交不造成预览自取消；缺 `grid` 或 `extent` 不接受提交。`useLayoutExtent` 共享 `clientWidth`、`clientHeight` 与 `ResizeObserver`：`null` 表示未挂载，0 是真实零。
+`useGridLayout` 消费 `grid`、`extent`、`contextKey`，发布 `node`、`layout`、`revision`；它同步验证手势、一次 `resizeBranches` 成功之后才调选项里的 `onApplied(commit, result)`。`onApplied` 是“已经落账”的通知，不是第二道拒绝门：它抛错经 `useGridLayout` 选项里的 `onIssues` 报出（组件的 `@issues` 收不到这一条），不反悔已提交的几何；自身提交不造成预览自取消；缺 `grid` 或 `extent` 不接受提交。`useLayoutExtent` 共享 `clientWidth`、`clientHeight` 与 `ResizeObserver`：`null` 表示未挂载，0 是真实零。
 
 ## 公开的标记与变量
 
