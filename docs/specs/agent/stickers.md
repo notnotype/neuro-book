@@ -18,8 +18,8 @@ owners:
 不承诺：
 
 - 内置表情包：第一版只有插件与用户两种来源；内置插件取不到自己的插件包目录（[runtime.plugin-code-loading](../runtime/plugin-code-loading.md) 输出 11），以后要随应用分发表情包时另加 `builtin` 来源。
-- 用户在输入框里发表情（表情选择器）；用户消息照现有的提示词文字视图显示，不认表情写法。
-- 编辑器里插入表情的菜单或补全；编辑器只在打完整个写法时变成表情（输出 22）。中文输入法下要打半角冒号。
+- 选择器里的收藏、自定排序、按 Profile 只列白名单里的包；全角冒号触发补全（中文输入法下打半角冒号，或用按钮）。
+- 拖动表情插入编辑器或输入框。
 - 模型看图：模型只看到名字与清单里的说明，不看到图片本身。
 - 表情不计字数：表情写法按普通文字计入字数。
 - 已经显示出来的表情不随目录变化重画：换了图、删了表情包，之后新显示的块用新的目录（已知限制）。
@@ -116,7 +116,7 @@ interface StickerPackManifest {
 
 ### 浏览器一侧的目录
 
-18. 浏览器一侧的目录只带显示要用的：每个有效的表情包的 id、文件夹名，每个有效表情的名字、宽、高与取图地址；不带表情包与表情的说明。合计至多 5000 个表情、序列化后至多 768 KiB（远程调用单条消息的上限以内），放不下的表情包整包不进浏览器目录（按 id 的码元顺序取），写诊断 `stickers.catalog-truncated`；Profile 设置用的表情包概要按同样的字节上限取。`stickers://` 与槽不受这条影响。目录变了经通知更新。
+18. 浏览器一侧的目录只带显示要用的：每个有效的表情包的 id、文件夹名、显示名与来源（显示名与来源 planned，选择器的组头与标签用），每个有效表情的名字、宽、高与取图地址；不带表情包与表情的说明。合计至多 5000 个表情、序列化后至多 768 KiB（远程调用单条消息的上限以内），放不下的表情包整包不进浏览器目录（按 id 的码元顺序取），写诊断 `stickers.catalog-truncated`；Profile 设置用的表情包概要按同样的字节上限取。`stickers://` 与槽不受这条影响。目录变了经通知更新。
 
 ### 界面
 
@@ -146,6 +146,16 @@ interface StickerPackManifest {
 36. 导入 zip：zip 里是一个文件夹（包名取文件夹名）或图片直接放在根上（包名取 zip 文件名去掉扩展名）；只取清单与扩展名是图片的文件，子文件夹与别的文件忽略；路径里有 `..`、绝对路径、反斜杠、盘符、以点开头的段，或同一个文件名出现两次（不分大小写），整个 zip 不导入（macOS 压缩工具带进来的 `__MACOSX` 与 `.DS_Store` 忽略，不算）；清单读不懂或一张图片也没有的不导入。包名不合规则时转成合规的（小写、非法字符换成连字符、合并连字符、去首尾、至多 60 个字符），转不出（例如全是中文）就报错，提示改一下文件夹或 zip 的名字。zip 至多 64 MiB，按实际解出的字节算至多 256 MiB、单个文件至多 32 MiB、至多 600 项。与已有的包同名时问：替换已有的（删掉旧的，用导入的），或另存为新包（包名加 `-2`、`-3`，对话框写出用哪个名字）；对话框左右对照两边的前几个表情、显示名与表情数（要导入那一侧在浏览器里读 zip）；问过之后已有的包被别处换掉的，不替换，再问一次。替换中途断掉不丢旧包：挪开的旧包留在 `user://stickers/` 里一个以点开头的文件夹，写诊断给出位置，由用户处理。导入的图片不缩小，按目录的规则核对（输出 4）。导入完选中它。
 37. 在文件夹中显示：用系统的文件管理器打开这个表情包的文件夹（插件的包打开插件里的那个文件夹），不新建文件夹；没有桌面、打开不成时发一条通知写出路径，同 Skill 页（[`skills.md`](skills.md) 输出 25）。
 38. 页面跟着目录变：别处改了文件（文件管理器、Agent 之外的程序、另一个窗口）时页面随目录的通知更新；选中的表情没了时属性栏回到表情包。页面的写入都经文件服务写 `user://stickers/`，写完的结果以重扫后的目录为准。
+
+### 选择器与补全（planned）
+
+39. **选择器**：入口是 Markdown 编辑器工具栏图片按钮后面的“表情”、斜杠菜单“块”组“图片”后面的“表情”、Agent 输入框工具栏 `+` 后面的表情按钮（单行版式在前置按钮里）；没有 `nbook.stickers` 时这几个入口都不出现。点开在按钮旁弹出一个面板（斜杠菜单打开的锚在光标），放不下时翻到另一侧：顶上是搜索框（打开时焦点在这里），下面一排表情包标签（第一个是“最近用过”，其余是各包的第一张图，当前的只用底色标出），再下面是网格，按“最近用过”、各表情包分组，组头写显示名（插件的包另写插件名），表情包的顺序同浏览器目录（我的在前、各插件一组）；底部一行是指着的表情（图、名字与写法）。网格里不写字，图在固定大小的格子里按比例缩小、居中。滚动网格时标签跟着亮，点标签滚到那一组。方向键在格子间移动，回车插入；点一下插入并关上面板，按住 Shift 点或按 Shift+回车插入后不关。Esc 关上，焦点回到正文或输入框。目录里一个表情包也没有时，面板写一句没有表情包与“在设置里新建”（打开表情包页）。
+40. **搜索**：选择器的搜索框与补全用同一个规则：查询是表情名的一段（不分拉丁字母大小写，按 NFC 比较），或表情名里每个汉字读音首字母连起来的开头（`kx` 找到“开心”）；写成 `包/查询` 时只在这个表情包里找（包段按文件夹名或 id 的开头）。名字以查询开头的排在前面，其余按目录顺序。搜索时不分组、标签收起；没有结果写一句。
+41. **插入的写法**：一律带包，包段同输出 14（写文件夹名；全部有效的表情包里有同名文件夹时写 id）。编辑器里插入的是表情节点（输出 21），输入框里插入的是写法文字；插在光标处，有选区时替换选区；编辑器里代码块、原样块中不能插入（按钮置灰）。
+42. **补全**：编辑器与输入框里，打出半角 `:` 且它在开头、或前一个字不是 ASCII 字母与数字，接着打了至少 1 个字（不含空白与 `:`）时弹出补全；查询是 `:` 后面到光标的文字，规则同输出 40。代码块、原样块、行内代码里不弹，输入法组字时不弹。至多 8 项，一行是小图、名字与表情包的显示名；方向键移动，回车、Tab 或点击确认，把 `:查询` 换成写法（输入框里不补空格）；Esc 收起，这一处查询不变时不再弹；输入空白、光标离开时收起。编辑器里在光标下方，输入框里与输入框同宽、在上方（同 `@` 菜单）。打出完整写法的收尾 `:` 时照输出 22 变成表情，补全随之收起。
+43. **最近用过**：经选择器或补全插入的表情记进“最近用过”，新的在前、不重复、至多 16 个，存在本机（这个客户端的用户记录 `stickers.recent`），编辑器与输入框共用；目录里已经没有的不列，记录读不了时当作空的。
+44. **输入框里**：表情写法（输入框的文字写法，[`ui/prompt-editor.md`](../ui/prompt-editor.md)）显示成行内小图，大小与对齐同输出 10、11 的行内小图（图的中心对着汉字字形的中心）；认不出、目录还没取到时显示原文；光标一步跨过，退格删掉整个。发出去的文字是写法原文。
+45. **用户消息**：已发送的用户消息里的表情按输出 10、11 显示（一段里只有表情与空白、且不超过 3 个时是大图）。一条用户消息去掉空白后只有 1 到 3 个写法、没有附件时不画气泡，表情直接放在消息的位置。这一判断只看写法、不查目录：单发一个认不出的写法也不画气泡，显示原文（已知限制）。
 
 ## 状态与转换
 
@@ -204,11 +214,14 @@ interface StickerPackManifest {
 9. Given 设置里的表情包页，When 新建表情包 `cat`、拖进 `开心.png` 与一张 2000×1500 的 `大图.jpg`、把 `大图` 改名为 `哇` 并标常用、导出、删除 `cat`、再导入刚才的 zip，Then 导入后的 `user://stickers/cat/` 里有清单与两张图，`大图.jpg` 宽 1024，`:cat/哇:` 在对话里显示成图，Profile 里勾选了 `user.cat` 的会话请求里槽列出 `:cat/哇:`。
 10. Given 已有表情包 `cat`，When 导入一个包名也是 `cat` 的 zip，Then 问替换还是另存；选另存后有 `cat-2`，原来的 `cat` 不变。
 
+11. （planned）Given 表情包 `lyra` 里有“开心”，When 在 Markdown 编辑器的一段中文后面打 `:开` 回车、保存，Then 文件里是 `……:lyra/开心:`；When 点工具栏的“表情”选“困”、重开编辑器再点“表情”，Then “最近用过”的第一个是“困”、第二个是“开心”。
+12. （planned）Given 一个会话，When 在输入框里打 `:k` 选“开心”、再打几个字发送，Then 请求里的用户文字是写法原文，消息里显示成行内小图、与文字的竖直中心相差不超过 2 像素；When 用表情按钮只发一个“开心”，Then 这条消息没有气泡、是大图。
+
 Smoke：真实浏览器里打开 Lab 的表情场景（展示器与编辑器各一个），与 e2e 里一个会话的回复显示。
 
 ## 实现合同
 
-- **公开入口**：nb-markdown 包入口的写法函数（`stickerAt`、`parseSticker`、`stickerEndingAt`、`isStickerName`、`isStickerPack`）与类型 `StickerResolver`、`ResolvedSticker`；宿主端口 `MarkdownHost.stickers`（展示器）、`MarkdownViewHost.stickers` 与 `report`（编辑器）；内置方言 `nbook.markdown.sticker`；贡献点 `stickers.packs`；地址 `stickers://`；取图路由 `GET /api/nbook.stickers/image/<id>/<file>`；`nbook.stickers` 的远程合同（`catalog`、`packs`、事件 `changed`）与服务 `stickersServiceKey`、浏览器服务 `stickerResolverKey`；Profile 声明的 `stickers` 与 `profileSettings[key].stickers`；扩展 `nbook.agent.stickers` 交槽 `stickers`；表情包页：设置页分区 `nbook.stickers.packs`、`nbook.stickers` 远程合同的写入方法（`pack`、`createPack`、`updatePack`、`renamePack`、`deletePack`、`updateSticker`、`deleteSticker`、`listFiles`、`deleteFile`、`copyPack`、`revealPack`）、HTTP 路由 `PUT /api/nbook.stickers/packs/<id>/images/<文件名>`、`POST /api/nbook.stickers/import`、`GET /api/nbook.stickers/export/<id>`、Agent 提供的服务 `stickerAllowlistUsageKey`（页面可选依赖，查哪些 Profile 选了这个包）。
+- **公开入口**：nb-markdown 包入口的写法函数（`stickerAt`、`parseSticker`、`stickerEndingAt`、`isStickerName`、`isStickerPack`）与类型 `StickerResolver`、`ResolvedSticker`；宿主端口 `MarkdownHost.stickers`（展示器）、`MarkdownViewHost.stickers` 与 `report`（编辑器）；内置方言 `nbook.markdown.sticker`；贡献点 `stickers.packs`；地址 `stickers://`；取图路由 `GET /api/nbook.stickers/image/<id>/<file>`；`nbook.stickers` 的远程合同（`catalog`、`packs`、事件 `changed`）与服务 `stickersServiceKey`、浏览器服务 `stickerResolverKey`；Profile 声明的 `stickers` 与 `profileSettings[key].stickers`；扩展 `nbook.agent.stickers` 交槽 `stickers`；表情包页：设置页分区 `nbook.stickers.packs`、`nbook.stickers` 远程合同的写入方法（`pack`、`createPack`、`updatePack`、`renamePack`、`deletePack`、`updateSticker`、`deleteSticker`、`listFiles`、`deleteFile`、`copyPack`、`revealPack`）、HTTP 路由 `PUT /api/nbook.stickers/packs/<id>/images/<文件名>`、`POST /api/nbook.stickers/import`、`GET /api/nbook.stickers/export/<id>`、Agent 提供的服务 `stickerAllowlistUsageKey`（页面可选依赖，查哪些 Profile 选了这个包）；选择器与补全（planned）：浏览器服务 `stickerPickerKey`（目录、搜索、最近用过与面板组件）、用户记录 `stickers.recent`、命令 `nbook.edit.sticker`、nb-markdown 的 `isStickerOnlyText`。
 - **owner 与依赖方向**：`nbook.stickers` 持有表情目录、`stickers://`（`nbook.files` 的挂载方案）、取图路由与浏览器目录，插件包目录经平台服务 `plugin-platform/packages` 取（可选依赖）；`nbook.agent` 可选依赖 `stickersServiceKey`，持有白名单与槽，白名单的合成与 Skill 共用 `shared/profile-allowlist.ts`；表情包页与它的写入归 `nbook.stickers`（经 `nbook.files` 的写入接口写 `user://stickers/`），页面第一次需要名单时才解析 Agent 提供的 `stickerAllowlistUsageKey`（服务 id 必须以提供者插件 id 开头，所以键定义在 Agent 一侧；Agent 入口起不来时页面照常出现，改名对话框写通用提醒）；`nbook.markdown` 可选依赖 `stickerResolverKey`，经 `withHost` 交给 nb-markdown 的展示器与编辑器。nb-markdown 不依赖应用，只认端口。
 - **关键不变量**：
   - 读写法、打字时的输入规则与写回时的转义共用一个判断（`stickers.ts` 的 `stickerAt`）；文字后面紧跟别的行内节点时，转义参考那个节点写出的第一个字（`codec.test.ts`“同一块里加了留作文字的写法，别处的写法不变”）；节点的原文一定是一个写法：读、输入规则与粘贴（`parseHTML` 校验）都只造合法的原文，写回原样（`sticker.dom.test.ts`“从展示器复制来的 HTML 粘贴回来”）。
