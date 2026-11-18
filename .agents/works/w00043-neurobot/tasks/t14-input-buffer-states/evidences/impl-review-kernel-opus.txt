@@ -1,0 +1,139 @@
+# w00043 t14 第 1–3 片内核实现审查（审查提交 bfaed9e53，只读）
+
+### 1. 停止已受理之后，运行循环仍会取走停止范围里的排队与插话（停止的“清空”“留着”落空）
+- 严重程度：重要
+- 类别：正确性 / 违反 Spec
+- 位置：packages/nb-harness/src/kernel/run/loop.ts:378-407（一轮结束那一项）、loop.ts:235-236（边界取 steer）、loop.ts:203-206（接着跑时取第一条）
+- 现象：一轮结束的队列项只看缓冲区，不看中止信号或停止记录。循环在 370 行查过 `signal.aborted` 之后到这一项真正执行之间（队列被别的指令占着时），用户 `abort` 已同步受理、范围里有就绪的 followup；这一项照样写 `turnEnded{completed}` 并取走它开新一轮，下一圈才发现中止，新一轮以 `aborted` 收口。边界取 steer（235 行 `write(steers)`）同样只在循环顶部看过一次信号，写入排队期间到达的停止拦不住。
+- 为什么是问题：Spec 术语把“停止已受理的运行”列为“运行不再取输入”；输出 30 要求范围里的话在收口批里清空（`inputRemoved{aborted}`）或留着（`heldBy`）。实际这条话变成一轮被中止的 `input` 进了对话，`inputFate` 是 `taken`，用户点“停止并清空”后它仍出现在对话里；界面用 `keepQueue` 时它本该留着待“继续”，结果落进一轮死掉的对话，也不会被 `resume` 再跑（`lastChat.end` 是 `aborted`，不是 `interrupted`）。
+- 如何核实：/tmp/review-t14-impl-kernel/exp/abort-take.test.ts 的“实验 1”（真实内核：第二条 assistant 的反应卡住队列，期间排一条会在输入拦截里停住的 send 占住队列，再 `abort`）。在审查 worktree 的 packages/nb-harness 下 `bun test /tmp/review-t14-impl-kernel/exp/abort-take.test.ts -t "实验 1"`：日志尾部是 `turnEnded:completed inputConsumed turnStarted input:排一 turnEnded:aborted runEnded:aborted inputHeld commandAccepted`，`inputFate(排一)` = `{"taken": …}`，断言 `inputs` 不含“排一”失败。
+- 建议改法：取输入的三处都以“这次运行还取输入”（`control.takesInput` 或 `signal.aborted`）为前提，并且在同一个队列项里判断：一轮结束那一项开头先看，已停止就直接 `settle({reason: "aborted"…})`；`takeSteerDrafts` 与暂停运行的取第一条改成在队列项内读缓冲区并检查同一条件。补一条用例：停止受理与一轮结束那一项之间有别的队列项时，范围里的 followup 被清空或留着。
+
+### 2. 运行不再取输入期间先到的话，之后的停止不清空它，收口批照样放行并开新运行
+- 严重程度：重要
+- 类别：正确性 / 违反 Spec
+- 位置：packages/nb-harness/src/kernel/run/settle.ts:109-125（`arrived` 从停止范围里排除）
+- 现象：只压缩的运行期间用户 `send`（推迟，去向 `later`），随后用户 `abort`（缺省清空）。`abortCommand` 把这条话记进了范围（309 行取的是那一刻缓冲区全部 id），但 `settleBatch` 用 `!arrived.has(item.id)` 把推迟指令带来的话从范围里剔掉：它不被移除，转成留着后又被同批的推迟放行放出来，开了下一次运行跑它。
+- 为什么是问题：输出 30“范围是这个同步步骤那一刻已在缓冲区里的话（就绪与留着的都算）：缺省清空其中停的人能取消的”；只有“停止受理之后才到的话不在范围里”。用户按“停止”后会话立即又跑起来，看起来像停止没生效；`keepQueue` 时这条话也没有 `heldBy: user`。代码里没有注释说明为什么排除，计划“附”里也没写这条例外。
+- 如何核实：/tmp/review-t14-impl-kernel/exp/abort-take.test.ts 的“实验 2”。`bun test /tmp/review-t14-impl-kernel/exp/abort-take.test.ts -t "实验 2"`：日志 `runEnded:aborted inputHeld:{"ids":[…],"cause":{"end":"aborted"}} commandAccepted inputReleased runStarted … input:压缩期间的话 … runEnded:completed`，`inputFate` = `{"taken": …}`，期望 `{removed: "aborted"}` 失败。
+- 建议改法：范围只按 `stop.scope` 判断，不剔除 `arrived`；被清空的推迟话，它的放行与开运行随之落空（放行后没有就绪的话时 `openRunDrafts` 本来就交回 null）。若有意让“停止前已推迟的发话”在停止后仍然开运行，先改 Spec 输出 30 写明，再补用例。
+
+### 3. `send`、`enqueue`、异步回答在输入拦截之前算“运行还取不取输入”，拦截期间受理的停止让判断过期
+- 严重程度：重要
+- 类别：正确性 / 竞态
+- 位置：packages/nb-harness/src/kernel/run/commands.ts:144-152、163-171（`deliver` 的 `window` 在 `await interceptInput` 之前算）；commands.ts:191-194（`enqueue` 的 `running`）；interaction.ts（异步回答的 `window` 同样在拦截之后才用，但 `active` 读在拦截之后，此处无碍，只 `deliver` 与 `enqueue` 有问题）
+- 现象：`abort` 不经队列，可以落在一条 `send` 的输入拦截 `await` 期间。`window` 早已算成 false，于是这条话按“运行在取输入”处理：写放行与就绪的 `inputQueued`、交回 `placement: "taken"`、不登记 `defer`。收口批把它转成留着（`cause.end: "aborted"`），不开下一次运行。
+- 为什么是问题：停止的同步步骤早于这条 `send` 的受理，按输出 104 它属于“运行不再取输入时到达”，应推迟、收口批里放行并开下一次运行（去向 `later`）；验收 8 的“停止进行中用户又 send 一条，收口后先跑留着的再跑新话”在有异步输入拦截的会话里就不成立。NeuroBook 是否装了输入拦截我没查；kit 与插件都能装，拦截链缺省时限 5 秒，窗口不小。
+- 如何核实：实验 1（同一文件）里的“占队列” send 在拦截里停住时 `abort` 受理：它交回 `{"placement":"taken","runId":null,…}`，日志里收口批只有 `inputHeld`，之后没有 `runStarted`，会话停在空闲。
+- 建议改法：把 `window`、`active`、`paused` 与 `startProblem` 的判断挪到 `interceptInput` 之后（仍在同一个队列项里），或在拦截之后重新读一次再分支；`enqueue` 的 `running` 同理。
+
+### 4. 运行在收口批之前因写日志失败结束时，已受理的 `abort` 永远不交回（回归）；停止记录与推迟列表也不清
+- 严重程度：重要
+- 类别：正确性 / 不变量（资源收口）
+- 位置：packages/nb-harness/src/kernel/run/control.ts:165-175（`launch` 的 `.finally` 未结算分支）、control.ts:111-117（`recordStop`）、control.ts:211-226（只有 `#finish` 结算 `#stopWaiters`）
+- 现象：`abortCommand` 交回的 Promise 只在 `#finish` 里 resolve。运行循环若在收口批之前的某次写入抛 `LogBrokenError`（循环直接把它抛出，不走 `settle`），`launch` 的 `.finally` 走“没收口”分支：清 `#active`、推帧、结算 `waitRun`，但不 resolve `#stopWaiters`，也不清 `#stop`、`#deferred`、`#settling`。等着的 `abort` 永不完成。master 上的 `abortCommand` 是 `await control.abort()` 后按 `core.broken` 交回 `{aborted: true}`，不会挂住。
+- 为什么是问题：调用方（界面的停止按钮、kit 句柄表、子代理的 `killJob`）等这个 Promise；句柄损坏本来就是要用户“关闭后重开”的时候，停止却卡住不回。`#stop` 留着还让 `takesInput` 永远为假（损坏后指令都得 `log-broken`，影响有限）。
+- 如何核实：/tmp/review-t14-impl-kernel/exp/abort-broken.test.ts（在实验 1 的时间窗上包一层存储，让“`turnEnded` + `inputConsumed`”那一批写失败）。`bun test /tmp/review-t14-impl-kernel/exp/abort-broken.test.ts`：输出 `abort outcome: "timeout" status: {"state":"broken","code":"log-broken"}`，2 秒内 `abort` 没有交回。触发它需要“停止已受理后、收口批前”还有别的写入，第 1 条的窗口就是其一；工具宽限期、边界写 inbox 与 steer 也是。
+- 建议改法：把 `#finish` 里与收口方式无关的清理（`#settled`、`#settling`、`#stop`、`#deferred`、resolve `#stopWaiters`）抽成一个函数，`launch` 的未结算分支也调用它；`onBroken` 里同样 resolve 已有的停止等待者。补用例：停止受理后、收口前写失败，`abort` 以 `{aborted: true}` 交回。
+
+### 5. `abort` 第一次交回的 `seq` 是收口项结束时的日志头，与重发交回的受理记录 seq 不同
+- 严重程度：建议
+- 类别：正确性（合同一致性）
+- 位置：packages/nb-harness/src/kernel/run/control.ts:223（`resolve(this.#core.head)`）、commands.ts:313-314
+- 现象：收口批里 `commandAccepted{abort}` 之后还可能有推迟的放行、下一次运行的 `runStarted` 与第一轮，以及整批的反应写入；`#finish` 用 `core.head` 结算停止的等待者，所以第一次交回的 `seq` 指向这些之后。重发同一个 `commandId` 走 `replay`，交回的是受理记录自己的 seq。
+- 为什么是问题：其余指令的 `seq` 都是 `commandAccepted` 的 seq（accept 的注释写明“重发时原样交回”）；调用方按 `seq` 判断“受理的效果已在日志里到哪儿”，abort 第一次与重发不一致，按 seq 去重或对齐帧的调用方会认错位置。
+- 如何核实：/tmp/review-t14-impl-kernel/exp/abort-seq.test.ts（验收 8 的场景：`abort{keepQueue}` 后又 `send`）。`bun test /tmp/review-t14-impl-kernel/exp/abort-seq.test.ts`：`first … "seq":24` 、`replay … "seq":19`、日志里 `commandAccepted{stop}` 的 seq 是 19。
+- 建议改法：`#finish` 里按每个停止的 `commandId` 在 `core.commands` 里查到它的受理 seq 再交给对应的等待者（等待者与 `commandId` 一一对应地存）；写批失败时仍按 `core.head`。
+
+### 6. `release({inputIds: []})` 交回码表之外的 `nothing-to-resume`，类型断言把它盖住了
+- 严重程度：建议
+- 类别：正确性（失败码合同）/ 代码质量
+- 位置：packages/nb-harness/src/kernel/run/commands.ts:274-289（`releaseWhileIdle(...) as Outcome<"release">`）、commands.ts:254
+- 现象：空列表通过全部校验（没有缺的、没有别人的），空闲时进 `releaseWhileIdle`：叶子上有中断的运行就把它接着跑（`release` 一条都没放却开了运行），没有就交回 `nothing-to-resume`。`commandErrors.release` 里没有这个码；`as Outcome<"release">` 让类型检查看不到。
+- 为什么是问题：码表即合同（codes.ts 注释），NeuroBook 远程层按 `commandErrors` 派生错误码，表外的码到了远程层会被当成意外错误；空列表的 `release` 实际变成了 `resume`，与输出 107“按条放行”不符。
+- 如何核实：/tmp/review-t14-impl-kernel/exp/release-empty.test.ts。`bun test /tmp/review-t14-impl-kernel/exp/release-empty.test.ts`：交回 `{"ok":false,"code":"nothing-to-release"…}` 以外的 `{"ok":false,"code":"nothing-to-resume"}`，且 `commandErrors.release` 不含它。
+- 建议改法：`inputIds` 为空时直接失败（`nothing-to-release`、`detail.ids: []`，或在远程参数表里 `minItems: 1` 并在内核同样校验）；`releaseWhileIdle` 按指令名分出各自的失败码，去掉 `as Outcome<"release">`。
+
+### 7. 运行不再取输入时应答异步提问，`resolve` 交回的 `runId` 是正在收口（压缩、停止中）的那次运行
+- 严重程度：建议
+- 类别：正确性（合同）
+- 位置：packages/nb-harness/src/kernel/run/interaction.ts:149-151、170（`const runId = launch ?? control.active?.runId`）
+- 现象：`window` 为真时回答推迟到收口（`deferred = true`），没有 `launch`，于是 `runId` 取 `control.active.runId`，即只压缩的运行或已受理停止的运行。回答并不进这次运行，收口后才在下一次运行里跑（或开不起来时留着）。
+- 为什么是问题：输出 88“`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给”。同一窗口里的 `send` 交回 `runId: null` 加 `currentRunId`，`resolve` 却把即将收口的运行当成回答的去处；按开工清单 2.15，子代理工具靠 `resolve` 交回的 `runId` 判断回答有没有运行可跑，会去等一次不会处理这句回答的运行。
+- 如何核实：从代码推断，未在真实运行时复现（构造异步提问加只压缩运行的时间窗代价较高）。分支条件一目了然：`window` 分支不设 `launch`，170 行回落到 `control.active?.runId`。
+- 建议改法：`deferred` 时不交 `runId`（与 `send` 的 `later` 对齐），或在 `CommandMap.resolve` 的成功值里另加去向；Spec 输出 88 写明这种情形。
+
+### 8. `inputFate` 对没入过队的 id 交回 null，Spec 写的是失败 `input-not-found`
+- 严重程度：建议
+- 类别：文档 / 合同不一致
+- 位置：packages/nb-harness/src/kernel/session/session.ts:818-834（`inputFateOf`）、api/host.ts 的 `inputFate` 注释；Spec docs/specs/harness/runtime.md 输出 110
+- 现象：实现与类型注释都是“不是这个会话里入过队的为 null”；Spec 输出 110 写“不是这个会话里入过队的得 `input-not-found`”。NeuroBook 远程层（shared/remote.ts）按实现把输出定为 `InputFate | null`。
+- 为什么是问题：调用方（第 4 片要改的 `agent_send`）照 Spec 写会去等一个永不出现的失败码；两边总有一处是错的。
+- 如何核实：读码。`inputFateOf` 末尾 `if (!queued) return null;`；Spec 原句在输出 110 末尾。
+- 建议改法：查询不走指令失败表，改 Spec 为“交回 null”更顺；若保留失败码，查询的形状要改成结果对象。二选一后两边对齐。
+
+### 9. 收口批写下、反应抛错时，批里已写的下一次运行不开，留成一个“暂停的运行”，推迟的话已被它取走
+- 严重程度：建议
+- 类别：不变量
+- 位置：packages/nb-harness/src/kernel/run/control.ts:189-197（`next = batch.next` 在 `await writeAndReact` 之后才赋值）
+- 现象：`writeAndReact` 先 `core.write` 再跑反应；反应抛非 `LogBrokenError` 的错（loop.ts:411 的注释举了“插件停止时宿主的服务已经撤回”这种情形）时批已落盘，但 `next` 仍是 null，`#finish` 不 `launch`。日志里有下一次运行的 `runStarted`、`inputConsumed`、`turnStarted`、`input`，没有循环在跑；叶子上的 `run` 非空，`control.paused` 把它当成暂停的运行。推迟的那句话（去向 `later`）已被取走，却没人跑它，界面显示空闲。
+- 为什么是问题：输出 104 只说“写批或反应失败时会话照样回到空闲”，没说已写下的下一次运行怎么办；现在的结果是会话停在一个没人知道的暂停状态，直到用户再发话（`runResumed`）或重开（不会恢复：叶子由 `runStarted` 定，不是 `leafChanged`，恢复会把它记成 `interrupted`，这一点从代码推断）。
+- 如何核实：从代码推断，未在真实运行时复现（要让反应在宿主层抛错）。
+- 建议改法：在 `core.write` 成功之后就记下 `next`（把 `writeAndReact` 拆开或让它在反应抛错时附带已写下的事件），反应失败时照样 `launch`；或者明确不开，并在 Spec 104 写下这种情形由谁收口。
+
+### 10. 运行不再取输入时 `resume`、`release` 不做任何“能不能放行”的判断，一律成功并交回 `released: []`
+- 严重程度：建议
+- 类别：正确性（合同）
+- 位置：packages/nb-harness/src/kernel/run/commands.ts:266（`resume`）、285（`release`）
+- 现象：只压缩或停止中，会话身份的 `resume` 即使收口时也一条都放不了，照样交回 `{ok: true, value: {runId: null, released: []}}`、写受理记录并登记推迟；同样的调用在空闲时得 `nothing-to-resume`。真正放行了的（收口批里写的 `inputReleased`）也不会出现在交回值里，`released` 永远是空数组。
+- 为什么是问题：输出 106 “没有能放行的、也没有可接着跑的得 `nothing-to-resume`；有留着的、但都是 `heldBy` 为用户而发出者不是用户时得 `held-by-user`”，没有给“运行不再取输入”开例外；调用方（第 4 片的子代理工具）拿 `released: []` 也分不清“推迟了”还是“没东西可放”。收口时哪些会变成留着在受理时确实算不准，但“现在就留着、按表放不了的”与“`heldBy` 是用户”是能判的。
+- 如何核实：/tmp/review-t14-impl-kernel/exp/resume-window.test.ts：压缩期间 `as(session).resume` 交回 `{"ok":true,"value":{"runId":null,"released":[]}}`，压完再调得 `{"ok":false,"code":"nothing-to-resume"}`。
+- 建议改法：Spec 输出 104、106 写明推迟时的成功值（例如加 `deferred: true` 或去向），并定下推迟的 `resume` 在受理时要判的失败（至少 `held-by-user`）；实现照此判断。
+
+### 11. `end()` 的“决定收口”在队列项之外：决定之后、收口批之前受理的话按“在跑”交回 `taken`，随即被留着，没有运行跑它
+- 严重程度：重要
+- 类别：不变量 / 违反 Spec
+- 位置：packages/nb-harness/src/kernel/run/loop.ts:121-136（`end` 先置 `stopped`、`await core.queue.drain()`，再另排一项 `settle`）；loop.ts:203-205（接着跑暂停的运行时在队列项外读缓冲区，空就 `end("completed")`）；control.ts:97-100（`takesInput` 不知道循环已决定收口）
+- 现象：除“回复没有工具调用”那一项外，其余收口（出错、中止、只压缩、暂停运行空缓冲区、循环内部错误）都是先在队列外决定，再 drain，再排收口项。drain 期间受理的 `send` 看到 `takesInput` 为真：写放行与就绪的 `inputQueued`、交回 `taken`、不登记推迟；收口批把它转成留着，会话回到空闲，没有运行处理它。最直接的一例：回退到同一次运行的两轮之间，`start` 与 `send` 前后发出（不等 `start`），`start` 的受理项里循环已同步读到“缓冲区空”并进 `end`，随后受理的 `send` 交回 `{"placement":"taken","currentRunId":<这次>}`，最终 `inputFate` = `{"held":{"end":"completed"}}`，状态 `idle`。
+- 为什么是问题：输出 104“决定收口与写下收口在单写者队列的同一项里：在它之前受理的话由这次运行取走，在它之后受理的按空闲处理，不会有话卡在空闲的会话里”；术语把“已决定收口的运行”列为“运行不再取输入”，这期间的 `send` 应推迟、收口批里放行并开下一次运行。现在用户的话被静默挂成“已暂停”，要再点继续。计划附注写了“其余收口点先 `queue.drain()`，再在一项里 `settleInQueue`”，这正是窗口所在。
+- 如何核实：/tmp/review-t14-impl-kernel/exp/paused-empty.test.ts。`bun test /tmp/review-t14-impl-kernel/exp/paused-empty.test.ts`：输出见上，日志尾 `runResumed commandAccepted inputQueued commandAccepted runEnded inputHeld{"end":"completed"}`。
+- 建议改法：`end()` 不在队列外置“已决定”，或者让 `RunControl` 知道它（例如 `end` 调用时先同步把 `#settling` 置上，`takesInput` 随之为假，drain 期间的 `send` 走推迟）；暂停运行接着跑时“取第一条还是收口”挪进一个队列项里判断（同一轮结束那一项）。补一条“决定收口后、收口批前到达的 send 开下一次运行”的用例，出错与暂停空缓冲区两种都测。
+
+### 12. 新的权限与状态规则大半没有用例守着：20 个变异里 10 个全量测试照样通过
+- 严重程度：重要
+- 类别：测试
+- 位置：packages/nb-harness/src/kernel/run/buffer.test.ts 及改写过的 control、tree、interaction、session、host 用例
+- 现象：把审查提交的 nb-harness（src 与 tests）复制到 /tmp/review-t14-impl-kernel/exp/nbh，依赖经软链解析到主工作区的 node_modules（审查 worktree 没有 node_modules，实验同样解析到主工作区的包），逐个变异后跑本包全量 `bun test src tests`（基线 870 pass）。存活（0 条相关失败；全量里偶发的 store.test 截断用例、invoke 输出 100、shell 输出 21 单独重跑都通过，判为负载噪声）：
+  - M1 `releasable` 不看 `heldBy`（会话能放行用户停止留下的自己的话）
+  - M5 谁都能接着跑叶子上别人的暂停运行（`send` 的去向 `held` 整条分支）
+  - M6、M7 `release` 不查 `held-by-user`、不查发出者
+  - M8 `rewind{resend}` 不查权限
+  - M9 异步回答开不起运行时不留着
+  - M10 `resume` 接着跑任何收口方式的运行（输出 106 只接中断与暂停）
+  - M11 不带原因关闭时不写 `session-closed` 码
+  - M18 打开时的恢复不把就绪的话转成留着（崩溃用例只断言“缓冲区还在”）
+  - M20 边界取走留着的 steer
+  被杀死的：M2、M3、M4、M12–M17、M19（各 1–4 条失败）。另：M21 删掉 loop.ts:411“收口批已写下就 return”的守卫，control.test.ts:312 照样通过——反应环境的模型解析已被 `turnModel` 的 catch 吞掉，这条用例已测不到它声称的路径。
+- 未见用例的验收项：验收 13 的“用户随后 `abort{keepQueue}` 同一次运行不改变它”与 `closeSession` 不带原因；验收 14 后半（只压缩期间 `send` 后立刻 `closeSession{interrupted}`，重开后没有多出的运行）；验收 15 的“宽限期内以 `finished` 收口仍按停止范围处理”；验收 9 只测了 `runEnded` 批反应期间，没测回复批反应期间（session.test 的验收 2 用例覆盖了排队，不是验收 9 的断言）；没有任何用例断言 `runResumed` 事件与它的 `by`。host.test 的输出 55 用例改写后只比消息角色前缀，不再测“一轮进行中投影全部就绪的 steer”。
+- 为什么是问题：输出 105–108 的表与输出 36、42、106 是本 Task 的主体，回归时没有用例报警；第 1、2、11 条的时间窗也没有用例。
+- 如何核实：脚本 /tmp/review-t14-impl-kernel/exp/scripts/mutate.py（`FILES` 指定用例范围，参数指定变异编号），在 /tmp/review-t14-impl-kernel/exp/nbh 下运行。
+- 建议改法：按上面每个存活变异补一条行为用例（都能用现有的 `blocking` 工具与 `as(issuer)` 造出来）；验收 13–15 缺的几句各补一例；control.test.ts:312 换一个真能让收口批反应抛错的办法，或删掉 loop.ts:411 的守卫并改注释。
+
+### 更正（第 6、9 条）
+- 第 6 条“如何核实”一句写乱了，应为：交回 `{"ok":false,"code":"nothing-to-resume"}`，而 `commandErrors.release` 不含这个码。
+- 第 9 条撤出有效发现：前提是“收口批写下后反应抛非 LogBroken 的错”，我用 /tmp/review-t14-impl-kernel/exp/settle-react-throw.test.ts 让宿主的模型端口在 `inputReleased` 的反应后抛错，结果下一次运行照常开了（随后因端口抛错以 `error/internal` 收口），因为反应环境经 `turnModel` 吞掉了模型解析的抛错；变异 M21 也表明现有用例到不了这条路径。在没有找到可达的抛错来源之前，它只是代码上的隐患，不算发现；控制流上的问题（`next` 在反应之后才赋值）仍建议顺手改。
+
+## 未发现问题的方面
+- 写 `runEnded` 的地方：`grep -rn '"runEnded"' src/kernel`（不含测试）只剩 settle.ts:107 的组批与 recover.ts:84 的恢复；loop.ts 的五处收口（`end`、finished、文字收口两处、正常结束）都经 `host.settle` → `RunControl.settleIn`。
+- `launch` 的 `.finally` 与 `#settled` 的配合：已由收口批结束的运行不再重复清 `#active`、推帧、结算；写批抛 `LogBrokenError` 时 `#finish` 照样翻转、状态保持 `broken`、`waitRun` 已由 `onBroken` 结算（未结算分支的遗漏见第 4 条）。
+- 收口批开下一次运行时的帧顺序：实测（/tmp/review-t14-impl-kernel/exp/frames.test.ts）收口批的 log 帧之后是 `status:idle`，再是新运行的 `status:running`，旧运行之后不再推帧。
+- `AFTER_REASSEMBLY`：判定在 `decide` 之前，让出队列后再从头受理，重发查重仍在最前；重新装配要占队列，此时队列已让出，没看到死锁或重复受理。`#finish` 在不开下一次运行时同步调 `onIdle` 排下重新装配，之后的受理都会看到 `reassembling`（验收 14 的用例与变异 M4 证实）。
+- 写下之后关闭：`accept` 与 `#finish` 都在 `launch` 前查 `closed()`；host.test 的 N3 用例通过。
+- 权限表（输出 108）逐格：`edit`、`remove`、`replaces`、`release`、`resume`、`abort`（会话按会话头 `caller`、宿主按路径归约的 `runBy`）、`start`/接着跑（`runBy` 与 `stoppedBy`）与 Spec 一致；`sameIssuer` 的判等按会话 `id`、宿主 `source.plugin`。
+- 路径归约 `lastChat`、`runBy`：只压缩的运行不进 `lastChat`；`runResumed` 是会话级事件，不改 `runBy`，符合“只看 `runStarted.by`”；回退、切分支按叶子重算；旧日志没有 `by` 按用户。
+- 已有决定没有重复报：两份处理记录里与 `inputFate`、推迟的 `resume`、`release`、`seq` 相关的只有“输出 110 加 `inputFate`”“推迟的 resume 不接着跑刚收口的”，第 5–8、10 条与之不冲突。
+- 审查 worktree 结束时 `git status --porcelain` 为空；实验与变异副本都在 /tmp/review-t14-impl-kernel/exp/，依赖解析到主工作区的 node_modules。
+
+## 数量
+阻断 0；重要 6（第 1、2、3、4、11、12 条）；建议 5（第 5、6、7、8、10 条）；第 9 条已撤回。按影响排序：1、2、11、3、4、12、6、7、10、8、5。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12

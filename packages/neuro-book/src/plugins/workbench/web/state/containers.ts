@@ -5,8 +5,8 @@
  * 活动栏、“移动到”菜单读的是这里的同一个结果。
  */
 
-import {findTreeNode, isContainerAnchor, movePanelToEdge, REGION_ORIENTATION, regionNodeOf, setActiveContainer, setContainerEntries, setPanelCollapsed, setPanelHidden, setSiblingShares, treeLeaves} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutPolicy, LayoutResult, PanelName} from "@notnotype/nb-layout";
+import {findTreeNode, isContainerAnchor, movePanelToEdge, REGION_ORIENTATION, regionNodeOf, setActiveContainer, setContainerEntries, setPanelCollapsed, setPanelHidden, setSiblingShares, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutPolicy, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
 
 import {CUSTOM_CONTAINER_PREFIX, IMPLICIT_CONTAINER_PREFIX, VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewContainerDeclaration, ViewDeclaration, ViewLocation} from "../../shared/views";

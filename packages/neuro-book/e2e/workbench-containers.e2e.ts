@@ -16,8 +16,10 @@ import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
-import {barRef, GRID_SNAPSHOT_VERSION, panelRef, validateLayoutDoc} from "@notnotype/nb-layout";
-import type {GridSnapshotNode, LayoutDoc} from "@notnotype/nb-layout";
+import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {barRef, panelRef, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import type {GridSnapshotNode} from "@notnotype/nb-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";

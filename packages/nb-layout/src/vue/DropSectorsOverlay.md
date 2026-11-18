@@ -4,7 +4,7 @@
 
 # DropSectorsOverlay
 
-落点分区（[`ui/workbench-layout.md`](../../../../docs/specs/ui/workbench-layout.md)“落点分区”）：拖动经过面板正文时，把这块面板能往哪放画出来，形状就是判定的形状。它只画宿主给的东西：形状由 `layoutDropSectors` 算，当前块、字与开关归宿主。
+落点分区（[`ui/workbench-layout.md`](../../../../docs/specs/ui/workbench-layout.md)“落点分区”）：拖动经过面板正文时，把这块面板能往哪放画出来，形状就是判定的形状。它只画宿主给的东西：每块的 id 与多边形由宿主算（工作台用 `@notnotype/nb-workbench-layout` 的 `layoutDropSectors`），当前块、字与开关归宿主。
 
 ## 布局与交互
 
@@ -20,15 +20,15 @@ Teleport 到 `body`，固定定位在 `rect` 上，不接指针。整块压暗�
 type Props = {
     /** 这块面板正文的矩形（视口坐标）；没有为 null，整层不渲染。 */
     rect: GridDropRect | null;
-    sectors: ReadonlyArray<LayoutDropSector>;
+    sectors: ReadonlyArray<{readonly id: string; readonly points: ReadonlyArray<readonly [number, number]>}>;
     /** 指针此刻落在哪块；没有为 null。 */
-    active: LayoutDropSectorId | null;
+    active: string | null;
     /** 每块写的字；不给不写。 */
-    labels?: Partial<Record<LayoutDropSectorId, string>>;
+    labels?: Readonly<Record<string, string | undefined>>;
 };
 ```
 
-无 emits、slots、expose。attrs 落在覆盖层根上。标记：根是 `data-drag-feedback`、`data-drop-sectors`；每块是 `data-drop-sector="<left|right|top|bottom|center>"`，当前块另有 `data-drop-sector-active`；字是 `data-drop-sector-label`。
+无 emits、slots、expose。attrs 落在覆盖层根上。标记：根是 `data-drag-feedback`、`data-drop-sectors`；每块是 `data-drop-sector="<id>"`（宿主给的 id，工作台的取值是 `left`、`right`、`top`、`bottom`、`center` 与整块的 `whole`），当前块另有 `data-drop-sector-active`；字是 `data-drop-sector-label`。
 
 ## 布局与状态
 

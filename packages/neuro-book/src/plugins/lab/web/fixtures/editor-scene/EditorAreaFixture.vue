@@ -7,8 +7,9 @@
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {fixedNodesOf, projectLayoutDoc, rebaseIntents, setFloatRect} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutFloatRect} from "@notnotype/nb-layout";
+import {fixedNodesOf, projectLayoutDoc, rebaseIntents, setFloatRect} from "@notnotype/nb-workbench-layout";
+import type {GridExtent} from "@notnotype/nb-layout";
+import type {LayoutFloatRect} from "@notnotype/nb-workbench-layout";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, shallowRef, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";
 

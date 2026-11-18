@@ -96,7 +96,7 @@ owners:
 
 ## 边界与兼容
 
-- 公开接口：两个组件的属性、事件与命令面（`focus`、`insertText`、`insertFiles`）。
+- 公开接口：两个组件的属性、事件与命令面（`focus`、`insertText`、`insertFiles`）。纯 TS 子路径 `@notnotype/nb-markdown/prompt-text` 另导出 `concatPromptTexts(texts)`：按顺序把几段文字拼成一段（段间空一行），后面的段与前面撞号的图片、文件与粘贴编号整体换新号（与插入时同一套规则，粘贴块与位置标记一起换），未编号的旧图片补号；段开头的 `/名称` 不当命令认。宿主合并几条排队的话时用（[agent/conversation.md](../agent/conversation.md) 输出 50）。
 - 文字写法是与宿主、服务端共用的数据格式：改写法要保证旧文字照常读入、原样写回。旧应用写出的引用目标（`chapter://` 等领域地址）照常是引用小块的原文，按目标分类归为“其它”。
 - 编辑内核是 Tiptap（ProseMirror）。撤销重做、输入法、选区与光标移动、拼写检查来自上游，不作承诺；按键与粘贴行为只在 Chromium 上验证。
 - 界面文字在 nb-markdown 自带的消息目录里（命名空间 `nb-markdown`，源语言 zh-CN，经 `@notnotype/nb-markdown/locales` 导出），按[界面语言与消息目录](i18n.md)显示：宿主注入了翻译端口时登记这份目录，语言以端口为准，`locale` 属性不起作用；没有注入时两个组件按 `locale`（缺省 zh-CN）用缺省端口，单独挂载的零件用中文。

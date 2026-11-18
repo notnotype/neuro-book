@@ -62,7 +62,7 @@ function entryName(entry: SdkEntry): string {
 const PEERS = [/^vue($|\/)/u, /^@vue\//u, /^typebox($|\/)/u];
 const RUNTIME_SUBPATHS = ["lifecycle", "services", "plugins", "plugin-manifest", "application", "diagnostics", "remote"];
 
-/** 类型打包要的路径映射：应用别名，加上内核、nb-form 与 nb-harness 定义写法的子路径直接指到源码。 */
+/** 类型打包要的路径映射：应用别名，加上内核、nb-form、nb-harness 定义写法与布局两个包的子路径直接指到源码。 */
 function typePaths(): Record<string, string[]> {
     const paths: Record<string, string[]> = {"nbook/*": ["./src/*"]};
     for (const name of RUNTIME_SUBPATHS) paths[`@notnotype/nb-runtime/${name}`] = [`../nb-runtime/src/${name}/${name}.ts`];
@@ -77,6 +77,8 @@ function typePaths(): Record<string, string[]> {
     paths["@notnotype/nb-ui/components"] = ["../nb-ui/src/components/index.ts"];
     paths["@notnotype/nb-layout"] = ["../nb-layout/src/index.ts"];
     paths["@notnotype/nb-layout/vue"] = ["../nb-layout/src/vue/index.ts"];
+    paths["@notnotype/nb-workbench-layout"] = ["../nb-workbench-layout/src/index.ts"];
+    paths["@notnotype/nb-workbench-layout/vue"] = ["../nb-workbench-layout/src/vue/index.ts"];
     paths["@notnotype/nb-ui/text"] = ["../nb-ui/src/text/index.ts"];
     paths["@notnotype/nb-ui/text-port"] = ["../nb-ui/src/text-port/index.ts"];
     return paths;
@@ -231,10 +233,11 @@ async function componentsDoc(): Promise<string> {
             if (file.endsWith(".vue")) directoryOf.set(basename(file, ".vue"), entry.name);
         }
     }
-    // 布局组件在 nb-layout，文档里仍归“布局”一组。
-    const nbLayoutVue = dirname(fileURLToPath(import.meta.resolve("@notnotype/nb-layout/vue")));
-    for (const file of await readdir(nbLayoutVue)) {
-        if (file.endsWith(".vue")) directoryOf.set(basename(file, ".vue"), "layout");
+    // 布局组件在 nb-layout 与 nb-workbench-layout（标签条），文档里仍归“布局”一组。
+    for (const entry of ["@notnotype/nb-layout/vue", "@notnotype/nb-workbench-layout/vue"]) {
+        for (const file of await readdir(dirname(fileURLToPath(import.meta.resolve(entry))))) {
+            if (file.endsWith(".vue")) directoryOf.set(basename(file, ".vue"), "layout");
+        }
     }
     const groups = new Map<string, string[]>();
     for (const name of await sdkComponentNames()) {

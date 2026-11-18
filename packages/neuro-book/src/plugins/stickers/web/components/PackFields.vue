@@ -46,7 +46,7 @@ const common = computed(() => props.detail.stickers.filter((sticker) => sticker.
             <Button v-if="!readonly" size="sm" variant="ghost" class="pack-fields__rename" data-pack-rename @click="emit('rename')">{{ text("panel.changePackName") }}</Button>
         </div>
         <div class="pack-fields__meta">
-            <span>{{ text("panel.syntax") }} <code>:{{ summary.folder }}/…:</code></span>
+            <span>{{ text("panel.syntax") }} <code>:{{ summary.writing ?? summary.folder }}/…:</code></span>
             <span>{{ text("panel.packSummary", {count: String(summary.count), common: String(common)}) }}</span>
         </div>
         <p class="pack-fields__status is-error" role="status" data-pack-status>{{ status }}</p>

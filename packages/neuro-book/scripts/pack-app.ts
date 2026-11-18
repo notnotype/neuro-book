@@ -35,6 +35,7 @@ import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {promisify} from "node:util";
 
+import {PACKED_BUILTIN_DIRECTORY, SOURCE_BUILTIN_DIRECTORY} from "../src/plugins/stickers/backend/builtin-root";
 import {queryNeuroBook} from "../src/server/instance";
 import {BUN_ENGINE, PRODUCT_VERSION} from "../src/shared/product";
 
@@ -267,6 +268,8 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
     await cp(options.webRoot, join(outDir, "web"), {recursive: true, filter: (source) => basename(source) !== ".vite"});
     // Agent 读的产品文档：服务端按 `<包>/docs/` 找（plugins/agent/backend/docs-root.ts）。
     await buildAgentDocs(join(outDir, "docs"));
+    // 内置表情包：服务端按 `<包>/stickers/` 找（plugins/stickers/backend/builtin-root.ts）。
+    await cp(join(packageRoot, ...SOURCE_BUILTIN_DIRECTORY), join(outDir, PACKED_BUILTIN_DIRECTORY), {recursive: true});
     await writeFile(join(outDir, "THIRD-PARTY-NOTICES.md"), await thirdPartyNotices(serverPackages, options.webRoot));
     await cp(join(repoRoot, "LICENSE"), join(outDir, "LICENSE"));
     const readme = (await readFile(join(packageRoot, "scripts/app-package/README.md"), "utf8")).replaceAll("{{bun}}", BUN_ENGINE).replaceAll("{{commit}}", buildCommit());
@@ -278,7 +281,7 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
         description,
         type: "module",
         bin: {nbook: "./server/nbook.js"},
-        files: ["server/", "web/", "docs/", "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md"],
+        files: ["server/", "web/", "docs/", `${PACKED_BUILTIN_DIRECTORY}/`, "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md"],
         engines: {bun: BUN_ENGINE},
         license: "AGPL-3.0-only",
         repository: REPOSITORY,

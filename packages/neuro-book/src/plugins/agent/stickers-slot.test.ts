@@ -54,12 +54,21 @@ describe("槽的文字", () => {
         expect(stickersSection(["user.broken", "user.gone"], packs)).toBeNull();
     });
 
-    test("输出 14、17：写法一律带包；白名单以外的表情包增删不改文字，只有同名文件夹时改写表情包 id", () => {
+    test("输出 14、17：写法一律带包；白名单以外的表情包增删不改文字，只有按文件夹名认不到白名单里的包时改写表情包 id", () => {
         const lyra = pack("user.lyra", [{name: "开心"}]);
         const alone = stickersSection(["user.lyra"], [lyra]);
         expect(alone).toContain(":lyra/开心:");
         expect(stickersSection(["user.lyra"], [lyra, pack("user.cat", [{name: "开心"}])])).toBe(alone);
-        expect(stickersSection(["user.lyra"], [lyra, pack("acme.cute.lyra", [{name: "开心"}], {source: "plugin"})])).toContain(":user.lyra/开心:");
+        // 我的优先：同文件夹名的插件、内置包出现，我的写法不变。
+        const plugin = pack("acme.cute.lyra", [{name: "开心"}], {source: "plugin"});
+        const builtin = pack("builtin.lyra", [{name: "开心"}], {source: "builtin"});
+        expect(stickersSection(["user.lyra"], [lyra, plugin, builtin])).toBe(alone);
+        // 内置主创的 builtin.lyra：没有同名的时写文件夹名；我的 lyra 出现后（复制到我的）改写 id；插件的同名也盖住它。
+        expect(stickersSection(["builtin.lyra"], [builtin])).toContain(":lyra/开心:");
+        expect(stickersSection(["builtin.lyra"], [builtin, lyra])).toContain(":builtin.lyra/开心:");
+        expect(stickersSection(["builtin.lyra"], [builtin, plugin])).toContain(":builtin.lyra/开心:");
+        // 两个插件同名、同一级：都写 id。
+        expect(stickersSection(["acme.cute.lyra"], [plugin, pack("zoo.lyra", [{name: "开心"}], {source: "plugin"})])).toContain(":acme.cute.lyra/开心:");
     });
 
     test("输出 15：至多 8 个表情包、60 个常用表情、6000 个字符，不常用的不列，有没列的就末尾写一句", () => {

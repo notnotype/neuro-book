@@ -5,16 +5,17 @@
  */
 
 import {BROWSER_BYTES_MAX, packSummary, stickerImageUrl} from "../shared/contracts";
-import type {StickerPackDetail} from "../shared/contracts";
+import type {StickerPackDetail, StickerPackSummary} from "../shared/contracts";
 import type {StickerPackItem} from "./catalog";
 
 const encoder = new TextEncoder();
 const size = (value: unknown): number => encoder.encode(JSON.stringify(value)).length;
 
-export function packDetail(item: StickerPackItem): StickerPackDetail {
+/** `marks` 是在完整目录上算的写法与标注（`browser-catalog.ts` 的 `summaryMarks`）。 */
+export function packDetail(item: StickerPackItem, marks: Pick<StickerPackSummary, "writing" | "shadowed"> = {}): StickerPackDetail {
     const {entry} = item;
     const detail: StickerPackDetail = {
-        summary: packSummary(entry, item.counts),
+        summary: {...packSummary(entry, item.counts), ...marks},
         listed: item.listed,
         token: item.token,
         stickers: entry.stickers.map((sticker) => ({

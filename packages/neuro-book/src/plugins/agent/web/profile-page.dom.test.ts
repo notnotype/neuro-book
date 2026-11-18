@@ -438,8 +438,9 @@ describe("表情包（stickers.md 输出 19、profile-settings.md 输出 27）",
     const packsClient = (entries: readonly StickerPackSummary[]): StickerPacksClient => ({entries: shallowRef(entries), ensure: () => undefined});
     const profileSettings = (settings: ReturnType<typeof open>["settings"]) => settings.get(agentSettings.settings.profileSettings);
 
-    it("没有声明的 Profile：添加写进 added；行带显示名、表情数与缩略图，插件的一组按插件名；恢复默认清掉这一项", async () => {
-        const {wrapper, settings} = open({stickerPacks: packsClient([summary("lyra", {title: "星璃", description: "星璃的表情"}), summary("cats", {id: "acme.cute.cats", source: "plugin", plugin: {id: "acme.cute", title: "可爱表情"}, thumbnail: null})])});
+    it("没有声明的 Profile：添加写进 added；行带显示名、表情数与缩略图，插件的一组按插件名、内置的在最后；恢复默认清掉这一项", async () => {
+        // 内置的一组在最后（输出 19），排在列表最前也一样。
+        const {wrapper, settings} = open({stickerPacks: packsClient([summary("lyra-chibi", {id: "builtin.lyra-chibi", source: "builtin"}), summary("lyra", {title: "星璃", description: "星璃的表情"}), summary("cats", {id: "acme.cute.cats", source: "plugin", plugin: {id: "acme.cute", title: "可爱表情"}, thumbnail: null})])});
         await ready(wrapper);
         const section = () => wrapper.get("[data-profile-stickers]");
         expect(section().findAll("[data-profile-tool]")).toHaveLength(0);
@@ -447,7 +448,7 @@ describe("表情包（stickers.md 输出 19、profile-settings.md 输出 27）",
         // 页面上每一节都有自己的“添加”对话框：取表情包这一节的。
         const dialog = section().findComponent({name: "AddToolsDialog"});
         await waitUntil("对话框", () => dialog.props("open") === true || null);
-        expect(dialog.props("candidates").map((group: {provider: string}) => group.provider)).toEqual(["我的表情包", "可爱表情"]);
+        expect(dialog.props("candidates").map((group: {provider: string}) => group.provider)).toEqual(["我的表情包", "可爱表情", "内置表情包"]);
         // 对话框的“完成”交出选中的项（选项的点选另有工具一节的用例）。
         dialog.vm.$emit("done", {add: ["user.lyra"]});
         await waitUntil("写下 added", () => profileSettings(settings)["nbook.agent.main"]?.stickers !== undefined || null);

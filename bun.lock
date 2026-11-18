@@ -558,6 +558,28 @@
         "nuxt",
       ],
     },
+    "packages/nb-workbench-layout": {
+      "name": "@notnotype/nb-workbench-layout",
+      "version": "0.1.0",
+      "dependencies": {
+        "@notnotype/nb-layout": "workspace:^",
+        "@notnotype/nb-ui": "workspace:^",
+      },
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "@vitejs/plugin-vue": "^6.0.7",
+        "@vue/test-utils": "^2.4.11",
+        "happy-dom": "^20.10.6",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.2",
+        "vue": "^3.5.24",
+        "vue-tsc": "^3.3.7",
+      },
+      "peerDependencies": {
+        "vue": "^3.5.24",
+      },
+    },
     "packages/nb-workflow": {
       "name": "@notnotype/nb-workflow",
       "version": "0.1.2",
@@ -577,7 +599,7 @@
     },
     "packages/neuro-book": {
       "name": "@notnotype/neuro-book",
-      "version": "0.13.0",
+      "version": "0.14.1",
       "dependencies": {
         "@notnotype/nb-canon": "workspace:*",
         "@notnotype/nb-file-lock": "workspace:*",
@@ -614,6 +636,7 @@
         "@notnotype/nb-agent-ui": "workspace:*",
         "@notnotype/nb-layout": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
+        "@notnotype/nb-workbench-layout": "workspace:*",
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@playwright/test": "^1.62.1",
         "@tailwindcss/vite": "^4.3.3",
@@ -1402,6 +1425,8 @@
     "@notnotype/nb-time": ["@notnotype/nb-time@workspace:packages/nb-time"],
 
     "@notnotype/nb-ui": ["@notnotype/nb-ui@workspace:packages/nb-ui"],
+
+    "@notnotype/nb-workbench-layout": ["@notnotype/nb-workbench-layout@workspace:packages/nb-workbench-layout"],
 
     "@notnotype/nb-workflow": ["@notnotype/nb-workflow@workspace:packages/nb-workflow"],
 
@@ -4388,6 +4413,10 @@
     "@notnotype/nb-time/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@notnotype/nb-ui/vue-tsc": ["vue-tsc@2.2.12", "", { "dependencies": { "@volar/typescript": "2.4.15", "@vue/language-core": "2.2.12" }, "peerDependencies": { "typescript": ">=5.0.0" }, "bin": { "vue-tsc": "./bin/vue-tsc.js" } }, "sha512-P7OP77b2h/Pmk+lZdJ0YWs+5tJ6J2+uOQPo7tlBnY44QqQSPYvS0qVT4wqDJgwrZaLe47etJLLQRFia71GYITw=="],
+
+    "@notnotype/nb-workbench-layout/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-workbench-layout/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@notnotype/nb-workflow/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 

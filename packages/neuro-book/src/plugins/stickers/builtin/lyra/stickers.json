@@ -1,0 +1,66 @@
+{
+    "title": "星璃",
+    "description": "NeuroBook 的看板娘星璃，Q 版近景，白色贴纸边。",
+    "stickers": [
+        {
+            "file": "开心.webp",
+            "common": true
+        },
+        {
+            "file": "嘿嘿.webp",
+            "common": true
+        },
+        {
+            "file": "比心.webp",
+            "common": true
+        },
+        {
+            "file": "害羞.webp",
+            "common": true
+        },
+        {
+            "file": "期待.webp",
+            "common": true
+        },
+        {
+            "file": "惊讶.webp",
+            "common": true
+        },
+        {
+            "file": "疑问.webp",
+            "common": true
+        },
+        {
+            "file": "嗯.webp",
+            "common": true
+        },
+        {
+            "file": "无语.webp",
+            "common": true
+        },
+        {
+            "file": "烦.webp",
+            "common": true
+        },
+        {
+            "file": "生气.webp",
+            "common": true
+        },
+        {
+            "file": "委屈.webp",
+            "common": true
+        },
+        {
+            "file": "大哭.webp",
+            "common": true
+        },
+        {
+            "file": "困.webp",
+            "common": true
+        },
+        {
+            "file": "偷看.webp",
+            "common": true
+        }
+    ]
+}

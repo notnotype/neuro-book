@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 编辑组的标签条（同名 .md）：标签里的内容与外观，语义、键盘、多行与分区在 `TabStrip`。 */
-import {TabStrip} from "@notnotype/nb-layout/vue";
+import {TabStrip} from "@notnotype/nb-workbench-layout/vue";
 import {computed} from "vue";
 
 import {editorTabKey} from "nbook/plugins/workbench/shared/contracts";

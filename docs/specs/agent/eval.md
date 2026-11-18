@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.eval
 owners:
   - nbook.agent
@@ -22,6 +22,7 @@ owners:
 - 变量在回退、切分支、重启、空闲回收之后还在；`let x;` 这样不带初值的重复声明不会把已有的值清成 undefined。
 - 自动转后台；表格、JSON 这类富输出（只有文字与图片）。
 - Windows 上的进程组收口没有验证。
+- 直接写到标准输出与错误的（没走 `console`、`process.stdout.write`）按写到的时刻归属：单元结束后才写的（例如没等完、继承了输出的子进程）算进那时正在执行的单元，没有单元在执行时丢掉；代码故意写出单元的结束标记会截断这个单元的输出。
 
 ## 术语与参与者
 
@@ -38,7 +39,7 @@ owners:
 |---|---|---|
 | `code` | string，必填 | 一段 JS（Bun 的运行时），可以用顶层 `await`、`for await`、`return` |
 | `title` | string | 一句话说明这段代码做什么，界面用作标题 |
-| `timeout` | number | 单元时限，秒；缺省 30，1 到 3600 |
+| `timeout` | 整数 | 单元时限，秒；缺省 30，1 到 3600 |
 | `reset` | boolean | 先重置内核再执行；这时 `code` 可以为空（只重置） |
 
 代码里可用：
@@ -62,9 +63,9 @@ owners:
 ### 代码里调工具
 
 6. `tool.<名>(args)` 与 `<对象>.<方法>(args)` 发起一个嵌套调用（[`harness/runtime.md`](../harness/runtime.md) 输出 90 到 101），准入、审批、拦截、事件与收口都照那里。
-7. 交回的值由工具声明决定，每次都一样：声明了 `returns` 的，成功时交回照它校验过的结构化值（不合格算这次调用出错）；没声明的，成功时交回结果文字。图片并进本单元的结果（输出 4）。
-8. 结局不是 `ok` 时抛 `ToolCallError`，带 `tool`、`status`、`code` 与说明；`unknown` 的说明写明“不知道有没有执行完，先核对再重做”。代码可以 `catch` 它接着跑。
-9. 参数不是一个能写进日志的 JSON 对象时，这一次调用以 `invalid-arguments` 失败，别的不受影响。名字不是这个会话能调的工具时以 `unknown-tool` 失败，说明列出能调的名字。上一个单元留下的代码（定时器、没 `await` 的 Promise）在它结束之后才发起的调用得 `parent-finished`。
+7. 交回的值由工具声明决定，每次都一样：声明了 `returns` 的，成功时交回照它校验过的结构化值（不合格算这次调用出错）；没声明的，成功时交回结果文字。内置的 `read` 声明了 `returns`，交回原文与分页信息分开的对象（[`builtin-tools.md`](builtin-tools.md) 输出 30）。图片并进本单元的结果（输出 4）。
+8. 结局不是 `ok` 时抛 `ToolCallError`，带 `tool`、`status`、`code` 与说明，代码可以 `catch` 它接着跑。`unknown` 的说明写明“不知道有没有执行完，先核对再重做”（planned）。
+9. 参数不是一个能写进日志的 JSON 对象时（函数、`Symbol` 这类传不出内核的值，`NaN`、`Map` 这类传得出去、日志写不下的值），这一次调用以 `invalid-arguments` 失败，别的不受影响。名字不是这个会话能调的工具时以 `unknown-tool` 失败，说明列出能调的名字。上一个单元留下的代码（定时器、没 `await` 的 Promise）在它结束之后才发起的调用得 `parent-finished`。
 
 ### 内核的寿命与重置
 
@@ -75,8 +76,8 @@ owners:
 
 ### 时限与停止
 
-14. 单元时限累计计时，只扣掉嵌套调用等用户应答（审批、同步提问）的时间，工具执行本身计入。到时限：先按 [`harness/runtime.md`](../harness/runtime.md) 输出 100 结算在途的嵌套调用，再重置内核；结果状态 `error`、码 `timeout`，文字是已有的输出加重置说明；时限到时内核还没起来的，写明内核还没开始执行。
-15. 运行被停止时同样先结算嵌套调用、再重置内核；结果照运行中止的规则（[`harness/runtime.md`](../harness/runtime.md) 输出 25），已有的输出保留。内核意外退出时在跑的单元得 `kernel-exited`，文字是已有的输出、退出码或信号与内核错误流的最后一段。
+14. 单元时限从内核开始执行这个单元算起（起内核的时间不算，握手另有期限），累计计时，只扣掉嵌套调用等用户应答（审批、同步提问）的时间，工具执行本身计入。到时限：先按 [`harness/runtime.md`](../harness/runtime.md) 输出 100 结算在途的嵌套调用，再重置内核；结果状态 `error`、码 `timeout`，文字是已有的输出加重置说明。
+15. 运行被停止时同样先结算嵌套调用、再重置内核；结果照运行中止的规则（[`harness/runtime.md`](../harness/runtime.md) 输出 25），状态 `error`、码 `aborted`，已有的输出保留。内核意外退出时在跑的单元得 `kernel-exited`，文字是已有的输出、退出码或信号与内核错误流的最后一段。
 
 ### 说明与全局对象
 
@@ -86,7 +87,7 @@ owners:
 ### 审批
 
 18. `eval` 的审批见 [`permissions.md`](permissions.md) 输出 25：执行档，询问不能记。代码里调的工具照 [`permissions.md`](permissions.md) 输出 24 逐个判定。
-19. 代码里不能调：收尾工具、`eval` 自己、派子代理与给子代理发话和答话、待办、切换模式（得 `invoke-not-allowed`）；`shell` 的 `async` 见 [`builtin-tools.md`](builtin-tools.md) 输出 29。
+19. 代码里不能调：收尾工具、`eval` 自己、派子代理与给子代理发话和答话、切换模式（得 `invoke-not-allowed`）；`shell` 的 `async` 见 [`builtin-tools.md`](builtin-tools.md) 输出 29。
 
 ## 状态与转换
 
@@ -107,12 +108,12 @@ owners:
 - `eval` 是 `exclusive`：同一个会话同一时刻只有一个单元在执行；同一条回复里的几个 `eval` 依次执行，后一个读得到前一个留下的变量。
 - 叶子有没有移动按 [`harness/runtime.md`](../harness/runtime.md) 输出 102 的计数判断：同一条回复里的几次调用看到同一个值，不会互相判成重置。
 - 单元的结果在它的嵌套调用都结算之后才交回（输出 5、14）。
-- 会话关闭时结束内核；内核与它起的子进程在会话关闭之后不再运行。会话关闭之后再来的调用直接失败，不再起内核；关闭时正在起的内核起来就结束。
+- 会话关闭时结束内核；内核与它起的子进程在会话关闭之后不再运行。会话关闭之后再来的调用直接失败，不再起内核；关闭时正在起的内核起来就结束（planned）。
 - 服务端异常退出（包括内核正卡在同步死循环里）时，内核与它起的子进程随之结束。
 
 ## 副作用与数据
 
-- 每个有内核的会话多一个子进程（连同代码起的子进程）；没有别的持久数据。
+- 每个有内核的会话多一个子进程（连同代码起的子进程）；内核里的变量不落盘，重置之后就没了（输出 11）。
 - 日志里：父调用照常写 `toolStarted` 与 `toolResult`，嵌套调用写 [`harness/runtime.md`](../harness/runtime.md) 输出 96 的事件（结果只有 2 KB 预览）。
 - 结果全文超出窗口时同 `shell` 存全文。
 - 代码经 `tool.*` 写的文件，来源与分组见 [`resources.md`](resources.md) 输出 17。
@@ -123,15 +124,16 @@ owners:
 |---|---|---|
 | `code-error` | 代码抛错、有语法错误、有 `export`、声明了内核提供的名字、没人接的错误 | 改代码重试；只重试失败的那一步 |
 | `timeout` | 单元超过时限，内核已重置 | 拆小、加大 `timeout`，重新建变量 |
-| `kernel-unavailable` | 内核起不来（入口不可用、版本不符、进程起不来），带原因 | 不重试同一段代码；把原因告诉用户 |
+| `kernel-unavailable` | 内核起不来（入口不可用、版本不符、进程起不来），带原因（planned） | 不重试同一段代码；把原因告诉用户 |
 | `kernel-exited` | 执行中内核意外退出（带退出码或信号与错误流的尾部），内核已重置 | 看原因；重新建变量后重试 |
-| `returns-mismatch` | 工具成功了，但交回的结构不符合它声明的 `returns`；代码里以 `ToolCallError` 收到 | 报给工具的作者；代码里可以 `catch` 后改用别的办法 |
+| `returns-mismatch` | 工具成功了，但交回的结构不符合它声明的 `returns`；代码里以 `ToolCallError` 收到 | 告诉用户这个工具交回的结构不对；代码里可以 `catch` 后改用别的办法 |
+| `aborted` | 运行被停止，内核已重置（输出 15） | 运行已经停了；下一次调用重新建变量 |
 | `invoke-not-allowed`、`code-only`、`invoke-limit`、`parent-finished`、`async-in-code` | 嵌套调用的拒绝，代码里以 `ToolCallError` 收到 | 见 [`harness/runtime.md`](../harness/runtime.md) 输出 92 到 100、[`builtin-tools.md`](builtin-tools.md) 输出 29 |
 
 ## 边界与兼容
 
-- 公开接口：工具 id `nbook.agent.eval` 与上面的参数；`agent.tools` 声明的 `invokes`、`codeCallable`、`global`、`returns` 与贡献点 `agent.evalObjects`（[`contributions.md`](contributions.md) 输出 24、25）；`docs://eval/`。
-- 信任边界：代码以服务端进程的权限运行，没有沙箱；能执行它的只有经过审批（或审批模式放行）的调用。
+- 公开接口：工具 id `nbook.agent.eval` 与上面的参数；`agent.tools` 声明的 `invokes`、`codeCallable`、`global`、`returns` 与贡献点 `agent.evalObjects`（[`contributions.md`](contributions.md) 输出 24、25）；`docs://eval`。
+- 信任边界：代码以服务端进程的权限运行，没有沙箱；`eval` 按权限规则判定，经用户批准或规则、审批模式放行之后才执行（输出 18）。
 - 全局对象的方法收单个对象参数；以后加插件的内核侧代码、句柄、回调时只加不改。
 
 ## 验收与 Smoke
@@ -139,11 +141,25 @@ owners:
 1. 一条回复里两个 `eval`：第一个定义变量与函数、读三章并统计，第二个用这些变量接着算；回退到第一个之前再调，结果第一行写明重置，变量没了。
 2. 代码在 `ask` 审批模式下调 `write`：询问写明是 eval 里的调用，拒绝之后代码 `catch` 住 `ToolCallError` 接着跑，结果里写明哪次被拒；对话里卡片列出被拒的那一次。
 3. 死循环到时限：内核与它起的 `sleep` 子进程都结束，结果写明重置；下一次调用照常、提示重置。
-4. 从应用包与 `dist/server` 各起一次服务，在另一个目录的会话里调一次 `eval`；服务端环境里的哨兵变量在，工作目录 `.env` 里的变量不在。
+4. 从应用包与 `dist/server` 各起一次服务，在另一个目录的会话里调一次 `eval`；服务端环境里的哨兵变量在，工作目录 `.env` 里的变量不在（planned：从源码起的服务已验证这几点，两种打包产物还没有）。
 5. 示例插件登记一个全局对象与它的方法：代码里调到并拿到 `returns` 声明的对象，方法不进模型的工具清单，没绑定方法的会话里没有这个对象；读 `docs://eval/<对象名>.md` 看到生成的签名；另一个插件登记同名对象时两个都不可用并有诊断。
 
 Smoke：`packages/neuro-book/src/plugins/agent/eval.llm.test.ts`（`test:llm`，真实模型批量读章统计、调一个要审批的写工具）。
 
+## 实现合同
+
+- **公开入口**：工具 `nbook.agent.eval`（`nbook.agent` 经 `agent.tools` 贡献）；`agent.tools` 声明的 `invokes`、`codeCallable`、`global`、`returns` 与贡献点 `agent.evalObjects`（SDK `@notnotype/nb-plugin-sdk/agent` 的 `evalObject`）；`docs://eval`。代码里调工具经 nb-harness 的 `ToolContext.invoke`（[`harness/runtime.md`](../harness/runtime.md) 输出 90 起）。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有每个会话的内核与全服务端的内核登记表；内核是 `bun` 子进程，入口 `eval-kernel.js` 随 `build:server` 与应用包产出；依赖 nb-harness 的嵌套调用通道与输出暂存（`kit/tools` 的 `OutputCapture`），不反向依赖。
+- **关键不变量**：
+  - 内核进程是自己进程组的组长：重置、会话关闭与意外退出时整组结束，服务端异常退出时由内核里的看门狗线程收组（输出 13，`eval.test.ts`“死循环到时限”“process.exit”“会话关闭”，`backend/eval/kernel.test.ts`“服务端被杀”）。
+  - 输出按单元归属：经 IPC 的消息带单元号，直接写到标准输出与错误的靠两条管道上的结束标记分界（输出 2、5，`backend/eval/kernel.test.ts`）。
+  - 重置提示看当前路径上的 eval 结果数（扩展 `nbook.agent.eval-state`），同一条回复里还没写进日志的，看这个实例在叶子没动过时跑过的单元（输出 12，`eval.test.ts`“reset: true”）。
+  - 单元时限与空闲回收都在宿主注入的时钟上，握手按真实时间（输出 11、14，`eval.test.ts`“等审批的时间不算进时限”“30 分钟没有调用”）。
+  - 代码里调工具一律经 `ctx.invoke`，宿主不另走执行路径：准入、审批、拦截与日志都同模型调工具（输出 6，`eval.test.ts`“询问模式下 eval 的审批不能记”）。
+
 ## 证据
 
 - 批准依据：[w00032 t21](../../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/README.md) 的决定 1 到 7 与[计划](../../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/plan.md)第 3 稿（开发者 2026-11-18 确认）
+- 实现入口：[`backend/eval/tool.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/tool.ts)、[`kernels.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernels.ts)、[`kernel-entry.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernel-entry.ts)、[`rewrite.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/rewrite.ts)、[`objects.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/objects.ts)
+- 合同测试：[`eval.test.ts`](../../../packages/neuro-book/src/plugins/agent/eval.test.ts)（真实服务端内核、真实内核子进程、本机的 OpenAI 兼容端点）、[`backend/eval/kernel.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernel.test.ts)、[`rewrite.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/rewrite.test.ts)、[`objects.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/objects.test.ts)、示例场景 [`10-eval-object.test.ts`](../../../packages/neuro-book/plugin-sdk/examples/scenarios/10-eval-object.test.ts)
+- Smoke：[`eval.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/eval.llm.test.ts)（`test:llm`，真实模型）

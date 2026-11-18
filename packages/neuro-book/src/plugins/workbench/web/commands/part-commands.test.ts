@@ -11,8 +11,8 @@ import {join} from "node:path";
 
 import {shallowRef} from "@vue/reactivity";
 
-import {validateLayoutDoc} from "@notnotype/nb-layout";
-import type {LayoutDoc} from "@notnotype/nb-layout";
+import {validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 

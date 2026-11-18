@@ -1,0 +1,64 @@
+# w00043 t14 修正提交 06e7d4526 的后端实现审查（Claude Opus）
+审查时 worktree HEAD = 06e7d4526（无后续提交、工作区干净）；实验文件在 /tmp/review-t14-fix-backend/exp/。
+
+## 1.【重要】正确性／合同：`afterLater` 把取走这句话的运行一律当成父会话开的（ownRun=true），父会话中止时会停掉用户自己开的运行
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:513（`adopt(parent, child, ended.taken, null, true, …)`），连带 settle 的 tools.ts:269–272。
+- 现象：`later` 的话由收口批开的下一次运行取走；按 harness/runtime.md 输出 104，那次运行的 `by` 是推迟的指令里的用户，没有用户时才是最先受理的那条的发出者。用户在子会话收口期间也说了话时，下一次运行是用户开的。`afterLater` 仍以 `ownRun=true` 登记任务；父会话之后被中止时，`settle` 的 aborted 分支见 `job.ownRun === true` 就以父会话身份 `abort` 子会话，而内核 `canAbort` 让子会话的调用方能停任何运行，于是用户开的运行被停。subagents.md 输出 16 写明“插话附着在用户自己开的运行上时不连带”，lane 里的 `taken` 分支按 `accepted.value.runId !== null` 判 ownRun，是对的，只有这条新路径写死了 true。
+- 实测（真实内核与会话存储，exp/later-ownrun.test.ts）：子会话压缩挂着时，用户先 `send`“用户先说”（later），父会话前台 `agent_send`“父会话这句”（later）；放开压缩后日志为 runEnded → inputHeld[两条] → inputReleased → `runStarted{runId: 7e64…}`（没有 `by`，即用户）→ 两条 inputConsumed 都归这次运行；父会话 `abort` 后，子会话这次运行 `runEnded{reason: "aborted", stoppedBy: {kind: "session", id: 父会话}}`，工具结果 status aborted。
+- 为什么是问题：父 Agent 的中止停掉了用户在子会话里正在处理的话，违反输出 16；用户的那一轮被别人停，`stoppedBy` 记成父会话，父 Agent 之后还能 `start` 接着跑（canContinue 按 runBy=用户 判，父会话不能接着跑，反而用户看到一次莫名的停止）。
+- 建议改法：取走后按那次运行的 `runStarted.by`（或 `runResumed.by`）判 ownRun：是父会话本身才算 true；读不到时按 false（不连带，偏保守）。在用例里补“用户先说 + 父会话 later、父会话中止，子会话运行不被停”。
+
+## 2.【重要】合同：前台等 `later` 去向时父会话被中止，什么都不停；之后由父会话开的子代理运行照跑，没有任务、`kill` 不到
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:504–507（`ended === "aborted"` 分支）。
+- 现象：父会话中止时，`afterLater` 只交回 aborted 的文字（“这句话还排在子会话里，之后照常处理”），不 `remove` 这句话、不登记任务、也不在之后停下那次运行。子会话收口后，收口批以父会话身份开下一次运行，取走这句话照常跑完。
+- 实测（exp/later-abort.test.ts，真实内核）：压缩挂着时父会话前台 `agent_send`（later），等 200 ms 后中止父会话；工具结果 `{status: "aborted"}` 没有 jobId；放开压缩后子会话 `runStarted{by: {kind: "session", id: 父会话}}`，远程 `jobs({sessionId: 父会话})` 交回 `[]`，这次运行以 completed 跑完。
+- 为什么是问题：subagents.md 输出 10 末段写“前台等这句话的去向，与等任务一样受父会话中止……约束”，输出 16 写“它正在前台等的、由它启动的子代理运行跟着中止”。这里中止前父 Agent 在前台等，这次运行是父会话的话开的，却没有跟着停。而且这次运行没有任务，不算 `subagentsPerSession` 名额，父 Agent 也拿不到 jobId 去 `kill`，只能等它自己跑完。用户按停止，本意是让这棵树停下，结果子会话还是跑了一整轮（模型费用照花）。超时与插话按 Spec 是“同后台”，可以接受；中止不在“等不到”的范围里，Spec 要的是跟着停。
+- 建议改法（二选一，交作者定）：(a) 中止时以父会话身份 `remove({inputId})`，话还在缓冲区里就撤掉，结果写“这句话已撤回”；撤不掉（已被取走）时按取走的 runId 走 settle 的 aborted 分支（按第 1 条判 ownRun）。要先核对：推迟列表里只剩这条已被移除的指令时，收口批还开不开运行。(b) 若决定中止时保留这句话，就把 Spec 输出 10 的“受父会话中止约束”改写成“中止时不等、这句话照常处理（不连带）”，再把这条列进已知限制。补一条父会话中止的用例。
+
+## 3.【建议】正确性：`continueChild` 用路径上最后一个 `runEnded` 判“被用户停止”，会读到压缩运行或别的运行
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:543–545。
+- 现象：内核 `start` 判 not-allowed 用的是 `leafState.kernel.lastChat`（kernel-state.ts:71，`kind === "compact"` 的运行不更新它）或叶子上暂停的运行（commands.ts:224–226，此时 `stoppedBy` 视为 null）。工具这边取的却是 `path()` 里最后一个 `runEnded`，压缩运行的 `runEnded` 也会被取到。两种错位：(a) 用户停止子会话后又在子会话里手动压缩，最后一个 `runEnded` 是压缩运行的，没有 `stoppedBy`，文字写成“上一次运行不是你开的”，其实是被用户停止；(b) not-allowed 来自叶子上别人开的暂停的运行（回退出来的）时，取到的是更早某次运行的 `runEnded`，那次若被用户停过，文字就写成“被用户停止”。
+- 依据：从代码推断，没有做实验；判断依据是 kernel-state.ts:71–76 与 commands.ts:222–231 的分支。
+- 为什么是问题：输出 10 要求被用户停止的“写明只有用户能接着跑”，判据应该和内核拒绝的理由一致。现在父 Agent 可能被引导去做无效的事（以为“不是你开的”就带 message 重发，或反过来）。
+- 建议改法：按 `kind !== "compact"` 的最后一个 `runStarted` 找它的 `runEnded`，与 `lastChat` 同口径；或者让内核在 not-allowed 的 `detail` 里带上原因（`stopped-by-user`、`not-owner`、`paused-not-owner`），工具按码分支，不再自己重算（项目规则是按错误码分支，不靠推演）。
+
+## 4.【建议】合同：前台 `later` 的等待把 `timeout` 用了两次
+- 位置：tools.ts:494（`deps.clock.wait(timeoutMs(args), …)`）与 tools.ts:517（`settle(job, call, args, true)` 里 `follow` 又拿一份完整的 `timeoutMs(args)`）。
+- 现象：先等去向最多 `timeout`，被取走后 `settle` 从零再计一个 `timeout`。实际最长等待是“收口耗时 + timeout”，最坏接近 2 × timeout（缺省 1,800 s，上限 7,200 s）。
+- 为什么是问题：subagents.md 输出 6 写“到了 `timeout`：返回 running”，这是一次调用的总时长。收口一般是压缩，持续几秒到几分钟，所以影响有限，但超过的部分没有上界。
+- 如何核实：读代码即可；用例里给 `timeout: 2`，让压缩挂 1.5 s 再放开，子会话第一轮挂住，看工具在约 3.5 s 而不是 2 s 时交回。
+- 建议改法：在 `afterLater` 开头记下截止时刻，传给 `settle` 剩余的毫秒数（`settle` 与 `follow` 接受 `timeoutMs` 覆盖）；文字里的“等了 N 秒”按总时长写。
+
+## 5.【建议】资源与边界：`watchFate` 只认四种缓冲区事件，子会话没有写出这些事件就回到空闲（句柄损坏）时，前台要白等满 `timeout`；停止期间抛错会盖掉“已送达”
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/fate.ts:249–271；tools.ts:482–486。
+- 现象：(a) harness/runtime.md 输出 104 写明收口批写失败时“会话照样回到空闲（句柄损坏时状态保持 broken）”。这时 `inputHeld` 没有写下，内存里的缓冲区还是就绪的，`inputFate` 一直交回 `pending`；`watchFate` 不看 `status` 帧，没有事件再触发重查，父 Agent 前台要等到 `timeout`（缺省 1,800 s）才拿到 running。同一时间，订阅还持着子会话的引用，子会话也不会空闲关闭。(b) `nbook.agent` 开始停止之后，`subscribeOpened` 里的 `#acquire` 先 `#gate()`，抛 `SessionTableStopping`（table.ts:240、260），`afterLater` 把它原样抛出，工具以异常收口，而这句话其实已经送进了子会话。
+- 依据：从代码推断，没有做实验（造写失败要替换存储）。
+- 为什么是问题：(a) 概率低，但发生后的代价是父会话被卡住半小时，与 `settle` 不对称：`waitRun` 在句柄损坏时照样完成，`settle` 能及时交回。(b) 停止时父会话本身也会被中断，影响小，主要是诊断里多一条工具异常。
+- 建议改法：(a) 订阅回调里也接 `status` 帧：变成 `idle` 或 `broken` 时重查一次；仍是 `pending` 且状态是 `broken` 时，按“子会话出错、去向不明”交回，不等超时。(b) `watchFate` 的打开失败（含 `SessionTableStopping`）按“订阅不上”处理，交回永不完成的 `settled`，由中止或超时收口；或者在 `afterLater` 里接住，交回 `queued()`。
+
+## 6.【建议】代码质量与时序：“查询在这一批事件之后执行”依赖句柄表 `#acquire` 里那次 `await`，注释没写出来
+- 位置：fate.ts:268（注释）、fate.ts:260–262（`check` 经 `table.view(...).inputFate`）。
+- 核对结果：`SessionCore.write` 在一个同步循环里逐条 `#commit` 并 `#emit`（kernel/dispatch/core.ts:322–326），收口批（runEnded、inputHeld、inputReleased、runStarted…）是一次 `core.write`（control.ts:196–197、reactions.ts:45）。内核的 `inputFate` 是同步算完就 resolve 的 `async` 函数（session.ts:406–407）。这次之所以看到整批，是因为句柄表的 `#use` 先走 `#acquire`，其中的 `await entry.ready`（table.ts:274）让出了一次微任务，这时循环已经提交完整批。换句话说，结论成立，但靠的是句柄表恰好有一次 await。
+- 为什么是问题：哪天有人为省一次引用计数，把 `check` 改成直接用 `subscribeOpened` 拿到的 session（`acquired.session.inputFate`），或者句柄表给“已打开”加一条同步快路径，查询就会落在 `inputHeld` 之后、`inputReleased` 之前，把推迟的话误判成留着，而现有用例（“话的去向”第一条）会以“结果是 held”的形式失败，不容易看出原因。
+- 建议改法：在 `check` 开头显式让出一次（`await Promise.resolve()`），注释写清楚：内核同一批的帧在一个同步循环里逐条推出，让出一次之后整批都已提交。注释写的就是这个先后的理由，不必依赖句柄表的实现细节。
+
+## 7.【建议】测试：`afterLater` 的中止、超时、插话、留着、取消五个分支与 `continueChild` 的两条 not-allowed 文字都没有用例
+- 位置：packages/neuro-book/src/plugins/agent/subagents.test.ts:571–659（新增的“话的去向”一组，三条）。
+- 核实：在 packages/neuro-book/src/plugins/agent 下所有测试文件里搜这些分支特有的文字（“没有等子会话收口”“子会话还没收口”“这句话被取消了”“上一次运行被用户停止”“不是你开的，你不能接着跑”“下一次运行没开起来”）和诊断码 `subagent-release-failed`，命中 0 处。三条新用例只走到“前台 later → pending → 被取走 → completed”、`held-by-user` 与 kill 之后不带话继续接着跑。
+- 为什么是问题：第 1、2 条的缺陷都出在没测的分支上；处理表第 8 条说“测试世界里造不出”的只有受理时就留着、插话只认就绪、标题会话取消三项，中止这一支是造得出来的：exp/later-abort.test.ts 用现有的 `holdFor` 与 `compact` 1.3 s 就跑到。把 `afterLater` 里的 `adopt(…, true, …)` 改成 `false`，或删掉 aborted 分支里的说明，现有用例都不会失败（按上面的搜索结果推断，没有改仓库文件做变异）。
+- 建议改法：把 exp/later-ownrun.test.ts、exp/later-abort.test.ts 的场景整理进“话的去向”一组，断言子会话 `runEnded.stoppedBy` 和父会话 `jobs` 的内容；超时分支用小 `timeout` 加挂住的压缩来测；不带话继续的 not-allowed，用“子代理自己跑出错收口后，用户 `start` 接着跑并被父 Agent `kill`”这类序列造。
+
+## 未发现问题的方面
+- `watchFate` 的订阅引用：初次查询抛错时先放掉；中止、超时、插话、取走、抛错各路都经 `afterLater` 的 finally 放掉（fate、steer、计时器、abort 监听）。`settled` 永不完成时，挂在它上面的只有一个 `then`，随这次调用结束可以回收，没有泄漏。
+- 查询时机：核对后成立，收口批是一次 `core.write`，查询落在整批之后（理由见第 6 条）。“先订阅再查”覆盖了 lane 里 `send` 交回之后、订阅接上之前到达的结局。
+- `adopt` 在 lane 外调用：它是同步的（`forRun` 检查、`reserve`、`children.start` 都是同步），同一子会话并发的 `agent_send` 只会拿到同一个任务，不会重复登记。补占名额失败时按 `untracked` 交回 runId，行为与说明一致。
+- `agentFacade`：`session`、`create` 交回的视图与它们经 `as` 链出来的视图都经过 `guarded`。`startTask` 的 `result` 是 `Promise<RunResult>`，不是视图；`fork` 只交回 id；远程层与子代理工具用的是 `runtime.service`，不经门面。没有找到能拿到未盖章视图的路径。`create` 的 `caller` 拦住了会话身份；`workflow` 不带权限（canAbort 只认 session）。
+- 句柄表 `#open` 算 `held`：内核 `openSession` 在交回之前已写完恢复批并 `queue.drain()`（session.ts:553–564），快照与之后接上的 `#watch` 之间不会漏事件；后台会话照样算 `held`，但不触发活动、也不进 `activity()`，与输出 15 一致。
+- `continueChild` 的 `resume` 失败码分支：只有 `nothing-to-resume` 合成文字，`held-by-user` 单独写，其余原样交回，符合处理表第 5 条。
+- 测试：在 HEAD 06e7d4526 上 `bun test src/plugins/agent/subagents.test.ts -t "话的去向"` 3 条通过（1.65 s）。
+
+## 数量
+阻断 0；重要 2（第 1、2 条，都有真实内核实验复现）；建议 5（第 3–7 条）。
+
+## 有效发现
+1, 2, 3, 4, 5, 6, 7

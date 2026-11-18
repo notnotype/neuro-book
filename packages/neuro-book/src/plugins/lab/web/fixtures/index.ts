@@ -44,6 +44,8 @@ import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfP
 import type FileBrowser from "nbook/plugins/projects/web/components/FileBrowser.vue";
 import type PathPickerDialog from "nbook/plugins/projects/web/components/PathPickerDialog.vue";
 import type ProjectInfoDialog from "nbook/plugins/projects/web/components/ProjectInfoDialog.vue";
+import type FirstRunWizard from "nbook/plugins/desktop/web/components/FirstRunWizard.vue";
+import {FIRST_RUN_THUMBNAILS} from "nbook/plugins/desktop/web/first-run-assets";
 import type ShelfCards from "nbook/plugins/projects/web/components/ShelfCards.vue";
 import type ShelfDesk from "nbook/plugins/projects/web/components/ShelfDesk.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
@@ -129,6 +131,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
+import {withDesktopText} from "./desktop-scene/desktop-text";
 import {withAgentPageText} from "./agent-scene/agent-page-text";
 import {detailOf, SAMPLES, sampleById, summaryOf} from "./stickers-scene/samples";
 import {withStickersPageText} from "./stickers-scene/stickers-text";
@@ -1194,6 +1197,11 @@ function shelfFixtures(): LabFixture[] {
             ],
             load: async () => withProjectsText(createSubjectFixture<typeof ShelfList>((await import("nbook/plugins/projects/web/components/ShelfList.vue")).default, {events: ["open", "open-new-window", "edit", "remove", "create"], class: "w-full", runtimeProps: await covers()})),
         }),
+        defineLabFixture<typeof FirstRunWizard>({
+            component: "FirstRunWizard",
+            scenes: firstRunScenes(),
+            load: async () => withDesktopText(createSubjectFixture<typeof FirstRunWizard>((await import("nbook/plugins/desktop/web/components/FirstRunWizard.vue")).default, {events: ["change", "open-place", "next", "back", "skip", "finish"], class: ""})),
+        }),
         defineLabFixture<typeof ProjectInfoDialog>({
             component: "ProjectInfoDialog",
             scenes: [
@@ -1326,6 +1334,8 @@ function shelfFixtures(): LabFixture[] {
                     {id: "problem", label: "没有清单的包：认不出的图要先改名", input: {props: page("user.cat", {initialSticker: extraKey("1.png")})}},
                     {id: "unlisted", label: "有清单的包：文件夹里没加进来的图", input: {props: page("user.lyra", {initialSticker: extraKey("摸摸头.png")})}},
                     {id: "plugin", label: "插件的包：只读、复制到我的", input: {props: page("acme.cute.mochi", {initialSticker: stickerKey("好耶.png", "好耶")})}},
+                    {id: "builtin-shadowed", label: "内置的包：只读，被我的同名包盖住", input: {props: page("builtin.lyra")}},
+                    {id: "builtin-shadowed-narrow-english", label: "内置的包被盖住：480px 宽、英文界面", input: {props: page("builtin.lyra")}},
                     {id: "empty-pack", label: "还没有表情的包：整个网格是落点", input: {props: page("user.empty")}},
                     {id: "uploading", label: "上传中：占位格", input: {props: page("user.lyra", {uploads: [{id: 1, packId: "user.lyra", name: "新图.png", state: "running"}, {id: 2, packId: "user.lyra", name: "另一张.jpg", state: "waiting"}]})}},
                     {id: "many", label: "很多表情：网格折行", input: {props: page("user.many")}},
@@ -1342,7 +1352,7 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof StickerPackRail>({
             component: "StickerPackRail",
             scenes: [
-                {id: "rail", label: "我的、插件各一组，有认不出的与无效的", input: {props: {groups: railGroups(SAMPLES.map(summaryOf)), current: "user.lyra"}}},
+                {id: "rail", label: "我的、插件、内置各一组，有认不出的、无效的与被盖住的", input: {props: {groups: railGroups(SAMPLES.map(summaryOf)), current: "user.lyra"}}},
                 {id: "disabled", label: "新建与导入停用", input: {props: {groups: railGroups(SAMPLES.map(summaryOf)), current: "user.cat", disabled: true}}},
                 {id: "english", label: "英文界面", input: {props: {groups: railGroups(SAMPLES.map(summaryOf)), current: "user.lyra"}}},
             ],
@@ -1373,11 +1383,11 @@ function shelfFixtures(): LabFixture[] {
                     return {key: file2, kind: "extra", file: file2, label: file2, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: null, raw: null, reason, common: false};
                 };
                 return [
-                    {id: "sticker", label: "表情：名字、说明、写法、常用", input: {props: {item: sticker("开心"), folder: "lyra"}}},
-                    {id: "problem", label: "认不出的图：先要改名", input: {props: {item: extra("摸摸头.png", "name", "1.png"), folder: "lyra"}}},
-                    {id: "unlisted", label: "没加进来的图", input: {props: {item: extra("摸摸头.png", "unlisted"), folder: "lyra"}}},
-                    {id: "readonly", label: "插件的包：只读", input: {props: {item: sticker("开心"), folder: "mochi", readonly: true}}},
-                    {id: "english", label: "英文界面", input: {props: {item: sticker("开心"), folder: "lyra"}}},
+                    {id: "sticker", label: "表情：名字、说明、写法、常用", input: {props: {item: sticker("开心"), writing: "lyra"}}},
+                    {id: "problem", label: "认不出的图：先要改名", input: {props: {item: extra("摸摸头.png", "name", "1.png"), writing: "lyra"}}},
+                    {id: "unlisted", label: "没加进来的图", input: {props: {item: extra("摸摸头.png", "unlisted"), writing: "lyra"}}},
+                    {id: "readonly", label: "插件的包：只读", input: {props: {item: sticker("开心"), writing: "mochi", readonly: true}}},
+                    {id: "english", label: "英文界面", input: {props: {item: sticker("开心"), writing: "lyra"}}},
                 ];
             })(),
             load: async () => withStickersPageText(createSubjectFixture<typeof StickerFields>((await import("nbook/plugins/stickers/web/components/StickerFields.vue")).default, {runtimeProps: {commit: async () => null}})),
@@ -2108,5 +2118,43 @@ function canonEntryPageFixtures() {
             })(),
             load: async () => (await import("./ChangePageFixture.vue")).default,
         }),
+    ];
+}
+
+/** 首次启动向导（desktop-shell 输出 34）的场景：四步、便携版、写入失败、作品目录还没建、插件主题、英文。 */
+function firstRunScenes() {
+    const themes = [
+        {id: "nbook", name: "NeuroBook", thumbnails: FIRST_RUN_THUMBNAILS.nbook ?? null},
+        {id: "macos", name: "macOS", thumbnails: FIRST_RUN_THUMBNAILS.macos ?? null},
+        {id: "eye-green", name: "护眼绿", thumbnails: FIRST_RUN_THUMBNAILS["eye-green"] ?? null},
+        {id: "eye-sepia", name: "护眼米黄", thumbnails: FIRST_RUN_THUMBNAILS["eye-sepia"] ?? null},
+    ];
+    const base = {
+        open: true,
+        step: 1 as const,
+        themes,
+        theme: "nbook",
+        appearance: "system" as const,
+        dark: false,
+        locales: [{value: "zh-CN", label: "简体中文"}, {value: "en-US", label: "English"}],
+        locale: "zh-CN",
+        options: {desktopShortcut: true, openAtLogin: false, tray: false},
+        shownOptions: ["desktopShortcut", "openAtLogin", "tray"] as Array<"desktopShortcut" | "openAtLogin" | "tray">,
+        places: {stateRoot: "C:\\Users\\lin\\AppData\\Local\\NeuroBook", library: "C:\\Users\\lin\\Documents\\NeuroBook"},
+        libraryMissing: false,
+        error: null,
+    };
+    return [
+        {id: "welcome", label: "第 1 步：欢迎", input: {props: base}},
+        {id: "appearance", label: "第 2 步：外观", input: {props: {...base, step: 2 as const}}},
+        {id: "appearance-dark", label: "第 2 步：选了暗色", input: {props: {...base, step: 2 as const, appearance: "dark" as const, dark: true, theme: "eye-green"}}},
+        {id: "plugin-theme", label: "第 2 步：插件主题没有缩略图，当前是自建主题", input: {props: {...base, step: 2 as const, theme: "user.my-theme", themes: [...themes, {id: "acme.paper", name: "Paper", thumbnails: null}]}}},
+        {id: "desktop", label: "第 3 步：桌面", input: {props: {...base, step: 3 as const}}},
+        {id: "desktop-portable", label: "第 3 步：便携版只有关窗去向", input: {props: {...base, step: 3 as const, shownOptions: ["tray"] as Array<"desktopShortcut" | "openAtLogin" | "tray">}}},
+        {id: "desktop-error", label: "第 3 步：写入失败", input: {props: {...base, step: 3 as const, error: "登录时打开没有改成，回到了原来的值。"}}},
+        {id: "ready", label: "第 4 步：准备好了", input: {props: {...base, step: 4 as const}}},
+        {id: "ready-missing", label: "第 4 步：作品目录还没建、路径很长", input: {props: {...base, step: 4 as const, libraryMissing: true, places: {stateRoot: "C:\\Users\\a-very-long-user-name-for-testing\\AppData\\Local\\NeuroBook\\with\\a\\deep\\nested\\path\\to\\wrap", library: "D:\\Writing\\NeuroBook"}}}},
+        {id: "english", label: "英文界面（第 3 步）", input: {props: {...base, step: 3 as const, locale: "en-US"}}},
+        {id: "appearance-english", label: "英文界面（第 2 步）", input: {props: {...base, step: 2 as const, locale: "en-US"}}},
     ];
 }

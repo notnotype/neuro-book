@@ -20,8 +20,8 @@ import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {regionNodeOf} from "@notnotype/nb-layout";
-import type {LayoutDoc, PanelName} from "@notnotype/nb-layout";
+import {regionNodeOf} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc, PanelName} from "@notnotype/nb-workbench-layout";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 

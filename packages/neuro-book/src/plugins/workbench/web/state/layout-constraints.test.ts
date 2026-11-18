@@ -3,8 +3,9 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {barRef, findTab, GRID_SNAPSHOT_VERSION, isPanelShown, layoutDropSectors, panelRef, presentationCollapse, previewPanelRects, resolveLayoutDrop, setActiveContainer, setPanelHidden} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutEdge, PanelName, PanelRecord} from "@notnotype/nb-layout";
+import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {barRef, findTab, isPanelShown, layoutDropSectors, panelRef, presentationCollapse, previewPanelRects, resolveLayoutDrop, setActiveContainer, setPanelHidden} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc, LayoutEdge, PanelName, PanelRecord} from "@notnotype/nb-workbench-layout";
 
 import {defaultLayoutDoc} from "./default-tree";
 import {collapseOrder, createLayoutPolicy, layoutAccepts, layoutEdgeTarget, layoutProjectionOptions, layoutSeamAccepts, panelConstraints, toolPanelAxis} from "./layout-constraints";

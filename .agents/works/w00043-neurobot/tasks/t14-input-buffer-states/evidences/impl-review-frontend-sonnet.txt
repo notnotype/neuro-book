@@ -1,0 +1,103 @@
+# t14 第 5-6 片前端实现审查报告（范围 a1f22dd7f..a057c47fb 的前端部分）
+
+[1] 重要 | 正确性（乐观消息收口） | packages/nb-agent-ui/src/kernel-transcript.ts:700-713（inputHeld、inputRemoved 分支）、:954（queue() 过滤）、packages/neuro-book/src/plugins/agent/web/session-host.ts:1105-1112（settleSend 对 taken 不再撤）
+现象：合并发出的那一条在“前面还有别人的话先跑”时（placement 为 taken 且 runId 非空，等 `input` 按 commandId 确认），如果这次运行在取走它之前被停止或收口，内核把它转成 held（或 abort 不带 keepQueue 时 inputRemoved），但转录器只在 `input/steer` 事件和 commandAccepted 上清乐观消息，inputHeld/inputRemoved 都不清。结果：消息流末尾那条永远 delivery:"pending"（转圈、“前面还有 N 条”或“发送中”），同时 queue() 因 commandId 命中乐观消息把排队区里对应的那条藏掉，用户在排队区看不到、取消不了、编辑不了；之后“继续”只合并 queue() 里看得见的留着的话，这一条被漏在内核缓冲区里。
+为什么是问题：settleSend 以前“受理就撤”兜底，现在改成“taken 一律等 input”，把兜底拿掉了，而 taken 的话在运行以任何方式收口时都会转成留着（harness/runtime.md 输出 110 写明）。这正是验收 8、9 的场景（运行中排话、停止）加宿主日程在前的组合。
+如何核实（已跑，真内核）：/tmp/review-t14-impl-frontend/exp/stuck.test.ts。两条日程由宿主空闲时排入（held），用户 addOptimistic 后 send(commandId:"merged")，placement=taken、runId 非空；工具阻塞时 abort。
+  - keepQueue:true（界面默认的停止）：内核缓冲区是 [日程二 held, 我的话 held]，转录器 queue() 只有 [日程二 held]，messages() 里 "mine" 仍是 delivery:"pending"。
+  - keepQueue:false（停止并清空排队）：内核缓冲区为空，queue() 为空，"mine" 仍是 pending，永不消失。
+建议改法：转录器在 reduceSession 里，inputHeld、inputRemoved 命中的条目带 commandId 且正有对应乐观消息时，撤掉乐观消息（这时它该由排队区显示，或已被清掉）；同时补一条“前面有别人的话先跑、停止后合并那条显示在排队区、乐观消息消失”的测试（现有 kernel-transcript.test.ts:596 那条只测到 ahead:1 和取走后消失）。重连重建路径同理：快照里已是 held 的条目，其 commandId 对应的乐观消息也该撤（applySnapshot 后对 queue 做一次对账）。
+
+[2] 建议 | Lab 夹具与产品行为不一致 | packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/composer-host.ts:97-110（sendMerged）、composer.scenes.ts:25-30（HELD）、view.scenes.ts:75-81
+现象：Lab 的 sendMerged 把 accepted.queued 里所有 held 条目的文字都合成进用户那一条消息，包括带 author 的宿主条目（HELD 里的 h3“每天早上整理昨天的修改记录。”）。场景 held 的标签还写着“点继续或写字回车合成一条”。点继续后消息流里出现“保留雨夜…\n\n改完第三章…\n\n每天早上整理…”，而且宿主那条随后从排队区消失、不在消息流里单列。
+为什么是问题：conversation.md 输出 50 与 UI Spec 都写“宿主、会话的话不合并，由内核在合成的那一条前面放行，乐观消息的前面还有 N 条就是它们的条数”。看 Lab 的人（设计评审、后续写适配的人）会以为宿主的话被并进去了。夹具头注释还说“按缺省的恢复方式……合成一条”，没写这个差别。
+如何核实：Lab 打开 composer 的 held 场景，点排队区“继续”，看消息流最后一条的文字。
+建议改法：sendMerged 只合并 author === undefined 的 held；宿主的 held 先作为各自一条用户消息（带 author）放进消息流，再放合成的那条（可顺手把合成那条标 delivery:"pending"、ahead 等于宿主条数一小会儿，与 view 场景 ahead 对上）。至少改夹具头注释与场景标签。
+附带：view.scenes.ts HELD_EN 的两句英文原因（“The run couldn't start: the model provider rejected the request”“You stopped this run”）不是产品 locales 的文案（产品是“...the model provider has no key”“You stopped this turn”，agent/locales/en-US.json 的 conversation.held.*）；它们是 390 宽截断场景的依据，应用产品真实最长的一句（“The run couldn't start: the model role isn't bound to a model”）。
+
+[3] 重要 | 交互与 Spec 不符（继续进行中的保护范围过大） | packages/neuro-book/src/plugins/agent/web/session-host.ts:1789（interaction.canSend: !continuing）、packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:47、51-52、224-225
+现象：宿主在 continueRun 进行中把 interaction.canSend 置假。Composer 里 readonly = !canSend，于是继续进行中（start、runResult、send 两到三次往返，input-stale 重试再多一次）整个输入框变只读：PromptEditor 走 setEditable(false)，焦点丢失；模型、模式、思考档位、附件按钮全部禁用；同时头行“继续”的禁用原因写的是“运行结束后发送”（continueDisabled 在 canSend 为假时取 composer.sendAfterRun），与实际原因（正在继续）不符。
+为什么是问题：conversation.md 输出 50 只要求“进行中（含两步之间）头行的‘继续’与发送键不可用”。借 canSend 实现，顺带让编辑器失焦、设置控件闪灰；最常见的路径“有留着的话，打字后回车”是：submit 先 setDraft("")，再进入 continueRun，编辑器随即变只读失焦，完成后恢复可编辑但不会自动聚焦，用户得再点一下输入框。悬停原因也是错的。
+如何核实：从代码推断，未跑真机。验证方法：Lab 或真实环境里有留着的话，键盘输入文字回车，观察 document.activeElement 与 contenteditable；dom 测试可给 ctx.interaction.canSend=false 看 .acv-composer 的 is-readonly（它与 availability 无关）。现有测试没有覆盖 continuing 状态。
+建议改法：给 InteractionView 单独一个字段（例如 continuing 或 canContinue），只控制发送键与头行“继续”（原因写“正在继续”），不要借 canSend；或者至少在 composer 里把“继续进行中”与“不允许发送”分开，发送键不可用时编辑器仍可编辑、仍保持焦点。
+
+[4] 建议 | 焦点（头行“继续”按钮） | packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.vue:47-53、packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:431
+现象：头行“继续”用原生 disabled，并且点它之后（继续进行中）会因为 continueDisabled 非空而被禁用，成功后留着的条目没了，整个头行随 v-if 卸载。键盘用户 Tab 到“继续”回车，焦点在点下去的同时丢到 body，没有任何地方接住。
+为什么是问题：nb-ui 规范（DropdownMenu.md 新增的那条“暂时不可用但要保留焦点的触发器”）自己就写了：暂时不可用的用 aria-disabled，不用 disabled；触发器会消失时要把焦点交给指定位置。同一个 Task 里停止的下拉做对了，继续按钮没有。
+如何核实：dom 测试里 mount 后 focus “继续”按钮，点击并让 queued 变空，看 document.activeElement；e2e 里键盘走一遍。
+建议改法：头行“继续”用 aria-disabled + 悬停原因，不用 disabled；继续发出后把焦点交给编辑器（Composer 在 @continue 时 withEditor(editor.focus("end"))，与回车继续同一动作的体验一致），不依赖按钮自己是否还在。
+
+[5] 重要 | 焦点（停止下拉关上时无条件抢焦点、光标跳到末尾） | packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:243-246（stopMenuContentProps）
+现象：onCloseAutoFocus 里无条件 event.preventDefault() 再 editor.focus("end")。后果两条：
+ (a) 点菜单外面关闭时（用户点了侧栏搜索框、别的面板输入框、别的按钮），reka 的 FocusScope 仍然触发 closeAutoFocus；reka 自己的默认处理只在 !defaultPrevented 时才区分“点外面关闭不还焦点”（node_modules/reka-ui/dist/DropdownMenu/DropdownMenuContent.js:119-125），我们 preventDefault 之后这层判断被整个绕过，焦点被从用户刚点的地方抢回编辑器。nb-ui 规范（ui-development-spec.md:143 与 :200）写明“Esc 和点外面仍按原语的规则”“点外面关闭除外，那时不抢焦点”。同一文件里 closePopover 的注释也写了“焦点已到别处时不抢”。
+ (b) 用 "end" 而不是 "keep"：输入框里草稿的光标在中间时，开关一次停止菜单（Esc）光标就跳到末尾；PromptEditor 的 focus("keep") 正是为“弹层关上时把焦点还回来”设计的（prompt-editor.types.ts:78）。注意：showStop 要求草稿为空，所以此条草稿内容为空时影响小，光标位置的损失基本不存在；(a) 是主要问题。
+如何核实：e2e 或 Lab：运行中、有排队，打开停止下拉，点页面上另一个输入框，看 document.activeElement 是否被抢到编辑器（从代码推断，未跑）。e2e lab-agent-ui.e2e.ts 新增的只走了键盘路径（选项后焦点回编辑器），没有点外面的用例。
+建议改法：在 onCloseAutoFocus 里只在 document.activeElement 为 body、触发器本身或菜单内容时才 preventDefault 并聚焦编辑器；否则什么也不做（也不 preventDefault，交给 reka，它已判断“点外面不还焦点”）。补一条点外面不抢焦点的 e2e 或 dom 断言，并做变异检查（去掉判断后应失败）。
+
+[6] 建议 | 测试没测到声称的行为 + 死代码（input-stale 重试里的快照） | packages/neuro-book/src/plugins/agent/web/session-host.ts:1248-1252、packages/neuro-book/src/plugins/agent/session-host.test.ts:437-478
+现象：input-stale 分支写了 `await remote.snapshot({sessionId}).catch(() => null)`，返回值整个丢掉：没有 applySnapshot，也没有重取路径，转录器的 queue() 不会因这次调用变化。重新合成其实读的是此前靠实时帧（inputEdited、inputRemoved）更新过的转录器。函数头注释与 Spec 都说“按新的快照重新合成”。
+为什么是问题：(1) 这次往返什么也没做，只是多一次延迟；实际能否拿到新数据取决于 inputEdited/inputRemoved 帧是否先于 input-stale 的响应处理完，没有这条保证的文字依据。(2) 测试的 stale 是 Proxy 假造的（第一次返回 input-stale，内核里的缓冲区并没有变），重发的两次文字相同（`["排一\n\n排二","排一\n\n排二"]`），所以“按新的快照重新合成”没有被验证；把 snapshot 那一行删掉测试照过（变异检查可做：删行后 bun test 应仍然通过，我从代码判断，没有改仓库跑）。
+如何核实：读 session-host.ts:1248-1252；测试里 sends 的两次 text 完全相同。
+建议改法：要么删掉这行并在注释里写明“靠实时帧已是最新”，要么真的应用快照（先 target.transcript.applySnapshot(snapshot.value) 取缓冲区；注意不要走 refresh，它会重建路径）。测试改成真 stale：第一次发出之前先在另一个 host 实例里 edit 其中一条（改过次数加 1），断言第二次发出的文字是改后的文字、replaces 里的 edits 是新的。
+
+[7] 建议 | 边界（继续的非合并路径与结果未知） | packages/neuro-book/src/plugins/agent/web/session-host.ts:1186-1192（mode !== "merge" 分支）、:1157-1164
+现象：合并路径的 send 有乐观消息、UNKNOWN_OUTCOME 判断和同一 commandId 重发（settleSend），而恢复方式为“保留”“按排队顺序”且写了字时走的 `remote.send({..., release: mode})` 没有：它每次 commandId() 现取，没有乐观消息，失败一律走 fail()，把写的字放回输入框并写“没能继续（timeout）”。结果未知的码（timeout、disconnected、server-restarted 等，session-host.ts:63）时消息可能已经受理，用户看到字回到输入框再发一遍就重复了；同一模块里普通发送（:1137-1150）已经为此做了 unknownSends。resume、start 的结果未知同理，但它们不带文字，重做无害，不在此条。
+为什么是问题：Spec conversation.md 输出 50 只说“被拒或失败时只把用户这次写的字放回输入框”，没有区分结果未知；但 UI Spec 对合并那条明确要求“结果未知时重新发送沿用 commandId”，同一个动作的三种恢复方式口径不一。
+如何核实：session-host.test.ts 里 resumeMode 设 keep、停止后留着、写字回车，让 remote.send 返回 {ok:false, code:"timeout"}，看草稿里被放回了字、也没有“可重发”的乐观消息。现有测试只覆盖了 keep 的“空着继续”（:437）。
+建议改法：非合并带字的 send 也走与合并同一个封装（乐观消息 + settleSend + PendingSend，release 记进 PendingSend 以便重发沿用）；不想扩大改动就记为已知限制写进 Spec。
+
+[8] 建议 | 文案覆盖（输出 48 的“码的说明”） | packages/neuro-book/src/plugins/agent/web/held-reason.ts:11-22
+现象：CODE_KEYS 缺 `internal`。harness/runtime.md 输出 104 明写“开不起运行（…解析时抛错等，`code` 是它的码，抛错时是 `internal`）”；也就是说这条路径会留下 cause {end, code:"internal"}，held-reason 找不到映射，直接把 “internal” 这个单词放进“运行没开起来：internal”。zh 与 en 都会露出英文码。另外 `not-allowed` 的说明“没有权限接着跑”是自加的，输出 104 的代码清单里没有它（可能来自 resume 的码，但 cause 里不会带）。
+为什么是问题：held-reason.test.ts 逐例测的是表里的码，没有测“表里没有的码”走哪一句；用户面对一条留着的话，只看到英文码，无从判断。
+如何核实：held-reason.test.ts 加 {end:"completed", code:"internal"}，当前输出为“运行没开起来：internal”。
+建议改法：加 internal（zh“内部错误”，en“an internal error occurred”）或让不认识的码走 conversation.held.unknown 加码；删除没有依据的 not-allowed，或在注释里写出它的来源。
+
+[9] 建议 | 读屏 | packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.vue:56-58
+现象：role="status" 的播报区放在外层 `v-if="props.queued.length > 0"` 的容器里。会话里没有排队时，头一批留着的话进来（例如宿主空闲时排了一条日程，或打开一个带留着的话的会话）这个区是和内容一起新建出来的，多数读屏不播报“随节点一起出现”的 live region。Spec 写的是“经视图的 role=status 区播报”（视图层常驻的区）。
+为什么是问题：设计意图是头行出现时播报，最需要的恰是从无到有那一次。
+如何核实：dom 测试里先 mount queued=[]，再 setProps 进一条 held，检查 status 的文字是否在“已有节点上改变”而不是新建节点（当前是新建）。
+建议改法：把 status span 放到 v-if 外面（容器一直在），或把区放进 AgentConversationView 的常驻播报区。顺带：`.acv-queued__status` 用 position:absolute，但 .acv-queued-area 没有定位，视觉隐藏的节点会落在所在位置的默认流内，建议给 .acv-queued-area 加 position:relative 或沿用仓库里现成的 sr-only。
+
+[10] 建议 | 版面与一致性（样式状态缺失） | packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:841-865（.acv-composer__stop-more）、AgentQueuedMessages.vue:151-163（.acv-queued__more-button）
+现象：停止旁的箭头按钮是裸 <button>，只写了 aria-disabled 的样式，没有 :hover（旁边的停止键有加深的 hover：:871）、没有 :focus-visible（没用 nb-ui 的 nb-ui-focus-ring 或本文件 :892 那样的规则），也没有 :active。键盘走到它时（验收 39 的 Tab 路径）只有浏览器默认的描边，红底上与主题焦点光环不一致。“还有 N 条”按钮同样没有 focus-visible。
+为什么是问题：ui-development-spec.md 自检清单“同类交互状态一致”“焦点环可见”；鼠标悬停时停止键变深而箭头不变，拼成一个按钮的两半会割裂。
+如何核实：Lab 的 stop-menu 场景截图（明暗主题各一张，Tab 聚焦与悬停两种状态），主 Agent 来跑，我没有跑截图。
+建议改法：箭头按钮加 nb-ui-focus-ring-inset（红底、与停止键拼接，外扩光环容易被相邻边吃掉）与 :hover 同色加深；“还有 N 条”加 focus-visible。
+
+[11] 建议 | 代码质量（注释错位） | packages/nb-agent-ui/src/vue/stream/AgentConversationTurn.vue:153-160
+现象：新加的 pendingLabel 函数插在 bare 的 JSDoc（“只有表情的用户消息不画气泡（Spec“消息”）……”）与 bare 之间，这段注释现在挂在 pendingLabel 上，bare 没有了说明。
+如何核实：读 diff：`*/` 后紧跟 `function pendingLabel`。
+建议改法：把 pendingLabel 移到注释块之前或之后，注释仍紧贴 bare。
+
+[12] 建议 | 设置分组 | packages/neuro-book/src/plugins/agent/shared/settings.ts:143-146
+现象：resumeMode 挂在 group "requests"（设置页里标题是“模型请求”），注释写“同组的两个超时（nbook.models）占 20、30”，所以它在“模型请求”下面与重试次数、超时并列。它说的是“继续时怎么发留着的话”，与模型请求无关；同一分区里另有 guards、compaction、subagents 组。
+为什么是问题：用户在“运行可靠性 / 模型请求”找“继续怎么发”不会往这儿看；“同组的超时占 20、30”也只是为了排序塞进来。
+如何核实：设置页打开“运行可靠性”分区。
+建议改法：放进 guards 组，或另开一个“继续”组（需要补 groups 声明与 locales）。Spec 输出 47 只写了分区，没写组，改它不用改 Spec。
+
+[13] 建议 | 交互细节 | packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.vue:34-39、64-66
+现象：expanded 为真但就绪的行数降到 3 条及以下（取走了几条）时，“收起”那一行仍然显示，点了什么也不变；expanded 状态在会话切换后也不复位（组件常驻时）。
+建议改法：`v-if="hidden > 0 || (expanded && ready.length > VISIBLE)"`；ready 不超过 3 时把 expanded 置回 false。
+
+[14] 建议 | 文案 | packages/neuro-book/src/plugins/agent/web/session-host.ts:1210-1217、locales/*.json 的 conversation.continue.stopped
+现象：第二步之前判定“已停止或已收口”（ended.value !== null 也包含运行正常跑完），统一提示“这次运行已经停下，合并的话没有发出。”正常跑完（例如接着跑的那一轮很短，几乎没有工具调用）时说“已经停下”会让人以为是被停止；而这时用户留着的话与新写的字（已放回草稿）都没丢，只是没被发出。
+建议改法：按 ended 的结果分两句（被停止 / 已结束），或写成“这次运行已经结束，合并的话没有发出，可以再点继续”。
+
+## 未发现问题的方面（仔细检查后）
+- kernel-transcript：按 commandId 确认的实时与重建两条路径、commandAccepted 对 placement 的判断（taken 且 runId 为字符串才等 input）与 harness/runtime.md 输出 110 一致；旧事件没有 commandId 时按先后兜底，当前内核所有 input、steer 事件都带 commandId（kernel/run/settle.ts:80、loop.ts:79），兜底分支只在旧日志上走。withAhead 的现算与取走一条少一条经真内核测试（kernel-transcript.test.ts:596）覆盖。
+- continueRun/sendMerged 对 conversation.md 输出 50 表的五行：空闲合并（≥2 条合成、<2 条 resume keep）、空闲中断先 start 再 runResult 判定再发、写了字合并/非合并、运行中点头行继续、运行中写字走 enqueue 不合并，逐行对过，没有走错分支；input-stale 只重试一次、被拒只放回写的字、continuing 守卫（除 [3] 说的借 canSend 之外）都对。
+- held-reason 对输出 48 的 end 五种、aborted 的三种停的人、queued、带码、认不出的都有对应文案，zh-CN 与 en-US 两份 locale 键一一对应（除 [8] 的 internal）。
+- 停止下拉的受控打开、aria-disabled 不开菜单、有字或停止键消失时箭头一起消失、停止键本身不带 clearQueue、菜单选项发出 clearQueue:true，都对（dom 测试 + e2e 键盘路径覆盖）；焦点回编辑器的问题见 [5]。
+- concatPromptTexts：我用 9 组带缩进、列表符、转义、制表符、前后空行的样本做了往返（/tmp/review-t14-impl-frontend/exp/concat.test.ts），除了段间 "\n\n" 之外文字不变；撞号换号逻辑有测试覆盖。
+- 单元与 dom 测试全部通过：nb-agent-ui bun test 281 条、vitest src/vue/composer 39 条、neuro-book 的 session-host、held-reason、resume-merge 77 条（我跑的，worktree 当前提交）。
+
+## 范围说明
+- 没有跑 e2e 与截图（brief 禁止）；[5] 点外面抢焦点、[10] 焦点环与 hover、[3] 失焦都是从代码和依赖源码推断，建议主 Agent 用 e2e 或 Lab 截图确认：Lab stop-menu 场景（明暗主题）、held 与 held-english 场景（390 宽）、有留着的话时键盘输入并回车后 document.activeElement。
+- 验收 9（宿主开的运行里停止后留着的话，点头行“继续”进在跑的运行）在 e2e 与 session-host.test.ts 里都没有对应用例；continueRun 的“运行中点继续”“第二步之前已收口”“continuing 守卫”三个分支也没有单元测试。
+
+## 各级数量
+阻断 0；重要 3；建议 11；合计 14。
+
+## 有效发现
+重要：[1] 乐观消息在 inputHeld/inputRemoved 后永远“发送中”并藏掉排队区条目（真内核已复现）；[3] 继续进行中借 canSend=false 让整个输入框只读失焦、原因文案也错；[5] 停止下拉关上时无条件抢焦点（点外面也抢）。
+建议：[2] [4] [6] [7] [8] [9] [10] [11] [12] [13] [14]。

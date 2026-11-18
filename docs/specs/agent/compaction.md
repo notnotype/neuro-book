@@ -48,7 +48,7 @@ owners:
 7. `replacement` 为 null 时不放回：对话没丢。
 8. 其余情况放回，每段一条给模型的文字：最近成功读过或改过的至多 5 个文件；`session://plan.md`，有才放；会话日志的地址 `sessions://<本会话>/session.jsonl`。
 9. 文件从压缩前的路径按调用与结果配对：只取成功的 `read`、`write`，`edit` 只取 `details.files` 里成功的文件，按时间倒序。经会话的资源视图重新读，权限按现在的算；读不到、撤权、已删除、不是文本的跳过并写诊断，不让压缩失败。
-   经 `eval` 的代码调的工具（[`harness/runtime.md`](../harness/runtime.md) 输出 96 的事件）同样算（planned）：成功的 `read`、`write` 按参数取文件，`edit` 状态成功时按参数取它改的文件（嵌套调用的结果不记 `details`），与直接调用的一起按时间倒序。
+   经 `eval` 的代码调的工具（[`harness/runtime.md`](../harness/runtime.md) 输出 96 的事件）同样算：成功的 `read`、`write` 按参数取文件，`edit` 状态成功时按参数取它改的文件（嵌套调用的结果不记 `details`），与直接调用的一起按时间倒序。
 10. 单个文件最多 8,000 token，文件与计划合计不超过 20,000 token 与模型窗口的 25% 中较小的一个，超了截断；单行就超出预算的文件、读到一半出错的文件整份跳过并写诊断 `restore-skipped`，不影响别的文件。显示格式与 `read` 工具相同，并把快照记进会话共用的行锚：模型接着用这些行锚能 `edit`，截断的部分和 `read` 一样不算见过。
 11. 放回了什么写进 `compaction` 事件的 `restored`：`[{kind: "file" | "plan" | "log", target, tokens, truncated}]`。
 

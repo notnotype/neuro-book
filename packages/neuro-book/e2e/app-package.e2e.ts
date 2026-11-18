@@ -96,6 +96,11 @@ test("从 npm 包装上的 nbook：打开作品（项目子进程）、装插件
     await expect(root).toHaveAttribute("data-rpc-state", "online");
     // 绑定作品成功：项目子进程（包里的 project.js）起来了。
     await expect(page.locator("[data-workbench-project]")).toHaveAttribute("data-workbench-project", "book");
+    // 内置表情包（docs/specs/agent/stickers.md 的内置来源）：装好的包里服务端按 `<包>/stickers/` 找到它，取图路由给出图片。
+    expect(await page.evaluate(async () => {
+        const response = await fetch(`/api/nbook.stickers/image/builtin.lyra/${encodeURIComponent("开心.webp")}`);
+        return [response.status, response.headers.get("content-type")];
+    })).toEqual([200, "image/webp"]);
 
     expect(nbookJson(["plugin", "install", PLUGIN])).toMatchObject({ok: true, preview: {id: "example.hello", relation: "install"}, restartRequired: true});
     expect(nbookJson(["plugin", "list"])).toMatchObject({running: {url: server.url}});

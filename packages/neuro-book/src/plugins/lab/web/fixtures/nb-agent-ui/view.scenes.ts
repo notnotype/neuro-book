@@ -1,7 +1,7 @@
 import type {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import {createHarnessTranscript} from "@notnotype/nb-agent-ui";
 import {agentRef} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, MessageView, PendingInputView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, MessageView, PendingInputView, ToolCallView} from "@notnotype/nb-agent-ui";
 import type {LabFixtureDefinition} from "../index";
 import {harnessReplayLog} from "./harness-replay";
 import {
@@ -112,12 +112,13 @@ const chineseNumber = (n: number): string => {
     return `${tens === 0 ? "" : tens === 1 ? "十" : `${digits[tens]!}十`}${n % 10 === 0 ? "" : digits[n % 10]!}`;
 };
 const evalRead = (index: number, status: "success" | "running" = "success") => ({id: `ev-r${String(index)}`, name: "read", status, args: {path: `project://正文/第${chineseNumber(index)}章.md`}, ...(status === "success" ? {result: {text: "…", truncated: true}} : {})});
-function evalScene(id: string, label: string, call: Record<string, unknown>, patch: Partial<AgentConversationContext> = {}): Scene {
+// 场景都让这一轮处在运行或等待中：跑完的一轮缺省整轮收起，看不到卡片（产品里点开整轮与思维链才看到）。
+function evalScene(id: string, label: string, call: Pick<ToolCallView, "status"> & Partial<ToolCallView>, patch: Partial<AgentConversationContext> = {}): Scene {
     const now = 2_000_000;
     const messages: MessageView[] = [
         {kind: "user", id: "ev-u", timestamp: now - 90_000, intent: "normal", blocks: [{kind: "text", text: "统计一下每章的字数，把最长的两章各压缩一段回忆。"}], contentOmitted: false},
         {kind: "assistant", id: "ev-a", timestamp: now - 80_000, status: patch.run?.status === "idle" ? "done" : "streaming", text: "", thinking: "先批量读一遍各章，算字数。", model: "deepseek-chat", contentOmitted: false,
-            toolCalls: [{id: "ev-1", name: "eval", args: {title: "统计各章字数并压缩最长的两章", code: EVAL_CODE}, invocation: "ev-1", startedAt: now - 62_000, ...call} as never]},
+            toolCalls: [{id: "ev-1", name: "eval", args: {title: "统计各章字数并压缩最长的两章", code: EVAL_CODE}, invocation: "ev-1", startedAt: now - 62_000, ...call}]},
     ];
     return {id, label, input: {props: {ctx: conversationContext({messages, run: {status: "running", phase: ""}, now, ...patch}), processDisclosure: "live", teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}}};
 }

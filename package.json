@@ -22,6 +22,7 @@
     "packages/nb-runtime",
     "packages/nb-form",
     "packages/nb-layout",
+    "packages/nb-workbench-layout",
     "packages/nb-agent-ui",
     "packages/nb-markdown",
     "packages/llmlint",

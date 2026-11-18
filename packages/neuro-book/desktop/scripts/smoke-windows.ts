@@ -25,7 +25,7 @@ import type {Page} from "@playwright/test";
 import {fakeEndpoint, localModelSettings, type FakeEndpoint} from "../../src/plugins/agent/testing/endpoint";
 import {cleanUp, closeApp, installFromSetup, killUnder, OFFICIAL_IDENTIFIER, readBaseline, seedState, startApp, uninstall, uninstallLeftover, webViewData, type Installed, type Seeded} from "./smoke/app";
 import {baselineProblems, lineCount, logEntries, orderlyStopProblems} from "./smoke/facts";
-import {channelRoot, collectEvidence, connectPage, defaultStateRoot, freePort, run, SmokeFailure} from "./smoke/windows";
+import {channelRoot, collectEvidence, connectPage, defaultStateRoot, freePort, run, skipFirstRun, SmokeFailure} from "./smoke/windows";
 
 class UsageError extends Error {}
 
@@ -60,6 +60,8 @@ function textOf(content: unknown): string {
 async function runAgentCommand(page: Page, endpoint: FakeEndpoint, seeded: Seeded): Promise<void> {
     await page.goto(new URL(`/?project=${encodeURIComponent(seeded.projectName)}`, page.url()).href);
     await page.locator("[data-explorer-row]").first().waitFor({timeout: 60_000});
+    // 新状态根上第一次打开：向导在作品页上也会出现（书架上没来得及写记录就导航过来了），先跳过它。
+    await skipFirstRun(page, step);
     await page.keyboard.press("Control+Shift+P");
     await page.keyboard.type("打开对话");
     await page.keyboard.press("Enter");

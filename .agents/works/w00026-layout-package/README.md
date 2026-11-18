@@ -38,6 +38,8 @@ updated: 2026-11-05
 
 2026-11-18：t30 完成（两份布局 Spec 晋升与重写，实现审查处理完）。t31 的提案 [nb-layout 做成能发到 npm 的通用布局库](../../../docs/proposals/nb-layout-general-library.md) 开发者接受，写 [ADR 0054](../../../docs/adr/0054-nb-layout-general-library.md)：分两档做，先做第一档，第二档等改造 nb-story（第一个外部使用方）时做。第一档的顺序：[t33 拆出工作台层](tasks/t33-workbench-layer-split/README.md) → [t34 统一错误](tasks/t34-unified-errors/README.md) → [t35 去掉 nb-ui](tasks/t35-drop-nb-ui/README.md) → [t36 显式入口与小组合函数](tasks/t36-explicit-exports-and-helpers/README.md) → [t37 整理拖动控制器](tasks/t37-drag-controller-tidy/README.md) → [t32 入口菜单的“移到”](tasks/t32-entry-menu-move-to/README.md) → [t14 Splitter 迁移](tasks/t14-splitter-migration/README.md)（在 t35 之后，提案里的第一档第 7 项）。
 
+2026-11-18：[t33](tasks/t33-workbench-layer-split/README.md) 完成：工作台层拆进新包 nb-workbench-layout，合入 master（`f0f1a3bdd`），实现审查 7 条处理完（修正 `246ac1cb8`）。[t34](tasks/t34-unified-errors/README.md) 停下等开发者：计划三轮设计审查后仍有 6 条重要问题，推荐拆成“失败的形状”与“诊断”两个 Task、L2 拆码延后；开发者定之前不推进 t35 及以后。
+
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06；t14 于 2026-11-16 排到 t26 之后）。
 - 已知问题（2026-11-18，t26 片 5 验证时发现，master 的 `ba3de16c6` 上同样有）：负载 9 到 10 时，编辑器标签实时布局快速拖到正文右边缘停下，预览有时停在“来源收起”，不换成拆分，松手也没拆（`editor-area.e2e.ts:2171`、`2207`，各重复 6 次约失败 1 次）。从代码推断与“来源收起后指针再动才重判”有关：指针在收起之前就停了。没有排 Task，要修时另建。

@@ -54,7 +54,7 @@ updated: 2026-11-15
 | Task | 内容 |
 |---|---|
 | [t01](tasks/t01-distribution-proposal/README.md) | 发行提案与桌面壳实测选型。已完成：提案 [desktop-distribution](../../../docs/proposals/desktop-distribution.md) 已接受，[ADR 0051](../../../docs/adr/0051-desktop-shell-electrobun-tag-release.md) |
-| [t02](tasks/t02-installer/README.md) | 安装程序：调研后定为继续用 Electrobun 的安装程序，加首次启动向导（外观、桌面快捷方式、开机自启、关窗去向、数据位置）。设计两轮定稿，计划审查中 |
+| [t02](tasks/t02-installer/README.md) | 安装程序：调研后定为继续用 Electrobun 的安装程序，加首次启动向导（外观、桌面快捷方式、开机自启、关窗去向、数据位置）。完成，合入 master（e0012fa24）；Windows 验收第 1 轮通过 |
 | [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏与应用图标。已完成，合入 master；拖动、双击、贴边等真实操作待开发者试 |
 | [t04](tasks/t04-desktop-settings/README.md) | 桌面端专属设置：机制（只在桌面显示的设置分区、页面把值交给壳）、界面缩放、开机自启。已完成，合入 master；真实键盘下的缩放快捷键待开发者试 |
 | [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具：第一版只检测加提示。未开工 |
@@ -74,4 +74,5 @@ updated: 2026-11-15
 | [t17](tasks/t17-window-backdrop/README.md) | 磨砂透明的窗口背景（实验）。已合入 master（f92d24efd），设置缺省关 |
 | [t21](tasks/t21-desktop-polish/README.md) | 开发者 2026-11-18 的第二轮反馈：清理 pc-notype 残留、默认窗口 1600×1000、搜索收窄、标志与项目名对齐、书架顶端像 JetBrains 欢迎页。已完成，合入 master；真实桌面里试书架顶端待开发者 |
 | [t22](tasks/t22-desktop-user-select/README.md) | 桌面壳里界面框架默认不可选中文字，内容区显式可选（2026-11-18 开发者提出）。完成，合入 master（4d07ba077） |
+| [t23](tasks/t23-macos-desktop/README.md) | macOS 桌面版（Apple Silicon，未签名）：GitHub Actions 构建并补传到 Release（2026-11-18 开发者提出，尽力而为）。v0.14.1 的 Release 上已有 DMG，等真机反馈 |
 | [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、CHANGELOG 与由它生成的中文 Release 说明、发版脚本 `release:prepare`、发布手册、安装包改名。已完成，合入 master；推送后演练待开发者授权 |

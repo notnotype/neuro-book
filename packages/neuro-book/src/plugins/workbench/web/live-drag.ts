@@ -14,7 +14,8 @@
  */
 
 import {initialLiveDrop, insideShownSlot, stepLiveDrop} from "@notnotype/nb-layout";
-import type {GridDropPoint, GridDropRect, GridRect, LayoutDoc, LiveDropCandidate, LiveDropState} from "@notnotype/nb-layout";
+import type {GridDropPoint, GridDropRect, GridRect, LiveDropCandidate, LiveDropState} from "@notnotype/nb-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 import {readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
 

@@ -54,6 +54,26 @@ Spec 已按提案、实现定义与上面五处改好（`planned`）：`harness/
 
 14. 计划第一轮审查后主 Agent 定的四处（`resume` 只接着跑中断与暂停的运行；旧日志没有发出者的运行按用户算；恢复方式放进“运行可靠性”分区；只标打开着的会话里只有用户能放行的留着的话）与[计划](plan.md)，开发者 2026-11-18“可以，用 /autonomous-delivery 推进这六片”。
 
+实施中发现：
+
+- `runResumed` 写成路径事件会挂在叶子上，破坏“接着跑之后的请求与原来那次是兄弟”（重试与 swipe，runtime 输出 36）；改成会话级事件，`session.md` 输出 24 随之改。
+- 现有缺口（不是本 Task 引入，master 上同样复现）：工具执行中调用 `preview()` 一直不交回。本 Task 不修，`preview` 的用例改在空闲时测；另建跟进。
+
+- 收口批里推迟的话先随收口写 `inputHeld`、同一批里再被放行；`agent_send` 等去向时以 `inputFate` 为准，事件只作重查信号。
+- 被停止的运行已经收口，之后别的发出者的新话照常开新运行；“受理时就留着”只出在回退出来的暂停运行上。
+
+进展（分支 `feat/w00043-neurobot`）：
+
+| 片 | 提交 | 审查 |
+|---|---|---|
+| 1 内核：条目状态与事件 | 52797139c | 内核实现审查（Opus，有效 11 条）已处理，修正 a1f22dd7f，[处理表](evidences/impl-review-kernel-disposition.md) |
+| 2–3 内核：收口、停止、放行与去向 | bfaed9e53 | 同上 |
+| 4 NeuroBook 后端 | d0f74ddf9 | 后端实现审查（Opus，11 条：阻断 1、重要 6、建议 4）已处理，修正 06e7d4526，[处理表](evidences/impl-review-backend-disposition.md)；修正的窄范围复审在跑 |
+| 5 nb-agent-ui 与 nb-markdown | c4dbf6056 | 与第 6 片一起做前端审查 |
+| 6 NeuroBook 界面 | 进行中 | |
+
+待开发者追认的决定见 Work 的[待确认清单](../../pending-confirmations.md)。
+
 ## 下一步
 
-按计划在 `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`）逐片实施；1–3 片后内核实现审查，第 4 片后后端，5–6 片后界面。
+做第 6 片（`session-host.ts` 的映射与继续、`web/resume-merge.ts`、恢复方式设置、后端审查第 10 条），跑受影响的 e2e，之后派前端实现审查（Sonnet）。

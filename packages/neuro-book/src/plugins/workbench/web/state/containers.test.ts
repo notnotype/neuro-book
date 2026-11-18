@@ -3,8 +3,8 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {floatTab, isPanelShown, isSectionCollapsed, moveTabToEdge, openPanelAtEdge, removeTab, setActiveContainer, setPanelCollapsed, setPanelHidden, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-layout";
+import {floatTab, isPanelShown, isSectionCollapsed, moveTabToEdge, openPanelAtEdge, removeTab, setActiveContainer, setPanelCollapsed, setPanelHidden, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
 
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {ViewCatalog} from "../views/registry";

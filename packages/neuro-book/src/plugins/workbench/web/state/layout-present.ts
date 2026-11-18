@@ -2,8 +2,9 @@
  * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏列哪些入口与点了做什么、焦点丢了去哪。纯模块，不碰 DOM 与记录。
  */
 
-import {findTab, hiddenRegionsAtZero, isFloating, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridContentInput, GridExtent, LayoutDoc, LayoutProjection, PanelName, PanelRecord} from "@notnotype/nb-layout";
+import {findTab, hiddenRegionsAtZero, isFloating, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {GridContentInput, GridExtent} from "@notnotype/nb-layout";
+import type {LayoutDoc, LayoutProjection, PanelName, PanelRecord} from "@notnotype/nb-workbench-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
 

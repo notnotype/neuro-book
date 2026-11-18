@@ -2,7 +2,8 @@
 
 import {describe, expect, it} from "bun:test";
 
-import type {GridDropRect, GridRect, LayoutDoc} from "@notnotype/nb-layout";
+import type {GridDropRect, GridRect} from "@notnotype/nb-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
 import {BAR_STRIP, entryStripOf} from "./entry-drop";
 import type {WorkbenchDropAction} from "./entry-drop";

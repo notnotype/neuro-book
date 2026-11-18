@@ -41,8 +41,8 @@ function onKeydown(event: KeyboardEvent): void {
     <nav ref="root" class="sticker-rail" :aria-label="text('rail.label')" data-sticker-rail @keydown="onKeydown">
         <template v-for="group in groups" :key="group.id">
             <div class="sticker-rail__title">
-                <span>{{ group.title ?? text("rail.mine") }}</span>
-                <IconButton v-if="group.user" size="sm" icon-class="i-lucide-plus" :title="text('rail.new')" :aria-label="text('rail.new')" :disabled="disabled" data-sticker-create @click="emit('create')" />
+                <span>{{ group.title ?? text(group.kind === "builtin" ? "rail.builtin" : "rail.mine") }}</span>
+                <IconButton v-if="group.kind === 'mine'" size="sm" icon-class="i-lucide-plus" :title="text('rail.new')" :aria-label="text('rail.new')" :disabled="disabled" data-sticker-create @click="emit('create')" />
             </div>
             <button
                 v-for="item in group.items"
@@ -50,7 +50,7 @@ function onKeydown(event: KeyboardEvent): void {
                 type="button"
                 class="sticker-rail__item nb-ui-focus-ring-inset"
                 :aria-current="item.id === current ? 'page' : undefined"
-                :aria-label="item.status === 'invalid' ? text('rail.itemLabelInvalid', {title: item.title}) : text(item.unrecognized > 0 ? 'rail.itemLabelProblem' : 'rail.itemLabel', {title: item.title, count: String(item.count)})"
+                :aria-label="item.status === 'invalid' ? text('rail.itemLabelInvalid', {title: item.title}) : text(item.unrecognized > 0 ? 'rail.itemLabelProblem' : item.shadowed === true ? 'rail.itemLabelShadowed' : 'rail.itemLabel', {title: item.title, count: String(item.count)})"
                 :tabindex="item.id === current || (current === null && item.id === groups.flatMap((one) => one.items)[0]?.id) ? 0 : -1"
                 :data-sticker-rail-item="item.id"
                 @click="emit('select', item.id)"
@@ -60,6 +60,7 @@ function onKeydown(event: KeyboardEvent): void {
                 <span class="sticker-rail__name">{{ item.title }}</span>
                 <span v-if="item.status === 'invalid'" class="i-lucide-circle-x sticker-rail__flag" aria-hidden="true" :title="text('rail.invalid')" data-sticker-rail-flag="invalid" />
                 <span v-else-if="item.unrecognized > 0" class="i-lucide-circle-alert sticker-rail__flag" aria-hidden="true" :title="text('rail.problem')" data-sticker-rail-flag="problem" />
+                <span v-else-if="item.shadowed === true" class="i-lucide-eye-off sticker-rail__flag sticker-rail__flag--muted" aria-hidden="true" :title="text('rail.shadowed')" data-sticker-rail-flag="shadowed" />
                 <span class="sticker-rail__count">{{ item.count }}</span>
             </button>
         </template>
@@ -145,6 +146,10 @@ function onKeydown(event: KeyboardEvent): void {
     height: 14px;
     flex-shrink: 0;
     color: var(--status-danger);
+}
+
+.sticker-rail__flag--muted {
+    color: var(--text-muted);
 }
 
 .sticker-rail__count {

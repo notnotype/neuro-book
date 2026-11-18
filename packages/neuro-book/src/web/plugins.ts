@@ -40,6 +40,7 @@ import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
 import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
 import {projectsCatalogs} from "nbook/plugins/projects/web/text";
+import {desktopCatalogs} from "nbook/plugins/desktop/web/text";
 import {settingsBrowserPlugin} from "nbook/plugins/settings/web/plugin";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -104,6 +105,7 @@ export interface BuiltinCatalogs {
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
     "nbook.agent": agentCatalogs,
     "nbook.canon": canonCatalogs,
+    "nbook.desktop": desktopCatalogs,
     "nbook.editor": editorCatalogs,
     "nbook.explorer": explorerCatalogs,
     "nbook.html-preview": htmlPreviewCatalogs,

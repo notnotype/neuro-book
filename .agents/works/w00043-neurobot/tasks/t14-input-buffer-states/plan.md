@@ -73,7 +73,7 @@
 - `agent.ts`：`agentKey` 改为 `perConsumer` 提供（照 `src/server/running-work.ts` 的写法）：别的插件拿到的门面 `session(id, options?)`、`create` 缺省的发出者是 `{kind: "host", source: {plugin: 调用方插件（没有插件的宿主实例取实例 id）, ...source}}`，`{asUser: true}` 时是用户（开发者 2026-11-18 允许插件代替用户发），`startTask` 同样。不另做“指定会话身份”的门面：子代理与任务中心照旧直接用句柄表的 `view(id, issuer)`。测试世界（`testing/world.ts`）的 `service` 包一层 `asUser: true`，现有 28 个测试文件、85 处取视图的写法不变；另加一组用别的插件门面的测试（宿主身份、不能冒充、`asUser`），见 sessions 输出 21。
 - `remote.ts`、`frames.ts`：远程合同仍是用户（开发者 2026-11-18）；远程方法加 `resume`、`release`，`send` 透传新选项与 `placement`；缓冲区条目的投影带新字段（sessions 输出 22）；`activity` 加 `held`（输出 15）。
 - `jobs/steer.ts`：只认就绪的插话，`inputReleased` 里放行出来的插话算到达（jobs 输出 3）。
-- `subagents/tools.ts`（`agent_send`、`runOnChild`）：送话后按 `placement` 分支：`taken`、`later` 等这条输入的结局（内核加一个会话视图上的查询 `inputFate(inputId)`，交回 `{taken: runId} | {held: cause} | {pending}`，配一个按 `inputConsumed`、`inputHeld` 推进的等待），拿到 `runId` 再 adopt 任务或写“留着”的结果；`held` 直接写结果。不带话：父会话能 `start` 就先 `start`，再 `resume`（subagents 输出 10）。不按 `currentRunId` 认任务（提案审查第 1 条）。
+- `subagents/tools.ts`（`agent_send`、`runOnChild`）：送话后按 `placement` 分支：`taken`、`later` 等这条输入的结局（内核加一个会话视图上的查询 `inputFate(inputId)`，交回 `{taken: runId} | {held: cause} | {pending}`，配一个按 `inputConsumed`、`inputHeld` 推进的等待），拿到 `runId` 再 adopt 任务或写“留着”的结果；`held` 直接写结果。不带话：父会话能 `start` 就先 `start`，再 `resume`（subagents 输出 10）。不按 `currentRunId` 认任务（提案审查第 1 条）。（后端实现审查第 3、4 条改：`later` 不在 lane 里等。lane 里发完就走；后台立即交回、不登记任务；前台在 lane 外按事件等这句话的去向（先订阅再查 `inputFate`，`pending` 不是结局），与 `settle` 一样受父会话中止、超时与插话约束，被取走后补占名额、adopt 任务再 `settle`。）
 - `jobs/center.ts`、`subagents/children.ts`、`jobs/tools.ts`、`remote.ts`：`JobDriver.kill(by)` 带发出者，`center.kill(owner, id, by)`；远程 `killJob` 传用户，`kill` 工具与连带中止传父会话（jobs 输出 4、11，实现定义 5，提案审查第 3 条）。
 
 ### `packages/nb-agent-ui/`：适配器与组件
@@ -111,6 +111,10 @@
 | 5 | nb-markdown 的拼接导出、nb-agent-ui 适配器、组件、Lab 场景 | 视图能画新状态 | 同上，加组件 dom 测试 |
 | 6 | NeuroBook 界面接线、设置、会话行与活动 | 用户能停、能继续 | 同上，加 e2e |
 | — | 界面的实现审查（前端） | | |
+
+实施中的调整（2026-11-18）：
+- 第 2、3 片合成一次提交：第 2 片让收口时剩下的话转成留着，放行在第 3 片，单独提交时现有用例与真实行为都停在“话卡住”的中间状态。
+- 每片的验证：`bun run test:affected --with-consumers` 会跑 neuro-book 全量，改为本包 `bun run test` 加 nb-agent-ui、nb-story、neuro-book 的 `typecheck` 与 neuro-book 的 `bun test src/plugins/agent`；第 4 片起再加 `test:affected`。负载高时超时的用例先单独重跑，再在主工作区（不带改动）对照。
 
 第 2 片之前先把清单里的探针改成正式测试（放 `src/kernel/run/buffer.test.ts`，按 Spec 编号命名），先看它们按旧行为失败，再实现。
 
@@ -150,3 +154,22 @@
 - 风险：`settleRun` 把 28 处收口收成一处，改动面最大。由第 2 片之前写好的路径用例兜底（清单 1.1–1.14 每条一例，用真实内核与扩展造的时间窗）；实现审查专门查“有没有收口点没走它”：写 `runEnded` 的地方（`grep -n 'ctrl("runEnded"\|type: "runEnded"' src/kernel`）只剩 settle 的批组装函数与恢复。
 - 风险：`agentKey` 改成按调用方门面后，别的插件经它拿到的身份变成宿主。现在的调用方只有测试世界（包一层 `asUser`）与本插件；`agent.test.ts` 用真实的门面装配测宿主身份。
 - 风险：乐观消息改按 `commandId` 确认后，结果未知时的重发（同一 `commandId`）要仍能对上；`kernel-transcript.test.ts` 加重发用例。
+
+## 附：第 2、3 片的实现细节（2026-11-18，开工时补）
+
+收口（`run/settle.ts`）：
+- `settleInQueue` 只在单写者队列的一项里调用。组批：调用方给的收尾事件（`settleOpen`、`turnEnded` 等）→ `runEnded`（中止时带停止记录的 `stoppedBy`）→ 停止的范围（不保留时清空停的人能取消的、其余与 `keepQueue` 时的就绪的 `inputHeld{heldBy}`）→ 剩下就绪的 `inputHeld{cause: {end, code?}}`（不在“这期间到达的”集合里的）→ 每个停止的 `commandAccepted{aborted: true}` → 推迟的放行。
+- 推迟的放行：先查三种不开（`host.closed()`、待做的重新装配、`startProblem` 或它抛错记 `internal`）；不开时“这期间到达的”另成一条带 `code` 的 `inputHeld`、写诊断 `deferred-start-skipped`。开时把前面的草稿用 `reduceSessionKernel` 叠在当前状态上投影出缓冲区，按每条推迟指令的发出者算能放行的（`releasable`），写 `inputReleased`，再写 `runStarted{by}`（有用户记用户，否则最先的）与取走投影里就绪的第一条。
+- 写批放在 `try`；`finally` 里调 `control.settled(runId, next)`：清当前运行、推 `idle` 帧（`broken` 不改），开了下一次运行就换成它、推 `running`，否则调 `onIdle`；结算 `waitRun`。`launch` 的 `.finally` 对已经 `settled` 的运行什么都不做。
+- 回复没有工具调用的那一步整个在一个队列项里判断：就绪的插话→接着请求；会话要结果→催或收口；就绪的排队→写 `turnEnded` 与取走、接着；都没有→`settleInQueue`。其余收口点（出错、中止、只压缩、交出结果、文字收口）先 `queue.drain()`，再在一项里 `settleInQueue`。
+
+停止（`commands.ts` 的 `abortCommand`，收 `issuer`）：同步判权限（用户；会话要会话头 `caller.id` 是它；宿主要路径归约的 `runBy` 与它同一插件）→ `control.recordStop({runId, by, keep, scope: 缓冲区全部 id, commandId})`：已有记录就只追加 `commandId`；`control` 在 `settleInQueue` 开始组批时置 `#settling`，之后到的 `abort` 交回 `{aborted: false}` → 触发信号 → 等收口批写下，交回其中自己的 `commandAccepted` 的 seq。`closeSession` 不带原因的关闭在 `control` 上记 `closing`，留着的 `cause.code` 是 `session-closed`。
+
+指令（`commands.ts`、`permissions.ts`、`interaction.ts`、`tree.ts`）：
+- `control.takesInput`：有当前运行、不是只压缩的、不在中止中、没开始组收口批。`send`、用户的 `enqueue`、`resume`、`release`、异步回答在 `active && !takesInput` 时写下自己的话（就绪），受理成功后 `control.defer({issuer, mode, inputIds})`，交回去向 `later`；会话、宿主的 `enqueue` 这时写 `inputQueued{state: "held", cause: {queued: "idle"}}`。
+- `send`：`replaces` 先校验（`input-stale`、`not-allowed`），写 `inputRemoved{replaced}`；再写放行（`releasable`，模式取 `release` 选项缺省 `keep`），再写 `inputQueued{commandId}`。空闲时：叶子上有暂停的运行，发出者能接着跑就 `runResumed{by}` 并接着跑，不能就把话写成留着（去向 `held`）；否则 `runStarted{by}`，取投影缓冲区里就绪的第一条开第一轮。
+- `start`、`resume`、`release`：按“附”之前的“关键设计”与 Spec 输出 4、106、107；能不能接着跑读路径归约的 `lastChat` 与 `runBy`。
+- `takeInputDrafts`、`takeSteerDrafts` 带上条目的 `commandId` 与 `inputConsumed.runId`，只取就绪的。
+- 异步回答：放行应答者的，再放回答；开不起来时回答写成留着带码，`resolve` 照常成功。
+- `rewind{resend}`：以视图的发出者入队；落在运行中途时同 `start` 的权限，受理批里直接取走这条（不靠循环取第一条）。
+- NeuroBook 的远程合同从 `commandErrors` 派生方法：新指令进码表的同一次提交里补 `shared/remote.ts` 的参数表，保持 neuro-book 的类型检查通过。

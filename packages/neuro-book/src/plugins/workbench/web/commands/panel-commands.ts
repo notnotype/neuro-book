@@ -6,7 +6,7 @@
 
 import {Type} from "typebox";
 
-import {findTab, isContainerAnchor, isFloating, isSectionCollapsed, sectionCollapseBlock} from "@notnotype/nb-layout";
+import {findTab, isContainerAnchor, isFloating, isSectionCollapsed, sectionCollapseBlock} from "@notnotype/nb-workbench-layout";
 
 import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 

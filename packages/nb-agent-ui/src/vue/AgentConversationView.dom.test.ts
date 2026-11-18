@@ -458,14 +458,22 @@ describe("有子调用的卡片（Spec“有子调用的调用”，验收场景
         view.unmount();
     });
 
-    it("运行中：副标题写已调用几次与正在调的那一个，头部写已用时；结束后不写用时", () => {
-        const running = mountView("zh-CN", {}, {ctx: withEval({status: "running", startedAt: 3_000, children: [children[0], {id: "n4", name: "read", status: "running", args: {path: "第十二章.md"}}]}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
-        expect(card(running).text()).toContain("批量改 · 已调用 2 次 · 读取 第十二章.md");
-        expect(running.get("[data-card-elapsed]").text()).toBe("1:02");
+    it("运行中：副标题写已用时、已调用几次与正在调的那一个（几个同时在跑时是最近受理的）；结束后不写用时", () => {
+        const twoRunning = [children[0], {id: "n4", name: "read", status: "running", args: {path: "第十一章.md"}}, {id: "n5", name: "read", status: "running", args: {path: "第十二章.md"}}];
+        const running = mountView("zh-CN", {}, {ctx: withEval({status: "running", startedAt: 3_000, children: twoRunning}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(card(running).text()).toContain("批量改 · 1:02 · 已调用 3 次 · 读取 第十二章.md");
         running.unmount();
         const done = mountView("zh-CN", {}, {ctx: withEval({status: "success", startedAt: 3_000, children}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
-        expect(done.find("[data-card-elapsed]").exists()).toBe(false);
+        expect(card(done).text()).toContain("批量改 · 调用了 3 次工具");
+        expect(card(done).text()).not.toContain("1:02");
         done.unmount();
+    });
+
+    it("收起时出错、参数无效、结果未知的子调用也露出来", () => {
+        const failing = [children[0], {id: "n6", name: "read", status: "error", args: {path: "番外.md"}, error: "文件不存在"}, {id: "n7", name: "read", status: "invalid", args: {}}, {id: "n8", name: "write", status: "unknown", args: {path: "第三章.md", content: "一"}}];
+        const view = mountView("zh-CN", {}, {ctx: withEval({status: "error", children: failing}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(view.findAll("[data-card-child]").length).toBe(3);
+        view.unmount();
     });
 
     it("原始视图在这次调用下缩进列出全部子调用", () => {

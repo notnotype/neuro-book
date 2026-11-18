@@ -165,6 +165,18 @@ export function waitFor<T>(label: string, probe: () => T | Promise<T>, timeoutMs
 }
 
 /** 经调试端口连上产品页面（`http://127.0.0.1:<端口>/` 的那个，不是启动页）。 */
+/**
+ * 首次启动向导（docs/specs/runtime/desktop-shell.md 输出 34）：冒烟用的是新的状态根，桌面版第一次打开时它以模态框盖住页面，
+ * 命令面板、点击都到不了下面。等它出现、按“跳过”、等它关掉。只在确知会出现时调（新状态根上第一次打开），否则会等到超时。
+ */
+export async function skipFirstRun(page: Page, log: (line: string) => void): Promise<void> {
+    const wizard = page.locator("[data-first-run-wizard]");
+    await wizard.waitFor({timeout: 60_000});
+    await page.locator("[data-first-run-secondary]").click();
+    await wizard.waitFor({state: "detached", timeout: 30_000});
+    log("✓ 首次启动向导：出现了，按“跳过”关掉");
+}
+
 export async function connectPage(port: number, webViewData: string, timeoutMs = 120_000): Promise<{browser: Browser; page: Page}> {
     let browser: Browser;
     try {

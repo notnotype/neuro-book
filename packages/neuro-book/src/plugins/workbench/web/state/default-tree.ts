@@ -2,8 +2,10 @@
  * 默认树与视图的第一次落位（docs/specs/ui/workbench-layout.md 输出 1、4）。纯函数。
  */
 
-import {barOfRef, barRef, findTreeNode, GRID_SNAPSHOT_VERSION, isContainerAnchor, openPanelAtEdge, panelRef, REGION_ORIENTATION, setContainerEntries, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, GridOrientation, LayoutBar, LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-layout";
+import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {barOfRef, barRef, findTreeNode, isContainerAnchor, openPanelAtEdge, panelRef, REGION_ORIENTATION, setContainerEntries, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {GridExtent, GridOrientation} from "@notnotype/nb-layout";
+import type {LayoutBar, LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-workbench-layout";
 
 import type {ViewCatalog} from "../views/registry";
 import {SHELL_ACTIVITYBAR_WIDTH, SHELL_SIZE_DEFAULTS, SHELL_STATUSBAR_HEIGHT} from "../shell/sizes";

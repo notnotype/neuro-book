@@ -23,8 +23,11 @@ const {t, locale} = useAgentText();
 
 const renderer = computed(() => props.registry.resolveTool(props.call.name));
 const adapter = computed(() => renderer.value.detail ?? null);
-/** 没有详情组件时画渲染器给的 diff；给不出（null）时与没有适配一样，显示原始数据。 */
-const diffLines = computed(() => (adapter.value === null ? renderer.value.diff?.(props.call) ?? null : null));
+/**
+ * 没有详情组件时画渲染器给的 diff；给不出（null）时与没有适配一样，显示原始数据。参数只给了预览的（`argsPreview`）不画 diff：
+ * 截短的内容会被画成改动。
+ */
+const diffLines = computed(() => (adapter.value === null && props.call.argsPreview !== true ? renderer.value.diff?.(props.call) ?? null : null));
 const adapted = computed(() => adapter.value !== null || diffLines.value !== null);
 </script>
 

@@ -2,8 +2,10 @@
  * 面板的约束（docs/specs/ui/workbench-layout.md 输出 5、6）：工作台给 nb-layout 的策略。库不知道角色与名字的含义。
  */
 
-import {findTreeNode, GRID_UNBOUNDED, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, GridOrientation, LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelName, PanelRecord, TabRef} from "@notnotype/nb-layout";
+import {GRID_UNBOUNDED} from "@notnotype/nb-layout";
+import {findTreeNode, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {GridExtent, GridOrientation} from "@notnotype/nb-layout";
+import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelName, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
 
 import {
     SASH_PX,

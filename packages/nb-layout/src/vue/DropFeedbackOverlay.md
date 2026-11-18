@@ -27,8 +27,8 @@ import type {GridOrientation} from "./grid-types";
 type DropFeedbackPreview = Readonly<{
     /** 内容落点半区或空容器内容盒；无此形状时为 null。 */
     readonly areaRect: GridDropRect | null;
-    /** 切换器条目高亮盒；无此形状时为 null。 */
-    readonly entryRect: GridDropRect | null;
+    /** 宿主给的次级高亮盒（例如工作台入口条上的入口）；不给或为 null 时不画。 */
+    readonly entryRect?: GridDropRect | null;
     /** 插入线盒；无此形状时为 null。 */
     readonly indicator: GridDropRect | null;
     /** 目标容器主轴；决定插入线的长短轴。 */

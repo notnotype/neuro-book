@@ -447,7 +447,7 @@ export class StickerEditor {
     }
 
     /**
-     * 复制到我的（输出 32）：插件包里的清单与顶层图片，合计至多 `COPY_BYTES_MAX`。先记下插件根的版本，写进暂存，提交前再核对一次，
+     * 复制到我的（输出 32）：插件或内置的包里的清单与顶层图片，合计至多 `COPY_BYTES_MAX`。先记下插件根的版本，写进暂存，提交前再核对一次，
      * 变了（插件途中撤回或换了版本）就丢弃暂存、得 `pack-changed`。
      */
     async copyPack(id: string): Promise<Edited<{readonly id: string}>> {
@@ -461,7 +461,7 @@ export class StickerEditor {
             const copied = await this.#copyInto(item.directory, staging);
             if (!copied.ok || this.#options.catalog.rootVersion(item.root) !== version || this.#options.catalog.item(id) === undefined) {
                 await this.#discard(staging);
-                return copied.ok ? failed("pack-changed", "复制途中插件换了版本，再试一次") : copied;
+                return copied.ok ? failed("pack-changed", "复制途中表情包变了（插件换了版本或被停用），再试一次") : copied;
             }
             return this.#publish(staging, candidates);
         }));
@@ -669,17 +669,17 @@ export class StickerEditor {
         return {ok: true, value: {id: packId(USER, base)}};
     }
 
-    /** 从插件包的文件夹（目录记下的真实目录，同扫描）读清单与顶层图片，跳过链接与别的文件，写进暂存。 */
+    /** 从插件或内置的包的文件夹（目录记下的真实目录，同扫描）读清单与顶层图片，跳过链接与别的文件，写进暂存。 */
     async #copyInto(directory: string, staging: string): Promise<Edited<null>> {
         const children = await readdir(directory, {withFileTypes: true}).catch(() => null);
-        if (children === null) return failed("pack-missing", "插件的表情包列不出来");
+        if (children === null) return failed("pack-missing", "要复制的表情包列不出来");
         const names = children.filter((child) => child.isFile() && (child.name === MANIFEST_FILE || isImageFileName(child.name))).map((child) => child.name).sort(byCodeUnit);
         let total = 0;
         for (const name of names) {
             const bytes = await readFile(join(directory, name)).catch(() => null);
             if (bytes === null) return failed("pack-changed", `读不了 ${name}`);
             total += bytes.length;
-            if (total > COPY_BYTES_MAX) return failed("too-large", "插件的表情包超过 64 MiB，不能复制");
+            if (total > COPY_BYTES_MAX) return failed("too-large", "要复制的表情包超过 64 MiB，不能复制");
             const written = await this.#files.write(fileAddress(staging, name), new Uint8Array(bytes), {expect: "absent", createParents: true});
             if (!written.ok) return failed(filesFailure(written.code), written.detail);
         }

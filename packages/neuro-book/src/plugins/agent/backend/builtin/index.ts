@@ -9,7 +9,7 @@
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
-import {builtinDeclarations, builtinTools as kitTools} from "@notnotype/nb-harness/kit/tools";
+import {builtinDeclarations, builtinTools as kitTools, READ_RETURNS} from "@notnotype/nb-harness/kit/tools";
 import type {KitToolImplementation, SessionEditStores, ShellBackground} from "@notnotype/nb-harness/kit/tools";
 
 import {TOOLS_POINT} from "../../shared/points";
@@ -24,7 +24,8 @@ import {BUILTIN_TOOL_TEXTS} from "./texts";
 const kit = builtinDeclarations(BUILTIN_TOOL_TEXTS, {shellBackground: true});
 
 const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
-    "nbook.agent.read": {...kit.read, providerName: "read"},
+    // 代码里调时交回对象（原文与分页分开，eval.md 输出 7）：形状由套件的 read 给出。
+    "nbook.agent.read": {...kit.read, providerName: "read", returns: READ_RETURNS},
     "nbook.agent.write": {...kit.write, providerName: "write"},
     // 给模型的名字相同：Profile 只绑一条，同一会话绑了两条按 harness/runtime.md 输出 15 处理。
     "nbook.agent.edit": {...kit.edit, providerName: "edit"},

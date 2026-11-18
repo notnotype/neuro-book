@@ -733,7 +733,8 @@
             "goneGroup": "Deleted or unavailable",
             "removedGroup": "Removed",
             "groups": {
-                "user": "My sticker packs"
+                "user": "My sticker packs",
+                "builtin": "Built-in sticker packs"
             },
             "invalid": "Invalid",
             "count": "{{count}} stickers"

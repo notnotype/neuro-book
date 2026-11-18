@@ -3,8 +3,8 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {isPanelShown, regionNodeOf, setPanelCollapsed, setPanelHidden} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-layout";
+import {isPanelShown, regionNodeOf, setPanelCollapsed, setPanelHidden} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
 
 import type {ViewDeclaration, ViewLocation} from "../shared/views";
 import {applyEntryDrop, barSpotAt, barStopsOf, entryDropAt} from "./entry-drop";

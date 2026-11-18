@@ -86,6 +86,8 @@ export class Kernel {
             this.#current?.handlers.text(text);
         });
         this.exited = this.#child.exited.then(() => {
+            // 内核自己退出时（崩溃、`process.exit`）它起的子进程还在：整组结束（eval.md 输出 13）。
+            this.#killGroup();
             const exit: KernelExit = {code: this.#child.exitCode, signal: this.#child.signalCode, stderrTail: this.#stderrTail, intentional: this.#intentional};
             const current = this.#current;
             this.#current = null;
@@ -155,14 +157,18 @@ export class Kernel {
     async kill(): Promise<KernelExit> {
         if (this.alive) {
             this.#intentional = true;
-            try {
-                process.kill(-this.#child.pid, "SIGKILL");
-            } catch {
-                // 不是组长（平台不支持进程组）或组已经没了：至少结束内核自己。
-                this.#child.kill("SIGKILL");
-            }
+            this.#killGroup();
         }
         return this.exited;
+    }
+
+    #killGroup(): void {
+        try {
+            process.kill(-this.#child.pid, "SIGKILL");
+        } catch {
+            // 不是组长（平台不支持进程组）或组已经没了：至少结束内核自己（已经退出的再杀一次也无妨）。
+            this.#child.kill("SIGKILL");
+        }
     }
 
     #send(message: HostMessage): void {

@@ -1,17 +1,17 @@
 /**
- * 在 Windows 上构建一个桌面变体（w00046 t11 计划的“构建分工”）：把这个 `desktop/` 工程复制到 `--out`，放进别处做好的
+ * 在 Windows 或 macOS 上构建一个桌面变体（w00046 t11 计划的“构建分工”，t23 加了 macOS）：把这个 `desktop/` 工程复制到 `--out`，放进别处做好的
  * `bundle/` 与 `payload/`（`scripts/build.ts` 的输出，发布流水线由 ubuntu 作业做好、作为产物传过来），再 `hutch install`、
  * `hutch electrobun build --env=stable`。每个变体一份工程目录：Hutch 每次构建都清空 `artifacts/`，文件名里也没有标识与版本，
  * 在同一目录里先后构建会互相覆盖。
  *
- * 用法（Windows，Hutch 已在 PATH 上）：
+ * 用法（Windows 或 macOS，Hutch 已在 PATH 上；macOS 只构建正式变体）：
  *   bun desktop/scripts/build-variant.ts --inputs <有 bundle/ 与 payload/ 的目录> --out <新目录> --version <预期版本>
  *     [--identifier <测试标识> --base-url <测试更新源> [--previous-feed <上一个测试变体的产物目录>]]
  *
  * 正式变体不给后两个参数，标识与更新源用 `electrobun.config.ts` 的缺省；更新冒烟的 A′、B′ 两个都给（测试包装进另一个目录、
  * 从本机更新源取更新）。B′ 另给 `--previous-feed`：构建期间在测试更新源的端口上放 A′ 的产物，Hutch 从那里取上一版做补丁
  * （`electrobun.config.ts` 的 `generatePatch`）；请求记录在 `<out>/previous-feed.log`。
- * 构建前核对壳与载荷的版本，构建后核对 `stable-win-x64-update-v2.json` 的版本与标识。
+ * 构建前核对壳与载荷的版本，构建后核对 `stable-<平台>-update-v2.json` 的版本与标识（平台见 `artifactNames`）。
  * Hutch 的输出原样转到 stdout，另存一份 `<out>/hutch-build.log`（没有补丁时原因在这里）。
  * 退出码：0 成功；1 失败；2 用法错误。
  */
@@ -27,7 +27,17 @@ const DESKTOP = join(import.meta.dir, "..");
 /** 工程里 Hutch 要的源文件；`bundle/`、`payload/` 来自 `--inputs`，`build/`、`artifacts/`、`node_modules/` 是输出。 */
 const PROJECT_FILES = ["electrobun.config.ts", "hutch.config.ts", "package.json", "src", "assets"];
 const OFFICIAL_IDENTIFIER = "io.github.notnotype.neurobook";
-const REQUIRED_ARTIFACTS = ["win-x64-NeuroBook-Setup.zip", "stable-win-x64-NeuroBook.tar.zst", "stable-win-x64-update.json", "stable-win-x64-update-v2.json"];
+/**
+ * 本机平台上 Hutch 的稳定版产物名（Electrobun 2.0.6 文档的“Artifact Names”）：更新清单与完整包带 `stable-<os>-<arch>-` 前缀，
+ * 安装包不带。Windows 只有 x64；macOS 按本机架构。
+ */
+function artifactNames(platform: string, arch: string): {readonly required: readonly string[]; readonly manifest: string} {
+    if (platform === "darwin") {
+        const prefix = `macos-${arch}`;
+        return {required: [`${prefix}-NeuroBook.dmg`, `stable-${prefix}-NeuroBook.app.tar.zst`, `stable-${prefix}-update.json`, `stable-${prefix}-update-v2.json`], manifest: `stable-${prefix}-update-v2.json`};
+    }
+    return {required: ["win-x64-NeuroBook-Setup.zip", "stable-win-x64-NeuroBook.tar.zst", "stable-win-x64-update.json", "stable-win-x64-update-v2.json"], manifest: "stable-win-x64-update-v2.json"};
+}
 
 class UsageError extends Error {}
 class BuildFailure extends Error {}
@@ -109,9 +119,10 @@ async function buildVariant(options: Options): Promise<void> {
 
     const artifacts = join(options.out, "artifacts");
     const names = existsSync(artifacts) ? await readdir(artifacts) : [];
-    const missing = REQUIRED_ARTIFACTS.filter((name) => !names.includes(name));
-    if (missing.length > 0) throw new BuildFailure(`产物里缺 ${missing.join("、")}`);
-    const manifest = JSON.parse(await readFile(join(artifacts, "stable-win-x64-update-v2.json"), "utf8")) as {version?: unknown; identifier?: unknown};
+    const expected = artifactNames(process.platform, process.arch);
+    const missing = expected.required.filter((name) => !names.includes(name));
+    if (missing.length > 0) throw new BuildFailure(`产物里缺 ${missing.join("、")}（有 ${names.join("、")}）`);
+    const manifest = JSON.parse(await readFile(join(artifacts, expected.manifest), "utf8")) as {version?: unknown; identifier?: unknown};
     const identifier = options.test?.identifier ?? OFFICIAL_IDENTIFIER;
     if (manifest.version !== options.version || manifest.identifier !== identifier) {
         throw new BuildFailure(`update-v2.json 是 ${String(manifest.identifier)} ${String(manifest.version)}，应当是 ${identifier} ${options.version}`);

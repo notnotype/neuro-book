@@ -8,7 +8,7 @@
  * （输出 25 第 0 行、39），要标签条、中央的用例先搭一个浮动窗（`floatOfTwo`）。
  *
  * 不在这里的：
- * - 落点判定的逐行规则（`nb-layout` 的 `layout-drop.test.ts`）、会话的取消路径（Escape、失去指针捕获、窗口失焦、拖动中的按键归会话、
+ * - 落点判定的逐行规则（`nb-workbench-layout` 的 `layout-drop.test.ts`）、会话的取消路径（Escape、失去指针捕获、窗口失焦、拖动中的按键归会话、
  *   触摸起拖）：`lab-drag-session.e2e.ts`；
  * - 内容在面板之间滑动的组件级判据：`lab-grid-panels.e2e.ts`，这里只留产品页上的一条（验收 1）；
  * - 编辑器标签在编辑组之间的拖动（固定分区、多行、合并同一标签）：`editor-area.e2e.ts`，这个外壳的编辑器是样例，没有标签；

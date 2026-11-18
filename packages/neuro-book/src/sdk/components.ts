@@ -39,8 +39,10 @@ export type {
     FieldContext,
 } from "@notnotype/nb-ui/components";
 
-export {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, SortableList, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
-export type {DropFeedbackPreview, SplitterPanelConfig, TabStripItem, TabStripPartition} from "@notnotype/nb-layout/vue";
+export {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, SortableList, Splitter} from "@notnotype/nb-layout/vue";
+export {TabStrip} from "@notnotype/nb-workbench-layout/vue";
+export type {DropFeedbackPreview, SplitterPanelConfig} from "@notnotype/nb-layout/vue";
+export type {TabStripItem, TabStripPartition} from "@notnotype/nb-workbench-layout/vue";
 export type {
     GridBranchChange, GridGestureCommit, GridGesturePreview,
     SplitterGestureCancelReason, SplitterGestureCancellation, SplitterGestureSource, SplitterGestureState,

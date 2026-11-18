@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 拖放的拖影与落点反馈（同名 .md）：受控，只画宿主算好的东西。 */
-import type {GridDropPoint, LayoutDropSectorId} from "@notnotype/nb-layout";
+import type {GridDropPoint} from "@notnotype/nb-layout";
+import type {LayoutDropSectorId} from "@notnotype/nb-workbench-layout";
 import {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay} from "@notnotype/nb-layout/vue";
 import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";

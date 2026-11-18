@@ -7,7 +7,7 @@ import {describe, expect, test} from "bun:test";
 import type {StickerPackDetail, StickerPackSummary} from "../shared/contracts";
 import {addCellGroup, afterRemoval, extraKey, firstPackId, gridGroups, moveSelection, railGroups, sizeLabel, stickerKey} from "./pack-view";
 
-const summary = (id: string, source: "user" | "plugin" = "user", plugin?: {id: string; title: string | null}): StickerPackSummary => ({
+const summary = (id: string, source: StickerPackSummary["source"] = "user", plugin?: {id: string; title: string | null}): StickerPackSummary => ({
     id, folder: id.slice(id.lastIndexOf(".") + 1), source, ...(plugin === undefined ? {} : {plugin}), title: id, status: "ok", count: 1, thumbnail: null, unrecognized: 0, unlisted: 0,
 });
 
@@ -24,10 +24,17 @@ describe("左栏", () => {
       summary("user.bird"),
       summary("acme.zoo.a", "plugin", {id: "acme.zoo", title: "动物园"}),
     ]);
-    expect(groups.map((group) => [group.id, group.title, group.items.map((item) => item.id)])).toEqual([
-      ["mine", null, ["user.bird", "user.cat"]],
-      ["acme.ant", "acme.ant", ["acme.ant.a"]],
-      ["acme.zoo", "动物园", ["acme.zoo.a", "acme.zoo.b"]],
+    expect(groups.map((group) => [group.id, group.kind, group.title, group.items.map((item) => item.id)])).toEqual([
+      ["mine", "mine", null, ["user.bird", "user.cat"]],
+      ["acme.ant", "plugin", "acme.ant", ["acme.ant.a"]],
+      ["acme.zoo", "plugin", "动物园", ["acme.zoo.a", "acme.zoo.b"]],
+    ]);
+    // 内置的在最后一组；没有内置包时不画这一组。
+    const withBuiltin = railGroups([summary("builtin.lyra-chibi", "builtin"), summary("user.cat"), summary("builtin.lyra", "builtin"), summary("acme.ant.a", "plugin", {id: "acme.ant", title: null})]);
+    expect(withBuiltin.map((group) => [group.id, group.kind, group.items.map((item) => item.id)])).toEqual([
+      ["mine", "mine", ["user.cat"]],
+      ["acme.ant", "plugin", ["acme.ant.a"]],
+      ["builtin", "builtin", ["builtin.lyra", "builtin.lyra-chibi"]],
     ]);
     expect(firstPackId(groups)).toBe("user.bird");
     expect(firstPackId(railGroups([summary("acme.ant.a", "plugin", {id: "acme.ant", title: null})]))).toBe("acme.ant.a");

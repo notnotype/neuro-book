@@ -158,17 +158,17 @@ owners:
 85. 输入记下发出者：`send`、`enqueue` 经 `as(issuer)` 以会话或宿主的身份发出时，`inputQueued` 与之后路径上的 `input`、`steer` 都写 `by`（会话 `{kind: "session", id}`，宿主 `{kind: "host", source}`）；用户发的不写 `by`，读作用户（旧日志同样）。异步提问的回答进缓冲区时，`by` 是应答者，用户应答同样不写。`inputQueued`、`input`、`steer` 另记受理它的 `commandId`；`inputConsumed` 记取走它的运行 `runId`。`rewind{resend}` 入队的话同样写发出者。`runStarted`（含只压缩的运行）、`runResumed` 记开或接着跑这次运行的发出者 `by`（规则同上，用户不写；放行开的运行记放行者）；`runEnded{aborted}` 记停的人 `stoppedBy`（用户写 `{kind: "user"}`，没有停的人的中止不写）。`by` 不进给模型的请求；给模型的来源说明由宿主的 Profile 渲染。
 86. （已删除）
 87. 调用的唯一身份：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
-88. 指令交回运行：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。话最后由哪次运行取走以去向（输出 110）与缓冲区事件为准，不按 `currentRunId` 认。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
+88. 指令交回运行：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。话最后由哪次运行取走以去向（输出 110）与缓冲区事件为准，不按 `currentRunId` 认。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给；运行不再取输入时的异步回答推迟到收口，也不给。
 89. 内核调模型端口的 `call` 时另给这次调用的说明：会话 id、请求序号与请求哈希（与这次的 `modelStarted` 的 `request`、`hash` 相同）、所在的轮（轮 id、这一轮在当前路径上的序号；开这一轮的是用户的话时还有那段话；轮外不给）、改过这次请求的扩展（只算这一次 `next` 经过的那几层，一层调两次 `next` 时两次各算各的；`modelStarted.modifiedBy` 同样按此）；`complete()` 的调用没有说明。说明里还可以带一个观察者，由宿主包在端口外面时传进去，适配器把它拿得到的线上事实交给它（[`models.md`](models.md) 输出 20）。不认识说明的端口照常工作。（planned）
 90. 代码调用的入口：声明 `invokes: true` 的工具执行时，`ToolContext` 有 `invoke(tool, args, {signal?, onWaiting?})`，交回这次调用的结局 `NestedOutcome{status, text, code?, details?, images?}`，`status` 必填，是 `ok`、`error`、`denied`、`blocked`、`unknown` 之一；`invoke` 不抛，受理不了的也以结局交回。`onWaiting(true)` 在这个嵌套调用开始等用户应答（输出 94 的审批或同步提问）时调，`onWaiting(false)` 在应答到了时调。没声明的工具拿不到 `invoke`。经 `invoke` 发起的调用（嵌套调用）拿到的 `ToolContext` 没有 `invoke`，另有 `within: {tool, invocation}`（父调用的工具 id 与 `invocation`）。
 91. 嵌套调用的身份：每个嵌套调用受理时得到一个全局唯一的 id，与任何调用的 `callId` 都不同；它的 `ToolContext.callId` 与 `invocation` 都是这个 id，事件、审批与提问的事项、恢复都按它关联。
-92. 准入：按调用这一刻的生效工具集判，审批等到之后、执行之前再判一遍（等的时候工具可能被移出）。目标不在生效工具集得 `error`、码 `unknown-tool`；是收尾工具、声明了 `invokes`、或声明 `codeCallable: false` 的工具得 `error`、码 `invoke-not-allowed`；参数不是能如实写进日志的 JSON（[`session.md`](session.md)“事件”一节的“值”）得 `error`、码 `invalid-arguments`。之后照输出 18 校验参数、只读模式、调审批钩子，钩子的 `ApprovalCtx` 多一个 `within`。
+92. 准入：按调用这一刻的生效工具集判，审批等到之后、执行之前再判一遍（等的时候工具可能被移出）；放行之后在排队等执行（输出 98）时只读或审批模式变了，按现在的设置重新判定，要问就再问，已经拒绝的不重新判定（同输出 79）。目标不在生效工具集得 `error`、码 `unknown-tool`；是收尾工具、声明了 `invokes`、或声明 `codeCallable: false` 的工具得 `error`、码 `invoke-not-allowed`；参数不是能如实写进日志的 JSON（[`session.md`](session.md)“事件”一节的“值”）得 `error`、码 `invalid-arguments`。之后照输出 18 校验参数、只读模式、调审批钩子，钩子的 `ApprovalCtx` 多一个 `within`。
 93. 只走代码的工具：声明带 `global: {object, method}` 的工具不进请求的工具清单与 Profile 看到的工具列表，也不进 `notice{tools-changed}` 的文字（只有这类工具变了时只写 `toolsAnnounced`、不写提醒），照样进 `toolsAnnounced`（条目标 `code: true`）；模型直接发起的调用指向它得 `error`、码 `code-only`。
 94. 嵌套的询问与提问：审批钩子判 `ask` 时立即写 `interactionRequested{kind: "approval"}`，事项带 `within` 与嵌套调用的 id，等应答后才往下走，不并进输出 79 的批量阶段；运行状态 `waiting{pending}` 列出它。嵌套工具经 `ctx.ask` 提问时事项同样带 `within`。应答的规则同顶层（输出 39、40）。
 95. 改派之后：拦截层把嵌套调用改成别的工具或参数时，对最终的调用再判一遍输出 92 的准入与参数；改成 `concurrency` 与原工具不同的工具得 `error`、码 `invoke-not-allowed`。顶层调用被改派到输出 93 的工具得 `code-only`。
 96. 嵌套调用的事件：开始执行时写 `nestedToolStarted{id, within, tool, args, approval: {by}}`。每个嵌套调用（包括没开始的）有且只有一条 `nestedToolResult{id, within, tool, args, status, code?, by?, preview, size, imageCount?}`：`args` 是实际执行的参数，没开始的是调用方传入的，其中超过 2 KB 的字符串截成前 2 KB 并注明总字节数，截过时两种事件都带 `argsClipped: true`（界面据此不按参数算增删行数）；`preview` 是结果文字的前 2 KB（按 UTF-8 字节，不切断字符），`size` 是全文的字节数，`imageCount` 是图片张数（没有不写）；全文、`details` 与图片不写进日志。两种事件都是 path 的 ctrl 事件，各自单独成一个写入批。
 97. 嵌套调用不进请求：组请求不投影输出 96 的事件；`toolStarted`、`toolResult` 里没有嵌套调用，按它们归约的扩展看不到嵌套调用（要看的扩展按事件名订输出 96 的事件）；压缩时放回最近文件把嵌套调用成功读写的文件算在内；父调用的 `toolResult` 照常。出站过滤（输出 54）对这两种事件，`args` 按工具参数、`preview` 按工具结果交给 `mapEventContent`。
-98. 嵌套调用的并发：同一个父调用的嵌套调用里，`shared` 的并发执行；`exclusive` 的等这个父调用在途的嵌套调用都结束才开始，执行期间不开始别的。
+98. 嵌套调用的并发：同一个父调用的嵌套调用里，`shared` 的并发执行；`exclusive` 的等这个父调用在途的嵌套调用都结束才开始，执行期间不开始别的。排队时被取消（调用方给的 `signal`、父调用收口）的调用当场出队，不挡排在它后面的。
 99. 嵌套调用的上限：一个父调用至多 2,000 个嵌套调用，之后的得 `error`、码 `invoke-limit`。
 100. 嵌套调用的收口：嵌套调用的中止信号是运行的信号与 `invoke` 传入的 `signal` 合并。信号触发后按输出 25 的宽限期结算这个父调用在途的嵌套调用（没开始的 `denied`、码 `aborted`；开始了没完成的 `unknown`、码 `aborted`；宽限期之后到的只诊断 `late-result-dropped`），结算写完 `invoke` 才交回。父调用的执行交回时还有在途的嵌套调用，同样结算之后才写父调用的结果；之后再调 `invoke` 得 `error`、码 `parent-finished`。
 101. 嵌套调用的恢复：打开会话结算上次没收口的运行时（[`session.md`](session.md) 输出 15），嵌套调用在同一批结算：等审批的事项结算为 `interrupted`，写 `nestedToolResult{status: "denied", code: "interrupted-before-approval"}`；开始执行没有结果的写 `unknown`、码 `interrupted`；嵌套的同步提问结算为 `interrupted`。
@@ -186,7 +186,7 @@ owners:
     | 会话、宿主 | 自己排的，且 `heldBy` 不是用户 |
 
     放行出来的排队在新话之前取（留着的先跑）；新话是插话时，它照输出 28 在下一个边界进当前这一轮，可能早于放行出来的排队。`mode` 是 `send` 的 `release` 选项（输出 107），缺省 `keep`：`keep` 各保持原模式；`followups` 都转成排队，一条一轮。放行时会话空闲就开运行（输出 2），在跑就转成就绪，按取的规则在之后的边界或一轮结束时取。
-106. `resume({mode?})` 只放行、不送新话，范围同输出 105 的表，`mode` 同 `send` 的 `release`。会话空闲时：叶子上有被中断（`interrupted`）或暂停、且发出者能接着跑（输出 4、108）的运行时，先接着跑它（暂停的写 `runResumed`，中断的开“继续”运行；被停止与出错的运行不接着跑，要接着跑用 `start`），放行出来的随后按取的规则取；否则用放行出来的开新运行，第一条开第一轮。会话、宿主的 `resume` 不接着跑别人开的运行；叶子上有它不能接着跑的暂停的运行时得 `not-allowed`（输出 36）。没有能放行的、也没有可接着跑的得 `nothing-to-resume`；有留着的、但都是 `heldBy` 为用户而发出者不是用户时得 `held-by-user`。在跑时只放行。开不起运行时照输出 5 失败，话仍留着。
+106. `resume({mode?})` 只放行、不送新话，范围同输出 105 的表，`mode` 同 `send` 的 `release`。会话空闲时：叶子上有被中断（`interrupted`）或暂停、且发出者能接着跑（输出 4、108）的运行时，先接着跑它（暂停的写 `runResumed`，中断的开“继续”运行；被停止与出错的运行不接着跑，要接着跑用 `start`），放行出来的随后按取的规则取；否则用放行出来的开新运行，第一条开第一轮。会话、宿主的 `resume` 不接着跑别人开的运行；叶子上有它不能接着跑的暂停的运行时得 `not-allowed`（输出 36）。没有能放行的、也没有可接着跑的得 `nothing-to-resume`；放行不了任何一条、而留着的话里有 `heldBy` 为用户的、发出者又不是用户时得 `held-by-user`。在跑时只放行。运行不再取输入时受理成功、放行推迟到收口（输出 104），交回的 `released` 为空、`runId` 为 null；`held-by-user` 在受理时就判。开不起运行时照输出 5 失败，话仍留着。
 107. `release({inputIds})` 按条放行，权限同输出 105 的表：有一条不在缓冲区或不是留着的得 `nothing-to-release`（`detail` 带这些 id），有一条 `heldBy` 是用户而发出者不是用户得 `held-by-user`，有一条不是这个发出者排的而发出者不是用户得 `not-allowed`；有一项不合格就都不放行。空闲时放行后开运行同输出 106。`send` 另有两个选项：`release: "keep" | "followups"` 定放行出来的怎么跑（输出 105）；`replaces: [{id, edits}]` 是条件写入：每项是一条留着的话与它被改过的次数，同一个受理批里先把它们移除（`inputRemoved{by, reason: "replaced", replacedBy: 新输入的 id}`），再放行其余能放行的，再写新输入；任一项已不在缓冲区或 `edits` 对不上时，整条以 `input-stale` 失败、什么都不写；不是这个发出者能移除的（同输出 29）得 `not-allowed`。拼新输入是宿主的事，内核不看被替换的内容。
 108. 指令按发出者的权限，不允许时得 `not-allowed`，不写日志：
 
@@ -200,7 +200,7 @@ owners:
 
     表里没有的指令不按发出者区分。应答审批与提问的规则不变（输出 41）。
 109. 已经留着的话，之后再有运行收口或停止时不改它的 `cause` 与 `heldBy`；放行后再留着时按那一次重新记。
-110. `send` 的成功值带这条话的去向 `placement`：`taken`（交给这次开的、接着跑的或正在取输入的运行）、`later`（运行不再取输入，收口后随放行开的下一次运行跑，输出 104）、`held`（留着：不能接着跑叶子上暂停的运行，输出 36）。这是受理时的去向：`taken` 的话在那次运行以任何方式收口而还没取走时，`later` 的话在收口批没开起运行时，都转成留着。调用方要知道最后的去向，看这条话的 `inputConsumed`（带取走它的运行 `runId`）或 `inputHeld`，或用会话视图的查询 `inputFate(inputId)`：交回 `{taken: runId}`、`{held: cause}`、`{removed: reason}`、`{pending}`（还在缓冲区里、就绪），不是这个会话里入过队的得 `input-not-found`；不经出站过滤（同 `runResult`）。
+110. `send` 的成功值带这条话的去向 `placement`：`taken`（交给这次开的、接着跑的或正在取输入的运行）、`later`（运行不再取输入，收口后随放行开的下一次运行跑，输出 104）、`held`（留着：不能接着跑叶子上暂停的运行，输出 36）。这是受理时的去向：`taken` 的话在那次运行以任何方式收口而还没取走时，`later` 的话在收口批没开起运行时，都转成留着。调用方要知道最后的去向，看这条话的 `inputConsumed`（带取走它的运行 `runId`）或 `inputHeld`，或用会话视图的查询 `inputFate(inputId)`：交回 `{taken: runId}`、`{held: cause}`、`{removed: reason}`、`{pending}`（还在缓冲区里、就绪），不是这个会话里入过队的交回 null；不经出站过滤（同 `runResult`）。
 
 ## 状态与转换
 

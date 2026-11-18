@@ -11,7 +11,8 @@ import StickerSlot from "./StickerSlot.vue";
 /** 表情包页属性栏：选中一个格子时（同名 .md）。 */
 const props = withDefaults(defineProps<{
     item: GridItem;
-    folder: string;
+    /** 写法的包段（服务端在完整目录上算好的，输出 14）。 */
+    writing: string;
     readonly?: boolean;
     commit: (change: {name?: string | null; description?: string | null; common?: boolean}) => Promise<string | null>;
 }>(), {readonly: false});
@@ -29,7 +30,7 @@ const description = useCommittedText(() => props.item.description ?? "", (value)
 /** 认不出的图（名字当不了表情名）与没加进来的图。 */
 const problem = computed(() => props.item.reason === "name");
 const unlisted = computed(() => props.item.reason === "unlisted");
-const syntax = computed(() => `:${props.folder}/${props.item.name ?? ""}:`);
+const syntax = computed(() => `:${props.writing}/${props.item.name ?? ""}:`);
 /** 常用开关是受控的：失败时弹回原值，原因写在状态行里。 */
 const toggleError = ref("");
 watch(() => props.item.common, () => {

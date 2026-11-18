@@ -14,7 +14,7 @@ const sticker = (name: string) => ({name, width: 128, height: 128, url: `/img/${
 const PACKS: BrowserStickerPack[] = [
     {id: "acme.dogs.dog", folder: "dog", title: "小狗", source: "plugin", plugin: {id: "acme.dogs", title: "汪汪"}, writing: "dog", stickers: [sticker("开心"), sticker("握手")]},
     {id: "alpha.cats.lyra", folder: "lyra", title: "星璃（插件）", source: "plugin", plugin: {id: "alpha.cats", title: "阿尔法"}, writing: "alpha.cats.lyra", stickers: [sticker("挥手")]},
-    {id: "user.lyra", folder: "lyra", title: "星璃", source: "user", writing: "user.lyra", stickers: [sticker("开心"), sticker("困"), sticker("看看"), sticker("happy")]},
+    {id: "user.lyra", folder: "lyra", title: "星璃", source: "user", writing: "lyra", stickers: [sticker("开心"), sticker("困"), sticker("看看"), sticker("happy")]},
     {id: "user.cat", folder: "cat", title: "猫猫", source: "user", writing: "cat", stickers: [sticker("困"), sticker("开饭")]},
 ];
 const initials = pinyinInitials(pinyin);
@@ -26,22 +26,29 @@ describe("输出 39：分组", () => {
         expect(groups.map((group) => [group.id, group.plugin])).toEqual([["user.lyra", null], ["user.cat", null], ["acme.dogs.dog", "汪汪"], ["alpha.cats.lyra", "阿尔法"]]);
     });
 
-    test("插入的写法用目录给的包段（输出 41）：同名文件夹时是 id", () => {
-        expect(raws(groups[0]?.items ?? []).slice(0, 2)).toEqual([":user.lyra/开心:", ":user.lyra/困:"]);
+    test("插入的写法用目录给的包段（输出 41）：被我的同名包盖住的写 id", () => {
+        expect(raws(groups[0]?.items ?? []).slice(0, 2)).toEqual([":lyra/开心:", ":lyra/困:"]);
         expect(groups[1]?.items[0]?.raw).toBe(":cat/困:");
+        expect(groups[3]?.items[0]?.raw).toBe(":alpha.cats.lyra/挥手:");
+    });
+
+    test("内置的包排在各插件之后（目录顺序），组头不写插件名", () => {
+        const builtin = (id: string): BrowserStickerPack => ({id, folder: id.slice(8), title: id, source: "builtin", writing: id.slice(8), stickers: [sticker("开心")]});
+        const mixed = pickerGroups([builtin("builtin.lyra"), builtin("builtin.lyra-chibi"), ...PACKS]);
+        expect(mixed.map((group) => [group.id, group.plugin])).toEqual([["user.lyra", null], ["user.cat", null], ["acme.dogs.dog", "汪汪"], ["alpha.cats.lyra", "阿尔法"], ["builtin.lyra", null], ["builtin.lyra-chibi", null]]);
     });
 });
 
 describe("输出 40：搜索", () => {
     test("名字以查询开头的在前，其余按分组顺序；拼音首字母开头也算", () => {
-        expect(raws(searchStickers(groups, PACKS, "开", 8, initials))).toEqual([":user.lyra/开心:", ":cat/开饭:", ":dog/开心:"]);
-        expect(raws(searchStickers(groups, PACKS, "kx", 8, initials))).toEqual([":user.lyra/开心:", ":dog/开心:"]);
-        expect(raws(searchStickers(groups, PACKS, "k", 8, initials))).toEqual([":user.lyra/开心:", ":user.lyra/困:", ":user.lyra/看看:", ":cat/困:", ":cat/开饭:", ":dog/开心:"]);
+        expect(raws(searchStickers(groups, PACKS, "开", 8, initials))).toEqual([":lyra/开心:", ":cat/开饭:", ":dog/开心:"]);
+        expect(raws(searchStickers(groups, PACKS, "kx", 8, initials))).toEqual([":lyra/开心:", ":dog/开心:"]);
+        expect(raws(searchStickers(groups, PACKS, "k", 8, initials))).toEqual([":lyra/开心:", ":lyra/困:", ":lyra/看看:", ":cat/困:", ":cat/开饭:", ":dog/开心:"]);
     });
 
     test("拼音库没到时只按名字；拉丁字母不分大小写", () => {
         expect(raws(searchStickers(groups, PACKS, "kx", 8, null))).toEqual([]);
-        expect(raws(searchStickers(groups, PACKS, "HAP", 8, null))).toEqual([":user.lyra/happy:"]);
+        expect(raws(searchStickers(groups, PACKS, "HAP", 8, null))).toEqual([":lyra/happy:"]);
     });
 
     test("至多 limit 项", () => {
@@ -50,9 +57,9 @@ describe("输出 40：搜索", () => {
 
     test("`包/查询` 只在包段（文件夹名、id 或显示名）开头相符的包里找；`包/` 后面没字时列全部、不受 limit", () => {
         expect(raws(searchStickers(groups, PACKS, "cat/k", 8, initials))).toEqual([":cat/困:", ":cat/开饭:"]);
-        expect(raws(searchStickers(groups, PACKS, "user.l/开", 8, initials))).toEqual([":user.lyra/开心:"]);
+        expect(raws(searchStickers(groups, PACKS, "user.l/开", 8, initials))).toEqual([":lyra/开心:"]);
         expect(raws(searchStickers(groups, PACKS, "小狗/", 1, initials))).toEqual([":dog/开心:", ":dog/握手:"]);
-        expect(raws(searchStickers(groups, PACKS, "lyra/", 1, initials))).toEqual([":user.lyra/开心:", ":user.lyra/困:", ":user.lyra/看看:", ":user.lyra/happy:", ":alpha.cats.lyra/挥手:"]);
+        expect(raws(searchStickers(groups, PACKS, "lyra/", 1, initials))).toEqual([":lyra/开心:", ":lyra/困:", ":lyra/看看:", ":lyra/happy:", ":alpha.cats.lyra/挥手:"]);
         expect(searchStickers(groups, PACKS, "nope/", 8, initials)).toEqual([]);
     });
 });
@@ -60,8 +67,9 @@ describe("输出 40：搜索", () => {
 test("认写法：目录里有的为真，认不出与不是写法的为假", () => {
     expect(knownWriting(PACKS, ":cat/开饭:")).toBe(true);
     expect(knownWriting(PACKS, ":握手:")).toBe(true);
-    // 两个包都有“开心”，不带包认不出（输出 8）。
-    expect(knownWriting(PACKS, ":开心:")).toBe(false);
+    // 不带包按来源分级（输出 8）：我的与插件都有“开心”认我的；我的两个包都有“困”认不出。
+    expect(knownWriting(PACKS, ":开心:")).toBe(true);
+    expect(knownWriting(PACKS, ":困:")).toBe(false);
     expect(knownWriting(PACKS, ":string:")).toBe(false);
     expect(knownWriting(PACKS, "开饭")).toBe(false);
 });

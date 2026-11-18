@@ -31,7 +31,7 @@ import type {AgentWorld, SessionsClient} from "./testing/world";
 import {createAgentActivity} from "./web/activity";
 import {createSessionList} from "./web/session-list";
 import {agentCatalogs} from "./web/text";
-import {createSessionHost, displayToolName, RELEASE_DELAY_MS} from "./web/session-host";
+import {createSessionHost, displayToolName, pendingWithin, RELEASE_DELAY_MS} from "./web/session-host";
 import type {SessionHost, SessionHostDeps} from "./web/session-host";
 import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./web/request-entries";
 
@@ -610,6 +610,15 @@ describe("审批与提问（输出 10–14）", () => {
         expect(h.ctx().wizardState).toBeUndefined();
         h.host.act({type: "input.submit", batchKey: approvals(h.ctx())[0]!.id, resolutions: {kind: "approval", decision: "allow"}});
         await idle(h);
+    });
+});
+
+describe("代码里调的工具的事项（agent-conversation-view.md 向导带 within）", () => {
+    test("本会话的取适配器给的来源；后代会话的只有审批原文里带着；提问的原文没有，取不到", () => {
+        expect(pendingWithin({within: {tool: "nbook.agent.eval"}, request: {tool: "nbook.agent.write"}})).toBe("nbook.agent.eval");
+        expect(pendingWithin({request: {tool: "nbook.agent.write", within: {tool: "nbook.agent.eval", invocation: "i1"}}})).toBe("nbook.agent.eval");
+        expect(pendingWithin({request: {question: "选哪个？", data: {}}})).toBeUndefined();
+        expect(displayToolName("nbook.agent.eval")).toBe("eval");
     });
 });
 

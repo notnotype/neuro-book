@@ -7,6 +7,7 @@
  *   的对象；`docs://eval/stats.md` 里有按参数与 `returns` 生成的签名。方法本身不进模型的工具清单。
  * - 没绑定这个方法的会话里看不到 `stats`：对象跟着方法走，Profile 决定会话里有什么。会话中途换了 Profile，eval 的说明跟着变，
  *   模型在下一次请求前收到“工具变了”的提醒，不会拿着旧说明去调已经没有的对象。
+ * - 对象名是全服务端共用的：另一个插件也登记 `stats` 时，两个都不用（谁先装上都不算数），并记一条诊断。
  *
  * 阅读顺序：`plugins/word-stats/shared/contracts.ts` → `plugin.ts` → `backend/plugin.ts` → 这里。
  *
@@ -23,6 +24,9 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import type {LogEvent, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {definePlugin} from "@notnotype/nb-plugin-sdk";
+import {evalObject} from "@notnotype/nb-plugin-sdk/agent";
 
 import {definitionAt} from "nbook/manifest";
 import {agentProfile} from "nbook/plugins/agent/shared/points";
@@ -72,10 +76,16 @@ function profiles(): PluginDefinition {
     })]};
 }
 
-async function open(profile: string): Promise<SessionApi> {
+/** 另一个插件也在插件描述里登记了叫 `stats` 的对象（只有登记，没有方法）。 */
+function clash(): PluginDefinition {
+    const other = definePlugin({id: "test.scene10.clash", version: "0.1.0", locations: ["server"]});
+    return definitionAt("server", other.descriptor([evalObject("test.scene10.clash.stats", {name: "stats", summary: "同名的另一个对象"})]), other.definition([]));
+}
+
+async function open(profile: string, extra: readonly PluginDefinition[] = []): Promise<SessionApi> {
     world = await agentWorld(join(tmp, `w${String((commands += 1))}`), {
         // 示例插件按产品宿主的装法装：插件描述里的顶层贡献（这里是全局对象）与服务端入口的定义合在一起。
-        plugins: [definitionAt("server", wordStatsDescriptor, wordStatsBackendPlugin), profiles()],
+        plugins: [definitionAt("server", wordStatsDescriptor, wordStatsBackendPlugin), profiles(), ...extra],
         userSettings: {...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[WITH_STATS]: {approvalMode: "yolo"}, [WITHOUT]: {approvalMode: "yolo"}}},
     });
     const created = await world.service.create({profile});
@@ -113,6 +123,28 @@ describe("场景 10：eval 的全局对象", () => {
         const doc = await evalOnce(session, "await tool.read({path: 'docs://eval/stats.md'})");
         expect(doc).toContain("count(args: {text: string}): Promise<{chars: number; lines: number}>");
         expect(doc).toContain("统计中文正文时按字符数");
+
+        // `docs://` 的根列出 eval，`docs://eval` 列出登记了的对象；没登记的读不到（resources.md 输出 16）。
+        const listed = await evalOnce(session, [
+            "const root = await tool.read({path: 'docs://'});",
+            "const objects = await tool.read({path: 'docs://eval'});",
+            "const codes = [];",
+            "try { await tool.read({path: 'docs://eval/none.md'}) } catch (e) { codes.push(e.code) }",
+            "[root.entries.includes('docs://eval'), objects.entries.map((entry) => entry.split('/').at(-1)).join('+'), ...codes].join()",
+        ].join("\n"));
+        expect(listed).toBe("true,stats.md,not-found");
+    });
+
+    it("另一个插件也登记了 stats：两个都不用，stats.count 跟着移出工具表，各记一条诊断", async () => {
+        const session = await open(WITH_STATS, [clash()]);
+        // 这个 Profile 把 stats.count 列为必需的工具：它没了，运行起不来（要它可有可无，就写进 optional）。
+        endpoint.script({tool: "eval", args: {code: "typeof stats"}}, "好");
+        const sent = await session.send({commandId: `s10-${String((commands += 1))}`, input: {text: "算一下"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send failed");
+        expect(await session.waitRun(sent.value.runId)).toMatchObject({reason: "error", error: {code: "tools-missing"}});
+        const events = world!.settings.diagnostics("hub").query({}).records.map((record) => record.event);
+        expect(events).toContain("agent.eval-object-conflict");
+        expect(events).toContain("agent.eval-object-missing");
     });
 
     it("没绑定方法的会话：看不到 stats", async () => {

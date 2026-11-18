@@ -7,8 +7,8 @@
  * 预览不过 `settleContainers`，所以入口顺序在这里自己排好，不靠归整往后补。
  */
 
-import {findTab, layoutDropKey, moveTabToEdge, regionOfStripLeaf, regionStripLeafId, sameLayoutShape, setActiveContainer, setContainerEntries, setPanelHidden} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutDropAction, LayoutPolicy, LayoutResult, LayoutSource, PanelName} from "@notnotype/nb-layout";
+import {findTab, layoutDropKey, moveTabToEdge, regionOfStripLeaf, regionStripLeafId, sameLayoutShape, setActiveContainer, setContainerEntries, setPanelHidden} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc, LayoutDropAction, LayoutPolicy, LayoutResult, LayoutSource, PanelName} from "@notnotype/nb-workbench-layout";
 
 import {VIEW_LOCATIONS} from "../shared/views";
 import {containerRegion, moveContainerTo, regionAnchor, regionContainers, regionSections, sectionLanding} from "./state/containers";

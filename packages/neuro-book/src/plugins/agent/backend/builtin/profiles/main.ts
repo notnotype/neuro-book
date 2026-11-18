@@ -34,7 +34,13 @@ const STARTERS = [
     {icon: "i-lucide-shield-check", text: "对当前章节进行一致性体检，排查时间线冲突、战力体系失衡、伏笔漏洞以及高频重复词。"},
 ];
 
-export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}, skills: {allowed: "all"}, starters: STARTERS};
+/**
+ * 内置的星璃表情包（builtin-profiles.md 输出 16、stickers.md 的内置来源）：槽 `stickers` 由标准布局的 `<Slot name="*">` 收进 system，
+ * 不用在下面另摆。半身版与用户、插件的包要用户在 Profile 设置里加。
+ */
+const STICKERS = {allowed: ["builtin.lyra"]};
+
+export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}, skills: {allowed: "all"}, stickers: STICKERS, starters: STARTERS};
 
 const ROLE = `你是 NeuroBook 的写作助手，和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。
 书的文件在 project:// 下。没有打开书时可以讨论，产物放 session://。`;
@@ -69,7 +75,7 @@ const EVAL_NOTE = "：一件事要调很多次工具时（读一批章节做统�
 export function mainProfile(rules: AgentExtensionImplementation): AgentProfileImplementation {
     return defineProfile({
         id: MAIN_PROFILE,
-        version: "5",
+        version: "6",
         name: NAME,
         description: DESCRIPTION,
         tools: TOOLS,

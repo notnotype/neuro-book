@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t33-workbench-layer-split
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -72,8 +72,19 @@ updated: 2026-11-18
     | 6 | 新包里分区组件的用例只比 id | 成立，补真实 id 的当前块与文字，再补“整块”与单列区域各一例 |
     | 7 | 边界测试不拦导出名里的工作台概念 | 成立，归 t36：t36 本来就要给两个入口加导出名测试，禁用词表随它做 |
 
+    修正提交在分支上（`246ac1cb8`）：两个包的单测（nb-layout 334 + 214、nb-workbench-layout 261 + 48）、三处类型检查都过；新补的分区用例做了变异（让当前块也写字），3 条全红。
+  - e2e 单独重跑（第 3 轮失败的 10 条，每条一次）：10 条全部失败。开跑负载 13.8，跑的过程中升到 35。Lab 的 8 条都卡在打开后 15 秒内等不到就绪：单独跑时每条都是它那个开发服务里第一次打开 Lab（冷启动），而第 3 轮整份文件跑时，各文件的第一条多数过了。`workbench-containers:1276` 照样是点回后的帧离终点太近，`workbench-shell:883` 的 trace 里有 6 次开发服务连接断开。负载解释不了全部（13.8 时也失败），改成和 master 对照：
+  - 第二次并 master（`bd652653e`，`c1c8a84f5`），没有冲突，导入改写脚本 dry run 为 0 个文件。在同一个 master 提交上建对照 worktree `t33-baseline`、构建三份产物；分支验证、重建之后，10 条在 master 与分支上交替单独跑，各记开跑负载（后台在跑）。
+  - master 对照（对照 worktree `t33-baseline` 固定在 `bd652653e`，分支并的也是它；两边产物都重建；每条两边交替单独跑）：
+    - 负载 11 到 19 时，10 条里 8 条两边都过：`lab-drag-session:95`、`lab-nested-grid:418`（8 条）、`lab-workbench-surface` 的 83、282、387，`workbench-shell` 的 792、883，以及“按下的块”（并 master 后行号变成分支 1277、master 1275，两边各 3 次全过：前几轮的失败是负载 24 到 41 时的帧间隔）；
+    - `lab-scenes:41` 两边都失败（`AddToolsDialog` 的场景等不到稳定），master 上原有；
+    - `lab-workbench-surface:264` 两边都时过时不过：分支 4 次过 2 次，master 4 次过 2 次，失败都在 Lab 冷启动的 15 秒就绪等待；
+    - 没有只在分支上出现的失败。
+  - 第三次并 master（`f0f1a3bdd`）：master 发了 v0.14.0，`[Unreleased]` 定稿成版本段，自动合并把本分支的变更记录一条放进了 `[0.14.0]`；在合并提交里挪回新的 `[Unreleased]` 的“改动”（它不在 v0.14.0 里）。dry run 0 个文件、`docs:check`、两份发布脚本的测试都过。
+  - 合入 master：快进到 `f0f1a3bdd`，主工作区 `bun install`。两份 Spec 的实现合同随后在 master 上改：`ui/workbench-layout` 正文“文档的形状”与实现合同的公开入口、依赖方向改到 nb-workbench-layout；`ui/nested-grid` 的依赖方向补一句新包只经两个入口用本包。证据里的路径在第 2 片已随代码改。
+  - 没做的：根 `AGENTS.md` 仓库结构里加 nb-workbench-layout 一行。主工作区的这个文件一直有别的会话没提交的改动，这次不暂存它；等它提交之后再补。
+
 ## 下一步
 
-1. 负载降到 15 以下后，逐条单独重跑上面失败的 11 条（已在后台排好）；还失败的在 master 上对照。
-2. 合入 master，`bun install`；在 master 上补两份 Spec 的实现合同与证据（新包路径）。根 `AGENTS.md` 的仓库结构等别的会话的改动提交之后再加新包这一行。
-3. 实现审查回来后逐条处理，修正单独提交。
+1. 根 `AGENTS.md` 的仓库结构加 nb-workbench-layout 一行（等别的会话的改动提交之后）。
+2. 开发服务 4217 要重启：包的导出变了，Vite 缓存着包解析。

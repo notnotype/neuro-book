@@ -733,7 +733,8 @@
             "goneGroup": "已删除或不可用",
             "removedGroup": "已去掉",
             "groups": {
-                "user": "我的表情包"
+                "user": "我的表情包",
+                "builtin": "内置表情包"
             },
             "invalid": "无效",
             "count": "{{count}} 个表情"

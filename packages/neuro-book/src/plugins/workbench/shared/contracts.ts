@@ -3,7 +3,8 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {Ref} from "@vue/reactivity";
 import {defineDropKind} from "@notnotype/nb-layout";
-import type {GridDropPoint, LayoutDropAction, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
+import type {GridDropPoint} from "@notnotype/nb-layout";
+import type {LayoutDropAction, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-workbench-layout";
 
 import {Type} from "typebox";
 
@@ -329,7 +330,7 @@ export interface EditorSaveGate {
     recover(): Promise<boolean>;
 }
 
-/** 布局文档里编辑器标签的键：和 nb-layout 的 `tabKey` 同一写法（`editor-panels.test.ts` 核对）。标签的 DOM 上写它（`data-panel-tab`），工作台的拖动才认得。 */
+/** 布局文档里编辑器标签的键：和 nb-workbench-layout 的 `tabKey` 同一写法（`editor-panels.test.ts` 核对）。标签的 DOM 上写它（`data-panel-tab`），工作台的拖动才认得。 */
 export const editorTabKey = (tabId: string): string => `tab:${tabId}`;
 
 /** 编辑器要的工作台服务：结构操作，加上“文档读到了没有”与存盘前的关卡。 */

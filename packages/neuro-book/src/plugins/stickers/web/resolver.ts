@@ -6,21 +6,23 @@
 import type {StickerRef, StickerResolver} from "@notnotype/nb-markdown";
 
 import type {BrowserStickerPack, StickerDirectoryService} from "../shared/contracts";
+import {rankedWinner} from "../shared/writing";
 
-/** 一个写法在目录里对应的表情（输出 7、8）；认不出为 null。 */
+/**
+ * 一个写法在目录里对应的表情（输出 7、8）；认不出为 null。带包的先按 id，再按包段（服务端分好级的，见 `shared/writing.ts`）；
+ * 不带包的在有这个名字的包里按来源分级。
+ */
 export function findSticker(packs: readonly BrowserStickerPack[], ref: StickerRef): {readonly url: string; readonly width: number; readonly height: number} | null {
     const inPack = (pack: BrowserStickerPack) => pack.stickers.find((sticker) => sticker.name === ref.name) ?? null;
     if (ref.pack !== null) {
-        const byId = packs.find((pack) => pack.id === ref.pack);
-        if (byId !== undefined) return inPack(byId);
-        const byFolder = packs.filter((pack) => pack.folder === ref.pack);
-        return byFolder.length === 1 ? inPack(byFolder[0] as BrowserStickerPack) : null;
+        const pack = packs.find((item) => item.id === ref.pack) ?? packs.find((item) => item.writing === ref.pack);
+        return pack === undefined ? null : inPack(pack);
     }
     const found = packs.flatMap((pack) => {
         const sticker = inPack(pack);
-        return sticker === null ? [] : [sticker];
+        return sticker === null ? [] : [{source: pack.source, sticker}];
     });
-    return found.length === 1 ? (found[0] ?? null) : null;
+    return rankedWinner(found)?.sticker ?? null;
 }
 
 export interface StickerDirectory extends StickerDirectoryService {

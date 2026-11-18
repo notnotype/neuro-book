@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/neuro-book",
-    "version": "0.13.0",
+    "version": "0.14.1",
     "description": "NeuroBook：本地优先的长篇写作工作区（v2 预览版），带命令 nbook",
     "license": "AGPL-3.0-only",
     "type": "module",
@@ -69,6 +69,7 @@
         "@notnotype/nb-agent-ui": "workspace:*",
         "@notnotype/nb-layout": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
+        "@notnotype/nb-workbench-layout": "workspace:*",
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@playwright/test": "^1.62.1",
         "@tailwindcss/vite": "^4.3.3",

@@ -128,8 +128,9 @@ function call(target: CallTarget, args: unknown): Promise<unknown> {
         try {
             send({type: "call", id, cell: currentCell(), target, args: args ?? {}});
         } catch (error) {
-            // 函数、Symbol 这类值结构化克隆不了：只这一次调用失败（eval.md 输出 9）。
-            pending.get(id)!.reject(new TypeError(`参数传不给工具：${error instanceof Error ? error.message : String(error)}`));
+            // 函数、Symbol 这类值结构化克隆不了：只这一次调用失败，码同宿主判的不合格参数（eval.md 输出 9）。
+            const tool = target.kind === "tool" ? target.name : `${target.object}.${target.method}`;
+            pending.get(id)!.reject(new ToolCallError(tool, "error", "invalid-arguments", `参数传不给 ${tool}：${error instanceof Error ? error.message : String(error)}；参数只能是 JSON 的值。`));
             pending.delete(id);
         }
     });

@@ -2,8 +2,8 @@
 /**
  * TabStrip 的场景：夹具持有标签与选中项，事件真的改得动；外观是最小的一份，只为看得出结构。事件记在控制栏里，断言在 e2e/lab-tab-strip.e2e.ts。
  */
-import {resolveTabStripInsertion, TabStrip} from "@notnotype/nb-layout/vue";
-import type {TabStripItem} from "@notnotype/nb-layout/vue";
+import {resolveTabStripInsertion, TabStrip} from "@notnotype/nb-workbench-layout/vue";
+import type {TabStripItem} from "@notnotype/nb-workbench-layout/vue";
 import {computed, ref, shallowRef, useTemplateRef} from "vue";
 
 import LabFixtureControls from "../../LabFixtureControls.vue";

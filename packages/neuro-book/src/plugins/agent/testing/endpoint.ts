@@ -13,6 +13,8 @@ export type Scripted = string | {readonly status: number} | {readonly chunks: re
 export interface SeenRequest {
     readonly model: string;
     readonly tools: readonly string[];
+    /** 每个工具交给模型的说明，按名字。 */
+    readonly descriptions: Readonly<Record<string, string>>;
     readonly messages: readonly {readonly role: string; readonly content?: unknown}[];
     readonly system: string;
     /** 请求体里压缩要看的字段：`tool_choice`、输出上限、推理档。 */
@@ -59,11 +61,12 @@ export function fakeEndpoint(): FakeEndpoint {
         port: 0,
         hostname: "127.0.0.1",
         async fetch(request) {
-            const body = await request.json() as {tool_choice?: unknown; max_completion_tokens?: number; max_tokens?: number; reasoning_effort?: string; model: string; tools?: {function: {name: string}}[]; messages?: {role: string; content?: unknown}[]};
+            const body = await request.json() as {tool_choice?: unknown; max_completion_tokens?: number; max_tokens?: number; reasoning_effort?: string; model: string; tools?: {function: {name: string; description?: string}}[]; messages?: {role: string; content?: unknown}[]};
             const messages = body.messages ?? [];
             requests.push({
                 model: body.model,
                 tools: (body.tools ?? []).map((tool) => tool.function.name),
+                descriptions: Object.fromEntries((body.tools ?? []).map((tool) => [tool.function.name, tool.function.description ?? ""])),
                 messages,
                 options: {toolChoice: body.tool_choice, maxTokens: body.max_completion_tokens ?? body.max_tokens, reasoningEffort: body.reasoning_effort},
                 system: messages.filter((message) => message.role === "system").map((message) => typeof message.content === "string" ? message.content : JSON.stringify(message.content)).join("\n"),

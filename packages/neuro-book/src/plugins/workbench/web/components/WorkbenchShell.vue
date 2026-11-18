@@ -5,8 +5,9 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, GridSwap, LayoutDoc, PanelName} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {GridExtent, GridSwap} from "@notnotype/nb-layout";
+import type {LayoutDoc, PanelName} from "@notnotype/nb-workbench-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
@@ -827,10 +828,7 @@ const dragSlotPanel = computed(() => dragView.value.slotPanel);
 const mergeTarget = computed(() => dragView.value.mergeTarget);
 const mergeEntry = computed(() => dragView.value.mergeEntry);
 const feedbackSectors = computed(() => dragView.value.feedbackSectors);
-const feedbackPreview = computed(() => {
-    const {preview} = dragView.value.feedback;
-    return preview === null ? null : {...preview, entryRect: preview.entryRect ?? null};
-});
+const feedbackPreview = computed(() => dragView.value.feedback.preview);
 const feedbackKind = computed(() => dragView.value.feedback.kind);
 const feedbackLabel = computed(() => {
     const {label} = dragView.value.feedback;

@@ -5,17 +5,16 @@
  */
 
 import {existsSync} from "node:fs";
-import {dirname, join} from "node:path";
+import {join} from "node:path";
+
+import {packageRootOf} from "nbook/backend/package-root";
 
 /** `from` 是起点目录（缺省本模块所在目录），测试用它模拟安装布局。 */
 export function locateDocsRoot(from: string = import.meta.dir): string | null {
-    for (let directory = from; ; directory = dirname(directory)) {
-        if (existsSync(join(directory, "package.json"))) {
-            for (const candidate of [join(directory, "docs"), join(directory, "dist", "docs")]) {
-                if (existsSync(join(candidate, "builtin")) || existsSync(join(candidate, "agent"))) return candidate;
-            }
-            return null;
-        }
-        if (dirname(directory) === directory) return null;
+    const root = packageRootOf(from);
+    if (root === null) return null;
+    for (const candidate of [join(root, "docs"), join(root, "dist", "docs")]) {
+        if (existsSync(join(candidate, "builtin")) || existsSync(join(candidate, "agent"))) return candidate;
     }
+    return null;
 }

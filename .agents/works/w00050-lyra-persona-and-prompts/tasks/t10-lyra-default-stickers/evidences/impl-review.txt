@@ -1,0 +1,75 @@
+# w00050 t10 实现审查报告
+审查对象：分支 feat/w00050-t10-builtin-stickers，HEAD 760c31b9d9b5ec0a3655a6cda4d1e668b88f1ccd，范围 4659fda07..760c31b9d。
+
+### 1. 英文语言包把 Skill 的“内置”分组名改成了 “Built-in sticker packs”
+严重程度：重要　类别：正确性 / 文案
+位置：packages/neuro-book/src/plugins/agent/locales/en-US.json:658 与 :754
+现象：本次 diff 把两处 Skill 相关的 `groups.builtin`（Profile 设置的 Skill 一节、Skill 页）从 "Built-in" 改成 "Built-in sticker packs"；表情包一节新增的 `groups.builtin`（:690）也是同一句。zh-CN 的 :658、:754 仍是“内置”，只有 :690 是“内置表情包”，所以只有英文被误改，中英不一致。
+为什么是问题：英文界面下，Skill 列表里内置 Skill 的组头写成“内置表情包”（Built-in sticker packs），是明显的文案错误，看起来像对整文件做了一次范围过宽的替换。已有测试只比对键，抓不到。
+如何核实：`git diff 4659fda07..HEAD -- packages/neuro-book/src/plugins/agent/locales/en-US.json`；`git show 4659fda07:.../en-US.json | grep -n '"builtin": '` 在 :658、:753 原为 "Built-in"。
+建议改法：把 :658、:754 恢复成 "Built-in"；:690 保持。可补一条英文界面下 Skill 页组头的断言（或在语言包测试里按路径核对）。
+
+### 2. `bun test src/architecture.test.ts` 在本分支失败：槽扩展跨插件运行时导入 `stickers/shared/writing`
+严重程度：建议（既有失败，不是本分支引入，但门禁红着；本任务让 `shared/writing.ts` 更重）　类别：不变量 / 架构门禁
+位置：packages/neuro-book/src/plugins/agent/backend/stickers/extension.ts:13
+现象：在 worktree 的 packages/neuro-book 下 `bun test src/architecture.test.ts` 得 7 pass 1 fail，违规一条：“跨插件的运行时导入只能指向对方的 shared/contracts.ts：plugins/agent/backend/stickers/extension.ts → nbook/plugins/stickers/shared/writing”。这行 import 在基线 4659fda07 与 master（4c4d9a5c1）里都有，architecture.test.ts 本范围也没改，所以是既有失败。
+为什么是问题：主会话汇报跑过“相关 bun 测试”，没有这一个；t10 的分级函数 `rankedWinner`、`shadowedByMine` 都放进了同一个文件，agent 插件（槽）与 stickers 的浏览器侧都依赖它，更该按包内 AGENTS.md 的规则“给别的插件在运行时用的接口一开始就放进提供方的 shared/contracts.ts”处理。
+如何核实：`cd packages/neuro-book && bun test src/architecture.test.ts`。
+建议改法：把 `writingSegments`（槽要用的）经 `stickers/shared/contracts.ts` 导出（或作为 `StickersService` 的一个方法交给槽），agent 一侧改从那里取；若开发者认为这条已知可接受，至少在交付说明里写明它在 master 上就红。
+
+### 3. 改包名与删除对话框的文字在“同文件夹名的内置或插件包”存在时不再属实
+严重程度：建议　类别：对照需求（Spec 输出 33、34 的 planned 句）
+位置：packages/neuro-book/src/plugins/stickers/locales/zh-CN.json:92-93（rename.warnTitle、rename.warnMessage）、:105-107（deletePack）；en-US 同
+现象：Spec 输出 33 写“用旧包名写下的表情……之后认不出来、显示原文，改回旧包名就又认得（planned：有同文件夹名的插件或内置包时，之后显示它的）”，输出 34 对删除同理。本次实现了认包的分级，但这两个对话框文案没动：warnMessage 仍写“对话和文件里已经写下的 {{example}} 这类写法会显示成原文；改回原包名就又认得”。
+为什么是问题：t10 的主场景正是“把内置 lyra 复制成我的 lyra”。之后用户把我的 lyra 改名，`:lyra/开心:` 立刻变成显示内置那一份的图，不是原文；对话框却告诉他会显示原文。删除我的 lyra 同理，确认框没提。对话框是用户确认这类有代价操作时唯一读到的话，写错了会误导。
+如何核实：读 locales/zh-CN.json 的 `rename`、`deletePack`；e2e 验收 13 的流程后在表情包页对 `user.lyra` 点“改包名”。
+建议改法：二选一并在 Spec 里对齐：按目录判断，改名或删除后若还有同文件夹名的插件或内置包，对话框改写“之后显示它的”这类一句（需要把“有没有同文件夹名的其它包”传给对话框，概要里已有 `writing` 与 `shadowed`，可以由 shadowed 的包反推）；或者把这两句 planned 从 Spec 里改成“不在对话框里提示”，不让 Spec 与界面分叉。
+
+### 4. 内置目录找不到时的诊断 `stickers.root-unavailable` 没有任何测试
+严重程度：建议　类别：测试
+位置：packages/neuro-book/src/plugins/stickers/backend/plugin.ts:63-65；Spec 失败表“内置目录找不到（输出 1，planned）”与输出 1 的 planned 句
+现象：`locateBuiltinStickers()` 在 plugin.ts 里硬调用，没有注入点；`builtin-root.test.ts` 只测函数返回 null，没有测“返回 null 时目录里没有内置包、别的来源照常、写了 `stickers.root-unavailable`”。grep `root-unavailable` 在测试里只有插件来源那一条（stickers.test.ts:293）。把 plugin.ts 里这行 `report(...)` 或 `builtinRoot === null ?` 分支删掉，所有现有测试照样绿。
+为什么是问题：这是 Spec 明写的失败行为，安装不全（例如打包漏了 `stickers/`）时唯一的信号就是这条诊断；e2e 与 pack-app 测试只覆盖“找得到”。
+如何核实：把 plugin.ts:65 的 report 注释掉，跑 `bun test src/plugins/stickers`，不会有失败（从代码推断，未实际变异）。
+建议改法：让 `locateBuiltinStickers` 的起点可由测试经插件选项或一个测试用的状态根旁路注入（现有测试世界 `scene()` 的写法），补一条用例：找不到时 `service.list()` 里没有 `builtin.*`、用户的包照常、诊断出现。
+
+### 5. 新用例把 stickers:// 写入的断言放宽了
+严重程度：建议　类别：测试（放宽断言）
+位置：packages/neuro-book/src/plugins/stickers/stickers.test.ts 新用例“内置来源”里 `expect(await files.write("stickers://builtin.lyra/x.json", "{}", {expect: {hash: "0"}})).toMatchObject({ok: false});`
+现象：相邻的既有用例（同文件 :309）对同样的调用断言 `{ok: false, code: "unsupported-capability"}`；新用例只断言 `ok: false`。
+为什么是问题：`{expect: {hash: "0"}}` 本来就是个对不存在文件不成立的前置条件，没有 code 时，写失败可能是“前置条件不满足”而不是“方案只读”，测不到 Spec 输出 13 要的“内置的包只读”。
+如何核实：对照 stickers.test.ts:309 与新用例那一行。
+建议改法：加上 `code: "unsupported-capability"`，与既有用例一致。
+（对第 3、5 条的行号补正：第 5 条新用例在 stickers.test.ts:665、既有对照在 :308；第 3 条对话框文案的键是 `dialog.rename.warnMessage`，由 StickerPackNameDialog.vue:88 渲染，例子写 `:当前包名/…:`。）
+
+### 6. Lab 没有给“内置组”与“被我的同名包盖住”登记场景
+严重程度：建议　类别：前端 / 常见返工项（Lab 场景、英文场景）
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:1315-1352（StickerPacksPage、StickerPackRail 的场景）；StickerPackRail.vue、StickerPacksPage.vue
+现象：本次对 Lab 的唯一改动是 StickerFields 的 prop 由 `folder` 改名 `writing`。StickerPackRail 的场景仍是“我的、插件各一组”，StickerPacksPage 的场景没有内置包、没有被盖住的包；`SAMPLES` 里没有 source 为 builtin 的样本。
+为什么是问题：新增的外观状态都没有 Lab 场景：左栏最后一组“内置”的组头、行尾的弱色眼睛图标、头部新增的整句“被我的同名包盖住：写 :lyra/…: 显示的是我的那一份，这个包要写 :builtin.lyra/…:。”（`.sticker-head__shadowed`，定宽头部里的长句）。ui-development 的 UI 专属检查第 5 条要求文字放在固定尺寸里的组件至少登记一个英文场景并看 390 宽截图；英文这句比中文还长，是否在 480px 窄屏折行、是否把操作按钮挤出去，现在没有任何场景或截图能看到。dom 测试只断言文字存在。
+如何核实：grep 场景 id，`SAMPLES` 无 builtin；git diff 4659fda07..HEAD -- src/plugins/lab 只有 10 行属性改名。
+建议改法：SAMPLES 加一个内置包与一个被盖住的内置包，StickerPacksPage 加 `builtin-shadowed` 场景（含英文与 480 宽），StickerPackRail 的 rail 场景带上内置组。
+
+### 7. 小的代码质量项：过时的注释、无关行被改、同一路径写了两处
+严重程度：建议　类别：代码质量 / 删改任务外代码
+位置与现象：
+- packages/neuro-book/src/plugins/agent/backend/stickers/extension.ts:3-7 头注释仍写“只有全部有效的表情包里有同名文件夹时改写表情包 id”，现在的规则是按来源分级、按文件夹名认不到这个包时才写 id（同文件 :26 的“判断同名文件夹用”也一样）。这正是本任务改的规则，注释没跟。
+- packages/neuro-book/e2e/sticker-picker.e2e.ts 的 diff 里 `const editorStickerButton = (page` 被改成 `const editorStickerButton =(page`（少了空格），这一行与任务无关，应还原。
+- packages/neuro-book/scripts/pack-app.ts 里 `join(packageRoot, "src", "plugins", "stickers", "builtin")` 把源码目录硬写了一遍，`builtin-root.ts` 里 `join(root, "src", "plugins", "stickers", "builtin")` 又是一遍；两处要同时改才不漏（目录一搬，打包就复制不到、e2e 以外的路径也读不到）。可由 builtin-root.ts 导出 `SOURCE_BUILTIN_DIRECTORY` 的相对路径，pack-app 与 locate 共用。
+- scripts/pack-app.ts 新增的 import 单独成一段，夹在两组 import 之间，与周围分组不一致（对照该文件其余 import 的分段）。
+为什么是问题：注释过时会误导下一个改槽规则的人；其余是可维护性小项。
+建议改法：按上面逐项改。
+
+## 未发现问题的方面（逐项核对过）
+- 分级：`rankedWinner` 对 [builtin, builtin, user]、[user, user, builtin]、空数组、同级重名的结果都正确（读代码逐例推演）；`writingSegments` 只在有效包里分级；服务端槽与浏览器目录用同一份包段，浏览器 `findSticker` 带包时按 id 再按包段，空包、无效包、预算截断时与 Spec 输出 18 的“胜出的包不在目录里就认不出”一致。不带包的写法在浏览器目录上分级，预算截断时可能与服务端的胜出者不同，计划里已列为已知限制，且预算是 5000 个表情，不另报。
+- 只读：`editor.ts` 的 `#userPack` 对所有写入口按 `source !== "user"` 拒绝；`reveal.ts`、`scheme.ts`（只读方案）对内置按插件同路径处理；页面 `readonlyPack` 覆盖了网格只读、拖放落点、菜单、属性栏、复制按钮，没有残留 `pluginPack`。复制到我的对内置包照常（`copyPack` 只依赖 `item.directory` 与根版本，内置根有登记的版本）。
+- 找目录：`docs-root.ts` 改用 `packageRootOf` 后行为与原来一致（第一个有 package.json 的目录，找不到候选就 null，不再往上）；`builtin-root.ts` 的两个候选与 dist 运行方式（dist/server 往上先到 packages/neuro-book）相容；pack-app 的复制与 `files` 字段对，pack-app.test 与 app-package e2e 覆盖了解包后的定位与取图。桌面版载荷（`payload/app` 由发布清单组装）是否带上 `stickers/`：未验证，计划里也列为未验证。
+- 清单与图：lyra 15 个、lyra-chibi 12 个，名字与顺序同 Spec 表，全部常用，清单与文件一一对应，lyra 的图是 512x512 带透明的 webp。
+- 主创：声明 `stickers: {allowed: ["builtin.lyra"]}`、版本升到 6；槽由标准布局的 `<Slot name="*">` 收进 system（`nb-harness/src/kernel/view/standard-layout.ts`），e2e 验收 13 的请求断言覆盖。
+- 前端分组：`railGroups`、`pickerGroups`、`profile-view.ts` 的分组都把内置放最后，key 与排序对；中英语言包在 stickers 一侧成对（agent 一侧的英文误改见第 1 条）；组件同名 .md 已随改。
+- 与周围一致：错误文案没有按文案分支，没有静默 catch，没有 mock 与固定等待；e2e 按页面可观察状态等待。
+
+## 条数
+阻断 0；重要 1（第 1 条）；建议 6（第 2 到 7 条，其中第 2 条是 master 上就有的既有失败）。共 7 条。
+
+有效发现的编号：1、2、3、4、5、6、7

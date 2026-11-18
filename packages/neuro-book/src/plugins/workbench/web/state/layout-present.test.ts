@@ -1,6 +1,7 @@
 import {describe, expect, test} from "bun:test";
-import {findTab, floatTab, moveTabToEdge, moveTabToStrip, openPanelAtEdge, setActiveContainer, setFloatRect, setPanelCollapsed, setPanelHidden} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
+import {findTab, floatTab, moveTabToEdge, moveTabToStrip, openPanelAtEdge, setActiveContainer, setFloatRect, setPanelCollapsed, setPanelHidden} from "@notnotype/nb-workbench-layout";
+import type {GridExtent} from "@notnotype/nb-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
 import {workbenchText} from "../../shared/text";
 import {defaultLayoutDoc} from "./default-tree";

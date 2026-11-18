@@ -28,11 +28,13 @@ const images = computed(() => {
 
 <template>
     <div class="eval-detail">
-        <CollapsibleRow icon="i-lucide-code-xml" :label="t('conversation.eval.code')" :detail="codeOpen ? '' : firstLine" :expanded="codeOpen" data-eval-code @update:expanded="codeOpen = $event">
+        <!-- 只重置内核的调用没有代码 -->
+        <CollapsibleRow v-if="code !== ''" icon="i-lucide-code-xml" :label="t('conversation.eval.code')" :detail="codeOpen ? '' : firstLine" :expanded="codeOpen" data-eval-code @update:expanded="codeOpen = $event">
             <CodeBlock :lines="lines(code)" :start-line="1" />
         </CollapsibleRow>
         <CodeBlock v-if="props.call.result" :label="t('conversation.eval.output')" :lines="lines(props.call.result.text)" :truncated="props.call.result.truncated" data-eval-output />
-        <p v-else-if="!props.call.error" class="eval-detail__muted">{{ t("conversation.eval.pending") }}</p>
+        <!-- 参数还在生成、在等批准时还没开始执行，不写“正在运行” -->
+        <p v-else-if="!props.call.error && props.call.startedAt !== undefined" class="eval-detail__muted">{{ t("conversation.eval.pending") }}</p>
         <p v-if="images > 0" class="eval-detail__muted" data-eval-images>{{ t("conversation.eval.images", {count: images}) }}</p>
     </div>
 </template>

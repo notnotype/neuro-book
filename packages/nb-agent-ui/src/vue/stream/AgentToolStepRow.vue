@@ -7,7 +7,7 @@
 import {computed} from "vue";
 import {CollapsibleRow} from "@notnotype/nb-ui/components";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
-import type {AgentViewRegistry} from "../../registry";
+import {callEffects, type AgentViewRegistry} from "../../registry";
 import type {ToolStep} from "../../conversation-turns";
 import {toolCallPhase} from "../../tool-status";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
@@ -42,7 +42,7 @@ const renderer = computed(() => props.registry.resolveTool(props.step.call.name)
 /** 单文件改动的增删行；多文件的补丁不在行内显示统计。 */
 const stat = computed(() => {
     if (renderer.value.category !== "mutate") return null;
-    const changed = renderer.value.effects?.(props.step.call).changed ?? [];
+    const changed = callEffects(renderer.value, props.step.call)?.changed ?? [];
     return changed.length === 1 ? {added: changed[0]!.added, removed: changed[0]!.removed} : null;
 });
 </script>

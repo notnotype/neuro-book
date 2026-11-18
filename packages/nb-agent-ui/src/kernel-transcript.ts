@@ -420,7 +420,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         return tool === null || invocation === null ? null : {tool, invocation};
     };
 
-    const assistantFrom =(data: JsonRecord, id: string, timestamp: number, status: AssistantMessageView["status"], blocks: readonly unknown[], calls: readonly unknown[]): AssistantMessageView => {
+    const assistantFrom = (data: JsonRecord, id: string, timestamp: number, status: AssistantMessageView["status"], blocks: readonly unknown[], calls: readonly unknown[]): AssistantMessageView => {
         let text = "";
         let thinking = "";
         for (const block of blocks) {
@@ -535,8 +535,11 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                     return;
                 }
                 const args = toJsonValue(data.args ?? {});
+                const clipped = data.argsClipped === true;
                 const found = updateChild(within.invocation, nested, (child) => {
-                    const base: ToolCallView = {...(child ?? {status: "running" as const}), id: nested, name: toolName(tool), args, invocation: nested};
+                    // 拦截层改派时开始事件写的是实际执行的工具、结果事件写的是代码原本调的那个：已有的名字以开始事件的为准。
+                    const name = type === "nestedToolResult" && child?.invocation !== undefined ? child.name : toolName(tool);
+                    const base: ToolCallView = {...(child ?? {status: "running" as const}), id: nested, name, args, invocation: nested, ...(clipped || child?.argsPreview === true ? {argsPreview: true as const} : {})};
                     if (type === "nestedToolStarted") return {...base, status: "running", startedAt: at};
                     const outcome = callOutcome(data);
                     const preview = stringField(data, "preview") ?? "";

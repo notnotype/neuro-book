@@ -28,17 +28,18 @@ const itemsOf = (pack: BrowserStickerPack): StickerPickerItem[] => pack.stickers
     packTitle: pack.title,
 }));
 
-/** 输出 39 的分组：我的在前（目录顺序），然后各插件的包。 */
+/** 输出 39 的分组：我的在前（目录顺序），然后各插件的包，内置的在最后（目录顺序）。 */
 export function pickerGroups(packs: readonly BrowserStickerPack[]): StickerPickerGroup[] {
     const mine = packs.filter((pack) => pack.source === "user");
-    const plugins = packs.filter((pack) => pack.source !== "user").map((pack, index) => ({pack, index}));
+    const plugins = packs.filter((pack) => pack.source === "plugin").map((pack, index) => ({pack, index}));
+    const builtin = packs.filter((pack) => pack.source === "builtin");
     // 与表情包页的左栏同一个顺序（`pack-view.ts` 的 `railGroups`）：插件显示名的码元顺序，再按插件 id，同一插件内按目录顺序。
     const order = (entry: {pack: BrowserStickerPack; index: number}): [string, string, number] => [pluginName(entry.pack) ?? "", entry.pack.plugin?.id ?? "", entry.index];
     plugins.sort((left, right) => {
         const [a, b] = [order(left), order(right)];
         return a[0] !== b[0] ? (a[0] < b[0] ? -1 : 1) : a[1] !== b[1] ? (a[1] < b[1] ? -1 : 1) : a[2] - b[2];
     });
-    return [...mine, ...plugins.map((entry) => entry.pack)].map((pack) => ({id: pack.id, title: pack.title, plugin: pluginName(pack), items: itemsOf(pack)}));
+    return [...mine, ...plugins.map((entry) => entry.pack), ...builtin].map((pack) => ({id: pack.id, title: pack.title, plugin: pluginName(pack), items: itemsOf(pack)}));
 }
 
 /**

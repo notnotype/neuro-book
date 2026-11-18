@@ -476,3 +476,13 @@ export function presentationOf(renderer: Pick<ToolRendererEntry, "presentation" 
         return renderer.presentation;
     }
 }
+
+/**
+ * 一次调用对文件的影响（渲染器的 `effects`），读影响的地方都经它。参数只给了预览的（`argsPreview`：嵌套调用里的长字符串被内核截短）
+ * 读写的文件照算，增删行数按截短的参数算不准，给 null。渲染器没登记 `effects` 时为 undefined。
+ */
+export function callEffects(renderer: Pick<ToolRendererEntry, "effects">, call: ToolCallView): ToolEffects | undefined {
+    const effects = renderer.effects?.(call);
+    if (effects === undefined || call.argsPreview !== true) return effects;
+    return {read: effects.read, changed: effects.changed.map((change) => ({path: change.path, added: null, removed: null}))};
+}

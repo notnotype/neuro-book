@@ -67,6 +67,11 @@ export type ToolCallView = {
     children?: ToolCallView[];
     /** 开始执行的时刻（毫秒）；运行中的卡片按它与 `ctx.now` 算已用时（含等审批的时间）。还没开始执行的没有。 */
     startedAt?: number;
+    /**
+     * 参数里有字符串只给了预览（嵌套调用里超过 2 KB 的字符串由内核截短）：读写的文件照算，增删行数与 diff 按参数算不准，
+     * 不给（`callEffects`）。
+     */
+    argsPreview?: true;
 };
 
 export type UserMessageView = {
