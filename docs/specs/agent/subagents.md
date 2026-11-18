@@ -81,7 +81,7 @@ owners:
 ### 续用
 
 9. `agent_send` 与 `agent_answer` 只对自己派出的子会话（会话头 `caller.id` 是自己）：别人的得 `not-owner`，不存在得 `session-not-found`。
-10. `agent_send` 带 `message`：子会话空闲时开新一轮；在跑时缺省插话、`queue: true` 排到下一轮。子会话正在中止时得 `child-stopping`，话不放进去（稍后再发）。按内核交回的 `runId` 认任务：就是任务正跟着的那次运行、且那个任务还没结束时算原任务，否则登记新任务（暂停的旧运行接着跑时同样）；用户在子会话里自己开的运行，插话时登记一个归调用方的任务。`queue: true` 立即以 `running` 返回。不带 `message`：子会话空闲时“继续”（`start`），只对上一次运行不是正常完成的有效，正常完成后得 `nothing-to-continue`；在跑时得 `already-running`。
+10. `agent_send` 带 `message`：子会话空闲时开新一轮；在跑时缺省插话、`queue: true` 排到下一轮。子会话正在中止时得 `child-stopping`，话不放进去（稍后再发）。按内核交回的 `runId` 认任务：就是任务正跟着的那次运行、且那个任务还没结束时算原任务，否则登记新任务（暂停的旧运行接着跑时同样）；用户在子会话里自己开的运行，插话时登记一个归调用方的任务。`queue: true` 立即以 `running` 返回。不带 `message`：子会话空闲时“继续”（`start`），只对上一次运行不是正常完成的有效，正常完成后得 `nothing-to-continue`；在跑时得 `already-running`。（planned）不带 `message` 改走以父会话身份的 `resume`：放行父会话自己排的留着的话开新运行，上一次运行是父会话开的且没正常结束时先接着跑；都没有得 `nothing-to-continue`。送进子会话的话不在这次运行里跑时，按内核交回的去向与之后的缓冲区事件写明（[`harness/runtime.md`](../harness/runtime.md) 输出 110）：子会话已交出结果、这句话留着时写“子会话已交出结果，这句话没有被处理，留着”，不登记新任务；子会话里有用户停止时留下的话（`heldBy` 是用户）时，结果另写“子会话里有 N 条你排的话被用户暂停，未发出”，`held-by-user` 同样写明只有用户能放行。不按 `currentRunId` 认任务。
 11. `agent_answer` 以父会话的身份应答子会话交给调用方的提问（`resolve{decision: "answer"}`，回答是 `{text, data?}`），之后像 `agent_send` 一样等；任务同样按交回的 `runId` 认（应答同步提问后原来那次运行接着跑，仍是原任务）；回答进了缓冲区却没有运行可开时（例如模型不可用），立即以 `idle` 返回，文字写明回答已排队。审批、`questions: "user"` 的提问与模式切换请求得 `not-allowed`，文字按种类写明只能由用户答。
 12. 会让子会话开新运行的 `agent_send`、`agent_answer` 先查上限，超了得 `concurrency-limit`，子会话不动。
 
@@ -93,7 +93,7 @@ owners:
 
 ### 中止与上限
 
-16. 父会话的运行被中止时，它正在前台等的、由它启动的子代理运行跟着中止：工具立即以 `aborted` 返回（带子会话 id 与任务 id），不等子会话收口；子会话缓冲区里的话留着，之后的放话照常送达。插话附着在用户自己开的运行上时不连带。`async` 派出的、已转后台的照常跑，要停用 `kill`。规则逐层生效。`nbook.agent` 停止时不发中止，子会话由会话的关闭按 `interrupted` 收口（[`sessions.md`](sessions.md) 输出 14）。
+16. 父会话的运行被中止时，它正在前台等的、由它启动的子代理运行跟着中止：工具立即以 `aborted` 返回（带子会话 id 与任务 id），不等子会话收口；子会话缓冲区里的话留着，之后的放话照常送达。（planned）连带中止与父 Agent 用 `kill` 停子代理都以父会话的身份停，留着的话 `heldBy` 是父会话，父 Agent 再发话或不带话的 `agent_send` 能放行它们。插话附着在用户自己开的运行上时不连带。`async` 派出的、已转后台的照常跑，要停用 `kill`。规则逐层生效。`nbook.agent` 停止时不发中止，子会话由会话的关闭按 `interrupted` 收口（[`sessions.md`](sessions.md) 输出 14）。
 17. 深度：深度为 d 的会话派出的子会话深度是 d + 1，超过 `subagentDepth` 得 `depth-limit`。
 18. 每个会话的上限数它直接派出、正在跑的子代理运行（前台、后台、停在 `question` 的都算）。
 

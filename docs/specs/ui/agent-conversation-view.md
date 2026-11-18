@@ -107,7 +107,7 @@ type AgentConversationViewEmits = {
 |---|---|
 | `session` | 当前会话的标题、摘要、Profile 名称与图标、状态、后台摘要状态；子会话另有祖先路径 `path`（见“顶栏”）；未选择会话时为 `null` |
 | `availability` | `ready`、`loading`、`empty`、`unselected`、`archived`、`profile-unavailable`、`load-error` 之一，附用户可读说明和可执行的恢复动作；可选的标题 `title` 与图标 `icon`，提示卡用（见“输入框与待处理区”） |
-| `interaction` | 当前允许的操作：发送、运行中补充说明（steer）、运行中排队（followup）、回答提问、修改历史、停止、登记附件、修改模型与模式、归档、恢复、宿主有没有管理模型的地方、宿主做了的输入框命令（`commands`）与触发字符（`triggers`，没列的不打开菜单）、能不能给上下文详情与分支树 |
+| `interaction` | 当前允许的操作：发送、运行中补充说明（steer）、运行中排队（followup）、回答提问、修改历史、停止、（planned）停止并清空排队、登记附件、修改模型与模式、归档、恢复、宿主有没有管理模型的地方、宿主做了的输入框命令（`commands`）与触发字符（`triggers`，没列的不打开菜单）、能不能给上下文详情与分支树 |
 | `run` | 运行状态 `idle`、`running`、`waiting`、`stopping`，当前运行阶段文案，正在运行的轮次 |
 | `messages` | 已加载的全部消息，按时间顺序排列，包含运行中尚未落盘的内容（见下文“消息”） |
 | `history` | 是否还有更早的消息、是否正在加载、加载错误 |
@@ -118,7 +118,7 @@ type AgentConversationViewEmits = {
 | `dockState` | 停靠区的界面状态，宿主放回（动作 `dock.state`），与 `wizardState` 分开 |
 | `workflows` | 按工具调用 id 索引的 Workflow 运行状态：阶段、当前动作、等待中的问题、结果 |
 | `workspaceChanges` | 待审阅的文件变更分组、每组的 diff 状态、加载与错误 |
-| `composer` | 可选模型（各带分组名与用不了的原因，可选）与当前模型、思考档位、Agent 模式、排队中的消息、已登记的会话附件、模型是否支持图片、输入框中附件（图片与文件）的上传状态（就绪的带附件目标）、已发送内容（供输入历史使用）、粘贴分档设置、草稿（文字加版本号；版本号变化时视图用它替换输入框内容） |
+| `composer` | 可选模型（各带分组名与用不了的原因，可选）与当前模型、思考档位、Agent 模式、排队中的消息（（planned）每条另带发出者的显示名与图标、能不能编辑、是否留着与留着的原因文案）、已登记的会话附件、模型是否支持图片、输入框中附件（图片与文件）的上传状态（就绪的带附件目标）、已发送内容（供输入历史使用）、粘贴分档设置、草稿（文字加版本号；版本号变化时视图用它替换输入框内容） |
 | `usage` | 上下文用量与上限、累计 tokens、缓存读写、缓存命中率、累计费用、费用显示币种。上下文用量取最近一次模型请求的输入（含缓存读写，同 OMP 的口径），运行中是上一次请求的值 |
 | `connection` | 连接状态与是否需要用户操作 |
 | `panels` | 附件列表页、关联 Agent、系统提示、会话列表页、分支树、上下文检查数据 |
@@ -155,6 +155,7 @@ type ToolCallView = {
     invocation?: string;   // 这次调用的唯一身份（harness 适配器从 toolStarted 取）
     children?: ToolCallView[];   // （planned）它在执行中经代码调的工具（嵌套调用，harness/runtime.md 输出 90），按受理的先后
     startedAt?: number;          // （planned）开始执行的时刻，毫秒
+    argsPreview?: true;          // （planned）参数里有字符串只给了预览（嵌套调用的长字符串被内核截短，harness/runtime.md 输出 96）：读写的文件照算，增删行数与 diff 不给
 };
 
 // 待处理事项的公共字段（审批、提问、模式切换都有）
@@ -262,7 +263,7 @@ Markdown 扩展在本规范中只预留，不要求实现。
 - 消息操作图标常显在角色行右端，颜色弱；有多个分支时分支切换在操作条最前。Agent 一侧的操作作用于结果所在的消息；结果是结果节点时，复制发出 `tool.copy`（答案在工具参数里）。时间显示在角色行。
 - 面板拉宽时每轮限宽 800px 居中，避免正文行过长。
 - 有子调用的调用（planned）：子调用读过、改过的文件按子调用自己的状态算进思维链摘要与轮末改动（父调用失败时，已经写成的照样列出），与别的调用的文件一起去重；子调用不算进步骤数、“另有几次操作”与失败次数。以 `card` 呈现时，卡片副标题在工具摘要后面接子调用的计数（例如“调用了 30 次工具 · 读了 28 个文件，改了 2 个”），运行中写已调用的次数与正在调的那一个（等审批的也算）；卡片收起时，改文件、出错、被拒、`unknown` 的子调用作为卡片下方紧随的缩进行列出，展开后正文下面列出全部子调用。子调用一律以 `line` 呈现，点开是它自己的详情。父调用有结果而子调用没有的，子调用显示为 `unknown`。
-- （planned）运行中、已经开始执行的卡片（不只有子调用的）在头部右侧写已用时，从开始执行算起（`startedAt`，含等审批的时间），结束后不写。
+- （planned）运行中、已经开始执行的卡片（不只有子调用的）在副标题里、工具摘要后面写已用时，从开始执行算起（`startedAt`，含等审批的时间），结束后不写；不放在头部右侧，跑完时右侧的状态图标与箭头不挪位置。
 
 ### 展开与折叠
 
@@ -299,7 +300,7 @@ Markdown 扩展在本规范中只预留，不要求实现。
 ### 消息
 
 - 用户消息区分普通与 steer；显示图文内容块和附件；正文被省略时显示“仅显示预览”。文字按输入框的文字写法显示，引用、技能与选区是标签；图片、文件附件与粘贴块按输入框的方式显示：附件条加正文里的 `#N` 标签，粘贴块默认折叠。点击标签与卡片的结果与输入框相同（见“输入框与待处理区”）；文字之外的旧附件块照常显示，点击图片同样打开原图预览、点击文件发出 `attachment.open`。
-- （planned）宿主注入了“只有表情”的判断时，一条用户消息的文字块去掉空白后只剩 1 到 3 个表情写法、没有附件、正文没有被省略，就不画气泡（就地编辑时照常），内容照常经文字视图显示（[`agent/stickers.md`](../agent/stickers.md) 输出 45）；没有注入时照常画气泡。
+- 宿主注入了“只有表情”的判断时，一条用户消息的文字块去掉空白后只剩 1 到 3 个表情写法、没有附件、正文没有被省略，就不画气泡（就地编辑时照常），内容照常经文字视图显示（[`agent/stickers.md`](../agent/stickers.md) 输出 45）；没有注入时照常画气泡。
 - 投递状态为 `unknown` 的用户消息显示文字说明：“可能已发送，重新发送可能产生重复”，并提供“重新发送”和“移除”。
 - 编辑历史消息时，消息就地变为编辑器（和输入框同一个注入的编辑器），支持 `@` 引用；插图随附件；原文仍在加载时只读。补充说明不能编辑、重试或分支：它插在一轮中间，没有对应的回退目标。
 - assistant 消息流式生成时显示光标；被停止时显示“已停止”，不显示内部错误原文。
@@ -313,7 +314,7 @@ Markdown 扩展在本规范中只预留，不要求实现。
 - 带角色的选择器：`composer.roles` 非空时，模型与思考档位的下拉换成按钮加面板。按钮写“选的是谁 · 实际用的模型 · 档位”，直接选模型时不重复（实际用的模型取 `composer.effectiveModel`）。面板贴着输入框、同宽、高度固定，分“角色”“模型库”两页，切页不跳；档位多于一个时有滑块。角色页：`models` 里 key 为空串的一项（跟随默认），梯度角色两列，专精角色另起一组；用不了的角色仍能选，选了不关面板。模型库页：搜索显示名、组名与 key，按组列出，右侧能力图标、窗口、输入与输出单价；用不了的不能选，选了关面板。有“管理模型…”时在底部。Esc 关闭并还焦点。
 - 模型解析不了（`availability` 为 `profile-unavailable`）时选择器仍可用，用户才能在这里改；别的不可用状态下不可用。
 - 模型下拉：同组的模型右侧写组名（不同服务商的同名模型分得清）；用不了的模型灰掉、不能选，悬停看原因；宿主不收附件时不标“不支持图片”。`interaction.canManageModels` 为真时末尾有“管理模型…”，发出 `model.manage`。
-- （planned）带弹层的工具栏按钮（例如“表情”）：可以登记在 `+` 的后面（单行版式里并入前置按钮）；点了在按钮旁开一个弹层（下方放不下翻到上方），里面是登记的组件，组件可以把一段文字插在编辑器的光标处并关上弹层，关上后焦点回编辑器；输入框只读或不能发送时按钮禁用。
+- 带弹层的工具栏按钮（例如“表情”）：可以登记在 `+` 的后面（单行版式里并入前置按钮）；点了在按钮旁开一个弹层（下方放不下翻到上方），里面是登记的组件，组件可以把一段文字插在编辑器的光标处并关上弹层；关上后焦点回编辑器、光标不动，焦点已经到了别处（点了别的控件）时不抢回来；按钮按下时不夺焦点，再点一下关上；输入框只读或不能发送时按钮禁用。
 - 带触发字符的工具栏按钮（例如“插入引用”插 `@`）：编辑器聚焦到末尾，前一个字不是空白或标点时先补一个空格，再插入触发字符并打开它的菜单。
 - 输入以 `/` 开头且命令名与已登记的输入框命令一致时，发出 `command.run`；否则按普通文字发送。宿主在 `interaction.commands` 里列出自己做了的内置命令时，没列出的内置命令不显示、也不算已登记：输入 `/new` 按普通文字发给模型（有意的取舍：以前这些命令发出去被宿主丢弃，是死入口）。
 - 触发字符（`@`、`$`、`/` 及登记的其他字符）打开候选菜单，菜单内容来自 `services.resolveTriggerMenu`；菜单项可以带行尾的状态图标（`status {iconClass, label}`，同一个菜单有一项带它时每行都留出这一列，指针停在图标上显示意思）；`/` 位于正文开头时改为列出登记的输入框命令，显示说明与参数提示。方向键选择，回车或 Tab 确认，Escape 关闭。
@@ -322,14 +323,17 @@ Markdown 扩展在本规范中只预留，不要求实现。
 - 粘贴文字按大小分三档：小段原样插入；中等的在粘贴处成为默认折叠的粘贴块（展开后可以直接编辑内容），以 `<paste>` 标签包起来发给模型，也可配置为放到开头、粘贴处只留位置标记；特别大的转为文件附件。阈值与放置方式可配置。Ctrl/⌘+Shift+V 粘贴原文，不分档。
 - 空输入框里按上方向键调出上一条已发送的内容；Ctrl+R 搜索已发送的内容。
 - 点击输入框里的标签：引用发出 `reference.open`，图片打开原图预览（纯界面行为），文件发出 `attachment.open`，技能发出 `skill.open`。
-- 有待回答的提问或待批准的审批时，向导替换输入框的位置：放在消息流内容末尾、粘在底部，往上滚时浮在内容上，贴底时不盖最后一条；输入框隐藏但不卸载；最高占视图的 60%，内容内部滚动；表面和其它浮层相同；可以收起成一条小条（写等什么、第几个，没有批准按钮）。审批逐个处理，显示工具、目标与预览（`DiffView`，或命令的等宽代码块，或 nb-form 的展示态），按钮是批准、本会话都批准、拒绝，附言框写了字就是拒绝。提问向导支持单选、多选、“其他答案”、表单（nb-form 编辑态）、多题切换、终止本轮。未提交的答案是纯界面状态，只在当前批次内保留。带 `within` 的事项（planned），向导标题写明是哪个工具里的调用（例如“eval 里的调用”），批量与“第几个”照旧。
+- 有待回答的提问或待批准的审批时，向导替换输入框的位置：放在消息流内容末尾、粘在底部，往上滚时浮在内容上，贴底时不盖最后一条；输入框隐藏但不卸载；最高占视图的 60%，内容内部滚动；表面和其它浮层相同；可以收起成一条小条（写等什么、第几个，没有批准按钮）。审批逐个处理，显示工具、目标与预览（`DiffView`，或命令的等宽代码块，或 nb-form 的展示态），按钮是批准、本会话都批准、拒绝，附言框写了字就是拒绝。提问向导支持单选、多选、“其他答案”、表单（nb-form 编辑态）、多题切换、终止本轮。未提交的答案是纯界面状态，只在当前批次内保留。带 `within` 的事项（planned），向导标题与收起的小条（停靠区的也是）写明是哪个工具里的调用（例如“eval 里的调用”），批量与“第几个”照旧；后代会话里代码发起的提问取不到来源，不写（已知限制）。
 - `composer.resume` 为真时占位文字说明上次运行被中断、回车继续，发送按钮换成继续（图标 `>>>`，大小不变）；空着发送发出 `run.continue`，写了字照常发送。
+- （planned）排队区：每条一行，标签加正文第一行。用户自己的标签是“补充说明”“排队”（强调色），有编辑与取消；别的发出者的标签是它的显示名与图标（次要色），只有取消。有留着的条目时，列表上面多一行：暂停图标、“已暂停”、原因文案，右端“继续”（发出 `run.continue`）；留着的行改成虚线框、标签变淡。这时输入框的占位文字是“排队的话已暂停。按回车继续，或输入新消息一起发”，发送按钮同样是继续，空着发送发出 `run.continue`，写了字照常发送（宿主据此放行）。
+- （planned）停止的第二个选项：`interaction.canStopClearing` 为真（缓冲区里有用户自己的话）且停止按钮出现时，停止按钮右边接一段同色的下拉箭头，两段拼成一个按钮；箭头打开的菜单只有“停止并清空排队”，发出 `composer.stop {clearQueue: true}`。点停止按钮本身仍发出 `composer.stop`。停止进行中箭头不可用。
 - `availability` 不是 `ready` 时，输入框上方显示对应的横幅和恢复动作，输入框只读。
 - 提示卡：`availability` 为 `profile-unavailable` 时，上一条的横幅画成一张提示卡：图标（`icon`，没给时是提示图标）、标题（`title`，没给时只有说明）、说明（`message`）与恢复动作，第一个动作是主按钮。卡用浮层的表面与阴影，占原来那行横幅的位置（停靠区之下、输入框之上），不叠在消息上，消息区随之变矮，贴底滚动不受影响。别的状态（`archived`、`load-error`，以及 `ready` 时不拦发送的模型能力提示）保留一行：图标、说明与动作。
 - 输入框的占位文字按顺序取第一个：`availability` 不是 `ready` 且有说明时写原因（有 `title` 写 `title`，否则写 `message`）；`composer.resume` 为真时写中断后回车继续；运行中按能怎样发送写；其余是普通的占位。
 - 待处理区依次显示已登记条目；内置条目为 Workflow 待回答、工作区变更、排队消息。
 - 停靠区：消息流与输入框之间的一块，放 `async: true` 的提问与带 `source` 的事项（后代会话的审批、提问、模式切换请求）。内容与同步向导相同（`AgentWizardFrame` 的 `docked` 变体），不替换输入框；是单独的组件，出现与事项变化时不移动焦点（焦点已在停靠区里时，翻页、收起、展开之后放回对应的按钮），播报经视图层常驻、视觉隐藏的 `role="status"` 区（文字带来源）。一次一个事项：标题行有“第 n / m 个”与上一个、下一个（提问事项另接“第 k / j 题”，换事项时从第一题开始），每个单独提交（`input.submit` 带 `sessionId`），没有“全部拒绝”“终止本轮”。能收起成一条，写有几个与第一个的前半句。最高为对话视图高度的 40%（视图根节点是尺寸容器），内容区内滚动；在排队消息与可用性提示的上面。带 `source` 的标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（`session.select {sessionId}`）；后代会话的模式切换请求不带 `approval`（宿主不知道那个会话的审批模式），向导不问审批模式、批准不改它。标题放不下时省略号截断，计数与按钮固定在右边（同步向导同样）。同步向导出现时停靠区收成一条，排在向导下面；同步向导消失后回到用户原来的展开或收起。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”），收起与展开相同。元素钩子 `data-agent-dock`，与同步向导的 `data-agent-wizard` 分开。
 - `user` 消息带 `author` 时，头像与名称用它，不用“用户”角色。harness 适配器的选项 `authorOf(by)` 由宿主给，把路径事件上的 `by` 换成 `author`；不给时都是用户。
+- （planned）harness 适配器的乐观消息按受理它的 `commandId` 确认（`input`、`steer` 事件带 `commandId`），不按到达的先后：留着的话先跑时，先到的是旧话。排队消息从快照与缓冲区事件读，每条带发出者、状态与原因（[`harness/runtime.md`](../harness/runtime.md) 输出 103）。宿主合并留着的话发出的那一条，乐观显示在消息流末尾，前面还有别的发出者的话先跑时标“前面还有 N 条”。
 
 ### 状态栏
 
@@ -394,7 +398,7 @@ type AgentSessionListItem = {
 | 会话 | `session.create {profileKey?}`、`session.select {sessionId}`、`session.rename {sessionId, title}`、`session.archive {sessionId}`、`session.restore {sessionId}`、`sessions.query {query}`、`sessions.refresh`、`view.close` |
 | 消息 | `message.copy {messageId}`、`message.editStart {messageId}`、`message.editCancel`、`message.editSubmit {messageId, text}`、`message.retry {messageId}`、`message.branchFrom {messageId}`、`message.resend {messageId}`、`message.dismiss {messageId}`、`branch.switch {messageId, direction}`、`tool.copy {toolCallId}`、`history.loadPrevious`、`history.refresh` |
 | 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
-| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.fill {text}`（把一段文字换进输入框，宿主换草稿并加版本）、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}`、`menu.selected {trigger, id}`（确认了宿主菜单里的一项，标签已经插入；宿主据此做插入之外的事，例如问要不要初始化 Skill） |
+| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`（（planned）可带 `clearQueue: true`）、`composer.draftChanged {text}`、`composer.fill {text}`（把一段文字换进输入框，宿主换草稿并加版本）、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}`、`menu.selected {trigger, id}`（确认了宿主菜单里的一项，标签已经插入；宿主据此做插入之外的事，例如问要不要初始化 Skill） |
 | 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`model.manage`、`runtime.reset` |
 | 审批与提问 | `input.submit {batchKey, resolutions, sessionId?}`（`batchKey` 是事项 id，一个事项一条；`resolutions` 是 `{kind: "approval", decision, note?}` 或 `{kind: "question", answer: {text, data}}`；`sessionId` 是事项所在的会话，带 `source` 的事项提交时有）、`input.cancelRun`、`input.resync`、`wizard.state {state}`（向导的界面状态，宿主放回 `ctx.wizardState`）、`dock.state {state}`（停靠区的界面状态，宿主放回 `ctx.dockState`） |
 | 中断与排队 | `run.continue`、`queued.edit {id}`、`queued.remove {id}` |

@@ -39,6 +39,16 @@ updated: 2026-11-18
 5. 任务中心停子代理（远程的 `killJob`）按用户停的记，`children.ts` 不再换成父会话的身份。
 6. kit 的标题会话以宿主身份发话，它缓冲区里留着的由它自己取消，不提示用户；不带原因的 `closeSession` 按中断处理（留着，原因“关闭”）。
 
+写 Spec 时另定的五处（主 Agent 提出，开发者 2026-11-18“确认”）：
+
+7. 运行不再取输入时（只压缩、停止已受理、已决定收口）会话、宿主的 `enqueue` 按空闲处理：留着、不放行、不开运行；用户的照提案压完接着跑。
+8. 叶子上有暂停的运行、发出者不能接着跑它时，`send` 的话留着（去向 `held`），不开运行。
+9. `start`（“按回车继续”“重试”）只接着跑叶子上最后一次没有正常结束的运行，不取留着的话；只有升级前旧日志里的就绪的话仍取第一条。
+10. `send` 交回去向 `taken`、`later`、`held`；`taken` 的话在那次运行以交出结果收口时仍会转成留着，`agent_send` 等运行结束后按这句话后来的状态告诉父 Agent。
+11. 恢复方式是合并、又有中断的运行时，“继续”先 `start` 接着跑，再在这次运行里 `send{replaces}`。
+
+Spec 已按提案、实现定义与上面五处改好（`planned`）：`harness/runtime.md` 输出 103–111 等、`harness/session.md` 输出 24、`agent/sessions.md` 输出 21–22、`agent/conversation.md` 输出 47–48、`agent/subagents.md`、`agent/jobs.md`、`agent/builtin-profiles.md`、`ui/agent-conversation-view.md`；ADR 0035 补决策 4。
+
 ## 下一步
 
-按提案与上面的清单、实现定义改 `planned` Spec 与 ADR，再写计划（内核与对话视图分开审）；计划审查用真实内核验证第三轮那 11 条与清单里的探针。
+Spec 的设计审查（内核与对话视图分开）同时写计划；计划审查用真实内核验证第三轮那 11 条与清单里的探针。
