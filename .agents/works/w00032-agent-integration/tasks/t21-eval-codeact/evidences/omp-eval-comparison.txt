@@ -1,0 +1,328 @@
+# t21 计划对照 omp 的 eval（omp 18.14.1）
+
+约定：omp 路径相对包根 `src/`（`~/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/`）。判断：采纳 / 已覆盖 / 以后 / 不适用。
+标「实测」的是我在 /tmp/claude-1000/t21-omp-compare/lab/ 里直接用 omp 的源码（rewrite-imports.ts、runtime.ts）或 Bun 1.4.4 跑出来的结果，不是读代码推断。
+omp 的更新日志只覆盖 18.8.6（2026-10-08）到 18.14.1（2026-10-31），更早的修复记录没有。
+
+====================================================================
+方面 1：给模型的说明文字（prompts/tools/eval.md，70 行；eval-helpers.md；system/eval-*.md）
+====================================================================
+
+omp 怎么做
+- 描述只有 70 行，分四块：核心（eval.md:1-7）、`<prelude>` 助手签名（:9-41）、`<namespaces>` 其它全局对象的一行摘要加文档地址（:46-64）、`<critical>`（:66-67）。judge、helpers、agents 三个主题挪到 `xd://eval/<主题>` 按需读（tools/eval.ts:232 `getEvalDocTopics`）。
+- 原文（值得改写进英文说明的，保留英文）：
+  1. eval.md:1 "One cell per call; top-level state persists, including across compaction."
+  2. eval.md:4 "JS: Bun (`Bun.file`, `Bun.write`, `Bun.$`); top-level `await`/`return` work."
+  3. eval.md:5 "On error, retry only the failed step; earlier steps may have taken effect."  （防模型出错后整段重跑、把已成功的副作用再做一遍，对我们的写入类工具尤其要紧）
+  4. eval.md:6 "Cell deadline: nonzero `timeout` values clamp to 1–3600 seconds ...; `0` disables the deadline. A changed supplied deadline is disclosed before execution."
+  5. eval.md:7 "Printing an image attaches it."
+  6. eval.md:20 "`await` marks async helpers; the rest are sync." 以及 "await tool.<name>(args) — async; session tool; `args` is its parameter object"
+  7. eval.md:40 "Session tool names: `a`, `b`, ..."（tools/eval.ts:398 `toolNames: session.getEvalBridgeToolNames()`）：描述里直接列出这个会话里 `tool.<名>` 能叫的全部名字。
+  8. eval.md:66-67 `<critical>NEVER repeat successful setup. Kernel-loss notice means reload setup.</critical>`  （防止模型每次调用都重放初始化，也说明丢内核后要重装）
+  9. eval.md:47 "More globals; `read` the linked docs before first use:"（全局对象摘要段的开头）
+  10. 参数描述（tools/eval.ts:115-118）：code "Code or standalone % command; top-level await works."；title "Short transcript label."；timeout "Cell deadline in seconds; nonzero values clamp to 1–3600; 0 disables it."；reset "Wipe only this kernel."
+  11. eval-agents.md / eval-judge.md 里反复出现的 "without `await agent(…)`, `.id`/`.handle` are undefined" 一类句子，更新日志 #16808、#16810、#16578 都是在补“哪些助手要 await”：模型最常犯的错就是忘 `await`。
+  12. system/eval-state-context.md："Dead or absent kernel → re-run needed setup. Alive kernel → reuse retained definitions. ... NEVER infer variable values from this snapshot."
+- 防的错：重复执行已成功的设置（8）、出错后整段重跑（3）、忘 await（6、11）、猜变量值（12）、不读文档就用全局对象（9）。
+- 没有找到专门写“eval 里不要做本该直接调工具的事”的句子。omp 在 bash.md:2 只写 "Scripts/heredocs/`$(…)`/complex pipelines → `eval`"，在 workflow-notice 里才有“单次查找、单次编辑直接调工具，不开 eval 流水线”的话（system/workflow-notice.md 里 "Quick lookup/single edit: direct; no agents"，针对子代理）。未核实 omp 的系统提示是否别处还有 eval 与直接调用的取舍说明（grep 了 prompts/ 全部含 eval 的文件，没有别的）。
+
+计划怎么做
+- 计划“nbook.agent：eval 工具”一节：“说明文字（英文，给模型）：用法、`tool.<providerName>(args)` 的返回与失败、可用的全局对象各一行加文档地址、不支持顶层静态 `import`（用 `await import("node:…")`）、变量跨调用保留与何时丢。”
+- 计划没有列“会话里可用的 tool 名”、没有“别重复成功的设置”“出错只重试失败的一步”“忘了 await”“何时该直接调工具而不是 eval”。
+
+判断
+- 句子 3、8、12 的意思：采纳（改写成英文，第一版就写进说明）。
+- 句子 7（列出可调的 tool 名）：采纳，但要注意与计划里“`global` 工具不进请求的工具清单”配合：普通工具模型本来在工具清单里就看得到名字，不必在说明里再列；列的价值在于告诉模型 `tool.<providerName>` 用的是 providerName，而不是工具 id，并且 `codeCallable: false` 的（待办、派子代理）不能叫。建议只列“可调的 providerName”一行，随生效工具集变（见方面 6 的缓存问题，这行要放进冻结的快照或走 notice）。
+- 句子 6/11（忘 await）：采纳；我们的内核有“单元结束时等没 await 的嵌套调用”，但没 await 的调用失败会变成未处理的 rejection（见方面 3），说明里要明说“每个 `tool.*` 和全局对象的方法都是异步，必须 `await`”。
+- 句子 4（timeout 夹到范围并披露）：见方面 5。
+- “何时该直接调工具”：以后；omp 自己也没有可抄的句子。我们可以在说明里写一句“只调用一个工具、不需要处理结果时，直接调那个工具，不要开 eval”，这是我们自己的补充，不是 omp 的，已核实 omp 没有。
+
+====================================================================
+方面 2：改写与执行的边角（eval/js/shared/rewrite-imports.ts 1204 行、indirect-eval.ts、runtime.ts run()）
+====================================================================
+
+先说 omp 的整体结构（计划“只有一条路”与它不同）：
+- `wrapCode`（rewrite-imports.ts:1184）顺序：给 `tool.read` 调用点插桩（只服务投机执行，我们不需要）→ 最后一个表达式或末尾 `return` 改成 `__omp_set_final_expr__((…))`（:1071）→ 疑似 TS 就用 `Bun.Transpiler` 去类型（:1160、:1181）→ 静态 `import` 改写（:442）→ 判断要不要异步包装（有顶层 await、return、for await，:1113-1155）→ 顶层声明处理（:1003）。
+- **两种模式**：没有 await/return 的同步单元，`const/let/class` 降成 `var`、函数与 `var` 靠间接 eval 留在全局（实测 `const a = 1; a` → `var a = 1; …`）。有 await/return 的单元包进 `(async () => {…})()`，顶层声明改成 `this["名"] = (…)`，函数声明在入口先装，并在入口给每个名字补 `if (!("名" in this)) this["名"] = undefined;`（globalizeTopLevelDeclarations，:687）。
+- 解析器是 `@babel/parser`，`sourceType: "module"`，允许顶层 await、return、import/export 出现在任何位置，开 `errorRecovery`，带 `typescript` 插件（:109-130）。
+
+逐个边角（omp 怎么做 / 计划有没有 / 判断）：
+
+a) **顶层静态 `import`**。omp 改写成 `const x = (await __omp_import__("mod")).default;` 等五种形态（rewriteImportNode，:247；实测 `import fs from "node:fs"; import {a as b, c} from "x"; import * as ns from "y"` 都转成了 await 形式）。动态 `import()` 被换成 `__omp_import__`，按**会话 cwd** 解析（:205 DYNAMIC_IMPORT_CALLEE；runtime.ts:664）。
+   - 计划：不支持顶层静态 import，说明里让模型用 `await import("node:…")`。
+   - 实测（Bun 1.4.4，lab/a/entry.ts）：间接 eval 里的 `import("./x.mjs")` 按**内核入口文件**所在目录解析，不是 cwd（cwd=b/ 时读到了 a/x.mjs）；绝对路径正常。内核入口是 ESM，间接 eval 里 `require` 未定义（`require is not defined`）。
+   - 判断：**采纳（两条）**。(1) 顶层 `import fs from "node:fs"` 是模型最常写的开头，acorn 本来就给出 `ImportDeclaration` 节点，转成 `await import()` 只是几行改写，报错让模型重发一轮比转写贵；`export` 不处理，给明确报错即可。(2) 动态 `import("./相对路径")`、`import("包名")` 的解析基准要定：要么像 omp 一样把 `import(` 换成按项目工作目录解析的函数，要么在说明里写死“只用 `node:` 和绝对路径”。不定的话模型写 `import("./scripts/x.js")` 会得到莫名其妙的找不到模块。另外 omp 注入了 `require`（按 cwd 创建）、`fs`、`createRequire`、`webcrypto`（runtime.ts:717-723），模型常写 `require("node:fs")` 和裸 `fs.readFileSync`；计划没提这一点，建议注入 `require` 与 `fs`，至少 `require`。
+
+b) **顶层 `export`**。omp 不改写；实测 `export const q = 1` 得到引擎原话 `SyntaxError: Unexpected keyword 'export'` 加一串内部栈帧。计划没提。判断：以后/小事；acorn 的 `sourceType: "module"` 能认出它，给一句“不支持 export，直接声明变量”即可。
+
+c) **解构声明**。omp 把 `const {a, b:[c]} = await …` 改成 `({a, b:[c]} = (await …))` 加入口补 `a`、`c` 的占位（实测输出）。计划“声明改成对全局对象的赋值”，没明写解构：需要递归收集绑定名（对象、数组、默认值、rest）。判断：计划的“声明改成对全局对象的赋值”隐含要处理，但验收没列；归为已覆盖，建议在 `rewrite.test.ts` 里补解构、嵌套解构、默认值、rest 四类。
+
+d) **`class`、函数提升**。omp：class → `this["A"] = (class A{})`（实测）；函数声明 → `this["foo"] = (function (){…})` 并在入口先装（hoisting 保留）。**实测函数名丢了**：`foo.name === ""`，栈里写 `at <anonymous>`。计划与 omp 同一种做法，会踩同一个点。判断：**采纳**：生成时保留函数名（`this["foo"] = (function foo(){…})`，或赋值后 `Object.defineProperty(foo, "name", …)`），否则报错栈、`console.log(fn)` 里都是匿名函数，模型读不懂。注意具名函数表达式在函数体内会把 `foo` 绑定成自身，后面单元重新赋值 `foo = …` 时体内递归仍指旧函数，这是与“闭包读到新值”验收的取舍点，选 defineProperty 的做法没有这个副作用。
+
+e) **闭包引用旧绑定**。omp 的做法：异步模式下声明变成全局属性，裸标识符在调用时解析到全局属性，所以前一单元定义的函数读到后一单元改的值；另外对所有赋值、自增（`n++`、解构赋值）额外插桩 `(v = (n++), g["n"] = n, v)`（instrumentBindingAssignments，:949）。我没弄清这层插桩的必要性（实测 `let n = 0; async function inc(){ n++ } await inc(); n` 的输出里它给 `n++` 加了发布；按我的理解裸赋值本来就写全局属性），源码里也没有注释写理由：**未核实**。计划的验收“后一个单元改了全局，前一个单元定义的函数读到新值”本身就覆盖了这点，先照计划的写法做，用测试验证，不照搬插桩。
+
+f) **`"use strict"`**。实测 omp 两处都有问题：同步单元 `"use strict"; const sx = 1; sx` 之后 `typeof sx` 是 `undefined`（变量悄悄丢，正是计划写到的问题）；异步单元里 `"use strict"` 被排在插入的初始化语句后面，不再是指令，严格模式悄悄失效（因为 Babel 把指令放在 `program.directives`，不在 `body`，rewrite-imports.ts:734 与 :972 找指令的循环永远得到 directiveEnd=0；已用 omp 自带的 @babel/parser 实测 `directives` 长度为 1、`body[0]` 是声明）。计划“不靠把声明降成 var”的做法能避开第一个；第二个要注意：包装进异步函数后，`"use strict"` 必须仍是函数体的第一条语句，否则严格模式失效。判断：**已覆盖**（计划比 omp 好），验收里“`"use strict"` 的单元也保留”应同时断言严格模式确实生效（例如单元里给未声明变量赋值要抛错）。
+
+g) **`for await`、标签语句**。omp 用 `containsAsyncWrapperSyntax` 认出顶层的 `await`、`for await`、`return`，遇到函数边界不再深入（:1113-1155）。实测 `for await (const x of gen()) {…} var z = 3;` 与 `outer: for … continue outer` 都正确包装。计划“用 AST 认出顶层 await、for await、return”，已覆盖。标签语句在单一异步函数里天然没问题。
+
+h) **注释与字符串里的关键字**。omp 先用 `code.includes("import")` 之类的快速检查，再靠真解析器，字符串、模板、注释里的 `import`/`await` 不会被改（实测 `const s = "import a from 'b'"` 保持原样）。计划用 acorn 解析，天然具备。已覆盖。
+
+i) **嵌套的 `var`**。更新日志 #15859：“`var` declared inside a top-level control block disappearing after an awaited JavaScript Eval cell”。omp 为此专门写了 collectNestedVarDeclarations（:606），把 `if/for/try` 里的 `var` 也发布到全局，还处理 for-in/of 头里的 `var`、catch 参数同名的 Annex B 边角。计划的“顶层声明（var、let、const、class、函数）”里没提 **嵌套在顶层语句里的 `var`**。判断：**采纳**：在 `rewrite.test.ts` 加 `if (c) { var q = 1 }`、`for (var i = 0; …)`、`try {…} catch (e) { var e = 1 }`。计划里 `var` 声明要提到包装函数外面（或同样当成全局属性）。
+
+j) **重复声明**。实测 `const a = 1; …` 之后下一单元 `const a = 2; a` 成功输出 2（omp 靠降成 var、全局赋值）。计划的赋值法天然允许；这是模型“重试失败的一步”时最常撞的坑（间接 eval 原生会 SyntaxError：Identifier 'a' has already been declared）。判断：已覆盖，**建议把“跨单元重复声明同名 const/let/class 成功”写进验收**。副作用：`let x;`（无初始值）再次声明不会重置成 undefined，因为入口只补“不存在才设为 undefined”；这与 JS 语义不同但没有更好的办法，说明里不必写，记在 Spec 的已知限制。
+
+k) **最后一个表达式与顶层 return**。omp：只改写“最后一条语句是表达式”或“最后一条是带参数的 return”，其它位置的 return 由异步函数自然返回值（实测 `if (true) { return 5 }\nawait 1; 7` 输出 5）；`undefined` 不回显（runtime.ts:584）；最终值若是 Promise 会再 await（run() 里两次 awaitMaybePromise，:530-580）。计划“最后一个表达式与顶层 return 的值交回”，已覆盖。要补的两点：(1) 单元最后一条是 `if`、`for` 之类时没有值，不回显，正常；(2) 值是 thenable 的坑见方面 6 的 Proxy 一条。
+
+l) **TypeScript**。omp 用 `LOOKS_LIKE_TS` 正则（:1181）判断“看起来像 TS”就交给 `Bun.Transpiler` 去类型，失败原样返回（:1160）；实测 `const x: number = 1; interface A {…} x as number` 能跑。副作用：去类型后行号与原文不再对应（interface 行被删）。计划写“TS 不在范围”，并否决 `Bun.Transpiler` 作解析器（它不给 AST，理由对）。但把它当**去类型的前置步骤**与当解析器是两回事。判断：以后（但建议至少给明确提示）：acorn 遇到 `const x: number` 会抛 “Unexpected token (1:7)”，说明里加一句“plain JavaScript only, no TypeScript syntax”，SyntaxError 的消息带“可能写了 TypeScript”的提示；是否用 Transpiler 前置去类型留给开发者，代价是行号错位与误判正则。
+
+m) **源码映射与行号**。omp 没有源码映射。间接 eval 加 `//# sourceURL=<单元文件名>`（indirect-eval.ts:21-24，换行符会被编码防注入），但异步包装与入口补的 `if (!("x" in this))…` 行让栈里的**行号比原码偏大**（实测第 1 行定义的函数报 `cell.js:3:45`，调用处报 `4:50`）。计划没提行号。判断：**采纳（便宜）**：把包装的头和入口补的语句全放在第 1 行、不插入换行，让后面的行号与模型写的代码一致，列号只在第 1 行偏。另外栈帧里 omp 不过滤内核自身的帧（实测错误栈里有 6 行 runtime.ts/indirect-eval.ts 的帧），计划写了“去掉内核自身帧”，比 omp 好，已覆盖。
+
+n) **语法错误的位置与代码框**。更新日志 1112 行：“Fixed JavaScript eval syntax errors lacking source location and a useful code frame.” omp 在引擎抛 SyntaxError 且“源码自己确实编不过”时，用 Babel 重新解析原码，生成 `message (line L, column C)` 加前 2 行与插入符的代码框，超过 120 宽的行截断（buildCellSyntaxError，:144-190，diagnoseCellSyntaxError :192；实测输出 `SyntaxError: Unexpected token (line 1, column 5)\n1 | x = ;\n  |     ^`）。注意：同步单元里运行时 SyntaxError（如 JSON.parse 抛的）不能误当作编译错误，它先用 `new vm.Script` 检查源码能否编译再决定（runtime.ts:281 compiles()）。计划没提。判断：**采纳**：acorn 抛出的错误自带 `loc`，直接按原码生成同样格式的代码框；我们是先用 acorn 解析原码，语法错误在改写前就报，位置天然对，比 omp 简单，不需要 vm.Script 那一步。
+
+o) **`tool.<名>` 的返回值里看见 thenable 的坑**（放这里因为它发生在“最后一个值”这一步）。实测 omp 里 `tool` 是 Proxy，对任何字符串属性（包括 `then`）都返回异步函数，所以**单元最后一个表达式写成 `tool`、或 `await tool`，单元会卡住直到超时**（实测，1.5 秒竞速超时；`[tool.x]` 能显示）。计划的 `tool.*` 与全局对象 Proxy（`browser.goto`）同样的写法会踩同一个坑。判断：**采纳（第一版）**：Proxy 的 `get` 对 `then`、`toJSON`、symbol、`inspect` 相关键返回 undefined，并只放行已登记的 `tool.<名>`；未登记的名字直接得到“没有这个工具，可用的有：…”的错误而不是静默得到一个函数。
+
+p) **用户把保留名字当变量声明**。实测 `var tool = 5` 之后 `typeof tool` 是 number，`const console = 1` 之后 `typeof console` 是 number：omp 没有拦（运行时的 recordGlobals 反而把用户改的值记住，runtime.ts:322-331 的注释说这是“绑定跨单元保留”的约定）。计划只拦“插件对象名与内置名冲突”，没有拦模型自己的代码。判断：**采纳**：改写时检查顶层声明名，撞 `tool`、`console`、`display`、插件对象名等保留名时给明确报错（几行，且我们已经在遍历声明）。
+
+q) **解析失败的兜底**。omp 的 `parseProgram` 在 Babel 完全解析失败时返回 null，原码交给引擎，让引擎报错（:101-107）；`errorRecovery: true` 让大多数小错误仍能得到 AST。计划用 acorn：语法错误直接报，没有兜底的必要。已覆盖。
+
+====================================================================
+方面 3：输出（runtime.ts 的 console 桥与回显；tools/eval.ts 的结果拼装；pi-tui streaming-output.ts 的 OutputSink）
+====================================================================
+
+a) **截断与全文**。omp：OutputSink 内联上限 50 KiB（`DEFAULT_MAX_BYTES`，pi-tui tools/streaming-output.ts:13）、头 20 KiB 加尾 20 KiB/500 行的滚动窗口（settings tools.ts `artifactHeadBytes/TailBytes/TailLines`）、全文另存为 artifact 至多 16 MiB（`ARTIFACT_DEFAULT_MAX_BYTES`，:22）、**每行至多 768 字节**，更宽的行截成开头加 `…`，行尾剩下的直到换行都丢掉（`tools.outputMaxColumns` 缺省 768，tools/settings.ts:84）。被列截断时结果末尾给提示“Some lines truncated to 768 chars. Use <来源>:raw:<行>-<行> to read line N whole”（pi-tui output-meta.ts:337-355；更新日志“Improved guidance for retrieving complete lines when read, eval, or bash output is truncated by the column limit”）。
+   计划：复用 nb-harness `kit/tools/shell-window.ts`。我读了这个文件：`WINDOW_BYTES 50 KiB`、`PART_BYTES 20 KiB`、`PART_LINES 500`、`LINE_BYTES 768`、`OUTPUT_LIMIT 64 MiB`、`capLines` 对超长行追加“本行共 N 字节，已截断”。与 omp 数字基本一致。判断：**已覆盖**。需要补的一点：计划里“全文”与读回全文的方式要对单元输出同样成立（模型看到“已截断”后要有办法读那一行的全文，例如全文文件加 `read` 的行区间）。
+
+b) **`console.*` 各方法**（prelude.txt:575-636 consoleBridge；runtime.ts:991 logConsoleArgs）。实测：
+   - `log`、`info`、`debug` 原样输出，`warn` 前缀 `[warn] `，`error` 前缀 `[error] `（实测，`info`/`debug` 没前缀）；
+   - `table` 走 node 的 `Console.table` 渲染成框线表（实测），同时给 UI 一个表格视图；
+   - `dir` 丢掉 options（只当 log）、`group`/`groupEnd` **不缩进**（只在带参数时打印标题）、`trace` 输出 `Trace: …` 加栈、`assert` 失败时 `[error] Assertion failed: …`、`time/timeEnd/timeLog/count/countReset` 自己实现（含 “Timer 'x' does not exist” 的 warn）；
+   - 多个参数用空格连接；字符串参数原样（不加引号）；非字符串用 `util.inspect(arg, {depth: 6, colors: false, breakLength: 120})`（runtime.ts:970）；一行结尾补换行。
+   计划：只说“`console.*` 与 `process.stdout.write` 收进本单元”，没有逐个方法定义，格式用 `Bun.inspect`。判断：**采纳**：见 c)。
+
+c) **值的显示：`Bun.inspect` 对 `node:util.inspect`**（计划技术选型：“值的显示 | `Bun.inspect` | 运行时自带；否决自写格式化”）。我在 Bun 1.4.4 里对比（lab/t4.ts、t5.ts、t7.ts）：
+   - 顶层字符串：`Bun.inspect("a\nb")` 得到带引号、`\n` 转义的一整行 `"a\nb"`；omp 回显与 `console.log` 对字符串是**原样**输出。单元最后一个值是整章正文（我们的最常见场景）时，`Bun.inspect` 会得到一行转义文字，又撞上 768 字节的列截断，几乎不可读。
+   - 嵌套对象：`Bun.inspect` 总是展开成多行，每个嵌套层都换行并带尾逗号（实测 `{a:{b:{c:{d:{e:{f:{g:1}}}}}}}` 占 17 行；`[{id,name,tags,nested}]` 每个元素 9 行），`util.inspect(…, {depth: 6, breakLength: 120})` 同一份数据一行或几行，更省 token；循环引用 `Bun.inspect` 给 `[Circular]`，`util.inspect` 给 `<ref *1> … [Circular *1]`。
+   - 两者对数组都在 100 项处截断（`... 400 more items`，实测）；字符串在对象里 `util.inspect` 截到 10000 字符，`Bun.inspect` 不截。
+   - `node:util` 在 Bun 里就是内置的，不增加依赖，不属于“自写格式化”。
+   判断：**采纳（第一版）**：值的显示改用 `node:util.inspect`，参数照 omp（depth 6、breakLength 120、无颜色），字符串类型的最终值与 `console.log(字符串)` 原样输出。这会改计划的技术选型表一行；该行的理由“运行时自带”对 `node:util.inspect` 同样成立，所以没有违反开发者决定。
+
+d) **`process.stdout.write`、`process.stderr.write`**。omp 只改写这两个流的 `write` 方法一次（runtime.ts:895 patchStdioOnce），没有单元在跑时回落到原来的写法；保持“不补换行”，返回 true；注释说明：模型出于 Node 习惯会用它，不接管的话文字会漏到工作进程自己的 stdio 里、`write()` 返回 boolean 还会被当成最后一个值。
+   **实测补充**：`Bun.$\`echo x\`` 不带 `.text()`、`Bun.spawnSync(…, {stdout: "inherit"})` 这类直接写 fd 1 的输出**绕过** `process.stdout.write` 的改写（lab/t6.ts：改写里捕获到空，文字直接打在了进程的 stdout 上）。omp 的内核 stdout 是 `"ignore"`、stderr 写文件（worker-client.ts:277-278），所以这类输出直接丢；omp 的说明又写“JS: Bun (`Bun.file`, `Bun.write`, `Bun.$`)”，模型写 `await Bun.$\`grep …\`` 不加 `.text()` 就什么也看不到。
+   计划：`Bun.spawn([...], {ipc, cwd, env, detached})` 没写 stdout、stderr 怎么接。Bun 的默认 stdout 是 pipe：没人读，内核里子进程写多了会写满管道而卡住。判断：**采纳**：明确内核的 stdout、stderr：建议两者重定向到文件（同 omp 的 stderr 文件加尾部），单元结束后可选把“单元期间写到 fd 1/2 的内容”并进输出；至少 stderr 的尾部要保留下来，在内核崩溃时写进结果（见方面 4）。说明里提示“要拿命令输出用 `.text()`”。
+
+e) **二进制与图片**。omp：`console.log({type:"image", data, mimeType})` 才算图片；`data` 接受合法 base64、`Uint8Array`/`Buffer`/`ArrayBuffer`/类型数组视图、`{type:"Buffer", data:[…]}`（JSON.stringify 后的 Buffer）、以及**十进制逗号串**（`uint8array.toString("base64")` 会静默忽略编码参数、返回 `1,2,3`，omp 把它转回字节，runtime.ts:243-280 coerceImageBase64 的注释专门写了这个坑）；恢复不了就当普通对象打印。图片经 `resizeImage` 缩放、按模型排除 WebP（tools/eval.ts:977、`webpExclusionForModel`），缩放后在结果里写 “image N: …尺寸说明”。“Printing an image attaches it”。更新日志里“Removed `display()` from eval ... `print` (and `console.log` in JavaScript) covers it”：omp 把 `display()` 删了，只留打印。
+   计划：保留 `display(image)`；图片至多 8 张，按 `read` 的规则缩放。判断：**已覆盖**主体；**采纳**两点：(1) `display(image)` 的 `data` 同样接受 Buffer、Uint8Array、base64 字符串（至少这三种），并容忍十进制逗号串；(2) 图片的“至多 8 张”是我们加的，omp 没有张数上限，只有 Anthropic 请求总量上限（更新日志 #17492：最新消息的图片可到 128 MB），所以我们的上限要写在说明里并在结果里注明丢了几张（计划已写“多的丢掉并注明”）。
+
+f) **超长单行、`undefined`、`Promise`、循环引用**。
+   - 超长单行：见 a)，列截断 768 字节；
+   - `undefined`：最后的值是 `undefined` 时**不回显**（runtime.ts:584 echo；`console.log(undefined)` 仍打印 `undefined`）；
+   - Promise：最后的值是 Promise 就 await 后回显（实测 `Promise.resolve(5)` 回显 5）；没 await 的 Promise 做中间语句：见 g)；
+   - 循环引用：`util.inspect` 自带（实测 `<ref *1> { self: [Circular *1] }`）；
+   - 整个单元没有任何输出：omp 回 `(no output)`；只有图片时回 `(N image(s); no text output)`（tools/eval.ts:1068）。
+   计划没写“无输出时的占位文字”。判断：**采纳**（一行）：空结果给明确占位，免得模型把空字符串当成失败。
+
+g) **未处理的 rejection 与“忘了 await”的提示**。
+   - omp：内核进程装了 `unhandledRejection` 拦截（cli.ts:255-260 把 postmortem 的 interceptUnhandledRejections 传给 WorkerCore；worker-core.ts:95-110 `foldFloatingRejections`、:164 `#consumeRejection`）：单元结束后多等一轮事件循环（`await Bun.sleep(0)`，:381）让已浮动的 rejection 冒出来；**单元本来成功就改判失败**，消息 “Unhandled rejection (missing await?): <原消息>”；其余的追加成输出行 `[unhandled rejection] Name: message`；归属靠栈里含不含单元文件名，找不到时若恰好只有一个在跑的单元就算它的；单元已结束后才冒出的 rejection 只写 warn 日志，不进结果。
+   - **实测 Bun 1.4.4（lab）**：不装处理器时，`Promise.reject(new Error("x"))` 没人接，**进程直接退出码 1**；`setTimeout(() => { throw … })` 同样退出码 1；装了 `process.on("unhandledRejection")` 才活着。omp 对“uncaughtException（例如定时器里抛错）”没有拦截，仍会走 postmortem 的致命路径（pi-utils postmortem.ts:703-737），即这种情况下 omp 的内核也会死。
+   - 计划：完全没提。我们的内核是 Bun 进程，同样会因为模型忘了 `await`（或在 `setTimeout`/没接的 promise 里抛错）整个进程死掉，所有变量丢失。
+   - 判断：**采纳（第一版，重要）**：内核装 `unhandledRejection` 与 `uncaughtException` 两个处理器，按调用栈里的单元文件名或“只有一个在跑的单元”归属到当前单元，当前单元其余成功时判失败并带 “missing await?”，单元之外的只写诊断；不让进程因此退出。说明里写“每个 `tool.*` 和全局对象方法都是异步的，必须 `await`”。
+
+h) **错误堆栈怎样清理**。omp 不清理：抛错时把 `error.stack` 原样推进输出（executor.ts:236-237），实测栈里带 5-6 行 omp 自己的内部帧（runtime.ts:555、indirect-eval.ts:34 等）。计划写“去掉内核自身帧的堆栈”，比 omp 好。已覆盖。补充：错误对象有 `cause` 时（`new Error("x", {cause})`）`util.inspect` 会带 `[cause]`，建议用同一函数格式化错误；非 Error 的抛出值（`throw "text"`、`Promise.reject(1)`）要有兜底的文字，omp 在 `errorPayload` 里用 `String(error)`（worker-core.ts:68-80）。
+
+i) **失败时的输出形状**。omp 单元失败时，先写已收集的输出，再写栈，再追加一行 `Command exited with code 1`（tools/eval.ts:1032；沿用 bash 的措辞），结果标记为出错；超时或中止时保留已产生的输出，没有输出就写 `Command aborted`（:1034-1037）。计划只写“失败时加去掉内核自身帧的堆栈”，没写超时、中止、内核崩溃时**已产生的输出是否保留**。判断：**采纳**：这三种结果都要保留已收集的输出，再写原因，否则模型看不到跑到哪一步。
+
+====================================================================
+方面 4：寿命与状态
+====================================================================
+
+a) **内核死掉、被杀、启动失败怎么告诉模型**。
+   - 启动：先起子进程，握手（`init` → `ready`）超时取 `max(15 s, 本次单元时限)`（context-manager.ts:121 `WORKER_INIT_TIMEOUT_MS`，:639 `readyTimeoutMs`）；注释说明理由：冷启动是基础设施成本，不是用户的计算，在负载下被中途终止还没初始化完的运行时会触发 SIGILL/SIGSEGV（:114-120）。子进程初始化失败**自动改用 Bun Worker 重试一次**，第二次失败才报 “Failed to initialize isolated JS eval worker: …”（:640-660）。
+   - 运行中进程死（崩溃、OOM、被 `kill -9`、模型自己写了 `process.exit()`）：`createWorkerSubprocess` 的 onExit 把“退出码或信号加子进程 stderr 的末尾 16 KiB”变成错误 “JS eval worker exited with code N: <stderr 尾部>”（worker-client.ts:284-300、`STDERR_TAIL_LIMIT_BYTES` :100）；`reportCleanExit: true` 把**退出码 0 也算异常**，因为单元里可以 `process.exit(0)`（注释原话 “eval cells can call process.exit(0)”）。握手之后的死亡会 `killSessionFor`，把在途单元 reject（context-manager.ts:588-616、:871-895），下一次调用起新内核；死亡状态写进状态登记表（见 c）。
+   - 有意的 SIGKILL（`terminate()`、超时）先设 `intentionalExit`，onExit 不报错（worker-client.ts:292）。
+   - 被超时杀掉时在输出末尾追加：“Command timed out after N seconds. The JS worker was force-killed and its VM state was reset; variables from earlier cells are gone.”（executor.ts:88-96，注释：“Say so, or the model will keep referencing variables that no longer exist.”）；若超时发生在 JS 开始执行之前（例如装包阶段）写成“…before JavaScript execution began. Any existing retained JS worker remains available.”，状态**没丢**也要说清。
+   - 计划：重置的原因只列“回退、重启、空闲、超时、被回收”，没有**崩溃、被外部杀掉、`process.exit`**；没写握手超时；没写 stderr；没写进程退出时在途单元的结果怎样交。判断：**采纳**：(1) 内核意外退出（任何退出码或信号，包括 0）要交一个带退出码或信号、stderr 尾部的失败结果，并计入“重置原因”；(2) 握手超时与单元时限分开（omp 取 15 秒下限，且不计入单元时限；我们的 `timeout` 缺省 30 秒，冷启动在负载高时可能吃掉大半）；(3) “超时发生在内核还没开始执行前”与“超时杀掉了在跑的内核”写成两句不同的话。
+
+b) **“内核关停时内核自己收口”和孤儿进程**。omp 在每个 IPC 子进程里起一个**独立的看门狗线程**（`startParentWatchdog`，subprocess/parent-watchdog.ts、parent-watchdog-worker.ts），每 250 ms 查父进程是否还在，不在就 SIGKILL 自己；理由写在文件头注释里：“a worker whose main thread is pinned inside a synchronous native call ... still dies with its parent instead of lingering as a PPID-1 orphan (issue #14340)”，即**主线程被同步循环占住时，事件循环上的“IPC 断开”监听根本跑不到**。
+   计划：“内核发现 IPC 断开（服务端异常退出）时杀自己的组”。若这个监听挂在内核主线程的事件循环上，模型写一个 `while(true){}` 加上服务端崩溃（或被 `kill -9`），内核就永远不退。判断：**采纳**：断开检测放在内核里的一个 Worker 线程（或等价的独立线程）里轮询父进程，发现父进程没了就 SIGKILL 整个进程组；验收里加“内核卡在同步死循环时服务端被杀，内核随之消失”。
+
+c) **内核状态消息（`eval-state-context`）**。
+   - omp：每次构建发给模型的上下文时，在最后一条 eval 相关消息之后追加一条隐藏的自定义消息（display: false，customType `eval-state-context`，session/agent-session.ts:7401-7425）。内容两种：
+     (1) 登记表里有运行时：“Current host registry:\n- JavaScript: alive; generation=3; kernel=js-…; environment=…; runtime=Bun 1.x”，若是 dead 写成 “dead; state is unavailable”，再列最近成功加载的脚本（最多 12 条，newest last，state.ts:24、:318-335）；
+     (2) 本进程登记表里没有但会话历史里有 eval 活动（`historyHasEval`，agent-session.ts:878-886 `isEvalActivity`：eval 的 toolCall 与 toolResult）：“No retained eval runtime is registered in this process. Eval variables, imports, and kernels referenced in earlier session history were not restored; re-run required setup before using them.”
+     前后固定一段（prompts/system/eval-state-context.md）：“Eval runtime state is host-retained, not reconstructed from transcript text. … Dead or absent kernel → re-run needed setup. Alive kernel → reuse retained definitions. An omitted script path does not mean its definitions were lost. NEVER infer variable values from this snapshot.”
+   - 去重：已有相同内容的快照时不重复追加（:7410-7415）；压缩后重写历史时强制补一条（agent-session.ts:2733 `persistEvalStateContext`：“The rewritten history carries no snapshot yet, so always build one”）；启动时就补（:1994-2005）。更新日志里有两条与它相邻的 bug：#15736（恢复会话后上一进程第一次请求之后提示缓存没命中）、#15695（压缩后分叉或重载的会话提示缓存没命中），都写了“session with eval history”。更新日志没写根因；说这条隐藏消息的位置影响缓存前缀是我的推断，未核实。
+   - 计划：重置的提示只写在“新内核第一次执行时，若当前路径上已有 eval 的结果”那次调用结果的第一行。判断：这是两种取舍，不是漏洞。omp 是**主动**告知（在模型下一次写代码之前就知道内核没了），计划是**被动**告知（第一次调用已经执行了，才在结果里说）。被动的风险：第一次调用的代码里若带副作用的步骤在引用丢失变量之前（例如先 `tool.write` 再用旧变量），副作用已经发生。建议：**采纳一句说明**，在 eval 的说明里写 “If the result starts with ‘kernel was reset’, earlier variables are gone; re-run only the setup you still need”，并在 Spec 里记“被动告知的代价”。要不要主动告知交开发者（成本是新增一类隐藏消息或在恢复/回退时往上下文里加通知，计划已有 `notice{tools-changed}` 先例，可以复用同一机制）。我倾向保持现状（计划已有设计审查，且我们的回退本来就是用户可见的操作）。
+   - **压缩之后**：omp 的说明第一句就写 “top-level state persists, including across compaction”，内核不因压缩而动。计划里压缩不是重置原因（没有叶子移动），但压缩后**模型已经忘了自己建过哪些变量**；omp 也没有解决（它明确让模型别猜）。判断：以后：内核可以提供一个便宜的内省，例如 `globalThis` 上用户定义的名字列表。第一版先在说明里写“压缩之后不确定变量是否还在时，用 `typeof x` 或 `Object.keys(globalThis)` 查，不要重新做设置”。
+
+d) **`reset` 的语义**。omp：`reset: true` 先优雅关闭旧内核（发 `close`，等 `closed` 回执 1 秒，不行再杀，context-manager.ts:122、:164-178、:1012-1040），再在**同一次调用里**起新内核跑这段代码；同一会话并发的 reset 合并（`resettingSessions`）；“Wipe only this kernel”表示只影响 JS 内核、不影响 Python。结果没有额外提示（模型自己要求的）。计划：`reset: true` 主动重置；没写“reset 同时带代码时，代码在新内核里跑”，也没写 `code` 为空串时是否允许只重置。判断：**已覆盖**；建议 Spec 明写这两点。
+
+e) **会话恢复、分叉、回退**。omp：内核按“会话文件加工作目录”登记（session-id.ts），恢复会话（`--continue`、`--resume`）后内核不在，靠 c) 的第 (2) 种消息提示；子代理有自己的内核（以 `kernelOwnerId` 区分，状态登记表里 “shared / 私有”那一大块逻辑 state.ts:196-290 是为这个服务的）；**回退、分叉不重置内核**（omp 的会话树没有“叶子移动”的概念作用于内核）。计划决定 2 已经定了更严格的做法（叶子变动就重置）。判断：已覆盖，不适用 omp 的做法。
+
+f) **关闭与关闭时的竞态**。omp：`EvalRunner.beginDispose()` 设标志，之后 `assertExecutionAllowed()` 对新的单元直接抛 “…unavailable while session disposal is in progress”（session/eval-runner.ts:88；注意它的报错文字写的是 “Python execution”，是历史遗留）；关闭前先等在途执行 3 秒，仍没结束就中止（`#prepareExecutionsForDispose`）；启动到一半时发生关闭：启动记录已被回收的话，启动完成后**不发布**这个内核，避免“复活”（context-manager.ts:667-671 的注释：“owner disposal or a concurrent dispose-all may have already reaped the starting record, and publishing here would resurrect a context that was just torn down”）并在关闭流程里等启动结束后补杀（:430-445）。计划：“`dispose` 时杀进程”，没写**正在起进程时** dispose、或 dispose 之后又来一个 `run` 会怎样。判断：**采纳**：dispose 设“已关闭”标志，之后的调用得到明确失败，不再起新内核；dispose 时若有握手中的内核，握手完成后立即杀。
+
+g) **工作目录**。omp 每次运行前把内核进程 `chdir` 到会话的 cwd（worker-core.ts:319-348 `#syncProcessCwd`：别的单元还在跑时不动、目录被删时只写警告）。计划：spawn 时用 `cwd` 固定。判断：不适用（除非会话的工作目录在会话期间会变；我没核实 NeuroBook 项目切换时会话的 cwd 会不会变，**未核实**）。若会变，内核存活时要 `chdir` 或按“cwd 变了就重置”处理，并写进重置原因。
+
+h) **空闲回收、总数上限**。omp 两样都没有（内核只在 reset、会话释放、中止、超时时结束；我在源码里没找到数量上限）。计划有 30 分钟空闲回收与 8 个上限，是我们多做的，omp 没有可对照的坑；已知 omp 是单用户 CLI，我们是长驻服务，这个差别合理。不适用。
+
+====================================================================
+方面 5：工具桥（eval/js/tool-bridge.ts、eval/bridge-timeout.ts、eval/idle-timeout.ts、eval/tool-bridge-policy.ts；context-manager.ts 的 handleToolCall、settlePending）
+====================================================================
+
+a) **参数校验**。omp：`validateAgentToolArguments(tool, {…}, "payload")`（tool-bridge.ts:291），与直接调用同一套 schema 校验；脚本写的参数里伪造的 `__parseError`/`__rawJson` 键只剥掉不放行（pi-agent-core tool-arguments.ts 注释：模型写的负载里这两个键是伪造的）；harness 的意图字段 `i`（pi-wire INTENT_FIELD）在工具没声明它时从参数里删掉，让工具从桥与从直接调用看到同样的参数（:285-287）；校验失败时先发一条状态事件 `{op: 名, error}` 再抛。参数不是对象时，`tool.<名>()` 缺省成 `{}`（prelude.txt 的 `args ?? {}`）。
+   计划：参数先核对是能写进日志的 JSON，再走现有校验、只读、审批钩子；失败得 `invalid-arguments`。判断：**已覆盖**。`__parseError` 一类是 omp 的“宽松 JSON 解析”机制，我们没有（在 nb-harness 与 neuro-book 的 src 里搜 `__parseError`、`__rawJson` 没有命中），不适用。补一条：`tool.<名>()` 不传参数时按 `{}` 处理，Spec 写明。
+
+b) **返回值的形状**。omp（`bridgeValueFromToolResult`，tool-bridge.ts:161）：没有 `details`、没有图片、没有错误标记时返回**字符串**；否则返回 `{text, details, images?, hasError?}`。这正是 Opus 设计审查第 3 条批评的“返回形状看这一次有没有 details”，计划已改成由声明的 `returns` 决定。判断：已覆盖。注意 omp 里**工具以 `isError` 结果返回时不抛**，只是对象上有 `hasError: true`（:72-76、:190-191），代码要自己检查；计划统一抛 `ToolCallError`，更不容易漏，已覆盖。
+   补一点：一次 `Promise.all(files.map(f => tool.read({path: f})))` 里只要一个失败，整个 `Promise.all` 就 reject，别的调用的结果拿不到。omp 说明里没写，我们的批量读章节场景正是这个形状，建议说明里加一句 “use `Promise.allSettled` when some calls may fail”（我们自己的补充，omp 没有）。
+
+c) **图片**。omp：桥接结果里的 `images` 被 `surfaceBridgedToolImages`（runtime.ts:52-72）取走：每张图发一个 image 展示输出（进入单元结果，由模型看到），并把返回值里的 `images` 换成 “(N images displayed)” 字样，免得代码把 base64 回显进输出。计划：“嵌套结果带的图片并进本单元的图片”，`returns` 不含 base64。判断：已覆盖；建议实现时也把“代码拿到的 `details` 里不含图片载荷”写成合同。
+
+d) **错误怎样抛给代码**。omp：桥回复 `{ok: false, error: {name, message, stack, isAbort, isToolError}}`，内核里按 `isToolError` 重建 `ToolError` 或普通 `Error`，保留 `name` 与 `stack`（worker-core.ts:81 `errorFromPayload`、:471 `#deliverToolReply`）。代码里只能读到 `message`、`name`，没有结构化的 `status` 与 `code`。计划的 `ToolCallError{tool, status, code, message}` 更好。已覆盖。一条值得抄的：**未知工具名**与**已登记但本会话不可用**要有不同的消息：omp 分别报 “Unknown tool from js runtime: X” 与 “Tool is registered but not available in this session: X”（tool-bridge.ts:77-87，更新日志 #17250：“reports registered but unavailable tools instead of ‘Unknown tool’”）。计划对不允许的得 `invoke-not-allowed`，没写**根本没有这个名字**的情形（`tool.raed(...)` 拼错）。判断：**采纳**：得 `unknown-tool`，消息里带“可用的 `tool.<名>`：…”列表，一次就能纠正。
+
+e) **名字的写法**。更新日志 #17250：eval 的 `tool.<name>(…)` 接受 `xd://<name>` 与 Claude Code 的 `mcp__<server>__<tool>` 拼法，与直接调用同一套别名规则；#17178：`tool.apply_patch(...)` 曾被当成未知工具（模型看到的线上名字 `apply_patch` 与登记名 `edit` 不同）。教训：**代码里用的名字必须与模型在工具清单里看到的名字完全一致**。计划用 `providerName`，与模型看到的一致，已覆盖；建议验收加：工具改了 `providerName`（或按提供商不同名）时 `tool.<名>` 跟着变；名字里有 `-`、`.` 的工具能用 `tool["名字"]` 调。
+
+f) **并发调用**。omp：桥对每个调用 `new AbortController`，不看工具的并发声明，`Promise.all` 里的几个调用（含 `edit`、`write`）直接并行执行（context-manager.ts:791-840 handleToolCall；tool-bridge.ts 里没有并发控制），只有 eval 工具自己是 `exclusive`。计划：同一父调用里 `shared` 并发、`exclusive` 排队，比 omp 严格。已覆盖。
+
+g) **调用中途单元结束（`settlePending`）**。omp：worker 报告单元结果时，若这个单元还有没结束的桥接调用，**把结果扣下**，等最后一个调用结束再交（context-manager.ts:846-870；注释：不扣的话没 await 的 `agent()` 会让 run 先结算、中止监听被拆掉，子代理就没人能取消了）。中止时（`pending.aborted`）：先 abort 所有在途调用的信号，**之后到来的 `tool-call` 一律回 “Run was interrupted”**（:801-806），单元已结算后到来的回 “Run no longer active”（:795-798）；再 SIGKILL 进程。`deferExternalAbort`（bridge-timeout.ts:46-65）：个别阶段（子代理的 worktree 建立、合并）不能被打断，中止要等它做完再杀内核（context-manager.ts:777-790 trackDeferPhase、:518-540 的 onAbort 先等 deferDrained 再杀）——只服务 `agent()`，我们第一版没有这类调用。
+   计划：“单元正常结束时还有没 `await` 的嵌套调用在途，等它们结束再交结果”；“父调用结束后再来的 `invoke` 得 `parent-finished`”；中止时按宽限期结算。判断：**已覆盖**，而且更细。可借鉴的两点：(1) 中止信号触发之后、内核被杀之前，内核还能继续发 `call`，宿主要在 `call` 入口先看“这个单元是否已中止”，已中止的直接回失败而不是开始执行（计划的“没开始的 denied”大致等价，验收里加“中止之后内核仍发出的 `call` 不会启动写入”）；(2) 被扣下的单元结果**在有嵌套调用在途时**，仍要受“中止”与“超时”打断，否则卡住的嵌套调用会永远扣着结果（omp 的 heldResult 在 aborted 时直接丢弃，由杀进程那一路结算，:851）。
+
+h) **桥接调用的超时与暂停**。omp：单元时限是“看门狗”`IdleTimeout`（eval/idle-timeout.ts，类注释：“A cell's `timeout` bounds time while the JS VM is in control”）；桥接调用可以 `pause()`/`resume()`，**引用计数**，多个并发等待可以叠加；**`resume()` 重新给一整个窗口**（`#deadlineMs = Date.now() + idleMs`，idle-timeout.ts:47-53）。哪些调用暂停：`task`、`wait` 两个等待委派工作的工具（tool-bridge.ts:43 `DELEGATED_WORK_TOOLS`，:325 用 `withBridgeTimeoutPause`）、`browser`/`computer` 等 prelude 调用（:214-222，理由写在注释里：“Charging their host wait to Eval as well can kill its kernel during a first-use browser install”）、装包。**普通工具（read、edit、bash…）不暂停**，计入单元时限。用户中断（turn cancel）仍然穿透、立即停掉委派工作。更新日志 #16154：“Fixed an eval cell's `timeout` aborting an awaited `tool.task(...)` or `tool.wait(...)` and losing its subagents' results”。
+   计划：“只计没有嵌套调用在途的时间（等审批、等提问、慢工具都不计）”；上限靠“一次父调用至多 2,000 个嵌套调用”兜住。判断：
+   - **已覆盖**方向（#16154 同类的坑我们一开始就避开了）。
+   - **采纳一条澄清**：计时是“累计”还是“每次恢复重开一个整窗口”？omp 是后者（`resume()` 重置），含义是“每段连续的内核自己的计算不超过 N 秒”，一个“算 20 秒 → 调一次工具 → 再算 20 秒”的循环永远不会超时，只能靠别的上限；计划是累计，但没写。写进 Spec，并在验收里加“循环里每次只算一点、每次调一次轻工具，总时间超限时仍会超时”。
+   - **采纳一条风险提示**：我们“任何嵌套调用在途都暂停计时”，如果某个被代码调用的工具自己卡住（没有自己的时限，例如以后接入的 MCP 工具、网络工具），单元就会永远不超时。omp 只对自带时限的类别暂停。建议：被暂停的嵌套调用要么工具自己有时限，要么 `timeout` 之外另给一个“单个嵌套调用的墙钟上限”；第一版至少在 Spec 写明“用户停止仍然有效”。
+   - **采纳**：`timeout` 超出 1 到 3600 时的行为。omp 是**夹到范围并披露**：“Eval timeout clamped from Xs to Ys.”，作为一条前置通知写进结果（tools/eval.ts:516-530，timeoutNotice 在 :518；更新日志 #17178：“Fixed eval silently changing supplied cell deadlines without showing the requested and effective timeouts”）。还有全局上限 `tools.maxTimeout` 与 `0` 表示不设时限。计划写“缺省 30、1 到 3600”，没写越界是拒绝还是夹到；若夹就要披露。`0`（关掉时限）建议第一版**不支持**（我们有 8 个内核与 30 分钟空闲回收，无时限的单元会占着内核）。
+
+i) **桥接调用的状态事件与进度**。omp 对每个桥接调用发一条“状态事件”给界面（read 带路径、字符数、前 500 字预览；write 带路径与字数；bash 带命令、退出码、前 500 字输出；grep/glob 带计数；todo；MCP 的 `notifications/progress` 变成进行中的 `mcp_progress` 行，更新日志 #16431 的“Added MCP tool progress”）。计划的 `nestedToolStarted/nestedToolResult` 事件加 2 KB 预览是等价物，更完整（还有审批、来源）。已覆盖。
+
+j) **哪些工具不许在代码里调**。omp 只禁 `checkpoint`、`rewind`（tool-bridge-policy.ts:4-6：“These tools need direct toolResult events to commit their session changes”），并给 `todo` 单独补了一个持久化钩子（tool-bridge.ts:340-346：“A bridged call emits no `todo` toolResult entry, the only thing branch rehydration reads; without this the in-memory update is lost on the next resume/rewind/fork and stale todos trigger a false reminder”）。**eval 自己没有被排除**（可以 `tool.eval(...)` 嵌套，我没有实测它的行为）。计划：`codeCallable: false` 给“靠 toolResult 归约改状态”的与“寿命超出一次执行”的，eval 自己也禁。判断：已覆盖，计划的做法（禁而不是补钩子）更简单，omp 的 todo 补丁恰好证明了这类工具在桥里会出过 bug。
+
+k) **工具清单的实时性**。omp 每次调用时用 `getToolForEvalBridge` 查**当前启用**的工具（session-tools.ts:737），且“已登记的名字不会退回去按别名猜”（:743-746 注释）；说明里的 “Session tool names” 来自同一个函数（`getEvalBridgeToolNames`，:750）。计划里“谁能被调：生效工具集里的工具”也是每次调用时按当前生效集判定吗？计划没写判定时刻，**建议写明：调用时判定，不是单元开始时**（模型在单元里 await 很久之后，工具集可能因为 Profile 切换变了；omp 对 prelude 也是调用时重新解析，“captured stale VM functions fail closed”，eval/preludes.ts:96-100 注释）。
+
+====================================================================
+方面 6：prelude（全局对象）：eval/preludes.ts、runtime.ts 的 syncPreludes、session/session-tools.ts 的 takeEvalPreludeNotice、prompts/system/eval-prelude-notice.md
+====================================================================
+
+a) **定义的字段**（preludes.ts:32-67，`EvalPreludeDefinition`）：`name`、`documentation`（Markdown，**第一行就是一行摘要**，`evalPreludeSummary` 取首行，:83-86）、`inlineDocumentation?`（要不要直接内联进工具描述而不是让模型去读）、`javascript`（内核里执行的源码）、`python`、`exports`（占用的全局名）、`guidance?`（系统提示里追加的一块“怎么用”的政策，对象启用期间一直在）、`approval?`（审批档，或按参数判定的函数）、`enabled?()`（实时可用性）、`invoke(parameters, ctx)`（宿主侧处理）、`status?(parameters, result)`（给界面的一行成功说明，例如 `main.goto("https://…")`）。内置四个：browser、computer、ratchet、archive（agent-session.ts:2866-2869 的设置监听）。
+   计划：`agent.evalObjects` 是 `{name, summary, docs?}`，方法即工具（各有 parameters、effect、description、returns）。判断：计划的切法（方法即工具）审批、校验、日志都现成，比 omp 的“一个对象一个 `invoke` 加 `approval`”好；**但缺两样 omp 有的东西**，见 d)、e)。
+
+b) **懒加载与同步**。内核里的 prelude 源码**每个单元开始前**与当前启用集对账（`syncPreludes`，runtime.ts:453-520）：同名同源码的不动；被移除或被替换的先释放它声明的全部全局名；新增的在 `indirectEval` 里执行并登记；对象“第一次用到”时才装的说法，准确地说是“启用后的第一个单元开始前才装”。
+   计划：全局对象是内核里的 Proxy（`browser.goto({url})` → `invoke`），没有插件提供的内核侧代码，所以没有“装”的步骤。判断：不适用，但引出一个要写明的点：**每个单元开始前宿主要把“当前生效的对象名集合”告诉内核**（随 `run` 消息带上），内核据此增删全局上的 Proxy；否则 Profile 切换后，上一个单元装过的 `browser` 还留在内核里，代码调用得到的是 `invoke-not-allowed` 而不是“没有这个全局”，两种报错对模型的含义不同。omp 对已移除的 prelude 的做法是释放全局名并让宿主拒绝旧引用（“Captured stale VM functions therefore fail closed”，preludes.ts:88）。
+
+c) **名字冲突**。omp：保留名（内核注入的 `__omp_*`、`tool`、`console`、`read`、`write`、`env` 等一整张 `PRELUDE_GLOBAL_KEYS` 表，runtime.ts:104-128）冲突时抛 “Eval prelude X cannot replace reserved global Y”；两个 prelude 声明同名导出时抛 “Eval preludes A and B both export Y”；同名 prelude 重复抛 “Duplicate eval prelude name”（runtime.ts:459-465）。**抛错发生在单元开始前，整个单元失败**，不是“只拒绝一方”。
+   计划：对象名与内置名冲突时拒绝插件一方；同名两个插件双方都不进会话，诊断写明来源。判断：**已覆盖**，且比 omp 好（不因一个插件冲突让所有单元失败）。**缺一条**：插件对象名与**模型自己在前面单元声明过的变量**同名（例如模型写了 `const browser = …`，之后某个 Profile 才启用 browser 对象）：内核同步对象时该覆盖还是报错？建议：保留名检查对模型自己的声明同样生效（见方面 2 的 p），启用对象时若全局上已有同名的用户值，**不覆盖用户值**并在这次结果里写一行提示。omp 的做法相反：`syncPreludes` 里 `#ownGlobal` 直接占用，用户值被盖掉（runtime.ts:487-497，未专门测试，读代码得出）。
+
+d) **文档主题与一行摘要**。omp：工具描述里每个 prelude 只放首行摘要加 `xd://eval/<名>`；开头一句 “More globals; `read` the linked docs before first use:”。两个绕开 `read` 的口子：`inlineDocumentation: true` 的 prelude 整篇文档内联进工具描述（“documented here in full (no `read` needed)”，eval.md:58-62），以及**会话没有 `read` 工具时所有主题全部内联**（`inlineTopics: session.isToolActive("read") === false`，tools/eval.ts:396、:251-264）。`docTopics()` 跟**实时**启用集走，所以中途启用的 prelude 在描述更新前就能读到文档（eval.ts:368-376）。
+   计划：`docs://eval/<对象名>` 由 nbook.agent 生成，“eval 的说明只列这个会话里至少有一个方法在生效工具集的对象”。判断：**采纳两点**：(1) 给 `agent.evalObjects` 加 `inline?: boolean`（或按文档长度自动内联），小对象（几个方法）不让模型多花一轮读文档，这一轮在模型第一次用对象时是纯损耗；(2) 当前 Profile 里没有 `read`（或读不到 `docs://`）时，文档内联进描述，否则这个对象等于不可用。生成 TypeScript 签名的做法是我们自己的（omp 的文档是手写的 Markdown，没有生成），没有可对照的坑；风险在“JSON Schema 到 TS 的小打印器”自己的边角（联合、可选、枚举之外的 schema），验收里列一个“打印器遇到不支持的 schema 时退回原 JSON Schema 文字”的场景。
+
+e) **中途启用的通知（`eval-prelude-notice`）与缓存**。
+   - omp：eval 工具描述里的 prelude 列表来自**冻结的“已广告快照”**（`getAdvertisedEvalPreludes`，session-tools.ts:647；tools/eval.ts:403-408 注释：“Preludes come from the advertised snapshot, not the live set, so toggles never rewrite the cached tool prefix”）。设置里开关 `browser.enabled` 之类时不重写描述，而是在**下一条用户消息前**插一条隐藏通知（session-tools.ts:1820-1855 `takeEvalPreludeNotice`；agent-session.ts:8993-9010），文字模板（prompts/system/eval-prelude-notice.md）：
+     “<system-notice id="prelude-extension"> `eval` prelude globals changed. This lists only what changed; any prelude not named here is unaffected. Now available in JS/Python `eval`; `read` the linked docs before first use: - `name`: 摘要 → `xd://eval/name` … No longer available; calls fail: - `name` </system-notice>”，且没有 `read` 时把文档与 `guidance` 内联在通知里。
+   - “模型已知的集合”不靠状态，而是**从会话里推出来**：冻结快照加上上下文里还在的所有该通知依次应用（takeEvalPreludeNotice，:1821-1832），所以压缩、恢复、重建基线后依然正确。
+   - 计划：说明“只列这个会话里至少有一个方法在生效工具集的对象”，是动态的；另有 `notice{tools-changed}` 的先例。判断：**采纳**：eval 工具描述里的对象列表（与“可调 tool 名”那一行）取**会话开始（或压缩）时的快照**，之后的变化走 `notice`，否则每次 Profile 绑定或插件启停都会改写工具描述，破坏提示缓存前缀（omp 的更新日志里有多条恢复会话、压缩之后缓存没命中的修复：#15736、#15695，都写着“session with eval history”；根因不是这条，但说明他们为缓存前缀的稳定付出过代价）。在 Spec 里写“已知对象 = 快照 + 上下文里还在的通知”这种从日志推出的写法，不要另存状态，理由同 omp 的注释。
+
+f) **审批**。omp：每次桥调用宿主先 `findEnabledEvalPrelude`（当前启用集），再 `approvePreludeInvocation`；审批等待期间 prelude 可能被替换，所以审批后**再核一遍**，被替换了就按新定义再审批一次，被禁用就失败（preludes.ts:96-162；“Authorization is resolved before the handler runs and repeated when an awaited approval raced with a replacement”）。没有 UI 时抛 “requires approval but no interactive UI is available”。
+   计划：嵌套调用经同一条流水线，改派后对最终目标再核一遍准入。判断：已覆盖；并列一个验收：**审批等待期间该方法被移出生效工具集**，批准之后调用得 `invoke-not-allowed`，不执行。
+
+g) **传函数**。omp 的 browser prelude 把函数参数用 `String(fn)` 序列化成源码字符串传给宿主（tools/browser/prelude.js:14-22），因为函数过不了 IPC。计划的“参数先核对是能如实写进日志的 JSON”会把函数拒成 `invalid-arguments`。判断：第一版不适用；对 w00033/w00034 的对象作者要在 Spec 写明“参数里不能有函数；需要时改成源码字符串”，并让错误消息说清楚是“参数里有函数”，不是笼统的“无效参数”。
+
+====================================================================
+方面 7：CHANGELOG.md 里每一条 eval 相关记录（42 行，覆盖 18.8.6 到 18.14.1，2026-10-08 到 10-31）
+====================================================================
+格式：行号 | 版本 | 修了什么或加了什么 | 我们的计划会不会踩（踩 / 不踩 / 不适用 / 小心）
+
+61  | 18.14.0 | 加：打印的 JSON 值在界面里显示成可折叠 JSON 树 | 不适用（计划只有文字与图片，“富输出”不做）
+130 | 18.13.3 | 加：`tool.<name>(…)` 接受 `xd://<name>` 与 `mcp__<server>__<tool>` 拼法，已登记但本会话不可用的工具给专门消息，不再说 “Unknown tool”（#17250） | 小心：计划只有 `invoke-not-allowed`，没有“根本没这个名字”的 `unknown-tool`；见方面 5 d、e
+180 | 18.13.2 | 修：`workflowz` 通知在只有 JS 的会话里仍写 Python 调用形式（#17152） | 小心（原则）：给模型的说明只能写当前真有的能力；我们的对象列表、可调 tool 名要按生效集生成，不要写死
+192 | 18.13.2 | 修：开了 apply-patch 编辑时 `tool.apply_patch(...)` 被当成未知工具（#17178）：模型看到的线上名字与登记名不同 | 不踩（我们用 providerName，与模型看到的一致）；加一条验收：改名后 `tool.<名>` 跟着变
+193 | 18.13.2 | 修：eval 悄悄改了调用方给的单元时限，没披露请求值与实际值（#17178） | 踩：计划没写越界是拒绝还是夹到；夹的话要披露；见方面 5 h
+194 | 18.13.2 | 修：不可用的 Python 仍被广告为可选语言，补正解释器安装指引（#17178） | 小心：入口不可用（找不到 Bun、内核入口缺失）时，宁可不广告 eval，也不要让模型发起必败的调用；计划只写“这次调用得有原因的失败”
+345 | 18.13.0 | 修：Windows 上 JS eval 内核或浏览器中继跑过之后，终端标签标题被改成 `omp`（#16842） | 不适用（计划不验证 Windows）；若以后支持 Windows，子进程不能改控制台标题
+346 | 18.13.0 | 修：PATH 上第一个 python 坏了就判 Python 后端不可用（#16824） | 不适用
+361 | 18.13.0 | 修：TTSR 规则匹配在 `bash`、`eval`、`task` 这类长工具调用的参数上二次方变慢（流式 JSON 把换行转义，每个增量都重扫整段；64 KB 的调用 10 条规则要 120 ms，改后 4.5 ms）（#14248、#16974） | 小心：计划的 `streamingArgs` 要在流式生成 `code` 时抽出 `title`；若每个增量都对整段 JSON 重新解析，64 KB 的 `code` 会同样二次方变慢。要求这一处增量处理，并加一个大参数的性能验收
+362 | 18.13.0 | 修：eval 说明让 JS 会话看到哪些助手需要 `await`（#16808） | 小心：见方面 1 句子 6、11
+363 | 18.13.0 | 修：eval 的 agent、judge 文档同样标明哪些调用要 await，并区分 Python/JS 的参数名（#16810） | 同上；对象文档由我们生成，签名里每个方法都标 `Promise`/要 `await`
+389-391 | 18.13.0（同一小节里重复出现） | 同 361-363（同一批修复在两个版本里各出现一次） | —
+426 | 18.13.0 | 修：只有 Python 的会话里，说明让模型写不带 `await` 的 `tool.<name>(args)`，得到协程却从不执行（#16578） | 不适用（JS）；原则同上：说明里的示例必须与真实调用形式一致，加 `await`
+482 | 18.12.4 | 加：MCP 工具进度：`tools/call` 请求服务端发 `notifications/progress`，更新显示在运行中的工具卡片和 eval 单元里的进度行（#16431） | 以后（w00036 接 MCP 时看）
+483 | 18.12.4 | 加：judge 的图片附件 | 不适用（第一版不做代码里调模型）
+502 | 18.12.4 | 修：`%pip install` 在没有 pip 的 venv 里失败（#16300） | 不适用（不装依赖）
+505 | 18.12.4 | 修：启动时给了相对的 `--session-dir`，eval 单元里的 `PI_SESSION_FILE` 是相对路径，代码一 `chdir` 就失效（#16442） | 小心：计划传给内核的“布局变量”要保证全是**绝对路径**（代码可以 `process.chdir`）；与 shell 一致就好，验收加一条断言
+639 | 18.12.2 | 修：单元的 `timeout` 会中断正在 await 的 `tool.task(...)`/`tool.wait(...)`，丢掉子代理结果；现在等它们的时间不计入，而回合取消仍然立刻停止它们（#16154） | 不踩（计划按“有嵌套调用在途就不计时”设计）；但见方面 5 h 的风险与累计/重开窗口的澄清
+649 | 18.12.2 | 修：会话用过 `eval`、进程在回合中被退出打断后，`--restore` 与 `/retry` 报告“没有可重试的”，现在中断的回合会继续（#16195） | 小心：我们的恢复路径要有一条验收：**进程在 eval 执行中退出**（有 `toolStarted`、`nestedToolStarted`，没有结果）之后重开会话，再继续/重试能走通；计划“恢复”一节写了结算，验收映射里有“在等审批、批准未开始、已开始、已有结果四处中断”，已覆盖，但没有“重开后继续对话并再调一次 eval”
+657 | 18.12.1 | 破坏性变更：eval 里删除 `display()`，用 `print`（JS 里 `console.log`）代替 | 与计划不同：计划保留 `display(image)`；不算踩坑，但 omp 的删除说明“打印 image 对象即附图”是更少的 API 面；决定权在我们，见建议
+663 | 18.12.1 | 加：在 eval 里打印 figure 或 image 就把图附到结果上 | 已覆盖（`display(image)`）；采纳 omp 的“打印也能附图”可选
+710 | 18.12.0 | 修：顶层控制块里声明的 `var` 在异步包装单元之后丢失（#15859） | 踩（如果不专门处理）：计划没提嵌套 `var`；见方面 2 i
+711 | 18.12.0 | 修：状态提醒漏了活着的 Python 内核（#16032） | 不适用（教训：状态提示要来自真实登记表，不要从对话文字推）
+721 | 18.12.0 | 修：带 eval 历史的恢复会话，在上一进程第一次请求之后提示缓存没命中（#15736） | 小心：见方面 6 e；我们的“重置提示”写在工具结果里，不新增隐藏消息，不受影响；但 eval 描述若随生效集变动会破坏前缀
+820 | 18.11.2 | 修：eval 里 `read("artifact://N")` 对别的会话的、超过 50 KB 的 artifact 返回“不能无界原始读取”的提示而不是正文（#15410） | 小心：我们的单元输出全文不是 artifact 而是文件，要保证**代码里**能把被截断输出的全文读出来（`tool.read` 的行区间或直接 `Bun.file`）；验收加一条
+836 | 18.11.1 | 同 483 | 不适用
+876 | 18.11.1 | 修：一个单元里创建的 `completion()` 句柄在后一个单元永远不 resolve，`wait(handles, {timeout})` 卡过超时（#15756） | 不适用（没有句柄）。教训：跨单元保留的**有生命的对象**要有明确的所有者与寿命；我们第一版没有
+881 | 18.11.1 | 修：单元里结构化的 `display()` 值在界面里出现两次（#10778、#12730） | 不适用（计划无富输出）
+886 | 18.11.1 | 修：Python 的大整数显示成 JS 安全范围外的取整（#15847） | 不适用（教训：JSON 视图里 bigint 要转成十进制字符串，omp 的 JS 侧已这么做，runtime.ts:toJsonValue；我们第一版没有 JSON 视图）
+890 | 18.11.1 | 修：一个单元在 await 时，另一个单元开始运行，前者之后解析 `artifact://`、`local://` 路径用了后者的会话目录（#15409） | 小心：根因是“当前单元”存成了内核里的一个可变全局。我们的单元是 `exclusive` 串行，但**上一个单元没 await 的定时器、promise 仍会在下一个单元运行时回调**；`console`、`display`、`tool.*` 要用 `AsyncLocalStorage` 按单元归属，而不是读“当前单元”变量，晚到的调用要被识别为属于已结束的单元（得 `parent-finished`，晚到的输出丢弃或只写诊断）。omp 就是用 ALS（runtime.ts 的 `#als`）。见建议
+939 | 18.11.0 | 修：已被 `agent()` 句柄 `wait()` 消费的后台作业结果，在单元跑过 5 分钟保留窗口后又被当作 async-result 重新注入（#15625） | 不适用
+941 | 18.11.0 | 修：压缩之后，带 eval 历史的分叉与重载会话提示缓存没命中（#15695） | 同 721
+1009 | 18.10.2 | 子代理返回纯文本…；eval 的 `agent()`/workpool 仍返回结构化结果 | 不适用
+1010 | 18.10.2 | 加（Tern）：后台的 `bash` 命令或 eval 单元继续往自己的卡片里填实时输出，结束时按作业结果收口 | 以后（自动转后台不做）
+1112 | 18.9.0 | 修：JS eval 语法错误缺少源码位置与可用的代码框 | 小心：见方面 2 n；计划没写语法错误的格式
+1123 | 18.9.0 | 修：限制持久化的 eval 状态历史，长时间运行的单元不再把会话文件撑大、拖慢恢复 | 小心：计划的 `nestedToolStarted`/`nestedToolResult` 把 `args` 都写进日志；2,000 个嵌套调用里若有大参数（`write` 的整章正文），两条事件各记一次，日志依然会变大。预览截了 2 KB，**`args` 没截**。建议 `args` 也只记截断后的预览加总字节数（审批被拒的要展示的参数在界面用同一份预览）
+1126 | 18.9.0 | 修：Python eval 等内核控制通道时挂住 | 不适用
+1133 | 18.9.0 | 修：computer-use 的 eval 单元重复输出无障碍树 | 不适用
+1136 | 18.9.0 | 改进：`read`、`eval`、`bash` 输出被列限制截断时，给出取得完整行的指引 | 小心：见方面 3 a；我们的“本行共 N 字节，已截断”要同时给出读全文的办法
+1193 | 18.8.8 | 修：浏览器标签在带同站 iframe 的页面加载中崩溃（#15118） | 不适用
+（另 278 行：`read` 对没有可抽取文字的 PDF 的提示改指向 `:page<N>.png` 选择器，而不是浏览器 prelude — 与 eval 无关，不计）
+
+说明：版本号按行号落在哪个小节标题下归类（小节边界：18.14.1 在 5 行，18.14.0 在 31，18.13.3 在 105，18.13.2 在 146，18.13.0 在 258，18.12.4 在 476，18.12.2 在 601，18.12.1 在 653，18.12.0 在 673，18.11.2 在 765，18.11.1 在 832，18.11.0 在 895，18.10.2 在 1000，18.9.0 在 1078，18.8.8 在 1170）。各条里的 issue 编号是更新日志原文给的。
+
+====================================================================
+方面 8：其它
+====================================================================
+
+a) **`title` 与意图字段**。omp 的 `title`（参数描述 “Short transcript label.”）只给界面当卡片标签；工具另有 `intent(args)` 函数：有 title 用 title，否则 “running javascript”（tools/eval.ts:432-436）。另有全 harness 通用的意图字段 `i`（pi-wire INTENT_FIELD，更新日志 135 行：实时卡片曾丢掉模型的 `i`）。计划有 `title?`，流式时抽 title，已覆盖。`i` 不适用。
+
+b) **投机执行（speculation）**。tools/eval.ts:438-460 的 `speculation.stream.open` + eval/speculation/*（约 2000 行）+ eval/js/speculation.ts（903 行）：模型还在**流式生成 `code` 参数**时，用 Babel 对代码做静态规划（只认 `tool.read(…)` 这类参数能静态算出的调用，循环最多展开 32 次，shadow-snapshot 用内核全局的安全副本求值），把已验证的**本地只读**调用提前并发执行；真正执行单元时按“调用点 + 第几次出现 + 参数指纹”认领提前拿到的结果，内核状态变了（快照摘要不符）就丢弃重跑。设置 `tools.speculativeExecution.enabled`，**缺省关**，描述写 “Experimental … Network requests, provider completions, and live filesystem writes are not part of this baseline”（tools/settings.ts:910-921）。判断：不适用/以后。但它解释了为什么 omp 的改写阶段会给 `tool.read` 调用点插桩（`__omp_with_call_site__`）：我们不需要，不要照搬 rewrite-imports.ts 里这一块。
+
+c) **自动转后台**。`eval.autoBackground.enabled`（缺省关，rpc 协议缺省开）、阈值 60 秒（eval/settings.ts）：单元跑过阈值就登记成异步作业，立刻给模型返回“已转后台”和已有输出，单元继续跑、内核保持忙，结果完成后作为后续消息投递；`timeout: 0` 只关单元时限，不关前台等待；作业数到上限时退回前台执行（tools/eval.ts:593-721）。计划“不做自动转后台”。判断：以后；与计划的 `exclusive` 一致（omp 也是内核保持忙）。
+
+d) **`%load`、`%bun add`、`%environment` 等百分号命令**（eval/input.ts）：`%load <路径>` 把本地脚本当单元执行但**不回显源码**，成功加载的脚本路径记进状态登记表，内核丢失后状态消息里列出“Successfully loaded scripts (newest last)”，让模型知道该重新 `%load` 哪些（说明里 “Reusable setup: write a script, run `%load <path>` in a standalone `code` cell”）。远程 URL 的脚本拒绝（“Eval scripts must be local. Download and inspect remote scripts before executing them.”）。判断：装依赖不做；**`%load` 的思路以后值得做**：内核重置会丢变量，可复用的初始化放进文件加 `%load`，重置后一句话恢复。第一版说明里可提示“可复用的设置写成文件，用 `await import(绝对路径)` 加载”，但注意方面 2 a 的 `import()` 解析基准问题。
+
+e) **`read`/`write`/`env`/`print`/`log`/`phase` 助手**。`read(path, offset, limit)` 直接读文件拿**原始文本**（不带行号与提示），支持 `local://`、`artifact://`，路径有 scheme 但没注入根时转交 `read` 工具（prelude.txt:41-70）；`write(path, data)`；`env(key, value)`；`log(message)`、`phase(title)` 发进度状态事件给界面状态树。判断：以后。理由：批量读章节做统计要的是原始文本，`tool.read` 的返回若带行号前缀会让代码多一步剥离；我们第一版没有这类助手，模型会直接 `Bun.file(path).text()`，但**路径解析**（项目相对路径、`docs://` 一类地址）与权限不经过我们的工具流水线。要在说明里写清：读文件用 `tool.read`（经审批与日志），`Bun.file` 绕过它们（计划“没有沙箱”一节已承认）；这也是 `read` 助手以后值得补的原因。
+
+f) **环境与可执行文件**。`workerEnvFromParent` 复制父进程环境，滤掉值为 undefined 的槽（`Bun.spawn` 拒绝），并**去掉 `GIT_DIR` 一类仓库位置覆盖变量**（`stripGitRepoLocationEnv`，更新日志无，源码注释 issue #11082：它们不能漏进工作进程或其托管的 PTY 守护进程）；`resolveExecutablePath` 在**可执行文件被升级删除**（Homebrew 等清掉旧版本目录）而 `process.execPath` 指向不存在的路径时，回退到 PATH 上找（worker-client.ts:120）；编译二进制则以“同一二进制 + 隐藏参数”作为内核入口（`resolveWorkerSpawnCmd`，:168；cli.ts:243-262 按隐藏参数分流）。计划：`Bun.spawn([process.execPath, "--no-env-file", <kernel-entry>], …)`，环境“同 shell”。判断：(1) 环境里的仓库位置变量：看 `shell` 现在怎么处理，同样处理即可，**未核实** shell 是否去掉它们；(2) NeuroBook 是否发布编译后的单文件二进制：**未核实**；若发布，`process.execPath` 就不是 Bun，计划这条启动命令会错，要改成 omp 那种“自身加隐藏参数”（计划写“沿用项目子进程 productProjectEntry 的做法”，它若已解决这个问题则无需动）；(3) 长驻服务在服务端自身被升级替换后 `process.execPath` 失效的情形，低概率，记为已知限制即可。
+
+g) **IPC 边角**（subprocess/worker-client.ts、utils/ipc.ts、cli.ts:255-262）。
+   - 内核发往宿主的载荷是用户可控的（工具调用参数、展示输出）；不可序列化的载荷必须只让**这一次调用**失败，不能让内核死掉、变量全丢（cli.ts 注释：“a non-serializable one must fail that cell, not SIGKILL the kernel and erase the eval session's state”；`rethrowConnectedSendErrors: true`；worker-core.ts `#callTool` 对 `send` 套 try/catch，DataCloneError 只 reject 这次调用，:455-470）。计划“参数先核对是能如实写进日志的 JSON”写在宿主侧；**内核侧**还要有一道：`process.send` 抛错（函数、symbol、循环结构之类）只 reject 当次 `tool.*` 调用或当次 `done`，不要冒成未捕获异常。`done` 的值在内核里先 `inspect` 成文字，这一点本身已避开了问题。
+   - 向已退出的子进程 `send` 同步抛错、或异步 EPIPE rejection：用 `safeSend` 吞掉，由 onExit 统一处理（utils/ipc.ts，issue #2997）；否则一次未接住的 EPIPE 会成为服务端的未处理 rejection。计划没提宿主侧发送的容错。**采纳**（小）。
+   - Bun 已知问题 oven-sh/bun#37287（postmortem.ts:366-400、worker-client.ts:305-324）：高级序列化通道收到**帧头合法、帧体解不开**的消息时，报成**进程级 uncaughtException**，无法知道是哪条通道；omp 因此注册“故障处理器”，把所有活着的内核通道当作故障回收。我查了该 issue（WebFetch）：触发条件是对端直接往通道 fd 写畸形字节（回归测试就是这么复现的），修复 PR #37275 已让接收端把错误报成 uncaughtException，且该 PR 被关闭未合并，所以**我无法确认哪个 Bun 版本修了**，也没有在本机 Bun 1.4.4 上复现。我们的内核是我们自己的代码，不会发畸形帧，所以优先级低；但服务端进程要**有 uncaughtException 的总兜底**（多半已有），不要因为一条内核通道的问题整个服务端退出。标「小心、未核实」。
+
+h) **内核入口冒烟**。omp 有 `omp --smoke-test` 调 `smokeTestJsEvalWorker`（context-manager.ts:451）：用与生产相同的入口真起子进程、证明它能回 `init` 握手，注释：“Catches silent process-load and init-message regressions that otherwise strand every cell on the init timeout in a distribution build”。计划验收已有“从应用包与 dist/server 各起一次服务，在另一个目录的会话里跑一条 eval；握手版本不符时得有原因的失败”，已覆盖，并且比 omp 好（有版本号）。
+
+i) **用户直接在会话里跑代码**（omp 的 `/python`、`!!` 一类，EvalRunner.executePython，session/eval-runner.ts:46）：用户自己的 eval 与模型共用内核，结果记进会话；我们第一版没有用户直接执行入口，不适用。
+
+j) **单元内 `process.exit`、`process.chdir`、改 `process.env`**。omp 不拦：`process` 是真对象（runtime.ts:713-715 注释：“Subsetting it caused segfaults”）；`process.exit` 的后果见方面 4 a，`chdir` 由 omp 在下一个单元开始前纠正回会话目录（worker-core.ts:319）。计划没提。判断：**采纳**两点小事：(1) 内核在每个单元开始前把 cwd 校正回会话工作目录（便宜，避免模型一次 `process.chdir` 之后所有相对路径都漂了，与“工作目录同 shell”的承诺一致）；(2) `process.exit` 要么在内核里覆盖成抛明确错误，要么按方面 4 a 当成“内核意外退出”处理。
+
+k) **跨轮次的晚到输出**。omp 用 `AsyncLocalStorage` 让 `console`、桥接调用、最终值都按**单元**归属（runtime.ts:`#als`、`RunContext`）；单元结束后晚到的输出，对应的 run 已被删除，`pending?.runState.onText?.()` 因查不到而丢弃（context-manager.ts:handleSessionMessage 的 text 分支）；晚到的 `tool-call` 回 “Run no longer active”。同样做法见方面 7 的 #15409 一行。计划协议里 `log{cell, text}`、`call{id, cell, …}` 带 cell，已是正确方向，要求内核用 ALS 填这个 cell 而不是“当前单元”变量。
+
+====================================================================
+建议计划补上的（按重要程度排序）
+====================================================================
+1. 内核装 `unhandledRejection` 与 `uncaughtException` 处理器，按单元归属，成功的单元判失败并写 “Unhandled rejection (missing await?)”（实测 Bun 1.4.4：没人接的 rejection 或定时器里的抛错直接让进程退出码 1，变量全丢；omp 对 rejection 这么做，worker-core.ts:95-110、:164）。
+2. 内核的“父进程没了就自杀”要放在独立线程里轮询，不能挂在主线程事件循环上，否则模型写个 `while(true){}` 加服务端崩溃内核就成孤儿（omp issue #14340，subprocess/parent-watchdog*.ts）。
+3. `tool`、`browser` 等 Proxy 的 `get` 对 `then`、symbol、`toJSON` 返回 undefined，且只放行已登记的名字（实测 omp 里单元最后一个表达式写 `tool` 或 `await tool` 会卡到超时）。
+4. 值的显示改用 `node:util.inspect`（depth 6、breakLength 120），字符串类的值原样输出，不用 `Bun.inspect`（实测：`Bun.inspect` 给顶层字符串加引号和 `\n` 转义、嵌套对象逐层换行，章节正文和对象列表都更费 token、更难读，还会撞 768 字节的列截断）。
+5. 内核任何意外退出（崩溃、OOM、`kill -9`、`process.exit`，含退出码 0）交带退出码或信号加 stderr 尾部的失败结果并计入“重置原因”；握手超时与单元时限分开（omp 15 秒下限）；明确内核的 stdout、stderr 去向（`Bun.$` 与 inherit 的输出绕过 `process.stdout.write`，Bun.spawn 默认 pipe 没人读会写满卡住）。
+6. 超时、中止、内核崩溃的结果都保留已产生的输出；“超时杀掉了在跑的内核”与“超时发生在内核开始执行之前”分两句话说（omp executor.ts:88-96、:216）。
+7. rewrite 补：嵌套在顶层语句里的 `var`（omp #15859）；保留函数名（实测 omp 里声明的函数 `name` 为空、栈里是 `<anonymous>`）；包装头放在第 1 行不加换行，行号才与模型写的代码一致（实测 omp 偏 2 行）；`"use strict"` 必须仍是函数体第一条（实测 omp 异步单元里它失效）；跨单元重复声明同名 `const/let/class` 要成功（写进验收）；语法错误给“行、列加代码框”；TS 语法给明确提示；顶层 `export` 给明确报错；撞 `tool`、`console`、`display`、对象名的顶层声明直接报错。
+8. 顶层静态 `import` 建议改成支持（acorn 已给节点，改写成 `await import()`），并定死动态 `import("./相对路径")` 的解析基准（实测按内核入口目录而不是 cwd，omp 换成按会话 cwd 的 `__omp_import__`）；注入 `require`（按 cwd）与 `fs`（实测内核入口是 ESM，`require` 未定义）。
+9. 说明文字照 omp 补这几句（改写成英文）：“One cell per call; top-level state persists, including across compaction.”、“On error, retry only the failed step; earlier steps may have taken effect.”、`NEVER repeat successful setup. Kernel-loss notice means reload setup.`、“every `tool.*` and object method is async: always `await`”、“`args` is its parameter object”、“Printing an image attaches it”；再自加“用 `Promise.allSettled` 处理可能失败的批量调用”“只调一个工具时直接调那个工具”。
+10. eval 说明里的对象列表与可调名字取会话开始（或压缩）时的冻结快照，之后的变化走 `notice`，不要随生效集改写工具描述（omp 的 advertised 快照加 `takeEvalPreludeNotice`，注释：“toggles never rewrite the cached tool prefix”）；“已知对象 = 快照 + 上下文里还在的通知”，不另存状态。
+11. `agent.evalObjects` 加 `inline`（小对象文档直接内联，省模型第一次使用前多读一轮），并在 Profile 里没有 `read` 或读不到 `docs://` 时全部内联（omp 的 `inlineDocumentation`、`inlineTopics`）。
+12. 每个单元开始前宿主把当前生效的对象名集合随 `run` 带给内核，内核据此增删全局 Proxy；对象名与模型自己已声明的同名变量冲突时不覆盖用户值并提示（omp 在 syncPreludes 里直接覆盖）。
+13. `timeout`：越界要夹到范围并披露 “clamped from Xs to Ys”（omp #17178），不支持 `0`；Spec 写明计时是累计还是每次恢复重开整窗口（omp 是后者，`resume()` 重置，一个算一会儿调一次工具的循环永不超时）；被暂停计时的嵌套调用若自己没有时限，单元会永远不超时，第一版要么保证被代码调用的工具自带时限，要么给嵌套调用一个墙钟上限。
+14. `tool.<不存在的名字>` 得 `unknown-tool`，消息列出可用名字；与“已登记但本会话不可用”（`invoke-not-allowed`）分开（omp #17250）；准入在调用时判定，不在单元开始时；审批等待期间方法被移出生效集，批准后仍得 `invoke-not-allowed`（omp preludes.ts:96-162 的“审批后再核”）。
+15. `nestedToolStarted/nestedToolResult` 里的 `args` 也截成预览加总字节数，别只截 `preview`（2,000 个嵌套写入的整章正文会把日志撑大，omp #1123 行同类修复）。
+16. 内核用 `AsyncLocalStorage` 给 `console`、`display`、`tool.*` 标 `cell`，上一单元没 await 的定时器或 promise 晚到的调用得 `parent-finished`，晚到的输出只写诊断（omp #15409）；dispose 设“已关闭”标志，之后的调用失败、握手中的内核握手完成即杀，不复活（omp context-manager.ts:667-671）。
+17. 每个单元开始前把内核 cwd 校正回会话工作目录（omp worker-core.ts:319）；传给内核的布局变量全是绝对路径（omp #16442）；内核侧 `process.send` 抛错（函数、symbol）只让当次调用失败；宿主侧向已退出的内核 `send` 要吞掉同步抛错与 EPIPE（omp utils/ipc.ts，issue #2997）。
+18. 小项：无输出时给占位 “(no output)”（omp eval.ts:1068）；`display(image)` 的 `data` 接受 Buffer、Uint8Array、base64，并容忍 `uint8array.toString("base64")` 给出的十进制逗号串（omp runtime.ts:243）；`reset: true` 可以带空 `code`、带代码时代码在新内核里跑；流式抽 `title` 要增量处理，64 KB 的 `code` 不能每个增量整段重扫（omp #14248 同类的二次方问题）；验收加“进程在 eval 执行中被杀后重开会话继续对话并再调 eval”（omp #16195）。
+19. 以后（不要放进第一版）：`%load` 式可复用初始化与重置后恢复；原始文本的 `read` 助手；`log`/`phase` 进度行；自动转后台；压缩之后列出用户定义变量的内省；MCP 进度；投机执行（omp 缺省关、实验性，改写里给 `tool.read` 插桩的那块不要照搬）。
+20. 不用照搬的 omp 做法：`__parseError`/`__rawJson` 剥离、`deferExternalAbort`、`instrumentBindingAssignments`（作用我没弄清，未核实，计划的“闭包读到新值”验收足以检验）、对 `todo` 单独补持久化钩子（计划用 `codeCallable: false` 更简单）、Worker 后备（计划已否决）。

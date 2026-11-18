@@ -25,26 +25,27 @@
 | 执行与跨调用保留变量 | 间接 eval 在内核进程的全局上执行，顶层声明改写 | 同 omp，原因见调研；不用 `vm` 同上 |
 | 改写用的解析器 | `acorn`（工作区已有，nb-canon 在用） | 小、稳定、给出位置，只做顶层改写够用。否决 `@babel/parser`（大，TS 不在范围）、`Bun.Transpiler`（不给 AST） |
 | 输出窗口与全文 | 复用 nb-harness `kit/tools/shell-window.ts` 与 `shell` 存全文的做法 | 与 `shell` 一致，模型只学一套 |
-| 值的显示 | `Bun.inspect` | 运行时自带；否决自写格式化 |
+| 值的显示 | `node:util.inspect`（深度 6、宽 120、不上色），字符串原样 | 运行时自带；否决 `Bun.inspect`（把整章正文转成带引号与转义的一行，嵌套对象逐层换行，omp 对照时实测）与自写格式化 |
 | 全局对象的文档 | 手写一个小的 JSON Schema 到 TypeScript 声明的打印器 | 工具参数是 TypeBox 生成的 JSON Schema，只用到对象、数组、标量、枚举、联合、可选这几种；否决 `json-schema-to-typescript`（带 prettier，生成整份模块，体积与依赖都大） |
 
 ## 关键设计
 
-第 3 稿按设计审查改过（Opus 从整体看 11 条、Sonnet 对话视图 13 条、omp 后端与事实核对 19 条，处理见 README 的审查表）。
+第 3 稿按设计审查改过（Opus 从整体看 11 条、Sonnet 对话视图 13 条、omp 后端与事实核对 19 条，处理见 README 的审查表）。3.1 稿按开发者要求的 omp 对照（[证据](evidences/omp-eval-comparison.txt)）补了执行与输出的细节，见 README 决定 8。
 
 ### nb-harness 内核：工具里调工具（`packages/nb-harness/src/kernel/`）
 
 只有内核能给“代码里调的工具”同样的审批、拦截与日志（决定 3），所以在内核加一条正式通道；eval 是第一个用它的工具。
 
-- **谁能调**：声明 `invokes: true` 的工具，执行时的 `ToolContext` 才有 `invoke(tool, args, options?: {signal?: AbortSignal}): Promise<NestedOutcome>`（`api/tool.ts`）。第一版只有 `nbook.agent.eval` 声明它。嵌套调用拿到的上下文没有 `invoke`，嵌套只有一层；它多一个 `within: {tool, invocation}`。
+- **谁能调**：声明 `invokes: true` 的工具，执行时的 `ToolContext` 才有 `invoke(tool, args, options?: {signal?: AbortSignal; onWaiting?: (waiting: boolean) => void}): Promise<NestedOutcome>`（`api/tool.ts`）。`onWaiting` 在嵌套调用开始、结束等用户应答（审批、同步提问）时各调一次，eval 据此不把等用户的时间算进单元时限（决定 5 的原话）。第一版只有 `nbook.agent.eval` 声明它。嵌套调用拿到的上下文没有 `invoke`，嵌套只有一层；它多一个 `within: {tool, invocation}`。
 - **结局类型**：`NestedOutcome = {status: "ok" | "error" | "denied" | "blocked" | "unknown", text, code?, details?, images?}`，`status` 必填。`ToolResult` 是工具交给内核的值，装不下内核派生的 `blocked`、`unknown`，所以另立一层。
 - **身份**：每个嵌套调用在受理时由内核造一个全局唯一的 id（同 `invocation` 的造法），事件、审批事项、恢复、出站过滤的参数查询都按它关联；不从父调用的 `callId` 派生（服务商的 `callId` 只在一条回复里不重复，`<父>~<n>` 会和合法的顶层 id 撞）。
-- **谁能被调**：生效工具集里的工具，除了收尾工具、声明了 `invokes` 的工具、声明 `codeCallable: false` 的工具。`codeCallable: false` 给两类：靠 `toolResult` 归约改状态的（待办、切换模式），和寿命超出一次代码执行的（派子代理与给子代理发话、答话：开发者把代码里派子代理留到下一批）。不允许的得 `error`、码 `invoke-not-allowed`，不抛。
+- **谁能被调**：调用这一刻的生效工具集里的工具（不是单元开始时的；审批等到之后、执行之前再核一遍，等的时候工具可能被移出），除了收尾工具、声明了 `invokes` 的工具、声明 `codeCallable: false` 的工具。`codeCallable: false` 给两类：靠 `toolResult` 归约改状态的（待办、切换模式），和寿命超出一次代码执行的（派子代理与给子代理发话、答话：开发者把代码里派子代理留到下一批）。不允许的得 `error`、码 `invoke-not-allowed`，不抛。
 - **只能从代码里调的工具**：声明带 `global: {object, method}` 的工具不进请求的工具清单，也不进 `notice{tools-changed}` 的文字（仍进 `toolsAnnounced`，回退比对用）。执行端同样按来源判：模型直接发起的调用指向这类工具时得 `error`、码 `code-only`，不只是“请求里没写”。以后 w00036 要“同一个工具在某些 Profile 里只走代码”时加在 Profile 绑定上，Spec 写明这个方向。
 - **流水线**（`run/tools.ts`，从 `runCall` 抽出可复用的一段，不复制）：参数先核对是能如实写进日志的 JSON（`Map`、`undefined`、`NaN`、`bigint` 经 IPC 能过来），不是就得 `invalid-arguments`；参数校验、只读模式、审批钩子（`ApprovalCtx` 多 `within`）；判定 `ask` 时立即写 `interactionRequested{kind: "approval"}` 并等，事项带 `within` 与嵌套调用的 id（不进输出 79 的批量阶段）；嵌套工具经 `ctx.ask` 提问时事项同样带 `within`；然后拦截链、执行。拦截层改派之后，对最终目标再核一遍上一条的准入与本条的参数，并且不许改派到另一种 `concurrency`（不然 `shared` 的槽里会跑起 `exclusive` 的工具），不合格的得 `invoke-not-allowed`。顶层调用被改派到 `global` 工具同样得 `code-only`。
 - **事件**：两个新的 ctrl、path 事件，成对出现，现有读 `toolStarted`、`toolResult` 的地方（对话视图的适配器、子代理树的计数、组请求）不受影响：
   - `nestedToolStarted{id, within, tool, args, approval}`：开始执行时写。
   - `nestedToolResult{id, within, tool, args, status, code?, by?, preview, size, imageCount?}`：每个嵌套调用都写一条，没启动的（被拒、被拦、参数不对、不允许）也写，所以带 `args`（没启动的是代码传入的原参数）。结果正文只记前 2 KB 的 `preview` 与总字节数 `size`，图片只记张数：全文模型已经在父调用的结果里看到，界面的子行只要预览；批量读 300 章时全文进日志约 2.7 MB 一次，且不去重。
+  - 两种事件里的 `args` 中超过 2 KB 的字符串截成前 2 KB 加总字节数（`write` 的整章正文不再每次都进日志）；形状不变，界面照样取 `path` 这类短字段。
   - 每个嵌套事件单独成一个写入批，帧随之实时推给界面。
   - 出站过滤：两种事件的 `args` 按工具参数、`preview` 按工具结果走 `mapEventContent`（输出 54）。
   - 兼容：按 `session.md`“事件名与字段只加不改”的先例（t18 加 `descriptionChanged` 同样如此），旧版读到新事件名得 `log-corrupt`；Spec 写明降级不受支持。
@@ -58,19 +59,29 @@
 
 ### nbook.agent：eval 工具与内核（`packages/neuro-book/src/plugins/agent/backend/eval/`）
 
-- **工具** `nbook.agent.eval`（`providerName: "eval"`）：参数 `{code: string, title?: string, timeout?: number, reset?: boolean}`；`effect: "exec"`、`exclusive`、`strict`、`invokes: true`。说明文字（中文，同其它内置工具，[提示词规范](../../../../../docs/standards/prompts.md)）：用法、`tool.<providerName>(args)` 的返回与失败、可用的全局对象各一行加文档地址、不支持顶层静态 `import`（用 `await import("node:…")`）、变量跨调用保留与何时丢。
+- **工具** `nbook.agent.eval`（`providerName: "eval"`）：参数 `{code: string, title?: string, timeout?: number, reset?: boolean}`；`effect: "exec"`、`exclusive`、`strict`、`invokes: true`。`reset: true` 时 `code` 可以为空（只重置）；带代码时代码在新内核里跑。说明按会话算：宿主给每个会话的声明（`SessionEnv.tools.declarations`）里，eval 的说明列出这个会话生效工具集里的全局对象，`version` 带上这份列表的哈希，列表变了内核按输出 16 写 `tools-changed`，不在会话中途悄悄改说明。说明另写（omp 的经验）：失败后只重试失败的那一步，前面的步骤可能已经生效；不要重复已成功的设置，结果写明内核重置时才重建；每个 `tool.*` 与对象方法都要 `await`；批量调用可能有失败时用 `Promise.allSettled`；要命令的输出用 `.text()`。说明文字（中文，同其它内置工具，[提示词规范](../../../../../docs/standards/prompts.md)）：用法、`tool.<providerName>(args)` 的返回与失败、可用的全局对象各一行加文档地址、不支持顶层静态 `import`（用 `await import("node:…")`）、变量跨调用保留与何时丢。
 - **审批**：执行档；审批钩子对 eval 一律 `remember: false`，界面没有“本会话都批准”“以后都允许”，直接提交 `allow-session` 照现有规则得 `invalid-answer`（一次点击就等于放开任意代码，理由同 `shell` 不许记解释器）。要少问的用户用审批模式。`auto` 的审批模型读请求里的 `code`，超过现有判定对象上限的照旧转人工。
 - **内核宿主** `kernels.ts`：工具实现每个会话建一次，内核寿命挂在它上面，`dispose` 时杀进程。第一次调用时起子进程：`Bun.spawn([process.execPath, "--no-env-file", <kernel-entry>], {ipc, cwd, env: {...服务端环境, ...布局变量}, detached})`：工作目录与布局变量同 `shell`（[`builtin-tools.md`](../../../../../docs/specs/agent/builtin-tools.md) 输出 18、20）；显式继承服务端环境（`Bun.spawn` 传 `env` 是替换）、不读工作目录里的 `.env`，与 `shell` 一致。全服务端至多 8 个内核，超出时回收最久没用的那个，走下面的重置提示。
 - **进程收口**：内核是自己进程组的组长，杀内核就杀整个组（代码里起的子进程一起收掉），等它们退出再交重置的结果；内核发现 IPC 断开（服务端异常退出）时杀自己的组。Windows 上的进程组与 Job Object 不在第一版验证（[`owned-process`](../../../../../packages/owned-process/README.md) 有现成的做法，它只给 stdio、接不上 IPC，以后要时再接）。
 - **入口与构建**：入口文件名固定，按绝对路径定位（沿用项目子进程 `productProjectEntry` 的做法），源码运行与打包后都找得到；构建清单的所有读方一起改（`scripts/pack-app.ts`、`build:server`、命令行测试的入口表）。起进程后先握手（协议版本），版本不符或入口不可用时这次调用得有原因的失败。
 - **协议**（`protocol.ts`，TypeBox 校验两端消息）：宿主发 `hello`、`run{cell, source}`、`reply{id, outcome}`；内核发 `ready{version}`、`log{cell, text}`、`display{cell, image}`、`call{id, cell, tool, args}`、`done{cell, value?, error?}`。`call` 由宿主核对参数后转给 `ctx.invoke`；`done` 的值在内核里先用 `Bun.inspect` 转成文字。
-- **改写** `rewrite.ts`：只有一条路：整段包进异步函数，顶层声明（`var`、`let`、`const`、`class`、函数）改成对全局对象的赋值，函数声明在入口先装上保留提升；最后一个表达式与顶层 `return` 的值交回；用 AST 认出顶层 `await`、`for await`、`return`。不靠把声明降成 `var`：单元带 `"use strict"` 时间接 eval 的 `var` 留在那次求值里，变量会悄悄丢。`console.*` 与 `process.stdout.write` 收进本单元。
+- **改写** `rewrite.ts`：只有一条路：整段包进异步函数，顶层声明（`var`、`let`、`const`、`class`、函数、解构）改成对全局对象的赋值，函数声明留在原处（名字不丢）、在入口挂到全局，`var` 在入口先补成 undefined（保留提升）；嵌套在块、`if`、`try`、`for` 头里的 `var` 同样；最后一个表达式的值交回。不靠把声明降成 `var`：单元带 `"use strict"` 时间接 eval 的 `var` 留在那次求值里，变量会悄悄丢。包装与入口都在第 1 行，之后的行号与代码一致；`"use strict"` 仍是函数体的第一条。顶层 `import` 改成 `await` 内核的解析函数，代码里任何位置的 `import(…)` 也换成它（相对路径、包名按工作目录解析）；`export` 报错。声明了保留名（`tool`、`display`、`console`、`require`、这个会话的全局对象名）的拒绝执行。语法错误给行、列与代码框，看起来像 TypeScript 时加一句提示。
 - **`tool.<名>(args)` 的返回**：类型由声明决定，每次都一样。工具声明了 `returns`（JSON Schema，同 MCP 的 `outputSchema`）时交回照它校验过的 `details`，不合格算这次调用出错；没声明时一律交回文字。嵌套结果带的图片并进本单元的图片。`error`、`denied`、`blocked`、`unknown` 抛 `ToolCallError{tool, status, code, message}`，`unknown` 的说明写“不知道有没有执行完，先核对再重做”。`display(image)` 也把图片加进结果。
 - **嵌套调用的特例**：`shell` 在 `ctx.within` 存在时不接受 `async`（转后台的命令寿命超出这段代码），得有说明的错误；`ask` 照常可用。
 - **写入的来源与分组**：同一次 eval 里的嵌套写入成一个操作分组，来源是各自的嵌套调用（`id`）。资源视图的 `call(ctx)` 认 `ctx.within`：组按父调用的 `invocation` 取同一个，来源条目用嵌套调用的 id。顶层调用的来源用 `callId`（跨回复可能重复）是现有的问题，另记，不在本 Task 改。
 - **结果**：文字是输出加最后的值，失败时加去掉内核自身帧的堆栈；窗口与全文同 `shell`；图片至多 8 张，多的丢掉并注明，按 `read` 的规则缩放（`kit/tools/image.ts`）。
-- **时限**：`timeout` 秒，缺省 30、1 到 3600；只计没有嵌套调用在途的时间（等审批、等提问、慢工具都不计）；失控循环由嵌套调用上限兜住。超时或中止：先经 `invoke` 的 `signal` 收口在途的嵌套调用（上一节“收口”），再杀进程组，结果写明“内核已重置”。单元正常结束时还有没 `await` 的嵌套调用在途，等它们结束再交结果。
+- **时限**：`timeout` 秒，缺省 30、1 到 3600（越界由参数校验拒绝，不悄悄夹）；累计计时，只扣掉等用户应答的时间（`onWaiting`），工具执行本身计入，所以自己没有时限的工具卡住时单元照样会超时。超时或中止：先经 `invoke` 的 `signal` 收口在途的嵌套调用（上一节“收口”），再杀进程组，结果保留已有的输出并写明“内核已重置”；超时发生在内核起来之前时写“内核还没开始执行”。单元正常结束时还有没 `await` 的嵌套调用在途，由内核等它们回来再交结果（之后挂在它们后面的代码抛的错也算这个单元的）。
 - **空闲回收**：30 分钟没有调用就杀进程组。
+- **内核里的执行环境**（3.1 稿，omp 对照）：
+  - 单元在 `AsyncLocalStorage` 里执行，输出、调用、图片都标上发起它的单元；上一个单元晚到的调用得 `parent-finished`，晚到的输出不算进正在跑的单元。
+  - 装 `unhandledRejection` 与 `uncaughtException` 两个处理器：Bun 里没人接的 rejection、定时器里抛的错会让进程退出。单元在跑时它因此失败，提示“是不是忘了 await”；单元结束后再等两轮宏任务才判（IPC 回调里产生的 rejection 派发得晚，实测）。
+  - “父进程没了就收掉进程组”放在独立线程里轮询，主线程被同步死循环占住时照样有效。
+  - `console` 交给 `node:console` 的 `Console`（`table`、`group` 缩进、`count`、`time` 都照它），`warn`、`error` 加前缀；`process.stdout.write`、`process.stderr.write` 接到本单元。内核进程的标准输出与错误由宿主一直读着：单元期间直接写 fd 的（`Bun.$` 不取 `.text()`、`inherit` 的子进程）并进这个单元，错误流留最后 16 KiB 给崩溃时用。
+  - `tool` 的 Proxy 只认这个会话能调的名字（随 `run` 带过来），对 `then`、`toJSON`、Symbol 交回 undefined；拼错的名字得 `unknown-tool` 并列出能用的。不传参数按 `{}`。
+  - 每个单元开始前把工作目录改回会话的工作目录；注入按工作目录建的 `require`。
+  - `display` 的 `data` 收 base64、Buffer、字节视图，容忍 `uint8array.toString("base64")` 给出的十进制逗号串。
+  - 没有输出时结果写“（没有输出）”。
+- **内核意外退出**：任何退出（崩溃、被杀、代码里 `process.exit`，退出码 0 也算）都让在跑的单元得 `kernel-exited`，带退出码或信号与错误流的尾部，计入重置原因。握手超时 15 秒，与单元时限分开。会话关闭（`dispose`）之后的调用直接失败、不再起内核；握手到一半的，握手完成即杀。向已退出的内核发消息的错误吞掉。
 - **重置的判定与提示**（决定 2）：内核记下起它那一刻与最后一次调用时的 `ctx.leafMoves`；这次调用拿到的值变了（中间有过回退、切分支）就先杀进程组。分叉出的会话、服务重启之后是新实现、新内核。新内核第一次执行时，若当前路径上已经有过 eval 的结果（扩展 `nbook.agent.eval-state` 数路径上 eval 的 `toolResult`；只看工具 id，结果被脱敏也数得到），结果第一行写明“内核已重置，之前的变量没了”并给原因（回退、重启、空闲、超时、被回收）。`reset: true` 主动重置。不靠结果的 `details` 认单元：同一条回复里第二个 eval 读到的路径还没有第一个的结果，脱敏时 `details` 也不写进日志。
 - **审批预览**：不加新的预览类型。`preview.ts` 对 eval 交回 `{files: []}`，向导照现有做法列参数，eval 把 `code` 排在最前、带标题与时限（同 `shell` 的分支）。
 
@@ -130,6 +141,8 @@ Spec 写好后按编号补；先列要覆盖的场景：
 - 重置：同一条回复里两个 eval，第二个读得到第一个的变量；回退（跨过与没跨过 eval 各一次）、切分支后内核重置并提示；结果被脱敏的下一次调用照样读得到变量；分叉出的会话、重启之后提示；超过 8 个内核时最久没用的被回收并提示。→ `eval.test.ts`
 - 入口：从应用包与 `dist/server` 各起一次服务，在另一个目录的会话里跑一条 eval；握手版本不符时得有原因的失败。→ 应用包测试、`eval.test.ts`
 - 中途停止：子进程被杀，在途的嵌套调用收到中止。→ `eval.test.ts`
+- 内核里的执行环境（3.1 稿）：没 await 的调用失败时单元判失败并提示；`await tool`、`tool.then` 不卡；拼错工具名得 `unknown-tool` 并列出能用的；代码里 `process.chdir` 过下一个单元仍在工作目录；`import` 与 `import("./相对")` 按工作目录解析，`require` 可用；`Bun.$` 不取 `.text()` 的输出进本单元；内核卡在同步死循环时服务端被杀，内核与它的子进程都结束；代码里 `process.exit(0)` 得 `kernel-exited`；上一个单元留下的定时器晚到的调用得 `parent-finished`；会话关闭后再调直接失败；`reset: true` 带空代码只重置。→ `eval.test.ts`（真实子进程）
+- 说明按会话：绑定了一个全局对象的会话，说明里列出它；切换 Profile 去掉它之后，下一次请求前有 `tools-changed`。→ `eval.test.ts`
 - 全局对象：只在绑定了它的方法时可用；同名两方都不进；文档里有生成的签名。→ 示例场景测试
 - 界面：父调用失败时已写成的嵌套写入仍列在改动里；被拒的写入列出目标；跟帧与重建出的子调用相同；运行中副标题的次数与当前一步。→ 适配器契约测试、nb-agent-ui DOM 测试、Lab 场景与 e2e
 
