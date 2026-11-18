@@ -11,7 +11,7 @@ updated: 2026-11-18
 
 桌面壳里界面框架（标题栏、活动栏、标签、菜单、按钮、状态栏）默认 user-select: none，像原生应用；内容区（编辑器、对话正文、输入框、设置里的路径与错误信息、诊断信息）显式可选。浏览器里不加全局规则，只在个别地方手动指定不可选或可选。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`runtime.browser-host`](../../../../../docs/specs/runtime/browser-host.md) 输出 12“窗口外框”加一条“文字选择”（本 Task 写）。
 
 ## 背景与已定决定
 
@@ -19,12 +19,10 @@ updated: 2026-11-18
 
 开工时要先做的事：清点哪些区域算“内容”要显式可选（编辑器正文、Monaco、对话正文与代码块、输入框与文本域、设置窗口里的值与说明、诊断与错误文字、关于与版本信息、通知正文）；确认拖动区域（`app-region: drag`）与不可选配合时双击不选中文字；`user-select` 对拖动选择文本与 Ctrl+A 的影响；浏览器里要手动指定的几处单列。
 
-合同：待补充（`runtime.browser-host` 的“窗口外框”或 `ui/workbench-shell` 里写一条）。
-
 ## 当前状态
 
-2026-11-18 经 nbdev 新建，尚未开工。
+2026-11-18 开工：执行位置 `.worktree/w00046-t22-desktop-user-select`，分支 `feat/w00046-t22-desktop-user-select`。用临时探针清点了各处文字现在能否选中（结果写进计划的 Context），计划 [plan.md](plan.md) 第 1 稿已写，设计审查（Sonnet）在跑。
 
 ## 下一步
 
-开工时读 `src/web/styles.css` 里桌面外框的规则与 nb-ui 现有的 `select-none`、`select-text` 用法，写 plan.md。
+处理设计审查，再按计划切片实施。
