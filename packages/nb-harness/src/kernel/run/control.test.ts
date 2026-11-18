@@ -393,7 +393,8 @@ describe("崩溃与恢复", () => {
         ]);
         expect(types(events).slice(-4)).toEqual(["toolResult", "toolResult", "turnEnded", "runEnded"]);
         expect(dataOf(events, "runEnded").at(-1)).toMatchObject({reason: "interrupted"});
-        expect((await session.raw.snapshot()).buffer.map((item) => item.input.text)).toEqual(["排着的"]);
+        // 恢复批把就绪的话转成留着（输出 34、104）。
+        expect((await session.raw.snapshot()).buffer.map((item) => [item.input.text, item.state, item.cause])).toEqual([["排着的", "held", {end: "interrupted"}]]);
         session.model.script("接着来");
         const resumed = await session.raw.start({commandId: id()});
         if (!resumed.ok) throw new Error(resumed.code);

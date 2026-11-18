@@ -198,11 +198,22 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
             return await end("error", {reason: "error", error: {kind: "local", code: outcome.code === "nothing-to-compact" ? "compaction-failed" : outcome.code === "disabled" ? "compaction-failed" : outcome.code}});
         }
-        // 接着跑一个停在两轮之间的运行（回退到某一轮之前再发）：先取就绪的第一条开一轮，没有就收口。
+        // 接着跑一个停在两轮之间的运行（回退到某一轮之前再发）：先取就绪的第一条开一轮，没有就收口。取与收口在同一个队列项里
+        // （runtime.md 输出 104），停止受理之后不再取（输出 30）。
         if (core.leafState.kernel.history.current === null) {
-            const next = readyEntries(core.session.kernel.buffer)[0];
-            if (next === undefined) return await end("completed", {reason: "completed"});
-            await write(takeInputDrafts(next, core.newId(), run.runId));
+            const opened = await core.queue.run(async (): Promise<"taken" | "ended" | "aborted"> => {
+                if (signal.aborted) return "aborted";
+                const next = readyEntries(core.session.kernel.buffer)[0];
+                if (next === undefined) {
+                    stopped = true;
+                    await host.settle({reason: "completed", data: {}, before: []});
+                    return "ended";
+                }
+                await writeAndReact(core, takeInputDrafts(next, core.newId(), run.runId), host.react, signal);
+                return "taken";
+            });
+            if (opened === "ended") return;
+            if (opened === "aborted") return await end("aborted", {reason: "aborted"});
         }
         for (;;) {
             if (signal.aborted) return await end("aborted", {reason: "aborted"});
@@ -232,8 +243,13 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             }
 
             // 边界第 3 步：运行中到达的 steer 全部取走，进当前这一轮。
-            const steers = takeSteerDrafts(core, run.runId);
-            if (steers.length > 0) await write(steers);
+            // 在队列项里读缓冲区、看中止：停止受理之后到达这一项的不再取（输出 30）。
+            await core.queue.run(async () => {
+                if (signal.aborted) return;
+                const steers = takeSteerDrafts(core, run.runId);
+                if (steers.length > 0) await writeAndReact(core, steers, host.react, signal);
+            });
+            if (signal.aborted) return await end("aborted", {reason: "aborted"});
 
             host.phase("requesting", null);
             const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
@@ -375,7 +391,9 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 continue;
             }
             // 看缓冲区与写下这一步在同一个队列项里（runtime.md 输出 7、104）：在它之前受理的话由这次运行处理。
-            const next = await core.queue.run(async (): Promise<"continue" | "ended"> => {
+            const next = await core.queue.run(async (): Promise<"continue" | "ended" | "aborted"> => {
+                // 停止受理之后不再取话、不再开下一轮（输出 30）：交给中止的收口。
+                if (signal.aborted) return "aborted";
                 const ready = readyEntries(core.session.kernel.buffer);
                 // 最终回复时还有就绪的 steer：这一轮接着请求，下一个边界取走它们。
                 if (ready.some((item) => item.mode === "steer")) return "continue";
@@ -407,6 +425,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 return "continue";
             });
             if (next === "ended") return;
+            if (next === "aborted") return await end("aborted", {reason: "aborted"});
         }
     } catch (error) {
         if (error instanceof LogBrokenError) throw error;

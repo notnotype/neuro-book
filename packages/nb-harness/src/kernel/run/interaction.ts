@@ -170,7 +170,8 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
         }
         const wake = claimed;
         // 接着跑的运行：同步事项叫醒的是在跑的那次；异步回答插进在跑的那次，或开、续一次（runtime.md 输出 88）。
-        const runId = launch ?? control.active?.runId;
+        // 推迟到收口的回答不进正在收口的那次运行：不交 runId（同 send 的 later）。
+        const runId = launch ?? (deferred ? undefined : control.active?.runId);
         const answerId = deferred ? (drafts.at(-1)!.data as {id: string}).id : null;
         return {value: runId === undefined ? {} : {runId}, drafts, ...(launch === undefined ? {} : {launch}), written: async () => {
             claimed = undefined;

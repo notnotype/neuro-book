@@ -139,8 +139,17 @@ type Delivered = {value: {inputId: string; runId: string | null; currentRunId?: 
  * 送一条新话（`send` 与用户的 `enqueue`，输出 2、3、105、110）：先替换、再放行这个发出者能放行的，再写新话；空闲时开运行
  * （或接着跑叶子上能接着跑的暂停的运行），运行不再取输入时推迟到收口。
  */
-async function deliver(host: CommandHost, issuer: Issuer, args: {commandId: string; input: UserInput; mode: InputMode; release?: ReleaseMode; replaces?: readonly {id: string; edits: number}[]}): Promise<Delivered | {fail: string; detail?: Attributed}> {
+type DeliverArgs = {commandId: string; input: UserInput; mode: InputMode; release?: ReleaseMode; replaces?: readonly {id: string; edits: number}[]};
+
+async function deliver(host: CommandHost, issuer: Issuer, args: DeliverArgs): Promise<Delivered | {fail: string; detail?: Attributed}> {
+    const intercepted = await interceptInput(host, args.input);
+    if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
+    return deliverIntercepted(host, issuer, args, intercepted);
+}
+
+async function deliverIntercepted(host: CommandHost, issuer: Issuer, args: DeliverArgs, intercepted: Extract<Awaited<ReturnType<typeof interceptInput>>, {ok: true}>): Promise<Delivered | {fail: string; detail?: Attributed}> {
     const {core, control} = host;
+    // 拦截之后再看运行：拦截在等的时候 `abort`（不经队列）可能已经受理，之前读的就过期了。
     const active = control.active;
     const window = active !== null && !control.takesInput;
     const paused = active === null ? pausedRun(host) : null;
@@ -149,8 +158,6 @@ async function deliver(host: CommandHost, issuer: Issuer, args: {commandId: stri
         const problem = startProblem(host);
         if (problem !== null) return {fail: problem};
     }
-    const intercepted = await interceptInput(host, args.input);
-    if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
     const inputId = core.newId();
     const replaced = replaceDrafts(core, issuer, args.replaces ?? [], inputId);
     if ("fail" in replaced) return replaced;
@@ -188,11 +195,17 @@ export function enqueueCommand(host: CommandHost, issuer: Issuer, args: CommandM
         if (host.readOnly() !== null) return {fail: "read-only"};
         const {core, control} = host;
         const position = core.session.kernel.buffer.length;
-        const running = control.active !== null && control.takesInput;
-        if (!running && issuer.kind !== "user") {
-            // 会话、宿主空闲时（含运行不再取输入）排的：留着，不放行、不开运行（输出 3）。
+        if (issuer.kind !== "user") {
             const intercepted = await interceptInput(host, args.input);
             if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
+            // 拦截之后再看运行（同 `deliver`）：有运行在取输入时只入队，交给 `deliver`。
+            if (control.active !== null && control.takesInput) {
+                const delivered = await deliverIntercepted(host, issuer, args, intercepted);
+                if ("fail" in delivered) return delivered;
+                const {inputId, currentRunId, placement} = delivered.value;
+                return {...delivered, value: {inputId, position, placement, ...(currentRunId === undefined ? {} : {currentRunId})}};
+            }
+            // 会话、宿主空闲时（含运行不再取输入）排的：留着，不放行、不开运行（输出 3）。
             const inputId = core.newId();
             const current = control.active?.runId ?? control.paused ?? undefined;
             return {value: {inputId, position, placement: "held", ...(current === undefined ? {} : {currentRunId: current})}, drafts: [...intercepted.failed, {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, args.mode, issuer, {commandId: args.commandId, held: {queued: "idle"}})}]};
@@ -242,7 +255,7 @@ export function startCommand(host: CommandHost, issuer: Issuer, args: CommandMap
 }
 
 /** 空闲时放行（`resume`、`release`，输出 106、107）：先接着跑能接着跑的中断或暂停的运行，否则用放行出来的开新运行。 */
-function releaseWhileIdle(host: CommandHost, issuer: Issuer, released: {drafts: EventDraft[]; ids: string[]}): Outcome<"resume"> {
+function releaseWhileIdle<K extends "resume" | "release">(host: CommandHost, issuer: Issuer, released: {drafts: EventDraft[]; ids: string[]}, nothing: "nothing-to-resume" | "nothing-to-release"): Outcome<K> {
     const {core} = host;
     const continued = continueDrafts(host, issuer, "interrupted");
     if (continued !== null && "fail" in continued && pausedRun(host) !== null) return continued;
@@ -251,7 +264,7 @@ function releaseWhileIdle(host: CommandHost, issuer: Issuer, released: {drafts: 
         if (problem !== null) return {fail: problem};
         return {value: {runId: continued.runId, released: released.ids}, drafts: [...released.drafts, ...continued.drafts], launch: continued.launch};
     }
-    if (released.ids.length === 0) return {fail: blockedByUser(core.session.kernel.buffer, issuer) ? "held-by-user" : "nothing-to-resume"};
+    if (released.ids.length === 0) return {fail: blockedByUser(core.session.kernel.buffer, issuer) ? "held-by-user" : nothing};
     const problem = startProblem(host);
     if (problem !== null) return {fail: problem};
     const opened = openRunDrafts(core, projectSession(core.session.kernel, released.drafts, core.head).buffer, issuer);
@@ -263,9 +276,13 @@ export function resumeCommand(host: CommandHost, issuer: Issuer, args: CommandMa
     return accept(host, "resume", args, () => {
         const {core, control} = host;
         const mode = args.mode ?? "keep";
-        if (control.active !== null && !control.takesInput) return {value: {runId: null, released: []}, drafts: [], written: async () => control.defer({issuer, mode, inputIds: []})};
+        // 运行不再取输入：放行推迟到收口（交回的 released 为空）；只有用户留下的话、发出者又不是用户时现在就拒绝（输出 104、106）。
+        if (control.active !== null && !control.takesInput) {
+            if (blockedByUser(core.session.kernel.buffer, issuer)) return {fail: "held-by-user"};
+            return {value: {runId: null, released: []}, drafts: [], written: async () => control.defer({issuer, mode, inputIds: []})};
+        }
         const released = releaseDrafts(core.session.kernel.buffer, issuer, mode);
-        if (control.active === null) return releaseWhileIdle(host, issuer, released);
+        if (control.active === null) return releaseWhileIdle<"resume">(host, issuer, released, "nothing-to-resume");
         if (released.ids.length === 0) return {fail: blockedByUser(core.session.kernel.buffer, issuer) ? "held-by-user" : "nothing-to-resume"};
         return {value: {runId: null, released: released.ids}, drafts: released.drafts};
     });
@@ -277,14 +294,14 @@ export function releaseCommand(host: CommandHost, issuer: Issuer, args: CommandM
         const buffer = core.session.kernel.buffer;
         const items = args.inputIds.map((id) => buffer.find((entry) => entry.id === id && entry.state === "held"));
         const missing = args.inputIds.filter((_id, index) => items[index] === undefined);
-        if (missing.length > 0) return {fail: "nothing-to-release", detail: {ids: missing}};
+        if (args.inputIds.length === 0 || missing.length > 0) return {fail: "nothing-to-release", detail: {ids: missing}};
         if (issuer.kind !== "user") {
             if (items.some((item) => item!.heldBy?.kind === "user")) return {fail: "held-by-user"};
             if (items.some((item) => !sameIssuer(ownerOf(item!), issuer))) return {fail: "not-allowed"};
         }
         if (control.active !== null && !control.takesInput) return {value: {runId: null, released: []}, drafts: [], written: async () => control.defer({issuer, mode: "keep", inputIds: [], only: args.inputIds})};
         const released = releaseDrafts(buffer, issuer, "keep", args.inputIds);
-        if (control.active === null) return releaseWhileIdle(host, issuer, released) as Outcome<"release">;
+        if (control.active === null) return releaseWhileIdle<"release">(host, issuer, released, "nothing-to-release");
         return {value: {runId: null, released: released.ids}, drafts: released.drafts};
     });
 }

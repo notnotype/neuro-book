@@ -37,8 +37,8 @@ export class RunControl {
     #host: AttachedHost | null = null;
     /** 这次运行的停止记录（输出 30）：第一个被受理的 `abort` 定范围与停的人，后到的只追加受理记录。 */
     #stop: StopRecord | null = null;
-    /** 等收口批写下的 `abort`：交回它的受理记录的 seq。 */
-    #stopWaiters: ((seq: number) => void)[] = [];
+    /** 等收口批写下的 `abort`：交回它自己的受理记录的 seq（与重发交回的一致）；没写下（句柄损坏）时交回日志头。 */
+    #stopWaiters: {readonly commandId: string; readonly resolve: (seq: number) => void}[] = [];
     /** 运行不再取输入时受理的、要开运行的指令，按受理先后（输出 104）。 */
     #deferred: Deferred[] = [];
     /** 正在组收口批的运行：之后到的 `abort` 交回 `{aborted: false}`。 */
@@ -71,6 +71,8 @@ export class RunControl {
                 active.controller.abort();
                 this.#settle(active.runId, BROKEN_RESULT(active.runId, core.head));
             }
+            // 收口批写不下了：等着的停止照实交回（运行已经停了），不挂住。
+            this.#releaseStopWaiters();
         });
     }
 
@@ -113,7 +115,7 @@ export class RunControl {
         if (active === null || this.#settling === active.runId) return null;
         if (this.#stop === null) this.#stop = {...stop, runId: active.runId, commands: [command]};
         else this.#stop.commands.push(command);
-        return new Promise((resolve) => this.#stopWaiters.push(resolve));
+        return new Promise((resolve) => this.#stopWaiters.push({commandId: command.commandId, resolve}));
     }
 
     /** 叶子上有没收口、也没有循环在跑的运行（回退或切分支到运行中途）；`start` 与 `send` 让它接着跑。 */
@@ -164,6 +166,8 @@ export class RunControl {
             })
             .finally(() => {
                 if (this.#settled.delete(runId)) return;
+                // 没经收口批就结束的（句柄损坏）：停止记录、推迟列表与等着的停止也要收掉。
+                this.#clearRunState(runId);
                 if (this.#active?.runId === runId) this.#active = null;
                 // 这次运行没来得及做的 compact 要求丢掉：它们只属于这次运行。
                 this.#compactRequests = this.#compactRequests.filter((item) => item.runId !== runId);
@@ -208,19 +212,28 @@ export class RunControl {
         }
     }
 
+    /** 一次运行结束时与收口方式无关的清理：停止记录、推迟列表、正在组批的标记，等着的停止照实交回。 */
+    #clearRunState(runId: string): void {
+        if (this.#settling === runId) this.#settling = null;
+        this.#compactRequests = this.#compactRequests.filter((item) => item.runId !== runId);
+        if (this.#stop?.runId === runId) this.#stop = null;
+        this.#deferred = [];
+        this.#releaseStopWaiters();
+    }
+
+    #releaseStopWaiters(): void {
+        for (const waiter of this.#stopWaiters.splice(0)) waiter.resolve(this.#core.commands.get(waiter.commandId)?.seq ?? this.#core.head);
+    }
+
     #finish(runId: string, next: string | null): void {
         this.#settled.add(runId);
         if (this.#active?.runId === runId) this.#active = null;
-        this.#settling = null;
-        this.#compactRequests = this.#compactRequests.filter((item) => item.runId !== runId);
-        this.#stop = null;
-        this.#deferred = [];
-        const stopWaiters = this.#stopWaiters.splice(0);
         if (this.#status.state !== "broken") this.#setStatus({state: "idle"});
         const launched = next !== null && this.#status.state !== "broken" && this.#host?.checks.closed() !== true;
+        // 先清这次运行的停止与推迟，再开下一次：它们不能串到收口批开的运行上。
+        this.#clearRunState(runId);
         if (launched) this.launch(next);
         else this.onIdle?.();
-        for (const resolve of stopWaiters) resolve(this.#core.head);
         const result = runResultOf(this.#core.events, runId, this.#core.byId);
         if (result !== null) this.#settle(runId, result);
     }

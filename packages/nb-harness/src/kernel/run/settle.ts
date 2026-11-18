@@ -111,7 +111,8 @@ export function settleBatch(core: SessionCore, input: SettleInput): SettleBatch 
     const cause: HeldCause = input.closingCode === null ? {end: reason} : {end: reason, code: input.closingCode};
     if (stop !== null) {
         const inScope = new Set(stop.scope);
-        const items = buffer.filter((item) => inScope.has(item.id) && !arrived.has(item.id));
+        // 停止受理那一刻已在缓冲区里的都在范围里，推迟送进来的话也一样（输出 30）：被清空的，它的推迟放行随之落空。
+        const items = buffer.filter((item) => inScope.has(item.id));
         const removed = stop.keep ? [] : items.filter((item) => canRemove(item, stop.by));
         for (const item of removed) {
             drafts.push({type: "inputRemoved", kind: "ctrl", scope: "session", data: {id: item.id, reason: "aborted", ...byField(stop.by)} as JsonValue});
