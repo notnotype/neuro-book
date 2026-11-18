@@ -81,4 +81,6 @@ export const agentStatusBarScenes: LabFixtureDefinition<typeof AgentStatusBar>["
     {id: "model-and-plugin", label: "打开模型与推理档，加插件的字数，用量排到费用后面", input: {props: {ctx: createAgentContext({session, usage, composer: withModel}), statusLine: {order: ["model", "cost", "usage"], visible: {model: true, "lab.words": true}}}}},
     {id: "narrow", label: "右栏窄（280px）：模型、用量、费用三项，从前往后收进悬停，费用最后收", input: {props: {ctx: createAgentContext({session, usage, composer: withModel}), statusLine: {order: ["model", "usage", "cost"], visible: {model: true}}}}},
     {id: "no-session", label: "没选会话：数据项都不画", input: {props: {ctx: createAgentContext({usage}), statusLine: {}}}},
+    {id: "left-usage", label: "用量换到左边、在等回答：用量画在上下文后面，提醒跟在后面", input: {props: {ctx: createAgentContext({session, usage, composer: withModel, run: {status: "waiting", phase: ""}}), statusLine: {side: {usage: "left"}, visible: {model: true}}}}},
+    {id: "narrow-left-usage", label: "右栏窄（280px）、用量在左边、在等回答：先收右边，再收左边的用量；提醒不收", input: {props: {ctx: createAgentContext({session, usage, composer: withModel, run: {status: "waiting", phase: ""}}), statusLine: {side: {usage: "left"}, visible: {model: true}}}}},
 ];

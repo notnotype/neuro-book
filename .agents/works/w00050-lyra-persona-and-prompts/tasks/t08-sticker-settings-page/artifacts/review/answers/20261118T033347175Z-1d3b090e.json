@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t08-sticker-settings-page",
+    "artifactId": "review",
+    "answerId": "20261118T033347175Z-1d3b090e",
+    "artifactVersion": 2,
+    "contentHash": "f5ffa67ebb55770e459dd379c0f11ecaae079405c7ca8a7acca9ef9599cf92ef",
+    "submittedAt": "2026-11-18T03:33:45.100Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "style-r2": false,
+        "unlisted-group": true,
+        "rename-r2": true,
+        "conflict-r2": true
+    },
+    "comments": {
+        "style-r2": "不用做白边也可以，并且表情包不能因为图片的大小而随意变动，这会破坏布局，而且要注意表情包也是应该支持矩形的，并不一定要你展示的这种透明 png 的"
+    },
+    "note": null
+}

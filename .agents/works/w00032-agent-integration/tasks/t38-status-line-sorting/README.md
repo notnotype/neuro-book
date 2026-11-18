@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t38-status-line-sorting
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -62,21 +62,50 @@ updated: 2026-11-18
 | 15 | 建议 | 成立，改：抓点、减少动效（令牌为 0 即可）、只在把手上 `touch-action: none`、`disabled` 中途变真时中止、会话随根创建与释放 |
 | 16 | 建议 | 成立，改：导出清单与调用点列进切片 |
 
+## 实现审查
+
+2026-11-18 对 `d67ee3779..dacd65622` 交 Claude Sonnet 只读审查（报告 [`evidences/impl-review.txt`](evidences/impl-review.txt)），14 条：阻断 0、重要 5、建议 9。
+
+| 编号 | 级别 | 处理 |
+|---|---|---|
+| F1 | 重要 | 成立，改：状态栏的量宽槽按“边:id”登记（一项从右换到左时，右边旧槽卸下那次回调把新槽删掉了）；补“挂着时换边”的 dom 测试（假 `ResizeObserver` 只量登记过的元素），修前失败 |
+| F2 | 重要 | 成立，改法选简单的：Spec 与组件文档去掉 Home、End（会话只拦这两个键，不动） |
+| F3 | 重要 | 成立，改：来源是一区唯一的一项、拖进拖出空分区时，邻居让出的长度比被拖的行短，中线规则两头的判定线重叠，会逐帧来回换；按几何把占位算进去也消不掉重叠。核心加粘滞：刚换过去，从换位处往回挪不到 12px 不换回来（往前接着拖不算）。纯函数加“一路扫过去只往前走”的性质测试（按版式真实重排），修前复现；e2e 加“左边唯一的一项慢慢拖过分区头不来回跳” |
+| F4 | 重要 | 成立，改：`agent-conversation-view.md` 删掉 t37 留下的旧“窄时”段 |
+| F5 | 重要 | 成立，改：Spec 的插槽参数写成 `itemKey`，回调类型写 `PromiseLike` |
+| F6 | 建议 | 成立，改：设置页“写入失败”的 e2e 先确认拖动中两组变了，再断言放下后回原样 |
+| F7 | 建议 | 部分成立：放回原位改播“某项仍在某区第几位”；“已放到”先于写入结果播报，接受（失败由宿主的通知说明） |
+| F8 | 建议 | 不改代码（审查者自己更正过）：失败的 Promise 再抛一次是不吞错的代价；Spec 失败一节与组件文档写明宿主要在自己的 Promise 上收口 |
+| F9 | 建议 | 成立，改：落回时等 Vue 按新次序排好，按排好后的位置换算起点，取消时从看到的地方滑回 |
+| F10 | 建议 | 成立，改：注释写成“根上的捕获监听一定先于会话的冒泡按下监听” |
+| F11 | 建议 | 接受取舍：提醒放不下时被左边整块裁掉、没有省略号；要窄到所有数据项都收起之后才会发生，Spec 写的就是“最后截断” |
+| F12 | 建议 | 成立，改：量到宽度 0 的槽同收起的槽一样脱离文档流，不白占间距；右边只有宽 0 的项时不画右边那一块 |
+| F13 | 建议 | 接受取舍：试过给上外边距加 0 的下限，macOS 主题里行高比控件矮，单选反而偏到 2 像素（不加是 0.94）；负的一两像素正是居中需要的。文档写明插槽自带行高时按根的行高对齐 |
+| F14 | 建议 | 部分补：dom 测试加“拖动中变成停用整场中止”“拖动中次序被别处改了整场取消”“放回原位的播报”；卸载与 Promise 失败没加（失败会在测试里成为未处理的失败，见 F8） |
+
 ## 当前状态
 
-2026-11-18：切片 1 到 4 都已提交到 `feat/w00032-t38-status-line-sorting`，并已并进 master（dacd65622，干净，master 带进来的改动不碰本 Task 的文件）：
+2026-11-18 完成，已合入 master（0429b568d）。提交：
 
 | 提交 | 内容 |
 |---|---|
 | 18cc9b372 | nb-ui 单选组与复选框对齐标签第一行（量法与前后数值见 [`evidences/alignment-measure.txt`](evidences/alignment-measure.txt)） |
 | 38b018112 | 状态栏去掉模式标记；设置加 `side`、项可换边；窄时先右后左收起；每一项由 `AgentStatusItem` 画 |
-| a258d0116 | nb-layout 的 `useSortable` 与 `SortableList`（Spec `ui/sortable-list.md`）、Lab 场景、`lab-sortable-list.e2e.ts` |
+| a258d0116 | nb-layout 的 `useSortable` 与 `SortableList`、Lab 场景、`lab-sortable-list.e2e.ts` |
 | d2453ebb3 | 状态栏设置页改用 `SortableList`，拖动放下等写完；设置页与状态栏的新场景与 e2e |
+| a8cec42c0 | 实现审查的修正（排序的粘滞、落回、播报；状态栏换边后的量宽、宽 0 的槽） |
 
-Spec 在 master 上：c7f53f610（输出 15、45、46 等改写并标 planned，新 Spec `ui/sortable-list.md`）、ff4a88b79。
+Spec（master）：c7f53f610、ff4a88b79、859c36de0；晋升 7e9f3af35：`ui/sortable-list.md` 为 implemented（实现合同与证据），`agent/conversation.md` 输出 15、45、46，`ui/agent-conversation-view.md` 的“状态栏”，`agent/modes.md` 输出 13，`agent/contributions.md` 输出 22 去掉 planned、补证据（晋升不用审批，开发者 2026-11-17 定）。
 
-已跑的验证：各包类型检查（合并后再跑一次）；nb-agent-ui 全部（vitest 165、bun 275）、nb-layout 全部（vitest 247、bun 586）、nb-ui 两个控件相关的五个测试文件、应用的 `status-line.dom.test.ts` 与 Lab 登记测试；`lab-sortable-list.e2e.ts` 8 条全过，并对“等写入不闪回”“拿起的行底不透明”做了变异检查（都会失败）；新增与改过的 Lab 场景用 `nbdev shot` 量过（桌面与 390 宽都没有越界、裁切）。`lab-agent-ui.e2e.ts`、`agent-conversation.e2e.ts` 与前端实现审查（Sonnet）进行中。
+验证（合并 master 之后的代码上）：
+- 类型检查：nb-ui、nb-agent-ui、nb-layout、neuro-book 都通过。
+- 单元与挂载测试：nb-layout 全部（bun 589、vitest 253）、nb-agent-ui 全部（bun 275、vitest 166）、nb-ui 两个控件相关的五个文件 154 条、应用的 `status-line.dom.test.ts` 9 条与 Lab 登记测试 9 条。
+- e2e：`lab-sortable-list.e2e.ts` 8 条，`lab-agent-ui.e2e.ts` 全文件，`agent-conversation.e2e.ts` 的验收 1、状态栏可自定义、模型选择器、Agent 模式四条；末轮 56 过、1 条失败，是我写错的期望（拖过头落在右边第 2 位而不是第 1 位），改成“左边变空”后单独重跑通过。之前一轮负载 30 时 `lab-agent-ui` 有三条在打开场景时超时，负载降下来后在这一轮里都过了。
+- 变异检查：去掉“等写入时留住次序”、拿起的行的底色、粘滞，对应的 e2e 都会失败；去掉缺省次序按 `side` 解算，`status-line.test.ts` 失败；收起次序改成先左后右，单元与挂载测试都失败。
+- Lab：新增与改过的场景（`SortableList` 五个、状态栏三个、设置页五个）用 `nbdev shot` 量过桌面与 390 宽，没有越界、裁切与页面错误。
+
+未验证：触摸拖动没在真机上试；`agent-conversation.e2e.ts` 只跑了与状态栏、模式相关的四条，没有跑全文件。
 
 ## 下一步
 
-处理实现审查与 e2e 结果，Spec 去掉 planned 并补证据，合入 master。
+无。可选的后续：nb-form 的对象列表（现在只有上移下移按钮）需要拖动时接 `SortableList`。

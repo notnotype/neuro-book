@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 1 轮：表情包设置页</title>
+<title>第 3 轮：表情包设置页</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -29,86 +29,32 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 1 轮：表情包设置页</h1>
+<h1>第 3 轮：表情包设置页</h1>
 
-<section data-nbdev-question="unlisted-images" data-nbdev-type="single" data-nbdev-recommend="extra">
-  <h2>有了清单之后，文件夹里没列进清单的图片还算不算表情？</h2>
-  <p class="rec"><strong>推荐 B：设置页一改名字或说明就会写清单。按 A，之后在文件管理器里放进去的图不会出现，要回设置页加。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="listed" data-nbdev-label="A 只认清单（t07 现在的规则）">
-      <h3>A 只认清单（t07 现在的规则）</h3>
-      <p>清单里写了几个，表情包就有几个，其余的图片不算表情。想去掉一张图，从清单里删掉那一项就行，文件可以留着。</p>
-    </div>
-    <div class="cand" data-nbdev-option="extra" data-nbdev-label="B 文件夹里的图都算，清单只补充">
-      <h3>B 文件夹里的图都算，清单只补充</h3>
-      <p>每张图片都是一个表情；清单只给它们改名字、写说明、定常用与顺序，没列的图排在后面、按文件名取名。想去掉一张图就删掉文件。<code>common</code> 缺省改为常用，与没有清单时一致。</p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="page-layout" data-nbdev-type="confirm" data-nbdev-label="整页按这版做">
-  <h2>整页按这版做？</h2>
-  <p class="rec"><strong>推荐同意：同 Profile 页的左列表右详情；网格右上角的星是常用；属性栏随选中换内容。</strong></p>
+<section data-nbdev-question="style-r3" data-nbdev-type="confirm" data-nbdev-label="整页按第 3 轮的格子做">
+  <h2>整页按这版的格子做？</h2>
+  <p class="rec"><strong>推荐同意：按第 2 轮的意见，去掉白边；每个表情占一个 72px 的固定格子，图在格子里按比例缩小、居中，宽图（我不理解）、竖图（举牌）、不透明的方图（喵）和透明底的小表情都落在同一个框里，网格不随图片大小变；悬停加深格子底色，选中是格子的强调色描边。属性栏的大图同样是一个固定高度的格子。</strong></p>
   <div class="shots">
-    <figure><img src="r1/main.webp" alt="选中一个表情"><figcaption>选中一个表情：名字、写法（能复制）、说明、常用、删除</figcaption></figure>
-    <figure><img src="r1/pack.webp" alt="没选表情"><figcaption>没选表情：表情包自己的显示名、说明与包名</figcaption></figure>
-    <figure><img src="r1/narrow.webp" alt="480px 宽"><figcaption>480px 宽：左栏收成下拉，属性栏到网格下面</figcaption></figure>
-    <figure><img src="r1/main-dark.webp" alt="暗色"><figcaption>暗色</figcaption></figure>
+    <figure><img src="r3/main.webp" alt="选中一个表情"><figcaption>“其他”一组里有宽图与竖图</figcaption></figure>
+    <figure><img src="r3/main-dark.webp" alt="暗色"><figcaption>暗色</figcaption></figure>
+    <figure><img src="r3/problem.webp" alt="认不出"><figcaption>cat：不透明的方图“喵”、认不出的 1.png</figcaption></figure>
+    <figure><img src="r3/unlisted.webp" alt="没加进来的图"><figcaption>没加进来的图（第 2 轮已同意）</figcaption></figure>
+    <figure><img src="r3/plugin.webp" alt="插件的包"><figcaption>插件的包</figcaption></figure>
+    <figure><img src="r3/narrow.webp" alt="480px 宽"><figcaption>480px 宽</figcaption></figure>
+    <figure><img src="r3/conflict.webp" alt="导入同名"><figcaption>导入同名的预览也换成格子</figcaption></figure>
   </div>
-</section>
-
-<section data-nbdev-question="pack-name" data-nbdev-type="confirm" data-nbdev-label="新建时填包名，建好后不能改">
-  <h2>新建时填包名，建好后不能改？</h2>
-  <p class="rec"><strong>推荐同意：包名就是写法 <code>:cat/开心:</code> 里的 <code>cat</code>，改了以后，旧消息里的表情都认不出来了。显示名随时能改。</strong></p>
-  <div class="shots">
-    <figure><img src="r1/create.webp" alt="新建表情包"><figcaption>新建：显示名可以是中文，包名只能是小写字母、数字与连字符</figcaption></figure>
-    <figure><img src="r1/empty.webp" alt="还没有表情包"><figcaption>还没有表情包</figcaption></figure>
-  </div>
-</section>
-
-<section data-nbdev-question="problem-rename" data-nbdev-type="confirm" data-nbdev-label="当不了名字的图在网格里标出来，选中直接改名">
-  <h2>当不了名字的图在网格里标出来，选中直接改名？</h2>
-  <p class="rec"><strong>推荐同意：导出的包里常有 <code>1.png</code> 这样的文件，在这里改名比去文件管理器里改顺手。左栏也会标出有问题的包。</strong></p>
-  <div class="shots">
-    <figure><img src="r1/problem.webp" alt="文件名当不了名字"><figcaption>没有清单的包里，<code>1.png</code> 当不了名字</figcaption></figure>
-  </div>
-</section>
-
-<section data-nbdev-question="plugin-pack" data-nbdev-type="confirm" data-nbdev-label="插件的包只读，“复制到我的”之后再改">
-  <h2>插件的包只读，“复制到我的”之后再改？</h2>
-  <p class="rec"><strong>推荐同意：插件更新时会换掉它的文件，改了也留不住。复制出来的是一个新包，写法里的包名不同。</strong></p>
-  <div class="shots">
-    <figure><img src="r1/plugin.webp" alt="插件的包"><figcaption>插件的包：没有输入框与“添加图片”，头部是“复制到我的”</figcaption></figure>
-  </div>
-</section>
-
-<section data-nbdev-question="import-conflict" data-nbdev-type="confirm" data-nbdev-label="导入同名时按这个对话框问">
-  <h2>导入同名时按这个对话框问？</h2>
-  <p class="rec"><strong>推荐同意：左右对比已有的与要导入的；替换用危险色。</strong></p>
-  <div class="shots">
-    <figure><img src="r1/conflict.webp" alt="导入同名"><figcaption>导入的 zip 与已有的包同名</figcaption></figure>
-    <figure><img src="r1/dragging.webp" alt="拖进图片"><figcaption>往网格里拖图片（超过 1024 像素的静态图松开后自动缩小）</figcaption></figure>
-  </div>
-</section>
-
-<section>
-  <h2>现状与参照</h2>
-  <table style="width:100%; border-collapse:collapse; font-size:15px">
-    <tbody>
-      <tr><td style="padding:6px 10px; border-bottom:1px solid var(--line)">现状</td><td style="padding:6px 10px; border-bottom:1px solid var(--line)">没有表情包页；Profile 页的“表情包”一节只能勾选；增删改要在文件管理器里动 <code>user://stickers/</code></td></tr>
-      <tr><td style="padding:6px 10px; border-bottom:1px solid var(--line)">应用里的同类</td><td style="padding:6px 10px; border-bottom:1px solid var(--line)">Profile 页（左列表右详情、新建与删除）；Skill 页（按来源分组，插件的只读）</td></tr>
-      <tr><td style="padding:6px 10px">外部参照</td><td style="padding:6px 10px">Discord 服务器设置的表情页（网格、上传、按格改名）；Telegram 的表情包管理（整包导入、排序）</td></tr>
-    </tbody>
-  </table>
 </section>
 
 <section>
   <h2>已定</h2>
   <ol class="decided">
-    <li>左列表右详情，同 Profile 页（会话里定）</li>
-    <li>选中表情后在旁边的属性栏改，不弹对话框（会话里定）</li>
-    <li>超过 1024 像素或 2 MiB 的静态图自动缩小，超限的动图拒绝并说明（会话里定）</li>
-    <li>导入同名时问替换还是另存为新包（会话里定）</li>
+    <li>左列表右详情，同 Profile 页；选中表情后在旁边的属性栏改（会话里定）</li>
+    <li>超过 1024 像素或 2 MiB 的静态图自动缩小，超限的动图拒绝（会话里定）</li>
+    <li>导入同名时问替换还是另存为新包；对话框按第 2 版（会话里定、第 2 轮）</li>
+    <li>有清单之后只认清单里的表情；没加进来的图放在网格最后一组，可以全部加进来（第 1、2 轮）</li>
+    <li>包名可以改，入口在更多菜单与属性栏，对话框写清代价（第 1、2 轮）</li>
+    <li>认不出的图标出来、选中直接改名；插件的包只读、复制到我的（第 1 轮）</li>
+    <li>不用白边；格子不随图片大小变；要支持不透明的矩形图（第 2 轮）</li>
   </ol>
 </section>
 </main>

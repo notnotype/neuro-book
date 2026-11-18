@@ -25,6 +25,7 @@ owners:
 - 已经显示出来的表情不随目录变化重画：换了图、删了表情包，之后新显示的块用新的目录（已知限制）。
 - 动图在“减少动态效果”的系统设置下照常播放。
 - 按 Profile 限制显示：模型写了白名单以外的表情包里的表情，照样显示成图；白名单只决定提示词里列出哪些。
+- 表情包页（输出 25 起）不做：拖动排序、多选批量、裁剪或编辑图片、撤销；改包名不迁移 Profile 的白名单（输出 33）；表情包市场。
 
 ## 术语与参与者
 
@@ -120,7 +121,7 @@ interface StickerPackManifest {
 ### 界面
 
 19. Profile 设置的“表情包”一节，放在“Skill”一节下面，行、分组、添加与恢复默认同 Skill 一节（[`profile-settings.md`](profile-settings.md) 输出 26）：按来源分组（我的在前、各插件一组），一行一个表情包（第一个常用表情的缩略图、显示名、说明、表情数），写入 `profileSettings[key].stickers`。
-20. 设置里没有单独的表情包页：表情包的增删经 `user://stickers/` 的文件。
+20. 表情包的增删改除了直接改 `user://stickers/` 的文件，还可以在设置里的表情包页做（输出 25 起；planned）。
 
 ### 编辑器
 
@@ -128,6 +129,23 @@ interface StickerPackManifest {
 22. 打字打出一个完整的写法（输入结尾的半角 `:` 时）变成表情节点；紧接着按一次退格还原成打出的文字。输入法组字期间不变。
 23. 留作文字的写法（退格还原的、纯文字粘贴的）写回时开头的冒号写成 `\:`，同一块里别的字节不变。
 24. 复制含表情的选区：纯文字里是写法的原文；带格式的内容粘贴回编辑器仍是表情节点，不变成图片。
+
+### 表情包页（planned）
+
+25. 设置窗口的 page 分区（[`settings/settings-window.md`](../settings/settings-window.md)），分类 `ai`，排在 Skill 页之后，只有用户层。左边是表情包列表，右边是选中的那个，同 Profile 设置页（[`profile-settings.md`](profile-settings.md) 输出 1）：左栏按来源分组（我的在前，各插件一组，组头写插件名），一行是第一个有效表情的缩略图（没有时是图标）、显示名与表情数（不含认不出与没加进来的），有认不出的图时行尾出提示图标；无效的表情包照样列出，行尾是错误图标；“我的”组头有“新建”，左栏底部有“导入 zip”。页面窄于 600px 时左栏收成顶上的下拉加“新建”“导入”。页面有读取中与读失败（带重试）两种状态，同 Profile 页。第一次打开选中“我的”里的第一项（没有就是第一组的第一项）；页面自己新建、改包名、复制、导入之后选中结果那个包；只有选中的包被别处删掉时回到第一项。
+26. 右边：头部是显示名与说明，右侧“导出”与“更多”菜单（在文件夹中显示、改包名、删除表情包）；插件的包另有“复制到我的”，菜单里只有“在文件夹中显示”。下面是表情网格，按组排：认不出（名字当不了表情名的图，要处理的在最前）、常用、其他、文件夹里还没加进来的（有表情列表时，文件夹里清单没列的图片）；组头写组名与个数，没有的组不画。每个表情占一个固定大小的格子，图在格子里按比例缩小、居中，不论图的大小与宽高比；格子下写名字，认不出与没加进来的写文件名；悬停加深格子底色，选中是格子的强调色描边。我的包在“其他”组末尾（没有组时单独一行）有“添加”格，点开选文件；也能把图片拖进网格，拖到网格外不打开图片；还没有表情的包整个网格是落点。上传中的图在网格末尾显示占位格。网格里方向键移动即选中（左右按顺序、上下按列，跨组接续），Delete 删除选中的（先确认），Esc 回到表情包。无效的表情包右边写原因，只能在文件夹中显示、删除，文件夹名不合规的还能改包名。
+27. 网格旁的属性栏，顶上有“返回表情包”：选中表情时是大图（固定高度的格子）、名字、说明、写法（`:包名/名字:`，能复制）、常用开关、文件名与宽高大小、“删除表情”；认不出的写原因与名字的规则，改好名字之前说明与常用不能改；没加进来的只有“加进来”与“删除文件”。名字与显示名回车或离开输入框时保存，Esc 还原；说明离开时保存；保存失败回到原来的值并通知。底部一行写校验与保存的原因。没选表情时是表情包的显示名、说明、包名（旁边“改…”）与写法、个数。插件的包只显示文字，不能改。窄时属性栏排到网格下面。
+28. 改表情包或表情（显示名、说明、表情的名字、说明、常用）写进清单：没有清单或清单没写表情列表的，先写一份列出文件夹里全部图片的清单（每张一项，名字省略、都算常用，与改之前认的表情相同），再改清单；只改清单里那一处，别的字段（包括不认识的字段）保留，写回时重新排版、数字按 JavaScript 能表示的精度写；文件不改名。名字清空表示用文件名。名字不合规则、与别的表情重名、改完超过 500 项或 256 KiB 时不写，在属性栏的状态行写原因。
+29. 添加图片：一次可以选或拖进多张。每张按“输入与前置条件”的 `file` 规则核对；宽乘高超过 5000 万像素的不加；宽或高超过 1024 像素或超过 2 MiB 的静态 PNG、JPEG、WebP 按比例缩到 1024 以内，缩完仍超过 2 MiB 的改存 WebP（扩展名跟着改）；GIF 与动态 WebP 超限不缩，这张不加并写原因。文件名沿用原来的，文件夹里已有同名文件时加 `-2`、`-3`。有表情列表的包里同时在清单末尾加一项（名字省略、不常用），这一步失败就删掉刚写的图、这张算没加；没有表情列表的只写文件。几张里有不加的（包括拖进来的文件夹），加完后用一条通知列出文件名与原因。
+30. 删除表情：确认后删清单里那一项，那个文件不再被别的项用到时删文件（没有表情列表的包直接删文件）；“删除文件”（没加进来的图）只删文件。“加进来”与组头的“全部加进来”在清单末尾加项（名字省略、不常用）。
+31. 新建表情包：对话框填显示名与包名（文件夹名规则），包名已被用或不合规则时在对话框的状态行写原因；建好的文件夹里只有一份写了 `title` 的清单，建好后选中它。
+32. 复制到我的：把插件的包里的清单与文件夹顶层的图片（合计至多 64 MiB）复制成用户的包，包名沿用，已被用时加 `-2`、`-3`；中途失败或复制途中插件换了版本，不留半个包、通知原因；复制完选中新包。
+33. 改包名：对话框填新包名，写清代价：用旧包名写下的表情（对话、文件里的 `:旧包名/…:`）之后认不出来、显示原文，改回旧包名就又认得；明确选了它的 Profile（声明的白名单写了它，或用户在 Profile 设置里加了它）列出名字，改名后要在 Profile 页重新勾选（它们列在“已删除或不可用”）；声明“全部”的不列，改名后自动包含；查不到时写通用的提醒。改名就是给文件夹改名，id 随之变；白名单不迁移。打开对话框之后文件夹被别处换掉的，不改，通知原因。
+34. 删除表情包：确认框写出包名与表情数，确认后删除整个文件夹；确认之后文件夹被别处换掉的不删。
+35. 导出：下载一个 zip，文件名 `<包名>.zip`，里面是一个以包名命名的文件夹，含清单（有的话）与文件夹顶层文件名合格的全部图片，只存不压；zip 超过 64 MiB 或超过 600 项、或一张图片也没有时不导出、通知原因（导出的一定能导回）；插件的包也能导出，无效的表情包不能导出。
+36. 导入 zip：zip 里是一个文件夹（包名取文件夹名）或图片直接放在根上（包名取 zip 文件名去掉扩展名）；只取清单与扩展名是图片的文件，子文件夹与别的文件忽略；路径里有 `..`、绝对路径、反斜杠、盘符、以点开头的段，或同一个文件名出现两次（不分大小写），整个 zip 不导入；清单读不懂或一张图片也没有的不导入。包名不合规则时转成合规的（小写、非法字符换成连字符、合并连字符、去首尾、至多 60 个字符），转不出就报错。zip 至多 64 MiB，按实际解出的字节算至多 256 MiB、单个文件至多 32 MiB、至多 600 项。与已有的包同名时问：替换已有的（删掉旧的，用导入的），或另存为新包（包名加 `-2`、`-3`，对话框写出用哪个名字）；对话框左右对照两边的前几个表情、显示名与表情数（要导入那一侧在浏览器里读 zip）；问过之后已有的包被别处换掉的，不替换，再问一次。替换中途断掉不丢旧包：挪开的旧包留在 `user://stickers/` 里一个以点开头的文件夹，写诊断给出位置，由用户处理。导入的图片不缩小，按目录的规则核对（输出 4）。导入完选中它。
+37. 在文件夹中显示：用系统的文件管理器打开这个表情包的文件夹（插件的包打开插件里的那个文件夹），不新建文件夹；没有桌面、打开不成时发一条通知写出路径，同 Skill 页（[`skills.md`](skills.md) 输出 25）。
+38. 页面跟着目录变：别处改了文件（文件管理器、Agent 之外的程序、另一个窗口）时页面随目录的通知更新；选中的表情没了时属性栏回到表情包。页面的写入都经文件服务写 `user://stickers/`，写完的结果以重扫后的目录为准。
 
 ## 状态与转换
 
@@ -141,7 +159,7 @@ interface StickerPackManifest {
 
 ## 副作用与数据
 
-- 用户的表情包在 `user://stickers/<文件夹名>/`，由用户管理；应用只在启动时建这个目录，不写里面的文件。
+- 用户的表情包在 `user://stickers/<文件夹名>/`，由用户管理；应用启动时建这个目录，此外只有表情包页按用户的操作写里面的文件（输出 28 到 36；planned）。
 - 消息与作品文件里只存写法的原文；表情包删了或改名，旧消息与文件里的写法按认不出显示原文。
 - 白名单的用户改动存在用户层设置 `nbook.agent.profileSettings` 每项的 `stickers`，两个数组都空时不留这一项。
 
@@ -157,6 +175,13 @@ interface StickerPackManifest {
 | 取图：表情包或表情不在目录里、表情无效、读取时文件已不是相符的图片或超过 2 MiB | 404 `not-found` |
 | 取图：跨站请求 | 403 `cross-site`，规则同按地址读取字节（[workspace.files](../workspace/files.md)） |
 | 白名单里的 id 不在目录里 | 不报错；槽不列它，Profile 设置里列在“已删除或不可用” |
+| 表情包页：包名已被用、不合规则；名字不合规则、重名、清单满了（planned） | 不写，状态行写原因 |
+| 表情包页：图片不合规、GIF 或动态 WebP 超限、读不了（planned） | 这张不加，加完后一条通知列出原因 |
+| 表情包页：导入的 zip 读不懂、超过上限、没有图片（planned） | 不导入，通知写原因 |
+| 表情包页：写入时文件被别处改了或文件夹被换掉（`pack-changed`）、表情包已不在、写不了（planned） | 不写，通知写原因；几步的操作中途失败、补救也失败时通知写明部分完成；页面按重扫后的目录显示 |
+| 表情包页：同时上传或导入太多（`busy`）、请求体超限（`too-large`）、导出超过 64 MiB（planned） | 不做，通知写原因 |
+| 表情包页的上传、导入：跨站请求（planned） | 403 `cross-site`；宿主先拦下的不允许的来源是 403 `origin-not-allowed` |
+| 启动时发现替换中途挪开的旧包（planned） | 不动它，诊断 `stickers.replace-leftover` 写出位置 |
 
 ## 边界与兼容
 
@@ -175,6 +200,9 @@ interface StickerPackManifest {
 7. Given 显示过 `:lyra/开心:` 的对话，When 删掉 `user://stickers/lyra/` 再放进同名的新文件夹，Then 之后新显示的块与 `stickers://user.lyra/` 都是新文件夹的内容。
 8. Given `user://stickers/cat/` 里只有 `开心.png`、`困.png`、`1.png` 与 `readme.txt`，没有清单，Profile 白名单里有 `user.cat`，When 开会话发一句话、模型回复 `:cat/开心:`，Then 槽里列出 `:cat/困:` 与 `:cat/开心:` 两行（没有说明），回复里显示成图；诊断有一条 `stickers.sticker-invalid` 写 `1.png` 当不了表情名，`readme.txt` 不报。
 
+9. （planned）Given 设置里的表情包页，When 新建表情包 `cat`、拖进 `开心.png` 与一张 2000×1500 的 `大图.jpg`、把 `大图` 改名为 `哇` 并标常用、导出、删除 `cat`、再导入刚才的 zip，Then 导入后的 `user://stickers/cat/` 里有清单与两张图，`大图.jpg` 宽 1024，`:cat/哇:` 在对话里显示成图，Profile 里勾选了 `user.cat` 的会话请求里槽列出 `:cat/哇:`。
+10. （planned）Given 已有表情包 `cat`，When 导入一个包名也是 `cat` 的 zip，Then 问替换还是另存；选另存后有 `cat-2`，原来的 `cat` 不变。
+
 Smoke：真实浏览器里打开 Lab 的表情场景（展示器与编辑器各一个），与 e2e 里一个会话的回复显示。
 
 ## 实现合同
@@ -190,7 +218,7 @@ Smoke：真实浏览器里打开 Lab 的表情场景（展示器与编辑器各�
 
 ## 证据
 
-- 批准依据：开发者在 2026-11-17 的对话里确认：表情写法、两种大小、在 Agent 回复里显示、按 Skill 的方式选包、第一版不做用户发表情、先用占位图（“其他的都同意”）；表情写法做成方言、编辑器也能用（“可以，都同意”）；设计审查后改为 nb-markdown 的内置方言加宿主端口、槽里一律教带包的写法、在 Files 修挂载点被换掉后的重开（“没问题”）。2026-11-18 开发者提出表情的 `when` 改成可选的说明、名字可以不写；确认清单可省、没有表情列表时图片都算常用、文件名当不了名字时隔离并写诊断、写了列表只认列表（[`w00050 t07`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t07-sticker-format-simplify/README.md)）。Task：[`w00050 t02`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t02-sticker-system/README.md)。
+- 批准依据：开发者在 2026-11-17 的对话里确认：表情写法、两种大小、在 Agent 回复里显示、按 Skill 的方式选包、第一版不做用户发表情、先用占位图（“其他的都同意”）；表情写法做成方言、编辑器也能用（“可以，都同意”）；设计审查后改为 nb-markdown 的内置方言加宿主端口、槽里一律教带包的写法、在 Files 修挂载点被换掉后的重开（“没问题”）。2026-11-18 开发者提出表情的 `when` 改成可选的说明、名字可以不写；确认清单可省、没有表情列表时图片都算常用、文件名当不了名字时隔离并写诊断、写了列表只认列表（[`w00050 t07`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t07-sticker-format-simplify/README.md)）。2026-11-18 开发者提出要有表情包设置页（新建、编辑、导出导入），经三轮评审板定稿，并定了改包名不迁移白名单、改名写进清单、超限图片的边角与 zip 格式（[`w00050 t08`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t08-sticker-settings-page/README.md) 的“决定”）。Task：[`w00050 t02`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t02-sticker-system/README.md)。
 - 实现入口：[`plugins/stickers/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/stickers/backend/plugin.ts)、[`plugins/stickers/web/plugin.ts`](../../../packages/neuro-book/src/plugins/stickers/web/plugin.ts)、[`agent/backend/stickers/extension.ts`](../../../packages/neuro-book/src/plugins/agent/backend/stickers/extension.ts)、[`nb-markdown/src/stickers.ts`](../../../packages/nb-markdown/src/stickers.ts)、[`nb-markdown/src/language/syntax/sticker/index.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/index.ts)
 - 合同测试：[`stickers.test.ts`](../../../packages/neuro-book/src/plugins/stickers/stickers.test.ts)、[`web/resolver.test.ts`](../../../packages/neuro-book/src/plugins/stickers/web/resolver.test.ts)、[`web/markdown-wiring.dom.test.ts`](../../../packages/neuro-book/src/plugins/stickers/web/markdown-wiring.dom.test.ts)、[`stickers-slot.test.ts`](../../../packages/neuro-book/src/plugins/agent/stickers-slot.test.ts)、[`profile-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts)、[`shared/manifest.test.ts`](../../../packages/neuro-book/src/plugins/stickers/shared/manifest.test.ts)、[`nb-markdown stickers.test.ts`](../../../packages/nb-markdown/src/stickers.test.ts)、[`sticker/codec.test.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/codec.test.ts)、[`sticker/sticker.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/sticker.dom.test.ts)
 - Smoke：[`e2e/stickers.e2e.ts`](../../../packages/neuro-book/e2e/stickers.e2e.ts)

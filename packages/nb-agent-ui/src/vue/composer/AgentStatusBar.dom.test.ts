@@ -29,7 +29,7 @@ describe("AgentStatusBar 的可选项（conversation.md 输出 45）", () => {
     it("空设置与不给设置一样：左边上下文，右边用量与费用，模型与宿主的项默认不显示", () => {
         const plain = bar(createAgentContext({usage}));
         const empty = withLine(createAgentContext({usage, composer: {effectiveModel: "Claude Sonnet"}}), {}, hostRegistry);
-        expect(shownIds(empty)).toEqual(["usage", "cost"]);
+        expect(shownIds(empty)).toEqual(["context", "usage", "cost"]);
         expect(empty.find("[data-context-meter]").exists()).toBe(true);
         expect(empty.find("[data-words]").exists()).toBe(false);
         expect(empty.find("[data-status-model]").exists()).toBe(false);
@@ -37,10 +37,9 @@ describe("AgentStatusBar 的可选项（conversation.md 输出 45）", () => {
     });
 
     it("设置改显隐与次序：关掉用量、打开模型与宿主的项、费用排到前面；提醒类不受设置影响", () => {
-        const modes = [{key: "normal", label: "普通"}, {key: "plan", label: "计划"}];
-        const ctx = createAgentContext({usage, composer: {effectiveModel: "Claude Sonnet", thinking: "low", modes, mode: "plan"}, connection: {status: "disconnected"}});
+        const ctx = createAgentContext({usage, now: 12_000, run: {status: "running", phase: "生成中", startedAt: 0}, composer: {effectiveModel: "Claude Sonnet", thinking: "low"}, connection: {status: "disconnected"}});
         const view = withLine(ctx, {order: ["model", "cost"], visible: {usage: false, model: true, "x.words": true}}, hostRegistry);
-        expect(shownIds(view)).toEqual(["x.words", "model", "cost"]);
+        expect(shownIds(view)).toEqual(["context", "x.words", "model", "cost"]);
         expect(view.get("[data-status-model]").text()).toBe("Claude Sonnet · 低");
         expect(view.find("[data-status-usage]").exists()).toBe(false);
 
@@ -48,7 +47,7 @@ describe("AgentStatusBar 的可选项（conversation.md 输出 45）", () => {
         const none = withLine(ctx, {visible: {context: false, usage: false, cost: false}});
         expect(shownIds(none)).toEqual([]);
         expect(none.find("[data-context-meter]").exists()).toBe(false);
-        expect(none.find("[data-status-mode]").exists()).toBe(true);
+        expect(none.find("[data-status-phase]").exists()).toBe(true);
         expect(none.find("[data-status-connection]").exists()).toBe(true);
     });
 
@@ -79,15 +78,12 @@ describe("AgentStatusBar 的可选项（conversation.md 输出 45）", () => {
 });
 
 describe("AgentStatusBar", () => {
-    it("没选会话：不画上下文、用量与费用；提醒项（非默认模式、全部放行）照常", () => {
-        const modes = [{key: "normal", label: "普通"}, {key: "plan", label: "计划"}];
-        const approval = {options: [{key: "ask", label: "每次询问", description: "", icon: "i-lucide-shield-question"}, {key: "yolo", label: "全部放行", description: "", icon: "i-lucide-triangle-alert", danger: true}], value: "yolo"};
-        const view = bar(createAgentContext({usage, composer: {modes, mode: "plan", approval}}), {session: false});
+    it("没选会话：不画上下文、用量与费用；提醒项（断线）照常", () => {
+        const view = bar(createAgentContext({usage, connection: {status: "disconnected", actionRequired: false}}), {session: false});
         expect(view.find("[data-context-meter]").exists()).toBe(false);
         expect(view.find("[data-status-usage]").exists()).toBe(false);
         expect(view.find("[data-status-cost]").exists()).toBe(false);
-        expect(view.find("[data-status-mode]").exists()).toBe(true);
-        expect(view.find("[data-status-yolo]").exists()).toBe(true);
+        expect(view.get("[data-status-connection]").text()).toBe("连接断开");
     });
 
     it("宿主能给上下文详情时圆环与缓存命中能点；不能给时只是显示", async () => {
@@ -142,29 +138,42 @@ describe("AgentStatusBar", () => {
         expect(bar(createAgentContext({now, run: stopping, stopRequestedAt: now - 11_000})).get("[data-status-phase]").text()).toContain("工具未响应");
     });
 
-    it("全部放行有警告；断线写连接状态", () => {
+    it("模式不在状态栏标出（看输入框工具栏）；断线写连接状态", () => {
+        const modes = [{key: "normal", label: "普通"}, {key: "plan", label: "计划"}];
         const approval = {options: [{key: "ask", label: "每次都问", description: "", icon: "i-lucide-x"}, {key: "yolo", label: "全部放行", description: "", icon: "i-lucide-x", danger: true}], value: "yolo"};
-        expect(bar(createAgentContext({composer: {approval}})).find("[data-status-yolo]").exists()).toBe(true);
-        expect(bar(createAgentContext({composer: {approval: {...approval, value: "ask"}}})).find("[data-status-yolo]").exists()).toBe(false);
+        const text = bar(createAgentContext({composer: {modes, mode: "plan", approval}})).get("[data-agent-status]").text();
+        expect(text).not.toContain("计划");
+        expect(text).not.toContain("全部放行");
         expect(bar(createAgentContext({connection: {status: "disconnected", actionRequired: false}})).get("[data-status-connection]").text()).toBe("连接断开");
     });
 });
 
 describe("AgentStatusBar 窄时收项与宿主项的隔离（conversation.md 输出 45、contributions.md 输出 22）", () => {
-    // jsdom 没有布局：用按 data-status-item 给宽度的假布局代替，状态栏宽 200（右边可用 200 - 24 - 72 = 104）。
-    const WIDTHS: Record<string, number> = {usage: 120, cost: 40, "x.empty": 0, "x.w": 30};
+    // jsdom 没有布局：用按 data-status-item 给宽度的假布局代替（提醒那一块按 data-status-reminders），状态栏宽 200（可用 200 - 24 = 176）。
+    const DEFAULT_WIDTHS: Record<string, number> = {usage: 120, cost: 40, "x.empty": 0, "x.w": 30};
+    let WIDTHS = DEFAULT_WIDTHS;
+    let remindersWidth = 0;
     const originals = {observer: globalThis.ResizeObserver, offset: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth"), client: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth")};
     let barWidth = 200;
+    /** 只量登记过的元素：被取消观察的元素再变宽，状态栏不会知道（同真实的 ResizeObserver）。`resize` 模拟这些元素尺寸变了。 */
+    const observed = new Set<Element>();
+    let observers: FakeObserver[] = [];
     class FakeObserver {
         private readonly callback: () => void;
-        constructor(callback: () => void) { this.callback = callback; }
-        observe(): void { queueMicrotask(this.callback); }
-        unobserve(): void {}
+        constructor(callback: () => void) { this.callback = callback; observers.push(this); }
+        observe(element: Element): void { observed.add(element); queueMicrotask(this.callback); }
+        unobserve(element: Element): void { observed.delete(element); }
         disconnect(): void {}
+        fire(): void { this.callback(); }
     }
+    const resize = (): void => { for (const observer of observers) observer.fire(); };
     const install = (): void => {
         globalThis.ResizeObserver = FakeObserver as unknown as typeof ResizeObserver;
-        Object.defineProperty(HTMLElement.prototype, "offsetWidth", {configurable: true, get() { const id = (this as HTMLElement).getAttribute("data-status-item"); return id === null ? 0 : WIDTHS[id] ?? 0; }});
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", {configurable: true, get() {
+            if ((this as HTMLElement).hasAttribute("data-status-reminders")) return remindersWidth;
+            const id = (this as HTMLElement).getAttribute("data-status-item");
+            return id === null ? 0 : WIDTHS[id] ?? 0;
+        }});
         Object.defineProperty(HTMLElement.prototype, "clientWidth", {configurable: true, get() { return (this as HTMLElement).hasAttribute("data-agent-status") ? barWidth : 0; }});
     };
     afterEach(() => {
@@ -174,6 +183,10 @@ describe("AgentStatusBar 窄时收项与宿主项的隔离（conversation.md 输
             else Object.defineProperty(HTMLElement.prototype, name, descriptor);
         }
         barWidth = 200;
+        WIDTHS = DEFAULT_WIDTHS;
+        remindersWidth = 0;
+        observed.clear();
+        observers = [];
     });
 
     const Words = defineComponent({setup: () => () => h("span", "w")});
@@ -192,17 +205,57 @@ describe("AgentStatusBar 窄时收项与宿主项的隔离（conversation.md 输
 
     it("放不下从前往后收进“…”，放宽后回来；最后一项也放不下时全收", async () => {
         const view = await open([plugin("x.w", Words)]);
-        // 120 + 40 + 30 + 间距 12 = 202 > 104：收用量，剩 40 + 30 + “…” 与间距 = 98。
+        // 右边 120 + 40 + 30 + 间距 12 + 与左边的间距 6 = 208 > 176：收用量，剩“…”16 + 40 + 30 + 间距 18 = 104。
         expect(collapsed(view)).toEqual(["usage"]);
         expect(view.find("[data-status-more]").exists()).toBe(true);
 
-        const tight = await open([plugin("x.w", Words)], 120);
+        const tight = await open([plugin("x.w", Words)], 60);
         expect(collapsed(tight)).toEqual(["usage", "cost", "x.w"]);
         expect(tight.find("[data-status-more]").exists()).toBe(true);
 
         const wide = await open([plugin("x.w", Words)], 400);
         expect(collapsed(wide)).toEqual([]);
         expect(wide.find("[data-status-more]").exists()).toBe(false);
+    });
+
+    it("项换到左边：右边收完再收左边的数据项，从后往前；提醒不收", async () => {
+        install();
+        WIDTHS = {context: 40, usage: 120, cost: 40};
+        remindersWidth = 60;
+        const ctx = createAgentContext({usage, now: 12_000, run: {status: "running", phase: "生成中", startedAt: 0}});
+        const line = {side: {usage: "left"}} as const;
+        // 左边 40 + 120 + 提醒 60 + 间距 12；右边 40 与间距 6，共 278 > 176。收费用、再收用量：40 + 60 + 6，右边“…”16 + 6，共 128。
+        barWidth = 200;
+        const view = withLine(ctx, line);
+        await settle();
+        expect(collapsed(view)).toEqual(["usage", "cost"]);
+        expect(view.get("[data-status-more]").attributes("aria-label")).toBe("162.4k · 输入 101.2k，输出 3.1k，缓存读 58.1k，缓存写 0 · $0.07");
+        expect(view.find("[data-status-phase]").exists()).toBe(true);
+        // 再窄：上下文也收，只剩提醒与“…”；悬停里上下文写百分比。
+        barWidth = 150;
+        const narrow = withLine(ctx, line);
+        await settle();
+        expect(collapsed(narrow)).toEqual(["context", "usage", "cost"]);
+        expect(narrow.get("[data-status-more]").attributes("aria-label")).toMatch(/^13% · /u);
+        expect(narrow.find("[data-status-phase]").exists()).toBe(true);
+    });
+
+    it("挂着时把一项从右边换到左边：新位置照样量宽，之后变窄了收起跟着变", async () => {
+        install();
+        WIDTHS = {context: 40, usage: 120, cost: 40};
+        const view = withLine(createAgentContext({usage}), {});
+        await settle();
+        expect(collapsed(view)).toEqual(["usage"]);
+        await view.setProps({statusLine: {side: {usage: "left"}}});
+        await settle();
+        // 左边 40 + 120 + 间距 6，右边 40 与间距 6，共 212 > 176：先收费用，再收用量。
+        expect(collapsed(view)).toEqual(["usage", "cost"]);
+        expect(observed.has(view.get(".acv-status__left [data-status-item='usage']").element)).toBe(true);
+        // 用量变窄到 60：40 + 60 + 6 + 40 + 6 = 152，都放得下。
+        WIDTHS = {context: 40, usage: 60, cost: 40};
+        resize();
+        await settle();
+        expect(collapsed(view)).toEqual([]);
     });
 
     it("宽度为 0 的项（没有内容、还在加载）不占位，也不让别的项失去收起", async () => {

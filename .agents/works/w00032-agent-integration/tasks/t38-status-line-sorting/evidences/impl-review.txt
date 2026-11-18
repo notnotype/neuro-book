@@ -1,0 +1,110 @@
+## 报告（w00032 t38 实现审查，范围 d67ee3779..dacd65622 里本 Task 的四个提交）
+
+### F1 【重要】【正确性】状态栏项右边换到左边（挂载中改设置）后，新槽不再被量宽
+位置：packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue bindSlot（约 137-149 行）与模板里左右两个 v-for（各自 :ref="(element) => bindSlot(item.id, element)"，同一个 id）
+现象：同一个 id 从右块换到左块时，Vue 先补丁左块（新元素挂上，bindSlot(id, 新元素) 把 slots 里的旧元素换成新元素并 observe），再补丁右块（旧元素卸载，bindSlot(id, null)）。后一次调用读到的 previous 已经是新元素，于是 unobserve(新元素)、slots.delete(id)。从左换到右顺序相反，没事。
+为什么是问题：设置页或右键菜单改了边之后，会话视图里那一项不再被 ResizeObserver 观察，widths 里是旧值，之后内容变宽（令牌数 999 到 1.2k、费用位数、模型名换了）收起判断一直用旧宽度，放不下也不收（或相反）。t38 之前项不换边，这条路径是新增的；AgentStatusBar.dom.test.ts 的“项换到左边”用例是一开始就带 side 挂载，没有覆盖“挂载后换边”。
+如何核实：我在 /tmp/claude-1000/review-t38-impl/exp/side.test.ts 里用记录 observe/unobserve 的假 ResizeObserver 挂 AgentStatusBar，setProps({statusLine: {side: {usage: "left"}}})：换边后新槽在 .acv-status__left 里，observed.has(槽) 为 false（换回右边后为 true）。运行：在 packages/nb-agent-ui 下 ../../node_modules/.bin/vitest run --config /tmp/claude-1000/review-t38-impl/exp/vitest.exp.config.ts --silent=false
+建议改法：bindSlot 卸载分支只在 slots.get(id) === 该次卸载的元素时才删，但函数 ref 的 null 调用拿不到旧元素；改成用 :ref 的 key 带边（`${side}:${id}`）分开登记，或用一个 ref 函数闭包记住自己绑过的元素（const el 变量，卸载时按它 unobserve、仅当 slots.get(id) === el 才 delete）。并补一条挂载后换边的 dom 测试。
+
+### F2 【重要】【Spec 与实现不符】键盘 Home、End 在可排序列表里什么也不做
+位置：docs/specs/ui/sortable-list.md 输出 7（“Home、End 到两端”）；packages/nb-layout/src/drag-gesture.ts key()（约 466-490 行）与 stepOf；packages/nb-layout/src/vue/useSortable.ts keyboard.stops 只给 axis 与点
+现象：drag-gesture 把 Home、End 列进 SESSION_KEYS（被拦下，内层收不到），但 key() 里除 Enter、Tab、Escape 外只按 stepOf 取方向键步进，Home、End 的 step 为 0，不动。useSortable 没有补这两个键的处理，e2e 与 dom 测试也没有它们。
+为什么是问题：Spec 写了合同却没实现，键盘用户按 Home 被吞掉键且没有反应；layout-drag.md 输出 10 只说“拦下”，没承诺动作，所以不是手势层的 bug，而是 sortable-list 这份 Spec 的输出 7 没有对应实现。
+如何核实：grep -n "Home" packages/nb-layout/src/drag-gesture.ts packages/nb-layout/src/vue/useSortable.ts 只有 SESSION_KEYS 一处；lab-sortable-list.e2e.ts 的键盘用例只按了空格、ArrowDown、Enter。
+建议改法：二选一：删掉 Spec 里的 Home、End（窄场景，选简单），或在 drag-gesture 的键盘分支里加 Home、End 跳 stop 0 与最后一个，并补 e2e。
+
+### F3 【重要】【正确性】来源是所在分区唯一成员时，往另一区拖会在分区头附近逐帧来回跳（状态栏默认左边只有“上下文”，正是主场景）
+位置：packages/nb-layout/src/sortable.ts sortableSlotIn（回滞用“摘掉来源，后面的邻居往前让 space”推算，约 100-120 行）；packages/nb-layout/src/vue/SortableList.vue 的占位（来源搬走后那一区变成占位行）
+现象：来源是唯一成员时，它一离开，原分区立刻画成一行占位，后面的分区头并不往前让 space，只让 (行高 - 占位高)。算法仍按让了 space 去算回滞，往前判定的阈值（前沿过了分区头中线）与往后的阈值（后沿过了分区头中线）在被拖行高度的范围内重叠：被拖行的前沿在头的中线上方、后沿在下方时，每判一次就换一次分区。
+为什么是问题：连续拖动时那一段（约一行高，约 28px 指针行程）里，预览每帧在“左边只剩占位”与“来源回左边”之间翻转，所有邻居与分区头跟着来回滑。状态栏默认设置里左边只有“上下文”一项，把它拖到右边就是这条路径；设置页的首次使用就会碰到。
+如何核实：用纯函数模拟，不是真实浏览器（e2e 我没跑；你可以在 Lab 的 SortableList 场景里拖一个只有一项的区验证）。/tmp/claude-1000/review-t38-impl/exp/real.test.ts 的 “sweep with carried state”：两区，左 [a]（高 36）、右 [b,c,d]（高 28）、头 20 与 34、占位 30、间距 2，把 a 向下每次 1px 连续扫、每步按新布局重判并携带状态：输出 `R0@52 L0@53 R0@54 L0@55 … R0@80`，共 32 次换位；对照来源不是唯一成员时（`L1@49 R0@82 R1@115 …`）每个位置只换一次。cd packages/nb-layout && bun test /tmp/claude-1000/review-t38-impl/exp/real.test.ts。行高与占位等高时同样翻转（不是高度差引起的）。sortable.test.ts 的“来源是一区唯一的一项”用例用了两个不同的 held 各判一次，没有对同一个 held 在换位前后各判一次，所以没抓到。
+建议改法：SortableLayout 的 section 带上占位的 span（来源搬走后那一区的占位）；sortableSlotIn 在来源是其区唯一成员时，把“摘掉来源后后面的邻居往前让”改成让 `space - 占位的长度`（占位不是邻居但占长度）。并加一条“同一 held 换位前后判定一致”的性质测试（遍历 held 扫一遍、每次换位后用重排的布局再判，位置不再变）。
+F3 补充：同一原因的另一半是“拖进一个空的中间分区”：来源进去后占位被它换掉，后面的分区头往后让 (行高 - 占位高)，算法没建这一项，也会翻转（/tmp/claude-1000/review-t38-impl/exp/fuzz2.test.ts 随机 3 区布局、排除来源是唯一成员的情形，14.7 万次判定里 3834 次换位后同一 held 再判结果不同，样本都是空的中间区）。状态栏只有两区，最后一区是空的时后面没有邻居，不受影响；这一半对别的使用方才有影响，可以和上面一起修。
+
+### F4 【重要】【Spec 自相矛盾】agent-conversation-view.md “状态栏”里旧的“窄时”段落没删，与新写的收起规则对着干
+位置：docs/specs/ui/agent-conversation-view.md 第 333 行（“**窄时**：右边的项按次序从前往后收进悬停……左边放不下时省略，不挤右边。”）与同节第 331 行新写的“窄时先收右边、从前往后，右边收完再收左边的数据项、从后往前……左边整块裁掉多出的部分”
+现象：同一节里两段对窄时的规则说法相反：旧段说只收右边、左边“省略、不挤右边”，新段说右边收完再收左边的数据项。实现按新段做（status-line.ts collapsedItems）。
+为什么是问题：Spec 是合同，验收与以后的改动按它读；t37 留下的旧段没随 t38 改，读到旧段的人会把实现当成违约。
+如何核实：sed -n 326,336p docs/specs/ui/agent-conversation-view.md。
+建议改法：删掉第 333 行整段（它的内容已并进第 331 行），或改成与新段一致。
+
+### F5 【重要】【Spec 与实现不符】sortable-list.md 写的 item 插槽参数是 `{key, held, section}`，实现是 `itemKey`
+位置：docs/specs/ui/sortable-list.md 输入一节（“// 插槽 item：{key, held, section}”）；packages/nb-layout/src/vue/SortableList.vue defineSlots（item(props: {itemKey: string; held: boolean; section: string})）；SortableList.md、StatusLinePage.vue、SortableListFixture.vue 都用 itemKey
+现象：合同里是 key，三处使用方都按 itemKey 写。按 Spec 写 `#item="{key}"` 的宿主拿到 undefined。
+为什么是问题：Spec 与公开接口不一致，Spec 标 planned 即将晋升 implemented，会把错写进合同。（改成 itemKey 是合理的，因为 `key` 在模板里是保留名，但 Spec 没跟着改。）
+如何核实：grep -n "itemKey\|{key, held" docs/specs/ui/sortable-list.md packages/nb-layout/src/vue/SortableList.vue
+建议改法：Spec 改成 `{itemKey, held, section}`；顺手把 onMove 的 `Promise<unknown>` 与实现的 `PromiseLike<unknown>` 对齐。
+
+### F6 【建议】【测试】“写入失败：拖动放下后回到原样”（lab-agent-ui.e2e.ts）没验证拖动真发生过，起拖失败时也通过
+位置：packages/neuro-book/e2e/lab-agent-ui.e2e.ts 的 “写入失败：拖动放下后回到原样”；夹具 packages/neuro-book/src/plugins/lab/web/fixtures/agent-scene/StatusLineFixture.vue（write-fails 场景的 onMove 不采纳、不记日志）
+现象：断言只有放下后 `rows("left")` 是 ["context"]、右边是 ["usage","cost","model"]，这就是起始状态。mouse.down 没拿起（门槛、选择器变化、把手停用）时同样为真。
+为什么是问题：判据“回到原样”要先有“离开过原样”才有意义；这条测试抓不到“拖动被静默拒绝”的回归。对照 lab-sortable-list.e2e.ts 的 fail 场景：它先 poll 到预览次序变了、再断言日志里有 move、最后断言回到原样。
+如何核实：把 dragRow 的 mouse.down 去掉，这条仍然通过（我没跑 e2e，从代码推断）。
+建议改法：放下前先 expect.poll 预览/列表次序已变（拖动中），或夹具在 write-fails 场景记一条 move 日志（像 SortableListFixture 的 data-sortable-log）并断言它出现。
+
+### F7 【建议】【正确性】useSortable 的读屏播报：放回原位也报“已取消”；“已放到…”在写入结果出来之前就播了
+位置：packages/nb-layout/src/vue/useSortable.ts onEnd（约 247-250 行）与 commit（announcement 先于 onMove 写）
+现象：1) onEnd 对一切非 committed 结束播“已取消，X回到原处”，包括 no-action（松手时回到原位，实际是放下、不是取消；键盘在原位按回车也是）。2) commit 里先播“已把X放到某区第几位”再调 onMove，onMove 的 Promise 之后失败回原样时没有任何后续播报，读屏用户听到“已放到”而界面回了原样（失败原因在宿主的通知里，但那条通知不一定被读到）。
+为什么是问题：Spec 输出 8 说“放下、取消各播报一句”；放回原位是放下。第二条是文案先于结果。
+如何核实：SortableList.dom.test.ts 的“回到原位不调 @move”那条先按 Esc，再空格加回车放回原位，断言里没有看 role=status 的文字；加一句断言即可看到“已取消”。
+建议改法：onEnd 里 no-action 播“已放下，X仍在某区第几位”（或不播）；Promise 失败时 settle 里补一句“没有保存，X回到原处”之类（文案进 nb-layout 的 locales）。属于窄场景，也可以记为已知限制。
+
+### F8 【建议】【代码质量】commit 里把宿主的 Promise 失败再抛一次，产生第二个 unhandled rejection
+位置：packages/nb-layout/src/vue/useSortable.ts 约 232-236 行（void result.then(settle, (error) => {settle(); throw error;})）
+现象：result.then(a, b) 产生一个新 Promise，b 里 throw 让它 reject，而且没人接。宿主若已经处理了自己返回的 result（例如 .catch 报告），这里仍多一个全局 unhandledrejection（浏览器控制台“Uncaught (in promise)”，Vitest 里会让整个运行失败）。注释说“失败的 Promise 照样往外抛，宿主自己报告原因”，但外抛的不是宿主那一个。StatusLinePage 的包装用 `.then(reportIfFailed)` 让 Promise 恒 resolve，现在碰不到；别的使用方（SortableList 通用组件）会碰到。
+如何核实：任何 onMove 返回 Promise.reject(new Error("x")) 并自己 catch 过的使用方；window.onunhandledrejection 会收到一次。
+建议改法：用 result.then(settle, settle) 只负责收口（宿主的 Promise 由宿主处理，本来就是它的）；或用 finally 且不改变结果：`void Promise.resolve(result).finally(settle).catch(() => undefined)` 并在 Spec 写明“失败不报，由宿主处理”。
+F8 更正（追加）：上面的“建议改法”不成立：只要对 result 挂了任何回调，原 Promise 就算已处理，`then(settle, settle)` 会让宿主没处理的失败被静默吞掉（违反“不静默吞错”）。外抛一次是这种写法下没法两全的取舍，F8 降为【建议】：只在 SortableList.md 与 Spec 失败一节写明“失败的 Promise 会在这里再抛一次，宿主要在自己返回的 Promise 里收口（像 StatusLinePage 那样让它恒 resolve）”，不改代码。
+
+### F9 【建议】【正确性】Esc、失焦这类取消时，被拖的行先“瞬移”回原位附近再滑，不是从指针处滑回（从代码推断，没在浏览器验证）
+位置：packages/nb-layout/src/vue/useSortable.ts land()（约 143-162 行）与 onActiveChange
+现象：跟手的 translate 是相对“预览次序里它的位置”算的。取消时会话先发布空状态、再同步调 land：land 把 translate 过渡到 0，但预览（响应式）在下一个微任务才改回原次序，行的布局位置换了，而过渡起点还是旧的 translate 值。于是行在新的布局位置上按旧偏移出现，再滑到 0。放下且位置不变的正常路径没有这个问题（布局位置不变）；取消、中止、放下时最终位置与最后预览不同（commitsUnderPointer）时有。
+为什么是问题：Spec 输出 4 只承诺“放下后滑回”，取消没有承诺，所以不违约；但与它参照的标签条不同，视觉上会有一次跳动。
+如何核实：Lab 的 SortableList 场景拖远一点按 Esc，逐帧看被拖行的位置。
+建议改法：取消时在 land 里把起点换算成相对原位置的偏移（或让 land 等下一次 post flush 之后再写 translate）；也可以记为已知限制。
+
+### F10 【建议】【代码质量】useSortable 的注释写错了先后；两处“防御”没有对应场景
+位置：packages/nb-layout/src/vue/useSortable.ts 约 191-193 行（“先于会话的按下监听：会话按注册顺序在后面读到它”）
+现象：notePointer 是根上的捕获监听，会话的 onPointerDown 是同一个根上的冒泡监听，先后由事件阶段决定（捕获必在冒泡之前），与注册顺序无关；只有按在根元素本身上（目标阶段，捕获监听先于冒泡监听）时才可能看注册顺序，而根自身不是行，sourceAt 会返回 null。注释会让读的人以为改注册顺序会出问题。
+建议改法：改成“根上的捕获监听，一定先于会话的冒泡按下监听”。
+
+### F11 【建议】【行为回归】状态栏提醒放不下时，提醒文字被硬切、没有省略号，最后一个提醒（断线）最先整块消失
+位置：packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue 样式（.acv-status__reminders 为 flex-shrink: 0、父块 overflow: hidden）；旧版 .acv-status__text 与 .acv-status__flag 有 min-width: 0、overflow: hidden、text-overflow: ellipsis
+现象：改版后提醒不收缩，放不下时由左块的 overflow: hidden 直接裁掉，没有省略号，从最后一个裁起：提醒顺序是阶段、费用告警、连接状态，最窄时“连接断开”先没了。Spec 写了“都收完还放不下才截断”，没写怎么截。
+为什么是问题：连接状态是最需要看见的提醒之一，却最先被裁；旧版是各提醒带省略号一起让。窄到这一步（比三项都收起还窄）很少见，所以只是建议。
+如何核实：Lab 的 narrow-left-usage 再窄（vp 小于提醒的自然宽）截图。
+建议改法：保留提醒“不收”，但让阶段文字（可变长）可缩并带省略号，连接状态与费用告警 flex-shrink: 0；或把顺序改成连接状态在前。
+
+### F12 【建议】【正确性】宽度为 0 的项在算法里不占位，但在 flex 布局里仍占一个间距
+位置：packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue collapsedIds 的 sized（过滤 width > 0）；.acv-status__left 与 .acv-status__right 的 gap: 6px；AgentStatusBar.dom.test.ts 的“宽度为 0 的项……不占位”
+现象：宽度 0 的槽（宿主组件还在异步加载、渲染 null）仍是 flex 的子项，gap 照样加在它两侧，每多一个 0 宽的槽实际比算出的宽 6px；右边一块全是 0 宽项时 rightItems.length 大于 0 会画出右块、多一个与左边之间的间距，而 collapsedItems 的 right 为空、不扣这个间距。旧版右边就有这个偏差，t38 让它也出现在左边。
+如何核实：用 Lab 的宿主项场景放一个渲染 null 的插件项，量 .acv-status__right 的实际宽与 collapsedItems 的 total（我没跑，从 CSS 规则推断）。
+建议改法：0 宽的槽用 display: none 之外的方式不占 gap 不现实（要量宽）；可以把它们的 gap 算进去（宽度 0 的项也计一个 gap），或在模板里不渲染宽度已量到为 0 且 collapsed 的项。窄场景，也可记为已知限制。
+
+### F13 【建议】【nb-ui】Checkbox 的 mt-[calc((1lh-18px)/2)] 在行高小于 18px 时变成负外边距；插槽内容自带行高时对不齐
+位置：packages/nb-ui/src/components/form/Checkbox.vue 第 100 行；RadioGroup.vue 约 97 行（mt-[calc((1lh-16px)/2)]、mt-[calc((1lh-20px)/2)]）
+现象：1lh 取的是方框自己继承来的行高。宿主给了较小的行高（leading-none、leading-tight 的小字号，行高小于 18px）时 margin-top 为负，方框往上顶出标签盒（被 overflow: hidden 的父级裁掉上沿的焦点环）；Checkbox 的 slot 内容自己设了字号或行高（Checkbox.md 说明“按继承来的行高”，但 slot 是公开用法）时，方框按外层行高居中、文字行高不同，仍然偏。commit 说明里的实测只覆盖四种主题与 390 宽，没有覆盖这两种。
+如何核实：Lab 里给 Checkbox 的父级设 line-height: 1，或 slot 放 `<span class="text-base leading-7">`，量方框与第一行文字的竖直中心差。
+建议改法：用 max(0px, …) 夹住负值，并在 Checkbox.md 写明“slot 内容的第一行行高要与根一致，否则自己调”；或接受并写进已知限制。
+
+### F14 【建议】【测试覆盖】Spec 里几条判据没有任何测试覆盖
+位置：docs/specs/ui/sortable-list.md 输出 6、7、5；packages/nb-layout/src/vue/SortableList.dom.test.ts；packages/neuro-book/e2e/lab-sortable-list.e2e.ts
+现象：下列判据在 dom 测试与 e2e 里都没有断言：1) 拖动中 sections 被别处改了整场取消（structure-changed）；2) disabled 中途变真整场中止（测试只在拿起前设 disabled）；3) 一场进行中列表卸载、释放后窗口上没有监听；4) 键盘上键、Home、End（见 F2）、键盘 Esc 后焦点回把手；5) 等写入时 Promise reject 后 pending 清掉、能再拿起（e2e 的 fail 场景是 resolve 不采纳，不是 reject）；6) 连续两场（第一场滑回动画未完时第二场拿起，finishLanding 的路径）。其中 2、3、6 是我读 useSortable 时觉得最容易回归的收口路径。
+建议改法：dom 测试加 2、3、5（键盘一场就能做，happy-dom 够用）；6 与 4 放进 lab-sortable-list.e2e.ts（等 [data-sortable-key] 的 style.translate 为空再断言，不要按时长等）。
+
+### 未发现问题的方面（我查过）
+- resolve 有没有副作用：useSortable 的 resolve 只读布局与 keyboardStops，没有写响应式状态；translate 在 flush: "post" 的 watch 里写，符合会话合同。
+- 键盘的停靠点靠对象身份交回 resolve：gesture 的 moveCursor 把 points[stop] 原对象放进 current.point，drag-session 原样传给 resolve，indexOf 成立；drop() 经 Enter 用的也是同一对象。
+- 触摸只从把手起拖：notePointer 是根上的捕获监听，sourceAt 在会话的冒泡 pointerdown 里读，次序成立（F10 只是注释写错）。
+- 卸载收口：created.dispose() 触发 cancel("disposed")，land 在已脱离文档的元素上读到空令牌走 finishLanding；landing 计时器在 onCleanup 里清；pending 的 settle 只写 ref，不碰 DOM。
+- structure 用 JSON.stringify：两区几十项，每帧一次，开销可忽略；键顺序固定，没有误判来源；勾选这类不改 keys 的变化不触发取消。
+- moveStatusItem、normalized、shiftStatusItem：自己读了一遍，边与次序的互相不丢、换回原处回到空对象、停用插件的 id 与 side 原样留着，status-line.test.ts 覆盖到；schema 加了 side 且 additionalProperties 仍为 false；ConversationHost 把整份设置交给视图，没有逐字段取，不会丢 side。
+- AgentStatusBar 拆分：上下文圆环与缓存命中的 inspect、没选会话不画、宿主项的 RenderGuard、告警色、菜单焦点回还都在 AgentStatusItem 与原组件里；旧的 modeFlag、yolo 与它们的文案、locales LEGACY 表、被删文案的引用都清干净了（grep 无残留）。
+- 设计审查报告里说“改”的几处（Tab 单区域并写进 Spec、等写入后预览留住、translate 在 post flush 写、布局用 offsetTop 链量、滚动容器、normalized 带 side、提醒不收缩、view.scenes 标题与 contributions 输出 22、StatusLineFixture 异步与 shift）都有对应改动。
+- 类型检查：packages/nb-layout 与 packages/nb-agent-ui 的 `bun run typecheck` 通过（exit 0）；sortable.test.ts、SortableList.dom.test.ts、status-line.test.ts 通过。没有跑 e2e 与开发服务。
+- 合并提交 dacd65622：本 Task 范围内的文件没有被 master 一侧的改动相交（我只看了 `git diff --stat` 里本 Task 文件的位置，没有逐行比对）。
+
+### 数量
+阻断 0；重要 5（F1、F2、F3、F4、F5）；建议 9（F6 到 F14，其中 F8 为取舍、写文档即可）。
+最严重的：F3（唯一成员的分区往另一区拖时逐帧翻转，状态栏默认的左边只有一项，主路径会碰到）、F1（挂载中右到左换边后槽不再被观察，已用假 ResizeObserver 复现）、F2（Spec 承诺的 Home、End 没有实现）。

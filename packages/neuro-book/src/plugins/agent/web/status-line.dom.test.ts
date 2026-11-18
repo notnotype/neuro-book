@@ -48,21 +48,34 @@ describe("状态栏设置的写入（输出 45）", () => {
     it("勾选与移动写进用户层；同一拍连点几下都留下；改回缺省时去掉", async () => {
         const settings = settingsWith();
         const writer = createStatusLineWriter(settings, () => catalog);
-        const results = await Promise.all([writer.toggle("model"), writer.toggle("x.words"), writer.move("cost", 0)]);
+        const results = await Promise.all([writer.toggle("model"), writer.toggle("x.words"), writer.move("cost", {side: "right", index: 0})]);
         expect(results.every((result) => result.ok)).toBe(true);
-        expect(current(settings)).toEqual({order: ["cost", "usage", "model"], visible: {model: true, "x.words": true}});
+        expect(current(settings)).toEqual({order: ["context", "x.words", "cost", "usage", "model"], visible: {model: true, "x.words": true}});
         await writer.toggle("model");
-        await writer.move("usage", 0);
+        await writer.move("usage", {side: "right", index: 0});
         expect(current(settings)).toEqual({visible: {"x.words": true}});
+    });
+
+    it("换边写进 side；换回原处设置回到空对象", async () => {
+        const settings = settingsWith();
+        const writer = createStatusLineWriter(settings, () => catalog);
+        expect((await writer.move("usage", {side: "left", index: 0})).ok).toBe(true);
+        expect(current(settings)).toEqual({order: ["usage", "context", "x.words", "cost", "model"], side: {usage: "left"}});
+        await writer.move("usage", {side: "right", index: 0});
+        expect(current(settings)).toEqual({});
     });
 
     it("上移下移按写的那一刻的位置算：同一项连点两下挪两格，不是一格", async () => {
         const settings = settingsWith();
         const writer = createStatusLineWriter(settings, () => catalog);
         await Promise.all([writer.shift("usage", 1), writer.shift("usage", 1)]);
-        expect(current(settings)).toEqual({order: ["cost", "model", "usage"]});
-        await writer.shift("usage", -5);
+        expect(current(settings)).toEqual({order: ["context", "x.words", "cost", "model", "usage"]});
+        await Promise.all([writer.shift("usage", -1), writer.shift("usage", -1)]);
         expect(current(settings)).toEqual({});
+        // 右边第一项上移到左边最后。
+        await writer.shift("usage", -1);
+        expect(current(settings).side).toEqual({usage: "left"});
+        expect(resolveStatusLine(catalog, current(settings)).left.map((item) => item.id)).toEqual(["context", "x.words", "usage"]);
     });
 
     it("目录是写的那一刻取的：插件的项停用后设置里它的显隐照样留着", async () => {
@@ -91,7 +104,7 @@ describe("“状态栏”设置页（输出 46）", () => {
         cleanup.push(() => wrapper.unmount());
         return {wrapper, settings, failures};
     }
-    const rows = (side: "left" | "right") => [...document.body.querySelectorAll<HTMLElement>(`[data-status-group="${side}"] [data-status-row]`)].map((row) => row.dataset.statusRow);
+    const rows = (side: "left" | "right") => [...document.body.querySelectorAll<HTMLElement>(`[data-sortable-section="${side}"] [data-status-row]`)].map((row) => row.dataset.statusRow);
 
     it("两组按解算的次序列全部项（含默认关的），勾选与上移下移写设置，边上的按钮停用；预览跟着变", async () => {
         const {settings} = mountPage();
@@ -100,11 +113,14 @@ describe("“状态栏”设置页（输出 46）", () => {
         expect(rows("right")).toEqual(["usage", "cost", "model"]);
         const up = (id: string) => document.body.querySelector<HTMLButtonElement>(`[data-status-row="${id}"] [data-status-move-up]`)!;
         const down = (id: string) => document.body.querySelector<HTMLButtonElement>(`[data-status-row="${id}"] [data-status-move-down]`)!;
-        expect(up("usage").disabled).toBe(true);
+        // 只有左边第一项不能上移、右边最后一项不能下移：右边第一项上移到左边去。
+        expect(up("context").disabled).toBe(true);
+        expect(up("usage").disabled).toBe(false);
+        expect(down("context").disabled).toBe(false);
         expect(down("model").disabled).toBe(true);
 
         down("usage").click();
-        await waitUntil("次序写进设置", () => current(settings).order?.join() === "cost,usage,model");
+        await waitUntil("次序写进设置", () => current(settings).order?.join() === "context,cost,usage,model");
         await flushPromises();
         expect(rows("right")).toEqual(["cost", "usage", "model"]);
 
@@ -123,35 +139,24 @@ describe("“状态栏”设置页（输出 46）", () => {
         expect(document.body.querySelector<HTMLInputElement>('[data-status-row="cost"] input[type="checkbox"]')!.disabled).toBe(true);
     });
 
-    it("拖动：落在同一侧的另一行是移到那一位；别的一侧的行不是落点", async () => {
+    it("拖动（键盘）把用量放到左边第一位：写进 side，写完之前次序留着，写完两组跟着设置", async () => {
+        // happy-dom 没有 elementsFromPoint：拖动会话要找指针处最上层的元素，键盘一场里用不到它的结果。指针拖动在 lab-agent-ui.e2e.ts。
+        Object.assign(document, {elementsFromPoint: () => []});
         const {settings} = mountPage();
         await flushPromises();
-        const row = (id: string) => document.body.querySelector<HTMLElement>(`[data-status-row="${id}"]`)!;
-        const drag = (from: string, to: string): void => {
-            row(from).dispatchEvent(new DragEvent("dragstart", {bubbles: true}));
-            row(to).dispatchEvent(new DragEvent("dragover", {bubbles: true, cancelable: true}));
-            row(to).dispatchEvent(new DragEvent("drop", {bubbles: true, cancelable: true}));
-            row(from).dispatchEvent(new DragEvent("dragend", {bubbles: true}));
-        };
-        // 别的一侧的行不是落点：写进去的话 cost 会被移到第一位。
-        drag("cost", "context");
+        const handle = document.body.querySelector<HTMLElement>('[data-sortable-key="usage"] [data-sortable-handle]')!;
+        handle.focus();
+        const press = (key: string): void => void handle.dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true}));
+        press(" ");
+        press("ArrowUp");
+        press("ArrowUp");
+        press("Enter");
         await flushPromises();
-        expect(current(settings)).toEqual({});
-        drag("model", "usage");
-        await waitUntil("拖动写进设置", () => current(settings).order?.join() === "model,usage,cost");
+        expect(rows("left")).toEqual(["usage", "context"]);
+        await waitUntil("换边写进设置", () => current(settings).side?.usage === "left");
         await flushPromises();
-
-        // 落点线：向下拖画在目标行下沿（落下后排在它的位置，也就是它的后面），向上拖画在上沿。
-        row("model").dispatchEvent(new DragEvent("dragstart", {bubbles: true}));
-        row("cost").dispatchEvent(new DragEvent("dragover", {bubbles: true, cancelable: true}));
-        await flushPromises();
-        expect(row("cost").classList.contains("is-over-after")).toBe(true);
-        row("model").dispatchEvent(new DragEvent("dragend", {bubbles: true}));
-        row("usage").dispatchEvent(new DragEvent("dragstart", {bubbles: true}));
-        row("model").dispatchEvent(new DragEvent("dragover", {bubbles: true, cancelable: true}));
-        await flushPromises();
-        expect(row("model").classList.contains("is-over")).toBe(true);
-        row("usage").dispatchEvent(new DragEvent("dragend", {bubbles: true}));
+        expect(rows("left")).toEqual(["usage", "context"]);
+        expect(rows("right")).toEqual(["cost", "model"]);
     });
 });
 
