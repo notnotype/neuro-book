@@ -29,9 +29,8 @@ test.beforeAll(async () => {
     const id = randomUUID();
     const files: Record<string, string | Uint8Array> = {
         ".nbook/project.json": JSON.stringify({schema: 1, id}),
-        // 原样的 HTML 块在编辑器里是不可编辑的原子节点（`contenteditable=false`）。它可拖，ProseMirror 自带的样式让这类节点可选，
-        // 所以这里只是正向核对；`.nb-markdown` 那条声明由 lab-markdown.e2e.ts 里展示器的用例判。
-        "note.md": "# 标题\n\n正文一段，有些文字。\n\n<div>原样块文字</div>\n",
+        // 原样的 HTML 块与行内 HTML 在编辑器里是不可编辑的原子节点（`contenteditable=false`）。
+        "note.md": "# 标题\n\n正文一段，有些文字。\n\n<div>原样块文字</div>\n\n行内 <kbd>键</kbd> 文字。\n",
         "manual.pdf": new Uint8Array(64 * 1024).fill(0x25),
     };
     for (const [path, content] of Object.entries(files)) {
@@ -75,11 +74,14 @@ const copyable = (region: Locator, needle: string): Promise<string | null> => re
     return null;
 }, needle);
 
+// 先等文字出现（`toContainText` 读的是文字内容，与能不能选无关），再读选区：有的区域由懒激活的插件晚一步画出来。
 async function expectSelectable(region: Locator, needle: string): Promise<void> {
+    await expect(region.first()).toContainText(needle);
     expect(await copyable(region, needle), `“${needle}”应当可选`).toContain(needle);
 }
 
 async function expectNotSelectable(region: Locator, needle: string): Promise<void> {
+    await expect(region.first()).toContainText(needle);
     expect(await copyable(region, needle), `“${needle}”应当不可选（且在页面上）`).toBe("");
 }
 
@@ -115,7 +117,7 @@ async function expectWorkbenchChrome(page: Page): Promise<void> {
     await expectNotSelectable(tabLabel(page), "note.md");
     await expectNotSelectable(crumbs(page), "note.md");
     await expectNotSelectable(blockType(page), (await blockType(page).innerText()).trim());
-    await expectNotSelectable(page.locator(".workbench-panel-head__label"), "资源管理器");
+    await expectNotSelectable(page.locator(".workbench-panel-head__label", {hasText: "资源管理器"}), "资源管理器");
     await expectNotSelectable(page.locator("[data-workbench-status-bar]"), "显示面板");
 }
 
@@ -129,6 +131,7 @@ test("桌面：工作台里框架文字不可选，正文与其中不可编辑�
     await openNote(page);
     await expectSelectable(prose(page), "正文一段");
     await expectSelectable(prose(page), "原样块文字");
+    await expectSelectable(prose(page), "<kbd>");
     await expectWorkbenchChrome(page);
     await expect(sessionPanel(page)).toContainText("没有会话");
     await expectNotSelectable(sessionPanel(page), "没有会话");

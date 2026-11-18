@@ -862,12 +862,26 @@ test.describe("桌面壳里的文字选择", () => {
         await expect(page.locator("html")).toHaveAttribute("data-desktop-frame", "");
         await expect(stage(page).locator("[data-lab-answer]")).toContainText("第十二下钟声");
         expect(await copyable(page, ".lab-main [data-agent-stream]", "第十二下钟声")).toContain("第十二下钟声");
+        // 消息流里的折叠标题是按钮：继承不到消息流的可选。
+        const summary = stage(page).locator("[data-turn-summary]").first();
+        const label = await summary.evaluate((element) => {
+            const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) if ((node.textContent ?? "").trim() !== "") return node.textContent!.trim();
+            return "";
+        });
+        expect(label).not.toBe("");
+        expect(await copyable(page, ".lab-main [data-turn-summary]", label)).toBe("");
     });
 
-    test("停靠区里的审批向导（在消息流之外）：要改的文件路径可选", async ({page}) => {
+    test("停靠区里的审批向导（在消息流之外）：要改的路径与正文里的改动可选，标题不可选", async ({page}) => {
         await openScene(page, "AgentDock", "approval");
         const frame = stage(page).locator(".acv-wizard-frame").first();
-        await expect(frame).toContainText("第三章");
-        expect(await copyable(page, ".lab-main .acv-wizard-frame", "第三章")).toContain("第三章");
+        await expect(frame.locator(".acv-wizard-frame__body")).toContainText("他回头看了一眼");
+        // diff 按词拆成几个文本节点，判新增的那一段。
+        expect(await copyable(page, ".lab-main .acv-wizard-frame__body", "看了一眼")).toBe("看了一眼");
+        expect(await copyable(page, ".lab-main .acv-wizard-frame__detail", "第三章")).toContain("第三章");
+        const title = (await frame.locator(".acv-wizard-frame__title").innerText()).trim();
+        expect(title).not.toBe("");
+        expect(await copyable(page, ".lab-main .acv-wizard-frame__title", title)).toBe("");
     });
 });

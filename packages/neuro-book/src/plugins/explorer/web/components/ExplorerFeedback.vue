@@ -77,10 +77,10 @@ const reportView = computed(() => {
         </div>
         <div v-if="notice !== null" class="flex items-start gap-2" data-explorer-notice>
             <span class="i-lucide-info mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
-            <p class="min-w-0 flex-1 whitespace-pre-line break-words" role="status">{{ noticeLine }}</p>
+            <p class="min-w-0 flex-1 whitespace-pre-line break-words select-text" role="status">{{ noticeLine }}</p>
             <IconButton size="sm" icon-class="i-lucide-x" :aria-label="text('feedback.dismiss')" :title="text('feedback.dismiss')" @click="emit('dismiss')" />
         </div>
-        <section v-if="reportView !== null" class="flex flex-col gap-1" data-explorer-report :aria-label="reportView.title">
+        <section v-if="reportView !== null" class="flex flex-col gap-1 select-text" data-explorer-report :aria-label="reportView.title">
             <div class="flex items-start gap-2">
                 <span class="i-lucide-triangle-alert mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true"></span>
                 <p class="min-w-0 flex-1 font-medium text-[var(--text-main)]" role="status">{{ reportView.title }}</p>

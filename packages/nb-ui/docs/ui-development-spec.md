@@ -183,12 +183,12 @@
 
 桌面壳在根上默认不可选（[`runtime.browser-host`](../../../docs/specs/runtime/browser-host.md) 输出 12 的“文字选择”），浏览器里没有这条全局规则。组件不依赖宿主有没有它，各自在自己的根上声明：
 
-- **框架**（标签、导航、工具栏、标题、按钮、菜单、徽标、状态、空态说明）写不可选（原子类 `select-none`，样式块里写 `user-select: none`）。nb-ui 的按钮、菜单项、徽标、气泡面板已经是；业务里自己写的原生 `<button>` 没有，要自己写。
+- **框架**（标签、导航、工具栏、标题、按钮、菜单、徽标、状态、空态说明）写不可选（原子类 `select-none`，样式块里写 `user-select: none`）。按钮类元素（`button`、`summary`、`role="button"`、`role="tab"`）由 `src/styles.css` 里一条规则统一不可选，放在内容根里也一样；菜单项、徽标、气泡面板各自已经写了。
 - **内容**（正文、代码、原文、路径、错误与诊断、命令输出、表单读出的值）写可选（`select-text` 或 `user-select: text`），即使外层是不可选的容器（例如 `CodeBlock` 放在通知里）。错误提示标 `role="alert"` 就够：`src/styles.css` 里一条规则让它可选。
-- 可编辑元素（输入框、文本域、`contenteditable`）里的可编辑文字不用写；可编辑根里有不可编辑的节点（ProseMirror 的节点视图）时，根上要写可选，否则这些节点从祖先继承不可选。
+- 可编辑元素（输入框、文本域、`contenteditable`）里的可编辑文字不用写。可编辑根里的不可编辑节点（`contenteditable=false`）在普通页面里会从祖先继承不可选，ProseMirror 编辑器里的原子节点实测仍可选（原因没查清）；内容是给人复制的，就在根上写可选，不靠这一点。
 - 通知、确认对话框与气泡面板整体不可选：要复制原文的走详情对话框。
 - 要跟随外层就不写：Chromium 里显式写 `user-select: auto` 在不可选的祖先下会重新变成可选，不等于“继承”。
-- 测“能不能选”用选区读数：把含那段文字的文本节点整个选中（`setBaseAndExtent`），读 `Selection.toString()`，不可选的读出空串（`Range.toString()` 不看这一点）。不对整块区域 `selectAllChildren`：根上不可选时 Chromium 会按区域首尾落在哪类元素上挪动端点，读数时有时无。
+- 测“能不能选”用选区读数：把含那段文字的文本节点整个选中（`setBaseAndExtent`），读 `Selection.toString()`，不可选的读出空串（`Range.toString()` 不看这一点）。输入框与文本域里的选区不进 `Selection`，看它们的 `selectionStart`、`selectionEnd`。不对整块区域 `selectAllChildren`：根上不可选时 Chromium 会按区域首尾落在哪类元素上挪动端点，读数时有时无。
 
 ## 5. 表单与无障碍
 

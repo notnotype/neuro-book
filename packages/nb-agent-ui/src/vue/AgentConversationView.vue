@@ -608,6 +608,8 @@ defineExpose({focusComposer, scrollToLatest});
 }
 
 .acv-stream__empty {
+    /* 空态与加载说明是框架，不随消息流可选（nb-ui 规范的“文字能否选中”）。 */
+    user-select: none;
     display: flex;
     align-items: center;
     justify-content: center;

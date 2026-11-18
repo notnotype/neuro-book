@@ -275,6 +275,8 @@ const projectList = computed(() => (props.projectRules === null || typeof props.
 
 .permission-rules__body {
     min-width: 0;
+    /* 规则的工具名、模式与理由是用户写的内容，要能复制（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
     flex: 1 1 auto;
 }
 

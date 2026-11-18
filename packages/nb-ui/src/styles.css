@@ -844,3 +844,11 @@ input.nb-ui-native-input[type="number"] {
 [role="alert"] {
     user-select: text;
 }
+
+/*
+ * 按钮类控件一律不可选：内容根写了 `user-select: text` 时，里面原生的 `<button>`、`<summary>`、标签页按钮会继承成可选，双击折叠标题就选中
+ * 标题、拖选时把“已执行 3 步”这类标签带进复制结果（nb-ui 规范的“文字能否选中”）。`:where` 加 components 层，组件自己要放开的照样盖得过。
+ */
+:where(button, summary, [role="button"], [role="tab"]) {
+    user-select: none;
+}
