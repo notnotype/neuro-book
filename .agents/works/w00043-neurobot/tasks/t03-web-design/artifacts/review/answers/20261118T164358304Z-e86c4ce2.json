@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "answerId": "20261118T164358304Z-e86c4ce2",
+    "artifactVersion": 13,
+    "contentHash": "1587a950e44ea2dda49a861911bbbca3e61027571985e88e996207d79e47a77f",
+    "submittedAt": "2026-11-18T16:43:52.120Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "schedule-form": true
+    },
+    "comments": {},
+    "note": null
+}
