@@ -1,8 +1,8 @@
 ---
 schema: nbook.proposal/v1
-status: reviewing
+status: accepted
 created: 2026-11-18
-decided: null
+decided: 2026-11-18
 supersedes: []
 superseded-by: null
 specs:
@@ -177,3 +177,6 @@ adrs: []
 | 2026-11-18 | 开发者 | 同意行为变化 1：普通模式下只写自有目录，在任何审批模式下都不问 |
 | 2026-11-18 | 开发者 | 同意不把模式闸门写成规则，Agent 模式仍是“提示加拦写” |
 | 2026-11-18 | 开发者 | 第二稿派 Claude Opus 做一轮审查 |
+| 2026-11-18 | 开发者 | 同意改 nb-harness 内核：询问与放行加 `cause`，写进会话日志 |
+| 2026-11-18 | 开发者 | 接受“逐个确认下命令只把输出写到自有目录也不问”在行为变化 1 里 |
+| 2026-11-18 | 开发者 | 没有异议，接受本提案 |

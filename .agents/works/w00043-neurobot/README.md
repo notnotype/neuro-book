@@ -69,6 +69,7 @@ updated: 2026-11-18
 | 2026-11-18 | 开发者：周期任务先用 cron 注入当前对话（到点由系统往主对话注入一段提示词，同 Claude Code），按主 Agent 的补充，重活由 bot 自己派子代理（子 Profile 只装需要的工具）；原提案的单独任务会话、工具清单的三处强制与按会话裁剪工具集不做。注入的话要标明来源、不算用户的授权，空闲时由它开一轮（内核改动） |
 | 2026-11-18 | 开发者：审批的四关太复杂，问“地址能不能写”能否放进规则、模式闸门能否用规则实现（切换模式就是换规则），要一版新方案；主 Agent 写了第一稿（模式与审批模式都写成规则组），开发者同意审查并要求带拉远看；三位审查者核出它会改掉至少五处已定结论、复杂度没降，改写成第二稿 [Agent 审批：一份自有目录、去掉 Agent 的地址表、询问写明来源](../../../docs/proposals/agent-approval-simplification.md)（[审查处理](tasks/t01-direction/evidences/approval-proposal-review-r1-disposition.md)），待开发者看 |
 | 2026-11-18 | 开发者看过第二稿的逐步讲解后，同意两项待定：普通模式下只写自有目录在任何审批模式下都不问；不把模式闸门写成规则。第二稿派 Claude Opus 做一轮审查 |
+| 2026-11-18 | Opus 审查第二稿（[处理](tasks/t01-direction/evidences/approval-proposal-review-r2-disposition.md)），10 条都成立、已改进提案；开发者同意为询问来源改 nb-harness 内核（加 `cause` 写进会话日志），接受逐个确认下命令只写自有目录也不问，审批提案接受 |
 
 ## 调研
 
