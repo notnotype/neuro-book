@@ -1,0 +1,67 @@
+w00026 t33 实现审查（被审提交 a0cb8ecdf）
+
+结论：没有发现正确性或不变量层面的问题；下面是类型兼容的一处过度承诺、搬家后遗留的陈旧引用、两处测试空档和几处可简化。
+
+### 1. 变更记录“按原来写法传值的插件不用改”对内联对象字面量不成立
+- **严重程度**：建议；**类别**：正确性（类型兼容）
+- **位置**：packages/neuro-book/CHANGELOG.md:18；packages/nb-layout/src/vue/DropSectorsOverlay.vue:14
+- **现象**：`sectors` 的元素类型从 `LayoutDropSector`（`{id, points, action}`）改成 `{id: string, points}`，没有 `action`。
+- **为什么是问题**：变量传入兼容（子类型赋值），Lab 夹具就是这样过的。但插件在模板里直接写 `:sectors="[{id: 'left', points: [...], action: …}]"` 的内联字面量，会触发多余属性检查而类型报错。“按原来写法传值不用改”不是字面成立；`labels`、`active`、`entryRect` 的放宽确实是纯放宽。
+- **如何核实**：我没能在这个环境里跑 vue-tsc（命令被拦），依据是 TS 对新鲜对象字面量的多余属性检查；`exp/ts/literal.ts` 里写了对照文件，可在实现 worktree 用 `tsc --strict` 跑。运行时无影响：`defineProps` 里 `ReadonlyArray`、`Readonly<Record>` 仍推断成 Array、Object，`validRect` 一类的守卫也已兼容 `undefined`。
+- **建议改法**：二选一：变更记录改成“按变量传入的写法不用改”；或元素类型加 `readonly action?: unknown` 容纳旧形状（只为兼容，与“只画不管动作”的定位有点矛盾，倾向前者）。
+
+### 2. 搬家后陈旧的“nb-layout 里的 X”引用（不在这次 diff 里，所以没被改）
+- **严重程度**：建议；**类别**：文档
+- **位置**：
+  - packages/neuro-book/src/plugins/workbench/web/state/records.ts:19（“nb-layout 的 `validateLayoutDoc`”）
+  - packages/neuro-book/src/plugins/workbench/shared/contracts.ts:333（“nb-layout 的 `tabKey`”）
+  - packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.md:12（“nb-layout `TabStrip` 的 `adapt`”）
+  - packages/nb-ui/src/components/controls/useTabsAdapt.ts:2（“nb-layout 的 `TabStrip`”）
+  - packages/neuro-book/e2e/workbench-dnd.e2e.ts:11（“`nb-layout` 的 `layout-drop.test.ts`”）
+  - packages/nb-workbench-layout/src/layout-doc.ts:51（“拉边与夹取在 `grid-rects.ts`”，没写在 nb-layout，新包里读者找不到这个文件）
+  - packages/nb-layout/package.json:5 的 `description` 仍是“工作台的布局工具”，与 README、AGENTS 已改成的通用说法不一致
+  - docs/specs/ui/workbench-layout.md:64（“文档的形状（`@notnotype/nb-layout` 导出…”）在正文，不属于“实现合同与证据”，计划里推迟到合入后的范围覆盖不到它；354、355 行属于推迟范围
+- **如何核实**：在实现 worktree 对 `nb-layout[^\n]{0,40}(layout-doc|layout-drop|TabStrip|LayoutDoc|tabKey|validateLayoutDoc)` 搜索。
+- **建议改法**：以上随手改成 `nb-workbench-layout`；Spec 64 行并进合入后那次改路径；`description` 改成通用说法。
+
+### 3. `WorkbenchShell.vue` 的 `entryRect` 适配现在是多余的
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:831-834
+- **现象**：`{...preview, entryRect: preview.entryRect ?? null}` 的唯一目的是满足原来必填的 `entryRect`。第 1 片把它改成可选后，这层转换没有存在理由，却留下了。Lab 夹具里一批 `entryRect: null` 同理。
+- **建议改法**：`feedbackPreview` 直接返回 `dragView.value.feedback.preview`。（经核对，这不改变运行时行为：`DropFeedbackOverlay` 的 `validRect` 对 `undefined` 与 `null` 一视同仁。）
+
+### 4. “`entryRect` 可以不传”没有测试
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-layout/src/vue/DropFeedbackOverlay.dom.test.ts:35
+- **现象**：`preview()` 辅助函数永远传 `entryRect: null`，没有一条用例省略这个属性。变更记录把“可以不传”当作对插件的承诺，它只靠 `validRect` 里一行既有的 `!== undefined` 守卫成立。
+- **建议改法**：补一条省略 `entryRect` 的渲染用例。
+
+### 5. Task 记录里的 vitest 计数对不上（待核）
+- **严重程度**：建议；**类别**：测试
+- **位置**：Task README 第 1 片与第 2 片的验证数字
+- **现象**：第 1 片 nb-layout vitest 259；现在 nb-layout 213 加新包 46 等于 259，而新包比搬家前多了 1 条（`DropSectorsOverlay.sectors.dom.test.ts`），等价搬家应该是 260。bun 侧对得上：593，加新包两条边界测试，等于 334 加 261。
+- **如何核实**：我跑了两个包的 `test`（334/213、261/46，全过），但没有可跑的第 1 片树。`DropSectorsOverlay.dom.test.ts` 在 d341ba632、a0cb8ecdf 里都是 5 条，TabStrip 与几何两个文件原样重命名，没有看到哪条被删掉；更可能是第 1 片记录的数字有误，但没有证据排除少了一条。
+- **建议改法**：在第 1 片提交上跑一次 `vitest run` 对照 259；对不上就逐文件列出差的那条。
+
+### 6. 新包里 `DropSectorsOverlay` 的“真实形状”用例只比较 id
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-workbench-layout/src/vue/DropSectorsOverlay.sectors.dom.test.ts:22-23
+- **现象**：原来的用例是真实 `layoutDropSectors` 的五块，断言块数、当前块与字；现在 nb-layout 那边用手写的五块（`BAND = 0.28` 另写一份，没有链到 `LAYOUT_EDGE_RATIO`），新包这条只断言“画出来的 `data-drop-sector` 与判定给的 id 一致”，不看 `points`、当前块、字。判定的形状若换成别的类型（例如 `points` 的坐标形状变了），组件只要还能读 `[x, y]` 就不会红；且这个用例只覆盖五块之一的 `left` 到 `center`，没有“整块”（`whole`）、没有侧栏那列的三块。
+- **建议改法**：至少补一条 `active` 取真实 id、带 `labels` 的断言，再补“整块”与单列的各一例，让契约（id、points、labels 的键）真由两侧共同守住。
+
+### 7. nb-layout 的边界测试不约束“导出名里没有工作台概念”
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-layout/src/boundary.test.ts；packages/nb-layout/AGENTS.md:10
+- **现象**：AGENTS 新增的规则是“导出的标识符、数据属性与类型名里不出现工作台概念”，但 `boundary.test.ts` 只拦导入方向。依赖方向我做了变异实验：新包核心导入 `vue`、`@notnotype/nb-layout/vue`、`@notnotype/nb-ui`、相对路径进 `vue/` 或越出包到 nb-layout 源码、`@notnotype/nb-layout/src/...` 深导入、多行与副作用与 `import()` 与 `export … from` 写法，Vue 层导入 `lab-sources` 或相对越界，全部被拦（10 条，`exp/wl/src/boundary.test.ts`）；nb-layout 一侧用同一个助手、核心 `packages: []`，导入新包同样会被拦。没被拦的只有 `require()` 与 `import x = require()`，那是共享助手 `import-boundary` 的既有限制，不是这次回归。
+- **为什么是问题**：判据本身没有机检，剩下的 `entryRect`、`data-drop-feedback-entry`、`FloatWindowHandles`、`LayoutFloatResize`（`Layout*` 前缀）是计划里有意留的（Task README 说明），不算本次错误；但规则只靠 AGENTS 的自然语言，以后回流不会红。
+- **建议改法**：可留给 t35、t36；如要现在做，对两个入口的 `export` 名与 `data-*` 字面量加一份禁用词表测试。
+
+### 未发现问题的方面
+- 分界：nb-layout 两个入口（`src/index.ts`、`src/vue/index.ts`）的导出名、数据属性与类型名里没有活动栏、状态栏、区域、容器、编辑组、具名面板；新包只经 `@notnotype/nb-layout` 与 `/vue` 使用它，没有相对路径深入；新包无模块级单例、`Symbol` 键、`WeakMap`，不会出现“一页两份”的运行时分裂；L1 对 TabStrip 的 DOM 标记（`data-panel-tab` 等）没有反向耦合。
+- 搬家等价：`clampFloatRect`、`resizeFloatRect` 的函数体与原文逐字相同（只有类型从 `LayoutFloatRect` 换成 `GridRect`，字段与只读性相同）；两条测试连同夹具原样迁到 `grid-rects.test.ts`；`LayoutFloatRect` 改成 `GridRect` 的别名对调用方类型兼容；`DropSectorsOverlay` 的 `defineProps` 运行时推断类型不变；nb-layout 去掉的 `layout-doc`/`layout-project`/`layout-drop`/`TabStrip` 系导出新包都有。
+- 解析与登记：根 `package.json` 工作区、`bun.lock` 条目与 `package.json` 一致；`test:affected` 按各包 `package.json` 依赖自动发现新包；Vite、`tsconfig` 没有按包点名的配置，`vite.config.ts` 的 `optimizeDeps` 清单没有新的第三方运行依赖；Lab 夹具按组件名登记，不依赖逻辑路径，`component-index.ts`、新包 `lab-sources.ts` 的键与旧包一致写法；`check-documentation.ts` 的 `COMPONENT_BARRELS` 已加入；`pack.ts` 的类型路径与“布局”分组正确；`sdk.test.ts` 的两条入口扫描覆盖了新包。
+- 类型检查：nb-layout、nb-workbench-layout 两个包 `typecheck` 通过；两个包 `test` 全过（334/213、261/46）。应用的 `typecheck`（tsc 与两份 vue-tsc）在我写报告时仍在跑，结果见最终回复。我没有重跑 `build:sdk` 与 `pack.test`（后者在高负载下 60 秒超时，Task 记录已说明）。
+- 许可与可见性：nb-layout 加 `private` 是 ADR 0054 后果里写明的“拆包时先加上”；新包 `private`、AGPL，与 nb-host 等同类。
+
+有效发现的编号：1、2、3、4、5、6、7
+各级数量：阻断 0，重要 0，建议 7

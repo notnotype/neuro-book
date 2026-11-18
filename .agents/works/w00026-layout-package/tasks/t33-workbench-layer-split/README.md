@@ -60,7 +60,17 @@ updated: 2026-11-18
   - 第 3 片的包说明在分支上（`a0cb8ecdf`）：nb-layout 的 README 与 AGENTS 改成通用布局工具，加一条分界规则（导出名、数据属性、类型名里不出现工作台概念）；`grid.md` 的“布局文档”一节搬进新包 README，原处留一句链接。
   - `governance:check` 有 14 条失败，master 上同样是这 14 条，都是分支起点之前就有的。
   - 用 nbdev 在 4317 起开发服务看了一遍：Lab 的 `TabStrip` 三个场景（滚动、多行、自适应）亮色下画法正常，截图报告没有溢出、页面错误与被裁的焦点环；产品页 `/workbench` 挂上、没有页面错误。看完已停掉。
-  - 实现审查：Claude Sonnet，固定在 `a0cb8ecdf` 的审查 worktree，2026-11-18 在后台开始，不阻塞。
+  - 实现审查（Claude Sonnet，固定在 `a0cb8ecdf`，[`evidences/impl-review.txt`](evidences/impl-review.txt)）：7 条，都是建议，没有正确性与不变量问题；三个包的类型检查、两个包的单测审查者自己跑过。修正单独提交：
+
+    | 条 | 内容 | 处理 |
+    |---|---|---|
+    | 1 | 变更记录说“按原来写法传值不用改”，模板里直接写带 `action` 的数组字面量会撞多余属性检查 | 成立，改变更记录：传变量的不用改，字面量里的 `action` 要去掉 |
+    | 2 | 搬家后还有几处注释写“nb-layout 的 X”，nb-layout 的 `description` 还是“工作台的布局工具”，Spec 64 行在正文 | 成立，注释与 `description` 随修正改；Spec 64 行并进合入后的 Spec 改路径 |
+    | 3 | `WorkbenchShell.vue` 给 `entryRect` 补 `null` 的转换已经多余 | 成立，删掉（`validRect` 对 `undefined` 与 `null` 一样） |
+    | 4 | “`entryRect` 可以不传”没有用例 | 成立，补一条省略它的渲染用例 |
+    | 5 | vitest 条数 259 对不上，新包多了一条 | 不成立：那条用例第 1 片就建在 nb-layout 的 `src/workbench/vue/`，第 1 片的 259 已含它；按文件数两个提交都是 223 个用例（`each` 不展开） |
+    | 6 | 新包里分区组件的用例只比 id | 成立，补真实 id 的当前块与文字，再补“整块”与单列区域各一例 |
+    | 7 | 边界测试不拦导出名里的工作台概念 | 成立，归 t36：t36 本来就要给两个入口加导出名测试，禁用词表随它做 |
 
 ## 下一步
 
