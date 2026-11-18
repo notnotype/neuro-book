@@ -175,9 +175,12 @@ async function smoke(options: Options): Promise<void> {
         let port = freePort();
         await startApp(installed.launcher, webViewData(installed), {cdpPort: port});
         let connection = await connectPage(port, webViewData(installed));
-        // 上一版是 0.14.0 以前的（没有首次启动向导）时不跳：它不会出现。
-        if (Bun.semver.satisfies(from, ">=0.14.0")) await skipFirstRun(connection.page, step);
-        await connection.page.getByText(`NeuroBook ${target} 可以更新`).waitFor({timeout: 90_000});
+        // 首次启动向导只在状态根第一次打开桌面版时出现：同一个作业里安装版冒烟已经用过缺省状态根、看过它，这里多半不出；
+        // 新的 runner 或上一版没有向导时也不出。所以等更新提示与向导谁先出来，是向导就先跳过。
+        const offer = connection.page.getByText(`NeuroBook ${target} 可以更新`);
+        await offer.or(connection.page.locator("[data-first-run-wizard]")).first().waitFor({timeout: 90_000});
+        if (!(await offer.isVisible())) await skipFirstRun(connection.page, step);
+        await offer.waitFor({timeout: 90_000});
         await connection.page.getByRole("button", {name: "下载"}).first().click();
         await connection.page.getByText("已下载").first().waitFor({timeout: 300_000});
         await connection.browser.close().catch(() => undefined);
