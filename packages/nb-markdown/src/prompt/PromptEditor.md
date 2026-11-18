@@ -20,6 +20,7 @@
 - **正文区**：随内容长高，夹在 `minHeight` 与 `maxHeight` 之间；超过上限后正文区内部滚动，外框与附件条不动。输入时光标始终保持可见。`fill` 为真时外框取父元素的高度，正文区占满附件条以外的部分，内容更长时在内部滚动，`maxHeight` 不起作用；父元素没有确定的高度时仍随内容长高。
 - **粘贴块**：在正文里独占一段，与正文同宽。头部一行：图标、`#N`、“粘贴的文本 · 42 行”，以及“展开”“转为文字”“删除”三个按钮；下面用等宽字显示内容，收起时只显示前 3 行，展开后显示全文并可以就地编辑，超过正文区高度时随正文区一起滚动。
 - **小块**：[`InlineChip`](../chip/InlineChip.md)，与正文同一行高，名称过长时截断，悬停提示给出全称。图片与文件小块只显示图标加 `#N`。
+- **表情**（[`agent/stickers.md`](../../../../docs/specs/agent/stickers.md) 输出 44）：宿主的 `stickerKnown` 认得出的写法是独立的行内节点（不是小块，不发 `token-activate`），样子同 Markdown 的行内小图（`buildSticker`，`../stickers.css`）；认不出的就是文字。目录晚到时补认一次（不进撤销历史、不发 `change`）。触发字符 `:` 的边界与别的触发不同（`findPromptTrigger`）。插入的表情写法会和前文连成别的写法时先补一个空格。
 - **候选菜单**：nb-ui 的 `SuggestionMenu`，锚在外框上、与外框同宽，默认在外框上方（`menuPlacement: "below"` 时在下方），固定方向、不跟随光标；可用高度不够时收矮。自上而下：标题行（可选）、候选项（按组分段，组标题不可选；项的说明显示在右侧）。项超过 8 个时截在第 9 项中间、内部滚动。加载中已有项照常显示，底部一行转圈与“正在加载”；没有结果时显示宿主给的空结果文字或“没有匹配项”。没有按键提示。
 - **输入历史搜索**：与候选菜单同一位置、同一外观，顶部多一个搜索框与“输入历史”标题。搜索框的聚焦、方向键、回车、Escape 与 `combobox`、`aria-controls`、`aria-activedescendant` 由本组件持有；焦点离开搜索框、又不在菜单里时关闭（菜单传送到了 `body`，判断时用 `SuggestionMenu.contains`）。
 - **390×844**：结构不变；附件条横向滚动，菜单仍与外框同宽，正文更早触到高度上限。
@@ -57,6 +58,10 @@ type PromptEditorMenuItem = {
     continues?: boolean;
     /** 行尾的状态图标（例如 Skill 未初始化）；同一个菜单有一项带它时每行都留出这一列。 */
     status?: {label: string; iconClass?: string; busy?: boolean; tone?: "neutral" | "warning" | "danger"};
+    /** 一张小图（例如表情），画在图标的位置。 */
+    imageUrl?: string;
+    /** 为假时确认后不补空格（表情）；缺省真。 */
+    appendSpace?: boolean;
 };
 
 type PromptEditorMenu = {
@@ -66,6 +71,8 @@ type PromptEditorMenu = {
     loading?: boolean;
     /** 没有结果时的说明；默认“没有匹配项”。 */
     emptyText?: string;
+    /** 为真时没有项（也不在加载）就不显示菜单，回车与 Tab 照常交给正文（表情补全）。 */
+    hideWhenEmpty?: boolean;
 };
 
 type PromptEditorAttachment =
@@ -166,7 +173,7 @@ interface PromptEditorEmits {
 ```ts
 interface PromptEditorExpose {
     /** 聚焦，光标落在开头或末尾；默认末尾。 */
-    focus(at?: "start" | "end"): void;
+    focus(at?: "start" | "end" | "keep"): void;
     /** 在光标处插入文字，能识别的写法变成小块，发出 change；只读时不做任何事。 */
     insertText(text: string): void;
     /** 在光标处加入文件，与粘贴文件相同：按 acceptImages、acceptFiles 接受或发出 attachment-reject；只读时不做任何事。例如输入框的“添加附件”按钮。 */

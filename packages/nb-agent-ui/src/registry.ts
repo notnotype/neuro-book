@@ -219,14 +219,28 @@ export type ComposerTriggerEntry = RegistryEntryBase & {
 };
 
 /**
- * 输入框工具栏上的按钮。点了发出 `action`，或者（给了 `trigger` 时）往编辑器里插这个触发字符、打开它的菜单，不发 action，
- * 例如 nb-story 的 `+` 插 `@` 选引用。`placement` 为 `leading` 时放在正文前面（单行版式）或工具栏最前（两层版式）。
+ * 输入框工具栏上的按钮。点了发出 `action`；给了 `trigger` 时往编辑器里插这个触发字符、打开它的菜单，不发 action，例如 nb-story 的
+ * `+` 插 `@` 选引用；给了 `popover` 时在按钮旁开一个弹层，里面是它交回的组件（例如表情选择器）。`placement`：`leading` 放在正文
+ * 前面（单行版式）或工具栏最前（两层版式）；`after-add` 放在 `+` 后面（单行版式里并入前置按钮）；缺省 `trailing`，在模式控件后面。
  */
 export type ToolbarButtonEntry = RegistryEntryBase & {
     icon: string;
     label: Text;
-    placement?: "leading" | "trailing";
-} & ({action: AgentViewAction; trigger?: never} | {trigger: string; action?: never});
+    placement?: "leading" | "after-add" | "trailing";
+} & (
+    | {action: AgentViewAction; trigger?: never; popover?: never}
+    | {trigger: string; action?: never; popover?: never}
+    | {popover: () => Promise<Component<ToolbarPopoverProps>>; action?: never; trigger?: never}
+);
+
+/**
+ * 弹层按钮的组件收到的属性：`insert` 把一段文字插在编辑器的光标处（同输入框的文字写法），`close` 关上弹层。组件自己处理 Esc 与焦点
+ * 离开（调 `close`）：焦点已经到了别处时传 `{restoreFocus: false}`，不把焦点抢回编辑器；缺省还给编辑器、光标不动。
+ */
+export type ToolbarPopoverProps = {
+    insert: (text: string) => void;
+    close: (options?: {restoreFocus?: boolean}) => void;
+};
 
 // ─── 注册表 ─────────────────────────────────────────────────────────────
 
@@ -461,4 +475,14 @@ export function presentationOf(renderer: Pick<ToolRendererEntry, "presentation" 
         }
         return renderer.presentation;
     }
+}
+
+/**
+ * 一次调用对文件的影响（渲染器的 `effects`），读影响的地方都经它。参数只给了预览的（`argsPreview`：嵌套调用里的长字符串被内核截短）
+ * 读写的文件照算，增删行数按截短的参数算不准，给 null。渲染器没登记 `effects` 时为 undefined。
+ */
+export function callEffects(renderer: Pick<ToolRendererEntry, "effects">, call: ToolCallView): ToolEffects | undefined {
+    const effects = renderer.effects?.(call);
+    if (effects === undefined || call.argsPreview !== true) return effects;
+    return {read: effects.read, changed: effects.changed.map((change) => ({path: change.path, added: null, removed: null}))};
 }

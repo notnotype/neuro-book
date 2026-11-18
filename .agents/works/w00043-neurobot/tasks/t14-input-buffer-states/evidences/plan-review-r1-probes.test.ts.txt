@@ -1,0 +1,211 @@
+// t14 计划审查：第三轮 11 条与计划依赖的时序，按现有内核跑一次（只读仓库）
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+const {defineExtension} = await import(`${K}/extension/define.ts`);
+const {notifyAssemblyChanged, closeSession} = await import(`${K}/session/session.ts`);
+
+let n = 0;
+const id = () => `rv-${++n}`;
+const gate = () => {
+    let open!: () => void;
+    const p = new Promise<void>((r) => (open = r));
+    return {p, open};
+};
+const parent = {kind: "session", id: "parent"} as const;
+const bufferOf = async (s: any) => (await s.raw.snapshot()).buffer.map((b: any) => [b.mode, b.input.text, b.by?.kind ?? "user"]);
+const allEvents = async (s: any) => (await s.raw.log({afterSeq: 0, limit: 2000})).events;
+const typesOf = async (s: any, keep: string[]) => (await allEvents(s)).filter((e: any) => keep.includes(e.type)).map((e: any) => e.type + (e.type === "runEnded" ? `(${e.data.reason})` : "")).join(" ");
+
+test("R1 yield 那一轮里到达的会话插话", async () => {
+    const entered = gate();
+    const hold = gate();
+    const ext = defineExtension({id: "lab.gate", on: {assistant: async () => { entered.open(); await hold.p; }}});
+    const schema = {type: "object", properties: {title: {type: "string"}}, required: ["title"]};
+    await using s = await createTestSession({extensions: [ext], result: {mode: "optional", schema}});
+    s.model.script({tools: [{tool: "yield", args: {title: "雨夜"}}]});
+    const sent = await s.raw.send({commandId: id(), input: {text: "起个标题"}});
+    if (!sent.ok) throw new Error("send failed");
+    await entered.p;
+    const steer = s.raw.as(parent).send({commandId: id(), input: {text: "改成两个字以内"}, mode: "steer"});
+    hold.open();
+    const r = await steer;
+    const result = await s.raw.waitRun(sent.value.runId!);
+    console.log("R1 steer send:", JSON.stringify(r.ok ? r.value : r), "first run:", sent.value.runId, "reason:", result.reason, "buffer:", JSON.stringify(await bufferOf(s)));
+});
+
+test("R2a 会话身份在用户运行暂停的叶子上 send：接着跑用户的运行", async () => {
+    await using s = await createTestSession({});
+    s.model.script("答一", "答二", "新答二");
+    await s.raw.enqueue({commandId: id(), input: {text: "第二问"}, mode: "followup"});
+    await s.say("第一问");
+    const before = (await s.raw.rewindTargets()).find((t: any) => t.kind === "before-turn" && t.inputText === "第二问");
+    await s.raw.rewind({commandId: id(), to: before.id});
+    const runIdBefore = (await allEvents(s)).find((e: any) => e.type === "runStarted").data.runId;
+    const sent = await s.raw.as(parent).send({commandId: id(), input: {text: "会话的话"}});
+    console.log("R2a user run:", runIdBefore, "session send:", JSON.stringify(sent.ok ? sent.value : sent));
+    if (sent.ok && sent.value.runId) console.log("R2a resumed:", (await s.raw.waitRun(sent.value.runId)).reason, "runStarted count:", (await allEvents(s)).filter((e: any) => e.type === "runStarted").length);
+});
+
+test("R2b 会话身份的 start 接着跑用户出错的那次（start 不收发出者）", async () => {
+    await using s = await createTestSession({});
+    s.model.script({fail: "provider", retryable: false, message: "boom"}, "续上了");
+    const sent = await s.raw.send({commandId: id(), input: {text: "用户的话"}});
+    if (!sent.ok) throw new Error("send failed");
+    console.log("R2b first:", (await s.raw.waitRun(sent.value.runId)).reason);
+    const st = await s.raw.as(parent).start({commandId: id()});
+    console.log("R2b session start:", JSON.stringify(st.ok ? st.value : st));
+    if (st.ok) console.log("R2b second:", (await s.raw.waitRun(st.value.runId)).reason, (await s.raw.waitRun(st.value.runId)).text);
+});
+
+test("R5 空闲时会话 enqueue，用户随后 send 开的运行在一轮结束时取走它", async () => {
+    await using s = await createTestSession({});
+    s.model.script("答一", "答二");
+    const q = await s.raw.as(parent).enqueue({commandId: id(), input: {text: "会话空闲时排的"}, mode: "followup"});
+    console.log("R5 enqueue:", JSON.stringify(q.ok ? q.value : q));
+    const sent = await s.raw.send({commandId: id(), input: {text: "用户发的"}});
+    if (!sent.ok) throw new Error("send failed");
+    await s.raw.waitRun(sent.value.runId);
+    console.log("R5 path inputs:", JSON.stringify((await s.raw.path()).filter((e: any) => e.type === "input").map((e: any) => `${e.data.text}(${e.data.by?.kind ?? "user"})`)));
+});
+
+test("R7 会话视图的 rewind{resend}：入队写成用户", async () => {
+    await using s = await createTestSession({});
+    s.model.script("答一", "答二", "新答二");
+    await s.say("第一问");
+    await s.say("第二问");
+    const before = (await s.raw.rewindTargets()).find((t: any) => t.kind === "before-turn" && t.inputText === "第二问");
+    const rw = await s.raw.as(parent).rewind({commandId: id(), to: before.id, resend: {text: "会话重发的"}});
+    if (rw.ok && rw.value.runId) await s.raw.waitRun(rw.value.runId);
+    const q = (await allEvents(s)).filter((e: any) => e.type === "inputQueued").at(-1);
+    const input = (await s.raw.path()).filter((e: any) => e.type === "input").at(-1);
+    console.log("R7 rewind:", JSON.stringify(rw.ok ? rw.value : rw), "inputQueued.by:", JSON.stringify(q.data.by ?? null), "input.by:", JSON.stringify(input.data.by ?? null));
+});
+
+test("R8 用户缺省停止进行中，会话发的话被一起清掉", async () => {
+    const entered = gate();
+    let finishTool!: () => void;
+    const slow = {id: "slow", execute: (_a: any, ctx: any) => new Promise<string>((resolve) => { entered.open(); ctx.signal.addEventListener("abort", () => { finishTool = () => resolve("stopped"); }); })};
+    await using s = await createTestSession({tools: [slow]});
+    s.model.script({tools: [{tool: "slow"}]}, "答二");
+    const sent = await s.raw.send({commandId: id(), input: {text: "任务"}});
+    if (!sent.ok) throw new Error("send failed");
+    await entered.p;
+    const aborting = s.raw.abort({commandId: id()});
+    await new Promise((r) => setTimeout(r, 10));
+    const during = await s.raw.as(parent).send({commandId: id(), input: {text: "停止进行中会话发的"}});
+    finishTool();
+    await aborting;
+    const removed = (await allEvents(s)).filter((e: any) => e.type === "inputRemoved").map((e: any) => e.data);
+    console.log("R8 during:", JSON.stringify(during.ok ? during.value : during), "removed:", removed.length, "tail:", (await allEvents(s)).slice(-3).map((e: any) => e.type).join(" "));
+});
+
+test("R9 runEnded 批的反应占着队列项时到达的 send（同 p1-A）", async () => {
+    const entered = gate();
+    const hold = gate();
+    const ext = defineExtension({id: "lab.endgate", on: {runEnded: async () => { entered.open(); await hold.p; }}});
+    await using s = await createTestSession({extensions: [ext]});
+    s.model.script("答一", "答二");
+    const sent = await s.raw.send({commandId: id(), input: {text: "第一句"}});
+    if (!sent.ok) throw new Error("send failed");
+    await entered.p;
+    const late = s.raw.send({commandId: id(), input: {text: "收口批之后的 send"}});
+    hold.open();
+    const r = await late;
+    await s.raw.waitRun(sent.value.runId);
+    console.log("R9 late send:", JSON.stringify(r.ok ? r.value : r), "status:", (await s.raw.snapshot()).status.state, "buffer:", JSON.stringify(await bufferOf(s)));
+});
+
+test("R10 出错留下的就绪排队（旧日志的样子），会话身份开的运行在一轮结束时带走用户的话", async () => {
+    const entered = gate();
+    const hold = gate();
+    await using s = await createTestSession({tools: [{id: "slow", execute: async () => { entered.open(); await hold.p; return "ok"; }}]});
+    s.model.script({tools: [{tool: "slow"}]}, {fail: "provider", retryable: false, message: "boom"}, "会话的答", "顺手答了用户的");
+    const sent = await s.raw.send({commandId: id(), input: {text: "任务"}});
+    if (!sent.ok) throw new Error("send failed");
+    await entered.p;
+    await s.raw.send({commandId: id(), input: {text: "用户排的"}});
+    hold.open();
+    await s.raw.waitRun(sent.value.runId);
+    const other = await s.raw.as(parent).send({commandId: id(), input: {text: "会话的话"}});
+    if (other.ok && other.value.runId) await s.raw.waitRun(other.value.runId);
+    console.log("R10 path inputs:", JSON.stringify((await s.raw.path()).filter((e: any) => e.type === "input").map((e: any) => `${e.data.text}(${e.data.by?.kind ?? "user"})`)), "buffer:", JSON.stringify(await bufferOf(s)));
+});
+
+test("N1 运行中撤回扩展；收口批反应期间到达的 send 排在重新装配的队列项之前", async () => {
+    const entered = gate();
+    const hold = gate();
+    const toolIn = gate();
+    const toolHold = gate();
+    const endgate = defineExtension({id: "lab.endgate", on: {runEnded: async () => { entered.open(); await hold.p; }}});
+    const victim = defineExtension({id: "lab.victim", on: {assistant: async () => {}}});
+    await using s = await createTestSession({extensions: [endgate, victim], tools: [{id: "slow", execute: async () => { toolIn.open(); await toolHold.p; return "ok"; }}]});
+    s.model.script({tools: [{tool: "slow"}]}, "答一", "答二");
+    const sent = await s.raw.send({commandId: id(), input: {text: "第一句"}});
+    if (!sent.ok) throw new Error("send failed");
+    await toolIn.p;
+    const fakeEnv = {profiles: {resolve: () => undefined}, extensions: () => [{extension: endgate, plugin: null}]};
+    const revoked = notifyAssemblyChanged(s.raw, fakeEnv as any, {removed: ["lab.victim"]});
+    toolHold.open();
+    await entered.p;
+    const late = s.raw.send({commandId: id(), input: {text: "反应期间到达的 send"}});
+    hold.open();
+    const r = await late;
+    await revoked;
+    console.log("N1 late send:", JSON.stringify(r.ok ? r.value : r));
+    console.log("N1 order:", await typesOf(s, ["runEnded", "inputQueued", "profileChanged", "runStarted"]));
+    console.log("N1 snapshot pendingReassembly:", JSON.stringify((await s.raw.snapshot()).pendingReassembly ?? null), "status:", (await s.raw.snapshot()).status.state);
+});
+
+test("N2 关闭（不带原因）进行中：在队列里等着的 send 得 session-closed；收口批之后才排的指令同样", async () => {
+    const entered = gate();
+    let finishTool!: () => void;
+    const slow = {id: "slow", execute: (_a: any, ctx: any) => new Promise<string>((resolve) => { entered.open(); ctx.signal.addEventListener("abort", () => { finishTool = () => resolve("stopped"); }); })};
+    const s = await createTestSession({tools: [slow]});
+    s.model.script({tools: [{tool: "slow"}]}, "答二");
+    const sent = await s.raw.send({commandId: id(), input: {text: "任务"}});
+    if (!sent.ok) throw new Error("send failed");
+    await entered.p;
+    await s.raw.send({commandId: id(), input: {text: "关闭前排的"}});
+    const closing = closeSession(s.raw);
+    const during = await s.raw.send({commandId: id(), input: {text: "关闭进行中的"}});
+    finishTool();
+    await closing;
+    console.log("N2 during:", JSON.stringify(during.ok ? during.value : during));
+});
+
+test("N3 受理批的反应进行中开始关闭：受理项写完后仍 launch 新运行，关闭不等它", async () => {
+    const entered = gate();
+    const hold = gate();
+    const ext = defineExtension({id: "lab.startgate", on: {runStarted: async () => { entered.open(); await hold.p; }}});
+    const s = await createTestSession({extensions: [ext]});
+    s.model.script("答一");
+    const sending = s.raw.send({commandId: id(), input: {text: "第一句"}});
+    await entered.p;
+    const closing = closeSession(s.raw, {reason: "interrupted"});
+    await new Promise((r) => setTimeout(r, 5));
+    hold.open();
+    const sent = await sending;
+    let closed = "pending";
+    await Promise.race([closing.then(() => (closed = "closed"), (e: any) => (closed = `threw ${e?.message}`)), new Promise((r) => setTimeout(r, 2000))]);
+    console.log("N3 send:", JSON.stringify(sent.ok ? sent.value : sent), "close:", closed);
+    console.log("N3 model requests:", s.model.requests.length);
+});
+
+test("R2c 父会话开的子会话运行被用户停止（keepQueue），父会话随后 start：接着跑用户停掉的那一轮", async () => {
+    const entered = gate();
+    let finishTool!: () => void;
+    const slow = {id: "slow", execute: (_a: any, ctx: any) => new Promise<string>((resolve) => { entered.open(); ctx.signal.addEventListener("abort", () => { finishTool = () => resolve("stopped"); }); })};
+    await using s = await createTestSession({tools: [slow], caller: {kind: "session", id: "parent", callId: "c1"}});
+    s.model.script({tools: [{tool: "slow"}]}, "父会话续上了");
+    const sent = await s.raw.as(parent).send({commandId: id(), input: {text: "父会话派的活"}});
+    if (!sent.ok) throw new Error("send failed");
+    await entered.p;
+    const aborting = s.raw.abort({commandId: id(), keepQueue: true});
+    finishTool();
+    await aborting;
+    console.log("R2c first run:", (await s.raw.waitRun(sent.value.runId)).reason);
+    const st = await s.raw.as(parent).start({commandId: id()});
+    console.log("R2c parent start:", JSON.stringify(st.ok ? st.value : st));
+    if (st.ok) { const r = await s.raw.waitRun(st.value.runId); console.log("R2c continued:", r.reason, r.text, "turn inputs:", JSON.stringify((await s.raw.path()).filter((e: any) => e.type === "turnStarted").map((e: any) => e.data.inputId === null ? "null" : "id"))); }
+});

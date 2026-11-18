@@ -27,6 +27,7 @@ import {editorWheelZoomKey, wheelZoomTarget} from "../wheel-zoom";
 import {nameOf, resourceOf} from "../documents/address";
 import {LOST_TAB_ADDRESS} from "../groups/groups";
 import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
+import EditorPageBreadcrumbs from "./EditorPageBreadcrumbs.vue";
 import type {BreadcrumbListing, BreadcrumbSegment} from "./EditorBreadcrumbs.vue";
 import {useEditorGroupRoot} from "./useEditorGroupRoot";
 import type {EditorIntent} from "./useEditorGroupRoot";
@@ -95,10 +96,13 @@ const listCrumb = async (address: string, signal: AbortSignal): Promise<Breadcru
     // 内容根的清单文件不列（资源管理器缺省也不显示它）。
     return {ok: true, entries: result.value.entries.filter((entry) => entry.role !== "manifest").map((entry) => ({name: entry.name, kind: entry.kind, address: formatResource({scheme, path: path === "" ? entry.name : `${path}/${entry.name}`})}))};
 };
-/** 面包屑交还焦点：给本组的编辑器；控件还没交出句柄（还在加载）时给本组的活动标签，不让焦点掉到页面根上。 */
+/** 页面标签的内容容器：页面的面包屑交还焦点时落在这里（页面没有控件句柄）。 */
+const pageHost = useTemplateRef<HTMLElement>("pageHost");
+/** 面包屑交还焦点：给本组的编辑器；页面标签给页面的容器；控件还没交出句柄（还在加载）时给本组的活动标签，不让焦点掉到页面根上。 */
 const returnFocus = (): void => {
     const handle = props.area.handleOf(ownGroup.value);
     if (handle !== null) handle.focus();
+    else if (pageHost.value !== null) pageHost.value.focus();
     else window.document.querySelector<HTMLElement>(`[data-editor-group-head="${CSS.escape(ownGroup.value)}"] [data-editor-tab][aria-selected="true"]`)?.focus();
 };
 const crumbFocus = computed(() => (props.area.breadcrumbFocus.value?.group === ownGroup.value ? props.area.breadcrumbFocus.value.seq : 0));
@@ -162,6 +166,12 @@ const pageId = computed(() => (activeTab.value === null ? null : pageIdOf(active
 /** 铺场景图的状态（docs/specs/theme/skins.md 输出 4）：没开文件，或活动页声明了要。主题没有场景时这一层不显示。 */
 const showsScene = computed(() => props.tabId === null || (pageId.value !== null && props.pages?.scene(pageId.value) === true));
 const pageComponent = computed(() => (pageId.value === null ? null : props.pages?.component(pageId.value) ?? null));
+/** 页面的声明在、实现还没交付（刷新后恢复、贡献方还没激活）：显示“正在加载页面”，不当成页面已经不在了。 */
+const pagePending = computed(() => pageId.value !== null && pageComponent.value === null && props.pages?.pending(pageId.value) === true);
+/** 这个标签自己的 `context`（输出 33）：同一个标签每次是同一个对象，页面组件卸载再挂上时 `state` 还在。 */
+const pageContext = computed(() => (activeTab.value?.kind === "page" ? props.pages?.context(activeTab.value) ?? null : null));
+/** 页面给的面包屑；页面没给、关了面包屑的设置时是空的。 */
+const pageCrumbs = computed(() => (props.breadcrumbs && activeTab.value?.kind === "page" ? props.pages?.crumbs(activeTab.value, port) ?? [] : []));
 /** 这个标签的记录丢了（docs/specs/ui/workbench-layout.md 输出 34）：说明原因，关掉就好。 */
 const lost = computed(() => activeTab.value?.address === LOST_TAB_ADDRESS);
 
@@ -221,6 +231,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
                 @reveal="(binding: string, version: number, id: string) => void area.handleOf(ownGroup)?.revealHeading?.(binding, version, id)"
                 @escape="returnFocus"
             />
+            <EditorPageBreadcrumbs v-else-if="pageCrumbs.length > 0" class="min-w-0 flex-[1_1_160px]" :items="pageCrumbs" :focus-seq="crumbFocus" @escape="returnFocus" />
             <div ref="toolbarSlot" class="flex min-w-0 shrink" data-editor-toolbar-slot></div>
         </div>
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
@@ -256,9 +267,10 @@ provide(editorToolbarSlotKey, toolbarSlot);
                 <Button v-if="failure.retry" size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ t("document.retry") }}</Button>
             </div>
             <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
-            <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :class="showsScene ? 'editor-group__on-scene' : ''" :data-editor-page="pageId">
-                <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
+            <div v-if="pageId !== null" ref="pageHost" tabindex="-1" class="absolute inset-0 overflow-auto outline-none" :class="showsScene ? 'editor-group__on-scene' : ''" :data-editor-page="pageId">
+                <component :is="pageComponent" v-if="pageComponent !== null && pageContext !== null" :context="pageContext" />
                 <p v-else-if="lost" class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-tab-lost>{{ t("tab.lostBody") }}</p>
+                <p v-else-if="pagePending" role="status" aria-busy="true" class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-pending>{{ t("page.loading") }}</p>
                 <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ t("page.missing") }}</p>
             </div>
             <div v-for="item in controls" v-show="binding !== null" :key="item.editor" class="absolute inset-0" :data-editor-kind="item.editor">

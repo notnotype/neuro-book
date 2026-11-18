@@ -195,13 +195,16 @@ export const editorMenusKey: InjectionKey<EditorMenus> = Symbol("nbook.editor/me
 export const OPEN_PAGE_COMMAND = "nbook.editor.open-page";
 
 /**
- * 页面的声明。页面标签不进会话记录，刷新后不恢复；`openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（还没有编辑器
- * 会话记录）时自动打开。实现（`load()`）与页面组件收到的上下文在 `web/pages.ts`。
+ * 页面的声明（docs/specs/workbench/editor.md 输出 33）。`openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（还没有编辑器
+ * 会话记录）时自动打开。`instances` 的页面按参数开多个标签（`open-page {id, arg}`）；`restore` 的页面刷新后恢复，别的页面
+ * 不恢复。实现（`load()` 等）与页面组件收到的上下文在 `web/pages.ts`。
  */
 export const EditorPageDeclarationSchema = Type.Object({
     title: TextSchema,
     icon: Type.String({pattern: "\\S"}),
     openOnFirstVisit: Type.Optional(Type.Boolean()),
+    instances: Type.Optional(Type.Boolean()),
+    restore: Type.Optional(Type.Boolean()),
     /** 铺主题的场景图（docs/specs/theme/skins.md 输出 4）：欢迎页这类内容少的页面才写；表单页不写，字不能叠在图上。 */
     scene: Type.Optional(Type.Boolean()),
 }, {additionalProperties: false});
@@ -221,8 +224,14 @@ export function validateEditorPageContribution(descriptor: ContributionDescripto
         const first = [...Value.Errors(EditorPageDeclarationSchema, descriptor.declaration)][0];
         return `Page ${descriptor.id} has an invalid declaration: ${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}: ${first.message}`}`;
     }
+    // 自动打开不带参数，带参数的页面没法自动打开。
+    const declaration = descriptor.declaration as EditorPageDeclaration;
+    if (declaration.instances === true && declaration.openOnFirstVisit === true) return `Page ${descriptor.id} declares both instances and openOnFirstVisit; a page opened automatically has no argument`;
     return null;
 }
+
+/** 带参数的页面的参数（`open-page` 的 `arg`）最长多少个字符。 */
+export const PAGE_ARG_MAX_LENGTH = 200;
 
 /**
  * 编辑器贡献点（docs/specs/workbench/editor.md 输出 36–42）：一种打开文件的方式。贡献 id 就是编辑器 id，记在标签上；

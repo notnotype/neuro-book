@@ -7,12 +7,30 @@
 
 import {codeSpanTest, fencedLines, fenceTest, findInlineLinks, unescapeMarkdown, writeInlineLink} from "../link-syntax";
 import type {MarkdownTargets} from "../targets";
+import {stickerAt} from "../stickers";
 import {findSelections, parseSelectionText} from "./prompt-selection";
 import type {PromptEditorPastePolicy, PromptEditorToken} from "./prompt-editor.types";
 
 export const PROMPT_TOKEN_NODE = "promptToken";
 export const PROMPT_PENDING_NODE = "pendingAttachment";
 export const PROMPT_PASTE_BLOCK_NODE = "pasteBlock";
+/** 表情（docs/specs/agent/stickers.md 输出 44）：独立的行内原子节点，不是小块，不发 `token-activate`。 */
+export const PROMPT_STICKER_NODE = "promptSticker";
+
+/**
+ * 宿主认不认得出一条表情写法（`MarkdownHost.stickerKnown`）：为真时它成为表情节点；为假、还不知道（目录没到）或没有宿主时就是文字
+ * （输出 44：认不出的写法是普通文字，代码里的 `std::string::npos` 不受影响）。
+ */
+export type StickerKnown = (raw: string) => boolean | undefined;
+
+/** 表情节点的属性。 */
+export interface PromptStickerAttrs {
+    kind: "sticker";
+    raw: string;
+}
+
+/** 分词认出的一处写法：小块，或表情。 */
+type PromptInlineAttrs = PromptTokenAttrs | PromptStickerAttrs;
 
 /** 编辑器把行内原子节点读成这个字符，用于触发匹配。 */
 export const PROMPT_ATOM_CHAR = "￼";
@@ -156,6 +174,7 @@ export function promptNodeText(node: PromptNodeJSON): string {
         case "text":
             return node.text ?? "";
         case PROMPT_TOKEN_NODE:
+        case PROMPT_STICKER_NODE:
             return String(node.attrs?.raw ?? "");
         case PROMPT_PENDING_NODE:
             return "";
@@ -169,6 +188,8 @@ export function promptNodeText(node: PromptNodeJSON): string {
 export interface PromptParseOptions {
     /** 正文开头显示为命令标签的命令名，不含 `/`。 */
     commands: readonly string[];
+    /** 认得出的表情写法成为表情节点；不给时表情写法都是文字。 */
+    stickerKnown?: StickerKnown;
 }
 
 /** 读入整段文字：粘贴块按整行切出，其余按整段分词；没有编号的旧图片按出现顺序接着编号。 */
@@ -182,7 +203,7 @@ export function parsePromptText(text: string, options: PromptParseOptions): Prom
             return;
         }
         const value = segment.lines.join("\n");
-        const tokens = tokenizeInline(value, {commands: options.commands, firstLine: index === 0, pasteNumbers});
+        const tokens = tokenizeInline(value, {commands: options.commands, firstLine: index === 0, pasteNumbers, stickerKnown: options.stickerKnown ?? null});
         content.push(...piecesToParagraphs(sliceToPieces(value, 0, value.length, tokens)));
     });
     numberLegacyImages(content);
@@ -227,6 +248,7 @@ export interface PromptInsertOptions {
     firstLine: boolean;
     /** 为真时识别粘贴块与位置标记，用于本编辑器复制出来的文字；外部文字只识别行内写法。 */
     structure: boolean;
+    stickerKnown?: StickerKnown;
 }
 
 /**
@@ -254,6 +276,7 @@ export function parsePromptInsertion(text: string, options: PromptInsertOptions)
             commands: options.commands,
             firstLine: isFirst && options.firstLine,
             pasteNumbers,
+            stickerKnown: options.stickerKnown ?? null,
         });
         blocks.push(...piecesToParagraphs(sliceToPieces(value, before.length, before.length + middle.length, tokens)));
     });
@@ -391,8 +414,13 @@ export function triggerNeedsSpace(before: string): boolean {
 }
 
 /**
- * 光标前同一行的文字里正在进行的触发：触发字符位于开头、空白之后、`(` 或中文标点之后，
- * 后面到光标为止没有空白，也没有行内标签。
+ * 光标前同一行的文字里正在进行的触发。查询是触发字符后面到光标为止的文字，不含空白与行内标签。触发字符各有自己的边界规则：
+ *
+ * - `@`、`$`、`/` 等：位于开头、空白之后、`(` 或中文标点之后。
+ * - `:`（表情，docs/specs/agent/stickers.md 输出 42）：位于开头、或前一个字不是 ASCII 字母与数字（紧跟汉字也算）；查询至少 1 个字、
+ *   不含 `:`，只有 1 个英文字母时不算（`:D`、`:P` 这类颜文字）。取光标前最后一个 `:`：查询不含 `:`，更前面的 `:` 不可能是触发。
+ *
+ * 同一个词里两种都成立时取靠光标近的那个：远的那个的查询里含着近的触发字符。
  */
 export function findPromptTrigger(before: string, triggers: readonly string[]): PromptTriggerMatch | null {
     if (triggers.length === 0) {
@@ -403,15 +431,83 @@ export function findPromptTrigger(before: string, triggers: readonly string[]): 
         start -= 1;
     }
     const word = before.slice(start);
+    const others = triggers.filter((trigger) => trigger !== STICKER_TRIGGER);
+    let found: PromptTriggerMatch | null = null;
     for (let index = 0; index < word.length; index += 1) {
         const char = word.charAt(index);
-        if (!triggers.includes(char) || (index > 0 && !TRIGGER_PREFIX.test(word.charAt(index - 1)))) {
+        if (!others.includes(char) || (index > 0 && !TRIGGER_PREFIX.test(word.charAt(index - 1)))) {
             continue;
         }
         const query = word.slice(index + 1);
-        return query.includes(PROMPT_ATOM_CHAR) ? null : {trigger: char, query, offset: start + index};
+        found = query.includes(PROMPT_ATOM_CHAR) ? null : {trigger: char, query, offset: start + index};
+        break;
     }
-    return null;
+    if (triggers.includes(STICKER_TRIGGER)) {
+        const colon = word.lastIndexOf(STICKER_TRIGGER);
+        const query = word.slice(colon + 1);
+        const boundary = colon === 0 || !/[A-Za-z0-9]/u.test(word.charAt(colon - 1));
+        if (colon >= 0 && boundary && query.length > 0 && !/^[A-Za-z]$/u.test(query) && !query.includes(PROMPT_ATOM_CHAR)
+            && (found === null || start + colon > found.offset)) {
+            return {trigger: STICKER_TRIGGER, query, offset: start + colon};
+        }
+    }
+    return found;
+}
+
+/** 表情补全的触发字符。 */
+export const STICKER_TRIGGER = ":";
+
+/** 一段里至多这么多个表情时显示成大图（同 Markdown 展示器，docs/specs/agent/stickers.md 输出 11）。 */
+const LARGE_STICKERS_MAX = 3;
+
+/** 一行（段落）里的内容：表情的个数，有没有别的（不是空白的文字、小块）。 */
+function stickerLine(paragraph: PromptNodeJSON): {stickers: number; other: boolean} {
+    let stickers = 0;
+    let other = paragraph.type !== "paragraph";
+    for (const child of paragraph.content ?? []) {
+        if (child.type === PROMPT_STICKER_NODE) stickers += 1;
+        else if (!(child.type === "text" && (child.text ?? "").trim() === "")) other = true;
+    }
+    return {stickers, other};
+}
+
+/**
+ * 已发送的文字里哪些行的表情显示成大图（输出 11、45）：一段（连续的非空行，空行分段）里只有表情与空白、表情 1 到 3 个时，这一段的
+ * 每一行。交回这些行在 `doc.content` 里的下标。
+ */
+export function largeStickerLines(doc: PromptNodeJSON): Set<number> {
+    const large = new Set<number>();
+    const blocks = doc.content ?? [];
+    let group: number[] = [];
+    const close = (): void => {
+        const lines = group.map((index) => stickerLine(blocks[index] as PromptNodeJSON));
+        const stickers = lines.reduce((sum, line) => sum + line.stickers, 0);
+        if (stickers > 0 && stickers <= LARGE_STICKERS_MAX && lines.every((line) => !line.other)) group.forEach((index) => large.add(index));
+        group = [];
+    };
+    blocks.forEach((block, index) => {
+        const blank = block.type === "paragraph" && (block.content ?? []).every((child) => child.type === "text" && (child.text ?? "").trim() === "");
+        if (blank) close();
+        else group.push(index);
+    });
+    close();
+    return large;
+}
+
+/**
+ * 一条用户消息是不是“只有表情”（输出 45）：几个文字块拼起来，去掉空白后只剩 1 到 3 个认得出的表情写法。宿主用它决定不画气泡；
+ * 附件与正文被省略由调用方另判。
+ */
+export function stickerOnlyMessage(texts: readonly string[], stickerKnown: StickerKnown): boolean {
+    let stickers = 0;
+    for (const text of texts) {
+        for (const block of parsePromptText(text, {commands: [], stickerKnown}).content ?? []) {
+            const line = stickerLine(block);
+            if (line.other) return false;
+            stickers += line.stickers;
+        }
+    }
+    return stickers > 0 && stickers <= LARGE_STICKERS_MAX;
 }
 
 export function pasteBlockNode(number: number, content: string): PromptNodeJSON {
@@ -458,12 +554,13 @@ interface InlineContext {
     firstLine: boolean;
     /** 能识别为位置标记的粘贴编号；null 时不识别位置标记。 */
     pasteNumbers: ReadonlySet<number> | null;
+    stickerKnown: StickerKnown | null;
 }
 
 interface LocatedToken {
     start: number;
     end: number;
-    attrs: PromptTokenAttrs;
+    attrs: PromptInlineAttrs;
 }
 
 /**
@@ -515,6 +612,15 @@ function tokenizeInline(value: string, context: InlineContext): LocatedToken[] {
         if (inFence(start) || inCode(start)) continue;
         located.push({start, end: start + raw.length, attrs: {kind: "skill", raw, number: null, label: match[3] ?? match[4] ?? "", target: ""}});
     }
+    // 表情最后认，在遮过别的写法的文字上找（链接地址里的 `:` 不算），代码里的不算；只认宿主认得出的。
+    if (context.stickerKnown !== null) {
+        const known = context.stickerKnown;
+        const stickerText = maskTokens(value, located);
+        for (const sticker of stickerWritingsIn(stickerText)) {
+            if (inFence(sticker.start) || inCode(sticker.start) || known(sticker.raw) !== true) continue;
+            located.push({start: sticker.start, end: sticker.start + sticker.raw.length, attrs: {kind: "sticker", raw: sticker.raw}});
+        }
+    }
     return located.sort((left, right) => left.start - right.start);
 }
 
@@ -546,6 +652,27 @@ function linkAttrs(raw: string, image: boolean, label: string, target: string): 
     return {kind: "reference", raw, number: null, label: text, target};
 }
 
+/** 一行文字里的表情写法，从左往右、不重叠（同 `stickers.ts` 的读法）；行内节点读成占位字符，跨过它的不算。 */
+export function stickerWritingsIn(line: string): Array<{start: number; raw: string}> {
+    const found: Array<{start: number; raw: string}> = [];
+    for (let index = line.indexOf(":"); index >= 0; index = line.indexOf(":", index + 1)) {
+        const ref = stickerAt(line, index);
+        if (ref === null) continue;
+        found.push({start: index, raw: ref.raw});
+        index += ref.raw.length - 1;
+    }
+    return found;
+}
+
+/**
+ * 要在 `before`（插入点左边同一行的原文）之后插入表情写法 `raw` 时实际插入的文字（输出 44）：插进去以后从左往右读，它若会被前面
+ * 的 `:词` 连成另一个写法（`他说:好` 后面插 `:lyra/开心:`），先补一个空格。
+ */
+export function stickerInsertionText(before: string, raw: string): string {
+    const line = before + raw;
+    return stickerWritingsIn(line).some((sticker) => sticker.start === before.length && sticker.raw === raw) ? raw : ` ${raw}`;
+}
+
 /**
  * 刚输入的文字 [insertStart, insertEnd) 是否让同一行里的某个写法写完：以括号收尾的写法（引用、选区、图片、文件、`${名称}`）
  * 在输入收尾的那个字符时写完；`$名称` 与开头的命令在后面输入了不属于名称的字符时写完。
@@ -555,12 +682,12 @@ export function findCompletedWriting(
     line: string,
     insertStart: number,
     insertEnd: number,
-    options: {commands: readonly string[]; firstLine: boolean},
-): {start: number; end: number; attrs: PromptTokenAttrs} | null {
+    options: {commands: readonly string[]; firstLine: boolean; stickerKnown?: StickerKnown},
+): {start: number; end: number; attrs: PromptInlineAttrs} | null {
     if (insertEnd <= insertStart) {
         return null;
     }
-    for (const token of tokenizeInline(line, {commands: options.commands, firstLine: options.firstLine, pasteNumbers: null})) {
+    for (const token of tokenizeInline(line, {commands: options.commands, firstLine: options.firstLine, pasteNumbers: null, stickerKnown: options.stickerKnown ?? null})) {
         if (token.start >= insertStart || line.slice(token.start, token.end).includes(PROMPT_ATOM_CHAR)) {
             continue;
         }
@@ -572,7 +699,7 @@ export function findCompletedWriting(
     return null;
 }
 
-type InlinePiece = {text: string} | {token: PromptTokenAttrs};
+type InlinePiece = {text: string} | {token: PromptInlineAttrs};
 
 /** 只取完全落在 [from, to) 里的标签，其余都是文字。 */
 function sliceToPieces(value: string, from: number, to: number, tokens: readonly LocatedToken[]): InlinePiece[] {
@@ -598,7 +725,7 @@ function piecesToParagraphs(pieces: readonly InlinePiece[]): PromptNodeJSON[] {
     const lines: PromptNodeJSON[][] = [[]];
     for (const piece of pieces) {
         if ("token" in piece) {
-            lines.at(-1)?.push(tokenNode(piece.token));
+            lines.at(-1)?.push(piece.token.kind === "sticker" ? {type: PROMPT_STICKER_NODE, attrs: {raw: piece.token.raw}} : tokenNode(piece.token));
             continue;
         }
         piece.text.split("\n").forEach((line, index) => {

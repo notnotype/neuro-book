@@ -47,6 +47,16 @@ export function describeChain(summary: ChainSummary): ProcessDescription {
     return {parts, alert: failedAlert(summary.failed)};
 }
 
+/**
+ * 有子调用的卡片的副标题里关于子调用的几段（docs/specs/ui/agent-conversation-view.md“有子调用的调用”）：运行中写已经调了几次，
+ * 结束后写一共调了几次、读改了几个文件。正在调的那一个由调用方按渲染器写。
+ */
+export function describeChildren(count: number, files: {read: number; changed: number}, running: boolean): Text[] {
+    if (running) return [agentRef("process.children.calling", {count})];
+    const phrase = filesPhrase(files.read, files.changed);
+    return [agentRef("process.children.called", {count}), ...(phrase === null ? [] : [phrase])];
+}
+
 /** 整轮过程：以“过程”开头，写总操作次数、模型请求次数与读改文件数，让人判断值不值得展开。 */
 export function describeTurn(metrics: TurnMetrics): ProcessDescription {
     const parts: Text[] = [agentRef("process.fallback")];

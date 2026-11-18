@@ -1,0 +1,134 @@
+# w00043 t14 计划（内核与 NeuroBook 后端）与 Spec 第二轮审查（Claude Opus，只读）
+
+审查对象：提交 9fd301160 的 plan.md 与 Spec 改动（git diff 5cb584b1f 9fd301160）。探针：/tmp/review-t14-plan/exp/r3-probes.test.ts，在 packages/nb-harness 下 `bun test /tmp/review-t14-plan/exp/r3-probes.test.ts` 跑在主工作区的现有内核上（负载约 28），13 例全部跑完；N3 例以未处理的 SessionClosedError 失败，这正是它要复现的现象。
+
+## 第三轮 11 条的核对
+
+1. 交出结果那一轮里父 Agent 的话：落点 api 的 `send.placement`、settleRun 第 2 步、后端 subagents 一节；探针 R1：会话身份插话交回 `{runId:null, currentRunId:<这次运行>}`，运行 `finished`，缓冲区留着 `[steer, 改成两个字以内, session]`，属实。照计划，`placement: taken`、收口批写 `inputHeld{cause:{end:"finished"}}`，内核侧能查到去向；NeuroBook 侧要把 runOnChild 改成等 inputConsumed 或 inputHeld，计划只有一句，没写怎样改（见第 8 条）。结论：内核侧消失，后端侧没落实。
+2. 宿主或会话接着跑用户的运行：落点 permissions.ts、start 的新语义、“暂停的运行”。探针 R2a：会话身份在用户运行暂停的叶子上 `send`，交回 `runId=<用户的运行>`，接着跑完，全程只有 1 个 runStarted。R2b：用户的运行出错后，会话身份 `start` 开了“继续”运行。两项都属实；照计划分别得 `placement: held` 与 `not-allowed`，(a)(b) 消失。R2c：父会话开的子会话运行被用户停掉（keepQueue），父会话 `start` 照样接着跑（turn 依次是 id、null）。照计划，`runStarted.by` 是父会话，仍然允许。结论：(c) 没有消失（见第 3 条）。
+3. 任务中心停子代理记成父会话：落点后端 subagents 一节（远程 killJob 以用户身份）。读代码核对 children.ts:46-55 的 kill 闭包固定用父会话的视图，center.ts:217-222 的 `kill(owner, id)` 与 JobDriver.kill(reason?)（center.ts:37）都不带发出者，remote.ts:216-221 走的是这条路。结论：方向对，但要改的 center.ts 不在计划的文件里（见第 8 条）。
+4. agentKey 让调用方自填身份：落点 agent.ts 改为 perConsumer。读代码：contracts.ts:110 `session(id, issuer?)`，agent.ts:338-341 把 issuer 原样交给 table.view。结论：门面盖章能堵住自填身份；测试世界与“自家门面”带出新问题（见第 5 条）。
+5. 空闲时 enqueue 自相矛盾：落点 commands（会话、宿主空闲时 `inputQueued{held}`，用户 enqueue 等于 send）。探针 R5：会话空闲时排的话交回 `position 0`，被用户随后 send 开的运行在一轮结束时取走，路径是 `[用户发的(user), 会话空闲时排的(session)]`，属实。照计划，它先留着，用户 send 时被放行，排在用户的话之前跑，enqueue 不再放行它自己。结论：矛盾消失。
+6. compact 的放行选项不起作用：落点 README 第 7 项、runtime 输出 52；`git grep arrived-during 9fd301160 -- docs/specs` 没有结果，选项已删。结论：消失。
+7. 编辑重发也成了放行入口：落点 tree.ts 一条（写视图的发出者、不放行）。探针 R7：会话视图的 `rewind{resend}`，`inputQueued.by` 与路径上 `input.by` 都是空的（记成用户），属实。照计划，记成会话、不放行。结论：消失（落在运行中途时“先取这条”只在旧日志里有就绪的话时才会不成立，影响很小）。
+8. 停止进行中到达的别人的话：落点 control 的 abort 一条（范围、第二个 abort 不改）。探针 R8：用户缺省停止进行中，会话身份 send 交回 `currentRunId`，随后被 inputRemoved 清掉；日志尾是 `runEnded inputRemoved commandAccepted`，属实。照计划，这条不在范围里，转成没有 heldBy 的留着。结论：消失，但“范围”取哪一刻有两种读法（见第 9 条）。
+9. 回到空闲后的放行是内存里的延后动作：落点 settleRun 第 3、4 步。探针 R9（同 p1-A）：runEnded 批的反应占着队列项时到达的 send，交回已收口运行的 currentRunId，空闲会话里留着就绪的话，属实。照计划，这条 send 排在 settle 项之后，会看到空闲并开新运行。结论：原问题消失；但同一个空档里会越过重新装配、撞上关闭（见第 1、2 条）。
+10. 旧日志里的就绪条目：落点“不做”（不补算，按取舍接受），runtime 输出 103 写明。探针 R10：出错留下的就绪排队，被会话身份开的运行在一轮结束时带走，路径是 `[任务, 会话的话(session), 用户排的(user)]`，属实。照计划不变，旧日志按就绪处理，与决定一致。结论：按决定保留。
+11. owner、宿主停止、形状：落点 permissions（宿主能停自己开的运行）、api（heldBy 是 Issuer，cause 是联合）、owner 随 t06。结论：(b)(c) 消失，(a) 的依赖已写明；只压缩的运行没有 by 是个小缺口（见第 10 条）。
+
+## 发现
+
+### 1. settle 项把会话翻成空闲之后，已排在队列里的 send 会在重新装配之前开运行，重新装配随后在运行中进行
+- 严重程度：重要
+- 类别：时序、与重新装配冲突
+- 位置：计划 control.ts 一节 settleRun 第 3、4 步（“有待做的重新装配时不开”只管推迟的放行）；session.ts:214-216 的 closedGuard（只在进队列前看 `state.reassembling`）；session.ts:628-632 的 onIdle、647-656 的 scheduleReassembly；session.ts:690 起的 reassembleOnce（不看 control 是否空闲）
+- 现象：探针 N1（真实内核）：运行中撤回扩展 lab.victim（notifyAssemblyChanged），runEnded 批的反应被扩展卡住时发一条 send，然后放开。日志顺序是 `… runEnded(completed) inputQueued profileChanged`，说明这条 send 的受理项排在重新装配的队列项之前。原因：send 进队列时 reassembling 还是 null，过了 closedGuard；onIdle 到收口之后才被调用，reassembleOnce 的 `core.queue.run` 是那时才排进队列的。现有内核里这条 send 看到的是“不空闲”，只入队；照计划，settle 项在同一项里把 control 翻成空闲，这条 send 会看到空闲、`startProblem` 为 null，于是按旧装配写下 runStarted 开运行。随后重新装配的队列项在这次运行里执行 `mounts.unmountAll()` 与 `core.reassemble(next)`。同类情形还有一种：notifyAssemblyChanged 在 settle 项的反应期间到达，这时 settle 已决定开下一次运行；计划又说 onIdle 要“整体搬进这一项”，如果开了下一次运行之后仍调用 onIdle，重新装配会和下一次运行并行。
+- 为什么是问题：违反 runtime 输出 57“重新装配做完之前不受理指令”与 104“重新装配仍在运行之间先做”。验收 14 只覆盖压缩期间到达、被推迟的 send，覆盖不到这个空档。
+- 如何核实：探针 N1，输出 `N1 order: profileChanged inputQueued runStarted runEnded(completed) inputQueued profileChanged`。按计划实施后，第二个 inputQueued 后面会跟着 runStarted，并排在第二个 profileChanged 之前。
+- 建议改法：任选其一写进计划。一是 accept() 在队列项里、decide 之前再看一次待做的重新装配（`pendingReassembly` 或 `reassembling` 非空时，按 104 的“推迟”处理或让它等待）；二是 settle 项在有待做的重新装配时不把会话翻成空闲，等重新装配做完再翻。同时写明：settle 开了下一次运行时不调用 onIdle，待做的重新装配留到下一次收口。验收 14 加一例：在 runEnded 批的反应期间到达的 send 遇上待做的重新装配。
+
+### 2. 关闭开始于受理批（或收口批）的反应期间时，那一项写完后照样 launch 新运行，关闭不等它；计划的“关闭开始后不开”只在组批时判断
+- 严重程度：重要
+- 类别：时序、与 closeSession 冲突（现有缺口，计划把它带进 settleRun）
+- 位置：commands.ts:51-64（accept 在 decide 之后、写批之前看 `host.closed()`，写批与反应之后无条件 `launch`）；session.ts:771-779 closeNow（`closed = true`，`control.shutdown()` 在 #active 为 null 时立即交回，然后才 `queue.drain()`）；计划 settleRun 第 3 步“会话已开始关闭”时不放行
+- 现象：探针 N3（真实内核）：空闲时 send，扩展卡住 runStarted 的反应，这期间调 `closeSession({reason: "interrupted"})`，再放开。结果：send 交回 `{runId: …}`，closeSession 正常完成，模型一次也没被请求；之后循环往已关闭的日志写入，抛出 `SessionClosedError: the session is closed; the write is dropped`（core.ts:309），control.ts:119-122 的 catch 只吞 LogBrokenError，这个错成了未处理的拒绝（bun test 因此判这一例失败）。日志里留下没有 runEnded 的 runStarted，要等重开时恢复。照计划，推迟的放行在 settleRun 里“写批、开下一次运行”，判断“已开始关闭”放在组批时；如果关闭开始在 settle 批的反应期间，会同样 launch。验收 14 的第二个场景（只压缩期间 send 后立刻 closeSession）就落在这个空档附近。
+- 为什么是问题：runtime 输出 53 规定关闭开始后“不写日志、不开运行”，104 规定“会话已开始关闭时不开运行”；实际会多出一次没收口的运行和一个进程级的未处理拒绝。
+- 如何核实：探针 N3，输出 `N3 send: {"inputId":…,"runId":"…"} close: closed`、`N3 model requests: 0`，随后是 SessionClosedError。
+- 建议改法：launch 之前（写批与反应之后）再看一次 closed，已关闭就不 launch。这时 runStarted 已经写下，由重开时的恢复收口，与崩溃一致，在 Spec 53 写一句。或者在 closeNow 的 drain 之后再看 control.active，不为空就再 shutdown 一次。settleRun 与 accept 共用同一个检查。验收 14 加“关闭开始于 settle 批的反应期间”一例。
+
+### 3. 第三轮第 2 条 (c) 没有消失：用户停掉父会话开的子会话运行后，父 Agent 不带话的 agent_send（resume）立即接着跑那一轮
+- 严重程度：重要
+- 类别：权限，与第二轮决定（用户停止子代理后只有用户能放行）不一致
+- 位置：Spec runtime 输出 4、106、108（非用户“只能接着跑 runStarted.by 是它的运行”）；subagents 输出 10（“叶子上有父会话开的、可接着跑的运行时先接着跑”）；计划 commands 一节 start 与 resume
+- 现象：探针 R2c（真实内核）：子会话的运行由父会话身份 send 开出，用户 `abort{keepQueue}`，运行 aborted；父会话身份 `start` 交回新 runId，跑出“父会话续上了”，turn 依次是 `id`、`null`，也就是接着用户停掉的那一轮“继续”。照计划，这次运行的 `runStarted.by` 是父会话，start、resume 的权限检查都放行，结果不变。`heldBy: user` 只挡缓冲区里的话，挡不住接着跑运行本身。第三轮第 2 条 (c) 写的正是这一情形，处理表把规则写成“只接着跑自己开的”，没有覆盖“自己开的、但被用户停了”。
+- 为什么是问题：用户在子代理卡片上点停止，父 Agent 下一步工具调用就能把同一轮接着跑起来，用户的停止没有效果。
+- 如何核实：探针 R2c，输出 `R2c parent start: {"runId":…}`、`R2c continued: completed 父会话续上了 turn inputs: ["id","null"]`。
+- 建议改法：交开发者确认后写进 Spec 4、108：运行以 `aborted` 收口、停的人是用户时，非用户不能接着跑它（得 `not-allowed`，或 resume 只放行不续跑）。要从日志判断，runEnded 或停止的受理记录得带停的人，计划 api 一节相应加 `runEnded.by`（或 `stoppedBy`）。验收 11 加一例。
+
+### 4. 切片 1“只加字段与读法、行为不变”单独提交不成立；切片 1–3 只跑 `bun test src/kernel`，漏掉跟着内核合同变的 kit 与 NeuroBook
+- 严重程度：重要
+- 类别：切片顺序、验证
+- 位置：计划“切片”表第 1–3 行；api 一节（CommandMap 加 resume、release，send 的成功值加 placement，Issuer 加 host）
+- 现象：(a) 远程方法表与句柄表的指令表都由内核的码表派生：kit/sessions/table.ts:67 `COMMANDS = Object.keys(commandErrors)`；neuro-book backend/remote.ts:42 同样派生，175-178 逐个转发到 `view(sessionId)[name]`；shared/remote.ts:112-120 按 commandErrors 生成各方法的错误表。切片 1 把 resume、release 加进 commandErrors，SessionApi 却到切片 3 才实现它们：要么切片 1 先写桩，要么远程层暴露两个调用即抛 TypeError 的方法，同时 shared/remote.ts 的 `commandArgs` 没有这两项。(b) Issuer 加 `host` 之后，interaction.ts:97-98 在排除 user 后直接读 `issuer.id`，host 没有 id，类型检查报错；send 成功值的 `placement` 如果是必填，切片 1 就得实现去向，与“行为不变”冲突。(c) 切片 1–3 的自跑验证只有 `bun test src/kernel`。验证门禁要求“实现变化运行受影响既有测试；类型表面改变才运行对应 typecheck”，test:affected 会选到 neuro-book 的 agent 测试（28 个文件经真实内核），计划要到第 4 片才跑。
+- 为什么是问题：前三片每一片都改内核的公开合同，neuro-book 与 kit 是它的调用方。按计划逐片提交，中间的提交在 typecheck 或 neuro-book 测试上可能是坏的，实现审查也会在错误的基线上做。
+- 如何核实：读 table.ts:67、remote.ts:42/175-178、shared/remote.ts:95-120、interaction.ts:97-98；没有改代码跑。
+- 建议改法：CommandMap 与 commandErrors 的新指令、新码挪到实现它们的切片 3（切片 1 只加事件、归约与可选字段，placement 先设为可选或放到切片 3）；第 1–3 片的验证改成 `bun run test:affected --typecheck`（或至少加 neuro-book 的 agent 测试与 typecheck），在计划里写明。
+
+### 5. agentKey 改成 perConsumer 后，测试世界拿到的是 test.agent-probe 的宿主身份；“nbook.agent 自己的门面能指定会话身份”没有调用方，kit 一节的说法与现状不符
+- 严重程度：重要
+- 类别：迁移范围、接口设计
+- 位置：计划 NeuroBook 后端一节 agent.ts 一条、kit 一节 table.ts 一条、风险第 2 条；testing/world.ts:61-63；README 第 12 项
+- 现象：(a) testing/world.ts 用一个探针插件 `test.agent-probe` 经 `context.services.require(agentKey)` 拿服务。改成 perConsumer 后，它拿到的门面缺省以 `{kind:"host", source:{plugin:"test.agent-probe"}}` 发话。neuro-book 里 28 个测试文件、85 处经 `service.session/create/startTask` 取视图（另有 40 处在视图上调 abort、remove、edit、resolve）。其中 permissions.test.ts:45 经 `w.service.create` 建会话，87、206 行用这个视图应答审批；审批只收用户，会全部得 not-allowed。停止用户开的运行、改删别人的话也一样。计划只写了“先搜全部调用方改到新形状”，没定测试世界以什么身份拿服务（`asUser: true`？世界直接拿内部的 runtime.service？），工作量被低估。(b) “nbook.agent 自己的门面另能指定会话的身份（子代理）”：子代理与任务从不经 agentKey，都直接用句柄表 `table.view(child, issuer)`（subagents/tools.ts:259、349、391，children.ts:47），nbook.agent 也不消费自己提供的 agentKey（plugin.ts:82、204），所以这个签名没有调用方。kit 一节说“新增 `view(id, issuer)` 的调用方只剩 nbook.agent 自己的门面”，可 `view(id, issuer)` 早已存在（table.ts:129），调用方就是上面这几处。照字面实施，可能去改子代理已有的正确调用。(c) ConsumerIdentity.plugin 可以为 null（宿主自己的实例，running-work.ts:46 用 instanceId 兜底），计划没写 host 的 `source.plugin` 这时填什么。(d) `create` 的 `{asUser: true}` 放在 CreateSessionOptions 的哪里，Spec 与计划都没写形状。
+- 为什么是问题：第 4 片照计划做，会撞上一大片测试失败；还会多出一个没人用、却带“可指定会话身份”权限的接口。
+- 如何核实：grep 统计（`grep -rn 'service\.session(\|service\.create(\|service\.startTask(' src --include='*.test.ts'` 得 85）；读 world.ts、permissions.test.ts、subagents 各处、ConsumerIdentity（nb-runtime services/contracts.ts:36-45）。
+- 建议改法：计划写明测试世界直接拿 nbook.agent 的内部服务（用户身份），或给世界一个 `asUser` 包装，另加一组用别的插件门面的测试（sessions 输出 21）；去掉“自家门面指定会话身份”，子代理继续用句柄表；kit 一节改成“`view(id, issuer)` 照旧，供 nbook.agent 内部用”；写明 plugin 为 null 时 source.plugin 取 instanceId；把 create 的 asUser 形状写进 sessions 输出 21。
+
+### 6. 切片 3 让“用户空闲时 enqueue 等于 send”，至少 10 个现有内核测试拿它作前置；计划只列了 session.test.ts 的验收 2
+- 严重程度：建议
+- 类别：迁移范围、切片验证
+- 位置：计划“验收映射”（只写“session/session.test.ts 改写验收 2”）；Spec runtime 输出 3、55
+- 现象：下面这些测试在空闲会话里以用户身份 enqueue 作前置，期望“只入队、不开运行”，之后再 say、start、preview、edit：session.test.ts:122、132；control.test.ts:136（两次 enqueue 后 edit、remove）；tree.test.ts:76、129；host.test.ts:388（帧序列只有两个 progress）、406（三次 enqueue 后用 head 算分页）、533（输出 55：预览投影空闲时排的话再 start）；attachments.test.ts:82（预览里带附件）。切片 3 之后，第一次 enqueue 就开运行，模型脚本被提前消耗或没有脚本可用，这些断言都会变。输出 55 的“空闲时投影 buffer[0]”在新规则下只对旧日志成立，host.test.ts:533 与 attachments.test.ts:82 要换场景，比如运行中 enqueue 后再预览。
+- 为什么是问题：切片 3 的验证写的是“同上（bun test src/kernel）”，没有预留改这批测试；而且这些是行为合同的测试，要按新合同重写，不能只换成 send。
+- 如何核实：`grep -rn 'raw\.enqueue(' src --include='*.test.ts' | grep -v '\.as('`，逐个读上下文判断是否空闲。
+- 建议改法：验收映射里列出这批测试，写明每个改成什么（运行中 enqueue、会话身份 enqueue 后留着，或改用 send）；输出 55 的用例改成运行中排的插话与旧日志两种。
+
+### 7. settleRun 的失败分支没写：写批抛错、收口批的反应抛错、开下一次运行前查模型时抛错，都会让“翻转空闲、onIdle、结算 waitRun”被跳过
+- 严重程度：建议
+- 类别：没写出来的假设、与反应冲突
+- 位置：计划 control.ts 一节第 4 步（“运行尾部整体搬进这一项，旧运行的 finally 不再推帧”）；control.ts:123-132 现有的 finally；loop.ts:397-404；control.test.ts:306（“收口批写下之后反应才出错（宿主的服务已撤回）”）；commands.ts:90-94 startProblem
+- 现象：现有内核里，收口之后的事（清 #active、推 idle、onIdle、结算等待者）都在 runLoop 的 finally 里，不论循环怎样结束都会执行。计划把它们搬进 settle 的队列项，放在“写批”之后，没写失败时怎么办。(a) 句柄损坏：写批抛 LogBrokenError（清单 1.10），后面几步都不执行；onIdle 没被调用，撤回插件的 revoke 要一直等到会话关闭（现在会走到 reassembleNow，吞掉 LogBrokenError 后放行等待者）。(b) control.test.ts:306 的场景：收口批写下之后，反应调用宿主已撤回的服务而抛错，writeAndReact 拒绝，翻转被跳过，会话永远不空闲。(c) 第 3 步“开不起运行（同 startProblem）”要调 models.resolve，宿主停止时它会抛错（session.test.ts:43 的场景），settle 项跟着抛错。计划的路径用例写“清单 1.1–1.14 每条一例”，验收映射却只写 1.1–1.9；清单第 7 节说 1.9–1.11 没跑过探针。
+- 为什么是问题：收口点收成一处之后，这一处的异常路径就是全部收口的异常路径；照字面实施，句柄损坏与插件停止这两条现有路径会回归。
+- 如何核实：读 control.ts:118-133、loop.ts:397-405、reactions.ts:44-50、control.test.ts:306-326；没有改代码跑。
+- 建议改法：计划写明 settle 项分两段，“写批与反应”放在 try 里，“翻转、推帧、onIdle、结算 waitRun”放在 finally 里，失败时按空闲（broken 时状态保持 broken）；startProblem 抛错按开不起运行处理（code 用 `internal` 或宿主停止的码）。路径用例补 1.10（wrapStore 让写失败）与 1.11。
+
+### 8. 子代理按去向认任务要改 runOnChild 与任务中心的结构，计划只有一句；停止带发出者要改的 JobDriver.kill 不在文件清单里
+- 严重程度：建议
+- 类别：照字面实施会返工、范围遗漏
+- 位置：计划后端一节 subagents 一条；subagents/tools.ts:379-421 runOnChild（408-415 拿到 runId 后同步 adopt 任务）、434-444 agent_send；jobs/center.ts:37 `kill(reason?: "interrupted")`、217-223 `kill(owner, id)`；remote.ts:216-221；children.ts:46-55
+- 现象：(a) 现在 runOnChild 要求 issue 当场交回 runId，再用它 adopt 任务（jobs.start 需要 `{sessionId, runId}`）。按 subagents 输出 10，`taken` 的插话要等 inputConsumed（带 runId）或 inputHeld 才能定去向，`later` 的要等下一次运行把它取走，受理时都拿不到 runId；前台的 agent_send 要等到这两种事件之一，才知道是“跟原任务”“登记新任务”还是“没处理、留着”。这要一个“等这条输入的去向”的订阅，并且改动 runOnChild、adopt 与 lanes 的顺序，计划一句没提。(b) 远程 killJob 以用户身份停：任务中心的 kill 不带发出者，驱动的 kill 闭包在 children.ts:47 里固定了父会话的视图。要把发出者从 remote.ts 传到 center.kill，再传到 driver.kill(by)，center.ts 也得改（shell 任务的 driver 同一个接口）。计划的文件清单里没有 center.ts 与 jobs/tools.ts。
+- 为什么是问题：第 4 片照计划做，会在 runOnChild 上返工；kill 的身份如果只改 children.ts，远程停与父 Agent 停仍然走同一个闭包，第三轮第 3 条就没修到。
+- 如何核实：读上述代码行。
+- 建议改法：计划写明 agent_send 的流程：send 交回之后按 placement 分支——taken 与 later 订阅这条 inputId 的 inputConsumed 或 inputHeld，再决定 adopt 或写“留着”的结果，held 直接写结果；JobDriver.kill 加发出者参数，center.kill(owner, id, by) 由 remote 传用户、kill 工具传父会话；文件清单加 jobs/center.ts。
+
+### 9. abort 的几处没定：范围取哪一刻、第二个 abort 的受理记录写在哪一批、停止后运行以 finished 收口时怎么算
+- 严重程度：建议
+- 类别：没写出来的假设
+- 位置：计划 control.ts 一节 abort 一条（“受理记下范围（此刻缓冲区的条目 id）”）；Spec runtime 输出 30（“范围是受理排进队列那一刻”）、26（宽限期内完成的收尾结果照常写下，运行以 finished 结束）
+- 现象：(a) 计划在同步步骤里把受理排进队列，再说“受理记下范围（此刻…）”。Spec 的“此刻”是排进队列的同步时刻；照计划的行文，容易实现成受理项轮到时。两者之间，排在前面的队列项可能写下新的 inputQueued，例如输入拦截慢的 send（输入拦截缺省最长 5 秒，在受理项里跑）：按 Spec 不在范围里，转成没有 heldBy 的留着；按受理项时刻算，会被缺省清空删掉。(b) 两个 abort 都在收口前受理：Spec 说受理记录与 runEnded 同批，计划只写了“第二个 abort 不改它们”，没说第二条的 commandAccepted 是否也进 settle 批、交回 `aborted: true` 还是 false。重发时要交回第一次的结果，这个值必须写进日志。(c) 停止受理之后，收尾工具在宽限期内完成，运行以 finished 收口：settle 批是否照样执行停止的范围（清空，或 heldBy 留着），abort 交回什么，都没写。
+- 为什么是问题：这三处都会写进日志，发布后改不了；实现者只能自己挑一种。
+- 如何核实：对照计划原文与 Spec 30、26；commands.ts:151-184 现有的 inflight 与重发处理。
+- 建议改法：计划写明：范围在同步步骤里读（`readyEntries` 加上留着的，记 id）；收口前受理的每个 abort 都在 settle 批里写自己的 commandAccepted，只有第一个是 `aborted: true` 并决定范围；运行以 finished 收口时停止的范围照样执行，abort 交回 `aborted: true`（或写成 false，二者择一写进 Spec 30）。
+
+### 10. inputConsumed.runId 与 runStarted.by 的代价不大，但旧日志按第一条 input 认发出者会认错一类运行；只压缩的运行没有 by
+- 严重程度：建议
+- 类别：日志合同、归约
+- 位置：计划 api 一节、commands 一节 start 一条（“新增 history 的 continuableRun(leaf)”“旧日志没有 by 时按那次运行第一条 input 的 by 认”）；Spec runtime 输出 4、85、108；session.ts:279-291 compact；kernel-state.ts:46-52
+- 现象与代价：(a) inputConsumed.runId：写 inputConsumed 的 7 处（loop.ts:208、238、395，commands.ts:114、142，interaction.ts:145，tree.ts:78）在写的时候都知道 runId，preview.ts:116-118 只投影、不落日志；会话级归约只按 id 删条目，用不到 runId。代价可以忽略。(b) runStarted.by：abort 在同步步骤里判权限，要拿到在跑那次运行的 by；start、resume 要拿到“最后一次对话运行”的 by、收口方式与最后一轮的状态。如果 continuableRun 每次沿路径往回扫，代价是每条指令 O(路径长度)；更省的办法是在 path 归约里记 `run.by` 与 `lastChat: {runId, by, ended, lastTurn}`，每条事件 O(1)。旧日志的推断也可以放在归约里：遇到没有 by 的 runStarted 之后的第一条 input，就用它的 by。(c) 认错的情形：旧内核的 `start` 取 buffer[0] 开新运行（探针 p2-G、p1-C，interaction.test.ts:412 的形状），这次运行第一条 input 的 by 是排话的人，不是开运行的人。用户点“重试”带走了会话排的话，这次运行会被认成会话开的，会话因此能停它、接着跑它；没有 input 的“继续”运行则一律认成用户。(d) compact 指令现在不把发出者写进 runStarted（session.ts:290），计划没提给只压缩的运行写 by；宿主开的压缩没有 by，按输出 108 宿主停不了它。
+- 为什么是问题：(c) 只影响升级前的日志，范围小，但它正是第三轮第 2 条防的那种“接着跑别人的运行”；(d) 与“宿主能停自己开的运行”不一致。
+- 如何核实：grep takeInputDrafts、takeSteerDrafts 的调用处；读 commands.ts:130-149、session.ts:279-291；p2-G、p1-C 的输出（probe-outputs.txt）。
+- 建议改法：continuableRun 的信息放进 path 归约；旧日志推断只对“第一轮的 input 与 runStarted 在同一个受理批”的运行用 input 的 by（send 开的是这样，旧 start 取 buffer[0] 也同批，所以还要加一条：不能确定时按用户算），在 Spec 4 写明；compact 的 runStarted 写视图的发出者。
+- 更正（第 10 条的建议改法）：旧 start 取 buffer[0] 时也把 runStarted 与第一轮的 input 写在同一个受理批里，“同批”分不出这两种运行，上面那个判据作废。可行的取舍只有两个，交开发者：一是照现稿按第一条 input 认（第一轮审查第 16 条的处理，父 Agent 能接着跑旧子会话里自己开的运行），代价是 (c) 的误认，在 Spec 4 写成已知限制；二是旧日志一律按用户认，代价是父 Agent 接不上升级前自己开的中断运行。
+
+### 11. 风险一节“grep runEnded 只剩它与恢复的组装函数”这个检查做不到；路径用例的范围前后不一
+- 严重程度：建议
+- 类别：验证
+- 位置：计划“不做与风险”第 1 条；“验收映射”第 2 行
+- 现象：现在 `grep -rn '"runEnded"' src/kernel`（不含测试）有 11 处，其中只有 3 处写 runEnded（loop.ts:138、362、394，以及 recover.ts:84）；其余是读的：tree.ts:47、results.ts:29/59-60、kernel-state.ts:49、log/index-file.ts:57、api/host.ts:209。实施后这些读的地方仍在，grep 不会“只剩两处”，这个检查判不出“有没有收口点没走它”。另外，风险一节写“清单 1.1–1.14 每条一例”，验收映射写的是“1.1–1.9 每条一例”，1.10–1.14 有没有用例不清楚（第 7 条说的 1.10、1.11 就在这里）。
+- 为什么是问题：实现审查拿这条当“收口只有一处”的证据，会得到一个不成立的判断。
+- 如何核实：上面的 grep。
+- 建议改法：改成查写入的地方，例如 `grep -n 'ctrl("runEnded"\|type: "runEnded"' src/kernel` 只剩 settle 的批组装函数与 recover；路径用例统一写成 1.1–1.14（1.12、1.14 写明“不是收口路径，断言缓冲区不变”）。
+- 更正（第 11 条）：写 runEnded 的是 4 处（loop.ts:138、362、394 与 recover.ts:84），“只有 3 处”写错了。
+
+## 未发现问题的方面
+
+- 清单第 1 节 14 条路径：写 runEnded 的 1.1、1.3–1.9 在计划里都有落点（loop.ts 的 25 处 end()、362、394 改走 settleRun，recover.ts:84 用同一个批组装函数，closeSession 两种关闭走 settleRun）；1.2 由 settleRun 第 1 步接着跑；1.12、1.14 不是收口路径，缓冲区不动，符合新规则；1.13 由 runResumed 与 start、resume 的新语义接住。1.10、1.11 的缺口见第 7 条。
+- 清单第 2 节 15 处读缓冲区：内核的 2.1–2.5、2.7、2.10 改走 readyEntries，2.8（edit、remove 的存在检查）要连留着的一起看，计划写的“readyEntries、heldEntries”能覆盖；2.9 快照带新字段；2.11 本来就不读。内核外的 2.12–2.15 在后端与界面各节都有对应。另外用 grep 查了 nb-harness、neuro-book 的 agent 插件与 nb-agent-ui，读 `kernel.buffer`、`snapshot.buffer` 与 inputQueued 帧的地方，清单之外没有别的。2.6 的 position 新规则下按什么数，计划没写，影响很小，不单列。
+- 时序上可行的部分：abort 在同步步骤里判权限、触发信号、`queue.run` 排进受理，不改单写者语义（没有重新装配时 closedGuard 同步调用 run，WriteQueue.run 同步挂到队尾）；settle 在一个队列项里写批之后 launch 下一次运行，control.ts:124 的 runId 守卫让旧循环的 finally 不会清掉新运行；waitRun 在项内结算、调用方之后发的指令排在后面，不会撞上 already-running。
+- Spec 第一轮处理带来的改动（输出 4、7、13、29、30、36、42、53、57、85、104–110，session 24，sessions 21，subagents 10，builtin-profiles 9）：除上面第 3、5、9、10 条说的，没有发现新的问题。
+- 风险一节的兜底测试用的是真实对象：真实内核加扩展造的时间窗、子进程 kill -9 照现有 crash 的写法、agent.test.ts 用真实门面装配；验收 14 说的“真实的扩展撤回”要经 createAgentHost 或 notifyAssemblyChanged，createTestSession 不暴露 env（本次探针 N1 是自己拼了一个 env 去调）。
+
+## 数量
+
+阻断 0，重要 5（第 1–5 条），建议 6（第 6–11 条）。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11

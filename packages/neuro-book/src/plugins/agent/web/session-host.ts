@@ -66,7 +66,8 @@ const COMPACT_REJECT_KEYS = {
 } as const;
 /** 宿主做了的输入框命令。 */
 const HOST_COMMANDS = ["compact", "new", "fork", "rename", "model", "plan", "mode"] as const;
-const HOST_TRIGGERS = ["@", "/", "$"] as const;
+/** 宿主总是做了的触发字符；表情的 `:` 只在有表情选择器时做（`SessionHostDeps.triggers`）。 */
+const HOST_TRIGGERS: readonly string[] = ["@", "/", "$"];
 /** 打字时攒一下再写草稿。 */
 const DRAFT_SAVE_DELAY_MS = 500;
 /** 上方向键最多翻多少条。 */
@@ -130,6 +131,16 @@ const AGENT_TOOL_KEYS: Readonly<Record<string, string>> = {
     "nbook.agent.jobs": "agent.jobs",
 };
 
+/**
+ * 事项是不是代码里调的工具的（eval 里的 `tool.write`），交回外层工具的 id：本会话的从适配器取（事件上的 `within`）；后代会话的
+ * 事项来自会话树，项里不带事件上的字段，只有审批的原文里带着。后代会话里提问的原文没有，取不到，向导不写来源（已知限制）。
+ */
+export function pendingWithin(item: {readonly within?: {readonly tool: string}; readonly request: unknown}): string | undefined {
+    if (item.within !== undefined) return item.within.tool;
+    const request = item.request as {within?: {tool?: unknown}} | null | undefined;
+    return typeof request?.within?.tool === "string" ? request.within.tool : undefined;
+}
+
 /** 给视图看的工具名：`nbook.agent.edit-replace` 和 `edit` 给模型的名字相同，画法也相同。 */
 export function displayToolName(id: string): string {
     const mapped = AGENT_TOOL_KEYS[id];
@@ -173,6 +184,10 @@ export interface SessionHostDeps {
     readonly openRequests: (target: {readonly sessionId: string; readonly request?: number}) => void;
     readonly openAddress: (address: string) => void;
     readonly openLink: (href: string) => void;
+    /** 宿主在 `@`、`/`、`$` 之外做了的触发字符（有表情选择器时是 `:`，docs/specs/agent/stickers.md 输出 42）；不给时没有。 */
+    readonly triggers?: readonly string[];
+    /** `:` 菜单里选了一个表情（`id` 是写法）：记进最近用过（输出 43）。 */
+    readonly stickerSelected?: (raw: string) => void;
     /** Skill（skills.md 输出 26–28）：`$` 菜单选中之后的事、点开标签的地址；`profile` 是当前会话的 Profile。 */
     readonly skills: {
         selected(id: string, profile: string): void;
@@ -1494,6 +1509,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 return;
             case "menu.selected":
                 if (action.trigger === "$") deps.skills.selected(action.id, profileKey());
+                else if (action.trigger === ":") deps.stickerSelected?.(action.id);
                 return;
             case "skill.open": {
                 const address = deps.skills.address(action.name, profileKey());
@@ -1532,9 +1548,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     }
 
     /** 一个等用户的事项换成视图要的样子；`source` 是后代会话的（停靠区标来源），`async` 是异步提问。 */
-    function pendingView(item: {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: unknown}, extra: {readonly source?: {sessionId: string; name: string; icon: string}; readonly async?: true; readonly approvalMode?: string}): PendingInputView {
-        const common = {...(extra.source === undefined ? {} : {source: extra.source}), ...(extra.async === true ? {async: true as const} : {})};
+    function pendingView(item: {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: unknown; readonly within?: {readonly tool: string}}, extra: {readonly source?: {sessionId: string; name: string; icon: string}; readonly async?: true; readonly approvalMode?: string}): PendingInputView {
         const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest};
+        const withinTool = pendingWithin(item);
+        const common = {...(extra.source === undefined ? {} : {source: extra.source}), ...(extra.async === true ? {async: true as const} : {}), ...(withinTool === undefined ? {} : {within: {tool: displayToolName(withinTool)}})};
         if (item.kind === "approval") {
             return {...common, kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: approvalReason(request.reason)}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};
         }
@@ -1635,7 +1652,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 ...(target.ancestors.length === 0 ? {} : {path: [...target.ancestors].reverse().map((item) => ({id: item.id, title: item.profile === null ? null : item.title ?? "", ...(item.icon === undefined ? {} : {icon: item.icon})}))}),
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: [...HOST_TRIGGERS, ...(deps.triggers ?? [])], canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),

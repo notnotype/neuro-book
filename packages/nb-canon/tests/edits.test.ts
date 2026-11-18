@@ -3,7 +3,7 @@ import {createHash} from "node:crypto";
 import {describe, expect, test} from "bun:test";
 
 import {buildRegistry, ChapterOrder, type Entry, type WriteRequest} from "../src/index";
-import {editInPlace, recordDelta, replaceOnce} from "../src/world/edits";
+import {editInPlace, previewEdit, recordDelta, recordNote, replaceOnce} from "../src/world/edits";
 import {World, type WriteResult} from "../src/world/world";
 import {PANEL, PERSON} from "./fixtures/world";
 
@@ -195,5 +195,113 @@ describe("canon.revisions 输出 8：就地改的路由表与失败码（值不�
         // 记一笔：第 44 章之后的两笔加减（第 45 章 +2800、第 50 章 +5）都会跟着变。
         const delta = ok(recordDelta(later, {requestId: id(), by: author, position: end("ch44"), at: {entry: "e1", path: "panel.存款"}, delta: -300, reason: "买药", read: {value: 39000, version: 3}}, "t"));
         expect(delta.laterRecords).toEqual([idOf("b"), idOf("pay")]);
+    });
+});
+
+describe("canon.revisions 输出 22、23、24 与场景 8：预览、语义档的记一笔、请求 id 重发", () => {
+    const deposit = {entry: "e1", path: "panel.存款"} as const;
+    const attitude = {entry: "e1", path: "character.态度"} as const;
+    /** 修订里与写入结果无关的字段（请求 id、时间）不比：Spec 只要求操作与带来的变化逐字相同。 */
+    const outcome = (result: {revision: {ops: unknown; impact: unknown}; laterRecords: readonly string[]}) => ({ops: result.revision.ops, impact: result.revision.impact, laterRecords: result.laterRecords});
+
+    test("只在初值设过的值：预览的路由是改初值，操作只有条目这一个字段；随后同样的输入写入，操作与带来的变化与预览相同", () => {
+        const base = world();
+        const edit = {requestId: id(), by: author, position: end("ch50"), at: {entry: "e1", path: "entry.name"}, value: "夜王", read: {value: "星瑕", version: 2}} as const;
+        const preview = ok(previewEdit(base, {kind: "edit", ...edit}, "t"));
+        expect(preview.route).toEqual({kind: "init"});
+        expect(preview.revision.ops).toEqual([{ref: {kind: "entry", id: "e1"}, kind: "modify", fields: [{path: "init.name", before: "星瑕", after: "夜王"}]}]);
+        // 预览不发布：世界没变，同一个请求 id 随后照常写入。
+        expect(base.requested(edit.requestId)).toBeUndefined();
+        const written = ok(editInPlace(base, edit, "t"));
+        expect(written.repeated).toBe(false);
+        expect(outcome(written)).toEqual(outcome(preview));
+    });
+
+    test("改的是某条变更的赋值：路由指到那条变更里的那个补丁；几笔累出来的数：预览得到同样的 accumulated-value", () => {
+        const base = world();
+        const dye = [...base.data.changes.values()].find((change) => change.text === "dye")!;
+        const preview = ok(previewEdit(base, {kind: "edit", requestId: id(), by: author, position: end("ch50"), at: {entry: "e1", path: "character.外观"}, value: "深棕", read: {value: "黑色", version: 2}}, "t"));
+        expect(preview.route).toEqual({kind: "patch", change: dye.id, patch: 0});
+
+        const refused = previewEdit(base, {kind: "edit", requestId: id(), by: author, position: end("ch50"), at: deposit, value: 41000, read: {value: 41800, version: 2}}, "t");
+        expect(refused.ok === false && refused.failure.code).toBe("accumulated-value");
+    });
+
+    test("意图是剧情变化、记一笔：路由是在这一章最后新记一条变更；预览与写入相同", () => {
+        const base = world();
+        const story = {requestId: id(), by: author, position: end("ch50"), at: deposit, value: 41000, read: {value: 41800, version: 2}, intent: "story"} as const;
+        const preview = ok(previewEdit(base, {kind: "edit", ...story}, "t"));
+        expect(preview.route).toEqual({kind: "change", at: {kind: "chapter", chapter: "ch50", key: 0}});
+        expect(outcome(ok(editInPlace(base, story, "t")))).toEqual(outcome(preview));
+
+        const delta = {requestId: id(), by: author, position: end("ch45"), at: deposit, delta: -300, reason: "买药", read: {value: 41800, version: 2}} as const;
+        const previewed = ok(previewEdit(base, {kind: "delta", ...delta}, "t"));
+        // 第 45 章已有键 10、20 的两条：新的一条排在最后。
+        expect(previewed.route).toEqual({kind: "change", at: {kind: "chapter", chapter: "ch45", key: 21}});
+        expect(outcome(ok(recordDelta(base, delta, "t")))).toEqual(outcome(previewed));
+    });
+
+    test("请求 id 用过也不影响预览：预览的结果与没用过时一样", () => {
+        const base = world();
+        const used = id();
+        const after = ok(recordDelta(base, {requestId: used, by: author, position: end("ch50"), at: deposit, delta: -300, reason: "买药", read: {value: 41800, version: 2}}, "t")).world;
+        const edit = {by: author, position: end("ch50"), at: deposit, delta: 100, reason: "捡到钱", read: {value: 41500, version: 3}} as const;
+        expect(outcome(ok(previewEdit(after, {kind: "delta", requestId: used, ...edit}, "t")))).toEqual(outcome(ok(previewEdit(after, {kind: "delta", requestId: id(), ...edit}, "t"))));
+    });
+
+    test("语义档的记一笔：在这个位置多一条变更，文字与事件是同一句；不是语义档、初值位置、读到的值过期各有各的失败", () => {
+        const base = world();
+        const next = structuredClone(base.data.entries.get("e1")!);
+        next.init.data.character!.fields.态度 = "冷淡";
+        const quiet = ok(base.publish({requestId: id(), by: author, what: "edit", title: "加态度", baseVersion: 2, puts: [{ref: {kind: "entry", id: "e1"}, after: next}]} as WriteRequest, "t") as WriteResult).world;
+        const note = {requestId: id(), by: author, position: end("ch45"), at: attitude, text: "把卡推了回去", read: {value: "冷淡", version: 3}} as const;
+
+        const preview = ok(previewEdit(quiet, {kind: "note", ...note}, "t"));
+        expect(preview.route).toEqual({kind: "change", at: {kind: "chapter", chapter: "ch45", key: 21}});
+        const noted = ok(recordNote(quiet, note, "t"));
+        expect(outcome(noted)).toEqual(outcome(preview));
+        const created = noted.revision.ops[0]!;
+        expect(created.kind === "create" && created.after).toMatchObject({kind: "written", text: "把卡推了回去", at: {kind: "chapter", chapter: "ch45", key: 21}, patches: [{op: "note", at: attitude, value: "把卡推了回去"}]});
+        // 字段多了一条事件：读到的是起点加事件（没有归纳），起点不变。
+        const view = noted.world.line().engine.entry("e1", end("ch45"), "actual");
+        expect(view !== null && view !== "chapter-not-found" && view.namespaces.character!.fields.态度).toMatchObject({unreduced: {anchor: "冷淡", events: 1}});
+        expect(noted.world.line().engine.entry("e1", end("ch44"), "actual")).toMatchObject({namespaces: {character: {fields: {态度: {value: "冷淡"}}}}});
+
+        const notSemantic = recordNote(quiet, {...note, requestId: id(), at: deposit, read: {value: 41800, version: 3}}, "t");
+        expect(notSemantic.ok === false && notSemantic.failure).toMatchObject({code: "validation-failed", problems: [{code: "type-mismatch"}]});
+        const initial = recordNote(quiet, {...note, requestId: id(), position: {kind: "initial"}}, "t");
+        expect(initial.ok === false && initial.failure.code).toBe("intent-not-allowed");
+        const stale = recordNote(quiet, {...note, requestId: id(), read: {value: "热情", version: 3}}, "t");
+        expect(stale.ok === false && stale.failure).toEqual({code: "value-conflict", current: "冷淡"});
+    });
+
+    test("同一个请求 id 再提交同样的输入：返回第一次的修订，不多出修订，也不因为值已经变了报冲突；换了输入得到 request-id-reused", () => {
+        const base = world();
+        const edit = {requestId: id(), by: author, position: end("ch50"), at: {entry: "e1", path: "entry.name"}, value: "夜王", read: {value: "星瑕", version: 2}} as const;
+        const first = ok(editInPlace(base, edit, "t"));
+        const again = ok(editInPlace(first.world, edit, "t"));
+        expect(again).toMatchObject({repeated: true, revision: {id: first.revision.id}});
+        expect(again.world.version).toBe(first.world.version);
+        const other = editInPlace(first.world, {...edit, value: "白王"}, "t");
+        expect(other.ok === false && other.failure.code).toBe("request-id-reused");
+
+        const delta = {requestId: id(), by: author, position: end("ch50"), at: deposit, delta: -300, reason: "买药", read: {value: 41800, version: 3}} as const;
+        const recorded = ok(recordDelta(first.world, delta, "t"));
+        expect(ok(recordDelta(recorded.world, delta, "t"))).toMatchObject({repeated: true, revision: {id: recorded.revision.id}});
+        const changed = recordDelta(recorded.world, {...delta, delta: -500}, "t");
+        expect(changed.ok === false && changed.failure.code).toBe("request-id-reused");
+    });
+
+    test("改几笔里的一笔是对那条变更的普通写入：读出它、换掉那一处的值、预览再发布；读出以后它被改过得到 version-conflict", () => {
+        const base = world();
+        const b = [...base.data.changes.values()].find((change) => change.text === "b")!;
+        const request: WriteRequest = {requestId: id(), by: author, what: "edit", title: "把这一笔改成 +2000", baseVersion: 2, puts: [{ref: {kind: "change", id: b.id}, after: {...b, patches: [{...b.patches[0]!, value: 2000}]}}]};
+        const preview = ok(base.preview(request, "t"));
+        const published = ok(base.publish(request, "t"));
+        expect(published.revision.ops).toEqual(preview.revision.ops);
+        expect(published.world.line().engine.entry("e1", end("ch50"), "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 41000}}}}});
+        // 基于旧版本再改同一条变更：它已经被上面那次改过。
+        const stale = published.world.publish({...request, requestId: id(), puts: [{ref: {kind: "change", id: b.id}, after: {...b, patches: [{...b.patches[0]!, value: 1000}]}}]}, "t");
+        expect(stale.ok === false && stale.failure.code).toBe("version-conflict");
     });
 });

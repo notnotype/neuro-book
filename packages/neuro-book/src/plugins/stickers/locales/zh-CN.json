@@ -177,5 +177,15 @@
         "manifest-unreadable": "stickers.json 读不了或有语法错误，在文件夹里修好它。",
         "manifest-invalid": "stickers.json 的内容不合规则，在文件夹里修好它。",
         "folder-unreadable": "文件夹读不了，检查一下权限。"
+    },
+    "picker": {
+        "label": "表情",
+        "search": "搜索表情",
+        "packs": "表情包",
+        "recent": "最近用过",
+        "results": "搜索结果",
+        "empty": "还没有表情包",
+        "create": "在设置里新建",
+        "noResult": "没有叫“{{query}}”的表情"
     }
 }

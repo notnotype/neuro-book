@@ -76,8 +76,21 @@ export const DesktopSettingValuesSchema = Type.Object({
     openAtLogin: Type.Boolean(),
     closeLastWindow: CloseLastWindowSchema,
     windowBackdrop: WindowBackdropSchema,
+    /** 在桌面放快捷方式（desktop-shell 输出 33）。 */
+    desktopShortcut: Type.Boolean(),
 }, {additionalProperties: false});
 export type DesktopSettingValues = Static<typeof DesktopSettingValuesSchema>;
+
+/**
+ * 这次运行的安装事实（desktop-shell 输出 34）：壳启动时算一次，页面就绪时交给那个窗口。`installed` 与 `defaultStateRoot` 都成立
+ * 时开机自启与桌面快捷方式才生效；`stateRoot` 是这次运行的状态根，首次启动向导显示它。
+ */
+export const InstallFactsSchema = Type.Object({
+    installed: Type.Boolean(),
+    defaultStateRoot: Type.Boolean(),
+    stateRoot: Type.String({minLength: 1}),
+}, {additionalProperties: false});
+export type InstallFacts = Static<typeof InstallFactsSchema>;
 
 /** 页面交回的选择：动作按钮（下载、重试、打开下载页）或关掉通知（“以后”）。 */
 export const UpdateChoiceSchema = Type.Union([Type.Literal("download"), Type.Literal("retry"), Type.Literal("open-page"), Type.Literal("later")]);
@@ -95,6 +108,8 @@ const ShellMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("update-hint-end"), id: Generation}),
     /** 窗口是不是最大化：严格等于 Win32 的 IsZoomed，贴边分屏不算（desktop-shell 输出 10）。 */
     Type.Object({type: Type.Literal("window-state"), maximized: Type.Boolean()}),
+    /** 这次运行的安装事实；壳在这个窗口每次 `page-ready` 时发。 */
+    Type.Object({type: Type.Literal("install-facts"), facts: InstallFactsSchema}),
 ]);
 
 /**
@@ -114,6 +129,8 @@ const PageMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("desktop-settings"), values: DesktopSettingValuesSchema}),
     /** 窗口带磨砂背景时，页面当前的明暗：壳据此设 DWM 的明暗标志，磨砂的底色与页面同向（desktop-shell 输出 32）。 */
     Type.Object({type: Type.Literal("window-appearance"), dark: Type.Boolean()}),
+    /** 用系统的文件管理器打开这次运行的状态根（首次启动向导第四步，desktop-shell 输出 34）；壳自己知道路径，页面不给路径。 */
+    Type.Object({type: Type.Literal("open-state-root")}, {additionalProperties: false}),
     Type.Object({type: Type.Literal("title"), title: Type.String()}),
     Type.Object({type: Type.Literal("open-window"), url: Type.String()}),
 ]);

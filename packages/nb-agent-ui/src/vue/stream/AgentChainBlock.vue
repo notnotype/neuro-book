@@ -5,10 +5,10 @@
  * 思维链重新分组（步骤换了位置、换了实例）时不丢。
  */
 import {CollapsibleCard, CollapsibleRow} from "@notnotype/nb-ui/components";
-import type {AgentConversationContext, AgentConversationServices} from "../../types";
+import type {AgentConversationContext, AgentConversationServices, ToolCallView} from "../../types";
 import {presentationOf, type AgentViewRegistry, type ToolRendererEntry} from "../../registry";
-import type {ChainBlock, ToolStep, TurnStatus} from "../../conversation-turns";
-import {describeChain} from "../../process-summary";
+import {childFiles, notableChildren, type ChainBlock, type ToolStep, type TurnStatus} from "../../conversation-turns";
+import {describeChain, describeChildren, formatDuration} from "../../process-summary";
 import {toolCallPhase} from "../../tool-status";
 import AgentMarkdown from "../parts/AgentMarkdown.vue";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
@@ -55,6 +55,33 @@ function chainLabel(): string {
 function chainAlert(): string {
     const alert = describeChain(props.chain.summary).alert;
     return alert === null ? "" : text(alert);
+}
+
+/** 子调用画成思维链里的一行，与别的步骤同一个组件；展开状态按子调用的 id 记。 */
+function childStep(parent: ToolStep, child: ToolCallView): ToolStep {
+    return {kind: "tool", id: child.id, messageId: parent.messageId, call: child};
+}
+
+/**
+ * 卡片的副标题（docs/specs/ui/agent-conversation-view.md“有子调用的调用”与下一条）：工具的摘要；运行中、已经开始执行的接上已用时
+ * （从开始执行算起，含等审批的时间）；有子调用时接上计数，运行中写已调用几次与正在调的那一个（最近受理、还没有结果的）。
+ * 已用时放在副标题里而不是头部右侧：跑完时它消失，头部右侧的状态图标与箭头不挪位置。
+ */
+function cardSubtitle(step: ToolStep): string {
+    const running = toolCallPhase(step.call.status) === "running";
+    const parts = [rendererOf(step).summary(step.call)];
+    const started = step.call.startedAt;
+    if (running && started !== undefined) parts.push(formatDuration(Math.max(0, props.ctx.now - started)));
+    const children = step.call.children ?? [];
+    if (children.length > 0) {
+        parts.push(...describeChildren(children.length, childFiles(step.call, props.registry), running).map(text));
+        const active = running ? children.findLast((child) => toolCallPhase(child.status) === "running") : undefined;
+        if (active !== undefined) {
+            const renderer = props.registry.resolveTool(active.name);
+            parts.push(`${text(renderer.label)} ${renderer.summary(active)}`.trim());
+        }
+    }
+    return parts.filter((part) => part !== "").join(" · ");
 }
 
 function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error" {
@@ -129,18 +156,49 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                         />
                     </template>
                 </template>
-                <CollapsibleCard
-                    v-else-if="entry.kind === 'tool' && presentationOf(rendererOf(entry), entry.call) === 'card'"
-                    :running-label="t('turn.running')"
-                    :icon="rendererOf(entry).icon"
-                    :title="text(rendererOf(entry).label)"
-                    :subtitle="rendererOf(entry).summary(entry.call)"
-                    :status="cardStatus(entry)"
-                    :expanded="openSet.isOpen(entry.id)"
-                    @update:expanded="openSet.set(entry.id, $event)"
-                >
-                    <AgentToolDetail :call="entry.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
-                </CollapsibleCard>
+                <template v-else-if="entry.kind === 'tool' && presentationOf(rendererOf(entry), entry.call) === 'card'">
+                    <CollapsibleCard
+                        :running-label="t('turn.running')"
+                        :icon="rendererOf(entry).icon"
+                        :title="text(rendererOf(entry).label)"
+                        :subtitle="cardSubtitle(entry)"
+                        :status="cardStatus(entry)"
+                        :expanded="openSet.isOpen(entry.id)"
+                        @update:expanded="openSet.set(entry.id, $event)"
+                    >
+                        <AgentToolDetail :call="entry.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
+                        <!-- 展开后列出全部子调用，每个点开是它自己的详情 -->
+                        <div v-if="entry.call.children?.length" class="acv-card__children" data-card-children>
+                            <AgentToolStepRow
+                                v-for="child in entry.call.children"
+                                :key="child.id"
+                                :step="childStep(entry, child)"
+                                :expanded="openSet.isOpen(child.id)"
+                                :ctx="props.ctx"
+                                :services="props.services"
+                                :registry="props.registry"
+                                @update:expanded="openSet.set(child.id, $event)"
+                                @action="emit('action', $event)"
+                            />
+                        </div>
+                    </CollapsibleCard>
+                    <!-- 卡片收起时，改了文件、出错、被拒、结果未知的子调用紧跟在下面露出 -->
+                    <template v-if="!openSet.isOpen(entry.id)">
+                        <AgentToolStepRow
+                            v-for="child in notableChildren(entry.call, props.registry)"
+                            :key="child.id"
+                            class="acv-steps__nested"
+                            data-card-child
+                            :step="childStep(entry, child)"
+                            :expanded="openSet.isOpen(child.id)"
+                            :ctx="props.ctx"
+                            :services="props.services"
+                            :registry="props.registry"
+                            @update:expanded="openSet.set(child.id, $event)"
+                            @action="emit('action', $event)"
+                        />
+                    </template>
+                </template>
                 <AgentToolStepRow
                     v-else-if="entry.kind === 'tool'"
                     :step="entry"
@@ -209,6 +267,17 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
 
 .acv-steps__nested {
     padding-left: 20px;
+}
+
+/* 卡片正文里的子调用：与详情隔一道发丝线，行与思维链里的步骤行同一种。 */
+.acv-card__children {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: var(--border-w, 1px) solid var(--divider);
+    --nb-collapsible-row-px: 6px;
 }
 
 /* 同一条思维链里两条 assistant 消息之间的边界。 */

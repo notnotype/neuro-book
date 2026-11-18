@@ -27,7 +27,7 @@ import type {DiagnosticCompute, LogLock} from "@notnotype/nb-canon/node";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 
 import {descriptor} from "../plugin";
-import {BINDER_DIR, chapterOfFile, chapterText, readBinder} from "./binder";
+import {BINDER_DIR, chapterOfFile, chapterText, chapterTitles, readBinder} from "./binder";
 
 const SETTLE_MS = 50;
 /** 世界日志的跨进程锁在 `.nbook/locks/` 下的名字。 */
@@ -166,7 +166,8 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     const reloadBinder = settled(async (current) => {
         const read = await readBinder(root);
         if (!read.ok) record("warn", "canon.binder.invalid", `活页夹清单坏了，保持原来的章序：${read.detail}`);
-        await current.setChapters(read.ok ? read.chapters : "invalid", read.ok ? read.lines : undefined);
+        // 标题取自章节文件名：改名也走这里（活页夹目录里任何变化都会重读清单），标题变了由世界服务发 `inputChanged`。
+        await current.setChapters(read.ok ? read.chapters : "invalid", read.ok ? read.lines : undefined, chapterTitles(root));
     });
     const absorb = settled((current) => current.externalChanged());
 
@@ -240,7 +241,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
                     clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
                 },
             },
-            {chapters: binder.ok ? binder.chapters : "invalid", ...(binder.ok ? {chapterLines: binder.lines} : {}), registry: buildRegistry(components), marks: buildMarkRegistry(marks), diagnostics: buildDiagnosticRegistry(diagnostics)},
+            {chapters: binder.ok ? binder.chapters : "invalid", ...(binder.ok ? {chapterLines: binder.lines} : {}), chapterTitles: chapterTitles(root), registry: buildRegistry(components), marks: buildMarkRegistry(marks), diagnostics: buildDiagnosticRegistry(diagnostics)},
         );
         if ("code" in opened) {
             record("warn", "canon.open.locked", "打开世界时世界日志的锁一直被占着，下一次调用再试");
@@ -272,6 +273,9 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
             }
         });
         watchBinder();
+        // 打开时读过一次清单，监视到这里才接上：这中间活页夹目录才出现或清单被改的，没有事件会来，所以接上以后再读一次。
+        // 清单没变时 `setChapters` 什么也不做。
+        reloadBinder();
         return opened;
     };
 
@@ -317,7 +321,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
             queueRegistries("diagnostics");
         },
         registerDiagnostics: (plugin, registration) => {
-            computers.get(plugin)?.detach?.();
+            // 同一插件再登记直接替换：内核按插件替换、旧登记的停止函数按令牌认，不先注销（不发一次多余的 `diagnostics` 通知）。
             const item = {registration, detach: service === null ? null : service.registerDiagnostics(plugin, registration)};
             computers.set(plugin, item);
             return () => {

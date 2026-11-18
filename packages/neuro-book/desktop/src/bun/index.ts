@@ -33,6 +33,9 @@ import {systemClock} from "../../../src/desktop/deadline";
 import {DesktopShell} from "../../../src/desktop/shell";
 import type {ShellPorts, ShellUpdates, StartupView} from "../../../src/desktop/shell";
 import {createDesktopSettingsCacheWriter, DEFAULT_DESKTOP_SETTINGS, loginItemPlan, readDesktopSettingsCache, sameDesktopSettings} from "../../../src/desktop/desktop-settings";
+import {createShortcutSync, desktopShortcutAction} from "../../../src/desktop/desktop-shortcut";
+import type {ShortcutSync} from "../../../src/desktop/desktop-shortcut";
+import {isInstalledRun} from "../../../src/desktop/install-facts";
 import {resolveDesktopStateRoot} from "../../../src/desktop/state-root";
 import type {TrayView} from "../../../src/desktop/tray";
 import {scanApplyResults} from "../../../src/desktop/update-install";
@@ -42,10 +45,11 @@ import {backdropFor} from "../../../src/desktop/backdrop";
 import {centeredFrame, MIN_PAGE_SIZE, minimumFrame} from "../../../src/desktop/window-size";
 import type {Size} from "../../../src/desktop/window-size";
 import {DESKTOP_EVENT, parsePageMessage} from "../../../src/shared/desktop-bridge";
-import type {CloseReason, DesktopSettingValues, ShellMessage, WindowControl} from "../../../src/shared/desktop-bridge";
+import type {CloseReason, DesktopSettingValues, InstallFacts, ShellMessage, WindowControl} from "../../../src/shared/desktop-bridge";
 import {PRODUCT_VERSION} from "../../../src/shared/product";
 
 import {preloadScript} from "./preload";
+import {createWindowsShortcutPort, shortcutFileName} from "./desktop-shortcut";
 import {changeLoginItem, readLoginItem} from "./login-item";
 import {adoptCustomFrame, applyBackdrop, setBackdropDark, setMinimumSize, setWindowIcon} from "./win32";
 
@@ -350,6 +354,11 @@ async function main(): Promise<void> {
      * 准备好之后才有，见下面 `loginIdentity`。
      */
     let loginIdentity: {readonly name: string; readonly managed: boolean} | null = null;
+    /** 安装事实（输出 34）：取得版本信息与通道根之后算一次，页面就绪时交给窗口。 */
+    let installFacts: InstallFacts | null = null;
+    /** 桌面快捷方式（输出 33）：只在安装版、缺省状态根的运行里建；`shortcutPrevious` 是本进程里上一次收到的页面值。 */
+    let shortcutSync: ShortcutSync | null = null;
+    let shortcutPrevious: boolean | null = null;
     const syncLoginItem = (openAtLogin: boolean): void => {
         if (loginIdentity === null || !root.ok) return;
         const existing = readLoginItem(loginIdentity.name);
@@ -378,6 +387,12 @@ async function main(): Promise<void> {
         fromPage = true;
         const same = sameDesktopSettings(values, desktopValues);
         if (first || values.openAtLogin !== desktopValues.openAtLogin) syncLoginItem(values.openAtLogin);
+        // 第一次收到值、或值变了才判：几个窗口各交一次同样的值不重复起 PowerShell。第一次为关时删掉更新换上后又出现的那个。
+        if (shortcutSync !== null && (first || values.desktopShortcut !== shortcutPrevious)) {
+            const action = desktopShortcutAction({value: values.desktopShortcut, previous: shortcutPrevious, applies: true});
+            if (action !== null) shortcutSync.request(action);
+        }
+        shortcutPrevious = values.desktopShortcut;
         if (same) return;
         if (values.closeLastWindow !== desktopValues.closeLastWindow) shell.setCloseLastWindow(values.closeLastWindow);
         desktopValues = values;
@@ -433,6 +448,7 @@ async function main(): Promise<void> {
             case "page-ready":
                 shell.windows.pageReady(id);
                 pushWindowState(id, true);
+                if (installFacts !== null) dispatch(win, {type: "install-facts", facts: installFacts});
                 // 每次页面就绪都按当前值重设，不依赖 WebView2 的缩放跨整页导航保持。
                 win.setPageZoom(desktopValues.zoom);
                 return;
@@ -452,6 +468,10 @@ async function main(): Promise<void> {
             }
             case "window-state-query":
                 pushWindowState(id, true);
+                return;
+            case "open-state-root":
+                // 状态根在壳启动时已建出 logs\desktop，一定是目录；打不开只记日志（输出 34）。
+                if (root.ok && !Utils.openPath(root.stateRoot)) log(`desktop.state-root.open-failed ${root.stateRoot}`);
                 return;
             case "page-gone":
                 shell.windows.pageGone(id);
@@ -631,7 +651,13 @@ async function main(): Promise<void> {
     const updates = await desktopUpdates();
     // 开机自启的值名是应用标识（测试标识不碰正式安装的项）；安装版才登记（通道根取得到）。
     const localInfo = await Updater.getLocalInfo();
-    loginIdentity = localInfo.identifier === "" ? null : {name: localInfo.identifier, managed: (updates?.channelRoot ?? null) !== null};
+    const installed = isInstalledRun({channel: localInfo.channel, portable: root.ok && root.portable, channelRoot: updates?.channelRoot ?? null, execPath: process.execPath, platform: process.platform});
+    loginIdentity = localInfo.identifier === "" ? null : {name: localInfo.identifier, managed: installed};
+    if (root.ok) installFacts = {installed, defaultStateRoot: root.source === "default", stateRoot: root.stateRoot};
+    if (process.platform === "win32" && installed && root.ok && root.source === "default") {
+        shortcutSync = createShortcutSync(createWindowsShortcutPort(shortcutFileName(localInfo.name, localInfo.channel), process.execPath), log);
+    }
+    log(`install-facts ${JSON.stringify(installFacts)}`);
     log(`update setup=${updates === undefined ? "none" : `channelRoot=${String(updates.channelRoot)} local=${updates.updater.local.version}/${updates.updater.local.hash}`}`);
     shell = new DesktopShell({
         root,
@@ -642,6 +668,7 @@ async function main(): Promise<void> {
         report: log,
         updates,
         closeLastWindow: desktopValues.closeLastWindow,
+        ...(shortcutSync === null ? {} : {shortcuts: shortcutSync}),
     });
     await shell.run();
 

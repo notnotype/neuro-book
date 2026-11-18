@@ -106,6 +106,7 @@ owners:
 27. `shell` 的 `async`：参数加 `async?`，为真时转后台，见 [`jobs.md`](jobs.md) 输出 7。
 28. `ask` 的 `async`：参数加 `async?`，为真时提出异步提问（[`harness/runtime.md`](../harness/runtime.md) 输出 40、43），工具立即返回一句“问题已提出，回答会作为一条输入送来”，运行接着跑；问题留到有人回答，跨轮也在；回答作为一条输入进缓冲区。后台会话里同样得 `ask-unavailable`。
 29. 代码里调 `shell`（planned）：在嵌套调用里（[`harness/runtime.md`](../harness/runtime.md) 输出 90）`async` 为真时不执行，得 `error`、码 `async-in-code`：转后台的命令寿命超出这段代码。别的参数照常。
+30. 代码里调 `read`（planned）：在嵌套调用里结果另带结构化的值，`read` 的声明写同一个形状的 `returns`，代码拿到的是它（[`eval.md`](eval.md) 输出 7）。文本是 `{kind: "text", address, content, from, to, total, more, next, clipped}`：`content` 是这一页的原文，不带地址头与行号，超过 2000 字符的行只留前 2000 字符、不加标注，行号列在 `clipped`；`total` 在超过 4 MiB 的文件上为 null；`next` 是下一页的 `offset`，没有下一页为 null。目录与虚拟根是 `{kind: "directory", address, entries, more}`，`entries` 是条目的全局地址、目录以 `/` 结尾，`more` 表示超过 500 项没列全。图片是 `{kind: "image", address, mime, width, height}`，宽高是原图的。顶层调用不带这个值：它的结果写进日志，原文不再存一份。给模型的文字与分页规则不变。
 
 ## 状态与转换
 

@@ -98,7 +98,7 @@ owners:
   | 命令 | 参数 | `when` | `effect` | agent 暴露 | 编辑器区内的键位 |
   |---|---|---|---|---|---|
   | `nbook.editor.open` | 见上 | 无 | read | auto | — |
-  | `nbook.editor.open-page` | `{id}`（页面贡献的 id）；带参数的页面另给 `arg`（planned） | 无 | read | auto（不进命令面板） | — |
+  | `nbook.editor.open-page` | `{id}`（页面贡献的 id）；带参数的页面另给 `arg` | 无 | read | auto（不进命令面板） | — |
   | `nbook.editor.save` | `{}` | `dirty` | write | confirm | Ctrl+S |
   | `nbook.editor.save-all` | `{}` | 无 | write | confirm | — |
   | `nbook.editor.revert` | `{}` | `active` | write | never | — |
@@ -112,13 +112,13 @@ owners:
   | `nbook.editor.copy-relative-path` | `{tabId?}` | `active` | read | never | — |
   | `nbook.editor.split-right` | `{tabId?}` | `active` | read | auto | Ctrl+\\ |
   | `nbook.editor.split-down` | `{tabId?}` | `active` | read | auto | — |
-  | `nbook.editor.focus-breadcrumbs` | `{}` | `active` | read | never | — |
+  | `nbook.editor.focus-breadcrumbs` | `{}` | `breadcrumbs` | read | never | — |
   | `nbook.editor.reopen-with` | `{editor?}`（不给时弹出选择，输出 39） | `active` | read | auto | — |
   | `nbook.editor.open-preview` | `{side?: boolean}` | `hasPreview` | read | auto | — |
   | `nbook.editor.change-language` | `{language?}`（不给时弹出选择，输出 45） | `hasLanguage` | read | auto | — |
 
   `tabId` 是要作用的标签，缺省为活动组的活动标签；标签不存在为 `unavailable`。`when` 仍按活动标签求值（命令面板、快捷键与 Agent 用）；标签右键菜单里编辑器自己的项不经命令的 `when`，按被右击的标签判断（输出 57）。`close-others`、`close-to-right`、`close-saved` 作用于目标标签所在的组（输出 51）。`when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
-- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/ready`（编辑器区已建好：布局文档读完、绑定项目的窗口读完 `editor.tabs` 之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。`nbook.editor/active` 是“活动组有活动的文件标签且它的控件交出了句柄”，不要求文本文档；字符串 `nbook.editor/activeEditor` 是活动标签的编辑器 id（页面标签或空组为空串）；另有布尔 `nbook.editor/hasPreview`（活动标签的文件有可用的预览编辑器，且活动标签本身不是预览视图）、`nbook.editor/hasDocument`（活动标签有文本文档；字节标签与页面为假）、`nbook.editor/hasEditorStatus`（活动控件交出了一行状态，输出 42）、`nbook.editor/hasLanguage`（活动控件交出了语言，即活动视图是源码编辑器，输出 45）；`nbook.editor/writable` 是活动视图能输入（预览视图为假，输出 48）。
+- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/breadcrumbs`（能聚焦面包屑：有活动视图，或活动标签是有面包屑的页面，输出 33）、`nbook.editor/ready`（编辑器区已建好：布局文档读完、绑定项目的窗口读完 `editor.tabs` 之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。`nbook.editor/active` 是“活动组有活动的文件标签且它的控件交出了句柄”，不要求文本文档；字符串 `nbook.editor/activeEditor` 是活动标签的编辑器 id（页面标签或空组为空串）；另有布尔 `nbook.editor/hasPreview`（活动标签的文件有可用的预览编辑器，且活动标签本身不是预览视图）、`nbook.editor/hasDocument`（活动标签有文本文档；字节标签与页面为假）、`nbook.editor/hasEditorStatus`（活动控件交出了一行状态，输出 42）、`nbook.editor/hasLanguage`（活动控件交出了语言，即活动视图是源码编辑器，输出 45）；`nbook.editor/writable` 是活动视图能输入（预览视图为假，输出 48）。
 - 文档协调服务 `documentCoordinatorKey`（`nbook.editor` 的共享合同），资源管理器作为可选依赖使用：
 
   ```ts
@@ -217,13 +217,13 @@ owners:
 
 **页面**
 
-33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。没有声明 `restore` 的页面标签刷新后不恢复（输出 5；`restore` 见本条末尾 planned 的一段）：活动的是这样的页面时，恢复后活动的是它的相邻标签。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（`editor.tabs` 读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。页面组件加载期间，内容区是一句给读屏的“正在加载页面”（`role="status"`，这个容器带 `aria-busy="true"`）；加载失败时换成失败原因（`role="alert"`），不再带 `aria-busy`。 **带参数与可恢复的页面（planned）**：
-    - **参数**：声明 `instances: true` 的页面按参数开多个。`open-page {id, arg}` 的 `arg` 是 1 到 200 个字符的字符串，这种页面必须带，别的页面带了为 `invalid-args`。标签的身份是页面 id 加 `arg`（地址 `page://<id>?<编码后的 arg>`，`arg` 里可以有任何字符）：同一个 `arg` 已经开着就切过去，不同的 `arg` 各开一个。`instances` 与 `openOnFirstVisit` 不能同写（自动打开不带参数），同写时声明被拒。
-    - **每个标签一份 `context`**：`recent`、这个标签的 `arg`（不带参数的页面没有）与 `state`。`state` 是编辑器给这个标签的一个响应式对象，实现给了 `initialState(arg)` 时用它的返回值作初值，否则是空对象；页面把要跨“切走再回来”保留的界面状态放在里面（页面标签只在活动时渲染，切走时组件卸载，组件里的状态不保留）。`state` 随标签：标签移到别的组时还在，标签关闭时丢弃，不存盘，刷新后恢复的标签拿到初值。
-    - **标题**：实现可以给 `title(arg)`，返回文字值或 null。编辑器在标签条里响应式地读它，返回值变了标题跟着变；编辑器记着每个标签最近一次得到的标题，`title(arg)` 为 null、没给或贡献方已经停止时显示记着的那个，再没有就显示声明的标题。
-    - **恢复**：声明 `restore: true` 的页面刷新后恢复，规则同文件标签（顺序、所在的组、是不是活动标签）。要不要恢复、`arg` 与记着的标题在打开时就抄到标签上，存盘与恢复只看标签自己，不看当时声明在不在：声明晚到或贡献方这次没启动，标签与它的记录都还在。恢复出来的标签先显示记着的标题；声明在而实现还没交付时内容区是“正在加载页面”，交付后自己变成页面；声明不在时说明“这个页面已经不在了”。实现一直不交付时一直是“正在加载页面”（已知限制，不设超时）。
-    - **面包屑**：实现可以给 `breadcrumbs(arg)`，返回几段 `{label, command?: {id, args?}}` 或 null（不带参数的页面也可以给）。编辑器响应式地读它；有返回时这个标签在标签条下面有面包屑那一行（输出 60 的位置与缩短规则）：各段从左到右，带命令的段可以点、执行那条命令，没带的段与最后一段（当前页）不可点；没有下拉。键盘：`nbook.editor.focus-breadcrumbs` 对有面包屑的页面标签同样可用，←/→ 在可点的段之间移动，Enter 执行，Escape 回到页面。没给、返回 null 或空、贡献方已经停止时没有这一行。
-    - 带参数的页面同样不能拆分、不能固定、不是 preview；`nbook.editor.open` 照旧不接受页面地址。
+33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。没有声明 `restore` 的页面标签刷新后不恢复（输出 5；`restore` 见本条末尾 planned 的一段）：活动的是这样的页面时，恢复后活动的是它的相邻标签。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（`editor.tabs` 读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。页面组件加载期间，内容区是一句给读屏的“正在加载页面”（`role="status"`，这个容器带 `aria-busy="true"`）；加载失败时换成失败原因（`role="alert"`），不再带 `aria-busy`。 **带参数与可恢复的页面**：
+    - **参数**：声明 `instances: true` 的页面按参数开多个。`open-page {id, arg}` 的 `arg` 是 1 到 200 个字符的字符串，这种页面必须带，别的页面带了为 `invalid-args`（planned）。标签的身份是页面 id 加 `arg`（地址 `page://<id>?<编码后的 arg>`，`arg` 里可以有任何字符）：同一个 `arg` 已经开着就切过去，不同的 `arg` 各开一个。`instances` 与 `openOnFirstVisit` 不能同写（自动打开不带参数），同写时声明被拒。
+    - **每个标签一份 `context`**：`recent`、这个标签的 `arg`（不带参数的页面没有）与 `state`。`state` 是编辑器给这个标签的一个响应式对象，实现给了 `initialState(arg)` 时用它的返回值作初值，否则是空对象；页面把要跨“切走再回来”保留的界面状态放在里面（页面标签只在活动时渲染，切走时组件卸载，组件里的状态不保留）。`state` 随标签：标签移到别的组时还在，标签关闭时丢弃，不存盘，刷新后恢复的标签拿到初值（planned）。
+    - **标题**：实现可以给 `title(arg)`，返回文字值或 null。编辑器在标签条里响应式地读它，返回值变了标题跟着变（planned）。编辑器给声明了 `restore` 的标签记着最近一次得到的非空标题；`title(arg)` 为 null、没给或贡献方已经停止时显示记着的那个，再没有就显示声明的标题。
+    - **恢复**：声明 `restore: true` 的页面刷新后恢复，规则同文件标签（顺序、所在的组、是不是活动标签）（planned）。要不要恢复与 `arg` 在打开时就定在标签上，标题在之后读到非空的标题时记到标签上；存盘与恢复只看标签自己，不看当时声明在不在：声明晚到或贡献方这次没启动，标签与它的记录都还在。恢复出来的标签先显示记着的标题；声明在而实现还没交付时内容区是“正在加载页面”，交付后自己变成页面（planned）；声明不在、或交付过又撤回时说明“这个页面已经不在了”。实现一直不交付时一直是“正在加载页面”（已知限制，不设超时）。
+    - **面包屑**：实现可以给 `breadcrumbs(arg)`，返回几段 `{label, command?: {id, args?}}` 或 null（不带参数的页面也可以给）。编辑器响应式地读它；有返回时这个标签在标签条下面有面包屑那一行（输出 60 的位置与缩短规则）（planned）：各段从左到右，带命令的段可以点、执行那条命令，没带的段与最后一段（当前页）不可点；没有下拉。键盘：`nbook.editor.focus-breadcrumbs` 对有面包屑的页面标签同样可用（公开状态 `nbook.editor/breadcrumbs`），←/→ 在可点的段之间移动、Enter 执行（planned），Escape 回到页面。没给、返回 null 或空、贡献方已经停止时没有这一行（planned）。
+    - 带参数的页面同样不能拆分、不能固定、不是 preview（planned）；`nbook.editor.open` 照旧不接受页面地址。
 34. **编辑区标题**：活动编辑组的标签条右侧是标题动作（别的组不画：编辑器的命令与它们的可用性都按活动组算）：编辑器自己的“向右拆分”（按钮）、活动控件提供批注页边（`comments`）时的“批注 N”开关（按钮，按下态读这部作品的页边开关（本机记录 `editor.comment-margin`），N 是文档里批注的条数，在“⋯”里时不显示条数；带数字的按钮按它的实际宽度算进按钮预算；见 [`workbench.markdown-editing`](markdown-editing.md) 输出 33）与“用其它编辑器重新打开”（“⋯”里），之后是别的插件经贡献点 `editor.title` 贡献的项（共同规则见 [`workbench.menus`](menus.md)）。当前文件是这个组的活动标签：是文件时给出它的地址，`context: "resource"` 的项执行时收到 `{address}`；是页面标签或组里没有标签时没有当前文件。按钮（自己的加贡献来的）至多 4 个；编辑组窄时按它的宽度再少，给标签条至少留一个截断标签的宽度（96px），一个按钮也放不下时只剩“⋯”。放不下的按钮回到它所在的节收进“⋯”（编辑器自己的在自己那一节，贡献的在它原来的节）。另一个组成为活动组时，标题动作随之移到那个组；“⋯”打开期间活动组或活动标签变了，菜单关闭、之前的选择不执行。标签多时标签条照旧横向滚动，标题动作不随之滚动。
 
 **打开到哪一组**
@@ -349,7 +349,7 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 
 - 正文与基线只在内存；写入经 [workspace.files](../workspace/files.md) 的条件保存，写入来源为 `{kind: "user", plugin: "nbook.editor"}`。
 - 记录 `editor.tabs`：owner `nbook.editor`，project/local，版本 1；`tabId` → 地址、编辑器、preview、固定、上次的光标（第 30 条，`{offset}` 或 `{line, column}`）、语言，不存正文；几个窗口共用，按键合并（[ui.workbench-layout](../ui/workbench-layout.md)“副作用与数据”）。旧记录 `editor.session` 不读、不写、不删：合入时开着的标签不带过来（提案已接受）。
-- 页面（输出 33）不恢复：`editor.tabs` 里只留一个记号（`{page: true}`），恢复时从布局文档里拿掉，别的不写。声明 `restore: true` 的页面记成 `{page: true, id, arg?, title?}`（`title` 是记着的标题），照文件标签恢复；别的页面仍只记 `{page: true}`（planned）。
+- 页面（输出 33）不恢复：`editor.tabs` 里只留一个记号（`{page: true}`），恢复时从布局文档里拿掉，别的不写。声明 `restore: true` 的页面记成 `{page: true, id, arg?, title?}`（`title` 是记着的标题），照文件标签恢复；别的页面仍只记 `{page: true}`。
 - 记录 `editor.recent`：owner `nbook.editor`，project/local，版本 1；`{addresses}`，至多 10 个、不重复，最近在前（第 31 条）。
 
 ## 失败与恢复

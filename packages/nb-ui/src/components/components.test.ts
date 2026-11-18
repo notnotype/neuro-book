@@ -1439,6 +1439,19 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
+    it("tree rows carry their node id, a muted title and the caller's suffix", () => {
+        const wrapper = mount(Tree, {
+            props: {items: [{id: "star", title: "星瑾"}, {id: "brother", title: "哥哥", muted: true}]},
+            slots: {suffix: ({node}: {node: {id: string}}) => (node.id === "brother" ? "未出场" : "")},
+        });
+        const rows = wrapper.findAll("[role='treeitem']");
+        expect(rows.map((row) => row.attributes("data-tree-id"))).toEqual(["star", "brother"]);
+        expect(rows[1]?.text()).toBe("哥哥未出场");
+        expect(rows[1]?.find(".truncate").classes()).toContain("text-[var(--text-muted)]");
+        expect(rows[0]?.find(".truncate").classes()).not.toContain("text-[var(--text-muted)]");
+        wrapper.unmount();
+    });
+
     it("drops the tree card surface when the caller puts it inside a panel", () => {
         const items = [{id: "v1", title: "第一卷"}];
         // 默认仍是卡片：已有调用方靠这层面色与描边把树从空白里收住

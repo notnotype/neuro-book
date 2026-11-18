@@ -123,7 +123,9 @@ provide(dockFrameKey, frame);
 const summary = computed(() => {
     const first = props.items[0];
     if (first === undefined) return "";
-    const what = isApproval(first) ? t("dock.what.approval", {tool: first.tool}) : isModeSwitch(first) ? t("dock.what.modeSwitch", {mode: first.toLabel}) : first.questions[0]?.question ?? "";
+    const plain = isApproval(first) ? t("dock.what.approval", {tool: first.tool}) : isModeSwitch(first) ? t("dock.what.modeSwitch", {mode: first.toLabel}) : first.questions[0]?.question ?? "";
+    // 代码里调的工具的事项：同向导标题，写明是哪个工具里的调用。
+    const what = first.within === undefined ? plain : t("wizard.within", {tool: first.within.tool, what: plain});
     return first.source === undefined ? what : t("dock.fromSubagent", {name: first.source.name, what});
 });
 </script>

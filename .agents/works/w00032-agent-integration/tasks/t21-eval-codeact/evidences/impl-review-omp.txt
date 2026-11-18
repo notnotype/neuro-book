@@ -1,0 +1,25 @@
+[重要] 正确性 / `packages/neuro-book/src/plugins/agent/backend/eval/kernels.ts:221-237`、`packages/neuro-book/src/plugins/agent/backend/eval/kernel-entry.ts:219-232`
+现象：内核用 stdout/stderr 上的结束标记判断单元输出收齐，但执行代码可以启动继承这两条管道的子进程。真实 `Kernel` 实验中，单元 1 启动延迟 100 ms 的子进程后立即正常返回；单元 2 运行期间到达的 `LEAKED_FROM_CELL_1` 被交给单元 2，单元 1 结果为空。用户代码也可直接伪造结束标记，导致提前结算并截断输出。
+原因：宿主把可由执行代码写入的纯文本 NUL 标记当成可信的单元结束边界；`cellScope` 只标记 IPC 日志，原始 fd 字节流没有单元身份。
+核实：`bun /tmp/claude-1000/review-t21-impl/omp-lab/marker.ts` 使用真实 `Kernel` 子进程；结果为 `first: ""`、`second: "LEAKED_FROM_CELL_1\nCELL_2_DONE\n"`，两单元均返回 `done`。实验文件只写入 `/tmp`。
+改法：统一代理直接 fd 输出并按单元携带归属，或使用带外且用户代码不可伪造的逐单元输出通道；不能用同一进程可写的 fd 标记证明结束边界。
+
+[建议] 正确性 / `packages/nb-harness/src/kernel/run/tools.ts:284-299`
+现象：`NestedLock.acquire` 把 `{kind, grant}` 的新包装对象放入 `#queue`，中止回调却以另一个对象 `entry` 查找并移除。取消在途排队调用时 `indexOf(entry)` 恒为 -1，已取消的请求仍留在 FIFO 队列中。
+原因：队列对象与取消回调持有的身份不一致。
+核实：用真实 `createTestSession` 让共享调用持锁，再排队一个可取消的独占调用和后续共享调用。首个共享锁释放前，后续共享调用未开始、已取消调用也未完成；释放后后续共享调用成功，取消调用以 `denied/aborted` 结算。确认队列残留会让后续共享工作受独占 FIFO 屏障延迟。
+改法：入队与查找共用同一个 entry；取消时实际摘除对应队列项。
+
+[重要] 正确性 / `packages/nb-harness/src/kernel/run/tools.ts:584-593`
+现象：嵌套写工具已获审批、但在等独占锁期间会话切为只读，锁释放后写工具仍执行。
+原因：顶层调用在开始执行前会比较审批时的设置快照并重新判定；嵌套调用只在审批结束后检查父调用是否结束，之后等待锁，获锁时没有复核只读设置。设置在等待锁期间变化不影响已经批准的嵌套调用。
+核实：对照 `docs/specs/harness/runtime.md` 输出 79、92、`packages/nb-harness/src/kernel/run/tools.test.ts:612-623` 中顶层复核行为测试。用真实 `createTestSession` 启动持共享锁的读调用，发起需审批且为独占的写调用；批准后将会话改为只读，再释放共享锁。实际执行数组为 `["write"]`，嵌套结果 `status: "ok"`，而非只读拒绝。
+改法：在嵌套调用获锁后、写 `nestedToolStarted` 和执行前，按当前设置重新判定只读权限与审批。
+
+未发现：本次范围内其余已核对的 eval 时限、重置与进程组收尾、单元改写、嵌套调用恢复、资源写入分组、全局对象冲突过滤、`docs://eval/` 挂载、`tools-changed` 和构建入口未发现其他已确认缺陷。指定范围为 `19761fc7e`、`01096cf23`、`4899b6df7`、`3e1134e34`、`65515af4d`，以及 `c7f7b86ba` 的 `packages/neuro-book/src/plugins/agent/backend/builtin/profiles/` 改动；排除 `packages/nb-agent-ui`、Agent `web/` 与 Lab。
+
+严重程度数量：阻断 0，重要 2，建议 1。
+
+验证限制：实际运行 `/tmp/claude-1000/review-t21-impl/omp-lab/marker.ts`、`lock.ts`、`nested-readonly.ts`、`unhandled.ts` 的真实内核或真实 harness 场景；未运行完整测试套件、类型检查、构建或 lint。`unhandled.ts` 未产生拒绝或错误日志，不构成已确认缺陷。
+
+ [EOF]

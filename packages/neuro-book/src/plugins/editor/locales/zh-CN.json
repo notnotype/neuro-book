@@ -22,6 +22,7 @@
     },
     "crumbs": {
         "label": "文件路径",
+        "pageLabel": "这一页在哪",
         "loading": "正在读取",
         "empty": "空",
         "retry": "重试"
@@ -426,6 +427,9 @@
                 },
                 "image": {
                     "title": "图片"
+                },
+                "sticker": {
+                    "title": "表情"
                 }
             },
             "view": {
@@ -453,6 +457,9 @@
     "state": {
         "focused": {
             "reason": "编辑区没有焦点"
+        },
+        "breadcrumbs": {
+            "reason": "活动标签没有面包屑"
         },
         "active": {
             "reason": "没有活动的编辑器"
@@ -598,6 +605,8 @@
         "undoUnsupported": "当前编辑器不支持撤销",
         "redoUnsupported": "当前编辑器不支持重做",
         "noPage": "没有页面 {{id}}，或贡献它的插件还没就绪",
+        "pageArgRequired": "页面 {{id}} 要带参数才能打开",
+        "pageArgUnexpected": "页面 {{id}} 不带参数",
         "closeCancelled": "用户取消了关闭",
         "noPicker": "没有选择服务，请给出 {{arg}} 参数",
         "areaChanged": "选择期间编辑器区已经换了",

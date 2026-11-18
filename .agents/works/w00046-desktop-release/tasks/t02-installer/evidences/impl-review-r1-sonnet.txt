@@ -1,0 +1,118 @@
+# w00046 t02 前端实现审查报告（Sonnet）
+被审范围 076eb5144..ef5c88678 的前端部分。只读审查；跑过 `bun test src/plugins/desktop`（9 条通过）与 `scripts/ci/test-conventions.ts` 的扫描函数，未跑 e2e、开发服务、vitest、全量类型检查（负载 30 以上）。
+
+### 1. 向导宿主逻辑（first-run.ts、first-run-entry.ts）没有任何单元测试，Spec 输出 34 的大半句子无测试
+严重程度：重要　类别：测试缺口
+位置：src/plugins/desktop/web/first-run.ts、first-run-entry.ts（本次 diff 里的测试文件只有 FirstRunWizard.dom.test.ts、first-run-assets.test.ts、locales.test.ts）
+现象：`grep -rn "createFirstRun\|firstRunStore" src e2e` 只命中实现自己与 first-run-entry.ts，没有测试引用。e2e 只走了：四步主路径、便携版第三步、Esc 写记录、设置文件只读时 openAtLogin 回滚、动效、浏览器里不出现。
+没有任何测试覆盖的 Spec 句子：
+- 记录“坏了、版本不认识”不开并记诊断（first-run.ts:146-152）；
+- 记录读取失败、用户层不可用时等（shouldOpen 的另外两个分支）；
+- 另一个窗口写了记录后这一页开着的向导关掉（stopSeen 的 ok 分支，Spec 点名的多窗口场景）；
+- 记录写不成时记诊断、这一页不再自己开（dismissed）；
+- `show()` 在已开着时什么也不做；
+- 在途值：快速连点两张卡片、写失败后回到配置服务的值（只有 openAtLogin 一条 e2e 间接走到）；
+- 桌面三项的 `unknown-outcome` 专用文字；主题、明暗、语言三项写失败的说法；
+- 作品目录 `not-directory`、`not-accessible`、`no-desktop`、`open-failed` 进状态行；
+- 安装事实还没到时第三步只有关窗去向。
+为什么是问题：这些正是作者在 first-run.ts 里用最复杂的逻辑（pending 比较、dismissed、watch 两处）处理的地方，改坏了没有测试会红。第四项“语言”从未被任何测试写过：e2e 里没有 locale 字样，dom 测试只验证事件，`nbook.settings.switch-locale` 与参数 `{locale}` 是否对得上无人核对（见第 6 条）。
+如何核实：`grep -n "locale" e2e/desktop-first-run.e2e.ts` 无输出；`grep -rln createFirstRun src e2e`。
+建议改法：`createFirstRun` 的依赖都是注入的（settings、commands、desktop、store、themes），写一份 `first-run.test.ts`：用真实的 `firstRunStore` 配 `storage/testing` 的内存 Storage、`createSettingsInstance` 的真实配置服务，命令用一个按码返回结果的替身。按上面清单逐条一个用例，其中多窗口用两个 store 共用一个 Storage。语言路径再补一条 e2e（点 English 分段，断言 settings.json 写了 `nbook.settings/locale`）。
+
+### 2. 三处新增的 `waitForTimeout` 违反 fixed-wait 机检，`packages/neuro-book` 内违反即失败
+严重程度：重要　类别：测试规范
+位置：e2e/desktop-first-run.e2e.ts:98、:162；e2e/desktop-settings.e2e.ts:178
+现象：用 `scripts/ci/test-conventions.ts` 的 `scanTestSource` 扫这三个文件，报 `fixed-wait` 共 3 处新增（desktop-settings.e2e.ts:56 是 master 上就有的 setTimeout，不算）：first-run 的“再看一阵子”1.5 秒、“浏览器里”1.5 秒，desktop-settings 的“坏的用户层不交值”1 秒。三处都没有 `// test-lint-allow fixed-wait: <理由>`。
+为什么是问题：docs/testing/README.md 第 20 行写明断言“没有发生”要先排一个走同一条队列、结果看得见的动作，不按固定时长等；机检表里 `fixed-wait` 对 neuro-book 是失败不是警告。我在主工作区跑 `testConventionReport` 得到 master 现有 13 条失败，这次再加 3 条。仓库里已有的例外写法：editor-autosave.e2e.ts:151、markdown-comments.e2e.ts:105，都带理由。
+更实质的一点：1.5 秒是“等到向导本该出现的时间”，不是信号。机器负载 30 时记录就绪可能晚于 1.5 秒，这条否定断言会假通过；作者说做过变异（出现条件不看记录），那是在安静负载下。
+如何核实：`bun scripts/ci/...` 的扫描函数（我的脚本在 /tmp/claude-1000/review-t02-impl/scratch/scan.ts）；`grep -n waitForTimeout` 三个文件。
+建议改法：给向导的出现条件一个可观察的信号，最小做法是向导宿主在“记录与用户层都已就绪、判定过一次”后在根元素上设一个 data 属性（或经公开状态），e2e 等这个属性再断言 count 为 0；做不到就按仓库先例加 `test-lint-allow fixed-wait` 并写明没有可等的信号，同时把等待放宽到不依赖本机速度。
+
+### 3. 写配置失败时状态行不说原因，与 Spec 输出 34“底部说明原因”和计划“按码取文字”不符
+严重程度：重要　类别：对照 Spec
+位置：first-run.ts:177-203（write）、first-run-entry.ts:140-145（messageText）、locales 的 `firstRun.errors.notSaved`
+现象：主题、明暗、语言、桌面三项写失败，`SettingsFailure` 有 denied、invalid-value、layer-invalid、write-failed、conflict、unavailable 等十来个码（settings/shared/contracts.ts:COMMAND_FAILURES 那张表），向导一律显示“{名字}没有改成，回到了原来的值。”；只有 `unknown-outcome` 另有一句。原因（码、detail）只进 `desktop.first-run.write-failed` 诊断，用户看不到。
+为什么是问题：Spec：“写失败时控件回到配置服务里的值，底部说明原因”；计划第 64 行：“失败按码取文字放状态行”；ADR 0034 决策 2：界面按“拥有者命名空间加码”取文案。作品目录那一侧作者做到了按码（五条 reveal 文案），设置这一侧没做。典型场景：用户的 settings.json 被别的程序占着或只读（正是 e2e 用例 4 造出来的情形），向导只说“没改成”，用户不知道该去查什么；而同一情形下缩放（plugin.ts:75）至少把 `detail` 作为可复制的通知详情给出。
+如何核实：e2e/desktop-first-run.e2e.ts:142 断言的文字就是那句通用话；把 write 里 `message` 的构造看一遍，没有任何分支用 `result.code` 区分（除 unknown-outcome）。
+建议改法：二选一。(a) 按码分三四类给文案：`write-failed` 与 `layer-invalid`（设置文件写不进去、文件有问题，到设置里看）、`denied`、`unavailable`（连不上服务）、其余通用，目录里补键；(b) 保留通用句，状态行 title 属性或第二行附上 `detail`（Dialog 的 status 已有 `title` 与 `select-text`）。若判断“窄场景不值得”，至少在 Spec 把“说明原因”改成“说明没改成”，让合同与实现一致。
+
+### 4. 作品目录“打开”遇到不认识的错误码时说成“连不上服务”，并丢掉码；作品目录读取失败时路径行悄悄为空
+严重程度：建议　类别：失败说明（ADR 0034）
+位置：first-run-entry.ts:113-126（library、revealLibrary）、locales `firstRun.errors.reveal.unavailable`
+现象：`revealLibrary` 返回合同里五个码以外的失败（例如远程调用的 `denied`、输入校验类、服务端内部错）时，代码一律归为 `unavailable`，状态行显示“现在连不上 NeuroBook 的服务，稍后再试。”；`library()` 失败时只记诊断，第四步“新作品默认放在”那一行路径为空、“打开”照常可点，点了才得到另一条错误。
+为什么是问题：ADR 0034 决策 2：“遇到不认识的码，显示通用说明并附上码”。这里的 `unavailable` 文案是“连接问题”的具体说法，用到非连接错误上会误导；用户报 bug 时也没有码可报。
+如何核实：读 first-run-entry.ts:122-125；用一个返回 `{ok:false, code:"denied"}` 的 projects 替身即可复现。
+建议改法：新增一条通用文案“没能打开作品目录（{{code}}）”给未知码，`unavailable` 只留给真正的传输失败（`RemoteCallError` 的 unavailable）；`library()` 失败时让第四步这一行显示“读不到”的中性提示，不留空。
+
+### 5. `close()` 在记录已存在时也重写；一次写失败后同页再关向导会静默排在失败的意图后面
+严重程度：建议　类别：不变量
+位置：first-run.ts:229-240、shared/store/persisted.ts:#pump（读过）
+现象：从命令面板打开向导（记录已 ok）再关，`remember` 照样 `commit(() => ({at}))`，`at` 变成新的时刻、revision 增加，`locality: "shared"` 的记录会广播给所有客户端的所有窗口。另外，`persisted.ts` 的队首失败或结果不确定时队列暂停（`#pump` 遇到 state 非 queued 的队首就 return），之后的 commit 排在它后面，Promise 永不结算：同一页里第一次关向导写失败后，再从面板打开、再关，第二次写既不发出也不记诊断。
+为什么是问题：第一点是无谓写入与跨窗口事件，对 Spec 没有用处（Spec 只要求第一次写）。第二点符合 Spec“下次还会出现”，但同页的重复关闭会悄悄丢，诊断里也没有。两点都不严重，属于窄场景。
+如何核实：读 persisted.ts #pump 与 first-run.ts:234；`unknown` 时 report 文案“下次还会出现”也不准确（写请求可能已落盘）。
+建议改法：`close()` 里 `if (store.state.seen.base?.status === "ok") return;` 跳过写；失败的意图是否要 `retry` 或 `discardAll` 后重发，按“窄场景选简单改法”可以只在文档里记为已知限制。`unknown` 的诊断文案改成不断言“下次还会出现”。
+
+### 6. 三条切换命令的 id 在本插件里复制成字面量，语言那条没有任何测试核对
+严重程度：建议　类别：结构、上游选择
+位置：first-run.ts:47-52
+现象：`SWITCH_THEME`、`SWITCH_APPEARANCE`、`SWITCH_LOCALE` 是照抄的字符串，注释说“这三个常量在对方的 web/ 里，所以照抄字面量”。真实常量在 plugins/workbench/web/commands/theme-commands.ts:19-20 与 plugins/settings/web/plugin.ts:50，且都带 `export`。
+为什么是问题：声明者改名（例如把 `nbook.settings.switch-theme` 迁到 `nbook.view.*`）时，向导的主题、明暗、语言会全部变成“没有改成”（命令 id 未知，`execute` 返回失败），编译期与大部分测试都不会红：theme 与 appearance 有 e2e，locale 没有（见第 1 条）。注释把“常量在对方 web/ 里”当成约束，但没有记录这条约束的理由（跨插件只引 `shared/contracts.ts` 是规则，把常量搬到 `shared` 不违反它）。
+如何核实：`grep -rn "switch-locale" e2e` 无输出。
+建议改法：把三个命令 id 常量移到各自声明者的 `shared/contracts.ts`（workbench 的 shared 已导出 `themeSetting`、`appearanceSetting`，settings 的 shared 已导出 `localeSetting`），向导按包名引用；代价是两个插件各多一个公开常量。不想动上游时，至少补一条 e2e 或单元测试让三条命令各被执行一次。
+
+### 7. 几条测试断言空过或没测到它声称的判据
+严重程度：建议　类别：测试质量
+位置：src/plugins/desktop/web/components/FirstRunWizard.dom.test.ts:74-86、:151-157；e2e/desktop-first-run.e2e.ts
+现象：
+- “回车在开关上不前进”：组件里没有任何处理 Enter 或发 `next` 的代码，测试派发的 `KeyboardEvent` 在 jsdom 里也不会合成 click，所以这条断言无论怎么改实现都是绿的（除非有人以后新加 Enter 处理）。
+- “点遮罩不关也不发事件”：把模板里的 `:close-on-overlay="false"` 删掉，遮罩 pointerup 会发 `request-close("outside")`，但 `onRequestClose` 只认 "escape"、`close-on-request` 又是 false，所以结果仍是“不发事件、向导还在”，测试仍绿。行为靠两道保险成立，测试分不出它们各自是否在。
+- e2e 没有核对主题缩略图真的加载（没有 `naturalWidth > 0`）：构建产物路径写错只会显示灰色空框；也没有核对“第一步看板娘放大居中、第二步缩到进度条下”：只量了 transition-duration（动效用例），把 `.is-hero` 的 transform 删掉不会变红。Spec 输出 34 的动效一条因此没有被真正验证。
+- e2e 用例 4 依赖 `chmod 0o444`：以 root 运行（容器 CI 常见）时 `access(W_OK)` 通过、写成功，用例会误红；同包 open-folder.test.ts:39 用了 `skipIf(process.getuid?.() === 0)`，这里没有。
+如何核实：删掉对应属性或 `.is-hero` 的 transform 后跑 dom 测试，应全绿（我没改仓库，按代码推断，未实跑）。
+建议改法：第一条删掉或改成真正按下 Enter 的 e2e；第二条断言 `request-close` 的 reason，或直接在 dom 测试里把 `close-on-request` 的保护视为必要而删这条；缩略图加一条 `naturalWidth` 断言；位移用 `boundingBox` 比较第一步与第二步 `.first-run__mood` 的 y 与宽；用例 4 加 root 跳过。
+
+### 8. FirstRunWizard.md 与实现不一致：`state:local` 标签与“组件自己记住键盘焦点”不存在；“窄于 560px 两列”没有对应的样式
+严重程度：建议　类别：文档与实现
+位置：src/plugins/desktop/web/components/FirstRunWizard.md（frontmatter 标签、“隐藏通道理由”最后一条、“布局”外观一行）、FirstRunWizard.vue:77-89、:330-336
+现象：
+- 标签 `state:local`，理由写“组件自己记住每组卡片里键盘焦点所在的那张（换步后丢弃）”。组件里没有 `ref`、`reactive`、`useId`，卡片组的方向键由 `selected`（props）算下标、`nextTick` 后用 DOM 的 `focus()`，没有任何组件自己持有的状态。
+- 外观一行写“一行四张，窄于 560px 时两列”；CSS 是 `repeat(auto-fill, minmax(120px, 1fr))`，没有 560px 的断点。内容宽 576（对话框 640）时四列；对话框 460 到 580 之间是三列（我按 `floor((宽 + 6) / 126)` 算），不是文档说的两列。
+为什么是问题：docs/standards/code/components.md“能力标签”：声明是对实现的如实描述，“声明了实现中不存在的标签……整份声明不予采信”；“改行为时先改文档再改实现”。
+如何核实：`grep -n "ref(\|reactive(" FirstRunWizard.vue` 无输出；对照 .md 与 CSS。
+建议改法：去掉 `state:local` 与对应理由（`state:inject`、`env:portal` 保留，前者由 governance 强制，后者经 Dialog 的 Portal 成立），布局一行改成“最小 120px 的自动列，640 宽时一行四张”。
+
+### 9. 样式没有消费字号与圆角 token，卡片焦点环靠浏览器默认 outline
+严重程度：建议　类别：UI 规范
+位置：FirstRunWizard.vue 样式（:259-471）
+现象：字号手写 12、13、14、15、24、30px，圆角手写 10、8、28、2px；tokens.css 与 theme.css 里有 `--text-xs/sm/md`（12、13、14）与 `--radius-panel`（10）。两组卡片（`first-run__card`）是裸 `<button>`，`border:0; background:none`，自己没有 `:focus-visible` 样式，也没用 `.nb-ui-focus-ring`；选中态只在缩略图上画 `box-shadow`。
+为什么是问题：ui-development-spec 第 3 节第 2、3 条要求圆角与界面文字消费登记的 token（主题改 `--radius-panel` 或字号时，向导的卡片与对话框外框对不上）；第 8 节“键盘走得通：焦点环可见”“同类交互状态一致”要求自制可交互元素复用基座类。当前键盘焦点环是 Chrome 的默认蓝色 auto outline，不跟主题。我没有在浏览器里实看（负载高，未起服务），按代码推断。
+如何核实：Lab 的“第 2 步”场景里 Tab 到卡片，看焦点环是否随主题；改主题的 `--radius-panel` 看卡片圆角是否跟着。
+建议改法：12、13、14px 换 `--text-xs/sm/md`，10px 换 `--radius-panel`；卡片按钮加 `nb-ui-focus-ring`（注意 `.first-run__themes` 外层没有 overflow 裁切，余量够）。15px、24px、30px 没有对应 token，保持即可。
+
+### 10. 零散：缩略图脚本依赖 `sharp` 但包里没声明；Esc 之外的“跳过”只在第一步
+严重程度：建议　类别：依赖声明
+位置：scripts/first-run-thumbnails.ts:19；packages/neuro-book/package.json
+现象：脚本 `import sharp from "sharp"`，而 `sharp` 只在仓库根 package.json 的 `dependencies`（它是旧应用遗留，packages/neuro-book-legacy 也声明了同一版本），neuro-book 自己的 package.json 没有。脚本又被排除在 tsconfig 之外，所以没有类型检查兜底。
+为什么是问题：旧应用退役、根依赖清理时这个脚本会无声地坏（下次重截缩略图才发现）。
+如何核实：`grep -n sharp package.json packages/neuro-book/package.json`。
+建议改法：在 packages/neuro-book 的 devDependencies 里声明 `sharp`（同版本），或脚本文件头写明它借用根上的依赖。
+
+### 更正（对第 2 条）
+第 2 条里“作者说做过变异……那是在安静负载下”这半句不对：Task README 写明验证是在负载 30 到 45 下做的。保留判断：1.5 秒的固定等待不是信号，在更高负载下仍可能假通过，但变异检查本身并非在安静机器上做。
+
+### 更正（对第 10 条）
+第 10 条标题里“Esc 之外的跳过只在第一步”没有对应内容，不是发现，忽略；这条只有 sharp 依赖声明一件事。
+
+## 未发现问题的方面
+- 出现条件：shouldOpen 对“读取失败、记录未就绪、用户层不可用、已 dismissed”都不开，与 Spec 表一致；`field.ready` 与 `base?.status` 的组合我对着 persisted.ts 与 RecordSnapshot 核对过，没找到漏洞。
+- 值的写法：`settings.update` 在 resolve 前已 `apply` 快照，所以写完删在途值不会闪回旧值；在途值只在没有被更新点选覆盖时清（first-run.ts:199-200）这一处正确。三条命令的参数名（theme、appearance、locale）与声明一致。`commands.execute` 不抛（每次执行恰好一条审计事件，含异常），write 里没有 catch 不会产生未处理的拒绝。
+- 浏览器路径：空浮层、命令 when 要求 inDesktop，e2e 同时核对不加载向导的请求；安装事实的监听在 boot.ts 里先于页面就绪消息注册，没有丢消息的时序；桥只收形状正确的 install-facts，`open-state-root` 不带路径，页面脚本不能借它让壳打开任意目录。
+- Dialog 用法：`size`、`close-on-request`、`close-on-overlay`、`initial-focus`、页脚插槽与状态行都对着 Dialog.vue、DialogSurface.vue、dialog-close.ts 核对过；状态行是 `aria-live`，错误可选；Esc 经 `request-close("escape")`，输入法组字时不触发。
+- 动效：`.nb-ui-switch` 的减少动效处理在 nb-ui 里，`--motion-move` 在减少动效下为 0ms，e2e 量了两档时长。看板娘的 :host 缺省 128px，与外层 128px 一致。
+- 文字目录：中英键一一对应，我逐键核对过所有键都有使用点（含动态键 steps.*、schemes.*、errors.reveal.*），没有死键；占位符两边一致。
+- 六个 e2e 文件的 beforeAll 标记：`firstRunRecorded` 只在 records 表写入时才出现字节 `first-run`（partition.ts 只在 save 时 INSERT），在 WAL 与主文件两处找，轮询重试，对 checkpoint 竞争稳；beforeAll 里多开一页只多一次约几秒，失败模式是整文件一起红，是合理的。desktop-settings 的“层修回补交”用例的正向断言（去掉 watch 就超时）成立。
+- 主题缩略图、Lab 场景、catalog 登记（message-catalogs.ts、web/plugins.ts）与主题内置表的对应有机检测试兜底。
+
+## 数量
+阻断 0；重要 3（第 1、2、3 条）；建议 7（第 4 到 10 条，其中第 10 条标题里多写的半句已更正）。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10

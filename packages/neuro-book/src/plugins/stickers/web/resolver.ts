@@ -5,7 +5,7 @@
 
 import type {StickerRef, StickerResolver} from "@notnotype/nb-markdown";
 
-import type {BrowserStickerPack} from "../shared/contracts";
+import type {BrowserStickerPack, StickerDirectoryService} from "../shared/contracts";
 
 /** 一个写法在目录里对应的表情（输出 7、8）；认不出为 null。 */
 export function findSticker(packs: readonly BrowserStickerPack[], ref: StickerRef): {readonly url: string; readonly width: number; readonly height: number} | null {
@@ -23,7 +23,7 @@ export function findSticker(packs: readonly BrowserStickerPack[], ref: StickerRe
     return found.length === 1 ? (found[0] ?? null) : null;
 }
 
-export interface StickerDirectory {
+export interface StickerDirectory extends StickerDirectoryService {
     readonly resolve: StickerResolver;
     /** 换上新取到的目录。 */
     set(packs: readonly BrowserStickerPack[]): void;
@@ -34,6 +34,10 @@ export interface StickerDirectory {
 export function createStickerDirectory(): StickerDirectory {
     let packs: readonly BrowserStickerPack[] | null | undefined;
     const waiting: Array<() => void> = [];
+    const listeners = new Set<() => void>();
+    const changed = (): void => {
+        for (const listener of [...listeners]) listener();
+    };
     return {
         resolve: async (ref) => {
             if (packs === undefined) await new Promise<void>((resolve) => waiting.push(resolve));
@@ -43,11 +47,18 @@ export function createStickerDirectory(): StickerDirectory {
         set(next) {
             packs = next;
             for (const wake of waiting.splice(0)) wake();
+            changed();
         },
         failed() {
             if (packs !== undefined) return;
             packs = null;
             for (const wake of waiting.splice(0)) wake();
+            changed();
+        },
+        current: () => packs ?? null,
+        subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
         },
     };
 }

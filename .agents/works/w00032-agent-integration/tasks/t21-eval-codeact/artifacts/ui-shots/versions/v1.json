@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t21-eval-codeact",
+    "artifactId": "ui-shots",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "t21 切片 5：eval 在对话里的样子",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "e35c339dff960db8efd6b9150c908efb2ede599398a0ba5e273065672d389f17",
+    "files": [
+        "eval-approval-free.webp",
+        "eval-done-free.webp",
+        "eval-done-phone.webp",
+        "eval-running-free.webp",
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-11-18T16:05:30.812Z"
+}

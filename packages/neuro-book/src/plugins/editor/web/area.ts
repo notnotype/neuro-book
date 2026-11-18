@@ -29,7 +29,7 @@ import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, previewEditorFor, res
 import type {EditorCatalog} from "./editors";
 import {createEditorGroups} from "./groups/groups";
 import {pageAddress, pageIdOf} from "./pages";
-import type {EditorGroups, EditorTab, FileTab, SplitDirection, TabPlace, TabsSnapshot} from "./groups/groups";
+import type {EditorGroups, EditorTab, FileTab, PageTab, SplitDirection, TabPlace, TabsSnapshot} from "./groups/groups";
 
 export type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 
@@ -90,6 +90,8 @@ export interface EditorAreaOptions {
     readonly autoSave?: () => AutoSaveSettings;
     /** 每种编辑器留几个控件；缺省 `MOUNTED_CONTROLS_PER_EDITOR`。只有测试与 Lab 给：验证回收不用真开 21 个标签。 */
     readonly mountedControlsPerEditor?: number;
+    /** 这个页面标签此刻有没有面包屑（输出 33）：有才能用命令聚焦它。编辑区不认识页面的实现，由页面的注册表回答；不给就是没有。 */
+    readonly pageHasBreadcrumbs?: (tab: PageTab) => boolean;
 }
 
 /**
@@ -171,8 +173,16 @@ export interface EditorArea {
      * `group`：编辑组 id，或 `"side"`（活动组右侧的组，没有就向右新建一个）；缺省活动组（docs/specs/workbench/editor.md 输出 35）。
      */
     open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: string; readonly reveal?: "end" | "cursor"; readonly group?: string}): OpenResult;
-    /** 打开一个页面（输出 33）：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签。 */
-    openPage(id: string): OpenResult;
+    /**
+     * 打开一个页面（输出 33）：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签。带参数的页面给
+     * `arg`：标签的身份是页面 id 加参数，同一个参数已经开着才算开着。`restore` 抄到标签上，决定它刷新后恢不恢复。
+     * 参数合不合页面的声明由调用方（命令）先查，这里不认识声明。
+     */
+    openPage(id: string, options?: {readonly arg?: string; readonly restore?: boolean}): OpenResult;
+    /** 记下页面标签最近一次得到的标题（输出 33），给恢复后还没点开的标签显示。 */
+    rememberPageTitle(tabId: string, title: string): void;
+    /** 活动标签是有面包屑的页面标签（输出 33）：命令 `focus-breadcrumbs` 对它可用。响应式。 */
+    activePageHasBreadcrumbs(): boolean;
     activate(tabId: string, options?: {readonly focusView?: boolean}): ActionResult;
     /** preview 转为 permanent（双击标签）。 */
     keep(tabId: string): void;
@@ -972,7 +982,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         breadcrumbFocus,
         focusBreadcrumbs: () => {
             const tab = groups.activeTab();
-            if (tab === null || tab.kind === "page") return {ok: false, reason: editorText("refusal.notFileTab")};
+            if (tab === null || (tab.kind === "page" && options.pageHasBreadcrumbs?.(tab) !== true)) return {ok: false, reason: editorText("refusal.notFileTab")};
             breadcrumbFocus.value = {group: groups.activeGroup.value, seq: (breadcrumbFocus.value?.seq ?? 0) + 1};
             return {ok: true};
         },
@@ -982,9 +992,16 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         closeWindow,
         notice,
         open,
-        openPage: (id) => {
+        rememberPageTitle: (tabId, title) => {
+            if (!disposed) groups.rememberPageTitle(tabId, title);
+        },
+        activePageHasBreadcrumbs: () => {
+            const tab = groups.activeTab();
+            return tab !== null && tab.kind === "page" && options.pageHasBreadcrumbs?.(tab) === true;
+        },
+        openPage: (id, pageOptions = {}) => {
             if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
-            const address = pageAddress(id);
+            const address = pageAddress(id, pageOptions.arg);
             const existing = groups.groups.value.flatMap((group) => group.tabs).find((tab) => tab.address === address);
             if (existing !== undefined) {
                 const found = groups.find(existing.id);
@@ -994,7 +1011,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             }
             if (!leave(groups.activeGroup.value)) return {ok: false, reason: refusal(groups.activeGroup.value, "current")};
             pendingReveal.value = null;
-            const tab = groups.openPage(address);
+            const tab = groups.openPage(address, {restore: pageOptions.restore === true});
             return {ok: true, tabId: tab.id};
         },
         activate: (tabId, activateOptions = {}) => {

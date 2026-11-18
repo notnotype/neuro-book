@@ -13,16 +13,19 @@ import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {startProductServer} from "./fixtures";
+import {markFirstRunSeen} from "./support/desktop-shell";
 import type {ProductServer} from "./fixtures";
 
 let tmp = "";
 let server: ProductServer;
 
-test.beforeAll(async () => {
+test.beforeAll(async ({browser}) => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "desktop-update");
     const stateRoot = join(tmp, "state");
     await mkdir(join(stateRoot, "user"), {recursive: true});
     server = await startProductServer(stateRoot);
+    // 首次启动向导会在桌面窗口里弹出、挡住用例：先在这个状态根上记下看过（desktop-shell 输出 34）。
+    await markFirstRunSeen(browser, server.url, stateRoot);
 });
 
 test.afterAll(async () => {

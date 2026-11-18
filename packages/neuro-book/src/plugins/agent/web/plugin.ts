@@ -11,7 +11,8 @@ import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
-import {stickersCatalogContract} from "nbook/plugins/stickers/shared/contracts";
+import {stickerPickerKey, stickersCatalogContract} from "nbook/plugins/stickers/shared/contracts";
+import type {StickerPicker} from "nbook/plugins/stickers/shared/contracts";
 import type {CommandImplementation, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
@@ -60,6 +61,7 @@ import {permissionsPage} from "./permission-page";
 import {createProfileWriters, profilesPage} from "./profile-page";
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
+import {stickerMenu, stickersContribution} from "./sticker-composer";
 import {createSkillInit} from "./skill-init";
 import type {SkillInit} from "./skill-init";
 import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu} from "./skills";
@@ -170,7 +172,7 @@ export const agentBrowserPlugin: PluginDefinition = {
         activationEvents: ["onStartup"],
         receives: [STATUS_ITEMS_POINT],
         provides: [stickerAllowlistUsageKey],
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: notificationsKey}, {key: markdownKey}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: notificationsKey}, {key: markdownKey}, {key: windowTextKey, required: false}, {key: stickerPickerKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: CONVERSATION_VIEW, declaration: CONVERSATION_DECLARATION},
             {capability: WORKBENCH_VIEWS_POINT, id: SESSIONS_VIEW, declaration: SESSIONS_DECLARATION},
@@ -194,6 +196,9 @@ export const agentBrowserPlugin: PluginDefinition = {
             const quickPick = context.services.require(quickPickKey);
             const notifications = context.services.require(notificationsKey);
             const text = await windowTextPort(context.services, () => displayLocale(settings));
+            // 表情选择器（docs/specs/agent/stickers.md 输出 39 到 45）：没装表情包插件时没有 `:` 补全、表情按钮，用户消息照常画气泡。
+            const pickerService = await context.services.resolve(stickerPickerKey);
+            const picker: StickerPicker | null = pickerService.status === "resolved" ? pickerService.instance : null;
             const remote = context.remote.use(agentSessionsContract);
             const rulesWriter = createRulesWriter(settings);
             const profileWriters = createProfileWriters(settings);
@@ -373,6 +378,13 @@ export const agentBrowserPlugin: PluginDefinition = {
                     openRequests: (target) => void commands.execute(OPEN_REQUESTS_COMMAND, target),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
+                    ...(picker === null ? {} : {
+                        triggers: [":"],
+                        stickerSelected: (raw: string) => {
+                            const item = picker.groups().flatMap((group) => group.items).find((candidate) => candidate.raw === raw);
+                            if (item !== undefined) picker.used(item);
+                        },
+                    }),
                     skills: {
                         selected: (id, profile) => {
                             if (id === OPEN_PROFILE_SETTINGS_ITEM) {
@@ -448,7 +460,7 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             // 组件与渲染组件用到时才加载（nb-agent-ui 的 Vue 层不小）。
             const loadVue = async () => {
-                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}, {default: SubagentCard}, {default: BackgroundCommandCard}, {subagentContribution}] = await Promise.all([
+                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}, {default: SubagentCard}, {default: BackgroundCommandCard}, {subagentContribution}, {default: EvalDetail}, {evalContribution}] = await Promise.all([
                     import("@notnotype/nb-agent-ui/vue"),
                     import("@notnotype/nb-agent-ui"),
                     import("./ConversationHost.vue"),
@@ -457,22 +469,26 @@ export const agentBrowserPlugin: PluginDefinition = {
                     import("./components/SubagentCard.vue"),
                     import("./components/BackgroundCommandCard.vue"),
                     import("./subagent-renderers"),
+                    import("./components/EvalDetail.vue"),
+                    import("./eval-renderer"),
                 ]);
-                return {builtinContributions, createAgentViewRegistry, ConversationHost, SessionPanelHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution};
+                return {builtinContributions, createAgentViewRegistry, ConversationHost, SessionPanelHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution};
             };
             let vue: ReturnType<typeof loadVue> | null = null;
             const vueOnce = () => (vue ??= loadVue());
 
             const conversationComponent = async (position: "view" | "page"): Promise<Component> => {
                 ensureStarted();
-                const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution} = await vueOnce();
+                const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution} = await vueOnce();
                 const markdown = await context.services.resolve(markdownKey);
                 const components = markdown.status === "resolved" ? markdown.instance.components : null;
-                const baseContributions = [...builtinContributions, subagentContribution({card: SubagentCard}), requestEntriesContribution];
+                const stickers = picker === null ? null : await stickersContribution(picker, (message, error) => report("sticker-picker-failed", `${message}: ${String(error)}`));
+                const baseContributions = [...builtinContributions, subagentContribution({card: SubagentCard}), evalContribution({detail: EvalDetail}), requestEntriesContribution, ...(stickers === null ? [] : [stickers.contribution])];
                 const renderers = {
                     form: markRaw(AgentFormRenderer),
                     backgroundCommand: markRaw(BackgroundCommandCard),
                     ...(components === null ? {} : {markdown: markRaw(components.MarkdownDisplay), promptEditor: markRaw(components.PromptEditor), promptTextView: markRaw(components.PromptTextView)}),
+                    ...(stickers === null ? {} : {promptBareness: stickers.bareness}),
                 };
                 const labels = panelLabels();
                 // 编辑器按函数身份重取菜单：查到新结果时换一个新函数（nb-agent-ui 的 `resolveTriggerMenu` 约定）。
@@ -502,7 +518,9 @@ export const agentBrowserPlugin: PluginDefinition = {
                 const refreshServices = (): void => {
                     services.value = {
                         resolveAttachmentUrl: attachmentUrl,
-                        resolveTriggerMenu: (context) => (context.trigger === "$"
+                        resolveTriggerMenu: (context) => (context.trigger === ":" && picker !== null
+                            ? stickerMenu(picker, context.query)
+                            : context.trigger === "$"
                             ? skillMenu(context.query, {entries: skills.entries.value, allowed: allowedSkills(hostAt(position).profileKey()), recent: skills.recent.value, texts: skillTexts()})
                             : mentions.resolve(context)),
                     };

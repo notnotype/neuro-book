@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 3 轮：导航的样式（照会话面板）</title>
+<title>第 8 轮：日程的表单</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -24,6 +24,9 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .pair img + img { margin-top: 0; }
 .narrow-shot { max-width: 260px; margin: 0 auto; }
 .navshot { max-width: 282px; margin: 0 auto; }
+.tabs-mock { display: flex; gap: 18px; max-width: 260px; margin: 0 auto 8px; padding: 0 4px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.tabs-mock span { padding: 4px 0 6px; }
+.tabs-mock .on { color: var(--text); border-bottom: 2px solid var(--accent); margin-bottom: -1px; }
 .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .duo img + img { margin-top: 0; }
 .cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
@@ -35,51 +38,32 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 3 轮：导航的样式（照会话面板）</h1>
+<h1>第 8 轮：日程的表单</h1>
 
-<section data-nbdev-question="nav-house" data-nbdev-type="single" data-nbdev-recommend="sections">
-  <h2>bot 与会话两组的标题怎么画？</h2>
-  <p class="rec"><strong>推荐 C：bot、会话是第一层，今天、昨天是会话里的第二层，层次分得开；组能收起，数量在右边。</strong></p>
+<section data-nbdev-question="schedule-form" data-nbdev-type="confirm" data-nbdev-label="日程表单按这样画">
+  <h2>新建与编辑日程的表单这样画行不行？</h2>
+  <p class="rec"><strong>推荐同意：在日程抽屉里就地打开，左上角回列表；一次与重复是同一张表，顶上切换；重复先选每天、每周或自定义（cron），下面一行淡字写算出来的下一次与时区；校验不过时只把出错的框标红，原因写在页脚左边；“她在忙的时候”缺省等这一轮做完。</strong></p>
   <div class="cands three">
-    <div class="cand" data-nbdev-option="house" data-nbdev-label="A 面板的小字">
-      <h3>A 面板的小字</h3>
-      <img class="navshot" src="r3/house.webp" alt="组名与今天、昨天同一种小字">
-      <p>“bot”和“今天”同一层，读不出谁管谁。</p>
-    </div>
-    <div class="cand" data-nbdev-option="pinned" data-nbdev-label="B 置顶">
-      <h3>B 置顶</h3>
-      <img class="navshot" src="r3/pinned.webp" alt="bot 置顶，下面一条线，子项用小标签">
-      <p>bot 的子会话与子 bot 收成行下面的小标签，点开再看。</p>
-    </div>
-    <div class="cand" data-nbdev-option="sections" data-nbdev-label="C 可收起的组">
-      <h3>C 可收起的组</h3>
-      <img class="navshot" src="r3/sections.webp" alt="bot 与会话两组都有可收起的标题行">
-      <p>组的标题行能收起整组；子会话照现在的会话面板。</p>
-    </div>
+    <div class="cand"><h3>编辑：每周简报</h3><img src="r8/form-weekly.webp" alt="编辑每周简报：重复、每周一 09:00"></div>
+    <div class="cand"><h3>新建：一次的提醒</h3><img src="r8/form-once.webp" alt="新建提醒：一次、11月26日 20:00"></div>
+    <div class="cand"><h3>自定义 cron 太频繁</h3><img src="r8/form-cron-error.webp" alt="自定义 cron 每分钟一次，框标红，页脚写原因，保存不可用"></div>
   </div>
-</section>
-
-<section>
-  <h2>直接修，不用答</h2>
-  <table>
-    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
-    <tbody>
-      <tr><td>“还有 12 个会话”</td><td>去掉，列表滚到底自动加载更多（第 2 轮）</td></tr>
-      <tr><td>过滤（全部、bot、会话）</td><td>第 2 轮的蓝色分段条太抢眼，收进搜索框右边的过滤按钮，和现在会话面板的过滤放在一起</td></tr>
-      <tr><td>会话的行、按日分组、“N 个子代理”、子会话行</td><td>和现在的会话面板一样，子会话直接用现成的子会话行</td></tr>
-    </tbody>
-  </table>
 </section>
 
 <section>
   <h2>已定</h2>
   <ol class="decided">
     <li>bot 的视图是 IM 式：左边是聊天与群聊，右边是聊天界面（开发者 2026-11-18）</li>
-    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程与记忆默认收起；关着时只剩头像加未读气泡；不自动收起</li>
-    <li>左栏放会话；bot 与会话合并成一个“消息”视图，取代现在的会话面板与 Agent 对话视图；对话本身用同一个组件（第 1 轮）</li>
-    <li>放在侧栏；多开放到最后，倾向做成侧栏视图能开多个（第 1 轮）</li>
+    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程默认收起；关着时只剩头像加未读气泡；不自动收起</li>
+    <li>对话本身用同一个组件；放在侧栏；多开放到最后，倾向做成侧栏视图能开多个（第 1 轮）</li>
     <li>侧栏窄时用头像列加抽屉（第 2 轮）</li>
-    <li>导航的排法：搜索与过滤在顶上、bot 与会话分组、子会话挂在父的下面（第 2 轮）；分组保留，只改样式（第 3 轮）</li>
+    <li>bot 与会话不混排：一个“消息”视图，顶上两个标签；bot 是 IM 会话列表，子会话与子 bot 进聊天头部的子代理入口；会话不按日分组（第 4 轮）</li>
+    <li>会话标签照会话面板，不按日分组，滚到底加载，bot 标签上带未读（第 5 轮）</li>
+    <li>记忆面板先不做；记忆文件在文件资源管理器里看（第 5 轮）</li>
+    <li>日程面板：每行等高，开关固定在右边，“确认”跟在“待你确认”后面（第 5 轮）</li>
+    <li>排队区：别人排的话标来源、只能取消；留着时上面一行写“已暂停”、原因与“继续”（第 6 轮）</li>
+    <li>停止键右边接下拉箭头，菜单里是“停止并清空排队”（第 6 轮）</li>
+    <li>书房：案头的看板娘挂未读数与小气泡，点了从右边滑出聊天（第 7 轮）</li>
   </ol>
 </section>
 </main>

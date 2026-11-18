@@ -18,7 +18,7 @@ export type {
     WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView, AgentWelcomeView,
 } from "./types";
 export type {
-    MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, MarkdownPreviewPort, PromptAttachment, PromptAttachmentKind, PromptDraft,
+    MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, MarkdownPreviewPort, PromptAttachment, PromptBarenessPort, PromptAttachmentKind, PromptDraft,
     PromptEditorPortExpose, PromptEditorPortProps, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy,
     PromptTextViewPortProps, PromptToken,
 } from "./ports";
@@ -26,7 +26,7 @@ export {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RE
 export type {
     AgentViewContribution, AgentViewRegistry, ComposerCommandEntry, ComposerTriggerEntry, EntryComponentProps, EntryRendererEntry, ExtensionPoint,
     ExtensionPointEntries, FileChangeView, HeaderActionEntry, RegistryConflict, MessageActionEntry, MessageActionTarget, PanelEntry, RegistryEntryBase, RoleEntry,
-    StatusItemEntry, ToolbarButtonEntry, ToolCategory, ToolComponentProps, ToolEffects, ToolRendererEntry, HostComponentContext, HostComponentEmits, TrayItemEntry,
+    StatusItemEntry, ToolbarButtonEntry, ToolbarPopoverProps, ToolCategory, ToolComponentProps, ToolEffects, ToolRendererEntry, HostComponentContext, HostComponentEmits, TrayItemEntry,
 } from "./registry";
 export {argArray, argBoolean, argNumber, argString, countLines, objectString} from "./tool-args";
 export type {CodeLine} from "./tool-detail-lines";

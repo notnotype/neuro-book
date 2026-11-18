@@ -9,7 +9,7 @@ import {join} from "node:path";
 import {buildRegistry, type ReadPosition} from "../../src/index";
 import {nodeFiles, WorldService, type ServicePorts} from "../../src/node/index";
 import {memoryLock} from "../fixtures/faulty-files";
-import {componentDeclarations, IdMap, toRequest, type PrototypeSample} from "./convert";
+import {componentDeclarations, IdMap, toRequest, type PrototypeSample} from "../../src/sample/index";
 
 export interface Difference {
     /** `初值`、`ch1 开头`、`ch2 末尾`……；`待处理` 是写到的位置上的待处理。 */

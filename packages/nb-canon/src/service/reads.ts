@@ -15,7 +15,7 @@ import {compareIds} from "../core/ids";
 import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, rankBefore, type ChapterOrder} from "../core/position";
 import type {Check, Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
-import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress} from "../engine/types";
+import type {ChangeOutcome, EntryView, EventKey, Mode, OriginsPage, OriginStep, PlanProgress, WorldData} from "../engine/types";
 import {renderEntryForAgent, renderEntryPlain, type PlainOptions} from "../render/entry";
 import {aboutMatches} from "../world/decisions";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
@@ -39,6 +39,13 @@ export interface ChangeFilter {
     readonly range?: {readonly after?: string; readonly through?: string};
     /** 套没套上与计划进展按哪条世界线算；缺省当前线（project.md 方法表 `changes`）。 */
     readonly worldline?: string;
+    /**
+     * 只列安放在这个读取位置之前、这个位置的线视图里的（project.md 输出 31）。已写的不论生效状态；计划只在按计划模式时列，
+     * 生效的计划只列这个位置计入的（已兑现、被取代的不算，model.md 输出 5）。位置的章或线读不到时一条也不列，由调用方先查。
+     */
+    readonly before?: {readonly position: ReadPosition; readonly mode: Mode};
+    /** `desc` 从新到旧；缺省从旧到新。 */
+    readonly order?: "asc" | "desc";
 }
 
 export interface TellingFilter {
@@ -199,13 +206,6 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
     // 视图不拉住线视图与引擎：每次调用再取（LineSet 里有备忘），这样线集淘汰一条线时，缓存着的读取视图不会让它的引擎活下去
     // （worldlines 输出 9 的常驻名额）；被淘汰的线再被读到时重建。
     const lineView = (): LineView => world.line(line)!;
-    const table = lineTable(world.data, order);
-    const carried = (steps: readonly OriginStep[]): OriginStep[] => steps.map((step) => {
-        if (step.kind !== "patch" || !lineView().synthetic.has(step.change)) return step;
-        const definer = [...table.lines.values()].find((entry) => entry.fork.id === step.change)!;
-        const {fork} = definer.fork;
-        return {kind: "carried", fork: step.change, line: definer.parent, change: fork.trigger ?? fork.cut, value: step.result, key: lineView().engine.eventKey(step.change, "actual")};
-    });
     // 视图本身、章序与戳都冻结：同一个视图对象会交给一份读取输入上的几个插件（服务的 `#readViewOf`），谁改了都会影响别人。
     const view: CanonReadView = {
         version: world.version,
@@ -240,7 +240,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         renderPlain: (entry, position, mode, options) => deepFreeze(renderEntryPlain(world, entry, position.line === undefined ? {...position, line} : position, mode, options)),
         origins: (address, position, mode) => {
             const steps = lineView().engine.origins(address, position, mode);
-            return deepFreeze(steps === "chapter-not-found" ? steps : carried(steps));
+            return deepFreeze(steps === "chapter-not-found" ? steps : carriedSteps(world, line, steps));
         },
         outcome: (change) => deepFreeze(lineView().engine.outcome(change)),
         progress: (plan, position) => lineView().engine.progress(plan, position),
@@ -265,6 +265,27 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         time: (query, mode) => deepFreeze(answerTime(world.time(mode, line), world.options.time ?? DEFAULT_TIME, world.data, query)),
     };
     return Object.freeze(view);
+}
+
+/** 来历里这条线的合成事件（从父线带过去的值）那一步换成 `carried`（worldlines 输出 6）；别的步原样。 */
+function carriedSteps(world: World, line: string, steps: readonly OriginStep[]): OriginStep[] {
+    const view = world.line(line)!;
+    return steps.map((step) => {
+        if (step.kind !== "patch" || !view.synthetic.has(step.change)) return step;
+        const definer = [...lineTable(world.data, world.options.order).lines.values()].find((entry) => entry.fork.id === step.change)!;
+        const {fork} = definer.fork;
+        return {kind: "carried", fork: step.change, line: definer.parent, change: fork.trigger ?? fork.cut, value: step.result, key: view.engine.eventKey(step.change, "actual")};
+    });
+}
+
+/**
+ * 一条线上一个地址的来历的一页（服务的 `origins`）：引擎只为这一页取值，`carried` 与冻结也只做这一页。`line` 必须是这份世界上
+ * 可建的线。
+ */
+export function originsPageOn(world: World, line: string, address: Address, position: ReadPosition, mode: Mode, offset: number, limit: number): OriginsPage | "chapter-not-found" {
+    const page = world.line(line)!.engine.originsPage(address, position, mode, offset, limit);
+    // 初值与归纳两步不是补丁，`carried` 不换它们。
+    return deepFreeze(page === "chapter-not-found" ? page : {...page, steps: carriedSteps(world, line, page.steps)});
 }
 
 /**
@@ -338,6 +359,17 @@ function declarationsInput(world: World) {
  * 得到 `cursor-stale`。`params` 是方法名与影响结果的参数（条数不算）。canon 与插件的列表共用它。
  */
 export function pageOf<T>(stamp: ReadStamp, items: readonly T[], cursor: string | undefined, limit: number, params: {readonly method: string} & Readonly<Record<string, unknown>>, digest: (text: string) => string): {readonly items: readonly T[]; readonly next?: string} | "cursor-stale" {
+    const paging = cursorPaging(stamp, cursor, params, digest);
+    if (paging === "cursor-stale") return paging;
+    const next = paging.next(limit, items.length);
+    return {items: items.slice(paging.offset, paging.offset + limit), ...(next === undefined ? {} : {next})};
+}
+
+/**
+ * `pageOf` 的两步，给不先列出全部的列表用（来历按页算）：由游标得到偏移（同样的作废规则），再按这一页的条数与总数给下一页的游标
+ * （没有下一页时为 undefined）。
+ */
+export function cursorPaging(stamp: ReadStamp, cursor: string | undefined, params: {readonly method: string} & Readonly<Record<string, unknown>>, digest: (text: string) => string): {readonly offset: number; readonly next: (limit: number, total: number) => string | undefined} | "cursor-stale" {
     const query = digest(stableStringify(params));
     let offset = 0;
     if (cursor !== undefined) {
@@ -345,9 +377,7 @@ export function pageOf<T>(stamp: ReadStamp, items: readonly T[], cursor: string 
         if (input !== stamp.inputDigest || bound !== query || rest.length > 0 || at === undefined || !/^\d+$/u.test(at)) return "cursor-stale";
         offset = Number(at);
     }
-    const slice = items.slice(offset, offset + limit);
-    const next = offset + limit < items.length ? `${stamp.inputDigest}:${query}:${String(offset + limit)}` : undefined;
-    return {items: slice, ...(next === undefined ? {} : {next})};
+    return {offset, next: (limit, total) => (offset + limit < total ? `${stamp.inputDigest}:${query}:${String(offset + limit)}` : undefined)};
 }
 
 /** 剧情变更涉及这个条目：在 `involves` 里、是参与者（本体或马甲）、或补丁改到它（列表按条目筛时用）。 */
@@ -382,20 +412,91 @@ export function listChanges(world: World, filter: ChangeFilter, progressAt?: Rea
         return filter.range?.through === undefined || (bounds.through !== undefined && bounds.through !== null && compareOrder(point, bounds.through) <= 0);
     };
     const worldline = filter.worldline ?? world.positionLine(latest);
-    const matching = [...world.data.changes.values()].filter((change) =>
+    const before = filter.before === undefined ? undefined : beforeFilter(world, table, filter.before);
+    // 按条目筛时从这个条目的、已按安放排好的那一组起筛（条目页的情节分页每次发布后都要读，全书有上万条），筛完仍是有序的；
+    // 不按条目筛的照旧先筛后排：按章筛这类窄查询只排筛出来的几条。
+    const candidates = filter.entry === undefined ? world.data.changes.values() : changesOfEntry(world, filter.entry);
+    const matching = [...candidates].filter((change) =>
+        (before === undefined || before(change)) &&
         (filter.placedOn === undefined || lineOf(change.at) === filter.placedOn) &&
         (filter.inView === undefined || table.visible(filter.inView, change.id)) &&
         within(change) &&
         (filter.chapter === undefined || (change.at.kind === "chapter" && change.at.chapter === filter.chapter)) &&
-        (filter.entry === undefined || concerns(change, filter.entry)) &&
         (filter.line === undefined || change.lines.includes(filter.line)) &&
         (filter.kind === undefined || change.kind === filter.kind) &&
         (filter.status === undefined || change.status === filter.status) &&
         (filter.nature === undefined || (change.nature ?? "event") === filter.nature) &&
         (filter.progress === undefined || (change.kind === "plan" && table.visible(worldline, change.id) && world.line(worldline)?.engine.progress(change.id, latest) === filter.progress)),
     );
-    sortByPlacement(order, matching);
+    if (filter.entry === undefined) sortByPlacement(order, matching);
+    if (filter.order === "desc") matching.reverse();
     return matching;
+}
+
+/** 每条剧情变更涉及的条目（`concerns` 的口径），按变更对象缓存：发布时没改的变更沿用同一个对象，跨版本有效。 */
+const concernedByChange = new WeakMap<StoryChange, readonly string[]>();
+
+function concernedEntries(change: StoryChange): readonly string[] {
+    let entries = concernedByChange.get(change);
+    if (entries === undefined) {
+        const cast = (change.cast ?? []).flatMap((member) => [member.who, member.as]).filter((id) => id !== undefined);
+        entries = [...new Set([...change.involves, ...cast, ...change.patches.map((patch) => patch.at.entry)])];
+        concernedByChange.set(change, entries);
+    }
+    return entries;
+}
+
+/**
+ * 每个条目涉及的剧情变更，按安放的先后排好（同 `sortByPlacement`）。按世界数据与章序缓存（世界每前进一个版本就是一份新的数据，
+ * 章序调整换一个章序对象），分组一次建好，每个条目的那一组第一次用到时才排。调用方不得改返回的数组。
+ */
+const entryChanges = new WeakMap<WorldData, WeakMap<ChapterOrder, {readonly grouped: Map<string, StoryChange[]>; readonly sorted: Set<string>}>>();
+const NO_CHANGES: readonly StoryChange[] = Object.freeze([]);
+
+function changesOfEntry(world: World, entry: string): readonly StoryChange[] {
+    const order = world.options.order;
+    let byOrder = entryChanges.get(world.data);
+    if (byOrder === undefined) entryChanges.set(world.data, (byOrder = new WeakMap()));
+    let index = byOrder.get(order);
+    if (index === undefined) {
+        const grouped = new Map<string, StoryChange[]>();
+        for (const change of world.data.changes.values()) {
+            for (const id of concernedEntries(change)) {
+                const list = grouped.get(id);
+                if (list === undefined) grouped.set(id, [change]);
+                else list.push(change);
+            }
+        }
+        byOrder.set(order, (index = {grouped, sorted: new Set()}));
+    }
+    // 没有涉及它的变更（条目不存在、或从没被提到）：不为查询串留键，否则任意的 id 都会在这一版里常驻。
+    const list = index.grouped.get(entry);
+    if (list === undefined) return NO_CHANGES;
+    // 这一组只在这里用：第一次用到时原地排序，不另留一份副本。
+    if (!index.sorted.has(entry)) {
+        sortByPlacement(order, list);
+        index.sorted.add(entry);
+    }
+    return list;
+}
+
+/** `before` 筛选（见 `ChangeFilter.before`）：返回“这条变更安放在这个位置之前、在这条线视图里”的判断。 */
+function beforeFilter(world: World, table: ReturnType<typeof lineTable>, before: NonNullable<ChangeFilter["before"]>): (change: StoryChange) => boolean {
+    const order = world.options.order;
+    const at = positionRank(order, before.position);
+    const line = world.positionLine(before.position, before.mode);
+    const included = before.mode === "planned" ? world.lineAt(before.position, "planned")?.engine.plannedAt(before.position) : [];
+    if (at === null || included === undefined || included === "chapter-not-found") return () => false;
+    const counted = new Set(included);
+    return (change) => {
+        if (!table.visible(line, change.id)) return false;
+        if (change.kind === "plan") {
+            if (before.mode !== "planned") return false;
+            if (change.status === "active") return counted.has(change.id);
+        }
+        const rank = placementRank(order, change.at);
+        return rank !== null && rankBefore(rank, at);
+    };
 }
 
 /**

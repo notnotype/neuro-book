@@ -52,6 +52,7 @@ interface FakeShellOptions {
     /** 适配层建不出托盘图标。 */
     readonly trayFails?: boolean;
     readonly runningWork?: (serverUrl: string) => Promise<WorkCheck>;
+    readonly shortcuts?: {close(deadlineMs: number): Promise<void>};
 }
 
 function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
@@ -122,6 +123,7 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
         updates: options.updates,
         closeLastWindow: options.closeLastWindow,
         runningWork: options.runningWork,
+        ...(options.shortcuts === undefined ? {} : {shortcuts: options.shortcuts}),
     });
     /** 用户关一个窗口，页面接下并同意。 */
     const closeAndAllow = (id: WindowId) => {
@@ -168,6 +170,33 @@ describe("桌面壳的流程", () => {
         // 正向证据：就绪时记下服务端的 PID，经停止路径停完记下没有强制结束、退出码 0。
         expect(a.facts.filter((fact) => fact.startsWith("desktop.server."))).toEqual([expect.stringMatching(/^desktop\.server\.ready pid=\d+$/), "desktop.server.stopped forced=false exitCode=0"]);
         // 锁放下了：再取得到。
+        const again = await acquireDesktopLock({stateRoot: root, report: () => undefined, onOpenWindow: () => ({ok: true})});
+        expect(again.ok).toBe(true);
+        if (again.ok) await again.claim.release();
+    }, 90_000);
+
+    it("输出 33：进入停止中就封住快捷方式的同步；它还在收尾时桌面锁不放，收尾完才放锁退出", async () => {
+        const root = nextRoot();
+        const closes: number[] = [];
+        let finish!: () => void;
+        const finished = new Promise<void>((resolve) => {
+            finish = resolve;
+        });
+        const a = fakeShell(root, {shortcuts: {close: (deadlineMs) => {
+            closes.push(deadlineMs);
+            return finished;
+        }}});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 60_000, intervalMs: 50});
+        a.closeAndAllow(1);
+        await waitUntil("服务端停完", () => a.facts.some((fact) => fact.startsWith("desktop.server.stopped")), {timeoutMs: 60_000, intervalMs: 50});
+        expect(closes).toEqual([5_000]);
+        const held = await acquireDesktopLock({stateRoot: root, report: () => undefined, onOpenWindow: () => ({ok: true})});
+        expect(held.ok).toBe(false);
+        expect(a.exitCode()).toBeNull();
+        finish();
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 60_000, intervalMs: 50});
+        expect(closes).toEqual([5_000]);
         const again = await acquireDesktopLock({stateRoot: root, report: () => undefined, onOpenWindow: () => ({ok: true})});
         expect(again.ok).toBe(true);
         if (again.ok) await again.claim.release();

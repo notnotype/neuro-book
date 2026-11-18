@@ -302,6 +302,9 @@ describe("canon.worldlines 输出 1、6、project 方法表 lines：按线的读
             expect(service.openView({viewer: null, line: "l404", until: {kind: "chapter", chapter: "ch3", edge: "end"}, purpose: "writer"})).toEqual({code: "line-not-found"});
             const steps = child.origins({entry: xia, path: "rb.次数"}, {kind: "chapter", chapter: "ch3", edge: "end"}, "actual");
             expect(steps !== "chapter-not-found" && steps.at(-1)).toMatchObject({kind: "carried", fork: forks["tmp:f"], line: "main", change: story["tmp:c3"], value: 0});
+            // 服务按页取来历（project 输出 32、model 输出 37）：位置写了子线，最近的一步同样是 carried。
+            const page = service.origins({entry: xia, path: "rb.次数"}, {kind: "chapter", chapter: "ch3", edge: "end", line: r1}, "actual");
+            expect(typeof page !== "string" && page.items[0]).toMatchObject({kind: "carried", fork: forks["tmp:f"], line: "main", change: story["tmp:c3"], value: 0});
         } finally {
             await service.stop();
             await rm(root, {recursive: true, force: true});

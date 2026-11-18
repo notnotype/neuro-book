@@ -8,7 +8,9 @@ import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {stickerAllowlistUsageKey} from "nbook/plugins/agent/shared/contracts";
-import {displayLocale, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {notificationsKey} from "nbook/plugins/workbench/shared/contracts";
 import {boundText} from "nbook/shared/use-plugin-text";
@@ -17,9 +19,11 @@ import {settingsPage} from "nbook/ui/settings/settings-page";
 
 import type zhCN from "../locales/zh-CN.json";
 import {descriptor} from "../plugin";
-import {stickerResolverKey, stickersCatalogContract} from "../shared/contracts";
+import {stickerDirectoryKey, stickerPickerKey, stickerResolverKey, stickersCatalogContract} from "../shared/contracts";
 import {STICKERS_TEXT_NAMESPACE, stickersText} from "../shared/text";
 import {createStickersHttp} from "./http";
+import {createStickerPicker} from "./picker-service";
+import {memoryRecent, recentPort, recentStickersStore} from "./recent";
 import {createStickerDirectory} from "./resolver";
 
 /** 设置窗口里的“表情包”分区（docs/specs/agent/stickers.md 输出 25）：分类 `ai`，排在 Skill 之后，只有用户层。 */
@@ -33,7 +37,7 @@ export const stickersBrowserPlugin: PluginDefinition = {
         location: "browser",
         activationEvents: ["onStartup"],
         dependencies: [{key: diagnosticsKey}],
-        provides: [stickerResolverKey],
+        provides: [stickerResolverKey, stickerDirectoryKey],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const report = (message: string): void => {
@@ -59,7 +63,36 @@ export const stickersBrowserPlugin: PluginDefinition = {
                 report(`取不到表情目录：${String(error)}`);
                 directory.failed();
             });
-            return {services: [provideService(stickerResolverKey, directory.resolve)]};
+            return {services: [provideService(stickerResolverKey, directory.resolve), provideService(stickerDirectoryKey, directory)]};
+        },
+    }), defineEntry({
+        // 选择器（输出 39 到 43）单独一个入口：它要的存储、命令都不该拖慢上面那个入口，Markdown 激活时要等 `stickerResolverKey`。
+        id: "picker",
+        location: "browser",
+        activationEvents: ["onStartup"],
+        dependencies: [{key: diagnosticsKey}, {key: stickerDirectoryKey}, {key: storageKey, required: false}, {key: commandServiceKey, required: false}],
+        provides: [stickerPickerKey],
+        activate: async (context) => {
+            const diagnostics = context.services.require(diagnosticsKey);
+            const storage = await context.services.resolve(storageKey);
+            const commands = await context.services.resolve(commandServiceKey);
+            const report = (message: string, error?: unknown): void => {
+                diagnostics.record({level: "warn", event: "stickers.picker", message, ...(error === undefined ? {} : {error}), source: {plugin: descriptor.id}});
+            };
+            const recent = storage.status === "resolved" ? recentPort(recentStickersStore.create(context, {storage: storage.instance, diagnostics})) : memoryRecent();
+            const picker = createStickerPicker({
+                directory: context.services.require(stickerDirectoryKey),
+                recent,
+                openPacksPage: () => {
+                    if (commands.status !== "resolved") return;
+                    void commands.instance.execute(OPEN_SETTINGS_COMMAND, {section: PACKS_SECTION}).then((result) => {
+                        if (!result.ok) report(`opening the sticker packs page failed: ${result.code}`);
+                    });
+                },
+                report,
+                signal: context.signal,
+            });
+            return {services: [provideService(stickerPickerKey, picker)]};
         },
     }), defineEntry({
         // 只给设置页用的入口：对 Agent 提供的服务键做可选依赖。服务依赖按入口算，所以它不会与上面入口提供给 Markdown 的 `stickerResolverKey`

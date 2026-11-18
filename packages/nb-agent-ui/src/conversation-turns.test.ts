@@ -3,7 +3,8 @@ import type {AssistantMessageView, MessageView, RunView, ToolCallView, UserMessa
 import {createAgentViewRegistry} from "./registry";
 import {builtinToolRenderers} from "./builtin-tools";
 import {agentRef} from "./text";
-import {assignTurnKeys, buildTurns, defaultTurnExpanded, reuseTurnGroups, splitIntoTurnGroups, type BuildTurnsInput, type ChainBlock, type ConversationTurn, type ToolGroupStep, type TurnBlock} from "./conversation-turns";
+import {describeChildren} from "./process-summary";
+import {assignTurnKeys, buildTurns, childFiles, defaultTurnExpanded, notableChildren, reuseTurnGroups, splitIntoTurnGroups, type BuildTurnsInput, type ChainBlock, type ConversationTurn, type ToolGroupStep, type TurnBlock} from "./conversation-turns";
 
 const builtinToolsContribution = {source: "builtin:tools", tools: builtinToolRenderers};
 const registry = createAgentViewRegistry([builtinToolsContribution]);
@@ -603,5 +604,37 @@ describe("assignTurnKeys", () => {
         const a2 = assistant("a2", {text: "好的。"});
         const next = assignTurnKeys(splitIntoTurnGroups([user("u0", "更早"), u1, a1, u2, a2]), first);
         expect([...next.entries()]).toEqual([["u0", "u0"], ["u1", "a1"], ["u2", "u2"]]);
+    });
+});
+
+describe("有子调用的调用（Spec“有子调用的调用”，验收场景 37）", () => {
+    // eval 带三个子调用（读成功、写成功、写被拒），自己出错。
+    const evalCall = (): ToolCallView => ({
+        ...tool("t1", "eval", {code: "…"}, "error"),
+        children: [tool("n1", "read", {path: "大纲.md"}), tool("n2", "write", {path: "第一章.md", content: "一\n二"}), tool("n3", "write", {path: "第二章.md", content: "三"}, "denied")],
+    });
+
+    it("子调用读改的文件按它自己的状态算进思维链摘要与轮末改动；步骤数、另有几次操作与失败次数只数外层", () => {
+        const [turn] = buildTurns(input([user("u1", "批量改"), assistant("a1", {toolCalls: [evalCall()]}), assistant("a2", {text: "改好了一章。"})]));
+        const [chain] = chains(turn!);
+        expect(chain!.summary).toMatchObject({steps: 1, filesRead: 1, filesChanged: 1, others: 0, failed: 1});
+        expect(turn!.metrics).toMatchObject({steps: 1, failed: 1, filesRead: 1, filesChanged: 1});
+        // 改动记在外层调用名下：点开改动跳到那张卡片所在的地方。
+        expect(turn!.changedFiles).toEqual([{toolCallId: "t1", change: {path: "第一章.md", added: 2, removed: null}}]);
+    });
+
+    it("参数只给了预览的子调用（内核截短了长字符串）：改的文件照算，增删行数不给", () => {
+        const call: ToolCallView = {...tool("t1", "eval", {code: "…"}), children: [{...tool("n1", "write", {path: "第一章.md", content: "截短的前 2 KB…（共 9000 字节）"}), argsPreview: true}]};
+        const [turn] = buildTurns(input([user("u1", "写整章"), assistant("a1", {toolCalls: [call]}), assistant("a2", {text: "写好了。"})]));
+        expect(turn!.changedFiles).toEqual([{toolCallId: "t1", change: {path: "第一章.md", added: null, removed: null}}]);
+        expect(notableChildren(call, registry).map((child) => child.id)).toEqual(["n1"]);
+    });
+
+    it("卡片收起时露出改了文件的与被拒的子调用，只读的不露；计数各自去重", () => {
+        const call = evalCall();
+        expect(notableChildren(call, registry).map((child) => child.id)).toEqual(["n2", "n3"]);
+        expect(childFiles(call, registry)).toEqual({read: 1, changed: 1});
+        expect(describeChildren(3, childFiles(call, registry), false)).toEqual([agentRef("process.children.called", {count: 3}), agentRef("process.files.readChanged", {read: 1, changed: 1, count: 1})]);
+        expect(describeChildren(2, {read: 0, changed: 0}, true)).toEqual([agentRef("process.children.calling", {count: 2})]);
     });
 });

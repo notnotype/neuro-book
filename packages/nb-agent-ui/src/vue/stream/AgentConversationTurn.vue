@@ -6,6 +6,7 @@ import type {
     AgentConversationServices,
     AssistantMessageView,
     MessageView,
+    UserMessageView,
 } from "../../types";
 import {visibleEntries, type AgentViewRegistry, type RoleEntry} from "../../registry";
 import {buildTurn, defaultTurnExpanded} from "../../conversation-turns";
@@ -18,7 +19,7 @@ import AgentTurnBlock from "./AgentTurnBlock.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {describeTurn, describeUsage} from "../../process-summary";
 import {formatClock} from "../../format";
-import {useAgentText} from "../host";
+import {useAgentRenderers, useAgentText} from "../host";
 import type {ViewAction} from "../view-action";
 
 const props = withDefaults(defineProps<{
@@ -147,6 +148,21 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
         emit("action", entry.toAction(message, {outcomeCallId}));
     }
 }
+
+const renderers = useAgentRenderers();
+/**
+ * 只有表情的用户消息不画气泡（Spec“消息”）：有附件、正文被省略时照常画（省略时旁边还有“仅显示预览”）；就地编辑时整块换成编辑器，
+ * 不走这里。判断由宿主给（`promptBareness`）。
+ */
+function bare(message: UserMessageView): boolean {
+    if (message.contentOmitted) return false;
+    const texts: string[] = [];
+    for (const block of message.blocks) {
+        if (block.kind !== "text") return false;
+        texts.push(block.text);
+    }
+    return renderers.value.promptBareness(texts);
+}
 </script>
 
 <template>
@@ -178,6 +194,13 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                 @submit="emit('action', {type: 'message.editSubmit', messageId: turn.user!.id, text: $event})"
                 @cancel="emit('action', {type: 'message.editCancel'})"
             />
+            <div v-else-if="bare(turn.user)" class="acv-user-bare" data-user-bare>
+                <AgentUserContent
+                    :message="turn.user"
+                    :resolve-attachment-url="props.services.resolveAttachmentUrl"
+                    @action="emit('action', $event)"
+                />
+            </div>
             <div v-else class="acv-user-bubble">
                 <AgentUserContent
                     :message="turn.user"
@@ -416,6 +439,14 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
 
 .acv-user-editor {
     margin-left: 24px;
+}
+
+.acv-user-bare {
+    min-width: 0;
+    margin-left: var(--nb-agent-block-indent);
+    color: var(--text-main);
+    font-size: var(--text-md);
+    line-height: 1.65;
 }
 
 .acv-user-bubble {

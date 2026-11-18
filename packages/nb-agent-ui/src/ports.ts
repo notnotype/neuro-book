@@ -40,6 +40,10 @@ export type PromptMenuItem = {
     continues?: boolean;
     /** 行尾的状态图标（例如 Skill 未初始化）；同一个菜单有一项带它时每行都留出这一列。 */
     status?: {label: string; iconClass?: string; busy?: boolean; tone?: "neutral" | "warning" | "danger"};
+    /** 一张小图（例如表情），画在图标的位置。 */
+    imageUrl?: string;
+    /** 为假时确认后不补空格（表情：中文里紧挨着写）；缺省真。 */
+    appendSpace?: boolean;
 };
 
 export type PromptMenu = {
@@ -49,6 +53,8 @@ export type PromptMenu = {
     loading?: boolean;
     /** 没有结果时的说明。 */
     emptyText?: string;
+    /** 为真时没有项（也不在加载）就不显示菜单，回车照常发送。 */
+    hideWhenEmpty?: boolean;
 };
 
 /**
@@ -112,7 +118,8 @@ export type PromptEditorPortProps = {
 };
 
 export interface PromptEditorPortExpose {
-    focus(at?: "start" | "end"): void;
+    /** 聚焦：光标移到开头、末尾，或 `"keep"` 留在原处（弹层关上时把焦点还回来）。 */
+    focus(at?: "start" | "end" | "keep"): void;
     insertText(text: string): void;
     insertFiles(files: readonly File[]): void;
     /** 聚焦到末尾并插入触发字符，打开它的菜单；前一个字不是空白或标点时先补空格（nb-markdown 的 PromptEditor）。 */
@@ -153,3 +160,10 @@ export type MarkdownDisplayPortProps = {
  * 不注入时用核心的 `markdownPreviewLine`。要求是纯函数、只返回一行。
  */
 export type MarkdownPreviewPort = (text: string) => string;
+
+/**
+ * 一条用户消息“只有表情”时不画气泡（docs/specs/ui/agent-conversation-view.md 的“消息”）：宿主按自己的文字写法判断，收这条消息的
+ * 各个文字块。附件、正文被省略、就地编辑时视图自己按画气泡处理，不问它。不注入时都画气泡。要求是纯函数；可以读响应式状态（宿主的
+ * 表情目录晚到时重算）。
+ */
+export type PromptBarenessPort = (texts: readonly string[]) => boolean;

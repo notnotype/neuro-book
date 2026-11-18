@@ -70,16 +70,17 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; port?: TextPort} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; promptBareness?: (texts: readonly string[]) => boolean; port?: TextPort; viewMode?: "turns" | "raw"} = {}) {
     return mount(AgentConversationView, {
         ...(options.port === undefined ? {} : {global: {provide: {[TEXT_PORT_KEY as symbol]: options.port}}}),
         props: {
             ...(options.header === undefined ? {} : {header: options.header}),
             ...(options.processDisclosure === undefined ? {} : {processDisclosure: options.processDisclosure}),
+            ...(options.viewMode === undefined ? {} : {viewMode: options.viewMode}),
             ctx: options.ctx ?? context(),
             registry: options.registry ?? registry,
             locale,
-            renderers: {...(options.plain === true ? {} : {markdown: FakeMarkdown}), ...(options.markdownPreview === undefined ? {} : {markdownPreview: options.markdownPreview})},
+            renderers: {...(options.plain === true ? {} : {markdown: FakeMarkdown}), ...(options.markdownPreview === undefined ? {} : {markdownPreview: options.markdownPreview}), ...(options.promptBareness === undefined ? {} : {promptBareness: options.promptBareness})},
             services: options.bareServices === true ? services : {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
         },
         attachTo: document.body,
@@ -423,6 +424,61 @@ describe("宿主的详情组件（验收 21）", () => {
         await view.get("[data-detail-link]").trigger("click");
         expect(seen.at(-1)).toBe("en-US:function");
         expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "chapter://c1"}]);
+        view.unmount();
+    });
+});
+
+describe("有子调用的卡片（Spec“有子调用的调用”，验收场景 37）", () => {
+    const code: AgentViewContribution = {
+        source: "test:code",
+        tools: [{id: "code", toolNames: ["eval"], category: "other", icon: "i-lucide-square-code", label: "运行代码", presentation: "card", summary: (call) => String((call.args as {title?: string}).title ?? "")}],
+    };
+    const codeRegistry = createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, code]);
+    const children = [
+        {id: "n1", name: "read", status: "success" as const, args: {path: "大纲.md"}},
+        {id: "n2", name: "write", status: "success" as const, args: {path: "第一章.md", content: "一"}},
+        {id: "n3", name: "write", status: "denied" as const, args: {path: "第二章.md", content: "二"}},
+    ];
+    function withEval(call: Record<string, unknown>, running = false): AgentConversationContext {
+        const ctx = context();
+        ctx.run = running ? {status: "running", phase: ""} : ctx.run;
+        ctx.now = 65_000;
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: running ? "streaming" : "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "e1", name: "eval", args: {title: "批量改"}, ...call} as never]}];
+        return ctx;
+    }
+    const card = (view: ReturnType<typeof mountView>) => view.get(".acv-steps .nb-collapsible-card");
+
+    it("收起的卡片副标题写计数；改了文件与被拒的子调用紧跟着露出，只读的不露；展开后列出全部，收起的那几行不再重复", async () => {
+        const view = mountView("zh-CN", {}, {ctx: withEval({status: "error", children}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(card(view).text()).toContain("批量改 · 调用了 3 次工具 · 读了 1 个文件，改了 1 个");
+        expect(view.findAll("[data-card-child]").map((row) => row.text())).toEqual([expect.stringContaining("第一章.md"), expect.stringContaining("第二章.md")]);
+        await card(view).get("button").trigger("click");
+        expect(view.findAll("[data-card-children] .nb-collapsible-row").length).toBe(3);
+        expect(view.find("[data-card-child]").exists()).toBe(false);
+        view.unmount();
+    });
+
+    it("运行中：副标题写已用时、已调用几次与正在调的那一个（几个同时在跑时是最近受理的）；结束后不写用时", () => {
+        const twoRunning = [children[0], {id: "n4", name: "read", status: "running", args: {path: "第十一章.md"}}, {id: "n5", name: "read", status: "running", args: {path: "第十二章.md"}}];
+        const running = mountView("zh-CN", {}, {ctx: withEval({status: "running", startedAt: 3_000, children: twoRunning}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(card(running).text()).toContain("批量改 · 1:02 · 已调用 3 次 · 读取 第十二章.md");
+        running.unmount();
+        const done = mountView("zh-CN", {}, {ctx: withEval({status: "success", startedAt: 3_000, children}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(card(done).text()).toContain("批量改 · 调用了 3 次工具");
+        expect(card(done).text()).not.toContain("1:02");
+        done.unmount();
+    });
+
+    it("收起时出错、参数无效、结果未知的子调用也露出来", () => {
+        const failing = [children[0], {id: "n6", name: "read", status: "error", args: {path: "番外.md"}, error: "文件不存在"}, {id: "n7", name: "read", status: "invalid", args: {}}, {id: "n8", name: "write", status: "unknown", args: {path: "第三章.md", content: "一"}}];
+        const view = mountView("zh-CN", {}, {ctx: withEval({status: "error", children: failing}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(view.findAll("[data-card-child]").length).toBe(3);
+        view.unmount();
+    });
+
+    it("原始视图在这次调用下缩进列出全部子调用", () => {
+        const view = mountView("zh-CN", {}, {ctx: withEval({status: "error", children}), plain: true, registry: codeRegistry, viewMode: "raw"});
+        expect(view.findAll(".acv-raw__nested").map((row) => row.text())).toEqual([expect.stringContaining("大纲.md"), expect.stringContaining("第一章.md"), expect.stringContaining("第二章.md")]);
         view.unmount();
     });
 });
@@ -841,6 +897,34 @@ describe("登记的顶栏动作（验收 36）", () => {
         await view.get("[data-header-action='a']").trigger("click");
         menu.vm.$emit("select", "header:c");
         expect(view.emitted("action")).toEqual([[{type: "lab:a"}], [{type: "lab:c"}]]);
+        view.unmount();
+    });
+});
+
+describe("只有表情的用户消息不画气泡（Spec“消息”）", () => {
+    // 宿主的判断：拼起来去掉空白后恰好是一个表情写法。
+    const promptBareness = (texts: readonly string[]): boolean => texts.join("").trim() === ":lyra/开心:";
+    function bareCtx(): AgentConversationContext {
+        const ctx = context();
+        ctx.messages = [
+            {kind: "user", id: "u1", timestamp: 1, intent: "normal", blocks: [{kind: "text", text: " :lyra/开心: "}], contentOmitted: false},
+            {kind: "user", id: "u2", timestamp: 2, intent: "normal", blocks: [{kind: "text", text: "写完啦:lyra/开心:"}], contentOmitted: false},
+            {kind: "user", id: "u3", timestamp: 3, intent: "normal", blocks: [{kind: "text", text: ":lyra/开心:"}, {kind: "attachment", locator: "session://attachments/a.png", name: "a.png", mimeType: "image/png", bytes: 3}], contentOmitted: false},
+            {kind: "user", id: "u4", timestamp: 4, intent: "normal", blocks: [{kind: "text", text: ":lyra/开心:"}], contentOmitted: true},
+        ];
+        return ctx;
+    }
+    const shapes = (view: ReturnType<typeof mountView>): string[] => view.findAll(".acv-user-bubble, .acv-user-bare").map((element) => (element.classes().includes("acv-user-bare") ? "bare" : "bubble"));
+
+    it("宿主判为只有表情、没有附件、正文没被省略的不画气泡；其余照常", () => {
+        const view = mountView("zh-CN", {}, {ctx: bareCtx(), promptBareness});
+        expect(shapes(view)).toEqual(["bare", "bubble", "bubble", "bubble"]);
+        view.unmount();
+    });
+
+    it("宿主没给判断时都画气泡", () => {
+        const view = mountView("zh-CN", {}, {ctx: bareCtx()});
+        expect(shapes(view)).toEqual(["bubble", "bubble", "bubble", "bubble"]);
         view.unmount();
     });
 });

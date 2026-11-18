@@ -45,6 +45,35 @@ updated: 2026-11-18
   - `sortable.ts:5` 链接 `ui/workbench-layout` 输出 38、`:74` 工作台实时布局的粘滞；
   - `vue/DropSectorsOverlay.vue:21` 编辑组最窄 220px；`vue/useRenderOrder.ts:24`、`:44` 编辑组；`vue/drop-targets.ts:3` 不需要工作台在场。
 
+- 第 2 片（同一分支，`d56c0cd61`；并 master `5fc79e1ab`；变更记录 `9ec5cc0fc`）：新包 `packages/nb-workbench-layout`，搬家、应用 44 个文件改导入、SDK 与登记。
+  - 并 master 时 `sdk/components.ts` 冲突：master 的 `88043837e` 给 SDK 组件清单补了 `SortableList`，合并后 `SortableList` 仍从 nb-layout 出，`TabStrip` 从新包出。合并后改写脚本 dry run 为 0 个文件，没有新的导入要改。
+  - 合并后验证：两个包与应用的类型检查都过；nb-layout `bun test` 334、vitest 213，nb-workbench-layout `bun test` 261、vitest 46，`sdk.test` 4 条，全过（合并前 `sdk.test` 的 2 条失败是 master 上原有的，`88043837e` 已修）；`docs:check` 过。
+  - SDK：搬前、搬后各跑一次 `build:sdk`，入口 d.ts 的导出名逐个相同，`components.d.ts` 只有属性先后不同；产物里没有两个包的模块说明符。比对在合并之前，合并只多了 nb-layout 的 `SortableList`。
+  - 合并前应用单元测试的三处失败与本片无关：`pack.test` 4 条在负载 47 到 50 时 60 秒超时（放宽超时的副本 13 条全过）；`package-io` 的上限用例 master 上同样失败；`auto-save` 输出 63 重跑即过。
+  - Spec 的三处实现路径（`ui/workbench-layout` 的 151、364、365 行）随代码在分支上改：文件一搬，旧链接就断，`docs:check` 会失败；master 上这份与分支起点相同，合入不会盖掉新内容。
+  - 根 `AGENTS.md` 的仓库结构里先不加新包这一行：主工作区的这个文件有别的会话没提交的改动，这次不暂存它，留到它提交之后再补。
+  - e2e：12 个文件 226 条，带 `NB_E2E_WIDE`，跑到第 96 条时撞上 90 分钟上限。Lab 的 7 个文件几乎全部失败，失败都在打开页面后 15 秒内等不到 Lab 就绪：截图停在宿主的加载条，trace 里 Vite 的模块请求在打开后 54 秒才轮到 Lab。当时负载 24 到 39，可用内存 2 GB，别的会话的 eval 内核、开发服务与截图都在跑。过了就绪的用例全部通过，没有一条是行为断言失败。`workbench-containers` 19 条过 18 条（1276 失败），`workbench-dnd`、`workbench-live-drag`、`workbench-shell`、`workbench-views` 没轮到。负载 25 时单独重跑 `lab-drop-sectors` 与 `lab-tab-strip`：过 2 条（TabStrip 的键盘与多行），其余 4 条照样卡在就绪。
+  - e2e 第二轮（合并 master 后重建三份产物，等负载降到 12 以下才开跑）：Lab 的 7 个文件、上一轮没轮到的 4 个文件与 `workbench-containers:1276`，192 条，181 过、11 败。开跑时负载 10.8，跑的过程中升到 41（别的会话的 eval 内核与类型检查），可用内存 2 GB。
+    - 产品页的用例全过，包括 `workbench-dnd`、`workbench-live-drag`、`workbench-views`，以及 `workbench-shell` 的产品页部分。
+    - 失败的 11 条里，8 条是 Lab 打开后 15 秒内等不到就绪（`lab-drag-session:95`、`lab-nested-grid:418` 两种配色、`lab-scenes:41`、`lab-workbench-surface` 的 83、264、282、387），`workbench-shell:792` 是 Lab 场景 15 秒内没挂上，`workbench-shell:883` 是开发服务连不上（`ERR_CONNECTION_REFUSED`）。
+    - `workbench-containers:1276` 两轮都失败：点回之后第 1 帧指示块离终点不到 1px，滑回在一帧之内基本走完。这个指示块的实现（`WorkbenchToolStrip.vue`、`use-entry-indicator.ts`）本分支没改，这一条按逐帧时序怕负载处理，等负载低时单独重跑确认。
+  - 第 3 片的包说明在分支上（`a0cb8ecdf`）：nb-layout 的 README 与 AGENTS 改成通用布局工具，加一条分界规则（导出名、数据属性、类型名里不出现工作台概念）；`grid.md` 的“布局文档”一节搬进新包 README，原处留一句链接。
+  - `governance:check` 有 14 条失败，master 上同样是这 14 条，都是分支起点之前就有的。
+  - 用 nbdev 在 4317 起开发服务看了一遍：Lab 的 `TabStrip` 三个场景（滚动、多行、自适应）亮色下画法正常，截图报告没有溢出、页面错误与被裁的焦点环；产品页 `/workbench` 挂上、没有页面错误。看完已停掉。
+  - 实现审查（Claude Sonnet，固定在 `a0cb8ecdf`，[`evidences/impl-review.txt`](evidences/impl-review.txt)）：7 条，都是建议，没有正确性与不变量问题；三个包的类型检查、两个包的单测审查者自己跑过。修正单独提交：
+
+    | 条 | 内容 | 处理 |
+    |---|---|---|
+    | 1 | 变更记录说“按原来写法传值不用改”，模板里直接写带 `action` 的数组字面量会撞多余属性检查 | 成立，改变更记录：传变量的不用改，字面量里的 `action` 要去掉 |
+    | 2 | 搬家后还有几处注释写“nb-layout 的 X”，nb-layout 的 `description` 还是“工作台的布局工具”，Spec 64 行在正文 | 成立，注释与 `description` 随修正改；Spec 64 行并进合入后的 Spec 改路径 |
+    | 3 | `WorkbenchShell.vue` 给 `entryRect` 补 `null` 的转换已经多余 | 成立，删掉（`validRect` 对 `undefined` 与 `null` 一样） |
+    | 4 | “`entryRect` 可以不传”没有用例 | 成立，补一条省略它的渲染用例 |
+    | 5 | vitest 条数 259 对不上，新包多了一条 | 不成立：那条用例第 1 片就建在 nb-layout 的 `src/workbench/vue/`，第 1 片的 259 已含它；按文件数两个提交都是 223 个用例（`each` 不展开） |
+    | 6 | 新包里分区组件的用例只比 id | 成立，补真实 id 的当前块与文字，再补“整块”与单列区域各一例 |
+    | 7 | 边界测试不拦导出名里的工作台概念 | 成立，归 t36：t36 本来就要给两个入口加导出名测试，禁用词表随它做 |
+
 ## 下一步
 
-第 2 片：新包 `packages/nb-workbench-layout`，搬家、改导入、SDK 与登记。
+1. 负载降到 15 以下后，逐条单独重跑上面失败的 11 条（已在后台排好）；还失败的在 master 上对照。
+2. 合入 master，`bun install`；在 master 上补两份 Spec 的实现合同与证据（新包路径）。根 `AGENTS.md` 的仓库结构等别的会话的改动提交之后再加新包这一行。
+3. 实现审查回来后逐条处理，修正单独提交。

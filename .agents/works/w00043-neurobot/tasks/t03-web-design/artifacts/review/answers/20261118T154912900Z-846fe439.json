@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "answerId": "20261118T154912900Z-846fe439",
+    "artifactVersion": 9,
+    "contentHash": "2bf8c795386097452900af88ebe1e353ed120c1eaaa8a3d59f489eb83b95866f",
+    "submittedAt": "2026-11-18T15:49:08.587Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "schedule-rows": false,
+        "memory-columns": false
+    },
+    "comments": {
+        "schedule-rows": "确认和开关不要占一个位置",
+        "memory-columns": "先不做这个记忆面板了"
+    },
+    "note": null
+}

@@ -17,12 +17,13 @@ import type {Locator, Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {startProductServer} from "./fixtures";
+import {markFirstRunSeen} from "./support/desktop-shell";
 import type {ProductServer} from "./fixtures";
 
 let tmp = "";
 let server: ProductServer;
 
-test.beforeAll(async () => {
+test.beforeAll(async ({browser}) => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "text-selection");
     const projectDir = join(tmp, "Book");
     const stateRoot = join(tmp, "state");
@@ -40,6 +41,8 @@ test.beforeAll(async () => {
     await mkdir(join(stateRoot, "user"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
     server = await startProductServer(stateRoot);
+    // 首次启动向导会在桌面窗口里弹出、挡住用例：先在这个状态根上记下看过（desktop-shell 输出 34）。
+    await markFirstRunSeen(browser, server.url, stateRoot);
 });
 
 test.afterAll(async () => {
@@ -180,6 +183,27 @@ test("桌面：宿主页（页面不存在）的文字可选，双击能选中�
     const picked = (await page.evaluate(() => getSelection()!.toString())).trim();
     expect(picked).not.toBe("");
     expect(title).toContain(picked);
+});
+
+test("桌面：首次启动向导里位置的路径可选，标题不可选", async ({page}) => {
+    await installFrame(page);
+    await page.goto(server.url);
+    await expect(page.locator("[data-bookshelf-page]")).toBeVisible();
+    await page.keyboard.press("Control+Shift+P");
+    const palette = page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"});
+    await expect(palette).toBeVisible();
+    await palette.fill("打开桌面版欢迎向导");
+    await expect(page.locator("[role=option]").filter({hasText: "打开桌面版欢迎向导"})).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    const wizard = page.locator("[data-first-run-wizard]");
+    for (const step of ["2", "3", "4"]) {
+        await page.locator("[data-first-run-primary]").click();
+        await expect(wizard).toHaveAttribute("data-step", step);
+    }
+    const library = page.locator("[data-place='library'] .first-run__path");
+    await expect(library).not.toHaveText("");
+    await expectSelectable(library, (await library.innerText()).trim());
+    await expectNotSelectable(wizard.locator(".first-run__title"), "准备好了");
 });
 
 test("浏览器：没有全局规则，会话面板空态文字可选；编辑器标签、面包屑、工具栏、设置导航、书架卡片各自不可选", async ({page}) => {

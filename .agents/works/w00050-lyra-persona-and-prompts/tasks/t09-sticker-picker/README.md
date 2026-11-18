@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t09-sticker-picker
-status: in-progress
+status: done
 updated: 2026-11-18
 ---
 
@@ -35,11 +35,15 @@ updated: 2026-11-18
 
 ## 当前状态
 
-- 2026-11-18 定了决定 1 到 9；计划第 2 稿经设计审查（17 条全部成立）后实施，worktree `.worktree/w00050-t09-sticker-picker`（分支 `feat/w00050-t09-sticker-picker`），6 个提交：选择器服务与面板、nb-ui 候选菜单带图、nb-markdown（提示词编辑器的表情节点、`:` 触发、已发送视图、编辑器补全与插入动作、共用 `stickers.css`）、编辑器接线、输入框接线、e2e。
-- 实施中改的两处（已写回计划与 Spec）：编辑器里的选择器锚在光标、同插图卡片（决定 8 原写“从按钮下方弹出”，输入框里仍锚在按钮）；从斜杠菜单选了“表情”不回收 `+` 块（同插图）。
-- 已跑：nb-markdown、nb-agent-ui 全部测试与类型检查；应用的类型检查，表情包、Markdown、编辑器、Agent 插件相关的 bun 与 DOM 测试；`sticker-picker.e2e.ts` 2 条；10 处变异检查都被测试拦住；Lab 的选择器面板 5 个场景截图无越界。
-- 进行中：实现审查（前端，Sonnet）；其余 7 个 e2e 文件。
+2026-11-18 完成，变基后快进合入 master（`bc05e9b49`）。Spec 的选择器与补全条目晋升（stickers 输出 18、39 到 45、验收 11、12；prompt-editor 的表情写法、输出 5、14；markdown-editing 输出 1、11、62 与命令表；agent-conversation-view 的无气泡与弹层按钮）。
+
+- 设计审查 17 条、实现审查 9 条（重要 4、建议 5），处理见 `evidences/`；逐条核对 `evidences/spec-check.txt`，实现合同改正了函数名（`stickerOnlyMessage`）并补全。
+- 验证：nb-markdown（bun 351、vitest 374）、nb-agent-ui（bun 280、vitest 175）、nb-ui 候选菜单 42 条、应用相关插件 bun 491、vitest 325 全过，三处类型检查通过，`check:dist` 通过；12 处变异检查都被测试拦住。
+- e2e：`sticker-picker`、`stickers`、`sticker-packs`、`markdown-editing`、`markdown-input`、`agent-conversation`、`lab-agent-ui`、`lab-markdown` 都有通过的记录。负载 35 到 60 时 Lab 两个文件大批“等不到就绪”（每条冷启动 Vite 开发服务），负载降到 15 以下重跑 56 过 2 败，2 条单独重跑都过；`agent-conversation:351` 两次因本机模型端点断连失败，单独重跑过。
+- 实施中改的两处：编辑器里的选择器锚在光标（同插图卡片）；从斜杠菜单选了“表情”不回收 `+` 块。
+- 已知现象：1280 宽、右栏开着时编辑器工具栏的“表情”收进“更多操作”（工具栏原有的收起规则）。
+- `governance:check` 的 14 条失败都在别人的文件里（固定等待），没有 t09 改到的文件。
 
 ## 下一步
 
-处理实现审查，跑完 e2e，Spec 晋升，合入 master。
+无。t10（星璃默认表情包，内置来源）计划第 1 稿等开发者确认。

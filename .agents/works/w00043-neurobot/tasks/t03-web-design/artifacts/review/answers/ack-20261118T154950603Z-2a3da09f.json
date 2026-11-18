@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "ackId": "20261118T154950603Z-2a3da09f",
+    "answers": [
+        "20261118T154912900Z-846fe439"
+    ],
+    "through": "20261118T154912900Z-846fe439",
+    "included": [
+        ".agents/works/w00043-neurobot/tasks/t03-web-design/README.md"
+    ],
+    "ackedAt": "2026-11-18T15:49:50.603Z"
+}

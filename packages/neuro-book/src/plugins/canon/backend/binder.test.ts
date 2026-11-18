@@ -5,7 +5,12 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {parseBinder} from "./binder";
+import {mkdir, rm, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {BINDER_DIR, chapterText, chapterTitles, parseBinder} from "./binder";
 
 const chapters = (xml: string) => {
     const read = parseBinder(xml);
@@ -41,5 +46,24 @@ describe("活页夹清单：章讲的线", () => {
         expect(bad('<segment from="3"/>').ok).toBe(false);
         expect(bad("<note/>").ok).toBe(false);
         expect(parseBinder('<binder><chapter id="1" line=""/></binder>').ok).toBe(false);
+    });
+});
+
+describe("章的标题（canon.project 输出 28）", () => {
+    it("取自章节文件名；与读正文认同一个文件：编号补零到五位，同一章有几个文件时两边取的是同一个；没有活页夹目录时是空的", async () => {
+        const root = await createTestTmpRoot("neuro-book-canon", "binder-titles");
+        try {
+            expect([...chapterTitles(root)]).toEqual([]);
+            const dir = join(root, BINDER_DIR);
+            await mkdir(dir, {recursive: true});
+            for (const name of ["00001-好哥哥真难当.md", "00012-卡里的两万.md", "012-编号没补零.md", "00003-.md", "笔记.md"]) await writeFile(join(dir, name), `${name}\n`);
+            const titles = chapterTitles(root);
+            expect(Object.fromEntries(titles)).toEqual({"1": "好哥哥真难当", "12": "卡里的两万"});
+            // 标题与正文来自同一个文件。
+            for (const [id, title] of titles) expect(chapterText(root, id)).toBe(`${id.padStart(5, "0")}-${title}.md\n`);
+            expect(chapterText(root, "3")).toBe("00003-.md\n");
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
     });
 });

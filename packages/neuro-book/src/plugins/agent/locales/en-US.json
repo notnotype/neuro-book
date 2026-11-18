@@ -282,6 +282,9 @@
         "renameCommand": {
             "needTitle": "Add the new title, for example /rename Ending of chapter three."
         },
+        "stickers": {
+            "button": "Stickers"
+        },
         "mentions": {
             "title": "Project files",
             "empty": "No matching files",
@@ -374,6 +377,13 @@
             "hideOutput": "Hide output",
             "openOutput": "Open output file {{path}}",
             "outputUnavailable": "Output is not readable"
+        },
+        "eval": {
+            "label": "Run code",
+            "code": "Code",
+            "output": "Output",
+            "pending": "Running…",
+            "images": "Images attached for the model: {{count}} (not shown here)"
         },
         "requests": {
             "open": "View model requests",

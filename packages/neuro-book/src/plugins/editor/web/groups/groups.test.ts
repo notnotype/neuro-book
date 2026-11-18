@@ -392,6 +392,34 @@ describe("标签记录（docs/specs/ui/workbench-layout.md 输出 33、34）", (
         expect(reopen(groups, crossed).groups.value[0]?.tabs.map((tab) => (tab.kind === "file" ? tab.cursor : null))).toEqual([undefined, undefined]);
     });
 
+    it("声明了 restore 的页面标签（输出 33）恢复：记录里有页面 id、参数与记着的标题，重开后顺序、活动项与标题都在；存盘与恢复只看标签自己", () => {
+        const groups = fresh();
+        groups.open("project://a.md", {mode: "permanent", ...md});
+        const entry = groups.openPage("page://nbook.test.entry?e1%3F%23%2F", {restore: true});
+        const other = groups.openPage("page://nbook.test.entry?e2", {restore: true});
+        const welcome = groups.openPage("page://nbook.test.welcome");
+        groups.rememberPageTitle(entry.id, "星瑕");
+        // 文件标签、不在的标签不受影响；标题没变时不产生新的标签对象（不触发存盘）。
+        const remembered = groups.find(entry.id)!.tab;
+        groups.rememberPageTitle(entry.id, "星瑕");
+        expect(groups.find(entry.id)!.tab).toBe(remembered);
+        groups.rememberPageTitle("没有这个标签", "x");
+        groups.activate(entry.id);
+
+        const snapshot = groups.snapshot();
+        expect(snapshot.tabs[entry.id]).toEqual({page: true, id: "nbook.test.entry", arg: "e1?#/", title: "星瑕"});
+        expect(snapshot.tabs[other.id]).toEqual({page: true, id: "nbook.test.entry", arg: "e2"});
+        expect(snapshot.tabs[welcome.id]).toEqual({page: true});
+
+        const restored = reopen(groups);
+        expect(tabsOf(restored)).toEqual(["a.md", "page://nbook.test.entry?e1%3F%23%2F", "page://nbook.test.entry?e2"]);
+        expect(active(restored)).toBe("page://nbook.test.entry?e1%3F%23%2F");
+        expect(restored.find(entry.id)?.tab).toEqual({kind: "page", id: entry.id, address: "page://nbook.test.entry?e1%3F%23%2F", preview: false, restore: true, title: "星瑕"});
+        // 恢复出来的再存一次，记录不变：没有任何一步去问页面的声明。
+        expect(restored.snapshot().tabs[entry.id]).toEqual(snapshot.tabs[entry.id]);
+        expect(restored.snapshot().tabs[other.id]).toEqual(snapshot.tabs[other.id]);
+    });
+
     it("页面标签（输出 33）不恢复：记录里只留一个记号，重开时从布局里拿掉，活动的换到相邻的；页面不拆分、不换编辑器", () => {
         const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});

@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "answerId": "20261118T163638783Z-98bfcafb",
+    "artifactVersion": 12,
+    "contentHash": "0684114213c195d49673148c9096df233f0174ba65f224895c2fa7f6e0006e06",
+    "submittedAt": "2026-11-18T16:36:36.974Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "shelf-entry": true,
+        "shelf-open": "drawer"
+    },
+    "comments": {
+        "shelf-open": "两种都可以"
+    },
+    "note": null
+}

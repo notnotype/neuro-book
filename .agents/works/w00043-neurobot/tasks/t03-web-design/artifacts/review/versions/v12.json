@@ -1,0 +1,434 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "version": 12,
+    "supersedes": 11,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 5 轮（再改）：日程",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "0684114213c195d49673148c9096df233f0174ba65f224895c2fa7f6e0006e06",
+    "files": [
+        "index.html",
+        "r1/bots-only.webp",
+        "r1/narrow.webp",
+        "r1/wide-session.webp",
+        "r1/wide.webp",
+        "r2/drawer.webp",
+        "r2/dropdown-open.webp",
+        "r2/dropdown.webp",
+        "r2/pages-chat.webp",
+        "r2/pages-list.webp",
+        "r2/strip.webp",
+        "r2/wide.webp",
+        "r3/house.webp",
+        "r3/pinned.webp",
+        "r3/sections.webp",
+        "r4/im-future.webp",
+        "r4/im-narrow.webp",
+        "r4/im-one.webp",
+        "r4/panel.webp",
+        "r4/subagents.webp",
+        "r5/bots.webp",
+        "r5/memory-2.webp",
+        "r5/memory.webp",
+        "r5/schedule-2.webp",
+        "r5/schedule-3.webp",
+        "r5/schedule.webp",
+        "r5/sessions.webp",
+        "r6/queue-error.webp",
+        "r6/queue-now.webp",
+        "r6/queue-running.webp",
+        "r6/queue-stopped.webp",
+        "r6/stop-ask.webp",
+        "r6/stop-split.webp",
+        "r7/entry-unread.webp",
+        "r7/entry-waiting.webp",
+        "r7/open-drawer.webp",
+        "r7/open-window.webp"
+    ],
+    "questions": [
+        {
+            "id": "list-content",
+            "type": "single",
+            "label": "左栏要不要放“会话”？",
+            "options": [
+                {
+                    "value": "bots-only",
+                    "label": "A 只放 bot"
+                },
+                {
+                    "value": "with-sessions",
+                    "label": "B bot 加折叠的会话"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "with-sessions"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "placement",
+            "type": "single",
+            "label": "打开作品时，消息页放在哪？",
+            "options": [
+                {
+                    "value": "page",
+                    "label": "A 编辑区整页"
+                },
+                {
+                    "value": "side",
+                    "label": "B 侧栏"
+                },
+                {
+                    "value": "both",
+                    "label": "C 两者都有"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "both"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 2,
+                "by": null
+            }
+        },
+        {
+            "id": "narrow-nav",
+            "type": "single",
+            "label": "侧栏窄的时候，导航和对话怎么共处？",
+            "options": [
+                {
+                    "value": "strip",
+                    "label": "A 头像列加抽屉"
+                },
+                {
+                    "value": "pages",
+                    "label": "B 列表页与对话页来回切"
+                },
+                {
+                    "value": "dropdown",
+                    "label": "C 点标题下拉"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "strip"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "nav-layout",
+            "type": "confirm",
+            "label": "导航按这样排",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "nav-style",
+            "type": "single",
+            "label": "不要分组标题，bot 和会话靠什么区分？",
+            "options": [
+                {
+                    "value": "pinned",
+                    "label": "A 置顶头像"
+                },
+                {
+                    "value": "mixed",
+                    "label": "B 混排"
+                },
+                {
+                    "value": "rows",
+                    "label": "C 大行加细行"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "rows"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": {
+                "kind": "superseded",
+                "in": 4,
+                "by": null
+            }
+        },
+        {
+            "id": "nav-restyle",
+            "type": "single",
+            "label": "导航改成哪种样式？",
+            "options": [
+                {
+                    "value": "tree",
+                    "label": "A 安静的组头加连接线"
+                },
+                {
+                    "value": "panels",
+                    "label": "B 每组一块浅底"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "tree"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": {
+                "kind": "superseded",
+                "in": 5,
+                "by": null
+            }
+        },
+        {
+            "id": "nav-house",
+            "type": "single",
+            "label": "bot 与会话两组的标题怎么画？",
+            "options": [
+                {
+                    "value": "house",
+                    "label": "A 面板的小字"
+                },
+                {
+                    "value": "pinned",
+                    "label": "B 置顶"
+                },
+                {
+                    "value": "sections",
+                    "label": "C 可收起的组"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sections"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 5,
+            "outcome": {
+                "kind": "superseded",
+                "in": 6,
+                "by": null
+            }
+        },
+        {
+            "id": "sessions-place",
+            "type": "single",
+            "label": "会话还和 bot 放在同一个视图里吗？",
+            "options": [
+                {
+                    "value": "separate",
+                    "label": "A 分开两个视图"
+                },
+                {
+                    "value": "tabs",
+                    "label": "B 一个视图两个标签"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "separate"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 6,
+            "outcome": null
+        },
+        {
+            "id": "im-list",
+            "type": "confirm",
+            "label": "IM 会话列表按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 6,
+            "outcome": null
+        },
+        {
+            "id": "sessions-tab",
+            "type": "confirm",
+            "label": "会话标签按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "schedule-panel",
+            "type": "confirm",
+            "label": "日程面板按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "memory-panel",
+            "type": "confirm",
+            "label": "记忆面板按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "schedule-rows",
+            "type": "confirm",
+            "label": "日程面板按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 9,
+            "outcome": null
+        },
+        {
+            "id": "memory-columns",
+            "type": "confirm",
+            "label": "记忆面板按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 9,
+            "outcome": null
+        },
+        {
+            "id": "schedule-confirm",
+            "type": "confirm",
+            "label": "日程面板按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "queue-held",
+            "type": "confirm",
+            "label": "排队区按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "stop-menu",
+            "type": "single",
+            "label": "“停止并清空排队”放在哪？",
+            "options": [
+                {
+                    "value": "split",
+                    "label": "A 停止键旁接下拉箭头"
+                },
+                {
+                    "value": "ask",
+                    "label": "B 点停止先选"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "split"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "shelf-entry",
+            "type": "confirm",
+            "label": "书房入口按这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        },
+        {
+            "id": "shelf-open",
+            "type": "single",
+            "label": "点看板娘之后在哪里聊？",
+            "options": [
+                {
+                    "value": "drawer",
+                    "label": "A 右边滑出"
+                },
+                {
+                    "value": "window",
+                    "label": "B 看板娘旁的小浮窗"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "drawer"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T16:26:35.987Z"
+}

@@ -56,7 +56,7 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 6. 前台会话一轮结束、且这个会话还没有说明或还没有标题时，服务端异步生成标题和说明。不挡这个会话：下一条输入可以立刻发出。
 7. 生成的材料是这个会话当前路径上第一条用户的话和第一条有文字的回复，各取前 2000 个字符；第一条用户的话没有文字时不生成。
 8. 前台会话发生一次带摘要的压缩（`compaction.replacement` 不为 null）后，服务端用摘要的前 4000 个字符和当前标题重新生成，只更新说明。不带摘要的压缩不更新。
-9. 生成跑在标题会话里，每次发一条新输入，上下文只有系统提示词和这条输入，不带上一次。标题会话不进 `list` 的缺省结果、`running()`、`sessions://` 的目录，按 id 仍然读得到；它的费用不计入前台会话的累计和费用上限。
+9. 生成跑在标题会话里，每次发一条新输入，上下文只有系统提示词和这条输入，不带上一次。标题会话不进 `list` 的缺省结果、`running()`、`sessions://` 的目录，按 id 仍然读得到；它的费用不计入前台会话的累计和费用上限。（planned）发给标题会话的话以 `nbook.agent` 的宿主身份发出（[`harness/runtime.md`](../harness/runtime.md) 输出 45）；标题会话有运行在跑时这次不发（看快照）；发出后没开起运行（去向不是 `taken`，或 `runId` 为空）时立即取消这条，不提示用户。
 10. 用户改过标题（最近一次 `titleChanged` 是 `by: "user"`）后，自动生成不再改标题，说明照常更新。生成进行中用户改名，用户的名字保留。
 11. 会话标题 Profile 解析不到可用模型时不发请求：会话还没有标题就用第一条用户的话作标题（空白折叠成一个空格，取前 30 个字符），不写说明。之后每一轮结束再判断一次：一旦解析得到模型就正常生成，自动标题被生成的标题替换。
 12. 生成失败（模型失败、运行没有以 `yield` 收尾）写诊断 `session-meta-failed`，不改标题和说明。第一轮的生成在下一轮结束时再试；压缩后的更新等下一次压缩，压缩失败不会变成生成标题。同一个前台会话同时只生成一次，后到的触发排在后面，轮到时按当时的状态重新判断。
@@ -64,7 +64,7 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 14. adhoc：key `nbook.agent.adhoc`，名字“临时帮手”。初始输入 `{role: string}`（父 Agent 写的角色），任务从 `agent_spawn` 的 `prompt` 来；必需工具 read、write、grep、glob，可选 edit、shell 与任务中心的 wait、kill、jobs（`shell` 能转后台，没有这三个它起的后台命令取不到结果、停不掉），不带 todo 与子代理工具；装 Agent 模式扩展（[`modes.md`](modes.md) 输出 14）；`defaultTools: false`；不进新建会话的菜单。提示词照提示词规范，按 `role` 定身份，写明结果交给派它的 Agent。没有结果 schema，派发方给了 `outputSchema` 时按它交回（[`subagents.md`](subagents.md) 输出 2）。
 15. 主创派子代理：主创加上子代理与任务中心的工具（`agent_spawn`、`agent_send`、`agent_answer`、`wait`、`kill`、`jobs`），声明 `agents: {allowed: ["nbook.agent.adhoc"], recommended: ["nbook.agent.adhoc"]}`，提示词加一句什么时候派、派了怎样用结果；升 Profile 版本。
-16. 主创声明 `skills: {allowed: "all"}`：放进 `user://skills/` 的 Skill 马上能 `$`；临时帮手不声明 Skill（[`skills.md`](skills.md)）。
+16. 主创声明 `skills: {allowed: "all"}`：放进 `user://skills/` 的 Skill 马上能 `$`；临时帮手不声明 Skill（[`skills.md`](skills.md)）。（planned）主创声明 `stickers: {allowed: ["builtin.lyra"]}`，提示词里摆表情包的槽（[`stickers.md`](stickers.md) 输出 14），升 Profile 版本；内置的 `builtin.lyra-chibi` 与用户、插件的表情包要用户在 Profile 设置里加；临时帮手不声明表情包。
 17. 主创声明三条开场指令（[contributions.md](contributions.md) 输出 21）：润色一段环境描写、规划一幕高潮的细纲、对当前章节做一致性体检，各带图标；临时帮手不声明。
 18. 代码执行（planned）：主创与临时帮手的可选工具多一个 `nbook.agent.eval`（[`eval.md`](eval.md)），同 `shell`；提示词里 eval 的说明只在生效工具集里有它时渲染。
 

@@ -128,16 +128,17 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 12. 写入或同步到盘失败时：这一批的结果对调用方不确定，句柄进损坏状态，之后同一句柄上的写入都得 `log-broken`；这一批不归约、不推给订阅者。关闭损坏的句柄只释放锁，同一进程可以立即重新打开；重开以文件为准（输出 5、6）。建会话或打开会话时写入（初始事件、打开时的 `profileChanged` 与恢复的结算）或装上扩展失败：摘下已装上的、释放锁，以 `log-broken` 交回，下次打开照常恢复。
 13. 打开会话照日志归约出全部状态，不跑反应；当前叶子是最后一条 path 事件或 `leafChanged` 指向的节点。
 14. 扩展事件的版本高于扩展当前声明的版本时：事件留在日志里，归约跳过它，写诊断 `event-version-unsupported`。
-15. 打开时结算上一次进程没有收口的运行，作为一个写入批写入：开始执行但没有结果的工具调用写成 `status: "unknown"`（码 `interrupted`）；等审批的调用写成 `status: "denied"`（码 `interrupted-before-approval`），对应的事项结算为 `interrupted`；让运行停下等待的提问结算为 `interrupted`；发出但没有回复的模型请求写 `modelFailed{kind: "interrupted"}`；最后写 `turnEnded`、`runEnded`，原因都是 `interrupted`。异步提问不属于运行，不结算。缓冲区里没取走的输入留着，不自动发出。
+15. 打开时结算上一次进程没有收口的运行，作为一个写入批写入：开始执行但没有结果的工具调用写成 `status: "unknown"`（码 `interrupted`）；等审批的调用写成 `status: "denied"`（码 `interrupted-before-approval`），对应的事项结算为 `interrupted`；让运行停下等待的提问结算为 `interrupted`；发出但没有回复的模型请求写 `modelFailed{kind: "interrupted"}`；最后写 `turnEnded`、`runEnded`，原因都是 `interrupted`。异步提问不属于运行，不结算。缓冲区里还就绪的输入在同一批转成留着（`inputHeld{cause: {end: "interrupted"}}`，[`runtime.md`](runtime.md) 输出 104），不自动发出。
 16. 宿主登记进程中断与终止的收口后，进程退出前对每个运行中的会话走输出 15 的同一套结算，原因同为 `interrupted`。
 17. 被受理的指令在受理批里写一条 `commandAccepted{commandId, name, value, argsHash}`，与指令立即写的事件同批；`argsHash` 是指令参数（去掉 `commandId`）按键排序后的 SHA-256。同一会话里重发同一个 `commandId`、指令与参数都相同，返回第一次的 `value` 与 `replayed: true`，不再写事件；重启之后同样成立。指令或参数不同得 `command-id-conflict`，不当成重发（早先没有 `argsHash` 的记录只比指令名）。校验失败的指令不写日志，重发时重新校验。fork 的复制批没写下时（新会话只有会话头），重发同一个 `commandId` 补写复制批。
-18. 空闲时会开始运行的指令（`send`、`start`、`compact`、带 `resend` 的 `rewind`），受理批里含 `runStarted`；`send` 另含取走这条输入的 `inputConsumed`、`turnStarted` 与 `input`。受理之后、循环开始之前进程退出时，重开按输出 15 把这次运行结算为 `interrupted`。
+18. 空闲时会开始运行的指令（`send`、用户的 `enqueue`、`start`、`resume`、`compact`、带 `resend` 的 `rewind`、开得起运行的异步回答），受理批里含 `runStarted`（接着跑暂停的运行时是 `runResumed`）；开新一轮的另含取走就绪的第一条的 `inputConsumed`、`turnStarted` 与 `input`。受理之后、循环开始之前进程退出时，重开按输出 15 把这次运行结算为 `interrupted`。
 19. `list` 只读各会话目录的 `index.json`：项目、Profile、标题、说明（`description`，没有这一项的旧索引读作 null，不算读不懂）、是否归档、是否后台、创建与最后活动时刻、轮数、索引对应的最后一个 `seq`；可按项目、归档、后台筛。没有“是否后台”字段的旧索引按读不懂处理、打开时重建。索引经临时文件改名写入；打开会话时与日志末尾比对，不一致就重建并写诊断 `index-rebuilt`。崩溃之后到下次打开之前，`list` 可能给出略旧的值。
 20. fork 把来源会话里根到所选节点的路径复制成新会话：新会话头的 `origin` 记来源会话与节点，路径上引用的大块内容一并写进新会话目录。来源会话不受影响。
 21. 内存存储与 JSONL 存储的行为相同，且每次读写都做 JSON 往返：在 JSONL 里会出错的值（`Date`、`Map`、`undefined`）在内存存储里同样出错。
 
 22. 索引带调用方、来源、花费与运行：`index.json` 与 `list` 的条目另有：`caller`（会话头有时照抄，含 `callId` 与 `invocation`）；`origin`（fork 出来的会话的来源会话 id）；`spend: {cost, unpriced}`，与快照的累计花费同一口径（`assistant`、`modelEnded`、`modelFailed`，[`runtime.md`](runtime.md) 输出 70）；`runs`，最近 20 次收口的运行 `{runId, reason, endedAt}`。没有这些的旧索引读作没有、花费 0，不算读不懂；打开会话时按日志补上。
 23. 按会话读索引：`entry(id)` 只读这个会话目录的 `index.json`，条目同 `list` 的；没有这个会话、索引读不懂时得 `session-not-found`（读不懂的索引要打开会话才重建），读文件出错得 `storage-failed`。给只关心少数几个会话的调用方用（子代理的进度，[`agent/subagents.md`](../agent/subagents.md) 输出 21），不用扫全部会话。
+24. 输入缓冲区的事件（行为见 [`runtime.md`](runtime.md) 输出 103–110）：会话级的 `inputHeld{ids, cause, heldBy?}`、`inputReleased{ids, by, mode}` 与路径级的 `runResumed{runId, by}` 是新增的事件；`inputQueued` 加 `commandId`，空闲时排的另带 `state: "held"` 与 `cause`；`input`、`steer` 加 `commandId`；`inputConsumed` 加取走它的运行 `runId`；`inputRemoved` 加 `by`，原因是 `cancelled`、`aborted`、`replaced`（`replaced` 带 `replacedBy`），旧日志的 `user` 读作 `cancelled`；`runStarted` 加 `by`；`runEnded` 在中止时加停的人 `stoppedBy`。`cause` 是 `{end: 收口方式, code?}` 或 `{queued: "idle", code?}`（`code` 写开不起运行的码，或 `reassembly-pending`、`session-closing`、`session-closed`、`not-allowed`）；`heldBy` 与各处的 `by` 是发出者（会话或宿主；用户不写 `by`，`heldBy` 是用户时写 `{kind: "user"}`）。缓冲区条目的状态只由会话级事件归约，不读路径级事件；没有这些事件的旧日志，条目都是就绪的。读到这些事件的旧内核得 `log-corrupt`（不支持降级，见“边界与兼容”）。
 
 ## 状态与转换
 

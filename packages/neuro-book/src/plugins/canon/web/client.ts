@@ -49,6 +49,7 @@ export function createCanonClient(access: (() => DelegatedRemoteAccess) | null):
                 events.exclusive.subscribe({}, (payload) => listener({kind: "exclusive", holder: payload.holder})),
                 events.reduced.subscribe({}, () => listener({kind: "reduced"})),
                 events.textChanged.subscribe({}, (payload) => listener({kind: "textChanged", ...(payload.chapter === undefined ? {} : {chapter: payload.chapter})})),
+                events.inputChanged.subscribe({}, (payload) => listener({kind: "inputChanged", what: payload.what})),
             ]);
             const subscriptions = results.flatMap((result) => (result.ok ? [result.value] : []));
             const release = () => {

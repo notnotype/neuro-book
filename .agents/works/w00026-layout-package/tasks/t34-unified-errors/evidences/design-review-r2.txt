@@ -1,0 +1,125 @@
+# w00026 t34 计划第 2 稿 设计审查（第二轮；只读；代码按 review-t33-impl，a0cb8ecdf）
+
+实验：`exp/rest-varies.ts`（真实 `createGrid().layout`，容器宽 400、399、398、397）。
+
+### 1. “只发新增”的键含连续变化的数值参数，窄窗口里每个像素都是新键，“每次布局都发”照旧
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：计划“只发新增”的判据第 1、3 条，诊断表的 `unabsorbed-space {cause, ids, rest}`、`no-room-to-restore {id, available}`；`grid-geometry.ts:195`、`:533`
+- **现象**：键是“`code` 加按键名排序后的 `params`”，`params` 含数值。`unabsorbed-space` 的 `rest` 是 `target - total`（533）或 `space - rigidTotal - fixedTotal`（195），随容器尺寸连续变。真实运行时实验：两个最大 100px 的叶、容器宽 400、399、398、397，issues 依次是“可用空间 400 有 200 未被吸收”“399 有 199”“398 有 198”“397 有 197”，`rest` 每个像素都不同。按计划，`useGridLayout.recompute` 把键集与上一次重算比，每个像素的键都是新的，于是每次重算都发，与今天一样。`ids` 也在键里：窗口变窄时受影响的节点越来越多，每多一个就是新键。
+- **为什么是问题**：计划的验收（“窄窗口连续重算，持续的诊断只发一次”）对只有 `ids` 的 `over-constrained` 成立，对 `unabsorbed-space` 与带 `available` 的诊断不成立。用例若只用 `over-constrained` 写，测试会过，产品里最常见的“拖窗口”仍逐帧发。这是提案体验 10 与第一轮第 3 条要治的问题，第 2 稿只治了一半。
+- **如何核实**：`bun run exp/rest-varies.ts`；读 `grid-geometry.ts:533`、`useGridLayout.ts:60-79`。
+- **建议改法**：键只取身份类参数（`code`、`cause`、`id`/`ids`），度量类参数（`rest`、`available`、`actual`、`min`、`max`）不进键；诊断表把每个 `params` 字段标成“键”或“度量”。`ids` 进不进键也要定：进键则集合变化算新增（写明窗口变窄时会多发几次）；不进键则只按 `code` 加 `cause` 去重，更接近提案“一条一个码”。规则写进输出 139，并补一条用 `unabsorbed-space`、容器逐像素变化的用例。
+
+### 2. 同一个码在 `issues` 事件里既是“提交被拒（已回滚）”又是“求解降级（没回滚）”，宿主无法区分
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划“L1 的两个出口”、L0 码表 298 行、诊断表 `not-collapsible`；`grid.ts:298`、`sash-drag.ts:178`
+- **现象**：`NestedGrid` 的 `issues` 事件类型是 `GridIssue<GridIssueCode | GridCommitFailureCode | "not-published">`。`GridCommitFailureCode` 含全部 L0 失败码，`GridIssueCode` 含诊断码，两边都有 `not-collapsible`：提交被拒（`grid.ts:298`，`params: {id, branch}`，手势已回滚）与预览期诊断（`sash-drag.ts:178`，`params: {id}`，手势继续、只是不能折叠）同码不同形、不同后果，却在同一个事件流里。事件元素又没有“这是失败还是诊断”的字段，宿主只能按码集合猜。同类的还有 `GridFailureCode` 与 `GridRestoreFailureCode` 共用的 `limit-exceeded`、`duplicate-id`，`params` 形状不同（前者有 `actual`，后者没有）。
+- **为什么是问题**：计划定的是“码集合开放、宿主按码写界面文字”，同一个码两种语义，宿主的 `errors.not-collapsible` 文案没法同时对；`switch` 在 `not-collapsible` 分支里读 `params.branch` 会在诊断那一支读到 `undefined`。第 1 轮的审查与第 2 稿都没有处理，因为第 2 稿只补了 `not-published`、`notify-failed`，没检查两个联合的交集。
+- **如何核实**：`rg "not-collapsible"` 在计划里出现于 L0 码表与诊断表；读 `sash-drag.ts:176-179`。
+- **建议改法**：二选一：给诊断码改名（`no-collapse-policy`，与 `no-room-to-collapse` 对称），使 `GridFailureCode` 与 `GridIssueCode` 不相交，并在计划里加一句“两个联合不相交”，写一个类型级测试（`Extract<GridFailureCode, GridIssueCode>` 为 `never`）；或给 `GridIssue` 加 `kind: "failure" | "diagnostic"`。前者更简单。
+
+### 3. 快照恢复的码表漏了 `grid-snapshot.ts:209`：根是未解析的叶子时整体失败，没有码
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“L0 快照恢复”；`grid-snapshot.ts:139-142`、`:204-210`
+- **现象**：计划列了 15 处：`invalid-snapshot` 86、111、116、131、136、164、168、173、200，`unsupported-version` 90、93，`duplicate-id` 120，`limit-exceeded` 107、126、177。代码里失败的出口是 16 处，`:209` “布局快照的根节点无法恢复”没有归属：根是叶子且 `resolveRef` 返回 null 时，`convert` 返回 null（141 行只往 `dropped` 推一条）、`failure` 为空，走到 209 整体失败，`dropped` 里有那条 ref。这正是 nested-grid 失败 3、4 的边界：格式没问题，只因引用全丢而整体失败。
+- **为什么是问题**：照字面实施，实施者要给 209 临时造码，或硬塞进 `invalid-snapshot`（`field` 枚举里没有合适的值）。把“引用解析不了”报成“快照非法”，宿主会误判成格式损坏而丢弃原件；失败 3 与 Spec“宿主必须保留原始记录”依赖的就是这个区分。
+- **如何核实**：`grid.restore({version: 2, root: {kind: "leaf", id: "a", ref: "ghost", size: {width: 1, height: 1}}}, () => null)`：`ok:false`、`dropped: [{ref: "ghost"}]`、原因“根节点无法恢复”。读 `grid-snapshot.ts:139-142`、`:204-210`。
+- **建议改法**：加一个码（如 `unresolved-root`，不并入 `invalid-snapshot`），失败结果照常带 `dropped`；失败 7 与 `grid.test.ts` 补一条。
+
+### 4. “同码同 cause 合成一条”没定义合成后的 `params`；`allocateSashPanels` 删掉 `context` 后分支 id 与轴也丢了
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“L0、L1 诊断”的表与“一次求解里同码同 `cause` 合成一条”、“`allocateSashPanels` 的 `context` 删掉”；`grid-geometry.ts:135-205`、`:415-421`、`:486`、`:502`、`:507`、`:533`
+- **现象**：
+  - 表里 `ids` 在不同 `cause` 下指的东西不同：`leaf-min` 是叶子 id，`sash-overflow`、`cross-min` 是分支 id，`min-total`、`fixed-overflow`、`no-share` 是 `allocateSashPanels` 的面板（一个分支的各子节点）id，`range-overflow`（`sash-drag.ts:247`）没有分支 id、只有面板。`allocateSashPanels` 内部只知道面板，不知道所在分支，`context`（`分支 ${branch.id} 的 ${axis}`，`allocateAxis` 传入）是今天唯一带分支与轴的地方；计划删掉它，只说“涉及的面板 id 进 `ids`”，于是 `min-total` 的 `ids` 是子节点 id，看不出是哪个分支、哪根轴。合成更糟：两个分支的 `min-total` 合成一条，`ids` 是两组子节点的并集，分组丢了。
+  - `axis?` 没有合成规则：宽、高两根轴上的 `leaf-min` 同码同 `cause`，合成后 `axis` 取谁。`unabsorbed-space` 的 `rest`、`conflicting-bounds` 的 `{id, axis, min, max}` 没有 `ids`，“合成”对它们怎么做也没写。
+  - `min-total` 的 `ids` 是全体面板还是只含 `low > 0` 的面板，实施者自己定。
+  - 好的一面：仓库内 `allocateSashPanels` 只有 `allocateAxis` 会传第三、第四个参数（`grid-geometry.ts:420`；`grid.ts:290`、`:345` 传 `[]`，`Splitter.vue`、`sash-drag.ts` 不传），删 `context` 在仓库内没有别的调用方要改。
+- **为什么是问题**：输出 140 与 `grid-geometry.test.ts` 的新用例（“`ids` 按顺序列全”）按字面会各人各写；合成后的诊断对宿主（要拼界面文字的人）信息量很低，而这正是码加 `params` 设计的唯一目的。
+- **如何核实**：读 `grid-geometry.ts:415-421`（`allocateAxis` 是 `context` 唯一携带分支与轴的调用点）、`:486-507`、`:533`。
+- **建议改法**：每个 `cause` 一行，写明 `ids` 放哪一类 id、`axis` 是否有；`allocateAxis` 给 `allocateSashPanels` 传一个内部的 `scope`（分支 id、轴），`min-total`、`fixed-overflow`、`no-share` 的 `params` 带 `branch` 与 `axis`；合成键用 `(code, cause, axis)`，不同轴不合并；`conflicting-bounds` 不参与合成（它已按 `id` 加 `axis` 去重，`grid-geometry.ts:356`），`rest` 这类度量不合并、取最后一次的值。
+
+### 5. 第 1 片的验证只跑 nb-layout，但 L0 的 `reason` 在 nb-workbench-layout 的测试与应用的 Lab 夹具里也有人读；第 3 片的测试迁移清单漏了约 36 处读 `detail` 的地方
+- **严重程度**：重要；**类别**：测试
+- **位置**：计划“切片”第 1、3 片、“测试迁移规则”；`nb-workbench-layout/src/layout-project.test.ts:313`、`:420`
+- **现象**：`layout-project.test.ts` 在 `grid.resizeBranches` 失败时 `throw new Error(result.reason)`（313、420）。`nb-workbench-layout/tsconfig.json` 的 `include` 是 `src`，测试在类型检查范围内。第 1 片把 `GridBranchesResizeResult.reason` 删掉后这两处编不过，第 1 片的验证却只写“nb-layout `typecheck`、`test`”，第 3 片才跑 nb-workbench-layout 的类型检查，中间一片都是红的。第 1 片还要改 Lab 夹具（`NestedGridAcceptanceFixture.vue:276`、`:297`，以及 `:99`、`:256` 的 `droppedRefs: {ref, reason}[]`）与 e2e，属于应用包，验证里也没有应用的 `typecheck`（第 2 片才加）。另外，读 `result.detail` 的测试不止计划写的 `layout-doc.test.ts` 约 40 条 `toMatchObject`：`layout-present.test.ts` 11 处、`layout-doc-store.test.ts` 11（含 `:78` 读 `LayoutDocValidation.detail`）、`layout-project.test.ts` 4、`adjacency.test.ts` 3、`layout-drop.test.ts` 2、`layout-constraints.test.ts` 2、`default-tree.test.ts` 1、`containers.test.ts` 1、`layout-doc.test.ts:55` 1，合计约 36 处，多数是 `throw new Error(result.detail)`，`detail` 改名后全部编不过；“测试迁移规则”没有提它们。第 1 片还有一个小前提：`GridFailure` 的默认类型参数是 `GridIssueCode`（第 2 片才引入），第 1 片要先放一个占位或把 `GridIssue` 的默认码拿掉。
+- **为什么是问题**：照字面做，第 1 片会在“验证通过”的情况下留下 nb-workbench-layout 与应用的类型错误；第 3 片的返工量比计划写的大，审查对照表（行 → 码）也漏了这些文件。
+- **如何核实**：`rg "\.reason" packages/nb-workbench-layout`；`rg "\.detail" packages/nb-workbench-layout packages/neuro-book/src/plugins/workbench`。
+- **建议改法**：第 1 片验证加 nb-workbench-layout 的 `typecheck` 与应用的 `typecheck`（或第 1 片就把 `layout-project.test.ts` 两处改成读 `message`）；第 3 片测试迁移规则列上面这些文件，并写明 `throw new Error(result.detail)` 一律改读 `message`。
+
+### 6. “只发新增”的作用域写得不全：`useGridLayout` 遇到空布局怎么办、`gesture-update` 载荷算不算、键盘手势没有诊断、出口从 `watch` 换成同步回调的行为变化
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“只发新增”的判据、“scope 不再保留累积列表”；`useGridLayout.ts:60-79`、`useSashGesture.ts:238-243`、`:321-330`、`:456-508`、`NestedGrid.vue:483-494`、`:561-565`
+- **现象**：
+  - `recompute` 有一条空布局分支（`useGridLayout.ts:63-69`：`grid`/`extent` 为 null 或零尺寸），不产生诊断。“和上一次重算的键集比”在这条分支里要不要清空，计划没写：不清空，则面板隐藏再显示后持续的诊断不再发；清空，则隐藏再显示就重发。`WorkbenchSurface` 的 `grid` 是 `computed(() => createGrid(...))`（每次 projection 变化都换），`contextKey` 变化也走同一条 `watch`，键集该不该随它们重置同样没写。
+  - `gesture-update` 的载荷 `GridGesturePreview.issues`（`grid-gesture.ts:197-244`）是每帧重算的完整快照，不是“新增”，计划只改了它的类型。输出 139 写成“`issues` 只发新增”后，这个字段是否豁免要写明，否则会有人给它也加去重。
+  - 键盘手势根本不推诊断：`pushIssues` 只在 `finish()`（拒绝）与 `flush()`（指针每帧）调用（`useSashGesture.ts:291`、`:329`），`keydown` 路径（`:478-507`）里 `toggleCollapsed()`、`update()`、`jump()` 得到的 `session.issues` 从不发。今天 Enter 展开没有空间时没有任何诊断。计划写“手势里同一个键只发一次”，没写键盘算不算，也没把“键盘没有诊断”记为已知限制或补上。
+  - 出口从 `watch(() => scope.issues)`（Vue 调度，一个 tick 合成一次、带上累积的最近 8 条）换成同步的 `onIssues(batch)`：指针松手时 `flush()` 与 `finish()` 在同一个同步段里各推一批，今天发一个事件，新做法发两个；`finish()` 里 `pushIssues`（`:291`）在 `active.value = new Set()`、`refreshHoverAfterGesture()` 之前，若宿主给的 `onIssues` 抛出，这两步被跳过（`active` 永远亮着）；今天走 Vue 调度，不会打断收尾。`NestedGrid` 自己用的是 Vue 的 `emit`（不抛），但 `SashGestureOptions.onIssues` 是公开选项。
+- **为什么是问题**：这是计划唯一的行为变化，却有几个边界让实施者各自决定；其中 `finish()` 里的抛出会留下“分隔线一直亮着”的状态，与 `useGridLayout` 对 `onApplied` 的做法（`try/catch`，`:105-112`）不一致。
+- **如何核实**：读上面几处；`rg "pushIssues" packages/nb-layout/src/vue/useSashGesture.ts` 只有 3 处命中（定义、291、329）。
+- **建议改法**：输出 139 补三句：空布局分支清空键集（隐藏后再显示算重新出现）；`gesture-update.issues` 是状态快照、不去重；键盘手势暂不发诊断（已知限制，写进 Spec 边界）。`onIssues` 调用包 `try/catch` 或挪到收尾之后（`finish()` 末尾），并在计划里写明一次松手可能发两个事件、不合并。
+
+### 7. 迁移规则没点出两处靠中文文案“碰巧通过”的断言
+- **严重程度**：建议；**类别**：测试
+- **位置**：`useGridLayout.dom.test.ts:208`；`e2e/lab-nested-grid.e2e.ts:395`；计划“测试迁移规则”“e2e”
+- **现象**：`useGridLayout.dom.test.ts:208` 断言 `harness.issues` 里没有“没有发布匹配布局”。`harness.issues` 是 `useGridLayout.onIssues` 的收件，这句话只由 `NestedGrid.vue:541` 发、走组件事件，永远不会进 `onIssues`，这条否定断言今天就是空的；改成断言 `code !== "not-published"` 照样是空的，而且 `not-published` 在计划里只由 `NestedGrid` 发。`lab-nested-grid.e2e.ts:395` 断言 `data-lab-restore-reason` 含 `"99"`，计划只改了 382，395 靠 `message` 文字里的版本号，与“不断言 `message`”矛盾；夹具读 `res.reason ?? "布局快照版本 99 不受支持"`（`NestedGridAcceptanceFixture.vue:297`）本来就有中文兜底，也让它在 `reason` 丢失时仍然通过。
+- **建议改法**：208 要么删，要么改成真正的检查（在 harness 的 `NestedGrid` 上挂 `onIssues`，用一个不发布匹配布局的 `onApplied` 去触发 `not-published`，并先变异确认会失败）；395 改成断言 `data-lab-restore-code` 为 `unsupported-version`（与 `params.version` 为 99 的另一个属性），夹具去掉中文兜底。
+
+### 8. `PLUGIN_API_SINCE` 不改的理由成立，但缺一个防遗忘的机制，且 SDK 一列现在就能定、新增的类型要不要进 SDK 没写
+- **严重程度**：建议；**类别**：文档
+- **位置**：计划“公开面变更清单”及其下两条；`src/shared/product.ts:9`、`:18`、`product.test.ts:23-25`；`CHANGELOG.md` `[Unreleased]` 的“改动”第一条；`src/sdk/components.ts:42-49`
+- **现象**：
+  - 理由成立：`product.test.ts:23-25` 要求 `PLUGIN_API_SINCE` 不晚于 `PRODUCT_VERSION`（现为 0.13.0），而发版手册第 2 步要在 `release:prepare`（第 3 步才提产品版本）之前把它改成“这次的版本”；现在改只能写一个比 `PRODUCT_VERSION` 大的数，测试会红。所以不在本 Task 改是对的。
+  - 缺口：`[Unreleased]` 的“改动”里已经写了“这一版接受按 0.12.1 起的版本写的插件”。本 Task 再往“不兼容的改动”写一条，同一份记录里两句互相矛盾，直到有人记得发版时改 `PLUGIN_API_SINCE` 与那句。除了 Task README 与交付汇报，没有任何机检（`release:prepare` 不检查两者一致）。老插件若按旧形状返回 `{ok:false, reason}` 给 `onGestureCommit`，新库读 `.code`、`.message` 得到 `undefined`，全靠这个提起点挡住。
+  - SDK 一列现在就能定：`components.ts` 导出的 nb-layout 值只有 `DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, SortableList, Splitter`，类型只有 `DropFeedbackPreview, SplitterPanelConfig, GridBranchChange, GridGestureCommit, GridGesturePreview` 与 `SplitterGesture*`。所以 `SashGestureScope`、`useSashScope`、`SASH_GESTURE_SCOPE_KEY`、`SashGestureBinding`、`GridResult` 一族、`GridRestoreResult`、`allocateAxis`、`allocateSashPanels` **都不在 SDK**，表里第 4、5 行的“实施时核对”可以直接写“否”；SDK 受影响的只有 `NestedGrid` 的 `onGestureCommit`、`issues` 事件与 `GridGesturePreview.issues`。反过来，`GridIssue`、`GridFailure` 不在 SDK 的类型导出里，插件作者给 `@issues`、`onGestureCommit` 写类型时拿不到名字（`build:sdk` 的 d.ts 会把它们当未导出的声明打平进去，不报错）。
+- **建议改法**：改写 `[Unreleased]` 里“这一版接受按 0.12.1 起…”那一句，或把新条目写成“发版时把兼容起点提到这一版”；把“发版时改 `PLUGIN_API_SINCE`”记进 w00026 的 followups（有登记才不会漏），不只放在 Task README；公开面表第 4、5 行直接写“SDK：否”；决定 `GridIssue`、`GridFailure`（可再加 `GridCommitFailureCode`）要不要进 `components.ts` 的类型导出，要的话变更记录写“新增”。
+
+### 9. 还有三处公开的中文失败文字没在计划里：`collapsePolicyProblem`、`serializeTree` 抛的 `TypeError`、`useGridMotion` 的 `swapSkipped`
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`grid-geometry.ts:117-126`（`index.ts:52` 公开导出）、`grid-snapshot.ts:37`、`useGridMotion.ts:77`、`:142`、`:163`
+- **现象**：`collapsePolicyProblem` 返回 `string | null`，三种中文文字，只被 nb-layout 自己的测试用，应用里没人调用；`serializeTree` 对非字符串 ref 抛 `TypeError`，文字是中文；`useGridMotion` 的 `MotionDecision.swapSkipped?: string`（`:77`、`:142`）要随 `planSwap` 改成 `GridIssue`，计划只写了 `onSwapSkipped`。目标是“一种形状”，通用库里留着中文 `string | null` 的公开函数与中文异常没有说法。
+- **建议改法**：计划写一句取舍：`collapsePolicyProblem` 要么改成返回 `GridIssue | null`（只有测试在用，成本很小），要么在“不做”里写明它是校验辅助不是失败结果；`serializeTree` 的 `TypeError` 文字改英文或列入“不做”；`swapSkipped` 并入第 2 片的改动列表。
+
+### 10. `params` 没有类型，码表的 34 行只靠测试守；`duplicate-id`（L0）与 `id-taken`（L2）是同一件事的两个名字
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：计划“共同形状”、L0 表、L2 `id-taken`；`grid-types.ts`
+- **现象**：`params` 是 `Readonly<Record<string, GridParamValue>>`，计划里逐处定的字段（`{id, with}`、`{field, value}`……）编译器不管。拼错 `expected` 为 `expect`、漏 `id`，类型检查都过，只有写了断言 `params` 的用例才会失败；而 617、632 两处按计划不写用例。宿主读 `params.id` 也要自己断言成 `string`。再者，L0 的 `duplicate-id {id, with}` 与 L2 的 `id-taken {id, kind}` 是同一概念，`GridFailure` 又是两层共用的形状，宿主要同时认两个名字；L2 的 `not-found`、`limit-exceeded` 却与 L0 同名同形，规则不一致。
+- **建议改法**：码已经是字面量联合，顺手写一张 `GridFailureParams`（码 → 参数形状）的映射类型，构造失败的辅助函数 `fail(code, message, params)` 按它检查，表就成了类型；L2 的 `id-taken` 改叫 `duplicate-id`（用 `kind` 区分），或在计划里写明为什么不统一。
+
+### 11. 个别 `params` 的取值仍有歧义
+- **严重程度**：建议；**类别**：正确性
+- **位置**：L0 表 232、264、280、503、506；L1 `stale-context`、`stale-revision`
+- **现象**：
+  - 232 与 264 都是 `wrong-axis {id, orientation}`，232 的 `id` 是被调整的节点、`orientation` 是它**父分支**的方向（`grid.ts:232`），264 的 `id` 是分支自己、`orientation` 是它自己的方向（`:264`）；同一个字段在两处指不同的对象。
+  - 280：`field: "size"` 没说是基线还是目标里的值（`change.baseline`、`change.target`）；“先判非有限、再判负数”若按子节点循环，今天的顺序是逐个子节点各判四个条件（`:276-281`），若实施成“先全体判非有限、再全体判负数”，同一输入的失败子节点与码会变，计划说“失败与否不变”，码与 `id` 却会变。
+  - 503、506：`value` 是调用方传来的运行期任意值（类型声明是联合，运行期可以是对象），`String(...)` 的要求只写了“非有限数写成字符串”，这两处不是数，要明说一律 `String(value)`。
+  - `stale-context`、`stale-revision` 的 `{expected, actual}` 没说哪边是提交带的、哪边是宿主当前的（代码里 `commit.contextKey` 对 `context`，`commit.revision` 对 `revision.value`）。
+- **建议改法**：表里 232 加 `parent`（`{id, parent, orientation}`，`orientation` 明确是父分支）；280 写成“逐个子节点，先判非有限再判负数”并加 `side: "baseline" 或 "target"`；503、506 注明 `String(...)`；`expected` 是宿主当前值、`actual` 是提交带来的。
+
+### 12. 和提案不同的不止一处，待确认清单只列了一处
+- **严重程度**：建议；**类别**：文档
+- **位置**：计划“和提案不同的一处（待开发者追认）”；提案“错误与诊断一种形状”
+- **现象**：除了计划列的“提交码”一处，第 2 稿还有这些与提案文字不一致的改动，计划没记进决策记录：
+  - 提案（体验 10）写“合并成一条一个码”，计划改成“同码同 `cause` 合成一条”，一个窗口里 `over-constrained` 最多有 6 条（提案没有 `cause`）；
+  - 提案的候选表 229“根节点没有父分支”归 `wrong-node-kind`、617/632“目标父节点已不存在”归 `stale-baseline`，计划改成 `invalid-argument`、`not-found`（第一轮审查认可，但提案文字没改）；
+  - 提案的 `GridLayoutResult.issues` 是 `{code, message}[]`，计划加了 `params`；
+  - 提案“累计列表由宿主自己积累”，计划新增“键、三种作用域”的判据与 `scope.issues` 删除，这是公开面的破坏性变化，提案“影响”里没有。
+- **建议改法**：决策记录追加一条，把这几项一并列为“t34 与提案不同”，待开发者追认；其中前两项的取舍理由已经在第一轮审查里，直接引用。
+
+## 未发现问题的方面
+- `grid.ts` 34 处与计划表逐行对上，没有漏行；280、298、518 拆成先后两个条件后失败与否不变（`!child` 与 `collapse === undefined`、非有限与越界都是同一个失败出口的两半）；码与 `params` 归类除第 11 条外自洽。
+- 第一轮第 1 条（757 归 `not-allowed`、`policy-refused` 只留 `accepts`、`can-insert`）、第 4 条（`handler-missing` 进提交码、删 `NestedGrid.vue:525` 的直接 `emit`）、第 5 条（`notify-failed` 只在 `useGridLayout.onIssues`、`WorkbenchSurface` 事件写并集）、第 8 条（617、632 不写用例）、第 13、14、15 条的处理到位。`LayoutDocValidation` 同批改 `message` 到位，`layout-doc-store.ts:88`、`:227` 在计划里。
+- 应用里按 `code` 分支的三处（`view-commands.ts:91-92`、`panel-commands.ts:126`、`layout-doc-store.ts:227`）只看 `not-found`、`limit-exceeded`，计划“改码不改分支”成立；`layout-drop.ts:393` 的直接构造在“切片 3”范围内。
+- `Splitter.vue:145-151` 的 `onCommit` 恒返回 `{ok: true}`，不受返回类型变化影响；`Splitter` 不 `emit("issues")`，删 `scope.issues` 不影响它。
+- `docs/specs/ui/nested-grid.md` 失败 5 到 7、输出 139、140 编号不与现有条目冲突；`sdk.test.ts:61` 只要求 SDK 导出的类型名在 nb-layout 入口里存在，新增类型名不会触发它。
+- 第 1 片“诊断管线不动、`useSashGesture.ts:291` 改读 `message`”照字面能编过：`pushIssues` 仍收 `string[]`，`accepted` 的类型改成 `GridFailure` 后只需读 `message`；L0 以外的第 1 片问题见第 5 条。
+
+## 对“PLUGIN_API_SINCE 不改”理由的判断
+成立（见第 8 条）：发版手册第 2 步在第 3 步提产品版本之前，而 `product.test.ts` 要求它不晚于 `PRODUCT_VERSION`，现在写不出“这次的版本”。要补的是防遗忘的登记与同一份记录里的矛盾，不是把它提前改掉。
+
+## 对待确认项的判断
+同意给 `not-ready`、`stale-context`、`stale-revision`、`stale-size`、`handler-missing`、`handler-threw` 定码，并同意 `not-published`、`notify-failed` 只是诊断：`onGestureCommit` 的返回类型本来就在第一档改，代码里这些拒绝都存在。保留意见两条：第 2 条（`not-collapsible` 同码两义）要在定码时一起解决，否则追认的是个有冲突的码集；第 12 条列的其余偏离也要在决策记录里一并追认，不要只追认一处。
+
+## 各级数量
+阻断 1（1）；重要 5（2 到 6）；建议 6（7 到 12）。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12

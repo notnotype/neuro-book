@@ -122,6 +122,15 @@ describe("eval", () => {
         expect(after!.text).toContain("undefined");
     });
 
+    test("输出 7：代码里的 read 交回对象，原文不带地址头与行号，按 next 翻页（builtin-tools.md 的 read）", async () => {
+        const w = await world();
+        const {session, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "章.md"), "第一行\n第二行\n");
+        const [result] = await evals(session, {code: "const first = await tool.read({path: 'session://章.md', limit: 1});\nconst rest = await tool.read({path: 'session://章.md', offset: first.next});\n[first.kind, first.content, first.more, rest.content, rest.more].join('|')"});
+        expect(result!.text).toBe("text|第一行|true|第二行|false");
+    });
+
     test("输出 6 到 8、18、验收 2：询问模式下 eval 的审批不能记；代码里的写入再问一次、带来源，拒绝之后代码接住 ToolCallError 接着跑", async () => {
         const w = await world();
         const {session} = await open(w, ASK);

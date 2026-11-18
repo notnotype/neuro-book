@@ -9,9 +9,9 @@ import {createStickerDirectory, findSticker} from "./resolver";
 
 const sticker = (name: string, url = `/${name}`) => ({name, width: 8, height: 8, url});
 const PACKS: BrowserStickerPack[] = [
-    {id: "user.lyra", folder: "lyra", stickers: [sticker("开心", "/lyra/happy"), sticker("害羞")]},
-    {id: "acme.cute.lyra", folder: "lyra", stickers: [sticker("开心", "/acme/happy")]},
-    {id: "user.cat", folder: "cat", stickers: [sticker("喵")]},
+    {id: "user.lyra", folder: "lyra", title: "lyra", source: "user", writing: "user.lyra", stickers: [sticker("开心", "/lyra/happy"), sticker("害羞")]},
+    {id: "acme.cute.lyra", folder: "lyra", title: "lyra", source: "plugin", plugin: {id: "acme.cute", title: null}, writing: "acme.cute.lyra", stickers: [sticker("开心", "/acme/happy")]},
+    {id: "user.cat", folder: "cat", title: "cat", source: "user", writing: "cat", stickers: [sticker("喵")]},
 ];
 const ref = (raw: string): StickerRef => {
     const parsed = parseSticker(raw);

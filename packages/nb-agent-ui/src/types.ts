@@ -60,6 +60,18 @@ export type ToolCallView = {
     note?: Text;
     /** 这次调用的唯一身份（harness 适配器从 `toolStarted` 取）；调用 id 只在同一条回复里不重复，宿主跨回复认调用用它。 */
     invocation?: string;
+    /**
+     * 它在执行中经代码调的工具（嵌套调用，例如 eval 里的 `tool.read`），按受理的先后；没调过的不带这个字段。子调用自己不再有
+     * 子调用。子调用的结果只有预览（`result.truncated` 标出），全文模型已经在父调用的结果里看到。
+     */
+    children?: ToolCallView[];
+    /** 开始执行的时刻（毫秒）；运行中的卡片按它与 `ctx.now` 算已用时（含等审批的时间）。还没开始执行的没有。 */
+    startedAt?: number;
+    /**
+     * 参数里有字符串只给了预览（嵌套调用里超过 2 KB 的字符串由内核截短）：读写的文件照算，增删行数与 diff 按参数算不准，
+     * 不给（`callEffects`）。
+     */
+    argsPreview?: true;
 };
 
 export type UserMessageView = {
@@ -275,6 +287,8 @@ export type ApprovalPreviewView =
 export type PendingInputCommon = {
     source?: {sessionId: string; name: string; icon: string};
     async?: true;
+    /** 嵌套调用的事项（例如 eval 的代码里调的写工具）：`tool` 是外层工具显示给用户的名字，向导标题写明是它里面的调用。 */
+    within?: {tool: string};
 };
 
 /** 一个等批准的工具调用。`tool` 是显示给用户的工具名，也按它选怎么画（`edit`、`write` 看预览，`shell` 看命令，别的看参数）。 */

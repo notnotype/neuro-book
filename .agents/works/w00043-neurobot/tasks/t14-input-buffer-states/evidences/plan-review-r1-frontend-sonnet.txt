@@ -1,0 +1,122 @@
+### 1. 输出 50 的表按“中断”分行，内核的可接着跑还包括出错与停止；宿主拿不到判据，同一模式下一条与两条的行为不同
+严重程度：重要　类别：合同与数据可得性
+位置：conversation.md 输出 50 的表；plan“session-host.ts：run.continue 照输出 50 的表选指令”；runtime.md 输出 4、106
+现象：表的第二行只认“留着的话加中断的运行”，宿主能读到的只有 `transcript.interrupted()`（kernel-transcript.ts 527 行：`reason === "interrupted" && !compactRun`，停止、出错都为假）。但 runtime 输出 4 的“可接着跑”明确包含出错与停止（最后一轮停在当中）。用户点停止（keepQueue）后留下一条用户的话：表第一行合并列写“少于两条走 `resume{mode:"keep"}`”，内核的 `resume` 会先接着跑被停止的那一轮（输出 106：已收口的开“继续”运行）；留下两条时走 `send{replaces}`，新开一轮、不接着跑被停止的那轮。右列 `resume{mode}` 一律先接着跑停止的那轮。
+为什么是问题：conversation 验收 8（停止后写一句合并）与用户直觉都是“停了就停了”；同一合并模式下，一条与两条的结果不同，且宿主没有数据区分，照字面写出来的行为取决于内核实现细节。
+如何核实：真实内核里让一次运行 abort，留一条用户排队，调 `resume{mode:"keep"}`，看是否写 `runStarted` 且 `turnStarted.inputId` 为 null。
+建议改法：先定停止与出错后用户的 `resume` 要不要接着跑停止的那轮（Spec 一处统一定）；若不要，`resume` 只在叶子上是“中断”或暂停时才先接着跑；若要，表加“停止或出错后”一行，快照或 `session` 面暴露 `continuable`，宿主不自己猜。
+
+### 2. “先 start 再 send{replaces}”两步之间没有进行中保护，界面状态与失败路径未定
+严重程度：重要　类别：状态组合遗漏
+位置：plan“session-host.ts”一节；conversation.md 输出 50 第二行；session-host.ts 的 `run.continue`（1372 行，每次点击 `commandId()` 取新 id）、`submit()`（1093 行起先清草稿）
+现象：`start` 一返回运行就进入 running：界面立刻显示停止键、`stopClearing`，头行的留着条目仍在（要等 `send{replaces}` 才被移除）。两步之间用户可以：再点一次“继续”（现有代码每次新 id，第二次 `start` 得 `already-running`，界面报错，其实第一次已成功）、点停止（之后第二步的 `send` 在空闲时到达，开了新一轮，违背刚才的停止）、编辑或删除留着的条目（只靠 `input-stale` 兜，且兜不住停止）。`start` 结果未知时重试同理：现有 `rewriteHistory` 用 `rewriting` 标志加 `commandIdOf(key)` 防这类问题，计划没提这里照搬。
+为什么是问题：这是开发者确认的第 11 项的核心路径，也是验收 5 的新文字。
+如何核实：在 session-host 测试里让 `start` 的响应延迟，期间再触发一次 `run.continue` 或 `composer.stop`。
+建议改法：复合操作加同样的进行中标志（头行“继续”与发送键期间不可用）；`start`、`send` 都用按操作身份固定的 commandId；第二步前确认运行仍是自己刚开的（停止或已收口就不再发 `send{replaces}`，把文字留在输入框并说明）；乐观消息放在 `start` 成功之后再加，失败不必撤。
+
+### 3. 合并被拒或结果未知时，现有 `settleSend` 会把合成的整段文字放回输入框，重发也丢了 `replaces`
+严重程度：重要　类别：与现有宿主接线冲突
+位置：session-host.ts 51 行 `PendingSend`、1068 行 `settleSend`、1397 行 `message.resend`；plan“合并的那条结果未知时重发沿用原参数”；ui 规格“空着按继续发出的合并被明确拒绝时，不把合并的文字放回输入框”
+现象：`PendingSend` 只存 `{commandId, input, restore}`。合并后的 `input.text` 含留着条目的文字：被拒时 `settleSend` 执行 `setDraft(sent.input.text)`，把已经在排队区里的两条话又灌进草稿，用户再发就是重复；`message.resend` 用 `sent.input` 重发，没有 `replaces`，若第一次其实没受理，这次会把留着的话与合成的话都跑一遍。计划只说“沿用原参数”，没说 `PendingSend` 要带 `replaces` 与“用户自己写的那一段”。另有一处：`input-stale` 没有进 `REJECT_KEYS`，会显示成通用的“其它：input-stale”。
+为什么是问题：两个方向都会重复发话；计划的单元测试清单（resume-merge 与表逐行）测不到这条接线。
+如何核实：session-host 测试里让 `send` 返回明确失败，看草稿内容；让它返回 `unknown-outcome` 后点重发，看日志里有没有 `replaced`。
+建议改法：`PendingSend` 加 `replaces` 与 `typed`（用户本次写的字）；被拒只还原 `typed`，空着继续时不还原；`input-stale` 再失败单独写文案；加上述两个用例。
+
+### 4. `resume-merge.ts` 的重新编号：现成的解析与换号函数在 nb-markdown 里，但没有公开出口；计划写成“纯函数、配单元测试”，会手写正则
+严重程度：重要　类别：选型与包边界
+位置：plan“新增 web/resume-merge.ts”与“技术选型：无”；prompt-editor.md 的“文字写法”表；packages/nb-markdown/src/prompt/prompt-text.ts 的 `parsePromptText`、`renumberInsertion`、`usedPromptNumbers`、`promptNodeText`
+现象：文字写法有四种带号写法（`![image #N](..)`、`[file #N · 名](..)`、独占几行的 `<paste id="N">…</paste>`、位置标记 `[paste #N]`），两套编号（图片一套，文件与粘贴块共用），粘贴块与位置标记要成对换号，粘贴块内容里和代码片段里长得像标签的文字不能换。nb-markdown 已有 `parsePromptText`（读成节点）、`renumberInsertion`（撞号换新号，粘贴块与标记一起换）、`promptNodeText`（写回文字）。但包的公开出口只有 `src/prompt/index.ts` 的 `parsePromptText`、`promptReferenceText`、`stickerOnlyMessage`；`./prompt-text` 子路径只放技能函数，且受 `boundary.test.ts` 约束；其余几个函数不导出，跨包深导入又被规则禁止。`session-host.ts` 现有的 `findPromptLinks` 能按地址回找附件范围（`attachmentsFor`），所以附件那半边可复用，换号这半边不行。
+为什么是问题：手写会漏掉粘贴块里的伪标签、共用编号套与位置标记；而“少于两条”“多于一条”之外，最容易出错的恰是附件与粘贴块。计划的片 6 没有给 nb-markdown 留改动，也没算它的 Spec（prompt-editor.md）与测试。
+如何核实：grep `renumberInsertion` 的导出路径；对两条各含 `![image #1](…)` 与 `<paste id="1">` 的文字合并，看现有出口能否得到互不撞号的结果。
+建议改法：在 nb-markdown 的纯 TS 子路径（`prompt-text`）新增一个导出（例如“按顺序拼接几段文字并换号”，内部用 `parsePromptText` 加 `renumberInsertion` 加 `promptNodeText`），`resume-merge.ts` 只负责“按入队顺序、空一行、整理附件候选”；计划补上这个小改动与它的测试，并把技术选型写成“复用 nb-markdown 的解析”。
+
+### 5. 设置分区“Agent 对话”不存在，`resumeMode` 也没有通往 session-host 的通道；计划只列了 `shared/settings.ts`
+严重程度：重要　类别：与宿主接线冲突
+位置：plan“shared/settings.ts：放进‘Agent 对话’分区”；shared/settings.ts（现有分区：reliability、requests、profiles、skills、status-line、permissions）；web/plugin.ts 16 行附近的分区贡献、548 行 `ConversationHost` 的 `statusLine` 传参；`SessionHostDeps`（session-host.ts 144 行，没有设置读取项）
+现象：locales/zh-CN.json 里的“Agent 对话”是编辑区页面标题，不是设置分区。要加分区需新增 `*_SECTION` 与 `*_SECTION_DECLARATION`、在后端 `plugin.ts` 的 contributions 里登记、两份语言的分区说明文字；`resumeMode` 本身的 `title`、`description` 与三个选项文案同样要进 locales。读取一侧：`SessionHostDeps` 要加 `resumeMode: () => ...`，`plugin.ts` 的两个对话位置（view、page）与测试夹具都要接线；状态栏设置是经 `ConversationHost` 的 props 传的，没有现成的给 session-host 的路径。
+为什么是问题：按计划字面只改 `shared/settings.ts`，设置要么落进“其它”，要么读不到；漏掉的文件在片 6 才暴露。
+如何核实：grep `SETTINGS_SECTIONS_POINT` 的使用处与 `statusLine` 的传递路径。
+建议改法：片 6 的文件清单补：分区常量与声明、后端 plugin.ts 登记、web/plugin.ts 接线、`SessionHostDeps` 新字段、locales（zh-CN、en-US）；或明确放进现有分区并改 Spec 输出 47 的措辞。设置在点击时现读（不在打开会话时缓存），测试里改设置后下一次继续按新值。
+
+### 6. 路径上宿主发来的 `input`、`steer` 仍被画成用户自己的话；`KernelIssuer` 与 `authorOf` 只认会话
+严重程度：重要　类别：与现有组件合同冲突
+位置：plan“kernel-transcript.ts：queue 的条目带 by…”；kernel-transcript.ts 255 行 `KernelIssuer`、418 行 `by = … data.by.kind === "session" …`；session-host.ts 850 行 `authorOf`；ui 规格“`user` 消息带 `author` 时…`authorOf(by)` 由宿主给”；runtime 输出 85
+现象：内核加了宿主发出者（`{kind:"host", source:{plugin,label,…}}`）后，周期任务与 bot 的话会以 `by: host` 写进路径上的 `input`（或 `steer`）。转录器只在 `by.kind === "session"` 时取作者，宿主的话得到 `by = null`、`author` 缺省，消息流里画成用户自己的头像与名字，与排队区里“标来源”的同一条话前后不一致。`authorOf` 只查 `target.ancestors`，宿主没有 id，也不在祖先里。计划只改了队列条目的 `by`，没有改路径事件的归约与 `authorOf` 的形状。
+为什么是问题：这是 bot 与周期任务功能最直接的可见结果；开发者审视时会先问“这条话是谁发的”。
+如何核实：用转录器喂一条 `input{by:{kind:"host",source:{plugin:"x",label:"每周简报"}}}`，看 `messages()` 里的 `author`。
+建议改法：`KernelIssuer` 扩成会话与宿主两种，`authorOf` 的入参随之变化（宿主取 `source.label` 与插件给的图标，会话照旧）；`kernel-transcript.test.ts` 加宿主的 `input` 与 `steer` 用例；Lab 的 `subagent-samples` 或消息场景加一条宿主的话。
+
+### 7. 乐观消息：`commandAccepted` 的撤掉条件、重建路径与“前面还有 N 条”三处计划没有改到
+严重程度：重要　类别：增量归约与快照重建不一致
+位置：kernel-transcript.ts 622 行（`data.name === "send" && value.runId === null`）、799 行（`optimistic.slice(1)`）、`applyPath`（762 行起，不碰 `optimistic`）；plan“乐观消息按 commandId 确认…合并发出的那条乐观消息带‘前面还有 N 条’”
+现象：(a) 计划只把 799 行改成按 `commandId`。622 行的判据是 `runId === null`（send 撞上运行中），而内核新增了 `placement`（taken、later、held）；`later` 与 `held` 时 `runId` 的值计划没写，乐观消息要么撤晚了、要么在没有 `input` 事件的那段时间里整条消失又不在排队区。(b) 重连、重开走 `applyPath`：路径里已有带 `commandId` 的 `input`，但 `applyPath` 不清乐观消息，结果未知的那条会和真实消息并排出现，直到用户点重发。现在没有 `commandId` 所以这条只能靠 `settleSend` 兜；计划引入了 `commandId`，正好可以在重建时按它去重，但没写。(c) “前面还有 N 条”由宿主在发送时算好、静态放进乐观消息；放行出来的宿主的话被取走后已经显示在它上面，数字就成了假话，而 `addOptimistic` 的签名（只收 id、commandId、text、timestamp）也没地方放它。
+为什么是问题：风险一节只列了“重发要对上”，上面三处是同一机制的另外三个出口。
+如何核实：转录器测试里先 `addOptimistic`，再 `applyPath` 带同 `commandId` 的 `input`，看 `messages()` 是否出现两条。
+建议改法：按 `placement` 判撤销；`applyPath` 与 `applyEvent` 同按 `commandId` 清乐观消息；`ahead` 由转录器按“这个 commandId 放行出来、尚未取走的条数”现算，不由宿主写死；三处各补一个 `kernel-transcript.test.ts` 用例。
+
+### 8. 停止的下拉：nb-ui `DropdownMenu` 的 `disabled` 是原生禁用、焦点由上游还给触发器，与 ui 规格与验收 39 的写法冲突
+严重程度：重要　类别：与现有组件合同冲突
+位置：plan“AgentConversationComposer.vue：下拉箭头（独立按钮、nb-ui DropdownMenu、选中后焦点回编辑器）”；ui 规格“停止进行中箭头用 aria-disabled 不可用、保留焦点”“选中…焦点回到编辑器”；验收 39；DropdownMenu.vue 123 行、DropdownMenu.md“交互”
+现象：(1) `DropdownMenu` 的 `disabled` 直接传给 `DropdownMenuTrigger`，是原生 `disabled`，按钮失焦、读屏跳过；规格要的 `aria-disabled` 加保留焦点只能受控 `open` 并自己吞掉开关，或改 nb-ui。(2) DropdownMenu.md 写明“菜单关闭时…上游负责把焦点归还触发器”，选一项后焦点在箭头上，不在编辑器；要回编辑器得经 `contentProps` 传 `onCloseAutoFocus` 并 `preventDefault`，现有组件文档没有这个用法，也没有测试守着。(3) 菜单项要危险色加图标，已有 `tone: "danger"` 与 `iconClass`，可用；但“运行收口或 stopClearing 变空时菜单自己关上”依赖整段 `v-if` 卸载，卸载时焦点落到 body，规格没写这时焦点去哪。
+为什么是问题：验收 39 的两条断言（`aria-disabled`、焦点回编辑器）按计划的做法都会直接测出相反的结果，返工点在 nb-ui 而不在 nb-agent-ui，影响面更大。
+如何核实：Lab 里挂一个 `disabled` 的 DropdownMenu，用 Tab 看焦点是否还能到；选一项后读 `document.activeElement`。
+建议改法：计划写明走哪条路：受控 `open` 加触发器自带 `aria-disabled`，`onCloseAutoFocus` 经 `contentProps` 传入（并在 DropdownMenu.md 记这个用法）；或给 DropdownMenu 加 `softDisabled`。卸载时的焦点去向在规格里补一句。
+
+### 9. 会话列表行的“有暂停的话”与状态栏的“等你处理”没有数据来源，重启后留着的话也不可见
+严重程度：重要　类别：数据可得性
+位置：plan“session-list.ts、activity.ts：会话行轻标‘有暂停的话’；状态栏活动只算只有用户能放行的”；sessions.md 输出 15（activity 只列打开着的句柄，`state: "held"` 只给“只有用户能放行的”）；ui 规格“宿主在会话列表条目的 note 写‘有暂停的话’”；session-list.ts 77、108 行
+现象：会话列表的状态来自 `activity.get(id)`，而 activity 只含运行中、等用户、以及（新加的）只有用户能放行的留着的空闲会话，且只看打开着的句柄。规格要标的是“不是只有用户能放行的那种”留着的话（例如宿主的话留着、用户停止后留着由会话放行的），这些既不在 activity 里，`list` 返回的 `SessionIndexEntry` 也没有留着条数。结果：除当前打开的会话（转录器知道）外，其它会话行永远标不出来。服务端重启后，被中断而留着的话所在的会话没有打开着的句柄，既不在活动里也不在列表标记里，要点进去才看到；plan 的手工验证“重启后继续”走的是当前会话，掩盖了这一点。
+为什么是问题：规格这一句与 sessions.md 输出 15 合起来无法实现，片 6 做到这里才会发现；同时状态栏“等你处理”在重启后少算。
+如何核实：看 `activity` 在后端的计算（只遍历打开着的句柄）与 `SessionIndexEntry` 的字段；重启后调 `activity`。
+建议改法：二选一并写进 Spec：缩小——列表行只标当前会话、或标 activity 里 `held` 的项（改规格措辞，“其余的”一句删去）；扩大——索引里存留着条数（后端计划要加，且重启后读索引）。选缩小时，在“不做与风险”里写明“重启后未打开的会话不提醒留着的话”。
+
+### 10. Lab 夹具与类型波及面比计划写的大：没有英文场景的挂载点，`editable` 变必填会连锁，Lab 的运行模拟会错误地“冲刷”留着的话
+严重程度：重要　类别：组件改动影响面
+位置：plan“Lab：composer.scenes.ts 加‘留着’‘停止的下拉’两个场景（含英文场景…390 宽）”；AgentConversationComposerFixture.vue、composer-host.ts 105 行、AgentConversationViewFixture.vue 138 至 146 行 `flushQueued`/`remainingQueue`；view.scenes.ts（各场景写死 `locale: "zh-CN"`）；AgentQueuedMessages.dom.test.ts；session-host.test.ts 335 行
+现象：(1) Composer 夹具没有 `locale`（只有 View 夹具与 `agentSubject` 读场景 `locale`），所以 composer.scenes.ts 里加不出英文场景；英文的 390 宽场景要么放在 View 的 view.scenes.ts，要么给 Composer 夹具加 locale。验收 38 的“390 宽英文、原因先截断、继续完整”依赖它。(2) `composer.queued` 条目的 `editable` 在规格里是必填：composer.scenes.ts 的 `QUEUED`、composer-host.ts（排队时造条目）、context.ts、data.ts、AgentQueuedMessages.dom.test.ts（现在没有 editable，编辑按钮会消失）、session-host.test.ts 都要改；nb-story 的 QaPage 经 `createAgentContext` 取默认值，不受影响但要确认。(3) View 夹具的 `flushQueued` 按 `delivery` 把所有排队项在“结束运行”时转成消息；带 `held` 的项在新语义下不会被取走，夹具会把它们误冲成消息，e2e 里任何“留着”的 View 场景点“结束”都会得到错误画面。
+为什么是问题：计划把 Lab 只算成加两个场景，实际要动夹具、宿主模拟与 4 到 5 个现有文件，片 5 的“视图能画新状态”提交边界会被撑大。
+如何核实：grep `locale` 在 AgentConversationComposerFixture.vue 里的出现；`tsc` 在 `editable` 必填后的报错列表。
+建议改法：`editable` 与 `author` 都做成可缺省（缺省等于“用户自己的话、可编辑”），降低波及；Composer 夹具补 `locale` 或把英文场景放 View；`flushQueued` 跳过 `held`，并加“停止后留着”的 Lab 动作。
+
+### 11. 验收映射测不到的行为：ui 验收 38 的读屏与布局、39 的 `aria-disabled` 与“停止进行中”场景、conversation 验收 5（新文字）与 9
+严重程度：建议　类别：验收覆盖
+位置：plan“验收映射”最后两行与“验证”；ui 规格输出“排队区”“停止的第二个选项”；验收 38、39；conversation 验收 5、8、9
+现象：(1) 规格里“读出‘已暂停：<正文>’”“头行出现与条数变化经 `role="status"` 区播报”“继续不可用、悬停说明原因”“留着的行不受 3 条限制、点开后限高滚动”没有写进验收 38、39，映射表也只写“dom 测试加 e2e 新场景”，没有指定谁断言哪一条。“原因先截断、继续完整”与“点开后区内滚动”在 jsdom 里量不出，只能在 Playwright 里量计算值或边界框；ui-development 第一节还要求组件自己是滚动容器时按截图看 390 宽，计划的截图只写在片 6 的手工验证里。(2) 验收 39 的“停止进行中箭头 `aria-disabled`”需要一个 `run.status === "stopping"` 的场景，Lab 的 Composer 夹具只在 idle 与 running 间切换，计划的“两个场景”没有它。(3) conversation 映射写“验收 5、8、9”，但 e2e 只写“走验收 8”：验收 5 已改成“排着的话显示已暂停，回车先接着跑中断的那一轮，再发出排着的话”（正是表第二行），现有 e2e（agent-conversation.e2e.ts 287 行）没有排队的话，需要扩；验收 9 要宿主的话开运行，session-host.test.ts 可造（它接真实服务端），但映射没写。
+为什么是问题：几条是本次最容易返工的行为，却没有明确的守门测试。
+如何核实：对照规格“输入框与待处理区”的新增条目与验收 38、39 的断言逐句打勾。
+建议改法：映射表按断言列：dom 测试负责 aria、事件、禁用；e2e 或 Lab 巡检负责 390 宽的量；给验收 38、39 补 `aria-live`、`aria-label` 与 stopping 场景的句子；e2e 明确扩验收 5 并写验收 9 在 session-host.test.ts 的用例名。
+
+### 12. 停止进行中（`stopping`）时头行的“继续”与发送键的行为没有规定，按字面会在停止刚发出时放行留着的话
+严重程度：建议　类别：状态组合遗漏
+位置：ui 规格“有留着的条目时…`availability` 不是 `ready` 或不允许发送时，‘继续’不可用”“运行中也可能有留着的条目，头行照样有‘继续’”；runtime 输出 104、30
+现象：`run.status` 有 `stopping`（abort 已受理、运行还没收口）。这时留着的条目可能已有（上一次停止留下的，或宿主开的运行里排的），头行的“继续”不受 `availability` 影响，仍可点。内核对运行不再取输入期间受理的 `resume` 的处理是推迟到收口，然后放行并开新运行（输出 104）：用户刚点了停止，随即点“继续”，会在停止收口的同一批里又开一次运行。规格与计划都只在 `availability` 不可用时禁用“继续”，没有写 `stopping`；同样，停止键换成“正在停止”的那段时间里，发送键的 `run.continue` 路径也没定。
+为什么是问题：这是用户最容易连点的两个按钮；结果是“停不住”，与停止键的承诺相反。
+如何核实：Lab 加 `run.status: "stopping"` 且有留着的条目的场景，看“继续”是否可点；真实内核里 abort 后立即 `resume`，看收口批里有没有 `runStarted`。
+建议改法：规格补一句：`stopping` 时“继续”不可用，悬停说明“正在停止”（与 `availability` 同一处判断）；`ctx.interaction` 不必新增字段，`run.status` 已够。
+
+### 13. 留着原因的文案：`cause.code` 到“码的说明”的映射、会话作者名的来源、两份语言文件都没有落到文件清单里
+严重程度：建议　类别：计划漏登记
+位置：plan“session-host.ts：原因文案按 conversation 输出 48”；conversation.md 输出 48（“运行没开起来：<码的说明>”“派它的 Agent 停止了”“<来源名>停止了”）；plugins/agent/locales/、nb-agent-ui/src/locales
+现象：`cause.code` 的取值来自内核多处：`no-model`、`no-credentials`、`unknown-model`、`role-unbound`、`profile-invalid`、`read-only`、`reassembly-pending`、`session-closing`、`not-allowed`；输出 48 要求写“码的说明”，但没有一张表，也没写认不出的码怎么显示（输出 48 末尾只写了“认不出的写‘上一轮没有正常结束’”，指的是 `end`，没有覆盖带未知码的 `queued`）。模型类的码在界面里已有说明文字的来源（模型选择器的不可用原因），应复用而不是再写一份。`heldBy` 是会话时“派它的 Agent”假定停止者是祖先，`authorOf` 只在 `ancestors` 里查，非祖先写“另一个会话”，与“派它的 Agent 停止了”不一致。文案分两处：nb-agent-ui 的 `locales/`（头行、“已暂停 N 条”“还有 N 条”“更多停止方式”“停止并清空排队（N 条）”）与 plugins/agent 的 locales（原因文案、设置项），计划只写了前者。
+为什么是问题：原因文案是规格里最长的一条，且每个分支都要中英两份与测试；漏登记会在片 6 临时补。
+如何核实：grep `reassembly-pending`、`session-closing` 在 locales 里是否已有说明；对照 runtime 输出 104 的码列表。
+建议改法：片 6 加一张“码到文案”的表（含未知码回退），原因文案的单元测试逐 `end` 与 `heldBy` 组合一例；locales 文件清单补 plugins/agent 的两份。
+
+### 更正与补充（对第 10 条）
+第 10 条里“context.ts、data.ts 要改”不准确：context.ts 的 `queued: []`、data.ts 没有排队条目，不受 `editable` 必填影响；实际要改的是 composer.scenes.ts 的 `QUEUED` 与 `many` 场景、composer-host.ts 105 行、AgentQueuedMessages.dom.test.ts、session-host.test.ts 335 行。其余结论不变。
+
+## 未发现问题的方面
+- 乐观消息与 `inputQueued` 的 `commandId` 对应本身：重发同一个 `commandId` 时，失败的受理不进 `core.commands`，`input-stale` 后换参数重发不会撞 `command-id-conflict`；结果未知的重发走内核的重发查表。这一点计划与规格的做法成立。
+- `input-stale` 后“重读快照”：session-host 已有 `refresh(target)`（快照加路径重建）可用，不需要新机制。
+- 附件范围的回找：`attachmentsFor` 按地址用 `findPromptLinks` 找标签，合并后的文字可直接复用（换号是第 4 条的问题，不是这里）。
+- Composer 的占位文字顺序与现有 `composer.resume` 的分支：新增分支只是在 `resuming` 前后加判断，现有 dom 测试（233 行 `resume: true`）与 e2e 验收 5 的“继续”按钮定位不受影响；`data-composer-action="resume|stop|send"` 钩子保留即可。
+- 已处理的第一轮条目未重复。
+
+## 数量
+阻断 0；重要 9（第 1 至 10 条中除 11、12、13 外，即 1、2、3、4、5、6、7、8、9、10 共 10 条，其中第 9 条数据来源为从代码与规格推断）；建议 3（11、12、13）。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13
+
+### 数量更正
+阻断 0；重要 10（第 1 至 10 条）；建议 3（第 11、12、13 条）；共 13 条。
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13

@@ -177,5 +177,15 @@
         "manifest-unreadable": "stickers.json cannot be read or has a syntax error. Fix it in the folder.",
         "manifest-invalid": "The content of stickers.json is not valid. Fix it in the folder.",
         "folder-unreadable": "The folder cannot be read. Check its permissions."
+    },
+    "picker": {
+        "label": "Stickers",
+        "search": "Search stickers",
+        "packs": "Sticker packs",
+        "recent": "Recently used",
+        "results": "Results",
+        "empty": "No sticker packs yet",
+        "create": "Create one in Settings",
+        "noResult": "No sticker named “{{query}}”"
     }
 }

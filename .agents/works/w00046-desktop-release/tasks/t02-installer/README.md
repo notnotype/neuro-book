@@ -26,8 +26,20 @@ updated: 2026-11-18
 
 ## 当前状态
 
-草稿 worktree `.worktree/w00046-t02-drafts`（分支 `t02/drafts`，不合并）里搭了两版静态稿：A 一页对话框、B 分步向导；两轮定稿：分步向导、上方舞台。设计审查第 1 轮（Sonnet 15 条、omp 12 条，[处理](evidences/design-review-r1-disposition.md)）已吸收进计划第 2 稿与 Spec；新增待确认 5 条。
+草稿 worktree `.worktree/w00046-t02-drafts`（分支 `t02/drafts`，不合并）里搭了两版静态稿：A 一页对话框、B 分步向导；两轮定稿：分步向导、上方舞台。设计审查第 1 轮（Sonnet 15 条、omp 12 条，[处理](evidences/design-review-r1-disposition.md)）已吸收进计划第 2 稿与 Spec；新增待确认 5 条。切片 2 到 6 已实施，实现审查进行中。
+
+## 实施进度（分支 `feat/w00046-t02-t02-first-run`，worktree `.worktree/w00046-t02-t02-first-run`）
+
+| 切片 | 提交 | 内容 |
+|---|---|---|
+| 2 安装事实与快捷方式 | ddb7098e8 | 桥的 `install-facts`、配置项 `desktopShortcut`、核心 `install-facts.ts`（频道、便携、程序位置，开机自启共用）、`desktop-shortcut.ts`（判定与串行同步）、Windows 端口（固定 PowerShell 脚本、环境变量传路径）；用户层修回补交一次 |
+| 3 打开位置 | 5257133f6 | `revealFolder`（`realpath`、区分不存在与无权访问）、`nbook.projects/projects.revealLibrary`（合同版本 4）、桥的 `open-state-root` 由壳打开 |
+| 4 目录与缩略图 | 95a009a55 | `nbook.desktop` 的语言目录与登记、8 张主题缩略图（`scripts/first-run-thumbnails.ts` 从产品页截）与机检 |
+| 5 组件 | 7e619bca4 | `FirstRunWizard` 与 `.md`、Lab 11 个场景、dom 测试 9 条 |
+| 6 宿主与 e2e | 62f217801、ef5c88678 | 单独的 `first-run` 入口、记录（user/shared）、命令、浮层；`desktop-first-run.e2e` 6 条，六个模拟壳的文件先记下看过向导，`desktop-settings` 加层修回补交、`text-selection` 加向导路径 |
+
+验证（2026-11-18，负载 30 到 45）：类型检查通过；bun 测试 661 条、dom 测试 147 条通过；e2e 8 个文件（新的 `desktop-first-run` 与六个模拟壳的文件、`settings`）通过，中途 `settings.e2e:194`（Lab 冷启动等 `html` 超时，负载 45）单独重跑通过；两条否定断言做了变异（出现条件不看记录、浏览器里也导入向导），都变红，已还原重建。
 
 ## 下一步
 
-处理设计审查后按计划切片实施。
+处理实现审查；Windows 验收（切片 7）；合入 master。

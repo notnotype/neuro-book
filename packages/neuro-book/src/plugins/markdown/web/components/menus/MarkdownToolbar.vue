@@ -2,12 +2,13 @@
 /** Markdown 编辑器的固定工具栏（同名 .md）。 */
 import {DropdownMenu, IconButton, Toolbar} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
+import {computed, inject, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
 
 import {EDITING_ACTIONS, EDITOR_TOOLBAR_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
 import {useMarkdownColors} from "../../colors";
+import {markdownStickerPickerKey} from "../../parts/stickers";
 import {blockMenuItems} from "./block-menu";
 import MarkdownBlockTypeMenu from "./MarkdownBlockTypeMenu.vue";
 import MarkdownColorButton from "./MarkdownColorButton.vue";
@@ -17,9 +18,11 @@ import type {PaletteColor} from "./palette";
 const props = defineProps<{editing: EditorEditing; menus: EditorMenus; readonly: boolean}>();
 const emit = defineEmits<{(event: "prompt", action: PromptAction): void; (event: "refocus"): void}>();
 
-/** 要先开卡片再执行的动作：点按钮不直接执行命令，由菜单层开卡片（输出 9、52、54）。 */
-type PromptAction = "ruby" | "bilingual" | "link" | "image";
-const PROMPTS: ReadonlySet<string> = new Set<PromptAction>(["ruby", "bilingual", "link", "image"]);
+/** 要先开卡片再执行的动作：点按钮不直接执行命令，由菜单层开卡片或选择器（输出 9、52、54、62）。 */
+type PromptAction = "ruby" | "bilingual" | "link" | "image" | "sticker";
+const PROMPTS: ReadonlySet<string> = new Set<PromptAction>(["ruby", "bilingual", "link", "image", "sticker"]);
+/** 没装表情包插件时没有“表情”按钮（输出 1、62）。 */
+const hasStickers = inject(markdownStickerPickerKey, null) !== null;
 
 const remembered = useMarkdownColors();
 
@@ -64,7 +67,7 @@ const items = computed<ReadonlyArray<Item>>(() => {
         separator,
         {kind: "color", action: "text-color"}, {kind: "color", action: "highlight"},
         separator,
-        action("link"), action("image"),
+        action("link"), action("image"), ...(hasStickers ? [action("sticker")] : []),
         separator,
         action("bullet-list"), action("ordered-list"), action("task-list"),
         separator,

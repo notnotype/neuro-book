@@ -1,0 +1,497 @@
+{
+    "commands": {
+        "category": "Lore",
+        "open-entry": {
+            "title": "Open Entry"
+        },
+        "new-entry": {
+            "title": "New entry"
+        },
+        "open-receipt": {
+            "title": "Open Receipt"
+        },
+        "open-change": {
+            "title": "Open Story Change"
+        },
+        "show-pending": {
+            "title": "Show Pending"
+        },
+        "show-revisions": {
+            "title": "Show Change History"
+        }
+    },
+    "views": {
+        "entries": {
+            "title": "Lore",
+            "actions": {
+                "nbook": {
+                    "canon": {
+                        "new-entry": {
+                            "title": "New entry"
+                        }
+                    }
+                }
+            }
+        },
+        "pending": {
+            "title": "Pending"
+        },
+        "revisions": {
+            "title": "Change History"
+        }
+    },
+    "world": {
+        "unbound": "Available after opening a work",
+        "disconnected": "The world is disconnected",
+        "retry": "Retry",
+        "failed": "Could not read this"
+    },
+    "entries": {
+        "label": "Entry tree",
+        "empty": "No entries yet",
+        "unappeared": "not yet on stage",
+        "deleted": "deleted",
+        "more": "Show more ({{count}} left)",
+        "loading": "Reading…",
+        "createUnder": "New entry under it"
+    },
+    "editorPages": {
+        "entry": {
+            "title": "Entry"
+        },
+        "receipt": {
+            "title": "Receipt"
+        },
+        "change": {
+            "title": "Story Change"
+        }
+    },
+    "componentViews": {
+        "person": {
+            "title": "Character"
+        },
+        "panel": {
+            "title": "Panel"
+        }
+    },
+    "entry": {
+        "missing": "This entry was not found",
+        "deleted": "This entry has been deleted",
+        "notAppeared": "Not yet on stage at {{position}}",
+        "positionGone": "The chapter you picked is gone",
+        "sameAs": "Really: ",
+        "position": "Position",
+        "planned": "Include plans",
+        "tabs": {
+            "label": "Entry tabs",
+            "text": "Text",
+            "plot": "Plot"
+        },
+        "writeUnavailable": "Cannot write here yet",
+        "more": "More",
+        "delete": "Delete entry",
+        "deleteTitle": "Delete “{{name}}”?",
+        "deleteDescription": "Places that refer to it will show “deleted entry”; you can restore it from the change history.",
+        "deleteConfirm": "Delete",
+        "deleteSaved": "Deleted “{{name}}”"
+    },
+    "position": {
+        "initial": "Initial",
+        "start": "Start of chapter {{index}}",
+        "end": "End of chapter {{index}}",
+        "startTitled": "Start of chapter {{index}}: {{title}}",
+        "endTitled": "End of chapter {{index}}: {{title}}"
+    },
+    "place": {
+        "chapter": "Chapter {{index}}",
+        "prehistory": "Backstory",
+        "unscheduled": "Unplaced"
+    },
+    "mark": {
+        "changed": "changed in {{place}}",
+        "checked": "checked in {{place}}"
+    },
+    "value": {
+        "unknown": "unknown",
+        "incomplete": "incomplete",
+        "label": "{{label}}: {{value}}",
+        "blockFailed": "This block could not be rendered: {{reason}}",
+        "deletedRef": "deleted entry",
+        "listSeparator": ", ",
+        "yes": "yes",
+        "no": "no",
+        "notReduced": "not summarized yet (starting point: {{anchor}}, {{count}} notes since)"
+    },
+    "origin": {
+        "caption": "How {{label}} came to be",
+        "more": "Show earlier ({{count}} steps left)",
+        "initial": "Initial value",
+        "check": "Check: the text says {{written}}",
+        "checkOk": "matches",
+        "checkMismatch": "does not match",
+        "carried": "Carried over from another line",
+        "basisQuote": "Text: “{{quote}}”",
+        "basisEstimate": "Estimate: {{note}}",
+        "basisAuthor": "Given by the author",
+        "basisDerived": "Derived from a check",
+        "editStep": "Edit this step",
+        "failed": "Could not read the history",
+        "where": "Where",
+        "what": "What happened",
+        "delta": "Change",
+        "result": "Result"
+    },
+    "fields": {
+        "empty": "No fields on this tab yet",
+        "notReduced": "not summarised yet",
+        "anchor": "Starting point: {{value}}",
+        "viewFailed": "The dedicated view did not load; showing the field table: {{reason}}",
+        "notesMore": "{{count}} earlier notes not shown"
+    },
+    "panel": {
+        "empty": "This panel has nothing yet",
+        "ledger": "Ledger for {{label}}",
+        "cards": "Panel values"
+    },
+    "plot": {
+        "empty": "No plot touches it yet",
+        "plan": "plan",
+        "held": "on hold",
+        "undone": "undone"
+    },
+    "blocked": {
+        "readOnly": "The world is read-only: {{reason}}",
+        "unknown": "Unsure what reached the world; writing is paused",
+        "busy": "{{holder}} is writing; edits resume when it finishes",
+        "disconnected": "The world is disconnected",
+        "planned": "Turn off Include plans first",
+        "initial": "Pick a chapter first"
+    },
+    "failure": {
+        "valueConflict": "This value just changed",
+        "versionConflict": "This object was just changed",
+        "validation": "Did not pass the checks: {{reason}}",
+        "resultMismatch": "The result does not match: {{reason}}",
+        "writeFailed": "Nothing was written; try again",
+        "worldLocked": "Another NeuroBook is using this work; try again later",
+        "tooLarge": "This change is too large; split it",
+        "unknownOutcome": "Not sure whether this change was written",
+        "recheck": "Check again",
+        "other": "This change did not go through",
+        "accumulated": "This number adds up several steps: edit one of them, or record a new one"
+    },
+    "edit": {
+        "button": "Edit",
+        "label": "Edit {{label}}",
+        "heading": "Edit {{label}}",
+        "intent": "This is",
+        "creative": "a lore fix",
+        "story": "a story change",
+        "save": "Save",
+        "cancel": "Cancel",
+        "previewing": "Previewing…",
+        "routeInit": "Changes the initial value",
+        "routePatch": "Changes the step “{{text}}” in {{place}}",
+        "routeChange": "Records a new change at {{position}}",
+        "pendingAdded": "{{count}} more pending",
+        "pendingResolved": "{{count}} fewer pending",
+        "valueFollows": "{{label}} becomes {{value}}",
+        "noImpact": "Nothing else changes",
+        "unsupported": "This kind of field cannot be edited here yet"
+    },
+    "record": {
+        "heading": "Record",
+        "delta": "Change",
+        "text": "What happened",
+        "deltaPlaceholder": "+300 or -200",
+        "textPlaceholder": "e.g. got paid",
+        "submit": "Record",
+        "saved": "Recorded: {{text}}"
+    },
+    "notice": {
+        "receipt": "View receipt",
+        "close": "Close",
+        "label": "Change just saved",
+        "undo": "Undo"
+    },
+    "newEntry": {
+        "title": "New entry",
+        "name": "Name",
+        "kind": "Kind",
+        "kindPlaceholder": "e.g. character, place, item",
+        "folder": "Group",
+        "parent": "Put it under",
+        "root": "Top level",
+        "types": "Data to enable",
+        "sameAs": "Another identity of",
+        "none": "None",
+        "appears": "First appears",
+        "fromStart": "From the start",
+        "chapterStart": "Start of chapter {{index}}",
+        "confirm": "Create",
+        "saved": "Created “{{name}}”"
+    },
+    "names": {
+        "address": "{{entry}}'s {{label}}",
+        "someEntry": "an entry",
+        "someChange": "a story change"
+    },
+    "impact": {
+        "value": "{{label}}: {{before}} → {{after}}",
+        "broken": "{{count}} story changes no longer apply",
+        "textChanged": "{{label}} changed"
+    },
+    "revert": {
+        "title": "Revert “{{title}}”?",
+        "titleUnknown": "Revert this change?",
+        "impact": "After reverting:",
+        "dependents": "These later changes depend on it and must be reverted with it:",
+        "moreDependents": "and {{count}} more",
+        "withDependents": "Revert them all",
+        "confirm": "Revert",
+        "notRevertable": "Chapter reorders cannot be reverted",
+        "authorSource": "This change touches decisions, which the author must confirm in person; it cannot be reverted here yet",
+        "notFound": "This change was not found",
+        "untitled": "a change",
+        "saved": "Revert “{{title}}”",
+        "savedWithDependents": "Revert “{{title}}” and {{count}} later changes"
+    },
+    "receipt": {
+        "missing": "This change was not found",
+        "meta": "{{by}} · {{time}} · {{what}}",
+        "revertOf": "Reverts: ",
+        "revert": "Revert This Revision",
+        "dependents": "{{count}} later changes depend on it",
+        "created": "Created",
+        "modified": "Modified",
+        "deleted": "Deleted",
+        "chapters": "Chapter order",
+        "impact": "What followed",
+        "chapterOrder": "Chapter order",
+        "chapterGone": "a deleted chapter",
+        "chapterTitled": "Chapter {{index}}: {{title}}",
+        "revisionsCrumb": "Change History",
+        "absent": "(none)",
+        "complex": "(several values)",
+        "several": "several changes",
+        "reordered": "reordered",
+        "patchSeparator": "; ",
+        "written": "written",
+        "active": "in effect",
+        "kinds": {
+            "check": "a check",
+            "decision": "a decision",
+            "suggestion": "a suggestion"
+        },
+        "fields": {
+            "name": "Name",
+            "summary": "Summary",
+            "aliases": "Aliases",
+            "text": "Main text",
+            "data": "Enabled data",
+            "type": "Kind",
+            "folder": "Group",
+            "order": "Order",
+            "parent": "Placed under",
+            "sameAs": "Another identity of",
+            "appears": "First appears",
+            "deleted": "Deleted",
+            "initBasis": "Basis of initial values",
+            "other": "Other settings",
+            "changeText": "Text",
+            "at": "Placement",
+            "kind": "Written or planned",
+            "status": "Status",
+            "held": "Why it is on hold",
+            "undoneReason": "Why it was undone",
+            "patches": "Changes",
+            "involves": "Entries involved",
+            "told": "Quotes"
+        },
+        "by": {
+            "author": "Author",
+            "agent": "Agent",
+            "task": "Task: {{name}}",
+            "system": "System"
+        },
+        "what": {
+            "opening": "Opening",
+            "plan": "Plan",
+            "bookkeeping": "Bookkeeping",
+            "edit": "Edit",
+            "creative": "Setting change",
+            "resolve": "Resolve",
+            "suggest": "Accepted suggestion",
+            "revert": "Revert",
+            "reorder": "Chapter reorder",
+            "other": "Change"
+        },
+        "changed": "changed"
+    },
+    "change": {
+        "missing": "This story change was not found",
+        "route": "Writes back to this story change",
+        "patchSaved": "Edit {{label}} in “{{text}}”",
+        "activateSaved": "Put “{{text}}” into effect",
+        "activate": "Put into Effect",
+        "heldConflict": "On hold: conflicts with the setting. {{note}}",
+        "heldUnsure": "On hold: the writer was not sure. {{note}}",
+        "undoneReason": "Why it was undone: {{reason}}",
+        "quotes": "Quotes",
+        "quote": "“{{quote}}”",
+        "openChapter": "Open chapter",
+        "chapterMissing": "The chapter file was not found",
+        "involved": "Entries involved",
+        "patches": "Changes",
+        "noPatches": "This story change changes nothing",
+        "basis": "basis: {{basis}}",
+        "sources": {
+            "chapter": "{{place}} text",
+            "chapterUnknown": "chapter text",
+            "outline": "outline",
+            "seed": "seed",
+            "message": "author's message",
+            "ui": "written in the app",
+            "note": "note"
+        },
+        "patchGone": "This change is no longer there: the story change was just edited. Close and click Edit again"
+    },
+    "patch": {
+        "anItem": "an item",
+        "added": "{{label}}: added {{value}}",
+        "removed": "{{label}}: removed {{value}}",
+        "removedItem": "{{label}}: removed an item",
+        "note": "{{label}}: noted “{{text}}”",
+        "blockReplaced": "{{label}}: replaced a paragraph",
+        "blockAdded": "{{label}}: added a paragraph",
+        "blockRemoved": "{{label}}: removed a paragraph"
+    },
+    "statusItems": {
+        "pending-count": {
+            "title": "Pending",
+            "text": "Pending {{count}}"
+        }
+    },
+    "state": {
+        "hasPending": {
+            "reason": "Nothing is pending"
+        }
+    },
+    "revisions": {
+        "label": "Change History",
+        "meta": "{{by}} · {{time}}",
+        "values": "{{count}} values changed",
+        "noImpact": "Nothing else changed",
+        "separator": ", ",
+        "allChapters": "All chapters",
+        "allWriters": "All writers",
+        "chapterFilter": "Filter by chapter",
+        "writerFilter": "Filter by writer",
+        "writers": {
+            "author": "Author",
+            "agent": "Agent",
+            "task": "Task",
+            "system": "System"
+        },
+        "receipt": "View receipt",
+        "revert": "Revert",
+        "more": "Show more",
+        "empty": "No changes yet",
+        "emptyFiltered": "No changes match the filters",
+        "loading": "Reading…"
+    },
+    "pending": {
+        "label": "Pending",
+        "groups": {
+            "pending": "Pending",
+            "hints": "Hints only",
+            "handled": "Handled"
+        },
+        "more": "Show more",
+        "loading": "Reading…",
+        "empty": {
+            "pending": "Nothing is pending",
+            "hints": "No hints",
+            "handled": "Nothing handled yet"
+        },
+        "noSelection": "Select an item to see details",
+        "pluginCheck": "A plugin check",
+        "incomplete": {
+            "unavailable": "These checks could not be computed: {{names}}",
+            "truncated": "These checks reported too much and only part is listed: {{names}}",
+            "disabled": "The plugins of these checks are disabled, so they were not computed: {{names}}"
+        },
+        "busy": "{{holder}} is writing exclusively",
+        "breakExclusive": {
+            "action": "Force Release",
+            "title": "Force release the exclusive write held by “{{holder}}”?",
+            "body": "After this, its next write will fail. Only do this when you are sure it has stopped writing.",
+            "confirm": "Force Release",
+            "cancel": "Cancel"
+        },
+        "what": {
+            "change": "“{{text}}”",
+            "someChange": "A story change",
+            "check": "A check",
+            "decision": "A decision",
+            "suggestion": "A suggestion"
+        },
+        "paragraph": "{{chapter}}, paragraph {{paragraph}}",
+        "rows": {
+            "check-mismatch": "{{address}} does not match: the text says {{written}}, computed {{computed}}",
+            "cannot-apply": "{{what}} no longer applies",
+            "held": "{{what}} is on hold",
+            "chapter-deleted": "The chapter of {{what}} was deleted",
+            "time-conflict": "The times of {{count}} story changes contradict each other",
+            "time-invalid": "The time of {{what}} has a problem",
+            "time-placement-mismatch": "The time of {{what}} does not match its placement order",
+            "fork-time-mismatch": "The times of a rollback fork do not match: {{what}}",
+            "line-out-of-bounds": "{{what}} is placed outside its worldline",
+            "line-missing": "The worldline of {{what}} does not exist",
+            "line-planned": "{{what}} is written on a worldline that is only planned",
+            "telling-lost": "A quote of {{what}} can no longer be found in the text",
+            "duplicate-quote": "The quote of {{what}} appears {{count}} times in this chapter",
+            "mark-kind-unknown": "{{what}} has a mark of an unknown kind",
+            "mark-version-unsupported": "{{what}} has a mark of a newer version",
+            "component-unknown": "{{entry}} uses an unregistered data type",
+            "component-version-unsupported": "{{entry}} uses a newer version of a data type",
+            "diagnostic-duplicate-key": "{{label}} reported the same place twice",
+            "binder-line-planned": "{{chapter}} has a part on a worldline that is only planned",
+            "binder-line-ended": "{{chapter}} has a part on a worldline that has ended",
+            "telling-line-mismatch": "The quote of {{what}} is in a part about another worldline"
+        },
+        "heldReasons": {
+            "conflict": "Conflicts with the setting",
+            "unsure": "The writer was not sure"
+        },
+        "applyFailures": {
+            "entry-missing": "The entry to change is gone",
+            "element-missing": "The item to change is gone",
+            "type-mismatch": "The value type does not match",
+            "unknown-value": "The earlier value is unknown, so it cannot be changed on top of it",
+            "constraint-violated": "The new value breaks the field's limits",
+            "number-out-of-range": "The new number is out of range",
+            "invalid-asset-path": "The asset path is wrong"
+        },
+        "detail": {
+            "label": "Details",
+            "computed": "Computed",
+            "written": "In the text",
+            "suspects": "Possibly one of these",
+            "estimate": "Estimate",
+            "initial": "Initial value",
+            "reason": "Reason",
+            "root": "The change that broke it",
+            "followers": "Also failing",
+            "followersCount": "{{count}} more",
+            "decision": "The author's decision",
+            "earlierDecision": "Decision before the check was upgraded",
+            "openChange": "Open this story change",
+            "openEntry": "Open entry",
+            "objects": "Related objects",
+            "revision": "“{{title}}”",
+            "someRevision": "A change",
+            "openRoot": "View that change's receipt"
+        }
+    }
+}

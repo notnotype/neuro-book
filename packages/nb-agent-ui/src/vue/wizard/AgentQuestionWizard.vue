@@ -60,7 +60,7 @@ const count = computed(() => (total.value > 1 ? t("wizard.questionCount", {index
 </script>
 
 <template>
-    <AgentWizardFrame icon="i-lucide-message-circle-question" :title="question.header || question.question" :count="count" :tall="question.form !== undefined" @collapse="emit('collapse')">
+    <AgentWizardFrame icon="i-lucide-message-circle-question" :title="props.item.within === undefined ? question.header || question.question : t('wizard.within', {tool: props.item.within.tool, what: question.header || question.question})" :count="count" :tall="question.form !== undefined" @collapse="emit('collapse')">
         <p v-if="question.header" class="acv-question__text">{{ question.question }}</p>
         <CheckboxGroup v-if="question.multiSelect" :model-value="answer.selected" :options="radioOptions" orientation="vertical" data-question-options @update:model-value="update({selected: $event as string[]})" />
         <RadioGroup v-else :model-value="single" :options="radioOptions" data-question-options @update:model-value="update({selected: $event === '' ? [] : [$event as string]})" />

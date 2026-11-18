@@ -99,6 +99,7 @@ export function createZoomController(options: ZoomControllerOptions): ZoomContro
         openAtLogin: settings.get(desktopSettings.openAtLogin),
         closeLastWindow: settings.get(desktopSettings.closeLastWindow),
         windowBackdrop: settings.get(desktopSettings.windowBackdrop),
+        desktopShortcut: settings.get(desktopSettings.desktopShortcut),
     });
     const write = async (): Promise<void> => {
         cancel = null;

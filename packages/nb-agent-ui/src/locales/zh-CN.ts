@@ -75,6 +75,10 @@ export default {
             changed_other: "改了 {{count}} 个文件",
             readChanged_other: "读了 {{read}} 个文件，改了 {{changed}} 个",
         },
+        children: {
+            called_other: "调用了 {{count}} 次工具",
+            calling_other: "已调用 {{count}} 次",
+        },
     },
     usage: {
         detail: "输入 {{input}} · 输出 {{output}} · 缓存读取 {{cacheRead}} · 缓存写入 {{cacheWrite}}",
@@ -314,6 +318,7 @@ export default {
         collapse: "收起",
         expand: "展开",
         count: "第 {{index}} / {{total}} 个",
+        within: "{{tool}} 里的调用：{{what}}",
         questionCount: "第 {{index}} / {{total}} 题",
         previousItem: "上一个",
         nextItem: "下一个",

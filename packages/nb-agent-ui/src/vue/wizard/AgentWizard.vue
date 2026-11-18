@@ -96,11 +96,13 @@ function onKeydown(event: KeyboardEvent): void {
     setCollapsed(true);
 }
 
+/** 收起的小条写在等什么；代码里调的工具的事项同向导标题，写明是哪个工具里的调用。 */
 const collapsedWhat = computed(() => {
+    const within = (item: {within?: {tool: string}}, what: string) => (item.within === undefined ? what : t("wizard.within", {tool: item.within.tool, what}));
     const item = showApprovals.value ? approvals.value[Math.min(state.value.step, approvals.value.length - 1)] : null;
-    if (item !== undefined && item !== null) return item.tool;
+    if (item !== undefined && item !== null) return within(item, item.tool);
     if (modeSwitch.value !== null) return modeSwitch.value.toLabel;
-    return questions.value?.questions[0]?.question ?? "";
+    return questions.value === null ? "" : within(questions.value, questions.value.questions[0]?.question ?? "");
 });
 </script>
 

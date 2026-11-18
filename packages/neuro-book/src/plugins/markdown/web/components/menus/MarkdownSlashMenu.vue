@@ -12,17 +12,20 @@ import {EDITING_ACTIONS, EDITOR_SLASH_POINT} from "nbook/plugins/editor/shared/c
 import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
 import {markdownReportKey} from "../../parts/report";
+import {markdownStickerPickerKey} from "../../parts/stickers";
 
 const props = defineProps<{editor: Editor | null; scroller: HTMLElement | null; editing: EditorEditing; menus: EditorMenus; readonly: boolean; binding: string | null}>();
-const emit = defineEmits<{(event: "prompt", action: "bilingual" | "image"): void; (event: "closed"): void}>();
+const emit = defineEmits<{(event: "prompt", action: "bilingual" | "image" | "sticker"): void; (event: "closed"): void}>();
 
 const report = inject(markdownReportKey, null);
 
 const BUILTIN: ReadonlyArray<{readonly id: string; readonly actions: ReadonlyArray<EditingActionId>}> = [
     {id: "basic", actions: ["paragraph", "heading-1", "heading-2", "heading-3"]},
     {id: "lists", actions: ["bullet-list", "ordered-list", "task-list"]},
-    {id: "blocks", actions: ["quote", "callout", "code-block", "divider", "table", "image", "bilingual", "properties"]},
+    {id: "blocks", actions: ["quote", "callout", "code-block", "divider", "table", "image", "sticker", "bilingual", "properties"]},
 ];
+/** 没装表情包插件时“块”组里没有“表情”（输出 11、62）。 */
+const hasStickers = inject(markdownStickerPickerKey, null) !== null;
 
 /** 菜单的状态只在组件里，不写插件视图（`MarkdownControl.md`）。 */
 const match = shallowRef<SlashMatch | null>(null);
@@ -52,6 +55,7 @@ const groups = computed<SuggestionMenuGroup[]>(() => {
         id: group.id,
         label: props.menus.label(`slash-${group.id}`),
         items: group.actions
+            .filter((action) => action !== "sticker" || hasStickers)
             .map((action) => ({id: action, label: props.menus.title(action), iconClass: EDITING_ACTIONS[action].icon}))
             .filter((item) => matches(item.label, query)),
     }));
@@ -85,7 +89,7 @@ function choose(id: string): void {
     removeSlashQuery(editor);
     match.value = null;
     if (id.startsWith("contributed:")) props.menus.runContributed(EDITOR_SLASH_POINT, id.slice("contributed:".length));
-    else if (id === "bilingual" || id === "image") emit("prompt", id);
+    else if (id === "bilingual" || id === "image" || id === "sticker") emit("prompt", id);
     else props.menus.run(id as EditingActionId);
 }
 

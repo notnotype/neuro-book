@@ -122,6 +122,7 @@ function shelfProvider(script: Script): PluginDefinition {
                         return {ok: true as const, value: {id: created.id, name: created.name, path}};
                     }),
                     library: async () => ({ok: true as const, value: {path: script.library, source: "default" as const}}),
+                    revealLibrary: async () => ({ok: true as const, value: {}}),
                     browse: async ({path}) => ({ok: true as const, value: {path: path ?? script.library, parent: null, entries: [{name: "sub", path: `${path ?? script.library}/sub`, kind: "directory" as const, title: null}]}}),
                     shelf: async () => {
                         script.shelfCalls += 1;

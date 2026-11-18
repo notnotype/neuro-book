@@ -10,6 +10,7 @@ superseded-by: null
 - 日期：2026-10-31
 - 决策者：开发者
 - 关联工作：[w00032 t20](../../.agents/works/w00032-agent-integration/tasks/t20-hooks/README.md)
+- 补充：[ADR 0055](0055-input-buffer-entry-states.md)（2026-11-18）在决策 1 的“状态都由日志归约”之下补上输入缓冲区条目的状态；本 ADR 的决定不变
 - 相关文档：[提案：Agent harness 的事件模型](../proposals/agent-harness-event-model.md)、[`harness/session.md`](../specs/harness/session.md)、[`harness/extensions.md`](../specs/harness/extensions.md)
 
 ## 背景

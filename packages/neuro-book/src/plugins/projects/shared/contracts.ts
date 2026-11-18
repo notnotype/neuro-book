@@ -178,7 +178,7 @@ export type BrowseEntry = Static<typeof BrowseEntrySchema>;
 
 export const projectsRemoteContract = defineRemoteService({
     id: "nbook.projects/projects",
-    version: 3,
+    version: 4,
     provider: "server",
     callers: ["browser", "tui"],
     methods: {
@@ -196,6 +196,22 @@ export const projectsRemoteContract = defineRemoteService({
             input: Empty,
             output: Type.Object({path: Type.String(), source: Type.Union([Type.Literal("setting"), Type.Literal("default")])}, {additionalProperties: false}),
             effect: "read",
+        },
+        /**
+         * 用系统的文件管理器打开作品目录（docs/specs/runtime/desktop-shell.md 输出 34 第四步）。路径由服务端自己取，不收调用方给的。
+         * `missing` 是新用户的正常状态（第一次新建作品时才建）；其余失败的原因原文只进诊断。
+         */
+        revealLibrary: {
+            input: Empty,
+            output: Empty,
+            effect: "write",
+            errors: {
+                missing: Empty,
+                "not-directory": Empty,
+                "not-accessible": Empty,
+                "no-desktop": Empty,
+                "open-failed": Empty,
+            },
         },
         /** 列一个目录下的子目录（隐藏目录不列）；`path` 省略为作品目录，它不存在时为它的上一级。 */
         browse: {

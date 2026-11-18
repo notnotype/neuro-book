@@ -41,7 +41,7 @@ function unsettledNested(core: SessionCore): EventDraft[] {
     if (step === undefined) return [];
     const path = core.pathTo();
     const after = path.slice(path.findIndex((event) => event.id === step.reply.id) + 1);
-    type Nested = {readonly within: JsonValue; readonly tool: string; readonly args: JsonValue; started: boolean};
+    type Nested = {readonly within: JsonValue; readonly tool: string; args: JsonValue; argsClipped?: true; started: boolean};
     // 按先后读：提了审批或开始了的登记进来，有了结果的去掉，剩下的就是没收口的。
     const open = new Map<string, Nested>();
     for (const event of after) {
@@ -51,8 +51,10 @@ function unsettledNested(core: SessionCore): EventDraft[] {
             open.set(data.callId as string, {within: data.within as JsonValue, tool: request.tool ?? "", args: request.args ?? {}, started: false});
         } else if (event.type === "nestedToolStarted") {
             const known = open.get(data.id as string);
-            if (known !== undefined) known.started = true;
-            else open.set(data.id as string, {within: data.within as JsonValue, tool: data.tool as string, args: data.args as JsonValue, started: true});
+            // 开始事件里的参数是写日志用的那份（截过的带 argsClipped），补写的结果照抄它。
+            const clipped = data.argsClipped === true ? {argsClipped: true as const} : {};
+            if (known !== undefined) Object.assign(known, {started: true, args: data.args as JsonValue, ...clipped});
+            else open.set(data.id as string, {within: data.within as JsonValue, tool: data.tool as string, args: data.args as JsonValue, ...clipped, started: true});
         } else if (event.type === "nestedToolResult") open.delete(data.id as string);
     }
     return [...open.entries()].map(([id, item]): EventDraft => ({
@@ -60,7 +62,7 @@ function unsettledNested(core: SessionCore): EventDraft[] {
         kind: "ctrl",
         scope: "path",
         data: (item.started
-            ? {id, within: item.within, tool: item.tool, args: item.args, status: "unknown", code: "interrupted", preview: "The process stopped while this call was running; it may or may not have finished.", size: 0}
+            ? {id, within: item.within, tool: item.tool, args: item.args, ...(item.argsClipped === true ? {argsClipped: true} : {}), status: "unknown", code: "interrupted", preview: "The process stopped while this call was running; it may or may not have finished.", size: 0}
             : {id, within: item.within, tool: item.tool, args: item.args, status: "denied", code: "interrupted-before-approval", by: "core", preview: "The process stopped before this call was approved; it was not run.", size: 0}) as JsonValue,
     }));
 }

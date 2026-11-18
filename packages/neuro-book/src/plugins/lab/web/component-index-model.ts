@@ -80,6 +80,7 @@ export function deriveDisplayMode(name: string, kind?: LabComponentKind): LabDis
         name === "AgentConversationComposer" ||
         // 对话框，名字不以 Dialog 结尾：撑满画布，对话框才有高度可用。
         name === "AgentModelCatalog" ||
+        name === "FirstRunWizard" ||
         name === "AgentChatFlow" ||
         name === "ProjectPickerView" ||
         name === "CodeEditorView" ||

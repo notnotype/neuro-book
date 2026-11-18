@@ -94,7 +94,15 @@ export interface ShellOptions {
     readonly closeLastWindow?: CloseLastWindow;
     /** 托盘退出取在跑的工作；缺省向服务端的宿主接口取（`checkRunningWork`）。 */
     readonly runningWork?: (serverUrl: string) => Promise<WorkCheck>;
+    /**
+     * 桌面快捷方式的同步（输出 33，`desktop-shortcut.ts`）：只在安装版、缺省状态根的运行里给。进入停止中时封住、开始收尾，
+     * 放桌面锁之前等它结束：下一个壳取到锁时，旧壳不会还有一次删、建在做。
+     */
+    readonly shortcuts?: {close(deadlineMs: number): Promise<void>};
 }
+
+/** 停止时桌面快捷方式在做的那一次至多等多久（输出 33）。 */
+const SHORTCUT_DEADLINE_MS = 5_000;
 
 /** 托盘退出的进行状态：取工作中，或“有工作在跑”对话框开着。对象本身当作这一次的标识，作废时换掉。 */
 type TrayQuit = {readonly phase: "checking"} | {readonly phase: "dialog"; readonly work: WorkCheck};
@@ -127,6 +135,7 @@ export class DesktopShell {
     #startupAction: ((action: StartupAction) => void) | null = null;
     /** 启动作废（启动中关掉了最后一个窗口，输出 23）或已开始退出。 */
     #finishing = false;
+    #shortcutsClosed: Promise<void> | null = null;
     /** 取到桌面锁之后为真：从此退出请求一律交给协调器询问（`acceptsQuit`）。 */
     #locked = false;
     /** 在用这份安装的登记（共享锁）；放桌面锁之后才放。 */
@@ -580,6 +589,7 @@ export class DesktopShell {
     async #stopAndExit(): Promise<void> {
         if (this.#finishing) return;
         this.#finishing = true;
+        void this.#closeShortcuts();
         this.#voidTrayQuit();
         this.#refreshTray();
         this.#updates?.stop();
@@ -592,6 +602,7 @@ export class DesktopShell {
         // 没有经最后一次关闭就关完了：启动中关掉（输出 23）、服务端不归壳、自有服务端已放弃（“稍后”，后台时也是），或窗口
         // 没经提交自己没了。
         this.#finishing = true;
+        void this.#closeShortcuts();
         this.#voidTrayQuit();
         this.#refreshTray();
         this.#updates?.stop();
@@ -632,11 +643,18 @@ export class DesktopShell {
     async #releaseAndExit(code: number): Promise<void> {
         await this.#updateStartupStep;
         await this.#updates?.close();
+        await this.#closeShortcuts();
         await this.#lock?.release();
         this.#lock = null;
         this.#installUse?.release();
         this.#installUse = null;
         this.#exit(code);
+    }
+
+    /** 封住快捷方式的同步、等在做的那一次（有截止）；几条停止的路共用一次。 */
+    #closeShortcuts(): Promise<void> {
+        this.#shortcutsClosed ??= this.#options.shortcuts?.close(SHORTCUT_DEADLINE_MS) ?? Promise.resolve();
+        return this.#shortcutsClosed;
     }
 
     #exit(code: number): void {

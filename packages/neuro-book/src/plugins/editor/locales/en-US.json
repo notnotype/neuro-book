@@ -22,6 +22,7 @@
     },
     "crumbs": {
         "label": "File Path",
+        "pageLabel": "Page Location",
         "loading": "Loading",
         "empty": "Empty",
         "retry": "Retry"
@@ -426,6 +427,9 @@
                 },
                 "image": {
                     "title": "Image"
+                },
+                "sticker": {
+                    "title": "Sticker"
                 }
             },
             "view": {
@@ -453,6 +457,9 @@
     "state": {
         "focused": {
             "reason": "The editor does not have focus"
+        },
+        "breadcrumbs": {
+            "reason": "The active tab has no breadcrumbs"
         },
         "active": {
             "reason": "There is no active editor"
@@ -601,6 +608,8 @@
         "undoUnsupported": "The current editor does not support undo",
         "redoUnsupported": "The current editor does not support redo",
         "noPage": "There is no page {{id}}, or the plugin that provides it is not ready yet",
+        "pageArgRequired": "Page {{id}} needs an argument to open",
+        "pageArgUnexpected": "Page {{id}} does not take an argument",
         "closeCancelled": "The user cancelled closing",
         "noPicker": "There is no picker; give the {{arg}} argument",
         "areaChanged": "The editor area changed while picking",

@@ -6,6 +6,7 @@
 
 import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, packSummary, stickerImageUrl} from "../shared/contracts";
 import type {BrowserStickerPack, ExtraCounts, StickerPackEntry, StickerPackSummary} from "../shared/contracts";
+import {writingSegments} from "../shared/writing";
 
 type Report = (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 
@@ -32,10 +33,19 @@ function withinBudget<T>(items: readonly {readonly id: string; readonly value: T
 }
 
 export function browserCatalog(packs: readonly StickerPackEntry[], report: Report): BrowserStickerPack[] {
+    const segments = writingSegments(packs);
     const {kept, skipped} = withinBudget(packs.filter((pack) => pack.status === "ok" && pack.stickers.length > 0).map((pack) => ({
         id: pack.id,
         stickers: pack.stickers.length,
-        value: {id: pack.id, folder: pack.folder, stickers: pack.stickers.map((sticker) => ({name: sticker.name, width: sticker.width, height: sticker.height, url: stickerImageUrl(pack.id, sticker)}))},
+        value: {
+            id: pack.id,
+            folder: pack.folder,
+            title: pack.title,
+            source: pack.source,
+            ...(pack.plugin === undefined ? {} : {plugin: {id: pack.plugin.id, title: pack.plugin.title}}),
+            writing: segments.get(pack.id) ?? pack.id,
+            stickers: pack.stickers.map((sticker) => ({name: sticker.name, width: sticker.width, height: sticker.height, url: stickerImageUrl(pack.id, sticker)})),
+        },
     })));
     if (skipped.length > 0) report("catalog-truncated", `浏览器目录放不下（合计超过 ${String(BROWSER_STICKERS_MAX)} 个表情或 ${String(BROWSER_BYTES_MAX)} 字节），这些表情包不进：${skipped.join("、")}`, {skipped});
     return kept;

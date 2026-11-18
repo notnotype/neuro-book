@@ -31,7 +31,7 @@ afterEach(async () => {
 async function start(withStickers: boolean): Promise<MarkdownComponents> {
     const memory = createMemoryFiles({project: [], user: []});
     const directory = createStickerDirectory();
-    directory.set([{id: "user.lyra", folder: "lyra", stickers: [{name: "开心", width: 64, height: 48, url: "/api/nbook.stickers/image/user.lyra/happy.png?v=1-1"}]}]);
+    directory.set([{id: "user.lyra", folder: "lyra", title: "lyra", source: "user", writing: "lyra", stickers: [{name: "开心", width: 64, height: 48, url: "/api/nbook.stickers/image/user.lyra/happy.png?v=1-1"}]}]);
     let components: MarkdownComponents | null = null;
     const files: PluginDefinition = {id: "nbook.files", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], provides: [filesKey], activate: () => ({services: [provideService(filesKey, memory.files)]})})]};
     const stickers: PluginDefinition = {id: "nbook.stickers", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], provides: [stickerResolverKey], activate: () => ({services: [provideService(stickerResolverKey, directory.resolve)]})})]};

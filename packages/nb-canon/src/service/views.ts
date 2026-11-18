@@ -42,6 +42,38 @@ export interface ViewDenial {
 
 export const VIEW_AUDIT_KEPT = 500;
 
+/** 章表的一项（project.md 输出 28）：序号从 1 起；标题是宿主给的，没有时为 null；`lines` 是这一章各段讲的线。 */
+export interface ChapterItem {
+    readonly id: string;
+    readonly index: number;
+    readonly title: string | null;
+    readonly lines: readonly {readonly from: number; readonly line: string}[];
+}
+
+/** 条目树的一项（方法表 `tree`）；`name` 是初值里的名字。 */
+export interface TreeItem {
+    readonly id: string;
+    readonly name: string;
+    readonly type: string;
+    readonly folder: string;
+    readonly deleted: boolean;
+    readonly hasChildren: boolean;
+}
+
+/** 给了读取位置时的一项（project.md 输出 30）：这个位置上的名字、是否已出场、它是谁的马甲。 */
+export interface TreeItemAt extends TreeItem {
+    readonly nameAt: string;
+    readonly appeared: boolean;
+    readonly sameAs: string | null;
+}
+
+/** `remaining` 是这一层在这一页之后还会列出几项。 */
+export interface TreePage<T> {
+    readonly items: readonly T[];
+    readonly remaining: number;
+    readonly cursor?: string;
+}
+
 /** 带视图令牌的一页。 */
 export type ViewedPage<T> = ReadStamp & {readonly items: readonly T[]; readonly cursor?: string};
 
@@ -56,6 +88,8 @@ export interface ViewedReads {
     /** 时间的查询（canon.time 输出 15）：网络只用上限之前安放的事；点名上限之后的事或章得到 `view-denied` 并记审计。 */
     /** 列表（一段时间里的事、浏览的这一级里的事）分页，同不带令牌的 `time`。 */
     time(query: TimeQuery, mode?: Mode, cursor?: string, limit?: number): (ReadStamp & {readonly answer: TimeAnswer; readonly cursor?: string}) | "view-denied" | "cursor-stale";
+    /** 章表（project.md 输出 28）：只到位置上限所在的章；上限是初值时一章也没有。 */
+    chapters(): (ReadStamp & {readonly items: readonly ChapterItem[]}) | "view-denied";
     /** 带令牌调了表里不许带令牌的方法（`object`、`pending`、写入……）：记一条审计并拒。 */
     deny(method: string): "view-denied";
 }

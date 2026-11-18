@@ -230,7 +230,8 @@ export function createCloseQuery(options: CloseQueryOptions): CloseQuery {
 
     const onMessage = (message: ShellMessage): void => {
         // 更新提示的消息归 `desktop-updates.ts`，窗口状态归 `desktop-frame.ts`。
-        if (message.type === "update-hint" || message.type === "update-hint-end" || message.type === "window-state") return;
+        // 只认询问与结束两种，壳的其它消息（更新提示、窗口状态、安装事实）由各自的接收方处理。
+        if (message.type !== "close-query" && message.type !== "close-end") return;
         if (message.type === "close-end") {
             if (current?.generation === message.generation) {
                 end(current);

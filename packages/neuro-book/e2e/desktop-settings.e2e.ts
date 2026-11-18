@@ -13,6 +13,7 @@ import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {startProductServer} from "./fixtures";
+import {markFirstRunSeen} from "./support/desktop-shell";
 import type {ProductServer} from "./fixtures";
 
 let tmp = "";
@@ -20,7 +21,7 @@ let projectDir = "";
 let stateRoot = "";
 let server: ProductServer;
 
-test.beforeAll(async () => {
+test.beforeAll(async ({browser}) => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "desktop-settings");
     projectDir = join(tmp, "Book");
     stateRoot = join(tmp, "state");
@@ -32,6 +33,8 @@ test.beforeAll(async () => {
     await mkdir(join(stateRoot, "user"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
     server = await startProductServer(stateRoot);
+    // 首次启动向导会在桌面窗口里弹出、挡住用例：先在这个状态根上记下看过（desktop-shell 输出 34）。
+    await markFirstRunSeen(browser, server.url, stateRoot);
 });
 
 test.afterEach(async () => {
@@ -143,10 +146,10 @@ test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+
     // 直接改设置文件：拥有者推给页面，页面交给壳（三项都交，关窗去向也在内）。
     expect(await lastValues(page)).toMatchObject({closeLastWindow: "quit"});
     await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.desktop/zoom": 1.5, "nbook.desktop/closeLastWindow": "tray"}));
-    await expect.poll(() => lastValues(page)).toEqual({zoom: 1.5, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "off"});
+    await expect.poll(() => lastValues(page)).toEqual({zoom: 1.5, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "off", desktopShortcut: true});
     // 窗口背景（desktop-shell 输出 32）：改了交给壳，壳只对之后新开的窗口用它。
     await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.desktop/zoom": 1.5, "nbook.desktop/closeLastWindow": "tray", "nbook.desktop/windowBackdrop": "acrylic"}));
-    await expect.poll(() => lastValues(page)).toEqual({zoom: 1.5, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "acrylic"});
+    await expect.poll(() => lastValues(page)).toEqual({zoom: 1.5, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "acrylic", desktopShortcut: true});
 });
 
 test("图片查看器里的 Ctrl+滚轮缩放图片，不改界面缩放", async ({page}) => {
@@ -165,4 +168,16 @@ test("图片查看器里的 Ctrl+滚轮缩放图片，不改界面缩放", async
     // 图片自己放大了（滚轮已被处理），界面缩放没有动。
     await expect.poll(async () => (await image.boundingBox())?.width ?? 0).toBeGreaterThan(before?.width ?? 0);
     expect(await zooms(page)).toEqual([1]);
+});
+
+test("用户层坏了又修回、有效值没变时，页面补交一次桌面设置（壳靠第一份值对账开机自启与桌面快捷方式）", async ({page}) => {
+    await writeFile(join(stateRoot, "settings.json"), "{broken");
+    await installShell(page);
+    await openWorkbench(page);
+    // 坏的用户层不交值（读到的是缺省值，交给壳会被当真）。
+    // test-lint-allow fixed-wait: 断言“没有交值”，没有可等的信号；等过插件激活与配置快照到达的时间
+    await page.waitForTimeout(1_000);
+    expect(await lastValues(page)).toBeUndefined();
+    await writeFile(join(stateRoot, "settings.json"), "{}\n");
+    await expect.poll(() => lastValues(page)).toEqual({zoom: 1, openAtLogin: false, closeLastWindow: "quit", windowBackdrop: "off", desktopShortcut: true});
 });

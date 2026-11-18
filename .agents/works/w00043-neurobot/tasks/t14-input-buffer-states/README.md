@@ -18,7 +18,7 @@ updated: 2026-11-18
 
 提案第三轮审查的 11 条（[处理](../t01-direction/evidences/buffer-proposal-review-r3-disposition.md)）是必须落下的项。
 
-合同：改 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/session.md`](../../../../../docs/specs/harness/session.md)、[`agent/sessions.md`](../../../../../docs/specs/agent/sessions.md)、[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)、[`agent/subagents.md`](../../../../../docs/specs/agent/subagents.md)、[`agent/jobs.md`](../../../../../docs/specs/agent/jobs.md)、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)；给 [ADR 0035](../../../../../docs/adr/0035-harness-log-driven-kernel.md) 补一条。
+合同：改 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/session.md`](../../../../../docs/specs/harness/session.md)、[`agent/sessions.md`](../../../../../docs/specs/agent/sessions.md)、[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)、[`agent/subagents.md`](../../../../../docs/specs/agent/subagents.md)、[`agent/jobs.md`](../../../../../docs/specs/agent/jobs.md)、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)；另写 [ADR 0055](../../../../../docs/adr/0055-input-buffer-entry-states.md)（补充 ADR 0035）。
 
 依赖：无。宿主 `start` 的“在自己持有的会话里”要用 t06 加的会话头 `owner`，那一处随 t06 补。
 
@@ -39,6 +39,21 @@ updated: 2026-11-18
 5. 任务中心停子代理（远程的 `killJob`）按用户停的记，`children.ts` 不再换成父会话的身份。
 6. kit 的标题会话以宿主身份发话，它缓冲区里留着的由它自己取消，不提示用户；不带原因的 `closeSession` 按中断处理（留着，原因“关闭”）。
 
+写 Spec 时另定的五处（主 Agent 提出，开发者 2026-11-18“确认”）：
+
+7. 运行不再取输入时（只压缩、停止已受理、已决定收口）会话、宿主的 `enqueue` 按空闲处理：留着、不放行、不开运行；用户的照提案压完接着跑。
+8. 叶子上有暂停的运行、发出者不能接着跑它时，`send` 的话留着（去向 `held`），不开运行。
+9. `start`（“按回车继续”“重试”）只接着跑叶子上最后一次没有正常结束的运行，不取留着的话；只有升级前旧日志里的就绪的话仍取第一条。
+10. `send` 交回去向 `taken`、`later`、`held`；`taken` 的话在那次运行以交出结果收口时仍会转成留着，`agent_send` 等运行结束后按这句话后来的状态告诉父 Agent。
+11. 恢复方式是合并、又有中断的运行时，“继续”先 `start` 接着跑，再在这次运行里 `send{replaces}`。
+
+Spec 已按提案、实现定义与上面五处改好（`planned`）：`harness/runtime.md` 输出 103–110 等、`harness/session.md` 输出 24、`agent/sessions.md` 输出 21–22、`agent/conversation.md` 输出 47–48、`agent/subagents.md`、`agent/jobs.md`、`agent/builtin-profiles.md`、`ui/agent-conversation-view.md`；架构决定另写 [ADR 0055](../../../../../docs/adr/0055-input-buffer-entry-states.md)（补充 ADR 0035 决策 1；ADR 接受后正文不改）。
+
+12. 插件经 `agentKey` 拿到的会话视图缺省以自己插件的宿主身份发话，可以明说代替用户发（`asUser`）；远程合同保持浏览器即用户（Spec 第一轮审查后端第 13 条，开发者 2026-11-18：“你这里权限没必要做这么死，我允许插件代替用户给 session 发送一条用户消息”）。
+13. 新话是插话（补充说明）时照常在下一步插进当前这一轮，“留着的先跑”只指留着的排队先于新的排队（Spec 第一轮审查后端第 17 条，开发者 2026-11-18“同意按推荐”）。
+
+14. 计划第一轮审查后主 Agent 定的四处（`resume` 只接着跑中断与暂停的运行；旧日志没有发出者的运行按用户算；恢复方式放进“运行可靠性”分区；只标打开着的会话里只有用户能放行的留着的话）与[计划](plan.md)，开发者 2026-11-18“可以，用 /autonomous-delivery 推进这六片”。
+
 ## 下一步
 
-按提案与上面的清单、实现定义改 `planned` Spec 与 ADR，再写计划（内核与对话视图分开审）；计划审查用真实内核验证第三轮那 11 条与清单里的探针。
+按计划在 `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`）逐片实施；1–3 片后内核实现审查，第 4 片后后端，5–6 片后界面。

@@ -26,8 +26,8 @@ describe("桌面设置缓存", () => {
     it("写了读得回（目录不存在时建出来）；没有缓存时为 null、没有原因", async () => {
         const file = join(tmp, "a", "logs", "desktop", "settings-cache.json");
         expect(await readDesktopSettingsCache(file)).toEqual({values: null, problem: null});
-        await writeDesktopSettingsCache(file, {zoom: 1.25, openAtLogin: true, closeLastWindow: "tray", windowBackdrop: "mica"});
-        expect(await readDesktopSettingsCache(file)).toEqual({values: {zoom: 1.25, openAtLogin: true, closeLastWindow: "tray", windowBackdrop: "mica"}, problem: null});
+        await writeDesktopSettingsCache(file, {zoom: 1.25, openAtLogin: true, closeLastWindow: "tray", windowBackdrop: "mica", desktopShortcut: false});
+        expect(await readDesktopSettingsCache(file)).toEqual({values: {zoom: 1.25, openAtLogin: true, closeLastWindow: "tray", windowBackdrop: "mica", desktopShortcut: false}, problem: null});
     });
 
     it("不是 JSON、不是对象：为 null，交回原因", async () => {
@@ -46,25 +46,26 @@ describe("桌面设置缓存", () => {
     it("上一版写的缓存（没有关窗去向与窗口背景）：缩放与开机自启照用，去向取 quit、背景取 off，不算问题", async () => {
         const file = join(tmp, "b", "previous.json");
         await writeFile(file, JSON.stringify({zoom: 1.25, openAtLogin: true}));
-        expect(await readDesktopSettingsCache(file)).toEqual({values: {zoom: 1.25, openAtLogin: true, closeLastWindow: "quit", windowBackdrop: "off"}, problem: null});
+        expect(await readDesktopSettingsCache(file)).toEqual({values: {zoom: 1.25, openAtLogin: true, closeLastWindow: "quit", windowBackdrop: "off", desktopShortcut: true}, problem: null});
     });
 
     it("某一项不合法：那一项取缺省，其余照用，原因里写出文件与项名；多出来的键不理", async () => {
         const file = join(tmp, "b", "wrong.json");
         await writeFile(file, JSON.stringify({zoom: "big", openAtLogin: true, closeLastWindow: "hide", later: 1}));
         const read = await readDesktopSettingsCache(file);
-        expect(read.values).toEqual({zoom: DEFAULT_DESKTOP_SETTINGS.zoom, openAtLogin: true, closeLastWindow: "quit", windowBackdrop: "off"});
+        expect(read.values).toEqual({zoom: DEFAULT_DESKTOP_SETTINGS.zoom, openAtLogin: true, closeLastWindow: "quit", windowBackdrop: "off", desktopShortcut: true});
         expect(read.problem).toContain(file);
         expect(read.problem).toContain("zoom, closeLastWindow");
     });
 
     it("两份值逐项比较：只差关窗去向的也不同", () => {
-        const base = {zoom: 1, openAtLogin: false, closeLastWindow: "quit", windowBackdrop: "off"} as const;
+        const base = {zoom: 1, openAtLogin: false, closeLastWindow: "quit", windowBackdrop: "off", desktopShortcut: true} as const;
         expect(sameDesktopSettings(base, {...base})).toBe(true);
         expect(sameDesktopSettings(base, {...base, zoom: 1.1})).toBe(false);
         expect(sameDesktopSettings(base, {...base, openAtLogin: true})).toBe(false);
         expect(sameDesktopSettings(base, {...base, closeLastWindow: "tray"})).toBe(false);
         expect(sameDesktopSettings(base, {...base, windowBackdrop: "acrylic"})).toBe(false);
+        expect(sameDesktopSettings(base, {...base, desktopShortcut: false})).toBe(false);
     });
 });
 
@@ -91,7 +92,7 @@ describe("缓存的串行写入", () => {
         const file = join(tmp, "c", "settings-cache.json");
         const failures: unknown[] = [];
         const writer = createDesktopSettingsCacheWriter(file, (error) => failures.push(error));
-        const values = Array.from({length: 40}, (_, index) => ({zoom: index % 2 === 0 ? 1.1 : 1.25, openAtLogin: index % 3 === 0, closeLastWindow: index % 5 === 0 ? "tray" : "quit", windowBackdrop: index % 7 === 0 ? "acrylic" : "off"} as const));
+        const values = Array.from({length: 40}, (_, index) => ({zoom: index % 2 === 0 ? 1.1 : 1.25, openAtLogin: index % 3 === 0, closeLastWindow: index % 5 === 0 ? "tray" : "quit", windowBackdrop: index % 7 === 0 ? "acrylic" : "off", desktopShortcut: index % 4 === 0} as const));
         await Promise.all(values.map((value) => writer.write(value)));
         expect(failures).toEqual([]);
         expect((await readDesktopSettingsCache(file)).values).toEqual(values.at(-1)!);
@@ -101,7 +102,7 @@ describe("缓存的串行写入", () => {
         const file = join(tmp, "c", "off-level.json");
         await writeFile(file, JSON.stringify({zoom: 1.3, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "acrylic"}));
         const read = await readDesktopSettingsCache(file);
-        expect(read.values).toEqual({zoom: DEFAULT_DESKTOP_SETTINGS.zoom, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "acrylic"});
+        expect(read.values).toEqual({zoom: DEFAULT_DESKTOP_SETTINGS.zoom, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "acrylic", desktopShortcut: true});
         expect(read.problem).toContain(file);
     });
 });

@@ -1,0 +1,37 @@
+### 1. 快捷方式队列在停止中仍能启动动作，两个锁也早于在途动作释放
+- 严重程度：重要；类别：不变量。
+- 位置：`packages/neuro-book/desktop/src/bun/index.ts:632-649`；`packages/neuro-book/src/desktop/shell.ts:579-613,628-644`；`packages/neuro-book/src/desktop/desktop-shortcut.ts:53-86`。
+- 现象：壳进入停止中时只封住更新控制器，并开始等服务端。快捷方式队列到 `ports.exit` 才 `close(5_000)`；此时桌面锁和安装使用共享锁都已放下，`quitAllowed` 也已放开。关末窗、对未响应页面强制关窗、托盘确认退出都可到这条路径。已有待办在停止服务端的 90 秒缺省窗口内仍可启动；已开始的 PowerShell 在放锁后还能工作。等待期限也从退出回调算，不从进入停止中算。
+- 为什么是问题：违反输出 33 的“停止中不再做新的，在做的那一次至多等 5 秒”和设计审查所定的“等在途再放锁”。下一次启动在旧写者没停时就可取锁，甚至交给更新器换包；第二次框架退出请求也可在等待期间获批准。仅靠“页面都已关掉”拦不住已经排队的动作。
+- 如何核实：顺着 `windows.ts:374-379,417-425` 的 `#quit()` 与 `shell.ts:580-600,632-644` 检查调用顺序；让一个已开始的快捷方式动作和一个待办跨过末窗提交，同时延迟服务端有序退出，可观察第二个动作在停止中开始。另在慢动作未结束时重启，检查旧进程发出快捷方式结果前桌面锁已可取。
+- 建议改法：在核心的两条实际停止入口同步封住队列、启动 5 秒收尾，与服务端停止并行；放桌面锁和安装使用锁前等收尾结束。只在真正调用 `Utils.quit` 时放开 `before-quit`。
+
+### 2. `revealLibrary` 没有覆盖非 POSIX 用户目录中的路径段分隔符（撤回前待复核）
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/backend/open-folder.ts:36-49`；`packages/neuro-book/src/plugins/projects/backend/plugin.ts:77-83`。
+- 现象：服务端先用 `realpath` 和 `stat` 验证 `library().path` 是目录，再用 `open(resolved)` 启动系统文件管理器；路径可在检查与启动器访问之间被替换。
+- 为什么是问题：这似乎是检查后使用的路径竞态，但作品目录来自用户设置且本操作本来就是打开该路径；`realpath` 还把符号链接解析到真实目录。当前未找到用户可利用的权限边界或造成不同用户路径访问的条件，不应只凭 TOCTOU 报问题。
+- 如何核实：`open-folder.ts` 在 `open` 前解析真实路径并验证目录；作品目录由服务端配置读取、不是调用方参数（`projects/backend/plugin.ts:59,78-80`）。
+- 建议改法：无；不作为有效发现。
+
+
+### 2. `revealLibrary` 路径检查与打开间存在竞态（撤回）
+- 结论：`revealFolder` 打开前有 `realpath` 与 `stat` 检查，但路径由当前服务端进程配置持有者控制，浏览器调用方无权传入任意路径；仓库将同一个 `open` 启动器用于浏览器功能是既有合同。没有证据表明此处有安全边界或可观察错误，因此不列为发现。
+
+### 3. 新增用例违反测试规范的固定等待规则
+- 严重程度：重要；类别：测试。
+- 位置：`packages/neuro-book/src/desktop/desktop-shortcut.test.ts:115`；`packages/neuro-book/e2e/desktop-first-run.e2e.ts:98,162`；`packages/neuro-book/e2e/desktop-settings.e2e.ts:178`。
+- 现象：快捷方式收敛测试以 1ms `setTimeout` 轮询日志条目；两处向导 e2e 固定等待 1.5 秒再断言“未出现”；设置恢复 e2e 固定等待 1 秒后断言没有发值。
+- 为什么是问题：`docs/testing/README.md` 的测试写法与 `scripts/ci/test-conventions.ts` 明确禁止非零固定等待；本次 `bun run governance:check` 确认以上四处为本次包内失败。延时依赖负载与调度，不能证明状态稳定，治理检查已失败。
+- 如何核实：在被审 worktree 根运行 `bun run governance:check`；输出列出四处本次新增路径，另有不在本次范围内的仓库既有失败。
+- 建议改法：状态收敛改等端口结果/文件状态等可观测条件；向导“不出现”通过测试宿主注入可推进时钟或对生命周期条件设置可观测屏障，不用定时等待；设置无发送通过同一设置队列下一次可见设置写作为屏障，再断言记录的设置消息状态。
+
+补充：缩略图脚本 `first-run-thumbnails.ts` 是本次新建但在根 `tsconfig.json` 明确排除的脚本。为确认是否存在被排除的静态错误，我用仓库外 scratch 配置恢复检查（显式 `files` 并设 DOM 与 `allowImportingTsExtensions`）。首次配置缺 `@types/bun`，修正 `typeRoots` 后仍未加 DOM，后按脚本所用语境补齐；最终 `bunx tsc --noEmit -p /tmp/claude-1000/review-t02-impl/scratch/tsconfig-first-run-thumbnails.json` 成功退出码 0。该脚本类型通过。
+
+### 1. 快捷方式队列在停止中仍能启动动作（撤回）
+- 结论：队列确实只在 `ports.exit` 收口，但待办的第二个动作只能由页面设置消息通过 `onDesktopSettings` 排入。进入核心停止中前，最后一个产品窗口已经提交并关闭，其他窗口若存在则不会触发最后关闭；应用级退出同样逐一关闭所有产品窗口后才开始停止。因此不存在页面关闭后仍留有“已排队但未启动”的动作。旧进程释放锁前，`ports.exit` 会等待当前 PowerShell 关闭（超时 abort 后继续等待其 close 回调）；在关闭回调前不会调用 `Utils.quit`。之前把“服务端停止耗时”误当成快捷方式队列能在此期间收到设置，证据不支持。
+- 仍未验证：`execFile` 在 Windows 上 abort 时所有子进程后代都终止；本机无 Windows 运行时，本报告不将它当作已验证。
+
+### 1. 快捷方式队列停止态发现恢复为有效（更正撤回）
+- 上一条撤回判断错误：没有“窗口已关后新收设置”不等于队列无待办。用户可先快速切换两次设置，让 `pending` 留下第二个动作，再同意最后一个窗口关闭。`#stopAndExit` 在 `#stopOwnedServer()` 期间不封队列；若第一动作此时完成，`drain` 会在 `closed === false` 时启动第二动作。若第一动作仍在途直到服务端停止完成，`#releaseAndExit` 会先放桌面锁和安装使用登记，`ports.exit` 此后才调用 `close` 等它，存在旧写者跨锁释放。故原标题第 1 条描述的违规仍成立，编号 #1 为有效发现。
+- 建议保持原建议：核心进入停止中时封队列并启动不超过 5 秒收尾；与服务端停止并行，锁释放前等待该收尾；框架退出只在真正调用 `Utils.quit` 时放行。

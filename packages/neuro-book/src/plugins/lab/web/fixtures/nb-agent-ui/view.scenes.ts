@@ -1,7 +1,7 @@
 import type {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import {createHarnessTranscript} from "@notnotype/nb-agent-ui";
 import {agentRef} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, MessageView, PendingInputView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, MessageView, PendingInputView, ToolCallView} from "@notnotype/nb-agent-ui";
 import type {LabFixtureDefinition} from "../index";
 import {harnessReplayLog} from "./harness-replay";
 import {
@@ -86,6 +86,29 @@ export const WELCOME_STARTERS = [
     {icon: "i-lucide-git-merge", text: "规划第三幕高潮“雨夜钟楼对决”的细纲，设计三段递进的冲突转折，并让两条暗线在此处收束。"},
     {icon: "i-lucide-shield-check", text: "对当前章节进行一致性体检，排查时间线冲突、战力体系失衡、伏笔漏洞以及高频重复词。"},
 ];
+
+/**
+ * eval 的卡片（w00032 t21）：代码里批量读章节、按结果改两章。子调用的计数、卡片下的子行、运行中的用时是对话视图对带子调用的卡片
+ * 做的，eval 的渲染器与详情是 `nbook.agent` 登记的（`labAgentRegistry`）。
+ */
+const EVAL_CODE = "const chapters = await tool.glob({pattern: 'project://正文/*.md'});\nlet longest = 0;\nfor (const path of chapters.split('\\n')) {\n  const text = await tool.read({path});\n  longest = Math.max(longest, text.length);\n}\nlongest";
+/** 1 到 39 的中文数字（章节名用）。 */
+const chineseNumber = (n: number): string => {
+    const digits = "零一二三四五六七八九";
+    const tens = Math.floor(n / 10);
+    return `${tens === 0 ? "" : tens === 1 ? "十" : `${digits[tens]!}十`}${n % 10 === 0 ? "" : digits[n % 10]!}`;
+};
+const evalRead = (index: number, status: "success" | "running" = "success") => ({id: `ev-r${String(index)}`, name: "read", status, args: {path: `project://正文/第${chineseNumber(index)}章.md`}, ...(status === "success" ? {result: {text: "…", truncated: true}} : {})});
+// 场景都让这一轮处在运行或等待中：跑完的一轮缺省整轮收起，看不到卡片（产品里点开整轮与思维链才看到）。
+function evalScene(id: string, label: string, call: Pick<ToolCallView, "status"> & Partial<ToolCallView>, patch: Partial<AgentConversationContext> = {}): Scene {
+    const now = 2_000_000;
+    const messages: MessageView[] = [
+        {kind: "user", id: "ev-u", timestamp: now - 90_000, intent: "normal", blocks: [{kind: "text", text: "统计一下每章的字数，把最长的两章各压缩一段回忆。"}], contentOmitted: false},
+        {kind: "assistant", id: "ev-a", timestamp: now - 80_000, status: patch.run?.status === "idle" ? "done" : "streaming", text: "", thinking: "先批量读一遍各章，算字数。", model: "deepseek-chat", contentOmitted: false,
+            toolCalls: [{id: "ev-1", name: "eval", args: {title: "统计各章字数并压缩最长的两章", code: EVAL_CODE}, invocation: "ev-1", startedAt: now - 62_000, ...call}]},
+    ];
+    return {id, label, input: {props: {ctx: conversationContext({messages, run: {status: "running", phase: ""}, now, ...patch}), processDisclosure: "live", teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}}};
+}
 
 export const agentConversationViewScenes: Scene[] = [
     hostScene("idle-host", "宿主接好的样子：状态栏、审批模式", {}),
@@ -361,4 +384,19 @@ export const agentConversationViewScenes: Scene[] = [
             model: {viewMode: "turns"},
         },
     },
+    evalScene("eval-running", "eval 运行中：已调用几次、正在调的那一个、已用时", {status: "running", children: [...Array.from({length: 11}, (_, index) => evalRead(index + 1)), evalRead(12, "running")]}),
+    evalScene("eval-done", "eval 跑完：副标题写计数，改了的、被拒的、出错的子调用露在卡片下", {
+        status: "success",
+        result: {text: "第三章 11,820 字、第七章 10,960 字最长，各压缩了一段回忆。\n12034", truncated: false, details: {cell: 3, bytes: 62, images: 0}},
+        children: [
+            ...Array.from({length: 28}, (_, index) => evalRead(index + 1)),
+            {id: "ev-w1", name: "edit", status: "success", args: {path: "project://正文/第三章.md", old_string: "那年冬天", new_string: "那年"}, result: {text: "改好了", truncated: false}},
+            {id: "ev-w2", name: "write", status: "denied", args: {path: "project://正文/第七章.md", content: "整章重写"}, note: agentRef("kernel.tool.deniedByUser")},
+            {id: "ev-w3", name: "read", status: "error", args: {path: "project://正文/番外.md"}, error: "文件不存在"},
+        ],
+    }, {run: {status: "running", phase: ""}}),
+    evalScene("eval-approval", "eval 里的调用在等审批：向导标题写来源，卡片下是占位的子调用", {status: "running", children: [evalRead(1), evalRead(2), {id: "ev-w1", name: "write", status: "running", args: {path: "project://正文/第三章.md", content: "压缩后的第三章"}}]}, {
+        run: {status: "waiting", phase: ""},
+        pendingInputs: [{kind: "approval", id: "ev-ap", toolCallId: "ev-w1", tool: "write", within: {tool: "eval"}, args: {path: "project://正文/第三章.md", content: "压缩后的第三章"}, preview: {state: "ready", files: [{address: "project://正文/第三章.md", kind: "diff", before: BEFORE, after: AFTER}]}}],
+    }),
 ];

@@ -13,6 +13,7 @@ import {modesExtensions} from "../../permissions/modes";
 const NAME = "写作助手";
 const DESCRIPTION = "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。";
 const SHELL = "nbook.agent.shell";
+const EVAL = "nbook.agent.eval";
 const ASK = "nbook.agent.ask-form";
 const ASK_FIXED = "nbook.agent.ask";
 const SPAWN = "nbook.agent.spawn";
@@ -21,9 +22,9 @@ const DELEGATION = [SPAWN, "nbook.agent.send", "nbook.agent.answer", "nbook.agen
 
 const TOOLS = {
     required: ["nbook.agent.read", "nbook.agent.write", "nbook.agent.grep", "nbook.agent.glob", "nbook.agent.switch-mode"],
-    // 都可选：用户能用工具绑定换另一种 `edit`，或者去掉 `shell`。用 replace：中文一段就是一行，hashline 要整段重写，输出 token 约是
-    // replace 的三倍（w00032 t18 的实验）。
-    optional: ["nbook.agent.edit-replace", SHELL, ASK, ...DELEGATION],
+    // 都可选：用户能用工具绑定换另一种 `edit`，或者去掉 `shell`、`eval`。用 replace：中文一段就是一行，hashline 要整段重写，输出 token
+    // 约是 replace 的三倍（w00032 t18 的实验）。
+    optional: ["nbook.agent.edit-replace", SHELL, EVAL, ASK, ...DELEGATION],
 };
 
 /** 对话第一屏的开场指令（builtin-profiles.md 输出 17）：沿用旧应用的三条，润色、细纲、一致性体检。 */
@@ -62,10 +63,13 @@ const DELEGATE_NOTE = `派子代理：一件事能独立交出去、不用和作
 
 const SHELL_NOTE = "的工作目录是 project://（没有打开书时是 session://）。脚本和中间文件写全地址放 tmp:// 或 session://，不落在书里。";
 
+/** eval 怎么写在它自己的工具说明里；这里只说什么时候用它（builtin-profiles.md 输出 18）。 */
+const EVAL_NOTE = "：一件事要调很多次工具时（读一批章节做统计、按统计结果再改），写一段代码在里面调工具，一次做完，比一轮一轮地调快，也省 token。只调一两次的直接调工具。";
+
 export function mainProfile(rules: AgentExtensionImplementation): AgentProfileImplementation {
     return defineProfile({
         id: MAIN_PROFILE,
-        version: "4",
+        version: "5",
         name: NAME,
         description: DESCRIPTION,
         tools: TOOLS,
@@ -76,6 +80,7 @@ export function mainProfile(rules: AgentExtensionImplementation): AgentProfileIm
             Tag({name: "writing", children: WRITING}),
             Tag({name: "addresses", children: ADDRESSES}),
             If({tool: SHELL, children: Tag({name: "shell", children: [ToolName({id: SHELL}), SHELL_NOTE]})}),
+            If({tool: EVAL, children: Tag({name: "eval", children: [ToolName({id: EVAL}), EVAL_NOTE]})}),
             If({tool: ASK, children: Tag({name: "ask", children: ASK_NOTE})}),
             If({tool: ASK_FIXED, children: Tag({name: "ask", children: ASK_NOTE})}),
             If({tool: SPAWN, children: Tag({name: "delegate", children: DELEGATE_NOTE})}),

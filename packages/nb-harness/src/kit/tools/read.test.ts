@@ -40,8 +40,10 @@ afterEach(async () => {
     if (root !== "") await rm(root, {recursive: true, force: true});
 });
 
-async function read(args: Readonly<Record<string, unknown>>, using: SessionFiles = files): Promise<ToolResult> {
-    const result = await readTool(new SessionEditStores()).create(context, {files: using, artifacts}).execute(args, {callId: "c-1", signal: new AbortController().signal} as unknown as ToolContext);
+/** `nested`：当作 eval 的代码里调的（调用上下文带 `within`）。 */
+async function read(args: Readonly<Record<string, unknown>>, using: SessionFiles = files, nested = false): Promise<ToolResult> {
+    const call = {callId: "c-1", signal: new AbortController().signal, ...(nested ? {within: {tool: "nbook.agent.eval", invocation: "i-1"}} : {})};
+    const result = await readTool(new SessionEditStores()).create(context, {files: using, artifacts}).execute(args, call as unknown as ToolContext);
     return typeof result === "string" ? {text: result} : result;
 }
 
@@ -148,6 +150,19 @@ describe("read", () => {
             list: async (address, options) => (address === "things://" ? {ok: true, value: virtual} : files.list(address, options)),
         };
         expect((await read({path: "things://"}, withVirtual)).text).toBe(renderVirtual(virtual));
+    });
+
+    test("eval.md 输出 7：代码里调时另交回对象：原文不带地址头与行号，截短的行只留前 2000 字并列出行号，分页写 next；目录列条目、图片写尺寸；顶层调用不带", async () => {
+        await writeFile(join(home, "a.md"), `第1行\n${"长".repeat(2_500)}\n第3行\n`);
+        const nested = await read({path: "home://a.md"}, files, true);
+        expect(nested.details).toEqual({kind: "text", address: `${GLOBAL}/a.md`, content: `第1行\n${"长".repeat(2_000)}\n第3行`, from: 1, to: 3, total: 3, more: false, next: null, clipped: [2]});
+        expect((await read({path: "home://a.md", limit: 1}, files, true)).details).toMatchObject({content: "第1行", from: 1, to: 1, more: true, next: 2});
+        expect((await read({path: "home://a.md"})).details).toBeUndefined();
+
+        await mkdir(join(home, "子目录"));
+        expect((await read({path: "home://"}, files, true)).details).toEqual({kind: "directory", address: GLOBAL, entries: [`${GLOBAL}/a.md`, `${GLOBAL}/子目录/`], more: false});
+        await writeFile(join(home, "图.png"), noisePng(12, 8, false));
+        expect((await read({path: "home://图.png"}, files, true)).details).toMatchObject({kind: "image", address: `${GLOBAL}/图.png`, width: 12, height: 8});
     });
 
     test("输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的不用 JPEG；小图放大", async () => {
