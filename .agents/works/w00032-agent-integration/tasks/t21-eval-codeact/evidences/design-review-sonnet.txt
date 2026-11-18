@@ -1,0 +1,110 @@
+# t21 计划“对话视图”一节：设计审查（Sonnet，只读）
+
+范围：plan-ui.md 的“对话视图”一节及它在 Spec 改动、切片 5、验收映射里的对应行。适配器指 `packages/nb-agent-ui/src/kernel-transcript.ts`（宿主 `plugins/agent/web/session-host.ts` 用的就是它；`harness.ts` 是 OMP 旧适配器，计划没说它不用改）。
+
+## 发现
+
+### F1　嵌套读写的文件只在“父调用成功”时才算，eval 中途失败时已发生的写入从摘要与改动条里消失
+- 严重程度：重要；类别：正确性
+- 位置：计划“嵌套调用读写的文件算进思维链摘要与轮末汇总”；`conversation-turns.ts:633-637` 的 `settledEffects`（只有 `tool.call.status === "success"` 才取 `effects`），被 `makeChain`（:441）、`computeMetrics`（:591）、`collectChangedFiles`（:640）三处共用。
+- 现象：计划没说嵌套效果怎么汇进来。若照现有写法让 eval 渲染器的 `effects(call)` 汇总子调用，它仍受父状态约束。eval 的失败路径恰好最常见：代码抛错、超时被 SIGKILL（结果写“内核已重置”，状态是 `error`）、用户停止、重启恢复成 `unknown`。这些情形里 28 次读和 2 次写已经发生，父调用却不是 `success`。
+- 为什么是问题：用户最需要看到“这次失败前到底改了哪些文件”，摘要行写“0 个改动”、轮末没有改动文件条，是对写入事实的错报。
+- 建议改法：嵌套效果按每个子调用自己的状态算（子调用 `success` 即计入），与父状态无关；在 `settledEffects` 里展开 `call.children`，用 `registry.resolveTool(child.name).effects`（见 F3，渲染器的 `effects(call)` 签名拿不到注册表，所以不能让 eval 渲染器自己汇总）。DOM 测试要有“父 error、子 success 的写入仍列在改动条里”的用例。
+
+### F2　`nestedToolResult` 不带 `args`，没启动的嵌套调用（被拒、被拦截、参数无效、不在工具集）在界面上无参数可显示
+- 严重程度：重要；类别：数据与适配
+- 位置：计划“内核”一节 `nestedToolResult{invocation, within, callId, tool, status, code?, text, images?, details?}` 与“对话视图”一节“出错、被拒的几次直接列出”；`kernel-transcript.ts:382-388`（`args` 只在 `toolStarted` 里更新）、`:289-297`（`assistantFrom` 的 `args` 来自 assistant 消息的 `toolCalls`）。
+- 现象：普通调用的参数来自 assistant 消息，实际执行参数来自 `toolStarted`。嵌套调用没有 assistant 消息，`toolStarted` 又在审批、校验、拦截之后才写（计划流水线：先询问，再拦截链，再 `toolStarted`）。所以被拒绝（`denied`）、被规则拦截（`blocked`）、`invalid-arguments`、`invoke-not-allowed` 的嵌套调用一条 `toolStarted` 都没有，只剩一条 `nestedToolResult`，里面没有参数。
+- 为什么是问题：计划要求把“出错、被拒的几次直接列出”，列出一行至少要写“write 第三章.md 被拒”；复用的 `summary(call)`（`builtin-tools.ts` 里取 `args.path`）拿到空参数，只能显示工具名。被拒的写入恰是用户最想知道目标的一类。
+- 建议改法：`nestedToolResult` 增加 `args`（实际参数；没启动的是模型代码传入的原参数）。`args` 里的大字段已有 `$blob` 外置，不额外放大。或者让所有嵌套调用在结果前都写 `toolStarted{within}`（含未执行的，带 `approval` 缺省）。二选一写进 `harness/runtime.md` 输出 96 起，适配器据此能只凭一条 `nestedToolResult` 造出子调用。
+
+### F3　计划只写了“适配器映射成子调用”，ToolCallView、适配器、汇总各处要改什么没列，漏一处就出错或孤儿
+- 严重程度：重要；类别：数据与适配
+- 位置：计划“嵌套调用读写的文件算进……（核心的适配器把 `toolStarted{within}` 与 `nestedToolResult` 映射成 eval 调用下的子调用）”；`types.ts:48-63`（`ToolCallView` 没有子调用字段）、`kernel-transcript.ts:148,489`、`registry.ts:64`、`conversation-turns.ts:474-478`。
+- 现象与要改的地方（计划应当逐条写进“Spec 与文档改动”和切片 5）：
+  1. `ToolCallView` 新增 `children?: ToolCallView[]`（或等价字段）是公开合同改动，`ui/agent-conversation-view.md` 的 ctx 与 `Message[]` 形状要写，宿主与插件的渲染器都读它。
+  2. 适配器：`nestedToolResult` 不在 `IGNORED`（:148），会落到 `problem(source, "不认识的事件：…")`（:489），每个嵌套调用都报一条问题；`reducePath` 要加 `nestedToolResult` 分支，`toolStarted` 的 `within` 要按 `within.invocation` 找父调用（父的 `invocation` 在它自己的 `toolStarted` 里才设，:386），再给父调用追加子调用。注意 `updateCall` 现在按 `callId` 找不到时静默返回，嵌套的 `toolStarted` 当前是被静默吃掉的。
+  3. 孤儿子调用：父调用的 `toolResult` 到达时，仍是 `running` 的子调用要一并收口。计划只说“有 `toolStarted{within}` 而没有对应结果的，照输出 34、53 记为 `unknown`”，没说内核恢复时是否写 `nestedToolResult{unknown}`。若不写，界面上父已 `unknown`、子永远转圈。适配器应把“父已有结果而子没有”视为 `unknown`，不依赖内核补事件。`tool` 帧（`:722`，父调用提前标完成）同理。
+  4. `effects`：见 F1，签名 `effects?: (call: ToolCallView) => ToolEffects`（`registry.ts:64`）拿不到注册表，汇总只能放在 `conversation-turns.ts` 的通用逻辑里，不能放在 eval 渲染器里。
+  5. 原始视图 `AgentRawView.vue:141-153` 只在 `message.toolCalls` 上画 `CollapsibleRow` 加 `AgentToolDetail`：子调用若只在卡片的折叠区里画、不在 `detail` 组件里画，原始视图就看不到（准则“`Message[]` 可反推”）。`tool.copy`（`session-host.ts:1293-1300` 的 `toolText`）也只在顶层 `toolCalls` 里找。
+- 建议改法：把这五条写进计划，并在适配器契约测试里加（F11）。
+
+### F4　计数口径没定：`steps`、`others`、`failed` 和“读了 28 个文件”是否去重
+- 严重程度：建议；类别：数据与适配
+- 位置：计划“嵌套调用收成一行计数（‘调用了 30 次工具：读了 28 个文件，改了 2 个’）”；`conversation-turns.ts:453-460`（`steps`、`others = success - touching`、`failed`）、`:620-625`。
+- 现象：决定 6 只要求文件“照常算进摘要与汇总”。未定的有：(a) 思维链“N 个操作”与整轮 `steps` 是否把嵌套调用算进去（现在 eval 算 1 次）；(b) 嵌套调用出错（代码里 try/catch 吃掉了）是否计入摘要行的危险色“N 次失败”（现在 `isFailed` 只看父状态）；(c) 卡片上“读了 28 个文件”是文件去重数还是调用次数：示例 30 次调用对应 28+2，读同一文件两次时两个数对不上；(d) 与直接 `read` 读同一文件时，思维链 `Set` 按路径去重（不重复，这是好事），但 `read` 的 `path` 写法（`project://…` 与相对路径）不同时不会合并，这是现有行为，不是新问题。
+- 为什么是问题：不定的话实现者各选一个，Spec 验收（“嵌套读写算进摘要与汇总”）没有可对的数字。
+- 建议改法：窄场景取简单规则并写进 Spec：嵌套调用不进 `steps`、`others`、`failed`（它们是父调用内部的事，父调用出错才报），只在卡片里自己计数；卡片的“读了 N 个文件”与思维链用同一个去重函数；嵌套的出错与被拒只在卡片列出。
+
+### F5　“折叠的卡片里露出计数与几行改动、出错、被拒”，现有部件做不到，“外观由现有部件组成”不成立
+- 严重程度：重要；类别：交互
+- 位置：计划“嵌套调用收成一行计数……改文件、出错、被拒的几次直接列出……”与“外观由现有部件组成，不另出静态稿”；`nb-ui/src/components/layout/CollapsibleCard.vue:65`（`v-if="bodyVisible && $slots.default"`，折叠时没有任何正文）、`AgentChainBlock.vue:133-146`（卡片只传 `title`、`subtitle`、`status`）、`docs/specs/ui/agent-conversation-view.md:257`（卡片最多嵌套一层）。
+- 现象：`CollapsibleCard` 折叠时只剩一行头部，没有“常显的预览区”。子调用若列在默认插槽里，折叠时就看不到；若全塞进 `subtitle`，只是一行被 `nowrap` 截断的字符串，装不下“计数加几个文件名加被拒的写入”。工具组有“组收起时出错项单独露出”的做法（`AgentChainBlock.vue:118-132`），但那是在组外另画行，不是卡片。
+- 为什么是问题：这是决定 6 注意力排序的核心，却在计划里被当作现成。实现者会发现要么改 nb-ui（新增插槽或预览区，按 `packages/nb-ui/docs/ui-development-spec.md` 要补文档与 Lab），要么在卡片外另画行，两者是不同的版面与改动范围。
+- 建议改法：二选一并写进计划。(a) 照工具组的做法：eval 卡片折叠时，计数写进 `subtitle`，列出的改动、出错、被拒的几次作为卡片下方紧随的缩进 `AgentToolStepRow`（与 `acv-steps__nested` 同款），由 `AgentChainBlock` 对有 `children` 的卡片画；展开状态按子调用 id 走现有 `openSet`（这样重新分组不丢）。(b) 给 `CollapsibleCard` 加一个折叠时也显示的 `preview` 插槽。(a) 不动 nb-ui，推荐；做完仍需一轮截图。因为 `card` 里嵌 `line` 行只算一层，不违反“最多嵌套一层”，但子调用里的 `shell`（`card`）要在这里强制按 `line` 画。
+
+### F6　运行中的进度只放在卡片里，思维链默认折叠时看不到；“已用时”在注册表回调里拿不到
+- 严重程度：重要；类别：交互
+- 位置：计划“运行中：已用时、已调用次数与当前一步；适配器拿不到实时的嵌套事件时退成转圈加用时”；`AgentChainBlock.vue:46-52`（`chainLabel()` 用 `label + summary(active.call)`）、`:60-64`、`registry.ts` 的 `summary: (call) => string`（无 ctx、无 now）、`types.ts:48-63`（`ToolCallView` 没有开始时刻）、`AgentConversationTurn.vue:49`（`now` 只给最新的运行中轮）。
+- 现象：
+  1. 摘要行（思维链折叠时用户唯一看到的东西）运行中显示的是 `active` 工具的 `label + summary`，也就是 eval 的标题，看不到“已调用 12 次、当前 read 第十二章”。默认折叠、不自动展开（规格:272），用户要先展开思维链、再展开卡片才看到进度，与“运行中显示进度”的目的相反。
+  2. 已用时：`ToolCallView` 没有开始时刻，`summary(call)` 也拿不到 `ctx.now`。要么给 `ToolCallView` 加 `startedAt`（适配器在 `reducePath` 里有 `at`，`toolStarted` 的 `at` 即是），要么卡片的详情组件自己用 `ctx.now - startedAt` 算。计划没写。另外审批等待时间会被算进用时，而内核的超时是不算等待的（计划“时限”一条），两者会对不上。
+  3. “适配器拿不到实时嵌套事件时退成转圈加用时”的前提其实不成立：`toolStarted{within}`（ctrl）与 `nestedToolResult` 都是日志事件，会作为 `log` 帧即时推给适配器，次数与当前一步可以从“已启动的子调用数”和“最后一个没有结果的子调用”直接得出，不需要额外的帧。真正要核对的是内核是否每个嵌套事件单独成写入批（不然推送被合并）；这是内核一侧要在 Spec 里写明的，不是界面的退路。
+- 建议改法：`ToolCallView` 加 `startedAt`；摘要行的“当前一步”由渲染器提供（新增可选回调，例如 `activity(call)`，返回“已调用 12 次 · read 第十二章”，没有时间），时间只在卡片里用 `ctx.now`；不要求 `summary(call)` 带时间。从简档：运行中只在卡片里显示次数与当前一步，摘要行仍是 eval 标题，开发者决定 6 已准许。把退路改写成“拿不到 `startedAt` 时只转圈”，不再依赖“拿不到实时事件”。
+
+### F7　嵌套审批：待办项没有 `within`，视图类型要改；子调用在批准之前不存在；嵌套提问被计划提到却没处理
+- 严重程度：重要；类别：交互
+- 位置：计划“审批向导：eval 的预览是代码；嵌套调用的询问写明‘eval 里的调用’”；`types.ts:281-293`（`PendingApprovalView` 没有来源字段）、`session-host.ts:1539`（`pendingView` 的映射）、`AgentApprovalWizard.vue:34-45`（`isShell`、`title`）、`AgentWizard.vue:50-58,71-80`、计划“时限”一条“等用户应答（嵌套调用的审批、提问）的时间不计”。
+- 现象：
+  1. 向导的“第 n / N 个”与批量应答对嵌套询问是适用的，不必改：`AgentWizard.vue` 的注释写明一批是逐条写下的，新到的并进来，选了的留着；只来一个时 `batch` 为假，选了就提交。可以放心复用。
+  2. 但“写明 eval 里的调用”需要把 `within` 从 `interactionRequested.request` 带进 `PendingApprovalView`（新字段，例如 `within?: {tool: string}`）和 `session-host.ts:1539` 的映射、`AgentApprovalWizard` 的标题与两个语言的文案。计划只写了“界面据此写”，没列字段，也没说 `nb-agent-ui` 的 `wizard.test.ts`、Lab 向导场景要加。
+  3. 子调用在批准之前不存在（`toolStarted` 在审批之后），所以 eval 卡片在“等批准”期间不能把“正在问的那一步”当子行显示；此时界面只能靠向导。`cardStatus`（`AgentChainBlock.vue:60-64`）会把整张卡片标成 `waiting`，但卡片里没有“在等哪一步”的内容。建议让适配器按 `interactionRequested.within` 在子调用列表里先放一个 `running`（等批准）的占位子调用，`toolStarted` 到时按 `callId` 补参数与状态；被拒时它就是 F2 说的那条被拒的子调用。
+  4. 计划提到嵌套的提问，但界面一节只处理审批。嵌套的 `request_user_input` 走的是提问向导（`kind: "question"`），内核请求里是否带 `within` 也没写；若不带，用户看不出这是 eval 里问的。另外 `task_create`、`run_workflow` 等 `node` 呈现的工具被 eval 调用时，子调用必须强制画成 `line`（否则会在卡片里出现常显节点）。
+  5. 嵌套审批的 `remember` 键是 `tool + label`（`wizard.ts` 的 `rememberKey`），与直接调用同一个工具时共用；“本会话都批准”对 eval 里的 `write` 与外面的 `write` 同时生效。这是合理的，但计划“嵌套调用的 `cause` 照审批简化提案的写法”没有说界面是否要显示“同一段代码”的归并。
+- 建议改法：在计划里写出 `PendingApprovalView.within`、占位子调用、提问的 `within`、`node` 强制 `line` 四点，并在 Lab 向导场景加“eval 里的 write 询问”。
+
+### F8　“eval 的预览是代码”与现有预览合同不符，现成的参数列表已经够用
+- 严重程度：建议；类别：数据与适配
+- 位置：计划“审批预览：`backend/builtin/preview.ts` 给 eval 交代码全文”与“审批向导：eval 的预览是代码”；`types.ts:266-269`（`ApprovalPreviewView.files` 只有 `diff | too-large | failed`）、`preview.ts:11-18`（不改文件的工具交回 `{files: []}`）、`AgentApprovalWizard.vue:55`（`showArgs` 在没有预览文件时列出全部参数）。
+- 现象：预览合同里没有“代码”这一种文件类型。照字面实现要给 `ApprovalPreview` 新增一种类型，改共享的 `shared/remote.ts`、视图类型、向导、Lab 与测试。而现状是 eval 交回 `{files: []}` 后，向导已经把 `code`、`title`、`timeout` 作为参数项用 `CodeBlock` 列出，代码全文直接可见（`CodeBlock` 超过 280px 内部滚动）。
+- 建议改法：第一版不动预览合同，让向导对 `isEval` 把 `code` 放在最前并显示标题与超时（与 `shell` 的 `isShell` 分支同款，十几行），`preview.ts` 不改。“`auto` 模式审批模型看到的也是它”不受影响，那条路径读的是请求里的 `args`。要新增预览类型的话单列一条。
+
+### F9　详情里“代码（高亮）默认收起”：没有语法高亮的部件，收起状态也没有地方放
+- 严重程度：建议；类别：交互
+- 位置：计划“详情：代码在上、默认收起（高亮），输出与图片在下”；`nb-ui/src/components/display/CodeBlock.md:8`（“不做语法高亮”）、`use-open-set.ts`（状态在 `AgentChainBlock` 里按步骤 id 记）、`AgentToolStepRow.vue` 顶部注释（状态放在行里会在重新分组时丢）。
+- 现象：`CodeBlock` 明确不做语法高亮，仓库里没有现成的 JS 高亮部件（`nb-markdown` 的编辑器侧有语言支持，但那是编辑器，不是只读块）。“默认收起”的代码块要有展开状态；详情组件（`ToolComponentProps`）没有 `openSet`，用组件内的 `ref` 时卡片折叠再展开就回到默认，与现有“状态按 id 记在块里”的做法不一致。
+- 建议改法：第一版不做高亮，用 `AgentCodeBlock` 加标题“代码”（与 `bash` 的命令块一致）；收起用 `nb-ui` 的 `Collapsible`，状态放组件内即可（开发者决定 6 允许从简），在 `AgentToolDetail.md` 记一句“代码块的展开状态不跨卡片折叠保留”。高亮留作单列的 nb-ui 候选，需要时按技术选型找现成库。
+
+### F10　新事件 `nestedToolResult` 要进出站过滤的 `mapEventContent`，否则读者过滤对嵌套调用失效
+- 严重程度：重要；类别：数据与适配（后端合同，转后端审查者核实）
+- 位置：计划“内核”一节“写新的 ctrl 事件 `nestedToolResult{…text, images?, details?}`”；`docs/specs/harness/runtime.md` 输出 54（`mapEventContent` 走遍“工具参数与结果”等带内容的字段，扩展事件整份交 `data`）。
+- 现象：计划没有提到出站过滤。`nestedToolResult.text`、`toolStarted{within}.args` 与 `interactionRequested.request.args` 都带用户可见的正文。若 `mapEventContent` 的字段表不认新事件，nb-story 一类按读者过滤的宿主，嵌套读取的章节原文会绕过过滤直达界面。
+- 建议改法：在 Spec 输出 96 起写“`nestedToolResult` 的 `text`、`details`、`images` 与 `args` 按工具结果、工具参数同样走 `mapEventContent`”，并补一条出站过滤的测试。界面一侧的相关点：过滤返回 null 时，子调用会缺结果，适配器按 F3 第 3 点收口。
+
+### F11　测试计划没写适配器契约测试；“运行中”的确定性做法也没给
+- 严重程度：建议；类别：测试
+- 位置：计划“验收映射”最后一行（“nb-agent-ui DOM 测试、Lab 场景与 e2e”）、切片 5；`kernel-transcript.test.ts:1-10`（真内核、真日志，一个适配器跟帧、另一个从快照与路径重建，两者消息要一样）。
+- 现象与建议：
+  1. 适配器是这次改动里最容易错的地方，仓库已有的做法是“真内核、真日志、跟帧与重建两路结果相同”的契约测试。计划只列了 DOM 与 e2e，应加一条：用 `createTestSession` 跑一个真 eval 或测试用的“调用工具的工具”，断言跟帧与重建出的 `children` 相同，覆盖运行中重开、父调用中止、被拒、并发两个子调用。切片 2 的内核测试与它互不替代。
+  2. DOM 测试与 Lab 场景用手写的 `Message[]`（带 `children`、固定 `ctx.now`、固定 `startedAt`）即可确定性地写出：运行中（有一个 running 子调用）、等批准（`waiting`）、完成并带被拒的写、父 `error` 子 `success`（F1）。Lab 的 `harness-replay.ts` 是真日志回放，计划若要加真录制的 eval 日志，要写明重录步骤（该文件头有说明）。
+  3. e2e：`agent-conversation.e2e.ts` 已有脚本化模型（`script({tool, args})`），能驱动 eval 并走真子进程；“运行中”的确定性只能靠“嵌套审批停住”（不批准就一直停在 running/waiting），不能靠时长。若 e2e 要跑真 Bun 子进程，需要应用包里带内核入口（计划切片 3 已写打包），e2e 的构建要包含它；这点要写进切片 5 的验证。建议 e2e 只加一个文件、一两条用例（嵌套审批出现并能批准、批准后卡片计数变化），其余靠 DOM 与契约测试。
+
+### F12　eval 卡片标题在代码流式生成期间是空的
+- 严重程度：建议；类别：数据与适配
+- 位置：计划“标题（`title` 或代码第一行）”；`kernel-transcript.ts:214-218`（`streamingArgs` 只抽 `path` 与 `partialChars`）。
+- 现象：eval 的 `code` 可以很长，生成要几十秒；这段时间 `args` 只有 `partialChars`，`summary(call)` 拿不到 `title` 或代码第一行，卡片副标题为空，只有转圈。
+- 建议改法：`streamingArgs` 同样抽 `title`（一条正则），渲染器的 `summary` 在 `streaming` 时退回 `title ?? "…" + 字数`，与 `streamingPath` 写文件的做法一致。代码第一行在 JSON 半截时不抽，不值得。
+
+### F13　eval 渲染器放在哪个包、`activeCalls` 要不要动，计划没说
+- 严重程度：建议；类别：文档
+- 位置：计划“对话视图（`packages/nb-agent-ui`、`plugins/agent/web`）”；`nb-agent-ui/src/builtin-tools.ts` 文件头（“只登记通用的 harness 工具；领域工具由宿主另行登记”）、`ctx.activeCalls`（Spec 117 行）。
+- 现象：`children` 的适配与汇总是通用能力，应在 `nb-agent-ui`；eval 渲染器（图标、标题、详情组件）是 NeuroBook 的 `nbook.agent.eval`，按该文件头的规则应由 `plugins/agent/web` 登记，而不是进 `builtinToolRenderers`。计划两个包都写了，没有分工。`activeCalls` 是后台子代理与后台命令用的，eval 是前台调用、占着运行，轮次运行中本来就不收起，所以不需要改；写一句免得实现者去改。
+- 建议改法：计划里写明分工：通用的子调用字段、适配、效果汇总、折叠卡片的子行在 `nb-agent-ui`（Spec 改动写进 `ui/agent-conversation-view.md` 的 ctx、工具渲染器表、注册表小节与验收），eval 的渲染器登记与详情组件在 `plugins/agent/web`；并写“`activeCalls` 不变”。
+
+## 汇总
+
+按影响排序：F1（父失败时丢写入）、F2（被拒的嵌套调用没有参数）、F3（合同与适配器改动清单、孤儿子调用）、F5（折叠卡片部件做不到）、F6（运行中进度看不见、无开始时刻）、F7（审批来源与嵌套提问、占位子调用）、F10（出站过滤，转后端核实）、F4、F11、F8、F9、F12、F13。
+
+未发现问题的方面：向导“第 n / N 个”与批量应答对逐条到达的嵌套询问适用（`AgentWizard.vue` 已按逐条并入设计）；`activeCalls` 不需要改；大字段 `$blob` 由日志存储透明还原，适配器不用处理；卡片嵌套层数（子调用为 `line` 时）不违反“最多嵌套一层”；`harness.test` 里 OMP 旧适配器与本次无关。
+
+各级数量：阻断 0；重要 7（F1、F2、F3、F5、F6、F7、F10）；建议 6（F4、F8、F9、F11、F12、F13）；共 13 条。
