@@ -1,0 +1,28 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t08-sticker-settings-page",
+    "artifactId": "review",
+    "answerId": "20261118T031132244Z-5efc57de",
+    "artifactVersion": 1,
+    "contentHash": "5bb7f97c2a50b44a11b3d37c97eea68e9ed78f0855e2675decfef1d46df9d55a",
+    "submittedAt": "2026-11-18T03:11:25.660Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "unlisted-images": "listed",
+        "page-layout": false,
+        "pack-name": false,
+        "problem-rename": true,
+        "plugin-pack": true,
+        "import-conflict": true
+    },
+    "comments": {
+        "page-layout": "样式有点丑，用了 /frontend-design /ui-development 这种 skill 了没",
+        "pack-name": "应该可以改，代价要告诉用户",
+        "import-conflict": "优化一下样式"
+    },
+    "note": null
+}
