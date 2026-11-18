@@ -13,6 +13,7 @@ import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {startProductServer} from "./fixtures";
+import {markFirstRunSeen} from "./support/desktop-shell";
 import type {ProductServer} from "./fixtures";
 
 let tmp = "";
@@ -26,7 +27,7 @@ const FILES: Readonly<Record<string, string>> = {
     "long.md": Array.from({length: 300}, (_, index) => `第 ${String(index + 1)} 段，这一段有一些文字，用来撑出长文档的高度。`).join("\n\n") + "\n",
 };
 
-test.beforeAll(async () => {
+test.beforeAll(async ({browser}) => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "editor-font-size");
     const projectDir = join(tmp, "Book");
     stateRoot = join(tmp, "state");
@@ -38,6 +39,8 @@ test.beforeAll(async () => {
     await mkdir(join(stateRoot, "user"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
     server = await startProductServer(stateRoot);
+    // 首次启动向导会在桌面窗口里弹出、挡住用例：先在这个状态根上记下看过（desktop-shell 输出 34）。
+    await markFirstRunSeen(browser, server.url, stateRoot);
 });
 
 test.afterAll(async () => {
