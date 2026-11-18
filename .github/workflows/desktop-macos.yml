@@ -87,9 +87,9 @@ jobs:
     env:
       VERSION: ${{ needs.inputs.outputs.version }}
     steps:
+      # 桌面工程（Electrobun 配置、macOS 图标、build-variant.ts）取触发这次运行的提交，不取标签：macOS 的支持是在
+      # 标签之后加的。壳与载荷来自上一个作业（按标签构建），版本由 build-variant.ts 核对。
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.tag }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
         working-directory: .
