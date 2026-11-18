@@ -1,0 +1,154 @@
+# t31 设计审查：nb-layout 通用布局库提案（docs/proposals/nb-layout-general-library.md）
+
+审查方式：只读源码、脚本与证据文件，没有跑测试、没有跑构建。想试 `vue-tsc --declaration` 出声明时写 /tmp 被拦，没有跑，所以“出声明、出 CSS 的已知坑”一律是凭记忆，下面逐条标明。开发者已定的几项（通用库、手感引擎进库、MIT、编译产物）只写它们带来的问题与代价，不建议推翻。
+
+### 1. 阻断：L1 不是“与领域无关”，提案自己的依赖规则今天就过不了
+位置：`packages/nb-layout/src/vue/DropSectorsOverlay.vue:7`、`FloatWindowHandles.vue:7-8`、`DropFeedbackOverlay.vue:19,132-161,343`、`tab-strip-geometry.ts:2,73-137`、`TabStrip.vue:5-6`、`DropSectorsOverlay.dom.test.ts:4-6`；提案“当前行为与证据”表第 2 行、“方案”里的 `boundary.test.ts` 规则。
+现象：
+- `DropSectorsOverlay.vue:7` 导入 `LayoutDropSector`、`LayoutDropSectorId`（`layout-drop.ts:304-308`，L2 的文件）。`LayoutDropSectorId = LayoutEdge | "center" | "whole"`，`LayoutDropSector` 带 `action`，用的是文档的落点动作；组件只读 `id` 与 `points`。
+- `FloatWindowHandles.vue:7` 导入运行时函数 `resizeFloatRect` 与类型 `LayoutFloatResize`（`layout-doc.ts:1176-1192`，L2 的文件），第 68、96 行调用。这是纯矩形运算，却住在文档文件里。
+- `DropFeedbackOverlay.vue` 有 `entryRect` 与 `data-drop-feedback-entry` 元素，提案只提了 `entryRect` 要“挪进 L2 或改可选”。
+- 最大的一处提案没写：`tab-strip-geometry.ts`（L1，`measureTabStrip`、`translateTabStrip` 等）头注释写明“只认 `TabStrip` 写的 `data-tab-row`、`data-panel-tab`、`data-tab-partition`”。提案把 `TabStrip` 组件挪进 L2，几何读取器却留在 L1：L1 留着一个读 DOM 的函数，写那份 DOM 的组件不在库里，第三方没法用。反过来，要是几何读取器一起挪走，实时布局的“标签条里排序跟手”（`layout-drag.ts` 的 `measureSorted`、`freeze` 用它）就进不了库。
+- 依赖规则“L1 只导入 vue、tabbable 与 L0”今天有两个文件违反（DropSectorsOverlay、FloatWindowHandles），不改它们测试就红。
+- `DropSectorsOverlay.dom.test.ts` 用 `layout-doc-fixtures`（L2 的夹具）；L1 的测试也要换夹具。
+为什么是问题：提案表格写 L1 “58 个文件，无领域”，实际至少 3 个组件加 1 个几何文件带着 L2 的概念，其中 TabStrip 与几何、引擎三者之间没有一致的归属，选哪边都有代价。
+建议：
+- `resizeFloatRect`、`LayoutFloatResize` 下沉到 L0（`grid-rects.ts` 一类，与 `GridFloatInput` 放一起）。
+- `DropSectorsOverlay` 改成泛型：`sectors: {id: string; points}[]`、`active: string | null`、`labels: Record<string,string>`。
+- `TabStrip` 与 `tab-strip-geometry.ts` 必须同进或同出。手感引擎在库里就两个都留 L1，把 nb-ui 的 `DropdownMenu`、`useTabsAdapt`、`moveRoving` 换成插槽或自带小实现；真要把 TabStrip 搬走，引擎里的标签条排序也一起搬走（见第 2 条）。
+- 把这几处写进提案的“去掉工作台概念”清单，并把 `DropSectorsOverlay.dom.test.ts` 换成 L1 自己的夹具。
+
+### 2. 阻断：手感引擎进库——真实耦合比“三处依赖”深，接口会比现在更难用，还和提案自己的两条原则冲突
+位置：`live-drag.ts:1-30,45-90,139-150,183-210`；`layout-drag.ts:190-205,247-322,326-328,607-700,760-790`；`entry-drop.ts`；提案“拖动控制器拆成两半”一节与“非目标”。
+
+(a) `live-drag.ts` 的依赖不止三处。
+- 类型：`LayoutDragDrop`、`LayoutTabSource`（layout-drag）、`WorkbenchDropAction`（entry-drop）、`LayoutDoc`。
+- 运行时函数：`dropStripOf`、`homeStripOf`、`workbenchDropKey`（`live-drag.ts:30,108,111`）。
+- 还有直接读落点内部的地方：
+  - `candidateOf`（约 150-160 行）读 `drop.preview.areaRect` 与 `action.kind === "edge"` 判断“长出新面板”；
+  - `keyOf`（约 111 行）读 `drop.inPlace`、`drop.part`；
+  - `shownAction` 的类型是 `WorkbenchDropAction`。
+- 换成类型参数以后，宿主回调要在原来的 17 个之外再加至少 `keyOf`、`grows`、`stripOf`、`homeStripOf` 四个，类型参数 4 个以上（Source、Drop、Doc、Action）。
+
+(b) `layout-drag.ts` 里“可抽”的那几样，真正通用的只是壳，实质内容绑着工作台。（以下“通用部分大约 150-250 行”是我读代码的估计，没有量。）
+- “来源收起后按新布局重判”：`collapsed()`（607-658）用 `previewPanelRects(doc, …)`、`projectLayoutDoc(base, …).strips[].merged`、`regionContainers`、`entryStripOf` 重算每块面板的矩形；`bandsAfterCollapse()`（660-）重算入口条的入口、`groupEnd`、`merged`、`rect`。通用的只有“按两份矩形之差平移每个面板与标签条”这一句。
+- “冻结几何”：`freeze()`（574-583）用 `treeLeaves(doc.tree.root)`、`doc.floats`；`DragGeometry` 的 `bands: EntryBand[]`、`excluded`、`floats` 都是工作台的形状。
+- “指针不动不重判”：`held`（760）里装着 `refusal: EditorRefusal`（编辑器拒绝），`dropAt`（762-）里与入口条判定、编辑器拒绝、键盘区域交织。
+- “空位粘住”：`live.stickyDrop(point)` 在 `dropAt` 的 783 行与分区、`resolveLayoutDrop` 交织。
+- “三态反馈”：提案没有定义这个词。读证据：t26 的“落点判定三态”是 `judgeLayoutDrop` 这个 L2 函数（不在面板外 / 在面板上被拒绝 / 有落点）；`layout-drag.ts` 里是 `overRejected`、`setRejected` 往 `documentElement` 写 `data-drop-rejected`，光标样式在 `WorkbenchDragFeedback` 的全局样式里。这是工作台的，不是通用部分。
+- 手感里 `CARD_COMPACT 380x260`、`cardShrink "strip"|"panel"`、`cardRefresh` 对应工作台设置项；引擎的核心概念（撕下标签、标签条吸收、卡片收回、`isHomeStrip`、`absorbedIn`）都以“标签 + 标签条”为前提。
+
+(c) 估一个进库后的接口形状：4 个以上类型参数，加上 17 个现有回调、4 个新增判定回调、几何四件（`measure`、`collapse`、`expand`、`resolve`）、标签条排序（`placeSorted`、`placeSortedAfterRender`、`heldTab`）。合计约 25 个回调，每个都带“读 DOM 与写 DOM 的先后”之类的时序要求。第三方要先实现：标签、标签条、来源收起后的文档、落点预览文档、入口位置的几何换算，才能用到“手感”。这比让他们自己写一个 300 行的拖动控制器难。
+还有一条隐含的时序合同跨了包界：`layout-drag.ts:322-328` 注释写明 `wakeLive` 的 `pointermove` 监听“要排在会话按下时挂的监听前面”，帧才排得在手势发布的帧前面。引擎与会话分处两个包，这个顺序只靠调用顺序碰巧成立；进库后需要由会话（L1）主动调引擎的 `wake`，或二者同属一个对象。
+
+(d) 与提案自己的原则冲突，都需要提案正面回答：
+- 提案拒绝把布局文档进库的理由是“只有一个使用方，抽出来的形状没有第二个例子校验，发布后又受版本承诺约束”。引擎同样只有一个使用方，而且比文档更不稳定：`layout-drag.ts` 是 1130 行、22 个选项、17 个可变绑定的闭包，t26 design-09 的整理（每场状态收成一个对象、拆三个文件）与 design-10（没有单元测试，只有 `workbench-live-drag.e2e.ts` 929 行与 `workbench-dnd.e2e.ts` 1349 行）今天都没做：`held`、`frozen`、`beforeCollapse`、`sourceCollapsed` 仍在闭包里，`workbench/web/` 下没有 `layout-drag.test.ts`。提案写了“补单元测试”，但没有顺序：先整理再抽，还是边抽边整理；也没有写出引擎的验证来自哪里（应用的 e2e 在应用里，库自己的 CI 与打包后的冒烟都不覆盖它）。
+- “非目标”写“不做 dockview 那种开箱即用的停靠式标签布局……手感引擎进库，适配层要使用者自己写”，但引擎的核心就是“拖标签、标签条吸收、撕下来”。这是 dockview 标签拖动那一半的手感，只是没写文档那一半。第三方没有标签时，引擎里一半逻辑是死的。
+- 提案“当前行为与证据”写独立设计“结论与本稿的推荐一致”。`evidences/independent-design.txt` 4.3 节原话相反：“不整体进库……实时布局的帧循环（live-drag.ts）只有工作台一个用户，留在应用”；L1 只补 `useDragSession`、`useGridHost` 两样小的。2026-11-18 开发者改了方向，这句话现在是错的，应改成“独立设计在控制器上的结论是留在应用，开发者 11-18 改为引擎进库，理由是……”。
+建议：这是开发者的决定，不建议推翻，只建议：
+- 把“引擎进库”分成两步写进提案：先在应用内按 design-09/10 整理（每场状态一个对象、判定拆纯函数、补单元测试），整理完再抽。
+- 抽的范围先收窄到真正无工作台概念的纯部分：`live-drop.ts` 已在 L0；`updateCard` 的缩放/追赶/节流可抽成纯函数 `stepCard`；帧循环调度器。编排（`stepPreview`、`tearOff`、收起展开重判）先留 L2，等有第二个宿主再抽。
+- 提案里加一个“第二宿主”：Lab 里写一个不是标签页的极简宿主（例如卡片面板互相拖动）直接用引擎，作为接口形状的校验；它也能进“发布前冒烟”。
+
+### 3. 重要：去掉 nb-ui 的 CSS 变量不只是改前缀，动到主题体系、JS 读值与三个宿主
+位置：`packages/nb-ui/src/theme/tokens.ts:50,125-143`、`packages/nb-ui/src/tokens.css`、`packages/nb-ui/themes/nbook/vars.css`、`docs/specs/theme/system.md:46`、`packages/nb-layout/src/vue/layout-motion.ts:5-8`、各 `.vue` 的 scoped CSS；提案“去掉 nb-ui 依赖”“影响”两节。
+现象（数字：Vue 层 `var(--` 共约 45 个不同名字）：
+- 其中 `--sash-line-*`（5）、`--drop-area-*`（2）、`--layout-*`（11，含 scrim、sector、slot、merge、card）共 18 个是主题系统的角色变量，在 nb-ui 的 `tokens.ts` 里登记，Spec `theme/system.md:46` 把它们写成主题可改的合同，`nbook` 主题的 `vars.css` 与 `authoring-themes.md` 都有。还有 `--motion-layout`、`--ease-layout` 等 motion 令牌（`tokens.ts:50`），e2e 里有 6 个文件按这些名字读样式（`workbench-dnd`、`workbench-live-drag`、`workbench-containers`、`editor-area`、`lab-grid-swap`、`markdown-editing`）。改成 `--nb-layout-*` 后，主题作者写的 `--layout-card-radius` 不再生效，除非桥接样式把旧名映射到新名；桥接样式、主题 token 登记、主题编辑器的变量列表、`theme/system.md`、e2e 都要改。提案“影响”与“Spec 预期改动”没有列主题体系。
+- JS 在读 CSS 变量：`layout-motion.ts:5-8` 的 `layoutMotionMs` 用 `getComputedStyle(...).getPropertyValue("--motion-layout")` 读毫秒数，宿主没给时按 0，让“外壳放下后的收尾”等待过渡结束。提案“每处 `var()` 带回退值”不覆盖这条路径：`getPropertyValue` 读不到 `var(--x, 150ms)` 的回退值，只读得到变量本身。若新变量只有回退值，CSS 过渡按 150ms 走，JS 却读到空串当 0，收尾提前结束、预览撤得过早。需要一份在 `:root` 上声明默认值的样式（含 `prefers-reduced-motion` 归零，今天由 nb-ui 令牌做），不能只靠逐处回退。
+- `DropFeedbackOverlay`、`DropSectorsOverlay` 都 `<Teleport to="body">`，变量定义在组件根上取不到，默认值也要在 `:root` 上声明；`z-index` 现在从 `NB_Z_INDEX` 取（`DropFeedbackOverlay.vue:55`、`DropSectorsOverlay.vue:3,40`），改成变量后“层级在对话框、菜单之上还是之下”这件事就挪到了桥接样式里，`z-index.test.ts` 的相对次序断言要和 nb-ui 的层级一起才能写，不能放在库里。
+- 桥接样式放“L2 或应用里”，但 nb-story、开发者面板（t14 之后）也是宿主，它们不依赖 L2，也要有桥接；每个宿主一份，就是 ADR 0044 决策 6 想消灭的“Splitter 留两份”。更自然的位置是 nb-ui 的 `tokens.css`（它本来就定义这些变量；只写 CSS 变量名，不导入 nb-layout，不违反“nb-ui 不依赖 nb-layout”）。提案没选。
+- 另：t14 的 README 写“nb-story 的发布依赖从 8 个包变成 9 个”。nb-story 的 `package.json` 里 nb-ui、nb-form、nb-agent-ui 都是 `devDependencies`（网页打包进包里），nb-layout 同理，发布依赖不会变；这条 README 与提案“t14 排在去掉 nb-ui 之后”要一起改。
+建议：
+- 提案补一节“CSS 变量迁移”：旧名到新名的对照表（这 18 个加 motion）、`:root` 默认值样式（含 reduced-motion）、桥接样式放 nb-ui、受影响的主题文件与 e2e 清单。
+- `layoutMotionMs` 改读新变量并写一条单元测试：不加桥接、不设变量时 CSS 时长与 JS 读到的时长一致。
+
+### 4. 重要：发布脚本与提案的衔接是空的，而且两条现有路都不合适
+位置：`scripts/release/packages.ts:18-33,47-48,92-98,146-181`、`prepare.ts:62-100,150-170`、`release-plan.ts:51,72,76-85`、`publish.ts:153,251`、`pack-smoke.ts:465-480`；`packages/nb-layout/package.json`；ADR 0029、0033。
+事实：
+- nb-layout 今天不在 `RELEASE_PACKAGES`（9+1 个源码发布的包里没有它），ADR 0029 全文没提 nb-layout（决定 6 写“其它工作区包需要发布时另作决定”）。提案“问题”里的“发布物是源码（ADR 0029）”和“影响”里的“部分取代 ADR 0029 对本包发源码的决定”都不成立：没有这样的决定可取代。`package.json` 里的 `publishConfig`、`engines.bun`、`peerDependencies.typescript`、`files` 是抄模板的，不是决定。ADR 的写法应改成“新增一个发布决定”，并提到 ADR 0033 才是先例。
+- `package.json` 没有 `"private": true`。提案写“源码包仍 `private`”，其实不是；要先加上，否则从包目录直接发就是发源码。
+- 提案想照 ADR 0033 的先例（应用包与 SDK）放进 `BUILT_PACKAGES`，但这条路默认“版本就是产品版本”：`release-plan.ts:72` 里 `productPackages` 一律算 `release`，registry 上已有同版本且字节不同时（`release-plan.ts:76-85`）报“先提高产品版本号再发布”。提案要求 nb-layout 版本独立、手工管理。放进 `BUILT_PACKAGES` 后每次产品发版都会遇到 nb-layout“已发同版本、tarball 字节不同”（tar 与 d.ts 往往不可复现）的阻断，除非构建可复现。
+- 放进 `RELEASE_PACKAGES` 也不行：`prepare.ts:159` 与 `release-notes.ts:116` 按它逐个包读 `CHANGELOG.md`、检查“版本只升不降”，生成的是源码包；`checkReleasePackages`（`packages.ts:146-181`）对每个包硬写：`license` 必须等于 `AGPL-3.0-only`（`RELEASE_LICENSE`，第 56 行）、包内 `LICENSE` 必须与仓库根字节相同、`engines.bun` 必须存在（对一个浏览器端 Vue 库不合适）、内部依赖写 `workspace:^`。这些检查今天对 MIT 的 nb-layout 全部报错。
+- 变更记录的位置：提案说“变更记录里单列”，没说在哪；`prepare.ts` 只认 `packages/<dir>/CHANGELOG.md` 与应用的那份。
+建议：提案增加“发布脚本改动”一节，至少写明：第三条发布通道（独立版本的生成包）怎么进 `packages.ts`、`prepare`、`release-plan`、`release-notes`、`publish`、`pack-smoke`；许可证与 `engines` 检查改成按包配置；`private` 先加上；构建可复现性怎么保证（或 registry 上同版本字节不同时的处理）。ADR 的措辞按上面改。
+
+### 5. 重要：MIT 的事实清单——有处理项，且现有脚本会静默丢掉 MIT 声明
+位置：`packages/nb-layout/LICENSE`（AGPL 全文，与仓库根字节相同）、`package.json` 的 `license`、`scripts/release/packages.ts:56,153-158`、`packages/neuro-book/scripts/third-party-notices.ts:46-49,63`、根 `README.md:101,159-161`、`docs/adr/0044-…:27`。只列事实，不做法律判断。
+- `packages/nb-layout` 的提交历史只有一个作者（`git shortlog`：112 次，同一人）。
+- 去掉 nb-ui 以后，会发布的运行时依赖只剩 `tabbable`（6.5.0，`node_modules/tabbable/package.json` 的 license 为 MIT）；`vue` 是 peer；其余是 devDependencies，不进包。L1 里导入 nb-ui 的只有 `text.ts`、`DropFeedbackOverlay.vue`、`DropSectorsOverlay.vue`、`TabStrip.vue` 四处（已全部核对）。
+- 要处理的：
+  - 包内 `LICENSE` 换成 MIT 全文，`package.json` 的 `license` 改 `MIT`，`README` 写明与仓库根许可证不同；`packages.ts:56` 的 `RELEASE_LICENSE` 与“LICENSE 与根相同”检查（第 153-158 行）要按包区分（同第 4 条）。
+  - `third-party-notices.ts:46-49`（`@notnotype/*` 一律不列，注释说“与发布包同一许可”）与第 63 行的同样过滤：应用包与 SDK 包把 MIT 的 nb-layout 打进 AGPL 的 bundle 时，MIT 版权声明会被静默丢掉。SDK 的 `pack.ts` 也走这个过滤（它的 d.ts 与组件打包里内联了 nb-layout，见第 7 条）。
+  - 根 `README.md:159-161` 写“采用 AGPL-3.0-only”，`:101` 写“许可证 AGPL-3.0-only”，要补一句例外。
+  - 要从 AGPL 的包复制代码进 nb-layout 的情形：目前只看到 nb-ui 的 `Splitter` 与分隔线核心（t04 拆出，同一作者，冻结在 nb-ui，t14 删）与 TabStrip 用到的 `moveRoving`、`rovingMove`、`DropdownMenu`、`useTabsAdapt`（第 1 条里 TabStrip 若留 L1 就要重写或复制，复制算要处理的一项）。
+  - 来历：ADR 0044 决策 5 写“Trellis 的许可证与 AGPL 不兼容……只借交互想法”；代码里 `live-drag.ts`、`layout-drag.ts` 各有一处“照 Trellis”的注释，提案“workbench-single-tree-layout.md”还记了从 Trellis 采样的曲线 `1-(1-t)^5`、约 470ms。引擎要进 MIT 库，这几处的来历要在 ADR 里写清“没有复制代码，只有行为参照”，并重新读一遍 ADR 0044 那句的理由对 MIT 是否仍然成立。
+
+### 6. 重要：错误码统一——L0 码表对不上今天的失败，影响面在 L0 不在应用
+位置：`packages/nb-layout/src/grid.ts:192-632`（35 处 `{ok: false, reason: …}`）、`grid-types.ts:174-203`、`grid-snapshot.ts:84`、`layout-doc.ts:80-81,116`（45 处 `failure("rejected", …)`，`not-found`、`limit-exceeded` 另算）、`NestedGrid.vue:48,103,142,525-541`、`sash-gesture.ts`、各测试；提案“错误与诊断一种形状”。
+- L0 的失败今天是自由文本中文 `reason`，没有码：`grid.ts` 35 处，至少 11 类：未知节点、非叶子、非分支、轴不对、非有限数、数量/深度上限、id 重复、移入自身子树、守恒不成立、基线失效、不可收起。提案的 L0 码表 8 个（`not-found`、`stale-context`、`stale-revision`、`invalid-baseline`、`out-of-bounds`、`limit-exceeded`、`handler-missing`、`handler-threw`）里：
+  - `stale-context`、`stale-revision`、`handler-missing`、`handler-threw`、`invalid-baseline`、`out-of-bounds` 在代码、两份 Spec、ADR 里都没有出现，是新名字；
+  - 对不上的类至少 7 个（非叶子、非分支、轴不对、非有限数、id 重复、移入子树、不可收起）。“约八个”要改成按 `grid.ts` 逐处分类后再定数。
+- 失败不止两种形状：`GridLayoutResult.issues: string[]` 的中文诊断是第三种（`grid.test.ts` 7 条、`sash-drag.test.ts` 3 条、`grid-geometry.test.ts` 3 条按文案 `toContain`），`GridRestoreResult.dropped: {ref, reason}[]` 是第四种。提案只写了“`issues` 事件”。
+- `onGestureCommit` 的返回类型 `{ok: false; reason: string}`（`NestedGrid.vue:48,526-531`）是宿主与 `NestedGrid` 之间的回调合同：库自己的 `useGridLayout.ts` 产出它（`useGridLayout.dom.test.ts:225,237` 断言“工作面已切换”“布局已变化”这类中文），第三方自己写 `onGestureCommit` 时也按它返回。这个签名一改，是 L1 公开类型的破坏性变化，要和 `reason`→`message` 同批处理，并且没有对应的 Spec 条目（nested-grid 输出 7、失败 1 只写“拒绝时回滚预览并给诊断”）。
+- 数字（影响面）：
+  - 测试里按中文文案断言：`grid.test.ts` `reason` 10 处 + `issues` 7 处、`sash-drag.test.ts` 3、`grid-geometry.test.ts` 3、`splitter.dom.test.ts` 1、`useGridLayout.dom.test.ts` 3；L2 的 `layout-doc.test.ts` 约 1、`layout-drop.test.ts` 约 2；合计约 30，规则写死，工作量小。
+  - 应用里：构造 `LayoutResult` 失败的地方 `layout-doc-store.ts` 6（测试 7）、`state/containers.ts` 3、`entry-drop.ts` 1 处直接构造（本地 `failure` 函数调用约 8 处）、`editor-panels.ts` 1、`WorkbenchSurfaceFixture.vue` 1；按码分支的只有 `layout-doc-store.ts:225`、`panel-commands.ts:126`、`view-commands.ts:91-92` 三个文件。`result.detail` 只进诊断日志（`plugin.ts:208-210`），不显示给用户。
+  - 两份 Spec 的“失败与恢复”写的是行为（nested-grid 4 条），没有码；提案“Spec 预期改动”要把“按码列出失败”落在哪几条上，需要先在 Spec 里新增条目，不是改写。
+- `NestedGrid.vue:525,541` 的 `emit("issues", ["…中文…"])` 是写死的中文，改英文 `message` 以后，现有宿主若把它显示出来会变英文。
+建议：先对 L0 的 35 + 若干处做分类表放进提案或计划，再定码数；把 `issues`（solver 诊断）与 `dropped` 纳入统一形状或明说不纳入；宿主回调的新返回类型写进“影响”。
+
+### 7. 重要：SDK 导出与打包被漏掉
+位置：`packages/neuro-book/src/sdk/components.ts:41-46`、`packages/neuro-book/plugin-sdk/pack.ts:78-79,234-238,396`；提案“影响”“对 Spec 的预期改动”。
+- SDK 对外导出了 `TabStrip` 与 `Splitter*` 类型（`components.ts:41-46`）：`TabStrip` 要搬进 L2，`SplitterGestureCancelReason`、`SplitterGestureCancellation`、`SplitterGestureSource`、`SplitterGestureState` 四个名字要改成 `GridGesture*`。SDK 是发给第三方插件作者的公开 API（`@notnotype/nb-plugin-sdk`，已发），这是破坏性改动，提案没有迁移与兼容安排（保留旧名别名一个版本，或在 SDK 变更记录里单列）。
+- SDK 打 d.ts 时 `typePaths()`（`pack.ts:78-79`）把 `@notnotype/nb-layout`、`@notnotype/nb-layout/vue` 映射到源码并把类型内联进 SDK 的 `.d.ts`。`TabStrip`、它的 props 类型一旦在 L2，需要新增路径映射；缺了的话，SDK 的 d.ts 会引用一个不发布的私有包。
+- `componentsDoc()`（`pack.ts:234-238`）按 `nb-layout/vue` 目录列 `.vue` 文件给组件分“布局”一组，TabStrip 搬走后分组要改。
+- 同一个 SDK 构建里已经有一套能用的“`rolldown-plugin-dts`（`vue: true`）”流程（`pack.ts:41,396`），产出 `.vue` 的类型声明；提案写“`vue-tsc` 出类型声明”，没有说明为什么不复用现有的，或者两条出声明的路径会不会各出一份不同的类型。
+建议：“影响”里加一条 SDK 的迁移（名字清单、别名、变更记录），并把 `pack.ts` 路径映射与 `components.ts` 列入改动清单。
+
+### 8. 重要：发编译产物——源码包与发布目录两条路径没有机制保证一致，已知坑也没列
+位置：提案“发编译产物”“影响”一节；`packages/nb-layout/vitest.config.ts`；`src/vue/lab-sources.ts:9`；`NestedGrid.md`。
+- 仓库内（工作台、Lab、t14 之后的 nb-story 与开发者面板）都走源码，宿主的 Vite 编译 `.vue` 并内联 scoped CSS；第三方走 `dist` 与 `style.css`。组件测试（Vitest + happy-dom，`*.dom.test.ts` 共 14 个）与 Lab 的 e2e 全部跑在源码上。提案只在发布前跑一次“空 Vite 项目写最小宿主、类型检查、拖一次分隔线”的冒烟。这条冒烟不碰：`style.css` 是否完整（scoped 样式、Teleport 的两个覆盖层）、动画与拖放反馈、引擎、`@experimental` 导出。两条路径之间没有持续比对。
+- 建议加的机制（可选其一）：把 DOM 测试里的导入别名切到构建产物再跑一遍；或 e2e 里加一个用 `dist` 打包的宿主页面；至少加“`style.css` 里 `data-v-` 选择器数、关键类名”的快照。
+- 凭记忆的已知坑（没有在本仓库验证，都应在提案落地前用一个原型构建确认）：
+  - Vite 库模式会把 `import.meta.env.*` 在构建时静态替换，而 `process.env.NODE_ENV` 不替换（Vite 文档的说法）。提案“开发模式下的配置错误各报一次”需要定用哪个判据：用 `import.meta.env.DEV` 的话，使用者永远读到生产值。nb-layout 现在没有任何开发/生产判断（搜 `import.meta.env`、`process.env`、`NODE_ENV` 无命中）。
+  - 样式要由使用者手动 `import "…/style.css"`，打包器会不会把只有副作用的 CSS 导入摇掉，取决于 `package.json` 的 `sideEffects`；多入口（`.`、`./vue`、`./locales`）时共享 chunk 的划分；CSS 文件名由 `build.lib.cssFileName` 控制。
+  - `vue-tsc --declaration` 对返回内联推断类型的组合函数可能报 TS2742 / TS4023（“无法命名类型”）；本包有约 14 个 `use*` 组合函数，要先跑一遍确认。
+  - `boundary.test.ts` 只读源码导入；L0 入口产物不能带 `vue`，需要对产物的导入图再测一次（单一入口 chunk 共享时，纯 TS 入口也可能被拉进 Vue 代码）。
+  - `./lab-sources` 用 `import.meta.glob`（Vite 专有），不进发布包，已排除，OK。
+- “API 报告由类型声明汇出，CI 比对差异”：没有写用什么工具（api-extractor 不识别 `.vue.d.ts` 之外的 Vue 细节），也没有写与“导出名清单测试”的分工；报告与 `@stable` 范围的对应关系也没有。
+- 承诺的 `data-*` 表与 CSS 变量表今天在各组件的 `.md` 里（`NestedGrid.md`“公开的标记与变量”等），发布目录的 `files` 不含它们；README 要生成或手写，并让 `docs:check` 核对。
+
+### 9. 建议：影响面的清单漏项与数字
+- 导入路径的数字：提案写“约 40 个文件”。`from "@notnotype/nb-layout…` 在 `packages/` 下共 110 处、58 个文件，去掉 nb-layout 自己的 `NestedGrid.md`、`README.md`，是 56 个文件、约 105 处；其中 3 个 e2e 文件（`workbench-shell`、`workbench-containers`、`workbench-views`）。同一条导入里混着 L0 与 L2 的名字时要拆成两条，机械改但不是纯路径替换。
+- 新工作区包 `nb-workbench-layout` 要登记的地方：根 `package.json` 的 `workspaces`（第 10-40 行）、`packages/neuro-book` 的依赖、`docs/modules/monorepo-boundaries.md:18`（现有一行描述）、`scripts/ci/check-documentation.ts:60` 的 `COMPONENT_BARRELS`（TabStrip 进 L2 后它的 `.md` 受管要换入口）、Lab 的 `component-index.ts:10`（只认 nb-layout 的 `lab-sources`）、Lab 夹具 `plugins/lab/web/fixtures/nb-layout/`（9 个文件，里面有按 L2 概念写的夹具）、`layout-doc-fixtures.ts`（搬进 L2）。
+- `./locales` 的去留：提案“子路径”仍列 `./locales`，“去掉 nb-ui”又说文案换成“库自己注入的一组标签，默认英文”。`vue/text.ts` 现在用 nb-ui 的 `registerDefaultCatalog`，源语言 `zh-CN`；宿主 `web/host/text-engine.ts:21` 导入 `NB_LAYOUT_CATALOGS` 并按命名空间登记；`scripts/ci/message-catalogs` 检查目录；`docs/specs/ui/i18n.md` 要求组件在同名 `.md` 声明 `state:inject`。改成库自带标签后，14 个键（`LayoutTextKey`，其中有带参数的 `splitter.pixels`、`sortable.*`）的参数格式、复数怎么处理、`./locales` 是留给宿主适配还是删掉、源语言从 zh-CN 变成 en-US 时 message-catalogs 的检查，提案都没写。
+- 摩擦：Spec 的成熟度只有 `planned` 与 `implemented`（`docs/specs/README.md:28-29,118`），`ui.nested-grid` 与 `ui.layout-drag` 现在都是 `planned`，`ui.workbench-layout` 是 `implemented`。提案“每个公开符号标 `@stable` 或 `@experimental`，按对应 Spec 的成熟度”：按字面，两份 `planned` 的 Spec 对应的符号一个都不能标 `@stable`；而引擎行为从 `implemented` 的 workbench-layout 输出 38 搬进 `planned` 的 layout-drag，等于降级。需要写一条映射规则，或先把 nested-grid 晋升。
+- `layout-drag.md` 的现有范围声明是“拖的是什么、落点长什么样、放下做什么都由宿主给”（目标与非目标段），引擎进库后它的范围变了，“目标与非目标”要重写，不只是“接住行为”。
+- 根 `README` 的包表、README 里的包数、`docs/` 与 `.agents/works/` 里的包数（`packages.ts:21-24` 的注释要求加包时同步）：提案没提。
+- nb-layout 的 `README.md` 现在只有 8 行，链接全是仓库相对路径（`../../docs/...`），发到 npm 上会断；提案要求 README 第一句写定位，但没写要重写。
+
+### 10. 建议：L0 的快照版本与 L2 持久化的记录绑在一起
+位置：`layout-doc.ts:17-19,120`（`tree: {version: typeof GRID_SNAPSHOT_VERSION; …}`）、`grid-types.ts:225-227`；提案“版本”一节与“影响—数据”。
+布局记录里的 `tree` 就是 L0 的 `GridSnapshot`（带 `GRID_SNAPSHOT_VERSION = 2`）。提案同时写“已存的布局记录格式不变”和“次版本可以破坏，但必须在变更记录里单列”“`GridSnapshot` 带版本号，1.0 起新版本必须读得了旧版本”。0.x 期间 L0 若次版本改了快照格式，工作台里已存的记录就读不了，而 L2 在应用里自己升版本。当前 v1 快照是“整体拒绝”（`nested-grid.md` 失败 2），不是兼容读取。
+建议：写一条规则：L0 快照格式的破坏性变化必须同时给 L2 的 `LAYOUT_DOC_VERSION` 写迁移；在 L0 的 0.x 期间也一样，不等到 1.0。
+
+### 11. 建议：L2 依赖的 L0 名字不全在公开入口里
+位置：`src/layout-drop.ts:9`（`import {placeGrid} from "./grid-rects"`）、`src/index.ts:9`（`grid-rects` 只导出了 4 个类型）。
+提案已提醒“逐个核对 L2 用到的 L0 名字是否在公开入口”，我核了一个：`placeGrid` 不在 `index.ts` 里（`grid-rects` 只有类型 `GridContentInput`、`GridFloatInput`、`GridLeafShape`、`GridRect` 导出）；`GridPlacement`、`GridLeafPlacement` 一类类型也没有。`layout-drop.ts` 用它算预览矩形（`previewPanelRects`）。其余已核：`createGrid`、`GRID_MAX_*`、`GRID_SNAPSHOT_VERSION`（经 `grid-types` 的 `export *`）、`GRID_UNBOUNDED`、`UNBOUNDED_EXTENT` 都在。含义：“求解器内部件留在文件里，测试用相对路径导入”这条对 L2 不成立；`placeGrid` 进公开面就受 `@stable/@experimental` 与 semver 约束，要在 62 个“无人使用”名字的清点里剔出来。
+建议：把 L2 的实际导入清单（用脚本从 L2 文件的导入里抽）放进计划，作为显式清单的基线。
+
+### 12. 建议：对照参照与验收映射
+- 对照：我记得 dockview 的 core 是 MIT、无依赖、另有按框架拆开的 Vue 与 React 包，这和提案“L0 纯 TS、L1 Vue”的拆法相近；ADR 0044 决策 5 与提案备选 C 所说的“多行标签、固定标签、键盘导航是付费档”我无法从记忆证实，提案自己也写了“凭记忆”。第三方的第一个问题会是“为什么不用 dockview”，README 只写定位不够，建议至少在发布前核实一次它的现状，免得 README 或 ADR 里留着一句可能已经不对的话。（凭记忆，未联网核实。）
+- 验收映射：目标里“第三方只用公开入口，就能在 Vue 3 里搭出 VS Code 手感的嵌套网格与分隔条”只靠一次“拖一次分隔线”的冒烟验证，“键盘可达”“过渡与交换”“拖动会话与落点几何”没有对应的外部接入验收；“手感引擎进库”没有任何外部使用方的验证（见第 2 条的第二宿主）。“公开面有机器检查”三项里，导出名清单与依赖规则有写法，API 报告没有工具（见第 8 条）。
+
+## 未发现问题的方面
+- L0 对 L2 的反向依赖：`grid*.ts`、`sash*.ts`、`drag-gesture.ts`、`live-drop.ts`、`sortable.ts`、`splitter*.ts` 以及它们的测试，没有导入 `layout-doc`、`layout-project`、`layout-drop`、`presented-ids`、夹具；L0 与 L2 的切割线在这一层是干净的（问题在 L1，见第 1 条）。
+- L1 里不依赖 L2 的文件：`NestedGrid`、`Splitter`、`SashHandle`、`SortableList`、`DropIndicator*`、`drag-session`、`drop-targets`、`useSortable` 等其余文件只导入 L0；`tabbable` 只在 `grid-focus` 一类里用，没有其它第三方包。
+- 去掉 nb-ui 后 L1 的运行时第三方依赖确实只剩 `tabbable`（MIT），`peerDependencies` 只剩 `vue`。
+- 提案对“布局文档搬出、不做参数”的理由与退出条件，和 ADR 0044、独立设计一致。
+- nb-layout 的作者只有一人，仓库内没有第三方代码被复制进去的迹象（只有对 Trellis 的行为参照，见第 5 条）。
+
+## 数量
+阻断 2，重要 6，建议 4，合计 12 条。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12

@@ -1,0 +1,144 @@
+体验审查 w00026 t31：第三方 Vue 开发者照提案接入 @notnotype/nb-layout
+
+夹具：.local/agent/works/w00026-layout-package/tasks/t31-general-layout-library/reports/review/experience/
+- proposed.ts   提案里“会新加”的东西的桩（我猜的形状），109 行
+- model.ts      自己写的“带标签的面板模型”：组、标签、收起记录、克隆、存取，221 行
+- drop.ts       落点规则（标签条插入位、组正文四边），37 行
+- drag-live.ts  实时布局拖动的适配层（用 proposed.ts 的 useLiveDrag 桩），79 行
+- drag-indicator.ts  落点指示手感，只用今天真实的 createDragSession，65 行
+- TabBar.vue    自己的标签条，28 行
+- App.vue       主界面：量容器、NestedGrid、键盘、收起、持久化，143 行
+- main.ts 4 行；smoke.ts 42 行（只用 bun 跑 model.ts 里用到的纯 TS 行为，不是应用的一部分）
+
+需求覆盖：
+1. 分隔线拖动、左栏与底栏收起展开：NestedGrid + 收起策略（model.ts setDock、App.vue toggle）。窄窗口：编译与 bun 里都跑了，结果见第 10 条，库不守最小尺寸、是降级。
+2. 标签跨组拖动、拖到边缘拆组：model.ts applyTabDrop（用 splitLeaf），drop.ts 判落点。实时布局手感（邻居让位、卡片跟手）靠桩 useLiveDrag，没有实现：只验证了“预览 = 克隆状态套一遍操作再 layout”这条路在 bun 里能算出来（smoke.ts），没有在浏览器里看到手感。
+3. localStorage 存取：model.ts save / load。
+4. 键盘在面板之间移动焦点：App.vue 的 F6 / Shift+F6 走 moveGridFocus。只做了线性的“下一块、上一块”，没有“往左、往上”（第 13 条）。标签的键盘拖动没做。
+没有在浏览器里跑过 App.vue（没有环境），只做了类型检查，和 model.ts 的 bun 冒烟。
+
+### 1. README 一句话都没教我从哪开始
+- 碰到了什么：包的 README.md 只有 8 行，两行导入、没有一个能跑的例子，也没说定位。能照着写的最小例子在 src/vue/NestedGrid.md 的“接入”一节，我是翻目录才找到的；useGridLayout、useLayoutExtent、createDragSession、registerDropTarget 都没有自己的 .md，只有源码注释。
+- 在哪一步：开工第一步，找“最小宿主怎么写”；之后每要用一个组合函数都得去读源码（useGridLayout.ts、drag-session.ts、drop-targets.ts、useLayoutExtent.ts）。
+- 建议：README 写成“五件事”（建树、量容器、算布局、接纳手势提交、结构变了通知）的最小可运行例子，把 NestedGrid.md 的“接入”整段搬上来；再放一张“我要做 X 用哪个导出”的表（分栏、嵌套网格、可排序列表、拖标签）。提案“README 第一句写清定位”不够，要写到“复制粘贴能跑”。给 useGridLayout、useLayoutExtent、createDragSession 各补一份短 .md。
+
+### 2. 说明文档里指向的“输出 N”第三方打不开
+- 碰到了什么：NestedGrid.md、Splitter.md 满篇“输出 27 到 34”“输出 116”之类，行为细节都在 docs/specs/ui/nested-grid.md 里；npm 包 files 只带 src 与 README，Spec 不在包里。文档还是中文。
+- 在哪一步：读 NestedGrid.md 的“过渡”“交互”“内容层”几节，想知道某个行为的规则时。
+- 建议：发布前要么把第三方需要的规则直接写进包里的说明，要么说明里不引“输出 N”；提案 README 一节要决定：包内说明语言（今天全是中文）、是否随包带英文说明。提案只说了文案默认英文，没说文档。
+
+### 3. 包里仍然硬依赖 nb-ui，类型检查拉进 126 个 nb-ui 源文件
+- 碰到了什么：vue-tsc 编译时必须给 @notnotype/nb-ui/* 的路径映射，否则 NestedGrid.vue、DropFeedbackOverlay.vue 等找不到 nb-ui 的 theme、text、components；这次类型检查实际读进 126 个 nb-ui 的 .ts/.vue。package.json 的 dependencies 还写着 nb-ui。
+- 在哪一步：写 tsconfig.json。
+- 建议：这是提案“去掉 nb-ui 依赖”要解决的事，我这里只是证实：发布前加一条机检，用只有 vue 与 tabbable 的空项目编译 nb-layout 的公开入口，0 个 nb-ui 文件。提案写的“有一条测试扫描 var(--”覆盖不了 import 这一路，要另加。
+
+### 4. 过渡、分隔线外观靠一批继承来的 CSS 变量，不定义就“没有过渡”，没有总清单
+- 碰到了什么：NestedGrid.md：`--motion-layout`、`--ease-layout` “宿主没给就没有过渡”（今天来自 nb-ui 的 tokens.css）。我不装 nb-ui，只能自己在 :root 写 `--motion-layout`、`--ease-layout`、`--nb-splitter-seam`、`--sash-line-*`、`--layout-card-*`、`--motion-fast`、`--motion-base` 一共十多个，是读三份 md 拼出来的，不知道漏没漏（提案说约 45 个）。App.vue 末尾那段 :root 就是这样来的。
+- 在哪一步：写 App.vue 的样式。
+- 建议：提案的 `--nb-layout-*` 命名空间好，但要补两条：（1）每个变量带回退值时，过渡默认要是“有”，不能是“没有”；（2）README 的变量表分两栏：“不定义也能看”与“想换外观才改”，并写出“不引入 style.css 与不定义变量”各自的后果。再要一条机检，扫描 Vue 层所有 var(--，列出不在表里的。
+
+### 5. 想收起/展开一块面板，没有入口，只能自己算基线与目标
+- 碰到了什么：Grid 没有 setCollapsed、toggleCollapse。grid.md 说显式恢复“服务按钮 / Enter”，可按钮要调的函数不存在；只有 resizeBranches([{branchId, axis, baseline, target, collapsed}])：基线是该分支所有直接子节点此刻的呈现 px，目标要守恒，邻居吸收差额，全要自己从 layout.sizes 里读和算。
+- 在哪一步：model.ts setDock，22 行；Ctrl+B / Ctrl+J 与头上的按钮都走它。bun 里跑通了（收起后 files 宽 0，展开回 240）。
+- 建议：库提供 `grid.setCollapsed(id, collapsed)`（或 `toggleCollapse`），内部找兄弟吸收差额；这是“左栏能收起”这个最常见需求，不该要求第三方懂基线与守恒。至少 README 贴一份 setDock 的例子。
+
+### 6. 收起策略里的 restoreSize 谁来更新，没说；我的代码就踩了
+- 碰到了什么：SashCollapsePolicy.restoreSize 是“记忆的展开尺寸”，grid.ts 里没有任何地方更新它（resizeBranches 只改 collapsed 与意图）。用户拖宽左栏之后，节点的 collapse.restoreSize 还是建树时给的 240；之后在分隔线上按 Enter 恢复，会回到 240。我的 syncDocks 把新值记进了自己的旁表，但 Grid 里那份没法改（没有更新策略的入口，只能重建或 restore）。这是我夹具里留着的已知缺陷。
+- 在哪一步：model.ts syncDocks 与 setDock。
+- 建议：要么 Grid 在收起那一刻自己记下收起前的尺寸写进 restoreSize（谁收起谁记），要么提供 `updateCollapse(id, patch)`；README 写明“restoreSize 由谁维护”。
+
+### 7. 快照只存结构与尺寸，约束、收起策略要自己建一张表，克隆也要自己写
+- 碰到了什么：serialize() 不含 minimumSize、sizing、collapse；restore(snapshot, resolveRef) 要我按 ref 重新给。Grid 没有 clone()。实时布局的预览要“假想的树”，我只能 serialize → createGrid(null, {sashSize}) → restore（README 没说可以对空树 restore，是试出来的，能用）。
+- 在哪一步：model.ts resolverOf、cloneState、load。三处合计约 30 行。
+- 建议：提供 `grid.clone()`；README 明写“restore 可以对 createGrid(null) 用”；GridRefResolution 的约束字段是第三方最容易漏的，给一个“按 ref 查约束表”的示例。收起状态不进快照这一点要放进 README 的持久化一节，不要只在 grid.md 里一句“不写快照”。
+
+### 8. 读取失败时“保留原件、不拿默认布局覆盖”要宿主自己做
+- 碰到了什么：grid.md 末尾写“宿主保留原件并禁止自动保存默认布局覆盖它”，restore 的返回是 {ok, dropped[], clamped[], reason}。我在 load 里把 ok 为假或 dropped 非空都当失败，原件另存到 `:broken` 键，再用默认布局。这套规则（什么算失败、怎么保留）全是我自己想的。
+- 在哪一步：model.ts load，约 15 行。
+- 建议：README 给一份推荐的 load 流程；或库给 `restoreOrKeep` 这样的包装。dropped 非空到底算成功还是失败，提案和说明都没说，写一句默认建议。
+
+### 9. 同向拆分会产生同向嵌套分支，树越拖越深，没有扁平化
+- 碰到了什么：splitLeaf 总是造一个新分支，即使新分支方向和父分支相同。bun 里实测：editor（横）里把 g1 再向右拆，得到 editor → b6（横）→ g1、g5，一层多余的横向分支。连续拆就一路嵌套，Grid 有 16 层、256 节点上限（失败码 limit-exceeded）。addLeaf 能避免，但没有“比例”参数，新叶权重要自己算。另外 splitLeaf 新建的分支 sizing 固定为 weight，拆一个 fixed 的叶会丢掉它的 fixed。
+- 在哪一步：model.ts applyTabDrop；drop 到组边缘拆分。
+- 建议：splitLeaf 在方向与父分支相同时自动走“插到父分支里”并带 ratio；或提供 `normalize()`。README 写明 16 层上限对“拖拽拆分”的实际影响。同时 findParent 要自己写（没有 parentOf），9 行。
+
+### 10. “窗口变窄守住最小尺寸”：库不守，是按比例降级；issues 是中文字符串、一次七条
+- 碰到了什么：bun 里把宽 400 的窗口喂给“最小合计 564”的树：files 变 112（最小 160），两个组各 140（最小 200）。layout.issues 返回 7 条中文字符串。库的做法是“放不下就一起压到最小值以下”，不是溢出滚动。想守住，我推测宿主可以读 layout.constraints["root"].minimumSize 给容器设 min-width 加 overflow:auto（类型里有 constraints 字段，我没有实测它在根节点上给的是不是合计值）；这个做法没有任何文档写过。
+- 在哪一步：smoke.ts 的窄窗口一段；App.vue 把 issues[0] 直接显示在头上，是中文。
+- 建议：README 单列“窄窗口”：说明默认降级、issues 是什么、想要不压缩就读 constraints 根节点的最小尺寸；提案已要把 issues 改成 {code, message} 且只发新增，这里再补：窄窗口这种“每次布局都发”的情况应当合并成一条一个码。
+
+### 11. 手势接纳要同时配 4 件东西（contextKey 两处写同值、revision 转交、extent、onApplied），拖不动时不报错
+- 碰到了什么：useGridLayout 要 grid、extent、contextKey；NestedGrid 要 node、layout、context-key（必须同值）、revision（必须从 host 转）、on-gesture-commit；写错任何一个，提交被拒、界面表现为拖不动，只有接了 @issues 才看见原因。我照 NestedGrid.md 写对了，但这类“全靠文档”的接法就是提案想用 useGridHost 消掉的。
+- 在哪一步：App.vue 第 25 到 40 行与模板。
+- 建议：useGridHost 一定要做。我照提案猜的形状见 proposed.ts：props 打包给 v-bind，`@extent` 回灌。提案漏说两件事：（1）“NestedGrid 自己量容器”之后，layout 是谁算、怎么回灌（循环依赖：宿主要先有尺寸才能算 layout，NestedGrid 又要 layout 才能渲染）；（2）它取代还是并存 useGridLayout / useLayoutExtent。另外开发模式下“没接 onGestureCommit、contextKey 对不上”的各报一次，我赞成，请一并覆盖“revision 没转交”。
+
+### 12. NestedGrid 不是泛型，叶 slot 里 node.ref 是 unknown，每处要断言
+- 碰到了什么：NestedGrid 的 node 类型是 GridNode<unknown>，我的 Grid<string> 传进去能编译，但 #leaf 的 node.ref 是 unknown，模板里 `node.ref as string` 写了 5 处。
+- 在哪一步：App.vue 模板。
+- 建议：给 NestedGrid 一个泛型参数（Vue 3.3+ 支持 generic 组件），或 slot 里同时给 `ref` 的具体类型。小事，但每个用 ref 的第三方都会踩。
+
+### 13. 键盘移动焦点只有“下一块/上一块”，没有方向；叶里没有可聚焦元素就走不进去
+- 碰到了什么：moveGridFocus(from, "next" | "previous") 按树序走。VS Code 那种 Ctrl+方向键“往左的面板”没有。叶的外框和内容都不接焦点（输出 128），所以每个面板必须有自己的可聚焦元素（我的 textarea、pre tabindex=0、文件按钮、标签按钮）。标签条内的左右键、roving tabindex 全是自己的事。
+- 在哪一步：App.vue onKey 与各面板。
+- 建议：README 的键盘一节写清这三点；如果要对标 dockview/VS Code，提案可以把 `moveGridFocus(from, "left"|"right"|"up"|"down")` 列为后续（用已有的 placeGrid 矩形即可算）。
+
+### 14. 两种矩形（GridDropRect 与 GridRect）与两种坐标（视口、网格根）要自己换算
+- 碰到了什么：落点几何用 GridDropRect {left,top,right,bottom}（视口坐标）；NestedGrid 的 placeLifted 收 GridRect {x,y,width,height}（相对网格根）；floats、rect 属性也是 GridRect。没有互转函数导出。我读到 placeLifted 的签名才发现，原先想当然传了 GridDropRect。
+- 在哪一步：drag-live.ts / proposed.ts 的 placeLifted。
+- 建议：在 L0 导出 `toDropRect(GridRect, origin)` 与 `fromDropRect`；提案里的手感引擎要写明“卡片位置的换算归引擎”，不然第三方每人写一遍。
+
+### 15. 提案对手感引擎的接口只给了数字（17 个回调、三处依赖），写不出签名，我是猜的
+- 碰到了什么：提案说 live-drag.ts 有“17 个回调的宿主接口”，对应用只有三处依赖。第三方要对着它写适配层，却不知道 17 个回调是什么、哪些必须、拿起时谁算卡片矩形、预览是引擎持有还是宿主持有。proposed.ts 里 LiveDragHost 是我反推的：root、sourceAt、resolve、dropKey、isStripDrop、slotOf、previewFor、gridOf、liftedKey、cardOrigin、placeLifted、commit、structure，13 个，与 17 差 4 个，哪几个我不知道。
+- 在哪一步：drag-live.ts，整个文件。
+- 建议：提案应列出这个接口草案并让审查者对一遍：每个回调的输入输出、谁持有预览、谁驱动 NestedGrid 的 lifted/dragging/contents/placeLifted。现在这一步是整个方案里风险最大、描述最少的：我写的 drag-live.ts 把真正的难点（卡片跟手、候选稳定、空位粘住、来源收起后重判）全交给了一个 declare function，所以“能编译”在这条上没有任何验证价值。
+
+### 16. 手感引擎和 NestedGrid 的内容层是绑定的：不用 contents 就拿不到“卡片”，提案没提
+- 碰到了什么：实时布局的“卡片跟手”靠 NestedGrid 的 contents（内容层）、lifted、lifted-head 插槽、dragging 属性、placeLifted。也就是说宿主必须把每个标签的正文做成内容项（key、leaf、insetTop、active），而且 insetTop 是我写死的 32px，要与标签条 CSS 高度一致，库不量。内容项还要按“预览的状态”而不是“真状态”来出（App.vue 的 shownState）。
+- 在哪一步：App.vue contents 计算与模板。
+- 建议：提案“手感引擎进库”一节补一条：引擎要求宿主使用 NestedGrid 内容层，并给出它要宿主按预览出 contents 的契约；README 的“拖标签”一节从这里讲起。
+
+### 17. 提案没说哪些现有导出留在库里（tab-strip-geometry、useDropTarget、SortableList、DropFeedbackOverlay 等）
+- 碰到了什么：提案只说 TabStrip 搬走。可 vue/index.ts 还导出 measureTabStrip、resolveTabStripInsertion、tabStripInsertionIn、tabStripStops、translateTabStrip 与 TabStripItem 等类型，它们属于 TabStrip 的家族。registerDropTarget / dropTargetAt / defineDropKind（跨插件落点登记）对第三方有没有意义？useGridHost 取代 useGridLayout 吗？我只能选保守路线：标签条的插入位改用 L0 的 resolveListInsertion，避开 tab-strip-geometry。
+- 在哪一步：写 drop.ts 时决定用谁算插入位。
+- 建议：提案附一张“导出清单的去向表”（留 L0、留 L1、搬 L2、删），特别是上面这批。提案已承诺显式清单，请把清单草案放进提案而不是留给实施。
+
+### 18. 点标签条里的关闭按钮、可交互元素不起拖，要自己在 sourceAt 里过滤；反馈元素要自己带 data-drag-feedback
+- 碰到了什么：createDragSession.sourceAt 只收 target，要不要起拖由我判（我排除了 button[data-close]）。drag-session.ts 里 FEEDBACK_SELECTOR = "[data-drag-feedback]"：自己画的反馈元素不带这个标记，就会成为“指针处最上层元素”，挡住落点判定。这条只在源码注释里。SortableList 的 INTERACTIVE 过滤在 useSortable 里写好了，createDragSession 没有等价物。
+- 在哪一步：drag-live.ts sourceAt；drag-indicator.ts。
+- 建议：README 的拖动一节写这两个约定；或者 createDragSession 提供默认的“交互元素不起拖”过滤，可被覆盖。
+
+### 19. 落点指示版（只用真实 API）：除了会话，插入线与半区的几何要自己拼，拖影没有
+- 碰到了什么：drag-indicator.ts 65 行是今天真实能写的：createDragSession + 自己把落点翻成 DropFeedbackPreview（半区、插入线 GRID_DROP_INDICATOR_PX）。DropFeedbackOverlay 要求 label 必填；跟手的拖影（被拖标签的小卡片）库不给，要自己画。会话要在 onMounted 里建、卸载时 dispose，也是自己写（useDragSession 要消掉的就是这个，省约 8 行）。
+- 在哪一步：drag-indicator.ts。
+- 建议：提案写明“落点指示手感”算不算引擎的一部分：现在只有实时布局进库，落点指示的那套（拖影加半区加线）也要第三方自己拼，用 dockview 的人会觉得缺。
+
+### 20. 我自己重写了一套“带标签的面板模型和落点规则”，多重？
+- 碰到了什么：提案说这是故意的。实际写出来：模型与操作（Group、Tab、applyTabDrop、withoutTab、tidy、initialState、旁表）约 120 行，落点规则（drop.ts）37 行，标签条（TabBar.vue）28 行，拖动适配（drag-live.ts）79 行：合计约 265 行（不含落点指示版），在一个“两三个编组、拆分、拖动”的玩具里就这些。每多一个概念（固定标签、最大化、浮动窗、多行标签）都要往这里加，且持久化格式与迁移也是第三方的事。
+- 在哪一步：model.ts、drop.ts、TabBar.vue、drag-live.ts。
+- 建议：提案“非目标”那一段对这个成本说得太轻（“适配层要使用者自己写”）。至少在 README 附这个玩具编辑器（几百行，含模型）作为官方示例，等于一份“第二个使用方的形状”，也正是提案说要等的第二个例子，可以顺便用它校验 L1 的形状。
+
+### 21. 提案没给“发布后我怎么知道升级会不会弄坏”的第三方视角
+- 碰到了什么：版本一节只承诺 @stable、README 变量表、data-* 表、快照格式。我用到的：useGridLayout、useLayoutExtent、NestedGrid 的 props（contents、lifted、dragging、onGestureCommit）、placeLifted、moveGridFocus、createDragSession、GridGestureCommit 的字段，全靠“读到的签名”，不知道哪些将是 @stable、哪些 @experimental。NestedGrid 的 props 与 expose 只在 .md 里有，API 报告会覆盖 .vue 的 props 吗？
+- 在哪一步：全程。
+- 建议：提案写明 API 报告对 .vue 组件 props/emits/slots/expose 的覆盖方式；每个导出标稳定性时，先把我上面用到的这批列出来过一遍。
+
+编译与运行结果
+- 编译：`vue-tsc --noEmit -p experience/tsconfig.json`，0 个错误，0 个警告。检查到了全部 8 个文件（含 App.vue、TabBar.vue，已用 --listFilesOnly 确认）。过程中我自己的类型有一个错误（LayoutFailure 与 LayoutResult 混用），已改；库的公开类型没有给我造成别的错误。需要路径映射到 nb-ui，见第 3 条。
+- 运行：没有在浏览器里跑，也没有 e2e。用 bun 跑了 smoke.ts：收起/展开左栏、边缘拆分、再拆分、存取、窄窗口，结果与预期一致，发现的问题见第 5、6、9、10 条。实时布局手感没有验证（引擎是桩）。
+
+行数
+- 夹具合计 686 行（含空行与注释，不含 smoke.ts）：proposed.ts 109 行是桩，不算数；真正写的 577 行。
+- 其中“按理该由库给的”约 135 行，占 577 的 23% 左右：
+  - 收起/展开 setDock 22、syncDocks 10、克隆与约束表 resolverOf + cloneState 19、读树 findParent 9、存取 save + load 30，小计约 90 行；
+  - 会话的建与拆（useDragSession 要消掉的）约 8 行；
+  - 量容器、算布局、接纳提交、issues 的接线（useGridHost 要消掉的）约 15 行；
+  - 键盘（F6 走焦点）与快捷键 10 行；
+  - 过渡与分隔线外观的 :root 变量 8 行；
+  - 另有 groupIds 一个没用上的函数 7 行是我多写的。
+- 其余约 440 行是提案明说“第三方自己写”的：模型与操作约 120、落点规则 37、标签条 28、拖动适配 79、落点指示的指示线与半区几何约 55、App.vue 的业务与模板约 90，合计约 410；剩下约 30 行是类型、初始数据、main.ts 与零碎样式。（各项都是我按文件与函数范围估的，误差十来行。）
+- 没算进去的：手感引擎本身。提案说 live-drag.ts 单文件 381 行加 layout-drag.ts 里与领域无关的编排，如果库不给，第三方要自己写至少几百行；这是最大的一块，也是我最没把握的一块。
+
+和 dockview、golden-layout 比（凭记忆，没有重新核实）
+- dockview：给整套停靠模型（面板、组、拖到边缘拆分、序列化、浮动窗），接入基本是创建、注册组件、addPanel，几十行；第三方拿到的“拖标签拆组”开箱即用。nb-layout 按提案只给网格与手感，面板模型、落点规则、标签条都要自己写：我这个玩具约 440 行起，难度明显更高。优势：没有停靠时搬 DOM 的问题，有 dockview 没有的收起/吸附/过渡，和 Vue 的接合更直。
+- golden-layout：配置对象驱动，接入是写一份 config，再把组件挂进去；框架适配要自己做。nb-layout 在 Vue 里的接入更顺（slot、响应式），但同样没有“配置一份就出布局”的路径。
+- 总体判断：如果 README 与官方示例（第 20 条）到位，nb-layout 对“想要 VS Code 手感的分栏与吸附”的第三方很有吸引力；对“要一个现成的标签停靠布局”的第三方，今天与按提案发布之后都比 dockview 难接入得多，这是提案选择的结果，但要在 README 第一句就说清，免得被拿去和 dockview 比。
