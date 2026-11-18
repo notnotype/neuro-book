@@ -64,8 +64,19 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18 计划已确认；设计审查已处理，计划改为第二版。实现在 `.worktree/w00032-t38-status-line-sorting`（分支 `feat/w00032-t38-status-line-sorting`）。切片 1（单选组与复选框对齐）已提交，量法与前后数值见 [`evidences/alignment-measure.txt`](evidences/alignment-measure.txt)；切片 2 进行中（模式标记已删，未提交）。
+2026-11-18：切片 1 到 4 都已提交到 `feat/w00032-t38-status-line-sorting`，并已并进 master（dacd65622，干净，master 带进来的改动不碰本 Task 的文件）：
+
+| 提交 | 内容 |
+|---|---|
+| 18cc9b372 | nb-ui 单选组与复选框对齐标签第一行（量法与前后数值见 [`evidences/alignment-measure.txt`](evidences/alignment-measure.txt)） |
+| 38b018112 | 状态栏去掉模式标记；设置加 `side`、项可换边；窄时先右后左收起；每一项由 `AgentStatusItem` 画 |
+| a258d0116 | nb-layout 的 `useSortable` 与 `SortableList`（Spec `ui/sortable-list.md`）、Lab 场景、`lab-sortable-list.e2e.ts` |
+| d2453ebb3 | 状态栏设置页改用 `SortableList`，拖动放下等写完；设置页与状态栏的新场景与 e2e |
+
+Spec 在 master 上：c7f53f610（输出 15、45、46 等改写并标 planned，新 Spec `ui/sortable-list.md`）、ff4a88b79。
+
+已跑的验证：各包类型检查（合并后再跑一次）；nb-agent-ui 全部（vitest 165、bun 275）、nb-layout 全部（vitest 247、bun 586）、nb-ui 两个控件相关的五个测试文件、应用的 `status-line.dom.test.ts` 与 Lab 登记测试；`lab-sortable-list.e2e.ts` 8 条全过，并对“等写入不闪回”“拿起的行底不透明”做了变异检查（都会失败）；新增与改过的 Lab 场景用 `nbdev shot` 量过（桌面与 390 宽都没有越界、裁切）。`lab-agent-ui.e2e.ts`、`agent-conversation.e2e.ts` 与前端实现审查（Sonnet）进行中。
 
 ## 下一步
 
-按 plan 的切片 2 到 5 实施。
+处理实现审查与 e2e 结果，Spec 去掉 planned 并补证据，合入 master。
