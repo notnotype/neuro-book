@@ -96,7 +96,7 @@ async function paletteSearch(page: Page, query: string): Promise<void> {
     await expect(input).toHaveValue(query);
 }
 
-test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+= 与 Ctrl+滚轮改档、防抖后写进用户层；Ctrl+0 删掉这个键", async ({page}) => {
+test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+= 改档、防抖后写进用户层；Ctrl+滚轮不换界面缩放；Ctrl+0 删掉这个键", async ({page}) => {
     await installShell(page);
     await openWorkbench(page);
     await expect.poll(() => zooms(page)).toEqual([1]);
@@ -108,14 +108,17 @@ test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+
     await expect.poll(() => zooms(page)).toEqual([1, 1.1, 1.25]);
     await expect.poll(userLayer).toEqual({"nbook.desktop/zoom": 1.25});
 
-    // 不满一档的滚轮不换档，累积满了才换。
+    // Ctrl+滚轮不换界面缩放（只在编辑器上改字号、在图片查看器里缩放图片）：滚几格，壳收到的缩放不变。上面已等防抖写回
+    // 落盘：写回之后配置服务会再交一次同样的值，所以下面按不同的值核对，不按条数。
     const box = await page.locator("[data-workbench-root]").boundingBox();
     await page.mouse.move((box?.x ?? 0) + 400, (box?.y ?? 0) + 300);
     await page.keyboard.down("Control");
-    await page.mouse.wheel(0, 40);
-    await page.mouse.wheel(0, 70);
+    await page.mouse.wheel(0, 150);
+    await page.mouse.wheel(0, -300);
     await page.keyboard.up("Control");
-    await expect.poll(async () => (await zooms(page)).at(-1)).toBe(1.1);
+    const settled = await zooms(page);
+    expect(settled.at(-1)).toBe(1.25);
+    expect([...new Set(settled)]).toEqual([1, 1.1, 1.25]);
 
     await page.keyboard.press("Control+0");
     await expect.poll(async () => (await zooms(page)).at(-1)).toBe(1);

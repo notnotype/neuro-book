@@ -14,7 +14,7 @@ import {defineSettings} from "nbook/shared/settings";
 
 export const DESKTOP_PLUGIN = "nbook.desktop";
 
-/** 界面缩放的档位，从小到大（schema 在桥里，壳也用它校验）；命令与 Ctrl+滚轮在相邻两档之间移动。 */
+/** 界面缩放的档位，从小到大（schema 在桥里，壳也用它校验）；命令与快捷键在相邻两档之间移动。 */
 export const ZOOM_LEVELS: ReadonlyArray<ZoomLevel> = ZoomLevelSchema.anyOf.map((member) => member.const);
 export type {ZoomLevel};
 /** 缺省的缩放，也是复位的目标。 */
@@ -36,7 +36,7 @@ export const {settings: desktopSettings, contributions: desktopSettingContributi
         schema: ZoomLevelSchema,
         default: DEFAULT_ZOOM,
         title: {"zh-CN": "界面缩放", "en-US": "Zoom"},
-        description: {"zh-CN": "所有桌面窗口一起缩放。也可以按 Ctrl 加减号、Ctrl+0，或按住 Ctrl 滚动鼠标。", "en-US": "Zooms every desktop window. Also Ctrl with plus or minus, Ctrl+0, or Ctrl with the mouse wheel."},
+        description: {"zh-CN": "所有桌面窗口一起缩放。也可以按 Ctrl 加减号、Ctrl+0。在编辑器里按住 Ctrl 滚动鼠标改的是编辑器字号。", "en-US": "Zooms every desktop window. Also Ctrl with plus or minus, Ctrl+0. Ctrl with the mouse wheel in an editor changes the editor font size instead."},
         choices: ZOOM_LEVELS.map((level) => ({value: level, title: `${String(Math.round(level * 100))}%`})),
         layers: ["user"],
         section: DESKTOP_WINDOW_SECTION,

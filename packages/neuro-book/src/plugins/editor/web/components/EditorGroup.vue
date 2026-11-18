@@ -5,7 +5,7 @@
  */
 import {Banner, Button, Kbd} from "@notnotype/nb-ui/components";
 import type {BannerTone} from "@notnotype/nb-ui/components";
-import {computed, provide, useTemplateRef} from "vue";
+import {computed, inject, provide, useTemplateRef} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
@@ -20,7 +20,9 @@ import {useEditorText} from "../text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 
 import {formatResource} from "nbook/plugins/files/shared/contracts";
-import {editorToolbarSlotKey} from "../../shared/contracts";
+import {CODE_EDITOR, editorToolbarSlotKey, MARKDOWN_EDITOR} from "../../shared/contracts";
+import {createWheelAccumulator} from "nbook/shared/wheel-steps";
+import {editorWheelZoomKey, wheelZoomTarget} from "../wheel-zoom";
 
 import {nameOf, resourceOf} from "../documents/address";
 import {LOST_TAB_ADDRESS} from "../groups/groups";
@@ -174,6 +176,21 @@ const controls = computed(() => {
     return state.kind === "ready" ? [{tabId: props.tabId, editor: shown.editor, component: state.component, label: nameOf(shown.address)}] : [];
 });
 
+/**
+ * 桌面里 Ctrl+滚轮在编辑器上改字号（监听在捕获阶段，理由见 `../wheel-zoom.ts`）：累积满一档才换。在这块内容里按下 Ctrl+滚轮
+ * 就拦下，不管落在哪：认不出是哪种编辑器（图片、页面标签、空组）时只拦不改，免得页面缩放与字号时有时无。
+ */
+const wheelZoom = inject(editorWheelZoomKey, null);
+const wheelSteps = createWheelAccumulator();
+function onWheel(event: WheelEvent): void {
+    if (wheelZoom === null || !wheelZoom.enabled || !event.ctrlKey) return;
+    event.preventDefault();
+    const editor = controls.value[0]?.editor;
+    const target = wheelZoomTarget(event.target instanceof Element ? event.target : null, editor === MARKDOWN_EDITOR ? "markdown" : editor === CODE_EDITOR ? "code" : null);
+    const direction = wheelSteps(event.deltaY);
+    if (target !== null && direction !== null) wheelZoom.step(target, direction === "in" ? 1 : -1);
+}
+
 const toolbarSlot = useTemplateRef<HTMLElement>("toolbarSlot");
 provide(editorToolbarSlotKey, toolbarSlot);
 </script>
@@ -185,6 +202,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
         :aria-label="t('area.label')"
         :data-editor-group="current ? ownGroup : undefined"
         :data-editor-group-active="current && active ? '' : undefined"
+        @wheel.capture="onWheel"
         @keydown="root.onKeydown"
         @focusin="root.onFocusIn"
         @focusout="root.onFocusOut"

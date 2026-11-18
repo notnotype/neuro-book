@@ -5,7 +5,7 @@
  *   启动都会报“未声明的键”。
  * - 在桌面壳的窗口里，把本插件各项的有效值交给壳（激活时一次，之后每次有效值变化、每次改缩放）。几个窗口各交一次，壳按值去重。
  *   设置的拥有者是服务端的 `nbook.settings`：直接改设置文件时它监视到变化、推给窗口，这里同样收到。
- * - 缩放的快捷键与 Ctrl+滚轮只在桌面里接管（`zoom.ts`）；浏览器里留给浏览器自己的缩放。
+ * - 缩放的快捷键只在桌面里接管（`zoom.ts`）；Ctrl+滚轮在桌面里不换界面缩放（编辑器上改字号，见编辑器插件的 `wheel-zoom.ts`）；浏览器里都留给浏览器自己的缩放。
  */
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -20,7 +20,6 @@ import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {notificationsKey} from "nbook/plugins/workbench/shared/contracts";
 import type {DesktopSettingValues} from "nbook/shared/desktop-bridge";
 import {windowDesktopKey} from "nbook/shared/host";
-import {createWheelAccumulator} from "nbook/shared/wheel-steps";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
@@ -103,14 +102,10 @@ export const desktopEntry = defineEntry({
                 event.stopPropagation();
                 zoom.apply(action);
             };
-            // 冒泡阶段、先看别人处理过没有：图片查看器自己用 Ctrl+滚轮缩放图片（ImageViewer.vue）。
-            const wheel = createWheelAccumulator();
+            // Ctrl+滚轮不再换界面缩放（界面缩放只走键盘与命令）：它只在图片查看器（缩放图片）与编辑器（改字号）里有用，那两处自己处理。
+            // 这里只拦下剩下的：WebView2 自带的页面缩放不叠加。沙箱 iframe（HTML 预览）里的滚轮事件到不了这里，已知限制。
             const onWheel = (event: Event): void => {
-                const scroll = event as unknown as {readonly ctrlKey: boolean; readonly deltaY: number};
-                if (!scroll.ctrlKey || event.defaultPrevented) return;
-                event.preventDefault();
-                const action = wheel(scroll.deltaY);
-                if (action !== null) zoom.apply(action);
+                if ((event as unknown as {readonly ctrlKey: boolean}).ctrlKey) event.preventDefault();
             };
             globalThis.addEventListener("pagehide", onPageHide);
             globalThis.addEventListener("keydown", onKeydown, true);

@@ -19,12 +19,14 @@ import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/s
 import {diagnosticText} from "nbook/shared/localized-text";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {autoSaveDelaySetting, autoSaveSetting, breadcrumbsSetting, codeSettings, markdownSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
+import {CODE_FONT_SIZE_DEFAULT, CODE_FONT_SIZE_MAX, CODE_FONT_SIZE_MIN, MARKDOWN_FONT_SIZE_DEFAULT, MARKDOWN_FONT_SIZE_MAX, MARKDOWN_FONT_SIZE_MIN, autoSaveDelaySetting, autoSaveSetting, breadcrumbsSetting, codeSettings, markdownSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {editorPanelsKey, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorAreaContext, EditorAreaHostProps, EditorAreaImplementation, PanelFrameControl} from "nbook/plugins/workbench/web/contracts";
-import {clockKey, windowCloseKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
+import {clockKey, windowCloseKey, windowDesktopKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
+import type {SettingDefinition} from "nbook/shared/settings";
+import {createSteppedSetting} from "nbook/shared/wheel-steps";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
@@ -38,6 +40,8 @@ import type {CodeEditorOptions} from "./code/options";
 import {MONACO_LANGUAGES} from "./code/monaco-languages";
 import {CLOSE_COMMAND, copyTabPath, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {EditorPageRegistry} from "./pages";
+import {editorWheelZoomKey} from "./wheel-zoom";
+import type {EditorWheelZoom} from "./wheel-zoom";
 import {continueRequestOf, withoutContinueParams} from "./continue-writing";
 import {emptyTips} from "./empty-tips";
 import {EditorRegistry} from "./editor-registry";
@@ -97,7 +101,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: windowCloseKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: windowCloseKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}, {key: windowDesktopKey, required: false}],
         provides: [documentCoordinatorKey],
         receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TOOLBAR_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
@@ -117,9 +121,36 @@ export const editorBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const project = context.services.require(windowProjectKey).project;
             const text = await windowTextPort(context.services, () => displayLocale(settings));
+            // 桌面里 Ctrl+滚轮改字号（输出见 editor.md）：目标值先于写回生效，编辑器选项在 computed 里读它，改一档立即重算。
+            const stepper = (setting: SettingDefinition<number>, bounds: {readonly defaultValue: number; readonly min: number; readonly max: number}, name: string) => createSteppedSetting({
+                settings, setting, ...bounds,
+                schedule: (callback, ms) => {
+                    const timer = setTimeout(callback, ms);
+                    return () => clearTimeout(timer);
+                },
+                failed: (detail) => diagnostics.record({level: "warn", event: "editor.font-size.write-failed", message: `Writing the ${name} font size failed; it is back to the previous value`, data: {detail}, source: {plugin: descriptor.id}}),
+            });
+            const codeFontSize = stepper(codeSettings["code.fontSize"], {defaultValue: CODE_FONT_SIZE_DEFAULT, min: CODE_FONT_SIZE_MIN, max: CODE_FONT_SIZE_MAX}, "code");
+            const markdownFontSize = stepper(markdownSettings["markdown.fontSize"], {defaultValue: MARKDOWN_FONT_SIZE_DEFAULT, min: MARKDOWN_FONT_SIZE_MIN, max: MARKDOWN_FONT_SIZE_MAX}, "markdown");
+            const desktop = await context.services.resolve(windowDesktopKey);
+            const wheelZoom: EditorWheelZoom = {
+                enabled: desktop.status === "resolved" && desktop.instance.available,
+                step: (target, delta) => (target === "code" ? codeFontSize : markdownFontSize).step(delta),
+            };
+            // 页面离开前还没写回的字号立刻写；插件停止时先写回再取消计时。
+            const flushFontSizes = (): void => {
+                codeFontSize.flush();
+                markdownFontSize.flush();
+            };
+            globalThis.addEventListener("pagehide", flushFontSizes);
+            context.signal.addEventListener("abort", () => {
+                globalThis.removeEventListener("pagehide", flushFontSizes);
+                codeFontSize.dispose();
+                markdownFontSize.dispose();
+            }, {once: true});
             const codeOptions = computed((): CodeEditorOptions => ({
                 fontFamily: settings.get(codeSettings["code.fontFamily"]),
-                fontSize: settings.get(codeSettings["code.fontSize"]),
+                fontSize: codeFontSize.current(),
                 lineHeight: settings.get(codeSettings["code.lineHeight"]),
                 tabSize: settings.get(codeSettings["code.tabSize"]),
                 detectIndentation: settings.get(codeSettings["code.detectIndentation"]),
@@ -129,7 +160,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             }));
             const markdownOptions = computed((): MarkdownEditorOptions => ({
                 fontFamily: settings.get(markdownSettings["markdown.fontFamily"]),
-                fontSize: settings.get(markdownSettings["markdown.fontSize"]),
+                fontSize: markdownFontSize.current(),
                 lineHeight: settings.get(markdownSettings["markdown.lineHeight"]) / 100,
             }));
             const report = (error: unknown): void => {
@@ -346,6 +377,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                                 provideToChildren(editorLanguagesKey, languages);
                                 provideToChildren(codeEditorOptionsKey, codeOptions);
                                 provideToChildren(markdownEditorOptionsKey, markdownOptions);
+                                provideToChildren(editorWheelZoomKey, wheelZoom);
                                 provideToChildren(editorMenusKey, menus);
                                 return () => {
                                     if (session.area.value === null) return null;
