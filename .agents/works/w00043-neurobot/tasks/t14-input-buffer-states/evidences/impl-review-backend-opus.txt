@@ -1,0 +1,138 @@
+# w00043 t14 第 4 片（d0f74ddf9）实现审查：NeuroBook 后端与宿主套件
+
+审查对象：审查 worktree a1f22dd7f 上的 d0f74ddf9；实验在实现 worktree w00043-neurobot 跑，HEAD 同为 a1f22dd7f（另有 nb-agent-ui 三个未提交文件的改动，与本片无关）。
+
+### 1. 门面交出的视图带 `as`，任何插件都能换成别的插件或会话的身份
+
+- 严重程度：阻断
+- 类别：正确性 / 安全
+- 位置：packages/neuro-book/src/plugins/agent/backend/agent.ts:479-493（agentFacade）；packages/nb-harness/src/kit/sessions/table.ts:137（view 里的 `as: (next) => table.view(id, next)`）
+- 现象：`agentFacade` 只在 `session`、`create`、`startTask` 入口按调用方盖章，交回的是句柄表的原样视图。视图上的 `as(issuer)` 没有被门面收掉，调用方拿到视图后 `.as({kind: "host", source: {plugin: "别的插件"}})` 或 `.as({kind: "session", id: 父会话})` 就换了身份。`create` 交回的视图同样有 `as`。
+- 为什么是问题：sessions.md 输出 21 与信任边界写明“调用方冒充不了别的插件”“不能冒充别的插件或会话”“只有 nbook.agent 自己的门面能指定会话的身份”；内核按发出者定权限（runtime.md 输出 45、108），冒充会话身份就能放行、改、取消该父会话排的话，停 `caller` 是它的子会话，接着跑它开的运行。本片唯一的门面测试（tasks.test.ts 新用例）只断言 `view.issuer`，没碰 `as`，所以没发现。
+- 如何核实：/tmp/review-t14-impl-backend/exp/facade-as.test.ts（在实现 worktree 的 packages/neuro-book 下 `bun test` 该文件）。插件 `test.scheduler` 经门面建会话后，`facade.session(id).as({kind:"host",source:{plugin:"nbook.other"}})` 与 `.as({kind:"session",id:"some-parent"})` 各 `enqueue` 一条，快照里两条的 `by` 分别是 `{kind:"host",source:{plugin:"nbook.other",label:"冒充"}}` 与 `{kind:"session",id:"some-parent"}`，1 pass。
+- 建议改法：门面交出的视图把 `as` 换成只在本门面允许的身份之间切换（按调用方盖章的宿主身份，或 `asUser` 的用户），或干脆去掉 `as`、让调用方经 `session(id, view)` 重取；`create` 交回的视图同样处理。补一条测试：门面视图 `as` 成别的插件、会话时发出者仍是本插件（或调用被拒）。
+
+### 2. agent.test.ts 两个“输出 14”用例改成“作废或 unavailable 都算”之后，实际只走作废那一支，停止门不再有测试
+
+- 严重程度：重要
+- 类别：测试
+- 位置：packages/neuro-book/src/plugins/agent/agent.test.ts:29（`stoppedService`）、:388-390、:404
+- 现象：两个用例在 `w.close()` 之后调用测试世界的 `service`。世界关闭时探针插件先停，它的按调用方门面随之作废，四个入口与 `create` 一律抛 `ServiceRevokedError`，根本到不了 `nbook.agent` 的停止门（`table.gate()`、`table.accept`）。`stoppedService` 把两种错并成一个布尔值，用例名仍写“之后的调用得 unavailable”。
+- 为什么是问题：sessions.md 输出 14 要求停止时“远程与 agentKey 都得 unavailable”，输出 21 也写“门面还在、服务正在停止时得 unavailable”。改动前这两个用例守着停止门；改动后把 agent.ts 里 `service` 各入口的 `table.gate()` 删掉、或把 `table.accept` 的拒绝去掉，这两个用例照样通过。在 agent 包的测试里搜 `"unavailable"`，除这一处外没有别的断言停止门（profiles.test、skills.test、jobs.test 的命中都是别的含义）。
+- 如何核实：/tmp/review-t14-impl-backend/exp/stop-error.test.ts：建世界、`close()` 后依次调 `list`、`profiles`、`running`、`session("x")`，四个都是 `ServiceRevokedError`（`code` 为 undefined），没有一次是 `unavailable`。
+- 建议改法：断言分开写：门面作废那一支断言 `ServiceRevokedError`；停止门另找一条门面还活着的路径断言 `unavailable`，例如在 `w.close()` 进行中、探针已停而 `nbook.agent` 还没停之前不可控时，直接对 `createAgentRuntime` 交回的 `runtime.service` 或远程链路（世界的 remote）在停止后调用，断言 `code: "unavailable"`。用例名按实际断言改。
+
+### 3. 去向 `later` 时在 `issue` 里等子会话当前运行收口，`queue: true`、`async: true` 也被卡住，父会话中止也不放
+
+- 严重程度：重要
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:455-458（`await view.waitRun(sent.value.currentRunId)`）
+- 现象：`later` 分支在 `runOnChild` 的 `issue` 里无条件 `await view.waitRun(currentRunId)`，不看 `foreground`，也不看 `call.signal`，没有超时。整段在这个子会话的 lane 上，期间还占着预留的名额。子会话处在只压缩的运行（运行不再取输入）时，父 Agent 的 `agent_send` 不论前台、`queue: true` 还是 `async: true`，都要等压缩结束才返回；父会话这期间被中止，工具也不按输出 16 立即以 `aborted` 交回；同一父会话对这个子会话的其它 `agent_send`、`agent_answer` 都排在 lane 后面。
+- 为什么是问题：subagents.md 输出 10 写“`queue: true` 立即以 `running` 返回”，输出 6 写 `async: true` 立即返回，输出 16 写父会话中止时立即交回。只压缩的运行要调一次模型，挂多久取决于摘要模型。
+- 如何核实：/tmp/review-t14-impl-backend/exp/send-later.test.ts：子会话两轮后 `compact`，挂住压缩请求（子会话状态 `{state:"running",phase:"compacting"}`），父 Agent 调 `agent_send {message, queue: true}`。3 秒内工具没有交回（`returned while compaction held: false`），放开压缩请求后 56 毫秒内才交回 `running`。
+- 建议改法：`later` 时不在 lane 里同步等。按 `foreground` 分：后台（`queue`、`async`）直接交回 `running`（任务在收口后由 `inputConsumed` 认，或交回时说明“排在压缩之后”）；前台的等待并进 `settle` 的等待里，受 `call.signal`、超时与插话约束，并且在 lane 之外等。
+
+### 4. `later` 收口后话还没被取走（`pending`）时当作没有运行，交回“空闲、话已送达”，那次运行不登记任务
+
+- 严重程度：重要（触发面窄：要撞上子会话不取输入的窗口，且子会话里已有父会话能放行的留着的话）
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:457-458
+- 现象：等完 `waitRun` 只查一次 `inputFate`，不是 `{taken}` 就交回 `{runId: null}`。收口批开下一次运行时第一轮只取第一条就绪的（kernel/run/settle.ts:92-96 `openRunDrafts`），而推迟的 `send` 会先放行父会话自己留着的旧话，它们排在新话前面；这时新话的去向是 `{pending}`，下一次运行明明已经开了、之后会取走它。代码走 `untracked(child, null, …)`，结果写“状态：空闲。话已送达”，不登记任务，父 Agent 之后 `wait` 也取不到这次运行的结果。
+- 为什么是问题：subagents.md 输出 10 要求“任务按这句话的 `inputConsumed` 带的 `runId` 认”；`pending` 不是“没被取走、转成留着”，而是还会被取走。旧话留着的来源就是输出 10 自己描述的情形（子会话交出结果后父会话排的话留着）。
+- 如何核实：/tmp/review-t14-impl-backend/exp/send-pending.test.ts：子会话里先有一条父会话身份排的、空闲时留着的话（实验借第 1 条的 `as` 造出来），子会话压缩时父 Agent 前台 `agent_send {message}`；放开压缩后工具交回 `{"status":"idle"}`、文字“状态：空闲。话已送达”，没有 `jobId`；之后子会话把两条都跑完，缓冲区空。
+- 建议改法：`pending` 时按快照里收口批开的那次运行（`status.runId`）认任务，或等这条话的 `inputConsumed`/`inputHeld` 再定；同时把第 3 条的等待移出 lane。补用例：`later` 且前面有放行出来的旧话。
+
+### 5. 不带话的 `agent_send`：`resume` 的其它失败码被改写成 `nothing-to-continue` 或“被用户停止”
+
+- 严重程度：重要
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:480-486（`continueChild`）
+- 现象：`start` 得 `nothing-to-continue` 或 `not-allowed` 后改调 `resume`；`resume` 失败时只认 `held-by-user`，其余一律落到最后两行：`start` 是 `not-allowed` 就写“上一次运行被用户停止，只有用户能接着跑”，否则写 `nothing-to-continue`“没有可以继续的运行，也没有留着的话”。但 `resume` 的失败码还有 `not-allowed`（叶子上有不能接着跑的暂停的运行）、`no-model`、`no-credentials`、`unknown-model`、`role-unbound`、`profile-invalid`、`read-only`、`session-closed`、`log-broken`、`command-id-conflict`（nb-harness/src/kernel/api/codes.ts:19）。子会话里有父会话能放行的话、但模型解析不了时，父 Agent 得到的是“没有留着的话”，与事实相反；`start` 得 `not-allowed` 的原因也不只是“被用户停止”，用户在子会话里自己开的运行出错或中断后同样是 `not-allowed`（kernel/run/permissions.ts:51-54，`sameIssuer(runBy, issuer)` 不成立）。
+- 为什么是问题：subagents.md“失败与恢复”要求内核与存储的失败原样交回（`passthrough`），输出 10 只把 `nothing-to-continue` 与“被用户停止”写成固定文字。模型据错误的说明会放弃本可以修好（换模型、等用户）的子会话。
+- 如何核实：读代码；`resume` 失败码见 codes.ts:19。未写实验（造 `no-model` 要换掉子会话的模型设置，路径与代码一致）。
+- 建议改法：`resume` 失败时按码分：`nothing-to-resume` 才合成两种固定文字（`start` 的 `not-allowed` 时再按 `runEnded.stoppedBy` 区分“被用户停止”与“是用户开的运行”）；`held-by-user` 照现在写；其余 `passthrough(resumed, …)` 原样交回。
+
+### 6. 话留着时：后台（`queue`、`async`）不写原因；前台在“话已送达”后面再写“没有被处理，留着”，前后矛盾
+
+- 严重程度：建议
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:454（`held` 分支）、:463-465、:488-492（`heldNotes` 的 `waited` 只取 `foreground`）
+- 现象：(a) 受理时去向就是 `held`（叶子上有父会话不能接着跑的暂停的运行），或 `later` 等完收口后转成留着，这两种结局在 `issue` 里已经知道；但 `heldNotes` 只在 `foreground` 时查去向，`queue: true` 或 `async: true` 时交回的只有 `untracked` 的“状态：空闲。话已送达”。(b) 前台时结果是 `untracked` 的 note“话已送达”再接一行“这句话没有被处理，留着”，同一条结果里先说送达又说没处理。
+- 为什么是问题：subagents.md 输出 10：“这句话没被取走、转成留着时不登记新任务，结果按留着的原因写明”，没有按前台、后台区分；“话已送达”会让模型以为子会话会处理这句话。
+- 如何核实：读代码：`held` 分支交回 `{runId: null}` 后 `outcome.job === null`，走 `untracked(child, null, call, "话已送达")`；`heldNotes(view, parent, inputId, foreground)` 在 `foreground` 为假时跳过 `inputFate`。
+- 建议改法：去向在 `issue` 里已确定为留着时（`held`，或 `later` 等到的 `{held}`），不论前台后台都写原因，并把 `untracked` 的 note 换成“话没有被处理，留着”而不是“话已送达”；只有 `taken` 后跑完再查的那种才需要 `waited`。
+
+### 7. 句柄表打开会话时不算 `held`：空闲关闭或重启后再打开，留着的话不进活动，直到下一条缓冲区事件
+
+- 严重程度：重要
+- 类别：正确性
+- 位置：packages/nb-harness/src/kit/sessions/table.ts:289-300（`#open`）、:314（只在缓冲区事件时 `#refreshHeld`）、:150-153（注释写的已知限制）
+- 现象：`held` 只在订阅到 `inputQueued`、`inputHeld` 等事件时重算；`#open` 新建的条目 `held: false`，打开时已经读了一次快照（取 `header`）却不顺手算。用户停止留下的话的会话空闲 30 秒关闭后，用户再打开它（窗口订阅、任何查询），句柄打开着、缓冲区里有 `heldBy` 为用户的话，活动里却没有它；服务端重启后打开的会话也一样。
+- 为什么是问题：sessions.md 输出 15 的 `held` 只限定“看打开着的句柄”，没有“只算这次打开期间发生的”；注释里写的已知限制是“空闲关闭之后不再列出”，重新打开之后仍列不出不在其内。状态栏与会话行（conversation.md 输出 48）恰在用户回到这个会话时漏标。
+- 如何核实：/tmp/review-t14-impl-backend/exp/held-reopen.test.ts：运行中排一条、`abort{keepQueue:true}`，活动里是 `{state:"held"}`；推进 `IDLE_CLOSE_MS` 关闭后，`snapshot()` 重开并订阅持住，快照的缓冲区仍是 `[["held",{"kind":"user"}]]`，活动为 `[]`。
+- 建议改法：`#open` 里用已读的那份快照算一次 `held`（同一个判断抽成函数），值为真时 `#activityChanged()`；`create` 的会话缓冲区为空不用算。补用例：停止留话、空闲关闭、重开后活动里是 `held`。
+
+### 8. 本片的新行为几乎没有测试：验收映射指给 subagents、jobs、sessions、meta 测试的条目一条都没加；门面用例没测“冒充不了”与 `startTask`
+
+- 严重程度：重要
+- 类别：测试
+- 位置：d0f74ddf9 的测试改动只有 agent.test.ts（第 2 条）、tasks.test.ts 新增 1 例、builtin-tools.test.ts 与 modes.test.ts 各 1 行；plan.md“验收映射”把 sessions 输出 15、22 指给 sessions.test.ts，subagents 输出 10、16 与 jobs 输出 3、4、11 指给 subagents.test.ts、jobs.test.ts，builtin-profiles 输出 9 指给 kit/sessions/meta.test.ts。
+- 现象：在 a1f22dd7f 上对 subagents.test.ts（570 行）、jobs.test.ts（264 行）、sessions.test.ts（281 行）、meta.test.ts（53 行）、table.test.ts（138 行）搜 `placement`、`inputFate`、`"held"`、`heldBy`、`held-by-user`、`nothing-to-resume`、`byUser`、`issuer`，除 meta.test.ts 里一处无关的 `cut` 外零命中，这几个文件最后一次改动都早于 t14。没有测试的行为：`agent_send` 按去向分支（`taken`/`later`/`held`）、不带话的 `start`+`resume`、`heldNotes` 的两种文字与条数、远程 `killJob` 按用户停（`heldBy`、`stoppedBy` 是用户）与 `kill` 工具按父会话停、`watchSteer` 只认就绪与放行出来的插话、活动的 `held`（含 web 计数）、标题会话的宿主身份、有运行时不发、没开起运行时取消。README 与计划里没有写这些测试推迟到后面的片。tasks.test.ts 的新用例标题写“冒充不了别的插件”，断言只看 `view.issuer`，第 1 条的 `as` 就是从这里漏过去的；门面的 `startTask` 盖章也没测。
+- 为什么是问题：plan.md 的“验证”写“每片：上表的单元与合同测试”；第 3、4、7 条都是这些空白里直接复现出来的缺陷。内核侧的权限与去向有 buffer.test.ts 兜着，但后端这层的接线（谁的身份、何时查去向、文字）只有本片能测。
+- 如何核实：`grep -n 'placement\|inputFate\|"held"\|byUser\|heldBy\|held-by-user\|nothing-to-resume\|issuer' <上列文件>`；`git log --oneline -1 -- <文件>` 都是 t14 之前的提交。
+- 建议改法：按验收映射补齐，至少：subagents 输出 10 的去向三分支（含第 4 条的 `pending`）与不带话的四种结局；jobs 输出 4、11 两种停法之后的 `heldBy`、父会话能否放行；jobs 输出 3 的留着插话不算、放行出来的算；sessions 输出 15 的 `held`（含第 7 条的重开）；meta 的宿主身份与取消；门面用例加 `as` 与 `startTask`。
+
+（补充，核对依据后）第 2 条收窄：句柄表这一层的停止门另有 kit/sessions/table.test.ts:128 守着（断言 `SessionTableStopping`、`code: "unavailable"`），没人守的是 agent.ts 里 `service` 各入口接 `table.gate()`、`table.accept` 的接线；“删掉 `gate()` 两个用例仍通过”是按实验里四个入口都先抛 `ServiceRevokedError` 推出来的，没有实际改代码跑。第 3 条：plan.md 的 `subagents/tools.ts` 一节本身写“`taken`、`later` 等这条输入的结局……拿到 `runId` 再 adopt 任务”，没区分前台后台，计划审查处理记录里也没讨论 `queue`、`async` 的立即返回；问题在计划这一层，按 Spec 输出 6、10、16 改计划再改实现。“父会话中止不放”“其它调用排在 lane 后面”两点是读代码推出的，没单独跑。第 4 条：实验里父会话身份的旧话是借第 1 条的 `as` 造的，真实路径是“子会话交出结果后父会话排的话留着”，没走工具链复现；严重程度按实验结论暂定，若真实路径复现不出就降为建议。第 7 条：conversation.md 输出 48 的已知限制原文是“服务端重启后没打开过的会话里留着的话要打开它才看到”，打开之后仍看不到不在限制内，结论不变。
+
+### 9. 门面的 `create` 原样透传 `caller`：插件能建出会话头 `caller` 指向任意会话的“子会话”
+
+- 严重程度：建议
+- 类别：安全 / 不变量
+- 位置：packages/neuro-book/src/plugins/agent/backend/agent.ts:486（`create: (options, view) => service.create(options, issuerOf(view))`）；agent.ts:296（`relations.register`）
+- 现象：`CreateSessionOptions` 的 `caller`、`questions` 不经过滤交给 `createSession`，后者按 `caller` 登记父子关系。任何拿到 `agentKey` 的插件都能建一个会话头 `caller: {kind:"session", id: X}`、`questions: "caller"` 的会话：它进 X 的子代理树，X 的 Agent 对它 `agent_send` 时 `owned` 成立，按 `canAbort` X 能停它，它的提问交给 X 的 Agent。
+- 为什么是问题：sessions.md 输出 21 写“只有 nbook.agent 自己的门面能指定会话的身份（子代理）”，信任边界写“不能冒充别的插件或会话”；会话头的 `caller` 是父子关系与权限（runtime.md 输出 108 的 `abort` 一行）的依据。开发者已允许插件 `asUser` 代替用户发话，所以实际增加的能力有限，这里列为建议。
+- 如何核实：/tmp/review-t14-impl-backend/exp/send-later.test.ts 里用测试世界的门面 `create({profile, caller: {kind:"session", id: parent.id, …}, questions: "caller"})` 建出的会话，父 Agent 的 `agent_send` 认作自己派的、正常放话并登记任务。
+- 建议改法：门面的 `create` 拒绝或去掉 `caller`（以及只对子会话有意义的 `questions: "caller"`），只留给 `AgentRuntimeService`；或在 Spec 里明说插件可以替会话建子会话。
+
+### 10. 界面两处对 `held` 的处理与状态栏不一致：父会话行的“子代理等你处理”不认 `held`；聚焦目标不再先选等审批的
+
+- 严重程度：建议
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/session-list.ts:114（`childWaiting` 只认 `=== "waiting"`）；web/activity.ts:33（`target` 取第一个 `!== "running"`）
+- 现象：(a) 子代理会话是前台会话，会进活动；远程 `killJob` 停掉子代理后子会话里是 `heldBy` 用户的话，活动给它 `held`。状态栏的 waiting 计数把 `held` 算进去（activity.ts:37），会话行自己的 `status` 也经 `listStatus` 画成 waiting，但父会话行的 `childWaiting` 只认 `"waiting"`，父会话折叠时看不到“子代理等你处理”，与状态栏的“1 个等你处理”对不上。(b) 改动前点状态栏先聚焦等审批、等回答的会话；现在 `held` 与 `waiting` 同级，按 Map 顺序谁在前选谁，停在审批上、真正卡着运行的会话可能排在只是留着话的会话后面。
+- 为什么是问题：conversation.md 输出 48：“状态栏的活动只把只有用户能放行的留着的话算作等你处理……会话列表的行在这时也标出来”，两处口径应一致；(b) 是改动前已有的行为被顺带改了，计划里没提。
+- 如何核实：读代码对照 activity.ts:36-37 与 session-list.ts:108、114。
+- 建议改法：`childWaiting` 用同一个判断（`!== "running"` 或 `listStatus(...) === "waiting"`）；`target` 先找 `waiting`，没有再找 `held`。
+
+### 11. 几处静默吞错与结果不看；`heldText` 不看 `cause.code`；`passthrough` 的注释被挤开
+
+- 严重程度：建议
+- 类别：代码质量
+- 位置：jobs/steer.ts:29（放行后读快照失败 `() => undefined`）；kit/sessions/table.ts:335（`#refreshHeld` 的 `.catch(() => null)`）；subagents/tools.ts:490、493（`heldNotes` 两处 `.catch(() => null)`）；tools.ts:476（`start` 成功后的 `resume` 结果不看）；kit/sessions/meta.ts:173（取消留下的话，`remove` 的结果不看）；tools.ts:168-174（`heldText`）；tools.ts:167-168（两段文档注释叠在一起）
+- 现象与原因：
+  - 仓库的禁止清单要求“不用静默的 `catch` 吞掉错误，至少写一条诊断”。上面四处失败时什么都不留：插话等待少一次到达判断、活动的 `held` 停在旧值、父 Agent 少一条“留着”的说明，都无从排查。`remove` 失败时标题会话里留下一条就绪或留着的话，正是这次改动要防的“被下一次生成带走”。
+  - `start` 成功后的 `resume` 失败（例如 `held-by-user`）被丢掉；`heldNotes` 的“N 条被用户暂停”能部分补上，但其它码（`log-broken` 等）没有任何痕迹。
+  - `heldText` 只看 `end`：收口批没开起运行时 `cause` 是 `{end: 收口方式, code: "no-model" | "reassembly-pending" | "session-closing" | …}`（runtime.md 输出 104），这时写“子会话这一轮已结束，这句话没有被处理”，真正原因（下一次运行开不起来）没写出来；conversation.md 输出 48 对同样的 `cause` 写“运行没开起来：<码的说明>”。
+  - `/** 内核与存储的失败原样交回… */` 原本是 `passthrough` 的说明，现在压在 `heldText` 的说明上面，`passthrough` 没了注释。
+- 如何核实：读代码。
+- 建议改法：四处 catch 改成 `report(...)` 一条诊断再降级；`resume`、`remove` 失败写诊断（`remove` 失败可写进 `#failed` 的消息）；`heldText` 有 `code` 时写“下一次运行没开起来（<码>）”；把 `passthrough` 的注释挪回它上面。
+
+## 按影响排序
+
+报告按核实先后追加，按影响的顺序是：1、3、7、8、5、4、2、6、9、10、11。
+
+## 未发现问题的方面
+
+- 任务中心的停止：远程 `killJob` 走 `jobs.kill(null, …)`，驱动拿到 `byUser = true`，用句柄表的用户视图 `abort{keepQueue}`；`kill` 工具走 `center.kill(context.sessionId, …)`，`owner` 核对保证停的人就是任务的父会话，驱动用父会话视图。后台命令的驱动（builtin/shell-background.ts:149）只读第一个参数，不受影响；插件停止时只对 shell 任务调 `kill("interrupted")`（agent.ts:450），子代理不发中止，符合 subagents 输出 16 的最后一句。
+- `jobs/steer.ts` 的键名与时序：内核 `inputQueued` 的留着标记就是 `state: "held"`（kernel/run/input.ts:83），与读法一致；先订阅后读快照；放行后读快照时父会话正停在工具调用里，插话要等这批工具结算才会被取走，不会在读快照前被取走。
+- 句柄表 `#refreshHeld` 的代价与竞态：内核 `snapshot()` 是不含 await 的内存读（kernel/session/session.ts:340），几次调用按调用先后 resolve，不会旧快照盖新快照；每条缓冲区事件一次，每轮两三次，代价可以忽略。空闲关闭之后迟到的结果只改已移出表的条目，多发一次 `activityChanged`，无害。
+- 标题会话（meta.ts）：宿主身份、有运行在跑时不发、`runId` 为空时取消（`later`、`held` 的去向 `runId` 都为空，覆盖 builtin-profiles 输出 9 的两种情形），除第 11 条的 `remove` 结果外没发现问题。
+- 内部调用方的身份：远程合同（remote.ts 的 `create`、`view`）、`builtinTools` 的 `changeSettings`、`SessionMeta` 读主会话都仍是用户；子代理与任务中心直接用 `table.view(id, {kind:"session"})`；`AgentRuntimeService` 只在插件内部用。
+- 下游：plugin.ts 给 `sessions://` 目录的 `activity` 滤掉 `held`（按空闲显示）；在跑的工作用 `activityWithBackground()`，不受影响；subagents/tree.ts 只把活动序列化作变化检测，`held` 的变化多推一次 `treeChanged`，无害。
+- 测试世界的 `asUser` 包装：仓库里经 `agentKey` 取服务的只有测试探针与 tasks.test.ts 的新用例（`grep -rl agentKey` 结果），没有产品插件被它掩盖；第 1 条的问题在包装后的门面上同样存在。
+
+## 数量
+
+阻断 1，重要 6，建议 4，共 11 条。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11
