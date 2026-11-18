@@ -71,6 +71,6 @@ updated: 2026-11-15
 | [t15](tasks/t15-drag-import/README.md) | 从系统拖入文件、图片与文件夹（文件树、编辑器插图、书架导入）。未开工 |
 | [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。实现与两路审查完成并合入 master；切片 6（Windows 拖放手测）等 pc-notype |
 | [t20](tasks/t20-background-tasks-from-browser/README.md) | 浏览器入口登记后台任务与可续传上传（t15 批量拖入的前置，2026-11-17 开发者同意分两步）。未开工 |
-| [t17](tasks/t17-window-backdrop/README.md) | 磨砂透明的窗口背景（实验）。未开工 |
+| [t17](tasks/t17-window-backdrop/README.md) | 磨砂透明的窗口背景（实验）。已合入 master（f92d24efd），设置缺省关 |
 | [t21](tasks/t21-desktop-polish/README.md) | 开发者 2026-11-18 的第二轮反馈：清理 pc-notype 残留、默认窗口 1600×1000、搜索收窄、标志与项目名对齐、书架顶端像 JetBrains 欢迎页。已完成，合入 master；真实桌面里试书架顶端待开发者 |
 | [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、CHANGELOG 与由它生成的中文 Release 说明、发版脚本 `release:prepare`、发布手册、安装包改名。已完成，合入 master；推送后演练待开发者授权 |
