@@ -4,7 +4,7 @@ import {shallowRef} from "vue";
 import type {GridLayerItem} from "../grid-rects";
 import {useRenderOrder} from "./useRenderOrder";
 
-/** 读屏顺序（docs/specs/ui/nested-grid.md 的“按矩形摆放”）：`aria-owns` 按树序列出，停放的内容项 `inert`，读屏本来就读不到，不进列表。 */
+/** 读屏顺序（docs/specs/ui/nested-grid.md 输出 132）：`aria-owns` 按树序列出，停放的内容项 `inert`，读屏本来就读不到，不进列表。 */
 const item = (key: string, kind: "leaf" | "content" = "leaf") => ({key, kind}) as unknown as GridLayerItem<unknown>;
 
 describe("useRenderOrder", () => {

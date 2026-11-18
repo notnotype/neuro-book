@@ -295,7 +295,7 @@ const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
 });
 
 /**
- * 缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”：隐藏、拖到零的区域降到零，离开的节点留在过渡里）这一刻的布局已经是终点：零宽，或不在呈现里。
+ * 缩回去的叶（docs/specs/ui/nested-grid.md 输出 46、49：隐藏、拖到零的区域降到零，离开的节点留在过渡里）这一刻的布局已经是终点：零宽，或不在呈现里。
  * 卡片四边、相连与场景图沿用它最后一次有尺寸时的，不然缩回去的第一帧卡片就少了外边距、换了圆角。只记呈现着、有尺寸的叶，缩完、回来了就用新算的。
  */
 const presentedLeaves = computed(() => new Set(leafIdsOf(props.projection.input)));

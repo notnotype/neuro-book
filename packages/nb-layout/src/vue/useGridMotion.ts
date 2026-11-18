@@ -1,5 +1,5 @@
 /**
- * 外框的过渡（docs/specs/ui/nested-grid.md 的“过渡”）：布局变了之后决定要不要滑过去。
+ * 外框的过渡（docs/specs/ui/nested-grid.md 输出 35）：布局变了之后决定要不要滑过去。
  *
  * 判定按结果，不只看来源：矩形没变就什么都不做；变了再排除手势与容器尺寸。容器尺寸有两个来源，晚一拍到：宿主用自己的
  * `ResizeObserver` 量完先发布布局，这个 grid 自己的实测盒下一个回调才变，中间 Vue 会刷新一次。所以两个都要比，只比一个的话，第二拍
@@ -134,7 +134,7 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         zero: zeroLeaves(frame.items),
     };
     if (input.swap == null || frame.holding === true) return move;
-    // 同时只有一条带：别处的另一次交换先把进行中的送到终点，这一轮当作静止时开始（docs/specs/ui/nested-grid.md 的“交换”）。
+    // 同时只有一条带：别处的另一次交换先把进行中的送到终点，这一轮当作静止时开始（docs/specs/ui/nested-grid.md 输出 73）。
     const settle = input.band != null && !swapTouchesBand(input.swap, input.band);
     const plan = settle
         ? planSwap({swap: input.swap, items: frame.items, previous: frame.previous, band: null, now: [], busy: new Set()})
@@ -179,7 +179,7 @@ export function useGridMotion(options: {
     const held = shallowRef<ReadonlySet<string>>(new Set());
     /** 降到零的叶（节点 id，`shrinkingLeaves`）：停放、不可交互，过渡结束（`stop`）前头与内容还画着。只在过渡中有。 */
     const shrinking = shallowRef<ReadonlySet<string>>(new Set());
-    /** 进行中的交换（docs/specs/ui/nested-grid.md 的“交换”）：带上的几组；过渡结束（`stop`）就清掉。 */
+    /** 进行中的交换（docs/specs/ui/nested-grid.md 输出 70 到 73）：带上的几组；过渡结束（`stop`）就清掉。 */
     const band = shallowRef<GridSwapBand | null>(null);
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();

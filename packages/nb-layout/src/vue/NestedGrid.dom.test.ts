@@ -358,6 +358,24 @@ describe("命中结果映射到分界线的状态", () => {
         expect(others.every((item) => item.getAttribute("aria-disabled") !== "true")).toBe(true);
     });
 
+    it("宿主给分隔线写样式（`sashStyle`）：按所在分支与两侧节点写到那一条分隔线上；同名的属性以网格的位置为准", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        stubLayout(wrapper);
+        await nextTick();
+        const sash = (key: string) => wrapper.get<HTMLElement>(`[data-sash="${key}"]`).element;
+        const placed = {left: sash("root:0").style.left, position: sash("root:0").style.position};
+        await wrapper.setProps({
+            sashStyle: (ref: {branch: string; before: string; after: string}) => (ref.branch === "root" && ref.before === "left" && ref.after === "right"
+                ? {"--sash-fill": "red", left: "-999px", position: "static"}
+                : undefined),
+        });
+        await nextTick();
+        expect(sash("root:0").style.getPropertyValue("--sash-fill")).toBe("red");
+        expect({left: sash("root:0").style.left, position: sash("root:0").style.position}).toEqual(placed);
+        expect(sash("right:0").style.getPropertyValue("--sash-fill")).toBe("");
+    });
+
     it("收起为零的分支里，叶之间的分隔线长度为零：不可聚焦、不进命中、键盘不调整；展开后恢复", async () => {
         // docs/specs/ui/nested-grid.md 的“分支的收起”：一列三片叶，收起策略配在这一列上。
         const column = (collapsed: boolean): Grid<string> => createGrid<string>({

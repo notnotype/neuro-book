@@ -211,7 +211,7 @@ describe("分隔线的身份与两端", () => {
     });
 });
 
-describe("内容项的矩形（输出“内容层”）", () => {
+describe("内容项的矩形（ui/nested-grid 输出 80、81、86）", () => {
     const place = (dpr: number) => {
         const instance = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [{kind: "leaf", id: "a", ref: "a", size: {width: 100, height: 0}}, {kind: "leaf", id: "b", ref: "b", size: {width: 100, height: 0}}]}, {sashSize: 1});
         const extent = {width: 601, height: 400};
@@ -247,7 +247,7 @@ describe("内容项的矩形（输出“内容层”）", () => {
     });
 });
 
-describe("最大化（输出“最大化”）", () => {
+describe("最大化（ui/nested-grid 输出 97、98）", () => {
     const items = () => {
         const instance = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
             {kind: "leaf", id: "bar", ref: "bar", size: {width: 48, height: 0}, sizing: "fixed", minimumSize: {width: 48, height: 0}},

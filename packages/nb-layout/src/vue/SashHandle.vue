@@ -35,7 +35,7 @@ const props = defineProps<{
     ariaNow: number;
     ariaValueText: string;
     /**
-     * 已经不在布局里、只是还画着的线（交换里滑出去的，`NestedGrid` 的“交换”）：不向手势 scope 登记，也不跟着悬停、拖动亮。
+     * 已经不在布局里、只是还画着的线（交换里滑出去的，docs/specs/ui/nested-grid.md 输出 66）：不向手势 scope 登记，也不跟着悬停、拖动亮。
      * 它和树里同一分支同一序号的线同键（例如两个容器的分节都在同一个区域分支里），登记了会盖掉、之后摘掉时连带删掉活线的登记。读屏读不到它。
      */
     detached?: boolean;

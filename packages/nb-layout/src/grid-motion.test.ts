@@ -134,7 +134,7 @@ describe("新出现的项从哪里开始", () => {
     });
 });
 
-describe("离开的叶留着缩回去（输出“过渡”）", () => {
+describe("离开的叶留着缩回去（ui/nested-grid 输出 44 到 48）", () => {
     const branch = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children});
     const column = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "col", orientation: "vertical", children});
     /** 摆好的叶、分隔线，加上 `mounted` 里每块叶一个内容项（叶不在这一帧里时它停放着）。 */
@@ -206,7 +206,7 @@ describe("离开的叶留着缩回去（输出“过渡”）", () => {
     });
 });
 
-describe("过渡中内容贴着外框的右边（输出“过渡”）", () => {
+describe("过渡中内容贴着外框的右边（ui/nested-grid 输出 39）", () => {
     const branch = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children});
     const column = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "col", orientation: "vertical", size: {width: 300, height: 300}, children});
     const frameOf = (root: GridNodeInput<string>): GridLayerItem<string>[] => {
@@ -310,7 +310,7 @@ describe("stableOrder", () => {
     });
 });
 
-describe("内容项的过渡（输出“内容层”）", () => {
+describe("内容项的过渡（ui/nested-grid 输出 81、85、86、92）", () => {
     const layers = (widths: Record<string, number>, contents: ReadonlyArray<{key: string; leaf: string; active?: boolean; insetTop?: number}>) => {
         const children = Object.entries(widths).map(([id, width]) => leaf(id, width));
         const {node, layout} = grid({kind: "branch", id: "root", orientation: "horizontal", children}, 4, {width: 1000, height: 300});
@@ -433,7 +433,7 @@ describe("只有浮动窗的矩形变了", () => {
     });
 });
 
-describe("新开的浮动窗从内容原来的叶出发（输出“过渡”）", () => {
+describe("新开的浮动窗从内容原来的叶出发（ui/nested-grid 输出 107、108）", () => {
     const WINDOW = {x: 300, y: 40, width: 400, height: 200};
     /** 一行叶，加上 `windows` 里的浮动窗（都在 `WINDOW`），内容项面板头 32。 */
     const scene = (widths: Record<string, number>, contents: ReadonlyArray<{key: string; leaf: string; active?: boolean; insetTop?: number}>, windows: ReadonlyArray<string> = []) => {

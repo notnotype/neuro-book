@@ -257,6 +257,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await page.keyboard.press("Enter");
         await expect(strip.locator(`[data-panel-head="${conversation}"]`)).toHaveCount(1);
         await expect(strip.locator("[data-region-entry]").first()).toBeFocused();
+        // 入口条里每个入口一个 Tab 停靠（输出 47）。
+        await page.keyboard.press("Tab");
+        await expect(strip.locator("[data-region-entry]").nth(1)).toBeFocused();
+        await page.keyboard.press("Shift+Tab");
+        await expect(strip.locator("[data-region-entry]").first()).toBeFocused();
         await runCommand(page, "最大化/还原面板");
         await expect(page.locator(`[data-panel-head="${conversation}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`)).toHaveAttribute("aria-pressed", "true");
     });
@@ -602,7 +607,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(after.panels[upper]?.collapsed ?? false).toBe(false);
     });
 
-    test("切回容器、侧栏从隐藏到显示：切回时整张卡片滚进来、隐藏显示时长出来缩回去，停放过的内容跟着外框走，每一帧都不超出外框；侧栏显示时整列从活动栏边上横着长出来，隐藏时整列留着缩回去（ui/nested-grid 的内容层、过渡与交换）", async ({page}) => {
+    test("切回容器、侧栏从隐藏到显示：切回时整张卡片滚进来、隐藏显示时长出来缩回去，停放过的内容跟着外框走，每一帧都不超出外框；侧栏显示时整列从活动栏边上横着长出来，隐藏时整列留着缩回去（ui/nested-grid 输出 42、45 到 48、61 到 77、85）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const explorer = await sectionOf(page, EXPLORER);
@@ -1241,7 +1246,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect.poll(() => regionIndicatorLeft(page, "panel")).toBeCloseTo(manyLeft, 0);
     });
 
-    test("侧栏还在滚时点右栏的入口：侧栏这一刻直接到终点，右栏照常滚（ui/workbench-layout 输出 42；ui/nested-grid 的交换）", async ({page}) => {
+    test("侧栏还在滚时点右栏的入口：侧栏这一刻直接到终点，右栏照常滚（ui/workbench-layout 输出 42；ui/nested-grid 输出 73）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const strip = page.locator('[data-region-strip="auxiliarybar"]');
@@ -1335,7 +1340,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(after).toEqual({swap: 0, sliding: false, moving: 0, at: toEntry});
     });
 
-    test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {
+    test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 输出 42、45 到 49、86）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const toggle = page.locator('[data-titlebar-layout="panel"]');
@@ -1405,7 +1410,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         for (const row of showing.filter((row) => row.frameHeight > 20 && row.frameHeight < final - 1)) expect(row.bottomGapHit).toBe(false);
     });
 
-    test("隐藏侧栏时缩回去的那段：焦点在侧栏里马上交出去；缩到一半又显示、长到一半又隐藏都停在对的样子，不留残影；减少动态效果时同一帧就没了（ui/nested-grid 的过渡）", async ({page}) => {
+    test("隐藏侧栏时缩回去的那段：焦点在侧栏里马上交出去；缩到一半又显示、长到一半又隐藏都停在对的样子，不留残影；减少动态效果时同一帧就没了（ui/nested-grid 输出 47、48、59）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const explorer = await sectionOf(page, EXPLORER);

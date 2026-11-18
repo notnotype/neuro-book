@@ -269,7 +269,7 @@ function collapsedRigid(collapse: SashCollapseState | undefined): {low: number; 
 }
 
 /**
- * 收起为零的节点：没有看得见的内容，两根轴上都不该再占最小尺寸（docs/specs/ui/nested-grid.md 的“分支的收起”）。
+ * 收起为零的节点：没有看得见的内容，两根轴上都不该再占最小尺寸（docs/specs/ui/nested-grid.md 输出 137）。
  * 收成标题行的（`collapsedSize` 大于 0）还看得见，只在父分支主轴上是刚性的。
  */
 function collapsedToZero(collapse: SashCollapseState | undefined): boolean {
@@ -463,7 +463,7 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
     }
 
     /**
-     * `rigid`：祖先沿这几根轴收起着。收起的分支把 collapsedSize 原样交给里面的节点（docs/specs/ui/nested-grid.md 的“分支的收起”），
+     * `rigid`：祖先沿这几根轴收起着。收起的分支把 collapsedSize 原样交给里面的节点（docs/specs/ui/nested-grid.md 输出 134），
      * 所以这几根轴上“空间小于约束下限”是有意的，不报诊断；另一根轴照常。收起为零的节点两根轴都算：父分支在交叉轴上不再按它的下限留空间
      * （`constraintOnAxis`），它和它里面的节点在那根轴上分不够同样是有意的。
      */

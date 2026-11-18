@@ -248,7 +248,7 @@ export function enteringRects(items: ReadonlyArray<GridLayerItem<unknown>>, prev
 }
 
 /**
- * 新开的浮动窗从哪里出发（docs/specs/ui/nested-grid.md 的“过渡”）：窗的叶上一帧没有，它的活动内容上一帧活动着、有尺寸，在另一块叶里；
+ * 新开的浮动窗从哪里出发（docs/specs/ui/nested-grid.md 输出 107）：窗的叶上一帧没有，它的活动内容上一帧活动着、有尺寸，在另一块叶里；
  * 起点是那块叶上一帧的矩形（`key` 到矩形），整张卡片从原来的位置拿起来，和内容同一个起点、同一个终点。
  * 按 `enteringRects`，浮动窗没有兄弟，第一帧就画在终点，内容从旧矩形单独飞过去，两张卡片错开。
  *
@@ -272,7 +272,7 @@ export function floatLiftStarts(items: ReadonlyArray<GridLayerItem<unknown>>, pr
 }
 
 /**
- * 离开的叶里要在过渡里留着缩回去的那些（docs/specs/ui/nested-grid.md 的“过渡”）：上一帧的叶，矩形换成缩到的终点，带 `leaving`。
+ * 离开的叶里要在过渡里留着缩回去的那些（docs/specs/ui/nested-grid.md 输出 45、46）：上一帧的叶，矩形换成缩到的终点，带 `leaving`。
  * 与 `enteringRects` 对称：从根往下找第一个这一帧没有、下面也没有留下的叶的节点，它和它下面的叶作为一块，沿它在父分支里的主轴缩回
  * 这一帧它前后兄弟相接的那道缝；它在分支一头、挨着的兄弟这一帧到了那一头时，缩向那一头。
  *
@@ -356,7 +356,7 @@ export function keptSizeStarts(input: {
 }
 
 /**
- * 过渡中内容贴着外框右边的项（docs/specs/ui/nested-grid.md 的“过渡”）：`keptSizeStarts` 里的叶和它们的内容项，外框只有右边在动时
+ * 过渡中内容贴着外框右边的项（docs/specs/ui/nested-grid.md 输出 39）：`keptSizeStarts` 里的叶和它们的内容项，外框只有右边在动时
  * （从左边长出来、缩向左边）贴着右边，整块跟着平移进出，不是被外框像幕布一样拉开、盖上。左边在动时（从右边长出来、缩向右边）贴左边
  * 本来就跟着它走，两条边都动的也贴左边，都不用记。
  *

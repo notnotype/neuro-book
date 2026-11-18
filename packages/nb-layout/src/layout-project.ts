@@ -268,7 +268,7 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
 }
 
 function minimumOf(node: GridNodeInput<string>, axis: keyof GridExtent, parentAxis: keyof GridExtent | null, sashSize: (branchId: string, index: number) => number): number {
-    // 收起为零的节点（整个区域拖到零、横向分支里拖到零的面板）没有看得见的内容，两根轴都不占最小尺寸（docs/specs/ui/nested-grid.md 的“分支的收起”）：
+    // 收起为零的节点（整个区域拖到零、横向分支里拖到零的面板）没有看得见的内容，两根轴都不占最小尺寸（docs/specs/ui/nested-grid.md 输出 137）：
     // 不然窗口窄了、矮了，会把看不见的分节“收走”。收成标题行的还占着面板头，只在父分支主轴上换成面板头的高度。
     if (node.collapse?.collapsed === true && (node.collapse.collapsedSize === 0 || axis === parentAxis)) return node.collapse.collapsedSize;
     if (node.kind === "leaf") return node.minimumSize?.[axis] ?? 0;

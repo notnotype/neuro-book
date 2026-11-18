@@ -10,7 +10,7 @@
 
 `layout` 返回每个节点的 `sizes`、有效交互 `constraints`、每条分隔条的 `sashSizes` 和 `issues`。Renderer 同时消费这三份几何数据；不可满足的窄容器已经降级，不能再用原始 min/max 把面板夹回溢出。
 
-收起且 `collapsedSize` 为 0 的节点看不见：它在两根轴上都不占最小尺寸，不抬高父分支另一根轴的下限，另一根轴放不下它里面的叶时也不报诊断（[Spec](../../../docs/specs/ui/nested-grid.md) 的“分支的收起”）。`collapsedSize` 大于 0 的（标题行）只在父分支主轴上换成 `collapsedSize`，另一根轴照常约束、照常诊断。
+收起且 `collapsedSize` 为 0 的节点看不见：它在两根轴上都不占最小尺寸，不抬高父分支另一根轴的下限，另一根轴放不下它里面的叶时也不报诊断（[Spec](../../../docs/specs/ui/nested-grid.md) 输出 137，“分支的收起”见输出 133 到 138）。`collapsedSize` 大于 0 的（标题行）只在父分支主轴上换成 `collapsedSize`，另一根轴照常约束、照常诊断。
 
 `resizeBranch(branchId, axis, baseline, target)` 一次提交同一分支全部直接子节点的当前呈现 px。基线和目标均不包含 sash；两者必须覆盖相同子节点、有限非负、总量相等，基线必须符合当前树，目标必须符合当前约束。过期基线、越界目标或无法反解时返回失败且树不变。
 
@@ -51,4 +51,4 @@ v1 无法可靠推导两轴意图，明确拒绝；未知高版本、重复 id�
 
 `find(id)` 是只读查找（宿主读身份与意图用）；改动仍走结构操作，直接改写节点会绕过守恒与规模判定。
 
-行为目标见 [ui.nested-grid](../../../docs/specs/ui/nested-grid.md)，当前能力仍为 planned，产品持久化宿主和完整浏览器验收另行闭合。
+行为见 [ui.nested-grid](../../../docs/specs/ui/nested-grid.md)，能力仍为 planned：宿主一侧的持久化（Storage 宿主、同名叶的恢复地址隔离、双标签订阅，验收 3、6）还没有闭合。

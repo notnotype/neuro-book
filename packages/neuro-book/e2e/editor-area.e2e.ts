@@ -389,7 +389,7 @@ test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆�
     await expect(page.locator("[data-editor-group]")).toHaveCount(1);
 });
 
-test("三组 A | B | C：拖 B | C 往左，B 到最小宽度后推着 A 走；不松手往右拖回，A | B 不动、B 先长回来；松手后就是这样（ui/nested-grid 的分配接着上一帧）", async ({page}) => {
+test("三组 A | B | C：拖 B | C 往左，B 到最小宽度后推着 A 走；不松手往右拖回，A | B 不动、B 先长回来；松手后就是这样（ui/nested-grid 输出 21）", async ({page}) => {
     // 宽到三组都比最小宽度（220）宽出不少，B 才有一段先缩、A 才有一段被推。
     await page.setViewportSize({width: 2400, height: 900});
     await open(page);
@@ -767,7 +767,7 @@ test("组与组之间不画线：一组一张卡片，卡片主题里两张卡�
     await closeAll(page);
 });
 
-test("拆分的过渡：旧组的标签条与正文跟着外框变窄，不露空白；新组一开始就是最终宽度，从右边滑入（docs/specs/ui/nested-grid.md 的“过渡”）", async ({page}) => {
+test("拆分的过渡：旧组的标签条与正文跟着外框变窄，不露空白；新组一开始就是最终宽度，从右边滑入（docs/specs/ui/nested-grid.md 输出 37、38、39）", async ({page}) => {
     await page.emulateMedia({reducedMotion: "no-preference"});
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
@@ -779,7 +779,7 @@ test("拆分的过渡：旧组的标签条与正文跟着外框变窄，不露�
     await tabs(page).first().focus();
     await page.keyboard.press("Control+\\");
     await expect(page.locator("[data-editor-group]")).toHaveCount(2);
-    // 组在内容层里，和叶外框是兄弟元素（docs/specs/ui/nested-grid.md 的内容层）。
+    // 组在内容层里，和叶外框是兄弟元素（docs/specs/ui/nested-grid.md 输出 80）。
     const during = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-editor-group]")].map((group) => ({
         frame: document.querySelector(`[data-leaf="${group.dataset.editorGroup ?? ""}"]`)!.getBoundingClientRect(),
         group: group.getBoundingClientRect(),
