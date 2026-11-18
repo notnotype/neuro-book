@@ -67,6 +67,12 @@ function called(tool: string, args: Readonly<Record<string, unknown>>, status: "
     ];
 }
 
+/** 代码里调的工具的结果（嵌套调用，runtime.md 输出 96 的形状）：没有开始事件，参数在结果里，不记 `details`。 */
+function nested(tool: string, args: Readonly<Record<string, unknown>>, status: "ok" | "error" | "denied"): LogEvent {
+    seq += 1;
+    return {type: "nestedToolResult", data: {id: `nested-${String(seq)}`, within: {tool: "kit.eval", invocation: "eval-1"}, tool, args, status, preview: "", size: 0}} as unknown as LogEvent;
+}
+
 const run = (restore: CompactionRestore, path: readonly LogEvent[], contextWindow = 200_000) => restore.run(context, {signal: new AbortController().signal, method: "summary", replacement: "摘要", path, contextWindow, kept: () => false});
 const targets = (restored: unknown) => (restored as {kind: string; target: string}[]).map((item) => `${item.kind}:${item.target}`);
 
@@ -94,6 +100,18 @@ describe("放回", () => {
         expect(result.notices[0]).toContain("a.md 的内容");
         expect(result.notices[3]).toContain("这是计划文件");
         expect(result.notices.at(-1)).toContain("work://log/session.jsonl");
+    });
+
+    test("输出 9：代码里调的成功的读、写与 edit 同样算，按参数取文件；没成功的不算", async () => {
+        for (const name of ["a.md", "b.md", "c.md", "被拒.md"]) await writeFile(join(home, name), `${name} 的内容\n`);
+        const path = [
+            nested(TOOLS.read, {path: "home://a.md"}, "ok"),
+            nested(TOOLS.write, {path: "home://b.md", content: "…"}, "ok"),
+            nested(TOOLS.edits[1]!, {path: "home://c.md", old: "一", new: "二"}, "ok"),
+            nested(TOOLS.write, {path: "home://被拒.md", content: "…"}, "denied"),
+        ];
+        const result = await run(restoreWith({plan: null, log: null}), path);
+        expect(targets(result.restored)).toEqual([`file:${GLOBAL}/c.md`, `file:${GLOBAL}/b.md`, `file:${GLOBAL}/a.md`]);
     });
 
     test("输出 7、11：宿主没有计划或日志时不放、不发那条提示", async () => {

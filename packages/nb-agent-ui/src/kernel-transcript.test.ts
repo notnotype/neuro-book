@@ -280,12 +280,16 @@ describe("嵌套调用（docs/specs/ui/agent-conversation-view.md“有子调用
 
         const [first] = await waitingFor(session, 1);
         const parent = assistants(transcript.messages())[0]!.toolCalls[0]!;
-        expect(parent.startedAt).toBeNumber();
+        // 开始时刻取外层调用的 toolStarted 事件的时间，不是消息或回复的时间。
+        const started = (await session.raw.path()).find((event) => event.type === "toolStarted") as {at: number} | undefined;
+        expect(parent.startedAt).toBe(started!.at);
         // 读已经做完；写在等审批，占位用的是嵌套调用的 id，事项也指着它。
         expect(childrenOf(transcript).map((child) => [child.name, child.status, (child.args as {path: string}).path])).toEqual([["read", "success", "长.md"], ["write", "running", "一.md"]]);
         expect(transcript.pending()[0]).toMatchObject({kind: "approval", callId: childrenOf(transcript)[1]!.id, within: {tool: "lab.code", invocation: parent.invocation}});
         expect((await rebuilt(session.raw)).messages()).toEqual(transcript.messages());
 
+        // 等审批的这段时间推进时钟：子调用的开始时刻是批准之后它真正开始执行的那一刻。
+        session.clock.advance(5_000);
         await session.raw.resolve({commandId: id(), id: first!.id, decision: "allow"});
         const [second] = await waitingFor(session, 1);
         await session.raw.resolve({commandId: id(), id: second!.id, decision: "deny"});
@@ -297,7 +301,7 @@ describe("嵌套调用（docs/specs/ui/agent-conversation-view.md“有子调用
         // 3000 个汉字约 9 KB，日志里只有前 2 KB。
         expect(children[0]!.result!.truncated).toBe(true);
         expect(children[1]).toMatchObject({result: {text: "写好 一.md", truncated: false}});
-        expect(children[1]!.startedAt).toBeNumber();
+        expect(children[1]!.startedAt).toBe(started!.at + 5_000);
         // 写的内容约 3 KB，内核写日志时截短了：标成只有预览，界面不按它算增删行数；短参数的不标。
         expect(children[1]!.argsPreview).toBe(true);
         expect(children[2]!.argsPreview).toBeUndefined();

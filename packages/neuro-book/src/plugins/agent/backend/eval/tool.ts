@@ -10,6 +10,8 @@ import {join} from "node:path";
 
 import {Value} from "typebox/value";
 
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+
 import {OutputCapture, saveFullOutput} from "@notnotype/nb-harness/kit/tools";
 import type {JsonValue, NestedOutcome, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {defineContract, implement, shape, slice} from "@notnotype/nb-harness/kernel";
@@ -87,6 +89,8 @@ export interface EvalToolDeps {
     readonly entry: string;
     /** 这个会话此刻的工具集（与内核的生效工具集同一份来源）。 */
     readonly toolsOf: (context: ToolSessionContext) => readonly CodeTool[];
+    /** 宿主的时钟：空闲回收与单元时限都在它上面计时，测试推进它。握手的期限不在这里（冷启动是宿主的成本，按真实时间）。 */
+    readonly clock: RuntimeClock;
     readonly idleMs?: number;
     readonly handshakeMs?: number;
 }
@@ -123,7 +127,9 @@ class EvalSession implements ToolImplementation, KernelOwner {
     #leafMoves: number | null = null;
     #reason: ResetReason | null = null;
     #cells = 0;
-    #idle: ReturnType<typeof setTimeout> | null = null;
+    /** 这个实例上一次执行单元时的 `ctx.leafMoves`：与这次相同，说明那个单元的结果在当前路径上（可能就在同一条回复里、还没写进日志）。 */
+    #ranAt: number | null = null;
+    #idle: (() => void) | null = null;
 
     constructor(private readonly context: ToolSessionContext, private readonly services: AgentToolServices, private readonly deps: EvalToolDeps) {}
 
@@ -165,12 +171,15 @@ class EvalSession implements ToolImplementation, KernelOwner {
         }
         this.deps.registry.touch(this);
         const kernel = this.#kernel;
-        // 新内核、而这条路径上跑过 eval：之前的变量没了，结果第一行说明（eval.md 输出 12）。没有 `#reason` 的是这个实例新建的：
+        // 新内核、而这条路径上跑过 eval：之前的变量没了，结果第一行说明（eval.md 输出 12）。路径上的计数只含已经写进日志的结果，
+        // 同一条回复里前面几个 eval 的还不在里面，所以另看这个实例在叶子没动过时有没有跑过单元。没有 `#reason` 的是这个实例新建的：
         // 服务重启、分叉出的会话，或换了 Profile（内核换 Profile 时释放全部工具实现、按新上下文重建）；新实例分不出是哪一种。
-        const notice = fresh && (ctx.read(evalStateContract)?.cells ?? 0) > 0 ? `内核已重置（${this.#reason ?? "服务重启、分叉或换了 Profile"}），之前的变量没了。` : null;
+        const ranOnPath = this.#ranAt === ctx.leafMoves || (ctx.read(evalStateContract)?.cells ?? 0) > 0;
+        const notice = fresh && ranOnPath ? `内核已重置（${this.#reason ?? "服务重启、分叉或换了 Profile"}），之前的变量没了。` : null;
         this.#reason = null;
 
         const cell = ++this.#cells;
+        this.#ranAt = ctx.leafMoves;
         const outcome = await this.#run(kernel, cell, rewritten.source, code, tools, globals, ctx, args.timeout as number | undefined);
         if (outcome.reset !== null) await this.#reset(outcome.reset);
         else this.#scheduleIdle();
@@ -201,7 +210,7 @@ class EvalSession implements ToolImplementation, KernelOwner {
         };
         // 这个单元的范围：超时或停止时触发，内核按宽限期结算在途的嵌套调用（harness/runtime.md 输出 100）。
         const scope = new AbortController();
-        const deadline = new Deadline((timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000, () => scope.abort("timeout"));
+        const deadline = new Deadline(this.deps.clock, (timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000, () => scope.abort("timeout"));
         const stop = (): void => scope.abort("aborted");
         ctx.signal.addEventListener("abort", stop, {once: true});
         const byName = new Map(tools.filter((tool) => tool.global === undefined).map((tool) => [tool.name, tool]));
@@ -289,13 +298,11 @@ class EvalSession implements ToolImplementation, KernelOwner {
     }
 
     #scheduleIdle(): void {
-        this.#idle = setTimeout(() => void this.#reset("空闲"), this.deps.idleMs ?? EVAL_IDLE_MS);
-        // 空闲回收不该拖住进程退出。
-        (this.#idle as {unref?: () => void}).unref?.();
+        this.#idle = this.deps.clock.schedule(() => void this.#reset("空闲"), this.deps.idleMs ?? EVAL_IDLE_MS);
     }
 
     #clearIdle(): void {
-        if (this.#idle !== null) clearTimeout(this.#idle);
+        this.#idle?.();
         this.#idle = null;
     }
 }
@@ -357,10 +364,10 @@ class Deadline {
     #remaining: number;
     #since = 0;
     #waiting = 0;
-    #timer: ReturnType<typeof setTimeout> | null = null;
+    #timer: (() => void) | null = null;
     #stopped = false;
 
-    constructor(budgetMs: number, private readonly expire: () => void) {
+    constructor(private readonly clock: RuntimeClock, budgetMs: number, private readonly expire: () => void) {
         this.#remaining = budgetMs;
     }
 
@@ -385,8 +392,8 @@ class Deadline {
 
     #arm(): void {
         if (this.#stopped || this.#timer !== null) return;
-        this.#since = Date.now();
-        this.#timer = setTimeout(() => {
+        this.#since = this.clock.now();
+        this.#timer = this.clock.schedule(() => {
             this.#timer = null;
             if (!this.#stopped) this.expire();
         }, Math.max(0, this.#remaining));
@@ -394,8 +401,8 @@ class Deadline {
 
     #disarm(): void {
         if (this.#timer === null) return;
-        clearTimeout(this.#timer);
+        this.#timer();
         this.#timer = null;
-        this.#remaining -= Date.now() - this.#since;
+        this.#remaining -= this.clock.now() - this.#since;
     }
 }
