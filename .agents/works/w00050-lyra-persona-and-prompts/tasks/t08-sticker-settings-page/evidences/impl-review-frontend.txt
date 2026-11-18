@@ -1,0 +1,233 @@
+w00050 t08 页面部分实现审查（前端）。被审：d3806b340..d8db099e9 的 stickers/web、agent/web 两个文件、agent/shared/contracts.ts、lab fixtures、web/plugins.ts、e2e、locales、shared/text.ts。以下按核实顺序追加，最后统一整理排序与数量。
+
+### 1. 删除、复制、全部加进来、常用开关的失败被页面吞掉，用户什么也看不到
+严重程度：重要
+类别：遗漏（失败路径）、与 Spec 不一致
+位置：StickerPacksPage.vue:158-165（confirmRemovePack）、:171-181（confirmRemoveItem）、:210（copyToMine）、:324 与 :337（list-files、list）；StickerFields.vue:35-37（toggle）；packs-page.ts:123-134（failure 只对 unknown-outcome 发通知）
+现象：packs-page.ts 里除导出、在文件夹中显示、加图汇总、unknown-outcome 外没有任何地方发通知（grep deps.notify 共 8 处，列出于 packs-page.ts 与 plugin.ts）。模型的 deletePack、deleteSticker、deleteFile、listFiles、copyPack 只把 {reason} 交回页面。页面这边：
+- confirmRemovePack/confirmRemoveItem：`if (failure !== null) return;` 直接丢掉 reason，对话框已关，用户看到的是“什么也没发生”。
+- copyToMine：`await props.copyPack(props.selected)` 的返回值整个丢弃（连 `{reason}` 都没看）；按钮也没有忙状态，连点两次会复制出 `x` 和 `x-2`。
+- `@list-files`、`@list`：`void props.listFiles(...)`，结果丢弃。
+- StickerFields.toggle：`await props.commit({common: value})`，返回的失败原因没人用；状态行只合并 name、description 两个草稿的 error，常用开关失败（例如 manifest-full、pack-changed）不显示。Switch 是受控的（:model-value="item.common"），失败时回到原值，用户只看到开关弹回去，没有原因。
+为什么是问题：Spec 27“保存失败回到原来的值并通知”、32“中途失败或复制途中插件换了版本……通知原因”、34“确认之后文件夹被别处换掉的不删”（要让用户知道没删）、计划“写入失败：远程方法的失败码映射成文字走工作台通知”。其中 pack-changed、permission-denied、manifest-full、busy 都是文件被别处动过后会实际遇到的码。计划说“确认后先关再做，失败走通知（同 Profile 页删除）”，Profile 页的删除在失败时发通知，这里没有对应实现。
+如何核实：grep -rn "notify" packs-page.ts plugin.ts 只有 8 处；sticker-page.dom.test.ts 与 packs-page.test.ts 没有任何“删除失败”“复制失败”“listFiles 失败”的用例（packs-page.test.ts:190 只测了 updateSticker 返回的失败文字，不测通知）。在 Lab 里让 deletePack 返回 {reason:"x"} 即可看到静默。
+建议改法：让 packs-page.ts 的 deletePack、deleteSticker、deleteFile、listFiles、copyPack 在失败时统一经 deps.notify 发一条（同导出的写法），页面不用管；常用开关失败走状态行（给 StickerFields 加一个 toggleError，或让 toggle 把失败写进同一个 status）。copyToMine 加 busy 状态并禁用按钮。补三条 DOM 测试：删除失败、复制失败、开关失败。
+
+### 2. 改表情名字（含给“认不出的图”起名）成功后选中丢失，属性栏弹回表情包，焦点落到 body
+严重程度：重要
+类别：遗漏（交互状态）
+位置：StickerPacksPage.vue:90-96（watch gridItems）、:331（:key="selectedItem.key"）；pack-view.ts:63-64（stickerKey 含名字）
+现象：选中键是 `s:文件名\0名字`，名字变了键就变。updateSticker 成功后 refreshAll 换了 detail，`watch(gridItems)` 发现旧键不在了，一律 `selectedKey = null`；StickerFields 又按键重建。结果：用户在属性栏里改完名字按回车，属性栏立刻换成表情包自己的，刚才的输入框被移出文档（焦点落到 body），格子没有选中。“认不出的图”流程（Spec 27 的主路径：选中 1.png、写名字、回车）最明显，该格还会因为从“认不出”组移到“其他”组而换位置；“加进来”（listFiles）同理，键从 `e:文件` 变成 `s:…`。
+为什么是问题：用户改完名字多半还要写说明、切常用；现在每次改名都要重新找格子，键盘用户整个焦点上下文丢了（输入框消失后焦点回到 body，再 Tab 从窗口头开始）。计划与 Spec 27 没说改名后回到表情包，只说“改包名时选中的表情与草稿清空”。
+如何核实：e2e 验收 9 里改名后只断言了格子 title 变成“哇”，没断言属性栏还在；DOM 测试的 updateSticker 是桩、detail 不变，测不到这条路径。可在 Lab 或 DOM 测试里把 detail 换成改名后的版本再看 `[data-sticker-fields]`。
+建议改法：页面在名字提交成功后按 `file` 在新的 gridItems 里找回格子（同一文件有两项时再比对名字），把 selectedKey 迁到新键并 focusKey；或让 watch(gridItems) 先试着按 file 找，找不到才回到表情包。补一条 DOM 测试：换 detail 之后属性栏还在、输入框仍有焦点。
+
+### 3. 网格里按 Esc 既取消选中又关掉整个设置窗口
+严重程度：重要
+类别：和现有页面不一致、遗漏（交互状态）
+位置：StickerGrid.vue:61-65（onKeydown 的 Escape 分支）
+现象：Escape 分支只 `emit("select", null)`，没有 preventDefault 也没有 stopPropagation。设置窗口是 FloatingWindow（SettingsWindow.vue:261，closeOnEsc 默认 true），它的 Esc 关闭在 window 冒泡阶段，只有 `event.defaultPrevented` 时才不关（nb-ui dialog-close.ts 的 onEscapeKeyDown 注释写明了：“内层控件已经处理过（.prevent）的……都不算关闭”）。同仓库的先例 SettingsFileView.vue:290-295 就是先 preventDefault 再放行。焦点即选中，所以焦点在格子上时 Esc 必然同时：清掉选中，关闭设置窗口（页面卸载，没提交的草稿也没了）。
+为什么是问题：Spec 26“Esc 回到表情包”在真实窗口里用不了，用户第一次按 Esc 想退回表情包，窗口整个消失。属性栏输入框一侧用了 `.esc.stop` 所以那里没问题，格子这一侧漏了。DOM 测试直接对元素 dispatch，没有窗口，测不到。
+如何核实：读 nb-ui/src/components/feedback/dialog-close.ts 的 onEscapeKeyDown；在开发服务里点一个格子按 Esc。
+建议改法：有选中时 `event.preventDefault()`（或 stop）后再 emit，没有选中时放行让窗口关（与 SettingsFileView 同一做法）；组字中（isComposing）不处理。DOM 测试里派一个冒泡到 window 的 keydown，断言 defaultPrevented。
+
+### 4. 属性栏输入框的回车不避开输入法组字：用中文输入法选词的回车会把半截名字提交
+严重程度：重要
+类别：遗漏（交互状态）、和现有控件不一致
+位置：StickerFields.vue:63（`@keydown.enter.prevent="name.onEnter"`）、PackFields.vue:30（`@keydown.enter.prevent="title.onEnter"`）、field-draft.ts:66（onEnter）、:68-70（onEscape）
+现象：Vue 的 `.enter` 修饰符不看 `event.isComposing`。用拼音输入“开心”时，按回车确认候选词（此时 keydown 的 key 仍是 "Enter"，isComposing 为 true）会触发 onEnter，把组字中途的草稿（可能是拼音字母）提交到服务端；`.prevent` 还会吃掉这个回车。名字合规规则只允许字母数字下划线连字符开头，拼音字母恰好合规，所以大概率不是报错，而是把“kaixin”写成了表情名。同理 Esc 在组字时本来是取消组字，这里被当成“还原草稿”，把用户输了一半的内容清掉。
+为什么是问题：这是中文产品，名字、显示名、说明最常用的就是中文输入法；nb-ui 自己的 SearchSelect、QuickPick、Dialog、dialog-close.ts，以及设置窗口的 SettingsFileView 都显式判断 composing（grep isComposing 命中 7 个文件）。
+如何核实：grep -rln isComposing packages/nb-ui/src packages/neuro-book/src；在开发服务里用输入法打字时按回车选词。
+建议改法：useCommittedText 的 onEnter、onEscape 入口加 `if (event.isComposing || event.keyCode === 229) return`（改成接收事件），或在组件里统一包一层。DOM 测试补一条：派 `new KeyboardEvent("keydown", {key: "Enter", isComposing: true})` 不提交。
+
+### 5. 清空名字或显示名后草稿与目录对不上：输入框空着、每次失焦都再写一次
+严重程度：建议（体验瑕疵，不丢数据）
+类别：遗漏、测试漏项
+位置：field-draft.ts:25-30、:49-62；后端语义 editor.ts:302-306、151-152
+现象：Spec 28“名字清空表示用文件名”，后端把 "" 或全空白存成 null，目录里 title 回落成文件夹名（catalog.ts:340 `parsed.title ?? folder`）、名字回落成文件名主干。清空后重取的 source() 是回落值（如 `cat`），而草稿仍是 ""。`watch(source)` 在有焦点（回车提交）时不覆盖草稿；之后失焦，`submit()` 里 `"" !== source()` 且 `inFlight` 已清，于是再提交一次（一次多余的写与全量重取）；这次成功后 source 没变，watch 不触发，输入框一直空着，实际生效的是回落值。用户看到的是“空框”，不是“当前用的名字”。仅空白字符串同理（草稿 "  "）。
+为什么是问题：重复写入的副作用是重排清单与一次 refreshAll；更主要是显示与实际不一致，用户不知道清空有没有生效。草稿“保持到重取的 detail 里已是新值”的合同对这种“服务端归一化”的值不成立（trim、NFC 也一样：名字提交的 `"é"` 分解形式，写回 NFC，source 与草稿字节不同）。
+如何核实：在 Lab 或 DOM 测试里让 updateSticker 成功并把 item.name 换成文件主干，清空名字回车再失焦，数 updateSticker 调用次数（预期 1，实际 2）；断言输入框的值（预期回落值，实际空）。
+建议改法：提交成功后一律 `draft.value = source()`（无论有没有焦点）并清 inFlight，或把“提交成功后草稿对齐目录值”写进 useCommittedText；DOM 测试补“清空”一条。
+### 6. 导入 zip 第一次就失败（zip 不合格、太大、忙、断线）时页面什么也不显示
+严重程度：重要
+类别：遗漏（失败路径）、与 Spec 不一致
+位置：StickerPacksPage.vue:196-203（zipChosen）；packs-page.ts:261-273（model.importZip，只在成功时通知）；http.ts:62-75
+现象：zipChosen 里 `const result = await props.importZip(file); if (!("conflict" in result)) return;`。model.importZip 对失败只返回 `{reason}`（import-invalid、too-large、busy、cross-site、timeout、unavailable……），没有任何通知；页面看到不是 conflict 就直接 return，成功时（`{id}`）与失败时（`{reason}`）一样都落到这行。所以“导入一个坏 zip”“导入超过 64 MiB 的 zip”“包名转不出（全是中文）”这些 Spec 36 明确要求“报错，提示改一下文件夹或 zip 的名字”的情况，用户点了“导入 zip”、选了文件，什么反应都没有。只有进了冲突对话框之后的失败才会写在 status 里（chooseConflict）。
+为什么是问题：导入是这个页面的主入口之一，失败路径比成功路径更常见（压缩软件带进来的子文件夹、重名大小写、全中文包名）；沉默让用户以为在传。
+如何核实：sticker-page.dom.test.ts:358 的导入用例走的是冲突分支；packs-page.test.ts:222 的“别的失败交回原因”只测模型返回值，没有人消费它。让 importZip 回调返回 `{reason:"x"}`，页面上没有任何文字出现。
+建议改法：和第 1 条一起：失败统一由模型发通知（notify.failed 这个键已经在目录里却没人用），或页面在 zipChosen 里把 reason 交给通知。补一条 DOM 或 packs-page 测试。
+
+### 7. 无效的“我的”表情包的右边：显示“插件带来的表情包，只能看”，原因是裸错误码，改包名入口缺失
+严重程度：重要
+类别：与 Spec 不一致、遗漏
+位置：StickerPacksPage.vue:315-321；PackFields.vue:25-31、52；StickerPacksPage.vue:320；locales/zh-CN.json:69（panel.pluginNote）
+现象：`invalid` 时页面渲染 `<PackFields v-if="detail !== null" :readonly="true" ...>`。后端给无效包也返回 detail（pack-detail.ts 对 invalid 同样出 detail），所以走这个分支。PackFields 的 readonly 分支写死画 `panel.pluginNote`（“插件带来的表情包，只能看。要改就复制到我的。”），对用户自己的无效包（清单读不懂、文件夹名不合规）是错话，用户没有“复制到我的”可点。同一块里的 `rail.invalid + （problem）` 把 `summary.problem` 当文字拼进括号，值是 `manifest-too-large`、`manifest-unreadable`、`manifest-invalid`、`folder-unreadable`、`folder-name`、`symlink` 这类内部码，没有文字化；DOM 测试（:451-454）反而断言 `toContain("manifest-invalid")` 把它固定了。Spec 26“无效的表情包右边写原因，只能在文件夹中显示、删除，文件夹名不合规的还能改包名”，实现是通过更多菜单提供，右边正文里没有改包名按钮（readonly 隐藏了 PackFields 的“改…”），而且读的人看不出该怎么办。
+为什么是问题：用户最需要说明的恰是“这个包怎么坏的、该怎么修”，这里给的是错话加英文码。测试用 `detail: null`，绕过了真实会走的 PackFields 分支。
+如何核实：看 sticker-page.dom.test.ts:451 的 show({... detail: null})；把 detail 换成 `{summary: 无效包, stickers: [], extras: [], listed:false, token:"t"}` 就会看到 pluginNote。
+建议改法：无效包不复用 PackFields 的 readonly 分支，页面自己写一块（原因文字、可做的事）；problem 码加六条文字目录键（中英文），中文里写“该怎么办”（如“清单有语法错误，在文件夹里修好它”）；folder-name 时在这一块里放“改包名”按钮；测试用真实形状的 detail。
+
+### 8. 本地 zip 读不到时的提示没有实现，加上两个预览对象地址永不释放
+严重程度：建议
+类别：遗漏、资源释放
+位置：zip-preview.ts:30-33（URL.createObjectURL）；ImportConflictDialog.vue 与 StickerPacksPage.vue 里没有 revoke；locales 里 notify.readFile 无人使用；http.ts:67-75、StickerPacksPage.vue:221-232
+现象：
+(a) previewZip 为每个预览图 `URL.createObjectURL(new Blob(...))`，全仓库 grep revokeObjectURL 只有 http.ts 的下载那一处，预览的对象地址从不释放（最多 4 个、各至多 2 MiB，每次导入冲突一批，对话框关了也不放，直到窗口刷新）。`v-if="conflict.info !== null"` 让对话框一旦出现就一直挂着，再次冲突时旧预览被换掉而没释放。
+(b) 计划“本地文件读不了时通知「文件读不到了，重新选择」”：目录里有 notify.readFile 这个键，没人用。zip 在用户选定之后被移动、删除（页面把 File 对象存了两次传输之间），fetch 抛 TypeError/NotReadableError，http.ts 一律 `catch → unavailable`，用户看到“连不上服务”，方向完全错。
+为什么是问题：(a) 小泄漏但违反成对释放；(b) 错误信息把用户引向服务端。
+如何核实：grep -rn revokeObjectURL stickers/；grep notify.readFile 全仓库。
+建议改法：zip-preview 交回 dispose，conflict 关闭、再次冲突或卸载时调用；http.importZip 区分 `NotReadableError`（读不到）与别的网络错误，交回 `file-unreadable`，模型映射到 notify.readFile。顺带删掉没用的 notify.failed、grid.addLabel、panel.fileInfo（或用起来）。
+### 9. 改包名的令牌在“提交那一刻”才取，不是计划与 Spec 33 写的“打开对话框那一刻”；测试名写的是后者却测不出
+严重程度：重要
+类别：与 Spec 不一致、测试漏项
+位置：packs-page.ts:217-225（tokenOf、renamePack）、:237-241（deletePack）；StickerPacksPage.vue:131-141（openRename、submitName，没有保存令牌）、:147-153（askRemovePack 只存 id、name、count）；packs-page.test.ts:165-173
+现象：计划第 88 行：“改名、删除、替换用的 token 取自打开对话框那一刻的 detail”；Spec 33：“打开对话框之后文件夹被别处换掉的，不改，通知原因”。实现里页面回调的签名是 renamePack(id, folder)、deletePack(id)，没有令牌参数；模型在被调用时才读 `detail.value.token`。detail 会随 changed 事件重取，所以对话框开着的几十秒里，文件夹被文件管理器或 Agent 换成别的内容后，令牌已经是新的，改包名照做，换掉的新文件夹被改了名，用户并不知情。删除一侧令牌取在确认之后，符合 Spec 34，但同样不是打开确认框那一刻（确认框里写的“3 个表情”是旧内容）。
+为什么是问题：令牌存在的全部意义就是“用户看到的和被操作的是同一个文件夹”，现在这条保护在改包名上实际没有，只有“详情还没到”这个边角会得到 pack-changed。
+如何核实：packs-page.test.ts:165 的用例名是“改包名带打开时的令牌”，但 world().pack() 永远回同一个 `token-<id>`，令牌不变，测不出取在哪一刻；把 pack() 的令牌在两次调用之间换掉再调 renamePack 即可复现（预期 pack-changed，实际用了新令牌）。
+建议改法：页面在 openRename 时从 props.detail 取令牌存进 nameDialog，提交时交给回调（renamePack(id, folder, token)）；删除同理在 askRemovePack 存令牌。模型不再自己取。测试改成真的换令牌。
+
+### 10. 确认框取消后焦点不回原处；删除表情包后在窄布局里焦点落空
+严重程度：建议
+类别：遗漏（焦点）、和现有页面不一致
+位置：StickerPacksPage.vue:158-166（confirmRemovePack 的 pendingFocus）、:183-186（onRemoveClosed）；对照 ProfileSettingsPage.vue:90-108
+现象：
+(a) 两个 AlertDialog 都没有 trigger，AlertDialog.md 写明“没有触发器时不执行 Reka 的自动焦点归还”。键盘流程是：焦点在格子上按 Delete，弹确认，取消。这时 onRemoveClosed 看到 pendingFocus 为 null 什么也不做，焦点留在 body，格子上的选中还在但焦点没了，要重新 Tab 进来。计划“焦点：对话框关闭后回到触发它的按钮”，.md 也这么写（StickerPacksPage.md 交互一节）。
+(b) confirmRemovePack 删除包后：`querySelector("[data-sticker-rail-item][aria-current='page']") ?? querySelector("[data-sticker-picker]")`。窄布局下左栏只是 `display: none`，仍在 DOM 里，第一个选择器就命中它，`.focus()` 对不可见元素无效，`??` 的后备永远不会用到；焦点落空。Profile 页同位置的写法（ProfileSettingsPage.vue:98-107）逐个选择器判断 `offsetParent === null` 才跳过，并写了注释“窄布局里左栏隐藏”，这里漏了。另外 data-sticker-picker 落在 nb-ui Select 的哪个节点要核实，Profile 页写的是 `[data-profile-picker] input, [data-profile-picker]`。
+如何核实：DOM 测试里取消后断言 document.activeElement，没有这条；把容器宽度设窄（Lab 390 宽）删包后看 activeElement。
+建议改法：askRemoveItem 记下 `document.activeElement`，取消（closed 且没有 pendingFocus）时还回去；删包后的焦点照 Profile 页逐个选择器判断可见再 focus。
+### 11. 拖进来的文件夹靠 `size === 0 且 type === ""` 猜，仓库里现成的 `readDrop` 才是准的
+严重程度：建议（未在本机浏览器验证）
+类别：和现有页面不一致、遗漏
+位置：upload-queue.ts:52-56；StickerPacksPage.vue:253-259（onWindowDrop 直接读 `dataTransfer.files`）；对照 PluginsPage.vue:488-495 与 nbook/ui/dropped-folder.ts 的 readDrop
+现象：计划与 Spec 29 要求“拖进来的文件夹跳过并在汇总里写出”。实现按 `file.size === 0 && file.type === ""` 判断。已知 Chrome 在 Linux 上把拖入的目录交成 size 为 4096 的 File（Windows 常为 0），这时目录不会被判成文件夹，而是当图片 PUT 上去，要么 fetch 因读不了目录抛错变成 `unavailable`（用户看到“连不上服务”），要么服务端报 type-mismatch，原因写的不是“文件夹不收”。同时，0 字节且没有类型的真文件（无扩展名的空文件）会被误判成文件夹。dropped-folder.ts 的 readDrop 用 `webkitGetAsEntry().isDirectory` 精确分类，要求在 drop 事件同步段里调用，插件页就是这么用的；任务表里“拖放兜底”引用的正是这个模块，只用了 dragHasFiles。
+为什么是问题：判据靠平台相关的魔数，测试（upload-queue.test.ts:48）只测了“size 0 且 type 空”这一种伪造输入，真实浏览器的值没人对过。
+如何核实：在 Linux Chrome 里把一个文件夹拖进网格，看 File.size；或读 dropped-folder.ts 的头部注释。
+建议改法：onWindowDrop 在同步段里调 readDrop(dataTransfer)，把 kind === "folder" 的名字交给队列当 `folder` 拒绝项，其余文件照旧用 `files`；队列不再自己猜。
+
+### 12. 页面先取目录、后订阅变化，同插件另一个入口是先订阅再取
+严重程度：建议
+类别：遗漏（并发）、和现有写法不一致
+位置：packs-page.ts:211-229（start）；对照 web/plugin.ts:57-63（“先订阅目录变化再取目录”）
+现象：start() 先 `void loadPacks()`，再异步 `await remote.events.changed.subscribe(...)`。取目录的请求先发出，订阅的建立可能晚于它的回包；两者之间文件夹被改（文件管理器、Agent），这次变化没有事件、也不会被这次取到，页面停在旧列表直到下一次变化。onResync 只管断线重连，管不了这个空档。同插件另一个入口（resolver 的目录）写明了“先订阅再取”并留了注释，页面照抄了要订阅的部分却没抄顺序。
+为什么是问题：窗口小、概率低，但症状是“页面没有跟着目录变”（Spec 38），而且不会自愈。
+如何核实：读两处顺序；packs-page.test.ts 的 world().events.subscribe 是同步成功的，测不出顺序。
+建议改法：subscribe 成功（或失败后）再 loadPacks；订阅失败时照旧上报并仍取一次。
+
+### 13. 设置窗口关掉时没开始的上传没有丢掉；队列也没有取消入口
+严重程度：建议
+类别：与计划不一致、资源释放
+位置：packs-page.ts:211-229（start 返回的停止函数）、upload-queue.ts（没有取消方法）
+现象：计划“设置窗口关掉时，进行中的上传照样传完……没开始的从队列里丢掉”。停止函数只设 stopped、放订阅，队列照常往下传；一次拖进 50 张、关了窗口，剩下的 47 张仍会一张张传完。stopped 之后 addImages 末尾的 refreshAll 因 stopped 直接返回，汇总通知仍然发出，这部分行为与计划相符，但“没开始的丢掉”没有实现，也没有测试。
+为什么是问题：不是数据丢失风险，是计划与实现不一致、且关掉窗口后用户没有办法让后台上传停下来；也让“同时至多 3 张”按页面实例算（再打开页面是新模型、新队列，旧队列还在传，合计超过 3 个并发，服务端名额只有 2 个并排队 8 个，多出的会得 busy）。
+建议改法：UploadQueue 加 `cancelPending()`，停止函数里调用，被丢掉的计入汇总里的“已取消”；或把队列提到插件入口的生命周期里（跨页面实例共享）。若决定“传完为止”更合用户意，改计划与 .md 并说明。
+### 14. 点别的格子或别的包导致的失焦保存，失败时用户完全看不到：组件已经被换掉，也没有通知
+严重程度：重要
+类别：遗漏（失败路径、并发）、与 Spec 不一致
+位置：field-draft.ts:49-62（submit 把失败写进自己的 error）；StickerPacksPage.vue:331（StickerFields 按 selectedItem.key 重建）、:340（PackFields 按包 id 重建）；Spec 27“保存失败回到原来的值并通知”
+现象：保存最常见的触发是“改完名字直接去点别的格子”。点击先触发输入框 blur，commit 开始（异步）；同一时刻选中变了，StickerFields 因 `:key` 变化被销毁。写入随后失败（重名、名字不合规、pack-changed），失败原因只写进已销毁实例里的 `error` ref，页面上没有任何地方显示；模型层对这些失败也不发通知（见第 1 条）。用户的改动没有保存、也没有任何提示，格子上的名字还是旧的。切包时的 PackFields 同理。
+为什么是问题：这是改名流程的主路径，不是边角；Spec 把“并通知”写在保存失败里，计划也写“回到 detail 的值并通知”，这条通道正好兜住组件已不在的情况。
+如何核实：DOM 测试里让 updateSticker 返回 {reason}，改名后不 blur 到输入框外而是点另一格，断言有没有地方出现原因：没有（现有用例“保存失败：输入框回到目录里的值，状态行写原因”只测了留在同一格的情况）。
+建议改法：模型的 updateSticker、updatePack 失败时一并经 deps.notify 发一条（带包名与表情名），状态行继续保留给还在屏幕上的字段。补一条“失焦后马上换格子再失败”的测试。
+
+### 15. `as never` 绕过类型的写法：下拉菜单项与翻译键
+严重程度：建议
+类别：代码质量（绕过类型系统）
+位置：StickerPacksPage.vue:263-269（menuItems 的 `{…separator: true} as never`、`{…tone: "danger"} as never`）；packs-page.ts:116、121-123、306（`` t(`reject.${detail}` as never) ``、`` t(`error.${known}` as never, …) ``）
+现象：menuItems 是推断出的 `{id,label,iconClass}[]`，往里放分隔线和 danger 项就断言成 never。nb-ui 的 DropdownMenuItemData 本来就有 `separator`、`tone` 字段（dropdown-menu.types.ts:20、27），标成 `DropdownMenuItemData[]` 就不需要任何断言。翻译键同理：KNOWN 与 REJECTS 是 Set<string>，所以拼出来的键对类型系统是任意字符串，只好 as never；写错一个键编译不报，只在运行时 strict 引擎里抛。
+为什么是问题：AGENTS.md“不用 hack 绕过类型系统”。`as never` 还会让以后改 DropdownMenu 的菜单项形状时这里静默漏检。
+建议改法：menuItems 声明 `DropdownMenuItemData[]`（从 @notnotype/nb-ui/components 导出的类型）；KNOWN、REJECTS 写成 `as const` 数组，派生字面量联合类型，键用 `` `error.${Known}` ``、`` `reject.${Reject}` `` 模板字面量类型，让 t 的键检查自然通过。
+
+### 16. StickerGrid.md 写“没有 expose”，但组件 defineExpose 了两个方法；页面按命令式调用它们
+严重程度：建议
+类别：组件与同名 .md 不一致
+位置：StickerGrid.vue:90（`defineExpose({afterRemoval, focusKey})`）；StickerGrid.md 数据一节末句“没有插槽与 `expose`，属性不透传”；调用处 StickerPacksPage.vue:171（`grid.value?.afterRemoval`）、:176、:177（focusKey）
+现象：components.md 要求“slots、expose、attrs 是否透传，三样都要写出来，没有就写没有”，并且“改行为必同步 .md”。这里 .md 说没有，实现有；页面又靠它决定删除后的焦点去处，是个没写进合同的命令式通道。同一份 .md 里 Delete 一句只写了 Delete，实现也处理 Backspace（StickerGrid.vue:67-71）。另外 keydown 处理不看修饰键：Ctrl+Home、Alt+方向键、Ctrl+Delete 等都被当成裸键吃掉并 preventDefault。
+建议改法：.md 写明 expose 的两个方法的签名与用途（或改成 emit 加 props 的明面通道，由页面算好 next 再给）；Backspace 要么写进 .md 要么去掉；方向键与 Delete 只在无修饰键时处理。
+
+### 17. 汇总通知里写死了中文标点与括号，英文界面里是“b.png（…）；相册（…）”
+严重程度：建议
+类别：遗漏（文案走目录）
+位置：packs-page.ts:305-309（summarize）；StickerPacksPage.vue:320、PackFields.vue:52（`（${…}）`）；StickerPackNameDialog.vue:41（`join("、")`）
+现象：计划“文字全部走消息目录”。汇总里的每一项用模板字符串拼 `${name}（${reason}）` 再用 `；` 连接，英文界面显示成 “Some images were not added: b.png（…）；…”，全角括号和分号；无效包的原因同样是 `（${problem}）`，改名对话框的 Profile 名单用 `、`。nb-ui 与目录里的其他处没有这类先例（Profile 页的列表用目录里的占位符）。
+建议改法：目录里加 `notify.uploadedItem`（“{{name}} ({{reason}})”）与连接符键，或用 Intl.ListFormat（按界面语言）连接。
+
+### 18. 错误文案：服务端给的 detail 被丢掉，显示名超长会显示“名字要以字母或 _ 开头……”
+严重程度：建议
+类别：遗漏、接口与合同
+位置：packs-page.ts:117-120（reasonOf 只在 image-rejected、import-invalid 时带 detail）；后端 editor.ts:268（updatePack 的显示名超长用 `name-invalid` 码）与 locales error.name-invalid（讲的是表情名规则）
+现象：editErrors 的每个码都带 `{detail}`（给人看的原因），页面一律换成目录里的通用句。后端对显示名过长、新建时 title 过长也用 name-invalid，页面于是告诉用户“要以字母或 _ 开头，只含字母、数字……至多 32 个字”，与这个字段无关；write-failed 的 detail 里有“部分完成，以目录为准”，通用句只写了“可能只做了一部分”，丢了具体的。
+建议改法：显示名的错误用单独的码（后端 description-invalid 已有类似的例子），或页面对 name-invalid 在 PackFields 一侧优先显示 detail；write-failed 带上 detail。
+（对第 17 条的更正：插件页 PluginsPage.vue:105 用 `new Intl.ListFormat(locale, {type: "conjunction"})` 按语言连接列表，是现成先例，可照用；第 17 条里“没有这类先例”一句不准确，以本句为准。）
+
+### 19. 设置页入口急切地解析 Agent 的服务，表情包分区的出现被拖到 Agent 入口激活之后；服务键的位置也与计划相反
+严重程度：建议（从代码推断，未验证）
+类别：依赖与激活顺序、与计划不一致
+位置：stickers/web/plugin.ts:77-79（`const usage = await context.services.resolve(stickerAllowlistUsageKey)`）；agent/shared/contracts.ts:126-134（键定义在 Agent 一侧）；计划第 44 行“定义在 stickers/shared/contracts.ts”
+现象：
+(a) nb-runtime 的可选依赖只在 activate 里按需 resolve（host.ts:1070-1076 的注释“可选依赖由 activate 按需 resolve，不因声明而初始化”），resolve 会去激活提供方并等它。page 入口在自己的 activate 里同步等 Agent 入口完整激活，才会把 settings.pages 的贡献交出去。Agent 入口依赖项多，激活慢（或因必需依赖不可用而卡住）时，设置窗口里的“表情包”分区会一起晚出现或不出现；而计划写的是“Agent 入口受阻时改名对话框写通用提醒”，不是分区消失。又因为只在激活时解析一次，Agent 入口后来恢复或重启，页面拿着启动时的结果不会更新。
+(b) 键 `stickerAllowlistUsageKey` 放在 agent/shared/contracts.ts，stickers/web/plugin.ts 因此导入 Agent 的合同，而 Agent 本来就导入 stickers/shared/contracts.ts：两个插件在源码层互相引用（architecture.test.ts 允许，机检不会报）。计划为避免这个方向把键放在 stickers 一侧，Agent 去实现它。
+为什么是问题：把“可选的名单查询”变成了分区可见性的前置条件；方向偏离计划又没有记录理由（没有记录的理由）。
+如何核实：读 host.ts:1070-1076；没有任何测试同时启动两个入口（只有 sticker-usage.test.ts 测纯函数，DOM 测试直接传 fake 的 allowlistUsage）。
+建议改法：page 入口的 activate 不 resolve，改成 allowlistUsage 回调里第一次用到时才 `await context.services.resolve(...)`（解析失败返回 null，页面已经处理 null）；把键挪回 stickers/shared/contracts.ts；补一条 e2e：改包名对话框里出现选了该包的 Profile 名字（e2e 现在没有任何一条走“改包名”，验收 9 的“改名”是改表情名）。
+
+### 20. 冲突对话框的两个静默分支
+严重程度：建议
+类别：遗漏（交互状态）
+位置：StickerPacksPage.vue:208-213（chooseConflict）；ImportConflictDialog.vue:60-61（“替换已有的”按钮不看 token）
+现象：
+(a) `if (mode === "replace" && info.existing.token === null) return;`：已有的包拿不到令牌（服务端 identify 失败时 token 为 null）时，“替换已有的”按钮看起来可点，点了没有任何反应。
+(b) 选择之后服务端又交回 conflict（已有的包被别处换掉，Spec 36“再问一次”）时，只静默换掉 info，对话框里什么也不说，用户不知道为什么还要再选一次，且预览仍是旧 zip 的（没问题）与已有包的新内容（右侧变了，不显眼）。
+建议改法：(a) token 为 null 时禁用“替换”并在状态行写原因；(b) 再问时 status 写“已有的包刚被别处改过，请重新选择”（目录里加键）。
+
+### 21. 手写重复与散落的格式知识
+严重程度：建议
+类别：代码质量
+位置：StickerPacksPage.vue:92（`` `e:${extra.file}` `` 与 pack-view.ts 的 extraKey 重复）、:208（`/api/nbook.stickers/image/…` 硬编码，shared/contracts.ts 已有 STICKERS_ROUTE_PREFIX 与 stickerImageUrl）、:197、:222（`id.slice(id.indexOf(".") + 1)` 从 id 字符串里切包名，packs-page.ts:265 同样）；StickerFields.vue:166-176 与 StickerGrid.vue:289-300（`.sticker-slot` 的样式重复两份）；StickerFields.vue:41-43（手写的“返回表情包”原生 button，样式自己写，nb-ui 有 Button variant="ghost" size="sm" icon-class）
+现象：页面里自己判断“哪些格子是认不出的”要重新从 detail.extras 拼键，GridItem 里没有 `problem`/`reason` 字段；改成 GridItem 带 `reason`，页面与 StickerFields 都不用再算 problemKeys、isUnlisted。existing 预览的图地址直接写路径字符串。从 id 里切文件夹名的地方（3 处）应该用 summary.folder，冲突信息里加一个 folder 字段。.sticker-slot 的尺寸之外的样式两份一模一样。返回按钮是 StickerFields 里唯一手写的原生 button，既有 focus ring 又有尺寸，Button 完全能表达。
+建议改法：按上面各点改成已有的出口，不新增机制。
+
+### 22. 无障碍：左栏行尾的状态图标只有 title，没有可读名称
+严重程度：建议
+类别：无障碍
+位置：StickerPackRail.vue:58-61
+现象：`<span class="i-lucide-circle-x …" :title="text('rail.invalid')">` 与 circle-alert 图标是装饰性的 span，title 对读屏与触屏不可靠，ui-development-spec 第 5 节第 4 条要求图标要有非空可访问名称。读屏用户听到的是“星璃 9”，不知道这个包无效或有认不出的图（Spec 25 要求提示）。行内的数字（表情数）也没有语义，听起来像孤立的“9”。
+建议改法：给 span 加 `role="img"` 与 `aria-label`，或把说明并入按钮的 `aria-label`（“星璃，9 个表情，有图片认不出”）。
+### 23. 测试：哪些判据没有被测到，哪些写法让测试读不懂
+严重程度：建议
+类别：测试与可测性
+位置：sticker-page.dom.test.ts、packs-page.test.ts、e2e/sticker-packs.e2e.ts
+现象（逐条对判据）：
+(a) 没有测试的行为：删除、复制、列出文件、常用开关的失败反馈（第 1 条）；导入第一次失败（第 6 条）；失焦保存时组件已换掉（第 14 条）；名字提交成功后选中的去向（第 2 条，DOM 测试的 updateSticker 是不改 detail 的桩，e2e 只断言格子 title 变了）；格子上 Esc 是否冒泡关窗（第 3 条）；输入法组字时的回车（第 4 条）；清空名字后的草稿（第 5 条）；取消确认框后焦点、窄布局删包后焦点（第 10 条）；令牌取在哪一刻（第 9 条，packs-page.test.ts:165 的用例名写了“带打开时的令牌”，替身的令牌永不变，测不出）；无效包带真实 detail 的渲染（第 7 条，用例传 detail: null）。
+(b) 整个文件没有测试：http.ts（请求形状、错误体解析、downloadName、导出保存）、zip-preview.ts（目录读取、数张数、体积上限、对象地址释放）、page-host.ts（动作到模型的接线，停止时释放订阅）、web/plugin.ts 的 page 入口（贡献登记、Agent 服务可选依赖有无两种情况）、agent/web/plugin.ts 里新增的 provideService（sticker-usage.test.ts 只测纯函数）。
+(c) e2e 只有三条：验收 9（含“改名”，是改表情名）、验收 10、方向键。没有改包名、复制到我的、替换导入、窄布局、Delete 键删除。第 3、4、9、19 条各自要的真实环境（窗口 Esc、输入法、两个入口一起激活）都没有覆盖。
+(d) 可读性：sticker-page.dom.test.ts:290-316 的“新建”用例里 `calls_push` 是先用后定义的函数声明，`created` 数组也在使用之后才声明，最后还有一条 `expect(calls.create).toEqual([])` 只是为了说明默认记录器没被用上，读者要停下来想；“导入”用例同样的 `calls_import` 写法。建议统一成“先建记录数组，再 show({createPack: record(...)})”。
+(e) 没有发现的问题：用例里没有 mock 掉被测逻辑本身；没有固定毫秒等待（都是 waitUntil）；packs-page.test 的 world() 按合同返回形状，“晚到的旧详情丢掉”“同一个包的写入排队”“选中规则”都是用带闸门的方式测的，有效。变异检查我没有做。
+建议改法：按 (a)(b) 的顺序补，优先补第 1、6、14 条对应的“失败有人看到”的测试，它们补的同时会逼出实现的修正；zip-preview 与 http 用真实 Response/File 做纯函数测试即可。
+
+（行号更正：上文各条里的行号若与下面不同，以下面为准，均为 d8db099e9 的 packs-page.ts 与 StickerPacksPage.vue 等）
+- 第 1 条：StickerPacksPage.vue confirmRemovePack :142-153、confirmRemoveItem :159-171、copyToMine :215-217、全部加进来 :324、“加进来” :337 附近；StickerFields.vue toggle :35-37。
+- 第 2 条：watch(gridItems) :89-91，StickerFields 的 :key 在 :329。
+- 第 3 条：StickerGrid.vue onKeydown :66 起，Escape 分支 :69-72。
+- 第 4 条：StickerFields.vue :65-66、:79；PackFields.vue :37、:40；field-draft.ts :69-72；另有 StickerPackNameDialog.vue :74、:77 的 `@keydown.enter.prevent="submit"`：新建对话框的“显示名”恰恰是中文输入，输入法选词的回车会直接提交对话框（folder 为空时当场把“包名”标红），NewProfileDialog 只收 ASCII 名所以没这个问题，这里照抄就有了。
+- 第 6 条：zipChosen :185-194；模型 importZip packs-page.ts :262-273。
+- 第 7 条：StickerPacksPage.vue :319（PackFields readonly 分支）、:320。
+- 第 9 条：tokenOf packs-page.ts:211，renamePack :248，deletePack :274；openRename StickerPacksPage.vue:109，askRemovePack :137。
+- 第 10 条：confirmRemovePack :142-153，onRemoveClosed :173-176。
+- 第 15 条：menuItems StickerPacksPage.vue:262-267；packs-page.ts:123-124、:309。
+- 第 17 条：packs-page.ts:309；PackFields.vue:52；StickerPacksPage.vue:320；StickerPackNameDialog.vue 的 join 在 usageText 里。
+- 第 21 条：StickerPacksPage.vue:92、:194、:213；packs-page.ts:265；.sticker-slot 在 StickerFields.vue:129、StickerGrid.vue:295；返回按钮 StickerFields.vue:42。
+
+### 未发现问题的方面
+- `revertedByCode` 标志：Vue 的 watch 默认在下一次更新前批量执行，标志在 `draft.value = source()` 之后必然被紧随的 watch 消费一次；只有“草稿本来就等于目录值”时不置位，这时赋值也不触发 watch，不会残留标志吞掉下一次用户输入的清除。没发现问题。
+- `inFlight` 去重：回车与失焦各一次，在值没变、写入还在途两种情况下只提交一次，DOM 测试守住了（:196）。第 5 条是它与“服务端归一化的值”之间的缝，不是去重本身的错。
+- 晚到旧结果与选中规则（packs-page.ts）：loadPacks、loadDetail 各有序号与 `stopped` 判断，自己新建改名后选中结果包、别处删掉才回第一项都有测试，读代码没发现竞态漏洞。（改名时服务端的 changed 事件可能先到、选中会短暂跳到第一项再回来，我没有在真实运行时复现，不报。）
+- 同包写入排队 `serial`、`unknown-outcome` 的通知加重取、失败码到文字的映射：逻辑正确；`allowlistUsage(...).catch(() => null)` 吞掉异常，但按计划“查不到”本来就写通用提醒，可以接受，只是诊断里没有一条（若要严格，补一条 report）。
+- 窗口级拖放监听：加与卸载成对，`dragHasFiles` 过滤页面内拖动，dropEffect 在网格外与只读包上为 none，与插件页做法一致；落在网格外时没有像插件页那样提示“拖到网格里”，这是与 Spec 26 一致的取舍，不报。
+- `initialSticker`：仓库里已有同类的只为 Lab 加的 `initialEdit`、`initialAdd`，.md 也写了“产品里不传”，可以接受。
+- 深色主题：组件样式里没有字面颜色，全部是令牌，我核对了用到的 `--status-danger`、`--accent-main`、`--bg-hover` 等都在 colorway 契约或 tokens.css 里。
+- 500 张表情时的性能：每格是一个 div 加 `loading="lazy"` 的图，groups、flat、selectedItem 的计算是 O(n)；方向键每次 O(n)，无明显问题。
+- `columns()` 用 getComputedStyle 量列数，对 `repeat(auto-fill, 84px)` 得到已解析的轨道列表；窄窗口与 600px 以下容器查询的逻辑与 .md 一致。
+- 未验证：设置窗口默认 960 宽时网格实际有几列（左栏 168、属性栏 232 加边距，约剩 250 到 300px，大约 2 到 3 列），与评审稿 898 宽里 4 列的样子可能不同；390 宽的 Lab 场景实际是 480 宽（fixture 的 is-narrow），计划写的是 390。我没有跑浏览器。
+
+### 数量
+阻断 0；重要 8（第 1、2、3、4、6、7、9、14 条）；建议 15（第 5、8、10、11、12、13、15、16、17、18、19、20、21、22、23 条）。
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23

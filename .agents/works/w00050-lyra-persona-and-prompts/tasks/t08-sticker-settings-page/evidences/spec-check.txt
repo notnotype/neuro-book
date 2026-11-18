@@ -1,0 +1,27 @@
+t08 Spec 逐条核对（docs/specs/agent/stickers.md 输出 20、25 到 38、失败表新增行、验收 9、10）
+核对日期 2026-11-18，对象：分支 feat/w00050-t08-sticker-page 变基到 master 之后的代码。路径省略 packages/neuro-book/src/plugins/stickers/（下称 S），e2e 在 packages/neuro-book/e2e/。
+“没实现”“与字面不一致”“没测试”三类对不上的，本次核对结果都已处理（Spec 改成贴实现，或补代码与测试），列在末尾。
+
+20  设置里的表情包页：S/web/plugin.ts（page 入口的设置页贡献）、web/page-host.ts。测试：e2e sticker-packs.e2e.ts 全部。
+25  分区与左栏：web/plugin.ts（分类 ai、order 32、layers user）；components/StickerPackRail.vue（分组、缩略图、数、提示图标、新建、导入）；StickerPacksPage.vue（窄于 600 容器查询、读取中与读失败重试、选中规则）；web/packs-page.ts（选中规则）。测试：web/sticker-page.dom.test.ts“页面状态与左栏”；web/packs-page.test.ts“加载与选中”；web/pack-view.test.ts。
+26  右边与网格：StickerPacksPage.vue（头部、导出、更多菜单、复制到我的、无效包原因与改包名、拖放兜底）、StickerGrid.vue（分组、固定格子、添加格、方向键、Delete、Esc 不关窗口）、StickerSlot.vue。测试：dom 测试“网格与键盘”“无效的表情包”“拖放与只读的包”；e2e“输出 26”方向键、“网格里按 Esc”；web/pack-view.test.ts（分组与移动）。上下方向键要布局，dom 测试没有，在 e2e。
+27  属性栏：StickerFields.vue、PackFields.vue、field-draft.ts。测试：dom“属性栏的保存”（失败回原值、Esc、组字、清空对齐、改名保持选中、常用开关失败）。
+28  写进清单：backend/editor.ts（#editManifest、updatePack、updateSticker；按原样名字定位 findEntry）。测试：stickers.test.ts“表情包页的写入”（补列表、只改头不补、重名与不合规、清单满、同文件两项各改各的、两次写入排队）。
+29  添加图片：backend/prepare-image.ts、editor.addImage、routes.ts（PUT）；web/upload-queue.ts（并发 3、关页面丢没开始的）。测试：stickers.test.ts“上传、导入与导出”（缩小、WebP、GIF 超限、撞名、补偿含被换掉不删、取消）；web/upload-queue.test.ts；web/packs-page.test.ts“加图”。
+30  删除：editor.deleteSticker、deleteFile、listFiles（只删包内图片文件）。测试：stickers.test.ts 输出 30 两条（共享文件、负例）。
+31  新建：editor.createPack（暂存加改名）。测试：stickers.test.ts 输出 31；dom“新建与改包名”。
+32  复制到我的：editor.copyPack（64 MiB、-2 顺延、途中换版本丢暂存）。测试：stickers.test.ts 输出 32；dom 插件的包只读与复制。
+33  改包名：editor.renamePack（令牌）；StickerPackNameDialog.vue（代价与 Profile 名单）；令牌取自打开对话框那一刻。测试：stickers.test.ts 输出 33、34；web/packs-page.test.ts“改包名与删除用页面传来的令牌”；e2e“改包名”。
+34  删除表情包：editor.deletePack（令牌）；确认框写包名与数。打开确认框之后文件夹被换掉的不删（Spec 原写“确认之后”，实现更严，Spec 改成“打开确认框之后”）。测试：同 33；dom 删除。
+35  导出：editor.exportPack、routes GET /export、web/http.ts。64 MiB、600 项、没有图片、单个文件 32 MiB、大小写重名都不导出（后两条是本次审查补的，Spec 已写）。测试：stickers.test.ts 输出 35（含导回、新增大小写与单文件）；web/http.test.ts；e2e 验收 9。
+36  导入：backend/archive.ts、editor.importZip、#conflict、#replace、routes POST /import；ImportConflictDialog.vue、web/zip-preview.ts。测试：backend/archive.test.ts、stickers.test.ts 输出 36 三条（含炸弹、不合格、替换令牌）；dom“导入”；web/zip-preview.test.ts；e2e 验收 10。
+37  在文件夹中显示：backend/reveal.ts、src/backend/open-folder.ts、远程 revealPack。测试：stickers.test.ts 输出 37（含插件撤回窗口）；web/packs-page.test.ts“在文件夹中显示”。
+38  页面跟着目录变：packs-page.ts（先订阅再取、选中的包没了回第一项）；catalog 的 changed（含计数与令牌）。测试：web/packs-page.test.ts“加载与选中”；stickers.test.ts“写完立刻 refresh”“计数变了就通知”。
+失败表：包名已被用等、图片不合规、zip 读不懂、pack-changed、busy 与 too-large、跨站、替换残留：对应 stickers.test.ts 各条；新增行 request-aborted（stickers.test.ts“取消”）、export-conflict 与 export-too-large（“导出前按导入端的规则核对”）。
+验收 9：e2e sticker-packs.e2e.ts“验收 9”。验收 10：同文件“验收 10”。
+
+对不上并已处理的：
+- 没测试：写入失败的通知、先订阅再取、令牌取在哪一刻、组字、Esc 关窗、改名保持选中、无效包带真实详情、http 与 zip-preview 两个文件：已补（前端审查 23 条）。
+- 与字面不一致：Spec 34“确认之后”改成“打开确认框之后”；Spec 28 补“按清单里的原样名字定位”；Spec 35 补两条不导出；Spec 29 补“补偿只删内容仍是刚写的那份”与关窗口丢队列；Spec 30 补“只删包内图片文件”；Spec 26 补 Esc 与无效包原因。
+- 没实现：无（审查发现的 B1 到 B9、F1 到 F23 已改）。
+未验证：设置窗口默认 960 宽时网格实际列数（评审稿按 898 宽 4 列画），没在真实浏览器里量。
