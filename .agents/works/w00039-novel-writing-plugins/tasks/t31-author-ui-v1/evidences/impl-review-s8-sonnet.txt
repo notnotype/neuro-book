@@ -1,0 +1,188 @@
+# t31 S8 前端实现审查（Sonnet）
+
+范围：S8b（8a43f89e2）、S8c（6c79ad14c）、合并带进来的入口条与编辑器改动（2b5aba138）、Spec 晋升核对。只读；跑过 `entry-page.dom.test.ts -t 设定树选中`（通过）和 `canon-sample.ts`（1.8 秒，不会撑爆 e2e 的 beforeAll）。没有跑 e2e。
+
+## 审查发现
+
+### 1. 待处理视图没有交 badge()，底部面板入口条上看不到条数
+- 严重程度：建议（本该用上而没用上的新合同）
+- 类别：不变量 / 合并带进来的新合同
+- 位置：packages/neuro-book/src/plugins/canon/web/plugin.ts:215-223（`createPendingView(...)` 的结果直接放进 contributions，没有 `badge`）；合同在 docs/specs/workbench/views.md 输出 17；外壳读取在 workbench/web/components/WorkbenchShell.vue:280、550（`props.views.badge?.(viewId)`）；合同类型 workbench/web/contracts.ts:42 `badge?(): number | null`
+- 现象：master 合进来之后，底部面板每个视图一个入口，视图实现交 `badge()` 就会在入口（“只含一个视图的入口”）和面板头标题后写数。canon 的“待处理”是隐式容器、一个视图，正好满足；但没有交，截图 artifacts/s8-screens/06-pending.webp 里入口条写的是“待处理”，状态栏却是“待处理 1”。同一个数只在状态栏出现。
+- 为什么是问题：输出 25 把“待处理 N”定成与待处理视图里那一组的数相同，入口条是作者在面板里最先看到的地方；通知视图已经按这个合同用了（workbench/web/plugin.ts:328 `badge: () => notifications.center.unread.value`）。数据现成：`pendingCount.count`（pending-count.ts），与状态栏同源，不会两处不一致。
+- 如何核实：看 plugin.ts 里 pendingView 的构造与 views.md 输出 17、WorkbenchShell.vue:550；看 06 截图的入口条。
+- 建议改法：`const pendingView: ViewImplementation = {...createPendingView(...), badge: () => pendingCount.count.value}`（为 0 外壳自己不写）。注意这会让入口按钮的可访问名称带上数字：e2e 验收 5 里 `getByRole("button").filter({hasText: /^待处理 1$/u})`（canon-author.e2e.ts:234、254）要改成限定在状态栏里找，否则可能出现两个匹配而在严格模式下失败，或 `toHaveCount(0)` 被入口按钮挡住。Spec 在输出 25 补一句“入口条与面板头上同样写这个数”。
+
+### 2. 待处理、改动记录的 order 与后台任务、通知撞号，入口条里四个入口交错
+- 严重程度：建议
+- 类别：不变量 / 合并带进来的行为
+- 位置：canon/web/plugin.ts:71-72（order 10、20，照 Spec 输入表）；tasks/web/plugin.ts:66（后台任务 `order: 10`，同在 panel）；workbench/web/plugin.ts:105（通知 `order: 20`，同在 panel）
+- 现象：06、08 两张截图里底部面板入口依次是“待处理、后台任务、改动记录、通知”：canon 的两个视图被另两个内置视图隔开。四个视图同 location 同 order 两两相等，次序靠 id 打平（nbook.canon.* 排在 nbook.tasks.* 与 nbook.workbench.* 前面）。
+- 为什么是问题：作者在面板入口条里把“待处理”与“改动记录”当成一对，被隔开后找起来不顺；Spec 抄了 order 数字，但没有想到同一个区域里别人也用 10、20。以前没有入口条，这个问题看不见（只是标签页），现在每个容器一个入口，才成了一眼可见的次序。
+- 如何核实：grep `location: "panel"`，看三处 order；看截图。
+- 建议改法：order 是 Spec 的公开写法，要么 Spec 与实现一起改（例如两个都排在后台任务之前：5、6；或贴着放：11、12，使“后台任务、待处理、改动记录、通知”），要么记成开发者可接受的现状。请开发者在两个方案里选；不改的话在 Spec 输出 33 写明“与后台任务、通知交错”。
+
+### 3. Spec 输出 33 与 e2e 里“入口条做好之前”的说法已过时，e2e 没有走入口条这条路
+- 严重程度：建议
+- 类别：测试 / 文档不变量
+- 位置：docs/specs/canon/author-ui.md 输出 33（“底部面板的入口条（ui.workbench-layout 输出 47）做好之前，经状态栏条目、show-pending……到达”）；packages/neuro-book/e2e/canon-author.e2e.ts:168 的注释（“底部面板的入口条做好之前，命令面板与回执页的面包屑是它的入口”）与 :169-176 `showRevisions` 用命令面板
+- 现象：入口条已经合进来（截图里有）。Spec 与 e2e 注释仍把它当作“将来”。作者界面最直接的入口（点底部面板入口条上的“改动记录”）没有任何测试走过，而这正是合并带进来、与本 Task 相交最紧的一块：两个视图各是一个隐式容器，切容器、区域隐藏时同一次写入显示，都由入口条完成。
+- 为什么是问题：晋升 implemented 的 Spec 不该留“做好之前”；e2e 只测命令路径，入口条路径坏了（例如隐式容器的入口标题、点击切换）本 Task 的 e2e 不会红。
+- 如何核实：读 Spec 输出 33 与 views.md 输出 17、19、layout 输出 47（47 里仍标 planned 的部分以那边为准）。
+- 建议改法：Spec 输出 33 改成“两个视图各是底部面板里的一个隐式容器，入口条上一个入口一个视图；也经状态栏条目、show-pending、show-revisions、回执页的面包屑与‘打开视图’到达”，去掉“做好之前”。e2e 在 showRevisions 之外加一步：点底部面板入口条上的“改动记录”入口（按钮、名称取视图标题）能看到列表。注释同改。
+
+### 4. 设定树跟着条目页选中这件事，真实编辑器与浏览器里没有任何测试
+- 严重程度：建议
+- 类别：测试
+- 位置：entry-page.dom.test.ts:322-342（新用例）；e2e/canon-author.e2e.ts 全文没有断言树的选中态
+- 现象：新用例用 `pageStandIn()` 手动 `mount` / `unmount` 条目页来模拟“开 A、开 B、切回 A”。整个机制的前提是“编辑器只挂活动标签，切回来重新挂上”（entry-page.ts 里 `shown` 的注释）。这个前提只在 editor/web/pages.dom.test.ts 的“两个同种页面的标签”（每个标签一个 EditorGroup、非活动的不渲染）里被验证，canon 与编辑器的这个组合没有测过；e2e 的验收 1、2 都在树里点开条目、切标签，却没有一处看 `aria-selected`。如果编辑器以后给页面套 keep-alive 或同一个 EditorGroup 复用，本 Task 的两处测试都不红，树会悄悄不再跟着。
+- 为什么是问题：这是 S8b 唯一的功能，测试绕过了真实运行时（用替身编辑器），而决定它是否成立的恰恰是真实编辑器的挂载方式（审查规则：实验若绕过真实运行时，要在真实运行时复现）。
+- 如何核实：读 pages.dom.test.ts:214-270 与 EditorGroup.vue:268-270（`<component :is=pageComponent v-if=...>` 没有 key，靠每个标签各一个 EditorGroup 才会重挂）。我没有在真实浏览器里点过，结论从代码推断：现在是成立的（01 截图里选中的是星瑕）。
+- 建议改法：e2e 验收 2 里“点星瑕标签”之后加一句 `await expect(row(page, "星瑕")).toHaveAttribute("aria-selected", "true")`，点星瑾标签后同样判星瑾（并断言星瑕不是选中）。几行，不需要新用例。
+
+### 5. e2e 验收 5 的两条否定断言没有对照，可能空过
+- 严重程度：建议
+- 类别：测试（否定断言）
+- 位置：e2e/canon-author.e2e.ts:253-254
+- 现象：`page.locator("[data-pending-row]", {hasText: "存款对不上"})` 的 `toHaveCount(0)` 与 `getByRole("button").filter({hasText: /^待处理 \d+$/u})` 的 `toHaveCount(0)`。前一条：待处理视图被切走、卸载（例如面板收起或当前容器换了）时同样为 0，并不能证明那一条被处理了；后一条：状态栏条目因宽度放不下被收走（priority 40 的条目可能被收）也为 0。两条都没有“视图还在、别的东西还在”的正面对照。另外，待处理组头里数字是单独的 span（PendingView.vue:100），按钮的文字是“待处理1”（没有空格），所以后一条的正则也不会匹配到视图里的组头，不能顺带当对照。
+- 为什么是问题：规则是否定断言要能区分“消失了”与“从来没有/没看见”。
+- 如何核实：读 PendingView.vue:90-101 的组头结构；对该用例做变异（例如保存之前就断言）看会不会红。
+- 建议改法：先正面断言 `page.locator('[data-pending-group="pending"] [data-pending-count]')` 的文字是“0”（视图在、数变了），再断言行不存在；状态栏那条前面先确认状态栏本身在（例如状态栏里另一个必在的条目可见）。这样才有“消失”的含义。
+
+### 6. e2e 验收 2 只验了星瑕的位置回到缺省；输入控件用 `.or()` 兜底
+- 严重程度：建议（小）
+- 类别：测试
+- 位置：e2e/canon-author.e2e.ts:159-165（刷新后只点星瑕、判“第 3 章末尾”）；:250（`bar.getByRole("spinbutton").or(bar.getByRole("textbox")).first().fill("-2000")`）
+- 现象：Spec 验收 2 写“位置都回到缺省”，用例只验了星瑕；星瑾在刷新前没动过位置，所以判它没有区分力，这一句其实没有被测。另外验收 5 对输入控件不确定是数字框还是文字框，用 `.or` 兜底，等于让用例对控件种类失去判断（ConfirmBar 对数用数字输入，ConfirmBar.dom.test.ts:30 已有断言，这里可以直接要 spinbutton）。
+- 建议改法：验收 2 要让星瑾也先换一次位置，刷新后两个标签各判缺省；验收 5 的输入直接 `getByRole("spinbutton")`。
+
+### 7. `shown` 按“挂上”触发，页面因别的原因重挂也会改树的选中（从代码推断，未验证）
+- 严重程度：建议（小；与已记的两组限制同源，但不止那两种）
+- 类别：正确性 / 隐含耦合
+- 位置：canon/web/entry-page.ts:93-95（`onMounted(... options.shown?.(arg))`）、plugin.ts:178-180
+- 现象：待确认清单已记“拆成两组时在组之间换焦点不会让树跟着变”“树里没加载到的不展开”。另一面没有记：只要条目页组件重挂（把标签拖进另一组、刷新后拆成两组的布局同时恢复两个活动页、插件重新交付页面实现后页面组件换新）就会触发 `shown`，树跳到这个页对应的条目，哪怕用户当前焦点在另一组、或刚在树里选了别的。刷新恢复多组布局时，选中的是最后挂上的那一页，次序不由用户决定。
+- 为什么是问题：不严重（树的选中只是提示，且 Spec 没有写），但“挂上 = 成为活动标签”的注释比实际行为强：挂上只说明它显示了，不说明它是用户此刻在看的那个。
+- 如何核实：EditorGroup.vue 每个标签一个组件实例；拖标签换组会销毁重建。没有在浏览器里复现。
+- 建议改法：不改代码；把待确认清单那一行改成“按条目页挂上判断，拆组、拖动标签换组与刷新恢复时可能选到并非用户焦点所在的页”。等编辑器公开活动页面地址后改成跟着它。
+
+## Spec 晋升核对
+
+核对方法：对 author-ui.md 的输出 1 到 33、验收 1 到 14，逐条找实现与测试（组件测试名见 canon/web 下 `*.dom.test.ts` 的 `it` 标题；e2e 见 canon-author.e2e.ts）。大部分条目实现成立、测试能区分（抽查并对上的：1、2 的树内容与“未出场”“已删除”标记、6 到 15 的页头、位置、分页、来历、字段表、人物与面板界面、16 的预览与保存及焦点回到“改”、17、18 的页内提示与工作台通知、20、21、22、23、24、25、26 的读取次数与不出加载占位、27 的断开与重连、验收 1、2、3、4、5、6、7、8 的独占半、10、12、13）。下面只列三种：与 Spec 不一样、Spec 写了实现没有、实现了但没有测试区分。
+
+### 8. 输出 29 的 `result-mismatch`：Spec 写“服务给的说明”，实现写的是读回的值
+- Spec 条目：输出 29；失败与恢复表
+- 严重程度：建议（实现与 Spec 不一样，改 Spec 即可）
+- 类别：Spec 与实现不一样
+- 位置：canon/web/failures.ts:30（`canonText("failure.resultMismatch", {reason: displayText(failure.got)})`）；locales/zh-CN.json:174（“写完的结果对不上：{{reason}}”）；内核 nb-canon/src/world/edits.ts:44、250（失败只带 `got`，没有说明；章或行找不到时 `got` 是 undefined）
+- 现象：Spec 写“`result-mismatch` 写服务给的说明（例如‘你改的那一笔是 +10，差额是 −800’）”。内核的失败里没有说明字段，只有读回的值 `got`；界面写成“写完的结果对不上：{值}”，章节没找到时 `got` 为 undefined，作者看到“写完的结果对不上：未知”。Spec 里的例句没有任何地方产生。
+- 如何核实：读 edits.ts:250 与 failures.ts:30。没有测试触发它（canon/web 下没有任何测试出现 result-mismatch）。
+- 建议改法：按实现改 Spec：“`result-mismatch` 写‘写完的结果对不上’与读回的值（读不回时写‘未知’）”。若要保留例句的效果，是内核补说明（跨 nb-canon，中等），建议记待确认清单而不是现在做。
+
+### 9. 输出 28、29 与 Spec 第 233 行“各失败码由组件测试覆盖，用真实的世界服务造出各自的状态”不符：几个码没有测试
+- Spec 条目：输出 27 到 29；Spec 第 233 行
+- 严重程度：重要（Spec 的说法与事实不一致；晋升时要么补测试要么改措辞）
+- 类别：没有测试区分
+- 位置：
+  - `too-large`：web/client.ts:35（编码超预算不发出）——web 下没有任何测试出现 too-large 或“太大”；
+  - `unknown-outcome` 的查结局流程：web/world.ts:335-340（按请求 id 调 `outcome`，published 为假给 write-failed，为真用同一请求 id 重发，查不到仍是 unknown-outcome）——没有测试走这条流程，只有 ConfirmBar.dom.test.ts、RevertDialog.dom.test.ts 用 props 测了“再查一次”按钮的样子；
+  - `world-read-only` 与 `write-unknown`：web/writable.ts:16-30（写入入口不可用的原因、页面顶上横幅）——只有 RevisionsView.dom.test.ts:47、ReceiptPage.dom.test.ts:69 用 props 传一句只读原因，没有测试把世界造成只读，再看条目页、变更详情页的“改”、记一笔、还原都不可用（验收 8 前半“Given 世界只读”）；
+  - `result-mismatch`（见上一条）、`write-failed`、`world-locked`：world-locked 有 revisions-view.dom.test.ts:151 用真实锁；write-failed 只有 NewEntryDialog 的 props 用例。
+- 为什么是问题：这些是写入失败时作者看到什么、有没有丢填的内容的路径，也是最容易写错的；Spec 声称已有测试。
+- 如何核实：`find web -name '*.test.ts' -exec grep -l too-large {} +` 等，没有命中。
+- 建议改法：二选一。a）补三条：用真实世界客户端（测试场地的 `canonNodeWorld`）造 `unknown-outcome`（客户端断线或替身只替换传输层）、造只读世界、造超大输入，各断言作者看到的话与入口不可用；b）把 Spec 第 233 行改成列出实际被覆盖的码，并把没覆盖的记成“已知未测”。验收 8 的前半（只读）至少要补。
+
+### 10. 输出 4：“放在谁下面”“它是谁的另一个身份”“种类”的候选只来自树里已经读到的条目
+- Spec 条目：输出 4
+- 严重程度：建议
+- 类别：实现与 Spec 不一样
+- 位置：canon/web/entries-view.ts 的 `known`（`[...handles.value.values()].flatMap(held => held.list.state.value.items).filter(item => !item.deleted)`）；components/NewEntryDialog.vue 的 `entryOptions`；entries-view.ts:150 附近 `kinds`
+- 现象：对话框的候选集合是当前展开过的层里读到的条目：没展开的子树、翻页没翻到的条目不在候选里，已删除的也被排除。Spec 写“放在谁下面（缺省是右键的那一项，否则是根）”“它是谁的另一个身份（选填）”，没有说候选限于树里已读到的条目；“种类……从已有条目用过的里选”同理，只能选到已读到的条目用过的种类。命令 `nbook.canon.new-entry {parent}` 的 `parent` 若不在已读到的条目里，`Select` 的值在选项里找不到，显示成空。
+- 为什么是问题：几百个条目的作品里，“另一个身份”要选的本体常常在没展开的分组里。目前只能先去树里展开；作者不知道为什么选不到。
+- 如何核实：entries-view.ts 的 `known`；NewEntryDialog.vue 的 Select 选项。
+- 建议改法：先改 Spec（窄场景选简单改法）：“候选是树里已经读到的条目（展开过的层）；要选的条目不在其中时，先在树里展开它”；`parent` 不在候选里时选项补上它自己（读一次名字）或回到根。不加搜索机制。
+
+### 11. 输出 5、30 与验收 11 的键盘行为没有测试：树的键盘、分页左右键、取消与 Escape 后的焦点
+- Spec 条目：输出 5、16、30；验收 11
+- 严重程度：建议
+- 类别：没有测试区分
+- 位置：EntryTree.vue 与 entries-view（方向键、Enter、菜单键、Shift+F10 走 nb-ui 的树，canon 一侧只接 `onOpen`、右键菜单）；EntryPage.vue:93（分页用 nb-ui 的 Tabs）；EntryPageHost.vue:217（保存后与取消后的焦点回到“改”）
+- 现象：canon/web 下的测试没有一处出现 ArrowRight、ArrowLeft、Shift+F10、ContextMenu；方向键只在待处理与改动记录的列表里测过。焦点回到“改”只在保存成功路径有断言（entry-page.dom.test.ts:434、change-page.dom.test.ts:152）；“取消”与 Escape 后的焦点（Spec 输出 16、验收 11 后半）只有 ConfirmBar 发出 cancel 的断言（ConfirmBar.dom.test.ts:52），没有断言焦点去了哪。验收 11 整条（Tab 走到“改”，Enter，填，Tab 到“保存”，Enter；再 Enter 后 Escape）没有自动化。值按钮与“改”各一个 Tab 停靠、值在前，jsdom 测不了 Tab 序，也没有 e2e。
+- 为什么是问题：这些是 Spec 要求“只用键盘”的路径，晋升后没有任何东西保证不被改坏；其中取消后焦点掉到页外是最常见的退化。
+- 如何核实：`find web -name '*.test.ts' -exec grep -l Shift+F10 {} +` 无命中；读 entry-page.dom.test.ts:418-440 只有保存分支。
+- 建议改法：e2e 加一条验收 11（Tab 序与 Escape 焦点只有真实浏览器能测）；组件测试补“取消与 Escape 后 activeElement 是那个‘改’”。树的方向键与菜单键如果由 nb-ui 的树测试保证，在 Spec 实现合同里写明“由 nb-ui Tree 保证”。
+
+### 12. 输出 32 与验收 14（390 宽）没有自动化，截图也只有条目页
+- Spec 条目：输出 32、验收 14
+- 严重程度：建议
+- 类别：没有测试区分 / Spec 写了未验证
+- 位置：artifacts/s8-screens/08-entry-390.webp（只有条目页一张）；canon/web 下没有 scrollWidth 断言；e2e 无窄屏用例
+- 现象：Spec 要求“条目页、回执页、变更详情页与三个视图都没有横向滚动”。证据只有条目页 390 宽的一张截图（页头换行、位置选择独占一行、面板值卡上下排是对的，我看过图）。回执页、变更详情页、设定树、待处理（窄于 640 上下排）、改动记录在 390 宽下都没有证据。另外这张截图里底部面板开着、条目页被压得很矮，是否仍可用看不出来。
+- 如何核实：看截图目录只有 8 张；grep scrollWidth 无命中。
+- 建议改法：写一个窄屏 e2e（setViewportSize 390x844，逐个打开三种页面与三个视图，断言 `document.scrollingElement.scrollWidth <= clientWidth` 与各容器无横向溢出），或在 Spec 证据里写明“只验了条目页，其余未验证”。不要在没有证据时把输出 32 标成已验证。
+
+### 13. 输出 1 与输出 33 的视图声明（位置、order、图标、revealRegion false）没有测试
+- Spec 条目：输入表、输出 1、输出 33
+- 严重程度：建议
+- 类别：没有测试区分
+- 位置：canon/web/plugin.ts:66、71-72
+- 现象：canon 下没有任何测试断言三个视图的声明（侧栏、order 10、底部面板、`revealRegion: false`）。去掉 `revealRegion: false` 会让第一次生成布局时底部面板默认显示（输出 33）；`tasks`、`通知` 同样声明，所以外壳测试也不会替它红。e2e 验收 5 开头没有断言“面板一开始是隐藏的”。
+- 建议改法：e2e 验收 5 在点状态栏之前加一句“底部面板的入口条不可见”（新作品第一次打开），一行就够；或 workbench 的默认树测试里加 canon 的声明。
+
+### 14. 输出 20：章序调整的回执页（“章序”一节，列出调整前后）没有测试
+- Spec 条目：输出 20
+- 严重程度：建议（小）
+- 类别：没有测试区分
+- 位置：canon/web/receipt.ts:42、62（`"chapters"` 一节）；ReceiptPage.vue 的“章序”分节；locales/zh-CN.json:268-277
+- 现象：receipt-page.dom.test.ts 与 ReceiptPage.dom.test.ts 都只测新建、修改、删除；“章序”只在 revisions-view.dom.test.ts:131 以标题“章序调整”出现（列表行，不是回执页）。章序一节的前后列表、“顺序变了”文字没有断言。
+- 建议改法：receipt-page.dom.test.ts 加一例：打开那次系统写的章序调整修订的回执，断言“章序”一节列出调整前后的章序。
+
+### 15. 输出 3、24 的“滚动位置保留”，没有测试
+- Spec 条目：输出 3、24、26
+- 严重程度：建议（小）
+- 类别：没有测试区分
+- 位置：canon/web 下没有 scrollTop 断言
+- 现象：“展开状态与滚动位置保留”“滚动位置不变”只测了展开状态（entries-view.dom.test.ts:93）与条数（revisions-view.dom.test.ts:197）；滚动位置在 jsdom 里测不了，也没有 e2e。实现是原地更新，大概率成立，但没有东西区分。
+- 建议改法：在 Spec 实现合同里写“滚动位置由原地更新（不替换节点）保证，未单独测”；或 e2e 在改动记录里滚一段、别处发布后读 scrollTop。
+
+### 16. 验收 9“停止后换成字段表，重新激活后换回”：测的是注册表，没有测条目页，也没有“换回”
+- Spec 条目：输出 12、验收 9、状态与转换“贡献 canon.component-views 的插件停止后……重新激活后换回”
+- 严重程度：建议（计划已写明由组件测试覆盖、运行时做不出停止再激活，这里只标出范围）
+- 类别：没有测试区分
+- 位置：component-views.dom.test.ts:63-75（`registry.view(...)` 在 application.stop 后为 none）；EntryPageHost.vue 的数据分页选界面
+- 现象：测到了注册表在贡献方停止后回到 none，没有断言条目页上那个数据分页真的换成了通用字段表（entry-page.dom.test.ts:249 只测了“没有专门界面的类型用字段表”），也没有再注册后换回。
+- 建议改法：Spec 验收 9 与状态表里把“重新激活后换回”标成“只由注册表单元覆盖”；或在 entry-page.dom.test.ts 用同一个测试注册表先交界面、再撤、再交，断言分页内容的变化。
+
+### 17. S8b 的行为在 Spec 里没有文字
+- Spec 条目：输出 3、5（相邻）
+- 严重程度：建议
+- 类别：实现了但 Spec 没写
+- 位置：Spec 输出 3（选中的条目还在就保持选中）、5（单击树项打开条目页）；实现 entry-page.ts:93-95 与 plugin.ts:178-180
+- 现象：“条目页挂上时设定树选中它的条目”没有出现在 Spec 的任何一条里，只在待确认清单里作为已知限制出现。晋升后它是没有合同的行为，别人改掉也没有依据。
+- 建议改法：输出 5 末尾加一句：“条目页成为所在组的活动标签（挂上）时，设定视图选中它的条目；条目在树里还没读到时不展开去找；编辑区拆成几组时在组之间换焦点不改选中。”并在实现合同指向 entry-page.dom.test.ts 的用例与建议新增的 e2e 断言（发现 4）。
+
+### 18. 已记的出入（待确认清单 t31 的行），照样列出
+- Spec 条目：输出 18、19、20、23、29
+- 严重程度：已记
+- 类别：已记
+  - 输出 18：不在三种页面时，工作台通知只有“看回执”一个动作，“撤销”从回执页做（清单 2026-11-11 第一行）；点了“撤销”提示先留着、还原成功后换成还原的那一条，Spec 写“点了就收起”（同日第五行）；“前台是三种页面之一”按“有这样的页面挂着”判断（同日第二行）。
+  - 输出 19：计划（S8 细计划）写了要删“碰不到的 not-deletable 半句”；实际有两处要改：输出 19 末句，和“失败与恢复”表里 `not-deletable | 输出 19` 一行（Spec 第 203 行）。待确认清单没有这一行，只在计划里，建议补一行或在晋升时一并列进交付说明。实现见 failures.ts:39（按“别的失败”写）。
+  - 输出 20：回执里写不出值的改动只写“改了”、同一字段几处合成“改了几处”、结构化的值写“（一组值）”（清单第三行）；截图 06 里回执的“原句 改了几处”就是它。
+  - 输出 23：`show-pending` 每次选回第一条、不保留之前的选中（清单 2026-11-13）；一页最多 50 个对象另读名字与位置，超出的行只写种类；详情里世界线、时间、插件发现的几种写得简略（同日两行）。
+  - 输出 29：`validation-failed` 的原因是内核的英文说明，界面原样写出（清单 2026-11-11 第四行）。
+  - 输出 3/5 的树选中限制（清单 2026-11-18 最后一行），补充见发现 7。
+
+## 未发现问题的方面
+
+- 合并本身：Lab 夹具的导入两边都在（index.ts 没有重复或遗漏）；边界表一行取舍合理；canon 的页面标签用了 `instances`、`restore`、`breadcrumbs` 与新的编辑器合同对得上，面包屑在 `title`/`breadcrumbs` 里按 `arg` 读 head，没有被新加的 `EditorTabDrag.dropOutcome` 影响。
+- 新的 `ViewHead`（视图标题区）合同：canon 没有申请，不受影响（Spec 说只给内置视图，canon 的三个视图在面板头只写声明标题，没有问题）。
+- S8b 的接线本身：`state` 在 plugin.ts 里提前到 `createEntryPage` 之前，与树、命令 `newEntry` 共用同一份，顺序正确；`shown` 为可选，Lab 与别的测试不传也不坏；组件测试通过（单跑 `-t 设定树选中`）。
+- 页面标签的重挂前提（每个标签各一个 EditorGroup，只渲染活动标签）成立，见 editor/web/pages.dom.test.ts:214-270；所以“开 A、开 B、切回 A”在真实编辑器里会重新触发 `shown`。
+- e2e：`canon-sample.ts` 输出 `{projectId}`，`projects.json` 的写法与 `?project=book` 对得上；样本生成 1.8 秒，beforeAll 60 秒超时不是风险；用例共用一部作品、按顺序跑，每个用例自己 `open`，验收 3 里先撤销再数改动记录（`revisions + 2`）没有顺序依赖到别的用例；revision 标题（“改性格”）不含“星瑕”，所以 `hasText: "星瑕"` 不会命中回执页的标签。
+- 跨插件引用：canon 引 workbench、editor、files 的 `shared/contracts`、`workbench/shared/views`、`workbench/web/contracts`，与 tasks 插件同一做法，没有新的非合同深引。
+- 组件规范：新增的 .vue 都有并列的 .md（含 PendingDetail、WorldBanners、RevertHost）。
+
+## 数量
+
+- 审查发现（1 到 7）：阻断 0，重要 0，建议 7
+- Spec 核对（8 到 18）：重要 1（发现 9），建议 9（8、10 到 17），已记 1（18，合并列了 6 组）
+- 有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18
