@@ -6,9 +6,7 @@
  * 结束后才把它拷进 `artifacts/`。这样暂存目录不可用不影响命令执行，命令也不会因为保存失败而跑第二遍。
  */
 
-import {closeSync, mkdtempSync, openSync, rmSync, writeSync} from "node:fs";
-import {tmpdir} from "node:os";
-import {dirname, join} from "node:path";
+import {join} from "node:path";
 
 import {executeShell} from "@oh-my-pi/pi-natives";
 
@@ -18,7 +16,7 @@ import type {Dialects} from "../commands/index.js";
 import {failure} from "../files/index.js";
 import type {KitServices, SessionFiles} from "../files/index.js";
 import {findAddresses, substitute} from "./shell-address.js";
-import {capLines, headAndTail, lineCount, LINE_BYTES, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window.js";
+import {OutputCapture, saveFullOutput} from "./output-capture.js";
 import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
@@ -52,98 +50,6 @@ export const shellDeclaration = (description: string, options: {readonly backgro
  * 收集输出：放得进窗口就只在内存里；放不下（总量、行数或单行超限）之后内存只留开头与结尾，全文进本地临时文件。
  * 开头常有报错，结尾常有结论，两头都留（同 omp）。
  */
-class OutputCapture {
-    /** 没超限时是全部输出；超限后是结尾（留到一个结尾窗口的两倍再修剪，免得每块都修）。 */
-    #memory = "";
-    #memoryBytes = 0;
-    #head = "";
-    /** 当前这一行已有多少字节：长行可能跨好几块。 */
-    #lineBytes = 0;
-    #spool: {readonly fd: number; readonly path: string} | null = null;
-    #spoolBytes = 0;
-    overflowed = false;
-    full = false;
-    totalBytes = 0;
-    spoolProblem: string | null = null;
-    chunkProblem: string | null = null;
-
-    push(chunk: string): void {
-        this.totalBytes += Buffer.byteLength(chunk, "utf8");
-        this.#memory += chunk;
-        this.#memoryBytes += Buffer.byteLength(chunk, "utf8");
-        if (this.overflowed) {
-            this.#spoolWrite(chunk);
-            if (this.#memoryBytes > PART_BYTES * 2) {
-                this.#memory = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8");
-                this.#memoryBytes = Buffer.byteLength(this.#memory, "utf8");
-            }
-            return;
-        }
-        const parts = chunk.split("\n");
-        let longest = 0;
-        parts.forEach((part, index) => {
-            const size = Buffer.byteLength(part, "utf8") + (index === 0 ? this.#lineBytes : 0);
-            longest = Math.max(longest, size);
-            if (index === parts.length - 1) this.#lineBytes = size;
-        });
-        if (this.#memoryBytes > WINDOW_BYTES || lineCount(this.#memory) > WINDOW_LINES || longest > LINE_BYTES) {
-            this.overflowed = true;
-            this.#head = Buffer.from(this.#memory, "utf8").subarray(0, PART_BYTES).toString("utf8");
-            this.#spoolWrite(this.#memory);
-        }
-    }
-
-    #spoolWrite(text: string): void {
-        if (this.spoolProblem !== null || this.full) return;
-        try {
-            if (this.#spool === null) {
-                const directory = mkdtempSync(join(tmpdir(), "harness-shell-"));
-                const path = join(directory, "output.log");
-                this.#spool = {fd: openSync(path, "wx", 0o600), path};
-            }
-            const bytes = Buffer.from(text, "utf8");
-            const room = OUTPUT_LIMIT - this.#spoolBytes;
-            const taken = bytes.length > room ? bytes.subarray(0, room) : bytes;
-            writeSync(this.#spool.fd, taken);
-            this.#spoolBytes += taken.length;
-            if (taken.length < bytes.length) this.full = true;
-        } catch (error) {
-            this.spoolProblem = error instanceof Error ? error.message : String(error);
-        }
-    }
-
-    /** 交给模型的输出窗口（docs/specs/agent/builtin-tools.md 的术语）；`clipped` 指内容少了，全文要去 `artifacts/` 看。 */
-    window(): {readonly text: string; readonly clipped: boolean} {
-        if (!this.overflowed) return {text: this.#memory, clipped: false};
-        // 总量与行数都在预算内，只是单行超限（内存这时一定是全部输出）：不用省略中间。
-        if (this.totalBytes <= WINDOW_BYTES && lineCount(this.#memory) <= WINDOW_LINES) return {text: capLines(this.#memory), clipped: true};
-        return {text: headAndTail(this.#head, Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8"), this.totalBytes), clipped: true};
-    }
-
-    get spoolPath(): string | null {
-        return this.spoolProblem === null ? (this.#spool?.path ?? null) : null;
-    }
-
-    dispose(): void {
-        if (this.#spool === null) return;
-        closeSync(this.#spool.fd);
-        rmSync(dirname(this.#spool.path), {recursive: true, force: true});
-        this.#spool = null;
-    }
-}
-
-const encoder = new TextEncoder();
-
-async function saveFull(artifacts: KitServices["artifacts"], capture: OutputCapture): Promise<{readonly address?: string; readonly problem?: string}> {
-    const path = capture.spoolPath;
-    if (path === null) return {problem: capture.spoolProblem ?? "没有全文"};
-    const saved = await artifacts.save("shell", async (sink) => {
-        for await (const chunk of Bun.file(path).stream()) await sink.write(chunk);
-        if (capture.full) await sink.write(encoder.encode(`\n[输出超过 64 MiB，后面的没有保存；共 ${String(capture.totalBytes)} 字节]\n`));
-    });
-    return saved.ok ? {address: saved.value.address} : {problem: `${saved.code}: ${saved.detail}`};
-}
-
 /**
  * 全局地址定位成真实路径；目标不存在时从最近的已存在祖先接上余下的段（`mkdir`、重定向的目标），不预先建任何东西。
  * 祖先一直问到方案根（`user://new.txt` 的祖先是 `user://`）；虚拟方案的根没有真实路径，这时交回第一次的 `not-found`，原因才对得上。
@@ -237,7 +143,7 @@ async function run(context: ToolSessionContext, {files, artifacts}: KitServices,
             else capture.push(chunk);
         });
         const {text, clipped} = capture.window();
-        const full = capture.overflowed ? await saveFull(artifacts, capture) : {};
+        const full = capture.overflowed ? await saveFullOutput(artifacts, capture, "shell") : {};
         const code = result.timedOut ? "timeout" : result.cancelled ? "cancelled" : result.exitCode !== 0 ? "exit-nonzero" : undefined;
         const status = result.timedOut ? "超时" : result.cancelled ? "被中止" : `退出码 ${String(result.exitCode ?? "未知")}`;
         const notes = [

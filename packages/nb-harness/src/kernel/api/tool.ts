@@ -28,6 +28,12 @@ export interface ToolDeclaration {
     readonly customFormat?: JsonValue;
     /** 固定的等级，或按参数求值（`shell` 这类同一个工具既能读也能写）。 */
     readonly effect: ToolEffect | ((args: Readonly<Record<string, unknown>>) => ToolEffect);
+    /** 执行时能经 `ToolContext.invoke` 调别的工具（docs/specs/harness/runtime.md 输出 90）。这样的工具本身不能被 `invoke`。 */
+    readonly invokes?: true;
+    /** 不能被 `invoke` 调：靠 `toolResult` 归约改状态的、寿命超出一次调用的（输出 92）。 */
+    readonly codeCallable?: false;
+    /** 是代码里某个全局对象的方法：不进请求的工具清单，只能经 `invoke` 调（输出 93）。 */
+    readonly global?: {readonly object: string; readonly method: string};
 }
 
 /** 给扩展与审批看的工具信息：声明去掉只与执行协议相关的字段。 */
@@ -78,6 +84,25 @@ export interface QuestionRequest {
 }
 export type QuestionAnswer = {readonly kind: "answer"; readonly text: string; readonly data?: JsonValue; /** 谁答的：用户，或会话头 `questions: "caller"` 时的父会话。工具按它决定要求什么形状。 */ readonly by: Actor} | {readonly kind: "unavailable"; readonly code: string};
 
+/**
+ * 经 `invoke` 发起的一次调用的结局（输出 90）。与 `ToolResult` 分开：那是工具交给内核的值，装不下内核结算时才有的 `blocked`
+ * （拦截没调 `next` 就拒绝）与 `unknown`（开始了、不知道有没有执行完），`status` 也可以省略。
+ */
+export interface NestedOutcome {
+    readonly status: ToolStatus;
+    readonly text: string;
+    readonly code?: string;
+    readonly details?: JsonValue;
+    readonly images?: readonly ToolImage[];
+}
+
+export interface InvokeOptions {
+    /** 父工具划出的范围（例如 eval 的一个单元）：触发后按宽限期结算在途的嵌套调用（输出 100）。与运行的信号合并。 */
+    readonly signal?: AbortSignal;
+    /** 这次调用开始、结束等用户应答（审批、同步提问）时各调一次，父工具据此不把等用户的时间算进自己的时限。 */
+    readonly onWaiting?: (waiting: boolean) => void;
+}
+
 export interface ToolContext {
     readonly signal: AbortSignal;
     readonly callId: string;
@@ -97,6 +122,12 @@ export interface ToolContext {
     read<C extends Contract<string, any, any>>(contract: C): ExportsOfContract<C> | undefined;
     /** 向用户提问；同步提问让运行停下等回答（docs/specs/harness/runtime.md 输出 40）。没有等用户通道的运行里没有它。 */
     readonly ask?: (request: QuestionRequest, options?: {readonly async?: boolean}) => Promise<QuestionAnswer>;
+    /** 调这一批里的别的工具（输出 90 到 101）：只有声明了 `invokes` 的工具、在模型直接发起的调用里才有；不抛，结局都在返回值里。 */
+    readonly invoke?: (tool: string, args: Readonly<Record<string, unknown>>, options?: InvokeOptions) => Promise<NestedOutcome>;
+    /** 这是一次嵌套调用：父调用的工具 id 与 `invocation`。 */
+    readonly within?: {readonly tool: string; readonly invocation: string};
+    /** 这一批调用开始时会话里 `leafChanged` 的条数（输出 102）：跨调用保留状态的工具据此知道两次调用之间叶子有没有被移动过。 */
+    readonly leafMoves: number;
 }
 
 /** 工具实现：每个会话每个工具建一次（t04 决定 2），关闭会话或工具被卸载时 `dispose`。 */

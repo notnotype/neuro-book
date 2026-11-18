@@ -70,6 +70,13 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     }),
     toolsAnnounced: null,
     toolStarted: async (data, map, type) => ({...data, args: await map.args(data.args as Readonly<Record<string, JsonValue>>, {type, field: "args", tool: data.tool as string, callId: data.callId as string})}),
+    // 嵌套调用（runtime.md 输出 97）：参数按工具参数、预览按工具结果过滤，同顶层的 `toolStarted`、`toolResult`。
+    nestedToolStarted: async (data, map, type) => ({...data, args: await map.args(data.args as Readonly<Record<string, JsonValue>>, {type, field: "args", tool: data.tool as string, callId: data.id as string})}),
+    nestedToolResult: async (data, map, type) => ({
+        ...data,
+        args: await map.args(data.args as Readonly<Record<string, JsonValue>>, {type, field: "args", tool: data.tool as string, callId: data.id as string}),
+        preview: await map.text(data.preview as string, {type, field: "preview"}),
+    }),
     toolResult: async (data, map, type) => ({
         ...data,
         text: await map.text(data.text as string, {type, field: "text"}),
