@@ -443,8 +443,11 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
 
 // ── 活动栏 ────────────────────────────────────────────────────────────────
 
-/** 活动栏说的“侧栏可见”（输出 22）：入口的按下态与点了做什么都问它。 */
-const sidebarShowing = computed(() => regionVisible(doc.value, "sidebar", {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>));
+/** 区域此刻可见（活动栏、入口条的按下态与点了做什么都问它，输出 22、47）。 */
+const regionShowing = (region: PanelName): boolean => regionVisible(doc.value, region, {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>);
+
+/** 活动栏说的“侧栏可见”（输出 22）：入口的按下态问它。 */
+const sidebarShowing = computed(() => regionShowing("sidebar"));
 
 /** 视图的标题；声明消失的视图写它的 id，和面板头的标签一样（输出 4）。 */
 const viewTitle = (viewId: string): string => {
@@ -465,44 +468,49 @@ const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntrie
 
 const hostEl = ref<HTMLElement | null>(null);
 
-/** 侧栏切换容器时卡片不动、里面的内容滚过去（输出 42）：`WorkbenchSurface` 补上缝宽与裁切窗交给网格。 */
-const sidebarSwap = shallowRef<Omit<GridSwap, "gap" | "window"> | null>(null);
+/**
+ * 切换容器时卡片不动、里面的内容滚过去（输出 42）：侧栏竖着滚，右栏、底部面板在入口条下面横着滚（入口横着排，方向跟着入口）。网格同时只有一个交换，
+ * `token` 在三个区域之间递增；`WorkbenchSurface` 补上缝宽与裁切窗交给网格。`slides` 记每个区域滚过几次：入口的选中标记只在自己的区域滚的那一次滑过去。
+ */
+const regionSwap = shallowRef<Omit<GridSwap, "gap" | "window"> | null>(null);
+const slides = shallowRef<Readonly<Record<PanelName, number>>>({sidebar: 0, auxiliarybar: 0, panel: 0});
 
 /**
- * 点入口切换容器之前（同一个同步段里接着提交）：侧栏显示着、里面没有最大化的分节时，给网格一次交换，离开的是当前容器的分节、换上来的是新容器的，
+ * 点入口切换容器之前（同一个同步段里接着提交）：区域显示着、里面没有最大化的分节时，给网格一次交换，离开的是当前容器的分节、换上来的是新容器的，
  * 方向按入口顺序。隐藏着、拖到零时按显示长出来（不滚）；有最大化的分节时切换会退出最大化，上一帧是整窗的矩形，照常过渡。列的是文档里的分节，
- * 没呈现出来的（放不下收走的）由网格忽略。
+ * 没呈现出来的（放不下收走的）由网格忽略；入口条叶前后都在，不在交换里，所以它和卡片顶上那一行不动。
  */
-function prepareSidebarSwap(next: string): void {
-    // 读已提交的文档，不读入口（`toolEntries` 是拖动预览的）：交换比的是网格上一帧与这一次提交，两头都是已提交的。
-    const entries = regionEntries(doc.value, "sidebar", catalog.value, state.value.containers);
+function prepareRegionSwap(region: PanelName, next: string): void {
+    // 读已提交的文档，不读入口（入口是拖动预览的）：交换比的是网格上一帧与这一次提交，两头都是已提交的。
+    const entries = regionEntries(doc.value, region, catalog.value, state.value.containers);
     const current = entries.find((entry) => entry.current)?.id;
     const maximized = state.value.maximized;
-    if (current === undefined || current === next || !sidebarShowing.value || (maximized !== null && regionOf(doc.value, maximized) === "sidebar")) return;
-    const containers = regionContainers(doc.value, "sidebar");
+    if (current === undefined || current === next || !regionShowing(region) || (maximized !== null && regionOf(doc.value, maximized) === region)) return;
+    const containers = regionContainers(doc.value, region);
     const sectionsOf = (id: string): string[] => [...(containers.find((container) => container.id === id)?.sections ?? [])];
     const order = entries.map((entry) => entry.id);
-    sidebarSwap.value = {
-        token: (sidebarSwap.value?.token ?? 0) + 1,
+    regionSwap.value = {
+        token: (regionSwap.value?.token ?? 0) + 1,
         leaving: sectionsOf(current),
         entering: sectionsOf(next),
-        axis: "height",
+        axis: region === "sidebar" ? "height" : "width",
         direction: order.indexOf(next) > order.indexOf(current) ? 1 : -1,
     };
+    slides.value = {...slides.value, [region]: slides.value[region] + 1};
 }
 
-/** 点入口（输出 22）。焦点不在这里管：鼠标点不抢焦点，原处看不见了由下面“焦点”一节的规则接走（输出 42）。 */
-function selectEntry(container: string): void {
-    const intent = regionEntryIntent(doc.value, "sidebar", container, {regionVisible: sidebarShowing.value});
+/**
+ * 点活动栏或入口条的入口（输出 22、47）：不是当前容器就切到它（隐藏、拖到零时同一次写入显示），是当前容器且区域可见就隐藏区域。
+ * 焦点不在这里管：鼠标点不抢焦点，原处看不见了由下面“焦点”一节的规则接走（输出 42）。
+ */
+function selectRegionEntry(region: PanelName, container: string): void {
+    const intent = regionEntryIntent(doc.value, region, container, {regionVisible: regionShowing(region)});
     if (intent.kind === "show") {
-        prepareSidebarSwap(intent.container);
+        prepareRegionSwap(region, intent.container);
         props.layout.actions.showContainer(intent.container);
     }
-    if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: "sidebar", hidden: true});
+    if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: region, hidden: true});
 }
-
-/** 右栏、底部面板此刻可见（入口条的按下态与点击，输出 47）。 */
-const regionShowing = (region: PanelName): boolean => regionVisible(doc.value, region, {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>);
 
 /** 右栏、底部面板入口条的入口：区域里的容器，按入口顺序（输出 41、47），和活动栏同一个求值；按下态是当前容器且区域可见。 */
 function regionStripEntries(region: PanelName): RegionStripEntry[] {
@@ -513,13 +521,6 @@ function regionStripEntries(region: PanelName): RegionStripEntry[] {
         const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
         return {id: entry.id, label, icon: entry.label.icon, tooltip, current: entry.current, pressed: entry.current && showing};
     });
-}
-
-/** 点入口条的入口（输出 47）：同活动栏，不是当前容器就切到它（隐藏、拖到零时同时展开），是当前容器且区域可见就隐藏区域。滚过去的样子在第 4 片。 */
-function selectRegionEntry(region: PanelName, container: string): void {
-    const intent = regionEntryIntent(doc.value, region, container, {regionVisible: regionShowing(region)});
-    if (intent.kind === "show") props.layout.actions.showContainer(intent.container);
-    if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: region, hidden: true});
 }
 
 // ── 入口的右键菜单 ────────────────────────────────────────────────────────
@@ -884,7 +885,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :disabled="!state.ready"
                 :title-only-panels="titleOnlyPanelIds"
                 :slot-panel="dragSlotPanel"
-                :swap="sidebarSwap"
+                :swap="regionSwap"
                 context-key="workbench"
                 @extent="onExtent"
                 @card-gap="(gap) => layout.actions.acceptCardGap(gap)"
@@ -902,10 +903,10 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :entries="toolEntries"
                         :placeholder="toolPlaceholder"
                         :highlighted="mergeEntry"
-                        :slide-token="sidebarSwap?.token ?? 0"
+                        :slide-token="slides.sidebar"
                         :items="stripItems"
                         :drag-hint="message('shell.drag.hint')"
-                        @select="selectEntry"
+                        @select="(id) => selectRegionEntry('sidebar', id)"
                         @run-item="(id) => chrome?.runItem(id)"
                         @context-menu="openContainerMenu"
                     />
@@ -946,6 +947,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :entries="regionStripEntries(region)"
                         :variant="region === 'panel' ? 'titles' : 'icons'"
                         :head-min-width="merged === null ? 0 : headReserved(merged) - stripEntriesReserve(region)"
+                        :slide-token="slides[region]"
                         @select="(id) => selectRegionEntry(region, id)"
                         @context-menu="openContainerMenu"
                     >

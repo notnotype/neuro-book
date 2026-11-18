@@ -8,6 +8,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 import "./panel-metrics.css";
+import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 一个入口：区域里的一个容器（输出 41、47）。 */
 export interface RegionStripEntry {
@@ -45,7 +46,12 @@ const props = withDefaults(defineProps<{
      * 没有并进来的头时是 0。
      */
     headMinWidth?: number;
-}>(), {headMinWidth: 0});
+    /**
+     * 区域切换容器、内容滚过去的那一次（宿主按区域数的次数）：和按下的入口在同一次更新里变，选中标记这一次才滑过去，和内容同时走（输出 42）。
+     * 别的途径换了当前容器（命令、“移动到”、当前容器空了）内容不滚，标记也直接到位。
+     */
+    slideToken?: number;
+}>(), {headMinWidth: 0, slideToken: 0});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
@@ -112,11 +118,36 @@ const strip = computed(() => {
 });
 const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
 const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
+
+/** 按下态（右栏的底色、底部面板的下划线）是入口这一组里一个独立的块，区域切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
+const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: indicatorStyle, onTransitionEnd: onIndicatorTransitionEnd} = useEntryIndicator({
+    band: entriesEl,
+    pressed: () => {
+        const id = shownEntries.value.find((entry) => entry.pressed)?.id;
+        const button = id === undefined ? undefined : [...(entriesEl.value?.querySelectorAll<HTMLElement>("[data-region-entry]") ?? [])].find((element) => element.dataset.regionEntry === id);
+        return id === undefined || button === undefined ? null : {id, button};
+    },
+    hasEntries: () => shownEntries.value.length > 0,
+    slideToken: () => props.slideToken,
+    // 按下的入口、摆出来的入口、条的宽与标题入口的宽：标题入口的宽各不相同，名称一变按钮就挪。
+    layoutKey: () => `${shownEntries.value.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}`).join(",")}|${String(rootWidth.value)}|${[...titleWidths.value.values()].join(",")}`,
+});
 </script>
 
 <template>
     <div ref="rootEl" class="workbench-region-strip" :class="`workbench-region-strip--${variant}`" :data-region-strip="region">
         <div ref="entriesEl" class="workbench-region-strip__entries" role="group" :aria-label="label">
+            <span
+                ref="indicatorEl"
+                class="workbench-region-strip__indicator"
+                data-region-indicator
+                aria-hidden="true"
+                :data-shown="indicatorShown ? '' : undefined"
+                :data-sliding="sliding ? '' : undefined"
+                :data-settled="settled ? '' : undefined"
+                :style="indicatorStyle"
+                @transitionend="onIndicatorTransitionEnd"
+            ></span>
             <Tooltip v-for="entry in shownEntries" :key="entry.id" :text="entry.tooltip" side="bottom">
                 <button
                     type="button"
@@ -164,11 +195,39 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 }
 
 .workbench-region-strip__entries {
+    position: relative;
+    /* 按下的块（`z-index: -1`）画在按钮下面、这一组里面：绝对定位的元素缺省画在普通流的按钮上面。 */
+    isolation: isolate;
     display: flex;
     flex: 0 1 auto;
     align-items: center;
     gap: var(--space-1);
     min-width: 0;
+}
+
+/*
+ * 按下的块（`useEntryIndicator`）：这一组里的第一个子元素，大小和位置是按下的那个入口，画在按钮下面。位置在 `transform` 上，
+ * 只有内容滚过去的那一次带过渡；显示、隐藏是透明度。
+ */
+.workbench-region-strip__indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.workbench-region-strip__indicator[data-shown] {
+    opacity: 1;
+}
+
+.workbench-region-strip__indicator[data-settled] {
+    transition: opacity var(--motion-layout) var(--ease-layout);
+}
+
+.workbench-region-strip__indicator[data-settled][data-sliding] {
+    transition: opacity var(--motion-layout) var(--ease-layout), transform var(--motion-layout) var(--ease-layout);
 }
 
 /* 并进来的头占这一行剩下的宽度：入口先排满，头从剩下的里缩，缩到 `headMinWidth` 以下之前入口先收进“更多”。 */
@@ -203,18 +262,29 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
     color: var(--text-main);
 }
 
-/* 右栏：24px 的图标按钮，16px 的图标居中；第一个入口的图标左缘落在展开标记那条线上（panel-metrics.css）。按下是底色。 */
+/*
+ * 右栏：24px 的图标按钮，16px 的图标居中；这一组的左内边距让第一个入口的图标左缘落在展开标记那条线上（panel-metrics.css）。
+ * 按下是底色，画在按下的块上，按下的按钮自己不画底，悬停时也不另画一层。
+ */
+.workbench-region-strip--icons .workbench-region-strip__entries {
+    padding-inline-start: calc(var(--workbench-fold-inset) - var(--space-1) - 4px);
+}
+
 .workbench-region-strip--icons .workbench-region-strip__entry {
     width: 24px;
     border-radius: var(--radius-button-sm);
 }
 
-.workbench-region-strip--icons .workbench-region-strip__entries > :first-child {
-    margin-inline-start: calc(var(--workbench-fold-inset) - var(--space-1) - 4px);
+.workbench-region-strip--icons .workbench-region-strip__entry:hover {
+    background: var(--bg-hover);
 }
 
-.workbench-region-strip--icons .workbench-region-strip__entry:hover,
 .workbench-region-strip--icons .workbench-region-strip__entry[data-pressed] {
+    background: transparent;
+}
+
+.workbench-region-strip--icons .workbench-region-strip__indicator {
+    border-radius: var(--radius-button-sm);
     background: var(--bg-hover);
 }
 
@@ -229,7 +299,7 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 
 /*
  * 底部面板：标题入口，水平内边距固定 4px（不随主题变），第一个入口的文字和分节头的标题文字在一条竖线上（头的左内边距加标题格的内边距）。
- * 按下是按钮宽度上的一条下划线，同面板头标签带的选中标记。
+ * 按下是按钮宽度上的一条下划线，同面板头标签带的选中标记，画在按下的块的底边。
  */
 .workbench-region-strip--titles .workbench-region-strip__entry {
     padding-inline: var(--space-2);
@@ -240,18 +310,8 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
     color: var(--text-main);
 }
 
-.workbench-region-strip--titles .workbench-region-strip__entry::after {
-    position: absolute;
-    bottom: 0;
-    height: 2px;
-    background: transparent;
-    content: "";
-    inset-inline: 0;
-    transition: background-color var(--motion-fast) var(--ease-layout);
-}
-
-.workbench-region-strip--titles .workbench-region-strip__entry[data-pressed]::after {
-    background: var(--accent-main);
+.workbench-region-strip--titles .workbench-region-strip__indicator {
+    box-shadow: inset 0 -2px 0 var(--accent-main);
 }
 
 .workbench-region-strip__ruler {

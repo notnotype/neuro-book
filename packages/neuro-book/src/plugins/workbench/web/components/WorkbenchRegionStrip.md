@@ -11,8 +11,9 @@
 
 占满入口条叶（32px 高的一行），左内边距同面板头。
 
-- **右栏**（`variant: "icons"`）：24px 的图标按钮，16px 的图标居中，按下是底色。第一个入口的图标左缘落在 `--workbench-fold-inset`（[`panel-metrics.css`](panel-metrics.css)）：和分节头的展开标记、资源管理器树第一层的箭头同一条竖线。
+- **右栏**（`variant: "icons"`）：24px 的图标按钮，16px 的图标居中，按下是底色。入口这一组的左内边距让第一个入口的图标左缘落在 `--workbench-fold-inset`（[`panel-metrics.css`](panel-metrics.css)）：和分节头的展开标记、资源管理器树第一层的箭头同一条竖线。
 - **底部面板**（`variant: "titles"`）：标题按钮，水平内边距固定 4px（不随主题变），按下是按钮宽度上的一条下划线，同面板头标签带的选中标记。第一个入口的文字和分节头的标题文字同一条竖线。
+- **按下的块**：底色与下划线都不画在按钮上，是入口这一组里一个独立的块（`data-region-indicator`，`aria-hidden`），大小与位置是按下的那个入口，和活动栏的按下的块同一套（[`use-entry-indicator.ts`](use-entry-indicator.ts)，[`WorkbenchToolStrip`](WorkbenchToolStrip.md)）：`slideToken` 变了、按下的入口也换了的那一次滑过去（`data-sliding`，`--motion-layout`、`--ease-layout`，和区域切换容器时的滚动同时走），滑到一半又换一次时从此刻接着滑；别的原因换了按下的入口、条的宽变了、入口收进“更多”时直接到位；没有按下的入口时在原处淡出，再按下时在新的位置淡入；挂上时第一次放下不淡入（`data-settled` 之前没有过渡）。
 - **并进来的头**：默认插槽，占这一行剩下的宽度。
 - **放不下时的让位**：先缩并进来的头（它的标题截断），缩到 `headMinWidth` 以下之前，排在后面的入口收进末尾的“更多”，当前容器的入口总在外面。头里视图动作收进“⋯”、框架按钮最后，由头自己按宿主给的预算做（[`WorkbenchPanelHead`](WorkbenchPanelHead.md)）。标题入口的宽度在一行看不见的量尺里量。
 
@@ -51,6 +52,8 @@ defineProps<{
     variant: "icons" | "titles";
     /** 并进来的头至少要留多宽；没有并进来的头时是 0（缺省）。 */
     headMinWidth?: number;
+    /** 宿主让区域的内容滚过去的那一次换一个新值，和按下的入口在同一次更新里变：只有这时按下的块滑过去；默认 0。 */
+    slideToken?: number;
 }>();
 
 defineEmits<{
@@ -61,13 +64,12 @@ defineEmits<{
 
 插槽：默认插槽是并进来的那一节的头（宿主以面板 id 为 `key`，换了并进来的那一节就是新的头）。
 
-标记：根 `data-region-strip`（区域）；入口 `data-region-entry`（容器 id）、按下的 `data-pressed`；“更多” `data-region-more`。
+标记：根 `data-region-strip`（区域）；入口 `data-region-entry`（容器 id）、按下的 `data-pressed`；“更多” `data-region-more`；按下的块 `data-region-indicator`，显示着 `data-shown`、滑着 `data-sliding`。
 
 ## 状态
 
-只有量出来的宽度（整条的宽、标题入口各自的宽），随尺寸观察更新。
+量出来的宽度（整条的宽、标题入口各自的宽），随尺寸观察更新；按下的块的位置、显示与滑动。
 
 ## 不支持
 
-- 选中标记的滑动（右栏的按下底色、底部面板的下划线随内容滚过去）：t28 第 4 片。
 - 入口的拖放：t28 第 5 片。
