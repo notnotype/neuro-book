@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t13-image-library
-status: planned
-updated: 2026-11-10
+status: active
+updated: 2026-11-18
 ---
 
 # 图片库与空间管理
