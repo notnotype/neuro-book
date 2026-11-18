@@ -17,6 +17,7 @@
 import {GRID_UNBOUNDED, UNBOUNDED_EXTENT} from "./grid-geometry";
 import {barOfRef, hiddenRegionsAtZero, isContainerAnchor, isFixedChild, isPanelShown, isSectionCollapsed, REGION_ORIENTATION, regionNodeOf, treeLeaves} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, PanelName, PanelRecord} from "./layout-doc";
+import {INNER_SECTIONS_SUFFIX, STRIP_LEAF_PREFIX} from "./presented-ids";
 import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode, SashCollapseState} from "./grid-types";
 
 export interface PanelConstraints {
@@ -74,16 +75,15 @@ export interface LayoutProjection {
     readonly fillers: ReadonlySet<string>;
 }
 
-const STRIP_PREFIX = "strip:";
 const REGION_NAMES: ReadonlySet<string> = new Set<PanelName>(["sidebar", "auxiliarybar", "panel"]);
 
 /** 区域的入口条叶的 id（也是它的 `ref`）。 */
-export const regionStripLeafId = (region: PanelName): string => `${STRIP_PREFIX}${region}`;
+export const regionStripLeafId = (region: PanelName): string => `${STRIP_LEAF_PREFIX}${region}`;
 
 /** 入口条叶的 id（或 `ref`）→ 区域；不是入口条叶是 null。 */
 export function regionOfStripLeaf(id: string): PanelName | null {
-    if (!id.startsWith(STRIP_PREFIX)) return null;
-    const region = id.slice(STRIP_PREFIX.length);
+    if (!id.startsWith(STRIP_LEAF_PREFIX)) return null;
+    const region = id.slice(STRIP_LEAF_PREFIX.length);
     return REGION_NAMES.has(region) ? (region as PanelName) : null;
 }
 
@@ -196,7 +196,7 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
         strips.push({region, leaf, merged});
         let inner: GridNodeInput<string>;
         if (presented.kind === "branch") {
-            const id = `${node.id}:sections`;
+            const id = `${node.id}${INNER_SECTIONS_SUFFIX}`;
             sashes.set(id, sashes.get(presented.id) ?? []);
             sashes.delete(presented.id);
             inner = {...presented, id};

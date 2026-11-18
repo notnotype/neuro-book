@@ -296,6 +296,41 @@ describe("外缘（规则 4、5）", () => {
         expect(result.currentEditor).toBe("n1");
     });
 
+    it("宿主给的新 id 已被占用时拒绝、文档不变：面板 id 撞已有面板、分支 id 撞树上的节点或浮动窗，都不覆盖别的面板", () => {
+        const doc = docOf(H(["ea", "b"]), {ea: {tabs: [tab("x"), tab("y")], active: "tab:y"}});
+        // 计数器式的 newId 在重新载入文档后从头数：第一次就给出已有的面板 id。
+        const panelTaken = moveTabToEdge(doc, {tab: "tab:y", target: edge(doc, "b", "right")}, testPolicy({newId: () => "b"}));
+        expect(panelTaken).toMatchObject({ok: false, code: "rejected"});
+        expect(doc.panels.b?.tabs).toEqual([view("b")]);
+        // 往不同方向分要新建分支：ea 只剩一个标签，整块挪过去，要的是分支的 id，它撞上已有的面板（这里是一块浮动窗）。
+        const floating = okDoc(floatTab(doc, {tab: "tab:x", rect: {x: 10, y: 10, width: 300, height: 200}}, testPolicy({newId: () => "w"})));
+        const branchTaken = moveTabToEdge(floating, {tab: "tab:y", target: edge(floating, "b", "bottom")}, testPolicy({newId: () => "w"}));
+        expect(branchTaken).toMatchObject({ok: false, code: "rejected"});
+        expect(shape(floating)).toBe("H[ea,b]");
+    });
+
+    it("输入是响应式代理（深层的 Proxy，同 Vue 的 reactive）时结构操作照常：不抛，输入不变，结果和传原对象时一样", () => {
+        const plain = docOf(H(["ea", "b"]), {ea: {tabs: [tab("x"), tab("y")], active: "tab:y"}});
+        const before = JSON.stringify(plain);
+        const proxied = <T extends object>(value: T): T => new Proxy(value, {get: (target, key, receiver) => {
+            const found = Reflect.get(target, key, receiver) as unknown;
+            return found !== null && typeof found === "object" ? proxied(found) : found;
+        }});
+        const result = okDoc(moveTabToEdge(proxied(plain), {tab: "tab:y", target: edge(plain, "b", "right")}, testPolicy()));
+        expect(JSON.stringify(result)).toBe(JSON.stringify(okDoc(moveTabToEdge(plain, {tab: "tab:y", target: edge(plain, "b", "right")}, testPolicy()))));
+        expect(JSON.stringify(plain)).toBe(before);
+    });
+
+    it("规模：2000 个标签的文档，一次结构操作的拷贝不慢（量数写进 layout-doc.ts 的注释，不设断言）", () => {
+        const tabs = Array.from({length: 2000}, (_, index) => tab(`t${String(index)}`));
+        const doc = docOf(H(["ea", "b"]), {ea: {tabs, active: "tab:t0"}});
+        const started = performance.now();
+        for (let round = 0; round < 20; round += 1) okDoc(moveTabToEdge(doc, {tab: "tab:t1", target: edge(doc, "b", "right")}, testPolicy()));
+        const perRound = (performance.now() - started) / 20;
+        console.info(`2000 个标签：一次外缘移动 ${perRound.toFixed(2)}ms`);
+        expect(perRound).toBeGreaterThan(0);
+    });
+
     it("开一块新面板：编辑组成为活动编辑组；id 重复不提交", () => {
         const doc = docOf(H(["ea", "b"]));
         const panel = {role: "editor" as const, tabs: [tab("z")], active: "tab:z"};
@@ -604,6 +639,27 @@ describe("校验", () => {
 
     it("合法文档通过", () => {
         expect(validateLayoutDoc(valid())).toEqual({ok: true, doc: valid()});
+    });
+
+    it("条的叶 id 要等于条名；别的节点、面板与浮动窗的 id 不能是条名，也不能撞上呈现里生成的 id（入口条叶、区域的内层分支）", () => {
+        const doc = valid();
+        const rename = (from: string, to: string): LayoutDoc => JSON.parse(JSON.stringify(doc).replaceAll(`"${from}"`, `"${to}"`)) as LayoutDoc;
+        // 活动栏叶的 id 写错了：宿主按叶 id 认条，画不出活动栏。
+        const bar = JSON.parse(JSON.stringify(doc)) as LayoutDoc;
+        const barLeaf = treeLeaves(bar.tree.root).find((leaf) => leaf.id === "activitybar") as {id: string};
+        barLeaf.id = "bar-a";
+        expect(validateLayoutDoc(bar)).toMatchObject({ok: false, code: "invalid"});
+        // 面板 id（连同它的叶与 ref）是条名、入口条叶的写法、内层分支的写法。
+        for (const id of ["statusbar", "strip:sidebar", "strip:whatever", "sidebar:sections"]) {
+            expect(validateLayoutDoc(rename("sidebar", id)), id).toMatchObject({ok: false, code: "invalid"});
+        }
+        // 分支的 id 撞上同样的写法。
+        const branch = JSON.parse(JSON.stringify(doc)) as LayoutDoc;
+        (branch.tree.root as {id: string}).id = "strip:panel";
+        expect(validateLayoutDoc(branch)).toMatchObject({ok: false, code: "invalid"});
+        // 浮动窗的面板 id 同样。
+        const floating = okDoc(floatTab(doc, {tab: "view:sidebar", rect: {x: 10, y: 10, width: 300, height: 200}}, testPolicy({newId: () => "strip:x"})));
+        expect(validateLayoutDoc(floating)).toMatchObject({ok: false, code: "invalid"});
     });
 
     it("版本不支持与内容损坏是两种问题码", () => {
