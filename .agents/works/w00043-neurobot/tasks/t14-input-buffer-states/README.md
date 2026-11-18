@@ -62,18 +62,25 @@ Spec 已按提案、实现定义与上面五处改好（`planned`）：`harness/
 - 收口批里推迟的话先随收口写 `inputHeld`、同一批里再被放行；`agent_send` 等去向时以 `inputFate` 为准，事件只作重查信号。
 - 被停止的运行已经收口，之后别的发出者的新话照常开新运行；“受理时就留着”只出在回退出来的暂停运行上。
 
-进展（分支 `feat/w00043-neurobot`）：
+进展（分支 `feat/w00043-neurobot`，2026-11-18 合入 master）：
 
 | 片 | 提交 | 审查 |
 |---|---|---|
 | 1 内核：条目状态与事件 | 52797139c | 内核实现审查（Opus，有效 11 条）已处理，修正 a1f22dd7f，[处理表](evidences/impl-review-kernel-disposition.md) |
 | 2–3 内核：收口、停止、放行与去向 | bfaed9e53 | 同上 |
-| 4 NeuroBook 后端 | d0f74ddf9 | 后端实现审查（Opus，11 条：阻断 1、重要 6、建议 4）已处理，修正 06e7d4526，[处理表](evidences/impl-review-backend-disposition.md)；修正的窄范围复审在跑 |
-| 5 nb-agent-ui 与 nb-markdown | c4dbf6056 | 与第 6 片一起做前端审查 |
-| 6 NeuroBook 界面 | 进行中 | |
+| 4 NeuroBook 后端 | d0f74ddf9 | 后端实现审查（Opus，11 条：阻断 1、重要 6、建议 4），修正 06e7d4526；修正的窄范围复审（Opus，7 条：重要 2、建议 5），修正 6239af5d9；[处理表](evidences/impl-review-backend-disposition.md) |
+| 5 nb-agent-ui 与 nb-markdown | c4dbf6056 | 前端实现审查（Sonnet，14 条：重要 3、建议 11），修正 a867ae719 与之后两个测试提交；[处理表](evidences/impl-review-frontend-disposition.md) |
+| 6 NeuroBook 界面 | 46d0612c3、629e598ad、a057c47fb | 同上 |
+
+master 在实施期间改过转录器与内核的同一批文件，合并提交 1d7fe435e 把它并进分支（两处冲突，都是两边各加一段，保留两边）；合并后的验证：
+
+- 类型检查：nb-harness、nb-agent-ui、neuro-book 都过。
+- 单元与合同测试：nb-harness 全包 888 条，nb-agent-ui 284 条（bun）加 185 条（vitest），neuro-book `src/plugins/agent` 508 条，都过。
+- e2e（合并后重建）：`agent-conversation`、`agent-subagents`、`lab-agent-ui` 共 77 条，76 条过；`agent-conversation` 的“按状态换场景”一次因测试端点连接被关（`fetch failed`）失败，单独重跑两次都过，归为环境。合并之前跑过的 `lab-scenes` 被已有的 ThemeEditor 404 挡在版面检查之前（分支起点上就有），新加的 8 个场景改用 `nbdev shot` 量，越界、焦点环与光晕都是 0；`agent-subagents` 验收 4 一次失败时另一位审查者正在同一个 worktree 跑测试，单独重跑两次都过。
+- 截图（390 宽、亮色）：英文留着场景里原因先截断、Continue 完整；英文占位文字缩短到一行。
 
 待开发者追认的决定见 Work 的[待确认清单](../../pending-confirmations.md)。
 
 ## 下一步
 
-做第 6 片（`session-host.ts` 的映射与继续、`web/resume-merge.ts`、恢复方式设置、后端审查第 10 条），跑受影响的 e2e，之后派前端实现审查（Sonnet）。
+各 Spec 里本 Task 加的“（planned）”句子都有测试守着，晋升（去掉标记、`harness/runtime.md` 改 `implemented`、补实现合同与证据）按规则等开发者批准；批准后逐条核对再改。已知缺口：`agent.ts` 各入口接停止门的接线没有测试（测试世界从外面碰不到）；子代理“受理时就留着”“插话只认就绪”与 `afterLater` 的超时、插话、留着、取消几支按代码核对。
