@@ -48,7 +48,7 @@ export interface PanelRecord {
     readonly activeContainer?: string | null;
 }
 
-/** 浮动窗的矩形：卡片本身，相对树区域的 CSS 像素。写入时取整，所以比较不用容差，也不落在半个像素上。拉边与夹取在 `grid-rects.ts`。 */
+/** 浮动窗的矩形：卡片本身，相对树区域的 CSS 像素。写入时取整，所以比较不用容差，也不落在半个像素上。拉边与夹取在 nb-layout 的 `grid-rects.ts`（`clampFloatRect`、`resizeFloatRect`）。 */
 export type LayoutFloatRect = GridRect;
 
 /** 浮动窗：一块不在树里的面板。 */

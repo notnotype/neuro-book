@@ -16,7 +16,7 @@ import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import type {RecordDefinition} from "nbook/shared/storage";
 
 /**
- * 一棵树的布局文档。形状的权威是 nb-layout 的 `validateLayoutDoc`，这里的 schema 只管外层：同一个形状不写两份。显式取 1MiB 上限，
+ * 一棵树的布局文档。形状的权威是 nb-workbench-layout 的 `validateLayoutDoc`，这里的 schema 只管外层：同一个形状不写两份。显式取 1MiB 上限，
  * 16 组、每组 200 标签时约 250KB，缺省的 64KiB 不够。
  */
 const LayoutDocSchema = Type.Object({doc: Type.Unknown()}, {additionalProperties: false});

@@ -1,5 +1,5 @@
 /**
- * 标签条的宽度适配（`overflow="adapt"`，Tabs.md）：按测量层的实测宽度与标签带的可用宽度求这一档。`Tabs` 与 nb-layout 的 `TabStrip` 共用。
+ * 标签条的宽度适配（`overflow="adapt"`，Tabs.md）：按测量层的实测宽度与标签带的可用宽度求这一档。`Tabs` 与 nb-workbench-layout 的 `TabStrip` 共用。
  *
  * 测量层要给三种标记：`data-measure-tab`（完整标题的每个标签，与 `items` 同序）、`data-measure-icon`（只留图标的标签）、`data-measure-more`（“更多”）。
  */

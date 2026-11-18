@@ -828,10 +828,7 @@ const dragSlotPanel = computed(() => dragView.value.slotPanel);
 const mergeTarget = computed(() => dragView.value.mergeTarget);
 const mergeEntry = computed(() => dragView.value.mergeEntry);
 const feedbackSectors = computed(() => dragView.value.feedbackSectors);
-const feedbackPreview = computed(() => {
-    const {preview} = dragView.value.feedback;
-    return preview === null ? null : {...preview, entryRect: preview.entryRect ?? null};
-});
+const feedbackPreview = computed(() => dragView.value.feedback.preview);
 const feedbackKind = computed(() => dragView.value.feedback.kind);
 const feedbackLabel = computed(() => {
     const {label} = dragView.value.feedback;

@@ -124,6 +124,14 @@ describe("DropFeedbackOverlay", () => {
         expect(value.areaRect).toEqual(rect(10, 20, 400, 160));
         expect(value.indicator).toEqual(rect(10, 60, 400, 2));
     });
+    it("不传 entryRect（不只是给 null）：照常画区域与标签，没有入口矩形", async () => {
+        const value: DropFeedbackPreview = {areaRect: rect(10, 20, 400, 160), indicator: null, orientation: "vertical"};
+        expect("entryRect" in value).toBe(false);
+        await render(value);
+        expect(document.querySelector("[data-drop-feedback-area]")).not.toBeNull();
+        expect(document.querySelector("[data-drop-feedback-entry]")).toBeNull();
+        expect(labelElement().textContent).toContain("移动视图");
+    });
 
     it("窄半区的比例内缩仍保住正面积，半区非法时不吞有效插线", async () => {
         const wrapper = await render(preview({areaRect: rect(10, 20, 4, 2), indicator: rect(10, 20, 120, 2)}));
