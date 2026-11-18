@@ -13,7 +13,7 @@ updated: 2026-11-18
 
 2026-11-18 调研（[research-r1](evidences/research-r1.md)）后范围改为：**继续用 Electrobun 的安装程序，加首次启动向导**。Electrobun 2.0.6 的安装、更新器与卸载都把位置写死在 `%LOCALAPPDATA%\<identifier>\<channel>`，每次更新重建两个快捷方式，界面文字写死、没有配置项；为当前用户安装、不要管理员权限已经满足。
 
-合同：`runtime.desktop-shell` 加首次启动向导与桌面快捷方式设置（条目级 planned），设计定稿后写。
+合同：[`runtime.desktop-shell`](../../../../../docs/specs/runtime/desktop-shell.md) 输出 33（桌面快捷方式）、34（首次启动向导）、验收场景 19，条目级 planned。计划见 [plan.md](plan.md)。
 
 ## 决定
 
@@ -26,8 +26,8 @@ updated: 2026-11-18
 
 ## 当前状态
 
-草稿 worktree `.worktree/w00046-t02-drafts`（分支 `t02/drafts`，不合并）里搭了两版静态稿：A 一页对话框、B 分步向导；两轮定稿：分步向导、上方舞台。接着写 Spec 与计划。
+草稿 worktree `.worktree/w00046-t02-drafts`（分支 `t02/drafts`，不合并）里搭了两版静态稿：A 一页对话框、B 分步向导；两轮定稿：分步向导、上方舞台。Spec 与计划第 1 稿已写，设计审查中。
 
 ## 下一步
 
-定了形式后写 Spec（desktop-shell 的首次启动向导、桌面快捷方式设置）与 `plan.md`，按 autonomous-delivery 做设计审查与实施。
+处理设计审查后按计划切片实施。

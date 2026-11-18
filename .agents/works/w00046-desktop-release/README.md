@@ -54,7 +54,7 @@ updated: 2026-11-15
 | Task | 内容 |
 |---|---|
 | [t01](tasks/t01-distribution-proposal/README.md) | 发行提案与桌面壳实测选型。已完成：提案 [desktop-distribution](../../../docs/proposals/desktop-distribution.md) 已接受，[ADR 0051](../../../docs/adr/0051-desktop-shell-electrobun-tag-release.md) |
-| [t02](tasks/t02-installer/README.md) | 有界面的安装程序：为当前用户安装、安装位置、快捷方式。未开工 |
+| [t02](tasks/t02-installer/README.md) | 安装程序：调研后定为继续用 Electrobun 的安装程序，加首次启动向导（外观、桌面快捷方式、开机自启、关窗去向、数据位置）。设计两轮定稿，计划审查中 |
 | [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏与应用图标。已完成，合入 master；拖动、双击、贴边等真实操作待开发者试 |
 | [t04](tasks/t04-desktop-settings/README.md) | 桌面端专属设置：机制（只在桌面显示的设置分区、页面把值交给壳）、界面缩放、开机自启。已完成，合入 master；真实键盘下的缩放快捷键待开发者试 |
 | [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具：第一版只检测加提示。未开工 |
