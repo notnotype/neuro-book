@@ -60,7 +60,7 @@ export const packsPoint: ContributionPointDefinition<StickerPacksDeclaration> = 
 export type StickerSource = "user" | "plugin";
 
 export type StickerPackProblem =
-    | {readonly code: "manifest-too-large" | "manifest-unreadable" | "manifest-invalid" | "folder-name" | "symlink"; readonly detail?: string};
+    | {readonly code: "manifest-too-large" | "manifest-unreadable" | "manifest-invalid" | "folder-unreadable" | "folder-name" | "symlink"; readonly detail?: string};
 
 /** 一个有效的表情。 */
 export interface StickerEntry {

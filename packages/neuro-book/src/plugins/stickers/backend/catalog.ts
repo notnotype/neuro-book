@@ -225,7 +225,8 @@ export class StickerCatalog {
         if (link) return invalid({code: "symlink"});
         if (!FOLDER_NAME.test(folder)) return invalid({code: "folder-name"});
         const manifestPath = join(directory, MANIFEST_FILE);
-        const info = await lstat(manifestPath).catch(() => null);
+        const info = await lstat(manifestPath).catch((error: unknown) => (errorCode(error) === "ENOENT" ? null : error instanceof Error ? error : new Error(String(error))));
+        if (info instanceof Error) return invalid({code: "manifest-unreadable", detail: info.message});
         // 没有清单与清单 `{}` 一样：表情按文件夹里的图片。
         let json: unknown = {};
         if (info !== null) {
@@ -239,8 +240,12 @@ export class StickerCatalog {
         }
         const parsed = parseManifest(json);
         if (!parsed.ok) return invalid({code: "manifest-invalid", detail: parsed.detail});
-        // 链接照样交出去，由图片核对判成“文件是链接”，与清单里写了链接的一样报。
-        const listed = parsed.stickers ?? stickersFromFiles(await this.#fileNames(root, directory));
+        let listed = parsed.stickers;
+        if (listed === null) {
+            const files = await fileNames(directory);
+            if (!Array.isArray(files)) return invalid({code: "folder-unreadable", detail: files.message});
+            listed = stickersFromFiles(files);
+        }
         const problems: string[] = [];
         const stickers: StickerEntry[] = [];
         for (const item of listed.items) {
@@ -257,15 +262,6 @@ export class StickerCatalog {
             item: {directory, root: root.key, entry: {...base, title: parsed.title ?? folder, ...(parsed.description === undefined ? {} : {description: parsed.description}), status: "ok", stickers}},
             findings: {ignored: parsed.ignored, stickers: problems},
         };
-    }
-
-    /** 表情包文件夹里的文件与链接的名字；文件夹在扫描途中被删掉时是空的，下一次重扫会对上。 */
-    async #fileNames(root: StickerRoot, directory: string): Promise<string[]> {
-        const children = await readdir(directory, {withFileTypes: true}).catch((error: unknown) => {
-            if (errorCode(error) !== "ENOENT") this.#options.report("scan-failed", `读不了表情包文件夹 ${directory}`, {source: root.source, message: error instanceof Error ? error.message : String(error)});
-            return [];
-        });
-        return children.filter((child) => child.isFile() || child.isSymbolicLink()).map((child) => child.name);
     }
 
     #syncWatchers(): void {
@@ -341,6 +337,19 @@ export async function checkImage(bytes: Uint8Array, file: string): Promise<Image
     }
     if (size.width > IMAGE_MAX_SIDE || size.height > IMAGE_MAX_SIDE) return {ok: false, reason: `宽或高超过 ${String(IMAGE_MAX_SIDE)} 像素`};
     return {ok: true, type, width: size.width, height: size.height};
+}
+
+/**
+ * 表情包文件夹里的文件与链接的名字，读不了时交回错误（表情包按无效列出，诊断随表情包去重）。文件夹在扫描途中被删掉时是空的，
+ * 下一次重扫会对上。链接也交出去，由图片核对判成“文件是链接”，与清单里写了链接的一样报。
+ */
+async function fileNames(directory: string): Promise<string[] | Error> {
+    try {
+        return (await readdir(directory, {withFileTypes: true})).filter((child) => child.isFile() || child.isSymbolicLink()).map((child) => child.name);
+    } catch (error) {
+        if (errorCode(error) === "ENOENT") return [];
+        return error instanceof Error ? error : new Error(String(error));
+    }
 }
 
 type ImageRead = {readonly ok: true; readonly width: number; readonly height: number; readonly version: string} | {readonly ok: false; readonly reason: string};

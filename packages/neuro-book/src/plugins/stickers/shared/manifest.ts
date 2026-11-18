@@ -45,16 +45,20 @@ function imageStem(file: string): string | null {
     return dot > 0 && IMAGE_TYPES[file.slice(dot + 1).toLowerCase()] !== undefined ? file.slice(0, dot) : null;
 }
 
-/** 表情包文件夹里的单段文件名，扩展名是允许的几种。 */
-function fileProblem(file: unknown): string | null {
-    if (typeof file !== "string" || file === "" || file === "." || file === ".." || /[/\\]/u.test(file) || file.includes("\0")) return "file 不是表情包文件夹里的单段文件名";
-    return imageStem(file) === null ? "file 的扩展名不是 png、gif、webp、jpg、jpeg" : null;
+/** 清单里的 `file`：表情包文件夹里的单段文件名，扩展名是允许的几种；交回文件名与去掉扩展名的部分。 */
+function listedFile(file: unknown): {readonly ok: true; readonly file: string; readonly stem: string} | {readonly ok: false; readonly reason: string} {
+    if (typeof file !== "string" || file === "" || file === "." || file === ".." || /[/\\]/u.test(file) || file.includes("\0")) return {ok: false, reason: "file 不是表情包文件夹里的单段文件名"};
+    const stem = imageStem(file);
+    return stem === null ? {ok: false, reason: "file 的扩展名不是 png、gif、webp、jpg、jpeg"} : {ok: true, file, stem};
 }
 
-/** 按表情名规则与同包不重名核对一个名字；合规时记进 `seen`，交回规范化后的名字。 */
+/** 名字取自文件名而不合规则时的原因：导出的包常是 `1.png`、`image 3.png`，要说清怎么改。 */
+const STEM_RULE = "当不了表情名（名字要以字母或 _ 开头，只含字母、数字、_、-，至多 32 个字；改文件名或在清单里写 name）";
+
+/** 按同包不重名核对一个合规的名字；不重名时记进 `seen`，交回规范化后的名字。 */
 function claimName(name: string, seen: Set<string>): {readonly ok: true; readonly name: string} | {readonly ok: false; readonly reason: string} {
     const normalized = name.normalize("NFC");
-    if (seen.has(normalized)) return {ok: false, reason: `name ${normalized} 重名`};
+    if (seen.has(normalized)) return {ok: false, reason: `名字 ${normalized} 与前面的表情重名`};
     seen.add(normalized);
     return {ok: true, name: normalized};
 }
@@ -81,17 +85,15 @@ export function parseManifest(value: unknown): ManifestResult {
         const fail = (reason: string): ManifestItem => ({ok: false, label, reason});
         if (!isObject(raw)) return fail("不是对象");
         const {name, file, description: text, common} = raw;
-        const problem = fileProblem(file);
-        if (problem !== null) return fail(problem);
-        // fileProblem 通过之后 file 是带图片扩展名的字符串，imageStem 不会是 null。
-        const stem = imageStem(file as string) as string;
-        const written = name === undefined ? stem : name;
-        if (typeof written !== "string" || !isStickerName(written)) return fail(name === undefined ? `文件名 ${stem} 当不了表情名` : "name 不合规则");
+        const image = listedFile(file);
+        if (!image.ok) return fail(image.reason);
+        const written = name === undefined ? image.stem : name;
+        if (typeof written !== "string" || !isStickerName(written)) return fail(name === undefined ? `文件名 ${image.stem} ${STEM_RULE}` : "name 不合规则");
         if (text !== undefined && !shortText(text)) return fail("description 不是 1 到 200 个字符的文字");
         if (common !== undefined && typeof common !== "boolean") return fail("common 不是布尔值");
         const claimed = claimName(written, seen);
         if (!claimed.ok) return fail(claimed.reason);
-        return {ok: true, sticker: {name: claimed.name, file: file as string, ...(text === undefined ? {} : {description: text as string}), common: common === true}};
+        return {ok: true, sticker: {name: claimed.name, file: image.file, ...(text === undefined ? {} : {description: text as string}), common: common === true}};
     });
     return {...header, stickers: {items, truncated: value.stickers.length - listed.length}};
 }
@@ -101,11 +103,13 @@ export function parseManifest(value: unknown): ManifestResult {
  * 别的文件不算表情、不报。纯函数，`files` 是文件夹里条目的名字（不含子文件夹）。
  */
 export function stickersFromFiles(files: readonly string[]): ManifestStickers {
-    const images = files.filter((file) => !file.startsWith(".") && imageStem(file) !== null).sort(byCodeUnit);
+    const images = files.flatMap((file) => {
+        const stem = file.startsWith(".") ? null : imageStem(file);
+        return stem === null ? [] : [{file, stem}];
+    }).sort((left, right) => byCodeUnit(left.file, right.file));
     const seen = new Set<string>();
-    const items = images.slice(0, STICKERS_PER_PACK_MAX).map((file): ManifestItem => {
-        const stem = imageStem(file) as string;
-        if (!isStickerName(stem)) return {ok: false, label: file, reason: "文件名当不了表情名"};
+    const items = images.slice(0, STICKERS_PER_PACK_MAX).map(({file, stem}): ManifestItem => {
+        if (!isStickerName(stem)) return {ok: false, label: file, reason: `文件名${STEM_RULE}`};
         const claimed = claimName(stem, seen);
         return claimed.ok ? {ok: true, sticker: {name: claimed.name, file, common: true}} : {ok: false, label: file, reason: claimed.reason};
     });

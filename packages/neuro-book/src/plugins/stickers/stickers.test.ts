@@ -5,7 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {mkdir, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
+import {chmod, mkdir, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -161,6 +161,7 @@ describe("表情目录", () => {
             await mkdir(join(cat, "相册.png"));
             for (const [file, bytes] of Object.entries({"开心.png": await png(16, 16), "开心.webp": await webp(16, 16), "困.webp": await webp(24, 16), "1.png": await png(8, 8), ".hidden.png": await png(8, 8), "readme.txt": new TextEncoder().encode("说明")})) await writeFile(join(cat, file), bytes);
             await writeFile(join(cat, "sub", "里面.png"), await png(8, 8));
+            await symlink(join(cat, "开心.png"), join(cat, "链接.png"));
             await pack(join(user, "titled"), {title: "有标题"}, {"a.png": await png(8, 8)});
             await pack(join(user, "listed"), {stickers: [{file: "a.png"}]}, {"a.png": await png(8, 8), "b.png": await png(8, 8)});
         });
@@ -170,7 +171,7 @@ describe("表情目录", () => {
         ]);
         expect(byId(service, "user.cat")).toMatchObject({status: "ok", title: "cat"});
         const catProblems = events().find((item) => item.event === "stickers.sticker-invalid" && (item.data as {id: string}).id === "user.cat")?.data as {stickers: string[]} | undefined;
-        expect(catProblems?.stickers).toEqual(["1.png：文件名当不了表情名", "开心.webp：name 开心 重名"]);
+        expect(catProblems?.stickers).toEqual([expect.stringMatching(/^1\.png：文件名当不了表情名（/u), "开心.webp：名字 开心 与前面的表情重名", "链接：文件是链接"]);
         expect(byId(service, "user.titled")).toMatchObject({status: "ok", title: "有标题", stickers: [{name: "a", common: true}]});
         expect(byId(service, "user.listed")?.stickers.map((sticker) => sticker.name)).toEqual(["a"]);
 
@@ -179,6 +180,26 @@ describe("表情目录", () => {
             world.clock.advance(200);
             return byId(service, "user.cat")?.stickers.some((sticker) => sticker.name === "晚安") || null;
         });
+    });
+
+    test("输出 2：表情包文件夹读不了时是无效的，不当成没有清单或空的表情包", async () => {
+        const locked: string[] = [];
+        try {
+            const {service} = await scene(async (user) => {
+                // 只能进、不能列：查得到没有清单，列不出图片。只能列、不能进：查不了有没有清单。
+                for (const [folder, mode] of [["unlisted", 0o100], ["unsearchable", 0o400]] as const) {
+                    const directory = join(user, folder);
+                    await mkdir(directory);
+                    await writeFile(join(directory, "a.png"), await png(8, 8));
+                    await chmod(directory, mode);
+                    locked.push(directory);
+                }
+            });
+            expect(byId(service, "user.unlisted")).toMatchObject({status: "invalid", problem: {code: "folder-unreadable"}, stickers: []});
+            expect(byId(service, "user.unsearchable")).toMatchObject({status: "invalid", problem: {code: "manifest-unreadable"}, stickers: []});
+        } finally {
+            for (const directory of locked) await chmod(directory, 0o700);
+        }
     });
 
     test("输出 1：新放进的表情包、整个换掉的表情包都随监视重扫出现；链接的表情包是无效的", async () => {
