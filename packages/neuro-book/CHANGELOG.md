@@ -4,6 +4,8 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-18
+
 ### 新增
 
 - macOS 桌面版预览（Apple Silicon）：`NeuroBook-macos-arm64.dmg`。没有签名与公证，第一次打开要在“系统设置 › 隐私与安全性”里点“仍要打开”，或在终端运行 `xattr -dr com.apple.quarantine /Applications/NeuroBook.app`；窗口用系统标题栏，开机自启、桌面快捷方式、磨砂背景这些 Windows 专有的设置在 macOS 上不生效。
