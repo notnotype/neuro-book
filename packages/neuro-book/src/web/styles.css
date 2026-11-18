@@ -166,9 +166,9 @@ html[data-desktop-frame-bar] {
 
 /*
  * 磨砂窗口（`<html data-window-backdrop="mica|acrylic">`，预加载脚本在窗口以 `transparent` 建出时设，desktop-shell 输出 32）：窗口底是系统
- * 的 Mica 或 Acrylic，页面的底得是透明的才看得见。窗体底透明，主题自带的底纹（`--window-backdrop`）不画；工作台的外层面板（活动栏、
- * 侧栏、右栏）半透明，编辑器与内容面板仍不透明，字落在不透明的纸上。高对比度与“减少透明”偏好下全部不生效，退回普通的不透明底。
- * 外层面板的样式有四种（`data-window-backdrop-style`），是给开发者挑的试验项，定下一种之后收成一种。
+ * 的 Mica 或 Acrylic，页面的底得是透明的才看得见。窗体底透明并罩一层淡淡的主题底色，主题自带的底纹（`--window-backdrop`）不画；工作台的
+ * 外层面板（活动栏、侧栏、右栏）半透明，编辑器与内容面板仍不透明，字落在不透明的纸上。高对比度与“减少透明”偏好下全部不生效，
+ * 退回普通的不透明底。
  */
 @media (forced-colors: none) and (prefers-contrast: no-preference) {
     html[data-window-backdrop],
@@ -183,18 +183,12 @@ html[data-desktop-frame-bar] {
         --window-backdrop: none;
         --shell-ground: transparent;
         --skin-activitybar-surface: transparent;
-    }
-
-    html[data-window-backdrop][data-window-backdrop-style="b"] {
-        --panel-surface: color-mix(in srgb, var(--bg-panel) 60%, transparent);
-    }
-
-    html[data-window-backdrop]:is([data-window-backdrop-style="c"], [data-window-backdrop-style="d"], :not([data-window-backdrop-style])) :is([data-shell-card="activitybar"], [data-shell-card^="section:"]) {
-        background: color-mix(in srgb, var(--bg-panel) 52%, transparent);
-    }
-
-    html[data-window-backdrop]:is([data-window-backdrop-style="d"], :not([data-window-backdrop-style])) {
         background: color-mix(in srgb, var(--bg-main) 38%, transparent);
+    }
+
+    /* `[data-shell-card]` 写两遍只为抬高优先级：卡片自己的底色规则带 `[data-panel-role]` 与作用域属性，单写一遍压不过它。 */
+    html[data-window-backdrop] [data-shell-card][data-shell-card]:is([data-shell-card="activitybar"], [data-shell-card^="section:"]) {
+        background: color-mix(in srgb, var(--bg-panel) 52%, transparent);
     }
 }
 

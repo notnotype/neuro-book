@@ -74,8 +74,8 @@ export const {settings: desktopSettings, contributions: desktopSettingContributi
         default: "off",
         title: {"zh-CN": "窗口背景", "en-US": "Window background"},
         description: {
-            "zh-CN": "磨砂透明的窗口背景，需要 Windows 11 22H2 以上。改了之后新开的窗口生效。",
-            "en-US": "A frosted, translucent window background; needs Windows 11 22H2 or later. Applies to windows opened after the change.",
+            "zh-CN": "实验功能：磨砂透明的窗口背景，需要 Windows 11 22H2 以上。改了之后新开的窗口生效；打开后窗口没有系统菜单（Alt+空格）。",
+            "en-US": "Experimental: a frosted, translucent window background; needs Windows 11 22H2 or later. Applies to windows opened after the change; the window has no system menu (Alt+Space) while it is on.",
         },
         choices: [
             {value: "off", title: {"zh-CN": "关", "en-US": "Off"}},
@@ -85,25 +85,6 @@ export const {settings: desktopSettings, contributions: desktopSettingContributi
         layers: ["user"],
         section: DESKTOP_WINDOW_SECTION,
         order: 40,
-    },
-    // 试验：磨砂窗口里外层面板的样式（只改页面的样式，不经过壳），开发者挑定一种之后删掉这一项，样式收成一种。
-    windowBackdropStyle: {
-        schema: Type.Union([Type.Literal("a"), Type.Literal("b"), Type.Literal("c"), Type.Literal("d")]),
-        default: "d",
-        title: {"zh-CN": "窗口背景样式（试验）", "en-US": "Window background style (experiment)"},
-        description: {
-            "zh-CN": "a 只有窗口底透明、卡片不透明；b 所有卡片半透明；c 侧栏与右栏半透明、编辑器不透明；d 在 c 上再罩一层主题底色。立即生效。",
-            "en-US": "a: transparent ground, opaque cards; b: every card translucent; c: side panels translucent, editor opaque; d: c plus a theme-colour wash. Applies immediately.",
-        },
-        choices: [
-            {value: "a", title: "a"},
-            {value: "b", title: "b"},
-            {value: "c", title: "c"},
-            {value: "d", title: "d"},
-        ],
-        layers: ["user"],
-        section: DESKTOP_WINDOW_SECTION,
-        order: 50,
     },
 });
 

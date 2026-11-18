@@ -248,6 +248,33 @@ test("盖在标题栏上的浮层（命令面板）不是拖动区域", async ({
     expect(regions.slice(1)).toEqual(["no-drag", "no-drag"]);
 });
 
+test("磨砂窗口（<html data-window-backdrop>）：窗体底只罩淡淡的一层、外层面板半透明、编辑器所在的卡片不透明；没有这个属性时面板是不透明的", async ({page}) => {
+    await installFrame(page);
+    await page.setViewportSize({width: 1280, height: 800});
+    // 计算后的颜色可能是 `rgba(r, g, b, a)`，也可能是 color-mix 给的 `color(srgb r g b / a)`：取透明度。
+    const alphaOf = (selector: string): Promise<number> => page.locator(selector).first().evaluate((element) => {
+        const color = getComputedStyle(element).backgroundColor;
+        const slash = /\/\s*([\d.]+)\s*\)/u.exec(color);
+        if (slash !== null) return Number(slash[1]);
+        const parts = /\(([^)]*)\)/u.exec(color)?.[1]?.split(/[\s,]+/u).filter((part) => part !== "") ?? [];
+        return parts.length >= 4 ? Number(parts[3]) : 1;
+    });
+    await openWorkbench(page);
+    expect(await alphaOf("[data-shell-card^='section:']")).toBe(1);
+
+    // 预加载脚本在页面脚本之前设这个属性；这里页面已经起来，直接设同一个属性验样式。
+    await page.evaluate(() => document.documentElement.setAttribute("data-window-backdrop", "acrylic"));
+    // 根上只罩淡淡的一层主题底色：看得见窗口底，又不至于全透。
+    const root = await alphaOf("html");
+    expect(root).toBeGreaterThan(0);
+    expect(root).toBeLessThan(0.6);
+    const side = await alphaOf("[data-shell-card^='section:']");
+    expect(side).toBeGreaterThan(0.3);
+    expect(side).toBeLessThan(0.9);
+    // 编辑器分组（g0）的卡片仍不透明：字落在不透明的纸上。
+    expect(await alphaOf("[data-shell-card='g0']")).toBe(1);
+});
+
 test("没有能力标记（普通浏览器）：不画外框，`<html>` 不带属性，工作台占满视口", async ({page}) => {
     await page.setViewportSize({width: 1280, height: 800});
     await page.goto(new URL("/?project=book", server.url).href);
