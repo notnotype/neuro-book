@@ -7,6 +7,7 @@ import {addCellGroup, afterRemoval, gridGroups, moveSelection} from "../pack-vie
 import type {GridGroupId, NavigationKey} from "../pack-view";
 import {useStickersPageText} from "../text";
 import type {UploadItem} from "../upload-queue";
+import StickerSlot from "./StickerSlot.vue";
 
 /** 表情包页的表情网格（同名 .md）。 */
 const props = withDefaults(defineProps<{
@@ -66,7 +67,12 @@ function focusKey(key: string | null): void {
 function onKeydown(event: KeyboardEvent): void {
     if (!(event.target instanceof HTMLElement) || !event.target.hasAttribute("data-grid-key")) return;
     const key = event.target.dataset.gridKey ?? null;
+    // 带修饰键的是浏览器与系统的快捷键（Ctrl+Home、Alt+方向键……），不是网格的。
+    if (event.ctrlKey || event.altKey || event.metaKey) return;
     if (event.key === "Escape") {
+        // 有选中时 Esc 只是回到表情包，设置窗口不跟着关（窗口按 `defaultPrevented` 判断内层控件已处理）；没有选中时放行。
+        if (props.selected === null) return;
+        event.preventDefault();
         emit("select", null);
         return;
     }
@@ -122,13 +128,13 @@ defineExpose({afterRemoval: (key: string): string | null => afterRemoval(groups.
                         :title="item.label"
                         @click="emit('select', item.key)"
                     >
-                        <span class="sticker-slot sticker-tile__slot"><img :src="item.url" alt="" loading="lazy" decoding="async" /></span>
+                        <StickerSlot class="sticker-tile__slot" :url="item.url" :faded="item.reason !== null" lazy />
                         <span class="sticker-tile__name">{{ item.label }}</span>
                     </div>
                 </div>
                 <template v-if="group.id === addGroup">
                     <div v-for="upload in uploads" :key="upload.id" class="sticker-tile sticker-tile--uploading" :title="text('grid.uploading', {name: upload.name})" data-sticker-uploading>
-                        <span class="sticker-slot sticker-tile__slot"><Spinner /></span>
+                        <StickerSlot class="sticker-tile__slot"><Spinner /></StickerSlot>
                         <span class="sticker-tile__name">{{ upload.name }}</span>
                     </div>
                     <button v-if="!readonly" type="button" class="sticker-tile sticker-tile--add nb-ui-focus-ring" data-sticker-add @click="input?.click()">
@@ -140,7 +146,7 @@ defineExpose({afterRemoval: (key: string): string | null => afterRemoval(groups.
         </section>
         <div v-if="addGroup === null && !empty" class="sticker-grid sticker-grid--solo" data-sticker-grid>
             <div v-for="upload in uploads" :key="upload.id" class="sticker-tile sticker-tile--uploading" :title="text('grid.uploading', {name: upload.name})" data-sticker-uploading>
-                <span class="sticker-slot sticker-tile__slot"><Spinner /></span>
+                <StickerSlot class="sticker-tile__slot"><Spinner /></StickerSlot>
                 <span class="sticker-tile__name">{{ upload.name }}</span>
             </div>
             <button v-if="!readonly" type="button" class="sticker-tile sticker-tile--add nb-ui-focus-ring" data-sticker-add @click="input?.click()">
@@ -291,24 +297,6 @@ defineExpose({afterRemoval: (key: string): string | null => afterRemoval(groups.
     cursor: progress;
 }
 
-/* 一个表情的格子：大小固定，图按比例缩进去、居中；底色很淡，让不透明的矩形图与透明底的小表情落在同一个框里。 */
-.sticker-slot {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--text-main) 4%, transparent);
-    transition: background-color var(--motion-fast), box-shadow var(--motion-fast);
-}
-
-.sticker-slot > img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-}
-
 .sticker-tile__slot {
     width: 72px;
     height: 72px;
@@ -326,11 +314,6 @@ defineExpose({afterRemoval: (key: string): string | null => afterRemoval(groups.
 .sticker-tile[aria-selected="true"] .sticker-tile__slot {
     background: color-mix(in srgb, var(--accent-main) 12%, transparent);
     box-shadow: inset 0 0 0 2px var(--accent-main);
-}
-
-.sticker-group--problem .sticker-tile__slot > img,
-.sticker-group--unlisted .sticker-tile__slot > img {
-    opacity: 0.5;
 }
 
 .sticker-group--problem .sticker-tile__name {

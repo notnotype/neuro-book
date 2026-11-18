@@ -1,21 +1,20 @@
 <script setup lang="ts">
 import {Button, CopyButton, Field, InfoTip, Input, Switch, Textarea} from "@notnotype/nb-ui/components";
-import {computed} from "vue";
+import {computed, ref, watch} from "vue";
 
 import {useCommittedText} from "../field-draft";
 import {sizeLabel} from "../pack-view";
 import type {GridItem} from "../pack-view";
 import {useStickersPageText} from "../text";
+import StickerSlot from "./StickerSlot.vue";
 
 /** 表情包页属性栏：选中一个格子时（同名 .md）。 */
 const props = withDefaults(defineProps<{
     item: GridItem;
     folder: string;
-    problem?: boolean;
-    unlisted?: boolean;
     readonly?: boolean;
     commit: (change: {name?: string | null; description?: string | null; common?: boolean}) => Promise<string | null>;
-}>(), {problem: false, unlisted: false, readonly: false});
+}>(), {readonly: false});
 
 const emit = defineEmits<{
     (e: "delete"): void;
@@ -27,22 +26,28 @@ const text = useStickersPageText();
 /** 认不出的图名字还没有：输入框里是空的，要用户写一个。 */
 const name = useCommittedText(() => props.item.name ?? "", (value) => props.commit({name: value}));
 const description = useCommittedText(() => props.item.description ?? "", (value) => props.commit({description: value}));
+/** 认不出的图（名字当不了表情名）与没加进来的图。 */
+const problem = computed(() => props.item.reason === "name");
+const unlisted = computed(() => props.item.reason === "unlisted");
 const syntax = computed(() => `:${props.folder}/${props.item.name ?? ""}:`);
-const status = computed(() => name.error.value || description.error.value || (props.problem ? text("panel.nameRule") : ""));
-const failing = computed(() => name.error.value !== "" || description.error.value !== "");
-const editable = computed(() => !props.readonly && !props.unlisted);
+/** 常用开关是受控的：失败时弹回原值，原因写在状态行里。 */
+const toggleError = ref("");
+watch(() => props.item.common, () => {
+    toggleError.value = "";
+});
+const status = computed(() => name.error.value || description.error.value || toggleError.value || (problem.value ? text("panel.nameRule") : ""));
+const failing = computed(() => name.error.value !== "" || description.error.value !== "" || toggleError.value !== "");
+const editable = computed(() => !props.readonly && !unlisted.value);
 
 async function toggle(value: boolean): Promise<void> {
-    await props.commit({common: value});
+    toggleError.value = (await props.commit({common: value})) ?? "";
 }
 </script>
 
 <template>
     <div class="sticker-fields" data-sticker-fields>
-        <button type="button" class="sticker-fields__back nb-ui-focus-ring" data-sticker-back @click="emit('back')">
-            <span class="i-lucide-chevron-left" aria-hidden="true" />{{ text("panel.back") }}
-        </button>
-        <span class="sticker-slot sticker-fields__preview" :class="{'is-faded': problem || unlisted}"><img :src="item.url" :alt="item.label" /></span>
+        <Button class="sticker-fields__back" size="sm" variant="ghost" icon-class="i-lucide-chevron-left" data-sticker-back @click="emit('back')">{{ text("panel.back") }}</Button>
+        <StickerSlot class="sticker-fields__preview" :url="item.url" :alt="item.label" :faded="problem || unlisted" />
 
         <template v-if="unlisted">
             <p class="sticker-fields__title">{{ item.file }}</p>
@@ -62,7 +67,7 @@ async function toggle(value: boolean): Promise<void> {
                     data-sticker-name
                     @focus="name.onFocus"
                     @blur="name.onBlur"
-                    @keydown.enter.prevent="name.onEnter"
+                    @keydown.enter="name.onEnter"
                     @keydown.esc.stop="name.onEscape"
                 />
             </Field>
@@ -107,48 +112,14 @@ async function toggle(value: boolean): Promise<void> {
 }
 
 .sticker-fields__back {
-    display: inline-flex;
-    align-items: center;
     align-self: flex-start;
-    gap: 2px;
-    padding: 0 var(--space-1);
-    min-height: var(--control-h-sm);
-    font: inherit;
-    font-size: var(--text-xs);
-    color: var(--text-muted);
-    border: 0;
-    border-radius: var(--radius-control);
-    background: none;
-    cursor: pointer;
-}
-
-.sticker-fields__back:hover {
-    color: var(--text-main);
-}
-
-.sticker-slot {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--text-main) 4%, transparent);
-}
-
-.sticker-slot > img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
+    margin-left: calc(var(--space-2) * -1);
 }
 
 .sticker-fields__preview {
     width: 100%;
     height: 144px;
     padding: var(--space-3);
-}
-
-.sticker-fields__preview.is-faded > img {
-    opacity: 0.5;
 }
 
 .sticker-fields__title {

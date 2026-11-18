@@ -222,7 +222,7 @@ export type StickerPackDetail = Static<typeof PackDetailSchema>;
  */
 export const EDIT_CODES = [
     "not-user-pack", "pack-missing", "pack-exists", "pack-changed", "folder-invalid", "name-invalid", "name-duplicate",
-    "description-invalid", "sticker-missing", "manifest-full", "too-large", "permission-denied", "write-failed", "refresh-failed", "busy", "request-aborted",
+    "description-invalid", "title-invalid", "sticker-missing", "manifest-full", "too-large", "permission-denied", "write-failed", "refresh-failed", "busy", "request-aborted",
 ] as const;
 export type EditCode = (typeof EDIT_CODES)[number];
 /** 加图、导入、导出另有的码（只经 HTTP 路由交回，不在远程方法里）。 */

@@ -3,7 +3,12 @@
  * 组件与测试都用它。
  */
 
-import type {StickerPackDetail, StickerPackSummary} from "../shared/contracts";
+import type {StickerExtra, StickerPackDetail, StickerPackSummary} from "../shared/contracts";
+
+export type ExtraReason = StickerExtra["reason"];
+
+/** 表情包 id 里的文件夹名：id 是 `<前缀>.<文件夹名>`，前缀（用户是 `user`，插件是插件 id）可以带点，文件夹名不带。 */
+export const folderOf = (id: string): string => id.slice(id.lastIndexOf(".") + 1);
 
 export interface RailGroup {
     /** `mine` 或插件 id。 */
@@ -56,6 +61,8 @@ export interface GridItem {
     readonly raw: string | null;
     readonly common: boolean;
     readonly description?: string;
+    /** 表情是 null；不是表情的图：`name` 名字当不了表情名（要先改名），`unlisted` 文件夹里还没加进清单。 */
+    readonly reason: ExtraReason | null;
 }
 
 export interface GridGroup {
@@ -80,6 +87,7 @@ export function gridGroups(detail: StickerPackDetail): GridGroup[] {
         name: sticker.name,
         raw: sticker.raw ?? null,
         common: sticker.common,
+        reason: null,
         ...(sticker.description === undefined ? {} : {description: sticker.description}),
     }));
     const extras = detail.extras.map((extra): GridItem => ({
@@ -94,6 +102,7 @@ export function gridGroups(detail: StickerPackDetail): GridGroup[] {
         name: extra.raw,
         raw: extra.raw,
         common: false,
+        reason: extra.reason,
     }));
     const groups: GridGroup[] = [
         {id: "problem", items: extras.filter((item, index) => detail.extras[index]?.reason === "name")},

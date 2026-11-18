@@ -14,6 +14,8 @@ export interface ZipPreview {
     readonly title: string | null;
     readonly count: number | null;
     readonly items: ReadonlyArray<{readonly url: string; readonly label: string}>;
+    /** 释放预览图的对象地址：对话框关掉、再次冲突换了预览、页面卸载时调。 */
+    readonly dispose: () => void;
 }
 
 const extensionOf = (name: string): string => name.slice(name.lastIndexOf(".") + 1).toLowerCase();
@@ -32,8 +34,8 @@ export async function previewZip(file: File): Promise<ZipPreview> {
         const files = unzipSync(bytes, {filter: (entry) => wanted.has(entry.name) && entry.originalSize <= PREVIEW_BYTES});
         const items = Object.entries(files).map(([name, data]) => ({url: URL.createObjectURL(new Blob([data], {type: IMAGE_TYPES[extensionOf(name)]})), label: name}));
         const folder = names[0]?.includes("/") === true ? names[0].split("/")[0] ?? null : null;
-        return {title: folder, count: names.length, items};
+        return {title: folder, count: names.length, items, dispose: () => items.forEach((item) => URL.revokeObjectURL(item.url))};
     } catch {
-        return {title: null, count: null, items: []};
+        return {title: null, count: null, items: [], dispose: () => undefined};
     }
 }

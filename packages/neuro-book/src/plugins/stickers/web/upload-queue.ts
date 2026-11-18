@@ -1,7 +1,8 @@
 /**
  * 表情包页加图的队列（docs/specs/agent/stickers.md 输出 29）：一次选或拖进来的几张图排成队，同时至多 `limit` 张在传；一次添加的
  * 全部做完后交回逐张的结果，页面据此发一条汇总通知。队列属于页面的运行期，不属于哪个包：切到别的包、改名、删除，已经开始的照常传，
- * 服务端对不存在的包得 `pack-missing`，算进结果。拖进来的文件夹（没有类型、大小为 0）跳过，结果里写出。
+ * 服务端对不存在的包得 `pack-missing`，算进结果。拖进来的文件夹由调用方按 `readDrop` 的分类单独交来（`folders`），不传输，结果里写出。
+ * 页面关掉时 `cancelPending` 丢掉还没开始的，结果里是 `cancelled`；已经开始的传完。
  */
 
 /** 传一张图的结果：成功交回服务端实际用的文件名与是否缩小过；失败交回码，`reason` 是图片被拒的稳定原因码。 */
@@ -39,19 +40,26 @@ export class UploadQueue {
         this.#options = options;
     }
 
-    /** 加进队列；全部做完后 resolve，顺序与 `files` 一致。 */
-    add(packId: string, files: readonly File[]): Promise<readonly UploadOutcome[]> {
+    /** 加进队列；全部做完后 resolve，顺序是 `files`、再 `folders`。 */
+    add(packId: string, files: readonly File[], folders: readonly string[] = []): Promise<readonly UploadOutcome[]> {
         const outcomes = files.map((file) => new Promise<UploadOutcome>((resolve) => {
-            if (file.size === 0 && file.type === "") {
-                resolve({name: file.name, ok: false, code: "image-rejected", reason: "folder"});
-                return;
-            }
             this.#counter += 1;
             this.#tasks.push({item: {id: this.#counter, packId, name: file.name, state: "waiting"}, file, done: resolve});
         }));
+        const skipped = folders.map((name): UploadOutcome => ({name, ok: false, code: "image-rejected", reason: "folder"}));
         this.#changed();
         this.#pump();
-        return Promise.all(outcomes);
+        return Promise.all([...outcomes, ...skipped]);
+    }
+
+    /** 丢掉还没开始的（页面关掉了）；它们的结果是 `cancelled`。 */
+    cancelPending(): void {
+        for (const task of [...this.#tasks]) {
+            if (task.item.state !== "waiting") continue;
+            this.#tasks.splice(this.#tasks.indexOf(task), 1);
+            task.done({name: task.item.name, ok: false, code: "cancelled"});
+        }
+        this.#changed();
     }
 
     #changed(): void {

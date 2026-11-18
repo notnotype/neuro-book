@@ -1,5 +1,5 @@
 /**
- * 加图的队列（docs/specs/agent/stickers.md 输出 29）：同时至多 3 张、结果逐张交回、文件夹跳过、发送失败变成失败结果。
+ * 加图的队列（docs/specs/agent/stickers.md 输出 29）：同时至多 3 张、结果逐张交回、文件夹跳过、关页面时丢掉没开始的、发送失败变成失败结果。
  */
 
 import {describe, expect, test} from "bun:test";
@@ -45,19 +45,31 @@ describe("加图队列", () => {
         expect(changes.at(-1)).toEqual([]);
     });
 
-    test("发送抛错变成 unavailable 的失败结果，别的照常；拖进来的文件夹跳过", async () => {
+    test("发送抛错变成 unavailable 的失败结果，别的照常；拖进来的文件夹（调用方按 readDrop 分出）不传输、结果里写出", async () => {
         const gate = gatedSend();
         const queue = new UploadQueue({limit: 3, send: gate.send, onChange: () => undefined});
-        const folder = new File([], "相册", {type: ""});
-        const done = queue.add("user.cat", [image("a.png"), folder, image("b.png")]);
+        const done = queue.add("user.cat", [image("a.png"), image("b.png")], ["相册"]);
         gate.pending[0]!.fail();
         gate.pending[1]!.settle({ok: false, code: "image-rejected", reason: "type-mismatch"});
         const outcomes = await done;
+        expect(gate.pending.map((task) => task.name)).toEqual(["a.png", "b.png"]);
         expect(outcomes).toEqual([
             {name: "a.png", ok: false, code: "unavailable"},
-            {name: "相册", ok: false, code: "image-rejected", reason: "folder"},
             {name: "b.png", ok: false, code: "image-rejected", reason: "type-mismatch"},
+            {name: "相册", ok: false, code: "image-rejected", reason: "folder"},
         ]);
+    });
+
+    test("cancelPending 丢掉还没开始的（结果是 cancelled），已经开始的传完", async () => {
+        const gate = gatedSend();
+        const changes: UploadItem[][] = [];
+        const queue = new UploadQueue({limit: 1, send: gate.send, onChange: (items) => changes.push([...items])});
+        const done = queue.add("user.cat", [image("a.png"), image("b.png"), image("c.png")]);
+        queue.cancelPending();
+        expect(changes.at(-1)?.map((item) => item.name)).toEqual(["a.png"]);
+        gate.pending[0]!.settle(ok("a.png"));
+        expect(await done).toEqual([{name: "a.png", ok: true, file: "a.png", resized: false}, {name: "b.png", ok: false, code: "cancelled"}, {name: "c.png", ok: false, code: "cancelled"}]);
+        expect(gate.pending).toHaveLength(1);
     });
 
     test("几次添加共用同一个并发上限", async () => {

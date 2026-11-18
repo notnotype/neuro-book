@@ -50,6 +50,7 @@ function onKeydown(event: KeyboardEvent): void {
                 type="button"
                 class="sticker-rail__item nb-ui-focus-ring-inset"
                 :aria-current="item.id === current ? 'page' : undefined"
+                :aria-label="item.status === 'invalid' ? text('rail.itemLabelInvalid', {title: item.title}) : text(item.unrecognized > 0 ? 'rail.itemLabelProblem' : 'rail.itemLabel', {title: item.title, count: String(item.count)})"
                 :tabindex="item.id === current || (current === null && item.id === groups.flatMap((one) => one.items)[0]?.id) ? 0 : -1"
                 :data-sticker-rail-item="item.id"
                 @click="emit('select', item.id)"
@@ -57,8 +58,8 @@ function onKeydown(event: KeyboardEvent): void {
                 <img v-if="item.thumbnail !== null" class="sticker-rail__thumb" :src="item.thumbnail" alt="" loading="lazy" decoding="async" />
                 <span v-else class="i-lucide-smile sticker-rail__thumb sticker-rail__thumb--empty" :title="text('rail.noThumb')" aria-hidden="true" />
                 <span class="sticker-rail__name">{{ item.title }}</span>
-                <span v-if="item.status === 'invalid'" class="i-lucide-circle-x sticker-rail__flag" :title="text('rail.invalid')" data-sticker-rail-flag="invalid" />
-                <span v-else-if="item.unrecognized > 0" class="i-lucide-circle-alert sticker-rail__flag" :title="text('rail.problem')" data-sticker-rail-flag="problem" />
+                <span v-if="item.status === 'invalid'" class="i-lucide-circle-x sticker-rail__flag" aria-hidden="true" :title="text('rail.invalid')" data-sticker-rail-flag="invalid" />
+                <span v-else-if="item.unrecognized > 0" class="i-lucide-circle-alert sticker-rail__flag" aria-hidden="true" :title="text('rail.problem')" data-sticker-rail-flag="problem" />
                 <span class="sticker-rail__count">{{ item.count }}</span>
             </button>
         </template>

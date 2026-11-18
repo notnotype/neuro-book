@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {Button, Dialog} from "@notnotype/nb-ui/components";
+import {computed} from "vue";
 
 import {useStickersPageText} from "../text";
 
@@ -9,15 +10,17 @@ interface PreviewItem {
 }
 
 /** 导入同名时的对话框（同名 .md）。 */
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
     open: boolean;
     name: string;
     existing: {readonly title: string; readonly count: number; readonly items: readonly PreviewItem[]};
     incoming: {readonly title: string; readonly count: number | null; readonly items: readonly PreviewItem[]};
     copyAs: string | null;
+    /** 已有的包拿不到版本令牌（服务端读不到）：不能替换，只能另存。 */
+    canReplace?: boolean;
     busy?: boolean;
     status?: string;
-}>(), {busy: false, status: ""});
+}>(), {canReplace: true, busy: false, status: ""});
 
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
@@ -25,6 +28,7 @@ const emit = defineEmits<{
 }>();
 
 const text = useStickersPageText();
+const note = computed(() => (props.status !== "" ? props.status : props.canReplace ? text("dialog.conflict.replaceNote") : text("dialog.conflict.noToken")));
 </script>
 
 <template>
@@ -48,13 +52,13 @@ const text = useStickersPageText();
                 <span class="conflict__count">{{ side.data.count === null ? text("dialog.conflict.countUnknown") : text("dialog.conflict.count", {count: String(side.data.count)}) }}</span>
             </div>
         </div>
-        <p class="conflict__status" :class="{'is-error': status !== ''}" role="status" data-conflict-status>{{ status !== "" ? status : text("dialog.conflict.replaceNote") }}</p>
+        <p class="conflict__status" :class="{'is-error': status !== ''}" role="status" data-conflict-status>{{ note }}</p>
         <template #footer>
             <div class="conflict__footer">
                 <Button size="sm" variant="ghost" :disabled="busy" @click="emit('update:open', false)">{{ text("dialog.cancel") }}</Button>
                 <span class="conflict__spacer" />
                 <Button size="sm" variant="secondary" :disabled="busy || copyAs === null" data-conflict-copy @click="emit('choose', 'copy')">{{ copyAs === null ? text("dialog.conflict.copyUnavailable") : text("dialog.conflict.copyAs", {name: copyAs}) }}</Button>
-                <Button size="sm" variant="danger" :disabled="busy" data-conflict-replace @click="emit('choose', 'replace')">{{ text("dialog.conflict.replace") }}</Button>
+                <Button size="sm" variant="danger" :disabled="busy || !canReplace" data-conflict-replace @click="emit('choose', 'replace')">{{ text("dialog.conflict.replace") }}</Button>
             </div>
         </template>
     </Dialog>

@@ -74,7 +74,6 @@ export const stickersBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const notifications = context.services.require(notificationsKey);
             const port = await windowTextPort(context.services, () => displayLocale(settings));
-            const usage = await context.services.resolve(stickerAllowlistUsageKey);
             const remote = context.remote.use(stickersCatalogContract);
             const http = createStickersHttp();
             const t = boundText<typeof zhCN>(port, STICKERS_TEXT_NAMESPACE);
@@ -87,7 +86,12 @@ export const stickersBrowserPlugin: PluginDefinition = {
                             http,
                             t,
                             notify: (input) => void notifications.notify(input),
-                            ...(usage.status === "resolved" ? {allowlistUsage: (id: string) => usage.instance.profilesUsing(id)} : {}),
+                            // 第一次用到时才解析 Agent 一侧的服务：设置页分区不等 Agent 入口激活；解析不到（Agent 入口起不来）交回 null，
+                            // 改名对话框写通用提醒。
+                            allowlistUsage: async (id: string) => {
+                                const usage = await context.services.resolve(stickerAllowlistUsageKey);
+                                return usage.status === "resolved" ? usage.instance.profilesUsing(id) : null;
+                            },
                             report: (code, message) => diagnostics.record({level: "warn", event: `stickers.${code}`, message, source: {plugin: descriptor.id}}),
                         });
                     })},

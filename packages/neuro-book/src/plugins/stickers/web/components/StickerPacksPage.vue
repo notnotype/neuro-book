@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import {AlertDialog, Button, DropdownMenu, EmptyState, IconButton, Select, Spinner} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
-import {dragHasFiles} from "nbook/ui/dropped-folder";
+import {dragHasFiles, readDrop} from "nbook/ui/dropped-folder";
 
+import {stickerImageUrl} from "../../shared/contracts";
 import type {StickerPackDetail, StickerPackSummary} from "../../shared/contracts";
-import {gridGroups, railGroups} from "../pack-view";
+import {folderOf, gridGroups, railGroups} from "../pack-view";
 import type {GridItem} from "../pack-view";
 import type {ImportChoice, ImportConflictInfo} from "../packs-page";
 import {useStickersPageText} from "../text";
@@ -20,7 +22,8 @@ import StickerPackRail from "./StickerPackRail.vue";
 /** 设置窗口的“表情包”分区（同名 .md）：只管选中、对话框与布局，取数与写入在 `packs-page.ts`。 */
 type Failure = {readonly reason: string};
 type Target = {readonly file: string; readonly name: string | null};
-type Preview = {readonly title: string | null; readonly count: number | null; readonly items: ReadonlyArray<{readonly url: string; readonly label: string}>};
+type Preview = {readonly title: string | null; readonly count: number | null; readonly items: ReadonlyArray<{readonly url: string; readonly label: string}>; readonly dispose?: () => void};
+const NO_PREVIEW: Preview = {title: null, count: null, items: []};
 
 const props = withDefaults(defineProps<{
     state: "loading" | "ready" | {failed: string};
@@ -29,12 +32,12 @@ const props = withDefaults(defineProps<{
     detail: StickerPackDetail | null;
     uploads?: readonly UploadItem[];
     createPack?: (folder: string, title: string) => Promise<{readonly id: string} | Failure>;
-    renamePack?: (id: string, folder: string) => Promise<{readonly id: string} | Failure>;
+    renamePack?: (id: string, folder: string, token: string | null) => Promise<{readonly id: string} | Failure>;
     copyPack?: (id: string) => Promise<{readonly id: string} | Failure>;
     importZip?: (file: File, choice?: ImportChoice) => Promise<{readonly id: string} | {readonly conflict: ImportConflictInfo} | Failure>;
     updatePack?: (id: string, change: {title?: string | null; description?: string | null}) => Promise<Failure | null>;
     updateSticker?: (id: string, target: Target, change: {name?: string | null; description?: string | null; common?: boolean}) => Promise<Failure | null>;
-    deletePack?: (id: string) => Promise<Failure | null>;
+    deletePack?: (id: string, token: string | null) => Promise<Failure | null>;
     deleteSticker?: (id: string, target: Target) => Promise<Failure | null>;
     deleteFile?: (id: string, file: string) => Promise<Failure | null>;
     listFiles?: (id: string, files: readonly string[] | "all") => Promise<Failure | null>;
@@ -61,7 +64,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (e: "select", id: string): void;
-    (e: "add-images", id: string, files: File[]): void;
+    (e: "add-images", id: string, files: File[], folders: string[]): void;
     (e: "export", id: string): void;
     (e: "reveal", id: string): void;
     (e: "retry"): void;
@@ -76,7 +79,6 @@ const groups = computed(() => railGroups(props.packs));
 const current = computed(() => props.packs.find((pack) => pack.id === props.selected) ?? null);
 const pluginPack = computed(() => current.value?.source === "plugin");
 const invalid = computed(() => current.value?.status === "invalid");
-/** 名字当不了表情名的图在页面里的 key 集合：选中它们时属性栏要求先改名。 */
 const gridItems = computed<readonly GridItem[]>(() => (props.detail === null ? [] : gridGroups(props.detail).flatMap((group) => group.items)));
 
 // ---- 选中的格子 ----
@@ -85,13 +87,16 @@ const selectedItem = computed(() => gridItems.value.find((item) => item.key === 
 watch(() => props.selected, () => {
     selectedKey.value = null;
 });
-// 选中的格子没了（删了、别处改了）：回到表情包。
+/** 用户刚提交了名字、新目录还没到：选中的格子的键会随名字变，到了之后按文件找回它（同一个文件有两项时比对新名字）。 */
+let renaming: {readonly key: string; readonly file: string; readonly name: string | null} | null = null;
+// 选中的格子没了（删了、别处改了）：回到表情包；改名造成的换键除外。
 watch(gridItems, (items) => {
-    if (selectedKey.value !== null && !items.some((item) => item.key === selectedKey.value)) selectedKey.value = null;
+    if (selectedKey.value === null || items.some((item) => item.key === selectedKey.value)) return;
+    const own = renaming !== null && renaming.key === selectedKey.value ? renaming : null;
+    const same = own === null ? [] : items.filter((item) => item.file === own.file);
+    const found = same.length <= 1 ? same[0] : same.find((item) => item.name === own!.name?.normalize("NFC")) ?? same[0];
+    selectedKey.value = found?.key ?? null;
 });
-const problemKeys = computed(() => new Set(props.detail === null ? [] : props.detail.extras.filter((extra) => extra.reason === "name").map((extra) => `e:${extra.file}`)));
-const isProblem = (item: GridItem): boolean => problemKeys.value.has(item.key);
-const isUnlisted = (item: GridItem): boolean => item.kind === "extra" && !isProblem(item);
 
 function selectCell(key: string | null): void {
     selectedKey.value = key;
@@ -101,15 +106,28 @@ function selectCell(key: string | null): void {
 const targetOf = (item: GridItem): Target => ({file: item.file, name: item.raw});
 const reasonOrNull = (result: Failure | null): string | null => (result === null ? null : result.reason);
 
+async function commitSticker(item: GridItem, change: {name?: string | null; description?: string | null; common?: boolean}): Promise<string | null> {
+    const id = props.selected;
+    if (id === null) return null;
+    if (change.name !== undefined) renaming = {key: item.key, file: item.file, name: change.name};
+    try {
+        return reasonOrNull(await props.updateSticker(id, targetOf(item), change));
+    } finally {
+        renaming = null;
+    }
+}
+
 // ---- 新建与改包名 ----
-const nameDialog = ref({open: false, mode: "create" as "create" | "rename", busy: false, status: "", usage: undefined as readonly string[] | null | undefined});
+/** 打开改包名对话框那一刻的文件夹令牌：之后文件夹被别处换掉，改名就不做（Spec 33）。 */
+const tokenOf = (id: string): string | null => (props.detail !== null && props.detail.summary.id === id ? props.detail.token : null);
+const nameDialog = ref({open: false, mode: "create" as "create" | "rename", busy: false, status: "", usage: undefined as readonly string[] | null | undefined, token: null as string | null});
 function openCreate(): void {
-    nameDialog.value = {open: true, mode: "create", busy: false, status: "", usage: undefined};
+    nameDialog.value = {open: true, mode: "create", busy: false, status: "", usage: undefined, token: null};
 }
 function openRename(): void {
     const id = props.selected;
     if (id === null) return;
-    nameDialog.value = {open: true, mode: "rename", busy: false, status: "", usage: undefined};
+    nameDialog.value = {open: true, mode: "rename", busy: false, status: "", usage: undefined, token: tokenOf(id)};
     void props.allowlistUsage(id).then((names) => {
         if (nameDialog.value.open && props.selected === id) nameDialog.value = {...nameDialog.value, usage: names};
     });
@@ -117,7 +135,7 @@ function openRename(): void {
 async function submitName(value: {folder: string; title: string}): Promise<void> {
     nameDialog.value = {...nameDialog.value, busy: true, status: ""};
     const id = props.selected;
-    const result = nameDialog.value.mode === "create" ? await props.createPack(value.folder, value.title) : id === null ? {reason: ""} : await props.renamePack(id, value.folder);
+    const result = nameDialog.value.mode === "create" ? await props.createPack(value.folder, value.title) : id === null ? {reason: ""} : await props.renamePack(id, value.folder, nameDialog.value.token);
     if ("reason" in result) {
         nameDialog.value = {...nameDialog.value, busy: false, status: result.reason};
         return;
@@ -128,31 +146,54 @@ async function submitName(value: {folder: string; title: string}): Promise<void>
 // ---- 删除 ----
 const removePack = ref(false);
 const removeSticker = ref<{open: boolean; key: string | null}>({open: false, key: null});
-/** 打开确认框时定下删谁：确认框不跟着当前选中挂载，删掉之后选中变了它还要发 `closed`。 */
-const removing = ref<{id: string; name: string; count: number} | null>(null);
+/** 打开确认框时定下删谁（含当时的文件夹令牌）：确认框不跟着当前选中挂载，删掉之后选中变了它还要发 `closed`。 */
+const removing = ref<{id: string; name: string; count: number; token: string | null} | null>(null);
 const removingItem = ref<GridItem | null>(null);
 /** 确认之后的删除：关闭动画先结束，移焦点要等它做完。 */
 let pendingFocus: (() => Promise<void>) | null = null;
+/** 打开确认框前焦点在哪：取消或删除失败时还回去（确认框没有触发器，组件库不自动归还焦点）。 */
+let returnFocus: HTMLElement | null = null;
+const rememberFocus = (): void => {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+};
+const restoreFocus = (): void => {
+    if (returnFocus?.isConnected === true) returnFocus.focus();
+    returnFocus = null;
+};
+
+/** 删包之后焦点去哪：左栏的当前项或窄布局顶上的下拉；窄布局里左栏只是隐藏，要逐个选择器判断可见（同 Profile 页）。 */
+function focusAfterPackRemoval(): void {
+    for (const selector of ["[data-sticker-rail-item][aria-current='page']", "[data-sticker-picker] input", "[data-sticker-picker]"]) {
+        const element = page.value?.querySelector<HTMLElement>(selector);
+        if (element === null || element === undefined || element.offsetParent === null) continue;
+        element.focus();
+        return;
+    }
+}
 
 function askRemovePack(): void {
     if (current.value === null) return;
-    removing.value = {id: current.value.id, name: current.value.title, count: current.value.count};
+    rememberFocus();
+    removing.value = {id: current.value.id, name: current.value.title, count: current.value.count, token: tokenOf(current.value.id)};
     removePack.value = true;
 }
 function confirmRemovePack(): void {
     const target = removing.value;
     if (target === null) return;
     pendingFocus = async () => {
-        const failure = await props.deletePack(target.id);
-        if (failure !== null) return;
+        const failure = await props.deletePack(target.id, target.token);
+        if (failure !== null) {
+            restoreFocus();
+            return;
+        }
         await nextTick();
-        const next = page.value?.querySelector<HTMLElement>("[data-sticker-rail-item][aria-current='page']") ?? page.value?.querySelector<HTMLElement>("[data-sticker-picker]");
-        next?.focus();
+        focusAfterPackRemoval();
     };
 }
 function askRemoveItem(key: string): void {
     const item = gridItems.value.find((candidate) => candidate.key === key);
     if (item === undefined) return;
+    rememberFocus();
     removingItem.value = item;
     removeSticker.value = {open: true, key};
 }
@@ -162,8 +203,11 @@ function confirmRemoveItem(): void {
     if (item === null || id === null) return;
     const next = grid.value?.afterRemoval(item.key) ?? null;
     pendingFocus = async () => {
-        const failure = isUnlisted(item) ? await props.deleteFile(id, item.file) : await props.deleteSticker(id, targetOf(item));
-        if (failure !== null) return;
+        const failure = item.reason === "unlisted" ? await props.deleteFile(id, item.file) : await props.deleteSticker(id, targetOf(item));
+        if (failure !== null) {
+            restoreFocus();
+            return;
+        }
         selectedKey.value = next;
         await nextTick();
         if (next !== null) grid.value?.focusKey(next);
@@ -173,12 +217,22 @@ function confirmRemoveItem(): void {
 async function onRemoveClosed(): Promise<void> {
     const run = pendingFocus;
     pendingFocus = null;
-    if (run !== null) await run();
+    if (run === null) restoreFocus();
+    else await run();
 }
 
 // ---- 导入 ----
 const importFile = ref<File | null>(null);
-const conflict = ref<{open: boolean; busy: boolean; status: string; info: ImportConflictInfo | null; preview: Preview; name: string}>({open: false, busy: false, status: "", info: null, preview: {title: null, count: null, items: []}, name: ""});
+const conflict = ref<{open: boolean; busy: boolean; status: string; info: ImportConflictInfo | null; preview: Preview; name: string}>({open: false, busy: false, status: "", info: null, preview: NO_PREVIEW, name: ""});
+/** 预览图的对象地址：换了预览、对话框关掉、页面卸载时释放。 */
+function disposePreview(): void {
+    conflict.value.preview.dispose?.();
+    conflict.value = {...conflict.value, preview: NO_PREVIEW};
+}
+watch(() => conflict.value.open, (open) => {
+    if (!open) disposePreview();
+});
+onBeforeUnmount(disposePreview);
 function chooseZip(): void {
     zipInput.value?.click();
 }
@@ -188,10 +242,12 @@ async function zipChosen(event: Event): Promise<void> {
     element.value = "";
     if (file === undefined) return;
     importFile.value = file;
+    // 失败的通知由模型发；只有同名冲突要在这里接着问。
     const result = await props.importZip(file);
     if (!("conflict" in result)) return;
-    const preview = await props.previewZip(file).catch((): Preview => ({title: null, count: null, items: []}));
-    conflict.value = {open: true, busy: false, status: "", info: result.conflict, preview, name: result.conflict.existing.id.slice(result.conflict.existing.id.indexOf(".") + 1)};
+    const preview = await props.previewZip(file).catch((): Preview => NO_PREVIEW);
+    disposePreview();
+    conflict.value = {open: true, busy: false, status: "", info: result.conflict, preview, name: folderOf(result.conflict.existing.id)};
 }
 async function chooseConflict(mode: "copy" | "replace"): Promise<void> {
     const file = importFile.value;
@@ -205,15 +261,27 @@ async function chooseConflict(mode: "copy" | "replace"): Promise<void> {
         return;
     }
     if ("conflict" in result) {
-        conflict.value = {...conflict.value, busy: false, info: result.conflict};
+        // 已有的包在选择期间被别处改过：换成新的信息，请用户再选一次。
+        conflict.value = {...conflict.value, busy: false, info: result.conflict, status: text("dialog.conflict.refreshed")};
         return;
     }
     conflict.value = {...conflict.value, open: false, busy: false};
 }
-const existingPreview = computed(() => (conflict.value.info?.existing.files ?? []).map((file) => ({url: `/api/nbook.stickers/image/${encodeURIComponent(conflict.value.info?.existing.id ?? "")}/${encodeURIComponent(file)}`, label: file})));
+const existingPreview = computed(() => {
+    const existing = conflict.value.info?.existing;
+    return (existing?.files ?? []).map((file) => ({url: stickerImageUrl(existing?.id ?? "", {file, version: ""}), label: file}));
+});
 
+/** 复制期间按钮停用：连点会复制出 `x` 和 `x-2`。失败由模型通知。 */
+const copying = ref(false);
 async function copyToMine(): Promise<void> {
-    if (props.selected !== null) await props.copyPack(props.selected);
+    if (props.selected === null || copying.value) return;
+    copying.value = true;
+    try {
+        await props.copyPack(props.selected);
+    } finally {
+        copying.value = false;
+    }
 }
 
 // ---- 拖放 ----
@@ -244,8 +312,12 @@ function onWindowDrop(event: DragEvent): void {
     dragging.value = false;
     const id = props.selected;
     if (id === null || !onDropzone(event.target)) return;
-    const files = [...(event.dataTransfer?.files ?? [])];
-    if (files.length > 0) emit("add-images", id, files);
+    const transfer = event.dataTransfer;
+    if (transfer === null) return;
+    // `readDrop` 只能在 drop 的同步段里读，按它分出文件夹（浏览器交给的 File 对文件夹的 size 与 type 各平台不同，不能猜）。
+    const folders = readDrop(transfer).filter((entry) => entry.kind === "folder").map((entry) => entry.name);
+    const files = [...transfer.files].filter((file) => !folders.includes(file.name));
+    if (files.length > 0 || folders.length > 0) emit("add-images", id, files, folders);
 }
 onMounted(() => {
     window.addEventListener("dragover", onWindowDragOver);
@@ -259,11 +331,23 @@ onBeforeUnmount(() => {
 });
 
 // ---- 头部菜单 ----
-const menuItems = computed(() => {
-    const items = [{id: "reveal", label: text("menu.reveal"), iconClass: "i-lucide-folder-open"}];
+const menuItems = computed<DropdownMenuItemData[]>(() => {
+    const items: DropdownMenuItemData[] = [{id: "reveal", label: text("menu.reveal"), iconClass: "i-lucide-folder-open"}];
     if (pluginPack.value) return items;
     if (current.value?.status === "ok" || current.value?.problem === "folder-name") items.push({id: "rename", label: text("menu.rename"), iconClass: "i-lucide-text-cursor-input"});
-    return [...items, {id: "sep", label: "", iconClass: "", separator: true} as never, {id: "delete", label: text("menu.delete"), iconClass: "i-lucide-trash-2", tone: "danger"} as never];
+    return [...items, {id: "sep", label: "", separator: true}, {id: "delete", label: text("menu.delete"), iconClass: "i-lucide-trash-2", tone: "danger"}];
+});
+/** 无效的原因写成该怎么办；没有文字化的码（服务端新增的）退回“这个表情包无效”。 */
+const problemText = computed(() => {
+    switch (current.value?.problem) {
+        case "symlink": return text("problem.symlink");
+        case "folder-name": return text("problem.folder-name");
+        case "manifest-too-large": return text("problem.manifest-too-large");
+        case "manifest-unreadable": return text("problem.manifest-unreadable");
+        case "manifest-invalid": return text("problem.manifest-invalid");
+        case "folder-unreadable": return text("problem.folder-unreadable");
+        default: return text("rail.invalid");
+    }
 });
 function onMenu(id: string): void {
     if (props.selected === null) return;
@@ -308,7 +392,7 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
                                 <p v-if="current.description" class="sticker-head__description">{{ current.description }}</p>
                             </div>
                             <div class="sticker-head__actions">
-                                <Button v-if="pluginPack" size="sm" icon-class="i-lucide-copy-plus" data-sticker-copy @click="copyToMine">{{ text("head.copy") }}</Button>
+                                <Button v-if="pluginPack" size="sm" icon-class="i-lucide-copy-plus" :disabled="copying" data-sticker-copy @click="copyToMine">{{ text("head.copy") }}</Button>
                                 <Button v-if="!invalid" size="sm" variant="secondary" icon-class="i-lucide-download" data-sticker-export @click="emit('export', current.id)">{{ text("head.export") }}</Button>
                                 <DropdownMenu :items="menuItems" align="end" @select="onMenu">
                                     <IconButton size="sm" icon-class="i-lucide-ellipsis" :title="text('head.more')" :aria-label="text('head.more')" data-sticker-more />
@@ -316,23 +400,23 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
                             </div>
                         </header>
                         <div v-if="invalid" class="sticker-page__invalid" data-sticker-invalid>
-                            <PackFields v-if="detail !== null" :detail="detail" :readonly="true" :commit="async () => null" @rename="openRename" />
-                            <p v-else>{{ text("rail.invalid") }}{{ current.problem === undefined ? "" : `（${current.problem}）` }}</p>
+                            <h3 class="sticker-page__invalid-title">{{ text("panel.invalidTitle") }}</h3>
+                            <p>{{ problemText }}</p>
+                            <p class="sticker-page__invalid-hint">{{ text("panel.invalidHint") }}</p>
+                            <Button v-if="current.problem === 'folder-name'" size="sm" variant="secondary" data-pack-rename @click="openRename">{{ text("panel.invalidRename") }}</Button>
                         </div>
                         <div v-else class="sticker-body">
                             <div v-if="detail === null" class="sticker-body__loading" role="status"><Spinner /></div>
-                            <StickerGrid v-else ref="grid" :detail="detail" :selected="selectedKey" :uploads="uploadsHere" :readonly="pluginPack" :dragging="dragging" :drag-count="dragCount" @select="selectCell" @delete="askRemoveItem" @add-images="(files: File[]) => emit('add-images', current!.id, files)" @list-files="(files: 'all') => void props.listFiles(current!.id, files)" />
+                            <StickerGrid v-else ref="grid" :detail="detail" :selected="selectedKey" :uploads="uploadsHere" :readonly="pluginPack" :dragging="dragging" :drag-count="dragCount" @select="selectCell" @delete="askRemoveItem" @add-images="(files: File[]) => emit('add-images', current!.id, files, [])" @list-files="(files: 'all') => void props.listFiles(current!.id, files)" />
                             <aside class="sticker-panel" :aria-label="text('panel.label')" data-sticker-panel>
                                 <template v-if="detail !== null">
                                     <StickerFields
                                         v-if="selectedItem !== null"
-                                        :key="selectedItem.key"
+                                        :key="selectedItem.file"
                                         :item="selectedItem"
                                         :folder="current.folder"
-                                        :problem="isProblem(selectedItem)"
-                                        :unlisted="isUnlisted(selectedItem)"
                                         :readonly="pluginPack"
-                                        :commit="async (change) => reasonOrNull(await props.updateSticker(current!.id, targetOf(selectedItem!), change))"
+                                        :commit="(change) => commitSticker(selectedItem!, change)"
                                         @delete="askRemoveItem(selectedItem.key)"
                                         @list="void props.listFiles(current!.id, [selectedItem.file])"
                                         @back="selectedKey = null"
@@ -364,6 +448,7 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
             :existing="{title: conflict.info.existing.title, count: conflict.info.existing.count, items: existingPreview}"
             :incoming="{title: conflict.preview.title ?? conflict.name, count: conflict.preview.count, items: conflict.preview.items}"
             :copy-as="conflict.info.copyAs"
+            :can-replace="conflict.info.existing.token !== null"
             :busy="conflict.busy"
             :status="conflict.status"
             @choose="chooseConflict"
@@ -506,8 +591,26 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
 }
 
 .sticker-page__invalid {
+    display: flex;
     max-width: 480px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+}
+
+.sticker-page__invalid p {
+    margin: 0;
+}
+
+.sticker-page__invalid-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: 600;
     color: var(--status-danger);
+}
+
+.sticker-page__invalid-hint {
+    color: var(--text-muted);
 }
 
 .sticker-panel {

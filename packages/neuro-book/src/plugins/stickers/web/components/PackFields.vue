@@ -32,9 +32,9 @@ const common = computed(() => props.detail.stickers.filter((sticker) => sticker.
             <p v-if="summary.description" class="pack-fields__muted">{{ summary.description }}</p>
             <p class="pack-fields__muted">{{ text("panel.pluginNote") }}</p>
         </template>
-        <template v-else-if="summary.status === 'ok'">
+        <template v-else>
             <Field :label="text('panel.displayName')">
-                <Input v-model="title.draft.value" size="sm" data-pack-title @focus="title.onFocus" @blur="title.onBlur" @keydown.enter.prevent="title.onEnter" @keydown.esc.stop="title.onEscape" />
+                <Input v-model="title.draft.value" size="sm" data-pack-title @focus="title.onFocus" @blur="title.onBlur" @keydown.enter="title.onEnter" @keydown.esc.stop="title.onEscape" />
             </Field>
             <Field :label="text('panel.description')">
                 <Textarea v-model="description.draft.value" :rows="2" autosize :placeholder="text('panel.placeholder')" data-pack-description @focus="description.onFocus" @blur="description.onBlur" @keydown.esc.stop="description.onEscape" />
@@ -45,11 +45,10 @@ const common = computed(() => props.detail.stickers.filter((sticker) => sticker.
             <code>{{ summary.folder }}</code>
             <Button v-if="!readonly" size="sm" variant="ghost" class="pack-fields__rename" data-pack-rename @click="emit('rename')">{{ text("panel.changePackName") }}</Button>
         </div>
-        <div v-if="summary.status === 'ok'" class="pack-fields__meta">
+        <div class="pack-fields__meta">
             <span>{{ text("panel.syntax") }} <code>:{{ summary.folder }}/…:</code></span>
             <span>{{ text("panel.packSummary", {count: String(summary.count), common: String(common)}) }}</span>
         </div>
-        <p v-else class="pack-fields__error" data-pack-invalid>{{ text("rail.invalid") }}{{ summary.problem === undefined ? "" : `（${summary.problem}）` }}</p>
         <p class="pack-fields__status is-error" role="status" data-pack-status>{{ status }}</p>
     </div>
 </template>
@@ -99,11 +98,6 @@ const common = computed(() => props.detail.stickers.filter((sticker) => sticker.
     font-size: var(--text-xs);
     line-height: 18px;
     color: var(--text-muted);
-}
-
-.pack-fields__error {
-    margin: 0;
-    color: var(--status-danger);
 }
 
 .pack-fields__status {

@@ -44,8 +44,15 @@ const confirmLabel = computed(() => (props.mode === "create" ? text("dialog.crea
 const usageText = computed(() => {
     if (props.usage === undefined) return text("dialog.rename.usageLoading");
     if (props.usage === null) return text("dialog.rename.usageGeneric");
-    return props.usage.length === 0 ? "" : text("dialog.rename.usageList", {names: props.usage.join("、")});
+    return props.usage.length === 0 ? "" : text("dialog.rename.usageList", {names: props.usage.join(text("dialog.rename.nameSeparator"))});
 });
+
+/** 输入法组字中的回车是在选词，不提交。 */
+function onEnter(event: KeyboardEvent): void {
+    if (event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    submit();
+}
 
 function submit(): void {
     if (props.busy) return;
@@ -71,10 +78,10 @@ function submit(): void {
     >
         <div ref="field" class="name-dialog">
             <Field v-if="mode === 'create'" :label="text('dialog.create.displayName')">
-                <Input v-model="title" size="sm" autofocus data-sticker-title @update:model-value="emit('edit')" @keydown.enter.prevent="submit" />
+                <Input v-model="title" size="sm" autofocus data-sticker-title @update:model-value="emit('edit')" @keydown.enter="onEnter" />
             </Field>
             <Field :label="mode === 'create' ? text('dialog.create.folder') : text('dialog.rename.newName')" :error="error || status">
-                <Input v-model="folder" size="sm" :autofocus="mode === 'rename'" data-sticker-folder @update:model-value="emit('edit')" @keydown.enter.prevent="submit" />
+                <Input v-model="folder" size="sm" :autofocus="mode === 'rename'" data-sticker-folder @update:model-value="emit('edit')" @keydown.enter="onEnter" />
             </Field>
             <p v-if="mode === 'create'" class="name-dialog__hint">{{ text("dialog.create.hint", {syntax: `:${trimmed || "cat"}/…:`}) }}</p>
             <template v-else>

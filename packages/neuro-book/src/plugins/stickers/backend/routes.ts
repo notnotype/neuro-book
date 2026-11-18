@@ -49,7 +49,7 @@ function crossSiteWrite(request: Request): boolean {
 
 const STATUS: Readonly<Record<EditCode | ArchiveCode, number>> = {
     "not-user-pack": 403, "permission-denied": 403, "pack-missing": 404, "pack-exists": 409, "pack-changed": 409, "folder-invalid": 422, "name-invalid": 422,
-    "name-duplicate": 409, "description-invalid": 422, "sticker-missing": 404, "manifest-full": 409, "too-large": 413, "write-failed": 500, "refresh-failed": 500,
+    "name-duplicate": 409, "description-invalid": 422, "title-invalid": 422, "sticker-missing": 404, "manifest-full": 409, "too-large": 413, "write-failed": 500, "refresh-failed": 500,
     "busy": 429, "request-aborted": 408, "image-rejected": 422, "import-invalid": 422, "import-conflict": 409, "export-too-large": 413, "export-empty": 422, "export-conflict": 409, "pack-invalid": 422,
 };
 

@@ -57,6 +57,7 @@ function world(initial: string[]) {
             return ids.includes(id) ? {ok: true as const, value: detailOf(id)} : {ok: false as const, code: "pack-missing", detail: {}};
         },
         events: {changed: {subscribe: async (_filter: unknown, handler: () => void) => {
+            calls.push("subscribe");
             handlers.add(handler);
             return {ok: true as const, value: {release: () => handlers.delete(handler)}};
         }}},
@@ -93,7 +94,7 @@ function world(initial: string[]) {
     };
 }
 
-function model(initial: string[], http: Partial<StickersHttp> = {}) {
+function model(initial: string[], http: Partial<StickersHttp> = {}, uploadLimit?: number) {
     const fake = world(initial);
     const notices: NotificationInput[] = [];
     const reports: string[] = [];
@@ -103,6 +104,7 @@ function model(initial: string[], http: Partial<StickersHttp> = {}) {
         http: {upload: async () => ({ok: true, file: "a.png", resized: false}), importZip: async () => ({ok: true, id: "user.x"}), exportPack: async () => ({ok: true}), ...http},
         notify: (input) => notices.push(input),
         report: (code) => reports.push(code),
+        ...(uploadLimit === undefined ? {} : {uploadLimit}),
     });
     return {...fake, model: created, notices, reports};
 }
@@ -115,6 +117,13 @@ describe("加载与选中", () => {
         await waitUntil("就绪并选中", () => (m.state.value === "ready" && m.detail.value !== null ? true : null));
         expect(m.selected.value).toBe("user.a");
         expect(m.detail.value?.summary.id).toBe("user.a");
+    });
+
+    test("先订阅目录变化再取目录：取回之前发生的变化一定有事件跟着", async () => {
+        const w = model(["user.a"]);
+        w.model.start();
+        await waitUntil("就绪", () => (w.model.state.value === "ready" ? true : null));
+        expect(w.calls.indexOf("subscribe")).toBeLessThan(w.calls.indexOf("packs"));
     });
 
     test("第一次读失败显示失败页，重试后就绪；已就绪时重取失败不换成失败页", async () => {
@@ -162,14 +171,41 @@ describe("加载与选中", () => {
 });
 
 describe("写入", () => {
-    test("改包名带打开时的令牌，改完选中结果包；令牌没有（详情还没到）得 pack-changed 的文字", async () => {
-        const w = model(["user.a"]);
+    test("改包名与删除用页面传来的（打开对话框那一刻的）令牌，不在提交时重新取；令牌没有得 pack-changed 的文字并通知", async () => {
+        const w = model(["user.a", "user.c"]);
         w.model.start();
         await waitUntil("详情", () => (w.model.detail.value !== null ? true : null));
-        expect(await w.model.renamePack("user.a", "b")).toEqual({id: "user.b"});
-        expect(w.calls).toContain("rename token=token-user.a");
+        // 详情里现在是 token-user.a，页面带来的是打开对话框时的旧令牌：照旧令牌发，让服务端判文件夹是否被换过。
+        expect(await w.model.renamePack("user.a", "b", "token-opened-earlier")).toEqual({id: "user.b"});
+        expect(w.calls).toContain("rename token=token-opened-earlier");
         expect(w.model.selected.value).toBe("user.b");
-        expect(await w.model.renamePack("user.zzz", "c")).toEqual({reason: t("error.pack-changed")});
+        expect(await w.model.renamePack("user.c", "d", null)).toEqual({reason: t("error.pack-changed")});
+        expect(await w.model.deletePack("user.c", null)).toEqual({reason: t("error.pack-changed")});
+        expect(w.notices.map((notice) => notice.message)).toEqual([t("notify.failed", {reason: t("error.pack-changed")}), t("notify.failed", {reason: t("error.pack-changed")})]);
+    });
+
+    test("写入失败除了交回原因，还发一条通知：字段所在的组件可能已被换掉；写入没成功的具体说明也给用户", async () => {
+        const w = model(["user.a"]);
+        w.model.start();
+        await waitUntil("就绪", () => (w.model.detail.value !== null ? true : null));
+        const failures: Array<[string, () => Promise<unknown>]> = [
+            ["updateSticker", () => w.model.updateSticker("user.a", {file: "a.png", name: "a"}, {name: "b"})],
+            ["updatePack", () => w.model.updatePack("user.a", {title: "新"})],
+            ["deleteSticker", () => w.model.deleteSticker("user.a", {file: "a.png", name: null})],
+            ["deleteFile", () => w.model.deleteFile("user.a", "a.png")],
+            ["listFiles", () => w.model.listFiles("user.a", "all")],
+            ["deletePack", () => w.model.deletePack("user.a", "token-user.a")],
+            ["copyPack", () => w.model.copyPack("user.a")],
+        ];
+        for (const [name, run] of failures) {
+            const before = w.notices.length;
+            w.failNextWrite("permission-denied");
+            await run();
+            expect(w.notices.length, name).toBe(before + 1);
+            expect(w.notices.at(-1)?.message, name).toBe(t("notify.failed", {reason: t("error.permission-denied")}));
+        }
+        w.failNextWrite("write-failed", {detail: "部分完成，以目录为准：删不掉 a.png"});
+        expect(await w.model.deleteFile("user.a", "a.png")).toEqual({reason: t("error.write-failed-detail", {reason: "部分完成，以目录为准：删不掉 a.png"})});
     });
 
     test("同一个包的写入按到达顺序做，前一个做完后一个才开始", async () => {
@@ -231,7 +267,20 @@ describe("写入", () => {
         expect(w.model.selected.value).toBe("user.cat");
         expect(w.notices.at(-1)?.message).toBe(t("notify.imported", {name: "cat"}));
         expect(await w.model.importZip(file)).toEqual({conflict});
+        const noticesBefore = w.notices.length;
         expect(await w.model.importZip(file)).toEqual({reason: t("error.import-invalid", {reason: "zip 里没有图片"})});
+        // 第一次选的 zip 就失败时页面没有别的地方可写，要通知；选了冲突的处理方式之后失败写在对话框里，不再通知。
+        expect(w.notices.length).toBe(noticesBefore + 1);
+        responses.push({ok: false as const, code: "import-invalid", reason: "x"});
+        await w.model.importZip(file, {mode: "copy"});
+        expect(w.notices.length).toBe(noticesBefore + 1);
+    });
+
+    test("导入时本地文件读不到了：写“文件读不到了”，不写连不上服务", async () => {
+        const w = model(["user.a"], {importZip: async () => ({ok: false, code: "file-unreadable"})});
+        w.model.start();
+        await waitUntil("就绪", () => (w.model.state.value === "ready" ? true : null));
+        expect(await w.model.importZip(new File([new Uint8Array([1])], "cat.zip"))).toEqual({reason: t("error.file-unreadable")});
     });
 
     test("在文件夹中显示：没有桌面时通知写出路径", async () => {
@@ -242,6 +291,28 @@ describe("写入", () => {
 });
 
 describe("加图", () => {
+    test("页面关掉时没开始的上传丢掉（不算失败、不发通知），已经开始的传完", async () => {
+        let release: () => void = () => undefined;
+        const started: string[] = [];
+        const w = model(["user.a"], {upload: (_id, file) => {
+            started.push(file.name);
+            return new Promise((resolve) => {
+                release = () => resolve({ok: true, file: file.name, resized: false});
+            });
+        }}, 1);
+        const stop = w.model.start();
+        await waitUntil("就绪", () => (w.model.detail.value !== null ? true : null));
+        const image = (name: string): File => new File([new Uint8Array([1])], name, {type: "image/png"});
+        const adding = w.model.addImages("user.a", [image("a.png"), image("b.png"), image("c.png")]);
+        await waitUntil("第一张开始", () => (started.length === 1 ? true : null));
+        stop();
+        release();
+        await adding;
+        expect(started).toEqual(["a.png"]);
+        expect(w.notices).toEqual([]);
+        expect(w.model.uploads.value).toEqual([]);
+    });
+
     test("一次添加做完后汇总：没加进去的写文件名与原因，缩小过的写个数；做完重取", async () => {
         const responses: Record<string, Awaited<ReturnType<StickersHttp["upload"]>>> = {
             "a.png": {ok: true, file: "a.png", resized: true},
@@ -252,7 +323,7 @@ describe("加图", () => {
         w.model.start();
         await waitUntil("就绪", () => (w.model.detail.value !== null ? true : null));
         const image = (name: string): File => new File([new Uint8Array([1])], name, {type: "image/png"});
-        await w.model.addImages("user.a", [image("a.png"), image("b.png"), image("c.png"), new File([], "相册", {type: ""})]);
+        await w.model.addImages("user.a", [image("a.png"), image("b.png"), image("c.png")], ["相册"]);
         expect(w.notices.map((notice) => notice.message)).toEqual([
             t("notify.uploaded", {list: `b.png（${t("reject.gif-too-large")}）；相册（${t("reject.folder")}）`}),
             t("notify.resized", {count: "2"}),

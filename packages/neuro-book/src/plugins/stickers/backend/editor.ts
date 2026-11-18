@@ -267,7 +267,7 @@ export class StickerEditor {
         if (!pack.ok) return pack;
         const {folder} = pack.value.entry;
         return this.#write([folder], async () => {
-            const title = change.title === undefined ? undefined : textField(change.title, "name-invalid", "显示名");
+            const title = change.title === undefined ? undefined : textField(change.title, "title-invalid", "显示名");
             const description = change.description === undefined ? undefined : textField(change.description, "description-invalid", "说明");
             await this.#editManifestHeader(folder, (raw) => {
                 if (title !== undefined) setOrDelete(raw, "title", title);
@@ -394,7 +394,7 @@ export class StickerEditor {
     async createPack(folder: string, title: string | null): Promise<Edited<{readonly id: string}>> {
         if (!FOLDER_NAME.test(folder)) return failed("folder-invalid", "包名只能是小写字母、数字与连字符，1 到 64 个，不以连字符开头或结尾");
         return this.#write([folder], async () => {
-            const display = textField(title, "name-invalid", "显示名");
+            const display = textField(title, "title-invalid", "显示名");
             const manifest = serialize(display === null ? {} : {title: display});
             const staging = `${STAGING_PREFIX}${randomUUID()}`;
             const written = await this.#files.write(fileAddress(staging, MANIFEST_FILE), manifest, {expect: "absent", createParents: true});

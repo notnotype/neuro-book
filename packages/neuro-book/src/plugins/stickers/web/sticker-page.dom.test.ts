@@ -230,6 +230,72 @@ describe("属性栏的保存", () => {
         expect(calls.updateSticker.at(-1)).toEqual(["user.lyra", {file: "开心.png", name: "开心"}, {common: false}]);
     });
 
+    it("输入法组字中的回车是在选词、Esc 是取消组字：不提交也不还原", async () => {
+        const {wrapper, root, calls} = show();
+        await wrapper.get("[data-grid-key^='s:开心']").trigger("click");
+        await type(nameInput(root), "kaixin");
+        nameInput(root).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", isComposing: true, bubbles: true}));
+        nameInput(root).dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", isComposing: true, bubbles: true}));
+        await flushPromises();
+        expect(calls.updateSticker).toEqual([]);
+        expect(nameInput(root).value).toBe("kaixin");
+    });
+
+    it("服务端把清空归一化成文件名时：输入框对齐目录里的值，失焦不再提交第二次", async () => {
+        const {wrapper, root, calls} = show();
+        await wrapper.get("[data-grid-key^='s:开心']").trigger("click");
+        await type(nameInput(root), "");
+        nameInput(root).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await flushPromises();
+        nameInput(root).dispatchEvent(new Event("blur"));
+        await flushPromises();
+        expect(calls.updateSticker).toHaveLength(1);
+        expect(nameInput(root).value).toBe("开心");
+    });
+
+    it("改名成功后选中跟着走：属性栏还在、输入框还有焦点，格子保持选中", async () => {
+        const holder: {wrapper: ReturnType<typeof show>["wrapper"] | null} = {wrapper: null};
+        const renamed: StickerPackDetail = {...lyraDetail(), stickers: [sticker("笑", true, {description: "被夸的时候", file: "开心.png"}), sticker("害羞", true, {raw: undefined}), sticker("困", false)]};
+        const shown = show({updateSticker: async () => {
+            // 目录重取先到页面，随后保存才交回（同 `packs-page.ts` 写完重取再交回）。
+            await holder.wrapper!.setProps({detail: renamed});
+            return null;
+        }});
+        holder.wrapper = shown.wrapper;
+        await shown.wrapper.get("[data-grid-key^='s:开心']").trigger("click");
+        nameInput(shown.root).focus();
+        await type(nameInput(shown.root), "笑");
+        nameInput(shown.root).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await flushPromises();
+        expect(shown.root.querySelector("[data-sticker-fields]")).not.toBeNull();
+        expect(tile(shown.root, "笑").getAttribute("aria-selected")).toBe("true");
+        expect(nameInput(shown.root).value).toBe("笑");
+        expect(document.activeElement).toBe(nameInput(shown.root));
+    });
+
+    it("常用开关保存失败：开关弹回原值，原因写在状态行里", async () => {
+        const {wrapper, root} = show({updateSticker: async () => ({reason: "清单放不下了。"})});
+        await wrapper.get("[data-grid-key^='s:开心']").trigger("click");
+        await wrapper.get("[data-sticker-common]").trigger("click");
+        await flushPromises();
+        expect(root.querySelector("[data-sticker-status]")?.textContent).toContain("清单放不下了");
+    });
+
+    it("网格里按 Esc：有选中时只回到表情包、不让设置窗口跟着关；没有选中时放行", async () => {
+        const {wrapper, root} = show();
+        const press = (element: Element): KeyboardEvent => {
+            const event = new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true});
+            element.dispatchEvent(event);
+            return event;
+        };
+        // 没有选中：不拦，窗口自己的 Esc 关闭照常。
+        expect(press(tile(root, "开心")).defaultPrevented).toBe(false);
+        await wrapper.get("[data-grid-key^='s:开心']").trigger("click");
+        expect(press(tile(root, "开心")).defaultPrevented).toBe(true);
+        await flushPromises();
+        expect(root.querySelector("[data-sticker-fields]")).toBeNull();
+    });
+
     it("表情包自己的显示名离开输入框保存", async () => {
         const {root, calls} = show();
         const title = root.querySelector("input[data-pack-title]") as HTMLInputElement;
@@ -246,12 +312,15 @@ describe("删除", () => {
     it("网格里按 Delete 先确认（写名字），确认后删这一项并让焦点到下一格", async () => {
         const {wrapper, root, calls} = show();
         await wrapper.get("[data-grid-key^='s:害羞']").trigger("click");
+        tile(root, "害羞").focus();
         await wrapper.get("[data-grid-key^='s:害羞']").trigger("keydown", {key: "Delete"});
         await waitUntil("确认框", () => alert() !== null);
         expect(alert()!.textContent).toContain("害羞");
         buttonIn(alert()!, "取消").click();
         await waitUntil("确认框关掉", () => alert() === null);
         expect(calls.deleteSticker).toEqual([]);
+        // 确认框没有触发器，焦点要页面自己还回去：回到按 Delete 时所在的格子。
+        await waitUntil("焦点回到格子", () => document.activeElement === tile(root, "害羞") || null);
         await wrapper.get("[data-grid-key^='s:害羞']").trigger("keydown", {key: "Delete"});
         await waitUntil("确认框", () => alert() !== null);
         buttonIn(alert()!, "删除").click();
@@ -281,7 +350,8 @@ describe("删除", () => {
         expect(alert()!.textContent).toContain("4 个表情");
         buttonIn(alert()!, "删除").click();
         await waitUntil("删了包", () => calls.deletePack.length === 1);
-        expect(calls.deletePack).toEqual([["user.lyra"]]);
+        // 令牌是打开确认框那一刻页面手里的（详情里的 tok）。
+        expect(calls.deletePack).toEqual([["user.lyra", "tok"]]);
     });
 });
 
@@ -329,7 +399,7 @@ describe("新建与改包名", () => {
         await type(folder, "xingli");
         buttonIn(dialog()!, "改成 xingli").click();
         await waitUntil("提交", () => calls.rename.length === 1);
-        expect(calls.rename).toEqual([["user.lyra", "xingli"]]);
+        expect(calls.rename).toEqual([["user.lyra", "xingli", "tok"]]);
     });
 
     it("没有 Profile 用它时不写名单；Agent 查不到时写通用提醒", async () => {
@@ -358,11 +428,11 @@ describe("导入", () => {
 
     it("选 zip 导入；同名时开对话框，选“另存”带 copy，选“替换”带令牌，失败留在对话框里写原因", async () => {
         const responses: unknown[] = [{conflict: info}, {reason: "太忙了"}, {id: "user.cat-2"}];
+        const seen: unknown[][] = [];
         const {wrapper, calls} = show({importZip: async (...args: unknown[]) => {
-            calls_import.push(args);
+            seen.push(args);
             return responses.shift();
         }, previewZip: async () => ({title: "猫猫", count: 12, items: [{url: "/p/1.png", label: "1.png"}]})});
-        const calls_import: unknown[][] = [];
         await choose(wrapper, zip);
         await waitUntil("冲突对话框", () => conflictDialog() !== null);
         expect(conflictDialog()!.textContent).toContain("包名是 cat");
@@ -372,8 +442,25 @@ describe("导入", () => {
         await waitUntil("写出失败原因", () => conflictDialog()!.textContent?.includes("太忙了") === true);
         buttonIn(conflictDialog()!, "另存为 cat-2").click();
         await waitUntil("关掉", () => conflictDialog() === null);
-        expect(calls_import).toEqual([[zip], [zip, {mode: "copy"}], [zip, {mode: "copy"}]]);
+        expect(seen).toEqual([[zip], [zip, {mode: "copy"}], [zip, {mode: "copy"}]]);
         expect(calls.importZip).toEqual([]);
+    });
+
+    it("已有的包拿不到令牌时“替换”停用并写原因；选择期间已有的包又被改过，写“请重新选择”", async () => {
+        const noToken = show({importZip: async () => ({conflict: {...info, existing: {...info.existing, token: null}}})});
+        await choose(noToken.wrapper, zip);
+        await waitUntil("冲突对话框", () => conflictDialog() !== null);
+        expect(buttonIn(conflictDialog()!, "替换已有的").disabled).toBe(true);
+        expect(conflictDialog()!.textContent).toContain("不能替换");
+        noToken.wrapper.unmount();
+        await waitUntil("关掉", () => conflictDialog() === null);
+
+        const responses: unknown[] = [{conflict: info}, {conflict: {...info, existing: {...info.existing, token: "new"}}}];
+        const {wrapper} = show({importZip: async () => responses.shift()});
+        await choose(wrapper, zip);
+        await waitUntil("冲突对话框", () => conflictDialog() !== null);
+        buttonIn(conflictDialog()!, "替换已有的").click();
+        await waitUntil("提示重选", () => conflictDialog()!.textContent?.includes("请重新选择") === true);
     });
 
     it("替换带已有的包的令牌", async () => {
@@ -415,7 +502,7 @@ describe("拖放与只读的包", () => {
         expect(drag("drop", root.querySelector(".sticker-head")!, [image]).event.defaultPrevented).toBe(true);
         expect(wrapper.emitted("add-images")).toBeUndefined();
         drag("drop", root.querySelector("[data-sticker-dropzone]")!, [image]);
-        expect(wrapper.emitted("add-images")).toEqual([["user.lyra", [image]]]);
+        expect(wrapper.emitted("add-images")).toEqual([["user.lyra", [image], []]]);
         await flushPromises();
         expect(root.querySelector("[data-sticker-drop]")).toBeNull();
     });
@@ -449,10 +536,40 @@ describe("拖放与只读的包", () => {
         expect(calls.copy).toEqual([["acme.cute.mochi"]]);
     });
 
-    it("无效的表情包：右边写原因，没有“导出”", () => {
-        const {root} = show({packs: [summary("user.bad", {status: "invalid", problem: "manifest-invalid", count: 0, thumbnail: null})], selected: "user.bad", detail: null});
-        expect(root.querySelector("[data-sticker-invalid]")?.textContent).toContain("manifest-invalid");
+    it("无效的表情包（带服务端真实会给的详情）：右边写原因与该怎么办，不是插件的“只能看”，没有“导出”", () => {
+        const bad = summary("user.bad", {status: "invalid", problem: "manifest-invalid", count: 0, thumbnail: null});
+        const {root} = show({packs: [bad], selected: "user.bad", detail: {summary: bad, listed: false, token: "t", stickers: [], extras: []}});
+        const text = root.querySelector("[data-sticker-invalid]")?.textContent ?? "";
+        expect(text).toContain("stickers.json 的内容不合规则，在文件夹里修好它");
+        expect(text).not.toContain("manifest-invalid");
+        expect(text).not.toContain("只能看");
         expect(root.querySelector("[data-sticker-export]")).toBeNull();
+        expect(root.querySelector("[data-pack-rename]")).toBeNull();
+    });
+
+    it("文件夹名不合规的无效包：右边有“改包名”，点了开改包名对话框", async () => {
+        const bad = summary("user.Bad", {status: "invalid", problem: "folder-name", count: 0, thumbnail: null});
+        const {wrapper, root} = show({packs: [bad], selected: "user.Bad", detail: {summary: bad, listed: false, token: "t", stickers: [], extras: []}});
+        expect(root.querySelector("[data-sticker-invalid]")?.textContent).toContain("改一下包名就好了");
+        await wrapper.get("[data-sticker-invalid] [data-pack-rename]").trigger("click");
+        await waitUntil("对话框", () => document.body.querySelector("[data-sticker-name-dialog]") !== null);
+    });
+
+    it("拖进来的文件夹按 readDrop 的分类单独交出，不当图片", () => {
+        const {wrapper, root} = show();
+        const image = new File([new Uint8Array([1])], "a.png", {type: "image/png"});
+        // Linux 的 Chrome 把目录交成大小 4096 的 File：不能靠大小与类型猜。
+        const folder = new File([new Uint8Array(4096)], "相册");
+        const transfer = {
+            types: ["Files"],
+            items: [{kind: "file", webkitGetAsEntry: () => ({isDirectory: false, name: "a.png"})}, {kind: "file", webkitGetAsEntry: () => ({isDirectory: true, name: "相册"})}],
+            files: [image, folder],
+            dropEffect: "",
+        };
+        const event = new Event("drop", {bubbles: true, cancelable: true});
+        Object.assign(event, {dataTransfer: transfer});
+        root.querySelector("[data-sticker-dropzone]")!.dispatchEvent(event);
+        expect(wrapper.emitted("add-images")).toEqual([["user.lyra", [image], ["相册"]]]);
     });
 });
 

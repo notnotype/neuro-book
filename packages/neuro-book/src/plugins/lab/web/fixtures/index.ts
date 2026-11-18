@@ -47,6 +47,7 @@ import type StickerFields from "nbook/plugins/stickers/web/components/StickerFie
 import type StickerGrid from "nbook/plugins/stickers/web/components/StickerGrid.vue";
 import type StickerPackNameDialog from "nbook/plugins/stickers/web/components/StickerPackNameDialog.vue";
 import type StickerPackRail from "nbook/plugins/stickers/web/components/StickerPackRail.vue";
+import type StickerSlot from "nbook/plugins/stickers/web/components/StickerSlot.vue";
 import type StickerPacksPage from "nbook/plugins/stickers/web/components/StickerPacksPage.vue";
 import {extraKey, railGroups, stickerKey} from "nbook/plugins/stickers/web/pack-view";
 import type {GridItem} from "nbook/plugins/stickers/web/pack-view";
@@ -1308,28 +1309,35 @@ function shelfFixtures(): LabFixture[] {
                 const lyra = detailOf(sampleById("user.lyra")!);
                 const sticker = (name: string): GridItem => {
                     const found = lyra.stickers.find((one) => one.name === name)!;
-                    return {key: found.file, kind: "sticker", file: found.file, label: found.name, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: found.name, raw: found.raw ?? null, common: found.common, ...(found.description === undefined ? {} : {description: found.description})};
+                    return {key: found.file, kind: "sticker", file: found.file, label: found.name, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: found.name, raw: found.raw ?? null, reason: null, common: found.common, ...(found.description === undefined ? {} : {description: found.description})};
                 };
-                const extra = (file: string, file2 = file): GridItem => {
+                const extra = (file: string, reason: "name" | "unlisted", file2 = file): GridItem => {
                     const found = lyra.extras.find((one) => one.file === file)!;
-                    return {key: file2, kind: "extra", file: file2, label: file2, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: null, raw: null, common: false};
+                    return {key: file2, kind: "extra", file: file2, label: file2, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: null, raw: null, reason, common: false};
                 };
                 return [
                     {id: "sticker", label: "表情：名字、说明、写法、常用", input: {props: {item: sticker("开心"), folder: "lyra"}}},
-                    {id: "problem", label: "认不出的图：先要改名", input: {props: {item: extra("摸摸头.png", "1.png"), folder: "lyra", problem: true}}},
-                    {id: "unlisted", label: "没加进来的图", input: {props: {item: extra("摸摸头.png"), folder: "lyra", unlisted: true}}},
+                    {id: "problem", label: "认不出的图：先要改名", input: {props: {item: extra("摸摸头.png", "name", "1.png"), folder: "lyra"}}},
+                    {id: "unlisted", label: "没加进来的图", input: {props: {item: extra("摸摸头.png", "unlisted"), folder: "lyra"}}},
                     {id: "readonly", label: "插件的包：只读", input: {props: {item: sticker("开心"), folder: "mochi", readonly: true}}},
                     {id: "english", label: "英文界面", input: {props: {item: sticker("开心"), folder: "lyra"}}},
                 ];
             })(),
             load: async () => withStickersPageText(createSubjectFixture<typeof StickerFields>((await import("nbook/plugins/stickers/web/components/StickerFields.vue")).default, {runtimeProps: {commit: async () => null}})),
         }),
+        defineLabFixture<typeof StickerSlot>({
+            component: "StickerSlot",
+            scenes: [
+                {id: "square", label: "方图：64 × 64 的框", input: {props: {url: detailOf(sampleById("user.lyra")!).stickers[0]!.url}}},
+                {id: "faded", label: "调淡：认不出的、没加进来的", input: {props: {url: detailOf(sampleById("user.lyra")!).stickers[0]!.url, faded: true}}},
+            ],
+            load: async () => createSubjectFixture<typeof StickerSlot>((await import("nbook/plugins/stickers/web/components/StickerSlot.vue")).default, {class: "h-24 w-24 p-2"}),
+        }),
         defineLabFixture<typeof PackFields>({
             component: "PackFields",
             scenes: [
                 {id: "user", label: "用户的包：显示名、说明、包名", input: {props: {detail: detailOf(sampleById("user.lyra")!)}}},
                 {id: "plugin", label: "插件的包：只读", input: {props: {detail: detailOf(sampleById("acme.cute.mochi")!), readonly: true}}},
-                {id: "invalid", label: "无效的表情包", input: {props: {detail: detailOf(sampleById("user.broken")!)}}},
                 {id: "english", label: "英文界面", input: {props: {detail: detailOf(sampleById("user.lyra")!)}}},
             ],
             load: async () => withStickersPageText(createSubjectFixture<typeof PackFields>((await import("nbook/plugins/stickers/web/components/PackFields.vue")).default, {runtimeProps: {commit: async () => null}})),

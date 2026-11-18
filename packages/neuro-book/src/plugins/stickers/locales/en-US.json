@@ -18,7 +18,10 @@
         "import": "Import zip",
         "problem": "Some images aren't usable",
         "invalid": "This pack is invalid",
-        "noThumb": "No stickers"
+        "noThumb": "No stickers",
+        "itemLabel": "{{title}}, {{count}} stickers",
+        "itemLabelProblem": "{{title}}, {{count}} stickers, some images are unrecognized",
+        "itemLabelInvalid": "{{title}}, this pack is invalid"
     },
     "head": {
         "copy": "Copy to mine",
@@ -41,7 +44,6 @@
     },
     "grid": {
         "add": "Add",
-        "addLabel": "Add images",
         "drop": "Drop to add {{count}} images",
         "dropEmpty": "Drop images here, or click to choose files",
         "uploading": "Uploading {{name}}"
@@ -64,9 +66,11 @@
         "packName": "Pack name",
         "changePackName": "Change…",
         "packSummary": "{{count}} stickers, {{common}} common",
-        "fileInfo": "{{file}}",
         "sizeInfo": "{{width}} × {{height}}, {{size}}",
-        "pluginNote": "This pack comes from a plugin and is read-only. Copy it to mine to edit it."
+        "pluginNote": "This pack comes from a plugin and is read-only. Copy it to mine to edit it.",
+        "invalidTitle": "This pack is invalid",
+        "invalidHint": "Under “More” you can show it in its folder or delete it.",
+        "invalidRename": "Change pack name…"
     },
     "dialog": {
         "cancel": "Cancel",
@@ -85,7 +89,8 @@
             "warnMessage": "Syntax already written in chats and files, like {{example}}, will show as plain text; renaming back makes it resolve again.",
             "usageLoading": "Looking for Profiles that use it…",
             "usageList": "These Profiles selected it and need it selected again on the Profile page after renaming: {{names}}",
-            "usageGeneric": "Profiles that selected it need it selected again after renaming."
+            "usageGeneric": "Profiles that selected it need it selected again after renaming.",
+            "nameSeparator": ", "
         },
         "conflict": {
             "title": "A sticker pack named {{name}} already exists",
@@ -96,7 +101,9 @@
             "copyAs": "Save as {{name}}",
             "copyUnavailable": "Save as new",
             "replace": "Replace existing",
-            "replaceNote": "Replacing deletes the existing pack."
+            "replaceNote": "Replacing deletes the existing pack.",
+            "refreshed": "The existing pack was just changed elsewhere. Choose again.",
+            "noToken": "The existing pack's version cannot be read, so it cannot be replaced. Save as a copy instead."
         },
         "deletePack": {
             "title": "Delete sticker pack “{{name}}”?",
@@ -119,7 +126,8 @@
         "unknownOutcome": "Not sure whether the write succeeded; sticker packs were reloaded.",
         "failed": "Didn't work: {{reason}}",
         "imported": "Imported “{{name}}”.",
-        "readFile": "The file can't be read any more. Choose it again."
+        "uploadedItem": "{{name}} ({{reason}})",
+        "separator": "; "
     },
     "error": {
         "not-user-pack": "Packs from plugins can't be changed. Copy it to mine first.",
@@ -145,7 +153,12 @@
         "pack-invalid": "This pack is invalid. Fix it in the folder first.",
         "timeout": "No data for a long time, so the connection was closed.",
         "cross-site": "Requests from other web pages are not accepted.",
-        "unavailable": "Can't reach the service."
+        "unavailable": "Can't reach the service.",
+        "title-invalid": "The display name can be at most 200 characters.",
+        "export-conflict": "Two file names differ only in letter case, so the exported zip could not be imported back. Rename one of them in the folder first.",
+        "request-aborted": "The request was cancelled.",
+        "file-unreadable": "The file can no longer be read. Choose it again.",
+        "write-failed-detail": "The write did not succeed: {{reason}}"
     },
     "reject": {
         "file-invalid": "the file name can't be used",
@@ -156,5 +169,13 @@
         "animated-too-large": "an animated WebP over 1024 pixels or 2 MiB can't be shrunk",
         "still-too-large": "still over 2 MiB after shrinking",
         "folder": "folders aren't accepted, only image files"
+    },
+    "problem": {
+        "symlink": "It is a link and is not read. Replace it with a real folder.",
+        "folder-name": "The folder name is not allowed: use lowercase letters, digits and hyphens, not starting or ending with a hyphen. Changing the pack name fixes it.",
+        "manifest-too-large": "stickers.json is over 256 KiB. Remove some content.",
+        "manifest-unreadable": "stickers.json cannot be read or has a syntax error. Fix it in the folder.",
+        "manifest-invalid": "The content of stickers.json is not valid. Fix it in the folder.",
+        "folder-unreadable": "The folder cannot be read. Check its permissions."
     }
 }

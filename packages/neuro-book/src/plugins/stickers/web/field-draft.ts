@@ -4,9 +4,8 @@
  * 没有焦点时，草稿跟着变，有焦点时不覆盖正在输入的字。
  */
 
-import {ref} from "vue";
+import {nextTick, ref, watch} from "vue";
 import type {Ref} from "vue";
-import {watch} from "vue";
 
 export interface CommittedText {
     readonly draft: Ref<string>;
@@ -15,10 +14,14 @@ export interface CommittedText {
     readonly pending: Ref<boolean>;
     onFocus(): void;
     onBlur(): void;
-    /** 回车：保存，留在输入框里。 */
-    onEnter(): void;
-    onEscape(): void;
+    /** 回车：保存，留在输入框里。输入法组字中的回车是在选词，不算。 */
+    onEnter(event: KeyboardEvent): void;
+    /** Esc：还原草稿。组字中的 Esc 是取消组字，不算。 */
+    onEscape(event: KeyboardEvent): void;
 }
+
+/** 输入法正在组字：`isComposing`，或旧浏览器里组字最后一个键的 `keyCode` 229。 */
+const composing = (event: KeyboardEvent): boolean => event.isComposing || event.keyCode === 229;
 
 /** `commit` 交回失败原因，成功交回 null。 */
 export function useCommittedText(source: () => string, commit: (value: string) => Promise<string | null>): CommittedText {
@@ -49,10 +52,19 @@ export function useCommittedText(source: () => string, commit: (value: string) =
         const reason = await commit(value);
         pending.value = false;
         inFlight = null;
-        if (reason === null) return;
-        revertedByCode = draft.value !== source();
-        draft.value = source();
-        error.value = reason;
+        if (reason !== null) {
+            revertedByCode = draft.value !== source();
+            draft.value = source();
+            error.value = reason;
+            return;
+        }
+        // 成功：等页面按新目录换上值再对齐。服务端会归一化（去空白、清空回落成文件名、NFC），草稿与目录的值字节不同时，
+        // 不对齐输入框就一直停在用户写的样子，失焦时又提交一次。这期间用户又输入了的不动。
+        await nextTick();
+        if (draft.value === value && value !== source()) {
+            revertedByCode = true;
+            draft.value = source();
+        }
     }
 
     return {
@@ -66,8 +78,13 @@ export function useCommittedText(source: () => string, commit: (value: string) =
             focused = false;
             void submit();
         },
-        onEnter: () => void submit(),
-        onEscape: () => {
+        onEnter: (event) => {
+            if (composing(event)) return;
+            event.preventDefault();
+            void submit();
+        },
+        onEscape: (event) => {
+            if (composing(event)) return;
             draft.value = source();
         },
     };

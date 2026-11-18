@@ -29,6 +29,8 @@ type ImportConflictDialogProps = {
     incoming: {title: string; count: number | null; items: readonly PreviewItem[]};
     /** 另存时会用的包名；没有空的为 null */
     copyAs: string | null;
+    /** 已有的包拿不到版本令牌：“替换”停用，状态行写原因，只能另存；缺省 true */
+    canReplace?: boolean;
     busy?: boolean;
     status?: string;
 };

@@ -27,6 +27,12 @@ export function downloadName(disposition: string | null, fallback: string): stri
     }
 }
 
+/** 浏览器读不了用户选的本地文件（选定之后被移走、删除）时 fetch 的失败：与连不上服务分开。 */
+const fileUnreadable = (error: unknown): boolean => {
+    const name = (error as {name?: unknown} | null)?.name;
+    return name === "NotReadableError" || name === "NotFoundError";
+};
+
 export interface HttpEnvironment {
     readonly fetch: typeof fetch;
     /** 把导出的字节交给浏览器保存。 */
@@ -58,8 +64,8 @@ export function createStickersHttp(environment: Partial<HttpEnvironment> = {}): 
                 }
                 const body = await bodyOf(response);
                 return {ok: false, code: body.error?.code ?? "unavailable", ...(body.error?.reason === undefined ? {} : {reason: body.error.reason})};
-            } catch {
-                return {ok: false, code: "unavailable"};
+            } catch (error) {
+                return {ok: false, code: fileUnreadable(error) ? "file-unreadable" : "unavailable"};
             }
         },
         async importZip(file, choice?: ImportChoice): Promise<ImportResponse> {
@@ -74,8 +80,8 @@ export function createStickersHttp(environment: Partial<HttpEnvironment> = {}): 
                 const body = await bodyOf(response);
                 if (body.error?.code === "import-conflict" && body.conflict !== undefined) return {ok: false, code: "import-conflict", conflict: body.conflict};
                 return {ok: false, code: body.error?.code ?? "unavailable", ...(body.error?.message === undefined ? {} : {reason: body.error.message})};
-            } catch {
-                return {ok: false, code: "unavailable"};
+            } catch (error) {
+                return {ok: false, code: fileUnreadable(error) ? "file-unreadable" : "unavailable"};
             }
         },
         async exportPack(packId) {

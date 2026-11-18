@@ -17,7 +17,7 @@
 
 ## 交互
 
-- 每组是一个 `listbox`，格子是 `option`，`aria-selected` 标选中；整个网格只有一个格子在 Tab 序里（选中的，没有选中时第一个）。焦点即选中：方向键左右按顺序（跨组接续）、上下按当前组的实际列数移动，Home、End 到头尾；Delete 请求删除选中的（页面先确认）；Esc 取消选中。上下方向键的列数从组的网格布局量出来，没有布局时按 1 列。
+- 每组是一个 `listbox`，格子是 `option`，`aria-selected` 标选中；整个网格只有一个格子在 Tab 序里（选中的，没有选中时第一个）。焦点即选中：方向键左右按顺序（跨组接续）、上下按当前组的实际列数移动，Home、End 到头尾；Delete（Mac 上的 Backspace 同）请求删除选中的（页面先确认）；Esc 取消选中：有选中时 `preventDefault` 拦下，设置窗口不跟着关，没有选中时放行让窗口关。带 Ctrl、Alt、Meta 的是浏览器与系统的快捷键，网格不处理。上下方向键的列数从组的网格布局量出来，没有布局时按 1 列。
 - 点格子选中，再点同一格不取消（取消用 Esc 或属性栏的“返回表情包”）。
 - “添加”格点开系统的文件选择（图片，可多选），选完发出 `add-images`；拖放由页面统一处理（窗口级兜底），网格只标出落点（`data-sticker-dropzone`）。
 
@@ -48,7 +48,7 @@ type StickerGridEmits = {
 };
 ```
 
-没有插槽与 `expose`，属性不透传。
+没有插槽，属性不透传。`expose` 两个方法，页面在删除之后决定焦点去处时用：`afterRemoval(key): string | null`（删掉这一格后该选中哪一格，没有为 null）与 `focusKey(key)`（等渲染后把焦点给这一格）。图框用 [`StickerSlot`](StickerSlot.md)。
 
 ## 隐藏通道理由
 

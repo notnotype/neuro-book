@@ -40,7 +40,7 @@ export function stickersPage(component: Component, deps: PacksModelDeps): Compon
                 allowlistUsage: model.allowlistUsage,
                 previewZip,
                 onSelect: (id: string) => model.select(id),
-                onAddImages: (id: string, files: File[]) => void model.addImages(id, files),
+                onAddImages: (id: string, files: File[], folders: string[]) => void model.addImages(id, files, folders),
                 onExport: (id: string) => void model.exportPack(id),
                 onReveal: (id: string) => void model.revealPack(id),
                 onRetry: () => model.retry(),

@@ -12,7 +12,7 @@
 
 ## 交互
 
-- 一行是一个按钮，`aria-current="page"` 标当前项；只有当前项在 Tab 序里（roving tabindex），上下方向键、Home、End 移动并选中，焦点跟着走。
+- 一行是一个按钮，`aria-current="page"` 标当前项，`aria-label` 把名字、表情数与状态（有图片认不出、无效）读成一句（行内图标是装饰，不单独读）；只有当前项在 Tab 序里（roving tabindex），上下方向键、Home、End 移动并选中，焦点跟着走。
 - “新建”“导入 zip”发出对应事件；`disabled` 时都不可用。
 
 ## 数据

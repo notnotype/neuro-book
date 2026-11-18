@@ -18,7 +18,10 @@
         "import": "导入 zip",
         "problem": "有图片认不出",
         "invalid": "这个表情包无效",
-        "noThumb": "没有表情"
+        "noThumb": "没有表情",
+        "itemLabel": "{{title}}，{{count}} 个表情",
+        "itemLabelProblem": "{{title}}，{{count}} 个表情，有图片认不出",
+        "itemLabelInvalid": "{{title}}，这个表情包无效"
     },
     "head": {
         "copy": "复制到我的",
@@ -41,7 +44,6 @@
     },
     "grid": {
         "add": "添加",
-        "addLabel": "添加图片",
         "drop": "松开，添加 {{count}} 张图片",
         "dropEmpty": "拖进图片，或点这里选择文件",
         "uploading": "正在上传 {{name}}"
@@ -64,9 +66,11 @@
         "packName": "包名",
         "changePackName": "改…",
         "packSummary": "{{count}} 个表情，{{common}} 个常用",
-        "fileInfo": "{{file}}",
         "sizeInfo": "{{width}} × {{height}}，{{size}}",
-        "pluginNote": "插件带来的表情包，只能看。要改就复制到我的。"
+        "pluginNote": "插件带来的表情包，只能看。要改就复制到我的。",
+        "invalidTitle": "这个表情包无效",
+        "invalidHint": "可以在“更多”里在文件夹中显示或删除它。",
+        "invalidRename": "改包名…"
     },
     "dialog": {
         "cancel": "取消",
@@ -85,7 +89,8 @@
             "warnMessage": "对话和文件里已经写下的 {{example}} 这类写法会显示成原文；改回原包名就又认得。",
             "usageLoading": "正在查找用到它的 Profile…",
             "usageList": "这些 Profile 选了它，改名后要在 Profile 页重新勾选：{{names}}",
-            "usageGeneric": "在 Profile 页里选了它的，改名后要重新勾选。"
+            "usageGeneric": "在 Profile 页里选了它的，改名后要重新勾选。",
+            "nameSeparator": "、"
         },
         "conflict": {
             "title": "已经有一个包名是 {{name}} 的表情包",
@@ -96,7 +101,9 @@
             "copyAs": "另存为 {{name}}",
             "copyUnavailable": "另存",
             "replace": "替换已有的",
-            "replaceNote": "替换会删掉已有的这个包。"
+            "replaceNote": "替换会删掉已有的这个包。",
+            "refreshed": "已有的包刚被别处改过，请重新选择。",
+            "noToken": "读不到已有包的版本，不能替换，可以另存。"
         },
         "deletePack": {
             "title": "删除表情包“{{name}}”？",
@@ -119,7 +126,8 @@
         "unknownOutcome": "不确定有没有写成功，已重新读取表情包。",
         "failed": "没有成功：{{reason}}",
         "imported": "已导入“{{name}}”。",
-        "readFile": "文件读不到了，重新选择一次。"
+        "uploadedItem": "{{name}}（{{reason}}）",
+        "separator": "；"
     },
     "error": {
         "not-user-pack": "插件带来的表情包不能改，先复制到我的。",
@@ -145,7 +153,12 @@
         "pack-invalid": "这个表情包无效，先在文件夹里修好它。",
         "timeout": "很久没收到数据，断开了。",
         "cross-site": "不接受别的网页的请求。",
-        "unavailable": "连不上服务。"
+        "unavailable": "连不上服务。",
+        "title-invalid": "显示名至多 200 个字。",
+        "export-conflict": "有两个文件名只差大小写，导出的 zip 导回来会被拒绝，先在文件夹里改掉其中一个。",
+        "request-aborted": "请求已取消。",
+        "file-unreadable": "文件读不到了，重新选择一次。",
+        "write-failed-detail": "写入没有成功：{{reason}}"
     },
     "reject": {
         "file-invalid": "文件名不能用",
@@ -156,5 +169,13 @@
         "animated-too-large": "动态 WebP 超过 1024 像素或 2 MiB，缩不了",
         "still-too-large": "缩小后仍超过 2 MiB",
         "folder": "文件夹不收，只收图片文件"
+    },
+    "problem": {
+        "symlink": "它是个链接，不读取。换成真正的文件夹。",
+        "folder-name": "文件夹名不合规则：只能用小写字母、数字和连字符，不以连字符开头或结尾。改一下包名就好了。",
+        "manifest-too-large": "stickers.json 超过 256 KiB，删掉一些内容。",
+        "manifest-unreadable": "stickers.json 读不了或有语法错误，在文件夹里修好它。",
+        "manifest-invalid": "stickers.json 的内容不合规则，在文件夹里修好它。",
+        "folder-unreadable": "文件夹读不了，检查一下权限。"
     }
 }
