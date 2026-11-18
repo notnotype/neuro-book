@@ -23,7 +23,7 @@
 - 跨目录导入用 `nbook/*`（映射到 `src/*`）；同一插件或同一宿主目录内用相对导入。
 - 前端不用全局 Pinia store；状态归插件所有，大块状态用浅层引用。
 - 后端 HTTP 用 Hono，校验与接口描述用 TypeBox，不引入 Nuxt 与 Zod。
-- 依赖：`dependencies` 只放后端进程导入的包（开发监督进程按其中的 workspace 包决定监视哪些源码目录）；只进前端构建的包（vue、vue-router、nb-ui、Tailwind 等）放 `devDependencies`。两份产物都由打包器打包，这样分不影响运行。
+- 依赖：`dependencies` 只放后端进程导入的包（开发监督进程按其中的 workspace 包决定监视哪些源码目录，加减 workspace 依赖时同步改 `src/server/dev/watch.test.ts` 里期望的监视根，w00043 t02 两次漏改）；只进前端构建的包（vue、vue-router、nb-ui、Tailwind 等）放 `devDependencies`。两份产物都由打包器打包，这样分不影响运行。
 
 ## 后端
 
