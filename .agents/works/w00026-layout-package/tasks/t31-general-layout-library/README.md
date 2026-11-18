@@ -17,6 +17,14 @@ updated: 2026-11-18
 
 2026-11-18 开工。主会话先写下自己的方案要点（主工作区 `.local/agent/works/w00026-layout-package/tasks/t31-general-layout-library/reports/my-outline.txt`）；同时派 Claude Sonnet 做独立设计（只给目标与仓库，不给主会话的方案，报告 `reports/independent-design.txt`）。两版对照后写提案 `docs/proposals/` 下的草稿，做设计审查，再交开发者看。
 
+独立设计回来（[`evidences/independent-design.txt`](evidences/independent-design.txt)）。和主会话要点（[`evidences/main-outline.txt`](evidences/main-outline.txt)）有三处不同，都采用独立设计：
+
+- 布局文档搬进不发布的工作区包，不做成通用停靠模型：只有一个使用方，概念还在变，发布后改不动；
+- 拖动控制器不进库，库里只补两个组合函数；
+- 推荐发编译产物，部分取代 ADR 0029：目标变成别的项目用之后，ADR 0029 选源码的前提“只承诺 Bun”不在了。
+
+它还指出主会话漏掉的许可证问题（AGPL-3.0-only）。主会话的要点改作备选 A。提案草稿 `docs/proposals/nb-layout-general-library.md`，已登记进提案索引，`docs:check` 通过。按记忆里“设计稿先给开发者看”，先给开发者看要点，确认后再提交、送设计审查。
+
 ## 下一步
 
-等独立设计，对照后写提案草稿。写完停下等开发者。
+等开发者看提案的要点与 6 个待定项。
