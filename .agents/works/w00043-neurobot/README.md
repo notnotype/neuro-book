@@ -94,6 +94,7 @@ updated: 2026-11-18
 | [w00032 t32](../w00032-agent-integration/tasks/t32-harness-backfill/README.md) | nb-harness 补回 Agent 的通用部分（别的 Work） | 无 |
 | [t02](tasks/t02-host-base/README.md) | 抽 `nb-file-lock`、`nb-host`、`nb-models` | `nb-models` 的两片在 w00032 t32 之后 |
 | [t03](tasks/t03-web-design/README.md) | web 界面设计评审（静态稿） | 无 |
+| [t13](tasks/t13-approval-simplification/README.md) | Agent 审批：自有目录、去掉地址表、询问写明来源（2026-11-18 加） | t01 的审批提案 |
 | **第一步：能聊** | | |
 | [t04](tasks/t04-app-skeleton/README.md) | 应用骨架与 gateway | t01、t02 的 `nb-host` |
 | [t05](tasks/t05-models-settings/README.md) | 模型与设置页 | t02 的 `nb-models`、t04、t03 |
@@ -125,3 +126,4 @@ updated: 2026-11-18
 - [t10 日程与周期任务插件](tasks/t10-schedule/README.md)
 - [t11 第一版自用与调参](tasks/t11-dogfood/README.md)
 - [t12 不判旧的文件锁单独成包 nb-flock 并随 nb-story 发布](tasks/t12-flock-into-file-lock/README.md)
+- [t13 Agent 审批：自有目录、去掉地址表、询问写明来源](tasks/t13-approval-simplification/README.md)
