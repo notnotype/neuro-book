@@ -17,6 +17,8 @@ updated: 2026-11-18
 - 开发者要的：Markdown 正文的字体、字号等设置也能改；代码编辑器与 Markdown 编辑器里按 Ctrl+滚轮调字号。
 - 与桌面界面缩放的关系：[desktop-shell 输出 26](../../../../docs/specs/runtime/desktop-shell.md) 写了“页面自己处理了 Ctrl+滚轮的地方（图片查看器）不接管”。编辑器处理 Ctrl+滚轮后，桌面里在编辑器上按 Ctrl+滚轮改的是字号、不再是界面缩放；这条要写进输出 26 与场景 16（图片查看器之外再列编辑器），并想好光标在编辑器之外时仍是界面缩放。
 
+- 参照 VS Code（开发者 2026-11-18 提到，凭记忆、开工时再查文档核对）：界面缩放 `window.zoomLevel` 与字号 `editor.fontSize`、`markdown.preview.fontSize` 是两套设置；`editor.mouseWheelZoom` 默认关，开了以后 Ctrl+滚轮在编辑器里改的是编辑器字号，界面缩放只走快捷键。
+
 ## 开工时要决定
 
 - Markdown 正文设置的范围：字体、字号、行高各要不要；影响的是编辑器、阅读预览、还是对话里的 Markdown。
