@@ -11,15 +11,15 @@ export type ExtraReason = StickerExtra["reason"];
 export const folderOf = (id: string): string => id.slice(id.lastIndexOf(".") + 1);
 
 export interface RailGroup {
-    /** `mine` 或插件 id。 */
+    /** `mine`、`builtin` 或插件 id。 */
     readonly id: string;
-    /** 插件的显示名（没有时是插件 id）；“我的”为 null，由界面写文字。 */
+    readonly kind: "mine" | "plugin" | "builtin";
+    /** 插件的显示名（没有时是插件 id）；“我的”与“内置”为 null，由界面按 `kind` 写文字。 */
     readonly title: string | null;
-    readonly user: boolean;
     readonly items: readonly StickerPackSummary[];
 }
 
-/** 左栏：“我的”在前，然后每个插件一组，按显示名（再按 id）排；没有包的插件组不画，“我的”照样画（有“新建”）。 */
+/** 左栏：“我的”在前，然后每个插件一组，按显示名（再按 id）排，内置的在最后；没有包的插件组与内置组不画，“我的”照样画（有“新建”）。 */
 export function railGroups(packs: readonly StickerPackSummary[]): RailGroup[] {
     const byId = (left: StickerPackSummary, right: StickerPackSummary): number => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
     const plugins = new Map<string, {title: string; items: StickerPackSummary[]}>();
@@ -29,10 +29,11 @@ export function railGroups(packs: readonly StickerPackSummary[]): RailGroup[] {
         group.items.push(pack);
         plugins.set(id, group);
     }
-    const mine: RailGroup = {id: "mine", title: null, user: true, items: packs.filter((item) => item.source === "user").sort(byId)};
+    const mine: RailGroup = {id: "mine", kind: "mine", title: null, items: packs.filter((item) => item.source === "user").sort(byId)};
+    const builtin = packs.filter((item) => item.source === "builtin").sort(byId);
     const rest = [...plugins].sort(([leftId, left], [rightId, right]) => (left.title < right.title ? -1 : left.title > right.title ? 1 : leftId < rightId ? -1 : 1))
-        .map(([id, group]): RailGroup => ({id, title: group.title, user: false, items: group.items.sort(byId)}));
-    return [mine, ...rest];
+        .map(([id, group]): RailGroup => ({id, kind: "plugin", title: group.title, items: group.items.sort(byId)}));
+    return [mine, ...rest, ...(builtin.length === 0 ? [] : [{id: "builtin", kind: "builtin", title: null, items: builtin} satisfies RailGroup])];
 }
 
 /** 第一次打开选中谁：“我的”里的第一个，没有就是第一组的第一个。 */

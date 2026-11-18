@@ -21,12 +21,16 @@
         "noThumb": "没有表情",
         "itemLabel": "{{title}}，{{count}} 个表情",
         "itemLabelProblem": "{{title}}，{{count}} 个表情，有图片认不出",
-        "itemLabelInvalid": "{{title}}，这个表情包无效"
+        "itemLabelInvalid": "{{title}}，这个表情包无效",
+        "builtin": "内置",
+        "shadowed": "被我的同名包盖住",
+        "itemLabelShadowed": "{{title}}，{{count}} 个表情，被我的同名包盖住"
     },
     "head": {
         "copy": "复制到我的",
         "export": "导出",
-        "more": "更多"
+        "more": "更多",
+        "shadowed": "被我的同名包盖住：写 :{{folder}}/…: 显示的是我的那一份，这个包要写 :{{writing}}/…:。"
     },
     "menu": {
         "reveal": "在文件夹中显示",
@@ -67,7 +71,7 @@
         "changePackName": "改…",
         "packSummary": "{{count}} 个表情，{{common}} 个常用",
         "sizeInfo": "{{width}} × {{height}}，{{size}}",
-        "pluginNote": "插件带来的表情包，只能看。要改就复制到我的。",
+        "pluginNote": "插件带来的或内置的表情包，只能看。要改就复制到我的。",
         "invalidTitle": "这个表情包无效",
         "invalidHint": "可以在“更多”里在文件夹中显示或删除它。",
         "invalidRename": "改包名…"
@@ -130,7 +134,7 @@
         "separator": "；"
     },
     "error": {
-        "not-user-pack": "插件带来的表情包不能改，先复制到我的。",
+        "not-user-pack": "插件带来的或内置的表情包不能改，先复制到我的。",
         "pack-missing": "这个表情包已经不在了。",
         "pack-exists": "已经有同名的表情包。",
         "pack-changed": "表情包刚被别处改过，页面已经更新，再试一次。",

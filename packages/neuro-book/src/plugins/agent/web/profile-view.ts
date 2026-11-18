@@ -426,7 +426,7 @@ function skillsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
 }
 
 /**
- * 表情包一节（stickers.md 输出 19、profile-settings.md 输出 27）：分组我的在前、各插件按显示名（没有时插件 id）各一组；行是显示名、
+ * 表情包一节（stickers.md 输出 19、profile-settings.md 输出 27）：分组我的在前、各插件按显示名（没有时插件 id）各一组、内置的在最后；行是显示名、
  * 说明、表情数与第一个常用表情的缩略图。后台的 Profile 没有对话，不给这一节；列表还没取到时也不给。
  */
 function stickersField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
@@ -439,13 +439,14 @@ function stickersField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTo
     const grouped = (list: readonly StickerPackSummary[]): Array<AllowlistGroup<StickerPackSummary>> => {
         const groups = new Map<string, {readonly id: string; readonly provider: string; readonly items: StickerPackSummary[]}>();
         for (const pack of list) {
-            const key = pack.source === "user" ? "user" : `plugin:${pack.plugin?.id ?? ""}`;
-            const provider = pack.source === "user" ? text.t(agentText("profiles.stickers.groups.user")) : pack.plugin?.title ?? pack.plugin?.id ?? "";
+            const key = pack.source === "plugin" ? `plugin:${pack.plugin?.id ?? ""}` : pack.source;
+            const provider = pack.source === "plugin" ? pack.plugin?.title ?? pack.plugin?.id ?? "" : text.t(agentText(pack.source === "user" ? "profiles.stickers.groups.user" : "profiles.stickers.groups.builtin"));
             const group = groups.get(key) ?? {id: key, provider, items: []};
             group.items.push(pack);
             groups.set(key, group);
         }
-        return [...groups.values()].sort((left, right) => (left.id === "user" ? -1 : right.id === "user" ? 1 : left.provider.localeCompare(right.provider)));
+        const rank = (id: string): number => (id === "user" ? 0 : id === "builtin" ? 2 : 1);
+        return [...groups.values()].sort((left, right) => rank(left.id) - rank(right.id) || left.provider.localeCompare(right.provider));
     };
     return allowlistField({
         items: packs,

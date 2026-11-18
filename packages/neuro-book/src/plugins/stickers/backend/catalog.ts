@@ -1,7 +1,8 @@
 /**
  * 表情目录（docs/specs/agent/stickers.md 输出 1–6）：按根扫描表情包，核对清单与图片，监视用户的表情包文件夹，变了重扫并通知。
  *
- * 根有用户与插件两种来源：用户的一个，启动时给定并建好；插件的每个 `stickers.packs` 贡献一个，随贡献的发布与撤回增删。
+ * 根有用户、内置与插件三种来源：用户的一个，启动时给定并建好；内置的一个，启动时给定（应用安装里的目录，只读）；插件的每个
+ * `stickers.packs` 贡献一个，随贡献的发布与撤回增删。
  * 监视用非递归的 `fs.watch`：用户的根与其中每个表情包文件夹。任何一处变了都重扫整个用户的根（用户的表情包通常不多）；
  * 没变的图片（修改时间、大小与 inode 相同）沿用上一次的核对结果，重扫只读清单（没写表情列表的再列一次文件夹）、`lstat` 每张图。插件的表情包装在版本目录里、
  * 一次运行里不变，不监视。
@@ -29,10 +30,10 @@ import {isImageFileName, parseManifest, stickersFromFiles} from "../shared/manif
 const RESCAN_DELAY_MS = 150;
 
 export interface StickerRoot {
-    /** 根的稳定身份：用户的根是 `user`，插件的根是贡献 id。同 id 的表情包按它的码元顺序取先到的。 */
+    /** 根的稳定身份：用户的根是 `user`，内置的是 `builtin`，插件的根是贡献 id。同 id 的表情包按它的码元顺序取先到的。 */
     readonly key: string;
     readonly source: StickerSource;
-    /** 表情包 id 的前缀：用户的是 `user`，插件的是插件 id。 */
+    /** 表情包 id 的前缀：用户的是 `user`，内置的是 `builtin`，插件的是插件 id。 */
     readonly prefix: string;
     readonly root: string;
     readonly watch: boolean;

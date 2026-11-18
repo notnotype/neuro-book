@@ -536,6 +536,28 @@ describe("拖放与只读的包", () => {
         expect(calls.copy).toEqual([["acme.cute.mochi"]]);
     });
 
+    it("内置的包（输出 25、26）：在最后一组、组头“内置”；被我的同名包盖住的行有标注、读屏读出来，右边写出它要写的包段；同插件的只读、能复制", async () => {
+        const builtin = summary("builtin.lyra", {source: "builtin", title: "星璃", writing: "builtin.lyra", shadowed: true});
+        const chibi = summary("builtin.lyra-chibi", {source: "builtin", title: "星璃 · 半身", writing: "lyra-chibi"});
+        const {wrapper, root, calls} = show({packs: [chibi, builtin, PLUGIN, {...LYRA, writing: "lyra"}], selected: "builtin.lyra", detail: {summary: builtin, listed: true, token: null, stickers: [sticker("开心", true)], extras: []}});
+        const items = [...root.querySelectorAll<HTMLElement>("[data-sticker-rail-item]")].map((element) => element.dataset.stickerRailItem);
+        expect(items).toEqual(["user.lyra", "acme.cute.mochi", "builtin.lyra", "builtin.lyra-chibi"]);
+        expect([...root.querySelectorAll(".sticker-rail__title")].map((element) => element.textContent?.trim())).toEqual(["我的", "可爱表情包", "内置"]);
+        const shadowed = root.querySelector<HTMLElement>("[data-sticker-rail-item='builtin.lyra']")!;
+        expect(shadowed.querySelector("[data-sticker-rail-flag='shadowed']")).not.toBeNull();
+        expect(shadowed.getAttribute("aria-label")).toContain("被我的同名包盖住");
+        expect(root.querySelector("[data-sticker-rail-item='builtin.lyra-chibi'] [data-sticker-rail-flag]")).toBeNull();
+        expect(root.querySelector("[data-sticker-shadowed]")?.textContent).toContain(":builtin.lyra/…:");
+        expect(root.querySelector("[data-sticker-add]")).toBeNull();
+        expect(root.querySelector("[data-sticker-panel]")?.textContent).toContain(":builtin.lyra/…:");
+        await wrapper.get("[data-grid-key^='s:开心']").trigger("click");
+        expect(root.querySelector("input[data-sticker-name]")).toBeNull();
+        expect(root.querySelector("[data-sticker-panel]")?.textContent).toContain(":builtin.lyra/开心:");
+        await wrapper.get("[data-sticker-copy]").trigger("click");
+        await flushPromises();
+        expect(calls.copy).toEqual([["builtin.lyra"]]);
+    });
+
     it("无效的表情包（带服务端真实会给的详情）：右边写原因与该怎么办，不是插件的“只能看”，没有“导出”", () => {
         const bad = summary("user.bad", {status: "invalid", problem: "manifest-invalid", count: 0, thumbnail: null});
         const {root} = show({packs: [bad], selected: "user.bad", detail: {summary: bad, listed: false, token: "t", stickers: [], extras: []}});

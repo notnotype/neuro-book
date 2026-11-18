@@ -6,7 +6,7 @@
 
 import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, packSummary, stickerImageUrl} from "../shared/contracts";
 import type {BrowserStickerPack, ExtraCounts, StickerPackEntry, StickerPackSummary} from "../shared/contracts";
-import {writingSegments} from "../shared/writing";
+import {shadowedByMine, writingSegments} from "../shared/writing";
 
 type Report = (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 
@@ -51,9 +51,20 @@ export function browserCatalog(packs: readonly StickerPackEntry[], report: Repor
     return kept;
 }
 
+/** 概要里要在完整目录上算的两项（输出 14、25）：写法的包段、是否被我的同名包盖住。按 id 取。 */
+export function summaryMarks(packs: readonly StickerPackEntry[]): (id: string) => Pick<StickerPackSummary, "writing" | "shadowed"> {
+    const segments = writingSegments(packs);
+    const shadowed = shadowedByMine(packs);
+    return (id) => {
+        const writing = segments.get(id);
+        return {...(writing === undefined ? {} : {writing}), ...(shadowed.has(id) ? {shadowed: true as const} : {})};
+    };
+}
+
 /** 设置页的表情包概要：同样有字节预算，表情数不限（概要里没有表情）。 */
 export function browserSummaries(packs: readonly StickerPackEntry[], report: Report, counts: (id: string) => ExtraCounts | undefined = () => undefined): StickerPackSummary[] {
-    const {kept, skipped} = withinBudget(packs.map((pack) => ({id: pack.id, stickers: 0, value: packSummary(pack, counts(pack.id))})));
+    const marks = summaryMarks(packs);
+    const {kept, skipped} = withinBudget(packs.map((pack) => ({id: pack.id, stickers: 0, value: {...packSummary(pack, counts(pack.id)), ...marks(pack.id)}})));
     if (skipped.length > 0) report("catalog-truncated", `表情包概要放不下（超过 ${String(BROWSER_BYTES_MAX)} 字节），这些表情包不列：${skipped.join("、")}`, {skipped, summaries: true});
     return kept;
 }

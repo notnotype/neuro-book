@@ -67,7 +67,10 @@ export const packsPoint: ContributionPointDefinition<StickerPacksDeclaration> = 
     validate: (descriptor) => packsDirectoryProblem(descriptor.declaration.directory),
 };
 
-export type StickerSource = "user" | "plugin";
+/** 表情包的来源（输出 1）：用户的、插件带来的、随应用分发的。 */
+export type StickerSource = "user" | "plugin" | "builtin";
+
+const SourceSchema = Type.Union([Type.Literal("user"), Type.Literal("plugin"), Type.Literal("builtin")]);
 
 export type StickerPackProblem =
     | {readonly code: "manifest-too-large" | "manifest-unreadable" | "manifest-invalid" | "folder-unreadable" | "folder-name" | "symlink"; readonly detail?: string};
@@ -145,7 +148,7 @@ const BrowserPackSchema = Type.Object({
     id: Type.String(),
     folder: Type.String(),
     title: Type.String(),
-    source: Type.Union([Type.Literal("user"), Type.Literal("plugin")]),
+    source: SourceSchema,
     plugin: Type.Optional(BrowserPluginSchema),
     writing: Type.String(),
     stickers: Type.Array(BrowserStickerSchema),
@@ -215,7 +218,7 @@ export const stickerPickerKey: ServiceKey<StickerPicker> = defineServiceKey<Stic
 const PackSummarySchema = Type.Object({
     id: Type.String(),
     folder: Type.String(),
-    source: Type.Union([Type.Literal("user"), Type.Literal("plugin")]),
+    source: SourceSchema,
     plugin: Type.Optional(Type.Object({id: Type.String(), title: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false})),
     title: Type.String(),
     description: Type.Optional(Type.String()),
@@ -226,6 +229,10 @@ const PackSummarySchema = Type.Object({
     /** 认不出（名字当不了表情名）与没加进来的图的张数（表情包页左栏的提示）。 */
     unrecognized: Type.Integer({minimum: 0}),
     unlisted: Type.Integer({minimum: 0}),
+    /** 写法的包段（输出 14），有效的包才有；属性栏的写法用它。 */
+    writing: Type.Optional(Type.String()),
+    /** 被我的同名包盖住的插件或内置的包（输出 25）。 */
+    shadowed: Type.Optional(Type.Literal(true)),
 }, {additionalProperties: false});
 export type StickerPackSummary = Static<typeof PackSummarySchema>;
 

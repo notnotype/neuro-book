@@ -21,12 +21,16 @@
         "noThumb": "No stickers",
         "itemLabel": "{{title}}, {{count}} stickers",
         "itemLabelProblem": "{{title}}, {{count}} stickers, some images are unrecognized",
-        "itemLabelInvalid": "{{title}}, this pack is invalid"
+        "itemLabelInvalid": "{{title}}, this pack is invalid",
+        "builtin": "Built-in",
+        "shadowed": "Hidden by my pack with the same name",
+        "itemLabelShadowed": "{{title}}, {{count}} stickers, hidden by my pack with the same name"
     },
     "head": {
         "copy": "Copy to mine",
         "export": "Export",
-        "more": "More"
+        "more": "More",
+        "shadowed": "Hidden by my pack with the same name: :{{folder}}/…: shows mine; write :{{writing}}/…: for this one."
     },
     "menu": {
         "reveal": "Show in folder",
@@ -67,7 +71,7 @@
         "changePackName": "Change…",
         "packSummary": "{{count}} stickers, {{common}} common",
         "sizeInfo": "{{width}} × {{height}}, {{size}}",
-        "pluginNote": "This pack comes from a plugin and is read-only. Copy it to mine to edit it.",
+        "pluginNote": "This pack comes from a plugin or is built in, so it is read-only. Copy it to mine to edit it.",
         "invalidTitle": "This pack is invalid",
         "invalidHint": "Under “More” you can show it in its folder or delete it.",
         "invalidRename": "Change pack name…"
@@ -130,7 +134,7 @@
         "separator": "; "
     },
     "error": {
-        "not-user-pack": "Packs from plugins can't be changed. Copy it to mine first.",
+        "not-user-pack": "Packs from plugins and built-in packs can't be changed. Copy it to mine first.",
         "pack-missing": "This pack is gone.",
         "pack-exists": "A pack with that name already exists.",
         "pack-changed": "The pack was just changed elsewhere. The page has refreshed; try again.",

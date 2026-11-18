@@ -1,6 +1,6 @@
 /**
- * `nbook.stickers` 的服务端入口（docs/specs/agent/stickers.md）：启动时打开表情目录（用户的在 `user://stickers/`，插件的随
- * `stickers.packs` 增删），交出 `stickers://`、取图路由、浏览器目录的远程服务与给 `nbook.agent` 的服务。
+ * `nbook.stickers` 的服务端入口（docs/specs/agent/stickers.md）：启动时打开表情目录（用户的在 `user://stickers/`，内置的随应用
+ * 分发，插件的随 `stickers.packs` 增删），交出 `stickers://`、取图路由、浏览器目录的远程服务与给 `nbook.agent` 的服务。
  */
 
 import {join} from "node:path";
@@ -18,8 +18,10 @@ import {openExistingFolder} from "nbook/backend/open-folder";
 
 import {descriptor} from "../plugin";
 import {packsPoint, STICKERS_POINT, STICKERS_SCHEME, stickersCatalogContract, stickersServiceKey} from "../shared/contracts";
-import {browserCatalog, browserSummaries} from "./browser-catalog";
+import {browserCatalog, browserSummaries, summaryMarks} from "./browser-catalog";
+import {locateBuiltinStickers} from "./builtin-root";
 import {StickerCatalog} from "./catalog";
+import type {StickerRoot} from "./catalog";
 import {StickerEditor} from "./editor";
 import type {Edited} from "./editor";
 import {packDetail} from "./pack-detail";
@@ -58,7 +60,14 @@ export const stickersBackendPlugin: PluginDefinition = {
                 const found = await files().identify(folders.map((folder) => `user://stickers/${folder}`));
                 return found.ok ? found.value.items.map((item) => ("token" in item ? item.token : null)) : folders.map(() => null);
             };
-            const catalog = await StickerCatalog.open({roots: [{key: "user", source: "user", prefix: "user", root: userRoot, watch: true}], clock: context.services.require(clockKey), report, identify});
+            // 内置的随应用分发、一次运行里不变，不监视；找不到目录（安装不全）时只少内置的包。
+            const builtinRoot = locateBuiltinStickers();
+            if (builtinRoot === null) report("root-unavailable", "内置表情包用不了：应用的安装里没有内置表情包的目录", {source: "builtin"});
+            const roots: StickerRoot[] = [
+                {key: "user", source: "user", prefix: "user", root: userRoot, watch: true},
+                ...(builtinRoot === null ? [] : [{key: "builtin", source: "builtin", prefix: "builtin", root: builtinRoot, watch: false} satisfies StickerRoot]),
+            ];
+            const catalog = await StickerCatalog.open({roots, clock: context.services.require(clockKey), report, identify});
             const packages = await context.services.resolve(pluginPackagesKey);
             context.onStop(() => catalog.close());
             const editor = new StickerEditor({files, catalog});
@@ -70,7 +79,7 @@ export const stickersBackendPlugin: PluginDefinition = {
                         packs: (_input, call) => call.ok(browserSummaries(catalog.list(), report, (id) => catalog.item(id)?.counts)),
                         pack: ({id}, call) => {
                             const item = catalog.item(id);
-                            return item === undefined ? call.fail("pack-missing", {}) : call.ok(packDetail(item));
+                            return item === undefined ? call.fail("pack-missing", {}) : call.ok(packDetail(item, summaryMarks(catalog.list())(id)));
                         },
                         createPack: async ({folder, title}, call) => answer(await editor.createPack(folder, title ?? null)),
                         updatePack: async ({id, title, description}, call) => answer(await editor.updatePack(id, {title, description}), () => ({})),

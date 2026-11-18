@@ -25,6 +25,7 @@ import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
 
 import {browserCatalog, browserSummaries} from "./backend/browser-catalog";
+import {locateBuiltinStickers} from "./backend/builtin-root";
 import {StickerCatalog} from "./backend/catalog";
 import type {StickerPackItem} from "./backend/catalog";
 import {packDetail} from "./backend/pack-detail";
@@ -121,6 +122,8 @@ async function scene(prepare: (user: string) => Promise<void> = async () => unde
 }
 
 const byId = (service: StickersService, id: string): StickerPackEntry | undefined => service.list().find((entry) => entry.id === id);
+/** 用户的表情包：应用自带的内置包总在目录里，只看用户的那几条断言用它。 */
+const mine = (service: StickersService): readonly StickerPackEntry[] => service.list().filter((entry) => entry.source === "user");
 
 describe("表情目录", () => {
     test("输出 1–5：有效的表情按清单顺序、带宽高与版本；无效的表情只隔离它一项；无效的表情包照样列出；诊断每种一条，重扫不重复", async () => {
@@ -212,7 +215,7 @@ describe("表情目录", () => {
 
     test("输出 1：新放进的表情包、整个换掉的表情包都随监视重扫出现；链接的表情包是无效的", async () => {
         const {world, user, service} = await scene();
-        expect(service.list()).toEqual([]);
+        expect(mine(service)).toEqual([]);
         await lyra(join(user, "lyra"));
         await waitUntil("新表情包出现", () => {
             world.clock.advance(200);
@@ -298,7 +301,7 @@ describe("stickers://", () => {
     test("输出 13：根列出表情包；表情包的文件能读能列、不能写；整个文件夹换掉后读到新的", async () => {
         const {world, user, files} = await scene(async (user) => lyra(join(user, "lyra")));
         const listed = await files.list("stickers://");
-        expect(listed.ok && "kind" in listed.value && listed.value.entries.map((entry) => [entry.name, entry.title, entry.meta?.stickers])).toEqual([["user.lyra", "星璃", "4"]]);
+        expect(listed.ok && "kind" in listed.value && listed.value.entries.filter((entry) => entry.name.startsWith("user.")).map((entry) => [entry.name, entry.title, entry.meta?.stickers])).toEqual([["user.lyra", "星璃", "4"]]);
         const manifest = await files.read("stickers://user.lyra/stickers.json");
         expect(manifest.ok && new TextDecoder().decode(manifest.value.bytes)).toContain("被夸的时候");
         // 方案没有写能力，文件服务这一层就拒绝；Agent 的资源层对它分类为不可写（agent/resources.md），工具得 permission-denied。
@@ -614,7 +617,7 @@ describe("表情包页的写入", () => {
             return detail.value.token;
         };
         expect(await remote.renamePack({id: "user.lyra", folder: "xingli", token: await token("user.lyra")})).toEqual({ok: true, value: {id: "user.xingli"}});
-        expect(service.list().map((entry) => entry.id)).toEqual(["user.xingli"]);
+        expect(mine(service).map((entry) => entry.id)).toEqual(["user.xingli"]);
         const stale = await token("user.xingli");
         // 别处删掉再放进同名的新文件夹：令牌对不上，改名、删除都不做。
         await rm(join(user, "xingli"), {recursive: true});
@@ -624,7 +627,7 @@ describe("表情包页的写入", () => {
         expect(await exists(join(user, "xingli", "stickers.json"))).toBe(true);
         expect(await remote.deletePack({id: "user.xingli", token: await token("user.xingli")})).toEqual({ok: true, value: {}});
         expect(await exists(join(user, "xingli"))).toBe(false);
-        expect(service.list()).toEqual([]);
+        expect(mine(service)).toEqual([]);
     });
 
     test("改清单：清单满了不写；清单读不懂的不改；同一个包的两次写入排队，两个改动都在", async () => {
@@ -642,6 +645,46 @@ describe("表情包页的写入", () => {
         expect((await manifestOf(user, "two")).stickers?.map((entry) => entry.description)).toEqual(["一", "二"]);
         await writeFile(join(user, "two", "stickers.json"), "{不是 JSON");
         expect(await remote.updateSticker({id: "user.two", file: "a.png", name: "甲", change: {common: true}})).toMatchObject({ok: false, code: "write-failed"});
+    });
+
+    test("内置来源（输出 1、13、25、26、32）：应用自带两个包、全部常用、只读；复制到我的得 user.lyra，内置的随之标“被我的同名包盖住”、包段改写 id", async () => {
+        const {world, user, files, service} = await scene();
+        const builtinRoot = locateBuiltinStickers();
+        if (builtinRoot === null) throw new Error("找不到内置表情包的目录");
+        const manifest = JSON.parse(await readFile(join(builtinRoot, "lyra", "stickers.json"), "utf8")) as {stickers: Array<{file: string}>};
+        expect(byId(service, "builtin.lyra")).toMatchObject({source: "builtin", folder: "lyra", title: "星璃", status: "ok"});
+        expect(byId(service, "builtin.lyra")?.stickers.map((sticker) => sticker.file)).toEqual(manifest.stickers.map((item) => item.file));
+        expect(byId(service, "builtin.lyra")?.stickers.every((sticker) => sticker.common && sticker.width === 512)).toBe(true);
+        expect(byId(service, "builtin.lyra-chibi")).toMatchObject({source: "builtin", title: "星璃 · 半身", status: "ok"});
+
+        // stickers:// 根写来源；内置的同插件的只能读。
+        const listed = await files.list("stickers://");
+        expect(listed.ok && "kind" in listed.value && listed.value.entries.find((entry) => entry.name === "builtin.lyra")?.meta?.source).toBe("内置");
+        const read = await files.read("stickers://builtin.lyra/stickers.json");
+        expect(read.ok).toBe(true);
+        expect(await files.write("stickers://builtin.lyra/x.json", "{}", {expect: {hash: "0"}})).toMatchObject({ok: false});
+        const remote = await api(world);
+        expect(await remote.updatePack({id: "builtin.lyra", title: "改", description: null})).toMatchObject({ok: false, code: "not-user-pack"});
+        expect(await remote.listFiles({id: "builtin.lyra", files: "all"})).toMatchObject({ok: false, code: "not-user-pack"});
+
+        const marks = async () => {
+            const packs = await remote.packs({});
+            const catalog = await remote.catalog({});
+            if (!packs.ok || !catalog.ok) throw new Error("取不到目录");
+            const summary = (id: string) => packs.value.find((pack) => pack.id === id);
+            return {
+                summary: Object.fromEntries(["user.lyra", "builtin.lyra"].map((id) => [id, summary(id) === undefined ? null : [summary(id)?.writing, summary(id)?.shadowed ?? false]])),
+                catalog: Object.fromEntries(catalog.value.filter((pack) => pack.folder === "lyra").map((pack) => [pack.id, pack.writing])),
+            };
+        };
+        expect(await marks()).toEqual({summary: {"user.lyra": null, "builtin.lyra": ["lyra", false]}, catalog: {"builtin.lyra": "lyra"}});
+
+        // 复制成我的 lyra（包名没被用，不加 -2）：图与清单都过来；之后按文件夹名认的是我的，内置的写 id、标被盖住。
+        expect(await remote.copyPack({id: "builtin.lyra"})).toEqual({ok: true, value: {id: "user.lyra"}});
+        expect((await readdir(join(user, "lyra"))).sort()).toEqual(["stickers.json", ...manifest.stickers.map((item) => item.file)].sort());
+        expect(await marks()).toEqual({summary: {"user.lyra": ["lyra", false], "builtin.lyra": ["builtin.lyra", true]}, catalog: {"user.lyra": "lyra", "builtin.lyra": "builtin.lyra"}});
+        const detail = await remote.pack({id: "builtin.lyra"});
+        expect(detail.ok && detail.value.summary).toMatchObject({writing: "builtin.lyra", shadowed: true});
     });
 
     test("输出 32：复制插件的包成用户的包（清单与顶层图片），包名被用了加 -2；插件途中换了版本不留半个包；插件的包不能改", async () => {
@@ -955,20 +998,51 @@ describe("浏览器目录", () => {
         expect(reports).toEqual(["catalog-truncated"]);
     });
 
-    test("输出 18、41：带显示名、来源、插件与写法的包段；包段在完整目录上算，同名的包被截掉或没有表情时照样写 id", () => {
+    test("输出 7、14、18、41：带显示名、来源、插件与写法的包段；同名文件夹按来源分级（我的、插件、内置），胜出且唯一的写文件夹名，其余写 id；包段在完整目录上算", () => {
         const sticker = {name: "开心", file: "a.png", common: true, width: 8, height: 8, version: "1-1", bytes: 8};
+        const plugin = (id: string, folder: string, extra: Partial<StickerPackEntry> = {}): StickerPackEntry => ({id, folder, source: "plugin", plugin: {id: id.slice(0, id.lastIndexOf(".")), title: "可爱"}, title: id, status: "ok", stickers: [sticker], ...extra});
+        const builtin = (folder: string): StickerPackEntry => ({id: `builtin.${folder}`, folder, source: "builtin", title: folder, status: "ok", stickers: [sticker]});
         const packs: StickerPackEntry[] = [
-            {id: "acme.cute.lyra", folder: "lyra", source: "plugin", plugin: {id: "acme.cute", title: "可爱"}, title: "插件的星璃", status: "ok", stickers: []},
-            {id: "user.cat", folder: "cat", source: "user", title: "猫猫", status: "ok", stickers: [sticker]},
-            {id: "user.lyra", folder: "lyra", source: "user", title: "星璃", status: "ok", stickers: [sticker]},
+            // 我的 lyra 没有表情、不进浏览器目录，照样盖住插件与内置的 lyra：包段在完整目录上算。
+            {id: "user.lyra", folder: "lyra", source: "user", title: "星璃", status: "ok", stickers: []},
+            plugin("acme.cute.lyra", "lyra"),
+            builtin("lyra"),
+            // 插件与内置同名：插件胜出。
+            plugin("acme.cute.cat", "cat"),
+            builtin("cat"),
+            // 两个插件同名：同一级不止一个，都写 id；内置的那个也认不到。
+            plugin("acme.cute.dog", "dog"),
+            plugin("zoo.dog", "dog"),
+            builtin("dog"),
             // 无效的包不算同名：它不进写法（输出 7 只在有效的包里认）。
-            {id: "acme.cute.cat", folder: "cat", source: "plugin", plugin: {id: "acme.cute", title: "可爱"}, title: "坏", status: "invalid", problem: {code: "manifest-invalid"}, stickers: []},
+            {id: "user.fox", folder: "fox", source: "user", title: "坏", status: "invalid", problem: {code: "manifest-invalid"}, stickers: []},
+            builtin("fox"),
         ];
         const result = browserCatalog(packs, () => undefined);
-        expect(result.map((pack) => ({id: pack.id, title: pack.title, source: pack.source, plugin: pack.plugin, writing: pack.writing}))).toEqual([
-            {id: "user.cat", title: "猫猫", source: "user", plugin: undefined, writing: "cat"},
-            {id: "user.lyra", title: "星璃", source: "user", plugin: undefined, writing: "user.lyra"},
-        ]);
+        expect(Object.fromEntries(result.map((pack) => [pack.id, pack.writing]))).toEqual({
+            "acme.cute.lyra": "acme.cute.lyra",
+            "builtin.lyra": "builtin.lyra",
+            "acme.cute.cat": "cat",
+            "builtin.cat": "builtin.cat",
+            "acme.cute.dog": "acme.cute.dog",
+            "zoo.dog": "zoo.dog",
+            "builtin.dog": "builtin.dog",
+            "builtin.fox": "fox",
+        });
+        expect(result.find((pack) => pack.id === "acme.cute.cat")).toMatchObject({title: "acme.cute.cat", source: "plugin", plugin: {id: "acme.cute", title: "可爱"}});
+        expect(result.find((pack) => pack.id === "builtin.cat")?.source).toBe("builtin");
+
+        // 设置页的概要带同样的包段与“被我的同名包盖住”：只有我的有效包盖得住，插件盖不住内置的标注。
+        const summaries = browserSummaries(packs, () => undefined);
+        const marks = Object.fromEntries(summaries.map((summary) => [summary.id, [summary.writing ?? null, summary.shadowed ?? false]]));
+        expect(marks).toMatchObject({
+            "user.lyra": ["lyra", false],
+            "acme.cute.lyra": ["acme.cute.lyra", true],
+            "builtin.lyra": ["builtin.lyra", true],
+            "builtin.cat": ["builtin.cat", false],
+            "user.fox": [null, false],
+            "builtin.fox": ["fox", false],
+        });
     });
 
     test("输出 18、19：目录与设置页的概要序列化后不超过远程消息的预算，放不下的表情包整包不进、写诊断", () => {

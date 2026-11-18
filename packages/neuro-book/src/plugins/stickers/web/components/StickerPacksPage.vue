@@ -77,7 +77,8 @@ const zipInput = ref<HTMLInputElement | null>(null);
 
 const groups = computed(() => railGroups(props.packs));
 const current = computed(() => props.packs.find((pack) => pack.id === props.selected) ?? null);
-const pluginPack = computed(() => current.value?.source === "plugin");
+/** 插件与内置的包只读：只能看、复制到我的、导出、在文件夹中显示（输出 26、27）。 */
+const readonlyPack = computed(() => current.value !== null && current.value.source !== "user");
 const invalid = computed(() => current.value?.status === "invalid");
 const gridItems = computed<readonly GridItem[]>(() => (props.detail === null ? [] : gridGroups(props.detail).flatMap((group) => group.items)));
 
@@ -300,7 +301,7 @@ function onWindowDragOver(event: DragEvent): void {
     event.preventDefault();
     const accepting = onDropzone(event.target);
     if (event.dataTransfer !== null) event.dataTransfer.dropEffect = accepting ? "copy" : "none";
-    dragging.value = inWindow(event.target) && props.detail !== null && !pluginPack.value;
+    dragging.value = inWindow(event.target) && props.detail !== null && !readonlyPack.value;
     dragCount.value = event.dataTransfer?.items.length ?? 0;
 }
 function onWindowDragLeave(event: DragEvent): void {
@@ -333,7 +334,7 @@ onBeforeUnmount(() => {
 // ---- 头部菜单 ----
 const menuItems = computed<DropdownMenuItemData[]>(() => {
     const items: DropdownMenuItemData[] = [{id: "reveal", label: text("menu.reveal"), iconClass: "i-lucide-folder-open"}];
-    if (pluginPack.value) return items;
+    if (readonlyPack.value) return items;
     if (current.value?.status === "ok" || current.value?.problem === "folder-name") items.push({id: "rename", label: text("menu.rename"), iconClass: "i-lucide-text-cursor-input"});
     return [...items, {id: "sep", label: "", separator: true}, {id: "delete", label: text("menu.delete"), iconClass: "i-lucide-trash-2", tone: "danger"}];
 });
@@ -390,9 +391,10 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
                             <div class="sticker-head__text">
                                 <h2 class="sticker-head__title">{{ current.title }}</h2>
                                 <p v-if="current.description" class="sticker-head__description">{{ current.description }}</p>
+                                <p v-if="current.shadowed === true" class="sticker-head__shadowed" data-sticker-shadowed>{{ text("head.shadowed", {folder: current.folder, writing: current.writing ?? current.folder}) }}</p>
                             </div>
                             <div class="sticker-head__actions">
-                                <Button v-if="pluginPack" size="sm" icon-class="i-lucide-copy-plus" :disabled="copying" data-sticker-copy @click="copyToMine">{{ text("head.copy") }}</Button>
+                                <Button v-if="readonlyPack" size="sm" icon-class="i-lucide-copy-plus" :disabled="copying" data-sticker-copy @click="copyToMine">{{ text("head.copy") }}</Button>
                                 <Button v-if="!invalid" size="sm" variant="secondary" icon-class="i-lucide-download" data-sticker-export @click="emit('export', current.id)">{{ text("head.export") }}</Button>
                                 <DropdownMenu :items="menuItems" align="end" @select="onMenu">
                                     <IconButton size="sm" icon-class="i-lucide-ellipsis" :title="text('head.more')" :aria-label="text('head.more')" data-sticker-more />
@@ -407,21 +409,21 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
                         </div>
                         <div v-else class="sticker-body">
                             <div v-if="detail === null" class="sticker-body__loading" role="status"><Spinner /></div>
-                            <StickerGrid v-else ref="grid" :detail="detail" :selected="selectedKey" :uploads="uploadsHere" :readonly="pluginPack" :dragging="dragging" :drag-count="dragCount" @select="selectCell" @delete="askRemoveItem" @add-images="(files: File[]) => emit('add-images', current!.id, files, [])" @list-files="(files: 'all') => void props.listFiles(current!.id, files)" />
+                            <StickerGrid v-else ref="grid" :detail="detail" :selected="selectedKey" :uploads="uploadsHere" :readonly="readonlyPack" :dragging="dragging" :drag-count="dragCount" @select="selectCell" @delete="askRemoveItem" @add-images="(files: File[]) => emit('add-images', current!.id, files, [])" @list-files="(files: 'all') => void props.listFiles(current!.id, files)" />
                             <aside class="sticker-panel" :aria-label="text('panel.label')" data-sticker-panel>
                                 <template v-if="detail !== null">
                                     <StickerFields
                                         v-if="selectedItem !== null"
                                         :key="selectedItem.file"
                                         :item="selectedItem"
-                                        :folder="current.folder"
-                                        :readonly="pluginPack"
+                                        :writing="current.writing ?? current.folder"
+                                        :readonly="readonlyPack"
                                         :commit="(change) => commitSticker(selectedItem!, change)"
                                         @delete="askRemoveItem(selectedItem.key)"
                                         @list="void props.listFiles(current!.id, [selectedItem.file])"
                                         @back="selectedKey = null"
                                     />
-                                    <PackFields v-else :key="detail.summary.id" :detail="detail" :readonly="pluginPack" :commit="async (change) => reasonOrNull(await props.updatePack(current!.id, change))" @rename="openRename" />
+                                    <PackFields v-else :key="detail.summary.id" :detail="detail" :readonly="readonlyPack" :commit="async (change) => reasonOrNull(await props.updatePack(current!.id, change))" @rename="openRename" />
                                 </template>
                             </aside>
                         </div>
@@ -564,7 +566,8 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
     line-height: 28px;
 }
 
-.sticker-head__description {
+.sticker-head__description,
+.sticker-head__shadowed {
     margin: 0;
     line-height: 20px;
     color: var(--text-muted);

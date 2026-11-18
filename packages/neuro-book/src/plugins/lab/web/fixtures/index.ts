@@ -1381,11 +1381,11 @@ function shelfFixtures(): LabFixture[] {
                     return {key: file2, kind: "extra", file: file2, label: file2, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: null, raw: null, reason, common: false};
                 };
                 return [
-                    {id: "sticker", label: "表情：名字、说明、写法、常用", input: {props: {item: sticker("开心"), folder: "lyra"}}},
-                    {id: "problem", label: "认不出的图：先要改名", input: {props: {item: extra("摸摸头.png", "name", "1.png"), folder: "lyra"}}},
-                    {id: "unlisted", label: "没加进来的图", input: {props: {item: extra("摸摸头.png", "unlisted"), folder: "lyra"}}},
-                    {id: "readonly", label: "插件的包：只读", input: {props: {item: sticker("开心"), folder: "mochi", readonly: true}}},
-                    {id: "english", label: "英文界面", input: {props: {item: sticker("开心"), folder: "lyra"}}},
+                    {id: "sticker", label: "表情：名字、说明、写法、常用", input: {props: {item: sticker("开心"), writing: "lyra"}}},
+                    {id: "problem", label: "认不出的图：先要改名", input: {props: {item: extra("摸摸头.png", "name", "1.png"), writing: "lyra"}}},
+                    {id: "unlisted", label: "没加进来的图", input: {props: {item: extra("摸摸头.png", "unlisted"), writing: "lyra"}}},
+                    {id: "readonly", label: "插件的包：只读", input: {props: {item: sticker("开心"), writing: "mochi", readonly: true}}},
+                    {id: "english", label: "英文界面", input: {props: {item: sticker("开心"), writing: "lyra"}}},
                 ];
             })(),
             load: async () => withStickersPageText(createSubjectFixture<typeof StickerFields>((await import("nbook/plugins/stickers/web/components/StickerFields.vue")).default, {runtimeProps: {commit: async () => null}})),

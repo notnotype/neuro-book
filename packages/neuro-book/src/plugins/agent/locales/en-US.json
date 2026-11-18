@@ -655,7 +655,7 @@
             "removedGroup": "Removed",
             "groups": {
                 "user": "My Skills",
-                "builtin": "Built-in"
+                "builtin": "Built-in sticker packs"
             },
             "invalid": "Invalid"
         },
@@ -686,7 +686,8 @@
             "goneGroup": "Deleted or unavailable",
             "removedGroup": "Removed",
             "groups": {
-                "user": "My sticker packs"
+                "user": "My sticker packs",
+                "builtin": "Built-in sticker packs"
             },
             "invalid": "Invalid",
             "count": "{{count}} stickers"
@@ -750,7 +751,7 @@
             "empty": "No Skills yet. Put a Skill folder (with a SKILL.md inside) into the Skills folder and it will be listed here; then pick it in a conversation by typing $.",
             "groups": {
                 "user": "My Skills",
-                "builtin": "Built-in"
+                "builtin": "Built-in sticker packs"
             },
             "status": {
                 "needsInit": "Not initialized",
