@@ -10,7 +10,7 @@ import {markdownReportKey} from "../../parts/report";
 import type {PopoverAnchor} from "./selection-anchor";
 
 const props = defineProps<{open: boolean; anchor: PopoverAnchor | null; picker: StickerPicker}>();
-const emit = defineEmits<{(event: "pick", item: StickerPickerItem, keepOpen: boolean): void; (event: "close"): void}>();
+const emit = defineEmits<{(event: "pick", item: StickerPickerItem, keepOpen: boolean): void; (event: "close", reason: "escape" | "blur"): void}>();
 
 const panel = shallowRef<Component | null>(null);
 const report = inject(markdownReportKey, null);
@@ -20,7 +20,7 @@ async function load(): Promise<void> {
         panel.value = await props.picker.loadPanel();
     } catch (error) {
         report?.("markdown.sticker-picker.load-failed", "loading the sticker picker failed", error);
-        emit("close");
+        emit("close", "blur");
     }
 }
 watch(() => props.open, (open) => {
@@ -31,7 +31,7 @@ watch(() => props.open, (open) => {
 <template>
     <AnchoredPopover :open="props.open && panel !== null" :anchor="props.anchor" side="bottom" align="start">
         <div class="markdown-sticker-card" data-markdown-menu-layer data-markdown-sticker-card>
-            <component :is="panel" @pick="(item: StickerPickerItem, keepOpen: boolean) => emit('pick', item, keepOpen)" @close="emit('close')" />
+            <component :is="panel" @pick="(item: StickerPickerItem, keepOpen: boolean) => emit('pick', item, keepOpen)" @close="(reason: 'escape' | 'blur') => emit('close', reason)" />
         </div>
     </AnchoredPopover>
 </template>

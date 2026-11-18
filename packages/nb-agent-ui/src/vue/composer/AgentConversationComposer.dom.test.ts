@@ -268,6 +268,7 @@ describe("AgentConversationComposer 带弹层的按钮（ui/agent-conversation-v
         setup: (props) => () => h("div", [
             h("button", {"data-test-insert": "", onClick: () => props.insert(":lyra/开心:")}, "插"),
             h("button", {"data-test-close": "", onClick: () => props.close()}, "关"),
+            h("button", {"data-test-blur": "", onClick: () => props.close({restoreFocus: false})}, "失焦"),
         ]),
     });
     const stickers: AgentViewContribution = {source: "test-stickers", toolbarButtons: [{id: "stickers", icon: "i-lucide-smile-plus", label: "表情", placement: "after-add", popover: async () => Picker}]};
@@ -309,10 +310,23 @@ describe("AgentConversationComposer 带弹层的按钮（ui/agent-conversation-v
         expect(document.activeElement).toBe(textarea);
         expect(textarea.selectionStart).toBe(5 + ":lyra/开心:".length);
         expect(wrapper.get("[data-composer-toolbar='stickers']").attributes("aria-expanded")).toBe("false");
+        // 按钮按下不夺焦点：开着时再点，面板不会先失焦关上、再被这次点击打开。
+        const press = new MouseEvent("mousedown", {bubbles: true, cancelable: true});
+        wrapper.get("[data-composer-toolbar='stickers']").element.dispatchEvent(press);
+        expect(press.defaultPrevented).toBe(true);
         await wrapper.get("[data-composer-toolbar='stickers']").trigger("click");
         await flushPromises();
         await wrapper.get("[data-composer-toolbar='stickers']").trigger("click");
         expect(wrapper.get("[data-composer-toolbar='stickers']").attributes("aria-expanded")).toBe("false");
+        // 组件说焦点已到别处：关上，不把焦点抢回编辑器。
+        await wrapper.get("[data-composer-toolbar='stickers']").trigger("click");
+        await flushPromises();
+        const blur = document.querySelector<HTMLButtonElement>("[data-composer-popover] [data-test-blur]")!;
+        blur.focus();
+        blur.click();
+        await flushPromises();
+        expect(wrapper.get("[data-composer-toolbar='stickers']").attributes("aria-expanded")).toBe("false");
+        expect(document.activeElement).not.toBe(textarea);
         wrapper.unmount();
     });
 

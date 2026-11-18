@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {Button, Input} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onMounted, ref, useId} from "vue";
+import {computed, nextTick, onMounted, ref, shallowRef, useId, watch} from "vue";
 
 import type {StickerPicker, StickerPickerItem} from "../../shared/contracts";
 import {useStickersPageText} from "../text";
 
 const props = defineProps<{picker: StickerPicker}>();
-const emit = defineEmits<{(event: "pick", item: StickerPickerItem, keepOpen: boolean): void; (event: "close"): void}>();
+const emit = defineEmits<{(event: "pick", item: StickerPickerItem, keepOpen: boolean): void; (event: "close", reason: "escape" | "blur"): void}>();
 
 const text = useStickersPageText();
 const id = useId();
@@ -18,6 +18,14 @@ const body = ref<HTMLElement | null>(null);
 const query = ref("");
 const pointed = ref<StickerPickerItem | null>(null);
 const current = ref<string | null>(null);
+/**
+ * “最近用过”按打开那一刻定下：按住 Shift 连着插时插一个记一个，活的列表会在手底下重排。目录晚到（打开时还是空的）时等它到了再取
+ * 一次。
+ */
+const recentAtOpen = shallowRef<readonly StickerPickerItem[]>(props.picker.recent());
+watch(() => props.picker.groups().length > 0, (ready, wasReady) => {
+    if (ready && !wasReady && recentAtOpen.value.length === 0) recentAtOpen.value = props.picker.recent();
+});
 
 interface ShownGroup {
     readonly id: string;
@@ -29,7 +37,7 @@ interface ShownGroup {
 const groups = computed<ShownGroup[]>(() => {
     const trimmed = query.value.trim();
     if (trimmed !== "") return [{id: "result", title: null, plugin: null, items: props.picker.search(trimmed, 60)}];
-    const recent = props.picker.recent();
+    const recent = recentAtOpen.value;
     return [...(recent.length === 0 ? [] : [{id: RECENT, title: text("picker.recent"), plugin: null, items: recent}]), ...props.picker.groups()];
 });
 const items = computed(() => groups.value.flatMap((group) => group.items));
@@ -125,13 +133,13 @@ function onKeydown(event: KeyboardEvent): void {
     if (event.key !== "Escape" || event.isComposing) return;
     event.preventDefault();
     event.stopPropagation();
-    emit("close");
+    emit("close", "escape");
 }
 
 function onFocusout(event: FocusEvent): void {
     const next = event.relatedTarget;
     if (next instanceof Node && root.value?.contains(next) === true) return;
-    emit("close");
+    emit("close", "blur");
 }
 
 function showGroup(groupId: string): void {
@@ -154,7 +162,8 @@ function onScroll(): void {
 
 function openPacksPage(): void {
     props.picker.openPacksPage();
-    emit("close");
+    // 焦点去了设置窗口：宿主不把焦点要回来。
+    emit("close", "blur");
 }
 
 const indexOf = (groupIndex: number, itemIndex: number): number => groups.value.slice(0, groupIndex).reduce((sum, group) => sum + group.items.length, 0) + itemIndex;
@@ -189,7 +198,7 @@ const indexOf = (groupIndex: number, itemIndex: number): number => groups.value.
                 <div class="sticker-picker__grid" role="listbox" :aria-label="group.title ?? text('picker.results')">
                     <button
                         v-for="(item, itemIndex) in group.items" :key="keyOf(item)" type="button" role="option" class="sticker-picker__cell"
-                        :aria-label="item.raw" :aria-selected="pointed !== null && keyOf(pointed) === keyOf(item)" :tabindex="keyOf(item) === tabStop ? 0 : -1"
+                        :aria-label="item.name" :title="item.raw" :aria-selected="pointed !== null && keyOf(pointed) === keyOf(item)" :tabindex="keyOf(item) === tabStop ? 0 : -1"
                         data-sticker-cell :data-sticker-raw="item.raw"
                         @pointerenter="pointed = item" @focus="pointed = item"
                         @click="pick(item, $event.shiftKey)" @keydown="onCellKeydown($event, indexOf(groupIndex, itemIndex), item)"

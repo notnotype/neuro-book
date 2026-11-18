@@ -22,8 +22,8 @@ type MarkdownStickerCardProps = {
 
 type MarkdownStickerCardEmits = {
     (event: "pick", item: StickerPickerItem, keepOpen: boolean): void;
-    /** Esc、焦点离开面板。 */
-    (event: "close"): void;
+    /** Esc（`"escape"`）、焦点离开面板（`"blur"`）。 */
+    (event: "close", reason: "escape" | "blur"): void;
 };
 ```
 

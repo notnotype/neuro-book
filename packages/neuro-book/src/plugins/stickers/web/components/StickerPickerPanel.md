@@ -23,8 +23,9 @@
 - 点格子发 `pick(item, false)`；按住 Shift 点发 `pick(item, true)`（宿主插入后不关面板）。
 - 键盘：搜索框里按下方向键进网格；网格里左右按顺序、上下按 6 列移动（跨组时到下一组的同一列，组不够长取最后一个），Home、End 到头尾；回车同点击，Shift+回车同 Shift 点。搜索框里按回车选第一个结果（没有结果时什么也不做）。
 - 点标签滚到那一组，焦点留在原处。
-- Esc，或焦点离开面板（点了外面、Tab 出去）时发 `close`；宿主决定焦点回哪里。“在设置里新建”打开设置的表情包页并发 `close`。
-- 网格是 `listbox`，格子是 `option`，可访问名称是写法；整个网格只有一个格子在 Tab 序里。
+- Esc 时发 `close("escape")`（宿主把焦点还回去），焦点离开面板（点了外面、Tab 出去）时发 `close("blur")`（宿主不抢焦点）。“在设置里新建”打开设置的表情包页并发 `close("blur")`。
+- “最近用过”按打开那一刻定下，按住 Shift 连着插时不重排；打开时目录还没到的，到了再取一次。
+- 网格是 `listbox`，格子是 `option`，可访问名称是表情的名字（悬停提示是写法）；整个网格只有一个格子在 Tab 序里。
 
 ## 数据
 
@@ -38,7 +39,7 @@ type StickerPickerPanelProps = {
 
 type StickerPickerPanelEmits = {
     (event: "pick", item: StickerPickerItem, keepOpen: boolean): void;
-    (event: "close"): void;
+    (event: "close", reason: "escape" | "blur"): void;
 };
 ```
 

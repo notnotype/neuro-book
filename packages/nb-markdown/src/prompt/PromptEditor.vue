@@ -234,6 +234,7 @@ onMounted(() => {
             nodeViews: {token: PromptTokenView, pasteBlock: PromptPasteBlockView},
             stickerKnown: () => host.stickerKnown,
             stickers: () => host.stickers,
+            reportSticker: (error) => host.report("markdown.sticker.resolve-failed", "resolving a sticker failed", error),
         }),
         coreExtensionOptions: {clipboardTextSerializer: {blockSeparator: "\n"}},
         editorProps: {
@@ -399,7 +400,12 @@ watch(menu, (next) => {
     activeItemId.value = keepActive(next?.items ?? [], activeItemId.value);
 });
 
-watch(() => menu.value !== null, (open, wasOpen) => {
+/**
+ * 菜单此刻显示着：按键拦截、读屏属性与 `menu-open` 都按它，不按触发在不在（`menuOpen`）。没有匹配时不显示的菜单（表情补全）
+ * 在触发还在时也不拦上下键、Esc 与 Shift+Tab。
+ */
+const menuShown = computed(() => menu.value !== null);
+watch(menuShown, (open, wasOpen) => {
     if (open && !wasOpen && trigger.value) {
         emit("menu-open", {trigger: trigger.value.trigger});
     }
@@ -475,7 +481,7 @@ function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
         void openHistory(view);
         return true;
     }
-    if (menuOpen.value && handleMenuKey(view, event)) {
+    if (menuShown.value && handleMenuKey(view, event)) {
         return true;
     }
     if ((event.key === "ArrowUp" || event.key === "ArrowDown") && handleRecallKey(view, event)) {
@@ -488,7 +494,7 @@ function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
     if (event.key === "Tab" && event.shiftKey) {
         // 不占用时不吞：它还是反向移动焦点。补全菜单开着时别的事都不做，免得悄悄切了模式。
         if (!props.captureShiftTab) return false;
-        if (!menuOpen.value) emit("shift-tab");
+        if (!menuShown.value) emit("shift-tab");
         return true;
     }
     if (event.key === "Enter") {
@@ -960,9 +966,9 @@ watchEffect(() => {
     }
     setAttribute(dom, "aria-label", props.ariaLabel || props.placeholder || null);
     setAttribute(dom, "aria-readonly", String(props.readonly));
-    setAttribute(dom, "aria-expanded", menuOpen.value ? "true" : "false");
-    setAttribute(dom, "aria-controls", menuOpen.value ? menuId : null);
-    setAttribute(dom, "aria-activedescendant", menuOpen.value ? activeOptionId(menuGroups.value, activeItemId.value) : null);
+    setAttribute(dom, "aria-expanded", menuShown.value ? "true" : "false");
+    setAttribute(dom, "aria-controls", menuShown.value ? menuId : null);
+    setAttribute(dom, "aria-activedescendant", menuShown.value ? activeOptionId(menuGroups.value, activeItemId.value) : null);
 });
 
 function setAttribute(element: HTMLElement, name: string, value: string | null): void {

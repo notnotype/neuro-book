@@ -488,6 +488,15 @@ describe("PromptEditor 表情（docs/specs/agent/stickers.md 输出 42、44）",
         await nextTick();
         expect(document.querySelector("[role='listbox']")).toBeNull();
         expect(wrapper.emitted("menu-open")).toBeUndefined();
+        // 菜单不显示时触发还在，上下键、Esc 照常交给正文：不拦、发 escape，读屏不报“已展开”。
+        for (const key of ["ArrowUp", "ArrowDown"]) {
+            const event = new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true});
+            prosemirror(wrapper).dispatchEvent(event);
+            expect(event.defaultPrevented).toBe(false);
+        }
+        prosemirror(wrapper).dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        expect(wrapper.emitted("escape")).toHaveLength(1);
+        expect(prosemirror(wrapper).getAttribute("aria-expanded")).toBe("false");
         prosemirror(wrapper).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         expect(wrapper.emitted("submit")).toEqual([[{mod: false}]]);
         await wrapper.setProps({draft: {text: "他说:好", version: 2}});

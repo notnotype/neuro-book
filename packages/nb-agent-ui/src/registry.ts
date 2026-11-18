@@ -234,12 +234,12 @@ export type ToolbarButtonEntry = RegistryEntryBase & {
 );
 
 /**
- * 弹层按钮的组件收到的属性：`insert` 把一段文字插在编辑器的光标处（同输入框的文字写法），`close` 关上弹层、焦点回编辑器。
- * 组件自己处理 Esc 与焦点离开（调 `close`）。
+ * 弹层按钮的组件收到的属性：`insert` 把一段文字插在编辑器的光标处（同输入框的文字写法），`close` 关上弹层。组件自己处理 Esc 与焦点
+ * 离开（调 `close`）：焦点已经到了别处时传 `{restoreFocus: false}`，不把焦点抢回编辑器；缺省还给编辑器、光标不动。
  */
 export type ToolbarPopoverProps = {
     insert: (text: string) => void;
-    close: () => void;
+    close: (options?: {restoreFocus?: boolean}) => void;
 };
 
 // ─── 注册表 ─────────────────────────────────────────────────────────────

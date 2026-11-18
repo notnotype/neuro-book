@@ -482,7 +482,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution} = await vueOnce();
                 const markdown = await context.services.resolve(markdownKey);
                 const components = markdown.status === "resolved" ? markdown.instance.components : null;
-                const stickers = picker === null ? null : await stickersContribution(picker);
+                const stickers = picker === null ? null : await stickersContribution(picker, (message, error) => report("sticker-picker-failed", `${message}: ${String(error)}`));
                 const baseContributions = [...builtinContributions, subagentContribution({card: SubagentCard}), evalContribution({detail: EvalDetail}), requestEntriesContribution, ...(stickers === null ? [] : [stickers.contribution])];
                 const renderers = {
                     form: markRaw(AgentFormRenderer),

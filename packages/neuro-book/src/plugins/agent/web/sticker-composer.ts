@@ -29,10 +29,13 @@ export function stickerMenu(picker: StickerPicker, query: string): TriggerMenu {
  * 输入框的登记：触发字符 `:` 与 `+` 后面的表情按钮。按钮的弹层第一次打开时才加载面板的代码；面板选了表情就插进编辑器、记进最近用过，
  * 按住 Shift 选的不关。另交回“只有表情”的判断（nb-markdown 的 `stickerOnlyMessage`，只认得出的写法算）。
  */
-export async function stickersContribution(picker: StickerPicker): Promise<{contribution: AgentViewContribution; bareness: PromptBarenessPort}> {
+export async function stickersContribution(picker: StickerPicker, report: (message: string, error: unknown) => void): Promise<{contribution: AgentViewContribution; bareness: PromptBarenessPort}> {
     const {stickerOnlyMessage} = await import("@notnotype/nb-markdown/prompt");
     const popover = async (): Promise<Component<ToolbarPopoverProps>> => {
-        const Panel = await picker.loadPanel();
+        const Panel = await picker.loadPanel().catch((error: unknown) => {
+            report("loading the sticker picker failed", error);
+            throw error;
+        });
         return markRaw(defineComponent({
             name: "AgentStickerPopover",
             props: {
@@ -45,7 +48,8 @@ export async function stickersContribution(picker: StickerPicker): Promise<{cont
                     picker.used(item);
                     if (!keepOpen) props.close();
                 },
-                onClose: () => props.close(),
+                // Esc 时焦点回编辑器；焦点离开面板时已在别处，不抢。
+                onClose: (reason: "escape" | "blur") => props.close({restoreFocus: reason === "escape"}),
             }),
         }));
     };

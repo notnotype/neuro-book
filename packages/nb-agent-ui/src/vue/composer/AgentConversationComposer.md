@@ -39,7 +39,7 @@
 - 附件：编辑器的 `attachment-add`、`attachment-retry`、`attachment-remove` 依次发出 `composer.attachmentAdded`、`composer.attachmentRetry`、`composer.attachmentRemoved`。“添加附件”打开文件选择，选中的文件插在光标处，与粘贴相同。允许登记附件时接受文件；当前模型支持图片时才接受图片。被拒收时显示提示：模型不支持图片、会话不能登记附件，分别说明。
 - 点击正文里的标签或附件卡片：引用与选区发出 `reference.open`，技能发出 `skill.open`，文件发出 `attachment.open`，图片发出 `image.preview` 的 action，由对话视图打开原图预览；规则与已发送消息相同。
 - 模式按钮点击与 Shift+Tab 相同；模型与思考档位在下拉里选，发出 `model.set`、`thinking.set`。不允许修改运行设置时三者都禁用。`interaction.canManageModels` 为真时下拉末尾有“管理模型…”，发出 `model.manage`。不允许登记附件时下拉不标“不支持图片”。
-- 登记的工具栏按钮点击后发出各自的 action；带 `trigger` 的按钮（例如 nb-story 的 `+`）不发 action，而是让编辑器聚焦到末尾、插入这个触发字符并打开它的菜单（编辑器的 `openTrigger`：前一个字不是空白或标点时先补空格）；带 `popover` 的按钮（例如表情）在按钮旁开 nb-ui 的 `AnchoredPopover`（下方放不下时翻到上方），里面是它交回的组件，交给组件 `insert(text)`（经编辑器的 `insertText` 插在光标处）与 `close()`（关上、焦点回编辑器且光标不动，编辑器的 `focus("keep")`）；按钮带 `aria-expanded`，再点一下关上；只读时关上。同时只开一个弹层。
+- 登记的工具栏按钮点击后发出各自的 action；带 `trigger` 的按钮（例如 nb-story 的 `+`）不发 action，而是让编辑器聚焦到末尾、插入这个触发字符并打开它的菜单（编辑器的 `openTrigger`：前一个字不是空白或标点时先补空格）；带 `popover` 的按钮（例如表情）在按钮旁开 nb-ui 的 `AnchoredPopover`（下方放不下时翻到上方），里面是它交回的组件，交给组件 `insert(text)`（经编辑器的 `insertText` 插在光标处）与 `close(options?)`（关上；缺省焦点回编辑器且光标不动，编辑器的 `focus("keep")`，`restoreFocus: false` 时不抢焦点）；按钮带 `aria-expanded`，按下时不夺焦点（面板不会先失焦关上），再点一下关上；只读时关上；弹层的代码加载失败时不开。同时只开一个弹层。
 - 展开/收起只改变高度与回车的含义，不改变正文；切换后焦点留在编辑器。
 
 ## 数据

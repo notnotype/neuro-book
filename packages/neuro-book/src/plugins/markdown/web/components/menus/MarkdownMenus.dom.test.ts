@@ -562,6 +562,18 @@ describe("表情（stickers 输出 39 到 43，输出 62）", () => {
         await nextTick();
         expect(document.querySelector("[data-state='open'] [data-markdown-sticker-card]")).toBeNull();
         expect(stickersIn(editor)).toEqual([]);
+        // Esc 关上：焦点回正文。
+        await waitUntil("焦点回到正文", () => editor.view.dom.contains(document.activeElement) || null);
+        // 焦点去了别处（点了别的控件）：关上，不把焦点抢回正文。
+        const elsewhere = document.body.appendChild(document.createElement("button"));
+        const reopened = await openPicker(wrapper);
+        reopened.querySelector("input")!.focus();
+        elsewhere.focus();
+        await nextTick();
+        expect(document.querySelector("[data-state='open'] [data-markdown-sticker-card]")).toBeNull();
+        // Tiptap 的 focus 延到下一帧：过两帧再看焦点还在不在别处。
+        for (let frame = 0; frame < 2; frame += 1) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        expect(document.activeElement).toBe(elsewhere);
         for (const scene of [harness("今天\n"), harness("今天\n", {picker: picker(), readonly: true}), harness("```\nx\n```\n", {picker: picker()})]) {
             scene.editor.commands.setTextSelection(2);
             (scene.wrapper.vm as unknown as {prompt: (action: string) => void}).prompt("sticker");

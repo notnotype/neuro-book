@@ -264,10 +264,10 @@ function pickSticker(item: StickerPickerItem, keepOpen: boolean): void {
     stickerOpen.value = false;
     editor.commands.focus();
 }
-/** 选择器关上（Esc、焦点离开）：焦点已到别处（点了别的控件）时不抢回来。 */
-function closeSticker(): void {
+/** 选择器关上：Esc 时焦点回正文；焦点离开面板（点了别的控件、Tab 出去）时焦点已在别处，不抢回来。 */
+function closeSticker(reason: "escape" | "blur"): void {
     stickerOpen.value = false;
-    if (document.activeElement === null || document.activeElement === document.body) props.editor?.commands.focus();
+    if (reason === "escape") props.editor?.commands.focus();
 }
 
 defineExpose({

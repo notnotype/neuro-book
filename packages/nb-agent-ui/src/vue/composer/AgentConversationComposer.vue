@@ -103,14 +103,18 @@ async function togglePopover(button: ToolbarButtonEntry, anchor: HTMLElement): P
     }
     const load = button.popover;
     if (load === undefined) return;
-    const component = await load();
-    popover.value = {id: button.id, anchor, component};
+    try {
+        popover.value = {id: button.id, anchor, component: await load()};
+    } catch (error) {
+        // 弹层的代码加载失败（部署换了版本、网络断了）：不开，宿主自己记诊断；这里只留一条开发者看的输出。
+        console.error("nb-agent-ui: 工具栏按钮的弹层加载失败", error);
+    }
 }
-/** 关上弹层，焦点回编辑器、光标不动（`focus("keep")`）。 */
-function closePopover(): void {
+/** 关上弹层；缺省焦点回编辑器、光标不动（`focus("keep")`），焦点已到别处时不抢。 */
+function closePopover(options: {restoreFocus?: boolean} = {}): void {
     if (popover.value === null) return;
     popover.value = null;
-    withEditor((editor) => editor.focus("keep"));
+    if (options.restoreFocus !== false) withEditor((editor) => editor.focus("keep"));
 }
 const popoverProps = computed<ToolbarPopoverProps>(() => ({
     insert: (text) => withEditor((editor) => editor.insertText(text)),
@@ -518,6 +522,7 @@ defineExpose({
                         :aria-label="text(button.label)"
                         :aria-expanded="button.popover === undefined ? undefined : popover?.id === button.id"
                         :data-composer-toolbar="button.id"
+                        @mousedown="button.popover === undefined ? undefined : $event.preventDefault()"
                         @click="onToolbarButton(button, $event)"
                     />
                     <input ref="fileInputRef" type="file" multiple class="acv-composer__file-input" tabindex="-1" aria-hidden="true" @change="onFilesChosen">
@@ -634,7 +639,7 @@ defineExpose({
         </div>
         <!-- 弹层按钮（例如表情选择器）：锚在按钮上；输入框在面板底部，放不下下方时翻到上方。 -->
         <AnchoredPopover :open="popover !== null" :anchor="popover?.anchor ?? null" side="bottom" align="start">
-            <div class="acv-composer__popover" data-composer-popover>
+            <div data-composer-popover>
                 <component :is="popover.component" v-if="popover !== null" v-bind="popoverProps" />
             </div>
         </AnchoredPopover>

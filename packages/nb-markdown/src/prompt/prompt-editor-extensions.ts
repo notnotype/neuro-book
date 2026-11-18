@@ -64,6 +64,8 @@ export interface PromptExtensionOptions {
     stickerKnown?: () => StickerKnown | undefined;
     /** 表情节点查图用的宿主端口；没有时显示原文。 */
     stickers?: () => StickerResolver | undefined;
+    /** 查图失败时的诊断出口（宿主的 `report`）。 */
+    reportSticker?: (error: unknown) => void;
 }
 
 export interface PromptTriggerActive {
@@ -114,7 +116,7 @@ export function createPromptExtensions(options: PromptExtensionOptions): AnyExte
         PromptToken.configure({context: options.context, view: views?.token ?? null}),
         PendingAttachment.configure({context: options.context, view: views?.token ?? null}),
         PasteBlock.configure({context: options.context, view: views?.pasteBlock ?? null}),
-        PromptSticker.configure({stickers: options.stickers ?? (() => undefined)}),
+        PromptSticker.configure({stickers: options.stickers ?? (() => undefined), report: options.reportSticker ?? (() => undefined)}),
         Extension.create({
             name: "promptPlugins",
             addProseMirrorPlugins() {
@@ -178,7 +180,7 @@ const PromptToken = Node.create<AtomOptions>({
  * 表情：行内原子节点，原文在 `raw`，写回原文。样子同 Markdown 的表情（`buildSticker`，`stickers.css`）：查到时是行内小图，查不到时是
  * 原文。不可选中、不发 `token-activate`；退格与方向键按一整个处理（`deleteAdjacentAtom` 对所有行内原子节点）。
  */
-const PromptSticker = Node.create<{stickers: () => StickerResolver | undefined}>({
+const PromptSticker = Node.create<{stickers: () => StickerResolver | undefined; report: (error: unknown) => void}>({
     name: PROMPT_STICKER_NODE,
     group: "inline",
     inline: true,
@@ -186,7 +188,7 @@ const PromptSticker = Node.create<{stickers: () => StickerResolver | undefined}>
     selectable: false,
     draggable: false,
     addOptions() {
-        return {stickers: () => undefined};
+        return {stickers: () => undefined, report: () => undefined};
     },
     addAttributes() {
         return {raw: {default: "", rendered: false}};
@@ -201,9 +203,9 @@ const PromptSticker = Node.create<{stickers: () => StickerResolver | undefined}>
         return String(node.attrs.raw);
     },
     addNodeView() {
-        const stickers = this.options.stickers;
+        const {stickers, report} = this.options;
         return ({node}) => {
-            const element = buildSticker(document, String(node.attrs.raw), stickers());
+            const element = buildSticker(document, String(node.attrs.raw), stickers(), report);
             element.dom.dataset.promptSticker = "";
             return {dom: element.dom, destroy: () => element.destroy(), ignoreMutation: () => true};
         };

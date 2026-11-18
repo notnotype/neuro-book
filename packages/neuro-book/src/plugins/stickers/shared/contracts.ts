@@ -201,7 +201,8 @@ export interface StickerPicker {
     /** 插入了一个表情之后调用。 */
     used(item: StickerPickerItem): void;
     /**
-     * 面板组件（`StickerPickerPanel`，按需加载）。发出 `pick(item, keepOpen)` 与 `close()`；插在哪里、焦点回哪里由宿主决定。
+     * 面板组件（`StickerPickerPanel`，按需加载）。发出 `pick(item, keepOpen)` 与 `close(reason)`：`"escape"` 时宿主把焦点还回去，
+     * `"blur"`（焦点已到别处）时不抢；插在哪里由宿主决定。
      */
     loadPanel(): Promise<Component>;
     /** 打开设置里的表情包页（面板在没有表情包时的“在设置里新建”）。 */

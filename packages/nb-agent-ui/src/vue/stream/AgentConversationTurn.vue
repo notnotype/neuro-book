@@ -194,7 +194,14 @@ function bare(message: UserMessageView): boolean {
                 @submit="emit('action', {type: 'message.editSubmit', messageId: turn.user!.id, text: $event})"
                 @cancel="emit('action', {type: 'message.editCancel'})"
             />
-            <div v-else :class="bare(turn.user) ? 'acv-user-bare' : 'acv-user-bubble'" :data-user-bare="bare(turn.user) ? '' : undefined">
+            <div v-else-if="bare(turn.user)" class="acv-user-bare" data-user-bare>
+                <AgentUserContent
+                    :message="turn.user"
+                    :resolve-attachment-url="props.services.resolveAttachmentUrl"
+                    @action="emit('action', $event)"
+                />
+            </div>
+            <div v-else class="acv-user-bubble">
                 <AgentUserContent
                     :message="turn.user"
                     :resolve-attachment-url="props.services.resolveAttachmentUrl"

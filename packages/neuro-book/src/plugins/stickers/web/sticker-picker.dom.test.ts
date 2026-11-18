@@ -25,7 +25,8 @@ const sticker = (name: string) => ({name, width: 64, height: 64, url: `/img/${na
 const LYRA: BrowserStickerPack = {id: "user.lyra", folder: "lyra", title: "星璃", source: "user", writing: "lyra", stickers: ["开心", "害羞", "困", "疑问", "惊讶", "生气", "委屈", "嗯"].map(sticker)};
 const DOG: BrowserStickerPack = {id: "acme.dogs.dog", folder: "dog", title: "小狗", source: "plugin", plugin: {id: "acme.dogs", title: "汪汪"}, writing: "dog", stickers: ["握手", "摇尾巴"].map(sticker)};
 
-async function show(packs: readonly BrowserStickerPack[]) {
+/** `used` 是打开面板之前已经用过的（按先后），写法原文。 */
+async function show(packs: readonly BrowserStickerPack[], used: readonly string[] = []) {
     const text = createHostTextEngine({locale: "zh-CN", strict: true});
     text.register("nbook.stickers", stickersCatalogs.catalogs, stickersCatalogs.source);
     const directory = createStickerDirectory();
@@ -33,14 +34,15 @@ async function show(packs: readonly BrowserStickerPack[]) {
     const controller = new AbortController();
     const opened: string[] = [];
     const picker: StickerPicker = createStickerPicker({directory, recent: memoryRecent(), openPacksPage: () => opened.push("packs"), report: () => undefined, signal: controller.signal});
-    const events: Array<{kind: "pick"; raw: string; keepOpen: boolean} | {kind: "close"}> = [];
+    for (const raw of used) picker.used(picker.groups().flatMap((group) => group.items).find((item) => item.raw === raw)!);
+    const events: Array<{kind: "pick"; raw: string; keepOpen: boolean} | {kind: "close"; reason: string}> = [];
     const outside = document.createElement("button");
     document.body.append(outside);
     const Panel = await picker.loadPanel();
     const wrapper = mount(Panel, {
         attrs: {
             onPick: (item: StickerPickerItem, keepOpen: boolean) => events.push({kind: "pick", raw: item.raw, keepOpen}),
-            onClose: () => events.push({kind: "close"}),
+            onClose: (reason: string) => events.push({kind: "close", reason}),
         },
         attachTo: document.body,
         global: {provide: provideText(text.port)},
@@ -71,13 +73,10 @@ describe("布局与分组", () => {
         expect(root.querySelectorAll("[data-sticker-picker-tab]")).toHaveLength(2);
     });
 
-    it("用过的进“最近用过”，排在最前，标签行多一个时钟", async () => {
-        const {root, picker} = await show([LYRA, DOG]);
-        const [handshake] = picker.search("握手", 8);
-        picker.used(handshake!);
-        await flushPromises();
+    it("用过的进“最近用过”，排在最前、新的在前，标签行多一个时钟", async () => {
+        const {root} = await show([LYRA, DOG], [":lyra/困:", ":dog/握手:"]);
         expect(root.querySelector("h3")?.textContent).toBe("最近用过");
-        expect(cells(root)[0]?.dataset.stickerRaw).toBe(":dog/握手:");
+        expect(cells(root).slice(0, 2).map((element) => element.dataset.stickerRaw)).toEqual([":dog/握手:", ":lyra/困:"]);
         expect(root.querySelectorAll("[data-sticker-picker-tab]")).toHaveLength(3);
     });
 
@@ -86,7 +85,7 @@ describe("布局与分组", () => {
         expect(root.textContent).toContain("还没有表情包");
         root.querySelector<HTMLButtonElement>("[data-sticker-picker-create]")!.click();
         expect(opened).toEqual(["packs"]);
-        expect(events).toContainEqual({kind: "close"});
+        expect(events).toContainEqual({kind: "close", reason: "blur"});
     });
 });
 
@@ -135,15 +134,23 @@ describe("键盘与关闭", () => {
         expect(events).toEqual([{kind: "pick", raw: ":dog/摇尾巴:", keepOpen: false}]);
     });
 
-    it("Esc 发 close 并拦下（外面的窗口不跟着关）；焦点离开面板发 close，面板里换焦点不发", async () => {
+    it("Esc 发 close(escape) 并拦下（外面的窗口不跟着关）；焦点离开面板发 close(blur)，面板里换焦点不发", async () => {
         const {root, events, outside} = await show([LYRA]);
         const escape = new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true});
         search(root).dispatchEvent(escape);
         expect(escape.defaultPrevented).toBe(true);
-        expect(events).toEqual([{kind: "close"}]);
+        expect(events).toEqual([{kind: "close", reason: "escape"}]);
         cell(root, ":lyra/困:").focus();
-        expect(events).toEqual([{kind: "close"}]);
+        expect(events).toEqual([{kind: "close", reason: "escape"}]);
         outside.focus();
-        expect(events).toEqual([{kind: "close"}, {kind: "close"}]);
+        expect(events).toEqual([{kind: "close", reason: "escape"}, {kind: "close", reason: "blur"}]);
+    });
+
+    it("“最近用过”按打开那一刻定下：打开后再用的不重排；格子的可访问名称是名字", async () => {
+        const {root, picker} = await show([LYRA]);
+        picker.used(picker.search("困", 1)[0]!);
+        await flushPromises();
+        expect(root.querySelector("h3")?.textContent).toBe("星璃");
+        expect(cell(root, ":lyra/困:").getAttribute("aria-label")).toBe("困");
     });
 });
