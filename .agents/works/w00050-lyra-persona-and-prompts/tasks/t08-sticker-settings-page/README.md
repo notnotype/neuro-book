@@ -51,8 +51,12 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18 设计定稿（三轮评审板与计划前四问，上面 1 到 19）；Spec 写成 planned 条目，计划已写，等开发者看计划要点。草稿在 `.worktree/w00050-t08-drafts`（分支 `w00050-t08/drafts`，不合并）。
+2026-11-18 设计定稿（三轮评审板与计划前四问，上面 1 到 19）；Spec 写成 planned 条目；计划第 3 版（两轮设计审查已处理，见 `evidences/design-review-*.txt` 与处理记录）。草稿在 `.worktree/w00050-t08-drafts`（分支 `w00050-t08/drafts`，不合并）。
+
+实施在 `.worktree/w00050-t08-sticker-page`（分支 `feat/w00050-t08-sticker-page`）：
+
+- 第 1 片（读取一侧）7ab40a359：目录的 extras 与计数、`refresh`、启动清暂存与报挪开的旧包、`pack` 与 `revealPack` 远程方法、取图给 extras 且 no-cache、`openExistingFolder`（`src/backend/open-folder.ts`）。stickers 与槽的 bun 测试、profile 页 DOM 测试、类型检查通过；六处变异都被抓到。远程方法的真实远程调用测试留到第 2 片。
 
 ## 下一步
 
-- 开发者确认计划要点后做设计审查：后端（目录、写入、路由、zip）交 omp，页面交 Sonnet，处理完再分五片实施。
+- 第 2 片：`editor.ts`（锁、改清单、新建、改包名、删除、加进来、删文件、删表情、复制）与远程方法，补 `pack`、`revealPack` 的真实远程调用测试。之后第 3 片（上传与 zip）、第 4 片（页面）、第 5 片（e2e 与收口）。
