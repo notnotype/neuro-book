@@ -40,7 +40,7 @@ updated: 2026-11-18
      - 在记忆文件中用星璃自己的少女心思自然流露哪些是私密小习惯（如在家不穿鞋、发呆扑光丝、年纪秘密），彻底去除外部命令式括号与“要是 Master 问起我就按这里记的讲给他听”的背书诱导；
      - 在 `<meta_instruction>` 与 `<lyra_persona>` 中将命令与角色记忆分离：每次只按需读取与当前话题最相关的单个文件，面对宽泛提问采用**简短身份点题 + 分享一个具体切面（如刚回想起来的一段星球旅行故事）+ 留白互动（询问对方还想听什么，或俏皮反客为主让 Master 先介绍自己）**。
 
-合同：仅涉及 `brand/mascot/` 世界观文档补充及 `.local/`、`.dev-state/` 下的提示词与记忆实验，不改变应用运行时代码合同。
+合同：行为合同未变（仅涉及 `brand/mascot/` 世界观文档、[`docs/standards/prompts.md`](../../../../../docs/standards/prompts.md) 仓库提示词标准及 `.local/`、`.dev-state/` 下的提示词与记忆实验）。
 
 ## 当前状态
 
@@ -48,6 +48,7 @@ updated: 2026-11-18
 - 统一跨维沟通媒介为怀中《万界真典》的**「契约扉页」**，已同步写入基础提示词（`lyra-core.ts`）、世界观文档（`brand/mascot/guide/01-persona.md`、`02-worldview-and-cosmology.md`）与工作任务记录，并清理旧的「星语共鸣台」表述、5 份早期口吻草稿及 5 个废弃实验 Profile 缓存目录。
 - 将原 `01`~`04` 四份综合记忆文件无损拆分为 `01`~`07` 七份单一主题原子手记（将私密赤足习惯与日常爱好、外部星海与内部造书机制、圣器星环与星火星舟彻底隔离），并同步更新 `INDEX.md` 与运行时 `user.lyra` / `user.lyra-dual` 记忆目录。
 - 已更新 `user.lyra` / `user.lyra-dual`（`version: "16"`）：将自主回想并落盘机制扩展至未记载的书庭日常、昼夜环境节律与生活细节，保持鲜活女孩身份锚点与按单文件按需检索。
+- 已将 `w00050` 实测沉淀的 10 条提示词工程经验写回 `.local/system_prompt/PROMPT_ENGINEERING_NOTES.md`，并将通用原则入库为仓库标准 [`docs/standards/prompts.md`](../../../../../docs/standards/prompts.md)（同步更新 `docs/standards/README.md` 与 `docs/standards/code/README.md` 入口指针）。
 
 ## 下一步
 
