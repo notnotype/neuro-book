@@ -116,6 +116,9 @@ test("验收 9：新建表情包、拖进（选）两张图（超限的缩小）
     await name.fill("哇");
     await name.press("Enter");
     await expect(tile(page, "s:大图")).toHaveAttribute("title", "哇");
+    // 键随名字变了：属性栏还在、输入框还有焦点，没有弹回表情包。
+    await expect(page.locator("[data-sticker-fields]")).toBeVisible();
+    await expect(name).toBeFocused();
     const manifest = JSON.parse(await readFile(stickersDir("cat", "stickers.json"), "utf8")) as {title: string; stickers: Array<{file: string; name?: string; common?: boolean}>};
     expect(manifest.title).toBe("猫");
     expect(manifest.stickers.find((entry) => entry.file === "大图.jpg")).toMatchObject({name: "哇", common: true});
@@ -190,4 +193,34 @@ test("输出 26：网格里上下方向键按当前组的列数移动，焦点�
     await expect(tile(page, `s:${expected}`)).toBeFocused();
     await page.keyboard.press("ArrowUp");
     await expect(first).toBeFocused();
+});
+
+test("改包名：对话框写警示，改完选中新包名、文件夹换了名", async ({page}) => {
+    await openPacks(page);
+    await page.locator("[data-sticker-rail] [data-sticker-create]").click();
+    const dialog = page.locator("[data-sticker-name-dialog]");
+    await dialog.locator("input[data-sticker-folder]").fill("before-rename");
+    await dialog.getByRole("button", {name: "新建", exact: true}).click();
+    await expect(rail(page, "user.before-rename")).toHaveAttribute("aria-current", "page");
+    await page.locator("[data-sticker-more]").click();
+    await page.getByRole("menuitem", {name: "改包名…"}).click();
+    await expect(dialog).toContainText("用旧包名写的表情会认不出来");
+    await dialog.locator("input[data-sticker-folder]").fill("after-rename");
+    await dialog.getByRole("button", {name: "改成 after-rename"}).click();
+    await expect(rail(page, "user.after-rename")).toHaveAttribute("aria-current", "page");
+    await expect(rail(page, "user.before-rename")).toHaveCount(0);
+    expect(await exists(stickersDir("after-rename"))).toBe(true);
+    expect(await exists(stickersDir("before-rename"))).toBe(false);
+});
+
+test("网格里按 Esc 只回到表情包、设置窗口不关；再按一次才关窗口", async ({page}) => {
+    await openPacks(page);
+    await rail(page, "user.many").click();
+    await tile(page, "s:m00").click();
+    await expect(page.locator("[data-sticker-fields]")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-sticker-fields]")).toHaveCount(0);
+    await expect(page.locator("[data-settings-window]")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-settings-window]")).toHaveCount(0);
 });
