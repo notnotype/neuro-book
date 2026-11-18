@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t26-layout-deep-review
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -94,6 +94,8 @@ updated: 2026-11-18
   - 片 3 提交的基线脚本在主 tsconfig 的 `scripts` 范围里、没有 DOM 类型，类型检查报 19 处（片 3 提交前没跑类型检查）；照 `browser-runner.ts`、`page-agent.ts` 把它加进 `exclude`，随片 5 提交。
   - 验证：neuro-book 类型检查；工作台与编辑器单元测试 788；e2e `workbench-drag-cost`、`workbench-live-drag`、`workbench-dnd`、`editor-area` 122 条，120 过。`editor-area:2171`、`2207`（编辑器标签实时布局拖到正文右边缘拆组）在负载 9 到 10 时失败：预览停在 `source-removed`，15 秒没换成拆分。同样负载下分支与基线（`ba3de16c6` 的构建）各把这两条重复跑 6 次，都是 12 次里失败 1 次，分支之前就有，不是这一片带进来的；记在 Work README 的已知问题里，没有排 Task。
 
+- 片 6：修后复测见 [`evidences/perf-baseline.txt`](evidences/perf-baseline.txt) 的“修后复测”（树滚动的分隔线写入 16 → 0，改窗口每次的 DOM 记录 103.5 → 71.5，实时布局按住不动每秒的帧回调 60 → 0，其余在噪声内）。2026-11-18 合入 master（`aa8de685e`），master 自分支起点的 14 个提交没碰这些路径，没有先并。实现审查（Claude Sonnet，`claude -p`）在后台，审查 worktree `.worktree/review-t26-impl` 固定在 `9625e49c9`。
+
 ## 下一步
 
-复测（同一脚本交替量基线与修后）、合入 master、Sonnet 实现审查。
+实现审查待处理：报告回来后逐条核实，修正单独提交。基线 worktree `.worktree/w00026-t26-perf-base` 与分支的 worktree 留到审查处理完（修正若改到热路径要重跑测量）。
