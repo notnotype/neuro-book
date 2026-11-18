@@ -216,6 +216,11 @@ export type InteractionView = {
      * `count` 是会被清掉的条数；没有时为 null 或不写，停止键旁不画下拉箭头。
      */
     stopClearing?: {count: number} | null;
+    /**
+     * 宿主正在执行一次“继续”（几步之间也算，docs/specs/agent/conversation.md 输出 50）：发送键与排队区的“继续”不可用，
+     * 编辑器照常可写、不失焦。缺省为 false。
+     */
+    continuing?: boolean;
     canRegisterAttachments: boolean;
     canChangeRuntime: boolean;
     /** 能切 Agent 模式。不写时跟 `canChangeRuntime`；宿主在还没有会话时也给它，先开 `plan` 再发第一条。 */

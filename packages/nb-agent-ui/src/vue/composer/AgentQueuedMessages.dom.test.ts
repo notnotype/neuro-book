@@ -56,7 +56,9 @@ describe("AgentQueuedMessages", () => {
         const one = mountQueued({queued: [held("h1", "运行出错"), held("h2", "运行出错")], continueDisabled: "正在停止"});
         expect(one.view.get(".acv-queued__head-reason").text()).toBe("运行出错");
         const button = one.view.get("[data-queued-continue]");
-        expect(button.attributes("disabled")).toBeDefined();
+        // 不可用时仍可聚焦（aria-disabled），点了不发。
+        expect(button.attributes("aria-disabled")).toBe("true");
+        expect(button.attributes("disabled")).toBeUndefined();
         expect(button.attributes("title")).toBe("正在停止");
         await button.trigger("click");
         expect(one.view.emitted("continue")).toBeUndefined();
@@ -64,5 +66,35 @@ describe("AgentQueuedMessages", () => {
         const none = mountQueued({queued: [ready("a")]});
         expect(none.view.find("[data-queued-head]").exists()).toBe(false);
         expect(none.view.get("[role='status']").text()).toBe("");
+    });
+
+    it("播报区一直在：从没有排队到有留着的话，是同一个节点改文字（读屏只播报已在页面上的区）", async () => {
+        const Host = defineComponent({
+            props: {queued: {type: Array, required: true}},
+            setup(hostProps) {
+                provideAgentView({locale: () => "zh-CN", renderers: () => ({})});
+                return () => h(AgentQueuedMessages, {queued: hostProps.queued as Props["queued"]});
+            },
+        });
+        const host = mount(Host, {props: {queued: []}});
+        const region = host.get("[role='status']").element;
+        await host.setProps({queued: [held("h1", "运行出错")]});
+        expect(host.get("[role='status']").element).toBe(region);
+        expect(region.textContent).toContain("已暂停 1 条");
+    });
+
+    it("展开之后就绪的行降到 3 条以内时收起，不留一行“收起”", async () => {
+        const Host = defineComponent({
+            props: {queued: {type: Array, required: true}},
+            setup(hostProps) {
+                provideAgentView({locale: () => "zh-CN", renderers: () => ({})});
+                return () => h(AgentQueuedMessages, {queued: hostProps.queued as Props["queued"]});
+            },
+        });
+        const host = mount(Host, {props: {queued: [ready("a"), ready("b"), ready("c"), ready("d")]}});
+        await host.get("[data-queued-more]").trigger("click");
+        expect(host.get("[data-queued-more]").text()).toBe("收起");
+        await host.setProps({queued: [ready("b"), ready("c"), ready("d")]});
+        expect(host.find("[data-queued-more]").exists()).toBe(false);
     });
 });

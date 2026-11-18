@@ -13,7 +13,7 @@
 
 自上而下：排队中的消息、可用性的说明、拒收提示、输入框外框。
 
-- **排队区**：`ctx.composer.queued` 不为空时由 [`AgentQueuedMessages`](AgentQueuedMessages.md) 显示在外框上方。它的“取出来改”“删除”“继续”依次发出 `queued.edit`、`queued.remove`、`run.continue`；“继续”在停止中、`availability` 不是 `ready` 或不允许发送时不可用，悬停写原因。
+- **排队区**：`ctx.composer.queued` 不为空时由 [`AgentQueuedMessages`](AgentQueuedMessages.md) 显示在外框上方。它的“取出来改”“删除”“继续”依次发出 `queued.edit`、`queued.remove`、`run.continue`，点“继续”后焦点回编辑器；“继续”在停止中、宿主正在继续（`interaction.continuing`）、`availability` 不是 `ready` 或不允许发送时不可用，悬停写原因。
 - **可用性的说明**：`availability` 为 `profile-unavailable`（模型用不了）时是提示卡 [`AgentNoticeCard`](AgentNoticeCard.md)，写明卡在哪里、按钮直达设置；别的状态有 `message` 时是一行淡色说明加恢复动作的按钮（`ready` 时的模型能力提示也是这一行）。点按钮发 `availability.act`。
 - **拒收提示**：添加的附件被拒收时，外框上方一行淡色说明，右端可关闭；发送或宿主换了草稿时也会消失。
 - **外框**：圆角、描边、输入底色，焦点在框内时描边换成焦点色；只读时用只读底色。框里是编辑器（不带自己的外框，附件条在正文上方）和工具栏。
@@ -42,7 +42,7 @@
 - 模式按钮点击与 Shift+Tab 相同；模型与思考档位在下拉里选，发出 `model.set`、`thinking.set`。不允许修改运行设置时三者都禁用。`interaction.canManageModels` 为真时下拉末尾有“管理模型…”，发出 `model.manage`。不允许登记附件时下拉不标“不支持图片”。
 - 登记的工具栏按钮点击后发出各自的 action；带 `trigger` 的按钮（例如 nb-story 的 `+`）不发 action，而是让编辑器聚焦到末尾、插入这个触发字符并打开它的菜单（编辑器的 `openTrigger`：前一个字不是空白或标点时先补空格）；带 `popover` 的按钮（例如表情）在按钮旁开 nb-ui 的 `AnchoredPopover`（下方放不下时翻到上方），里面是它交回的组件，交给组件 `insert(text)`（经编辑器的 `insertText` 插在光标处）与 `close(options?)`（关上；缺省焦点回编辑器且光标不动，编辑器的 `focus("keep")`，`restoreFocus: false` 时不抢焦点）；按钮带 `aria-expanded`，按下时不夺焦点（面板不会先失焦关上），再点一下关上；只读时关上；弹层的代码加载失败时不开。同时只开一个弹层。
 - 展开/收起只改变高度与回车的含义，不改变正文；切换后焦点留在编辑器。
-- 停止的下拉箭头与停止按钮同为危险色、拼成一个按钮，随停止按钮出现与消失；它是独立的按钮（读屏名“更多停止方式”，`aria-haspopup="menu"`、`aria-expanded`），用 nb-ui 的受控 `DropdownMenu` 打开。停止中用 `aria-disabled` 不可用、不打开菜单（保留焦点）；`stopClearing` 变空或停止按钮消失时菜单关上。菜单关上时焦点回编辑器：停止按钮随运行收口一起消失，焦点留在触发器上会掉到页面上。
+- 停止的下拉箭头与停止按钮同为危险色、拼成一个按钮，随停止按钮出现与消失；它是独立的按钮（读屏名“更多停止方式”，`aria-haspopup="menu"`、`aria-expanded`），用 nb-ui 的受控 `DropdownMenu` 打开。停止中用 `aria-disabled` 不可用、不打开菜单（保留焦点）；`stopClearing` 变空或停止按钮消失时菜单关上。菜单关上时焦点回编辑器（光标不动）：停止按钮随运行收口一起消失，焦点留在触发器上会掉到页面上；点菜单外面关上的不抢，焦点随用户点的位置。
 
 ## 数据
 
@@ -75,6 +75,7 @@ type AgentConversationComposerExpose = {
 
 ## 状态
 
+- **正在继续**（`interaction.continuing`）：宿主执行一次继续的几步之间，发送键与排队区的“继续”不可用，编辑器照常可写、不失焦。
 - **可以继续**：空闲，且 `composer.resume` 为真（上次运行被中断）或排队区里有留着的条目。这时正文为空的回车与发送按钮都发出 `run.continue`，写了字照常发送（宿主据此一起放行）。运行中有留着的条目时按运行中的规则，只有排队区头行的“继续”。
 - **占位文字**按顺序取第一个：`availability` 不是 `ready` 且有说明时写原因（有 `title` 写 `title`，否则写 `message`）；可以继续时按中断与留着各写一句或合起来的一句；运行中按下一条；其余是“输入消息，回车发送”。
 - **运行中**（含等待回答与停止中）：投递按 `interaction.canSteer`、`canQueue`：回车在允许补充说明时为 steer，否则在允许排队时为 followup；Ctrl/⌘+回车只在允许排队时为 followup。两者都不允许时能写不能发，发送键禁用、标题“运行结束后发送”；登记的 `/` 命令照常执行，这时标题是“发送”。占位文字按允许的组合四选一。正文为空时发送按钮变为停止。

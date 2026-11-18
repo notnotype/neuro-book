@@ -150,14 +150,15 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
 }
 
 const renderers = useAgentRenderers();
-/**
- * 只有表情的用户消息不画气泡（Spec“消息”）：有附件、正文被省略时照常画（省略时旁边还有“仅显示预览”）；就地编辑时整块换成编辑器，
- * 不走这里。判断由宿主给（`promptBareness`）。
- */
+
 function pendingLabel(message: UserMessageView): string {
     return message.ahead === undefined || message.ahead === 0 ? t("user.sending") : t("user.ahead", {count: message.ahead});
 }
 
+/**
+ * 只有表情的用户消息不画气泡（Spec“消息”）：有附件、正文被省略时照常画（省略时旁边还有“仅显示预览”）；就地编辑时整块换成编辑器，
+ * 不走这里。判断由宿主给（`promptBareness`）。
+ */
 function bare(message: UserMessageView): boolean {
     if (message.contentOmitted) return false;
     const texts: string[] = [];

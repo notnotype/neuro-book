@@ -59,6 +59,8 @@ type PendingSend = {
     readonly commandId: string;
     readonly input: {readonly text: string; readonly attachments?: readonly UploadedAttachment[]};
     readonly replaces?: readonly {readonly id: string; readonly edits: number}[];
+    /** 恢复方式不是合并、写了字时的放行方式。 */
+    readonly release?: "keep" | "followups";
     readonly typed?: string | null;
     restore(): void;
 };
@@ -1190,11 +1192,19 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             const mode = deps.resumeMode();
             const idle = target.transcript.run().status === "idle";
             const input = typed === null ? null : typed.attachments.length === 0 ? {text: typed.text} : {text: typed.text, attachments: [...typed.attachments]};
-            if (mode !== "merge") {
-                const done = input === null
-                    ? await remote.resume({sessionId: target.id, commandId: commandId(), mode})
-                    : await remote.send({sessionId: target.id, commandId: commandId(), input, release: mode});
+            if (mode !== "merge" && input === null) {
+                const done = await remote.resume({sessionId: target.id, commandId: commandId(), mode});
                 if (!done.ok && done.code !== "nothing-to-resume") fail(done.code);
+                return;
+            }
+            if (mode !== "merge" && input !== null) {
+                // 写了字：与普通发送一样有乐观消息，结果未知时可以用同一个指令 id 重发（带上放行方式）。
+                const id = commandId();
+                const optimisticId = `optimistic-${id}`;
+                target.transcript.addOptimistic({id: optimisticId, commandId: id, text: input.text, timestamp: deps.now()});
+                bump();
+                const sent: PendingSend = {commandId: id, input, release: mode, typed: typed!.text, restore: typed!.restore};
+                settleSend(target, optimisticId, sent, await remote.send({sessionId: target.id, commandId: id, input, release: mode}));
                 return;
             }
             // 合并：中断的运行先接着跑（空闲时）；第二步之前它已被停止或已收口就不再发。
@@ -1247,8 +1257,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             // 留着的话在读到之后被改过或取消了：撤掉这条，按新的快照再合成一次（不重做 `start`）。
             if (!result.ok && result.code === "input-stale" && attempt === 0) {
                 target.transcript.removeOptimistic(optimisticId);
-                await remote.snapshot({sessionId: target.id}).catch(() => null);
+                // 缓冲区按快照重取：改动的帧未必先于这次回应到达。快照只换会话级的状态（缓冲区、标题、设置），不动路径。
+                const snapshot = await remote.snapshot({sessionId: target.id});
                 if (current !== target) return;
+                if (snapshot.ok) target.transcript.applySnapshot(snapshot.value);
                 continue;
             }
             settleSend(target, optimisticId, sent, result);
@@ -1541,7 +1553,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 const sent = unknownSends.get(action.messageId);
                 if (sent === undefined || target === null) return;
                 unknownSends.delete(action.messageId);
-                settleSend(target, action.messageId, sent, await remote.send({sessionId: target.id, commandId: sent.commandId, input: sent.input, ...(sent.replaces === undefined ? {} : {replaces: sent.replaces})}));
+                settleSend(target, action.messageId, sent, await remote.send({sessionId: target.id, commandId: sent.commandId, input: sent.input, ...(sent.replaces === undefined ? {} : {replaces: sent.replaces}), ...(sent.release === undefined ? {} : {release: sent.release})}));
                 return;
             }
             case "message.dismiss":
@@ -1786,7 +1798,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 ...(target.ancestors.length === 0 ? {} : {path: [...target.ancestors].reverse().map((item) => ({id: item.id, title: item.profile === null ? null : item.title ?? "", ...(item.icon === undefined ? {} : {icon: item.icon})}))}),
             },
             availability,
-            interaction: {canSend: !continuing, stopClearing: stopClearingOf(target ?? null), canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: [...HOST_TRIGGERS, ...(deps.triggers ?? [])], canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
+            interaction: {canSend: true, continuing, stopClearing: stopClearingOf(target ?? null), canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: [...HOST_TRIGGERS, ...(deps.triggers ?? [])], canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),

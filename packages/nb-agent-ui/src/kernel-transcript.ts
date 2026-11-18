@@ -361,6 +361,15 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         optimistic = optimistic.filter((item) => item.commandId !== commandId);
     };
     /** 乐观消息前面还有几条别的发出者放行出来、还没取走的话：取走一条少一条（ui/agent-conversation-view.md 的“前面还有 N 条”）。 */
+    /**
+     * 乐观消息等的是它被运行取走（`input`、`steer`）。它在那之前转成留着或被取消时（那次运行先收口、停止并清空），不会再被取走：
+     * 撤掉乐观消息，留着的由排队区显示（`queue()` 不再藏它），取消的就没了。重连后快照里已是留着的同样撤。
+     */
+    const dropOptimisticFor = (items: readonly KernelQueued[]): void => {
+        const ids = new Set(items.flatMap((item) => (item.commandId === undefined ? [] : [item.commandId])));
+        if (ids.size > 0) optimistic = optimistic.filter((item) => !ids.has(item.commandId));
+    };
+
     const withAhead = (item: Optimistic): UserMessageView => {
         const index = queue.findIndex((entry) => entry.commandId === item.commandId);
         if (index <= 0) return item.view;
@@ -689,6 +698,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 const cause = heldCauseOf(data.cause);
                 const heldBy = issuerOf(data.heldBy);
                 queue = queue.map((item) => (ids.has(item.id) && item.state === "ready" ? {...item, state: "held", ...(cause === undefined ? {} : {cause}), ...(heldBy === null ? {} : {heldBy})} : item));
+                dropOptimisticFor(queue.filter((item) => ids.has(item.id)));
                 return true;
             }
             case "inputReleased": {
@@ -701,6 +711,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 return true;
             }
             case "inputRemoved":
+                dropOptimisticFor(queue.filter((item) => item.id === data.id));
+                queue = queue.filter((item) => item.id !== data.id);
+                return true;
             case "inputConsumed":
                 queue = queue.filter((item) => item.id !== data.id);
                 return true;
@@ -857,6 +870,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 const queued = queuedOf(item, {state: item.state, edits: item.edits});
                 return queued === null ? [] : [queued];
             }) : [];
+            dropOptimisticFor(queue.filter((item) => item.state === "held"));
             if (isRecord(snapshot.status)) applyStatus(snapshot.status);
             touched();
         },

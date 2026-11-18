@@ -194,6 +194,9 @@
                 },
                 "subagents": {
                     "title": "Sub-agents and background jobs"
+                },
+                "resume": {
+                    "title": "Continue"
                 }
             }
         },
@@ -425,11 +428,12 @@
                 "session-closing": "the session is closing",
                 "reassembly-pending": "extensions are updating",
                 "log-broken": "the session log can't be written",
-                "not-allowed": "not allowed to continue"
+                "not-allowed": "not allowed to continue",
+                "internal": "an internal error occurred"
             }
         },
         "continue": {
-            "stopped": "This run already stopped; the merged message wasn't sent.",
+            "stopped": "This run already ended; the merged message wasn't sent. You can continue again.",
             "failed": "Couldn't continue ({{code}})."
         }
     },

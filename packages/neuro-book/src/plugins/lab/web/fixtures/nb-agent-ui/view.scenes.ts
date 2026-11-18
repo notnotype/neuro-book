@@ -74,12 +74,12 @@ const HELD_ZH: Queued = [
     {id: "h3", text: "每天早上整理昨天的修改记录。", delivery: "followup", author: {label: "日程", icon: "i-lucide-calendar-clock"}, editable: false, held: {reason: "空闲时排的"}},
 ];
 const HELD_EN: Queued = [
-    {id: "h1", text: "Keep the dialogue in the rainy-night scene.", delivery: "steer", held: {reason: "The run couldn't start: the model provider rejected the request"}},
-    {id: "h2", text: "After chapter three, check chapter five for typos.", delivery: "followup", held: {reason: "You stopped this run"}},
+    {id: "h1", text: "Keep the dialogue in the rainy-night scene.", delivery: "steer", held: {reason: "The run couldn't start: the model role isn't bound to a model"}},
+    {id: "h2", text: "After chapter three, check chapter five for typos.", delivery: "followup", held: {reason: "You stopped this turn"}},
     {id: "h3", text: "Every morning, tidy up yesterday's edit log.", delivery: "followup", author: {label: "Morning digest schedule", icon: "i-lucide-calendar-clock"}, editable: false, held: {reason: "Queued while idle"}},
 ];
 /** 合并留着的话发出的一条：宿主的两条话先跑（ui/agent-conversation-view.md 的 `ahead`）。 */
-const AHEAD_MESSAGE: MessageView = {kind: "user", id: "ahead-u", timestamp: 990, intent: "normal", delivery: "pending", ahead: 2, blocks: [{kind: "text", text: "保留雨夜那段对话，别删。\n\n再补一句：钟声要写十二下。"}], contentOmitted: false};
+const AHEAD_MESSAGE: MessageView = {kind: "user", id: "ahead-u", timestamp: conversationContext().now - 2_000, intent: "normal", delivery: "pending", ahead: 2, blocks: [{kind: "text", text: "保留雨夜那段对话，别删。\n\n再补一句：钟声要写十二下。"}], contentOmitted: false};
 
 /** 压缩分隔线的几种详情（docs/specs/ui/agent-conversation-view.md）：数字与字符串，适配器从事件里取。 */
 const compactionDivider = (id: string, patch: Partial<Extract<MessageView, {kind: "system"}>>): MessageView => ({kind: "system", id, timestamp: 900, source: "compaction", label: agentRef("harness.compaction"), text: "", ...patch});
@@ -306,7 +306,7 @@ export const agentConversationViewScenes: Scene[] = [
     },
     {
         id: "held",
-        label: "停止后留着的话（点继续或写字回车合成一条）",
+        label: "停止后留着的话（点继续或写字回车：自己的合成一条，日程的单独一条在前）",
         input: {props: {ctx: conversationContext({composer: {...conversationContext().composer, queued: HELD_ZH}}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
     },
     {
@@ -318,7 +318,7 @@ export const agentConversationViewScenes: Scene[] = [
     {
         id: "ahead",
         label: "合并的一条前面还有 2 条",
-        input: {props: {ctx: conversationContext({messages: [...conversationContext().messages, AHEAD_MESSAGE], run: {status: "running", phase: "正在思考"}}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
+        input: {props: {ctx: conversationContext({messages: [...conversationContext().messages, AHEAD_MESSAGE], run: {status: "running", phase: "正在思考", startedAt: conversationContext().now - 4_000}}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
     },
     {
         id: "plain",

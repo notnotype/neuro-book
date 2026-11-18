@@ -199,7 +199,9 @@ function resolve(mod: boolean) {
 
 const showStop = computed(() => running.value && currentText.value.trim() === "" && props.ctx.interaction.canStop);
 // 运行中两种投递都不允许时能写不能发；登记的命令不受限制，所以按算出的结果判断，不只看开关。
-const sendDisabled = computed(() => readonly.value || blockedReason.value !== null || (resolve(false) === null && !resuming.value));
+/** 宿主正在继续：只挡发送，不让编辑器只读（输出 50 只要求发送键与“继续”不可用）。 */
+const continuing = computed(() => props.ctx.interaction.continuing === true);
+const sendDisabled = computed(() => readonly.value || continuing.value || blockedReason.value !== null || (resolve(false) === null && !resuming.value));
 const showResume = computed(() => resuming.value && currentText.value.trim() === "");
 
 const sendTitle = computed(() => {
@@ -221,6 +223,7 @@ const resuming = computed(() => (composer.value.resume === true || hasHeld.value
 /** 排队区头上的“继续”为什么不可用：不可用的原因、不能发送、停止中（ui/agent-conversation-view.md）。 */
 const continueDisabled = computed(() => {
     if (props.ctx.run.status === "stopping") return t("status.stopping");
+    if (continuing.value) return t("composer.continuing");
     if (props.ctx.availability.status !== "ready") return props.ctx.availability.title ?? props.ctx.availability.message;
     return props.ctx.interaction.canSend ? null : t("composer.sendAfterRun");
 });
@@ -238,11 +241,32 @@ function onStopClearing(): void {
     stopMenuOpen.value = false;
     emit("action", {type: "composer.stop", clearQueue: true});
 }
-/** 菜单关上时焦点回到编辑器：停止键随运行收口一起消失，焦点留在触发器上会掉到页面上（nb-ui 规范的“从编辑内容旁打开的菜单”）。 */
-const stopMenuContentProps = {onCloseAutoFocus: (event: Event) => {
-    event.preventDefault();
-    withEditor((editor) => editor.focus("end"));
-}};
+/**
+ * 菜单关上时焦点回到编辑器：停止键随运行收口一起消失，焦点留在触发器上会掉到页面上（nb-ui 规范的“从编辑内容旁打开的菜单”）。
+ * 点菜单外面关上的不抢：焦点随用户点的位置，交给原语的规则（规范同一节）。`interactOutside` 在 `closeAutoFocus` 之前发出。
+ */
+let closedOutside = false;
+const stopMenuContentProps = {
+    onInteractOutside: () => {
+        closedOutside = true;
+    },
+    onCloseAutoFocus: (event: Event) => {
+        if (closedOutside) {
+            closedOutside = false;
+            return;
+        }
+        event.preventDefault();
+        withEditor((editor) => editor.focus("keep"));
+    },
+};
+watch(stopMenuOpen, (open) => {
+    if (open) closedOutside = false;
+});
+/** 头行的“继续”：与空着回车同一个动作，焦点交给编辑器（排队区随后可能整块卸载，按钮接不住焦点）。 */
+function onContinue(): void {
+    emit("action", {type: "run.continue"});
+    withEditor((editor) => editor.focus("keep"));
+}
 
 /** 不可用的原因优先于别的占位（ui/agent-conversation-view.md 的“输入框与待处理区”）：输入框只读，写打字的提示没有意义。 */
 const placeholder = computed(() => {
@@ -266,7 +290,7 @@ function onChange(value: string): void {
 
 /** 发送后不清空：宿主受理后给出新版本的空草稿，发送失败时文字就不会丢。 */
 function submit(mod: boolean): void {
-    if (readonly.value || blockedReason.value !== null) {
+    if (readonly.value || continuing.value || blockedReason.value !== null) {
         return;
     }
     // 展开时回车是换行，Ctrl/⌘+回车是唯一的键盘发送；不允许排队时它按回车的规则发（补充说明），否则只许补充说明的宿主没法用键盘发送。
@@ -428,7 +452,7 @@ defineExpose({
 
 <template>
     <footer class="acv-composer" :class="{'is-expanded': expanded}" data-agent-composer>
-        <AgentQueuedMessages :queued="composer.queued" :continue-disabled="continueDisabled" @edit="emit('action', {type: 'queued.edit', id: $event})" @remove="emit('action', {type: 'queued.remove', id: $event})" @continue="emit('action', {type: 'run.continue'})" />
+        <AgentQueuedMessages :queued="composer.queued" :continue-disabled="continueDisabled" @edit="emit('action', {type: 'queued.edit', id: $event})" @remove="emit('action', {type: 'queued.remove', id: $event})" @continue="onContinue" />
         <AgentNoticeCard v-if="props.ctx.availability.status === 'profile-unavailable'" :notice="props.ctx.availability" @act="emit('action', {type: 'availability.act', action: $event})" />
         <p v-else-if="props.ctx.availability.message !== ''" class="acv-composer__notice" role="status" data-composer-availability>
             <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
@@ -667,7 +691,7 @@ defineExpose({
                     <DropdownMenu v-if="stopClearing !== null" :items="stopMenuItems" :open="stopMenuOpen" side="top" align="end" :content-props="stopMenuContentProps" @update:open="onStopMenu" @select="onStopClearing">
                         <button
                             type="button"
-                            class="acv-composer__stop-more"
+                            class="acv-composer__stop-more nb-ui-focus-ring-inset"
                             :aria-label="t('composer.stopMore')"
                             :title="t('composer.stopMore')"
                             aria-haspopup="menu"
@@ -851,6 +875,10 @@ defineExpose({
     background: var(--status-danger);
     color: var(--text-inverse);
     cursor: pointer;
+}
+
+.acv-composer__stop-more:hover:not([aria-disabled="true"]) {
+    background: color-mix(in srgb, var(--status-danger) 86%, var(--text-main));
 }
 
 .acv-composer__stop-more[aria-disabled="true"] {

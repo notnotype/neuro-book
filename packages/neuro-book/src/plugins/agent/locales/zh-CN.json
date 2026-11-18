@@ -194,6 +194,9 @@
                 },
                 "subagents": {
                     "title": "子代理与后台任务"
+                },
+                "resume": {
+                    "title": "继续"
                 }
             }
         },
@@ -425,11 +428,12 @@
                 "session-closing": "会话正在关闭",
                 "reassembly-pending": "扩展正在更新",
                 "log-broken": "会话日志写不进去",
-                "not-allowed": "没有权限接着跑"
+                "not-allowed": "没有权限接着跑",
+                "internal": "内部错误"
             }
         },
         "continue": {
-            "stopped": "这次运行已经停下，合并的话没有发出。",
+            "stopped": "这次运行已经结束，合并的话没有发出，可以再点继续。",
             "failed": "没能继续（{{code}}）。"
         }
     },

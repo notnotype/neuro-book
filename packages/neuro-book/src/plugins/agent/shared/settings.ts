@@ -45,7 +45,7 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
     icon: "i-lucide-shield-check",
     category: "ai",
     order: 30,
-    groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}, {id: "subagents"}],
+    groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}, {id: "resume"}, {id: "subagents"}],
 };
 
 export const REQUESTS_SECTION = "nbook.agent.requests";
@@ -142,9 +142,8 @@ export const agentSettings = defineSettings("nbook.agent", {
         description: agentText("settings.resumeMode.description"),
         layers: ["user"],
         section: RUN_GUARDS_SECTION,
-        // 同组的两个超时（`nbook.models`）占 20、30。
-        group: "requests",
-        order: 40,
+        group: "resume",
+        order: 10,
         choices: [{value: "merge"}, {value: "keep"}, {value: "followups"}],
     },
     warnCost: {

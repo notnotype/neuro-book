@@ -8,7 +8,10 @@ import type {TextRef} from "@notnotype/nb-ui/text";
 
 import {agentText} from "../shared/text";
 
-/** 运行没开起来的原因里认得的码（harness/runtime.md 输出 104）。 */
+/**
+ * 留着的原因里带的码：运行没开起来的原因（harness/runtime.md 输出 104，解析时抛错是 `internal`），与异步回答在别人的暂停运行上
+ * 留着时的 `not-allowed`（输出 36）。
+ */
 const CODE_KEYS = {
     "no-model": "conversation.held.codes.no-model",
     "no-credentials": "conversation.held.codes.no-credentials",
@@ -20,6 +23,7 @@ const CODE_KEYS = {
     "reassembly-pending": "conversation.held.codes.reassembly-pending",
     "log-broken": "conversation.held.codes.log-broken",
     "not-allowed": "conversation.held.codes.not-allowed",
+    internal: "conversation.held.codes.internal",
 } as const;
 
 export function heldReason(item: Pick<KernelQueued, "cause" | "heldBy">, t: (ref: TextRef) => string): string {

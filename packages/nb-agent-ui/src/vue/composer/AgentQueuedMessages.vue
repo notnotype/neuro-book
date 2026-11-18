@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import {computed, ref, watch} from "vue";
 import {Button, IconButton} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {firstLine} from "../../format";
@@ -29,6 +29,10 @@ const expanded = ref(false);
 const held = computed(() => props.queued.filter((item) => item.held !== undefined));
 const ready = computed(() => props.queued.filter((item) => item.held === undefined));
 const hidden = computed(() => (expanded.value ? 0 : Math.max(0, ready.value.length - VISIBLE)));
+// 取走几条之后不再超出：收起，不留一行点了没变化的“收起”。
+watch(() => ready.value.length <= VISIBLE, (fits) => {
+    if (fits) expanded.value = false;
+});
 /** 按缓冲区的顺序画；超出的就绪的行收起。 */
 const shown = computed(() => {
     let readyShown = 0;
@@ -42,21 +46,26 @@ const heading = computed(() => {
     return {count: t("composer.queued.held", {count: held.value.length}), reason: mixed ? t("composer.queued.heldMore", {reason}) : reason};
 });
 const continueTitle = computed(() => (props.continueDisabled === undefined || props.continueDisabled === null ? undefined : text(props.continueDisabled)));
+/** 不可用时用 `aria-disabled`：按钮留在 Tab 顺序里、焦点不丢，悬停写原因（nb-ui 规范，暂时不可用的触发器）。 */
+function onContinue(): void {
+    if (continueTitle.value === undefined) emit("continue");
+}
 const tagOf = (item: Queued) => (item.author !== undefined ? text(item.author.label) : item.delivery === "steer" ? t("composer.queued.steer") : t("composer.queued.followup"));
 const iconOf = (item: Queued) => (item.author !== undefined ? item.author.icon : item.delivery === "steer" ? "i-lucide-corner-down-left" : "i-lucide-list-end");
 </script>
 
 <template>
-    <div v-if="props.queued.length > 0" class="acv-queued-area">
+    <!-- 没有排队时根元素仍在（`is-empty` 不占位）：读屏的播报区要先在页面上，内容出现时才会被播报。 -->
+    <div class="acv-queued-area" :class="{'is-empty': props.queued.length === 0}">
         <div v-if="heading !== null" class="acv-queued__head" data-queued-head>
             <span class="i-lucide-circle-pause acv-queued__head-icon" aria-hidden="true" />
             <span class="acv-queued__head-count">{{ heading.count }}</span>
             <span class="acv-queued__head-reason" :title="heading.reason">{{ heading.reason }}</span>
-            <Button size="sm" variant="secondary" icon-class="i-lucide-play" class="acv-queued__continue" :disabled="continueTitle !== undefined" :title="continueTitle" data-queued-continue @click="emit('continue')">{{ t("composer.queued.continue") }}</Button>
+            <Button size="sm" variant="secondary" icon-class="i-lucide-play" class="acv-queued__continue" :class="{'is-unavailable': continueTitle !== undefined}" :aria-disabled="continueTitle !== undefined" :title="continueTitle" data-queued-continue @click="onContinue">{{ t("composer.queued.continue") }}</Button>
         </div>
         <!-- 头行出现、条数变化时播报：头行在列表外，读屏用户在行里只听得到“已暂停：……”。 -->
         <span class="acv-queued__status" role="status">{{ heading === null ? "" : `${heading.count} ${heading.reason}` }}</span>
-        <ul class="acv-queued" :class="{'is-expanded': expanded}" :aria-label="t('composer.queued.label')">
+        <ul v-if="props.queued.length > 0" class="acv-queued" :class="{'is-expanded': expanded}" :aria-label="t('composer.queued.label')">
             <li v-for="item in shown" :key="item.id" class="acv-queued__item" :title="item.text" :data-queued="item.delivery" :data-held="item.held !== undefined" :data-author="item.author !== undefined" :aria-label="item.held === undefined ? undefined : t('composer.queued.heldItem', {text: firstLine(item.text)})">
                 <span class="acv-queued__tag">
                     <span :class="iconOf(item)" class="acv-queued__icon" aria-hidden="true" />
@@ -67,7 +76,7 @@ const iconOf = (item: Queued) => (item.author !== undefined ? item.author.icon :
                 <IconButton icon-class="i-lucide-x" size="xs" :title="t('composer.queued.remove')" :aria-label="t('composer.queued.remove')" data-queued-remove @click="emit('remove', item.id)" />
             </li>
             <li v-if="hidden > 0 || expanded" class="acv-queued__more">
-                <button type="button" class="acv-queued__more-button" :aria-expanded="expanded" data-queued-more @click="expanded = !expanded">{{ expanded ? t("composer.queued.collapse") : t("composer.queued.more", {count: hidden}) }}</button>
+                <button type="button" class="acv-queued__more-button nb-ui-focus-ring" :aria-expanded="expanded" data-queued-more @click="expanded = !expanded">{{ expanded ? t("composer.queued.collapse") : t("composer.queued.more", {count: hidden}) }}</button>
             </li>
         </ul>
     </div>
@@ -75,10 +84,15 @@ const iconOf = (item: Queued) => (item.author !== undefined ? item.author.icon :
 
 <style scoped>
 .acv-queued-area {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 4px;
     min-width: 0;
+}
+
+.acv-queued-area.is-empty {
+    display: contents;
 }
 
 .acv-queued__head {
@@ -115,6 +129,11 @@ const iconOf = (item: Queued) => (item.author !== undefined ? item.author.icon :
 
 .acv-queued__continue {
     flex: none;
+}
+
+.acv-queued__continue.is-unavailable {
+    opacity: 0.5;
+    cursor: default;
 }
 
 .acv-queued__status {

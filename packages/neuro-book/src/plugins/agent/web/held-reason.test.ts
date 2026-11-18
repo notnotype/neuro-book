@@ -29,6 +29,7 @@ describe("留着的原因", () => {
     test("带码时写运行没开起来；认得的码写说明，不认得的照写码", () => {
         expect(heldReason({cause: {queued: "idle", code: "no-model"}}, t)).toBe("运行没开起来：没有可用的模型");
         expect(heldReason({cause: {end: "completed", code: "reassembly-pending"}}, t)).toBe("运行没开起来：扩展正在更新");
+        expect(heldReason({cause: {end: "completed", code: "internal"}}, t)).toBe("运行没开起来：内部错误");
         expect(heldReason({cause: {queued: "idle", code: "brand-new-code"}}, t)).toBe("运行没开起来：brand-new-code");
     });
 });

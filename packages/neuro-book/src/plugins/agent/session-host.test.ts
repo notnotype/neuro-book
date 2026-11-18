@@ -439,15 +439,17 @@ describe("留着的话与继续（conversation.md 输出 47–50）", () => {
         const base = await started(w);
         await stoppedWithHeld(base, ["排一", "排二"]);
         const sends: {replaces?: unknown; input: {text: string}}[] = [];
-        let reply: "stale" | "reject" | "real" = "stale";
+        let reply: "edit-first" | "reject" | "real" = "edit-first";
         const flaky = new Proxy(base.client, {get(target, key, receiver) {
             if (key !== "send") return Reflect.get(target, key, receiver);
-            return async (input: {sessionId: string; commandId: string; input: {text: string}; replaces?: unknown}) => {
+            return async (input: {sessionId: string; commandId: string; input: {text: string}; replaces?: {id: string}[]}) => {
                 sends.push(input);
                 const current = reply;
-                if (current === "stale") {
+                // 合成之后、发出之前，排一被改了：内核按 `replaces` 里的修改次数判出 input-stale。
+                if (current === "edit-first") {
                     reply = "real";
-                    return {ok: false, code: "input-stale"};
+                    const edited = await target.edit({sessionId: input.sessionId, commandId: crypto.randomUUID(), inputId: input.replaces![0]!.id, input: {text: "排一（改过）"}});
+                    if (!edited.ok) throw new Error(edited.code);
                 }
                 if (current === "reject") return {ok: false, code: "input-rejected"};
                 return target.send(input as never);
@@ -460,8 +462,8 @@ describe("留着的话与继续（conversation.md 输出 47–50）", () => {
         h.host.act({type: "run.continue"});
         await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "合成的处理了");
         await idle(h);
-        expect(sends.map((item) => item.input.text)).toEqual(["排一\n\n排二", "排一\n\n排二"]);
-        expect(sends[1]!.replaces).toHaveLength(2);
+        expect(sends.map((item) => item.input.text)).toEqual(["排一\n\n排二", "排一（改过）\n\n排二"]);
+        expect(userTexts(h).at(-1)).toBe("排一（改过）\n\n排二");
 
         await stoppedWithHeld(h, ["再排一", "再排二"]);
         reply = "reject";
@@ -469,6 +471,60 @@ describe("留着的话与继续（conversation.md 输出 47–50）", () => {
         await until("被拒", () => h.ctx().composer.notice !== undefined);
         expect(h.ctx().composer.draft.text).toBe("写的字");
         expect(h.ctx().composer.queued).toHaveLength(2);
+    });
+
+    test("输出 50：继续进行中再点继续不再发；保留方式写了字时结果未知可重发，重发带上放行方式与同一个指令 id", async () => {
+        const w = await world();
+        const base = await started(w, {resumeMode: () => "keep"});
+        await stoppedWithHeld(base, ["排一", "排二"]);
+        const calls: {name: string; commandId: string; release?: string}[] = [];
+        let lose = true;
+        const counting = new Proxy(base.client, {get(target, key, receiver) {
+            if (key !== "send" && key !== "resume") return Reflect.get(target, key, receiver);
+            return async (input: {commandId: string; release?: string}) => {
+                calls.push({name: String(key), commandId: input.commandId, ...(input.release === undefined ? {} : {release: input.release})});
+                if (key === "send" && lose) {
+                    lose = false;
+                    return {ok: false, code: "timeout"};
+                }
+                return (target[key] as (value: unknown) => Promise<unknown>)(input);
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: counting, resumeMode: () => "keep"});
+        await h.host.open(base.host.sessionId.value!);
+        await until("读到留着的", () => h.ctx().composer.queued.length === 2);
+        h.host.act({type: "composer.submit", text: "写的字", delivery: "prompt"});
+        h.host.act({type: "run.continue"});
+        await until("结果未知", () => h.ctx().messages.some((message) => (message as {delivery?: string}).delivery === "unknown"));
+        expect(calls.map((call) => call.name)).toEqual(["send"]);
+        expect(h.ctx().composer.draft.text).toBe("");
+        endpoint.script("处理了一", "处理了二", "处理了写的字");
+        h.host.act({type: "message.resend", messageId: h.ctx().messages.find((message) => (message as {delivery?: string}).delivery === "unknown")!.id});
+        await until("都跑完", () => assistants(h.ctx().messages).at(-1)?.text === "处理了写的字");
+        await idle(h);
+        expect(calls).toEqual([calls[0]!, {name: "send", commandId: calls[0]!.commandId, release: "keep"}]);
+    });
+
+    test("验收 9：宿主开的运行里，用户停止时留下的话一直显示已暂停；点头行的继续后它们进在跑的这次运行", async () => {
+        const w = await world();
+        const h = await started(w);
+        await stoppedWithHeld(h, ["排一", "排二"]);
+        const hold = endpoint.hold();
+        endpoint.script("日程的回复");
+        const hosted = w.service.session(h.host.sessionId.value!, {asUser: false, source: {label: "日程"}});
+        const sent = await hosted.send({commandId: crypto.randomUUID(), input: {text: "日程提醒"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await hold.arrived;
+        await until("运行中", () => h.ctx().run.status === "running");
+        expect(h.ctx().composer.queued.map((item) => item.held?.reason)).toEqual(["conversation.held.stoppedByYou", "conversation.held.stoppedByYou"]);
+        endpoint.script("合成的处理了");
+        h.host.act({type: "run.continue"});
+        await until("合成的进了排队", () => h.ctx().composer.queued.length === 1 && h.ctx().composer.queued[0]!.held === undefined);
+        hold.release();
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "合成的处理了");
+        await idle(h);
+        expect(userTexts(h).at(-1)).toBe("排一\n\n排二");
+        expect((await w.service.session(h.host.sessionId.value!).path()).filter((event) => event.type === "runStarted").at(-1)!.data).toMatchObject({runId: sent.value.runId});
     });
 });
 

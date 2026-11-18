@@ -183,6 +183,7 @@ export default {
         placeholderResumeHeld: "Interrupted, messages paused. Enter to continue",
         stopMore: "More ways to stop",
         stopClearing: "Stop and clear the queue ({{count}})",
+        continuing: "Continuing",
         resume: "Continue",
         approvalMode: "Approval mode: {{mode}}",
         plus: "Add",

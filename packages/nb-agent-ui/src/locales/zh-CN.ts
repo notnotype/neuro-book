@@ -174,6 +174,7 @@ export default {
         placeholderResumeHeld: "上次运行已中断，排队的话已暂停。按回车继续",
         stopMore: "更多停止方式",
         stopClearing: "停止并清空排队（{{count}} 条）",
+        continuing: "正在继续",
         resume: "继续",
         approvalMode: "审批模式：{{mode}}",
         plus: "添加",

@@ -357,14 +357,29 @@ describe("AgentConversationComposer 留着的话与停止的两个选项", () =>
         both.unmount();
     });
 
+    it("宿主正在继续：编辑器照常可写，发送键与头行的继续不可用、写明原因；点头行的继续后焦点回编辑器", async () => {
+        const busy = mountComposer({ctx: ctx({interaction: {continuing: true}, composer: {queued: [heldItem]}})});
+        expect(busy.get("textarea").attributes("readonly")).toBeUndefined();
+        expect(busy.get(".acv-composer__primary").attributes("disabled")).toBeDefined();
+        expect(busy.get("[data-queued-continue]").attributes("title")).toBe("正在继续");
+        busy.unmount();
+
+        const view = mountComposer({ctx: ctx({composer: {queued: [heldItem]}})});
+        (view.get("[data-queued-continue]").element as HTMLElement).focus();
+        await view.get("[data-queued-continue]").trigger("click");
+        await flushPromises();
+        expect(document.activeElement).toBe(view.get("textarea").element);
+        view.unmount();
+    });
+
     it("运行中有留着的按运行中的规则；停止中、不可用时头行的继续不可用", () => {
         const running = mountComposer({ctx: ctx({run: {status: "running"}, interaction: {canStop: true}, composer: {queued: [heldItem]}})});
         expect(running.get(".acv-composer__primary").attributes("data-composer-action")).toBe("stop");
-        expect(running.get("[data-queued-continue]").attributes("disabled")).toBeUndefined();
+        expect(running.get("[data-queued-continue]").attributes("aria-disabled")).toBe("false");
         running.unmount();
 
         const stopping = mountComposer({ctx: ctx({run: {status: "stopping"}, composer: {queued: [heldItem]}})});
-        expect(stopping.get("[data-queued-continue]").attributes("disabled")).toBeDefined();
+        expect(stopping.get("[data-queued-continue]").attributes("aria-disabled")).toBe("true");
         stopping.unmount();
 
         const archived = mountComposer({ctx: ctx({availability: {status: "archived", message: "此会话已归档。", actions: []}, composer: {queued: [heldItem]}})});

@@ -5,7 +5,8 @@
  * - 附件：先“上传中”，约 0.9 秒后就绪，目标是会话附件地址 `session://attachments/名称`，图片用本地对象地址作缩略图与原图；
  *   打开“下次上传失败”时下一次上传以失败结束，重试后成功。
  * - 停止与继续：停止时排队的话留着（原因“你停止了这一轮”），“停止并清空排队”清掉全部；继续或空闲时有留着的话再发送，
- *   按缺省的恢复方式把留着的话（与新写的字）合成一条发出并开始运行（docs/specs/agent/conversation.md 输出 47、50）。
+ *   按缺省的恢复方式把用户自己留着的话（与新写的字）合成一条发出并开始运行；别人（宿主、会话）排的不合并，各自一条排在合成的那条
+ *   前面（docs/specs/agent/conversation.md 输出 47、50）。Lab 不模拟“前面还有 N 条”的等待，看它用对话视图的 `ahead` 场景。
  * - 模式、模型、思考档位、几个命令（plan、mode、model、clear）直接改 ctx；其余命令只记进事件日志。
  * - 触发菜单：`@` 与 `$` 用与 PromptEditor 夹具相同的数据，`$` 首次打开时先“正在加载”。
  */
@@ -97,14 +98,20 @@ export function useLabComposerHost(options: HostOptions) {
     /** 空闲时把留着的话与新写的字合成一条发出；有合并时开始一次运行（继续）。 */
     function sendMerged(current: AgentConversationContext, text: string | null, accepted: ComposerView): void {
         const held = accepted.queued.filter((item) => item.held !== undefined);
-        const texts = [...held.map((item) => item.text), ...(text === null ? [] : [text])];
+        const others = held.filter((item) => item.author !== undefined);
+        const texts = [...held.filter((item) => item.author === undefined).map((item) => item.text), ...(text === null ? [] : [text])];
         const next: Partial<AgentConversationContext> = {composer: {...accepted, resume: false, queued: accepted.queued.filter((item) => item.held === undefined)}};
+        const added: MessageView[] = others.map((item, index) => ({
+            kind: "user", id: `lab-user-${current.messages.length}-${index}`, timestamp: current.now,
+            intent: "normal", author: item.author!, blocks: [{kind: "text", text: item.text}], contentOmitted: false,
+        }));
         if (texts.length > 0) {
-            next.messages = [...current.messages, {
+            added.push({
                 kind: "user", id: `lab-user-${current.messages.length}`, timestamp: current.now,
                 intent: "normal", blocks: [{kind: "text", text: concatPromptTexts(texts)}], contentOmitted: false,
-            } satisfies MessageView];
+            });
         }
+        if (added.length > 0) next.messages = [...current.messages, ...added];
         if (held.length > 0 || current.composer.resume === true) {
             next.run = {status: "running", phase: "正在思考"};
         }

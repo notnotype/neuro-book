@@ -623,4 +623,44 @@ describe("缓冲区的发出者与乐观消息（harness/runtime.md 输出 103�
         expect(transcript.messages().some((message) => message.id === "mine")).toBe(false);
         expect(authors).toContain("每周简报");
     });
+
+    test("等着被取走的乐观消息，在那之前转成留着或被清掉时撤掉：留着的回到排队区，清掉的就没了；重建也一样", async () => {
+        for (const keepQueue of [true, false]) {
+            let started!: () => void;
+            const running = new Promise<void>((resolve) => (started = resolve));
+            let open!: () => void;
+            const released = new Promise<void>((resolve) => (open = resolve));
+            await using session = await createTestSession({tools: [{id: "lab.block", execute: async () => {
+                started();
+                await released;
+                return "好了";
+            }}]});
+            const host = {kind: "host", source: {plugin: "nbook.schedule", label: "每周简报"}} as const;
+            await session.raw.as(host).enqueue({commandId: id(), input: {text: "日程一"}, mode: "followup"});
+            await session.raw.as(host).enqueue({commandId: id(), input: {text: "日程二"}, mode: "followup"});
+            const {transcript, stop} = await follow(session.raw);
+            session.model.script({tools: [{tool: "lab.block"}]}, "收尾");
+            transcript.addOptimistic({id: "mine", commandId: "merged", text: "我的话", timestamp: 1});
+            const sent = await session.raw.send({commandId: "merged", input: {text: "我的话"}});
+            if (!sent.ok || sent.value.runId === null) throw new Error("send failed");
+            await running;
+            expect(transcript.queue().some((item) => item.commandId === "merged")).toBe(false);
+            // 停止要等工具收口：先发停止、放开工具，再看停止的结果。
+            const aborting = session.raw.abort({commandId: id(), keepQueue});
+            open();
+            expect((await aborting).ok).toBe(true);
+            await session.raw.waitRun(sent.value.runId);
+            stop();
+            expect(transcript.messages().some((message) => message.id === "mine")).toBe(false);
+            expect(transcript.queue().filter((item) => item.commandId === "merged").map((item) => item.state)).toEqual(keepQueue ? ["held"] : []);
+
+            // 重连：先挂上乐观消息，再按快照重建，已是留着的照样撤。
+            if (keepQueue) {
+                const again = createKernelTranscript();
+                again.addOptimistic({id: "mine", commandId: "merged", text: "我的话", timestamp: 1});
+                again.applySnapshot(await session.raw.snapshot());
+                expect(again.messages().some((message) => message.id === "mine")).toBe(false);
+            }
+        }
+    });
 });
