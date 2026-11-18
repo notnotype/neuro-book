@@ -1,0 +1,83 @@
+# t22 实现审查 r1（范围 754da3413..598e724ca）
+
+## 1. [重要] 新写 user-select: text 的内容根里，原生 button、summary 与 nb-ui 的 Tabs、CollapsibleCard、CollapsibleRow 触发器会变成可选
+问题：用户选择是继承的，原生 `<button>`、`<summary>`、`<div role=button>` 不带 none 时继承内容根的 text。实测（headless Chrome，html 为 none、内容根为 text）：原生 button 的 computed user-select 是 text，对其文本节点 setBaseAndExtent 读出 "button label"。落点：
+ - `.acv-stream`（packages/nb-agent-ui/src/vue/AgentConversationView.vue:631）里的工具调用与思维链标题：AgentChainSummary.vue:26 原生 button、AgentTurnBlock.vue:134（通知行）与 :151（分隔线开关）原生 button、nb-ui 的 CollapsibleCard/CollapsibleRow 触发器（packages/nb-ui/src/components/layout/CollapsibleCard.vue:48 与 CollapsibleRow.vue:42 用 `component :is="button"`，都没写 select-none）、AgentFileChanges.vue:56/68、AgentUserContent.vue:77/100 的 button。
+ - `.ard`（AgentRequestDetail.vue:498）里的 nb-ui Tabs（Tabs.vue:158 原生 button 无 select-none）、`.ard__find-page`（:339/:340）、`.ard__item-head`（:350/358/375/393）。
+ - `.acv-inspector`（AgentContextInspector.vue:94/99/108）里的 `<summary>`。
+ 后果：桌面里双击折叠标题会同时选中标题文字，拖选跨过标题时把“已执行 3 步”之类标签带进复制结果；与 Spec 输出 12 写的“界面框架的文字（…按钮、菜单…）不能选中”不符，也与新规范 4.7 自己写的“业务里自己写的原生 button 没有，要自己写”相矛盾。规范 4.7 第一条“nb-ui 的按钮、菜单项、徽标、气泡面板已经是”也说宽了：Tabs、CollapsibleCard/Row、Banner 的关闭按钮、InfoTip 触发器都不是。
+ 各处 e2e 都只做正向断言（内容可选），没有一条在内容根里断言框架控件不可选，所以不会红。
+建议：在 nb-ui 的 CollapsibleCard、CollapsibleRow、Tabs（以及 Banner 关闭键、InfoTip）的触发器上写 select-none；nb-agent-ui 里这些原生 button/summary 逐个加（或各自 scoped 类里加一行）；Lab 用例补一条“消息流里工具标题（或思维链摘要）选不中”。不想逐个加的话，也可把规范与 Spec 的措辞收窄为“内容根里的可点击标题不保证不可选”，但这样与“像原生应用”的目标不符。
+
+## 2. [一般] AgentWizardFrame.md 写“标题与按钮不可选”，实现里标题并没有声明不可选
+问题：同步向导渲染在 `.acv-stream` 里面（AgentConversationView.vue:495，`AgentWizard` 在 stream 的 div 内），`.acv-wizard-frame__title`、`__count`（AgentWizardFrame.vue:43、46）没有 user-select 声明，继承 stream 的 text，所以浏览器与桌面里内联向导的标题和“第 n / m 个”计数都是可选的；停靠态在消息流之外，桌面里靠全局 none，浏览器里靠默认（可选）。按钮是 nb-ui 的才不可选。`nb-ui-popover-surface` 这个类本身不写 none（只有 Popover.vue 用原子类加了）。
+依据：packages/nb-agent-ui/src/vue/wizard/AgentWizardFrame.md 新增句“标题与按钮不可选”；AgentWizardFrame.vue:120-125 只给 `__detail` 与 `__body` 写了 text，没给 `__head` 写 none。
+建议：在 `.acv-wizard-frame__head` 上写 `user-select: none`（`__detail` 自己的 text 仍能盖回来，因为它是后代显式声明），或把文档那句改成实际行为。
+
+## 3. [一般] 消息流的空态与加载提示在桌面里可选，与 Spec“空态说明不可选”不一致
+问题：`.acv-stream__empty`（“没有消息”类空态与 `role=status` 的加载行，AgentConversationView.vue:435、447、610）在 `.acv-stream` 的 text 之下。Spec 输出 12 把“空态说明”列入不可选，场景 17 也以会话面板的空态为例；AgentWelcome（:89）自己写了 none 但这两行没有。注释“欢迎页、消息动作这些框架自己写了不可选”没提这两处。
+依据：AgentConversationView.vue:435-449、:610-617、:623-632。
+建议：`.acv-stream__empty` 写 `user-select: none`（`role=alert` 的历史错误行 `.acv-history__error` 仍可选，不受影响）。
+
+## 4. [一般] `[role="alert"]` 一刀切把非错误的提示条与里面的原生按钮也放开了；.nb-host-page 同理
+问题：`[role="alert"]`（packages/nb-ui/src/styles.css:843）被不少“确认条、提示条”使用，不只是错误原文：
+ - ExplorerFeedback.vue:63 的“未知结果”提示（role=alert）里有两个原生 button（:71、:72 “重新检查/放弃”），文字现在可选；
+ - ModelRow.vue:116 的“确认禁用”条是确认提示，不是错误原文（按钮是 nb-ui Button，不受影响，但说明文字属于框架）；
+ - `.nb-host-page`（packages/neuro-book/src/web/styles.css:46）里的原生按钮与 `.nb-host-home` 链接（:95 起）同样继承 text。
+ 这些都不是“要复制的内容”，但数量少、代价小，属于一般问题。
+ 关于“components 层被谁覆盖”：已核对，现有带 role=alert 的元素上没有任何 utilities 层 select-none 或不分层的 user-select: none 同元素声明（ExplorerRow.vue:184 的错误 span 与行是不同元素），所以这条规则目前没有被意外盖掉；层序说法（utilities 与不分层组件样式盖得过它）成立。
+建议：给上面几处按钮补 select-none；规范 4.7 里加一句“role=alert 只给错误原文用，确认条请换 role=status 或自己写 none”，或接受现状并记为已知限制。
+
+## 5. [一般] 遗漏：桌面全局 none 下用户会想复制、但没有声明可选的内容
+清点依据：grep 全部 `user-select|select-text` 声明点后，对 plugins 里的页面与视图逐个对照，以下在桌面里变成选不中：
+ - 资源管理器的操作反馈（ExplorerFeedback.vue:79-97）：失败报告的路径与逐项原因（`reportView.items`、`manifests`）和 `data-explorer-notice` 的提示。它们是“错误与诊断”，用户要拿去搜或报告；只有第 63 行的 role=alert 那块因为新规则能选，同一个组件里的报告块不能选，不一致。
+ - 权限规则页（packages/neuro-book/src/plugins/agent/web/components/PermissionRulesPage.vue:111-112、138-140）：规则的工具名 `<code>`、模式摘要与 reason，是用户自己写的内容。
+ - 插件、模型、技能页之外的详情类文字：ProfileDetail.vue:33-34 的 profile 描述与 key/来源只在 Tooltip 里，也无法复制（可接受）。
+ - 后台任务视图（TasksView.vue 的行标题）：Spec 已写“复制走详情对话框”，属于有意；仅提醒。
+ 没发现“关于与版本”类界面（grep about、版本、appVersion 在 web 端没有对应视图），命令输出（SkillInitDialog）、路径（WorksSettingsPage、PluginsPage）已覆盖。Monaco 的悬停小部件自己写了 user-select: text（node_modules/monaco-editor/esm/vs/base/browser/ui/hover/hoverWidget.css:10），正文选区由 Monaco 自己画，没有问题。
+建议：ExplorerFeedback 的报告与提示块、PermissionRulesPage 的规则行各补一处 user-select: text；其余按“发现一处补一处”的计划处理。
+
+## 6. [一般] 浏览器里仍可选的框架
+核对清点：计划列出的各项都已补 none。未列入、仍可选的框架：
+ - 会话面板的空态说明：Spec 场景 17 与 e2e 把它当作“没有全局规则时可选”的对照，是有意的。
+ - 设置页分区标题（SettingsSectionHeading.vue）、各设置页左栏（ProfileRail.vue、ProviderRail.vue）、SettingsFileView（:472 已写 none，只管局部）：浏览器里仍可选；Spec 只承诺“框架控件自己声明不可选”，没有穷举，不算违约，但与场景 17 的列表相比覆盖不全，这条只作提示，不要求改。
+
+## 7. [一般] e2e：停靠区向导的用例命中的是标题行详情，不是被改的正文声明
+问题：Lab 用例“停靠区里的审批向导：要改的文件路径可选”（packages/neuro-book/e2e/lab-agent-ui.e2e.ts 新增段，`copyable(page, ".lab-main .acv-wizard-frame", "第三章")`）取框内第一个含“第三章”的文本节点。approval 场景（plugins/lab/web/fixtures/nb-agent-ui/wizard.scenes.ts:11）里 args.path 是 `project://正文/第三章.md`，AgentApprovalWizard.vue:50 把它作为 `detail` 传给框架，渲染在 `.acv-wizard-frame__head` 里的 `<code class="acv-wizard-frame__detail">`（AgentWizardFrame.vue:44），早于正文出现，且该元素自己有一条 `user-select: text`（:123）。所以命中的是 `__detail` 那条声明；`.acv-wizard-frame__body` 上的 text（:150，审批的命令、diff 与参数，也是注释里特意强调“停靠态在消息流之外”的那条）没有被独立判定。删掉 :150 这一行，这条用例仍绿。（你的变异“删掉向导的 text”若同时删了两处才变红，只能说明至少一处被覆盖。）
+同类：“消息流里的回复可选”只要回复文字不在 `.nb-markdown-display` 里就能判到 `.acv-stream`；Lab 场景里回复是否经 MarkdownDisplay 渲染，需要确认一次，如果是，则 `.acv-stream` 那条也被 markdown.css 的 text 盖住而判不出。
+建议：向导用例改取正文里的文本（例如 diff 的 after 文案“他回头看了一眼”，或 shell 审批的命令“wc -m”），并在断言前 expect 该元素在 `.acv-wizard-frame__body` 内；消息流用例选一条不走 MarkdownDisplay 的文字（工具输出或纯文本消息），或各自单独变异一次再确认红。
+
+## 8. [一般] e2e：编辑器纸面的 `.nb-markdown` text 声明没有被任何用例判定；场景 17“不可编辑的原样块可选”是空过的
+问题：text-selection.e2e.ts 的 beforeAll 注释已承认：原样 HTML 块是 draggable 的 `contenteditable=false`，ProseMirror 自带样式把它变成可选，所以 `expectSelectable(prose(page), "原样块文字")` 与“正文一段”（可编辑，本来就可选）都不依赖 `.nb-markdown` 的新声明。lab-markdown 的新用例判的是展示器（`.nb-markdown-display`），不是 `MarkdownControl` 的纸面（`markdown-control__prose nb-markdown`，MarkdownControl.vue:221）。但 Spec 输出 12 写“编辑器纸面里的不可编辑节点也算”，场景 17 写“Markdown 正文与其中不可编辑的原样块……能选中”，markdown.css 的注释也以此为理由。也就是说这条合同对应的声明改坏了没有测试变红，Spec 验收句读起来比实际覆盖强。
+依据：packages/neuro-book/e2e/text-selection.e2e.ts 文件头注释与 note.md 夹具；packages/nb-markdown/src/display/markdown.css:13-20。
+建议：夹具里加一个不可拖的 `contenteditable=false` 节点（例如行内原样 HTML `<span>`，`data-nb-raw-inline`，nb-markdown/src/language/syntax/raw/index.ts:115，或 ruby 的 `rt`，ruby/index.ts:70），断言它在桌面里可选，再对 `.nb-markdown` 做一次变异确认红；做不到就把 Spec 场景 17 里“其中不可编辑的原样块”一句删去，改成只写“Markdown 正文”，并在 Task 记录里写明这条声明只靠代码审查覆盖。
+
+更正（第 7 条“同类”一段）：已核对，“消息流里的回复可选”用的是 Lab 夹具 `LabAnswerNode.vue:26`（`data-lab-answer`，普通 div，不走 MarkdownDisplay），所以它确实只靠 `.acv-stream` 的声明，这一段担心不成立。第 7 条只剩向导那一半。
+
+## 9. [一般] e2e 稳定性：浏览器用例没等会话面板文字就读；若干定位没带文案过滤
+问题（packages/neuro-book/e2e/text-selection.e2e.ts）：
+ - “浏览器”用例在 `openNote` 后立刻 `expectSelectable(sessionPanel(page), "没有会话")`；桌面用例却先 `await expect(sessionPanel(page)).toContainText("没有会话")`。会话面板由懒激活的 agent 插件渲染（plugins/agent/web/plugin.ts:449 `vueOnce` 动态导入），文字出现晚于 `data-rpc-state=online`。`copyable` 里 `evaluate` 只等元素存在，不等文字，找不到文本节点返回 null，`toContain` 一次失败、不重试。负载高时会偶发红（你的 memory 里已有多个负载相关的偶发）。`expectWorkbenchChrome` 里状态栏“显示面板”与面板头“资源管理器”同理。
+ - `page.locator(".workbench-panel-head__label")` 与 `.settings-list-section__group-title`、`.settings-row__description` 都取 `.first()` 而没按文案过滤；面板头第一个未必是资源管理器（布局或插件顺序变化即失效），设置页第一个小组标题的文字被当作 needle 取 innerText，倒是自洽。
+ - 一条通用做法：让 `copyable` 外面包 `expect.poll(...)`，或进入断言前先 `await expect(region).toContainText(needle)`（不可选的区域也能用，toContainText 读 textContent，与选区无关）。
+建议：把 `expectSelectable` / `expectNotSelectable` 内部先 `await expect(region.first()).toContainText(needle)`，再读选区；面板头用 `locator(".workbench-panel-head__label", {hasText: "资源管理器"})`。
+
+## 10. [一般] 计划里的“真实指针拖选”与“框架上按 Ctrl+A”没有落地，也没在 Spec 或 Task 里留下取舍
+问题：计划第 2 稿的验收映射写了：双击正文选词、拖选、焦点在框架上按 Ctrl+A 选区不含框架文字。实现只有宿主页标题一条双击（text-selection.e2e.ts 末尾“宿主页”用例），没有正文双击、没有拖选、没有 Ctrl+A。Spec 场景 17 写“双击标题选中词”，与实现一致，但没有说明 Ctrl+A 与拖选这两种用户最常见的复制路径为什么不测（实测事实是“根上 none 时 selectAllChildren 读选区不可靠”，只解释了读数方式，没解释 Ctrl+A）。Ctrl+A 在桌面里能选到什么，正是用户感知最强的行为，也是 `none` 与桌面菜单“全选”（packages/neuro-book-contracts/src/desktop-menu-command.ts:36 `edit.select-all`）交互的地方。
+建议：补一条“焦点在内容区里按 Ctrl+A，Selection.toString() 含正文、不含框架文案（逐文本节点判）”；做不到就在 Task 记录写明取舍并在 Spec 场景里去掉计划中承诺过的说法。
+
+补充（第 10 条）：`edit.select-all` 桌面菜单命令的处理函数我没有追到实现（只看到 desktop-contract 与 desktop-menu-command.ts 的分发），“与全选菜单交互”是从代码推断，未验证；不影响“Ctrl+A 没测”这个结论。
+
+## 11. [一般] 注释与文档的小问题
+ - AgentWizardFrame.vue:123 `.acv-wizard-frame__detail` 新增 `user-select: text` 没有注释，而同一文件 :150 的正文有；`__detail` 在标题行里、周围是不可选的标题，这条恰是第 7 条里 e2e 实际依赖的一条，值得写一句理由（路径或命令要能复制）。
+ - nb-ui 规范 4.7 的“测‘能不能选’用选区读数”一条，与实际 e2e 一致；但同条没说明 `Selection.toString()` 对 `input/textarea` 内的文字读出为空（输入框的选区不进 Selection），实现里设置搜索框用的是 selectionStart/End，是对的；规范可补半句，免得后人拿选区读数测输入框。
+ - 组件 .md 的补句位置：多数放在“合同/布局与交互”节末，合适；SettingsRow.md、AgentContextInspector.md 等放在文末或描述段后也可接受。BookshelfPage.md 的句子用了行内代码 `role="alert"`，其余的都用中文描述，格式不一致，无碍。
+ - Spec 输出 12 的“文字选择”一条很长，一句里并列二十多个类别，读起来像清单；可读性可以拆成“框架不可选 / 内容可选 / 照常的几类 / 不受影响的几类”四个子点（doc-review 才是正式渠道，这里仅提示）。
+ - 与 Spec 的一致性：“没有能力标记（普通浏览器）时没有这条全局规则：框架控件自己声明不可选，内容自己声明可选，其余照浏览器默认”与实现一致（styles.css:158 只挂在 html[data-desktop-frame] 上）；书架页整页在浏览器里也写了 none，Spec 的“书架”列在桌面框架清单里，浏览器里同样成立，没有矛盾。
+
+## 汇总
+共 11 条：重要 1（第 1 条），一般 10。
+最该先处理：
+ 1. 第 1 条：新写 text 的内容根里，原生 button/summary 与 nb-ui 的 Tabs、CollapsibleCard、CollapsibleRow 触发器仍可选，与 Spec“按钮不可选”和规范 4.7 自己的话冲突，且没有任何断言覆盖。
+ 2. 第 7、8 条：停靠区向导用例其实判的是标题行详情那条声明，正文声明与编辑器纸面 `.nb-markdown` 声明没被独立判定，Spec 场景 17“不可编辑的原样块”空过。
+ 3. 第 2、3 条：AgentWizardFrame.md 与 Spec 里“标题、空态说明不可选”在消息流里不成立。
+已核对无问题：`.acv-stream`、`.ard`、`.acv-inspector`、`.settings-row__text` 本身落在对的元素上；输入框、contenteditable、ProseMirror、Monaco 没有被新规则破坏（Monaco 悬停自带 text）；`[role="alert"]` 在 components 层没有被现有元素的 utilities 或不分层声明盖掉；`user-select: auto` 在 none 祖先下重新可选已在 Chrome 复现（规范 4.7 的说法成立）。
