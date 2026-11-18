@@ -60,13 +60,14 @@ export const packsPoint: ContributionPointDefinition<StickerPacksDeclaration> = 
 export type StickerSource = "user" | "plugin";
 
 export type StickerPackProblem =
-    | {readonly code: "manifest-missing" | "manifest-too-large" | "manifest-unreadable" | "manifest-invalid" | "folder-name" | "symlink"; readonly detail?: string};
+    | {readonly code: "manifest-too-large" | "manifest-unreadable" | "manifest-invalid" | "folder-name" | "symlink"; readonly detail?: string};
 
 /** 一个有效的表情。 */
 export interface StickerEntry {
     readonly name: string;
     readonly file: string;
-    readonly when?: string;
+    /** 给模型看的说明。 */
+    readonly description?: string;
     readonly common: boolean;
     readonly width: number;
     readonly height: number;
@@ -85,7 +86,7 @@ export interface StickerPackEntry {
     readonly description?: string;
     readonly status: "ok" | "invalid";
     readonly problem?: StickerPackProblem;
-    /** 有效的表情，按清单顺序。 */
+    /** 有效的表情，按清单顺序；没有表情列表时按文件名的码元顺序。 */
     readonly stickers: readonly StickerEntry[];
 }
 

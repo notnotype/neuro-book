@@ -3,7 +3,7 @@
  *
  * 根有用户与插件两种来源：用户的一个，启动时给定并建好；插件的每个 `stickers.packs` 贡献一个，随贡献的发布与撤回增删。
  * 监视用非递归的 `fs.watch`：用户的根与其中每个表情包文件夹。任何一处变了都重扫整个用户的根（用户的表情包通常不多）；
- * 没变的图片（修改时间、大小与 inode 相同）沿用上一次的核对结果，重扫只读清单、`lstat` 每张图。插件的表情包装在版本目录里、
+ * 没变的图片（修改时间、大小与 inode 相同）沿用上一次的核对结果，重扫只读清单（没写表情列表的再列一次文件夹）、`lstat` 每张图。插件的表情包装在版本目录里、
  * 一次运行里不变，不监视。
  *
  * 图片第一次见到时读一遍：按开头的字节判定类型、取宽高（`Bun.Image`）、算版本（修改时间、大小与 inode）。取图路由读的时候再判
@@ -20,7 +20,7 @@ import {sniffImageType} from "nbook/shared/image-type";
 
 import {FOLDER_NAME, IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, IMAGE_TYPES, MANIFEST_FILE, MANIFEST_MAX_BYTES, packId} from "../shared/contracts";
 import type {StickerEntry, StickerPackEntry, StickerPackProblem, StickerSource} from "../shared/contracts";
-import {parseManifest} from "../shared/manifest";
+import {parseManifest, stickersFromFiles} from "../shared/manifest";
 
 /** 文件变化合并成一次重扫的等待时长：解压、同步工具会连着改好几个文件。 */
 const RESCAN_DELAY_MS = 150;
@@ -226,33 +226,46 @@ export class StickerCatalog {
         if (!FOLDER_NAME.test(folder)) return invalid({code: "folder-name"});
         const manifestPath = join(directory, MANIFEST_FILE);
         const info = await lstat(manifestPath).catch(() => null);
-        if (info === null) return invalid({code: "manifest-missing"});
-        if (!info.isFile()) return invalid({code: "manifest-unreadable", detail: `${MANIFEST_FILE} 不是普通文件`});
-        if (info.size > MANIFEST_MAX_BYTES) return invalid({code: "manifest-too-large"});
-        let json: unknown;
-        try {
-            json = JSON.parse(await readFile(manifestPath, "utf8"));
-        } catch (error) {
-            return invalid({code: "manifest-unreadable", detail: error instanceof Error ? error.message : String(error)});
+        // 没有清单与清单 `{}` 一样：表情按文件夹里的图片。
+        let json: unknown = {};
+        if (info !== null) {
+            if (!info.isFile()) return invalid({code: "manifest-unreadable", detail: `${MANIFEST_FILE} 不是普通文件`});
+            if (info.size > MANIFEST_MAX_BYTES) return invalid({code: "manifest-too-large"});
+            try {
+                json = JSON.parse(await readFile(manifestPath, "utf8"));
+            } catch (error) {
+                return invalid({code: "manifest-unreadable", detail: error instanceof Error ? error.message : String(error)});
+            }
         }
         const parsed = parseManifest(json);
         if (!parsed.ok) return invalid({code: "manifest-invalid", detail: parsed.detail});
+        // 链接照样交出去，由图片核对判成“文件是链接”，与清单里写了链接的一样报。
+        const listed = parsed.stickers ?? stickersFromFiles(await this.#fileNames(root, directory));
         const problems: string[] = [];
         const stickers: StickerEntry[] = [];
-        for (const item of parsed.items) {
+        for (const item of listed.items) {
             if (!item.ok) {
-                problems.push(`第 ${String(item.index + 1)} 项${item.reason}`);
+                problems.push(`${item.label}：${item.reason}`);
                 continue;
             }
             const image = await readImage(join(directory, item.sticker.file), item.sticker.file);
             if (!image.ok) problems.push(`${item.sticker.name}：${image.reason}`);
             else stickers.push({...item.sticker, width: image.width, height: image.height, version: image.version});
         }
-        if (parsed.truncated > 0) problems.push(`超过 500 项，后面 ${String(parsed.truncated)} 项不认`);
+        if (listed.truncated > 0) problems.push(`超过 500 项，后面 ${String(listed.truncated)} 项不认`);
         return {
             item: {directory, root: root.key, entry: {...base, title: parsed.title ?? folder, ...(parsed.description === undefined ? {} : {description: parsed.description}), status: "ok", stickers}},
             findings: {ignored: parsed.ignored, stickers: problems},
         };
+    }
+
+    /** 表情包文件夹里的文件与链接的名字；文件夹在扫描途中被删掉时是空的，下一次重扫会对上。 */
+    async #fileNames(root: StickerRoot, directory: string): Promise<string[]> {
+        const children = await readdir(directory, {withFileTypes: true}).catch((error: unknown) => {
+            if (errorCode(error) !== "ENOENT") this.#options.report("scan-failed", `读不了表情包文件夹 ${directory}`, {source: root.source, message: error instanceof Error ? error.message : String(error)});
+            return [];
+        });
+        return children.filter((child) => child.isFile() || child.isSymbolicLink()).map((child) => child.name);
     }
 
     #syncWatchers(): void {

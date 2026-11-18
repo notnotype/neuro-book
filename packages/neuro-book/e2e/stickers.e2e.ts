@@ -1,5 +1,5 @@
 /**
- * 表情包在真实 Chrome 里的验收（docs/specs/agent/stickers.md 验收 1、2、5）：生产构建的后端与前端，表情包放在状态根的
+ * 表情包在真实 Chrome 里的验收（docs/specs/agent/stickers.md 验收 1、2、4、5、8）：生产构建的后端与前端，表情包放在状态根的
  * `user/stickers/`，Profile 设置里给主创加上它；模型是 Bun 子进程里的本机端点。等页面上可观察的变化，不按时长等待。
  */
 
@@ -44,11 +44,16 @@ test.beforeAll(async () => {
     await mkdir(join(stateRoot, "user", "stickers", "lyra"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
     await writeFile(join(stateRoot, "user", "stickers", "lyra", "stickers.json"), JSON.stringify({title: "星璃", stickers: [
-        {name: "开心", file: "happy.png", when: "被夸的时候", common: true},
+        {name: "开心", file: "happy.png", description: "被夸的时候", common: true},
         {name: "害羞", file: "shy.png", common: true},
     ]}));
     await writeFile(join(stateRoot, "user", "stickers", "lyra", "happy.png"), PIXEL);
     await writeFile(join(stateRoot, "user", "stickers", "lyra", "shy.png"), PIXEL);
+    // 验收 8：没有清单的表情包，只有图片与一个别的文件。
+    const cat = join(stateRoot, "user", "stickers", "cat");
+    await mkdir(cat, {recursive: true});
+    for (const file of ["开心.png", "困.png", "1.png"]) await writeFile(join(cat, file), PIXEL);
+    await writeFile(join(cat, "readme.txt"), "猫猫表情");
 
     const child = spawn("bun", [join("e2e", "support", "agent-endpoint.ts")], {cwd: PACKAGE_ROOT, stdio: ["pipe", "pipe", "pipe"]});
     const handle = track(child);
@@ -56,7 +61,7 @@ test.beforeAll(async () => {
     endpoint = {...handle, control: controlUrl!, child};
     await writeFile(join(stateRoot, "settings.json"), JSON.stringify({
         ...localModelSettings(baseUrl!),
-        "nbook.agent/profileSettings": {"nbook.agent.main": {stickers: {added: ["user.lyra"], removed: []}}},
+        "nbook.agent/profileSettings": {"nbook.agent.main": {stickers: {added: ["user.lyra", "user.cat"], removed: []}}},
     }));
     server = await startProductServer(stateRoot);
 });
@@ -113,10 +118,24 @@ test("验收 1、2：提示词里有白名单里的常用表情；回复里的�
     await expectImage(page, ":lyra/开心:");
 });
 
+test("验收 8：只有图片的文件夹也是表情包，名字取文件名、都进提示词，回复里显示成图", async ({page}) => {
+    await script("喵:cat/开心:");
+    await openConversation(page);
+    await input(page).click();
+    await page.keyboard.type("来只猫");
+    await page.keyboard.press("Enter");
+    await expectImage(page, ":cat/开心:");
+    // 按文件名的码元顺序，没有说明的只写写法；当不了名字的 1.png 不列。
+    const sent = await lastRequest();
+    expect(sent).toContain("stickers://user.cat/");
+    expect(sent).toContain(":cat/困:\\n:cat/开心:");
+    expect(sent).not.toContain(":cat/1:");
+});
+
 test("输出 18：清单里加了表情，浏览器的目录经通知更新，之后的回复里新表情显示成图", async ({page}) => {
     await openConversation(page);
     await writeFile(join(stateRoot, "user", "stickers", "lyra", "stickers.json"), JSON.stringify({title: "星璃", stickers: [
-        {name: "开心", file: "happy.png", when: "被夸的时候", common: true},
+        {name: "开心", file: "happy.png", description: "被夸的时候", common: true},
         {name: "害羞", file: "shy.png", common: true},
         {name: "比心", file: "heart.png"},
     ]}));
