@@ -138,8 +138,10 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 
 - K-d（2026-11-18 开工）：开发者定用自主推进做完 K-d 与 S8。开工前在 1000 章规模样本上逐段计时，`entry` 的 `changedAt` 慢在引擎倒扫整条时间线，`origins` 慢在每页重放全部步并整份冻结，`changes` 慢在每次对两万条排序；细计划见 `plan.md` 的“K-d 的细计划”，交 omp 做设计审查。
 - S8a 合进 master（2026-11-18，`2b5aba138`）：分支落后 911 个提交；两处冲突（边界表 nb-story 一行取 master 的、nb-canon 一行取分支的；Lab 夹具的导入两边都留），master 加了 `nb-flock` 包，合并后 `bun install`。`test:affected --typecheck --since 56cecd84a`：类型检查与组件测试全过，bun 3428 过、17 败。负载降下来后单独重跑，超时的都过了；剩下 9 条是 master 自己带来的断言失败，分支没改它们涉及的文件：`server.test.ts` 6 条与 `builtin-names.test.ts` 1 条是新内置插件 `nbook.stickers` 没写进期望，`sdk.test.ts` 2 条是 nb-ui 新加的 `DateInput`、`SortableList`、`TagInput` 没列进 SDK。
+- K-d 设计审查（2026-11-18，omp 默认模型；90 分钟被截停，续跑补齐报告）：6 条（重要 3、建议 3），5 条成立、都改进了计划，第 2 条（合同版本）不成立：`inputChanged` 是本分支才加的，master 上没有。要点：诊断登记的代次进 `pending` 的分组缓存与游标；`lastTouched` 改成按事件缓存，因为时间线每次发布都会换新对象，按时间线建索引在“发布后重读”时省不下来；来历的一页隔得远时跳到快照；变更列表只为按条目筛的查询建索引，窄查询照旧先筛后排；测量补上早章、中间页、稀疏地址与窄查询。[报告](evidences/design-review-kd-omp.txt)、[处理](evidences/design-review-kd-resolution.txt)。
+- S8b 条目树跟着条目页（`8a43f89e2`，与 K-d 的审查并行做的）：条目页挂上时把设定视图的选中设成它的条目；组件测试接真实世界与产品的浏览器入口，变异检查抓得到。编辑区拆成两组时在组之间换焦点树不跟着变，记进待确认清单。`test:affected --typecheck` 剩下的失败只有 S8a 认出的 master 带来的 9 条。
 
 ## 下一步
 
-1. K-d：设计审查处理完以后按 K-d1 到 K-d5 实施。
+1. K-d：按 K-d1 到 K-d5 实施。
 2. S8：e2e（含状态栏点进待处理、验收 5、改动记录里还原）、截图、收口审查、Spec 晋升；合入前把 `plugins.e2e` 与 master 对比。
