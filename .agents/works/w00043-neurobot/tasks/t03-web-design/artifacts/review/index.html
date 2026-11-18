@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 3 轮：导航的样式</title>
+<title>第 3 轮：导航的样式（改）</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -35,26 +35,21 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 3 轮：导航的样式</h1>
+<h1>第 3 轮：导航的样式（改）</h1>
 
-<section data-nbdev-question="nav-style" data-nbdev-type="single" data-nbdev-recommend="rows">
-  <h2>不要分组标题，bot 和会话靠什么区分？</h2>
-  <p class="rec"><strong>推荐 C：bot 是“人”，大行、宋体名字、两行预览；会话是“活儿”，紧凑的单行，多了也好扫。</strong></p>
-  <div class="cands three">
-    <div class="cand" data-nbdev-option="pinned" data-nbdev-label="A 置顶头像">
-      <h3>A 置顶头像</h3>
-      <img class="navshot" src="r3/pinned.webp" alt="bot 在顶上排成一行头像，会话在下面">
-      <p>bot 多了横着排；只有星璃时顶上有点空。</p>
+<section data-nbdev-question="nav-restyle" data-nbdev-type="single" data-nbdev-recommend="tree">
+  <h2>导航改成哪种样式？</h2>
+  <p class="rec"><strong>推荐 A：侧栏本身已经是一块面，再给每组套一块浅底就多了一层；分组靠组头的名字与数量就够。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="tree" data-nbdev-label="A 安静的组头加连接线">
+      <h3>A 安静的组头加连接线</h3>
+      <img class="navshot" src="r3/tree.webp" alt="组头写名字与数量，子项用圆角连接线挂在父项下面">
+      <p>组头悬停时出现收起与新建；子项右边是状态：转圈在跑、黄点等你、勾已完成、叉出错。</p>
     </div>
-    <div class="cand" data-nbdev-option="mixed" data-nbdev-label="B 混排">
-      <h3>B 混排</h3>
-      <img class="navshot" src="r3/mixed.webp" alt="bot 与会话按最近活动混在一个列表">
-      <p>像 IM 的会话列表，按最近活动排；bot 是圆头像，会话是图标。</p>
-    </div>
-    <div class="cand" data-nbdev-option="rows" data-nbdev-label="C 大行加细行">
-      <h3>C 大行加细行</h3>
-      <img class="navshot" src="r3/rows.webp" alt="bot 是大行，会话是紧凑的单行，中间一条线">
-      <p>会话不显示预览，悬停或选中时再看。</p>
+    <div class="cand" data-nbdev-option="panels" data-nbdev-label="B 每组一块浅底">
+      <h3>B 每组一块浅底</h3>
+      <img class="navshot" src="r3/panels.webp" alt="每组放进一块浅底的面">
+      <p>组与组分得更开；子项的画法同 A。</p>
     </div>
   </div>
 </section>
@@ -78,7 +73,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>左栏放会话；bot 与会话合并成一个“消息”视图，取代现在的会话面板与 Agent 对话视图；对话本身用同一个组件（第 1 轮）</li>
     <li>放在侧栏；多开放到最后，倾向做成侧栏视图能开多个（第 1 轮）</li>
     <li>侧栏窄时用头像列加抽屉（第 2 轮）</li>
-    <li>导航的排法：搜索与过滤在顶上、bot 与会话、子会话挂在父的下面（第 2 轮）</li>
+    <li>导航的排法：搜索与过滤在顶上、bot 与会话分组、子会话挂在父的下面（第 2 轮）；分组保留，只改样式（第 3 轮）</li>
   </ol>
 </section>
 </main>
