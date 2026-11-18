@@ -550,6 +550,13 @@ describe("拖放与只读的包", () => {
         expect(root.querySelector("[data-sticker-shadowed]")?.textContent).toContain(":builtin.lyra/…:");
         expect(root.querySelector("[data-sticker-add]")).toBeNull();
         expect(root.querySelector("[data-sticker-panel]")?.textContent).toContain(":builtin.lyra/…:");
+        // 头部同插件的包：有“导出”，“更多”菜单里只有“在文件夹中显示”。
+        expect(root.querySelector("[data-sticker-export]")).not.toBeNull();
+        await wrapper.get("[data-sticker-more]").trigger("click");
+        await waitUntil("菜单", () => document.body.querySelector("[role='menu']") !== null);
+        expect([...document.body.querySelectorAll("[role='menuitem']")].map((element) => element.textContent?.trim())).toEqual(["在文件夹中显示"]);
+        await wrapper.get("[data-sticker-more]").trigger("click");
+        await waitUntil("菜单关掉", () => document.body.querySelector("[role='menu']") === null);
         await wrapper.get("[data-grid-key^='s:开心']").trigger("click");
         expect(root.querySelector("input[data-sticker-name]")).toBeNull();
         expect(root.querySelector("[data-sticker-panel]")?.textContent).toContain(":builtin.lyra/开心:");
