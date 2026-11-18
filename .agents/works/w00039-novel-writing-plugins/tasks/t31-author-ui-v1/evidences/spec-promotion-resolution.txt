@@ -1,0 +1,18 @@
+t31 Spec 晋升核对的处理（2026-11-18）
+
+核对：omp 默认模型，只读，固定在 58669b17c 的审查 worktree；对象是内核四份（canon/project、revisions、model、components）与 workbench/editor 里本 Task 加的“（planned）”，判据是 docs/specs/README.md 的“两种成熟度，一个文件”（句子在代码里成立，且至少一个断言能区分成立与不成立）。
+跑到 --max-time 90m 被截停，用原会话 --resume 补齐。报告原文：spec-promotion-omp.txt（每行一句，制表符分隔）。
+第一次的说明把“提交说明含 t31 或 w00039”当成识别条件，带进了 t34 加的几处；这些行没有按它处理，t34 的标记原样留着。
+
+逐句的结论：132 行，去掉 50、留 58、没做 13、改写 11（一处标记常拆成几句，所以行数多于标记数）。
+
+处理（主工作区 d1f5780b3，与 author-ui.md 的晋升同一次提交）：
+- 去掉：整条都“去掉”的标记删掉；一条里有的句子“留”的，把标记挪到那几句后面（句子级的“（planned）”），其余句子去掉标记。合计去掉 41 处标记。
+- 改写：按实现改措辞 8 处（报告里的行号：project.md 第 77 行 previewEdit 的输入、第 128 行输出 28 章表、第 130 与 131 行输出 30 与 31 的读取参数、第 135 行输出 34 的 chapters 事件；components.md 第 134 行输出 21；editor.md 输出 33 里“记着的标题”与“打开时抄到标签上”）。components.md 第 21 行的“转交给 Agent”是另一件没做的事，保留 planned。
+- 没做：
+  - editor.md 两处是本 Task 的缺口，补了代码（分支 91defc75b）：恢复出来的页面在贡献方还没交付时显示“正在加载页面”（页面注册表加 pending(id)）；nbook.editor.focus-breadcrumbs 对有面包屑的页面标签可用（公开状态 nbook.editor/breadcrumbs）。两处变异检查都抓得到。“交付后自己变成页面”“←/→ 与 Enter”仍没有能区分的断言，句子级留 planned。
+  - editor.md 验收 44 整条留 planned（参数校验、刷新恢复、贡献方停止后的标题等几句缺断言）。
+  - revisions.md 5 句（预览给条目在章末的样子、改增元素带的值、改核对点、原样出现的地方、写入请求里的“把 A 换成 B”）与 components.md 3 句（写入时生成字段 id、写显示名解析成 id、ambiguous-field）在内核里本来就没做，标记留着，归第二批或后续内核补口。
+- 留：句子级标 planned，不补测试。报告里每行写了缺什么断言、能补上的断言什么样，后续补测试时照着补。
+
+author-ui.md 由 S8 的前端收口审查（Claude Sonnet）逐条核对过（impl-review-s8-sonnet.txt 与 impl-review-s8-resolution.txt），晋升为 implemented，补了实现合同与证据；注册表那一行挪到“已实现”。

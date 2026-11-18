@@ -17,7 +17,7 @@ updated: 2026-11-18
 
 2026-11-10 开发者定“按你的建议分两批开始”，本 Task 恢复：剧情侧（t32 到 t35）已做完，11-04 搁置的理由不再成立。
 
-- **第一批（设定侧）**：范围照下面“第一版拟定的范围”，实施计划见 [`plan.md`](plan.md)（第一版，末尾五项待开发者确认）。确认后先写 Spec（`docs/specs/canon/author-ui.md` 与编辑器 Spec 输出 33 的扩展），与计划一起做设计审查，再实施。
+- **第一批（设定侧）**：2026-11-18 完成，合进 master（`4c242d226`），`canon/author-ui.md` 晋升 `implemented`。范围照下面“第一版拟定的范围”，实施计划见 [`plan.md`](plan.md)；过程记录在下文，收尾见最后几条。
 - **第二批（剧情侧）**：剧情容器、剧情表、时间线、知情、伏笔账本、目标表、决策、检查、简报预览。先在 [t16](../t16-plot-workbench-ui/README.md) 出静态稿，开发者定了以后在本 Task 补第二批的计划。
 - 前置的缺陷已修：内核来历的初值一步被后面的补丁改到（1a0080305）。
 
@@ -154,10 +154,17 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
   - S8 前端（Claude Sonnet，S8b、S8c、合并带进来的部分，并逐条核对 `author-ui.md` 能不能晋升）：18 条（审查发现 7 条都是建议；Spec 核对重要 1、建议 9、已记 1），都成立。修正 `00deaa8fa`：待处理视图交 `badge`；两个底部面板视图 `order` 改成 5、6（产品取舍，记进待确认清单）；组件测试补世界只读（验收 8 的前一半）、一次调用装不下、取消与 Escape 后的焦点、章序调整的回执；e2e 补验收 11（只用键盘）、验收 14（390 宽）、底部面板默认没显示、树跟着标签选中、入口条打开改动记录、否定断言的对照。Spec 措辞的出入在晋升时按实现改。[报告](evidences/impl-review-s8-sonnet.txt)、[处理](evidences/impl-review-s8-resolution.txt)。
   - K-d（omp 默认模型，`8a43f89e2..21ed0568b`；90 分钟被截停，续跑补齐）：10 条（重要 3、建议 7），都成立，第 10 条部分接受。修正 `58669b17c`：`pending` 游标另带服务实例的标识（进程重启以后旧游标作废）；同一批登记表先换代次再发事件；按条目的变更索引不为不存在的 id 留键；项目门面与宿主替换诊断登记时不先注销（新加 `backend/world-host.test.ts`）；差分的长时间线加改值的稀疏地址；规模脚本的发布后第一次读轮着来、新项在旧指标取完以后重新打开量。变异检查四处。[报告](evidences/impl-review-kd-omp.txt)、[处理](evidences/impl-review-kd-resolution.txt)。
   - 修正后的验证（负载 25 到 40）：nb-canon 616 条里只有差分测试的种子在负载 25 以上贴着每条 30 秒超时（种子 1 不带新比较也要 24.5 秒），canon 与剧情的 bun 测试 364 条、canon 组件测试 124 条、应用类型检查都过；`canon-author.e2e.ts` 七个场景都过。
-- 合入前再并一次 master（`7d3b3aae0`，126 个提交，没有冲突）。
+- 合并 master 后的 e2e 清单（2026-11-18，8 个文件 157 条：`canon-author`、`editor-area`、`lab-scenes`、`plugins`、`welcome`、`workbench-containers`、`workbench-shell`、`workbench-views`；负载 25 到 40）：第一轮 14 条失败，`--last-failed` 剩 7 条。分支带来的只有 `workbench-containers:1413`：它的服务没排除 canon 与剧情插件，底部面板多了两个视图（`b197353be` 排除，整个文件 35 条过）。其余在当时 master（`84994e1d6`）的对照 worktree 上同样失败，或单独重跑能过：`editor-area` 2171、2207、2301（负载下的实时拆组，已知偶发）、`workbench-shell:792`、`lab-scenes`（Lab 没起来）、`plugins:83`（单独跑、放宽超时后 39 秒过）。
+- Spec 晋升核对（omp 默认模型，固定在 `58669b17c`；90 分钟被截停，续跑补齐）：内核四份与编辑器 Spec 里本 Task 加的“（planned）”逐句核断言，132 行（去掉 50、留 58、没做 13、改写 11）。编辑器有两句是本 Task 漏做的：恢复出来的页面在贡献方还没交付时显示成“已经不在了”、`focus-breadcrumbs` 对页面标签一直不可用；补在 `91defc75b`（页面注册表加 `pending`、公开状态 `nbook.editor/breadcrumbs`），两处变异检查都抓得到。其余“没做”的八句在内核里本来就排在后面，标记留着。[报告](evidences/spec-promotion-omp.txt)、[处理](evidences/spec-promotion-resolution.txt)。
+- 合入 master（2026-11-18，`4c242d226`；合入前的 master 是 `8eb0e10a1`）。Spec 晋升随后提交（`d1f5780b3`）：`author-ui.md` 晋升 `implemented`，补实现合同与证据，注册表那一行挪到“已实现”；内核四份与 `workbench/editor.md` 去掉 41 处标记、按实现改措辞 8 处，没有能区分的断言的句子单独标 planned（编辑器验收 44 整条留着）。
+- 合入后的验证（master，负载 12 到 40）：
+  - `test:affected --typecheck --since 8eb0e10a1`：类型检查全过；bun 测试第一轮失败 77 条，大多是 5 秒超时。单独重跑后剩下的都在合入前的 master 上同样失败（在 `8eb0e10a1` 的对照 worktree 上跑过）：`server.test.ts` 6 条与 `builtin-names.test.ts` 1 条（`nbook.stickers` 没写进期望）、`architecture.test.ts` 1 条（stickers 的跨插件导入）、`server-projects.test.ts` 场景 14、15 三条、`workspace-files.test.ts` 的分组一条、dev-panel `leases-cli.test.ts` 的 herdr 一条。nb-story 的超时单独跑全过。
+  - 编辑器的修正晚于上面那轮 e2e，覆盖它的 `welcome`、`canon-author` 与 `editor-area:1284`（面包屑）合入后在 master 上重跑，12 条都过（负载 19）。
+  - 1000 章规模（K-d5）：负载 12 到 22，整体比负载 1.3 时慢约 3 倍。条目页那一组里 `entry` 带 `changedAt` 中位 5.26 毫秒、来历 16、按条目的 `changes` 14（K-d 之前负载 13 下是 15、81、20）；来历的第三页与稀疏地址不比第一页慢。“中位 10 毫秒以内”与“打开到可以读”（这次 5746 毫秒，负载 1.3 时 1728）要在低负载下整程重跑才算有证据。[测量](evidences/scale-kd.txt)。
+- 清理：Spec 核对的审查 worktree、两个 master 对照 worktree 与 K-d 的临时探针都已删除；实现 worktree 与分支留着给第二批。
 
 ## 下一步
 
-1. 合并后的 e2e 清单（8 个文件）、1000 章规模测量（K-d5 的证据，等负载降下来）。
-2. omp 在核对内核与编辑器 Spec 里本 Task 加的“（planned）”；处理后与 `author-ui.md` 的晋升（已改好、未提交）一起，在分支合进 master 以后提交。
-3. 合入 master。
+1. 低负载（1 到 3）下整程重跑 `bun scripts/perf/canon-scale.ts 1000`，补齐 K-d 的两项预算证据（`evidences/scale-kd.txt` 追加一节）。
+2. 第二批（剧情侧）：等 [t16](../t16-plot-workbench-ui/README.md) 的剧情侧静态稿定下来，在本 Task 补第二批的计划。
+3. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
