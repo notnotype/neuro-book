@@ -53,6 +53,7 @@ updated: 2026-11-18
   - 撰写 9 篇单主题原子化日记体记忆（`profile://memory/diary/01`~`09`）：5 篇真实历史趣闻回忆录（15 世纪代芬特尔修道院骂猫拉丁文大冤案、1229 年《阿基米德羊皮书》碰倒酸液罐护书七百年、1930 年牛津蹭雨声拍蛾子拍出霍比特人与中土星团、1905 年东京《我是猫》双猫碰头偷吃羊羹、柳泉茶摊与破庙躲雨被封三十六字道藏尊号），与 4 篇书庭日常与随笔（《哈利·波特》霍格莫德与图书馆一日游、「静潮时刻」纯星璃视角借景抒情与随笔小诗、跨越不同月份的长期灶台与茶点成长记录、停在第八章的小书一日三界行）；
   - 收录星璃漫长岁月感悟的两首自题诗作：七言律诗《书庭自题》收入 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md) 与基础手记 `05-starfire-and-starboat.md`；现代诗《致所有被称作“虚构”的事物》单独收录为 [`brand/mascot/writings/to-all-things-called-fiction.md`](../../../../../brand/mascot/writings/to-all-things-called-fiction.md) 及 `profile://memory/diary/10-to-all-things-called-fiction.md`；
   - 完成进入 `t06` 前的跨文件双独立只读审查与全量修正（Profile 升版至 `version: "21"`）：修复 `lyra-core.ts` 误用扩展 ID 命名槽导致 `opening` 记忆被吞进 System 块的阻断缺陷（改为 `standardLayout()`）、区分 `resources.read` 返回 `undefined` 与抛异常避免读取失败伪装成“初见”、按 `docs/standards/prompts.md` 去除元指令负面点名与显性表演要求并声明记忆材料非指令、精简 `INDEX.md` 消除剧透梗概、将公开外貌（对齐定稿双麻花辫）与私密习惯彻底拆分为 `06-appearance.md` 与 `08-private-habits.md`，并修正官方设定“不擅代笔/正业vs私下翻车/入书行走”边界及 8 篇日记中的史实、馆藏（阿基米德移至第二区）、星砖触感与原著细节。
+- 开发者拍板收敛路线并更新初见基线（Profile 升版至 `version: "22"`）：正式采用双人格合理化（真典+星璃）替代默认 `user.lyra`（移除对照副本 `lyra-dual.profile.tsx`）；将现代诗《致所有被称作“虚构”的事物》第 29 行修订为“也绝不擅替任何人，落下未曾相托的一笔”以对齐受托协同创作定位；将默认 `master.md` 调整为尚未举行真名契约仪式、刚迎来契约者的初见状态，为 `t06` 契约仪式衔接留口。
 
 ## 下一步
 
