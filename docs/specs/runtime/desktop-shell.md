@@ -11,14 +11,14 @@ owners:
 
 ## 目标与非目标
 
-桌面壳让写作者不装 Bun、不碰命令行就能用 NeuroBook：从开始菜单、桌面或便携目录打开它，它用随包的 Bun 拉起应用包里的服务端（或连上已在运行的同版本实例），在应用自己的窗口里加载工作台；关窗时先经页面的关闭前询问，最后一个窗口关闭、服务端归它时有序停止服务端；设置为留在系统托盘时改为留在后台，从托盘再打开或退出（输出 28 到 31，planned）。壳只管窗口与服务端的寿命，产品逻辑都在服务端与页面里。更新见 [`runtime.desktop-update`](desktop-update.md)。
+桌面壳让写作者不装 Bun、不碰命令行就能用 NeuroBook：从开始菜单、桌面或便携目录打开它，它用随包的 Bun 拉起应用包里的服务端（或连上已在运行的同版本实例），在应用自己的窗口里加载工作台；关窗时先经页面的关闭前询问，最后一个窗口关闭、服务端归它时有序停止服务端；设置为留在系统托盘时改为留在后台，从托盘再打开或退出（输出 28 到 31）。壳只管窗口与服务端的寿命，产品逻辑都在服务端与页面里。更新见 [`runtime.desktop-update`](desktop-update.md)。
 
 不承诺：
 
 - 第一版只有 Windows 10、11 的 x64；macOS 与 Linux 以后做。
 - 有界面的安装程序（安装位置、快捷方式的选择）、系统通知：以后另做。
 - 窗口不记大小与位置，每次以缺省大小居中打开。
-- 缺省不在后台常驻：没有窗口时壳退出（服务端归它时先停止服务端）。只有设置为留在系统托盘时才在后台运行（输出 28，planned）；缺省设置下关最后一个窗口时，即使有工作在跑也不提供留在后台。
+- 缺省不在后台常驻：没有窗口时壳退出（服务端归它时先停止服务端）。只有设置为留在系统托盘时才在后台运行（输出 28）；缺省设置下关最后一个窗口时，即使有工作在跑也不提供留在后台。
 - 被强行结束、注销、关机时不保证有序停止（输出 22）。
 - 已知限制：
   - 壳连的是别人起的服务端（例如 `nbook start`），那个服务端中途停止时，桌面窗口按 [`runtime.browser-host`](browser-host.md) 离线并重连；壳不接管、不另起服务端，要关掉 NeuroBook 再打开。
@@ -29,7 +29,7 @@ owners:
   - 页面里的 `window.open` 与带 `target` 的链接经壳按输出 12 处理；其它弹出入口（例如内嵌页面里的弹窗）可能由 WebView2 自己开一个不受输出 11 约束的窗口。
   - 桌面专属设置（输出 25 到 27）：卸载安装版不会删开机自启的登记（Electrobun 的卸载程序没有挂钩子的接口），留下的一项指向已删的程序，登录时静默失败，设置说明里提示卸载前先关掉；焦点在 HTML 预览的内嵌页面里时按的缩放键走 WebView2 自带的缩放，不进设置。
   - 自己画的标题栏（输出 10）：悬停最大化按钮不弹出 Windows 11 的贴靠布局（Win+Z 照常）；窗口换到缩放比例不同的显示器后，窗口图标不按新的比例重新加载，由系统缩放；模态对话框开着时整个窗口不能拖动；工作台标题栏左上角的标志是按钮，那一块不能拖窗口。
-  - 托盘与后台（输出 28 到 31，planned）：托盘图标左键、右键都弹出菜单，没有“左键直接打开”；Explorer 重启后图标不回来，从开始菜单再打开、或注销后恢复；Windows 11 的新图标缺省在任务栏的溢出区里；图标尺寸取建图标那一刻主显示器的缩放比例，之后改缩放、换主显示器不重建；留在后台时注销、关机由系统结束（输出 22），不保证有序停止；托盘的菜单、提示与壳的对话框只有中文。
+  - 托盘与后台（输出 28 到 31）：托盘图标左键、右键都弹出菜单，没有“左键直接打开”；Explorer 重启后图标不回来，从开始菜单再打开、或注销后恢复；Windows 11 的新图标缺省在任务栏的溢出区里；图标尺寸取建图标那一刻主显示器的缩放比例，之后改缩放、换主显示器不重建；留在后台时注销、关机由系统结束（输出 22），不保证有序停止；托盘的菜单、提示与壳的对话框只有中文。
   - 最小尺寸（输出 10）：小屏幕上半屏比 800 窄时（例如 1920×1080 开 150%、1366×768 开 100%），拖到屏幕边缘贴成半屏时窗口宽不小于 800、与另一半重叠（按最小跟踪尺寸的规则推断，未在这样的屏幕上实测）；启动页窗口被拖得比最小值小、之后换成产品页时，不会自动放大到最小值。
 
 ## 术语与参与者
@@ -44,8 +44,8 @@ owners:
 - **产品窗口**：加载了服务端页面的桌面窗口。只显示启动页的窗口不是产品窗口；服务端就绪后，正显示“正在启动”的窗口都转为产品窗口。
 - **关闭前询问**：壳在关闭产品窗口之前问页面能不能关；页面一侧的合同见 [`runtime.browser-host`](browser-host.md) 输出 9 到 11。询问的原因是 `window`（只关这一个窗口）或 `quit`（关掉以后自有服务端会停止）。
 - **最后一次关闭**：以 `quit` 询问的那次关闭，从询问开始到窗口关掉、壳进入停止中（或被取消）为止。
-- **后台**（planned）：壳有自有服务端、没有窗口、不在停止中，服务端照常运行；只在设置为留在系统托盘、且托盘图标显示着时进入（输出 29）。
-- **应用级退出**（planned）：要整个 NeuroBook 退出的请求，来自托盘菜单的“退出”或系统与框架发给应用的退出请求（输出 19、31）。
+- **后台**：壳有自有服务端、没有窗口、不在停止中，服务端照常运行；只在设置为留在系统托盘、且托盘图标显示着时进入（输出 29）。
+- **应用级退出**：要整个 NeuroBook 退出的请求，来自托盘菜单的“退出”或系统与框架发给应用的退出请求（输出 19、31）。
 - **便携标记**：便携包根目录里的文件 `NeuroBook.portable`，只由发布流程打便携包时写入，安装包里没有。
 
 ## 输入与前置条件
@@ -114,7 +114,7 @@ owners:
     - 已接下、还没回答时用户再次关这个窗口：弹同一个对话框，“继续等待”不重置已接下的询问；
     - 不把超时或连接断开当作同意。
 15. **一窗一个询问。** 每个窗口同一时间至多一个待决询问，询问带代次；壳只认当前代次的回答，迟到、过期的回答丢弃。“取消关闭”“强制关闭”与窗口关掉都结束当前代次，并通知页面这次询问已结束（页面一侧怎么收口见 [`runtime.browser-host`](browser-host.md) 输出 10）。
-16. **原因与最后一次关闭。** 关的是最后一个仍存活的产品窗口、且服务端是自有服务端时，原因是 `quit`，这次关闭成为最后一次关闭；否则是 `window`。设置为留在系统托盘时，最后一个窗口的原因按输出 29 的表定（planned）。关闭由壳逐个提交：
+16. **原因与最后一次关闭。** 关的是最后一个仍存活的产品窗口、且服务端是自有服务端时，原因是 `quit`，这次关闭成为最后一次关闭；否则是 `window`。设置为留在系统托盘时，最后一个窗口的原因按输出 29 的表定。关闭由壳逐个提交：
     - 真正关掉一个窗口之前，壳重新判断原因；这个窗口的询问是以 `window` 回答的、而此刻按规则应是 `quit`（询问期间别的窗口关掉了，或输出 29 的条件变了），就以 `quit` 重新询问一次；以 `quit` 得到的同意一律停止，询问期间设置改成留在托盘也一样；
     - “没有响应”对话框里的“强制关闭”：这次询问的原因与此刻的原因有一个是 `quit`，就按 `quit` 提交；
     - 最后一次关闭进行中时，开窗转交回 `closing`、不开窗（输出 2、3），页面请求的新窗口被拒绝；所以以 `quit` 得到的同意一定对应真正的最后一个窗口，同一次停止不会问两遍；
@@ -129,7 +129,7 @@ owners:
 **异常：**
 
 20. **WebView2。** 创建网页视图之前检查 WebView2 运行时；没有时用系统对话框说明，给出官方下载地址，只给“打开下载页”“退出”，不显示空白窗口。
-21. **自有服务端意外退出。** 运行中（没有请求停止）自有服务端退出时，壳弹对话框“NeuroBook 的服务意外退出（退出码 N）”，给“重新启动服务”“稍后”，并给出日志目录；窗口保持，页面按 [`runtime.browser-host`](browser-host.md) 离线。“重新启动服务”用上一次的两个端口重新拉起（输出 6），已打开的页面重连后显示“服务端已重启”页（未保存的正文可取回）；端口被占用、拉起失败时对话框说明原因，窗口仍保持离线，可以再试。“稍后”只关掉对话框：窗口照旧离线，用户可以从页面复制未保存的内容；之后关窗照常经关闭前询问，原因一律是 `window`，最后一个窗口关掉后壳直接退出（没有要停止的服务端）。在后台时（planned）对话框照旧弹出，正文里“窗口保持离线”换成“现在没有打开的窗口”；“重新启动服务”成功后留在后台；选“稍后”时壳退出，对话框开着时已开出了窗口的照上面的规则、不退出。
+21. **自有服务端意外退出。** 运行中（没有请求停止）自有服务端退出时，壳弹对话框“NeuroBook 的服务意外退出（退出码 N）”，给“重新启动服务”“稍后”，并给出日志目录；窗口保持，页面按 [`runtime.browser-host`](browser-host.md) 离线。“重新启动服务”用上一次的两个端口重新拉起（输出 6），已打开的页面重连后显示“服务端已重启”页（未保存的正文可取回）；端口被占用、拉起失败时对话框说明原因，窗口仍保持离线，可以再试。“稍后”只关掉对话框：窗口照旧离线，用户可以从页面复制未保存的内容；之后关窗照常经关闭前询问，原因一律是 `window`，最后一个窗口关掉后壳直接退出（没有要停止的服务端）。在后台时对话框照旧弹出，正文里“窗口保持离线”换成“现在没有打开的窗口”；“重新启动服务”成功后留在后台；选“稍后”时壳退出，对话框开着时已开出了窗口的照上面的规则、不退出。
 22. **非合作结束。** 壳被强行结束、注销、关机时，自有服务端随壳的进程树一起被结束，不保证有序停止：服务端已提交的数据（SQLite 事务、原子写入的文件）保留；还在页面里、没交给服务端的输入可能丢失。下一次启动照常，不提示。
 23. **启动中关掉最后一个窗口。** 服务端就绪之前用户关掉最后一个窗口（只有启动页）：这次启动作废，壳不再拉起服务端、不再重试、不再开窗；已经拉起的自有服务端（含还在拉起中的）按输出 18、19 停止并等它真实退出；在等的是别人的实例时不碰它。之后放下桌面锁、退出。
 
@@ -139,11 +139,11 @@ owners:
 
 **桌面专属设置：**
 
-25. **值从哪来。** 内置插件 `nbook.desktop` 声明只在桌面里有意义的配置项（界面缩放、登录 Windows 时打开、关掉最后一个窗口时（planned，输出 28）、窗口背景（输出 32）），只允许用户层（[`settings.configuration`](../settings/configuration.md) 输出 22 的暂行），设置窗口里的“桌面窗口”分区只在桌面壳的窗口里列出（[`settings.window`](../settings/settings-window.md) 输出 2）。设置的拥有者是服务端的 `nbook.settings`；页面从配置服务读出有效值，在激活时与值变化时交给壳（直接改设置文件时拥有者推给页面，页面同样交给壳）。壳不读设置文件，只把最后收到的值缓存在 `<状态根>/logs/desktop/settings-cache.json`（按到达顺序串行写，缩放必须是档位之一），下次启动时在页面交来值之前先用缓存；缓存读不了或内容不合法按缺省并记诊断（逐项判断：缺的或不合法的项取缺省，其余照用，planned）。几个窗口交来同样的值时壳只处理一次。
+25. **值从哪来。** 内置插件 `nbook.desktop` 声明只在桌面里有意义的配置项（界面缩放、登录 Windows 时打开、关掉最后一个窗口时（输出 28）、窗口背景（输出 32）），只允许用户层（[`settings.configuration`](../settings/configuration.md) 输出 22 的暂行），设置窗口里的“桌面窗口”分区只在桌面壳的窗口里列出（[`settings.window`](../settings/settings-window.md) 输出 2）。设置的拥有者是服务端的 `nbook.settings`；页面从配置服务读出有效值，在激活时与值变化时交给壳（直接改设置文件时拥有者推给页面，页面同样交给壳）。壳不读设置文件，只把最后收到的值缓存在 `<状态根>/logs/desktop/settings-cache.json`（按到达顺序串行写，缩放必须是档位之一），下次启动时在页面交来值之前先用缓存；缓存读不了或内容不合法按缺省并记诊断（逐项判断：缺的或不合法的项取缺省，其余照用）。几个窗口交来同样的值时壳只处理一次。
 26. **界面缩放。** 缩放应用到所有产品窗口（启动页与对话框不缩放），每次页面就绪时按当前值重设。档位是 50% 到 200% 的一组（50、67、75、80、90、100、110、125、150、175、200）。桌面窗口里 Ctrl 加数字行或小键盘的加、减号放大、缩小，Ctrl+0 复位；按住 Ctrl 滚动鼠标，累积满一档才换（触控板的捏合不会一下跳过几档），页面自己处理了 Ctrl+滚轮的地方（图片查看器）不接管。命令面板里有“放大”“缩小”“重置缩放”（`nbook.view.zoom-in`、`nbook.view.zoom-out`、`nbook.view.zoom-reset`，只在桌面里可用）。快捷键先按物理键位认，认不到再按字符（别的键盘布局），输入法组字时不接管，NumLock 关着时小键盘的 0 不算复位；页面离开前还没写回的档位立刻写。用户层此刻不可用或无效时页面不向壳交值（读到的是缺省值）。改档立即生效，随后写进用户层；复位删掉这个键；写入失败时说明原因并回到配置服务里的值。浏览器里这些都不接管，浏览器自己的缩放照旧。
 27. **开机自启。** 打开“登录 Windows 时打开 NeuroBook”时，壳在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下以应用标识为值名，登记安装目录里 `launcher.exe` 的命令行；关掉时删掉这一项。只对安装版、并且状态根来自缺省位置的运行生效：便携版、开发构建、设了 `NBOOK_STATE_ROOT` 的运行不登记，也不删已有的登记（那可能是缺省状态根那边开的），开着时在壳的日志里说明。壳在这次运行第一次收到页面交来的值时同步一次，之后随值变化同步；读写注册表失败记诊断，不影响运行；读不出现状时这次不写也不删。
 
-**托盘与后台（planned）：**
+**托盘与后台：**
 
 28. **设置与托盘图标。** `nbook.desktop` 的配置项“关掉最后一个窗口时”（`closeLastWindow`）：“退出 NeuroBook”（`quit`，缺省）或“留在系统托盘（服务继续运行）”（`tray`），说明写明“留在托盘时，注销或关机会由系统结束 NeuroBook，只保证已保存的内容”。壳有自有服务端、设置是 `tray`、不在停止中时在通知区域显示托盘图标（应用图标），否则不显示：缺省设置下看不到它，连的是别人的实例、服务端意外退出后选了“稍后”时也没有。提示文字：有窗口时“NeuroBook”，在后台时“NeuroBook（在后台运行）”，托盘退出正在检查在跑的工作时“NeuroBook（正在检查在跑的工作）”。停止中图标消失；壳退出前先删掉图标，通知区域不留残影。图标建不出来时记诊断，这时按没有托盘处理（输出 29 的最后一行）。
 29. **最后一个窗口关掉之后。** 原因按下表定，提交关窗时按这次询问的原因决定停不停（输出 16）：
@@ -178,10 +178,10 @@ owners:
 | 运行中 | 关一个产品窗口 | 关闭前询问（输出 14 到 16） |
 | 运行中 | 最后一次关闭被同意 | 窗口关掉，停止中，写 `stop` |
 | 运行中 | 最后一个窗口关掉，服务端不是自有 | 已停止，放锁退出 |
-| 运行中 | 设置是 `tray`、托盘图标显示着，最后一个窗口以 `window` 关掉（planned） | 后台（输出 29） |
-| 后台 | 托盘“打开”、开窗转交（planned） | 运行中，开出窗口 |
-| 后台 | 托盘“退出”、系统或框架的退出请求（planned） | 取工作或对话框后停止中（输出 30）；退出请求直接停止中 |
-| 后台 | 自有服务端意外退出（planned） | 对话框（输出 21）；“稍后”时放锁退出，“重新启动服务”成功后仍在后台 |
+| 运行中 | 设置是 `tray`、托盘图标显示着，最后一个窗口以 `window` 关掉 | 后台（输出 29） |
+| 后台 | 托盘“打开”、开窗转交 | 运行中，开出窗口 |
+| 后台 | 托盘“退出”、系统或框架的退出请求 | 取工作或对话框后停止中（输出 30）；退出请求直接停止中 |
+| 后台 | 自有服务端意外退出 | 对话框（输出 21）；“稍后”时放锁退出，“重新启动服务”成功后仍在后台 |
 | 运行中 | 自有服务端意外退出 | 对话框（输出 21）；选“稍后”时之后的关窗按服务端不是自有处理 |
 | 停止中 | 服务端真实退出 | 已停止，放下桌面锁，退出 |
 | 停止中 | 截止到 | 强制结束进程树，等它真实结束后已停止 |
@@ -192,8 +192,8 @@ owners:
 - 桌面锁先于问服务端：同一状态根上不会有两个壳各起一个服务端，也不会有两个壳分别拥有同一个服务端的窗口。
 - 壳只在认领应答的 `status` 为 `ready` 之后加载页面地址，加载时服务端已能处理请求。
 - 关闭前询问的回答只对它的代次有效；窗口关掉之后，这个窗口的待决询问作废。
-- 最后一次关闭从开始询问到进入停止中，窗口集合只会变少：开窗转交排队、页面请求的新窗口被拒。应用级退出进行中同样（planned）。
-- 后台与停止中不重叠：进入停止中时托盘图标先消失；托盘退出的各条路都经应用级退出进入停止中，没有另外的停止入口（planned）。
+- 最后一次关闭从开始询问到进入停止中，窗口集合只会变少：开窗转交排队、页面请求的新窗口被拒。应用级退出进行中同样。
+- 后台与停止中不重叠：进入停止中时托盘图标先消失；托盘退出的各条路都经应用级退出进入停止中，没有另外的停止入口。
 - 写 `stop` 之后壳不再开窗口；服务端真实退出（包括被强制结束之后）才放下桌面锁，所以后启动的壳在锁放下之后问到的是“没有实例”，不会撞上停止中的旧服务端认领。
 - 合作退出（输出 18、19、23）都经 `stop` 并等服务端真实退出；非合作结束（输出 22）靠壳的进程树一起结束，不经标准输入，只保证已提交的数据。
 
@@ -217,7 +217,7 @@ owners:
 | 没有 WebView2 | 系统对话框（输出 20） | 装好后再打开 |
 | 服务端停止超时或非 0 退出 | 下一次启动时提示（输出 19） | 看日志 |
 | 自有服务端意外退出 | 对话框（输出 21） | 重新启动服务或稍后 |
-| 托盘图标建不出来（planned） | 记诊断；关最后一个窗口照常退出（输出 29） | 从开始菜单打开；看日志 |
+| 托盘图标建不出来 | 记诊断；关最后一个窗口照常退出（输出 29） | 从开始菜单打开；看日志 |
 
 ## 边界与兼容
 
@@ -247,7 +247,7 @@ owners:
 15. **标题栏。** 工作台窗口只有一条标题栏，右端是最小化、最大化、关闭三个按钮：拖动标题栏空白处移动窗口，双击最大化、再双击还原，拖到屏幕边缘贴边；最大化后页面底部不被任务栏盖住；按钮的名字在“最大化”“还原”之间跟着变；点关闭与 Alt+F4 一样经关闭前询问，询问期间还能最小化；Alt+Space 出系统菜单（普通窗口；磨砂窗口没有，见场景 18）。拖动边框缩小窗口，客户区停在 800×560，最大化与还原照常。书架首页与启动页也能拖、能用三个按钮。程序、任务栏与 Alt+Tab 里是应用图标。WebView2 低于 123 时窗口有系统标题栏、页面里没有窗口按钮。
 16. **桌面专属设置。** 设置里的“桌面窗口”只在桌面窗口里有，浏览器里没有。界面缩放改成 125%：所有桌面窗口一起变，新开的窗口也是 125%，关掉再开仍是 125%；按 Ctrl+加号、Ctrl+减号、Ctrl+0 与 Ctrl+滚轮各改一档或复位，WebView2 自带的缩放不叠加；在图片查看器里按 Ctrl+滚动缩放的是图片。直接改设置文件，窗口跟着变。安装版打开“登录 Windows 时打开”后 Run 下有以应用标识为名的一项，关掉后没有；设了 `NBOOK_STATE_ROOT` 的运行不登记。
 
-17. **托盘与后台（planned）。** 设置改成留在系统托盘：通知区域出现图标（Windows 11 在溢出区里也能找到），左右键都弹菜单，点外面菜单收起。关最后一个窗口（有未保存的正文时先问）：窗口关掉、图标提示“在后台运行”，服务端还在；从托盘“打开”、从开始菜单再打开都多出窗口；最小化的窗口经托盘“打开”还原并置前；后台 30 分钟后再打开照常。后台时从托盘“退出”：没有工作时有序停止、图标消失不留残影；有工作在跑时对话框给出项数，“取消”后照旧、“打开 NeuroBook”开出窗口、“仍然退出”有序停止。有窗口时从托盘“退出”：各窗口经关闭前询问，最后一个以 `quit` 询问。后台时结束服务端进程：对话框说明没有打开的窗口，“稍后”后壳退出。设置改回退出 NeuroBook：图标消失，关最后一个窗口照常退出。开机自启叠加留在托盘：登录后图标出现。
+17. **托盘与后台。** 设置改成留在系统托盘：通知区域出现图标（Windows 11 在溢出区里也能找到），左右键都弹菜单，点外面菜单收起。关最后一个窗口（有未保存的正文时先问）：窗口关掉、图标提示“在后台运行”，服务端还在；从托盘“打开”、从开始菜单再打开都多出窗口；最小化的窗口经托盘“打开”还原并置前；后台 30 分钟后再打开照常。后台时从托盘“退出”：没有工作时有序停止、图标消失不留残影；有工作在跑时对话框给出项数，“取消”后照旧、“打开 NeuroBook”开出窗口、“仍然退出”有序停止。有窗口时从托盘“退出”：各窗口经关闭前询问，最后一个以 `quit` 询问。后台时结束服务端进程：对话框说明没有打开的窗口，“稍后”后壳退出。设置改回退出 NeuroBook：图标消失，关最后一个窗口照常退出。开机自启叠加留在托盘：登录后图标出现。
 
 18. **窗口背景（实验）。** 设置里窗口背景选 Acrylic：之后新开的窗口是磨砂的（背后的窗口模糊着透出来），已开的窗口不变；选 Mica 再开一个：壁纸色调的底；选回关再开一个：普通窗口。磨砂窗口里窗口按钮没有重影，标题栏拖动、双击最大化、拖到屏幕边缘贴边、Alt+F4 照常，没有系统菜单；页面切到深色主题后磨砂的底色变深。Windows 10 或 22H2 以下：设置存着、窗口是普通窗口。
 
@@ -263,11 +263,12 @@ Smoke：发布流水线的 Windows 作业对安装版与便携版各跑一遍：
   - 每个窗口至多一个待决询问，带代次，只认当前代次的回答；3 秒内没有接下才弹“没有响应”，接下之后不限时（`windows.test.ts`）。
   - 最后一次关闭进行中，开窗转交回 `closing`、页面的新窗口被拒；询问期间别的窗口关掉使它成了最后一个时，以 `quit` 重问一次；同意与进入停止中是同一个同步段（`windows.test.ts`、`shell.test.ts`）。
   - 停止的截止按绝对时间分段排，每段不超过 `setTimeout` 的上限，缺省共 90 秒；到时结束整棵进程树，等树真实结束才交回、才放桌面锁（`deadline.test.ts`、`owned-server.test.ts`）。
+  - 托盘与后台（输出 28 到 31）：核心的协调器（`windows.ts`）按输出 29 的表定最后一个窗口的原因并决定停不停，应用级退出与后台各条路都经它进入停止中；`tray.ts` 是图标显示与否、提示文字与托盘退出取在跑的工作（8 秒截止）；`shell.ts` 的 `trayOpen`、`trayQuit` 把托盘菜单接到协调器；适配层（`desktop/src/bun/index.ts`）按托盘视图建与删 `Tray`，图标建不出来记 `desktop.tray.create-failed` 并按没有托盘处理，退出前先删图标。壳的退出对话框是 `desktop/src/views/shell/index.html` 的 `quit-work`（`windows.test.ts`、`shell.test.ts`、`tray.test.ts`）。
   - 无标题栏的窗口经 `bun:ffi` 补窗口样式、设窗口图标（`desktop/src/bun/win32.ts`）：调用跑在 Bun 主线程，窗口归 Electrobun 的原生 UI 线程；Electrobun 的窗口回调都是不等返回值的线程安全回调，UI 线程不同步等 Bun，所以从 Bun 同步调窗口函数不成环，仍尽量用不等待的写法（`SWP_ASYNCWINDOWPOS`、`PostMessageW`）。这依赖 Electrobun 2.0.6 对 `hiddenInset` 的处理（`WM_NCCALCSIZE` 去掉标题区、`WM_GETMINMAXINFO` 只管 `WS_POPUP`），升级 Electrobun 时复测。
 
 ## 证据
 
-- 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.2 到 4.5（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md)。开发者 2026-11-14 看过 Windows 实测第 2 轮后同意晋升为 `implemented`。相对路径的 `NBOOK_STATE_ROOT` 由“按壳的工作目录解析”改为拒绝：w00046 t10 在 Windows 上实测发现 Electrobun 的启动器以安装里的 `app\bin` 为工作目录启动壳，相对路径落进更新时被整个替换的程序目录（[`windows-update-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t10-auto-update/evidences/windows-update-r1.txt) 场景 6）；记在 [待确认清单](../../../.agents/works/w00046-desktop-release/pending-confirmations.md)，开发者 2026-11-14 追认。托盘与后台（输出 28 到 31，planned）：开发者 2026-11-15 列的桌面端体验第二批（系统托盘），具体取舍记在同一份待确认清单（w00046 t13）。
+- 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.2 到 4.5（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md)。开发者 2026-11-14 看过 Windows 实测第 2 轮后同意晋升为 `implemented`。相对路径的 `NBOOK_STATE_ROOT` 由“按壳的工作目录解析”改为拒绝：w00046 t10 在 Windows 上实测发现 Electrobun 的启动器以安装里的 `app\bin` 为工作目录启动壳，相对路径落进更新时被整个替换的程序目录（[`windows-update-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t10-auto-update/evidences/windows-update-r1.txt) 场景 6）；记在 [待确认清单](../../../.agents/works/w00046-desktop-release/pending-confirmations.md)，开发者 2026-11-14 追认。托盘与后台（输出 28 到 31）：开发者 2026-11-15 列的桌面端体验第二批（系统托盘），具体取舍记在同一份待确认清单（w00046 t13）。
 - 实现入口：核心 [`desktop/shell.ts`](../../../packages/neuro-book/src/desktop/shell.ts)、[`windows.ts`](../../../packages/neuro-book/src/desktop/windows.ts)、[`lock.ts`](../../../packages/neuro-book/src/desktop/lock.ts)、[`owned-server.ts`](../../../packages/neuro-book/src/desktop/owned-server.ts)、[`connect.ts`](../../../packages/neuro-book/src/desktop/connect.ts)、[`state-root.ts`](../../../packages/neuro-book/src/desktop/state-root.ts)、[`deadline.ts`](../../../packages/neuro-book/src/desktop/deadline.ts)；Electrobun 适配层 [`desktop/README.md`](../../../packages/neuro-book/desktop/README.md)（主进程、预加载脚本与启动页的说明）。
 - 合同测试：[`shell.test.ts`](../../../packages/neuro-book/src/desktop/shell.test.ts)、[`windows.test.ts`](../../../packages/neuro-book/src/desktop/windows.test.ts)、[`lock.test.ts`](../../../packages/neuro-book/src/desktop/lock.test.ts)、[`owned-server.test.ts`](../../../packages/neuro-book/src/desktop/owned-server.test.ts)、[`connect.test.ts`](../../../packages/neuro-book/src/desktop/connect.test.ts)、[`state-root.test.ts`](../../../packages/neuro-book/src/desktop/state-root.test.ts)、[`deadline.test.ts`](../../../packages/neuro-book/src/desktop/deadline.test.ts)
-- Smoke：入口 [`.github/workflows/release.yml`](../../../.github/workflows/release.yml) 的 `desktop` 作业，脚本 [`smoke-windows.ts`](../../../packages/neuro-book/desktop/scripts/smoke-windows.ts)（安装版与便携版各跑一遍）。第一次运行：v0.13.0 的 [Release 运行 43715099679](https://github.com/notnotype/neuro-book/actions/runs/43715099679) 在 GitHub 的 Windows runner 上通过（[`release-v0.13.0.txt`](../../../.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/evidences/release-v0.13.0.txt)）。同一脚本在 pc-notype 上用测试标识跑通（[`windows-smoke-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/evidences/windows-smoke-r1.txt)）。Electrobun 适配层（`desktop/src/bun/`）不在类型检查与自动测试里，另靠 Windows 上的实测把关：第 1 轮 [`windows-shell-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r1.txt)、第 2 轮 [`windows-shell-r2.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r2.txt)。输出 10 的标题栏与图标（场景 15）：w00046 t03 的 [`windows-frame-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t03-custom-title-bar/evidences/windows-frame-r1.txt)（命中测试、样式、图标、最大化几何、按钮、并发开窗；拖动、双击、贴边与 Alt+Space 待开发者真实操作），探针 [`frame-probe-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t03-custom-title-bar/evidences/frame-probe-r1.txt)。
+- Smoke：入口 [`.github/workflows/release.yml`](../../../.github/workflows/release.yml) 的 `desktop` 作业，脚本 [`smoke-windows.ts`](../../../packages/neuro-book/desktop/scripts/smoke-windows.ts)（安装版与便携版各跑一遍）。第一次运行：v0.13.0 的 [Release 运行 43715099679](https://github.com/notnotype/neuro-book/actions/runs/43715099679) 在 GitHub 的 Windows runner 上通过（[`release-v0.13.0.txt`](../../../.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/evidences/release-v0.13.0.txt)）。同一脚本在 pc-notype 上用测试标识跑通（[`windows-smoke-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/evidences/windows-smoke-r1.txt)）。Electrobun 适配层（`desktop/src/bun/`）不在类型检查与自动测试里，另靠 Windows 上的实测把关：第 1 轮 [`windows-shell-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r1.txt)、第 2 轮 [`windows-shell-r2.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r2.txt)。输出 10 的标题栏与图标（场景 15）：w00046 t03 的 [`windows-frame-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t03-custom-title-bar/evidences/windows-frame-r1.txt)（命中测试、样式、图标、最大化几何、按钮、并发开窗；拖动、双击、贴边与 Alt+Space 待开发者真实操作），探针 [`frame-probe-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t03-custom-title-bar/evidences/frame-probe-r1.txt)。输出 28 到 31 与场景 17（w00046 t13，开发者 2026-11-18 批准晋升为 `implemented`）：Windows 实测第 1、2 轮 [`windows-acceptance-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t13-tray/evidences/windows-acceptance-r1.txt)、[`windows-acceptance-r2.txt`](../../../.agents/works/w00046-desktop-release/tasks/t13-tray/evidences/windows-acceptance-r2.txt)，通过托盘图标与提示、关最后一个窗口进后台、托盘打开与再次启动、后台时服务端意外退出、托盘退出（无工作、在跑的工作的对话框、30 分钟后再打开）；没在 Windows 上验的：开机自启加托盘、改缩放后的图标、资源管理器重启后图标重建、托盘真实鼠标点击（只发了 Electrobun 的回调消息）、对话框里真实有工作的分支（目前在跑的工作只有 agent 登记，这一支只有单元测试）。

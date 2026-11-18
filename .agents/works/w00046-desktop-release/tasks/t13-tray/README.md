@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t13-tray
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -37,4 +37,4 @@ Windows 上的验收（切片 6，2026-11-17，开发者恢复 hutch.exe 之后�
 
 ## 下一步
 
-Spec 输出 28 到 31 晋升 `implemented` 要开发者批准；按 writing-specs 先逐条核对输出、失败码与验收场景各自对应的代码和测试。上面没做的三项等开发者同意（或有机会真实登录）再做。
+2026-11-18：开发者批准，输出 28 到 31 与场景 17 已晋升 `implemented`（`desktop-shell`，同时去掉 `desktop-update` 输出 6、`settings.configuration` 输出 22 里的 planned 标记；核对每条输出、失败码、验收场景各有实现与测试，没有对不上的）。Windows 上没验的四项（开机自启加托盘、改缩放后的图标、资源管理器重启后图标重建、托盘真实鼠标点击）已写进 Spec 证据一节，等开发者同意或有机会真实登录再做。
