@@ -13,7 +13,7 @@ owners:
 
 除标题栏外，工作台是一棵布局树：工具视图和编辑组都是树上的面板，活动栏和状态栏是树上的条。骨架固定：`活动栏 | 侧栏 | 编辑区 | 右栏`，面板在编辑区下面（输出 1）。面板在骨架内换位置时，它的内容不重建，并从旧位置滑到新位置。工作台是这棵树的唯一写者，插件只提交意图。
 
-侧栏、右栏、底部面板三个区域各一次显示一个视图容器：容器里的几个视图同时可见，各占一个分节，位置、大小、展开收起由容器记住；点入口切换的是整个容器，切走再切回来是原样（输出 40 到 47）（planned）。
+侧栏、右栏、底部面板三个区域各一次显示一个视图容器：容器里的几个视图同时可见，各占一个分节，位置、大小、展开收起由容器记住；点入口切换的是整个容器，切走再切回来是原样（输出 40 到 47；输出 44 入口菜单里的“移到”除外）。
 
 本 Spec 取代了 [ui.workbench-shell](workbench-shell.md) 的外壳一到三与输出 39。标题栏、状态栏的条目、无项目首页、活动栏底部条目、页面浮层与主题变量表（输出 38）留在那里。设计理由见[布局提案](../../proposals/workbench-single-tree-layout.md)与 [ADR 0044](../../adr/0044-workbench-single-layout-tree.md)；视图容器的见[视图容器提案](../../proposals/workbench-view-containers.md)与 [ADR 0046](../../adr/0046-workbench-view-containers.md)。
 
@@ -25,8 +25,8 @@ owners:
 - **条移到四边**：条在树里，位置固定。
 - **改变骨架**：面板移到编辑器旁边、工具视图夹在编辑组之间、编辑器标签拆到工具面板旁边、整块拖动面板，都没有入口（开发者 2026-11-06）。编辑器标签想离开编辑区用应用内浮动（输出 39）。
 - **面板横跨左右侧栏**这类摆法没有拖动入口。
-- **容器的其它形态**（planned）：容器里隐藏单个视图、容器嵌套容器、插件开新的入口条、编辑组进容器，都没有。浮动窗不是容器，浮动的单位仍是带标签的组。
-- **活动栏隐藏时切换侧栏的容器**（planned）：没有界面入口，只能经命令（`nbook.view.open`，输出 35），是已知限制。
+- **容器的其它形态**：容器里隐藏单个视图、容器嵌套容器、插件开新的入口条、编辑组进容器，都没有。浮动窗不是容器，浮动的单位仍是带标签的组。
+- **活动栏隐藏时切换侧栏的容器**：没有界面入口，只能经命令（`nbook.view.open`，输出 35），是已知限制。
 
 ## 术语与参与者
 
@@ -50,7 +50,7 @@ Workbench（每个窗口一个，nbook.workbench 拥有）
 - **文档树**：用户的布局，会保存。隐藏的面板也在里面；不在当前容器里的分节也在里面（planned）。
 - **呈现树**：这一刻交给 grid 求解的树，由文档树和呈现事实算出，不保存。隐藏的、放不下被收走的面板不在里面；锚与不在当前容器里的分节也不在里面（planned）。
 - **呈现事实**：实测容器尺寸、最大化、焦点。可能让呈现和文档不同，不写回文档。
-- **内容项**：一个视图或一个编辑器标签的内容（没有标签的编辑组也有一个，画空态），和叶外框是同一父元素的子元素，从建到销毁不换父元素（[ui.nested-grid](nested-grid.md) 的“内容层”）。
+- **内容项**：一个视图或一个编辑器标签的内容（没有标签的编辑组也有一个，画空态），和叶外框是同一父元素的子元素，从建到销毁不换父元素（[ui.nested-grid](nested-grid.md) 输出 82）。
 - **当前面板**：最近获得焦点的面板。焦点移到外壳之外时保持原值。焦点在右栏、底部面板的入口条里时，当前面板是头并在这一行里的那一节，没有并进来的就不变；在入口条里切了容器，焦点没动，当前面板跟着换（planned）。
 - **活动编辑组**：工作台记着的 `currentEditor`；编辑器的“活动组”就是它。
 - **有效可见**：见输出 17。
@@ -78,7 +78,7 @@ interface PanelRecord {
     tabs: ReadonlyArray<TabRef>;            // 顺序就是显示顺序
     active: string | null;
     hidden?: boolean;                       // 只有具名面板会隐藏；隐藏的是它的整个区域（planned）
-    collapsed?: boolean;
+    collapsed?: boolean;                    // 分节：收成标题行；锚：它这个区域拖到零（同名不同义，见输出 11 的表）
     container?: string;                     // （planned）分节所属容器的 id（输出 41）；只有区域里的分节有
 }
 type TabRef =
@@ -91,8 +91,6 @@ type TabRef =
 （planned）锚的记录另存它这个区域的入口顺序（容器 id 的列表）、当前容器、区域是否拖到零；这几项与 `container` 都是内部合同，记录的 `version` 不变（见“副作用与数据”）。
 
 ## 输出与可观察行为
-
-视图容器（区域、分节、容器、入口）还没有实现。标题后面带“（planned）”的条目整条是目标合同；一句话后面带“（planned）”的只有那一句是，同一条里别的话是当前行为。
 
 ### 模型
 
@@ -120,7 +118,7 @@ type TabRef =
     前三行是区域的约束，区域里的分节都用所在区域那一行；“其它工具面板”只剩浮动窗（planned）。区域实际的约束是这一行与当前容器里各视图声明的并；切换容器不改尺寸意图，新容器的约束更紧时只在呈现时夹，切回来回到原来的尺寸（planned）。
 7. **谁吸收余量**：一个子节点按比例分配（`weight`），当且仅当它含编辑组，或它的兄弟都不含编辑组；其余保留像素（`fixed`）。所以侧栏、右栏、面板和编辑区并排时保留宽度，编辑组吸收余量；全是工具面板的一列按比例分，不留白。
 8. **尺寸意图**：保存的是 CSS px，只从呈现尺寸写回：手势落账后、结构操作之前各一次。呈现为零的轴和收起的面板不写，那就是展开时的尺寸。全是工具面板的分支里有收起或隐藏的兄弟时，其余的只更新彼此的比例，总量保持原来的份额，所以展开后回到原来的尺寸。测量、夹取、放不下时的压缩、拖动期间都不写文档。不在当前容器里的分节不写，切换容器也不改任何尺寸意图，所以切走再切回来各分节的大小原样（planned）。
-9. **手势**：边界的手势按 [ui.nested-grid](nested-grid.md)：十字交汇同时调两轴、方向键 10px、Shift 1px、Home、End、Enter，一次手势只落账一次；Escape、指针取消、失焦、容器尺寸或结构变化取消整场，不提交。
+9. **手势**：边界的手势按 [ui.nested-grid](nested-grid.md) 输出 7 到 10、26：十字交汇同时调两轴、方向键 10px、Shift 1px、Home、End、Enter，一次手势只落账一次；Escape、指针取消、失焦、容器尺寸或结构变化取消整场，不提交。
 10. **放不下时只改呈现**：先把工具面板压到最小；还放不下时，按右栏、底部面板、侧栏的顺序把区域里显示着的分节、打开着的空区域（输出 48）从呈现树里收走（planned），焦点所在的面板最后收；放得下之后，没帮上忙的放回来（窄的时候收走纵向的那块不省宽度）；再放不下才压编辑组。每种降级给诊断，不写文档。窗口变大时自动回来。所有几何非负且在容器内。
 11. **面板的几种状态**互不等价，只有隐藏与拖到零画得一样、只差记录（planned）：
 
@@ -140,12 +138,12 @@ type TabRef =
 
 ### 渲染
 
-14. **按矩形摆放**：面板外框、分隔线、内容项、条是同一父元素的子元素（[ui.nested-grid](nested-grid.md) 的“按矩形摆放”“内容层”）。结构变化不重建还在的实例，内容的输入、滚动与焦点保留。三层 Teleport 与滚动焦点记忆都不再需要。
-15. **位移**：程序引起的布局变化都有过渡（[ui.nested-grid](nested-grid.md) 的“过渡”）。面板移到别处时外框从旧矩形滑到新矩形；标签并入已有面板时，内容从旧面板滑到新面板，即使两块面板都没动。飞行中的内容压在别的面板上面，不被它们裁切。容器尺寸变化与手势不过渡。系统减少动态效果时直接到终点。
+14. **按矩形摆放**：面板外框、分隔线、内容项、条是同一父元素的子元素（[ui.nested-grid](nested-grid.md) 输出 27、31、80、82）。结构变化不重建还在的实例，内容的输入、滚动与焦点保留。三层 Teleport 与滚动焦点记忆都不再需要。
+15. **位移**：程序引起的布局变化都有过渡（[ui.nested-grid](nested-grid.md) 输出 35、59、88、92）。面板移到别处时外框从旧矩形滑到新矩形；标签并入已有面板时，内容从旧面板滑到新面板，即使两块面板都没动。飞行中的内容压在别的面板上面，不被它们裁切。容器尺寸变化与手势不过渡。系统减少动态效果时直接到终点。
 16. **停放与焦点**：内容停放时不可交互，不进读屏与 Tab 顺序，保持最后的非零尺寸，不卸载。焦点所在的内容被停放、或焦点所在的面板头随面板隐藏时，焦点移到同一面板可见的标签；面板不可见时移到活动栏里它所在容器的入口（只有侧栏的容器有）（planned），都没有时移到外壳根；编辑组移到活动编辑组。焦点在外壳之外（菜单、对话框）时不抢。切换容器时的焦点见输出 42。
 17. **有效可见**（`ViewContext.visible`）：在已提交的文档里，面板不隐藏、不收起、不是零尺寸，是活动标签，不被放不下收走，不被最大化盖住；分节另要所在容器是区域的当前容器，区域没隐藏、没拖到零（planned）；浮动窗的活动标签总算可见，被别的窗盖住、树里的面板最大化时也算。手势预览不改可见性；从零拉回时按拖动中的几何算。第一次有效可见才加载（[workbench.views](../workbench/views.md)）。
 18. **Tab 与读屏顺序**：面板内按 DOM 顺序走；走出一块时按树的先后跳到下一块（标签条、内容、下一个面板）。F6、Shift+F6 在面板之间循环；活动栏与右栏、底部面板的入口条也各是一站，入口条在它区域的分节之前（planned）。读屏顺序按树序（`aria-owns`）。从外面 Tab 进来时落在树序的首或尾。
-19. **外观**：卡片还是平铺由主题决定，变量沿用 [ui.workbench-shell](workbench-shell.md) 输出 38 的那组。缝、圆角、整缝与半缝、相连，都按矩形邻接算：贴着窗体、标题栏或状态栏的一边留整缝，挨着别的卡片的一边留半缝，相连的一边不留缝；相连与否按拖动中的几何算。**一个容器一张卡片**（planned，开发者 2026-11-16 定）：侧栏、右栏、底部面板里同一区域相邻的两块（分节，以及右栏、底部面板的入口条，输出 47）相连，所以一个容器的几节拼成一张卡片；几节之间画开放式分割线：`--shell-pane-divider`，1px，沿长轴两端各缩进 `--shell-pane-divider-inset`，不碰卡片边，线两端那一小段仍是卡片，卡片的外框与投影在分割线处不断开。不同区域的卡片挨着（底部面板与右栏）照旧留缝。编辑组一组一张卡片，卡片主题里组与组之间是缝、不画线，平铺主题里的线贯通整个高度。一个角圆当且仅当它两侧的边都不相连，相连的边上没有投影与外框（planned）。**活动栏与侧栏相连**：侧栏里贴着活动栏、宽度大于零的每一块都和活动栏相连，侧栏几节时整列相连（planned；原来只认和活动栏等长的那一块）；两者之间画一条两端不碰顶底的短线。侧栏隐藏、在过渡里留着缩回去时（[ui/nested-grid](nested-grid.md) 的“过渡”），以及显示时从零宽长出来时，活动栏和侧栏画成一张：侧栏右边的两个圆角（几节时是最上面一节的右上角、最下面一节的右下角，planned）跟着它的右沿走，缩到零时正好落在活动栏右边、成了活动栏的两个角，长出来时把它们带出去；活动栏的角与两张卡片之间的缝这期间被盖着，中间不露缝，角一直是同一对圆角、不变形；中间那条短线隐藏时淡出、显示时淡入（`--motion-layout`、`--ease-layout`，和面板的过渡同时走完）。切换容器时活动栏前后都相连，不换画法（切换的动画见输出 42）。系统减少动态效果时直接到位。状态栏不是卡片。面板自己不画外框与圆角；面板头与编辑器标签栏不画底线；工具面板的当前标签是下划线加正文色，编辑组的当前标签是与正文同色的一块（[workbench.editor](../workbench/editor.md) 输出 53）。工作台页占满视口，自己不滚动，页面根不预留滚动条位置。悬停线两端的连接按邻接算。
+19. **外观**：卡片还是平铺由主题决定，变量沿用 [ui.workbench-shell](workbench-shell.md) 输出 38 的那组。缝、圆角、整缝与半缝、相连，都按矩形邻接算：贴着窗体、标题栏或状态栏的一边留整缝，挨着别的卡片的一边留半缝，相连的一边不留缝；相连与否按拖动中的几何算。**一个容器一张卡片**（planned，开发者 2026-11-16 定）：侧栏、右栏、底部面板里同一区域相邻的两块（分节，以及右栏、底部面板的入口条，输出 47）相连，所以一个容器的几节拼成一张卡片；几节之间画开放式分割线：`--shell-pane-divider`，1px，沿长轴两端各缩进 `--shell-pane-divider-inset`，不碰卡片边，线两端那一小段仍是卡片，卡片的外框与投影在分割线处不断开。不同区域的卡片挨着（底部面板与右栏）照旧留缝。编辑组一组一张卡片，卡片主题里组与组之间是缝、不画线，平铺主题里的线贯通整个高度。一个角圆当且仅当它两侧的边都不相连，相连的边上没有投影与外框（planned）。**活动栏与侧栏相连**：侧栏里贴着活动栏、宽度大于零的每一块都和活动栏相连，侧栏几节时整列相连（planned；原来只认和活动栏等长的那一块）；两者之间画一条两端不碰顶底的短线。侧栏隐藏、在过渡里留着缩回去时（[ui/nested-grid](nested-grid.md) 输出 45 到 48），以及显示时从零宽长出来时（输出 41、42），活动栏和侧栏画成一张：侧栏右边的两个圆角（几节时是最上面一节的右上角、最下面一节的右下角，planned）跟着它的右沿走，缩到零时正好落在活动栏右边、成了活动栏的两个角，长出来时把它们带出去；活动栏的角与两张卡片之间的缝这期间被盖着，中间不露缝，角一直是同一对圆角、不变形；中间那条短线隐藏时淡出、显示时淡入（`--motion-layout`、`--ease-layout`，和面板的过渡同时走完）。切换容器时活动栏前后都相连，不换画法（切换的动画见输出 42）。系统减少动态效果时直接到位。状态栏不是卡片。面板自己不画外框与圆角；面板头与编辑器标签栏不画底线；工具面板的当前标签是下划线加正文色，编辑组的当前标签是与正文同色的一块（[workbench.editor](../workbench/editor.md) 输出 53）。工作台页占满视口，自己不滚动，页面根不预留滚动条位置。悬停线两端的连接按邻接算。
 
 ### 面板头与活动栏
 
@@ -239,11 +237,11 @@ type TabRef =
 
 40. **锚、分节与归属**（planned）：三片具名面板是三个区域的锚：没有标签，不属于任何容器，不移动；区域里有分节时不进呈现树，打开着又没有分节时画成一块空面板（输出 48）。区域里别的工具面板都是分节：恰有一个标签，属于一个容器，归属写在分节自己的记录上（`container`）。往区域里放视图只新建分节，不并进已有的分节。容器里分节的先后就是它们在树里的先后。分节搬出区域（浮出来）时归属清掉；搬进区域时写上目标容器：放到分节的前后或缝上，是那个区域的当前容器；放到入口上或经“移动到”，是指定的那个容器。
 41. **容器的身份、标题与图标**（planned）：容器的 id 有三类，互不重叠：没写 `container` 的视图属于自己的隐式容器 `view:<视图 id>`；声明的容器用插件给的 id（贡献点 `workbench.viewContainers`，[workbench.views](../workbench/views.md) 输出 15）；用户拖出来的是 `custom:<UUID>`。容器出不出现只看此刻的成员：没有成员的容器没有入口。声明的容器空了入口消失，有视图回来入口回来；用户拖出来的容器空了就不再存在，它的 id 从入口顺序里删掉。入口顺序是一个区域里各容器的先后，记在锚上：容器第一次出现时排进去（输出 4），之后只随用户的操作变（输出 23、44 到 46）。标题与图标不保存，每次按同一个顺序求，活动栏、“移动到”菜单读的是同一个结果：声明的容器用声明的；隐式容器与用户拖出来的容器取第一个成员视图的（按分节的先后，跳过声明不在的视图），成员的声明都不在时写第一个成员的视图 id；声明的容器自己的声明不在了（插件被禁用）时同隐式容器。入口的悬停文字写出容器里的各个视图。
-42. **切换容器**（planned）：一个区域只显示当前容器的分节。别的容器的分节留在文档里，内容停放、不卸载；它们的先后、大小、收成标题行都不变，切回来是原样。切换是一次提交：换掉当前容器，同时清掉区域的拖到零，不改任何尺寸意图（输出 6、8）。切换本身不改区域的隐藏：隐藏着的区域要不要显示，由引起切换的那个动作定（输出 22、23、35、44、45 各自写明）。焦点留在原处；焦点原来在被切走的分节里时，交给新容器的第一个分节。结果与现在相同时零写入（输出 28）。侧栏切换的样子（planned）：侧栏这一刻显示着、宽度大于零、里面没有最大化的分节时，点活动栏的入口切换，卡片不动（位置、外框、投影与右上、右下的圆角都在原处），里面的内容竖着滚过去：新容器的分节从入口顺序的那一头进来（排在后面的从下面进来），旧的往另一头出去，两者之间隔一条缝；裁在卡片里，卡片外不画；活动栏、它和侧栏之间的短线不动，活动栏与侧栏一直相连，角的画法不换；时长与曲线同布局过渡（`--motion-layout`、`--ease-layout`）。旧容器的分节在切换那一刻就不可交互（焦点按上一句交出），滚出去之前还画着。滚到一半又点：从这一刻接着滚，不跳，两张卡片不叠；点回正在滚出去的容器，它从这一刻往回滚。侧栏隐藏或拖到零时按显示长出来，不滚；里面有最大化的分节时（切换会退出最大化）照常过渡；系统减少动态效果时直接换。命令打开视图（输出 35）、拖动落进入口、“移动到”、当前容器空了引起的换容器不滚。右栏、底部面板切换的样子（planned）：点入口条的入口切换，条件同侧栏（区域显示着、宽度大于零、里面没有最大化的分节）；卡片与顶上的入口条不动，入口条以下的内容在卡片里横着滚过去：新容器的分节从入口顺序的那一头进来（排在后面的从右边进来），旧的往另一头出去，两者之间隔一条缝；裁在卡片里入口条以下那块，卡片外不画。入口条里并进来的头在点的那一刻换成新容器的，新容器有几节时这一段空出来、新的头随内容滑进来；旧容器里头并在入口条里的那一节，滑出去时也没有头，内容不下移。入口的按下底色、下划线和内容同时滑过去，别的途径换了容器时直接到位。时长与曲线、滚到一半又点、隐藏或拖到零时、减少动态效果时、哪些途径不滚，都同侧栏。几个区域前后脚切换（侧栏还在滚时点右栏的入口）时，前一个直接到终点，这一刻整个工作台进行中的过渡一起到终点；滚的过程中别的区域显示、隐藏时，裁切窗与静止的卡片停在开始时的位置，滚完才对上（已知限制，[ui/nested-grid](nested-grid.md) 的交换）。
+42. **切换容器**（planned）：一个区域只显示当前容器的分节。别的容器的分节留在文档里，内容停放、不卸载；它们的先后、大小、收成标题行都不变，切回来是原样。切换是一次提交：换掉当前容器，同时清掉区域的拖到零，不改任何尺寸意图（输出 6、8）。切换本身不改区域的隐藏：隐藏着的区域要不要显示，由引起切换的那个动作定（输出 22、23、35、44、45 各自写明）。焦点留在原处；焦点原来在被切走的分节里时，交给新容器的第一个分节。结果与现在相同时零写入（输出 28）。侧栏切换的样子（planned）：侧栏这一刻显示着、宽度大于零、里面没有最大化的分节时，点活动栏的入口切换，卡片不动（位置、外框、投影与右上、右下的圆角都在原处），里面的内容竖着滚过去：新容器的分节从入口顺序的那一头进来（排在后面的从下面进来），旧的往另一头出去，两者之间隔一条缝；裁在卡片里，卡片外不画；活动栏、它和侧栏之间的短线不动，活动栏与侧栏一直相连，角的画法不换；时长与曲线同布局过渡（`--motion-layout`、`--ease-layout`）。旧容器的分节在切换那一刻就不可交互（焦点按上一句交出），滚出去之前还画着。滚到一半又点：从这一刻接着滚，不跳，两张卡片不叠；点回正在滚出去的容器，它从这一刻往回滚。侧栏隐藏或拖到零时按显示长出来，不滚；里面有最大化的分节时（切换会退出最大化）照常过渡；系统减少动态效果时直接换。命令打开视图（输出 35）、拖动落进入口、“移动到”、当前容器空了引起的换容器不滚。右栏、底部面板切换的样子（planned）：点入口条的入口切换，条件同侧栏（区域显示着、宽度大于零、里面没有最大化的分节）；卡片与顶上的入口条不动，入口条以下的内容在卡片里横着滚过去：新容器的分节从入口顺序的那一头进来（排在后面的从右边进来），旧的往另一头出去，两者之间隔一条缝；裁在卡片里入口条以下那块，卡片外不画。入口条里并进来的头在点的那一刻换成新容器的，新容器有几节时这一段空出来、新的头随内容滑进来；旧容器里头并在入口条里的那一节，滑出去时也没有头，内容不下移。入口的按下底色、下划线和内容同时滑过去，别的途径换了容器时直接到位。时长与曲线、滚到一半又点、隐藏或拖到零时、减少动态效果时、哪些途径不滚，都同侧栏。几个区域前后脚切换（侧栏还在滚时点右栏的入口）时，前一个直接到终点，这一刻整个工作台进行中的过渡一起到终点；滚的过程中别的区域显示、隐藏时，裁切窗与静止的卡片停在开始时的位置，滚完才对上（已知限制，[ui/nested-grid](nested-grid.md) 输出 73、74）。
 43. **当前容器空了**（planned）：当前容器的最后一个分节被拿走或关掉，提交之后区域切到入口顺序里它前面的那个容器，前面没有就切到后面的；这一次把区域拖空了（拿走了它最后一个分节）时锚隐藏，用户打开的空区域不隐藏（输出 48），其余布局不变，照常保存。这样切过去不改区域的隐藏：区域隐藏着就还隐藏着。拖动的预览里不切（输出 38）。
-44. **入口的右键菜单**（planned）：菜单是容器的：“移到”另外两个区域各一项（侧栏的入口是“移到右栏”“移到底部面板”），以及“重置”。“移到”把整个容器搬过去：分节的先后、大小、收成标题行都带着（搬进底部面板的展开），入口排在目标区域入口顺序的最后，目标区域切到它，隐藏或拖到零时同一次写入展开。“重置”把容器搬回它声明的区域（声明的容器看容器的 `location`，隐式容器看视图的 `location`），容器已经在那里时没有这一项；用户拖出来的容器没有声明的区域，也没有这一项。
-45. **入口条上的落点**（planned）：工具视图能放到入口条上：活动栏上段（侧栏的入口条），以及右栏、底部面板的入口条（输出 47，入口那一段）。落在两个入口之间（含第一个之前、最后一个之后，入口条上入口之后的空白也是“最后”）：入口滑开留出位置，落点指示是一条和入口条垂直的线（活动栏是横线，入口条是竖线），放下在这里新建一个只含它的用户容器。落在一个入口上：这个入口高亮，放下成为那个容器最后一个分节。两种放下都把这个区域切到这个容器，区域隐藏或拖到零时同一次写入展开；预览里都不切（输出 38）。来源是这个区域里一个容器唯一的视图时，落在入口之间只是给这个容器的入口换位置：容器不变，区域的显隐与当前容器也不变；落在它自己的入口上、紧挨着它的两个空位上是原处（输出 28）。来源是别的区域里一个容器唯一的视图时，落在入口之间是整个容器搬过来、id 不变（结果同输出 44 的“移到”，位置是落下的那个空位），预览里入口让开、不切。有面板最大化时不接收；编辑器标签、文件不接收；底段不接收。
-46. **拖入口**（planned）：只含一个视图的入口，拖它就是拖这个视图（输出 24），视图能去的地方它都能去。含几个视图的入口只能落在入口条上：在自己的入口条里换序，显隐与当前容器不变；落到另一个区域的入口条上，整个容器搬过去，结果同输出 44 的“移到”，位置是落下的那个空位。别处没有落点，松手取消，不开浮动窗。这一场是落点指示，不走实时布局（输出 38）。
+44. **入口的右键菜单**：菜单是容器的。“移到”另外两个区域各一项（侧栏的入口是“移到右栏”“移到底部面板”）（planned）。“移到”把整个容器搬过去：分节的先后、大小、收成标题行都带着（搬进底部面板的展开），入口排在目标区域入口顺序的最后，目标区域切到它，隐藏或拖到零时同一次写入展开（planned）；现在拖入口到别的区域的入口条已经能搬整个容器（输出 46）。“重置”把容器搬回它声明的区域（声明的容器看容器的 `location`，隐式容器看视图的 `location`），容器已经在那里时没有这一项；用户拖出来的容器没有声明的区域，也没有这一项。
+45. **入口条上的落点**（planned）：工具视图能放到入口条上：活动栏上段（侧栏的入口条），以及右栏、底部面板的入口条（输出 47，入口那一段）。落在两个入口之间（含第一个之前、最后一个之后，入口条上入口之后的空白也是“最后”）：入口滑开留出位置，落点指示是一条和入口条垂直的线（活动栏是横线，入口条是竖线），放下在这里新建一个只含它的用户容器。落在一个入口上：这个入口高亮，放下成为那个容器最后一个分节。两种放下都把这个区域切到这个容器，区域隐藏或拖到零时同一次写入展开；预览里都不切（输出 38）。来源是这个区域里一个容器唯一的视图时，落在入口之间只是给这个容器的入口换位置：容器不变，区域的显隐与当前容器也不变；落在它自己的入口上、紧挨着它的两个空位上是原处（输出 28）。来源是别的区域里一个容器唯一的视图时，落在入口之间是整个容器搬过来、id 不变（分节的先后、大小、收成标题行都带着，搬进底部面板的展开，位置是落下的那个空位），预览里入口让开、不切。有面板最大化时不接收；编辑器标签、文件不接收；底段不接收。
+46. **拖入口**（planned）：只含一个视图的入口，拖它就是拖这个视图（输出 24），视图能去的地方它都能去。含几个视图的入口只能落在入口条上：在自己的入口条里换序，显隐与当前容器不变；落到另一个区域的入口条上，整个容器搬过去：分节的先后、大小、收成标题行都带着（搬进底部面板的展开），位置是落下的那个空位。别处没有落点，松手取消，不开浮动窗。这一场是落点指示，不走实时布局（输出 38）。
 47. **右栏、底部面板的入口条**（planned）：右栏、底部面板显示着分节时，卡片顶上一行（32px）是入口条：一个容器一个入口，按入口顺序（输出 41），切换时不动；只有一个容器时也有。右栏的入口是图标，按下是底色；底部面板的入口是容器的标题，按下是下划线；按下态是“当前容器且区域可见”，至多一项。当前容器在布局文档里恰有一节时，那一节的头并进这一行，接在入口后面占剩下的宽度，不多占高度；按被呈现的那份文档的结构判，区域隐藏、拖到零、放不下收走时不变，拖动的预览里摘掉来源后只剩一节的容器也并。底部面板并进来的头不写看得见的标题，只接视图动作与框架按钮（planned）：按下的入口写着它的标题，就当它的标题用：焦点要落到这一节的标题时落到这个入口，右键与菜单键开这个视图的“移动到”（输出 23），不开容器的菜单；读屏的区域名称照旧是这一节的标题。入口条和区域的分节拼成一张卡片，和下面之间不画线。点入口、Enter：不是当前容器就切到它，区域隐藏或拖到零时同一次写入显示；是当前容器且区域可见就隐藏区域。右键与菜单键开这个容器的菜单（输出 44）。每个入口一个 Tab 停靠，读屏是一组带按下态的按钮。对齐：右栏第一个入口的图标、侧栏与右栏分节头的展开标记、资源管理器树第一层的箭头离卡片左缘相同；底部面板第一个入口的文字和底部面板分节头的标题文字离卡片左缘相同。放不下时先截断并进来的头的标题，再把排在后面的入口收进末尾的“更多”（当前容器的入口总在外面），再把视图动作收进“⋯”，框架按钮最后。入口是拖动源，入口条上的落点见输出 45、46（planned）；切换时内容怎样滚过去见输出 42。
 48. **空区域**（planned）：区域里一个分节都没有、又打开着（标题栏开关、命令的“显示”照样能打开它）时，它的锚就是这块区域，画成一块空面板：没有头，正中写“把视图拖到这里”，不接收焦点（F6 跳过）。区域拖到零、放不下时的收走同有分节的区域。整块是一个落点（指针、键盘、落点分区都是这一个，提示“放在这里”）：放下去成为这个区域里一个容器唯一的分节，区域的当前容器就是它——来源是它容器唯一的视图时整个容器搬过去，id 不变（同输出 44 的“移到”、输出 45 的“只换位置”）；否则新建一个只含它的用户容器。这不算切换当前容器：区域本来没有当前容器，预览里也这样显示。编辑器标签、文件不接收（在面板上却没有落点，算被拒绝）；整窗拖动不停靠。区域在被拖空的那一次结构操作里隐藏（拿走、移走、浮出它最后一个分节，预览里同样收起），用户打开的空区域不隐藏，刷新后还在；布局模板里存着打开的空区域时，新项目照它显示。
 
@@ -270,7 +268,7 @@ type TabRef =
 
 时序与寿命：
 
-- 文档变了或呈现事实变了，呈现树才重算；算出的结果和上一次相同时不重建。重建会取消进行中的边界手势（[ui.nested-grid](nested-grid.md)），所以容器尺寸连续变化时只有被收走的集合变了才重建。
+- 文档变了或呈现事实变了，呈现树才重算；算出的结果和上一次相同时不重建。重建会取消进行中的边界手势（[ui.nested-grid](nested-grid.md) 输出 9），所以容器尺寸连续变化时只有被收走的集合变了才重建。
 - 外层过渡中，叶里嵌的内容尺寸逐帧变化。视图不要把过渡中的尺寸当事实记下来；最终尺寸在过渡结束后稳定。
 - 放下后内容的飞行由文档变化触发，提交是同步的；飞行中开始新的手势，飞行直接到终点。
 - 一次打开先写 `editor.tabs`，它确认后再写 `workbench.layout`；前者失败后者不写。崩在两次之间只多一条无主的标签项，恢复时丢弃，不会出现引用不存在的标签。属性变化（光标、固定）随时写，删除只在布局存盘前一起写：标签关掉到布局落盘之间刷新，不会把已经关掉的标签恢复成占位。布局记录被保护或读不了时不删。
@@ -349,19 +347,21 @@ type TabRef =
 32. （planned）Given 侧栏有两个容器，正在拖一个视图，When 用命令打开另一个容器里的视图，Then 这一场拖动取消，拖动本身零写入；侧栏已经切到命令指定的容器。
 33. （planned）Given 侧栏显示着两个分节的“项目”，放慢过渡，When 点活动栏另一个容器的入口、停在过渡中几个时刻，Then 卡片不动，上下的缝与右上、右下两个圆角外面一直是窗体底，内容整块竖着走、都在卡片里，活动栏一直和侧栏相连、角不换画法，按下的块和内容同时走；When 滚到一半再点回“项目”，Then 它从这一刻往回滚，两个容器的内容不叠，结束时两个分节原样。
 
-Smoke 入口：`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`、`e2e/workbench-dnd.e2e.ts`、`e2e/lab-grid-structure.e2e.ts`；生产构建下打开 `/?project=…`。
+Smoke 入口：`e2e/workbench-containers.e2e.ts`、`e2e/workbench-dnd.e2e.ts`、`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`；生产构建下打开 `/?project=…`。
 
 ## 实现合同
 
-- **公开入口**：`@notnotype/nb-layout`（`layout-doc`、`layout-drop`、`layout-project`）与 `./vue`（`NestedGrid`）；工作台的 `web/state/layout-doc-store.ts`（store）、`web/components/WorkbenchSurface.vue`（表面）、`web/layout-drag.ts`（拖动）；服务键 `editorPanelsKey`（`workbench/shared/contracts.ts`）。
-- **owner 与依赖方向**：`nbook.workbench` 是树的唯一写者。`nb-layout` 不知道角色与骨架的含义，规则经 `LayoutPolicy` 由 `web/state/layout-constraints.ts` 给。编辑器只经 `editorPanelsKey` 改结构。
-- **骨架靠三处守住**：落点只给合骨架的目标（`layoutEdgeTarget`）；具名面板不移动（`moveTabToEdge`）；store 的 `apply` 出口过 `fitsSkeleton`。`default-tree.test.ts` 的随机操作性质测试钉住。
+- **公开入口**：`@notnotype/nb-layout` 的布局文档操作、落点判定与投影，`@notnotype/nb-layout/vue` 的 `NestedGrid`；对插件与 Agent 是命令、公开状态与贡献点（输出 35、36，“边界与兼容”），对编辑器是服务键 `editorPanelsKey`。
+- **owner 与依赖方向**：`nbook.workbench` 是树的唯一写者。`nb-layout` 不知道角色与骨架的含义，规则经 `LayoutPolicy` 由工作台给。编辑器只经 `editorPanelsKey` 改结构。
+- **骨架靠几处守住**：落点只给合骨架的目标（`layoutEdgeTarget`）；具名面板不移动（`moveTabToEdge`）；store 的 `apply` 出口过 `fitsSkeleton`；读记录时有容器之前存的布局回落默认树（`predatesContainers`，输出 20、验收 30）。`default-tree.test.ts` 的随机操作性质测试钉住。
 - **文档只在内存里有一份**：打开时从记录读一次，之后记录只管存，别的窗口保存不改本窗口的显示。
-- **内容项不换父元素**：这是内容不重建、滚动不丢的唯一保证（[ui.nested-grid](nested-grid.md) 的“内容层”）。
+- **内容项不换父元素**：这是内容不重建、滚动不丢的唯一保证（[ui.nested-grid](nested-grid.md) 输出 82）。
+- **当前容器只在提交时变**：预览不切容器（输出 38），切换是一次提交（输出 42）；当前容器空了由 `settleContainers` 统一换到相邻的容器（输出 43）。`layout-present.test.ts`、`entry-drop.test.ts`、`containers.test.ts` 钉住。
+- **切换容器不改尺寸意图**：新容器的约束更紧时只在呈现时夹，切回来回到原来的尺寸（输出 6、42）。`workbench-containers.e2e.ts` 钉住。
 
 ## 证据
 
-- 实现入口：[`web/state/layout-doc-store.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts)、[`web/layout-drag.ts`](../../../packages/neuro-book/src/plugins/workbench/web/layout-drag.ts)、[`web/components/WorkbenchSurface.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue)、[`nb-layout/src/layout-doc.ts`](../../../packages/nb-layout/src/layout-doc.ts)、[`nb-layout/src/layout-drop.ts`](../../../packages/nb-layout/src/layout-drop.ts)。
-- 合同测试：[`web/state/default-tree.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/default-tree.test.ts)、[`web/state/layout-doc-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.test.ts)、[`web/state/layout-constraints.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.test.ts)、[`nb-layout/src/layout-doc.test.ts`](../../../packages/nb-layout/src/layout-doc.test.ts)、[`nb-layout/src/layout-drop.test.ts`](../../../packages/nb-layout/src/layout-drop.test.ts)。
-- Smoke：[`e2e/workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)、[`e2e/workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`e2e/workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)。；输出 20 的标题区几句：同 [`workbench/views.md`](../workbench/views.md) 输出 19 的 Smoke，同样没有“收着时按标题只展开”的自动化测试
-- 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md)，开发者 2026-11-05 接受，决策记录含 2026-11-06 的四条；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。标 planned 的视图容器条目：[视图容器提案](../../proposals/workbench-view-containers.md)，开发者 2026-11-10 接受；[ADR 0046](../../adr/0046-workbench-view-containers.md)。空区域（输出 48）与回到原处展开（输出 38）：开发者 2026-11-12 试用 t24 后的要求，[ADR 0050](../../adr/0050-workbench-empty-region-anchor.md)。隐藏与拖到零画得一样（输出 11、12）：开发者 2026-11-15 试用后定，“经活动栏收起的侧栏和拖到零都是一种，按‘拖到零’来画”，见 [t25 计划](../../../.agents/works/w00026-layout-package/tasks/t25-container-feedback/plan.md)的“第 2 条第四轮”。标签条里排序按被拖标签的位置判（输出 38），编辑组之间不画线（输出 19）：开发者 2026-11-16 试用后的要求（w00026 t25）。显示、隐藏时面板的角接到活动栏上（输出 19）：开发者 2026-11-16 在 t25 的评审页 join-motion 上选丙（“右边那个面板的右侧的两个角取代左侧 ActivityBar 的右边两个角”）。标题行是开关、一列全部收起时最后一节垫底（输出 11、20）：开发者 2026-11-17 在 [w00026 t29](../../../.agents/works/w00026-layout-package/tasks/t29-panel-head-redesign/README.md) 的评审板上选甲。右栏、底部面板的入口条与并成一行（输出 6、13、20、47）：开发者 2026-11-16 在 [w00026 t27](../../../.agents/works/w00026-layout-package/tasks/t27-region-entry-strips/README.md) 的评审页上选的 `strip-3` 甲，细节见 [t28 计划](../../../.agents/works/w00026-layout-package/tasks/t28-panel-entry-strips/plan.md)。视图的标题区（views.md 输出 19 与 workbench-layout 输出 20 的相关几句）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9）。
+- 实现入口：[`web/state/layout-doc-store.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts)、[`web/layout-drag.ts`](../../../packages/neuro-book/src/plugins/workbench/web/layout-drag.ts)、[`web/components/WorkbenchSurface.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue)、[`nb-layout/src/layout-doc.ts`](../../../packages/nb-layout/src/layout-doc.ts)、[`nb-layout/src/layout-drop.ts`](../../../packages/nb-layout/src/layout-drop.ts)、[`web/state/containers.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/containers.ts)、[`web/state/layout-present.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-present.ts)、[`web/entry-drop.ts`](../../../packages/neuro-book/src/plugins/workbench/web/entry-drop.ts)、[`web/live-drag.ts`](../../../packages/neuro-book/src/plugins/workbench/web/live-drag.ts)、[`nb-layout/src/layout-project.ts`](../../../packages/nb-layout/src/layout-project.ts)。
+- 合同测试：[`web/state/default-tree.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/default-tree.test.ts)、[`web/state/layout-doc-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.test.ts)、[`web/state/layout-constraints.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.test.ts)、[`nb-layout/src/layout-doc.test.ts`](../../../packages/nb-layout/src/layout-doc.test.ts)、[`nb-layout/src/layout-drop.test.ts`](../../../packages/nb-layout/src/layout-drop.test.ts)、[`nb-layout/src/layout-project.test.ts`](../../../packages/nb-layout/src/layout-project.test.ts)、[`web/state/containers.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/containers.test.ts)、[`web/state/layout-present.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-present.test.ts)、[`web/entry-drop.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/entry-drop.test.ts)、[`web/live-drag.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/live-drag.test.ts)、[`web/commands/part-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/part-commands.test.ts)、[`web/commands/panel-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.test.ts)、[`web/commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)、[`web/shell/adjacency.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/shell/adjacency.test.ts)、[`web/components/WorkbenchPanelHead.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.dom.test.ts)、[`web/components/WorkbenchRegionStrip.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchRegionStrip.dom.test.ts)。
+- Smoke：[`e2e/workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)、[`e2e/workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`e2e/workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)、[`e2e/workbench-containers.e2e.ts`](../../../packages/neuro-book/e2e/workbench-containers.e2e.ts)、[`e2e/workbench-live-drag.e2e.ts`](../../../packages/neuro-book/e2e/workbench-live-drag.e2e.ts)、[`e2e/workbench-float.e2e.ts`](../../../packages/neuro-book/e2e/workbench-float.e2e.ts)、[`e2e/lab-workbench-surface.e2e.ts`](../../../packages/neuro-book/e2e/lab-workbench-surface.e2e.ts)、[`e2e/lab-drop-sectors.e2e.ts`](../../../packages/neuro-book/e2e/lab-drop-sectors.e2e.ts)、[`e2e/lab-grid-panels.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-panels.e2e.ts)、[`e2e/workbench-drag-cost.e2e.ts`](../../../packages/neuro-book/e2e/workbench-drag-cost.e2e.ts)（数样式重算与排版的次数）；输出 20 的标题区几句：同 [`workbench/views.md`](../workbench/views.md) 输出 19 的 Smoke，同样没有“收着时按标题只展开”的自动化测试
+- 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md)，开发者 2026-11-05 接受，决策记录含 2026-11-06 的四条；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。视图容器（输出 40 到 48）：[视图容器提案](../../proposals/workbench-view-containers.md)，开发者 2026-11-10 接受；[ADR 0046](../../adr/0046-workbench-view-containers.md)。空区域（输出 48）与回到原处展开（输出 38）：开发者 2026-11-12 试用 t24 后的要求，[ADR 0050](../../adr/0050-workbench-empty-region-anchor.md)。隐藏与拖到零画得一样（输出 11、12）：开发者 2026-11-15 试用后定，“经活动栏收起的侧栏和拖到零都是一种，按‘拖到零’来画”，见 [t25 计划](../../../.agents/works/w00026-layout-package/tasks/t25-container-feedback/plan.md)的“第 2 条第四轮”。标签条里排序按被拖标签的位置判（输出 38），编辑组之间不画线（输出 19）：开发者 2026-11-16 试用后的要求（w00026 t25）。显示、隐藏时面板的角接到活动栏上（输出 19）：开发者 2026-11-16 在 t25 的评审页 join-motion 上选丙（“右边那个面板的右侧的两个角取代左侧 ActivityBar 的右边两个角”）。标题行是开关、一列全部收起时最后一节垫底（输出 11、20）：开发者 2026-11-17 在 [w00026 t29](../../../.agents/works/w00026-layout-package/tasks/t29-panel-head-redesign/README.md) 的评审板上选甲。右栏、底部面板的入口条与并成一行（输出 6、13、20、47）：开发者 2026-11-16 在 [w00026 t27](../../../.agents/works/w00026-layout-package/tasks/t27-region-entry-strips/README.md) 的评审页上选的 `strip-3` 甲，细节见 [t28 计划](../../../.agents/works/w00026-layout-package/tasks/t28-panel-entry-strips/plan.md)。视图的标题区（views.md 输出 19 与 workbench-layout 输出 20 的相关几句）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9）。
