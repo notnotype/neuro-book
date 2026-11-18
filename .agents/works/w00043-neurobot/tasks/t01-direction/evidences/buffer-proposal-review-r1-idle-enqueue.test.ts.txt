@@ -1,0 +1,21 @@
+// 空闲时 enqueue 的话：不开运行、一直就绪；之后会话身份开的运行在一轮结束时把它取走
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+let n = 0;
+const id = () => `c-${++n}`;
+test("空闲时 enqueue 之后由别的发出者开运行", async () => {
+    await using s = await createTestSession({});
+    s.model.script("答一", "答二", "答三");
+    const q = await s.raw.enqueue({commandId: id(), input: {text: "用户空闲时排的"}, mode: "followup"});
+    console.log("enqueue on idle:", JSON.stringify(q.ok ? q.value : q));
+    let snap = await s.raw.snapshot();
+    console.log("status after enqueue:", JSON.stringify(snap.run ?? snap.status), "buffer:", snap.buffer.length);
+    const host = s.raw.as({kind: "session", id: "other-session"});
+    const sent = await host.send({commandId: id(), input: {text: "会话身份发的"}});
+    if (!sent.ok) throw new Error(JSON.stringify(sent));
+    const r = await s.raw.waitRun(sent.value.runId!);
+    snap = await s.raw.snapshot();
+    const inputs = (await s.raw.log({afterSeq: 0, limit: 500})).events.filter((e: any) => e.type === "input").map((e: any) => ({text: e.data.text, by: e.data.by ?? "user"}));
+    console.log("run:", r.reason, "inputs on path:", JSON.stringify(inputs), "buffer after:", snap.buffer.length);
+});

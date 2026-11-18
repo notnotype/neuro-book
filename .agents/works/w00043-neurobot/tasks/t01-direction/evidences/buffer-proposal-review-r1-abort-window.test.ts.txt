@@ -1,0 +1,31 @@
+// 中止进行中（运行还没收口）到达的话：缺省 abort 会不会把它一起清掉
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+let n = 0;
+const id = () => `c-${++n}`;
+test("中止进行中到达的 followup", async () => {
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    let finishTool!: () => void;
+    const slow = {id: "slow", execute: (_a: any, ctx: any) => new Promise<string>((resolve) => {
+        entered();
+        ctx.signal.addEventListener("abort", () => { finishTool = () => resolve("stopped"); });
+    })};
+    await using s = await createTestSession({tools: [slow]});
+    s.model.script({tools: [{tool: "slow"}]}, "答二");
+    const sent = await s.raw.send({commandId: id(), input: {text: "任务"}});
+    if (!sent.ok) throw new Error("send failed");
+    await inside;
+    const before = await s.raw.send({commandId: id(), input: {text: "中止前排的"}});
+    const aborting = s.raw.abort({commandId: id()});
+    await new Promise((r) => setTimeout(r, 10));
+    console.log("status while aborting:", JSON.stringify((await s.raw.snapshot()).run ?? (await s.raw.snapshot()).status));
+    const during = await s.raw.as({kind: "session", id: "host-like"}).send({commandId: id(), input: {text: "中止进行中到达的（会话身份）"}});
+    console.log("send during aborting:", JSON.stringify(during.ok ? during.value : during));
+    finishTool();
+    console.log("abort:", JSON.stringify(await aborting));
+    const log = (await s.raw.log({afterSeq: 0, limit: 500})).events;
+    console.log("removed:", JSON.stringify(log.filter((e: any) => e.type === "inputRemoved").map((e: any) => e.data)));
+    console.log("buffer after:", (await s.raw.snapshot()).buffer.length, JSON.stringify(before.ok));
+});
