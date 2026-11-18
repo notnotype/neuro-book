@@ -15,7 +15,7 @@
 
 依赖的现有合同：[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)（工具调用、审批阶段、`ctx.read`、`ctx.ask`、调用身份 输出 87）、[`agent/builtin-tools.md`](../../../../../docs/specs/agent/builtin-tools.md)（`shell` 的工作目录、环境、输出窗口与全文）、[`agent/permissions.md`](../../../../../docs/specs/agent/permissions.md)、[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md)、[`agent/resources.md`](../../../../../docs/specs/agent/resources.md)（`docs://`、资源视图的 `call(ctx)` 分组）。
 
-工作方式：Spec 在计划确认后写（`planned`）；计划过设计审查（后端：omp；前端：Sonnet，界面部分在评审板定稿之后再审）；实现每片自跑验证、单独提交，Task 收口做一次实现审查（后端 omp、前端 Sonnet）。
+工作方式：Spec 在计划确认后写（`planned`）；计划过设计审查（后端与事实：omp；从整体看：Claude Opus；对话视图一节：Sonnet）；实现每片自跑验证、单独提交，Task 收口做一次实现审查（后端 omp、前端 Sonnet）。
 
 ## 技术选型
 
@@ -65,9 +65,14 @@
 
 ### 对话视图（`packages/nb-agent-ui`、`plugins/agent/web`）
 
-- eval 卡片：标题（`title` 或代码第一行）、代码（高亮）、输出、图片、里面调过的工具作为子行（可点开，复用各工具已有的详情）、重置提示。
+注意力排序已定（README 决定 6），做起来复杂的地方可以从简：
+
+- eval 是思维链里的卡片（`card`）：标题（`title` 或代码第一行）；嵌套调用收成一行计数（“调用了 30 次工具：读了 28 个文件，改了 2 个”），改文件、出错、被拒的几次直接列出（复用各工具已有的行与详情），其余点开看；重置提示。
+- 详情：代码在上、默认收起（高亮），输出与图片在下。
+- 嵌套调用读写的文件算进思维链摘要与轮末汇总（核心的适配器把 `toolStarted{within}` 与 `nestedToolResult` 映射成 eval 调用下的子调用）。
+- 运行中：已用时、已调用次数与当前一步；适配器拿不到实时的嵌套事件时退成转圈加用时。
 - 审批向导：eval 的预览是代码；嵌套调用的询问写明“eval 里的调用”。
-- 先出静态稿上评审板，开发者定稿后再写组件与 Spec 的界面部分。
+- 外观由现有部件组成，不另出静态稿；做完截图给开发者看，有待定的外观再上评审板。
 
 ## Spec 与文档改动
 
@@ -77,7 +82,7 @@
 - `agent/permissions.md`：嵌套调用照常判定，询问带来源；eval 是执行档。
 - `agent/resources.md`：`docs://eval/`。
 - `agent/builtin-profiles.md`：eval 进哪些 Profile（待确认 1）。
-- `ui/agent-conversation-view.md`：eval 卡片与嵌套询问（评审板之后）。
+- `ui/agent-conversation-view.md`：eval 卡片、嵌套调用的计数与摘要、嵌套询问。
 - `plugin-sdk` 作者文档：全局对象。
 
 ## 切片
@@ -86,7 +91,7 @@
 2. **内核通道**（nb-harness）：`invoke`、`exposure`、事件、恢复。验证：nb-harness 的 bun 测试（真实内核、测试工具），类型检查。
 3. **eval 工具与内核**（nbook.agent）：子进程、改写、协议、输出、时限、空闲、重置、审批预览、打包。验证：`plugins/agent/eval.test.ts`（真实服务端内核、真实子进程），`rewrite.test.ts`，应用包测试。
 4. **全局对象**：声明、Proxy、`docs://eval/`、SDK 示例。验证：同上加示例的场景测试。
-5. **界面**：评审板定稿 → 卡片、子行、审批向导、Lab 场景、e2e。
+5. **界面**：卡片、子行、摘要计数、审批向导、Lab 场景、e2e；做完截图给开发者看。
 6. **真实模型**：`eval.llm.test.ts`（批量读几章做统计；调一个要审批的写工具）。
 
 ## 验收映射
@@ -100,7 +105,7 @@ Spec 写好后按编号补；先列要覆盖的场景：
 - 回退到 eval 之前再调：内核重置并提示；分叉出的会话同样。→ `eval.test.ts`
 - 中途停止：子进程被杀，在途的嵌套调用收到中止。→ `eval.test.ts`
 - 全局对象：只在绑定了它的 Profile 里可用；文档地址读得到。→ 示例场景测试
-- 界面：评审板之后补。
+- 界面：嵌套调用的计数与改动列出、摘要与轮末汇总算进嵌套读写、代码默认收起。→ nb-agent-ui DOM 测试、Lab 场景与 e2e
 
 ## 验证
 
