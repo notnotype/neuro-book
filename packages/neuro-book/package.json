@@ -47,6 +47,7 @@
         "@notnotype/owned-process": "workspace:*",
         "@oh-my-pi/pi-natives": "18.14.0",
         "@vue/reactivity": "^3.5.39",
+        "acorn": "^8.15.0",
         "commander": "^14.0.2",
         "entities": "8.0.0",
         "fast-xml-parser": "^5.11.2",
