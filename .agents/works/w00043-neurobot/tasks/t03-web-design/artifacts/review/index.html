@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：bot 的消息页</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .cands, .cands.three { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.cand img + img { margin-top: 8px; }
+.pair { display: grid; grid-template-columns: 1fr 2.6fr; gap: 8px; align-items: start; }
+.pair img + img { margin-top: 0; }
+.narrow-shot { max-width: 260px; margin: 0 auto; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：bot 的消息页</h1>
+
+<section>
+  <h2>现状与参照</h2>
+  <table>
+    <thead><tr><th>参照</th><th>用在哪</th></tr></thead>
+    <tbody>
+      <tr><td>现有的 Agent 对话视图（w00032 t17、t28、t29 的评审板）</td><td>右栏的聊天直接是它，关掉自带的头，换成星璃的头</td></tr>
+      <tr><td>书架页案头的看板娘（书架提案）</td><td>书架上进消息页的入口，下一轮画</td></tr>
+      <tr><td>IM 软件：左栏会话、右栏聊天，窄时左栏缩成头像列</td><td>版式（开发者 2026-11-18）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section data-nbdev-question="list-content" data-nbdev-type="single" data-nbdev-recommend="with-sessions">
+  <h2>左栏要不要放“会话”？</h2>
+  <p class="rec"><strong>推荐 B：第一版左栏只有星璃一个，放一组折叠的会话，bot 和会话在一个地方找；以后的群聊排在 bot 下面。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="bots-only" data-nbdev-label="A 只放 bot">
+      <h3>A 只放 bot</h3>
+      <img src="r1/bots-only.webp" alt="左栏只有星璃">
+      <p>会话仍在原来的会话列表里，消息页只管 bot。</p>
+    </div>
+    <div class="cand" data-nbdev-option="with-sessions" data-nbdev-label="B bot 加折叠的会话">
+      <h3>B bot 加折叠的会话</h3>
+      <img src="r1/wide.webp" alt="左栏星璃加折叠的会话一组">
+      <img src="r1/wide-session.webp" alt="展开会话、正在看一个会话，星璃有两条未读、有事等你">
+      <p>看会话时，星璃的未读数与“有事等你”的点照样在左栏。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="placement" data-nbdev-type="single" data-nbdev-recommend="both">
+  <h2>打开作品时，消息页放在哪？</h2>
+  <p class="rec"><strong>推荐 C：同一个组件按宽度切换，宽时在编辑区整页看、窄时停在侧栏，头像列就是平时的入口。</strong></p>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="page" data-nbdev-label="A 编辑区整页">
+      <h3>A 编辑区整页</h3>
+      <img src="r1/wide.webp" alt="编辑区整页的宽版">
+      <p>和打开一章并排，切走就看不见未读。</p>
+    </div>
+    <div class="cand" data-nbdev-option="side" data-nbdev-label="B 侧栏">
+      <h3>B 侧栏</h3>
+      <img class="narrow-shot" src="r1/narrow.webp" alt="侧栏的窄版：头像列加对话">
+      <p>写稿时一直在边上，长回复读起来窄。</p>
+    </div>
+    <div class="cand" data-nbdev-option="both" data-nbdev-label="C 两者都有">
+      <h3>C 两者都有</h3>
+      <div class="pair">
+        <img src="r1/narrow.webp" alt="侧栏的窄版">
+        <img src="r1/wide.webp" alt="拖到编辑区或拉宽后的宽版">
+      </div>
+      <p>侧栏拉宽或拖进编辑区时自动变成宽版。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>bot 的视图是 IM 式：左边是聊天与群聊，右边是聊天界面（开发者 2026-11-18）</li>
+    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程与记忆默认收起，从头部的入口进；关着时只剩头像加未读气泡；不自动收起（开发者 2026-11-18“可以”）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>
