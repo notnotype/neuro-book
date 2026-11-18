@@ -196,11 +196,14 @@ function display(image: {data: unknown; mime: unknown}): void {
  * 内核的工作目录解析，与 `shell` 里写相对路径的结果一致。
  */
 function importFrom(specifier: string, options?: ImportCallOptions): Promise<unknown> {
-    if (/^(?:node|bun):/u.test(specifier) || specifier.startsWith("file:")) return import(specifier, options);
-    if (isAbsolute(specifier)) return import(pathToFileURL(specifier).href, options);
-    if (specifier.startsWith("./") || specifier.startsWith("../")) return import(pathToFileURL(resolve(process.cwd(), specifier)).href, options);
-    return import(Bun.resolveSync(specifier, process.cwd()), options);
+    if (/^(?:node|bun):/u.test(specifier) || specifier.startsWith("file:")) return load(specifier, options);
+    if (isAbsolute(specifier)) return load(pathToFileURL(specifier).href, options);
+    if (specifier.startsWith("./") || specifier.startsWith("../")) return load(pathToFileURL(resolve(process.cwd(), specifier)).href, options);
+    return load(Bun.resolveSync(specifier, process.cwd()), options);
 }
+
+/** 内核里唯一一处计算出来的导入：模块是用户代码要的，不是打包要管的依赖（应用包的发布检查按这段文字放行，scripts/pack-app.ts）。 */
+const load = (target: string, options?: ImportCallOptions): Promise<unknown> => import(target, options);
 
 Object.assign(globalThis, {
     tool,
@@ -281,7 +284,9 @@ const KILL_GROUP = `
 `;
 
 // 单独一个线程：主线程被同步死循环占住时 IPC 的 disconnect 事件不会派发（omp 为此加了看门狗线程，issue #14340）。
-new Worker(URL.createObjectURL(new Blob([KILL_GROUP], {type: "application/javascript"})), {workerData: {parent: process.ppid, self: process.pid}} as WorkerOptions);
+// 线程的代码是一段 Blob URL，不按路径找文件（应用包的发布检查按这段文字放行，scripts/pack-app.ts）。
+const watchdogUrl = URL.createObjectURL(new Blob([KILL_GROUP], {type: "application/javascript"}));
+new Worker(watchdogUrl, {workerData: {parent: process.ppid, self: process.pid}} as WorkerOptions);
 process.on("disconnect", () => {
     try {
         process.kill(-process.pid, "SIGKILL");

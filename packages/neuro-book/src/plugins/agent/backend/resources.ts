@@ -74,12 +74,33 @@ export function sessionResources(files: WorkspaceFiles, context: ToolSessionCont
         classify,
         ...bind(files, expand, {agent: self}, undefined),
         call: (call, info) => {
-            // 分组在第一次用到时建一次，这次调用里的全部写入共用它。
+            // 分组在第一次用到时建一次，这次调用里的全部写入共用它。代码里调的工具（`within`，resources.md 输出 17）按父调用共用
+            // 一个组：一段 eval 里的十次写入是一次操作；来源条目仍是各自的嵌套调用。
+            const within = call.within;
             let grouped: Promise<WorkspaceFiles> | null = null;
-            const scoped = (): Promise<WorkspaceFiles> => (grouped ??= files.group({title: info?.title ?? toolId ?? "Agent", ...(info?.note === undefined ? {} : {note: info.note})}, async (group) => group));
+            const scoped = (): Promise<WorkspaceFiles> => {
+                if (within !== undefined) return nestedGroup(`${context.sessionId}/${within.invocation}`, () => files.group({title: within.tool}, async (group) => group));
+                return (grouped ??= files.group({title: info?.title ?? toolId ?? "Agent", ...(info?.note === undefined ? {} : {note: info.note})}, async (group) => group));
+            };
             return bind(lazy(scoped), expand, {agent: {...self, entry: call.callId}}, call.signal);
         },
     };
+}
+
+/**
+ * 父调用（eval 的一次执行）到它的嵌套写入共用的组。每个工具各有一份资源视图，组得放在它们之外；按“会话/父调用”记，只留最近的
+ * 一批：父调用活不过它的运行，旧的组不会再有人要。
+ */
+const NESTED_GROUP_LIMIT = 256;
+const nestedGroups = new Map<string, Promise<WorkspaceFiles>>();
+function nestedGroup(key: string, open: () => Promise<WorkspaceFiles>): Promise<WorkspaceFiles> {
+    let group = nestedGroups.get(key);
+    if (group === undefined) {
+        group = open();
+        nestedGroups.set(key, group);
+        if (nestedGroups.size > NESTED_GROUP_LIMIT) nestedGroups.delete(nestedGroups.keys().next().value!);
+    }
+    return group;
 }
 
 /**

@@ -23,10 +23,11 @@ export interface SessionCalls extends Bound<Omit<WorkspaceFiles, "group">> {
     group<T>(info: {readonly title: string; readonly note?: string}, run: (scoped: SessionCalls) => Promise<T>): Promise<T>;
 }
 
-/** 一次工具调用：条目 id 与终止信号（`ToolContext` 的 `callId`、`signal`）。 */
+/** 一次工具调用：条目 id 与终止信号（`ToolContext` 的 `callId`、`signal`）；代码里调的工具另有父调用（`within`，输出 17）。 */
 export interface ToolCall {
     readonly callId: string;
     readonly signal: AbortSignal;
+    readonly within?: {readonly tool: string; readonly invocation: string};
 }
 
 export interface SessionResources extends SessionCalls {

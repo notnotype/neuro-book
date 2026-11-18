@@ -32,7 +32,8 @@ const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
     "nbook.agent.grep": {...kit.grep, providerName: "grep"},
     "nbook.agent.glob": {...kit.glob, providerName: "glob"},
     "nbook.agent.shell": {...kit.shell, providerName: "shell"},
-    "nbook.agent.switch-mode": {...switchModeDeclaration, providerName: "switch_mode"},
+    // 切换模式靠结果归约改状态：从代码里调只生效一半，所以不许（harness/runtime.md 输出 92）。
+    "nbook.agent.switch-mode": {...switchModeDeclaration, providerName: "switch_mode", codeCallable: false},
     "nbook.agent.ask": {...kit.ask, providerName: "ask"},
     "nbook.agent.ask-form": {...kit.askForm, providerName: "ask"},
 };

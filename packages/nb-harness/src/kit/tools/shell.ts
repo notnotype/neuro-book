@@ -128,6 +128,8 @@ async function run(context: ToolSessionContext, {files, artifacts}: KitServices,
         if (path !== null) env[name] = path;
     }
 
+    // 代码里调的 shell 不转后台（builtin-tools.md 输出 29）：后台命令的寿命超出那段代码，结果也没人去取。
+    if (args.async === true && call.within !== undefined) return {text: "代码里调的 shell 不能转后台（async）：去掉 async 在前台跑，或者直接调 shell。", status: "error", code: "async-in-code"};
     if (args.async === true && background !== undefined) return background({command: replaced.command, cwd: cwd.value.path, env}, {args, call, context, files});
 
     const capture = new OutputCapture();

@@ -52,7 +52,7 @@ describe("应用包", () => {
         // Agent 读的产品文档（docs/specs/agent/resources.md 输出 8）：SDK 的作者文档与 Agent 自己的文档。
         const docs = entries.filter((name) => name.startsWith("package/docs/"));
         expect(docs).toEqual(expect.arrayContaining(["package/docs/builtin/sdk/README.md", "package/docs/builtin/sdk/docs/exports.md", "package/docs/agent/addresses.md"]));
-        expect(entries.filter((name) => !chunks.includes(name) && !docs.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/main.js", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
+        expect(entries.filter((name) => !chunks.includes(name) && !docs.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/eval-kernel.js", "server/main.js", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
 
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: APP_NAME, version: PRODUCT_VERSION, bin: {nbook: "./server/nbook.js"}, engines: {bun: BUN_ENGINE}, license: "AGPL-3.0-only", publishConfig: {access: "public"}});
