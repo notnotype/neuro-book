@@ -1,0 +1,111 @@
+# t22 计划设计审查 r1（只读；Chromium 实验脚本在 /tmp/t22-sel/exp*.mjs，用 google-chrome-stable 无头跑）
+
+[1] 重要 对话框正文里的信息类内容整体漏掉（Dialog 经 Portal 挂在 body 下，继承 html 的 none，也不在 .acv-stream 里）
+问题：计划只给 DialogSurface 的标题写 none，没有任何一个对话框里的信息类内容声明可选。桌面全局 none 后这些都选不了：
+  - 上下文检查器（系统提示词 <pre>、诊断 message、槽位表）AgentContextInspector.vue:95,109，它在 AgentConversationView.vue:540-558 的 Dialog 里，不在 .acv-stream 内；
+  - 会话树对话框 AgentSessionTree（AgentConversationView.vue:560-575，条目 id、标题）；
+  - SkillInitDialog 的命令输出 .skill-init__output（SkillInitDialog.vue:70,102）；
+  - DialogSurface 页脚状态行（出错时是服务端返回的错误文字，DialogSurface.vue:149-163，aria-live=polite 而不是 role=alert，所以计划的 :where([role=alert]) 规则覆盖不到）；
+  - OriginalImagePreviewDialog 的加载错误（已是 role=alert，会被覆盖，不用另改）。
+依据：上面文件:行号；nb-ui/src/components/feedback/DialogSurface.vue:175-183 的注释自己写着“正文里照常能选”，是靠“没有全局 none”成立的。
+VS Code 对照：dialog 的 message 与 footer 行在对话框层统一写 user-select:text（src/vs/base/browser/ui/dialog/dialog.css:104），不让每个调用方各写。
+建议：在 nb-ui 的 Dialog 层给“信息类”留一个出口：DialogSurface 状态行写 text（一处）；ContextInspector、SessionTree、SkillInit 输出各在根上写 text。清点表里把“对话框正文”单列一类，而不是只列“DetailDialog 正文”。
+
+[2] 重要 Markdown 批注（comment）的意见文字没有声明，桌面里会选不了
+问题：批注意见 <p class="markdown-comment-card__body">（MarkdownCommentCard.vue:159）在浮层与页边卡片里，既不在 .nb-markdown 之内（浮层经 AnchoredPopover 挂出去，页边卡片在编辑器旁边的另一棵子树），也没有声明。用户要复制作者或 Agent 写的批注意见，这是典型的“内容”。浏览器里现在可选。
+依据：packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentCard.vue:159（同文件 197 起样式里无 user-select）；MarkdownCommentMargin.vue 是页边容器。
+建议：.markdown-comment-card__body 写 user-select:text；页边卡片里 button 区域本来就是 Button 的 select-none，不受影响。
+
+[3] 重要 计划里“后台任务视图 TasksView 的错误与输出”与代码不符；真正的输出在 Agent 卡片里
+问题：TasksView.vue 只有任务标题、状态、进度条、时间和按钮（TasksView.vue:76-106），没有错误或输出正文；详情是 DetailDialog，那里已经是 user-select:text（DetailDialog.vue:76）。计划让实施时“读 TasksView 定具体元素”，会白读，也容易误给整行加 text。
+真正的命令输出在 BackgroundCommandCard 的 <pre class="bg-card__tail">（BackgroundCommandCard.vue:143），在 .acv-stream 里，已经被计划的 .acv-stream 规则覆盖。
+建议：计划删掉 TasksView 这一项，改为“无需处理（详情走 DetailDialog，已可选）”。同时补上真正漏掉的同类：
+  - SkillsSettingsPage 的详情值与输出（SkillsSettingsPage.vue:106,143，dd.skills-page__output）；
+  - WorksSettingsPage 的作品库路径 .works-settings__path（WorksSettingsPage.vue:85-86，设置页里的路径，开发者在任务目标里点名“设置里的路径”）；
+  - ModelRow 的模型 id 等等宽字（ModelRow.vue:154,256，请实施时核对是内容还是标签）；
+  - PluginsPage 的 .plugins-page__path（PluginsPage.vue:691）计划已列。
+
+[4] 一般 .acv-stream 之外的 Agent 对话内容：停靠区（AgentDock）与排队消息
+问题：AgentDock 在 .acv-stream 之外（AgentConversationView.vue:519），里面是排队消息与待回答的问题文字；上面 [1] 的两个对话框也在外面。计划的“对话流根 .acv-stream”不能代表整个对话视图。
+依据：AgentConversationView.vue:432（stream 根）、495（向导在 stream 内，没问题）、519（Dock 在 stream 外）。
+建议：二选一：（a）每个内容根各写（Dock 的排队消息文本、检查器、会话树）；（b）视图根 .agent-conversation-view 写 text，头部、输入区、状态栏的框架控件各写 none（它们大多已是 Button、select-none）。(b) 漏项更少，但与“框架控件自己写 none”的规则方向相反；开发者定哪个，计划里要写明。我倾向 (a) 加一条“新增内容根必须声明”的规范，和计划其余部分一致。
+
+[5] 一般 AlertDialog 本身就是 select-none（所有模式），说明文字复制不了
+问题：AlertDialog.vue:100 的面板类里直接写了 select-none。它的 description 在 ProvidersPage（removeDescription，含服务商名）、FilesExplorerView、SettingsWindow 等处是动态文字。这是现状，不是本 Task 引入；但计划没提 AlertDialog，我被要求查它，所以记一笔：桌面与浏览器里行为一致，不变。
+建议：保持不改，在清点里写明“AlertDialog 整体不可选（确认类，复制走别处）”，免得实施者以为漏了；若开发者想让错误说明可选，由 AlertDialog 的 description 元素单独写 text。VS Code 的确认框 message 是可选的（dialog.css:104）。
+
+[4 补充，更正] 重要（升级）+ 更正 [3] 里的 ModelRow
+更正：AgentDock 里不是“排队消息”，而是同一套审批/模式切换/提问向导（AgentDock.vue:140-156），也就是审批要执行的命令、文件 diff、参数（AgentApprovalWizard.vue:91-97，DiffView 与 code）。这些是用户最常想复制的内容，而且停靠态下它们在 .acv-stream 之外（AgentConversationView.vue:519），同步态在 stream 内（495）。同一份向导在两处，只有一处被计划覆盖，所以级别升为“重要”。建议：向导内容根（AgentWizardFrame 的正文区）写 text，不要靠宿主容器。
+更正 [3]：ModelRow 的 .model-row__id 是模型 id 的副标签（ModelRow.vue:75,154），属于列表里的标签，保持不可选即可，不必列入内容。
+
+[6] 重要 ProseMirror 里 contenteditable=false 的节点：实验证实桌面全局 none 下选不了，.nb-markdown 的 text 是必须的，且要进 e2e
+实验（/tmp/t22-sel/exp2.mjs，Chromium 无头）：html{user-select:none} 下，contenteditable 根自己用 auto 时，根内 contenteditable=false 的 span/div 里的字双击得到空、Ctrl+A 与拖选都不含它们；只读兄弟节点 <p> 同样选不了。根上写 user-select:text 后，这些岛里的字能双击选中、拖选包含。无全局规则时两种写法一致。所以计划里“可编辑元素不用写”只对可编辑文本成立，对 NodeView 的非可编辑岛不成立；计划把 .nb-markdown 写 text 是对的（MarkdownControl.vue:221 的 class 就挂在 contenteditable 根上，MarkdownDisplay.vue:140 是展示器根）。
+风险点：计划的 e2e 里没有任何一条点编辑器里的非可编辑节点（图片、html 嵌入、公式、批注标记等）。去掉 .nb-markdown 的 text 后，“只读 Markdown 那条变红”可能没有入口（计划自己写了“没有就记为只由计算值覆盖”），而编辑器里的岛是现成入口。
+建议：e2e 里在 Markdown 编辑器内选一个 contenteditable=false 的 NodeView（例如 callout 之外的图片 alt 占位、.nb-html-embed 或任一 [contenteditable=false] 节点），断言 selectAllChildren 后 toString 含它的文字；变异：去掉 .nb-markdown 的 text 应变红。提示词编辑器里的 chip 是有意不可选（chip.css:21,135），不要把它们算进来。
+
+[7] 一般 Markdown 展示器的后备渲染没有 .nb-markdown 类，桌面里仍选不了
+问题：MarkdownHosted.vue:87 与 markdown/web/plugin.ts:144 的失败/占位渲染是 <div class="nb-markdown-display" style="white-space:pre-wrap">，没有 .nb-markdown，不吃计划写在 .nb-markdown 上的 text。内容是用户要显示的原文（失败时原样显示文本）。
+建议：text 声明写在 .nb-markdown, .nb-markdown-display 两个选择器上，或后备渲染补 nb-markdown 类。
+
+[8] 一般 CSS 语义核对（Chromium 实验，/tmp/t22-sel/exp.mjs、exp3.mjs）：计划的几条论断基本成立，有两处措辞要改
+已验证成立：
+  a. 祖先 none、后代 text：能起选区、能双击选词（txt、inner 都得到词）；后代 text 里嵌 none 孙节点则孙节点选不了（none2）。
+  b. input、contenteditable 在 none 祖先下照常能选能全选（Ctrl+A 在 input 与 contenteditable 内得到全文）。
+  c. 焦点在页面、按 Ctrl+A：选区 toString 只含可选文字，none 的框架文字不在内。拖选从 text 区拖过 none 区到另一端：toString 只含可选文字；从 none 区起拖得到空。
+  d. :where([role=alert]) 在 nb-ui styles.css 里经 nb-ui/src/tailwind.css:43 进的是 components 层，所以 Tailwind 的 select-none（utilities 层）和组件 scoped（不分层）都盖得过它；这是层序的作用，不是 :where 的特异性（实验里 @layer c 的 :where 规则被 @layer u 的 .u 盖掉，alert2 得到 none）。计划里“:where 不抬优先级”的理由应改为“它在 components 层，低于 utilities 与不分层的规则”。
+  e. 带 draggable=true 的元素即使写 text，双击与拖选也选不出字（实验 d2 得 ""）。仓库里 HTML5 draggable 只在 CropEditor 的 img（draggable="false"），布局拖放用的是指针事件，所以不受影响，只是 e2e 里不能拿 draggable 元素做“可选”的正向对照。
+需要改措辞：
+  f. 计划写“auto 在可编辑元素上算作 contain”：这是规范写法，Chromium 并不实现 contain，只是编辑宿主与 input 照常可选。更要紧的是 getComputedStyle 对 none 祖先下的 contenteditable 与 input 报的是 "none"（实验：ce:none、inp:none，实际能选）。计划的“逐个文本节点算有效 user-select”清点里把它们归为 editable 是对的，但 e2e 若直接断言计算值，遇到编辑区要排除。
+  g. Range.toString 不看 user-select（含 none 文字），Selection.toString 才看；e2e 必须用 Selection（见下一条）。
+
+[9] 重要 e2e “双击后选区为空”的反向断言容易空过；改用 selectAllChildren 加 Selection.toString，并要求变异前先在未改代码上看到红
+问题：计划对“框架文字不可选”用的是双击后 getSelection().toString() 为空。空选区还可能来自：点到的不是文字（flex 容器中心、图标旁空白）、指针处理改了默认行为（标签、面板头走 nb-layout 的指针手势，drag-session.ts 里有多处 preventDefault）、被拖拽元素吞掉（实验 d2：draggable 元素双击得 ""）。这些在“补 select-none 之前”也为空，测试就空过了。
+依据：e2e 计划（plan.md:63-64）；实验 exp3：Selection.toString 排除 none 文字而 Range.toString 不排除。
+建议：
+  1) 断言改成一次性的：page.evaluate 里 getSelection().selectAllChildren(document.body)（或按区域 selectAllChildren(区域根)），读 toString()，断言“含内容文案、不含框架文案”。同一次读数里内容文案的出现就是正向对照，不依赖指针落点、不依赖双击；框架文案用清点里的真实字符串（「欢迎」「资源管理器」「搜索命令」「外观」「没有会话」……）。
+  2) 对“是否不可选”另加计算值断言作为快速线（none 的框架元素 getComputedStyle.userSelect==='none'；编辑区除外，见 [8f]）。
+  3) 浏览器模式那一片（slice 2）必须先在未改代码的 worktree 上跑一遍确认变红（“补 select-none 之前，这些文字可选”），再改再变绿；计划的变异只列了全局规则与 .nb-markdown 两条，slice 2 的十几处 select-none 与 role=alert 规则没有任何变异，可能整片空过。
+  4) 保留 1～2 条真实指针的行为用例（双击内容词得到该词、拖选），覆盖“起选区这件事本身”；这类正向用例落点要取文字元素的 getClientRects()[0] 内部，不取包围盒中心。
+
+[10] 一般 role=alert 规则与 .nb-host-page 规则互相遮盖，变异检查要两条一起去掉才能判出
+问题：FailurePage 的 <main class="nb-host-page" role="alert">（FailurePage.vue:72）同时被两条规则覆盖；NotFoundPage（NotFoundPage.vue:14，无 role）只被 .nb-host-page 覆盖。计划的 e2e 用“页面不存在”覆盖宿主页：它只能判出 .nb-host-page 那条；role=alert 规则没有任何 e2e 入口，删了不会红。
+建议：role=alert 规则选一个不带别的 text 声明的真实入口：设置页加载失败（SettingsPageFrame.vue:68）、插件页安装失败（PluginsPage.vue:612）、编辑器 Banner danger（Banner.vue:33）；用 e2e 里能稳定造出的一个，或在 nb-ui 的 dom 测试里挂一个 role=alert 元素断言计算值为 text（这条是 nb-ui 内部合同，dom 测试足够，不必进 Playwright）。
+
+[11] 一般 对话流与请求详情的验收只断言计算值，是“对声明本身的镜像断言”，可以换成有行为的入口
+问题：计划用 `.acv-stream` 计算值为 text 来验收对话流，变异前后都是在测实现。仓库里已有能带消息的入口：e2e/lab-agent-ui.e2e.ts（Lab 的对话场景）与 agent-conversation.e2e.ts / agent-request-trace.e2e.ts（有消息与请求详情）。给它们叠 installFrame（desktop-frame.e2e.ts:50）即可在桌面态下对真实消息做 selectAllChildren 断言（推断，未在 Lab 里实际跑过）。同理只读 Markdown 展示器可走 lab-markdown.e2e.ts。
+建议：改用这些入口；“工作台里没有消息可点”不是障碍。
+
+[12] 一般 Monaco 的双击断言判不出这次改动的风险；Monaco 自己的 hover 与小部件不用管
+依据：monaco-editor 0.55 esm 样式里 hover 与诊断小部件自己写了 user-select:text（base/browser/ui/hover/hoverWidget.css:10、editor/contrib/gotoError/browser/media/gotoErrorWidget.css:32），建议弹出列表自己 none（suggest.css:97）；正文区 .view-lines 只有 .no-user-select 与 .enable-user-select{initial} 两个开关（viewLines.css:38,52）。Monaco 的选区是它自己画的，鼠标按下由它接管，DOM 原生选区在正文里不起作用。所以“桌面 none 下 Monaco 里双击选词、看 Monaco 选区”在有无全局规则时都会通过，改了也不会红，是个装饰性断言。
+建议：保留一条无副作用的（花不了多少时间）也行，但别把它算作对 Monaco 的验收；真正受影响的是 Monaco 的悬停小部件（它自己写了 text，应当仍可选）：若要验，悬停出一个 hover 后对其做 selectAllChildren 看 toString 含悬停文案（该入口是否容易造需实施时确认，未验证）。计划“不改 Monaco 内部样式”是对的。
+
+[13] 一般 与 VS Code 桌面版的对照：分法一致，可借鉴两点
+VS Code 源码（main 分支，今天取的）：body{user-select:none}（workbench/browser/media/style.css:44），再按区域放开：对话框 message 与 footer（base/browser/ui/dialog/dialog.css:104，在对话框层统一写，不让调用方各写）、hover（hoverWidget.css:10）、设置项 label/category/deprecation 提示（settingsEditor2.css:485,495）、扩展详情头与版本号（extensionEditor.css:63,86）、编辑器占位页的说明文字（editorplaceholder.css:47）、通知的消息文字（notificationsList.css:57）。
+与计划相比：
+  1) 总分法相同（全局 none，内容显式 text）。
+  2) VS Code 把“对话框正文”当作一类在组件层放开（见 [1]）；计划只放 DetailDialog。
+  3) VS Code 的通知消息可选，计划按开发者已定保持不可选，不质疑；仅记录差异。
+  4) VS Code 设置项里说明文字也有可选，计划已让 .settings-row__description 可选，一致；但 .settings-row__title 计划未声明（桌面里不可选），VS Code 的 label 是可选的，我认为标题当作框架不可选也可以，取决于开发者想不想复制设置项名字去搜索，建议在计划里写明这是有意的。
+  5) 可借鉴：给 nb-ui 一个公共的声明手段（例如类 nb-ui-selectable 或属性 data-selectable，等价于 user-select:text），让“内容声明点”可以 grep、可在 Lab 里批量验；否则十几处各写一条裸 user-select:text 之后，没人能列出完整清单（计划自己也承认漏了会靠发现后补）。
+
+[14] 一般 计划里的事实核对结果（与代码相符的不再逐条列，只列不符或需补充的）
+相符（已核）：已显式可选的五处：CodeBlock.vue:84、DetailDialog.vue:76、ViewValue.vue:95、SettingsRow.vue:413（.settings-row__value）、PromptPasteBlockView.vue:234；类名与位置：.acv-stream（AgentConversationView.vue:432,623）、.ard（AgentRequestDetail.vue:291）、.settings-row__description（SettingsRow.vue:160,331）、.nb-host-page（FailurePage.vue:72、NotFoundPage.vue:14、styles.css:35）、MarkdownControl 与 MarkdownDisplay 的 .nb-markdown；窗口外框一节在 styles.css:123-165 起，DesktopFrame.vue:74 的后备标题栏自己已 none；欢迎页 none（AgentWelcome.vue:89）、通知 select-none（Notification.vue:66，Notification.md:13）。
+不符或需补充：
+  - TasksView 无错误与输出（见 [3]）；
+  - nb-ui 的 styles.css 不是“不分层”：它在 components 层（nb-ui/src/tailwind.css:43），计划写“nb-ui 的样式在层里”实际写在 SettingsFileView 的注释里，计划本身没有交代；加规则时放哪一层要定（放 nb-ui styles.css 即 components 层是对的，见 [8d]）；
+  - 工作区里存在未跟踪的探针文件 packages/neuro-book/e2e/zz-select-probe.e2e.ts，计划没有写“提交前删除”；
+  - Task README 的“合同：待补充”两处要在落地后替换成 browser-host 输出 12 的链接；
+  - Popover.vue:91 的 Popover 面板整体 select-none（所有模式）：SubagentsEntry、ModelRow、AgentConversationHead 里的 Popover 内容（子代理信息、模型详情、会话信息）不可复制；与 [5] 同类，现状不变，清点里应写明。
+
+[15] 一般 文件清单与验证
+- 新增 e2e/text-selection.e2e.ts 合理；若按 [11] 借 lab-agent-ui / agent-conversation 的入口，需把这些文件之一加入验证清单（受影响文件，一次不超过 8 个）。
+- 建议加跑：bookshelf.e2e.ts（slice 2 对书架页根写 none，且“作品路径写 text”）与 settings.e2e.ts（设置窗口导航与小组标题补 none）；这两处是计划里改动最大的浏览器侧页面，计划验证清单只有四个文件而没有包含它们。
+- nb-ui、nb-markdown、nb-agent-ui 的 dom 测试里若有断言整页计算样式的（例如 style-tokens.dom.test.ts），随改动重跑；vitest 受影响文件要列具体名字（AGENTS.md：验证只跑受影响的）。
+- docs:check 之外，改了 nb-ui 组件类名要同步该组件 .md（计划已写）。
+
+[16] 一般 slice 顺序与回退
+问题：slice 1 先加全局规则再逐处补内容 text，中间提交里桌面态会有内容选不了的窗口期（只是分支内，不影响 master，可接受）。但计划“发现一处补一处”的兜底靠开发者在实机里撞到，没有机检兜底。
+建议：加一个低成本机检：在 nb-ui 的 Lab 或 dom 测试里，对一批代表性内容组件（CodeBlock、DetailDialog、MarkdownDisplay、ViewValue、AgentConversationView 的 stream、ContextInspector）挂在 html[data-desktop-frame] 之下，断言其文字可被 selectAllChildren 选中；新增内容组件时再加一行。这比靠规范文字更不容易回退。
+
+[14 补注] Popover 内容的具体类别（子代理信息、模型详情、会话信息）我没有逐个打开核对，只确认 Popover.vue:91 面板整体 select-none，以及 SubagentsEntry、ModelRow、AgentConversationHead 用了 <Popover>；其中是否有需要复制的内容，实施时请核实后再决定是否放开。
+

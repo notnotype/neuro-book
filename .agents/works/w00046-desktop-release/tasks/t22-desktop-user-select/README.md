@@ -21,8 +21,8 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18 开工：执行位置 `.worktree/w00046-t22-desktop-user-select`，分支 `feat/w00046-t22-desktop-user-select`。用临时探针清点了各处文字现在能否选中（结果写进计划的 Context），计划 [plan.md](plan.md) 第 1 稿已写，设计审查（Sonnet）在跑。
+2026-11-18 开工：执行位置 `.worktree/w00046-t22-desktop-user-select`，分支 `feat/w00046-t22-desktop-user-select`。用临时探针清点了各处文字现在能否选中（结果写进计划的 Context），计划 [plan.md](plan.md) 第 2 稿已吸收设计审查第 1 轮（Sonnet，16 条）。
 
 ## 下一步
 
-处理设计审查，再按计划切片实施。
+按计划切片实施。
