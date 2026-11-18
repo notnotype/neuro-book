@@ -20,8 +20,8 @@ import sharp from "sharp";
 
 import {startProductServer} from "../e2e/fixtures.ts";
 
-/** 内置主题（`src/plugins/workbench/shared/themes.ts` 的 `BUILTIN_THEME_CONTRIBUTIONS`）。 */
-const THEMES = ["nbook", "macos", "eye-green", "eye-sepia"] as const;
+/** 内置主题：工作台的四个（`src/plugins/workbench/shared/themes.ts` 的 `BUILTIN_THEME_CONTRIBUTIONS`）与内置插件 theme-study 的书房。 */
+const THEMES = ["nbook", "macos", "eye-green", "eye-sepia", "nbook.theme-study.study"] as const;
 const APPEARANCES = ["light", "dark"] as const;
 const WORKS = ["长夜行", "北方以北", "雾中城"];
 const OUT = resolve(import.meta.dirname, "../src/plugins/desktop/web/assets/first-run");

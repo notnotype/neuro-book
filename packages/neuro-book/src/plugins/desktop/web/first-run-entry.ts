@@ -93,7 +93,7 @@ export const firstRunEntry = defineEntry({
             systemDark.value = event.matches;
         };
         media?.addEventListener("change", onMedia);
-        // 主题：内置的四个按缩略图表的顺序排前面，插件给的按 id 排在后面；名字随界面语言换。用户在主题编辑器里自建的不走贡献点，不列。
+        // 主题：带缩略图的内置主题按缩略图表的顺序排前面，插件给的按 id 排在后面；名字随界面语言换。用户在主题编辑器里自建的不走贡献点，不列。
         const builtinOrder = Object.keys(FIRST_RUN_THUMBNAILS);
         const themes = computed(() => context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT)
             .map((entry) => ({id: entry.id, name: text.t(entry.declaration.title), thumbnails: FIRST_RUN_THUMBNAILS[entry.id] ?? null}))

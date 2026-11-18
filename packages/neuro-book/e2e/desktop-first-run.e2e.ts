@@ -66,8 +66,10 @@ test("第一次打开桌面版：走完四步，外观与桌面三项写进用�
     await expect.poll(readSettings).toMatchObject({"nbook.workbench/theme": "macos", "nbook.workbench/appearance": "dark"});
     await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
     await expect(page.locator("[data-theme-card='macos']")).toHaveAttribute("aria-checked", "true");
-    // 缩略图真的加载出来了（构建进了包、地址对）：每张卡片的图都有尺寸。
-    expect(await page.locator("[data-theme-card] img").evaluateAll((images) => images.map((image) => (image as HTMLImageElement).naturalWidth > 0))).toEqual([true, true, true, true]);
+    // 内置主题（工作台的四个与书房）都有缩略图，而且真的加载出来了（构建进了包、地址对）。
+    const loaded = await page.locator("[data-theme-card] img").evaluateAll((images) => images.map((image) => (image as HTMLImageElement).naturalWidth > 0));
+    expect(loaded.length).toBe(5);
+    expect(loaded.every(Boolean)).toBe(true);
     await primary(page).click();
 
     // 第三步：三行都在（安装版、缺省状态根）；关掉桌面快捷方式，写进用户层并交给壳。
