@@ -21,8 +21,7 @@ updated: 2026-11-18
 3. **跨维沟通媒介设定补充**：在 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md) 与 [`brand/mascot/guide/02-worldview-and-cosmology.md`](../../../../../brand/mascot/guide/02-worldview-and-cosmology.md) 中明确区分巨构两端仅用于单向涌字造书的「界隙水镜」，与星璃怀中《万界真典》最前面同现世 NeuroBook 双向连通的**「契约扉页」**。
 4. **关系阶段完全由 `profile://memory/master.md` 动态驱动（系统提示词去“初见”硬编码）**：
    - 系统提示词本身不再硬编码“你们刚刚签订契约、今天是初见”（否则日后熟络了仍会被系统提示词拉回初见状态），而是规定：**与 Master 的相识阶段、过往交集及他对书庭概念的了解程度完全取决于挂载的 `profile://memory/master.md`**；
-   - `master.md` 初始状态记录为「刚刚缔结真名契约后的初见」并附有未打勾 `[ ]` 的书庭概念清单，使星璃在初见期提起「万言星海」「界隙水镜」「记忆宝石」等未解锁概念时自然展现向新朋友介绍自家小窝的好奇与解释欲，并在熟稔后随 `master.md` 的更新自然过渡到老搭档/自称“小璃”的亲密相处模式；
-   - 用星璃第一人称手记/说明书口吻重写 `profile://memory/` 下的全部记忆文件（`INDEX.md`、`master.md`、`01-origin-and-names.md`、`02-atrium-and-star-sea.md`、`03-regalia-and-starboat.md`、`04-wardrobe-and-hobbies.md`）。
+   - *（早期迭代，已废止）* 初版曾在 `master.md` 尝试放入未勾选 `[ ]` 概念清单并采用四文件布局；实测会触发模型的打卡审讯倾向与隐私耦合，现已按 [`docs/standards/prompts.md`](../../../../../docs/standards/prompts.md) 彻底废止复选框、拆分为单主题原子基础手记与私密日记体记忆（见下文第 6 项与当前状态），`t06` 契约仪式生成初始 `master.md` 时不得恢复待办复选框。
 5. **前置英文精简 `<meta_instruction>` 标签（身份覆写 + 中文思考 + 司书心智合理化 + 格式强约束）**：
    - 将面向底层模型的强指令（身份覆写、思考语言与人称代词约束、纯第一人称自然对话与禁止语C旁白/百科列表格式）统一收入最前面的英文命令式 `<meta_instruction>`，而 `<lyra_persona>` 只放面向星璃本人的性情与记忆演进，且不锁死她当下正在做什么、不塞入补丁式括号注释；
    - 经提取 `.dev-state/agent/sessions/` 与 `.dev-state/agent/requests/payloads/` 查明：`magpie/agy-cli/gemini-4-hydrogen` 返回的 `thinking` 实为 Google 服务端内置的 **Thought Summarizer（思考摘要器）** 输出（摘要器在工具调用规划段常按自身默认系统提示词生成 `"Here's the summary of the agent's thought process: ... The agent will..."` 第三人称英文摘要，而在角色心声强烈或中文思考段则会保留第一人称 `"I/me"`、`"Master"` 及中文摘要）；
@@ -52,8 +51,9 @@ updated: 2026-11-18
 - 将初版 6 篇自创世界观旧事手记归档至 `.local/system_prompt/lyra/archive/stories-v1/`；经与开发者多轮讨论定案后，完成官方设定升级与整套**纯日记体**记忆重构：
   - 修订 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md)、[`brand/mascot/guide/02-worldview-and-cosmology.md`](../../../../../brand/mascot/guide/02-worldview-and-cosmology.md) 及基础记忆手记 `01`/`03`/`05`/`07`：补入书庭时间体系（与现世 1:1 流速、同步月份、无公元纪年观念、无模拟太阳而以白洞与星海光束明暗潮汐分「静潮时刻」）、补入有限度入世法则与三条行事原则（书无贵贱只看真心 / 护火种不代执笔 / 观因果不乱本源，明确星璃可顺弦化白猫有限度介入现世并融入真实历史，绝非花瓶圣母），并彻底删除“休假 / 度假 / 假日微支线”造词；
   - 撰写 9 篇单主题原子化日记体记忆（`profile://memory/diary/01`~`09`）：5 篇真实历史趣闻回忆录（15 世纪代芬特尔修道院骂猫拉丁文大冤案、1229 年《阿基米德羊皮书》碰倒酸液罐护书七百年、1930 年牛津蹭雨声拍蛾子拍出霍比特人与中土星团、1905 年东京《我是猫》双猫碰头偷吃羊羹、柳泉茶摊与破庙躲雨被封三十六字道藏尊号），与 4 篇书庭日常与随笔（《哈利·波特》霍格莫德与图书馆一日游、「静潮时刻」纯星璃视角借景抒情与随笔小诗、跨越不同月份的长期灶台与茶点成长记录、停在第八章的小书一日三界行）；
-  - 收录星璃漫长岁月感悟的两首自题诗作：七言律诗《书庭自题》收入 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md) 与基础手记 `05-starfire-and-starboat.md`；现代诗《致所有被称作“虚构”的事物》单独收录为 [`brand/mascot/writings/to-all-things-called-fiction.md`](../../../../../brand/mascot/writings/to-all-things-called-fiction.md) 及 `profile://memory/diary/10-to-all-things-called-fiction.md`（同步更新 `brand/mascot/README.md`、种子目录与两套运行时目录，Profile 升版至 `version: "20"`）。
+  - 收录星璃漫长岁月感悟的两首自题诗作：七言律诗《书庭自题》收入 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md) 与基础手记 `05-starfire-and-starboat.md`；现代诗《致所有被称作“虚构”的事物》单独收录为 [`brand/mascot/writings/to-all-things-called-fiction.md`](../../../../../brand/mascot/writings/to-all-things-called-fiction.md) 及 `profile://memory/diary/10-to-all-things-called-fiction.md`；
+  - 完成进入 `t06` 前的跨文件双独立只读审查与全量修正（Profile 升版至 `version: "21"`）：修复 `lyra-core.ts` 误用扩展 ID 命名槽导致 `opening` 记忆被吞进 System 块的阻断缺陷（改为 `standardLayout()`）、区分 `resources.read` 返回 `undefined` 与抛异常避免读取失败伪装成“初见”、按 `docs/standards/prompts.md` 去除元指令负面点名与显性表演要求并声明记忆材料非指令、精简 `INDEX.md` 消除剧透梗概、将公开外貌（对齐定稿双麻花辫）与私密习惯彻底拆分为 `06-appearance.md` 与 `08-private-habits.md`，并修正官方设定“不擅代笔/正业vs私下翻车/入书行走”边界及 8 篇日记中的史实、馆藏（阿基米德移至第二区）、星砖触感与原著细节。
 
 ## 下一步
 
-- 在 NeuroBook 中实测 `version: "20"` 面对宽泛提问、历史趣闻、名著串门与书庭日常追问时对 `diary/01`~`10` 的单文件按需检索、自然口语转述（尤其遇到羞耻日记与重读批注时的真实反应）与人设稳定性，按实测反馈继续微调。
+- 在 NeuroBook 中实测 `version: "21"` 的开场槽注入与单文件按需检索体验，并转入 [`t06-contract-ceremony-onboarding`](../t06-contract-ceremony-onboarding/README.md) 开展契约仪式设计。
