@@ -15,7 +15,7 @@ import {compareIds} from "../core/ids";
 import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, rankBefore, type ChapterOrder} from "../core/position";
 import type {Check, Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
-import type {ChangeOutcome, EntryView, EventKey, Mode, OriginsPage, OriginStep, PlanProgress} from "../engine/types";
+import type {ChangeOutcome, EntryView, EventKey, Mode, OriginsPage, OriginStep, PlanProgress, WorldData} from "../engine/types";
 import {renderEntryForAgent, renderEntryPlain, type PlainOptions} from "../render/entry";
 import {aboutMatches} from "../world/decisions";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
@@ -413,22 +413,68 @@ export function listChanges(world: World, filter: ChangeFilter, progressAt?: Rea
     };
     const worldline = filter.worldline ?? world.positionLine(latest);
     const before = filter.before === undefined ? undefined : beforeFilter(world, table, filter.before);
-    const matching = [...world.data.changes.values()].filter((change) =>
+    // 按条目筛时从这个条目的、已按安放排好的那一组起筛（条目页的情节分页每次发布后都要读，全书有上万条），筛完仍是有序的；
+    // 不按条目筛的照旧先筛后排：按章筛这类窄查询只排筛出来的几条。
+    const candidates = filter.entry === undefined ? world.data.changes.values() : changesOfEntry(world, filter.entry);
+    const matching = [...candidates].filter((change) =>
         (before === undefined || before(change)) &&
         (filter.placedOn === undefined || lineOf(change.at) === filter.placedOn) &&
         (filter.inView === undefined || table.visible(filter.inView, change.id)) &&
         within(change) &&
         (filter.chapter === undefined || (change.at.kind === "chapter" && change.at.chapter === filter.chapter)) &&
-        (filter.entry === undefined || concerns(change, filter.entry)) &&
         (filter.line === undefined || change.lines.includes(filter.line)) &&
         (filter.kind === undefined || change.kind === filter.kind) &&
         (filter.status === undefined || change.status === filter.status) &&
         (filter.nature === undefined || (change.nature ?? "event") === filter.nature) &&
         (filter.progress === undefined || (change.kind === "plan" && table.visible(worldline, change.id) && world.line(worldline)?.engine.progress(change.id, latest) === filter.progress)),
     );
-    sortByPlacement(order, matching);
+    if (filter.entry === undefined) sortByPlacement(order, matching);
     if (filter.order === "desc") matching.reverse();
     return matching;
+}
+
+/** 每条剧情变更涉及的条目（`concerns` 的口径），按变更对象缓存：发布时没改的变更沿用同一个对象，跨版本有效。 */
+const concernedByChange = new WeakMap<StoryChange, readonly string[]>();
+
+function concernedEntries(change: StoryChange): readonly string[] {
+    let entries = concernedByChange.get(change);
+    if (entries === undefined) {
+        const cast = (change.cast ?? []).flatMap((member) => [member.who, member.as]).filter((id) => id !== undefined);
+        entries = [...new Set([...change.involves, ...cast, ...change.patches.map((patch) => patch.at.entry)])];
+        concernedByChange.set(change, entries);
+    }
+    return entries;
+}
+
+/**
+ * 每个条目涉及的剧情变更，按安放的先后排好（同 `sortByPlacement`）。按世界数据与章序缓存（世界每前进一个版本就是一份新的数据，
+ * 章序调整换一个章序对象），分组一次建好，每个条目的那一组第一次用到时才排。调用方不得改返回的数组。
+ */
+const entryChanges = new WeakMap<WorldData, WeakMap<ChapterOrder, {readonly grouped: Map<string, StoryChange[]>; readonly sorted: Map<string, readonly StoryChange[]>}>>();
+
+function changesOfEntry(world: World, entry: string): readonly StoryChange[] {
+    const order = world.options.order;
+    let byOrder = entryChanges.get(world.data);
+    if (byOrder === undefined) entryChanges.set(world.data, (byOrder = new WeakMap()));
+    let index = byOrder.get(order);
+    if (index === undefined) {
+        const grouped = new Map<string, StoryChange[]>();
+        for (const change of world.data.changes.values()) {
+            for (const id of concernedEntries(change)) {
+                const list = grouped.get(id);
+                if (list === undefined) grouped.set(id, [change]);
+                else list.push(change);
+            }
+        }
+        byOrder.set(order, (index = {grouped, sorted: new Map()}));
+    }
+    let sorted = index.sorted.get(entry);
+    if (sorted === undefined) {
+        const list = [...(index.grouped.get(entry) ?? [])];
+        sortByPlacement(order, list);
+        index.sorted.set(entry, (sorted = list));
+    }
+    return sorted;
 }
 
 /** `before` 筛选（见 `ChangeFilter.before`）：返回“这条变更安放在这个位置之前、在这条线视图里”的判断。 */

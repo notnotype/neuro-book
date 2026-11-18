@@ -392,6 +392,31 @@ describe("canon.project 输出 30 到 33、canon.model 输出 37、canon.revisio
         expect(onMain.items.some((item) => item.change.id === own)).toBe(false);
     });
 
+    test("changes 按条目筛：只经参与者、只经马甲、只写在 involves、只经补丁涉及它的都列出，按安放排；再发布一条安放在中间的，下一次读就有它、排在它的位置上", async () => {
+        const ids = await publish([
+            entry("tmp:xia", "星瑕", {}, {panel: {type: PANEL.id!, version: 1, enabled: true, fields: {存款: 100, 魔力上限: null, 魔力: null, 物品: []}}}),
+            entry("tmp:other", "白灵"),
+        ]);
+        const [xia, other] = [ids["tmp:xia"]!, ids["tmp:other"]!];
+        const ge = (await publish([entry("tmp:ge", "哥哥", {parent: xia, sameAs: xia})]))["tmp:ge"]!;
+        const story = await publish([
+            written("tmp:unrelated", at("ch1", 5), [], {involves: [other]}),
+            written("tmp:cast", at("ch1", 10), [], {cast: [{who: xia, role: "present"}]}),
+            written("tmp:as", at("ch2", 10), [], {cast: [{who: xia, as: ge, role: "present"}]}),
+            written("tmp:involves", at("ch3", 10), [], {involves: [xia]}),
+            written("tmp:patch", at("ch4", 10), [{op: "add", at: {entry: xia, path: "panel.存款"}, value: 5}]),
+        ]);
+        const listed = (entryId: string): string[] => {
+            const page = service.changes({entry: entryId});
+            if (typeof page === "string") throw new Error(page);
+            return page.items.map((item) => item.change.id);
+        };
+        expect(listed(xia)).toEqual(["tmp:cast", "tmp:as", "tmp:involves", "tmp:patch"].map((id) => story[id]!));
+        expect(listed(ge)).toEqual([story["tmp:as"]!]);
+        const late = (await publish([written("tmp:late", at("ch2", 20), [], {involves: [xia]})]))["tmp:late"]!;
+        expect(listed(xia)).toEqual([story["tmp:cast"]!, story["tmp:as"]!, late, story["tmp:involves"]!, story["tmp:patch"]!]);
+    });
+
     test("条目读取带每个命名空间生效的字段声明，含条目上实例声明的；来历对“不是列表的字段带元素”是空的", async () => {
         const {xia} = await withLine();
         const read = service.entry(xia, end("ch1"), "actual");
