@@ -75,6 +75,42 @@ describe("SortableList", () => {
         press(handle, "Enter");
         await flushPromises();
         expect(moves).toEqual([]);
+        expect(wrapper.get("[role='status']").text()).toBe("雨夜仍在第一卷第 1 位");
+    });
+
+    it("拖动中变成停用：整场中止，次序回原样，不调 @move", async () => {
+        const moves: SortableMove[] = [];
+        const wrapper = await mountList((move) => void moves.push(move));
+        const handle = handleOf(wrapper, "c1");
+        handle.focus();
+        press(handle, " ");
+        press(handle, "ArrowDown");
+        await flushPromises();
+        expect(order(wrapper)).toEqual(["v1:c2", "v1:c1"]);
+        await wrapper.setProps({disabled: true});
+        await flushPromises();
+        expect(order(wrapper)).toEqual(["v1:c1", "v1:c2"]);
+        expect(wrapper.find(".is-held").exists()).toBe(false);
+        press(handle, "Enter");
+        await flushPromises();
+        expect(moves).toEqual([]);
+    });
+
+    it("拖动中次序被别处改了：整场取消，按新的次序画，不调 @move", async () => {
+        const moves: SortableMove[] = [];
+        const wrapper = await mountList((move) => void moves.push(move));
+        const handle = handleOf(wrapper, "c1");
+        handle.focus();
+        press(handle, " ");
+        press(handle, "ArrowDown");
+        await flushPromises();
+        await wrapper.setProps({sections: [{id: "v1", title: "第一卷", keys: ["c2"]}, {id: "v2", title: "第二卷", keys: ["c1"]}]});
+        // 会话在下一次判定时发现结构变了：再按一下方向键触发判定。
+        press(handle, "ArrowUp");
+        press(handle, "Enter");
+        await flushPromises();
+        expect(order(wrapper)).toEqual(["v1:c2", "v2:c1"]);
+        expect(moves).toEqual([]);
     });
 
     it("@move 返回的 Promise 没 settle 时，放下的次序留着、不能再拿起；settle 后跟着 sections（宿主没采纳就回到原样）", async () => {

@@ -71,13 +71,30 @@ export function moveInSections(sections: readonly SortableSection[], key: string
 const mid = (span: SortableSpan): number => (span.start + span.end) / 2;
 
 /**
- * 被拖的东西此刻占 `held`（调用方已夹在列表范围里）：交回该在的位置；来源不在布局里时为 null。
+ * 刚换过去时，从换位的地方往回挪不到这么多不换回来（工作台实时布局的粘滞是 8px）。中线的规则自带的回滞是“来源离开后邻居让出的长度”减去来源的
+ * 长度：来源是一区唯一的一项（它一走那一区换成占位）、拖进或拖出空分区时，让出的比来源短，两头的判定线重叠，没有粘滞就会在
+ * 分区头附近逐帧来回换。
+ */
+export const SORTABLE_STICKY_PX = 12;
+
+/** 上一次换位：从哪到哪，换的时候被拖的前沿在哪。 */
+export interface SortableSwitch {
+    readonly from: SortableSlot;
+    readonly to: SortableSlot;
+    readonly at: number;
+}
+
+const sameSlot = (a: SortableSlot, b: SortableSlot): boolean => a.section === b.section && a.index === b.index;
+
+/**
+ * 被拖的东西此刻占 `held`（调用方已夹在列表范围里）：交回该在的位置；来源不在布局里时为 null。`last` 是这一场上一次换位
+ * （调用方记着，见 `SORTABLE_STICKY_PX`）。
  *
  * 一次可以连换几位：第一步按真实布局比，后面几步用“摘掉来源”推算的位置（来源后面的邻居都往前让一个来源占的长度），推算与真实
  * 布局有出入时下一帧按重排后的真实布局再判。往后要过“下一个邻居的中线”（它此刻在来源后面，位置含来源的长度），往前要过
  * “上一个邻居的中线”，刚换过去时往回挪一点不会马上换回来。
  */
-export function sortableSlotIn(layout: SortableLayout, source: string, held: SortableSpan): SortableSlot | null {
+export function sortableSlotIn(layout: SortableLayout, source: string, held: SortableSpan, last: SortableSwitch | null = null): SortableSlot | null {
     const slots: SortableSlot[] = [];
     /** `neighbors[k]` 在 `slots[k]` 与 `slots[k + 1]` 之间。 */
     const neighbors: SortableSpan[] = [];
@@ -118,6 +135,11 @@ export function sortableSlotIn(layout: SortableLayout, source: string, held: Sor
         if (slot < neighbors.length && held.end > removed[slot]! + space) slot += 1;
         else if (slot > 0 && held.start < removed[slot - 1]!) slot -= 1;
         else break;
+    }
+    // 粘滞：正要换回上一次换过来的地方时，要从那次换位的位置往回挪够 SORTABLE_STICKY_PX 才换；往前接着拖不算。
+    if (last !== null && sameSlot(slots[current]!, last.to) && sameSlot(slots[slot]!, last.from)) {
+        const back = slot < current ? last.at - held.start : held.start - last.at;
+        if (back < SORTABLE_STICKY_PX) return slots[current]!;
     }
     return slots[slot]!;
 }

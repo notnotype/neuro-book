@@ -764,6 +764,37 @@ test.describe("状态栏设置页（docs/specs/agent/conversation.md 输出 46�
         await expect(page.locator(".is-over, .is-over-after")).toHaveCount(0);
     });
 
+    test("左边唯一的一项慢慢拖过右边的分区头：左边只换一次，不来回跳", async ({page}) => {
+        await openScene(page, "StatusLinePage", "default", "desktop");
+        // 记下拖动中左边出现过的每一种样子（MutationObserver 每次改动都记），之后去掉连续重复的。
+        await page.evaluate(() => {
+            const list = document.querySelector("[data-sortable-list]")!;
+            const seen: string[] = [];
+            (window as unknown as {__left: string[]}).__left = seen;
+            new MutationObserver(() => {
+                seen.push([...list.querySelectorAll("[data-sortable-section='left'][data-sortable-key]")].map((element) => element.getAttribute("data-sortable-key")).join(","));
+            }).observe(list, {childList: true, subtree: true});
+        });
+        const from = (await page.locator("[data-status-row='context']").boundingBox())!;
+        const head = (await page.locator("[data-sortable-head][data-sortable-section='right']").boundingBox())!;
+        const x = from.x + 60;
+        const y = from.y + 10;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        // 一像素一步，从行上到分区头下面 30px：途中正好扫过换边的那一带。
+        const distance = Math.round(head.y + head.height + 30 - y);
+        for (let step = 1; step <= distance; step += 1) await page.mouse.move(x, y + step);
+        await expect.poll(() => rows(page, "left")).toEqual([]);
+        expect(await rows(page, "right")).toContain("context");
+        const left = await page.evaluate(() => (window as unknown as {__left: string[]}).__left.filter((entry, index, all) => index === 0 || entry !== all[index - 1]));
+        // 换到右边以后（左边空了），左边再没出现过“上下文”：没有来回跳。
+        expect(left).toContain("");
+        expect(left.slice(left.indexOf(""))).toEqual([""]);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect.poll(() => rows(page, "left")).toEqual(["context"]);
+    });
+
     test("上移跨组：右边第一项上移到左边最后；左边第一项不能上移", async ({page}) => {
         await openScene(page, "StatusLinePage", "default", "desktop");
         await expect(page.locator("[data-status-row='context'] [data-status-move-up]")).toBeDisabled();
@@ -779,11 +810,19 @@ test.describe("状态栏设置页（docs/specs/agent/conversation.md 输出 46�
         await expect.poll(() => previewIn(page, "left")).toEqual(["usage"]);
     });
 
-    test("写入失败：拖动放下后回到原样", async ({page}) => {
+    test("写入失败：拖动中两组跟着变，放下后回到原样", async ({page}) => {
         await openScene(page, "StatusLinePage", "write-fails", "desktop");
         const from = (await page.locator("[data-status-row='usage']").boundingBox())!;
         const to = (await page.locator("[data-status-row='context']").boundingBox())!;
-        await dragRow(page, "usage", to.y - from.y - 8);
+        const x = from.x + 60;
+        const y = from.y + 10;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x, y - 8, {steps: 2});
+        await page.mouse.move(x, y + to.y - from.y - 8, {steps: 12});
+        // 先确认真的拖起来了，再看放下后回原样：没拿起时“回到原样”也成立，证明不了什么。
+        await expect.poll(() => rows(page, "left")).toEqual(["usage", "context"]);
+        await page.mouse.up();
         await expect.poll(() => rows(page, "left")).toEqual(["context"]);
         expect(await rows(page, "right")).toEqual(["usage", "cost", "model"]);
     });

@@ -12,7 +12,7 @@ import {NB_LAYOUT_CATALOGS, NB_LAYOUT_NAMESPACE, NB_LAYOUT_SOURCE_LOCALE} from "
 registerDefaultCatalog(NB_LAYOUT_NAMESPACE, NB_LAYOUT_CATALOGS, NB_LAYOUT_SOURCE_LOCALE);
 
 export type LayoutTextKey = "splitter.resizeWidth" | "splitter.resizeHeight" | "splitter.collapsed" | "splitter.pixels" | "floatWindow.resize" | "floatWindow.move"
-    | "sortable.handle" | "sortable.hint" | "sortable.placeholder" | "sortable.picked" | "sortable.moved" | "sortable.dropped" | "sortable.cancelled";
+    | "sortable.handle" | "sortable.hint" | "sortable.placeholder" | "sortable.picked" | "sortable.moved" | "sortable.dropped" | "sortable.cancelled" | "sortable.unchanged";
 
 /** 在 `setup` 里调用。返回的函数每次调用都读端口的当前语言，放进 `computed` 或模板里，换语言后会更新。 */
 export function useLayoutText(): (key: LayoutTextKey, params?: TextParams) => string {

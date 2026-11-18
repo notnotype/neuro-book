@@ -85,5 +85,5 @@ export {
     type SplitterGestureSource,
     type SplitterGestureState,
 } from "./splitter-gesture";
-export {moveInSections, slotOfKey, sortableSlotIn, sortableSlots} from "./sortable";
-export type {SortableAxis, SortableLayout, SortableSection, SortableSlot, SortableSpan} from "./sortable";
+export {moveInSections, slotOfKey, SORTABLE_STICKY_PX, sortableSlotIn, sortableSlots} from "./sortable";
+export type {SortableAxis, SortableLayout, SortableSection, SortableSlot, SortableSpan, SortableSwitch} from "./sortable";

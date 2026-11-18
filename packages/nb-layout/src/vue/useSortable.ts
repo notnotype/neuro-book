@@ -12,13 +12,13 @@
  * 收场时的落回在会话的 `onActiveChange` 里同步做。
  */
 
-import {computed, ref, shallowRef, watch} from "vue";
+import {computed, nextTick, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, Ref} from "vue";
 
 import type {DragState} from "../drag-gesture";
 import type {GridDropPoint} from "../grid-drop";
 import {moveInSections, slotOfKey, sortableSlotIn, sortableSlots} from "../sortable";
-import type {SortableAxis, SortableLayout, SortableSection, SortableSlot, SortableSpan} from "../sortable";
+import type {SortableAxis, SortableLayout, SortableSection, SortableSlot, SortableSpan, SortableSwitch} from "../sortable";
 import {createDragSession} from "./drag-session";
 import type {DragSession} from "./drag-session";
 import {useLayoutText} from "./text";
@@ -76,6 +76,8 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
     let origin: SortableSlot | null = null;
     /** 抓住的点到行前沿的距离：拿起时定，这一场不变。 */
     let grab = 0;
+    /** 这一场上一次换位：判定的粘滞要用（`SORTABLE_STICKY_PX`）。判定时记下，拿起时清空。 */
+    let lastSwitch: SortableSwitch | null = null;
     /** 最近一次按下的指针类型：触摸只从把手起拖。 */
     let pointerType = "mouse";
     /** 键盘一场的停靠位置：点只是下标的载体（会话把同一个点对象交回判定），判定按下标取位置。 */
@@ -144,7 +146,16 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
         element?.style.removeProperty("transition");
         held.value = null;
     }
-    /** 一场结束：被拖的那一行从跟手的位置滑回它的位置（`--motion-move`），滑完才算放下了；减少动效时令牌为 0，直接到位。 */
+    /** 写在元素上的跟手位移（沿轴）。 */
+    function translateAlong(element: HTMLElement): number {
+        const parts = element.style.translate.split(" ").map((part) => Number.parseFloat(part));
+        const value = vertical ? parts[1] : parts[0];
+        return value !== undefined && Number.isFinite(value) ? value : 0;
+    }
+    /**
+     * 一场结束：被拖的那一行从跟手的位置滑回它的位置（`--motion-move`），滑完才算放下了；减少动效时令牌为 0，直接到位。收场后预览
+     * 可能换成别的次序（取消、放下的位置与最后显示的不同），所以等 Vue 按新次序排好，再按排好后的位置换算起点，从看到的地方滑回。
+     */
     function land(root: HTMLElement): void {
         const key = held.value;
         const element = key === null ? null : itemOf(root, key);
@@ -159,9 +170,20 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
             finishLanding();
             return;
         }
-        element.style.transition = "translate var(--motion-move) var(--ease-layout)";
-        element.style.translate = vertical ? "0px 0px" : "0px";
-        landing = setTimeout(finishLanding, ms);
+        const seen = element.getBoundingClientRect();
+        const seenAlong = vertical ? seen.top : seen.left;
+        void nextTick(() => {
+            // 这期间又拿起了别的（或卸载了）：那边已经收拾过这一行。
+            if (held.value !== key || !element.isConnected) return;
+            const now = element.getBoundingClientRect();
+            const start = translateAlong(element) + seenAlong - (vertical ? now.top : now.left);
+            element.style.transition = "none";
+            element.style.translate = vertical ? `0px ${String(start)}px` : `${String(start)}px`;
+            void element.offsetHeight;
+            element.style.transition = "translate var(--motion-move) var(--ease-layout)";
+            element.style.translate = vertical ? "0px 0px" : "0px";
+            landing = setTimeout(finishLanding, ms);
+        });
     }
 
     watch(state, (current) => {
@@ -194,7 +216,7 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
         const notePointer = (event: PointerEvent): void => {
             pointerType = event.pointerType;
         };
-        // 先于会话的按下监听：会话按注册顺序在后面读到它。
+        // 根上的捕获监听，一定先于会话在根上的冒泡按下监听（`sourceAt` 在那里读它）。
         root.addEventListener("pointerdown", notePointer, true);
         const created = createDragSession<string, SortableSlot, "list">({
             root,
@@ -219,6 +241,7 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
                     grab = vertical ? at.pressed.y - box.top : at.pressed.x - box.left;
                 }
                 held.value = source;
+                lastSwitch = null;
                 announced = `${origin.section}\n${String(origin.index)}`;
                 announcement.value = t("sortable.picked", {name: name(source), ...where(origin)});
                 return true;
@@ -233,7 +256,12 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
                 const element = itemOf(root, source);
                 if (element === null) return null;
                 const {layout, extent} = measure(root);
-                return sortableSlotIn(layout, source, heldSpan(root, element, point, extent));
+                const span = heldSpan(root, element, point, extent);
+                const slot = sortableSlotIn(layout, source, span, lastSwitch);
+                // 记下换位（会话允许判定时记粘滞要的状态）：来源此刻的位置从量到的布局读，就是上一次发布的预览。
+                const now = slotOfKey(layout.sections.map((section) => ({id: section.id, keys: section.members.map((member) => member.key)})), source);
+                if (slot !== null && now !== null && (slot.section !== now.section || slot.index !== now.index)) lastSwitch = {from: now, to: slot, at: span.start};
+                return slot;
             },
             actionKey: (drop) => origin !== null && drop.section === origin.section && drop.index === origin.index ? null : `${drop.section}\n${String(drop.index)}`,
             commit: (drop, source) => {
@@ -259,7 +287,10 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
             },
             onEnd: (end, last) => {
                 if (end.kind === "committed") return;
-                announcement.value = t("sortable.cancelled", {name: name(last.source)});
+                // 放回原位是放下，不是取消。
+                announcement.value = end.kind === "no-action" && origin !== null
+                    ? t("sortable.unchanged", {name: name(last.source), ...where(origin)})
+                    : t("sortable.cancelled", {name: name(last.source)});
             },
             keyboard: {
                 sourceAt: (target) => {

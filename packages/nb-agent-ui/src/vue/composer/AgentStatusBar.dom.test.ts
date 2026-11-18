@@ -155,13 +155,18 @@ describe("AgentStatusBar 窄时收项与宿主项的隔离（conversation.md 输
     let remindersWidth = 0;
     const originals = {observer: globalThis.ResizeObserver, offset: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth"), client: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth")};
     let barWidth = 200;
+    /** 只量登记过的元素：被取消观察的元素再变宽，状态栏不会知道（同真实的 ResizeObserver）。`resize` 模拟这些元素尺寸变了。 */
+    const observed = new Set<Element>();
+    let observers: FakeObserver[] = [];
     class FakeObserver {
         private readonly callback: () => void;
-        constructor(callback: () => void) { this.callback = callback; }
-        observe(): void { queueMicrotask(this.callback); }
-        unobserve(): void {}
+        constructor(callback: () => void) { this.callback = callback; observers.push(this); }
+        observe(element: Element): void { observed.add(element); queueMicrotask(this.callback); }
+        unobserve(element: Element): void { observed.delete(element); }
         disconnect(): void {}
+        fire(): void { this.callback(); }
     }
+    const resize = (): void => { for (const observer of observers) observer.fire(); };
     const install = (): void => {
         globalThis.ResizeObserver = FakeObserver as unknown as typeof ResizeObserver;
         Object.defineProperty(HTMLElement.prototype, "offsetWidth", {configurable: true, get() {
@@ -180,6 +185,8 @@ describe("AgentStatusBar 窄时收项与宿主项的隔离（conversation.md 输
         barWidth = 200;
         WIDTHS = DEFAULT_WIDTHS;
         remindersWidth = 0;
+        observed.clear();
+        observers = [];
     });
 
     const Words = defineComponent({setup: () => () => h("span", "w")});
@@ -231,6 +238,24 @@ describe("AgentStatusBar 窄时收项与宿主项的隔离（conversation.md 输
         expect(collapsed(narrow)).toEqual(["context", "usage", "cost"]);
         expect(narrow.get("[data-status-more]").attributes("aria-label")).toMatch(/^13% · /u);
         expect(narrow.find("[data-status-phase]").exists()).toBe(true);
+    });
+
+    it("挂着时把一项从右边换到左边：新位置照样量宽，之后变窄了收起跟着变", async () => {
+        install();
+        WIDTHS = {context: 40, usage: 120, cost: 40};
+        const view = withLine(createAgentContext({usage}), {});
+        await settle();
+        expect(collapsed(view)).toEqual(["usage"]);
+        await view.setProps({statusLine: {side: {usage: "left"}}});
+        await settle();
+        // 左边 40 + 120 + 间距 6，右边 40 与间距 6，共 212 > 176：先收费用，再收用量。
+        expect(collapsed(view)).toEqual(["usage", "cost"]);
+        expect(observed.has(view.get(".acv-status__left [data-status-item='usage']").element)).toBe(true);
+        // 用量变窄到 60：40 + 60 + 6 + 40 + 6 = 152，都放得下。
+        WIDTHS = {context: 40, usage: 60, cost: 40};
+        resize();
+        await settle();
+        expect(collapsed(view)).toEqual([]);
     });
 
     it("宽度为 0 的项（没有内容、还在加载）不占位，也不让别的项失去收起", async () => {

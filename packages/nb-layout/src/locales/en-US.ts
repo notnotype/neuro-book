@@ -18,5 +18,6 @@ export default {
         moved: "Position {{index}} in {{section}}",
         dropped: "Moved {{name}} to position {{index}} in {{section}}",
         cancelled: "Cancelled; {{name}} is back where it was",
+        unchanged: "{{name}} stays at position {{index}} in {{section}}",
     },
 };

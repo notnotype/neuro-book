@@ -6,7 +6,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {moveInSections, slotOfKey, sortableSlotIn, sortableSlots} from "./sortable";
-import type {SortableLayout} from "./sortable";
+import type {SortableLayout, SortableSection, SortableSlot, SortableSwitch} from "./sortable";
 
 const span = (start: number, end: number) => ({start, end});
 const member = (key: string, start: number, end: number) => ({key, span: span(start, end)});
@@ -91,5 +91,89 @@ describe("键盘的停靠位置与次序", () => {
         expect(moveInSections(sections, "c", {section: "left", index: 99})).toEqual([{id: "left", keys: ["a", "b", "c"]}, {id: "right", keys: []}]);
         expect(slotOfKey(sections, "c")).toEqual({section: "right", index: 0});
         expect(slotOfKey(sections, "x")).toBeNull();
+    });
+});
+
+/**
+ * 按 SortableList 的版式排一份布局：分区头（第一个分区也有，高 20，第二个起多 14 的上边距），行（各自的高），空分区一行占位（高 30），
+ * 相邻元素之间 2px。来源在 `sections` 里它此刻的位置上。
+ */
+function layOut(sections: readonly SortableSection[], heights: Readonly<Record<string, number>>): SortableLayout {
+    let at = 0;
+    const take = (size: number) => {
+        const span = {start: at, end: at + size};
+        at += size + 2;
+        return span;
+    };
+    return {sections: sections.map((section, index) => {
+        const head = take(index === 0 ? 20 : 34);
+        const members = section.keys.map((key) => ({key, span: take(heights[key] ?? 28)}));
+        if (section.keys.length === 0) take(30);
+        return {id: section.id, head, members};
+    })};
+}
+
+/** 被拖的行从 `from` 一像素一像素扫到 `to`（前沿的位置），每一步按上一次的结果重排再判，交回途经的位置。 */
+function sweep(initial: readonly SortableSection[], heights: Readonly<Record<string, number>>, source: string, from: number, to: number): string[] {
+    let sections = initial;
+    let last: SortableSwitch | null = null;
+    const visited: string[] = [];
+    const size = heights[source] ?? 28;
+    const step = Math.sign(to - from);
+    for (let start = from; step > 0 ? start <= to : start >= to; start += step) {
+        const layout = layOut(sections, heights);
+        const current = slotOfKey(sections, source)!;
+        const slot: SortableSlot = sortableSlotIn(layout, source, {start, end: start + size}, last)!;
+        if (slot.section !== current.section || slot.index !== current.index) {
+            last = {from: current, to: slot, at: start};
+            sections = moveInSections(sections, source, slot);
+        }
+        const name = `${slot.section}${String(slot.index)}`;
+        if (visited.at(-1) !== name) visited.push(name);
+    }
+    return visited;
+}
+const ordinal = (sections: readonly SortableSection[], source: string) => (name: string): number =>
+    sortableSlots(sections, source).findIndex((slot: SortableSlot) => `${slot.section}${String(slot.index)}` === name);
+
+describe("一路拖过去不来回翻（重排之后再判，带着上一次的换位）", () => {
+    const heights = {a: 36, b: 28, c: 28, d: 28, e: 28};
+
+    it("来源是一区唯一的一项：往下拖过分区头，经过的位置只往前走，不在头附近来回换", () => {
+        const sections = [{id: "L", keys: ["a"]}, {id: "R", keys: ["b", "c", "d"]}];
+        const visited = sweep(sections, heights, "a", 22, 200);
+        const order = visited.map(ordinal(sections, "a"));
+        expect(order).toEqual([...order].sort((x, y) => x - y));
+        expect(visited.at(-1)).toBe("R3");
+        // 再拖回去：同样只往回走，最后回到左边。
+        const back = sweep([{id: "L", keys: []}, {id: "R", keys: ["b", "c", "d", "a"]}], heights, "a", 200, 0);
+        const backOrder = back.map(ordinal(sections, "a"));
+        expect(backOrder).toEqual([...backOrder].sort((x, y) => y - x));
+        expect(back.at(-1)).toBe("L0");
+    });
+
+    it("拖进、拖出中间的空分区：同样不来回换", () => {
+        const sections = [{id: "A", keys: ["a", "b"]}, {id: "B", keys: []}, {id: "C", keys: ["c", "d"]}];
+        const visited = sweep(sections, heights, "a", 22, 260);
+        const order = visited.map(ordinal(sections, "a"));
+        expect(order).toEqual([...order].sort((x, y) => x - y));
+        expect(visited).toContain("B0");
+        expect(visited.at(-1)).toBe("C2");
+    });
+
+    it("刚换过去时，往前接着拖、往回挪不到粘滞的距离都不换回来，往回挪够了才换", () => {
+        const sections = [{id: "L", keys: ["a"]}, {id: "R", keys: ["b"]}];
+        const before = layOut(sections, heights);
+        // 静止时 a 在 22 到 58，右边的头在 60 到 94（中线 77）：后沿过了 77 才换过去。
+        expect(sortableSlotIn(before, "a", {start: 40, end: 76})).toEqual({section: "L", index: 0});
+        const crossed = sortableSlotIn(before, "a", {start: 44, end: 80})!;
+        expect(crossed).toEqual({section: "R", index: 0});
+        // 换过去以后左边成了占位，右边的头上移到 54 到 88（中线 71）：前沿 44 已在中线上面，没有粘滞就会马上换回去。
+        const after = layOut(moveInSections(sections, "a", crossed), heights);
+        const last: SortableSwitch = {from: {section: "L", index: 0}, to: crossed, at: 44};
+        expect(sortableSlotIn(after, "a", {start: 44, end: 80}, last)).toEqual({section: "R", index: 0});
+        expect(sortableSlotIn(after, "a", {start: 60, end: 96}, last)).toEqual({section: "R", index: 0});
+        expect(sortableSlotIn(after, "a", {start: 33, end: 69}, last)).toEqual({section: "R", index: 0});
+        expect(sortableSlotIn(after, "a", {start: 32, end: 68}, last)).toEqual({section: "L", index: 0});
     });
 });

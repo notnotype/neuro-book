@@ -18,5 +18,6 @@ export default {
         moved: "{{section}}第 {{index}} 位",
         dropped: "已把{{name}}放到{{section}}第 {{index}} 位",
         cancelled: "已取消，{{name}}回到原处",
+        unchanged: "{{name}}仍在{{section}}第 {{index}} 位",
     },
 };

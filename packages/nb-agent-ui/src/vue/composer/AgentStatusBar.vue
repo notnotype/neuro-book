@@ -99,7 +99,12 @@ const barRef = ref<HTMLElement | null>(null);
 const barWidth = ref(0);
 /** 各项的自然宽度：收起的项仍在页面里（不可见、不占位），所以量得到，放宽之后据此判断放不放得下。 */
 const widths = shallowReactive(new Map<string, number>());
+/**
+ * 量宽的槽，键是“边:id”。按 id 登记不行：一项从右边换到左边时，Vue 先挂上左边的新槽、再卸下右边的旧槽，卸下那次的回调拿不到
+ * 旧元素，会把刚登记的新槽当成它删掉。
+ */
 const slots = new Map<string, HTMLElement>();
+const idOfSlot = (key: string): string => key.slice(key.indexOf(":") + 1);
 /** 提醒那一块的自然宽度：它不收缩，量到的就是它要的宽。 */
 const remindersWidth = ref(0);
 let remindersRef: HTMLElement | null = null;
@@ -107,7 +112,7 @@ const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserv
     barWidth.value = barRef.value?.clientWidth ?? 0;
     remindersWidth.value = remindersRef?.offsetWidth ?? 0;
     // 宽度 0（组件还在加载、加载失败、没有内容）也记：它是量到了，只是不占位。
-    for (const [id, element] of slots) widths.set(id, element.offsetWidth);
+    for (const [key, element] of slots) widths.set(idOfSlot(key), element.offsetWidth);
 });
 onBeforeUnmount(() => observer?.disconnect());
 
@@ -123,17 +128,18 @@ function bindReminders(element: unknown): void {
     if (next !== null) observer?.observe(next);
     else remindersWidth.value = 0;
 }
-function bindSlot(id: string, element: unknown): void {
-    const previous = slots.get(id);
+function bindSlot(side: "left" | "right", id: string, element: unknown): void {
+    const key = `${side}:${id}`;
+    const previous = slots.get(key);
     if (element instanceof HTMLElement) {
         if (previous !== element) {
             if (previous !== undefined) observer?.unobserve(previous);
-            slots.set(id, element);
+            slots.set(key, element);
             observer?.observe(element);
         }
     } else if (previous !== undefined) {
         observer?.unobserve(previous);
-        slots.delete(id);
+        slots.delete(key);
     }
 }
 
@@ -152,8 +158,10 @@ const collapsedIds = computed<ReadonlySet<string>>(() => {
 });
 /** 收起的项按呈现顺序列在“…”的悬停里。 */
 const collapsedText = computed(() => [...leftItems.value, ...rightItems.value].filter((item) => collapsedIds.value.has(item.id)).map(textOf).join(" · "));
-/** 右边一块：有项，或左边有项收起要放“…”时才画；空着画出来会多占一个间距。 */
-const showsRight = computed(() => rightItems.value.length > 0 || collapsedIds.value.size > 0);
+/** 量到宽度 0 的项不占位：同收起的槽一样脱离文档流，不白占一个间距。 */
+const isEmpty = (id: string): boolean => widths.get(id) === 0;
+/** 右边一块：有占位的项，或左边有项收起要放“…”时才画；空着画出来会多占一个间距。 */
+const showsRight = computed(() => rightItems.value.some((item) => !isEmpty(item.id)) || collapsedIds.value.size > 0);
 
 // ─── 右键菜单 ───────────────────────────────────────────────────────────
 
@@ -190,9 +198,9 @@ const menuItems = computed<ContextMenuItem[]>(() => [
             <span
                 v-for="item in leftItems"
                 :key="item.id"
-                :ref="(element) => bindSlot(item.id, element)"
+                :ref="(element) => bindSlot('left', item.id, element)"
                 class="acv-status__slot"
-                :class="{'is-collapsed': collapsedIds.has(item.id)}"
+                :class="{'is-collapsed': collapsedIds.has(item.id), 'is-empty': isEmpty(item.id)}"
                 :data-status-item="item.id"
             >
                 <AgentStatusItem :id="item.id" :ctx="props.ctx" :host="hostComponents.get(item.id)" @inspect="emit('inspect')" />
@@ -215,9 +223,9 @@ const menuItems = computed<ContextMenuItem[]>(() => [
             <span
                 v-for="item in rightItems"
                 :key="item.id"
-                :ref="(element) => bindSlot(item.id, element)"
+                :ref="(element) => bindSlot('right', item.id, element)"
                 class="acv-status__slot"
-                :class="{'is-collapsed': collapsedIds.has(item.id)}"
+                :class="{'is-collapsed': collapsedIds.has(item.id), 'is-empty': isEmpty(item.id)}"
                 :data-status-item="item.id"
             >
                 <AgentStatusItem :id="item.id" :ctx="props.ctx" :host="hostComponents.get(item.id)" @inspect="emit('inspect')" />
@@ -314,8 +322,9 @@ const menuItems = computed<ContextMenuItem[]>(() => [
     align-items: center;
 }
 
-/* 收起的槽仍要能量宽：脱离文档流并贴到状态栏左缘，宽度不超过状态栏，不撑出横向滚动。 */
-.acv-status__slot.is-collapsed {
+/* 收起的槽仍要能量宽：脱离文档流并贴到状态栏左缘，宽度不超过状态栏，不撑出横向滚动。量到宽度 0 的槽同样脱离，不白占一个间距。 */
+.acv-status__slot.is-collapsed,
+.acv-status__slot.is-empty {
     position: absolute;
     inset-inline-start: 0;
     visibility: hidden;

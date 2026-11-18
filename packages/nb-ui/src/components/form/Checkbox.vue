@@ -96,7 +96,7 @@ function handleChange(event: Event): void {
             @click="handleClick"
             @change="handleChange"
         >
-        <!-- 上外边距让方框落在标签第一行的竖直中线上（1lh 是继承来的行高）；方框要与 input 同级，peer-focus-visible 才画得出焦点环。 -->
+        <!-- 上外边距让方框落在标签第一行的竖直中线上（1lh 是继承来的行高）；行高比方框矮时是负的，方框上下各探出一点，照样居中。方框要与 input 同级，peer-focus-visible 才画得出焦点环。 -->
         <span
             class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-[background-color,border-color,color,box-shadow,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] not-disabled:group-active:scale-[0.92] mt-[calc((1lh-18px)/2)]"
             :class="[
