@@ -393,7 +393,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
 
     function geometryOf(doc: LayoutDoc, id: string): LayoutDropPanelGeometry | null {
         // 拖到零的面板，卡片还停在最后的非零尺寸（内容不重排），量的是外框：外框为零，量不到矩形，不是落点。隐藏的区域按拖到零画，同样。
-        // 离开了、还在过渡里缩回去的（`data-leaving`）外框还在，也不算：它已经不在布局里，不是落点（docs/specs/ui/nested-grid.md 的“过渡”）。
+        // 离开了、还在过渡里缩回去的（`data-leaving`）外框还在，也不算：它已经不在布局里，不是落点（docs/specs/ui/nested-grid.md 输出 46、48）。
         const frame = root.querySelector(`[data-leaf="${escape(id)}"]`);
         if (rectOf(frame) === null || frame?.hasAttribute("data-leaving") === true) return null;
         const card = rectOf(root.querySelector(`[data-shell-card="${escape(id)}"]`));

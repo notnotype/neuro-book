@@ -54,11 +54,11 @@ type DropFeedbackOverlaySlots = Record<never, never>;
 
 几何入口在 `@notnotype/nb-layout`，宿主用它们算出 `DropFeedbackPreview`：
 
-- `resolveGridInsertion` 沿目标容器的主轴求落点。每个可见成员前、后各 20% 是插入带（`edgeRatio` 可改，须大于 0 且不超过 0.5；0.5 表示前后各一半，没有中央区，中点归后半），返回插入位、`targetId`（指针落在的那一叶）和 `halfRect`（该叶对应的半区）。中央返回 `keep`，只有整片叶的区域，没有锚点与插入线，释放时也不提交；是否呈现 `keep` 由宿主决定。叶间的间隙归后一叶，非末叶的后缘仍归它自己。
+- `resolveGridInsertion` 沿目标容器的主轴求落点。每个可见成员前、后各 20% 是插入带（`edgeRatio` 可改，须大于 0 且不超过 0.5；0.5 表示前后各一半，没有中央区，中点归后半），返回插入位、`targetId`（指针落在的那一叶）和 `halfRect`（该叶对应的半区）。中央返回 `keep`，只有整片叶的区域，没有锚点与插入线，释放时也不提交；是否呈现 `keep` 由宿主决定。叶间的间隙归后一叶，非末叶的后缘仍归它自己。成员按宿主给的顺序、沿显式给定的 `orientation` 计算；插入位给 `beforeId`（插到谁前面，`null` 是追加到末尾）与这个位置唯一的指示线（`indicator`），`areaRect` 与它出自同一次求值。`edgeRatio` 不合法（非有限、不大于 0、大于 0.5）、容器矩形非有限或零面积、指针落在容器外时返回 `null`，不给落点。
 - `resolveListInsertion` 给列表的插入位，一个位置一条线：前一项的后半、间隙、后一项的前半都归同一个位置，线在间隙里居中，没有足够间隙时贴后一项的前缘。越过最后一个可用成员是追加，线贴它的后缘；空列表锚在内容盒前缘。可选 `edgeGap`（缺省 0）只给首个可见成员之前和末个之后留白，内部间隙不变，空列表不偏移；空间不足时夹紧，负数或非有限值按 0。
-- `resolveGridEdgeDrop` 给四边与中心的落点。
+- `resolveGridEdgeDrop` 给四边与中心的落点：边缘占 `edgeRatio`（缺省 0.2，即 20%），左右优先于上下（与编辑器现有分组语义一致），先到者胜。`edgeRatio` 不合法（非有限、不大于 0、不小于 0.5）、矩形非有限或零面积、指针在矩形外时返回 `null`。
 
-`GridDropRect` 为 `Readonly<{left: number; top: number; right: number; bottom: number}>`；`GridOrientation` 为 `"horizontal" | "vertical"`。组件没有插槽或 expose API。`inheritAttrs` 被关闭；`useAttrs()` 收集的 attrs 被显式透传到 Teleport 下的覆盖层根节点，包括调用方的 `data-*` 标记。根节点不存在时没有 attrs 挂载目标。
+`GridDropRect` 为 `Readonly<{left: number; top: number; right: number; bottom: number}>`；`GridOrientation` 为 `"horizontal" | "vertical"`。组件没有插槽或 expose API。`inheritAttrs` 被关闭；`useAttrs()` 收集的 attrs 被显式透传到 Teleport 下的覆盖层根节点，包括调用方的 `data-*` 标记。根节点不存在时没有 attrs 挂载目标。这三个落点函数是纯函数，不读 DOM，也不引入 dnd-kit 一类拖放库：宿主把矩形与指针坐标算好交给它们。
 
 ## 状态与边界
 

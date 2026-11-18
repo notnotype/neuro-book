@@ -544,7 +544,7 @@ test.describe("产品页", () => {
         expect((await box(page, side)).width).toBeGreaterThan(150);
     });
 
-    test("外框过渡：开关侧栏时有，拖分隔线松手、改窗口尺寸时没有（输出 15；docs/specs/ui/nested-grid.md 的“过渡”）", async ({page}) => {
+    test("外框过渡：开关侧栏时有，拖分隔线松手、改窗口尺寸时没有（输出 15；docs/specs/ui/nested-grid.md 输出 35）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const moving = page.locator("[data-moving]");
@@ -575,7 +575,7 @@ test.describe("产品页", () => {
         expect(await moving.count()).toBe(0);
     });
 
-    test("F6、Shift+F6 经命令在面板之间移动焦点（输出 18；docs/specs/ui/nested-grid.md 的“移动焦点”）", async ({page}) => {
+    test("F6、Shift+F6 经命令在面板之间移动焦点（输出 18；docs/specs/ui/nested-grid.md 输出 129）", async ({page}) => {
         await open(page);
         // 内容与外框是兄弟元素：焦点在内容里时认内容指回的面板，在面板头里时认外框。
         const part = () => page.evaluate(() => {

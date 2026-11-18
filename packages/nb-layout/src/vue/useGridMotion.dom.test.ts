@@ -10,7 +10,7 @@ import {EMPTY_GRID_MOTION_MEMORY, decideMotion, useGridMotion} from "./useGridMo
 import type {GridMotionFrame, GridMotionMemory} from "./useGridMotion";
 
 /**
- * 要不要过渡（docs/specs/ui/nested-grid.md 的“过渡”）：判定是纯函数，不碰布局，表驱动测。真实布局里的过渡、内容跟不跟外框
+ * 要不要过渡（docs/specs/ui/nested-grid.md 输出 35）：判定是纯函数，不碰布局，表驱动测。真实布局里的过渡、内容跟不跟外框
  * 在 e2e/lab-grid-structure.e2e.ts。
  */
 

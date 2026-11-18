@@ -414,7 +414,7 @@ test.describe("应用内浮动", () => {
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
     });
 
-    test("框架按钮浮动、停靠的过渡：整张卡片从那一节拿起来飞到窗的位置，停靠时飞回去；每一帧外框与内容是同一块，内容在上面（ui/nested-grid 的过渡）", async ({page}) => {
+    test("框架按钮浮动、停靠的过渡：整张卡片从那一节拿起来飞到窗的位置，停靠时飞回去；每一帧外框与内容是同一块，内容在上面（ui/nested-grid 输出 88、107、109）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const moving = page.locator("[data-workbench-surface] [data-moving]");

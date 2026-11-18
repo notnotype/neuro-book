@@ -1,5 +1,5 @@
 /**
- * 渲染序列与 DOM id（docs/specs/ui/nested-grid.md 的“按矩形摆放”“读屏顺序”）：叶与分隔线按什么次序进 DOM。
+ * 渲染序列与 DOM id（docs/specs/ui/nested-grid.md 输出 32、132）：叶与分隔线按什么次序进 DOM。
  *
  * 序列由上一轮的算出来（`stableOrder`：还在的保持相对次序，新的紧接在树序的前一项之后），所以要记状态；并且必须在 `computed` 里
  * 同步算，不能放进 watch：外壳在下一个 tick 就按 `data-leaf-content` 找 Teleport 的目标，新叶的外框必须在同一轮渲染里出来。

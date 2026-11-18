@@ -4,7 +4,7 @@ import {moveGridFocus, moveTab, nextFocusStop} from "./grid-focus";
 import type {GridFocusItems} from "./grid-focus";
 
 /**
- * Tab 接管什么时候不介入（docs/specs/ui/nested-grid.md 的“Tab 顺序”）。`tabbable` 判可见性要真实布局，happy-dom 里没有，所以走到头
+ * Tab 接管什么时候不介入（docs/specs/ui/nested-grid.md 输出 122、124）。`tabbable` 判可见性要真实布局，happy-dom 里没有，所以走到头
  * 之后的跳转由 e2e/lab-grid-structure.e2e.ts 验；这里只测不介入的分支，它们在查 `tabbable` 之前就返回。
  */
 

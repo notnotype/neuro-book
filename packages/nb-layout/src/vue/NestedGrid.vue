@@ -46,15 +46,15 @@ const props = withDefaults(defineProps<{
     revision?: number;
     /** 同步接纳一次手势提交：`{ok:false}` 时本组件回滚预览并给出诊断。 */
     onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
-    /** 内容层（docs/specs/ui/nested-grid.md 的“内容层”）：和叶外框同一父元素的内容，换叶不重建。不传时内容放在 `leaf` 插槽里。 */
+    /** 内容层（docs/specs/ui/nested-grid.md 输出 80）：和叶外框同一父元素的内容，换叶不重建。不传时内容放在 `leaf` 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
-    /** 最大化（docs/specs/ui/nested-grid.md 的“最大化”）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
+    /** 最大化（docs/specs/ui/nested-grid.md 输出 97）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
     maximized?: {readonly leaf: string; readonly exclude: ReadonlyArray<string>} | null;
     /** 拿起的内容项（实时布局）：盖在别的面板与分隔线上跟手，不接指针。矩形由 `placeLifted` 写。变成 null 时飞回它的叶。 */
     lifted?: {readonly key: string} | null;
     /** 宿主的拖动进行中（不论内容拿没拿起）：这期间离开的叶照旧立即消失，不留着缩回去。来源离开是拖动的一部分，留着的外框会被落点判定撞上。 */
     dragging?: boolean;
-    /** 浮动窗（docs/specs/ui/nested-grid.md 的“浮动窗”）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
+    /** 浮动窗（docs/specs/ui/nested-grid.md 输出 101）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
     sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
@@ -74,7 +74,7 @@ const props = withDefaults(defineProps<{
      */
     leafShape?: ((leaf: string) => GridLeafShape | undefined) | undefined;
     /**
-     * 交换（docs/specs/ui/nested-grid.md 的“交换”）：下一次布局变化里一组叶换成另一组时像胶片一样整块平移。和这次布局变化在同一个同步段里给，
+     * 交换（docs/specs/ui/nested-grid.md 输出 61，时序见“状态与转换”的“时序与寿命”第 4 条）：下一次布局变化里一组叶换成另一组时像胶片一样整块平移。和这次布局变化在同一个同步段里给，
      * `token` 变了才算一次新的；只用于 `token` 变了之后的第一次布局变化，这一轮刷新结束就作废。
      */
     swap?: GridSwap | null;
@@ -141,7 +141,7 @@ const parking = useLeafParking();
 const {parked} = parking;
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule(), onSwapSkipped: (reason) => emit("issues", [reason])});
 const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
-/** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
+/** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 输出 48）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
 const outgoingLeaves = computed<ReadonlySet<string>>(() => (motion.shrinking.value.size === 0 ? leavingLeaves.value : new Set([...leavingLeaves.value, ...motion.shrinking.value])));
@@ -314,7 +314,7 @@ function controlledIds(leaf: string): string {
 }
 
 /**
- * 这条线沿自己的长度方向为零：它在一个收起为零的分支里（docs/specs/ui/nested-grid.md 的“分支的收起”），两边的叶都看不见。
+ * 这条线沿自己的长度方向为零：它在一个收起为零的分支里（docs/specs/ui/nested-grid.md 输出 136），两边的叶都看不见。
  * 粗细还在，所以 `SashHandle` 按粗细判的“接缝”认不出它；按不可交互交给它，就不可聚焦、不进指针命中，展开后矩形有了长度自己恢复。
  */
 function isZeroLength(sash: GridSashPlacement<unknown>): boolean {
@@ -838,7 +838,7 @@ defineExpose({
 }
 
 /*
- * 交换里带上的项（docs/specs/ui/nested-grid.md 的“交换”）：裁切窗随位置同一段过渡，窗在网格里不动。只给带上的项加：别的项的 `clip-path`
+ * 交换里带上的项（docs/specs/ui/nested-grid.md 输出 63）：裁切窗随位置同一段过渡，窗在网格里不动。只给带上的项加：别的项的 `clip-path`
  * （按卡片裁的外框、按叶摆的内容）是每一帧按盒算的，带过渡会让它在头变高时慢半拍。写在上面两条过渡后面，特异性更高。
  */
 .nb-grid-frame[data-moving][data-swap],
