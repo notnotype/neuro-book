@@ -1,5 +1,5 @@
 /**
- * `nbook.agent` 拥有的贡献点与激活事件（docs/specs/agent/contributions.md、compaction.md）。只在服务端：会话、工具与扩展都在服务端跑。
+ * `nbook.agent` 拥有的贡献点与激活事件（docs/specs/agent/contributions.md、compaction.md、skills.md）。只在服务端：会话、工具与扩展都在服务端跑。状态栏的项（`agent.statusItems`，只在浏览器入口）在 `status-item-point.ts`。
  *
  * 声明只放序列化得了的部分（第三方插件的贡献点经清单登记）；实现在提供方入口激活时交出。提供方入口要自己写上对应的激活
  * 事件（`agentToolContribution` 这类助手一起给出），`nbook.agent` 在用到时触发。
@@ -18,6 +18,7 @@ export const EXTENSIONS_POINT = "agent.extensions";
 export const TOOLS_POINT = "agent.tools";
 export const PROFILES_POINT = "agent.profiles";
 export const COMPACTION_METHODS_POINT = "agent.compactionMethods";
+export const SKILLS_POINT = "agent.skills";
 
 /** 激活事件前缀：本插件拥有，只有本插件触发（runtime/plugin-manifest.md）。 */
 export const AGENT_SESSION_PREFIX = "onAgentSession";
@@ -85,6 +86,23 @@ const ProfileDeclarationSchema = Type.Object({
         allowed: Type.Array(Type.String({minLength: 1})),
         recommended: Type.Optional(Type.Array(Type.String({minLength: 1}))),
     }, {additionalProperties: false})),
+    /** 能用 `$` 带上哪些 Skill（Skill 的 id），`"all"` 是 Skill 目录里的全部；不写就是空白名单（contributions.md 输出 20）。 */
+    skills: Type.Optional(Type.Object({
+        allowed: Type.Union([Type.Array(Type.String({minLength: 1})), Type.Literal("all")]),
+    }, {additionalProperties: false})),
+    /** 提示词里列哪些表情包（表情包 id），`"all"` 是表情目录里的全部；不写就是空白名单（contributions.md 输出 23）。 */
+    stickers: Type.Optional(Type.Object({
+        allowed: Type.Union([Type.Array(Type.String({minLength: 1})), Type.Literal("all")]),
+    }, {additionalProperties: false})),
+    /**
+     * 开场指令：对话第一屏“试试这些”，点了填进输入框（contributions.md 输出 21）。只显示前 3 条；不设条数上限，多写的不显示，
+     * 不因为一段展示用的文字拒绝整个 Profile。
+     */
+    starters: Type.Optional(Type.Array(Type.Object({
+        text: Type.String({minLength: 1}),
+        /** 图标 class，例如 `i-lucide-feather`。 */
+        icon: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false}))),
 }, {additionalProperties: false});
 
 export type AgentExtensionDeclaration = Static<typeof ExtensionDeclarationSchema>;
@@ -120,6 +138,31 @@ export const compactionMethodsPoint: ContributionPointDefinition<AgentCompaction
 export const profilesPoint: ContributionPointDefinition<AgentProfileDeclaration> = {id: PROFILES_POINT, implementation: "required", idPrefix: "plugin", schema: ProfileDeclarationSchema};
 
 /**
+ * `agent.skills` 的声明（docs/specs/agent/skills.md 的插件来源）：插件包里一个目录，相对插件根，里面每个子文件夹是一个 Skill。
+ * 只有顶层声明，没有实现：Skill 是文件，`nbook.agent` 收到声明后按目录扫描。
+ */
+export const SkillsDeclarationSchema = Type.Object({directory: Type.String({minLength: 1})}, {additionalProperties: false});
+export type AgentSkillsDeclaration = Static<typeof SkillsDeclarationSchema>;
+
+/**
+ * 声明的目录写成插件包里的相对路径，用 `/` 分段：不是绝对路径，不带协议或盘符，没有反斜杠，没有空段、`.` 与 `..`。构建预设打包
+ * Skill 与服务端解析目录前都按它核对，不合规时交回原因。
+ */
+export function skillsDirectoryProblem(directory: string): string | null {
+    if (directory.startsWith("/") || directory.includes("\\") || directory.includes(":")) return `Skill 目录 ${directory} 要写成插件包里的相对路径（用 / 分段，不带协议或盘符）`;
+    if (directory.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) return `Skill 目录 ${directory} 不能有空段、. 或 ..`;
+    return null;
+}
+
+export const skillsPoint: ContributionPointDefinition<AgentSkillsDeclaration> = {
+    id: SKILLS_POINT,
+    implementation: "none",
+    idPrefix: "plugin",
+    schema: SkillsDeclarationSchema,
+    validate: (descriptor) => skillsDirectoryProblem(descriptor.declaration.directory),
+};
+
+/**
  * 提供方写清单用的助手：交回贡献声明与它要写进入口的激活事件。扩展的提供方要声明 `ON_AGENT_SESSION`，否则它的扩展只在
  * 入口因别的原因激活后才生效（contributions.md 输出 2）。
  */
@@ -133,6 +176,11 @@ export function agentTool(id: string, declaration: AgentToolDeclaration): {reado
 
 export function agentCompactionMethod(id: string): {readonly contribution: ContributionDeclaration<AgentCompactionMethodDeclaration>; readonly activationEvent: string} {
     return {contribution: {capability: COMPACTION_METHODS_POINT, id, declaration: {}}, activationEvent: onAgentCompaction(id)};
+}
+
+/** 顶层贡献：只有声明，不用激活事件（插件的 Skill 不经入口激活，装好就在目录里）。 */
+export function agentSkills(id: string, declaration: AgentSkillsDeclaration): ContributionDeclaration<AgentSkillsDeclaration> {
+    return {capability: SKILLS_POINT, id, declaration};
 }
 
 export function agentProfile(key: string, declaration: AgentProfileDeclaration): {readonly contribution: ContributionDeclaration<AgentProfileDeclaration>; readonly activationEvent: string} {

@@ -1,0 +1,26 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t10-frontmatter-panel",
+    "artifactId": "review",
+    "answerId": "20261116T080408705Z-50292a73",
+    "artifactVersion": 1,
+    "contentHash": "eff7dcc2d89f959c26cfd7585ef571633b1fb4811df8267ce9aa3bf8095149f7",
+    "submittedAt": "2026-11-16T08:04:07.297Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q1-look": "card",
+        "q2-default": "closed",
+        "q3-empty": "menu",
+        "q4-types": "infer",
+        "q5-fallback": "row-and-source"
+    },
+    "comments": {
+        "q1-look": "表单、样式细节再优化一下。看看这个地方是否能和 nb-form 复用组件？还是说没必要复用，这里不复杂，代码量不多，重新写一份适配 frontmatter？",
+        "q4-types": "讲解一下全书统一是什么？这个有什么用？"
+    },
+    "note": null
+}

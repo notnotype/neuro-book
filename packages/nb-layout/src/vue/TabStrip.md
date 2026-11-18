@@ -5,7 +5,7 @@
 
 # TabStrip
 
-工具面板和编辑组共用的标签条（[`ui/workbench-layout.md`](../../../../docs/specs/ui/workbench-layout.md) 输出 19、20、21）：`tablist` 语义、方向键、Home、End、Alt 加方向键换序、菜单键、多行的纵向导航、分区、放不下时的逐级让位都只写在这里。拖动不在这里：拖动手势由宿主的会话做，标签条只写 `data-panel-tab` 这些标记，插入位由 [`resolveTabStripInsertion`](tab-strip-geometry.ts) 量。
+工具面板和编辑组共用的标签条（[`ui/workbench-layout.md`](../../../../docs/specs/ui/workbench-layout.md) 输出 19、20、21）：`tablist` 语义、方向键、Home、End、Alt 加方向键换序、菜单键、多行的纵向导航、分区、放不下时的逐级让位都只写在这里。拖动不在这里：拖动手势由宿主的会话做，标签条只写 `data-panel-tab` 这些标记，插入位由 [`resolveTabStripInsertion`](tab-strip-geometry.ts) 量。宿主在条里排序、被拖的标签自己跟手时，拿起时用 `measureTabStrip(strip, 被拖的标签)` 量一份（摘掉它，后面的标签补上它的空位，量到的矩形在 `excludedRect`），每次判定用 `tabStripInsertionIn(那一份, 指针, {width, grab})`：判定点是那个标签的左沿（抓住的点在指针下、夹在行里），盖过邻居一半邻居就让开，和抓在哪一点无关。
 
 它只有结构必需的样式，外观归宿主。两种外观（工具面板的下划线、编辑组的块状加竖线分隔）靠几个变量表达不了，所以宿主用 `:deep` 写，下面“外观钩子”是公开合同，改它们算改接口。
 
@@ -103,6 +103,7 @@ attrs 落在根上。
 | `.nb-tab-strip__list` | 标签区（`role="tablist"`），上限高度与纵向滚动写在这里 |
 | `[data-tab-row]`、`[data-layout]` | 一行；`data-tab-row-partition` 是它的分区 |
 | `.nb-tab-frame`、`.is-active` | 一个标签的外框 |
+| `.nb-tab-frame--placeholder` | `placeholder` 那个标签：看不见、留着位置。宿主在条里排序时让它显示出来跟着指针（写 `visibility` 与 `translate`），它会盖在邻居上，宿主给它不透明的底 |
 | `.nb-tab` | 按钮；测量层也用它，所以字号、内边距、间距写在它上面才量得准 |
 | `.nb-tab__icon`、`.nb-tab__title`、`.nb-tab--more`、`.nb-tab__chevron` | 缺省内容与“更多” |
 | `[data-tabs-level]`、`[data-tabs-more]` | 当前让位档、“更多”按钮 |

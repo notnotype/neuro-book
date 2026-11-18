@@ -1,0 +1,104 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t29-panel-head-redesign",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：分节全部收起与面板头",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "68ce5511739746bcfdea497b011dc078a244967190bf9038ba2f9d661328ec75",
+    "files": [
+        "index.html",
+        "r1/collapsed-fill.webp",
+        "r1/collapsed-lock.webp",
+        "r1/collapsed-shrink.webp",
+        "r1/head-bing.webp",
+        "r1/head-jia.webp",
+        "r1/head-now.webp",
+        "r1/head-yi.webp",
+        "r1/now-product.webp"
+    ],
+    "questions": [
+        {
+            "id": "all-collapsed",
+            "type": "single",
+            "label": "一个容器的分节全部收起时，卡片怎么画？",
+            "options": [
+                {
+                    "value": "fill",
+                    "label": "甲 卡片满高，标题行在上"
+                },
+                {
+                    "value": "lock",
+                    "label": "乙 不许全部收起"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "fill"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "head-style",
+            "type": "single",
+            "label": "面板头画成哪一种？",
+            "options": [
+                {
+                    "value": "jia",
+                    "label": "甲 标记在左，按钮悬停才出"
+                },
+                {
+                    "value": "yi",
+                    "label": "乙 整行像列表行，标记在右"
+                },
+                {
+                    "value": "bing",
+                    "label": "丙 紧凑小标题"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "jia"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "title-click",
+            "type": "single",
+            "label": "点分节的标题行做什么？",
+            "options": [
+                {
+                    "value": "toggle",
+                    "label": "甲 展开、收起来回切"
+                },
+                {
+                    "value": "expand-only",
+                    "label": "乙 只展开（现状）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "toggle"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-17T10:21:19.406Z"
+}

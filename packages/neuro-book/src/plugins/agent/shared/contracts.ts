@@ -51,6 +51,11 @@ export interface ProfileEntry {
     readonly modelNeeds?: AgentProfileDeclaration["modelNeeds"];
     /** 声明的可派子代理（contributions.md 输出 19）；用户级的没有声明，白名单只来自 Profile 设置。 */
     readonly agents?: AgentProfileDeclaration["agents"];
+    readonly skills?: AgentProfileDeclaration["skills"];
+    /** 声明的表情包白名单（contributions.md 输出 23）；用户级的没有声明，白名单只来自 Profile 设置。 */
+    readonly stickers?: AgentProfileDeclaration["stickers"];
+    /** 开场指令（contributions.md 输出 21）；用户级的没有声明，所以没有。 */
+    readonly starters?: AgentProfileDeclaration["starters"];
 }
 
 /** 工具目录的一项（contributions.md 输出 17）。 */

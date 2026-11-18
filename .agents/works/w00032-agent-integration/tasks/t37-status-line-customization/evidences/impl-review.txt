@@ -1,0 +1,99 @@
+# t37 前端实现审查报告（git diff master...HEAD）
+
+## 1. [重要] 正确性：右边任何一项量不到宽度（0）时，整个右边都不收，窄时溢出
+- 位置：packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue:184-190（collapsedIds）、:162（只记 offsetWidth > 0 的宽度）
+- 现象：`measured.some((width) => width === 0)` 为真就整体 `return new Set()`。插件项的组件还在异步加载（defineAsyncComponent 渲染注释节点）、加载失败（见第 2 条）、或渲染出空内容（v-if 为假、`() => null`）时，它的槽 offsetWidth 为 0，永远进不了 `widths`，于是右边的用量、费用、模型也一起不收了，窄状态栏里右边把左边挤成省略号甚至溢出。
+- 为什么是问题：Spec“窄时”写“右边的项按次序从前往后收……放得下为止”，一个没有内容的项不该让别的项失去收起；.md 说“还没量到宽度（首次渲染、没有布局的环境）时不收”，把“项暂时没有宽度”也当成了“没量到”。
+- 如何核实（已做）：/tmp/t37-review/probe/b.test.ts，在 happy-dom 里桩 ResizeObserver 与 offsetWidth/clientWidth（条宽 200，usage 120、cost 40、插件项 30），真实 AgentStatusBar：只有宽度 30 的插件项时 collapsed=["usage"]、有“…”；再加一个渲染 null 的右边插件项后 collapsed=[]、没有“…”。
+- 建议：量宽度时把 0 当作合法宽度（用 `widths.has(id)` 判断是否量过；槽被观察，首次 RO 回调必定给出每个槽的值，0 也记），或者过滤掉 0 宽度的项再算；同时 present() 之外没有内容的项不参与计数。
+
+## 2. [重要] 与 Spec 不一致：插件项的组件渲染抛错没有隔离（没用 RenderGuard），整条状态栏挂不上
+- 位置：packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue:223、:267（`<component :is="hostComponents.get(item.id)">`）；对照 packages/nb-agent-ui/src/vue/parts/RenderGuard.vue（AgentToolDetail、AgentMessageAnnotations、AgentTurnBlock 画宿主组件都包它）
+- 现象：docs/specs/agent/contributions.md 输出 22 写“组件渲染出错时只这一项不画（状态栏其余项照常）”。状态栏直接画插件组件，没有 `RenderGuard` 或 `onErrorCaptured`；应用也没设 `app.config.errorHandler`。
+- 如何核实（已做）：/tmp/t37-review/probe/c.test.ts，真实 AgentStatusBar，注册一个 setup 里渲染就抛 Error 的右边插件项并勾上：Vue 开发构建下 `mount` 直接抛出 boom，状态栏的用量与费用都没渲染（has-usage=false、has-cost=false）。生产构建下 Vue 只 console.error、该项变注释节点，所以行为开发与生产不一致，本机开发和 Lab 里一个坏插件会让整条状态栏白掉。
+- 另：Task 里没有这条的测试。status-line.dom.test.ts 的“坏项不影响其余”只断言了 `reports[0]` 含 id（实现缺 `load`），没有挂载坏组件。
+- 建议：两处宿主组件各包一层 `RenderGuard source="statusItem:<id>"`，`fallback` 插槽给空；补一条 DOM 测试：挂一个抛错的项，其余项与提醒仍在。
+- 附带：`defineAsyncComponent` 的 `onError`（packages/neuro-book/src/plugins/agent/web/status-items.ts:37）既没调 `retry` 也没调 `fail`，加载失败后 Vue 把组件永远留在“加载中”（我验证过：渲染 `<!---->`，错误只进了 `report`），所以该项永远是 0 宽度，叠加第 1 条；偶发的动态 import 失败也没有重试。
+
+## 3. [重要] 交互：设置页的预览里右键会弹出一个点了没反应的菜单；预览还带出重复的 `[data-agent-status]` 与多余的 tab 停靠点
+- 位置：packages/neuro-book/src/plugins/agent/web/components/StatusLinePage.vue:103（`<AgentStatusBar ... :status-line="props.setting" />`）
+- 现象：预览给了 `statusLine`，AgentStatusBar 因此挂上右键菜单（AgentStatusBar.vue:197-212、:270）；页面没监听 `@toggle` 与 `@open-settings`，所以在预览上右键弹出的勾选菜单，勾哪项、点“状态栏设置…”都没有任何效果（emit 无接收者）。预览里的用量和“…”带 `tabindex="0"`，也进了设置页的 tab 顺序，读屏会读到一个看似可操作的“预览”。
+- 同一页面里设置窗口开着时，DOM 里有两条 `[data-agent-status]` 及同名的 `data-status-*`；本 Task 的 e2e 已经为此写了 `:not([data-status-line-preview] *)`，但以后任何用 `[data-agent-status]` 严格定位的用例在设置窗口开着时都会命中两个。产品代码里没有按这些钩子取元素的选择器（我 grep 过 packages，只有 e2e 与 dom 测试），没有 id 重复。
+- 如何核实：代码阅读（AgentStatusBar 的 `@contextmenu` 只判断 `props.statusLine === undefined`）。
+- 建议：预览容器加 `inert`（同时去掉 tab 停靠点、右键与悬停提示，预览本来就只读）；或不让预览走“有设置才弹菜单”的开关，给 AgentStatusBar 加一个明确的 `menu: false`。不推荐把 toggle 接到写设置上，预览不该是第二个入口。
+
+## 4. [重要] 文案错误：右键勾选写入失败时提示“发送失败（conflict）。”
+- 位置：packages/neuro-book/src/plugins/agent/web/plugin.ts:200（`reportStatusLineFailure`）
+- 现象：`message: agentText("conversation.reject.other", {code: result.code})`。这个键是发消息失败的文案（zh-CN.json:202 “发送失败（{{code}}）。”），而且直接塞设置层的错误码。设置页那一条走的是 `settingsFailureText(result.code, result.detail, text)`，区分了 `unknown-outcome`（不确定有没有写进去）。
+- 为什么是问题：用户在状态栏上右键勾一项，写失败时看到的是“发送失败”，错误码是内部词；与注释里“与设置页同样交给通知”不符；`unknown-outcome` 的“可能已经写入”信息丢了。
+- 如何核实：grep locales/zh-CN.json:197-203 与 plugin.ts:198-201。
+- 建议：用 `settingsFailureText`（packages/neuro-book/src/ui/settings/setting-text.ts）和 `statusLine.notSaved` 标题，与页面包装 status-line-page.ts:35-38 共用一个函数；补一条失败路径的测试（现在两处失败分支都没有测试）。
+
+## 5. [重要] 与 Spec 不一致：右边最后一项永远不收，单独一个宽的用量项会把左边（含提醒类）挤到 0 宽
+- 位置：packages/nb-agent-ui/src/status-line.ts（`collapsedCount`：`for collapsed < widths.length - 1`、`widths.length <= 1 → 0`）；packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue:148-149（`LEFT_MIN = 72`）；AgentStatusBar.md“窄时收项”
+- 现象：.md 写“右边最多占状态栏宽度减去内边距与左边至少留的 72px”，代码里最后一项无论放不放得下都留着（“它也放不下时由左边让”），所以 72 只在项数 ≥ 2 时才成立。右边只剩 `usage` 一项时（本机端点没有单价、费用项不画，这是 e2e 里的实际情形；或用户把别的项关了），`usage` 约 4 个指标，估计 170–190px（从代码估算，未在浏览器量）：栏宽小于约 190+24+72+6 时左边就少于 72px，小于约 220px 时为 0（`.acv-status__left` 是 `overflow:hidden; min-width:0`），上下文圆环与“等你批准或回答”“断线”“全部放行”这些总显示的提醒项都看不见。
+- 为什么是问题：Spec 输出 15、46 与“状态栏”写“提醒类总显示、不受设置影响”。此前窄时是只留缓存命中与费用（几十 px），左边不会被压没。现在“最后一项最后收”被实现成“最后一项永不收”，“最后收”与“不收”不是一回事。
+- 如何核实：代码阅读；`collapsedCount([190], 100, 6, 16)` 得 0（status-line.test.ts 里也固定了“`collapsedCount([30], 5, 8, 16)` 是 0”这个行为）。需要真实布局确认具体像素：Lab 的 `AgentStatusBar` narrow 场景只测了三项里收两项、费用在的情形，没有“单独一个用量项”的窄宽场景。
+- 建议：当最后一项也放不下 `available`（含 LEFT_MIN）时同样收起，右边全部收进“…”（最后一项最后收，仍成立）；或者让 `collapsedCount` 返回 `widths.length`。左边没有任何东西时不留 LEFT_MIN（现在 `LEFT_MIN` 与左边实际有没有内容无关，没选会话、全关数据项时右边也白让 72px）。补一个“只有 usage、栏宽 240”的 Lab 场景与断言：`[data-status-phase]`、`[data-status-connection]` 可见。
+
+## 6. [重要] a11y/交互：右键菜单关闭后焦点没有回到原处，输入框里打字时右键状态栏会丢焦点
+- 位置：packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue:270-277（`<ContextMenu>` 只接了 `@update:open`，没接 `@request-close`）；对照 packages/nb-ui/src/components/popup/ContextMenu.md“菜单关闭后焦点回到哪里由宿主按关闭原因决定”；EditorGroupHead.vue:181、FilesExplorerView.vue:208 都接了 `@request-close`
+- 现象：菜单打开时 ContextMenu 把焦点移到第一个菜单项。选一项、Esc、Tab 关闭后菜单卸载，焦点落到 body。在输入框里写到一半，右键状态栏勾一项，输入框失去焦点，要重新点回去。
+- 如何核实（已做）：/tmp/t37-review/probe/d.test.ts，真实 AgentStatusBar：先聚焦一个 textarea，触发 contextmenu 后 activeElement 是 `menuitemcheckbox`，按 Esc 并等离场过渡后 activeElement 是 BODY，textarea 没拿回焦点。
+- 建议：打开时记下 `document.activeElement`，`request-close` 的原因是 `select`、`escape`、`tab` 时恢复它（`outside` 不抢回，文档已写明）。键盘用户（Shift+F10 或菜单键在状态栏里的圆环按钮上触发 contextmenu）同样受益；注意菜单键触发的 contextmenu 事件 clientX/clientY 可能为 0，菜单会出现在视口左上角，可以对 `event.button === 0 && clientX === 0` 的情形取目标元素的 rect 定位（未验证）。
+
+## 7. [建议] 交互：拖动向下时落点线画在目标行上沿，实际落在它下面
+- 位置：packages/neuro-book/src/plugins/agent/web/components/StatusLinePage.vue（`drop` 发 `move(id, index)`；`.is-over` 样式 `inset 0 2px 0 0` 画在目标行上沿）；.md“落点行的上沿画一条线”
+- 现象：`moveStatusItem` 的 `to` 是“移完后的位置”，先删后插。右边 [usage, cost, model]，把 usage 拖到 model 行上（线画在 model 上沿，意思是插在 cost 与 model 之间），结果是 [cost, model, usage]（我用 bun 直接调 `moveStatusItem` 验证）；向上拖则线与结果一致（model 拖到 usage 上得 [model, usage, cost]）。结果是“向下拖时线与实际落点差一格”，而且向下拖时不能把项放到“某行之前”（只能放到某行之后）。
+- 建议：`from < index` 时线画在目标行下沿（加一个 `is-over-after` 类），或统一语义为“插到目标行之前”，把 `to` 换算成 `from < index ? index - 1 : index`。DOM 测试里 `drag("model","usage")` 只覆盖向上，加一条向下的。
+
+## 8. [建议] a11y（从代码推断，未在真实浏览器验证）：上移、下移后焦点可能丢
+- 位置：StatusLinePage.vue 的 `v-for` 行（key 为 row.id）与 `IconButton`（`:disabled="index === 0"` 等）
+- 现象：点“上移”后设置异步写完，Vue 的带 key 重排用 `insertBefore` 移动 `li`；Chromium 下移动聚焦元素会丢焦点，且移到首/末行时该按钮变 disabled。键盘用户每按一次就要重新 Tab 回到这一行。屏幕阅读器也没有“已移到第 2 位”的播报。
+- 为什么列入：Plan 说“按钮同时是键盘与触屏的路径”，这条路径要连续用，焦点保持是它的基本要求。
+- 如何核实：手工或 Playwright 的 `page.evaluate(() => document.activeElement)`；happy-dom 里不会复现。
+- 建议：移动后把焦点放回同一行同方向的按钮（已 disabled 就放另一个按钮），并在页面里放一个 `role="status"` 的视觉隐藏区播报“某某 已移到右边第 2 位”。
+
+## 9. [建议] 并发：上移、下移按显示出来的位置算目标，写入队列救不了“连点两下”
+- 位置：StatusLinePage.vue 的 `emit('move', row.id, index ± 1)`；status-line-writes.ts `move(id, to)`；status-line-page.ts
+- 现象：`setting` 要等写入的往返完成才更新（配置服务写成功才更新快照；Checkbox 文档说明受控值没被采纳时原生框会摆回去），这段时间里页面仍显示旧位置。连点两次“下移”，两次都是 `move(id, 旧index+1)`，第二次在写入时 `from === target` 变空操作，用户点了两下只动一格。勾选同理：连点两下 = 两次 toggle，净效果没变，而用户看到的是勾“弹回”。
+- 和 Spec：输出 45 写“连点几下不会互相盖掉”，现在是不盖掉，但丢步。dom 测试“同一拍连点”用的是不同的项，没有覆盖同一项连点。
+- 建议：给写入器加相对移动 `moveBy(id, delta)`（在队列里按写那一刻的位置算），页面的两个按钮发 delta；拖动保持绝对位置。
+
+## 10. [建议] 与 Spec 的取舍：收起的槽 `position:absolute` 不设 `left`，可能撑出横向滚动（未验证）
+- 位置：AgentStatusBar.vue:409-413（`.is-collapsed`）
+- 现象：静态位置在右边容器的起点，宽度是它自己的自然宽度（用量约 190px）。栏宽 390、右边只剩费用时，右边容器起点在约 x=316，被收起的用量槽向右延伸到约 506，超出状态栏。`visibility:hidden` 不影响布局溢出：祖先有 `overflow:auto` 的话（设置窗口的页面滚动区、`overflow-x` 不是 hidden 的面板）会出现横向滚动条，Lab e2e 只量了 cost 的右边界，没量 scrollWidth。
+- 建议：`.is-collapsed` 加 `inset-inline-start: 0`（槽的宽度不会超过状态栏），或者放进一个 `overflow:hidden` 的零高度“量宽”容器；在窄宽 e2e 里加 `scrollWidth <= clientWidth` 断言。
+
+## 11. [建议] 测试：收起的主逻辑没有 DOM 层测试，贡献点没有走真实运行时的路径
+- 收起：Plan 的验收映射写“窄时从前往后收进悬停：DOM 测试（给定宽度）；Lab 窄宽场景”。实际只有 `collapsedCount` 的纯函数测试和一条 Lab e2e（280px、三项、费用在）。AgentStatusBar 把宽度记进 `widths`、放宽后重算、项内容变宽后重算、插件项加载前后这些连接都没有断言，第 1 条的缺陷正是在这里。我在 happy-dom 里桩 ResizeObserver 与 offsetWidth 就能测（/tmp/t37-review/probe/b.test.ts），不需要真实布局；e2e 里缺“放宽后收起的项回来”“只剩 usage”“带插件项”三种。
+- 贡献点：packages/neuro-book/src/plugins/agent/web/status-line.dom.test.ts 的接收者用例手写句柄再 `as never`，第二个参数 `undefined as never`，撤回原因 `"activation-stopped"` 是猜的；没有任何插件（含 plugin-sdk 示例与 Lab）经真实的运行时发布 `agent.statusItems`，所以“只接受浏览器入口、写在服务端入口是 invalid-declaration、停用后撤回”这条 Spec 合同（contributions.md 输出 22）只测了校验函数。Plan 里“SDK 子路径 /agent 加助手 agentStatusItem”也没有出现在 diff 里，第三方要自己手写清单。AGENTS.md“依赖能用真的就用真的，替身要与真实实现对过契约”。
+- 失败路径：右键勾选写失败的通知、设置页 `reportIfFailed`、组件加载失败，都没有测试（第 2、4 条的缺陷因此没被发现）。
+- 过期标题：packages/neuro-book/e2e/agent-conversation.e2e.ts:427 的用例标题仍写“状态栏窄时留缓存与费用”，该行为已被取代，用例体只断言 `[data-status-usage]` 可见（:474），标题与断言都应更新，否则读者以为“只留缓存与费用”还在。
+
+## 12. [建议] 组件 `.md` 没跟上代码
+- packages/nb-agent-ui/src/vue/AgentConversationView.md:60-84 的 props 清单没有新增的 `statusLine?: StatusLineSetting`（清单列全了 `statusBar`、`welcome` 等所有属性），“代码即文档”的对照会漏；该组件现在多发 `statusLine.toggle`、`statusLine.openSettings` 两个 action，.md 里也没有。
+- AgentStatusBar.md 的“窄时收项”写“右边最多占状态栏宽度减去内边距与左边至少留的 72px”，与代码（最后一项永不收）不符，见第 5 条；改代码或改文字之一。
+- StatusLinePage.md 的“隐藏通道理由”只列了 `state:inject`、`state:local`；页面内嵌的 AgentStatusBar 带 `env:portal`（右键菜单）、`env:global`（ResizeObserver 与文档监听），读者看这份 .md 看不出预览里有它们（若按第 3 条给预览加 `inert`，这两条才会在页面层面失效，到时写明）。
+
+## 13. [建议] 代码质量与一致性
+- plugin.ts:522 的 `openSettings` 自己 `commands.execute(OPEN_SETTINGS_COMMAND, …)` 并丢掉结果；同文件 :360-364 已有带失败诊断的 `openSettings(target)`。两条路径做同一件事，失败时前者静默。应复用。
+- AgentStatusBar.vue:223 左边插件项没有包装元素，`data-status-item` 靠 attrs 落到组件根上（组件是多根或 `inheritAttrs:false` 时丢失并警告），右边则有 `<span class="acv-status__slot" data-status-item>`。两边行为不一致，e2e 里选择器 `[data-status-item]` 对左边插件项不稳。左边也包一层即可统一。
+- plugin.ts 里 `registry` 在 setup 里用 `computed` 每次 `statusItems.entries` 变化就重建整个注册表（含内置的工具、面板等所有登记），而它是传给整个对话视图的。只因为状态栏的项变了就整份重建，下游所有按注册表 identity 缓存的东西都会失效（我没有验证有哪些受影响，从代码推断）。
+- packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/view.scenes.ts 的 `status-line` 场景调用 `hostScene` 三次拼 input，可读性差，应给 `hostScene` 加一个 props 覆盖参数。
+- 设置写入的上限：`order` 的 schema 是 `maxItems: 64`，`moveStatusItem`/`normalized` 把目录里没有的 id（已停用的插件）永远留在 `order` 里，不修剪。我验证了 70 个残留 id 时一次移动写出 73 项会被 schema 拒绝，UI 只能报“没存上”，用户没有办法从界面清掉。几乎不会发生（要累计几十个已卸载插件的项），按“窄场景选简单改法”可以记为已知限制，不加机制。
+
+## 未发现问题的方面
+- `resolveStatusLine` 对未知 id、跨侧 id、空 order、重复 id 的处理（`Infinity - Infinity` 得 NaN 但被 `||` 兜住，结果正确）；`toggleStatusItem` 对未知 id 返回原设置；`moveStatusItem` 对未知 id、越界位置、位置不变都有夹取与原样返回；`normalized` 把与缺省相同的显隐和次序去掉、保留未知 id，行为与 Spec 一致，单元测试覆盖这些边界，bun test 7 条、AgentStatusBar.dom 12 条、status-line.dom 7 条我都重跑通过。
+- 写入队列与冲突重试（setting-writes.ts）：每次写都在写的那一刻对最新值求改动，`conflict` 只重试一次，目录也在写时才取，菜单与设置页共用一个队列，插件停用后设置不丢（测试覆盖）。除第 9 条的“同一项连点”外没有发现问题。
+- 接收者的撤回与重算：`revoke` 只在 `handles.get(id) === handle` 时才删，同 id 重新发布的新句柄不会被旧句柄的撤回误删；异步组件按句柄缓存（WeakMap），重建目录不会让视图里的组件重新加载。
+- ContextMenu 保持挂载由 `open` 驱动的理由成立：nb-ui 的 ContextMenu 只在 `watch([open,x,y])`（非 immediate）里夹取位置和聚焦首项，若用 `v-if` 在打开时才挂上，首次打开不会走这个 watch。另外它在 body 里 Teleport，菜单里的右键不会冒泡回状态栏的 `@contextmenu`。
+- Vue 3.5.39 里 `:ref="(el) => bindSlot(id, el)"` 这种每次渲染新建的函数 ref，我实测每次更新只调一次 `el`，不会先调 `null` 再调元素，所以 `bindSlot` 不会因为每次渲染而 unobserve/observe 抖动。
+- 对话里和设置页预览各有一条 `[data-agent-status]`：产品代码没有按这些钩子取元素的选择器、没有 id，只有 e2e 与 dom 测试用，见第 3 条。
+- 复选框名称（label 含说明，原生 input）、IconButton 的 `aria-label` 带项名、设置只读时勾选/按钮/`draggable` 全部停用、拖动只在同一侧（`dragOver` 不对别侧 `preventDefault`）、token 与既有组件的用法（`--bg-hover` 作静态面在同目录 SubagentCard 等已有先例）没有发现问题。
+
+## 数量
+- 阻断：0
+- 重要：6（第 1、2、3、4、5、6 条；1、2、5 是行为缺陷，3、4、6 是交互与文案缺陷）
+- 建议：7（第 7 至 13 条，第 13 条合并了几项小问题）
+- 探针脚本在 /tmp/t37-review/probe（b.test.ts 第 1 条，c.test.ts 第 2 条，d.test.ts 第 6 条，m.ts 第 7 条），没有改动仓库文件。

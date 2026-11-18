@@ -67,4 +67,5 @@ export const BUILTIN_DIALECTS: Readonly<Record<string, DialectDeclaration>> = {
     "nbook.markdown.html-embed": {order: 50, blockTags: ["html"]},
     "nbook.markdown.ruby": {order: 60, inlineTags: ["ruby"]},
     "nbook.markdown.text-marks": {order: 70, inlineTags: ["span", "mark", "sup", "sub"]},
+    "nbook.markdown.sticker": {order: 80},
 };

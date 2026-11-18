@@ -26,6 +26,11 @@ export const NB_Z_INDEX = {
     contextMenu: 9100,
     /** 全局命令面板角色：QuickPick 的遮罩与面板同档，面板在后绘制 */
     commandPalette: 9200,
+    /**
+     * 桌面窗口自己画的窗口按钮与后备标题栏（应用宿主的 `DesktopFrame`）：它们是窗口的边框，模态、命令面板开着时也要能最小化、
+     * 拖动与关闭（系统标题栏同样不被页面里的东西挡住）；低于 Lab 的检查框，检查框要能检查它。
+     */
+    desktopFrame: 9300,
     /** 组件 Lab 的检查框：要压住被检查的一切，包括对话框与命令面板 */
     inspectorProbe: 9900,
 } as const;

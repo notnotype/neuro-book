@@ -2,6 +2,7 @@
 import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
 import {PopoverContent, PopoverPortal, PopoverRoot} from "reka-ui";
 import Spinner from "../display/Spinner.vue";
+import Tooltip from "../feedback/Tooltip.vue";
 import MenuRow from "./MenuRow.vue";
 import PopupScrollbar from "./PopupScrollbar.vue";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
@@ -81,6 +82,9 @@ const rendered = computed(() => {
 });
 /** 整个菜单（跨组）有一项带图标时，其余项也留出图标列，名称左边对齐。 */
 const iconColumn = computed(() => props.groups.some((group) => group.items.some((item) => item.iconClass)));
+/** 同理：有一项带状态时每行行尾都留一个图标宽，名称与次要文字的右缘对齐。 */
+const statusColumn = computed(() => props.groups.some((group) => group.items.some((item) => item.status !== undefined)));
+const STATUS_TONE = {neutral: "text-[var(--text-secondary)]", warning: "text-[var(--status-warning)]", danger: "text-[var(--status-danger)]"} as const;
 const empty = computed(() => !props.loading && props.groups.every((group) => group.items.length === 0));
 
 function isActive(item: SuggestionMenuItem): boolean {
@@ -227,7 +231,18 @@ defineExpose({
                             @click="onClick(row.item)"
                         >
                             <MenuRow :label="row.item.label" :lead-column="iconColumn" :icon="row.item.iconClass" muted-icon :hint="row.item.hint">
-                                <template #trailing><span v-if="row.item.checked === true" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" data-suggestion-menu-checked></span></template>
+                                <template #trailing>
+                                    <span v-if="statusColumn" class="ml-2 flex w-4 shrink-0 items-center justify-center" data-suggestion-menu-status>
+                                        <template v-if="row.item.status !== undefined">
+                                            <Tooltip :text="row.item.status.label">
+                                                <!-- 不用 Spinner：它自带 role="status"，嵌在选项里会让读屏另报一次“正在加载”；意思由下面的 sr-only 读出。 -->
+                                                <span :class="[row.item.status.busy === true ? 'i-lucide-loader-2 animate-spin' : row.item.status.iconClass, STATUS_TONE[row.item.status.tone ?? 'neutral'], 'h-3.5 w-3.5']" aria-hidden="true"></span>
+                                            </Tooltip>
+                                            <span class="sr-only">{{ row.item.status.label }}</span>
+                                        </template>
+                                    </span>
+                                    <span v-if="row.item.checked === true" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" data-suggestion-menu-checked></span>
+                                </template>
                             </MenuRow>
                         </div>
                     </div>

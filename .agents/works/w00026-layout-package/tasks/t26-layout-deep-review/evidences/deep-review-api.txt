@@ -1,0 +1,932 @@
+# t26 深入审查：api（Claude Sonnet，2026-11-16，固定在 954ed9e94）
+
+## 汇总
+
+w00026 t26 审查：API 形状（接入草稿角度）汇总
+
+固定提交 954ed9e94。草稿 api-draft.txt（用公开入口写成，vue-tsc 编译通过，未在浏览器运行）；实验脚本 api-exp-*.ts（bun run 可复现）；编译检查 check/。
+
+各级数量
+- 阻断：0
+- 重要：7（01、02、03、04、05、06、08）
+- 建议：7（07、09、10、11、12、13、14）
+合计有效发现 14 条（api-15 是更正，不计）。
+
+分级
+- 重要（7）：01 文档层是工作台领域模型（硬要求活动栏与状态栏、三个区域名、无构造器）；02 policy 的 edgeTarget/seamAccepts 提交不守；03 手势落账与结构操作前的 rebase 要宿主手写；04 拖动控制器（约 1400 行）不在库里；05 错误与诊断（两种失败形状、3 个码、中文串、issues 累计）；06 newId 重复时 moveTabToEdge 返回成功并覆盖别的面板（已实验）；08 文档放进 ref 抛 DataCloneError（已实验，类型防不住）。
+- 建议（7）：07 入口过宽与命名；09 隐藏/收起随 entries 字段分叉；10 落点判定三态；11 t06 第 1/2/6 条仍在；12 要整个 nb-ui 与 token、发布物是源码；13 TabRef 身份不含 type、entryRect 必填；14 业界对照（未联网）。
+
+有效发现编号：01 02 03 04 05 06 07 08 09 10 11 12 13 14
+
+与 t06 接入审查对照
+- 已改好：入口“接入”示例与 sashSize 说明（t06 3、4）；data/CSS 变量表（9）；moveGridFocus 吃容器（8）；onIssues prop 与事件重复触发（5 的一半）；content-parked 事件（10 的一部分）。
+- 仍在：1（contextKey/revision/disabled 三处）、2（量两遍容器）、5 的另一半（累计的 issues、中文串）、6（无 useDragSession）、7（入口过宽，且名字数翻倍）、11 的 SDK 是否导出 createGrid 等未重新核对。
+
+未发现问题的方面
+- 草稿只用公开入口就通过了类型检查，没有深导入；NestedGrid 的 props/emit/slot 与 NestedGrid.md 一致（读代码核对，没有逐项跑）。
+- createDragSession 的回调式合同（resolve 只读、commit 只在放下时调、actionKey 比较）清楚，registerDropTarget/useDropTarget/dropTargetAt 的按元素登记好用。
+- useGridLayout 自身提交不造成预览自取消、通知异常只报 issues，和文档一致。
+- 文档层的失败不改文档、结果与现状相同时返回原对象，调用方据此不提交：设计清楚、易用。
+- 没有联网：业界对照靠记忆，第 14 条已标明。
+
+主 Agent 需要在浏览器里验证的
+- 03：窗口缩窄使保留像素的面板被压缩，拖一条边界再放大窗口，看侧栏是否回到原宽；
+- 11：宿主根里放条件显示的提示条，看 grid 底部是否被裁；
+- 12：只 import nb-layout/vue 不加载 nb-ui 的 tokens.css，看过渡与分隔线。
+
+
+## api-01
+
+### 1. 主入口的“布局文档”层是工作台的领域模型：第三方没有活动栏、状态栏就造不出合法文档，也没有构造器
+
+严重程度：重要；类别：不变量（API 形状）
+位置：packages/nb-layout/src/layout-doc.ts:20-22（LayoutBar、PanelName 写死）、1297-1374（validateLayoutDoc）；src/index.ts:5-9（和纯 grid 同一个入口导出）；src/layout-doc-fixtures.ts（唯一的构造器，package.json 的 files 里 `!src/**/*-fixtures.ts` 把它排除在发布之外）
+
+现象（已跑实验 reports/api-exp-validate.ts，bun run 可复现）：
+- 用只含 “nav 工具面板 + ed 编辑组” 两片叶的树造 LayoutDoc，`validateLayoutDoc` 返回 `{ok:false, code:"invalid", detail:"条要恰各一个"}`。校验硬性要求树里恰好一个 `bar:activitybar` 叶和一个 `bar:statusbar` 叶（layout-doc.ts:1314）。
+- 同一函数还硬性要求：树里至少一个 role 为 editor 的面板（1372）；具名面板的 `name` 只能是 `sidebar`/`auxiliarybar`/`panel` 三个，且各至多一个（1360）；`hiddenBars` 只能含 `activitybar`/`statusbar`（1306）。“左侧栏 + 编辑区 + 底部面板” 的第三方应用只能把别人的活动栏和状态栏塞进树里，哪怕它没有这两样东西。
+- 校验之后工作台还有一层 `fitsSkeleton`（default-tree.ts:186，`V[H[活动栏, 侧栏, V[编辑组…, 面板], 右栏], 状态栏]`）才是真正的骨架，库里没有，也没有文档。第三方要靠读 default-tree.ts 的 100 行手写树才能造出一份文档（panels、tree、`ref: panelRef(id)`、`activeContainer`/`entries` 的关系都要自己对）。
+- 公开入口 `.` 把两层放在一起：`createGrid`（领域无关，Spec nested-grid 的“与领域无关的 grid”）和 `layout-doc`/`layout-project`/`layout-drop`/`live-drop`（工作台）。package.json 的 description 写“工作台的布局工具”，但 publishConfig.access 为 public，README 只有两行导入，没有一处告诉使用者“后一半只给工作台”。使用者按名字看到 `moveTabToEdge`、`applyLayoutDrop`、`LayoutDoc`，会以为这就是通用的“标签拖到边缘拆分”能力。
+
+为什么是问题：
+- “标签能在面板之间拖动、能拖到边缘拆出新的一块、能收起恢复、能存下来”正是第三方最想要的，而这一整块能力只对工作台那一种形状成立。使用者要么读完 1300 行 layout-doc.ts 才知道有这些限制，要么试一次被 “条要恰各一个” 拒绝，错误文案还不说为什么。
+- 命名在误导：`PanelName`（只有三个值）、`LayoutBar`、`PanelRole`（tool/editor）、`TabRef`（`kind:"view"|"tab"` 加 `type`，内置了“编辑器标签”概念）、`TabRef.type` 为任意字符串但 `kind` 两种写死。
+- 类型层面也防不住：`LayoutDoc.panels` 是 `Record<string, PanelRecord>`，`validateLayoutDoc(unknown)` 返回 `doc: value as unknown as LayoutDoc`（1373）是纯断言；手写的文档能编译，运行时才在 validate 里被拒。
+
+如何核实：bun run reports/api-exp-validate.ts；或读 layout-doc.ts:1297-1374 与 default-tree.ts:65-107。
+
+建议改法（优先让部件变少）：
+1. 不改模型，改入口：把 `layout-doc`、`layout-project`、`layout-drop`、`live-drop` 移到子路径 `@notnotype/nb-layout/workbench`（或 `/doc`），`.` 只留 grid（createGrid、类型、手势会话、sash 命中）；README 与 package.json description 写明“`.` 通用，`/workbench` 是工作台那一种形状”。工作台里 20 多个文件的 import 路径要改，机械迁移。
+2. 若要让第三方真的能用文档层：把“条”“具名面板”“编辑组至少一个”这三条从 validateLayoutDoc 里抽成宿主给的 `LayoutDocShape`（`bars: readonly string[]`、`regions: Record<string, {orientation}>`、`requireEditor: boolean`），默认值就是现在的工作台。代价是 `PanelName`、`REGION_ORIENTATION`、`isContainerAnchor` 等一串都要参数化，工作量大，只有确定要对外时才值得做；先做 1。
+3. 不论哪种，发布一个 `createLayoutDoc({regions, editors})` 构造器（把 layout-doc-fixtures.ts 的 H/V/docOf 里能公开的部分拿出来），不要让第三方照抄 default-tree.ts。
+
+
+## api-02
+
+### 2. LayoutPolicy 里 `edgeTarget`、`seamAccepts` 只管判定，提交不守；同一个策略对象里 `accepts`、`canInsert` 守、这两个不守，类型上看不出来
+
+严重程度：重要；类别：不变量 / 合同
+位置：packages/nb-layout/src/layout-doc.ts:88-101（LayoutPolicy 的注释）；layout-doc.ts:981-1049（movePanelToEdge、moveTabToEdge 不调 edgeTarget）；layout-drop.ts:154、251-266、333、365、507-524（只有判定与键盘候选在调）
+
+现象：
+- `LayoutPolicy` 一个接口放了 5 个回调。`accepts`（moveTabToEdge:1036、movePanelToEdge:1000、moveTabToStrip:792）与 `canInsert`（799、829）在写入时会再验；`edgeTarget`、`seamAccepts` 的注释写明“提交时不再问它，宿主要在写入的出口兜底”（layout-doc.ts:94、96）。
+- 实验（reports/api-exp-policy.ts，bun run 可复现）：策略 `edgeTarget` 让工具面板“左、右边没有窄带”（只能上下拆）。同一份文档、同一个策略对象，直接调 `moveTabToEdge(doc, {tab, target: {kind:"split", panel:"panel", edge:"left"}}, policy)` 返回 ok；`applyLayoutDrop(... {kind:"edge", target:{...edge:"left"}} ...)` 也返回 ok。策略声明“不允许”的落点被原样写进了文档。
+- 工作台是靠 `apply()` 出口的 `fitsSkeleton`（layout-doc-store.ts:230）兜底的，这是它自己写的第三层；第三方不知道这件事就会以为策略是写入时的权威（命名上它们和 `accepts` 并排，没有任何区别）。
+
+为什么是问题：
+- 同一个对象里的回调，一半是“不变量守卫”、一半是“只用于画指示线”，使用者无法从类型或名字看出来。典型误用：命令、快捷键、插件 API 直接调 `moveTabToEdge`（工作台里 `EditorPanels.tabs.moveToEdge` 就是这条路，layout-doc-store.ts:229 的注释自己承认“服务能传任意目标”），绕过了策略。
+- 想让“工具面板只能上下拆”成为真正的规则，只能第三方自己在每个写入出口复制一份判断；而库已经有 `accepts` 的写入守卫，说明“库在写入时验策略”是它自己的约定，这两个回调破了例。
+
+如何核实：bun run reports/api-exp-policy.ts；或读 layout-doc.ts:88-101 与 moveTabToEdge 的实现（1024-1049）。
+
+建议改法：
+1. 最小：把 `edgeTarget`、`seamAccepts` 从 `LayoutPolicy` 拆到 `LayoutDropRules`（只给 `resolveLayoutDrop`、`enumerateDropCandidates` 用），`LayoutPolicy` 只剩写入时也守的 `accepts`/`canInsert`/`newId`。名字就能说明“哪些是写入的规则、哪些只是落点怎么画”。
+2. 更彻底：`moveTabToEdge`/`movePanelToEdge`/`openPanelAtEdge` 提交时对 `target` 调一次 `policy.edgeTarget(doc, tabs, panel, edge)`，结果与传入的不一致就拒绝（“这条边不是落点”）；`between` 目标对应 `seamAccepts`。库少一个“宿主要兜底”的约定，宿主的 `fitsSkeleton` 保留作骨架校验。代价：每次提交多一次 findTreeNode，可忽略。
+
+
+## api-03
+
+### 3. “手势落账写回文档”和“结构操作前先写回意图”要宿主手写，库只给零件；漏一个输入不报错，只是静默写坏尺寸意图
+
+严重程度：重要；类别：不变量 / 正确性（API 形状）
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:208-215（`rebased()`、`untouchedFixed`）、:221-237（`apply`）、:420-440（`commitGesture`）；packages/nb-layout/src/layout-doc.ts:466-495（`rebaseIntents`）、layout-project.ts:36-47、95-107（`collapsedTo`、`regionAnchors`、`fixedNodesOf`）
+
+现象（从代码推断；没有在浏览器里跑）：
+- 拖一次边界之后文档要这样更新（工作台 commitGesture 的 20 行），第三方必须逐字照抄：
+  1. 对 `collapsed` 里的每个节点 id，先用 `projection.regionAnchors.get(id) ?? id` 换成锚的面板 id，再 `setPanelCollapsed`；
+  2. 锚是隐藏着的、又被拉开（`value === false`）时再 `setPanelHidden(锚, false)`；
+  3. 再 `rebaseIntents(next, sizes, projection.collapsedTo, frozen)`，其中 `frozen` 是 `fixedNodesOf(projection.input)` 里“呈现尺寸和手势结果相差不到 0.5px”的那些（`untouchedFixed` 里写死了 0.5 的容差）。
+- 每次结构操作（`moveTabToEdge`、`openPanelAtEdge`…）之前要先 `rebaseIntents(doc, presented, projection.collapsedTo, fixedNodesOf(projection.input))`（`rebased()`），不然新块是按旧意图分的。layout-doc.ts 头注释里一句“手势落账后和结构操作之前都走它”是唯一说明；`moveTabToEdge` 的签名与返回值上没有任何痕迹提醒“你该先 rebase”。
+- 上面四个输入（`collapsedTo`、`regionAnchors`、`frozen`、`presented` 尺寸）都来自 `projectLayoutDoc` 的结果或呈现事实；`NestedGrid` 事件载荷（`GridGestureCommit`）里没有 `frozen`，也不知道“区域的锚”。这是库内部“呈现树 id ↔ 文档 id”的换算，没有包起来。
+
+为什么是问题：
+- 漏一步不报错：漏 `regionAnchors` 映射 → 单分节时把分节自己标成收起，区域本身没收起（commitGesture 注释自己写了这个坑）；漏 `frozen` → 窗口缩窄时被压缩的保留像素面板，在拖一下别的边界后把压缩后的尺寸写成意图，窗口放大后不再回到原宽；漏结构操作前的 rebase → 拆分比例按旧意图。三者表现都是“过一会儿布局不对了”，没有一处能在编译期或运行期被发现。
+- 第三方要读懂这三步需要先理解 `collapsedTo`（呈现里塌陷的分支）、`regionAnchors`（区域节点）、`fixedNodesOf`（保留像素）三个概念，它们在 `LayoutProjection` 的注释里各占一大段。
+
+如何核实：对照 layout-doc-store.ts:421-440 与 NestedGrid.md 的“接入”一节（只讲到 `host.onGestureCommit`，没讲文档层）；浏览器复现思路：在 e2e 环境里把窗口缩到放不下侧栏与右栏（保留像素的面板被压缩），拖编辑区与底部面板之间的边界，再把窗口放回原宽，看侧栏宽度是否回到原值；把 `frozen` 参数换成空集重试，对比。
+
+建议改法：
+1. 库里加一个 `applyGestureCommit(doc, {projection, presented, sizes, collapsed})`（工作台 commitGesture 的前半，不含 `schedule` 保存），返回 LayoutDoc；`untouchedFixed` 的容差作为常量一并进去。
+2. 库里加 `rebaseForOperation(doc, projection, presented)`，包装 `rebaseIntents(... collapsedTo, fixedNodesOf(...))`；更好的是让结构操作接受可选的 `presented`/`projection`，内部自己 rebase，调用方少一个要记的前置步骤。
+3. 工作台的 `commitGesture`、`rebased` 改成调它们；两处的差异（`schedule`）留在工作台。
+
+
+## api-04
+
+### 4. “标签拖到面板、拖到边缘拆分”没有可直接接的控制器：库只给零件，约 1400 行控制代码（layout-drag.ts 1041、live-drag.ts 340）留在工作台里
+
+严重程度：重要；类别：代码质量 / API 形状（缺失的公共能力）
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts（1041 行）、live-drag.ts（340 行）、entry-drop.ts（174 行）、drag-presentation.ts（86 行）；库侧：packages/nb-layout/src/vue/drag-session.ts、src/layout-drop.ts、src/live-drop.ts
+
+现象：
+- 第三方想要的“标签能在面板之间拖、能拖到边缘拆出新块”，库给的是：`createDragSession`（泛型 `<S, D, R>`，7 个必填回调：`root`、`sourceAt`、`resolve`、`actionKey`、`commit`，另 `activate`/`onEnd` 等十来个可选）；纯函数 `resolveLayoutDrop(input)`、`layoutDropPanelAt`、`layoutDropSectors`、`layoutSeamsOf`、`previewEdgeDrop`、`applyLayoutDrop`；`measureTabStrip`/`resolveTabStripInsertion`/`tabStripInsertionIn`；三个反馈组件。没有一处把它们接成一条线。
+- 接线要自己做的事（从 layout-drag.ts 看出来）：
+  1. 把自己的 DOM 量成 `LayoutDropPanelGeometry[]`（`id`、`frame`、`body`、`strip`、`insertionAt`）：工作台读的是它自己的标记 `data-leaf`、`data-shell-card`、`data-panel-head`、`data-panel-strip`（layout-drag.ts:371-382），这些标记库不提供也不约定（`data-leaf` 是 NestedGrid 的，其余是工作台的）；`excluded`（条与标题栏）也靠工作台的标记取。
+  2. 来源判定（`sourceAt`：`data-panel-tab`、`data-no-drag`、`data-no-drag-start`，layout-drag.ts 头注释）：`TabStrip` 写了 `data-panel-tab`，但 `data-no-drag*` 是工作台的约定，库里没有出现（`FloatWindowHandles` 写了 `data-no-drag`，却没有文档说明它的含义）。
+  3. 预览缓存（`previews` Map，键里带容器尺寸，一场里文档被改了要作废，layout-drag.ts:193-196）、结构键（`structure()`，一场里结构变了整场取消）、被拒绝的落点怎么显示、放回原处怎么不提交（`inPlace`）、键盘拖动的区域与位置列表（`enumerateDropCandidates` 只给候选，拿起/停靠/回焦点还是自己的）。
+  4. 标签条里排序跟手（`measureSorted`，layout-drag.ts:336-368：直接写元素的 `translate`、`visibility`、`z-index`，约 60 行）。
+  5. 实时布局的整套：帧循环、卡片追赶指数逼近、来源收起与展开、`candidateDoc` 摆预览（live-drag.ts 全部，库里只有 57 行的 `stepLiveDrop`/`insideShownSlot`）。
+- `LayoutDragOptions`（layout-drag.ts:68-108）有 22 个成员，其中纯布局相关的只有 `doc`、`policy`、`projection`、`extent`、`showPreview`、`placeCard`、`commit`；其余是工作台的（`catalog`、`editorTabs`、`titleOnly`、`maximized`、设置项 `sectors`/`feel`/`cardShrink`/`cardRefresh`）。74 行代码里出现活动栏、容器、编辑器标签、`data-shell-*`、`data-tool-*` 一类工作台才有的东西。库与工作台的分界不在这里，而是落在“拖动控制器”的中间。
+- 该 Spec（layout-drag.md 末尾“公开接口”）只承诺 `DRAG_GESTURE_DEFAULTS` 与 `data-drag-feedback`；`data-drag-feedback` 一个自带的反馈组件里只有 `DropSectorsOverlay` 自己写了它，`DropFeedbackOverlay` 要宿主传 attr（靠 `pointer-events:none` 才碰巧不挡命中），没有写进 DropFeedbackOverlay.md。
+
+为什么是问题：
+- 第三方要重写 1000+ 行才能得到工作台那种拖动；其中“读 DOM 取矩形、起拖判定、预览缓存、结构键”和工作台无关，却没有从工作台里分出来。同一份代码在 Lab 里的 `DragSessionScene.vue`、编辑器区的 `tab-drag.ts`、资源树里各抄了一份相似的骨架。
+- 库的拖动能力（落点规则、分区、预览函数）是按“宿主传矩形”写成纯函数，设计上是对的；缺的是把“矩形怎么来”收口的那一层。
+
+如何核实：读 layout-drag.ts 全文；统计 `grep -c "data-shell\|data-tool\|data-panel-head" layout-drag.ts`。
+
+建议改法：
+1. 在 `@notnotype/nb-layout/vue` 加 `useLayoutDrag(options)`，只收布局相关的：`root`、`doc`、`policy`、`projection`、`extent`、`panelOf(element)`（给面板 id 的是宿主，取代 data-leaf/data-shell-card 的约定）、`measure(panelId) => {frame, body, strip}`、`commit(source, action)`；返回 `state`、`session`、`rejected`，内部做预览缓存、结构键、键盘候选。工作台的 `createLayoutDrag` 在它上面加活动栏、容器、编辑器标签。
+2. 实时布局的帧循环（卡片追赶、来源收起、候选稳定）只有工作台一个用户，先不抽，但在 NestedGrid.md 里写“实时布局只有工作台实现；第三方只用落点指示”，让使用者早点知道边界。
+3. `DropFeedbackOverlay` 自己写 `data-drag-feedback`（和 `DropSectorsOverlay` 一致），文档里写明。
+
+
+## api-05
+
+### 5. 错误与诊断：全是中文字符串，失败形状有两种（`reason` / `code+detail`），`issues` 事件是累计的最近 8 条；t06 第 5 条的一半仍在
+
+严重程度：重要；类别：代码质量 / API 形状（错误怎么交给调用方）
+位置：
+- 网格层：packages/nb-layout/src/grid-types.ts:174-195（GridResult、GridResizeResult、GridBranchResizeResult、GridBranchesResizeResult 都是 `{ok:false; reason:string}`）；:208-216（`GridLayoutResult.issues: string[]`）；src/vue/useGridLayout.ts:22、84-98（`GridLayoutCommitResult`，`reason` 是句子）；src/vue/NestedGrid.vue:401、417（emit("issues", ["宿主没有提供 onGestureCommit……"])）、:437-439（把累计数组整个 emit）；src/vue/useSashGesture.ts:106、236（`issues.value = [...issues.value, ...messages].slice(-8)`）、:281（`reason: \`提交处理器抛出异常：${String(error)}\``）
+- 文档层：src/layout-doc.ts:77-78（`LayoutFailureCode` 只有 "not-found" | "rejected" | "limit-exceeded"）；layout-doc.ts 里 `failure("rejected", …)` 共 43 处（grep -c 可核）；:1264（`LayoutDocValidation` 的 `detail` 也是句子）；src/grid-types.ts:199-202（`GridRestoreResult.dropped[].reason`）
+- 文案：src/locales/en-US.ts、zh-CN.ts 只有 6 个键，全是 aria 与提示；诊断串不在里面。
+
+现象：
+1. 同一件事两种失败形状：网格层 `{ok:false, reason}`，文档层与校验 `{ok:false, code, detail}`。字段名不同（`reason` vs `detail`），一个有码一个没有。第三方在同一个宿主里要写两套处理。
+2. 文档层的 43 种拒绝只有 3 个码：`rejected` 下面有“接受矩阵拒绝”“分区不允许”“区域的锚不移动”“分节只有一个标签”“不能往区域的锚的交叉方向外缘放”“落点不在带容器的区域里，放不进容器 X”“具名面板不移动”等十几种，调用方想区分“用户拖错了地方，给提示”和“我自己的代码有 bug”，只能比较中文 `detail`。仓库规则是“不按错误文案做程序分支，用错误类型或错误码”，库自己的接口逼调用方这样做。
+3. `issues` 事件：`useSashGesture` 每次把新消息追加进最近 8 条的累计数组，`NestedGrid.vue:437-439` 每次都 emit 整个数组。连续三次拒绝，事件载荷依次是 [r1]、[r1,r2]、[r1,r2,r3]（t06 第 5 条用 happy-dom 测过；代码路径没变）。接 `@issues` 的宿主若“来一批追加一批”会重复。NestedGrid.md “事件”表对 issues 只写“会话诊断”，没写累计。（`onIssues` 作为 prop 与事件重复触发的那半，已经修好：props 里没有它了。）
+4. 诊断串写死中文，不走 `useLayoutText`：aria 文案能被 en-US 目录换掉，诊断不能；`issues` 通常展示给最终用户的开发者面板或日志，使用 en-US 的第三方得到的是中文。
+5. `onGestureCommit` 的返回值 `{ok:false; reason:string}` 的 reason 会被 `useSashGesture.ts:285` 拼成“本次调整没有落账：${reason}”；而 useGridLayout.ts 返回的 reason 本身已以“本次调整没有落账”结尾，t06 实验里出现过“本次调整没有落账：布局已变化（版本 0 ≠ 2），本次调整没有落账”的重复。我没有逐条重跑，这句只用来说明“字符串当接口”的后果，不一定仍然成立；复现方法：把 `revision` 少传一个，拖一次，读 `@issues`。
+
+为什么是问题：诊断是第三方调试“拖不动”的唯一线索（NestedGrid.md 自己写了“只有接了 @issues 才看得到原因”），而它既不稳定（累计）、也不能被程序区分、也不能本地化。
+
+如何核实：读上面的行；`grep -c 'failure("rejected"' src/layout-doc.ts`（43）；在 NestedGrid 宿主里少传 `:revision` 拖一次，接 `@issues` 看载荷。
+
+建议改法（让形状变少）：
+1. 统一失败形状：`{ok:false; code: LayoutErrorCode; message: string}`，网格层与文档层共用一个 `LayoutError`；`reason`/`detail` 两个字段名取消，`message` 仅供日志，不进逻辑。
+2. `LayoutFailureCode` 把 `rejected` 拆成能被程序区分的码：`policy-refused`、`anchor-immovable`、`section-single-tab`、`not-in-container-region`、`invalid-target`…（43 处归并成约 8 个码）。
+3. `issues` 事件只发新增的，载荷为 `{code, message}[]`；累计的最近 8 条留在会话里供调试用，不再 emit 整个数组。
+4. `message` 可由 `useLayoutText` 按码生成，进 locales；或者索性只给码与参数，文案归宿主。
+
+
+## api-06
+
+### 6. `policy.newId` 返回了已存在的 id 时，`moveTabToEdge` 返回成功、覆盖别的面板的记录、丢标签、造出重复 id；同样是新建面板的 `floatTab`、`openPanelAtEdge` 却会拒绝
+
+严重程度：重要；类别：正确性 / 不变量
+位置：packages/nb-layout/src/layout-doc.ts:1041-1044（moveTabToEdge：`const id = policy.newId("panel"); next.panels[id] = …` 之后直接 placeLeaf，没有查重）；:919（placeLeaf 里 `newBranchId()` 同样不查重）；对照 :1085（floatTab 查了）、:1057（openPanelAtEdge 查了）、:638（splitPanelInPlace 查了）；LayoutPolicy.newId 的注释“由宿主给，保证唯一”（:100）
+
+现象（已跑实验 reports/api-exp-newid.ts，bun run 可复现）：
+- 文档里已有工具面板 `p1`（带 `view:files`），编辑组 `e1` 有两个标签 a、b。策略的 `newId("panel")` 返回 "p1"（模拟“重新载入文档、计数器又从 1 开始”）。把标签 b 拖到 e1 的右边：
+  - 返回 `ok: true`；
+  - 树里的叶是 `[activitybar, e1, p1, p1, statusbar]`（两片叶同一个 id）；
+  - `doc.panels.p1` 被覆盖成编辑组、只含标签 b，原来 p1 里的 `view:files` 没了（`findTab` 返回 null）；
+  - 对结果调 `validateLayoutDoc` 得到 `重复 id：p1`——也就是库自己的操作产生了自己的校验不接受的文档。
+- 本库的另三处新建面板的路径（`floatTab`、`openPanelAtEdge`、`splitPanelInPlace`）都查重并以 `rejected` 返回，只有这一处没有，行为不一致。
+
+为什么是问题：第三方写 `newId` 最自然的实现就是计数器（测试里的 `testPolicy` 就是），每次载入文档后计数器归零，第一次拆分就静默毁掉一个面板，没有任何错误；之后每一次存盘把坏文档写下去。注释虽然写了“宿主保证唯一”，但库在同一类操作里一半查重、一半不查，使用者无从知道哪些路径需要自己保证。工作台的 `newId` 是随机的（概率上碰不到），所以现有测试发现不了。
+
+如何核实：bun run reports/api-exp-newid.ts。
+
+建议改法：在 `moveTabToEdge` 取到 `id` 后加和 `floatTab` 一样的两行（`next.panels[id] !== undefined || findTreeNode(next.tree.root, id) !== null` → `failure("rejected", …)`）；`placeLeaf` 里的分支 id 同样（新建分支前查 `findTreeNode`）。更好：把“取新 id 并查重”收成一个内部 `freshId(next, policy, kind)`，四处共用，新增路径就不会漏。
+
+
+## api-07
+
+### 7. 公开入口仍然过宽、命名带旧组件名、拖动类型分裂在两个入口：t06 第 7 条几乎原样还在，并且又长了一倍
+
+严重程度：建议；类别：代码质量 / API 形状（入口导出、命名一致）
+位置：packages/nb-layout/src/index.ts（全文 86 行）、src/vue/index.ts:16-33、src/drag-gesture.ts:68（DragStops）、src/vue/NestedGrid.vue:80（gesture-start 的匿名载荷）
+
+现象（数字来自 reports/api-exp-exports.ts，bun run 可复现）：
+- 核心入口 `.` 的运行时导出 132 个。在 neuro-book、nb-story、dev-panel、nb-agent-ui、nb-markdown、nb-form 的非测试源码（扫了 1656 个文件）里，62 个没有任何使用，其中求解器内部件占大头：`EPSILON`、`finite`、`allocateAxis`、`allocateSashPanels`、`clampAxis`、`shareAxis`、`normExtent`、`normConstraint`、`readExtent`、`layoutOf`、`constraintsOf`、`ZERO_EXTENT`、`solveSashDrag`、`solveSashCollapse`、`withCollapseOverrides`、`sashEdgeDelta`、`collectSashHits`、`hitTestSashBand`、`createSplitterSession`、`createGridGestureSession`、`projectGridGesture`……（注：几个常量如 `DRAG_GESTURE_DEFAULTS` 是 Spec 承诺的公开面，不算问题；脚本按 `\b名字\b` 匹配，`round` 因为和别的词重合没有被数出来，实际更多。）t06 第 7 条当时数的是 34 个名字里 27 个没人用，现在名字翻了几倍，比例仍是约一半。
+- `src/index.ts:5-11` 仍用 `export *` 导出 grid、layout-doc、layout-project、layout-drop、live-drop、sash-drag：任何新加的 `export` 自动成为公开 API，没有人决定它该不该公开。
+- `finite`、`round`、`EPSILON` 作为包根导出的名字太泛，容易和宿主自己的工具函数撞名。
+- 事件类型仍叫 `SplitterGestureSource`、`SplitterGestureCancelReason`、`SplitterGestureState`、`SplitterGestureCancellation`（index.ts:81-86），而它们描述的是 `NestedGrid` 的手势；另有一套 `DragCancelReason`（拖动会话）：同一个“被取消”有两套词汇。
+- 拖动类型分裂（t06 说过）：`DragState` 只在 Vue 入口重导出（vue/index.ts:25，类型是纯 TS 的），核心入口没有；`DragStops` 是 `DragKeyboardOptions.stops` 的返回类型，两个入口都没有导出，宿主写 `stops` 辅助函数时叫不出类型名（`ReturnType<DragKeyboardOptions<S,R>["stops"]>` 才行）。
+- `gesture-start` 的载荷仍是 NestedGrid.vue:80 的匿名对象类型，没有名字，宿主写处理函数得抄一遍（`grep GridGestureStart` 无命中）。
+
+为什么是问题：每个多余的导出都是一份要维护的公开合同；使用者面对 132 个名字找不到“我要用的那 15 个”，也分不清“要自己调的”和“库内部拼装用的”。命名上 `Splitter*` 让人以为只给独立的 `Splitter` 用。
+
+如何核实：bun run reports/api-exp-exports.ts；读 index.ts 与 vue/index.ts。
+
+建议改法：
+1. 入口改成显式导出清单（不再 `export *`）：只列宿主在用的。内部件（求解器、sash 命中、splitter-session、grid-gesture 的会话工厂）留在文件里，测试从相对路径导入，不受影响。
+2. 与第 1 条合并考虑：工作台才用的 layout-doc 一族移到子路径。
+3. `Splitter*` 事件类型改名 `GridGesture*`（或 `SashGesture*`），和 `DragCancelReason` 对齐；把 `DragState`、`DragStops` 放进核心入口；给 `gesture-start` 载荷起名导出。
+
+
+## api-08
+
+### 8. 文档放进 Vue 的 `ref` 就抛 `DataCloneError`：所有结构操作都用 `structuredClone`，只在文件头注释里提了一句，类型防不住，也不是“失败返回问题码”
+
+严重程度：重要；类别：正确性 / 不变量（类型防不住的误用）
+位置：packages/nb-layout/src/layout-doc.ts:12（唯一的说明：“文档放在 `shallowRef` 里：操作用 `structuredClone` 复制，Vue 的响应式代理会让它抛错”）、:124（`const editable = (doc) => structuredClone(doc)`）；README.md、NestedGrid.md、grid.md 都没有提；文件头的第 5 行“操作都是纯函数：失败返回问题码，文档不变”
+
+现象（已跑实验 reports/api-exp-ref.ts，bun run 可复现，vue 用 t25 worktree 的 node_modules）：
+- `shallowRef(doc).value` 传给 `activateTab`、`moveTabToEdge`：ok。
+- `ref(doc).value`（Vue 开发者写状态最自然的写法）传给同样两个函数：`DataCloneError: The object can not be cloned.`，从 `editable()` 抛出，是异常，不是 `{ok:false, code, detail}`。
+- `LayoutDoc` 的类型不区分：`ref<LayoutDoc>(doc).value` 的类型是展开后的结构类型，能直接传给这些函数，`vue-tsc` 不报错（我在接入草稿里按这个写法检查过，见 api-draft.txt 末尾的编译记录）。
+- 同类陷阱在网格层：`useGridLayout` 的 `grid` 参数 `Readonly<Ref<Grid<T> | null>>`，NestedGrid.md 的最小示例写的是 `ref(createGrid(...))`（深响应式包住一个闭包对象），而工作台自己用 `computed`。示例照写能跑，但与文档层的“必须 shallowRef”相反，两处没有一句话统一。
+
+为什么是问题：
+- 第一次接入就会踩，且错误信息 “The object can not be cloned” 不指向 Vue 或 ref，只有读 layout-doc.ts 头注释才知道原因。
+- 与库自己写的合同矛盾：“失败返回问题码”，这里是同步抛异常。
+- 文档本身是 JSON（要存盘、`validateLayoutDoc` 读回来也是 JSON），根本不需要 `structuredClone` 的能力（Map、循环引用、Date 之类）。
+
+如何核实：bun run reports/api-exp-ref.ts。
+
+建议改法：
+1. `editable()` 不用 `structuredClone`，改用对 JSON 形状的深拷贝（手写 15 行递归，或 `JSON.parse(JSON.stringify(doc))`；文档 1 到 256 个节点，开销可以忽略）。读 Proxy 与读普通对象没有区别，`ref` 与 `reactive` 都不再抛。顺手删掉 layout-doc.ts 头注释里的告诫。
+2. 如果坚持 structuredClone：在每个导出的操作入口 `try/catch`，转成 `failure("rejected", "文档被响应式代理包住了，用 shallowRef 或 toRaw")`；并把这条写进 README 与 NestedGrid.md 的“接入”。
+
+
+## api-09
+
+### 9. “隐藏”“收起”“拖到零”的含义随一个可选字段（`entries`）分叉：同一个类型、同一批函数，实际是两套文档；不用容器的一套只剩没人用的代码
+
+严重程度：建议；类别：代码质量 / API 形状（要记的概念太多）
+位置：packages/nb-layout/src/layout-doc.ts:164-166（`isContainerAnchor`：具名面板 + 有 `entries` 字段 + 没有标签）、:234-242（`isPanelShown` 分叉）、:259-268（`hiddenRegionsAtZero` 只换带容器的）、:1157-1182（`setPanelHidden`、`setPanelCollapsed`）、:1191-1210（`showPanelAndInsert` 的注释“只给不用容器的面板用，工作台不用它”）；src/layout-project.ts:3-10、62-93（`assignByParent` 里 `region !== null` 的分叉）
+
+现象：
+- 一份 `LayoutDoc` 里，具名面板（sidebar/panel）有没有 `entries` 字段，决定整套行为：
+  - 有（带容器的区域）：隐藏按“拖到零”画（保留边界，可拉开）；分节才有标题行；隐藏的区域在呈现树里。
+  - 没有（普通具名面板，第三方最自然的写法）：`hidden` 的面板整个不进呈现树（layout-project.ts:4 的注释：“不用容器的文档里隐藏的具名面板不换”），没有可以拖开的边界，也没有缩回去的动画；要拖到零，用的是 `setPanelCollapsed`，它在横向分支里把面板拖到 0。
+  - 同样叫 `setPanelHidden`，带容器时隐藏的是区域，不带时隐藏的是这块面板。
+- 我的草稿（api-draft.txt）要做“侧栏收起与恢复”，必须先读完两套才能选对：用 `setPanelHidden` 得到的是“没有动画、不能拖回来”，用 `setPanelCollapsed` 才是与工作台一样的手感（草稿用了后者，并在 commitGesture 里保留了只有带容器时才有用的 `regionAnchors` 那几步）。两个概念（hidden、collapsed）在不带容器的文档里是否等价，文档没有一句话。
+- `showPanelAndInsert` 的注释自己写了“工作台不用它”：它是为不带容器的文档写的，没有产品用户，也就没有产品里的验证（只有单元测试）；`insertTab` 在带容器的区域里拒绝并说“往区域里加视图用 openPanelAtEdge”。同一个功能（往面板加一个标签）根据文档的“模式”要换一个函数。
+- 量：layout-doc.ts、layout-project.ts、layout-drop.ts 共 2118 行里，提到 container/anchor/entries/section/region 的有 234 行（grep 数的，实际函数数更多）。
+
+为什么是问题：第三方要想“左侧栏 + 编辑区 + 底部面板”，只需要不带容器的那一套，却要读懂并绕开另一套；两套的差异没有集中写在一处，散在 12 个函数的注释里。
+
+如何核实：对同一份只有三块面板的文档，分别调 `setPanelHidden(doc, "sidebar", true)` 与 `setPanelCollapsed(doc, "sidebar", true)`，再 `projectLayoutDoc`：前者的 `input` 里没有 sidebar 这片叶，后者有且带 `collapse`。
+
+建议改法：
+1. 在 layout-doc.ts 头注释最前面（以及将来的 README）加一张表：不带容器的文档与带容器的文档里，hidden、collapsed、拖到零各是什么、各用哪个函数。不改代码，成本几行。
+2. 若第 1 条的分出子路径被采纳：容器那一套（`entries`、`activeContainer`、`isContainerAnchor`、`setContainerEntries`、`setActiveContainer`、`sectionCollapseBlock`…）放进 `workbench` 子路径，核心文档层只留不带容器的行为，两套就不再共用一个 `isPanelShown`。
+3. 删掉或标明没有产品用户的 `showPanelAndInsert`（若第三方用它，需要有 e2e 的验证）。
+
+
+## api-10
+
+### 10. 落点判定只有 `null` 一个“不行”：面板外、被拒绝、被排除三种情况要靠再调 `layoutDropOverPanel` 才分得开；同一个 `LayoutDropInput` 要喂四五个函数
+
+严重程度：建议；类别：代码质量 / API 形状
+位置：packages/nb-layout/src/layout-drop.ts:279-300（`layoutDropOverPanel`、`resolveLayoutDrop`）、:181（`layoutDropPanelAt`）、:219（`layoutSeamsOf`）、:319（`layoutDropSectors`）；使用方 packages/neuro-book/src/plugins/workbench/web/layout-drag.ts（`rejected` 的 ref、`overRejected`、`editorRefusal`）
+
+现象：
+- `resolveLayoutDrop(input)` 的返回值是 `LayoutDropAction | null`，注释写“`null` 是没有落点（工作台外、标题栏、条、被接受矩阵拒绝）”。`layoutDropOverPanel` 的注释写明为什么要另一个函数：“不用 `layoutDropPanelAt`：它在缝里只找能接收的那块，两块都不接收的缝会被当成不在面板上”。
+- 于是宿主要的三态——在面板外（松手什么都不发生）、在面板上但被拒绝（松手取消、光标变禁止）、有落点——要写成 `const action = resolveLayoutDrop(i); if (action === null && layoutDropOverPanel(i)) { rejected }`，算两遍几何（草稿 createMyDrag.resolve 里就是这样；工作台把这个状态存成 `rejected` ref 和 `overRejected` 变量）。库里 `layoutDropOverPanel` 与 `resolveLayoutDrop` 内部各自重新找一遍面板。
+- 同一份 `LayoutDropInput`（10 个字段：doc、source、point、panels、floats、noCenter、excluded、policy、edgeRatio、newContainer）要依次传给 `resolveLayoutDrop`、`layoutDropOverPanel`、`layoutDropSectors`（还要多传一个 geometry）、`layoutSeamsOf`（传 doc 与 panels，不传 input）、`enumerateDropCandidates`（另一个形状的 input）。五个函数、三种入参形状。
+- `newContainer` 与 `noCenter`：前者只在“空区域”这个工作台独有的功能里用，后者是整窗拖动的开关，但都平铺在通用 input 里，第三方读到会以为必须理解。
+
+为什么是问题：“被拒绝”是体验的一部分（光标、提示），第三方不知道要再调一个函数就会少这一层；且每次指针移动要算两遍。
+
+如何核实：读 layout-drop.ts:279-300 与 layout-drag.ts 里 `overRejected` 的赋值。
+
+建议改法：加一个返回三态的函数：`judgeLayoutDrop(input): {kind: "none"} | {kind: "rejected"} | {kind: "drop"; action}`（内部共用一次面板查找），`resolveLayoutDrop` 保留给只要 action 的调用。`LayoutDropInput` 拆成必填的 `{doc, source, point, panels, policy}` 与可选的 `options: {floats?, excluded?, noCenter?, edgeRatio?, newContainer?}`，让一眼能看出哪些是基本的。
+
+
+## api-11
+
+### 11. t06 第 1、2、6 条仍在：contextKey、revision、disabled 三处各写一遍，容器尺寸量两遍，拖动会话的创建销毁样板；接入草稿里这三处都要手写
+
+严重程度：建议；类别：代码质量 / API 形状（要记的概念太多、要知道内部时序才能用对）
+位置：packages/nb-layout/src/vue/NestedGrid.vue:36-60（props）、:105（NestedGrid 自己的 `useLayoutExtent`）；src/vue/useGridLayout.ts:37-48；src/vue/NestedGrid.md “接入”一节；src/vue/useGridMotion.ts:5（补丁注释）；src/vue/drag-session.ts:89
+
+对照 t06（reports 目录之外的 shape-review-api.txt）：
+- t06 第 1 条（三处重复写同一组值）：**仍在**。接入草稿（api-draft.txt）里要写：`useLayoutExtent(el)` → `useGridLayout({grid, extent, contextKey})` → `<NestedGrid :node :layout :context-key :revision :on-gesture-commit :disabled>`。`contextKey` 在 `useGridLayout` 与 `NestedGrid` 各写一次、`revision` 手转、`disabled="extent === null"` 是第三层同一个守卫。NestedGrid.md “接入”一节 61 行里专门有一段（“`contextKey` 在 `useGridLayout` 与 `NestedGrid` 里要写成同一个值，`revision` 要从 `host` 转给组件：对不上时提交被拒绝，界面表现为拖不动，只有接了 `@issues` 才看得到原因”）把这个坑写成了文档，而不是消除它。已改好的部分：`NestedGrid.md` 的“接入”一节（t06 第 3、4 条）、`sashSize` 的提示、导入路径、data/CSS 变量表（第 9 条）、`moveGridFocus` 改成吃容器（第 8 条）、`onIssues` 作为 prop 的重复触发（第 5 条的一半）。
+- t06 第 2 条（容器尺寸两处测）：**仍在**。`NestedGrid.vue:105` 仍有自己的 `useLayoutExtent(rootEl)`，宿主还要量父元素（NestedGrid.md 示例注释：“量的是 NestedGrid 的父元素：无 padding、border，里面只有这个 grid”），`useGridMotion.ts:5` 的补丁注释还在。我没有在浏览器里复现“宿主测整个根、grid 比可用空间高”的情形（从代码推断）；复现：在宿主根里放一条条件显示的提示条，再放 NestedGrid，看 grid 底部是否被根的 `overflow:hidden` 裁掉。
+- t06 第 6 条（拖动会话样板）：**仍在**。`createDragSession` 要创建时就给 `root`，草稿的 `DragLayer` 又写了 onMounted 建、onBeforeUnmount 销毁、`shallowRef` 再包一层、`watch(doc, invalidate)`。草稿里 3 个来源（Surface、DragLayer、Host）各有一套类似的生命周期代码。
+
+为什么是问题：这三处都是“同一个事实要写多遍、写错没有诊断”。第三方读完 NestedGrid.md 的那一段警告，仍然要自己记住三个对应关系。
+
+如何核实：读 api-draft.txt 的 `Host.setup` 与 `DragLayer.setup`；在 NestedGrid 宿主里少传 `:revision` 或把两处 contextKey 写成不同的串，拖一次边界，只有 `@issues` 里有“布局已变化”或“工作面已切换”。
+
+建议改法（沿用 t06 的方案，现在更值得做，因为工作台里已有第二个宿主在抄）：
+1. `useGridLayout` 返回 `gridProps`（`{node, layout, revision, contextKey, onGestureCommit, disabled}`），`<NestedGrid v-bind="host.gridProps">`；`NestedGrid` 的 `contextKey`、`revision`、`disabled` 三个 prop 保留，宿主不用写。
+2. `NestedGrid` 测自己并 `emit("extent", …)`（或暴露 `extent`），`useGridLayout` 吃这个，宿主不再对父元素调 `useLayoutExtent`，`useGridMotion` 里两份尺寸互相比对的补丁一并删。
+3. 加 `useDragSession(root: Ref<HTMLElement|null>, options)`（根出现时建、换根或作用域结束时销毁，`state` 是稳定的 ShallowRef）。
+
+
+## api-12
+
+### 12. 第三方要“整个 nb-ui”才能用：Vue 入口从 nb-ui 的大桶导入、样式靠 nb-ui 的 token 才有过渡与线色，发布物是未编译的 TS 与 .vue 源码
+
+严重程度：建议；类别：文档 / API 形状（接入成本，没有说明）
+位置：packages/nb-layout/package.json:3、6-18、20-23（exports 指向 `./src/…ts`，`files: ["src", …]`，`dependencies` 里 `"@notnotype/nb-ui": "workspace:^"`、`publishConfig.access: "public"`）；src/vue/TabStrip.vue:5-6（`@notnotype/nb-ui/components`、`/utils`）；src/vue/text.ts:6-8（`/text`、`/text-port`）；src/vue/DropFeedbackOverlay.vue:55、DropSectorsOverlay.vue:3（`/theme`）；vue/*.vue 里 `var(--…)` 共 75 处（grep -c）；NestedGrid.md “公开的标记与变量”表
+
+现象：
+- `@notnotype/nb-layout/vue` 的入口把 11 个组件一起导出，`TabStrip.vue` 从 `@notnotype/nb-ui/components`（nb-ui 的整个组件桶）取 `DropdownMenu`、`useTabsAdapt`。只想要 `NestedGrid`/`Splitter` 的第三方，bundler 若不能摇掉就连带整个 nb-ui；摇不摇得掉取决于 nb-ui 桶的副作用声明，我没有量。
+- 样式：组件的 scoped CSS 用了 75 处 `var(--…)` token（`--motion-layout`、`--ease-layout`、`--nb-splitter-seam*`、`--sash-line-*`、`--layout-card-radius`、`--layout-card-shadow`，以及 nb-ui 的色板、层级 `NB_Z_INDEX`）。NestedGrid.md 写“`--motion-layout`、`--ease-layout`：继承来的 CSS 变量，由 nb-ui 的 `tokens.css` 提供，减少动态效果时为 0；宿主没给就没有过渡”。没有一处告诉第三方“要 `import '@notnotype/nb-ui/…/tokens.css'`”、也没有列出“最少要提供哪些变量”。没有 token 时的表现是静默的：没有过渡、分隔线透明，不报错。
+- 发布形态：`exports` 全部指向 `src/*.ts` 与 `src/vue/index.ts`（它 re-export `.vue` 文件）。使用者的构建要能编译 node_modules 里的 TS 与 SFC（Vite 默认不处理依赖里的 .ts/.vue 转译问题多数能过，Nuxt、webpack、需要 SSR 的则要 transpile 配置）。包里没有声明“只支持 Vite/Bun”，`engines` 只写了 bun >=1.3.14。
+- `workspace:^` 的依赖在发布时由工具改写成实际版本，`@notnotype/nb-ui` 也得发布；`nb-ui` 里还冻结着另一份 `Splitter` 与 `sash-drag`，`@notnotype/nb-ui/components` 导出名叫 `Splitter`，`@notnotype/nb-layout/vue` 也导出 `Splitter`。同时 import 两者的应用会得到两个同名但行为略有差异的组件，包与文档里都没有警告（只有 neuro-book 的 `sdk.test.ts:52` 注释写了“只算一个”）。
+
+为什么是问题：包的名字、`publishConfig`、README 都在对外，而“要装什么、要加载什么样式、要什么构建”全靠读源码。第三方第一次接入的失败不是报错，是“没动画、线看不见”。
+
+如何核实：读 package.json；新建最小 Vite 项目只 `import {NestedGrid} from '@notnotype/nb-layout/vue'` 不加载 tokens.css，看过渡与分隔线（浏览器里；我没有跑，从代码推断）。
+
+建议改法：
+1. README 加“依赖与样式”一节：装哪些包、要 import 的 CSS 文件、最少的变量清单（`--motion-layout`、`--ease-layout`、`--nb-splitter-seam`…）。
+2. 给缺变量时的默认值：scoped CSS 里写 `var(--motion-layout, 150ms)` 这样的回退，让“没加载 tokens.css”也有基本可用的样子（至少不静默）；或在开发环境下 `NestedGrid` 挂载时检测 `getComputedStyle(root).getPropertyValue('--motion-layout') === ''` 给一条 `issues`。
+3. `TabStrip` 对 nb-ui 桶的依赖改成子路径导入（`@notnotype/nb-ui/components/DropdownMenu`），让只用网格的应用不被拖进整个组件库；或把 TabStrip 放到单独的子路径。
+4. t14 迁移之前，在 nb-ui 的 `Splitter` 文档里写“已冻结，新代码用 nb-layout/vue 的”。
+
+
+## api-13
+
+### 13. 小处的形状问题：`TabRef` 的身份不含 `type`、`TabRef` 把“标签”分成叫 `view` 与 `tab` 的两种、`DropFeedbackPreview.entryRect` 是必填的活动栏概念
+
+严重程度：建议；类别：代码质量 / API 形状（类型与命名）
+位置：packages/nb-layout/src/layout-doc.ts:25-27（TabRef）、:111（tabKey）；src/vue/DropFeedbackOverlay.vue:17-28（DropFeedbackPreview）
+
+现象：
+1. `TabRef = {kind:"view"; viewId} | {kind:"tab"; type; tabId}`，身份键是 `tabKey`：`view:${viewId}` 或 `tab:${tabId}`——**不含 `type`**。已跑实验（reports/api-exp-tabkey.ts，bun run 可复现）：`{type:"markdown", tabId:"1"}` 与 `{type:"image", tabId:"1"}` 的 key 都是 `tab:1`，同放进一块面板，`validateLayoutDoc` 返回 `标签重复：tab:1`；`findTab(doc, "tab:1")` 只找到第一个。`type` 在库里只是原样带着的字符串（grep 没有任何分支读它），可 `tabId` 在不同 `type` 间必须全局唯一没有写在 `TabRef` 的注释里，也不在类型上。第三方多种标签（文本、图片）自然会各自从 1 数起，这时第一次有两个标签同 id，才在存盘读回时被 validate 拒绝，运行时 `insertTab` 已经按 key 拒绝（`标签已存在 tab:1`）。
+2. “标签”这个词有两个意思：`PanelRecord.tabs` 里装的元素叫 `TabRef`，其 `kind` 却分 `"view"` 与 `"tab"`；`kind:"tab"` 的是“编辑器的标签”。读者看到 `findTab(doc, "view:files")` 返回 `TabRef`，而 `kind:"tab"` 的又是 `TabRef` 的一种，容易混。命名上 `view`/`tab` 应是“工具视图”/“编辑器文档”这样的一对（工作台 Spec 里是这么叫的）。
+3. `DropFeedbackPreview` 的 `entryRect: GridDropRect | null` 是必填字段（草稿第一次编译就因漏它报 TS2769，修成 `entryRect: null` 才过；reports/check/ 里有编译记录）。它是“活动栏切换器上接收条目”的概念，通用的第三方没有，却要在每次构造 preview 时写 `entryRect: null`；`armed`、`labelAt` 都是可选的，只有它漏了 `?`。
+
+为什么是问题：1 是“按字符串键存、两个字段当一个键用”的老问题，类型上防不住；2、3 是读起来和用起来的小摩擦，累积起来让 API 显得是为一个应用定制的。
+
+如何核实：bun run reports/api-exp-tabkey.ts；vue-tsc 编译 reports/check/draft.ts（去掉 `entryRect: null` 即复现 TS2769）。
+
+建议改法：
+1. 把 `type` 并进身份：`tabKey` 返回 `tab:${type}:${tabId}`（需要迁移已存盘的文档，工作台里 `EDITOR_TAB_TYPE` 是常量，可以在读的时候补）；或者把 `type` 从 `TabRef` 里去掉，由 `tabId` 全局唯一，并在 `TabRef` 注释写明。两者选一，不要保持“有 type 却不参与身份”。
+2. 改名建议：`kind: "view" | "document"`（要跨包改，先在注释里标明意思，改名放到有大改时一起做）。
+3. `entryRect` 改成可选（`entryRect?: … | null`）。
+
+
+## api-14
+
+### 14. 对照业界布局库的 API 形状：可借鉴三点（提交前的统一拦截点、一个实例持有文档与事件、通用 grid 与应用外壳分层）
+
+严重程度：建议；类别：代码质量 / API 形状（借鉴）
+说明：这一条的资料没有联网核对。WebSearch 报模型不可用，Bash 的 curl 需要审批，我没有绕。下面的描述来自我对这些库公开文档与源码的记忆，链接是它们的官方位置，没有逐条核对到具体版本，写进设计前请主 Agent 打开链接确认。
+
+对照与可借鉴：
+1. FlexLayout（https://github.com/caplin/FlexLayout ，README 的 “Layout”、`onAction`、`onAllowDrop` 部分）：模型 `Model.fromJson(json)`，所有改动都是 `Actions.*` 对象经 `model.doAction(action)`；`<Layout onAction={(action) => action | undefined}>` 是所有提交的统一拦截点，返回 undefined 就否决。
+   对照本库：api-02（`edgeTarget`、`seamAccepts` 提交时不守）和 api-03（命令、快捷键绕过判定）说的是同一个洞。借鉴：给文档层一个唯一的提交入口（`commit(op)`），策略在这里统一验，判定函数只负责“画什么”。
+2. dockview（https://dockview.dev/docs ，API 一节的 `createDockview`、`api.addPanel`、`toJSON`/`fromJSON`、`onDidLayoutChange`、`onWillDrop`）：一个实例对象持有布局状态，`addPanel({id, component, position: {referencePanel, direction}})` 一次调用表达“放在谁的哪一边”，`toJSON`/`fromJSON` 是实例的方法，布局变化是事件。
+   对照本库：状态在宿主的 `shallowRef`、操作是自由函数、写回要宿主手动 `rebaseIntents`（api-03）、变更通知要宿主自己 `persist`（草稿的 `apply`）。借鉴：提供一个可选的 `createLayoutController({doc, policy, projectionOptions})`，内部持有 doc、投影与呈现尺寸，暴露 `apply(op)`、`commitGesture(...)`、`onChange`，宿主不再写 api-03 里的 20 行与 `rebased()`。`openPanelAtEdge` 的 `LayoutEdgeTarget`（between/split/spread 三种）对第三方过细，可以提供 `{reference, direction}` 的简化入口，在内部映射。
+3. VS Code 的 grid 与 splitview（https://github.com/microsoft/vscode/blob/main/src/vs/base/browser/ui/grid/grid.ts ，`Grid`、`SerializableGrid`、`IView`；同目录 `gridview.ts`、`splitview.ts`）：`base/browser/ui/grid` 只有视图尺寸与方向，不认识活动栏、侧栏；工作台的区域、活动栏、状态栏在 `workbench/browser/layout.ts`。`SerializableGrid.deserialize(json, deserializer)` 的反序列化回调把“序列化数据里的视图引用”换成对象。
+   对照本库：这正是 api-01 的建议：把 `createGrid`（通用）和 `layout-doc`（工作台）按层分开发布。VS Code 的 `deserializer` 回调与本库 `GridRefResolver`/`encodeRef` 是同一个思路，已经有了，不用改。
+4. golden-layout（https://golden-layout.com/docs/ ，`LayoutConfig`、`registerComponentFactoryFunction`、`loadLayout`、`saveLayout`）：配置是纯 JSON，组件靠名字注册，存取是实例的两个方法。借鉴点同 2：存与读各一个方法，读失败的类型是一个。
+
+不借鉴：dockview 与 FlexLayout 把“标签拖动”整个做进库里（含落点判定、反馈），第三方基本零接线；本库把判定做成纯函数、反馈做成组件，自由度高但接线多（api-04）。这是方向选择，不是错误；若目标用户包含第三方，应该提供一个“默认拖动控制器”，高级用户再拆开。
+
+建议改法：见每点；优先级：2（控制器）> 1（统一提交入口）> 3（分层，已在 api-01）。
+
+
+## api-15
+
+### 15. 对前面几条的更正与收窄（不是新发现）
+
+- 第 4 条第 2 点：“`data-no-drag*` 是工作台的约定，库里没有出现”不准确：`FloatWindowHandles.vue:103` 写了 `data-no-drag`；准确说法是“库里只有它一处写了 `data-no-drag`，`data-no-drag-start`、`data-no-drop` 只在工作台与注释里，Spec 之外没有文档说明它们的含义”。第 4 条另一句“`data-drag-feedback` 一个自带的反馈组件里只有 DropSectorsOverlay 自己写了它”指：库的三个反馈组件中只有 `DropSectorsOverlay` 自己写，`DropFeedbackOverlay`、`DropIndicatorLabel` 要宿主传（前者靠 `pointer-events:none` 不挡命中，功能上不出错）。
+- 第 4 条说 Lab 的 `DragSessionScene.vue`、编辑器的 `tab-drag.ts`、资源树里“各抄了一份相似的骨架”，我只确认了 `DragSessionScene.vue` 用 `createDragSession` 和 `tab-drag.ts` 存在，资源树一处沿用的是 t06 报告的说法，没有重新核对。
+- 第 5 条第 5 点：已核实。useSashGesture.ts:285 拼“本次调整没有落账：”，而 useGridLayout.ts:86-98 的 reason 以“，本次调整没有落账”结尾，两者叠加会重复，前缀重复是代码确认的；只有“t06 实验出现过的完整句子”没有重跑。
+- 第 11 条：草稿里“3 个来源各有一套生命周期代码”表述不清：准确说是草稿的 `Host.setup`（测量与会话）、`DragLayer.setup`（拖动会话的建与销）两处；不是三处。
+- 第 13 条第 2 点“工作台 Spec 里是这么叫的”没有核对，撤回这半句；改名建议只作为命名讨论。
+- 第 14 条：全部资料没有联网核对（WebSearch 不可用）。
+- 没有跑 `bun test`、`vitest`、`typecheck`：本角度不依赖它们，实验都是直接 bun 运行库的源码或 vue-tsc 编译草稿。
+
+
+## 接入草稿（api-draft）
+
+// api-draft.txt —— 第三方接入草稿（w00026 t26 API 角度）
+//
+// 目标：一个第三方 Vue 应用，只用公开入口（@notnotype/nb-layout、/vue、/locales），做出
+//   左侧栏 + 编辑区（能左右拆分）+ 底部面板；标签能在面板之间拖、拖到边缘拆出新块、边界能拖、区域能收起恢复、布局能存下来读回。
+// 草稿是 TS，复制成 .ts 用 vue-tsc 编过一遍（编译记录在文件末尾）；逐行的 `[别扭 N]`、`[缺 N]` 指向 api-NN.txt 里的发现。
+//
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// 0. 写这份草稿要读的文件（按读的顺序，括号里是读它是为了什么）
+//   1. packages/nb-layout/README.md                  （2 行导入，没有可用的信息）
+//   2. src/vue/NestedGrid.md 的“接入”一节              （最小宿主：只有网格，没有文档层、拖动、存盘）
+//   3. src/grid.md                                    （createGrid、sashSize、快照）
+//   4. src/layout-doc.ts 全文 1374 行                   （LayoutDoc 怎么造、哪些操作、校验规则；README 里没有它的任何说明）
+//   5. src/layout-project.ts 全文                       （LayoutProjectionOptions 五个字段、collapsedTo、regionAnchors、fixedNodesOf）
+//   6. src/layout-drop.ts 全文 537 行                   （LayoutDropInput 要的几何、落点动作、预览）
+//   7. 工作台：state/default-tree.ts（怎么手造一份文档）、state/layout-doc-store.ts:208-240、420-440（手势落账与 rebase）、
+//      layout-drag.ts:371-393（怎么量几何）、components/WorkbenchSurface.vue（NestedGrid 的完整接线）
+//   8. docs/specs/ui/workbench-layout.md、layout-drag.md、nested-grid.md （为了知道 contextKey、revision、data-drag-feedback 这些约定）
+//   统计：要读的代码约 4000 行（layout-doc 1374 + project 207 + drop 537 + default-tree 196 + store 片段 + layout-drag 片段 + Surface 606）。
+//   [别扭 1][别扭 4] 其中 3 个文件是工作台的，不是库的，第三方不抄就写不出来。
+//
+// 缺什么（只有工作台里有、第三方得自己写的）：
+//   [缺 A] 文档构造器：没有。只能照 default-tree.ts 手写，而且硬要求有活动栏、状态栏叶（api-01）。
+//   [缺 B] 手势落账写回文档的那 20 行 + 结构操作前的 rebaseIntents（api-03）。
+//   [缺 C] 拖动控制器：量几何、sourceAt、预览缓存、结构键、键盘候选（layout-drag.ts 1041 行，api-04）。
+//   [缺 D] 实时布局：帧循环、卡片追赶、来源收起（live-drag.ts 340 行）。库里只有 57 行的 stepLiveDrop。草稿不做，只做“落点指示”。
+//   [缺 E] 卡片/面板外观、面板头、关闭按钮、右键菜单：库只给 TabStrip 的结构，外观宿主写（设计如此，不算缺）。
+//   [缺 F] 浮动窗：草稿不做；库有 floats 的数据与 FloatWindowHandles，接线同样要读 WorkbenchShell。
+// ───────────────────────────────────────────────────────────────────────────────────────────
+
+import {
+    GRID_SNAPSHOT_VERSION,
+    UNBOUNDED_EXTENT,
+    applyLayoutDrop,
+    barRef,
+    createGrid,
+    findTab,
+    fixedNodesOf,
+    layoutDropKey,
+    layoutDropOverPanel,
+    panelRef,
+    presentationCollapse,
+    previewEdgeDrop,
+    projectLayoutDoc,
+    rebaseIntents,
+    resolveLayoutDrop,
+    setPanelCollapsed,
+    setPanelHidden,
+    tabKey,
+    treeLeaves,
+    validateLayoutDoc,
+} from "@notnotype/nb-layout";
+import type {
+    GridDropRect,
+    GridExtent,
+    LayoutDoc,
+    LayoutDropAction,
+    LayoutDropInput,
+    LayoutDropPanelGeometry,
+    LayoutPolicy,
+    LayoutProjectionOptions,
+    LayoutResult,
+    LayoutSource,
+} from "@notnotype/nb-layout";
+import {DropFeedbackOverlay, NestedGrid, TabStrip, createDragSession, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import type {DragSession} from "@notnotype/nb-layout/vue";
+import {computed, defineComponent, h, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+
+// ── 1. 造一份文档（左侧栏 + 编辑区 + 底部面板） ───────────────────────────────────────────────
+
+const BASE = {width: 1440, height: 900};
+
+/**
+ * [别扭 1][缺 A] 没有构造器，手写整棵树。必须有 activitybar 与 statusbar 两片叶（validateLayoutDoc 要求恰各一个），
+ * 第三方没有这两样，只好放进去再用 hiddenBars 藏起来；叶的 `ref` 必须是 `panelRef(id)`、条的必须是 `barRef(..)`，写错 validate 才报。
+ * 具名面板只能叫 sidebar/auxiliarybar/panel；树里至少一个 role 为 editor 的面板。
+ */
+function initialDoc(): LayoutDoc {
+    const leaf = (id: string, size: GridExtent) => ({kind: "leaf" as const, id, ref: panelRef(id), size});
+    return {
+        version: 1,
+        tree: {
+            version: GRID_SNAPSHOT_VERSION,
+            root: {kind: "branch", id: "root", orientation: "vertical", size: BASE, children: [
+                {kind: "branch", id: "body", orientation: "horizontal", size: {width: 1440, height: 900}, children: [
+                    {kind: "leaf", id: "activitybar", ref: barRef("activitybar"), size: {width: 0, height: 900}},
+                    leaf("sidebar", {width: 280, height: 900}),
+                    {kind: "branch", id: "center", orientation: "vertical", size: {width: 1160, height: 900}, children: [
+                        leaf("e1", {width: 1160, height: 600}),
+                        leaf("panel", {width: 1160, height: 300}),
+                    ]},
+                ]},
+                {kind: "leaf", id: "statusbar", ref: barRef("statusbar"), size: {width: 1440, height: 0}},
+            ]},
+        },
+        panels: {
+            sidebar: {role: "tool", name: "sidebar", tabs: [{kind: "view", viewId: "files"}], active: "view:files"},
+            e1: {role: "editor", tabs: [{kind: "tab", type: "my.editor", tabId: "a.txt"}, {kind: "tab", type: "my.editor", tabId: "b.txt"}], active: "tab:a.txt"},
+            panel: {role: "tool", name: "panel", tabs: [{kind: "view", viewId: "terminal"}], active: "view:terminal"},
+        },
+        floats: [],
+        hiddenBars: ["activitybar", "statusbar"],
+        currentEditor: "e1",
+    };
+}
+
+// ── 2. 策略 ──────────────────────────────────────────────────────────────────────────────
+
+/** [别扭 6] newId 要“保证唯一”：载入文档后计数器要接着最大的往下数，否则 moveTabToEdge 会静默覆盖一块面板（api-06）。 */
+let serial = 0;
+const policy: LayoutPolicy = {
+    // 接受矩阵：视图只进工具面板，编辑器标签只进编辑组；落边缘（拆新块）一律可以。
+    accepts: (tabs, target, region) => region === "edge" || tabs.every((tab) => (tab.kind === "view" ? target.role === "tool" : target.role === "editor")),
+    // [别扭 2] 想让“工具面板只能上下拆”，要写 edgeTarget；但它只管判定，提交时不守（api-02）。草稿不写。
+    newId: (kind) => `${kind === "panel" ? "p" : "b"}${String(++serial)}`,
+};
+
+const projectionOptions = (): LayoutProjectionOptions => ({
+    constraints: (_id, panel) => ({
+        minimumSize: panel.role === "editor" ? {width: 240, height: 120} : {width: 160, height: 80},
+        maximumSize: UNBOUNDED_EXTENT,
+    }),
+    barThickness: () => 0, // 条被隐藏，但这个回调是必填的
+    headHeight: 32, // 收成标题行时的高度（纵向分支）
+    collapseThreshold: 40,
+    sashSize: 4, // [别扭] 这里一个、createGrid 里又传一次 projection.sashSize；两个 sashSize（见下）
+});
+
+// ── 3. 状态：文档、投影、呈现尺寸 ─────────────────────────────────────────────────────────────
+
+/** [别扭 8] 必须 shallowRef：用 ref() 时所有操作抛 DataCloneError（api-08）；类型上看不出来。 */
+const doc = shallowRef<LayoutDoc>(initialDoc());
+const extent = shallowRef<GridExtent | null>(null);
+const presented = shallowRef<Readonly<Record<string, GridExtent>>>({});
+
+/** 放不下时先收走哪些面板：宿主给顺序与焦点（工作台的 collapseOrder 在 layout-doc-store 里，草稿给个空顺序）。 */
+const collapse = computed(() => (extent.value === null ? {removed: new Set<string>() as ReadonlySet<string>, squeezed: false} : presentationCollapse(doc.value, extent.value, {...projectionOptions(), order: [], focused: null})));
+const projection = computed(() => projectLayoutDoc(doc.value, {...projectionOptions(), removed: collapse.value.removed}));
+
+/**
+ * [别扭 3][缺 B] 结构操作之前，先把呈现尺寸写回意图（rebaseIntents）。四个参数里三个来自 projection。漏了不报错，拆分比例按旧意图分。
+ */
+const rebased = (): LayoutDoc => rebaseIntents(doc.value, presented.value, projection.value.collapsedTo, fixedNodesOf(projection.value.input));
+
+const STORAGE_KEY = "my-app.layout";
+function persist(): void {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(doc.value));
+}
+
+/** 所有改文档的入口：先 rebase，再操作，成功才写入并存盘。 */
+function apply(operation: (current: LayoutDoc) => LayoutResult): LayoutResult {
+    const base = rebased();
+    const result = operation(base);
+    if (!result.ok) return result; // [别扭 5] 失败只有 code 三选一与中文 detail
+    if (result.doc === base) return {ok: true, doc: doc.value};
+    doc.value = result.doc;
+    persist();
+    return result;
+}
+
+/** [缺 B] 手势落账：工作台 layout-doc-store.ts:420-440 的 20 行，逐字抄；漏任何一步都是静默写坏意图（api-03）。 */
+function commitGesture(sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void {
+    const near = (left: GridExtent | undefined, right: GridExtent | undefined): boolean => left !== undefined && right !== undefined && Math.abs(left.width - right.width) < 0.5 && Math.abs(left.height - right.height) < 0.5;
+    const frozen = new Set([...fixedNodesOf(projection.value.input)].filter((id) => near(presented.value[id], sizes[id])));
+    presented.value = sizes;
+    let next = doc.value;
+    for (const [id, value] of Object.entries(collapsed)) {
+        const anchor = projection.value.regionAnchors.get(id); // 不用容器的文档里恒为空，但这一步还是要写
+        const updated = setPanelCollapsed(next, anchor ?? id, value);
+        if (updated.ok) next = updated.doc;
+        if (anchor === undefined || value || next.panels[anchor]?.hidden !== true) continue;
+        const shown = setPanelHidden(next, anchor, false);
+        if (shown.ok) next = shown.doc;
+    }
+    doc.value = rebaseIntents(next, sizes, projection.value.collapsedTo, frozen);
+    persist();
+}
+
+/** 读回：校验失败时宿主自己决定怎么办；校验只管形状，骨架（fitsSkeleton）这类应用规则要自己再写一层（api-01）。 */
+function load(): void {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === null) return;
+    const checked = validateLayoutDoc(JSON.parse(raw) as unknown);
+    if (checked.ok) doc.value = checked.doc;
+    else console.warn(checked.code, checked.detail); // 中文 detail，没有可程序化区分的子码
+}
+
+// ── 4. 区域的收起与恢复 ────────────────────────────────────────────────────────────────────────
+
+/**
+ * [别扭 9] 两个概念：hidden 与 collapsed。不用容器的文档里：hidden 的具名面板整个不进呈现树（没有可拖开的边界，也没有动画），
+ * collapsed 的留在树里拖到零（有边界可以拖回来）。用容器的文档里隐藏按“拖到零”画，两者一样。
+ * 同一个函数在两种文档里语义不同，决定它的是一个可选字段 `entries` 有没有（isContainerAnchor）（api-09）。
+ */
+export const hideSidebar = (): LayoutResult => apply((current) => setPanelCollapsed(current, "sidebar", true));
+export const showSidebar = (): LayoutResult => apply((current) => setPanelCollapsed(current, "sidebar", false));
+
+// ── 5. 宿主组件：NestedGrid 的接线 ────────────────────────────────────────────────────────────
+
+export const Host = defineComponent({
+    name: "MyLayoutHost",
+    setup() {
+        // 量的是 NestedGrid 的父元素：要求无 padding、border，里面只有这一个 grid；NestedGrid 自己又量一遍（t06 第 2 条仍在）。
+        const containerEl = ref<HTMLElement | null>(null);
+        const boxExtent = useLayoutExtent(containerEl);
+        watch(boxExtent, (next) => {
+            extent.value = next;
+        }, {immediate: true, flush: "sync"});
+
+        // 投影一变就重建 Grid（工作台同样）。`useGridLayout` 要 Ref<Grid | null>。
+        const grid = computed(() => createGrid<string>(projection.value.input, {sashSize: projection.value.sashSize}));
+        const CONTEXT = "main"; // [别扭 1] 这个字符串要在 useGridLayout 与 NestedGrid 各写一次，逐字相等；revision 也要手转（t06 第 1 条仍在）
+        const layoutHost = useGridLayout<string>({
+            grid,
+            extent: boxExtent,
+            contextKey: () => CONTEXT,
+            onApplied: (_commit, result) => commitGesture(layoutHost.layout.value.sizes, result.collapsed),
+            onIssues: (issues) => console.warn(issues), // [别扭 5] 中文字符串；@issues 事件是累计的最近 8 条
+        });
+        watch(() => layoutHost.layout.value, (next) => {
+            presented.value = next.sizes;
+        }, {immediate: true});
+
+        // 面板头：TabStrip 只给结构；id 用 tabKey，才能和 data-panel-tab 对上。
+        const head = (panelId: string) => {
+            const panel = doc.value.panels[panelId];
+            if (panel === undefined) return null;
+            return h("div", {"data-my-head": panelId, style: "height:32px"}, [
+                h(TabStrip, {
+                    label: panelId,
+                    items: panel.tabs.map((tab) => ({id: tabKey(tab), title: tab.kind === "view" ? tab.viewId : tab.tabId})),
+                    active: panel.active,
+                    onActivate: (id: string) => void apply((current) => ({ok: true, doc: current.panels[panelId] === undefined ? current : {...current, panels: {...current.panels, [panelId]: {...(current.panels[panelId] as NonNullable<typeof panel>), active: id}}}})),
+                }),
+            ]);
+        };
+
+        return () => h("div", {ref: containerEl, style: "height:100%"}, [
+            h(NestedGrid, {
+                node: layoutHost.node.value,
+                layout: layoutHost.layout.value,
+                contextKey: CONTEXT,
+                revision: layoutHost.revision.value,
+                onGestureCommit: layoutHost.onGestureCommit,
+                onIssues: (issues: readonly string[]) => console.warn(issues),
+                disabled: extent.value === null, // 三层守同一个条件（t06 第 1 条）
+            }, {
+                // `node` 是 GridLeaf<unknown>：ref 失去了类型（createGrid<string> 的 string 没带过来），leaf.id 才是面板 id。
+                leaf: ({node}: {node: {id: string}}) => [head(node.id), h("div", {style: "padding:8px"}, `面板 ${node.id}`)],
+                empty: () => h("div", "空"),
+            }),
+        ]);
+    },
+});
+
+// ── 6. 拖动：标签在面板之间、拖到边缘拆出新块 ───────────────────────────────────────────────
+
+const rectOf = (element: Element | null): GridDropRect | null => {
+    if (element === null) return null;
+    const {left, top, right, bottom} = element.getBoundingClientRect();
+    return right > left && bottom > top ? {left, top, right, bottom} : null;
+};
+
+/**
+ * [缺 C] 把自己的 DOM 量成库要的几何。`data-leaf` 是 NestedGrid 的外框标记（NestedGrid.md 公开表里有），`data-my-head` 是草稿自己的头。
+ * 整块、标签条、正文的拆分，工作台还要处理拖到零的（量不到矩形）、离开中的（data-leaving）叶、编辑组头里的提示条（layout-drag.ts:371-382），草稿略。
+ */
+function measurePanels(root: HTMLElement, current: LayoutDoc): LayoutDropPanelGeometry[] {
+    return treeLeaves(current.tree.root).flatMap((leaf) => {
+        if (current.panels[leaf.id] === undefined) return [];
+        const card = rectOf(root.querySelector(`[data-leaf="${CSS.escape(leaf.id)}"]`));
+        const strip = rectOf(root.querySelector(`[data-my-head="${CSS.escape(leaf.id)}"]`));
+        if (card === null) return [];
+        return [{id: leaf.id, frame: card, body: strip === null ? card : {...card, top: strip.bottom}, strip}];
+    });
+}
+
+export function createMyDrag(root: HTMLElement): DragSession<LayoutSource, LayoutDropAction> {
+    const input = (source: LayoutSource, point: {x: number; y: number}): LayoutDropInput => ({doc: doc.value, source, point, panels: measurePanels(root, doc.value), policy});
+    return createDragSession<LayoutSource, LayoutDropAction>({
+        root,
+        // 起拖：TabStrip 写的 data-panel-tab 就是 tabKey；`data-no-drag`（关闭按钮）是工作台的约定，草稿没有这样的按钮。
+        sourceAt: (target) => {
+            const key = target.closest<HTMLElement>("[data-panel-tab]")?.dataset.panelTab;
+            return key === undefined ? null : {kind: "tab", tab: key};
+        },
+        // [别扭 10] resolveLayoutDrop 对“指针在面板外”和“指针在面板上但被拒绝”都返回 null，区分要再调 layoutDropOverPanel（api-10）。
+        resolve: ({source, point}) => {
+            const query = input(source, point);
+            const action = resolveLayoutDrop(query);
+            if (action === null && layoutDropOverPanel(query)) return null; // 被拒绝：宿主要自己记一个 rejected 状态才能给光标
+            return action;
+        },
+        actionKey: layoutDropKey,
+        commit: (action, source) => void apply((current) => applyLayoutDrop(current, source, action, policy)),
+        structure: () => JSON.stringify(projection.value.input), // 一场里结构变了整场取消；用什么当“结构键”要自己想
+    });
+}
+
+/** 落点预览：只有“边缘拆分”有真实矩形（previewEdgeDrop）；标签条的插入线要用 TabStrip 的 measureTabStrip/resolveTabStripInsertion 另算（草稿略）。 */
+export function edgePreview(source: LayoutSource, action: Extract<LayoutDropAction, {kind: "edge"}>, origin: {x: number; y: number}): GridDropRect | null {
+    if (extent.value === null) return null;
+    const rect = previewEdgeDrop(doc.value, source, action, policy, {...projectionOptions(), removed: collapse.value.removed}, extent.value, window.devicePixelRatio);
+    // 相对网格根的矩形，要自己加上网格根的视口坐标才能交给 DropFeedbackOverlay（视口坐标）。
+    return rect === null ? null : {left: rect.left + origin.x, top: rect.top + origin.y, right: rect.right + origin.x, bottom: rect.bottom + origin.y};
+}
+
+export const DragLayer = defineComponent({
+    name: "MyDragLayer",
+    props: {root: {type: Object as () => HTMLElement | null, default: null}},
+    setup(props) {
+        const session = shallowRef<DragSession<LayoutSource, LayoutDropAction> | null>(null);
+        // [别扭 11] createDragSession 要求创建时就给 root：onMounted 建、onBeforeUnmount 销毁、state 要再取一层（t06 第 6 条仍在）
+        onMounted(() => {
+            if (props.root !== null) session.value = createMyDrag(props.root);
+        });
+        onBeforeUnmount(() => session.value?.dispose());
+        // 文档变了而指针没动：要自己 invalidate（拖动中别的命令改了文档）。
+        watch(doc, () => session.value?.invalidate());
+        const state = computed(() => session.value?.state.value ?? null);
+        return () => {
+            const current = state.value;
+            const drop = current?.drop;
+            const area = current !== null && current !== undefined && drop?.kind === "edge" ? edgePreview(current.source, drop, {x: 0, y: 0}) : null;
+            return h(DropFeedbackOverlay, {preview: area === null ? null : {areaRect: area, entryRect: null /* [别扭 13] 活动栏的概念，必填 */, indicator: null, orientation: "horizontal"}, label: drop?.kind === "edge" ? "拆分" : ""});
+        };
+    },
+});
+
+// ── 7. 要用但没写的 ───────────────────────────────────────────────────────────────────────────
+// - 键盘拖动：createDragSession 的 keyboard 选项（regions/stops/start/refocus 四个回调）+ enumerateDropCandidates，工作台 layout-drag.ts 里约 150 行。
+// - 浮动窗、最大化、实时布局、活动栏入口、容器（entries/activeContainer）：本草稿不做；每一个都要读 WorkbenchShell/WorkbenchSurface。
+// - 文案：NestedGrid 的 aria 文案走 useLayoutText（6 个键，locales 导出 NB_LAYOUT_CATALOGS）；诊断串不在里面（api-05）。
+// - 样式：nb-layout 的组件用 nb-ui 的 token（--motion-layout、--nb-splitter-seam…），第三方必须加载 nb-ui 的 tokens.css，否则没有过渡与线色（api-12）。
+
+void findTab;
+void ref;
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// 编译记录
+//   去掉注释后的同一份代码在 reports/check/draft.ts（tsconfig 用 paths 指向包的公开入口），用
+//   `bun run --cwd .worktree/w00026-t25-container-feedback/packages/nb-layout vue-tsc --noEmit -p reports/check/tsconfig.json` 编译：
+//   - 第一次：1 个错误 TS2769，DropFeedbackOverlay 的 preview 缺必填的 `entryRect`（api-13）。
+//   - 补上 `entryRect: null` 后：0 个错误，退出码 0。
+//   - 草稿里没有用到任何深导入，全部来自 `@notnotype/nb-layout` 与 `/vue`。
+//   - check/draft.ts 末尾另有一段 `ref(initialDoc())` 传给 `activateTab`：类型检查通过（api-08：类型防不住，运行时抛 DataCloneError）。
+//   - 草稿只编译过，没有在浏览器里运行：运行行为（拖动、预览位置、origin 偏移）从代码推断；草稿里 edgePreview 的 origin 传了 {0,0}，真实接入要加网格根的视口坐标。
+//
+// 答题记录
+//   要读哪些文件：见开头 0。缺什么：[缺 A–F]。哪里别扭：[别扭 1–13] 对应 api-01…13。
+//   类型能不能防误用：防住的——`LayoutResult` 联合要先判 ok、`LayoutPolicy` 必填 accepts/newId、DropFeedbackPreview 的必填字段；防不住的——
+//   ref 包文档（08）、newId 重复（06）、policy 的 edgeTarget 提交不守（02）、漏 rebase 与 frozen（03）、contextKey/revision 不一致（11）、条/编辑组等不变量只有运行时 validate（01）。
+//   错误与诊断怎么交给调用方：见 api-05（两种失败形状、3 个码、中文串、issues 累计）。
+
+
+## 实验 api-exp-exports.ts
+
+```ts
+// 审查实验（api 角度）：数核心入口导出的运行时名字，并在工作台、nb-story、dev-panel 里数每个名字有没有外部使用。运行：bun run api-exp-exports.ts
+import {readdirSync, readFileSync, statSync} from "node:fs";
+import {join} from "node:path";
+import * as core from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+
+const names = Object.keys(core).sort();
+console.log("核心入口运行时导出个数:", names.length);
+
+const root = "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages";
+const users = ["neuro-book", "nb-story", "dev-panel", "nb-agent-ui", "nb-markdown", "nb-form"];
+const files: string[] = [];
+const walk = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+        if (name === "node_modules" || name === "dist" || name.startsWith(".")) continue;
+        const path = join(dir, name);
+        const stat = statSync(path);
+        if (stat.isDirectory()) walk(path);
+        else if (/\.(ts|vue)$/.test(name) && !/\.(test|dom\.test)\.ts$/.test(name)) files.push(path);
+    }
+};
+for (const user of users) walk(join(root, user));
+const text = files.map((file) => readFileSync(file, "utf8")).filter((source) => source.includes("@notnotype/nb-layout")).join("\n");
+const unused = names.filter((name) => !new RegExp(`\\b${name}\\b`).test(text));
+console.log("非测试代码里扫了文件数:", files.length, "；引用了 nb-layout 的源码合计字符数:", text.length);
+console.log("没有任何外部（非测试）使用的运行时导出:", unused.length);
+console.log(unused.join(", "));
+
+```
+
+
+## 实验 api-exp-hidden.ts
+
+```ts
+// 审查实验（api 角度）：不带容器的文档里 hidden 与 collapsed 的呈现差别。运行：bun run api-exp-hidden.ts
+import {H, V, docOf} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {projectLayoutDoc, setPanelCollapsed, setPanelHidden, treeLeaves, UNBOUNDED_EXTENT} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+
+const doc = docOf(H(["activitybar", "sidebar", V(["e1", "panel"]), "statusbar"]));
+const options = {constraints: () => ({minimumSize: {width: 100, height: 60}, maximumSize: UNBOUNDED_EXTENT}), barThickness: () => 40, headHeight: 32, collapseThreshold: 40, sashSize: 4};
+
+const show = (label: string, next: typeof doc): void => {
+    const {input} = projectLayoutDoc(next, options);
+    const leaves: string[] = [];
+    const walk = (node: typeof input): void => {
+        if (node.kind === "leaf") leaves.push(`${node.id}${node.collapse === undefined ? "" : `(collapse:${String(node.collapse.collapsed)} size:${String(node.collapse.collapsedSize)})`}`);
+        else node.children.forEach(walk);
+    };
+    walk(input);
+    console.log(label, "→ 呈现树的叶:", leaves.join(", "));
+};
+show("原样           ", doc);
+const hidden = setPanelHidden(doc, "sidebar", true);
+const collapsed = setPanelCollapsed(doc, "sidebar", true);
+if (hidden.ok) show("setPanelHidden   ", hidden.doc);
+if (collapsed.ok) show("setPanelCollapsed", collapsed.doc);
+void treeLeaves;
+
+```
+
+
+## 实验 api-exp-newid.ts
+
+```ts
+// 审查实验（api 角度）：policy.newId 返回已存在的 id 时，moveTabToEdge 会怎样。运行：bun run api-exp-newid.ts
+import {H, V, docOf, tab, view, testPolicy} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {moveTabToEdge, validateLayoutDoc, treeLeaves, findTab, tabKey} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+
+// e1 有两个标签，p1 是树里已有的工具面板（模拟“重新载入文档后计数器又从 1 开始”）。
+const doc = docOf(H(["activitybar", V(["e1", "p1"]), "statusbar"]), {e1: {tabs: [tab("a"), tab("b")], active: "tab:a"}, p1: {tabs: [view("files")], active: "view:files"}});
+console.log("起点 valid:", validateLayoutDoc(doc).ok);
+const colliding = testPolicy({newId: (kind) => (kind === "panel" ? "p1" : "nb1")});
+const result = moveTabToEdge(doc, {tab: "tab:b", target: {kind: "split", panel: "e1", edge: "right"}}, colliding);
+if (!result.ok) {
+    console.log("拒绝:", result.code, result.detail);
+} else {
+    const leaves = treeLeaves(result.doc.tree.root).map((leaf) => leaf.id);
+    console.log("结果 ok；树里的叶:", leaves);
+    console.log("p1 的记录:", JSON.stringify(result.doc.panels.p1));
+    console.log("原来 p1 里的 view:files 还在吗:", findTab(result.doc, "view:files"));
+    console.log("validateLayoutDoc:", JSON.stringify(validateLayoutDoc(result.doc)));
+}
+void tabKey;
+
+```
+
+
+## 实验 api-exp-policy.ts
+
+```ts
+// 审查实验（api 角度）：LayoutPolicy.edgeTarget 限制的方向，提交时有没有被守住。运行：bun run api-exp-policy.ts
+import {H, V, docOf, testPolicy} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {applyLayoutDrop, moveTabToEdge, resolveLayoutDrop, layoutDropPanelAt, validateLayoutDoc} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+
+const doc = docOf(H(["activitybar", "sidebar", V(["e1", "panel"]), "statusbar"]));
+// 策略：工具标签只能上下拆（左右边没有窄带），和 docs 里 `edgeTarget` 的注释同一用法。
+const policy = testPolicy({
+    edgeTarget: (_doc, _tabs, panel, edge) => (edge === "left" || edge === "right" ? null : {kind: "split", panel, edge}),
+});
+console.log("valid:", validateLayoutDoc(doc).ok);
+const tab = Object.values(doc.panels).find((p) => p.role === "tool" && p.name === undefined)?.tabs[0];
+console.log("tool panels:", Object.keys(doc.panels));
+// 把 sidebar 里的视图往 panel 的“左边”放：策略说这条边不是落点。
+const sidebarTab = doc.panels.sidebar.tabs[0];
+const key = sidebarTab.kind === "view" ? `view:${sidebarTab.viewId}` : "";
+const direct = moveTabToEdge(doc, {tab: key, target: {kind: "split", panel: "panel", edge: "left"}}, policy);
+console.log("direct moveTabToEdge to forbidden edge:", direct.ok ? "ok（策略没拦）" : direct.detail);
+const via = applyLayoutDrop(doc, {kind: "tab", tab: key}, {kind: "edge", target: {kind: "split", panel: "panel", edge: "left"}}, policy);
+console.log("applyLayoutDrop with forbidden edge action:", via.ok ? "ok（策略没拦）" : via.detail);
+void resolveLayoutDrop; void layoutDropPanelAt; void tab;
+
+```
+
+
+## 实验 api-exp-ref.ts
+
+```ts
+// 审查实验（api 角度）：第三方把 LayoutDoc 放进 Vue 的 `ref`（最自然的写法）再调库的操作会怎样。运行：bun run api-exp-ref.ts
+import {ref, shallowRef} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t25-container-feedback/node_modules/vue/index.mjs";
+import {H, V, docOf, tab, testPolicy} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {activateTab, moveTabToEdge, validateLayoutDoc} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+
+const doc = docOf(H(["activitybar", V(["e1", "panel"]), "statusbar"]), {e1: {tabs: [tab("a"), tab("b")], active: "tab:a"}});
+const policy = testPolicy();
+
+for (const [label, holder] of [["shallowRef", shallowRef(doc)], ["ref", ref(doc)]] as const) {
+    try {
+        const result = activateTab(holder.value as typeof doc, "tab:b");
+        console.log(label, "activateTab:", result.ok ? "ok" : `${result.code} ${result.detail}`);
+    } catch (error) {
+        console.log(label, "activateTab 抛出:", String(error).slice(0, 120));
+    }
+    try {
+        const result = moveTabToEdge(holder.value as typeof doc, {tab: "tab:b", target: {kind: "split", panel: "e1", edge: "right"}}, policy);
+        console.log(label, "moveTabToEdge:", result.ok ? "ok" : `${result.code} ${result.detail}`);
+    } catch (error) {
+        console.log(label, "moveTabToEdge 抛出:", String(error).slice(0, 120));
+    }
+}
+console.log("validate:", validateLayoutDoc(doc).ok);
+
+```
+
+
+## 实验 api-exp-tabkey.ts
+
+```ts
+// 审查实验（api 角度）：TabRef 的身份只看 tabId，`type` 不参与。运行：bun run api-exp-tabkey.ts
+import {H, V, docOf} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {tabKey, validateLayoutDoc, findTab} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+
+const first = {kind: "tab" as const, type: "markdown", tabId: "1"};
+const second = {kind: "tab" as const, type: "image", tabId: "1"};
+console.log("tabKey:", tabKey(first), tabKey(second), "相同:", tabKey(first) === tabKey(second));
+const doc = docOf(H(["activitybar", V(["e1", "panel"]), "statusbar"]), {e1: {tabs: [first, second], active: "tab:1"}});
+console.log("两个不同 type、同 tabId 的标签:", JSON.stringify(validateLayoutDoc(doc)));
+console.log("findTab 只能按 key 找，找到的是:", JSON.stringify(findTab(doc, "tab:1")?.tab));
+
+```
+
+
+## 实验 api-exp-validate.ts
+
+```ts
+// 审查实验脚本（api 角度）：第三方能不能用不带活动栏、状态栏的树构造 LayoutDoc。运行：bun run api-exp-validate.ts
+import {validateLayoutDoc, GRID_SNAPSHOT_VERSION, panelRef} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+
+const mk = (extra: any = {}) => ({
+  version: 1,
+  tree: {version: GRID_SNAPSHOT_VERSION, root: {kind: "branch", id: "root", orientation: "horizontal", size: {width: 1000, height: 600}, children: [
+    {kind: "leaf", id: "nav", ref: panelRef("nav"), size: {width: 200, height: 600}},
+    {kind: "leaf", id: "ed", ref: panelRef("ed"), size: {width: 800, height: 600}},
+  ]}},
+  panels: {nav: {role: "tool", tabs: [], active: null}, ed: {role: "editor", tabs: [], active: null}},
+  floats: [], hiddenBars: [], currentEditor: "ed", ...extra});
+
+console.log("no bars:", JSON.stringify(validateLayoutDoc(mk())));
+const named: any = mk(); named.panels.nav = {role: "tool", name: "left", tabs: [], active: null};
+console.log("custom name:", JSON.stringify(validateLayoutDoc(named)));
+const noEditor: any = mk(); noEditor.panels.ed = {role: "tool", tabs: [], active: null}; noEditor.currentEditor = null;
+console.log("no editor:", JSON.stringify(validateLayoutDoc(noEditor)));
+
+```

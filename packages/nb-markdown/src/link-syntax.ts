@@ -51,6 +51,8 @@ const isEscape = (text: string, index: number): boolean => text[index] === "\\" 
 class LinkScanner {
     /** 每个 `[` 配对的 `]`。 */
     readonly #pairs = new Map<number, number>();
+    /** 代码片段的原文范围 `[开头的反引号, 收尾的反引号之后)`，按出现顺序。 */
+    readonly codeSpans: Array<readonly [number, number]> = [];
     /** 闭合符号 → 从这个位置往后到行尾找不到它。换行时清空。 */
     #noClose = new Map<string, number>();
     #lineEnd = -1;
@@ -82,6 +84,7 @@ class LinkScanner {
                 let run = 1;
                 while (text[index + run] === "`") run += 1;
                 const close = this.#closingRun(index + run, run);
+                if (close >= 0) this.codeSpans.push([index, close + run]);
                 index = (close < 0 ? index + run : close + run) - 1;
             } else if (char === "[") stack.push(index);
             else if (char === "]") {
@@ -239,6 +242,13 @@ export function fencedLines(lines: ReadonlyArray<string>): boolean[] {
         if (fence !== undefined && fence[0] === open[0] && fence.length >= open.length && line.trim() === fence) open = null;
     }
     return fenced;
+}
+
+/** `value` 里落在代码片段（成对的反引号串之间，含反引号本身）里的位置；规则与认链接时排除代码片段的相同。 */
+export function codeSpanTest(value: string): (position: number) => boolean {
+    const spans = new LinkScanner(value).codeSpans;
+    if (spans.length === 0) return () => false;
+    return (position) => spans.some(([start, end]) => position >= start && position < end);
 }
 
 /** `value` 里落在围栏代码块里的位置。 */

@@ -1,0 +1,20 @@
+w00046 t13 设计审查第 1 轮的处理，2026-11-16。审查者：omp（默认模型）启动即报 429 usage_limit_reached（Codex 额度约 29 天后恢复），按规则改派 Claude Opus。18 条：阻塞 1、应改 11、可选 6，逐条核实全部成立（第 3、8、9、10 条对着 Electrobun 2.0.6 源码查过：TrayWindowProc 里左键落到右键分支；托盘窗口 HWND_MESSAGE、无 TaskbarCreated；退出不删图标；注销关机只有 SetConsoleCtrlHandler、无 WM_QUERYENDSESSION）。
+
+1 阻塞 应用级退出在模式 tray 下落进后台：加 #appQuit，置位时最后一个一律以 quit 询问、不给后台。
+2 后台选择而托盘显示不了：壳在询问里给 background 字段决定显示按钮；收到 background 先 ensureTray，失败当 deny 并弹对话框；没授权的 background 丢弃写诊断。
+3 左键也弹菜单：接受 2.0.6 的行为，Spec 不写“左键打开”；自建托盘记为后续。
+4 托盘退出取工作期间的竞态：#trayQuit 状态与规则写进计划，测试逐条列出；onQuit 只调一次。
+5 离开后台无回调：onBackgroundChanged(kind | null)；托盘显示规则做成纯函数 trayView。
+6 后台时意外退出：serverAbandoned 在没有窗口时 onAllClosed；对话框文字与“重新启动”后的去向写进 Spec。
+7 询问期间模式改变：以询问时的原因为准，quit 同意就停止。
+8 Explorer 重启、Win11 溢出区：写进已知限制；提示说明写“系统托盘或开始菜单”；实测清单加上。
+9 幽灵图标：退出前 tray.remove()；停止中提示“正在退出”、菜单置灰。
+10 注销关机：不承诺有序停止，写已知限制与设置说明；WM_QUERYENDSESSION 记为后续。
+11 模式 tray 时更新换不上、文字误导：按模式换更新文字；不在后台自动换上。
+12 无限期常驻：采纳推荐，缺省模式下的中间选择改为“工作完成后退出”（30 秒轮询，取到没有工作就有序退出）。改了原定的“在后台继续”，记待确认。
+13 连别人的实例时不显示图标：trayView 带 owned。
+14 设置去重与缓存兼容：缓存逐项读、sameDesktopSettings 逐键比。
+15 测试与实测清单：并入切片 3、4、6。
+16 Spec 逐处清单：并入切片 1，最后一个窗口的去向写成一张表。
+17 小改进：停止中置灰与提示采纳；默认项加粗 Electrobun 菜单配置没有字段，不做；首次进后台的系统通知不做（说明里写清）。
+18 页面 background 的收口：走 allow 那一支；工作提示单独一个提问方法，别的提示类型不变；测试补上。

@@ -62,7 +62,8 @@ function findRank(entry: DirectoryEntry, path: string, needle: string): number |
 
 export interface FilesService {
     list(path: string): Promise<Outcome<Listing>>;
-    find(query: string, limit?: number): Promise<Outcome<FindResult>>;
+    /** `extensions`：小写、不带点的扩展名；给了就只找名字带这些扩展名的文件（不分大小写），先过滤再排序与截断。 */
+    find(query: string, limit?: number, extensions?: ReadonlyArray<string>): Promise<Outcome<FindResult>>;
     read(path: string): Promise<Outcome<FileText>>;
     /** `committed` 在写入锁里、替换之后调用（交记账槽）。 */
     write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string, committed?: (placed: {readonly realPath: string; readonly before: {readonly hash: string; readonly bytes: Uint8Array}; readonly bytes: Uint8Array}) => Promise<void>): Promise<Outcome<SavedFile>>;
@@ -155,8 +156,9 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
          * 一层层列，不走原生搜索：要内容文件夹的标题（章节的名字往往不在文件名里），这也让它和 `list` 看到的一样多。名字以 `.`
          * 开头的不进（`.nbook`、`.git`）。看够 `FIND_SCAN_LIMIT` 项就停：写作的项目通常几百个文件，一次输入不值得扫完巨大的目录。
          */
-        find: async (query, limit = FIND_LIMIT) => {
+        find: async (query, limit = FIND_LIMIT, extensions) => {
             const needle = query.trim().toLowerCase();
+            const wanted = extensions === undefined ? null : new Set(extensions.map((extension) => extension.toLowerCase()));
             const hits: {item: FindResult["items"][number]; rank: number}[] = [];
             const pending = [""];
             let scanned = 0;
@@ -183,6 +185,12 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
                         continue;
                     }
                     if (entry.kind !== "file") continue;
+                    // 先过滤再排序与截断：按类型找不会被别的文件挤出 `limit`。
+                    // 没有点的名字没有扩展名（名叫 `png` 的文件不是图片）。
+                    if (wanted !== null) {
+                        const dot = entry.name.lastIndexOf(".");
+                        if (dot < 0 || !wanted.has(entry.name.slice(dot + 1).toLowerCase())) continue;
+                    }
                     const rank = findRank(entry, path, needle);
                     if (rank !== null) hits.push({item: {path, name: entry.name, ...(entry.title === undefined ? {} : {title: entry.title})}, rank});
                 }

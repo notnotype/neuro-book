@@ -1,0 +1,38 @@
+# w00046 t11 发布流水线在 master 上的演练（workflow_dispatch，2026-11-15），第 1 到 5 次
+# 运行：https://github.com/notnotype/neuro-book/actions/workflows/release.yml
+
+## 第 1 次 run 43700745602（4429f221a，应用 0.13.0 等提版之后）：失败
+- 门禁、npm 包与正式桌面输入、更新冒烟的 B′、CI / 应用包与 SDK：通过。
+- 桌面包与 Windows 冒烟：正式变体构建 88 s、发布资产（含便携 zip）通过；安装版冒烟“等待超时（120000ms）：WebView2 的调试端口起来”。
+  失败路径的收尾按实现审查第 1 轮的修正卸载了安装（“（收尾）✓ 卸载”）。
+- CI / 治理、文档与受影响的包：三处失败。NB_UI_VERSION 没跟上 nb-ui 0.4.0（本次提版漏改）；SDK 组件子路径漏了 nb-ui 的
+  SuggestionMenuStatus（master 上已有，w00032 的提交）；Skill 目录诊断的先后随 readdir 顺序（CI 文件系统上不稳）。修于 3b7cb673a。
+- 当时的推断（后来证明不对）：Setup 自己拉起的应用留下的 WebView2 浏览器进程被复用。改了起应用前等 WebView2 进程退出、连不上时写出进程命令行（99fc38615）。
+
+## 第 2 次 run 43708070660（3b7cb673a）：失败
+- npm 包与 B′ 两个作业的 release:smoke 在 nbstory serve 的页面卡住；CI 作业的主题测试失败：
+  “主题 "nbook" 装载失败（host-version）：要求宿主 "^0.3.0"，当前 nb-ui 是 0.4.0”。
+- 原因：nb-ui/docs/migration-0.4.md“发版时一起改”要求四个内置主题的 hostVersion 改成 ^0.4.0，提版时漏了。修于 d56fbeb64。
+- dev-panel 的 herdr 用例“有 HERDR_PANE_ID 时 ping 与 pane.list 同时发出”失败一次，本机重跑 3 次通过、第 1 次演练也通过：CI 上的时序抖动。
+
+## 第 3 次 run 43710933000（d56fbeb64）：失败（npm 包、B′、CI 应用包通过）
+- 安装版冒烟连不上调试端口，这次有诊断：进程树是 冒烟 bun → launcher.exe → 主进程 bun.exe → msedgewebview2.exe（1200），
+  就是这次起的实例；WebView2 浏览器进程的命令行里没有 --remote-debugging-port。推翻了第 1 次的推断。
+- 第 4 次 run 43712085256 改成另写 HKCU 的注册表策略，开跑后取消（见下）。
+
+## 原因（上网调研后）
+- WebView2 Runtime 150 起，提升运行（High integrity）的宿主忽略 WEBVIEW2_* 环境变量与 HKCU 的策略覆盖，只认 HKLM 的
+  Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments，上游说明“by design”：
+  https://github.com/MicrosoftEdge/WebView2Feedback/issues/5640 ；同类做法 https://github.com/tossbaws/gospel-getter/pull/88 。
+- GitHub 的 Windows runner 上作业是提升运行的，WebView2 156；pc-notype 上不提升（WebView2 157），所以本机一直能用。
+- 修正 a6e44fe2b：CI（NBOOK_SMOKE_WEBVIEW2_POLICY=1）把 --remote-debugging-port 写进 HKLM 的这条策略，值名 bun.exe；开发机不写。
+  壳的启动日志加 webview2Args=set|none。
+
+## 第 5 次 run 43712464803（a6e44fe2b）：通过
+- 门禁、npm 包与正式桌面输入、更新冒烟的 B′、CI 两个作业、桌面包与 Windows 冒烟全部成功；发 npm、registry、Release、
+  verify-feed、upgrade-from-previous 按演练跳过。
+- Windows 作业：正式变体 82 s；发布资产 17 s；安装版冒烟 44 s；便携版冒烟 9 s；A′、B′ 构建 165 s（B′ 生成补丁
+  stable-win-x64-1qlbu28btkckk.patch）；更新冒烟 72 s。
+- 壳的日志：带调试端口的 5 次启动都是 webview2Args=set（环境变量传到了，被 WebView2 忽略），不带的 2 次是 none。证实上面的原因。
+- 更新冒烟：“场景 1：A′（0.13.0）提示 0.13.1 可以更新，下载完成，取的是补丁”；“换上 0.13.1，页面显示了‘已更新到 NeuroBook 0.13.1’
+  （UI 自动化：已更新到 NeuroBook 0.13.1）”；“B′再启动：源是 0.13.0，检查结论‘更低’，不提示、不下载”。

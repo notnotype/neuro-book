@@ -1,0 +1,77 @@
+w00046 t18 实现审查第 1 轮（后端与原生层），审查者 Claude Opus。对象：分支 fix/w00046-t18-desktop-window-feedback 的 607813710、1824618f9。
+
+### 1. min-size.c 的窗口过程部分没有任何自动检查，而它在 Linux 上整份可编、可用替身驱动
+- 严重程度：重要；类别：测试充分性
+- 位置：packages/neuro-book/src/desktop/min-size.test.ts（只用 define NB_MIN_SIZE_PURE 编纯函数）；desktop/src/bun/min-size.c 的 #ifndef NB_MIN_SIZE_PURE 段
+- 现象：单元测试只编 nb_min_track。nb_init、函数表、两个 _Static_assert、raise_min_track、nb_window_proc（取不到原过程交 DefWindowProcW、WM_GETMINMAXINFO 之后改字段、WM_NCDESTROY 先交原过程再删两个属性、最大化与最小化不改）都只靠 Windows 验收；而 Task 状态写着 Windows 实测被 Defender 拦住，这份 C 的窗口过程段至今只在我的实验里被编过。
+- 为什么是问题：这一段一出语法错误，失败只在用户机器上运行时出现（被 compileMinSize 的 catch 变成日志，功能静默没有）；过程逻辑的回归（比如把 RemovePropW 挪到 CallWindowProcW 前、漏了 IsIconic）没有任何测试拦。文件不 #include、只用定宽类型，Linux x64 上的结构体大小与 Windows x64 相同，整份可以直接编。
+- 如何核实：/tmp 下实验：cc({source: min-size.c}) 不带 define 编译成功；用 11 个 JSCallback 当 user32 函数表经 nb_init 交进去，调用 nb_window_proc：没有原过程时只调 DefWindowProcW 且返回它的值；装上两个属性后发 0x24，DPI 120、窗口矩形 1020×710、客户区 1000×700、工作区高 708 时 ptMinTrackSize 变成 1020×708；发 0x82 后两个属性都被删，原过程先于删除被调用。实验文件已删。
+- 建议改法：min-size.test.ts 加一组“整份编译”：不带 define 编一次（顺带让 _Static_assert 在 CI 里生效），用 JSCallback 替身按上面的方式测四条过程行为（无原过程兜底、改 min_track_size 且其余字段不动、最大化或最小化时不改、WM_NCDESTROY 删属性且原过程照调、返回值是原过程的）。替身只模拟 GetPropW、RemovePropW 等的契约，真实系统行为仍由 Windows 验收；在测试头注释写明分工。
+
+### 2. desktop-shell 的已知限制仍写“（没有最小窗口尺寸）”，与输出 10 新加的最小尺寸、workbench-shell 输出 28 矛盾
+- 严重程度：重要；类别：Spec 一致性
+- 位置：主工作区 docs/specs/runtime/desktop-shell.md 第 31 行（“自己画的标题栏（输出 10）”那条已知限制的末句）
+- 现象：末句是“窗口窄到工作台标题栏最省的一档也放不下时，右栏被裁掉一部分（没有最小窗口尺寸）”。同一文件第 98 行已写产品窗口客户区最小 800×560；docs/specs/ui/workbench-shell.md 第 48 行写“桌面窗口有最小尺寸……最小宽度下最省一档放得下”。
+- 为什么是问题：同一 Spec 里一处说有、一处说没有；读已知限制的人会以为最小尺寸没做。plan.md 的“Spec 与文档改动”只列了删 workbench-shell 的那条已知限制，漏了 desktop-shell 自己的这一条。
+- 如何核实：grep -n "没有最小窗口尺寸" docs/specs/runtime/desktop-shell.md；8b71c2c15 只改了第 98 行与场景 15。
+- 建议改法：删掉这句，或改成仍然成立的部分：最小尺寸没装上时（壳日志 desktop.window.min-size-unavailable）与工作区比最小值小的屏幕上，最省一档可能放不下、右栏被裁。
+
+### 3. 用相对路径编译所针对的场景（中文用户名下的安装）没有进 Windows 验收；探针只证明了一半前提
+- 严重程度：重要；类别：验收充分性、未验证的前提（推断）
+- 位置：win32.ts compileMinSize 的 relative(process.cwd(), source)；plan.md“验收映射”最小尺寸一行；evidences/min-size-probe-r1.txt 第 5、6 条
+- 现象：探针第 6 条的条件是 bun.exe 在 ASCII 路径（nb-w00046\r2-pB\bin\bun.exe）、只有当前目录含中文、相对路径是子目录 src\sub2.c。真实安装在 %LOCALAPPDATA% 下：bun.exe 自己、当前目录 app\bin、源文件都在中文用户名的路径里，相对路径大概率是 ..\Resources\app\min-size.c 这类带 .. 的形式。验收表里列的场景都在 pc-notype 的 ASCII 用户名下。
+- 为什么是问题：r3 选相对路径正是为了这种用户；Bun 的 cc 在 Windows 上除了源文件还会不会按 bun.exe 位置或 TEMP 找别的东西（库目录、include 目录），探针没有覆盖，我在本机也无法核实（推断：不 #include、不链接库时多半不需要，但没有证据）。失败的后果是这些用户的窗口静默没有最小尺寸，只留一条日志。
+- 如何核实：读 min-size-probe-r1.txt 与 sub3-probe.ts.txt 的路径条件；plan.md 验收映射里没有非 ASCII 安装路径。
+- 建议改法：Windows 验收加一条：把整份安装（含 bin\bun.exe）放到含中文与空格的目录下启动（或用一个中文名的本地测试账户），确认壳日志没有 desktop.window.min-size-unavailable、WM_GETMINMAXINFO 读回 800×560 加外框；同时记下实际交给 cc 的相对路径形态（带不带 ..）。
+
+### 4. 函数表的长度只靠两处手工对齐，不一致时 C 在 UI 线程里调一个越界读来的地址
+- 严重程度：建议；类别：C 与 TS 的 ABI、可维护性
+- 位置：min-size.c 的 static struct user32 与 nb_init；win32.ts 的 MIN_SIZE_IMPORTS 与 new BigUint64Array(MIN_SIZE_IMPORTS.length)
+- 现象：nb_init 按 sizeof(user32)/sizeof(void*) 从 JS 交来的表里抄，JS 按 MIN_SIZE_IMPORTS.length 分配。两边现在都是 11 项、顺序与签名一致（CallWindowProcW、DefWindowProcW、GetPropW、RemovePropW、GetDpiForWindow、GetWindowRect、GetClientRect、IsZoomed、IsIconic、MonitorFromWindow、GetMonitorInfoW，逐项对过 Win32 原型）。将来 C 加一项而 JS 没加，nb_init 读到表外的 8 字节，填进函数指针；这条路径的第一次调用就在 Electrobun 的 UI 线程里崩掉整个应用，而不是走 compileMinSize 的“失败只交回原因”。
+- 为什么是问题：文件头把“出错就是整个应用崩”列为首要约束，这里却把一处可检查的不变量交给了注释“顺序与 win32.ts 的 MIN_SIZE_IMPORTS 一致”。
+- 如何核实：读两处定义；nb_init 不接收长度。
+- 建议改法：nb_init 改成 int nb_init(void** table, unsigned count)，count 不等于 C 的项数时什么都不抄、返回 0；JS 收到 0 就缓存成失败原因（“min-size import table mismatch”），不装过程。第 1 条的整份编译测试顺带覆盖它。
+
+### 5. 日志去重对所有原因生效，不只是缓存的编译失败：后面窗口的安装失败会被吞掉
+- 严重程度：建议；类别：诊断
+- 位置：desktop/src/bun/index.ts 的 adoptPageWindow 与 loggedMinSize
+- 现象：注释说“同一个原因只记一次（编译失败会对每个窗口交回同一个原因）”，实现按原因字符串对整个进程去重。“SetPropW(wndproc) failed”“SetWindowLongPtrW(GWLP_WNDPROC) failed”“window procedure changed while installing the minimum size”“window handle is null”这些逐窗口的失败，第二个窗口再遇到时不记，日志里的 window= 也只剩第一个窗口。plan.md 写的是“编译失败也缓存，后续窗口直接返回同一原因、只记一次日志”。
+- 为什么是问题：排查“为什么这个窗口能缩小”时，日志里找不到这个窗口；两个窗口各失败一次与一个窗口失败一次看起来一样。
+- 如何核实：读 adoptPageWindow；setMinimumSize 的各分支返回的都是不含窗口信息的固定字符串。
+- 建议改法：只对缓存的那一类去重：setMinimumSize 把“缓存的失败”与“这个窗口的失败”分开交回（例如 {cached?: string; problems: string[]}），或 index.ts 只对第一个窗口之后仍相同的编译原因去重；逐窗口的失败每次都记。
+
+### 6. 800 宽的下限让最常见的笔记本配置不能左右分屏，Spec 与计划都没提这个后果
+- 严重程度：建议；类别：产品后果、Spec 已知限制（Windows 行为为推断）
+- 位置：desktop-shell 输出 10“最小尺寸”与第 31 行的已知限制；src/desktop/window-size.ts 的 MIN_PAGE_SIZE
+- 现象：最小跟踪尺寸按外框算是 800 加左右各约 8 的拉伸边框，约 816 逻辑像素。1920×1080 开 125%（逻辑宽 1536，半屏 768）、开 150%（半屏 640），以及 1366×768 开 100%（半屏 683）时，半屏都比下限窄。推断：Windows 对最小跟踪尺寸大于贴靠区域的窗口，贴边时按最小宽度摆、压到另一半上，或在贴靠布局里不给这一格。
+- 为什么是问题：拖到屏幕边缘贴边是场景 15 列出的行为，开发者定 800×560 时讨论的是“最小宽高太小”，没有记录过分屏的取舍；1920×1080 开 125% 是 Windows 笔记本最常见的出厂设置之一。
+- 如何核实：按 MIN_PAGE_SIZE 与 FRAME_ALLOWANCE 算；Windows 上的表现没有实测。
+- 建议改法：Windows 验收时在 125% 下试一次左右贴边，把结果写进 desktop-shell 的已知限制；若开发者认为分屏更重要，再定下限（例如按工作区宽度的一半封顶），这是产品取舍，交开发者。
+
+### 7. “已装好”只看链顶：别人叠在我们之上后再调一次，会把我们装成自己的上一级，窗口过程无限递归
+- 严重程度：建议；类别：失败语义、将来的升级（现在不可达）
+- 位置：win32.ts setMinimumSize 的 current === hook.proc 判断与随后的安装序列
+- 现象：设我们已装好（属性 nbook.wndproc = Electrobun 的过程 E），之后有第三方 X 子类化（X 记下的上一级是我们）。再对这个窗口调 setMinimumSize：current = X，不是我们的，于是把 nbook.wndproc 改写成 X、再把过程换成我们。之后每条消息：我们 → X → 我们 → X……在 UI 线程里栈溢出。
+- 为什么是问题：现在每个窗口只登记一次（openManaged 直接开产品页，或 serverReady 对启动页窗口调一次 load），走不到；但函数注释对外承诺“同一个窗口再调只更新数值”，README 也预期 Electrobun 将来可能自己换窗口过程。两者凑上就是整个应用崩。
+- 如何核实：按 nb_window_proc 的“取属性里的原过程再 CallWindowProcW”推演；src/desktop/windows.ts 里 port.load 只在 serverReady 对 startup 窗口调用。
+- 建议改法：失败分支现在都会删属性（r3 的写死序列），所以“属性 nbook.wndproc 在”已经等价于“装过”：属性在而链顶不是我们时，只更新 nbook.minsize、交回一条“window procedure was subclassed after ours”之类的诊断，不再换过程。或者在注释里写明“每个窗口只调一次”并去掉“再调只更新数值”的承诺。
+
+### 8. window-size 测试把“1366×768 开 125%”标成工作区 1093×582，真实配置走的是另一条分支
+- 严重程度：建议；类别：测试准确性
+- 位置：packages/neuro-book/src/desktop/window-size.test.ts 第二个用例的标题与数据
+- 现象：1366×768 开 125% 时逻辑屏高 614；Windows 11 的任务栏 48 逻辑像素，工作区高约 566，Windows 10（40）约 574。582 两种都不是。用例按 582 断言“抬到最小外框 568、仍在工作区里”；按真实的 566，外框下限 568 比工作区高，走的是“工作区比最小外框还小，窗口就是工作区大小”那条（高度 566）。
+- 为什么是问题：plan 把“工作区 1093×582 这一档”当成代表真实小屏的验收点，读测试的人会以为这台常见配置上窗口高 568、客户区够 560；实际上客户区约 558，最小跟踪尺寸也被 C 夹到工作区。
+- 如何核实：(768 − 48 × 1.25) / 1.25 = 566.4；centeredFrame 对 {width: 1093, height: 566} 给出高 566。
+- 建议改法：用例标题去掉“1366×768 开 125%”的具体配置，只说“工作区比九成大、比下限小”；另把 1093×566 作为“真实小屏落到工作区大小”的一例，标题写清是 Windows 11 的任务栏高度。
+
+### 9. 启动页窗口被拖小之后再转成产品窗口，产品页就以小于最小尺寸的大小出现
+- 严重程度：建议；类别：行为边界（窄场景）
+- 位置：desktop/src/bun/index.ts 的 windowPort.load 与 adoptPageWindow；desktop-shell 输出 10“最小尺寸”
+- 现象：启动页不受限（Spec 如此），用户在等服务端时可以把它拖到很小；serverReady → load 只装窗口过程、不改大小，最小跟踪尺寸只管之后的拖动（探针第 4 条），所以工作台以那个小尺寸出现，页面被裁，直到用户再拖一下边框才跳到下限。Spec 的“窗口打开时外框就不小于它”只覆盖打开那一刻。
+- 为什么是问题：窄场景，影响是一次性的；但“产品窗口客户区最小 800×560”的读者会以为产品页不会小于它。
+- 如何核实：读 load 的实现；探针第 4 条说明程序化改大小与系统不会替我们放大。
+- 建议改法：按“窄场景选简单做法”，在 desktop-shell 的已知限制里记一句“启动页阶段被拖小的窗口，转成产品窗口时不自动放大”即可；若要修，load 里在装过程之后读一次窗口大小，小于下限时用 SWP_ASYNCWINDOWPOS 放大到 minimumFrame（与 adoptCustomFrame 同样的不等待写法）。
+
+核对过、没有问题的（不计入发现）：安装与失败序列、永不 close、失败缓存、相对路径与 ASCII 检查、x64 检查与 r3 计划一致；函数表 11 项的顺序与签名和 Win32 原型一致；WM_NCDESTROY 先交原过程再删属性；最大化、最小化不改；夹到工作区后再与系统值取较大；GetWindowLongPtrW、SetWindowLongPtrW 按 i64 收发、比较前 asUintN，SetPropW 的 u64、过程地址按 asIntN 传，都对；Electrobun 的 BasicWindowClass 用 RegisterClassW 注册，GetWindowLongPtrW 拿到的是真实地址，且 2.0.6 只子类化 WGPU 子窗口、不碰顶层窗口；Electrobun 的 frame 与 Screen 工作区都是逻辑像素，FRAME_ALLOWANCE 在 125%、150%、175% 下换算后客户区仍是 800×560；index.ts 的两个登记点与 centered 接线、对话框不传下限都与计划一致；两份单元测试 10 条通过，应用包 tsc --noEmit 通过；README 两处与实现一致。
+
+有效发现：9 条；阻断 0，重要 3，建议 6

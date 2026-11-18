@@ -1,0 +1,53 @@
+w00032 t33 实现审查（后端，omp @default，2026-11-15，审查对象 t33 的全部改动：git diff 1013647d0 c9740fe57 的后端部分，说明见 .local/…/reports/impl-backend/brief.md）
+报告原文（已扫描密钥：0 处）：
+
+### 1. 漏检依赖中的 `import.meta` 解构，导致依赖位置被错误保留
+
+- **严重程度**：重要
+- **类别**：正确性
+- **位置**：`packages/neuro-book/plugin-sdk/skills-build.ts:87-99`
+- **现象**：`locationUses` 只识别 `import.meta.<属性>` 成员访问。依赖写成 `const {url} = import.meta` 时，AST 中没有被识别为位置使用，构建成功并把依赖打进 Skill 单文件。
+- **为什么是问题**：作者工具合同要求打进来的依赖不能依赖自身文件位置；合并后依赖的 `import.meta` 指向 Skill 入口文件。依赖如果据此读取相邻资源、计算目录或生成 URL，会在装好插件后得到入口位置，行为静默错误。
+- **如何核实**：真实执行 `bun /tmp/nb-t33-review-impl-lab/import-meta-dep-author.mjs`，构建成功且没有问题；其中 `node_modules/where/index.js` 使用 `const {url} = import.meta`。再执行 `bun /tmp/nb-t33-review-impl-lab/import-meta-dep-author/dist/skills/meta/scripts/run.ts`，输出 `file:///tmp/nb-t33-review-impl-lab/import-meta-dep-author/dist/skills/meta/scripts/run.ts`，而不是依赖自身的路径。直接成员访问路径已被现有扫描覆盖，因此这是扫描遗漏。
+- **建议改法**：在 AST 扫描中识别 `VariableDeclarator` 的 `id` 为 `ObjectPattern`、`init` 为 `import.meta` 的解构，并按绑定属性名检查 `url`、`dir` 等位置属性；同时覆盖带默认值、别名和嵌套解构。也应为计算属性与赋值解构补相同判据，不能只增加一个固定文本匹配。
+### 2. 漏检改名后的 `require`，允许未打包依赖留到运行时
+
+- **严重程度**：重要
+- **类别**：正确性
+- **位置**：`packages/neuro-book/plugin-sdk/skills-build.ts:101-115`
+- **现象**：`runtimeLoads` 只把被直接调用的 `require`、`__require` 和 `import.meta.require` 视为模块加载。脚本写成 `const load = require; load("where")` 时，Bun 产物是 `var load = __require; load("where")`，扫描没有报错。
+- **为什么是问题**：Skill 构建合同要求每个脚本连同 npm 依赖打成单文件。该写法不会把 `where` 打进产物，运行时仍按环境解析模块；安装目录不带 `node_modules`，因此可能加载宿主环境中同名的错误包或直接失败，结果取决于运行环境。
+- **如何核实**：真实执行 `/tmp/nb-t33-review-impl-lab/renamed-require-author.mjs`，构建成功且输出仅保留 `import.meta.require` 的别名调用，没有 `where` 的代码；随后在隔离临时目录运行产物，输出了环境中另一份 `where` 模块对象而非作者包的 `where-ok`。这证明构建没有兑现单文件依赖合同。
+- **建议改法**：对产物做绑定流分析：识别 `require`/`__require`/`import.meta.require` 的别名赋值、参数传递与再调用，直到确定调用目标；无法证明是 Bun 内置模块时一律按动态加载失败。至少覆盖变量声明、赋值、解构别名与一层以上传递，并为这些形式补构建后运行验收。
+### 3. 同 key 根替换时漏发 `skillsChanged`
+
+- **严重程度**：重要
+- **类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts:217-227`
+- **现象**：`#replace` 判断条目是否变化时只比较 `entry`，不比较 `SkillItem.directory` 与 `root`。同一个插件贡献 key 重新绑定到另一份物理目录、且两份 `SKILL.md` 产生相同 `entry` 时，内部 `#items` 已换成新目录，但不会通知监听者。
+- **为什么是问题**：`skills()` 之外的客户端会继续使用旧的目录快照；`skills://<id>` 的目标、脚本运行路径和文件读取实际已经换了，却没有 `skillsChanged`。插件根的同 key 替换是 `addRoot` 明确支持的行为，发布/重新发布或插件包目录变化都可能触发。
+- **如何核实**：真实运行 `/tmp/nb-t33-review-impl-lab/catalog-replace.mjs`：先添加 `a` 根，再用同 key 替换为 `b` 根；输出 `changes: 1`（只算第一次添加），但 `directory` 已是 `.../b/pdf`。
+- **建议改法**：比较目录项时同时比较 `item.root` 与 `item.directory`，或把目录身份纳入 `#replace` 的变更判定；根替换即使 Skill 元数据完全相同也必须触发一次变更通知。补充同 key 根替换、相同元数据不同路径的回归场景。
+### 4. AST 扫描把解构绑定名 `__dirname` 当成运行时位置变量
+
+- **严重程度**：重要
+- **类别**：正确性
+- **位置**：`packages/neuro-book/plugin-sdk/skills-build.ts:60-73, 87-99`
+- **现象**：遍历 AST 时只跳过非计算属性的 `Property.key`，仍会访问简写解构的 `Property.value`。依赖写成 `const {__dirname} = {__dirname: "value-ok"}` 时，绑定名被记录为位置使用。
+- **为什么是问题**：`__dirname` 是合法的普通变量名。该误报会拒绝本来不依赖文件位置的 Skill 依赖，构建合同的“拒绝位置使用”变成与无关的变量命名耦合；同样影响 `__filename`。
+- **如何核实**：真实执行 `/tmp/nb-t33-review-impl-lab/dirname-shorthand-author.mjs`，构建失败，唯一问题是 `helper.ts 用到自己的位置（__dirname）`。脚本实际只是解构普通对象属性，别名形式 `const {__dirname: value}` 则构建成功。
+- **建议改法**：扫描 `Identifier` 时区分引用与绑定位置，跳过变量声明、参数、解构模式和导入绑定中的标识符；对真正读取全局 `__dirname`、`__filename` 的引用再记录。用同名局部绑定和真正全局读取各补一个构建场景。
+## 总结
+
+**未发现问题的方面**：仔细检查后没有发现以下方面的问题：插件包目录查询的越界、链接与未登记插件拒绝；`published` 查询期间撤回及再次发布的 token 竞态；插件根正常添加、撤回、重复 Skill 的码元顺序与诊断；Skill 构建的基本单文件依赖、Python 外部依赖拒绝、输出接缝与清理；服务端可选的插件包服务装配；本轮受影响的 90 个合同测试、类型检查和 8 个架构边界测试均通过。
+
+问题数量：阻断 0，重要 4，建议 0。
+
+处理（修正在 4c1c77159，每条都补了测试）：
+
+1. 成立，已改：走语法树时带上祖先节点；import.meta 只有作为成员访问的对象、属性不是位置属性时放行，整个被取用（解构、当值传、计算属性）算用到位置。测试：依赖 `const {url} = import.meta` 判失败；`typeof import.meta.hot` 照常打包。
+2. 成立，已改：require、__require、import.meta.require 只放行直接调用、typeof、取属性与声明处（含 Bun 自己的 `var __require = import.meta.require`），当值用判失败（“把加载模块的函数当值用”）。测试：`const load = require; load("fs")` 判失败。
+3. 成立，已改：目录合成时连目录一起比，同一个 key 的根换到另一份目录、条目一样也发 skillsChanged。测试：catalog.test.ts 的插件来源用例。
+4. 成立，已改：文件里自己声明过的 __dirname、__filename（变量、参数、解构、catch、import）不算位置。测试：依赖 `const {__dirname} = {...}` 照常打包，产物能跑。
+
+改完后拿十个常用包（zod、yaml、jszip、exceljs、pdf-lib、docx、cheerio、csv-parse、marked、sharp）重量一次：只打包、解析，不执行第三方代码；只有 sharp 被拦（本来就该拦），九个零误报。

@@ -1,0 +1,45 @@
+w00046 t11 第一次正式发布：v0.13.0（2026-11-15）
+
+标签 v0.13.0 -> 9ccd17aad83a2c2661f3562a5baa44bf9a38f95a（推送时与 origin/master 相同；本机 tag.ts check 输出 version=0.13.0）
+Release 运行：https://github.com/notnotype/neuro-book/actions/runs/43715099679（attempt 1 只有 registry-smoke 失败；attempt 2 重跑失败的作业后整轮 success）
+
+== 作业（attempt 1）
+门禁 success；CI 两个作业 success；npm 包与正式桌面输入 success；更新冒烟的 B′ success
+桌面包与 Windows 冒烟 success（job 132815400960，runner 上的 WebView2 调试端口经 HKLM 策略打开，见 dry-run-r1.txt 第 5 次）
+发 npm success（job 132819714580，OIDC trusted publishing，9 个包都带 provenance；nb-flock 认出已发、字节相同，跳过）
+GitHub Release success；自动更新的取法 success（route=latest，problems=[]）
+从 registry 装一遍 failure（job 132820209221，见下）
+上一版升级到本次 skipped（第一个桌面版本，没有上一版）
+
+== registry-smoke 第 1 次失败的原因
+npm 接受发布后要“处理”一阵，版本才出现在安装元数据里（publish 打印 “Your package is being processed and may take a few minutes to become available”）。
+发布与在 registry 上可见的时刻（npm 的 time 字段是可见时刻）：
+  nb-story 0.2.3       发布 13:01:58  可见 13:06:07
+  nb-plugin-sdk 0.13.0 发布 13:02:04  可见 13:05:12
+  neuro-book 0.13.0    发布 13:02:10  可见 13:10:21（5.3 MB，约 8 分钟）
+作业固定重试 3 次、间隔 2 分钟（13:02:37 到 13:06:46）：前两次 nb-story 还取不到，第 3 次 nb-story 过了，应用包仍取不到。
+不是流水线或包的问题：13:10 之后重跑这个作业（job 132822460248）通过。
+修正（master aef02a325）：release:smoke --from registry 加 --wait <分钟>，按 bun 读的缩略元数据轮询到要验的版本全部可见，再只装一次；流水线用 --wait 30。
+本机在修正分支上对真实 registry 跑了一遍（prox bun run release:smoke --from registry --wait 2）：12 个版本第一轮可见，nbstory、Vite 宿主、bun add -g 应用、托管入口、SDK 生成插件、plugin install 全部通过。
+
+== npm 上的版本（2026-11-15 13:3x 查）
+@notnotype/nb-runtime@0.4.0 latest=0.4.0 published=2026-11-15T13:02:50.436Z provenance=yes
+@notnotype/nb-ui@0.4.0 latest=0.4.0 published=2026-11-15T13:03:57.609Z provenance=yes
+@notnotype/nb-form@0.3.0 latest=0.3.0 published=2026-11-15T13:02:44.277Z provenance=yes
+@notnotype/nb-harness@0.1.2 latest=0.1.2 published=2026-11-15T13:04:13.233Z provenance=yes
+@notnotype/nb-markdown@0.3.0 latest=0.3.0 published=2026-11-15T13:03:51.389Z provenance=yes
+@notnotype/nb-agent-ui@0.3.0 latest=0.3.0 published=2026-11-15T13:04:59.166Z provenance=yes
+@notnotype/nb-story@0.2.3 latest=0.2.3 published=2026-11-15T13:06:06.998Z provenance=yes
+@notnotype/nb-plugin-sdk@0.13.0 latest=0.13.0 published=2026-11-15T13:05:12.416Z provenance=yes
+@notnotype/neuro-book@0.13.0 latest=0.13.0 published=2026-11-15T13:10:21.672Z provenance=yes
+@notnotype/nb-flock@0.1.0 latest=0.1.0 published=2026-11-15T12:40:03.019Z provenance=no（开发者本机首发，字节与第 5 次演练 CI 打的相同）
+
+== GitHub Release v0.13.0
+https://github.com/notnotype/neuro-book/releases/tag/v0.13.0  正式版、非草稿，releases/latest = v0.13.0，公开于 2026-11-15T13:03:00Z
+SHA256SUMS：
+8998519b6a5c9ee0d9904f69332d92982b7f9a3e9bd19ae45bbcc3548306e203  NeuroBook-0.13.0-win-x64-portable.zip
+83c1e202e87f440fb911109d301b0b6e4020fe0d02214154264452c9e6e85259  stable-win-x64-NeuroBook.tar.zst
+66fa786c20c70bbf9ffa68e349abda11858681234489569d3346168dba7c3aeb  stable-win-x64-update-v2.json
+4d79d8a86845ae7f2e02a0203031628c9efd69c4265656a4f366d30dcffbd2e4  stable-win-x64-update.json
+159e5f0b69a2911b6ded1c5cdf894c83f0eda6547ad487e800371cd3ec5d5579  win-x64-NeuroBook-Setup.zip
+feed-evidence.json（artifact feed-evidence）：{"version":"0.13.0","route":"latest","problems":[]}；第一个版本没有补丁。

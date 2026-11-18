@@ -1,0 +1,26 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t38-status-line-sorting",
+    "artifactId": "review",
+    "answerId": "20261118T011130495Z-7e28b846",
+    "artifactVersion": 1,
+    "contentHash": "696e906ae703829a8193f855ef2822ae8911fee6026e88c4844a3ceedcecfed0",
+    "submittedAt": "2026-11-18T01:11:27.435Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "mode-flags": "remove",
+        "drag-feel": "row",
+        "narrow-rule": "both-sides",
+        "sortable-form": "both"
+    },
+    "comments": {
+        "mode-flags": "全部放行直接删掉，我觉得没有用",
+        "drag-feel": "A 记得把卡片背景改一下，现在是透明的",
+        "narrow-rule": "提醒删掉了"
+    },
+    "note": null
+}

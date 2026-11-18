@@ -5,11 +5,13 @@
  */
 
 import type {Editor} from "@tiptap/core";
+import {Slice} from "@tiptap/pm/model";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
 import {computed, defineComponent, h, nextTick, ref, shallowRef} from "vue";
+import type {Ref} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
@@ -23,8 +25,8 @@ import {editorCatalogs} from "nbook/plugins/editor/web/text";
 
 import {holdSelection, listComments, markdownEditingActions} from "@notnotype/nb-markdown/editor";
 
-import {EDITING_ACTIONS, editorMenusKey, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
-import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
+import {EDITING_ACTIONS, editorMenusKey, markdownEditorOptionsKey, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
+import type {EditorControlHandle, EditorMenus, MarkdownEditorOptions, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
@@ -32,6 +34,10 @@ import type {WindowText} from "nbook/shared/window-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 import {createAssetUrls, markdownAssetsKey} from "../parts/asset-urls";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
+import {memoryPropertiesOpen, markdownPropertiesOpenKey} from "../properties-open";
+import type {PropertiesOpen} from "../properties-open";
+import {createMarkdownMedia, markdownMediaKey} from "../media";
+import type {MarkdownMedia} from "../media";
 import {markdownCatalogs} from "../text";
 import MarkdownControl from "./MarkdownControl.vue";
 
@@ -58,10 +64,12 @@ interface Opened {
     /** 窗口的翻译引擎：登记了内置插件 `nbook.markdown` 的目录，控件经它注入的端口取文字。 */
     readonly text: WindowText;
     readonly wrapper: VueWrapper;
+    /** 属性面板的展开状态：每次挂载一份内存里的，用例之间不串。 */
+    readonly propertiesOpen: PropertiesOpen;
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
-async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean} = {}): Promise<Opened> {
+async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean; readonly media?: MarkdownMedia; readonly wrapMenus?: (menus: EditorMenus) => EditorMenus; readonly paper?: Ref<MarkdownEditorOptions>} = {}): Promise<Opened> {
     const memory = area?.memory ?? createMemoryFiles({project: [["a.md", text]], user: []});
     const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
@@ -77,6 +85,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
         return found?.kind === "text" && editorArea.documentOf(groupId)?.status.value === "ready" ? found : null;
     });
     let handle: EditorControlHandle | null = null;
+    const propertiesOpen = memoryPropertiesOpen();
     const tabId = binding.tabId;
     const host = editorArea.tabControlSlot(tabId, MARKDOWN_EDITOR);
     const windowText = createHostTextEngine({locale: "zh-CN", strict: true});
@@ -87,10 +96,10 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerTabHandle(tabId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, ...(options.menus === true ? {[editorMenusKey as symbol]: options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port)} : {})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, [markdownPropertiesOpenKey as symbol]: propertiesOpen, ...(options.menus === true ? {[editorMenusKey as symbol]: ((menus) => (options.wrapMenus === undefined ? menus : options.wrapMenus(menus)))(options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port))} : {}), ...(options.media === undefined ? {} : {[markdownMediaKey as symbol]: options.media}), ...(options.paper === undefined ? {} : {[markdownEditorOptionsKey as symbol]: options.paper})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
-    return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper};
+    return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper, propertiesOpen};
 }
 
 /** 第 n 个顶层块里第一个文本块的末尾。 */
@@ -153,6 +162,19 @@ describe("交出（方言 Spec 输出 1–3）", () => {
         handle.flushPendingChange();
         expect(binding.text.value).toBe("");
     });
+
+    it("只改了 frontmatter（文档属性的事务）：交出写回新的原文、面板跟着换，正文字节不变；撤销回到原来的（方言 Spec 输出 22）", async () => {
+        const {editor, handle, binding, wrapper} = await opened("---\na: 1\n---\n\n甲\n");
+        const shown = (): string => wrapper.get("[data-property-summary]").text();
+        editor.view.dispatch(editor.state.tr.setDocAttribute("frontmatter", "---\na: 2\n---\n"));
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\na: 2\n---\n\n甲\n");
+        await waitUntil("面板换成新的", () => shown() === "a 2");
+        editor.commands.undo();
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\na: 1\n---\n\n甲\n");
+        await waitUntil("面板换回原来的", () => shown() === "a 1");
+    });
 });
 
 /**
@@ -194,6 +216,23 @@ async function typed(text: string, at: "start" | "end" | number, keys: ReadonlyA
     return binding.text.value;
 }
 
+describe("纸面排版（workbench.editor 输出 32、52）", () => {
+    it("没有注入：根上不写变量；注入后字号、行距写在根的内联变量上，字体留空不写，改设置立即跟着变", async () => {
+        const plain = await opened("甲\n");
+        const root = (wrapper: VueWrapper) => (wrapper.element as HTMLElement).style;
+        expect(root(plain.wrapper).getPropertyValue("--markdown-font-size")).toBe("");
+        const paper = ref<MarkdownEditorOptions>({fontFamily: "", fontSize: 20, lineHeight: 2.2});
+        const {wrapper} = await opened("乙\n", undefined, undefined, {paper});
+        expect(root(wrapper).getPropertyValue("--markdown-font-size")).toBe("20px");
+        expect(root(wrapper).getPropertyValue("--markdown-line-height")).toBe("2.2");
+        expect(root(wrapper).getPropertyValue("--markdown-user-font")).toBe("");
+        paper.value = {fontFamily: "Noto Serif SC, serif", fontSize: 18, lineHeight: 1.6};
+        await nextTick();
+        expect(root(wrapper).getPropertyValue("--markdown-font-size")).toBe("18px");
+        expect(root(wrapper).getPropertyValue("--markdown-user-font")).toBe("Noto Serif SC, serif");
+    });
+});
+
 describe("在格式的边界打字（workbench.editor 输出 62）", () => {
     const cases: ReadonlyArray<readonly [string, string, "start" | "end" | number, string, string]> = [
         ["引用小块的行尾", "[123](project://123)\n", "end", "后", "[123](project://123)后\n"],
@@ -226,6 +265,26 @@ describe("在格式的边界打字（workbench.editor 输出 62）", () => {
 
     it("粗体删光再打字仍是粗体（与常见的文字处理软件相同）", async () => {
         expect(await typed("看**粗**\n", "end", ["Backspace"], "体")).toBe("看**体**\n");
+    });
+
+    it("刚打完字就用快捷键关掉粗体、开斜体，停手交出之后再打字：后面的字用切换后的格式", async () => {
+        const {editor, handle, binding} = await opened("看\n");
+        editor.commands.setTextSelection(endOfBlock(editor, 0));
+        // 与 prosemirror-keymap 认 `Mod` 的办法相同：苹果平台是 Meta，其余是 Ctrl。
+        const mod = /Mac|iP(?:hone|[oa]d)/u.test(navigator.platform) ? {metaKey: true} : {ctrlKey: true};
+        const shortcut = (key: string): void => {
+            expect(editor.view.someProp("handleKeyDown", (onKeyDown) => onKeyDown(editor.view, new KeyboardEvent("keydown", {key, ...mod})))).toBe(true);
+        };
+        shortcut("b");
+        type(editor, "粗");
+        shortcut("b");
+        shortcut("i");
+        // 停手的交出落在快捷键与下一个字之间：新加的粗体写回被接受后，控件把写法回填进编辑器，这一步不能冲掉刚切换的格式。
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("看**粗**\n");
+        type(editor, "斜");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("看**粗***斜*\n");
     });
 
     it("打网址与邮箱再打空格：是文字，写回时转义", async () => {
@@ -417,6 +476,104 @@ describe("重载（“状态与转换”、editor 输出 12）", () => {
         editor.commands.insertContentAt(endOfBlock(editor, 2), "丁");
         handle.flushPendingChange();
         expect(binding.text.value).toBe("* 甲&amp;\n\n丙&amp;\n\n戊丁\n");
+    });
+
+    it("frontmatter 在正文上方的属性面板里、不在正文里；磁盘改了它，面板跟着换，改正文时它的字节不变（方言 Spec 输出 22）", async () => {
+        const {editor, handle, binding, memory, wrapper, area, groupId} = await opened("\uFEFF---\r\na: 1\r\n---\r\n甲\r\n");
+        const shown = (): string | null => (wrapper.find("[data-property-summary]").exists() ? wrapper.get("[data-property-summary]").text() : null);
+        expect(shown()).toBe("a 1");
+        expect(editor.state.doc.textContent).toBe("甲");
+        memory.externalWrite("project://a.md", "\uFEFF---\r\na: 2\r\n---\r\n甲\r\n");
+        await waitUntil("重载", () => shown() === "a 2");
+        editor.commands.insertContentAt(endOfBlock(editor, 0), "乙");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("\uFEFF---\r\na: 2\r\n---\r\n甲乙\r\n");
+        // 保存之后磁盘的新内容才直接换进正文（没保存时只提示磁盘变了）。
+        expect(await area.documents.save(area.documentOf(groupId)!)).toEqual({ok: true});
+        memory.externalWrite("project://a.md", "\uFEFF甲乙\r\n");
+        await waitUntil("去掉 frontmatter 后重载", () => shown() === null);
+    });
+});
+
+describe("属性面板（workbench.markdown-editing 输出 39–51）", () => {
+    const panelInput = (wrapper: VueWrapper, label: string) => wrapper.get<HTMLInputElement>(`[data-markdown-properties] input[aria-label="${label}"]`);
+
+    it("没有 frontmatter 不画；面板改一个值：交出只换这一行，一个撤销步；展开按文件记下", async () => {
+        const plain = await opened("甲\n");
+        expect(plain.wrapper.find("[data-markdown-properties]").exists()).toBe(false);
+        const {wrapper, editor, handle, binding, propertiesOpen} = await opened("---\r\n# 注\r\n视角: 林雪\r\n---\r\n甲\r\n");
+        expect(wrapper.find(`[data-markdown-properties] input[aria-label="视角"]`).exists()).toBe(false);
+        await wrapper.get("[data-markdown-properties] button[aria-expanded]").trigger("click");
+        expect(propertiesOpen.isOpen(binding.address.value)).toBe(true);
+        const input = panelInput(wrapper, "视角");
+        input.element.focus();
+        await input.setValue("yes");
+        await input.trigger("keydown", {key: "Enter"});
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\r\n# 注\r\n视角: \"yes\"\r\n---\r\n甲\r\n");
+        editor.commands.undo();
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\r\n# 注\r\n视角: 林雪\r\n---\r\n甲\r\n");
+    });
+
+    it("面板里还没写回的输入算没交出的输入：结算先写回，再交出", async () => {
+        const {wrapper, handle, binding, propertiesOpen} = await opened("---\na: 1\n---\n甲\n");
+        propertiesOpen.set(binding.address.value, true);
+        await nextTick();
+        const input = panelInput(wrapper, "a");
+        input.element.focus();
+        await input.setValue("2");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\na: 2\n---\n甲\n");
+    });
+
+    it("面板写回后停手的计时到点：另一个输入里打了一半的字不当成写回（输出 42）", async () => {
+        const {wrapper, binding, propertiesOpen} = await opened("---\na: 1\nb: 2\n---\n甲\n");
+        propertiesOpen.set(binding.address.value, true);
+        await nextTick();
+        const value = panelInput(wrapper, "b");
+        value.element.focus();
+        await value.setValue("5");
+        await value.trigger("keydown", {key: "Enter"});
+        const name = panelInput(wrapper, "属性名：a");
+        name.element.focus();
+        await name.setValue("ti");
+        await waitUntil("停手后交出 b 的写回", () => binding.text.value.includes("b: 5"));
+        expect(binding.text.value).toBe("---\na: 1\nb: 5\n---\n甲\n");
+        expect(name.element.value).toBe("ti");
+    });
+
+    it("只用回车换行的文档新建 frontmatter：写成 \\n 的一段，面板照常挂上、能交出", async () => {
+        const {wrapper, handle, binding} = await opened("甲\r乙\r");
+        expect(handle.editing?.run("properties")).toBe(true);
+        await waitUntil("面板挂上", () => wrapper.find("[data-markdown-properties]").exists());
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\n---\n甲\r乙\r");
+    });
+
+    it("编辑动作 properties：没有 frontmatter 时建一段空的，面板展开、焦点在新属性的名字上；打名字回车写回", async () => {
+        const {wrapper, handle, binding, propertiesOpen} = await opened("甲\r\n");
+        expect(handle.editing?.run("properties")).toBe(true);
+        const newName = () => wrapper.find<HTMLInputElement>(`[data-markdown-properties] input[aria-label="属性名"]`);
+        await waitUntil("面板挂上并聚焦新属性名", () => newName().exists() && document.activeElement === newName().element);
+        expect(propertiesOpen.isOpen(binding.address.value)).toBe(true);
+        const name = panelInput(wrapper, "属性名");
+        await name.setValue("视角");
+        await name.trigger("keydown", {key: "Enter"});
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\r\n视角:\r\n---\r\n甲\r\n");
+    });
+
+    it("正文第一块开头按上方向键进面板；面板里按 Esc 回到正文", async () => {
+        const {wrapper, editor} = await opened("---\na: 1\n---\n甲\n");
+        editor.commands.focus("start");
+        editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowUp", bubbles: true, cancelable: true}));
+        const toggle = wrapper.get<HTMLButtonElement>("[data-markdown-properties] button[aria-expanded]");
+        expect(document.activeElement).toBe(toggle.element);
+        await toggle.trigger("keydown", {key: "Escape"});
+        // Tiptap 的 `focus()` 在下一帧才把焦点给正文。
+        await waitUntil("焦点回到正文", () => editor.view.hasFocus());
+        expect(editor.state.selection.from).toBe(1);
     });
 });
 
@@ -904,5 +1061,124 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         expect(handle.comments?.count.value).toBe(3);
         const plain = await opened(TWO);
         expect(plain.handle.comments).toBeUndefined();
+    });
+});
+
+describe("链接与图片的宿主（markdown-editing.md 输出 53、55、58）", () => {
+    const png = (name = "image.png", type = "image/png"): File => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])], name, {type});
+    /** 走 ProseMirror 的粘贴入口：只有一张图、没有文字。 */
+    const pasteImage = (editor: Editor, file: File): boolean => {
+        const event = {clipboardData: {files: [file], getData: () => ""}, preventDefault: () => undefined} as unknown as ClipboardEvent;
+        return editor.view.someProp("handlePaste", (handle) => handle(editor.view, event, Slice.empty)) === true;
+    };
+    /** 真实的 `createMarkdownMedia`，只有文件服务的 `upload` 记下收到的地址。 */
+    function mediaOf(options: {readonly bound?: boolean; readonly location?: "folder" | "root" | "same" | "sibling"} = {}) {
+        const uploads: string[] = [];
+        const media = createMarkdownMedia({
+            files: {
+                list: () => Promise.resolve({ok: true, value: {folder: "plain", contentRoot: null, entries: []}}),
+                upload: (address) => {
+                    uploads.push(address);
+                    return Promise.resolve({ok: true, address, renamed: false});
+                },
+                rawUrl: () => null,
+            },
+            find: null,
+            bound: options.bound ?? true,
+            settings: {location: () => options.location ?? "folder", folder: () => "插图"},
+            now: () => new Date(2026, 10, 17, 14, 5, 33),
+        });
+        return {media, uploads};
+    }
+    /** 编辑器区的通知与命令：记下，不真的执行。 */
+    function recorded() {
+        const notices: Array<{key: string; params?: unknown}> = [];
+        const executed: Array<{command: string; args?: unknown}> = [];
+        const wrapMenus = (menus: EditorMenus): EditorMenus => ({
+            ...menus,
+            notify: (key, params) => notices.push({key, ...(params === undefined ? {} : {params})}),
+            execute: (command, args) => executed.push({command, ...(args === undefined ? {} : {args})}),
+        });
+        return {notices, executed, wrapMenus};
+    }
+
+    it("粘贴一张图：按设置存进作品，成功的插进光标处，正文里是相对当前文件的地址", async () => {
+        const {media, uploads} = mediaOf();
+        const {editor, binding, handle} = await opened("甲乙\n", undefined, undefined, {menus: true, media});
+        editor.commands.setTextSelection(endOfBlock(editor, 0));
+        expect(pasteImage(editor, png())).toBe(true);
+        await waitUntil("图片插进了正文", () => (editor.state.doc.textContent === "甲乙" && editor.view.dom.querySelector("img, .nb-markdown-image") !== null ? true : null));
+        expect(uploads).toEqual(["project://插图/粘贴的图片 20261117-140533.png"]);
+        handle.flushPendingChange();
+        expect(binding.text.value).toContain("插图/粘贴的图片 20261117-140533.png");
+    });
+
+    it("控件卸载后在同一个标签的实例槽里重挂：粘贴仍按当前文件存放（宿主读当前挂载，不读第一次挂载的）", async () => {
+        const {media, uploads} = mediaOf({location: "sibling"});
+        const first = await opened("甲乙\n", undefined, undefined, {menus: true, media});
+        first.wrapper.unmount();
+        const again = await opened("甲乙\n", {area: first.area, memory: first.memory}, undefined, {menus: true, media});
+        // 同一个槽里的同一个编辑器实例：撤销历史等都留着，换的只是挂载。
+        expect(again.editor).toBe(first.editor);
+        again.editor.commands.setTextSelection(endOfBlock(again.editor, 0));
+        expect(pasteImage(again.editor, png())).toBe(true);
+        await waitUntil("上传发出了", () => (uploads.length > 0 ? true : null));
+        expect(uploads).toEqual(["project://插图/粘贴的图片 20261117-140533.png"]);
+    });
+
+    it("宿主提供了、但没有绑定作品：粘贴被接手，不上传，给一条通知；宿主没有提供（Lab）：照原来的粘贴", async () => {
+        const unbound = recorded();
+        const {media, uploads} = mediaOf({bound: false});
+        const first = await opened("甲乙\n", undefined, undefined, {menus: true, media, wrapMenus: unbound.wrapMenus});
+        first.editor.commands.setTextSelection(endOfBlock(first.editor, 0));
+        expect(pasteImage(first.editor, png())).toBe(true);
+        await waitUntil("给了通知", () => (unbound.notices.length > 0 ? true : null));
+        expect(unbound.notices).toEqual([{key: "imageUnavailable"}]);
+        expect(uploads).toEqual([]);
+        const lab = await opened("甲乙\n", undefined, undefined, {menus: true});
+        lab.editor.commands.setTextSelection(endOfBlock(lab.editor, 0));
+        expect(pasteImage(lab.editor, png())).toBe(false);
+    });
+
+    it("按住 Ctrl 点链接：作品里的文件交编辑器区打开，外部网址新标签页，`javascript:` 与文件内的片段不处理；单击与没有编辑器区时不接手", async () => {
+        const {notices, executed, wrapMenus} = recorded();
+        const {editor} = await opened("[设定](设定/林雪.md)与[官网](https://example.com)与[脚本](javascript:alert(1))与[本页](#标题)\n", undefined, undefined, {menus: true, wrapMenus});
+        const anchor = (label: string): HTMLAnchorElement => {
+            const found = [...editor.view.dom.querySelectorAll("a")].find((element) => element.textContent === label);
+            if (found === undefined) throw new Error(`没有链接 ${label}`);
+            return found;
+        };
+        const click = (label: string, init: MouseEventInit): boolean => {
+            const target = anchor(label);
+            const event = new MouseEvent("click", {bubbles: true, cancelable: true, button: 0, ...init});
+            Object.defineProperty(event, "target", {value: target});
+            const pos = editor.view.posAtDOM(target, 0) + 1;
+            editor.commands.setTextSelection(pos);
+            return editor.view.someProp("handleClick", (handle) => handle(editor.view, pos, event)) === true;
+        };
+        // happy-dom 的临时 `<a>` 点击不会开标签页：记下点的是什么（真实浏览器按 `target="_blank"` 开新标签页，e2e 里看）。
+        const clicked: Array<{href: string; target: string; rel: string}> = [];
+        const originalClick = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function recordClick(this: HTMLAnchorElement): void {
+            clicked.push({href: this.href, target: this.target, rel: this.rel});
+        };
+        cleanups.push(() => {
+            HTMLAnchorElement.prototype.click = originalClick;
+        });
+        expect(click("设定", {ctrlKey: true})).toBe(true);
+        expect(executed).toEqual([{command: "nbook.editor.open", args: {address: "project://设定/林雪.md", mode: "permanent"}}]);
+        // 外部网址：临时的 `<a target="_blank">` 点一下（浏览器按它开新标签页），不经编辑器区。
+        expect(click("官网", {ctrlKey: true})).toBe(true);
+        expect(clicked).toEqual([{href: "https://example.com/", target: "_blank", rel: "noopener noreferrer"}]);
+        expect(executed).toHaveLength(1);
+        clicked.length = 0;
+        // 不按 Ctrl 的单击：选中整条链接，不打开。
+        executed.length = 0;
+        click("设定", {});
+        expect(executed).toEqual([]);
+        for (const label of ["脚本", "本页"]) click(label, {metaKey: true});
+        expect(executed).toEqual([]);
+        expect(clicked).toEqual([]);
+        expect(notices).toEqual([]);
     });
 });

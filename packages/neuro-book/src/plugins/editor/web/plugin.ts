@@ -19,18 +19,20 @@ import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/s
 import {diagnosticText} from "nbook/shared/localized-text";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {autoSaveDelaySetting, autoSaveSetting, breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
+import {CODE_FONT_SIZE_DEFAULT, CODE_FONT_SIZE_MAX, CODE_FONT_SIZE_MIN, MARKDOWN_FONT_SIZE_DEFAULT, MARKDOWN_FONT_SIZE_MAX, MARKDOWN_FONT_SIZE_MIN, autoSaveDelaySetting, autoSaveSetting, breadcrumbsSetting, codeSettings, markdownSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {editorPanelsKey, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorAreaContext, EditorAreaHostProps, EditorAreaImplementation, PanelFrameControl} from "nbook/plugins/workbench/web/contracts";
-import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
+import {clockKey, windowCloseKey, windowDesktopKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
+import type {SettingDefinition} from "nbook/shared/settings";
+import {createSteppedSetting} from "nbook/shared/wheel-steps";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, editorMenusKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorCodeContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
-import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
+import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, editorMenusKey, markdownEditorOptionsKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorCodeContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
+import type {EditorImplementation, MarkdownEditorOptions, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
 import {codeEditorOptionsKey} from "./code/options";
@@ -38,6 +40,8 @@ import type {CodeEditorOptions} from "./code/options";
 import {MONACO_LANGUAGES} from "./code/monaco-languages";
 import {CLOSE_COMMAND, copyTabPath, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {EditorPageRegistry} from "./pages";
+import {editorWheelZoomKey} from "./wheel-zoom";
+import type {EditorWheelZoom} from "./wheel-zoom";
 import {continueRequestOf, withoutContinueParams} from "./continue-writing";
 import {emptyTips} from "./empty-tips";
 import {EditorRegistry} from "./editor-registry";
@@ -97,7 +101,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: windowCloseKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}, {key: windowDesktopKey, required: false}],
         provides: [documentCoordinatorKey],
         receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TOOLBAR_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
@@ -117,15 +121,47 @@ export const editorBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const project = context.services.require(windowProjectKey).project;
             const text = await windowTextPort(context.services, () => displayLocale(settings));
+            // 桌面里 Ctrl+滚轮改字号（输出见 editor.md）：目标值先于写回生效，编辑器选项在 computed 里读它，改一档立即重算。
+            const stepper = (setting: SettingDefinition<number>, bounds: {readonly defaultValue: number; readonly min: number; readonly max: number}, name: string) => createSteppedSetting({
+                settings, setting, ...bounds,
+                schedule: (callback, ms) => {
+                    const timer = setTimeout(callback, ms);
+                    return () => clearTimeout(timer);
+                },
+                failed: (detail) => diagnostics.record({level: "warn", event: "editor.font-size.write-failed", message: `Writing the ${name} font size failed; it is back to the previous value`, data: {detail}, source: {plugin: descriptor.id}}),
+            });
+            const codeFontSize = stepper(codeSettings["code.fontSize"], {defaultValue: CODE_FONT_SIZE_DEFAULT, min: CODE_FONT_SIZE_MIN, max: CODE_FONT_SIZE_MAX}, "code");
+            const markdownFontSize = stepper(markdownSettings["markdown.fontSize"], {defaultValue: MARKDOWN_FONT_SIZE_DEFAULT, min: MARKDOWN_FONT_SIZE_MIN, max: MARKDOWN_FONT_SIZE_MAX}, "markdown");
+            const desktop = await context.services.resolve(windowDesktopKey);
+            const wheelZoom: EditorWheelZoom = {
+                enabled: desktop.status === "resolved" && desktop.instance.available,
+                step: (target, delta) => (target === "code" ? codeFontSize : markdownFontSize).step(delta),
+            };
+            // 页面离开前还没写回的字号立刻写；插件停止时先写回再取消计时。
+            const flushFontSizes = (): void => {
+                codeFontSize.flush();
+                markdownFontSize.flush();
+            };
+            globalThis.addEventListener("pagehide", flushFontSizes);
+            context.signal.addEventListener("abort", () => {
+                globalThis.removeEventListener("pagehide", flushFontSizes);
+                codeFontSize.dispose();
+                markdownFontSize.dispose();
+            }, {once: true});
             const codeOptions = computed((): CodeEditorOptions => ({
                 fontFamily: settings.get(codeSettings["code.fontFamily"]),
-                fontSize: settings.get(codeSettings["code.fontSize"]),
+                fontSize: codeFontSize.current(),
                 lineHeight: settings.get(codeSettings["code.lineHeight"]),
                 tabSize: settings.get(codeSettings["code.tabSize"]),
                 detectIndentation: settings.get(codeSettings["code.detectIndentation"]),
                 lineNumbers: settings.get(codeSettings["code.lineNumbers"]),
                 minimap: settings.get(codeSettings["code.minimap"]),
                 wordWrap: settings.get(codeSettings["code.wordWrap"]),
+            }));
+            const markdownOptions = computed((): MarkdownEditorOptions => ({
+                fontFamily: settings.get(markdownSettings["markdown.fontFamily"]),
+                fontSize: markdownFontSize.current(),
+                lineHeight: settings.get(markdownSettings["markdown.lineHeight"]) / 100,
             }));
             const report = (error: unknown): void => {
                 diagnostics.record({level: "error", event: "editor.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
@@ -218,9 +254,21 @@ export const editorBrowserPlugin: PluginDefinition = {
                 const release = rescue.instance.register(() => session.area.value?.documents.rescue() ?? []);
                 context.signal.addEventListener("abort", release, {once: true});
             }
+            // 桌面窗口关闭前的询问（输出 66）：编辑器是参与方。
+            const windowClose = await context.services.resolve(windowCloseKey);
+            const closing = windowClose.status === "resolved" ? windowClose.instance : null;
+            if (closing !== null) {
+                const release = closing.participate(async ({signal}) => {
+                    const area = session.area.value;
+                    return area === null ? "allow" : await area.closeWindow(signal);
+                });
+                context.signal.addEventListener("abort", release, {once: true});
+            }
             // 离开页面前：结算全部视图输入，有需要结算的文档时请求浏览器的离开确认。开着自动保存时顺手把保存发出去：用户在
             // 确认框里选择留下时正文已经存好；不指望它在卸载前完成。
             const beforeUnload = (event: Event): void => {
+                // 关窗询问里已经同意（窗口正在关）：同一件事问过了，不再请求离开确认。
+                if (closing?.agreed() === true) return;
                 if (session.area.value?.needsLeaveConfirm() !== true) return;
                 session.area.value.leaving();
                 // 现在的浏览器以 preventDefault 请求离开确认（Chrome 119 起不再要求 returnValue）。
@@ -349,6 +397,8 @@ export const editorBrowserPlugin: PluginDefinition = {
                             setup: (props) => {
                                 provideToChildren(editorLanguagesKey, languages);
                                 provideToChildren(codeEditorOptionsKey, codeOptions);
+                                provideToChildren(markdownEditorOptionsKey, markdownOptions);
+                                provideToChildren(editorWheelZoomKey, wheelZoom);
                                 provideToChildren(editorMenusKey, menus);
                                 return () => {
                                     if (session.area.value === null) return null;

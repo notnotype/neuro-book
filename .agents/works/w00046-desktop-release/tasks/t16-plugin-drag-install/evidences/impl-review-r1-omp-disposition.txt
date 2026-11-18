@@ -1,0 +1,14 @@
+t16 实现审查第 1 轮（后端，omp 默认模型，审 5200a425a）的处理，2026-11-17。有效发现 10 条：中 5、低 5，高与阻断 0；第 11–13 节是结论（nb-host 转交与既有上传消费者没有回归）。提交 6ebfab729（1–6）、db65c46bb 变基前的对应提交（7–10）。
+
+F1 中 成立：占位与淘汰同一个同步段（`reserve()` 交回要删的旧上传，目录由调用方删），空档里别的接收看不到空位。补了并发接收的测试。
+F2 中 成立：`stop()` 登记每个正在接收的上传的取消控制器，停止时拒绝新接收、取消并等收尾；零字节文件也受停机约束。补了“只发半个帧头、不再发送”的真实 HTTP 停机用例。
+F3 中 成立：写盘循环写满，一个字节都写不进就失败（`upload-failed`）。补了短写的测试。
+F4 中 成立：宿主 extension 在 `stopping` 里先停上传，与 HTTP 排空并行；能力 release 留作幂等兜底。补了经产品装配的测试（`src/server/plugin-uploads.test.ts`，变异检查：去掉提前停止，服务端排空 20 秒后以 1 退出）。
+F5 低 成立：保留名正则的 COM、LPT 后缀加上 ¹²³。
+F6 低 成立：长度按原样与 NFC 之后两者中较长的算。
+F7 中 成立：路径集合按段建树，每段只存一次；之前存每条路径的全部上层前缀，深路径会把内存放大。没有另设深度上限（整条 1024 字节已限住深度，Spec 不改）。补了撞名不留半条路径与深路径的测试。
+F8 低 成立：写盘失败给页面的说明不带暂存目录路径，完整的系统错误进诊断（`plugins.upload.write-failed`）。补了断言。
+F9 低 成立：补客户端上传到一半 abort 的真实 HTTP 用例（`upload-route.test.ts`）。
+F10 低 成立：补“发出安装后关窗，服务端安装照常完成并删掉上传”的用例（`plugins.test.ts`，真实的服务端与窗口两个运行实例，服务端开始用上传之后才关窗）。
+
+收口验证：`bun run typecheck`、`bun test src/plugin-platform src/plugins/plugins src/server/plugin-uploads.test.ts` 通过，`e2e/plugins.e2e` 3 项通过，`test:affected --since master` 只有 master 上已有的 `sdk.test.ts` 两项失败（w00025 的 DateInput 提交引入，与 t16 无关）。

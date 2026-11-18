@@ -1,0 +1,161 @@
+# w00025 t09 后端设计审查（上传路由）
+
+## 1. 服务端的 ownFiles 不认 `project://`，计划写的写入路径照字面实现必失败 unknown-scheme
+- 严重程度：阻断；类别：正确性
+- 位置：plan.md“技术选型”第 1 行与“关键设计 / 后端：上传路由”第 2 条（`ownFiles.write("project://<路径>", …)`）；packages/neuro-book/src/plugins/files/backend/plugin.ts:245-247；workspace-files.ts:160-185
+- 现象：服务端入口的 `ownWorkspaceFiles` 用的是 `own: {scheme: "user"}`。`stagingTarget` 只分三支：`scheme === own.scheme`（user）、`"projects"`、挂载方案 `mountedOf(scheme)`。`project` 在 `RESERVED_SCHEMES` 里（shared/schemes.ts:24），挂载注册被拒，所以服务端上 `project://…` 一律落到 `unknown("project")`，返回 `unknown-scheme`。计划里“`project://` 地址由它转给项目实例提交”在服务端不成立；能转给项目实例的是 `projects://<项目引用>/<路径>`（projects-scheme.ts:22 的描述、projects-scheme.test.ts:98-101 的用法）。
+- 为什么是问题：后续切片照字面实现会在第一条用例就失败，并且实现者可能“补”一条 `project` 到当前项目的映射——服务端没有“当前项目”，这会引入新的歧义。
+- 如何核实：读 workspace-files.ts:160-185 与 plugin.ts:245-247；shared/schemes.ts:24。
+- 建议改法：计划改为 `ownFiles.write("projects://<id>/<路径>", …)`，引用用 URL 里的 id（registry.resolve 先按 id 再按短名匹配，registry.ts:190-193，id 优先没有歧义）。同时见第 2 条：经 `projects://` 写入不带代次，要另外补代次绑定。
+
+## 2. 代次只在路由开头对登记表核一次，写入经 `projects://` 取的是“当前代次”的租约：核对与提交之间换代时写进新一代，还会把已停的项目重新打开
+- 严重程度：重要；类别：不变量
+- 位置：plan.md“关键设计 / 后端”第 2 条、“不做与风险”第 2 条；raw-route.ts:124-158（createProjectRoots 只查 list 与 readMetadata）；projects-scheme.ts:79-86、98-111；workspace-files.ts:167-178；shared/projects.ts:147；server/projects/manager.ts:242-262、357-363
+- 现象：计划把读取路由的“按登记核对代次与身份”抽出来给写入共用，然后经 ownFiles 写。但写入链是：`projects.hold(path)` → `ProjectsService.acquire(reference)`（不带代次，注释写明“项目没在运行就以新代次启动它”），提交时 `projects.call` 又 `acquire` 一次（同样不带代次）。于是：(a) 路由核对通过（第 N 代在 running 或 idle-grace）之后、hold 之前，宽限期满停掉，hold 会以第 N+1 代重新启动项目并写进去；(b) hold 之后第 N 代崩溃（租约 revoked），`call` 的第二次 acquire 启动第 N+1 代，暂存文件因活性锁仍被持有不会被新实例的 sweepStaging 删（staging.ts:101-127），提交在 N+1 代成功。两种情况响应都是 201。
+- 为什么是问题：Spec“写入图片”说代次规则“同按地址读取字节”，即只服务 URL 里的那一代、不符为 410；files.md 状态表“Project 换代…停止对旧身份接纳新操作”、验收 6“旧请求…不覆盖新工作面”。读取路由没有这个问题是因为它自己在服务端打开根读；写入走项目实例，登记表的核对对后面的写不构成约束。另外“读写共用的核对”会在服务端为每个项目额外打开一份 RootedRoot（openRoot 带 lockDirectory），写入根本用不上它。实际危害有限（同一个 id 的不同代次是同一目录），但合同说的 410 实现给不出，测试也写不出“换代后得 410”。
+- 如何核实：读上列行；manager.ts:244 已有 `options.generation` 分支 `#acquireGeneration`（357-363，代次不符返回 `generation-gone`），但插件门面 `ProjectsService.acquire(reference)`（shared/projects.ts:147，manager.ts 插件门面 `acquire: async (reference) => …`）没有把它交出来。
+- 建议改法：给 `ProjectsService.acquire` 加可选 `{generation}`（管理器已支持，改的是门面与类型）；写入接口的 `projects://` 写入（hold 与提交的 call 两处）接受固定代次，或者 hold 交出租约、提交复用这一份租约而不是再 acquire，并把 `lease.revoked` 并进提交的 signal。路由只需要“代次与 id”，身份核对由项目实例打开时做（hold 注释已写“打开项目也核对了项目目录的身份”），不必在服务端再开根。若决定不改，Spec 要写明写入的代次核对是尽力而为、换代竞争下会写进新一代。
+
+## 3. 写入链实际会交回的失败码有一半不在 Spec 的状态表里：目标是目录、父路径是文件、悬空链接、结果未知、项目打不开都没有映射
+- 严重程度：重要；类别：正确性（合同）
+- 位置：files.md“写入图片（planned）”的“不覆盖”“状态码”两条；plan.md“关键设计 / 后端”第 3、5 条；staging.ts:156-182、184-228；rooted.ts:350-387；staged-commit.ts:76-88；raw-route.ts:61-71
+- 现象：按代码，`ownFiles.write(…, {expect: "absent", createParents: true})` 在这些情况下的结果是：
+  1) 目标是目录（或指向目录的链接）：rooted.commit 解析成功、`!isFile()` → `not-a-file`，根本到不了 `decide`，不是 `conflict`；
+  2) 目标是悬空链接：rooted.ts:359-363 → `not-found`（“指向不存在的目标”）；
+  3) 父路径某段是普通文件（作者手建了一个叫“插图”的文件）：ensureParents → `not-a-directory`；父路径是悬空链接 → `not-found`；
+  4) 项目子进程在提交请求发出后断开：`unknown-outcome`（resources.md“暂存与提交”）；
+  5) hold/acquire 被拒（服务端正在停止 `admission-closed`、子进程启动失败）：`project-unavailable`；登记里没有这个 id：`not-found`；
+  6) 客户端断开：`cancelled`。
+  Spec 只列了 invalid-address、protected-path、outside-root、permission-denied、root-gone、generation-gone、identity-conflict、too-large、unsupported-type、extension-mismatch、io-failed、conflict。Spec 文字又说“目标已存在（包括目录、链接）时为 409 conflict”，`rename` 要跳过它们——照代码，1) 与 2) 不是 conflict，计划“目标是目录或链接时同样是冲突”只写了结论，没写由路由把 `not-a-file`、目标处的 `not-found` 改报成 conflict；若实现者沿用读取路由的 `failureResponse`（未列出的码一律 404 且码改成 `not-found`），`rename` 循环会在遇到一个同名目录时以 404 中止。
+- 为什么是问题：4) 尤其要紧：`unknown-outcome` 被当 500 `io-failed` 报给编辑器，界面会说“失败”，但文件可能已经写下；用户再粘贴一次就多一份 `名字 2`。resources.md 明确要求结果未知不等同失败。
+- 如何核实：读上列行；FILES_FAILURES（shared/failures.ts）与 ServerFilesFailureCode（shared/schemes.ts:91）列出可达码。
+- 建议改法：Spec 的状态表补全并写清改报：目标处 `not-a-file`、`not-found`（链接）在写入里改报 409 `conflict`（`rename` 时跳过继续）；`not-a-directory` 400 或 409（父路径不是目录，与 `rename` 无关，直接失败）；`unknown-outcome` 给独立的码（例如 502/504 `unknown-outcome`），客户端结果里也单列，界面提示“不确定是否写下，先看目录”；`project-unavailable` 503；`registry-invalid` 500；`cancelled` 不需要响应体但要保证暂存清掉（见第 6 条）。写入另起一张 `WRITE_STATUS` 表，不复用读取的 `failureResponse`（它会把码改成 not-found）。
+
+## 4. `Sec-Fetch-Site` 不是 same-origin 一律 403：没写“不带这个头”怎么办；按字面会挡掉经 NBOOK_ALLOWED_ORIGINS 用 http 访问的窗口
+- 严重程度：重要；类别：安全 / 正确性
+- 位置：files.md“写入图片（planned）”的“来源”条；plan.md“关键设计 / 后端”第 3 条（“`Sec-Fetch-Site` 不是 `same-origin` 为 403”）；raw-route.ts:195-202（读取：不带头放行）；nb-host/src/http/dispatch.ts:79-86；docs/specs/runtime/server-host.md“HTTP 端口的来源核对”
+- 现象：读取路由的规则是“带了且不是 same-origin/none 才 403，不带的放行”。写入的 Spec 与计划只写“不是 same-origin 为 403”，对“不带”没有说法；照字面（`site !== "same-origin"`）缺头即 403。
+- 为什么是问题：
+  1) 浏览器只对“潜在可信”的地址（https、localhost/127.0.0.1）发 Fetch Metadata 头（Fetch Metadata 规范的发送条件，从规范推断、未在本机实测）。server-host.md 允许 `Host` 是 `NBOOK_ALLOWED_ORIGINS` 里的主机；作者经局域网 `http://<主机>:<端口>` 打开时，页面自己的 PUT 带合法 `Origin`、但没有 `Sec-Fetch-Site`，按字面会被 403，读取却照常——上传在这种部署下整体不可用。
+  2) 不带头的本机进程（测试、以后桌面壳主进程直接调）同样被挡，和 server-host.md“不带 Origin 的本机进程照常放行”的信任模型不一致。
+  3) 反过来看收益：PUT 是非简单请求，浏览器对跨源 PUT 一定带 `Origin`，dispatch.ts:85 已按允许来源拒绝（`null` 也拒）；同站不同端口的页面（`localhost:3000`）的 `Origin` 也不在允许来源里。`Sec-Fetch-Site` 在这里只是纵深防御，强制要求它的代价大于收益。
+- 如何核实：读 raw-route.ts:199-202 与 dispatch.ts:82-86；server-host.md 第 70-73 行。
+- 建议改法：写入与读取同一个判定函数的变体：带了 `Sec-Fetch-Site` 且不是 `same-origin`（含 `same-site`、`cross-site`、`none`）为 403，不带的交给 `Origin` 核对。Spec 明写这三种情况，验收 12 加“不带 Sec-Fetch-Site、带允许 Origin 的写照常 201”“`Sec-Fetch-Site: none` 得 403”“`Sec-Fetch-Site: same-site` 得 403”。
+
+## 5. 写进内容文件夹（`.content`）时不同步清单，`createParents` 建出的 `插图/` 会变成一个没有正文的“内容节点”
+- 严重程度：重要；类别：遗漏 / 不变量
+- 位置：files.md“写入图片（planned）”的“经文件服务提交”条；plan.md“关键设计 / neuro-book：设置”（四种位置）与“不做与风险”；docs/specs/workspace/folder-kinds.md 第 21、30-33、73 行；staging.ts:184-228（提交里没有任何清单逻辑）
+- 现象：folder-kinds.md 输出“经文件服务的操作同步清单”：在内容文件夹内经文件服务新建子项时，同一操作同步更新所属内容根的清单；清单示例里图片就是条目（`<item name="portrait.png" title="立绘"/>`）。上传走暂存提交（`commit`），这条链只放文件、记账、发事件，不碰清单（staging.ts、workspace-files.ts 都没有 manifest 相关代码）。设置里的“与当前文件同目录”“当前文件下的子目录”两种位置，在作者编辑 `lorebook.content/chen-yao/index.md` 时都会把图写进内容树：图成为未列入项排在末尾；`插图/` 子目录按定义（“其中的子目录是内容节点”）成为一个没有 `index.md` 的节点，资源管理器给它“创建内容”。
+- 为什么是问题：Spec 写“目录监视与资源管理器照常看到这个新文件”，但在内容树里“照常”的含义是“未列入”，与同一能力的“新建文件”结果不同；计划的验收映射与 Spec 场景 12 只测作品根下的 `插图/`，这条路径没人看。
+- 如何核实：读上列行；在 staging.ts 与 workspace-files.ts 里搜 manifest/清单，只有批量结果的空 manifests 字段。
+- 建议改法：二选一并写进 Spec：(a) 上传是附件写入，内容树里一律按未列入项呈现、不改清单（明写例外与理由，并让存放位置的设置在内容树里退回作品根的 `插图/`，免得造出空节点）；(b) 提交链在内容文件夹里同步清单（要扩展 commit 或改用 `create` 后再写，代价大）。推荐 (a)。验收加一条“当前文件在内容文件夹里”的场景。
+
+## 6. `exists=rename` 的循环：结果未知时必须停、每次都整份重新暂存、名字里已有序号的规则没写
+- 严重程度：重要（第 1 点）/ 建议（其余）；类别：正确性 / 遗漏
+- 位置：plan.md“关键设计 / 后端”第 4 条；files.md“写入图片”的“不覆盖”条；workspace-files.ts:187-212、406-414；staged-commit.ts:116-140
+- 现象与问题：
+  1) 循环只说“第一个成功的就是结果”，没说遇到非 `conflict` 的失败怎么办。若实现成“不成功就试下一个名字”，`unknown-outcome`（项目子进程在提交帧发出后断开）之后会接着写 `名字 3`，而 `名字 2` 可能已经写下——一次粘贴得到两份图。`io-failed`、`permission-denied` 继续试也只是重复失败 99 次。应写死：只有 `conflict`（以及按第 3 条改报成 conflict 的目录、链接）才试下一个，其余立即结束并原样报出。
+  2) 代价：每次尝试都是独立的 `stage`：建活性锁与暂存文件、整份写入并 fsync、hold 一次租约、提交时再 acquire 一次、远程提交；冲突时项目子进程还要把已有的同名文件整份读一遍算哈希，并按大小分配一个至多 32 MiB 的缓冲（staged-commit.ts:123）。本机实测写 32 MiB + fsync + 删除每次 17–29 ms（exp-backend/fsync.ts，btrfs SSD）；最坏 99 次约 3.1 GiB 写盘、99 次远程往返，慢盘或网络盘上是几十秒，期间请求一直占着 32 MiB 内存与 nb-host 的在途票据（排空最多等 20 秒）。
+  3) 已经叫 `a 2.png` 的文件再传一次，按规则是 `a 2 2.png`；Spec 没写是否认出已有的 ` 2` 后缀。名字接近 255 字节上限时加 ` 100` 会 ENAMETOOLONG，落成 500 `io-failed`。
+- 如何核实：读上列行；exp-backend/fsync.ts 的输出 `29,24,23,17,18`。
+- 建议改法：先用一次 `list(父目录)`（或 `identify` 一组候选）挑出第一个空着的候选，再只写一次；仍得 `conflict`（并发）时从下一个候选继续，冲突变成罕见路径。Spec 补：非 conflict 失败立即结束；`renamed` 在全部被占时的含义（现在写“都被占用为 409 conflict，renamed 为真”，失败体里没有 renamed 字段，这句自相矛盾）；不解析已有序号；名字加序号后超长为 400 `invalid-address`。
+
+## 7. 大小与传输：413 只在路由里给，Bun 的 128 MiB 上限与 nb-host 转交不在计划视野里；内存按“每个上传 32 MiB”估算偏低，也没有并发上限
+- 严重程度：建议；类别：遗漏
+- 位置：plan.md“技术选型”第 1 行、“关键设计 / 后端”第 3、4 条、“验证”第 2 条；nb-host/src/http/plugin.ts:76-85（`Bun.serve` 没设 `maxRequestBodySize`，`idleTimeout: 0`）；dispatch.ts:177-181；node_modules/hono 4.12.30 的 body-limit；w00046 t16 的 design-review-r3-proposal.md 第 7-10 行
+- 现象：
+  1) Hono `bodyLimit` 有 `Content-Length` 且无 `Transfer-Encoding` 时只看头、不数字节；分块传输时把整个体读进 `chunks` 数组再包成新 Request，之后路由 `arrayBuffer()` 又拷一份。分块的 32 MiB 上传在路由里峰值约 64 MiB；t16 实测 nb-host 的 `new Request(href, request)` 转交再多约 80%。
+  2) 超过 128 MiB 的请求由 Bun 直接回空体 413（t16 实测），不是 `{error: {code: "too-large"}}`；浏览器客户端在 32 MiB 就挡住了，非浏览器调用方会看到两种 413。
+  3) 没有并发上限：t15 拖一个文件夹若并行逐个调用，N 个上传同时各占约 64-90 MiB；`rename` 循环期间字节一直留在内存。
+  4) `idleTimeout: 0` 下，涓流发送的分块请求永不超时，一直占在途票据（停止时排空等满 20 秒）。只在本机可达，影响小。
+  5) 计划“上限相关的用例用 33 MiB 的真实请求体”：现有路由测试（theme-asset-route.test.ts:79）是进程内调 `createDispatcher`，不经 `Bun.serve`，测不到 2) 与转交的内存行为；“真实 HTTP”的含义要写清。
+- 本次实验：exp-backend/fwd.ts 证实转交时构造 Request 本身不等请求体（12 ms 返回、`transfer-encoding: chunked`、无 content-length）；exp-backend/sig.ts 证实客户端断开时转交请求的 `signal` 同样触发（Bun 1.4.4），路由可以把 `c.req.raw.signal` 交给写入。
+- 建议改法：Spec 写明“32 MiB 由路由判定；分块传输边收边数，超过即 413”；限长放在处理器里按计划的顺序调用（作为中间件时它先于来源与代次核对执行，分块请求会在 403 之前先被读进 32 MiB）。服务端对本路由设并发上限（例如同时 2 个，其余排队或 503 `busy`），或在 Spec 里写明客户端逐个串行上传；第 6 条的“先挑名字再写一次”同时去掉循环期间的内存占用。测试至少一条经真实 `Bun.serve`（不是只调 dispatcher）。
+
+## 8. 取消信号的语义没写：请求体发完之后取消，文件可能已经写下，客户端拿不到地址
+- 严重程度：重要；类别：遗漏（合同）
+- 位置：files.md“写入图片”的“地址”条（“`options` 有 … 取消信号”）；plan.md“关键设计 / 后端”第 6 条、“不做与风险”最后一条（切标签时丢弃结果）；workspace-files.ts:187-207；nb-runtime/src/remote/protocol.ts:64-70
+- 现象：计划没说路由是否把 `c.req.raw.signal` 交给 `ownFiles.write`。两种实现都有后果：不交，客户端取消后服务端照样写完；交了，取消落在远程提交帧发出之后时结果是 `unknown-outcome`（protocol.ts:64-70），暂存留给项目实例，文件可能已经放到位。两种情况客户端都只得到 AbortError，不知道 `插图/` 里多了哪张图。计划里“切到别的文件时丢弃结果、不插入”也一样会留下没人引用的图。
+- 为什么是问题：files.md“状态与转换”写明“在途操作若不能证明终止即为结果未知”，“文件操作”还写了“中止已发出的写请求只能得到结果未知”。上传的取消是同一类情况，Spec 却只写“有取消信号”，读者会以为取消就等于没写。
+- 如何核实：读上列行；exp-backend/sig.ts 证实断开会传到转交请求的 signal。
+- 建议改法：路由把请求的 signal 交给写入，这样请求体收完、开始暂存之前的取消可以确定不写。Spec 写明：请求体收完之前取消，确定没写；之后取消，结果未知，图可能已在目标目录（会出现在插图卡片的“最近”里），客户端不插入、也不自动删除。插图函数丢弃结果时的提示文字照这个口径写。
+
+## 9. 客户端 `UploadResult` 的码表与服务端会回的码对不上；“不进 FILES_FAILURES”站得住，但码表要从 Spec 状态表推出来
+- 严重程度：重要；类别：正确性（合同）
+- 位置：plan.md“关键设计 / 后端”第 6 条（码表 `unavailable | too-large | unsupported-type | extension-mismatch | conflict | invalid-address | permission-denied | generation-gone | cross-site | io-failed | network`）；files.md“写入图片”的“状态码”条；raw-route.ts:68-71
+- 现象：Spec 写 `protected-path`、`outside-root` 是 404，并且“同读取，不区分受保护与不存在”——读取的 `failureResponse` 会把响应体的码改成 `not-found`。客户端码表里没有 `not-found`，验收 12“写 `.nbook/` 下得到 404”在客户端会落成哪个码没有定义。另外漏了 Spec 自己列出的 `identity-conflict`（409）、`root-gone`（410），以及第 3 条里的 `unknown-outcome`、`project-unavailable`、`cancelled`。`generation-gone` 与 `root-gone` 都是 410，客户端只看状态码分不出来，必须读响应体。
+- 为什么是问题：码表是 t15 以后照抄的合同。漏掉 `unknown-outcome` 最危险：界面会把它当“失败”提示用户重试，重试就多一份 `名字 2`（见第 3、6 条）。
+- 关于“不进 FILES_FAILURES”：成立。FILES_FAILURES 是远程合同的业务失败码（shared/failures.ts 注释），上传走 HTTP，不经远程服务；`extension-mismatch`、`cross-site`、`network` 加进去会改远程合同的版本。
+- 如何核实：读上列行与 shared/failures.ts。
+- 建议改法：在 shared 里放一张“上传失败码到 HTTP 状态”的常量表，服务端路由与浏览器客户端共用，客户端只按响应体的 `code` 判断，状态码只作兜底；码表补 `not-found`、`identity-conflict`、`root-gone`、`unknown-outcome`、`project-unavailable`，`cancelled` 由客户端自己的 AbortSignal 产生。`network` 改名或明确为“请求体发出前就失败”，与“发出后断开”（应当算 `unknown-outcome`）分开。
+
+## 10. 类型与扩展名：扩展名不在允许集合时的码没定；`.jfif`、`.jpe` 的 JPEG 会被拒；只看文件头的判定在本仓库的读取头下风险可接受，像素炸弹归客户端
+- 严重程度：建议；类别：遗漏 / 安全
+- 位置：files.md“写入图片”的“只收图片”条；plan.md“技术选型”第 2 行、“关键设计 / 后端”第 3 条（检查顺序里“名字（单段规则，扩展名在允许集合里）”）；shared/image-type.ts；raw-route.ts:171-193、204-205
+- 现象与判断：
+  1) 检查顺序把“扩展名在允许集合里”放在读体之前，但没写失败码：`.txt`、`.heic`、没有扩展名的名字、`.png` 这种点开头、主名为空的名字，各回什么？按合同语义应当是 415 `unsupported-type`（或 400 `invalid-address`），要写死，`.png` 这种名字也要写明拒绝还是收（`contentTypeOf` 把点在开头的名字当没有扩展名，raw-route.ts:54-58，读回来会是 octet-stream）。
+  2) 选本机文件保留原名：Windows 上的 Chrome 曾长期把下载的 JPEG 存成 `.jfif`，相机与旧软件还有 `.jpe`。按现在的规则这些都 415，作者看到的是“类型不符”，但文件就是 JPEG。建议客户端在选本机文件时按判定出的类型把不在集合里的 JPEG 扩展名改成 `.jpg`（服务端规则不放宽），或 Spec 把 `.jfif`、`.jpe` 列进 JPEG 的扩展名；`.JPG`、`.Jpeg` 按 Spec“不分大小写”已经覆盖。
+  3) 只看魔数：PNG 头后面接 HTML 或脚本的多语言文件可以写进来。读取路由按扩展名给 `Content-Type`、加 `nosniff` 与 `Content-Security-Policy: sandbox`，直接打开也不在应用源里执行；`<img>` 只按图片解码。GIFAR 一类依赖 Java 插件，已无现实载体。结论：服务端不必做完整解析，Spec 写一句“只保证文件头，不保证整份是合法图片”即可。
+  4) 像素炸弹：服务端不解码，没有风险；风险在浏览器——插图卡片一次列 12 张缩略图，`thumbnail` 用的是原图地址（plan.md“能力”条），12 张 8000×6000 的照片解码约 12×192 MB。属于前端范围，这里只提醒：后端没有缩略图接口，前端要用 `loading="lazy"`、`decoding="async"` 并限制同时解码的张数，或记为已知限制。
+- 如何核实：读上列行。
+- 建议改法：Spec 的“只收图片”补 1) 的码与 2) 的扩展名决定；3) 写一句限定。
+
+## 11. “路由自己多写一个 GIF 判定”是为了迁就共用函数的返回类型，可以改共用函数的形状而不放宽封面与主题
+- 严重程度：建议；类别：代码质量（上游选择）
+- 位置：plan.md“技术选型”第 2 行；packages/neuro-book/src/shared/image-type.ts；theme-asset-route.ts:27、79-84
+- 现象：计划把选项写成两个：放宽 `sniffImageType`（封面、主题也会收 GIF）或在路由里另写一份。还有第三种：共用函数判定全部已知的位图类型（PNG、JPEG、GIF、WebP），返回联合类型；各调用方拿自己的允许集合过滤（主题素材的 `EXTENSIONS` 表本来就要按类型查扩展名，theme-asset-route.ts:27）。这样四个魔数只写一处，以后加 AVIF 也是一处。
+- 为什么是问题：两份魔数表会各自漂移（例如以后有人在一份里修了 WebP 的 RIFF 长度判定、另一份没修）；计划“待确认 2”自己也写了“以后要加是在判定函数与 Spec 各加一条”，前提就是判定函数只有一份。
+- 建议改法：`sniffImageType(bytes)` 返回 `"image/png" | "image/jpeg" | "image/gif" | "image/webp" | null`，加 `RASTER_FOR_COVERS`、`RASTER_FOR_THEME` 这类允许集合常量；封面、主题素材的测试应当已经覆盖“GIF 被拒”，改动有兜底。改动的成本是动两个调用方，各一行。
+- 第 11 条更正（核实后）：调用方是三处（plugins/projects/shared/cover.ts、files/backend/theme-asset-route.ts、workbench/web/components/theme-editor/package-io.ts），不是两处；现有测试里搜不到“GIF 被拒”的用例，改形状时要给封面与主题素材各补一条，原文“应当已经覆盖”不成立。
+
+## 12. “抽出读取路由私有的代次核对”与现状不符：`createProjectRoots` 早已导出；写入沿用它会在服务端为每部作品多开一份根，并且 409 的码不只是 identity-conflict
+- 严重程度：建议；类别：文档 / 代码质量
+- 位置：plan.md“关键设计 / 后端”第 2 条、“不做与风险”第 2 条；raw-route.ts:118-159；raw-route.test.ts:55-66、116-148
+- 现象：
+  1) `ProjectRoots` 接口与 `createProjectRoots` 已经是导出的（raw-route.ts:119、124），不存在需要“抽出”的私有代码；计划据此列的风险（“抽出时改坏读取”，要跑 `editor-types.e2e.ts` 兜底）基本不存在。真正要改的是让写入路由拿到同一个 `roots` 实例（现在它在 `createRawRoutes` 里建，plugin.ts 拿不到），或把写入路由也放进 `createRawRoutes`。
+  2) `open` 除了核对代次与身份，还会 `openRoot(project.path, …)`，在服务端打开并缓存一份 RootedRoot（raw-route.ts:146-148）。写入不用它（写入经项目实例），只为核对代次就多开一份根。若按第 2 条把代次绑定放进租约，写入路由连这一步都不需要。
+  3) 身份失败的码是 `metadata.reason`（raw-route.ts:145），不止 `identity-conflict`：身份文件缺失、读不出、不合法都回 409 且码各不相同；Spec 的状态表只写了 `identity-conflict`，写入的 Spec 若照抄读取，要么列全，要么在路由里统一成一个码。
+  4) raw-route.test.ts 用的是伪造的登记（55-66 行），不是真实项目实例；计划说写入测试用真实项目实例（`projectHarness` 已有，theme-asset-route.test.ts:20 引了），可行，但这里的“410、409、404 三种已覆盖”是在伪造登记上的覆盖。
+- 建议改法：计划改写这一条：不“抽出”，而是决定写入路由与读取路由共用同一个 `roots`（同一个 Hono 子应用）还是写入只核对代次（推荐后者，配合第 2 条）；Spec 列全 409 的几种码或统一。
+
+## 13. 写入来源与这条链的测试：Spec 没写来源；“服务端 HTTP 路由经 `projects://` 写项目”这条路径现在没有任何测试
+- 严重程度：建议；类别：文档 / 遗漏（测试）
+- 位置：files.md“写入图片”的“经文件服务提交”条；plan.md“不做与风险”第 3 条；plugin.ts:49-52、71-74、246；workspace-files.ts:94-97、112、116；theme-asset-route.test.ts；projects-scheme.test.ts:91-117
+- 现象：
+  1) 来源：ownFiles 的调用方身份是 `{location: "server", plugin: "nbook.files", client: null}`，`sourceOf` 记为 `{kind: "system", plugin: "nbook.files"}`，经 `forwarded` 作为 `as` 带给项目实例；项目实例的 `commit` 只接受服务端 `nbook.files` 带来的 `as`（plugin.ts:125-129），这条链在代码上走得通。但作者粘贴的图记成“系统”写入，Spec 的“写入图片”一节没有写，读者会按 resources.md 的表以为浏览器发起的就是写作者。计划担心的“文件树对系统来源的新文件有不同呈现”：在 packages/neuro-book/src 里搜 `source.kind` 与 `kind === "system"`，没搜到按来源分支的界面代码，这条风险目前不成立。
+  2) 测试：主题素材路由测的是 `user://`（本进程提交）；`projects-scheme.test.ts` 测的是按调用方解析出的门面（`files(agent)`），不是 `ownWorkspaceFiles`。“HTTP 路由 → ownFiles → projects:// → 项目子进程 commit（带 as）”这一整条在仓库里没有用例，第 1 片的合同测试会是它的第一份覆盖。
+- 建议改法：Spec 加一句“来源记为系统（`nbook.files`）：HTTP 端口没有内核签发的窗口身份”，并作为已知限制；第 1 片的测试订阅项目的变更，断言收到的 `created` 事件带这个来源、父目录也有一条 `created`（ensureParents 会发，staging.ts:178-179）。
+
+## 14. 对 w00046 t15 的复用：单文件、调用方选 fail/rename 的形状够用于“编辑器插图”，不够用于另外两处落点，以后会逼着改的地方现在就能看出来
+- 严重程度：建议；类别：遗漏（接口）
+- 位置：files.md“写入图片”；.agents/works/w00046-desktop-release/tasks/t15-drag-import/README.md（落点：文件树、编辑器插图、书架导入新作品；“支持文件夹并保留层级”）
+- 现象：
+  1) 文件树落点要收任意文件（md、pdf、txt），而本接口“只收图片”、扩展名与类型要一致、错误码是 415。t15 一开工就要改合同；现在 Spec 把类型政策写成接口的无条件性质，以后放宽要么改语义，要么另开一条路由。
+  2) 书架导入新作品：目标作品还没登记、没有运行代次，URL 里的 `<项目 id>/<代次>` 给不出来；这条落点不能用本接口，t15 需要另一个入口（或先登记并打开再逐个传）。
+  3) 文件夹：空目录传不了（接口只写文件）；文件夹整体重名时 t15 要的是“整个文件夹改名”，而 `rename` 是逐个文件加序号——逐个调用会把同一文件夹的文件散成 `a 2.png`、`b.png` 这样一半改名一半不改。t15 只能自己先挑文件夹名再用 `fail` 模式传。
+  4) 一次拖入几百个文件时没有操作 id、没有取消、中途失败没有残留范围报告，和 files.md“文件操作”里批量的那套（逐项结果、取消、结果未知）不对称。
+  5) 32 MiB 上限对任意文件偏小（t15 已写“要大文件时开工时提出”）。
+- 为什么是问题：开发者定的是“单个文件写到某个地址”，形状本身没问题；问题在于 Spec 把“只收图片”与路径形状捆在一起，又没给扩展点。
+- 建议改法：Spec 现在就把类型政策写成接口的一个参数（例如查询参数 `accept=image`，缺省且目前唯一合法值是 `image`），以后加 `accept=any` 是增量；在 Spec 里明写 2)、3) 的边界（新作品与空目录不归本接口，文件夹重名由调用方先定名），t15 开工时不用再猜。
+
+## 对“待确认”里后端两条的判断
+- 待确认 1（“最近的图”按名字倒序，不给 `list` 加修改时间）：同意。粘贴的图按“粘贴的图片 年月日-时分秒”命名，名字倒序就是时间倒序；选的本机文件次序不准，代价只是“最近”列表里的位置不对，作者可以打字找。给 `list` 每项加 `stat` 会让资源管理器的每次展开都多付一次，只为一个卡片不值；以后真要，可以只给插图卡片加一个“按修改时间取前 N 张”的专用读方法，不动 `list`。
+- 待确认 2（只收 PNG、JPEG、GIF、WebP）：同意。SVG 要另做检查（仓库已有 `svg-icon.ts` 的严格检查，以后要收 SVG 可以复用，但它是为图标定的规则，对插图过严）；AVIF、BMP 少见。补充：`.jfif`、`.jpe` 的扩展名问题见第 10 条，判定函数的单一来源见第 11 条。
+
+## 未发现问题的方面
+- 路径包含：`..`、`.`、空段、反斜杠、NUL、盘符开头在 `parseAddress`/`pathProblem` 一层就拒（shared/resource.ts:58-68），`rooted.resolve` 再核一次；URL 里 `%2F` 解码成 `/` 后同样走这套规则，绕不过。
+- 控制目录：首段不区分大小写的 `.nbook`、根内链接指向 `.nbook`、同 inode 的别名（含 Windows 8.3 短名）都由 rooted.ts:165、180、197、254、404-410 挡住；`ensureParents` 每段都按 `resolve`/`resolveSlot` 解析，`createParents` 建不出控制目录里的东西。Windows 上尾部点、空格与 `:` 在 win32 分支拒绝。Windows 保留设备名（`CON`、`NUL` 等）与 `<>"|?*` 在 rooted 里没有专门规则，写入时会落成 `io-failed` 而不是 `invalid-address`；这是 rooted 现有的通用行为，不是本 Task 引入的，没有在 Windows 上实测。
+- 符号链接目录：父目录经链接落到根外为 `outside-root`；目标是指向已有文件的链接时进入 `decide`、`absent` 得 `conflict`（目录与悬空链接的码问题见第 3 条）。
+- 并发同名：`expect: "absent"` 在目标文件的跨进程写入锁里判定，放到位用 `link`（被抢先 EEXIST 重做），不支持硬链接时退到 `COPYFILE_EXCL`；两个请求同时写同名恰好一个拿到，Spec 场景 12 写得出来。两个请求同时建 `插图/` 由 ensureParents 的 EEXIST 分支接住。
+- 暂存清理：确定失败的暂存在 `settle` 里删掉再放锁，`unknown-outcome` 只放锁、留给拥有根的进程；暂存目录在项目根的 `.nbook/staging/`，每段必须是真实目录；进程异常退出后的残留由打开根时的 `sweepStaging` 按活性锁清理。
+- `Origin` 核对：nb-host 分发层对 PUT 带 `Origin` 的按允许来源核对，`null` 拒绝，写入路由不用再写一份。
+- 错误体形状：计划写 `{error: {code, message}}`，与读取路由一致；主题素材路由用的是 `{code, detail}`（theme-asset-common.ts:36），新路由不要照抄它。
+- 依据里提到的“不进 FILES_FAILURES”这一决定本身成立（见第 9 条）。
+
+## 数量
+- 阻断 1：第 1 条
+- 重要 7：第 2、3、4、5、6、8、9 条
+- 建议 6：第 7、10、11、12、13、14 条
+- 撤回或收窄：无（第 11 条有一处事实更正，结论不变）
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14

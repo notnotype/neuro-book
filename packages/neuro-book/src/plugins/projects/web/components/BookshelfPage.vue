@@ -97,6 +97,12 @@ defineExpose({focusShelf});
 
 <template>
     <main ref="root" class="bookshelf-page" :class="{'bookshelf-page--narrow': narrow}" data-bookshelf-page>
+        <!--
+            桌面窗口里这一条就是书架的标题栏（窗口外框的“页面自己的标题栏”）：没有内容、不画底色与分隔线，只给窗口按钮一个落脚的行，
+            窗口按钮浮在页面的底纹上；整条是拖动区域。值 plain 让窗口按钮左边那道分隔线隐去（它分隔的是标题栏右端的布局按钮，这里没有）。
+            高度取外框的变量，普通浏览器里没有这个变量、高度为 0。
+        -->
+        <div class="bookshelf-page__titlebar" aria-hidden="true" data-desktop-titlebar="plain"></div>
         <div class="bookshelf-page__column">
             <header class="bookshelf-page__header">
                 <p class="bookshelf-page__brand">
@@ -191,6 +197,13 @@ defineExpose({focusShelf});
     background: var(--window-backdrop, var(--bg-main));
     color: var(--text-main);
     font-family: var(--font-ui);
+}
+
+/* 滚动时留在顶端，窗口按钮下面始终有一条能拖的区域；透明，滚到它下面的内容照样看得见。 */
+.bookshelf-page__titlebar {
+    position: sticky;
+    top: 0;
+    height: var(--nb-window-frame-height, 0px);
 }
 
 .bookshelf-page__column {

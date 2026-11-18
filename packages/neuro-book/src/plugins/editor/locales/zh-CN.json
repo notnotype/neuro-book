@@ -75,11 +75,22 @@
         "discard": "不保存",
         "cancel": "取消"
     },
+    "windowCloseDialog": {
+        "title": "关闭窗口前保存修改？",
+        "body": "下面的文件还有没保存的修改，不保存的话关闭窗口后修改会丢失：",
+        "failedTitle": "有文件没有保存好",
+        "failedBody": "下面的文件没能保存，窗口没有关闭：",
+        "saveAll": "全部保存",
+        "discard": "不保存",
+        "cancel": "取消",
+        "ok": "知道了",
+        "conflict": "{{path}}（与磁盘上的版本冲突，要到这份文档上选重新载入或覆盖）"
+    },
     "settingsSections": {
         "nbook": {
             "editor": {
                 "title": "编辑器",
-                "description": "标签栏与面包屑",
+                "description": "标签、保存、图片与编辑器排版",
                 "groups": {
                     "tabs": {
                         "title": "标签"
@@ -87,8 +98,14 @@
                     "saving": {
                         "title": "保存"
                     },
+                    "markdown": {
+                        "title": "Markdown 正文"
+                    },
                     "code": {
                         "title": "代码编辑器"
+                    },
+                    "images": {
+                        "title": "图片"
                     }
                 }
             }
@@ -189,6 +206,43 @@
                 "bottom": {
                     "title": "底部浮条"
                 }
+            }
+        },
+        "imageLocation": {
+            "title": "图片存放位置",
+            "description": "新的图片存到哪里",
+            "choices": {
+                "folder": {
+                    "title": "作品根下的指定目录"
+                },
+                "root": {
+                    "title": "作品根"
+                },
+                "same": {
+                    "title": "与当前文件同目录"
+                },
+                "sibling": {
+                    "title": "当前文件旁的子目录"
+                }
+            }
+        },
+        "imageFolder": {
+            "title": "图片目录名",
+            "description": "“作品根下的指定目录”与“当前文件旁的子目录”用这个名字，可以写几级（资源/插图）；不能以 / 开头、不含 ..、不在 .nbook 下，不合规时用“插图”"
+        },
+        "markdown": {
+            "fontFamily": {
+                "title": "字体",
+                "description": "CSS 的 font-family 写法；留空时跟随皮肤的正文字体，皮肤没有就用界面字体，填了就盖过皮肤"
+            },
+            "fontSize": {
+                "title": "字号",
+                "unit": "像素"
+            },
+            "lineHeight": {
+                "title": "行距",
+                "description": "字号的百分比，195 就是 1.95 倍",
+                "unit": "%"
             }
         }
     },
@@ -361,6 +415,18 @@
                 },
                 "block-unwrap": {
                     "title": "解开块"
+                },
+                "properties": {
+                    "title": "添加属性"
+                },
+                "link": {
+                    "title": "链接"
+                },
+                "link-remove": {
+                    "title": "去掉链接"
+                },
+                "image": {
+                    "title": "图片"
                 }
             },
             "view": {
@@ -611,6 +677,27 @@
         "blockMenu": "块菜单",
         "pasteUnsupported": "浏览器不支持从菜单粘贴，请用 Ctrl+V",
         "pasteDenied": "浏览器没有给读取剪贴板的权限，请用 Ctrl+V",
-        "pasteEmpty": "剪贴板里没有文字，图片或文件请用 Ctrl+V"
+        "pasteEmpty": "剪贴板里没有文字，图片或文件请用 Ctrl+V",
+        "imageTooLarge": "“{{name}}”超过 32 MiB，没有插入",
+        "imageUnsupported": "“{{name}}”不是 PNG、JPEG、GIF 或 WebP 图片，没有插入",
+        "imageNameInvalid": "“{{name}}”的名字不能用，没有插入",
+        "imageFolderDenied": "作品里的存放目录写不了，“{{name}}”没有插入",
+        "imageMaybeStored": "“{{name}}”没有插入，它可能已经存进作品里，请到存放目录看看",
+        "imageNotInserted": "“{{name}}”已经存进作品（{{address}}），但没能插入",
+        "imageNotAllowedHere": "这里不能插入图片",
+        "imageUnavailable": "没有打开作品，不能保存图片",
+        "imageFailed": "“{{name}}”没有插入：{{detail}}",
+        "promptLink": "链接地址",
+        "imageCardLabel": "插入图片",
+        "imageCardPlaceholder": "搜索图片，或粘贴网址",
+        "imageCardUpload": "上传",
+        "imageCardUploading": "正在上传…",
+        "imageCardLoading": "正在读取",
+        "imageCardEmpty": "没有匹配的图片",
+        "imageCardMore": "还有更多，请输入更多字",
+        "imageCardUrl": "插入网址的图片",
+        "imageCardFailed": "读不了：{{detail}}",
+        "imageCardUrlOnly": "粘贴图片网址即可插入",
+        "imageCardNoPreview": "无法预览"
     }
 }

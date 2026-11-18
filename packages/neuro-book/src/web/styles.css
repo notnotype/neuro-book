@@ -34,7 +34,7 @@
 
 .nb-host-page {
     box-sizing: border-box;
-    min-height: 100vh;
+    min-height: var(--nb-viewport-block, 100vh);
     padding: 2rem 1rem;
     display: flex;
     flex-direction: column;
@@ -60,7 +60,7 @@
  */
 .nb-workbench-page {
     width: 100%;
-    height: 100dvh;
+    height: var(--nb-viewport-block, 100dvh);
     overflow: hidden;
 }
 
@@ -118,6 +118,116 @@ html:has(.nb-workbench-page) {
     font-size: 0.875rem;
     text-align: center;
     pointer-events: none;
+}
+
+/*
+ * 桌面窗口的外框（docs/specs/runtime/browser-host.md 的“窗口外框”，状态在 host/desktop-frame.ts，按钮与后备标题栏在
+ * DesktopFrame.vue）。属性都在 `<html>` 上：`data-desktop-frame` 外框开着，`data-desktop-frame-bar` 页面没有自己的标题栏、
+ * 宿主画后备标题栏。普通浏览器里这些属性都不在，下面的规则都不生效。
+ *
+ * - 视口不滚动，`#app` 是标题栏以下的盒子、自己滚动：视口一有滚动条，固定在右上角的窗口按钮就离开窗口右缘。用 absolute
+ *   而不是 fixed：fixed 自成层叠上下文，页面根里自己 fixed 的浮层（通知、离线横幅）会被压到 body 下的模态与命令面板之下。
+ * - 页面根的整屏高度用 `--nb-viewport-block`（缺省是 100vh 或 100dvh），这里改成 100%，即 `#app` 的高度。页面不各自减去标题栏。
+ * - 拖动区域不看层叠：盖在标题栏上的浮层不写 no-drag，点它就是拖窗口（w00046 t03 的探针）。经 Portal 挂到 body 下的浮层
+ *   （对话框与遮罩、菜单、提示、浮动窗口、命令面板）一律 no-drag，值会被后代继承。模态开着时整个窗口因此不能拖。通知在页面根里
+ *   自己 fixed 定位，在右下角，碰不到标题栏。
+ */
+html[data-desktop-frame] {
+    --nb-window-frame-height: 36px;
+    /* 窗口按钮组（DesktopFrame.vue）：左边一段放分隔线，然后三个按钮的命中区。组宽只由这三个值算出，页面的标题栏按它留位。 */
+    --nb-window-control-width: 34px;
+    --nb-window-controls-lead: 18px;
+    --nb-window-controls-width: calc(var(--nb-window-controls-lead) + 3 * var(--nb-window-control-width));
+    --nb-window-frame-offset: 0px;
+    --nb-viewport-block: 100%;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+}
+
+html[data-desktop-frame-bar] {
+    --nb-window-frame-offset: var(--nb-window-frame-height);
+}
+
+/*
+ * 页面自己画的标题栏（`data-desktop-titlebar`，工作台标题栏与书架顶端那一行）就是窗口的拖动区域（ui/workbench-shell.md 输出 28，
+ * browser-host 的“窗口外框”）：空白处 drag，拖动、双击最大化、贴边分屏由 WebView2 交给系统；有点击或悬停行为的一切 no-drag，
+ * 否则点下去就是拖窗口。普通浏览器里 app-region 不生效。写在这里而不是某个页面的组件里：书架首页不加载工作台的样式；也不用 scoped，
+ * scoped 选择器命不中子组件内部渲染的元素（nb-ui Menubar 里 reka 的菜单触发器）。无命令的条目也有悬停提示，一并 no-drag。
+ */
+[data-desktop-titlebar] {
+    -webkit-app-region: drag;
+    app-region: drag;
+}
+
+[data-desktop-titlebar] :is(button, a[href], input, select, textarea, [role="menubar"], [role="menuitem"], [role="button"], [tabindex]:not([tabindex="-1"]), [data-workbench-item]) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+}
+
+/*
+ * 磨砂窗口（`<html data-window-backdrop="mica|acrylic">`，预加载脚本在窗口以 `transparent` 建出时设，desktop-shell 输出 32）：窗口底是系统
+ * 的 Mica 或 Acrylic，页面的底得是透明的才看得见。窗体底透明并罩一层淡淡的主题底色，主题自带的底纹（`--window-backdrop`）不画；工作台的
+ * 外层面板（活动栏、侧栏、右栏）半透明，编辑器与内容面板仍不透明，字落在不透明的纸上。高对比度偏好下全部不生效，
+ * “减少透明”偏好下两层罩色盖满、退回不透明（写在这条查询之后）。
+ */
+/* 窗口是透明建的：不在磨砂样式里（高对比度、强制颜色）时根上也要有实底，否则书架这类自己只画半透明底纹的页面会透出系统背景。 */
+html[data-window-backdrop] {
+    background: var(--bg-main);
+}
+
+@media (forced-colors: none) and (prefers-contrast: no-preference) {
+    html[data-window-backdrop],
+    html[data-window-backdrop] body,
+    html[data-window-backdrop] #app,
+    html[data-window-backdrop] .nb-workbench-page,
+    html[data-window-backdrop] [data-bookshelf-page] {
+        background: transparent;
+    }
+
+    html[data-window-backdrop] {
+        --window-backdrop: none;
+        --shell-ground: transparent;
+        --skin-activitybar-surface: transparent;
+        background: color-mix(in srgb, var(--bg-main) var(--nb-glass-ground, 38%), transparent);
+    }
+
+    /* `[data-shell-card]` 写两遍只为抬高优先级：卡片自己的底色规则带 `[data-panel-role]` 与作用域属性，单写一遍压不过它。 */
+    html[data-window-backdrop] [data-shell-card][data-shell-card]:is([data-shell-card="activitybar"], [data-shell-card^="section:"]) {
+        background: color-mix(in srgb, var(--bg-panel) var(--nb-glass-card, 52%), transparent);
+    }
+}
+
+/*
+ * “减少透明”偏好：不放进上面的媒体查询条件里，不认这个特性的 WebView2 会让整条查询不成立、磨砂样式永远不生效；
+ * 这里只把两层罩色盖满，底与面板退回不透明。
+ */
+@media (prefers-reduced-transparency: reduce) {
+    html[data-window-backdrop] {
+        --nb-glass-ground: 100%;
+        --nb-glass-card: 100%;
+    }
+}
+
+/* 页面标题栏的右端没有按钮时（书架首页，`data-desktop-titlebar="plain"`），窗口按钮左边的分隔线没有可分隔的东西：隐去，占位不变。 */
+html:has([data-desktop-titlebar="plain"]) .desktop-frame__divider {
+    visibility: hidden;
+}
+
+html[data-desktop-frame] #app {
+    position: absolute;
+    inset: var(--nb-window-frame-offset) 0 0 0;
+    overflow: auto;
+}
+
+html[data-desktop-frame] body > :not(#app, [data-desktop-frame-root]) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+}
+
+/* 离线横幅不盖住窗口按钮；它不接受指针，盖住的标题栏照样能拖。 */
+html[data-desktop-frame] .nb-offline-banner {
+    inset-block-start: var(--nb-window-frame-offset);
+    inset-inline-end: var(--nb-window-controls-width);
 }
 
 /* 终态页抢救出来的未保存正文：宽度跟随页面，文本框可选中复制，不撑出横向滚动。 */

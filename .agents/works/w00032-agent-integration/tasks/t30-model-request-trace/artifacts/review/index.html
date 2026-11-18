@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>w00032 t30 模型请求：第 2 轮</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1240px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3, .part h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.stack img + img { margin-top: 8px; }
+.both { margin: 16px 0 0; padding-left: 1.3em; font-size: 15px; }
+.part { margin: 0 0 24px; }
+.part ul { margin: 8px 0 0; padding-left: 1.3em; font-size: 15px; }
+.part li { margin: 2px 0; }
+ol.decided { margin: 0 0 16px; padding-left: 1.4em; color: var(--muted); }
+details summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>t30 模型请求：第 2 轮</h1>
+
+<section data-nbdev-question="messages-r2" data-nbdev-type="single" data-nbdev-recommend="outline">
+  <h2>详情的“消息”页照对话的样子读，还是一条消息一行的大纲？</h2>
+  <p class="rec"><strong>推荐 B 大纲：一次请求常有几十条消息，大纲一屏看完结构和 token 花在哪；和上一次相同的部分收成一行，先看到这次新加的。要读全文时点那一行，在原地展开。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="conversation" data-nbdev-label="A 照对话的样子">
+      <h3>A 照对话的样子</h3>
+      <img src="r2/messages-conversation.webp" alt="按轮次分段；用户的话放在框里；助手调用工具与它的结果合成一行，例如“读取 第二卷/第二章.md · #3 · 29.4k tok”，点开看参数与结果的前 5 行；提醒是一行淡字">
+      <p>读起来同对话视图；几十条消息时要翻好几屏，看不出哪条最占 token。</p>
+    </div>
+    <div class="cand" data-nbdev-option="outline" data-nbdev-label="B 大纲">
+      <h3>B 大纲</h3>
+      <div class="stack">
+        <img src="r2/messages-outline.webp" alt="缺省：第一行“第 1–10 条和 #9 相同，缓存读 37.8k”收着；下面是这次新加的两条与回复，第 12 条展开显示结果的前几行">
+        <img src="r2/messages-outline-open.webp" alt="点开前缀后：每条一行，序号、角色、一行预览、token 条与数字；第 3 条工具结果的 token 条最长，展开显示前 5 行">
+      </div>
+      <p>上图是打开时的样子，下图是点开前缀后。每行：序号、角色、预览（工具调用写成“读取 第二卷/第二章.md”，结果写“↳ #2 400 行”）、token 条。</p>
+    </div>
+  </div>
+  <ul class="both">
+    <li>两种都做的：按轮次分段；“以下是这次新加的（和 #9 比）”一条分隔线；工具结果标出是哪一条调用的；回复放在最后。</li>
+    <li>上面的按角色筛选、查找时的“有命中”照第 1 轮。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>已定（第 1 轮）</h2>
+  <ol class="decided">
+    <li>筛选条件常驻一行：会话、用途、状态、模型、时间，各一个下拉，选了的高亮、带 ×（决定 9）</li>
+    <li>编辑区窄时列表与详情来回切换；详情里上下箭头换请求，宽了自动回到左右分开（决定 10）</li>
+    <li>整页照第 1 轮，消息页的展示在本轮重做（决定 11）</li>
+    <li>编辑区的一页；从命令面板、对话顶栏菜单（只看本会话）、回复上的“查看这次请求”打开（决定 3）</li>
+    <li>列表每条两行，按会话的轮次分组；概览常驻详情顶部，六页；开着时新请求自动进列表顶部（决定 4 到 7）</li>
+    <li>全文查找：列表换成命中片段，详情里查找条逐处跳；排序按时间、耗时、输入 token、费用（决定 8）</li>
+    <li>组件放进 nb-agent-ui（决定 2）</li>
+  </ol>
+  <details>
+    <summary>第 1 轮的图</summary>
+    <div class="part">
+      <h3>整页</h3>
+      <img src="r1/filters-bar.webp" alt="常驻的筛选条，状态下拉开着">
+    </div>
+    <div class="part">
+      <h3>查找</h3>
+      <img src="r1/search.webp" alt="查找“年龄”：列表换成命中片段，详情里查找条">
+    </div>
+    <div class="part">
+      <h3>和上一次比较</h3>
+      <img src="r1/compare.webp" alt="四格摘要、缓存为什么断、工具的差异、末尾多出的消息">
+    </div>
+    <div class="part">
+      <h3>窄的时候来回切换</h3>
+      <div class="pair">
+        <img src="r1/narrow-switch-list.webp" alt="列表占满整宽">
+        <img src="r1/narrow-switch-detail.webp" alt="详情占满整宽，顶上“← 请求列表”">
+      </div>
+    </div>
+  </details>
+</section>
+</main>
+</body>
+</html>

@@ -378,6 +378,11 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "settings.dragCardShrink.title": {"zh-CN": "拖动的卡片什么时候缩小", "en-US": "When the drag card shrinks"},
     "settings.dragCardShrink.choices.strip.title": {"zh-CN": "离开标签条就缩小", "en-US": "When it leaves the tab strip"},
     "settings.dragCardShrink.choices.panel.title": {"zh-CN": "离开面板才缩小", "en-US": "When it leaves the panel"},
+    "settings.dragCardRefresh.title": {"zh-CN": "拖动的卡片多久重新排版一次", "en-US": "How often the drag card lays out again"},
+    "settings.dragCardRefresh.description": {"zh-CN": "实时布局下卡片缩放时，里面的内容按卡片的大小重新排版；次数调低开销小一些，卡片的位置照旧每一帧都跟着指针", "en-US": "While a live-layout drag card resizes, its content is laid out again at the card's size. Fewer times a second costs less; the card still follows the pointer every frame"},
+    "settings.dragCardRefresh.choices.display.title": {"zh-CN": "跟随屏幕刷新", "en-US": "Every display refresh"},
+    "settings.dragCardRefresh.choices.60.title": {"zh-CN": "每秒 60 次", "en-US": "60 times a second"},
+    "settings.dragCardRefresh.choices.30.title": {"zh-CN": "每秒 30 次", "en-US": "30 times a second"},
     "settings.dropSplit.title": {"zh-CN": "拖到四周时", "en-US": "When dropped on an edge"},
     "settings.dropSplit.choices.half.title": {"zh-CN": "只分本窗口", "en-US": "Split only this window"},
     "settings.dropSplit.choices.shared.title": {"zh-CN": "同方向的窗口一起分", "en-US": "Share with windows in the same direction"},
@@ -400,6 +405,10 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     // w00026 t24 切片 4：活动栏上段的落点（docs/specs/ui/workbench-layout.md 输出 45）。
     "shell.drop.newContainer": {"zh-CN": "单独成一个入口", "en-US": "Give it its own entry"},
     "shell.drop.joinContainer": {"zh-CN": "并入{part}", "en-US": "Add to {part}"},
+    // w00026 t25：打开着的空区域（docs/specs/ui/workbench-layout.md 输出 11；ADR 0050）。
+    "shell.emptyRegion": {"zh-CN": "把视图拖到这里", "en-US": "Drag a view here"},
+    "shell.regionStrip.auxiliarybar": {"zh-CN": "右栏的视图容器", "en-US": "Secondary side bar containers"},
+    "shell.regionStrip.panel": {"zh-CN": "底部面板的视图容器", "en-US": "Panel containers"},
     // w00026 t24 切片 5：“移动到”的新容器（docs/specs/ui/workbench-layout.md 输出 23）。
     "viewCommands.newContainerIn.sidebar": {"zh-CN": "新容器（侧栏）", "en-US": "New container (Sidebar)"},
     "viewCommands.newContainerIn.auxiliarybar": {"zh-CN": "新容器（右栏）", "en-US": "New container (Secondary Side Bar)"},
@@ -419,6 +428,10 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "notificationCenter.detailOnly": {"zh-CN": "详情", "en-US": "Details"},
     "notificationCenter.sentAt": {"zh-CN": "发出于 {time}", "en-US": "Sent {time}"},
     "time.yesterday": {"zh-CN": "昨天", "en-US": "Yesterday"},
+    // w00026 t29：分节的标题行是展开、收起的开关。
+    "shell.drag.hintFold": {"zh-CN": "按 Enter 展开或收起，按空格拿起并拖动", "en-US": "Press Enter to expand or collapse, Space to pick up and drag"},
+    "shell.fold.expand": {"zh-CN": "展开 {title}", "en-US": "Expand {title}"},
+    "shell.fold.collapse": {"zh-CN": "收起 {title}", "en-US": "Collapse {title}"},
 };
 
 /**

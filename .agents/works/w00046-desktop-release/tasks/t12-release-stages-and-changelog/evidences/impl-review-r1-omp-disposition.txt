@@ -1,0 +1,15 @@
+w00046 t12 实现审查第 1 轮（omp，审 01a79675e..3bca6fd8b）的处理（2026-11-15）
+
+4 条（重要 3、建议 1），都成立，修正在 159fd4cca（变基后的提交号）。
+
+1 重要，成立：prepare 用本地最高的稳定标签当“上一版”，与门禁的 previousDesktopRelease（GitHub 上有安装包的）不同；推了标签没发出 Release 时两边对“哪些源码包这次发”不一致。
+  改为与门禁同一来源：collectState 经 gh 读 Release 列表，用 previousDesktopRelease 与 hasDesktopSetup；先 fetch --tags，git show 读得到那个标签。github-release.ts 的 spawnRun 导出供它用。
+  真实运行：一次性克隆里跑 prepare 0.13.1，打出“上一个桌面版本：v0.13.0”（v0.13.0 只有旧安装包名，走到了认旧名的分支）。
+2 重要，成立：bun install --lockfile-only 失败后已写的文件留在工作区。
+  改为写之前记下这些文件与 bun.lock 的原字节，写入之后的任何一步（刷新锁文件、重新解析、git add、git commit）失败都还原并撤掉暂存。
+  真实运行：PATH 前放一个以 7 退出的假 bun，prepare 报“bun install --lockfile-only 失败（退出码 7）”并还原 4 个文件，git status 干净、没有提交。
+3 建议，成立：parseChangelog 不查版本段的次序。改为相邻版本段要从新到旧，测试补在“解析”的报错用例里。
+4 重要，成立：源码包降版本也被当成提版。prepare 与 release-notes 都把“比上一个桌面版本时低”报为问题，各补一条测试。
+
+验证：scripts 全部 21 个文件 219 条通过；scripts 类型检查、actionlint、docs:check 通过。变基到 master（master 期间没有改到同一批文件）后重跑 scripts 测试与 actionlint 通过，再快进合入。
+不开第 2 轮实现审查：四处都是收窄或补检查，各有测试，两处 IO 改动在真实运行时验过。

@@ -1,0 +1,90 @@
+nested-grid 的成熟度：现行第 118 行“Storage 宿主、未知引用的合成保存与真实浏览器验收未闭合”到底指什么
+
+结论：建议整份晋升 `implemented`，未闭合的句子标句子级“（planned）”。不建议保持 `planned`。
+理由一句话：118 行说的“未闭合”落在宿主一侧（验收 3、6，输入里的一句，失败 2、3 的宿主半句）与少数句子，原语的输出条目整体有测试守着；保持 planned 会让一百多条已有测试的行为一直读作“目标”。
+
+========================================================================
+一、118 行三件事分别对应什么（读了验收一节、代码与测试）
+========================================================================
+
+1. “Storage 宿主”
+   - 产品里没有一个宿主把 nb-layout 的 grid 快照（`serialize()` / `restore()`）经 Storage 存取：packages/neuro-book/src 里用到这两个函数的只有 Lab 夹具 NestedGridAcceptanceFixture.vue（原始记录放在夹具内存里，`data-lab-raw-record`）与几处不相干的文件（agent、projects）。工作台用自己的布局文档（layout-doc，经 defineStore），grid.md 也写明“不读 serialize()”。
+   - 对应的 Spec 句子：
+     a. 输入与前置条件：“持久化能力由宿主显式传入，依赖 storage.persistence”（边界声明，不是原语行为）。
+     b. 输入与前置条件：“同一插件有多个 grid 时，宿主明确它们共享或独立的恢复地址，不能根据叶子名称隐式合并”：宿主义务，没有测试。
+     c. 验收 3（同名叶分别位于主 grid 与插件 grid）：没有任何测试（搜“同名”“两份记录”，nb-layout 与 e2e 都没有）。
+     d. 验收 6（同项目双标签订阅）：没有任何测试（搜“订阅”“双标签”“同项目”没有）。
+     e. 失败 2 的后半“宿主禁止普通保存覆盖原件”、失败 3 的“宿主保留原始记录，后续调整已知节点不能抹掉未知部分”：宿主义务；Lab 夹具在内存里验过“调整后原件仍含未知部分”（lab-nested-grid.e2e.ts:345、390），但没有保存路径。
+   - 建议：b、c、d 标“（planned）”（验收 3、6 末尾标；b 并进“目标与非目标”的未闭合清单，不另标）；e 的原语半句（返回诊断、保留原布局、分别报告）有测试，宿主半句写在“边界与兼容”的宿主义务里、不标。
+
+2. “未知引用的合成保存”
+   - 指：宿主在保存时，把用户调整过的已知部分与被过滤掉的未知部分合成一份记录写回。原语不做这个合成，只做“过滤并单独报告”（grid.test.ts:683“未知引用被过滤并独立报告”）。没有宿主实现这个合成，所以也没有测试。
+   - 对应：验收 5 的“再保存合法修改”后半、失败 3 的宿主半句。
+   - 验收 5 的前半（无未捕获异常、不半更新、原件保留）有测试：grid.test.ts:603 到 810（快照一节，v1、未知版本、重复 id、非法形状、超限、未知引用过滤、恢复失败不留半棵树），lab-nested-grid.e2e.ts:345、376、390（三个恢复场景）。所以验收 5 不标，在“目标与非目标”里写明“合成保存由宿主做，尚无宿主”。
+
+3. “真实浏览器验收”
+   - 验收 1：lab-nested-grid.e2e.ts:93、161 ✔。
+   - 验收 2：grid.test.ts 两轴与窄容器 ✔；lab-nested-grid.e2e.ts 的 390×844 主题组合 ✔。
+   - 验收 4：lab-nested-grid.e2e.ts:213（键盘连发）、242（Escape）、269（程序布局零提交） ✔。
+   - 验收 7：grid.test.ts:513 到 600（拆分叶，含按快照往返、深度与节点数上限） ✔（纯原语行为，单元层够）。
+   - 验收 8、9、10：lab-grid-structure.e2e.ts、lab-grid-panels.e2e.ts:167 ✔。
+   - 验收 11：lab-grid-swap.e2e.ts:110 到 235 ✔。
+   - 所以“真实浏览器验收未闭合”只剩验收 3、6（没有宿主，谈不上浏览器）。不是浏览器环境的问题。
+
+========================================================================
+二、原语的输出条目：按组对照（只做到测试标题与断言抽查，下面标明哪些我没核到）
+========================================================================
+
+依据：盘点第 2 节（7 处全判 A）、我重核的断言、测试标题。输出编号是 draft/nested-grid.md 的。
+“核到”：我读了测试的断言或标题，对得上这一句。“没核到”：我没找到对应断言，晋升前要作者或实施者按句子再核。
+
+输出 1 到 6（两轴、调整）：核到。grid.test.ts:56 到 306、308 到 417。
+输出 7 到 10（手势）：核到。NestedGrid.dom.test.ts:193、231、611、780、816；lab-nested-grid.e2e.ts:213、242、269。“失焦、pointercancel、卸载取消”在 splitter.dom.test.ts 一类里，没逐句核。
+输出 11 到 16（悬停）：没核到逐句。splitter.dom.test.ts 与 NestedGrid.dom.test.ts:261、298 有命中带、光标与交叠的用例（grep 到 250、buttons、reduced、ew-resize 的出现），但每句的断言我没逐一对。
+输出 17 到 23（拖动）：核到大部分。sash-drag.test.ts、grid.test.ts:926 到 1095（推开的兄弟、restoreToShare、Enter 显式恢复）、NestedGrid.dom.test.ts:589 到 780。输出 19（线与指针误差 ≤1 CSS px）没核到。
+输出 24 到 26（scope）：部分。NestedGrid.dom.test.ts:261（交叠时两条一起标记）、298。“composedPath 由内向外赢家”“最内无命中才让外层”没核到（useSashGesture.dom.test.ts 只有一条监听摘挂的用例）。
+输出 27 到 34（摆放、取整）：核到。grid-rects.test.ts:36 到 262（含缝 × 设备像素比枚举）、grid-motion.test.ts:281 到 308（DOM 次序）、lab-grid-structure.e2e.ts、NestedGrid.dom.test.ts:152。输出 28（`position: fixed` 的包含块）、30（分支的交叉轴上限）没核到。
+输出 35 到 50（过渡）：核到大部分。useGridMotion.dom.test.ts、grid-motion.test.ts（整列新开、留着缩回去、贴边、降到零的叶，含第 50 条“又有变化、仍为零时接着画”：useGridMotion.dom.test.ts:320）。输出 36（四条边一起到位、不动的边一帧也不挪）没核到。
+输出 51 到 56（卡片形状、shapedLeaves）：没核到，且我搜了：nb-layout 的单元测试里没有 `leafShape`、`fill`、`clip-path`、`shapedLeaves`、`outgoingLeaves`（只有 swappingLeaves 有断言）；e2e 里只有 themes 与 live-drag 里零星出现。建议标“（planned）”。
+输出 57 到 60（打断、重新计时、减少动态效果、moving）：核到。useGridMotion.dom.test.ts:112、135、140、371、383；NestedGrid.dom.test.ts:1190。输出 58“连续变化以最后一次重新计时”没核到。
+输出 61 到 77（交换）：核到。grid-swap.test.ts:53 到 141、useGridMotion.dom.test.ts:158 到 241、NestedGrid.dom.test.ts:1147 到 1244、lab-grid-swap.e2e.ts。
+输出 78（宿主样式）：按计划保留“（planned）”；计划第 1 片会补一条 dom 测试。
+输出 79（sashDisabled）：核到。NestedGrid.dom.test.ts:340。
+输出 80 到 96（内容层）：核到大部分。NestedGrid.dom.test.ts:864 到 1017、grid-rects.test.ts:214 到 243、grid-motion.test.ts:313 到 430、lab-grid-panels.e2e.ts。输出 84（内层尺寸规则）靠 37、38 的测试；输出 88（飞过别的面板的叠放）grid-motion.test.ts:388；输出 94、95：NestedGrid.dom.test.ts:978。
+输出 97 到 100（最大化）：核到。grid-rects.test.ts:262、NestedGrid.dom.test.ts:1088。
+输出 101 到 115（浮动窗）：核到大部分。NestedGrid.dom.test.ts:1048 到 1101、grid-motion.test.ts:436 到 469、useGridMotion.dom.test.ts:92。输出 110（投影、底色与圆角随过渡淡去，加速曲线）、112（投影与圆角在外框自身）：没核到，workbench-float.e2e.ts 里搜不到 shadow、radius、opacity。建议 110 标“（planned）”，112 作者核。
+输出 116 到 120（停放）：核到。useLeafParking.dom.test.ts；NestedGrid.dom.test.ts:876、991。
+输出 121 到 124、128（Tab）：核到。lab-grid-structure.e2e.ts:273、283、313；grid-focus.dom.test.ts；NestedGrid.dom.test.ts:985。
+输出 125 到 127（从外面进来、点击之后、不改落点）：代码有（grid-focus.ts 的 entryFocusTarget、moveTabFromPress，useGridFocus.ts:79、103），测试没有（grep 这两个函数名，只出现在源文件；e2e 里没有从 grid 外面按 Tab 进来的用例）。现行证据里“留给 w00026 t07”的就是这一半，代码已落，测试没补。标“（planned）”。
+输出 129 到 131（移动焦点）：核到。lab-grid-structure.e2e.ts:326；workbench-shell.e2e.ts:573。
+输出 132（读屏顺序）：核到。useRenderOrder.dom.test.ts；lab-grid-structure.e2e.ts:283（CDP 读无障碍树）。
+输出 133 到 138（分支的收起）：核到。grid.test.ts:926 到 1035；NestedGrid.dom.test.ts:361。
+失败 1 到 4：原语半句核到（grid.test.ts:603 到 810；lab-nested-grid.e2e.ts:345、376、390）；宿主半句见上。
+
+没核到的也不一定没有测试，只是我这次按标题与 grep 没找到。晋升前仍要按计划的 promotion.txt 方式，把“没核到”的条目逐句对断言。
+
+========================================================================
+三、对 draft/nested-grid.md 的具体标记（与下面“修改清单”一致）
+========================================================================
+
+已标“（planned）”：输出 78（宿主样式）、125、126、127；验收 3、6。
+建议再标（我这次查出来的，draft 的下一版会带上）：输出 51、52、53、54、55、56、110。
+不标但需作者核对：输出 11 到 16、19、24、25、28、30、36、58、112。
+
+“目标与非目标”里“未闭合的部分”一段随之列出：宿主一侧的持久化、Tab 进入与点击后的落点、卡片形状与读数、浮动窗淡去、分隔线的宿主样式。
+
+========================================================================
+四、晋升时要同步改的（片 3、4 的收口）
+========================================================================
+
+1. docs/specs/README.md 注册表：nested-grid 那一行（现在在“待实现规范”，第 248 行）挪到“已实现规范”，说明列只写一句范围；不写“待晋升”，因为证据三行已补。
+2. packages/nb-layout/src/grid.md:54：“当前能力仍为 planned，产品持久化宿主和完整浏览器验收另行闭合”改掉（见 grid.md.patch.txt）。
+3. 证据一节：三行固定标签（实现入口、合同测试、Smoke）已写，链接的文件我都核了存在。
+4. 原第 112 行“Component Lab --suite workbench-shell”：核对结果是它只存在于旧应用 packages/neuro-book-legacy/scripts/smoke/component-lab.ts（`--suite` 的取值含 workbench-shell），新应用里没有这个入口。nested-grid 的验证入口在新应用里是 e2e 四个文件，已写进 Smoke 一行。原第 112 行整句删掉。
+5. 第 5 个“实现合同”节：README 要求 implemented 才有，已按“公开入口、owner 与依赖方向、五条以内不变量”重写，原第 116 到 122 行的内容去向见 sentences.txt。
+
+========================================================================
+五、如果作者不同意晋升（保持 planned）的备选
+========================================================================
+
+保持 planned 也可行，但要做三件事：去掉条目级“（planned）”（planned Spec 里整份都是目标，条目级标记没有区别度，设计审查第 7 条）；在“目标与非目标”列出未闭合部分；不加“实现合同”与三行证据。我不建议：原语部分已经有测试，保持 planned 是在假装它没做。

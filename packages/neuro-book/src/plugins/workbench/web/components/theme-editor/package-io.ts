@@ -8,7 +8,7 @@ import {Unzip, UnzipInflate, UnzipPassThrough, zipSync} from "fflate";
 import {Value} from "typebox/value";
 
 import {manifestFormat} from "nbook/plugin-platform-profile";
-import {sniffImageType} from "nbook/shared/image-type";
+import {sniffStillImageType} from "nbook/shared/image-type";
 
 import {declarationProblem, ThemeDeclarationSchema, WORKBENCH_THEMES_POINT} from "../../../shared/themes";
 import type {ThemeDeclaration} from "../../../shared/themes";
@@ -172,7 +172,7 @@ export function readPackage(archive: Uint8Array): ImportResult {
         for (const {kind, path} of assetRefs(written)) {
             const bytes = unpacked.files.get(path);
             if (bytes === undefined) return {ok: false, reason: `主题 ${id} 的${kind === "icon" ? "图标" : "场景图"} ${path} 不在包里`};
-            if (kind === "scene" && sniffImageType(bytes) === null) return {ok: false, reason: `${path} 不是 PNG、JPEG 或 WebP`};
+            if (kind === "scene" && sniffStillImageType(bytes) === null) return {ok: false, reason: `${path} 不是 PNG、JPEG 或 WebP`};
             if (kind === "icon" && bytes.byteLength > THEME_ICON_MAX_BYTES) return {ok: false, reason: `${path} 超过 ${String(THEME_ICON_MAX_BYTES)} 字节`};
             assets.set(path, bytes);
         }

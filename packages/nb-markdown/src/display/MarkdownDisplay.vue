@@ -92,6 +92,7 @@ onMounted(() => {
             get resolveAsset() {
                 return props.resolveAsset;
             },
+            resolveSticker: host.stickers,
             chips: host.chips,
             imageMissing: host.imageMissing,
             activate: (activation) => emit("activate", activation),

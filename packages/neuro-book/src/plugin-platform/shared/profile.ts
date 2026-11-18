@@ -15,6 +15,11 @@ export interface PlatformProfile {
     readonly productName: string;
     /** 第三方插件 `engines.<引擎键>` 的兼容检查以它为准。 */
     readonly productVersion: string;
+    /**
+     * 插件 API 的兼容起点：从这个版本到 `productVersion` 插件能用的接口没有不兼容的改动，插件的范围与这一段有交集就兼容
+     * （`engineAccepts`）。不晚于 `productVersion`；等于它时就是只看当前版本。
+     */
+    readonly pluginApiSince: string;
     /** 登记表文件的模式标记。已经写进用户的状态根，改了旧文件就读不了。 */
     readonly registrySchema: string;
     /** 安全模式的环境变量：值为 `1` 时本次启动不加载任何第三方插件。 */

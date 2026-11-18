@@ -1,0 +1,26 @@
+import {cc, dlopen, ptr} from "bun:ffi";
+const {symbols: h} = cc({source: `${import.meta.dir}\\sub.c`, library: ["user32"], symbols: {procAddr: {returns: "ptr"}}});
+const u = dlopen("user32.dll", {
+  CreateWindowExW: {args: ["u32", "ptr", "ptr", "u32", "i32", "i32", "i32", "i32", "ptr", "ptr", "ptr", "ptr"], returns: "ptr"},
+  SetPropW: {args: ["ptr", "ptr", "u64"], returns: "bool"},
+  SetWindowLongPtrW: {args: ["ptr", "i32", "ptr"], returns: "u64"},
+  GetWindowLongPtrW: {args: ["ptr", "i32"], returns: "u64"},
+  SendMessageW: {args: ["ptr", "u32", "u64", "ptr"], returns: "i64"},
+  ShowWindow: {args: ["ptr", "i32"], returns: "bool"},
+  GetWindowRect: {args: ["ptr", "ptr"], returns: "bool"},
+  DestroyWindow: {args: ["ptr"], returns: "bool"},
+}).symbols;
+const w = (s: string) => ptr(Buffer.from(s + "\0", "utf16le"));
+const make = () => u.CreateWindowExW(0, w("STATIC"), w("probe"), 0x00CF0000, 100, 100, 1000, 700, null, null, null, null);
+const a = make(), b = make();
+const prev = u.GetWindowLongPtrW(a, -4);
+u.SetPropW(a, w("nbprev"), prev); u.SetPropW(a, w("nbmin"), BigInt((800 << 16) | 560));
+const old = u.SetWindowLongPtrW(a, -4, h.procAddr());
+console.log("subclassed; old proc same:", old === prev);
+const rect = (x: any) => { const r = new Int32Array(4); u.GetWindowRect(x, ptr(r)); return `${r[2] - r[0]}x${r[3] - r[1]}`; };
+for (const [name, x] of [["marked", a], ["unmarked", b]] as const) {
+  const m = new Int32Array(10); u.SendMessageW(x, 0x24, 0n, ptr(m));
+  u.ShowWindow(x, 3);
+  console.log(name, "minTrack via WM_GETMINMAXINFO:", m[6], m[7], "maximized:", rect(x));
+}
+u.DestroyWindow(a); u.DestroyWindow(b);

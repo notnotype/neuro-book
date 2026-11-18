@@ -27,6 +27,7 @@ import {createLayoutPolicy, EDITOR_GROUP_MINIMUM, layoutProjectionOptions} from 
 import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
 import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
 import {createAssetUrls, markdownAssetsKey} from "nbook/plugins/markdown/web/parts/asset-urls";
+import {markdownStickersKey} from "nbook/plugins/markdown/web/parts/stickers";
 import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
 import {CODE_EDITOR, editorMenusKey, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import {editorText} from "nbook/plugins/editor/shared/text";
@@ -35,6 +36,7 @@ import {useLabEventSink} from "../../lab-event-sink";
 import type {LabFixtureProps} from "../../lab-subject";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {createMemoryFiles} from "../explorer-scene/memory-files";
+import {LAB_STICKER_TEXT, labStickers} from "../lab-stickers";
 import {provideEditorText} from "./editor-text";
 import {createLabEditorMenus} from "./lab-editor-menus";
 
@@ -185,6 +187,7 @@ const memory = createMemoryFiles({
         ["chapters/批注.md", COMMENTS],
         ["chapters/批注-重叠.md", COMMENT_OVERLAP],
         ["chapters/批注-槽位.md", COMMENT_SLOTS],
+        ["chapters/表情.md", LAB_STICKER_TEXT],
     ],
     user: [],
 });
@@ -203,6 +206,8 @@ const area = createEditorArea({
 });
 if (props.scene === "dialect") {
     area.open("project://chapters/方言.md", {mode: "permanent"});
+} else if (props.scene === "stickers") {
+    area.open("project://chapters/表情.md", {mode: "permanent"});
 } else if (props.scene === "comments" || props.scene === "comments-margin") {
     area.open("project://chapters/批注.md", {mode: "permanent"});
 } else if (props.scene === "comments-overlap") {
@@ -240,6 +245,8 @@ const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/we
 provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, () => undefined));
 // 图片地址：内存适配器没有字节路由，作品里的 png 一律给一张画出来的图。
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#7287fd"/><text x="240" y="145" font-size="30" text-anchor="middle" fill="white">封面</text></svg>')}`;
+// 表情：Lab 的表情目录（`lab-stickers.ts`）；场景 `stickers` 打开的文件里有几种写法。
+provide(markdownStickersKey, labStickers());
 provide(markdownAssetsKey, createAssetUrls({rawUrl: (address) => (address.endsWith(".png") ? PICTURE : null), watch: () => () => undefined}));
 provide(editorMenusKey, createLabEditorMenus(area, text, {commentMargin: props.scene === "comments-margin" || props.scene === "comments-slots"}));
 const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
@@ -310,6 +317,7 @@ onMounted(() => {
         sectors: () => true,
         feel: () => "indicator",
         cardShrink: () => "strip",
+        cardRefresh: () => "display",
         settleMotion: () => undefined,
         showPreview: () => undefined,
         placeCard: () => undefined,

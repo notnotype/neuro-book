@@ -1,0 +1,114 @@
+w00046 t09 切片 1、2 交付报告（服务端“在跑的工作”与登记方）
+worktree: /home/notnotype/CodeRepository/neuro-book/.worktree/w00046-t09-server（分支 feat/w00046-t09-server）
+
+== 切片 1：服务端在跑的工作（提交 17c6091c3） ==
+
+改动
+- 新文件 packages/neuro-book/src/server/running-work.ts
+  - createRunningWork(report) 交回 {provision, collect()}。
+  - provision 用 perConsumer。工作项的归属取调用方身份：plugin，没有插件身份时用 instanceId。
+  - 门面释放时撤下这个入口的全部登记。register 交回的 release 是幂等的。
+  - collect() 按登记顺序同步调用各个报告方。报告方抛错，或交回的不是 {text}[]（用 TextSchema 校验），这个插件进 failed（同一插件只记一次），并写 warn 诊断 runtime.work.reporter-failed，source 是 {plugin}。
+  - RunningWorkCollectionSchema 是 IPC 用的形状。
+  - createRunningWorkRoute 是宿主路由 GET /work（完整路径 /api/runtime/work）。它把服务端的项（project 为 null）和项目的项合并，应答带 cache-control: no-store。准入和停止后的 503 由 nb-host 的门负责。
+- src/server/start.ts
+  - 加能力 host.running-work。
+  - hostRoutes 加上面那条路由；项目管理器还没建好时，项目部分按空处理。
+- src/project/start.ts
+  - 同一个能力，用同一个 createRunningWork。
+  - onMessage 收到 work-query 时回 {t:"work", id, ...collect()}。
+- src/server/projects/ipc.ts
+  - 加信封 work-query 和 work。parseEnvelope 校验 id 是安全整数，并用 TypeBox 校验载荷。
+- src/server/projects/manager.ts
+  - 加 ProjectManager.work() 和 PROJECT_WORK_QUERY_MS = 5000。
+  - 按 #children.list() 的状态分开处理：
+    - available、idle-grace：经 IPC 查询。不 acquire、不加租约、不续宽限计时。
+    - creating：进 failed（plugin 为 null）并写诊断。
+    - stopping、terminated：跳过。
+  - 每个查询的收口：
+    - pending 记在子进程记录上，带代次和请求 id；发送放在 try 里。
+    - 应答、发送抛错、断开、5 秒超时（用注入的时钟），四者只结算一次。
+    - 迟到的应答写 debug 诊断 project.work.late 后丢弃。
+    - 取不到的项目写 warn 诊断 project.work.unavailable，data 为 {project, generation, reason}，reason 是 starting / timeout / send-failed / disconnected 之一。
+    - 汇合用不会 reject 的 Promise.all。
+- 测试支持
+  - 新文件 src/project/testing/running-work-plugin.ts：项目一侧的测试插件，按 NBOOK_TEST_PLUGINS=test.running-work 装入。
+  - fixture-entry.ts 加装入这个插件的分支。
+
+测试与覆盖的验收行（server-host 在跑的工作）
+- src/server/running-work.test.ts。同进程的服务端，真实认领，加测试插件；结果经宿主接口取，并按 RunningWorkReportSchema 校验：
+  - 按登记顺序列出；归属取自插件；文字引用和语言映射原样交回；同一插件登记两次各占一项；release 只撤自己那条，重复调用无害。
+  - 抛错和形状不对的插件各进 failed 一次，日志里有 runtime.work.reporter-failed，来源插件正确；别的插件照常列出。
+  - 停止开始后接口回 503。
+  - 项目子进程登记的工作带项目 id，合进同一份应答（真实项目子进程）。
+  - 入口停止时撤下（真实内核 createApplication）：激活失败的入口在失败前登记的报告方被撤下；运行实例停止后没有任何登记。
+- src/server/projects/manager.test.ts 新加 describe “取各项目的工作”，全部用真实项目子进程：
+  - 在跑的项目列出；同一子进程上的两个并发查询各自得到结果。
+  - 宽限期里的项目照样列出，代次不变，holds 为 false，原定的宽限截止照样停掉它，停掉之后结果为空。
+  - 启动中的项目（start-on-signal）进 failed 并写诊断；发 SIGUSR2 之后恢复正常。
+  - 5 秒取不到：先 SIGSTOP，推进时钟后进 failed(timeout)；SIGCONT 之后迟到的应答记为 project.work.late，下一次查询正常。
+  - 两个项目一坏一好：被 SIGKILL 的那个不推进时钟就进 failed，另一个照常列出。
+
+验证（切片 1 提交前）
+- bun test src/server/running-work.test.ts src/server/server-projects.test.ts src/server/projects/manager.test.ts src/server/server.test.ts：62 pass，0 fail。
+- 新加的 manager 用例单独重复跑 5 次，没有偶发失败。
+- src/architecture.test.ts：8 pass。
+- bunx tsc --noEmit -p tsconfig.json：无错误。
+- governance:check：failures []，warnings []。
+
+== 切片 2：登记方（提交 1fd806de7） ==
+
+改动
+- packages/nb-harness/src/kit/sessions/table.ts：加 activityWithBackground()，列出打开着、非空闲的会话，包括后台会话。activity() 的语义不变，注释写明两者不要合并。
+- 新文件 packages/neuro-book/src/plugins/agent/backend/running-work.ts
+  - SessionTitles 是标题缓存：
+    - 启动时从扫描到的索引装入；
+    - fork 的会话在 registerFork 时记下；
+    - follow(table) 经句柄表的 onLog 跟着 titleChanged 更新。
+    - 按会话 id 存（理由见注释）。
+  - agentRunningWork 是报告方：
+    - activityWithBackground 的结果经 relations.rootOf 归到根，每个根一项。同根里有在跑的就算“正在运行”，否则算“在等你处理”。根自己已空闲或已关闭时照样报这个根。
+    - 没有标题时用 untitled 的键。
+    - JobCenter.live() 的每件另报一项：shell 写命令（取 summary，即截短到 80 字的命令），agent 写子代理名（取 summary）。
+- agent/backend/agent.ts：建标题缓存并接上扫描、fork 与 follow；AgentRuntime 加 runningWork()。
+- agent/backend/plugin.ts：依赖加 {key: runningWorkKey}（必需）；激活时登记报告方，靠门面释放撤下。
+- tasks/backend/plugin.ts：依赖加 runningWorkKey；登记 core.list() 里 state 为 running 的各项，text 用它的 title。
+- 文案：agent/locales/zh-CN.json 与 en-US.json 加 work.session.{running,waiting,untitledRunning,untitledWaiting} 和 work.job.{shell,agent}。tasks 直接用任务自己的标题，不加文案。scripts/ci/message-catalogs.ts 通过。
+- 测试场地：agent/testing/world.ts 与 tasks/testing/world.ts 用 hubCapabilities 装真实的 createRunningWork，并暴露 work（RunningWorkRegistry），测试用 collect() 取结果。
+
+测试与覆盖的验收行
+- sessions.md 输出 20：新文件 src/plugins/agent/running-work.test.ts，真实内核加本机假端点。
+  - 运行中的会话报一项，还没起名时写“未命名”；空闲的不报；等审批的写“在等你处理”；setTitle 之后立即查询就是新标题。
+  - 后台会话在跑时也报。
+  - 会话已空闲、后台命令还在跑：只报这条命令。
+  - 根会话本轮结束、两个子代理还在跑：根报一项，带根的标题；两个子代理各报一项。这条同时覆盖“多个后代归为一项”。
+- 句柄表：nb-harness table.test.ts 新加“输出 20”一条。后台会话在跑时只出现在 activityWithBackground 里，activity() 为空。
+- background-tasks.md 输出 17：tasks.test.ts 新加 describe “关闭服务前报出”。在跑的任务每件一项，写它的标题（字符串与文字引用原样）；结束的不报；入口停止后不再报。
+
+验证（切片 2 提交前）
+- bun test src/plugins/agent：396 pass，11 skip（*.llm.test.ts），0 fail。
+- bun test src/plugins/tasks：29 pass，0 fail。
+- 新的 agent 测试连跑 3 次都通过。
+- nb-harness 的 bun test src/kit/sessions：7 pass；tsc --noEmit：无错误。
+- neuro-book 的 bunx tsc --noEmit -p tsconfig.json：无错误。
+- 再跑一遍切片 1 的四个文件，加上 architecture.test.ts 和 plugins/files/transport.test.ts（它装 manifestServerPlugins）：72 pass，0 fail。
+- bun scripts/ci/message-catalogs.ts：退出码 0。
+- 仓库根 bun run governance:check：failures []，warnings []。
+
+== 与计划不同的地方 ==
+1. collect() 还把“报告方交回的不是工作项列表”当作失败。计划只写了抛错。理由：形状不对的项会让整条应答过不了页面的 TypeBox 校验，结果是所有工作都看不到。
+2. 标题缓存按会话 id 存，计划写的是按根 id 存。哪个会话是根由关系表决定，按 id 存就不必在关系变化时搬动；查询时用根 id 去取。每条只是一个短字符串。
+3. 句柄表的新查询叫 activityWithBackground()（计划没有定名）。
+4. 诊断事件名是自己定的：project.work.unavailable（warn）和 project.work.late（debug）。
+5. 项目项的 project 字段用项目 id（registry 的 id），不用项目名。
+
+== 没把握的点 ==
+1. 发送失败一支（send-failed）只靠读代码确认，测试没有确定地走到。实验结论：对已 SIGKILL、但退出还没处理的子进程，proc.send 不抛错；await proc.exited 之后才抛 ERR_IPC_CHANNEL_CLOSED，而那时退出回调已先把子进程标为断开。所以“两个项目一坏一好”那条接受 disconnected 或 send-failed 两种原因。
+2. 标题会话（SESSION_TITLE_PROFILE 的后台会话）没有 caller，自己就是根。tiny 角色绑定了模型时，它运行的那几秒会多报一项“未命名的 Agent 会话正在运行”。Spec 要求后台会话也算，所以照报。要不要把它归到它命名的那个会话，或者干脆不报，请主会话定。
+3. 标题缓存只在 titleChanged 经打开着的会话写下时更新。外部进程直接改会话日志的情况不考虑：会话存储有锁，按设计不会发生。
+4. 测试只覆盖了“改标题后立即查询”时 onLog 在 setTitle 交回之前已经触发这一种时序。这是现在内核的行为，测试依赖它。
+5. 两个插件都把 runningWorkKey 设成必需依赖。所有装这两个插件的环境都必须提供这个能力，服务端、两个测试场地都已提供。将来有别的测试场地单独装 agent 或 tasks 的服务端入口时，也要装上这个能力，否则入口激活失败。
+
+== 提交 ==
+- 17c6091c3 feat(w00046): t09 服务端在跑的工作（切片 1）
+- 1fd806de7 feat(w00046): t09 登记在跑的工作（切片 2）

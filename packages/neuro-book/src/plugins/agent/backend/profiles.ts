@@ -82,6 +82,9 @@ export class ProfileCatalog {
             ...(descriptor.declaration.role === undefined ? {} : {role: descriptor.declaration.role}),
             ...(descriptor.declaration.modelNeeds === undefined ? {} : {modelNeeds: descriptor.declaration.modelNeeds}),
             ...(descriptor.declaration.agents === undefined ? {} : {agents: descriptor.declaration.agents}),
+            ...(descriptor.declaration.skills === undefined ? {} : {skills: descriptor.declaration.skills}),
+            ...(descriptor.declaration.stickers === undefined ? {} : {stickers: descriptor.declaration.stickers}),
+            ...(descriptor.declaration.starters === undefined ? {} : {starters: descriptor.declaration.starters}),
         }));
         const pluginKeys = new Set(fromPlugins.map((entry) => entry.key));
         const fromUser = (this.#user?.list() ?? []).map((profile): ProfileEntry => ({

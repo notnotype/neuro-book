@@ -4,7 +4,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {classifyScheme, schemeTargets} from "./targets";
+import {classifyScheme, relativeAddress, relativeTarget, schemeTargets} from "./targets";
 
 describe("缺省的目标分类", () => {
     it("http、https、mailto 是外部链接，方案不分大小写", () => {
@@ -18,5 +18,28 @@ describe("缺省的目标分类", () => {
 
     it("不认文件方案，插入引用时地址原样写", () => {
         expect(schemeTargets.encodeFile("设定/a#b.md")).toBe("设定/a#b.md");
+    });
+});
+
+describe("相对地址（输出 57）", () => {
+    it("同目录、子目录、上级目录、兄弟目录；方案不同或没有文件名没有相对写法", () => {
+        expect(relativeAddress("project://章/一.md", "project://章/a.png")).toBe("a.png");
+        expect(relativeAddress("project://章/一.md", "project://插图/a.png")).toBe("../插图/a.png");
+        expect(relativeAddress("project://一.md", "project://插图/a.png")).toBe("插图/a.png");
+        expect(relativeAddress("project://卷一/章/一.md", "project://卷一/插图/a.png")).toBe("../插图/a.png");
+        expect(relativeAddress("project://卷一/章/一.md", "project://卷一/章/图/a.png")).toBe("图/a.png");
+        expect(relativeAddress("project://a/b/c.md", "project://x.png")).toBe("../../x.png");
+        expect(relativeAddress("project://一.md", "user://a.png")).toBeNull();
+        expect(relativeAddress("project://一.md", "project://插图/")).toBeNull();
+        expect(relativeAddress("一.md", "project://a.png")).toBeNull();
+    });
+
+    it("写进链接的地址：宿主编码 %、#、?，第一段含冒号的加 ./，没有所在文件时为 null", () => {
+        const encode = {...schemeTargets, encodeFile: (target: string) => target.replace(/[%#?]/gu, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)};
+        expect(relativeTarget("project://章/一.md", "project://插图/图#1 100%.png", encode)).toBe("../插图/图%231 100%25.png");
+        expect(relativeTarget("project://一.md", "project://a:b.png", encode)).toBe("./a:b.png");
+        expect(relativeTarget("project://一.md", "project://目录/a:b.png", encode)).toBe("目录/a:b.png");
+        expect(relativeTarget(null, "project://a.png", encode)).toBeNull();
+        expect(relativeTarget("project://一.md", "user://a.png", encode)).toBeNull();
     });
 });

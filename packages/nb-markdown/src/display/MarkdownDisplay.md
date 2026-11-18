@@ -48,6 +48,6 @@ interface MarkdownDisplayEmits {
 
 ## 注意事项
 
-- 语言、链接的目标分类、诊断出口与图片的说明来自宿主（`useMarkdownHost`，宿主在祖先上 `provideMarkdownHost`）；没有提供时是内置方言加核心语法、只认外部链接、诊断丢掉。挂上时取定语言（[workspace.markdown-syntaxes](../../../../docs/specs/workspace/markdown-syntaxes.md) 输出 7）。neuro-book 经 `nbook.markdown` 交出时包了一层 `MarkdownHosted`，给的是作品文件的分类与方言目录组成的语言。
+- 语言、链接的目标分类、诊断出口、图片的说明与表情目录（`stickers`）来自宿主（`useMarkdownHost`，宿主在祖先上 `provideMarkdownHost`）；没有提供时是内置方言加核心语法、只认外部链接、诊断丢掉。挂上时取定语言（[workspace.markdown-syntaxes](../../../../docs/specs/workspace/markdown-syntaxes.md) 输出 7）。neuro-book 经 `nbook.markdown` 交出时包了一层 `MarkdownHosted`，给的是作品文件的分类与方言目录组成的语言。
 - 界面文字读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`，宿主要登记本包的目录 `@notnotype/nb-markdown/locales`），语言以端口为准；上面没有注入时按 `locale`（缺省 zh-CN）建缺省端口，提供给子组件与嵌套的 nb-ui 控件（[README](../../README.md#界面文字)）。静态视图里的图片经 `markdownViewContext` 读到同一个端口，端口换语言时不重挂就换文字；小块的悬停提示与 HTML 卡片的按钮是画在普通 DOM 上的字符串，换语言时展示器整篇重画一次，提示块与 HTML 卡片的展开状态随之回到初始。
 - 内部状态（提示块的折叠、`<html>` 块渲染与否）只在内存里，块被替换或卸载就没了。

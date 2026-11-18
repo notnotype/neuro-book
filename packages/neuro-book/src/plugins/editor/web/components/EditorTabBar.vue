@@ -181,7 +181,9 @@ const idOf = (key: string): string => tabOf(key).id;
     color: var(--text-secondary);
 }
 
-.editor-tabs :deep(.nb-tab-frame:hover) {
+/* 在条里排序、跟着指针的那个标签（`TabStrip` 的 `placeholder`）也是悬停的样子：它盖在邻居上，要有不透明的底；拖动中 `:hover` 不可靠，起拖前它就是这个样子。活动标签的规则更具体，照旧赢。 */
+.editor-tabs :deep(.nb-tab-frame:hover),
+.editor-tabs :deep(.nb-tab-frame--placeholder) {
     background: color-mix(in srgb, var(--panel-surface) 50%, var(--editor-tabs-surface));
 }
 
@@ -210,7 +212,9 @@ const idOf = (key: string): string => tabOf(key).id;
 .editor-tabs :deep(.nb-tab-frame.is-active)::before,
 .editor-tabs :deep(.nb-tab-frame.is-active + .nb-tab-frame)::before,
 .editor-tabs :deep(.nb-tab-frame:hover)::before,
-.editor-tabs :deep(.nb-tab-frame:hover + .nb-tab-frame)::before {
+.editor-tabs :deep(.nb-tab-frame:hover + .nb-tab-frame)::before,
+.editor-tabs :deep(.nb-tab-frame--placeholder)::before,
+.editor-tabs :deep(.nb-tab-frame--placeholder + .nb-tab-frame)::before {
     opacity: 0;
 }
 

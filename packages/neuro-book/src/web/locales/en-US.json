@@ -48,6 +48,13 @@
             "textLabel": "Unsaved text of {{path}}"
         }
     },
+    "desktopFrame": {
+        "controls": "Window",
+        "minimize": "Minimize",
+        "maximize": "Maximize",
+        "restore": "Restore Down",
+        "close": "Close"
+    },
     "offline": {
         "banner": "The connection to the server was lost. Reconnecting…"
     },
@@ -67,5 +74,64 @@
         "unknown-outcome": "It is unknown whether the operation completed; check before retrying",
         "provider-error": "The server failed while handling the request"
     },
-    "unknownResult": "Received an unrecognized result ({{code}})"
+    "unknownResult": "Received an unrecognized result ({{code}})",
+    "close": {
+        "layer": {
+            "title": "Closing…",
+            "hint": "Checking whether this window can be closed."
+        },
+        "participantFailed": {
+            "title": "A check before closing failed",
+            "body": "Something went wrong while checking for unsaved content. Closing anyway may lose unsaved changes."
+        },
+        "rescuedLost": {
+            "title": "This text will be lost",
+            "body": "These files have unsaved text that can't be recovered after the window closes:"
+        },
+        "work": {
+            "title": "Closing will stop the NeuroBook service",
+            "body": "The following work will be interrupted:",
+            "uncertain": "Couldn't confirm whether any work is running."
+        },
+        "cancel": "Cancel",
+        "confirm": "Close anyway"
+    },
+    "update": {
+        "available": {
+            "title": "NeuroBook {{version}} is available",
+            "message": "Download it now; it installs the next time you open NeuroBook.",
+            "trayMessage": "Download it now; it installs after you quit NeuroBook from the system tray and open it again."
+        },
+        "notifyOnly": {
+            "title": "NeuroBook {{version}} is available to download",
+            "message": "This copy of NeuroBook does not update itself. Get the new version from the download page.",
+            "envRootMessage": "NeuroBook was opened with NBOOK_STATE_ROOT set, so it does not update itself. Open it without that environment variable to update automatically."
+        },
+        "downloading": {
+            "title": "Downloading NeuroBook {{version}}",
+            "message": "You can close this notification; the download continues."
+        },
+        "downloadFailed": {
+            "title": "The update did not download",
+            "message": "NeuroBook {{version}} did not finish downloading. You can try again."
+        },
+        "downloaded": {
+            "title": "NeuroBook {{version}} is downloaded",
+            "message": "It installs the next time you open NeuroBook.",
+            "trayMessage": "It installs after you quit NeuroBook from the system tray and open it again."
+        },
+        "updated": {
+            "title": "Updated to NeuroBook {{version}}",
+            "message": "You are now using the new version."
+        },
+        "updateFailed": {
+            "title": "The update did not finish",
+            "message": "NeuroBook {{version}} was not installed, so you are still using the previous version. You will be told again when a new version is found."
+        },
+        "action": {
+            "download": "Download",
+            "openPage": "Open download page",
+            "retry": "Try again"
+        }
+    }
 }

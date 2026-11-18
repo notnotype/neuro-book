@@ -1,0 +1,132 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t38-status-line-sorting",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "close",
+    "kind": "design",
+    "title": "状态栏设置的后续：模式标记、拖动手感、换边后的窄时规则、composable 还是组件",
+    "state": "closed",
+    "entry": "index.html",
+    "contentHash": "696e906ae703829a8193f855ef2822ae8911fee6026e88c4844a3ceedcecfed0",
+    "files": [
+        "index.html",
+        "r1/mode-flags-now.webp",
+        "r1/radio-after.webp",
+        "r1/radio-before.webp",
+        "r1/sortable-proto.js"
+    ],
+    "questions": [
+        {
+            "id": "mode-flags",
+            "type": "single",
+            "label": "状态栏上“计划模式”“全部放行”两个标记怎么处理？",
+            "options": [
+                {
+                    "value": "closable",
+                    "label": "A 改成可选项，缺省开"
+                },
+                {
+                    "value": "remove",
+                    "label": "B 状态栏不再显示"
+                },
+                {
+                    "value": "keep",
+                    "label": "C 保持总显示"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "closable"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "drag-feel",
+            "type": "single",
+            "label": "设置页拖动排序用哪一种实时布局？",
+            "options": [
+                {
+                    "value": "row",
+                    "label": "A 行跟手"
+                },
+                {
+                    "value": "card",
+                    "label": "B 卡片跟手，列表留空位"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "row"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "narrow-rule",
+            "type": "single",
+            "label": "项可以换边以后，状态栏窄了先收哪些？",
+            "options": [
+                {
+                    "value": "both-sides",
+                    "label": "A 左右都收，提醒最后"
+                },
+                {
+                    "value": "clip",
+                    "label": "B 左边不收，只截断（现状）"
+                },
+                {
+                    "value": "reminders-first",
+                    "label": "C 提醒排在左边最前"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "both-sides"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "sortable-form",
+            "type": "single",
+            "label": "拖动排序做成 composable 还是组件？",
+            "options": [
+                {
+                    "value": "both",
+                    "label": "A composable 加薄组件"
+                },
+                {
+                    "value": "composable",
+                    "label": "B 只做 composable"
+                },
+                {
+                    "value": "component",
+                    "label": "C 只做组件"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "both"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T03:52:00.837Z"
+}

@@ -5,5 +5,5 @@
 
 export {IDLE_CLOSE_MS, SessionTable, SessionTableStopping, SessionUnavailable} from "./table.js";
 export type {SessionTableClock, SessionTableOptions} from "./table.js";
-export {SessionMeta, sessionMetaExtension, titleSessionId} from "./meta.js";
+export {isTitleSessionId, SessionMeta, sessionMetaExtension, titleSessionId} from "./meta.js";
 export type {MetaTrigger, SessionMetaOptions} from "./meta.js";

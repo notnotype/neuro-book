@@ -68,8 +68,19 @@ export const agentCompactionDetailScenes: LabFixtureDefinition<typeof AgentCompa
 
 const usage = {contextTokens: 16_300, contextLimit: 128_000, totalTokens: 162_400, input: 101_200, output: 3_100, cacheRead: 58_100, cacheWrite: 0, cacheHitRate: 0.62, cost: 0.07, currency: "USD" as const};
 
+/** 数据项只在有会话时画：场景都在一个会话里。 */
+const session = {id: "s1", title: "第三章节奏调整", summary: "", profileName: "主创", profileIcon: "i-lucide-feather", archived: false, summaryState: "idle" as const};
+const withModel = {effectiveModel: "Claude Sonnet", thinking: "low", thinkingLevels: ["low", "medium", "high"]};
+
+/** 场景 id 以 `narrow` 开头的把状态栏放进 280px 宽里（`AgentStatusBarFixture.vue`），看右边从前往后收。 */
 export const agentStatusBarScenes: LabFixtureDefinition<typeof AgentStatusBar>["scenes"] = [
-    {id: "idle", label: "空闲", input: {props: {ctx: createAgentContext({usage})}}},
-    {id: "running", label: "运行中", input: {props: {ctx: createAgentContext({usage, now: 72_000, run: {status: "running", phase: "生成中", startedAt: 0}})}}},
-    {id: "warned", label: "超过告警线", input: {props: {ctx: createAgentContext({usage: {...usage, cost: 1.02, costState: "warned"}})}}},
+    {id: "idle", label: "空闲", input: {props: {ctx: createAgentContext({session, usage})}}},
+    {id: "running", label: "运行中", input: {props: {ctx: createAgentContext({session, usage, now: 72_000, run: {status: "running", phase: "生成中", startedAt: 0}})}}},
+    {id: "warned", label: "超过告警线", input: {props: {ctx: createAgentContext({session, usage: {...usage, cost: 1.02, costState: "warned"}})}}},
+    {id: "only-cost", label: "只留上下文与费用（设置里关了用量）", input: {props: {ctx: createAgentContext({session, usage}), statusLine: {visible: {usage: false}}}}},
+    {id: "model-and-plugin", label: "打开模型与推理档，加插件的字数，用量排到费用后面", input: {props: {ctx: createAgentContext({session, usage, composer: withModel}), statusLine: {order: ["model", "cost", "usage"], visible: {model: true, "lab.words": true}}}}},
+    {id: "narrow", label: "右栏窄（280px）：模型、用量、费用三项，从前往后收进悬停，费用最后收", input: {props: {ctx: createAgentContext({session, usage, composer: withModel}), statusLine: {order: ["model", "usage", "cost"], visible: {model: true}}}}},
+    {id: "no-session", label: "没选会话：数据项都不画", input: {props: {ctx: createAgentContext({usage}), statusLine: {}}}},
+    {id: "left-usage", label: "用量换到左边、在等回答：用量画在上下文后面，提醒跟在后面", input: {props: {ctx: createAgentContext({session, usage, composer: withModel, run: {status: "waiting", phase: ""}}), statusLine: {side: {usage: "left"}, visible: {model: true}}}}},
+    {id: "narrow-left-usage", label: "右栏窄（280px）、用量在左边、在等回答：先收右边，再收左边的用量；提醒不收", input: {props: {ctx: createAgentContext({session, usage, composer: withModel, run: {status: "waiting", phase: ""}}), statusLine: {side: {usage: "left"}, visible: {model: true}}}}},
 ];

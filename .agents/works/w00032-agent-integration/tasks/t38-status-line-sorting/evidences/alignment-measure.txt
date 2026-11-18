@@ -1,0 +1,15 @@
+单选圆钮、复选方框的竖直中线减去标签第一行文字（Range 的第一个矩形）的中线，单位 CSS 像素；正数是控件偏低。
+脚本：/tmp/claude-1000/t38-measure/align.mjs（复制到 packages/neuro-book 下用 node 运行，参数为开发服务地址），Lab 场景 RadioGroup:vertical/horizontal、Checkbox:checked/unchecked。2026-11-18。
+
+改前（master d67ee3779，nbook/macos × light，桌面）：
+nbook/light/desktop RadioGroup:vertical [2.5,2.5,2.5,2.5]
+nbook/light/desktop RadioGroup:horizontal [2,2,2,2]
+nbook/light/desktop Checkbox:checked [0.5]
+macos/light/desktop RadioGroup:vertical [4,4,4,4]
+macos/light/desktop RadioGroup:horizontal [2.5,2.5,2.5,2.5]
+macos/light/desktop Checkbox:checked [3]
+
+改后（nbook/macos × light/dark × 桌面/390 宽，16 组都量了，同主题各组相同）：
+nbook/*/* RadioGroup:vertical [0.13 ×4]   RadioGroup:horizontal [0.25 ×4]   Checkbox [0]
+macos/*/* RadioGroup:vertical [0.94 ×4]   RadioGroup:horizontal [0.06 ×4]   Checkbox [0.78]
+余下不到 1 像素来自字体的上下留白（文字矩形按字形的 ascent/descent 算，不是行框）。

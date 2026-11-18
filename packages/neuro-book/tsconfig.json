@@ -32,6 +32,7 @@
         "src/server",
         "src/project",
         "src/shared",
+        "src/desktop",
         "src/plugin-platform/backend",
         "src/plugin-platform/shared",
         "src/plugin-platform/build",
@@ -43,9 +44,13 @@
         "src/**/*.test.ts",
         "plugin-sdk",
         "scripts",
+        "desktop/scripts",
+        "desktop/src/bun/login-item.ts",
+        "desktop/src/bun/preload.ts",
+        "desktop/src/bun/win32.ts",
         "vite.config.ts",
         "vite.e2e.config.ts",
         "vitest.config.ts"
     ],
-    "exclude": ["plugin-sdk/template", "plugin-sdk/examples/plugins/*/web", "plugin-sdk/*.dom.test.ts", "plugin-sdk/examples/**/*.dom.test.ts", "src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts", "scripts/page-shot.ts", "scripts/page-shot.test.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts"]
+    "exclude": ["plugin-sdk/template", "plugin-sdk/examples/plugins/*/web", "plugin-sdk/*.dom.test.ts", "plugin-sdk/examples/**/*.dom.test.ts", "src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts", "scripts/page-shot.ts", "scripts/page-shot.test.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts", "scripts/perf/layout-frames.ts"]
 }

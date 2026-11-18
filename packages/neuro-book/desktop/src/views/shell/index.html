@@ -1,0 +1,126 @@
+<!doctype html>
+<!--
+  壳自己的页面（docs/specs/runtime/desktop-shell.md 的“启动页”“对话框”）：启动页与几种对话框共用一页，按地址参数 mode 区分。
+  壳经 executeJavascript 调 window.__nbookShell.render(state) 交来要显示的内容，按钮经 Electrobun 的事件桥交回壳。
+  没有系统标题栏的窗口（预加载定义了 __nbookDesktopFrame，只有启动页所在的窗口；对话框有系统标题栏）顶上画一条 36px 的拖动条
+  与窗口按钮（输出 10）：拖动、双击最大化由 WebView2 按 app-region 交给系统；按钮发 window-control，壳推来 window-state 时换图标。
+  按钮的样子与产品页的窗口按钮相同（src/web/DesktopFrame.vue）：内联的 lucide 图形、26px 的芯。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>NeuroBook</title>
+<style>
+  :root { color-scheme: light dark; font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: Canvas; color: CanvasText; }
+  main { max-width: 34rem; padding: 2rem; text-align: center; }
+  h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 .6rem; }
+  p { margin: .3rem 0; line-height: 1.6; opacity: .85; }
+  .detail { font-family: Consolas, monospace; font-size: .85rem; opacity: .7; word-break: break-all; }
+  .actions { margin-top: 1.4rem; display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; }
+  button { font: inherit; padding: .35rem 1rem; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 30%, transparent); background: Canvas; color: CanvasText; cursor: pointer; }
+  button.primary { background: #4a6cf7; border-color: #4a6cf7; color: white; }
+  .bar { width: 10rem; height: 3px; margin: 1rem auto 0; background: color-mix(in srgb, CanvasText 12%, transparent); overflow: hidden; border-radius: 2px; }
+  .bar::after { content: ""; display: block; width: 40%; height: 100%; background: #4a6cf7; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  .frame { position: fixed; inset: 0 0 auto 0; height: 36px; display: flex; justify-content: flex-end; -webkit-app-region: drag; app-region: drag; }
+  .frame[hidden] { display: none; }
+  /* 与产品页的窗口按钮同样的命中区、芯与图标（src/web/DesktopFrame.vue）；这页没有主题，颜色用系统色。 */
+  .frame button { -webkit-app-region: no-drag; app-region: no-drag; display: flex; align-items: center; justify-content: center; width: 34px; height: 36px; padding: 0; border: 0; border-radius: 0; background: transparent; color: color-mix(in srgb, CanvasText 70%, transparent); cursor: pointer; }
+  .frame .chip { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; transition: background-color 120ms ease, color 120ms ease, transform 120ms ease; }
+  .frame svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .frame svg[hidden] { display: none; }
+  .frame button:hover .chip { background: color-mix(in srgb, CanvasText 15%, transparent); color: CanvasText; }
+  .frame button:active .chip { background: color-mix(in srgb, CanvasText 24%, transparent); transform: scale(0.93); }
+  .frame button[data-control="close"]:hover .chip, .frame button[data-control="close"]:active .chip { background: #c42b1c; color: white; }
+  .frame .divider { align-self: center; width: 1px; height: 16px; margin: 0 9px 0 8px; background: color-mix(in srgb, CanvasText 15%, transparent); }
+  @media (forced-colors: active) { .frame .divider { forced-color-adjust: none; background: CanvasText; } }
+  @media (forced-colors: active) { .frame button { color: ButtonText; } .frame button:hover .chip, .frame button[data-control="close"]:hover .chip { background: Highlight; color: HighlightText; } button.primary { border-width: 2px; font-weight: 600; } }
+</style>
+</head>
+<body>
+<div class="frame" role="group" aria-label="窗口" hidden>
+  <!-- 图形取自 lucide（minus、square、copy、x），与产品页的窗口按钮相同。 -->
+  <span class="divider" aria-hidden="true"></span>
+  <button type="button" tabindex="-1" data-control="minimize" aria-label="最小化"><span class="chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></span></button>
+  <button type="button" tabindex="-1" data-control="toggle-maximize" aria-label="最大化"><span class="chip"><svg viewBox="0 0 24 24" aria-hidden="true" data-icon="maximize"><rect width="18" height="18" x="3" y="3" rx="2"/></svg><svg viewBox="0 0 24 24" aria-hidden="true" data-icon="restore" hidden><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></span></button>
+  <button type="button" tabindex="-1" data-control="close" aria-label="关闭"><span class="chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span></button>
+</div>
+<main id="root"><div class="bar"></div></main>
+<script>
+(() => {
+  const root = document.getElementById("root");
+  const LABELS = {retry: "重试", exit: "退出", "open-logs": "打开日志目录", continue: "继续", wait: "继续等待", cancel: "取消关闭", force: "强制关闭（未保存的内容可能丢失）", restart: "重新启动服务", later: "稍后", stay: "取消", open: "打开 NeuroBook", "quit-anyway": "仍然退出"};
+  const ERRORS = {
+    "portable-unwritable": (d) => ["便携版要放在可写的位置", `没法在 ${d} 写入。把 NeuroBook 复制到可写的文件夹后再打开。`],
+    "state-root-relative": (d) => ["NBOOK_STATE_ROOT 要写完整路径", `现在的值是 ${d}。改成完整路径（例如 D:\\NeuroBook-data）后再打开。`],
+    "version-mismatch-shell": (d) => ["已有另一个版本的 NeuroBook 在运行", `已在运行的是 NeuroBook ${d}，先关掉它再打开。`],
+    "shell-unresponsive": (d) => ["另一个 NeuroBook 没有响应", d],
+    "version-mismatch-server": (d) => { const [running, installed] = d.split("|"); return ["这个数据目录正被另一个版本使用", `运行中的服务是 NeuroBook ${running}，本程序是 ${installed}。先停掉它（例如在运行 nbook 的终端里按 Ctrl-C）再打开。`]; },
+    "not-product": () => ["这个数据目录正由开发服务使用", "停掉开发服务，或换一个数据目录。"],
+    "server-unresponsive": (d) => ["数据目录上的服务没有响应", d],
+    "wait-timeout": (d) => ["等了 60 秒还没有变化", d],
+    "server-failed": (d) => ["NeuroBook 的服务没有起来", d],
+    "lock-failed": (d) => ["打不开数据目录", d],
+    "install-busy": () => ["另一个 NeuroBook 正在更新", "等它更新完再打开，或者点“重试”。"],
+  };
+  const send = (message) => window.__electrobunSendToHost(message);
+  const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
+  /** 对话框的缺省按钮（第一个）拿到焦点，Enter 就是它；`escape` 是按 Esc 时交回的动作。启动页不抢焦点，免得 Enter 误点“退出”。 */
+  let escapeAction = null;
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && escapeAction !== null) send({type: "action", action: escapeAction});
+  });
+  function show(title, lines, actions, busy, dialog) {
+    escapeAction = dialog?.escape ?? null;
+    root.replaceChildren();
+    if (title) root.append(el("h1", "", title));
+    for (const [text, cls] of lines) root.append(el("p", cls ?? "", text));
+    if (busy) root.append(el("div", "bar"));
+    if (actions && actions.length > 0) {
+      const row = el("div", "actions");
+      actions.forEach((action, index) => {
+        const button = el("button", index === 0 ? "primary" : "", LABELS[action] ?? action);
+        button.addEventListener("click", () => send({type: "action", action}));
+        row.append(button);
+      });
+      root.append(row);
+      if (dialog !== undefined) row.querySelector("button")?.focus();
+    }
+  }
+  window.__nbookShell = {
+    render(state) {
+      switch (state.kind) {
+        case "starting": return show("", [["正在启动"]], [], true);
+        case "waiting-instance": return show("", [[state.status === "stopping" ? "正在停止上一次的服务" : "服务正在启动"]], [], true);
+        case "waiting-close": return show("另一个 NeuroBook 窗口正在确认关闭", [["在那边做完选择后，这里会接着打开。"]], ["exit"], true);
+        case "waiting-exit": return show("", [["正在退出上一个 NeuroBook"]], [], true);
+        case "updating": return show("", [[`正在更新到 ${state.version}`]], [], true);
+        case "unclean-stop": return show("上次退出时服务端没有正常停止", [["数据已提交的部分不受影响。日志里有详情。"], [state.logDir, "detail"]], ["continue", "open-logs"], false);
+        case "error": { const [title, text] = (ERRORS[state.reason] ?? (() => ["出错了", state.detail]))(state.detail); return show(title, [[text]], state.actions, false); }
+        case "not-responding": return show("NeuroBook 没有响应", [["这个窗口的页面没有回应关闭请求。"]], ["wait", "cancel", "force"], false, {escape: "wait"});
+        case "server-exited": return show(`NeuroBook 的服务意外退出（退出码 ${state.exitCode ?? "未知"}）`, [[state.background ? "现在没有打开的窗口。" : "窗口会保持离线，可以从页面复制没保存的内容。"], [state.logDir, "detail"]], ["restart", "later"], false, {escape: null});
+        case "quit-work": return show("NeuroBook 有工作在跑，退出会中断它们", state.count > 0 ? [[`有 ${state.count} 项工作在跑。`], ...(state.uncertain ? [["另有部分工作无法确认。"]] : [])] : [["无法确认是否有工作在跑。"]], ["stay", "open", "quit-anyway"], false, {escape: "stay"});
+        case "restart-failed": return show("重新启动服务没有成功", [[state.detail]], ["restart", "later"], false, {escape: null});
+      }
+    },
+  };
+  if (window.__nbookDesktopFrame === 1) {
+    const frame = document.querySelector(".frame");
+    frame.hidden = false;
+    for (const button of frame.querySelectorAll("button")) button.addEventListener("click", () => send({type: "window-control", action: button.dataset.control}));
+    const toggle = frame.querySelector('[data-control="toggle-maximize"]');
+    window.addEventListener("nbook-desktop", (event) => {
+      const message = event.detail;
+      if (message === null || typeof message !== "object" || message.type !== "window-state" || typeof message.maximized !== "boolean") return;
+      // 只切两个图标的 hidden，不改 textContent（会冲掉 SVG）。
+      toggle.querySelector('[data-icon="maximize"]').hidden = message.maximized;
+      toggle.querySelector('[data-icon="restore"]').hidden = !message.maximized;
+      toggle.setAttribute("aria-label", message.maximized ? "还原" : "最大化");
+    });
+  }
+  send({type: "shell-ready"});
+})();
+</script>
+</body>
+</html>

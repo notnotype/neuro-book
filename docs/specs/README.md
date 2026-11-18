@@ -30,8 +30,8 @@
 
 不创建 `*-draft.md` 与 `*-current.md` 两份正文。能力实现后，原文件从 `planned` 原地晋升为 `implemented`。
 
-- **已实现的 Spec 加新行为**：整块新能力另起一份 Spec；在已有能力上加几条行为时，新条目末尾标“（planned）”，实现并验证后去掉标记，不写 Task 编号。
-- **已实现、待晋升**：`planned` 的 Spec 实现后照常写三条证据标签（见[实现合同与证据](#实现合同与证据)）；注册表“说明”列只写一句范围并加“待晋升”，不写实施历程。晋升为 `implemented` 由开发者批准。
+- **已实现的 Spec 加新行为**：整块新能力另起一份 Spec；在已有能力上加几条行为时，新条目末尾标“（planned）”，实现并验证后去掉标记，不写 Task 编号。标记的范围：标在条目标题后面的是整条，标在一句话后面的只有那一句，同一条里别的话是当前行为。去掉标记要这一句有测试的断言守着（断言能区分成立与否，只对上测试名、只靠自动等待的不算）。
+- **已实现、待晋升**：`planned` 的 Spec 实现后照常写三条证据标签（见[实现合同与证据](#实现合同与证据)）；注册表“说明”列只写一句范围并加“待晋升”，不写实施历程。晋升为 `implemented` 不需要开发者批准（开发者 2026-11-17 定）：证据写全、逐条核对通过后由实施者自行晋升，并在交付说明里写明晋升了哪些。
 
 提案的 `draft`、`reviewing` 表示方案尚未批准；Spec 的 `planned` 表示目标行为已经批准。未批准需求不能进入 `planned` Spec。
 
@@ -129,7 +129,7 @@ owners:
 4. **计划**：`plan.md` 写内部设计、切片与验收映射（Spec 编号 → 测试），见 [`implementation-planning`](../../.agents/skills/implementation-planning/SKILL.md)。
 5. **验收先行**：每片先写这片对应条目的合同测试并看它失败，再实现到通过；交付前做变异检查。
 6. **审查**：按 [`reviewing`](../../.agents/skills/reviewing/SKILL.md) 审查设计与实现。
-7. **收口**：按固定标签写证据；全部有证据后，经开发者批准晋升 `implemented`。
+7. **收口**：按固定标签写证据；全部有证据、逐条核对通过后自行晋升 `implemented`，不等开发者批准（开发者 2026-11-17 定）。
 
 单元层面不要求严格的 TDD；测试覆盖 Spec 条目与失败方式（[测试写法](../testing/README.md#测试写法)）。界面类改动另由 Component Lab 场景验收。Work/Task 引用提案与 Spec，记录实现、验证和交接，不复制正文。
 
@@ -182,9 +182,12 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Agent 的上下文压缩 | [`agent/compaction.md`](agent/compaction.md) | 三种压缩方法与缺省顺序、放回的内容、贡献点 `agent.compactionMethods` |
 | Agent 的内置 Profile | [`agent/builtin-profiles.md`](agent/builtin-profiles.md) | 主创与会话标题：工具、规则文件进开场、标题和说明的生成时机与兜底 |
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
+| Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记、后台任务）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行、`$` 菜单与确认框、设置里的 Skill 页 |
 | Profile 设置页 | [`agent/profile-settings.md`](agent/profile-settings.md) | 看和改 Profile：列表、模型与审批、工具绑定、用户级 Profile 的新建打开删除 |
+| 表情包 | [`agent/stickers.md`](agent/stickers.md) | 表情包与清单、来源与目录、`:包/名字:` 写法（nb-markdown 内置方言，经宿主端口查表情）、`stickers://`、取图路由、Profile 白名单与提示词槽、设置里的表情包一节 |
 | 子代理 | [`agent/subagents.md`](agent/subagents.md) | `agent_spawn`、`agent_send`、`agent_answer`：派发检查与白名单、子会话的会话头与身份、等待与结果、审批与提问的去处、中止连带、上限、`tree` 远程 |
 | 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程 |
+| 模型请求记录 | [`agent/request-trace.md`](agent/request-trace.md) | 每次模型请求的记录：相同内容只存一份、按天保留、响应头与请求头的过滤、进程中断；编辑区的“模型请求”页：按会话与轮分组、常驻筛选、全文查找、消息大纲、和上一次比较、窄时切换；`#N`、按角色筛选、逐行差异等几项 planned |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
@@ -195,11 +198,12 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主题皮肤 | [`theme/skins.md`](theme/skins.md) | 插件提供的整套外观：配色、字体、活动栏与场景图在各位置的裁切，主题列表与退回 |
 | 主题编辑器 | [`theme/editor.md`](theme/editor.md) | 在界面里做主题：我的主题库、实时预览、推导配色、场景取景、对比度提示、导出为插件与导入 |
 | 工作台布局 | [`ui/workbench-layout.md`](ui/workbench-layout.md) | 一棵树：骨架、面板与条、规范形、尺寸与放不下、内容层上的位移、落点规则与接受矩阵、活动栏、布局记录 |
+| 可拖动排序的分组列表 | [`ui/sortable-list.md`](ui/sortable-list.md) | `nb-layout` 的 `useSortable` 与 `SortableList`：实时布局的拖动排序、跨组、空组落点、键盘与读屏、放下后等宿主写完 |
 | 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 标题栏、状态栏与条目贡献点；无项目首页、卡片还是平铺、活动栏底部条目与页面浮层 |
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回、标题动作；输出 7（声明消失时清理布局项）随插件热插拔落地，标 `(planned)` |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 三类文件夹呈现、浏览与基础操作、拖放、命令化、持久化、与编辑器的 dirty 结算；跨机器基础操作为已知限制 |
 | 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算、编辑器与语言贡献点、选择顺序、字节标签、预览的打开方式 |
-| Markdown 编辑命令与菜单 | [`workbench/markdown-editing.md`](workbench/markdown-editing.md) | 编辑命令与公开键、固定工具栏、选区菜单、斜杠菜单、块按钮与块菜单、正文右键 |
+| Markdown 编辑命令与菜单 | [`workbench/markdown-editing.md`](workbench/markdown-editing.md) | 编辑命令与公开键、固定工具栏、选区菜单、斜杠菜单、块按钮与块菜单、正文右键、正文上方的属性面板与插件按属性名贡献的图标、显示名与类型、链接卡片、插图卡片与粘贴图片 |
 | 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新 |
 | HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认联网可关、随正文更新 |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制；按地址读取字节与预览的受限读取 |
@@ -210,6 +214,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Markdown 展示器 | [`ui/markdown-display.md`](ui/markdown-display.md) | `nb-markdown` 包：只读显示、与编辑器一致的方言外观、交互出口、流式更新与释放、长对话性能、宿主接口 |
 | 写给 Agent 的编辑组件 | [`ui/prompt-editor.md`](ui/prompt-editor.md) | `nb-markdown` 包：Composer 的编辑组件与已发送消息的静态显示：文字写法、小块、触发菜单、粘贴分档、附件、输入历史 |
 | 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | 挂载前建立窗口运行实例、引导接口、RPC 首连与断线重连、多窗口隔离、项目绑定与可分离边界；按需激活、插件集合订阅与热插拔联动、鉴权与第三方浏览器入口标 `(planned)` |
+| 桌面壳 | [`runtime/desktop-shell.md`](runtime/desktop-shell.md) | Windows 桌面版：桌面锁与开窗转交、连接服务端、窗口与导航、关闭前询问（壳一侧）、三态停止、异常、便携版的状态根 |
+| 桌面版的更新 | [`runtime/desktop-update.md`](runtime/desktop-update.md) | 检查、只升不降、提示与下载、下次启动换上与安装级排他、便携版只提示 |
 | 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | 跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环、进程间链路 |
 | 剧情图谱：内置问答 | [`story/qa.md`](story/qa.md) | 一问一个 Agent、查询工具、作答工具的校验与退回、`nbstory ask` 与问答记录、`nbstory config`、回归门槛 |
 | 剧情图谱：导入原文并抽取 | [`story/ingest.md`](story/ingest.md) | TXT 切章、逐章抽取、随抽随看、停止与接着抽、追加新章、进度 |
@@ -230,6 +236,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 剧情：决策的守卫与检查、章的写作指示 | [`plot/decisions.md`](plot/decisions.md) | 地址守卫与读者守卫、约束与未定的事、到期没定与悬空、开写前的视图、涉及本章的决策、写作指示快照与它的检查 |
 | 剧情：写完以后的检查 | [`plot/checks.md`](plot/checks.md) | 本章涉及的知识点、窄问题的各层与问法、固定的一次调用、试读与判一致、预算与优先、引文核对、检查记录与过期、成为待处理、账本视图、费用记录 |
 | 剧情：写手的上下文 | [`plot/brief.md`](plot/brief.md) | 上下文的组成与顺序、这一场的秘密与绝密、在场的人、场景条件、称谓表、伏笔与决策段、本章允许新增什么与自陈、体积预算与裁剪、回溯与补叙章、确定与记录、名字的关卡 |
+| Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补 |
 
 ## 待实现规范
 
@@ -249,12 +256,10 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 | Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
-| Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行 |
 | Harness 会话 | [`harness/session.md`](harness/session.md) | 新内核的会话日志：会话目录与 JSONL、写入批、大块内容、锁、修复与校验、恢复、指令幂等、索引与 fork |
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |
 | Harness 视图 | [`harness/profile.md`](harness/profile.md) | 新内核由状态算请求：模板节点与文字拼法、缺省布局、轮的渲染与 `render`、纯函数提交与提交缓存、槽、请求校验、块的来源、开发检查 |
 | Harness 运行 | [`harness/runtime.md`](harness/runtime.md) | 新内核的指令、运行循环与运行结果（逐步补齐）：输入缓冲区、受理批、followup、失败与中止的收口、位置章、帧、`waitRun` |
-| Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补。待晋升 |
 | Harness 模型端口 | [`harness/models.md`](harness/models.md) | 模型端口与 OMP 适配器：失败归类、密钥遮盖、相邻 user 合并、工具名换算、思考签名、用量与停止原因 |
 | Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
 | 剧情图谱：图的修订 | [`story/revisions.md`](story/revisions.md) | 确认或驳回候选身份、手动连两个对象、改对象种类、挪称呼；修订按书单独保存、套用后查询、不剧透、可撤销、重抽后按锚对应 |

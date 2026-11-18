@@ -18,6 +18,36 @@
         "pathPlaceholder": "/home/me/plugins/hello",
         "start": "安装…"
     },
+    "upload": {
+        "hint": "也可以把插件文件夹拖到这里，或选择文件夹。",
+        "choose": "选择文件夹…",
+        "overlay": "松开以安装插件",
+        "progress": "正在上传 {{percent}}%",
+        "source": "拖入的文件夹 {{name}}（{{files}} 个文件，{{size}}）",
+        "expired": "上传的文件夹已经失效，重新选择或拖入",
+        "notFolder": "拖入一个插件文件夹",
+        "archive": "先解压，再拖入解出的文件夹",
+        "noManifest": "这个文件夹的根目录没有 package.json，不像是构建好的插件",
+        "nested": "插件好像在 {{name}} 里，选它或把它拖进来",
+        "busyNow": "正在处理上一个文件夹",
+        "outside": "拖到插件页的内容区",
+        "problem": {
+            "too-many-files": "文件夹里的文件太多，至多 {{max}} 个",
+            "file-too-large": "{{path}} 太大，单个文件至多 {{max}}",
+            "too-large": "文件夹太大，总共至多 {{max}}",
+            "path-invalid": "文件夹里有不能上传的文件名",
+            "too-deep": "文件夹嵌套太深",
+            "read-failed": "读取或上传没有完成：{{path}}"
+        },
+        "errors": {
+            "upload-too-large": "文件夹太大，没有上传",
+            "upload-busy": "同时在上传的文件夹太多，稍后再试",
+            "upload-path-invalid": "文件夹里有不能上传的文件名",
+            "upload-malformed": "上传的内容不完整，重试一次",
+            "upload-failed": "服务端没有收下这个文件夹",
+            "unreachable": "读取或上传没有完成"
+        }
+    },
     "groups": {
         "thirdParty": "第三方插件",
         "builtin": "内置插件",
@@ -129,6 +159,10 @@
         "nbook-commands": {
             "name": "命令",
             "description": "登记与执行命令；命令面板与快捷键执行的都是这里登记的命令。"
+        },
+        "nbook-desktop": {
+            "name": "桌面",
+            "description": "桌面版的窗口设置：界面缩放（含快捷键与命令）、登录 Windows 时打开 NeuroBook、关掉最后一个窗口时退出还是留在系统托盘；设置分区只在桌面版的窗口里出现。"
         },
         "nbook-editor": {
             "name": "编辑器",

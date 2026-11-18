@@ -1,0 +1,125 @@
+// w00046 t04 Windows acceptance: desktop-only settings (zoom, open at login). Standalone Bun in the desktop session.
+// Reads only the NeuroBook test app's own pages over CDP and its own registry value; edits the settings file of the
+// default state root (backed up and restored) and of a separate test state root. No screen capture, no OS input.
+import {spawnSync} from "node:child_process";
+import {copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {join} from "node:path";
+
+const [t, portText, outFile] = process.argv.slice(2);
+const port = Number(portText);
+const lines: string[] = [];
+const log = (line: string) => { lines.push(line); console.log(line); };
+const identifier = "io.github.notnotype.neurobook.t04test";
+const RUN = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const defaultRoot = join(process.env.LOCALAPPDATA!, "NeuroBook");
+const defaultSettings = join(defaultRoot, "settings.json");
+const backup = join(t, "default-settings.backup.json");
+const envRoot = join(t, "state");
+
+const runEntry = (): string | null => {
+    const r = spawnSync("reg", ["query", RUN, "/v", identifier], {encoding: "utf8"});
+    if (r.status !== 0) return null;
+    const line = r.stdout.split(/\r?\n/).find((l) => l.includes("REG_SZ"));
+    return line ? line.slice(line.indexOf("REG_SZ") + 6).trim() : "";
+};
+const appProcesses = (): number[] => {
+    const r = spawnSync("powershell", ["-NoProfile", "-Command", `Get-Process | Where-Object { $_.Path -like '*${identifier}*' } | ForEach-Object { $_.Id }`], {encoding: "utf8"});
+    return r.stdout.split(/\r?\n/).map((s) => Number(s.trim())).filter((n) => n > 0);
+};
+async function targets(): Promise<Array<{type: string; url: string; webSocketDebuggerUrl: string}>> {
+    try { return await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); } catch { return []; }
+}
+async function evaluate(ws: string, expression: string): Promise<any> {
+    const socket = new WebSocket(ws);
+    await new Promise((r) => socket.addEventListener("open", r, {once: true}));
+    const res: any = await new Promise((r) => { socket.addEventListener("message", (e) => r(JSON.parse(String(e.data))), {once: true}); socket.send(JSON.stringify({id: 1, method: "Runtime.evaluate", params: {expression, returnByValue: true, awaitPromise: true}})); });
+    socket.close();
+    return res.result?.result?.value;
+}
+async function cdp(ws: string, method: string, params: unknown): Promise<void> {
+    const socket = new WebSocket(ws);
+    await new Promise((r) => socket.addEventListener("open", r, {once: true}));
+    await new Promise((r) => { socket.addEventListener("message", r, {once: true}); socket.send(JSON.stringify({id: 1, method, params})); });
+    socket.close();
+}
+async function until<T>(label: string, probe: () => Promise<T | null | false> | T | null | false, ms = 60_000): Promise<T> {
+    const deadline = Date.now() + ms;
+    for (;;) {
+        const v = await probe();
+        if (v !== null && v !== false && v !== undefined) return v as T;
+        if (Date.now() > deadline) throw new Error(`timeout: ${label}`);
+        await Bun.sleep(300);
+    }
+}
+const pages = async () => (await targets()).filter((x) => x.type === "page" && x.url.startsWith("http://127.0.0.1"));
+const dpr = async (ws: string): Promise<number> => Math.round(((await evaluate(ws, "devicePixelRatio")) as number) * 1000) / 1000;
+const writeSettings = (file: string, values: Record<string, unknown>) => {
+    mkdirSync(join(file, ".."), {recursive: true});
+    const current = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+    for (const [k, v] of Object.entries(values)) { if (v === undefined) delete current[k]; else current[k] = v; }
+    writeFileSync(file, JSON.stringify(current, null, 4) + "\n");
+};
+async function launch(cmd: string) {
+    Bun.spawn(["cmd", "/c", join(t, cmd)], {stdout: "ignore", stderr: "ignore"});
+    return until("product page", async () => (await pages())[0] ?? null, 120_000);
+}
+async function closeAll() {
+    for (const p of await pages()) await evaluate(p.webSocketDebuggerUrl, "document.querySelector('[data-desktop-control=close]')?.click(); true").catch(() => undefined);
+    await until("app exited", () => appProcesses().length === 0, 120_000);
+}
+
+try {
+    if (existsSync(defaultSettings)) copyFileSync(defaultSettings, backup); else rmSync(backup, {force: true});
+    log(`before: run entry=${JSON.stringify(runEntry())} default settings existed=${existsSync(backup)}`);
+
+    // 1. 缺省状态根：缩放 1.25、开机自启开着。
+    writeSettings(defaultSettings, {"nbook.desktop/zoom": 1.25, "nbook.desktop/openAtLogin": true});
+    let page = await launch("launch-default.cmd");
+    await until("zoom 1.25 applied", async () => (await dpr(page.webSocketDebuggerUrl)) === 1.25, 60_000);
+    log(`launch with zoom 1.25: devicePixelRatio=${await dpr(page.webSocketDebuggerUrl)}`);
+    const entry = await until("run entry written", () => runEntry(), 30_000);
+    log(`openAtLogin true: run entry=${entry}`);
+    await evaluate(page.webSocketDebuggerUrl, "window.open(location.href, '_blank'); true");
+    const second = await until("second window", async () => { const list = await pages(); return list.length >= 2 ? list.find((x) => x.webSocketDebuggerUrl !== page.webSocketDebuggerUrl) ?? null : null; }, 60_000);
+    await until("second window zoomed", async () => (await dpr(second.webSocketDebuggerUrl)) === 1.25, 60_000);
+    log(`second window: devicePixelRatio=${await dpr(second.webSocketDebuggerUrl)}`);
+
+    // 2. 改设置文件（拥有者监视到、推给页面、页面交给壳）：缩放 1、自启关掉。
+    writeSettings(defaultSettings, {"nbook.desktop/zoom": undefined, "nbook.desktop/openAtLogin": false});
+    await until("zoom back to 1 in both", async () => (await dpr(page.webSocketDebuggerUrl)) === 1 && (await dpr(second.webSocketDebuggerUrl)) === 1, 30_000);
+    await until("run entry removed", () => runEntry() === null, 30_000);
+    log("settings file edited: both windows back to devicePixelRatio=1, run entry removed");
+
+    // 3. 页面里按 Ctrl+=（CDP 发给页面的按键，不是系统键盘）：只走一档。
+    await cdp(page.webSocketDebuggerUrl, "Input.dispatchKeyEvent", {type: "keyDown", key: "=", code: "Equal", modifiers: 2, windowsVirtualKeyCode: 187});
+    await cdp(page.webSocketDebuggerUrl, "Input.dispatchKeyEvent", {type: "keyUp", key: "=", code: "Equal", modifiers: 2, windowsVirtualKeyCode: 187});
+    await until("zoom 1.1 after Ctrl+=", async () => (await dpr(page.webSocketDebuggerUrl)) === 1.1, 15_000);
+    await Bun.sleep(1500);
+    log(`Ctrl+= via CDP: devicePixelRatio=${await dpr(page.webSocketDebuggerUrl)} second=${await dpr(second.webSocketDebuggerUrl)} settings zoom=${JSON.parse(readFileSync(defaultSettings, "utf8"))["nbook.desktop/zoom"]}`);
+    const cache = join(defaultRoot, "logs", "desktop", "settings-cache.json");
+    log(`cache: ${readFileSync(cache, "utf8").trim()}`);
+
+    // 4. 关掉再开：先用缓存（1.1）。
+    await closeAll();
+    page = await launch("launch-default.cmd");
+    await until("zoom 1.1 after restart", async () => (await dpr(page.webSocketDebuggerUrl)) === 1.1, 60_000);
+    log(`after restart: devicePixelRatio=${await dpr(page.webSocketDebuggerUrl)}`);
+    await closeAll();
+
+    // 5. 设了 NBOOK_STATE_ROOT 的运行：自启开着也不登记。
+    writeSettings(join(envRoot, "settings.json"), {"nbook.desktop/openAtLogin": true});
+    page = await launch("launch-envroot.cmd");
+    await Bun.sleep(5000);
+    const log5 = readFileSync(join(envRoot, "logs", "desktop", "shell.log"), "utf8").split(/\r?\n/).filter((l) => l.includes("desktop.login-item")).slice(-1)[0] ?? "(none)";
+    log(`NBOOK_STATE_ROOT run with openAtLogin true: run entry=${JSON.stringify(runEntry())} shell.log=${log5.replace(/^\S+\s/, "")}`);
+    await closeAll();
+    log("RESULT ok");
+} catch (error) {
+    log(`RESULT failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    for (const pid of appProcesses()) spawnSync("taskkill", ["/pid", String(pid), "/f", "/t"]);
+} finally {
+    if (existsSync(backup)) copyFileSync(backup, defaultSettings); else rmSync(defaultSettings, {force: true});
+    if (runEntry() !== null) spawnSync("reg", ["delete", RUN, "/v", identifier, "/f"]);
+    log(`restored default settings; run entry now=${JSON.stringify(runEntry())}`);
+    writeFileSync(outFile, lines.join("\n") + "\n");
+}

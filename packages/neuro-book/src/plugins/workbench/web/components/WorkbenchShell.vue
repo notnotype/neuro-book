@@ -5,12 +5,12 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import type {GridExtent, GridSwap, LayoutDoc, PanelName} from "@notnotype/nb-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, useTemplateRef, watch, watchEffect} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
@@ -30,7 +30,7 @@ import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {containerEntries, focusLandings, moveTargetsOf, panelTitle, sidebarVisible, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
+import {focusLandings, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -38,16 +38,20 @@ import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {presentDrag} from "../drag-presentation";
 import {createLayoutDrag} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
+import type {LiveCardRefresh} from "../live-drag";
 import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
 import type {EditorAreaContext, EditorTabDrag, PanelFrameControl} from "../contracts";
+import type {PanelHeadSlots} from "../views/view-head";
 import {mountEditorArea} from "../editor-area";
 import type {EditorAreaSource} from "../editor-area";
 import {SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
 import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
 import WorkbenchPanelHead from "./WorkbenchPanelHead.vue";
-import type {PanelFrameAction, PanelHeadTab} from "./WorkbenchPanelHead.vue";
+import type {PanelFrameAction, PanelHeadTab, PanelViewHead} from "./WorkbenchPanelHead.vue";
+import WorkbenchRegionStrip from "./WorkbenchRegionStrip.vue";
+import type {RegionStripEntry} from "./WorkbenchRegionStrip.vue";
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
@@ -79,6 +83,8 @@ const props = defineProps<{
     dragFeel?: "live" | "indicator";
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）；缺省离开标签条就缩。 */
     dragCardShrink?: "strip" | "panel";
+    /** 卡片的尺寸多久写一次（设置 `nbook.workbench/dragCardRefresh`）；缺省跟随屏幕每帧写。 */
+    dragCardRefresh?: LiveCardRefresh;
     /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
     dropSplit?: DropSplit;
 }>();
@@ -176,17 +182,70 @@ const TAB_TRUNCATED_PX = 96;
 const TAB_ICON_PX = 28;
 const FRAME_BUTTON_PX = 26;
 const HEAD_PADDING_PX = 20;
+const titleOnlyPanelIds = computed(() => titleOnlyPanels(doc.value));
+/**
+ * 此刻画出来的投影里并进入口条的分节（输出 47）：它是区域唯一的分节，按已提交的文档也收不成标题行；实时布局拖动的预览里并进来的那一节
+ * 在已提交的文档里可能还有兄弟，所以展开标记另外按这个排除，头上的几处（标记、点标题、留宽、可访问描述）都经 `foldOf`。
+ */
+const mergedNow = computed(() => mergedSections(props.layout.actions.renderedPresentation()));
+/** 并进入口条的那一节在哪个区域。 */
+const mergedRegionOf = (panelId: string): PanelName | null => props.layout.actions.renderedPresentation().strips.find((strip) => strip.merged === panelId)?.region ?? null;
 /**
  * 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。
  * 带容器的区域里再问库：底部面板的分节、区域此刻唯一显示的分节收不成标题行（输出 11），也没有按钮。和 `setPanelCollapsed` 拒绝的是同一个判定。
  */
-const collapsibleHere = (panelId: string): boolean => findTreeNode(renderedDoc.value.tree.root, panelId)?.parent?.orientation === "vertical" && sectionCollapseBlock(renderedDoc.value, panelId) === null;
-function headReserved(panelId: string): number {
+const collapsibleIn = (source: LayoutDoc, panelId: string): boolean => findTreeNode(source.tree.root, panelId)?.parent?.orientation === "vertical" && sectionCollapseBlock(source, panelId) === null;
+/**
+ * 面板头的展开标记（输出 20）：只写标题的头（标记画在标题按钮里）、能收成标题行、没有被最大化（最大化着点标题只激活，还原靠还原按钮）。
+ * 按已提交的文档算，和 `titleOnlyPanels` 一样：拖动中预览里这一列只剩一节时标记不跟着消失，标题不横跳。
+ * 每块头的模板与点击都要问好几次，`collapsibleIn` 要在树里找节点，所以一份文档只算一次。
+ */
+const folds = computed<ReadonlyMap<string, {readonly collapsed: boolean}>>(() => new Map([...titleOnlyPanelIds.value].flatMap((panelId) => (
+    collapsibleIn(doc.value, panelId) && state.value.maximized !== panelId && !mergedNow.value.has(panelId) ? [[panelId, {collapsed: isSectionCollapsed(doc.value, panelId)}] as const] : []
+))));
+const foldOf = (panelId: string): {readonly collapsed: boolean} | null => folds.value.get(panelId) ?? null;
+/** 展开标记占的宽度：标题按钮里标记前的 9px、标记 14px、标记与标题之间 5px（WorkbenchPanelHead 的样式）；接管标题区时单独的按钮是 24px 加间距，比这个窄。 */
+const FOLD_MARK_PX = 28;
+/** 头自己要留的宽：截断的标题、别的标签的图标、框架按钮、内边距与展开标记；入口条交给它的 `head-min-width` 就是这个数。 */
+function headOwnReserve(panelId: string): number {
     const panel = renderedDoc.value.panels[panelId];
-    // 浮动窗只有“回到停靠”；树里是最大化、浮动，加上收起。
-    const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2 + (collapsibleHere(panelId) ? 1 : 0);
+    // 浮动窗只有“回到停靠”；树里是浮动、最大化（收起不是按钮了，是标题前的标记）。
+    const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2;
     const others = titleOnlyPanelIds.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
-    return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
+    // 底部面板并成一行时头不写标题（标题在入口上，输出 47），不给截断的标题留宽。
+    const title = mergedRegionOf(panelId) === "panel" ? 0 : TAB_TRUNCATED_PX;
+    return title + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX + (foldOf(panelId) === null ? 0 : FOLD_MARK_PX);
+}
+
+/** 视图动作的预算要扣掉的宽（`buttonBudget`）：头自己留的，并进入口条时再加上入口占的。 */
+function headReserved(panelId: string): number {
+    const region = mergedRegionOf(panelId);
+    return headOwnReserve(panelId) + (region === null ? 0 : stripEntriesReserve(region));
+}
+
+/**
+ * 并进入口条时入口占的宽：每个入口一份，加“更多”。右栏是 24px 的图标；底部面板的标题入口宽度各不相同，按一个短标题估。
+ * 按全部入口算，宁可多扣：少扣时视图动作按钮多画出来、被入口条裁掉，多扣时只是早一点收进“⋯”。
+ */
+const STRIP_ICON_ENTRY_PX = 26;
+const STRIP_TITLE_ENTRY_PX = 72;
+function stripEntriesReserve(region: PanelName): number {
+    const count = regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).length;
+    return count * (region === "panel" ? STRIP_TITLE_ENTRY_PX : STRIP_ICON_ENTRY_PX) + STRIP_ICON_ENTRY_PX;
+}
+
+/**
+ * 入口条叶最近一次不为零的布局宽：区域隐藏、拖到零的那段过渡里它的宽是 0，接管标题区与否照显示着的时候判，头不在收起过程中换画法。
+ * 只是缓存，不是响应式状态：读它的地方同时读了 `presented`，宽一变照样重算。
+ */
+const stripWidths = new Map<PanelName, number>();
+function stripWidthOf(region: PanelName): number | null {
+    const width = state.value.presented[regionStripLeafId(region)]?.width ?? null;
+    if (width !== null && width > 0) {
+        stripWidths.set(region, width);
+        return width;
+    }
+    return stripWidths.get(region) ?? width;
 }
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
@@ -215,7 +274,6 @@ function tabsIn(source: LayoutDoc, panelId: string): PanelHeadTab[] {
     });
 }
 
-const titleOnlyPanelIds = computed(() => titleOnlyPanels(doc.value));
 /** 面板头的标签在标题后接视图的计数（views 输出 17）；活动栏的入口不接，所以只在这里加。 */
 const headTabs = (panelId: string): PanelHeadTab[] => tabsIn(renderedDoc.value, panelId).map((tab) => {
     const viewId = viewIdOf(tab.id);
@@ -246,7 +304,6 @@ function frameActionsOf(panelId: string): PanelFrameAction[] {
     const floatable = viewId !== null && catalog.value.get(viewId)?.floatable !== false && catalog.value.get(viewId)?.movable !== false;
     return [
         ...(floatable ? [describe(FLOAT_COMMAND, "i-lucide-picture-in-picture-2", "commands.nbook.view.float.title")] : []),
-        ...(collapsibleHere(panelId) ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", isSectionCollapsed(renderedDoc.value, panelId))] : []),
         describe(TOGGLE_PANEL_MAXIMIZED_COMMAND, "i-lucide-maximize-2", "commands.nbook.view.toggle-panel-maximized.title", state.value.maximized === panelId),
     ];
 }
@@ -258,6 +315,110 @@ const headActions = computed(() => new Map(Object.entries(doc.value.panels).flat
     const model = viewActionsOf(viewId, panelId);
     return model.buttons.length > 0 || model.menu.length > 0 ? [[panelId, {viewId, model}] as const] : [];
 })));
+
+// ── 视图的标题区（docs/specs/workbench/views.md 输出 19） ─────────────────────
+
+/** 只写标题、活动视图申请了标题区并已就绪的面板：活动视图与它这一代的标题区。 */
+function headOfPanel(panelId: string) {
+    if (!titleOnlyPanelIds.value.has(panelId)) return null;
+    const viewId = viewIdOf(renderedDoc.value.panels[panelId]?.active ?? "");
+    const control = viewId === null ? null : instances.headOf(viewId);
+    return viewId === null || control === null ? null : {viewId, control};
+}
+
+/**
+ * 并进入口条时视图接管标题区的最小宽度（views.md 输出 19）：头那一段（入口条叶的宽减去入口与框架按钮）窄于它时不接管，头回到普通画法、视图在自己的内容里画头。
+ * 只看布局给的宽度，不看视图送进来的内容，所以不会自己来回翻。按对话视图两侧列的实际宽度定；有第二个接管标题区的视图时改成视图声明。
+ */
+const VIEW_HEAD_MIN_PX = 220;
+function panelViewHead(panelId: string): PanelViewHead | null {
+    const found = headOfPanel(panelId);
+    if (found === null) return null;
+    const region = mergedRegionOf(panelId);
+    const stripWidth = region === null ? null : stripWidthOf(region);
+    if (region !== null && stripWidth !== null && stripWidth - stripEntriesReserve(region) - FRAME_BUTTON_PX * 2 - HEAD_PADDING_PX < VIEW_HEAD_MIN_PX) return null;
+    return {key: `${found.viewId}:${String(instances.generations.value.get(found.viewId) ?? 0)}`, popup: found.control.head.titlePopup.value};
+}
+
+/** 面板头交来的位置，按面板记。 */
+const panelHeadSlots = shallowReactive(new Map<string, PanelHeadSlots>());
+
+function setPanelHeadSlots(panelId: string, slots: PanelHeadSlots | null): void {
+    if (slots === null) panelHeadSlots.delete(panelId);
+    else panelHeadSlots.set(panelId, slots);
+}
+
+/**
+ * 把位置交给视图：每个有标题区的实例，按它此刻所在的面板取那块面板头交来的位置，不在只写标题的面板里就是 null。
+ * 按面板汇总再分发，而不是面板头直接写给视图：视图换面板时旧面板头拆掉（交 null）与新面板头画出的先后不定，按面板记就与先后无关。
+ */
+watchEffect(() => {
+    for (const viewId of instances.instances.keys()) {
+        const control = instances.headOf(viewId);
+        if (control === null) continue;
+        const panelId = panelOfView(viewId);
+        const owns = panelId !== null && headOfPanel(panelId)?.control === control;
+        control.setSlots(owns ? panelHeadSlots.get(panelId) ?? null : null);
+    }
+});
+
+/**
+ * 点标题（输出 20）：能收成标题行的分节，标题行是开关——展开着点它收起，收着点它展开（`activate` 会把它展开）；视图接管标题区时标题按钮是视图的，
+ * 展开着点它照旧通知视图（它开自己的列表），收起走单独的标记（`toggleFold`）。别的面板照旧只激活。只在这里决定，头只发一个事件：两个事件有先后，
+ * 先激活（它会展开）再切换就又收回去了。收没收要在 `activate` 之前记下。
+ */
+function activateTab(panelId: string, key: string): void {
+    const control = headOfPanel(panelId)?.control ?? null;
+    const fold = foldOf(panelId);
+    if (fold !== null && !fold.collapsed && control === null && key === doc.value.panels[panelId]?.active) {
+        run(SET_PANEL_COLLAPSED_COMMAND, {panelId, collapsed: true});
+        return;
+    }
+    const collapsed = isSectionCollapsed(renderedDoc.value, panelId);
+    props.layout.actions.activate(key);
+    if (control !== null && !collapsed) control.press();
+}
+
+/** 视图接管标题区时单独的展开标记：在展开、收起之间切。 */
+function toggleFold(panelId: string): void {
+    const fold = foldOf(panelId);
+    if (fold !== null) run(SET_PANEL_COLLAPSED_COMMAND, {panelId, collapsed: !fold.collapsed});
+}
+
+/**
+ * 工具面板的头：画在分节自己的叶里，或并成一行时画在区域的入口条里（输出 47），两处同一组属性与事件。
+ */
+function toolHeadProps(panelId: string, idPrefix: string): InstanceType<typeof WorkbenchPanelHead>["$props"] {
+    const fold = foldOf(panelId);
+    const title = text(panelTitle(renderedDoc.value, catalog.value, panelId));
+    const viewHead = panelViewHead(panelId);
+    return {
+        panelId,
+        label: title,
+        tabs: headTabs(panelId),
+        active: renderedDoc.value.panels[panelId]?.active ?? null,
+        moreLabel: message("common.more"),
+        idPrefix,
+        // 接管标题区时 Enter 是视图的（对话开会话列表），可访问描述不写“展开或收起”。
+        dragHint: message(fold === null || viewHead !== null ? "shell.drag.hint" : "shell.drag.hintFold"),
+        draggingTab: dragPlaceholder.value,
+        titleOnly: titleOnlyPanelIds.value.has(panelId),
+        frameActions: frameActionsOf(panelId),
+        viewHead,
+        fold,
+        foldLabel: fold === null ? "" : message(fold.collapsed ? "shell.fold.expand" : "shell.fold.collapse", {title}),
+    };
+}
+function toolHeadEvents(panelId: string): Record<string, (...args: never[]) => void> {
+    return {
+        activate: (key: string) => activateTab(panelId, key),
+        "toggle-fold": () => toggleFold(panelId),
+        "head-slots": (slots: PanelHeadSlots | null) => setPanelHeadSlots(panelId, slots),
+        reorder: (key: string, delta: -1 | 1) => props.layout.actions.reorderTab(key, delta),
+        action: (action: string) => run(action, {panelId}),
+        "context-menu": (key: string, at: {readonly x: number; readonly y: number}) => openMoveMenu(key, at),
+    };
+}
 
 // ── “移动到” ──────────────────────────────────────────────────────────────
 
@@ -304,8 +465,11 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
 
 // ── 活动栏 ────────────────────────────────────────────────────────────────
 
-/** 活动栏说的“侧栏可见”（输出 22）：入口的按下态与点了做什么都问它。 */
-const sidebarShowing = computed(() => sidebarVisible(doc.value, {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>));
+/** 区域此刻可见（活动栏、入口条的按下态与点了做什么都问它，输出 22、47）。 */
+const regionShowing = (region: PanelName): boolean => regionVisible(doc.value, region, {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>);
+
+/** 活动栏说的“侧栏可见”（输出 22）：入口的按下态问它。 */
+const sidebarShowing = computed(() => regionShowing("sidebar"));
 
 /** 视图的标题；声明消失的视图写它的 id，和面板头的标签一样（输出 4）。 */
 const viewTitle = (viewId: string): string => {
@@ -314,7 +478,7 @@ const viewTitle = (viewId: string): string => {
 };
 
 /** 上段的入口：侧栏里的容器，按入口顺序（输出 22、41）。成员是声明消失的视图时照样有入口，点了能看到占位。 */
-const toolEntries = computed((): ToolStripEntry[] => containerEntries(renderedDoc.value, catalog.value, state.value.containers).map((entry) => {
+const toolEntries = computed((): ToolStripEntry[] => regionEntries(renderedDoc.value, "sidebar", catalog.value, state.value.containers).map((entry) => {
     const label = text(entry.label.title);
     const views = entry.views.map(viewTitle);
     // 容器的名称就是它唯一那个视图的标题时，悬停文字不把同一个词写两遍。
@@ -326,12 +490,70 @@ const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntrie
 
 const hostEl = ref<HTMLElement | null>(null);
 
-/** 点入口（输出 22）。焦点不在这里管：鼠标点不抢焦点，原处看不见了由下面“焦点”一节的规则接走（输出 42）。 */
-function selectEntry(container: string): void {
-    const intent = toolEntryIntent(doc.value, container, {sidebarVisible: sidebarShowing.value});
-    if (intent.kind === "show") props.layout.actions.showContainer(intent.container);
-    if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: "sidebar", hidden: true});
+/**
+ * 切换容器时卡片不动、里面的内容滚过去（输出 42）：侧栏竖着滚，右栏、底部面板在入口条下面横着滚（入口横着排，方向跟着入口）。网格同时只有一个交换，
+ * `token` 在三个区域之间递增；`WorkbenchSurface` 补上缝宽与裁切窗交给网格。`slides` 记每个区域滚过几次：入口的选中标记只在自己的区域滚的那一次滑过去。
+ */
+const regionSwap = shallowRef<Omit<GridSwap, "gap" | "window"> | null>(null);
+const slides = shallowRef<Readonly<Record<PanelName, number>>>({sidebar: 0, auxiliarybar: 0, panel: 0});
+
+/**
+ * 点入口切换容器之前（同一个同步段里接着提交）：区域显示着、里面没有最大化的分节时，给网格一次交换，离开的是当前容器的分节、换上来的是新容器的，
+ * 方向按入口顺序。隐藏着、拖到零时按显示长出来（不滚）；有最大化的分节时切换会退出最大化，上一帧是整窗的矩形，照常过渡。列的是文档里的分节，
+ * 没呈现出来的（放不下收走的）由网格忽略；入口条叶前后都在，不在交换里，所以它和卡片顶上那一行不动。
+ */
+function prepareRegionSwap(region: PanelName, next: string): void {
+    // 读已提交的文档，不读入口（入口是拖动预览的）：交换比的是网格上一帧与这一次提交，两头都是已提交的。
+    const entries = regionEntries(doc.value, region, catalog.value, state.value.containers);
+    const current = entries.find((entry) => entry.current)?.id;
+    const maximized = state.value.maximized;
+    if (current === undefined || current === next || !regionShowing(region) || (maximized !== null && regionOf(doc.value, maximized) === region)) return;
+    const containers = regionContainers(doc.value, region);
+    const sectionsOf = (id: string): string[] => [...(containers.find((container) => container.id === id)?.sections ?? [])];
+    const order = entries.map((entry) => entry.id);
+    regionSwap.value = {
+        token: (regionSwap.value?.token ?? 0) + 1,
+        leaving: sectionsOf(current),
+        entering: sectionsOf(next),
+        axis: region === "sidebar" ? "height" : "width",
+        direction: order.indexOf(next) > order.indexOf(current) ? 1 : -1,
+    };
+    slides.value = {...slides.value, [region]: slides.value[region] + 1};
 }
+
+/**
+ * 点活动栏或入口条的入口（输出 22、47）：不是当前容器就切到它（隐藏、拖到零时同一次写入显示），是当前容器且区域可见就隐藏区域。
+ * 焦点不在这里管：鼠标点不抢焦点，原处看不见了由下面“焦点”一节的规则接走（输出 42）。
+ */
+function selectRegionEntry(region: PanelName, container: string): void {
+    const intent = regionEntryIntent(doc.value, region, container, {regionVisible: regionShowing(region)});
+    if (intent.kind === "show") {
+        prepareRegionSwap(region, intent.container);
+        props.layout.actions.showContainer(intent.container);
+    }
+    if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: region, hidden: true});
+}
+
+/**
+ * 右栏、底部面板入口条的入口：区域里的容器，按入口顺序（输出 41、47），和活动栏同一个求值；按下态是当前容器且区域可见。
+ * 收成一个计算属性：模板里每次现算的话，外壳每渲一次两条入口条都拿到新数组、跟着重渲。
+ */
+const stripEntries = computed((): Readonly<Record<"auxiliarybar" | "panel", RegionStripEntry[]>> => {
+    const entriesOf = (region: "auxiliarybar" | "panel"): RegionStripEntry[] => {
+        const showing = regionShowing(region);
+        return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => {
+            const label = text(entry.label.title);
+            const views = entry.views.map(viewTitle);
+            const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
+            const viewId = entry.views.length === 1 ? (entry.views[0] ?? null) : null;
+            // 底部面板的入口是容器的标题，只含一个视图的写那个视图的计数（views.md 输出 17）：并成一行时头不写标题，计数只在这里。右栏的入口是图标，不写。
+            const count = region === "panel" && viewId !== null ? props.views.badge?.(viewId) ?? null : null;
+            return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId, current: entry.current, pressed: entry.current && showing, count};
+        });
+    };
+    return {auxiliarybar: entriesOf("auxiliarybar"), panel: entriesOf("panel")};
+});
+const stripEntriesOf = (region: PanelName): RegionStripEntry[] => (region === "sidebar" ? [] : stripEntries.value[region]);
 
 // ── 入口的右键菜单 ────────────────────────────────────────────────────────
 
@@ -345,6 +567,20 @@ function containerMenuItemsOf(container: string): ContextMenuItem[] {
 }
 
 const containerMenuItems = computed(() => (containerMenu.value === null ? [] : containerMenuItemsOf(containerMenu.value.container)));
+
+/**
+ * 入口条上入口的右键与菜单键（输出 44、47）：容器的菜单。底部面板并成一行时那一节的头不写标题，按下的入口就是它的标题：
+ * 这个入口开那个视图的“移动到”（输出 23），和别处点它的标题一样。
+ */
+function openStripMenu(region: PanelName, merged: string | null, container: string, at: {readonly x: number; readonly y: number}): void {
+    const section = merged === null ? undefined : renderedDoc.value.panels[merged];
+    const key = section?.active ?? null;
+    if (region === "panel" && section?.container === container && key !== null) {
+        openMoveMenu(key, at);
+        return;
+    }
+    openContainerMenu(container, at);
+}
 
 /** 一项都没有时不开：空菜单只会吃掉一次按键。 */
 function openContainerMenu(container: string, at: {readonly x: number; readonly y: number}): void {
@@ -375,6 +611,9 @@ function closeContainerMenu(reason: ContextMenuCloseReason): void {
 
 /** “打开项目”的命令 id：项目插件的公开合同，工作台不为它依赖项目插件的模块。 */
 const OPEN_PROJECT_COMMAND = "nbook.project.open";
+/** “回到书架”的命令 id（同上）：命令在目录里时标题栏才画回书架的入口。 */
+const BACK_TO_SHELF_COMMAND = "nbook.project.back-to-shelf";
+const shelfTitle = computed(() => props.chrome?.commandTitle(BACK_TO_SHELF_COMMAND, resolver) ?? null);
 
 const titleMenus = computed(() => props.chrome?.menus(resolver) ?? []);
 const panelVisible = computed(() => props.layout.actions.partVisible("panel"));
@@ -397,10 +636,16 @@ const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), texta
 /** 在界面上、能接焦点：画出来了，也不在停放的内容里。 */
 const reachable = (element: HTMLElement | null | undefined): element is HTMLElement => element != null && element.offsetParent !== null && element.closest("[inert]") === null;
 
+/** 面板头上的标题按钮；底部面板并成一行时头不写标题，按下的入口就是它的标题（输出 47）。 */
+function titleIn(head: HTMLElement | null): HTMLElement | null {
+    return head?.querySelector<HTMLElement>('[data-panel-tab][tabindex="0"]') ?? head?.closest("[data-region-strip]")?.querySelector<HTMLElement>('[data-region-entry][aria-pressed="true"]') ?? null;
+}
+
 /** 落点在界面上对应的元素；不保证看得见，调用方用 `reachable` 筛。 */
 function landingElement(root: HTMLElement, landing: FocusLanding): HTMLElement | null {
-    if (landing.kind === "entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(landing.container)}"]`);
-    const tab = root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(landing.panel)}"] [data-panel-tab][tabindex="0"]`);
+    // 侧栏的入口在活动栏（`data-tool-entry`），右栏、底部面板的在入口条（`data-region-entry`）；容器 id 在三个区域里不重。
+    if (landing.kind === "entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(landing.container)}"], [data-region-entry="${CSS.escape(landing.container)}"]`);
+    const tab = titleIn(root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(landing.panel)}"]`));
     if (landing.kind === "tab") return tab;
     // 切到的分节：里面第一个能聚焦的；内容还没加载出来、或它收成了标题行时给它的标题。
     const key = doc.value.panels[landing.panel]?.active ?? null;
@@ -419,6 +664,37 @@ function recoverFocus(candidates: (root: HTMLElement) => ReadonlyArray<HTMLEleme
         const active = root.ownerDocument.activeElement;
         if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null) return;
         (candidates(root).find(reachable) ?? root).focus({preventScroll: true});
+    });
+}
+
+/**
+ * 头换了地方时焦点跟过去（输出 13、47）：同一块面板的头在入口条与它自己的叶之间搬家（并成一行、分开、最大化、还原、入口条里换了并进来的那一节），
+ * 旧头卸掉时焦点在它上面就丢了。焦点进头时记下“哪块面板、哪个元素”（标题、框架按钮的命令、接管标题区时单独的展开标记）；同一块面板的新头挂上、
+ * 而焦点已经丢了（在 body 上，或在停放的内容里）时，交给新头里同一个元素，没有就给新头的标题。焦点没丢就不动。
+ */
+let headFocus: {readonly panel: string; readonly selector: string} | null = null;
+function onHostFocusIn(event: FocusEvent): void {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const head = target?.closest<HTMLElement>("[data-panel-head]") ?? null;
+    if (target === null || head === null) {
+        headFocus = null;
+        return;
+    }
+    const action = target.closest<HTMLElement>("[data-panel-action]")?.dataset.panelAction;
+    const selector = action !== undefined ? `[data-panel-action="${CSS.escape(action)}"]` : target.closest("[data-panel-fold]") !== null && target.tagName === "BUTTON" ? "button[data-panel-fold]" : "[data-panel-tab]";
+    headFocus = {panel: head.dataset.panelHead ?? "", selector};
+}
+function onHeadMounted(panelId: string): void {
+    const remembered = headFocus;
+    if (remembered === null || remembered.panel !== panelId) return;
+    void nextTick(() => {
+        const root = hostEl.value;
+        if (root === null) return;
+        const active = root.ownerDocument.activeElement;
+        if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null && active.isConnected) return;
+        const heads = [...root.querySelectorAll<HTMLElement>(`[data-panel-head="${CSS.escape(panelId)}"]`)];
+        const target = heads.map((head) => head.querySelector<HTMLElement>(remembered.selector) ?? titleIn(head)).find(reachable);
+        target?.focus({preventScroll: true});
     });
 }
 
@@ -474,6 +750,7 @@ onMounted(() => {
         sectors: () => props.dropSectors !== false,
         feel: () => props.dragFeel ?? "live",
         cardShrink: () => props.dragCardShrink ?? "strip",
+        cardRefresh: () => props.dragCardRefresh ?? "display",
         settleMotion: () => surface.value?.settleMotion(),
         showPreview: (next) => props.layout.actions.setLivePreview(next),
         placeCard: (rect) => surface.value?.placeLifted(rect),
@@ -574,11 +851,12 @@ const cardTitle = computed(() => (dragSource.value === null ? null : ghostOf(dra
 const wantsGhost = computed(() => dragView.value.ghost);
 /** 拖影的身份；位置经 `moveGhost` 写。 */
 const dragGhost = computed(() => (dragSource.value === null || !wantsGhost.value ? null : ghostOf(dragSource.value)));
-/** 正被拖着、活动栏上留着位置的入口：只含被拖视图的那个容器的。 */
-const toolPlaceholder = computed(() => {
+/** 正被拖着、入口条上留着位置的入口：只含被拖视图的那个容器的。 */
+function entryPlaceholderIn(entries: ReadonlyArray<{readonly id: string; readonly viewId: string | null}>): string | null {
     const viewId = dragPlaceholder.value === null ? null : viewIdOf(dragPlaceholder.value);
-    return viewId === null ? null : (toolEntries.value.find((entry) => entry.viewId === viewId)?.id ?? null);
-});
+    return viewId === null ? null : (entries.find((entry) => entry.viewId === viewId)?.id ?? null);
+}
+const toolPlaceholder = computed(() => entryPlaceholderIn(toolEntries.value));
 /** 并入的盖层：矩形按预览算，来源收起时目标会动，盖层跟着过渡。 */
 const mergeRect = computed(() => {
     const panel = mergeTarget.value;
@@ -586,22 +864,28 @@ const mergeRect = computed(() => {
 });
 const mergeStyle = computed(() => {
     const rect = mergeRect.value;
-    return rect === null ? {} : {transform: `translate(${String(rect.left)}px, ${String(rect.top)}px)`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`};
+    return rect === null ? {} : {left: `${String(rect.left)}px`, top: `${String(rect.top)}px`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`};
 });
 const slotStyle = computed(() => {
     const slot = drag.value?.live.slot.value ?? null;
-    return slot === null ? {} : {transform: `translate(${String(slot.x)}px, ${String(slot.y)}px)`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
+    return slot === null ? {} : {left: `${String(slot.x)}px`, top: `${String(slot.y)}px`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
 });
 
 function dropLabel(drop: LayoutDragDrop): string {
     if (drop.inPlace) return message("shell.drop.inPlace");
     const {action} = drop;
     if (action.kind === "new-container") return message("shell.drop.newContainer");
-    if (action.kind === "move-entry") return message("shell.drop.insert");
-    if (action.kind === "join-container") return message("shell.drop.joinContainer", {part: toolEntries.value.find((entry) => entry.id === action.container)?.label ?? action.container});
+    // 整个容器搬过来也是“放在这里”：入口落在这个空位，和换序一样。
+    if (action.kind === "move-entry" || action.kind === "move-container") return message("shell.drop.insert");
+    if (action.kind === "join-container") {
+        const entries = [...toolEntries.value, ...stripEntries.value.auxiliarybar, ...stripEntries.value.panel];
+        return message("shell.drop.joinContainer", {part: entries.find((entry) => entry.id === action.container)?.label ?? action.container});
+    }
     if (action.kind === "strip") return message("shell.drop.insert");
     if (action.kind === "center") return message("shell.drop.addTab");
     if (action.kind === "float") return message("shell.drop.float");
+    // 带容器的外缘落点只有放进空区域这一种（ADR 0050）：整块一个落点，不说拆到哪一边。
+    if (action.container !== undefined) return message("shell.drop.insert");
     return message(action.target.kind === "between" ? "shell.drop.between" : "shell.drop.split");
 }
 
@@ -610,6 +894,7 @@ const sectorLabels = computed(() => ({
     right: message("shell.drop.sector.right"),
     top: message("shell.drop.sector.top"),
     bottom: message("shell.drop.sector.bottom"),
+    whole: message("shell.drop.insert"),
     center: message("shell.drop.addTab"),
 }));
 
@@ -624,7 +909,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
 </script>
 
 <template>
-    <div ref="hostEl" class="workbench-shell-host" tabindex="-1">
+    <div ref="hostEl" class="workbench-shell-host" tabindex="-1" @focusin="onHostFocusIn">
         <div class="workbench-shell" data-workbench-shell :data-layout-diagnostics="diagnostics" :data-panel-count="panelCount">
             <div class="workbench-shell__titlebar-slot" data-shell-titlebar :style="{height: titlebarHeight}">
                 <WorkbenchTitleBar
@@ -634,10 +919,12 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     :search-shortcut="chrome.searchShortcut()"
                     :layout="layoutButtons"
                     :items="chrome.titleEntries(resolver)"
+                    :shelf="shelfTitle"
                     @run="(command, args) => run(command, {...args})"
                     @search="run(OPEN_COMMANDS_ID)"
                     @toggle-part="(part) => run(SET_PART_HIDDEN_COMMAND, {part})"
                     @open-project="run(OPEN_PROJECT_COMMAND)"
+                    @back-to-shelf="run(BACK_TO_SHELF_COMMAND)"
                     @run-item="(id) => chrome?.runItem(id)"
                 />
                 <div v-else class="workbench-shell__titlebar">
@@ -651,6 +938,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :doc="renderedDoc"
                 :projection="layout.actions.renderedPresentation()"
                 :lifted="liftedCard"
+                :dragging="dragSource !== null"
                 :floats="layout.actions.floats()"
                 :data-drag-feel="drag?.live.active.value === true ? 'live' : 'indicator'"
                 :data-live-preview="drag?.live.previewKey.value ?? 'none'"
@@ -658,6 +946,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :disabled="!state.ready"
                 :title-only-panels="titleOnlyPanelIds"
                 :slot-panel="dragSlotPanel"
+                :swap="regionSwap"
                 context-key="workbench"
                 @extent="onExtent"
                 @card-gap="(gap) => layout.actions.acceptCardGap(gap)"
@@ -675,9 +964,10 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :entries="toolEntries"
                         :placeholder="toolPlaceholder"
                         :highlighted="mergeEntry"
+                        :slide-token="slides.sidebar"
                         :items="stripItems"
                         :drag-hint="message('shell.drag.hint')"
-                        @select="selectEntry"
+                        @select="(id) => selectRegionEntry('sidebar', id)"
                         @run-item="(id) => chrome?.runItem(id)"
                         @context-menu="openContainerMenu"
                     />
@@ -697,31 +987,42 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @discard="layout.actions.discard()"
                     />
                 </template>
+                <template #empty-region>
+                    <div class="workbench-shell__empty-region" data-empty-region>{{ message("shell.emptyRegion") }}</div>
+                </template>
                 <template #head="{panelId, idPrefix}">
                     <template v-if="renderedDoc.panels[panelId]?.role === 'editor'">
                         <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :dragging-tab="dragPlaceholder" :frame-actions="editorFrameActions(panelId)" />
                     </template>
-                    <WorkbenchPanelHead
-                        v-else
-                        :panel-id="panelId"
-                        :label="text(panelTitle(renderedDoc, catalog, panelId))"
-                        :tabs="headTabs(panelId)"
-                        :active="renderedDoc.panels[panelId]?.active ?? null"
-                        :more-label="message('common.more')"
-                        :id-prefix="idPrefix"
-                        :drag-hint="message('shell.drag.hint')"
-                        :dragging-tab="dragPlaceholder"
-                        :title-only="titleOnlyPanelIds.has(panelId)"
-                        :frame-actions="frameActionsOf(panelId)"
-                        @activate="(key) => layout.actions.activate(key)"
-                        @reorder="(key, delta) => layout.actions.reorderTab(key, delta)"
-                        @action="(action) => run(action, {panelId})"
-                        @context-menu="openMoveMenu"
-                    >
+                    <WorkbenchPanelHead v-else v-bind="toolHeadProps(panelId, idPrefix)" v-on="toolHeadEvents(panelId)" @vue:mounted="onHeadMounted(panelId)">
                         <template v-if="headActions.has(panelId)" #actions>
                             <TitleActions :model="headActions.get(panelId)!.model" :identity="viewIdentity(headActions.get(panelId)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(panelId)!.viewId, key)" />
                         </template>
                     </WorkbenchPanelHead>
+                </template>
+                <template #strip="{region, merged, idPrefix}">
+                    <WorkbenchRegionStrip
+                        :region="region"
+                        :label="message(region === 'panel' ? 'shell.regionStrip.panel' : 'shell.regionStrip.auxiliarybar')"
+                        :more-label="message('common.more')"
+                        :entries="stripEntriesOf(region)"
+                        :variant="region === 'panel' ? 'titles' : 'icons'"
+                        :head-min-width="merged === null ? 0 : headOwnReserve(merged)"
+                        :slide-token="slides[region]"
+                        :drag-hint="message('shell.drag.hint')"
+                        :placeholder="entryPlaceholderIn(stripEntriesOf(region))"
+                        :highlighted="mergeEntry"
+                        @select="(id) => selectRegionEntry(region, id)"
+                        @context-menu="(id, at) => openStripMenu(region, merged, id, at)"
+                    >
+                        <!-- 并进来的那一节的头：同分节的头，以面板为 key，换了并进来的那一节就是新的头（head-slots 先 null 再给新的、焦点交接）。 -->
+                        <!-- 底部面板的入口写着容器的标题，并进来的头不再写一遍（输出 47）。 -->
+                        <WorkbenchPanelHead v-if="merged !== null" :key="merged" v-bind="toolHeadProps(merged, idPrefix)" :title-in-entry="region === 'panel'" v-on="toolHeadEvents(merged)" @vue:mounted="onHeadMounted(merged)">
+                            <template v-if="headActions.has(merged)" #actions>
+                                <TitleActions :model="headActions.get(merged)!.model" :identity="viewIdentity(headActions.get(merged)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(merged)!.viewId, key)" />
+                            </template>
+                        </WorkbenchPanelHead>
+                    </WorkbenchRegionStrip>
                 </template>
                 <template #lifted-head="{contentKey}">
                     <div class="workbench-shell__card-head" data-drag-card-head>
@@ -738,9 +1039,8 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     <template v-if="drag?.live.active.value === true">
                         <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
                         <!-- 按目标换元素：换目标时不从上一块滑过来，在新的这块淡入。 -->
-                        <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle">
-                            <span class="workbench-shell__merge-label">{{ message("shell.drop.addTab") }}</span>
-                        </div>
+                        <!-- 不写字：落点的文字在卡片头上，盖层中间的字压在内容上，指针在中央时还被卡片挡住。 -->
+                        <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle"></div>
                     </template>
                 </template>
                 <template #float-chrome="{id, rect}">
@@ -819,31 +1119,22 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
     pointer-events: none;
 }
 
-/* 并入：目标变暗加内描边。来源收起时目标会动，过渡和外框同一条曲线；样式走令牌，主题能换。 */
+/* 并入：目标变暗加内描边。来源收起时目标会动，过渡和外框同一条曲线、同样用 left/top（见 nb-layout 的 `gridRectStyle`）；样式走令牌，主题能换。 */
 .workbench-shell__merge {
     position: absolute;
     top: 0;
     left: 0;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
     box-sizing: border-box;
     border-radius: var(--layout-card-radius);
     background: var(--layout-merge-fill);
     box-shadow: inset 0 0 0 var(--layout-merge-border-width) var(--layout-merge-border);
     pointer-events: none;
     transition:
-        transform var(--motion-layout) var(--ease-layout),
+        left var(--motion-layout) var(--ease-layout),
+        top var(--motion-layout) var(--ease-layout),
         width var(--motion-layout) var(--ease-layout),
         height var(--motion-layout) var(--ease-layout);
     animation: workbench-shell-merge-in var(--motion-fast) var(--ease-layout);
-}
-
-.workbench-shell__merge-label {
-    color: var(--text-main);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    white-space: nowrap;
 }
 
 @keyframes workbench-shell-merge-in {
@@ -918,6 +1209,20 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
 
 .workbench-shell__missing-close {
     color: var(--accent-text);
+}
+
+/* 打开着的空区域（ADR 0050）：整块卡片里正中一句提示，没有头；整块是落点，提示不接指针。 */
+.workbench-shell__empty-region {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: var(--space-3);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    text-align: center;
+    pointer-events: none;
 }
 
 .workbench-shell__welcome {

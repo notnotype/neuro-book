@@ -38,6 +38,11 @@ interface MarkdownDisplayProps {
     /** 图片地址到可显示地址的换算；省略时图片显示说明文字。 */
     resolveAsset?: (address: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;
 }
+```
+
+表情写法（[agent.stickers](../agent/stickers.md)）经宿主端口查表情：宿主给 `resolveSticker(raw, signal)`，交回 `{url, width, height, release()}` 或 null（认不出）；目录还没到时它等到有结果为止，期间显示占位。展示器与 Markdown 编辑器用同一个端口；没有提供时表情写法显示原文。
+
+```ts
 
 type MarkdownDisplayActivation =
     | {kind: "reference"; target: string}

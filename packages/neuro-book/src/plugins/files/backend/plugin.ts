@@ -32,6 +32,7 @@ import type {Batch, BatchControl} from "./batch";
 import {createOperations} from "./operations";
 import type {Operations} from "./operations";
 import {addThemeAssetRoutes} from "./theme-asset-route";
+import {addUploadRoutes} from "./upload-route";
 import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
 import {SCHEMES_POINT, schemesPoint} from "../shared/schemes";
 import {workspaceFilesKey} from "../shared/workspace-files";
@@ -112,7 +113,7 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
     return {
         methods: {
             list: (input) => service.list(input.path),
-            find: (input) => service.find(input.query, input.limit),
+            find: (input) => service.find(input.query, input.limit, input.extensions),
             read: (input) => service.read(input.path),
             realPath: async (input) => {
                 if (input.follow !== true) return service.realPath(input.path);
@@ -245,6 +246,8 @@ const serverEntry = defineEntry({
         const workspaceDeps = {own: {scheme: "user", root: backend}, registry: schemes, projects: registry === null ? null : createProjectsAccess(registry, context.remote), signal: context.signal, sourceOf, report: reportStage} as const;
         const ownFiles = ownWorkspaceFiles(workspaceDeps, {instanceId: "nbook.files/http", location: "server", client: null, plugin: descriptor.id, entry: "server", generation: null, via: null});
         addThemeAssetRoutes(routes, {userRoot: root.real, write: (address, bytes) => ownFiles.write(address, bytes, {expect: "absent", createParents: true}), delete: (items) => ownFiles.delete(items)});
+        // 往作品里写图片：与按地址读取字节同一个地址，写入经 `projects://` 交项目实例提交（`upload-route.ts`）。
+        addUploadRoutes(routes, {projects: registry, files: ownFiles});
         return {
             services: [
                 provideWorkspaceFiles(workspaceDeps),

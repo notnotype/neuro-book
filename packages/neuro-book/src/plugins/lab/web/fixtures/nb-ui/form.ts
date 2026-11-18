@@ -1,19 +1,18 @@
 /**
- * nb-ui 表单类（`form/`）的场景。
- *
- * 日期与时间组件的值是 `@internationalized/date` 的对象，不是 JSON，进不了场景输入：这些场景从空值开始、
- * 当作非受控组件用，选出的值经 `update:modelValue` 记进事件页签。
+ * nb-ui 表单类（`form/`）的场景。`DateInput` 的值是 `YYYY-MM-DD` 字符串，与别的字段一样受控。
  */
 
 import type {
     CheckboxGroup,
     ColorSwatches,
     Checkbox,
+    DateInput,
     Field,
     Input,
     NumberInput,
     SearchSelect,
     Select,
+    TagInput,
     Textarea,
     RadioGroup,
     Slider,
@@ -89,6 +88,31 @@ export const formFixtures: LabFixture[] = [
             {id: "bare", label: "无外框（卡片里原地编辑）", input: {props: {variant: "bare", size: "sm", placeholder: "注音"}, model: {modelValue: "lín xī"}}},
         ],
         subject: nbUiSubject("Input"),
+    }),
+    defineSubjectFixture<typeof DateInput>({
+        component: "DateInput",
+        scenes: [
+            {id: "default", label: "章节的故事时间", input: {props: {}, model: {modelValue: "2025-12-21"}}},
+            {id: "empty", label: "没有日期", input: {props: {}, model: {modelValue: null}}},
+            {id: "bare", label: "无外框（卡片里原地编辑）", input: {props: {variant: "bare", size: "sm"}, model: {modelValue: "2025-12-21"}}},
+            {id: "readonly", label: "只读", input: {props: {readonly: true}, model: {modelValue: "2025-12-21"}}},
+            {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: "2025-12-21"}}},
+            {id: "invalid", label: "出错", input: {props: {invalid: true}, model: {modelValue: "2025-12-21"}}},
+        ],
+        subject: nbUiSubject("DateInput"),
+    }),
+    defineSubjectFixture<typeof TagInput>({
+        component: "TagInput",
+        class: "w-full max-w-[360px]",
+        scenes: [
+            {id: "default", label: "这一章的地点", input: {props: {}, model: {modelValue: ["青石镇", "北山"]}}},
+            {id: "empty", label: "没有项：占位", input: {props: {placeholder: "地点"}, model: {modelValue: []}}},
+            {id: "wrap", label: "项多换行", input: {props: {}, model: {modelValue: ["青石镇", "北山", "渡口", "客栈二楼", "井台", "林家老宅", "沈舟的船"]}}},
+            {id: "bare", label: "无外框（卡片里原地编辑）", input: {props: {variant: "bare", size: "sm"}, model: {modelValue: ["林雪", "沈舟"]}}},
+            {id: "readonly", label: "只读", input: {props: {readonly: true}, model: {modelValue: ["青石镇", "北山"]}}},
+            {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: ["青石镇", "北山"]}}},
+        ],
+        subject: nbUiSubject("TagInput"),
     }),
     defineSubjectFixture<typeof NumberInput>({
         component: "NumberInput",

@@ -2,8 +2,8 @@
  * nb-agent-ui 自带的目录（docs/specs/ui/i18n.md 的“目录与键”）。
  *
  * 防止迁移改错文字：`LEGACY` 是迁移前（提交 5343894f2 的 `src/messages.ts`）两张表的原样，占位符还是旧的 `{name}` 写法，
- * 英文带数量的是 `{one, other}`（`by` 指按哪个参数选）。目录里每个键（复数形归到不带后缀的键）都要在表里、表里每个键
- * 都要在目录里，值换成 `{{name}}` 后逐字相同。以后有意改文字时，同一次改动里同步改这张表。
+ * 英文带数量的是 `{one, other}`（`by` 指按哪个参数选）。表里每个键都要在目录里，值换成 `{{name}}` 后逐字相同；以后有意改
+ * 这些键的文字时，同一次改动里同步改这张表。表冻结在 t30 之前的那些键：之后新加的键不进表，只核对中英两份的键与占位符一致。
  *
  * 仓库的目录检查（`scripts/ci/message-catalogs.ts`）只查 JSON 目录，这份 `.ts` 目录的键与占位符一致性由这里核对。
  */
@@ -20,13 +20,9 @@ type LegacyEnglish = string | {readonly by?: string; readonly one: string; reado
 
 const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": LegacyEnglish}>> = {
     "header.untitled": {"zh-CN": "未命名会话", "en-US": "Untitled conversation"},
-    "header.noSession": {"zh-CN": "未选择会话", "en-US": "No conversation selected"},
     "header.more": {"zh-CN": "更多操作", "en-US": "More actions"},
     "header.rawView": {"zh-CN": "原始视图", "en-US": "Raw view"},
     "header.turnsView": {"zh-CN": "分轮视图", "en-US": "Turn view"},
-    "header.path": {"zh-CN": "会话路径", "en-US": "Conversation path"},
-    "header.morePath": {"zh-CN": "更多上级会话", "en-US": "More parent conversations"},
-    "header.unknownSession": {"zh-CN": "未知会话", "en-US": "Unknown conversation"},
     "stream.empty": {"zh-CN": "还没有消息", "en-US": "No messages yet"},
     "stream.loading": {"zh-CN": "正在加载会话", "en-US": "Loading the conversation"},
     "stream.phraseSeparator": {"zh-CN": "，", "en-US": ", "},
@@ -243,6 +239,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "compactionDetail.restored": {"zh-CN": "放回", "en-US": "Restored"},
     "compactionDetail.kinds.file": {"zh-CN": "文件", "en-US": "File"},
     "compactionDetail.kinds.plan": {"zh-CN": "计划", "en-US": "Plan"},
+    "compactionDetail.kinds.skill": {"zh-CN": "Skill", "en-US": "Skill"},
     "compactionDetail.kinds.log": {"zh-CN": "对话记录", "en-US": "Conversation log"},
     "compactionDetail.truncated": {"zh-CN": "只放回了前一部分", "en-US": "only the first part"},
     "kernel.tool.deniedByUser": {"zh-CN": "已被你拒绝", "en-US": "Denied by you"},
@@ -296,11 +293,10 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "wizard.modeSwitch.decline": {"zh-CN": "不同意", "en-US": "Don't switch"},
     "composer.plus": {"zh-CN": "添加", "en-US": "Add"},
     "composer.plusReference": {"zh-CN": "引用文件", "en-US": "Reference a file"},
-    "composer.plusSkill": {"zh-CN": "使用技能", "en-US": "Use a skill"},
+    "composer.plusSkill": {"zh-CN": "使用 Skill", "en-US": "Use a Skill"},
     "composer.plusCommand": {"zh-CN": "运行命令", "en-US": "Run a command"},
     "composer.approvalModeWhileGated": {"zh-CN": "审批模式：{mode}（{current}模式下不改作品，切回普通模式后按它走）", "en-US": "Approval mode: {mode} (nothing changes in {current} mode; this applies after switching back to Normal)"},
     "composer.modeChanged": {"zh-CN": "已切到{mode}模式", "en-US": "Switched to {mode} mode"},
-    "status.modeFlag": {"zh-CN": "{mode}模式", "en-US": "{mode} mode"},
     "kernel.tool.modeBlocked": {"zh-CN": "当前模式下不能修改，切换模式后再试", "en-US": "Not allowed in the current mode; switch modes and try again"},
     "wizard.approval.allowAlways": {"zh-CN": "以后都允许", "en-US": "Always allow"},
     "wizard.approval.allowAlwaysHint": {"zh-CN": "写进“我的规则”，所有作品都生效；可以在设置里改", "en-US": "Added to My rules, for every book; you can change it in Settings"},
@@ -317,7 +313,6 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "status.stopSlow": {"zh-CN": "工具未响应，正在等待", "en-US": "A tool isn't responding; still waiting"},
     "status.retry": {"zh-CN": "重发 {attempt}/{max}，{seconds} 秒后", "en-US": "Retry {attempt}/{max} in {seconds} s"},
     "status.costWarned": {"zh-CN": "超过告警线", "en-US": "Over the warning line"},
-    "status.yolo": {"zh-CN": "全部放行", "en-US": "Everything allowed"},
     "status.connecting": {"zh-CN": "正在重连", "en-US": "Reconnecting"},
     "status.disconnected": {"zh-CN": "连接断开", "en-US": "Disconnected"},
     "status.free": {"zh-CN": "免费", "en-US": "Free"},
@@ -431,21 +426,37 @@ function grouped(locale: string): Map<string, Map<string, string>> {
 }
 
 describe("nb-agent-ui 的目录", () => {
-    it("中文：每个键的文字与迁移前逐字相同（占位符换成 {{name}}），带数量的写成 _other，键与旧表一一对应", () => {
+    it("中文：旧表里每个键的文字与迁移前逐字相同（占位符换成 {{name}}），带数量的写成 _other", () => {
         const zh = grouped("zh-CN");
-        expect([...zh.keys()].sort()).toEqual(Object.keys(LEGACY).sort());
+        expect(Object.keys(LEGACY).filter((key) => !zh.has(key))).toEqual([]);
         for (const [key, legacy] of Object.entries(LEGACY)) {
             const expected = typeof legacy["en-US"] === "string" ? new Map([["", newPlaceholders(legacy["zh-CN"])]]) : new Map([["_other", newPlaceholders(legacy["zh-CN"])]]);
             expect({key, forms: zh.get(key)}).toEqual({key, forms: expected});
         }
     });
 
-    it("英文：每个键的文字与迁移前逐字相同，旧表分单复数的写成 _one 与 _other，其余不分", () => {
+    it("英文：旧表里每个键的文字与迁移前逐字相同，旧表分单复数的写成 _one 与 _other，其余不分", () => {
         const en = grouped("en-US");
-        expect([...en.keys()].sort()).toEqual(Object.keys(LEGACY).sort());
+        expect(Object.keys(LEGACY).filter((key) => !en.has(key))).toEqual([]);
         for (const [key, {"en-US": legacy}] of Object.entries(LEGACY)) {
             const expected = typeof legacy === "string" ? new Map([["", newPlaceholders(legacy)]]) : new Map([["_one", newPlaceholders(legacy.one)], ["_other", newPlaceholders(legacy.other)]]);
             expect({key, forms: en.get(key)}).toEqual({key, forms: expected});
+        }
+    });
+
+    it("旧表之外的键：中英两份的键相同，中文带数量的只写 _other、英文写 _one 与 _other，两种语言的占位符相同", () => {
+        const zh = grouped("zh-CN");
+        const en = grouped("en-US");
+        const added = [...zh.keys()].filter((key) => !(key in LEGACY)).sort();
+        expect([...en.keys()].filter((key) => !(key in LEGACY)).sort()).toEqual(added);
+        const placeholders = (text: string) => [...text.matchAll(/\{\{(\w+)\}\}/gu)].map((match) => match[1]).sort();
+        for (const key of added) {
+            const zhForms = zh.get(key)!;
+            const enForms = en.get(key)!;
+            const plural = zhForms.has("_other");
+            expect({key, zh: [...zhForms.keys()]}).toEqual({key, zh: [plural ? "_other" : ""]});
+            expect({key, en: [...enForms.keys()].sort()}).toEqual({key, en: plural ? ["_one", "_other"] : [""]});
+            for (const form of enForms.values()) expect({key, placeholders: placeholders(form)}).toEqual({key, placeholders: placeholders([...zhForms.values()][0]!)});
         }
     });
 

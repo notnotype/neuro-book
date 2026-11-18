@@ -1,0 +1,26 @@
+w00046 t03 Windows 验收第 1 轮（2026-11-15，pc-notype：Windows 11 26200 x64，单屏 2560x1440、缩放 100%，任务栏 48px，WebView2 157）
+
+构建：t03 分支 4eef85139（切片 1、2）。worktree 里 release:smoke 出发布清单，desktop/scripts/build.ts 组装 win32-x64 载荷（2069 个文件）；
+desktop 工程打包传到 pc-notype，Hutch 0.29.0 / Electrobun 2.0.6 `hutch electrobun build --env=dev`（可直接运行，不安装），测试标识
+io.github.notnotype.neurobook.t03test。构建日志：embedded Windows icon in launcher.exe / bun.exe；Resources\app\neurobook.ico 在包里。
+启动：.cmd 设 NBOOK_STATE_ROOT=%USERPROFILE%\nb-w00046\t03\state（新建，登记一部测试作品 book）与
+WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9334，经 /it 计划任务进桌面会话。
+取证：脚本 windows-frame-check.ts.txt（独立的 Bun 运行）。经 CDP 读产品页面里元素的位置、在页面里点按钮；经 user32 做命中测试
+（WindowFromPoint + WM_NCHITTEST）、读窗口样式、WM_GETICON、最大化几何。不截屏，不发系统鼠标输入。控制台把中文按 GBK 显示成乱码，
+下面按原文写。
+
+结果（RESULT ok）：
+1. 启动页（views://shell/index.html）：能力标记为 1，顶上的拖动条显示、计算值 drag，三个按钮“最小化”“最大化”“关闭”。
+2. 产品窗口：标题 NeuroBook；样式 0x16cf0000，含 WS_SYSMENU、WS_MINIMIZEBOX、WS_MAXIMIZEBOX；WM_GETICON 大小两个都非 0。
+3. 工作台命中测试：标题栏空白处（左端标志所在的 drag 区间）HTCAPTION；菜单触发器、搜索、最小化、关闭、正文都是 HTCLIENT。
+   第 1 次取样点取在搜索左边 30px，落在菜单栏的“帮助”上，回 HTCLIENT 是对的；改为横扫这一行、取计算值为 drag 的区间。
+4. 最大化（系统 ShowWindow）：IsZoomed，客户区 (0,0) 2560x1392，与工作区 (0,0)-(2560,1392) 相同，任务栏不压页面；页面按钮名变“还原”。
+   还原后按钮名回到“最大化”。
+5. 页面按钮：点“最大化”后 IsZoomed、名字“还原”；再点还原；点“最小化”后 IsIconic。
+6. 并发：页面里 window.open 三次，共 4 个窗口，逐个 ShowWindow 最大化再还原；4 个页面都就绪、都有窗口按钮；点其中 3 个的关闭按钮，
+   剩 1 个窗口。壳没有卡住。
+7. 书架首页（后备标题栏）：#app 顶边 36px；后备标题栏中点 HTCAPTION，其下 HTCLIENT。
+8. 最后一个窗口点关闭：经关闭前询问（没有未保存的修改、没有在跑的工作，直接同意），服务端有序停止，壳与服务端进程都退出。
+
+未验证（要真实操作）：拖动标题栏移动窗口、双击最大化与还原、拖到屏幕边缘贴边、Alt+Space 系统菜单、点标题栏空白处时开着的菜单会不会关。
+合成输入不可靠，也会动开发者的鼠标，请开发者在 pc-notype 上试：双击 %USERPROFILE%\nb-w00046\t03\launch.cmd。

@@ -1,0 +1,17 @@
+t18 Windows 验收（pc-notype，2026-11-17）：Hutch 0.29.0 构建的测试版（标识 io.github.notnotype.neurobook.t18test，含 master 上的 t13、t16 与本分支 t18），脚本 t18/check.ts 用 CDP 与 user32 查询，没有截屏与输入模拟。
+窗口尺寸是外框；ptMinTrackSize 816x568 = 客户区 800x560 加上 8 像素的左右、顶底边框（96 DPI）。
+
+startup phase (product pages=0): window 1280x800 client 1264x792 minTrack 0x0 dpi 96 zoomed=false iconic=false
+first window as product page: window 1280x800 client 1264x792 minTrack 816x568 dpi 96 zoomed=false iconic=false
+maximized: window 2576x1408 client 2560x1392 minTrack 0x0 dpi 96 zoomed=true iconic=false
+minimized: window 160x28 client 0x0 minTrack 0x0 dpi 96 zoomed=false iconic=true
+restored: window 1280x800 client 1264x792 minTrack 816x568 dpi 96 zoomed=false iconic=false
+second window: window 1280x800 client 1264x792 minTrack 816x568 dpi 96 zoomed=false iconic=false
+window opened after closing one: window 1280x800 client 1264x792 minTrack 816x568 dpi 96 zoomed=false iconic=false
+page: {"controls":[1144,0,120,36],"close":[1230,0,34,36],"brand":null,"innerWidth":1264,"innerHeight":792}
+opened the test book from the bookshelf
+editor tab after typing: <button data-v-aadd2152="" data-editor-tab="t-4f4d28ed-661e-41c5-88f5-7a53a932dc6d" type="button" role="tab" class="nb-tab nb-ui-focus-ring-inset" aria-selected="true" aria-description="按空格拿起并拖动" tabindex="0" title="project://notes/a.md" data-panel-tab="tab:t-4f4d28ed-661e-41c5-88f5-7a53a932dc6d" da
+after clicking the brand with unsaved text: dialogs=[["beforeunload",""],["beforeunload",""]]
+after cancelling: url=http://127.0.0.1:4517/?project=book
+shell.log min-size lines: (none)
+RESULT ok

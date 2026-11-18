@@ -289,6 +289,14 @@ function commentElement(target: EventTarget | null): Element | null {
     return element !== null && props.editor !== null && props.editor.view.dom.contains(element) ? element : null;
 }
 
+/**
+ * 按住 Ctrl 点链接是打开链接（输出 53）：同一段文字既是链接又是批注时链接优先，本层不处理这次点击，留给 ProseMirror 的
+ * `MarkdownLinkOpener`。要看这条批注用小符号、页边或 Ctrl 悬停。
+ */
+function onLink(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest("a[href]") !== null;
+}
+
 /** 指针下的小符号（`MarkdownCommentMarkers`）；只认编辑器里的。 */
 function markerElement(target: EventTarget | null): Element | null {
     const element = target instanceof Element ? target.closest("[data-comment-marker]") : null;
@@ -356,7 +364,7 @@ function onPointerLeave(): void {
 /** 点符号与按住 Ctrl 点批注文字是“看”：不移动光标、不夺焦，也不让 ProseMirror 把 Ctrl 加点击当成“选中整个块”。捕获阶段先于它处理。 */
 function onMouseDown(event: MouseEvent): void {
     if (event.button !== 0 || !canView()) return;
-    if (markerElement(event.target) !== null || (peeking(event) && commentElement(event.target) !== null)) event.preventDefault();
+    if (markerElement(event.target) !== null || (peeking(event) && !onLink(event.target) && commentElement(event.target) !== null)) event.preventDefault();
 }
 
 function onClick(event: MouseEvent): void {
@@ -366,7 +374,7 @@ function onClick(event: MouseEvent): void {
         toggleMarker(marker);
         return;
     }
-    const element = peeking(event) ? commentElement(event.target) : null;
+    const element = peeking(event) && !onLink(event.target) ? commentElement(event.target) : null;
     if (element === null) return;
     pointer = {x: event.clientX, y: event.clientY};
     overComment = element;
@@ -375,7 +383,7 @@ function onClick(event: MouseEvent): void {
 
 /** 在正文里按下：要编辑了，卡片收起、这一次悬停不再弹。符号与按住 Ctrl 的点击是“看”，由 `click` 处理。 */
 function onPointerDown(event: PointerEvent): void {
-    if (markerElement(event.target) !== null || (peeking(event) && commentElement(event.target) !== null)) return;
+    if (markerElement(event.target) !== null || (peeking(event) && !onLink(event.target) && commentElement(event.target) !== null)) return;
     closeView(true);
 }
 

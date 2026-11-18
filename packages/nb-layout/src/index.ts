@@ -7,7 +7,8 @@ export * from "./layout-doc";
 export * from "./layout-project";
 export * from "./layout-drop";
 export * from "./live-drop";
-export type {GridContentInput, GridFloatInput, GridRect} from "./grid-rects";
+export type {GridContentInput, GridFloatInput, GridLeafShape, GridRect} from "./grid-rects";
+export type {GridSwap, GridSwapWindow} from "./grid-swap";
 export * from "./sash-drag";
 export {
     DRAG_GESTURE_DEFAULTS,
@@ -84,3 +85,5 @@ export {
     type SplitterGestureSource,
     type SplitterGestureState,
 } from "./splitter-gesture";
+export {moveInSections, slotOfKey, SORTABLE_STICKY_PX, sortableSlotIn, sortableSlots} from "./sortable";
+export type {SortableAxis, SortableLayout, SortableSection, SortableSlot, SortableSpan, SortableSwitch} from "./sortable";

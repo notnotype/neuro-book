@@ -1,0 +1,101 @@
+### 1. 淘汰与占位之间的异步空档使并发接收突破总数上限
+- 严重程度：中；类别：并发与资源上限。
+- 位置：packages/neuro-book/src/plugin-platform/backend/uploads.ts:122-134。
+- 问题：reserve() 发现已满后，remove() 同步从 entries 删除旧项，随后 await 磁盘删除；新上传到 await 之后才登记。空档内另一 receive() 看到空位并登记，前一请求恢复后不复查容量，也再登记，突破合同规定的 8 个上传。
+- 触发场景：已有 8 个上传，至少 1 个可用；同时发起 2 个 POST。第一个淘汰可用项且等待 rm，第二个抢占空位，第一个恢复后产生第 9 个。可用项更多或清理较慢时可进一步超额，接收中的项又不能淘汰。
+- 核实：被审 HEAD 5200a425a，Bun 1.4.4，实现 worktree 内实际调用公开 receive()，真实文件系统，maxUploads=1；先成功接收 1 个，再 Promise.allSettled([receive(), receive()])，两者均 fulfilled，目录实存 2 个。不是 Bun 行为推测。
+- 建议：容量检查、淘汰标记与新项占位放在同一个无 await 的临界段；先在内存中替换被淘汰项并占位，再等待磁盘删除，或串行化 reserve()。补并发淘汰测试，断言接收中与可用上传总数不超限。
+
+### 2. stop() 没有取消正在等待请求体的接收，也不等待清理完成
+- 严重程度：中；类别：停机与资源收口。
+- 位置：packages/neuro-book/src/plugin-platform/backend/uploads.ts:143-148,153-164,197-201；packages/neuro-book/src/plugin-platform/backend/uploads.test.ts:243-260。
+- 问题：stop() 只设置 stopped 并撤销计时器；既没有跟踪/取消接收中的 reader，也不等待 receive() 的清理。stopped 只在 sink.write() 检查，挂在 reader.read() 的上传直到客户端再发数据或断开才有反应；只有零字节文件的上传甚至在 stop() 后仍可完整成功。这不符合 Spec 输出 11“服务端停止时取消正在接收的上传”及计划“取消并等它们收尾”。
+- 触发场景：POST 只发帧头前 2 字节并保持连接，服务端调用 stop()，客户端不再发送；接收永久挂起且暂存目录仍在。或者 stop() 后发送一个 size=0 的合法帧，仍签发可用 id。
+- 核实：Bun 1.4.4、HEAD 5200a425a，真实 Bun.serve + 上传路由 + 暂存区，实际观察 stop 后 100ms 请求仍在读、目录仍存在，客户端 abort 后才收口；另对公开 receive() 实测 stop 后零字节帧成功（files=1, bytes=33）。现有 stop 测试主动再推送非空内容，只覆盖“下一次写入失败”，掩盖了挂起分支。
+- 建议：登记每次接收的取消控制器/reader 及完成 Promise，停止时拒绝新接收、主动取消所有接收并 await 清理；零字节帧也受停机约束。补不再发送任何字节的真实 HTTP 停机用例，而不是靠额外 push 触发失败。
+
+### 3. 忽略 FileHandle.write() 的 bytesWritten，短写时把截断文件当作成功上传
+- 严重程度：中；类别：正确性与数据完整性。
+- 位置：packages/neuro-book/src/plugin-platform/backend/uploads.ts:143-145。
+- 问题：每块只 await handle.write(chunk)，不检查已写字节数。文件写入允许短写；解析器却把整块都计入已接收内容，随后关闭文件并返回成功。上传 id、files、bytes 看似正确，磁盘上的内容已经截断，后续预览/安装可能直接接受不完整的入口或资源。
+- 触发场景：单块 4096 字节，系统文件大小限制、磁盘空间不足等使 write 成功但只写入其中一部分，后面没有新的写操作触发错误。
+- 核实：Bun 1.4.4、HEAD 5200a425a，实际用 prlimit --fsize=1024:1024 bun -e 调公开 receive()，发送 size=4096 的 data.bin（真实文件系统、无 mock）。receive 成功返回 files=1、bytes=4131；stat 与读回都只有 1024 字节。使用系统真实限制，不是伪造 FileHandle 返回值。
+- 建议：循环写完每个 chunk，根据 bytesWritten 前进 offset；写入为 0 或错误时按 upload-failed 失败并清理，不可把未写部分当作完成。补短写情况下读回字节必须与输入一致或整个接收失败的回归覆盖。
+
+### 4. 上传停止只挂能力 release，发生在 HTTP 排空之后，无法在停机开头中止上传
+- 严重程度：中；类别：宿主装配与生命周期。
+- 位置：packages/neuro-book/src/server/start.ts:221-226；调用顺序见 packages/nb-host/src/server/start.ts:370-384、packages/nb-host/src/server/host.ts:128-141。
+- 问题：宿主只在能力 release 调 uploads.stop()。实际 requestStop 先等待 beforeStop 的 HTTP/RPC 排空，再 application.stop()，最后才释放能力。即使修好第 2 条的主动取消，停机仍会先等上传把排空耗尽，不能满足计划“停止时取消正在接收的请求，否则排空要等到超时”。这是独立的接线时序问题。
+- 触发场景：产品服务端已有一个只发帧头 2 字节、不再发送也不断开的 POST /api/nbook.plugins/uploads；此时请求停止。该请求仍计入 HTTP 在途，stop 到不了，必须等 20 秒排空截止，然后以关闭未完成退出。
+- 核实：HEAD 5200a425a、Bun 1.4.4，实际 startClaimedServer（产品 startServer 装配、真实 HTTP），注入现成 DrainClock 仅手动触发截止。requestStop 后 100ms 仍等待，activeRequests=1、暂存目录仍在；触发截止后 exitCode=1、failures=["停止步骤失败：排空"]。原始短帧走真实客户端，不是内部构造在途状态。
+- 建议：把已创建的 uploads 保存给宿主 extension，在 stopping 同步段先停止接纳/取消接收，与排空并行 await 它的收口 Promise；能力 release 保持幂等兜底。补经产品装配的“停机主动取消半帧上传，不触发排空截止、以 0 停止”测试。
+
+### 5. Windows 保留设备名漏掉 COM/LPT 的上标数字写法
+- 严重程度：低；类别：跨平台路径合同。
+- 位置：packages/neuro-book/src/plugin-platform/shared/plugin-upload.ts:45-46,62。
+- 问题：RESERVED_NAME 只匹配 ASCII [1-9]，放行 COM¹、COM²、COM³、LPT¹、LPT²、LPT³ 及带扩展名的写法，不符合“不论服务端系统都拒绝 Windows 保留名”的合同。Linux 上会当普通文件接收，结果不具备约定的 Windows 可移植性。
+- 触发场景：上传 path="COM¹"、"LPT².txt" 或 "com³/a.txt"。三个输入调用 uploadPathProblem() 均实际返回 null。
+- 证据边界：路径校验已在 Linux/Bun 1.4.4 实跑；Windows 文件系统行为未实跑，不声称 Bun/Windows 一定会访问设备。Microsoft 官方 Naming Files, Paths, and Namespaces 文档明确列出这些保留名（Naming Conventions；https://learn.microsoft.com/en-gb/windows/win32/fileio/naming-a-file）。
+- 建议：COM/LPT 后缀扩为 [1-9¹²³]，加带扩展名与目录段用例。不要用 NFKC 整体替换当前 NFC 规则，以免无意扩大其它路径的归一化。
+
+### 6. 长度在 NFC 前检查，规范化后可超过单段或整条上限
+- 严重程度：低；类别：路径校验与失败码。
+- 位置：packages/neuro-book/src/plugin-platform/shared/plugin-upload.ts:53-63,90-100。
+- 问题：uploadPathProblem 检查原始 UTF-8 长度，add() 返回 NFC 后才落盘；NFC 不保证缩短字节数。原始段合法但规范化后超 255 字节时，会越过校验，最终报 upload-failed/500，而不是 upload-path-invalid/400；整条 1024 字节上限同样能被绕过。
+- 触发场景：一个段由 100 个 U+0344 组成，原始为 200 字节，NFC 成为 U+0308 U+0301 的重复、400 字节。uploadPathProblem 返回 null，UploadPathSet.add 返回 400 字节的文件名。
+- 核实：Bun 1.4.4、HEAD 5200a425a，以上长度与返回值已实跑；真实 receive(size=0) 在 Linux 文件系统上得到 upload-failed，底层错误 ENAMETOOLONG。极不常见的文件名，故列低。
+- 建议：先取得 NFC 路径，再对实际落盘形式检查每段与整条长度（必要时原始输入也保留检查），碰撞检查与返回值使用同一份规范化结果；补 NFC 膨胀的边界测试。
+
+### 7. 每条路径逐层复制所有目录前缀，合法输入可放大内存并在接受前 OOM
+- 严重程度：中；类别：安全与性能。
+- 位置：packages/neuro-book/src/plugin-platform/shared/plugin-upload.ts:85-100。
+- 问题：UploadPathSet.add 为每条路径用 slice/join 复制全部祖先，再逐个存入 #directories；成本与“文件数 × 路径深度²”相关。合同允许单条 1024 字节、每次 10000 个文件，没有更小的深度上限。合法但深的路径会使接收端把少量请求体扩成数百 MiB 堆分配/Set 项，造成服务端 OOM；路径还没写入暂存区。
+- 触发场景：1000 条各 742 字节、深度 170 的互不冲突路径，每个末段不同：所有路径均通过规则；只执行公开 UploadPathSet.add，Bun 1.4.4/Linux 实测 heapUsed 增长 67,109,096 字节，RSS 增长 139,726,848 字节。按合同 10000 文件可继续放大；具体放大量受 Bun GC 与运行环境影响。
+- 建议：不要保存每个路径字符串的全部前缀。用 trie 每段只建一次节点，并在节点记录“文件/目录”状态；或用按段比较的已排序路径结构，避免 O(depth²) 前缀副本。补合法最大深度/文件数的内存或规模测试。
+
+### 8. upload-failed 响应把服务端暂存目录的绝对路径返回给网页
+- 严重程度：低；类别：安全与错误处理。
+- 位置：packages/neuro-book/src/plugin-platform/backend/uploads.ts:165-169；packages/neuro-book/src/plugins/plugins/backend/upload-route.ts:33-36。
+- 问题：文件系统异常被拼进 UploadServerError.message，路由原样写入 `{code, detail}`；例如 mkdir 失败会暴露包含 State Root 的绝对路径和系统错误。写文件失败也没有把异常写入诊断。和周围插件合同“文件系统错误只给错误码，完整错误进服务端诊断”的处理约定不一致。
+- 触发场景：暂存根的父级是普通文件，POST 任意合法帧；真实响应 500 的 detail 含 `/tmp/.../blocked/plugin-uploads/<UUID>`，Linux/Bun 1.4.4 实跑确认。
+- 建议：给浏览器稳定、与路径无关的 `upload-failed` detail；完整 errno 与异常只进入服务端诊断记录。测试断言错误响应不含暂存根路径且仍有可诊断事件。
+
+### 9. 请求中途断开的暂存清理没有永久集成测试
+- 严重程度：低；类别：测试覆盖。
+- 位置：packages/neuro-book/src/plugins/plugins/upload-route.test.ts:70-132；packages/neuro-book/src/plugin-platform/backend/uploads.test.ts:112-137。
+- 问题：Spec 场景 18 与计划切片 3 要求客户端中断后暂存区不留目录；路由用例只测完成、业务失败、Content-Length 超限与 busy，暂存区用例只测有限流读完后的失败。没有真实 HTTP 客户端中途 abort 的持久回归用例。
+- 触发场景：上传已写出一个文件及下一帧部分头后，客户端 abort；未来调整 Hono 转交、reader cancel 或目录清理时可能留下目录而现有测试全通过。
+- 核实：审查者以真实 Bun.serve、真实 Hono 路由与真实暂存区实际 abort 了半帧上传，目录最终为空；这是本轮 smoke，不是仓库测试。`plugin-upload.test.ts` 只验证取消 reader 的解析器单元行为。
+- 建议：把该真实 HTTP 中断场景加入 upload-route.test.ts，等待请求处理结束后断言目录不存在；失败清理与客户端取消需要在同一测试中连通。
+
+### 10. “发出安装后关闭窗口仍完成”只用替身验证，缺真实 RPC 与服务端验收
+- 严重程度：低；类别：测试覆盖。
+- 位置：packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.dom.test.ts:703-717；packages/neuro-book/src/plugins/plugins/plugins.test.ts:127-151；packages/neuro-book/e2e/plugins.e2e.ts:173-207。
+- 问题：Spec 场景 18 明确要求发出安装后立即关窗，安装照常完成。DOM 用例只确认替身没有收到 discard，再释放替身安装 Promise；服务端合同用例则等待 install 返回后才断言目录删除；e2e 保持页面打开直至安装完成。没有验证真实远程链路关闭时服务端 install 仍运行并最终删除上传。
+- 触发场景：真实页面确认上传安装后，在远程 write 已发出、页面/窗口与 RPC link 关闭时，验证服务端仍完成安装，上传目录最终删掉。
+- 核实：代码中 install 持有 uploads.use，finally discard；远程 Peer 断链会 abort 提供方 signal，但 pluginsBackendPlugin 的 install 方法不使用该 signal。上述是读源码推断，未实际跑关窗端到端情形。
+- 建议：补一个真实后端与远程客户端的用例：在确认服务端收到 install 后关闭窗口链路，等待文件登记结果与暂存目录清空；或将此明确加入插件 e2e。
+
+
+### 11. nb-host 转交与既有上传路由回归核对
+- 结论：本次没有发现方法、普通请求头、正文、取消信号或常见上传路由的回归。GET/HEAD/无正文请求维持无正文；POST/PUT 的固定长度与分块正文可读；multipart 可由已有附件路由解析；客户端 abort 会令转交后请求的 signal aborted。`content-length` 原样保留；HTTP/1.1 chunked 请求的 `transfer-encoding: chunked` 也原样保留，Content-Length 为空，Bun 实际解出正文。
+- 核实：HEAD 5200a425a、Bun 1.4.4 实际用公开 createDispatcher 和真实 Bun.serve/fetch，覆盖 GET、HEAD、POST、DELETE、固定长度、分块、multipart、abort；另用真实 HTTP/1.1 socket 发送 chunked 请求，转交 handler 读到 `abcde`。`packages/nb-host/src/http/dispatch.test.ts` 本身 20 项通过。上传消费者的附件、主题素材、项目图片与命令行安装回归共 86 项通过。浏览器跨域隔离不在本次转交改动范围内。
+- 证据边界：GET/HEAD 带非法正文的 HTTP 原始探针不完整，不报告该输入的兼容结论；标准 Request 中 GET/HEAD body 均为 null、常见调用已覆盖。`transfer-encoding` 按原请求保留是预期的：此处是把 HTTP 入站 Request 交给本地 fetch 风格处理器，不构造新的网络线上请求。
+
+### 12. 路由、合同、激活和覆盖范围结论
+- POST 在读正文前预判有限且超限的 Content-Length；无长度仍由分帧流计数。`Number(null) === 0` 不构成问题。DELETE 不存在时 204。v6 SourceInput 接受 path/upload 可选对象，服务端拒绝二者同给或同缺；`nbook plugin` 仍直接调用 createPluginInventory，不受合同版本影响。HTTP 路由挂在 server 入口 HTTP_ROUTES_POINT 贡献上，需先加载插件页调用 list 才会访问，正常启动时没有新增激活顺序依赖；第 1 次响应尚未激活的路由会是既有 404。
+- 切片 0：nb-host 实际 Bun.serve 测试覆盖边发边读、大体积内存、取消；dispatch.test.ts 20 项通过。
+- 切片 2：分帧跨块、截断、超长头、限额预判、背压、错误取消与 sink.abort、路径规则均有行为断言。未测 JSON 重复键的语义；协议未规定必须拒绝重复键，JSON.parse 最后值优先，不单列问题。
+- 切片 3：真实文件系统/Hono 覆盖接收、限额、错误体、重复 DELETE、busy；服务状态测试覆盖查表、use/discard、淘汰、清扫、首次清空、接收中占位、下一次写入时 stop 失败。缺少 wx 文件冲突行为测试、接收时并发 discard、stop 对挂起读的中断（已列第 2 条）；并发淘汰名额竞态已列第 1 条。真实 HTTP abort 回归缺失见第 9 条。
+- 场景 18 服务端完成项：安装上传、预览不删、安装后删、失效 id 拒绝、路径/upload 两者数量校验、manifest-invalid 安装失败后删、上传路由各失败码和 Content-Length 预判。挂起上传断开后清理、关闭窗口后服务端安装继续都缺永久端到端测试（第 9、10 条）。页面/整体 smoke/e2e 不是本次后端范围，且审查期间未运行。
+- 运行：9 个后端合同与既有消费者测试文件 117 项通过；插件页 DOM 测试 31 项通过；nb-host dispatch 20 项通过（与前述 9 文件命令中的 nb-host 之外单独运行）。`bun run typecheck` 超过本次 120 秒限制，被 SIGTERM；类型检查未完成。未运行 e2e/生产 smoke。
+
+### 13. 实现审查收束
+- 代码质量：错误分派按 `UploadError`/`UploadServerError` 类型与 code；解析 JSON 与可选日志失败处无静默 catch，错误读取取消失败为 best-effort；未见新增死分支。关键解析、背压、清理和入口顺序有注释。短写静默丢失与错误响应暴露文件系统路径分别见第 3、8 条。
+- 未发现问题：常见的 HTTP 方法、头、固定长度和 chunked 转交；GET/HEAD 无正文；附件、主题素材、项目图片及 CLI 安装的可观察回归；合同 v6 对 CLI 的影响；路由激活依赖；分帧基本边界、背压、路径大小写/NFC/文件目录碰撞、服务停止计时器撤销、删除并发、清扫与首次清空。具体平台限制：Windows 行为未实跑；Windows 保留名已按 Microsoft 文档核对，并在 Linux 上实测规则漏掉上标数字形式（第 5 条）。
+- 有效发现：1–10（10 条：中 6、低 4；阻断/高 0）。第 11–13 节为结论，不计发现。
+REVIEW-END
+
+统计更正：有效发现仍为 1–10，共 10 条；严重程度是中 5、低 5，高/阻断 0。第 13 节括号内“中 6、低 4”为计数笔误。
+REVIEW-END
+REVIEW-END

@@ -1,0 +1,170 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t10-frontmatter-panel",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "属性面板：静态稿评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "abd1635c7c89df1df56cd856799e52ce7589b1a91ace8b00cf5e6201368bde80",
+    "files": [
+        "index.html",
+        "r1/card-closed.webp",
+        "r1/card-open-narrow.webp",
+        "r1/card-open.webp",
+        "r1/flat-closed.webp",
+        "r1/flat-open-narrow.webp",
+        "r1/flat-open.webp",
+        "r2/closed.webp",
+        "r2/complex.webp",
+        "r2/date.webp",
+        "r2/error.webp",
+        "r2/hover.webp",
+        "r2/list-dark.webp",
+        "r2/list.webp",
+        "r2/rest-narrow.webp",
+        "r2/rest.webp",
+        "r2/source.webp",
+        "r2/type.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-look",
+            "type": "single",
+            "label": "问题 1：面板的样子",
+            "options": [
+                {
+                    "value": "flat",
+                    "label": "A 平铺"
+                },
+                {
+                    "value": "card",
+                    "label": "B 卡片"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "card"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-default",
+            "type": "single",
+            "label": "问题 2：打开文件时面板展开还是收起",
+            "options": [
+                {
+                    "value": "closed",
+                    "label": "缺省收起，按文件记住"
+                },
+                {
+                    "value": "open",
+                    "label": "缺省展开，按文件记住"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "closed"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q3-empty",
+            "type": "single",
+            "label": "问题 3：文件没有 frontmatter 时",
+            "options": [
+                {
+                    "value": "menu",
+                    "label": "不画面板，从菜单添加"
+                },
+                {
+                    "value": "always",
+                    "label": "常驻一行“添加属性”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "menu"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q4-types",
+            "type": "single",
+            "label": "问题 4：字段类型怎么定",
+            "options": [
+                {
+                    "value": "infer",
+                    "label": "按值推断"
+                },
+                {
+                    "value": "registry",
+                    "label": "全书统一（Obsidian 的做法）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "infer"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q5-fallback",
+            "type": "single",
+            "label": "问题 5：面板表示不了的内容",
+            "options": [
+                {
+                    "value": "row-and-source",
+                    "label": "逐个字段退回，写错了整块退回"
+                },
+                {
+                    "value": "all-source",
+                    "label": "有一处表示不了，整块都显示源码"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "row-and-source"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q6-details",
+            "type": "confirm",
+            "label": "问题 6：卡片的细节这样可以吗",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-16T08:11:03.651Z"
+}

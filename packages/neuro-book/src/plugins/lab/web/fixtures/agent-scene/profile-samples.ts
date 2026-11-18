@@ -82,11 +82,49 @@ const WRITER_AGENTS: ProfileToolsField = {
     modified: true,
     candidates: [{id: "plot", provider: "剧情图谱", tools: [{...agentRow("plot.qa", "剧情问答", "", "回答关于这本书剧情的问题，答案带出处。"), providerName: "plot.qa", blocked: false}]}],
 };
+/** 主创的“Skill”一节（w00032 t15）：声明“全部”，列出目录里的全部 Skill，一个未初始化；用户去掉的收在“已去掉”，能加回。 */
+const WRITER_SKILLS: ProfileToolsField = {
+    groups: [
+        {id: "user", provider: "我的 Skill", tools: [
+            agentRow("user.style-guide", "style-guide", "", "按本书的文风规则改写一段：人称、时态、对白格式与禁用词"),
+            agentRow("user.epub-export", "epub-export", "未初始化", "把选中的章节导成 EPUB，带目录、封面与脚注"),
+            agentRow("user.lore-check", "lore-check", "", "对照人物卡与设定集，找出正文里前后矛盾的地方"),
+        ]},
+        {id: "builtin", provider: "内置", tools: [agentRow("builtin.chapter-summary", "chapter-summary", "", "给一章写三五句提要")]},
+        {id: "removed", provider: "已去掉", tools: [{...agentRow("user.tts-preview", "tts-preview", "", "用本机的语音合成朗读选中的一段"), restorable: true}]},
+    ],
+    count: 4,
+    modified: true,
+    candidates: [{id: "user", provider: "我的 Skill", tools: [{...agentRow("user.tts-preview", "tts-preview", "", "用本机的语音合成朗读选中的一段"), providerName: "user.tts-preview", blocked: false}]}],
+};
+/** 表情包的缩略图：一块带字的色块（SVG）。 */
+const stickerThumb = (label: string, color: string): string => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" rx="8" fill="${color}"/><text x="24" y="31" font-size="18" text-anchor="middle" fill="white">${label}</text></svg>`)}`;
+/** 写作助手的“表情包”一节：我加了星璃的，插件带来一个，一个被去掉。 */
+const WRITER_STICKERS: ProfileToolsField = {
+    groups: [
+        {id: "user", provider: "我的表情包", tools: [{...agentRow("user.lyra", "星璃", "我加的", "12 个表情 · 星璃的日常表情"), thumbnail: stickerThumb("璃", "#ea76cb")}]},
+        {id: "plugin:acme.cute", provider: "可爱表情", tools: [{...agentRow("acme.cute.cats", "猫猫", "", "40 个表情 · 各种猫"), thumbnail: stickerThumb("喵", "#df8e1d")}]},
+        {id: "removed", provider: "已去掉", tools: [{...agentRow("user.old", "旧表情", "", "3 个表情"), restorable: true}]},
+    ],
+    count: 2,
+    modified: true,
+    candidates: [{id: "user", provider: "我的表情包", tools: [{...agentRow("user.old", "旧表情", "", "3 个表情"), providerName: "user.old", blocked: false}]}],
+};
+/** 用户写的 Profile 的“Skill”一节：声明了几个，用户加了一个，一个已不在目录里。 */
+const LORE_SKILLS: ProfileToolsField = {
+    groups: [
+        {id: "user", provider: "我的 Skill", tools: [agentRow("user.style-guide", "style-guide", "我加的", "按本书的文风规则改写一段"), agentRow("user.voice-check", "voice-check", "", "逐段检查叙述视角有没有串")]},
+        {id: "gone", provider: "已删除或不可用", tools: [agentRow("user.old-outline", "user.old-outline", "", "没有找到这个 Skill，放回 Skill 文件夹后恢复", true)]},
+    ],
+    count: 2,
+    modified: true,
+    candidates: [],
+};
 export const SAMPLE_WRITER_TOOLS = WRITER_TOOLS;
 export const SAMPLE_TOOL_CANDIDATES = CANDIDATES;
 
 export const SAMPLE_PROFILES: readonly ProfileView[] = [
-    {key: "nbook.agent.main", name: "写作助手", description: "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。", icon: "i-lucide-feather", source: "内置", statusText: null, hidden: false, user: false, notice: null, model: model(), approval: approval(), tools: WRITER_TOOLS, agents: WRITER_AGENTS},
+    {key: "nbook.agent.main", name: "写作助手", description: "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。", icon: "i-lucide-feather", source: "内置", statusText: null, hidden: false, user: false, notice: null, model: model(), approval: approval(), tools: WRITER_TOOLS, agents: WRITER_AGENTS, skills: WRITER_SKILLS, stickers: WRITER_STICKERS},
     {
         key: "user.lore-check",
         name: "设定核对",
@@ -101,6 +139,8 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         approval: approval({value: "auto", hint: "模型先判断，判不了再问你；模型可能漏判"}),
         tools: LORE_TOOLS,
         agents: null,
+        skills: LORE_SKILLS,
+        stickers: null,
     },
     {
         key: "user.draft-review",
@@ -108,7 +148,7 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         description: "",
         icon: "i-lucide-user-round-pen",
         source: "我写的",
-        statusText: {text: "有错误", tone: "error"},
+        statusText: {kind: "error", text: "有错误", tone: "error"},
         hidden: false,
         user: true,
         notice: {text: "打包失败：第 12 行 找不到模块 “lodash”", lines: ["draft-review.profile.tsx 第 12 行：找不到模块 “lodash”", "这个 Profile 还没成功过，用不了。"], tone: "danger"},
@@ -116,6 +156,8 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         approval: approval(),
         tools: null,
         agents: null,
+        skills: null,
+        stickers: null,
     },
     {
         key: "plot.qa",
@@ -123,7 +165,7 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         description: "按剧情图谱回答关于这本书的问题。",
         icon: "i-lucide-network",
         source: "剧情图谱",
-        statusText: {text: "不可用", tone: "warning"},
+        statusText: {kind: "unavailable", text: "不可用", tone: "warning"},
         hidden: false,
         user: false,
         notice: {text: "不可用：缺少必需工具 plot.search", lines: ["缺少必需工具 plot.search。装上提供它的插件后恢复。"], tone: "warning"},
@@ -131,6 +173,8 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         approval: approval(),
         tools: MISSING_TOOLS,
         agents: null,
+        skills: null,
+        stickers: null,
     },
-    {key: "nbook.agent.session-title", name: "会话标题", description: "给一段对话起标题，并写一句说明。", icon: "i-lucide-heading", source: "内置", statusText: null, hidden: true, user: false, notice: null, model: model({hint: "跟随默认时用“微型”角色"}), approval: null, tools: null, agents: null},
+    {key: "nbook.agent.session-title", name: "会话标题", description: "给一段对话起标题，并写一句说明。", icon: "i-lucide-heading", source: "内置", statusText: null, hidden: true, user: false, notice: null, model: model({hint: "跟随默认时用“微型”角色"}), approval: null, tools: null, agents: null, skills: null, stickers: null},
 ];

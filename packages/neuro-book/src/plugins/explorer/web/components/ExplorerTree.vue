@@ -87,7 +87,15 @@ const treeFocused = ref(false);
 const selectedSet = computed(() => new Set(props.selected));
 const focusIndex = computed(() => (props.focus === null ? -1 : props.rows.findIndex((row) => row.id === props.focus)));
 const editIndex = computed(() => (props.editing == null ? -1 : props.rows.findIndex((row) => row.id === props.editing?.id)));
-const rendered = computed(() => renderedRows({count: props.rows.length, rowHeight: rowHeight.value, viewport: viewport.value, scrollTop: scrollTop.value, keep: [focusIndex.value, editIndex.value]}).map((index) => ({index, row: props.rows[index] as Row})));
+/**
+ * 画出来的行（序号与行）都没变时交回上一次的数组：视图高度随窗口变、这里每一步都重算，换成新数组的话行外面的
+ * TransitionGroup 每一步都重渲染、量一遍所有行（w00046 t19）。
+ */
+const rendered = computed((previous?: ReadonlyArray<{readonly index: number; readonly row: Row}>) => {
+    const next = renderedRows({count: props.rows.length, rowHeight: rowHeight.value, viewport: viewport.value, scrollTop: scrollTop.value, keep: [focusIndex.value, editIndex.value]}).map((index) => ({index, row: props.rows[index] as Row}));
+    const same = previous !== undefined && previous.length === next.length && previous.every((item, at) => item.index === next[at]?.index && item.row === next[at]?.row);
+    return same ? previous : next;
+});
 const page = computed(() => Math.max(1, Math.floor(viewport.value / rowHeight.value)));
 
 const domId = (id: string): string => `${prefix}-${encodeURIComponent(id)}`;

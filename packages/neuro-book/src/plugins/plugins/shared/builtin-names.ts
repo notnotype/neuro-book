@@ -10,6 +10,7 @@ export const BUILTIN_PLUGIN_IDS = [
     "nbook.agent",
     "nbook.canon",
     "nbook.commands",
+    "nbook.desktop",
     "nbook.editor",
     "nbook.explorer",
     "nbook.files",

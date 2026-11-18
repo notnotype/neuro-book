@@ -1,0 +1,99 @@
+符号表：docs/specs/ui/nested-grid.md（现行版）里出现的每个代码符号。
+
+列：符号 || 现行 Spec 在哪几行 || 包文档里现在有没有（NG=vue/NestedGrid.md，GR=grid.md，SP=vue/Splitter.md，DF=vue/DropFeedbackOverlay.md） || 决定 || 理由
+决定三种：留在 Spec / 挪到某文档（缺的补上）/ 已有只删（Spec 里去掉，链接过去）。
+判据（计划第 3 片）：换一种实现、行为不变，这句话要不要改？要改就挪；宿主据此写代码、写测试的留下。
+引用的行号是现行 Spec 的行号。
+
+========================================================================
+A. 组合函数、类型、会话与结构操作的名字与签名：挪走
+========================================================================
+
+useLayoutExtent || 79、122 间接 || NG“接入”有（示例与“量的是 NestedGrid 的父元素：无 padding、border”） || 已有只删：Spec 的句子只留行为（null 未挂载、0 是真实零，写在副作用与数据），不再写函数名 || 换成别的测量办法，“共享 clientWidth/clientHeight 与 ResizeObserver”这句要改；行为（未挂载与真实零）不变
+useGridLayout || 80 || NG“接入”有（最小宿主、invalidate、contextKey 与 revision 对齐） || 已有只删 || 同上：“消费 grid/extent/contextKey，发布 node/layout/revision”是用法，不是黑盒行为
+invalidate（结构 API 之后调） || 80 || NG“接入”示例里有一行注释 || 已有只删 || 同上
+onApplied || 80 || 没写 || 挪到 NG“接入”：补一句“`useGridLayout` 在同步验证手势、一次 `resizeBranches` 成功之后才通知宿主的 `onApplied`” || 宿主写通知时要知道调用时机；行为（成功才通知）已在 Spec“时序与寿命”第 1 条，名字在 NG
+placeGrid、grid-rects.ts || 122 || NG“上游边界”（placeGrid）、GR“渲染与投影”有 || 已有只删 || 重构矩形求解函数，行为不变；它也不是包入口导出的符号（index.ts 没有导出）
+useSashGesture || 122 || NG“隐藏通道理由”“上游边界”有 || 已有只删（Spec“实现合同”公开入口里保留这个名字，因为它由 vue/index.ts 导出） || 行为（独占 scope、一场手势最多两轴）已在输出 24、26
+GridGestureCommit、GridGesturePreview || 122 || NG“数据”有 import 与事件签名，“交互”有 `changes` 字段说明 || 已有只删 || 数据形状是接口，在组件文档
+onGestureCommit || 122 || NG“数据”有（同步接纳、拒绝回滚） || 已有只删（行为“拒绝时回滚预览并给诊断”在 Spec 实现合同不变量第 2 条） || 签名在组件文档
+grid.resizeBranches(changes)、resizeBranch || 122 || GR“几何与手势”有（resizeBranch 全文、resizeBranches 一句）、NG“交互”有 || 已有只删 || 签名；原子落账的行为在输出 7 与时序
+splitLeaf(targetId, {branchId, orientation, side, leaf, ratio}) || 120 || GR“拆分叶”有（参数、ratio 语义、0 权重均分、不开放 size、left/top→before 映射、256 节点与 16 层上限） || 已有只删 || 120 行几乎就是 GR“拆分叶”的缩写；行为由验收 7 守着
+createGrid(…, {sashSize}) || 没写 || GR“建树”、NG“接入”有 || 不涉及 Spec || 不在现行 Spec 里，列在这里是因为“逻辑 sash 保持 1 CSS px”（输出 11）与 `sashSize` 缺省 0 容易读混：见 notes.txt 第 4 条
+encodeRef、resolveRef（快照里的引用编码） || 116 间接（“非字符串引用要求显式稳定编码器”） || GR“快照与引用”有 || 已有只删 || 签名与编码器要求在 GR；Spec 保留“未知引用过滤与非法格式分别报告”的行为（失败 3、4）
+快照 v2、v1 拒绝、LAYOUT 版本 || 116 || GR“快照与引用”有（v2 字段、v1 拒绝、未知高版本拒绝） || 留在 Spec：版本兼容是对外格式合同（README“必须写”：对外的格式与兼容） || 只留“v1、未知高版本、重复身份整体拒绝，宿主保留原件”（失败 2 到 4、实现合同不变量第 4 条）；v2 的字段细节已在 GR，Spec 不再写
+baselineBoundary、snapState.sizesPx、solveSashCollapse（sash-drag） || 42、78 || GR“几何与手势”有 baselineBoundary + deltaPx、snapState.sizesPx 的描述 || 已有只删（变量名）；行为留在输出 17、21 || 换变量名行为不变
+collapseThreshold、expandThreshold（缺省 24） || 42 || SP“交互”写了“缺省 24px”，GR 有 `collapseThreshold` 字段名 || 已有只删（数值）；输出 18 写“一个阈值”并链接 SP || 缺省值是调参，数值在组件文档
+restoreSize || 42 || GR“几何与手势”、SP“交互”有 || 已有只删（名字）；输出 20 只写“记忆的恢复尺寸” || 字段说明在 GR
+restoreToShare || 42 || GR“几何与手势”有完整解释 || 留名字在 Spec（输出 20 一句）；解释已在 GR，不重复 || 宿主写收起策略时用，名字是宿主依赖的开关，但机制说明已在 GR
+collapsedSize || 56 || GR、SP 有 || 留（输出 134 用它定义分支收起时的尺寸） || 分支收起的行为合同要用这个词；字段本身的说明在 GR
+grabOffset || 42 || 没写 || 已有只删：输出 19 改成“按下时抓取的偏移” || 变量名
+
+========================================================================
+B. 悬停与热区的数值：Spec 删掉并链接
+========================================================================
+
+热区边距 fine 5px、coarse 15px || 40 || SP“交互”有（“细指针命中带外扩 5px，触摸粗指针为 15px”）；NG“交互”有 || 已有只删，输出 11 链接 SP || 数值是调参
+可见线 3px 居中覆盖层 || 40 || SP“布局”有（装饰带最厚 3px、不参与布局）；“居中”SP 没写 || 已有只删（3px）；输出 11 留“居中的覆盖层，不挤压内容”；SP 补“居中”二字（见 Splitter.md.patch.txt） ||
+停留 250ms || 40 || SP“交互”有（停留 250ms 后才显示装饰线） || 已有只删（数值），输出 13 写“停留时长”并链接 || 调参
+逻辑 sash 1 CSS px || 40 || SP“布局”有“静止可见接缝为 1 CSS px”，没有 NestedGrid 一侧的说法；NG 与 GR 说 `sashSize` 由宿主传、缺省 0 || 留在 Spec（输出 11 原样保留） || 它是行为合同（线不占布局），但与 `sashSize` 缺省 0 的关系要作者看一眼，见 notes.txt 第 4 条
+光标取值 ew-resize、ns-resize、move || 40 || SP“交互”只写“resize 光标”；没有 `move` || 留在 Spec（输出 12） || 宿主与测试据此判断光标；同 scope 双轴的 `move` 只有 NestedGrid 有，Splitter 没有双轴
+
+========================================================================
+C. 属性、插槽、事件与方法：宿主据此写代码、写测试的，留名字；类型与字段形状在 NG
+========================================================================
+
+contents（GridContentInput：key、leaf、insetTop、active） || 49 || NG“数据”有完整类型与注释 || 留名字在输出 80、81；类型已有只删 || 行为合同要说“宿主可以传内容项”，字段形状在 NG
+insetTop || 49 || NG“数据” || 留名字（输出 81），字段已有 || 输出 81 的行为“只有它变了不算布局变化”依赖这个名字
+content 插槽、leaf 插槽 || 没写 || NG“数据” || 不涉及 Spec ||
+overlay 插槽 || 49 || NG“交互”“数据” || 留名字（输出 87，层叠位置是可观察合同） || 宿主依赖它在分隔线之上、拿起的内容之下
+lifted 属性、lifted-head 插槽 || 49 || NG“交互”“数据” || 留名字（输出 87、90、91） || 同上
+placeLifted(rect) || 49 || NG“交互”“数据”（expose 三个方法） || 留名字（输出 89）；签名已在 NG || 宿主写跟手代码要知道“不走属性、不重渲染”，那是性能合同；理由（走属性要重跑插槽）已在 NG“交互”
+floats（GridFloatInput：id、rect、gesture?） || 51（写成 `{id, rect, moving?}`，旧写法） || NG“数据”有 `gesture?: "move" | "resize"` || 留名字在输出 101，改正字段名为 `gesture?` || 现行 Spec 写的 `moving?` 与代码不符（grid-rects.ts:124），见 notes.txt 第 2 条
+float-chrome 插槽 || 51 || NG“交互”“数据” || 留名字（输出 113） || 层叠与指针合同
+placeFloat(id, offset) || 51 || NG“交互”“数据” || 留名字（输出 115） || 同 placeLifted
+maximized（leaf、exclude） || 50（只写了“除条以外”） || NG“数据”有 || 输出 97 补“条（宿主指定要留出的叶）”，属性名 `maximized.exclude` 在 NG || “条”是原文里没有定义的词
+leafShape（inset、radius） || 46 || NG“数据”、“布局”有 || 留名字（输出 51） || 宿主给形状；类型已在 NG
+fill（形状伸出外框时的颜色） || 46 || NG“数据”有 || 留名字（输出 53） || 同上
+shapedLeaves、swappingLeaves、moving（expose 读数） || 46、47 || NG“数据”末段有；“读到的是这一轮的”只写在 NG | 留名字在输出 56、60、76；“读到的是这一轮的”挪进 Spec“状态与转换”的“时序与寿命”第 5 条；NG 里该句压成链接 || 交互合同（谁在什么时候读到什么）按 README 属于提供方 Spec 的“状态与转换”（审查第 5 条）
+outgoingLeaves（expose 读数） || 没写 || NG“数据”末段有完整解释 || 不进 Spec（Spec 原来就没有这个读数）；留在 NG，其“读到的是这一轮的”仍在 NG 一句 || 本 Task 不加输出条目（计划“验收映射”）
+swap（token、leaving、entering、axis、direction、gap、window） || 47 || NG“数据”有完整类型；NG“布局”长段重复了行为 || 留 `swap`、`token`、`issues` 名字在输出 61、68 与“时序与寿命”第 4 条；字段类型已有只删 || token 何时用掉与作废是交互合同，留 Spec；其余字段是接口，在 NG
+swap-backdrop 插槽（inset、radius） || 47 || NG“数据” || 留名字（输出 77） || 宿主据此画卡片
+data-swap（in、out） || 47 || NG“公开的标记与变量”表有 || 留 Spec（输出 75） || 宿主与测试据此判断（审查第 5 条：公开标记先判断算不算公开合同，算就留）。表里的其余 data-* 留在 NG 表，Spec“边界与兼容”一句话指过去
+其余 data-*（data-leaf、data-grid-scope、data-moving、data-leaving、data-flying、data-sash-* 等） || 没写 || NG 表有 || 不涉及 Spec；“边界与兼容”一句指到 NG 的表 || 不是新增输出
+content-parked 事件 || 47、49 || NG“数据”有 || 留 Spec 的“时序与寿命”第 3 条：由谁处理焦点（宿主）、何时发 || 交互合同（审查第 5 条）
+issues 事件 || 47 || NG“数据”、“状态与边界”有 || 留名字（输出 68） || “交回原因”的通道是宿主依赖的
+gesture-start、gesture-update、gesture-end、gesture-cancel 事件 || 没写 || NG“数据”有 || 不涉及 Spec ||
+sashKind、sashStyle、sashDisabled || 48 || NG“数据”有三个属性的类型与注释 || 留 `sashStyle`（输出 78）、`sashDisabled`（输出 79）的名字；类型已有只删。`sashKind` Spec 原来就没有，不涉及 ||
+moveGridFocus(from, direction) || 49、54 || NG“交互”末段有 || 留名字（输出 129） || 公开函数，宿主与测试据此判断；vue/index.ts 导出它
+
+========================================================================
+D. 样式令牌、DOM 与浏览器属性
+========================================================================
+
+--motion-layout、--ease-layout || 46 || NG“公开的标记与变量”表有 || 留名字（输出 35） || 过渡时长与曲线来自这两个令牌，宿主没给就没有过渡（NG 表里的“宿主没给就没有过渡”留在 NG）
+--layout-card-*（radius、shadow） || 51 || NG“交互”末句有（具体到两个变量名） || 留名字（输出 112） || 宿主换主题时依赖；“投影与圆角在外框自身”是可观察行为
+position: fixed 的包含块 || 44、96 || NG“布局”第 3 段有，含 `contain: layout` || 留行为（输出 28，不写 `contain: layout`）；`contain: layout` 留在 NG || 换成别的建立包含块的办法，行为不变，所以手段不进 Spec；宿主依赖的是“里面 fixed 元素的包含块”，留下（审查第 5 条）
+Teleport 到 body || 96 || NG“布局”第 3 段有 || 留在 Spec“边界与兼容”（宿主要照做），NG 保留 || 使用提醒，两边各一句，不算重复正文
+left、top、宽高与 transform || 44 || NG“布局”第 3 段有（含“位置不用 transform”的理由） || 留行为（输出 27）；理由（合成线程与主线程）已在 NG，不进 Spec || 理由属于实现
+visibility: hidden、inert || 52 || NG“布局”第 2 段有 || 留 Spec（输出 116） || 宿主与测试读得到的 DOM 状态
+aria-owns、aria-controls || 49、55 || NG“交互”末段有 aria-owns | 留 Spec（输出 95、132） || 读屏顺序是可观察行为
+composedPath || 43 || 没写 || 留 Spec（输出 25） || 浏览器标准 API 的名字，说明命中路径的取法，不是我们的符号
+ResizeObserver || 验收 9、10 || NG“布局”提醒“叶里的 ResizeObserver 每帧都会收到尺寸” || 留在验收（描述可观察判据）；提醒留在 NG
+useLayoutExtent 之外的 ResizeObserver、clientWidth/clientHeight || 79 || NG“接入” || 已有只删 || 实现手段
+scale、DPR（不乘设备像素比） || 79 || 没写 || 留行为在“副作用与数据”（“不乘设备像素比”） || 测量口径是可观察合同
+
+========================================================================
+E. 落点几何
+========================================================================
+
+resolveGridInsertion || 81 || DF“数据”下几何入口一节有（20% 插入带、edgeRatio、keep、halfRect） || 已有只删；缺“按显式轴与给定成员顺序、返回 beforeId 与指示线”，补进 DF（见 DropFeedbackOverlay.md.patch.txt） || 它是落点函数，行为在 DF
+resolveGridEdgeDrop || 81 || DF 只写“给四边与中心的落点” || 已有只删；补“保持 Editor 20% 边缘、left 与 right 优先”到 DF || 同上
+“非有限、零矩形、越界拒绝” || 81 || DF“状态与边界”只写预览不渲染的情形，没有说拒绝 || 补进 DF（见补丁） || 同上
+“不引入 DOM、dnd-kit 依赖” || 81 || 没写 || 并进 Spec“实现合同”的依赖方向（“核心入口不依赖 Vue、DOM 与 dnd-kit”） || 依赖方向是公开边界，README 要求实现合同写 owner 与依赖方向
+
+========================================================================
+F. 现行 Spec 里没写、但本次新 Spec 里写了的词
+========================================================================
+
+外框、内容项、停放、带 || 术语新增 || NG 里这些词都有使用但没有集中定义 || 新 Spec“术语与参与者”加四条短定义 || 拆条后很多条互相指到这些词，需要一处定义；只定义不改行为

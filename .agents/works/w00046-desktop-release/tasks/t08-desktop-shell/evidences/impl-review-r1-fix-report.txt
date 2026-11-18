@@ -1,0 +1,107 @@
+w00046 t08 实现审查第 1 轮：修复报告
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00046-t08-fix（分支 fix/w00046-t08-impl-r1，基于 d7de9fc33）
+
+提交
+- d62fc9a6a  第 7 条（nb-host claim.ts）
+- 0a959ec70  第 2、3、4（核心）、5、9、10 条（src/desktop/）
+- ba375d330  第 1、4（适配层）、6、8 条（desktop/src/bun/）
+
+逐条
+
+1. will-navigate 载荷
+   改动：desktop/src/bun/index.ts。用已有的 parse 解析 detail（JSON 字符串 {url, allowed}，也收已经是对象的）；allowed 为 true 的不处理；
+   其余交新的统一分流入口 routeAway：先 new URL，精确 origin 等于服务端的交同源回调（will-navigate 下什么都不做），protocol 是 http: 或
+   https: 的交 Utils.openExternal，别的不理。去掉了原来的 isServerUrl、正则 isWebUrl。
+   验证：打包通过；对照 nativeWrapper.cpp 7855-7873 与 proc/native.ts 3455-3478。Windows 上 location.assign、跨域重定向未验证。
+
+2. 监督失败不等于树已结束（阻断）
+   改动：src/desktop/owned-server.ts。lease.completion reject 时记 desktop.server.completion-failed，然后 treeGone 确认目标真的不在了
+   才让 ended resolve：rootPid 为 null（目标没创建成功）直接结束；否则按注入时钟每 200 ms 探一次，POSIX 用 process.kill(-pid, 0)
+   （核对过 posix-supervisor-source：目标以 detached: true 拉起，就是进程组组长），Windows 用 process.kill(pid, 0)；ESRCH 算结束，EPERM
+   算还在，别的错误记一次 desktop.server.tree-probe-failed 并当作还在。强制结束后的 10 秒诊断（forced-stop-slow）改为等 ended
+   才取消，不再随 terminate 失败一起取消。shell.ts 不用改：它 await server.stop()，stop 在树确认结束前不交回，所以不放锁、不 exit。
+   测试：
+   - owned-server.test.ts「监督进程停住……」：真实 POSIX 监督器，SIGSTOP 后 stop；等到 completion-failed 与 forced-stop-slow 两条诊断，断言
+     stop 没有返回、目标活着、认领仍 running；SIGCONT 后 stop 交回 {exitCode: null, forced: true}，目标已不在，认领 none。改坏实现（换回原
+     owned-server.ts）时失败（等不到 10 秒诊断）。
+   - shell.test.ts「监督进程停住、确认不了服务端已结束……」：经真实 DesktopShell 关最后一个窗口，completion-failed 之后断言壳没 exit、
+     askRunningShell 回 stopping（锁没放）、目标活着；SIGCONT 后壳以 0 退出、锁放下、记了 forced: true 的异常停止。换回原 owned-server
+     时失败。
+   两条都用 it.skipIf(win32)（SIGSTOP 是 POSIX 信号）。
+
+3. 重启中的新服务端纳入所有权
+   改动：src/desktop/shell.ts。新增 #startServer：创建租约与登记 #server 在同一个同步段；#spawn 与 #serverExited 都用它。await started
+   之后核对 #finishing 与 #isCurrent(server)，已开始停止或已不是当前那一个就直接返回，不再登记或重试；重启失败时清 #server 再说明。
+   与建议的差别：“代次”用租约对象本身的同一性（#isCurrent）表达，没有另加计数器，效果相同。
+   测试：shell.test.ts「自有服务端意外退出、重新启动还在拉起中时关掉最后一个窗口……」：脚本入口（新的 src/desktop/testing/scripted-server.ts）
+   第二代停在 starting；SIGKILL 第一代、等第二代认领，关最后一个窗口以 quit 询问并同意；断言壳以 0 退出、stopped.jsonl 恰为第二代、第二代已
+   结束、认领 none、没有异常停止记录。换回原 shell.ts 时失败。“就绪与关窗交错”没有单独做真实进程测试（时序难以确定地造出），由同一个
+   #finishing / #isCurrent 检查覆盖，从代码推断。
+
+4. before-quit 发起关闭
+   改动：src/desktop/windows.ts 新增 quitRequested()：停止中直接忽略；否则对每个还没在询问的窗口调用 closeRequested（启动页直接关，产品窗口
+   各自询问，最后一个按原规则以 quit 询问或在别的窗口关掉后改以 quit 重问）。已经在问的窗口跳过，不弹“没有响应”（那是用户再次关同一个
+   窗口才给的），这一点是我加的取舍。desktop/src/bun/index.ts 的 before-quit 在否决后用 setImmediate 调 quitRequested（SDK 只在同步段看
+   应答，不在它的退出流程里操作窗口）。
+   测试：windows.test.ts 三条：两个窗口时应用退出（各以 window 问、都同意后最后一个改以 quit 重问、同意后进入停止中）；一个页面回 deny 时它
+   照旧开着、应用继续运行、启动页直接关、重复退出不重复询问也不弹对话框；停止中再来的退出请求不产生任何端口调用。
+   Electrobun 真实的 before-quit（SIGTERM 路径）未在 Windows 运行验证。
+
+5. 等待关闭时的“退出”
+   改动：src/desktop/shell.ts #takeLock。进入 closing 状态后一直挂着按钮处理器（包括一次 askRunningShell 还在途时），exit 置标记并叫醒
+   轮询；每次 await 之后先看 #finishing 与该标记，标记成立就以 0 退出，不再转交、取锁或开窗；若恰好在取到锁的同时决定退出，先放下锁
+   再退。离开 closing 状态时清掉处理器。用户关掉启动窗口（#allClosed）时仍由 #allClosed 负责退出，不重复退。
+   “关掉自己的启动窗口”：沿用壳现有的做法，退出经 ports.exit（适配层 Utils.quit 收掉所有窗口），没有另外 commitClose。
+   测试：shell.test.ts「场景 5：另一个壳在确认关闭时点“退出”……」：真实桌面锁回 closing，等到 waiting-close 后点退出，断言 run 交回、以 0
+   退出、最后的视图仍是 waiting-close。换回原 shell.ts 时失败（run 不返回）。没有保留原复现里的“转交次数”断言：退出与一次在途的
+   open-window 交错时次数不确定，run 交回本身证明循环已结束。
+
+6. 预加载在文档创建时运行
+   改动：desktop/src/bun/preload.ts。MutationObserver 观察 document 本身（subtree、childList、characterData），装好后立即报告一次当前标题；
+   去掉 DOMContentLoaded 监听（观察器已覆盖）。
+   验证：复制 preload-smoke.mjs 到 /tmp/w46fix-scratch/ 改路径指向本 worktree，现装 Chrome addInitScript 在文档创建时执行：
+   {"errors":[],"docAtInit":"null","messages":[{"type":"title","title":""},{"type":"title","title":"first"},{"type":"title","title":"second"}]}
+   初始标题与运行后改标题都发出，无异常。
+
+7. 未知请求命中原型
+   改动：packages/nb-host/src/server/claim.ts，只在 Object.hasOwn(requests, type) 时取处理器。claim.test.ts 的未知请求用例改为对 nope、
+   constructor、toString、__proto__、hasOwnProperty 逐个断言回 {ok: false, code: "unknown-request"}。换回原 claim.ts 时该用例失败。
+
+8. new-window-open
+   改动：desktop/src/bun/index.ts 订阅网页视图的 new-window-open，按 SDK 形状（已解成 {url, isCmdClick, ...}，解析失败时是字符串，parse 都收）
+   取 url，交与 host-message 的 open-window 相同的 routeAway 入口（同源交 pageWindowRequested，最后一次关闭进行中由协调器拒绝；外链交系统
+   浏览器）。preload.ts 不再处理 Ctrl/Meta 点击，也去掉了“不带 target 的外部链接”分支（按说明只留 target 链接与 window.open；外部整页
+   导航改由导航规则拦下、经第 1 条的 will-navigate 交系统浏览器）。
+   验证：复制 ctrl-click.ts 改路径，SDK 的 initCmdClickHandling 先装、本预加载后装，真实 Chrome：Ctrl 点击带 project 参数与片段的链接只发
+   new-window-open（url 保留 ?project=book#c），target=_blank 链接发 open-window（url 保留 ?project=b2#h）。主进程一侧的订阅只有打包与对照
+   SDK 源码（BrowserView.on 用 `${name}-${id}`、native.ts 3426 的 eventMap），未在 Windows 运行。
+
+9. 启动中强杀也记异常停止
+   改动：src/desktop/shell.ts。#stopAndExit 与 #allClosed 合用 #stopOwnedServer：标 stopping、停当前 #server，按 StopOutcome（forced 或
+   exitCode 非 0）写记录，不再以 #ready 过滤；#ready 字段已无用，删除。
+   测试：shell.test.ts「场景 14：启动中关掉启动页、自有服务端停止超时被强制结束……」：脚本入口停在 starting 且不理 stop/SIGTERM、截止 100 ms，
+   关启动页后壳退出、没加载页面、认领 none、记录 forced: true；下一次启动的第一个视图是 unclean-stop。换回原 shell.ts 时失败。
+
+10. governance:check 的 fixed-wait（中途追加）
+   改动：src/desktop/deadline.ts 的 DeadlineClock 改为内核 RuntimeClock 的类型别名（`now()` 加 `schedule(callback, ms) → cancel`，只用
+   import type，不把内核运行时代码带进主进程包），systemClock 与 at() 跟着改；deadline.test.ts、windows.test.ts 的手动时钟改成 schedule；
+   shell.test.ts 窗口替身的 setTimeout(…, 0) 改为 setImmediate。分段逻辑没变（at 仍按 MAX_TIMER_MS 分段）。
+
+验证（全部在本 worktree）
+- cd packages/neuro-book && bun test src/desktop src/shared/desktop-bridge.test.ts：40 pass，0 fail（26 s）
+- cd packages/nb-host && bun test src/server/claim.test.ts：17 pass，0 fail
+- cd packages/neuro-book && bunx tsc --noEmit -p tsconfig.json：退出 0；packages/nb-host 同样：退出 0
+- cd packages/neuro-book && bun desktop/scripts/build.ts：bundle/main.js 404 KB，退出 0
+- 仓库根 bun run governance:check：退出 0，"failures": []，"warnings": []（在第 1 至 4、6、8 条的适配层改动之前跑的；之后只改了
+  desktop/src/bun/ 两个非测试文件）
+- Chrome 复现：/tmp/w46fix-scratch/preload-smoke.mjs、/tmp/w46fix-scratch/ctrl-click.ts（结果见第 6、8 条）
+- 变异检查：第 2、3、5、7、9 条的新测试在换回修复前的实现时都失败，恢复后通过
+- owned-process 没有改，没跑它的测试
+- 测试后核对没有残留的 scripted-server 进程
+
+未解决与要主会话决定的
+- 第 2 条：如果监督进程被 SIGKILL（不是停住），目标进程组没人收，壳会一直停在停止中（每 200 ms 探一次，只在强制结束 10 秒后写一条诊断）。
+  这符合输出 19“继续等、不放锁”，但用户看不到任何窗口。是否在 completion 失败后由壳自己对进程组发 SIGKILL 兜底，是设计问题，没有做。
+- 第 2 条 Windows 只看目标进程本身，不看 Job Object 里的子孙；监督进程收口时 Job 会一起结束，但 completion 失败的场景下子孙是否残留未验证。
+- 第 1、4、8 条的主进程一侧只有打包与对照 SDK 源码，没有在 Windows 上运行；第 6、8 条的预加载只在 Linux 的 Chrome 上复现。
+- 第 4 条“已经在问的窗口不再弹没有响应”是我加的取舍，说明里没有写到。

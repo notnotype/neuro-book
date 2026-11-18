@@ -11,11 +11,15 @@ import {useMarkdownColors} from "../../colors";
 import {blockMenuItems} from "./block-menu";
 import MarkdownBlockTypeMenu from "./MarkdownBlockTypeMenu.vue";
 import MarkdownColorButton from "./MarkdownColorButton.vue";
-import {HIGHLIGHT_COLORS, LINK_COMMAND, TEXT_COLORS} from "./palette";
+import {HIGHLIGHT_COLORS, TEXT_COLORS} from "./palette";
 import type {PaletteColor} from "./palette";
 
 const props = defineProps<{editing: EditorEditing; menus: EditorMenus; readonly: boolean}>();
-const emit = defineEmits<{(event: "prompt", action: "ruby" | "bilingual"): void; (event: "refocus"): void}>();
+const emit = defineEmits<{(event: "prompt", action: PromptAction): void; (event: "refocus"): void}>();
+
+/** 要先开卡片再执行的动作：点按钮不直接执行命令，由菜单层开卡片（输出 9、52、54）。 */
+type PromptAction = "ruby" | "bilingual" | "link" | "image";
+const PROMPTS: ReadonlySet<string> = new Set<PromptAction>(["ruby", "bilingual", "link", "image"]);
 
 const remembered = useMarkdownColors();
 
@@ -47,11 +51,8 @@ const separator: Item = {kind: "separator"};
 const action = (id: EditingActionId): Item => ({kind: "action", action: id});
 const history = (command: "undo" | "redo", icon: string): Item => ({kind: "command", id: command, command: `nbook.edit.${command}`, icon, title: props.menus.title(command), enabled: props.editing.enabled(command)});
 
-/** 决定 6 的顺序；链接等 t09 登记命令后才有（决定 15）。 */
+/** 决定 6 的顺序（输出 1）。 */
 const items = computed<ReadonlyArray<Item>>(() => {
-    const link: Item[] = props.menus.has(LINK_COMMAND)
-        ? [{kind: "command", id: "link", command: LINK_COMMAND, icon: "i-lucide-link", title: props.menus.title("link"), enabled: props.editing.enabled("link")}, separator]
-        : [];
     const contributed = props.menus.contributed(EDITOR_TOOLBAR_POINT).flat().filter((entry) => entry.placement === "inline");
     return [
         history("undo", "i-lucide-undo-2"),
@@ -63,7 +64,8 @@ const items = computed<ReadonlyArray<Item>>(() => {
         separator,
         {kind: "color", action: "text-color"}, {kind: "color", action: "highlight"},
         separator,
-        ...link,
+        action("link"), action("image"),
+        separator,
         action("bullet-list"), action("ordered-list"), action("task-list"),
         separator,
         action("quote"), action("callout"), action("code-block"),
@@ -139,7 +141,7 @@ const moreMenu = computed<DropdownMenuItemData[]>(() => {
             case "separator": return [];
         }
     });
-    const always = (["superscript", "subscript", "divider", "ruby", "bilingual"] as const).map(itemOf);
+    const always = (["superscript", "subscript", "divider", "ruby", "bilingual", "properties"] as const).map(itemOf);
     const menuEntries = props.menus.contributed(EDITOR_TOOLBAR_POINT).flat().filter((entry) => entry.placement === "menu").map((entry): DropdownMenuItemData => ({id: `contributed:${entry.id}`, label: entry.label, ...(entry.icon === null ? {} : {iconClass: entry.icon}), disabled: !entry.enabled}));
     const sections = [hidden, always, menuEntries].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{id: `sep-${String(index)}`, label: "", separator: true}, ...section]));
@@ -164,7 +166,7 @@ function onAlignSelect(value: string): void {
 }
 
 function onMore(id: string): void {
-    afterSelect = id === "ruby" || id === "bilingual" ? "keep" : "refocus";
+    afterSelect = PROMPTS.has(id) ? "keep" : "refocus";
     if (id.startsWith("command:")) props.menus.execute(id.slice("command:".length));
     else if (id.startsWith("contributed:")) props.menus.runContributed(EDITOR_TOOLBAR_POINT, id.slice("contributed:".length));
     else if (id.startsWith("align:")) props.menus.run("align", {value: id.slice("align:".length)});
@@ -174,7 +176,7 @@ function onMore(id: string): void {
         // 与颜色按钮的色板一样记住，宽了以后按钮上是这次的颜色。
         if (color !== "") remembered.remember(action, color);
     }
-    else if (id === "ruby" || id === "bilingual") emit("prompt", id);
+    else if (PROMPTS.has(id)) emit("prompt", id as PromptAction);
     else props.menus.run(id as EditingActionId);
 }
 
@@ -206,7 +208,7 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
                     :aria-pressed="'format' in EDITING_ACTIONS[item.action] ? props.editing.active(item.action) : undefined"
                     :icon-class="EDITING_ACTIONS[item.action].icon"
                     :disabled="props.readonly || !props.editing.enabled(item.action)"
-                    @click="props.menus.run(item.action)"
+                    @click="PROMPTS.has(item.action) ? emit('prompt', item.action as PromptAction) : props.menus.run(item.action)"
                 />
                 <IconButton
                     v-else-if="item.kind === 'command'"

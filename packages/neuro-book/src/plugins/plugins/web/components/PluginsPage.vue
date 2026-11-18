@@ -9,6 +9,9 @@ import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {UPLOAD_LIMITS} from "nbook/plugin-platform/shared/plugin-upload";
+import {collectFolder, collectInputFiles, dragHasFiles, readDrop} from "nbook/ui/dropped-folder";
+import type {CollectProblem, CollectResult, DroppedItem} from "nbook/ui/dropped-folder";
 
 import {compareVersions} from "nbook/plugin-platform/shared/versions";
 import type {WindowPlugins} from "nbook/shared/host";
@@ -18,6 +21,8 @@ import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, Pl
 import {pluginsText, usePluginsText} from "../text";
 import type {PluginsTextKey} from "../text";
 import {builtinPluginTextKey} from "../../shared/builtin-names";
+import {COLLECT_OPTIONS, pathCollision, pluginFolderProblem} from "../folder-upload";
+import type {FolderUploadClient, UploadFailureCode} from "../folder-upload";
 
 defineOptions({name: "PluginsPage"});
 
@@ -27,6 +32,8 @@ const props = defineProps<{
     locale: DisplayLocale;
     /** 本窗口的插件问题与变化通知；拿不到时（Lab、测试）只显示服务端给的问题。 */
     windowPlugins?: Pick<WindowPlugins, "problems" | "onChange"> | null;
+    /** 上传文件夹的客户端（拖入与“选择文件夹”）；不给时页面没有这两个入口，只能输入服务端上的路径。 */
+    folderUpload?: FolderUploadClient | null;
 }>();
 
 /** 预览关系对应的确认框标题与确认按钮。 */
@@ -120,7 +127,20 @@ const retryButton = ref<{$el?: Element} | null>(null);
 // 对话框的开合与内容分开：关闭时内容留到下一次打开再换，淡出动画里不会先变成空壳。
 const previewOpen = ref(false);
 const preview = ref<InstallPreview | null>(null);
-const previewPath = ref("");
+/** 预览的来源：服务端上的路径，或上传的文件夹（上传时记下页面上传的 id，取消预览时删它）。 */
+type Source = {readonly kind: "path"; readonly path: string} | {readonly kind: "upload"; readonly id: string; readonly name: string; readonly files: number; readonly bytes: number};
+const previewSource = ref<Source>({kind: "path", path: ""});
+/** 上传进度（百分比）；没有在上传为 null。 */
+const uploadPercent = ref<number | null>(null);
+/** 拖着文件经过插件页：显示“松开以安装”的覆盖层。 */
+const dragging = ref(false);
+const pageRoot = ref<HTMLElement | null>(null);
+const folderInput = shallowRef<HTMLInputElement | null>(null);
+/** 页面上传了、还没交给安装的那个上传的 id；页面离开或取消时删它。已发出安装请求就不再记，由服务端在安装结束时删。 */
+let heldUpload: string | null = null;
+let uploadAbort: AbortController | null = null;
+/** 页面已卸载：收集或上传在途时用户离开了，之后收尾的步骤不再往页面里写，已经上传的删掉。 */
+let disposed = false;
 const uninstallOpen = ref(false);
 const uninstalling = ref<PluginListItem | null>(null);
 /** 打开对话框的控件不在了时焦点的落点（第三方插件的小标题）；函数 ref 记下。 */
@@ -128,6 +148,12 @@ let thirdPartyTitle: HTMLElement | null = null;
 function rememberTitle(key: string, element: unknown): void {
     if (key === "third-party") thirdPartyTitle = element instanceof HTMLElement ? element : null;
 }
+
+const MIB = 1024 * 1024;
+const mib = (bytes: number): string => `${String(bytes / MIB)} MiB`;
+const sizeText = (bytes: number): string => (bytes < MIB ? `${String(Math.max(1, Math.round(bytes / 1024)))} KiB` : `${(bytes / MIB).toFixed(1)} MiB`);
+/** 预览里“从哪来”一行：路径原样，上传的写文件夹名、文件数与大小。 */
+const previewSourceText = computed(() => (previewSource.value.kind === "path" ? previewSource.value.path : text("upload.source", {name: previewSource.value.name, files: previewSource.value.files, size: sizeText(previewSource.value.bytes)})));
 
 const hasPending = computed(() => items.value.some((item) => item.pending.length > 0));
 
@@ -210,15 +236,22 @@ function detailOf(failure: Failure): {readonly detail: string; readonly problems
 }
 
 /** 写出失败说明并让它进入视野（行内操作的失败可能发生在滚下去的位置）；列表可能已过时时等重新读完。 */
-async function report(failure: Failure): Promise<void> {
+async function report(failure: Failure, source: Source["kind"] = "path"): Promise<void> {
     const {detail, problems} = detailOf(failure);
     // 出错字段（清单无效）本身就是原因；没有时才用服务端的一句话。
     const lines = problems.length > 0 ? problems : [detail].filter((line) => line !== "");
+    // 上传的文件夹失效时（已删、已过期）路径没有错，原因换成“拖入的文件夹已经失效”。
+    if (source === "upload" && failure.code === "path-rejected") await showProblem("path-rejected", text("upload.expired"), []);
+    else await showProblem(failure.code, reasonOf(failure.code), listsDetail(failure.code) ? lines : []);
+    if (STALE_CODES.has(failure.code)) await refresh();
+}
+
+/** 失败说明区写一条原因并让它进入视野（行内操作的失败可能发生在滚下去的位置）。 */
+async function showProblem(code: string, reason: string, lines: ReadonlyArray<string>): Promise<void> {
     serial += 1;
-    problem.value = {serial, code: failure.code, reason: reasonOf(failure.code), lines: listsDetail(failure.code) ? lines : []};
+    problem.value = {serial, code, reason, lines};
     await nextTick();
     problemRegion.value?.scrollIntoView({block: "nearest"});
-    if (STALE_CODES.has(failure.code)) await refresh();
 }
 
 // 只采用最新一次读取的结果；读取途中又完成了写操作时重新读，旧结果不会盖掉写操作刚换上的行。
@@ -281,7 +314,7 @@ async function startInstall(): Promise<void> {
         return;
     }
     problem.value = null;
-    previewPath.value = source;
+    previewSource.value = {kind: "path", path: source};
     preview.value = result.value;
     previewOpen.value = true;
 }
@@ -289,17 +322,172 @@ async function startInstall(): Promise<void> {
 async function confirmInstall(): Promise<void> {
     if (busy.value !== null || !previewOpen.value) return;
     busy.value = "install";
-    const result = await props.registry.install({path: previewPath.value});
+    const source = previewSource.value;
+    // 发出安装请求之后页面不再管这个上传：服务端在安装结束（成功或失败）时删它；这时页面关掉也不会让安装用到一半的目录被删。
+    if (source.kind === "upload") heldUpload = null;
+    const result = await (source.kind === "upload" ? props.registry.install({upload: source.id}) : props.registry.install({path: source.path}));
     busy.value = null;
     previewOpen.value = false;
     if (!result.ok) {
-        await report(result);
+        await report(result, source.kind);
         return;
     }
     problem.value = null;
-    path.value = "";
+    if (source.kind === "path") path.value = "";
     await refresh();
 }
+
+/** 删掉页面上传的、还没交给安装的那个上传；`keepalive` 用于页面离开。 */
+function discardHeld(keepalive = false): void {
+    const id = heldUpload;
+    heldUpload = null;
+    if (id !== null) void props.folderUpload?.discard(id, {keepalive});
+}
+
+function collectProblemLines(found: CollectProblem): {readonly reason: string; readonly lines: ReadonlyArray<string>} {
+    switch (found.kind) {
+        case "too-many-files":
+            return {reason: text("upload.problem.too-many-files", {max: UPLOAD_LIMITS.maxFiles}), lines: []};
+        case "file-too-large":
+            return {reason: text("upload.problem.file-too-large", {path: found.path, max: mib(UPLOAD_LIMITS.maxFileBytes)}), lines: []};
+        case "too-large":
+            return {reason: text("upload.problem.too-large", {max: mib(UPLOAD_LIMITS.maxTotalBytes)}), lines: []};
+        case "path-invalid":
+            return {reason: text("upload.problem.path-invalid"), lines: [`${found.path}：${found.detail}`]};
+        case "too-deep":
+            return {reason: text("upload.problem.too-deep"), lines: []};
+        case "read-failed":
+            return {reason: text("upload.problem.read-failed", {path: found.path}), lines: []};
+    }
+}
+
+/**
+ * 一个文件夹走完“收集、检查、上传、预览”：收集与检查在页面里（拒绝的当场说明、不上传），上传成功后对上传的文件夹调 `inspect`，
+ * 之后与路径安装同一个确认框。任何一步失败都不留下上传：预览失败就删。
+ */
+async function installFolder(collect: () => Promise<CollectResult>): Promise<void> {
+    const client = props.folderUpload;
+    if (client === null || client === undefined) return;
+    if (busy.value !== null || previewOpen.value) {
+        await showProblem("upload-busy-now", text("upload.busyNow"), []);
+        return;
+    }
+    busy.value = "upload";
+    problem.value = null;
+    try {
+        const collected = await collect();
+        if (disposed) return;
+        if (!collected.ok) {
+            const {reason, lines} = collectProblemLines(collected.problem);
+            await showProblem(collected.problem.kind, reason, lines);
+            return;
+        }
+        const {folder} = collected;
+        const verdict = pluginFolderProblem(folder);
+        if (verdict !== null) {
+            await showProblem("no-manifest", verdict.kind === "nested" ? text("upload.nested", {name: verdict.name}) : text("upload.noManifest"), []);
+            return;
+        }
+        const collision = pathCollision(folder);
+        if (collision !== null) {
+            await showProblem("path-invalid", text("upload.problem.path-invalid"), [collision]);
+            return;
+        }
+        uploadAbort = new AbortController();
+        uploadPercent.value = 0;
+        const uploaded = await client.upload(folder, {signal: uploadAbort.signal, onProgress: (sent, total) => (uploadPercent.value = total === 0 ? 100 : Math.floor((sent * 100) / total))});
+        uploadAbort = null;
+        if (disposed) {
+            // 页面在上传途中卸载了：上传到了就删（卸载那一刻 `heldUpload` 还没有它）。
+            if (uploaded.ok) void client.discard(uploaded.id, {keepalive: true});
+            return;
+        }
+        if (!uploaded.ok) {
+            await showProblem(uploaded.code, text(`upload.errors.${uploaded.code}` satisfies `upload.errors.${UploadFailureCode}`), uploaded.detail === "" ? [] : [uploaded.detail]);
+            return;
+        }
+        heldUpload = uploaded.id;
+        uploadPercent.value = null;
+        const result = await props.registry.inspect({upload: uploaded.id});
+        if (!result.ok) {
+            discardHeld();
+            await report(result, "upload");
+            return;
+        }
+        problem.value = null;
+        previewSource.value = {kind: "upload", id: uploaded.id, name: folder.name, files: uploaded.files, bytes: uploaded.bytes};
+        preview.value = result.value;
+        previewOpen.value = true;
+    } finally {
+        uploadAbort = null;
+        uploadPercent.value = null;
+        busy.value = null;
+    }
+}
+
+const ARCHIVE = /\.(?:zip|tgz|tar|tar\.gz|gz|7z|rar)$/iu;
+
+/** 拖进来的东西：恰好一个文件夹才收，别的说明为什么不收。 */
+async function dropped(items: ReadonlyArray<DroppedItem>): Promise<void> {
+    const only = items.length === 1 ? items[0]! : null;
+    if (only === null || only.kind === "file") {
+        const archive = only !== null && ARCHIVE.test(only.name);
+        await showProblem(archive ? "archive" : "not-folder", text(archive ? "upload.archive" : "upload.notFolder"), []);
+        return;
+    }
+    await installFolder(() => collectFolder(only.entry, COLLECT_OPTIONS));
+}
+
+/** `webkitdirectory` 是非标准属性（Chrome、Edge、Firefox、Safari 都支持），Vue 的 input 属性类型里没有它：挂上元素时设。 */
+function bindFolderInput(element: unknown): void {
+    folderInput.value = element instanceof HTMLInputElement ? element : null;
+    folderInput.value?.setAttribute("webkitdirectory", "");
+}
+
+function onFolderPicked(): void {
+    const input = folderInput.value;
+    const files = Array.from(input?.files ?? []);
+    // 清空，选同一个文件夹第二次时才会再触发 change。
+    if (input !== null) input.value = "";
+    // 空文件夹没有文件可上传：说清楚没有清单，不要什么反应都没有。
+    if (files.length === 0) void showProblem("no-manifest", text("upload.noManifest"), []);
+    else void installFolder(() => Promise.resolve(collectInputFiles(files, COLLECT_OPTIONS)));
+}
+
+/** 设置窗口里的任何位置（侧栏、标题、列表下面的空白）都是落点：页面根只有内容那么高，只认它会让空白处的松手被当成“落在别处”。 */
+function inDropRegion(target: EventTarget | null): boolean {
+    const region = pageRoot.value?.closest("[data-settings-window]") ?? pageRoot.value;
+    return target instanceof Node && region?.contains(target) === true;
+}
+
+/**
+ * 窗口上的拖放（页面挂载期间，给了上传客户端才处理）：含文件的拖动一律 `preventDefault`（落在没人接的地方，浏览器的缺省动作是把
+ * 文件当文档打开、整页导航走）；落在设置窗口里的当作拖入，其余提示拖到插件页。拖动经过时显示覆盖层，离开窗口（`relatedTarget` 为空）或松手
+ * 时收起。松手时在事件的同步段里读出条目，之后异步遍历。
+ */
+function onWindowDragOver(event: DragEvent): void {
+    if (props.folderUpload == null || !dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    const inside = inDropRegion(event.target);
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = inside ? "copy" : "none";
+    dragging.value = inside;
+}
+
+function onWindowDragLeave(event: DragEvent): void {
+    if (event.relatedTarget === null) dragging.value = false;
+}
+
+function onWindowDrop(event: DragEvent): void {
+    if (props.folderUpload == null || !dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dragging.value = false;
+    if (inDropRegion(event.target)) {
+        void dropped(readDrop(event.dataTransfer!));
+        return;
+    }
+    void showProblem("drop-outside", text(busy.value !== null || previewOpen.value ? "upload.busyNow" : "upload.outside"), []);
+}
+const leavePage = (): void => discardHeld(true);
 
 async function toggle(item: PluginListItem, enabled: boolean): Promise<void> {
     if (busy.value !== null) return;
@@ -356,7 +544,10 @@ function openUninstall(item: PluginListItem): void {
 }
 
 function closePreview(open: boolean): void {
-    if (!open && busy.value !== "install") previewOpen.value = false;
+    if (open || busy.value === "install") return;
+    previewOpen.value = false;
+    // 取消预览：页面上传的文件夹没人要了，删掉。
+    discardHeld();
 }
 
 function closeUninstall(open: boolean): void {
@@ -365,11 +556,30 @@ function closeUninstall(open: boolean): void {
 
 onMounted(() => {
     void refresh();
+    window.addEventListener("dragover", onWindowDragOver);
+    window.addEventListener("dragleave", onWindowDragLeave);
+    window.addEventListener("drop", onWindowDrop);
+    window.addEventListener("pagehide", leavePage);
+});
+
+onBeforeUnmount(() => {
+    window.removeEventListener("dragover", onWindowDragOver);
+    window.removeEventListener("dragleave", onWindowDragLeave);
+    window.removeEventListener("drop", onWindowDrop);
+    window.removeEventListener("pagehide", leavePage);
+    disposed = true;
+    uploadAbort?.abort();
+    discardHeld(true);
 });
 </script>
 
 <template>
-    <div class="plugins-page" data-plugins-page :data-plugins-state="state">
+    <div ref="pageRoot" class="plugins-page" data-plugins-page :data-plugins-state="state" >
+        <!-- 拖着文件经过：盖住整页，写“松开以安装插件”。自己不收事件（pointer-events: none），松手仍落在页面根上。 -->
+        <div v-if="dragging" class="plugins-page__drop" aria-hidden="true" data-plugin-drop>
+            <span class="i-lucide-folder-down plugins-page__drop-icon"></span>
+            <span>{{ text('upload.overlay') }}</span>
+        </div>
         <!-- 与设置窗口画在分区顶部的层状态说明同一种写法：一行图标加文字，不画框。 -->
         <p class="plugins-page__note" :class="{'plugins-page__note--warning': hasPending}" role="status" data-plugins-restart>
             <span :class="hasPending ? 'i-lucide-triangle-alert' : 'i-lucide-info'" class="plugins-page__note-icon" aria-hidden="true"></span>
@@ -390,6 +600,13 @@ onMounted(() => {
                 <Input id="nbook-plugins-path" ref="pathInput" v-model="path" :placeholder="text('install.pathPlaceholder')" spellcheck="false" data-plugin-path />
                 <Button type="submit" :disabled="blockedFor('preview')" :aria-busy="busy === 'preview' ? 'true' : undefined" data-plugin-install>{{ text('install.start') }}</Button>
             </div>
+            <div v-if="folderUpload" class="plugins-page__folder">
+                <span class="plugins-page__muted">{{ text('upload.hint') }}</span>
+                <Button type="button" variant="secondary" size="sm" :aria-disabled="busy !== null ? 'true' : undefined" data-plugin-choose-folder @click="busy === null && folderInput?.click()">{{ text('upload.choose') }}</Button>
+                <!-- 选目录：浏览器给的文件列表带相对路径（webkitRelativePath）。藏起来，由上面的按钮打开。 -->
+                <input :ref="bindFolderInput" type="file" class="plugins-page__folder-input" tabindex="-1" aria-hidden="true" data-plugin-folder-input @change="onFolderPicked" />
+            </div>
+            <p v-if="uploadPercent !== null" class="plugins-page__muted" role="status" data-plugin-upload-progress>{{ text('upload.progress', {percent: uploadPercent}) }}</p>
         </form>
 
         <div ref="problemRegion" class="plugins-page__problem" role="alert" :data-plugin-problem="problem?.code">
@@ -471,7 +688,7 @@ onMounted(() => {
                 </div>
                 <p v-if="preview.unchecked.length > 0" class="plugins-page__dialog-text" data-plugin-preview-unchecked>{{ text('preview.unchecked', {plugins: list(preview.unchecked)}) }}</p>
                 <p class="plugins-page__dialog-text">{{ text('preview.trust') }}</p>
-                <p class="plugins-page__path">{{ previewPath }}</p>
+                <p class="plugins-page__path" data-plugin-preview-source>{{ previewSourceText }}</p>
             </template>
             <template #footer="{cancel}">
                 <Button class="flex-1" variant="secondary" :disabled="busy === 'install'" @click="cancel">{{ text('dialog.cancel') }}</Button>
@@ -497,9 +714,45 @@ onMounted(() => {
 
 <style scoped>
 .plugins-page {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+}
+
+/* 拖入的覆盖层：盖住整页、不收指针事件，松手仍落在页面根上。 */
+.plugins-page__drop {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    /* 页面比视口高时整页正中可能在视口之外：文字靠上放。 */
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: var(--space-7);
+    gap: var(--space-2);
+    border: 2px dashed var(--accent-main);
+    border-radius: var(--radius-panel);
+    background: color-mix(in srgb, var(--accent-main) 8%, transparent);
+    color: var(--accent-text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-strong);
+    pointer-events: none;
+}
+
+.plugins-page__drop-icon {
+    font-size: 1.25em;
+}
+
+.plugins-page__folder {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.plugins-page__folder-input {
+    display: none;
 }
 
 .plugins-page__install {

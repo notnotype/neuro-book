@@ -23,6 +23,8 @@ export interface WindowUiOptions {
     readonly navigateDocument: (href: string) => void;
     /** 重新加载当前文档；生产是 `location.reload`。 */
     readonly reloadDocument: () => void;
+    /** 页面（不是启动失败页）挂好之后调用一次：桌面壳的更新提示据此判断页面就绪（browser-host 输出 11）。 */
+    readonly onPagesMounted?: () => void;
 }
 
 /** 三个独立的 Vue 根（宿主页、页面、启动失败页）各自注入窗口的翻译端口（docs/specs/ui/i18n.md）。 */
@@ -60,4 +62,5 @@ async function mountPages(options: WindowUiOptions, ready: ReadyWindowState): Pr
         return;
     }
     app.mount(options.container);
+    options.onPagesMounted?.();
 }

@@ -1,0 +1,136 @@
+# t26 计划第 1 稿的设计审查（Claude Sonnet，claude -p，2026-11-18）
+
+审查者写不了报告文件，报告取自它的标准输出；最后一行 REVIEW-DONE 是启动脚本加的。
+
+审查完成,但**报告没能写进 `findings.txt`**。Bash 重定向和 Write 都被权限拒绝(含 `exp/` 下的实验文件),所以下面是完整报告。结论都来自读代码和对照 Spec,没有跑实验,也没跑单元测试。
+
+## 报告
+
+### 1. perf-04 按需排帧会让卡片多落后一帧,空闲重启后还丢掉缓动
+- **严重程度**:重要。**类别**:合同(输出 38“跟手”)、遗漏。
+- **位置**:`web/live-drag.ts` 的 `tick` 与 `updateCard`(`blend`、`lastFrame`);`nb-layout/src/drag-gesture.ts:306-308`、`:484`;`web/layout-drag.ts:942-947`(`resolveDrop` 里才调 `live.offer`)。
+- **现象**:
+  1. 现在 `tick` 每帧排队,且在指针事件之前就排好。指针一动,手势排自己的 rAF;下一帧里先跑的是早已登记的 `tick`,它的 `settleDrop()`(即 `session.flush()`)把判定提前做完,所以判定、换预览、写卡片都在同一帧。计划改成“`offer()` 里没在跑就起”,但 `offer` 要到手势自己的 rAF 里才被调到,此时再排只能排到下一帧。每次指针移动后卡片与预览多落后一帧(60Hz 约 16.7ms)。计划的“有事才排”清单里没有“指针刚动过”。
+  2. `blend = 1 - exp(-(now - lastFrame)/90)`,而 `lastFrame` 只在 `tick` 里更新。停帧后重启,第一帧的 `now - lastFrame` 是整段空闲时间,`blend` 约等于 1,卡片尺寸和追赶位移一步到位,不再缓动。计划没提重启时要把 `lastFrame` 对到 `now`。
+- **为什么是问题**:这是实时布局最显眼的手感。计划的两条回归(“不再请求帧”“按住不动 rAF 为 0”)只守空闲时不排帧,守不住这两处。
+- **如何核实**:读代码可确认顺序。e2e 里按住不动 1 秒后再动一步,比较“move 事件到卡片 `translate` 变化”隔几帧。`live-drag.test.ts` 里用假 `requestFrame`,停帧 2 秒后再 `offer`,看第一次 `placeCard` 的尺寸是否已到目标。
+- **建议改法**:让指针样本也能叫醒帧循环,或保留“上一帧有指针样本、卡片未到位、计时未到期,任一为真就继续排”,只在全静止时停。重启时 `lastFrame = now`,并补进单元测试。
+
+### 2. perf-08 用过渡判结束:收集时机、被取消的过渡、宿主读 `moving` 都没想清
+- **严重程度**:重要。**类别**:合同、遗漏。
+- **位置**:`vue/useGridMotion.ts` 的 `start`、`stop`、`finishTransitions`;`WorkbenchSurface.vue:205-212`;Spec `ui/nested-grid` 过渡一节。
+- **现象**:
+  1. “渲染之后收集过渡动画”时,动画还不存在。`start` 先写起点矩形(`growing`),`nextTick` 里强制布局后才清 `growing`,终点要等第二次渲染才写,过渡在那之后的样式计算才开始。第一次渲染后收集会得到空集合,再按“没有过渡就马上 `stop`”处理,会把所有长出来、缩回去的动画在起跑前掐掉。计划没写“第二次渲染之后、`getAnimations()` 强制样式之后”再收集。
+  2. 计划写“`finished` reject 按结束处理”。但同一元素在进行中改终点时(代码里 243 行注释的反向走、Spec 的“连续的变化以最后一次为准重新计时”),旧的 CSSTransition 会被取消,`finished` 正是 reject。按结束处理,第二次布局变化一来,第一轮动画的 reject 就会 `stop()`,把第二轮正在走的过渡送到终点。需要一个轮次令牌,只认当前轮的动画。
+  3. `WorkbenchSurface.vue:205-208` 在 `nextTick` 里读 `gridEl.moving !== true` 来判“这次有没有过渡”。收集时机若落在这之前,`moving` 提前变假,最大化还原的头搬回会错。这个消费者计划没列。
+- **如何核实**:读上述位置。在 Lab 里连触发两次布局变化,看第一次的 `finished` 是否 reject 并导致 `moving` 提前为假。
+- **建议改法**:收集放在第二次渲染的 `nextTick` 之后。用轮次令牌,reject 只在令牌仍是当前轮时才算结束。把宿主读 `moving` 的约定写进计划。
+
+### 3. perf-08 的回归测试在 happy-dom 里写不出来,现有 `moving` 用例会被改坏
+- **严重程度**:重要。**类别**:验收映射。
+- **位置**:计划 perf-08 末句;`NestedGrid.dom.test.ts:1190-1196`;`useGridMotion.dom.test.ts:282-290`。
+- **现象**:
+  1. happy-dom 没有 CSS 过渡引擎,没有 `getAnimations`。“主线程忙、定时器先到时不提前送到终点”必须在真实 Chromium 里验证。
+  2. 现有 NestedGrid 用例 `await setProps(...)` 之后立刻断言 `moving` 为真。happy-dom 里收集到的动画永远为空,按“没有过渡就马上 stop”会在这一拍变假。计划说“照跑”,实际会失败,除非保留“无 `getAnimations` 时只用定时器”的退路,计划没写。
+  3. 定时器先到的真实坏处,是长任务让过渡起跑晚于定时器,`finish()` 把它掐断。要复现得在 e2e 里,于渲染后立刻同步占住主线程超过 `duration+50ms`,再看 `getAnimations()` 是否还在、元素是否已跳到终点。
+- **建议改法**:把这条回归放进 Lab 的 e2e。明确无 `getAnimations` 时沿用现在的定时器路径,单元测试守这条路径。
+
+### 4. api-08 换掉 `structuredClone` 后,返回文档里仍混着响应式代理
+- **严重程度**:重要。**类别**:正确性、验收。
+- **位置**:`layout-doc.ts:124`(`editable`);各操作里的 `{...panel, tabs}`(如 `:736-738`、`:706`、`:831-834`)。
+- **现象**:操作先 `editable(doc)` 得到副本,但很多地方的新记录是从**原文档**展开的(`const panel = doc.panels[...]`,再 `{...panel, tabs, ...}`、`[...panel.tabs]`)。输入是 `ref/reactive` 包着的文档时,这些展开出的 `tabs` 元素、`entries` 数组都是 Vue 代理,会混进返回的 `LayoutResult.doc`。只改 `editable` 之后“不抛了”,但返回值带代理,之后任何 `structuredClone`(例如 `layout-doc-store.ts:287` 的注释就在躲它)仍会抛。计划的测试只要求“照常返回结果”,查不出这个。
+- **还有两点**:
+  - 手写递归若用 `out[key] = …`,键为 `__proto__` 时会改原型而不是写自有键。校验拒了 id 里的 `__proto__`,但 `editable` 本身不该依赖这一点。
+  - 计划的规模测试只数 256 个树节点,文档大小实际取决于标签数,而且 `editable` 在拖动预览的每次落点操作里都会调。
+- **建议改法**:测试断言结果里不含代理(深度遍历 `isProxy`),且输入未被改。克隆用 `Object.keys` 加 `defineProperty`,或按已知字段建。规模用例加 2000 个标签。若不愿处理代理泄漏,就按报告备选 2 的做法在入口转成 `rejected`,并把“传原对象”写进合同。
+
+### 5. design-04 的校验:循环导入、只拦面板 id、漏了同类撞名
+- **严重程度**:重要。**类别**:不变量。
+- **位置**:`layout-project.ts:77-81`(`STRIP_PREFIX`,未导出,且 `layout-project.ts` 导入 `layout-doc.ts`);`layout-project.ts:199`(`${node.id}:sections`);`layout-doc.ts:1271-1286`(`validateNode`)。
+- **现象**:
+  1. 计划让 `validateLayoutDoc` 用 `regionStripLeafId` 的前缀。`layout-doc.ts` 要从 `layout-project.ts` 取它,就成了循环依赖。常量得先搬到 `layout-doc.ts` 或叶子模块。
+  2. 入口条叶的 id 在呈现里是 `strip:<区域>`,与文档里**任何**节点撞都有害,包括分支 id 和浮动窗 id。计划只提“面板 id”。校验该对 `seen` 里的所有 id 拒掉 `strip:` 前缀。
+  3. 同一类还有 `${node.id}:sections`(区域节点是分支时生成的内层 id)。文档里有个节点 id 恰为 `<区域节点>:sections` 就会在呈现里重复。计划没提。
+  4. 规则写成“以 `strip:` 开头一律拒”,比 `regionOfStripLeaf` 认的三个区域名宽。这是故意收紧还是不小心,计划没说。
+- **建议改法**:拒绝所有节点 id(含分支)和浮动窗 id 里以 `strip:` 开头的;`:sections` 结尾的也拒,或在投影里改成不会撞的生成方式。补对应测试(分支撞名、浮动窗撞名)。
+
+### 6. perf-06:计划的指标看不出它,还删掉了防“每次改窗口都滑一下”的分支
+- **严重程度**:重要。**类别**:验收映射、合同。
+- **位置**:计划“工作台的修复”perf-06 与基线场景 8;`useGridMotion.ts` 的 `decideMotion` 头注释与 `resized` 判定。
+- **现象**:
+  1. perf-06 省的是第二次 Vue 渲染(两个 ResizeObserver 回调之间有微任务检查点)。两次渲染的 DOM 写入会并进同一帧的样式重算与排版,所以场景 8 的“样式重算、排版”次数改前改后几乎一样,基线会得出“没变化”。要看这条得数渲染或 DOM 写入(MutationObserver 记录数),或看脚本耗时。
+  2. 计划随手去掉 `decideMotion` 里“两个尺寸都要比”的分支。该分支的存在理由是两个来源晚一拍到,只比一个会让第二拍被当成程序变化、每次改窗口高度都滑一下。改成单一来源后这条是否成立,取决于 NestedGrid 的 `extent` 事件到宿主发布新布局之间是否还可能隔一次 Vue 刷新(表面的 `extent`→store 投影→`useGridLayout` 重算→回到 NestedGrid 的 props)。计划只在风险里写“首帧不跳”,没验这个。
+  3. 新增 `extent` 事件是 nb-layout 公开接口的新增。计划不在 t31 之前新增公开接口的原则下,没说为什么选事件而不是让宿主把 `extent` 传下去。
+- **建议改法**:先加一条 e2e(`setViewportSize` 改高度,断言网格上没有 `data-moving`),把它放在删分支之前并确认现在通过。基线里加“DOM 写入次数”。事件与 prop 两种做法写明取舍。
+
+### 7. 性能基线的量法:场景口径、探针服务器的内容、基线提交
+- **严重程度**:重要。**类别**:验收映射、共享状态。
+- **位置**:计划“性能基线”各场景与“对照的做法”;`e2e/fixtures.ts:77-94`;`e2e/workbench-drag-cost.e2e.ts:81-113`;`workbench-containers.e2e.ts:101`。
+- **现象**:
+  1. 场景 2 写“每步”的重算与排版。Playwright 连续发的 pointermove 会被浏览器按帧合并,每步的次数随机器快慢变。现有 e2e 之所以按“每帧”算(`perFrame`),就是这个原因。脚本得按帧归一,或每步等一帧。
+  2. 探针服务器 `test.sample-views` 加排除 `nbook.editor`:
+     - 没有编辑器就没有 `data-surface-head`,perf-09 的编辑组头观察在这个配置里不存在,场景 8 量不到它。
+     - 资源管理器要有项目和足够多的文件才能滚动,计划没提准备数据。现有 drag-cost 用的是产品服务器加种子项目。
+  3. 实时布局要求 `layoutMotionMs(root) > 0`(`layout-drag.ts:999`)。脚本若不 `emulateMedia({reducedMotion:"no-preference"})`,场景 4、5 根本不会起实时拖动,基线与修后都是 0。要加断言:`[data-lifted]` 出现、`data-workbench-dragging` 为真。
+  4. 场景 7 的 perf-08 无法用次数量:它的症状是过渡被掐断,不是回调数。计划应直接写“未量”,或采样过渡进度。
+  5. “参数给出要量的构建所在的 checkout”:`startProbeServer` 的 `cwd` 取自 `fixtures.ts` 所在包,要量两份构建就得从各自 checkout 动态导入 fixtures 并用各自的 `dist/e2e/web`。基线提交必须是分支变基到 t28 合入后的 master 的 merge-base,否则对照混进 t28 的改动。
+  6. 数的是次数,负载只影响帧数;“按低的一端判负载”这句对次数无意义,对 rAF 回调数才需要。
+  7. 页面里包 rAF 计数时,脚本自己的计数循环也是 rAF,要排除,否则它自己制造了“每帧一次回调”。
+- **建议改法**:按上面逐项补进脚本规格。
+
+### 8. 推迟 design-09、design-10 的理由不成立一半
+- **严重程度**:建议。**类别**:验收映射。
+- **位置**:计划“背景”与“不做与风险”;`web/layout-drag.ts`(1112 行,无单元测试)。
+- **现象**:计划推迟 `layout-drag.ts` 拆分“因为拖动控制器可能进库”。但 perf-03(`structure`)和 t28 的审查修正都在改这个文件,而它没有单测。给它补单元测试不受库边界影响,控制器搬去哪测试都跟着走。api-02、docs-15、api-07 的推迟成立:要么直接取决于公开接口形状,要么改了就是改接口。
+- **建议改法**:perf-03 的改动至少补一条 `structure` 的缓存测试;design-10 的测试可以先写。
+
+### 9. design-03:`dispose()` 摘的是 `options.root.value`,元素已被置空时仍会漏
+- **严重程度**:建议。**类别**:资源释放。
+- **位置**:`vue/useSashGesture.ts:557-580`、`:639-646`、`:201`、`:553`、`:575`、`:577`(`window.setTimeout`、`cancelAnimationFrame` 用全局)。
+- **现象**:计划写“`dispose` 与卸载时摘当前元素”。若 `dispose()` 在模板 ref 已置空之后才被宿主调用,`options.root.value` 是 null,`detach()` 摘不到 root 上的监听和 `scopeEntries`。计划改了窗口和文档取法,但 `hoverTimer`、`frame` 的计时器仍走全局 `window`/`cancelAnimationFrame`。
+- **建议改法**:在 `attach()` 里记下 root 和它的 `ownerDocument`、`defaultView`,`detach()` 用记下的,不再读 `options.root.value`。计时器与 rAF 也用同一个 view。
+
+### 10. perf-05:`will-change: translate` 的收益没有依据,还会改渲染
+- **严重程度**:建议。**类别**:性能、遗漏。
+- **位置**:`vue/NestedGrid.vue:853-862`、`:606-609`(`placeFloat` 写 `style.translate`)。
+- **现象**:手势期间 `translate` 已是非 `none`,本身就让这些元素成层叠上下文和 `fixed` 的包含块,并进 Chromium 的 paint property tree;`will-change` 与第一次写 `translate` 是同一次样式变更,没有“提前升层”的窗口。计划又承认重绘面积没法量,等于改了渲染而不知道有没有用。合成层还会让文字用灰度抗锯齿、在小数位置上略糊,只在手势期间出现。
+- **建议改法**:要么在真机用 Performance/Layers 面板先量到收益再加,要么先不加、记成未验证项。
+
+### 11. api-06:分支 id 的查重范围偏窄
+- **严重程度**:建议。**类别**:不变量。
+- **位置**:计划 `freshId`;`layout-doc.ts:919`(`newBranchId`);`:1333`(校验 `seen.has(float.panel)`)。
+- **现象**:计划写“分支查树”。但分支 id 若等于某个浮动窗的面板 id,校验会拒(`seen` 含分支,又与浮动窗比),而浮动窗不在树里,只查树查不到。分支 id 也该查 `panels`。
+- **建议改法**:`freshId` 里分支同样查 `next.panels`。测试覆盖“分支 id 撞浮动窗 id”。
+
+### 12. perf-03:缓存做一半,编辑器那一半仍每帧重算
+- **严重程度**:建议。**类别**:性能。
+- **位置**:`web/layout-drag.ts:1011`;`plugins/editor/web/tab-drag.ts`(`structure()`)。
+- **现象**:计划按“`options.doc()` 身份与编辑器结构的值”记忆,但编辑器那一半每帧还要先算出“值”(它自己要遍历所有编辑组所有标签并序列化),这部分没省。报告建议的是编辑器让 `structure()` 自己 computed 缓存。
+- **建议改法**:要么把编辑器侧缓存也列进计划(它在另一个包),要么写明只省了文档那一半。
+
+### 13. perf-01 的两处实现细节
+- **严重程度**:建议。**类别**:遗漏。
+- **位置**:`vue/useSashSnap.ts:81-89`;`SashHandle.vue:148-162`。
+- **现象**:
+  1. “只认包着网格根的滚动”需要 `useSashSnap` 拿到根元素,现在它没有这个入参。多个网格嵌套时各自判自己的根。
+  2. 几何缓存要按装饰元素(`WeakMap`)记。装饰元素上没有 Vue 的 `:style`,所以缓存是安全的。但 `writeLineCore` 的 `--nb-sash-core-*` 也要一并去重,计划只写了几何。
+- **建议改法**:补进计划。
+
+### 14. e2e 辅助函数:Lab 表面没有标题栏
+- **严重程度**:建议。**类别**:验收映射。
+- **位置**:计划“e2e 辅助函数”;`lab-workbench-surface.e2e.ts`。
+- **现象**:计划让指针“移到标题栏空白”。Lab 的表面场景里没有标题栏,`lab-workbench-surface` 没有可去的空白;产品壳里标题栏有菜单悬停行为,移过去可能打开菜单。
+- **建议改法**:按文件各取一个确认无悬停副作用的点(例如状态栏空白),不要写成“标题栏”。
+
+## 未发现问题的方面
+- design-04 的前提“条的叶 id 等于条名”:`WorkbenchSurface.vue` 确实按 `node.id === STATUS_BAR` 判,所有现有夹具(`default-tree.ts`、`GridPanelsScene.vue`、各测试的 `docOf`)的条叶 id 都等于条名,收紧不会拒掉现有合法记录。
+- api-06 的收紧不会误伤生产路径:生产的 `newId` 都是随机 UUID 或自带去重(`editor-panels.ts:158`、`default-tree.ts:132` 的 `freeId`);`testPolicy` 的计数器也不重复。
+- 重核表:perf-01 的部分已修(t19)、perf-09、perf-04、perf-03、design-03 在现在的代码里仍在,位置对得上。
+- api-02 推迟的理由成立:`LayoutPolicy` 的注释已写明“提交时不再问,宿主要在写入出口兜底”,写入时强制 `edgeTarget` 会拒掉 t28 的跨区域搬容器。api-07、docs-15 的推迟同样成立。
+- 切片顺序(先 nb-layout 内部修复、t28 合入后再动工作台文件、先基线后性能修复)合理。
+- “不做与风险”第 2 条(design-04 回落默认树)我认可,没有路径产生这种记录。第 3、4 条的风险描述不全,已在 6 与 2、3 里补。
+
+## 数量
+- 阻断 0;重要 7(1–7);建议 7(8–14)。
+- 有效发现编号:1–14。
+- 全部来自读代码,没有跑任何实验。

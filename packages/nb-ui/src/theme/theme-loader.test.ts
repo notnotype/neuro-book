@@ -1,7 +1,8 @@
-import {readFileSync} from "node:fs";
+import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {NB_UI_VERSION} from "../version";
+import {satisfiesRange} from "./semver-range";
 import {
     NbThemeInstallError,
     getInstalledTheme,
@@ -38,6 +39,20 @@ describe("nb-ui theme loader", () => {
         };
 
         expect(NB_UI_VERSION).toBe(pkg.version);
+    });
+
+    // 提 nb-ui 的版本号时，自带主题的 hostVersion 要一起改：漏了，宿主装载时把它们全部拒掉（w00046 t11 发布演练的
+    // nbstory 查看器卡在加载页）。在这里失败，比等到发布冒烟才发现早。
+    it("bundled themes accept the current NB_UI_VERSION", async () => {
+        const themesDir = join(import.meta.dirname, "..", "..", "themes");
+        const names = readdirSync(themesDir, {withFileTypes: true}).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+        expect(names.length).toBeGreaterThan(0);
+        const rejected: string[] = [];
+        for (const name of names) {
+            const {manifest} = (await import(join(themesDir, name, "manifest.ts"))) as {manifest: NbThemeModule["manifest"]};
+            if (!satisfiesRange(NB_UI_VERSION, manifest.hostVersion)) rejected.push(`${name}: ${manifest.hostVersion}`);
+        }
+        expect(rejected).toEqual([]);
     });
 
     it("installs a minimal declarative theme", () => {

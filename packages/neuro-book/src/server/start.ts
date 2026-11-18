@@ -12,18 +12,22 @@ import {join} from "node:path";
 import {startHostServer} from "@notnotype/nb-host/server";
 import type {DrainClock, ExitCode, HostServerExtension, ProcessEvents} from "@notnotype/nb-host/server";
 import type {Application, StopResult} from "@notnotype/nb-runtime/application";
+import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
+import {createPluginUploads, pluginUploadsKey} from "nbook/plugin-platform/backend/uploads";
+import type {PluginUploads} from "nbook/plugin-platform/backend/uploads";
+import {createPluginPackages, pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
 import {installedPlugins, NO_PREPARED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {pluginProblems} from "nbook/plugin-platform/shared/problems";
 import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
 import {NEUROBOOK_PLATFORM, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {PluginDescriptor} from "nbook/manifest";
-import {clockKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
+import {clockKey, runningWorkKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
@@ -31,6 +35,8 @@ import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
 import type {StateRootClaim} from "./instance";
 import {createPluginCatalogsRoute, createPluginFilesRoute} from "./plugin-files";
+import {createRunningWork, createRunningWorkRoute} from "./running-work";
+import type {RunningWorkRegistry} from "./running-work";
 import {startupEnv} from "./startup-env";
 import {resolveUserDirectories} from "./user-directories";
 import {HTTP_PLUGIN_ID, manifestServerPlugins} from "./plugins";
@@ -131,6 +137,9 @@ export function startServer(options: StartServerOptions): RunningServer {
     let projects: ProjectManager | null = null;
     const projectsReady = Promise.withResolvers<ProjectManager>();
     const projectTitle = (reference: string): Promise<string | null> => (projects === null ? Promise.resolve(null) : projects.displayTitle(reference));
+    // 在跑的工作的登记表要写诊断，诊断存储由 nb-host 建好后才经宿主接口与宿主能力的上下文交来（两处是同一个存储，先到的那处建）。
+    let runningWork: RunningWorkRegistry | null = null;
+    const runningWorkOf = (store: DiagnosticsStore): RunningWorkRegistry => (runningWork ??= createRunningWork((record) => void store.record(record)));
 
     const extensions: HostServerExtension[] = [];
     const makeDevTask = options.devTask;
@@ -143,6 +152,9 @@ export function startServer(options: StartServerOptions): RunningServer {
             stopping: () => devTask?.stop() ?? Promise.resolve(),
         });
     }
+    // 上传暂存区：宿主能力里建（要诊断存储），停止开始时就先停（取消正在接收的上传，与 HTTP 排空并行），免得半帧上传把排空拖到截止。
+    let pluginUploads: PluginUploads | null = null;
+    extensions.push({stopping: () => pluginUploads?.stop() ?? Promise.resolve()});
     extensions.push({
         attach: (context) => {
             application = context.application;
@@ -182,6 +194,7 @@ export function startServer(options: StartServerOptions): RunningServer {
                 createBrowserBootstrapRoute(builtinManifest, installed, rpc, projectTitle),
                 createPluginFilesRoute(installed, (input) => store.record(input)),
                 createPluginCatalogsRoute(installed, (input) => store.record(input)),
+                createRunningWorkRoute(runningWorkOf(store), () => (projects === null ? Promise.resolve({items: [], failed: []}) : projects.work())),
             ],
         },
         plugins: (context) => {
@@ -194,6 +207,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             {id: "host.startup-env", key: startupEnvKey, create: () => ({env: startupEnv})},
             {id: "host.user-directories", key: userDirectoriesKey, create: () => userDirectories},
             {id: "host.clock", key: clockKey, create: () => systemClock},
+            {id: "host.running-work", key: runningWorkKey, create: () => runningWorkOf(context.store).provision},
             {
                 id: "host.plugin-inventory",
                 key: pluginInventoryKey,
@@ -207,6 +221,16 @@ export function startServer(options: StartServerOptions): RunningServer {
                     problems: () => (application === null ? [] : pluginProblems(application.plugins.catalog(), "server")),
                 }),
             },
+            // 插件文件夹的上传暂存区（plugin-install 输出 11）；与插件管理同一个状态根，清扫计时器随宿主停止撤销。
+            {
+                id: "host.plugin-uploads",
+                key: pluginUploadsKey,
+                create: () => (pluginUploads ??= createPluginUploads({root: join(options.config.stateRoot, "plugin-uploads"), clock: systemClock, record: (record) => void context.store.record(record)})),
+                // 兜底：停止开始时扩展已经停过它；`stop` 幂等。
+                release: (uploads: PluginUploads) => uploads.stop(),
+            },
+            // 内置插件按插件 id 找第三方插件包里的目录（agent.skills 这类声明目录的贡献）；本次启动登记的插件，与文件端点同一份。
+            {id: "host.plugin-packages", key: pluginPackagesKey, create: () => createPluginPackages(installed, NEUROBOOK_PROFILE.format)},
             {
                 id: "host.projects",
                 key: projectsKey,

@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/neuro-book",
-    "version": "0.12.1",
+    "version": "0.13.0",
     "description": "NeuroBook：本地优先的长篇写作工作区（v2 预览版），带命令 nbook",
     "license": "AGPL-3.0-only",
     "type": "module",
@@ -36,6 +36,7 @@
     "dependencies": {
         "@notnotype/nb-canon": "workspace:*",
         "@notnotype/nb-file-lock": "workspace:*",
+        "@notnotype/nb-flock": "workspace:*",
         "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-host": "workspace:*",
@@ -43,6 +44,7 @@
         "@notnotype/nb-models": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@notnotype/nb-time": "workspace:*",
+        "@notnotype/owned-process": "workspace:*",
         "@oh-my-pi/pi-natives": "18.14.0",
         "@vue/reactivity": "^3.5.39",
         "commander": "^14.0.2",
@@ -55,7 +57,8 @@
         "open": "^11.0.0",
         "pinyin-pro": "^3.28.1",
         "semver": "^7.8.5",
-        "typebox": "^1.3.6"
+        "typebox": "^1.3.6",
+        "yaml": "^2.8.2"
     },
     "devDependencies": {
         "@iconify-json/catppuccin": "^1.2.17",

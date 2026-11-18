@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t37-status-line-customization",
+    "artifactId": "review",
+    "answerId": "20261117T143417589Z-3223108b",
+    "artifactVersion": 1,
+    "contentHash": "21888b0b033693610bcb8a1124dae3a39957f12a8dc1e4fab9c0a1aa7ac43d83",
+    "submittedAt": "2026-11-17T14:34:16.080Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "drag-sort": "drag",
+        "cache-ttl": "drop"
+    },
+    "comments": {
+        "cache-ttl": "这个缓存计数器能不能用户自己写代码来实现，我们现在所在的 claude code 就是我写 statusline 实现的"
+    },
+    "note": null
+}

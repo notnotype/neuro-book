@@ -1,0 +1,74 @@
+/**
+ * 桌面壳原型（w00046 t01）：拉起随应用的 Bun 上的 NeuroBook 服务端，窗口加载回环页面，关窗时经标准输入有序停止。
+ * 量启动各阶段的时间，写到 userLogs 下的 proto.log。
+ */
+import Electrobun, { BrowserWindow, PATHS, Utils } from "electrobun/main";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+const t0 = performance.now();
+const logDir = Utils.paths.userLogs;
+mkdirSync(logDir, { recursive: true });
+const logFile = join(logDir, "proto.log");
+const log = (line: string) => appendFileSync(logFile, `${new Date().toISOString()} +${(performance.now() - t0).toFixed(0)}ms ${line}\n`);
+log(`start execPath=${process.execPath} bun=${Bun.version} resources=${PATHS.RESOURCES_FOLDER} userData=${Utils.paths.userData}`);
+
+const nbook = join(PATHS.RESOURCES_FOLDER, "app", "nbook");
+// 原型不碰真实数据：状态根放在 Electrobun 管的 userData 下。
+const stateRoot = join(Utils.paths.userData, "state");
+const server = Bun.spawn([process.execPath, join(nbook, "server", "main.js"), "--stop-stdin"], {
+  cwd: nbook,
+  env: { ...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join(nbook, "web") },
+  stdin: "pipe",
+  stdout: "pipe",
+  stderr: "pipe",
+});
+log(`spawned server pid=${server.pid}`);
+
+const win = new BrowserWindow({ title: "NeuroBook", url: "views://splash/index.html", frame: { width: 1280, height: 820, x: 120, y: 80 } });
+log("window created");
+
+let stdout = "";
+void (async () => {
+  let navigated = false;
+  for await (const chunk of server.stdout.pipeThrough(new TextDecoderStream())) {
+    stdout += chunk;
+    for (const line of chunk.split(/\r?\n/u)) if (line.trim()) log(`server: ${line}`);
+    const match = /Listening on (\S+)/u.exec(stdout);
+    if (match && !navigated) {
+      navigated = true;
+      log(`listening ${match[1]}`);
+      win.webview.loadURL(match[1] as string);
+    }
+  }
+})();
+void (async () => {
+  for await (const chunk of server.stderr.pipeThrough(new TextDecoderStream())) for (const line of chunk.split(/\r?\n/u)) if (line.trim()) log(`server!: ${line}`);
+})();
+win.webview.on("dom-ready", () => log("dom-ready"));
+win.webview.on("did-navigate", (event) => log(`did-navigate ${JSON.stringify(event.data)}`));
+
+let stopping = false;
+async function stopAndQuit(reason: string) {
+  if (stopping) return;
+  stopping = true;
+  log(`stopping (${reason})`);
+  const begun = performance.now();
+  server.stdin.write("stop\n");
+  server.stdin.flush();
+  const code = await Promise.race([server.exited, Bun.sleep(15_000).then(() => "timeout")]);
+  log(`server exited code=${String(code)} in ${(performance.now() - begun).toFixed(0)}ms`);
+  if (code === "timeout") server.kill();
+  Utils.quit(0);
+}
+win.on("close", () => void stopAndQuit("window close"));
+Electrobun.events.on("before-quit", (event) => {
+  if (!stopping) {
+    event.response = { allow: false };
+    void stopAndQuit("before-quit");
+  }
+});
+server.exited.then((code) => {
+  log(`server exit observed code=${String(code)}`);
+  if (!stopping) Utils.quit(1);
+});

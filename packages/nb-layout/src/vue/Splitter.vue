@@ -165,7 +165,7 @@ const scope = useSashGesture<SplitterGestureState, SplitterGestureChange>({
     disabled: () => props.disabled,
 });
 provide(SASH_GESTURE_SCOPE_KEY, scope);
-const snapHost = useSashSnap();
+const snapHost = useSashSnap(rootEl);
 
 function extentOf(): GridExtent {
     const main = measuredMain.value || renderedSizes.value.reduce((sum, value) => sum + value, 0) + sashTotal.value;

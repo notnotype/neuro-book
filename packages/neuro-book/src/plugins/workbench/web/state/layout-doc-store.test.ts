@@ -435,17 +435,24 @@ describe("损坏与失败", () => {
         expect(store.state.field.queue).toBe(0);
     });
 
-    it("空区域点“显示”：锚提交时又会被归整成隐藏，结果和现在一样，零写入，最大化不退出（输出 11、43）", async () => {
+    it("空区域点“显示”：打开成一块空面板，写一次、算可见（开关能再关掉），存下来；拖走区域最后一节时区域随之隐藏（输出 11、36、43；ADR 0050）", async () => {
         const w = await world();
-        const {store} = await openLayoutDoc(w, "a", "c", false, new Map([...BUSY_LAYOUT_CATALOG].filter(([id]) => id !== "test.panel")));
-        const side = sectionOf(store, "test.side");
-        expect(store.actions.toggleMaximized(side)).toBe(true);
-        const before = store.actions.document();
-        expect(store.actions.setPartHidden("panel", false).ok).toBe(true);
-        expect(store.actions.document()).toBe(before);
-        expect(store.state.field.queue).toBe(0);
+        const {store, storage} = await openLayoutDoc(w, "a", "c", false, new Map([...BUSY_LAYOUT_CATALOG].filter(([id]) => id !== "test.panel")));
         expect(store.actions.partVisible("panel")).toBe(false);
-        expect(store.state.maximized).toBe(side);
+        expect(store.actions.setPartHidden("panel", false).ok).toBe(true);
+        expect(store.actions.partVisible("panel")).toBe(true);
+        expect(isPanelShown(store.actions.document(), "panel")).toBe(true);
+        await waitUntil("打开的空区域写下来", async () => (await read(storage, USER)) !== "missing");
+        expect((await savedDoc(storage, USER)).panels.panel?.hidden).toBeUndefined();
+        expect(store.actions.setPartHidden("panel", true).ok).toBe(true);
+        expect(store.actions.partVisible("panel")).toBe(false);
+
+        // 放进一节再移走：这一次把区域拖空了，区域随之隐藏。
+        expect(store.actions.setPartHidden("panel", false).ok).toBe(true);
+        expect(store.actions.moveView("test.aux", {newContainerIn: "panel"}).ok).toBe(true);
+        expect(isPanelShown(store.actions.document(), "panel")).toBe(false);
+        expect(store.actions.moveView("test.aux", {container: "view:test.aux"}).ok).toBe(true);
+        expect(store.actions.document().panels.panel?.hidden).toBe(true);
     });
 
     it("标签换一位：活动标签不变，到头了不动（输出 20）", async () => {
@@ -694,13 +701,40 @@ describe("呈现事实", () => {
         store.actions.acceptPresented({g0: {width: 611, height: 600}});
         store.actions.setPartHidden("statusbar", true);
         expect(sizeIn(store.state.doc, "g0").width).toBe(611);
-        // 区域只显示一个分节时，呈现树里代表区域的就是这个分节：尺寸写给区域，拖到零记在锚上，分节自己不变成标题行（输出 11）。
-        store.actions.commitGesture({[side]: {width: 222, height: 878}}, {[aux]: true});
+        // 侧栏只显示一个分节时，呈现树里代表区域的就是这个分节：尺寸写给区域；右栏顶上有入口条（输出 47），代表区域的是包装分支（id 是区域节点的）。
+        // 拖到零都记在锚上，分节自己不变成标题行（输出 11）。
+        const auxRegion = regionNodeOf(store.state.doc as LayoutDoc, "auxiliarybar")!.node.id;
+        store.actions.commitGesture({[side]: {width: 222, height: 878}}, {[auxRegion]: true});
         await settled(store);
         const saved = await savedDoc(storage, USER);
         expect(regionSize(saved, "sidebar").width).toBe(222);
         expect(saved.panels.auxiliarybar?.collapsed).toBe(true);
         expect(saved.panels[aux]?.collapsed).toBeUndefined();
+    });
+
+    it("隐藏的区域按拖到零画（输出 11、12）：在呈现里、收起为零；隐藏着拖别的边界、再显示，回到原来的宽度；从它的边界拉开，隐藏一起清掉", async () => {
+        const {store, storage} = await open();
+        const side = sectionOf(store, "test.side");
+        store.actions.acceptExtent({width: 1440, height: 900});
+        const width = regionSize(store.state.doc, "sidebar").width;
+        store.actions.setPartHidden("sidebar", true);
+        expect(store.state.projection.regionAnchors.get(side)).toBe("sidebar");
+        expect(JSON.stringify(store.state.projection.input)).toContain(side);
+
+        // 隐藏着拖编辑区与右栏之间的边界：侧栏呈现为零，不写回意图。
+        store.actions.commitGesture({[side]: {width: 0, height: 878}, g0: {width: 700, height: 600}}, {});
+        expect(store.state.doc.panels.sidebar?.hidden).toBe(true);
+        store.actions.setPartHidden("sidebar", false);
+        expect(regionSize(store.state.doc, "sidebar").width).toBe(width);
+
+        store.actions.setPartHidden("sidebar", true);
+        // 从零拉开：手势报代表区域的节点展开。
+        store.actions.commitGesture({[side]: {width: 260, height: 878}}, {[side]: false});
+        await settled(store);
+        const saved = await savedDoc(storage, USER);
+        expect(saved.panels.sidebar?.hidden).toBeUndefined();
+        expect(saved.panels.sidebar?.collapsed).toBeUndefined();
+        expect(regionSize(saved, "sidebar").width).toBe(260);
     });
 
     it("实时布局的预览只给渲染用：已提交的文档、投影与可见性不变，尺寸不收，不写记录；撤下回到已提交的", async () => {
@@ -756,12 +790,13 @@ describe("呈现事实", () => {
         store.actions.setPartHidden("statusbar", true);
         store.actions.activate("view:test.side");
         expect(widths()).toEqual(before);
-        // 拖面板的高度：侧栏、右栏这次没动，还是压缩的结果。
-        store.actions.commitGesture({...squeezed, g0: {width: 300, height: 400}, [lower]: {width: 300, height: 300}}, {});
+        // 拖面板的高度：侧栏、右栏这次没动，还是压缩的结果。底部面板顶上有入口条，代表区域的是包装分支（输出 47）。
+        const panelRegion = regionNodeOf(store.actions.document(), "panel")!.node.id;
+        store.actions.commitGesture({...squeezed, g0: {width: 300, height: 400}, [lower]: {width: 300, height: 268}, [panelRegion]: {width: 300, height: 300}}, {});
         expect(widths()).toEqual(before);
         expect(regionSize(store.actions.document(), "panel").height).toBe(300);
         // 拖侧栏的边界：写。
-        store.actions.commitGesture({...squeezed, [side]: {width: 200, height: 700}, g0: {width: 260, height: 400}, [lower]: {width: 260, height: 300}}, {});
+        store.actions.commitGesture({...squeezed, [side]: {width: 200, height: 700}, g0: {width: 260, height: 400}, [lower]: {width: 260, height: 268}, [panelRegion]: {width: 260, height: 300}}, {});
         expect(regionSize(store.actions.document(), "sidebar").width).toBe(200);
     });
 

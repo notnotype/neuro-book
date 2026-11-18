@@ -1,0 +1,8 @@
+{
+    "name": "skill-pack",
+    "publisher": "example",
+    "version": "0.1.0",
+    "description": "只带 Skill 的插件：经 agent.skills 交出一个 Skill 目录，构建时把脚本连同 npm 依赖打成单文件",
+    "private": true,
+    "type": "module"
+}

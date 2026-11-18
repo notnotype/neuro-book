@@ -34,6 +34,11 @@ const props = defineProps<{
     ariaMax: number;
     ariaNow: number;
     ariaValueText: string;
+    /**
+     * 已经不在布局里、只是还画着的线（交换里滑出去的，docs/specs/ui/nested-grid.md 输出 66）：不向手势 scope 登记，也不跟着悬停、拖动亮。
+     * 它和树里同一分支同一序号的线同键（例如两个容器的分节都在同一个区域分支里），登记了会盖掉、之后摘掉时连带删掉活线的登记。读屏读不到它。
+     */
+    detached?: boolean;
 }>();
 
 /**
@@ -61,13 +66,15 @@ function resolveScope(): SashGestureScope {
 const key = computed(() => `${props.branchId}:${props.index}`);
 const seamOnly = computed(() => props.size === 0);
 const inert = computed(() => props.disabled || seamOnly.value);
+/** 一侧收到了零（拖到零、隐藏的区域按拖到零画）：那一侧没有东西，静止接缝只会贴在窗口边或条上，不画；命中、悬停线与拖动照旧。 */
+const besideZero = computed(() => props.beforePx <= 0 || props.afterPx <= 0);
 
-const isHovered = computed(() => scope.hovered.has(key.value));
-const isActive = computed(() => scope.active.has(key.value));
+const isHovered = computed(() => props.detached !== true && scope.hovered.has(key.value));
+const isActive = computed(() => props.detached !== true && scope.active.has(key.value));
 /** T/十字：两根轴同时命中时两条线一起点亮，与实际可开拖的参与集合完全同源。 */
-const isCross = computed(() => scope.hovered.has(key.value) && scope.hovered.size > 1);
+const isCross = computed(() => isHovered.value && scope.hovered.size > 1);
 /** 已满足停留时长（或正在拖、键盘聚焦）的线才显示装饰；`hovered` 只决定光标。 */
-const isRevealed = computed(() => isLit(key.value));
+const isRevealed = computed(() => props.detached !== true && isLit(key.value));
 
 /** 同一 scope 里任一条线（含外层分支的）此刻亮不亮；键盘聚焦只亮一条，不需要连。 */
 function isLit(lineKey: string): boolean {
@@ -93,21 +100,21 @@ function setRef(value: unknown): void {
 }
 
 /**
- * 元素或身份（分支 id、序号、轴）变了都要重新登记。注销时带上元素：scope 只注销仍是当前登记项的那一份，
- * 重挂时新元素先登记、旧元素后注销也不会把新的误删。
+ * 元素或身份（分支 id、序号、轴）变了、离开或回到布局（`detached`）都要重新登记。注销时带上元素：scope 只注销仍是当前登记项的那一份，
+ * 重挂时新元素先登记、旧元素后注销也不会把新的误删；同键的两条线一条离开、一条回来，谁先跑都一样。
  */
 function reRegister(): void {
     if (registered !== null) {
         scope.unregisterSash(registered.branchId, registered.index, registered.element);
         registered = null;
     }
-    if (element !== null) {
+    if (element !== null && props.detached !== true) {
         scope.registerSash({branchId: props.branchId, sashIndex: props.index, axis: props.axis, element});
         registered = {branchId: props.branchId, index: props.index, element};
     }
 }
 
-watch(() => [props.branchId, props.index, props.axis], reRegister);
+watch(() => [props.branchId, props.index, props.axis, props.detached], reRegister);
 
 /** 装饰元素：常驻的静止接缝与悬停/拖动才亮的装饰带，几何都只写在自己身上。 */
 let seamEl: HTMLElement | null = null;
@@ -134,6 +141,13 @@ function setLineRef(value: unknown): void {
 }
 
 /**
+ * 每个装饰元素上一次写的值（几何与线芯各一份）：和这次一样就不写。对齐每次滚动、改窗口、拖动都会跑，绝大多数分隔线的值没变，
+ * 照写的话每条线每次要改七八个内联属性，下一帧都要重算样式。只有这里写这两个元素的内联样式（模板里没有 `:style`），记下的值不会过时。
+ */
+const writtenGeometry = new WeakMap<HTMLElement, string>();
+const writtenCore = new WeakMap<HTMLElement, string>();
+
+/**
  * 写装饰的几何：只写主轴（起点与厚度），长轴两端交给样式（按 `data-axis`，取缩进变量，缺省贴满）。宿主与主题改变量就能
  * 缩进，不用重新测量；换方向时把另一方向留下的值清掉。不用负 inset 外扩（那正是收起边界被裁细的来源），也不用
  * transform 叠位移（几何与样式各留一份会互相打架）。
@@ -142,6 +156,11 @@ function writeDecorationGeometry(target: HTMLElement, box: SashBandBox, horizont
     const style = target.style;
     const start = `${Math.round(box.startPx * 10000) / 10000}px`;
     const thickness = `${Math.round(box.thicknessPx * 10000) / 10000}px`;
+    const signature = `${horizontal ? "x" : "y"} ${start} ${thickness}`;
+    if (writtenGeometry.get(target) === signature) {
+        return;
+    }
+    writtenGeometry.set(target, signature);
     style.top = style.bottom = style.left = style.right = "";
     if (horizontal) {
         style.height = "";
@@ -157,10 +176,12 @@ function writeDecorationGeometry(target: HTMLElement, box: SashBandBox, horizont
 /**
  * 两层装饰的几何都只作用在装饰元素上：接缝自身仍是流内的 1px（或 Lab 的 sashSize），命中盒、ARIA 与
  * 面板分配都不受影响。这里的对齐位移最多半个设备像素，且只是装饰层的 CSS px。
+ *
+ * 只读不写：读位置与线芯宽度，交回写入，由 `useSashSnap` 等这一帧所有分隔线量完再执行（见那里的说明）。
  */
-function snap(dpr: number): void {
+function snap(dpr: number): (() => void) | null {
     if (element === null) {
-        return;
+        return null;
     }
     const horizontal = props.axis === "width";
     const sashPx = props.size;
@@ -193,13 +214,23 @@ function snap(dpr: number): void {
     const seamStartPx = Number.isFinite(box) && box > 0
         ? (Math.round((center - SEAM_THICKNESS_PX * scale / 2) * dpr) / dpr - origin) / scale
         : null;
-    if (lineEl !== null && band !== null) {
-        writeDecorationGeometry(lineEl, band, horizontal);
-        writeLineCore(lineEl, band, seamStartPx);
-    }
-    if (seamEl !== null && seamStartPx !== null) {
-        writeDecorationGeometry(seamEl, {startPx: seamStartPx, thicknessPx: SEAM_THICKNESS_PX}, horizontal);
-    }
+    const line = lineEl;
+    const seam = seamEl;
+    const lineSize = line !== null && band !== null ? readLineSize(line) : Number.NaN;
+    return () => {
+        if (line !== null && band !== null) {
+            writeDecorationGeometry(line, band, horizontal);
+            writeLineCore(line, band, seamStartPx, lineSize);
+        }
+        if (seam !== null && seamStartPx !== null) {
+            writeDecorationGeometry(seam, {startPx: seamStartPx, thicknessPx: SEAM_THICKNESS_PX}, horizontal);
+        }
+    };
+}
+
+/** 主题给的线芯宽度（`--sash-line-size`）；没给时是 NaN。读样式，所以在量的那一半里读。 */
+function readLineSize(target: HTMLElement): number {
+    return Number.parseFloat(getComputedStyle(target).getPropertyValue("--sash-line-size"));
 }
 
 /**
@@ -207,16 +238,24 @@ function snap(dpr: number): void {
  * 会摊成两条半透明的线，所以细线芯对齐静止接缝（近端边落在设备像素上，奇数宽都是实的），再夹进装饰带，不越出去
  * 被祖先裁掉。不比装饰带细时清掉变量，线芯铺满装饰带，就是原来的样子。
  */
-function writeLineCore(target: HTMLElement, band: SashBandBox, seamStartPx: number | null): void {
-    const size = Number.parseFloat(getComputedStyle(target).getPropertyValue("--sash-line-size"));
+function writeLineCore(target: HTMLElement, band: SashBandBox, seamStartPx: number | null, size: number): void {
     if (seamStartPx === null || !(size > 0) || size >= band.thicknessPx) {
+        if (writtenCore.get(target) === "") {
+            return;
+        }
+        writtenCore.set(target, "");
         target.style.removeProperty("--nb-sash-core-start");
         target.style.removeProperty("--nb-sash-core-size");
         return;
     }
     const wanted = seamStartPx + (SEAM_THICKNESS_PX - size) / 2;
-    const start = Math.min(Math.max(wanted, band.startPx), band.startPx + band.thicknessPx - size);
-    target.style.setProperty("--nb-sash-core-start", `${Math.round((start - band.startPx) * 10000) / 10000}px`);
+    const start = `${Math.round((Math.min(Math.max(wanted, band.startPx), band.startPx + band.thicknessPx - size) - band.startPx) * 10000) / 10000}px`;
+    const signature = `${start} ${size}px`;
+    if (writtenCore.get(target) === signature) {
+        return;
+    }
+    writtenCore.set(target, signature);
+    target.style.setProperty("--nb-sash-core-start", start);
     target.style.setProperty("--nb-sash-core-size", `${size}px`);
 }
 
@@ -252,6 +291,8 @@ onBeforeUnmount(() => {
         :aria-valuenow="props.ariaNow"
         :aria-valuetext="props.ariaValueText"
         :aria-disabled="inert ? 'true' : undefined"
+        :aria-hidden="detached ? 'true' : undefined"
+        :inert="detached === true"
         :data-disabled="seamOnly ? 'true' : undefined"
         :tabindex="inert ? -1 : 0"
         class="nb-splitter__sash"
@@ -279,6 +320,7 @@ onBeforeUnmount(() => {
                 aria-hidden="true"
                 class="sash-seam"
                 :data-axis="props.axis"
+                :data-beside-zero="besideZero ? 'true' : undefined"
             />
             <span
                 :ref="setLineRef"
@@ -336,6 +378,11 @@ onBeforeUnmount(() => {
  */
 .sash-seam {
     background: var(--nb-splitter-seam, var(--divider));
+}
+
+/* 一侧为零时不画：元素留着，`snap()` 照旧写几何，展开时不用重新量。 */
+.sash-seam[data-beside-zero] {
+    visibility: hidden;
 }
 
 /* 长轴两端：竖向的接缝（宽度轴的分隔）缩上下，横向的缩左右；装饰带照旧贴满。主轴由 `snap()` 写内联。 */

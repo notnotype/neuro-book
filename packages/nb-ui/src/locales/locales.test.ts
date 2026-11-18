@@ -45,6 +45,9 @@ const LEGACY: readonly Legacy[] = [
     {key: "colorPicker.value", zh: "颜色值"}, // form/ColorPickerPanel.vue 颜色值输入的 aria-label
     {key: "colorPicker.presets", zh: "预设颜色"}, // 同上，预设色板的 aria-label
     {key: "colorSwatches.label", zh: "颜色"}, // form/ColorSwatches.vue 的 label 缺省
+    {key: "dateInput.open", zh: "选择日期"}, // form/DateInput.vue 日历按钮的 openLabel 缺省（w00025 t10 新增）
+    {key: "dateInput.previousMonth", zh: "上个月"}, // 同上，日历头的上一页（新增）
+    {key: "dateInput.nextMonth", zh: "下个月"}, // 同上，日历头的下一页（新增）
     {key: "dialog.untitled", zh: "对话框"}, // feedback/Dialog.vue 标题为空时的 `props.title || "对话框"`
     {key: "dialog.cancel", zh: "取消"}, // 同上，cancelLabel 缺省
     {key: "dialog.confirm", zh: "确认"}, // 同上，confirmLabel 缺省
@@ -75,6 +78,7 @@ const LEGACY: readonly Legacy[] = [
     {key: "splitter.pixels", params: {size: 200}, zh: "200 像素"}, // 同上，`${size} 像素`
     {key: "table.empty", zh: "暂无数据"}, // display/Table.vue 的 emptyText 缺省
     {key: "tabs.more", zh: "更多"}, // controls/Tabs.vue 的 moreLabel 缺省
+    {key: "tagInput.remove", params: {item: "北山"}, zh: "移除 北山"}, // form/TagInput.vue 每项 × 的读屏名（w00025 t10 新增）
     {key: "toolbar.label", zh: "工具栏"}, // controls/Toolbar.vue 的 ariaLabel 缺省
 ];
 

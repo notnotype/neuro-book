@@ -5,7 +5,7 @@
  * 引用、图片与文件的写法是 Markdown 的行内链接，按 `../../../shared/link-syntax.ts` 认，与编辑器、展示器对链接的判断一致。
  */
 
-import {fencedLines, fenceTest, findInlineLinks, unescapeMarkdown, writeInlineLink} from "../link-syntax";
+import {codeSpanTest, fencedLines, fenceTest, findInlineLinks, unescapeMarkdown, writeInlineLink} from "../link-syntax";
 import type {MarkdownTargets} from "../targets";
 import {findSelections, parseSelectionText} from "./prompt-selection";
 import type {PromptEditorPastePolicy, PromptEditorToken} from "./prompt-editor.types";
@@ -94,7 +94,11 @@ const COMMAND_PATTERN = /^\/([^\s/]+)(?=\s|$)/u;
 /** 中文与全角标点：中文里技能写法与触发字符前面常常不是空格，而是逗号、顿号这类标点。 */
 const CJK_PUNCTUATION = "\\u3000-\\u303F\\uFF01-\\uFF0F\\uFF1A-\\uFF20\\uFF3B-\\uFF40\\uFF5B-\\uFF65\\u2018-\\u201F";
 const TRIGGER_PREFIX = new RegExp(`[(${CJK_PUNCTUATION}]`, "u");
-const SKILL_TOKEN_PATTERN = new RegExp(`(^|[\\s(${CJK_PUNCTUATION}])(\\$(?:([\\p{L}_-][\\p{L}\\p{N}_-]*)|\\{([\\p{L}_-][\\p{L}\\p{N}_-]*)\\}))`, "gu");
+/**
+ * 技能写法（docs/specs/ui/prompt-editor.md）：`$名称` 首字符是字母；花括号里首字符可以是数字、可以有 `.`，用来写数字开头的名字与
+ * 带来源前缀的 Skill id（`${user.review}`），而 `$5` 这类价格不是技能。
+ */
+const SKILL_TOKEN_PATTERN = new RegExp(`(^|[\\s(${CJK_PUNCTUATION}])(\\$(?:([\\p{L}_-][\\p{L}\\p{N}_-]*)|\\{([\\p{L}\\p{N}_-][\\p{L}\\p{N}_.-]*)\\}))`, "gu");
 
 export function resolvePastePolicy(policy: Partial<PromptEditorPastePolicy> | undefined): PromptEditorPastePolicy {
     return {...DEFAULT_PASTE_POLICY, ...policy};
@@ -183,6 +187,34 @@ export function parsePromptText(text: string, options: PromptParseOptions): Prom
     });
     numberLegacyImages(content);
     return {type: "doc", content};
+}
+
+/** 不带花括号的 `$名称` 能写下的名字：与 `SKILL_TOKEN_PATTERN` 第一种写法相同。 */
+const BARE_SKILL_NAME = /^[\p{L}_-][\p{L}\p{N}_-]*$/u;
+/** 花括号里能写下的名字或 id。 */
+const BRACED_SKILL_NAME = /^[\p{L}\p{N}_-][\p{L}\p{N}_.-]*$/u;
+
+/**
+ * 把名字或 id 写成技能标签：能写成 `$名称` 就这样写，否则写花括号的写法（数字开头的名字、带来源前缀的 id）。花括号也写不下（含空白等）
+ * 时交回 null。`$` 菜单插入标签用它，写下的与分词认出的是同一个名字。
+ */
+export function promptSkillText(name: string): string | null {
+    if (BARE_SKILL_NAME.test(name)) return "$" + name;
+    return BRACED_SKILL_NAME.test(name) ? "${" + name + "}" : null;
+}
+
+/**
+ * 一段提示词里的技能标签，按出现顺序、不去重，交回名称（`${…}` 的花括号里的原文）。规则与编辑器显示成技能小块的相同：粘贴块、
+ * 链接、代码里的不算。宿主服务端认 `$` 标签用它，所以编辑器里是小块的与服务端认出的是同一组。
+ */
+export function promptSkillTokens(text: string): string[] {
+    const tokens: string[] = [];
+    const visit = (node: PromptNodeJSON): void => {
+        if (node.type === PROMPT_TOKEN_NODE && node.attrs?.kind === "skill") tokens.push(String(node.attrs.label));
+        node.content?.forEach(visit);
+    };
+    visit(parsePromptText(text, {commands: []}));
+    return tokens;
 }
 
 export interface PromptInsertOptions {
@@ -474,12 +506,13 @@ function tokenizeInline(value: string, context: InlineContext): LocatedToken[] {
         located.push(token);
         cursor = token.end;
     }
-    // 技能写法前面可以是开头、空白、括号或中文标点；链接里面的 `$` 不算。
+    // 技能写法前面可以是开头、空白、括号或中文标点；链接与代码里面的 `$` 不算（`$HOME`）。
     const skillText = maskTokens(value, located);
+    const inCode = codeSpanTest(value);
     for (const match of skillText.matchAll(SKILL_TOKEN_PATTERN)) {
         const start = match.index + (match[1]?.length ?? 0);
         const raw = match[2] ?? "";
-        if (inFence(start)) continue;
+        if (inFence(start) || inCode(start)) continue;
         located.push({start, end: start + raw.length, attrs: {kind: "skill", raw, number: null, label: match[3] ?? match[4] ?? "", target: ""}});
     }
     return located.sort((left, right) => left.start - right.start);

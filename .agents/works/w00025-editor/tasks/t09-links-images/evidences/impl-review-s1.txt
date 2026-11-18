@@ -1,0 +1,121 @@
+w00025 t09 第 1 片实现审查（ef9a1b942，范围 b89be37e3..ef9a1b942）
+审查者：Claude Opus 子代理（omp 额度用完 429，按派发改由本审查者执行）
+基线：bun test src/plugins/files/upload-route.test.ts 16 pass / 0 fail（10.5 s）
+
+== 1. 代次只在请求到达时核对，写入时的 acquire 会重新启动已停止的项目并写进新一代（实测）==
+严重程度：重要；类别：正确性 / 不变量
+位置：packages/neuro-book/src/plugins/files/backend/upload-route.ts:238-242（核对）与 :260-288（排队、读体、写入）；backend/projects-scheme.ts:79-86、98-104（hold/call 都调 projects.acquire）
+现象：代次核对在 gate.run 与 readBody 之前做一次，之后不持有任何租约。写入经 projects:// 的 hold → projects.acquire，而 acquire 对没在运行的项目会起一个新代次（docs/specs/runtime/projects.md 状态表“没在运行 + acquire → 新代次 creating”）。rename 路径的 list 也经 projects.call → acquire。
+实验（真实 Bun.serve、真实项目子进程，临时测试文件已删，副本 /tmp/review-w00025-t09-s1/exp/zz-review-exp.test.ts）：流式 PUT 先发 PNG 头，服务端进入处理器后释放场地租约、clock.advance(GRACE_MS) 等第 1 代被撤销（running()=null），再发完请求体。结果：201 {"address":"project://插图/late.png"}，manager.running() 变成 {"generation":2,"state":"idle-grace"}，文件 15 字节写在磁盘上。
+为什么是问题：违反 Spec“写入图片”的“不会为了一次上传启动项目”与“代次不符为 410”。设计审查第 2 条接受的是“核对与取租约之间极窄的竞争”；实际窗口是排队等待加整个请求体的传输时间（32 MiB 的慢上传、或排在两个大上传之后），并不窄，后果也不止“落在同一目录”，而是凭一次 HTTP 请求起了一个项目子进程。
+建议改法（不需要给 ProjectsService.acquire 加代次参数）：租约本身带 generation（projects.md 输出 3：lease 是 {id, name, generation, revoked, release()}）。路由在 list 确认 running/idle-grace 之后立即 acquire 一次，比对 lease.generation === URL 代次，不等就 release 并 410；把这份租约持有到写入结算（finally release）。这样写入链里的 acquire 必然拿到同一代，“已知限制”整条可以删掉；sources.projects 的 Pick 加上 acquire。另补一条测试：上传途中项目停止 → 410、不起新代次、没有文件。
+
+== 2. failureOf 把写入链的每个 not-found 都改报 409 conflict：父目录是悬空链接、项目在核对后被注销都成了“目标被占用”；Spec 码表的 404 not-found 永远不出现（实测）==
+严重程度：重要；类别：正确性 / 文档
+位置：backend/upload-route.ts:150-161（failureOf 的 not-found 分支）、:240-242（没有这个 id 也回 410）；Spec docs/specs/workspace/files.md:86、97
+现象：
+- 实测（真实路由与项目子进程）：`悬空目录 -> missing-dir`，PUT `悬空目录/a.png` 得 409 {"code":"conflict","message":"悬空目录 指向不存在的目标"}，exists=rename 同样 409 conflict。问题出在父路径，不是目标被占用；调用方按 conflict 会以为换个名字能成。
+- projects-scheme.ts:74 的 locate 在项目被注销时回 not-found（“没有登记项目”），经 failureOf 也成了 409 conflict。
+- 码表写 404 not-found =“没有这个项目”，但实现对未登记的 id 回 410 generation-gone（:242），测试 upload-route.test.ts:238-239 断言的也是 410；同一份 Spec 的“代次与规则”又写“不符、或项目没在运行为 410”。not-found 在路由里没有任何能触发的路径，码表这一行是死的，Spec 自相矛盾。
+为什么是问题：Spec 只把“目标处的悬空链接”定为 conflict；failureOf 按码而不按位置改报，把父路径与项目层面的 not-found 一并吞成“被占用”。客户端 UploadResult 带着 not-found 这个码却永远收不到。
+如何核实：实验 /tmp/review-w00025-t09-s1/exp 里的边界用例（已删的临时测试，输出见本条）；grep `"not-found"` upload-route.ts 只有 failureOf 一处。
+建议改法：只有在“目标本身”上出的 not-a-file / not-found 才改报 conflict。写入链的 commit 回的 detail 无法区分位置，按码分支不够；可以在写入前 list 父目录看目标名是否已在 entries 里（rename 本来就 list），或让 commit 对“目标是悬空链接”回独立的码。项目层面：要么 Spec 删掉 404 not-found 这行、写明未登记 id 为 410，要么路由对 list 里找不到的 id 回 404 not-found（与读取路由 roots.open 的行为对齐，先查读取路由回什么）。
+（第 2 条补充：读取路由 raw-route.ts:139 对未登记 id 同样回 410 generation-gone，所以项目层面应改 Spec：码表 404 行去掉“没有这个项目”，not-found 只留给真正能出现的情形或从上传码表删掉。父路径悬空链接的误报仍要改实现。）
+
+== 3. 名字超过 255 字节：exists=fail 得 500 io-failed，exists=rename 得 400 且说明写“加了序号的名字太长”（实测）==
+严重程度：建议；类别：正确性
+位置：backend/upload-route.ts:273-277（fail 分支不查长度）、:287（rename 分支对第 1 个候选也报“加了序号”）
+现象：`图/` + 90 个“长” + `.png`（274 字节）：fail 模式 500 {"code":"io-failed","message":"访问 …… 失败"}；rename 模式 400 {"code":"invalid-address","message":"加了序号的名字太长"}，但第一个候选就是原名，没有加序号。
+为什么是问题：Spec“代次与规则”要求名字是合法的单段、不合法为 400 invalid-address；同一输入两种模式给出不同的码，500 还会被客户端当作服务端故障。粘贴图按日期时间命名不会超长，但“选本机文件保留原名”的长文件名（下载来的图常见）会走到这里。
+建议改法：在名字检查处（:251 旁）对原名统一做 byteLength(name) > NAME_MAX_BYTES → 400 invalid-address“名字太长”；rename 循环里只对 n > 1 的候选报“加了序号的名字太长”。补一条 fail 模式的用例。
+
+== 4. find 的 extensions：没有点的文件名整个被当成扩展名，名叫 `png` 的文件会被当成图片找出；对应的测试夹具碰不到这条 ==
+严重程度：建议；类别：正确性 / 测试
+位置：backend/files-service.ts:189；files.test.ts:71-73
+现象：`entry.name.slice(entry.name.lastIndexOf(".") + 1)` 在没有点时 lastIndexOf 为 -1，slice(0) 取整个名字。文件 `素材/png`、`gif`（没有扩展名）在 extensions: ["png"] / ["gif"] 时命中。点开头的名字在 :175 已被跳过，不受影响。
+为什么是问题：Spec resources.md“找文件”写“只找名字带这些扩展名的文件”，没有扩展名的不算。插图卡片拿到它会显示一张坏图、插入后读取按扩展名给 octet-stream。
+测试缺口：files.test.ts 的夹具里放了 `资料/无扩展名`，但查询是“林”，这个文件的路径与名字都不含“林”，不管过滤对不对它都不会出现；它没有测到“没有扩展名的文件被滤掉”。
+建议改法：`const dot = entry.name.lastIndexOf("."); if (wanted !== null && (dot <= 0 || !wanted.has(entry.name.slice(dot + 1).toLowerCase()))) continue;`（dot === 0 已被前面跳过，写 <= 0 也无害）；夹具改成名字里含查询词的 `资料/林雪png`（没有点）与 `资料/png`，查询为空时也测一次。
+（第 4 条更正：能暴露这个缺陷的夹具是名字恰好等于扩展名的文件，如 `资料/png`，配合空查询或查询 "png"；`资料/林雪png` 的“扩展名”是整个名字，不会命中，不适合。）
+
+== 5. 客户端 upload：响应头到了以后取消或读体失败，201 被报成 io-failed；宿主层的 403 origin-not-allowed 被兜底成 permission-denied ==
+严重程度：建议；类别：正确性
+位置：packages/neuro-book/src/plugins/files/web/client.ts:31-34（failureOfStatus）、:52-64
+现象：
+- fetch 在响应头到达时就 resolve；之后 signal 触发或连接断开，`response.text().catch(() => "")` 吞掉错误得到空串，parsed 为 null，走到最后：failureOfStatus(201) 在码表里找不到 201，返回 "io-failed"。文件其实已经写下，调用方拿到的是“其它写入失败”，而不是 Spec 要求的 cancelled（调用方取消）或 network（图可能已经写下）。按 io-failed 处理的调用方可能重试同一个名字，得到 conflict 或多一张 `名字 2`。
+- 宿主分发层（nb-host http/dispatch.ts:85）对不允许的 Origin 回 403 {"error":{"code":"origin-not-allowed"}}，这个码不在上传码表里，兜底取 403 的第一个码 permission-denied（“目录不可写”）；421 misdirected-host 成了 io-failed；503 plugin-unavailable / 准入关闭成了 project-unavailable（这一个合理）。
+为什么是问题：Spec 让“调用方只按 code 判断”，兜底给出的码语义要对；“同一个状态有几个码时取第一个”依赖对象键的书写顺序，换个顺序结果就变。
+建议改法：读体失败时按 signal 区分 cancelled / network，不吞成空串；201 但体不合格时也不要报 io-failed（可报 unknown-outcome：已写成但不知道地址）。兜底表写成显式的 status → code 映射（403 → cross-site 或单独的 forbidden 说明，404 → not-found，409 → conflict，410 → generation-gone，413 → too-large，415 → unsupported-type，502 → unknown-outcome，503 → project-unavailable，其余 io-failed），不靠键顺序。测试 upload-route.test.ts:374-380 只测了 413、502、418 三个，没测到 403、404 的兜底。
+
+（行号更正：第 1 至 3 条里 upload-route.ts 的行号误取自 diff 输出，按 ef9a1b942 的源文件应为：第 1 条 核对 :135-139、排队读体写入 :157-185；第 2 条 failureOf :47-58、未登记 id 回 410 :137-139；第 3 条 fail 分支 :170-174、rename 的长度检查 :184、建议加检查的位置 :148 旁。第 4、5 条的行号是源文件行号，无误。）
+
+== 6. 父目录不可写且要建子目录时回 500 io-failed，不是码表的 403 permission-denied（实测）==
+严重程度：建议；类别：正确性
+位置：packages/neuro-book/src/plugins/files/backend/staging.ts:169-171（ensureParents 的 mkdir 失败一律 io-failed）；被本片的 createParents: true 带到上传接口
+现象：实测 `只读/`（chmod 555）：PUT `只读/a.png` 得 403 permission-denied（目标在只读目录里，提交链查到了）；PUT `只读/新/a.png` 得 500 {"code":"io-failed","message":"无法建立 只读/新"}。
+为什么是问题：Spec 码表 403 permission-denied =“目录不可写”；插图的缺省目录 `插图/` 通常不存在，走的正是 createParents 这条路，作品目录只读时用户看到的是“其它写入失败”。errno 是 EACCES/EPERM，可以确定地分类。
+建议改法：ensureParents 里 errno 为 EACCES 或 EPERM 时回 permission-denied（同时影响文本“创建文件”的 createParents，先确认那边的 Spec 码表也是 permission-denied）；补一条上传用例。这一处不在本片的 diff 里，但本片让它成为上传合同的一部分，需要一起处理或在 Spec 里写明。
+
+== 7. exists=rename 的 taken 不分大小写：大小写敏感的文件系统上 `A.png` 存在时上传 `a.png` 得到 `a 2.png`、renamed 为真，而 `a.png` 是空着的 ==
+严重程度：建议；类别：正确性 / 文档
+位置：backend/upload-route.ts:176-190（taken 按 toLowerCase 收、比）
+现象：Linux 上 `插图/A.png` 已存在，PUT `插图/a.png?exists=rename` 跳过第 1 个候选，写 `a 2.png`；同一请求不带 rename 则直接写成 `a.png`（从代码推断，两种模式结果不同）。
+为什么是问题：Spec“不覆盖”写的是“写第一个空着的 名字 2.扩展名”，没有“按大小写不敏感判断占用”的规则，注释里的取舍没有进 Spec。而这个取舍并不必要：在大小写不敏感的文件系统上写 `a.png` 会被提交链的排他创建回 conflict，循环本来就会按“被占用”接着试下一个（:187-189），结果正确；macOS 的 Unicode 规范化（NFC/NFD 视为同名）toLowerCase 也挡不住，同样靠这条重试兜住。
+建议改法：taken 按原名精确比较，大小写不敏感与规范化交给写入时的 conflict 重试；或者保留现状但把规则写进 Spec 并补用例。前者更简单、与 fail 模式一致。
+
+== 8. 测试：一条断言恒真；码表里六个码没有一条用例；“至多 2 个上传”只测了 Gate 类本身 ==
+严重程度：建议；类别：测试
+位置：plugins/files/upload-route.test.ts:258-260、:227-246、:383-405
+现象：
+- :258-260 `put(..., {headers: {origin: ""}})` 之后 `expect([201, 403]).toContain(status)`，再按结果决定期望的目录内容：无论路由怎样都通过。实际上分发层对空串 Origin 恒回 403（dispatch.ts:85，`"" !== null` 且不在允许集合），这条可以写成确定的 403；真正想测的“本机进程：不带 Origin 也不带 Sec-Fetch-Site → 201”没有用例（put 助手总是加 origin 头，覆盖不掉）。这属于测试写法里的“放宽断言”。
+- 码表里没有用例的码：permission-denied（实测可触发，见第 6 条）、root-gone、unknown-outcome、project-unavailable（registry 为 null 与 list 失败两条路径）、not-found（第 2 条：路由里触发不了）；outside-root 与 `.NBOOK` 只断言了状态 404，没断言 code（:232、:242），码改报成 not-found 也不会失败。Spec 说写入的 code 不改写成 not-found，这正是要钉住的行为。
+- :383-405 直接 new Gate 测排队，是测实现；路由是否真的用了 Gate、上限是否是 2，改成 `addUploadRoutes` 里不经 gate 也不会有用例失败（从代码推断，未做变异）。
+- 没有“上传途中项目停止”的用例（第 1 条的回归测试）。
+已验证有效的部分（变异检查，改完已还原、git status 干净）：readBody 吞掉 reader.read() 的异常并把已收的部分写下 → “请求体发完之前取消”3 次都失败；三个调用方改回 sniffImageType → cover-routes、theme-asset-route、package-io 各 1 条失败。
+建议改法：空 Origin 那条改成确定的 403，另加一个不带 Origin 的本机请求为 201；outside-root、protected-path 断言 code；用 chmod 补 permission-denied，用 projects: null 的场地补 503；并发上限经路由测：用两条挂住请求体的真实连接占满，第三条请求在前两条结束前不进入读体（可观察：第三条的流的 pull 不被调用）。
+
+== 9. 读请求体没有任何超时：两条停住不发的上传占满 Gate 后，之后的上传无限期排队 ==
+严重程度：建议；类别：安全 / 不变量（拒绝服务）
+位置：backend/upload-route.ts:157-159（gate.run 里 readBody）；nb-host http/plugin.ts:80（idleTimeout: 0）
+现象：HTTP 监听关闭了空闲超时（为长请求与事件流）；readBody 的 reader.read() 只在数据到达或连接关闭时返回。一个发了部分请求体后停住、但不断开的连接会一直占着名额；两条这样的连接之后，所有上传都排在 Gate 的 #waiting 里，没有上限、没有超时。服务端停止时这些请求还拖住 HTTP 排空，直到 HTTP_DRAIN_LIMIT_MS 才以“排空未完成”结束。
+已排除：未读的请求体不会被 Bun 缓存在内存里（实测 300 MB 上传在处理器 3 秒不读期间 RSS 36 → 39 MB，/tmp/review-w00025-t09-s1/exp/buffer.ts），所以排队本身不放大内存；Content-Length 说谎（声明小、实发大）由边收边数挡住。
+为什么是问题：端口只接受回环与允许的来源，恶意方已经是本机进程，危害有限；但本应用自己的浏览器页在系统休眠、标签页被冻结时也可能留下半发的上传，之后同一服务的所有上传卡住，用户只看到插图一直在“上传中”，没有任何诊断。
+建议改法：读体时设一个“两块数据之间的最长间隔”（例如 30 秒，用注入时钟），超时就 reader.cancel() 并回 408 或 io-failed；或者至少对在 Gate 里等待的请求监听 request.signal，断开的不再占位（现在是轮到它时才看 aborted，:158）。Spec 写一句上传的空闲上限。
+
+== 10. 扩展名查表读到原型链：名字以 `.constructor`、`.tostring` 这类结尾时得 415 extension-mismatch，而不是 unsupported-type ==
+严重程度：建议；类别：正确性 / 代码质量
+位置：backend/upload-route.ts:149-150（`UPLOAD_EXTENSIONS[extension]`）；shared/upload.ts:13
+现象：UPLOAD_EXTENSIONS 是普通对象字面量，`UPLOAD_EXTENSIONS["constructor"]` 是 Object 函数，不是 undefined，扩展名检查放行；之后 type !== expected，回 415 extension-mismatch“文件内容是 image/png，扩展名对不上”。`__proto__`、`hasownproperty`（小写后不在原型上，但 `constructor`、`valueof` 小写后有一部分仍命中：`constructor` 是全小写）同理。
+为什么是问题：不会写出文件（仍是 415），但码错了：Spec 规定扩展名不在集合里为 unsupported-type。同文件的 isUploadServerFailure 已经用 Object.hasOwn 防了这件事，这里漏了。
+如何核实：`bun -e 'const t={png:1}; console.log(t["constructor"] === undefined)'` 输出 false。
+建议改法：`const expected = Object.hasOwn(UPLOAD_EXTENSIONS, extension) ? UPLOAD_EXTENSIONS[extension] : undefined;`，或把表改成 ReadonlyMap。
+（第 10 条更正：扩展名先小写，原型上全小写的键只有 `constructor` 与 `__proto__` 会命中；`.tostring`、`.valueof` 小写后不在原型上，不受影响。标题里的 `.tostring` 作废。）
+
+== 11. 写在作品根时 rename 的 list 地址带结尾斜杠、恒失败：根下同名的悬空链接得 409 而不是 `名字 2`，所有根下重名都退化成“写一次、冲突、重暂存整份字节”（实测）==
+严重程度：重要；类别：正确性
+位置：backend/upload-route.ts:165（`const parent = \`projects://${id}/${directory}\``）与 :179-180（list 失败时静默当作空）
+现象：directory 为 "" 时 parent 是 `projects://<id>/`，路径以空段结尾，parseAddress 回 invalid-address（resource.ts pathProblem“路径含空段”），list 失败，taken 为空，而 :180 只在 existing.ok 时收名字，失败不留任何痕迹。实测：作品根下放 `dangling.png -> missing.png`，PUT `dangling.png?exists=rename` 得 409 {"code":"conflict","message":"dangling.png 指向不存在的目标"}；同样的链接放在 `子/` 下得 201 `子/dangling 2.png`。
+为什么是问题：违反 Spec“不覆盖”：rename 把悬空链接当作被占用、取下一个空名。插图存放设置的“作品根”（决定 4 的四种之一）与根下文件的“与当前文件同目录”都会写到根；根下有普通文件同名时虽然靠 conflict 重试仍能成功，但每次重试都重建暂存、重写最多 32 MiB，`名字 2` 到 `名字 N` 被占时就是 N 次整份写入。现有测试的 rename 用例都在 `插图/`、`图/` 下，碰不到根。
+建议改法：`const parent = directory === "" ? \`projects://${id}\` : \`projects://${id}/${directory}\``（与 addressOf 的写法一致，最好抽成一个按段拼地址的函数共用）；list 失败且不是 not-found 时至少写一条诊断或直接按失败结束，不静默当空；补“根下 rename（含悬空链接）”的用例。
+
+== 12. failureOf 的兜底：远程路由层的码（target-gone、unavailable、not-provided、timeout、provider-error）一律 500 io-failed；注释说“原码写进说明”，实现没写，也没有诊断 ==
+严重程度：建议；类别：正确性 / 代码质量（静默吞码）
+位置：backend/upload-route.ts:43-58（failureOf 及其注释）、:174、:188（`failure(failed.code, written.detail)`）
+现象：projects:// 的 commit 是一次远程调用，flatten（projects-scheme.ts:29-40）把路由层失败原样交回，码可能是 nb-runtime remote/protocol.ts:27-38 里的 target-gone、unavailable、not-provided、timeout、provider-error、cancelled、denied。failureOf 的 default 分支把它们都变成 io-failed；注释写“不认识的码一律 io-failed，原码写进说明”，但调用处传的是 written.detail，原码丢了；路由也不记诊断。
+为什么是问题：Spec 码表把“项目实例不可用”定为 503 project-unavailable，项目子进程崩溃、未就绪的 target-gone / unavailable / not-provided 属于这一类（确定没写），现在报成“其它写入失败”。原码不进说明也不进诊断，用户报“上传失败 500”时无从查起。这属于禁止清单里的“静默吞错”。
+如何核实：读 failureOf 与两处调用；grep `原码` upload-route.ts。触发需要项目子进程在租约内崩溃，未做实测，标为从代码推断。
+建议改法：显式映射 target-gone、unavailable、not-provided → project-unavailable；timeout → unknown-outcome（写请求超时不知道结果）；其余 io-failed，并把原码拼进 message（`${written.code}: ${written.detail}`），记一条 warn 诊断（服务端入口已有 record 可用）。
+
+== 未发现问题的方面 ==
+- 路径包含：URL 里的 `..` 被请求自己折叠，`%2E%2E`、段内 `%2F` 解码出的 `..` 由 pathProblem 拒绝；`%2F` 解码成分隔符，等同于子目录，响应里的 address 与实际落盘一致（实测 `图%2Fsub/a.png` → `project://图/sub/a.png`）。NUL、反斜杠、空段由地址规则拒绝；根外链接 404 outside-root、指向 `.nbook` 的别名 404 protected-path、`.NBOOK/` 404（均实测）。
+- 来源：Sec-Fetch-Site 的 none 也拒绝（与读取路由有意不同）；Origin 由 nb-host 分发层核对；跨站 PUT 本身还要过 CORS 预检。
+- 请求体：客户端中途断开时 Bun 的 reader.read() 以 AbortError 失败（实测），处理器抛出经 rethrowRouteError 到分发层，按 clientGone 记 debug 级 http.request.aborted，不是错误噪音；Gate 的 finally 释放名额（测试与变异检查都确认）；new Request(url, request) 转发后 signal 仍随客户端断开触发（实测），写入链拿到的取消信号有效。未读的请求体有背压、不在内存里堆积（实测）。分块与 Content-Length 两条 413 路径都对，Content-Length 非数字时退回边收边数（实测 201）。
+- 暂存：stage 在 fill 失败、取消、提交失败各路径都 discard 或 release；本轮所有实验（413、断开、冲突、rename）之后 `.nbook/staging/` 为空。
+- 类型判定：三个调用方都改用 sniffStillImageType，全仓库（除 legacy）只剩上传路由直接用 sniffImageType；GIF87a/89a 与 GIF88a、GIF89b 的边界对；三处“GIF 被拒”用例变异检查都会失败。
+- find 的 extensions：两份合同共用同一个 methods 对象，一处改两处生效；不传时 wanted 为 null，行为照旧；过滤在排序与截断之前，truncated 语义不变；schema 的 pattern、长度、条数与 Spec 一致并有拒绝用例。
+- 客户端：超过 32 MiB、没绑定、非 project:// 都不发出（用例断言了 requests 为空）；fetcher 缺省就是全局 fetch，生产路径不受注入影响；Blob 与 Uint8Array 的大小都按字节数算。Lab 内存文件服务的 upload 恒为 unavailable：现在没有任何 Lab 场景调用 upload（grep 只有 memory-files 一处），不影响现有场景；插图卡片的 Lab 场景（第 4 片）要演示上传成功时需另行处理。
+- 验证：审查 worktree 里 `bunx tsc --noEmit -p tsconfig.json` 退出 0；`bun test src/plugins/files src/shared/image-type.test.ts` 277 pass / 0 fail。实验用的临时测试文件都已删除，变异都已 git checkout 还原，`git status --short` 为空。
+
+== 数量 ==
+阻断 0；重要 3（第 1、2、11 条）；建议 9（第 3、4、5、6、7、8、9、10、12 条）。共 12 条，无撤回；第 2、4、10 条有补充或更正，第 1 至 3 条的行号见行号更正。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12

@@ -16,8 +16,8 @@ import {bodyLimit} from "hono/body-limit";
 
 import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 
-import {sniffImageType} from "nbook/shared/image-type";
-import type {RasterImageType} from "nbook/shared/image-type";
+import {sniffStillImageType} from "nbook/shared/image-type";
+import type {StillImageType} from "nbook/shared/image-type";
 
 import {THEME_ASSET_MAX_BYTES, THEME_ICON_MAX_BYTES} from "../shared/contracts";
 import {failure, THEME_ASSET_DIRECTORY, ThemeAssetGuard} from "./theme-asset-common";
@@ -25,7 +25,7 @@ import type {ThemeAssetRouteSources} from "./theme-asset-common";
 import {addThemeAssetSweepRoute} from "./theme-asset-sweep";
 import {checkSvgIcon} from "./svg-icon";
 
-const EXTENSIONS: Readonly<Record<RasterImageType, string>> = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"};
+const EXTENSIONS: Readonly<Record<StillImageType, string>> = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"};
 
 /**
  * 两条路由共用的落盘：检查目标目录、定址、已存在判断、写入。检查的顺序与失败码是路由合同的一部分，两条路由一致。
@@ -81,7 +81,7 @@ export function addThemeAssetRoutes(app: Hono<{Bindings: HttpRouteEnv}>, sources
 
     app.put("/theme-assets", sceneLimit, async (c) => {
         const bytes = new Uint8Array(await c.req.arrayBuffer());
-        const type = sniffImageType(bytes);
+        const type = sniffStillImageType(bytes);
         if (type === null) return failure(415, "unsupported-type", "只收 PNG、JPEG 或 WebP");
         return store(sources, guard, bytes, EXTENSIONS[type]);
     });

@@ -29,10 +29,12 @@
 - [Agent harness 的事件模型](agent-harness-event-model.md)：harness 是一台由日志驱动的状态机，指令进、事件出，输入先进缓冲区；状态由日志归约、请求是状态的视图、副作用可拦截；Profile 与插件（连同对话记录）都是只做归约、反应、视图、拦截的扩展。
 - [界面文字的消息目录](i18n-message-catalogs.md)：每个插件、每个共享包自带按语言分的 JSON 目录（i18next 原生格式），声明按约定取键，失败文案按“拥有者 + 码”取。
 - [工作台布局：一棵树、按矩形摆放与 nb-layout](workbench-single-tree-layout.md)：除标题栏外工作台是一棵树，内容按矩形摆放在同一层，两种拖动手感、应用内浮动、手机呈现，布局工具拆成单独的包。
+- [Agent 审批：一份自有目录、去掉 Agent 的地址表、询问写明来源](agent-approval-simplification.md)：只写会话自己的目录在任何模式下都放行（不含宿主写的子目录），能不能写只由文件服务按方案登记判断，审批向导写明这次为什么问、放行也看得到；模式闸门不写成规则。
 - [NeuroBot（暂名）第一版](neurobot.md)：常驻、有记忆的 AI 员工；用户面对 bot 而不是会话，对话由系统维持，原始记录、简单记忆、日程与周期任务；monorepo 里的新应用，建在 nb-runtime 与 nb-harness 上。
 - [文件访问与改动记账](file-access-and-history.md)：读拿本机路径自己读；写只有一个入口，写入方暂存、拥有根的进程在锁里提交并经记账槽记账；外部改动由监视与对账发现；分四个阶段交付。
 - [图像生成第一版：工作台、配方与标签库](image-generation-v1.md)：提示词按节组织、预设引用加差异、风格组合与片段；标签系统；应用级图片仓库与空间管理，书里的生成记录与 `.image` 插图；插图方言、管线、Agent 工具另写。
 - [工作台的视图容器](workbench-view-containers.md)：侧栏、右栏、底部面板各一次显示一个容器，入口切换整个容器；具名面板当区域的锚，容器里是一个视图一节的分节，插件声明或用户拖出来。
+- [桌面发行](desktop-distribution.md)：Electrobun 桌面壳随包带 Bun、先做 Windows 安装包与便携包、状态根与 `nbook` 共用、外部工具向导，打 `v*` 标签后 CI 构建冒烟并发布 npm 包、桌面包与 GitHub Release。
 
 ### 旧应用的提案（只作参照）
 

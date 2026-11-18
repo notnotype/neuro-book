@@ -32,6 +32,8 @@ export interface WindowSetting {
 }
 
 export interface SettingsWindowSource {
+    /** 窗口所在的宿主：分区声明的 `host` 按它决定列不列；缺省不在桌面壳里。 */
+    readonly environment?: {readonly desktop: boolean};
     /** 已接受的分区声明，按分区 id 的码元顺序。 */
     sections(): ReadonlyArray<SettingsSectionEntry>;
     /** 本窗口已接受的全部配置项声明，按键的码元顺序；插件集合不变，结果也不变。 */
@@ -60,6 +62,7 @@ export interface SettingsWindowSource {
 export const settingsWindowSourceKey: ServiceKey<SettingsWindowSource> = defineServiceKey<SettingsWindowSource>("nbook.settings/window-source");
 
 export interface SettingsWindowSourceOptions {
+    readonly environment?: {readonly desktop: boolean};
     readonly sections: SettingsSectionRegistry;
     readonly choices: ChoiceSourceRegistry;
     readonly declarations: ReadonlyMap<string, AcceptedSetting>;
@@ -90,6 +93,7 @@ export function createSettingsWindowSource(options: SettingsWindowSourceOptions)
         return {ok: true};
     };
     return {
+        environment: Object.freeze({desktop: options.environment?.desktop === true}),
         sections: () => options.sections.catalog,
         settings: () => settings,
         layer: (layer) => options.instance.layer(layer),

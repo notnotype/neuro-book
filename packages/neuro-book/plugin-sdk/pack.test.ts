@@ -252,6 +252,16 @@ describe("生成的 SDK 包", () => {
         expect(result.exitCode).toBe(0);
     }, 60_000);
 
+    it("插件描述里用 /agent 的 agentSkills 声明 Skill：作者的普通 tsconfig（DOM、没有 Node 类型）照样类型检查通过", async () => {
+        await writeFile(join(project, "src/skills-descriptor.ts"), `import {definePlugin} from "@notnotype/nb-plugin-sdk";\nimport {agentSkills} from "@notnotype/nb-plugin-sdk/agent";\nconst plugin = definePlugin({id: "acme.hello", version: "1.0.0", locations: []});\nexport const descriptor = plugin.descriptor([agentSkills(\`\${plugin.id}.skills\`, {directory: "skills"})]);\n`);
+        try {
+            const result = Bun.spawnSync({cmd: ["node", join(project, "node_modules/vue-tsc/bin/vue-tsc.js"), "-p", project], cwd: project, stdout: "pipe", stderr: "pipe"});
+            expect(`${result.stdout.toString()}${result.stderr.toString()}`).toBe("");
+        } finally {
+            await rm(join(project, "src/skills-descriptor.ts"));
+        }
+    }, 60_000);
+
     it("声明文件写错的地方会被类型检查拦下：page 分区少了必填的 icon", async () => {
         await writeFile(join(project, "src/wrong.ts"), `import {settingsPage} from "@notnotype/nb-plugin-sdk/settings/browser";\nimport {plugin} from "./shared";\nsettingsPage(plugin, {name: "x", title: "x", load: async () => ({default: {}})});\n`);
         try {

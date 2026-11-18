@@ -3,14 +3,14 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {createGrid, movePanelToEdge, projectLayoutDoc, regionNodeOf} from "@notnotype/nb-layout";
+import {createGrid, movePanelToEdge, projectLayoutDoc, regionNodeOf, regionOf, regionOfStripLeaf, regionStripLeafId} from "@notnotype/nb-layout";
 import type {GridExtent, GridNodeInput, LayoutDoc} from "@notnotype/nb-layout";
 
 import {viewSection} from "../state/containers";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "../state/default-tree";
 import {createLayoutPolicy, layoutProjectionOptions} from "../state/layout-constraints";
 import type {ViewCatalog} from "../views/registry";
-import {cardInset, layoutCardEdges, maximizedCardEdges, sashKindOf} from "./adjacency";
+import {cardInset, cardInsetPx, joinedToBar, layoutCardEdges, maximizedCardEdges, sashKindOf} from "./adjacency";
 import type {CardSide} from "./adjacency";
 
 const VIEW = (location: "sidebar" | "auxiliarybar" | "panel") => ({title: {"zh-CN": location, "en-US": location}, icon: "i", location, layout: "scroll" as const});
@@ -25,13 +25,15 @@ function cards(doc: LayoutDoc, sizesOverride: Readonly<Record<string, GridExtent
         sizes: {...layout.sizes, ...sizesOverride},
         sashSizes: layout.sashSizes,
         activitybar: "activitybar",
+        activitybarGroup: "sidebar",
         plain: new Set(["statusbar"]),
-        isTool: (id) => doc.panels[id]?.role === "tool",
+        groupOf: (id) => regionOfStripLeaf(id) ?? regionOf(doc, id),
     });
 }
 
 const outer: CardSide = {kind: "outer", occupied: 0};
 const joined: CardSide = {kind: "joined"};
+const barJoined: CardSide = {kind: "joined", bar: true};
 const inner = (occupied: number): CardSide => ({kind: "inner", occupied});
 const doc = (): LayoutDoc => defaultLayoutDoc(CATALOG);
 /** 视图所在的分节：区域里画出来的卡片是分节，锚不进呈现树。 */
@@ -46,30 +48,50 @@ const hide = (source: LayoutDoc, id: string): LayoutDoc => ({...source, panels: 
 describe("卡片的边", () => {
     it("默认树：活动栏与侧栏相连，其余按挨着的留半缝，贴窗体、状态栏留整缝", () => {
         const result = cards(doc());
-        expect(result.activitybar).toEqual({top: outer, right: joined, bottom: outer, left: outer});
-        expect(result[SIDE]).toEqual({top: outer, right: inner(1), bottom: outer, left: joined});
+        expect(result.activitybar).toEqual({top: outer, right: barJoined, bottom: outer, left: outer});
+        expect(result[SIDE]).toEqual({top: outer, right: inner(1), bottom: outer, left: barJoined});
         expect(result[INITIAL_EDITOR_PANEL]).toEqual({top: outer, right: inner(1), bottom: inner(1), left: inner(1)});
-        expect(result[OUT]).toEqual({top: inner(1), right: inner(1), bottom: outer, left: inner(1)});
-        expect(result[AUX]).toEqual({top: outer, right: outer, bottom: outer, left: inner(1)});
+        // 右栏、底部面板顶上是入口条（输出 47），和下面的分节拼成一张卡片：入口条叶占卡片的上边，分节的上边相连。
+        expect(result[regionStripLeafId("panel")]).toEqual({top: inner(1), right: inner(1), bottom: joined, left: inner(1)});
+        expect(result[OUT]).toEqual({top: joined, right: inner(1), bottom: outer, left: inner(1)});
+        expect(result[regionStripLeafId("auxiliarybar")]).toEqual({top: outer, right: outer, bottom: joined, left: inner(1)});
+        expect(result[AUX]).toEqual({top: joined, right: outer, bottom: outer, left: inner(1)});
         // 锚不画卡片。
         expect(result.sidebar).toBeUndefined();
         expect(result.statusbar).toBeUndefined();
     });
 
-    it("侧栏隐藏：活动栏不和编辑组相连，缝是 0", () => {
+    it("侧栏隐藏：同拖到零（输出 11），活动栏不和编辑组相连，留着的 1px 边界算进占用", () => {
         const result = cards(hide(doc(), "sidebar"));
-        expect(result.activitybar?.right).toEqual(inner(0));
-        expect(result[INITIAL_EDITOR_PANEL]?.left).toEqual(inner(0));
+        expect(result.activitybar?.right).toEqual(inner(1));
+        expect(result[INITIAL_EDITOR_PANEL]?.left).toEqual(inner(1));
     });
 
-    it("侧栏拆成一列：不等长，不相连", () => {
+    it("侧栏一列几节：一个容器一张卡片，两节之间相连，整列和活动栏相连", () => {
         const start = doc();
         const moved = movePanelToEdge(start, {panel: OUT, target: {kind: "split", panel: SIDE, edge: "bottom"}}, createLayoutPolicy());
         if (!moved.ok) throw new Error(moved.detail);
         const result = cards(moved.doc);
-        expect(result.activitybar?.right).toEqual(inner(0));
-        expect(result[SIDE]?.left).toEqual(inner(0));
-        expect(result[SIDE]?.bottom).toEqual(inner(1));
+        expect(result.activitybar?.right).toEqual(barJoined);
+        expect(result[SIDE]).toEqual({top: outer, right: inner(1), bottom: joined, left: barJoined});
+        expect(result[OUT]).toEqual({top: joined, right: inner(1), bottom: outer, left: barJoined});
+    });
+
+    it("底部面板两节左右并排：两节之间相连，但不是和活动栏相连（“角接过去”只认活动栏，输出 19）", () => {
+        const moved = movePanelToEdge(doc(), {panel: AUX, target: {kind: "split", panel: OUT, edge: "right"}}, createLayoutPolicy());
+        if (!moved.ok) throw new Error(moved.detail);
+        const result = cards(moved.doc);
+        expect(result[OUT]?.right).toEqual(joined);
+        expect(result[AUX]?.left).toEqual(joined);
+        expect(joinedToBar(result[AUX]?.left)).toBe(false);
+        expect(joinedToBar(result[SIDE]?.left)).toBe(true);
+    });
+
+    it("不同区域的卡片挨着照旧留缝：底部面板与右栏、编辑组与侧栏", () => {
+        const result = cards(doc());
+        expect(result[OUT]?.right).toEqual(inner(1));
+        expect(result[AUX]?.left).toEqual(inner(1));
+        expect(result[INITIAL_EDITOR_PANEL]?.left).toEqual(inner(1));
     });
 
     it("相连跟着拖动中的几何：拖到零时不相连，缝算进占用", () => {
@@ -85,7 +107,8 @@ describe("卡片的边", () => {
         if (!moved.ok) throw new Error(moved.detail);
         const result = cards(moved.doc);
         expect(result[AUX]).toEqual({top: outer, right: inner(1), bottom: outer, left: inner(1)});
-        expect(result[INITIAL_EDITOR_PANEL]?.right).toEqual(outer);
+        // 右栏搬空了、自动隐藏，按拖到零画：编辑组右边贴着窗体，中间夹着它留着的 1px 边界。
+        expect(result[INITIAL_EDITOR_PANEL]?.right).toEqual({kind: "outer", occupied: 1});
     });
 
     it("一边留多宽：贴边整缝，相邻半缝减占用的一半，相连 0", () => {
@@ -93,6 +116,8 @@ describe("卡片的边", () => {
         expect(cardInset({kind: "outer", occupied: 1})).toBe("max(0px, calc(var(--shell-gap, 0px) - 1px))");
         expect(cardInset(inner(2))).toBe("max(0px, calc(var(--shell-gap, 0px) / 2 - 1px))");
         expect(cardInset(joined)).toBe("0px");
+        // 按读到的缝宽算成数（交换的裁切窗），和上面的式子同一个规则；占用比缝还宽时不小于 0。
+        expect([outer, {kind: "outer", occupied: 1} as const, inner(2), joined, inner(10)].map((side) => cardInsetPx(side, 4))).toEqual([4, 3, 1, 0, 0]);
     });
 });
 
@@ -120,17 +145,23 @@ describe("分隔线的种类", () => {
     const leaf = (id: string): GridNodeInput<string> => ({kind: "leaf", id, ref: id});
     const roles: Record<string, "tool" | "editor"> = {a: "tool", b: "tool", e1: "editor", e2: "editor"};
     const roleOf = (id: string): "tool" | "editor" | null => roles[id] ?? null;
+    const groups: Record<string, string> = {a: "panel", b: "panel", c: "auxiliarybar"};
+    const groupOf = (id: string): string | null => groups[id] ?? null;
 
-    it("两边都是工具面板、都是编辑组，或一边一种", () => {
-        const branch = {kind: "branch" as const, id: "h", orientation: "horizontal" as const, children: [leaf("a"), leaf("b"), leaf("e1"), leaf("e2")]};
-        expect(sashKindOf(branch, "a", "b", roleOf)).toBe("panes");
-        expect(sashKindOf(branch, "b", "e1", roleOf)).toBe("shell");
-        expect(sashKindOf(branch, "e1", "e2", roleOf)).toBe("editors");
+    it("同一张卡片里的两节、编辑组之间，或别的", () => {
+        const branch = {kind: "branch" as const, id: "h", orientation: "horizontal" as const, children: [leaf("a"), leaf("b"), leaf("c"), leaf("e1"), leaf("e2")]};
+        expect(sashKindOf(branch, "a", "b", roleOf, groupOf)).toBe("panes");
+        // 两个区域的工具面板挨着：两张卡片，不是卡片里的线。
+        expect(sashKindOf(branch, "b", "c", roleOf, groupOf)).toBe("shell");
+        expect(sashKindOf(branch, "c", "e1", roleOf, groupOf)).toBe("shell");
+        expect(sashKindOf(branch, "e1", "e2", roleOf, groupOf)).toBe("editors");
     });
 
     it("一边是分支时看它里面的全部叶", () => {
         const column = {kind: "branch" as const, id: "v", orientation: "vertical" as const, children: [leaf("e1"), leaf("a")]};
         const branch = {kind: "branch" as const, id: "h", orientation: "horizontal" as const, children: [column, leaf("e2")]};
-        expect(sashKindOf(branch, "v", "e2", roleOf)).toBe("shell");
+        expect(sashKindOf(branch, "v", "e2", roleOf, groupOf)).toBe("shell");
+        const pair = {kind: "branch" as const, id: "v2", orientation: "vertical" as const, children: [leaf("a"), leaf("b")]};
+        expect(sashKindOf({kind: "branch" as const, id: "h2", orientation: "horizontal" as const, children: [pair, leaf("b")]}, "v2", "b", roleOf, groupOf)).toBe("panes");
     });
 });

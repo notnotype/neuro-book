@@ -1,0 +1,113 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t27-region-entry-strips",
+    "artifactId": "container-switch",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "切换容器：怎么滚、入口条放在哪",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "55386897596ad8dcce6489a79308b3ab6bb72edf975385bd6d17245850ca9419",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "switch-1",
+            "type": "single",
+            "label": "点入口切换容器时，内容怎么滚？",
+            "options": [
+                {
+                    "value": "scroll",
+                    "label": "甲 整块滚过去"
+                },
+                {
+                    "value": "axis",
+                    "label": "乙 推一小段加淡"
+                },
+                {
+                    "value": "quick",
+                    "label": "丙 整块滚、短而匀"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "scroll"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "indicator-1",
+            "type": "single",
+            "label": "入口的选中标记跟着滑过去吗？",
+            "options": [
+                {
+                    "value": "slide",
+                    "label": "滑过去"
+                },
+                {
+                    "value": "jump",
+                    "label": "原地换"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "slide"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "strip-1",
+            "type": "single",
+            "label": "右栏、底部面板的入口条放在哪？",
+            "options": [
+                {
+                    "value": "region-head",
+                    "label": "甲 区域多一行头"
+                },
+                {
+                    "value": "first-head",
+                    "label": "乙 放进第一节的头"
+                },
+                {
+                    "value": "mirror-bar",
+                    "label": "丙 右栏右边一条活动栏"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "first-head"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "join-2",
+            "type": "confirm",
+            "label": "几节的容器这样连在活动栏上，可以吗？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-16T13:37:46.311Z"
+}

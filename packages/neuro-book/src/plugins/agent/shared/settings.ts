@@ -3,6 +3,7 @@
  *
  * - 按 Profile 增减工具、按 Profile 设模型缺省与审批模式的初值：显示在“Profile”页里（docs/specs/agent/profile-settings.md）。
  * - 运行保护（docs/specs/agent/run-guards.md）：显示在分区“运行可靠性”里，`nbook.models` 的两个超时也指向这个分区。
+ * - 模型请求记录（docs/specs/agent/request-trace.md 的设置表）：自己一个分区。
  */
 
 import {Type} from "typebox";
@@ -26,6 +27,10 @@ const ProfileSettingSchema = Type.Object({
     approvalMode: Type.Optional(Type.Union([Type.Literal("ask"), Type.Literal("allow-writes"), Type.Literal("auto"), Type.Literal("yolo")])),
     /** 可派的子代理在 Profile 声明之外加、减的（profile-settings.md 输出 25）；形状与规则同工具绑定。 */
     agents: Type.Optional(ToolBindingSchema),
+    /** 可用的 Skill 在 Profile 声明之外加、减的（profile-settings.md 输出 26）；形状与规则同工具绑定。 */
+    skills: Type.Optional(ToolBindingSchema),
+    /** 提示词里列的表情包在 Profile 声明之外加、减的（profile-settings.md 输出 27）；形状与规则同工具绑定。 */
+    stickers: Type.Optional(ToolBindingSchema),
 }, {additionalProperties: false});
 
 export const ToolBindingsSchema = Type.Record(Type.String({minLength: 1}), ToolBindingSchema);
@@ -43,13 +48,42 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
     groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}, {id: "subagents"}],
 };
 
+export const REQUESTS_SECTION = "nbook.agent.requests";
+export const REQUESTS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration = {
+    description: agentText("settingsSections.requests.description"),
+    icon: "i-lucide-activity",
+    category: "ai",
+    order: 40,
+};
+
 /** “Profile”页（profile-settings.md）：这两项由页面画，不进“其它”。 */
 export const PROFILES_SECTION = "nbook.agent.profiles";
+
+/** “Skill”页（skills.md 输出 25）：只有页面，没有配置项。 */
+export const SKILLS_SECTION = "nbook.agent.skills";
+
+/** “状态栏”页（conversation.md 输出 46）：`statusLine` 由页面画，不进“其它”。 */
+export const STATUS_LINE_SECTION = "nbook.agent.status-line";
 
 /** “权限规则”页（permissions.md 输出 22）：这几项由页面画，不进“其它”。 */
 export const PERMISSIONS_SECTION = "nbook.agent.permissions";
 
+/** 状态栏的设置（conversation.md 输出 45）：只记改过的次序、显隐与边；形状同 nb-agent-ui 的 `StatusLineSetting`。 */
+export const StatusLineSchema = Type.Object({
+    order: Type.Optional(Type.Array(Type.String({minLength: 1}), {maxItems: 64})),
+    visible: Type.Optional(Type.Record(Type.String({minLength: 1}), Type.Boolean())),
+    side: Type.Optional(Type.Record(Type.String({minLength: 1}), Type.Union([Type.Literal("left"), Type.Literal("right")]))),
+}, {additionalProperties: false});
+
 export const agentSettings = defineSettings("nbook.agent", {
+    statusLine: {
+        schema: StatusLineSchema,
+        default: {},
+        title: agentText("settings.statusLine.title"),
+        description: agentText("settings.statusLine.description"),
+        layers: ["user"],
+        section: STATUS_LINE_SECTION,
+    },
     permissionRules: {
         schema: RulesSchema,
         default: [],
@@ -160,5 +194,42 @@ export const agentSettings = defineSettings("nbook.agent", {
         section: RUN_GUARDS_SECTION,
         group: "subagents",
         order: 30,
+    },
+    // 模型请求记录：缺省开着并存原始请求体、留 14 天、不记请求头（t30 决定 8 到 10）。
+    requestTrace: {
+        schema: Type.Boolean(),
+        default: true,
+        title: agentText("settings.requestTrace.title"),
+        description: agentText("settings.requestTrace.description"),
+        layers: ["user"],
+        section: REQUESTS_SECTION,
+        order: 10,
+    },
+    requestTracePayload: {
+        schema: Type.Boolean(),
+        default: true,
+        title: agentText("settings.requestTracePayload.title"),
+        description: agentText("settings.requestTracePayload.description"),
+        layers: ["user"],
+        section: REQUESTS_SECTION,
+        order: 20,
+    },
+    requestTraceDays: {
+        schema: Type.Integer({minimum: 1, maximum: 365}),
+        default: 14,
+        title: agentText("settings.requestTraceDays.title"),
+        description: agentText("settings.requestTraceDays.description"),
+        layers: ["user"],
+        section: REQUESTS_SECTION,
+        order: 30,
+    },
+    requestTraceHeaders: {
+        schema: Type.Boolean(),
+        default: false,
+        title: agentText("settings.requestTraceHeaders.title"),
+        description: agentText("settings.requestTraceHeaders.description"),
+        layers: ["user"],
+        section: REQUESTS_SECTION,
+        order: 40,
     },
 });

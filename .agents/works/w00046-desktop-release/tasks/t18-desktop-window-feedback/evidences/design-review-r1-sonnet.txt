@@ -1,0 +1,98 @@
+### 1. “回到书架”的可用性由 WorkbenchShell 读命令表，不是响应式的，启动时序下会永久缺这一项
+- 严重程度：重要；设计与耦合
+- 位置：plan.md“作品下拉与标志”一节；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue`（`props.commands`，第 100 行 `run`）；`titlebar/titlebar-source.ts`（`createShellChrome` 的 `version`）；`commands/shared/contracts.ts` 第 145–156 行 `CommandService`
+- 现象：计划写“下拉里的条目由 `WorkbenchShell` 按命令表算好交给标题栏”，标志是否可点同理。`WorkbenchShell` 只有 `props.commands: CommandService`，而 `get`、`isEnabled` 是普通函数，不是响应式读取；契约注释写明“命令增减时通知 `onDidChange`；可用性随上下文变化不通知”。现有响应式做法在 `ShellChrome`：它订阅 `onDidChange` 推进一个 `shallowRef` 版本号，`menus()`、`titleEntries()` 在 computed 里先读版本号。`projects` 浏览器入口是 `activationEvents: ["onStartup"]` 才把命令贡献进命令表，晚于工作台外壳挂载是正常时序。
+- 为什么是问题：在 `WorkbenchShell` 里写 `computed(() => commands.get("nbook.project.back-to-shelf").ok)`，首次求值时命令若还没登记就缓存为 false，之后命令登记不会触发重算，作品下拉与标志永远没有“回到书架”，而文件菜单（走 `chrome.menus()`）却有，三处不一致；这个坑只在启动时序下出现，开发时容易漏。
+- 如何核实：读 `titlebar-source.ts` 的 `version` 用法与 `CommandService.onDidChange` 注释；在 `WorkbenchTitleBar` 的 dom 测试里先挂载后登记命令，断言下拉里出现该项，当前计划的写法会失败。
+- 建议改法：把“这条命令此刻在不在、可不可用”放进 `ShellChrome`（例如 `projectMenu(text)` 返回下拉要的条目、`brandCommand()` 返回标志的命令或 null，都先读 `version`），`WorkbenchShell` 只转交。这样三处的数据来源都经 `ShellChrome`，也顺带得到命令标题（双语）而不必在工作台目录里另写一份。工作台仍只按命令 id 引用，不依赖项目插件的模块。
+### 2. 文件菜单的“回到书架”会排在“打开项目”前面：计划没写 `order`
+- 严重程度：重要；事实与实现细节
+- 位置：plan.md“文件菜单”一条；`packages/neuro-book/src/plugins/projects/web/plugin.ts` 第 58–61 行 `TITLEBAR_MENU_ITEMS`；`plugins/commands/shared/menus.ts` 第 231 行排序
+- 现象：计划写 `group: "file"`、`section: "1_open"`、“排在打开项目之后”，但没有 `order`。现有“打开项目”条目也没写 `order`（缺省 0）。`arrangeMenu` 的排序是节名、`order`、再按条目 id 字典序。新条目 id 若按计划风格取 `nbook.projects.menu.back-to-shelf`，字典序小于 `nbook.projects.menu.open`，会排在前面。
+- 为什么是问题：文件菜单第一项会变成“回到书架”，与 Spec 输出 29 的条目表（第一项是“打开项目”）和计划的“排在后面”相反；e2e `workbench-titlebar.e2e.ts` 里写死了文件菜单的顺序，也会失败。
+- 如何核实：读 `menus.ts` 第 231 行 `shown.sort(...)`；plugin.ts 现有条目没有 `order`。
+- 建议改法：新条目写 `order: 1`（或给“打开项目”写 `order: 0`、新条目 `order: 1`），测试里断言顺序。
+### 3. 改用 lucide 遮罩图标后，高对比度（forced-colors）下三个窗口按钮会整个消失
+- 严重程度：重要；无障碍（高对比度）
+- 位置：plan.md“窗口按钮的图标”“颜色仍按三级回退；`forced-colors` 下悬停用 `Highlight`”；`packages/nb-ui/src/tailwind.css` 第 83–99 行的图标垫片；`packages/neuro-book/src/web/host-loading.css` 第 288–294 行的同类说明
+- 现象：`[class*="i-lucide-"]` 的形状是 `background-color: currentColor` 加 `mask-image`。强制颜色模式会把 `background-color` 一律换成 Canvas（`host-loading.css` 里有一段注释写的正是这个坑，并给进度指示加了 `forced-color-adjust: none`）。旧的 Segoe 字形是文字，强制颜色下按 ButtonText 显示，没有这个问题。计划只写了“悬停用 Highlight”，没有处理静止态的图标。
+- 为什么是问题：高对比度下用户看不到最小化、最大化、关闭三个按钮；外框没有系统标题栏，关闭只剩 Alt+F4。这是比现状更差的回退。同一原因也影响标题栏左上角的标志（`NeuroBookLockup`/`NeuroBookMark` 同样是 `background: currentColor` 加 mask）：标志改成按钮后，高对比度下是一个看不见却可聚焦的按钮。
+- 如何核实：在 Chrome 里用 Playwright 的 `forcedColors: "active"` 打开带能力标记的页面截图；或读 `host-loading.css` 那段注释。
+- 建议改法：二选一。（a）窗口按钮的图标改用内联 SVG（`stroke="currentColor"`），文字色在强制颜色下由系统给，启动页本来就要内联 SVG，两处同一做法，也不依赖图标管线与 `@source` 扫描；（b）继续用 lucide 类，但在 `@media (forced-colors: active)` 里给图标 `forced-color-adjust: none; background-color: ButtonText`（悬停 `HighlightText`）。标志按钮同样补一条。把“forced-colors 下三个按钮与标志可见”写进验收，用 Playwright `forcedColors` 截图证明。
+### 4. 命中区比芯大：指针落在芯外的四周（尤其右上角）能点却没有悬停反馈
+- 严重程度：重要；交互
+- 位置：plan.md“命中区比芯大：鼠标甩到屏幕角落仍点得到关闭（Fitts）”；`DesktopFrame.vue` 的按钮样式
+- 现象：命中区 40×36，芯 32×26，芯在命中区里水平各留 4px、垂直各留 5px，悬停底色只画在芯上。我用开发服务里的真实标题栏、注入计划的尺寸做了模拟（本机 Chrome，非 Windows），三个按钮命中区是 x=1160、1200、1240，各 40 宽，芯之间是 8px 空隙，右缘与上缘各有 4px、5px 的“能点没有反馈”的带。
+- 为什么是问题：关闭是最危险的一个按钮。用户把指针甩到屏幕右上角，按钮会响应点击，却没有任何悬停变红的预告（芯在 4px 以外）；这与 Windows、VS Code 的整块贴边按钮正相反，它们的高亮恰恰覆盖整个角落。两个芯之间的 8px 空隙里点哪个按钮取决于隐形边界，也没有反馈。命中区放大的好处（Fitts）只有在悬停也跟着放大时才成立。
+- 如何核实：看计划的尺寸，或运行 /tmp/w46-sonnet/mock.ts（`bun mock.ts light 2 close`）并把指针放在芯外。
+- 建议改法：保持“芯”的外观，但让命中区的悬停反馈覆盖得到：关闭按钮的芯向右上角延伸到窗口边缘（命中区边缘的 4px、5px 并入悬停底色，右上角圆角随窗口），或悬停时把底色画满整个 40×36（圆角 6px）。更简单的做法是命中区只向屏幕边缘外扩（右缘、上缘），按钮之间不留命中空隙，也不再叫“Fitts”。
+### 5. 标志变成按钮：吃掉标题栏最常抓的一块拖动区域，拖动后松手还会触发点击
+- 严重程度：重要；交互与误点
+- 位置：plan.md“标志”一条；`WorkbenchTitleBar.vue` 第 280–281 行起的模板与末尾非 scoped 块（`[data-desktop-titlebar] :is(button, …) { app-region: no-drag }`）
+- 现象：现在横排标志是 `<span role="img">`，在标题栏的 drag 区里，按住拖窗口是常见动作。计划把它包成 `button`，全局规则自动给它 `no-drag`。横排标志约 97×17px（高 17px、宽高比 947.47:165.88）位于最左端，是用户最习惯抓的位置之一。
+- 为什么是问题：（a）这块区域不再能拖窗口；按下去拖不动；（b）按钮的 click 在“mousedown 与 mouseup 落在同一元素”时触发，与是否移动过无关：用户抓住标志想拖窗口，什么也没发生，松手时整页导航回书架。导航在未保存时有 beforeunload 保护，没有未保存时就是一次静默跳转。计划只谈了“不要太显眼”，没有谈拖动与误点的代价。
+- 如何核实：读 `WorkbenchTitleBar.vue` 末尾的 drag 规则；Chrome 里 mousedown 在按钮上、移动后在原处 mouseup 仍会派发 click。
+- 建议改法：（a）命中区只包住标志本身，不加内边距；按钮高度不要拉到 28px，这样标志上下还留 drag 区；（b）或者只让图形标志（`NeuroBookMark`，18px）可点，字标保持文字不可点，横排标志时点图形部分；（c）接受并把“标志不可拖”写进 `WorkbenchTitleBar.md` 与 Spec 输出 28。无论哪种，悬停反馈不要反过来：计划里悬停时墨色“从正文色变为次要色”，标题栏其它所有按钮悬停都是变深或出底色，方向相反，建议改成与 `IconButton` 同向（次要色到正文色，或出同一底色），再决定要不要隐藏。
+### 6. 标志按钮的让位测量：包一层按钮后，测量层的复本必须同形，否则逐级让位的切换点偏移
+- 严重程度：重要；测量与回归验收
+- 位置：plan.md“测量层的复本不变”；`WorkbenchTitleBar.vue` 第 306–310 行与第 350–352 行（测量层的 `data-measure="lockup"`、`"mark"`）；`titlebar/yield.ts` 的 `lockup`、`mark` 宽度含外边距
+- 现象：计划说“测量层的复本不变”。但真元素外层多了一个 `button`：外边距、内边距、边框、是否 `inline-flex`、聚焦环占位，任何一项与复本不同，量出的 `lockup`/`mark` 宽度就与真实占用不一致。`outer()` 把外边距算进去；标志现在的外边距在标志本身上（`.workbench-titlebar__brand { margin-inline }`），包进按钮后外边距落在哪一层要重新决定。
+- 为什么是问题：让位按“放不下就收下一项”，宽度偏几个像素会让切换点偏几个像素，表现为窗口宽度恰在边界附近时标题栏溢出或过早收起。`workbench-titlebar.e2e.ts` 的“逐级让位”用例在每个宽度逐 10px 断言每一档的样子与不溢出，对这个改动最敏感；而计划的“验证”一节只列了 `desktop-frame.e2e.ts` 与 `projects.e2e.ts`，没有它。
+- 如何核实：读 `workbench-titlebar.e2e.ts` 第 148–185 行；在标志包进按钮前后对比 `[data-measure="lockup"]` 与真元素的 `getBoundingClientRect().width` 加外边距。
+- 建议改法：让真元素与复本用同一个小组件或同一组类（例如 `BrandButton`，测量层里是它的 `inert` 复本，按钮与非按钮两种形态共用同一盒子），不要各写一份；验证里加 `workbench-titlebar.e2e.ts` 与 Lab 的窄标题栏场景。
+（更正第 5、6 条的行号：标志在 `WorkbenchTitleBar.vue` 第 306–307 行，测量层复本在第 365–366 行，drag/no-drag 规则在第 543–549 行。）
+### 7. 标志按钮的无障碍细节：目标尺寸、聚焦环、名字来源、Tab 顺序
+- 严重程度：建议；无障碍
+- 位置：plan.md“标志”一条；`NeuroBookLockup.vue`/`NeuroBookMark.vue`（`role="img" aria-label="NeuroBook"`）
+- 现象：（a）标志 17–18px 高，低于 WCAG 2.5.8 的 24px 最小目标尺寸，其它标题栏按钮是 26–28px；（b）计划没有写焦点环：同类按钮都用 `focusRingClass("outer")`，标志高 17px，外环会紧贴上下边；（c）按钮 `aria-label` 写“回到书架”，里面的两个标志组件各自带 `role="img" aria-label="NeuroBook"`，按钮的子节点对读屏是展示性的，名字以按钮为准，但品牌名“NeuroBook”因此不再被读出，且“回到书架”这句要有来源：用命令标题（项目目录，双语）最省，不要在工作台目录再写一份；（d）标志成为 Tab 序的第一个停靠点，在项目切换之前，键盘用户每次从头走都多一步；命令不在时标志要保持不可聚焦的图案（计划已写），这两种形态下 DOM 结构要同形（见第 6 条）。
+- 为什么是问题：目标过小对触屏与手抖用户不友好；没有焦点环的按钮对键盘用户不可见；名字来源不统一会出现中英文不一致。
+- 如何核实：读两个标志组件；用 Playwright 的 `getByRole("button", {name: "回到书架"})` 与 Tab 走一遍。
+- 建议改法：按钮盒子做到 24–28px 高（用透明内边距加负外边距抵消，不影响版式与测量），统一加 `nb-ui-focus-ring` 或 `focusRingClass`；名字取命令标题，由第 1 条的 `ShellChrome` 给出；把标志按钮的 Tab 顺序与焦点环写进 `WorkbenchTitleBar.md` 与 dom 测试（有命令时 `getByRole("button")` 可聚焦，无命令时不是按钮）。
+### 8. 新按钮只复制了悬停颜色，没有复制 `IconButton` 的过渡、按下缩放、光标；“同一组值”还抄成两份
+- 严重程度：建议；一致性与上游质疑
+- 位置：plan.md“图标按钮的芯……与 `IconButton` 的 ghost 同一组值”；`packages/nb-ui/src/components/controls/IconButton.vue`；`DesktopFrame.md` 的“注意事项”
+- 现象：（a）`IconButton` 没有 `ghost` 变体：它的变体是 `default`、`danger`、`accent`、`secondary`；计划写的 15%/24%、静止 `--text-secondary`、悬停 `--text-main` 是它的 `default`，而 `Button` 的 `ghost`是 10%，实现者若按名字去抄会得到 10%。（b）`IconButton` 还有 `transition [background-color,color,transform,box-shadow]`（`--motion-fast`）、`active:scale-[0.93]`、`cursor-pointer`、`focusRingClass`。计划的原生按钮只列了颜色，且沿用 `cursor: default`，于是静止像一套，悬停与按下的手感不是一套，标题栏里隔壁的布局按钮会渐变，窗口按钮瞬变。（c）颜色字符串在 nb-ui 与 `DesktopFrame.vue` 各写一份，nb-ui 改了这边不会跟。
+- 为什么是问题：“样式与标题栏不匹配”是开发者提的问题，手感的差异同样会被感觉到。另外，`DesktopFrame.md` 写的理由“IconButton 做不出来：系统标题栏的按钮是贴边、无圆角、无内边距的矩形”在新设计下已经失效：新设计是“芯在命中区里”，理由应当重查，而不是把“原生 `<button>`”当成约束沿用。
+- 如何核实：读 `IconButton.vue` 的 `variantClass()` 与模板的 class；读 `DesktopFrame.md` 注意事项第一条。
+- 建议改法：先选路：（甲）继续原生 `<button>`，把过渡、按下缩放、光标、焦点环一并写进计划，在组件里注明“数值与 nb-ui `IconButton` default 同步”，并把 15%、24% 抽成 nb-ui 导出的 CSS 变量或 `@utility`，两边共用；（乙）用 `IconButton` 加类覆盖宽度，命中区外扩用 `::after` 的负 inset，关闭按钮的红色用类覆盖，复用它全部的状态。无论哪种，更新 `DesktopFrame.md` 那条理由，并把计划里“ghost”改成“default”。
+### 9. 三级回退没覆盖新用到的变量；启动页里还原按钮的切换代码会冲掉内联 SVG
+- 严重程度：建议；回退与实现细节
+- 位置：plan.md“颜色仍按三级回退”“启动页：内联 SVG”；`packages/neuro-book/src/web/index.html` 第 15–45 行（只写 `--host-loading-background/text/muted/accent`）；`packages/neuro-book/desktop/src/views/shell/index.html` 的 `window-state` 监听（`toggle.textContent = …`）
+- 现象：（a）加载页的明暗提示只有 background、text、muted、accent 四个变量。新设计用 `--text-secondary`（静止）、`--text-main`（悬停）、`--radius-button-sm`（芯的圆角）；前两者可回退到 `--host-loading-muted`、`--host-loading-text`，圆角没有回退，主题加载之前 `border-radius: var(--radius-button-sm)` 无效，芯是直角。静止色也会在主题到位时从 muted 跳到 secondary。（b）启动页现在用 `toggle.textContent = ""` 换字形，换成 SVG 之后这行会把内联 SVG 整个清空，最大化后按钮变空白；`aria-label` 的切换保留。
+- 为什么是问题：（a）加载页阶段圆角与颜色与主题就绪后不一致，闪一下；（b）直接是功能性缺陷，但容易漏，因为启动页是静态 HTML，没有 dom 测试。
+- 如何核实：读两处文件。
+- 建议改法：（a）`border-radius: var(--radius-button-sm, 6px)`，静止色写 `var(--text-secondary, var(--host-loading-muted, GrayText))`；计划里点明；（b）启动页用两个 SVG 子节点（最大化、还原）切换 `hidden`，不改 `textContent`。启动页不在 e2e 的覆盖里，Windows 验收清单里加“启动页最大化后按钮仍有图标”。
+### 10. “位置不对”这一条在计划里没有被验证、也没有被改动；与布局按钮的节奏也有差
+- 严重程度：建议；设计取舍与验收
+- 位置：plan.md“开发者当场定的”“未验证、交开发者”；`styles.css` 第 135–142 行
+- 现象：（a）计划自己的诊断是“几何是对的，按钮贴着客户区右上角，与标题栏中线对齐，偏的感觉来自字形”，所以“位置”并没有改什么，只是把按钮缩成 32×26 的芯、右边距 4px、上边距 5px。开发者当场选的是“位置偏了”，这里是对他原话的重新解释，计划没有写出怎么验证（例如最大化状态、125%/150% 缩放、Windows 10 与 11）。（b）我按计划尺寸注入到开发服务的标题栏里量过：布局按钮 26×26、间距 2px，最后一个右缘在 1156；最小化的命中区从 1160 起，芯从 1164 起，所以布局组与窗口组之间只有 8px，而窗口三个芯之间也是 8px（40 的间距减 32 的宽），两组没有分组感，视觉上像六个等距按钮，布局按钮是 26 方块、窗口按钮是 32×26 的圆角矩形，尺寸又不一。（c）参照：Windows 11 与 VS Code 在 Windows 上都是贴边的整高按钮（46 宽，悬停铺满整个格子，关闭红色铺满到角），这套约定本来就是为了不需要“芯”；计划选择与应用内按钮同形是有理由的，但它是有意偏离系统约定，应当写进 `DesktopFrame.md` 的取舍，并保留“贴边整高、只换成 15px 线条图标”作为对照稿。
+- 为什么是问题：只有一个方案且“位置”没有验证，开发者拿到后可能仍说“位置不对”；两组按钮节奏相同时，布局开关与窗口控制容易混淆。
+- 如何核实：读 `/tmp/w46-sonnet/mock-light-close.png`（注入计划尺寸的模拟）；间距数据见 `bun mock.ts light 2 close` 输出。
+- 建议改法：给开发者看两张静态稿（芯型与贴边整高型，静止与悬停各一，亮色与深色，用 PrintWindow 或 Lab）再定；若定芯型，把窗口按钮的芯做成与布局按钮同一边长（26×26 方块或 26×32 一致取舍），并在两组之间留一个明确的分隔（例如 12–16px，或一道短分隔线，与标题栏里项目与菜单之间的分隔同款）；“位置”的验证清单加最大化、125%、150%。深色主题我这边没能核实（开发服务不跟随系统明暗），验收里要补深色下关闭红与白色图标的对比、静止图标与标题栏底的对比。
+### 11. 在书架页执行“回到书架”是一次无意义的整页重载；欢迎页改走命令要同时清理选项与测试
+- 严重程度：建议；命令设计
+- 位置：plan.md“新命令 `nbook.project.back-to-shelf` ……`when` 无”“欢迎页改为执行这条命令”；`projects/web/plugin.ts`；`projects/web/welcome.ts` 第 29–44 行 `WelcomeHostOptions`、第 150 行 `onShelf`
+- 现象：（a）命令面板在书架页（`/`，无项目）里也挂着（Spec 输出 36：首页贡献时命令宿主照常挂着），`when` 为空，所以面板里能搜到“回到书架”，执行就是 `navigateDocument("/")`，整页重载当前页，丢书架的滚动、筛选状态。计划写“工作台页（有没有作品都一样）”，没有覆盖这个页面。`/workbench` 无项目时导航到 `/` 是对的，只有“已经在书架上”这一种是空操作。（b）欢迎页改走命令后，`WelcomeHostOptions.navigateDocument` 不再有别的用途，应一起删；`welcome.dom.test.ts`/`welcome.test.ts` 里断言“导航到 `/`”的地方改成断言执行了该命令；`execute` 失败只写诊断，与原先同步导航相比失败面多了一层，可以接受但要有一条测试。（c）`effect: "read"` 沿用 `nbook.help.welcome` 的做法，但这是会卸载页面的动作，与 `nbook.project.open`（`write`）不一致；`expose: {agent: "never"}` 对，建议在 Spec 命令表里写一句理由，免得下次被当成“只读命令”放开。
+- 为什么是问题：（a）是低成本的误操作，但对符合“窄场景选简单改法”的话不必加机制；（b）是遗漏的清理，会留下没用的依赖。
+- 如何核实：读 `welcome.ts` 全文；`WORKBENCH_HOME_POINT` 的 Spec 输出 36。
+- 建议改法：（a）命令 `run` 里先判断窗口是否已在书架（`windowProjectKey.project === null` 且当前页是首页）则直接返回成功，或者记为已知限制写进 Spec；不要为它加 `when` 机制。（b）一并删 `navigateDocument` 选项与对应测试，欢迎页的“回到书架”用同一个 `execute()` 帮助函数。（c）Spec commands.md 命令表里写明 `effect` 的理由。
+### 12. 状态矩阵没写全：无项目工作台、命令缺失、标志的两种形态，以及现有测试与 Lab 的联动
+- 严重程度：重要；验收映射与遗漏
+- 位置：plan.md“验收映射”“切片 2”；`WorkbenchTitleBar.vue` 第 311–330 行（`project === null` 时的普通 `Button`，不是下拉）；`e2e/workbench-titlebar.e2e.ts` 第 85–88 行；`plugins/lab/web/fixtures/index.ts` 第 512–536 行；`projects/locales.test.ts` 第 24–25 行；Spec 输出 29 的条目表
+- 现象：
+  1. `/workbench`（无项目的空工作台，Spec 输出 37）标题栏的项目切换是单个“打开项目…”按钮，不是下拉；计划写“有作品时是两项”，没说这种情况，所以这一页上作品下拉处没有“回到书架”，只有文件菜单与标志。这是合理的，但要写进 Spec 28 与测试（无项目时 Spec 现写“点开至少有打开项目”）。
+  2. 书架页本身没有 `WorkbenchTitleBar`（后备标题栏，只画窗口按钮），所以“标志可点”只在工作台页，书架页标志仍是 `NeuroBookMark` 的静态图案，不需要处理，但 Spec 要说清楚。
+  3. 命令缺失（插件未装、尚未激活）时下拉不列、标志不可点：见第 1 条，需要“先挂载后登记命令”的 dom 用例。文件菜单在命令不可用时是“列出并禁用”（`arrangeMenu` 对缺失命令才省略，对 `isEnabled` 为 false 的列出并禁用），与计划“不可用时不列这一项”不一致，三处的行为要统一写一次。
+  4. 现有测试会被这次改动直接打断而计划没列：`workbench-titlebar.e2e.ts` 第 85–88 行写死了文件菜单顺序（会多一项，并受第 2 条的排序影响）；`WorkbenchTitleBar.dom.test.ts` 第 65 行用 `[role=img][aria-label=NeuroBook]` 找标志，包进按钮后查询仍命中但“标志”不再是直接子节点，且要新增“标志是按钮”的断言；`projects/locales.test.ts` 有命令标题的键清单，要加新命令的 title、category；Lab 的 `WorkbenchTitleBar` 夹具（index.ts 第 536 行）的 `events` 列表要加 `back-to-shelf`，新增的 prop 要给场景（有书架、无书架）；Spec 输出 29 的“产品里的条目与贡献方”表要加这一项。计划的“Spec 与文档改动”漏了输出 29 与 Lab 夹具。
+  5. 计划的验证只跑 `desktop-frame.e2e.ts` 与 `projects.e2e.ts`；还应跑 `workbench-titlebar.e2e.ts`（菜单结构、逐级让位、标志）与 `commands.e2e.ts`（命令面板里多一条命令，如果它按数量或列表断言）。
+- 为什么是问题：合入前才发现这些测试失败，会再多一轮；Lab 夹具缺 prop 会让 Lab 编译失败（`WorkbenchTitleBar` 新 prop 若是必填）。
+- 如何核实：见上面各行号。
+- 建议改法：把 1 至 5 补进计划的“切片 2”与验证清单；Spec 输出 28 把“无项目时只有单个按钮、点了发 `open-project`”写明；新 prop 做成可选（缺省没有书架），Lab 加一个“没有书架”场景。
+### 13. 计划里两处引用与事实不符；“去掉失焦变淡”的清理范围现在就能定
+- 严重程度：建议；事实核对
+- 位置：plan.md“Spec 与文档改动”“验收映射”中的“browser-host 输出 10–11”；“与 `IconButton` 的 ghost”（见第 8 条）；“`state.focused` 若只为它而存……按实际用处决定”；`docs/specs/runtime/browser-host.md` 第 71、76、80–81 行；`web/host/desktop-frame.ts` 第 31、68、104–110、128–131 行；`DesktopFrame.vue` 第 34、91 行；`DesktopFrame.md` 第 15、46 行
+- 现象：（a）browser-host 的窗口按钮在输出 12（第 80–81 行“窗口外框”“窗口按钮”），输出 10、11 是关闭询问与“三类事”；计划里“输出 10–11”应为“输出 12”。（b）`state.focused` 我查了全仓：只有 `DesktopFrame.vue` 第 34 行写 `data-focused`、第 91 行样式用它，没有别的读者，也不进壳的消息（壳推的只有 `window-state` 的 maximized）。所以不必“按实际用处决定”：整条删除，包括 `desktop-frame.ts` 里的 `focused` 字段、`onFocus`、`onBlur`、`DesktopFrameGlobal` 里的 `addEventListener`/`removeEventListener` 与 `dispose` 里的两行解绑，以及 `DesktopFrame.dom.test.ts` 第 49–50 行为它写的 `global` 成员（测试里 `global` 对象多出的成员不报类型错，但应顺手删）。`DesktopFrame.md` 第 15 行（“窗口在前台时按钮字形用正文色”）与第 46 行（不支持：“窗口不在前台时整条标题栏变淡”）要改：后者变成“按钮也不随前台变淡”之类的说明才不矛盾。
+- 为什么是问题：引用错的输出号会让按“验收映射”追查的人找不到；“按实际用处决定”留下的半截清理会留一个没有读者的状态与两个事件监听。
+- 如何核实：`grep -rn "focused" packages/neuro-book/src/web`；读 browser-host 的输出编号。
+- 建议改法：按上面一次删净，计划里改成“删除 `focused` 及其监听”；输出号改为 12。另已核实相符的事实：`WorkbenchShell.vue` 第 377 行已经用字符串引用 `nbook.project.open`；欢迎页 `onShelf` 就是 `navigateDocument("/")`；整页导航的未保存保护是编辑器插件的 `beforeunload`（`plugins/editor/web/plugin.ts` 第 236 行），“打开项目”走同一条路；`--nb-window-controls-width` 的 138 只在 `styles.css` 第 137 行写死，其余读它。
+有效发现：13 条；阻断 0，重要 7（第 1、2、3、4、5、6、12 条），建议 6（第 7、8、9、10、11、13 条）

@@ -64,6 +64,7 @@ const isBackend = (path: string): boolean => path.startsWith("server/") || path.
 /** 插件目录（`plugins/<插件>` 或 `../plugin-sdk/examples/plugins/<插件>`）；同名的内置插件与示例插件是两个插件。 */
 const pluginOf = (path: string): string | null => /^((?:\.\.\/plugin-sdk\/examples\/)?plugins\/[^/]+)\//u.exec(path)?.[1] ?? null;
 const isExample = (path: string): boolean => path.startsWith("../plugin-sdk/examples/");
+const isSkillScript = (path: string): boolean => /^(?:\.\.\/plugin-sdk\/examples\/)?plugins\/[^/]+\/skills\//u.test(path);
 /** 作者包的源（`plugin-sdk/`）：作者命令、模板、示例；产品代码不引用它。 */
 const isPluginSdk = (path: string): boolean => path.startsWith("../plugin-sdk/");
 const isPlatformModule = (specifier: string): boolean => specifier.startsWith("node:") || specifier === "bun" || specifier.startsWith("bun:");
@@ -88,12 +89,13 @@ const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name)
  */
 const EXAMPLE_PACKAGES: ReadonlyArray<string> = [...SDK_ENTRIES.map((entry) => entry.specifier), "vue", "@vue/reactivity", "typebox"];
 /**
- * 从应用抽出去的工作区包，按子路径登记运行位置：`targetInSrc` 把包名一律当作“不在 src 内”，不登记的话前端引后端的包拦不住。
+ * 从应用抽出去的工作区包与只能在后端用的工作区包，按子路径登记运行位置：`targetInSrc` 把包名一律当作“不在 src 内”，不登记的话前端引后端的包拦不住。
  * 抽出新包或给它加子路径时在这里登记；没登记的包不参加前后端判定。`neutral` 与没登记的判定相同（哪里都能引），写出来是为了
  * 让表列全每个子路径、登记时想过一遍它在哪运行。
  */
 const PACKAGE_SIDES: ReadonlyArray<{readonly specifier: string; readonly side: "backend" | "web" | "neutral"}> = [
     {specifier: "@notnotype/nb-file-lock", side: "backend"},
+    {specifier: "@notnotype/nb-flock", side: "backend"},
     {specifier: "@notnotype/nb-host/server", side: "backend"},
     {specifier: "@notnotype/nb-host/web", side: "web"},
     {specifier: "@notnotype/nb-host/socket", side: "neutral"},
@@ -128,7 +130,8 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         if (use.specifier === "proper-lockfile" || use.specifier.startsWith("proper-lockfile/")) found.push(`锁只经 @notnotype/nb-file-lock 取（锁的过期参数只有那一份）：${where}`);
         if (importsTesting(use, target)) found.push(`产品代码引用了测试支持代码（testing/ 或内核的 */testing 入口）：${where}`);
         if (target !== null && isPluginSdk(target) && !isPluginSdk(use.file)) found.push(`产品代码引用了作者包 plugin-sdk/：${where}`);
-        if (isExample(use.file) && ((target !== null && !isExample(target)) || (target === null && !EXAMPLE_PACKAGES.includes(use.specifier)))) {
+        // 插件里 Skill 的脚本（`plugins/<插件>/skills/`）不是插件代码：Bun 单独运行它，构建把它连同 npm 依赖打成单文件（docs/specs/agent/skills.md 输出 30）。
+        if (isExample(use.file) && !isSkillScript(use.file) && ((target !== null && !isExample(target)) || (target === null && !EXAMPLE_PACKAGES.includes(use.specifier)))) {
             found.push(`示例插件只能引用 SDK、宿主共享的包与示例插件：${where}`);
         }
         if (target === "development-manifest" && !DEVELOPMENT_ENTRIES.includes(use.file)) found.push(`只有开发入口能引用开发清单：${where}`);
@@ -296,6 +299,7 @@ describe("包内依赖方向", () => {
             use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
             use("plugins/lab/web/fixtures/command-scene/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "@notnotype/nb-plugin-sdk"),
+            use("../plugin-sdk/examples/plugins/skill-pack/skills/word-count/scripts/count.ts", "yaml"),
             use("../plugin-sdk/examples/plugins/snippets/web/plugin.ts", "@notnotype/nb-plugin-sdk/settings/browser"),
             use("../plugin-sdk/examples/plugins/counter/backend/plugin.ts", "@vue/reactivity"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "../../clock/shared/contracts"),

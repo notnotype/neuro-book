@@ -19,6 +19,9 @@ const ARGS: Readonly<Record<NonNullable<EditingActionInfo["args"]>, ReturnType<t
     color: Type.Object({color: Type.Union([Type.String({minLength: 1}), Type.Null()])}, {additionalProperties: false}),
     text: Type.Object({text: Type.String({minLength: 1})}, {additionalProperties: false}),
     align: Type.Object({value: Type.Union([Type.Literal("left"), Type.Literal("center"), Type.Literal("right"), Type.Literal("justify")])}, {additionalProperties: false}),
+    // 链接与图片的地址已经是写进正文的样子（宿主按当前文件算好相对写法）；`label` 只在光标处没有链接、要插入一段链接文字时用。
+    link: Type.Object({href: Type.String({minLength: 1}), label: Type.Optional(Type.String())}, {additionalProperties: false}),
+    image: Type.Object({src: Type.String({minLength: 1}), alt: Type.Optional(Type.String())}, {additionalProperties: false}),
 };
 
 const EDIT = editorText("categories.edit");

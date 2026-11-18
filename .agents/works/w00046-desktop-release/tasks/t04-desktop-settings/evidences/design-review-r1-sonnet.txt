@@ -1,0 +1,155 @@
+# t04 设计审查 r1（Sonnet，前端部分）
+
+## 1. 重要 / 合同 / 插件没有办法给壳发 `desktop-settings-changed`
+
+位置：plan-r1.md 的“新的内置插件”第 50 行与“页面一侧的约定”；`packages/neuro-book/src/web/boot.ts:100`；`docs/specs/runtime/browser-host.md:76`（输出 11）。
+
+现象：计划让 `nbook.desktop` 的 `onDidChange` 去“发桥消息”，但桥（`createDesktopBridge(window)`）只在 `boot.ts` 里建，只交给 `createCloseQuery`、`createDesktopFrame`、`createDesktopUpdates` 三个宿主内部对象；插件能拿到的窗口能力里没有任何东西能调 `bridge.send`。计划里 `windowEnvironmentKey` 只交 `{desktop: boolean}`，也没有发送方法。浏览器宿主 Spec 输出 11 明文规定“窗口与壳之间只有关闭前询问、窗口外框与更新提示……页面里的插件拿不到壳的其它能力，`windowCloseKey` 也不暴露壳本身”。计划的 Spec 改动清单里只加了 `windowEnvironmentKey` 与 `__nbookDesktopShell`，没有改这条总则，改完 Spec 与实现会互相矛盾。
+核实：`grep -n "bridge" src/web/boot.ts src/web/host/window.ts`，window.ts 的 manifest.capabilities 九项里没有桥。
+改法（二选一，写进计划）：
+- A：给窗口能力加一个窄方法，例如 `WindowEnvironment.desktop` 为真时多一个 `notifySettingsChanged(): void`（宿主内部发 `{type:"desktop-settings-changed"}`，发不出写诊断），同时把输出 11 的“三类事”改成四类并写明插件只能经这一个方法；不暴露 `send`。
+- B：去掉这条消息，由壳自己监视状态根的 `settings.json`（见第 9 条）。这样页面一侧不需要任何新的壳通道，窗口能力退回只读的 `{desktop}`。
+
+## 2. 重要 / 遗漏 / 按分区过滤后，分区下的配置项会掉进“其它”并每次启动记一条 warn
+
+位置：`packages/neuro-book/src/plugins/settings/web/settings-window.ts:287-300`（`buildCatalog`）。
+
+现象：计划写“`buildCatalog` 按窗口环境滤掉不适用的分区……分区下的配置项也不进‘其它’”，但现在的结构里 `declared` 就是分区表，配置项靠 `declared.get(declaration.section)` 找分区，找不到就走 `section === undefined` 分支：先 `report("Setting … points to section …, which does not exist; it goes under \"Other\"")`，再放进 `other`。如果只是把分区从 `declared` 里滤掉，`nbook.desktop/zoom` 与 `openAtLogin` 在浏览器里恰好会：出现在“其它”分区的 `nbook.desktop` 小组下，并且每次打开设置窗口记一条诊断。这与计划的意图完全相反，而且 `buildCatalog` 只在第一次读目录时跑一次，诊断是启动噪声。page 分区同理（`paged` 分支也靠 `declared`）。
+核实：读 `buildCatalog` 的 `for (const setting of source.settings())` 一段；单测里只声明一个带 `host: "desktop"` 的分区与一项指向它的配置，环境为非桌面时断言“其它”不出现、`report` 没被调用。
+改法：先全量建 `declared`，另留一个 `hidden: Set<string>`（被环境滤掉的分区 id）；配置项遇到 `hidden.has(declaration.section)` 直接 `continue`（既不进“其它”也不记诊断）；最后只用没被滤掉的分区 `fromEntry`。同时在 settings-window.md 的输出 2 里写明“指向被环境滤掉的分区的项不归入其它”。验收映射里补这一条，现在只有“不列、不进搜索”。
+
+补充：搜索（`searchView`，第 610-630 行）与 `sectionOf`（`openWindow({section})` 的分区校验）都从 `catalog()` 取，所以只要滤在 `buildCatalog` 里它们自然一致；计划不需要另写“搜索同样看不到”的实现，写成验收即可。
+
+## 3. 重要 / 接口 / 缩放键位：单个 `keybinding` 字符串盖不住常见的放大与缩小按法，计划低估了键位扩展的范围
+
+位置：plan-r1.md“键位写法要扩展”；`src/plugins/commands/shared/keybinding.ts:19`（`KEY_TOKEN`）、`src/plugins/workbench/web/commands/keymap.ts:44-52`（`normalizeEventKey`）与第 91-98 行（`handle`）。
+
+现象（都读过代码确认）：
+- 分发器按 `event.key` 加四个修饰位精确匹配。美式键盘上“放大”常见按法是 Ctrl+Shift+=（浏览器里叫 Ctrl+加号）：此时 `event.key` 是 `"+"` 且 `shiftKey` 为真，既不在 `normalizeEventKey` 的允许集里，`Mod+=` 也要求 shift 为假，命不中。小键盘加减 `event.key` 分别是 `"+"`、`"-"`，加号同样命不中。
+- 命令声明里 `keybinding` 只有一个字符串，没法同时声明 `Mod+=`、`Mod+Shift+=`、小键盘加。就算 `KEY_TOKEN` 加了 `+`，`binding.split("+")` 也解析不了 `Mod++`，要先定写法。
+- 非美式布局：法语 AZERTY 上数字行不带 Shift 时出的是 `à`、`&` 之类，Ctrl+0 的 `event.key` 不是 `"0"`；德语布局上 `=` 要 Shift+0。`event.key` 比对在这些布局上命不中，而 WebView2 自己的快捷键按虚拟键码处理，所以这些布局的用户会同时“键位无效”与“被内置缩放接管”（见第 4 条）。
+- `handle` 开头 `event.repeat` 直接返回：按住 Ctrl+= 只走一档，浏览器与 VS Code 是连续走。要不要保留需要写出来。
+- 计划里写“在按住 Shift 或别的键盘布局下是否仍是这两个字符”留到实施时核对，这应在计划里就定，因为答案（否）直接决定方案。
+
+核实：按键单测里用 `press({key:"+", ctrlKey:true, shiftKey:true})` 喂 `createKeymapDispatcher`，`normalizeEventKey` 返回 null。
+建议改法：命令只保留一个“用于显示与可发现性”的 `Mod+=`；另在 `nbook.desktop` 里挂一个窗口级 capture 的 keydown 处理，专管 Ctrl 加这几个物理键位（`event.code` 为 `Equal`、`Minus`、`Digit0`、`NumpadAdd`、`NumpadSubtract`、`Numpad0`，或 `event.key` 为 `=`、`+`、`-`、`0`），都调同一批命令，并明确这条处理只在 `nbook.desktop/inDesktop` 为真时拦截。这样不用动 `keybinding.ts` 的合同（commands.md 的键位写法不变），也避免给通用解析器加三个只服务一个插件的主键。若坚持扩展解析器，至少写明：允许集加 `=`、`-`、`+`，`Mod++` 的写法，以及单声明多键位的方案。VS Code 的放大是 `Ctrl+=` 与 `Ctrl+Shift+=` 及小键盘加（据记忆，未联网核对）。
+
+## 4. 重要 / 遗漏 / “缩放只有设置这一份真相”不成立：页面接管不到的路径仍会让 WebView2 自己改缩放
+
+位置：plan-r1.md“浏览器入口”第 49 行（“WebView2 自带的 Ctrl+滚轮、Ctrl+加减缩放也就被页面接管”）。
+
+现象：页面里 `preventDefault` 只拦得住事件到得了页面主文档的路径。至少这几处漏出：
+- HTML 预览是沙箱 iframe（`src/plugins/html-preview/web/components/HtmlPreview.vue:157`，`sandbox="allow-scripts"`，不同源）：鼠标在预览上 Ctrl+滚轮、焦点在预览里按 Ctrl+=，事件都不会冒到父窗口的监听，WebView2 自己缩放（`ZoomFactor` 变了，设置没变）。
+- 第 3 条里没命中的按法（Ctrl+Shift+=、小键盘加、非美式布局）。
+- 页面还没加载完、监听还没挂上的时刻（启动页后的首屏、整页导航中）。
+漏出之后的状态：`ZoomFactor` 与设置值不一致；没有任何东西把它改回来，直到下一次整页加载时壳重设。用户看到的是“缩放有时走设置、有时不走，重启后又回去”。
+核实：Windows 上 dev 构建，在 HTML 预览上按 Ctrl+滚轮，经 CDP 读 `devicePixelRatio` 变化而设置文件不变（计划的 Windows 验收已有 CDP 读取手段，补这一条）。
+改法：二选一并写进计划：
+- 彻底关内置缩放：壳在创建产品窗口时关掉 WebView2 的 `AreBrowserAcceleratorKeysEnabled`，并想办法禁用 Ctrl+滚轮缩放（`ICoreWebView2Settings` 没有单独开关，需要查 Electrobun 是否暴露；这个我没在本机核实到，Electrobun 没装在这个 worktree 里）；
+- 或承认会漏出：壳监听 `ZoomFactorChanged` 并写回设置（或把它当作一次“用户在缩放”回写成最近的档位）。
+至少把“漏出路径与后果”写进“不做与风险”，现在只写了整页导航后保持这一条风险。
+
+## 5. 重要 / 与现有约定冲突 / Ctrl+滚轮：图片查看器已经有自己的 Ctrl+滚轮缩放，窗口级监听不处理顺序就会重复缩放或抢走它
+
+位置：`src/plugins/image-viewer/web/components/ImageViewer.vue:163-168`（`onWheel`，`@wheel="onWheel"` 在第 229 行）；plan-r1.md 第 49 行。
+
+现象：图片查看器在视口上监听 wheel，Ctrl 或 Meta 按下时 `preventDefault` 并缩放图片（`Math.exp(-deltaY*0.002)`，连续缩放，围绕光标）。计划的窗口级 `wheel`（`passive:false`）没写三件事：
+- 监听挂在哪个阶段。挂在 window 的 capture 阶段会先于图片查看器执行，图片上的 Ctrl+滚轮变成缩放整个应用，图片查看器的缩放失效；挂在 bubble 阶段则图片查看器已 `preventDefault`，窗口监听必须先看 `event.defaultPrevented` 并返回，否则一次滚轮既缩图片又缩应用。
+- 同类的组件今后还会有（编辑器内容缩放、画布、Lab 的画布有 CSS `zoom`）。
+- 约定应写进 `nbook.desktop` 的 README 与 desktop-shell Spec：任何组件要自己处理 Ctrl+滚轮就 `preventDefault`，窗口级监听让路。
+同一个问题也在键盘上：`ImageViewer` 的 `onKeydown` 对带 Ctrl 的按键直接返回，与 Ctrl+= 不冲突，这一点不用改。
+核实：e2e 里打开一张图片，Ctrl+滚轮后断言应用缩放没变（设置文件没写）而图片状态栏的百分比变了；再在非图片处 Ctrl+滚轮，断言设置变。
+改法：监听挂 bubble 阶段，开头 `if (event.defaultPrevented || !event.ctrlKey) return`，不处理 `metaKey`（桌面壳是 Windows，Mod 是 Ctrl；mac 以后再定）。把这条约定写进计划。
+
+## 6. 重要 / 边界 / 触控板捏合与高精度滚轮会让“按方向走一档”一次手势跳过整个档位表
+
+位置：plan-r1.md 第 49 行（“按方向执行放大或缩小”）。
+
+现象：Windows 精确式触控板的捏合手势合成 `ctrlKey:true` 的 wheel 事件，一次手势几十个事件，`deltaY` 是小的非整数；高精度滚轮、惯性滚动也一样。按计划“每个事件走一档”，一次捏合就把 0.5 到 2 的 11 档跳到头；而且每一档都是一次远程写（见第 7 条）。普通滚轮一格 `deltaY` 约 ±100，要和捏合区分。
+核实：在 Windows 触控板上捏合，数设置文件被写的次数；或用 Playwright 连发十个 `deltaY:-4` 的 Ctrl+wheel，数写入次数。
+改法：累积 `deltaY`，满阈值（例如绝对值累计达到 100，`deltaMode` 为行时按 `deltaY*33` 折算为像素）才走一档，走完扣掉阈值；方向反转时清零累计；一次手势或一次滚动之间设一个最小间隔。阈值与折算写进计划，e2e 断言“十个小事件只走零到一档”。`deltaY === 0`（横向）不处理。
+
+补充：非被动（`passive:false`）的 window 级 wheel 监听让所有滚轮滚动都要等主线程先过一遍监听，开头先判 `ctrlKey` 直接返回，函数体保持近乎空；这一条是性能提醒，不是问题。
+
+## 7. 重要 / 边界 / 缩放走“写用户层、等快照、再通知壳”的往返，连续触发会丢档、回弹，且没有失败路径
+
+位置：plan-r1.md 第 48-50 行；`src/plugins/settings/web/window-source.ts:96-103`（`write` 先 `editor.edit` 远程写，成功后才 `instance.accept` 快照）。
+
+现象：命令的做法是“在档位间移动、写用户层”。从读当前值到写完要经：命令读 `settings.get` → 远程调用到服务端 → 写文件 → 回快照 → 页面 `onDidChange` → 桥消息 → 壳重读 `settings.json` → `setPageZoom`。后果：
+- 连续触发（按住滚轮、快速点 Ctrl+=）时，后一次读到的还是前一次写入之前的值，两次都算出同一个“下一档”，实际只走一档，或者先后落地乱序时回弹。计划没说怎么串行。
+- 每一档的视觉反馈要等整条链路，普通浏览器缩放是即时的；服务端连接断开（`windowConnectionKey` 离线）时命令失败，缩放完全不动，用户按键无反应也没有通知（命令失败走通知，但滚轮路径没有命令执行结果的展示）。
+- 另外多个窗口各自都会在 `onDidChange` 里给壳发一条消息，壳重读 N 次；幂等所以不坏，但要写明去重。
+核实：e2e 里连发三次 Ctrl+=，断言最终是三档之后（或明确的预期），而不是一档；断开服务端后触发，断言有可见的失败提示。
+改法：命令层串行化（插件内保持一个“目标档位”的本地状态，按它计算下一档并合并连续写入，只写最后一个值）；页面一侧即时反馈需要不经壳——可以考虑壳之外的页面不能自己缩放这一事实，所以最少把“等待写入完成才看到变化”记为已知限制，并给滚轮路径一个失败提示。
+
+（第 7 条位置更正：`window-source.ts` 的 `write` 在第 80 行起，那是设置窗口的用户编辑路径；`nbook.desktop` 的命令是声明者，走 `settingsKey` 服务的 `update`，同样先经远程合同写到层的拥有者、写后才更新本窗口快照，上面的往返结论不变。）
+
+## 8. 重要 / 合同 / 公开键 `nbook.desktop/inDesktop` 在浏览器里不声明会让三条命令每次启动记诊断；它还是同一事实的第三种表示
+
+位置：plan-r1.md 第 46-48 行；`docs/specs/workbench/commands.md:68-69`；`docs/specs/workbench/commands.md:299`（验收 16）。
+
+现象：计划写“浏览器入口……只在 `windowEnvironmentKey` 报告桌面时做事：公开状态 `inDesktop`……三条命令 `when: requires inDesktop`”。命令是顶层静态贡献，浏览器里也在命令表里。若入口在非桌面时不声明公开键，Spec 的“未声明的键”场景生效：命令登记成功但“不可用，原因写明是哪个键，命令表对同一命令的同一个键只记一次诊断”，即每个浏览器窗口启动记三条无意义的诊断，还会让诊断页把浏览器里的正常窗口显示成有问题。若入口总是声明、值为 false，则没有这个问题，但计划的措辞会让实现者做成前者。
+另外同一事实现在有三种表示：全局标记 `__nbookDesktopShell`、窗口能力 `windowEnvironmentKey.desktop`、公开键 `inDesktop`；设置分区的 `host` 又是第四种读法。
+核实：e2e 在无壳 Chrome 里加载，读诊断列表断言没有 `nbook.desktop` 的 when 相关诊断；再断言命令面板不列这三条。
+改法：入口总是声明 `inDesktop`（浏览器里值为 false，`reason` 写“只在桌面版可用”），写进计划；不要在非桌面时跳过声明。三种表示的关系写在 `src/plugins/desktop/README.md`：标记是源，能力是页面宿主对它的唯一读取点，公开键是能力给命令系统看的投影。
+
+## 9. 建议 / 反常 / 反问“页面推变更给壳”：壳自己监视 `settings.json` 能删掉整条页面到壳的通道，并覆盖托盘后无窗口的情形
+
+位置：plan-r1.md 技术选型（“否决页面把值推给壳”）与“浏览器入口”第 50 行；Work 中 t13（托盘、关窗去向）。
+
+现象：计划已经让壳自己读 `settings.json`（启动时读一次）。变更只靠页面的 `onDidChange` 推一条消息触发重读，所以：(1) 需要第 1 条里新增的页面到壳的通道与 Spec 总则的修订；(2) 直接编辑文件而没有任何窗口打开（t13 的托盘常驻之后会常见）时，没有页面能发消息，开机自启与缩放都不更新；(3) N 个窗口各发一次。计划说“拥有者监视到文件变化”，那是服务端的层拥有者，壳在 Bun 进程里同样能 `fs.watch` 状态根的这个文件（带去抖与重读，读失败按缺省记日志）。壳读设置的核心 `readDesktopSettings` 已经是纯函数，监视只是触发它的另一个事件源。
+改法：把“变更通知”改成壳监视文件，页面不再发 `desktop-settings-changed`，`windowEnvironmentKey` 保持只读。代价：壳需要处理编辑器的原子替换写（重命名）与去抖，这是壳一侧的评审范围。我没有读壳的代码，只提这个选项，以壳侧审查者的意见为准。
+
+## 10. 建议 / 反常 / 分区的 `host: "desktop"` 把“桌面”这个词写进设置插件的合同，且只有桌面一个取值
+
+位置：plan-r1.md“设置窗口的分区显示条件”；`src/plugins/settings/shared/sections.ts:67-77`（两个 Schema 都是 `additionalProperties:false`）。
+
+现象：`nbook.settings` 现在不认识任何宿主环境；加 `host: "desktop"` 之后设置插件的合同要认识“桌面壳”，且是个封闭的字面量，以后出现别的条件（例如只在绑定作品时显示、只在 Windows 显示、t13/t14 里按系统通知权限显示）就要再加字段。命令系统已经有现成的同类机制：`when.requires` 读布尔公开键，由拥有状态的插件声明，命令系统不认识任何领域键。分区可以同形：可选的 `when: {requires: ["nbook.desktop/inDesktop"]}`。代价是设置窗口要读公开状态（`nbook.state` 的求值），而且 `buildCatalog` 目前是一次性建好、不随状态变化重算；而桌面环境在窗口启动时定下、不变，所以这个代价目前换不到响应式的好处。
+结论：两个方案都成立，计划写“字段 `host`”没问题，但应写出为什么不复用 `when`（环境在窗口生命周期内不变，目录一次建成；不让设置插件依赖状态插件）。并且留出口径：值域是“窗口环境能力里的布尔项名”而不是字面量 `"desktop"`，使 `windowEnvironmentKey` 以后加项（见第 11 条）时 `host` 不再改 Schema。
+另：该字段对配置项没有等价物，直接编辑 `settings.json` 写 `nbook.desktop/zoom` 在浏览器里仍然被接受、只是没有任何效果；这没问题，但验收里应有“浏览器里文件视图仍能看到、写入这些键且不报错”这一条，避免有人实施成“浏览器里拒绝该键”。
+
+## 11. 建议 / 别扭 / 插件形态与能力命名：新建 `nbook.desktop` 可以，但 `windowEnvironmentKey` 的形状与命名要再收一收
+
+位置：plan-r1.md 第 35-37 行；`src/shared/host.ts` 里现有的 `window<名词>Key` 一族（`windowProjectKey`、`windowNavigationKey`、`windowConnectionKey`、`windowCloseKey`、`windowTextKey`）。
+
+现象与判断：
+- 新建 `nbook.desktop`：成立。理由（计划没写出来，应补）：这是一个按“宿主环境”切出来的功能面，t13、t14 还要往里加项；放进 `nbook.workbench` 会让一个工作台的浏览器入口依赖壳概念，放进 `nbook.settings` 会让设置插件承担它不该有的命令。已有先例：`nbook.workbench` 与 `nbook.explorer` 都是只有浏览器位置的内置插件，`locations: ["browser"]` 没有问题，顶层的配置与分区声明三个位置都登记，服务端层的拥有者也能接受 `nbook.desktop/zoom` 的写入。要补的是代价：每个窗口多一个入口激活（`onStartup`）、`productPlugins`、`browserPluginDefinitions`、消息目录三处登记。
+- `windowEnvironmentKey` 交 `{desktop: boolean}`：别的窗口能力都是动词接口，这个是一个裸标志袋；以后 t13/t14 会往里塞“能不能弹系统通知”“有没有托盘”，变成什么都装的环境对象，而第 1 条又要求它多一个发送方法。建议改名与收窄：`windowDesktopKey`，值是 `{shell: false} | {shell: true, notifyChanged(): void}`，没有壳时仍然总是提供（与 `windowCloseKey` “没有壳时登记照常可用”一致），消费者按判别字段使用。若坚持环境袋，则写明新增项的准入规则（只放启动时定下、不变的布尔事实）。
+- 分区 id 写成 `nbook.desktop.desktop` 是重复；settings-window.md 第 110 行说内置插件的分区写 `nbook.<名>`，直接用 `nbook.desktop`，小组与约定键 `settingsSections.nbook.desktop.title` 随之简洁。
+- 给开发者看的标题“登录 Windows 时打开 NeuroBook”写死了系统名，壳以后若进别的系统要改文案与键；写成“登录系统时打开”。
+
+## 12. 建议 / 验收 / e2e 能在没有壳的 Chrome 里写，但计划的三条断言不够，缺的几条正是上面的风险点
+
+位置：plan-r1.md“验证”与“验收映射”；先例 `e2e/desktop-frame.e2e.ts`（`addInitScript` 定义只读标记、装 `__electrobunSendToHost` 记录消息，已有 `installFrame`、`sent`、`shell` 三个辅助）。
+
+可行：同一手法能写。初始化脚本定义 `__nbookDesktopShell`，记录页面发的消息。
+缺的断言（按重要性）：
+- 无壳的对照：没有标记时设置窗口左栏没有“桌面”、搜索“缩放”无命中、“其它”不出现、`Ctrl+=` 不被拦（`defaultPrevented` 为假）、命令面板搜“缩放”无命中、诊断里没有 `nbook.desktop` 的诊断（第 2、8 条）。
+- 有壳时：左栏有“桌面”、项目标签下该分区停用并给出“只有用户层”原因（`layers:["user"]` 的既有行为，应断言而不是默认）。
+- 键位矩阵（第 3 条）：`Control+=`、`Control+Shift+=`、`Control+NumpadAdd`、`Control+-`、`Control+0`，各断言最终设置值；按住不放（`repeat`）的行为。
+- Ctrl+滚轮：只在页面根元素上；在图片查看器里（第 5 条）；多个小 `deltaY`（第 6 条）；`deltaY===0`；用 `page.keyboard.down("Control")` 加 `page.mouse.wheel`，Playwright 的合成滚轮不触发 Chrome 自己的缩放，所以只能断言设置值与 `defaultPrevented`（在页面里先挂一个 bubble 阶段的探针监听记录），不要写成“缩放生效了”。
+- 连续触发三次的最终档位（第 7 条）；服务端离线时的失败提示。
+- 桥消息：改设置后收到恰好一条 `desktop-settings-changed`（若采用第 9 条的方案则整组删除）。
+- 在 Chrome 里无法断言的只有壳真正缩放（`ZoomFactor`）与注册表，这两项留给 Windows 验收，计划已这样安排，没问题。
+另外：现有设置相关 e2e（`e2e/settings.e2e.ts`）的左栏断言在无壳环境里不会受影响；这一点应写进计划，免得实施时误以为要改它们。
+
+（第 11 条第一点里“服务端层的拥有者也能接受 `nbook.desktop/zoom` 的写入”是由先例推出：`e2e/settings.e2e.ts` 的用户文件里就有只在浏览器位置的 `nbook.workbench` 的 `nbook.workbench/theme`，真实服务端接受它；我没有单独跑一遍 `nbook.desktop` 的情形，实施时用 e2e 的文件视图写入验证。）
+
+## 13. 建议 / 遗漏 / 新选项对现有构造点是破坏性改动，Lab 场景没有办法看到“桌面”分区
+
+位置：`src/plugins/settings/web/settings-window.ts:62`（`SettingsWindowOptions`）；`src/plugins/lab/web/fixtures/settings-scene/settings-host.ts:191`；`src/plugins/settings/window.test.ts:91`。
+
+现象：计划写“环境由设置窗口的入口经 `windowEnvironmentKey` 取，可选依赖：没有时按‘不是桌面’”，但窗口模型的创建函数有三个调用点（产品入口、Lab 设置场景、单测的 `windowFor`）。要做成必填选项三处都改；做成可选字段则 Lab 场景永远是非桌面，设计稿评审（Lab 里的设置窗口场景）看不到这个分区、点不了缩放档位，而 `.agents/skills/ui-development` 要求新界面进 Lab。界面上这是开发者要确认外观的东西（档位下拉的显示、百分比文字、分区图标）。
+改法：`SettingsWindowOptions` 加可选的 `environment`（缺省非桌面），Lab 的设置场景加一个“桌面环境”开关（场景选项，缺省关，另开一个场景展示开的样子）；单测补开与关两组。Lab 的场景登记写进计划切片 1 的内容。
+
+## 14. 建议 / 杂项 / 档位、重置与标题栏随缩放
+
+位置：plan-r1.md 技术选型第 28 行、第 48 行；t03 的 `src/web/DesktopFrame.vue`、`src/plugins/workbench/web/components/WorkbenchTitleBar.vue`。
+
+- 档位表：写“沿用 Chromium 的一组”，实际 Chromium 的预设更多（含 0.25、0.33、2.5、3、4、5），这里是子集；写成“取其中 0.5 到 2”。数字字面量选项的约定键是 `settings.zoom.choices.<String(值)>.title`，`0.67` 的键里带点（`src/shared/settings.ts:236` 的 `String(choice.value)`），按点分路径当作多段时会找不到目录项；档位的标题直接写成文字值（`{"zh-CN":"67%","en-US":"67%"}`）不走约定键，并在设置声明测试里断言选项标题都能解析。
+- `resetZoom`：写成 `unset`（从用户层删掉键，设置窗口已有“恢复默认”）而不是写入 1，免得用户文件里留下与默认相同的 `nbook.desktop/zoom: 1`；命令与设置窗口的“恢复默认”于是同一路径。
+- 当前值不在档位表里时（文件被手改成 1.3 会被拒，但用户层在读盘与校验之间或旧版本留下的值）命令要从“最近的档位”走，计划没写；同时 `readDesktopSettings` 对不合法值按缺省，要与此一致。
+- 自绘标题栏与缩放：t03 的后备标题栏固定 36px、窗口按钮在页面里，页面缩放会把它们一起放大缩小（2 倍时标题栏视觉高度是 72 个屏幕像素），0.5 倍时按钮的点击目标缩到一半。VS Code 的自绘标题栏据我记忆对缩放做反向补偿使其大小不变（未联网核对）。计划没有提标题栏，也没有提缩放档位下页面的窄视口：放大到 2 倍时 1366 宽的屏幕上 CSS 视口只有约 683px，工作台的逐级让位与 `--nb-window-controls-width` 要在 Windows 验收里各看一次，并把 0.5、2 两端的截图加进证据。若决定不补偿，写一句理由。
+- `event.repeat`、`deltaMode`、`metaKey`（mac 用 Meta）的口径已在第 3、5、6 条。
+
+有效发现编号与各级数量：1-14 共 14 条；阻断 0；重要 8（第 1、2、3、4、5、6、7、8 条）；建议 6（第 9、10、11、12、13、14 条）。

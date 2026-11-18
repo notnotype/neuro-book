@@ -29,7 +29,7 @@ export const manifest: NbThemeManifest = {
     description: "器械是冷玻璃，稿面是暖的纸——全屏只有内容面板偏暖。浮层薄糊留结构，正文用衬线，字距归零。",
     version: "1.0.0",
     author: "nb-ui",
-    hostVersion: "^0.3.0",
+    hostVersion: "^0.4.0",
     /*
      * 17 个新变量分两组：玻璃 / 窗口那 10 个与 macos 大体同名同 fallback（装载器允许两套主题
      * 声明同一个变量名——按 NbThemeVarDeclaration 的判据，这说明配色契约漏了一批角色，
@@ -182,7 +182,7 @@ export const manifest: NbThemeManifest = {
         {
             name: "--shell-seam",
             fallback: "var(--divider)",
-            description: "工作台网格边界上 1px 接缝的颜色；卡片之间的缝本身就是边界时设为透明。",
+            description: "工作台网格边界上 1px 接缝的颜色，编辑组之间的线也取它；卡片之间的缝本身就是边界时设为透明。",
         },
         {
             name: "--shell-join-divider",
@@ -192,12 +192,12 @@ export const manifest: NbThemeManifest = {
         {
             name: "--shell-pane-divider",
             fallback: "var(--divider)",
-            description: "同一个视图容器里分栏之间那条线的颜色（不继承外壳网格的接缝色）。",
+            description: "同一张卡片里几节之间那条线（开放式分割线）的颜色，不继承外壳网格的接缝色；不想画线时设为透明。",
         },
         {
             name: "--shell-pane-divider-inset",
             fallback: "0px",
-            description: "分栏之间那条线沿长轴两端的缩进；0 是贯穿的接缝，大于 0 是两端不碰到头的开放式分割线。",
+            description: "工具面板之间那条线与它的悬停线沿长轴两端的缩进；0 是贯穿的，大于 0 是两端不碰到头。",
         },
         {
             name: "--editor-tabs-surface",

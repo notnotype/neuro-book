@@ -48,6 +48,13 @@ export interface SettingsPageContext {
      * （例如请求发出后连接断了），通知标题换成“可能没有保存”。离开页面后晚到的失败照样通知。
      */
     reportWriteFailure(subject: string, failure: SettingsPageWriteFailure): void;
+    /**
+     * 打开窗口时要这一页定位到的东西（`nbook.settings.open` 的 `focus`，输出 15）；没有为 null。值由页面自己解释（例如角色 id），
+     * 认不出就忽略。页面在数据到了之后用 `takeFocus` 取走再执行：取走即清空，同一个值再来一次照样会变化、照样生效。
+     */
+    readonly focus: Readonly<Ref<string | null>>;
+    /** 取走 `focus` 并清空；不是这一页的或没有时为 null。 */
+    takeFocus(): string | null;
 }
 
 /** 页面写入失败的原因，见 `SettingsPageContext.reportWriteFailure`。 */

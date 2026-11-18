@@ -42,7 +42,8 @@ interface ModelQuery {
 }
 type ModelResolution =
     | {ok: true; info: ModelInfo; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void): Promise<ModelResponse>}
-    | {ok: false; code: "no-model" | "no-credentials" | "unknown-model" | "role-unbound"};
+    | {ok: false; code: "no-model" | "no-credentials" | "unknown-model" | "role-unbound"; role?: string; provider?: string};
+    // 失败时选中了什么：走到某个角色时带角色 id，卡在没有凭据时带服务商 id；端口不给时按没有处理。
 
 // OMP 适配器（@notnotype/nb-harness/kernel）
 ompCall(target: {model: Model; apiKey: () => string | Promise<string>; priceKnown: boolean; headers?: Record<string, string>}): ModelResolution["call"];
@@ -77,6 +78,7 @@ ompModelInfo(model: Model): ModelInfo;
 17. `retryable` 取 OMP 对错误标记的判断（`AIError.retriable`），只有模型重复循环例外：它不重发，码 `thinking-loop`。建流时抛错、没有错误标记的失败不给 `retryable`。`retryAfterMs` 是服务商要求的等待时间，从 OMP 的错误文字里用它自己的函数取。
 18. `target.transport` 给了时：`firstEventTimeoutMs` 由适配器自己计时，收到第一个内容事件前到时交回 `network`、码 `first-event-timeout`、`retryable` 为真，0 表示不计时，OMP 那一层的第一事件超时总是关掉（否则 `anthropic-messages` 会把超时再重试 10 次）；`idleTimeoutMs` 原样传给 OMP，0 表示不计时；`maxHttpAttempts` 原样传；并关掉 OMP 的空回复重试。不给 `transport` 时这些都按 OMP 的缺省。
 19. 错误文字里 OMP 写的落盘诊断行（请求全文的路径）在交回前去掉，不论它在文字的哪个位置；路径交给 `target.onRequestDump`。`buildResolution` 的实现只删 OMP 日志目录下 `http-400-requests` 里的文件（路径行可能是服务商在错误正文里伪造的），文件已经没了算达成，其它删除失败写进错误文字末尾。
+20. 调用说明里带了观察者时（[`runtime.md`](runtime.md) 输出 89），适配器把这一次请求的每次 HTTP 尝试交给它：地址、发出的请求头（含 OMP 加上的鉴权头）与请求体、响应状态与响应头或网络错误；交出之前把其中出现的配置密钥原值换成 `[REDACTED]`。第一块内容（文字、思考或工具调用参数的第一个增量）到达时另告诉它一次，没有内容的失败不告诉。不经 HTTP 的传输只交请求体。观察者抛错不影响请求，适配器不等它。不带观察者时行为不变。（planned）
 
 ## 状态与转换
 
@@ -111,4 +113,4 @@ Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:ll
 
 ## 证据
 
-- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准）
+- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准）解析失败带 `role`、`provider`：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“模型不可用的提示卡”，开发者 2026-11-16 确认（t36 决定 1、9）。

@@ -3,16 +3,19 @@
  * WorkbenchSurface 的场景（docs/specs/ui/workbench-layout.md，断言在 e2e/lab-workbench-surface.e2e.ts）。夹具自己扮演工作台：`侧栏 | (编辑组 g0 | g1) | 右栏`，下面是底部面板。
  * 五个视图都没写容器，各是自己的隐式容器（`view:a` 到 `view:e`）：侧栏有 A（当前）、B 两个容器，右栏有 C（当前）、D，底部面板有 E。一个区域只显示当前容器的分节，活动栏一个容器一个入口。
  * 文档、呈现树、有效可见、活动栏的入口与点了做什么都用产品的纯函数算（`state/`），只是不存盘、不接命令系统。按钮做拖放与菜单会提交的那些结构变化；真实的拖动手势在外壳切换时接上。
+ * “标题区”场景里右栏的视图 C 接管标题区（docs/specs/workbench/views.md 输出 19），用一段示例内容（新建、Profile 图标与会话标题、更多）演示三列。
  */
 import {
     activateTab,
     edgeTargetOf,
+    findTreeNode,
     isSectionCollapsed,
     moveTabToEdge,
     openPanelAtEdge,
     presentationCollapse,
     projectLayoutDoc,
     rebaseIntents,
+    sectionCollapseBlock,
     setActiveContainer,
     setPanelCollapsed,
     setPanelHidden,
@@ -20,17 +23,20 @@ import {
 } from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-layout";
 import {IconButton} from "@notnotype/nb-ui/components";
-import {computed, ref, shallowRef} from "vue";
+import {computed, ref, shallowRef, Teleport} from "vue";
 
 import WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
-import type {PanelFrameAction, PanelHeadTab} from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
+import type {PanelFrameAction, PanelHeadTab, PanelViewHead} from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
+import type {PanelHeadSlots} from "nbook/plugins/workbench/web/views/view-head";
+import WorkbenchRegionStrip from "nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue";
+import type {RegionStripEntry} from "nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue";
 import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import {collapseOrder, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import {implicitContainerOf, moveContainerTo, sectionLanding, settleContainers} from "nbook/plugins/workbench/web/state/containers";
-import {containerEntries, effectiveVisibleTabs, sidebarVisible, titleOnlyPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
+import {effectiveVisibleTabs, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels} from "nbook/plugins/workbench/web/state/layout-present";
 import type {ViewCatalog} from "nbook/plugins/workbench/web/views/registry";
 import {applyEntryDrop} from "nbook/plugins/workbench/web/entry-drop";
 import {CUSTOM_CONTAINER_PREFIX} from "nbook/plugins/workbench/shared/views";
@@ -76,7 +82,7 @@ const collapse = computed(() => (extent.value === null ? {removed: new Set<strin
 const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed})));
 /** 分节的头只写标题（输出 20），内容是以标题命名的 region：和外壳用同一个判定。 */
 const titleOnly = computed(() => titleOnlyPanels(doc.value));
-const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value}));
+const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value, fillers: projection.value.fillers}));
 
 /** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8），之后把锚归整到和分节一致（输出 41、43），和产品的 store 同一个次序。库拒绝时文档不变。 */
 function commit(operation: (current: LayoutDoc) => LayoutResult): void {
@@ -94,7 +100,12 @@ function showContainer(current: LayoutDoc, region: PanelName, container: string)
 function onGestureCommit(sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void {
     // 先改收起状态再写回意图，和产品的 store 同一个次序：收起的面板呈现尺寸不是意图。区域拖到零报的是代表区域的那个节点，状态记在锚上（输出 11）。
     let next = doc.value;
-    for (const [id, value] of Object.entries(collapsed)) next = unwrap(setPanelCollapsed(next, projection.value.regionAnchors.get(id) ?? id, value), next);
+    // 隐藏的区域按拖到零画：从边界拉开同时清掉隐藏，也和产品的 store 一样。
+    for (const [id, value] of Object.entries(collapsed)) {
+        const anchor = projection.value.regionAnchors.get(id);
+        next = unwrap(setPanelCollapsed(next, anchor ?? id, value), next);
+        if (anchor !== undefined && !value && next.panels[anchor]?.hidden === true) next = unwrap(setPanelHidden(next, anchor, false), next);
+    }
     doc.value = rebaseIntents(next, sizes, projection.value.collapsedTo);
 }
 
@@ -114,8 +125,8 @@ const ACTIONS: Readonly<Record<string, () => void>> = {
     "c-to-new-panel": () => commit(intoContainer("c", "panel", implicitContainerOf("e"))),
     "d-below-b": () => commit(intoContainer("d", "sidebar", implicitContainerOf("b"))),
     // 活动栏上段的落点（输出 45），和拖到那里放下是同一个函数：D 放到入口最后，新建一个只含它的用户容器；D 放到 A 的入口上，成为 A 的最后一个分节。都切过去。
-    "d-new-entry": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "new-container", container: `${CUSTOM_CONTAINER_PREFIX}lab`, before: null}, POLICY, {commit: true})),
-    "d-into-a": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "join-container", container: implicitContainerOf("a")}, POLICY, {commit: true})),
+    "d-new-entry": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "new-container", region: "sidebar", container: `${CUSTOM_CONTAINER_PREFIX}lab`, before: null}, POLICY, {commit: true})),
+    "d-into-a": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "join-container", region: "sidebar", container: implicitContainerOf("a")}, POLICY, {commit: true})),
 };
 
 function headTabs(panelId: string): PanelHeadTab[] {
@@ -125,27 +136,71 @@ function headTabs(panelId: string): PanelHeadTab[] {
     });
 }
 
-/** 头都是分节的：隐藏的是整个区域，记在锚上，锚没有头，所以没有“隐藏”按钮。收不成标题行的分节（底部面板的、区域唯一显示的）点“收起”被库拒绝，文档不变。 */
+/** 头都是分节的：隐藏的是整个区域，记在锚上，锚没有头，所以没有“隐藏”按钮。收起不是按钮，是标题行（输出 20）。 */
 function frameActions(panelId: string): PanelFrameAction[] {
-    return [
-        {id: "collapse", label: "收起", icon: "i-lucide-chevrons-down", disabled: false, pressed: isSectionCollapsed(doc.value, panelId)},
-        {id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: maximized.value === panelId},
-    ];
+    return [{id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: maximized.value === panelId}];
+}
+
+/** 展开标记，同外壳的 `foldOf`：只写标题、上下排、库说能收成标题行、没有被最大化。 */
+function foldOf(panelId: string): {readonly collapsed: boolean} | null {
+    const vertical = findTreeNode(doc.value.tree.root, panelId)?.parent?.orientation === "vertical";
+    if (!titleOnly.value.has(panelId) || !vertical || sectionCollapseBlock(doc.value, panelId) !== null || maximized.value === panelId) return null;
+    return {collapsed: isSectionCollapsed(doc.value, panelId)};
+}
+
+/** 点标题，同外壳的 `activateTab` 与 store 的 `activate`：能收起、展开着、视图没接管标题区、点的是当前标签时收起，否则激活，收着的同时展开。 */
+function activateFromHead(panelId: string, key: string): void {
+    const fold = foldOf(panelId);
+    if (fold !== null && !fold.collapsed && viewHeadOf(panelId) === null && doc.value.panels[panelId]?.active === key) {
+        commit((current) => setPanelCollapsed(current, panelId, true));
+        return;
+    }
+    commit((current) => {
+        const activated = activateTab(current, key);
+        return activated.ok && isSectionCollapsed(current, panelId) ? setPanelCollapsed(activated.doc, panelId, false) : activated;
+    });
+}
+
+function toggleFold(panelId: string): void {
+    const fold = foldOf(panelId);
+    if (fold !== null) commit((current) => setPanelCollapsed(current, panelId, !fold.collapsed));
+}
+
+/** 分节的头：画在它自己的叶里，或并成一行时画在入口条里，两处同一组属性与事件。 */
+function headProps(panelId: string, idPrefix: string): InstanceType<typeof WorkbenchPanelHead>["$props"] {
+    const fold = foldOf(panelId);
+    return {
+        panelId,
+        label: doc.value.panels[panelId]?.name ?? panelId,
+        tabs: headTabs(panelId),
+        active: doc.value.panels[panelId]?.active ?? null,
+        moreLabel: "更多",
+        idPrefix,
+        titleOnly: titleOnly.value.has(panelId),
+        frameActions: frameActions(panelId),
+        viewHead: viewHeadOf(panelId),
+        fold,
+        foldLabel: fold?.collapsed === true ? "展开" : "收起",
+    };
+}
+function headEvents(panelId: string): Record<string, (...args: never[]) => void> {
+    return {
+        activate: (key: string) => activateFromHead(panelId, key),
+        "toggle-fold": () => toggleFold(panelId),
+        "head-slots": (slots: PanelHeadSlots | null) => (headSlots.value = slots),
+        action: (action: string) => runFrame(panelId, action),
+        "context-menu": (key: string) => (lastMenu.value = key),
+    };
 }
 
 function runFrame(panelId: string, action: string): void {
-    if (action === "maximize") {
-        maximized.value = maximized.value === panelId ? null : panelId;
-        return;
-    }
-    if (maximized.value === panelId) maximized.value = null;
-    if (action === "collapse") commit((current) => setPanelCollapsed(current, panelId, !isSectionCollapsed(current, panelId)));
+    if (action === "maximize") maximized.value = maximized.value === panelId ? null : panelId;
 }
 
-const sidebarShowing = computed(() => sidebarVisible(doc.value, {removed: collapse.value.removed, maximized: maximized.value}, visible.value));
+const sidebarShowing = computed(() => regionVisible(doc.value, "sidebar", {removed: collapse.value.removed, maximized: maximized.value}, visible.value));
 
 /** 一个容器一个入口（输出 22、41）；这里的容器都只含一个视图时入口就是那个视图的，D 并进 B 的容器后那个入口含两个视图。 */
-const entries = computed<ToolStripEntry[]>(() => containerEntries(doc.value, CATALOG).map((entry) => {
+const entries = computed<ToolStripEntry[]>(() => regionEntries(doc.value, "sidebar", CATALOG).map((entry) => {
     const titles = entry.views.map((viewId) => VIEWS.find((item) => item.id === viewId)?.label ?? viewId);
     const label = typeof entry.label.title === "string" ? entry.label.title : entry.id;
     return {id: entry.id, label, icon: entry.label.icon, tooltip: titles.length === 1 ? label : `${label}：${titles.join("、")}`, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && sidebarShowing.value};
@@ -157,8 +212,27 @@ const STRIP_ITEMS: ReadonlyArray<ToolStripItem> = [
 ];
 
 /** 点入口（输出 22）：和产品的外壳用同一个判定。焦点的去向是外壳的事，夹具不管。 */
+/** 右栏、底部面板入口条的入口，同活动栏（输出 47）。 */
+function stripEntries(region: PanelName): RegionStripEntry[] {
+    const showing = regionVisible(doc.value, region, {removed: collapse.value.removed, maximized: maximized.value}, visible.value);
+    return regionEntries(doc.value, region, CATALOG).map((entry) => {
+        const label = typeof entry.label.title === "string" ? entry.label.title : entry.id;
+        return {id: entry.id, label, icon: entry.label.icon, tooltip: label, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && showing};
+    });
+}
+
+function selectRegionEntry(region: PanelName, container: string): void {
+    const showing = regionVisible(doc.value, region, {removed: collapse.value.removed, maximized: maximized.value}, visible.value);
+    const intent = regionEntryIntent(doc.value, region, container, {regionVisible: showing});
+    if (intent.kind === "show") {
+        maximized.value = null;
+        commit((current) => showContainer(current, region, intent.container));
+    }
+    if (intent.kind === "hide") commit((current) => setPanelHidden(current, region, true));
+}
+
 function selectEntry(container: string): void {
-    const intent = toolEntryIntent(doc.value, container, {sidebarVisible: sidebarShowing.value});
+    const intent = regionEntryIntent(doc.value, "sidebar", container, {regionVisible: sidebarShowing.value});
     if (intent.kind === "show") {
         maximized.value = null;
         commit((current) => showContainer(current, "sidebar", intent.container));
@@ -178,6 +252,13 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 const visibleText = computed(() => [...visible.value].sort().join(" "));
+
+/** “标题区”场景：视图 C 所在的只写标题的面板交给它标题区。 */
+const HEAD_VIEW = tabKey({kind: "view", viewId: "c"});
+const headSlots = shallowRef<PanelHeadSlots | null>(null);
+function viewHeadOf(panelId: string): PanelViewHead | null {
+    return props.scene === "view-head" && titleOnly.value.has(panelId) && doc.value.panels[panelId]?.active === HEAD_VIEW ? {key: "c:1", popup: {expanded: false}} : null;
+}
 </script>
 
 <template>
@@ -207,29 +288,52 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
                 <template #statusbar>
                     <div class="workbench-surface-fixture__status">状态栏</div>
                 </template>
+                <template #empty-region>
+                    <div class="workbench-surface-fixture__empty" data-empty-region>把视图拖到这里</div>
+                </template>
                 <template #head="{panelId, idPrefix}">
-                    <WorkbenchPanelHead
-                        :panel-id="panelId"
-                        :label="doc.panels[panelId]?.name ?? panelId"
-                        :tabs="headTabs(panelId)"
-                        :active="doc.panels[panelId]?.active ?? null"
-                        more-label="更多"
-                        :id-prefix="idPrefix"
-                        :title-only="titleOnly.has(panelId)"
-                        :frame-actions="frameActions(panelId)"
-                        @activate="(key) => commit((current) => activateTab(current, key))"
-                        @action="(action) => runFrame(panelId, action)"
-                        @context-menu="(key) => (lastMenu = key)"
-                    >
+                    <WorkbenchPanelHead v-bind="headProps(panelId, idPrefix)" v-on="headEvents(panelId)">
                         <template #actions>
                             <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="刷新" :data-view-action="panelId" />
                         </template>
                     </WorkbenchPanelHead>
                 </template>
+                <!-- 右栏、底部面板的入口条（输出 47）：当前容器只有一节时那一节的头并在这一行里，同分节的头。 -->
+                <template #strip="{region, merged, idPrefix}">
+                    <WorkbenchRegionStrip
+                        :region="region"
+                        :label="`${region} 的视图容器`"
+                        more-label="更多"
+                        :entries="stripEntries(region)"
+                        :variant="region === 'panel' ? 'titles' : 'icons'"
+                        :head-min-width="merged === null ? 0 : 160"
+                        @select="(id) => selectRegionEntry(region, id)"
+                    >
+                        <!-- 底部面板的入口写着标题，并进来的头不再写一遍（同产品的外壳，输出 47）。 -->
+                        <WorkbenchPanelHead v-if="merged !== null" :key="merged" v-bind="headProps(merged, idPrefix)" :title-in-entry="region === 'panel'" v-on="headEvents(merged)">
+                            <template #actions>
+                                <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="刷新" :data-view-action="merged" />
+                            </template>
+                        </WorkbenchPanelHead>
+                    </WorkbenchRegionStrip>
+                </template>
                 <template #content="{contentKey}">
                     <GridStructureLeaf :id="labelOf(contentKey)" :create-instance="createInstance" />
                 </template>
             </WorkbenchSurface>
+            <template v-if="headSlots !== null">
+                <Teleport :to="headSlots.start">
+                    <IconButton size="xs" icon-class="i-lucide-plus" aria-label="新建对话" />
+                </Teleport>
+                <Teleport :to="headSlots.title">
+                    <span class="i-lucide-feather workbench-surface-fixture__head-icon" aria-hidden="true"></span>
+                    <span class="workbench-surface-fixture__head-title">第三章节奏调整</span>
+                    <span class="i-lucide-chevron-down workbench-surface-fixture__head-icon" aria-hidden="true"></span>
+                </Teleport>
+                <Teleport :to="headSlots.end">
+                    <IconButton size="xs" icon-class="i-lucide-ellipsis" aria-label="更多" />
+                </Teleport>
+            </template>
         </div>
     </div>
 </template>
@@ -269,6 +373,18 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
     background: var(--bg-subtle);
 }
 
+/* 打开着的空区域（ADR 0050）：同产品外壳，正中一句提示。 */
+.workbench-surface-fixture__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    pointer-events: none;
+}
+
 .workbench-surface-fixture__status {
     display: flex;
     align-items: center;
@@ -277,5 +393,19 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
     background: var(--panel-surface);
     color: var(--text-secondary);
     font-size: var(--text-xs);
+}
+
+/* “标题区”场景的示例内容：送进面板头的标题按钮里，只放文字与图标。 */
+.workbench-surface-fixture__head-icon {
+    flex-shrink: 0;
+    width: 1.1em;
+    height: 1.1em;
+    color: var(--accent-text);
+}
+
+.workbench-surface-fixture__head-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 </style>

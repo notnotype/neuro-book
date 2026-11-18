@@ -17,7 +17,7 @@ owners:
 
 - 浏览器访问这里的方案（随对话界面另定）；
 - `history://`（文件的旧版本）与 `mcp://`（MCP 资源）；
-- 插件声明自己的文档目录，`skills://` 的条目（随 Skill 目录）；
+- 插件声明自己的文档目录；
 - 审批：这里只给出每个地址的分类，按分类弹不弹审批由审批与工具决定；
 - 已知限制：授权只在文件服务入口按路径做，Agent 的 shell 直接操作真实目录（可以换符号链接、读写任何地方），不受这里的规则约束；临时目录只在服务端启动时清理。
 
@@ -48,7 +48,7 @@ owners:
 | `profiles://` | Profile 目录：key、名称、来源、可不可用 | `<key>` → 这个 Profile 的笔记目录 | 当前 Profile 的 |
 | `temps://` | 无条目，只有说明 | `<会话 id>` → 这个会话的临时目录 | 自己的 |
 | `docs://` | 说明与 `builtin`、`agent` 两个条目 | `builtin` → 产品文档（插件 SDK 的作者文档在 `builtin/sdk/`）；`agent` → Agent 插件的文档 | 无 |
-| `skills://` | 只有说明 | 无 | 无 |
+| `skills://` | Skill 目录：id、名字、说明、状态，对读它的会话标出能不能 `$` | `<Skill id>` → 那个 Skill 的目录 | 无 |
 
 `projects://` 与 `user://` 由文件服务自己提供（[`workspace.resources`](../workspace/resources.md)）；Agent 对两者都可读写。
 
@@ -73,7 +73,7 @@ owners:
 12. `home/jobs/` 只有宿主能写：后台命令的输出（[`jobs.md`](jobs.md) 输出 7）写在这里，Agent 经资源视图写 `jobs/` 下得 `permission-denied`，读照常。
 13. `sessions://` 的根先列有关的会话：读它的会话的父会话、子会话、兄弟会话排在前面，各带状态（运行中、等用户、空闲），子会话另列派它的调用 id（子会话的标题是 `name` 或 `prompt` 的开头）；状态不靠打开会话取得；之后按最近使用，合计仍至多 200 个，不重复，不列后台会话。
 14. `profiles://` 的根每项多一列“可派”或“不可派”：按读它的会话的 Profile 的白名单（[`subagents.md`](subagents.md)）。
-15. `skills://` 的根列出 Skill 目录，挂载点 `<Skill id>` 是那个 Skill 的目录：能读、能列、能取真实路径，Agent 不可写；根与挂载点的细则见 [`skills.md`](skills.md) 输出 23、24。上表 `skills://` 一行随之改为这条。（planned）
+15. `skills://` 的根列出 Skill 目录，挂载点 `<Skill id>` 是那个 Skill 的目录：能读、能列、能取真实路径，Agent 不可写；根与挂载点的细则见 [`skills.md`](skills.md) 输出 23、24。
 
 ## 状态与转换
 

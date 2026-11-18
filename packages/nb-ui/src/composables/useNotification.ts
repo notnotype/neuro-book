@@ -32,10 +32,15 @@ export type NotificationInput = {
     detail?: string;
     /** 原文已被截断：发出方自己截过时置上；队列截断时也会置上。更新时只随 `detail` 一起生效。 */
     detailTruncated?: boolean;
+    /**
+     * 用户点了这条的关闭按钮：在移除之前调用，抛错也照常移除。点动作、按时消失、`remove` 与 `clearAll` 都不调用：它只回告
+     * 用户自己的关闭动作，发出方据此分清“用户不要了”与“它自己没了”。
+     */
+    onDismiss?: () => void;
 };
 
-/** 已发出的通知能改的字段；`duration` 给了就按新时长重新计时；`detail` 给空串清除详情。 */
-export type NotificationPatch = Partial<NotificationInput>;
+/** 已发出的通知能改的字段；`duration` 给了就按新时长重新计时；`detail` 给空串清除详情。关闭的回调在发出时定下，不能换。 */
+export type NotificationPatch = Partial<Omit<NotificationInput, "onDismiss">>;
 
 export type NotificationItem = Required<Pick<NotificationInput, "tone" | "duration">> & NotificationInput & {
     id: string;
@@ -151,6 +156,7 @@ export function createNotificationQueue(): NotificationQueue {
             title: normalized.title,
             tone,
             action: normalized.action,
+            ...(normalized.onDismiss === undefined ? {} : {onDismiss: normalized.onDismiss}),
             duration: normalized.duration ?? DEFAULT_NOTIFICATION_DURATION[tone],
             ...(normalized.progress === undefined ? {} : {progress: normalized.progress}),
             ...notificationDetailFields(normalized.detail, normalized.detailTruncated),

@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00043-neurobot
 issueId: null
 status: active
-updated: 2026-11-10
+updated: 2026-11-18
 ---
 
 # NeuroBot：常驻、有记忆的 AI 员工
@@ -61,12 +61,22 @@ updated: 2026-11-10
 | 2026-11-10 | 开发者同意 t02 计划审查后的三项：模型服务放进新包 `nb-models`；加锁替换抽成与应用无关的小包；诊断日志的输出插件进 `nb-host` |
 | 2026-11-10 | 开发者同意下面的“Task 规划”（答“可以”）。同一轮里还列着、没有单独作答的，按“待确认默认追认”算定：t02 计划的三项（小包名 `nb-file-lock`；三个包的 exports 与 `private: true`；五个内置角色与选择顺序归 `nb-models`）、w00032 t32 计划的旧 `src/tools/` 不合并留给 t31 删。代码由谁写没有答复，按开发者的全局规则由主会话写 |
 | 2026-11-10 | 提案第二轮审查后的四项（开发者“都按推荐，第一版先把框架搭起来就行”）：gateway 加每次启动生成的本机口令（nb-host 可选项，t04 做）；第一版加只读的联网抓取工具，任务缺省不许跑 shell；主对话等用户时输入框一直可用，发消息即结算为“没批准”并带上这句话，30 分钟没人理由内核按过期结算；第一版网页只做标题未读数、页面内未读分隔线、按天分隔线与最小设置页，首次启动自动建缺省的看板娘。第一版以搭起框架为准（[t01](tasks/t01-direction/README.md)） |
+| 2026-11-13 | 开发者定（w00032 t15 实现审查引出）：不判旧的系统文件锁从 nb-harness 与 nb-story 的两份副本合成一份，放进 nb-file-lock 的单独子路径，nb-file-lock 随 nb-story 发布，改 ADR 0045 决策 4 对它的“不发 npm”；建 [t12](tasks/t12-flock-into-file-lock/README.md)，未开工 |
+| 2026-11-13 | t12 计划审查（两位 Sonnet，一位从整体看）后开发者改定方案 E：不判旧的文件锁单独成零依赖的小包 `nb-flock` 随 nb-story 发布，nb-file-lock 保持 private 与只有 `.`，ADR 0045 不改；见 [t12](tasks/t12-flock-into-file-lock/README.md) |
+| 2026-11-18 | 开发者：NeuroBook 本身也适合做成 bot 员工的交互，用户仍可以用会话（不推荐）；NeuroBook 不需要多渠道与网关。按主 Agent 的推荐，bot 先做成 NeuroBook 的内置插件，NeuroBot 独立应用暂停（不删，等要外部渠道、远端设备或不开界面的常驻服务时再议）；第一版只有一个 bot；日程与周期任务做成 NeuroBook 的内置插件。提案 `neurobot.md` 不标接受，改写成 NeuroBook 的 bot 提案；t04、t05 随改写取消，t06 到 t10 改成在 NeuroBook 里做 |
+| 2026-11-18 | 开发者最在意耦合：nb-agent-ui 要能适配会话模式、bot 模式、会话加 bot 模式；要求派几个子代理深查现有组件的耦合（功能与业务功能能否关掉，哪些可以拆开、哪些不推荐耦合、哪些可以接受）。开发者提出 bot 与 Profile 的关系（Profile 能否衍生多个 bot、插件怎样提供 bot）与新的 `bot://` 空间，待讨论 |
+| 2026-11-18 | 耦合审查（[汇总](research/2026-11-18-coupling-audit.md)）后开发者定：内置插件不做成能关，接受这个取舍，以后确实需要再开；启动必需只留基础插件以后做（建了 [w00027 t20](../w00027-plugin-platform/tasks/t20-startup-required-base-plugins/README.md)，现在启动不慢）；会话能读别的会话的日志是有意的设计（Agent 的能力），不收紧 |
+| 2026-11-18 | 开发者：周期任务先用 cron 注入当前对话（到点由系统往主对话注入一段提示词，同 Claude Code），按主 Agent 的补充，重活由 bot 自己派子代理（子 Profile 只装需要的工具）；原提案的单独任务会话、工具清单的三处强制与按会话裁剪工具集不做。注入的话要标明来源、不算用户的授权，空闲时由它开一轮（内核改动） |
+| 2026-11-18 | 开发者：审批的四关太复杂，问“地址能不能写”能否放进规则、模式闸门能否用规则实现（切换模式就是换规则），要一版新方案；主 Agent 写了第一稿（模式与审批模式都写成规则组），开发者同意审查并要求带拉远看；三位审查者核出它会改掉至少五处已定结论、复杂度没降，改写成第二稿 [Agent 审批：一份自有目录、去掉 Agent 的地址表、询问写明来源](../../../docs/proposals/agent-approval-simplification.md)（[审查处理](tasks/t01-direction/evidences/approval-proposal-review-r1-disposition.md)），待开发者看 |
+| 2026-11-18 | 开发者看过第二稿的逐步讲解后，同意两项待定：普通模式下只写自有目录在任何审批模式下都不问；不把模式闸门写成规则。第二稿派 Claude Opus 做一轮审查 |
+| 2026-11-18 | Opus 审查第二稿（[处理](tasks/t01-direction/evidences/approval-proposal-review-r2-disposition.md)），10 条都成立、已改进提案；开发者同意为询问来源改 nb-harness 内核（加 `cause` 写进会话日志），接受逐个确认下命令只写自有目录也不问，审批提案接受 |
 
 ## 调研
 
 - [仓库内的现状](research/2026-11-09-repo-survey.md)
 - [商业产品：Grok Bot、Muse、ChatGPT Dots、DeepSeek super-agent](research/2026-11-09-commercial-bots.md)
 - [开源实现：OpenClaw、CopilotKit/OpenBot、nanobot、Letta、QQ 接入、Koishi](research/2026-11-09-open-source-architecture.md)
+- [耦合审查汇总：功能能否关、bot 插件缺的接缝、内核与 bot 冲突的假设](research/2026-11-18-coupling-audit.md)（2026-11-18，四位审查者）
 
 ## Task 规划
 
@@ -84,6 +94,7 @@ updated: 2026-11-10
 | [w00032 t32](../w00032-agent-integration/tasks/t32-harness-backfill/README.md) | nb-harness 补回 Agent 的通用部分（别的 Work） | 无 |
 | [t02](tasks/t02-host-base/README.md) | 抽 `nb-file-lock`、`nb-host`、`nb-models` | `nb-models` 的两片在 w00032 t32 之后 |
 | [t03](tasks/t03-web-design/README.md) | web 界面设计评审（静态稿） | 无 |
+| [t13](tasks/t13-approval-simplification/README.md) | Agent 审批：自有目录、去掉地址表、询问写明来源（2026-11-18 加） | t01 的审批提案 |
 | **第一步：能聊** | | |
 | [t04](tasks/t04-app-skeleton/README.md) | 应用骨架与 gateway | t01、t02 的 `nb-host` |
 | [t05](tasks/t05-models-settings/README.md) | 模型与设置页 | t02 的 `nb-models`、t04、t03 |
@@ -114,3 +125,5 @@ updated: 2026-11-10
 - [t09 bot 的记忆](tasks/t09-bot-memory/README.md)
 - [t10 日程与周期任务插件](tasks/t10-schedule/README.md)
 - [t11 第一版自用与调参](tasks/t11-dogfood/README.md)
+- [t12 不判旧的文件锁单独成包 nb-flock 并随 nb-story 发布](tasks/t12-flock-into-file-lock/README.md)
+- [t13 Agent 审批：自有目录、去掉地址表、询问写明来源](tasks/t13-approval-simplification/README.md)

@@ -155,6 +155,16 @@ describe("窗口运行实例", () => {
         expect(browserWindow.state.status).toBe("closed");
     });
 
+    it("ready 时交出工作台的通知服务（宿主显示桌面壳的更新提示，browser-host 输出 11）；不在 ready 时为 null", async () => {
+        const {browserWindow} = openWindow();
+        expect(browserWindow.notifications()).toBeNull();
+        await browserWindow.start();
+        const handle = browserWindow.notifications()?.notify({message: "NeuroBook 0.90.2 可以更新"});
+        expect(typeof handle?.id).toBe("string");
+        await browserWindow.stop();
+        expect(browserWindow.notifications()).toBeNull();
+    });
+
     it("改界面语言设置：窗口的翻译端口与插件经 windowLocale 取到的语言一起切换（i18n 输出 8）", async () => {
         const seen: {locale: {readonly value: string} | null; commands: CommandService | null} = {locale: null, commands: null};
         const probeId = "test.locale-reader";
@@ -188,6 +198,17 @@ describe("窗口运行实例", () => {
         expect(seen.locale?.value).toBe("en-US");
         await browserWindow.stop();
         stub.stop();
+    });
+
+    it("连不上服务端的窗口里，内置插件交来的文字引用照样按窗口语言翻译（关窗时提示在跑的工作，browser-host 输出 10）", async () => {
+        const probe = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response()});
+        const port = probe.port as number;
+        await probe.stop(true);
+        const {browserWindow} = openWindow({url: `http://127.0.0.1:${String(port)}/`});
+        await browserWindow.start();
+        expect(failureOf(browserWindow.state)?.status).toBe("connection-failed");
+        expect(browserWindow.text.port.t({kind: "text", ns: "nbook.tasks", key: "commands.show.title"})).toBe("显示后台任务");
+        await browserWindow.stop();
     });
 
     it("服务端连不上：可重试的连接失败，没有运行实例；服务端起来后重试成功（场景 2）", async () => {

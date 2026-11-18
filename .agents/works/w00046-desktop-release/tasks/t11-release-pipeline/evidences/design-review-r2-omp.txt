@@ -1,0 +1,124 @@
+1. 重要：--ci 的逐包摘要规则否定了 --plan 明确允许的历史源码包差异
+计划位置：plan-r2.md:86-98。
+问题：--plan 为清单里的每个包记录状态，并允许“已发而字节不同、无人依赖的源码包”只提醒、不发（:92）；但 --ci 又要求“计划里每个包”已发而摘要不同就失败（:97）。因此正常的应用 bundle 更新只要包含一个未提版本的源码包，计划能生成，发布作业却必败。若实现时改成只保存待发包，又丢掉了 :87-88 声明的全量状态与恢复依据，必须显式分集合，不能让后续作者自行猜测。
+依据：主工作区 scripts/release/publish.ts:94-108、181-202 与 publish.test.ts:53-62 正是允许该情形；docs/proposals/desktop-distribution.md:161 和 ADR 0051 决定 7 保留此合同。
+建议：计划区分冻结待发集合、必须同字节的应用/SDK，以及已知可跳过的历史源码包。--ci 仅对前两类执行同版本摘要冲突阻断，并重验依赖闭包；加“--plan 允许已知 stale 源码包后 --ci 仍能继续”的跨入口场景。此项是 r2 新增入口之间的合同冲突，非重报 r1 已修的生成目录问题。
+
+2. 重要：发布完成门禁仍未验证 v2 声明的解压归档完整性（首轮第 18 条未完全解决）
+计划位置：plan-r2.md:145-151。
+问题：新增身份核对和下载文件 SHA-256，仍遗漏 artifact.tarSha256、artifact.tarSize 与 schemaVersion 的更新器合同。把 v2 的 tarSha256 改成另一个合法的 64 位十六进制（或删掉它），版本、哈希、身份、文件与下载的压缩包 SHA-256 全部可以照计划通过，但真实客户端会拒绝清单，或准备下载后以 ArchiveHashMismatch 失败。压缩文件 SHA-256 不等于解压后 tar 的 SHA-256，不能替代该检查。
+依据：固定源码 .local/agent/works/w00046-desktop-release/tasks/t01-distribution-proposal/research/electrobun-src/package/src/sdks/main/core/Updater.ts:442-444、484-498、1842-1850 校验 schemaVersion、tarSize/tarSha256，并要求 v2 必带；src/extractor/prepare_update.zig:473-476 用这些值校验解压后归档，:609-617 的全量回退也不能绕过它。
+建议：按真实校验器校验 v2 形状与必需字段，解压正式 tar.zst、核对 tarSize/tarSha256 及归档内身份；压缩资产的远端 SHA-256 比较另保留。加入“文件字节不变但 v2 归档摘要被改错或缺失”的失败用例。结论来自固定源码，未运行 Windows 更新器。
+
+3. 重要：改旧安装 version.json 会强制丢失原补丁路径，不能据此验“上一正式版到本次”的正常升级
+计划位置：plan-r2.md:198-202、312。
+问题：更新器确实从装好的 version.json 读 baseUrl，本机 HTTP 回环源也被允许；问题在后续的补丁准备。Electrobun 2.0.6 用安装时保存的 recipe 从当前文件逐字重建旧 tar，version.json 同样在 recipe 里。改 baseUrl 会使文件长度或摘要与原 recipe 不符，在请求补丁前就失败，然后静默转全量下载。因此“能更新成功”的先验不足以证明这条做法成立：若复用场景 1 的“取的是补丁”判据会失败；若只看最后新版本起来，又把原正式升级的补丁路径换成了损坏基线后的全量恢复路径。
+依据：固定 Electrobun 源码 src/sdks/main/core/Updater.ts:2502-2508、2235-2241；src/extractor/prepare_update.zig:322-343、478-504、609-612；src/extractor/archive_recipe.zig:519-534 将所有普通文件记入 recipe，:723-741 重建时校验大小、逐文件 SHA-256 与整个归档摘要。文件均在 t01 的 research/electrobun-src/package/ 下。结论来自完整调用链，未运行 Windows 更新器。
+建议：用不修改已发安装字节的路由方式，或在已公开的本次正式源上做上一版到本次的完成门禁；若选择修改文件，明确这只能覆盖全量恢复，另保留未改旧安装的真实补丁验证，并调整验收合同，不能只以 getLocalInfo 接受 baseUrl 当作先验通过。
+
+4. 重要：更新场景没有结束 B′，下一段正式旧版会被共用状态根上的异版本壳拒绝
+计划位置：plan-r2.md:195-201、209-218、256。
+问题：“场景 2 前半”重新打开 B′、断言检查后就结束，没有关窗、等待服务端与桌面锁释放；随后立即装上一正式版，用同一个缺省状态根跑场景 1。测试应用标识只隔离安装与 Electrobun 通道，不隔离 NeuroBook 桌面锁。B′ 高于本次版本，上一正式版启动时会得到 version-mismatch-shell，只显示退出，不能到产品页。if:always() 收证据不释放这把锁。脚本正常路径及失败路径的进程交接都没有写出。
+依据：主工作区 packages/neuro-book/src/desktop/state-root.ts:42-63（标识不参与缺省根选择）；src/desktop/lock.ts:15-16、33-37、57-61 按状态根认领并拒绝异版本；src/desktop/shell.ts:175-200、238-240。计划 :187 明定更新冒烟不设 NBOOK_STATE_ROOT。
+建议：每个更新子场景明确结束时仍存活的是哪个壳，在切换测试标识与正式标识前 WM_CLOSE 并等整棵服务端树结束、桌面锁可重新取得；失败先存证据，再在 finally 收口自己起的实例。把 B′→上一正式版的实际顺序列入切片 4 验证。结论依据源码与计划顺序，未运行新的 Windows 脚本。
+
+5. 重要：整轮重跑仍会忘掉首次待发的源码包身份（首轮第 4 条只补上了应用与 SDK）
+计划位置：plan-r2.md:86-92、268-269。
+问题：r2 每轮仍重算 registry 状态，只对应用与 SDK 强制同字节。假设首次计划要发源码包 P，P 已发布、后续失败；整轮重跑重打 P 的字节变了，而没有本轮待发包依赖 P。新 --plan 把 P 当作“早已发布的、没人依赖的历史源码包”只提醒，随后按新计划继续。这丢失了“P 是本次首次冻结集合成员”的事实，正是提案特意区分于历史 stale 包的情况。提高应用/SDK 的摘要门禁不能覆盖 P；已有清单在 artifact 里却没有要求重用。
+依据：docs/proposals/desktop-distribution.md:160-161 明定本次没发过版本的源码包也冻结，重跑时同版本不同摘要必须失败；ADR 0051 决定 7 要求重跑复用原产物。r2 :88、:90-92 只按这一轮查询重分类，:268 明确整轮重建。本条是状态分类可直接推出的恢复缺口；源码包重打会否产生不同字节未实测，不声称必然发生。
+建议：按标签提交持久保存并重用首次待发集合与各包摘要；所有首次成员都执行同版本摘要阻断，只有首次就已发布的历史源码包保留提醒例外。若主动放弃该合同，明确写为提案/ADR 的取舍变更，不能只登记“应用或 SDK 不同就失败”。
+
+6. 重要：本机更新冒烟会把共用设置留在已停止的假模型端点上
+计划位置：plan-r2.md:155-161、187-201、313-315；pending-confirmations.md:49。
+问题：smoke-windows 准备步骤把 settings.json 整份写成 localModelSettings；smoke-update 在 pc-notype 上又必须使用已有缺省状态根。计划复用场景 1 的准备、创建作品，结束只移出书架并比较 projects.json，没有设置的原字节备份、恢复或冲突处理。假端点退出后，其配置仍指向随机本机端口，并且原 providers/roles 及其它设置可能已被整份覆盖。t10 的“目录里无要保护数据、允许在它上面验收”不能证明 t11 执行时该文件仍可覆盖。
+依据：主工作区 src/plugins/agent/testing/endpoint.ts:139-144 返回的只是模型 providers/roles，不是原设置的无损修改；ADR 0033 决定 3、ADR 0051 决定 4 定义桌面版与 nbook 共用此根。t10 plan.md:290 的授权限定当时验收，windows-update-r1.txt:12-13 记录当时的前后对照；r2 新待确认行也只承诺顶层清单与 projects.json。
+建议：本机运行前确认没有其它实例，记录完整设置基线；仅临时替换必须的模型键，在 finally 先停实例、再按无并发变动条件恢复原设置，失败留证据并明确报告。若改用独立 Windows 用户做更新冒烟，可直接避免已有根的覆盖；CI 干净 runner 的逻辑不必承担本机数据假设。此项是新验收准备与旧授权范围的耦合，未运行本机验收。
+
+第 6 条撤回：复核后，smoke-windows 明定写 localModelSettings，但本机该脚本使用隔离 --state-root；smoke-update 的步骤只要求建作品和已知正文，没有明确要求把这份模型配置写进缺省根。将二者直接合并是审查者额外推断，不足以作为已核实的问题。已有根的使用与收口仍应按待确认行执行，本轮不把“覆写 settings.json”计为有效发现。
+
+7. 重要：场景 2 后半只在关机期间换源，没有检查“已下载后源退回”时的运行中行为（首轮第 1 条未完全解决）
+计划位置：plan-r2.md:189-197；pending-confirmations.md:51。
+问题：计划先关 A′，再把源改回 A′，然后重启直接换上 B′。启动时换上发生在取桌面锁、拉服务端及首次检查之前；因此没有任何一次检查发生在“本地 A′、已下载 B′、源 A′”这个状态。新版本起来后看到的只是“本地 B′、源 A′”的普通拒绝降级，和下一段重复。它能验证离线换上不依赖当前源，却不能证明 Spec 要求的“已下载的更高版本不被较低源替换、不再提示”。两包还是三包不是根因，检查发生的时间才是。
+依据：主工作区 docs/specs/runtime/desktop-update.md:45-46、105、112；src/desktop/shell.ts:149-155、259 起的 prepareInstall 在取锁前调用 applyAtStartup，更新检查到 :391 才开始；src/desktop/update.ts:114-123、224-239 是运行中的已下载基线比较。r2 :192 明确先关窗再换源。
+建议：保留已下载更高版本的安装，在一次只提示启动（NBOOK_STATE_ROOT）中避免立即换上，再进入能真实检查且保留准备记录的路径，或在运行中以受控时钟/正式可观察机制等下一次检查；选择能够真实覆盖该状态的做法，明确与切片 4 一起验证。不用“重启后没有提示”替代运行中检查。若只保留离线换上这条，应明确缩减了验收而非宣称与原场景等价。
+
+第 7 条撤回：Spec 场景 2 后半的字面完成条件是退回更新源后仍在下次启动换上已下载版本，并未要求这段必须发生一次新的运行中检查；r2 已保留前半的真实较低版本检查。不能把审查者希望增加的时序覆盖当作未解决的既有 Smoke 判据。本轮不将第 7 条计为有效发现。
+
+8. 阻断：便携 zip 取的是 Hutch stable 构建结束后已被替换成安装器的目录
+计划位置：plan-r2.md:68、254（build/stable-win-x64/NeuroBook/ 的内容加便携标记）。
+问题：Hutch 的 stable 构建先把真实应用目录打成 tar.zst，然后 createOuterWrapper 删掉同一个 NeuroBook 目录，重建成“extractor launcher + Resources/metadata.json + <hash>.tar.zst”。因此构建结束后这里没有 bun.exe、Resources/version.json、主进程或载荷。把它加上 NeuroBook.portable 打包，既不能作为便携应用运行，也不会把标记带进内部真实应用；Windows 的 extractor 在此布局下找不到其要求的相邻 .installer 资料，还会以 InvalidInstaller 退出。此问题首轮未报，r2 仍明确采用了这个路径。
+依据：固定 Hutch v0.29.0 src/electrobun.zig:1116-1160（打内层 tar 后调用 createOuterWrapper）、1900-1931（清空同一 bundle_root 后只建外壳）、2685-2711（后续只建 Setup 与写资产）；本轮 scratch/hutch-v0.29.0-electrobun.zig 可逐行核对。固定 Electrobun src/extractor/main.zig:1297-1325、8213-8230 只在 .installer 或嵌入式数据中找 Windows 安装资料，不处理便携标记。
+建议：从本次生成的正式 stable-win-x64-NeuroBook.tar.zst 解压出真实应用目录，再放入 NeuroBook.portable 并打 zip（不从已安装目录复制）；验证 zip 内有 bun.exe、version.json 和载荷，且解压直接启动时 data/ 确实就在解压目录。源码：https://github.com/blackboardsh/hutch/blob/v0.29.0/src/electrobun.zig 。本轮未运行 Windows 构建。
+
+9. 重要：没有 unclean-stop.json 仍不能证明服务端有序以 0 停止（首轮第 21 条未解决）
+计划位置：plan-r2.md:174-179；design-review-r1-omp-disposition.txt:50-51。
+问题：r2 用“不存在异常标记”替代原先的日志文案，但该标记只在 #stopOwnedServer 拿着服务端对象并等到异常 stop 结果时写。服务端先非 0 意外退出时，#serverExited 一开始就把 #server 置 null；之后选择“稍后”或进入关闭路径，#stopOwnedServer 直接返回，不写标记，壳仍以 0 退出，也没有 bun 子进程。三个新断言仍全可满足；这不证明“经托管 stop、服务端 exit 0”。
+依据：主工作区 packages/neuro-book/src/desktop/shell.ts:407-415（意外退出即清空对象）、430-445（壳 exit 0）、452-468（有对象才记录）；src/desktop/owned-server.ts:95-113、142-164 区分真正的服务端退出结果。Spec runtime/desktop-shell.md:201 要求服务端有序停止且以 0 退出。结论为源码可达路径，未运行 Windows 故障注入。
+建议：冒烟记录本次归壳拥有的服务端 PID，并观察它收到 stop 后的实际退出结果；若现有诊断缺这一出口，补一条携带 PID/forced/exitCode 的正常停止结果诊断。明确要求该正向证据，再用无异常标记和无残留作为补充。不要把缺少异常证据当作正常停止的证据。
+
+10. 重要：源码包 nb-flock 的首次手工发布没有包含必须同时提版的两个调用方
+计划位置：plan-r2.md:274-283；t11 README.md:14。
+问题：一次性准备只列“nb-flock 首发”，但其 ADR 明确要求下一次发布同时提高 nb-harness 与 nb-story 的版本。现有发布器按“同版本已存在就跳过”，并不会因为工作区改为依赖 nb-flock 就重发这两个包；按准备清单只发新包再配信任，会出现发布了一个没有已发包依赖的孤包，后续 registry-smoke 仍装旧 harness/story。r2 也没有把这两包的提版列为开发者准备或另一个必要前置。
+依据：主工作区 docs/adr/0052-non-stale-file-lock-package.md:47-48 明写首发与两调用方共同提版；scripts/release/publish.ts:181-194 只按 name@version 判断跳过；repository-workflow.md:85、89-91 定义版本修改与发布均需开发者授权。实跑 bun scripts/release/packages.ts --json 为 ok=true，发布顺序已含 nb-flock，但这个清单检查不验证 registry 上调用方已换依赖。
+建议：首次准备列出 nb-flock、nb-harness、nb-story 的当前/待发版本及共同提版的授权，完成合入后从对应提交重新做发布冒烟；不要默认“nb-flock 首发”已经授权或自动包含其它包的版本修改。给演练提示同时校验这条 ADR 的前置，避免把装得上旧包当作新链已发布。
+
+11. 重要：上一正式版的升级场景复用了已经被本次/B′ 写过的数据，隐含要求旧版能读新版状态
+计划位置：plan-r2.md:158-161、190-201、254-256。
+问题：同一 Windows 作业先以本次正式安装版写缺省状态根，再用 A′/B′ 写同一个根，最后才装上一正式版。即使先解决第 4 条的进程释放，旧版启动时面对的仍是本次代码创建的设置、插件/Storage 数据与作品登记。这是先降级读数据、再升级，不是“上一正式版到本次”的兼容验收；第一次发生数据版本变化时，流水线会因为没有承诺的向后读取能力而失败，或者绕过旧版数据的真实升级问题。
+依据：docs/proposals/desktop-distribution.md:176 明说旧版可能读不了新版写过的数据；主工作区 src/plugins/storage/backend/partition.ts:317-319 在记录版本与定义不同时返回 unsupported-version；src/desktop/state-root.ts:42-63 表明测试 identifier 不能隔离缺省状态根。Spec desktop-update.md:104、112 要验旧版到本次、同一状态与作品保持。
+建议：让上一正式版在尚未被本次/B′ 运行过的独立 Windows 用户或独立 job 中创建状态和作品，再升级到本次；或把这段安排在所有新版写根之前，并保证之后的测试顺序与版本不会再次倒退读取。不通过 NBOOK_STATE_ROOT 隔离自动更新场景。此项是合同与执行顺序冲突，未断言当前上一版已有不兼容数据格式，未运行 Windows 场景。
+
+12. 重要：更新清单不声明补丁，verify-feed 无法按计划枚举并验证补丁下载
+计划位置：plan-r2.md:145-148、126-132。
+问题：计划要求下载“清单声明的完整包与补丁（若有）”，但 Hutch 0.29.0 的 v1/v2 清单都只有 artifact.file 指向完整 tar.zst，v2 额外有 tarSha256/tarSize，没有补丁列表、来源哈希或补丁摘要。真实更新器按本地 hash 拼 stable-win-x64-<hash>.patch 主动探测。若按两份清单的字段照字面实现，补丁永远不进入门禁，无法兑现 t10 明定的带 ?cache= 查询串的补丁 GET；完整包通并不能证明补丁 URL 通。
+依据：本轮 scratch/hutch-v0.29.0-electrobun.zig:3297-3325 是两份清单共用的完整生成函数；固定 Electrobun src/extractor/prepare_update.zig:502-504 拼补丁名并下载；t10 plan.md:293-295 与 windows-update-r1.txt:17-20 指定这项发布完成验证。源码链接：https://github.com/blackboardsh/hutch/blob/v0.29.0/src/electrobun.zig#L3297-L3325 。
+建议：用被冻结的本地 release-assets 文件清单或 SHA256SUMS 枚举实际补丁，保存对应来源哈希并逐个请求核对 SHA-256；无补丁时明确记录没有生成，而不是因为 update-v2 没有字段就略过。完整包仍从 artifact.file 读取，两类文件的 owner 与枚举来源写清楚。
+
+13. 阻断：换上后的 B′ 不继承启动脚本的 CDP 环境，无法按计划继续驱动页面
+计划位置：plan-r2.md:43、168、191-201、308-312。
+问题：CDP 探针只证明从脚本直接起 launcher 时 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 能传到 WebView2；自动更新后的进程不是这条链。Electrobun 2.0.6 在 Windows 上用 Task Scheduler 的 Interactive 任务起换上程序，再由它起新 launcher。任务 action 只带 helper 路径、plan 路径和 --quiet，没有保存或转交原进程环境。因而只给启动 A′ 的环境加调试端口，不能保证更新器拉起的 B′ 仍开该端口；旧 WebView 退出后连接断开，计划却要从 B′ 页面断言“已更新到”并继续关窗。切片 4 的两个先验也没覆盖这条环境交接。
+依据：固定源码 src/sdks/main/core/Updater.ts:2415-2427；core/WindowsUpdateTask.ts:38-59、75-77 注册独立交互任务，无 Environment；src/extractor/main.zig:7299-7326 启动新 launcher，只给路径与 cwd。t11 cdp-probe-r1.txt:4-6、17 只测直接启动，未测更新后连接。文件在 t01 research/electrobun-src/package/ 下。运行后是否因 runner 的用户环境碰巧已有该变量而可连，未验证，不能据此构成合同。
+建议：明确更新后进程的可观测方案并先验：例如仅在隔离 runner 用户环境临时配置调试端口、确认 Task Scheduler 实际继承并在 finally 恢复；或让页面断言在受控的再次手动启动后进行，并以更新状态/结果证明第一次启动。不要给产品加测试专用环境转交。必须实际覆盖 A′ 更新后自动拉起 B′ 的 CDP，而非再起 A′ 的探针。
+
+第 13 条证据补充与改法收紧：Microsoft 官方 ExecAction 文档说明环境值由 Taskeng.exe 启动时缓存，之后改变的环境不供 task engine 使用（https://learn.microsoft.com/en-us/windows/win32/taskschd/execaction）。因此不能仅用“临时改用户环境”就认定修复；必须连调度引擎实际看到的环境一起验证。更稳妥的验收路径是在换上结果证明新版本首次启动后，以脚本自带 CDP 环境重新直接打开目标 launcher、重新连接并完成后续页面检查，首次启动的通知另按持久状态或 UI 自动化取证。具体选法待主 Agent 实测，不能伪称已在 Windows 复现 CDP 丢失。
+
+14. 重要：上一正式版只从 latest 选取，整轮重跑已公开的本次版本时会跳过强制升级验收
+计划位置：plan-r2.md:198、268。
+问题：计划把上一正式版定义为“latest/download 上已有低于本次”的那一版。若第一次运行已公开本次、verify-feed 失败，然后整轮重跑，latest 正好等于本次；明明已经有更低的正式桌面版，条件却为假，上一版到本次的 Smoke 被跳过。补发较旧版本时 latest 高于本次，也会错误跳过；仓库已有其它较低正式桌面版的事实不因 latest 指向改变而消失。这让整轮重跑的验收覆盖取决于前次远端副作用。
+依据：docs/specs/runtime/desktop-update.md:112 的条件是“有了上一个正式的桌面版本以后”，不是“latest 恰好低于本次”；r2 :267-268 允许只重跑失败项和整轮重跑，:140-143 已明确考虑本次被更高版本取代，却没有把同一分支覆盖到 Smoke。触发条件可直接由计划状态转移推出，未运行远端发布。
+建议：首次冻结本次的上一正式桌面 Release 身份（最高的、低于本次且有正式安装资产的稳定版本），后续按固定 tag 下载；整轮重跑也复用这个身份，不从可变 latest 重新推断。只有发行历史中确实没有符合条件的旧桌面版本时才跳过，并把依据写进证据。
+
+15. 次要：queue:max 已解决默认覆盖等待项，但满 100 后的标签没有补跑规则（首轮第 5 条的容量边界仍缺）
+计划位置：plan-r2.md:233、265-270、354。
+问题：r2 正确改成 queue:max 并把演练分组，但“至多 100 个”不是无损发布队列：第 101 个等待项直接被平台取消，不会在槽位腾出后自动再跑。当前恢复章节只有失败作业/整轮重跑，没有说明队列满取消的标签如何被发现与补跑，且标签规则禁止删改，不能通过重新推标签恢复。常规少量发行不受此问题影响，不应算成现有发布阻断。
+依据：GitHub 官方 Control workflow concurrency 的 queue:max 条款明确“when the queue is full, any additional jobs or workflow runs are canceled”；链接：https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency 。本轮已读取正文核实。
+建议：在容量风险与恢复里写明满队列取消的识别方式、对原 run 的授权重跑入口和停止条件；不为此实现第二套队列，也不承诺所有标签必定自动保留。若这是接受的人工恢复边界，记录取舍即可。
+
+第 10 条现态补证（本轮只读查询）：npm view @notnotype/nb-flock version --json 返回 E404、退出码 1；npm view @notnotype/nb-harness@0.1.1 version dependencies --json 与 npm view @notnotype/nb-story@0.2.2 version dependencies --json 均成功，其 dependencies 均没有 nb-flock。本地主工作区两调用方仍分别为 0.1.1、0.2.2（各 package.json:3），依赖已加 nb-flock（:46、:34）。因此 ADR 0052:48 的提版前置在当前代码与 registry 上仍未完成，不是仅引用旧记录。
+
+第 13 条收窄：严重程度改为重要。已核实的是 Windows 更新手递交不传原启动环境、计划的先验没有覆盖更新后重连；“每台 runner 上更新后 CDP 必然连不上”未验证，可能受现有 task engine 或 WebView2 进程环境影响。应把真实更新后连接列为成立前提，不能据源码把未运行的 Windows 失败写成已复现阻断。按此收窄计数。
+
+第 5 条与第 1 条的关系：第 1 条是 r2 两入口的直接矛盾；第 5 条以作者 :92 的明确意图“允许历史 stale 包继续”为准，指出消除第 1 条后仍必须保留首次成员身份。若严格采用 :97 的全量阻断，第 5 条的差异会被一并拦住，但同时破坏了既有历史包例外；因此不能把“两种包统统拦下”算作恢复合同已正确解决。
+
+第 13 条建议细化：若采用“直接重新启动取得 CDP”，必须先按 PID 找到更新器拉起的 B′，WM_CLOSE 并等壳/服务端全部结束，再带环境启动；对仍运行的同版本壳再调 launcher 只会转交开窗，不会把新的环境或调试端口传给原壳。原首次启动通知会被消费，不能在这次二次启动中冒充复现，须在首次启动时另取 UI 或状态/结果证据。
+
+16. 重要：更新/卸载仍只验作品正文或文件存在，没有证明设置与登记内容保留（首轮第 20 条未完全解决）
+计划位置：plan-r2.md:159-161、180、190-194；disposition.txt:48-49。
+问题：r2 为便携版补了 projects.json/settings.json 的前后摘要，但安装卸载只要求这些文件“还在”，更新只要求同根、同作品、章节不变。若更新或卸载把 settings.json 清成空对象、把其它作品登记丢掉但仍留下这次测试作品，上述断言仍通过。假端点所需的模型设置正好是可识别的基线，却没有在更新后、卸载后核对实际值。首轮第 20 条要求的是数据不变量，补一个存在性检查只覆盖了文件被整份删除的情形。
+依据：docs/specs/runtime/desktop-shell.md:155-158 要求卸载保留作品登记与设置；runtime/desktop-update.md:80、104 要求更新不写状态根、状态与作品保持；docs/proposals/desktop-distribution.md:121 定义数据与安装目录分离。r2 :161 说明作者已使用摘要基线，但仅给便携污染检查。
+建议：安装/更新前保存 projects.json 中作品 id/路径集合与若干已设置值，更新及卸载后核对这些消费者可见的值完整保留，并读回实际章节；不要机械比较会合法变化的运行时间戳、日志或整份动态文件。将此检查分别放在真正卸载后及真正换上后，而不只放到最终便携检查。
+
+本轮执行与证据边界：
+- 审查固定 plan-r2.md 全文（354 行），逐条核对 r1 的 23 条与处置记录；依据读主工作区绝对路径，未以实现 worktree 的治理文档副本作判断。
+- bun test scripts/release：15 pass、0 fail、43 expect() calls，2 files，退出码 0。本轮结果，不沿用首轮测试结论。
+- bun scripts/release/packages.ts --json：ok=true、findings=[]，退出码 0。
+- 直接运行现有 blockingStalePackages 的三个分支：pending=[app]、stale=[P] 返回 []；pending=[consumer] 且 consumer 依赖 P 返回 [P]；pending=[] 返回 []。只证明既有 stale 例外的语义，不冒充尚未实现的 --plan/--ci 运行结果。
+- npm view 只读查询：nb-flock 返回 E404；已发 nb-harness@0.1.1、nb-story@0.2.2 的依赖均不含 nb-flock。未发布包、未改 dist-tag 或信任配置。
+- 官方只读材料核实 queue:max 容量、Release 公开/latest、Environment 限制、npm 信任 2 天时限及直接发布动作、Task Scheduler 环境行为；Hutch v0.29.0 源码与 npm 官方页面的核验副本只保存在本轮 scratch/。
+- 未运行 e2e、release:smoke、开发服务、Windows 构建/安装/更新、真实 OIDC 或发布流水线；报告中这部分机制判断均为固定源码/合同核验，不是本轮运行证明。
+- 第 6、7 条已撤回，不计有效发现；第 13 条按补充收窄为重要。其余未报出的首轮问题不逐条罗列，也不重复已解决项。
+- 未修改仓库源码、计划、Spec 或 Work/Task 记录，未 commit、push、stash、切换分支或删除文件；写入只有本报告的逐条 cat >> 与允许目录内的研究副本。
+
+有效发现 14 条：阻断 1 条（8）；重要 12 条（1、2、3、4、5、9、10、11、12、13、14、16）；次要 1 条（15）。
+首轮未完全解决的条目在本报告明确对应：r1 第 4 条见 5（并结合 1），第 5 条容量边界见 15，第 18 条见 2、12，第 20 条见 16，第 21 条见 9；其余有效发现为新发现或 r2 新机制的缺口。
+END

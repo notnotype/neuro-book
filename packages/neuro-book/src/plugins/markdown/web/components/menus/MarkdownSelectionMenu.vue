@@ -10,7 +10,6 @@ import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/ed
 
 import MarkdownBlockTypeMenu from "./MarkdownBlockTypeMenu.vue";
 import MarkdownColorButton from "./MarkdownColorButton.vue";
-import {LINK_COMMAND} from "./palette";
 import {selectionAnchor} from "./selection-anchor";
 
 const props = defineProps<{
@@ -24,7 +23,7 @@ const props = defineProps<{
     /** 别的弹层（注音的输入框）开着时不显示。 */
     suspended: boolean;
 }>();
-const emit = defineEmits<{(event: "prompt", action: "ruby" | "comment"): void}>();
+const emit = defineEmits<{(event: "prompt", action: "ruby" | "comment" | "link"): void}>();
 
 /**
  * 这些状态只由指针、键盘与编辑器事件推进，不写 ProseMirror 插件视图：换文档时 `plugins` 数组换了，插件视图会全部重建
@@ -126,7 +125,6 @@ const visible = computed(() => {
 
 const FORMATS: ReadonlyArray<EditingActionId> = ["bold", "italic", "strike", "code"];
 const contributed = computed(() => props.menus.contributed(EDITOR_SELECTION_POINT).flat());
-const hasLink = computed(() => props.menus.has(LINK_COMMAND));
 
 const buttonTitle = (id: EditingActionId): string => {
     const shortcut = props.menus.shortcut(id);
@@ -151,7 +149,16 @@ const buttonTitle = (id: EditingActionId): string => {
                 @click="props.menus.run(id)"
             />
             <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
-            <IconButton v-if="hasLink" size="sm" icon-class="i-lucide-link" :title="props.menus.title('link')" :aria-label="props.menus.title('link')" @click="props.menus.execute(LINK_COMMAND)" />
+            <IconButton
+                size="sm"
+                :variant="props.editing.active('link') ? 'accent' : 'default'"
+                :icon-class="EDITING_ACTIONS.link.icon"
+                :title="buttonTitle('link')"
+                :aria-label="props.menus.title('link')"
+                :aria-pressed="props.editing.active('link')"
+                :disabled="!props.editing.enabled('link')"
+                @click="emit('prompt', 'link')"
+            />
             <MarkdownColorButton action="text-color" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" in-selection-menu />
             <MarkdownColorButton action="highlight" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" in-selection-menu />
             <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />

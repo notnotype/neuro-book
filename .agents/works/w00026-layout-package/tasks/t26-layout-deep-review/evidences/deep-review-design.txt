@@ -1,0 +1,233 @@
+# t26 深入审查：design（Claude Sonnet，2026-11-16，固定在 954ed9e94）
+
+## 汇总
+
+设计与代码质量审查摘要（w00026 t26，提交 954ed9e94）
+
+运行：nb-layout `bun test src` 558 通过，`bun run typecheck`（tsc 与 vue-tsc）通过。没有跑 vitest、e2e 与浏览器；标“从代码推断”的条目未在浏览器里验证。
+
+数量：阻断 0；重要 2；建议 6；说明/收窄 2。
+
+有效发现（按严重程度）：
+- 重要：
+  - design-09：实时布局“来源收起”这一位有三份表示、两个所有者；`createLayoutDrag` 是 850 行、17 个可变绑定的闭包，复位散在三处（第 10 条更正了第 9 条里两处未核实的说法，其余成立）。
+  - design-10（新增部分）：`createLayoutDrag`（1041 行的 `layout-drag.ts`）没有单元测试，只有 e2e。
+- 建议：
+  - design-01：nb-ui 冻结副本已和 nb-layout 分叉（“分配接着上一帧”、`restoreToShare` 没进副本），t14 没有排期；消费者是 nb-story 与 dev-panel（第 2 条更正）。
+  - design-03：`useSashGesture` 换根元素时 `detach()` 摘的是新元素，旧元素监听没摘；全局 `window`/`document` 与 `drag-session` 的 `ownerDocument.defaultView` 不一致。
+  - design-04：条的叶 id 等于条名、面板 id 不会是 `activitybar` 两个假设整个工作台在用，`validateLayoutDoc` 与 `fitsSkeleton` 不查（从代码推断）。
+  - design-05：“隐藏的区域按拖到零画”用同类型文档改写实现，记录文档与呈现文档不可区分，`isPanelShown` 在两份上答案相反。
+  - design-06：每个 NestedGrid 两份设备像素比来源；`useSashSnap` 监听整页捕获阶段 scroll（从代码推断，性能数字没测）。
+  - design-07：三处注释“库不知道角色、名字、容器的含义”与 `layout-doc.ts` 写死的 `PanelName`、`PanelRole`、容器字段不符；`layout-doc.ts` 可沿校验、浮动两处拆开（第 8 条收窄了“规则散在三处”的例子）。
+- 说明/收窄：design-02（收窄 01）、design-08（收窄 07）。
+
+未发现问题的方面（仔细检查后）：
+- `drag-gesture.ts` 状态机：阶段转换、`finish` 的收场顺序（释放、发布空、`activeChanged`、`ended`、提交）、放下中的失去捕获、边缘滚动松手、取消原因、`dispose`；`begin` 里 `activate` 返回 false 与取不到捕获两条路径都收口。
+- `drag-session.ts`：按下才装的监听都在 `released`/`disarmed` 里成对拆掉，指针捕获在取消、卸载、中止时释放。
+- `live-drag.ts`：`tick` 里 `requestFrame` 先于判定，`end()` 会取消它；判定中结构变化结束这一场后 `tick` 立即返回。
+- `useLeafParking`、`useContentLayer`、`useLayoutExtent`、`useDevicePixelRatio`（dpr 非有限与零的退路在 `grid-rects.ts`）、`validateLayoutDoc` 的节点与浮动窗校验：没有发现边界或收口问题。
+- `layoutDropSectors` 与 `nearestEdge` 是同一规则的两种推导（形状与按点判定），有 `layout-drop.test.ts` 的对照用例，没有发现不一致。
+- `crypto.randomUUID()` 在 `layout-drag.ts:914` 的使用：产品里 `web/host/window.ts` 等处已经在启动路径上用它，没有新增对非安全上下文的依赖。
+
+没有深入看的（时间所限）：`grid-motion.ts`、`grid-rects.ts` 的数值细节，`layout-doc.ts` 的外缘移动算法，`useGridFocus`、`useRenderOrder`，工作台的 `containers.ts`、`layout-constraints.ts`，`WorkbenchSurface.vue` 后半（行 400 以后）与 `WorkbenchShell.vue` 其余部分。
+
+
+## design-01
+
+### 1. nb-ui 冻结副本已经和 nb-layout 分叉：2026-11-15 的“分配接着上一帧”与 `restoreToShare` 没有进副本，nb-story 的 Splitter 仍是旧行为
+
+严重程度：建议（行为差已存在；删除计划没有排期）；类别：代码质量
+位置：packages/nb-ui/src/components/layout/sash-drag.ts:311（`settleSides({sizes: baseline, …})`）对照 packages/nb-layout/src/sash-drag.ts:323（`previousSizes(input.snapState, baseline)`）；packages/nb-ui/src/components/layout/grid-geometry.ts 与 packages/nb-layout/src/grid-geometry.ts 差 79 行；packages/nb-ui/src/components/layout/splitter-session.ts 差 6 行
+
+现象：
+- AGENTS.md（nb-layout）写“nb-ui 暂留一份冻结的 Splitter 与分隔线核心，只修不加”，t14 迁移任务 `status: planned`，“开发者 2026-11-06：这一轮先不做”，没有时间点。
+- `diff nb-ui/.../sash-drag.ts nb-layout/src/sash-drag.ts` 有两处实质差：nb-layout 多了 `sizesPx`（上一帧解出的尺寸）与 `previousSizes`，即开发者 2026-11-15 定的“拖边界时兄弟之间的分配接着上一帧”；多了 `restoreToShare`（记忆尺寸换成按权重该得的份）。`grid-geometry.ts` 差 79 行，`splitter-session.ts` 差 6 行，`splitter-gesture.ts`、`sash-gesture.ts` 暂时相同。
+- 前者是用户可见的手势修正：推开远端兄弟后往回拖，nb-ui 版每帧从基线重分，被推开的兄弟立刻弹回原位。nb-story（`BookFrame.vue`、`StoryNetwork.vue`）还在用冻结副本，所以同一种“拖分隔线”，工作台与 nb-story 手感已经不一样。
+
+为什么是问题：
+- “只修不加”在规则上写了，但没有机制保证：修正落在 nb-layout，副本里没有人记得补。这次已经是一个明确的开发者决定没有进副本。往后每次改 `sash-drag`/`grid-geometry` 都要在两处判断“要不要同步”，AGENTS.md 又写“改这里的 Splitter 不用同步那一份”，等于默认分叉。
+- 副本总量不小：nb-ui 的 layout 目录里 `Splitter.vue`（791 行）、`sash-drag.ts`（440）、`grid-geometry.ts`、`splitter-session.ts`、`sash-gesture.ts`、`splitter-gesture.ts`、`grid-splitter.ts` 等，加上 `nb-ui/src/composables/useSashGesture.ts` 与 `splitter.test.ts`、e2e，同一件事两份测试。
+- 这是“质疑上游选择”的信号：nb-story 因为不想多依赖一个包（ADR 0029 的 8 个包）而留着一份拷贝，代价是两份几何算法在分叉。
+
+如何核实：
+- `cd packages && diff nb-ui/src/components/layout/sash-drag.ts nb-layout/src/sash-drag.ts`。
+- 行为复现（浏览器）：在 nb-story 或 nb-ui 的 Splitter 验收页里，三栏 A | B | C，把 B|C 分隔线往右拖到 C 被压到最小，再往回拖：nb-ui 版 B、A 的分配按基线重来，nb-layout 版（工作台编辑区三组并排）挨着边界的面板先动。
+
+建议改法：
+- 首选把 t14 排期：nb-story 是唯一消费者（`rg "Splitter" packages/nb-story/src` 两个文件），迁移面很小；副本的成本每多一次分叉就多一份。若短期不做，至少在 AGENTS.md 里写明“已分叉的清单”（上述两项），并在 nb-ui `sash-drag.ts` 头注释里指向它，免得有人把副本当成 nb-layout 的行为参照。
+- 不建议把修正补进副本：那等于认可长期维护两份。
+
+
+## design-02
+
+### 2. 第 1 条收窄：消费者不止 nb-story，还有 dev-panel
+
+严重程度：说明；类别：文档
+位置：同第 1 条
+
+第 1 条“建议改法”里写“nb-story 是唯一消费者、迁移面很小”不准确：`packages/dev-panel/src/web/App.vue`、`pages/ArtifactPage.vue` 也用 Splitter（`rg Splitter packages/dev-panel/src/web`），t14 计划的标题本来就是“迁移 nb-story、dev-panel”。迁移面是两个包，不是一个；第 1 条其余结论（行为分叉已发生、没有排期）不变。
+
+
+## design-03
+
+### 3. `useSashGesture` 换根元素时 `detach()` 摘的是新元素，旧元素上的监听与登记没摘；注释写的“先摘旧的”做不到
+
+严重程度：建议；类别：不变量
+位置：packages/nb-layout/src/vue/useSashGesture.ts:582-588（`watch(options.root, …)`）、557-580（`detach`）
+
+现象：
+- 注释与模块头都写“换元素先摘旧的（重挂不留下重复监听）”“根元素换掉即注销，因此重挂不会留下重复监听或幽灵命中”。
+- 实际是 `watch(options.root, (element) => { detach(); if (element !== null && !disposed) attach(); })`。回调触发时 `options.root.value` 已经是新元素，`detach()` 里 `const root = options.root.value` 取到的就是新元素：`removeEventListener` 对新元素做（本来就没装），`scopeEntries.delete(root)` 删的也是新元素；旧元素上的 7 个监听与 `scopeEntries` 登记都留着。根变成 `null`（卸载）时 `detach()` 里 `root === null`，整段摘除被跳过，只靠旧元素随 DOM 一起被回收。
+- 目前 NestedGrid 与 Splitter 的 `rootEl` 在组件寿命内是同一个元素，所以没有可见后果；`src/vue/*.dom.test.ts` 里没有换根元素的用例（`rg "换元素|重挂" src/vue/*.test.ts` 只有等值发布与 drop-targets 的两处，都不是这个函数）。
+
+为什么是问题：合同写在头注释里，调用方（以后的第三个宿主）按它放心换根；实际换根后旧元素如果还留在 DOM（例如 `v-if`/`key` 换壳但旧节点被缓存复用），会出现两个 scope 都在响应同一批指针事件，并且 `winningScope` 沿 `composedPath` 找到旧元素上残留的 `entry`，旧元素的 `entry.blocked()` 在组件没销毁时为 false，会替已经换掉的根仲裁。注释说的保证没有机制，也没有测试。
+
+如何核实：Vitest 里挂一个 `useSashGesture` 的宿主组件，`root` 先指向元素 A、再改成 B，对 A 派发 `pointerdown`，看 `begin` 是否仍被调用；或在 `detach()` 前打印 `options.root.value === 旧元素`。
+
+建议改法：`watch(options.root, (element, previous) => { detach(previous); … })`，`detach` 接受要摘的元素参数；`dispose` 与 `onBeforeUnmount` 里传当前元素。补一个换根的用例。顺手一并处理：这个 composable 直接用全局 `window`、`document`、`requestAnimationFrame`（行 201、379、552-553），而 `drag-session.ts` 用 `root.ownerDocument.defaultView`；Lab 或嵌入文档里用后者才对。两个手势层沿用不同的取窗口方式，同一包里不一致。
+
+
+## design-04
+
+### 4. “条的叶 id 等于条名”“面板 id 不会是 `activitybar`”两个假设整个工作台都在用，`validateLayoutDoc` 与 `fitsSkeleton` 都不查
+
+严重程度：建议；类别：不变量
+位置：packages/nb-layout/src/layout-doc.ts:1312-1326（条的叶只验 `ref`）、packages/neuro-book/src/plugins/workbench/web/state/default-tree.ts:147（`isBar` 只比 `barOfRef(node.ref)`）；依赖这个假设的地方：components/WorkbenchSurface.vue:16-20、367、`node.id === STATUS_BAR`、layout-drag.ts:391（`[data-leaf='statusbar']`、`[data-shell-card='activitybar']`）、layout-drag.ts:154（`BAR_REGION = BAR_STRIP = "activitybar"`，entry-drop.ts:14 的注释“面板 id 是随机串或名字，撞不上”）
+
+现象：
+- 条在树里是 `{kind:"leaf", id:"activitybar", ref:"bar:activitybar"}`（`default-tree.ts:95、103`）。画条的地方一律按 **叶 id** 判：Surface 里 `node.id === STATUS_BAR` 才进状态栏插槽，`ACTIVITY_BAR` 才画活动栏，`PLAIN`、`BARS`（最大化的 `exclude`）、`layoutCardEdges({activitybar: ACTIVITY_BAR})`、拖动里排除区 `[data-leaf='statusbar']`、`[data-shell-card='activitybar']` 都是。
+- 校验只管 `ref`：panel 叶要求 `panelId === leaf.id`（行 1323），条的叶却只要 `ref` 对（行 1317-1320 `continue`），`fitsFrame` 的 `isBar` 也只比 `ref`。所以 `{id:"x", ref:"bar:activitybar"}` 通过两道关；再配一个 id 为 `"activitybar"` 的 panel 叶（`ref:"panel:activitybar"`，`validateLayoutDoc` 对面板 id 只拒 `__proto__` 等三个）也通过。
+- 这两种文档画出来：第一种没有活动栏插槽（叶 id 不是 `activitybar`，走 panel 分支，`roleOf` 为 null，卡片空着）；第二种把一块普通面板画成活动栏。`BAR_STRIP`（拖动的“标签条 id”与键盘区域 id）和面板 id 共用一个命名空间，注释里写的“撞不上”靠的是“没人会取这个名字”。
+
+为什么是问题：`validateLayoutDoc` 的注释写“形状的唯一权威（读记录时调）”，记录来自磁盘、别的窗口、模板；一个类型对、骨架对、却画不出条的文档不会触发回落默认树，用户会得到一个没有活动栏的工作台并且“保存”也不会纠正。现在没有路径能产生这种文档（`default-tree` 与 `apply` 都不会），所以只是校验没守住自己写给下游的假设。
+
+如何核实：`validateLayoutDoc` 喂一份把默认树里活动栏叶的 `id` 改成 `"bar-a"` 的文档，返回 `ok: true`，`fitsSkeleton` 也返回 true；浏览器里把用户记录（`LAYOUT_DOC_RECORDS`）里这个 id 改掉后重载，看活动栏（从代码推断，没有在浏览器里看）。
+
+建议改法：校验里对条的叶加 `leaf.id === bar`（和 panel 叶同一行规则，一行代码）；`BAR_STRIP` 的“撞不上”改成校验里拒掉 id 为 `activitybar`、`statusbar` 的 panel 叶（同一处）。不需要再加机制。
+
+
+## design-05
+
+### 5. “隐藏的区域按拖到零画”靠同一个类型的文档改写实现：记录的文档与呈现的文档不可区分，同一个判定函数在两份上答案相反，选错编译不报
+
+严重程度：建议（代价，不是对决策的质疑）；类别：代码质量
+位置：packages/nb-layout/src/layout-doc.ts:259（`hiddenRegionsAtZero`）、234（`isPanelShown`）、288（`sectionCollapseBlock` 里的条件改写）；调用方：packages/nb-layout/src/layout-project.ts:110、packages/neuro-book/src/plugins/workbench/web/state/layout-present.ts:52、packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:173
+
+现象：
+- 开发者 2026-11-15 的决定是“隐藏的区域按拖到零画”。实现是 `hiddenRegionsAtZero(doc): LayoutDoc`：把隐藏的锚改写成 `{...anchor, hidden 去掉, collapsed: true}`，返回的仍是 `LayoutDoc`。
+- `isPanelShown(doc, id)` 的注释写“面板看不看得见只有这一个判定，别处不直接读 `hidden`”。但它在两份文档上答案相反：在记录的文档上，隐藏区域的分节是 `false`；在 `hiddenRegionsAtZero` 的结果上是 `true`（锚没有 `hidden` 了）。两种答案各有用处，调用方必须自己选对哪份文档：
+  - 用记录：`regionOccupied`、`presentationCollapse` 的 `shown`（`layout-project.ts:189`）、Shell 里焦点回收（`WorkbenchShell.vue:445`）、`measureGeometry`（拖动落点，不落到零宽面板上）。
+  - 用呈现：`projectLayoutDoc`（`layout-project.ts:110、148`）、`effectiveVisibleTabs`（`layout-present.ts:52`）、`WorkbenchSurface.sceneCorners`（`WorkbenchSurface.vue:173`）；`sectionCollapseBlock` 在 `layout-doc.ts:288` 里临时改写再问。
+- 一共 5 处各自调 `hiddenRegionsAtZero`；`WorkbenchSurface.vue:173` 的调用写在 `flatMap` 回调里，每个区域各改写一次（2 次），不是 bug，说明调用方没有“拿到呈现文档”的单一入口。
+
+为什么是问题：把“记录”与“呈现”两个事实做成同一个类型，等于靠每个调用点的注释自觉。新写一个看“这块面板显示吗”的功能（比如键盘落点、状态栏计数），拿 `store.doc` 还是拿改写后的文档，类型检查不报，行为只在“区域隐藏着”这一种状态下才分叉，所以最容易漏测。`WorkbenchSurface.vue:173` 的 `isPanelShown(presented, id)` 与 `WorkbenchShell.vue:445` 的 `isPanelShown(next, panel)` 同名同形、答案相反，读者只能靠上下文猜。
+
+如何核实：`rg "hiddenRegionsAtZero|isPanelShown" packages --glob '!*.test.ts'` 数调用点；在一个侧栏隐藏的文档上分别对记录与 `hiddenRegionsAtZero(记录)` 调 `isPanelShown(…, 侧栏分节)`，得到 false 与 true。
+
+建议改法：最少的改法是把改写结果做成名义类型，例如 `type PresentedDoc = LayoutDoc & {readonly [presented]: true}`，`hiddenRegionsAtZero` 返回它；`projectLayoutDoc`、`effectiveVisibleTabs` 这类只该吃呈现文档的函数参数写 `PresentedDoc`，`isPanelShown` 拆成两个名字（`isPanelShown` 只收记录，呈现里问的叫 `isPanelDrawn`）。不改行为，不加运行时机制，类型检查就能挡住拿错的那一种。store 再提供一个 `presentedDoc` 计算属性，Surface 与 `layout-present` 都从它取，改写只在一处做。
+
+
+## design-06
+
+### 6. 每个 NestedGrid 有两份设备像素比来源、两份窗口 resize 监听；分隔线对齐监听整页的捕获阶段 scroll
+
+严重程度：建议；类别：代码质量（兼性能，从代码推断）
+位置：packages/nb-layout/src/vue/NestedGrid.vue:112、114；packages/nb-layout/src/vue/useSashSnap.ts:34-36、57-60；packages/nb-layout/src/vue/useDevicePixelRatio.ts:25-33
+
+现象：
+- `NestedGrid.vue:112` 自己调 `useDevicePixelRatio()`（给 `placeGrid`、内容层、过渡用）；`NestedGrid.vue:114` 的 `useSashSnap()` 里又调一次（`useSashSnap.ts:35`），给分隔线对齐用。每次调用各挂一个 `window` 的 `resize` 监听与一个 `matchMedia("(resolution: …dppx)")` 的 `change` 监听。`useSashSnap.ts:34` 的注释写“设备像素比只有一个来源”，实际一个网格有两个，彼此独立更新：缩放变化时 `treePlacement` 按第一个 ref 重算，`snap(dpr.value)` 读第二个 ref，两份值在同一个事件里分别被改，中间的一次渲染里两者可以不一致。
+- `useSashSnap.ts:59`：`window.addEventListener("scroll", schedule, {capture: true, passive: true})`，整页任何滚动容器滚动都排一帧，这一帧对该网格名下全部分隔线跑对齐函数（读 `getBoundingClientRect`，见文件头注释）。注释给的理由是“滚动改变接缝在视口里的位置”，但网格根是 `overflow: clip`、高度固定（`NestedGrid.vue` 样式），分隔线的视口位置只会被它的祖先滚动改变；编辑器正文、聊天记录、文件树这些在网格内容里的滚动不会移动任何分隔线，却同样触发。工作台一个页面一般有 1 个主网格加几个嵌套的，每个各挂一份。
+- 同类的“每个实例各挂全局监听”：`useSashGesture.ts:552-553` 每个实例挂 `window` 的 `blur` 与 `document` 的 `keydown`（捕获）。
+
+为什么是问题：
+- 两份 dpr 是一个明确的违反自己注释的重复；而且“值不一致的一拍”是 dpr 这类取整依赖的典型来源（分隔线按 dpr 取整对齐，位置按另一个 dpr 取整摆放，发丝缝）。
+- 滚动监听的理由不成立：不是本网格祖先的滚动不需要重新对齐。一次滚动手势 60 帧、主网格 N 条分隔线（默认树约 5 条，拖出几个分组后可到十几条）就是 60×N 次读几何；每次滚动编辑器、聊天记录都付这笔钱，换不到任何东西。
+
+如何核实：
+- 浏览器里：Performance 录制时滚动编辑器正文，看每帧是否有 `useSashSnap` 的 rAF 回调与 `getBoundingClientRect`；或在 `schedule` 里加计数器（本地临时，不提交）。
+- 代码里：`rg "useDevicePixelRatio" packages/nb-layout/src/vue` 看到 NestedGrid、useSashSnap 各一次（Splitter 同理）。
+
+建议改法：
+- `useSashSnap` 接受外部传入的 `dpr` ref（`useSashSnap(dpr)`），NestedGrid 把自己那份传进去，删掉内部的第二个来源；`useDevicePixelRatio` 就剩一个调用方。
+- scroll 监听改为只监听网格根的祖先滚动容器，或者去掉监听、改成在 `ResizeObserver`/`IntersectionObserver` 触发的 `schedule` 里就够（接缝位置改变要么是网格尺寸变，要么是祖先位移）。去掉前先确认当初加它的失败用例（`git log -S"scroll" -- packages/nb-ui/src/composables/useSashGesture.ts`）。
+
+
+## design-07
+
+### 7. 三处注释写“库不知道角色、名字、容器的含义”，而 nb-layout 的 `layout-doc.ts` 把这三样都写死了；容器的规则散在库、store、entry-drop 三处
+
+严重程度：建议；类别：代码质量 / 文档
+位置：packages/neuro-book/src/plugins/workbench/web/entry-drop.ts:3（“库不知道容器的含义”）、state/layout-constraints.ts:2（“库不知道角色与名字的含义”）、state/default-tree.ts:184（“骨架是工作台的规则，库不知道”）；对照 packages/nb-layout/src/layout-doc.ts:21-22（`PanelName`、`PanelRole`）、29-48（`PanelRecord` 的 `container`、`entries`、`activeContainer`）、164（`isContainerAnchor`）、680-715（`setActiveContainer`、`setContainerEntries`、`splitIntoSections`）、1353-1360（校验里写死“只有工具面板有归属”“面板名只能是 sidebar、auxiliarybar、panel”）
+
+现象：
+- 库里有：区域名与方向（`REGION_ORIENTATION`）、`tool|editor` 角色并在校验里要求“树里至少一个编辑组”、容器的归属字段与入口顺序及其结构操作、“底部面板的分节不折叠”（`sectionCollapseBlock`）、条名 `activitybar|statusbar`。`rg -c "container|Container"`：`layout-doc.ts` 82 处、`layout-drop.ts` 15 处；工作台侧 `state/containers.ts` 57 处、`entry-drop.ts` 43 处、`layout-doc-store.ts` 54 处。
+- 工作台的三个文件注释却写库不知道。`LayoutPolicy` 注释“库不知道角色的含义”（`layout-doc.ts:87`）只对约束与接受矩阵成立，不对文档模型成立。
+- 实际的分界是：库拥有文档模型与全部结构操作（含区域、角色、容器）；工作台拥有骨架（`fitsSkeleton`）、活动栏入口条的落点（`entry-drop`）、约束数值与默认树。这条线没有写在任何地方，`packages/nb-layout/AGENTS.md` 的“边界”一节只讲依赖方向（不依赖 Vue、DOM），没讲职责。
+
+为什么是问题：
+- 新规则放哪一层，现在靠这几条注释判断。读到“库不知道容器”的人（包括 Agent）会把容器规则写进工作台，库里又有一半在，同一件事写两遍：例如“入口顺序里谁看得见”在 `regionContainers`（工作台）、`setContainerEntries`（库）、`placeEntry`（`entry-drop.ts:124`）各有一份边界处理。
+- 这是 AGENTS.md 里要求的“追到上游选择”：nb-layout 的名字与 README 写“布局工具”，内容有一半是工作台的文档模型。若要让它真成为通用布局工具，`layout-doc.ts` 的 `PanelName`、`PanelRole`、容器那一整节应当留在工作台；若不打算，就把包的定位写成“工作台的布局模型与布局工具”。两条路都可以，现在是两头都没写明。
+
+如何核实：`rg "库不知道" packages/neuro-book/src packages/nb-layout/src --glob '!*.test.ts'`，对照 `layout-doc.ts` 上面列的行。
+
+建议改法（最少的）：
+1. 改三处注释，并在 `packages/nb-layout/AGENTS.md` 的“边界”里加一段职责分界（库：文档模型与结构操作；工作台：骨架、入口条、约束数值）。不动代码。
+2. `layout-doc.ts` 1374 行在内部有六段（标签、分节与容器、外缘、浮动、显隐收起、校验），其中“校验”（1262-1374，只依赖 `GridSnapshotNode` 与 `tabKey`）与“浮动”（1069-1155）互不依赖，可以先拆成 `layout-doc-validate.ts`、`layout-float.ts`；“分节与容器”留在 `layout-doc.ts`。不是为了行数，是因为拆开后“库知道容器”这件事才有一个能被指着的文件。
+
+
+## design-08
+
+### 8. 第 7 条收窄
+
+核对 `layout-doc.ts:692` 与 `containers.ts:233-255` 后：库对入口顺序的说法是“库不管哪些容器该在里面（有没有成员归宿主算），只守记录自己的规则”，`settleContainers` 正是宿主按成员补、删入口再调库的操作，这条分界在容器的入口顺序上是清楚的、一致的。所以第 7 条里“`placeEntry`、`setContainerEntries`、`regionContainers` 同一件事各有一份边界处理”的例子撤回，“容器规则散在三处”的说法也收窄为：规则分工在 `setContainerEntries` 的注释里写过，但包级的 AGENTS.md 与另外三处注释没有同一句话，三处注释“库不知道容器/角色/名字的含义”过强。
+
+第 7 条保留的部分：（1）三处注释与 `layout-doc.ts` 实际写死 `PanelName`、`PanelRole`、容器归属字段不符，严重程度仍是建议；（2）`validateLayoutDoc`（约 110 行，与别的段无依赖）与浮动窗那一段（约 90 行）可以拆成单独文件；（3）把职责分界写进 `packages/nb-layout/AGENTS.md`。
+
+
+## design-09
+
+### 9. 实时布局的“来源收起”这一位有三份表示、两个所有者，靠一个回调对齐；`createLayoutDrag` 是 850 行、17 个可变绑定的闭包，复位散在三处
+
+严重程度：重要（改动时最容易出错的地方，已有的测试靠 e2e 兜）；类别：代码质量
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:190-1041（整个 `createLayoutDrag`）、212（`sourceCollapsed`）、214（`beforeCollapse`）、260-279（`collapseSource`、`expandSource`）、685（`held`）、902-914（`activate` 的复位）、968-978（`onActiveChange(false)` 的复位）；packages/neuro-book/src/plugins/workbench/web/live-drag.ts:128（`collapsed`）、218-226、252-266
+
+现象：
+1. “来源此刻收起着”这一位有三份：`live-drag.ts` 的 `collapsed`、`layout-drag.ts:212` 的 `sourceCollapsed`、以及 `beforeCollapse !== null`（`layout-drag.ts:214`）。后两份总是一起写、一起清（行 263-265 与 272-275；`activate` 里 911-912 一起清），`sourceCollapsed` 完全可由 `beforeCollapse !== null` 推出；`live-drag` 的 `collapsed` 在调用 `host.collapseSource` 之前先置位，所以如果 `collapseSource` 走了它的早退（`!result.ok || frozen === null`，行 262），live 认为已收起而 layout-drag 的几何没有换、`sourceCollapsed` 为假——两边对不上，之后 `candidateDoc` 里的 `!sourceCollapsed`（行 247）判断就与 live 的预览相反。现在 `frozen === null` 走不到（`activate` 的 `nextTick` 会先冻结），但是靠时序碰巧成立，没有断言。
+2. `createLayoutDrag` 一个闭包里有 17 个可变绑定：`previews`、`previewsOf`、`frozen`、`newContainer`、`sourceCollapsed`、`beforeCollapse`、`pressedAt`、`windowDrag`、`overRejected`、`editorRefusal`、`sorting`、`sortGrab`、`held`、`shownDrop`、`shownDropKey`，加上 `rejected`、`live`。复位分在 `activate`（`previews`、`sortGrab`、`pressedAt`、`held`、`editorRefusal`、`shownDrop*`、`frozen`、`beforeCollapse`、`sourceCollapsed`、`windowDrag`、`newContainer`）、`resolve`（`overRejected`、`editorRefusal`）、`onActiveChange(false)`（`frozen`、`beforeCollapse`、`windowDrag`；不清 `held`、`sourceCollapsed`、`sorting`），新加一个绑定必须同时想到三处。`held`（行 685）用 `let` 声明在 `live`（行 233）的回调之后，回调在行 269、278 就引用它，读者要知道回调晚于声明才会被调用。
+3. 状态在两个模块之间往返：`live-drag.tick` → `host.settleDrop()`（即 `session.flush()`）→ `resolve` → `dropAt` 读 `frozen`/`held`；`live-drag.stepPreview` → `host.collapseSource` 回写 `frozen`、`beforeCollapse`、`held`，这些又是下一次 `resolve` 的输入。`session` 在行 899 才创建，`live` 的回调（`pointer`、`settleDrop`、`collapseSource`）在行 233 起就引用它。
+4. 大小：这个闭包里至少四块互相不依赖的东西：(a) 落点解析（`dropAt`、`dropFor`、`stripDrop`、`entryDrop`、`windowDrop`、`answeredByEditor`、`sectored`，行 387-780）；(b) 标签条里排序跟手（`sortTargetOf`、`measureSorted`、`releaseSorted`，行 306-368）；(c) 冻结与收起后的几何（`freeze`、`heldTabOf`、`collapsed`、`barAfterCollapse`，行 528-604）；(d) 键盘区域（`pointOfCandidate`、`stopsOf`、`keyboard.regions/start`，行 788-837、980-1037）。
+5. 附带：`LiveDrag.origin()`（`live-drag.ts:91`、298）没有调用方（`rg "\.origin\(\)" packages/neuro-book/src/plugins/workbench/web` 无命中）。
+
+为什么是问题：2 和 3 是这套手势最容易被改坏的地方：t25 之后的最近五个提交（`eb742db90`、`954ed9e94` 等）都在这几个绑定上加东西。1 是“同一事实三份拷贝、靠写的顺序一致”，现在没出错，下一次有人在 `collapseSource` 里加一个早退就会出错。
+
+如何核实：读上述行；删掉 `sourceCollapsed`，把行 247 换成 `beforeCollapse === null`，`bun run test:affected`（或 `bunx vitest run`）里 `live-drag.test.ts`、`layout-drag.test.ts` 应当全过。
+
+建议改法（让部件变少的）：
+- 先删冗余：删 `sourceCollapsed`（用 `beforeCollapse !== null`），再让 `live-drag` 暴露 `collapsed` 只读，`layout-drag` 不再另持。删 `LiveDrag.origin`。
+- 把每场的绑定收成一个对象 `let run: Run | null`，在 `activate` 里 `run = freshRun(source, ...)`，`onActiveChange(false)` 里 `run = null`：复位只剩一处，漏复位变成类型错误（`run` 为 null 时读不到）。`previews`、`frozen`、`held`、`sortGrab`、`windowDrag`、`pressedAt`、`newContainer` 都是每场的，进 `Run`。
+- 再按上面 (b)(c)(d) 拆出三个文件，各自只拿 `Run` 的一部分与 `options`；`createLayoutDrag` 剩 (a) 与装配。这不是为了行数：拆之后 `collapseSource` 回写的就是 (c) 模块的状态，不再是闭包里的任意变量。
+
+
+## design-10
+
+### 10. 第 9 条收窄，并补一条：`createLayoutDrag` 没有单元测试
+
+第 9 条的更正：
+- “最近五个提交都在这几个绑定上加东西”撤回：我只看了 `git log` 的提交标题（`eb742db90`、`954ed9e94` 动的是 `heldTab` 一族，`9f7a786db` 是 Surface，`9f34ed193` 是 nb-layout），没有逐个核对 diff，不能这么写。
+- “`live-drag.test.ts`、`layout-drag.test.ts` 应当全过”里的 `layout-drag.test.ts` 不存在，见下；删 `sourceCollapsed` 后的结果我没有跑，只是推断。第 9 条其余结论不变。
+
+新增发现：
+
+严重程度：重要；类别：测试
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts（1041 行）
+
+现象：`packages/neuro-book/src/plugins/workbench/web/` 下的测试只有 `drag-presentation.test.ts`、`entry-drop.test.ts`、`live-drag.test.ts`；`rg "createLayoutDrag|layout-drag" --glob '*.test.ts' packages/neuro-book` 只命中两处 `import type`，没有测试调用 `createLayoutDrag`。1041 行里的落点解析、来源收起后的几何换算（`collapsed`，行 558-588）、活动栏入口收起后的上移（`barAfterCollapse`，行 594-604）、标签条排序的位置（`measureSorted`）、键盘停靠点（`pointOfCandidate`、`stopsOf`）、`activate` 与 `onActiveChange` 的复位，只有 `e2e/workbench-live-drag.e2e.ts`、`workbench-dnd.e2e.ts` 等在真实浏览器里走一遍。
+对照：同一条链上的 `live-drag.ts`（340 行）有 `live-drag.test.ts`，`entry-drop.ts`（174 行）有 `entry-drop.test.ts`，nb-layout 里 `drag-session.dom.test.ts` 286 行、`drag-gesture.test.ts` 834 行。
+
+为什么是问题：
+- 这个文件是最近几轮改动最集中的地方（第 9 条），回归只能由 e2e 发现，而 e2e 一次要起三份产物、慢，并且仓库规定“改完只重跑覆盖改动的文件”。`collapsed`、`barAfterCollapse`、`stripIndex`、`pointOfCandidate`、`heldTabOf` 的输入是文档加矩形，输出是矩形或点，完全可以不要浏览器测，却因为它们住在闭包里没法单测。
+- 第 9 条里说的“三份表示不一致”这类问题，单元测试一条就能挡住。
+
+如何核实：`rg -n "createLayoutDrag" packages/neuro-book --glob '*.test.ts'`；`rg -c "layout-drag" packages/neuro-book/e2e`。
+
+建议改法：随第 9 条的拆分一起做：把 (c) 冻结与收起几何、(d) 键盘区域各拆成纯函数文件，输入 `FrozenGeometry`、文档、投影选项，直接写 bun 单测；闭包里剩下的只有 DOM 读取与装配，由现有 e2e 覆盖。不要给整个 `createLayoutDrag` 补 happy-dom 测试：没有真实布局，矩形全是 0，测不出东西。

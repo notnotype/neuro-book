@@ -74,8 +74,22 @@ const SUMMARIZED = {method: "nbook.agent.summary", tokensBefore: 92_400, tokensA
 const SUMMARY_TEXT = "## 用户的要求\n- 先写第三章，视角用第三人称限知。\n\n## 进度\n第一、二章已完成，第三章写到雨夜进药铺。\n\n## 下一步\n接着写“柜台后面没有人”这一段。";
 const compactionBase = (): AgentConversationContext["messages"] => longConversationMessages.slice(0, 4);
 
+/** 第一屏的最近对话：一条没有标题，时间跨今天、昨天与更早。 */
+export const WELCOME_RECENT = [
+    {id: "w1", title: "第三章节奏调整", at: Date.UTC(2026, 10, 16, 9, 50)},
+    {id: "w2", title: "", at: Date.UTC(2026, 10, 15, 21, 5)},
+    {id: "w3", title: "查第五章的错别字，并顺手统一人物称谓", at: Date.UTC(2026, 10, 12, 8, 0)},
+];
+/** 主创的三条开场指令（与 `main.ts` 的同一份文字）。 */
+export const WELCOME_STARTERS = [
+    {icon: "i-lucide-feather", text: "帮我润色一段环境描写：暴雨中的蒸汽工业城市，充满湿冷的金属味、雾气与钟声。文风克制冷峻，突出压抑感。"},
+    {icon: "i-lucide-git-merge", text: "规划第三幕高潮“雨夜钟楼对决”的细纲，设计三段递进的冲突转折，并让两条暗线在此处收束。"},
+    {icon: "i-lucide-shield-check", text: "对当前章节进行一致性体检，排查时间线冲突、战力体系失衡、伏笔漏洞以及高频重复词。"},
+];
+
 export const agentConversationViewScenes: Scene[] = [
     hostScene("idle-host", "宿主接好的样子：状态栏、审批模式", {}),
+    {...hostScene("status-line", "状态栏可右键：勾选菜单与“状态栏设置…”（设置为空）", {}), input: {...hostScene("status-line", "", {}).input, props: {...hostScene("status-line", "", {}).input.props, statusLine: {}}}},
     hostScene("compaction-summary", "压缩分隔线：摘要、放回、要求（点开看详情）", {messages: [...compactionBase(), compactionDivider("c1", {text: SUMMARY_TEXT, compaction: SUMMARIZED})]}),
     hostScene("compaction-shake", "压缩分隔线：整理工具结果，没有摘要也没有放回", {messages: [...compactionBase(), compactionDivider("c1", {compaction: {method: "nbook.agent.shake", tokensBefore: 92_400, tokensAfter: 41_000, model: null, require: [], restored: [], omitted: 6, keptTurns: null}})]}),
     hostScene("compaction-grew", "压缩分隔线：只有一轮，压缩后反而更大（不写节省）", {messages: [...compactionBase(), compactionDivider("c1", {text: SUMMARY_TEXT, compaction: {...SUMMARIZED, tokensBefore: 3_200, tokensAfter: 6_900, restored: [], require: [], model: {name: "p/m", input: 3_000, output: 1_900, cacheRead: 0, cacheWrite: 0, cost: null}, keptTurns: null}})]}),
@@ -88,7 +102,7 @@ export const agentConversationViewScenes: Scene[] = [
     hostScene("host-running", "运行中：阶段与用时", {messages: runningConversationMessages, run: {status: "running", phase: "生成中", startedAt: runningConversationNow - 12_000}, now: runningConversationNow}),
     hostScene("host-retry", "等重发", {messages: runningConversationMessages, run: {status: "running", phase: "请求中", retry: {attempt: 2, max: 5, resumeAt: runningConversationNow + 8_000}}, now: runningConversationNow}),
     hostScene("host-stopping", "正在停止，超过 10 秒", {messages: runningConversationMessages, run: {status: "stopping", phase: "", startedAt: runningConversationNow - 60_000}, stopRequestedAt: runningConversationNow - 12_000, now: runningConversationNow}),
-    hostScene("host-cost", "费用超过告警线、全部放行", {usage: {...USAGE, cost: 1.02, costState: "warned"}, composer: {approval: {...APPROVAL_MODES, value: "yolo"}}}),
+    hostScene("host-cost", "费用超过告警线；全部放行只在工具栏标红", {usage: {...USAGE, cost: 1.02, costState: "warned"}, composer: {approval: {...APPROVAL_MODES, value: "yolo"}}}),
     hostScene("host-context-high", "上下文 91%", {usage: {...USAGE, contextTokens: 116_480}}),
     hostScene("host-offline", "断线", {connection: {status: "disconnected", actionRequired: false}}),
     hostScene("host-resume", "中断的会话：占位文字与继续按钮", {composer: {resume: true}}),
@@ -96,9 +110,9 @@ export const agentConversationViewScenes: Scene[] = [
     hostScene("approval-long", "审批：长 diff，向导内部滚动", {...WAITING, pendingInputs: [editApproval("long", CHAPTER, LONG_BEFORE, LONG_AFTER)]}),
     hostScene("approval-batch", "审批：一条回复三个调用，一步一个", {...WAITING, pendingInputs: [editApproval("a"), shellApproval, editApproval("c", "project://正文/第四章.md")]}),
     hostScene("modes-normal", "两个控件并排：普通模式", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
-    hostScene("modes-plan-allow-writes", "两个控件并排：计划模式加放行写入，审批控件变淡，状态栏标出", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
+    hostScene("modes-plan-allow-writes", "两个控件并排：计划模式加放行写入，审批控件变淡", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
     hostScene("modes-with-role", "选了模型角色：角色名、实际用的模型、思考档位", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}, roles: [{key: "role:main", name: "主力", axis: "gradient", modelLabel: "Claude Sonnet"}], modelKey: "role:main", effectiveModel: "Claude Sonnet", thinkingLevels: ["low", "medium", "high"], thinking: "medium"}}),
-    hostScene("modes-plan-yolo", "计划模式加全部放行：红色警告保留", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "yolo"}}}),
+    hostScene("modes-plan-yolo", "计划模式加全部放行：工具栏的红色警告保留，状态栏不另标", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "yolo"}}}),
     hostScene("mode-switch-plan", "退出计划：批准计划", {...WAITING, composer: {modes: MODES, mode: "plan"}, pendingInputs: [modeSwitchPlan(SHORT_PLAN)]}),
     hostScene("mode-switch-plan-long", "退出计划：长计划，内容区滚动，按钮固定", {...WAITING, composer: {modes: MODES, mode: "plan"}, pendingInputs: [modeSwitchPlan(LONG_PLAN)]}),
     hostScene("mode-switch-simple", "别的切换：一句话", {...WAITING, composer: {modes: MODES, mode: "normal"}, pendingInputs: [{kind: "mode-switch", id: "ms", toolCallId: "call-ms", fromLabel: "普通", toLabel: "计划", approval: APPROVAL_MODES}]}),
@@ -262,14 +276,86 @@ export const agentConversationViewScenes: Scene[] = [
     },
     {
         id: "no-session",
-        label: "未选择会话",
+        label: "没选会话：头写“新对话”，第一屏有最近对话与开场指令",
         input: {
             props: {
                 ctx: conversationContext({
                     session: null,
                     messages: [],
                     availability: {status: "unselected", message: "选择或新建一个会话后开始对话。", actions: []},
+                    now: Date.UTC(2026, 10, 16, 10, 0),
                 }),
+                newSession: true, draftProfile: {name: "主创", icon: "i-lucide-feather"},
+                welcome: {title: "NeuroBook 创作工作区", recent: WELCOME_RECENT, total: 12, starters: WELCOME_STARTERS},
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "welcome-first",
+        label: "第一次用：没有最近对话，只有开场指令",
+        input: {
+            props: {
+                ctx: conversationContext({session: null, messages: [], availability: {status: "unselected", message: "", actions: []}}),
+                newSession: true, draftProfile: {name: "主创", icon: "i-lucide-feather"},
+                welcome: {title: "NeuroBook 创作工作区", recent: [], total: 0, starters: WELCOME_STARTERS},
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "welcome-bare",
+        label: "第一屏什么都没有：Profile 没有开场指令，也没有别的会话",
+        input: {
+            props: {
+                ctx: conversationContext({messages: []}),
+                newSession: true,
+                welcome: {title: "NeuroBook 创作工作区", recent: [], total: 0, starters: []},
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "model-notice-role",
+        label: "模型用不了：角色没绑定，提示卡写出角色，按钮去绑定",
+        input: {
+            props: {
+                ctx: conversationContext({availability: {status: "profile-unavailable", title: "“写作”角色还没绑定模型", message: "主创用“写作”角色的模型对话。", icon: "i-lucide-link-2-off", actions: [{id: "bind-role", label: "去绑定"}]}}),
+                newSession: true,
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "model-notice-provider",
+        label: "模型用不了：一家服务商都没有，第一屏上压着“添加服务商”",
+        input: {
+            props: {
+                ctx: conversationContext({
+                    session: null,
+                    messages: [],
+                    availability: {status: "profile-unavailable", title: "还没有可用的模型", message: "先添加一个服务商（DeepSeek、OpenAI、本机的 Ollama 都行），再回来对话。", icon: "i-lucide-plug-zap", actions: [{id: "add-provider", label: "添加服务商"}]},
+                }),
+                newSession: true, draftProfile: {name: "主创", icon: "i-lucide-feather"},
+                welcome: {title: "NeuroBook 创作工作区", recent: [], total: 0, starters: WELCOME_STARTERS},
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "child-session",
+        label: "子会话：头的左边是返回，中间是子代理的图标与标题",
+        input: {
+            props: {
+                ctx: conversationContext({
+                    session: {...conversationContext().session!, id: "child", title: "查第三章的称谓是否前后一致", profileName: "核对员", profileIcon: "i-lucide-spell-check", path: [{id: "root", title: "第三章节奏调整"}]},
+                }),
+                newSession: true,
                 teleportTarget: false, locale: "zh-CN",
             },
             model: {viewMode: "turns"},

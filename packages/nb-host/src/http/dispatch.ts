@@ -173,11 +173,16 @@ function decodeSegment(segment: string): string | null {
     }
 }
 
-/** 去掉挂载前缀后转交；方法、头、正文与取消信号随原请求保留。 */
+/**
+ * 去掉挂载前缀后转交；方法、头、正文与取消信号随原请求保留。
+ *
+ * 正文要显式传 `request.body` 并写 `duplex: "half"`：`new Request(url, request)` 会把原请求的正文分成两路，没人读的那一路把
+ * 已经读过的全部字节留在内存里，上传多大内存就涨多大（本机实测 160 MiB 的上传峰值多约 100 MiB）。显式传流时只有一路。
+ */
 function forwardedRequest(request: Request, url: URL, path: string): Request {
     const target = new URL(url);
     target.pathname = path;
-    return new Request(target.href, request);
+    return new Request(target.href, {method: request.method, headers: request.headers, body: request.body, signal: request.signal, duplex: "half"} as RequestInit);
 }
 
 /**

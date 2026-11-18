@@ -1,0 +1,33 @@
+import {cc, dlopen, ptr} from "bun:ffi";
+import {copyFileSync, mkdirSync} from "node:fs";
+import {join, relative} from "node:path";
+const dir = join(import.meta.dir, "中文 目录", "src");
+mkdirSync(dir, {recursive: true});
+const src = join(dir, "sub2.c");
+copyFileSync(join(import.meta.dir, "sub2.c"), src);
+const k = dlopen("kernel32.dll", {GetModuleHandleW: {args: ["ptr"], returns: "ptr"}, LoadLibraryW: {args: ["ptr"], returns: "ptr"}, GetProcAddress: {args: ["ptr", "cstring"], returns: "ptr"}}).symbols;
+const w = (s: string) => ptr(Buffer.from(s + "\0", "utf16le"));
+const user32 = k.LoadLibraryW(w("user32.dll"));
+const addr = (name: string) => k.GetProcAddress(user32, ptr(Buffer.from(name + "\0")) as any);
+let lib;
+process.chdir(join(dir, ".."));
+const rel = relative(process.cwd(), src);
+console.log("cwd", process.cwd(), "relative", rel);
+try { lib = cc({source: rel, symbols: {init: {args: ["ptr", "ptr"]}, procAddr: {returns: "ptr"}}}); console.log("cc from non-ASCII path: ok", src); }
+catch (e) { console.log("cc from non-ASCII path FAILED:", String(e).slice(0, 200)); process.exit(0); }
+const h = lib.symbols;
+h.init(addr("CallWindowProcW"), addr("GetPropW"));
+const u = dlopen("user32.dll", {
+  CreateWindowExW: {args: ["u32", "ptr", "ptr", "u32", "i32", "i32", "i32", "i32", "ptr", "ptr", "ptr", "ptr"], returns: "ptr"},
+  SetPropW: {args: ["ptr", "ptr", "u64"], returns: "bool"},
+  SetWindowLongPtrW: {args: ["ptr", "i32", "ptr"], returns: "u64"},
+  GetWindowLongPtrW: {args: ["ptr", "i32"], returns: "u64"},
+  SendMessageW: {args: ["ptr", "u32", "u64", "ptr"], returns: "i64"},
+  DestroyWindow: {args: ["ptr"], returns: "bool"},
+}).symbols;
+const a = u.CreateWindowExW(0, w("STATIC"), w("probe"), 0x00CF0000, 100, 100, 1000, 700, null, null, null, null);
+u.SetPropW(a, w("nbprev"), u.GetWindowLongPtrW(a, -4)); u.SetPropW(a, w("nbmin"), BigInt((800 << 16) | 560));
+u.SetWindowLongPtrW(a, -4, h.procAddr());
+const m = new Int32Array(10); u.SendMessageW(a, 0x24, 0n, ptr(m));
+console.log("no-library variant minTrack:", m[6], m[7]);
+u.DestroyWindow(a);

@@ -8,6 +8,7 @@
 import {agentRef, argString} from "@notnotype/nb-agent-ui";
 import type {AgentViewContribution, ToolCallView, ToolRendererEntry} from "@notnotype/nb-agent-ui";
 import LabAnswerNode from "./LabAnswerNode.vue";
+import LabWordCountStatus from "./LabWordCountStatus.vue";
 import LabUnverifiedRefsEntry from "./LabUnverifiedRefsEntry.vue";
 
 const tools: ToolRendererEntry[] = [
@@ -46,6 +47,12 @@ function answerSummary(call: ToolCallView): string {
     const reason = call.error?.split("\n", 1)[0]?.trim() ?? "";
     return reason === "" ? "没有完成" : `退回：${reason}`;
 }
+
+/** 宿主加的状态栏项样例：一个左边的“本会话改的字数”（来自插件，缺省关）。 */
+export const labStatusItemsContribution: AgentViewContribution = {
+    source: "lab:status-items",
+    statusItems: [{id: "lab.words", component: LabWordCountStatus, side: "left", title: "本会话改的字数", description: "来自插件“字数统计”", source: "字数统计"}],
+};
 
 export const labDomainToolsContribution: AgentViewContribution = {
     source: "lab:neurobook-tools",

@@ -26,7 +26,7 @@ import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 
 import {provideAgentSceneText} from "./agent-text";
 import {labAttachmentUrls} from "./data";
-import {labDomainToolsContribution} from "./domain-tools";
+import {labDomainToolsContribution, labStatusItemsContribution} from "./domain-tools";
 
 export const labAgentRenderers: AgentViewRenderers = {form: AgentFormRenderer, markdown: MarkdownDisplay, promptEditor: PromptEditor, promptTextView: PromptTextView};
 
@@ -75,5 +75,5 @@ export function labAgentServices(): AgentConversationServices {
 
 /** 内置登记（四份一次拿全）加 NeuroBook 的领域工具。 */
 export function labAgentRegistry(): AgentViewRegistry {
-    return createAgentViewRegistry([...builtinContributions, labDomainToolsContribution]);
+    return createAgentViewRegistry([...builtinContributions, labDomainToolsContribution, labStatusItemsContribution]);
 }

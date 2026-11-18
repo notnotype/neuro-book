@@ -10,6 +10,7 @@ import type {MessageView, ToolCallView} from "@notnotype/nb-agent-ui";
 
 import {MODE_SWITCH_KIND} from "../shared/permissions";
 import type {TreeItem, TreePending} from "../shared/subagents";
+import {displayToolName} from "./session-host";
 
 /** `denied`、`invalid`：调用没执行（被拒、参数不合 schema），没有派出；`unknown`：不知道派没派出（调用 `unknown`、进程崩溃留下的）。 */
 export type CardState = "preparing" | "dispatch-failed" | "denied" | "invalid" | "running" | "waiting" | "question" | "done" | "failed" | "aborted" | "interrupted" | "unknown";
@@ -19,8 +20,10 @@ export interface CardModel {
     readonly childId: string | null;
     readonly name: string;
     readonly icon: string;
-    /** 进度或结果的一行；状态的前缀由组件加。 */
+    /** 进度或结果的一行；状态的前缀由组件加。运行中有最近一步时为空，组件按 `step` 写。 */
     readonly line: string;
+    /** 运行中最近的一步。 */
+    readonly step?: Step;
     /** 运行中：这次运行的工具调用数与开始时刻。 */
     readonly tools?: number;
     readonly startedAt?: number;
@@ -36,29 +39,53 @@ export interface CardModel {
     readonly waitingFor?: WaitingFor;
 }
 
+/**
+ * 子代理最近的一步：`tool` 是视图认的工具名（`displayToolName`，与对话视图注册表的键相同），组件据此写动作名；`target` 是
+ * 对象，地址只留最后一段（`project://正文/第二章.md` 写 `第二章.md`）。
+ */
+export interface Step {
+    readonly tool: string;
+    readonly target?: string;
+}
+
+/** `approval` 的 `tool` 同 `Step.tool`。 */
 export type WaitingFor = {readonly kind: "approval"; readonly tool: string} | {readonly kind: "question"; readonly text: string} | {readonly kind: "mode-switch"};
 
 type Details = {readonly sessionId?: string; readonly jobId?: string; readonly runId?: string; readonly status?: string; readonly line?: string; readonly code?: string; readonly jobs?: readonly {readonly runId?: string; readonly state?: string; readonly line?: string}[]};
 
 const TERMINAL: Readonly<Record<string, CardState>> = {completed: "done", failed: "failed", aborted: "aborted", interrupted: "interrupted"};
-const RUN_REASON: Readonly<Record<string, CardState>> = {finished: "done", completed: "done", error: "failed", aborted: "aborted", interrupted: "interrupted"};
+/** 运行的收口原因 → 状态；卡片与子代理浮层共用（输出 33、43 的“同一套状态”）。 */
+export const RUN_REASON: Readonly<Record<string, "done" | "failed" | "aborted" | "interrupted">> = {finished: "done", completed: "done", error: "failed", aborted: "aborted", interrupted: "interrupted"};
 const NAME_CHARS = 30;
 
 const detailsOf = (call: ToolCallView): Details => (call.result?.details ?? {}) as Details;
 const record = (value: unknown): Readonly<Record<string, unknown>> => (value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
 
 /** 事项的请求是内核事件里的原文：审批带工具 id，提问带 `data.questions`，模式切换的 `data.kind` 是 `mode-switch`。 */
-function waitingOf(item: TreePending | undefined): WaitingFor | undefined {
+export function waitingOf(item: TreePending | undefined): WaitingFor | undefined {
     if (item === undefined) return undefined;
     const request = record(item.request);
     if (item.kind === "approval") {
-        const tool = typeof request.tool === "string" ? request.tool : "";
-        return {kind: "approval", tool: tool.slice(tool.lastIndexOf(".") + 1)};
+        return {kind: "approval", tool: displayToolName(typeof request.tool === "string" ? request.tool : "")};
     }
     const data = record(request.data);
     if (data.kind === MODE_SWITCH_KIND) return {kind: "mode-switch"};
     const first = Array.isArray(data.questions) ? record(data.questions[0]) : {};
     return {kind: "question", text: typeof first.question === "string" ? first.question : ""};
+}
+
+/** 运行了多久，写成“分:秒”（卡片与子代理浮层的用时）。 */
+export function duration(ms: number): string {
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** 对象以地址开头时（`project://正文/第二章 雨夜.md`，文件名可以带空格）只留最后一段；含地址的命令、搜索词等原样。 */
+const ADDRESS = /^[a-z][a-z0-9+.-]*:\/\//iu;
+
+export function shortTarget(target: string): string {
+    if (!ADDRESS.test(target)) return target;
+    return target.slice(target.indexOf("://") + 3).split("/").filter((segment) => segment !== "").at(-1) ?? target;
 }
 
 function laterTerminal(messages: readonly MessageView[], runId: string, self: string): {readonly state: CardState; readonly line?: string; readonly result?: string} | null {
@@ -108,12 +135,13 @@ export function cardModel(call: ToolCallView, tree: ReadonlyMap<string, TreeItem
         const run = item?.runs.find((entry) => entry.runId === runId);
         if (run !== undefined) return {...base, state: RUN_REASON[run.reason] ?? "done", line: "", background};
         if (item !== undefined && item.runId === runId && item.state !== "idle") {
-            const step = item.step === undefined ? "" : `${item.step.tool}${item.step.target === undefined ? "" : ` ${item.step.target}`}`;
+            const step = item.step === undefined ? undefined : {tool: displayToolName(item.step.tool), ...(item.step.target === undefined ? {} : {target: shortTarget(item.step.target)})};
             return {
                 ...base,
                 state: item.state === "question" ? "question" : item.state === "waiting" ? "waiting" : "running",
-                line: item.state === "question" ? item.question?.text ?? "" : step,
+                line: item.state === "question" ? item.question?.text ?? "" : "",
                 background,
+                ...(step === undefined || item.state === "question" ? {} : {step}),
                 ...(item.tools === undefined ? {} : {tools: item.tools}),
                 ...(item.startedAt === undefined ? {} : {startedAt: item.startedAt}),
                 ...(item.state === "waiting" ? {waitingFor: waitingOf(item.pending?.[0])} : {}),

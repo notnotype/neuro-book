@@ -1,0 +1,54 @@
+import {afterAll, afterEach, beforeAll, expect, test} from "bun:test";
+import {rm, readFile, stat} from "node:fs/promises";
+import {join} from "node:path";
+import {mkdtemp} from "node:fs/promises";
+import {tmpdir} from "node:os";
+
+const A = "/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/agent";
+const {MAIN_PROFILE} = await import(`${A}/shared/contracts`);
+const {AGENT_MODES_EXTENSION} = await import(`${A}/shared/permissions`);
+const {fakeEndpoint, localModelSettings} = await import(`${A}/testing/endpoint`);
+const {agentWorld} = await import(`${A}/testing/world`);
+
+let root = "";
+let endpoint: any;
+const worlds: any[] = [];
+beforeAll(async () => { root = await mkdtemp(join(tmpdir(), "rv-approval-")); endpoint = fakeEndpoint(); });
+afterEach(async () => { endpoint.reset(); for (const w of worlds.splice(0)) await w.close(); });
+afterAll(async () => { endpoint.stop(); if (root !== "") await rm(root, {recursive: true, force: true}); });
+const cid = () => crypto.randomUUID();
+let n = 0;
+async function open(mode: string, approval: string) {
+    n += 1;
+    const w = await agentWorld(join(root, `w${n}`), {userSettings: {...localModelSettings(endpoint.baseUrl)}});
+    worlds.push(w);
+    const created = await w.service.create({profile: MAIN_PROFILE});
+    if (!created.ok) throw new Error(created.code);
+    const changed = await created.value.changeSettings({commandId: cid(), patch: {core: {approvalMode: approval}, [AGENT_MODES_EXTENSION]: {mode}}});
+    expect(changed.ok).toBe(true);
+    return {session: created.value, w};
+}
+const results = async (s: any) => (await s.path()).filter((e: any) => e.type === "toolResult").map((e: any) => e.data);
+const started = async (s: any) => (await s.path()).filter((e: any) => e.type === "toolStarted").map((e: any) => e.data);
+async function callTool(s: any, tool: string, args: any) {
+    const before = (await results(s)).length;
+    endpoint.script({tool, args}, "好");
+    const sent = await s.send({commandId: cid(), input: {text: "做"}});
+    await s.waitRun(sent.value.runId);
+    return (await results(s))[before];
+}
+
+test("plan + ask: shell redirect into host-written session://attachments/", async () => {
+    const {session} = await open("plan", "ask");
+    const viaWrite = await callTool(session, "write", {path: "session://attachments/a.txt", content: "x"});
+    console.log("write tool ->", viaWrite.status, viaWrite.code);
+    const first = await callTool(session, "shell", {command: "echo forged > session://attachments/b.txt"});
+    const dir = String(first.text).match(/redirect to (\/\S+)\/b\.txt/)?.[1];
+    console.log("dir", dir);
+    const {mkdir} = await import("node:fs/promises");
+    await mkdir(dir!, {recursive: true}); // 宿主收过一次附件后这个目录就存在
+    const viaShell = await callTool(session, "shell", {command: "echo forged > session://attachments/b.txt"});
+    console.log("shell ->", viaShell.status, viaShell.code);
+    console.log("file content:", JSON.stringify(await readFile(join(dir!, "b.txt"), "utf8")));
+    console.log("approval by:", JSON.stringify((await started(session)).map((d: any) => [d.tool, d.approval])));
+});

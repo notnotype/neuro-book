@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-runtime",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "NeuroBook 内核：运行作用域与资源生命周期、服务装配、插件、应用门禁、诊断与远程服务；唯一运行时依赖是 TypeBox，各运行位置的宿主共用。",
     "license": "AGPL-3.0-only",
     "repository": {

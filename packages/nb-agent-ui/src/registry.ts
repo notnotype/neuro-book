@@ -193,7 +193,18 @@ export type PanelEntry = RegistryEntryBase & {
 
 export type TrayItemEntry = RegistryEntryBase & {component: Component};
 
-export type StatusItemEntry = RegistryEntryBase & {component: Component};
+/**
+ * 状态栏的一项（docs/specs/ui/agent-conversation-view.md 的“状态栏”）：宿主加的项。`side` 决定在左在右，`title`、`description` 是设置页与
+ * 右键菜单里的文字，`defaultVisible` 缺省关（用户勾上才显示），`source` 是来源（插件名），标在菜单与设置页里。
+ */
+export type StatusItemEntry = RegistryEntryBase & {
+    component: Component;
+    side: "left" | "right";
+    title: Text;
+    description?: Text;
+    defaultVisible?: boolean;
+    source?: string;
+};
 
 export type ComposerCommandEntry = RegistryEntryBase & {
     /** 命令名，不含 `/`。 */
@@ -284,7 +295,7 @@ export class AgentViewRegistryConflictError extends Error {
     }
 }
 
-/** 没有匹配渲染器的工具使用它：类别 `other`，以卡片显示工具原名。 */
+/** 没有匹配渲染器的工具使用它：类别 `other`，以卡片显示工具原名。宿主要区分“查到了”与“回退到它”时按 `id` 认。 */
 export const GENERIC_TOOL_RENDERER: ToolRendererEntry = {
     id: "generic",
     category: "other",
@@ -377,6 +388,7 @@ function mergePoint<P extends ExtensionPoint>(contributions: readonly AgentViewC
 export function createAgentViewRegistry(contributions: readonly AgentViewContribution[]): AgentViewRegistry {
     checkToolNames(contributions);
     checkEntryTypes(contributions);
+    checkHeaderTargets(contributions);
     const merged: {[P in ExtensionPoint]: readonly ExtensionPointEntries[P][]} = {
         roles: mergePoint(contributions, "roles"),
         tools: mergePoint(contributions, "tools"),
@@ -413,6 +425,18 @@ function checkEntryTypes(contributions: readonly AgentViewContribution[]): void 
             const owner = owners.get(entry.customType);
             if (owner !== undefined) throw new AgentViewRegistryConflictError("entries", {kind: "customType", customType: entry.customType}, [owner, contribution.source]);
             owners.set(entry.customType, contribution.source);
+        }
+    }
+}
+
+/**
+ * 顶栏动作的目标是面板时现在就拒绝（docs/specs/ui/agent-conversation-view.md 的“顶栏”）：视图还没有按面板 id 打开面板的实现，
+ * 登记进来只会点了没反应。面板实现之后去掉这一条。
+ */
+function checkHeaderTargets(contributions: readonly AgentViewContribution[]): void {
+    for (const contribution of contributions) {
+        for (const entry of contribution.headerActions ?? []) {
+            if (entry.target.kind === "panel") throw new TypeError(`header action ${entry.id} from ${contribution.source} targets panel ${entry.target.panelId}; header actions can only emit actions until panels are implemented`);
         }
     }
 }

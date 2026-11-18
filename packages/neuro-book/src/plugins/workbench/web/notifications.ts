@@ -8,7 +8,10 @@
  *
  * 通知中心（输出 13 到 16）：每条通知同时记进中心，与弹出的那一份同一个 id。三种从弹出处移除的方式在 nb-ui 队列里都是
  * `remove`，只有这里分得清：用户关掉与到时只动队列，中心留着；发出方 `dismiss` 两边一起移除；动作由 `guarded` 包着，执行后
- * 两边一起移除，所以在弹出处与在中心里点动作结果相同。“通知”视图是否可见由视图组件上报（它能读页面在不在前台、卸载时报
+ * 两边一起移除，所以在弹出处与在中心里点动作结果相同。
+ *
+ * 用户关闭的回告（输出 18）：`closers` 按中心 id 记着发出方的 `onClose`，用户的关闭动作（弹出的关闭经队列的 `onDismiss`、中心的
+ * 移除与全部清除）取出并调用一次；动作与 `dismiss` 只丢掉它不调用。到时消失只动队列、`closers` 不变，所以之后在中心移除仍会回告。“通知”视图是否可见由视图组件上报（它能读页面在不在前台、卸载时报
  * 不可见），本文件不碰 DOM。
  */
 
@@ -82,14 +85,28 @@ export function createNotifications(report: (message: string) => void, text: Pic
     const entries = shallowRef<readonly CenterEntry[]>([]);
     /** 中心的 id 到弹出的队列里那一条的 id；视图开着时发出的不进队列，没有这一项。 */
     const queued = new Map<string, string>();
+    /** 还没回告过的 `onClose`，按中心 id。 */
+    const closers = new Map<string, () => void>();
     let visible = false;
     let counter = 0;
 
     const patchEntry = (id: string, patch: Partial<CenterEntry>): void => {
         entries.value = entries.value.map((entry) => (entry.id === id ? {...entry, ...patch} : entry));
     };
-    /** 从中心与弹出的队列一起移除。 */
+    /** 用户关掉了它：回告一次。 */
+    const closedByUser = (id: string): void => {
+        const onClose = closers.get(id);
+        if (onClose === undefined) return;
+        closers.delete(id);
+        try {
+            onClose();
+        } catch (error) {
+            report(`通知的关闭回告失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+    /** 从中心与弹出的队列一起移除（动作、发出方 `dismiss`）：不是用户关闭，不回告。 */
     const drop = (id: string): void => {
+        closers.delete(id);
         entries.value = entries.value.filter((entry) => entry.id !== id);
         const queueId = queued.get(id);
         queued.delete(id);
@@ -117,9 +134,11 @@ export function createNotifications(report: (message: string) => void, text: Pic
         unread: computed(() => entries.value.filter((entry) => entry.unread).length),
         run: (id) => entries.value.find((entry) => entry.id === id)?.action?.run(),
         remove: (id) => {
+            closedByUser(id);
             entries.value = entries.value.filter((entry) => entry.id !== id);
         },
         clear: () => {
+            for (const entry of entries.value) closedByUser(entry.id);
             entries.value = [];
         },
         setVisible: (next) => {
@@ -146,7 +165,11 @@ export function createNotifications(report: (message: string) => void, text: Pic
                 // 中心另存一份：截断与“已截断”同队列一个规则（视图开着时不进队列，只有这一份）。
                 ...notificationDetailFields(input.detail, input.detailTruncated),
             };
-            entries.value = [entry, ...entries.value].slice(0, CENTER_LIMIT);
+            if (input.onClose !== undefined) closers.set(id, input.onClose);
+            const kept = [entry, ...entries.value];
+            // 挤出不是用户关闭：只丢掉回告，表不随会话变长。
+            for (const evicted of kept.slice(CENTER_LIMIT)) closers.delete(evicted.id);
+            entries.value = kept.slice(0, CENTER_LIMIT);
             // 用户关掉、到时消失的只在队列里移除，这里看不到：每次发出时扫掉已不在队列里的对应关系，表不随会话变长。
             const live = new Set(queue.notifications.value.map((item) => item.id));
             for (const [centerId, queueId] of queued) if (!live.has(queueId)) queued.delete(centerId);
@@ -162,6 +185,7 @@ export function createNotifications(report: (message: string) => void, text: Pic
                     ...(input.detail === undefined ? {} : {detail: input.detail, ...(input.detailTruncated === undefined ? {} : {detailTruncated: input.detailTruncated})}),
                     ...(action === undefined ? {} : {action}),
                     ...(input.progress === undefined ? {} : {progress: input.progress}),
+                    ...(input.onClose === undefined ? {} : {onDismiss: () => closedByUser(id)}),
                 }));
             }
             const handle: NotificationHandle = {
@@ -205,6 +229,7 @@ export function createNotifications(report: (message: string) => void, text: Pic
         dispose: () => {
             queue.clearAll();
             queued.clear();
+            closers.clear();
             entries.value = [];
         },
     };

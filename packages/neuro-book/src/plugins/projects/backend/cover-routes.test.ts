@@ -105,6 +105,8 @@ describe("Spec projects 输出 21：封面路由", () => {
     it("格式按字节判：不是图片为 415；超过 5 MB 为 413；没有 file 字段为 400；未登记的 id 为 404；都不写文件", async () => {
         const {book, id, call, upload} = await world();
         expect((await upload(id, new TextEncoder().encode("<svg/>"), "cover.png")).status).toBe(415);
+        // GIF 是图片，但封面不收：共用的判定认得它，封面自己的允许集合不含它。
+        expect((await upload(id, new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]), "cover.png")).status).toBe(415);
         expect((await upload(id, new Uint8Array(PROJECT_COVER_MAX_BYTES + 1))).status).toBe(413);
         expect((await call("PUT", `/cover/${id}`, {body: new FormData()})).status).toBe(400);
         expect((await upload("00000000-0000-4000-8000-000000000000", PNG)).status).toBe(404);

@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-markdown",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Markdown 的语言、编解码器与组件：只读显示、行内小块、提示词编辑器与编辑器扩展；建在 nb-ui 之上，宿主经 provideMarkdownHost 给语言与链接目标的分类。",
     "license": "AGPL-3.0-only",
     "repository": {
@@ -20,6 +20,7 @@
         "./chip": "./src/chip/index.ts",
         "./display": "./src/display/index.ts",
         "./prompt": "./src/prompt/index.ts",
+        "./prompt-text": "./src/prompt/text.ts",
         "./editor": "./src/editor/index.ts",
         "./markdown.css": "./src/display/markdown.css",
         "./locales": "./src/locales/index.ts",
@@ -34,6 +35,7 @@
         "@notnotype/nb-ui": "workspace:^",
         "@tiptap/core": "3.27.3",
         "@tiptap/extension-code": "3.27.3",
+        "@tiptap/extension-document": "3.27.3",
         "@tiptap/extension-image": "3.27.3",
         "@tiptap/extension-link": "3.27.3",
         "@tiptap/extension-list": "3.27.3",
@@ -45,7 +47,8 @@
         "@tiptap/vue-3": "3.27.3",
         "entities": "8.0.0",
         "marked": "17.0.6",
-        "marked-cjk-friendly": "0.1.2"
+        "marked-cjk-friendly": "0.1.2",
+        "yaml": "^2.8.2"
     },
     "devDependencies": {
         "@iconify-json/lucide": "^1.2.95",

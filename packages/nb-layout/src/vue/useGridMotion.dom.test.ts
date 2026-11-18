@@ -3,14 +3,14 @@ import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, ref} from "vue";
 
 import {createGrid} from "../grid";
-import {placeGrid} from "../grid-rects";
+import {floatPlacements, layerItems, placeContents, placeGrid} from "../grid-rects";
 import type {GridPlacementItem} from "../grid-rects";
 import type {GridNodeInput} from "../grid-types";
 import {EMPTY_GRID_MOTION_MEMORY, decideMotion, useGridMotion} from "./useGridMotion";
 import type {GridMotionFrame, GridMotionMemory} from "./useGridMotion";
 
 /**
- * 要不要过渡（docs/specs/ui/nested-grid.md 的“过渡”）：判定是纯函数，不碰布局，表驱动测。真实布局里的过渡、内容跟不跟外框
+ * 要不要过渡（docs/specs/ui/nested-grid.md 输出 35）：判定是纯函数，不碰布局，表驱动测。真实布局里的过渡、内容跟不跟外框
  * 在 e2e/lab-grid-structure.e2e.ts。
  */
 
@@ -23,6 +23,13 @@ function items(widths: number[], extent = {width: 700, height: 300}): GridPlacem
 }
 
 const EXTENT = {width: 700, height: 300};
+
+/** 指定 id 的一行叶（宽度按给的分）。 */
+function row(entries: Array<[string, number]>): GridPlacementItem<unknown>[] {
+    const root: GridNodeInput<string> = {kind: "branch", id: "root", orientation: "horizontal", children: entries.map(([id, width]) => leaf(id, width))};
+    const grid = createGrid<string>(root, {sashSize: 1});
+    return [...placeGrid(grid.root()!, grid.layout(EXTENT), EXTENT, 1).items];
+}
 
 function frame(over: Partial<GridMotionFrame> & Pick<GridMotionFrame, "items">): GridMotionFrame {
     return {previous: null, rootSize: EXTENT, extent: EXTENT, dpr: 1, previewing: false, ...over};
@@ -37,6 +44,31 @@ function warmed(): {memory: GridMotionMemory; base: GridPlacementItem<unknown>[]
 }
 
 describe("decideMotion", () => {
+    it("留着缩回去的叶加上、摘掉都不算布局变化：不然摘掉时又判成离开，停不下来", () => {
+        const {memory} = warmed();
+        const settled = items([350, 350]);
+        const gone = items([300, 200, 200]).find((item) => item.kind === "leaf" && item.node.id === "l2");
+        if (gone?.kind !== "leaf") throw new Error("没有叶 l2");
+        const held = [...settled, {...gone, rect: {...gone.rect, width: 0}, leaving: true as const}];
+        expect(decideMotion(frame({items: held, previous: settled}), memory).kind).toBe("none");
+        expect(decideMotion(frame({items: settled, previous: held}), memory).kind).toBe("none");
+    });
+
+    it("留着缩回去的叶，过渡中又来一次别的变化：接着留着缩完，不是缩到一半就没了；又回到树里的不再留", () => {
+        const {memory} = warmed();
+        const gone = items([300, 200, 200]).find((item) => item.kind === "leaf" && item.node.id === "l2");
+        if (gone?.kind !== "leaf") throw new Error("没有叶 l2");
+        const held = {...gone, rect: {...gone.rect, width: 0}, leaving: true as const};
+        const hidden = items([350, 350]);
+        // 别的两块又变了一次（例如接着隐藏另一个区域），l2 还在缩。
+        const moved = items([250, 450]);
+        const again = decideMotion(frame({items: [...moved, held], previous: [...hidden, held]}), memory);
+        expect(again.kind === "move" ? again.leaving.map((item) => item.key) : again.kind).toEqual(["leaf:l2"]);
+        // 又显示回来：树里有 l2 了。
+        const shown = decideMotion(frame({items: [...items([300, 200, 200]), held], previous: [...moved, held]}), memory);
+        expect(shown.kind === "move" ? shown.leaving : shown.kind).toEqual([]);
+    });
+
     it("第一次有真实布局：不过渡", () => {
         const memory = EMPTY_GRID_MOTION_MEMORY();
         expect(decideMotion(frame({items: items([300, 200, 200]), previous: items([0, 0, 0])}), memory).kind).toBe("none");
@@ -55,6 +87,26 @@ describe("decideMotion", () => {
         if (decision.kind !== "move") return;
         expect(decision.entering.has("leaf:l3")).toBe(true);
         expect([...decision.following]).toEqual(["leaf:l0", "leaf:l1", "leaf:l2"]);
+    });
+
+    it("新开的浮动窗：外框从内容原来的叶出发、跟外框（头逐帧重排，不按最终尺寸裁）；拖动中不用，落地另给起点", () => {
+        const window = {x: 100, y: 50, width: 300, height: 200};
+        const scene = (tree: GridPlacementItem<unknown>[], leafId: string, floats: ReadonlyArray<string> = []) => {
+            const all = [...tree, ...floatPlacements(floats.map((id) => ({id, rect: window})))];
+            return layerItems(all, placeContents(all, [{key: "v", leaf: leafId, insetTop: 32, active: true}], 1));
+        };
+        const before = scene(items([300, 200, 200]), "l2");
+        const after = scene(items([400, 300]), "w", ["w"]);
+        const source = before.find((item) => item.kind === "leaf" && item.node.id === "l2")?.rect;
+        const {memory} = warmed();
+        const decision = decideMotion(frame({items: after, previous: before}), memory);
+        if (decision.kind !== "move") throw new Error("应当过渡");
+        expect(decision.entering.get("leaf:w")).toEqual(source);
+        expect(decision.following.has("leaf:w")).toBe(true);
+        expect(decision.keptSize.has("leaf:w")).toBe(false);
+        const dragged = decideMotion(frame({items: after, previous: before, holding: true}), warmed().memory);
+        if (dragged.kind !== "move") throw new Error("应当过渡");
+        expect(dragged.entering.get("leaf:w")).toEqual(window);
     });
 
     it("容器尺寸变了（宿主的根尺寸或自己量到的盒，两个来源晚一拍到）：不过渡，进行中的直接到终点", () => {
@@ -103,6 +155,103 @@ describe("decideMotion", () => {
     });
 });
 
+describe("decideMotion 与交换（docs/specs/ui/nested-grid.md 的“交换”）", () => {
+    /** 左边一列放一组叶，右边是主区。 */
+    function column(group: readonly string[]): GridPlacementItem<unknown>[] {
+        const side: GridNodeInput<string> = group.length === 1
+            ? {kind: "leaf", id: group[0] as string, ref: group[0] as string, size: {width: 300, height: 0}}
+            : {kind: "branch", id: "side", orientation: "vertical", size: {width: 300, height: 0}, children: group.map((id) => ({kind: "leaf" as const, id, ref: id, size: {width: 0, height: 150}}))};
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [side, leaf("main", 399)]}, {sashSize: 1});
+        return [...placeGrid(grid.root()!, grid.layout(EXTENT), EXTENT, 1).items];
+    }
+    const swap = (leaving: string[], entering: string[]) => ({token: 1, leaving, entering, axis: "height" as const, direction: 1 as const, gap: 8});
+    function warmedColumn(): GridMotionMemory {
+        const memory = EMPTY_GRID_MOTION_MEMORY();
+        expect(decideMotion(frame({items: column(["a1", "a2"])}), memory).kind).toBe("none");
+        return memory;
+    }
+
+    it("带上的项整块平移，不按别的规则长、跟外框；离开的一组与组里的分隔线留着，矩形是终点", () => {
+        const memory = warmedColumn();
+        const decision = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"])}), memory);
+        if (decision.kind !== "move" || decision.swap === undefined) throw new Error("应当按交换走");
+        const b1 = column(["b1"]).find((item) => item.key === "leaf:b1")!;
+        expect(decision.entering.get("leaf:b1")).toEqual({...b1.rect, y: b1.rect.y + EXTENT.height + 8});
+        expect(decision.keptSize.has("leaf:b1")).toBe(false);
+        expect(decision.following.has("leaf:b1")).toBe(false);
+        expect(decision.leaving.map((item) => [item.kind, item.leaving])).toEqual([["leaf", true], ["sash", true], ["leaf", true]]);
+        // 主区不在带上：照常（这次它没动）；侧栏与主区之间那条线换了两侧节点，照已有的规则从旧线的位置出发。
+        expect(decision.entering.has("leaf:main")).toBe(false);
+    });
+
+    it("离开的叶还在别的过渡里：不交换，交回原因，照常过渡；拖动中不交换也不报", () => {
+        const busy = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"]), busy: new Set(["a1"])}), warmedColumn());
+        expect(busy.kind === "move" && busy.swap === undefined && busy.swapSkipped?.includes("a1")).toBe(true);
+        const holding = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"]), holding: true}), warmedColumn());
+        expect(holding.kind === "move" && holding.swap === undefined && holding.swapSkipped === undefined).toBe(true);
+    });
+
+    /** 左右两列各放一组叶，中间是主区：两个区域各自的交换。 */
+    function columns(left: readonly string[], right: readonly string[]): GridPlacementItem<unknown>[] {
+        const side = (id: string, group: readonly string[]): GridNodeInput<string> => (group.length === 1
+            ? {kind: "leaf", id: group[0] as string, ref: group[0] as string, size: {width: 200, height: 0}}
+            : {kind: "branch", id, orientation: "vertical", size: {width: 200, height: 0}, children: group.map((child) => ({kind: "leaf" as const, id: child, ref: child, size: {width: 0, height: 150}}))});
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [side("left", left), leaf("main", 298), side("right", right)]}, {sashSize: 1});
+        return [...placeGrid(grid.root()!, grid.layout(EXTENT), EXTENT, 1).items];
+    }
+
+    it("交换进行中别处又来一次交换（和带不相交）：先把进行中的送到终点，这一次按空带规划，只带这一次的两组，上一轮滑出去的项不带进来", () => {
+        const memory = EMPTY_GRID_MOTION_MEMORY();
+        expect(decideMotion(frame({items: columns(["a1"], ["x1"])}), memory).kind).toBe("none");
+        const first = decideMotion(frame({items: columns(["b1"], ["x1"]), previous: columns(["a1"], ["x1"]), swap: swap(["a1"], ["b1"])}), memory);
+        if (first.kind !== "move" || first.swap === undefined) throw new Error("应当按交换走");
+        expect(first.settleFirst).toBeUndefined();
+        const second = decideMotion(frame({
+            items: [...columns(["b1"], ["y1"]), ...first.leaving],
+            previous: [...columns(["b1"], ["x1"]), ...first.leaving],
+            swap: {...swap(["x1"], ["y1"]), token: 2, axis: "width"},
+            band: first.swap,
+            bandNow: [-200, 200],
+            busy: new Set(["b1"]),
+        }), memory);
+        if (second.kind !== "move" || second.swap === undefined) throw new Error("应当按交换走");
+        expect(second.settleFirst).toBe(true);
+        expect(second.swap.axis).toBe("width");
+        expect(second.swap.groups.map((group) => [...group.leaves])).toEqual([["x1"], ["y1"]]);
+        expect(second.leaving.some((item) => item.key === "leaf:a1")).toBe(false);
+    });
+
+    it("交换进行中点回正在滑出去的那组（和带相交）：不收尾，从此刻接着走，带上还是这两组", () => {
+        const memory = EMPTY_GRID_MOTION_MEMORY();
+        expect(decideMotion(frame({items: columns(["a1"], ["x1"])}), memory).kind).toBe("none");
+        const first = decideMotion(frame({items: columns(["b1"], ["x1"]), previous: columns(["a1"], ["x1"]), swap: swap(["a1"], ["b1"])}), memory);
+        if (first.kind !== "move" || first.swap === undefined) throw new Error("应当按交换走");
+        const back = decideMotion(frame({
+            items: [...columns(["a1"], ["x1"]), ...first.leaving],
+            previous: [...columns(["b1"], ["x1"]), ...first.leaving],
+            swap: {...swap(["b1"], ["a1"]), token: 2},
+            band: first.swap,
+            bandNow: [-200, 200],
+        }), memory);
+        if (back.kind !== "move" || back.swap === undefined) throw new Error("应当按交换走");
+        expect(back.settleFirst).toBeUndefined();
+        expect(back.swap.groups.map((group) => [...group.leaves]).sort()).toEqual([["a1"], ["b1"]]);
+    });
+
+    it("交换进行中来了一次不是交换的布局变化：滑出去的那组接着留着、终点不变，带不换", () => {
+        const memory = warmedColumn();
+        const first = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"])}), memory);
+        if (first.kind !== "move") throw new Error("应当过渡");
+        // 主区窄了一点（第二次发布）：这一帧的项里带着上一轮留着的离开项。
+        const wider = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [{kind: "leaf", id: "b1", ref: "b1", size: {width: 320, height: 0}}, leaf("main", 379)]}, {sashSize: 1});
+        const next = [...placeGrid(wider.root()!, wider.layout(EXTENT), EXTENT, 1).items];
+        const second = decideMotion(frame({items: [...next, ...first.leaving], previous: [...column(["b1"]), ...first.leaving]}), memory);
+        if (second.kind !== "move") throw new Error("应当过渡");
+        expect(second.swap).toBeUndefined();
+        expect(second.leaving).toEqual(first.leaving);
+    });
+});
+
 describe("过渡中内容跟外框的叶", () => {
     const cleanups: Array<() => void> = [];
     afterEach(() => {
@@ -110,8 +259,7 @@ describe("过渡中内容跟外框的叶", () => {
     });
 
     /** 挂一个带令牌的根，喂第一帧。 */
-    function started(duration = "470ms") {
-        const root = document.createElement("div");
+    function started(duration = "470ms", root = document.createElement("div")) {
         root.style.setProperty("--motion-layout", duration);
         document.body.append(root);
         let motion!: ReturnType<typeof useGridMotion>;
@@ -153,6 +301,40 @@ describe("过渡中内容跟外框的叶", () => {
         expect(followingOf(motion)).toEqual(["leaf:l0", "leaf:l1", "leaf:l2", "leaf:l3"]);
     });
 
+    it("内容不跟外框、贴着右边的叶：过渡中又来一次变化、这一轮它没动时接着按叶的矩形摆、接着贴（外框还在走上一轮的过渡）；结束后清空", () => {
+        const {motion, base} = started();
+        // 最前面多出一块：它从左边长出来，内容贴着在动的右边。
+        const shown = row([["s", 100], ["l0", 299], ["l1", 149], ["l2", 149]]);
+        motion.update(frame({items: shown, previous: base}));
+        expect(motion.keptSize.value.has("leaf:s")).toBe(true);
+        expect(motion.anchoredRight.value.has("leaf:s")).toBe(true);
+        const again = row([["s", 100], ["l0", 199], ["l1", 249], ["l2", 149]]);
+        motion.update(frame({items: again, previous: shown}));
+        expect(motion.keptSize.value.has("leaf:s")).toBe(true);
+        expect(motion.anchoredRight.value.has("leaf:s")).toBe(true);
+        motion.stop();
+        expect(motion.keptSize.value.size).toBe(0);
+        expect(motion.anchoredRight.value.size).toBe(0);
+    });
+
+    it("降到零的叶：这一轮记下；过渡中又来一次变化、它仍为零时接着记（不然缩到一半就没了），又长出来的不算；结束后清空", () => {
+        const {motion, base} = started();
+        const open = row([["s", 100], ["l0", 299], ["l1", 149], ["l2", 149]]);
+        motion.update(frame({items: open, previous: base}));
+        motion.stop();
+        const zero = row([["s", 0], ["l0", 399], ["l1", 149], ["l2", 149]]);
+        motion.update(frame({items: zero, previous: open}));
+        expect([...motion.shrinking.value]).toEqual(["s"]);
+        const again = row([["s", 0], ["l0", 299], ["l1", 249], ["l2", 149]]);
+        motion.update(frame({items: again, previous: zero}));
+        expect([...motion.shrinking.value]).toEqual(["s"]);
+        motion.update(frame({items: open, previous: again}));
+        expect(motion.shrinking.value.size).toBe(0);
+        motion.update(frame({items: zero, previous: open}));
+        motion.stop();
+        expect(motion.shrinking.value.size).toBe(0);
+    });
+
     it("容差之内的第二次发布不改名单", () => {
         const {motion, base} = started();
         const split = items([200, 200, 150, 150]);
@@ -184,6 +366,18 @@ describe("过渡中内容跟外框的叶", () => {
         const {motion} = started("0ms");
         motion.land("leaf:l0");
         expect(motion.moving.value).toBe(false);
+    });
+
+    it("过渡中切到减少动态效果、又来一次变化：不开新一轮，进行中的直接到终点、名单清空", () => {
+        const root = document.createElement("div");
+        const {motion, base} = started("470ms", root);
+        const split = items([200, 200, 150, 150]);
+        motion.update(frame({items: split, previous: base}));
+        expect(motion.moving.value).toBe(true);
+        root.style.setProperty("--motion-layout", "0ms");
+        motion.update(frame({items: items([100, 300, 150, 150]), previous: split}));
+        expect(motion.moving.value).toBe(false);
+        expect([followingOf(motion), [...motion.keptSize.value], motion.leaving.value]).toEqual([[], [], []]);
     });
 
     it("减少动态效果（令牌为零）：没有过渡，内容直接是最终尺寸", () => {

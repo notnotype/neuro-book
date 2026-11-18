@@ -62,6 +62,9 @@ onMounted(() => {
     document.addEventListener("click", closeOnOutside, true);
     document.addEventListener("contextmenu", closeOnOutside, true);
     document.addEventListener("keydown", handleKeydown);
+    // 挂上时就是打开的（宿主用 v-if 挂）不会触发下面的 watch，在这里补一次。Teleport 要等 isMounted 之后的那次渲染才有内容，
+    // place 里的 nextTick 等的正是这次渲染，所以要在设 isMounted 之后调。
+    if (props.open) void place(props.x, props.y);
 });
 
 onUnmounted(() => {
@@ -70,14 +73,13 @@ onUnmounted(() => {
     document.removeEventListener("keydown", handleKeydown);
 });
 
-watch(() => [props.open, props.x, props.y] as const, async ([open, x, y]) => {
-    if (!open) {
-        return;
-    }
+/** 先按输入坐标画出来，量到菜单的尺寸后夹回视口，再把焦点放到第一个可用项。 */
+async function place(x: number, y: number): Promise<void> {
     adjustedX.value = x;
     adjustedY.value = y;
     await nextTick();
-    if (!menuRef.value) {
+    // 等渲染的这段时间里菜单可能已经关了：离场过渡中的面板还在，不再量它、也不把焦点抢回去。
+    if (!props.open || !menuRef.value) {
         return;
     }
     const rect = menuRef.value.getBoundingClientRect();
@@ -86,6 +88,10 @@ watch(() => [props.open, props.x, props.y] as const, async ([open, x, y]) => {
     adjustedY.value = position.y;
     // 打开即把焦点放到第一个可用项，方向键从这里开始；焦点在关闭后回到哪里由宿主决定。
     if (!menuRef.value.contains(document.activeElement)) menuRef.value.querySelector<HTMLElement>("[role^='menuitem']:not([disabled])")?.focus({preventScroll: true});
+}
+
+watch(() => [props.open, props.x, props.y] as const, ([open, x, y]) => {
+    if (open) void place(x, y);
 });
 
 function setMenuRef(element: unknown): void {

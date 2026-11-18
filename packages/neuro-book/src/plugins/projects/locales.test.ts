@@ -23,6 +23,8 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "settings.library.description": {"zh-CN": "新建作品时默认放在这里", "en-US": "New works are created here by default"},
     "commands.nbook.project.open.title": {"zh-CN": "打开项目", "en-US": "Open Project"},
     "commands.nbook.project.open.category": {"zh-CN": "项目", "en-US": "Project"},
+    "commands.nbook.project.back-to-shelf.title": {"zh-CN": "回到书架", "en-US": "Back to Bookshelf"},
+    "commands.nbook.project.back-to-shelf.category": {"zh-CN": "项目", "en-US": "Project"},
     "commands.nbook.help.welcome.title": {"zh-CN": "欢迎", "en-US": "Welcome"},
     "commands.nbook.help.welcome.category": {"zh-CN": "帮助", "en-US": "Help"},
     "home.bookshelf.title": {"zh-CN": "书架", "en-US": "Bookshelf"},

@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, flyingContents, followingLeaves, grownRect, placementMoved, settleFloatMoves, stableOrder} from "./grid-motion";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, grownRect, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, settleFloatMoves, stableOrder} from "./grid-motion";
 import {floatPlacements, layerItems, placeContents, placeGrid} from "./grid-rects";
 import type {GridLayerItem} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
@@ -77,6 +77,175 @@ describe("新出现的项从哪里开始", () => {
         const items = placeOf(branch(leaf("a"), leaf("b")));
         expect(enteringRects(items, items).size).toBe(0);
     });
+
+    const column = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "col", orientation: "vertical", children});
+    const leafRect = (items: ReturnType<typeof placeOf>, id: string) => {
+        const found = items.find((item) => item.kind === "leaf" && item.node.id === id);
+        if (found === undefined) throw new Error(`没有叶 ${id}`);
+        return found.rect;
+    };
+
+    it("整列一起出现（区域展开）：列里的几节与分隔线作为一块，从上一帧两个兄弟之间的缝横着长出来，一开始就是全高", () => {
+        const before = placeOf(branch(leaf("a"), leaf("c")));
+        const after = placeOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")));
+        const seam = before.find((item) => item.kind === "sash");
+        if (seam?.kind !== "sash") throw new Error("没有缝");
+        const at = seam.rect.x + seam.size;
+        const entering = enteringRects(after, before);
+        for (const id of ["b1", "b2"]) expect(entering.get(`leaf:${id}`)).toEqual({...leafRect(after, id), x: at, width: 0});
+        const inner = after.find((item) => item.kind === "sash" && item.branch.id === "col");
+        if (inner === undefined) throw new Error("列里没有分隔线");
+        expect(entering.get(inner.key)).toEqual({...inner.rect, x: at, width: 0});
+    });
+
+    it("列上一帧就在（切换侧栏的容器）：换上来的几节各自在列里竖着长", () => {
+        const before = placeOf(branch(leaf("a"), column(leaf("x1"), leaf("x2")), leaf("c")));
+        const after = placeOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")));
+        const entering = enteringRects(after, before);
+        expect(entering.get("leaf:b1")).toEqual({...leafRect(after, "b1"), height: 0});
+        const b2 = leafRect(after, "b2");
+        expect(entering.get("leaf:b2")).toEqual({...b2, y: b2.y + b2.height, height: 0});
+    });
+
+    it("一节换成一列（切换侧栏的容器）：新列顶替了原来的位置，不是新开的缝；换上来的几节各自在列里竖着长", () => {
+        const before = placeOf(branch(leaf("a"), leaf("x"), leaf("c")));
+        const after = placeOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")));
+        const entering = enteringRects(after, before);
+        expect(entering.get("leaf:b1")).toEqual({...leafRect(after, "b1"), height: 0});
+        const b2 = leafRect(after, "b2");
+        expect(entering.get("leaf:b2")).toEqual({...b2, y: b2.y + b2.height, height: 0});
+    });
+
+    it("底部面板出现（编辑区被包进新建的纵向分支，后面还有右栏）：面板作为一块从底边竖着长，里面并排的几节一开始就是终点宽度，不各自横着长", () => {
+        const center = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "center", orientation: "vertical", size: {width: 600, height: 300}, children});
+        const panel = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "panel", orientation: "horizontal", size: {width: 600, height: 100}, children});
+        const before = placeOf(branch(leaf("a", 200), leaf("e", 600), leaf("r", 192)));
+        const after = placeOf(branch(leaf("a", 200), center(leaf("e", 600, 196), panel(leaf("p1", 300), leaf("p2", 296))), leaf("r", 192)));
+        const entering = enteringRects(after, before);
+        const bottom = Math.max(...["p1", "p2"].map((id) => leafRect(after, id).y + leafRect(after, id).height));
+        for (const id of ["p1", "p2"]) expect(entering.get(`leaf:${id}`)).toEqual({...leafRect(after, id), y: bottom, height: 0});
+    });
+
+    it("拆分时包住旧叶的新分支不算新子树：新叶从旧叶那边长出来", () => {
+        const before = placeOf(branch(leaf("a"), leaf("b")));
+        const after = placeOf(branch(leaf("a"), column(leaf("b"), leaf("d"))));
+        const d = leafRect(after, "d");
+        expect(enteringRects(after, before).get("leaf:d")).toEqual({...d, y: d.y + d.height, height: 0});
+    });
+});
+
+describe("离开的叶留着缩回去（ui/nested-grid 输出 44 到 48）", () => {
+    const branch = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children});
+    const column = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "col", orientation: "vertical", children});
+    /** 摆好的叶、分隔线，加上 `mounted` 里每块叶一个内容项（叶不在这一帧里时它停放着）。 */
+    const frameOf = (root: GridNodeInput<string>, mounted: string[]): GridLayerItem<string>[] => {
+        const {node, layout} = grid(root, 4, {width: 1000, height: 300});
+        const items = placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
+        return layerItems(items, placeContents(items, mounted.map((id) => ({key: id, leaf: id, insetTop: 0, active: true})), 1));
+    };
+    const leafRect = (items: GridLayerItem<string>[], id: string) => {
+        const found = items.find((item) => item.kind === "leaf" && item.node.id === id);
+        if (found?.kind !== "leaf") throw new Error(`没有叶 ${id}`);
+        return found.rect;
+    };
+    const ALL = ["a", "b1", "b2", "c", "x", "x1", "x2"];
+
+    it("整列离开（区域隐藏）：列里的几节作为一块留着，缩回这一帧两个兄弟相接的那道缝，一直是全高", () => {
+        const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
+        const after = frameOf(branch(leaf("a"), leaf("c")), ALL);
+        const seam = after.find((item) => item.kind === "sash");
+        if (seam?.kind !== "sash") throw new Error("没有缝");
+        const leaving = leavingPlacements(after, before, false);
+        expect(leaving.map((item) => item.node.id)).toEqual(["b1", "b2"]);
+        for (const item of leaving) {
+            expect(item.leaving).toBe(true);
+            expect(item.rect).toEqual({...leafRect(before, item.node.id), x: seam.rect.x + seam.size, width: 0});
+        }
+    });
+
+    it("在分支一头、挨着的兄弟这一帧到了头：缩向那一头", () => {
+        const before = frameOf(branch(leaf("a"), leaf("b1"), leaf("c")), ALL);
+        const after = frameOf(branch(leaf("a"), leaf("b1")), ALL);
+        const c = leafRect(before, "c");
+        expect(leavingPlacements(after, before, false).map((item) => item.rect)).toEqual([{...c, x: c.x + c.width, width: 0}]);
+    });
+
+    it("底部面板隐藏（纵向分支只剩编辑区、被摊进横向那一行，编辑区后面还有右栏）：面板作为一块留着，缩向底边；起点是上一帧的矩形", () => {
+        const center = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "center", orientation: "vertical", size: {width: 600, height: 300}, children});
+        const panel = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "panel", orientation: "horizontal", size: {width: 600, height: 100}, children});
+        const mounted = ["a", "e", "r", "p1", "p2"];
+        const shown = frameOf(branch(leaf("a", 200), center(leaf("e", 600, 196), panel(leaf("p1", 300), leaf("p2", 296))), leaf("r", 192)), mounted);
+        const hidden = frameOf(branch(leaf("a", 200), leaf("e", 600), leaf("r", 192)), mounted);
+        const leaving = leavingPlacements(hidden, shown, false);
+        expect(leaving.map((item) => item.node.id)).toEqual(["p1", "p2"]);
+        for (const item of leaving) {
+            const old = leafRect(shown, item.node.id);
+            expect(item.rect).toEqual({...old, y: old.y + old.height, height: 0});
+        }
+        const entering = enteringRects(hidden, shown);
+        const following = followingLeaves(hidden, shown);
+        const kept = keptSizeStarts({items: hidden, previous: shown, entering, following, leaving});
+        for (const id of ["p1", "p2"]) expect(kept.get(`leaf:${id}`)).toEqual(leafRect(shown, id));
+    });
+
+    it("内容卸了（关掉，不是隐藏）：照旧立即消失", () => {
+        const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
+        expect(leavingPlacements(frameOf(branch(leaf("a"), leaf("c")), ["a", "c"]), before, false)).toEqual([]);
+    });
+
+    it("兄弟没合拢（切换容器：列还在、几节全换了；一节换成一列）：照旧立即消失，不和长出来的叠在一起", () => {
+        const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
+        expect(leavingPlacements(frameOf(branch(leaf("a"), column(leaf("x1"), leaf("x2")), leaf("c")), ALL), before, false)).toEqual([]);
+        const single = frameOf(branch(leaf("a"), leaf("x"), leaf("c")), ALL);
+        expect(leavingPlacements(frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL), single, false)).toEqual([]);
+    });
+
+    it("拿起内容拖动中：一个都不留", () => {
+        const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
+        expect(leavingPlacements(frameOf(branch(leaf("a"), leaf("c")), ALL), before, true)).toEqual([]);
+    });
+});
+
+describe("过渡中内容贴着外框的右边（ui/nested-grid 输出 39）", () => {
+    const branch = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children});
+    const column = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "col", orientation: "vertical", size: {width: 300, height: 300}, children});
+    const frameOf = (root: GridNodeInput<string>): GridLayerItem<string>[] => {
+        const {node, layout} = grid(root, 4, {width: 1000, height: 300});
+        const items = placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
+        return layerItems(items, placeContents(items, ["b1", "b2", "e", "r"].map((id) => ({key: id, leaf: id, insetTop: 32, active: true})), 1));
+    };
+    /** 同 `decideMotion` 的组合。 */
+    const anchorsOf = (after: GridLayerItem<string>[], before: GridLayerItem<string>[]) => {
+        const entering = enteringRects(after, before);
+        const following = followingLeaves(after, before);
+        const flying = flyingContents(after, before);
+        const leaving = leavingPlacements(after, before, false);
+        const starts = keptSizeStarts({items: after, previous: before, entering, following, leaving});
+        return rightAnchored({items: after, leaving, starts, following, flying});
+    };
+    const SIDE = ["leaf:b1", "leaf:b2", "content:b1", "content:b2"];
+
+    it("在分支起点一头展开、缩回那一头（侧栏）：外框只有右边在动，列里的叶与内容都贴右边，整块平移进出；被推开的兄弟跟外框，不贴", () => {
+        const hidden = frameOf(branch(leaf("e", 700), leaf("r", 296)));
+        const shown = frameOf(branch(column(leaf("b1"), leaf("b2")), leaf("e", 396), leaf("r", 296)));
+        expect([...anchorsOf(shown, hidden)].sort()).toEqual([...SIDE].sort());
+        expect([...anchorsOf(hidden, shown)].sort()).toEqual([...SIDE].sort());
+    });
+
+    it("在分支终点一头长出来、缩回那一头（右栏）：近的那条边在动，贴起点本来就跟着它走，不记", () => {
+        const hidden = frameOf(branch(leaf("b1"), leaf("e")));
+        const shown = frameOf(branch(leaf("b1"), leaf("e"), leaf("r")));
+        expect([...anchorsOf(shown, hidden)]).toEqual([]);
+        expect([...anchorsOf(hidden, shown)]).toEqual([]);
+    });
+
+    it("纵向不贴：从上边长出来时内容的裁切框上边比叶低一个面板头，贴下边会在面板头下面露出一条空白", () => {
+        const stack = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "vertical", children});
+        const below = frameOf(stack(leaf("e", 1000, 300)));
+        const split = frameOf(stack(leaf("b1", 1000, 100), leaf("e", 1000, 196)));
+        expect(enteringRects(split, below).get("leaf:b1")).toMatchObject({y: 0, height: 0});
+        expect([...anchorsOf(split, below)]).toEqual([]);
+    });
 });
 
 describe("过渡中内容跟着外框的叶", () => {
@@ -141,7 +310,7 @@ describe("stableOrder", () => {
     });
 });
 
-describe("内容项的过渡（输出“内容层”）", () => {
+describe("内容项的过渡（ui/nested-grid 输出 81、85、86、92）", () => {
     const layers = (widths: Record<string, number>, contents: ReadonlyArray<{key: string; leaf: string; active?: boolean; insetTop?: number}>) => {
         const children = Object.entries(widths).map(([id, width]) => leaf(id, width));
         const {node, layout} = grid({kind: "branch", id: "root", orientation: "horizontal", children}, 4, {width: 1000, height: 300});
@@ -178,14 +347,35 @@ describe("内容项的过渡（输出“内容层”）", () => {
         expect(enteringRects(after, before).has("content:y")).toBe(false);
     });
 
-    it("新内容跟新叶从边上长出来，面板头的高度留给外框；不跟外框，内容是最终尺寸", () => {
+    /** 同 `decideMotion` 的组合。 */
+    const keptOf = (after: GridLayerItem<unknown>[], before: GridLayerItem<unknown>[]) => {
+        const entering = enteringRects(after, before);
+        const following = followingLeaves(after, before);
+        return {entering, following, kept: keptSizeStarts({items: after, previous: before, entering, following, leaving: leavingPlacements(after, before, false)})};
+    };
+
+    it("新叶的内容不跟外框、是最终尺寸，按叶的矩形摆：第一帧就是叶的起点，跟着外框从边上长出来", () => {
         const before = layers({a: 1000}, [{key: "x", leaf: "a"}]);
         const after = layers({a: 500, n: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "n"}]);
-        const entering = enteringRects(after, before).get("content:y");
-        expect(entering?.width).toBe(0);
-        expect(entering?.y).toBe(32);
-        expect(followingLeaves(after, before).has("content:y")).toBe(false);
-        expect(followingLeaves(after, before).has("content:x")).toBe(true);
+        const {entering, following, kept} = keptOf(after, before);
+        expect(kept.get("leaf:n")).toEqual(entering.get("leaf:n"));
+        expect(kept.get("leaf:n")?.width).toBe(0);
+        expect(kept.has("leaf:a")).toBe(false);
+        expect(following.has("content:y")).toBe(false);
+        expect(following.has("content:x")).toBe(true);
+    });
+
+    it("停放过的内容随它刚长出来的叶一起长（切回容器、区域展开）：它早就挂着，不跟的话一显示就整块在终点，外框还在长", () => {
+        // 叶 n 不在上一帧的呈现里，它的内容 y 停放着（没有矩形）。
+        const before = layers({a: 1000}, [{key: "x", leaf: "a"}, {key: "y", leaf: "n"}]);
+        const after = layers({a: 500, n: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "n"}]);
+        const {kept, following} = keptOf(after, before);
+        expect(kept.get("leaf:n")?.width).toBe(0);
+        expect(following.has("content:y")).toBe(false);
+        // 叶没有新长出来（同一块叶里切标签）就不从边上长。
+        const tabs = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "a", active: false}]);
+        const switched = layers({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}, {key: "y", leaf: "a"}]);
+        expect(keptOf(switched, tabs).kept.size).toBe(0);
     });
 
     it("换了叶的内容不算新项：它有上一帧，从旧矩形飞过来", () => {
@@ -224,7 +414,7 @@ describe("只有浮动窗的矩形变了", () => {
     const rect = (x: number) => ({x, y: 0, width: 100, height: 100});
     const windowAt = (x: number, id = "f"): GridLayerItem<unknown>[] => [
         ...(floatPlacements([{id, rect: rect(x)}]) as GridLayerItem<unknown>[]),
-        {kind: "content", key: "content:v", contentKey: "v", leaf: id, insetTop: 0, active: true, rect: rect(x)},
+        {kind: "content", key: "content:v", contentKey: "v", leaf: id, insetTop: 0, active: true, rect: rect(x), leafRect: rect(x)},
     ];
 
     it("同一块窗和它里面的内容按上一次的矩形算：判定认不出变化", () => {
@@ -240,5 +430,51 @@ describe("只有浮动窗的矩形变了", () => {
         const swapped = windowAt(500, "g");
         const settled = settleFloatMoves(swapped, windowAt(0));
         expect(settled.find((item) => item.kind === "content")?.rect).toEqual(rect(500));
+    });
+});
+
+describe("新开的浮动窗从内容原来的叶出发（ui/nested-grid 输出 107、108）", () => {
+    const WINDOW = {x: 300, y: 40, width: 400, height: 200};
+    /** 一行叶，加上 `windows` 里的浮动窗（都在 `WINDOW`），内容项面板头 32。 */
+    const scene = (widths: Record<string, number>, contents: ReadonlyArray<{key: string; leaf: string; active?: boolean; insetTop?: number}>, windows: ReadonlyArray<string> = []) => {
+        const children = Object.entries(widths).map(([id, width]) => leaf(id, width));
+        const {node, layout} = grid({kind: "branch", id: "root", orientation: "horizontal", children}, 4, {width: 1000, height: 300});
+        const items = [...placeGrid(node, layout, {width: 1000, height: 300}, 1).items, ...floatPlacements(windows.map((id) => ({id, rect: WINDOW})))];
+        return layerItems(items, placeContents(items, contents.map((content) => ({insetTop: 32, active: true, ...content})), 1));
+    };
+    const rectOfLeaf = (items: ReadonlyArray<GridLayerItem<unknown>>, id: string) => items.find((item): item is Extract<GridLayerItem<unknown>, {kind: "leaf"}> => item.kind === "leaf" && item.node.id === id)?.rect;
+
+    it("视图浮出来、原来那一节没了：窗的起点是那一节上一帧的矩形，整张卡片从原处拿起来；按新叶的规则它没有兄弟，第一帧就在终点", () => {
+        const before = scene({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "b"}]);
+        const after = scene({b: 1000}, [{key: "x", leaf: "f"}, {key: "y", leaf: "b"}], ["f"]);
+        expect(floatLiftStarts(after, before).get("leaf:f")).toEqual(rectOfLeaf(before, "a"));
+        expect(enteringRects(after, before).get("leaf:f")).toEqual(WINDOW);
+    });
+
+    it("多标签的面板里浮出一个、来源还在：同样从来源的矩形出发", () => {
+        const before = scene({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "z", leaf: "a", active: false}]);
+        const after = scene({a: 500, b: 500}, [{key: "x", leaf: "f"}, {key: "z", leaf: "a"}], ["f"]);
+        expect(floatLiftStarts(after, before).get("leaf:f")).toEqual(rectOfLeaf(before, "a"));
+    });
+
+    it("窗回到树里（叶不换），盖在它要回去的位置上：新旧矩形相交，叶和内容照样压在上面飞，它是从别的面板上面落下来的", () => {
+        const before = scene({a: 1000}, [{key: "x", leaf: "f"}], ["f"]);
+        const after = scene({a: 300, f: 700}, [{key: "x", leaf: "f"}]);
+        const flying = flyingContents(after, before);
+        expect(flying.has("leaf:f")).toBe(true);
+        expect(flying.has("content:x")).toBe(true);
+        expect(flying.has("leaf:a")).toBe(false);
+    });
+
+    it("不算：窗上一帧就在（并进已有的窗）；新叶不是窗（拆分出来的）；内容上一帧不活动、没有尺寸（收成标题行）", () => {
+        const into = scene({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "f"}], ["f"]);
+        expect(floatLiftStarts(scene({b: 1000}, [{key: "x", leaf: "f"}, {key: "y", leaf: "f", active: false}], ["f"]), into).size).toBe(0);
+        const split = scene({a: 500, b: 250, n: 250}, [{key: "x", leaf: "n"}]);
+        expect(floatLiftStarts(split, scene({a: 500, b: 500}, [{key: "x", leaf: "a"}])).size).toBe(0);
+        const hidden = scene({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}, {key: "z", leaf: "a"}]);
+        expect(floatLiftStarts(scene({a: 500, b: 500}, [{key: "x", leaf: "f"}, {key: "z", leaf: "a"}], ["f"]), hidden).size).toBe(0);
+        // 收成标题行：叶还有一个面板头高，内容是零。
+        const titleOnly = scene({a: 500, b: 500}, [{key: "x", leaf: "a", insetTop: 300}]);
+        expect(floatLiftStarts(scene({b: 1000}, [{key: "x", leaf: "f"}], ["f"]), titleOnly).size).toBe(0);
     });
 });

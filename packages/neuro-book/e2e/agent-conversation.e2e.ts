@@ -79,10 +79,85 @@ async function send(page: Page, text: string): Promise<void> {
     await page.keyboard.press("Enter");
 }
 
+/** 新建一段会话。头上的新建只在已有会话时才有（没选会话时头上没有它），所以经命令面板，两种情况一样。 */
 const newSession = async (page: Page): Promise<void> => {
-    await page.locator("[data-header-new]").click();
-    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await page.keyboard.press("Control+Shift+P");
+    await page.keyboard.type("新建 Agent 会话");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
 };
+
+/** 右栏对话视图所在面板头的标题按钮：视图接管标题区后，头的中间一列在它里面（conversation.md 输出 44）。 */
+const CONVERSATION_VIEW = "nbook.agent.conversation";
+const conversationHandle = (page: Page) => page.locator(`[data-panel-tab="view:${CONVERSATION_VIEW}"]`);
+const panelHeadOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
+
+test("对话写在面板头上（conversation.md 输出 44）：头的三列在面板头里；按标题开会话列表，Esc 关掉回到标题；浮动窗里成了标签条时头回到内容里，对话不重建；回到只有一个标签时头又回到面板头", async ({page}) => {
+    await openConversation(page);
+    await newSession(page);
+    const handle = conversationHandle(page);
+    const sessions = page.locator(".acv-head__sessions");
+    await expect(handle.locator("[data-header-title]")).toBeVisible();
+    await expect(page.locator("[data-agent-head]")).toBeHidden();
+
+    // 按标题开会话列表（标题按钮写 aria-expanded）；Esc 关掉，焦点回到标题。
+    await handle.click();
+    await expect(sessions).toBeVisible();
+    await expect(handle).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Escape");
+    await expect(sessions).toHaveCount(0);
+    await expect(handle).toBeFocused();
+    await expect(handle).toHaveAttribute("aria-expanded", "false");
+
+    // 输入框里留一段字、记下内容节点：头搬来搬去，对话不重建。
+    await input(page).click();
+    await page.keyboard.type("头搬家前写的字");
+    const node = await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).elementHandle();
+
+    // 浮出去：只有一个标签的浮动窗同样把标题区交给视图。
+    await panelHeadOf(page, CONVERSATION_VIEW).locator("[data-panel-action=\"nbook.view.float\"]").click();
+    await expect(page.locator("[data-float-chrome]")).toHaveCount(1);
+    await expect(handle.locator("[data-header-title]")).toBeVisible();
+    const target = (await panelHeadOf(page, CONVERSATION_VIEW).getAttribute("data-panel-head"))!;
+
+    // 侧栏的会话分节拖进对话的窗（落在窗的中间是添加为标签）：成了标签条，头回到内容里。只有一个标签的浮动窗，按住标题拖的是整个窗，
+    // 所以来源是树里的分节。
+    const SESSIONS_VIEW = "nbook.agent.sessions";
+    const box = (await page.locator(`[data-leaf="${target}"]`).first().boundingBox())!;
+    const from = (await page.locator(`[data-panel-tab="view:${SESSIONS_VIEW}"]`).boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2 + 10, {steps: 2});
+    await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6, {steps: 8});
+    await page.mouse.up();
+    await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+    await expect(panelHeadOf(page, CONVERSATION_VIEW).locator("[data-panel-tab]")).toHaveCount(2);
+    await handle.click();
+    await expect(page.locator("[data-agent-head]")).toBeVisible();
+    await expect(page.locator("[data-agent-head] [data-header-title]")).toBeVisible();
+    await expect(input(page)).toContainText("头搬家前写的字");
+    expect(await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).evaluate((element, other) => element === other, node)).toBe(true);
+    // 头在内容里时会话列表照样开：锚在内容里的标题上。
+    await page.locator("[data-header-sessions]").click();
+    await expect(sessions).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // 把会话面板拖走，窗里又只剩对话一个标签：头回到面板头。
+    const to = (await page.locator("[data-workbench-shell]").boundingBox())!;
+    const tabBox = (await page.locator(`[data-panel-tab="view:${SESSIONS_VIEW}"]`).boundingBox())!;
+    await page.mouse.move(tabBox.x + tabBox.width / 2, tabBox.y + tabBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(tabBox.x + tabBox.width / 2 + 10, tabBox.y + tabBox.height / 2 + 10, {steps: 2});
+    await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
+    await page.mouse.move(to.x + 40, to.y + 12, {steps: 8});
+    await page.mouse.up();
+    await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+    await expect(panelHeadOf(page, CONVERSATION_VIEW).locator("[data-panel-tab]")).toHaveCount(1);
+    await expect(handle.locator("[data-header-title]")).toBeVisible();
+    await expect(page.locator("[data-agent-head]")).toBeHidden();
+    await expect(input(page)).toContainText("头搬家前写的字");
+});
 
 test("验收 1：发一条，看到回复与状态栏；刷新后回到同一会话", async ({page}) => {
     await script("这是回复。");
@@ -96,6 +171,25 @@ test("验收 1：发一条，看到回复与状态栏；刷新后回到同一会
     await expect(page.locator("[data-explorer-row]").first()).toBeVisible();
     await expect(page.getByText("这是回复。")).toBeVisible();
     await expect(page.getByRole("article").getByText("你好", {exact: true})).toBeVisible();
+});
+
+test("第一屏：没有消息时是欢迎、最近对话与主创的开场指令；点一条指令，输入框里是它（conversation.md 输出 41）", async ({page}) => {
+    await script("回复。");
+    await openConversation(page);
+    await newSession(page);
+    await send(page, "先聊一句");
+    await expect(page.getByText("回复。")).toBeVisible();
+    await newSession(page);
+    const welcome = page.locator("[data-agent-welcome]");
+    await expect(welcome.getByRole("heading", {name: "NeuroBook 创作工作区"})).toBeVisible();
+    // 刚才那段会话出现在最近对话里（标题可能还没生成，按条数看）。
+    await expect(welcome.locator("[data-welcome-session]").first()).toBeVisible();
+    const starters = welcome.locator("[data-welcome-starter]");
+    await expect(starters).toHaveCount(3);
+    const text = (await starters.nth(1).innerText()).trim();
+    await starters.nth(1).click();
+    await expect(input(page)).toContainText(text);
+    await expect(input(page)).toBeFocused();
 });
 
 test("验收 2：Agent 改文件：向导显示 diff，收起再展开，批准后文件变了；拒绝并附言，模型收到这段话", async ({page}) => {
@@ -293,7 +387,44 @@ test("状态栏的活动条目：等用户时显示，点一下切到那个会�
     await expect(item).toHaveCount(0);
 });
 
-test("模型选择器：面板与输入框同宽；选没绑定的角色说明原因；绑定之后不刷新页面就恢复；状态栏窄时留缓存与费用", async ({page}, testInfo) => {
+test("状态栏可自定义（conversation.md 输出 45、46）：右键勾选模型、“状态栏设置…”打开设置页，把模型上移到最前后顺序变，刷新还在", async ({page}) => {
+    await script("好的。");
+    await openConversation(page);
+    await send(page, "先说一句");
+    // 设置页的预览里也有一条状态栏：这里只取对话自己的那条。
+    const status = page.locator("[data-agent-status]:not([data-status-line-preview] *)");
+    const rightOrder = () => status.locator("[data-status-right] [data-status-item]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-item")));
+    // 本机端点没有单价，费用项不画（有数据才画）：右边只有用量。
+    await expect.poll(rightOrder).toEqual(["usage"]);
+    await expect(status.locator("[data-status-model]")).toHaveCount(0);
+
+    // 右键勾选：模型出现在右边最后。
+    await status.click({button: "right", position: {x: 20, y: 10}});
+    await page.getByRole("menuitemcheckbox", {name: "模型与推理档"}).click();
+    await expect.poll(rightOrder).toEqual(["usage", "model"]);
+
+    // 菜单最后一项打开设置，落在“状态栏”页；把“模型”上移两次到最前（设置页列全部项，含这里没有数据的费用）。
+    await status.click({button: "right", position: {x: 20, y: 10}});
+    await page.getByRole("menuitem", {name: "状态栏设置…"}).click();
+    const settingsPage = page.locator("[data-status-line-page]");
+    await expect(settingsPage).toBeVisible();
+    const rows = () => settingsPage.locator("[data-sortable-section='right'] [data-status-row]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
+    await expect.poll(rows).toEqual(["usage", "cost", "model"]);
+    await settingsPage.locator("[data-status-row='model'] [data-status-move-up]").click();
+    await expect.poll(rows).toEqual(["usage", "model", "cost"]);
+    await settingsPage.locator("[data-status-row='model'] [data-status-move-up]").click();
+    await expect.poll(rows).toEqual(["model", "usage", "cost"]);
+    await expect.poll(rightOrder).toEqual(["model", "usage"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-settings-window]")).toHaveCount(0);
+
+    // 设置存在用户层：刷新后还是这样。
+    await page.reload();
+    await expect(page.locator("[data-agent-status] [data-status-right]")).toBeVisible();
+    await expect.poll(rightOrder).toEqual(["model", "usage"]);
+});
+
+test("模型选择器：面板与输入框同宽；选没绑定的角色出提示卡，“去绑定”打开角色页、焦点在这个角色上；绑定之后不刷新页面就恢复；状态栏窄时用量照样可见", async ({page}, testInfo) => {
     await openConversation(page);
     await send(page, "先说一句");
     await expect(page.locator("[data-agent-status]")).toBeVisible();
@@ -314,10 +445,21 @@ test("模型选择器：面板与输入框同宽；选没绑定的角色说明�
 
     await panel.locator("[data-model-picker-role='role:deep']").click();
     await expect(panel).toBeVisible();
-    await expect(page.locator("[data-composer-availability]")).toContainText("绑定");
+    // 提示卡写出角色（conversation.md 输出 42），占位也是它。
+    const card = page.locator("[data-notice-card]");
+    await expect(card).toContainText("“深度”角色还没绑定模型");
     await page.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
     await expect(picker).toBeEnabled();
+    await page.screenshot({path: testInfo.outputPath("notice-card.png")});
+
+    // “去绑定”：设置窗口开在角色页，焦点落在“深度”这一行的模型下拉上（settings-pages.md 输出 18）。
+    await card.locator("[data-availability-action='bind-role']").click();
+    const settingsWindow = page.locator("[data-settings-window]");
+    await expect(settingsWindow).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-role-row]")?.getAttribute("data-role-row") ?? null)).toBe("deep");
+    await page.keyboard.press("Escape");
+    await expect(settingsWindow).toHaveCount(0);
 
     const file = join(stateRoot, "settings.json");
     const settings = JSON.parse(await readFile(file, "utf8")) as Record<string, {items: {id: string; model: string | null}[]}>;
@@ -349,7 +491,7 @@ test("上下文详情：点圆环打开，看到组成；展开系统提示词�
     await page.keyboard.press("Escape");
     await expect(inspector).toHaveCount(0);
 
-    await page.locator(".acv-header").getByRole("button", {name: "更多操作"}).click();
+    await page.locator("[data-header-more]").click();
     await page.getByRole("menuitem", {name: "上下文详情"}).click();
     await expect(page.locator("[data-context-inspector] [data-context-estimated]")).toBeVisible();
     await page.locator("[data-context-refresh]").click();
@@ -403,7 +545,7 @@ test("分支树：列表与图，图默认从上往下、能换方向；选别�
     await assistant.getByRole("button", {name: "重新生成"}).click();
     await expect(page.getByText("第二版回复")).toBeVisible();
 
-    await page.locator(".acv-header").getByRole("button", {name: "更多操作"}).click();
+    await page.locator("[data-header-more]").click();
     await page.getByRole("menuitem", {name: "分支树"}).click();
     const tree = page.locator("[data-session-tree]");
     await expect(tree.locator("[data-tree-count]")).toContainText("1 处分叉");
@@ -441,7 +583,7 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     await input(page).click();
     await page.keyboard.type("/rename 雨夜");
     await page.keyboard.press("Enter");
-    await expect(page.locator(".acv-header__name")).toHaveText("雨夜");
+    await expect(page.locator("[data-header-title]")).toHaveText("雨夜");
 
     await input(page).click();
     await page.keyboard.type("/model 本机");
@@ -458,9 +600,10 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
 
     await page.keyboard.type("没写完的字");
     await page.locator("[data-header-new]").click();
-    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
     await expect(input(page)).not.toContainText("没写完的字");
-    await page.locator(".acv-header__title--button").click();
+    // 头写在面板头上（输出 44）：按面板头的标题开会话列表。
+    await conversationHandle(page).click();
     await page.getByRole("button", {name: /雨夜/u}).or(page.getByText("雨夜")).first().click();
     await expect(input(page)).toContainText("没写完的字");
     await page.reload();
@@ -473,7 +616,7 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     // 第一次回车选中菜单里的命令，第二次发出去。
     await page.keyboard.press("Enter");
     await page.keyboard.press("Enter");
-    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
     await expect(input(page)).not.toContainText("/new");
 });
 
@@ -543,7 +686,8 @@ test("Agent 模式：还没有会话时选计划；写作品被拦；写计划�
     await mode.click();
     await mode.click();
     await expect(mode).toContainText("计划");
-    await expect(page.locator("[data-status-mode]")).toContainText("计划模式");
+    // 模式只看工具栏的控件，状态栏不另标（modes.md 输出 13）。
+    await expect(page.locator("[data-agent-status]")).not.toContainText("计划");
     await expect(page.locator('[data-composer-action="approval"]')).toHaveClass(/is-muted/u);
 
     await script(
@@ -557,7 +701,6 @@ test("Agent 模式：还没有会话时选计划；写作品被拦；写计划�
     await page.locator("[data-mode-switch-approve]").click();
     await expect(page.getByText("开始实现")).toBeVisible();
     await expect(mode).toContainText("普通");
-    await expect(page.locator("[data-status-mode]")).toHaveCount(0);
     const seen = JSON.stringify((await requests()).map((request) => request.messages));
     expect(seen).toContain("现在是计划模式");
     expect(seen).toContain("mode-blocked");

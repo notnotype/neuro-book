@@ -8,8 +8,11 @@ import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
 import type {RemoteFailure, RemoteFailureCode, RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
-import {encodedBytes, encodedTextBytes, FILES_FAILURES, rawUrlOf, MAX_OPERATION_ITEMS, parseResource, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "../shared/contracts";
+import {encodedBytes, encodedTextBytes, FILES_FAILURES, rawUrlOf, MAX_OPERATION_ITEMS, parseResource, projectFilesContract, TEXT_BUDGET_BYTES, uploadUrlOf, userFilesContract} from "../shared/contracts";
 import type {Baseline, BatchHandle, BatchResult, BatchTransfer, ChangesMessage, FilesFailureCode, FilesResult, FilesService, OperationDone, Scheme, WatchMessage} from "../shared/contracts";
+
+import {isUploadServerFailure, UPLOAD_MAX_BYTES} from "../shared/upload";
+import type {UploadResult, UploadServerFailure} from "../shared/upload";
 
 type Remote = ActivationContext["remote"];
 
@@ -20,7 +23,67 @@ export interface FilesFacade {
 }
 
 /** `project` 是窗口绑定的作品与代次（字节地址要用）；没有绑定为 null。 */
-export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, watches: WatchRegistry, project: {readonly id: string; readonly generation: number} | null): FilesFacade {
+/** 发 HTTP 请求的入口：浏览器里是全局 `fetch`；测试换成带真实服务端地址的。 */
+export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
+
+const defaultFetcher: Fetcher = (url, init) => fetch(url, init);
+
+/**
+ * 响应体里没有认得的码时按状态码兜底，显式列出：同一个状态在码表里有几个码，选哪个不靠书写顺序。路由自己回的 403 都带码；
+ * 没有码的 403 是宿主分发层挡的（`Origin` 不被允许），当作“别的网页写入”。
+ */
+const FAILURE_OF_STATUS: Readonly<Record<number, UploadServerFailure>> = {
+    400: "invalid-address",
+    403: "cross-site",
+    404: "not-found",
+    409: "conflict",
+    410: "generation-gone",
+    413: "too-large",
+    415: "unsupported-type",
+    502: "unknown-outcome",
+    503: "project-unavailable",
+};
+
+const failureOfStatus = (status: number): UploadServerFailure => FAILURE_OF_STATUS[status] ?? "io-failed";
+
+/**
+ * 上传：不发出的情形（没绑定项目、不是 `project://`、过大）在这里就返回；请求没有得到响应时，浏览器分不出“没连上”与“连接中途
+ * 断了”，两者都是 `network`，调用方不要当成“一定没写”。调用方取消是 `cancelled`（图可能已经写下）。
+ */
+async function upload(fetcher: Fetcher, project: {readonly id: string; readonly generation: number} | null, address: string, body: Blob | Uint8Array, options: {readonly exists?: "fail" | "rename"; readonly signal?: AbortSignal} | undefined): Promise<UploadResult> {
+    const url = uploadUrlOf(address, project, options?.exists);
+    if (url === null) return {ok: false, code: "unavailable", detail: "没有绑定作品，或地址不是 project://"};
+    const size = body instanceof Blob ? body.size : body.byteLength;
+    if (size > UPLOAD_MAX_BYTES) return {ok: false, code: "too-large", detail: `图片至多 ${String(UPLOAD_MAX_BYTES)} 字节`};
+    let response: Response;
+    try {
+        response = await fetcher(url, {method: "PUT", body: body as RequestInit["body"], ...(options?.signal === undefined ? {} : {signal: options.signal})});
+    } catch (error) {
+        if (options?.signal?.aborted === true) return {ok: false, code: "cancelled", detail: "已取消，图片可能已经写入作品"};
+        return {ok: false, code: "network", detail: error instanceof Error ? error.message : "没有得到响应"};
+    }
+    // 响应头到了之后才取消或断开：读不到响应体。201 的话图已经写下，不能报成别的写入失败。
+    const text = await response.text().catch(() => null);
+    if (text === null && response.ok) {
+        return options?.signal?.aborted === true ? {ok: false, code: "cancelled", detail: "已取消，图片可能已经写入作品"} : {ok: false, code: "network", detail: "读响应时连接断了，图片可能已经写入作品"};
+    }
+    let parsed: unknown = null;
+    try {
+        parsed = JSON.parse(text ?? "");
+    } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+    }
+    if (response.status === 201 && typeof parsed === "object" && parsed !== null && typeof (parsed as {address?: unknown}).address === "string") {
+        return {ok: true, address: (parsed as {address: string}).address, renamed: (parsed as {renamed?: unknown}).renamed === true};
+    }
+    // 2xx 而响应体不认得：图已经写下，地址不知道。
+    if (response.ok) return {ok: false, code: "unknown-outcome", detail: "上传成功，但响应里没有地址"};
+    const failure = typeof parsed === "object" && parsed !== null ? (parsed as {error?: {code?: unknown; message?: unknown}}).error : undefined;
+    const code = isUploadServerFailure(failure?.code) ? failure.code : failureOfStatus(response.status);
+    return {ok: false, code, detail: typeof failure?.message === "string" ? failure.message : `HTTP ${String(response.status)}`};
+}
+
+export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, watches: WatchRegistry, project: {readonly id: string; readonly generation: number} | null, fetcher: Fetcher = defaultFetcher): FilesFacade {
     // 两份合同的方法相同；按方案分开取，客户端类型才精确。
     const client = (scheme: Scheme) => (scheme === "project" ? remote.on(consumer).use(projectFilesContract) : remote.on(consumer).use(userFilesContract));
     const releases = new Set<() => void>();
@@ -112,6 +175,7 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
             return once;
         },
         rawUrl: (address) => rawUrlOf(address, project),
+        upload: (address, body, options) => upload(fetcher, project, address, body, options),
     };
     return {
         service,

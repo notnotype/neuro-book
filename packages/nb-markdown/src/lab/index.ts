@@ -6,10 +6,10 @@
  */
 
 /** 组件文档原文：相对路径 → Markdown。 */
-export const nbMarkdownComponentDocs: Readonly<Record<string, string>> = rekey(import.meta.glob<string>(["../chip/**/*.md", "../display/**/*.md", "../prompt/**/*.md"], {query: "?raw", import: "default", eager: true}));
+export const nbMarkdownComponentDocs: Readonly<Record<string, string>> = rekey(import.meta.glob<string>(["../chip/**/*.md", "../display/**/*.md", "../prompt/**/*.md", "../editor/**/*.md"], {query: "?raw", import: "default", eager: true}));
 
 /** 组件模块的懒加载：相对路径 → loader。 */
-export const nbMarkdownComponentModules: Readonly<Record<string, () => Promise<unknown>>> = rekey(import.meta.glob(["../chip/**/*.vue", "../display/**/*.vue", "../prompt/**/*.vue"]));
+export const nbMarkdownComponentModules: Readonly<Record<string, () => Promise<unknown>>> = rekey(import.meta.glob(["../chip/**/*.vue", "../display/**/*.vue", "../prompt/**/*.vue", "../editor/**/*.vue"]));
 
 function rekey<T>(entries: Record<string, T>): Record<string, T> {
     return Object.fromEntries(Object.entries(entries).map(([path, value]) => [path.slice("../".length), value]));

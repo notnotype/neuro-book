@@ -1,0 +1,36 @@
+### 1. 缓存写入不是串行的
+- 严重程度：重要；类别：不变量
+- 位置：`packages/neuro-book/src/desktop/desktop-settings.ts:37-41`、`packages/neuro-book/desktop/src/bun/index.ts:337-345`
+- 现象：每次收到不同的页面值都直接调用 `writeDesktopSettingsCache(...).catch(...)`，函数为同一进程、同一缓存文件复用 `${file}.${process.pid}.tmp`，没有写入队列或其它并发保护。两个页面快速报值时，两次 `writeFile` 会互相覆盖临时文件，随后其中一次 `rename` 可能看到临时文件已被另一次改名而失败，或者较早的写入最后覆盖较晚的值。
+- 为什么是问题：Spec 要求缓存上次收到的值，并以它作为下次启动页面交值前的缩放；当前竞态会把旧值留在缓存，或在日志中报告一次无意义的 cache-write-failed。多窗口值变化是合同内场景，不是异常输入。
+- 如何核实：在被审提交的 worktree 执行 `bun -e 'import {mkdtemp,readFile,rm} from "node:fs/promises"; import {tmpdir} from "node:os"; import {join} from "node:path"; import {writeDesktopSettingsCache} from "./packages/neuro-book/src/desktop/desktop-settings.ts"; const d=await mkdtemp(join(tmpdir(),"nb-cache-race-")); const f=join(d,"logs","desktop","settings-cache.json"); const r=await Promise.allSettled(Array.from({length:100},(_,i)=>writeDesktopSettingsCache(f,{zoom:i%2===0?1.1:1.25,openAtLogin:i%3===0}))); console.log(r.filter(x=>x.status==="rejected").length,await readFile(f,"utf8")); await rm(d,{recursive:true,force:true})'`；实测 100 次并发写有 85 次 reject，最终文件仍有值但不能证明是最后一次值。
+- 建议改法：由壳按文件建立串行写入队列，按到达顺序执行并让同一队列内的最后一次值成为最终缓存；临时文件名可保持唯一或由队列保证单写。补充多个页面连续交值的并发测试，并断言最终缓存等于最后一次值且没有失败。
+### 2. 桥与缓存接受合同之外的缩放档位
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/src/shared/desktop-bridge.ts:56-59`、`packages/neuro-book/src/desktop/desktop-settings.ts:27-30`
+- 现象：`DesktopSettingValuesSchema` 只限制 `zoom` 在 `0.25` 到 `5`，而产品设置的合法档位只有 `0.5、0.67、0.75、0.8、0.9、1、1.1、1.25、1.5、1.75、2`。因此形状正确但值为 `2.5` 的缓存被当成有效值，页面消息也被壳接受。
+- 为什么是问题：直接把 `logs/desktop/settings-cache.json` 改成 `2.5` 后，壳启动会把产品页设为不在 Spec 档位集合内的缩放；页面稍后交回配置服务的合法值前已经出现错误的启动缩放。插件经 `windowDesktopKey` 也能交出任意这个范围内的数字，壳的“有效值”边界没有真正守住。
+- 如何核实：在被审提交的 worktree 执行 `bun -e 'import {mkdtemp,readFile,rm,writeFile} from "node:fs/promises"; import {tmpdir} from "node:os"; import {join} from "node:path"; import {readDesktopSettingsCache} from "./packages/neuro-book/src/desktop/desktop-settings.ts"; import {parsePageMessage} from "./packages/neuro-book/src/shared/desktop-bridge.ts"; const d=await mkdtemp(join(tmpdir(),"nb-cache-invalid-")); const f=join(d,"settings-cache.json"); await writeFile(f,JSON.stringify({zoom:2.5,openAtLogin:false})); console.log(JSON.stringify({cache:await readDesktopSettingsCache(f),bridge:parsePageMessage({type:"desktop-settings",values:{zoom:2.5,openAtLogin:false}})})); await rm(d,{recursive:true,force:true})'`；实测两者都接受 `2.5`，返回 `problem: null` 与非空消息。
+- 建议改法：在桥消息和缓存读取共用的 schema 中把 `zoom` 收窄为那组字面量，并让 `nbook.desktop` 的配置声明复用同一份档位来源；补充非法但数值范围内的缓存与页面消息用例，断言按缺省或丢弃处理。
+### 3. 开机自启读取漏掉 `REG_EXPAND_SZ`
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/desktop/src/bun/login-item.ts:14-19`
+- 现象：读取结果只寻找包含 `REG_SZ` 的行。Windows 的 Run 值也可以是 `REG_EXPAND_SZ`，而字符串 `REG_EXPAND_SZ` 不包含连续的 `REG_SZ`，所以这类已有登记会被当成 `command: null`。
+- 为什么是问题：用户关闭“登录 Windows 时打开”时，`loginItemPlan` 看到 `existing: null` 会返回 `none`，留下本应删除的登记；用户重新登录后仍会启动旧命令。用户打开时则会把已有项误判为没有并重复写，读取与同步合同不完整。
+- 如何核实：对 `readLoginItem` 的解析逻辑代入 `reg query` 的标准值行 `    NeuroBook    REG_EXPAND_SZ    C:\\Users\\me\\NeuroBook\\launcher.exe`；`find(entry => entry.includes("REG_SZ"))` 找不到该行，返回 `command: null`。当前仓库没有覆盖这一种注册表类型的测试。
+- 建议改法：解析 `REG_SZ` 与 `REG_EXPAND_SZ` 两种类型，按类型字段识别并保留命令文本；添加 Windows 条件测试或把值行解析提成纯函数，用两种类型、带空格命令与无值三种输入覆盖。
+### 4. 注册表查询失败被静默当成“没有登记”
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/desktop/src/bun/login-item.ts:14-19`、`packages/neuro-book/desktop/src/bun/index.ts:318-325`
+- 现象：`readLoginItem` 对所有 `result.status !== 0` 都返回 `{command: null, problem: null}`。这把正常的“值不存在”和 `reg` 进程无法启动、注册表访问失败或其它查询错误合并了；调用方只有在 `problem` 非空时才写 `desktop.login-item.unreadable`，所以这些错误没有诊断。关闭开机自启时，读取失败还会被计划函数当成 `existing: null`，直接认为不需要删除。
+- 为什么是问题：Spec 要求注册表读写失败记诊断且不影响运行；当前实现既漏记失败，也可能在无法确认现状时跳过清理。排障时日志显示“没有登记”或无日志，无法区分用户确实没开自启与注册表不可读。
+- 如何核实：查看 `spawnSync("reg", ...)` 的结果路径：非零退出直接在第 15 行返回，后面的 `problem` 分支（第 19 行）只能处理退出码为 0 但输出形状不对的情况；因此任何非零查询错误都不会到达第 321 行的日志。
+- 建议改法：区分“值不存在”和命令执行/访问失败，至少把 `result.error`、不可启动与非正常退出交回 `problem`；对正常的缺失值保留 `command: null, problem: null`。同步逻辑在 `problem` 时只记诊断并避免基于未知现状执行删除；不要按本地化错误文案分支，使用进程错误与可验证的退出状态。
+### 5. 壳适配层的关键判据没有可重复的测试覆盖
+- 严重程度：建议；类别：测试
+- 位置：`packages/neuro-book/desktop/src/bun/index.ts:337-397`、`packages/neuro-book/src/desktop/desktop-settings.test.ts:22-66`、`packages/neuro-book/e2e/desktop-settings.e2e.ts:46-53`
+- 现象：现有快速测试只覆盖缓存读写、逐项比较和 `loginItemPlan`；`index.ts` 中接收消息、对所有 `kind === "page"` 的窗口应用缩放、页面就绪重设、缓存写入与首次开机自启同步的闭包没有测试。e2e 的“壳”只是 `addInitScript` 记录页面消息，未执行壳的缓存、窗口或注册表逻辑；Windows 证据覆盖了两个产品窗口和重启，但没有覆盖启动页/对话框不缩放、注册表解析失败或并发缓存写。
+- 为什么是问题：这条路径的行为分散在页面桥、Electrobun 主进程和文件/注册表副作用中，当前通过的测试不能发现前述 1、3、4 条问题，也不能证明“只缩放产品窗口”和每次 `page-ready` 重设在导航与多窗口时仍成立。
+- 如何核实：运行 `bun run test:bun -- src/desktop/desktop-settings.test.ts src/plugins/desktop/zoom.test.ts src/shared/desktop-bridge.test.ts src/plugins/settings/window.test.ts`，结果为 62 pass；查看这些文件可见没有 `readLoginItem`/`changeLoginItem` 的用例，也没有启动页、对话框和多个窗口的壳适配断言。
+- 建议改法：把消息处理所需的窗口端口、缓存写入器和登录项适配器注入一个可测试的壳协调器，用真实文件系统测试多窗口连续值、页面就绪和错误路径；注册表行解析单独做纯函数测试，并在 Windows 作业中补真实 `reg` 读写。e2e 继续覆盖页面到桥的合同即可，不要把消息记录器当成壳行为证明。
+有效发现：1-5；阻断 0，重要 4，建议 1。

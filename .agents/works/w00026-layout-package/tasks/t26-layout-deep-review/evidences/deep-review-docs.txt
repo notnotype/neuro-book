@@ -1,0 +1,269 @@
+# t26 深入审查：docs（Claude Sonnet，2026-11-16，固定在 954ed9e94）
+
+## 汇总
+
+文档与规范角度：t26 深入审查汇总
+
+有效发现 15 条（阻断 0、重要 4、建议 11）。文件 docs-01 到 docs-18；其中 06、14、16 是后来撤回或收窄的更正，不计入数量（06 由 07 取代；13 的一句话由 14 撤回；15 的“使用者是 legacy”由 16 更正）。
+
+重要（4）
+- docs-01 视图容器已经实现，workbench-layout Spec 仍写“还没有实现”并把输出 40 到 48、验收 8、10、14、24 到 32 整片标 planned（其中输出 44 的“移到”、输出 47 的入口条几何确实没做，见 docs-10）。
+- docs-04 layout-drag Spec 与会话接口注释说 `resolve` 无副作用，宿主的 `resolve` 写拖影、挪窗、登记粘滞候选，放下时的那一次也写；交互合同缺“每场调几次、哪几次发布”。判断来自读代码，没在浏览器里复现：在 `layout-drag.ts` 的 `resolve` 里打日志，实时布局拖标签后松手，应能看到松手帧多一次 `live.offer`。
+- docs-05 nested-grid Spec 的输出条目没有编号（别的 Spec 靠小标题当 id 引用），“过渡”“内容层”两条各 1500 到 2600 字、一条多件事，并写进 `useLayoutExtent`/`useGridLayout` 等实现与 `data-*`、`placeLifted` 等组件 API，同样内容在 NestedGrid.md 里又写一遍。（正文里“Spec 与 md 已有细微差别”一句证据偏弱：我对照了“纵向贴上边”那一处，两边实际等价；以“重复两处”为准。）
+- docs-09 WorkbenchShell.md 写“浮动窗、拖动中实时重排都不在这里”，与同一份 md、代码和 Spec 输出 38、39 矛盾；Props 缺 `dropSectors`、`dragFeel`、`dragCardShrink`、`dragCardRefresh`、`dropSplit`、`unreadNotifications`；编辑器槽的合同是旧的（docs-11 已核实）。
+
+建议（11）
+- docs-02 NestedGrid.md 的“数据”缺 `lifted`、`dragging`、`floats` 三个属性与 `lifted-head`、`overlay`、`float-chrome` 三个插槽；“公开的标记”缺 `data-float`、`data-float-chrome`、`data-float-gesture`、`data-leaving`，e2e 在依赖它们。
+- docs-03 README 只有两行 import，没有入口表；grid.md 把 createGrid、手势、布局文档、快照混在一页没有目录。
+- docs-07（取代 06）nb-layout/AGENTS.md 没写哪几个文件是工作台专用（layout-doc、layout-project、layout-drop、live-drop 内置三个区域名与容器模型）；Spec 的“不知道角色与骨架”按字面基本成立。
+- docs-08 WorkbenchSurface.md 缺 `titleOnlyPanels`、`raise-float`；“工具面板内容带 tabpanel”与 Spec 输出 20（region）相反；一句指向 t11 的历程。
+- docs-10 输出 44 的“移到”只做了“重置”，Spec 与 md 都没把“已实现的 planned”和“没做的 planned”分开。
+- docs-11 WorkbenchShell.md 的编辑器槽合同对不上 `head`、`group`（带 `tabId`）、`host` 三个组件（docs-09 第 3 点的核实）。
+- docs-12 nb-ui 冻结副本的 Splitter.md 与注释仍写 Grid、NestedGrid；与 nb-layout 版的行为差（接着上一帧、`restoreToShare`）没记录，t14 迁移时 nb-story 的手感会变。
+- docs-13 Spec 的 Smoke 与证据行没列 workbench-live-drag、workbench-float、workbench-containers、workbench-drag-cost、lab-drop-sectors（docs-14 撤回其中“用例名不带编号”那半句）。
+- docs-15 DropFeedbackOverlay.md 的接入指南围着 `resolveGridInsertion`/`resolveGridEdgeDrop` 写，用着“切换器”“空容器”旧词，“不要边拖边改”与实时布局矛盾；这两个函数在新应用里没有使用者（docs-16 更正：旧应用用的是 nb-ui 的那份，不是 nb-layout 的）。
+- docs-17 layout-drag 输出 7、12 里 `resize` 绑定、`visibilitychange` 绑定、`setPointerCapture` 异常白名单只有假宿主层的测试，适配层与 e2e 都没测（drag-session.dom.test.ts 实有 20 个用例，docs-17 写的 19 个是笔误）。
+- docs-18 注释：`layout-drop.ts` 头注释写的 `data-no-drop` 全仓库不存在（应是 `data-no-drag`）；`layout-present.ts`、`public-state.ts`、`DropSectorsOverlay.vue`、`sash-feedback.ts`、`layout-constraints.ts` 带 Task 编号、“现在还是”“原型试过”这类历程或推测后续。
+
+没有发现问题的方面
+- layout-drag Spec 的数值与顺序（6px、200ms、24px、16px；收场顺序、还焦点规则、吞 click、结构键）与 `drag-gesture.ts`、`drag-session.ts` 逐条对过，一致；唯一漏写的是边缘滚动在元素矮于两倍 `edgePx` 时不滚（`edgeScrollStep`，有测试“元素矮到两条边缘带相接时不滚”，Spec 输出 14 没写，可顺手补一句）。
+- workbench-layout Spec 的尺寸表（36/22/48/32、侧栏 160 到 560、右栏 max(360, 视口 × 0.45)）、16 个浮动窗、256 节点与 16 层、卡片 380×260、150ms 稳定、8px 空位边距、4px 与 6px 缝命中、28% 与 14% 窄带、三条记录与 1MiB 上限与 150ms 合并写，都与代码一致；四个拖动设置的名字、取值与缺省值与 `shared/contracts.ts` 一致。
+- nb-layout 单元测试（`bun test src` 558 通过）覆盖 Spec 里 nested-grid 的取整枚举、停放、离开的叶、减少动效、Tab 顺序与 layout-drag 的状态机条目；测试名能说清行为。
+- 模块头与难点注释总体合格：`useGridMotion.ts`、`grid-motion.ts`、`layout-doc.ts`（分节与容器那一段）、`layout-drag.ts` 的 `activate` 里 `nextTick` 重新量矩形，都写了“为什么在这里、为什么是这个先后”。
+- TabStrip.md、FloatWindowHandles.md、Splitter.md（nb-layout 版）与组件的 props、事件、插槽核对一致；每个入口导出的组件都有同名 .md。
+
+没做的
+- 没跑 `docs:check` 与 `governance:check`（沙箱里不能直接跑，建议主 Agent 跑一遍，看它是否查 md 与 defineProps 的字段对应；若不查，docs-02、08、09 这类问题会反复出现）。
+- 没跑 vitest 与 typecheck；没跑 e2e 与浏览器复现。
+
+
+## docs-01
+
+### 1. 视图容器已经实现，workbench-layout Spec 仍写“还没有实现”并把整片条目标 planned
+
+- 严重程度：重要；类别：文档
+- 位置：docs/specs/ui/workbench-layout.md 第 95 行（“视图容器……还没有实现。标题后面带（planned）的条目整条是目标合同”）、输出 40 到 48、验收 8、10、14、24 到 32、`nested-grid.md` 输出“分支的收起”；实现在 packages/nb-layout/src/layout-doc.ts（`setActiveContainer`、`PanelRecord.entries/activeContainer/container`、`isPanelShown`）、packages/neuro-book/src/plugins/workbench/web/state/containers.ts、web/state/layout-present.ts 的 `containerEntries`、web/commands/view-commands.ts 的 `nbook.view.move-view`、locales 的 `shell.emptyRegion`（“把视图拖到这里”）。
+- 现象：Spec 前言明说“视图容器还没有实现”，约 40 处“（planned）”。代码里锚的 `entries`/`activeContainer`、分节 `container`、`setActiveContainer`、活动栏入口（WorkbenchShell 的 `toolEntries`）、`move-view` 命令、空区域文案、`custom:` 容器回收都已在主分支树上；`isPanelShown` 的注释自称“ADR 0046 决策 3”。
+- 为什么是问题：README 的规则是 planned 条目“不能用来宣称当前产品已有该能力”，反过来，已实现的行为仍标 planned 时，读 Spec 的人（和 Agent）无法分辨哪些条目有测试守着、哪些还只是目标；`implemented` 的 Spec 与代码冲突“视为缺陷”，但这里没有一条能被判定冲突。更具体的后果：输出 11 的状态表、输出 12 的“拖过最小尺寸整个区域拖到零”与 nested-grid“分支的收起”一边标 planned、一边在 t25 里按开发者 2026-11-15 的决定改过，证据节却已经引用它们是“试用后定”的，同一条既是已试用又是 planned。
+- 如何核实：`grep -c "（planned）" docs/specs/ui/workbench-layout.md`；对照 `grep -n "setActiveContainer\|containerEntries\|MOVE_VIEW_COMMAND" ` 在 layout-doc.ts、layout-present.ts、view-commands.ts 里都有；看 w00026 t24/t25 的 plan 判断哪些切片已验收。
+- 建议改法：按 README“已实现的 Spec 加新行为”的做法，对已落地并验证的条目去掉 planned 标记，删掉第 95 行那句前言，只留真正未做的（右栏、底部面板的入口条几何，输出 47；活动栏隐藏时切容器，已知限制）。同一次改 workbench/views.md 的 planned 标记和 `shared/views.ts:130` 注释里的“只有声明，没有实现”（见后续条）。
+
+
+## docs-02
+
+### 2. NestedGrid.md 的“数据”节缺三个属性和三个插槽，“公开的标记”表缺浮动窗与离开的标记，而工作台与 e2e 都在用
+
+- 严重程度：建议；类别：文档
+- 位置：packages/nb-layout/src/vue/NestedGrid.md“数据”节（NestedGridProps / NestedGridSlots）与“公开的标记与变量”表；对照 packages/nb-layout/src/vue/NestedGrid.vue 第 31 到 106 行（defineProps、defineSlots）、第 509 到 549 行（模板）。
+- 现象：
+  - `NestedGridProps` 代码块没有 `lifted`、`dragging`、`floats`，`NestedGridSlots` 没有 `lifted-head`、`overlay`、`float-chrome`。它们只在“交互”一节的长段落里零散提到（`dragging` 为真时…、`floats`（{id, rect, moving?}）…），没有类型、缺省值。`floats` 的元素类型 `GridFloatInput`、`GridContentInput`、`GridLeafShape` 的字段也没有在文档里出现，宿主要去读 `grid-rects.ts`。
+  - “公开的标记”表声明“宿主与测试可以依赖下面这些，改名要同步它们”，但不含 `data-float`、`data-float-chrome`、`data-float-gesture`、`data-leaving`。工作台的 e2e（workbench-float.e2e.ts:27、workbench-live-drag.e2e.ts:44、347、651）直接依赖 `data-float`、`data-float-chrome`；`data-flying` 表里只写了内容项，实际外框上也有（NestedGrid.vue:512）。
+- 为什么是问题：新宿主照“数据”节接入，看不到浮动窗、拿起内容、拖动状态这三块接口；已有依赖按表改名时漏掉这几个标记，e2e 才会发现。这份 md 是“受管组件同名 .md”，`docs:check` 只查有没有，不查和 defineProps 对不对得上。
+- 如何核实：对照 `grep -n "lifted\|dragging\|floats" packages/nb-layout/src/vue/NestedGrid.md` 与 NestedGrid.vue 的 defineProps；`grep -rn "data-float-chrome" packages/neuro-book/e2e`。
+- 建议改法：把 defineProps/defineSlots 的实际类型按原样补进“数据”节（`GridContentInput`、`GridFloatInput`、`GridLeafShape` 也各给一行字段说明），“标记”表补上上述四个标记；长段落里的“交互”一节只留行为，不再兼做类型说明。
+
+
+## docs-03
+
+### 3. nb-layout 的 README 只有两行 import，新人看不出有哪些入口、该读哪份文档
+
+- 严重程度：建议；类别：文档
+- 位置：packages/nb-layout/README.md（全文 8 行）、packages/nb-layout/AGENTS.md；公开入口见 packages/nb-layout/package.json 的 `exports`。
+- 现象：README 只写“工作台的布局工具”、两个 ADR/Spec 链接和 `createGrid`、`NestedGrid`、`Splitter` 两行导入。包有四个出口（`.`、`./vue`、`./locales`、`./lab-sources`），核心导出约 150 个符号，分成五块互不相干的能力：①嵌套 grid（`createGrid` + `NestedGrid` + `useGridLayout`）；②布局文档与落点规则（`layout-doc`、`layout-project`、`layout-drop`、`live-drop`）；③拖动会话与落点登记（`createDragSession`、`registerDropTarget`）；④标签条（`TabStrip` + `tab-strip-geometry`）；⑤落点反馈组件。README 与 AGENTS.md 都没说这五块、没说哪块给谁用，也没提 `./locales` 要在宿主引导时登记目录（`locales/index.ts` 头注释才写）、`./lab-sources` 是什么。
+- 为什么是问题：新人（或 Agent）从包入口只能靠 `grep export` 摸；`createDragSession`、`createGrid` 的说明分别在 Spec layout-drag 与 `src/grid.md`，README 不指路。`grid.md` 标题“嵌套 grid”，却把 `layout-doc`、`drop` 与快照、`sash-drag` 求解混在一页，没有目录。
+- 如何核实：只读 README + AGENTS.md，尝试回答“怎么做一个能拖标签的面板”，答不出来。
+- 建议改法：README 补一张入口表：能力、入口符号、说明文档（grid.md、NestedGrid.md、TabStrip.md、layout-drag Spec、workbench-layout Spec）、谁在用（workbench / editor / nb-story）；`./locales` 一行写登记方式。`grid.md` 按“树与求解 / 手势 / 结构操作 / 快照”加二级标题目录，并把“布局文档”那一节移到 README 的入口表里（它不属于 createGrid）。
+
+
+## docs-04
+
+### 4. layout-drag Spec 与会话文档说 `resolve` 不产生副作用，宿主实现的 `resolve` 写 DOM、挪窗、登记粘滞候选，放下时的那一次也写
+
+- 严重程度：重要；类别：文档（合同与实现不一致，交互合同缺一条）
+- 位置：docs/specs/ui/layout-drag.md 输入与前置条件的 `DragSessionOptions.resolve`（“同步判定这一刻的落点，不产生副作用；可以读宿主维护的状态”）、输出 6（“用松手的坐标再判一次，这一次不发布”）；packages/nb-layout/src/vue/drag-session.ts:48（“放下时、自动滚动时也会调，所以宿主可以……记下最近的落点……不能假定一次移动只调一次”）；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:1-13 头注释（“判定是纯读”）与 :943-958 `resolve`（`setRejected`、`options.moveGhost`、`options.placeFloat`、`resolveDrop` 里的 `live.offer(drop)`）。
+- 现象：三处说法互相矛盾。
+  - Spec 与 `drag-session.ts` 的接口注释分别写“不产生副作用”和“宿主可以记下最近的落点”；
+  - 工作台的 `resolve` 实际做了四类写：①`document.documentElement` 上的“被拒绝”标记；②拖影位置 `moveGhost`；③整窗拖动时 `placeFloat` 写窗的 translate；④`live.offer(drop)` 把候选交给实时布局的粘滞/等待状态机；
+  - 会话在放下时也调 `resolve`（输出 6 的“再判一次，不发布”），所以上述四类写在松手那一刻也发生一次：`placeFloat` 把窗挪到松手坐标、`live.offer` 用松手点的候选推进粘滞，而这一次判定“不发布”。
+  - layout-drag.ts 头注释又写“判定是纯读”，指的是 `resolveLayoutDrop`/`dropAt` 那一层，不是传给会话的 `resolve`。
+- 为什么是问题：Spec 的“状态与转换”恰恰要写调用方能依赖的先后与次数：`resolve` 在一场里被调几次（每帧发布一次、放下一次、边缘滚动每一帧各一次、键盘每次移动）、哪几次发布、哪几次不发布、写不写。现在宿主靠 drag-session.ts 里的一行接口注释才知道不能假设“一次移动一次”，Spec 读者会照“无副作用”写出放下时会改状态的 `resolve`；反过来，想把 `resolve` 当纯函数缓存或重放的人会破坏实时布局的候选稳定计时。
+- 如何核实：读上面的行号；在 `layout-drag.ts` 的 `resolve` 里打日志，实时布局拖一个标签到别的面板后松手，会看到 `live.offer` 在松手帧多调一次。
+- 建议改法：Spec 把这条改成交互合同：`resolve` 每帧至多一次发布判定，另在放下与边缘滚动的每一帧各调一次（不发布）；宿主在 `resolve` 里只允许“记录最近一次判定”这一类可重入的写，不允许有不能重复的副作用；DOM 写放在 `state` 的订阅里。`layout-drag.ts` 头注释的“判定是纯读”改成“落点规则是纯读，会话的 `resolve` 回调另外记录候选、写拖影与窗的位置”。
+
+
+## docs-05
+
+### 5. nested-grid Spec 的输出条目没有编号，且几条把实现、DOM 结构和组件 API 写进了合同
+
+- 严重程度：重要；类别：文档
+- 位置：docs/specs/ui/nested-grid.md “输出与可观察行为”全部条目（第 34 到 54 行）、“副作用与数据”后半（第 76 到 79 行）、“边界与兼容”末句；对照 docs/specs/README.md 的“编号”“Spec 写什么、不写什么”。
+- 现象：
+  1. “输出与可观察行为”是无编号的圆点列表，README 要求“输出条目、失败码与验收场景都编号。编号稳定”。别的 Spec 引用它时只能写小节名：workbench-layout.md 写“nested-grid 的‘内容层’”“‘过渡’”“‘按矩形摆放’”，layout-drag 的证据行、nested-grid 自己的证据行（“输出‘按矩形摆放’‘取整’…”）也是这样。粗体小标题成了事实上的 id，但改名没有机检。测试名无法按 README 规定写“输出 N”，所以 nb-layout 的测试里引用 nested-grid 的只有零星几处。
+  2. 单条过长、一条多件事。“过渡”一条约 2600 字，包含：程序与手势的区分、新叶、从零长出来、整棵子树新开、离开的叶留着缩回去（四个条件）、降到零的叶、leafShape 裁切、浮动窗例外、手势中的行为、减少动效，还夹着一个“（planned）”。“内容层”一条约 1500 字。README 要求每条一个可判定的行为；这两条没法对应一条测试，改一句要在整段里找。
+  3. 写进了实现与 API 形状：第 76 行起的“`useLayoutExtent`共享clientWidth/clientHeight与ResizeObserver”“`useGridLayout`消费grid/extent/contextKey，发布node/layout/revision，结构API后invalidate”“`resolveGridInsertion`按显式轴……计算beforeId”是组合式函数的实现说明，换一种实现（比如不用 ResizeObserver）这些句子都要改，按 README 判据 1 属于代码注释或 `grid.md`。输出“内容层”里的 `insetTop`、`placeLifted(rect)`、`overlay` 插槽、`content-parked`、`lifted-head`，输出“浮动窗”里的 `float-chrome`、`placeFloat(id, offset)`、`data-*`、`translate` 也是 Vue 组件的 API，属于 `NestedGrid.md`。
+  4. 同一内容两处写：这些组件细节在 `NestedGrid.md`“布局”“交互”两节里又几乎逐字写一遍（例如 `data-anchor-right`、贴右边平移、`leafShape` 裁切），两边已经有细微差别（Spec 里“新叶的主轴宽度从零长到终点…”与 md 里的“纵向不贴”），改一处会漏另一处。
+- 为什么是问题：这份 Spec 同时承担 workbench-layout 的“渲染”条目（输出 14、15）的被引用方和 NestedGrid 组件文档，结果谁也读不全：审查者无法逐条核对“过渡”的 12 个子行为，e2e 也无法在测试名里标条目。Spec 的 `status: planned` 与大量已实现行为并存（“待晋升”），编号不稳定会让晋升时的证据逐条对应做不出来。
+- 如何核实：`grep -n "^- " docs/specs/ui/nested-grid.md | wc -l` 看条目数与无编号；`awk 'NR==46{print length($0)}' docs/specs/ui/nested-grid.md`；对比 NestedGrid.md“布局”第三段。
+- 建议改法：①给输出加编号（按现有顺序，不改措辞），别的 Spec 与证据行改引“输出 N”；②把“过渡”“内容层”“浮动窗”各拆成按行为分的子条（程序变化与手势的区分、新叶、整棵子树新开、离开的叶留着缩回去、降到零的叶、卡片形状裁切…），每条带一个可写成测试的判据；③第 76 到 79 行和输出里的 API 名、`data-*`、`translate` 等整体移到 `NestedGrid.md`/`grid.md`，Spec 只留“宿主能让内容按树序摆、拿起、飞行、浮动”这类黑盒说法；④`NestedGrid.md` 的“布局”“交互”只留 API 与标记，不重复 Spec 行为。
+
+
+## docs-06
+
+### 6. “nb-layout 不知道角色与骨架的含义”“不引用 Part 名”与代码不符：layout-doc.ts 写死了三个区域名、两条条、区域方向、容器与入口
+
+- 严重程度：建议；类别：文档（兼带设计，不展开）
+- 位置：docs/specs/ui/workbench-layout.md“实现合同”第二条（“`nb-layout` 不知道角色与骨架的含义，规则经 `LayoutPolicy` 由 `web/state/layout-constraints.ts` 给”）与“边界与兼容”（“树、尺寸求解、落点规则、内容层是 nb-layout 的能力”）；docs/specs/ui/nested-grid.md“边界与兼容”（“原语不引用主工作台 Part 名”）；packages/nb-layout/AGENTS.md（只写“领域无关”之外没有边界说明）；对照 packages/nb-layout/src/layout-doc.ts:20-21（`LayoutBar = "activitybar"|"statusbar"`、`PanelName = "sidebar"|"auxiliarybar"|"panel"`）、:158（`REGION_ORIENTATION`）、:1314（“条要恰各一个”）、:1360（面板名白名单）、:41-45（`container`、`entries`、`activeContainer`）、`setActiveContainer`、`isContainerAnchor`。
+- 现象：库里的 `LayoutDoc` 校验、`regionOf`、`setActiveContainer`、`splitIntoSections` 都内置了工作台的三个区域、两条条、各区域的方向，以及容器/锚/入口顺序的数据模型；只有“接受矩阵、约束、固定分区、骨架”经 `LayoutPolicy`/store 给。也就是说 nb-layout 包含一半工作台领域（布局文档那一块），只有 `grid`、`NestedGrid`、拖动会话、TabStrip 才是领域无关的。`packages/AGENTS.md`/`nb-layout/AGENTS.md` 的“边界”节也只写了“核心不依赖任何包”，没有说 `layout-doc/layout-project/layout-drop` 属于工作台专用层。
+- 为什么是问题：读 Spec 的人（和以后想把 nb-layout 给 nb-story 或第三方用的人）会按“领域无关”去用 `layout-doc`，然后发现要先有 `sidebar`/`activitybar` 才能过校验。说明里的承诺与代码方向相反时，后来者要么加抽象把它做成真的，要么误依赖。该选择可能有理由（保证文档的所有写路径同一处），但仓库里没有记录这条理由（我没在 ADR 0044/0046/0050 的正文里搜到“库内置区域名”的讨论，只在 layout-doc.ts:591 的注释里写了“不做成 LayoutPolicy 的钩子”）。
+- 如何核实：`grep -n "sidebar\|auxiliarybar\|activitybar" packages/nb-layout/src/layout-doc.ts | head`；`grep -n "不知道角色" docs/specs/ui/workbench-layout.md`。
+- 建议改法：改文字比改结构便宜：Spec 实现合同与 nb-layout/AGENTS.md 改成“`grid`/`NestedGrid`/拖动会话/`TabStrip` 是领域无关的；`layout-doc`、`layout-project`、`layout-drop`、`live-drop` 是工作台布局文档的模型，写死三个区域名、两条条与容器，只给工作台用；规则里随产品变的部分（接受矩阵、约束、分区、骨架）经 `LayoutPolicy` 与 store 注入”。如果开发者要把后一层变成真正通用的，那是另一件事（上游选择：这一层本来在 nb-layout 还是工作台插件里）。
+
+
+## docs-07
+
+### 7. 第 6 条收窄：Spec 的两句话按字面大体成立，只剩 nb-layout/AGENTS.md 没说哪几个文件是工作台专用
+
+- 严重程度：建议（原第 6 条的“重要性”撤回）；类别：文档
+- 理由：核对后，nested-grid“原语不引用主工作台 Part 名”说的“原语”是 `grid.ts` 一类，确实不引用；workbench-layout“nb-layout 不知道角色与骨架的含义”里，角色（tool/editor）的含义经 `accepts` 给，骨架判定在 store 的 `fitsSkeleton`（web/state/layout-doc-store.ts），也成立；布局提案第 183 行写的也是“库不知道角色的含义”。所以第 6 条把它们说成“与代码相反”过头，撤回这一层。
+- 仍成立的部分：layout-doc.ts 内置 `PanelName`（三个区域名）、`LayoutBar`、`REGION_ORIENTATION`、容器/入口顺序（layout-doc.ts:20-21、158、41-45），这一层是工作台专用，但 packages/nb-layout/AGENTS.md 的“边界”只写了核心与 Vue 层的依赖方向，没有写“grid/NestedGrid/拖动会话/TabStrip 通用，layout-doc/layout-project/layout-drop/live-drop 是工作台布局文档模型”这条分界；ADR 0044 与 0046 里也没有这个归属的取舍记录（用 `grep -n "layout-doc" docs/adr/0044*.md docs/adr/0046*.md` 搜不到，只有 proposals/workbench-view-containers.md 提到）。
+- 建议改法：AGENTS.md 的“边界”加两行，说明两层各含哪些文件、哪一层可以被别的宿主复用。不必改 Spec。
+
+
+## docs-08
+
+### 8. WorkbenchSurface.md 的 Props、Emits 与 tabpanel 说法对不上代码，还夹着一句指向未做 Task 的说明
+
+- 严重程度：建议；类别：文档
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.md“数据”节与“交互”节、“布局”末段；对照 WorkbenchSurface.vue:30-40（`titleOnlyPanels`）、:58（`raise-float`）、:396（`role` 取 `region` 或 `tabpanel`）。
+- 现象：
+  1. “数据”的 `Props` 没有 `titleOnlyPanels`（头只写标题的面板：没有标签带，内容就不是 tabpanel），`Emits` 没有 `raise-float`（指针按在浮动窗上、焦点进了它时提到最前，WorkbenchShell 靠它改叠放次序）。
+  2. “交互”最后一条“工具面板的内容带 `role="tabpanel"`，和面板头里的标签互相引用”：与 Spec 输出 20 相反（“内容不再是 `tabpanel`，是以标题命名的 `region`”），代码是区分的：头只写标题（分节、单标签的浮动窗）时是 `region`，多标签时才是 `tabpanel`。md 只写了后一半，读 md 的人会给分节内容加 `aria-labelledby` 指向不存在的标签。
+  3. “布局”末段：“`390×844` 由 w00026 t11 的手机呈现决定；在它之前窄屏只是挤（开发者 2026-11-06 接受）”。这是 Task 编号与日期，不是组件行为；而 Spec 输出 38 之外的“窄屏”（workbench-layout 边界与兼容）写的是“无页面级横向滚动，不保证好用”，这一句也与 t11“这一轮先不做（开发者 2026-11-06）”（w00026 README 第 28 行）合在一起已经成了历程，按 README“不写历程”应删。
+- 为什么是问题：宿主（WorkbenchShell）与以后要换表面的人读 md 当合同；少两个入口和一个 role 的分支，接出来的可访问性与叠放都会错。
+- 如何核实：`grep -n "titleOnlyPanels\|raise-float" packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.md` 无结果。
+- 建议改法：把 Props/Emits/Slots 的类型从 vue 文件原样补全（`docs:check` 若不查，可加一条 md 与 defineProps 的字段名对照），tabpanel 一条改成按头的形式写 `tabpanel` 或 `region`；删掉 t11 那一句。
+
+
+## docs-09
+
+### 9. WorkbenchShell.md 写“浮动窗、拖动中实时重排都不在这里”，同一份 md 与代码里都有；Props 缺 6 个，包括四个拖动设置
+
+- 严重程度：重要；类别：文档
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.md“不支持”（“手机呈现（w00026 t11）、浮动窗（t09）、拖动中实时重排（t08）都不在这里”）与“数据”的 `Props`；对照 WorkbenchShell.vue:63-87（Props：`dropSectors`、`dragFeel`、`dragCardShrink`、`dragCardRefresh`、`dropSplit`、`unreadNotifications`）。
+- 现象：
+  1. “不支持”这句说外壳不支持浮动窗与实时布局，但同一份 md 的“交互”最后一条就在写实时布局的预览，WorkbenchShell.vue 里 `createLayoutDrag` 接了 `feel`、`cardShrink`、`cardRefresh`，Spec 输出 38、39 是 `implemented`。这是 t08、t09 做之前留下的句子，还带着 Task 编号。
+  2. `Props` 代码块只列了 7 个（`attachPaneFocus`、`layout`、`commands`、`views`、`editorArea`、`chrome`、`project`），缺 `unreadNotifications`、`dropSectors`、`dragFeel`、`dragCardShrink`、`dragCardRefresh`、`dropSplit`；而 Spec 把这四个拖动设置当作产品行为（`dragCardRefresh` 的 display/60/30 就是 2026-11-16 开发者要求保留的那条），宿主接线只能从 plugin.ts:291 去读。
+  3. “没有 emits、slots、expose”，与 WorkbenchSurface 的情形不同，这句是对的；但“编辑区：属性 `panelId`、`context: {visible}`”的编辑器槽合同与 Spec 贡献点（`workbench.editor-area`：`panelId`、`tabId`、`context`）对不上：Spec 写每个编辑器标签一个内容组件（含 `tabId`），md 写“每块 editor 面板一个组组件”。我只确认了文字不一致，没核实现在哪个是对的（EditorAreaSource 在 contracts.ts），主 Agent 需要核对。
+- 为什么是问题：读 md 的人以为外壳没有实时布局，或不知道五个设置经 Shell 的 props 进来；上面第 3 点若 md 是旧的，编辑器接入方会照错的属性写。
+- 如何核实：`grep -n "t08\|t09\|dragFeel" packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.md`；对比 vue 第 63-87 行。
+- 建议改法：删掉“不支持”里 t08、t09、t11 的句子，改写成确实不在外壳里的东西（手机呈现、操作系统级窗口）；Props 块补全并写缺省值；第 3 点核对后统一到 Spec。
+
+
+## docs-10
+
+### 10. Spec 输出 44、47 与验收 14 的一部分没有实现，实现只做了“重置”，两处都没写出来
+
+- 严重程度：建议；类别：文档（和第 1 条合并处理）
+- 位置：docs/specs/ui/workbench-layout.md 输出 44（入口右键菜单：“移到”另外两个区域各一项，以及“重置”）、验收 14；实现 packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:341-350（注释：“容器的菜单（输出 44）。现在只有‘重置’”）与 WorkbenchShell.md“交互”（“这一步只有‘重置’”）；store 已有 `moveContainer`（layout-doc-store.ts:532，注释写“输出 44 的‘移到’‘重置’”）。
+- 现象：Store 的动作支持把容器搬到别的区域，菜单只露出“重置”；Spec 要求的“移到右栏/底部面板”没有入口。Spec 与 md 都按“planned”处理，但第 1 条建议去掉 planned 标记时，这一条不能一起去掉；现在 Spec 没有区分“已实现的 planned”和“还没做的 planned”，只能读 WorkbenchShell.vue 的注释才知道缺什么。
+- 为什么是问题：搬容器的唯一入口（输出 44）缺失，使“用户拖出来的容器放到右栏”只能靠拖入口（输出 46），而含几个视图的入口拖到别的区域的入口条上是输出 46 的路径；这是否满足验收 14 里“含两个视图的入口……”并没有测试说明。读者无法判断是遗漏还是已决定。
+- 如何核实：`grep -n "输出 44" packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue`；在产品页对“项目”入口右键，只有（条件满足时的）“重置”。
+- 建议改法：逐条核对 planned 条目（40 到 48、验收 8、10、14、24 到 32），实现了的去标记，没实现的在条目里写“当前没有入口”并链接 followups；至少把 44 的“移到”标成唯一仍 planned 的一句。
+
+
+## docs-11
+
+### 11. 第 9 条第 3 点核实：WorkbenchShell.md 的编辑器槽合同是旧的，已成立
+
+- 严重程度：建议；类别：文档
+- 核实：WorkbenchShell.vue:713、769、784 给编辑器提供者的是三个组件：`head`（`panel-id`、`dragging-tab`、`frame-actions`）、`group`（`panel-id`、`tab-id`、`context`，每个内容项一个，含空编辑组 `tabId` 为 null）、`host`（`attach-tab-drag`）。WorkbenchShell.md“布局”的“编辑区”一条仍写“树里每块 `role: "editor"` 的面板是提供者的一个组组件（属性 `panelId`、`context: {visible}`……提供者的区级组件……交出标签的拖动）”，没有 `tabId`、没有 `head`；Spec 边界与兼容的“贡献点”条写的才是现在的形状（每个编辑器标签一个内容组件、可选的头）。
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.md 第 22 行附近。
+- 建议改法：md 的“编辑区”一条改成链接 Spec 的贡献点条，只写外壳怎么挂（三个组件各挂在哪、属性）。
+
+
+## docs-12
+
+### 12. nb-ui 里冻结的旧副本：说明还写着“Grid”“NestedGrid 提供 scope”，也没写与 nb-layout 版的行为差
+
+- 严重程度：建议；类别：文档
+- 位置：packages/nb-ui/src/components/layout/Splitter.md 第 9、53、56、101、102、108 行；packages/nb-ui/src/components/layout/Splitter.vue 头注释（“受控（Grid 的每个分支）”）；packages/nb-ui/src/components/layout/sash-drag.ts 头注释最后一句（“`Grid` 与独立 `Splitter` 共用这一份实现”）；对照 packages/nb-layout/src/sash-drag.ts。
+- 现象：
+  1. nb-ui 里已经没有 `Grid`、`NestedGrid`（`ls packages/nb-ui/src/components/layout` 只有 Splitter 一族和滚动、折叠组件）。Splitter.md 仍写它“能作为 Grid 分支的受控呈现层”“可选读取外层 `NestedGrid` 提供的 sash scope”“不负责 Grid 树意图”，sash-drag.ts 头注释说 Grid 与 Splitter 共用。这些句子是迁移前的，现在读者会去 nb-ui 里找一个不存在的 Grid。
+  2. 冻结的副本与 nb-layout 版已经不是同一份行为：`diff packages/nb-ui/src/components/layout/sash-drag.ts packages/nb-layout/src/sash-drag.ts` 差 40 多行，nb-layout 版有 2026-11-15 的“兄弟之间的分配接着上一帧”（`snapState.sizesPx`、`previousSizes`）与 `restoreToShare`，冻结版没有：nb-story 的独立 Splitter 往回拖时被推开的兄弟会按基线重新分配（旧手感），nb-layout 的则不会。冻结说明只写“只修不加”，没写这个差，也没写 t14 迁移时手感会变。
+- 为什么是问题：t14 迁移时，nb-story 的用户会看到分隔条手感变化，而 nb-story 的 Spec 与 nb-ui 的说明都没提前说明；“只修不加”也没有说“nb-layout 做的修不回补”，下一个人看到 bug 同时在两处时不知道该修哪份。
+- 如何核实：见上面的 diff 命令；在 nb-story 的 Splitter 上三栏拖过去再拖回来对比 nb-layout 的 Lab 场景。
+- 建议改法：Splitter.md 的冻结声明下加两行：本副本不含 nb-layout 的“接着上一帧”与 `restoreToShare`，迁移时手感会变；把 Grid/NestedGrid 的句子改成“旧版曾作为 Grid 分支的呈现层，现在没有”，或直接删（它们描述的是不在本包的东西）。
+
+
+## docs-13
+
+### 13. workbench-layout Spec 的 Smoke 与证据行没有列实时布局、浮动窗、容器、落点分区、拖动开销的 e2e，验收与测试的对应断了
+
+- 严重程度：建议；类别：测试 / 文档
+- 位置：docs/specs/ui/workbench-layout.md“Smoke 入口”（第 349 行）与“证据”的 Smoke 行（第 363 行）：只列 `workbench-shell`、`workbench-views`、`workbench-dnd`、`lab-grid-structure`；docs/specs/ui/layout-drag.md 的 Smoke 同理。仓库里实际有 packages/neuro-book/e2e/workbench-live-drag.e2e.ts、workbench-float.e2e.ts（16 个用例）、workbench-containers.e2e.ts、workbench-drag-cost.e2e.ts、lab-drop-sectors.e2e.ts、lab-tab-strip.e2e.ts、lab-nested-grid.e2e.ts、lab-workbench-surface.e2e.ts、lab-grid-panels.e2e.ts。
+- 现象：`grep -rn "workbench-live-drag\|workbench-float\|workbench-containers\|lab-drop-sectors\|workbench-drag-cost" docs/` 没有任何命中。验收 21（落点分区）、22（实时布局）、23（浮动）、24 到 32（容器）与输出 38 的“开销”条都靠这几个文件，Spec 与证据行没有指到它们；e2e 用例名也不写“验收 N”（`grep -c "验收" e2e/workbench-live-drag.e2e.ts` 为 0 可自行核）。
+- 为什么是问题：README 要求 `implemented` Spec 的“Smoke”行链接真实可执行脚本、验收场景逐条能对到测试。现在读 Spec 的人（以及按 `AGENTS.md`“e2e 改了什么就跑覆盖它的文件”选文件的 Agent）按 Spec 只会跑 4 个文件，改了实时布局或浮动窗时漏跑 `workbench-live-drag`、`workbench-float`。
+- 如何核实：上面的 grep；`ls packages/neuro-book/e2e | grep workbench`。
+- 建议改法：Smoke 行补全这几个文件并各写一半句覆盖的输出编号（live-drag：输出 38、验收 22、25、26、29；float：输出 39、验收 23；containers：输出 40 到 48、验收 8、14、24 到 32；drag-cost：输出 38 的“开销”；lab-drop-sectors：输出 37、验收 21）。e2e 用例名按 testing/README 标出验收场景编号，这样 `--grep` 能按编号选。
+
+
+## docs-14
+
+### 14. 第 13 条收窄：e2e 用例名与注释里已经带输出与验收编号，缺的只是 Spec 里的 Smoke 行
+
+- 严重程度：建议；类别：文档
+- 核实：对 workbench-live-drag、workbench-float、workbench-containers、workbench-dnd 四个 e2e 文件搜“验收|场景 N|输出 N”，命中 32、8、26、71 次，所以第 13 条里“e2e 用例名也不写‘验收 N’（grep -c 为 0）”这句不成立，撤回。
+- 仍成立：Spec 的 Smoke 与证据行只列了 4 个文件，没有指到 workbench-live-drag、workbench-float、workbench-containers、workbench-drag-cost、lab-drop-sectors（`grep -rn` 在 docs/ 下无命中）。改法只剩补 Smoke 行。
+
+
+## docs-15
+
+### 15. DropFeedbackOverlay.md 的接入指南和 nested-grid Spec 讲的是旧的落点路线：`resolveGridInsertion`、`resolveGridEdgeDrop` 在新应用里没有使用者
+
+- 严重程度：建议；类别：文档（兼带死接口）
+- 位置：packages/nb-layout/src/vue/DropFeedbackOverlay.md“数据”节后半（几何入口三条）与“状态与边界”的“宿主使用须知”；packages/nb-layout/src/grid-drop.ts:133（`resolveGridInsertion`）、`resolveGridEdgeDrop`、`GRID_EDGE_RATIO_DEFAULT`；docs/specs/ui/nested-grid.md 第 79 行（“`resolveGridInsertion`按显式轴/给定成员顺序计算beforeId与指示线；`resolveGridEdgeDrop`保持Editor20%边缘与left/right优先”）；packages/nb-layout/src/index.ts 的导出。
+- 现象：
+  1. `grep -rn "resolveGridInsertion\|resolveGridEdgeDrop\|resolveListInsertion" packages --include=*.ts --include=*.vue --include=*.md`（排除测试）：新应用里只有 `tab-strip-geometry.ts` 用 `resolveListInsertion`；`resolveGridInsertion`、`resolveGridEdgeDrop` 的使用者是 packages/neuro-book-legacy（旧应用）、nb-layout 自己的测试（61 处）和上面两份文档。工作台的落点全走 `layout-drop.ts`（`resolveLayoutDrop`）。也就是说，包的公开入口里有两个函数、一份 Spec 条目和一份组件文档的“宿主使用须知”都围着一条没有人走的路线写。
+  2. DropFeedbackOverlay.md 用的是已经删掉的词：`entryRect` 写“切换器条目高亮盒”、`areaRect` 写“空容器内容盒”（容器切换器是旧应用的），“宿主使用须知”第一条写“接入合同是‘显示落点、释放提交’……不要用边拖边改 DOM 顺序的乐观排序代替”，而 Spec workbench-layout 输出 38 的实时布局正是边拖边改布局（反馈就是布局本身）；这条“须知”现在对该组件的最大使用者不成立，却没有说明它只适用于落点指示那一种手感。
+- 为什么是问题：新宿主会照 md 去用 `resolveGridInsertion` 与“切换器”词汇做反馈，又会把实时布局当作违反接入合同；包的公开面比实际能力大，留给维护者的是要不要替没人用的路线保持兼容的负担。（没有记录的理由：我没在 ADR 0044/0046 里搜到保留这两个函数的原因。）
+- 如何核实：上面的 grep；`grep -n "切换器\|空容器" packages/nb-layout/src/vue/DropFeedbackOverlay.md`。
+- 建议改法：优先让部件变少：确认 nb-story 等外部依赖都不用后，把 `resolveGridInsertion`、`resolveGridEdgeDrop` 连同测试和 Spec 第 79 行的前半一起删（`resolveListInsertion` 留给标签条）；DropFeedbackOverlay.md 改写成“画 `LayoutDropPreview`（工作台）形状的落点指示”，去掉切换器、空容器的说法，把“显示落点、释放提交”限定为落点指示手感，实时布局另指向 workbench-layout 输出 38。若要保留，至少在文档里标“当前只有旧应用使用”。
+
+
+## docs-16
+
+### 16. 第 15 条更正：旧应用用的是 nb-ui 里自己的那份，nb-layout 的两个函数除测试外没有任何使用者
+
+- 严重程度：建议（同第 15 条）；类别：文档
+- 更正：第 15 条写“使用者是 packages/neuro-book-legacy”不准确。legacy 的 workbench-drop.ts 头注释与 import 写的是“复用 nb-ui `resolveGridInsertion`”，用的是 nb-ui 的那份。所以 nb-layout 导出的 `resolveGridInsertion`、`resolveGridEdgeDrop`、`GRID_EDGE_RATIO_DEFAULT`、`GRID_DROP_INDICATOR_PX` 里，新应用里只有 `resolveListInsertion`（经 tab-strip-geometry.ts:168）和 `GRID_DROP_INDICATOR_PX`（grid-drop.ts 内部）在用，前两个只剩 nb-layout 自己的测试在用。
+- “没有记录的理由”核实：在 docs/adr、docs/proposals、docs/specs、w00026 的 Task 记录里搜这两个函数名，只有 nested-grid.md 第 79 行（陈述接口）、proposals/workbench-shell-abstractions.md、t07 plan 第 231 行（说 `resolveGridEdgeDrop` 先判 x、与 Spec 的四角规则不同，所以工作台另写了 `LayoutPolicy.edgeTarget`）。没有写“保留它们”的理由；t07 的记录反而说明工作台没用它。
+- 建议改法：同第 15 条：确认 nb-story 与 dev-panel 都不用（grep 到的 packages/nb-story、dev-panel 里没有 nb-layout 导入）后删这两个函数及测试，Spec 第 79 行同步改；否则在文档里标“没有产品使用者”。
+
+
+## docs-17
+
+### 17. layout-drag Spec 输出 7、12 里有三处只在适配层，没有测试：窗口尺寸变化、页面隐藏的绑定、取不到捕获的两种异常
+
+- 严重程度：建议；类别：测试
+- 位置：docs/specs/ui/layout-drag.md 输出 7（“捕获取不到（调用抛错，或调用后 `hasPointerCapture` 为假）按失去捕获算”“页面隐藏”）、输出 12（“窗口尺寸变化一律重新判定”）；packages/nb-layout/src/vue/drag-session.ts:140-142（`onHidden`）、:165-167（`onResize`）、:204-212（`capture()` 只吞 `NotFoundError`、`InvalidStateError`，别的异常重抛）。
+- 现象：状态机的这几条在 drag-gesture.test.ts 里用假宿主测了（“取不到捕获：按失去捕获取消”“窗口尺寸变化一律重判”等），但把真实事件接到状态机的那一层只有 drag-session.dom.test.ts 的 19 个用例，其中没有：①`window` 的 `resize` 触发 `gesture.resized()`；②`document` 的 `visibilitychange` 且 `visibilityState === "hidden"` 取消（只有 e2e lab-drag-session.e2e.ts:161 派发过，且 Spec 写明无头 Chrome 靠派发验证）；③`setPointerCapture` 抛 `NotFoundError`/`InvalidStateError` 被转成“拿起失败”，抛别的异常时重抛，没有用例；④`resize` 在 e2e 里只有 `setViewportSize` 开局一次（lab-drag-session.e2e.ts:38），拖动中改尺寸没有测过。`onResize`、`capture()` 的分支如果误删，核心测试仍全绿。
+- 为什么是问题：适配层的监听装拆与异常白名单正是 Spec 输出 7 的“只认根自己”“只认窗口自己”那一类细节容易被改坏的地方；这几条写进了 Spec 的编号输出，却只在假宿主层有断言。
+- 如何核实：`grep -n "visibilitychange\|\"resize\"\|NotFoundError" packages/nb-layout/src/vue/drag-session.dom.test.ts` 无命中；把 drag-session.ts 的 `view.addEventListener("resize", onResize)` 删掉后跑 `bunx vitest run src/vue/drag-session.dom.test.ts`，应当仍全绿（从代码推断，未实际变异）。
+- 建议改法：在 drag-session.dom.test.ts 各补一个用例：拖动中 `window.dispatchEvent(new Event("resize"))` 后判定回调多一次；`document` 的 `visibilityState` 改 hidden 后派发 `visibilitychange`，一场以 `hidden` 取消；`root.setPointerCapture` 被 stub 为抛 `DOMException("", "NotFoundError")`，拿起被拒、抛 `TypeError` 时异常冒出。
+
+
+## docs-18
+
+### 18. 几处注释指向不存在的东西，或把 Task 编号、日期、推测的后续当理由
+
+- 严重程度：建议；类别：代码质量（注释规范）
+- 位置与现象（逐处核对过原文）：
+  1. packages/nb-layout/src/layout-drop.ts:3：“遮挡（被菜单挡住、`data-no-drop`）由宿主读 DOM 之后不把那块传进来”。仓库里搜不到 `data-no-drop`（`grep -rn "data-no-drop" packages` 只有这一行）。实际的标记是 `data-no-drag`、`data-no-drag-start`（layout-drag.ts:863、Spec 输出 25）。读者会照字面去给元素写一个没有人读的标记。这条是错的，不只是历程。
+  2. packages/neuro-book/src/plugins/workbench/web/state/layout-present.ts:20：“编辑组一块面板一项：一个组现在还是一个控件（每标签一实例见 w00026 t17）”。“现在还是”是时间状态，又指向一个 Task；而 workbench-layout Spec 的“贡献点”条与 WorkbenchShell.vue:769 已经是“每个编辑器标签一个内容组件”，这句已经过时（和第 11 条的 WorkbenchShell.md 是同一个原因）。
+  3. packages/neuro-book/src/plugins/workbench/web/state/public-state.ts:17：“手机呈现（w00026 t11）之前恒为真”。推测的后续工作，注释规范明写不写；`nonPhone` 的含义已在 Spec 输出 36 写了。
+  4. packages/nb-layout/src/vue/DropSectorsOverlay.vue:74：“（t01 决定 14）”。Task 编号做依据，读者要去翻 t01 才知道为什么；理由已经写在前半句，括号可删。
+  5. packages/nb-layout/src/vue/sash-feedback.ts:9：“（w00026 t21 量到）”。同上；真正有用的是数字（“每划过一条分隔线就是两次整页样式重算”），Task 编号可删。
+  6. packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts 的 `FLOAT_DEFAULT` 注释“原型试过的手感”：历程。
+- 为什么是问题：docs/standards/code/common.md“注释”写明不写中间尝试与改动经过、推测的后续工作，注释写在拥有原因的地方；其中第 1 条会误导，第 2 条与 Spec 矛盾。其余几条是琐碎，但随 Task 目录归档后编号无从查起。
+- 如何核实：`grep -rn "data-no-drop" packages`；`grep -rnE "w000[0-9]{2} t[0-9]{2}|\bt[0-9]{2}\b" packages/nb-layout/src packages/neuro-book/src/plugins/workbench/web --include=*.ts --include=*.vue`（排除测试）。
+- 建议改法：第 1 条改成 `data-no-drag`；第 2、3 条删掉时间状态与 Task 编号，只留“为什么”；4、5、6 删括号。

@@ -2,7 +2,7 @@
 
 本目录是 NeuroBook 品牌标识与心情差分系统的**单一源码源**（定稿生成器 + 成品导出 + 使用规范）。
 
-产品与应用文档中引用的品牌资源（[`packages/neuro-book/src/ui/brand/`](../../packages/neuro-book/src/ui/brand/README.md)、[`packages/neuro-book/src/web/public/`](../../packages/neuro-book/src/web/public/)、[`docs/images/readme/`](../../docs/images/readme/README.md)）都是从这里的 `06-production/` 复制过去的，不要在下游手工编辑。
+产品与应用文档中引用的品牌资源（[`packages/neuro-book/src/ui/brand/`](../../packages/neuro-book/src/ui/brand/README.md)、[`packages/neuro-book/src/web/public/`](../../packages/neuro-book/src/web/public/)、[`packages/neuro-book/desktop/assets/`](../../packages/neuro-book/desktop/assets/)、[`docs/images/readme/`](../../docs/images/readme/README.md)）都是从这里的 `06-production/` 复制过去的，不要在下游手工编辑。
 
 ## 目录结构
 

@@ -3,7 +3,8 @@
  *
  * 先经 IPC 链路连上服务端的路由，再建立运行实例：插件激活时远程服务已可用。运行实例可用之后才向服务端报告
  * `started`，不报半就绪；启动失败报告原因后按停止序列收口。服务端发来 `stop`、或 IPC 断开（服务端已不在）
- * 都请求停止；停止期间链路保持，项目里的插件收口时仍能调用服务端。
+ * 都请求停止；停止期间链路保持，项目里的插件收口时仍能调用服务端。服务端问在跑的工作（`work-query`）时同步收集本实例的登记
+ * 并应答，运行实例还没建立时登记表为空，照样应答。
  */
 
 import {writeSync} from "node:fs";
@@ -22,7 +23,8 @@ import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createEnvelopeLink, parseEnvelope} from "nbook/server/projects/ipc";
 import type {EnvelopeChannel} from "nbook/server/projects/ipc";
-import {clockKey} from "nbook/shared/host";
+import {createRunningWork} from "nbook/server/running-work";
+import {clockKey, runningWorkKey} from "nbook/shared/host";
 import {currentProjectKey} from "nbook/shared/projects";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 import {NEUROBOOK_PLATFORM} from "nbook/plugin-platform-profile";
@@ -88,6 +90,8 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         }
     };
 
+    const work = createRunningWork((record) => store.record(record));
+
     const node = createRemoteNode({
         instance,
         observer: {diagnosticRecorded: (diagnostic) => store.record({level: "warn", event: `remote.${diagnostic.reason}`, message: "远程服务诊断", data: diagnostic})},
@@ -104,6 +108,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         if (envelope.t === "frame") link.receive(envelope.d);
         else if (envelope.t === "stop") requestStop("parent:stop");
         else if (envelope.t === "plugins") received.resolve(envelope.installed);
+        else if (envelope.t === "work-query") report({t: "work", id: envelope.id, ...work.collect()});
         else store.record({level: "warn", event: "project.ipc.unexpected", message: `服务端不该发送 ${envelope.t}`});
     });
     channel.onDisconnect(() => {
@@ -137,7 +142,11 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         location: "project",
         platform: NEUROBOOK_PLATFORM,
         manifest: {
-            capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}, {id: "host.clock", key: clockKey, create: () => systemClock}],
+            capabilities: [
+                {id: "project.current", key: currentProjectKey, create: () => current},
+                {id: "host.clock", key: clockKey, create: () => systemClock},
+                {id: "host.running-work", key: runningWorkKey, create: () => work.provision},
+            ],
             plugins,
             // 第三方插件不是启动必需，失败只影响自己；启动也不等它们的 onStartup 入口。
             requiredPlugins: plugins.filter((plugin) => !thirdPartyIds.has(plugin.id)).map((plugin) => plugin.id),

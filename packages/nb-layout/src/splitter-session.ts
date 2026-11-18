@@ -126,8 +126,8 @@ export function createSplitterSession(input: SplitterSessionInput): SplitterGest
         active = Object.keys(result.collapsed);
         compensated = [];
         issues = result.issues;
-        // 只累积收起覆盖：几何锚点始终是按下基线，显式恢复不会被下一次 delta 求解重算掉。
-        snapState = {collapsed: {...(snapState?.collapsed ?? {}), ...result.collapsed}};
+        // 累积收起覆盖，边界锚点仍是按下基线；下一帧的分配从折叠后的尺寸接着走。
+        snapState = {collapsed: {...(snapState?.collapsed ?? {}), ...result.collapsed}, sizesPx: result.sizesPx};
         if (Object.keys(result.collapsed).length === 0) {
             // 没有真实变化：保留上一次预览——no-op 不能把已经发布的几何降级成「无变化」。
             return null;

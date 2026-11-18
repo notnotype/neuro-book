@@ -14,21 +14,35 @@ import type {Component} from "vue";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {StickerResolver} from "@notnotype/nb-markdown";
 
-import {filesKey} from "nbook/plugins/files/shared/contracts";
+import {IMAGE_FOLDER_DEFAULT, imageFolderSetting, imageLocationSetting} from "nbook/plugins/editor/shared/contracts";
+import {filesKey, projectFilesContract} from "nbook/plugins/files/shared/contracts";
+import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
+import {stickerResolverKey} from "nbook/plugins/stickers/shared/contracts";
+import {windowProjectKey} from "nbook/shared/projects";
+import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 
 import {descriptor} from "../plugin";
 import {markdownKey, MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../shared/contracts";
 import type {MarkdownService} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
+import {propertiesPoint} from "../shared/properties";
 import {colorsPort, markdownColorsKey, markdownColorsStore, memoryColors} from "./colors";
 import type {MarkdownColors} from "./colors";
+import {createMarkdownMedia, markdownMediaKey} from "./media";
+import type {MarkdownMedia} from "./media";
+import {createPropertyDescriptions, markdownPropertiesDescribeKey} from "./properties-catalog";
+import type {DescribeProperty} from "./properties-catalog";
+import {markdownPropertiesOpenKey, memoryPropertiesOpen, propertiesOpenPort, propertiesOpenStore} from "./properties-open";
+import type {PropertiesOpen} from "./properties-open";
 import {createAssetUrls, markdownAssetsKey} from "./parts/asset-urls";
 import type {AssetUrls} from "./parts/asset-urls";
 import {forwardExpose} from "./parts/forward-expose";
 import {markdownReportKey} from "./parts/report";
 import type {MarkdownReport} from "./parts/report";
+import {markdownStickersKey} from "./parts/stickers";
 import {SyntaxCatalog, syntaxCatalogKey} from "./syntax-catalog";
 
 interface Host {
@@ -36,6 +50,11 @@ interface Host {
     readonly assets: AssetUrls;
     readonly report: MarkdownReport;
     readonly colors: MarkdownColors;
+    readonly propertiesOpen: PropertiesOpen;
+    readonly media: MarkdownMedia;
+    readonly describeProperty: DescribeProperty;
+    /** 表情目录（`nbook.stickers` 没装时为 null，表情写法显示原文）。 */
+    readonly stickers: StickerResolver | null;
 }
 
 /**
@@ -57,6 +76,10 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
             provideToChildren(markdownAssetsKey, host.assets);
             provideToChildren(markdownReportKey, host.report);
             provideToChildren(markdownColorsKey, host.colors);
+            provideToChildren(markdownPropertiesOpenKey, host.propertiesOpen);
+            provideToChildren(markdownMediaKey, host.media);
+            provideToChildren(markdownPropertiesDescribeKey, host.describeProperty);
+            if (host.stickers !== null) provideToChildren(markdownStickersKey, host.stickers);
             const exposed = forwardExpose(expose);
             return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props, ref: exposed}, slots));
         },
@@ -65,12 +88,12 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
 
 export const markdownBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [dialectsPoint, {id: MARKDOWN_SYNTAXES_POINT, implementation: "required", validate: validateSyntaxContribution}],
+    contributionPoints: [dialectsPoint, propertiesPoint, {id: MARKDOWN_SYNTAXES_POINT, implementation: "required", validate: validateSyntaxContribution}],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}, {key: windowProjectKey, required: false}, {key: settingsKey, required: false}, {key: windowTextKey, required: false}, {key: stickerResolverKey, required: false}],
         provides: [markdownKey],
         receives: [MARKDOWN_SYNTAXES_POINT],
         activate: async (context) => {
@@ -84,7 +107,34 @@ export const markdownBrowserPlugin: PluginDefinition = {
             const report: MarkdownReport = (event, message, error) => diagnostics.record({level: "warn", event, message, error, source: {plugin: descriptor.id}});
             const storage = await context.services.resolve(storageKey);
             const colors = storage.status === "resolved" ? colorsPort(markdownColorsStore.create(context, {storage: storage.instance, diagnostics})) : memoryColors();
-            const host: Host = {catalog, assets, report, colors};
+            // 属性面板的展开状态按作品记（项目分区）：没有绑定作品、或没有存储服务时只在这次运行里记着。
+            const project = await context.services.resolve(windowProjectKey);
+            const bound = project.status === "resolved" && project.instance.project !== null;
+            const propertiesOpen = bound && storage.status === "resolved" ? propertiesOpenPort(propertiesOpenStore.create(context, {storage: storage.instance, diagnostics})) : memoryPropertiesOpen();
+            // 插图的存放与列出（`media.ts`）：设置服务没有装时用缺省的存放位置；没有绑定作品时能力在，但上传不可用、列表为空。
+            const settings = await context.services.resolve(settingsKey);
+            const projectFiles = bound ? context.remote.use(projectFilesContract) : null;
+            const media = createMarkdownMedia({
+                files: context.services.require(filesKey),
+                find: projectFiles === null ? null : async (input, options) => {
+                    const found = await projectFiles.find({query: input.query, limit: input.limit, extensions: [...input.extensions]}, options);
+                    // 远程失败的 `detail` 是任意结构的原因：卡片只显示一行说明，不是字符串时用码。
+                    return found.ok ? {ok: true, value: found.value} : {ok: false, detail: typeof found.detail === "string" ? found.detail : String(found.code)};
+                },
+                bound,
+                settings: settings.status === "resolved"
+                    ? {location: () => settings.instance.get(imageLocationSetting), folder: () => settings.instance.get(imageFolderSetting)}
+                    : {location: () => "folder", folder: () => IMAGE_FOLDER_DEFAULT},
+            });
+            // 属性的图标、显示名与类型（`properties-catalog.ts`）：声明现查，显示名经窗口的翻译端口解析。
+            const text = await windowTextPort(context.services, () => (settings.status === "resolved" ? displayLocale(settings.instance) : "zh-CN"));
+            const describeProperty = createPropertyDescriptions({
+                declarations: context.declarations,
+                text: (display) => text.t(display),
+                conflict: (name, kept, ignored) => diagnostics.record({level: "warn", event: "markdown.properties.conflict", message: `属性 ${name} 的声明 ${ignored} 与 ${kept} 同名，${kept} 生效、${ignored} 被忽略`, data: {name, kept, ignored}, source: {plugin: descriptor.id}}),
+            });
+            const stickers = await context.services.resolve(stickerResolverKey);
+            const host: Host = {catalog, assets, report, colors, propertiesOpen, media, describeProperty, stickers: stickers.status === "resolved" ? stickers.instance : null};
             // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
             const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
                 withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});

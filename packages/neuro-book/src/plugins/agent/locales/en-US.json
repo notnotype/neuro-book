@@ -94,6 +94,10 @@
         "notSaved": "Permission rules"
     },
     "settings": {
+        "statusLine": {
+            "title": "Conversation status bar",
+            "description": "Which items the line under the composer shows and in what order; only changes are stored, edit it in the Status bar page"
+        },
         "toolBindings": {
             "title": "Agent tool bindings",
             "description": "Add or remove tools per profile: added brings in tools the profile does not list, removed drops optional ones (required tools stay)"
@@ -141,6 +145,22 @@
         "backgroundJobs": {
             "title": "Running jobs",
             "description": "How many sub-agents and background commands can run at once across all sessions."
+        },
+        "requestTrace": {
+            "title": "Record model requests",
+            "description": "Record what each model request sent, what came back, how long it took and what it used, and view it on the Model requests page. Requests made while this is off are not recorded; existing records stay viewable."
+        },
+        "requestTracePayload": {
+            "title": "Store raw request bodies",
+            "description": "Also store the raw request body sent to the provider; images are kept only as type and size. When all bodies together exceed 1 GB, the oldest are deleted first."
+        },
+        "requestTraceDays": {
+            "title": "Days to keep",
+            "description": "Records older than this are cleaned up at startup and once a day after that."
+        },
+        "requestTraceHeaders": {
+            "title": "Record request headers",
+            "description": "Record the headers of each request, with credential values replaced by [REDACTED]. Credentials that a custom gateway puts in other headers cannot be masked, so this is off by default."
         }
     },
     "settingsSections": {
@@ -161,6 +181,10 @@
                     "title": "Sub-agents and background jobs"
                 }
             }
+        },
+        "requests": {
+            "title": "Model request trace",
+            "description": "Whether to record model requests, whether to keep raw request bodies, and for how long"
         }
     },
     "conversation": {
@@ -184,6 +208,24 @@
             "unknown": "The model this session uses doesn't exist or can't be used.",
             "roleUnbound": "The model role this Profile wants has no model.",
             "unavailable": "Unavailable"
+        },
+        "notice": {
+            "noProvider": {
+                "title": "No model is available yet",
+                "body": "Add a provider first (DeepSeek, OpenAI and a local Ollama all work), then come back.",
+                "action": "Add provider"
+            },
+            "roleUnbound": {
+                "title": "The “{{role}}” role has no model",
+                "body": "{{profile}} talks through the “{{role}}” role's model.",
+                "action": "Bind a model"
+            },
+            "noCredentials": {
+                "title": "{{provider}} has no key yet",
+                "bodyRole": "The model bound to the “{{role}}” role needs a {{provider}} key.",
+                "bodyModel": "{{model}} needs a {{provider}} key.",
+                "action": "Set key"
+            }
         },
         "mode": {
             "normal": "Normal",
@@ -228,6 +270,7 @@
             "running": "Agent: {{running}} running"
         },
         "listFailed": "Couldn't get the session list ({{code}}).",
+        "welcomeTitle": "NeuroBook writing workspace",
         "pickProfile": "Choose a Profile",
         "renameTitle": "Rename",
         "rename": "Rename",
@@ -270,6 +313,19 @@
         },
         "author": {
             "otherSession": "Another conversation"
+        },
+        "subagents": {
+            "title": "Subagents",
+            "entry": "Subagents: {{count}}",
+            "entryAttention": "Subagents: {{count}}, some need you",
+            "total": "{{count}} in all",
+            "running": "{{count}} running",
+            "waiting": "{{count}} waiting for you",
+            "unnamed": "Subagent",
+            "hint": "Click a row to open the subsession; hover a running one to stop it.",
+            "stop": "Stop {{name}}",
+            "question": "Asking the parent agent",
+            "interrupted": "Interrupted"
         },
         "subagent": {
             "spawn": "Spawn sub-agent",
@@ -318,6 +374,10 @@
             "hideOutput": "Hide output",
             "openOutput": "Open output file {{path}}",
             "outputUnavailable": "Output is not readable"
+        },
+        "requests": {
+            "open": "View model requests",
+            "openThis": "View this request"
         }
     },
     "views": {
@@ -331,6 +391,9 @@
     "editorPages": {
         "conversation": {
             "title": "Agent conversation"
+        },
+        "requests": {
+            "title": "Model requests"
         }
     },
     "commands": {
@@ -346,6 +409,9 @@
         "category": "Agent",
         "open-in-editor": {
             "title": "Open conversation in editor"
+        },
+        "open-requests": {
+            "title": "View model requests"
         }
     },
     "state": {
@@ -354,6 +420,10 @@
         }
     },
     "settingsPages": {
+        "status-line": {
+            "title": "Status bar",
+            "description": "What the line under the composer shows, and in what order"
+        },
         "permissions": {
             "title": "Permission rules",
             "description": "Which tool calls are allowed, asked about, or denied"
@@ -361,7 +431,22 @@
         "profiles": {
             "title": "Profiles",
             "description": "The model, starting approval mode, and tools of each profile"
+        },
+        "skills": {
+            "title": "Skills",
+            "description": "Skills in the Skills folder, their status and initialization"
         }
+    },
+    "statusLine": {
+        "left": "Left",
+        "right": "Right",
+        "preview": "Preview",
+        "plugin": "Plugin",
+        "moveUp": "Move up",
+        "moveDown": "Move down",
+        "moveUpOf": "Move “{{name}}” up",
+        "moveDownOf": "Move “{{name}}” down",
+        "notSaved": "Status bar settings"
     },
     "profiles": {
         "loading": "Loading profiles…",
@@ -410,7 +495,9 @@
         "sections": {
             "model": "Model and approval",
             "tools": "Tools",
-            "agents": "Allowed sub-agents"
+            "agents": "Allowed sub-agents",
+            "skills": "Skills",
+            "stickers": "Sticker packs"
         },
         "model": {
             "label": "Model",
@@ -527,6 +614,180 @@
             "userAdded": "Added by me",
             "gone": "Deleted or unavailable",
             "goneGroup": "Deleted or unavailable"
+        },
+        "skills": {
+            "section": {
+                "help": "Which Skills this Profile can pick with $ in a conversation; takes effect from the next turn",
+                "count": "{{count}} available",
+                "restore": "Restore defaults",
+                "add": "Add Skill"
+            },
+            "remove": "Stop allowing {{name}} ({{id}})",
+            "required": "Required",
+            "addBack": "Add back",
+            "addBackLabel": "Add back {{name}} ({{id}})",
+            "add": {
+                "title": "Add Skills",
+                "done": "Add",
+                "search": "Search Skills",
+                "empty": "No other Skills available",
+                "noMatch": "No matching Skill",
+                "blocked": "Cannot add",
+                "replaces": "(replaces the one with the same name)",
+                "join": "Select {{name}} ({{id}})",
+                "unjoin": "Deselect {{name}} ({{id}})"
+            },
+            "userAdded": "Added by me",
+            "needsInit": "Uninitialized",
+            "gone": "This Skill was not found; it comes back once your own is in the Skills folder again, or its plugin is enabled again",
+            "goneGroup": "Deleted or unavailable",
+            "removedGroup": "Removed",
+            "groups": {
+                "user": "My Skills",
+                "builtin": "Built-in"
+            },
+            "invalid": "Invalid"
+        },
+        "stickers": {
+            "section": {
+                "help": "Which sticker packs this Profile's prompt lists common stickers from; takes effect from the next turn",
+                "count": "{{count}} listed",
+                "restore": "Restore defaults",
+                "add": "Add sticker pack"
+            },
+            "remove": "Stop listing {{name}} ({{id}})",
+            "required": "Required",
+            "addBack": "Add back",
+            "addBackLabel": "Add back {{name}} ({{id}})",
+            "add": {
+                "title": "Add sticker packs",
+                "done": "Add",
+                "search": "Search sticker packs",
+                "empty": "No other sticker packs available",
+                "noMatch": "No matching sticker pack",
+                "blocked": "Cannot add",
+                "replaces": "(replaces the one with the same name)",
+                "join": "Select {{name}} ({{id}})",
+                "unjoin": "Deselect {{name}} ({{id}})"
+            },
+            "userAdded": "Added by me",
+            "gone": "This sticker pack was not found; it comes back once your own is in the stickers folder again, or its plugin is enabled again",
+            "goneGroup": "Deleted or unavailable",
+            "removedGroup": "Removed",
+            "groups": {
+                "user": "My sticker packs"
+            },
+            "invalid": "Invalid",
+            "count": "{{count}} stickers"
+        }
+    },
+    "skills": {
+        "task": {
+            "title": "Initialize Skill {{name}}",
+            "installing": "Installing {{count}} packages",
+            "installingUnknown": "Installing dependencies",
+            "resolving": "Resolving dependencies and creating a lockfile",
+            "ready": "Ready",
+            "failed": "Installation failed"
+        },
+        "init": {
+            "title": "Initialize {{name}}",
+            "head": {
+                "loading": "Reading the dependencies to install…",
+                "packages": "Installs {{count}} packages. Needs internet.",
+                "packagesUnknown": "Installs dependencies. Needs internet.",
+                "direct": "Installs {{count}} dependencies. Needs internet.",
+                "installing": "Installing…",
+                "failed": "Initialization failed."
+            },
+            "box": {
+                "dependencies": "Direct dependencies",
+                "output": "Install output (last lines)",
+                "none": "No direct dependencies"
+            },
+            "note": {
+                "scripts": "Install scripts won't run; packages that need them may not work.",
+                "noLock": "No bun.lock: resolves the latest versions and creates one. Install scripts won't run.",
+                "installing": "Closing this keeps it installing in the background (see background tasks).",
+                "installFailed": "Check the output above, fix the network or the dependencies, then retry.",
+                "busy": "Being initialized elsewhere (the app or the command line). Check back when it's done.",
+                "interrupted": "The installation was cancelled or interrupted. You can retry.",
+                "unavailable": "This Skill can't be initialized now. See its status on the Skills page in Settings."
+            },
+            "later": "Not now",
+            "confirm": "Initialize",
+            "background": "Continue in background",
+            "close": "Close",
+            "retry": "Retry"
+        },
+        "open": {
+            "missing": "Skill “{{name}}” no longer exists, or this Profile cannot use it."
+        },
+        "menu": {
+            "title": "Skills",
+            "recent": "Recently used",
+            "all": "All",
+            "noMatch": "No matching Skill",
+            "openSettings": "Open Profile settings",
+            "noSkills": "This Profile has no Skills available yet",
+            "needsInit": "Not initialized",
+            "initializing": "Initializing"
+        },
+        "page": {
+            "openFolder": "Open Skills folder",
+            "loading": "Reading Skills…",
+            "empty": "No Skills yet. Put a Skill folder (with a SKILL.md inside) into the Skills folder and it will be listed here; then pick it in a conversation by typing $.",
+            "groups": {
+                "user": "My Skills",
+                "builtin": "Built-in"
+            },
+            "status": {
+                "needsInit": "Not initialized",
+                "initializing": "Initializing",
+                "invalid": "Invalid"
+            },
+            "problem": {
+                "skillMdMissing": "No SKILL.md in the folder",
+                "nested": "No SKILL.md in the folder, but {{directory}} one level down has one: the folder may be nested once too often",
+                "frontmatter": "The frontmatter at the top of SKILL.md cannot be read: {{detail}}",
+                "fieldMissing": "SKILL.md is missing {{field}}",
+                "fieldInvalid": "{{field}} in SKILL.md is invalid",
+                "nameMismatch": "The name in SKILL.md is {{name}}, which differs from the folder name",
+                "symlink": "The Skill folder is a link and cannot be used",
+                "pluginSkillUnbuilt": "This plugin Skill was not packaged with nbooke build and cannot be used; please tell the plugin author",
+                "installFailed": "The last initialization failed",
+                "interrupted": "The last initialization was interrupted"
+            },
+            "init": "Initialize",
+            "open": "Open",
+            "details": {
+                "toggle": "Details of {{name}}",
+                "license": "License",
+                "compatibility": "Compatibility",
+                "external": "External dependencies",
+                "python": "The scripts need Python packages, which the app does not install",
+                "pythonNoUv": "The scripts need Python packages, which the app does not install; uv was not found",
+                "metadata": "metadata",
+                "lastOutput": "Last install output",
+                "location": "Location"
+            },
+            "folder": {
+                "title": "Cannot open the Skills folder",
+                "noDesktop": "This machine has no desktop, so no file manager can be opened. The Skills folder is at: {{path}}",
+                "failed": "The file manager did not open. The Skills folder is at: {{path}}"
+            }
+        }
+    },
+    "work": {
+        "session": {
+            "running": "Agent session \"{{title}}\" is running",
+            "waiting": "Agent session \"{{title}}\" is waiting for you",
+            "untitledRunning": "An untitled Agent session is running",
+            "untitledWaiting": "An untitled Agent session is waiting for you"
+        },
+        "job": {
+            "shell": "Background command \"{{command}}\" is running",
+            "agent": "Sub-agent \"{{name}}\" is running"
         }
     }
 }

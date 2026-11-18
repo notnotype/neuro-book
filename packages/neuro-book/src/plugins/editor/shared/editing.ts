@@ -16,7 +16,7 @@ export interface EditingActionInfo {
     /** 勾选状态的公开键名。 */
     readonly format?: string;
     /** 带参数：不进命令面板。 */
-    readonly args?: "color" | "text" | "align";
+    readonly args?: "color" | "text" | "align" | "link" | "image";
     /** 要先有选区才可用。 */
     readonly needsSelection?: boolean;
 }
@@ -36,6 +36,9 @@ export const EDITING_ACTIONS = {
     "ruby-remove": {kind: "format", icon: "i-lucide-trash-2"},
     // 快捷键打开批注卡片，不是直接执行（docs/specs/workbench/markdown-editing.md 输出 28）；改意见、删除与块菜单的整块批注（`comment-block`）是控件内部动作，不在目录里。
     comment: {kind: "format", icon: "i-lucide-message-square-plus", keybinding: "Mod+Alt+M", args: "text", needsSelection: true},
+    // 快捷键打开链接卡片，确认时才带着地址执行（输出 52）；光标在链接里也能改、去掉，所以不要选区。
+    link: {kind: "format", icon: "i-lucide-link", keybinding: "Mod+K", format: "formatLink", args: "link"},
+    "link-remove": {kind: "format", icon: "i-lucide-unlink"},
     paragraph: {kind: "block", icon: "i-lucide-pilcrow", keybinding: "Mod+Alt+0"},
     "heading-1": {kind: "block", icon: "i-lucide-heading-1", keybinding: "Mod+Alt+1", format: "formatHeading1"},
     "heading-2": {kind: "block", icon: "i-lucide-heading-2", keybinding: "Mod+Alt+2", format: "formatHeading2"},
@@ -50,11 +53,16 @@ export const EDITING_ACTIONS = {
     bilingual: {kind: "block", icon: "i-lucide-book-open-text", args: "text"},
     divider: {kind: "block", icon: "i-lucide-minus"},
     table: {kind: "block", icon: "i-lucide-table"},
+    // 在插图卡片里选了图才带着地址执行（输出 54）。前置条件同 Spec 命令表：能写、能格式化（`canFormat`）。表格单元格里
+    // `canConvertBlock` 恒为假，登记成 `block` 时卡片里选了图命令被拒、静默插不进去。
+    image: {kind: "format", icon: "i-lucide-image", args: "image"},
     "block-up": {kind: "move", icon: "i-lucide-arrow-up", keybinding: "Alt+ArrowUp"},
     "block-down": {kind: "move", icon: "i-lucide-arrow-down", keybinding: "Alt+ArrowDown"},
     "block-duplicate": {kind: "move", icon: "i-lucide-copy-plus"},
     "block-delete": {kind: "move", icon: "i-lucide-trash-2"},
     "block-unwrap": {kind: "move", icon: "i-lucide-pilcrow"},
+    // 新建 frontmatter 或展开属性面板（输出 48）：只要可写。
+    properties: {kind: "move", icon: "i-lucide-table-properties"},
 } as const satisfies Readonly<Record<string, EditingActionInfo>>;
 
 export type EditingActionId = keyof typeof EDITING_ACTIONS;

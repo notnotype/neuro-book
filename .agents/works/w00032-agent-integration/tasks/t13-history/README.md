@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t13-history
-status: planned
-updated: 2026-10-30
+status: done
+updated: 2026-11-16
 ---
 
 # nb-history 接入与文件变更感知
@@ -64,6 +64,8 @@ t08、t12。
 
 讨论完成（开发者 2026-10-30）。
 
+2026-11-16 开发者定移出本 Work：转入 [w00048 t01](../../../w00048-history-integration/tasks/t01-impl/README.md)，后续在那里推进。
+
 ## 下一步
 
-实施时按 implementation-planning 写计划；收件箱对话框按 design-review 出稿。
+无（见新 Work）。

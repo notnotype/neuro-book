@@ -11,12 +11,13 @@
 
 import {streamSimple, type AssistantMessage, type Context, type Message as OmpMessage, type SimpleStreamOptions, type ImageContent, type TextContent, type ThinkingContent, type Tool, type ToolCall as OmpToolCall, type ToolChoice} from "@oh-my-pi/pi-ai";
 import {clampThinkingLevelForModel, getSupportedEfforts, type Effort, type Model} from "@oh-my-pi/pi-catalog";
-import {providerToolName, type ContentBlock, type JsonValue, type Message, type ModelDelta, type ModelInfo, type ModelRequest, type ModelResponse, type ToolCall, type Usage} from "../api/index.js";
+import {providerToolName, type ContentBlock, type JsonValue, type Message, type ModelCallMeta, type ModelDelta, type ModelInfo, type ModelRequest, type ModelResponse, type ToolCall, type Usage} from "../api/index.js";
 import {extractProviderRetryHint} from "@oh-my-pi/pi-ai/utils/retry-after";
 import {classifyProviderError} from "./classify.js";
 import {createFinishWatch} from "./finish-watch.js";
-import {sanitizeProviderText} from "./redact.js";
+import {redactText, sanitizeProviderText} from "./redact.js";
 import {takeRequestDumps} from "./request-dump.js";
+import {notify, observedFetch} from "./wire.js";
 
 export interface OmpTarget {
     /** OMP 的模型对象（宿主用 `resolveModel`、`defineModel` 或自己的解析得到）。 */
@@ -241,9 +242,19 @@ function fromOmpContent(message: AssistantMessage, toolIds: ReadonlyMap<string, 
 }
 
 /** 模型端口的 `call`：一次逻辑请求。失败不抛错，以 `stopReason: "error"`（或 `aborted`）的回复交回。 */
-export function ompCall(target: OmpTarget): (request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void) => Promise<ModelResponse> {
+export function ompCall(target: OmpTarget): (request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void, meta?: ModelCallMeta) => Promise<ModelResponse> {
     const modelName = `${target.model.provider}/${target.model.id}`;
-    return async (request, signal, onDelta) => {
+    return async (request, signal, onDeltaToHost, meta) => {
+        const observer = meta?.observe;
+        let contentSeen = false;
+        // 第一块内容（models.md 输出 20）：与首事件看门狗（`firstEvent.seen()`）分开，失败收口时也会调看门狗，那不算内容。
+        const onDelta = (delta: ModelDelta): void => {
+            if (!contentSeen) {
+                contentSeen = true;
+                if (observer?.firstContent !== undefined) notify(() => observer.firstContent?.());
+            }
+            onDeltaToHost(delta);
+        };
         const failed = (kind: NonNullable<ModelResponse["error"]>["kind"], message: string, extra: {code?: string; status?: number; usage?: Usage; content?: ContentBlock[]; retryable?: boolean} = {}): ModelResponse => ({
             content: extra.content ?? [],
             toolCalls: [],
@@ -282,10 +293,18 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         }
         const toolIds = new Map(request.tools.map((tool) => [providerToolName(tool), tool.id] as const));
         let requests = 0;
+        const observed = observedFetch(fetch, observer, secrets);
         const counted = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
             requests += 1;
-            return fetch(input, init);
+            return observed(input, init);
         }) as typeof fetch;
+        /** 不经 `fetch` 的传输（Bedrock SDK、Codex WebSocket）只交得出请求体：在回调里立刻序列化，provider 之后还会改这个对象。 */
+        let builtPayload: string | null = null;
+        const deliverPayload = (): void => {
+            const payload = observer?.payload;
+            const body = builtPayload;
+            if (requests === 0 && body !== null && payload !== undefined) notify(() => payload.call(observer, body));
+        };
         const watch = createFinishWatch();
         const effort = request.effort === undefined ? undefined : clampThinkingLevelForModel(target.model, request.effort as Effort);
         const choice = toolChoiceOf(request);
@@ -296,6 +315,10 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
             signal: firstEvent.signal,
             fetch: counted,
             onSseEvent: (event) => watch.observe(event),
+            ...(observer?.payload === undefined ? {} : {onPayload: (payload: unknown) => {
+                builtPayload = redactText(JSON.stringify(payload) ?? "null", secrets);
+                return undefined;
+            }}),
             headers: {...target.headers, ...request.headers},
             ...(request.params.maxTokens === undefined ? {} : {maxTokens: request.params.maxTokens}),
             ...(request.params.temperature === undefined ? {} : {temperature: request.params.temperature}),
@@ -329,7 +352,9 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
                 }
             }
             message = await stream.result();
+            deliverPayload();
         } catch (error) {
+            deliverPayload();
             // 建流时抛错或流 reject：没有结构化的错误信息，归为 provider（中止归 aborted），不按文字猜。
             firstEvent.seen();
             if (signal.aborted) return {content: [], toolCalls: [], stopReason: "aborted", usage: {...EMPTY_USAGE, complete: false}, model: modelName};

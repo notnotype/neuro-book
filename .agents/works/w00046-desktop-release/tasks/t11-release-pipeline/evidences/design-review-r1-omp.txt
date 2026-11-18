@@ -1,0 +1,163 @@
+1. 重要：更新冒烟漏掉上一正式版本到本次版本，且缩减已定场景
+位置：plan-r1.md:150-164、234-241、274-275。
+问题：计划只用本次重新构建的 A′→B′，没有“已有上一正式桌面版本时，用它升级到本次版本”的分支；这无法发现已发壳、旧载荷或旧准备格式到新版本的兼容问题。又把场景 2 的“已下载 C 后源换回 B，仍换上 C”从每次发布门禁删掉，改靠 t10 的一次历史手测。t11 README:16 明定行为合同不变，计划却直接缩减验收，不只是补证据。
+依据：主工作区 docs/specs/runtime/desktop-update.md:102-112，特别是 :105、:112；.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/README.md:16；计划 :238 只声明删场景 2 后半，连上一正式版这条都未登记。
+建议：保留完整场景 1、2；有上一正式桌面版本时下载其安装资产，单独跑正式旧版→本次正式包，并验状态根、作品与版本。确需缩减时先明确列出两项合同变更及失去的保证，取得开发者批准，不能用旧手测替代新构建的发布门禁。
+
+2. 阻断：B′ 只传 tarball，Windows 上的壳仍会编译成本次版本
+位置：plan-r1.md:153-155、197、206。
+问题：补丁号加 1 只发生在另一个 ubuntu 作业，传给 Windows 的只有 dist/release/。Windows 仍在标签提交上运行 desktop/scripts/build.ts：这个脚本从当前源码 PRODUCT_VERSION 编译壳，并把它写进 bundle/version.json；electrobun.config.ts 再从此文件读 app.version。换成 B′ 的应用 tarball 不会把壳变成 B′，会出现 A 版本的壳拉起 B 版本服务端，正是计划说要避免的异版本拒绝，或者根本检测不到更高版本。
+依据：主工作区 packages/neuro-book/desktop/scripts/build.ts:15、20-26、32-36；desktop/electrobun.config.ts:8、20；scripts/desktop-payload.ts:66-73、235；desktop/src/bun/index.ts:33、173、401。README.md:21 要求每个测试版本从改 PRODUCT_VERSION/package.json 后重新跑第 1 步。
+建议：Windows 的 B′ 构建也使用改过版本的独立检出，并重打壳主进程和 version.json，再以 B′ 清单组装载荷、Hutch 构建；明确断言壳、应用包、SDK、载荷与 Electrobun 产物版本一致。不能只下载新版 tarball 再跑原检出的脚本。
+
+3. 重要：本地更新冒烟的状态根隔离方案会关闭自动更新
+位置：plan-r1.md:253、281-284（更新冒烟也在“三个冒烟”内）。
+问题：计划要求 pc-notype 的全部冒烟用另一个状态根，且脚本收 --state-root。按现有壳入口，指定 NBOOK_STATE_ROOT 就进入只提示模式，不下载、不换上；换测试应用标识也不改变缺省状态根。因而照此隔离无法跑通 A′→B′。t10 已查清并显式取得“使用缺省状态根”的授权，t11 又把这个必要条件删掉。若通过覆盖 LOCALAPPDATA 等方式隔离，还需保证重启的更新器继承该环境，不能默认为已经成立。
+依据：主工作区 docs/specs/runtime/desktop-update.md:35-36、109；desktop/electrobun.config.ts:11-12；src/desktop/state-root.ts:42-63；.agents/works/w00046-desktop-release/tasks/t10-auto-update/plan.md:290；windows-update-r1.txt:12-13、52-53。
+建议：安装版、便携版脚本与更新脚本分别定义隔离方式；更新冒烟用独立 Windows 用户/干净 runner，或沿用开发者对缺省根的明确授权并记录前后状态。不向更新包传 NBOOK_STATE_ROOT；把这个约束写进切片 4 与本地验证命令。
+
+4. 阻断：整轮重跑会重新冻结集合，已发布的应用字节差异反而被放过
+位置：plan-r1.md:66-71、192-196、216-218。
+问题：release-plan.json 在每次 npm-packages 作业里按“现在还没发”的版本重新生成。若第一轮已发 npm、建 Release 前失败，整轮重跑时应用与 SDK 都不再入新计划；它们又没有源码包运行时依赖，差异只会被 blockingStalePackages 当提醒。结果能把第二轮重新构建的应用装进桌面 Release，而 npm 是第一轮字节；若尚未创建草稿，也没有任何 Release 同名资产可拦截。与“摘要核对会拦下整轮重跑”正好相反。
+依据：主工作区 scripts/release/publish.ts:95-109、181-202；scripts/release/packages.ts:35-39；docs/proposals/desktop-distribution.md:160-163；ADR 0051:25、29。既有 publish.test.ts:60-61 明确应用 bundle 无依赖时不阻断差异。
+建议：按标签提交/初次 run 固定原计划与资产身份，任何重跑首先复用它，不重算集合；应用、SDK 必须在首次计划冻结时纳入完整合同。产物丢失后禁止悄悄换构建。加“npm 成功、无草稿、整轮重跑且字节变化”的恢复场景，验证无法公开与 npm 不同批的桌面包。
+
+5. 重要：全局 concurrency 不会保留所有待发标签
+位置：plan-r1.md:181-182、216-219。
+问题：{group: release, cancel-in-progress: false} 只保住运行中的那轮，默认仅允许一个 pending。A 在跑时依次推 B、C，B 会被 C 取消，B 的标签仍在但不会自动发布。演练也占同一组，能替换等待发布的正式轮次。计划把它当串行发布队列，未给取消后的恢复规则。
+依据：GitHub 官方 Control workflow concurrency：默认 queue: single，新 pending 取消旧 pending；cancel-in-progress:false 不改变这条规则。https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+建议：显式使用平台支持的 queue:max 并处理容量界限，或只对远端发布阶段排队且明确所有标签的补跑机制；演练不要抢正式发布队列。版本比较仍保留，因为串行顺序不是版本顺序。
+
+6. 阻断：B′ 的“改版本、不提交、再 release:smoke”过不了现有打包门禁
+位置：plan-r1.md:154-155、197。
+问题：B′ 作业改 PRODUCT_VERSION 与 packages/neuro-book/package.json 后立即跑 release:smoke，但该脚本在打包前要求所有发布目录干净，结束时还核对相对原提交无改动。刷新 bun.lock 只解决依赖版本，不解决这两个已跟踪文件变脏；作业会在产出测试包前失败。计划改动清单没有给测试构建提供另一条真实可运行路径。
+依据：主工作区 scripts/release/pack-smoke.ts:423-427、456-458、479-483；scripts/release/packages.ts:46-49 把 packages/neuro-book 纳入受检目录。t10 的证据说明做过独立检出，不足以证明这里“不提交”的步骤能穿过此门禁。
+建议：在仅供 B′ 的独立临时 Git 仓库/检出里记录本地测试提交（不 push、不发布），保留原标签提交的来源字段；或明确设计一个不会削弱正式发布门禁的测试构建入口。把刷新锁、取得干净测试提交与 Windows 同版本壳构建写成完整步骤。
+
+7. 重要：新鲜发布作业缺少现有发布器必读的生成包清单
+位置：plan-r1.md:58-79、208-210。
+问题：publish-npm 是独立的干净 ubuntu 作业，只下载 dist/release/，但现有发布器即使不重新打包，也会 loadBuiltPackages(REPOSITORY) 读取 packages/neuro-book/dist/plugin-sdk/package.json 与 dist/app-package/package.json 来建立依赖图。npm-packages 只上传 tarball 与发布清单，不含这两个目录；按计划仅绕开 whoami、分支门禁并换 npm publish，仍会在发包前因“还没有生成”失败。首次 --plan 同样需要明确从什么数据冻结依赖集合，不能依赖构建作业残留文件。
+依据：主工作区 scripts/release/publish.ts:196；scripts/release/packages.ts:35-39、108-118；plan-r1.md:195-196、210。Actions 的每个 hosted job 是新的工作环境，前一作业磁盘不会随 needs 传递。
+建议：发布所需包名、版本、运行时依赖与摘要都从验过的 tarball/被冻结的清单读取，或把这些必要元数据一并保存；禁止在发布作业为补目录重新构建。增加“仅检出源码并下载 dist/release/，生成目录不存在”的端到端只读门禁用例。
+
+8. 阻断：正式资产会被后面的测试构建清空，上传时剩下的是测试包
+位置：plan-r1.md:198-207、95-101、162。
+问题：同一个 desktop 作业先在 desktop/artifacts/ 构建正式包并写 SHA256SUMS，之后用测试标识、本机更新源再构建 A′、B′，最后才上传 desktop-assets。Hutch 每次 writeReleaseArtifacts 都重建 artifact_root（先删再建），文件名只含平台、频道、应用名，不含 identifier/版本；A′/B′ 因而覆盖正式 Setup、tar.zst 与更新清单，并删除先写的 portable.zip/SHA256SUMS。照此目录上传，要么缺资产失败，要么把指向本机的测试包发给用户。声明“测试包不上传”没有实现隔离。
+依据：Hutch 固定 v0.29.0 源码 src/electrobun.zig:3239-3299，writeReleaseArtifacts 首行 recreateDirWithin，:6515-6523 先 deleteTreeWithin 再创建；Electrobun 官方 bundling-and-distribution 的 Artifact Names。主工作区 desktop/electrobun.config.ts:13-20 只换 identifier/baseUrl，app.name 仍为 NeuroBook。
+建议：正式构建完成即复制全部资产到独立不可变发布目录并核对清单，测试 A′、B′ 用各自的 build/artifact/payload 目录或独立检出；之后只从正式快照上传。构建 B′ 前也先把 A′ 全部文件复制到独立静态源，不能直接服务即将被 Hutch 重建的 artifacts/。
+源码：https://github.com/blackboardsh/hutch/blob/v0.29.0/src/electrobun.zig#L3239-L3299
+
+9. 重要：用 latest 判断是否省略 --tag，与 npm 的拒绝规则不一致
+位置：plan-r1.md:73-77。
+问题：npm 11.5.1 对“隐式 latest”的拒绝依据是 registry 中最高的非预发布、未 deprecated 版本，不是 dist-tags.latest。仓库流程允许手工把 latest 指回旧版本：若 registry 已有 0.11.2、latest 回拨到 0.11.0，补发 0.11.1 时本计划判定它高于 latest，省略 --tag；npm 却因 0.11.2 更高而直接拒绝。多个包不同发布历史时，前面的包可能已经发布，后面才遇到这个不可恢复于原规则的门禁。
+依据：npm/cli v11.5.1 lib/commands/publish.js 中 #registryVersions 对 versions 排序取得 highestVersion；#publish 在 highestVersion>=manifest.version 且 isDefaultTag 时拒绝。主工作区 docs/proposals/desktop-distribution.md:176 明确允许 npm dist-tag 回拨。
+建议：仍用 dist-tags.latest 作“不往回拨”的业务判定，但推进时显式传 --tag latest，历史版本显式 --tag history；或同时核对最高版本并选择显式标签。测试加入 latest 不是最高已发版本、latest 缺失与读取失败。
+源码：https://github.com/npm/cli/blob/v11.5.1/lib/commands/publish.js
+
+10. 重要：假模型脚本调用了未注册的 bash，且输出断言会把回显当执行
+位置：plan-r1.md:40、134-136。
+问题：实际模型工具名是 shell（贡献 id 为 nbook.agent.shell），不是 bash。fakeEndpoint 不做名字转换，只把传入 scripted.tool 原样送出；按计划回 bash 得到未知工具结果，无法执行命令。另一个风险是只断言页面与第二请求“含随机串”：命令参数本身就含该串，工具错误也可能复述参数，不能证明内嵌 shell 成功运行。
+依据：主工作区 packages/neuro-book/src/plugins/agent/backend/builtin/index.ts:26-35；testing/endpoint.ts:87-103；e2e/agent-conversation.e2e.ts:577 使用 {tool:"shell",args:{command:...}}；builtin-tools.test.ts:333-336 对真实结果核对退出码 0。
+建议：照实际公开名调用 shell，明确 command 参数和审批处置；断言 tool 角色消息中对应调用 id 的执行结果含独立输出行、退出码 0，并确认会话完成。随机串从命令参数提到，不足以作为通过依据，可用不在原参数中完整出现的计算结果验证。
+
+11. 重要：npm 信任配置缺少直接发布权限与首次验证时限
+位置：plan-r1.md:43、208-210、257-264。
+问题：一次性准备只说“12 个包配信任这个工作流”，没有要求在 npm 端允许 npm publish。当前 npm 文档明确：2026-09-03 后的新配置默认只允许 npm stage publish，直接 npm publish 要单独勾选；照默认设置会在实际发布才鉴权失败。新配置还必须在 2 天内完成首个成功 publish，否则过期。这里有 12 个独立版本的包，多数轮次只发应用/SDK，未提版本的源码包配置不会被这次标签验证，之后再提版才突然失败。
+依据：npm 官方 Trusted publishing，Step 1 的 Allowed actions、配置创建日期说明、Trusted publisher configuration expiry；https://docs.npmjs.com/trusted-publishers/ 。文档同时要求 npm>=11.5.1、Node>=22.14.0、environment 名精确匹配。
+建议：准备步骤逐包列出 release.yml、environment=release、允许直接 npm publish、首次成功发布时间与验证/失效状态；仅在该包确实有待发版本的发布窗口内配置信任，或明确重建过期配置。发布作业固定/核对 Node/npm 下限与 OIDC 入口；不把 dry-run 当作信任已验证。
+
+12. 重要：发布授权边界只写了“建 Environment”，没有限制谁能打发行标签及改标签
+位置：plan-r1.md:12、48-54、181-183、208、257-264。
+问题：祖先检查只证明代码已进 master，不证明发标签的人获准发布，也不保护之后标签不被改指。npm 的 workflow 信任加 id-token:write 是授予整个匹配 workflow 的能力，不等于只准标签；environment=release 会让默认 OIDC subject 变成 environment 形式，不再携带 tag 条件。计划只把人工批准设为可选，未规定环境只允许 v* 标签、谁可创建/更新/删除这些标签。当前只读 API 查到仓库 rulesets 列表为空、没有 release Environment；新建环境默认没有保护。
+依据：GitHub OIDC reference 的 Example subject claims；Managing environments 的 deployment branches/tags 与自动创建无保护环境；npm Trusted publishing 的 tag protection 建议。GET /repos/notnotype/neuro-book/rulesets、/environments（2026-11-14）；主工作区 Work README:36 要开发者逐次授权标签。
+建议：上线准备明确受信任发行者、v* tag ruleset（创建、改指、删除权限）与 release 环境的 tag 允许规则，并把 npm 信任绑定 release 环境。GitHub Release 写入也纳入同一权限边界。若接受“所有有仓库写权限者都可发布”，须明写该权限扩大供开发者确认。远端状态变更前再核对标签解引用 SHA 等于冻结提交，--verify-tag 只验存在。
+链接：https://docs.github.com/en/actions/reference/security/oidc#example-subject-claims
+https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
+
+13. 重要：拒绝降级冒烟换源后不会自动再检查，可能等 24 小时
+位置：plan-r1.md:157-166。
+问题：场景 1 重新启动 B′ 时会立即检查当时的 B′ 更新源；之后才把源换成 A′，计划只写“等过一次检查”，没有再次启动或触发检查。控制器下一次定时检查在 24 小时后。新增 checked 日志只增加观察点，不会触发检查；直接匹配 shell.log 又可能误认上一次的 B′ 检查而假通过。
+依据：主工作区 packages/neuro-book/src/desktop/update.ts:37、114-123、184-187、212-217；docs/specs/runtime/desktop-update.md:40；计划场景顺序 :158-161。
+建议：场景 1 完成后先关 B′，换源为 A′，记日志游标/新进程身份，再启动 B′，要求新日志明确记录远端 A′ 与更低结论，并断言本次请求无下载。不要加产品测试专用刷新入口，也不要等待周期计时器。
+
+14. 重要：重跑恢复没有产物寿命合同，过期后“npm 已发、Release 未建”无法补齐
+位置：plan-r1.md:196、207、216-219、298。
+问题：成功作业的产物不是永久可用，计划未固定 retention-days、未定义 artifact id/初次 attempt，也没有丢失后的恢复政策。仓库可把保留期调到少于可重跑窗口；npm 已发布后，若 desktop-assets 被过期或删除，重跑失败的 Release 作业拿不到原资产，整轮重建又违反复用同批字节（第 4 条）。文中“靠重跑失败的作业补齐”缺少有效期条件。
+依据：GitHub Re-running workflows and jobs 仅允许首次运行后 30 天内重跑；Downloading workflow artifacts 默认 90 天但仓库可配置。actions/upload-artifact 的 retention-days、不可变产物与 overwrite 语义。https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs
+https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts
+https://github.com/actions/upload-artifact#retention-period
+建议：为 npm-packages、desktop-assets 与冻结计划显式定义覆盖全部重跑窗口的保留期，记录初次 run/attempt/artifact id 与摘要；远端首次写入前确保恢复材料已持久保存。缺失时立即报不可按原规则恢复，禁止自动重建替换，给出已发 npm/草稿资产的只读对账与人工收口路径。
+
+15. 重要：Windows 作业在装工具前就调用 Bun，干净 runner 没有这个运行时
+位置：plan-r1.md:198-206、221。
+问题：desktop 作业下载产物后第一条命令就是 bun desktop/scripts/build.ts，安装 Hutch 在后面，且没有 setup-bun、Bun 版本或仓库依赖安装步骤。windows-2025 的当前预装清单没有 Bun/Hutch，别的 ubuntu 作业和被调用的 ci.yml 装好的工具不会传到这个新作业；首条 bun 命令即无法执行。即使借随包 Bun，也要先构建安装才有它，顺序不能闭合。另称 Hutch 固定版本“写在 hutch.config.ts”，现有文件其实只钉了 Electrobun 2.0.6，没有 Hutch 0.29.0 可供工作流读取。
+依据：runner-images 官方 Windows2025-Readme（Image Version 20261111.331.1）的 Language and Runtime/Tools；主工作区 desktop/hutch.config.ts:1-9；desktop/scripts/build.ts:14-15、20；t01 runner 探针:2、6 在构建前明确 bun install。https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md
+建议：在 desktop、gate、发布脚本所在的各个新作业显式建立所需运行时与依赖，Windows 上先固定/安装 Bun，再 frozen install，最后组装与 Hutch 构建；补充可机器读取的 Hutch 精确版本来源及安装版本核对。不要把 Electrobun 配置当成 Hutch 自身的 pin。
+
+16. 重要：草稿不能先设为 latest，再另一步公开
+位置：plan-r1.md:90-93。
+问题：计划写“本次版本更高才 --latest，否则 --latest=false；然后 --draft=false”。GitHub REST 合同明确 drafts cannot be set as latest。若按这两个先后操作执行，新版本的 --latest 在草稿上无法生效/被拒；如果先设 false、公开时又不带 make_latest，则新公开 Release 的默认 make_latest=true，又会把补发的旧版本推为最新，直接切换已装用户的更新源。该顺序必须在设计里消除，不能交给 gh 的缺省行为。
+依据：https://docs.github.com/en/rest/releases/releases#update-a-release 的 make_latest：草稿不能设 latest，新公开默认 true；gh v2.103.3 release/edit/edit.go 的 getParams 仅在显式传 --latest 时才发送 make_latest。
+建议：资产完整核对后，以同一条 gh release edit <tag> --draft=false --latest=<true|false>（同一个 PATCH）完成公开与是否推进最新的决定；故障恢复明确处理请求已成功但响应丢失的已公开状态。
+
+17. 重要：latest 判定在重跑时不幂等，发布后门禁会被跳过或永远失败
+位置：plan-r1.md:89-93、107-115、211-218。
+问题：首次公开已成功但作业在返回前失败时，重跑 github-release 读到“当前最新就是本次版本”，严格更高比较为 false，于是尝试 --latest=false，并让 verify-feed 按“不是最新”跳过。另一个路径：verify-feed 首次失败后，较新版本成功发布，再只重跑失败作业，继承旧输出“本次被设为最新”，却从 latest/download 取得新版本，要求等于旧本次版本，之后每次都失败。历史轮次从未验证通过也可能被当作正常跳过。
+依据：计划 :92、:111、:213-214；GitHub Re-running workflows and jobs 明定未重跑作业保留先前 outputs；gh release view 无 tag 参数读取此刻最新 Release。https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs
+建议：当前 latest==本次时只核对、不撤掉标记，并仍执行完成门禁；验证前重新读取实际最新身份，区分“当前本次”“被更高版本取代”“尚未成功公开”，后者不能套用补发旧版的跳过。对已被取代的发行通过固定 tag 下载地址核对其资产，再记录无法重现当时 latest 路由，不能伪称门禁通过。
+
+18. 重要：发布完成门禁没有验证真实更新器会接受的清单，也未保存 t10 要求的证据
+位置：plan-r1.md:107-115、213-214、232、276。
+问题：对 update-v2.json 只比 version/hash，下载又硬编码 tar.zst 文件名，只比长度。若清单的 identifier/channel/platform/arch 或 artifact.file 错误，门禁仍可能全绿，真实更新器却会拒绝/请求另一个不存在的文件；同长度错误内容也能通过。Hutch 用的 update.json 甚至没有要求与本次版本、哈希和归档一致。测试更新包用另一个标识与本机 baseUrl，无法替正式构建证明这些值。另漏掉 t10 明定的“保存 version.json 里的 baseUrl、请求与应答头”及失败后不宣称自动更新可用的收口。
+依据：主工作区 Electrobun 2.0.6 源码 Updater.ts:438-509 对身份、artifact.file 与 tar 完整性校验，:1811-1846 先取实际 baseUrl 再校验；Hutch v0.29.0 src/electrobun.zig:1755-1792 读取旧清单与其 artifact；t10 plan.md:293-297。
+建议：从冻结的正式安装资产读取 Resources/version.json，校验一次性身份、正式 baseUrl、产品版本、hash；用真实清单规则验证 v1/v2 指向同一目标与文件，再逐一下载其声明资产并核对本地 SHA-256，而不是仅长度。持久化两类查询串的请求 URL、重定向链、状态与应答头；失败时明确发行未完成及说明处置。
+
+第 14 条补充（收窄为次要）：只读 API GET /repos/notnotype/neuro-book/actions/permissions/artifact-and-log-retention 返回 days=90，当前仓库保留期已覆盖 30 天的 GitHub 重跑窗口；因此“正常过期先于可重跑窗口”不是当前已存在的故障，第 14 条只保留为恢复合同缺少显式有效期与产物丢失处置。需避免把这个文档缺口写成当前发布阻断。
+
+19. 重要：省掉发布后的 registry 闭环，实际用户安装组合没有被验过
+位置：plan-r1.md:192-214、225-230、266-276。
+问题：所有 npm 验证都在发布前运行 release:smoke，使用 overrides 把全部 @notnotype/* 指向本次本地 tarball；真正发布却会跳过早已发布版本，用 registry 上的旧字节与新版本组合。现有流程要求发布后在同一提交执行 release:smoke --from registry，验证用户能安装、插件能用并留下证据。本计划既没有这一作业，也未列为有意删除的既有门禁；纯 dist.integrity 比较不能替代 registry 安装与命令行闭环。
+依据：主工作区 docs/standards/repository-workflow.md:94-96；scripts/release/pack-smoke.ts:6-11、87-107、470-478；publish.ts:221 也明确提示发布后跑 registry smoke。参照 sabaiway/agent-workflow 的 _publish-one.yml 对发布后 registry 状态作独立确认，发布/修复时保持已发字节一致；其实现细节不应整份照搬。
+建议：在 npm 发布成功之后、宣布发行完成之前，用固定标签提交跑现有 --from registry 入口，并保存结果；失败只重跑这一验证与之后未完成作业，不重新构建或重复 publish。若要改变既有门禁，明确原因与新证据能覆盖哪些消费者行为。
+参照：https://github.com/sabaiway/agent-workflow/blob/main/.github/workflows/_publish-one.yml
+
+20. 重要：更新与卸载冒烟没有保护作品/设置的数据不变量
+位置：plan-r1.md:121-144、157-161、274-276。
+问题：更新场景 1 只等新版页面与“已更新到”，未登记更新前作品/设置、修改实际正文、核对更新后仍读同一状态根和同一作品；把状态根误迁到安装目录也能因空书架页起来而通过。安装版卸载只验安装目录与快捷方式消失，也不验共用缺省根的 projects.json、settings.json 和作品仍在。随后便携冒烟还在同一 Windows 作业执行：安装冒烟已写入缺省根，而卸载按合同不删这些文件，不能把“runner 是干净机器”继续当作便携不污染检查的前置。
+依据：主工作区 docs/specs/runtime/desktop-update.md:104 要求状态根与作品不变、不建第二状态根；desktop-shell.md:155-158 明定卸载不删作品登记与设置；t10 windows-update-r1.txt:12-15 有验前清单和验后对照。计划 :143 卸载后的根不会因此变空。
+建议：更新前用假端点和一部真实临时作品建立可识别状态，记下根、登记、设置与正文；更新后检查内容、身份及实际进程启动根。卸载后核对这些数据仍在；便携测试以安装测试留下的默认根作为只读基线，比较前后变化，不能断言其不存在。该验收不需要真实模型。
+
+21. 重要：壳 exit 0 与 shell.log 不能证明服务端有序以 0 停止
+位置：plan-r1.md:137-142。
+问题：计划等壳进程退出码 0、日志末尾 exit 0、没有中文“没有正常停止”记录，再检查无 bun 子进程。现有壳在服务端提前非 0 退出或被强制终止后仍会正常以 0 退出；异常停止只写 unclean-stop.json，成功写入不会往 shell.log 打那句中文。上述条件因而能把服务端非 0 结束当作发布通过。无残留进程只能证明结束，不能证明有序结束。
+依据：主工作区 src/desktop/shell.ts:430-435（最后总是 releaseAndExit(0)）、452-468（outcome.forced/exitCode!=0 时只落 unclean-stop.json）；owned-server.ts:142-164 把真正的服务端停止结果与壳分开；desktop-shell.md:201 要求服务端有序停止且以 0 退出。
+建议：按本次启动游标/进程身份核对服务端确实经历托管 stop 并以 0 结束，直接检查状态根 logs/desktop/unclean-stop.json 不存在；失败时保存 server-output.log、标记和壳日志。不要把壳的退出码当服务端退出码，也不要靠日志不存在某句 UI 文案判通过。
+
+22. 重要：CI 全量检查依赖“标签 before 一定全零”，但门禁未限制为新建标签
+位置：plan-r1.md:48-54、174-177、181、187-191。
+问题：workflow_call 继承调用者 github.event_name=push 这一点正确；但 before 只有创建新 ref 时才是零值，现有标签被强推/改指时它是旧 SHA。gate 只查稳定版本、版本一致与 master 祖先，不查 created/forced/deleted；此时被调用 ci.yml 会走 --since before，甚至改指向另一份同版本提交，而非计划承诺的全量检查。标签删除的 push 也不应被作为发行请求处理。当前仓库未配置 tag ruleset，不能靠未声明的保护排除此路径。
+依据：主工作区 ci.yml:40-54；Octokit 的 GitHub webhook push schema 对 before 定义为推前 ref 的 SHA，并独立提供 created/deleted/forced；GitHub Reusing workflow configurations 明定 github context 属于 caller。
+建议：发布 gate 明确只接受新建且未删除、未强推的 tags push（重新执行使用原 run 的 rerun）；可复用 CI 通过显式输入选择 --all，别用 before 的偶然形状承载发行合同。检出与发布前核对解引用后的标签提交一致。
+链接：https://github.com/octokit/webhooks/blob/main/payload-schemas/api.github.com/push/event.schema.json
+https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#github-context
+
+第 16 条补充（收窄为次要）：官方已核实的是“草稿不能设 latest、公开时 make_latest 缺省 true”的 API 合同。计划尚无实际 gh 命令，因此“两次 PATCH”的解释未验证；本条按文字“然后 --draft=false”的顺序歧义保留。若作者本意就是一次 gh release edit 同时传 --draft=false 和 --latest=<bool>，明确写出这一条完整命令即可消除，不应把本条计作已复现的平台故障。
+
+23. 重要：更新冒烟失败只留页面与壳日志，不够区分补丁、换上与测试包污染
+位置：plan-r1.md:146、148-166、207、297。
+问题：失败产物只定义 shell.log 末尾与页面截图；更新包又一律“不上传”，也没定义保存测试版本、正式版本的 version.json/载荷清单、更新器结果文件、nbook-update-state.json、静态源请求记录及构建输出。若失败发生在无窗口的换上阶段、CDP 起不来或补丁生成跳过，截图不可得，日志末尾不能判定是源布局、哈希、身份、进程占用还是混用正式/测试资产。作业结束后干净 runner 消失，无法兑现“留下失败产物供恢复”的目的。
+依据：主工作区 t10 plan.md:291、295 指定版本、状态、结果、日志、请求与应答头；windows-update-r1.txt:14-20、25-31 展示判断补丁与换上所需证据；Electrobun Updater.ts:1880-1894 把检查失败收成 error，安装结果另在通道根文件中。计划 :146 只在 smoke-windows.ts 下定义失败收集。
+建议：在三个冒烟外围建立始终执行的证据收集，按正式/安装/便携/A′/B′ 分目录，截图失败也不能遮掉原始错误；至少保存完整壳与服务端日志、版本与载荷身份、状态/结果文件、请求记录、当前进程路径/PID、失败步骤与退出码。测试包仅失败时按需要保留为受限期限的 Actions artifact，不进入 GitHub Release，也不能因为“测试包不上传”抹掉故障证据。
+
+证据边界补充：已实测当前 gh release view --json assets 导出 digest，形状为 sha256:<64 位十六进制>；第一项 install.cmd 的 state=uploaded、size=109。无需把这个字段是否存在留到第一次有远端写入的发行才确认。gh release view --json tagName,isDraft,isPrerelease 当前返回 v0.9.2-canary.20260805.125926Z.39d220b7，isDraft=false、isPrerelease=false；因此首次最新版本比较必须接受旧应用的预发布式标签，不能把 latest 也按“只接受稳定发行标签”的门禁解析。当前 0.12.1 高于该版本；尚未运行新脚本，不能断言作者会误用解析器。
+只读执行（主工作区，2026-11-14）：
+- bun test scripts/release：15 pass、0 fail、43 expect() calls，2 files，退出码 0。
+- bun scripts/release/packages.ts --json：ok=true、findings=[]；源码包顺序 profile、session、flock、runtime、ui、form、harness、markdown、agent-ui、story；既有 BUILT_PACKAGES 随后是 SDK、应用。
+- gh release view、gh api 的请求均为 GET；未执行发布、远端写入、e2e、release:smoke 或开发服务。
+新流水线、Windows CDP + Playwright、OIDC 交换、真实正式包 latest/download 尚未运行；本报告关于新流水线的结论基于固定计划、主工作区源码、固定上游源码与官方合同，非新实现的运行结果。
+
+有效条目与严重程度：阻断 2、4、6、8（4 条）；重要 1、3、5、7、9、10、11、12、13、15、17、18、19、20、21、22、23（17 条）；次要 14、16（2 条，以补充收窄为准）。第 16 条是步骤歧义，未验证两次 PATCH 的实现；第 14 条当前 90 天保留期并无提前过期故障。
+优先修订顺序：测试包的完整构建与资产隔离（2、6、8）；固定初次发行身份与恢复（4、7、17）；随后补全运行前提、npm/授权与 Smoke 判据。
+审查过程只向本 omp-report.txt 追加；未修改仓库源码、计划、规范或工作记录，未 commit/push/stash/切换分支。
+
+END

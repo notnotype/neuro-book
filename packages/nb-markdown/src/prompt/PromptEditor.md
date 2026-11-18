@@ -55,6 +55,8 @@ type PromptEditorMenuItem = {
     insertText: string;
     /** 为真时不补空格，插入后仍构成触发则菜单继续。 */
     continues?: boolean;
+    /** 行尾的状态图标（例如 Skill 未初始化）；同一个菜单有一项带它时每行都留出这一列。 */
+    status?: {label: string; iconClass?: string; busy?: boolean; tone?: "neutral" | "warning" | "danger"};
 };
 
 type PromptEditorMenu = {
@@ -148,6 +150,8 @@ interface PromptEditorEmits {
     (e: "blur"): void;
     /** 菜单每次从关到开。 */
     (e: "menu-open", payload: {trigger: string}): void;
+    /** 确认了一项、插入之后；宿主据此做插入之外的事（例如问要不要初始化 Skill）。`continues` 的项也发。 */
+    (e: "menu-select", payload: {trigger: string; id: string}): void;
     (e: "token-activate", token: PromptEditorToken): void;
     /** localId 由编辑器生成，在同一页面内唯一；大段粘贴转成的文件是 text/plain。 */
     (e: "attachment-add", payload: {localId: string; kind: "image" | "file"; file: File}): void;

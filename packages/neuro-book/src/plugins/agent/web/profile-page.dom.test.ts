@@ -20,10 +20,14 @@ import {provideText} from "nbook/shared/testing/text-port";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {ProfileEntry, ToolCatalogEntry} from "../shared/contracts";
+import type {SkillEntry} from "../shared/skills";
 import {agentSettings} from "../shared/settings";
 import ProfileDetail from "./components/ProfileDetail.vue";
 import ProfileSettingsPage from "./components/ProfileSettingsPage.vue";
 import {createProfileWriters, profilesPage} from "./profile-page";
+import type {SkillsClient} from "./skills";
+import type {StickerPacksClient} from "./sticker-packs";
+import type {StickerPackSummary} from "nbook/plugins/stickers/shared/contracts";
 import {agentCatalogs} from "./text";
 
 const cleanup: Array<() => void> = [];
@@ -91,7 +95,7 @@ function fakeRemote(options: {readonly listed?: () => readonly ProfileEntry[]; r
     };
 }
 
-function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonly writable?: boolean; readonly values?: Readonly<Record<string, unknown>>; readonly snapshot?: ModelsSnapshot | null; readonly openAddress?: (address: string) => void} = {}) {
+function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonly writable?: boolean; readonly values?: Readonly<Record<string, unknown>>; readonly snapshot?: ModelsSnapshot | null; readonly openAddress?: (address: string) => void; readonly skills?: SkillsClient; readonly stickerPacks?: StickerPacksClient} = {}) {
     const text = createHostTextEngine({locale: "zh-CN", strict: true});
     text.register("nbook.agent", agentCatalogs.catalogs, agentCatalogs.source);
     text.register("nbook.models", modelsCatalogs.catalogs, modelsCatalogs.source);
@@ -112,6 +116,8 @@ function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonl
         text: text.port,
         openAddress: options.openAddress ?? (() => undefined),
         report: () => undefined,
+        ...(options.skills === undefined ? {} : {skills: options.skills}),
+        ...(options.stickerPacks === undefined ? {} : {stickerPacks: options.stickerPacks}),
     });
     const context = {
         id: "nbook.agent.profiles",
@@ -208,6 +214,27 @@ describe("左栏", () => {
         expect(wrapper.find("[data-profile-detail='nbook.agent.session-title']").exists()).toBe(true);
         await items()[2]!.trigger("keydown", {key: "Home"});
         expect(wrapper.find("[data-profile-detail='nbook.agent.main']").exists()).toBe(true);
+    });
+
+    it("一行一项：有问题的行尾是图标，原因是悬停提示与读屏描述；没有问题的行尾空着", async () => {
+        const broken: ProfileEntry = {...MINE, key: "user.broken", name: "坏的", status: "error"};
+        const lacking: ProfileEntry = {...MINE, key: "user.lacking", name: "缺工具", status: "unavailable", problem: {code: "tools-missing", tools: ["web_search"]}};
+        const {wrapper} = open({remote: fakeRemote({listed: () => [MAIN, MINE, broken, lacking, TITLE]})});
+        await ready(wrapper);
+        const item = wrapper.get("[data-profile-rail-item='user.broken']");
+        expect(item.find("[data-profile-rail-status]").attributes("data-profile-rail-status")).toBe("error");
+        expect(document.getElementById(item.attributes("aria-describedby") ?? "")?.textContent).toBe("有错误");
+        expect(item.attributes("title")).toBe("坏的\n有错误");
+        // 缺工具的不可用是警示色。
+        const unavailable = wrapper.get("[data-profile-rail-item='user.lacking']");
+        expect(unavailable.find("[data-profile-rail-status]").attributes("data-profile-rail-status")).toBe("warning");
+        expect(unavailable.attributes("title")).toBe("缺工具\n不可用");
+        const fine = wrapper.get("[data-profile-rail-item='user.mine']");
+        expect(fine.find("[data-profile-rail-status]").exists()).toBe(false);
+        expect(fine.attributes("aria-describedby")).toBeUndefined();
+        expect(fine.attributes("title")).toBe("我的");
+        // 来源不写在列表里。
+        expect(fine.text()).toBe("我的");
     });
 
     it("后台的 Profile 没有审批一行", async () => {
@@ -372,6 +399,89 @@ describe("工具", () => {
         await waitUntil("对话框", () => addDialog() !== null);
         await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
         await waitUntil("关掉", () => wrapper.findComponent({name: "AddToolsDialog"}).props("open") === false);
+    });
+});
+
+describe("Skill（skills.md 的白名单）", () => {
+    const skill = (name: string): SkillEntry => ({id: `user.${name}`, name, description: `${name} 的说明`, source: "user", location: `skills://user.${name}/SKILL.md`, status: "ready"});
+    /** 窗口的 Skill 目录：页面只读它的条目。 */
+    const skillsClient = (entries: readonly SkillEntry[]): SkillsClient => ({entries: shallowRef(entries), recent: shallowRef([]), ensure: () => undefined, touch: () => undefined});
+    const profileSettings = (settings: ReturnType<typeof open>["settings"]) => settings.get(agentSettings.settings.profileSettings);
+
+    it("声明全部的 Profile：去掉的写进 removed、收进“已去掉”；加回清掉这一项；工具一节不受影响", async () => {
+        const remote = fakeRemote({listed: () => [{...MAIN, skills: {allowed: "all"}}]});
+        const {wrapper, settings} = open({remote, skills: skillsClient([skill("style-guide"), skill("tts-preview")])});
+        await ready(wrapper);
+        const section = () => wrapper.get("[data-profile-skills]");
+        expect(section().findAll("[data-profile-tool]").map((row) => row.attributes("data-profile-tool"))).toEqual(["user.style-guide", "user.tts-preview"]);
+
+        await section().get("[data-profile-tool='user.tts-preview'] [data-profile-tool-remove]").trigger("click");
+        await waitUntil("写下 removed", () => profileSettings(settings)["nbook.agent.main"]?.skills !== undefined);
+        expect(profileSettings(settings)["nbook.agent.main"]?.skills).toEqual({added: [], removed: ["user.tts-preview"]});
+        expect(section().get("[data-profile-tool-group='removed'] [data-profile-tool-add-back]").text()).toBe("加回");
+
+        await section().get("[data-profile-tool-add-back]").trigger("click");
+        await waitUntil("加回后清掉", () => profileSettings(settings)["nbook.agent.main"]?.skills === undefined);
+        expect(section().find("[data-profile-tool-group='removed']").exists()).toBe(false);
+        expect(settings.get(agentSettings.settings.toolBindings)).toEqual({});
+    });
+
+    it("没有 Skill 目录时没有这一节", async () => {
+        const {wrapper} = open();
+        await ready(wrapper);
+        expect(wrapper.find("[data-profile-skills]").exists()).toBe(false);
+    });
+});
+
+describe("表情包（stickers.md 输出 19、profile-settings.md 输出 27）", () => {
+    const summary = (folder: string, extra: Partial<StickerPackSummary> = {}): StickerPackSummary => ({id: `user.${folder}`, folder, source: "user", title: folder, status: "ok", count: 3, thumbnail: `/api/nbook.stickers/image/user.${folder}/a.png?v=1-1`, ...extra});
+    const packsClient = (entries: readonly StickerPackSummary[]): StickerPacksClient => ({entries: shallowRef(entries), ensure: () => undefined});
+    const profileSettings = (settings: ReturnType<typeof open>["settings"]) => settings.get(agentSettings.settings.profileSettings);
+
+    it("没有声明的 Profile：添加写进 added；行带显示名、表情数与缩略图，插件的一组按插件名；恢复默认清掉这一项", async () => {
+        const {wrapper, settings} = open({stickerPacks: packsClient([summary("lyra", {title: "星璃", description: "星璃的表情"}), summary("cats", {id: "acme.cute.cats", source: "plugin", plugin: {id: "acme.cute", title: "可爱表情"}, thumbnail: null})])});
+        await ready(wrapper);
+        const section = () => wrapper.get("[data-profile-stickers]");
+        expect(section().findAll("[data-profile-tool]")).toHaveLength(0);
+        await section().get("[data-profile-tools-add]").trigger("click");
+        // 页面上每一节都有自己的“添加”对话框：取表情包这一节的。
+        const dialog = section().findComponent({name: "AddToolsDialog"});
+        await waitUntil("对话框", () => dialog.props("open") === true || null);
+        expect(dialog.props("candidates").map((group: {provider: string}) => group.provider)).toEqual(["我的表情包", "可爱表情"]);
+        // 对话框的“完成”交出选中的项（选项的点选另有工具一节的用例）。
+        dialog.vm.$emit("done", {add: ["user.lyra"]});
+        await waitUntil("写下 added", () => profileSettings(settings)["nbook.agent.main"]?.stickers !== undefined || null);
+        expect(profileSettings(settings)["nbook.agent.main"]?.stickers).toEqual({added: ["user.lyra"], removed: []});
+        await waitUntil("列出星璃", () => section().find("[data-profile-tool='user.lyra']").exists() || null);
+        const row = section().get("[data-profile-tool='user.lyra']");
+        expect(row.text()).toContain("星璃");
+        expect(row.text()).toContain("3 个表情 · 星璃的表情");
+        expect(row.get("img").attributes("src")).toBe("/api/nbook.stickers/image/user.lyra/a.png?v=1-1");
+        await section().get("[data-profile-tools-restore]").trigger("click");
+        await waitUntil("恢复默认后清掉", () => profileSettings(settings)["nbook.agent.main"]?.stickers === undefined || null);
+    });
+
+    it("声明了表情包的 Profile：去掉的写进 removed、收进“已去掉”，加回清掉这一项", async () => {
+        const remote = fakeRemote({listed: () => [{...MAIN, stickers: {allowed: ["user.lyra"]}}]});
+        const {wrapper, settings} = open({remote, stickerPacks: packsClient([summary("lyra")])});
+        await ready(wrapper);
+        const section = () => wrapper.get("[data-profile-stickers]");
+        await section().get("[data-profile-tool='user.lyra'] [data-profile-tool-remove]").trigger("click");
+        await waitUntil("写下 removed", () => profileSettings(settings)["nbook.agent.main"]?.stickers !== undefined || null);
+        expect(profileSettings(settings)["nbook.agent.main"]?.stickers).toEqual({added: [], removed: ["user.lyra"]});
+        await section().get("[data-profile-tool-group='removed'] [data-profile-tool-add-back]").trigger("click");
+        await waitUntil("加回后清掉", () => profileSettings(settings)["nbook.agent.main"]?.stickers === undefined || null);
+        expect(profileSettings(settings)["nbook.agent.main"]?.skills).toBeUndefined();
+    });
+
+    it("表情包都删光了：白名单里的列在“已删除或不可用”；从来没有过表情包、也没有设置的 Profile 没有这一节", async () => {
+        const remote = fakeRemote({listed: () => [{...MAIN, stickers: {allowed: ["user.lyra"]}}, MINE]});
+        const {wrapper} = open({remote, stickerPacks: packsClient([])});
+        await ready(wrapper);
+        expect(wrapper.get("[data-profile-stickers] [data-profile-tool-group='gone'] [data-profile-tool='user.lyra']").text()).toContain("user.lyra");
+        await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
+        await waitUntil("换到 mine", () => wrapper.find("[data-profile-detail='user.mine']").exists() || null);
+        expect(wrapper.find("[data-profile-stickers]").exists()).toBe(false);
     });
 });
 

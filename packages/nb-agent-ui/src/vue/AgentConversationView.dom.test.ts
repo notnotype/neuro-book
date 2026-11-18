@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {flushPromises, mount} from "@vue/test-utils";
-import {defineComponent, h, nextTick, ref} from "vue";
+import {defineComponent, h, nextTick, ref, shallowRef} from "vue";
 
 import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
 import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
@@ -11,8 +11,9 @@ import type {AgentViewContribution} from "../registry";
 
 import type {MarkdownActivation} from "../ports";
 import {createAgentViewRegistry} from "../registry";
+import {applyComposerAction} from "../composer-actions";
 import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE} from "../locales";
-import type {AgentConversationContext, AgentConversationServices, AgentLocale} from "../types";
+import type {AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentWelcomeView} from "../types";
 import AgentConversationView from "./AgentConversationView.vue";
 import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
 import {builtinComposerContribution} from "./builtin-composer";
@@ -80,6 +81,34 @@ function mountView(locale: AgentLocale, services: Partial<AgentConversationServi
             locale,
             renderers: {...(options.plain === true ? {} : {markdown: FakeMarkdown}), ...(options.markdownPreview === undefined ? {} : {markdownPreview: options.markdownPreview})},
             services: options.bareServices === true ? services : {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
+        },
+        attachTo: document.body,
+    });
+}
+
+/** 面板头给的几个位置：挂在 body 上的空元素，标题那格在一个按钮里（像工作台的标题按钮）。 */
+function headTargets() {
+    const make = (tag: string) => document.body.appendChild(document.createElement(tag));
+    const anchor = make("button");
+    const title = anchor.appendChild(document.createElement("span"));
+    return {start: make("div"), title, end: make("div"), anchor};
+}
+
+/** 测头用：可以给会话列表与右列的插槽、`headTargets`、`draftProfile`。 */
+function mountHeadView(options: {ctx?: AgentConversationContext; newSession?: boolean; sessions?: boolean; trailing?: boolean; headTargets?: ReturnType<typeof headTargets>; draftProfile?: {name: string; icon: string}} = {}) {
+    return mount(AgentConversationView, {
+        props: {
+            ctx: options.ctx ?? context(),
+            registry,
+            locale: "zh-CN",
+            services: {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []})},
+            ...(options.newSession === undefined ? {} : {newSession: options.newSession}),
+            ...(options.headTargets === undefined ? {} : {headTargets: options.headTargets}),
+            ...(options.draftProfile === undefined ? {} : {draftProfile: options.draftProfile}),
+        },
+        slots: {
+            ...(options.sessions === true ? {sessions: ({close}: {close: () => void}) => h("div", {"data-probe-sessions": ""}, [h("button", {type: "button", "data-probe-close": "", onClick: close}, "关")])} : {}),
+            ...(options.trailing === true ? {"head-trailing": () => h("button", {type: "button", "data-probe-trailing": ""}, "子代理")} : {}),
         },
         attachTo: document.body,
     });
@@ -665,19 +694,153 @@ describe("宿主每秒换 now", () => {
         settled.unmount();
     });
 
-    it("子会话的顶栏是面包屑：祖先可点、发 session.select；多于两层时中间的收进“…”；读不到的写未知会话，没有标题的写未命名", async () => {
-        const session = {...context().session!, path: [{id: "root", title: "主创"}, {id: "mid", title: ""}, {id: "parent", title: "核对员"}]};
-        const view = mountView("zh-CN", {}, {ctx: {...context(), session}});
-        const crumbs = view.findAll("[data-header-crumb]");
-        expect(crumbs.map((crumb) => crumb.text())).toEqual(["主创", "核对员"]);
-        expect(view.find("[data-header-crumb-more]").exists()).toBe(true);
-        await crumbs[1]!.trigger("click");
-        expect(view.emitted("action")).toContainEqual([{type: "session.select", sessionId: "parent"}]);
+    it("子会话的头左边只有返回，发 session.select 到直接的父会话（path 的最后一项）；没有面包屑", async () => {
+        const session = {...context().session!, path: [{id: "root", title: "主创"}, {id: "child", title: "核对员"}]};
+        const view = mountHeadView({ctx: {...context(), session}, newSession: true});
+        expect(view.find("[data-header-new]").exists()).toBe(false);
+        expect(view.find("nav").exists()).toBe(false);
+        await view.get("[data-header-back]").trigger("click");
+        expect(view.emitted("action")).toEqual([[{type: "session.select", sessionId: "child"}]]);
+        view.unmount();
+    });
 
-        await view.setProps({ctx: {...context(), session: {...session, path: [{id: "root", title: null}, {id: "parent", title: ""}]}}});
-        expect(view.findAll("[data-header-crumb]").map((crumb) => crumb.text())).toEqual(["未知会话", "未命名会话"]);
-        await view.setProps({ctx: context()});
-        expect(view.find("[data-header-path]").exists()).toBe(false);
+    it("顶层会话左边是新建；没选会话时写“新对话”、图标用新会话的 Profile，左边空、没有“⋯”", async () => {
+        const view = mountHeadView({newSession: true, draftProfile: {name: "主创", icon: "i-lucide-sparkles"}});
+        await view.get("[data-header-new]").trigger("click");
+        expect(view.emitted("action")).toEqual([[{type: "session.create"}]]);
+        expect(view.get("[data-header-title]").text()).toBe("第三章");
+
+        await view.setProps({ctx: {...context(), session: null}});
+        expect(view.get("[data-header-title]").text()).toBe("新对话");
+        expect(view.find(".i-lucide-sparkles").exists()).toBe(true);
+        expect(view.find("[data-header-new]").exists()).toBe(false);
+        expect(view.find("[data-header-more]").exists()).toBe(false);
+        view.unmount();
+    });
+
+    it("有会话列表时点标题打开它，aria-expanded 跟着；插槽的 close 关掉它", async () => {
+        const view = mountHeadView({sessions: true});
+        const title = view.get("[data-header-sessions]");
+        expect(title.attributes("aria-expanded")).toBe("false");
+        await title.trigger("click");
+        await flushPromises();
+        expect(title.attributes("aria-expanded")).toBe("true");
+        expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
+        (document.querySelector("[data-probe-close]") as HTMLButtonElement).click();
+        await flushPromises();
+        expect(title.attributes("aria-expanded")).toBe("false");
+        view.unmount();
+    });
+
+    it("给了 headTargets 时三列送到外面、内容里不画头；收回时回到内容里，开着的会话列表不关", async () => {
+        const targets = headTargets();
+        const view = mountHeadView({sessions: true, newSession: true, trailing: true, headTargets: targets});
+        await flushPromises();
+        expect(targets.start.querySelector("[data-header-new]")).not.toBeNull();
+        expect(targets.title.textContent).toContain("第三章");
+        expect(targets.end.querySelector("[data-probe-trailing]")).not.toBeNull();
+        expect(targets.end.querySelector("[data-header-more]")).not.toBeNull();
+        expect(view.get("[data-agent-head]").isVisible()).toBe(false);
+
+        // 按下由宿主转来：改 sessionsOpen。
+        await view.setProps({sessionsOpen: true});
+        await flushPromises();
+        expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
+        await view.setProps({headTargets: null});
+        await flushPromises();
+        expect(targets.title.textContent).toBe("");
+        expect(view.get("[data-agent-head] [data-header-title]").text()).toBe("第三章");
+        expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
+        view.unmount();
+    });
+});
+
+describe("第一屏（Spec“消息”的空状态）", () => {
+    const WELCOME: AgentWelcomeView = {
+        title: "NeuroBook 创作工作区",
+        recent: [{id: "s2", title: "第三章节奏调整", at: 3}, {id: "s3", title: "", at: 2}, {id: "s4", title: "查错别字", at: 1}, {id: "s5", title: "第四条不显示", at: 0}],
+        total: 12,
+        starters: [{text: "帮我润色一段环境描写", icon: "i-lucide-feather"}, {text: "规划第三幕的细纲"}, {text: "一致性体检"}, {text: "第四条不显示"}],
+    };
+    const empty = (): AgentConversationContext => ({...context(), session: null, messages: []});
+
+    /** 像宿主那样处理输入框的动作：`composer.fill` 换草稿、加版本，视图跟着换编辑器里的文字。 */
+    function mountWelcome(welcome: AgentWelcomeView | null, ctx = empty()) {
+        const current = shallowRef<AgentConversationContext>(ctx);
+        const actions: AgentViewAction[] = [];
+        const Host = defineComponent({
+            setup: () => () => h(AgentConversationView, {
+                ctx: current.value,
+                registry,
+                locale: "zh-CN",
+                services: {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []})},
+                welcome,
+                onAction: (action: AgentViewAction) => {
+                    actions.push(action);
+                    const composer = applyComposerAction(current.value.composer, action);
+                    if (composer !== null) current.value = {...current.value, composer};
+                },
+            }, {sessions: ({close}: {close: () => void}) => h("div", {"data-probe-sessions": ""}, [h("button", {type: "button", onClick: close}, "关")])}),
+        });
+        const wrapper = mount(Host, {attachTo: document.body});
+        return {wrapper, actions};
+    }
+
+    it("三块各只显示前 3 条；标题由宿主给，空标题写未命名会话；没有最近对话与指令时两块都不画；没给 welcome 时写还没有消息", async () => {
+        const {wrapper} = mountWelcome(WELCOME);
+        expect(wrapper.get("[data-agent-welcome] h2").text()).toBe("NeuroBook 创作工作区");
+        expect(wrapper.findAll("[data-welcome-session]").map((card) => card.text())).toEqual([expect.stringContaining("第三章节奏调整"), expect.stringContaining("未命名会话"), expect.stringContaining("查错别字")]);
+        expect(wrapper.get("[data-welcome-all]").text()).toContain("查看全部（12）");
+        expect(wrapper.findAll("[data-welcome-starter]")).toHaveLength(3);
+        wrapper.unmount();
+
+        const bare = mountWelcome({recent: [], total: 0, starters: []});
+        expect(bare.wrapper.find("[data-welcome-recent]").exists()).toBe(false);
+        expect(bare.wrapper.find("[data-welcome-starters]").exists()).toBe(false);
+        expect(bare.wrapper.get("[data-agent-welcome]").text()).toContain("开始一段对话");
+        bare.wrapper.unmount();
+
+        const none = mountWelcome(null);
+        expect(none.wrapper.find("[data-agent-welcome]").exists()).toBe(false);
+        expect(none.wrapper.get(".acv-stream__empty").text()).toBe("还没有消息");
+        none.wrapper.unmount();
+    });
+
+    it("点卡片切到那个会话；查看全部打开会话列表；点指令后输入框里是这段文字，焦点在输入框", async () => {
+        const {wrapper, actions} = mountWelcome(WELCOME);
+        await wrapper.get("[data-welcome-session='s2']").trigger("click");
+        expect(actions).toContainEqual({type: "session.select", sessionId: "s2"});
+
+        await wrapper.get("[data-welcome-all]").trigger("click");
+        await flushPromises();
+        expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
+
+        await wrapper.findAll("[data-welcome-starter]")[1]!.trigger("click");
+        await flushPromises();
+        await nextTick();
+        expect((wrapper.getComponent(PlainPromptEditor).get("textarea").element as HTMLTextAreaElement).value).toBe("规划第三幕的细纲");
+        expect(document.activeElement?.closest(".acv-composer")).not.toBeNull();
+        wrapper.unmount();
+    });
+});
+
+describe("登记的顶栏动作（验收 36）", () => {
+    it("允许常驻的按 order 取前两个放在顶栏，其余进溢出菜单、排在原始视图之前；点了发出它的 action", async () => {
+        const action = (id: string) => ({type: `lab:${id}` as const});
+        const headers: AgentViewContribution = {source: "lab:header", headerActions: [
+            {id: "c", order: 30, icon: "i-lucide-activity", label: "第三个", target: {kind: "action", action: action("c")}, pinnable: true},
+            {id: "a", order: 10, icon: "i-lucide-activity", label: "第一个", target: {kind: "action", action: action("a")}, pinnable: true, badge: () => 2},
+            {id: "b", order: 20, icon: "i-lucide-activity", label: "第二个", target: {kind: "action", action: action("b")}, pinnable: true},
+            {id: "d", order: 5, icon: "i-lucide-activity", label: "不常驻的", target: {kind: "action", action: action("d")}, pinnable: false},
+            {id: "hidden", icon: "i-lucide-activity", label: "看不见的", target: {kind: "action", action: action("hidden")}, pinnable: true, when: () => false},
+        ]};
+        const view = mountView("zh-CN", {}, {registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, builtinMessageActionsContribution, builtinComposerContribution, headers])});
+        expect(view.findAll("[data-header-action]").map((button) => [button.attributes("data-header-action"), button.attributes("aria-label")])).toEqual([["a", "第一个 (2)"], ["b", "第二个"]]);
+        const menu = view.findAllComponents({name: "DropdownMenu"}).find((item) => (item.props("items") as {id: string}[]).some((entry) => entry.id === "toggle-view-mode"))!;
+        expect((menu.props("items") as {id: string; label: string}[]).map((entry) => entry.id).slice(-3)).toEqual(["header:d", "header:c", "toggle-view-mode"]);
+        await view.get("[data-header-action='a']").trigger("click");
+        menu.vm.$emit("select", "header:c");
+        expect(view.emitted("action")).toEqual([[{type: "lab:a"}], [{type: "lab:c"}]]);
         view.unmount();
     });
 });

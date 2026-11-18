@@ -1,0 +1,33 @@
+t25 Spec 晋升前的逐条核对（2026-11-17，代码已合入 master，b7bfdd504 与 dbd4ba69e；开发者当天批准晋升）
+范围：workbench/markdown-editing.md 输出 59–61、验收场景 31。测试路径都在 packages/ 下：SH = neuro-book/src/plugins/markdown/shared；WEB = neuro-book/src/plugins/markdown/web；NBM = nb-markdown/src/editor/properties。
+
+== 实现且有测试 ==
+输出 59 贡献点与声明形状
+- 贡献点 `markdown.properties`、拥有者 `nbook.markdown`、只有声明（`implementation: "none"`）、贡献 id 以插件 id 加 `.` 开头 —— SH/properties.ts（`propertiesPoint`）；`contribution-prefixes.test.ts`（三个位置的前缀规则，新点自动进）。
+- 浏览器与项目两个位置都登记，顶层声明在项目位置被接受、不合格的被拒、不是“未知贡献点” —— SH/properties-locations.test.ts（真实的 createApplication，两个位置各一条；去掉项目位置的登记变异被抓）。
+- 声明形状：name 非空、不含控制字符，icon 是类名，kind 是五种之一（不含 complex），三项至少给一项，别的字段不收 —— SH/properties.test.ts。
+- name 精确、区分大小写 —— WEB/properties-catalog.test.ts（`tag` 查不到 `Tag`）。
+- label 是文字（字符串、文字引用、按语言的表），解析出来是空的按没给 —— SH/properties.test.ts（三种形态都收）；WEB/properties-catalog.test.ts（空串、空白、没有当前语言的条目；变异抓到）。
+- 对整部作品所有 Markdown 文件生效、不分文件夹类型 —— 代码里没有按文件夹类型的过滤；集成用例的文件在作品根。没有专门的反例测试。
+- 同名冲突 id 码元顺序最小的整条生效 —— WEB/properties-catalog.test.ts（不逐字段合并）；WEB/properties-contribution.dom.test.ts（真实的插件运行时，两个插件；改成取最大 id 的变异被抓）。
+输出 60 面板怎样用它（NBM/MarkdownProperties.dom.test.ts，真实组件；集成见 WEB/properties-contribution.dom.test.ts）
+- 声明的图标换掉类型图标、仍是改类型的菜单、当前类型打勾，按钮的名称写出当前类型，没有声明的行照旧；“{ }”不换 —— 同名用例（含“类型：文字”的名称断言，变异抓到）。
+- 声明的 label 进名字一列、摘要、各输入的可访问名称（文字、数字、日期、列表、勾选），提示与名字按钮的名称带真名，移除与“在源码里改”的提示用显示名 —— 同名用例（8 个变异全部抓到）。
+- 点显示名才变成输入框、输入框里是真名、写回的是真键；没改成别的就回车、离开、宿主换原文都回到显示名；新名字也有显示名时焦点留在名字上 —— 同名用例。
+- 语言切换时显示名跟着变 —— NBM 用例（测试里的响应式替身）；WEB/properties-contribution.dom.test.ts（真实的窗口翻译引擎，切英文再切回；忽略引擎的变异被抓）。
+- kind 只管值为空的行（日期、数字、勾选、列表），不改文件；优先级：这次挂载里选过的 > 声明的 > 文字；有值的行按值推断；值与声明不符照值显示；勾选空值显示成不勾选、点了才写回 —— NBM 用例；打开面板后文档不脏、文本不变 —— WEB 集成用例。
+- 类型菜单规则不变、声明不让别的项置灰 —— NBM（空值行声明为日期，五项都可选；变异抓到）。
+输出 61 不合格与冲突
+- 不合格的声明被拒（invalid-declaration）、不生效、没有诊断 —— WEB/properties-contribution.dom.test.ts（`kind: "complex"`、只有名字两条，经插件宿主查询到 rejected / invalid-declaration；去掉 minProperties 的变异被抓）；SH/properties.test.ts（逐类）；SH/properties-locations.test.ts（项目位置同样）。
+- 冲突诊断 `markdown.properties.conflict`、同一对不重复记、第一次用到这个名字时记 —— WEB/properties-catalog.test.ts、WEB/properties-contribution.dom.test.ts。
+- 摘要与各行用同一份声明、属性列表或界面语言变化时重查 —— NBM（改名后新名字没有声明就显示它自己；语言切换）。
+- 已知限制（面板正显示着时插件增减不即时重画；图标类名没有构建进应用时不显示；显示名与别的名字重复不处理）：没有测试，Spec 已写。
+场景 31 —— 由 WEB/properties-contribution.dom.test.ts（声明、冲突、摘要、行的图标与输入类型、文件不变、切英文）与 NBM/MarkdownProperties.dom.test.ts（改名改真键、选文字盖过声明、悬停提示带真名）两处合起来验收；没有一条用例把全部步骤串在一起，也没有 e2e（真实浏览器里没有新的输入路径；合入前重跑 `e2e/markdown-properties.e2e.ts` 5 条通过，确认无声明时行为不变）。
+
+== 与 Spec 字面不一致，已改 Spec 贴实现 ==
+- 输出 61 原写“不合格声明记诊断”：运行时校验与查询不产生诊断，已改成“被拒、原因可查询、不记诊断”。
+- 输出 59、61 补：空显示名按没给；冲突诊断在第一次用到这个名字时记；显示名重名不处理；摘要与各行共用一份声明。
+
+== 没有核实 ==
+- 设定插件真实贡献时的外观（本 Task 没有真实贡献者）。
+- 暗色主题下名字按钮与图标的外观（Lab 只看了亮色）。

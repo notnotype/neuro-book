@@ -1,0 +1,16 @@
+# w00046 t08 计划第一轮设计审查的处理结果（2026-11-13）
+# 审查对象：fad86c2e1 的计划副本；审查者 omp（默认模型）；报告 design-review-r1-omp.txt：有效 12（阻断 2、重要 9、建议 1），撤回 1（第 12 条）。
+# 全部成立要改；改法照审查建议，本轮不再开第二轮计划审查，实现审查时一并核对。
+
+1  showMessageBox 同步阻塞 Bun 主线程：成立要改。壳的对话框改为壳自己开的小窗口（本地视图，按钮经桥回壳）；只有缺 WebView2 时用 showMessageBox（那时什么都还没运行）。Spec 的“原生对话框”随之改为“壳的对话框”，记进待确认清单。Windows 上验对话框开着时锁协议仍按时应答。
+2  taskkill 加 tasklist 建不起进程树所有权：成立要改。改用 @notnotype/owned-process（Windows Job Object、POSIX 进程组，宿主退出时收掉整棵树）；切片 2 先核实标准输入与输出经监督进程转交。
+3  认领传输层没有 64 KB、绝对截止与未知请求形状：成立要改。档案加 messageLimit（按字节）、unknownReply；收请求改为绝对 3 秒（服务端同样改，合它自己的 Spec）。
+4  publish 的 rpcUrl 必须是字符串：成立要改。允许 null。
+5  异步请求处理超时后迟到开窗：成立要改。requests 处理器只能同步，开窗在同一同步段里完成。
+6  Windows 上 new-window-open 只覆盖 Ctrl 加点击：成立要改。预加载脚本截住 window.open 与 target 链接，经桥交给壳；其它入口记为 Spec 的已知限制。
+7  WindowPort 缺真实关闭确认与应用退出：成立要改。输入加 closed、quitRequested，命令加 commitClose（直到 closed 才算关了）与 allowQuit；替身按 Electrobun 的事件顺序派发。
+8  桥认证不了页面宿主与插件脚本：成立，接受取舍。插件完全信任，同页脚本都能回答；桥只认网页视图 id、代次与消息形状。t09 写进 browser-host，记进待确认清单。
+9  为壳给应用包加转导出：成立要改。核心放进 packages/neuro-book/src/desktop/，Electrobun 应用放 packages/neuro-book/desktop/，不另建包。
+10 长截止溢出 setTimeout：成立要改。绝对时间分段调度；截止用 readServerConfig 解析出的同一份项目停止截止。
+11 就绪没有绑定自己的子进程：成立要改。所有权三态；只认 pid 等于自己目标的 ready；被 nbook start 抢先时转为外部。
+13 验收映射按编号打包、t08 跑不了场景 5 到 7：成立要改。逐条列 Windows 上的操作与观察值，用只回答桥协议的测试页面驱动关窗；场景 5、6、7 留到 t09 联合验收；安装包与便携包都验；链路已恢复，实施时先测速。

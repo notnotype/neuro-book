@@ -4,6 +4,7 @@
  */
 
 import type {LayoutDropAction} from "@notnotype/nb-layout";
+import {computed} from "vue";
 
 import type {TextResolver} from "nbook/shared/localized-text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
@@ -24,19 +25,16 @@ export interface EditorTabDragDeps {
 
 export function createEditorTabDrag(deps: EditorTabDragDeps): EditorTabDrag {
     const tabOf = (tabId: string) => deps.area().groups.find(tabId);
+    // 固定状态与多行设置变了，标签条的分区就变了：那一场拖动取消。拖动每帧都问，编辑组与这两项不变时不重算。
+    const structure = computed(() => JSON.stringify([deps.wrapTabs(), deps.area().groups.groups.value.map((group) => group.tabs.flatMap((tab) => (tab.kind === "file" && tab.pinned === true ? [tab.id] : [])))]));
     return {
-        // 固定状态与多行设置变了，标签条的分区就变了：那一场拖动取消。
-        structure: () => JSON.stringify([deps.wrapTabs(), deps.area().groups.groups.value.map((group) => group.tabs.flatMap((tab) => (tab.kind === "file" && tab.pinned === true ? [tab.id] : [])))]),
+        structure: () => structure.value,
         ghost: (tabId) => {
             const tab = tabOf(tabId)?.tab;
             if (tab === undefined) return null;
             return {label: tabLabel(deps.area(), tab, deps.text, deps.pages()), fileIcon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null};
         },
-        previewable: (tabId, action) => {
-            const area = deps.area();
-            const target = action.kind === "strip" || action.kind === "center" ? action.panel : null;
-            return !area.moveBlocked(tabId, target);
-        },
+        dropOutcome: (tabId, action) => deps.area().moveOutcome(tabId, action.kind === "strip" || action.kind === "center" ? action.panel : null),
         drop: (tabId, action, part, keyboard) => dropTab(deps.area(), tabId, action, part, keyboard),
         dropPanel: (panelId, action, _part, keyboard) => dockGroup(deps.area(), panelId, action, keyboard),
         openFiles: (addresses, action, part) => openFiles(deps.area(), addresses, action, part),
@@ -116,7 +114,8 @@ async function dropTab(area: EditorArea, tabId: string, action: LayoutDropAction
             return (await area.moveTab(tabId, {group: action.panel, partition, before: inPartition ? next.id : null}, {focusView})).ok;
         }
         case "center":
-            return (await area.moveTab(tabId, {group: action.panel, partition: "normal", before: null}, {focusView})).ok;
+            // 中央不指定位置：已开着同一标签时它不动（画的是盖住整组的“添加为标签”）。
+            return (await area.moveTab(tabId, {group: action.panel}, {focusView})).ok;
         case "edge":
             return area.moveToNewGroup(tabId, action.target, {focusView}).ok;
         case "float":

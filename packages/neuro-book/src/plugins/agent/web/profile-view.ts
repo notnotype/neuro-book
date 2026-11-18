@@ -13,6 +13,12 @@ import type {ModelCapabilities, ModelNeedGap} from "../shared/model-needs";
 import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-tools";
 import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import {profileAgents} from "../shared/profile-agents";
+import {declaredAllowlist, profileAllowlist} from "../shared/profile-allowlist";
+import type {DeclaredAllowlist} from "../shared/profile-allowlist";
+import {groupSkills} from "../shared/skills";
+import {skillProblemText} from "./skill-problem";
+import type {SkillEntry, SkillGroup} from "../shared/skills";
+import type {StickerPackSummary} from "nbook/plugins/stickers/shared/contracts";
 import type {ProfileSetting} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf} from "./profile-edits";
@@ -66,10 +72,17 @@ export interface ProfileToolRow {
     readonly detail: string;
     readonly required: boolean;
     readonly gone: boolean;
+    /** 用户去掉的（Skill、表情包两节有）：行尾是“加回”，不是去掉。 */
+    readonly restorable?: boolean;
+    /** 表情包一节：第一个常用表情的缩略图地址。 */
+    readonly thumbnail?: string;
 }
 
 export interface ProfileToolGroup {
-    /** 身份：插件 id，已卸载的一组是 `GONE_GROUP`。显示名可能重复、随界面语言变，不作身份。 */
+    /**
+     * 身份。工具一节：插件 id，已卸载的一组是 `GONE_GROUP`。Skill 一节：`user`、`plugin:<插件 id>`、`builtin`（`groupSkills` 的 key），
+     * 另有 `GONE_GROUP` 与 `REMOVED_GROUP`。显示名可能重复、随界面语言变，不作身份。
+     */
     readonly id: string;
     readonly provider: string;
     readonly tools: readonly ProfileToolRow[];
@@ -104,10 +117,10 @@ export interface ProfileView {
     readonly name: string;
     readonly description: string;
     readonly icon: string;
-    /** 第二行的来源：内置、插件名、“我写的”。 */
+    /** 来源：内置、插件名、“我写的”；写在详情头部的提示里。 */
     readonly source: string;
-    /** 有问题时第二行换成这个。 */
-    readonly statusText: {readonly text: string; readonly tone: "warning" | "error"} | null;
+    /** 有问题时：左栏行尾的图标按 `kind`、颜色按 `tone`，`text` 是悬停提示与读屏描述里的原因。 */
+    readonly statusText: {readonly kind: "unavailable" | "error"; readonly text: string; readonly tone: "warning" | "error"} | null;
     readonly hidden: boolean;
     /** 用户级：有“打开文件”“删除”。 */
     readonly user: boolean;
@@ -119,6 +132,10 @@ export interface ProfileView {
     readonly tools: ProfileToolsField | null;
     /** “可派的子代理”一节：Profile 有 `agent_spawn` 时才有（profile-settings.md 输出 25）。形状同工具一节，行的 `effect` 一列写“推荐”“我加的”。 */
     readonly agents: ProfileToolsField | null;
+    /** Skill 一节（skills.md 的白名单）：Skill 目录还没取到时为 null。 */
+    readonly skills: ProfileToolsField | null;
+    /** 表情包一节（stickers.md 输出 19）：表情包列表取不到或没有表情包时为 null。 */
+    readonly stickers: ProfileToolsField | null;
 }
 
 const usable = (provider: SnapshotProvider, model: SnapshotModel): boolean => hasCredentials(provider) && model.enabled && model.status === "ok";
@@ -324,6 +341,135 @@ function agentsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
     return {groups, count: effective.allowed.length, modified: binding !== undefined, candidates};
 }
 
+/** 用户去掉的那一组的身份。 */
+export const REMOVED_GROUP = "removed";
+
+/** 白名单一节里的一项（一个 Skill、一个表情包）：`invalid` 的照样列出，但不算可用、不进候选。 */
+interface AllowlistItem {
+    readonly id: string;
+    readonly status: string;
+}
+
+interface AllowlistGroup<T> {
+    readonly id: string;
+    readonly provider: string;
+    readonly items: readonly T[];
+}
+
+interface AllowlistSection<T extends AllowlistItem> {
+    /** 目录（列表）里的全部项。 */
+    readonly items: readonly T[];
+    readonly declaration: DeclaredAllowlist | undefined;
+    readonly binding: ToolBinding | undefined;
+    /** 一行：`declared` 是 Profile 声明的，`restorable` 是用户去掉、能加回的。 */
+    readonly row: (item: T, mark: {readonly declared: boolean; readonly restorable: boolean}) => ProfileToolRow;
+    readonly groups: (items: readonly T[]) => ReadonlyArray<AllowlistGroup<T>>;
+    readonly text: {readonly gone: string; readonly goneGroup: string; readonly removedGroup: string};
+}
+
+/**
+ * 按白名单列的一节（Skill 与表情包共用，skills.md 输出 8、stickers.md 输出 19）：白名单里的按来源分组；白名单里、目录中已经没有的
+ * 一组“已删除或不可用”；用户去掉、目录里还有的收在最后一组“已去掉”，能加回。添加对话框的候选是目录里不在白名单、不是无效的。
+ */
+function allowlistField<T extends AllowlistItem>(section: AllowlistSection<T>): ProfileToolsField {
+    const ids = section.items.map((item) => item.id);
+    const declared = new Set(declaredAllowlist(section.declaration, ids));
+    const allowed = profileAllowlist(section.declaration, section.binding, ids);
+    const allowedSet = new Set(allowed);
+    const byId = new Map(section.items.map((item) => [item.id, item]));
+    const row = (item: T, restorable = false): ProfileToolRow => ({...section.row(item, {declared: declared.has(item.id), restorable}), ...(restorable ? {restorable: true} : {})});
+    const goneRow = (id: string): ProfileToolRow => ({id, name: id, effect: "", danger: false, summary: section.text.gone, detail: section.text.gone, required: false, gone: true});
+    const listed = allowed.map((id) => byId.get(id)).filter((item): item is T => item !== undefined);
+    const gone = allowed.filter((id) => !byId.has(id));
+    const removed = (section.binding?.removed ?? []).map((id) => byId.get(id)).filter((item): item is T => item !== undefined && item.status !== "invalid");
+    const groups: ProfileToolGroup[] = [
+        ...section.groups(listed).map((group) => ({id: group.id, provider: group.provider, tools: group.items.map((item) => row(item))})),
+        ...(gone.length === 0 ? [] : [{id: GONE_GROUP, provider: section.text.goneGroup, tools: gone.map(goneRow)}]),
+        ...(removed.length === 0 ? [] : [{id: REMOVED_GROUP, provider: section.text.removedGroup, tools: removed.map((item) => row(item, true))}]),
+    ];
+    const candidates = section.groups(section.items.filter((item) => item.status !== "invalid" && !allowedSet.has(item.id))).map((group) => ({
+        id: group.id,
+        provider: group.provider,
+        tools: group.items.map((item): ProfileToolCandidate => ({...row(item), providerName: item.id, blocked: false})),
+    }));
+    return {groups, count: listed.filter((item) => item.status !== "invalid").length, modified: section.binding !== undefined, candidates};
+}
+
+/** Skill 一节（skills.md 的“输入与前置条件”、输出 8）：分组同 Skill 页（我的、各插件、内置），行写状态与说明。 */
+function skillsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
+    const catalog = input.skills;
+    // 后台的 Profile 没有用户的输入，`$` 到不了它，不给这一节。
+    if (catalog === null || catalog === undefined || entry.tools === undefined || entry.hidden === true) return null;
+    const {text} = input;
+    const groupName = (group: SkillGroup<SkillEntry>): string => group.title ?? text.t(agentText(group.source === "user" ? "profiles.skills.groups.user" : "profiles.skills.groups.builtin"));
+    return allowlistField({
+        items: catalog,
+        declaration: entry.skills,
+        binding: input.settings[entry.key]?.skills,
+        row: (skill, mark) => ({
+            id: skill.id,
+            name: skill.name,
+            effect: skill.status === "invalid" ? text.t(agentText("profiles.skills.invalid"))
+                : skill.status === "needs-init" ? text.t(agentText("profiles.skills.needsInit"))
+                : mark.declared || mark.restorable ? "" : text.t(agentText("profiles.skills.userAdded")),
+            danger: skill.status === "invalid",
+            summary: skill.description,
+            // 无效的、上次没装好的：悬停的全文先写原因（同 Skill 页的第二行），再写说明。
+            detail: skill.problem === undefined ? skill.description : [skillProblemText(skill.problem, (key, params) => text.t(agentText(key, params))), skill.description].filter((part) => part !== "").join("\n"),
+            required: false,
+            gone: false,
+        }),
+        groups: (skills) => groupSkills(skills, (skill) => skill).map((group) => ({id: group.key, provider: groupName(group), items: group.items})),
+        text: {gone: text.t(agentText("profiles.skills.gone")), goneGroup: text.t(agentText("profiles.skills.goneGroup")), removedGroup: text.t(agentText("profiles.skills.removedGroup"))},
+    });
+}
+
+/**
+ * 表情包一节（stickers.md 输出 19、profile-settings.md 输出 27）：分组我的在前、各插件按显示名（没有时插件 id）各一组；行是显示名、
+ * 说明、表情数与第一个常用表情的缩略图。后台的 Profile 没有对话，不给这一节；列表还没取到时也不给。
+ */
+function stickersField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
+    const packs = input.stickerPacks;
+    if (packs === null || packs === undefined || entry.tools === undefined || entry.hidden === true) return null;
+    const {text} = input;
+    const binding = input.settings[entry.key]?.stickers;
+    // 从来没有过表情包、也没有设置过的：整节不画（新用户不看到一节空的）。删光了而白名单里还有的照样画，列在“已删除或不可用”。
+    if (packs.length === 0 && binding === undefined && declaredAllowlist(entry.stickers, []).length === 0) return null;
+    const grouped = (list: readonly StickerPackSummary[]): Array<AllowlistGroup<StickerPackSummary>> => {
+        const groups = new Map<string, {readonly id: string; readonly provider: string; readonly items: StickerPackSummary[]}>();
+        for (const pack of list) {
+            const key = pack.source === "user" ? "user" : `plugin:${pack.plugin?.id ?? ""}`;
+            const provider = pack.source === "user" ? text.t(agentText("profiles.stickers.groups.user")) : pack.plugin?.title ?? pack.plugin?.id ?? "";
+            const group = groups.get(key) ?? {id: key, provider, items: []};
+            group.items.push(pack);
+            groups.set(key, group);
+        }
+        return [...groups.values()].sort((left, right) => (left.id === "user" ? -1 : right.id === "user" ? 1 : left.provider.localeCompare(right.provider)));
+    };
+    return allowlistField({
+        items: packs,
+        declaration: entry.stickers,
+        binding,
+        row: (pack, mark) => {
+            const count = text.t(agentText("profiles.stickers.count", {count: pack.count}));
+            const summary = pack.description === undefined ? count : `${count} · ${pack.description}`;
+            return {
+                id: pack.id,
+                name: pack.title,
+                effect: pack.status === "invalid" ? text.t(agentText("profiles.stickers.invalid")) : mark.declared || mark.restorable ? "" : text.t(agentText("profiles.stickers.userAdded")),
+                danger: pack.status === "invalid",
+                summary,
+                detail: [pack.id, summary].join("\n"),
+                required: false,
+                gone: false,
+                ...(pack.thumbnail === null ? {} : {thumbnail: pack.thumbnail}),
+            };
+        },
+        groups: grouped,
+        text: {gone: text.t(agentText("profiles.stickers.gone")), goneGroup: text.t(agentText("profiles.stickers.goneGroup")), removedGroup: text.t(agentText("profiles.stickers.removedGroup"))},
+    });
+}
+
 function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
     if (entry.tools === undefined) return null;
     const {text, catalog} = input;
@@ -378,6 +524,10 @@ export interface ProfileViewsInput {
     /** 别的插件的显示名。 */
     readonly pluginName: (plugin: string) => string;
     readonly text: TextResolver;
+    /** Skill 目录；还没取到时为 null，Skill 一节不画。 */
+    readonly skills?: readonly SkillEntry[] | null;
+    /** 表情包列表；取不到时为 null，表情包一节不画。 */
+    readonly stickerPacks?: readonly StickerPackSummary[] | null;
 }
 
 /** 来源的显示名：左栏与工具的提供者用同一套词。 */
@@ -400,8 +550,8 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
             statusText: entry.status === "ok"
                 ? null
                 : entry.status === "error"
-                    ? {text: text.t(agentText("profiles.status.error")), tone: "error"}
-                    : {text: text.t(agentText("profiles.status.unavailable")), tone: entry.problem?.code === "tools-missing" || entry.problem?.code === "key-taken" ? "warning" : "error"},
+                    ? {kind: "error", text: text.t(agentText("profiles.status.error")), tone: "error"}
+                    : {kind: "unavailable", text: text.t(agentText("profiles.status.unavailable")), tone: entry.problem?.code === "tools-missing" || entry.problem?.code === "key-taken" ? "warning" : "error"},
             hidden: entry.hidden === true,
             user,
             notice: entry.problem === undefined ? null : problemNotice(entry, entry.problem, text),
@@ -409,6 +559,8 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
             approval: entry.hidden === true ? null : approvalField(setting, text),
             tools: toolsField(entry, input),
             agents: agentsField(entry, input),
+            skills: skillsField(entry, input),
+            stickers: stickersField(entry, input),
         };
     });
 }

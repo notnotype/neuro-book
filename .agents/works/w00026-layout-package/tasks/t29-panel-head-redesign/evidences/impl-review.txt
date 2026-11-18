@@ -1,0 +1,113 @@
+报告没写进文件：这个会话对 `findings.txt` 和 `exp/` 下的写入都被权限拒绝（提示 sensitive file），Bash 追加和 Write 都试过。我没有绕过。完整报告放在下面，需要落盘的话请放行写入再说一声，或你自己存。
+
+## 垫底、点标题、悬停、对齐的正确性检查
+
+垫底的读取点（`effectiveVisibleTabs`、表面内容项、`geometryOf`、悬停范围、`sashDisabled`、预览投影）都读同一份 `fillers` 或同一个 `isSectionCollapsed`，没有发现分叉。
+
+- **预览与已提交：** 表面读预览投影的 `fillers`，`visibleTabs` 读已提交投影的 `fillers`，这与可见性按已提交文档算的设计一致。
+- **放不下收走：** 若剩一节，投影塌成叶，不会留空。
+- **实时拖动：** 垫底那节被拖时卡片取标题行高度，没有问题。
+- **跑过的：** `layout-project.test.ts` 在 w00026-t29-panel-head 里 46 条全过。
+- **没跑的：** 该 worktree 上的 vitest（`WorkbenchPanelHead.dom.test.ts`、`layout-present.test.ts`、`NestedGrid.dom.test.ts`）和类型检查，我这边没拿到执行许可，没有跑。
+- **读码推断，未实测：** 下面所有结论都来自读码，没有跑 e2e，也没有开浏览器。
+
+### 1. 「最大化着还原按钮一直在」的 e2e 断言不依赖被测的 CSS 豁免
+- **严重程度：** 重要　**类别：** 测试
+- **位置：** `packages/neuro-book/e2e/workbench-containers.e2e.ts:238-242`，对应 `hover-actions.css:14` 的 `:not([data-hover-actions="frame"]:has([aria-pressed="true"]))`
+- **现象：** 用例先点最大化，再点 (900,500) 并把指针移到 (900,500)，断言 opacity 为 "1"。视口 1440×900，最大化后这块面板盖住活动栏以外的整个表面，这一点落在它的卡片里。
+- **为什么是问题：** 卡片带范围属性，指针在上面 `:hover` 成立，`data-hover-actions-active` 也写上，点击还把焦点放进面板。规则里 `:not(:hover):not(:focus-within):not([data-hover-actions-active])` 先就不成立，opacity 本来就是 1。删掉新加的豁免，这条用例照样过。它是 plan 第二轮第 9 条、Spec 输出 20 的唯一验收，判据没被测到。
+- **如何核实：** 删掉该 `:not(...)` 重跑这条用例（由作者跑），预期仍通过。
+- **建议改法：** 最大化后把指针移出面板（状态栏、标题栏），焦点放到面板外，再断言 "1"。加一条还原后同样位置 opacity 为 "0" 的对照，并做变异检查：删掉豁免必须失败。
+
+### 2. Lab 夹具没跟着改，还留着旧的“收起”框架按钮
+- **严重程度：** 重要　**类别：** 不变量、测试
+- **位置：** `src/plugins/lab/web/fixtures/WorkbenchSurfaceFixture.vue:81`、`:136-140`、`:236`；`src/plugins/lab/web/fixtures/index.ts:399-421`
+- **现象：** 夹具的 `frameActions` 仍列 `collapse`（chevrons-down，`pressed` 为是否收起），传给头时没有 `fold`、`foldLabel`。`effectiveVisibleTabs` 的调用没传 `fillers`。`WorkbenchPanelHead` 的 Lab 场景也没有带 `fold` 的场景，`named` 里还有 `collapse`。
+- **后果：**
+  - Lab 里看不到新头（标记、整行开关）。
+  - Lab 的“收起”按钮收起时 `aria-pressed="true"`，被新的 CSS 豁免命中，收起的分节框架按钮一直显示，这在产品里不会发生。
+  - Lab 的 `data-visible-tabs` 在全部收起且别的分隔线预览时，会把垫底那节算成拉出来。
+  - plan 说“截图给开发者”，Lab 里没有对应场景。
+- **建议改法：**
+  - 夹具改成给 `fold`、`foldLabel`，拿掉 `collapse` 按钮，点标题走 Shell 同一个判定。
+  - `effectiveVisibleTabs` 传 `projection.value.fillers`。
+  - `WorkbenchPanelHead` 加“展开、收着、接管标题区、英文长标题”四个场景（UI 专属检查第 5 条）。
+
+### 3. 接管标题区时，标题按钮的可访问描述说 Enter 切换收起，实际是开弹层
+- **严重程度：** 建议　**类别：** 正确性（可访问性）
+- **位置：** `WorkbenchShell.vue:824`（`message(foldOf(panelId) === null ? 'shell.drag.hint' : 'shell.drag.hintFold')`）；`WorkbenchPanelHead.vue:178`
+- **现象：** 接管模式下展开标记是单独的按钮，标题按钮是视图的弹层开关，但 `dragHint` 照样传“按 Enter 展开或收起，按空格拿起并拖动”，写进接管标题按钮的 `aria-description`。
+- **为什么是问题：** 对话视图的标题上读屏会说 Enter 展开或收起，实际 Enter 开会话列表。
+- **建议改法：** 接管时（`panelViewHead(panelId) !== null`）仍用 `shell.drag.hint`，hintFold 只给非接管的标题按钮。
+
+### 4. `headReserved` 给展开标记留的宽度比实际少
+- **严重程度：** 建议　**类别：** 正确性
+- **位置：** `WorkbenchShell.vue:197`（`FOLD_MARK_PX = 20`）
+- **现象：** 非接管头里标记实际占 9px 外边距 + 14px + 5px 间距 = 28px；接管头里是 24px 按钮 + 2px 间距 = 26px。
+- **为什么是问题：** 按钮预算（`buttonBudget`）多放按钮，临界宽度下标题被压到约 88px 而不是 Spec 说的“总给标签带留一个截断标签”。标题可收缩，不会溢出，但 plan 要求“`headReserved` 改成两个框架按钮加标记的宽度”。
+- **建议改法：** 非接管 28、接管 26，或在组件里导出标记宽度并和 CSS 共用。
+
+### 5. 标题 h2 改成 flex 并撑满，波及没有标记的头
+- **严重程度：** 建议　**类别：** 不变量（既有约定）
+- **位置：** `WorkbenchPanelHead.vue:350-363`（`.workbench-panel-head__title` 加了 `display:flex; align-self:stretch`）、`:406-417`（`.workbench-panel-head__handle` 改成 `display:flex`）
+- **现象：**
+  - 模板里 `<h2 v-else class="...__title">{{ label }}</h2>`（没有标签时只写名称）现在是 32px 高的 flex 容器，文字落进匿名 flex 项，贴在顶部。原来是 block，被 `.band` 的 `align-items:center` 居中。Lab 的 “empty” 场景会命中。
+  - 没有标记的标题按钮（底部面板分节、区域唯一分节）在 flex 的 h2 里被拉成 32px 高，焦点环从文字高变成整行高。
+- **为什么是问题：** plan 与 Spec 写“没有标记的头照旧”。
+- **建议改法：**
+  - 把 `display:flex; align-self:stretch` 只给带标记的标题（例如 `.workbench-panel-head__title:has(> .workbench-panel-head__handle > [data-panel-fold])`）。
+  - 或给文字 h2 单独补 `align-items:center`，并给没标记的按钮补 `align-self:center`。
+  - 看一眼 Lab 的 `empty` 与 `anonymous` 场景。
+
+### 6. 计划里承诺的几处验证没有落地
+- **严重程度：** 建议　**类别：** 测试
+- **位置：** 差异里 `workbench-dnd.e2e.ts` 只改了选择器；`layout-drag.ts:383` 的 `geometryOf` 分支没有任何测试。
+- **缺的测试：**
+  - 垫底那节下面不是落点（plan 的 `layout-drag` 单测与 `workbench-dnd` e2e）。
+  - “按呈现数”：放不下收走后剩一节不垫底，没有用例。
+  - 点上面一节展开时卡片上下边不动、过渡里垫底翻转（plan 第 11 条）。
+  - 空格（拖不了时也切换）。
+  - 接管模式的单独标记，plan 列了 `agent-conversation`，只有 DOM 测试。
+  - `workbench-shell` 里只断言 `aria-disabled`，没有真拖一下证明尺寸不变。
+- **一条竞争：** `workbench-containers.e2e.ts:147-150` 的双击用例，`saved(...).collapsed ?? false` 在没写入时本来就是 false，`height` 的 `toBe(tall)` 在过渡刚开始时也可能先读到 tall，会过得过早。
+- **建议改法：** 双击后先断言 `aria-expanded="true"` 且等一次存盘稳定，再比高度。
+
+### 7. 组件说明 `WorkbenchShell.md` 有两处过时
+- **严重程度：** 建议　**类别：** 代码质量（文档）
+- **位置：** `WorkbenchShell.md:17`（“点标题时先记下面板收没收：收着只展开，展开着才通知视图”）、`WorkbenchShell.md:24`（“收起按钮只给上下排的面板……”）。
+- **现象：** plan 的 Spec 与文档清单里有 `WorkbenchShell.md`，实际没改。
+- **建议改法：** 按新的 `activateTab`、`foldOf`、`toggleFold`，把这两处改成点标题的新决定、框架按钮里已没有收起。
+
+### 8. `fold` 没和 `titleOnly` 绑定，可收起但不画标记的头会丢掉收起入口
+- **严重程度：** 建议　**类别：** 不变量
+- **位置：** `WorkbenchShell.vue:192-195`；`WorkbenchPanelHead.vue:191`
+- **现象：** `foldOf` 只看 `collapsibleIn`，标记与 `aria-expanded` 只在 `titleOnly` 且有 `activeTab` 的分支画；同时 `frameActionsOf` 已拿掉收起按钮。
+- **影响：** 目前只有浮动窗有多标签，浮动窗不可收起，当前不可达。以后若出现竖排里的多标签或零标签的工具面板，它们既没有标记也没有按钮，收起只能走命令；`headReserved` 还会白留 20px。
+- **建议改法：** `foldOf` 加 `titleOnlyPanelIds.has(panelId)`。
+
+### 9. 每次渲染里 `foldOf` 与 `foldLabel` 被重复求值
+- **严重程度：** 建议　**类别：** 性能
+- **位置：** `WorkbenchShell.vue:824-830`
+- **现象：** 每块头在模板里调 `foldOf` 三到四次，每次走 `findTreeNode` 与 `sectionCollapseBlock`（遍历树），`foldLabel` 对没有 `fold` 的头也算 `message(... text(panelTitle(...)))`。
+- **建议改法：** 像 `titleOnlyPanelIds` 一样做一个按面板的 computed 表，`foldLabel` 只在 `fold` 非空时算。
+
+## 未发现问题的方面
+
+- 垫底：
+  - `layout-project.ts` 的 `assignByParent`、`fillers` 的判定与 Spec 的“按呈现数”一致，视图声明的最大高度被去掉，包装分支与区域内左右拆开的子列都能处理。
+  - `sashDisabled` 只命中带垫底的那一列（`fillerColumns` 按分支 id 认），线照画（seam 保留），同一次渲染内翻转无状态残留。
+- 悬停与按钮：
+  - `hover-actions.css` 的修改只作用于 `data-hover-actions="frame"` 的容器，视图动作与编辑组头（`EditorGroupHead.vue` 的 `data-hover-actions`）不受影响。
+  - `[aria-expanded="true"] > .workbench-panel-head__chevron` 只会命中直接子的标记，接管头的标题按钮里没有 chevron，不会误中。
+- 点标题：
+  - 键盘拖动期间 Enter 与 Space 都由会话吞掉；指针拖动后的 click 被 `takeClick` 吞掉；右键不触发 click。
+  - 最大化着不给 `fold`，`control === null` 与 `key === active` 的条件与计划一致。
+  - 命令的拒绝条件（底部分节、唯一分节、浮动窗、编辑组）与 `collapsibleIn` 一致，不会出现点了没反应而 `aria-expanded` 不变的情形。
+- 对齐：e2e 量到的 9px、5px 与资源管理器根行一致，但只对着第一行（根行，无图标）。第一层目录项有 `FileIcon`，文字会更靠右，标题只与根行文字对齐。
+
+## 数量
+
+阻断 0，重要 2，建议 7。
+
+有效发现编号：1、2、3、4、5、6、7、8、9
+

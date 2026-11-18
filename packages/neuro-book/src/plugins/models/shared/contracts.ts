@@ -14,6 +14,8 @@ export {roleOfReference, roleReference} from "@notnotype/nb-models/config";
 export {hasCredentials} from "@notnotype/nb-models/contract";
 export type {ModelsService, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
 export {builtinRoleNameKey, modelsText} from "./text";
+/** 两页的分区 id：对话的提示卡按它们打开设置并定位（docs/specs/agent/conversation.md 输出 42）。 */
+export {PROVIDERS_SECTION, ROLES_SECTION} from "./settings";
 
 /** 别的服务端插件依赖它取模型端口；只在服务端提供。 */
 export const modelsKey: ServiceKey<ModelsService> = defineServiceKey<ModelsService>("nbook.models/models");

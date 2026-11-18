@@ -367,6 +367,8 @@ describe("PromptEditor `@` 菜单", () => {
         await nextTick();
         expect(changes(wrapper).at(-1)).toBe("[林雪](/设定/林雪.md) ");
         expect(wrapper.element.querySelector("[data-inline-chip='reference']")?.textContent).toContain("林雪");
+        // 插入之后才告诉宿主选了哪一项（宿主据此做插入之外的事，例如问要不要初始化 Skill）。
+        expect(wrapper.emitted("menu-select")).toEqual([[{trigger: "@", id: "林雪"}]]);
         expect(wrapper.emitted("submit")).toBeUndefined();
     });
 });

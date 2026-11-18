@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-harness",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "license": "AGPL-3.0-only",
     "repository": {
         "type": "git",
@@ -27,6 +27,8 @@
         "./kit/files": "./src/kit/files/index.ts",
         "./kit/files/local": "./src/kit/files/local.ts",
         "./kit/guards": "./src/kit/guards/index.ts",
+        "./kit/requests": "./src/kit/requests/index.ts",
+        "./kit/requests/types": "./src/kit/requests/types.ts",
         "./kit/commands": "./src/kit/commands/index.ts",
         "./kit/compaction": "./src/kit/compaction/index.ts",
         "./kit/testing": "./src/kit/testing/index.ts",
@@ -43,6 +45,7 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "@notnotype/nb-flock": "workspace:^",
         "@notnotype/nb-form": "workspace:^",
         "@notnotype/nb-profile": "workspace:^",
         "@notnotype/nb-session": "workspace:^",

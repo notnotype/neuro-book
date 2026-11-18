@@ -106,6 +106,11 @@ export type AssistantMessageView = {
     error?: string;
     contentOmitted: boolean;
     /**
+     * 这条回复出自会话里的第几次模型请求（`modelStarted` 的序号），宿主据此打开请求查看器。只有真的发给了模型的才有：
+     * 拦截层不调 `next`、直接交回的回复没有对应的请求，也就没有这个字段。
+     */
+    request?: number;
+    /**
      * 宿主给这条回复加的附注，显示在它的文字之后（没有文字时单独一行）。加附注时换成新的消息对象并按依据缓存，
      * 打节拍时给同一个对象，否则这一轮每次都重新整理。
      */
@@ -125,8 +130,8 @@ export type CompactionView = {
     model: {name: string; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number | null} | null;
     /** 用到的压缩要求。 */
     require: readonly string[];
-    /** 放回了什么；没有放回（shake）是空数组。 */
-    restored: readonly {kind: "file" | "plan" | "log"; target: string; tokens: number; truncated: boolean}[];
+    /** 放回了什么；没有放回（shake）是空数组。`skill` 的 `target` 是 Skill 的 id（docs/specs/agent/skills.md 输出 17）。 */
+    restored: readonly {kind: "file" | "plan" | "log" | "skill"; target: string; tokens: number; truncated: boolean}[];
     /** 换成占位的工具结果条数。 */
     omitted: number;
     /** 原样保留了最近几轮；切在一轮中间或算不出时是 null。 */
@@ -183,6 +188,9 @@ export type AvailabilityView = {
     message: string;
     /** 可执行的恢复动作；点击发出 `availability.act`。 */
     actions: Array<{id: string; label: string}>;
+    /** 提示卡的标题与图标（`profile-unavailable` 画成提示卡，见 AgentNoticeCard.md）；标题也是输入框的占位。 */
+    title?: string;
+    icon?: string;
 };
 
 export type InteractionView = {
@@ -371,7 +379,7 @@ export type ComposerRoleView = {
     unavailable?: string;
 };
 
-/** 审批模式的一项；`danger` 的（全部放行）选中时状态栏有警告。 */
+/** 审批模式的一项；`danger` 的（全部放行）选中时，输入框工具栏上的审批模式控件画成警告色。 */
 export type ComposerApprovalOption = {
     key: string;
     label: Text;
@@ -470,6 +478,18 @@ export type PanelsView = {
     contextInspection?: ContextInspectionView;
     systemPrompt?: SystemPromptView;
     sessionTree?: SessionTreeView;
+};
+
+/** 没有消息时第一屏的数据（视图的 `welcome` 属性，Spec 的“空状态”）；两块各只显示前 3 条。 */
+export type AgentWelcomeView = {
+    /** 欢迎的标题；不给时写“开始一段对话”。 */
+    title?: string;
+    /** 最近对话，最近的在前；`title` 为空时写“未命名会话”，`at` 是最近的活动时间。 */
+    recent: ReadonlyArray<{id: string; title: string; at: number}>;
+    /** “查看全部（N）”的 N。 */
+    total: number;
+    /** 开场指令。 */
+    starters: ReadonlyArray<{text: string; icon?: string}>;
 };
 
 export type AgentConversationContext = {
@@ -571,6 +591,8 @@ export type BuiltinAgentViewAction =
     | {type: "composer.submit"; text: string; delivery: SubmitDelivery}
     | {type: "composer.stop"}
     | {type: "composer.draftChanged"; text: string}
+    // 把一段文字放进输入框（第一屏的开场指令）：宿主换掉草稿、版本加一，编辑器才会显示它。`draftChanged` 方向相反，是编辑器报告用户打的字。
+    | {type: "composer.fill"; text: string}
     | {type: "composer.attachmentAdded"; localId: string; kind: "image" | "file"; file: File}
     | {type: "composer.attachmentRetry"; localId: string}
     | {type: "composer.attachmentRemoved"; localId: string}
@@ -578,6 +600,8 @@ export type BuiltinAgentViewAction =
     /** 输入框自己处理了一条命令（`/model`）：宿主清掉草稿。 */
     | {type: "composer.commandHandled"}
     | {type: "menu.opened"; trigger: string}
+    /** 确认了宿主菜单里的一项，标签已经插入；宿主做插入之外的事（例如问要不要初始化 Skill）。 */
+    | {type: "menu.selected"; trigger: string; id: string}
     // 运行设置
     | {type: "mode.set"; mode: string}
     | {type: "model.set"; modelKey: string}
@@ -603,6 +627,9 @@ export type BuiltinAgentViewAction =
     // 恢复
     | {type: "availability.act"; action: string}
     | {type: "connection.reconnect"}
+    // 状态栏：右键菜单里勾选一项、打开设置（宿主改用户设置、打开设置分区）
+    | {type: "statusLine.toggle"; id: string}
+    | {type: "statusLine.openSettings"}
     // 面板数据
     | {type: "attachments.query"; search: string; offset: number}
     | {type: "linkedAgents.refresh"}

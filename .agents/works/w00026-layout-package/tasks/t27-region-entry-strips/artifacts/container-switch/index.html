@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一个容器一张卡片，里面用线分开</title>
+<!--
+  一次性的原型（w00026 t27），第 3 版。开发者 2026-11-16 看过第 2 版：“几节的容器这样连在活动栏上也不对劲，还不如第一版的了”；
+  “面板这里的 Tab，每一个 Tab 下面也是可以存多个容器，并支持水平分屏的”；“侧栏，面板这里的分屏……用一个容器充当外层容器（走的是卡片间隙布局），
+  而这个容器内部走的是开放式线条风格模式”。从第 1 版改过来：一个容器一张卡片，里面几节之间画旧外壳那种两端缩进 10px 的开放式分割线
+  （ui/workbench-shell 输出 38）；切换时怎么滚照第 1 版选的甲。
+  尺寸照 nbook 浅色主题：活动栏 48px、面板头 32px、卡片圆角 12px、缝 4px（相邻两边各 2px）、布局过渡 470ms、曲线 cubic-bezier(0.23, 1, 0.32, 1)。
+  这里每帧用脚本算位置，只为了能放慢、逐帧看。
+-->
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.controls { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 24px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.96); font-size: 14px; }
+.controls button { font: inherit; padding: 3px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.controls label { display: inline-flex; align-items: center; gap: 6px; }
+.controls input[type="range"] { width: 160px; }
+.controls .sep { width: 1px; height: 22px; background: var(--line); }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cands.stack { grid-template-columns: minmax(0, 1fr); }
+.cands.stack .cand { display: grid; grid-template-columns: minmax(0, 640px) minmax(0, 1fr); gap: 0 16px; align-items: start; }
+.cands.stack .cand h3 { grid-column: 1 / -1; }
+.cands.stack .cand p { margin: 0; }
+@media (max-width: 1000px) { .cands, .cands.stack .cand { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.fit { width: 100%; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+
+/* 舞台：照 nbook 浅色。 */
+.stage { position: relative; overflow: hidden; background: #ece8df; border-radius: 6px; transform-origin: 0 0; font: 12px/1.4 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #1d1b17; user-select: none; }
+.stage .card { position: absolute; background: #fffcf5; box-shadow: 0 1px 2px rgba(31, 28, 23, 0.10); overflow: hidden; }
+.stage .clip { position: absolute; overflow: hidden; }
+.stage .page { position: absolute; inset: 0; will-change: transform; }
+.stage .pane { position: absolute; overflow: hidden; }
+.stage .head { position: absolute; left: 0; right: 0; top: 0; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; white-space: nowrap; }
+.stage .head .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.stage .head .acts { margin-left: auto; display: flex; gap: 6px; }
+.stage .head .acts i { width: 14px; height: 14px; border-radius: 3px; background: #e6e0d4; }
+.stage .tab { position: relative; padding: 0 2px; color: #6b655b; cursor: pointer; }
+.stage .tab.on { color: #1d1b17; }
+.stage .icon-tab { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: #8a8478; }
+.stage .icon-tab.on { background: #ece7dc; color: #3d3a34; }
+.stage .sep-v { width: 1px; height: 14px; background: #e3ddd1; }
+.stage .rows { position: absolute; left: 12px; right: 12px; top: 40px; }
+.stage .rows b { display: block; height: 8px; margin: 0 0 10px; border-radius: 4px; background: #ebe5d9; }
+.stage .rows b.input { height: 20px; margin-bottom: 14px; border: 1px solid #e3ddd1; background: #fff; }
+.stage .entry { position: absolute; left: 0; width: 34px; height: 34px; display: grid; place-items: center; color: #8a8478; cursor: pointer; }
+.stage .entry.on { color: #3d3a34; }
+.stage .pressed { position: absolute; width: 34px; height: 34px; border-radius: 8px; background: #ece7dc; }
+.stage .underline { position: absolute; height: 2px; border-radius: 1px; background: #1d1b17; }
+.stage .seam { position: absolute; width: 1px; background: rgba(31, 28, 23, 0.09); }
+.stage .divider { position: absolute; background: #e3ddd1; }
+.stage svg.ic { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.stage .head svg.ic { width: 15px; height: 15px; }
+</style>
+</head>
+<body>
+<main>
+<h1>一个容器一张卡片，里面用线分开</h1>
+
+<div class="controls">
+  <span>活动栏</span>
+  <button type="button" data-side="0">项目</button>
+  <button type="button" data-side="1">大纲</button>
+  <button type="button" data-side="2">检索</button>
+  <span class="sep"></span>
+  <span>底部面板</span>
+  <button type="button" data-panel="0">后台任务</button>
+  <button type="button" data-panel="1">通知</button>
+  <button type="button" data-panel="2">校对</button>
+  <span class="sep"></span>
+  <label>速度
+    <select data-speed>
+      <option value="1">1×</option>
+      <option value="0.5" selected>0.5×</option>
+      <option value="0.25">0.25×</option>
+      <option value="0.1">0.1×</option>
+    </select>
+  </label>
+  <label><input type="checkbox" data-loop> 自动来回</label>
+  <label>逐帧 <input type="range" min="0" max="1000" value="1000" data-scrub></label>
+</div>
+
+<section data-nbdev-question="card-3" data-nbdev-type="single" data-nbdev-recommend="tool-regions">
+  <h2>“一个容器一张卡片、里面用线分开”用在哪些区域？</h2>
+  <p class="rec"><strong>推荐侧栏、底部面板、右栏都这样，编辑组照旧一组一张卡片：工具区域里一个容器是一个整体，切换、隐藏都按容器；编辑组各自独立，拖、拆、关都按组。</strong></p>
+  <div class="fit"><div class="stage" data-stage="cards"></div></div>
+  <div class="cands" style="margin-top: 16px">
+    <div class="cand" data-nbdev-option="tool-regions" data-nbdev-label="侧栏、底部面板、右栏">
+      <h3>侧栏、底部面板、右栏</h3>
+      <p>三个工具区域都是一个容器一张卡片，几节之间一条两端缩进 10px 的线（侧栏、右栏横线，底部面板竖线）。编辑组照旧一组一张卡片、组与组之间是缝。侧栏这张卡片和活动栏一直连着，就是上面舞台的样子。</p>
+    </div>
+    <div class="cand" data-nbdev-option="side-and-panel" data-nbdev-label="只侧栏和底部面板">
+      <h3>只侧栏和底部面板</h3>
+      <p>右栏照现在一节一张卡片、节与节之间是缝。</p>
+    </div>
+    <div class="cand" data-nbdev-option="with-editor" data-nbdev-label="编辑区也这样">
+      <h3>编辑区也这样</h3>
+      <p>几个编辑组共用一张卡片，组与组之间画竖线、横线。11-16 你说编辑组之间的竖线可以删掉，这一项等于把它画回来。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="strip-3" data-nbdev-type="single" data-nbdev-recommend="top-row">
+  <h2>右栏、底部面板的入口条放在卡片顶上一行，还是第一节的头里？</h2>
+  <p class="rec"><strong>推荐甲：入口条是卡片顶上一行，切换时它不动、只有下面的内容滚；当前容器只有一节时，那一节的标题和动作并进这一行，不多占高度。第 1 版你先同意的乙放在第一节的头里，现在一个容器一张卡片，乙的入口条会跟着内容一起滚走。</strong></p>
+  <div class="cands stack">
+    <div class="cand" data-nbdev-option="top-row" data-nbdev-label="甲 卡片顶上一行">
+      <h3>甲 卡片顶上一行</h3>
+      <div class="fit"><div class="stage" data-mock="top-row"></div></div>
+      <p>右栏：图标一行在卡片顶上，下面“对话”“引用”两节各有自己的头，中间一条横线。底部面板：标题一行横跨整张卡片，下面“问题”“修改建议”两节左右并排、各有自己的头，中间一条竖线。上面舞台里的底部面板就是这样，点“校对”看切换。</p>
+    </div>
+    <div class="cand" data-nbdev-option="first-head" data-nbdev-label="乙 第一节的头里">
+      <h3>乙 第一节的头里</h3>
+      <div class="fit"><div class="stage" data-mock="first-head"></div></div>
+      <p>入口条画在第一节（右栏最上面一节、底部面板最左边一节）的头里，后面跟着这一节的标题；别的节的头只写标题。少一行，但切换容器时入口条在滚动的内容里。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>直接做，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>怎么样</th></tr></thead>
+    <tbody>
+      <tr><td>卡片里的线</td><td>旧外壳的开放式分割线（<code>ui/workbench-shell</code> 输出 38）：1px，沿长轴两端各缩进 10px，不碰卡片边；拖它照旧改两节的大小</td></tr>
+      <tr><td>侧栏和活动栏</td><td>侧栏一张卡片，和活动栏一直连着（中间那条短线），几节也一样；隐藏、显示时卡片右边的两个角接到活动栏上，同 t25 的丙</td></tr>
+      <tr><td>切换时怎么滚</td><td>照第 1 版选的甲：侧栏整张卡片上下滚，两个容器之间隔一条缝；底部面板、右栏的卡片和入口条不动，里面的内容左右滚</td></tr>
+      <tr><td>方向</td><td>跟着入口条：活动栏点下面的入口内容往上走；底部面板、右栏点右边的往左走</td></tr>
+      <tr><td>点当前容器的入口</td><td>区域可见就隐藏</td></tr>
+      <tr><td>区域隐藏或拖到零时点别的入口</td><td>按显示长出来，里面已经是新容器，不滚</td></tr>
+      <tr><td>滚到一半又点</td><td>从这一刻的位置接着滚，不跳</td></tr>
+      <tr><td>减少动态效果</td><td>直接换，不滚</td></tr>
+      <tr><td>平铺主题</td><td>没有缝和圆角，线照旧</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>右栏、底部面板的入口条在各自的头上，右栏用图标，底部面板用标题（2026-11-10，视图容器提案）</li>
+    <li>活动栏切换容器上下滚，底部面板左右滚（2026-11-16）</li>
+    <li>切换时整个容器滚过去，470ms、布局曲线（第 1 版 <code>switch-1</code> 甲）</li>
+    <li>入口的选中标记和内容同时滑过去（第 1 版 <code>indicator-1</code>）</li>
+    <li>侧栏展开时和活动栏连在一起；第 2 版几节各自连在活动栏上的画法不要（<code>join-2</code>）</li>
+    <li>底部面板的一个标签下面可以有几节，左右并排（2026-11-16 会话里）</li>
+    <li>这页是演示，产品里还没做；定了按计划实施</li>
+  </ol>
+</section>
+</main>
+
+<script>
+"use strict";
+const W = 560, H = 320, AB = 52, SB = 180, PH = 140, GAP = 4, HALF = 2, R = 12, HEAD = 32;
+const D = 470;
+
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t) => ((ax * t + bx) * t + cx) * t, sy = (t) => ((ay * t + by) * t + cy) * t;
+  const dx = (t) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i += 1) { const d = dx(t); if (Math.abs(d) < 1e-6) break; t -= (sx(t) - x) / d; t = Math.min(1, Math.max(0, t)); }
+    return sy(t);
+  };
+}
+const CURVE = bezier(0.23, 1, 0.32, 1);
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+
+const ICONS = {
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  list: '<path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+};
+const icon = (name) => `<svg class="ic" viewBox="0 0 24 24">${ICONS[name]}</svg>`;
+
+const SIDE = [
+  {icon: "folder", splits: [0.42], sections: [{title: "会话", rows: [70, 55, 80, 40, 62]}, {title: "资源管理器", rows: [50, 66, 44, 72, 58, 36, 64, 48]}]},
+  {icon: "list", splits: [], sections: [{title: "大纲", rows: [80, 60, 72, 44, 66, 52, 78, 40, 60, 70, 48, 56, 64, 38]}]},
+  {icon: "search", splits: [], sections: [{title: "检索", input: true, rows: [76, 52, 68, 40, 72, 58, 46, 64, 70, 50, 62]}]},
+];
+const PANEL = [
+  {title: "后台任务", sections: [{title: "后台任务", rows: [86, 64, 72, 40]}]},
+  {title: "通知", sections: [{title: "通知", rows: [58, 80, 46, 70]}]},
+  {title: "校对", sections: [{title: "问题", rows: [70, 52, 64]}, {title: "修改建议", rows: [60, 76, 48]}]},
+];
+
+// ---------- 时钟：放慢、暂停、逐帧 ----------
+const clock = {virt: 0, base: performance.now(), speed: 0.5, paused: false, last: 0};
+function now() { return clock.paused ? clock.virt : clock.virt + (performance.now() - clock.base) * clock.speed; }
+function resume() { if (clock.paused) { clock.paused = false; clock.base = performance.now(); } }
+function setSpeed(speed) { clock.virt = now(); clock.base = performance.now(); clock.speed = speed; }
+function scrubTo(fraction) { clock.virt = clock.last + fraction * D; clock.paused = true; }
+
+// ---------- 画卡片 ----------
+function div(cls, parent, style) {
+  const node = document.createElement("div");
+  if (cls) node.className = cls;
+  if (style) Object.assign(node.style, style);
+  if (parent) parent.append(node);
+  return node;
+}
+function place(node, x0, y0, x1, y1, radii) {
+  node.style.left = `${x0}px`; node.style.top = `${y0}px`;
+  node.style.width = `${Math.max(0, x1 - x0)}px`; node.style.height = `${Math.max(0, y1 - y0)}px`;
+  if (radii) node.style.borderRadius = radii.map((r) => `${r}px`).join(" ");
+}
+function rows(parent, widths, input) {
+  const box = div("rows", parent);
+  if (input) box.innerHTML = '<b class="input"></b>';
+  box.innerHTML += widths.map((w) => `<b style="width:${w}%"></b>`).join("");
+  return box;
+}
+/** 卡片里的一节：头（默认写标题与两个动作）加几行。 */
+function pane(parent, x0, y0, x1, y1, section, headHtml) {
+  const node = div("pane", parent);
+  place(node, x0, y0, x1, y1);
+  const head = div("head", node);
+  head.innerHTML = headHtml ?? `<span class="title">${section.title}</span><span class="acts"><i></i><i></i></span>`;
+  rows(node, section.rows, section.input);
+  return node;
+}
+/** 开放式分割线：1px，沿长轴两端各缩进 10px。 */
+function hLine(parent, x0, x1, y) { div("divider", parent, {left: `${x0 + 10}px`, width: `${x1 - x0 - 20}px`, top: `${y}px`, height: "1px"}); }
+function vLine(parent, x, y0, y1) { div("divider", parent, {left: `${x}px`, width: "1px", top: `${y0 + 10}px`, height: `${y1 - y0 - 20}px`}); }
+
+/** 侧栏里一个容器：一张卡片，和活动栏相连（左边不留缝、左边两个角是直的），几节之间一条横线。 */
+function sidePage(parent, container) {
+  const page = div("page", parent);
+  const card = div("card", page);
+  const cw = SB - HALF, ch = H - 2 * GAP;
+  place(card, 0, GAP, cw, H - GAP, [0, R, R, 0]);
+  const bounds = [0, ...container.splits.map((f) => Math.round(ch * f)), ch];
+  container.sections.forEach((section, i) => {
+    pane(card, 0, bounds[i], cw, bounds[i + 1], section);
+    if (i > 0) hLine(card, 0, cw, bounds[i]);
+  });
+  return page;
+}
+
+/** 底部面板里一个容器（卡片顶上一行之下）：只有一节时只画内容；几节时左右并排、各有头，中间一条竖线。 */
+function panelPage(parent, container, width, height) {
+  const page = div("page", parent);
+  const n = container.sections.length;
+  if (n === 1) {
+    rows(page, container.sections[0].rows).style.top = "4px";
+    return page;
+  }
+  const w = width / n;
+  container.sections.forEach((section, i) => {
+    pane(page, i * w, 0, (i + 1) * w, height, section);
+    if (i > 0) vLine(page, Math.round(i * w), 0, height);
+  });
+  return page;
+}
+
+// ---------- 一个区域里容器的切换：整块滚过去 ----------
+function regionScroller(axis, size, pages, start) {
+  const step = size + GAP;
+  const state = {target: start, t0: -1e9, placed: new Map([[start, 0]]), s0: 0, s1: 0};
+  const scrollAt = (t) => state.s0 + (state.s1 - state.s0) * CURVE((t - state.t0) / D);
+  return {
+    get target() { return state.target; },
+    progress(t) { return CURVE(clamp01((t - state.t0) / D)); },
+    switchTo(next, t) {
+      if (next === state.target) return false;
+      const dir = Math.sign(next - state.target);
+      const s = scrollAt(t);
+      for (const [index, pos] of state.placed) if (index !== state.target && Math.abs(pos - s) >= step) state.placed.delete(index);
+      if (!state.placed.has(next) || Math.abs(state.placed.get(next) - s) >= step) {
+        // 接在这一刻看得见的最外面那一块后面，不和别的叠在一起。
+        const ends = [...state.placed.values()];
+        state.placed.set(next, (dir > 0 ? Math.max(...ends) : Math.min(...ends)) + dir * step);
+      }
+      state.s0 = s; state.s1 = state.placed.get(next);
+      state.target = next; state.t0 = t;
+      return true;
+    },
+    render(t) {
+      const prop = axis === "y" ? "translateY" : "translateX";
+      const s = scrollAt(t);
+      pages.forEach((page, index) => {
+        const pos = state.placed.get(index);
+        const off = pos === undefined ? step : pos - s;
+        page.style.visibility = pos !== undefined && Math.abs(off) < step ? "visible" : "hidden";
+        page.style.transform = `${prop}(${off}px)`;
+      });
+    },
+  };
+}
+
+// ---------- 舞台：活动栏 | 侧栏 | 编辑区，编辑区下面是底部面板（入口条在卡片顶上一行） ----------
+const stages = [];
+function buildStage(root) {
+  root.style.width = `${W}px`; root.style.height = `${H}px`;
+
+  const abCard = div("card", root);
+  place(abCard, GAP, GAP, AB, H - GAP, [R, 0, 0, R]);
+  const pressed = div("pressed", abCard);
+  const inset = (AB - GAP - 34) / 2;
+  const entryY = (index) => 6 + index * 40;
+  const entries = SIDE.map((container, index) => {
+    const entry = div("entry", abCard, {left: `${inset}px`, top: `${entryY(index)}px`});
+    entry.innerHTML = icon(container.icon);
+    entry.addEventListener("click", () => switchSide(index));
+    return entry;
+  });
+  pressed.style.left = `${inset}px`;
+  const sideClip = div("clip", root);
+  place(sideClip, AB, 0, AB + SB, H);
+  const sidePages = SIDE.map((container) => sidePage(sideClip, container));
+  const seam = div("seam", root);
+  place(seam, AB - 0.5, GAP + 10, AB + 0.5, H - GAP - 10);
+
+  const px0 = AB + SB + HALF, px1 = W - GAP;
+  const editor = div("card", root);
+  place(editor, px0, GAP, px1, H - PH - HALF, [R, R, R, R]);
+  const editorHead = div("head", editor);
+  editorHead.innerHTML = '<span class="title">第 1 章.md</span>';
+  editorHead.style.background = "#f6f2e9";
+  rows(editor, [92, 86, 95, 70, 88, 90, 60]);
+
+  const py0 = H - PH + HALF, py1 = H - GAP;
+  const panel = div("card", root);
+  place(panel, px0, py0, px1, py1, [R, R, R, R]);
+  const panelHead = div("head", panel);
+  panelHead.style.gap = "14px";
+  const tabs = PANEL.map((container, index) => {
+    const tab = document.createElement("span");
+    tab.className = "tab";
+    tab.textContent = container.title;
+    tab.addEventListener("click", () => switchPanel(index));
+    panelHead.append(tab);
+    return tab;
+  });
+  panelHead.insertAdjacentHTML("beforeend", '<span class="acts"><i></i><i></i></span>');
+  const underline = div("underline", panel);
+  const panelClip = div("clip", panel);
+  const pw = px1 - px0, ph = py1 - py0 - HEAD;
+  place(panelClip, 0, HEAD, pw, py1 - py0);
+  const panelPages = PANEL.map((container) => panelPage(panelClip, container, pw, ph));
+
+  const side = regionScroller("y", H, sidePages, 0);
+  const pane = regionScroller("x", pw, panelPages, 0);
+  const marks = {side: 0, panel: 0};
+  let sideMark = 0, panelMark = 0;
+
+  const stage = {
+    switchSide(index, t) { const from = sideMark; if (side.switchTo(index, t)) marks.side = from; },
+    switchPanel(index, t) { const from = panelMark; if (pane.switchTo(index, t)) marks.panel = from; },
+    render(t) {
+      side.render(t); pane.render(t);
+      sideMark = marks.side + (side.target - marks.side) * side.progress(t);
+      entries.forEach((entry, index) => entry.classList.toggle("on", index === side.target));
+      pressed.style.top = `${entryY(0) + sideMark * 40}px`;
+      panelMark = marks.panel + (pane.target - marks.panel) * pane.progress(t);
+      tabs.forEach((tab, index) => tab.classList.toggle("on", index === pane.target));
+      const rects = tabs.map((tab) => ({x: tab.offsetLeft, w: tab.offsetWidth}));
+      const lo = Math.floor(panelMark), hi = Math.min(rects.length - 1, lo + 1), f = panelMark - lo;
+      const x = rects[lo].x + (rects[hi].x - rects[lo].x) * f, w = rects[lo].w + (rects[hi].w - rects[lo].w) * f;
+      underline.style.left = `${x}px`; underline.style.width = `${w}px`; underline.style.top = `${HEAD - 5}px`;
+    },
+  };
+  stages.push(stage);
+}
+
+function switchSide(index) { resume(); const t = now(); clock.last = t; for (const stage of stages) stage.switchSide(index, t); }
+function switchPanel(index) { resume(); const t = now(); clock.last = t; for (const stage of stages) stage.switchPanel(index, t); }
+
+// ---------- 入口条放在哪：静态稿（右栏两节、底部面板两节左右并排） ----------
+function buildMock(root) {
+  const kind = root.dataset.mock;
+  const MW = 640, MH = 320, RB = 220, PANEL_H = 150;
+  root.style.width = `${MW}px`; root.style.height = `${MH}px`;
+  const rx0 = MW - RB;
+
+  const editor = div("card", root);
+  place(editor, GAP, GAP, rx0 - HALF, MH - PANEL_H - HALF, [R, R, R, R]);
+  const eh = div("head", editor); eh.innerHTML = '<span class="title">第 1 章.md</span>'; eh.style.background = "#f6f2e9";
+  rows(editor, [92, 86, 95, 70, 88]);
+
+  // 右栏：当前容器两节，对话与引用。
+  const right = div("card", root);
+  place(right, rx0 + HALF, GAP, MW - GAP, MH - GAP, [R, R, R, R]);
+  const rw = MW - GAP - (rx0 + HALF), rh = MH - 2 * GAP;
+  const rIcons = `<span class="icon-tab on">${icon("chat")}</span><span class="icon-tab">${icon("bell")}</span>`;
+  const talk = {title: "对话", rows: [70, 84, 52, 76, 60, 80]}, refs = {title: "引用", rows: [64, 48, 72, 56]};
+  if (kind === "top-row") {
+    const row = div("head", right); row.innerHTML = `${rIcons}<span class="acts"><i></i></span>`;
+    const split = Math.round(HEAD + (rh - HEAD) * 0.58);
+    pane(right, 0, HEAD, rw, split, talk);
+    hLine(right, 0, rw, split);
+    pane(right, 0, split, rw, rh, refs);
+  } else {
+    const split = Math.round(rh * 0.6);
+    pane(right, 0, 0, rw, split, talk, `${rIcons}<span class="sep-v"></span><span class="title">对话</span><span class="acts"><i></i><i></i></span>`);
+    hLine(right, 0, rw, split);
+    pane(right, 0, split, rw, rh, refs);
+  }
+
+  // 底部面板：当前是“校对”，问题与修改建议左右并排。
+  const py0 = MH - PANEL_H + HALF, py1 = MH - GAP, px0 = GAP, px1 = rx0 - HALF;
+  const panel = div("card", root);
+  place(panel, px0, py0, px1, py1, [R, R, R, R]);
+  const pw = px1 - px0, ph = py1 - py0, mid = Math.round(pw / 2);
+  const tabsHtml = '<span class="tab">后台任务</span><span class="tab">通知</span><span class="tab on" style="text-decoration: underline 2px; text-underline-offset: 9px">校对</span>';
+  const issues = {title: "问题", rows: [70, 52, 64]}, fixes = {title: "修改建议", rows: [60, 76, 48]};
+  if (kind === "top-row") {
+    const row = div("head", panel); row.style.gap = "14px"; row.innerHTML = `${tabsHtml}<span class="acts"><i></i><i></i></span>`;
+    pane(panel, 0, HEAD, mid, ph, issues);
+    vLine(panel, mid, HEAD, ph);
+    pane(panel, mid, HEAD, pw, ph, fixes);
+  } else {
+    pane(panel, 0, 0, mid, ph, issues, `<span style="display:flex; gap:12px">${tabsHtml}</span><span class="sep-v"></span><span class="title">问题</span>`);
+    vLine(panel, mid, 0, ph);
+    pane(panel, mid, 0, pw, ph, fixes);
+  }
+}
+
+// ---------- 缩放：舞台按卡片宽度等比缩，最多放大 1.6 倍 ----------
+function fitAll() {
+  for (const box of document.querySelectorAll(".fit")) {
+    const stage = box.firstElementChild;
+    const width = stage.offsetWidth, height = stage.offsetHeight;
+    const scale = Math.min(stage.dataset.stage ? 1.6 : 1, box.clientWidth / width);
+    stage.style.transform = `scale(${scale})`;
+    box.style.height = `${height * scale}px`;
+  }
+}
+
+document.querySelectorAll("[data-stage]").forEach(buildStage);
+document.querySelectorAll("[data-mock]").forEach(buildMock);
+fitAll();
+window.addEventListener("resize", fitAll);
+
+document.querySelectorAll("[data-side]").forEach((button) => button.addEventListener("click", () => switchSide(Number(button.dataset.side))));
+document.querySelectorAll("[data-panel]").forEach((button) => button.addEventListener("click", () => switchPanel(Number(button.dataset.panel))));
+document.querySelector("[data-speed]").addEventListener("change", (event) => setSpeed(Number(event.target.value)));
+const scrub = document.querySelector("[data-scrub]");
+scrub.addEventListener("input", () => scrubTo(Number(scrub.value) / 1000));
+const loop = document.querySelector("[data-loop]");
+const SEQUENCE = [["side", 1], ["panel", 2], ["side", 0], ["panel", 1], ["side", 2], ["panel", 0], ["side", 0], ["panel", 2]];
+let loopStep = 0, loopNext = 0;
+
+function frame() {
+  const t = now();
+  if (loop.checked && !clock.paused && t >= loopNext) {
+    const [where, index] = SEQUENCE[loopStep % SEQUENCE.length];
+    loopStep += 1;
+    if (where === "side") switchSide(index); else switchPanel(index);
+    loopNext = now() + D + 500;
+  }
+  if (!clock.paused) scrub.value = String(Math.round(clamp01((t - clock.last) / D) * 1000));
+  for (const stage of stages) stage.render(t);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

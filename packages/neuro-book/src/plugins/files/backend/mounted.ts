@@ -5,6 +5,10 @@
  * 挂载点的寿命：第一次请求时打开（`opening`），请求从开始到结算一直借用它；没有借用且空闲满 `IDLE_CLOSE_MS` 时关闭
  * （`closing`），关闭途中到来的请求等它关完再重新打开。只在借用为 0 时关闭，所以在途的写入（`tracked`）不会碰上已关的
  * Backend。这次没有订阅（不声明 `watch`），ChangeHub 不开监视，关闭只是作废它。
+ *
+ * 挂载点的目录被整个换掉（删掉后放进同名的新目录）时，打开着的根认出身份变了、报 `root-gone`。请求遇到它就把这个挂载点从表里
+ * 摘下（`retire`），按当前声明重开一次再做这个请求；摘下的旧挂载点等借用它的在途请求结算完再关闭。只重试一次：重开后仍是
+ * `root-gone`（容器没了）照常报出。
  */
 
 import {lstat, mkdir} from "node:fs/promises";
@@ -64,6 +68,8 @@ interface Mount {
     lastUsed: number;
     closed: Promise<void> | null;
     cancelIdle: (() => void) | null;
+    /** 已从表里摘下（目录被换掉）：最后一个借用结算时直接关闭，不等空闲。 */
+    retired: boolean;
 }
 
 type Fail = Extract<ServerFilesResult<never>, {ok: false}>;
@@ -221,27 +227,21 @@ export class MountedScheme {
             if (lexical !== true) return fail(lexical, `${this.#address(path)}：${lexical}`);
 
             const materialize = MATERIALIZES.has(operation);
-            if (signal.aborted) return fail("cancelled", "调用已取消");
-            const lease = await this.#borrow(mount, spec, declaration, materialize);
-            try {
+            for (let attempt = 0; ; attempt += 1) {
+                if (signal.aborted) return fail("cancelled", "调用已取消");
+                const lease = await this.#borrow(mount, spec, declaration, materialize);
                 if ("ok" in lease) return lease;
-                if (signal.aborted) return fail("cancelled", "调用已取消");
-                const opened = lease.opened;
-                if (opened !== null && materialize) {
-                    const ensured = await ensureDirectory(opened.root, inner, declaration);
-                    if (ensured !== null) return ensured;
+                let result: ServerFilesResult<T>;
+                try {
+                    result = await this.#attempt(lease.opened, {operation, path, caller, signal, spec, mount, inner, declaration, materialize}, body);
+                } finally {
+                    lease.release();
                 }
-                if (opened !== null) {
-                    const real = await realPathFor(opened.root, operation, inner);
-                    if (real !== null) {
-                        const granted = spec.authorize(caller, mount, operation, real);
-                        if (granted !== true) return fail(granted, `${this.#address(path)}：${granted}`);
-                    }
+                if (attempt === 0 && lease.opened !== null && !result.ok && result.code === "root-gone") {
+                    lease.retire();
+                    continue;
                 }
-                if (signal.aborted) return fail("cancelled", "调用已取消");
-                return await body({spec, mount, path: inner, declaration, opened});
-            } finally {
-                if (!("ok" in lease)) lease.release();
+                return result;
             }
         } finally {
             this.#inFlight -= 1;
@@ -249,7 +249,30 @@ export class MountedScheme {
         }
     }
 
-    async #borrow(name: string, spec: MountedSchemeSpec, declaration: MountDeclaration, materialize: boolean): Promise<{readonly opened: Opened | null; release(): void} | Fail> {
+    /** 借到挂载点之后的步骤：需要时建目录 → 按真实路径授权 → 执行。 */
+    async #attempt<T>(
+        opened: Opened | null,
+        request: {readonly operation: SchemeOperation; readonly path: string; readonly caller: SchemeCaller; readonly signal: AbortSignal; readonly spec: MountedSchemeSpec; readonly mount: string; readonly inner: string; readonly declaration: MountDeclaration; readonly materialize: boolean},
+        body: (target: {readonly spec: MountedSchemeSpec; readonly mount: string; readonly path: string; readonly declaration: MountDeclaration; readonly opened: Opened | null}) => Promise<ServerFilesResult<T>>,
+    ): Promise<ServerFilesResult<T>> {
+        const {operation, path, caller, signal, spec, mount, inner, declaration} = request;
+        if (signal.aborted) return fail("cancelled", "调用已取消");
+        if (opened !== null && request.materialize) {
+            const ensured = await ensureDirectory(opened.root, inner, declaration);
+            if (ensured !== null) return ensured;
+        }
+        if (opened !== null) {
+            const real = await realPathFor(opened.root, operation, inner);
+            if (real !== null) {
+                const granted = spec.authorize(caller, mount, operation, real);
+                if (granted !== true) return fail(granted, `${this.#address(path)}：${granted}`);
+            }
+        }
+        if (signal.aborted) return fail("cancelled", "调用已取消");
+        return await body({spec, mount, path: inner, declaration, opened});
+    }
+
+    async #borrow(name: string, spec: MountedSchemeSpec, declaration: MountDeclaration, materialize: boolean): Promise<{readonly opened: Opened | null; release(): void; retire(): void} | Fail> {
         for (;;) {
             const existing = this.#mounts.get(name);
             if (existing?.state === "closing") {
@@ -261,20 +284,29 @@ export class MountedScheme {
             mount.cancelIdle?.();
             mount.cancelIdle = null;
             const opened = await mount.ready;
-            if (opened !== null && !("ok" in opened)) return {opened, release: () => this.#release(name, mount)};
+            if (opened !== null && !("ok" in opened)) return {opened, release: () => this.#release(name, mount), retire: () => this.#retire(name, mount)};
             // 没打开（目录不存在或不可用）的挂载点不留在表里：别处（例如内核建会话目录）随后建了它，下一次请求就该看到。
             mount.borrows -= 1;
             if (this.#mounts.get(name) === mount && mount.borrows === 0) this.#mounts.delete(name);
             if (opened !== null) return opened;
             // 与一个不建目录的请求共用了这次打开：要建目录的请求自己再开一次。
             if (materialize && declaration.create && !mount.materializing) continue;
-            return {opened: null, release: () => undefined};
+            return {opened: null, release: () => undefined, retire: () => undefined};
         }
     }
 
+    /** 目录被换掉的挂载点从表里摘下：之后的请求重新打开；没人借用时立刻关闭，否则等最后一个借用结算（`#release`）。 */
+    #retire(name: string, mount: Mount): void {
+        if (mount.retired) return;
+        mount.retired = true;
+        if (this.#mounts.get(name) === mount) this.#mounts.delete(name);
+        this.#options.record("info", "files.mount.reopened", `${this.#address(name)} 的目录被换掉，重新打开`, {scheme: this.#options.scheme, mount: name});
+        if (mount.borrows === 0) void this.#close(name, mount);
+    }
+
     #open(name: string, spec: MountedSchemeSpec, declaration: MountDeclaration, materialize: boolean): Mount {
-        const mount: Mount = {state: "opening", ready: Promise.resolve(null), materializing: materialize, borrows: 0, lastUsed: this.#options.clock.now(), closed: null, cancelIdle: null};
-        mount.ready = this.#openDirectory(name, spec.container, declaration, materialize).then((opened) => {
+        const mount: Mount = {state: "opening", ready: Promise.resolve(null), materializing: materialize, borrows: 0, lastUsed: this.#options.clock.now(), closed: null, cancelIdle: null, retired: false};
+        mount.ready = this.#openDirectory(name, declaration.container ?? spec.container, declaration, materialize).then((opened) => {
             if (opened !== null && !("ok" in opened)) mount.state = "open";
             return opened;
         }, (error: unknown) => {
@@ -287,8 +319,11 @@ export class MountedScheme {
     }
 
     async #openDirectory(name: string, container: string, declaration: MountDeclaration, materialize: boolean): Promise<Opened | Fail | null> {
-        const path = join(container, name);
         const notDirectory = fail("not-a-directory", `${this.#address(name)} 不是普通目录`);
+        const directory = declaration.directory ?? name;
+        // 另给的目录名只能是容器下的一段：不让声明经 `..` 或分隔符指到容器外。
+        if (directory === "" || directory === "." || directory === ".." || /[/\\]/u.test(directory)) return notDirectory;
+        const path = join(container, directory);
         // 每次打开都核对容器与挂载点都是真实目录（不是链接）：`openRoot` 会解析整条路径，容器被换成链接时不能跟着打开到别处。
         // 只在受管容器下建一层：挂载点名是合法单段（注册表已核对），不会经链接建到别处。
         if ((await realDirectory(container)) !== "directory") return fail("root-gone", `${this.#options.scheme}:// 的容器目录不可用`);
@@ -318,6 +353,10 @@ export class MountedScheme {
     #release(name: string, mount: Mount): void {
         mount.borrows -= 1;
         mount.lastUsed = this.#options.clock.now();
+        if (mount.borrows === 0 && mount.retired) {
+            void this.#close(name, mount);
+            return;
+        }
         if (mount.borrows > 0 || mount.state !== "open") return;
         mount.cancelIdle = this.#options.clock.schedule(() => {
             mount.cancelIdle = null;

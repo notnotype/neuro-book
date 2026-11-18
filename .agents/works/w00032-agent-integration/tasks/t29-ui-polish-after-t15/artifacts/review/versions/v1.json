@@ -1,0 +1,143 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t29-ui-polish-after-t15",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t29 第 1 轮：服务商列表、状态栏、对话面板第一屏",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "717ec1d897c8c42caa6720ab7714d9aeebda931d5f33026fd7d0273dca15d5a5",
+    "files": [
+        "index.html",
+        "r1/first-hint.webp",
+        "r1/first-lines-inset.webp",
+        "r1/first-lines-none.webp",
+        "r1/first-product-current.webp",
+        "r1/first-welcome.webp",
+        "r1/providers-current.webp",
+        "r1/rail-one-line-hover.webp",
+        "r1/rail-one-line-menu.webp",
+        "r1/rail-one-line-more.webp",
+        "r1/rail-one-line.webp",
+        "r1/rail-two-line-hover.webp",
+        "r1/status-custom.webp",
+        "r1/status-menu.webp",
+        "r1/status-settings.webp"
+    ],
+    "questions": [
+        {
+            "id": "rail-remove",
+            "type": "single",
+            "label": "删除服务商放在列表条目的哪里？",
+            "options": [
+                {
+                    "value": "hover-icon",
+                    "label": "A 悬停出删除图标，右键也能删"
+                },
+                {
+                    "value": "hover-more",
+                    "label": "B 悬停出“…”，点开是菜单"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "hover-icon"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "rail-rows",
+            "type": "single",
+            "label": "服务商条目改成单行，还是两行收紧？",
+            "options": [
+                {
+                    "value": "one-line",
+                    "label": "A 单行"
+                },
+                {
+                    "value": "two-line",
+                    "label": "B 两行收紧"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one-line"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "status-config",
+            "type": "confirm",
+            "label": "状态栏的自定义照这三张图做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-screen",
+            "type": "single",
+            "label": "没选会话时，对话面板的第一屏放什么？",
+            "options": [
+                {
+                    "value": "welcome",
+                    "label": "A 开始一段对话与最近的会话"
+                },
+                {
+                    "value": "hint",
+                    "label": "B 只留一句提示"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "welcome"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "dividers",
+            "type": "single",
+            "label": "顶栏下面、输入框上面那两条横线怎么处理？",
+            "options": [
+                {
+                    "value": "none",
+                    "label": "A 去掉，消息在顶栏下淡出"
+                },
+                {
+                    "value": "inset",
+                    "label": "B 留着，两端各收进 12px"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "none"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-16T01:59:40.993Z"
+}

@@ -3,7 +3,7 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
-import {markRaw, defineComponent, h, onBeforeUnmount, shallowRef} from "vue";
+import {computed, markRaw, defineComponent, h, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -11,6 +11,7 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import {stickersCatalogContract} from "nbook/plugins/stickers/shared/contracts";
 import type {CommandImplementation, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
@@ -24,7 +25,8 @@ import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey}
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {PROJECT_VIEW_CONTAINER, quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, PROJECT_VIEW_CONTAINER, quickPickKey, VIEW_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ViewHeadOptIn} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -33,16 +35,23 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {defineRecord} from "nbook/shared/storage";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
+import {settingsFailureText} from "nbook/ui/settings/setting-text";
 
 import {Type} from "typebox";
 
-import type {AgentConversationServices, ComposerModelView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
-import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION} from "../shared/settings";
+import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, REQUESTS_SECTION, SKILLS_SECTION, STATUS_LINE_SECTION} from "../shared/settings";
+import {STATUS_ITEMS_POINT, statusItemsPoint} from "../shared/status-item-point";
+import type {SettingWriteResult} from "nbook/shared/settings";
+import {createStatusItems} from "./status-items";
+import {createStatusLineWriter} from "./status-line-writes";
+import {statusLinePage, statusCatalog} from "./status-line-page";
+import {profileAllowlist} from "../shared/profile-allowlist";
 import {agentText} from "../shared/text";
 import {settingsPage} from "nbook/ui/settings/settings-page";
 import {createAgentActivity} from "./activity";
@@ -51,10 +60,17 @@ import {permissionsPage} from "./permission-page";
 import {createProfileWriters, profilesPage} from "./profile-page";
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
+import {createSkillInit} from "./skill-init";
+import type {SkillInit} from "./skill-init";
+import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu} from "./skills";
+import {createStickerPacksClient} from "./sticker-packs";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
-import {createSessionList} from "./session-list";
+import {createRecentSessions, createSessionList} from "./session-list";
+import {createRunResults, createSeenErrors} from "./subagents-panel";
+import {RequestsPage, useRequests} from "./requests-page";
+import {requestEntriesContribution} from "./request-entries";
 
 export const CONVERSATION_VIEW = "nbook.agent.conversation";
 export const SESSIONS_VIEW = "nbook.agent.sessions";
@@ -64,6 +80,9 @@ export const OPEN_COMMAND = "nbook.agent.open";
 export const NEW_SESSION_COMMAND = "nbook.agent.new-session";
 export const FOCUS_SESSION_COMMAND = "nbook.agent.focus-session";
 export const OPEN_IN_EDITOR_COMMAND = "nbook.agent.open-in-editor";
+/** “模型请求”页与打开它的命令（docs/specs/agent/request-trace.md 输出 13、26）。 */
+export const REQUESTS_PAGE = "nbook.agent.requests";
+export const OPEN_REQUESTS_COMMAND = "nbook.agent.open-requests";
 /** 别的插件的命令，公开合同：打开编辑器的文件（docs/specs/workbench/editor.md）、打开视图（docs/specs/workbench/views.md 输出 14）。 */
 const EDITOR_OPEN_COMMAND = "nbook.editor.open";
 const OPEN_VIEW_COMMAND = "nbook.view.open";
@@ -71,6 +90,7 @@ const OPEN_VIEW_COMMAND = "nbook.view.open";
 const CONVERSATION_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-message-square", location: "auxiliarybar", order: 0, layout: "fill"};
 const SESSIONS_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "sidebar", order: 50, layout: "fill", container: PROJECT_VIEW_CONTAINER};
 const PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-message-square"};
+const REQUESTS_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-activity"};
 const ACTIVITY_DECLARATION: ItemDeclaration = {title: agentText("conversation.activity.title"), alignment: "right", order: 50, priority: 50, command: {id: FOCUS_SESSION_COMMAND}, when: {requires: ["nbook.agent/active"]}};
 const command = (description: string, args: WrittenCommandDeclaration["args"] = Type.Object({}, {additionalProperties: false})): WrittenCommandDeclaration => ({
     category: agentText("commands.category"),
@@ -84,6 +104,7 @@ const COMMANDS: Readonly<Record<string, WrittenCommandDeclaration>> = {
     [OPEN_IN_EDITOR_COMMAND]: command("Open the Agent conversation as a page in the editor area."),
     [NEW_SESSION_COMMAND]: command("Start a new Agent session in the conversation."),
     [FOCUS_SESSION_COMMAND]: command("Show an Agent session in the conversation; without an id, the one that needs the user.", Type.Object({sessionId: Type.Optional(Type.String())}, {additionalProperties: false})),
+    [OPEN_REQUESTS_COMMAND]: command("Open the model requests page; with a session id, only that session, and with a request number, that request selected.", Type.Object({sessionId: Type.Optional(Type.String({minLength: 1})), request: Type.Optional(Type.Integer({minimum: 1}))}, {additionalProperties: false})),
 };
 
 const agentState = definePublicState(descriptor.id, {
@@ -136,22 +157,29 @@ const browser = globalThis as {readonly location?: {readonly pathname: string}; 
 
 const PROFILES_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-user-round-cog", category: "ai", order: 25, layers: ["user"], layout: "fill", description: agentText("settingsPages.profiles.description")};
 const PERMISSIONS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-shield-check", category: "ai", order: 40, layers: ["user"], description: agentText("settingsPages.permissions.description")};
+const STATUS_LINE_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-panel-bottom", category: "ai", order: 35, layers: ["user"], description: agentText("settingsPages.status-line.description")};
+const SKILLS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-sparkles", category: "ai", order: 30, layers: ["user"], description: agentText("settingsPages.skills.description")};
 
 export const agentBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
+    contributionPoints: [statusItemsPoint],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: markdownKey}, {key: windowTextKey, required: false}],
+        receives: [STATUS_ITEMS_POINT],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: notificationsKey}, {key: markdownKey}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: CONVERSATION_VIEW, declaration: CONVERSATION_DECLARATION},
             {capability: WORKBENCH_VIEWS_POINT, id: SESSIONS_VIEW, declaration: SESSIONS_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: CONVERSATION_PAGE, declaration: PAGE_DECLARATION},
+            {capability: EDITOR_PAGES_POINT, id: REQUESTS_PAGE, declaration: REQUESTS_PAGE_DECLARATION},
             {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: ACTIVITY_ITEM, declaration: ACTIVITY_DECLARATION},
             ...Object.entries(COMMANDS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             {capability: SETTINGS_PAGES_POINT, id: PROFILES_SECTION, declaration: PROFILES_PAGE},
             {capability: SETTINGS_PAGES_POINT, id: PERMISSIONS_SECTION, declaration: PERMISSIONS_PAGE},
+            {capability: SETTINGS_PAGES_POINT, id: SKILLS_SECTION, declaration: SKILLS_PAGE},
+            {capability: SETTINGS_PAGES_POINT, id: STATUS_LINE_SECTION, declaration: STATUS_LINE_PAGE},
             ...agentState.contributions,
         ],
         activate: async (context) => {
@@ -162,6 +190,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const clock = context.services.require(clockKey);
             const quickPick = context.services.require(quickPickKey);
+            const notifications = context.services.require(notificationsKey);
             const text = await windowTextPort(context.services, () => displayLocale(settings));
             const remote = context.remote.use(agentSessionsContract);
             const rulesWriter = createRulesWriter(settings);
@@ -169,6 +198,19 @@ export const agentBrowserPlugin: PluginDefinition = {
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
                 diagnostics.record({level: "warn", event: `agent.${code}`, message, data, source: {plugin: descriptor.id}});
             };
+            /** 菜单里勾选没写成功：与设置页同样交给通知（页面里走窗口的通知，这里没有窗口，直接发）。 */
+            const reportStatusLineFailure = (result: SettingWriteResult): void => {
+                if (result.ok) return;
+                void notifications.notify({tone: "warning", title: agentText("statusLine.notSaved"), message: settingsFailureText(result.code, result.detail, text)});
+            };
+            const openSettings = (target?: {readonly section: string; readonly layer?: "user" | "project"}): void => {
+                void (target === undefined ? commands.execute(OPEN_SETTINGS_COMMAND) : commands.execute(OPEN_SETTINGS_COMMAND, target)).then((result) => {
+                    if (!result.ok) report("open-settings-failed", `opening settings ${target?.section ?? ""} failed: ${result.code}`);
+                });
+            };
+            /** 状态栏里插件加的项（conversation.md 输出 45）：目录与登记项；写入走同一个队列，菜单与设置页共用。 */
+            const statusItems = createStatusItems((message) => report("status-item-failed", message));
+            const statusLineWriter = createStatusLineWriter(settings, () => statusCatalog(statusItems));
 
             const activity = createAgentActivity(remote, (message) => report("activity-failed", message));
             // Lab 窗口不看活动（Component Lab 只在开发模式，直接开它不该多一个订阅）。
@@ -176,6 +218,25 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             const project = windowProject.project?.id ?? null;
             const profiles = shallowRef<readonly ProfileEntry[]>([]);
+            const skills = createSkillsClient(remote, context.signal, (message) => report("skills-failed", message));
+            // 表情包列表只给 Profile 设置页（stickers.md 输出 19）：没装 `nbook.stickers` 时取不到，那一节不画。
+            const stickerPacks = createStickerPacksClient(context.remote.use(stickersCatalogContract), context.signal, (message) => report("sticker-packs-failed", message));
+            /** 一个 Profile 的 Skill 白名单（skills.md 的“输入与前置条件”），与服务端认标签用的同一个换算。 */
+            const allowedSkills = (profile: string): readonly string[] => profileAllowlist(
+                profiles.value.find((entry) => entry.key === profile)?.skills,
+                settings.get(agentSettings.settings.profileSettings)[profile]?.skills,
+                (skills.entries.value ?? []).map((entry) => entry.id),
+            );
+            /** 对话位置的确认框（输出 27）：每个位置一份，右栏与编辑区页面同时开着时只在选了 Skill 的那个位置弹出。 */
+            const inits = new Map<string, SkillInit>();
+            const initAt = (position: string): SkillInit => {
+                let init = inits.get(position);
+                if (init === undefined) {
+                    init = createSkillInit(remote, (message) => report("skill-init-failed", message));
+                    inits.set(position, init);
+                }
+                return init;
+            };
             const loadProfiles = async (): Promise<void> => {
                 const result = await remote.profiles({});
                 if (result.ok) profiles.value = result.value;
@@ -224,6 +285,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const ensureStarted = (): void => {
                 if (!started) void loadProfiles();
                 started = true;
+                skills.ensure();
                 ensureModels();
             };
 
@@ -237,6 +299,12 @@ export const agentBrowserPlugin: PluginDefinition = {
                     if (!opened.ok) report("open-address-failed", `opening ${address} failed: ${opened.code}`);
                 });
             };
+            /**
+             * 子代理管理（conversation.md 输出 43）：出错看过没有、收口结果的缓存，右栏与编辑区页面两个对话位置共用。激活之前收口的出错算看过；
+             * 切到哪个会话，它此前的出错就算看过（不论从卡片、停靠区还是浮层切过去）。
+             */
+            const seenErrors = createSeenErrors(clock.now());
+            const runResults = createRunResults((message) => report("run-result-failed", message));
             const hosts = new Map<string, SessionHost>();
             /** 最近用过的位置：命令优先用它。 */
             let lastPosition = "view";
@@ -296,14 +364,33 @@ export const agentBrowserPlugin: PluginDefinition = {
                     rememberRules: (rules) => rulesWriter.append(rules),
                     models: () => models.value,
                     roles: () => roles.value,
+                    providers: () => modelsSnapshot.value?.providers.map((provider) => ({id: provider.id, name: provider.name})) ?? null,
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
-                    openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND),
+                    openSettings,
+                    openRequests: (target) => void commands.execute(OPEN_REQUESTS_COMMAND, target),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
+                    skills: {
+                        selected: (id, profile) => {
+                            if (id === OPEN_PROFILE_SETTINGS_ITEM) {
+                                void commands.execute(OPEN_SETTINGS_COMMAND, {section: PROFILES_SECTION});
+                                return;
+                            }
+                            skills.touch(id);
+                            // 选了未初始化的照常插入了标签，再问要不要初始化（输出 27）；白名单之外的菜单里不会有。
+                            const entry = skills.entries.value?.find((candidate) => candidate.id === id);
+                            if (entry?.status === "needs-init" && allowedSkills(profile).includes(id)) void initAt(position).ask(entry);
+                        },
+                        address: (name, profile) => skillAddress(name, skills.entries.value ?? [], allowedSkills(profile)),
+                    },
                     report,
                 });
                 hosts.set(position, host);
+                const stopSeen = watch(host.sessionId, (id) => {
+                    if (id !== null) seenErrors.markSession(id, clock.now());
+                }, {immediate: true});
+                context.signal.addEventListener("abort", stopSeen, {once: true});
                 return host;
             };
             context.signal.addEventListener("abort", () => {
@@ -318,6 +405,23 @@ export const agentBrowserPlugin: PluginDefinition = {
                 failed: (code) => text.t(agentText("conversation.listFailed", {code})),
                 now: () => clock.now(),
             });
+
+            /** 第一屏的最近对话（conversation.md 输出 41）：两个对话位置共用一份，与会话面板那份分开。 */
+            const recentSessions = createRecentSessions({remote, project});
+            /** 第一屏只显示 3 张卡片；最近对话里不列当前会话。 */
+            const WELCOME_RECENT = 3;
+            /** 第一屏的数据：指令取这个位置当前会话的 Profile，没选会话时取新会话会用的那个（`profileKey()` 已按此交回）。 */
+            const welcomeOf = (host: SessionHost): AgentWelcomeView => {
+                const current = host.sessionId.value;
+                const others = recentSessions.sessions.value.filter((session) => session.id !== current);
+                const profile = profiles.value.find((entry) => entry.key === host.profileKey());
+                return {title: text.t(agentText("conversation.welcomeTitle")), recent: others.slice(0, WELCOME_RECENT), total: others.length, starters: profile?.starters ?? []};
+            };
+            /** 没选会话时头上的图标：新会话会用的 Profile。 */
+            const draftProfileOf = (host: SessionHost): {name: string; icon: string} | null => {
+                const profile = profiles.value.find((entry) => entry.key === host.profileKey());
+                return profile === undefined ? null : {name: profile.name, icon: profile.icon ?? "i-lucide-bot"};
+            };
 
             /** 新建时选 Profile：目录里不隐藏、可用的多于一个才问；交回 null 是取消，undefined 是用缺省。 */
             const pickProfile = async (): Promise<string | null | undefined> => {
@@ -362,7 +466,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution} = await vueOnce();
                 const markdown = await context.services.resolve(markdownKey);
                 const components = markdown.status === "resolved" ? markdown.instance.components : null;
-                const registry = createAgentViewRegistry([...builtinContributions, subagentContribution({card: SubagentCard})]);
+                const baseContributions = [...builtinContributions, subagentContribution({card: SubagentCard}), requestEntriesContribution];
                 const renderers = {
                     form: markRaw(AgentFormRenderer),
                     backgroundCommand: markRaw(BackgroundCommandCard),
@@ -380,27 +484,147 @@ export const agentBrowserPlugin: PluginDefinition = {
                         noProject: text.t(agentText("conversation.mentions.noProject")),
                         failed: text.t(agentText("conversation.mentions.failed")),
                     }),
-                    onChange: () => {
-                        services.value = {resolveAttachmentUrl: attachmentUrl, resolveTriggerMenu: (context) => mentions.resolve(context)};
-                    },
+                    onChange: () => refreshServices(),
                 });
-                services.value = {resolveAttachmentUrl: attachmentUrl, resolveTriggerMenu: (context) => mentions.resolve(context)};
+                const skillTexts = () => ({
+                    title: text.t(agentText("skills.menu.title")),
+                    recentGroup: text.t(agentText("skills.menu.recent")),
+                    allGroup: text.t(agentText("skills.menu.all")),
+                    noMatch: text.t(agentText("skills.menu.noMatch")),
+                    openSettings: text.t(agentText("skills.menu.openSettings")),
+                    noSkills: text.t(agentText("skills.menu.noSkills")),
+                    needsInit: text.t(agentText("skills.menu.needsInit")),
+                    initializing: text.t(agentText("skills.menu.initializing")),
+                });
+                /** `$` 菜单按这个位置当前会话的 Profile 取白名单（skills.md 输出 26）。 */
+                const refreshServices = (): void => {
+                    services.value = {
+                        resolveAttachmentUrl: attachmentUrl,
+                        resolveTriggerMenu: (context) => (context.trigger === "$"
+                            ? skillMenu(context.query, {entries: skills.entries.value, allowed: allowedSkills(hostAt(position).profileKey()), recent: skills.recent.value, texts: skillTexts()})
+                            : mentions.resolve(context)),
+                    };
+                };
+                refreshServices();
+                // 目录、最近用过的或 Profile（白名单由它求出，启动时可能比目录晚到）变了：换一个新函数，开着的菜单按当前查询重取。
+                const stopWatching = watch([skills.entries, skills.recent, profiles], refreshServices);
+                context.signal.addEventListener("abort", stopWatching, {once: true});
                 return defineComponent({
                     name: "AgentConversationPosition",
                     inheritAttrs: false,
-                    setup() {
+                    // 右栏的视图拿到工作台给的上下文，经它取标题区（views.md 输出 19）；编辑区页面没有，头照旧画在内容里。
+                    props: {context: {type: Object, default: null}},
+                    setup(props) {
+                        const head = position === "view" && props.context !== null ? viewHeadOf(props.context) : null;
+                        // 状态栏里插件加的项随贡献的发布与撤回变：登记项变了重建注册表（注册表是只读的合并结果）。
+                        const registry = computed(() => createAgentViewRegistry([...baseContributions, {source: "agent.statusItems", statusItems: statusItems.entries.value}]));
                         lastPosition = position;
                         // 页面标签关了或切走了：命令回到右栏，不再把它开回来。
                         onBeforeUnmount(() => {
                             if (lastPosition === position) lastPosition = "view";
                         });
-                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: services.value, pickProfile, labels});
+                        return () => {
+                            const host = hostAt(position);
+                            return h(ConversationHost, {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry: registry.value, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, head, statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})}});
+                        };
                     },
                 });
             };
 
-            const view: ViewImplementation = {load: () => conversationComponent("view")};
+            /** 对话视图接管面板头的标题区：头写会话，按标题开会话列表（conversation.md 输出 44）。 */
+            const view: ViewImplementation & ViewHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true};
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
+
+            // “模型请求”页：状态在插件作用域里一份（命令先写它、再打开页面），页面挂载时借用。
+            let requestsStore: RequestsPage | null = null;
+            const requestsOf = (): RequestsPage => (requestsStore ??= new RequestsPage(useRequests(context), report));
+            const copy = (text: string): void => {
+                void browser.navigator?.clipboard?.writeText(text).catch((error: unknown) => report("copy-failed", `could not copy to the clipboard: ${error instanceof Error ? error.message : String(error)}`));
+            };
+            const requestsPage: EditorPageImplementation = {
+                load: async () => {
+                    const {AgentRequestTrace} = await import("@notnotype/nb-agent-ui/vue");
+                    const store = requestsOf();
+                    const onAction = (action: RequestTraceAction): void => {
+                        switch (action.type) {
+                            case "request.select": store.select(action.id); return;
+                            case "request.more": void store.more(); return;
+                            case "request.refresh": void store.refresh(); return;
+                            case "request.retry-detail": store.reload(); return;
+                            case "request.load-content": void store.loadContent(action.hash); return;
+                            case "request.load-payload": void store.loadPayload(action.id); return;
+                            case "request.compare-base": void store.compareWith(action.id); return;
+                            case "request.search-more": void store.searchMore(); return;
+                            case "request.clear": void store.clear(action.scope); return;
+                            case "request.list-at-top": store.setAtTop(action.atTop); return;
+                            case "request.open-session": void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: action.session}); return;
+                            case "request.open-settings": void commands.execute(OPEN_SETTINGS_COMMAND, {section: REQUESTS_SECTION}); return;
+                            case "request.copy": {
+                                const detail = store.detail.value;
+                                const payload = store.payload.value;
+                                if (action.what === "payload" && payload.state === "ready") copy(payload.text);
+                                else if (action.what === "request" && detail.state === "ready" && detail.value.id === action.id) copy(JSON.stringify(detail.value, null, 2));
+                                return;
+                            }
+                        }
+                    };
+                    return defineComponent({
+                        name: "AgentRequestsPage",
+                        inheritAttrs: false,
+                        setup() {
+                            const now = shallowRef(clock.now());
+                            const enabled = shallowRef(settings.get(agentSettings.settings.requestTrace));
+                            let cancelTick = (): void => undefined;
+                            let stopSettings = (): void => undefined;
+                            let giveBack = (): void => undefined;
+                            // 进行中的请求写已经等了多久：有进行中的（列表里的或选中的详情）才每秒重画一次。没有时也每 30 秒走一次，
+                            // 时间筛选（最近一小时、今天）按它算起点，页面开着很久之后选也不会差太多。
+                            const tick = (): void => {
+                                const detail = store.detail.value;
+                                const running = store.rows.value.some((row) => row.status === "running") || (detail.state === "ready" && detail.value.status === "running");
+                                const time = clock.now();
+                                if (running || time - now.value >= 30_000) now.value = time;
+                                cancelTick = clock.schedule(tick, 1000);
+                            };
+                            onMounted(() => {
+                                giveBack = store.borrow();
+                                tick();
+                                stopSettings = settings.onDidChange(() => {
+                                    enabled.value = settings.get(agentSettings.settings.requestTrace);
+                                });
+                            });
+                            onBeforeUnmount(() => {
+                                giveBack();
+                                cancelTick();
+                                stopSettings();
+                            });
+                            return () => h(AgentRequestTrace, {
+                                rows: store.rows.value,
+                                list: store.list.value,
+                                totals: store.totals.value,
+                                facets: store.facets.value,
+                                query: store.query.value,
+                                pending: store.pending.value,
+                                selected: store.selected.value,
+                                detail: store.detail.value,
+                                contents: store.contents.value,
+                                payload: store.payload.value,
+                                compare: store.compare.value,
+                                search: store.search.value,
+                                searchState: store.searchState.value,
+                                hits: store.hits.value,
+                                usage: store.usage.value,
+                                "onUpdate:search": (text: string) => store.setSearch(text),
+                                enabled: enabled.value,
+                                now: now.value,
+                                locale: displayLocale(settings) === "en-US" ? "en-US" : "zh-CN",
+                                "onUpdate:query": (query: RequestTraceQuery) => store.setQuery(query),
+                                onAction,
+                            });
+                        },
+                    });
+                },
+            };
             const sessionsView: ViewImplementation = {
                 load: async () => {
                     ensureStarted();
@@ -442,6 +666,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                     if (profile !== null) await host.create(profile ?? MAIN_PROFILE);
                     return done;
                 }},
+                [OPEN_REQUESTS_COMMAND]: {run: async (args) => {
+                    await requestsOf().open((args as {sessionId?: string; request?: number} | undefined) ?? {});
+                    await commands.execute(OPEN_PAGE_COMMAND, {id: REQUESTS_PAGE});
+                    return done;
+                }},
                 [FOCUS_SESSION_COMMAND]: {run: async (args) => {
                     const sessionId = (args as {sessionId?: string} | undefined)?.sessionId ?? activity.target.value;
                     const host = await reveal();
@@ -461,9 +690,10 @@ export const agentBrowserPlugin: PluginDefinition = {
             };
             const published = bindingsOf(agentState, {active: activity.active});
             return {
+                receivers: {[STATUS_ITEMS_POINT]: statusItems.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[CONVERSATION_VIEW]: view, [SESSIONS_VIEW]: sessionsView},
-                    [EDITOR_PAGES_POINT]: {[CONVERSATION_PAGE]: page},
+                    [EDITOR_PAGES_POINT]: {[CONVERSATION_PAGE]: page, [REQUESTS_PAGE]: requestsPage},
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[ACTIVITY_ITEM]: item},
                     [COMMANDS_POINT]: commandImplementations,
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
@@ -483,7 +713,12 @@ export const agentBrowserPlugin: PluginDefinition = {
                         text,
                         openAddress,
                         report,
-                    })), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report}))},
+                        skills,
+                        stickerPacks,
+                    })), [STATUS_LINE_SECTION]: settingsPage(async () => statusLinePage((await import("./components/StatusLinePage.vue")).default, {settings, items: statusItems, writer: statusLineWriter, text})), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report})), [SKILLS_SECTION]: settingsPage(async () => {
+                        const [{skillsPage}, {default: page}] = await Promise.all([import("./skills-page"), import("./components/SkillsSettingsPage.vue")]);
+                        return skillsPage(page, {skills, remote, openAddress, notify: (input) => void notifications.notify(input), report});
+                    })},
                 },
             };
         },

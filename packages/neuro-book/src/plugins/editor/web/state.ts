@@ -59,6 +59,7 @@ export const editorState = definePublicState("nbook.editor", {
     formatQuote: {type: "boolean", unready: false},
     formatCallout: {type: "boolean", unready: false},
     formatCodeBlock: {type: "boolean", unready: false},
+    formatLink: {type: "boolean", unready: false},
 });
 
 /** 文档需要保存：dirty、有未裁决输入或有视图写不出（与关闭时询问的判据相同，输出 4、26、61）。 */
@@ -114,5 +115,6 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>,
         formatQuote: active("quote"),
         formatCallout: active("callout"),
         formatCodeBlock: active("code-block"),
+        formatLink: active("link"),
     };
 }

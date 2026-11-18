@@ -89,10 +89,12 @@ const tip = computed(() => props.title ?? (props.alt === "" ? undefined : props.
     vertical-align: bottom;
 }
 
+/* 与提示块、HTML 卡片同一档圆角（6px）。 */
 .nb-markdown-image__img {
     display: block;
     max-width: 100%;
     height: auto;
+    border-radius: 6px;
     cursor: pointer;
 }
 
@@ -100,7 +102,7 @@ const tip = computed(() => props.title ?? (props.alt === "" ? undefined : props.
     display: inline-block;
     min-width: 6em;
     padding: 0 0.5em;
-    border-radius: 0.3rem;
+    border-radius: 4px;
     background: var(--bg-subtle);
     color: var(--text-muted);
 }

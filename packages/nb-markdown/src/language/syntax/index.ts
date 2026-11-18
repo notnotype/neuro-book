@@ -1,5 +1,5 @@
 /**
- * 内置的语法模块：核心语法与七种内置方言（docs/specs/workspace/markdown-syntaxes.md 输出 1）。宿主可以只用它们
+ * 内置的语法模块：核心语法与八种内置方言（docs/specs/workspace/markdown-syntaxes.md 输出 1）。宿主可以只用它们
  * （`defaultMarkdownLanguage()`），也可以把自己的方言按 `order` 插在它们之间组成语言（neuro-book 的 `language-registry.ts`）。
  *
  * `order` 是同一种词法单元有几种方言认领时的先后，小的先试；neuro-book 的方言声明（`shared/dialects.ts`）写着同样的数字，
@@ -19,6 +19,7 @@ import {coreSyntax} from "./core";
 import {htmlEmbedSyntax} from "./html-embed";
 import {createRawSyntax} from "./raw";
 import {rubySyntax} from "./ruby";
+import {stickerSyntax} from "./sticker";
 import {textMarksSyntax} from "./text-marks";
 import type {MarkdownSyntax} from "./types";
 
@@ -37,6 +38,7 @@ const BUILTIN: ReadonlyArray<BuiltinSyntax> = [
     {name: "html-embed", order: 50, syntax: htmlEmbedSyntax},
     {name: "ruby", order: 60, syntax: rubySyntax},
     {name: "text-marks", order: 70, syntax: textMarksSyntax},
+    {name: "sticker", order: 80, syntax: stickerSyntax},
 ];
 
 export {coreSyntax};

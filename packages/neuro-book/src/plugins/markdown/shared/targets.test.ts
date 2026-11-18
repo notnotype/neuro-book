@@ -4,7 +4,11 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {classifyTarget} from "./targets";
+import {relativeTarget} from "@notnotype/nb-markdown";
+
+import {parseResource} from "nbook/plugins/files/shared/contracts";
+
+import {classifyTarget, encodeFileTarget} from "./targets";
 
 const BASE = "project://正文/第一卷/第一章.md";
 
@@ -36,5 +40,43 @@ describe("Spec workspace.markdown-dialect 输出 18、27：引用的目标", () 
         // 会话工作区里别的文件不是附件。
         expect(classifyTarget("session://plan.md", null)).toEqual({kind: "other", address: null, name: ""});
         expect(classifyTarget("chapter://c1", null)).toEqual({kind: "other", address: null, name: ""});
+    });
+});
+
+describe("Spec workbench.markdown-editing 输出 57：新建链接与图片的相对地址", () => {
+    /** 固定种子的伪随机数：不依赖第三方库，每次跑到同样的组合。 */
+    function random(seed: number): () => number {
+        let state = seed;
+        return () => {
+            state = (state + 0x6d2b79f5) | 0;
+            let t = Math.imul(state ^ (state >>> 15), 1 | state);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+    // 名字里的 `%`、`#`、`?`、`:`、空格、括号、已经是编码样子的 `%20`、`%2F` 都要读回同一个文件。
+    const NAMES = ["a", "甲", "a b", "图#1", "100%", "a?b", "a:b", "(x)", "a%20b", "%2F", "x.png", "林雪的设定.md", "a#b?c%d:e"];
+
+    it("任意两个作品地址：写出的相对地址经真实的解析读回原来的目标", () => {
+        const next = random(20261117);
+        const pick = (): string => NAMES[Math.floor(next() * NAMES.length)] as string;
+        const path = (): string => Array.from({length: 1 + Math.floor(next() * 4)}, pick).join("/");
+        let checked = 0;
+        for (let round = 0; round < 4000; round += 1) {
+            const from = `project://${path()}`;
+            const to = `project://${path()}`;
+            if (!parseResource(from).ok || !parseResource(to).ok) continue;
+            const written = relativeTarget(from, to, {classify: () => ({kind: "other", name: ""}), encodeFile: encodeFileTarget});
+            expect(written).not.toBeNull();
+            // 读回：第一段不能被当成方案。
+            expect(classifyTarget(written as string, from)).toMatchObject({kind: "work", address: to});
+            checked += 1;
+        }
+        expect(checked).toBeGreaterThan(2000);
+    });
+
+    it("读不回的写法被拦下：不带 ./ 的 a:b.md 会被当成方案", () => {
+        expect(classifyTarget("a:b.md", "project://x.md").kind).toBe("other");
+        expect(relativeTarget("project://x.md", "project://a:b.md", {classify: () => ({kind: "other", name: ""}), encodeFile: encodeFileTarget})).toBe("./a:b.md");
     });
 });

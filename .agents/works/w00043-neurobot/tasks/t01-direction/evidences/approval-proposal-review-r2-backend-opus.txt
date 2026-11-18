@@ -1,0 +1,131 @@
+# 《Agent 审批》第二稿审查（Claude Opus，第二轮）
+
+### 1. `cd` 之后的相对重定向被算成“只写自有目录”，第 5 步推广到普通模式后，逐个确认下 `cd 任意目录 && echo x > f` 不问就写到会话目录之外
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第四节第 2 小节“只写自有目录的判断同现在的闸门”、第五节“安全”（“放宽只在会话自己的目录”）；`packages/nb-harness/src/kit/approval/hook.ts:135-138`（`redirectTarget` 相对路径一律从 `layout.working` 算）、`hook.ts:243`（只读判断去掉重定向）；`packages/nb-harness/src/kit/commands/bash-dialect.ts:303`（`cd: anyArgs` 算只读）；`packages/neuro-book/src/plugins/agent/backend/resources.ts:165`（没有主项目时 `working` 是 `session://`）。
+- **现象**：没有主项目的会话里，`cd /tmp/review-approval-r2/outside && echo pwned > x.txt` 被拆成 `cd`（只读）与 `echo`（只读、带重定向）；重定向目标 `x.txt` 按 `session://x.txt` 算，落在草稿里，整次调用判为 `scratch`。真实钩子与文件服务下，计划模式加逐个确认：工具照常执行，`toolStarted.approval.by = "mode:scratch"`，文件实际写在 `/tmp/review-approval-r2/outside/x.txt`。现在这个格子只在讨论、计划模式下有；第二稿把第 5 步改成任何模式下都算，普通模式加逐个确认（用户能选的最严档）也会不问就放行。
+- **为什么是问题**：开发者接受的是“模型想绕总能绕”，这里不是绕：`cd 某处 && 命令 > 输出` 是模型最常写的形状之一，不需要任何对抗意图就会写到项目或家目录里。提案第五节写“放宽只在会话自己的目录”，这一格与之相反；行为变化 1 只列了 `echo x > tmp://a` 这类直接写自有目录的例子。
+- **如何核实**：`cd packages/neuro-book && bun test /tmp/review-approval-r2/repro-r2.test.ts`，看用例 A 的输出 `A -> {"result":{"status":"ok"...},"started":{"by":"mode:scratch"}}` 与 `A file: pwned`。
+- **建议改法**：算“只写自有目录”时，命令里出现会改工作目录的命令（`cd`、`pushd`、`popd`，含子 shell 里的）就把其后的相对重定向目标当作算不出（`unresolvedPaths`），或者干脆只认带方案的或绝对的重定向目标。改动在 `buildViews` 一处，现在的闸门同时受益；写进第四节第 2 小节与对应验收。
+
+### 2. “假按钮”不止两种来源：作品规则文件读不了时两个按钮都无效，规则询问（你的、作品的）下“以后都允许”也无效
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第四节第 3 小节“记住类按钮随来源显示”、第五节行为变化 3；`packages/nb-harness/src/kit/approval/hook.ts:85-97`（先合并三层，再把结果强制改成 ask）；`kit/approval/rules.ts:184-194`（`mergeLayers`：会话层放行高于询问，用户层放行排在一切询问之后）、`rules.ts:163-173`（层内第一条命中）；`packages/neuro-book/src/plugins/agent/web/permission-rules.ts:108-111` 与 `web/session-host.ts:160`（“以后都允许”加在用户规则末尾）。
+- **现象**：按现有代码逐个来源推一遍，按钮能不能让下一次同样的调用不再问：
+  - 规则询问（用户层）：“本会话都批准”有效（会话层放行先于用户层询问）；“以后都允许”无效：新规则加在末尾，层内第一条命中仍是原来那条询问。
+  - 规则询问（作品层）：“本会话都批准”有效；“以后都允许”无效：作品层询问排在用户层放行之前。
+  - 作品规则文件读不了（`rules-invalid`）：两个都无效，`rules` 在合并之后被整个改成 ask。
+  - 写用户设置（`address`）、Agent 模式（`gate`）：两个都无效（提案已列）。
+  - 审批模式（`mode`）、审批模型转问（`reviewer`）：两个都有效。
+  真实钩子复现：用户规则 `[{tool:"write",action:"ask"},{tool:"write",action:"allow"}]`（第二条就是“以后都允许”会追加的那条），普通模式加逐个确认下写 `session://a.md` 仍然 `interactionRequested`，`reason` 是第一条的。
+- **为什么是问题**：第二稿只给两种来源藏按钮，照字面实现后，另外三种情形的用户点了“以后都允许”（或在规则文件坏了时点“本会话都批准”），规则被写进设置，下一次照样问，而且写进去的放行规则会在用户删掉那条询问规则时突然生效。提案说“按钮不起作用”是这两种来源独有的理由，不成立。
+- **如何核实**：`cd packages/neuro-book && bun test /tmp/review-approval-r2/repro-r2.test.ts`，看用例 C 的输出。
+- **建议改法**：按钮不按“来源名单”藏，按每个按钮各自的结果定：`本会话都批准` 只在 `rule`、`mode`、`reviewer` 下给；`以后都允许` 只在 `mode`、`reviewer` 下给。或者改上游：规则询问下“以后都允许”改成提示“去设置里改那条规则”（附规则位置），不写进一条永远不命中的放行。表格写进 `permissions.md` 输出 23，验收逐格列。
+
+### 3. “钩子现在就分得出六种来源、只在待审批数据上加一个字段”不成立：来源过不了内核，规则的层也分不出来，还漏了审批模型转问
+- **严重程度**：重要；**类别**：正确性（接口与合同）
+- **位置**：提案第四节第 3 小节第一条、第五节“接口”、第六节；`packages/nb-harness/src/kernel/api/tool.ts:109-116`（`ApprovalVerdict` 的 ask 只有 `reason`、`remember`）；`docs/specs/harness/runtime.md` 输出 39（`interactionRequested.request` 固定为 `{tool, args, effect, reason?, remember?}`）；`kit/approval/hook.ts:47`（缺省转问 `askUser` 只交回 `reason`，丢掉 `source`）；`neuro-book/src/plugins/agent/backend/permissions/index.ts:4`（NeuroBook 不传 `escalate`）；`kit/approval/rules.ts:149-152`（`RuleHit` 不带层）；`nb-agent-ui/src/types.ts:275-292`。
+- **现象**：
+  1. 转问来源（`EscalationSource`）只在钩子到 `escalate` 这一段存在；NeuroBook 用缺省转问，交给内核的 ask 结论里没有来源，内核写进日志的审批请求也没有这个字段。界面现在靠 `reason` 里的哨兵串（`nbook.agent/mode-gate`、`nbook.agent/auto-failed`、`nbook.agent/auto-escalated:` 前缀）认出闸门与审批模型；写用户设置、规则文件读不了、审批模式这三种询问都没有 `reason`，界面分不开。
+  2. `source: "rule"` 不分用户层与作品层：`mergeLayers` 交回的 `RuleHit` 只有 `action`、`reason`。提案列的“你的规则”“作品的规则”是两种，钩子现在分不出。
+  3. 提案的六种里没有“审批模型转问”（自动模式下审批模型要人工、或审批模型调用失败），这是 `reviewer` 来源，自动模式下最常见的询问。
+  4. 待审批视图已经有一个 `source` 字段（`PendingInputCommon.source`，指子会话的来源），新字段照字面叫“来源”会撞名。
+- **为什么是问题**：要让来源到界面，至少要改内核的 `ApprovalVerdict`、`interactionRequested` 的请求形状（会话日志格式，旧日志没有这个字段要有缺省读法）、远程合同与视图投影，`RuleHit` 要带层；这些都不在第五节“接口”和第六节的清单里（第六节没列 `harness/runtime.md`）。后续切片照第二稿实现，会在第一步就发现字段送不到。
+- **如何核实**：`grep -n '"ask"; readonly reason' packages/nb-harness/src/kernel/api/tool.ts`；`grep -n 'askUser' packages/nb-harness/src/kit/approval/hook.ts`；`grep -n 'escalate' packages/neuro-book/src/plugins/agent/backend/permissions/index.ts`（只有注释）。
+- **建议改法**：第四节第 3 小节写明来源的通道：`ApprovalVerdict` 的 ask 加一个宿主定义的开放字段（例如 `cause: {kind, layer?, rule?}`，内核不解释、原样进请求，同 `remember`），`EscalationSource` 的 `rule` 拆成带层，六种来源补上 `reviewer`（及其失败），字段名避开 `source`；第六节补 `harness/runtime.md` 输出 39 与会话日志的兼容读法。界面不再靠 `reason` 哨兵认来源，顺带去掉用户规则 `reason` 写成哨兵串就能冒充闸门的问题。
+
+### 4. “文件工具写不了的地方直接失败、不弹审批”与判定顺序矛盾：逐个确认下写宿主目录或别的会话照样先问用户，批准后才失败
+- **严重程度**：建议；**类别**：文档（合同自洽）
+- **位置**：提案第四节第 1 小节第一段（“Agent 的文件工具写不了的地方直接失败（`permission-denied`），和‘文件不存在’同类，不弹审批”）、第五节行为变化 2；`kit/approval/judge.ts:51-56`。
+- **现象**：钩子在执行之前判定，文件服务的授权在执行时才判。第二稿删掉地址表之后，审批里没有任何一步知道“写不了”。真实钩子下，普通模式加逐个确认，`write` 写 `session://attachments/a.txt` 得到 `interactionRequested`（复现用例 B1），用户批准后工具才得 `permission-denied`。自动模式下同一调用现在因 `localWrites` 含整个 `session://` 而免问、直接失败；第二稿下它不再算自有目录，要多一次审批模型调用才失败。
+- **为什么是问题**：照第一段的字面，后续切片会去找“不弹审批”的实现点，而第二稿已经否掉了试判授权（第四节第 5 小节第三条）。这句话和行为变化 2（“按审批模式处理”）也互相打架。
+- **如何核实**：`cd packages/neuro-book && bun test /tmp/review-approval-r2/repro-r2.test.ts`，看用例 B1。
+- **建议改法**：把第一段改成“执行时失败（`permission-denied`）；审批照审批模式问，批准后得到同样的失败”，并在行为变化里写明自动模式下写宿主目录多一次审批模型调用（或把宿主写的子目录在自动模式下直接判拒绝，代价是 `own` 之外布局要再给一份“会话写不了”的名单，不建议）。
+
+### 5. 布局换成 `own` 与 `confirmWrites` 之后，“不含宿主子目录”与“自动模式还免问作品”都没有字段可放
+- **严重程度**：重要；**类别**：正确性（接口与合同）
+- **位置**：提案第四节第 2 小节（“自有目录替换布局里的 `scratch` 与 `localWrites` 两份名单；自动模式免问的写是‘写入工具只写自有目录与作品’，同现在”）、第五节“接口”；`packages/nb-harness/src/kit/files/index.ts:69-81`（`SessionLayout`）；`kit/approval/hook.ts:44`（`inside` 只做前缀包含）；`neuro-book/src/plugins/agent/backend/resources.ts:165-167`。
+- **现象**：
+  1. 套件只认根的前缀（`inside(address, root)`），`own` 若照 `scratch` 的样子写成 `readonly string[]`，只能写 `["session://", "tmp://"]`，表达不了“`session://` 但不含 `attachments/`、`artifacts/`、`jobs/`”。要么形状变成“根加排除”，要么改成宿主给的谓词，第二稿没定。
+  2. 现在 `localWrites` 在有主项目时是 `["project://", "session://", "tmp://"]`。第二稿把它与 `scratch` 一起换成 `own`，又说自动模式免问“自有目录与作品”同现在：作品（`project://`）不在 `own` 里（否则计划模式下写正文也不拦了），`confirmWrites` 也不是它，布局里没有第三个字段。r1 处理表第 9 条写“自动模式的作品由宿主放进免问名单，同现在”，但第二稿正文删掉了这份名单。
+- **为什么是问题**：后续切片照第五节“接口”的字面只留 `own` 与 `confirmWrites`，自动模式下 `write project://正文.md` 会从“免问”变成“交审批模型”，是一处没列出的行为变化；或者实现者自己再加一个字段，Spec 与实现分叉。
+- **如何核实**：读 `resources.ts:162-175` 与 `hook.ts:229-234`；`auto-review.test.ts` 里“auto 下不问的写”含 `project://` 的用例（host-kit.md 第 157 行列出）会在照字面实现后失败。
+- **建议改法**：第五节“接口”写全布局形状，例如 `own: {roots: string[], except: string[]}`（或 `own(address): boolean`，由宿主用方案登记的同一份常量实现，套件只调用）、`autoWrites: string[]`（自有目录之外、自动模式下写入工具免问的根，NeuroBook 有主项目时为 `["project://"]`）、`confirmWrites: string[]`。并写明 `own` 是否也用于自动模式（第 5 步已经在任何模式下放行自有目录，`autoWrites` 只需列作品）。
+
+### 6. 宿主子目录的排除与方案授权都按区分大小写的词法前缀判，在 Windows、macOS 上 `session://Attachments/x` 两头都放过（现有缺口，第二稿照抄）
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：提案第四节第 2 小节（“宿主写的子目录名单与方案登记共用一份常量”）；`neuro-book/src/plugins/agent/backend/schemes.ts:26-27,189-197`（`HOST_WRITTEN` 与 `under` 区分大小写、只看词法路径）；对照 `plugins/files/backend/rooted.ts:76-79`（控制目录 `.nbook` 按不区分大小写判，并且词法与解析后的真实路径都查）。
+- **现象**：从代码推断，未在大小写不敏感的文件系统上验证。`sessionRule` 用 `path.startsWith("home/attachments/")` 判宿主目录；大小写不敏感的卷上 `write session://Attachments/a.txt` 不命中排除，授权放行，落在宿主的 `attachments/` 里。会话目录里指向 `attachments/` 的符号链接（`ln -s attachments a`，要先被批准一次）同样只按词法路径过授权，`rooted.ts` 只拦根外的链接。第二稿的“自有目录”照同一个名单按前缀排除，会把这两种写法都算成自有目录、任何模式下免问。
+- **为什么是问题**：第二稿给“排除宿主子目录”的理由是附件、全文、后台输出不该被会话伪造；文件服务对 `.nbook` 已经按大小写不敏感与真实路径两头查，宿主子目录却没有，同一个仓库里两种标准。开发者的机器上跑 Windows 桌面版（pc-notype），这不是纸面情形。
+- **如何核实**：读上面两处代码；在大小写不敏感的卷（macOS 默认 APFS 或 Windows）上用 `resources.test.ts` 的世界写 `session://Attachments/a.txt`，看是否 `ok`。
+- **建议改法**：共用常量时一并改判法：宿主子目录名按不区分大小写比较（与 `isControlName` 同法），授权在解析后的真实路径上再查一次（与控制目录同一处）；“自有目录”的排除复用同一个判断函数而不只是同一份名单。代价是 `schemes.ts` 的授权要拿到解析后的路径，若做不到，至少先做大小写这一半。
+
+### 7. “每次非读调用都取判定对象”改的是激活时机合同：激活提前到审批之前、全部放行下也激活，`contributions.md` 输出 5 与 `permissions.md` 输出 9 都不在改动清单里
+- **严重程度**：建议；**类别**：文档（合同）与安全与性能
+- **位置**：提案第五节“激活”、第六节；`kit/approval/hook.ts:80-81`（`needed` 现在是 `(gated || auto) && 非读 || 规则要判定对象`）；`neuro-book/src/plugins/agent/backend/tools.ts:116-125`（`activate` 为假且没发布时交回 `[]`，为真时走 `current(id)` 激活）；`docs/specs/agent/contributions.md` 输出 5（“会话第一次执行某个工具时触发 `onAgentTool:<id>`”）；`docs/specs/agent/permissions.md` 输出 9。
+- **现象**：
+  1. 现在普通模式下，没有要判定对象的规则时，第三方工具提供方在“执行”时才激活；用户在逐个确认下拒绝，提供方从不激活。第二稿下它在审批之前激活：插件代码先跑，再弹审批；激活慢（例如要起子进程的提供方）时审批框也跟着晚出，`subjectsOf` 不收 `ctx.signal`，这段等待中止不了。
+  2. 全部放行下，任何结论都不受“只写自有目录”影响（第 5 步与第 7 步都放行），放行写入下的写入工具也是；照第二稿“每次非读调用都取”仍然激活，白花一次。
+  3. 第一次调用时内核按声明的 `effect`（作者写最保守的，常是 `exec`）判，非命令的执行工具不算自有目录；激活后实现给出按参数的 `write`，同样的参数第二次就免问。同一调用第一次问、第二次不问，第二稿没写。
+  4. 改动清单只改 `permissions.md` 输出 1、7、19、22、23，没列输出 9（“只看工具名与 `arg` 的规则不触发激活”这条现在仍成立，但还要加“只写自有目录的判断会激活”），也没列 `contributions.md` 输出 5。
+- **为什么是问题**：第二稿说“影响的只是第三方工具首次调用”，没说影响是什么：激活时机由“执行时”变成“提出时”，是插件作者可见的合同。
+- **如何核实**：读上面两处代码；在 `builtin-tools.test.ts` 的世界里装一个声明 `onAgentTool:x` 的测试插件，逐个确认下拒绝它的第一次调用，现在提供方不激活，照第二稿实现后会激活。
+- **建议改法**：`needed` 只在结论可能因“只写自有目录”改变的格子里为真：非读，且审批模式不是 `yolo`，且不是“放行写入加 `effect: write`”。第六节补 `permissions.md` 输出 9 与 `contributions.md` 输出 5，写明提供方可能在审批时、执行之前激活，以及第一次按声明等级判的后果。
+
+### 8. 放行来源“由现有的 `by` 映射”做不出提案自己举的例子：`by: "rule"` 不带哪一条、哪一层，`mode:auto`、`mode:yolo` 各合了两种来源
+- **严重程度**：建议；**类别**：正确性（接口与合同）
+- **位置**：提案第四节第 3 小节第三条（例子“放行：我的规则 · `git diff *`”）、第五节“数据”（“日志里判定的 `by` 不变”）；`kit/approval/judge.ts:47-55`；`kit/approval/review.ts:151`；`docs/specs/harness/runtime.md` 输出 17（`toolStarted.approval` 只有 `{by}`）。
+- **现象**：
+  - `by: "rule"` 同时来自用户层与会话层（`mergeLayers` 里会话层放行排在用户层前面），钩子没有交出命中的规则。提案举的 `git diff *` 恰恰是“本会话都批准”记下的会话层规则，不是“我的规则”；照现有 `by` 只能写“放行：规则”。
+  - `mode:auto` 既是“自动模式下写入工具只写作品与自有目录、免问”，也是“审批模型答放行”（`review.ts:151`）；前者没问过模型，后者问过，用户最想分清的正是这两种。
+  - `mode:yolo` 既是“全部放行下没有结论”，也是“全部放行把一条询问规则放过了”（`judge.ts:49`）。
+  - `mode:scratch` 在第二稿下映射成“自有目录”可以；但“日志里 `by` 不变”同时意味着普通模式下大量放行的 `by` 从 `mode:allow-writes`、`mode:yolo`、`mode:auto` 变成 `mode:scratch`，按 `by` 统计或断言的测试与日志读者会看到分布变化，第二稿没写。
+- **为什么是问题**：要做到例子里的文案，`toolStarted.approval` 要多带字段（命中的层与规则、审批模型是否参与），这是内核日志合同（`runtime.md` 输出 17），第六节没列；不加字段就只能出“放行：规则”“放行：自动模式”，与第四节的目标“放行的来源看得到”只做到一半。
+- **如何核实**：`grep -n 'by: "mode:auto"' packages/nb-harness/src/kit/approval/*.ts` 得到两处；`grep -n 'session?.action === "allow"' packages/nb-harness/src/kit/approval/rules.ts`。
+- **建议改法**：与第 3 条一起定一个宿主定义、内核原样记下的放行细节字段（例如 `approval: {by, detail?: {layer, rule?}}`，`by` 保持旧值以兼容旧日志），`mode:auto` 拆成免问与模型放行两种细节；第六节补 `runtime.md` 输出 17。若不想动内核合同，就把例子改成只到来源一级（“规则”“本会话批准过”分不开也写明），并删掉“是哪一条”的承诺。
+
+### 9. 第六节的 Spec 与测试清单漏项：内核两条日志合同、`contributions.md`、`builtin-tools.md` 的审批预览验收，以及一批会挂住或要改的测试
+- **严重程度**：重要；**类别**：文档与测试
+- **位置**：提案第六节；下列各处。
+- **现象**（按“第二稿照字面实现后，哪些条目或测试会错”逐条核过）：
+  - `harness/runtime.md` 输出 39（审批请求的字段，见第 3 条）、输出 17（`toolStarted.approval` 只有 `by`，见第 8 条）：不改送不出来源。
+  - `ui/agent-conversation-view.md` 第 116 行与公共字段（第 158 行起）：待处理事项的 `source` 是“来自后代会话”的路由字段，带 `source` 的进停靠区。新加的“询问来源”若照第四节第 3 小节叫来源、放进同一个对象，本会话的审批会被送进停靠区。清单只写了“向导的来源一行”。
+  - `agent/permissions.md`：输出 6（作品规则文件读不了的询问要带来源、按钮见第 2 条）、输出 8（相对重定向从工作目录算，见第 1 条）、输出 9（见第 7 条）、输出 18（`remember` 随来源）、输出 21（审批模型转问的来源与文案）、“关键不变量”第一条（“只写草稿”）；第二稿说“验收的结果表按新的第 5 步改格”，`permissions.md` 里没有结果表，验收是一份编号列表，三条行为变化各要新增验收项。
+  - `agent/modes.md`：输出 1 之外还有“实现合同”第 109 行（`layout.scratch`）与验收 1（“`plan` 加 `allow-writes`：写 `plan.md` 放行”，要补“写 `session://attachments/` 拒绝”）。
+  - `agent/resources.md`：除输出 2 外，“公开入口”第 126 行列着 `ResourceClass`。
+  - `harness/host-kit.md`：除输出 3、10 外，输出 2（`classify` 在“先改写”的方法名单里）、第 67 行（“NeuroBook 的分类多交回内容的分类”）、第 150 行的已知限制（两处各列一份）、第 157 行的测试清单；合同测试 `kit/testing/files-contract.ts` 有三个用例断言 `classify`（输出 2、输出 3 与 6、输出 11），不只输出 3。
+  - `agent/contributions.md` 输出 5（激活时机，见第 7 条）。
+  - `agent/builtin-tools.md` 的审批预览：`builtin-tools.test.ts:562-660` 的五个预览用例都靠“普通模式加逐个确认下写 `session://` 会停下来等批准”（`waitingApproval` 等 `waiting` 状态）。第二稿下这些写直接放行，用例会一直等到超时，要改成写 `project://`（换成有主项目的世界）。
+  - 套件里构造 `SessionFiles` 的测试：`hook.test.ts`（含用 `classify: "ask"` 模拟用户设置、第 145 行 `localWrites` 用例）、`restore.test.ts`、`kernel-resources.test.ts`、`local.test.ts`、`tools/edit|preview|read|search|shell.test.ts` 共 9 个文件要换布局形状；`kit/files/local.ts` 的 `classify` 选项是本机参考实现的写授权（第 176 行），去掉接口上的 `classify` 时它要留成构造选项并去掉 `"ask"` 一值。
+- **为什么是问题**：清单是后续切片的范围依据；漏掉内核两条合同与预览用例，实现到一半才会发现范围多出一个包（nb-harness 内核）和一组挂住的测试。
+- **如何核实**：`git grep -n "scratch:\|localWrites\|classify:" -- packages/nb-harness/src`；`grep -n "waitingApproval" packages/neuro-book/src/plugins/agent/builtin-tools.test.ts`；`grep -n "结果表" docs/specs/agent/permissions.md`（无输出）。
+- **建议改法**：第六节按上面补齐，并把第五节“接口”里“现在只有 NeuroBook 一个宿主，同一次改完”扩成写明 nb-harness 内核也要改（若采纳第 3、8 条）。
+
+### 10. 给用户的两句固定说法与实际判定不符：“会话自己的目录随便写”“逐个确认：除读取与写会话自己的目录外，每次调用都要批准”
+- **严重程度**：建议；**类别**：文档（界面文案）
+- **位置**：提案第四节第 2 小节末段（“会话自己的目录随便写，改用户设置总要问”）、第四节第 3 小节“文案”。
+- **现象**：
+  - 第 5 步排在规则询问与“作品规则文件读不了”之后：用户自己写了 `write` 询问规则、或作品的 `.nbook/permissions.json` 坏了时，写会话目录照样问。设置页的固定说明若写“随便写”，用户看到询问会以为出错。
+  - “逐个确认”的新说明漏了两类不问的：用户层与本会话记下的放行规则放过的调用（第 3 步），以及 `tmp://`（用户未必把它当成“会话自己的目录”）；“写”也没说清含 `shell` 的写重定向（`ls > session://a` 不问）。
+- **为什么是问题**：第二稿的目标之一是“说得清为什么问我、为什么没问我”，这两句是设置页与审批模式菜单上唯一的固定说明，说错了就与向导里的来源一行互相矛盾。
+- **如何核实**：对照第四节第 2 小节的七步顺序逐条读两句话。
+- **建议改法**：设置页写“没有你的规则拦着时，会话自己的目录（含临时目录）写了不问”；逐个确认写“除读取、你的规则放行的、只写会话自己目录（含临时目录与命令的输出重定向）的调用外，每次都要批准”，或把细节放悬停说明。
+
+## 未发现问题的方面
+
+- 判定顺序的格子（重点 1）：三种 Agent 模式 × 四种审批模式 × 规则（拒绝、放行、询问、算不出）× 写入工具、命令、没交出路径的工具、读，逐格对照 `decide` 与 `hook.ts` 推过。除第 1 条（`cd` 后的相对重定向）与第 4 条（自动模式下写入工具写宿主目录从免问变成交审批模型）外，结论变化与行为变化 1、2 一致；第 5 步排在规则询问、`user://` 强制询问、作品规则文件读不了之后，这三种在普通模式下仍然问；讨论、计划模式下的结论不变（宿主子目录除外，已列）；全部放行、放行写入下写入工具的结论不变，只是 `by` 变了（第 8 条）。
+- `remember` 的记法：只写自有目录的调用在第 5 步放行，不进询问，不产生 `remember`；其余调用的 `rememberFor` 结果不受影响（混有写重定向的仍是 `false`）。方言对 `2>&1`、`2>/dev/null`、`>|`、`&>` 的处理与第 5 步配合正确（`/tmp/review-approval-r2/dialect-probe.ts`）；`tee`、`sort -o` 不算只读，不会被当成只写自有目录。
+- `confirmWrites: ["user://"]` 与现在 `classify(...).write === "ask"` 的结论逐个地址一致：现在只有 `user` 方案分成 `ask`；展开失败的路径两种做法都进“算不出”、都不触发强制询问；绝对磁盘路径两种都不命中。
+- `classify` 与 `ResourceClass` 的使用方：产品代码里 `SessionFiles.classify` 只有 `kit/approval/hook.ts` 读、只用 `ask`；前端、`nb-agent-ui`、Lab 夹具里没搜到。本机参考实现 `kit/files/local.ts` 的 `classify` 是构造选项，不是接口（见第 9 条）。
+- 宿主子目录名单共用一份常量：`resources.ts` 与 `schemes.ts` 同在 `nbook.agent` 的 backend，套件只从布局拿结果，依赖方向没有障碍。
+- `session://` 展开只指本会话的 `sessions://<id>/home`，会话日志 `session.jsonl` 在 `home/` 之外，子会话与别的会话的 `home/` 不在前缀里；`..`、空段、尾斜杠在 `parseAddress` 一律判不合法，进“算不出”。
+
+## 各级数量
+
+阻断 0；重要 5（第 1、2、3、5、9 条）；建议 5（第 4、6、7、8、10 条）。
+
+## 第 9 维度（待确认项）
+
+提案写“无待定项”，有一项应交开发者：**逐个确认下 `shell` 命令只写自有目录也不问，是否包括在已同意的行为变化 1 里。** 开发者同意的原话是“普通模式下只写自有目录，在任何审批模式下都不问”，第二稿行为变化 1 在逐个确认这一格只举了写入工具的例子（“写 `session://`、`tmp://` 不再问”），命令的例子放在放行写入下。逐个确认是用户能选的最严一档，命令按词法判断、带第 1 条的 `cd` 缺口；可选做法是逐个确认下第 5 步只认写入工具（与现在自动模式的 `localWrites` 同一判法），代价是 `ls > session://a` 在逐个确认下仍问。其余（删掉地址表、宿主子目录收紧、按钮随来源）是第二稿目标的直接推论，不必另问。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10

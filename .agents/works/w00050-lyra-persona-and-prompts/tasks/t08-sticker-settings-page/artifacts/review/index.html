@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 3 轮：表情包设置页</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .shots { grid-template-columns: minmax(0, 1fr); } }
+.shots figure { margin: 0; }
+.shots figcaption { margin-top: 4px; font-size: 14px; color: var(--muted); }
+code { font-size: 14px; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 3 轮：表情包设置页</h1>
+
+<section data-nbdev-question="style-r3" data-nbdev-type="confirm" data-nbdev-label="整页按第 3 轮的格子做">
+  <h2>整页按这版的格子做？</h2>
+  <p class="rec"><strong>推荐同意：按第 2 轮的意见，去掉白边；每个表情占一个 72px 的固定格子，图在格子里按比例缩小、居中，宽图（我不理解）、竖图（举牌）、不透明的方图（喵）和透明底的小表情都落在同一个框里，网格不随图片大小变；悬停加深格子底色，选中是格子的强调色描边。属性栏的大图同样是一个固定高度的格子。</strong></p>
+  <div class="shots">
+    <figure><img src="r3/main.webp" alt="选中一个表情"><figcaption>“其他”一组里有宽图与竖图</figcaption></figure>
+    <figure><img src="r3/main-dark.webp" alt="暗色"><figcaption>暗色</figcaption></figure>
+    <figure><img src="r3/problem.webp" alt="认不出"><figcaption>cat：不透明的方图“喵”、认不出的 1.png</figcaption></figure>
+    <figure><img src="r3/unlisted.webp" alt="没加进来的图"><figcaption>没加进来的图（第 2 轮已同意）</figcaption></figure>
+    <figure><img src="r3/plugin.webp" alt="插件的包"><figcaption>插件的包</figcaption></figure>
+    <figure><img src="r3/narrow.webp" alt="480px 宽"><figcaption>480px 宽</figcaption></figure>
+    <figure><img src="r3/conflict.webp" alt="导入同名"><figcaption>导入同名的预览也换成格子</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>左列表右详情，同 Profile 页；选中表情后在旁边的属性栏改（会话里定）</li>
+    <li>超过 1024 像素或 2 MiB 的静态图自动缩小，超限的动图拒绝（会话里定）</li>
+    <li>导入同名时问替换还是另存为新包；对话框按第 2 版（会话里定、第 2 轮）</li>
+    <li>有清单之后只认清单里的表情；没加进来的图放在网格最后一组，可以全部加进来（第 1、2 轮）</li>
+    <li>包名可以改，入口在更多菜单与属性栏，对话框写清代价（第 1、2 轮）</li>
+    <li>认不出的图标出来、选中直接改名；插件的包只读、复制到我的（第 1 轮）</li>
+    <li>不用白边；格子不随图片大小变；要支持不透明的矩形图（第 2 轮）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

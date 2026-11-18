@@ -30,6 +30,7 @@
     "packages/nb-time",
     "packages/nb-canon",
     "packages/nb-file-lock",
+    "packages/nb-flock",
     "packages/nb-host",
     "packages/nb-models",
     "packages/neuro-book",
@@ -49,6 +50,7 @@
     "test:affected": "bun scripts/cli/test-affected.ts",
     "release:check": "bun scripts/release/packages.ts",
     "release:smoke": "bun scripts/release/pack-smoke.ts",
+    "release:prepare": "bun scripts/release/prepare.ts",
     "release:publish": "bun scripts/release/publish.ts"
   },
   "dependencies": {

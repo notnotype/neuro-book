@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-ui",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Shared Vue/Nuxt UI primitives for NeuroBook-derived projects.",
     "license": "AGPL-3.0-only",
     "repository": {
@@ -57,6 +57,7 @@
     "dependencies": {
         "@iconify-json/lucide": "^1.2.95",
         "@iconify/tailwind4": "^1.2.3",
+        "@internationalized/date": "^3.12.3",
         "@vueuse/core": "^14.3.0",
         "diff": "^9.0.0",
         "clsx": "^2.1.1",

@@ -1,0 +1,83 @@
+w00046 t18 设计审查第 2 轮（Claude Opus），审查对象：plan.md r2 的“最小尺寸”一片。只读；Linux 上用 Bun 1.4.4（与 pc-notype 安装包同版本）在 /tmp 做了 bun:ffi cc 的小实验，Windows 侧的结论标“从代码或文档推断”。
+
+### 1. 初始尺寸拿外框和“客户区最小值”比，r1 第 10 条只解决了一半；对话框也走 centered()
+- 严重程度：重要；类别：初始化几何、Spec 合同
+- 位置：plan.md“关键设计”的“初始尺寸”一条与“常量 MIN_PAGE_SIZE … centered() 与登记都用它”；Spec 改动 desktop-shell 输出 10 的“打开时就不小于它”；验收映射“打开时客户区不小于 800×560”；index.ts 555–561 行 centered()、433 行 openDialog 的 centered({width: 480, height: 260})。
+- 现象：Electrobun 的 frame 是逻辑像素的整个窗口矩形（nw.cpp 13234–13238 行把 x/y/width/height 当 DIP 换成物理外框后 CreateWindowExW），而 C 过程限制的是“客户区 800×560 + 外框差”。新公式 max(800, …) 下限落在外框上：工作区宽在 800–889、高在 560–622 逻辑像素之间时，窗口外框 800×560，客户区比 800×560 小一个外框（系统标题栏约 16×39，hiddenInset 约 16×8，100% 时）。
+- 为什么是问题：Spec 新写的“打开时就不小于它”与验收“打开时客户区不小于 800×560”在这些屏幕上不成立；窗口一开始就比最小跟踪尺寸小，用户第一次拖边框时窗口会跳大一截。另外 centered() 同时给对话框用，计划写“centered() 的结果不小于最小值”，照字面实现会把 480×260 的对话框也撑到 800 宽。
+- 如何核实：按公式代入工作区 1093×582（1366×768、125%）：高 = min(582, max(560, min(800, 523))) = 560，外框 560，客户区约 521（系统标题栏）或 552（hiddenInset）。对照 nw.cpp 13231–13238 行的坐标说明。
+- 建议改法：下限按外框算：centered() 收一个可选的 minimum 参数，只有产品窗口与启动页传；外框下限 = 客户区最小值 + 外框估计（按 customFrame 取两档常量即可，或者窗口创建后在 setMinimumSize 里发现当前窗口矩形小于算出的最小跟踪尺寸时补一次 SWP_ASYNCWINDOWPOS 放大）。Spec 若不想承诺这么细，改成“打开时外框不小于最小值，工作区不够时以工作区为准”。纯函数测试补“工作区 1093×582”这一档与“对话框尺寸不受影响”。
+
+### 2. 换过程失败的分支没写清：“不等时换回”可能把过程换成 0，残留属性又让下次登记误以为已装好
+- 严重程度：重要；类别：失败语义、跨线程竞态
+- 位置：plan.md“win32.ts 新增 setMinimumSize”一条：“窗口已有 nbook.wndproc 属性时只更新 nbook.minsize；否则先 SetPropW 存两个属性、再 SetWindowLongPtrW 换上，返回的旧过程必须等于存的那个，不等时换回并报问题”。
+- 现象：不等有两种来源。(a) SetWindowLongPtrW 失败返回 0：窗口在 Bun 线程登记的同时被 UI 线程销毁（load 与关窗并发、退出时），或句柄已失效。此时“换回”若照字面把返回值写回，就是 SetWindowLongPtrW(hwnd, GWLP_WNDPROC, 0)。(b) 读与换之间别人换过过程（目前没有，见文末核实项）。两种情况下 nbook.wndproc、nbook.minsize 都已写上，计划没有说要删；下一次 setMinimumSize（同一窗口再登记，例如 load 之后又走一次）看到 nbook.wndproc 就“只更新 nbook.minsize”，以为子类化在位，实际没有，从此静默失效且不再报问题。SetPropW 本身的返回值也没要求检查。
+- 为什么是问题：(a) 若窗口其实还活着（失败原因不是销毁），过程为 0 的窗口下一条消息就崩在 UI 线程；即使窗口已死，也会多出一条误导性的 min-size-unavailable。属性当作“已安装”的标记，前提是安装成功；失败路径不清理就破坏了这个前提。
+- 如何核实：读计划这一条与 win32.ts 现有的 adoptCustomFrame（它用“写后读回”判断，没有“换回”）；SetWindowLongPtrW 文档：失败返回 0、需 GetLastError。
+- 建议改法：写成固定的序列：IsWindow 不成立直接返回（不算问题，窗口已关）；SetPropW 两个都成功才继续，否则删掉已写的再报问题；old = SetWindowLongPtrW(…)；old == 0 时读回 GetWindowLongPtrW，当前不是我们的过程就删属性、报问题，不再写；old != 0 且 != 存的 prev 时，用 old 换回（只在 old 非 0 时）并删属性、报问题。“已装好”的判据改成“GetWindowLongPtrW(GWLP_WNDPROC) 等于我们的过程”而不是属性存在，更直接。
+
+### 3. 运行时编译在用户机器上的可靠性只在一台开发机、ASCII 路径上证明过（源文件路径、头文件、user32 解析）
+- 严重程度：重要；类别：打包与部署、未验证的前提
+- 位置：plan.md 技术选型“最小尺寸”、关键设计“C 源 … 随 build.copy 进包（cc 读文件路径；包里的路径按 ICO 的做法解析）”“C 里用固定宽度类型”；验证的 Windows 部分只在 pc-notype 上；min-size-probe-r1.txt 第 1 条。
+- 现象：cc 只收源文件路径（Linux 实测：路径不存在时报 “tcc: error: file … not found”）。安装版在 %LOCALAPPDATA%\<identifier>\ 下，路径含 Windows 用户名；中文用户名在这个产品的用户里很常见。TinyCC 打开文件用的是窄字符 API，Bun 把 UTF-8 路径交给它，在代码页为 936 的系统上能否打开没有证据（推断有风险，未验证）。另外两点同样只在 pc-notype 上成立过：一是 `library: ["user32"]` 在干净机器上怎么解析到 user32（TinyCC 的库搜索路径不含 System32 时靠什么找到，探针没说明，不能排除依赖开发机上的文件）；二是计划写“固定宽度类型”，若实现时写 `#include <stdint.h>`，用户机器上没有头文件，探针那份源码是手写 typedef、没有 include。
+- 为什么是问题：失败时计划会降级（Linux 实测 cc 编译、找库、找符号失败都抛可捕获的 Error，不会崩），所以不是崩溃问题；但后果是相当一部分用户静默没有最小尺寸，只有壳日志一行，而验收在 pc-notype 的 ASCII 路径上全部通过，发现不了。
+- 如何核实：pc-notype 上把测试包装进含中文的目录（或建一个中文名的 Windows 账户）跑一次；在 Windows Sandbox（干净系统，无 SDK）里用安装包自带的 bun.exe 跑 sub-probe.ts。
+- 建议改法：(1) 验收加这两项；(2) C 源不写任何 #include，全部手写声明（与探针一致），在计划里写明；(3) 路径问题若坐实，可用 GetShortPathNameW 取 8.3 短路径再交给 cc（8.3 关闭的卷上仍会失败，要降级记日志），或把源文件写到 ASCII 路径的目录。(4) 候选、交开发者权衡：不在运行时编译，构建时用 zig cc 或 mingw 交叉编译一个只含这个窗口过程的小 DLL（Linux 上能产出 x86_64-windows），运行时 dlopen 它。代价是构建链多一个编译器、包里多一个要签名的二进制；收益是没有 TinyCC、路径、头文件、库搜索这几类运行时前提。计划否决的是“重建 Electrobun 原生层”，这个独立小 DLL 的做法没有被比较过。
+
+### 4. 最小化（IsIconic）时外框差同样不可信，计划只排除了最大化
+- 严重程度：建议；类别：WM_GETMINMAXINFO 几何
+- 位置：plan.md 窗口过程一条：“外框差 = 窗口矩形 − 客户区矩形（两个查询都成功、差值非负才用）… 最大化时不改”。
+- 现象：窗口最小化时 GetWindowRect 给的是图标化矩形（在 -32000 处，约 160×28），客户区为空，差值非负、会被采用（从文档与常见行为推断，未实测）。从最小化直接恢复成最大化、最小化期间 DPI 变化等路径，系统会在 IsIconic 为真时发 WM_GETMINMAXINFO。
+- 为什么是问题：这一次的 ptMinTrackSize 会多出约 160×28。工作区足够大时最大化尺寸不受影响，影响面小；但计划用“差值非负”当可信判据，这一种不可信的情况没挡住，和最大化是同一类问题。
+- 如何核实：Windows 上对最小化的产品窗口跑验收脚本，读 GetWindowRect、GetClientRect 与回读的 ptMinTrackSize。
+- 建议改法：条件改成“IsZoomed 或 IsIconic 时不改”，C 里多声明一个 IsIconic；验收矩阵加“最小化时不改、恢复后又是”。
+
+### 5. 工作区比最小尺寸小时，最小跟踪尺寸会大过工作区，和 Spec 新写的“以工作区为准”不一致
+- 严重程度：建议；类别：Spec 合同、小屏边界
+- 位置：plan.md Spec 改动 desktop-shell“限制里写‘工作区比最小尺寸小的显示器上窗口以工作区为准’”；“初始尺寸 … 工作区比最小值还小时窗口就是工作区大小，接受”；窗口过程只取 max(原值, 最小值+外框)。
+- 现象：初始窗口确实是工作区大小，但 C 过程照样把 ptMinTrackSize 抬到 800×560+外框。用户一拖边框，窗口立刻跳到最小跟踪尺寸，伸出工作区、压到任务栏下面；系统标题栏的窗口在 1366×768、125%（逻辑工作区约 1093×582）上就会发生：560+约 39 > 582。最大化时系统是否也按 ptMinTrackSize 撑大，未验证（推断会）。
+- 为什么是问题：“以工作区为准”只对打开那一刻成立，拖动与最大化时不成立；用户看到的是拖一下窗口反而变大、底边跑出屏幕。
+- 如何核实：同第 1 条代入；Windows 上用验收脚本对一个人为设成小于最小值的窗口回读 ptMinTrackSize，与 MonitorFromWindow 的 rcWork 比较。
+- 建议改法：C 过程里把算出的最小跟踪尺寸再夹到窗口所在显示器的工作区（MonitorFromWindow + GetMonitorInfoW，失败就不夹），多三四行；Spec 的限制写成“最小尺寸不超过窗口所在显示器的工作区”。或者保留现状，把 Spec 限制改写成实际行为。
+
+### 6. “编译结果缓存在模块里”要写明缓存的是 cc 返回的对象、永不 close，失败也要缓存
+- 严重程度：建议；类别：进程寿命、可维护性
+- 位置：plan.md setMinimumSize 一条：“第一次调用时编译（结果缓存在模块里，进程寿命内不释放：窗口过程一直在用）”。
+- 现象：cc 返回的对象只有一个 close()（Linux 实测 Object.keys 只有 close），代码内存归它管。实测：取出函数地址后调 close()，再经地址调用即段错误（Bun 1.4.4 panic）；只丢掉对象引用、强制 GC 后再调用这次没崩，但这不是保证。“结果”若被理解成只存 procAddr() 拿到的地址，对象就可能被回收或被后人当作清理顺手 close 掉，崩在 UI 线程里，而且是在之后某条窗口消息上，难以对上原因。另外计划没说编译失败是否缓存：不缓存的话每开一个产品窗口都重编一次、重复写一行同样的日志。
+- 为什么是问题：窗口过程的代码在进程结束前一直要可执行，这是这个方案最硬的一条不变量，应当落在代码结构和注释里，而不是“结果”两个字。
+- 如何核实：/tmp 下的实验：cc 编译含 `void* addr(void){return (void*)f;}` 的源，close 后用 CFunction 调用地址，进程 139 退出。
+- 建议改法：模块里存 `{lib, proc}`（lib 是 cc 返回的对象），注释写明“不调用 lib.close()：窗口过程地址装在窗口上，释放即崩”；失败存成字符串原因，后续窗口直接返回同一原因（日志可只写一次）。
+
+### 7. 窗口过程对“取不到原过程”没有兜底
+- 严重程度：建议；类别：崩溃面
+- 位置：plan.md 窗口过程一条：“prev = GetPropW(hwnd, "nbook.wndproc")；r = CallWindowProcW(prev, …)”。风险一节写了“窗口过程若有错，会在 UI 线程里崩掉整个应用”。
+- 现象：按计划的安装顺序，正常路径上 prev 不会是 NULL；但第 2 条那类失败分支、以后有人调整顺序或在别处 RemovePropW，都会让过程拿到 NULL 再交给 CallWindowProcW，结果没有文档保证。
+- 为什么是问题：这是 UI 线程上每条消息都走的一行，出错就是整个应用崩；兜底只要一行，和风险一节的“短到能逐行审”不冲突。
+- 如何核实：读计划这一条与探针 sub.c.txt（探针同样没有判空）。
+- 建议改法：prev 为 NULL 时 `return DefWindowProcW(hwnd, msg, w, l);`（多声明一个 DefWindowProcW）。读 nbook.minsize 为 0 时不改（计划的 max 写法已经满足，实现时保持）。
+
+### 8. 验收覆盖不到 DPI 换算：pc-notype 是 100%，换算与向上取整只在 C 里、没有测试
+- 严重程度：建议；类别：验收充分性
+- 位置：plan.md 验收映射 desktop-shell 一行；切片 3 的验证（只有类型检查、centered 单元测试与 Windows 验收）；min-size-probe-r1.txt 开头“2560x1440、100%”。
+- 现象：Spec 承诺“按窗口所在显示器的 DPI 换算”，实现是 C 里的“逻辑值 × DPI / 96 向上取整”“DPI 为 0 按 96”“差值为负不改”。在 100% 的机器上 DPI 恒为 96，这几条分支一条都走不到；Windows 验收也只在这台机器上跑。
+- 为什么是问题：DPI 换算写错（例如用整数除法先除后乘、或取整方向反了）在开发者的机器上完全看不出来，到 125%/150% 的笔记本上才表现为最小尺寸偏小或偏大。
+- 如何核实：读计划的验收映射与探针环境说明。
+- 建议改法：把换算写成一个不调用 user32 的纯 C 函数（输入逻辑最小值、DPI、外框差、原值，输出新的 ptMinTrackSize），放在单独的 .c 里由窗口过程那份 include 或一起编译；在 Linux 上用 bun:ffi cc 编译这份纯函数跑单元测试（本机实测 Linux 上 cc 可用、_Static_assert 也认），覆盖 96/120/144/0 与负差值。Windows 验收若方便，再在副显示器或临时改缩放下读一次。另外验收脚本跨进程发消息用 SendMessageTimeoutW（SMTO_ABORTIFHUNG）而不是 SendMessageW，UI 线程卡住时脚本不跟着挂死。
+- 补充（第 8 条的做法）：不必拆文件。同一份 min-size.c 里用 `#ifndef NB_MIN_SIZE_PURE` 包住 user32 声明与窗口过程，Linux 测试用 `cc({source, define: {NB_MIN_SIZE_PURE: "1"}, symbols: {…纯函数…}})` 只编纯函数；本机实测 define 生效、被包住的未解析符号不再报错。
+
+### 9. win32.ts 文件头的“一律不等待”与现有 adoptCustomFrame 不符；r2 拿这条约定论证换过程安全，论据本身成立
+- 严重程度：建议；类别：线程约定、文档准确性（不在切片 3 的改动内，但在同一文件、r2 引用了它）
+- 位置：win32.ts 12–13 行文件头；88–89 行 `lib.SetWindowLongPtrW(hwnd, GWL_STYLE, wanted)`；plan.md“SetWindowLongPtrW 换窗口过程不发消息，不违反文件头‘跨线程不等待’的约定”。
+- 现象：GWLP_WNDPROC 确实不发消息（r2 的说法对）。但 GWL_STYLE 会先后发 WM_STYLECHANGING、WM_STYLECHANGED（这两条消息的文档就是“SetWindowLong 要改样式时发给窗口”），跨线程即同步等 UI 线程处理。现有代码从 Bun 线程这样调，和文件头“一律用不等待的写法”相反（从文档推断，未在 Windows 上测阻塞）。
+- 为什么是问题：文件头的约定是后来者判断“这个调用能不能从 Bun 线程发”的依据；它已经有一个反例，下一个人照着它推理会以为样式修改是安全的。若 UI 线程确有等待 Bun 线程的路径，这里就是一个低概率死锁点。
+- 如何核实：读 WM_STYLECHANGING 文档与 win32.ts 88 行；在 Windows 上让 UI 线程忙（例如断点或长同步块）时调 adoptCustomFrame，看 Bun 线程是否阻塞。
+- 建议改法：最小改法是改文件头，如实写“SetWindowLongPtrW(GWL_STYLE) 会同步发两条样式消息；目前在窗口刚创建、UI 线程空闲时调用，接受”；或者另开 Task 把样式修改移到 UI 线程（例如同一个 C 窗口过程收到一条自定义的 PostMessage 时自己改样式）。切片 3 顺手修文件头即可，不必扩大范围。
+
+核实过、没有发现问题的点（不计入条数）：
+- r1 的 1、2、3、7、9、11、12 条在 r2 里确实消掉了：直接链接 user32；不再有 C 里的跨线程表，属性读写由系统串行化；钩子改为子类化并有探针；按句柄查表的复用问题随之消失；x64 限定与 _Static_assert（Bun 1.4.4 的 TinyCC 认 _Static_assert，本机实测）；最大化不改；验收改成同步读回。第 10 条见本报告第 1 条，只解决了一半。
+- 跨线程换过程：同进程内从别的线程 SetWindowLongPtrW(GWLP_WNDPROC) 是允许的，换上之后的下一条派发才走新过程，正在派发的消息照旧在原过程里跑完；属性先写、过程后换，新过程第一次运行时属性一定已在。我们从不卸下过程，“卸下时代码还在被执行”这类真正危险的竞态不存在（从文档推断）。
+- 与 Electrobun 是否冲突：nw.cpp 里顶层窗口类 BasicWindowClass 的过程是 WindowProc（13175 行），全文件只有 WGPU 视图的输入层（10693–10732 行，装在视图自己的句柄上）会换 GWLP_WNDPROC，产品窗口用 WebView2，不经过它；WindowProc 不处理 WM_NCDESTROY，WM_DESTROY 里只释放自己的 WindowData（6243–6262 行）。我们在 WM_NCDESTROY 里先交给原过程、再删属性，顺序正确。它自己的 WM_GETMINMAXINFO 只管 WS_POPUP（5923–5944 行），我们在其后取较大值，不冲突。
+- 失败降级：Linux 实测 cc 在源文件缺失、语法错、找不到库、找不到导出符号、引用未解析时都抛可捕获的 Error，计划的“写日志、窗口照常可用”能成立（Windows 上未测）。
+- 验收方法：跨进程发 WM_GETMINMAXINFO 走的是同一个窗口过程，探针第 3 条已证明系统采用过程改过的值（ptMaxSize 900×600 生效），读回值能代表拖动时用的下限；未登记的启动页、对话框作为对照组也在矩阵里。
+
+有效发现：9 条；阻断 0，重要 3，建议 6

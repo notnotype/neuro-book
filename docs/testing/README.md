@@ -25,17 +25,31 @@
 
 **交出的组件经真实的服务测。** 组件经服务或注册表交给别的插件时，至少有一条测试经真实的服务取组件来挂，不只在 Lab 里直接挂源组件：交出时加的包装（注入、按需加载、外露方法的转发）只在这条路径上。
 
+**窗口级的能力用 `createApplication` 的 `capabilities` 交给被测插件。** 窗口的翻译引擎、项目绑定、时钟这类能力在真实窗口里是宿主能力（`packages/neuro-book/src/web/host/window.ts` 的 `manifest.capabilities`），不是插件提供的服务：测试里写成一个提供同一服务键的测试插件，被测插件的 `windowTextKey` 这类可选依赖取不到它，用例照样通过，却走了没有引擎的退路（w00025 t25：语言切换的用例先这样写，等英文显示名等到超时才发现）。测切语言时用 `createHostTextEngine` 建真实的引擎、作为能力传入，再调它的 `setLocale`。
+
+**用 Storage 场地测本机记录，同一台机器的窗口用同一个客户端 id。** 本机记录（`locality: "local"`）按客户端分：测几个窗口同时改同一条本机记录时，`storageWorld` 的 `window(id, client, …)` 给它们同一个 `client`；给了不同的 `client`，等于两台机器各写各的记录，其中一个窗口的写入在另一个窗口里看不到，像是丢了写入（w00025 t10：`markdown.properties-open` 的两窗口用例，先用了两个客户端，排查了一轮才发现是用例写错）。已开着的窗口不承诺即时看到别的窗口的改动：断言落在存储里的记录，或新开一个窗口去读。
+
 **不按固定时长等待。** 等一个可观察的状态成立（`@notnotype/neuro-book-test-support/wait` 的 `waitUntil`），或让被测代码接受注入的时钟、由测试推进时间。让出一轮事件循环（延迟为 0）不算等待。`bun test` 的用例默认上限也是 5 秒：造大量文件、依赖 inotify 事件的用例在 CI 上比本地慢得多，显式给用例和 `waitUntil` 放宽上限，不把本地耗时当上限。DOM 用例第一次挂载异步组件时要等 Vitest 转换模块，别的进程占着 CPU 时能到十几秒：`vitest.config.ts` 的用例上限已放宽，等首次挂载的 `waitUntil` 另传 `timeoutMs`（它的缺省是 5 秒）。被测操作本身在等注入的时钟（宽限期、合并窗口、空闲计时）时，先发起它，在等它的同时推进时钟；先 `await` 它再推时钟会互相等死，超时还常常报在收尾的钩子上。Vitest 里等动态 import 的组件（`defineAsyncComponent`、懒加载路由）首次出现时，`vi.waitFor` 显式给足超时：首次导入要经 Vite 转换，实测超过默认的 1 s。被测对象本身带真实时长（通知几十毫秒后消失、回执到时复原）、用例又要先断言“它还在”时，时长留足（至少 1 秒量级），等它到时的 `waitFor` 另给几秒上限：20 到 40 毫秒的时长在机器忙时会在第一次断言之前就到，用例偶发失败（w00028 t04 合入后实测，负载 22 时四次失败一次）。
 
 e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-expanded` 决定点不点：恢复会话时文件夹的展开状态还在变，读到“收起”再点，可能正好把刚展开的收起来。
 
 **e2e 里操作 Monaco。** 点正文按编辑器的外框（`.monaco-editor`）定位，不按 `.view-lines`：它随滚动整体平移，按它的位置点会点到可见区外面，Playwright 报 `html intercepts pointer events`。Monaco 把空格画成不换行空格（`\u00a0`），按文字找 token 或读一行的文字时两种空格都要认（w00025 t05）。
 
+**第三方库处理点击、选区、剪贴板的行为，在真实浏览器里验证。** 组件测试里手工调库的处理函数（`handleClick`、`handlePaste`）时，选区、事件目标都是测试自己摆的，看不出库在真实事件顺序里读到什么。Tiptap 的 Link 自带“单击选中整条链接”（`enableClickSelection`）在点击处理时读的是点击之前的选区：DOM 用例先把光标放进链接再调处理函数，一直通过；真实 Chrome 里点一条链接，选中的是之前光标所在的那条（w00025 t09，写 e2e 时才发现）。接入这类库的交互时，e2e 里用真实的点击、按键与系统剪贴板接口走一遍，并从页面读编辑器的状态（`[data-editor-prose]` 元素上的 `editor.state.selection`）；光标先放在别处，再点目标。
+
+**审查里“从代码推断、未验证”的结论，先写一条能失败的 e2e。** 审查者读 Tiptap 源码推断“只读文档里 Ctrl 点链接会被浏览器跟随、叠成两次打开”；第一版 e2e 只点了一次 Ctrl，改坏修复后仍然通过，等于没证明。把用例加强到能区分（先单击、再 Ctrl 点，数新开的页：不修时 3 个，修后 1 个），再对修复做变异检查（去掉修复、重建、用例失败，恢复后再通过），才算核实（w00025 t09）。结论成立与否都以这一步为准，不凭推断改，也不凭推断驳回。
+
+**组件测试经 `@vue/test-utils` 的 `mount` 传入的属性会被深度代理。** 控件把编辑器实例这类带原生对象（`MutationObserver`、DOM 节点）的东西存进属性里的槽（`props.host.state`），重挂载时从代理里读出的实例会让原生方法报 `Cannot read private member`，生产里槽不是响应式的所以没事。存进这类槽的对象用 `markRaw` 标记，实例不被代理（w00025 t09，`MarkdownControl.vue` 的实例槽）。
+
 **测“换文档”的组件测试，由父组件持有当前绑定。** 组件的属性里带 `ref`（例如编辑器区交给控件的文档绑定）时，`@vue/test-utils` 把这个属性另存，`setProps` 改不到，测试会一直停在第一份文档上、断言照样跑完。像真实的父组件（`EditorGroup`）那样，用一个渲染函数组件持有当前绑定的 `shallowRef`，改它再等 `nextTick`（w00025 t20）。
+
+**组件测试经用户操作触发子组件的事件。** 测父组件怎样处理子组件的事件（菜单项、确认框的确认）时，像用户一样打开菜单、点那一项，不对子组件 `vm.$emit`：直接发事件绕过了子组件真实的事件先后，界面坏着测试也照样过（w00032 t30：AlertDialog 先发 `update:open(false)` 再发 `confirm`，清空从没发出去）。happy-dom 里打开 nb-ui 的 DropdownMenu：聚焦触发器、发 ArrowDown、等几轮 `nextTick`，再到 `document.body` 里找 `[role=menuitem]`。
 
 **e2e 量几何先等它稳定，判断消失不等元素出现。** 有过渡动画的布局（收起、展开、拖放收尾）在动画中途量到的矩形会把指针放到别处：先等可观察的终态（例如收起的分节缩到 32px）再取矩形。判断元素消失用 `toHaveCount(0)` 或在页面里直接读，不用 `locator.boundingBox()`：它会一直等元素出现，元素不在时等到超时。
 
 **e2e 按坐标操作前先把目标滚进视口。** 用 `boundingBox` 算出坐标、再派发指针或触摸事件之前，先 `scrollIntoViewIfNeeded`，再断言 `toBeInViewport()`：`toBeVisible` 不管滚动容器的裁切，虚拟列表在视口外多渲染的行它也算看得见，坐标却落在列表外面。同一个文件里前面的用例往同一个目录写过文件时，行会往下移，单独跑能过，整份文件跑才失败（w00026 t24：触摸拖动的用例整份文件跑了三次，三次都失败）。
+
+**e2e 用例写的文件用完就删，不往共用的文件里打字。** 一份 e2e 文件里每个用例往作品的同一个目录写自己的文件时，在 `afterEach` 里删掉这一例写的文件（经辅助打开的与直接写盘的都算）：资源树是虚拟列表，文件越积越多，靠后的用例要打开的那一行排到渲染范围外面，找不到行直到超时（w00025 t17：`markdown-editing` 跑到“拆分后”一例时，`notes/` 里它前面排着 37 个文件）。往前面用例也在用的共用文件里打字同样会串：缺省的失焦时自动保存会把打的字写进磁盘，后面读这个文件的用例拿到的不是初始内容（同一 Task：“离开页面”一例读到前面一例打进 `b.md` 的字）。要编辑就写自己的文件。
 
 **e2e 默认减少动态效果。** 应用的 `playwright.config.ts` 设了 `reducedMotion: "reduce"`：约 113 个用例在程序开关后马上量几何，470ms 的外框过渡会让它们量到中间值。测动画，或测动画窗口里的竞态（退场中点击、关闭动画结束后的焦点）的用例，开头写 `page.emulateMedia({reducedMotion: "no-preference"})` 开回来，否则时长令牌是 0，用例还是绿的，但不再覆盖要防的东西。
 
@@ -90,14 +104,14 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 | 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量 |
 | 全量 | 以上全部 | — | 手动；CI 手动触发时跑全部包的快速类 |
 
-浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。包脚本 `test:e2e` 自己构建；直接用 `npx playwright test` 跑单个文件时不构建，改过前端或插件源码后要先把 `build:server`、`build:web`、`build:e2e` 三份产物都重建（带探针的宿主服务的是 `dist/e2e/web`，只重建前两份时它仍是旧页面，几十个用例一起失败、看起来像产品缺陷）。
+浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。包脚本 `test:e2e` 自己构建；直接跑单个文件（`npx playwright test -c e2e/playwright.config.ts <文件>`，不带 `-c` 会报 “No tests found”）时不构建，改过前端或插件源码后要先把 `build:server`、`build:web`、`build:e2e` 三份产物都重建（带探针的宿主服务的是 `dist/e2e/web`，只重建前两份时它仍是旧页面，几十个用例一起失败、看起来像产品缺陷）。
 
 快速类单个测试的预算是 200 毫秒。`test:affected` 运行结束时列出超出预算的测试；超出的原则上改快（多半是固定等待或不必要的大数据），确实需要慢的（如性能基准）写明原因。
 
 `bun run test:affected` 的选择方式：
 
 - 缺省按改动：改动所在的包，加上直接或间接依赖它的包；根 `scripts/` 或根 `package.json` 有改动时加上根脚本测试（`.github/` 的 Issue 表单与标签由 `governance:check` 检查）；`bun.lock`、`bunfig.toml` 或 `patches/` 有改动时选中全部。`--since <rev>` 再算上与 `<rev>` 分叉以来的提交，`--all` 选中全部。
-- `--package <名>`（可重复）：不看改动，只测指定的包，`scripts` 指根脚本测试；加 `--with-consumers` 连同依赖它的包。
+- `--package <名>`（可重复）：不看改动，只测指定的包，`scripts` 指根脚本测试；加 `--with-consumers` 连同依赖它的包。新增 workspace 包会改 `bun.lock`，缺省方式因此选中全部；这时改用 `--package <新包> --with-consumers`，每个包各写一次 `--package`（不收逗号分隔）。
 - `--tier fast|e2e|llm`：运行哪一类，缺省 `fast`。
 - `--files`：改动所在的包只跑受影响的测试文件（测试脚本是单条 `bun test` 时追加 Bun 的 `--changed`；写成 `bun run a && bun run b` 时逐步运行，其中单条 `bun test` 或 `vitest run` 的一步各自追加 `--changed`）。Bun 按导入关系选文件，不跨包追踪，依赖方的包仍整包运行；只经路径启动的文件（例如子进程入口）改了也选不到，提交前去掉 `--files` 再跑一次。
 - `--typecheck` 同时跑类型检查，`--dry-run` 只列出选中项和原因。
@@ -173,6 +187,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - CI（`.github/workflows/ci.yml`）在推 master 与 PR 上把下一节的验证门禁在干净机器上再跑一遍：`governance:check`、`docs:check`、
   `test:affected --typecheck`（基准是 PR 的 base 或推送前的 master，取不到共同祖先时跑全部），另一个 job 打应用包与 SDK
   并跑 `smoke:server`。e2e 与真实模型测试不在 CI 里跑。
+- 改了 `.github/workflows/` 就跑 actionlint：`actionlint .github/workflows/*.yml`（没装时 `go install github.com/rhysd/actionlint/cmd/actionlint@latest`，直连慢加 `prox`，不进仓库依赖）。它认不得的新写法先对照 GitHub 文档确认，再用 `-ignore` 放过那一条并在工作流里注明（`release.yml` 的 `concurrency.queue`）。
 - 干净机器上没有 `.nuxt/tsconfig.json` 这类生成物：相关测试配置使用独立的 esbuild transform（`oxc: false`），不依赖
   Nuxt prepare 的产物。
 
@@ -181,10 +196,12 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - 实施前确定当前目标的可观察行为、直接受影响边界与完成证据；有 Task 时写入快照，否则使用会话计划，不强制创建额外文件。
 - 纯文档修改检查链接、结构与语义，不运行产品测试、typecheck、构建或浏览器；治理脚本变化仅运行直接相关脚本测试与类型检查。
 - 实现变化运行受影响既有测试；类型表面改变才运行对应 typecheck。工具只支持全应用检查时运行一次，区分本次诊断与已有基线，不借失败扩大修复范围。CSS 生成物按包合同构建。
-- 受影响的测试用 `bun run test:affected` 选出并运行，选择方式见[测试分类与运行](#测试分类与运行)；不默认跑全量。
+- 受影响的测试用 `bun run test:affected` 选出并运行，选择方式见[测试分类与运行](#测试分类与运行)；不默认跑全量。它缺省只看还没提交的改动：在分支上收口、合入前验证时改动都已提交，不加 `--since master` 就一条也选不到（w00026 t25）。
 - 浏览器 e2e 由 `test:affected` 选不到文件（`--tier e2e` 是整包），靠人挑：改了什么就跑覆盖它的文件。合入前的清单只跑一次，之后只重跑覆盖改动的文件和失败项；开第二轮大范围前先说清哪条证据失效了，说不出就不跑。已知会因别的 Work 失败的文件不跑了再读结果。大范围 e2e 跑着的时候不改清单里的测试文件、不重新构建：一个 worker 时测试文件是跑到它才加载的，构建产物也是边跑边读，中途改了，后面跑的已经不是开始时那份代码（w00025 t04）。
 - `packages/neuro-book` 的 Playwright 配置替这条把关：一次选中超过 8 个文件时拒绝运行（`e2e/wide-run-guard.ts`，整包也算；`--last-failed`、`--list`、`-g` 放行），确实要大范围跑时命令前加 `NB_E2E_WIDE="这轮要消除什么不确定性"`，理由打印在日志里。写理由时写具体的不确定性，“最后验证”不算。
+- Playwright 的输出目录（失败用例的 trace 与错误现场、`--last-failed` 读的 `.last-run.json`）按检出分开，在 `<系统Temp>/neuro-book/playwright/<套件>/<检出名>/` 下，检出名是检出目录名（截到 24 个字符）加整条路径的哈希前 8 位（`@notnotype/neuro-book-test-support/paths` 的 `resolveAgentPlaywrightRoot`，`neuro-book` 与 `nb-story` 两份配置都用它）。几个 worktree 同时跑 e2e 不会互相清掉失败现场，`--last-failed` 只读本检出上一次的失败。同一个检出里每次开跑仍会清空自己的目录：要留的失败现场先拷走，或先看完再开跑（w00025 t24；此前各检出共用 `playwright/neuro-book`，t17 收口时失败现场被别的会话清掉）。
 - 新增默认显示的视图、活动条目或设置项时，受影响范围要包括假定初始布局的外壳 e2e（`workbench-*`、`plugins`）；新增或改动 Lab 场景的组件，还要跑 `lab-scenes`。
+- lab-scenes 被与本 Task 无关的既有失败（加载失败、页面错误）挡在版面检查之前时，新增或改过的场景用 `nbdev shot` 截图，报告里的 `measure`（越界、光晕与外扩环被裁）与 lab-scenes 是同一套测量，可代替重跑。
 - 提交前先看到验证结果：测试与提交不写在同一条命令里。
 - 改了 e2e 或测试文件，也要在最后一次改动之后重跑类型检查：`tsconfig.browser-test.json` 覆盖 `e2e/` 与 `*.dom.test.ts`，Playwright 与 Vitest 的转译不查类型，用例跑得过不等于类型检查过（w00025 t22：最后一轮改 e2e 之后没有重跑 `typecheck`，实现审查才发现 `offsetWidth` 在 `HTMLElement | SVGElement` 上报错）。
 - `docs:check` 与 `governance:check` 的失败始终检查全仓；警告默认只逐条列出未提交改动涉及的文件，其余合成一行计数。上面三个命令都按同一改动范围工作：默认是未提交的改动（含未跟踪文件），`--since <rev>` 再算上与 `<rev>` 分叉以来的提交，`--all` 不按改动裁剪。
@@ -217,6 +234,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 | nb-ui 共享基础组件 | 主题轴 × 配色轴四组合（nbook/macos × light/dark），外加 390px 视口 |
 
 - 每项给出实测结果（元素计算样式 ↔ 同名变量解析值、几何、交互前后差异），不用静态推断或截图观感冒充实测；所用工具做不到时按本节首条改用备用工具，仍做不到的如实说明未做。
+- 会自己消失的界面（一次性通知缺省 3.2 秒后消失）不靠 UI 自动化或截图去赶：验收以产品留下的可持久信号为准（页面交回宿主后写的诊断、状态文件），读到文字只作补充证据；产品没有这种信号时，在被测代码里加一条 info 诊断（w00046 t11 的更新冒烟：每次起 PowerShell 读窗口，240 秒没赶上“已更新到”）。
 - 分档只决定取证范围；人工评测的授权要求见本节「普通 UI 运行验证不自动升级为完整人工评测」一条。
 
 ## 通用包测试合同（2026-09-11）

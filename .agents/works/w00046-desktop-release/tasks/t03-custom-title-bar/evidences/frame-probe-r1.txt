@@ -1,0 +1,31 @@
+w00046 t03 标题栏探针第 1 轮（2026-11-15，pc-notype：Windows 11 26200 x64，单屏 2560x1440、缩放 100%，任务栏 48px）
+
+探针：最小的 Electrobun 2.0.6 应用（Hutch 0.29.0，`hutch electrobun build --env=dev`），主进程用 Bun.serve 在 127.0.0.1:47123
+出一页（模拟服务端来源），窗口 `titleBarStyle: "hiddenInset"`、`sandbox: true`，不加自己的预加载。页面顶上 36px 一条
+`app-region: drag`（同时写 `-webkit-app-region`），右边三个 `app-region: no-drag` 的按钮经 `__electrobunSendToHost` 发消息；
+另开一个 `views://` 页面的同样窗口作对照。源码在本机 /tmp/frame-probe（一次性）；pc-notype 上在 %USERPROFILE%\nb-w00046\frame-probe。
+取证：Win32 查询（WindowFromPoint、WM_NCHITTEST、GetWindowRect、GetClientRect、IsZoomed、WM_GETICON）经 /it 计划任务在桌面会话里
+运行；壳日志记 Electrobun 的窗口事件与页面发来的消息。不截屏、不动鼠标。
+
+1. 页面能力：WebView2 157（UA Edg/157），CSS.supports('app-region','drag') 与 '-webkit-app-region' 都是 true；沙箱页面里
+   __electrobunSendToHost 可用，按钮的消息到达壳。
+2. 命中测试（窗口 1000x700，客户区 984x692，客户区左上 (788,346)，顶边没有让出标题栏高度）：
+   - 拖动区域 (100,18)：WindowFromPoint = Chrome_WidgetWin_0（宿主进程 bun.exe 里 WebView2 的窗口），WM_NCHITTEST = 2（HTCAPTION）
+   - 关闭按钮 (-23,18)：Chrome_RenderWidgetHostHWND（WebView2 渲染进程），= 1（HTCLIENT）
+   - 正文 (100,200)：同上，= 1
+   - 顶边 (300,2)：Chrome_WidgetWin_0，= 12（HTTOP）
+   顶层窗口自己对这些点都回 1：命中由 WebView2 的窗口给出（Electrobun 对所有网页视图打开 IsNonClientRegionSupportEnabled）。
+3. 最大化（ShowWindow SW_MAXIMIZE，Electrobun 原样的样式 0x16C40000 = WS_CAPTION|WS_THICKFRAME|…，没有 WS_SYSMENU、
+   WS_MINIMIZEBOX、WS_MAXIMIZEBOX）：窗口 (-8,-8)-(2568,1448)，客户区 2560x1440，工作区只有 2560x1392，页面底部 48px 被任务栏
+   盖住。壳日志 resize 的 isMaximized=true，页面报 innerHeight=1440。
+4. 主进程用 bun:ffi 给窗口补 WS_SYSMENU|WS_MINIMIZEBOX|WS_MAXIMIZEBOX（0x16C40000 -> 0x16CF0000）并 SWP_FRAMECHANGED 后：
+   最大化的窗口 (-8,-8)-(2568,1400)，客户区 2560x1392，正好是工作区；还原后回到 1000x700；命中测试同第 2 条（2、12、1）。
+   没补样式的 views:// 窗口最大化仍是 2560x1440。
+5. 合成双击：PostMessage WM_NCLBUTTONDBLCLK(HTCAPTION) 给 Chrome_WidgetWin_0，窗口没有最大化：WebView2 只认真实输入。
+   拖动、双击最大化、贴边分屏的手感要真实操作确认。
+6. 图标：配置 build.win.icon 后 Hutch 打印“embedded Windows icon in launcher.exe / bun.exe”；窗口归 bun.exe 进程；从 bun.exe 取出的
+   关联图标是 NeuroBook 的猫（32px）。窗口本身 WM_GETICON（大、小、小2）与窗口类的图标都是 0。
+   开发者看后定：不用 16、24 的像素专用版，用高清图标（ICO 改为 32–256，窗口图标按 DPI 从 ICO 加载）。
+7. 设计审查后补测（Sonnet 第 2 条）：探针页加两块固定定位、z-index 10 的浮层压在拖动条上，一块不写 app-region、一块写 no-drag。
+   拖动条 (100,18) = 2；无 app-region 的浮层压在拖动条上的点 (400,18) = 2（HTCAPTION：点它会拖窗口）；同一浮层在拖动条以下 (400,80) = 1；
+   no-drag 的浮层压在拖动条上 (650,18) = 1。结论：app-region 不看层叠，盖到拖动区上的浮层必须写 no-drag。

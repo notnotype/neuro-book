@@ -18,6 +18,36 @@
         "pathPlaceholder": "/home/me/plugins/hello",
         "start": "Install…"
     },
+    "upload": {
+        "hint": "You can also drop a plugin folder here, or choose a folder.",
+        "choose": "Choose folder…",
+        "overlay": "Drop to install the plugin",
+        "progress": "Uploading {{percent}}%",
+        "source": "Dropped folder {{name}} ({{files}} files, {{size}})",
+        "expired": "The uploaded folder is no longer available. Choose or drop it again",
+        "notFolder": "Drop one plugin folder",
+        "archive": "Extract it first, then drop the extracted folder",
+        "noManifest": "This folder has no package.json at its root, so it does not look like a built plugin",
+        "nested": "The plugin seems to be inside {{name}}. Choose or drop that folder instead",
+        "busyNow": "Still working on the previous folder",
+        "outside": "Drop onto the plugins page content",
+        "problem": {
+            "too-many-files": "The folder has too many files (at most {{max}})",
+            "file-too-large": "{{path}} is too large (a single file can be at most {{max}})",
+            "too-large": "The folder is too large (at most {{max}} in total)",
+            "path-invalid": "The folder has a file name that cannot be uploaded",
+            "too-deep": "The folder is nested too deeply",
+            "read-failed": "Reading or uploading did not finish: {{path}}"
+        },
+        "errors": {
+            "upload-too-large": "The folder is too large and was not uploaded",
+            "upload-busy": "Too many folders are being uploaded. Try again shortly",
+            "upload-path-invalid": "The folder has a file name that cannot be uploaded",
+            "upload-malformed": "The upload was incomplete. Try again",
+            "upload-failed": "The server did not accept this folder",
+            "unreachable": "Reading or uploading did not finish"
+        }
+    },
     "groups": {
         "thirdParty": "Third-party plugins",
         "builtin": "Built-in plugins",
@@ -132,6 +162,10 @@
         "nbook-commands": {
             "name": "Commands",
             "description": "Registers and runs commands; the command palette and keybindings run the commands registered here."
+        },
+        "nbook-desktop": {
+            "name": "Desktop",
+            "description": "Window settings of the desktop app: zoom (with its shortcuts and commands), opening NeuroBook when you sign in to Windows, and whether closing the last window quits NeuroBook or keeps it in the system tray. The settings section appears only in desktop app windows."
         },
         "nbook-editor": {
             "name": "Editor",

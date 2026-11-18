@@ -114,6 +114,12 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
     /** 键盘会话模式：Enter 与方向键互不混用（见 `keyboardSession`）。 */
     let keyboardMode: "none" | "enter" | "adjust" = "none";
     let disposed = false;
+    /**
+     * 挂上时的根元素与它所在的窗口、文档：摘监听、清计时器都用这一份，不读 `options.root.value`（换元素、置空之后它已经是新的或 null）。
+     * 窗口取根元素的 `ownerDocument`（同 `drag-session.ts`），根在嵌入的文档里时监听挂在那个文档上。
+     */
+    let attached: {readonly root: HTMLElement; readonly view: Window; readonly document: Document} | null = null;
+    const view = (): Window => attached?.view ?? window;
     let keyboardDelta = {x: 0, y: 0};
     /** 显现计时：同一批连续命中不重置，离开命中集合才取消。 */
     let hoverTimer = 0;
@@ -198,7 +204,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         if (hoverTimer !== 0) {
             return;
         }
-        hoverTimer = window.setTimeout(() => {
+        hoverTimer = view().setTimeout(() => {
             hoverTimer = 0;
             setRevealed([...hovered.value]);
         }, SASH_HOVER_DELAY_MS);
@@ -207,7 +213,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
     /** 离开命中集合、被别的按下手势打断、禁用或卸载：取消计时、淡出并放掉光标。 */
     function resetHover(): void {
         if (hoverTimer !== 0) {
-            window.clearTimeout(hoverTimer);
+            view().clearTimeout(hoverTimer);
             hoverTimer = 0;
         }
         setHovered([]);
@@ -359,7 +365,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
          * `resetHover` 不在这里调用——它会把刚点亮的线一起清掉。
          */
         if (hoverTimer !== 0) {
-            window.clearTimeout(hoverTimer);
+            view().clearTimeout(hoverTimer);
             hoverTimer = 0;
         }
         setHovered(winner.hits.map(sashHitKey));
@@ -376,7 +382,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         if (binding !== null && pointerId === event.pointerId) {
             pendingDelta = {x: event.clientX - startPoint.x, y: event.clientY - startPoint.y};
             if (frame === 0) {
-                frame = requestAnimationFrame(flush);
+                frame = view().requestAnimationFrame(flush);
             }
             return;
         }
@@ -401,7 +407,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             return;
         }
         if (frame !== 0) {
-            cancelAnimationFrame(frame);
+            view().cancelAnimationFrame(frame);
             frame = 0;
             flush();
         }
@@ -537,6 +543,9 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         if (root === null || disposed) {
             return;
         }
+        const document = root.ownerDocument;
+        const owner = document.defaultView ?? window;
+        attached = {root, view: owner, document};
         /**
          * 按下必须走**捕获阶段**：命中带内的像素可能同时落在别的拖动源上（容器标签、View 标题……
          * dnd-kit 的 PointerSensor 是泡在源元素上监听的）。scope 根是这些源的祖先，捕获阶段先跑，
@@ -549,7 +558,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         root.addEventListener("lostpointercapture", onLostCapture);
         root.addEventListener("pointerleave", onPointerLeave);
         root.addEventListener("dragstart", onForeignDragStart, {capture: true});
-        window.addEventListener("blur", onWindowBlur);
+        owner.addEventListener("blur", onWindowBlur);
         document.addEventListener("keydown", onKeydownCapture, true);
         scopeEntries.set(root, entry);
     }
@@ -557,29 +566,31 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
     function detach(): void {
         releaseCursor();
         if (hoverTimer !== 0) {
-            window.clearTimeout(hoverTimer);
+            view().clearTimeout(hoverTimer);
             hoverTimer = 0;
         }
-        const root = options.root.value;
-        if (root !== null) {
-            root.removeEventListener("pointerdown", onPointerDown, {capture: true});
-            root.removeEventListener("pointermove", onPointerMove);
-            root.removeEventListener("pointerup", onPointerUp);
-            root.removeEventListener("pointercancel", onPointerCancel);
-            root.removeEventListener("lostpointercapture", onLostCapture);
-            root.removeEventListener("pointerleave", onPointerLeave);
-            root.removeEventListener("dragstart", onForeignDragStart, {capture: true});
-            scopeEntries.delete(root);
-        }
-        window.removeEventListener("blur", onWindowBlur);
-        document.removeEventListener("keydown", onKeydownCapture, true);
         if (frame !== 0) {
-            cancelAnimationFrame(frame);
+            view().cancelAnimationFrame(frame);
             frame = 0;
         }
+        if (attached === null) {
+            return;
+        }
+        const {root, view: owner, document} = attached;
+        root.removeEventListener("pointerdown", onPointerDown, {capture: true});
+        root.removeEventListener("pointermove", onPointerMove);
+        root.removeEventListener("pointerup", onPointerUp);
+        root.removeEventListener("pointercancel", onPointerCancel);
+        root.removeEventListener("lostpointercapture", onLostCapture);
+        root.removeEventListener("pointerleave", onPointerLeave);
+        root.removeEventListener("dragstart", onForeignDragStart, {capture: true});
+        scopeEntries.delete(root);
+        owner.removeEventListener("blur", onWindowBlur);
+        document.removeEventListener("keydown", onKeydownCapture, true);
+        attached = null;
     }
 
-    // 根元素由渲染决定：出现即挂监听，换元素先摘旧的（重挂不留下重复监听）。
+    // 根元素由渲染决定：出现即挂监听，换元素先摘挂上时记下的旧元素（重挂不留下重复监听）。
     watch(options.root, (element) => {
         detach();
         if (element !== null && !disposed) {

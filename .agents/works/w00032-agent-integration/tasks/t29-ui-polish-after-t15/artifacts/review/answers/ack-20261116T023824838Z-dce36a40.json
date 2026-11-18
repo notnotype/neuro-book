@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t29-ui-polish-after-t15",
+    "artifactId": "review",
+    "ackId": "20261116T023824838Z-dce36a40",
+    "answers": [
+        "20261116T023750265Z-f8af311a"
+    ],
+    "through": "20261116T023750265Z-f8af311a",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/README.md"
+    ],
+    "ackedAt": "2026-11-16T02:38:24.838Z"
+}

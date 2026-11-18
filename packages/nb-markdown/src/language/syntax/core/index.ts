@@ -9,6 +9,7 @@
 
 import {Extension} from "@tiptap/core";
 import {Code} from "@tiptap/extension-code";
+import {Document} from "@tiptap/extension-document";
 import type {AnyExtension, JSONContent} from "@tiptap/core";
 import {Image} from "@tiptap/extension-image";
 import {Link} from "@tiptap/extension-link";
@@ -37,6 +38,17 @@ const MarkdownStyle = Extension.create({
     name: "markdownStyle",
     addGlobalAttributes() {
         return [{types: STYLED_TYPES, attributes: {markdown: {default: null, rendered: false, keepOnSplit: false}}}];
+    },
+});
+
+/**
+ * 文档带着 frontmatter 的原文（方言 Spec 输出 22）：BOM 之后、正文之前的 `---` 块，原样一个字符串，没有时为 null。放在文档的
+ * 属性上而不是做成第一个块：它不是正文，块菜单、全选删除、粘贴与位置都碰不到它；改它用 `setDocAttribute`，撤销照常。
+ * 只放 `isWholeFrontmatter` 认可的原文（编解码器读出的都是），写回把它原样拼在正文前（`codec/write.ts`）。
+ */
+const MarkdownDocument = Document.extend({
+    addAttributes() {
+        return {frontmatter: {default: null, rendered: false}};
     },
 });
 
@@ -376,6 +388,7 @@ const keepsHref = (url: string): boolean => /^[a-z][a-z0-9+.-]*:\/\//iu.test(url
 
 export const coreExtensions: ReadonlyArray<AnyExtension> = [
     StarterKit.configure({
+        document: false,
         paragraph: false,
         link: false,
         code: false,
@@ -384,6 +397,7 @@ export const coreExtensions: ReadonlyArray<AnyExtension> = [
         trailingNode: false,
         // 列表由 `@tiptap/extension-list` 的同名扩展提供（与任务列表同一个包）。
     }),
+    MarkdownDocument,
     MarkdownParagraph,
     MarkdownCode,
     TaskList,
@@ -393,7 +407,8 @@ export const coreExtensions: ReadonlyArray<AnyExtension> = [
     SingleParagraphCell,
     SingleParagraphHeader,
     Image.configure({inline: true, allowBase64: false, HTMLAttributes: {class: "nb-markdown-image-node"}}),
-    MarkdownLink.configure({openOnClick: false, enableClickSelection: true, linkOnPaste: false, autolink: false, isAllowedUri: (url, {defaultValidate}) => defaultValidate(url) || keepsHref(url)}),
+    // 单击选中整条链接由编辑器的 `MarkdownLinkOpener` 做：Tiptap 自带的（`enableClickSelection`）在点击处理时读的是点击之前的选区，点到一条链接选中的是之前光标所在的那条。
+    MarkdownLink.configure({openOnClick: false, enableClickSelection: false, linkOnPaste: false, autolink: false, isAllowedUri: (url, {defaultValidate}) => defaultValidate(url) || keepsHref(url)}),
     MarkdownStyle,
 ];
 

@@ -10,6 +10,9 @@ export {default as AgentConversationComposer} from "./composer/AgentConversation
 export {default as AgentModelPicker} from "./composer/AgentModelPicker.vue";
 export {default as AgentRoleModelPicker} from "./composer/AgentRoleModelPicker.vue";
 export {default as AgentQueuedMessages} from "./composer/AgentQueuedMessages.vue";
+export {default as AgentNoticeCard} from "./composer/AgentNoticeCard.vue";
+export {default as AgentConversationHead} from "./head/AgentConversationHead.vue";
+export {default as AgentWelcome} from "./stream/AgentWelcome.vue";
 export {default as AgentMessageEditor} from "./stream/AgentMessageEditor.vue";
 export {default as AgentSessionTree} from "./panels/AgentSessionTree.vue";
 export {default as AgentContextInspector} from "./panels/AgentContextInspector.vue";
@@ -38,6 +41,9 @@ export {default as AgentFileContentDetail} from "./tools/AgentFileContentDetail.
 export {default as AgentTaskList} from "./tools/AgentTaskList.vue";
 export {default as AgentTaskListNode} from "./tools/AgentTaskListNode.vue";
 export {default as AgentToolDetail} from "./tools/AgentToolDetail.vue";
+export {default as AgentRequestList} from "./requests/AgentRequestList.vue";
+export {default as AgentRequestDetail} from "./requests/AgentRequestDetail.vue";
+export {default as AgentRequestJson} from "./requests/AgentRequestJson.vue";
 export {default as PlainMarkdown} from "./fallback/PlainMarkdown.vue";
 export {default as PlainPromptEditor} from "./fallback/PlainPromptEditor.vue";
 export {default as PlainPromptTextView} from "./fallback/PlainPromptTextView.vue";

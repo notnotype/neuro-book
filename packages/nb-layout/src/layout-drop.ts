@@ -1,6 +1,6 @@
 /**
  * 工作台的落点规则（docs/specs/ui/workbench-layout.md 输出 25 到 29）：按这一刻的矩形判定指针落在哪，判定与提交共用同一份动作。纯函数；遮挡（被菜单挡住、
- * `data-no-drop`）由宿主读 DOM 之后不把那块传进来。
+ * `data-no-drag`）由宿主读 DOM 之后不把那块传进来。
  *
  * 动作的身份就是它的内容，会话按它判断“和上次显示的是不是同一个”。缝和外缘是两个落点：缝放到两块之间，外缘往这一块的这个方向分。
  */
@@ -8,7 +8,7 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isNodeShown, isSectionCollapsed, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, REGION_ORIENTATION, sectionRegionOf, setFloatRect, tabKey, treeLeaves} from "./layout-doc";
+import {activateTab, edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isContainerAnchor, isNodeShown, isSectionCollapsed, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, REGION_ORIENTATION, sectionRegionOf, setFloatRect, tabKey, treeLeaves} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelName, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -27,7 +27,8 @@ export type LayoutDropAction =
     /** `activate: false` 只换位置，不改活动标签。缺省成为活动标签。 */
     | {readonly kind: "strip"; readonly panel: string; readonly index: number; readonly activate?: boolean}
     | {readonly kind: "center"; readonly panel: string}
-    | {readonly kind: "edge"; readonly target: LayoutEdgeTarget}
+    /** `container`：放进带容器的区域时归哪个容器；不写是那个区域的当前容器（`settleLanding`）。放进空区域时由宿主的 `newContainer` 给（ADR 0050）。 */
+    | {readonly kind: "edge"; readonly target: LayoutEdgeTarget; readonly container?: string}
     /** 浮动：标签浮出来，整个浮动窗是移动。矩形每帧变，比较落点时只看种类（`layoutDropKey`）。 */
     | {readonly kind: "float"; readonly rect: LayoutFloatRect};
 
@@ -60,6 +61,8 @@ export interface LayoutDropInput {
     readonly excluded?: ReadonlyArray<GridDropRect>;
     readonly policy: LayoutPolicy;
     readonly edgeRatio?: number;
+    /** 放进空区域时新建的容器 id（ADR 0050），由宿主给，一场拖动里不变；没给时空区域不是落点。 */
+    readonly newContainer?: string;
 }
 
 const contains = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
@@ -98,6 +101,18 @@ const halvesRegion = (input: Pick<LayoutDropInput, "doc" | "noCenter">, panel: s
 const sectionEdges = (region: PanelName): readonly [LayoutEdge, LayoutEdge] => (REGION_ORIENTATION[region] === "vertical" ? ["top", "bottom"] : ["left", "right"]);
 
 /**
+ * 空区域（打开着、一个分节都没有，锚就是这块区域，ADR 0050）的落点：整块是一个外缘落点，放下去成为区域里一个容器的唯一分节，容器是宿主给的
+ * `newContainer`。进不了工具区域的（编辑器标签、文件）在这里没有落点：在面板上却没有落点，算被拒绝。整窗拖动（`noCenter`）不在这里停靠：
+ * 整窗只在标签条的窄带停靠（docs/specs/ui/workbench-layout.md 输出 39），多标签的窗要先撕下标签。单独的锚上 `split` 与 `spread` 结果相同，不问
+ * 策略的 `edgeTarget`。不是锚时返回 `undefined`，调用方照常判；锚有几何就说明它是空区域（有分节时锚不显示）。
+ */
+function emptyRegionDrop(input: {readonly doc: LayoutDoc; readonly policy: LayoutPolicy; readonly noCenter?: boolean; readonly newContainer?: string}, panelId: string, panel: PanelRecord, tabs: ReadonlyArray<TabRef>): LayoutDropAction | null | undefined {
+    if (panel.name === undefined || !isContainerAnchor(panel)) return undefined;
+    if (input.noCenter === true || input.newContainer === undefined || !input.policy.accepts(tabs, panel, "edge")) return null;
+    return {kind: "edge", target: {kind: "split", panel: panelId, edge: sectionEdges(panel.name)[1]}, container: input.newContainer};
+}
+
+/**
  * 分节的落点（docs/specs/ui/workbench-layout.md 输出 25 第 7 行）：正文按自己的中线分前后两半，落在哪半就在它前面或后面插一个新分节。没有外缘窄带、没有中央。
  * 上下分的区域（侧栏、右栏）里标题行在分节的前端，算前半；左右分的区域（底部面板）里标题行横跨两半，和正文按同一条竖线分。
  * 正文按自己的中线分而不是按整块（标题行加正文）分：分区画在正文上（`layoutDropSectors`），两边要同一条线。收成标题行的分节正文零面积，整块都是前半。
@@ -114,6 +129,8 @@ function sectionHalf(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, 
 }
 
 function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, panel: PanelRecord, tabs: ReadonlyArray<TabRef>): LayoutDropAction | null {
+    const empty = emptyRegionDrop(input, geometry.id, panel, tabs);
+    if (empty !== undefined) return empty;
     const region = halvesRegion(input, geometry.id);
     if (region !== null) return sectionHalf(input, geometry, panel, tabs, region);
     const strip = geometry.strip;
@@ -283,7 +300,8 @@ export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | nu
     return hit === undefined || panel === undefined ? null : resolveInPanel(input, hit, panel, tabs);
 }
 
-export type LayoutDropSectorId = LayoutEdge | "center";
+/** `whole`：整块只有一个落点（空区域，ADR 0050），文字由宿主按落点给。 */
+export type LayoutDropSectorId = LayoutEdge | "center" | "whole";
 
 /** 落点分区的一块（docs/specs/ui/workbench-layout.md“落点分区”）：指针落在这个多边形里，`resolveLayoutDrop` 给的就是 `action`。 */
 export interface LayoutDropSector {
@@ -302,6 +320,8 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
     const panel = input.doc.panels[geometry.id];
     if (panel === undefined || !hasArea(geometry.body)) return null;
     const tabs = sourceTabs(input.doc, input.source);
+    const empty = emptyRegionDrop(input, geometry.id, panel, tabs);
+    if (empty !== undefined) return empty === null ? null : [{id: "whole", points: [[0, 0], [1, 0], [1, 1], [0, 1]], action: empty}];
     const region = halvesRegion(input, geometry.id);
     if (region !== null) return sectionSectors(input, geometry.id, panel, tabs, region);
     const centerAction: LayoutDropAction = {kind: "center", panel: geometry.id};
@@ -357,7 +377,7 @@ function applyNewTab(doc: LayoutDoc, tab: TabRef, action: LayoutDropAction, poli
         case "center":
             return insertTab(doc, {panel: action.panel, tab});
         case "edge":
-            return openPanelAtEdge(doc, {id: policy.newId("panel"), panel, target: action.target}, policy);
+            return openPanelAtEdge(doc, {id: policy.newId("panel"), panel: action.container === undefined ? panel : {...panel, container: action.container}, target: action.target}, policy);
         case "float":
             return openFloatPanel(doc, {id: policy.newId("panel"), panel, rect: action.rect});
     }
@@ -373,14 +393,17 @@ export function applyLayoutDrop(doc: LayoutDoc, source: LayoutDropSource, action
         case "center": {
             const panel = doc.panels[action.panel];
             if (panel === undefined) return {ok: false, code: "not-found", detail: `面板 ${action.panel}`};
-            const inPlace = source.kind === "tab" && findTab(doc, source.tab)?.panel === action.panel;
-            if (inPlace || (source.kind === "panel" && source.panel === action.panel)) return {ok: true, doc};
+            // 放回自己所在面板的中央：它成为活动标签，本来就是时原样（放回原处）。
+            if (source.kind === "tab" && findTab(doc, source.tab)?.panel === action.panel) return panel.active === source.tab ? {ok: true, doc} : activateTab(doc, source.tab);
+            if (source.kind === "panel" && source.panel === action.panel) return {ok: true, doc};
             if (source.kind === "tab") return moveTabToStrip(doc, {tab: source.tab, panel: action.panel, index: panel.tabs.length}, policy);
             return movePanelToStrip(doc, {panel: source.panel, target: action.panel}, policy);
         }
-        case "edge":
-            if (source.kind === "tab") return moveTabToEdge(doc, {tab: source.tab, target: action.target}, policy);
-            return movePanelToEdge(doc, {panel: source.panel, target: action.target}, policy);
+        case "edge": {
+            const container = action.container === undefined ? {} : {container: action.container};
+            if (source.kind === "tab") return moveTabToEdge(doc, {tab: source.tab, target: action.target, ...container}, policy);
+            return movePanelToEdge(doc, {panel: source.panel, target: action.target, ...container}, policy);
+        }
         case "float":
             return source.kind === "tab" ? floatTab(doc, {tab: source.tab, rect: action.rect}, policy) : setFloatRect(doc, {panel: source.panel, rect: action.rect});
     }
@@ -454,6 +477,8 @@ export function enumerateDropCandidates(input: {
     readonly stripIndexes: (panel: string) => ReadonlyArray<number>;
     /** 这一刻的缝（`layoutSeamsOf`）；不给就没有缝落点。 */
     readonly seams?: ReadonlyArray<LayoutSeam>;
+    /** 同 `LayoutDropInput.newContainer`：没给时空区域不是落点。 */
+    readonly newContainer?: string;
 }): ReadonlyArray<LayoutDropCandidate> {
     const {doc, source, policy} = input;
     const tabs = sourceTabs(doc, source);
@@ -468,6 +493,11 @@ export function enumerateDropCandidates(input: {
     for (const leaf of treeLeaves(doc.tree.root)) {
         const panel = doc.panels[leaf.id];
         if (panel === undefined || !isNodeShown(doc, leaf)) continue;
+        const empty = emptyRegionDrop(input, leaf.id, panel, tabs);
+        if (empty !== undefined) {
+            if (empty !== null) add(leaf.id, empty);
+            continue;
+        }
         // 分节上只有前后两个位置（输出 31），和指针的两半同一套（`sectionHalf`）：收成标题行的分节正文零面积，整块都是前半，只有前一个位置。
         const region = sectionRegionOf(doc, leaf.id);
         if (region !== null) {

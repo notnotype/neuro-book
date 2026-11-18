@@ -20,10 +20,11 @@ import {
     SHELL_STATUSBAR_HEIGHT,
 } from "../shell/sizes";
 import type {ViewCatalog} from "../views/registry";
+import {cardInsetPx} from "../shell/adjacency";
 
 export const PANEL_HEAD_HEIGHT = SHELL_PANEL_COLLAPSED_HEIGHT;
 export const EDITOR_GROUP_MINIMUM: GridExtent = {width: 220, height: 120};
-/** 新浮动窗的大小（原型试过的手感），不小于角色的最小尺寸，不大于树区域。 */
+/** 新浮动窗的大小：不小于角色的最小尺寸，不大于树区域。 */
 export const FLOAT_DEFAULT: GridExtent = {width: 460, height: 340};
 /** 窗至少这么宽留在树区域里：加上头的高度，标签条总能抓到。 */
 export const FLOAT_KEEP_WIDTH = 80;
@@ -54,13 +55,13 @@ export function defaultFloatRect(extent: GridExtent | null, minimum: GridExtent,
 const COLLAPSE_REGIONS: ReadonlyArray<PanelName> = ["auxiliarybar", "panel", "sidebar"];
 
 /**
- * 放不下时收走的先后（输出 10）：按右栏、底部面板、侧栏，各区域里的分节按树序。不显示的分节在里面也无妨，收走的只从显示着的里面挑；
- * 不在这张表里的工具面板排在后面。
+ * 放不下时收走的先后（输出 10）：按右栏、底部面板、侧栏，各区域里的面板按树序。不显示的在里面也无妨，收走的只从显示着的里面挑：
+ * 锚只在区域空着时显示（ADR 0050），那时这块空面板按它的区域排。不在这张表里的工具面板排在后面。
  */
 export function collapseOrder(doc: LayoutDoc): ReadonlyArray<string> {
     return COLLAPSE_REGIONS.flatMap((region) => {
         const hit = regionNodeOf(doc, region);
-        return hit === null ? [] : treeLeaves(hit.node).map((leaf) => leaf.id).filter((id) => id !== hit.anchor);
+        return hit === null ? [] : treeLeaves(hit.node).map((leaf) => leaf.id);
     });
 }
 
@@ -84,6 +85,15 @@ export function panelConstraints(panel: PanelRecord, region: PanelName | null, c
 }
 
 /**
+ * 入口条叶顶上被卡片缩掉的那一截（输出 47）：卡片在叶里按主题的缝往里缩，入口条叶只有这一行，缩掉的要加回叶上，卡片里才是完整的一行头高
+ * （分节的叶比头高，缩掉的是正文那段，不用加）。右栏顶上贴着窗体，缩一整条缝；底部面板顶上挨着编辑区、隔一条分隔线，缩半条缝减半条线。
+ * 和别的卡片同一套规则（`shell/adjacency.ts` 的 `cardInsetPx`）：右栏顶上是外边，底部面板顶上是隔着分隔线的内边。
+ */
+function stripTopInset(region: PanelName, gap: number): number {
+    return cardInsetPx(region === "auxiliarybar" ? {kind: "outer", occupied: 0} : {kind: "inner", occupied: SASH_PX}, gap);
+}
+
+/**
  * `doc` 是要投影的那份文档：约束按面板所在的区域取，区域要从树里问。拿它去投影别的文档（拖动的预览）时，在这份文档里没有的面板按“不在区域里”算。
  */
 export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>; readonly cardGap?: number; readonly squeezed?: boolean}): LayoutProjectionOptions {
@@ -100,6 +110,8 @@ export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonl
         headHeight: PANEL_HEAD_HEIGHT,
         collapseThreshold: SHELL_DRAG_COLLAPSE_THRESHOLD,
         sashSize: SASH_PX,
+        // 右栏、底部面板卡片顶上一行是入口条，当前容器只有一节时那一节的头并进这一行（输出 47）；侧栏的入口在活动栏上。
+        regionStrip: (region) => (region === "sidebar" ? null : {height: PANEL_HEAD_HEIGHT + stripTopInset(region, input.cardGap ?? 0), mergeSole: true}),
         ...(input.removed === undefined ? {} : {removed: input.removed}),
     };
 }

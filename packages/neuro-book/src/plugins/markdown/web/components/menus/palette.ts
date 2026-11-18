@@ -28,6 +28,3 @@ export const HIGHLIGHT_COLORS: ReadonlyArray<PaletteColor> = [
     {id: "pink", value: "#fce7f3"},
     {id: "red", value: "#fee2e2"},
 ];
-
-/** 链接的命令归链接那个 Task，这里只留入口：命令不在目录里时按钮不出现。 */
-export const LINK_COMMAND = "nbook.edit.link";

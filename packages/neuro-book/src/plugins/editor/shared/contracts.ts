@@ -16,6 +16,10 @@ import type {EditingActionId, EditorEditing} from "./editing";
 
 export {EDITING_ACTIONS} from "./editing";
 export type {EditingActionId, EditorEditing} from "./editing";
+// 图片存放位置的设置与目录规则：Markdown 插件读它们（docs/specs/workbench/markdown-editing.md 输出 56）。
+export {IMAGE_FOLDER_DEFAULT, imageDirectory, normalizeImageFolder} from "./image-location";
+export type {ImageLocation} from "./image-location";
+export {imageFolderSetting, imageLocationSetting} from "./settings";
 import type {Component} from "vue";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
@@ -129,6 +133,20 @@ export type EditorToolbarPlacement = "full" | "merged" | "bottom";
 /** 编辑组面包屑那一行右侧留给控件的位置（`merged` 时工具栏传送到这里）：每组一个。值是元素；这个文件也进后端的类型检查，写不了 DOM 类型。 */
 export const editorToolbarSlotKey: InjectionKey<Readonly<Ref<object | null>>> = Symbol("nbook.editor/toolbar-slot");
 
+/**
+ * Markdown 编辑器纸面的排版（`nbook.editor` 的“Markdown 正文”设置，docs/specs/workbench/editor.md 输出 52）：编辑器区从配置读成一份
+ * 响应式的值，经注入交给 Markdown 控件（它在 markdown 插件里，跨插件只经这个文件）。没有注入时（Lab）控件用自己样式里的缺省。
+ */
+export interface MarkdownEditorOptions {
+    /** 空串不覆盖：跟随皮肤的正文字体，皮肤没有时用界面字体。 */
+    readonly fontFamily: string;
+    readonly fontSize: number;
+    /** 字号的倍数（设置里存的是整数百分比）。 */
+    readonly lineHeight: number;
+}
+
+export const markdownEditorOptionsKey: InjectionKey<Readonly<Ref<MarkdownEditorOptions>>> = Symbol("nbook.editor/markdown-options");
+
 /** 键盘事件里键位匹配要读的字段（`KeyboardEvent` 的子集，测试里不用造整个事件）。 */
 export interface KeyEventLike {
     readonly code: string;
@@ -166,8 +184,8 @@ export interface EditorMenus {
     readonly commentMargin: Readonly<Ref<boolean>>;
     /** 键位写法按平台写好（剪贴板这类不是命令的动作用）。 */
     keyLabel(keybinding: string): string;
-    /** 给用户看的一条通知（`menus.<key>`）。 */
-    notify(key: string): void;
+    /** 给用户看的一条通知（`menus.<key>`）；文字里有 `{{name}}` 的按 `params` 填。 */
+    notify(key: string, params?: Readonly<Record<string, string | number>>): void;
     reportError(error: unknown): void;
 }
 

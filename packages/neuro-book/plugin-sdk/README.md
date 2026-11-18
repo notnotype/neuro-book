@@ -314,6 +314,18 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
   });
   ```
 
+### 带 Skill
+
+插件可以带 Skill（[Agent Skills](../../../docs/specs/agent/skills.md)：一个带 `SKILL.md` 的文件夹，用户在对话里用 `$` 选它）。把 Skill 放进插件目录里的一个文件夹（例如 `skills/`，每个子文件夹一个 Skill，文件夹名等于 `SKILL.md` 的 `name`），在 `plugin.ts` 里用 `/agent` 的 `agentSkills` 声明它：
+
+- 写法：``plugin.descriptor([agentSkills(`${plugin.id}.skills`, {directory: "skills"})])``。`directory` 是插件目录里的相对路径，用 `/` 分段。
+- id：Skill 的 id 是插件 id 加 `.` 加文件夹名。只带 Skill 的插件没有入口，`locations` 写空数组。
+- 构建：`nbooke build` 把目录搬进产物，每个 JS/TS 脚本连同它用到的 npm 包打成一个单文件，写回同一个路径与文件名，`SKILL.md` 里写的 `bun scripts/x.ts` 不用改。`package.json`、锁文件与 `node_modules` 不进产物，装好的 Skill 直接可用、不用初始化。
+- 找旁边的文件：脚本用 `import.meta.dir`。`__dirname` 会被换成构建机器上的路径，构建拒绝。
+- 构建失败的几种：依赖带原生模块（`.node`）或别的附件；依赖按自己的位置读文件（`__dirname`、`import.meta.url`）；运行时才按名字加载模块；Skill 带 Python 第三方依赖（只用标准库的 `.py` 可以）。报错写明是哪个 Skill、哪个文件、哪个依赖。依赖按工作目录或环境变量找文件时构建查不出，装好之后才失败。
+
+能照着改的例子是 SDK 包里的 `examples/plugins/skill-pack`。
+
 ### 作者可用的内置命令
 
 内置插件的命令很多，作者能依赖的（属于 `engines.neurobook` 的兼容范围）只有下面这些；别的内置命令随产品改动，不要写进插件。
@@ -387,7 +399,7 @@ SDK 还没有给作者的测试替身（内存里的存储、设置与时钟，�
 
 `dist` 整个目录就是可以安装的插件：`package.json`（构建生成的清单）、每个入口一个 `.js` 与 `.map`、`style.css`。依赖已经打进入口文件，目录里没有也不需要 `node_modules`。把这个目录交给用户，用户在插件页填它在服务端机器上的路径安装。
 
-- 兼容的 NeuroBook 版本写在 `package.json` 的 `engines.neurobook`，缺省是构建时 SDK 版本的 `^<版本>`。NeuroBook 是 0.x 时，minor 号变化可能带不兼容的改动。
+- 兼容的 NeuroBook 版本写在 `package.json` 的 `engines.neurobook`，缺省是构建时 SDK 版本的 `^<版本>`。NeuroBook 记着插件 API 从哪一版起没有不兼容的改动（兼容起点），你写的范围与“兼容起点到当前版本”有交集就算兼容：NeuroBook 提版而插件 API 没破时，按旧版本构建的插件不用重新构建。插件 API 有不兼容的改动时，变更记录的“不兼容的改动”里会写，兼容起点随之提到那一版。
 - 依赖别的第三方插件的版本范围写在 `package.json` 的 `pluginVersions`。
 
 ## 附表与 Spec

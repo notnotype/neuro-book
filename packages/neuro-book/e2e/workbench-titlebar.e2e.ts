@@ -83,7 +83,7 @@ test("标题栏 36px、状态栏 22px；四个菜单的条目由各插件贡献�
     }
     // 条目由各插件贡献，内容、顺序与分节（分隔线）是外壳四输出 29 的条目表
     expect(structure).toEqual({
-        文件: ["打开项目", "---", "保存", "全部保存", "还原为磁盘版本", "---", "关闭编辑器", "关闭其它编辑器"],
+        文件: ["打开项目", "回到书架", "---", "保存", "全部保存", "还原为磁盘版本", "---", "关闭编辑器", "关闭其它编辑器"],
         编辑: ["撤销", "重做"],
         视图: ["命令面板", "---", "侧栏（勾选项）", "右栏（勾选项）", "活动栏（勾选项）", "面板（勾选项）", "最大化/还原面板", "---", "向右拆分编辑器", "向下拆分编辑器", "用其它编辑器重新打开", "显示编辑器工具栏（勾选项）", "---", "切换主题", "切换明暗", "切换界面语言", "打开主题编辑器", "在浮动窗口中打开主题编辑器", "---", "重新载入"],
         帮助: ["欢迎", "文档"],
@@ -180,7 +180,7 @@ test("逐级让位：从 1440 收到 390 依次收起横排标志、菜单栏、
     await page.setViewportSize({width: firstWidth[2]!, height: 700});
     await expect.poll(levelAt).toBe(2);
     // 侧栏是当前容器的分节，分节的 id 是布局起的：看活动栏里当前容器的入口按没按下（侧栏可见时才按下，docs/specs/ui/workbench-layout.md 输出 22）。直接在页面里读，不等元素出现
-    const sidebarShown = () => page.evaluate(() => document.querySelector('[data-tool-entry][aria-pressed="true"]') !== null);
+    const sidebarShown = () => page.evaluate(() => document.querySelector('[data-tool-band] [data-tool-entry][aria-pressed="true"]') !== null);
     expect(await sidebarShown()).toBe(true);
     await live("button[data-titlebar-menu-entry]").focus();
     await page.keyboard.press("Enter");

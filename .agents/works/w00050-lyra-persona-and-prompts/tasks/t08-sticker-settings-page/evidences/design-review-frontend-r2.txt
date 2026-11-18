@@ -1,0 +1,184 @@
+第 2 轮页面部分设计审查（w00050 t08）。对象：plan.md 第 2 版的页面部分与 stickers.md 输出 25 到 38。只读。
+第 1 部分是上一轮 17 条的核对（编号用 R1-n，不计入下面的数量）；第 2 部分是新发现，编号 1 起。
+
+### R1. 上一轮 17 条的落实核对（一条一行）
+严重程度：不计数
+类别：核对
+位置：plan.md「stickers/web/：页面」「stickers/shared/contracts.ts」「切片」「验收映射」；stickers.md 输出 25 到 38
+
+R1-1 空包没有添加格与落点：已落实（计划“空的表情包画整格落点”“没有组时单独一行”，Spec 26 同）。留一处措辞歧义，见新发现 12。
+R1-2 导入冲突画不出右侧缩略图：已落实（选 b，fflate 读本地 zip，409 带另存名与 token，读不到时通知）。确认时的忙与失败显示没写，见新发现 5。
+R1-3 拖放没有窗口兜底：已落实（dragHasFiles、网格外与只读包 dropEffect none、离开窗口才收覆盖层、文件夹跳过进汇总）。已核对 `nbook/ui/dropped-folder` 里确有 `dragHasFiles`。
+R1-4 没有选择文件入口、上传无显示与归属：已落实（隐藏 file input、按包排队、同时 3、占位格、汇总通知、pack-missing）。队列放在哪没有写成条目，见新发现 7。
+R1-5 字段提交合同：部分落实。合同条目写全了（回车或 change、Esc、Textarea 失焦、带目标、排队、写入中不覆盖、失败回退、清空等于文件名），但接口表里 commit(change) 不带目标、写入完成与 detail 更新的先后没定、Input 并没有 change 事件，见新发现 6。
+R1-6 选中新包与回第一项冲突：部分落实。规则改对了，但 createPack 等回调“交回失败原因或 null”，拿不到新 id，见新发现 2。
+R1-7 页面三态、无效包、无缩略图：已落实（Spec 25、26 与计划“页面状态”）。detail 在“已选中但还没取到”时的表现没写，见新发现 2。
+R1-8 认不出图的提示数据来源：已落实（概要加 unrecognized、unlisted 两个整数）。
+R1-9 stickerAllowlistUsageKey：方向落实（改成贡献点，“all”不列，异步显示加载中、查不到写通用提醒），但贡献点机制本身有缺口，见新发现 3、4、11。
+R1-10 窄窗口与容器查询：已落实。窄时“选中格子把属性栏滚进可见区”与方向键移动选中的相互作用没想，见新发现 9。
+R1-11 键盘与读屏语义：部分落实。listbox、option、roving、Home、End、Esc、组头、alt 为空、焦点去处都写了；方向键的行列规则、移动是否等于选中、Delete 的对象、listbox 里放按钮是否合 ARIA 没定，见新发现 9、10。
+R1-12 组件接口表：部分落实。表有了，但回调与事件的划分、对话框 busy 与 status 的持有、usage 的来路、packs-page.ts 的职责有缺口，见新发现 2、3、5、7；packs-client 的位置违反现有架构检查，见新发现 1。
+R1-13 writable：已落实（页面不看 writable）。
+R1-14 草稿与 Spec 不一致处：已落实（计划开头列出并写明以 Spec 为准）。
+R1-15 写入失败通知、结果未知、导出失败：已落实。
+R1-16 网格图片懒加载：已落实（loading=lazy、decoding=async）。
+R1-17 验收映射：已落实（页面行为映到第 4 片 DOM 测试，e2e 加图用 setInputFiles）。但 DOM 测试里有几条在 happy-dom 里做不了，见新发现 6、9。
+
+### 1. packs-client 挪进 stickers/shared 会被 architecture.test 拦下；现有客户端也没有计划说的“丢晚到旧结果”
+严重程度：重要
+类别：架构 / 与现有机检冲突
+位置：plan.md「stickers/shared/contracts.ts」第 3 条（packs-client）、「agent/web/」第 1 条；packages/neuro-book/AGENTS.md 第 14、15 条；src/architecture.test.ts 第 111 到 120 行；现有 plugins/agent/web/sticker-packs.ts
+
+现象：计划把 `agent/web/sticker-packs.ts` 挪到 `stickers/shared/packs-client.ts`，让 Agent 的浏览器入口与表情包页共用。Agent 要在运行时导入它。`architecture.test.ts` 的规则是“跨插件的运行时导入只能指向对方的 shared/contracts.ts”（类型导入除外），agent/web 运行时导入 `stickers/shared/packs-client` 会报“跨插件的运行时导入只能指向对方的 shared/contracts.ts”。AGENTS.md 第 15 条末尾专门提醒过：要给别的插件在运行时用的符号，一开始就放进提供方的 shared/contracts.ts，别先放别处接线时才被拦下返工。
+另外，计划把这个客户端描述成“订阅 changed、取概要、丢晚到的旧结果”，实际读 `sticker-packs.ts`：只有 ensure 与 load，load 没有任何序号或晚到丢弃；失败只 report，entries 一直是 null，分不出“加载中”和“失败”，也没有重试。表情包页要三态（加载中、就绪、失败加重试）与“已显示后重取失败不换成失败态”，这个客户端现在一样都不满足，等于要新写，不是“挪过去”。
+
+为什么：照计划写第 1 片，测试一跑就红；红了以后常见的补救是把文件改名成 contracts 的一部分或在 architecture 里加白名单，都不好。
+建议改法（二选一，建议 a）：
+a. 由 `nbook.stickers` 的浏览器入口把它做成一个浏览器服务（服务键放 shared/contracts.ts，如 `stickerPacksKey`，形状 `{entries, state, ensure(), reload()}`），Agent 入口把它列为可选依赖，表情包页（同一插件）直接用。这样两边也只订阅一份 `changed`，比现在 resolver 与 Agent 各订一份更省。服务的实例化仍在 stickers/web 里，不碰跨插件导入规则。依赖方向是 agent → stickers，与 Spec“owner 与依赖方向”一致，不成环。
+b. 把客户端放进 stickers/shared/contracts.ts 本身（共用合同允许带 vue 的 ShallowRef 类型，editor 与 markdown 的 contracts 已这么做），缺点是合同文件里带了实现。
+无论哪种，计划都要补写：失败与加载中的区分、重试入口、晚到结果的丢弃（序号）、以及选中包的 detail 加载由谁做（见新发现 7）。
+### 2. 组件表里“回调”与“事件”的划分不成立：页面要根据结果做的事，有的只给了事件
+严重程度：重要
+类别：接口与合同 / 照字面实现会返工
+位置：plan.md 组件表 StickerPacksPage 一行；「选中」「焦点」两条；stickers.md 输出 25、31、32、34、36
+
+现象：表里 `createPack`、`renamePack`、`copyPack`、`importZip`、`updatePack`、`updateSticker` 是回调，“交回失败原因或 null”；`delete-pack`、`delete-sticker`、`delete-file`、`list-files`、`add-images`、`export`、`reveal` 是事件。照 ProfileSettingsPage 的做法（回调是 `Promise<string | null>`，页面 await 后决定对话框关不关、状态行写什么），逐项对照需求：
+a. 新建、改名、复制、导入要“选中交回的 id”（计划“选中”一条、Spec 25），但回调只交回失败原因或 null，页面拿不到新 id；页面自己拼 id 又要知道 id 的构成规则（`user.<文件夹名>`），不该由组件猜。回调需要返回 `{id}` 或 `{reason}` 之类的判别联合。
+b. `importZip` 的第一次调用可能得到冲突（409，带已有包的信息、另存名、token）。“失败原因或 null”表达不了冲突这一支；冲突对话框所需的数据（existing、copyAs、token、本地 zip 的预览）从哪来、谁持有 File、第二次提交带什么，接口表里一个都没有。
+c. 删除表情、删除表情包、删除文件是事件，没有结果。但需求要求：确认框写出包名与表情数、确认后才删；确认之后文件夹被别处换掉的“不删，通知原因”（Spec 34）；删表情后焦点去“下一格”（成功之后才知道该去哪，失败不动）；删包后选中改成新的项。这些都要等结果。确认框开着时失败也无处写原因。凡是页面要根据结果关对话框、移焦点、改选中的操作，都得是回调。
+d. 计划没有写确认删除的对话框由谁画（ProfileSettingsPage 自己带确认框，表里没有对应组件）。建议写明：StickerPacksPage 自己带一个确认对话框，状态与“确认之后的目标”由它持有。
+e. “打开对话框之后文件夹被换掉的不改”（Spec 33、34）要求把 `token` 在打开改名对话框、确认框的那一刻存下来，提交时带这份；如果提交时读当前 detail 的 token，`changed` 重取后拿到的已是新身份，检查形同虚设。接口表没有写 token 的来源。
+f. detail 与选中的对应：页面持有当前选中 id（`select` 是向外的事件，`initial?` 是入参），detail 由外面按 id 取，到达有延迟。表里没有规定 detail 带自己的 id、也没规定“选中了 B 而 detail 还是 A 的”时画什么。照写很容易在切换瞬间在 B 的标题下显示 A 的表情，或者拿 A 的 token 去操作 B。建议 detail 带 id，页面只在 id 与选中一致时画，不一致画加载态。
+
+为什么：这些都不是实现细节，是接口形状；开工时发现返工的是整张表与所有调用点。
+建议改法：表里把回调写成带签名的形式，例如
+- `createPack(folder, title) => Promise<{id} | {reason}>`；`renamePack(id, folder, token)`、`copyPack(id)` 同形；
+- `importZip(file, choice?) => Promise<{id} | {conflict} | {reason}>`；
+- `deletePack(id, token)`、`deleteSticker(id, file, name)`、`deleteFile(id, file)` 改回调，交回 `null | reason`；
+- 事件只留纯界面事件：`select`、`retry`、`export`、`reveal`（它们的失败走通知，页面不等结果）。
+并写一句规则：“页面要等结果的是回调，不等结果的是事件”，再列 token 在对话框打开时快照。
+### 3. 改名对话框的 usage 从哪来：页面组件的接口里没有入口
+严重程度：重要
+类别：接口与合同 / 遗漏
+位置：plan.md 组件表 StickerPacksPage 与 StickerPackNameDialog 两行；「stickers/shared/contracts.ts」贡献点一条
+
+现象：`StickerPackNameDialog` 有 prop `usage`（加载中、名单、未知），但它的上一层 `StickerPacksPage` 的 props 与回调里没有任何提供 usage 的东西：既没有 `usage` prop，也没有“打开改名对话框时请求 usage”的回调。贡献点的调用方在 `packs-page.ts`（wrapper），而 wrapper 与页面之间只有表里那些通道。照字面写，页面组件没法让对话框拿到名单。另外 `usage` 是按“哪个包”查的，包 id 在对话框打开时确定，之后用户可能在别的窗口改动 Profile，需要写明“打开时查一次，不随后续变化刷新”还是随变化刷新。
+为什么：Spec 33 的核心是“改名前告诉用户谁会受影响”，这条链是改名功能的前提，不能在实现时临时发明接口。
+建议改法：二选一并写进表。
+a. 页面加回调 `profilesUsing(id): Promise<readonly string[] | null>`（null 是未知），页面在打开改名对话框时调一次，自己持有 `加载中 / 名单 / 未知` 三态并传给对话框；规则是“查一次、不刷新、对话框关闭时丢弃晚到的结果”。Lab 场景直接传一个返回固定值的函数，DOM 测试也好写。
+b. wrapper 持有并作为 prop 传进来（`usage` 键值表按包 id），页面发 `need-usage(id)` 事件。更绕，不推荐。
+并把“Profile 名单里 all 不列”的测试放到 Agent 一侧（它是 Agent 贡献的实现，在 profile 的数据旁边测），不放第 4 片的页面 DOM 测试里（那一条页面根本看不到“all”）。
+### 4. 贡献点 stickers.allowlist-usage：机制上能用，但计划漏了接收者、贡献的形状，以及“Agent 入口没有激活”时的表现
+严重程度：重要
+类别：与现有机制的契合 / 遗漏
+位置：plan.md「stickers/shared/contracts.ts」第 4 条、「agent/web/」第 2 条；docs/specs/runtime/plugins.md 输出 15 到 18、24；src/plugins/settings/shared/point.ts 与 settings/web/sections.ts；agent/web/plugin.ts 第 163 到 192 行
+
+已核实能成立的部分：
+- `implementation: "required"` 的贡献写在入口（`contributions` 与激活产出的 `contributions`）下，实现由拥有者的接收者在 `published` 之后经 `handle.implementation()` 取（runtime.plugins 输出 15、24）；实现的形状由点自己定，`settings.pages` 的 `{load()}` 就是先例，`load()` 里再 `import()` 页面或做异步取数是可行的。
+- 贡献不构成依赖边（输出 18），所以确实避开了 stickers 入口 → Agent 入口的服务依赖成环。Agent 浏览器入口是 `onStartup`，正常情况下窗口启动时就激活，不是“用到才激活”；计划写的“按需加载，不进激活顺序”指的是 `load()` 按需，说法容易误导，建议改成“贡献随 Agent 入口发布，实现在用到时才调用”。
+
+计划漏掉的东西（照字面实现会补不出来）：
+a. 拥有者一侧：点要在 stickers 浏览器端的 `PluginDefinition.contributionPoints` 里定义（只在浏览器的定义里，同 `settings.pages`、`settings.choices` 的做法），stickers 浏览器入口要在 `receives` 里列它、激活产出 `receivers` 里交出接收者（输出 16：产出必须与 `receives` 完全一致）。现在 `stickers/web/plugin.ts` 没有 receives，也没有 contributionPoints，计划没提。
+b. 贡献一侧：贡献 id 与声明的形状（是否带 `schema`、是否 `idPrefix: "plugin"`；若带 idPrefix，Agent 的贡献 id 必须以 `nbook.agent.` 开头）没写；Agent 入口要在 `contributions` 静态声明里加一条，激活产出里交出实现。
+c. 点 id、实现的类型（`{load(): Promise<{profilesUsing(packId)}>}`）要放进 `stickers/shared/contracts.ts`，Agent 才能合法引用（跨插件运行时导入只能指向 contracts，见新发现 1 的同类问题）。
+d. 没有贡献者时的状态。Agent 入口受阻、激活失败、被停用（或 Lab 里根本没有 Agent 入口）时，接收者永远收不到 `published`，实现不可用。计划只写“异步显示加载中、查不到写通用提醒”，没有定义“查不到”什么时候成立。`settings/web/sections.ts` 为了分清“还在等”“受阻”“失败”“已停止”，写了一整套 delivery 状态（用 `window.plugins.entryState`、`onChange` 等），本点如果也要区分，就是同样一份工作量；如果不区分，就得定死规则，例如“没有 published 的句柄一律在对话框打开后 2 秒内显示加载中、之后显示未知”。建议：只分两态（有句柄就调用、没句柄就“未知”），不去查入口状态，因为这个提示本来就是尽力而为；加载中只对应 `profilesUsing()` 这一次 await。
+e. 句柄撤回的时机：`implementation()` 在撤回后抛 `PluginStateError`，调用 `profilesUsing` 的 await 期间句柄被撤回时的处理要写（按未知）。
+
+为什么：不补这些，第 4 片会在“Agent 没激活”和“撤回”两条路径上各发明一次规则，而且很难在 DOM 测试里覆盖。
+建议改法：把 a 到 e 写进计划；d 取最简规则；加一条测试：没有贡献者时对话框显示通用提醒且能提交。另见新发现 11（也许根本不需要新贡献点）。
+### 5. 对话框的 busy 与 status 归谁：表里只有改名与新建对话框有，其余三个“要等”的交互没有
+严重程度：重要
+类别：接口与合同
+位置：plan.md 组件表 StickerPackNameDialog、ImportConflictDialog 两行；「导入冲突」「删除」「字段提交」；stickers.md 输出 31、33、34、36
+
+现象：
+- `StickerPackNameDialog` 有 `busy`、`status`、`edit`，这一点与现有 NewProfileDialog 同形（页面持有 busy 与 status，回调 await 之后写入，用户编辑时页面收到 `edit` 清掉状态）。可以照着写，没问题。注意 rename 模式下还有几类失败（pack-changed、name-duplicate、folder-invalid 与 pack-exists），回调返回的 reason 要映射成文字；模式不同时 `status` 清空时机要写。
+- `ImportConflictDialog` 只有“冲突信息、预览图”与 `choose(mode)`，没有 `busy`、`status`。选择之后要把最多 64 MiB 的 zip 再传一遍，本机也会有秒级耗时，期间需要停用按钮；失败也不会少：替换时已有的包被换掉（pack-changed，Spec 36 要求“不替换，再问一次”，即对话框要换成新的冲突信息继续开着）、本地文件读不到（计划写“通知”，但对话框是关是开没写）、429 busy。这些都要有地方显示、并规定对话框关不关。
+- 删除确认框（见新发现 2 d）同样没有 busy 与 status；Spec 34 的“确认之后被换掉的不删”失败原因要写在框里或通知，二选一定下来。
+
+为什么：三个对话框三种做法，实现者会各写各的，到 DOM 测试补不上共同点。
+建议改法：约定一条：所有“要等结果”的对话框都由 StickerPacksPage 持有 `busy`、`status`，对话框只吃 props、只发事件（与 NewProfileDialog 同）；ImportConflictDialog 补 `busy`、`status`，并写明三条规则：失败且可以继续（pack-changed）时用新的冲突信息替换并保持开着，失败且无法继续（文件读不到）时关闭并通知，`busy` 期间 Esc 与关闭按钮不动作（与 Dialog 现有的 busy 处理一致）。
+### 6. 字段提交合同写成 DOM 测试：目标、完成顺序、草稿重置与 Enter 重复提交四处没定
+严重程度：重要
+类别：可测性 / 接口与合同
+位置：plan.md「字段提交」条；组件表 StickerFields、PackFields 两行；packages/nb-ui/src/components/form/Input.vue、Textarea.vue
+
+现象：计划的字段提交合同本身内容齐全，但要写成 DOM 测试，下面四处接口没定：
+a. 提交带的目标。“提交时带上那一刻的包与表情（不读当前选中）”，但表里 `commit(change)` 只带改动，没有目标。页面收到事件时再读“当前选中”，就等于读了当前选中。需要把目标写进事件：`commit({target: {id, file, name}, change})`，目标由字段组件在草稿开始时（或 `sticker` prop 变化时）记下。测试才能写成“编辑 A，在提交前选中 B，提交后写的是 A”。
+b. 完成顺序与闪回。写入回调完成时，目录里的新值要经 `changed` 通知再由 wrapper 重取 detail，晚于回调完成。如果 `pending` 在回调完成时变 false，而 detail 仍是旧值，字段会先闪回旧值，再变成新值；Spec“失败回到目录里的值”这条规则（草稿在 pending 结束时重置为 prop）会把这个闪回固化。上传占位格同理：任务结束就撤掉占位格，而新格子在 detail 重取之后才出现，会空一拍。建议规定：写入回调在 wrapper 重取完 detail 之后再 resolve（后端 12 已保证返回时目录已含新值，所以 wrapper 重取是可以直接等的），占位格也在这之后撤掉。这样测试可以写成确定的序列。
+c. 草稿何时重置与“正在编辑”的定义。规则写的是“写入中草稿保持显示，收到 changed 不覆盖正在编辑的字段；失败回到目录里的值”。要写成断言，需要精确：草稿“脏”的定义（与 prop 不同）、`pending` 为 true 期间一律不重置、`pending` 由 true 变 false 时若草稿仍与 prop 不同则重置为 prop（失败与 Esc 同路径）、没有脏草稿且没有 pending 时 prop 一变就同步（别处改了同一字段）。再补一条：用户正在编辑这一字段、别处把同一字段改了，提交后是“后写者覆盖”，这是接受的，写一句。
+d. Enter 与 change 的重复。nb-ui Input 不发 `change` 事件（只有 update:modelValue、focus、clear），`@change` 作为 attrs 落到原生 input 上（有前缀、后缀、图标或可清除时落在外层 div，change 会冒泡，blur 不会冒泡，要用 focusout）。浏览器里在文本框按 Enter 时，值有变化会先触发原生 `change` 再有 keydown 的处理，计划的“回车或失焦（change）提交”会提交两次；happy-dom 不会自动派 change，所以 DOM 测试里只发 keydown 的用例通过、真实浏览器重复提交，同一份测试覆盖不到。建议：只在一个 commit 函数里提交，函数内与“最近一次提交的值或 prop”比较，相同就不发；Enter 只负责 blur 或同一个 commit；再加一条 e2e 断言按 Enter 只发一次写入（用请求计数）。Textarea 没有 Enter 问题，但它不发 change，计划写失焦（blur 会作为 attrs 落到原生 textarea 上）是对的。
+另外“排队”：同一个包的提交排队若放在 wrapper，DOM 测试要带假的 remote 才测得了；若放在 StickerPacksPage 的纯 TS 模块里（见新发现 7）则可单独测。DOM 测试表里“字段提交与 Esc、失败回退”要写明挂载的是 StickerFields 还是整页。
+
+建议改法：把 a 到 d 写进计划的接口表与“字段提交”条；排队单独成 `write-queue.ts` 纯函数式小模块，有单测；e2e 增一条 Enter 只提交一次。
+### 7. packs-page.ts 的职责没写：上传队列、写入队列、detail 加载、通知各放哪，以及离开页面时的寿命
+严重程度：重要
+类别：遗漏 / 照字面实现会返工
+位置：plan.md「stickers/web/：页面」；切片 4；对照 agent/web/profile-page.ts（Profile 页 wrapper 的写法）
+
+现象：计划的页面一节只列了七个组件，wrapper（`packs-page.ts`）只在切片 4 的清单里出现一次。按组件表推断，wrapper 要承担：概要客户端（三态与重试）、选中包的 detail 加载（按 id、晚到丢弃、已显示后重取失败不换失败态、`changed` 触发重取）、所有远程写入回调与错误码映射成文字、同包写入排队、上传队列（按包排队、同时 3 张、占位格、汇总通知、包被删或改名后的 pack-missing）、导出（fetch 加 a.download）、`profilesUsing` 的接收者、通知出口。这些在计划里分散成句子，没有一个地方说“它们在 wrapper，状态长这样”。detail 的加载尤其没人认领：packs-client 只管概要（见新发现 1），`pack({id})` 没有任何一条写它的调用者。
+还有一个寿命问题没写：“切到别的包上传照样进行”说明队列不能属于某个选中状态；而设置窗口里切到别的分区页面会卸载，关窗口也会。上传到一半时离开页面或关窗口，是继续、取消还是静默丢掉？汇总通知在页面已卸载后还发不发？Spec 29 与计划都没有答案。
+
+为什么：这是第 4 片最大的一块逻辑，且最容易出错（竞态与寿命）；放在 wrapper 里意味着只能用带假 remote 的集成式 DOM 测试，难写；写在计划里的组件表只覆盖展示层。
+建议改法：补一节“wrapper（packs-page.ts）”，写明状态表与寿命：
+- 上传队列与写入队列抽成两个纯 TS 模块（`upload-queue.ts`、`write-queue.ts`），不依赖 Vue，注入 remote 与时钟，单测覆盖：同包串行、同时 3 张、包被改名后剩余得 pack-missing、取消；
+- 寿命规则建议：队列属于浏览器入口的实例（不属于页面组件），页面卸载后继续跑，完成时汇总通知照发；入口停止（窗口关闭）时取消未开始的、放行已开始的，不再写通知；
+- detail 加载器属于 wrapper，规则同概要（序号、丢晚到、已显示后失败不换态），重取由 `changed` 与自己写入完成两种触发。
+并在验收映射里把“上传队列”“detail 竞态”两项各映到一条单测。
+### 8. “表情按文件名记选中”与“清单里同一个文件可以写两项”矛盾
+严重程度：重要
+类别：接口与合同 / 与 Spec 不一致
+位置：plan.md「选中」条（“表情按文件名记”）、组件表 StickerGrid 的 `selected`（“文件名或 null”）、「stickers/shared/contracts.ts」第 3 条（`{file, name}` 共同定位）；stickers.md 清单表（`file` 只要求合规，没有“不重复”；`name` 在包内不重名）
+
+现象：清单规则只要求表情名在包内不重名，没有禁止同一个 `file` 出现在两项里（计划后端部分也专门写了“清单里同一个文件写了两项也分得开”，所以这种包是合法的、可以进入页面）。页面却按文件名记选中、按文件名做 `selected`：同一文件的两项会同时显示为选中，`v-for` 的 key 重复（Vue 会警告并错位渲染），roving tabindex 与 option 的 id 也冲突；点其中一个，选中的是哪个没有定义；属性栏改名要用 `{file, name}`，只有 file 时拿不到 name。草稿用的样本里没有这种包，Lab 与 DOM 测试都不会发现。
+为什么：这类包只会出现在手写清单或市场导入的包里，概率不高但真实存在，一出现整个网格错位且改的是别的项；选中键是接口，后改代价大。
+建议改法：选中键改成稳定的项键 `file` 加“同一文件内的第几项”（例如 `开心.png#0`、`开心.png#1`；extras 只用 file），detail 里每个表情直接带这个 `key`，网格的 key、option 的 id、`selected`、删除与改名的目标都用它，后端调用时再拆成 `{file, name}`。改名之后 key 不变（file 与序号都不变），“改名时仍选中”的规则也就成立。DOM 测试加一个“同一文件两项”的样本。
+### 9. 分组网格里的方向键：列数要量、能否做 DOM 测试没想、“移动”与“选中”在 Spec 与计划里不一致
+严重程度：重要
+类别：交互合同 / 可测性 / Spec 与计划不一致
+位置：plan.md「网格」条、「窄」条；stickers.md 输出 26（“网格能用方向键移动选中，Delete 删除（先确认），Esc 回到表情包”）；草稿 StickerPacksPageDraft.vue 第 516 行 `grid-template-columns: repeat(auto-fill, 84px)`、每组一个独立的 grid
+
+现象与问题：
+a. 列数不是数据，是布局。每组一个独立 grid，列数由容器宽度决定（auto-fill），组件拿不到。Up、Down 要“按行列移动”，只能在运行时读布局：比较各格 `offsetTop`、或读计算样式的 `grid-template-columns` 的段数。happy-dom 没有布局（所以 offsetTop 全是 0，读计算样式也得不到展开后的列数；此处是从实现推断，未在本仓库里单独实验），DOM 测试里 Up、Down 没法测，只能测 Left、Right、Home、End。计划的验收映射把方向键全放在“第 4 片页面 DOM 测试”，这一条对 Up、Down 不成立，需要改成 e2e（有真布局）。
+b. 规则缺少边界：从一组最后一行往下、进入下一组时落在哪一列（同列，下一组第一行不够长时取最后一个）；一组里最后一行不满、上一行比它多出的列往下时，是进下一组还是落到本组最后一项；向上同理；Left、Right 是否跨组线性接续（计划写了“跨组接续”，但行列移动与线性移动是两种，要明说是前者还是后者）；全部组只有一组、只有一项、只有“添加”格时的行为。不写清楚，实现者会各凭直觉，e2e 也无从断言。建议规则：Left、Right 按 DOM 顺序线性（跨组）；Up、Down 按“同列”：本组里 `i±cols` 存在就去，否则去相邻组里“同列、第一行（往下）或最后一行（往上），不够长取该行最后一项”，没有相邻组就不动。
+c. “移动”还是“选中”。Spec 26 写“方向键移动选中”，计划写“方向键按行列移动……Enter 或空格选中”（焦点移动，选中要再按键）。两者行为不同：前者每按一下方向键属性栏就换一个表情（还会触发窄时“选中格子把属性栏滚进可见区”，用方向键浏览时页面会被不停滚走）；后者符合 listbox 常见的“焦点与选中分开”。需要定一个并同步 Spec：建议后者（改 Spec 26 为“方向键移动焦点，Enter 或空格选中”）。
+d. Delete 与 Esc 的对象。Delete 作用于“选中的”还是“有焦点的”格子；若焦点与选中分开，按 Delete 删的是看不见属性栏的那一个，确认框里必须写出名字；建议只对选中项生效，焦点格不是选中格时不动或先选中。Esc“取消选中回到表情包”与对话框、上传中的 Esc 的先后也应写一句（对话框开着时 Esc 归对话框）。
+为什么：方向键是写进 Spec 的行为，e2e 需要确定的规则才能断言，DOM 测试能做与不能做的要事先分开，否则切片 4 会出现“测试里写不出来才发现”。
+建议改法：把 b 的规则、c 的选择、d 的对象写进计划与 Spec 26；验收映射里把 Up、Down 改到 e2e（可放在 stickers.e2e.ts 或一个小的设置页 e2e），DOM 测试只覆盖线性移动、Home、End、Enter、Space、Delete 与 Esc。
+### 10. listbox 里放“添加”按钮与组头的按钮，不合 ARIA 的结构
+严重程度：建议
+类别：可访问性
+位置：plan.md「网格」条（`role="listbox"`、组 `role="group"`、“添加”格在“其他”组末尾）；草稿第 114 到 136 行（组头里有“全部加进来”按钮；“添加”格是组内的 `button`）
+
+现象：`listbox` 的子孙应当只有 `option`（及包着 option 的 `group`）。计划把“添加”格画在“其他”组末尾（group 里的 button），组头里还有“全部加进来”按钮和说明提示（InfoTip），它们落在 `role="group"` 里面。读屏会把这些当成 listbox 的不合规内容，部分读屏会忽略或朗读错位；roving tabindex 管不到它们，键盘用户靠 Tab 能到，但方向键走不进“添加”。
+为什么：只影响读屏与键盘体验，不影响功能，所以只算建议；但结构定了以后再改要动 CSS 选择器与 e2e。
+建议改法：把 listbox 只包住格子：每个分组一个 `role="group"` 容器放组头（标题元素）与一个只含 option 的内层容器，按钮与提示放在 listbox 之外（组头的按钮放在组标题行、不在 option 容器里；“添加”格做成 listbox 之后的独立按钮，用 CSS 让它视觉上接在最后一组末尾）。若坚持让它在同一个 grid 里，ARIA 上就要接受它不是合规子项，不建议。Lab 场景用读屏文本断言（`getByRole("option")` 的个数等于表情数）。
+### 11. 质疑上游选择：为了避开服务依赖环而新增贡献点，换成同一插件里的第二个入口加可选服务更省
+严重程度：建议
+类别：设计取舍
+位置：plan.md「stickers/shared/contracts.ts」第 4 条的理由（“服务依赖会成环”）；docs/specs/runtime/services.md「依赖环」一条；docs/specs/runtime/plugins.md 输出 11、12；src/plugins/markdown/web/plugin.ts 第 96 行
+
+现象：计划新增一个贡献点，理由是“stickers 浏览器入口提供 stickerResolverKey，Agent 入口又依赖 Markdown，服务依赖会成环”。核实：Markdown 入口确实可选依赖 `stickerResolverKey`，Agent 入口确实必需依赖 `markdownKey`，services.md 说静态环（可选边也算）在装配阶段拒绝，所以如果让“提供 resolver 的那个入口”依赖 Agent 的服务，的确成环。但依赖图是入口级的（依赖路径写成 `插件/入口`，同一插件的入口独立装配、独立受阻，plugins.md 输出 2、11），环只发生在“提供 resolver 的入口”一个点上。换一种拆法就没有环：
+- `nbook.stickers` 浏览器侧拆成两个入口：现有的 `browser`（提供 resolver，不变）；新增 `page`（贡献 `settings.pages` 的 `nbook.stickers.packs`，`activationEvents` 写 `settingsPageEvent(...)`，设置窗口显示这一页时才激活，同 settings 的 page 分区先例）。
+- Agent 入口提供一个服务键（如 `profileStickerUsageKey`，键与形状放 `agent/shared/contracts.ts`）；`page` 入口把它列为**可选**依赖（`{key, required: false}`，同 windowTextKey 的写法）。依赖路径是 stickers/page → agent/browser → markdown/browser → stickers/browser，没有环。
+- Agent 没有激活或被停用时，可选依赖不注入，页面直接得到“没有这个服务”，对应“未知”，不需要接收者与 delivery 状态（新发现 4 的 a 到 e 全部消失）。
+- 顺带解决新发现 1：packs 概要服务同样可以放在 stickers 的 `browser` 入口，给 `page` 入口与 Agent 入口用。
+- 页面要用的通知、文字等依赖只挂在 `page` 入口上，不加重 resolver 入口的必需依赖；resolver 在 Markdown 的启动路径上（Markdown 入口在等它），放在同一个入口里，页面侧的任何新依赖都可能给它引来新的环。
+
+代价：Agent 要新增一个浏览器服务（只有 `profilesUsing` 一个方法），`nbook.stickers` 的描述里多一个入口；但不需要新贡献点、接收者与它的状态机。Spec 的“owner 与依赖方向”一段（`nbook.agent` 可选依赖 stickers）要加一句反方向只发生在页面入口、可选。
+为什么提：AGENTS.md 要求遇到“为迁就某个底层选择而加机制”时追到那个选择。这里的底层选择是“Agent 与 stickers 的服务关系只能挂在 resolver 入口上”，它不成立：服务依赖按入口算，不按插件算。这是一个更小的方案，不是缺陷；若开发者更看重“贡献点是公开扩展面”（以后别的插件也能告诉改名对话框“我也引用了这个包”），保留贡献点也成立，但要补齐新发现 4。
+建议改法：二选一交给开发者；倾向第二入口加可选服务。
+### 12. “添加”格的位置：只有常用组、没有“其他”组时（最常见的情形）规则没写到
+严重程度：建议
+类别：Spec 措辞 / 边界
+位置：plan.md「网格」条末句；stickers.md 输出 26（“我的包在‘其他’组末尾（没有组时单独一行）有‘添加’格”）
+
+现象：上一轮的建议是“跟在最后一个常用或其他组末尾，都没有时单独画”。第 2 版改成“在其他组末尾、没有组时单独一行”。“没有组”可读成“没有其他组”，也可读成“一个组也没有”。区别在最常见的包上：没有表情列表的包全部算常用，补列表时也“都算常用”（Spec 28），这类包只有“常用”组、没有“其他”组。此时“添加”格是接在“常用”末尾，还是另起一行？草稿的 `lastGroup` 取常用或其他中最后一个，等于前者；Spec 字面更像后者。只有“认不出”或“没加进来”组的包也一样。
+为什么：Lab 截图、DOM 测试要有确定的断言；两种读法画出来的页面不同。
+建议改法：Spec 26 与计划改成“接在常用与其他两组中最后一个有内容的组末尾；两组都没有时（包括只有认不出或没加进来的组、没有任何表情）单独占一行，并且在完全没有表情时整个网格是落点”，与草稿一致。
+### 汇总
+上一轮 17 条核对：已落实 12 条（R1-1、2、3、4、7、8、10、13、14、15、16、17，其中 1、2、4、7、10 带遗留的小缺口，已转为新发现），部分落实 5 条（R1-5、6、9、11、12），没有未落实的。
+第 2 版新发现 12 条：阻断 0、重要 9、建议 3。
+重要：1（packs-client 违反跨插件导入规则，且现有客户端没有三态与丢晚到）、2（回调与事件划分、新 id、冲突分支、token 快照、detail 与选中对应）、3（usage 在页面接口里没有入口）、4（贡献点缺接收者、贡献形状与无贡献者时的规则）、5（对话框 busy 与 status 的归属）、6（字段提交：目标、完成顺序闪回、草稿重置、Enter 重复提交）、7（packs-page.ts 职责与队列寿命）、8（选中键按文件名与同文件多项矛盾）、9（方向键的行列规则、DOM 测试做不了 Up、Down、移动与选中在 Spec 和计划里不一致）。
+建议：10（listbox 里放按钮）、11（第二入口加可选服务替代新贡献点）、12（只有常用组时“添加”格的位置）。
+有效发现编号：1 到 12。最该先处理的是 2、1、4、6（接口形状与现有机检相关，开工后改代价大）。

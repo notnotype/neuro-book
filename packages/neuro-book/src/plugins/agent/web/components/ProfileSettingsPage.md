@@ -27,6 +27,8 @@ defineProps<{
     initial?: string;        // 起始选中，缺省第一项（Lab 用）
     addTools?: (key: string, change: ToolChange) => Promise<string | null>;                                   // 失败原因
     addAgents?: (key: string, change: ToolChange) => Promise<string | null>;                                  // “可派的子代理”的添加，同上
+    addSkills?: (key: string, change: ToolChange) => Promise<string | null>;                                  // “Skill”一节的添加，同上
+    addStickers?: (key: string, change: ToolChange) => Promise<string | null>;                                // “表情包”一节的添加，同上
     createProfile?: (name: string) => Promise<{readonly key: string} | {readonly reason: string}>;             // 交回时目录里已有它
     deleteProfile?: (key: string) => Promise<void>;                                                            // 交回时目录里已没有它
 }>();
@@ -39,6 +41,12 @@ defineEmits<{
     (e: "restore-tools", key: string): void;
     (e: "remove-agent", key: string, id: string): void;
     (e: "restore-agents", key: string): void;
+    (e: "remove-skill", key: string, id: string): void;
+    (e: "add-back-skill", key: string, id: string): void;   // “已去掉”一组的“加回”
+    (e: "restore-skills", key: string): void;
+    (e: "remove-sticker", key: string, id: string): void;
+    (e: "add-back-sticker", key: string, id: string): void; // “表情包”一节，同 Skill
+    (e: "restore-stickers", key: string): void;
 }>();
 ```
 

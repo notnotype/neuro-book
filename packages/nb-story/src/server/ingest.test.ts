@@ -13,6 +13,7 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {tryLock} from "@notnotype/nb-flock";
 
 import {loadReplay, replay, type Replay, type ReplayKey} from "../../testing/ingest-replay";
 import {commitFinalPrefix} from "../../testing/ingest-state";
@@ -20,7 +21,6 @@ import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/op
 import {CLI, loginCookie, rpc, startServe, type ServeProcess} from "../../testing/processes";
 import {makeSampleRoot, sampleSourceText} from "../../testing/sample";
 import {Library} from "../core/library";
-import {tryLock} from "../platform/flock";
 import type {IngestStatusView} from "../contract/contract";
 import {INGEST_BODY_LIMIT} from "./http";
 

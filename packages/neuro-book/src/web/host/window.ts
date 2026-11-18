@@ -33,12 +33,14 @@ import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
 import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
 import {attachPluginStyles} from "nbook/plugin-platform/web/styles";
+import {notificationsKey} from "nbook/plugins/workbench/shared/contracts";
+import type {Notifications} from "nbook/plugins/workbench/shared/contracts";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
-import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
-import type {WindowPluginFiles} from "nbook/shared/host";
+import {clockKey, windowCloseKey, windowConnectionKey, windowDesktopKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
+import type {CloseParticipant, WindowClose, WindowDesktop, WindowPluginFiles} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {windowTextKey} from "nbook/shared/window-text";
@@ -88,6 +90,8 @@ export interface BrowserWindowOptions {
     readonly hostPlugins?: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>>;
     /** 内置插件随构建的消息目录；缺省按 `plugins.ts` 的 `builtinPluginCatalogs`。 */
     readonly builtinCatalogs?: Readonly<Record<string, BuiltinCatalogs>>;
+    /** 桌面壳（`windowDesktopKey`）：页面入口按桥给出；缺省是不在壳里。 */
+    readonly desktop?: WindowDesktop;
     /** 客户端身份（`client-identity.ts`），随握手发给服务端；缺省每个窗口各取一个随机值，不跨刷新。 */
     readonly clientIdentity?: string;
     /** 重连退避与远程调用超时的时钟；缺省系统时钟。 */
@@ -115,6 +119,17 @@ export interface BrowserWindow {
     stop(): Promise<StopResult>;
     /** 窗口的翻译引擎：作为窗口能力交给插件，挂载界面时注入每个 Vue 根（docs/specs/ui/i18n.md）。 */
     readonly text: WindowText;
+    /** 关闭前询问的参与方，按登记顺序（docs/specs/runtime/browser-host.md 输出 9）；表跨启动重试不变。 */
+    closeParticipants(): ReadonlyArray<CloseParticipant>;
+    /** 接上关闭前询问的“参与方都已同意”（`close-query.ts` 的 `agreed`），经本地能力交给插件；没接时总是 false。 */
+    setCloseAgreed(source: () => boolean): void;
+    /** 写一条窗口诊断：已启动时进本窗口的诊断，还没启动时写到控制台。 */
+    record(input: DiagnosticInput): void;
+    /**
+     * 工作台的通知服务，宿主自己用来显示桌面壳交来的更新提示（browser-host 输出 11）；不经本地能力交给插件。不在 ready、
+     * 或工作台没交出通知服务时为 null。
+     */
+    notifications(): Notifications | null;
 }
 
 /**
@@ -148,9 +163,29 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     });
     const clock = options.clock ?? systemClock;
     const text = options.text ?? createHostTextEngine({locale: "zh-CN"});
+    // 内置插件的目录随构建，建窗口时就登记：加载页、宿主页上（还没首连或连不上项目）关窗时，插件交来的在跑的工作也能按
+    // 窗口语言显示（docs/specs/runtime/browser-host.md 输出 10）。第三方插件的目录要经服务端取，首连之后才登记。
+    for (const [plugin, {source, catalogs}] of Object.entries(builtinCatalogs)) text.register(plugin, catalogs, source);
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();
     const listeners = new Set<(state: WindowState) => void>();
+    /** 关闭参与方：放在窗口这一层，启动重试新建运行实例时不丢，关闭前询问在启动之前就能拿到它。 */
+    const participants: CloseParticipant[] = [];
+    let closeAgreed: () => boolean = () => false;
+    const desktop: WindowDesktop = Object.freeze(options.desktop ?? {available: false, reportSettings() {}});
+    /** 进入 ready 的那个运行实例取到的通知服务；只在 ready 时交出去。 */
+    let readyNotifications: Notifications | null = null;
+    const close: WindowClose = Object.freeze({
+        agreed: () => closeAgreed(),
+        participate(participant: CloseParticipant) {
+            participants.push(participant);
+            return () => {
+                const index = participants.indexOf(participant);
+                if (index !== -1) participants.splice(index, 1);
+            };
+        },
+    });
+    let diagnostics: DiagnosticsStore | null = null;
     let state: WindowState = {status: "idle"};
     let host: BrowserHost | null = null;
     let session: RemoteSession | null = null;
@@ -201,6 +236,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         const instanceId = crypto.randomUUID();
         const rescue = createRescue((error) => store.record({level: "warn", event: "browser-host.rescue.failed", message: "抢救未保存正文的提供者抛错", error}));
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId}});
+        diagnostics = store;
         const link = createLinkState((error) => store.record({level: "warn", event: "browser-host.connection-listener.failed", message: "连接状态的监听抛错", error}));
         const node = createRemoteNode({
             instance: {id: instanceId, kind: "browser", role: "client", project: null, client: clientIdentity},
@@ -241,6 +277,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         }
         link.set("online");
         let root: WorkbenchRoot | null = null;
+        let notifications: Notifications | null = null;
         // 首连之后绑定已定，窗口一生不变。
         const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, title: projectTitle ?? node.binding.name, generation: node.binding.generation};
         try {
@@ -248,7 +285,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             const observers = mechanismObservers(store);
             const windowPlugins = createWindowPlugins(() => host?.application.plugins ?? null, (error) => store.record({level: "warn", event: "browser-host.plugins-listener.failed", message: "入口状态的监听抛错", error}));
             // 目录先于插件登记：入口激活、界面挂载时文字已经在引擎里。取不到的只成为问题，不让这一步失败。
-            const catalogProblems = await loadCatalogs({index: catalogIndex, builtin: builtinCatalogs, connection: options.connection, text, record: (input) => void store.record(input)});
+            const catalogProblems = await loadCatalogs({index: catalogIndex, connection: options.connection, text, record: (input) => void store.record(input)});
             windowPlugins.catalogProblems(catalogProblems);
             if (closed) {
                 current.close();
@@ -294,6 +331,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         {id: "window.plugins", key: windowPluginsKey, create: () => windowPlugins.capability},
                         {id: "window.plugin-files", key: windowPluginFilesKey, create: () => pluginFiles},
                         {id: "window.rescue", key: windowRescueKey, create: () => rescue.capability},
+                        {id: "window.close", key: windowCloseKey, create: () => close},
+                        {id: "window.desktop", key: windowDesktopKey, create: () => desktop},
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
@@ -308,6 +347,18 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                             const resolved = await services.resolve(workbenchRootKey);
                             if (resolved.status !== "resolved") throw new Error(resolved.reason);
                             root = resolved.instance;
+                        },
+                    }, {
+                        // 宿主取工作台的通知服务而不让工作台另开出口：宿主本来就依赖工作台交根界面，通知只给宿主自己显示
+                        // 更新提示。不是必需的：取不到时窗口照常就绪，只是看不到更新提示。
+                        id: "workbench-notifications",
+                        kind: "check",
+                        required: false,
+                        dependencies: [{key: notificationsKey}],
+                        async check({services}) {
+                            const resolved = await services.resolve(notificationsKey);
+                            if (resolved.status !== "resolved") throw new Error(resolved.reason);
+                            notifications = resolved.instance;
                         },
                     }],
                     observers: {...observers, plugins: {diagnosticRecorded: (diagnostic) => {
@@ -329,6 +380,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             if (startup.status !== "available" || root === null) {
                 throw new Error(startup.failures.map((failure) => `${failure.source}：${failure.error?.message ?? failure.reason}`).join("；") || `运行实例 ${startup.status}`);
             }
+            readyNotifications = notifications;
             setState({status: "ready", instanceId, root, connection: "online", project});
         } catch (error) {
             store.record({level: "error", event: "browser-host.startup.failed", message: "窗口运行实例启动失败", error});
@@ -340,6 +392,15 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
     return {
         text,
+        closeParticipants: () => [...participants],
+        setCloseAgreed(source) {
+            closeAgreed = source;
+        },
+        notifications: () => (state.status === "ready" ? readyNotifications : null),
+        record(input) {
+            if (diagnostics !== null) diagnostics.record(input);
+            else Reflect.apply(options.console.warn ?? options.console.error, options.console, [JSON.stringify({level: input.level, event: input.event, message: input.message, ...(input.error === undefined ? {} : {error: input.error instanceof Error ? input.error.message : String(input.error)})})]);
+        },
         get state() {
             return state;
         },
@@ -448,18 +509,16 @@ async function fetchCatalog(connection: Connection, plugin: string, prefix: stri
 }
 
 /**
- * 把消息目录登记进翻译引擎（docs/specs/runtime/browser-host.md 输出 2）：内置插件的随构建，第三方的按引导目录索引经目录端点
- * 取，各插件、各语言并行。一个插件取到几种语言就登记几种，一种都没取到时不登记，文字按回退链显示。返回没取到的那些，每条
+ * 把第三方插件的消息目录登记进翻译引擎（docs/specs/runtime/browser-host.md 输出 2；内置插件的随构建，建窗口时已登记）：按引导
+ * 目录索引经目录端点取，各插件、各语言并行。一个插件取到几种语言就登记几种，一种都没取到时不登记，文字按回退链显示。返回没取到的那些，每条
  * 另记一条诊断。
  */
 async function loadCatalogs(options: {
     readonly index: BrowserBootstrap["catalogs"];
-    readonly builtin: Readonly<Record<string, BuiltinCatalogs>>;
     readonly connection: Connection;
     readonly text: WindowText;
     readonly record: (input: DiagnosticInput) => void;
 }): Promise<PluginProblem[]> {
-    for (const [plugin, {source, catalogs}] of Object.entries(options.builtin)) options.text.register(plugin, catalogs, source);
     const results = await Promise.all(options.index.map(async (entry) => {
         const fetched = await Promise.all(entry.locales.map(async (locale) => [locale, await fetchCatalog(options.connection, entry.plugin, entry.prefix, locale)] as const));
         const catalogs: Record<string, MessageCatalog> = {};

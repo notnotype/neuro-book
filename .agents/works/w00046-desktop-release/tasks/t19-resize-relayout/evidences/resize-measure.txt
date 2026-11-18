@@ -1,0 +1,60 @@
+# w00046 t19 改窗口大小时的重排：前后对比（2026-11-16）
+
+量法见 plan.md。生产构建，本机 Chrome（Playwright），1280x800 起，60 步改视口（宽 780 到 1280、高 740 到 800），每步等两帧；CDP Performance.getMetrics 取每步平均。
+master = c5754bc1c，t19 = 56a65460f（分支 perf/w00046-t19-resize-relayout）。
+
+## 基线（master，负载约 2 到 3，先前单独量）
+== baseline-master load 3.09 2.05 1.97
+per step ms  layout=1.6 style=10.8 script=1.0 task=32.0  roundtrip p50=35.6 p90=63.2 max=116.8  layoutCount=5.433333333333334 styleCount=26.216666666666665
+per step ms  layout=1.8 style=11.2 script=0.9 task=33.2  roundtrip p50=42.0 p90=61.1 max=98.4  layoutCount=5.433333333333334 styleCount=26.2
+per step ms  layout=1.6 style=10.5 script=0.9 task=30.4  roundtrip p50=37.2 p90=54.9 max=92.2  layoutCount=5.433333333333334 styleCount=26.2
+  177 clientWidth @ at a (/assets/vue-CrRBgy-4.js:2:5778) < at ResizeObserver.<anonymous> (/assets/vue-CrRBgy-4.js:2:5976)
+  177 clientHeight @ at a (/assets/vue-CrRBgy-4.js:2:5811) < at ResizeObserver.<anonymous> (/assets/vue-CrRBgy-4.js:2:5976)
+  160 TG: DIV.nb-tab-strip__row data-v-aadd2152=,data-tab-row=normal,data-tab-row-partition=normal,data-layout=wrap
+  118 scrollTop @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74177)
+  118 clientHeight @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74202)
+  118 scrollHeight @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74230)
+  118 offsetWidth @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74289)
+  118 clientHeight @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74310)
+   59 clientHeight @ at ResizeObserver.d (/assets/WorkbenchShell-Bc08m2fR.js:1:64435)
+   59 TG: DIV.workbench-tool-strip__list data-v-adc344b9=
+   59 TG: DIV.explorer-tree__rows relative w-full data-v-3e9a2cd6=,data-explorer-rows=
+   59 scrollHeight @ at ResizeObserver.h (/assets/vue-l2x8313N.js:1:9578)
+   59 scrollTop @ at ResizeObserver.h (/assets/vue-l2x8313N.js:1:9623)
+   59 scrollTop @ at p (/assets/vue-l2x8313N.js:1:9457) < at ResizeObserver.h (/assets/vue-l2x8313N.js:1:9651)
+
+## 交替对比（两个服务同时开，master 4589 与 t19 4588 交替各 4 轮；当时别的会话在跑，负载 11 到 15，绝对值偏大，看同一时刻的比值）
+4589 load=11.01 per step ms  layout=4.1 style=27.6 script=1.9 task=83.3  roundtrip p50=82.9 p90=152.7 max=277.8  layoutCount=5.433333333333334 styleCount=26.25
+4588 load=11.47 per step ms  layout=4.0 style=17.2 script=1.6 task=63.7  roundtrip p50=69.7 p90=118.4 max=346.4  layoutCount=5.433333333333334 styleCount=7.65
+4589 load=11.27 per step ms  layout=4.5 style=29.9 script=3.0 task=92.1  roundtrip p50=95.5 p90=176.6 max=265.1  layoutCount=5.433333333333334 styleCount=26.233333333333334
+4588 load=11.70 per step ms  layout=4.7 style=20.6 script=2.0 task=80.1  roundtrip p50=87.4 p90=150.3 max=280.6  layoutCount=5.433333333333334 styleCount=7.666666666666667
+4589 load=15.16 per step ms  layout=4.3 style=30.1 script=2.8 task=95.6  roundtrip p50=103.3 p90=157.1 max=499.5  layoutCount=5.433333333333334 styleCount=26.233333333333334
+4588 load=15.02 per step ms  layout=3.4 style=15.7 script=1.4 task=54.7  roundtrip p50=59.0 p90=92.6 max=278.6  layoutCount=5.433333333333334 styleCount=7.683333333333334
+4589 load=14.54 per step ms  layout=5.6 style=49.2 script=3.2 task=114.1  roundtrip p50=71.9 p90=248.2 max=1573.9  layoutCount=5.433333333333334 styleCount=26.216666666666665
+4588 load=13.20 per step ms  layout=4.5 style=18.6 script=1.6 task=70.7  roundtrip p50=80.5 p90=128.4 max=247.0  layoutCount=5.433333333333334 styleCount=7.666666666666667
+
+## t19 单独三轮与剩下的读布局调用点（负载 9 到 14）
+== after-t19 load 9.34 13.37 14.13
+per step ms  layout=2.6 style=11.2 script=1.0 task=40.4  roundtrip p50=46.2 p90=69.1 max=182.5  layoutCount=5.433333333333334 styleCount=7.65
+per step ms  layout=3.7 style=14.9 script=1.3 task=53.4  roundtrip p50=59.2 p90=97.5 max=295.5  layoutCount=5.433333333333334 styleCount=7.666666666666667
+per step ms  layout=2.9 style=11.6 script=1.2 task=43.6  roundtrip p50=53.0 p90=79.5 max=154.6  layoutCount=5.433333333333334 styleCount=7.65
+  177 clientWidth @ at a (/assets/vue-B3qT0jzp.js:2:5907) < at ResizeObserver.<anonymous> (/assets/vue-B3qT0jzp.js:2:6105)
+  177 clientHeight @ at a (/assets/vue-B3qT0jzp.js:2:5940) < at ResizeObserver.<anonymous> (/assets/vue-B3qT0jzp.js:2:6105)
+  118 scrollTop @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74177)
+  118 clientHeight @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74202)
+  118 scrollHeight @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74230)
+  118 offsetWidth @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74289)
+  118 clientHeight @ at ResizeObserver.u (/assets/components-Dtkac2D6.js:16:74310)
+   59 clientHeight @ at ResizeObserver.d (/assets/WorkbenchShell-DwySrmuS.js:1:64512)
+   59 scrollHeight @ at ResizeObserver.h (/assets/vue-l2x8313N.js:1:9578)
+   59 scrollTop @ at ResizeObserver.h (/assets/vue-l2x8313N.js:1:9623)
+   59 scrollTop @ at p (/assets/vue-l2x8313N.js:1:9457) < at ResizeObserver.h (/assets/vue-l2x8313N.js:1:9651)
+   21 clientWidth @ at ResizeObserver.<anonymous> (/assets/EditorGroupHead-z9ZFs5-u.js:1:7246)
+   21 clientWidth @ at ResizeObserver.<anonymous> (/assets/EditorGroupHead-z9ZFs5-u.js:1:7262)
+   16 TG: DIV.explorer-tree__rows relative w-full data-v-3474257c=,data-explorer-rows=
+
+## 结论
+- 每步样式重算次数 26.2 → 7.65（与负载无关）；布局次数不变（5.43）。
+- 同一时刻交替量：每步样式时间 27.6–49.2 ms → 15.7–20.6 ms，约少四成；每步主线程任务时间 83–114 ms → 55–80 ms，约少 25% 到 30%。
+- 剩下的 7.65 次：每帧一次的正常重算，加各处 ResizeObserver 回调之间 Vue 刷新 DOM 后再读（标题栏取舍、nb-layout 的元素尺寸观察）；合并成一个调度是架构改动，没做（plan.md 的“不做”）。
+- WebView2 窗口式托管的闪白不在页面这一层（上游 blackboardsh/electrobun#484）。

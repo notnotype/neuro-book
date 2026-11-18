@@ -150,6 +150,14 @@ export class SessionTable {
         return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.idle && !entry.background).map((entry) => ({id: entry.id, state: entry.waiting ? "waiting" : "running"}));
     }
 
+    /**
+     * 运行中与等用户的会话，后台会话（`background: true`）也算：宿主问“停止服务会中断什么”时用（sessions.md 输出 20）。
+     * `activity()` 只给前台的活动指示用，不含后台会话，两者不要合并。
+     */
+    activityWithBackground(): {id: string; state: "running" | "waiting"}[] {
+        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.idle).map((entry) => ({id: entry.id, state: entry.waiting ? "waiting" : "running"}));
+    }
+
     onActivityChanged(listener: () => void): () => void {
         this.#activityListeners.add(listener);
         return () => this.#activityListeners.delete(listener);

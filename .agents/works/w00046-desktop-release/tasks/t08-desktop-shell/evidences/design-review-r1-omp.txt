@@ -1,0 +1,137 @@
+### 1. 原生对话框同步堵住壳线程，3 秒协议与停止截止都无法履行
+严重程度：阻断；类别：正确性 / 不变量。
+位置：plan-r1.md:16、41、43；Electrobun package/src/sdks/main/core/Utils.ts:284-310、proc/native.ts:675-685、2417-2445；src/native/win/nativeWrapper.cpp:14331-14420。
+现象：计划把 showNotResponding 当作可异步等待的端口，用 Utils.showMessageBox 实现。实际 async 包装先同步调用返回 int 的 FFI，Windows 再 dispatch_sync 调 TaskDialogIndirect，一直等用户点按钮才返回。对话框停留 10 秒，Bun 的认领处理、计时器、页面回答和服务端输出消费都至少停 10 秒。
+为什么是问题：desktop-shell 输出 2 要求每次请求 3 秒内应答，输出 3 的 closing 等待不限时；此时新壳却会在 3 秒后报告“没有响应”，无法等待用户决定。输出 19 的停止截止也会被其它窗口/意外退出对话框冻结。端口替身返回 Promise 的测试完全漏掉这一差异。
+如何核实：沿上述同步调用链核实，showMessageBox 的 FFI 没有异步回调；Windows native 明确 return dispatch_sync(...)，内部直接调用 TaskDialogIndirect。无需靠方法的 async 名字推断。
+建议改法：在开始核心实现前选定不会阻塞认领与进程监管线程的对话框实现（例如独立受管 helper 进程或验证可行的专用线程），用实际 Windows 对话框保持打开超过 3 秒，同时验证 hello/open-window 仍按时返回、页面回应仍被处理、输出与停止截止继续推进。不能把这一项留到最后作为“Windows 未验证边界”。
+
+### 2. taskkill 加 tasklist 建不起进程树的所有权与真实退出屏障
+严重程度：阻断；类别：不变量 / 资源寿命。
+位置：plan-r1.md:18、39、77-78；desktop-shell.md 输出 19、21、22、23；Electrobun src/launcher/main.zig:577-636、src/native/win/nativeWrapper.cpp:7065-7084。
+现象：Bun.spawn.exited 只证明根服务端退出；tasklist 没有父 PID、树成员或创建时间字段，计划没有取得子树清单的机制。服务端先崩溃时，再按已不存在的父 PID taskkill /T 也无法建立持续所有权。壳本身被终止时，更没有活着的调用方去执行 taskkill。Windows 不会因父进程终止自动结束子进程；--stop-stdin 的 EOF 只能请求合作停止，卡住时无效。
+为什么是问题：输出 19 要等整棵树退出才放锁，输出 22 要非合作结束时一起结束，输出 21 的重启也不能遗留上一代项目进程。计划的三个原语都不提供这个保证。Electrobun 的生产 Job 只在 initCEF 中创建，本计划选 WebView2；launcher 的 Windows 正式路径只 CreateProcessW 后等一个句柄，不能借它保证。用任务管理器“结束进程树”验场景 8 会把外部工具的能力误当壳自己的能力。
+如何核实：微软明确父退出不杀子进程：https://learn.microsoft.com/en-us/windows/win32/procthread/terminating-a-process；tasklist 字段见 https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/tasklist。仓库已有 packages/owned-process/src/windows-supervisor-source.ts:62-84 的 Job 建立、104-106 的父断连终止与 Windows adapter；不是只能引入另一个原生模块。
+建议改法：先复用/加深 owned-process 的 Windows Job 所有权，目标运行前纳入 Job，明确壳死亡、根先退、重启前清旧代、强杀失败时保锁与整树为空的可观察证据；不能直接把现有 completion 当已证明 Job 为空，需核实/补齐。Windows 验单独杀壳、单独杀根、子进程持有管道/继续派生、强杀失败；Linux 用真实父子孙进程验对应编排，不声称覆盖 Windows 原语。
+
+### 3. 只加 socketName 与 requests 没有落实桌面协议的大小、绝对截止与未知请求形状
+严重程度：重要；类别：接口合同 / 安全与性能。
+位置：plan-r1.md:25-30、65、74；nb-host/src/server/claim.ts:108-110、241-258、270-294；desktop-shell.md 输出 2。
+现象：计划保留认领传输层，只给自定义处理器加 3 秒处理超时。现有层的上限是 1 MB，检查用字符串长度、且只在没读到换行时检查；连接用 socket.setTimeout，收到数据会重置空闲计时。未登记请求在进入桌面处理器之前就回 {error:"unknown-request"}，处理器无法把它改为合同的 {ok:false,code:"unknown-request"}。也没有应答大小限制。
+为什么是问题：桌面要求请求/应答各 64 KB、连上后 3 秒收不完就断开。相同层直接复用会违反这三项；把全局 1 MB 改成 64 KB 又会破坏服务端插件列表的既有合同。计划称“未知请求由桌面处理器写出”与分派层先判未知的实际顺序相反。
+如何核实：HEAD=91addb492d66a698caf08874feae52359b76d70f；在报告 lab-r1 中运行 bun claim-protocol-smoke.ts，真实认领与 node:net 客户端得到：70030 字节请求被接纳、70125 字节应答返回；每 900 ms 发数据，3602 ms 才发完请求仍得到 ready。只在 lab 中创建文件，没改源码、没起开发服务。实验针对现有传输层，不宣称测了尚未写出的扩展。
+建议改法：认领档案显式区分服务端与桌面的字节预算、绝对收包期限、未知请求应答；在解析前对完整首行按字节检查，应答序列化后也检查，完成一次应答后终结连接。加 65536/65537 字节、UTF-8 多字节、单块带换行超限、慢速滴流、未知类型与处理超时的真实套接字验收；保留默认服务端协议不变。
+
+### 4. 桌面锁无法用现有 publish 合同发布计划要求的 ready 应答
+严重程度：重要；类别：接口合同。
+位置：plan-r1.md:25-30、58-59；nb-host/src/server/claim.ts:37-45、66-71、74-85、204-213。
+现象：计划只扩展 socketName 与 requests，却要求桌面 hello 在运行时为 ready，且 url、rpcUrl 都为 null。StateRootClaim.publish 的 rpcUrl 必须是 string；它也是 starting 变 ready 的唯一入口。ClaimProfile 不允许应用字段覆盖 status、rpcUrl 等基础字段。
+为什么是问题：按列出的两项扩展，桌面锁只能一直 starting，或编造 RPC 地址，或绕过类型；都不能实现计划的应答。把 Spec 的 running 改名 ready 并没有解决“无网络端点也可就绪”的实际 Interface 缺口，会在切片 2 才返工共享层。
+如何核实：读取类型与状态赋值，publish:82 要求 rpcUrl:string，209 行同时改状态与地址，stopping 只能转 stopping。现有测试的全部 publish 调用均提供真实/测试字符串地址；没有另一个无端点就绪入口。本条为类型和状态路径核对，未运行尚未实现的桌面壳。
+建议改法：先明确认领状态与应用端点是否应解耦；最小改法允许认领档案的就绪载荷使用 null RPC 地址，并保留服务端更窄的封装合同，或给无端点认领独立的 ready 转换。同步更新实现合同及服务端/桌面两种发布测试。首次发行前统一 running→ready 本身可以接受，但不能以“复用基础字段”代替这项设计。
+
+### 5. 自定义请求只有超时返回，没有取消或提交语义，超时后仍可迟到开窗
+严重程度：重要；类别：协议 / 资源寿命。
+位置：plan-r1.md:28、38、41、65、74；desktop-shell.md 输出 2、3、16、23。
+现象：requests 接受任意 Promise 处理器，3 秒后回 {error:"timeout"}，但 Interface 不传 AbortSignal、不报告连接结束，也没区分尚未提交与已经开窗。处理器若仍在等异步创建窗口，超时、客户端退出或认领 release 后仍可继续执行；停止时只销毁 socket 不会取消 Promise。
+为什么是问题：第二个壳在 3 秒后显示没有响应并退出，第一个壳随后却为已经取消的意图开窗；或最后一窗关掉、启动作废后，迟到处理器重新开窗。输出 2 的 ok:true 必须已经开窗并置前，不能先应答再无条件兑现；单纯 Promise.race 只结束等待，不能撤销副作用。测试“收到 timeout”不能证明没有迟到开窗/没有残留处理器。
+如何核实：从计划给出的处理器类型可直接构造 await 异步就绪 → open 的处理器；超时分支没有任何途径通知它取消。现有 release 只 destroy connections（claim.ts:214-218），所以需在共享层扩展时明确新寿命，不能假设沿用已有清理便够。本条是 Interface 反例，未声称现有 hello 同步路径有这项回归。
+建议改法：桌面 open-window 用一个受状态机约束、可在预算内完成的同步提交路径；若确需异步，协议/端口明确请求取消、断连、release 和提交点，截止前未提交的动作不得再发生，提交后的回包丢失另定语义。未知请求与 timeout 的错误形状一起登记。真实进程验处理迟到、发送者先退出、release 与开窗交错，并断言不再产生窗口，而不只断言错误包。
+
+### 6. Windows 的 new-window-open 没覆盖 window.open 与普通 target=_blank
+严重程度：重要；类别：正确性 / 上游机制。
+位置：plan-r1.md:16、43、78；Electrobun src/native/win/nativeWrapper.cpp:7788-7878、src/preload/events.ts:71-167；desktop-shell.md 输出 12、16，场景 11。
+现象：计划按事件名假定所有网页新窗口请求都会交给 new-window-open。给定 2.0.6 副本的 WebView2 路径只在 NavigationStarting 检测 Ctrl 键时发该事件；公共 preload 只拦 Ctrl/Meta 点击与带修饰键的 history 操作。对整份副本搜索 NewWindowRequested、window.open 覆盖和 _blank 拦截，没有 Windows 相应注册/实现。
+为什么是问题：普通 target=_blank 点击、脚本 window.open 不会经过计划的来源分流和最后一次关闭禁开窗判断。同来源带 project 参数的新窗不能保证成为被协调器管理的产品窗口。WebView2 官方说明未设置 Handled/NewWindow 时会开默认 popup，因此也不能假定没有 handler 就是安全拒绝。只有 Ctrl+click 的手工验收会漏掉合同明确列的另外两条入口。
+如何核实：逐行读上述两段，并用源码搜索核对，非凭“new-window-open”名字推断；原生合同：https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2#add_newwindowrequested。未在 Windows 运行，结论限定为所给副本没有提供计划所需的完整转交机制。
+建议改法：切片 3 前明确原生 NewWindowRequested 的拦截与 Handled 实现，统一送窗口协调器，再按来源决定开受管窗/系统浏览器/拒绝。单补 window.open 的 JS 包装覆盖不了所有 target、iframe 与浏览器弹窗入口。若固定 2.0.6 没有可扩展入口，记录并评估上游补丁或 ADR 0051 的 Electron 备选及维护代价；验普通链接、脚本、Ctrl+click 三条入口，以及 quit 待决时全部拒绝。
+
+### 7. WindowPort 缺少真实关窗确认与应用退出入口，替身会隐藏两种时序
+严重程度：重要；类别：接口合同 / 测试。
+位置：plan-r1.md:41-43、76；Electrobun BrowserWindow.ts:306-312、Utils.ts:133-195、proc/native.ts:2690-2725、3064-3071；win/nativeWrapper.cpp:13430-13476。
+现象：端口只列 close(id)，未定义何时算真的关闭、close 事件如何回传或失败怎么办，也没有应用级 before-quit 的输入与最终退出许可。实际 win.close() 绕过 will-close，但 Windows 只是 PostMessage(WM_CLOSE)，返回时窗口仍可存活，之后才收到 close。exitOnLastWindowClosed:false 只取消框架末窗自动退出，不能否决 Utils.quit/系统的应用退出请求。
+为什么是问题：两窗都以 window 回答时，若替身同步删除窗口而适配层等真实 close，重新判断最后一窗的时点便不同；真实路径可两次都提交 window，漏掉 quit，或过早停止。应用级退出若没同步否决，会直接进入 SDK 的 quitGracefully（5 秒），绕过页面询问与缺省 90 秒的服务停止。仅在 will-close 里否决不能覆盖它。
+如何核实：native closeWindow 明确只投递消息；SDK 另有 windowShouldCloseCallback 与 windowCloseCallback，两者不同；Utils.requestQuitApproval 只同步看 before-quit.response。原型虽挂过 before-quit，但 fixed plan 没把它落实为端口/状态机合同。测试规范 README:18 要求替身与真实实现对过行为。
+建议改法：在写 windows.test.ts 前定义最小完整 Interface：用户 close-request、actual-closed、应用 quit-request、创建/销毁失败的输入，提交关闭与确认关闭的区别；核心统一串行提交并在同一同步段封锁新窗，实际已关闭才结算窗口。适配层对 before-quit 先同步否决，停止完成后只放行一次。加真实 Windows 端口契约测试：两窗关闭交错、同步 veto、批准后 bypass、actual close 延迟、重复关闭、应用退出与 stopping 重入；端口替身沿相同顺序派发。
+
+### 10. 合法的项目停止上限加 70 秒后溢出计时器，强杀会在 1 ms 发生
+严重程度：重要；类别：边界 / 正确性。
+位置：plan-r1.md:39、41、77；neuro-book/src/server/config.ts:50-53、73-86；nb-runtime/src/lifecycle/clock.ts:11-15。
+现象：项目停止配置允许 1..2147483647 ms；壳截止按 20000 + 项目停止值 + 50000 计算。项目值超过 2147413647 时，总截止超过 setTimeout 的 32 位有符号上限。计划只注入时钟，没有定义生产长截止的调度方式，现有 systemClock 直接 setTimeout。
+为什么是问题：直接按计划用一次计时器实现，合法的 NBOOK_PROJECT_STOP_MS=2147483647 会把原应等待约 24.86 天的合作停止变成 1 ms 后强杀。手动时钟可以接受任意 number，恰好会把这一运行时差异遮掉。不能简单截成 2147483647：那仍早于合同要求的实际项目预算加余量。
+如何核实：在 lab-r1 运行 bun config-smoke.ts，真实 readServerConfig 接受该值；总截止 2147553647，Bun 输出 TimeoutOverflowWarning，明确“Timeout duration was set to 1”，实测 firedAfterMs=1。未启动服务端或等长时限，实验只检验本计划要依赖的生产计时原语。
+建议改法：生产时钟/截止等待使用绝对 deadline 加分段调度，每次不超过 2147483647，并用同一份解析后的有效子进程配置计算；不要另写一套只靠 Number(env) 的解析。补最大合法配置与分段推进的边界测试，另用小规模真实计时 smoke 核对没有溢出警告/提前触发；修改项目配置上限属于上游合同取舍，不能静默收窄。
+
+### 11. OwnedServer 轮询 ready 没有绑定子进程身份，CLI 抢先认领会走错所有权
+严重程度：重要；类别：并发 / 不变量。
+位置：plan-r1.md:39-42、66、75；desktop-shell.md 输出 4-5、18、21；neuro-book/src/server/process.ts:139-145、src/cli/start.ts:95-113。
+现象：问到 none 后拉子进程，并用 queryNeuroBook 等任一 ready；计划没有要求 hello.pid 等于刚拉起的 child.pid，也没给“自有子进程被别人抢先认领后退出”的结果与连接转换。桌面锁只排桌面壳，不排 nbook start。
+为什么是问题：壳问到 none → nbook 抢先认领并 ready → 壳的子进程因 busy 以 1 退出，是合同明确允许的竞态。若轮询先看到 CLI 的 ready，就会把外部服务当成自有代次就绪；随后观察到自己的 child 退出，又弹“服务意外退出”，让用户重启一个仍活着的外部实例。若先观察退出则只报启动失败，也违反输出 4 的“被抢先认领就重问”，本应正常连已有服务、关窗不停止它。
+如何核实：process.ts 的 busy 分支确实退出 1；CLI 的 existing/claim 循环实际存在，桌面锁地址与 server 认领不同。服务端应答已有 pid 可用于核对，不需解析标准输出。现有计划的判定表单测与单个真实服务拉起均构造不出这个跨入口时序；本条为可达竞态推演，未声称已运行新壳。
+建议改法：OwnedServer 的 ready 只接受自己的根 PID/代次；退出先于就绪时重问状态根、按输出 4 分类并移交为 external，而非依退出文字猜 busy。shell 显式保存 none/owned(child)/external(instance) 的所有权，只有 owned 发 stop，重启也先重核认领。用真实 CLI/认领进程在 query-none 与 child-claim 之间抢先，验证最终加载外部 URL、关窗外部实例仍存活、不报自有服务崩溃。
+第 11 条补充真实进程证据：lab-r1 中运行 bun restart-race-smoke.ts（3.52 秒）。先问 none，外部产品入口先取得认领，随后模拟壳拉起的产品入口以 1 退出；查询返回外部 pid=3628256，自己的子进程 pid=3629033。证明两个入口的 PID 绑定确有必要。脚本另验固定上次端口重启：sameHttp=true、sameRpc=true；占住原 HTTP 端口后重新拉起 exit=1、认领 none，没有顺延。所有子进程均已等待退出；这是现有入口的可达时序实验，未冒称新壳状态机已经运行。
+
+### 13. 验收表按编号打包，t08 实际无法完成场景 5-7，另有输出无可执行检查
+严重程度：重要；类别：测试 / 验收映射。
+位置：plan-r1.md:7、74-85、89；desktop-shell.md 输出 10、19、20、24，场景 5-7、10；docs/testing/README.md:12、18、197-199。
+现象：计划承认 t09 前页面不接询问，所有产品关窗都走“没有响应”；却把真实安装包场景 1-14 全列为本 Task 验收。场景 5 的 window→quit 与用户 90 秒后取消、场景 6 的保存/失败、场景 7 的真实工作确认，都依赖 t09 页面，现阶段不能得到规定结果。另外“8-13、20、24 在场景里对应部分手工验”没有给动态页面标题、1280×800/小工作区九成、没有 WebView2 这几条具体操作；场景 1-14 没有单独覆盖它们。便携包与安装包是两种载荷，表尾只写安装包也不足覆盖场景 10。
+为什么是问题：列齐编号不等于已定义能跑的判据。当前 Windows 路径即使连通，照清单也只能失败或用“强制关闭”替代正常询问；把这种结果记通过会掩盖壳和页面断开的合同。窗口端口替身还没有一条真实适配契约证据（第 7 条），无法填这块空白。
+如何核实：直接对照计划自己声明的范围和场景动作，不运行 e2e。Linux 真实托管入口 smoke 已跑（在 lab-r1 中运行 bun managed-smoke.ts）：认领 pid 匹配、product/ready、页面 200、stop 退出 0、之后 none；这证明核心验证本机可执行，但不能替代窗口交互与真实安装包的验收。
+建议改法：逐条列可执行的 t08 壳侧验收，使用与真实适配对过契约的最小页面 fixture 驱动 ack/deny/allow、取消与重复关闭；保留 t09 后的联合验收为明确未完成依赖，不宣称本轮跑完 14 场景。补每个遗漏输出的操作/观察值、安装与便携两种真实包，Windows 受阻则保持未验证，不用类型检查/核心测试代替。t07 最新 README 与 windows-payload-r1.txt 已记录链路恢复并实跑载荷；计划的“10 KB/s 当前传不过去”只能作当时限制，实施前需刷新现状，不能用旧阻塞直接跳过。
+
+### 9. 为壳给应用源码包加 re-export，绕过的是路径限制而非依赖方向
+严重程度：重要；类别：代码质量 / 包边界。
+位置：plan-r1.md:32、37、46、48-50、60；packages/AGENTS.md:10-11；docs/standards/code/packages.md:5-11；ADR 0045:34-43。
+现象：新 workspace 包反向依赖 @notnotype/neuro-book，只为了读取 queryNeuroBook、defaultStateRoot 和版本，再在应用包新增 desktop-support 转导出。当前应用包没有 exports；真正发布的同名包由 pack-app.ts:267-282 另生成 package.json，里面也没有这个子路径。源码的 queryNeuroBook 还依赖应用自己的 nbook/* 别名、插件 schema 与产品常量，并非独立的托管合同。
+为什么是问题：通过包名导入只满足“不得深导入”，并没有满足“包不反向依赖应用特例”“产品编排留在应用”。这次把单一应用的三个内部 helper 变成跨 Module Interface，却没有记录依赖例外，也没说明为何壳要独立成包。已有 ADR 0051 明确托管边界是入口、环境、认领应答、退出码，不要求桌面壳链接应用内部实现；ADR 0045 明确应用名与档案由应用拥有。
+如何核实：对照上述规范与应用 package.json、pack-app.ts，以及 src/server/instance.ts:13-14、35-50、src/cli/state-root.ts:10-21。源码包 private 与 npm 生成包不同，不能把新增源码 exports 当成对外载荷已有的能力；计划未给出独立包带来的收益记录。
+建议改法：优先把 NeuroBook 专属桌面宿主留在 packages/neuro-book 的独立目录/构建入口，复用内部 helper，服务端仍从 t07 tarball 取得；避免一个只转导出内部函数的 desktop-support。若坚持独立发行应用包，先明确其应用身份与允许的依赖例外，或把确有两个宿主消费者的无产品机制下沉 nb-host、把 NeuroBook 档案留在应用；同步核对发布/别名/测试解析，不能只给包表加一行。
+
+
+
+### 8. 沙箱桥只能认证窗口，不能认证“页面宿主的关闭回答”
+严重程度：建议；类别：接口合同 / 信任边界。
+位置：plan-r1.md:17、43；Electrobun src/preload/events.ts:31-38、sdks/main/proc/eventBridge.ts:13-42、native/win/nativeWrapper.cpp:3954-3987；browser-host.md 输出 9-11；ADR 0022 决定 3。
+现象：__electrobunSendToHost 是同一 Window 上的公开函数，任一第三方插件脚本都能发送 close-ack/close-answer；壳的 CustomEvent 也把 generation 给同一页面的监听者。底层解析器只核对 sourceId 与载荷 id 相同，没有脚本身份、文档来源或宿主参与方身份。固定形状、随机代次或页面闭包都不能在同一 JS realm 内认证宿主。
+为什么是问题：插件可先于 browser-host 汇总编辑器/工作回答 allow，壳将其当当前询问的同意，绕过保存与任务确认；sandbox:true 只拿掉原生 RPC，不解决这件事。ADR 0022 已明确完全信任同页插件，所以这不是要求本轮增加插件安全沙箱，而是计划隐含的“只允许宿主回答”不能成立，应把实际信任边界写清，避免把沙箱当这项保证。
+如何核实：在 lab-r1 运行 bun bridge-smoke.ts，直接调用给定源码的 initHostMessageBridge 与解析器，普通页面对象能送出 generation=1 的 ack 与 allow，两条均通过；这是源码级实验，不是 Windows WebView2 实测。native 绑定 webviewId 防跨窗冒充，但不区分同窗脚本。
+建议改法：按现有完全信任合同，明确所有同页脚本都被授权回答，壳仍按真实 webviewId、当前文档/代次、严格消息 schema 校验，不声称有插件级认证；在 t09 的桥合同登记这一限制。若产品确实要求插件不得冒充关闭同意，需调整上游为隔离 realm/插件宿主与受控通道，代价单独决策，不能靠加 nonce 或藏全局函数修补。
+
+
+### 12. 相对 NBOOK_STATE_ROOT 的 cwd 在 Electrobun launcher 里已经被改掉（撤回）
+严重程度：重要；类别：跨进程上下文 / 数据边界。
+位置：plan-r1.md:37、43、45、78；desktop-shell.md 输入“状态根”；Electrobun src/launcher/main.zig:589-606、648-654。
+现象：resolveDesktopStateRoot 接收 cwd，却未说明它来自哪里。实际 Windows launcher 创建 Bun 壳时把工作目录固定为 exe_dir；其它分支同样 .cwd=exe_dir。壳里直接传 process.cwd() 已不是用户启动 launcher 的目录，原目录也没在 argv/env 中交接。
+为什么是问题：用户在 D:\Work 设 NBOOK_STATE_ROOT=.\state 启动安装版，按状态根合同应解析到启动上下文的 D:\Work\state；实际会落到安装载荷的 bin\state。既不与同一环境启动的 nbook 共用根，还可能把用户登记/设置放进更新、卸载会清理的安装目录。纯函数传一个假 cwd 的单测会通过，真实启动仍错。t06 已处理更新助手重启时丢 cwd，但普通 launcher 同样存在这一步，不能把它仅列为 t10 的问题。
+如何核实：读给定 main.zig，cwd_w 由 exe_dir 编码后传 CreateProcessW 的 lpCurrentDirectory；继承环境里只有相对字符串，没有解析后的绝对根。源码推断，未声称在 Windows 重跑；计划没列 launcher 修改或这条安装包验收。
+建议改法：先明确“壳的工作目录”是用户启动上下文还是载荷 bin；若保持与 CLI 共用的现有意图，在改变 cwd 之前由 launcher 保存原始目录/规范化的绝对根并传给壳，覆盖快捷方式与命令行；或显式改 Spec 限制环境变量必须绝对路径，不能悄悄换根。验从安装目录外传相对根，断言认领与日志都在该根、安装目录不新增 state；同时验便携标记和显式环境优先级。
+
+第 12 条撤回：重新逐字核对 desktop-shell 输入，合同写的是“相对路径按壳的工作目录解析”，没有要求保持 launcher 启动前的工作目录。Electrobun 固定 Bun 壳 cwd 为 exe_dir 是真实行为，但以该 cwd 解析相对值符合当前文字；上条把 CLI 的原始 cwd 额外当成既定要求，依据不足，不计有效发现。可在使用说明提醒相对路径的实际基准，不作为本计划必须修的合同缺陷。
+
+未发现问题的方面
+- 桌面地址使用 nbook-desktop 前缀、Unix 使用 desktop.sock/desktop.claim.lock，与服务端认领分开；保留默认 server 文件名与 Windows nbook 前缀的方向没有发现兼容问题。长路径回退仍须沿用 realpath 哈希与两个不同前缀。
+- 首个桌面发行前将 hello 的 running 统一为 ready 有理由，也未发现已有已发桌面客户端需要兼容的证据；必须同时更新输出 3 的 running 分支与读写双方，而不只改计划列出的输出 2。无端点就绪的 Interface 缺口见第 4 条。
+- will-close 同步 allow:false 可行；批准后的 win.close() 确实绕过再次 will-close；sandbox preload 确实安装 __electrobunSendToHost；WebView2 ExecuteScript 路径也存在。可用性与时序分别受第 1、6、7、8 条限制，不能把“源码有入口”写成 Windows 已实测。
+- 微软对 x64 Windows 推荐检查 HKLM\\SOFTWARE\\WOW6432Node 与 HKCU 的 WebView2 Runtime 客户端键，计划方向正确；要检查 pv(REG_SZ)>0.0.0.0，单有键不算已装。官方依据：https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution#detect-if-a-webview2-runtime-is-already-installed 。本轮未运行 reg query。
+- 重启固定原来的 HTTP/RPC 两个端口符合已打开页面的来源与重连合同；Linux 真实进程已证两端口保持、被占用时以 1 退出而不顺延。服务端项目停止并行，不存在按项目数乘停止时限的预算问题。
+
+参照与待确认项判断
+- Electron requestSingleInstanceLock 是应用主实例转交的参照，不提供本 Spec 的状态根级版本应答与 closing 轮询合同；没有理由为它另写第二套锁。官方：https://www.electronjs.org/docs/latest/api/app#apprequestsingleinstancelockadditionaldata 。
+- VS Code lifecycleMainService 明确分开同步 close 否决、每窗一个 pending unload、一次关闭许可、closed 后减窗口数、每次 IPC 询问的回复通道与清理；支持第 7 条的改法，不要求照抄其全部退出策略。源码：https://github.com/microsoft/vscode/blob/main/src/vs/platform/lifecycle/electron-main/lifecycleMainService.ts 。
+- fixed plan 没有独立的待确认项列表。pending-confirmations.md 中与 t08 相关的应用标识/频道、与 CLI 共用状态根、无窗口后台常驻、3 秒 ack 后不限时、closing 每秒轮询不限时、崩溃后“稍后”保留正文、下次提示未正常停止、默认尺寸不记位置、重启保持端口：没有新增反对依据；落实分别受上述有效发现约束。
+- Electrobun 选型为已确认决定；同步原生对话框与 Windows popup 拦截是本轮新核实的上游缺口。先核算受管 helper/上游补丁的真实代价；若固定版本无法满足，按 ADR 0051 明定的 Electron 备选交开发者比较，不能以“已选 Electrobun”否认缺口，也不能由审查者擅自换壳。
+
+本轮实测与边界
+代码基线：/home/notnotype/CodeRepository/neuro-book/.worktree/w00046-desktop-release，HEAD=91addb492d66a698caf08874feae52359b76d70f。合同与治理依据读取主工作区。报告中的 plan-r1.md 指本报告同目录的固定副本；Electrobun 路径均相对用户给定的 research/electrobun-src；其它代码路径均相对上述 worktree。
+下列 5 条命令的 cwd 都是 /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/lab-r1：
+1. bun claim-protocol-smoke.ts：退出 0；70030 字节请求、70125 字节应答被接受；慢请求 3602 ms 完成后仍获应答。
+2. bun bridge-smoke.ts：退出 0；同页脚本构造的 close-ack、close-answer 均通过实际桥消息解析器；未跨真实 WebView2。
+3. bun config-smoke.ts：退出 0；有效配置的总截止 2147553647 ms 被 Bun 警告并改为 1 ms，实测 1 ms 触发。
+4. bun managed-smoke.ts：退出 0，1.09 秒；真实产品入口以 --stop-stdin 起，hello.pid 匹配、HTTP/RPC 地址从应答取得，页面 200，写 stop 后退出 0，后续认领 none。
+5. bun restart-race-smoke.ts：退出 0，3.52 秒；真实抢先认领、子进程失败后查询返回外部 PID；原端口重启保持两地址；占用原 HTTP 端口时启动退出 1、认领 none。
+未运行 Windows、e2e、开发服务、安装/卸载、Hutch 构建、bun install、类型检查或产品测试套件；没有调用真实模型。报告只写设计缺口与已经观察到的原语行为，不把实验当作尚未实现的桌面壳通过验收。实验/数据只在指定 lab-r1 中，未修改受审代码、Spec 或 Task，未进行任何 Git 写入。无后台实验进程遗留。
+
+反思回写：第 12 条候选把 CLI 的启动目录要求加到了桌面合同上，复核原文后撤回；现有 reviewing 的“逐条核实”与“依据不足不采信”已覆盖，不建议增补规范。本轮未写回治理或 Skill。
+
+数量：有效发现 12 条，其中阻断 2、重要 9、建议 1；撤回 1 条（第 12 条）。共保留 13 个“### ”标题；按影响重排但保留追加时的编号，便于追溯。每次追加/整理后的 grep -c '^### ' 计数未减少，最终应为 13。
+有效发现编号：1、2、3、4、5、6、7、9、10、11、13、8。

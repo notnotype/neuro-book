@@ -25,14 +25,20 @@ const NOT_FLOATABLE = "test.sample-views.zeta";
 const LEAF = "[data-workbench-surface] > [data-grid-scope] > [data-leaf]";
 const leaf = (page: Page, id: string) => page.locator(`${LEAF}[data-leaf="${id}"]`);
 const windows = (page: Page) => page.locator(`${LEAF}[data-float]`);
-const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
+/**
+ * 视图的标题：头上的标题按钮。底部面板并成一行时头不写标题，按下的入口就是它的标题（右键开“移动到”、拖它就是拖这个视图，
+ * docs/specs/ui/workbench-layout.md 输出 47）；只在没有标题按钮时取到它。
+ */
+const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"], [data-region-strip="panel"] [data-tool-view="${viewId}"][aria-pressed="true"]`);
 const ghost = (page: Page) => page.locator("[data-workbench-drag-ghost]");
 const feedback = (page: Page) => page.locator("[data-drop-kind]");
 const area = (page: Page) => page.locator("[data-drop-feedback-area]");
 const label = (page: Page) => page.locator("[data-drop-feedback-label]");
 const content = (page: Page, viewId: string) => page.locator(`[data-content="view:${viewId}"]`);
 const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"]`);
-const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
+/** 视图所在分节的面板头：头里有它的标题；底部面板并成一行时头不写标题，是按下的入口是它的那条入口条里并进来的头（输出 47）。 */
+const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"]), [data-region-strip="panel"]:has([data-tool-view="${viewId}"][aria-pressed="true"]) [data-panel-head]`);
+const panelOfTab = async (page: Page, viewId: string): Promise<string> => (await headOf(page, viewId).getAttribute("data-panel-head"))!;
 /**
  * 视图所在的块：每个样例视图没写容器，是自己的隐式容器里唯一的分节（docs/specs/ui/workbench-layout.md 输出 40、41），分节的 id 是布局起的；
  * 内容项上写着它所在的叶。侧栏显示甲、右栏显示丁、底部面板显示戊。
@@ -406,6 +412,100 @@ test.describe("应用内浮动", () => {
         expect((await boxOf(page, await sectionOf(page, E))).y).toBeGreaterThan((await boxOf(page, "g0")).y);
         await expect.poll(() => savedContainerOf(page, E)).toBe(`view:${E}`);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
+    });
+
+    test("框架按钮浮动、停靠的过渡：整张卡片从那一节拿起来飞到窗的位置，停靠时飞回去；每一帧外框与内容是同一块，内容在上面（ui/nested-grid 输出 88、107、109）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const moving = page.locator("[data-workbench-surface] [data-moving]");
+        // 打开后的布局过渡走完再量、再点：过渡中开窗时内容从它此刻的位置出发，外框从布局的终点出发，起点差一截。
+        await expect(moving).toHaveCount(0);
+        const home = await sectionOf(page, E);
+        const source = await boxOf(page, home);
+        /** 点一下按钮，逐帧量视图所在的外框与内容，直到网格的过渡结束；点在页面里，第一帧就开始量。 */
+        const film = (button: string, view: string) => page.evaluate(async ({button, view}) => {
+            const box = (element: Element) => {
+                const rect = element.getBoundingClientRect();
+                return {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
+            };
+            const rows: Array<{float: boolean; frame: ReturnType<typeof box>; content: ReturnType<typeof box>; contentOnTop: boolean}> = [];
+            document.querySelector<HTMLElement>(button)!.click();
+            for (let index = 0; index < 90; index += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const contentEl = document.querySelector<HTMLElement>(`[data-content="view:${view}"]`)!;
+                const frameEl = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${CSS.escape(contentEl.dataset.contentLeaf!)}"]`);
+                if (frameEl !== null) {
+                    const rect = box(contentEl);
+                    // 内容正中命中的是内容自己：外框的卡片底色没盖住它。
+                    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+                    rows.push({float: frameEl.hasAttribute("data-float"), frame: box(frameEl), content: rect, contentOnTop: hit !== null && contentEl.contains(hit)});
+                }
+                if (index > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
+            }
+            return rows;
+        }, {button, view});
+        /**
+         * 每一帧内容的左、右、下边就是外框的：同一个起点、同一个终点、同一条曲线，不是两张卡片错开；内容一直盖在外框上面。
+         * 上边是外框的上边加面板头。戊是底部面板唯一的一节，头并在入口条里（ui/workbench-layout 输出 47），叶里没有头：浮出去时内容的上边距从 0
+         * 跟着过渡长到浮动窗的头高，停靠回去时从头高缩回 0（内容层按起止两个内容矩形过渡），一路朝终点走、不回跳。
+         */
+        const expectOneCard = (rows: Awaited<ReturnType<typeof film>>, headed: boolean) => {
+            const insetOf = (row: (typeof rows)[number]) => row.content.y - row.frame.y;
+            const [start, head] = [insetOf(rows[0]!), insetOf(rows.at(-1)!)];
+            if (headed) expect(head).toBeGreaterThan(0);
+            else expect(head).toBe(0);
+            const [low, high, direction] = [Math.min(start, head), Math.max(start, head), Math.sign(head - start)];
+            let previous = start;
+            for (const row of rows) {
+                const {frame, content: inner, contentOnTop} = row;
+                expect(Math.abs(inner.x - frame.x)).toBeLessThanOrEqual(1);
+                expect(Math.abs(inner.x + inner.width - (frame.x + frame.width))).toBeLessThanOrEqual(1);
+                expect(Math.abs(inner.y + inner.height - (frame.y + frame.height))).toBeLessThanOrEqual(1);
+                const inset = insetOf(row);
+                expect(inset).toBeGreaterThanOrEqual(low - 1);
+                expect(inset).toBeLessThanOrEqual(high + 1);
+                expect((inset - previous) * direction).toBeGreaterThanOrEqual(-1);
+                previous = inset;
+                expect(contentOnTop).toBe(true);
+            }
+        };
+        const near = (left: {x: number; y: number}, right: {x: number; y: number}): boolean => Math.abs(left.x - right.x) <= 2 && Math.abs(left.y - right.y) <= 2;
+
+        // 浮动：窗出现的第一帧，外框在那一节原来的位置（按新叶算，浮动窗没有兄弟，会直接画在终点）；确实量到了半路。
+        const floating = await film(`[data-panel-head="${home}"] [data-panel-action="nbook.view.float"]`, E);
+        await expect(moving).toHaveCount(0);
+        const panel = await panelOfTab(page, E);
+        const floatBox = await boxOf(page, panel);
+        expect(near(floating.find((row) => row.float)!.frame, source)).toBe(true);
+        expect(floating.some(({frame}) => !near(frame, source) && !near(frame, floatBox))).toBe(true);
+        expectOneCard(floating, true);
+
+        // 停靠：窗的叶回到树里的第一帧，外框还在窗的位置，从那里飞回去；内容跟着、压在外框上面。
+        const docking = await film(`[data-panel-head="${panel}"] [data-panel-action="nbook.view.dock"]`, E);
+        await expect(moving).toHaveCount(0);
+        expect(near(docking.find((row) => !row.float)!.frame, floatBox)).toBe(true);
+        expect(docking.some(({frame}) => !near(frame, floatBox) && !near(frame, source))).toBe(true);
+        expectOneCard(docking, false);
+
+        // 侧栏的分节头在它自己的叶里：浮出去、停靠回来，两头都有头，每一帧内容的上边都是外框上边加头高（不用上面那段放宽）。
+        const expectHeadKept = (rows: Awaited<ReturnType<typeof film>>) => {
+            const head = rows.at(-1)!.content.y - rows.at(-1)!.frame.y;
+            expect(head).toBeGreaterThan(0);
+            for (const {frame, content: inner, contentOnTop} of rows) {
+                expect(Math.abs(inner.y - frame.y - head)).toBeLessThanOrEqual(1);
+                expect(Math.abs(inner.x - frame.x)).toBeLessThanOrEqual(1);
+                expect(Math.abs(inner.y + inner.height - (frame.y + frame.height))).toBeLessThanOrEqual(1);
+                expect(contentOnTop).toBe(true);
+            }
+        };
+        const alpha = await sectionOf(page, A);
+        const out = await film(`[data-panel-head="${alpha}"] [data-panel-action="nbook.view.float"]`, A);
+        await expect(moving).toHaveCount(0);
+        expect(out.some((row) => row.float)).toBe(true);
+        expectHeadKept(out);
+        const back = await film(`[data-panel-head="${await panelOfTab(page, A)}"] [data-panel-action="nbook.view.dock"]`, A);
+        await expect(moving).toHaveCount(0);
+        expectHeadKept(back);
     });
 
     test("缩放：角与边的手柄，有最小尺寸；放下写一次；键盘缩放与移动", async ({page}) => {

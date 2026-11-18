@@ -8,6 +8,7 @@ import {Type} from "typebox";
 import type {WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
 import {defineSetting, defineSettings} from "nbook/shared/settings";
 
+import {IMAGE_FOLDER_DEFAULT} from "./image-location";
 import {editorText} from "./text";
 
 export const EDITOR_SECTION = "nbook.editor";
@@ -20,6 +21,8 @@ export const EDITOR_SECTION_DECLARATION: WrittenSettingsSectionDeclaration = {
     groups: [
         {id: "tabs"},
         {id: "saving"},
+        {id: "images"},
+        {id: "markdown"},
         {id: "code"},
     ],
 };
@@ -120,6 +123,79 @@ export const autoSaveDelaySetting = defineSetting({
     ui: {unit: editorText("settings.autoSaveDelay.unit")},
 });
 
+/** 粘贴与上传的图片存进哪个目录（docs/specs/workbench/markdown-editing.md 输出 56）：合成规则在 `image-location.ts`。 */
+export const imageLocationSetting = defineSetting({
+    plugin: "nbook.editor",
+    name: "imageLocation",
+    schema: Type.Union([Type.Literal("folder"), Type.Literal("root"), Type.Literal("same"), Type.Literal("sibling")]),
+    default: "folder",
+    description: editorText("settings.imageLocation.description"),
+    section: EDITOR_SECTION,
+    group: "images",
+    order: 10,
+    choices: [
+        {value: "folder"},
+        {value: "root"},
+        {value: "same"},
+        {value: "sibling"},
+    ],
+});
+
+/**
+ * 存放目录的名字：`folder` 时是作品根下的目录，`sibling` 时是当前文件所在目录下的子目录。设置窗口里不检查它合不合规
+ * （schema 只限长度与控制字符），用到时由 `normalizeImageFolder` 判断，不合规按缺省。
+ */
+export const imageFolderSetting = defineSetting({
+    plugin: "nbook.editor",
+    name: "imageFolder",
+    schema: Type.String({maxLength: 200, pattern: "^[^\\u0000-\\u001f\\u007f]*$"}),
+    default: IMAGE_FOLDER_DEFAULT,
+    description: editorText("settings.imageFolder.description"),
+    section: EDITOR_SECTION,
+    group: "images",
+    order: 20,
+});
+
+export const CODE_FONT_SIZE_MIN = 8;
+export const CODE_FONT_SIZE_MAX = 40;
+export const CODE_FONT_SIZE_DEFAULT = 14;
+export const MARKDOWN_FONT_SIZE_MIN = 8;
+export const MARKDOWN_FONT_SIZE_MAX = 40;
+export const MARKDOWN_FONT_SIZE_DEFAULT = 17;
+/** 行距存整数百分比（195 是 1.95 倍）：设置窗口的数字框按 1 步进，小数没有步进；取值下限 120 避免注音与行内小块叠在上一行。 */
+export const MARKDOWN_LINE_HEIGHT_MIN = 120;
+export const MARKDOWN_LINE_HEIGHT_MAX = 300;
+export const MARKDOWN_LINE_HEIGHT_DEFAULT = 195;
+
+/**
+ * Markdown 编辑器纸面的排版（settings-window 的“Markdown 正文”小组，docs/specs/workbench/editor.md 输出 52）：字体、字号、行距。
+ * 字号与行距只允许用户层。对话里的 Markdown 不归它。
+ */
+export const {settings: markdownSettings, contributions: markdownSettingContributions} = defineSettings("nbook.editor", {
+    "markdown.fontFamily": {
+        schema: Type.String({maxLength: 200}),
+        default: "",
+        description: editorText("settings.markdown.fontFamily.description"),
+        layers: ["user"],
+        section: EDITOR_SECTION, group: "markdown", order: 10,
+    },
+    "markdown.fontSize": {
+        schema: Type.Integer({minimum: MARKDOWN_FONT_SIZE_MIN, maximum: MARKDOWN_FONT_SIZE_MAX}),
+        default: MARKDOWN_FONT_SIZE_DEFAULT,
+        layers: ["user"],
+        section: EDITOR_SECTION, group: "markdown", order: 20,
+        ui: {unit: editorText("settings.markdown.fontSize.unit")},
+    },
+    "markdown.lineHeight": {
+        schema: Type.Integer({minimum: MARKDOWN_LINE_HEIGHT_MIN, maximum: MARKDOWN_LINE_HEIGHT_MAX}),
+        default: MARKDOWN_LINE_HEIGHT_DEFAULT,
+        description: editorText("settings.markdown.lineHeight.description"),
+        layers: ["user"],
+        section: EDITOR_SECTION, group: "markdown", order: 30,
+        ui: {unit: editorText("settings.markdown.lineHeight.unit")},
+    },
+});
+
 /**
  * 源码编辑器（Monaco）的排版（settings-window 的“代码编辑器”小组）。Markdown 正文的排版不在这里。改动立即生效：编辑器
  * 不重建，缩进两项同时用到已打开的文件。
@@ -132,8 +208,10 @@ export const {settings: codeSettings, contributions: codeSettingContributions} =
         section: EDITOR_SECTION, group: "code", order: 10,
     },
     "code.fontSize": {
-        schema: Type.Integer({minimum: 8, maximum: 40}),
-        default: 14,
+        schema: Type.Integer({minimum: CODE_FONT_SIZE_MIN, maximum: CODE_FONT_SIZE_MAX}),
+        default: CODE_FONT_SIZE_DEFAULT,
+        // 桌面里 Ctrl+滚轮改它并写用户层：项目层有值时有效值不变，字号会先变后弹回，所以只允许用户层（字号是个人偏好）。
+        layers: ["user"],
         section: EDITOR_SECTION, group: "code", order: 20,
         ui: {unit: editorText("settings.code.fontSize.unit")},
     },

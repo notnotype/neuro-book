@@ -1,0 +1,158 @@
+# 审查报告：Agent 审批收成一套规则（后端、领域与合同）— Opus
+
+### 1. 七步合并不等价：讨论/计划模式加“放行写入”或“自动”下，只写自有目录的命令从放行变成询问或交审批模型
+- 严重程度：重要；类别：正确性
+- 位置：提案第四节第 2 小节“缺省层”表与“合并”；第五节“行为变化只有一处”
+- 现象：现行 `decide`（judge.ts:51）里闸门判“只写草稿”后直接放行（`mode:scratch`），与审批模式无关。提案把“只写自有目录放行”只放进 `ask` 组；`allow-writes` 组是“写放行、执行询问”，`auto` 组明说“命令不算”。`echo hi > tmp://b.txt`（`effect` 是 `exec`，输出 17）在 plan 加 allow-writes 下现在放行，按提案是询问；plan 加 auto 下现在放行，按提案交审批模型。
+- 依据：modes.test.ts:93 与 :100（plan 加 allow-writes，`echo hi > tmp://b.txt`、`echo hi > a.txt` 断言 ok）照提案会失败；t06 计划第 3 步写明“只写草稿往下走，第 5 步按放行算”，开发者已确认。
+- 还有一处反常：按提案，普通模式下 `echo x > tmp://a` 在“逐个确认”下不问，在“放行写入”下要问，在“自动”下交模型。越宽松的审批模式反而越严。
+- 核实：对照 judge.ts:51 与提案的缺省层表；跑 `bun test packages/neuro-book/src/plugins/agent/modes.test.ts -t "plan 加放行写入"`，看现行行为。
+- 改法：三组缺省规则都以“只写自有目录放行”开头（这样普通模式加 allow-writes 或 auto 下，命令写自有目录也会变成放行，要作为第二处行为变化写进第五节）；或者让模式层也能放行自有目录（这样就不是“只拦不放”）。两种都要把“除一处外逐格相同”改成实际差异的清单。
+
+### 2. 缺省层的放行规则被规则引擎的两条豁免架空：全部放行下看不懂的命令、写重定向都没有结论；`echo x > tmp://a` 也放行不了
+- 严重程度：重要；类别：正确性
+- 位置：提案第四节第 2 小节（“规则的写法不变”“缺省层就是审批模式，四组”）；rules.ts:159-170 的 `firstHit`
+- 现象：现行规则引擎对放行规则有两条豁免：看不懂的命令放行规则不生效（输出 14）；有写重定向时，只有条件里含 `path` 匹配器的放行规则才生效（输出 15，`mentionsPath` 只认 `type: "path"`）。缺省层如果照字面写成规则、交给同一个引擎：
+  - `yolo` 组的“全部放行”（`{tool:"*", action:"allow"}`）对 `eval touch a`、`echo a > f` 不生效，缺省层没有命中，第 7 步没有结论。现行 decide 里 `yolo` 会放行它们（输出 14：`yolo` 下放行）。
+  - `ask` 组的“只写自有目录放行”用的是 `writes` 匹配器，不是 `path`，所以 `echo x > tmp://a` 被豁免跳过、落到“其余询问”。这与第五节举的例子正好相反。
+- 核实：读 rules.ts 的 `firstHit` 与 `mentionsPath`。用 `layerResult([{tool:"*",action:"allow"}], views)` 对 `echo a > f` 求值，得 null。
+- 改法：明确写出模式层、固定层、缺省层不走 `firstHit` 的放行豁免（这些层不是模型能影响的输入，豁免是为用户规则设的）；或者让 `mentionsPath` 认 `writes`，并单独规定 `yolo` 对看不懂的命令放行。无论哪种，“规则的写法不变、只是换一组规则”的说法都要收窄。
+
+### 3. `writes within` 是整次调用的性质，规则却按单条命令求值：复合命令里只读的那条会触发模式层拒绝
+- 严重程度：重要；类别：正确性
+- 位置：提案第四节第 2 小节的匹配器表（“这次调用有写路径，全部落在列出的区域里，命令都只读”）；rules.ts 的 `CallView` 与 `layerResult`；hook.ts 的 `buildViews`
+- 现象：一段命令拆成几条后，每条一个 `CallView`，`paths` 只有工具的路径加这一条自己的写重定向（rules.ts:17 的注释）。拿 `cat a > tmp://x && ls` 来说，`effect` 按调用算是 `exec`（输出 17）。`ls` 那一条没有写路径，`writes within own` 不成立，`effect is read` 也不成立，于是模式层的“既不是读、又不是只写自有目录就拒绝”在这一条上命中。`layerResult` 是任一条拒绝就拒绝（输出 12；“只读的条不算数”只对放行生效），整次调用被拒。现行闸门的 `classify` 看整次调用，判为只写草稿，放行。
+- 同样的错位也落在用户自己写的 `writes` 规则上。
+- 核实：读 hook.ts 的 `buildViews`（每条命令一个 view）与 rules.ts 的 `layerResult`；现行行为可在 plan 模式跑 `cat a > tmp://x && ls`，结论是 `mode:scratch`。
+- 改法：二选一，并写进 Spec。一是 `writes` 与 `effect` 按整次调用求值（`CallView` 加整次调用的写路径与“命令全只读”，或者让这两种匹配器不参与逐条合并）；二是 `effect` 改成按这一条命令算（只读的条算读）。
+
+### 4. 自有目录是整个 `session://`，包括宿主写的 attachments、artifacts、jobs；shell 重定向不经文件服务的写授权，普通模式下将能不问就伪造附件
+- 严重程度：重要；类别：不变量 / 安全
+- 位置：提案第四节第 2 小节“自有目录”；第 1 小节的论据（“能不能写……保的是别人的数据……宿主写的附件”）；第五节“安全：唯一放宽的是……会话自己的目录”
+- 现象：shell 先用 `readPath`（只按读授权）把命令里的地址换成本机路径（shell.ts 的 `replaceAddresses`/`locate`），然后直接写磁盘，不经文件服务的写授权（resources.md 的“已知限制”）。`own` 包含 `session://attachments/`、`artifacts/`、`jobs/`，于是 `echo x > session://attachments/b.png` 满足“写重定向落在自有目录、命令只读”。
+- 真实运行时复现（scratch-backend/shell-hostdir.test.ts，真实内核、真实 shell、本机端点，plan 加 ask）：
+  - `write` 工具写 `session://attachments/a.txt`，得 `permission-denied`；
+  - 附件目录存在时（宿主收过附件后就存在），`echo forged > session://attachments/b.txt` 得 ok，`approval.by` 是 `mode:scratch`，文件内容是 `forged\n`。
+  - 这是现有的缺口，只出现在计划与讨论模式。提案把它扩到普通模式加“逐个确认”，也就是缺省设置。
+- 这也说明第 1 小节的论据不成立：文件服务的授权只挡文件工具，挡不住 shell。
+- 改法：`own` 不含宿主写的子目录。这样宿主写的目录又在布局与方案登记两处各列一份；要一份名单，就让 `writes within own` 对每个写路径再按方案授权试判一次（见第 7 条：这是试判唯一真实的用处）。另外，第五节的“安全”要写明这个变化。
+
+### 5. “项目规则文件坏了，写与执行都问”（permissions.md 输出 6）在四层里没有位置；放进“你的规则”的作品层就会被会话层放行盖掉
+- 严重程度：重要；类别：正确性
+- 位置：提案第四节第 2 小节的四层表与合并 1 到 7 步；hook.ts:86-89
+- 现象：现行实现在三层合并之后把规则结果整个改成询问（`forcedBy = "rules-invalid"`），盖过会话层放行与用户放行，`yolo` 下放行，转问来源是 `rules-invalid`（hook.test.ts“rules-invalid”）。提案没有提这条。
+  - 若照“作品层，同现在”理解为作品层的一条询问：第 4 步“会话层放行”排在第 5 步“你的规则询问”之前，于是“本会话都批准过的 `git diff *`”在项目规则文件坏了时，现在要问，按提案直接放行。
+  - 计划模式下写 `session://plan.md`：现在要问（规则询问先于 `scratch`），按提案在缺省层之前要看它放在哪一层。
+- 核实：hook.test.ts 的“rules-invalid”与“address：与项目规则读坏同时成立时记后改的 address”两格。
+- 改法：把它写成固定层的一条有条件的询问（“项目规则读不了时，写与执行询问”）。固定层因此不止 `user://` 一条，也不再“删不掉的常量”，而是宿主每次判定时给出。转问来源的 `rules-invalid` 与 `address` 两个值要么保留、要么在“按层记”的新值里写清对应关系。
+
+### 6. 固定层的 `user://` 写成路径规则后，三值匹配会把“写路径算不出”的调用都判成询问，`auto` 与 `allow-writes` 下的结论随之改变
+- 严重程度：重要；类别：正确性
+- 位置：提案第四节第 2 小节“固定层：写 `user://` 要问”与合并第 3 步；rules.ts:113-121（`path` 匹配器）、hook.ts:91-94（现行强制询问）
+- 现象：现行强制询问只看展开成功的写地址（`classifiedAsk` 对 `view.paths` 逐个判），算不出地址的不算。固定层如果写成 `{tool:"*", when:{type:"path", glob:"user://**", access:"write"}, action:"ask"}`，就按输出 5 的三值规则走：`unresolvedPaths` 或 `!subjectsAvailable` 时结果是 unknown，询问规则算命中。于是：
+  - `auto` 下的 `echo x > "$F"`（重定向目标有展开）：现在交审批模型，按提案在第 3 步询问用户；
+  - `allow-writes` 下 `write` 工具的地址展开失败（例如 `no-project`）：现在放行（之后由工具报错），按提案询问；
+  - 工具提供方激活失败的第三方写工具，即使用户写了放行规则：现在放行，按提案第 3 步先于第 6 步，询问。
+  - 每次这样的判定还写一条 `permission-rule-unevaluable`，指向一条用户改不了的内置规则。
+- 核实：读 rules.ts 的 `evaluate` 中 `path` 分支与 hook.ts:91-94，对照提案第 3 步。
+- 改法：固定层的 `user://` 只看展开成功的写地址（另写一种内置判断，或者 unknown 时固定层不命中），并写明固定层与模式层算不出来时不写那条诊断。若接受这个收紧，列进第五节的行为变化。
+
+### 7. 第一节第 4 条与第四节第 1 小节“两份变一份、按授权试判”的前提不成立：那张表的“可写/不许写”在运行时没有消费者
+- 严重程度：重要；类别：正确性 / 文档（上游选择）
+- 位置：提案第一节最后一条（“新登记的方案（例如 `bot://`）一律算不许写”）；第三节“审批钩子只用这张表里的写入要询问”；第四节第 1 小节；第六节对 resources.md、workspace/resources.md 的改动
+- 现象：在 packages 下搜 `classify(`（去掉 legacy 与无关同名函数），产品代码里只有 hook.ts:123 用它，而且只看 `write === "ask"`。kit 的本机参考实现 local.ts:176 用自己的 `classify` 拒绝写入，那是参考宿主，不是 NeuroBook。`content` 字段只在 resources.test.ts:158、163 出现。NeuroBook 里写入是否允许，完全由方案的 `authorize`（schemes.ts）决定。所以 `bot://` 并没有“算不许写”：它在闸门下被当成写拦下，在 `auto` 下交给模型。问题出在 `scratch`、`localWrites` 两份名单，而不在这张表。
+- 试判本身也有限制：`authorize` 是同步的（shared/schemes.ts:81），但挂载点是否存在要靠异步的 `mount()`；真实路径的那一次授权要读磁盘，写类操作还可能先建目录；`projects://`、`user://` 由文件服务自己提供，没有 `authorize`。试判只能做“按地址路径”的那一次。
+- 改法：把这张表的 `allowed`、`denied` 与 `content` 直接删掉，`user://` 挪进固定层。宿主写的目录就只在 schemes.ts 一处。不需要给 workspace/resources.md 加试判接口，除非采用第 4 条的做法（只在 `writes within own` 里试判）。要删就同时改 host-kit.md 输出 3、合同测试 files-contract.ts:141-208，以及插件可见的 `ResourceClass`（`shared/resources` 是公开入口，见 resources.md 实现合同），并写进兼容说明。
+
+### 8. 模式层规则拒绝时给哪个码、两层都拒绝时谁赢、询问记哪个转问来源，提案都没写；现有界面与测试依赖这几项
+- 严重程度：重要；类别：接口
+- 位置：提案第四节第 2 小节合并第 1、2 步（“任一层拒绝：拒绝”）；第 4 小节“`by` 按层记”
+- 现象：
+  - 普通规则的拒绝出 `rule-denied`、`by: "rule"`；闸门的拒绝出 `mode-blocked`、`by: "mode"`，带 `MODE_BLOCKED_TEXT`（judge.ts:43-45）。界面按 `mode-blocked` 显示单独的文字（nb-agent-ui kernel-transcript.ts:206，modes.md 输出 4）。模式层变成普通规则之后出哪个码，提案没有写。
+  - 第 1 步“任一层拒绝”没有规定先后。modes.test.ts:112 要求 discuss 下用户的 `rm *` 拒绝规则得 `rule-denied`，也就是用户的拒绝和它的 `reason` 胜过闸门。模式层既然排在最上面，照字面实现会变成 `mode-blocked`。
+  - 模式层的询问：现行转问来源是 `gate`（types.ts），原因是 `MODE_ASK_REASON`（modes.test.ts:119 断言它）。w00043 要让 bot 接转问，来源的取值是对宿主的接口。
+- 改法：Spec 里写明三件事：每层拒绝的码与 `by`（模式层沿用 `mode-blocked`）；两层都拒绝时“你的规则”的拒绝先报；每层询问对应的转问来源（`EscalationSource` 的新旧值对照）。
+
+### 9. 宿主套件接口缺两样：`writes within: "project"` 在套件里无从求值；固定层的 `user://` 是 NeuroBook 的方案，钩子要多一个宿主选项
+- 严重程度：重要；类别：接口
+- 位置：提案第五节“接口”、第六节对 host-kit.md 的改动（“布局的 `scratch`、`localWrites` 合成 `own`”）
+- 现象：
+  - `auto` 组要用 `within: ["own", "project"]`。`localWrites` 原本带着 `project://`（resources.ts 的 `sessionLayout`），合成 `own` 后布局里不再有“作品”区域。套件不认识应用的方案（host-kit.md 目标第一句），就不知道 `project` 指什么。而且把 `"own" | "project"` 写进公开的匹配器类型，等于把 NeuroBook 的“作品”概念放进了宿主无关的套件与第三方规则合同。
+  - 固定层“写 `user://` 要问”现在经 `SessionFiles.classify` 的 `ask` 进钩子。挪进规则之后，钩子需要宿主给固定层规则的选项（`ApprovalHookOptions` 现在没有这一项）。第六节只说“审批钩子的选项随之改”，没有列出这一项。
+- 改法：布局给一张区域表（例如 `regions: Record<string, string[]>`，NeuroBook 给 `own`、`project`），匹配器的 `within` 收宿主登记的区域名，没登记的名字算“算不出来”。`ApprovalHookOptions` 增加 `fixedRules(context)`（顺带容纳第 5 条的“项目规则坏了”），去掉 `gated`、`gate`、`modeWriteAction`，改成 `modeRules(read)`。第六节把这几项都写出来。host-kit.md 刚晋升为 `implemented`，这些改动要按 Spec 的修订流程走。
+
+### 10. “审批只有一种东西：规则”只做到一半：合并要按审批模式在三处特判，`auto` 需要一种规则里没有的动作
+- 严重程度：建议；类别：代码质量 / 文档（别扭之处）
+- 位置：提案第二节目标第一条；第四节第 2 小节（“规则的写法不变”、缺省层“交审批模型”、合并第 2、3、5 步）
+- 现象：
+  - `Rule.action` 只有 `allow`、`ask`、`deny`（permissions.md 输入），缺省层的“交审批模型”是第四种动作，和“规则的写法不变”矛盾。权限规则页要显示一种用户写不了的动作。
+  - “全部放行”既是缺省层的一组规则，又在合并的第 2、3、5 步各被特判一次。切换审批模式不只是换掉一组规则，合并算法本身也跟着变。
+  - 模式层的动作还取决于用户设置 `modeWriteAction`。
+  - 合并有 7 步，现行 `decide` 也是 7 步。开发者嫌“四关太复杂”，提案把四关改名为四层，判定步骤并没有变少。
+- 对照：Claude Code 的做法是“拒绝 > 询问 > 放行”加上模式修饰（plan、acceptEdits、bypassPermissions）；Codex 是审批策略乘以沙箱。两者都把“谁的询问能被全部放行跳过”放在模式的定义里，合并本身不特判。
+- 改法：给询问分两种强度，“硬询问”（模式层、固定层的 `user://`，全部放行也不放）与“软询问”（用户规则、项目坏了），在“层”的定义里写死。合并就简化成“拒绝 > 硬询问 > 会话放行 > 软询问 > 放行 > 缺省层”，“全部放行”只体现在缺省层，外加一句“软询问在全部放行下放行”。`review` 作为缺省层专有的结论写进 Spec，不说成“规则的写法不变”。
+
+### 11. `writes within` 的定义漏了现行闸门的一条排除：不是命令的 `exec` 工具只要交出自有目录的写路径，就会在计划模式下放行
+- 严重程度：重要；类别：正确性
+- 位置：提案第四节第 2 小节匹配器表；hook.ts:245-246（“`exec` 的非命令工具说不清它还做了什么”）
+- 现象：现行 `classify` 里，没有命令判定对象、`effect` 却是 `exec` 的工具（第三方或 MCP 工具）一律算写，在闸门下被拦。提案对 `writes` 的定义是“有写路径，全部落在列出的区域里，命令都只读”。这种工具没有命令，“命令都只读”空真成立，于是计划与讨论模式下它被放过；普通模式加“逐个确认”下，缺省层直接放行。工具除了写自有目录之外还做什么（网络、进程），审批看不到。
+- 核实：读 hook.ts 的 `classify` 最后一行，对照提案的定义。
+- 改法：在匹配器定义里写明“`effect` 是 `exec` 且没有命令判定对象的不算”，或者让模式层与缺省层的规则用 `all:[{effect is write}, {writes within own}]` 加上“或者是只读的命令”。
+
+### 12. “以后加模式只要写一组规则和一段提示”不成立，子会话的模式收紧还假定所有非普通模式一样严
+- 严重程度：建议；类别：接口 / 文档
+- 位置：提案第四节第 3 小节；modes.ts:17、26 与 `switchModeDeclaration`；backend/permissions/index.ts:46；subagents/tools.ts:192-198
+- 现象：
+  - 模式是封闭的列表：`AGENT_MODES` 固定为三种，扩展设置的 schema 与 `switch_mode` 的 `enum` 都由它生成。界面按 normal、discuss、plan 循环（modes.md 输出 11）。`MODE_BLOCKED_TEXT` 写死了“discuss or plan”。钩子用 `modeOf(read) !== "normal"` 判断要不要设闸门。
+  - 子会话收紧（modes.md 输出 14，`tighten`）：子会话在任何非普通模式时都不动，注释写的是“两种都不改作品”。如果加一个更宽的模式（例如提案举的“只许改设定”），父会话在 plan、子会话在“只许改设定”时，子会话比父会话宽，却不会被收紧。
+- 改法：要么删掉这句承诺；要么把“模式”定义成带 `rules`、`reminder`、`blockedText` 的登记项，并给出收紧的规则（例如收紧时直接取父会话的模式，或者要求每个模式声明自己比 normal 严）。modes.md 的输出 11、14 也要随之改。
+
+### 13. bot 的自有目录依赖“会话属于哪个 bot”，但布局与方案授权都是同步的、只看会话上下文，这条依赖没有写出来
+- 严重程度：建议；类别：接口
+- 位置：提案第二节非目标最后一条；第四节第 1 小节（“`bot://` 由 bot 插件声明这个 bot 的会话能写”）、第 2 小节“自有目录由宿主按会话给”
+- 现象：
+  - `sessionLayout(context)` 是同步的，只读 `ToolSessionContext`，而它没有 bot 身份。
+  - 方案的 `authorize(caller, …)` 也是同步的，热路径上不能查库；`caller.agent` 只有 `{session, profile, entry}`（resources.ts 的 `self`）。
+  - 所以 bot 插件判断“这个会话是不是本 bot 的”，要么上下文与 `caller.agent` 多带一个 bot 字段，要么插件维护一张同步的会话到 bot 的映射。
+  - 另外，`judgingSettings` 只把核心设置与扩展设置算进重判条件（tools.ts:270-274）。如果会话与 bot 的绑定能改，或者能在会话中途建立，放行之后、执行之前绑定变了，不会触发重判。
+- 改法：本稿至少写明对 bot 提案的接口要求：会话上下文带上所属 bot，建会话时就定下、之后不变；同一个 bot 字段同时进 `caller.agent`。这样两处都能同步判断。
+
+### 14. 内置层要看判定对象，于是每次非读调用都会先激活工具提供方，与输出 9 “只看工具名的规则不触发激活”不符
+- 严重程度：建议；类别：安全与性能 / 文档
+- 位置：提案第四节第 2 小节；hook.ts:73（`needed`）；rules.ts:137-144（`needsSubjects`）
+- 现象：现在只有处在闸门下或 `auto` 时，或者用户规则需要判定对象时，钩子才激活提供方。按提案，“逐个确认”组的“只写自有目录放行”与模式层规则都要看写路径，所以每次非读调用都要先算判定对象，也就要先激活提供方。另外 `needsSubjects` 对所有非 `arg` 的类型都返回真，新加的 `effect` 匹配器本不需要判定对象，也会被当成需要。
+- 影响：缺省设置下，第三方工具每次调用前都先激活提供方。如果用户随后拒绝这次调用，激活就白做了；激活失败时会走第 6 条说的“算不出来就询问”。
+- 改法：`needsSubjects` 把 `effect` 排除在外；在 Spec 的输出 9 里写明内置层也算“需要判定对象的规则”。
+
+### 15. “`by` 按层记”没有给出新值，第六节也没有列出现有测试里会变的格子
+- 严重程度：建议；类别：文档 / 测试
+- 位置：提案第四节第 4 小节、第五节“数据”、第六节
+- 现象：
+  - 现在放行的 `by` 有 `rule`、`mode:read`、`mode:scratch`、`mode:allow-writes`、`mode:auto`、`mode:yolo`、`user`；拒绝的 `rejection.by` 有 `rule`、`mode`、`permissions`。界面只认 `by === "user"`（kernel-transcript.ts:204）。提案只说“按层记”，没给取值。例如“只写自有目录放行”记成 `default:ask` 还是 `mode:own`，计划模式下写 `plan.md` 记哪一层，都没写。
+  - 提案没有验收清单。第六节说“结果表按层重写”，但没有列出会变的现有格子。至少这几处会变：rules.test.ts“判定顺序”整组（`decide` 的参数变了）；hook.test.ts“转问的来源”里的 rules-invalid、address、gate 三格；modes.test.ts:93、100（见第 1 条）；hook.test.ts:124 的 `mode:scratch`；hook.test.ts:147 的 `mode:auto`。
+- 改法：给出 `by` 的新值表，并写明旧值怎么显示；为第 1 到 6 条的每一格写一条验收，能用 modes.test.ts、permissions.test.ts 的真实内核写出来。
+
+### 16. 上游选择：审批的分层与合并放在宿主无关的套件里，理由是“第二个宿主 NeuroBot”，而 NeuroBot 已于 2026-11-18 暂停
+- 严重程度：建议；类别：代码质量（上游选择）
+- 位置：提案第五节“接口”（“现在只有 NeuroBook 一个宿主，同一次改完”）；host-kit.md 目标第一段（“NeuroBook 与 NeuroBot 各给一个实现”）；w00043 README 2026-11-18 的决定（bot 做成 NeuroBook 内置插件，NeuroBot 独立应用暂停）
+- 现象：`createApprovalHook` 唯一的使用方是 backend/permissions/index.ts（在 packages 下搜索的结果）。为了让套件不认识 NeuroBook，提案要给套件加一批东西：区域表（第 9 条）、固定层与模式层的规则选项、层到码和来源的映射（第 8 条）。这些抽象原本是为第二个宿主准备的，而那个宿主现在暂停了。
+- 改法（候选，交开发者定）：套件只保留宿主无关的部分，即规则引擎（`evaluate`、`layerResult`）、方言、判定对象、审批模型、转问。“四层怎么组成、怎么合并”放进 `backend/permissions`，套件的钩子收一个“按调用给出各层规则”的回调和一个合并函数。代价：host-kit.md 与 permissions.md 实现合同里的 owner 要改，这和提案本来就要改的范围差不多。好处：`own`、`project`、`user://`、`mode-blocked` 都留在 NeuroBook。等 NeuroBot 真的恢复时，再把共同部分抽回套件。
+
+## 未发现问题的方面
+- 规则询问与会话层放行的先后：提案第 4、5 步与 `mergeLayers`（会话放行先于任一层询问）一致；用户拒绝加本会话批准仍拒绝（验收 3）。
+- 写 `user://`：普通模式下各审批模式、计划模式（闸门算写，拒绝或按 `modeWriteAction` 询问）、`yolo` 下放行，这几种情况的结论与现行相同（只限展开成功的地址，算不出的见第 6 条）。
+- 作品层放行规则被忽略、写诊断：“同现在”，没有变化。
+- 讨论、计划模式下，放行规则与全部放行都过不了模式层；`modeWriteAction: "ask"` 加放行规则仍询问、`yolo` 不放（第 2 步）：与 t06 决定 3、modes.test.ts“配置成弹审批”一致。
+- 看不懂的命令在 `ask`、`allow-writes` 下询问，`auto` 下交模型：结论不变（`yolo` 见第 2 条）。
+- 审批模型 `auto` 的输入（`ReviewRequest` 的调用、等级、展开过的路径）与“排在它前面的层模型改变不了”：提案没有触动，承诺成立。
+- 模式变了之后重判：只要模式层规则由模式扩展的设置推出，`judgingSettings` 已把扩展设置算进去（tools.ts:270-274），重判不受影响。`switch_mode` 的 `effect` 是读，不被模式层拦，拒绝规则仍能禁掉它。
+- 子会话、后台会话、`fork`、换主项目时的自有目录：布局每次判定都按当前上下文重算（hook.ts:52），`session://`、`tmp://` 跟着会话 id。没有发现歧义（bot 见第 13 条，`profile://` 不算自有目录有明确说明）。
+
+## 各级数量
+阻断 0；重要 10（第 1、2、3、4、5、6、7、8、9、11 条）；建议 6（第 10、12、13、14、15、16 条）。
+
+## 对待定项的判断
+1. 普通模式加“逐个确认”下只写自有目录不再问：方向可以接受，但要先满足两点：自有目录排除宿主写的子目录（第 4 条）；三种审批模式在这一点上保持一致（第 1 条）。否则就成了缺省设置下用 shell 伪造附件不用问，而且宽松的审批模式反而更严。
+2. 权限规则页按四层显示随这次做：从后端看，可以推迟，但“这次询问来自哪层哪条”和 `by` 的新值（第 8、15 条）要这次定下来，否则以后的页面没有数据可显示。界面部分交给前端审查。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16

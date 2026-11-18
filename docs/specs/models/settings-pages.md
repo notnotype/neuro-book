@@ -33,7 +33,7 @@ owners:
 
 ### 服务商与模型
 
-1. **版式**：左边服务商列表、右边所选服务商的详情（这一页自己分栏，见 [`settings/settings-window.md`](../settings/settings-window.md) 输出 3）。列表只列用户添加过的服务商，每项写名称、密钥有没有设、启用了几个模型；列表顶上“全部模型”一项、底下“添加服务商”。列表的选择照窗口左栏：当前项 `aria-current`、上下键与 Home、End 移动。页面宽不到 600px 时列表收成顶上的下拉加“添加”。
+1. **版式**：左边服务商列表、右边所选服务商的详情（这一页自己分栏，见 [`settings/settings-window.md`](../settings/settings-window.md) 输出 3）。列表只列用户添加过的服务商，每项一行，高度同窗口左栏：名称，行尾一格写启用了几个模型；密钥没有设、环境变量没有值、有模型检测失败时这一格换成图标，悬停条目写原因。列表顶上“全部模型”一项、底下“添加服务商”。列表的选择照窗口左栏：当前项 `aria-current`、上下键与 Home、End 移动。页面宽不到 600px 时列表收成顶上的下拉加“添加”。
 2. **开箱**：没有服务商时列表为空，右边是引导（为什么要添加、本机端点也在目录里、中转站选自定义）与“添加服务商”。
 3. **添加服务商**：可搜索的对话框，列 OMP 目录里的服务商；已添加的停用并标“已添加”；不要密钥的本机端点标“不要密钥”；只能登录的停用并写“要登录，第一版不支持”；最后一项是“自定义 OpenAI 兼容服务商”。选中即添加（`addProvider`）、对话框关闭、新服务商成为当前项。
 4. **连接**：标签在上的紧凑表单，说明收进标题旁的提示。
@@ -47,7 +47,7 @@ owners:
 9. **编辑模型**：对话框（叠在设置窗口上，二级面），分“基本”（模型 id 只读、显示名称、系列）、“能力与限制”（上下文窗口、最大输出、能看图、支持推理）、“单价”、“压缩”（触发点：跟随全局设置、留预留量、窗口的百分比、固定的 token 数，见 [`service.md`](service.md) 输出 17）、默认收起的“高级”（模型级请求头，同名盖过服务商的）。目录模型的能力与单价来自目录、不能改，只写用户改过的字段。“保存”才写（`upsertModel`），关闭不写；校验不过时不关、原位标原因。
 10. **管理模型**：对话框列目录模型（目录服务商）或 `/models` 发现的结果（自定义服务商，可“重新拉取”），可搜索；每项“加入列表”或“从列表移出”，缺字段的标“要补字段”；“完成”一次写（`setModels`）。发现失败按码显示原因（没有密钥、不支持、鉴权失败、连不上）。对话框关闭后迟到的发现结果丢弃。
 11. **全部模型**：所有服务商启用的模型一张表（服务商、模型、能力、检测状态），可从这里打开编辑对话框；没有时显示“没有启用的模型”。
-12. **删除服务商**：标题区的“删除”（`SettingsPageActions`），确认框写明去掉几个模型、密钥一起删、哪些角色会变成未绑定；确认后 `removeProvider`，焦点到下一个服务商，没有时到“添加服务商”。
+12. **删除服务商**：在列表的条目上：悬停或聚焦的条目行尾出删除图标，右键条目弹菜单“删除服务商…”，键盘在条目上按 Delete（Shift+F10 或菜单键开同一个菜单）；页面窄、列表收成下拉时，下拉旁边一个删除按钮，删当前选中的那家；标题区不放按钮。确认框写明去掉几个模型、密钥一起删、哪些角色会变成未绑定；确认后 `removeProvider`。删的是当前选中的那家时，选中并聚焦下一个服务商，没有时到“添加服务商”；删的是别的一家时选中不变，焦点回到当前项；取消时焦点回到那家的条目。
 
 ### 模型角色
 
@@ -59,6 +59,7 @@ owners:
 15. **写入失败**：远程方法失败时经页面上下文的 `reportWriteFailure` 交给窗口通知（[`settings/settings-window.md`](../settings/settings-window.md) 输出 14），控件回到快照里的实际值；`unknown-outcome` 为“可能没有保存”，之后重取快照；`partially-applied` 按返回的实际密钥状态显示。
 16. **跟随变化**：快照的 `changed` 事件到达时两页刷新（别的窗口、设置文件视图的改动即时可见）；正在编辑的输入框不被打断，失焦时以快照为准。
 17. **只读**：远程合同不可用时写控件停用并在标题区说明；本作品标签下两页按分区规则停用。
+18. **打开到指定位置**：两页读页面上下文的 `focus`（[`settings/settings-window.md`](../settings/settings-window.md) 输出 15），等第一份快照到了再取走（`takeFocus`）并定位。角色页：值是角色 id，滚到这个角色那一行，焦点放在它的模型下拉上。服务商页：值是已添加的服务商 id 时选中这家、焦点放在 API 密钥框上（不要认证的服务商没有密钥框，只选中）；值是 `add` 时打开“添加服务商”对话框。认不出的值取走后什么都不做。窗口已开在这一页时再来一次照样定位。
 
 ## 状态与转换
 
@@ -97,11 +98,11 @@ Smoke：`e2e/models.e2e.ts`。
   - 快照只来自数据模块的订阅：别的窗口改了即时跟上；释放后不再跟着变、不再可用（输出 16、17，`models-store.test.ts`“数据模块”）。
   - 检测状态归数据模块：单独检测与检测全部同时进行时各自结算、不会留下一直转圈的；取消回到开始之前；服务商或模型离开快照时它的结果清掉（输出 8，`models-store.test.ts`）。
   - 写失败交回码与详情、不抛；页面经窗口通知告诉用户，控件回到实际值（输出 15，`models-store.test.ts`，`models.e2e.ts` 验收 3）。
-  - 删除确认关闭之后焦点回到“删除”（取消）或落到下一家服务商、列表空时落到“添加服务商”（输出 12，`models.e2e.ts`“删除的焦点”与验收 1）。
+  - 删除确认关闭之后：取消时焦点回到那家的条目（窄时是下拉旁的删除按钮）；删的是当前那家时落到下一家，列表空时落到“添加服务商”；删的是别的一家时选中不变。删之前就记下删的是不是当前那家：快照事件可能先于写入的结果到（输出 12，`ProviderRail.dom.test.ts`，`models.e2e.ts`“删除的三条路与焦点”与验收 1、3）。
 
 ## 证据
 
-- 批准依据：w00032 t09 决定 11 到 30（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)，评审板 `review` v9）；开发者 2026-11-01 批准晋升为 `implemented`。
+- 批准依据：w00032 t09 决定 11 到 30（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)，评审板 `review` v9）；开发者 2026-11-01 批准晋升为 `implemented`；单行条目与删除挪到条目上（输出 1、12）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。打开到指定位置（输出 18）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“设置窗口打开到指定位置”，开发者 2026-11-16 确认（t36 决定 1、9）。
 - 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/models/web/plugin.ts)、[`web/models-store.ts`](../../../packages/neuro-book/src/plugins/models/web/models-store.ts)、[`web/components/`](../../../packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue)（`ProvidersPage`、`RolesPage` 与它们的部件）
-- 合同测试：[`models-store.test.ts`](../../../packages/neuro-book/src/plugins/models/web/models-store.test.ts)（真实服务端与远程合同，检测打到本机端点）
-- Smoke：[`models.e2e.ts`](../../../packages/neuro-book/e2e/models.e2e.ts)（验收 1–3 与删除的焦点）；Lab 场景 `ProvidersPage`、`RolesPage` 与各部件（`lab-scenes.e2e.ts` 逐个检查溢出与焦点环）
+- 合同测试：[`models-store.test.ts`](../../../packages/neuro-book/src/plugins/models/web/models-store.test.ts)（真实服务端与远程合同，检测打到本机端点）；定位（输出 18）：[`pages-focus.dom.test.ts`](../../../packages/neuro-book/src/plugins/models/web/components/pages-focus.dom.test.ts)
+- Smoke：[`models.e2e.ts`](../../../packages/neuro-book/e2e/models.e2e.ts)（验收 1–3 与删除的焦点）；Lab 场景 `ProvidersPage`、`RolesPage` 与各部件（`lab-scenes.e2e.ts` 逐个检查溢出与焦点环）；输出 18：`agent-conversation.e2e.ts` 里点“去绑定”后设置窗口开在角色页、焦点在那个角色上

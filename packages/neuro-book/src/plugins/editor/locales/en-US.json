@@ -75,11 +75,22 @@
         "discard": "Don't Save",
         "cancel": "Cancel"
     },
+    "windowCloseDialog": {
+        "title": "Save changes before closing?",
+        "body": "These files have unsaved changes that will be lost when the window closes:",
+        "failedTitle": "Some files weren't saved",
+        "failedBody": "These files couldn't be saved, so the window stays open:",
+        "saveAll": "Save All",
+        "discard": "Don't Save",
+        "cancel": "Cancel",
+        "ok": "OK",
+        "conflict": "{{path}} (conflicts with the version on disk; reload or overwrite it in that document)"
+    },
     "settingsSections": {
         "nbook": {
             "editor": {
                 "title": "Editor",
-                "description": "Tabs and breadcrumbs",
+                "description": "Tabs, saving, images and editor typography",
                 "groups": {
                     "tabs": {
                         "title": "Tabs"
@@ -87,8 +98,14 @@
                     "saving": {
                         "title": "Saving"
                     },
+                    "markdown": {
+                        "title": "Markdown Body"
+                    },
                     "code": {
                         "title": "Code Editor"
+                    },
+                    "images": {
+                        "title": "Images"
                     }
                 }
             }
@@ -189,6 +206,43 @@
                 "bottom": {
                     "title": "Floating at the Bottom"
                 }
+            }
+        },
+        "imageLocation": {
+            "title": "Image location",
+            "description": "Where new images are saved",
+            "choices": {
+                "folder": {
+                    "title": "A folder in the project root"
+                },
+                "root": {
+                    "title": "The project root"
+                },
+                "same": {
+                    "title": "The same folder as the current file"
+                },
+                "sibling": {
+                    "title": "A subfolder next to the current file"
+                }
+            }
+        },
+        "imageFolder": {
+            "title": "Image folder",
+            "description": "Used by “A folder in the project root” and “A subfolder next to the current file”. Nested names are fine (assets/images). It cannot start with /, contain .., or be under .nbook; otherwise “插图” is used"
+        },
+        "markdown": {
+            "fontFamily": {
+                "title": "Font Family",
+                "description": "A CSS font-family list; leave empty to use the skin's body font, or the interface font when the skin has none. A value here overrides the skin"
+            },
+            "fontSize": {
+                "title": "Font Size",
+                "unit": "px"
+            },
+            "lineHeight": {
+                "title": "Line Spacing",
+                "description": "A percentage of the font size; 195 means 1.95 times",
+                "unit": "%"
             }
         }
     },
@@ -361,6 +415,18 @@
                 },
                 "block-unwrap": {
                     "title": "Unwrap Block"
+                },
+                "properties": {
+                    "title": "Add Property"
+                },
+                "link": {
+                    "title": "Link"
+                },
+                "link-remove": {
+                    "title": "Remove Link"
+                },
+                "image": {
+                    "title": "Image"
                 }
             },
             "view": {
@@ -614,6 +680,27 @@
         "blockMenu": "Block Menu",
         "pasteUnsupported": "This browser cannot paste from the menu. Use Ctrl+V.",
         "pasteDenied": "Clipboard access was denied. Use Ctrl+V.",
-        "pasteEmpty": "The clipboard has no text. Use Ctrl+V for images or files."
+        "pasteEmpty": "The clipboard has no text. Use Ctrl+V for images or files.",
+        "imageTooLarge": "“{{name}}” is over 32 MiB and was not inserted",
+        "imageUnsupported": "“{{name}}” is not a PNG, JPEG, GIF or WebP image and was not inserted",
+        "imageNameInvalid": "“{{name}}” has a name that can’t be used and was not inserted",
+        "imageFolderDenied": "The image folder in the project can’t be written to, so “{{name}}” was not inserted",
+        "imageMaybeStored": "“{{name}}” was not inserted. It may already be saved in the project; check the image folder",
+        "imageNotInserted": "“{{name}}” was saved to the project ({{address}}) but could not be inserted",
+        "imageNotAllowedHere": "Images can’t be inserted here",
+        "imageUnavailable": "No project is open, so images can’t be saved",
+        "imageFailed": "“{{name}}” was not inserted: {{detail}}",
+        "promptLink": "Link address",
+        "imageCardLabel": "Insert image",
+        "imageCardPlaceholder": "Search images, or paste a URL",
+        "imageCardUpload": "Upload",
+        "imageCardUploading": "Uploading…",
+        "imageCardLoading": "Loading",
+        "imageCardEmpty": "No matching images",
+        "imageCardMore": "There are more results. Type more to narrow them down",
+        "imageCardUrl": "Insert the image at this URL",
+        "imageCardFailed": "Couldn’t load images: {{detail}}",
+        "imageCardUrlOnly": "Paste an image URL to insert it",
+        "imageCardNoPreview": "No preview"
     }
 }

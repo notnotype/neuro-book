@@ -11,6 +11,7 @@ Markdown 的语言、编解码器与组件。行为合同见 [`ui/markdown-displ
 | `./display` | 只读显示 `MarkdownDisplay`、图片 `MarkdownImage` |
 | `./chip` | 行内小块 `InlineChip` 与它的外观判断 |
 | `./prompt` | 写给 Agent 的编辑组件 `PromptEditor`、已发送文字的显示 `PromptTextView`，以及拼引用写法的 `promptReferenceText`（目标分类必填） |
+| `./prompt-text` | 纯 TS，不引 DOM：`promptSkillTokens` 按编辑器的规则取出提示词里的技能标签，给宿主服务端用 |
 | `./editor` | 富文本编辑器的扩展组（编辑器实例与文档绑定归宿主） |
 | `./markdown.css` | 正文与方言元素的样式（展示器自己带上；宿主的编辑器控件导入它） |
 | `./locales` | 本包的消息目录（命名空间 `nb-markdown`，中英两份）：宿主把它登记进自己的翻译引擎 |
@@ -66,6 +67,7 @@ bun add @notnotype/nb-markdown
 
    - `targets.classify(target, base)` 把链接目标分成 `file`、`attachment`、`external`、`other`，可带细分 `variant`（写进 `data-reference-link` 与色调类）；`encodeFile(target)` 对任何目标调用，属于文件的把 `%`、`#`、`?` 百分号编码，别的原样返回。
    - `language()` 在组件挂上时取一次，之后不换；宿主有自己的方言时给它（`createMarkdownLanguage([...方言, ...builtinSyntaxes().map((entry) => entry.syntax), coreSyntax])`，方言按 `order` 插在内置之间）。
+   - `stickers(ref, signal)` 是表情目录（写法 `:名字:`、`:包/名字:`，内置方言 `sticker`）：交回 `{url, width, height, release()}` 或认不出的 null，目录没到时等到有结果为止，期间显示原文占位。没给时表情显示原文。编辑器的视图宿主（`MarkdownViewHost.stickers`）是同一个函数。写法的判断（`stickerAt`、`parseSticker`）从纯 TS 入口导出，宿主的目录用它认名字。
    - `InlineChip` 不读宿主，分类与图标经它的 `env` 属性给；`MarkdownImage` 也不读宿主（它会被挂到普通 DOM 上，挂的时候只带着翻译端口），不显示时的说明经 `missing` 给，可以是宿主目录里的键（`TextRef`，组件补上 `name` 参数）。两者的界面文字照样读翻译端口，见下面的“界面文字”。
 
 4. **接到 nb-agent-ui**：对话视图的 `renderers` 直接给本包的组件，组件满足 nb-agent-ui 的端口（`src/prompt/agent-ports.typecheck.ts` 核对）：

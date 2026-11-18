@@ -21,10 +21,11 @@ import {randomUUID} from "node:crypto";
 import {appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {tryLock, type FileLock} from "@notnotype/nb-flock";
+
 import type {BookFeatures, SourceChapter} from "../core/dataset";
 import {StoryError, systemErrorCode} from "../core/errors";
 import type {Library} from "../core/library";
-import {tryLock, type FileLock} from "../platform/flock";
 import type {BadReplyRecord, Step} from "./chapter";
 
 export interface IngestSource {

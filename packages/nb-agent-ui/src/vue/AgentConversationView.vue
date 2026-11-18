@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
-import {Button, Dialog, DropdownMenu, IconButton, OverlayScrollbar, Popover, Spinner} from "@notnotype/nb-ui/components";
+import {Button, Dialog, IconButton, OverlayScrollbar, Spinner} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
     ContextInspectionView,
@@ -11,13 +11,18 @@ import type {
     MessageView,
     AgentLocale,
     AgentViewMode,
+    AgentWelcomeView,
 } from "../types";
-import type {AgentViewRegistry} from "../registry";
+import {visibleEntries} from "../registry";
+import type {AgentViewRegistry, HeaderActionEntry} from "../registry";
+import type {StatusLineSetting} from "../status-line";
 import {assignTurnKeys, reuseTurnGroups, splitIntoTurnGroups} from "../conversation-turns";
 import {useStreamScroll} from "@notnotype/nb-ui/composables";
 import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
 import AgentRawView from "./stream/AgentRawView.vue";
+import AgentWelcome from "./stream/AgentWelcome.vue";
 import AgentConversationComposer from "./composer/AgentConversationComposer.vue";
+import AgentConversationHead from "./head/AgentConversationHead.vue";
 import AgentStatusBar from "./composer/AgentStatusBar.vue";
 import AgentContextInspector from "./panels/AgentContextInspector.vue";
 import AgentSessionTree from "./panels/AgentSessionTree.vue";
@@ -46,8 +51,18 @@ const props = withDefaults(defineProps<{
     composerLayout?: "stacked" | "inline";
     /** 输入框下面的状态栏；宿主有自己的用量显示时不要（nb-story）。 */
     statusBar?: boolean;
-    /** 有 `sessions` 插槽时点标题弹出下拉，放切换会话的面板。 */
+    /** 顶层会话时头的左边放新建按钮。 */
     newSession?: boolean;
+    /** 把头的三列送到视图之外（工作台面板头的标题区，同名 .md 的“顶栏”）；不给时画在内容顶上。 */
+    headTargets?: {readonly start: HTMLElement; readonly title: HTMLElement; readonly end: HTMLElement; readonly anchor: HTMLElement} | null;
+    /** 会话列表开着没有；可选受控，不传时视图自持。 */
+    sessionsOpen?: boolean;
+    /** 没选会话时头上的图标：新会话会用的 Profile。 */
+    draftProfile?: {readonly name: string; readonly icon: string} | null;
+    /** 没有消息时的第一屏（AgentWelcome）；不给时写“还没有消息”。 */
+    welcome?: AgentWelcomeView | null;
+    /** 用户的状态栏设置（显隐与次序，见 `status-line.ts`）；给了才有右键菜单，宿主处理 `statusLine.toggle`、`statusLine.openSettings`。 */
+    statusLine?: StatusLineSetting;
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
@@ -58,23 +73,37 @@ const props = withDefaults(defineProps<{
     composerLayout: "stacked",
     statusBar: false,
     newSession: false,
+    headTargets: null,
+    sessionsOpen: undefined,
+    draftProfile: null,
+    welcome: null,
 });
 
 const slots = defineSlots<{
     /** 点标题弹出的下拉里放的内容（会话面板）。`close` 关下拉：切了会话之后不该还开着。 */
     sessions?: (scope: {close: () => void}) => unknown;
+    /** 头的右列最前面，宿主放的入口（子代理入口）。 */
+    "head-trailing"?: () => unknown;
 }>();
 
 const emit = defineEmits<{
     (e: "action", action: AgentViewAction): void;
     (e: "update:viewMode", mode: AgentViewMode): void;
+    (e: "update:sessionsOpen", open: boolean): void;
 }>();
 
-const {t} = provideAgentView({locale: () => props.locale, renderers: () => props.renderers});
+const {t, text} = provideAgentView({locale: () => props.locale, renderers: () => props.renderers});
 
 // ─── 视图模式 ───────────────────────────────────────────────────────────
 
-const sessionsOpen = ref(false);
+const localSessionsOpen = ref(false);
+const sessionsOpen = computed(() => props.sessionsOpen ?? localSessionsOpen.value);
+
+function setSessionsOpen(open: boolean): void {
+    localSessionsOpen.value = open;
+    emit("update:sessionsOpen", open);
+}
+
 const localViewMode = ref<AgentViewMode>("turns");
 const currentViewMode = computed(() => props.viewMode ?? localViewMode.value);
 
@@ -83,9 +112,37 @@ function setViewMode(mode: AgentViewMode) {
     emit("update:viewMode", mode);
 }
 
+// ─── 登记的顶栏动作（Spec“顶栏”）：允许常驻的按 order 取前两个放在顶栏，其余收进溢出菜单 ───
+
+const headerActions = computed(() => visibleEntries(props.registry.list("headerActions"), props.ctx));
+const pinnedActions = computed(() => headerActions.value.filter((entry) => entry.pinnable).slice(0, 2));
+const menuActions = computed(() => headerActions.value.filter((entry) => !pinnedActions.value.includes(entry)));
+
+/** 名字后面跟角标数（有才写）。 */
+function headerLabel(entry: HeaderActionEntry): string {
+    const badge = entry.badge?.(props.ctx) ?? null;
+    return badge === null || badge === 0 ? text(entry.label) : `${text(entry.label)} (${String(badge)})`;
+}
+
+/** 目标是面板的在构造注册表时就被拒绝了（`registry.ts`），这里只有 action。 */
+function runHeaderAction(entry: HeaderActionEntry): void {
+    if (entry.target.kind === "action") emit("action", entry.target.action);
+}
+
+const pinnedHead = computed(() => pinnedActions.value.map((entry) => ({id: entry.id, icon: entry.icon, label: headerLabel(entry)})));
+
+function onHeaderAction(id: string): void {
+    const entry = pinnedActions.value.find((item) => item.id === id);
+    if (entry !== undefined) runHeaderAction(entry);
+}
+
+/** 溢出菜单里登记项的 id 加前缀，不与内置项撞名。 */
+const HEADER_PREFIX = "header:";
+
 const overflowItems = computed<DropdownMenuItemData[]>(() => [
     ...(props.ctx.interaction.canInspectContext === true ? [{id: "context", label: t("panel.context.title"), iconClass: "i-lucide-gauge"}] : []),
     ...(props.ctx.interaction.canOpenTree === true ? [{id: "tree", label: t("panel.tree.open"), iconClass: "i-lucide-git-fork"}] : []),
+    ...menuActions.value.map((entry) => ({id: `${HEADER_PREFIX}${entry.id}`, label: headerLabel(entry), iconClass: entry.icon})),
     {
         id: "toggle-view-mode",
         label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
@@ -93,26 +150,16 @@ const overflowItems = computed<DropdownMenuItemData[]>(() => [
     },
 ]);
 
-// ─── 子会话的路径 ───────────────────────────────────────────────────────
-
-type Crumb = {kind: "session"; id: string; title: string} | {kind: "more"; items: DropdownMenuItemData[]};
-
-/** 顶栏的祖先段：多于两层时只留根与父，中间的收进“…”的菜单。标题为空（读不到）的写“未知会话”。 */
-const crumbs = computed((): Crumb[] => {
-    const path = props.ctx.session?.path ?? [];
-    const titleOf = (title: string | null): string => (title === null ? t("header.unknownSession") : title || t("header.untitled"));
-    const crumb = (item: {id: string; title: string | null}): Crumb => ({kind: "session", id: item.id, title: titleOf(item.title)});
-    if (path.length <= 2) return path.map(crumb);
-    const middle = path.slice(1, -1).map((item) => ({id: item.id, label: titleOf(item.title), ...(item.icon === undefined ? {} : {iconClass: item.icon})}));
-    return [crumb(path[0]!), {kind: "more", items: middle}, crumb(path.at(-1)!)];
-});
-
 function selectSession(sessionId: string): void {
     emit("action", {type: "session.select", sessionId});
 }
 
 function onOverflowSelect(value: string) {
-    if (value === "toggle-view-mode") {
+    if (value.startsWith(HEADER_PREFIX)) {
+        const entry = menuActions.value.find((item) => `${HEADER_PREFIX}${item.id}` === value);
+        if (entry !== undefined) runHeaderAction(entry);
+    }
+    else if (value === "toggle-view-mode") {
         setViewMode(currentViewMode.value === "raw" ? "turns" : "raw");
     }
     else if (value === "context") {
@@ -188,6 +235,22 @@ const {following, scrollToLatest, recheckNearTop} = useStreamScroll({
     content: contentRef,
     onNearTop: () => requestHistory(false),
 });
+
+/** 第一屏的开场指令：交给宿主换进输入框，再把焦点放过去，接着就能改或发。 */
+function fillComposer(text: string): void {
+    emit("action", {type: "composer.fill", text});
+    void nextTick(focusComposer);
+}
+
+const showWelcome = computed(() => props.ctx.messages.length === 0 && props.ctx.availability.status !== "loading" && props.welcome !== null);
+
+/** 消息流滚到顶了没有：离开顶部才给顶端加渐隐。只在变化时写，滚动时不反复触发渲染。 */
+const streamAtTop = ref(true);
+
+function onStreamScroll(): void {
+    const atTop = (streamRef.value?.scrollTop ?? 0) <= 0;
+    if (atTop !== streamAtTop.value) streamAtTop.value = atTop;
+}
 
 // 切换会话后定位到最新内容；各轮的界面状态随组件的 key（含会话 id）一起重建。
 watch(() => props.ctx.session?.id, () => {
@@ -341,52 +404,46 @@ defineExpose({focusComposer, scrollToLatest});
 
 <template>
     <section class="agent-conversation-view">
-        <header v-if="props.header" class="acv-header">
-            <!-- 子会话：祖先在前，本会话的图标与标题（会话下拉的触发）接在后面 -->
-            <nav v-if="crumbs.length > 0" class="acv-header__path" :aria-label="t('header.path')" data-header-path>
-                <ol class="acv-header__crumbs">
-                    <li v-for="(crumb, index) in crumbs" :key="crumb.kind === 'session' ? crumb.id : `more-${index}`" class="acv-header__crumb-item">
-                        <DropdownMenu v-if="crumb.kind === 'more'" :items="crumb.items" align="start" @select="selectSession">
-                            <button type="button" class="acv-header__crumb" :aria-label="t('header.morePath')" :title="t('header.morePath')" data-header-crumb-more>…</button>
-                        </DropdownMenu>
-                        <button v-else type="button" class="acv-header__crumb" :title="crumb.title" data-header-crumb @click="selectSession(crumb.id)">{{ crumb.title }}</button>
-                        <span class="acv-header__sep" aria-hidden="true">/</span>
-                    </li>
-                </ol>
-            </nav>
-            <span
-                v-if="props.ctx.session"
-                :class="[props.ctx.session.profileIcon, 'acv-header__icon']"
-                aria-hidden="true"
-            />
-            <Popover v-if="slots.sessions" v-model:open="sessionsOpen" side="bottom" align="start" content-class="acv-header__sessions">
-                <template #trigger>
-                    <button type="button" class="acv-header__title acv-header__title--button" :title="props.ctx.session?.summary || undefined" data-header-sessions :aria-expanded="sessionsOpen">
-                        <span class="acv-header__name">{{ props.ctx.session ? (props.ctx.session.title || t("header.untitled")) : t("header.noSession") }}</span>
-                        <span class="i-lucide-chevron-down acv-header__chevron" aria-hidden="true" />
-                    </button>
-                </template>
-                <slot name="sessions" :close="() => (sessionsOpen = false)" />
-            </Popover>
-            <div v-else class="acv-header__title" :title="props.ctx.session?.summary || undefined">
-                <span class="acv-header__name">{{ props.ctx.session ? (props.ctx.session.title || t("header.untitled")) : t("header.noSession") }}</span>
-                <span v-if="props.ctx.session" class="acv-header__profile">{{ props.ctx.session.profileName }}</span>
-            </div>
-            <span v-if="slots.sessions && props.ctx.session" class="acv-header__profile">{{ props.ctx.session.profileName }}</span>
-            <span v-if="slots.sessions" class="acv-header__spacer" />
-            <IconButton v-if="props.newSession" icon-class="i-lucide-plus" size="sm" :title="t('header.newSession')" :aria-label="t('header.newSession')" data-header-new @click="emit('action', {type: 'session.create'})" />
-            <DropdownMenu :items="overflowItems" root-class="acv-header__more" align="end" @select="onOverflowSelect">
-                <IconButton icon-class="i-lucide-ellipsis" size="sm" :title="t('header.more')" :aria-label="t('header.more')" />
-            </DropdownMenu>
-        </header>
+        <AgentConversationHead
+            v-if="props.header"
+            :ctx="props.ctx"
+            :targets="props.headTargets"
+            :new-session="props.newSession"
+            :has-sessions="slots.sessions !== undefined"
+            :sessions-open="sessionsOpen"
+            :draft-profile="props.draftProfile"
+            :pinned="pinnedHead"
+            :overflow-items="overflowItems"
+            @select="selectSession"
+            @create="emit('action', {type: 'session.create'})"
+            @update:sessions-open="setSessionsOpen"
+            @header-action="onHeaderAction"
+            @overflow="onOverflowSelect"
+        >
+            <template v-if="slots.sessions" #sessions>
+                <slot name="sessions" :close="() => setSessionsOpen(false)" />
+            </template>
+            <template v-if="slots['head-trailing']" #trailing>
+                <slot name="head-trailing" />
+            </template>
+        </AgentConversationHead>
 
         <div class="acv-body">
-            <div ref="streamRef" class="acv-stream" data-agent-stream>
-                <div ref="contentRef" class="acv-stream__content">
+            <div ref="streamRef" class="acv-stream" :class="{'acv-stream--faded': !streamAtTop}" data-agent-stream @scroll.passive="onStreamScroll">
+                <div ref="contentRef" class="acv-stream__content" :class="{'acv-stream__content--welcome': showWelcome}">
                     <!-- 其余 availability 的说明与恢复动作在输入框上方的横幅里，这里不重复 -->
                     <p v-if="props.ctx.messages.length === 0 && props.ctx.availability.status === 'loading'" class="acv-stream__empty" role="status">
                         <Spinner size="sm" :label="t('stream.loading')" />{{ t("stream.loading") }}
                     </p>
+                    <AgentWelcome
+                        v-else-if="showWelcome"
+                        :welcome="props.welcome!"
+                        :now="props.ctx.now"
+                        :can-open-sessions="slots.sessions !== undefined"
+                        @select="selectSession"
+                        @open-sessions="setSessionsOpen(true)"
+                        @starter="fillComposer"
+                    />
                     <p v-else-if="props.ctx.messages.length === 0" class="acv-stream__empty">
                         {{ t("stream.empty") }}
                     </p>
@@ -471,7 +528,15 @@ defineExpose({focusComposer, scrollToLatest});
             v-bind="{inert: waitingForUser}"
             @action="onAction"
         />
-        <AgentStatusBar v-if="props.statusBar" :ctx="props.ctx" :registry="props.registry" @inspect="openInspector" />
+        <AgentStatusBar
+            v-if="props.statusBar"
+            :ctx="props.ctx"
+            :registry="props.registry"
+            v-bind="props.statusLine === undefined ? {} : {statusLine: props.statusLine}"
+            @inspect="openInspector"
+            @toggle="(id: string) => emit('action', {type: 'statusLine.toggle', id})"
+            @open-settings="emit('action', {type: 'statusLine.openSettings'})"
+        />
         <Dialog
             :open="inspectorOpen"
             size="default"
@@ -532,133 +597,6 @@ defineExpose({focusComposer, scrollToLatest});
     font-size: var(--text-sm);
 }
 
-.acv-header {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 8px;
-    height: 40px;
-    padding: 0 12px;
-    border-bottom: var(--border-w, 1px) solid var(--border-color);
-}
-
-.acv-header__icon {
-    flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-    color: var(--text-muted);
-}
-
-/* 390 宽时标题区域不小于 160px（docs/specs/ui/agent-conversation-view.md“顶栏”）。 */
-.acv-header__title {
-    flex: 1;
-    min-width: 160px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.acv-header__title--button {
-    display: inline-flex;
-    flex: 0 1 auto;
-    min-width: 0;
-    align-items: center;
-    gap: 2px;
-    padding: 2px 4px;
-    border: 0;
-    border-radius: var(--radius-control);
-    background: none;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-}
-
-.acv-header__title--button:hover {
-    background: var(--bg-hover);
-}
-
-.acv-header__title--button .acv-header__name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.acv-header__chevron {
-    flex-shrink: 0;
-    width: 14px;
-    height: 14px;
-    color: var(--text-muted);
-}
-
-.acv-header__spacer {
-    flex: 1;
-}
-
-/* 祖先段可以收缩、截断；本会话的标题区保持原来的最小宽度。 */
-.acv-header__path {
-    display: flex;
-    flex: 0 1 auto;
-    min-width: 0;
-}
-
-.acv-header__crumbs {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.acv-header__crumb-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-}
-
-.acv-header__crumb {
-    max-width: 10em;
-    min-width: 2em;
-    overflow: hidden;
-    padding: 2px 4px;
-    border-radius: var(--radius-control);
-    color: var(--text-secondary);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.acv-header__crumb:hover {
-    background: var(--bg-hover);
-    color: var(--text-main);
-}
-
-.acv-header__sep {
-    flex-shrink: 0;
-    color: var(--text-muted);
-}
-
-:global(.acv-header__sessions) {
-    width: min(420px, 90vw);
-    height: min(480px, 70vh);
-    padding: 0;
-}
-
-.acv-header__name {
-    font-weight: var(--weight-medium);
-}
-
-.acv-header__profile {
-    margin-left: 8px;
-    color: var(--text-muted);
-    font-size: var(--text-2xs);
-}
-
-:global(.acv-header__more) {
-    position: relative;
-    display: inline-block;
-}
-
 /* 向导的 60cqh 相对这里。 */
 .acv-body {
     container-type: size;
@@ -689,6 +627,19 @@ defineExpose({focusComposer, scrollToLatest});
     overflow-y: auto;
     padding: 20px 12px 12px;
     overflow-anchor: none;
+}
+
+/* 消息在头下淡出（t29 决定 5）：离开顶部后顶端 16px 渐隐；在顶部时不渐隐，免得盖住第一条。遮罩只看透明度，颜色无关。 */
+.acv-stream--faded {
+    mask-image: linear-gradient(to bottom, transparent, currentColor 16px);
+}
+
+/* 第一屏在消息区里竖直居中。 */
+.acv-stream__content--welcome {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 100%;
 }
 
 /* 面板拉宽时正文行过长难读，每轮限宽居中。 */

@@ -28,10 +28,15 @@
         "cli/agent-context.ts",
         "cli/create-agent-worktree.ts",
         "cli/test-affected.ts",
+        "release/github-release.ts",
         "release/manifest.ts",
         "release/packages.ts",
         "release/pack-smoke.ts",
         "release/publish.ts",
+        "release/release-plan.ts",
+        "release/semver.ts",
+        "release/tag.ts",
+        "release/verify-update-feed.ts",
         "ci/validate-proper-lockfile-patch.ts",
         "types/proper-lockfile.d.ts"
     ]

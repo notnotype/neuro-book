@@ -1,0 +1,130 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t09-links-images",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "链接与插图：静态稿评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "b7354bd3bd06a89b5866b794cdbb3af4bd8074611ac4e81224efeea61f073989",
+    "files": [
+        "index.html",
+        "r1/image-narrow.webp",
+        "r1/image.webp",
+        "r1/link-edit.webp",
+        "r1/link-one-narrow.webp",
+        "r1/link-one.webp",
+        "r1/link-two.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-link-card",
+            "type": "single",
+            "label": "问题 1：链接卡片填什么",
+            "options": [
+                {
+                    "value": "one",
+                    "label": "A 一行，只填地址"
+                },
+                {
+                    "value": "two",
+                    "label": "B 两行，文字与地址"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-image-entry",
+            "type": "single",
+            "label": "问题 2：插图从哪里进",
+            "options": [
+                {
+                    "value": "card",
+                    "label": "插图卡片"
+                },
+                {
+                    "value": "picker",
+                    "label": "直接打开系统的选文件"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "card"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q3-store-where",
+            "type": "single",
+            "label": "问题 3：粘贴、上传的图缺省存到哪里",
+            "options": [
+                {
+                    "value": "folder",
+                    "label": "作品根下的 插图/"
+                },
+                {
+                    "value": "root",
+                    "label": "作品根"
+                },
+                {
+                    "value": "same",
+                    "label": "与当前文件同目录"
+                },
+                {
+                    "value": "sub",
+                    "label": "当前文件旁的子目录"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "folder"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q4-file-kind",
+            "type": "single",
+            "label": "问题 4：粘贴、上传的图存成什么",
+            "options": [
+                {
+                    "value": "plain",
+                    "label": "普通图片文件"
+                },
+                {
+                    "value": "image-folder",
+                    "label": ".image 文件夹"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "plain"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-16T07:54:05.775Z"
+}

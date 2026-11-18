@@ -55,6 +55,7 @@
     },
     "remove": {
         "button": "Delete provider",
+        "menu": "Delete provider…",
         "label": "Delete: {{name}}",
         "title": "Delete provider “{{name}}”?",
         "roles": "Roles using these models become unbound: {{roles}}. Features using them will report an error pointing to “Model Roles” until rebound.",

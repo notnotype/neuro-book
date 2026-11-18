@@ -47,4 +47,43 @@ export default {
         attachmentUploading: "Uploading",
         attachmentFailed: "Upload failed: {{error}}",
     },
+    /** Properties panel (`editor/properties/MarkdownProperties.vue`). */
+    properties: {
+        title: "Properties",
+        summaryProblem: "The YAML has an error",
+        source: "YAML source",
+        add: "Add property",
+        newName: "Property name",
+        rename: "Property name: {{name}}",
+        labeledName: "{{label}} ({{name}})",
+        remove: "Remove property {{name}}",
+        editSource: "Edit {{name}} in source",
+        duplicate: "A property with this name exists",
+        kindMenu: "Type: {{kind}}",
+        yes: "Yes",
+        no: "No",
+        listSeparator: ", ",
+        problemHint: "Properties are shown as source until this is fixed.",
+        fence: "A line can't be just ---, which would end the properties early; this change wasn't saved.",
+        kinds: {
+            text: "Text",
+            number: "Number",
+            checkbox: "Checkbox",
+            date: "Date",
+            list: "List",
+            complex: "Complex value",
+        },
+        problem: {
+            syntax: "Line {{line}}: invalid YAML.",
+            duplicateKey: "Line {{line}}: duplicate property name.",
+            notMapping: "Line {{line}}: the top level isn't name: value properties.",
+            multipleDocuments: "Line {{line}}: more than one YAML document.",
+            documentMarker: "Line {{line}}: YAML document marker or directive.",
+            flowMapping: "Line {{line}}: properties inside braces on one line can't be edited as properties.",
+        },
+    },
+    /** Pasting images in the editor (`editor/image-paste.ts`). */
+    imagePaste: {
+        uploading: "Uploading {{count}} image(s)",
+    },
 } satisfies Catalog;

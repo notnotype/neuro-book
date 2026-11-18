@@ -14,6 +14,7 @@ import {pluginsAt, productPlugins} from "nbook/manifest";
 import {STUDY_ICON_NAMES} from "nbook/plugins/theme-study/plugin";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
+import {desktopBrowserPlugin} from "nbook/plugins/desktop/web/plugin";
 import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
 import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {htmlPreviewBrowserPlugin} from "nbook/plugins/html-preview/web/plugin";
@@ -27,6 +28,7 @@ import {modelsCatalogs} from "nbook/plugins/models/web/text";
 import {tasksBrowserPlugin} from "nbook/plugins/tasks/web/plugin";
 import {tasksCatalogs} from "nbook/plugins/tasks/web/text";
 import {agentBrowserPlugin} from "nbook/plugins/agent/web/plugin";
+import {stickersBrowserPlugin} from "nbook/plugins/stickers/web/plugin";
 import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {canonCatalogs} from "nbook/plugins/canon/web/text";
@@ -78,6 +80,8 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.models": modelsBrowserPlugin,
     "nbook.tasks": tasksBrowserPlugin,
     "nbook.agent": agentBrowserPlugin,
+    "nbook.stickers": stickersBrowserPlugin,
+    "nbook.desktop": desktopBrowserPlugin,
 };
 
 /** 宿主适配器：诊断的存储在窗口运行实例建立之前就要能记录（ADR 0026 决策第 5 条）。 */

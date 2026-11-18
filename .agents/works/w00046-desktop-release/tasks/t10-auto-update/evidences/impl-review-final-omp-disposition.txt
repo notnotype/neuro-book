@@ -1,0 +1,19 @@
+w00046 t10 收口实现审查：壳与适配层（omp，默认模型，worktree 固定在 cead88ccb，范围 330938c7f..cead88ccb 加切片 3 的桥）的处理。
+修正提交 de1cb361c。报告原文：impl-review-final-omp.txt（2 条，都是重要）。两条都对照代码核实过。
+
+[1] 重要，成立，已改。Windows 上 `\foo`、`/foo` 被 win32.isAbsolute 当成绝对路径，壳收下了；它们取工作目录所在的盘，
+  装在别的盘上就读写另一份数据，与“不依赖启动器的工作目录”相违。
+  改法：state-root.ts 的 fullyQualified：Windows 上除了 isAbsolute，还要 win32.parse 的根不只是 `\` 或 `/`（要有盘符，或是 UNC）。
+  测试：state-root.test.ts 的拒绝列表加 `\state`、`/state`，接受加 UNC `\\nas\books\state`；变异核对：去掉根的判断即失败。
+  Spec desktop-shell“输入与前置条件”的措辞改为“完整路径（带盘符，或 UNC）”。
+
+[2] 重要，成立，已改。启动已作废时 applyAtStartup 仍先写 attempt 再撤回；撤回写失败时，下一次启动跳过本该换上的那份，
+  两分钟后对账把没发起的换上记成失败、通知“更新没有完成”。
+  这条是切片 2 审查的修正里我删掉的检查：当时变异核对显示它被后一次检查兜住，但兜住的前提是撤回写成功，那次核对没有覆盖撤回失败。
+  改法：拿到独占、重读之后，写 attempt 之前看一次作废；交给更新器之前的那次保留（写 attempt 的这段时间里也可能作废）。
+  测试：“启动已作废”断言一次都不写状态文件；新增“写 attempt 的时候作废：不交给更新器，撤回 attempt”。两处检查各做了变异核对，去掉任何一处都有用例失败。
+
+专项核对里其余各项（Electrobun 2.0.6 的 check/download/apply、结果文件规则、换上程序进程的查法、两处重点修订、
+退出与锁的顺序、persistNow、lingeringHint、构建配置的缺省值）审查者没有发现问题，不需要处理。
+
+验证：bun test src/desktop 90 条通过；tsc --noEmit 通过。

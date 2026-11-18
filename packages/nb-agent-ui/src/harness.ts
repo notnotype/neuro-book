@@ -19,6 +19,8 @@
  * 不抛异常，不中断回放。
  */
 
+import type {TextRef} from "@notnotype/nb-ui/text";
+
 import {agentRef} from "./text";
 import type {AssistantMessageView, ContentBlockView, JsonValue, MessageView, RunView, ToolCallView, UsageView} from "./types";
 
@@ -105,6 +107,11 @@ const ERROR_KEYS = {
     provider: "harness.error.provider",
     local: "harness.error.local",
 } as const;
+
+/** 模型出错的类别（`ModelErrorKind`）对应的那句话；认不出的类别按 `local`。宿主在消息流之外写出错原因时用（例如子代理的收口结果）。 */
+export function modelErrorText(kind: string): TextRef {
+    return agentRef(kind in ERROR_KEYS ? ERROR_KEYS[kind as keyof typeof ERROR_KEYS] : ERROR_KEYS.local);
+}
 
 /**
  * 由日志条目合成的消息来自哪一条日志（它的 `seq`）；正在生成的临时消息（事件来的）为 null。宿主要把消息对到日志
@@ -276,8 +283,7 @@ export function createHarnessTranscript(): HarnessTranscript {
         }
         const error = isRecord(entry.error) ? entry.error : {};
         const kind = stringField(error, "kind") ?? "local";
-        const key = kind in ERROR_KEYS ? ERROR_KEYS[kind as keyof typeof ERROR_KEYS] : ERROR_KEYS.local;
-        logged.push({kind: "error", id: `h${String(seq)}`, timestamp, message: agentRef(key), retryable: RETRYABLE_ERRORS.has(kind)});
+        logged.push({kind: "error", id: `h${String(seq)}`, timestamp, message: modelErrorText(kind), retryable: RETRYABLE_ERRORS.has(kind)});
     }
 
     return {

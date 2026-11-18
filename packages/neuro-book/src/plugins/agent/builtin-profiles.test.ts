@@ -163,6 +163,13 @@ describe("主创", () => {
         return (await session.path()).filter((event) => event.type === "toolResult").map((event) => (event.data as {tool: string}).tool).at(-1);
     }
 
+    test("输出 17：主创声明三条开场指令，目录里带出来", async () => {
+        const w = await world();
+        const starters = w.service.profiles().find((profile) => profile.key === MAIN_PROFILE)?.starters ?? [];
+        expect(starters).toHaveLength(3);
+        expect(starters.every((starter) => starter.text !== "" && starter.icon !== undefined)).toBe(true);
+    });
+
     test("输出 2：缺省的 edit 是 replace", async () => {
         const w = await world({settings: {"nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}}});
         const session = await createMain(w);
@@ -408,7 +415,7 @@ describe("标题和说明", () => {
         expect(messagesText(tiny.requests[3]!)).toContain("第一轮");
     });
 
-    test("输出 9：标题会话不进列表、running() 与 sessions://；按 id 读得到；前台费用不算它；第二次请求不带第一次的内容", async () => {
+    test("输出 9：标题会话不进列表、running()、在跑的工作与 sessions://；按 id 读得到；前台费用不算它；第二次请求不带第一次的内容", async () => {
         const w = await world({settings: withTiny(), plugins: [compactor("前情摘要")]});
         const session = await createMain(w);
         const hold = tiny.hold();
@@ -418,6 +425,8 @@ describe("标题和说明", () => {
         const titleId = titleSessionId(session.id);
         expect(w.service.running()).not.toContain(titleId);
         expect((await w.service.session(titleId).snapshot()).status.state).toBe("running");
+        // 程序自己开的标题会话不算用户在跑的工作（sessions.md 输出 20）：主会话这一轮已结束，没有要报的。
+        expect(w.work.collect()).toEqual({items: [], failed: []});
         hold.release();
         await waitUntil("标题写下", async () => (await metaOf(session))[1] !== null);
 
@@ -592,6 +601,15 @@ describe("标题和说明", () => {
         expect(tiny.requests.length).toBe(before);
         expect((await squatter.value.snapshot()).head).toBe(untouched);
         expect(await metaOf(victim.value)).toEqual([null, null]);
+        // 占着这个 id 的是用户的会话：它在跑时照常算在跑的工作（sessions.md 输出 20）。
+        const hold = endpoint.hold();
+        endpoint.script("好");
+        const accepted = await squatter.value.send({commandId: cid(), input: {text: "占位会话的一轮"}});
+        if (!accepted.ok || accepted.value.runId === null) throw new Error("send failed");
+        await hold.arrived;
+        expect(w.work.collect().items.length).toBe(1);
+        hold.release();
+        await squatter.value.waitRun(accepted.value.runId);
     });
 
     test("失败码：标题会话被换成别的 Profile 也算冲突，对话内容不发给它和它的工具", async () => {

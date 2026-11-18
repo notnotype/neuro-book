@@ -5,7 +5,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor, defaultMarkdownLanguage} from "../language";
 import {blockAt} from "./block-actions";
-import {HELD_SELECTION_CLASS, holdBlock, holdSelection, MarkdownHeldSelection, releaseSelection} from "./held-selection";
+import {HELD_CARET_CLASS, HELD_SELECTION_CLASS, holdBlock, holdCaret, holdSelection, MarkdownHeldSelection, releaseSelection} from "./held-selection";
 
 const editors: Editor[] = [];
 afterEach(() => {
@@ -54,6 +54,25 @@ describe("保持选区高亮", () => {
         editor.commands.setTextSelection(2);
         expect(holdSelection(editor)).toBe(false);
         expect(held(editor)).toEqual([]);
+    });
+
+    it("没有选区时在光标处画一条竖线（链接卡片、插图卡片），跟着文字移动，撤掉后不再画；有选区时不画", () => {
+        const editor = open("林汐把缆绳绕在手上\n");
+        const carets = (): number => editor.view.dom.querySelectorAll(`.${HELD_CARET_CLASS}`).length;
+        editor.commands.setTextSelection(4);
+        expect(holdCaret(editor)).toBe(true);
+        expect(carets()).toBe(1);
+        expect(held(editor)).toEqual([]);
+        editor.commands.insertContentAt(1, "雾里，");
+        expect(carets()).toBe(1);
+        // 竖线紧跟在“缆”之前的字后面：插入前的位置 4 现在是 7。
+        const caret = editor.view.dom.querySelector(`.${HELD_CARET_CLASS}`);
+        expect(caret?.previousSibling?.textContent?.endsWith("林汐把")).toBe(true);
+        releaseSelection(editor);
+        expect(carets()).toBe(0);
+        editor.commands.setTextSelection({from: 4, to: 6});
+        expect(holdCaret(editor)).toBe(false);
+        expect(carets()).toBe(0);
     });
 
     it("画与撤掉都不进撤销历史", () => {

@@ -140,7 +140,7 @@ owners:
 74. `fork` 出的新会话不带说明，也不带“用户改过标题”的记录。
 75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。
 76. 帧 `{type: "tool", callId, status}`：工具调用执行完时推，不进日志；权威仍是这批调用的 `toolResult`。中止宽限期过后才完成的调用不推（输出 25）。`toolArgs` 增量的第一块带 `tool`（工具 id），同一 `callId` 的片段按 `n` 连接就是参数的 JSON 文本。
-77. 快照带 `model`：`{ok: true, id, contextWindow, efforts}` 或 `{ok: false, code}`，由 `models.resolve` 按当前设置算；`usage` 除费用外累计 `input`、`output`、`cacheRead`、`cacheWrite`，口径同输出 70。
+77. 快照带 `model`：`{ok: true, id, contextWindow, efforts}` 或 `{ok: false, code}`，由 `models.resolve` 按当前设置算；失败时端口给了的 `role`、`provider` 原样带上（[`models.md`](models.md) 的 `ModelResolution`）；`usage` 除费用外累计 `input`、`output`、`cacheRead`、`cacheWrite`，口径同输出 70。
 78. `ToolSessionContext` 带 `background`。
 79. 同一条回复的调用先过审批阶段再执行：切段之前按调用顺序逐个判定，判定 `ask` 的都写 `interactionRequested`（运行状态 `waiting{pending}` 列出全部），等全部应答；之后才执行，这条回复里不用审批的调用也等这个阶段结束，执行顺序不变。应答 `deny` 的调用轮到时得 `denied`，别的调用照常。拦截层改了工具或参数、和判定时不同时，这个调用按现在的重新判定，要问就按输出 39 再问一次。放行之后、轮到它之前只读或审批模式变了，也按现在的设置重新判定；已经拒绝的不重新判定。
 80. `treeNodes({afterSeq?, limit?})` 按 seq 分页读所有 path 事件的结构 `{id, parent, type, seq, label?}`，不读全文，所以再大的事件也不会让树断开；一页至多 2,000 个。`label` 是用户的话、回复文字或工具名的前 80 字，经出站过滤，过滤掉的节点还在，只是没有 `label`。
@@ -153,6 +153,7 @@ owners:
 86. （已删除）
 87. 调用的唯一身份：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
 88. 指令交回运行：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
+89. 内核调模型端口的 `call` 时另给这次调用的说明：会话 id、请求序号与请求哈希（与这次的 `modelStarted` 的 `request`、`hash` 相同）、所在的轮（轮 id、这一轮在当前路径上的序号；开这一轮的是用户的话时还有那段话；轮外不给）、改过这次请求的扩展（只算这一次 `next` 经过的那几层，一层调两次 `next` 时两次各算各的；`modelStarted.modifiedBy` 同样按此）；`complete()` 的调用没有说明。说明里还可以带一个观察者，由宿主包在端口外面时传进去，适配器把它拿得到的线上事实交给它（[`models.md`](models.md) 输出 20）。不认识说明的端口照常工作。（planned）
 
 ## 状态与转换
 
@@ -208,4 +209,4 @@ Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:ll
 
 ## 证据
 
-- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准） 说明、`setGeneratedMeta` 与关闭时放掉日志见 [w00032 t18](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)。
+- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准） 说明、`setGeneratedMeta` 与关闭时放掉日志见 [w00032 t18](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)。解析失败带 `role`、`provider`：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“模型不可用的提示卡”，开发者 2026-11-16 确认（t36 决定 1、9）。

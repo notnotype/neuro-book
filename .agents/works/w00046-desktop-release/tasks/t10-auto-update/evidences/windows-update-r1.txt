@@ -1,0 +1,65 @@
+w00046 t10 切片 5：Windows 上的自动更新验收，第 1 轮（2026-11-14，pc-notype）
+
+环境
+- Windows 11，Electrobun 2.0.6、Hutch 0.29.0、随包 Bun 1.4.4。
+- 测试包用另一个应用标识 io.github.notnotype.neurobook.t10test（NBOOK_DESKTOP_IDENTIFIER），装在
+  %LOCALAPPDATA%\io.github.notnotype.neurobook.t10test\stable，不碰正式安装。
+- 更新源：本机 http://127.0.0.1:47819 的静态服务（记下每个请求），目录布局与 GitHub Release 相同（NBOOK_UPDATE_BASE_URL）。
+- A、B、C 由同一条链在独立检出副本里构建，只差版本号：
+  A 0.90.1 哈希 1pgfu5evhc1gh；B 0.90.2 哈希 2ezvmjxej6yni；C 0.90.3 哈希 s9my8jag79eg。
+  每个版本：改 PRODUCT_VERSION 与 package.json 的 version，bun install 刷新 bun.lock（不刷新 release:smoke 报版本不一致），
+  release:smoke，desktop/scripts/build.ts，Windows 上 hutch electrobun build --env=stable（generatePatch 从更新源取上一版做补丁）。
+- 状态根：开发者定直接用已有的 %LOCALAPPDATA%\NeuroBook（无要保护的数据）。验收前存了顶层清单，验收后对照：
+  没有新增的顶层条目，projects.json 未变；只有 logs、agent、storage、plugins 因服务端运行被更新。
+- 观察方式：UI 自动化读窗口里的文字（不截屏）、进程列表、通道根下的 nbook-update-state.json 与更新器结果文件、
+  <状态根>\logs\desktop\shell.log、更新源的请求日志。
+
+请求形状（t11 门禁要覆盖两种查询串）
+- 运行中取清单：GET /stable-win-x64-update-v2.json?<16 位十六进制>（404 时退回 -update.json）。
+- 运行中取补丁：GET /stable-win-x64-<本地哈希>.patch?cache=<32 位十六进制>；没有补丁（404）时取 stable-win-x64-NeuroBook.tar.zst?cache=<32 位>。
+- 构建时 Hutch 取上一版：stable-win-x64-update.json?cache=<32 位> 与 ...tar.zst?cache=<32 位>。
+
+场景（desktop-update 的“验收与 Smoke”）
+
+1. 升级：通过。
+   - 装 A，更新源放 B：运行中出现“NeuroBook 0.90.2 可以更新”，点“下载”后“正在下载”，再“已下载，下次打开 NeuroBook 时安装”。
+     请求日志：取的是补丁 stable-win-x64-1pgfu5evhc1gh.patch（23875 字节），不是完整包。状态文件 downloaded = B。
+   - 关掉再打开：约 6 秒后 B 起来，结果文件 success/complete，B 的第一个窗口里出现“已更新到 NeuroBook 0.90.2”。
+   - 没观察到启动页的“正在更新到 0.90.2”：这 6 秒里 UI 自动化看不到旧进程的窗口。旧壳调用换上后随即退出，页面来不及显示；
+     这段时间用户看到的是“点了没反应，几秒后新版本出来”。Spec 已改成“可能来不及显示”。
+2. 拒绝降级：通过。B 上更新源放 A：只取清单，不提示、不下载。更新源放 C：提示、下载（补丁 B 到 C，24358 字节）；
+   之后更新源换回 B 再打开：C 照常换上，“已更新到 NeuroBook 0.90.3”，没有 B 的提示。
+3. 目标移动：通过，与当时 Spec 的写法不同。A 上提示 B 之后更新源换成 C，点“下载”：先重新检查，改提示 C，没有下载 B；
+   再点“下载”：A 到 C 的补丁 404，取完整包（90 MB）。实现是“选下载时先查、失败后再查”，Spec 原写“下载失败后提示 C”，
+   已改 Spec 输出 5 与场景 3。
+4. 安装被占用：通过。
+   - 已下载 C，另一个状态根（NBOOK_STATE_ROOT 设为绝对路径）上的同一份安装在运行时，不设环境变量再打开：
+     shell.log 记 apply-skipped-in-use，A 照常启动；两个都关掉后再打开：换上 C。
+   - 换上进行中再打开一次：这次打开转交给已经起来的 C（多出一个窗口），安装目录里没有混杂的文件。
+   - 换上程序在文件被占用时的行为（用 t10-hold.ps1 以独占方式打开 app\Resources\app\neurobook\web\index.html 模拟“旧程序开着”）：
+     a. 占住 150 秒：换上程序一直重试，没有失败；放开后随即换上成功、启动新版本（从发起换上算约 147 秒）。
+     b. 占住 420 秒（B 换 C）：换上程序约 290 秒后失败，结果文件 success=false、phase=swapping、message=AccessDenied；
+        程序目录还原为 B，更新器重新启动 B。B 对账：failed = [C]、pendingNotice = update-failed。
+        这次重新启动的 B 页面报 internal-error，是因为被占住的正是 web/index.html（还没放开），属于模拟手段的副作用，不是产品问题；
+        这个窗口随后被关掉（关窗询问超时后的“强制关闭”，不是脚本触发的，原因未查明），所以下一次启动先显示“上次退出时服务端没有正常停止”，点“继续”。
+        放开之后再打开 B：书架页出现“更新没有完成”（“NeuroBook 0.90.3 没有装上，现在用的还是原来的版本。之后检查到新版本时会再提示。”），
+        随后按时消失，pendingNotice 清空；同时检查到 C，照常提示“NeuroBook 0.90.3 可以更新”（Spec 输出 8：同一个版本照常提示）。
+   - 由此改 Spec：换上进行中打开的旧程序不会让换上立即失败。换上程序会等一阵（这一版约 5 分钟）：旧程序在这期间关掉，就照常换上、启动新版本；
+     一直开着才失败、还原。失败时更新器重新启动的旧程序会转交给仍在运行的旧壳、多出一个窗口。这一点是从“同版本转交”的机制推断的，
+     没有实测真的开着一个旧壳。
+5. 便携：通过。便携包发现 C：通知“NeuroBook 0.90.3 可以下载”，附“这份 NeuroBook 不会自动更新…”，动作“打开下载页”；
+   没有请求补丁或完整包，通道根下没有建出状态文件或锁；shell.log 记 update.not-managed-install。
+6. 设了状态根：通过，另发现一个缺陷。
+   - 设 NBOOK_STATE_ROOT（绝对路径）且已下载 C：不换，旧版本用这个状态根启动；通知“可以下载”并说明不设这个环境变量时可以自动更新；状态文件不变。
+   - 缺陷：相对路径的 NBOOK_STATE_ROOT 解析到了 <安装>\app\bin\s6-rel。Electrobun 的启动器以 app\bin 为工作目录启动 Bun、
+     不传原来的工作目录，相对路径落进更新时整个被替换的程序目录，换上之后数据就没了。
+     修正：壳拒绝相对路径，启动页显示这个值、要求改成完整路径，只给“退出”（分支提交 d45edcb84；Spec desktop-shell 的
+     “输入与前置条件”与失败表、desktop-update 场景 6 已改；记入待确认清单）。修正后的包没有在 Windows 上重跑。
+7. “以后”：通过。提示 B 后点通知的关闭：页面整页导航（打开一部作品，代替刷新：Electrobun 窗口里发 F5 不刷新）后、
+   换到另一个窗口都不再弹出 B 的提示；整页导航后另一类提示约 1 秒后重新交到工作台页面；
+   通知中心里点“下载”开始下载（中心里不再留着旧阶段的“可以更新”）。
+
+未覆盖
+- 发布流水线的 Windows 作业（t11）。
+- 修正相对路径之后的包没有在 Windows 上重跑；只在 Linux 上跑了 state-root 的单测与 bun test src/desktop（89 条通过）。
+- 真的开着一个旧壳、超过换上程序的等待时间（上面 4.b 用文件占用模拟）。

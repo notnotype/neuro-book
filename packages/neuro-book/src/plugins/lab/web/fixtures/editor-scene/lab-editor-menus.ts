@@ -25,9 +25,11 @@ export function createLabEditorMenus(area: EditorArea, text: TextPort, options: 
         },
         has: () => false,
         run: (action, args) => void editing()?.run(action, args),
-        execute: (command) => {
+        execute: (command, args) => {
             if (command === "nbook.edit.undo") area.activeHandle.value?.undo?.();
             if (command === "nbook.edit.redo") area.activeHandle.value?.redo?.();
+            // Ctrl 点作品里的链接（markdown-editing.md 输出 53）：真实的命令服务把它交给编辑器区，夹具直接调。
+            if (command === "nbook.editor.open" && typeof args?.address === "string") area.open(args.address, {mode: "permanent"});
         },
         contributed: () => [],
         runContributed: () => undefined,
@@ -35,7 +37,7 @@ export function createLabEditorMenus(area: EditorArea, text: TextPort, options: 
         toolbarPlacement: ref("full"),
         commentMargin: ref(options.commentMargin === true),
         keyLabel: (keybinding) => keybinding.replace("Mod", "Ctrl"),
-        notify: (key) => area.notify(editorText(`menus.${key}` as never)),
+        notify: (key, params) => area.notify(editorText(`menus.${key}` as never, params)),
         reportError: () => undefined,
     };
 }

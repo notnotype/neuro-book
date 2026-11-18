@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `neurobook-lockup-horizontal-color.svg` | 品牌成品 `svg/lockup/neurobook-lockup-horizontal-color.svg` | 标志加字标，浅色底；字已转成路径 |
 | `neurobook-lockup-horizontal-reversed.svg` | 品牌成品 `svg/lockup/neurobook-lockup-horizontal-reversed.svg` | 同上，深色底（README 用 `prefers-color-scheme` 切换） |
-| `mascot.webp` | 看板娘设定图“神谕叙事织者”（本地 `.local/brand/mascot/current/concept-divine-narrative-weaver.png`）的正面全身像，裁切后转 WebP | README 开头 |
+| `mascot.webp` | 初版看板娘设定图“神谕叙事织者”（已归档至本地 `.local/brand/mascot/explorations/pre-canonical-2026-11/concept-divine-narrative-weaver.png`；现行定稿形象见 [`brand/mascot/`](../../../brand/mascot/README.md)）的正面全身像，裁切后转 WebP | README 开头 |
 | `mood-write.webp`、`mood-idea.webp` | 品牌成品 `png/moods/` 的 128 像素版 | 章节旁的点缀 |
 | `bookshelf.webp`、`workbench.webp` | 应用的截图（书架；打开一部作品的工作台） | “现在能做什么” |
 

@@ -269,10 +269,10 @@ describe("换行符与 frontmatter（输出 1、2、22）", () => {
     it("frontmatter 在文末闭合、后面没有换行：正文前补一个换行，用 frontmatter 自己的换行符", () => {
         for (const [source, expected] of [["---\na: 1\n---", "---\na: 1\n---\n正文"], ["\uFEFF---\r\na: 1\r\n---", "\uFEFF---\r\na: 1\r\n---\r\n正文"], ["\uFEFF", "\uFEFF正文"]] as const) {
             const read = codec.read(source);
-            expect(codec.write(read.doc.type.create(null, [p(t("正文"))]), read.map)).toMatchObject({ok: true, text: expected});
+            expect(codec.write(read.doc.type.create(read.doc.attrs, [p(t("正文"))]), read.map)).toMatchObject({ok: true, text: expected});
         }
         const read = codec.read("\uFEFF---\r\na: 1\r\n---");
-        expect(codec.write(read.doc.type.create(null, [p(), p(t("正文"))]), read.map)).toMatchObject({ok: true, text: "\uFEFF---\r\na: 1\r\n---\r\n\r\n正文"});
+        expect(codec.write(read.doc.type.create(read.doc.attrs, [p(), p(t("正文"))]), read.map)).toMatchObject({ok: true, text: "\uFEFF---\r\na: 1\r\n---\r\n\r\n正文"});
     });
 });
 

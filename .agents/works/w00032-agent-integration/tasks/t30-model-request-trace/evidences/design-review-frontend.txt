@@ -1,0 +1,179 @@
+# w00032 t30 界面部分设计审查（前端视角）
+
+审查对象：plan.md “nb-agent-ui 核心 / 渲染层 / 应用前端”与切片 4、5、验收映射；Spec `agent/request-trace.md` 输出 12 到 25 与入口。事实逐条对照了 master 上的代码。
+
+### 1. “查看这次请求”的 appliesTo 没有数据可看：MessageView 无请求序号，且拦截链直接给出的回复有序号却没有记录
+- 严重程度：重要；类别：正确性
+- 位置：plan.md “应用前端”最后一条（`appliesTo` 看这条回复在日志里有没有 `request`；“回复的条目 id 经会话日志换成请求序号”）；Spec 入口表、输出 25 末句；`packages/nb-agent-ui/src/registry.ts:166-172`（`appliesTo(message: MessageView)`）；`packages/nb-agent-ui/src/types.ts:95-117`（`AssistantMessageView` 没有 `request`）；`packages/nb-agent-ui/src/kernel-transcript.ts:286-299`（`assistantFrom` 不拷贝 `data.request`）
+- 现象：
+  1. `appliesTo` 是同步纯函数，只收到 `MessageView`；视图里没有会话日志，宿主 `session-host.ts` 的 `run()` 也不在渲染时介入。计划里“经会话日志换成请求序号”没有可走的通路。`assistant` 事件的 `data.request` 在适配器里被丢掉了（`assistantFrom` 只取 content、toolCalls、usage、model）。
+  2. 即使把 `request` 带进视图，“有 `request` 就显示”也是错的：拦截链不调 `next` 直接交回回复时，`assistant` 事件照样带 `request`（`callModel` 末行 `lastRequest ?? core.reserveRequest()`），但没有 `modelStarted`，也没有记录（Spec 输出 1 末句）。核实：`packages/nb-harness/src/kernel/run/tools.test.ts:441-444`（`blocked` 的 `assistant.request` 是 `started[1].request + 1`，且 `not.toContain("modelStarted")`）。这种回复上会出现按钮，点了得到“这次请求的记录已经清掉了”，是谎话。关记录期间发出的请求、升级前的旧会话同理：有序号、没有记录，文案“已经清掉”不对。
+  3. 动作条只挂在用户消息与每轮的 `outcomeMessage` 上（`AgentConversationTurn.vue:163-211`），一轮里中间几次请求没有入口，这是可以接受的，但计划与 Spec 都没写，“回复”指的是 `outcomeMessage` 应写明。
+  4. `toAction(message, target)` 拿不到会话 id（`MessageView` 没有），payload 只能带 `request`，会话 id 要宿主在 `run()` 里补（`current.id`）。
+- 如何核实：`grep -n "request" packages/nb-agent-ui/src/types.ts` 看不到 `AssistantMessageView.request`；`sed -n 286,299p kernel-transcript.ts`；读 `tools.test.ts:430-445`。
+- 建议改法：给 `AssistantMessageView` 加 `request?: number`（核心类型，随 npm 公开，计划“nb-agent-ui 核心”要列出）。`kernel-transcript.ts` 里已有 `purposes` 表（`modelStarted` 处 `purposes.set`），只在 `purposes.has(request)` 时才填，这样拦截链直给的回复自然没有；`liveMessage`（`id: live-<request>`）也带上，进行中的请求也能点。`appliesTo: (m) => m.kind === "assistant" && m.request !== undefined`。Spec 输出 25 与 `request-not-found` 的文案改成“没有这次请求的记录”，不说“已经清掉”。验收加一条：拦截链直给的回复没有该按钮。
+
+### 2. 顶栏动作：Spec 与注册表里没有“钉住”的来源，计划“没有钉住的进溢出菜单”无从判定；panel 目标、角标、`when` 同样没人渲染
+- 严重程度：重要；类别：不变量
+- 位置：plan.md “nb-agent-ui 渲染层”末条；`docs/specs/ui/agent-conversation-view.md:174,220`（“常驻顶栏的动作不超过两个，其余收进溢出菜单”“是否允许常驻顶栏”）；`packages/nb-agent-ui/src/registry.ts:178-187`（`pinnable: boolean`，注释“常驻的最多两个”）；`AgentConversationView.vue:86-94,114-125`（`overflowItems` 与 `onOverflowSelect` 写死 context、tree、toggle-view-mode 三个 id）；`packages/nb-agent-ui/src/vue/AgentConversationView.md:111`（写明 `panels`、`headerActions` 都还没实现）
+- 现象：
+  1. `pinnable` 只是“允许”，没有任何字段、用户设置或规则说明哪些真的常驻。全仓库没有一处登记过顶栏动作（`grep -rn headerActions packages/*/src` 只有注册表与它的测试），渲染代码一行都没有。计划说“没有钉住的进溢出菜单”，但“钉住”在 Spec 里没有定义，实现者只能猜。
+  2. 回答“要不要连带做钉住”：不要做用户钉住。用最小规则：`pinnable` 为真的按 `order` 取前两个常驻，其余与 `pinnable` 为假的进溢出菜单；本动作登记 `pinnable: false`。这条规则要写进 Spec“顶栏”一节并补验收，不然两个插件各登记两个 `pinnable: true` 时谁常驻是未定义的。
+  3. 只补 `target.kind === "action"` 这一支，`{kind: "panel", panelId}`、`badge`、`when` 仍是登记了不生效，同一个注册表类型里一半能用一半静默无效，正是 `EntryRendererEntry` 注释里警告过的“登记了却以为已经生效”。要么一起实现，要么在类型上收窄/加运行时拒绝。
+  4. 溢出菜单现在用写死的 id 分派，登记动作的 id 可能与 `context`、`tree`、`toggle-view-mode` 撞名；“溢出菜单固定包含原始视图”的位置（最后一项）也要写。登记项的 `label` 是 `Text`，要经翻译端口取。
+  5. ui Spec 现有的验收只有第 14 条（重复 id 构造失败），没有“顶栏动作怎么显示、点了发什么”的验收；计划“Spec 与文档改动”只提了 `AgentConversationView.md`，没有改 Spec，行为合同缺位。
+  6. 计划没写这条动作与回复动作登记在哪：`plugin.ts:403` 每个对话位置各 `createAgentViewRegistry([...builtinContributions, subagentContribution(...)])`，需要在这里再加一个 `AgentViewContribution`（含 `when: ctx.session !== null`，没有会话时不显示）。
+- 如何核实：`grep -rn "headerActions\|pinnable" packages/nb-agent-ui/src packages/neuro-book/src`；读 `AgentConversationView.vue:86-125,370-381`。
+- 建议改法：Spec“顶栏”补一段规则（上面第 2 点）加一条验收；实现 action 与 panel 两支，或把 panel 支从类型里拿掉并写进非目标；溢出项 id 加来源前缀（`header:<id>`）；登记位置写进计划。
+
+### 3. `open-requests` 的“先开页、再交筛选”时序只在页面宿主是插件级单例时成立；计划没写宿主的归属与寿命
+- 严重程度：重要；类别：正确性
+- 位置：plan.md “应用前端”第 1、2 条；Spec 输出 12、25；`packages/neuro-book/src/plugins/agent/web/plugin.ts:455-461,486-509`（`hostAt(position)` 是插件作用域里按位置缓存的单例，`FOCUS_SESSION_COMMAND` 先 `reveal()` 再 `host.open()`）；`packages/neuro-book/src/plugins/editor/web/pages.ts:56-62`（页面组件由 `load()` 异步取得，挂载在命令之后）
+- 现象：`FOCUS_SESSION` 能“先开后交”，是因为 `SessionHost` 不依赖组件是否挂载。计划把 `requests-page.ts` 写成“订阅 `changed`、调远程、持有筛选与选中”的页面宿主，却没说它在哪建。若在页面组件的 `load()`/`setup()` 里建：命令执行 `nbook.editor.open-page` 返回时组件很可能还没挂载（异步组件），此刻没有宿主可交；页面已开着时又会遇到“旧宿主还活着”。
+  另有四个没写的情况：
+  1. 页面开着时，无参数的 `open-requests`（命令面板）是保留现有筛选，还是重置为“全部”？Spec 输出 12 写“换成入口要的筛选与选中”，无参数时入口没有要求，行为未定。
+  2. `request` 指定的那一次不在已加载的第一页（旧、或被当前筛选/搜索排除）时，选中与详情不能依赖列表，必须能直接 `read(id)`；输出 25 的“列表照常显示”隐含这点，但计划的 `read` 只在“选择”动作里出现。
+  3. 页面关掉再用命令开：宿主若是单例，会带着上一次的筛选与搜索词复活，要明确是否清空。
+  4. 多窗口：每个窗口一个浏览器入口、一个页面宿主，各自订阅；这一点没问题，但清空操作后别的窗口的列表要靠 `changed` 事件刷新，计划的事件只写了“新增与结算”，没有“清空/过期清理”事件。
+- 如何核实：读 `plugin.ts:479-509` 对照 `hostAt` 的写法；`pages.ts` 的 `EditorPageImplementation.load()` 只返回组件。
+- 建议改法：把 requests 页面的状态仓（筛选、选中、查询词、已加载页）建在插件作用域，与 `hostAt` 同一种做法，组件挂载时读它、卸载时只释放订阅；命令里先写仓、再 `open-page`（写在前面对“未挂载”和“已挂载”两种情形都对）；Spec 输出 12 补一句：无参数时沿用现有筛选，页面新开时从全部开始；`changed` 事件加“记录被清掉”的种类。
+
+### 4. 全文查找的命中数在服务端 `search` 与客户端 `findMatches` 各算一遍，评审板自己已经对不上；原始请求体页的命中还要依赖懒加载
+- 严重程度：重要；类别：正确性
+- 位置：plan.md “关键设计”记录器 `search(query, filters)`（逐条扫、命中片段与处数）与“nb-agent-ui 核心”`findMatches(detail, query)`（各页命中数、逐处位置）；Spec 输出 16、19、验收 4；评审板 `artifacts/review/r1/search.webp`
+- 现象：
+  1. 同一个“有几处命中”由两处实现：列表第二行的“另外还有几处”来自 nb-harness 里的记录器，详情查找条的“第几处/共几处/各页命中数”来自 nb-agent-ui 核心。两边对“正文”的定义必须逐字一致（工具调用参数是 JSON 序列化还是展开字段、工具声明哪些字段、不分大小写用 `toLowerCase` 还是别的、重叠匹配、`İ` 这类小写后长度变化的字符让偏移错位），而它们在两个包里，nb-agent-ui 不能依赖 nb-harness，没有共享函数。这是 AGENTS 里“同一件事各写一份”的信号。
+  2. 评审板已经出现不一致：搜“年龄”时列表 #10 写“+1”（另外 1 处，共 2 处），打开后详情查找条写“2 / 5”，各页“消息 4、工具 0、原始请求体 1”（共 5）。验收 4 只要求“详情查找条的总数与各页命中数一致”（详情内部自洽），没要求与列表一致，所以这个矛盾过得了验收。
+  3. Spec 输出 16 的查找范围不含原始请求体（正文、系统提示词、工具声明、工具调用参数、错误文字），输出 19 却写“各页的命中数”，评审板的查找条也有“原始请求体 1”。原始请求体是 `load-payload` 懒加载的（计划动作表），客户端在没加载时无从计数，加载前后命中总数会变，“共几处”跳动；响应页、和上一次比较页的命中数怎么算也没写。
+- 如何核实：看 `search.webp`；`grep -n "findMatches\|search(" plan.md`。
+- 建议改法：命中的权威只留一处。推荐服务端：`read(id, {query})` 一并返回逐处位置（页、消息序号、偏移、片段），列表的“处数”与详情的“共几处”同源；客户端 `findMatches` 只负责把位置高亮。原始请求体页不计命中（与输出 16 一致，查找条里不列这一页），或明确写“只在已加载后计、总数不含”。验收 4 加一句“与列表第二行的处数一致”。
+
+### 5. `AgentRequestTrace` 的 props 与 action 清单缺好几项，照字面做不出定稿的样子；形状也和同包的 `AgentSessionPanel` 不一致
+- 严重程度：重要；类别：代码质量
+- 位置：plan.md “nb-agent-ui 渲染层”第 1 条（action 清单 `select`、`query`、`load-payload`、`clear`、`open-session`、`open-settings`、`copy`）与“核心”的视图类型；对照 `packages/nb-agent-ui/src/vue/AgentSessionPanel.vue:12-56`、`docs/specs/ui/agent-conversation-view.md` 的受控约定
+- 现象：定稿的界面里有下面这些东西，计划的 props 与 action 里都没有对应项：
+  1. **加载更多**：`list` 带分页游标，但没有 `load-more` 动作，也没写每页多少条、触底自动加载还是按钮。
+  2. **重试**：Spec 失败表要求 `trace-unavailable` 时“页面整块写原因与重试”，没有 `retry` 动作。
+  3. **换比较对象**：Spec 输出 20 与评审板 `compare.webp` 有“和 #3（上一次）比”的下拉，可换成同一会话的任意一次。组件需要：同会话的请求候选（不受当前筛选影响，筛选成“失败”时前一次可能不在列表里）、所选对象的详情、对应的 action。计划里 `compareRequests(a, b)` 的 b 从哪来、`outline(detail, previous?)` 的 `previous` 谁取，没写。“新一次、旧一次”也没说是列表里的相邻项，还是同会话的前后序号（排序按 token 时两者完全不同）。
+  4. **筛选下拉的候选值**：会话（带标题与条数）、模型有哪些，必须由后端给（`list` 只“带合计”）。计划没有这项数据，也没有对应的类型字段。
+  5. **“进行中，已等 4.1 秒”**：要有 `now`。同包的会话面板用 `now` prop 加宿主定时更新；若组件自己 `setInterval` 就要在 `.md` 声明 `env:timer`，Lab 场景也无法确定性验证。计划没选。
+  6. **状态**：列表加载中、列表出错、详情加载中、详情 `request-not-found`、原始请求体加载中/失败、“没有选中”（宽屏右栏空着写什么；旧应用的“打开时自动选中最新一条”在参照清单第 16 项标了“做”，Spec 没写）。`AgentSessionPanel` 有 `loading`、`error`，这里一个都没有。
+  7. **形状**：同包的做法是领域操作走 `action`（`AgentViewAction` 联合，`type: "session.select"` 点分写法），纯界面状态走 `update:*`（`update:query`、`update:scope`）。计划把 `query`（含筛选、排序、查找词）也塞进 `action`，名字是裸词。`AgentViewAction` 是个被 `session-host.run()` 逐个 `case` 的联合，请求页的动作混进去会污染它；应单独声明 `RequestTraceAction` 联合并写进核心类型，筛选/排序/查找词用 `update:*` 或 `update:query` 一个事件。
+- 建议改法：在计划里把 `AgentRequestTraceProps` 与 `RequestTraceAction` 写成类型清单（上面 7 条逐一落位），再动手。至少补：`facets`、`now`、`loading/error`、`detail` 的状态联合、`compare`（候选与对象）、`more`、`retry` 动作。
+
+### 6. 查找输入每次变化都是一次服务端全量逐条扫：没有去抖、取消、过期响应丢弃，也没处理输入法组字；键盘操作整体未设计
+- 严重程度：重要；类别：正确性
+- 位置：plan.md “渲染层”第 1 条（`query` 是 action）与“验证/不做与风险”（逐条扫）；Spec 输出 16、17、22；`packages/neuro-book/src/plugins/editor/web/key-event.ts:1-12`（仓库已有的键位匹配约定，组字中不匹配）
+- 现象：
+  1. 查找框每敲一个字发一次 `search`（服务端逐条扫 1 万条、目标 1 秒内）。快速输入时前一次还没回，后一次已发出，晚到的旧响应会盖掉新结果。计划没有去抖时长、没有取消（远程调用能否中止也没写）、没有“只认最后一次”的版本号。
+  2. 中文用户用输入法组字时，拼音阶段的 `input` 事件会触发查询；仓库的键位代码专门处理了 `isComposing`，这里没提。
+  3. `#N` 的跳转语法与 Markdown 里的字面 `#`：搜“#伏笔”不受影响（非数字），但搜“#12”这种文字不可能；至少在查找框的占位里写明，并在输入 `#12` 时同时给出“跳到 #12”和“查找字面 #12”。
+  4. 键盘：Spec 只提了详情的“新一次、旧一次”。没有写：列表是 `listbox`/`grid` 还是一排按钮，上下键移动、回车打开；“新一次/旧一次”的键位（不能是裸方向键，那是列表的）；查找条的上一处/下一处（常见为回车、Shift+回车）与 Esc 关闭；`Ctrl/⌘+F` 要不要接管。编辑区里的页面本身不应吞掉浏览器的 `Ctrl+F`，若接管须只在页面获得焦点时、并在查找框已有焦点时不再接管；这条的 `.md` 还要声明 `env:global`（全局监听）或把监听限定在组件根元素上，两种写法的标签不同。
+- 建议改法：查找词在组件里是本地输入态，去抖 250 到 300 毫秒、组字结束后才提交；宿主按“请求序号”丢弃过期响应；`search` 能被中止就中止。键盘约定写进 `AgentRequestList.md` / `AgentRequestFindBar.md`，监听限定在组件根元素上；Lab 的 e2e 验一次“上下键、回车、Esc”。
+
+### 7. “新请求进顶部、选中与滚动不变”只对“按时间排序、无筛选、无查找、在第一页”成立；Spec 输出 14 与 15 互相冲突，推送后筛选由谁再算没写
+- 严重程度：重要；类别：正确性
+- 位置：Spec 输出 14、15、16；plan.md 记录器 `onChange(listener)`（推新增与结算的摘要行）、应用后端远程服务 `changed` 事件、应用前端页面宿主；README 决定 7
+- 现象：
+  1. 输出 15 允许按总时长、输入 token、费用排序且“不按时间排时不分组”；输出 14 同时要求新请求出现在列表顶部。按费用排序时新请求不该在顶部；进行中的请求没有时长与费用，结算后排序键变了，“原地更新，不换位置”与排序结果矛盾（要么列表不再有序，要么要动）。
+  2. `changed` 推来一行摘要后，客户端要判断它是否满足当前的会话、用途、状态、模型、时间、查找词六种条件。若在客户端重算，就是把筛选与查找逻辑再实现一遍（查找需要全文，根本做不到）；若收到事件就重新 `list`，就丢了已加载的多页与滚动位置，违背输出 14。计划没有选。
+  3. 列表头的“条数、输入合计、缓存命中、费用合计”随新请求变化，要写是否实时更新。
+  4. 在列表中间（已滚下去）时新行插到顶部：Chrome 有 scroll anchoring，但页面里有吸顶的组头、行高固定的虚拟/分页列表、动态组头计数，anchoring 常在这些条件下失效；“滚动位置不变”需要组件自己补偿，或在已滚离顶部时改成顶部一条“有 N 条新请求”的提示。
+  5. 选中的那条被后来改变的筛选排除，或在“重发过”等状态筛选下结算后不再满足条件，详情继续显示还是清掉，没写。
+- 建议改法：写成一条规则：只有“按时间排序、无查找词”时才实时插入，且客户端只在“筛选条件能由摘要行直接判断”（会话、用途、状态、模型、时间都能）时自己判断是否插入、合计增量更新；其余情况（非时间排序、有查找词）不插入，顶部显示“有 N 条新请求，点此刷新”。结算只改行内内容，不重排。选中项被排除时详情保留并在列表头标出“当前选中不在筛选结果里”。把这些写进 Spec 输出 14 与验收。
+
+### 8. 规模：`read(id)` 把整份请求全文展开后一次传回，方向键连按会连续取；“列表首屏 300 毫秒”没有口径；分页大小与加载更多未定
+- 严重程度：重要；类别：安全与性能
+- 位置：plan.md 记录器 `read(id)`（引用展开成内容）、“验证”（列表首屏 300 毫秒内）、核心 `outline`、渲染层 `AgentRequestJson`；Spec 输出 17、18、21、22
+- 现象：
+  1. `read(id)` 返回“引用展开成内容”的整个请求，计划只在显示层面做“长的先露前几行、看全文”，传输与解析层面没有分层。实测量级（`/tmp/review-w00032-t30-design/frontend/scratch/payload-lines.ts`，合成 60 条消息、8 条各约 6 万字符的工具结果）：pretty JSON 约 498 KB。按单条几万 token 的真实工具结果，一份请求 0.5 到 1 MB、一个会话里每条请求都这么大。详情打开一次需要 `read` 加（比较页）上一次的 `read` 加（原始请求体页）`payload`，约 1 到 3 MB 进浏览器并解析；“新一次、旧一次”连按几次就是连续几次这样的读，没有取消、没有预取策略、没有“上一次”的缓存（同一份被比较的数据反复取）。
+  2. 同一份实验显示 pretty JSON 只有 254 行、最长一行 54,907 字符：因为字符串里的换行被转义，JSON 视图的“行号”对长文本没用，最长一行要折行或横向滚动；Spec 输出 21“带行号”需要写清超长行的显示（折行并显示行号只在逻辑行首）。
+  3. 大纲一条消息一行，几百条消息的请求一次性画几百行、每行带 token 条，没有问题；但“点一行在原地展开全文”的单条几万 token 的工具结果若逐行带行号（评审板的工具结果展开有行号），一条就是几千个 DOM 行，应限制为展开时才渲染、“看全文”后分块渲染。
+  4. 列表：计划只写“分页游标”，没写页大小。一个会话几百次请求、14 天全部会话上千条，每条两行 + 组头；按页 100 到 200 条分页加载，不需要虚拟滚动；但必须定页大小与触发方式（见发现 5 第 1 条）。
+  5. “列表首屏 300 毫秒内”：没有说是服务端 `list` 耗时、含网络的往返，还是含懒加载 `nb-agent-ui` 的 Vue 块（`plugin.ts` 里 `loadVue` 动态导入）与新页面块的冷启动。口径不同，数字差一个数量级，证据里要写明（建议：服务端 `list` 的 p95，加“数据到达到首行渲染”的前端耗时，冷启动单列）。
+- 建议改法：`read` 返回大纲（每条消息的角色、预览、token、内容哈希），单条全文用 `readMessage(id, index)` 按需取（点开、看全文时），请求体与系统提示词也按页取；前端对 `read` 做取消与同会话的小缓存（LRU 几条）；方向键用去抖或只在停下后取。`AgentRequestJson` 的“行号”按逻辑行，超长行折行并给“只显示前 N 字，展开”；这些写进计划的“关键设计”与性能验证。
+
+### 9. 验收映射：靠 happy-dom 验不了的输出被映射到 dom 测试；缺英文场景与 390 宽；输出 12、24、25 没有应用层用例
+- 严重程度：重要；类别：测试
+- 位置：plan.md “验收映射”第 126、128 行与“验证”；`.agents/skills/ui-development/SKILL.md:32,35,36`（宽窗口、英文场景、390 截图、同列表行等高要在真实浏览器里比）；`packages/nb-ui/docs/ui-development-spec.md:235-236`；`packages/nb-agent-ui/AGENTS.md` “验证”（布局、滚动与指针在 Lab 的 Playwright 用例里）
+- 现象：
+  1. 输出 14 的“滚动位置不变”、输出 13 的“同一列表行高相同”、输出 22 的“量宽度切换”都依赖真实布局；happy-dom 没有布局、没有 scroll anchoring、`ResizeObserver` 也不会给出尺寸。计划把 14、13 映射到 `*.dom.test.ts` 与 `request-trace.test.ts`（后者只测分组函数），只有 22 映射到 Lab e2e。应改成 Lab e2e：放一条什么都没有的行、一条重发加失败加长标题的行，量同列表各行 `getBoundingClientRect().height` 全等；列表滚到中间后注入新行，断言可见行的 `top` 不变；连同输出 14 的选中不变。
+  2. 文字放在定宽里（列表第二行的对齐列、token 条、筛选条、查找条）：技能要求至少一个英文场景并截 390 宽图。计划“Lab 场景”只写“数据照草稿的样本”，没有英文场景、没有 390 宽的步骤。估量：筛选条五个芯片在评审板 660 宽的图里占约 445px，390 宽减去两侧 12px 边距后只有 366px，放不下“一行”，英文更长；见发现 10。
+  3. 输出 12（同一时间只有一页、再开换筛选与选中）、25（命令参数、查不到时的说明）、24（清空要确认、进行中的不清）是应用层行为，映射里只有 `backend/requests.test.ts`（后端远程）与组件 dom 测试，没有覆盖命令加页面宿主联动的前端测试或 e2e 步骤；场景 1、2、4、5 的 e2e 里也没有显式断言“再次执行命令不开第二页”。
+  4. 输出 18 的“相同前缀收成一行”等逻辑可以在核心函数里测，但“点开逐条列出”“看全文”“按角色筛选”的组件行为没有写进映射。
+- 建议改法：把 13、14、22 改映射到 Lab e2e 新用例，并列出具体断言；Lab 场景加英文与窄屏（390）各一个；补一条 12、25 的应用层 e2e 步骤（命令连执行两次，断言只有一个页签且筛选与选中已换）。
+
+### 10. 窄屏合同缺数字与边界：切换阈值、筛选条在 390 下放不下一行、进入时显示哪一栏、宽窄反复穿过阈值时的状态
+- 严重程度：建议；类别：正确性
+- 位置：Spec 输出 15、22；plan.md “渲染层”第 1 条（自己量宽度）；评审板 `r1/narrow-switch-list.webp`、`r1/overview.webp`；对照 `packages/nb-ui/docs`（`DiffView.md` 写明 700px 的自量宽度切换）
+- 现象：
+  1. “放不下两栏”没有数。验收要在 Lab 里“拖窄拖宽”，需要一个明确的阈值（例如两栏各自的最小宽度之和）和是否带迟滞（拖动到阈值附近时不来回闪）；`DiffView` 已有 700px 的先例，可以直接对齐。
+  2. 筛选条“常驻一行”（决定 9）在窄屏下放不下：五个芯片在评审板图里约 445px，390 宽可用 366px。要写是横向滚动的内部滚动条、折成两行（会改变列表头的高度，要保证状态切换不位移），还是缩成图标；390 宽“无页面级横向溢出”的要求下只能选前两者之一，Spec 没选。
+  3. 窄屏进入时：没有入口参数先显示列表；带 `request` 参数时应直接显示详情，并保证“请求列表”返回键可用；两栏变窄时若已有选中，是保持详情还是回列表，Spec 只写了“点一条进详情”。宽窄来回穿过阈值时“选中不变”（验收 5）要同时保留列表滚动位置。
+  4. 窄屏详情里“新一次/旧一次”与顶部返回、复制、打开会话并排，390 宽要核对一行放不放得下；概览的指标格在评审板的 660 宽图里已经是三列换行。
+- 建议改法：Spec 输出 22 写数（建议与 DiffView 一致用 700px 附近，写成两栏最小宽度之和）；筛选条选“内部横向滚动”并保证当前高亮的芯片可见；补窄屏进入与穿越阈值的行为；这几条都进 Lab 窄屏场景。
+
+### 11. 工具友好名“复用 builtin-tools.ts 的工具格式表”：核心函数拿不到宿主登记的工具，NeuroBook 自己的工具会显示原始名
+- 严重程度：建议；类别：代码质量
+- 位置：plan.md “nb-agent-ui 核心”`outline(detail, previous?)`；`packages/nb-agent-ui/src/builtin-tools.ts:120`（`builtinToolRenderers: ToolRendererEntry[]`，`summary(call: ToolCallView)` 返回字符串，`label` 是 `agentRef`）；`docs/specs/ui/agent-conversation-view.md:199`（`subject_rag_search`、`get_session`、`get_agent` 等由 NeuroBook 宿主登记）；`tool-formats.ts` 只含改文件的补丁解析，不是“工具格式表”
+- 现象：
+  1. 工具名到“读取 第一卷/第三章.md（第 38–120 行）”这种说法的知识在渲染器登记里（`registry.list("tools")`），内置的在 `builtin-tools.ts`，宿主的（NeuroBook 工具、子代理卡片）在应用里登记。`outline()` 是核心里的纯函数、签名里没有 registry，只能认内置的那一批，评审板上的 `read`、`shell` 能显示，宿主工具退回原始名。
+  2. 渲染器的入口是 `ToolCallView`（带 `status`、`result`），而请求里的工具调用只是 `{id, name, args}`，要合成一个 `ToolCallView` 才能调 `summary`；`label` 是文字引用，要经翻译端口，纯函数输出的应是 `Text` 而不是字符串。
+- 建议改法：`outline` 只输出结构（工具名、参数、调用 id 与结果的对应），友好名在渲染层用 `registry`（`AgentRequestTrace` 加一个 `registry` prop，同 `AgentConversationView`）取；没登记的退回原名。计划里“复用 builtin-tools.ts”改成“用注册表的工具渲染器”。
+
+### 12. 本包的 `locales.test.ts` 要求目录的键与迁移前的旧表一一对应：加一批新文字会让它失败，计划没提这项工作量
+- 严重程度：建议；类别：测试
+- 位置：plan.md “渲染层”第 4 条（界面文字进本包消息目录，中英两份）；`packages/nb-agent-ui/src/locales.test.ts:1-9,434-451`
+- 现象：测试里 `expect([...zh.keys()].sort()).toEqual(Object.keys(LEGACY).sort())`，文件头写“以后有意改文字时，同一次改动里同步改这张表”。也就是说往 `locales/zh-CN.ts`、`en-US.ts` 里加的每个键，都必须在测试的 `LEGACY` 表里逐字再写一遍，否则两条用例失败。请求查看器有几十到上百个键（筛选、状态、六页、大纲、查找条、空状态、确认框，各含单复数），等于每条文字写三遍，还让 `LEGACY` 这张“迁移前”的表变成了“全部文字的第三份拷贝”。
+- 如何核实：`sed -n 434,451p packages/nb-agent-ui/src/locales.test.ts`；临时往 `locales/zh-CN.ts` 加一个键（不要提交）跑 `bun test src/locales.test.ts` 会失败。
+- 建议改法：先改这条测试再动文字：`LEGACY` 冻结为迁移时的键，新增键放另一张 `ADDED`（或改成只核对键集合与占位符一致，不核对逐字），并在计划切片 4 里写上。agent 插件自己的 `locales`（`commands.nbook.agent.open-requests.title`、页面标题 `editorPages.nbook.agent.requests.title`、设置节文字）也要写中英，计划只提了 nb-agent-ui 的目录。
+
+### 13. 文档登记有遗漏：包 AGENTS.md 的“四个受管组件”、包 README、ui Spec 的“包公开的组件”、模块表；`./lab` 入口；各 `.md` 的标签；npm 公开接口
+- 严重程度：建议；类别：文档
+- 位置：plan.md “Spec 与文档改动”（只列了 `AgentConversationView.md`、`host-kit.md`）、“不做与风险”（只提 nb-harness 的公开接口）；`packages/nb-agent-ui/AGENTS.md`（“`./vue` 入口只导出 … 这四个是受管组件”）；`packages/nb-agent-ui/README.md:7`；`docs/specs/ui/agent-conversation-view.md:20,90,93`；`docs/modules/monorepo-boundaries.md:19`；`packages/nb-agent-ui/src/vue/lab.ts`
+- 现象：
+  1. 新增 `AgentRequestTrace` 后，包 AGENTS.md 的“只导出 … 四个”与 README 的组件清单、ui Spec 第 93 行“包公开的组件是这个视图、会话列表与模型目录对话框”、第 90 行“`locale` 属性不起作用”的组件清单、非目标第 20 行“视图本身不包含 … Trace Viewer”都会失实，计划没有列。
+  2. 六个内部零件（`AgentRequestList` 等）要在 Lab 单独看，必须加进 `src/vue/lab.ts`（它是“内部零件只经 `./lab` 给 Component Lab”的唯一入口），计划只写了 Lab 场景文件。
+  3. 标签：七个组件都要调 `provideAgentText`/`useAgentText`，`governance:check` 要求各自 `.md` 含 `state:inject`（`docs/standards/code/components.md:63`），受管的 `AgentRequestTrace.md` 另被 `docs:check` 阻断；若组件自己量宽度、自己定时更新、接管键盘，是否有 `env:timer`、`env:global` 要提前定（发现 5、6），否则标签与实现不一致“整份声明不予采信”。
+  4. `nb-agent-ui` 同样是 npm 包（`package.json` `publishConfig: public`），且被 nb-story 的发布包带上（模块表第 24 行，ADR 0029）；核心导出新增 `request-trace.ts`、`AssistantMessageView.request`（发现 1）也是公开接口，计划“不做与风险”只提了 nb-harness。
+- 建议改法：把上面几处补进“Spec 与文档改动”与切片 4，实施时同一次提交里改。
+
+### 14. 分组规则没覆盖“没有轮”的请求与回退重试后同号的轮；组头用轮序号做键会合错或重名
+- 严重程度：建议；类别：正确性（从代码推断，未在真实运行时复现）
+- 位置：plan.md “内核”第 1 条（`turn` 取历史状态当前轮、序号是 `starts` 长度、不在轮里时不给）、核心 `groupRequests(rows)`；Spec 输出 13；`packages/nb-harness/src/kernel/state/history.ts:39,63`
+- 现象：
+  1. 压缩在轮外触发（手动压缩的运行，`runKind` 为 compact）的请求没有 `turn`，`groupRequests` 的“同会话同轮成组”对它没有定义：是单独成一组、归入前一组，还是不分组。组头写什么（“第 N 轮”“用户的话”都没有）也没写。
+  2. “第 N 轮”取自当前路径上 `starts` 的长度。重试、回退或分支后，新的一轮与被放弃的旧一轮序号相同（旧轮的记录还在列表里，14 天内），两个相邻的组头都写“第 2 轮”、用户的话也一样，用户分不清哪个是现在这条分支上的。键必须用轮 id，序号只用于显示；显示上至少要能区分（例如只对不在当前分支上的加“已回退”，或写时间）。
+  3. 组头计数（评审板里的右侧数字）随新请求变化，新请求加入第一组时组头内容变化、位置不变，要写进输出 14“原地更新”。
+- 建议改法：`groupRequests` 键为 `(session, turn.id)`，无轮的请求按“压缩、审批等（轮外）”归一个组头；Spec 输出 13 补这两条；核心函数测试里写“无轮”“同序号不同 id”两个用例。
+
+### 15. “和上一次比较”：`compareRequests` 只定义了前缀相同的情形，中间插入或压缩改写历史时逐行差异会整段错位
+- 严重程度：建议；类别：正确性
+- 位置：plan.md 核心 `compareRequests(a, b)`、`outline` 的“相同前缀的长度（逐条比内容哈希）”；Spec 输出 18、20；评审板 `r1/compare.webp`；`packages/nb-ui/src/components/display/DiffView.md`（按字比有 150ms、按行比有 300ms 的主线程预算，超了整段标记）
+- 现象：
+  1. 前缀与“末尾多出的消息”两种形态定稿图里有；但请求之间还会出现：压缩把前面一大段换成一条摘要（消息数变少、几乎所有消息都不同）、扩展在中间插入提醒（后面整体后移一位）、回退后分支。“变了的部分的逐行差异”按下标逐条配对时，插入一条会让后面每一条都显示为“改了”。计划没有写对齐规则（首尾各按哈希对齐、中间一块视为替换），也没写变化很大时的显示（压缩的情形直接写“历史被压缩，前 N 条被替换为摘要”比喂给 `DiffView` 几万 token 的整段替换有用，也不会触发它的预算降级）。
+  2. 参数、工具、系统提示词是整块文本，可以交给 `DiffView`；消息需要自己的行模型，`DiffView` 的输入是“改前、改后的全文”，计划没写消息怎么拼成它的输入。
+  3. 比较对象换成同会话别的一次时（发现 5 第 3 条），“最早一处变化的位置”和缓存命中的解释要对该对象重算。
+- 建议改法：`compareRequests` 先按首尾哈希对齐，只对中间不同的区段做逐条比较；检测到压缩（前缀长度为 0 或很短、且后者第一条是摘要）时输出专门的“历史被压缩”摘要；写 `request-trace.test.ts` 的三个用例（末尾追加、中间插入、压缩）。
+
+## 更正与说明
+
+- 发现 10 引用的 `DiffView.md` 路径应为 `packages/nb-ui/src/components/display/DiffView.md`（“不到 700px 时切换”在“布局与交互”一节）。
+- 发现 12 的“会失败”是读 `locales.test.ts:434-451` 得出的推断，没有运行（只读审查不改仓库文件）；发现 14 同为从代码推断。
+- 未做真实浏览器实验：本次是设计审查，e2e 与开发服务按规则不跑。发现 8 的体积数字来自 scratch 里的合成数据（`/tmp/review-w00032-t30-design/frontend/scratch/payload-lines.ts`），不是真实会话的测量。
+
+## 未发现问题的方面
+
+- 回复动作经 `nbook.agent:` 前缀路由、不会破坏别的插件动作：全仓库（`packages/neuro-book/src`、`packages/nb-agent-ui/src`、`packages/nb-story/src`）没有任何已登记的插件动作类型，`session-host.ts` 的 `run()` 的 `default` 目前只会静默忽略它们，新增前缀分派不影响现有行为；只需要在分派之前加判断，保持 `switch` 的穷举不变。
+- 组件放在 nb-agent-ui 的边界：计划的核心文件（`src/request-trace.ts`）只含纯函数与视图类型、渲染层只依赖 vue 与 nb-ui（`DiffView` 在 nb-ui），符合 `packages/nb-agent-ui/AGENTS.md` 与 `src/boundary.test.ts` 的规则；token 数由后端（recorder 用内核 `estimateTokens`）给出而不是核心自算，也没有越界。需要注意的只有发现 11 的 registry 问题。
+- 同列表行等高、列对齐：定稿图里每行固定两行、可选内容占位（重发、缓存没命中、进行中），计划没有违反 `ui-development-spec` 第 3 节第 5、6 条的设计，缺的是真实浏览器验证（发现 9）。
+- 列表与大纲是否要虚拟滚动：按 100 到 200 条分页加载、大纲每行轻量，不需要虚拟滚动；风险在传输体积与超长行（发现 8）。
+- “进行中”行的数据路径：`changed` 事件推结算，设计成立，只缺排序与筛选下的规则（发现 7）。
+
+## 数量
+
+- 阻断：0
+- 重要：9（发现 1 到 9）
+- 建议：6（发现 10 到 15）
+
+最严重的几条：1（回复入口的数据不存在，且拦截链直给的回复会误显示按钮）、2（顶栏动作的“钉住”没有来源，panel、角标、`when` 都未渲染）、3（`open-requests` 时序依赖页面宿主的归属）、4（命中数两份实现，评审板自己已对不上）、5（组件 props 与 action 清单缺加载更多、重试、换比较对象、筛选候选值、`now` 与各种状态）。

@@ -32,7 +32,7 @@ import {definitionAt} from "nbook/manifest";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {descriptor as workbenchDescriptor} from "nbook/plugins/workbench/plugin";
-import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
+import {clockKey, windowConnectionKey, windowDesktopKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
@@ -180,7 +180,7 @@ function contributor(id: string, sections: Readonly<Record<string, SectionSpec>>
     };
 }
 
-async function start(plugins: ReadonlyArray<PluginDefinition>, bound = false): Promise<{readonly application: Application; readonly probe: Probe; readonly diagnostics: DiagnosticsStore}> {
+async function start(plugins: ReadonlyArray<PluginDefinition>, bound = false, desktop = false): Promise<{readonly application: Application; readonly probe: Probe; readonly diagnostics: DiagnosticsStore}> {
     const probe: Probe = {source: null, settings: null};
     const settings = definitionAt("browser", descriptor, {...settingsBrowserCore, entries: [...settingsBrowserCore.entries, probeEntry(probe)]});
     const identity = {location: "browser" as const, instanceId: "settings-window"};
@@ -197,6 +197,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>, bound = false): P
                 {id: "window.connection", key: windowConnectionKey, create: () => ({state: () => "offline" as const, onChange: () => () => undefined})},
                 {id: "window.project", key: windowProjectKey, create: () => ({project: bound ? {id: "P", name: "雾港", generation: 1} : null})},
                 {id: "window.plugins", key: windowPluginsKey, create: () => feed.capability},
+                {id: "window.desktop", key: windowDesktopKey, create: () => ({available: desktop, reportSettings: () => undefined})},
             ],
             plugins: [createDiagnosticsPlugin({location: "browser", store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)}), settings, workbenchDeclarations, ...plugins],
             gates: [],
@@ -281,6 +282,24 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
             return current?.kind === "list" ? current.groups.flatMap((group) => keysOf(group.settings)) : [];
         });
         expect(listed).not.toContain("x.notes/paged");
+    });
+
+    it("声明了 host: desktop 的分区只在桌面壳的窗口里列出：浏览器里它与指向它的项都不列、不进“其它”、不记诊断、搜不到", async () => {
+        const windowOnly = defineSetting({plugin: "x.shell", name: "zoom", schema: Type.Boolean(), default: false, title: {"zh-CN": "窗口缩放比例", "en-US": "Window zoom"}, section: "x.shell.window"});
+        const sections = {"x.shell.window": list({title: title("桌面窗口"), host: "desktop"}), "x.shell.main": list({title: title("通用")})};
+        for (const desktop of [false, true]) {
+            const {probe} = await start([contributor("x.shell", sections, toggle(), [windowOnly, notes.gamma])], false, desktop);
+            const {window, recorder} = windowFor(probe, false);
+            const ids = window.nav.value.flatMap((group) => group.items).map((item) => item.id);
+            expect(ids.includes("x.shell.window"), String(desktop)).toBe(desktop);
+            expect(ids).not.toContain(OTHER_SECTION_ID);
+            expect(recorder.reports).toEqual([]);
+            window.openWindow({section: "x.shell.main"});
+            window.search("窗口缩放比例");
+            const view = window.current.value;
+            if (view?.kind !== "search") throw new Error("应是搜索结果");
+            expect(view.list.groups.flatMap((group) => keysOf(group.settings))).toEqual(desktop ? ["x.shell/zoom"] : []);
+        }
     });
 
     it("没有落到“其它”的项时不出现“其它”", async () => {
@@ -972,6 +991,65 @@ describe("设置文件视图（输出 23）：经远程合同整份读写，真�
         expect(window.leaving.value).toEqual({kind: "section", id: "nbook.appearance"});
         window.confirmLeave();
         expect([window.section.value, window.unsaved.value]).toEqual(["nbook.appearance", false]);
+    });
+});
+
+describe("打开到页面里的某一处（输出 15 的 focus）", () => {
+    const Page = defineComponent({name: "FocusPage", render: () => null});
+
+    async function twoPages() {
+        const control = toggle({implementation: {load: async () => Page}});
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection(), "x.notes.other": pageSection()}, control)], true);
+        return windowFor(started.probe, true).window;
+    }
+
+    async function shown(window: Awaited<ReturnType<typeof twoPages>>, id: string) {
+        await waitUntil(`${id} 加载完`, () => window.page(id).status === "ready");
+        return window.page(id).context;
+    }
+
+    it("窗口关着：打开到那一页，focus 只交给那一页；页面取走一次后清空，再取是 null", async () => {
+        const window = await twoPages();
+        window.openWindow({section: "x.notes.page", focus: "role:write"});
+        const context = await shown(window, "x.notes.page");
+        expect(context.focus.value).toBe("role:write");
+        expect(context.takeFocus()).toBe("role:write");
+        expect([context.focus.value, context.takeFocus()]).toEqual([null, null]);
+    });
+
+    it("窗口开在同一页：不过确认直接交给页面；同一个值再点一次照样再交一次", async () => {
+        const window = await twoPages();
+        window.openWindow({section: "x.notes.page"});
+        const context = await shown(window, "x.notes.page");
+        context.dirty(true);
+        window.openWindow({section: "x.notes.page", focus: "deepseek"});
+        expect([window.leaving.value, context.focus.value]).toEqual([null, "deepseek"]);
+        expect(context.takeFocus()).toBe("deepseek");
+        window.openWindow({section: "x.notes.page", focus: "deepseek"});
+        expect(context.focus.value).toBe("deepseek");
+    });
+
+    it("窗口开在别的页且有未保存的改动：等确认；取消时不交，放弃后切过去再交", async () => {
+        const window = await twoPages();
+        window.openWindow({section: "x.notes.other"});
+        (await shown(window, "x.notes.other")).dirty(true);
+        window.openWindow({section: "x.notes.page", focus: "add"});
+        expect(window.leaving.value).toEqual({kind: "open", section: "x.notes.page", focus: "add"});
+        window.cancelLeave();
+        expect(window.section.value).toBe("x.notes.other");
+        expect(window.page("x.notes.page").context.focus.value).toBeNull();
+        window.openWindow({section: "x.notes.page", focus: "add"});
+        window.confirmLeave();
+        expect((await shown(window, "x.notes.page")).focus.value).toBe("add");
+    });
+
+    it("没被取走就去了别处：作废，回来也取不到", async () => {
+        const window = await twoPages();
+        window.openWindow({section: "x.notes.page", focus: "role:write"});
+        await shown(window, "x.notes.page");
+        window.select("x.notes.other");
+        window.select("x.notes.page");
+        expect((await shown(window, "x.notes.page")).takeFocus()).toBeNull();
     });
 });
 

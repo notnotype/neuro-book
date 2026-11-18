@@ -1,0 +1,69 @@
+[1] 阻断 | 合同冲突 | 计划“页面与壳之间”第 2 条（“同一个 id 再来时用 update() 改那条通知”）
+现象：计划让一条通知随提示推进（available、downloading、downloaded、download-failed）用 update() 改。按通知合同这几处走不通：
+(a) 点动作后 guarded 会 drop(id)，通知从队列与中心一起移除（notifications.ts 的 guarded/drop；Spec notifications 输出 4）。用户点“下载”后，同一句柄的 update 是空操作（Spec 输出 5“已消失的通知再 update 无效果”）。计划若让下载进度沿用 available 的 id，点了“下载”之后看不到任何进度通知，而 Spec desktop-update 输出 4 要求“另发一条带进度的通知”。
+(b) 用户关掉弹出的那条后队列里没有它了，update 只改中心条目（notifications.ts update：queueId 取不到就 return），不再弹出，也不会重置未读。Spec 输出 3“更高的版本出现时照常提示”若复用同一 id 就弹不出来。
+(c) update 不能移除进度条（progress 只有 undefined=不变、null=不确定条）、不能移除动作（patch.action 只能换）、不能换 onClose（“发出时定下”）。“进度通知改为已下载、没有动作”（输出 6）用 update 做不到，会留下不确定进度条。
+核实：读 /home/notnotype/CodeRepository/neuro-book/.worktree/w00046-desktop-release/packages/neuro-book/src/plugins/workbench/web/notifications.ts 的 guarded、drop、update 与 packages/nb-ui/src/composables/useNotification.ts 的 update（`{...current, ...rest}`，workbench 一侧只传定义了的字段）。
+建议：计划写明 id 的语义。最稳的做法是“一个提示阶段一条通知”：每个新 hint 都是新 id（或由页面把壳 id 映射到新通知），页面在 hint 换阶段时先 dismiss 旧的再 notify 新的；update 只用于同一阶段内的进度/文字微调。同时写明：壳的 id 与通知句柄是两回事，页面按“壳 id → 句柄”记表，表项在动作、用户关闭、dismiss 时清掉，再来同 id 时句柄已失效就重新 notify，而不是 update。
+
+[2] 重要 | 合同冲突 | 计划 update-hint-end 与 later 的关系（未写）；Spec desktop-update 输出 3、场景 7
+现象：计划只写“update-hint-end 时 dismiss()”，没写壳在什么时候发 end。控制器的状态表里“提示中 -> 空闲（以后）”是自然发 end 的点。但 dismiss() 走 drop，把中心里留下的“下载”一起删掉（notifications.ts drop：entries 过滤 + queue.remove），而 Spec 输出 3 与场景 7 明确要求“关闭之后，通知中心里点‘下载’照样开始下载”。如果实现者在 later 之后发 end（或页面在发出 later 之后自己 dismiss），场景 7 的最后一句必然失败。
+另一个方向：用户在窗口 A 点了“下载”，窗口 B（若曾被重发）上还留着 available 的弹出与动作；不发 end 则 B 的“下载”仍在，点了是对已经在下载中的状态再发一次 download，壳要幂等；发 end 又会删掉 B 的中心条目，这在 Spec 里没有对应规则。
+建议：计划列一张“事件 -> 是否发 end -> 页面怎么处理”的表。建议规则：later 不发 end（只由页面记“已回告”）；end 只在这条提示被别处的选择取代、或提示被更高版本取代时发，并且 end 对已被用户关闭的通知只删弹出的那份而不动中心（目前合同没有这个操作，只有 dismiss 两边一起删，需要在 notifications 合同加一个，或接受“被取代时连中心条目一起删”并写进 Spec）。壳对重复的 download、对已结束 id 的 choice 要幂等且忽略，写进要点 1 的测试。
+
+[3] 重要 | 缺失的状态 | 计划“壳据此重发还没处理的提示”；Spec 输出 3、9
+现象：“还没处理”只对带选择的提示有定义（available 等用户回 download 或 later）。downloading、downloaded、updated、update-failed 没有动作，页面不会回任何消息；这些通知按色调自动消失（info/success 3.2 秒，warning 4.2 秒），自动消失不触发 onClose（Spec notifications 输出 18）。所以壳无从知道它们是否已被看到：
+- “已更新到 X”要求“通知一次”（输出 9），页面刷新一次若重发就是两次，不重发则刷新瞬间可能丢；
+- “更新没有完成”同理；
+- downloaded 若被当作永远未处理，每次刷新或开新窗口都重发。
+还有投递本身没有回执：executeJavascript 在文档加载中执行时事件没有监听者，静默丢失（desktop/src/bun/index.ts 第 95 行的派发方式；close-query 是靠 generation + 3 秒 ack 解决这件事的，更新提示没有）。
+建议：加一条页面到壳的 `update-hint-shown {id}`（页面真正 notify 成功后回），壳据此把“一次性提示”标为已交付；带选择的提示以 choice 为已处理。写清每种 hint 的“重发规则”：available/notify-only/download-failed 重发到有选择为止；downloading 重发最新进度（只重发当前状态，不重放历史）；downloaded 作为状态而非事件，刷新后重发一次是否可接受要在 Spec 写明；updated/update-failed 在收到 shown 后不再重发。测试要点 3、4 补这些用例。
+
+[4] 重要 | 生命周期 | 计划“页面就绪时发 page-ready”与“不就绪的窗口不显示”；window.ts 的状态、mount.ts、PageOutlet.vue
+现象：计划没定义“就绪”，也没有“离开就绪”的消息。页面真实的生命周期有几处让“就绪”与“能显示通知”不重合：
+(a) WindowState 的 ready 早于界面挂载：boot.ts 先 `await browserWindow.start()`，再 mountWindowUi，其中 mountPages 要等 router.isReady()，页面模块加载失败时挂的是 FailurePage（mount.ts 第 55 到 60 行），而 browserWindow.state 仍是 ready。若 page-ready 随 state=ready 发，壳会把提示交给一个没有 NotificationStack 的页面；提示进了孤立的队列，用户看不到，壳以为已交付。
+(b) ready 之后可以离开：服务端重启、项目已关闭、版本不一致都会转成 server-restarted/project-gone/incompatible 并 destroy 运行实例（window.ts 第 251 行），PageOutlet 换成 FailurePage（PageOutlet.vue 第 25 到 36 行）。这些终态页没有通知视口，也无法恢复到 ready（要刷新）。壳的协调器只知道“page-ready 发过”，没有“不再就绪”，24 小时检查后的新提示会被交给这个终态页，也不触发重发。通知服务实例本身在入口停止后仍可调用（notifications.dispose 只清队列，notify 不拒绝），所以页面一侧不会报错，是静默丢失。
+(c) ready 内部 connection online/offline 的变化也会触发 onChange（window.ts 第 239 行 setState({...state, connection})），page-ready 必须按 instanceId 去重，否则每次重连都会触发壳的重发。
+(d) 时序：监听必须早于 page-ready 的发送。close-query 就是在 start 之前建立的；计划写的是“窗口就绪后取服务”，如果 listen 也等到那时，page-ready 之后壳立刻重发的 hint 会落进没有监听者的空档（同 [3] 的静默丢失）。发送侧 bridge.send 在预加载桥缺失时返回 false，close-query 只写诊断；page-ready 发失败时壳永远等不到，提示就“没有产品窗口时等有了再发”地一直等，没有重试。
+建议：page-ready 在“ready 且界面已挂载（app.mount 完成）”时发；加 `page-gone`（或让页面在 pagehide 与离开 ready 时发），壳在窗口失去就绪后立刻把它的未处理提示重发到别的窗口；监听在 boot 最前面建立，hint 先进页面内的缓冲，服务可用后再 notify；page-ready 发送失败时诊断并在下一次状态变化重试；page-ready 按 instanceId 只发一次。
+
+[5] 重要 | 实现可行性 / 隐含耦合 | 计划“窗口就绪后经运行实例取工作台的 notificationsKey”
+现象：宿主拿不到这个服务，计划没提需要的改动。
+- BrowserWindow 接口（window.ts 第 107 到 125 行）只暴露 state、onChange、start、stop、text、closeParticipants、record，没有 host.application（它是 createBrowserWindow 内部变量）。desktop-updates.ts 作为 boot.ts 里的模块拿不到运行实例。
+- 即使暴露了 Application，ServiceAssembly.access(entryId) 要已声明的入口身份，ServiceAccess.resolve“只允许解析入口声明过的键”（nb-runtime/src/services/contracts.ts 第 74 到 79、249 行）。宿主不是插件入口，没有合法的调用方身份。
+- 唯一现成做法是启动门禁：window.ts 第 330 行的 `workbench-root` check 门禁用 dependencies 声明 workbenchRootKey 并把结果取出来。notificationsKey 也只能这样取，它发生在启动期（早于 ready），不是“窗口就绪后”；门禁默认 required:true，取不到会让整个窗口启动失败，要显式写 `required:false`。
+- window.ts 不在切片 3 的文件清单里（desktop-bridge.ts、desktop-updates.ts、宿主文案、boot.ts），验收映射也没有对应测试；这会在实施时才发现要改窗口宿主的公开接口（给 BrowserWindow 加“更新提示服务”的取法）。
+- 句柄寿命：门禁取到的服务实例与 workbench 入口同寿，入口停止后仍可调用且不报错（见 [4](b)），宿主要自己在 stopped 时丢掉引用。
+建议：计划写明做法：新增非必需门禁取 notificationsKey，BrowserWindow 增加只读取法（例如 `notifications(): Notifications | null`，离开 ready 即返回 null）；把 window.ts 与 window.test.ts 列进切片 3。是否该由宿主取工作台服务（宿主依赖内置插件的服务键）本身是个耦合选择：替代做法是工作台贡献一个“窗口通知出口”，宿主只持有这个出口；这与 Spec“页面里的插件拿不到壳的其它能力”并不冲突，因为出口不给插件。至少要在计划里说明为什么选前者。
+
+[6] 重要 | 竞态 / 重复 | 计划“壳的窗口：最近焦点与重发”；Spec desktop-update 输出 3、场景 7
+现象：重发触发条件写成“窗口关掉、或页面重新就绪（刷新）时”，但壳收到的 page-ready 区分不了“新开窗口的第一个页面”与“刷新”。
+- 用户在窗口 A 收到 available 提示（未选），随后新开窗口 B。B 页面就绪时发 page-ready；B 通常是最近焦点，按计划“重发到当时最近焦点的就绪窗口”，提示被发到 B。A 上那条没有收到 end（计划没写），于是 A、B 各一条同一提示。Spec 输出 3 只在“这个窗口关掉或刷新”时才转移提示，打开新窗口不应转移。
+- 刷新 A 时的最近焦点可能是别的窗口 C（用户刚点过 C）：重发落到 C；A 刷新后没有提示，C 已有同 id 的一条，要靠 C 页面按 id 去重。去重依赖 [1] 的“句柄表”，而句柄表项在用户关闭、自动消失后会失效（自动消失不通知页面），此时 update 空操作，重发被静默吃掉。
+- 并发的 page-ready：两个窗口几乎同时刷新，壳在两次 page-ready 之间的最近焦点会变，同一提示被发给不同窗口再各自重发一次，需要壳按“提示只有一个当前持有窗口”的不变量处理，并在转移时向旧持有窗口发 end。
+- 窗口关掉之后“重发”：关闭中的窗口（commitClose 之后、closed 之前）已不应再被选作持有者；Spec 说的“最近获得焦点”还要排除 closing，计划没写。
+建议：壳维护“每条未处理提示的当前持有窗口”；只在持有窗口关掉、刷新（同一 webview 第二次 page-ready）、离开就绪（见 [4]）时转移，转移时对旧窗口发 end；新窗口的第一次 page-ready 只在“没有持有窗口”时才接手。windows.test.ts 补：新开窗口不夺走提示；刷新时最近焦点是别的窗口；两个 page-ready 交错；closing 窗口不被选。
+
+[7] 重要 | 文案与动作覆盖 / 合同细节 | 计划“hint 的种类”“choice”与“按种类发成通知”
+现象：计划列了 7 种 hint 与 4 种 choice，但没有“种类 -> 通知形状”的对照，也没有“种类 -> choice 的映射”，下面是按 Spec 逐项核对发现的缺口：
+(a) 常驻：downloading 带进度、没动作、色调 info，按 durationOf（notifications.ts 第 71 行）3.2 秒就消失，下载还在进行时通知没了（Spec 输出 4“可以关掉”是用户行为，不是自动消失）。必须显式 sticky:true；改成 downloaded 时又要明确 sticky:false 才会按时消失，否则（“明确给过的 sticky 一直算数”）永远常驻。计划都没写。
+(b) onClose 映射：计划“onClose 交回 update-choice”，只有 available/notify-only 的关闭是 later（Spec 输出 3、10）。download-failed 的关闭、downloading 的关闭（Spec 输出 4：关掉，下载照常继续）、updated、update-failed 的关闭各算什么？若一律回 later，壳端要按 id 对应的当前提示种类忽略不适用的（例如 downloading 的 later 不能把“以后”记到版本上，也不能取消下载），要写成规则并在 shell 侧测。
+(c) open-page：notify-only 的动作点了之后通知被 guarded 移除；壳要不要把这条提示算已处理？不算则刷新后又弹出，算则“关掉就是以后”之外多了一种已处理路径。计划没写。
+(d) 壳不能信页面：桥是 window 事件，页面里任何脚本都能派发 update-choice 与 page-ready（desktop-bridge.ts 文件头说明了）。要写：壳对未知 id、已结束 id、与当前 hint 种类不匹配的 choice（如对 downloaded 发 retry）一律忽略并写诊断；page-ready 只认产品窗口类的 webview。计划只要求“页面里的插件拿不到这些”，那只是不暴露，不等于壳侧校验。
+(e) stateRootEnv 的额外说明（“不设这个环境变量打开 NeuroBook 时可以自动更新”）：放在 message 里，不要放 detail（NotificationInput.detail 注明是开发诊断原文、不翻译，ADR 0034）。计划只写了“带 stateRootEnv 标志”，没写文案落点。
+(f) 文案：七种 hint 的文案含版本参数，需要 zh-CN 与 en-US 两个目录同时补（src/web/locales 下两份）；计划只写“宿主目录 nbook.host 的 update.*”，没有登记两种语言与参数。
+建议：在计划里放一张表：hint 种类 | tone | title/message 键 | sticky | 动作 | onClose 回什么 | 壳端遇到该 choice 的行为。每行有一个测试。
+
+[8] 建议 | 测试覆盖 | 计划“验收映射”要点 3、4 与“验证”
+现象：要点 4 只列了“提示变成通知；关闭回 later，下载回 download；同一 id 再来时更新、结束时撤下；就绪时发 page-ready；加载页不显示”，e2e 用假壳在 Playwright 里派发 nbook-desktop 事件（沿用 desktop-close.e2e.ts 的做法）。下面这些问题它测不到，而它们正是 [1] 到 [7] 里最容易出事的地方：
+- Spec 场景 7 的整条链：关闭弹出 -> 中心里仍有“下载” -> 点它回 download；刷新后不再弹出；换窗口不再弹出。计划只有“关闭回 later”。
+- 同一 id 在“动作已点、用户已关闭、已自动消失”三种状态下再来（通知合同下 update 无效），断言最终屏幕上有没有通知，而不是断言 update 被调用。
+- 通知中心视图正开着（visible=true）时来提示：不弹出，只进中心；断言 later 与 download 照样能回。
+- 离开就绪：服务端重启后的 server-restarted 终态页收到 hint，断言壳能得知（或页面回 not-ready）；router.isReady 失败的启动失败页同理。e2e 外壳能制造服务端重启吗，要在计划里确认，否则这条只能在窗口宿主的 window.test.ts 里用假连接测。
+- page-ready 的发出时机：必须断言“界面已挂载后才发”“同一 instanceId 只发一次”“connection 在 online/offline 间变化不重发”。
+- 提示在 page-ready 之前到达（监听尚未建立）：断言被缓冲而不是丢失。
+- 全部 7 种 hint 与 4 种 choice 各一例（计划只点了 available 与 later、download）；stateRootEnv 的额外说明；两种语言。
+- 壳一侧 windows.test.ts 只在“壳自己的假页面”上验证重发，与页面的真实 ready 语义之间没有联合测试。两边各自通过但语义对不上（[4]、[6]）正是风险所在。建议在 e2e 里用“记录 __electrobunSendToHost 的消息序列”的方式，断言一次完整刷新的消息顺序（page-ready 在挂载之后、shown 回执之后不重发）。
+- 验证门禁：计划写合入前跑 desktop-update.e2e.ts 与 desktop-close.e2e.ts，同一页面已有 close-query 的监听与层，需要一例“关闭询问进行中来了提示”（层盖着、页面 inert，提示不应抢焦点或在 allow 之后丢失）。
+建议：把以上列进要点 4，并把窗口宿主侧（window.test.ts：BrowserWindow 的新取法、离开就绪）也列入切片 3 的验证。
+未发现问题的方面：桥消息形状放在 shared/desktop-bridge.ts 由两侧共用、typebox 校验、被页面脚本伪造 hint 的危害（hint 只显示文字，无副作用）；宿主文案用 hostText 引用并由视口翻译，切换语言可跟随；onClose 由 t09 已实现，Spec 输出 18 的“动作与 dismiss 不回告”与计划的用法一致。各级数量：阻断 1（[1]），重要 6（[2]到[7]），建议 1（[8]）。有效发现：1,2,3,4,5,6,7,8

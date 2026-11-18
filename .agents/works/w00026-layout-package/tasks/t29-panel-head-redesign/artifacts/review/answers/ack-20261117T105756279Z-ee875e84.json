@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t29-panel-head-redesign",
+    "artifactId": "review",
+    "ackId": "20261117T105756279Z-ee875e84",
+    "answers": [
+        "20261117T105654887Z-ee6fa47d"
+    ],
+    "through": "20261117T105654887Z-ee6fa47d",
+    "included": [
+        ".agents/works/w00026-layout-package/tasks/t29-panel-head-redesign/README.md"
+    ],
+    "ackedAt": "2026-11-17T10:57:56.279Z"
+}

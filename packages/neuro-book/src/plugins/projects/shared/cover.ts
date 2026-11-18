@@ -5,11 +5,11 @@
 
 /** 封面文件至多 5 MB。 */
 
-import {sniffImageType} from "nbook/shared/image-type";
-import type {RasterImageType} from "nbook/shared/image-type";
+import {sniffStillImageType} from "nbook/shared/image-type";
+import type {StillImageType} from "nbook/shared/image-type";
 export const PROJECT_COVER_MAX_BYTES = 5 * 1024 * 1024;
 
-export type ProjectCoverType = RasterImageType;
+export type ProjectCoverType = StillImageType;
 
 const EXTENSIONS: Readonly<Record<ProjectCoverType, string>> = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"};
 const ACCEPTED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
@@ -54,7 +54,7 @@ export function coverContentType(path: string): ProjectCoverType | null {
 }
 
 /** 按文件开头的字节判定格式：上传时不信客户端给的类型。 */
-export const sniffCoverType = (bytes: Uint8Array): ProjectCoverType | null => sniffImageType(bytes);
+export const sniffCoverType = (bytes: Uint8Array): ProjectCoverType | null => sniffStillImageType(bytes);
 
 /** 封面的 HTTP 地址（`nbook.projects` 服务端入口的路由）；`version` 变了浏览器才重新取。 */
 export function projectCoverUrl(id: string, version: string): string {

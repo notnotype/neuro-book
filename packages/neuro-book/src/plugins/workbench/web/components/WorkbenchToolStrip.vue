@@ -6,6 +6,7 @@ import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
+import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 上段的一个入口：侧栏里的一个容器（docs/specs/ui/workbench-layout.md 输出 22、41）。 */
 export interface ToolStripEntry {
@@ -53,7 +54,12 @@ const props = withDefaults(defineProps<{
     placeholder?: string | null;
     /** 这个入口盖一层并入的高亮：拖着的视图放下会并进这个容器（输出 45）。 */
     highlighted?: string | null;
-}>(), {items: () => [], dragHint: "", placeholder: null, highlighted: null});
+    /**
+     * 侧栏切换容器时内容滚过去的那一次（宿主给的交换的 `token`）：和按下的入口在同一次更新里变，按下的块这一次才滑过去，和内容同时走。
+     * 别的途径换了当前容器（命令、“移动到”、拖动落进入口、当前容器空了）内容不滚，块也直接到位。
+     */
+    slideToken?: number;
+}>(), {items: () => [], dragHint: "", placeholder: null, highlighted: null, slideToken: 0});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
@@ -101,16 +107,49 @@ const strip = computed(() => {
     const gap = Number.parseFloat(getComputedStyle(bandEl.value).rowGap) || 0;
     return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: ITEM_PX})), room, ITEM_PX, gap);
 });
-const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
+const sameItems = <T,>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean => a.length === b.length && a.every((item, index) => item === b[index]);
+/**
+ * 摆出来的入口不变时交回上一次的数组：条目区随窗口高度变、`strip` 每一步都重算，换成新数组的话列表的 TransitionGroup
+ * 每一步都重渲染、量一遍所有条目（w00046 t19）。
+ */
+const shownEntries = computed((previous?: ReadonlyArray<ToolStripEntry>) => {
+    const next = props.entries.filter((entry) => strip.value.shown.includes(entry.id));
+    return previous !== undefined && sameItems(previous, next) ? previous : next;
+});
 const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
+
+/** 按下的底色是条目区里一个独立的块（输出 22），侧栏切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
+const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: indicatorStyle, onTransitionEnd: onIndicatorTransitionEnd} = useEntryIndicator({
+    band: bandEl,
+    pressed: () => {
+        const id = shownEntries.value.find((entry) => entry.pressed)?.id;
+        const button = id === undefined ? undefined : [...(bandEl.value?.querySelectorAll<HTMLElement>("[data-tool-entry]") ?? [])].find((element) => element.dataset.toolEntry === id);
+        return id === undefined || button === undefined ? null : {id, button};
+    },
+    hasEntries: () => shownEntries.value.length > 0,
+    slideToken: () => props.slideToken,
+    // 按下的入口、摆出来的入口与条目区的高度：入口是定宽的按钮，别的不会挪动它。
+    layoutKey: () => `${shownEntries.value.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}`).join(",")}|${String(available.value)}`,
+});
 </script>
 
 <template>
     <nav class="workbench-tool-strip" :aria-label="label">
         <div ref="bandEl" class="workbench-tool-strip__entries" data-tool-band>
+            <span
+                ref="indicatorEl"
+                class="workbench-tool-strip__indicator"
+                data-tool-indicator
+                aria-hidden="true"
+                :data-shown="indicatorShown ? '' : undefined"
+                :data-sliding="sliding ? '' : undefined"
+                :data-settled="settled ? '' : undefined"
+                :style="indicatorStyle"
+                @transitionend="onIndicatorTransitionEnd"
+            ></span>
             <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
             <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
-                <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
+                <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" data-entry-frame :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
                     <Tooltip :text="entry.tooltip" side="right">
                         <IconButton
                             size="lg"
@@ -186,6 +225,9 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 }
 
 .workbench-tool-strip__entries {
+    position: relative;
+    /* 按下的块（`z-index: -1`）画在按钮下面、条目区里面：绝对定位的元素缺省画在普通流的按钮上面。 */
+    isolation: isolate;
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
@@ -248,8 +290,40 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 }
 
 .workbench-tool-strip .workbench-tool-strip__item--active {
-    background: var(--skin-activitybar-hover, var(--bg-hover));
     color: var(--skin-activitybar-active, var(--accent-text));
+}
+
+/* 按下的入口自己不画底：底是下面这个块，悬停时也不另画一层。 */
+.workbench-tool-strip .workbench-tool-strip__item--active,
+.workbench-tool-strip .workbench-tool-strip__item--active:hover {
+    background: transparent;
+}
+
+/*
+ * 按下的块（`placeIndicator`）：条目区里的第一个子元素，画在按钮下面，跟着条目区滚动。位置在 `transform` 上，只有换入口的那一次带过渡；
+ * 显示、隐藏是透明度。`left`/`top` 为 0，`transform` 给位置（`offsetLeft`、`offsetTop` 相对条目区）。
+ */
+.workbench-tool-strip__indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+    border-radius: var(--radius-control);
+    background: var(--skin-activitybar-hover, var(--bg-hover));
+    opacity: 0;
+    pointer-events: none;
+}
+
+.workbench-tool-strip__indicator[data-shown] {
+    opacity: 1;
+}
+
+.workbench-tool-strip__indicator[data-settled] {
+    transition: opacity var(--motion-layout) var(--ease-layout);
+}
+
+.workbench-tool-strip__indicator[data-settled][data-sliding] {
+    transition: opacity var(--motion-layout) var(--ease-layout), transform var(--motion-layout) var(--ease-layout);
 }
 
 /* 并入的高亮：和面板并入的盖层同一种填充与描边（`--layout-merge-*`），压在按下与悬停的样子上面：拖动中指针就停在这个入口上。 */

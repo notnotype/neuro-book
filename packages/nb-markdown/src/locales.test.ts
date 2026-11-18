@@ -23,7 +23,7 @@ type Legacy = Readonly<{"zh-CN": string; "en-US": string}>;
 const LEGACY: Readonly<Record<string, Legacy>> = {
     // chip/chip.ts 的 TEXT
     "chip.reference": {"zh-CN": "引用：{label}", "en-US": "Reference: {label}"},
-    "chip.skill": {"zh-CN": "技能：{name}", "en-US": "Skill: {name}"},
+    "chip.skill": {"zh-CN": "Skill：{name}", "en-US": "Skill: {name}"},
     "chip.selection": {"zh-CN": "选区：{label}", "en-US": "Selection: {label}"},
     "chip.command": {"zh-CN": "命令：/{name}", "en-US": "Command: /{name}"},
     "chip.image": {"zh-CN": "图片 #{number}", "en-US": "Image #{number}"},
@@ -61,6 +61,37 @@ const LEGACY: Readonly<Record<string, Legacy>> = {
     "prompt.attachmentRetry": {"zh-CN": "重试", "en-US": "Retry"},
     "prompt.attachmentUploading": {"zh-CN": "正在上传", "en-US": "Uploading"},
     "prompt.attachmentFailed": {"zh-CN": "上传失败：{error}", "en-US": "Upload failed: {error}"},
+    // 属性面板（w00025 t10 新增）
+    "properties.title": {"zh-CN": "属性", "en-US": "Properties"},
+    "properties.summaryProblem": {"zh-CN": "YAML 有误", "en-US": "The YAML has an error"},
+    "properties.source": {"zh-CN": "YAML 源码", "en-US": "YAML source"},
+    "properties.add": {"zh-CN": "添加属性", "en-US": "Add property"},
+    "properties.newName": {"zh-CN": "属性名", "en-US": "Property name"},
+    "properties.rename": {"zh-CN": "属性名：{name}", "en-US": "Property name: {name}"},
+    "properties.labeledName": {"zh-CN": "{label}（{name}）", "en-US": "{label} ({name})"},
+    "properties.remove": {"zh-CN": "移除属性 {name}", "en-US": "Remove property {name}"},
+    "properties.editSource": {"zh-CN": "在源码里改 {name}", "en-US": "Edit {name} in source"},
+    "properties.duplicate": {"zh-CN": "已有同名属性", "en-US": "A property with this name exists"},
+    "properties.kindMenu": {"zh-CN": "类型：{kind}", "en-US": "Type: {kind}"},
+    "properties.yes": {"zh-CN": "是", "en-US": "Yes"},
+    "properties.no": {"zh-CN": "否", "en-US": "No"},
+    "properties.listSeparator": {"zh-CN": "、", "en-US": ", "},
+    "properties.problemHint": {"zh-CN": "改好之前属性按源码显示。", "en-US": "Properties are shown as source until this is fixed."},
+    "properties.fence": {"zh-CN": "不能有只写着 --- 的一行，它会让属性提前结束；这次修改没有写回。", "en-US": "A line can't be just ---, which would end the properties early; this change wasn't saved."},
+    "properties.kinds.text": {"zh-CN": "文字", "en-US": "Text"},
+    "properties.kinds.number": {"zh-CN": "数字", "en-US": "Number"},
+    "properties.kinds.checkbox": {"zh-CN": "勾选", "en-US": "Checkbox"},
+    "properties.kinds.date": {"zh-CN": "日期", "en-US": "Date"},
+    "properties.kinds.list": {"zh-CN": "列表", "en-US": "List"},
+    "properties.kinds.complex": {"zh-CN": "复杂的值", "en-US": "Complex value"},
+    "properties.problem.syntax": {"zh-CN": "第 {line} 行：YAML 写法有误。", "en-US": "Line {line}: invalid YAML."},
+    "properties.problem.duplicateKey": {"zh-CN": "第 {line} 行：属性名重复。", "en-US": "Line {line}: duplicate property name."},
+    "properties.problem.notMapping": {"zh-CN": "第 {line} 行：顶层不是“名字: 值”的属性。", "en-US": "Line {line}: the top level isn't name: value properties."},
+    "properties.problem.multipleDocuments": {"zh-CN": "第 {line} 行：有多个 YAML 文档。", "en-US": "Line {line}: more than one YAML document."},
+    "properties.problem.documentMarker": {"zh-CN": "第 {line} 行：有 YAML 文档标记或指令。", "en-US": "Line {line}: YAML document marker or directive."},
+    // 图片粘贴（w00025 t09 新增）
+    "imagePaste.uploading": {"zh-CN": "正在上传 {count} 张图片", "en-US": "Uploading {count} image(s)"},
+    "properties.problem.flowMapping": {"zh-CN": "第 {line} 行：属性写在一行的花括号里，不能按属性改。", "en-US": "Line {line}: properties inside braces on one line can't be edited as properties."},
 };
 
 const LOCALES = ["zh-CN", "en-US"] as const;

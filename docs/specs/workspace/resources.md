@@ -56,7 +56,7 @@ owners:
   - 支持的操作（读、写、列出、真实路径）；
   - 根的说明与条目；
   - 挂载点所在的容器目录，每个挂载点能不能在第一次写入时建、要随之建好的单段子目录；
-  - 某个挂载点可以另给自己的容器目录与在容器里的目录名（缺省是挂载点名），用于挂载点来自几个不同目录的方案（`skills://` 的内置与用户的 Skill）；文件服务照样核对这个容器与挂载点都不是链接。（planned）
+  - 某个挂载点可以另给自己的容器目录与在容器里的目录名（缺省是挂载点名），用于挂载点来自几个不同目录的方案（`skills://` 的内置与用户的 Skill）；文件服务照样核对这个容器与挂载点都不是链接。
   - 授权规则：按调用方、挂载点、操作与挂载点内的路径判断。
 - 服务端文件服务（已被写入接口取代，见下一条；旧接口只有列出、读文本、按基线写、新建、真实路径）：服务端的 `nbook.agent` 可以注明代表哪个 Agent 会话（会话 id 与当前 Profile），别的调用方注明为 `invalid-input`——这一条规则沿用到写入接口。
 - **写入接口：** 服务端与项目实例里的插件依赖服务键 `workspaceFilesKey` 取得按调用方的门面；项目实例里是进程内实现，服务端写项目文件经一次远程调用交给项目子进程。暂存与提交以同机共享文件系统为前提：暂存文件由文件服务建、管路径与清理。
@@ -132,12 +132,13 @@ glob、grep 不是文件服务的方法：Agent 的工具取本机读路径后�
   - 授权在服务入口做两次：按地址的路径一次、按解析链接之后的真实路径一次，都通过才执行；列出的子项逐项按读授权，不通过的不返回。
   - 挂载点的真实目录不存在时，读为 `not-found`、列出为空；第一次写、新建或取真实路径时，在授权通过后建挂载点的目录与声明的子目录，同名位置已是文件或链接时不覆盖；被拒的请求不建任何目录。
   - 挂载方案不做文件夹类型投影：`.content`、`.binder` 是普通目录，不维护清单。
+  - 挂载点的真实目录被整个换掉（删掉后放进同名的新目录）时，下一次请求丢掉打开着的旧目录、按当前声明重新打开，不报 `root-gone`；在途的请求照旧按打开时的目录结算。
   - 这次不支持监视与订阅。
 - **跨项目访问：** `projects://` 的根列出已登记的项目；`projects://<引用>/路径` 每次调用先取得这个项目的租约（没在运行的会被打开），再调用项目实例的文件服务，结算后释放租约；调用方的 `signal` 在取得租约之后、调用之前已触发时立即释放并以 `cancelled` 结束。项目实例返回的路由失败（例如写请求结果未知 `unknown-outcome`）原样交回调用方。
 
 ### 找文件
 
-`find({query, limit?})`（`project`、`user` 两份合同）按名字或标题找文件，给输入框的 `@` 这样的“按字找”用，缺省交回 20 个，至多 100 个。一层层列，和 `list` 看到的一样，内容文件夹里的条目带标题；名字以 `.` 开头的不进。开头命中排前，其次名字或标题里有，最后路径里有，同级按路径。查询为空时都算命中。看够 5,000 项就停；停了或命中比 `limit` 多时 `truncated` 为真。读不了的子目录跳过，根读不了时失败。不搜文件内容。
+`find({query, limit?, extensions?})`（`project`、`user` 两份合同）按名字或标题找文件，给输入框的 `@` 这样的“按字找”用，缺省交回 20 个，至多 100 个。`extensions`（可选，小写、不带点的扩展名数组，至多 16 个）给了就只找名字带这些扩展名的文件（不分大小写），先过滤再排序与截断，所以按类型找不会被别的文件挤出 `limit`（插图卡片按图片找，[`workbench.markdown-editing`](../workbench/markdown-editing.md) 输出 54）。一层层列，和 `list` 看到的一样，内容文件夹里的条目带标题；名字以 `.` 开头的不进。开头命中排前，其次名字或标题里有，最后路径里有，同级按路径。查询为空时都算命中。看够 5,000 项就停；停了或命中比 `limit` 多时 `truncated` 为真。读不了的子目录跳过，根读不了时失败。不搜文件内容。
 
 ## 状态与转换
 
@@ -233,5 +234,5 @@ glob、grep 不是文件服务的方法：Agent 的工具取本机读路径后�
 
 - 批准依据：[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（`accepted`，2026-10-02）的“分项决定”与方案第 1、3、8 节；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t68 条目（实现顺序、来源按调用方身份、外部事件只分修改与删除、根访问由 `nbook.files` 提供）与 t69 条目（文件操作的失败码与事件前缀规则）；[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3、9 节（2026-10-07 `accepted`）与开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认（`project://` 按客户端绑定解析、`projects://` 与路径可见性）；2026-10-14 本次晋升复核：glob、grep、bash、`tmp://`/`local://`/`docs://`/`projects://`、插件注册新方案的接口标 `(planned)`；2026-11-02 开发者在 [w00032 t08](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/README.md) 定的方案注册、服务端文件服务、Agent 的方案与 `local://` 的取消（改为 `session://`），见 [t08 计划](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md)；开发者 2026-11-02 批准这部分晋升为 `implemented`。写入接口、暂存与提交、操作分组与记账槽（planned）依据 [文件访问与改动记账](../../proposals/file-access-and-history.md)（2026-11-02 `accepted`）的第 1 阶段与 [ADR 0040](../../adr/0040-file-writes-staged-and-committed-by-root-owner.md)。写入接口依据 [文件访问与改动记账](../../proposals/file-access-and-history.md) 的第 1 阶段，开发者 2026-11-04 批准晋升。
 - 实现入口：[`plugins/files/shared/resource.ts`](../../../packages/neuro-book/src/plugins/files/shared/resource.ts)、[`plugins/files/backend/changes.ts`](../../../packages/neuro-book/src/plugins/files/backend/changes.ts)、[`plugins/files/backend/mounted.ts`](../../../packages/neuro-book/src/plugins/files/backend/mounted.ts)（挂载方案）、[`plugins/files/backend/registry.ts`](../../../packages/neuro-book/src/plugins/files/backend/registry.ts)（方案注册）、[`plugins/files/backend/workspace-files.ts`](../../../packages/neuro-book/src/plugins/files/backend/workspace-files.ts)（写入接口）、[`plugins/files/backend/staging.ts`](../../../packages/neuro-book/src/plugins/files/backend/staging.ts)（暂存与提交）、[`backend/staged-commit.ts`](../../../packages/neuro-book/src/backend/staged-commit.ts)、[`plugins/files/backend/projects-scheme.ts`](../../../packages/neuro-book/src/plugins/files/backend/projects-scheme.ts)
-- 合同测试：[`files/shared/resource.test.ts`](../../../packages/neuro-book/src/plugins/files/shared/resource.test.ts)、[`files/changes.test.ts`](../../../packages/neuro-book/src/plugins/files/changes.test.ts)、[`files/project-child.test.ts`](../../../packages/neuro-book/src/plugins/files/project-child.test.ts)、[`files/schemes.test.ts`](../../../packages/neuro-book/src/plugins/files/schemes.test.ts)（验收 1、2、4、8、10）、[`files/projects-scheme.test.ts`](../../../packages/neuro-book/src/plugins/files/projects-scheme.test.ts)（验收 9，真实项目子进程）、[`files/workspace-files.test.ts`](../../../packages/neuro-book/src/plugins/files/workspace-files.test.ts)（验收 11–13、15）、[`files/ledger.test.ts`](../../../packages/neuro-book/src/plugins/files/ledger.test.ts)（验收 14）、[`backend/staged-commit.test.ts`](../../../packages/neuro-book/src/backend/staged-commit.test.ts)
+- 合同测试：[`files/shared/resource.test.ts`](../../../packages/neuro-book/src/plugins/files/shared/resource.test.ts)、[`files/changes.test.ts`](../../../packages/neuro-book/src/plugins/files/changes.test.ts)、[`files/project-child.test.ts`](../../../packages/neuro-book/src/plugins/files/project-child.test.ts)、[`files/schemes.test.ts`](../../../packages/neuro-book/src/plugins/files/schemes.test.ts)（验收 1、2、4、8、10）、[`files/projects-scheme.test.ts`](../../../packages/neuro-book/src/plugins/files/projects-scheme.test.ts)（验收 9，真实项目子进程）、[`files/workspace-files.test.ts`](../../../packages/neuro-book/src/plugins/files/workspace-files.test.ts)（验收 11–13、15）、[`files/ledger.test.ts`](../../../packages/neuro-book/src/plugins/files/ledger.test.ts)（验收 14）、[`backend/staged-commit.test.ts`](../../../packages/neuro-book/src/backend/staged-commit.test.ts)、[`files/files.test.ts`](../../../packages/neuro-book/src/plugins/files/files.test.ts)（`find` 的 `extensions`：先过滤再截断）
 - Smoke：不适用——没有独立 e2e，经 [`workspace.files`](files.md)、[`workbench.files-explorer`](../workbench/files-explorer.md) 的 e2e 间接覆盖资源读写部分

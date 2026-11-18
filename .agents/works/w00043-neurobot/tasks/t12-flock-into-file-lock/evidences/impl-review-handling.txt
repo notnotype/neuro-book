@@ -1,0 +1,12 @@
+w00043 t12 实现审查的处理（对象 6d3dc32eb..12937a3c5 与主工作区未提交的切片 3 文档；审查者 Claude Opus，报告 impl-review.txt）
+
+阻断 0、重要 1、建议 5。逐条核实；修正在分支提交 d3a162ae9，文档的修正随切片 3 一起提交。
+
+1  成立，改。打标签自动发布的 CI 流水线（w00046 t11，提案 desktop-distribution 4.8）按 11 个包写，npm 要包已经存在才能配置信任发布，nb-flock 从没发布过。ADR 0052 的后果加一条：nb-flock 首发由开发者在本机手工完成，之后再给流水线配信任，流水线要发的包变成 12 个；w00046 t11 的 README 记一笔（未开工）。已接受的提案与 ADR 0051 的正文不改。
+2  成立，改。注释“经 ffi 读不到 errno”不对（审查者在 Linux 上经 __errno_location 读到了）；改为“不看 errno，沿用实测过的原实现”。不改代码：保持与实测版一致。
+3  成立，改。holdInChild 改为起子进程后立即返回，第一行作为 Promise；两个跨进程用例拿到子进程就进 try，失败也结束它。
+4  不改。两份根 README 的包表写“都发布在 npm”，nb-flock 随下一次发布上去，与表里其它包同一时机。
+5  成立，改。ADR 0052 背景改为“只差报错文字与一处 release 的写法”。
+6  成立，改。nb-flock 的 AGENTS.md 与边界文档的使用方补上 nb-story 的问答配置。
+
+验证：nb-flock 的 bun test（4 例）与 typecheck 通过。

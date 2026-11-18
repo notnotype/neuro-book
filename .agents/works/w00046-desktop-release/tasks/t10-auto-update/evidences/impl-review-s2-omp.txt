@@ -1,0 +1,50 @@
+[1] 重要 / 正确性：superseded 未持久化成功仍开始新下载，旧更新会在下次启动复活
+位置：packages/neuro-book/src/desktop/update.ts:260-265、322-327。
+问题：标记旧 downloaded 已被取代只排入异步写队列；没有等待成功，写失败也只记录日志，仍调用 updater.download。违反 desktop-update 输出 7 的“旧的那份从此不再换上”。
+复现：真实文件先保存 downloaded=B；把通道目录设为 0500（可读、不可写），选下载 C；下载在准备开始前失败。实际 download 调用 1 次、日志有 desktop.update.state-write-failed，磁盘仍是 downloaded=B、superseded=[]；恢复权限后的下一次 usableDownload 仍返回 B，可自动换上已明确放弃的包。命令：bun /tmp/nb-update-s2-review.mXFZw7/controller-smoke.ts，输出 SUPERSEDED_WRITE_FAILURE。
+建议：把“旧包已被取代”的持久化作为调用下载端口之前必须成功的屏障；失败时不开始新下载并经已有失败提示处理。增加真实写失败和延迟写期间退出的覆盖，不把这种失败降格为只少换一次。
+
+[2] 重要 / 正确性：选“以后”的提示失去持有窗口，新阶段无法结束它在通知中心的旧动作
+位置：packages/neuro-book/src/desktop/update.ts:177-182；packages/neuro-book/src/desktop/windows.ts:240-246。
+问题：dismiss 用 onHint(null,false) 清当前提示，协调器立即清掉 #hint 和 #hintHolder。之后发现 C 或从中心开始下载 B 时，虽然 endPrevious=true，协调器已不知道 B 曾交给谁，永远不发 B 的 endHint。旧通知中心动作仍显示，但控制器已换最新 id，会拒绝它。计划关键设计要求新阶段取代旧提示时把中心记录一起删掉。
+复现：真实 UpdateController 连真实 WindowCoordinator，窗口 1 就绪；检查出 B(id=1)，选 later；24 小时检查出 C(id=2)。端口记录只有 sendHint(1,1,B)、sendHint(1,2,C)，完全没有 endHint(1,1)。命令：bun /tmp/nb-update-s2-review.mXFZw7/controller-smoke.ts，输出 DISMISSED_HINT_NOT_ENDED。
+建议：区分“当前可转交提示”与“仍留在某窗口中心的最近提示”；later 后保留后者的 id/窗口，在下一阶段到来时收起。补控制器与协调器合用的用例；现有两套各自的 endPrevious 断言抓不到这条集成缺口。
+
+[3] 阻断 / 不变量：启动对账还在 await 时关闭启动窗，会先放锁，随后对账继续无锁写状态
+位置：packages/neuro-book/src/desktop/shell.ts:143-145、291-306、424-434、459-466；packages/neuro-book/src/desktop/update-install.ts:390-396。
+问题：#setUpUpdates 在 reconcileAtStartup 完成后才登记 #updates；关闭最后一个启动窗时 #allClosed 只关闭尚为 null 的控制器，随后释放桌面锁和共享锁。已开始的 reconcileAtStartup 未被取消或等完，results()/helperRunning() 返回后仍写文件并创建新控制器，破坏“仅持安装独占或桌面锁时写”的单写者不变量。
+复现：状态有 A→B 的 attempt；真实 DesktopShell 启动至 updater.results 等待；关闭唯一启动窗并等 exit 端口；另取同一状态根的真实桌面锁成功；此时让 results 返回 B 的失败结果。旧壳仍把 attempt 清空、failed 写入 B、pendingNotice 写成 update-failed，并在退出后创建 updates。命令：bun /tmp/nb-update-s2-review.mXFZw7/shell-close-smoke.ts，输出 STATE_WRITE_AFTER_DESKTOP_LOCK_RELEASE，replacementHoldsLock=true。这不是依赖同步 process.exit 的安全区：适配层 exit 调 Utils.quit；Electrobun Utils.ts:170-185 请求 quitGracefully(timeoutMs:5000) 后返回，未立即终止 JS。Windows 原生退出窗口未实测。
+建议：把启动对账纳入壳跟踪的在途写寿命，在释放任何锁之前取消并阻止其写入，或等待它结算；#finishing 不能只在整个 #setUpUpdates 返回后检查。为“取锁后、页面就绪前关启动窗”加入带延迟结果读取的真实锁回归。
+
+[4] 重要 / 正确性：关掉启动窗后，在途 applyAtStartup 仍发起换上
+位置：packages/neuro-book/src/desktop/shell.ts:253-275；packages/neuro-book/src/desktop/update-install.ts:168-200。
+问题：#prepareInstall 在 await applyAtStartup 完成之前不看 #finishing，applyAtStartup 的两次状态读取、attempt 写入之后也没有取消判定。启动窗关掉已走完退出流程后，它仍能写 attempt、显示“正在更新”、调用 apply，违背 desktop-shell 输出 23 的“启动作废”。这与第 3 条不同：这里尚未取桌面锁，错误是已取消的启动继续触发安装副作用。
+复现：真实文件已有 downloaded=B；调用 const running=shell.run() 后立即 closeRequested(1)，由正常 closed 回调结束窗口。实际事件顺序为 exit(0) → updating(B) → updater.apply()；替身返回 failed 后，磁盘还把 B 记成失败并追加通知。命令：bun /tmp/nb-update-s2-review.mXFZw7/preapply-close-smoke.ts，输出 APPLY_AFTER_STARTUP_CANCEL。原生 apply 的真实换目录未执行；核心在退出后调用它已由公开入口复现，实际 Electrobun 退出具有异步窗口（见第 3 条）。
+建议：启动取消信号传入 applyAtStartup，在每次 await 后、写 attempt 和调用 apply 前检查；未进入更新器交接时取消应释放独占并不记失败。加入有下载包且启动窗立即关闭的回归，而不只测服务端拉起期间的关闭。
+
+[5] 重要 / 测试：计划要求的跨进程单写者与真实结果文件到运行中重判的回归没有落地
+位置：packages/neuro-book/src/desktop/shell.test.ts:374-395；packages/neuro-book/src/desktop/update.test.ts:427-449；packages/neuro-book/src/desktop/update-install.test.ts:207-249、282-317。
+问题与证据：单写者用例的 envShell、defaultShell 都是当前测试进程内 fakeShell，实际只另起了服务端和最后的锁探针；没有两个真实壳进程，也没有让 P 下载与 Q 清通知交错。运行中重判用例直接 setResults({phase:'swap'})，而实际校验器只接受 'swapping'，没有把 Electrobun 格式结果文件经 scanApplyResults 接到控制器；安装测试分别测校验器和 settleAttempt，未串通。因此“计划要点 2 已覆盖”的表述超出测试事实，本轮第 3 条退出对账越锁写入也没有被现有用例捕获。
+可复现场景：在 updater.results 尚未返回时关闭启动窗，另一壳取得同一桌面锁后旧壳继续写状态（第 3 条实验已复现）；现有单写者测试只覆盖两壳稳定运行，抓不到它。
+建议：补两个真实壳进程共用安装、不同状态根的写入隔离回归；用真实合格结果文件驱动“启动时保留 attempt→运行中失败→恢复检查”的整条链，加入延迟 results、stop/close 与 shown 的交错。失败与 superseded 的重新授权也应分别接到下一次 applyAtStartup 验证，不止断言内存数组已清空（update.test.ts:296-316）。
+
+专项核对与未发现问题的方面
+- 两处第三轮修订：settleAttempt 对“无结果、进程在或发起未满 2 分钟”及进程查询 null 的判定符合现行对账表；本轮补充执行 2 分钟边界，true/null 为进行中、false 为失败。
+- 运行中 #scheduleRecheck：补充执行延迟 results、多个 30 秒周期、失败与 reverted 终态、stop/close 在 results 返回前发生、写队列延迟、shown 清通知。单次仅一个对账任务；终态后仅恢复一次检查；失败通知优先，shown 后显示 available；close 等写队列，停止后不再写、不检查、不提示。没有复现这里的重复下载或重复对账写入（shown 清通知的第二次写为必要写）。
+- 结果校验逐字段对照指定 Electrobun 2.0.6 Updater.ts：文件名、事务号、精确字段、各 phase、success 一致性、message/version/hash、身份、普通文件、路径规范和 64 KiB/64 文件/1024 条目录上限一致；返回全部候选而非 selected 是计划要求的有意区别。
+- 正常路径上独占后重读、下载目标重新核对、失败名单成功下载才解除、控制器 close 后丢弃在途结果、先关控制器再放桌面锁最后放共享锁均有实现或测试证据；异常启动取消路径见第 3、4 条。窗口焦点、就绪、刷新和离开就绪的基本转交通过现有用例；已 dismiss 的中心记录清理见第 2 条。
+- 注释已按 common.md“注释”核对；未发现需要单列的严重注释问题。
+
+验收映射的其它边界
+- 要点 1 的失败/被取代两名单目前合在一次内存成功下载断言，没有分别走到下一次真实启动发起；要点 2 的“没有产品窗口不消费 pendingNotice”、便携不建/读安装状态没有独立壳集成回归；缺口应和第 5 条一并补齐。
+- 要点 3 的焦点、无就绪窗口等待、新窗口不抢、刷新、pageGone、关闭转交均有测试，但 controller→coordinator→中心旧动作的生命周期缺口见第 2 条。
+- 页面切片 3、适配层切片 4 未作为问题审查；适配层仅为核实第 3、4 条实际 exit 语义读取对应调用。未跑 e2e、Windows 原生更新/换目录 smoke、全量测试或类型检查，不以 Linux 核心实验冒充原生端到端验收。
+
+实际执行
+- worktree 根：bun install，退出 0。
+- packages/neuro-book：bun test src/desktop/update.test.ts src/desktop/update-install.test.ts src/desktop/windows.test.ts，51 pass / 0 fail / 219 expect。
+- packages/neuro-book：bun test src/desktop/shell.test.ts -t '桌面壳的更新'，4 pass / 0 fail / 9 filtered out / 14 expect。
+- worktree 根：bun /tmp/nb-update-s2-review.mXFZw7/controller-smoke.ts；bun /tmp/nb-update-s2-review.mXFZw7/shell-close-smoke.ts；bun /tmp/nb-update-s2-review.mXFZw7/preapply-close-smoke.ts；bun /tmp/nb-update-s2-review.mXFZw7/recheck-smoke.ts，均退出 0，关键输出见各发现。实验通过公开控制器/壳接口、真实状态文件与真实桌面锁进行；没有调用私有方法。
+
+结论：有效发现 1、2、3、4、5；阻断 1、重要 4、次要 0。建议处理优先级：3 → 4 → 1 → 2 → 5。只读审查，未改产品代码或测试，未 commit、未切分支；实验文件只在 /tmp，报告按条追加。
+END

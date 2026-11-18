@@ -1,0 +1,67 @@
+w00046 t11 计划设计审查第 1 轮（omp 默认模型，审查固定副本 plan-r1）的处理。报告原文：design-review-r1-omp.txt
+（23 条：阻断 4、重要 17、次要 2；第 14、16 条由审查者自己收窄为次要）。每条都对照代码、源码或官方文档核实过。修订后的计划是 plan.md r2。
+
+阻断
+
+[2] B′ 只传 tarball，Windows 上的壳仍是本次版本。成立。build.ts 从当前源码的 PRODUCT_VERSION 打壳、写 bundle/version.json，
+  electrobun.config.ts 读它。改：桌面工程的输入（bundle/ 与 payload/）在 ubuntu 上做齐，B′ 的输入在改了版本的 worktree 里由
+  build.ts 生成，壳与应用包同一版本；Windows 只跑 Hutch。加 verifyBuiltVersions 对每个变体核对。
+[4] 整轮重跑重新冻结集合，已发的应用包字节不同会被放过。成立（publish.ts 对已发而不同、无人依赖的包只提醒；应用包是 bundle、
+  没有运行时依赖）。改：--plan 对本次版本的包（应用包、SDK）已发而字节不同直接失败；恢复不了时提高补丁号重发，不自动重建替换。
+[6] B′ 改版本不提交，过不了 release:smoke 的干净检查。成立（pack-smoke.ts cleanCommit 与结束时的 releaseFilesChangedSince）。
+  改：B′ 在独立 worktree 里用一次性身份做一个本地提交（不 push），正式门禁不开口子。
+[8] 后面的测试构建清空正式产物。成立（计划原写同一工程目录连着构建；Hutch 每次重建 artifacts/、文件名不含标识与版本）。
+  改：每个变体复制一份 desktop/ 工程各自构建；正式产物构建完即复制到 release-assets/，只上传它；A′ 的产物先复制进更新源再构建 B′。
+  复制一份 desktop/ 能否单独构建在切片 4 先验，不成立改每个变体一个 worktree。
+
+重要
+
+[1] 更新冒烟缩减了 Spec 的 Smoke，又漏了上一正式版到本次。成立：desktop-update 的 Smoke 明写场景 1、2，以及有上一个正式版后
+  另跑一遍场景 1。改：场景 2 后半用 A′、B′ 做（已下载 B′ 后源退回正在运行的 A′，与“已下载 C 后源换成 B”同一形状），不要第三个包，
+  Spec 不改；上一正式版到本次：装上一版，把装好的 version.json 更新源改成本机源、源里放本次正式资产，跑场景 1；第一次发布跳过并注明。
+  改 version.json 是否被更新器接受，切片 4 先验。
+[3] 更新冒烟设 NBOOK_STATE_ROOT 会进只提示模式。成立。改：更新冒烟用缺省状态根；pc-notype 上沿用 t10 开发者定的“直接用已有目录”，
+  记进待确认清单；安装版、便携版冒烟本机可用 --state-root。
+[5] concurrency 只留一个等待中的。成立（GitHub 文档：缺省 queue: single，新的等待中的取消旧的；queue: max 至多 100、先进先出）。
+  改：正式发布 queue: max；演练另一个组。
+[7] 发布作业没有生成目录，loadBuiltPackages 会失败。成立（publish.ts 建依赖图时读 dist/plugin-sdk、dist/app-package）。
+  改：--plan 在构建作业里把运行时依赖与摘要写进 release-plan.json，--ci 只读它与清单；切片 2 加“只有源码检出与 dist/release/”的只读检查。
+[9] 不带 --tag 时 npm 按 registry 最高正式版本拒绝。采纳（没有本地复现，按审查者引的 npm/cli 11.5.1 publish.js；改法成本低）：
+  --tag 一律显式，latest 或 history；业务判断仍按 dist-tags.latest。单测加 latest 不是最高版本的情况。
+[10] 工具名是 shell 不是 bash；只断言含随机串会把参数回显当执行。成立（backend/builtin/index.ts）。改：调用 shell，断言工具结果
+  退出码 0 且输出里有这一行、会话完成。
+[11] npm 信任配置的直接发布权限与 2 天时限。成立（docs.npmjs.com/trusted-publishers：2026-09-03 后新建的配置缺省只允许
+  npm stage publish；新配置 2 天内没有成功发布就过期）。改：一次性准备逐项写明；只在这个包有版本要发时的 2 天内配置；
+  演练列出“这次要发、流水线上还没发过”的包。时限规则记进待确认清单（影响开发者每次发布前的操作）。
+[12] 发布授权边界缺标签保护。成立（审查者只读查到仓库没有规则集与 release Environment）。改：一次性准备加 v* 标签规则集
+  （只允许开发者创建、禁止改指与删除）、Environment 只允许 v* 标签、npm 信任绑定 Environment；tag.ts 核对标签解引用的提交等于 GITHUB_SHA。
+[13] 换源后不会自动再检查。成立（update.ts：start 时检查一次，之后 24 小时）。改：换源后重起 B′，按这次启动之后的日志判定。
+[15] Windows 作业先调 Bun、没有装；hutch.config.ts 没有 Hutch 版本。成立。改：每个作业自己 setup-bun 与 frozen install；
+  Hutch 版本找一处可机读的地方（切片 5 定），装后核对。
+[17] latest 判定重跑不幂等。成立。改：当前最新就是本次时按应为最新处理、只核对；verify-feed 自己重读最新身份，分“本次最新”
+  “已被取代或补发”“没公开”三种，后两种对 tag 下载地址核对资产并注明 latest 路由没验。
+[18] 门禁只比版本、哈希与长度，没有存证据。成立（t10 plan 的发布完成门禁要求保存 version.json 的更新源、请求与应答头）。改：
+  核对清单的标识、频道、平台、架构与文件，v1 与 v2 指向同一目标，逐个下载核对 SHA-256，正式构建的 version.json 更新源；
+  请求、重定向链、状态与应答头写 feed-evidence.json 并上传。
+[19] 省掉了发布后的 registry 核对。成立（repository-workflow.md 的“npm 包”要求发布后 release:smoke --from registry）。
+  改：加 registry-smoke 作业，读不到时重试。不挡 GitHub Release（npm 字节已定，桌面包不受影响），记进待确认清单。
+[20] 更新与卸载冒烟没核对数据不变量；便携检查不能假定缺省根为空。成立。改：更新前建作品与已知内容，更新后同根同内容；
+  卸载后作品登记、设置与作品文件仍在；便携以安装冒烟后的缺省根为基线比较。作品经应用登记，不直接写 projects.json。
+[21] 壳以 0 退出不证明服务端有序停止。成立（shell.ts 总是 releaseAndExit(0)，服务端非 0 或被强制结束时只写 unclean-stop.json）。
+  改：断言状态根下没有 unclean-stop.json，证据收全部 logs\desktop\。
+[22] 用 before 是否全零决定全量检查，没限新建标签。成立。改：ci.yml 的 workflow_call 加输入 all；gate 要求 created 为真、
+  forced 与 deleted 为假。
+[23] 冒烟失败的证据不够。成立。改：三个冒烟都写证据目录（日志、version.json、状态与结果文件、请求记录、进程、页面截图），
+  收集步骤 always()，保留 14 天；失败时测试包随证据上传。
+
+次要
+
+[14] 产物没有显式保留期与丢失后的处置。成立（审查者查到仓库当前保留 90 天，不是现有故障）。改：产物 retention-days 35，
+  “失败与重跑”写明恢复不了时提高补丁号重发。
+[16] 草稿不能先设为最新。成立（计划原文“然后 --draft=false”有歧义）。改：一条 gh release edit --draft=false --latest=<bool>。
+
+报告末尾的证据补充：旧应用的最新 Release 标签是 v0.9.2-canary…（带预发布段）。已写进 github-release.ts 一节：比较当前最新时按语义化
+版本解析，不套用只收稳定版本的标签门禁。
+
+新增待确认 5 行：pc-notype 更新冒烟用缺省状态根；npm 信任按包在发布前 2 天内配置；场景 2 后半用 A′、B′ 做；registry 核对不挡
+GitHub Release；整轮重跑字节不同就失败、恢复靠提版本号。

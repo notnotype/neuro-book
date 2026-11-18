@@ -1,6 +1,6 @@
 /**
- * 展示器里需要专门样子的节点（docs/specs/ui/markdown-display.md 输出 2、5、8）：提示块、可渲染 HTML 与图片。外观与编辑器的节点
- * 视图由同一套函数画（`buildCallout`、`renderHtmlEmbedElement`、`MarkdownImage`），交互接到展示器自己：折叠只记在这次显示里，
+ * 展示器里需要专门样子的节点（docs/specs/ui/markdown-display.md 输出 2、5、8）：提示块、可渲染 HTML、图片与表情。外观与编辑器的节点
+ * 视图由同一套函数画（`buildCallout`、`renderHtmlEmbedElement`、`MarkdownImage`、`buildSticker`），交互接到展示器自己：折叠只记在这次显示里，
  * 点图片经 `activate` 交给宿主。别的节点（包括外来方言的）按 schema 的 `renderHTML` 显示。
  */
 
@@ -11,8 +11,11 @@ import type {AppContext} from "vue";
 import type {ChipEnv} from "../chip/chip";
 import {buildCallout} from "../language/syntax/callout";
 import {renderHtmlEmbedElement} from "../language/syntax/html-embed";
+import {rawOf, STICKER_NODE} from "../language/syntax/sticker";
+import {buildSticker} from "../language/syntax/sticker/view";
 import type {MarkdownTextApi} from "../host/text";
 import type {MarkdownText} from "../locale";
+import type {StickerResolver} from "../stickers";
 import MarkdownImage from "./MarkdownImage.vue";
 import type {ResolveAsset} from "./MarkdownImage.vue";
 
@@ -28,6 +31,8 @@ export interface StaticViewHost {
     /** 普通 DOM 的文字（引用小块的悬停提示、HTML 卡片的按钮）；与 `context` 里的是同一个端口。 */
     readonly text: MarkdownTextApi;
     readonly resolveAsset: ResolveAsset | undefined;
+    /** 表情目录；没有时表情显示原文。 */
+    readonly resolveSticker: StickerResolver | undefined;
     /** 链接的小块：宿主的目标分类与文件图标。 */
     readonly chips: ChipEnv;
     /** 图片不显示时的说明（`MarkdownImage` 的 `missing`）；没有时用它的缺省文字。 */
@@ -82,4 +87,5 @@ export const STATIC_VIEWS: Readonly<Record<string, StaticViewFactory>> = {
         render(image, dom);
         return {dom, destroy: () => render(null, dom)};
     },
+    [STICKER_NODE]: (node, host) => buildSticker(host.document, rawOf(node), host.resolveSticker, (error) => host.report("展示器查不到表情，显示原文", error)),
 };

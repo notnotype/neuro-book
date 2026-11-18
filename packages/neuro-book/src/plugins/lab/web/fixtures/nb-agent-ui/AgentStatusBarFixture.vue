@@ -13,5 +13,7 @@ const registry = labAgentRegistry();
 </script>
 
 <template>
-    <AgentStatusBar data-lab-subject class="w-full" v-bind="subject.bindings.value" :registry="registry" />
+    <div :class="props.scene.startsWith('narrow') ? 'w-[280px]' : 'w-full'">
+        <AgentStatusBar data-lab-subject class="w-full" v-bind="subject.bindings.value" :registry="registry" />
+    </div>
 </template>

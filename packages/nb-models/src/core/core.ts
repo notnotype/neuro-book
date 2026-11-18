@@ -136,7 +136,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             if (provider === undefined || model === undefined || !model.enabled || missingContextWindow(provider, model)) return {ok: false, code: "unknown-model"};
             // 目录漂移：设置里还有、目录里没了（输出 9）。先于凭据判断，界面才能指出是模型的问题。
             if (provider.kind === "catalog" && catalogModel(provider.id, model.id) === undefined) return {ok: false, code: "unknown-model"};
-            if (!keyReady(keyStatusOf(provider))) return {ok: false, code: "no-credentials"};
+            if (!keyReady(keyStatusOf(provider))) return {ok: false, code: "no-credentials", provider: provider.id};
             const built = buildResolution(targetOf(provider), modelTargetOf(model), access, transport);
             return built.ok ? built.resolution : {ok: false, code: "unknown-model"};
         })();
@@ -145,8 +145,10 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     };
     const resolveRole = (id: string): ModelResolution => {
         const role = roles().find((item) => item.id === id);
-        if (role === undefined || role.model === null) return {ok: false, code: "role-unbound"};
-        return resolveReference(role.model);
+        if (role === undefined || role.model === null) return {ok: false, code: "role-unbound", role: id};
+        // 失败带上角色：界面说的是“这个角色的模型用不了”，去改的是这个角色（docs/specs/models/service.md）。
+        const resolved = resolveReference(role.model);
+        return resolved.ok ? resolved : {...resolved, role: id};
     };
     /** 会话里选的：模型引用或 `role:<id>`。选过的角色后来被删了是选择失效（`unknown-model`），和没绑定不同：去改的地方不一样。 */
     const resolveSelection = (selection: string): ModelResolution => {

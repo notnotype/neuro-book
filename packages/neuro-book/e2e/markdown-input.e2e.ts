@@ -47,9 +47,14 @@ async function openFile(page: Page, path: string, text: string): Promise<void> {
     await writeFile(join(projectDir, path), text);
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
-    const folder = item(page, "project://notes");
-    if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
-    await item(page, `project://${path}`).dblclick();
+    // 恢复会话时文件夹的展开状态还在变：读到“收起”再点，可能正好把刚展开的收起来。要等到活动标签真是这个文件。
+    const name = path.split("/").at(-1) as string;
+    await expect(async () => {
+        const folder = item(page, "project://notes");
+        if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
+        await item(page, `project://${path}`).dblclick({timeout: 3000});
+        await expect(page.locator("[data-editor-group-head-active] [data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
+    }).toPass();
     await expect(prose(page)).toBeVisible();
 }
 

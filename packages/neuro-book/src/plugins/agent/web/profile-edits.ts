@@ -35,8 +35,11 @@ export function withApprovalChoice(settings: Readonly<Record<string, ProfileSett
     return withSetting(settings, profile, choice === FOLLOW_APPROVAL ? rest : {...rest, approvalMode: choice as NonNullable<ProfileSetting["approvalMode"]>});
 }
 
-/** 白名单写回（profile-settings.md 输出 25）：`undefined` 是恢复默认，`agents` 这一项去掉。 */
-export function withAgentsChoice(settings: Readonly<Record<string, ProfileSetting>>, profile: string, agents: ProfileSetting["agents"] | undefined): Record<string, ProfileSetting> {
-    const {agents: _agents, ...rest} = settings[profile] ?? {};
-    return withSetting(settings, profile, agents === undefined ? rest : {...rest, agents});
+/** Profile 设置里的几种白名单改动：可派的子代理、Skill、表情包（profile-settings.md 输出 25–27）。 */
+export type AllowlistField = "agents" | "skills" | "stickers";
+
+/** 白名单写回：`undefined` 是恢复默认，这一项去掉；别的字段原样留着。 */
+export function withAllowlistChoice(settings: Readonly<Record<string, ProfileSetting>>, profile: string, field: AllowlistField, binding: ProfileSetting[AllowlistField] | undefined): Record<string, ProfileSetting> {
+    const {[field]: _previous, ...rest} = settings[profile] ?? {};
+    return withSetting(settings, profile, binding === undefined ? rest : {...rest, [field]: binding});
 }

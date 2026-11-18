@@ -1,0 +1,42 @@
+# GitHub Actions windows-2025 runner 上的探针（2026-11-13，临时分支 probe/w00046-windows，不合入）
+# 第一次 run 43360540569（提交 822022730）：bun install、smoke:server、build:app-package、组装载荷、装 Hutch 0.29.0、构建、静默安装后等应用自动启动、卸载
+# 第二次 run 43361409386（提交 b9dfff50b）：去掉 smoke:server；装完直接起 launcher.exe，WM_CLOSE 后看有序停止
+
+## 第一次
+bun install --frozen-lockfile（整个工作区）：112 s
+smoke:server：S1、S3 到 S10 通过，S2（SIGTERM）不过，与 pc-notype 相同；该步 continue-on-error
+hutch electrobun build：82 s；win-x64-NeuroBookProto-Setup.zip 90,785,202 B，stable-win-x64-NeuroBookProto.tar.zst 90,015,512 B
+Setup 的标准错误（末尾）：
+setup: D:\a\neuro-book\neuro-book\.github\probe\w00046\build\stable-win-x64\NeuroBook Proto-Setup.exe
+DEBUG: Destination (app_dir) = 'C:\Users\runneradmin\AppData\Local\dev.neurobook.desktop-proto\stable\app'
+DEBUG: Source directory exists
+Installing application files...
+DEBUG: fixExecutablePermissions called with dir: C:\Users\runneradmin\AppData\Local\dev.neurobook.desktop-proto\stable\app
+DEBUG: Processing executables list...
+DEBUG: Done with executables list
+DEBUG: fixExecutablePermissions completed successfully
+CEF directory not found, skipping symlink creation
+Creating shortcuts and integration...
+Created Windows shortcut: C:\Users\runneradmin\Desktop\NeuroBook Proto.lnk
+Created Windows shortcut: C:\Users\runneradmin\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\NeuroBook Proto.lnk
+Registered Windows uninstaller: HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\dev.neurobook.desktop-proto.stable
+ Done!
+等 120 s，proto.log 为空：应用没有自动启动。uninstall exit=0 dir-left=False
+
+## 第二次
+hutch electrobun build：84 s
+Setup 等 120 s 仍未退出（setup exited=False）
+直接运行 app\bin\launcher.exe 后的 proto.log：
+2026-11-13T03:54:52.445Z +1ms start execPath=C:\Users\runneradmin\AppData\Local\dev.neurobook.desktop-proto\stable\app\bin\bun.exe bun=1.4.4 resources=C:\Users\runneradmin\AppData\Local\dev.neurobook.desktop-proto\stable\app\Resources userData=C:\Users\runneradmin\AppData\Local\dev.neurobook.desktop-proto\stable
+2026-11-13T03:54:52.448Z +4ms spawned server pid=8340
+2026-11-13T03:54:54.405Z +1960ms window created
+2026-11-13T03:54:54.411Z +1966ms server: RPC listening on ws://127.0.0.1:61894/
+2026-11-13T03:54:54.411Z +1967ms server: Listening on http://127.0.0.1:61895/
+2026-11-13T03:54:54.411Z +1967ms listening http://127.0.0.1:61895/
+2026-11-13T03:54:57.164Z +4720ms did-navigate {"detail":"{\"url\":\"http://127.0.0.1:61895/\"}"}
+2026-11-13T03:54:57.170Z +4725ms dom-ready
+2026-11-13T03:54:57.170Z +4725ms dom-ready
+2026-11-13T03:54:59.019Z +6575ms stopping (window close)
+2026-11-13T03:54:59.225Z +6781ms server exit observed code=0
+2026-11-13T03:54:59.226Z +6781ms server exited code=0 in 206ms
+uninstall exit=0 dir-left=False

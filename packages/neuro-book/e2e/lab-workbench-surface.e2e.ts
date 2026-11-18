@@ -12,6 +12,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {LabDebugState} from "nbook/plugins/lab/shared/debug-api";
 
 import {startDevSession} from "./fixtures";
+import {pressEntry} from "./support/press-entry";
 import type {DevSession} from "./fixtures";
 
 let tmp = "";
@@ -30,21 +31,30 @@ test.afterAll(async () => {
 
 const labState = (page: Page) => page.evaluate(() => (window as unknown as {__nbLab?: {state(): LabDebugState}}).__nbLab?.state() ?? null);
 
-async function open(page: Page, scene = "default"): Promise<void> {
+async function open(page: Page, scene = "default", theme = "nbook"): Promise<void> {
     await page.setViewportSize({width: 1440, height: 800});
-    await page.goto(`${dev.pageUrl}lab?c=WorkbenchSurface&s=${scene}&theme=nbook&cw=light&vp=1400x720`);
+    await page.goto(`${dev.pageUrl}lab?c=WorkbenchSurface&s=${scene}&theme=${theme}&cw=light&vp=1400x720`);
     await expect.poll(async () => (await labState(page))?.ready).toBe(true);
     await expect(page.locator("[data-content='view:a']")).toBeVisible();
 }
 
 const act = (page: Page, name: string) => page.locator(`[data-surface-action="${name}"]`).click();
+/** 区域隐藏了：按拖到零画（ui/workbench-layout 输出 11），那块外框还在、缩到面积为零。等到零也就等过渡走完了。 */
+const shrunk = (page: Page, id: string) => expect.poll(async () => {
+    const found = await page.locator(`[data-leaf='${id}']`).boundingBox();
+    return found === null ? 0 : Math.round(found.width * found.height);
+}).toBe(0);
+
 const fixture = (page: Page) => page.locator(".workbench-surface-fixture");
 const visibleTabs = async (page: Page) => ((await fixture(page).getAttribute("data-visible-tabs")) ?? "").split(" ").filter((tab) => tab !== "");
 /** 活动栏入口：一个容器一个（输出 22、41）；这里的视图都没写容器，入口是隐式容器 `view:<视图 id>`。 */
 const entry = (page: Page, viewId: string) => page.locator(`[data-tool-entry="view:${viewId}"]`);
+
 /** 视图的分节：区域里一个视图一个分节（输出 40），id 是 `section:<视图 id>`。 */
 const section = (viewId: string): string => `section:${viewId}`;
 const frameButton = (page: Page, panel: string, action: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-action="${action}"]`);
+/** 能收成标题行的分节的标题：整行是展开、收起的开关（输出 20）。 */
+const foldTitle = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-tab][aria-expanded]`);
 
 const rectOf = (page: Page, selector: string) => page.evaluate((target) => {
     const {x, y, width, height} = document.querySelector(target)!.getBoundingClientRect();
@@ -56,11 +66,14 @@ test.describe("面板头", () => {
         await open(page);
         const head = `[data-panel-head='${section("a")}']`;
         expect((await rectOf(page, head)).height).toBe(32);
-        const order = await page.locator(`${head} > *`).evaluateAll((items) => items.map((item) => (item.querySelector("[data-panel-tab]") !== null ? "title" : item.querySelector("[data-view-action]") !== null ? "view" : item.querySelector("[data-panel-action]") !== null ? "frame" : "?")));
-        expect(order).toEqual(["title", "view", "frame"]);
+        // 按画出来的位置比先后：标题、视图动作、框架按钮。
+        const leftOf = (selector: string) => page.locator(`${head} ${selector}`).first().evaluate((element) => element.getBoundingClientRect().left);
+        expect(await leftOf("[data-panel-tab]")).toBeLessThan(await leftOf("[data-view-action]"));
+        expect(await leftOf("[data-view-action]")).toBeLessThan(await leftOf("[data-panel-action]"));
         // 只写标题：没有标签带。
         await expect(page.locator(`${head} [role='tablist']`)).toHaveCount(0);
-        await expect(page.locator(`${head} [data-panel-action]`)).toHaveCount(2);
+        // 框架按钮只有最大化：收起不是按钮，是标题行（输出 20）。
+        await expect(page.locator(`${head} [data-panel-action]`)).toHaveCount(1);
         // 隐藏是区域的事：哪个分节的头上都没有隐藏按钮。
         await act(page, "c-to-new-panel");
         await expect(page.locator("[data-panel-head]:has([data-panel-tab='view:c'])")).toBeVisible();
@@ -72,13 +85,13 @@ test.describe("面板头", () => {
         const title = page.locator("[data-panel-tab='view:a']");
         const region = page.locator("[data-content='view:a'] [role='region'], [data-content='view:a'][role='region']").first();
         await expect(region).toHaveCount(1);
-        expect(await region.getAttribute("aria-labelledby")).toBe(await title.getAttribute("id"));
+        await expect(region).toHaveAccessibleName("视图 A");
 
         const instance = await page.locator("[data-content='view:a'] [data-structure-leaf]").getAttribute("data-structure-instance");
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await expect(page.locator("[data-content='view:b']")).toBeVisible();
         await expect(page.locator("[data-content='view:a']")).toBeHidden();
-        await entry(page, "a").click();
+        await pressEntry(page, entry(page, "a"));
         await expect(page.locator("[data-content='view:a']")).toBeVisible();
         expect(await page.locator("[data-content='view:a'] [data-structure-leaf]").getAttribute("data-structure-instance")).toBe(instance);
 
@@ -96,7 +109,7 @@ test.describe("面板头", () => {
     test("视图动作随鼠标显示，范围是整块面板：外框和内容都算，别的面板不算", async ({page}) => {
         await open(page);
         const head = `[data-panel-head='${section("a")}']`;
-        const action = page.locator(`${head} [data-hover-actions]`);
+        const action = page.locator(`${head} [data-hover-actions=""]`);
         const opacity = () => action.evaluate((element) => getComputedStyle(element).opacity);
 
         await page.locator("[data-content='view:c']").hover();
@@ -114,6 +127,25 @@ test.describe("面板头", () => {
         // 焦点在内容里时，指针走开也还显示。
         await page.locator("[data-content='view:a'] [data-structure-first]").focus();
         await expect.poll(opacity).toBe("1");
+    });
+});
+
+test.describe("视图的标题区（docs/specs/workbench/views.md 输出 19）", () => {
+    test("视图接管时三列：左右是视图的按钮、中间的标题按钮写视图给的文字且仍是拖动源，框架按钮在右列；区域的名称仍是视图标题", async ({page}) => {
+        await open(page, "view-head");
+        const head = page.locator("[data-panel-head]:has([data-panel-tab='view:c'])");
+        const handle = head.locator("[data-panel-tab='view:c']");
+        // 拖动描述由外壳给（这个夹具没给），是否带上由面板头的组件测试守着。
+        await expect(handle).toHaveAccessibleName("第三章节奏调整");
+        await expect(head.locator("[data-panel-head-start]").getByRole("button", {name: "新建对话"})).toBeVisible();
+        await expect(head.locator("[data-panel-head-end]").getByRole("button", {name: "更多"})).toBeVisible();
+        const leftOf = (locator: ReturnType<Page["locator"]>) => locator.first().evaluate((element) => element.getBoundingClientRect().left);
+        expect(await leftOf(head.locator("[data-panel-head-end]"))).toBeLessThan(await leftOf(head.locator("[data-panel-action]")));
+        const region = page.locator("[data-content='view:c'] [role='region'], [data-content='view:c'][role='region']").first();
+        await expect(region).toHaveAccessibleName("视图 C");
+        // 标题按整行居中：按钮中线离面板头中线不超过 1px。
+        const centre = (box: {x: number; width: number} | null) => (box === null ? Number.NaN : box.x + box.width / 2);
+        expect(Math.abs(centre(await handle.boundingBox()) - centre(await head.boundingBox()))).toBeLessThanOrEqual(1);
     });
 });
 
@@ -135,7 +167,9 @@ test.describe("内容跟着视图走", () => {
         expect(moved.x).toBeGreaterThanOrEqual(editor.x + editor.width - 1);
         const content = await rectOf(page, "[data-content='view:a']");
         expect(content.x).toBe(moved.x);
-        expect(content.y).toBe(moved.y + 32);
+        // A 的容器在右栏只有这一节：它的头并在右栏顶上的入口条里（输出 47），叶里没有头，内容从叶的上边开始。
+        await expect(page.locator(`[data-region-strip='auxiliarybar'] [data-panel-head='${section("a")}']`)).toHaveCount(1);
+        expect(content.y).toBe(moved.y);
         await expect.poll(() => visibleTabs(page)).toEqual(expect.arrayContaining(["view:a", "view:b"]));
         expect(await visibleTabs(page)).not.toContain("view:c");
     });
@@ -151,17 +185,22 @@ test.describe("有效可见", () => {
         // 收成标题行只给侧栏、右栏里不止一节的容器（输出 12、20）：D 成为 B 那个容器的第二节，侧栏切到 B。
         await act(page, "d-below-b");
         await expect.poll(() => visibleTabs(page)).toEqual(expect.arrayContaining(["view:b", "view:d"]));
-        await frameButton(page, section("b"), "collapse").click();
+        await foldTitle(page, section("b")).click();
         await expect.poll(() => visibleTabs(page)).not.toContain("view:b");
         expect((await rectOf(page, `[data-leaf='${section("b")}']`)).height).toBe(32);
-        await frameButton(page, section("b"), "collapse").click();
-        await expect.poll(() => visibleTabs(page)).toContain("view:b");
+        // 两节都收起：D 垫底、外框拉到底，仍不算可见（输出 11）。
+        await foldTitle(page, section("d")).click();
+        await expect.poll(() => visibleTabs(page)).not.toContain("view:d");
+        expect((await rectOf(page, `[data-leaf='${section("d")}']`)).height).toBeGreaterThan(32);
+        await foldTitle(page, section("d")).click();
+        await foldTitle(page, section("b")).click();
+        await expect.poll(() => visibleTabs(page)).toEqual(expect.arrayContaining(["view:b", "view:d"]));
 
         // 点当前容器按下着的入口：侧栏隐藏（输出 22）。
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await expect.poll(() => visibleTabs(page)).not.toContain("view:b");
         expect(await visibleTabs(page)).not.toContain("view:d");
-        await expect(page.locator(`[data-leaf='${section("b")}']`)).toHaveCount(0);
+        await shrunk(page, section("b"));
 
         await frameButton(page, section("c"), "maximize").click();
         await expect.poll(() => visibleTabs(page)).toEqual(["view:c"]);
@@ -204,7 +243,7 @@ test.describe("有效可见", () => {
 test.describe("活动栏", () => {
     test("一个容器一个入口，只列侧栏里的容器，按入口顺序；只有当前容器按下（输出 22、41、44）", async ({page}) => {
         await open(page);
-        const ids = () => page.locator("[data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
+        const ids = () => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
         // 右栏的 C、D 与底部面板的 E 不在活动栏里。
         expect(await ids()).toEqual(["view:a", "view:b"]);
         await expect(entry(page, "a")).toHaveAttribute("aria-pressed", "true");
@@ -224,7 +263,7 @@ test.describe("活动栏", () => {
 
     test("放到活动栏：入口最后新建一个只含它的用户容器，入口上并进那个容器；都切过去，空了的用户容器入口消失（输出 41、45）", async ({page}) => {
         await open(page);
-        const ids = () => page.locator("[data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
+        const ids = () => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
         expect(await ids()).toEqual(["view:a", "view:b"]);
         // 右栏的 D 放到入口最后：多一个入口，侧栏切到它。
         await act(page, "d-new-entry");
@@ -242,18 +281,18 @@ test.describe("活动栏", () => {
 
     test("不是当前容器：切到它并显示；是当前容器且侧栏可见：隐藏侧栏，不看焦点在哪（输出 22、42）", async ({page}) => {
         await open(page);
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "true");
         await expect(entry(page, "a")).toHaveAttribute("aria-pressed", "false");
         await expect(page.locator("[data-content='view:b']")).toBeVisible();
 
         // 焦点在别的面板里，点按下的入口也是隐藏，没有“先聚焦”这一步。
         await page.locator("[data-content='view:c'] [data-structure-first]").focus();
-        await entry(page, "b").click();
-        await expect(page.locator(`[data-leaf='${section("b")}']`)).toHaveCount(0);
+        await pressEntry(page, entry(page, "b"));
+        await shrunk(page, section("b"));
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "false");
 
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await expect(page.locator(`[data-leaf='${section("b")}']`)).toHaveCount(1);
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "true");
     });
@@ -302,7 +341,7 @@ test.describe("卡片按邻接算", () => {
     test("侧栏隐藏后活动栏不再相连；最大化时盖住的面板四边贴窗体", async ({page}) => {
         await open(page, "cards");
         // 分节没有隐藏按钮（输出 20）：点按下着的入口隐藏侧栏（输出 22）。
-        await entry(page, "a").click();
+        await pressEntry(page, entry(page, "a"));
         await expect(page.locator("[data-shell-card='activitybar']")).not.toHaveAttribute("data-shell-join", /.+/);
 
         const panelId = section("e");
@@ -313,13 +352,19 @@ test.describe("卡片按邻接算", () => {
         expect(panel.left).toBe(2);
     });
 
-    test("分隔线按两侧是什么分种类：卡片主题里主体的接缝透明，工具面板之间、编辑组之间的线看得见", async ({page}) => {
+    test("分隔线按两侧是什么分种类：卡片主题里卡片之间、编辑组之间缝就是分界，不画线；一张卡片里几节之间画开放式分割线；平铺主题里三种都画（输出 19）", async ({page}) => {
+        const seams = async () => {
+            await act(page, "d-below-b");
+            const color = (kind: string) => page.locator(`.nb-grid-sash[data-sash-kind="${kind}"] .sash-seam`).first().evaluate((element) => getComputedStyle(element).backgroundColor);
+            return {shell: await color("shell"), editors: await color("editors"), panes: await color("panes")};
+        };
         await open(page, "cards");
-        await act(page, "d-below-b");
-        const seam = (kind: string) => page.locator(`.nb-grid-sash[data-sash-kind="${kind}"]`).first().evaluate((element) => getComputedStyle(element).getPropertyValue("--nb-splitter-seam").trim());
-        expect(await seam("shell")).toBe("transparent");
-        expect(await seam("editors")).not.toBe("transparent");
-        expect(await seam("panes")).not.toBe("transparent");
+        const cards = await seams();
+        expect({shell: cards.shell, editors: cards.editors}).toEqual({shell: "rgba(0, 0, 0, 0)", editors: "rgba(0, 0, 0, 0)"});
+        expect(cards.panes).not.toBe("rgba(0, 0, 0, 0)");
+        await open(page, "default", "macos");
+        const flat = await seams();
+        for (const color of Object.values(flat)) expect(color).not.toBe("rgba(0, 0, 0, 0)");
     });
 });
 

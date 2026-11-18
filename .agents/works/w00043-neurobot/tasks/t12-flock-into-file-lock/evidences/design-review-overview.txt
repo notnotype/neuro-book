@@ -1,0 +1,96 @@
+# w00043 t12 设计审查（整体方向）
+
+审查对象：`.agents/works/w00043-neurobot/tasks/t12-flock-into-file-lock/plan.md` 背后的方向（方案 A）。只读；未改仓库文件。
+
+## 全仓锁机制一览
+
+| 机制 | 语义 | 使用者 | 位置 |
+| --- | --- | --- | --- |
+| nb-file-lock `holdLock` / `replaceLocked`（proper-lockfile 锁目录，stale 10 s，约每 5 s 刷新 mtime） | 判旧；短临界区；可等待、可被接管，失效时报告 | Files 操作与暂存、设置层文件、插件登记与清单、项目 identity、staged-commit、canon 世界日志的每次追加（`world-host.ts:64`）、nb-host 认领的短暂认领锁（`claim.ts:145`） | `packages/nb-file-lock/src/index.ts:106` 及 `packages/neuro-book/src`、`packages/nb-host/src/server/claim.ts` |
+| nb-file-lock 转出的 `lock`（proper-lockfile 原样，参数由调用方给） | 判旧；长期持有加心跳（stale 30 s、update 10 s）；失守即降级 | nb-host 诊断 JSONL 出口的“日志位置授予” | `packages/nb-host/src/server/diagnostics/jsonl-exporter.ts:30,132` |
+| nb-file-lock `lockHeld` | 判旧；只观察 | 插件平台启动 | `packages/neuro-book/src/plugin-platform/backend/startup.ts:240` |
+| nb-harness `tryLock`（bun:ffi 调 flock、LockFileEx） | 不判旧；进程内外都排他；持有到 release 或进程结束，系统放锁 | 会话日志（`kernel/log/files.ts:143`）、Skill 安装（`skills/install.ts:160`） | `packages/nb-harness/src/kernel/log/flock.ts`（t15 开成 `./file-lock`） |
+| nb-story `tryLock`（同上，照搬） | 同上 | 书库服务独占、抽取任务、问答配置 | `packages/nb-story/src/platform/flock.ts` |
+| nb-host 状态根认领 | 套接字监听（内核持有、进程死即放、无过期），另有短暂的 holdLock 防两个启动者同时清残留文件；套接字还带 hello 应答，flock 做不到“告诉后来者实例在哪里” | NeuroBook、NeuroBot 的服务端 | `packages/nb-host/src/server/claim.ts:1-17` |
+| dev-panel 自有锁（锁目录 + owner.json + pid + procfs 起始时刻判活） | 判活式；只在 Linux | 开发工具的记录登记 | `packages/dev-panel/src/core/lock.ts` |
+| neuro-agent-harness `jsonl-lock`（目录 + 心跳） | 判旧；已冻结，由 nb-harness 的 flock 取代 | 只服务 llmlint | `packages/neuro-agent-harness/src/storage/jsonl-lock.ts` |
+| `O_EXCL` / `"wx"` 建文件（nb-canon `create`、nb-harness `local.ts:206`、`shell.ts:102`） | 不是锁，只是“只创建一次” | 各自内部 | 略 |
+| owned-process 监督进程 | 进程树托管，不是锁 | 子进程 | `packages/owned-process` |
+
+要点：仓库里真正的区分是“生命周期”，不是“两份副本”。一类是短临界区、允许判旧（holdLock）；另一类是“持有到进程结束的单一所有者”（tryLock、状态根的套接字）。后一类仓库已经三次从心跳判旧方案撤出：neuro-agent-harness 的 jsonl-lock 换成 flock（w00032 t20）、nb-host 认领换成套接字（`claim.ts:5-7` 的注释写明“进程暂停超过心跳期限就会被接管，同一状态根跑起两个实例”）、nb-story 书库锁一开始就是 flock。
+
+## 发现
+
+### 1. 为了发布一个 100 行的零依赖锁，把一个带 17 个导出、补丁和 4 个传递依赖的包整个公开
+
+- 严重程度：重要；类别：发布 / 包边界
+- 位置：plan.md“关键设计 / `packages/nb-file-lock`”“不做与风险”；`packages/nb-file-lock/src/index.ts`（17 处 `export`）、`packages/nb-file-lock/package.json:23`（`proper-lockfile 4.1.2`）、`patches/proper-lockfile@4.1.2.patch`
+- 现象：nb-story、nb-harness 要共用的只有 `./flock`（约 106 行，只导入 `bun:ffi` 与 `node:fs`）。方案 A 为此把 `nb-file-lock` 整体变成公开包，连带公开 `holdLock`、`replaceLocked`、`lock`（proper-lockfile 原样转出）、`lockHeld`、`errno`、`describe`、`sameFile`、`statOrNull`、`readOnly` 等 17 个导出，npm 上没有人需要它们（唯一的使用者 NeuroBook、nb-host 都是仓库内的应用，应用包把工作区包打进 bundle）。
+- 为什么是问题：
+  - 数字（npm 用户）：现在装 nb-story 或单装 nb-harness，不装任何锁库。A 之后每个人多装 5 个包：nb-file-lock 加 proper-lockfile、graceful-fs、retry、signal-exit（本仓库 node_modules 里的体积 44 + 52 + 80 + 24 KB，约 0.2 MB），而且运行时一个也不会被执行（plan 自己写“不执行它”）。nb-harness 是个被别的宿主独立依赖的库，这个代价落在所有用它的人身上，不只 nb-story。
+  - 数字（维护者）：新增 1 个公开包（发布清单 9 个变 10 个）、1 份 README 要写“`.` 入口在 npm 上没有补丁、exFAT 误报 `ECOMPROMISED`”这样的已知缺陷（见发现 3）、1 条以后对 17 个导出负责的 semver 面；且发出去的版本号撤回窗口只有 72 小时（ADR 0029“后果”）。
+  - 公开包的名字与简介（“proper-lockfile 的锁目录……过期与退避参数只在这里一处”）与 `./flock` 的内容相反：`AGENTS.md` 的不变量“锁的过期参数只有这里一份”对 `./flock` 不适用。
+- 依据：`packages/nb-harness/package.json`（dependencies 里没有任何锁库）、`bun.lock` 3665、3765、3851、2995 行（proper-lockfile 的三个依赖是 graceful-fs、retry、signal-exit；它们在仓库里的其它使用者是 webpack 之类的开发工具，不会在 npm 用户的 nb-story 安装树里出现，这一点是推断）。
+- 建议：比较的不是 A、B、C 三个，缺一个候选 E：把不判旧的锁单独放一个零依赖的小包（暂名 `nb-flock` 之类），`nb-file-lock` 继续 private。代价：发布清单同样 +1，npm 用户只多装 1 个包而不是 5 个，不需要“补丁只在本仓库生效”的说明，也不动 ADR 0045 决策 4；仓库里多一个很小的工作区包（package.json、README、AGENTS、边界文档一行、LICENSE，和 A 的发布准备同量级）。放进 nb-file-lock 的唯一好处是“名字里都有锁”，这在边界文档里加一张语义对照表也能得到。次选 E2：放进已发布且 nb-harness、nb-story 都已依赖的 nb-session（0 个新包、0 个新依赖），代价是 nb-session 的定位是会话日志，放通用锁名不副实，仓库里的应用与 nb-story 两条路径都能接受，但不如 E 干净。
+
+### 2. 锁的语义分类没有进入决定：ADR 只写“发布”，没有写“什么场景用哪种锁”
+
+- 严重程度：建议；类别：方向 / 文档
+- 位置：plan.md“Spec 与文档改动”里的新 ADR 0052；`docs/modules/monorepo-boundaries.md:27`（nb-file-lock 一行）与 `:21`（nb-harness 一行已经手写了一句括号对比）
+- 现象：这次的实质不是“两份副本”，而是“工作区里有两种相反的语义，谁用哪一种”。一份副本问题 A、B、C 都能解；语义选择规则（短临界区、可判旧、可等待用 `holdLock`；持有到进程结束的单一所有者、不允许被接管用 `tryLock`）只在 `monorepo-boundaries.md:21` 里作为括号附注存在。计划的 ADR 只写“补丁的代价与为什么接受”。
+- 为什么是问题：两个函数名相近（`holdLock` 返回结果对象，`tryLock` 返回 `FileLock | null`），放进同一个包以后，下一个需要“进程唯一实例”的人更容易在同一个包里先拿到 `holdLock`。仓库里已经有活的例子：nb-host 诊断出口的“日志位置授予”是长期持有加心跳的 `lock`（`jsonl-exporter.ts:30-31,132`，stale 30 s），语义上更接近“单所有者”。它靠 `onCompromised` 降级而不是出错（`:135-138`），所以现在可接受，不是缺陷；但它说明“选哪种”需要写下来，否则是凭印象。
+- 建议：ADR 0052 与 nb-file-lock 的 README 各加一张两行的选择表（场景、该用谁、判旧与否）；不改任何已有使用点。代价：约十行文字。若采用发现 1 的 E，这张表放进 `monorepo-boundaries.md` 两个包两行即可。
+
+### 3. `.` 入口在 npm 上缺补丁：作为公开包的已知缺陷，影响小，但“写在 README 里”不是对公开 API 的处理
+
+- 严重程度：建议；类别：发布 / 文档
+- 位置：plan.md“关键设计 / README”“不做与风险”；`package.json:178-181`（`patchedDependencies` 只在本仓库生效）；`.agents/works/w00009-issue-123-proper-lockfile/README.md:9`
+- 现象：补丁来自外部用户报的 Issue #123（Windows exFAT 上租约误报失效）。发布后 `.` 在 npm 上是原版 proper-lockfile 4.1.2，同样的 exFAT 问题会在使用者那里复现。
+- 为什么是问题：谁会从 npm 用 `.`？目前没有：nb-story、nb-harness 只引 `./flock`；NeuroBook 与 nb-host 通过工作区打包。所以实际风险是“公开了一个有已知缺陷的入口且没有使用者”。这与发现 1 同根：这个入口本来就不需要公开。把补丁写进源码（fork 或内联 proper-lockfile）则要为一个无人使用的入口承担维护，不值得。
+- 依据：proper-lockfile README 的说法——靠 mtime 比对阈值判旧、`update` 默认 `stale/2`、“Updates take longer than expected”会触发 compromised；它的 README 没有讨论进程暂停、时钟与 exFAT 的 mtime 精度（来源：unpkg.com/proper-lockfile@4.1.2/README.md，2026-11-13 读取）。
+- 建议：不做 A 时此条自然消失；做 A 则在 README 与 ADR 里写清，并让 `files` 里不放 `.` 的使用示例；不必再加机制（窄场景选简单改法）。
+
+### 4. 公开一份建在 `bun:ffi` 上的锁：官方标注“实验性，生产不要依赖”，可移植性风险随公开而放大，A 没有写进 ADR
+
+- 严重程度：重要；类别：可移植性
+- 位置：`packages/nb-harness/src/kernel/log/flock.ts:27-36`（libc 名）、`:93-113`（Windows 路径，`GetLastError` 在 `LockFileEx` 之后单独调一次）；plan.md“验证”“没验证的边界”
+- 现象与依据：
+  1. Bun 文档对 `bun:ffi` 的原话：“`bun:ffi` is experimental, with known bugs and limitations. Do not rely on it in production.” 并推荐 Node-API 模块（来源：bun.com/docs/runtime/ffi，2026-11-13 读取）。已发布的 nb-story 0.2.x 与 nb-harness 已经依赖它，所以这不是 A 引入的新风险；但 A 把它变成一个有名字、有版本、会被别的宿主当作“文件锁”引用的公开包，ADR 0029 决策 2“只承诺 Bun”没有覆盖“承诺的是 Bun 的实验性接口”。
+  2. 只认 `libc.so.6`（glibc 名）与 `libSystem.B.dylib`；musl（Alpine）的 libc 文件名不同。从代码推断：在 musl 上 `dlopen` 抛出原始的动态库错误，而不是 `:34` 那句“file lock is not supported”。未在 musl 上实测（本机没有）。调用点（例如 `nb-story/src/server/registry.ts:30`）不捕获，`nbstory serve` 会以一条 ffi 错误退出。
+  3. Windows 路径：`GetLastError` 是线程局部的“上一次系统调用的错误码”，经 ffi 在两次 JS 调用之间读取，Bun 运行时在中间若发起别的 Win32 调用就可能覆盖它；代码把“码 33 是被占用”与“其它码是故障”靠它区分。推断，未复现；nb-story 0.1.1 在开发者的 Windows 机器上实测过一次（ADR 0031 决策 3），自动测试与 `release:smoke` 不含 Windows。
+  4. 在 Node 里导入：`import ... from "bun:ffi"` 是静态导入，Node 在加载模块时就失败，不是在调用时。`engines.bun` 与 ADR 0029 已声明只承诺 Bun，不算新问题，README 要写在最前面。
+  5. 业界常见做法（来源均为搜索结果页与包说明，未逐一核实源码）：Node 没有核心的 flock API（没有搜到相应的 Node 核心提案）；常见做法是原生模块（`fs-ext`、`lockfd` 等；`fs-ext` 的说明还提醒“flock() does not lock files over NFS”）或 pid 文件加存活检查；纯 JS 的 proper-lockfile 是靠 mtime 判旧。这些都不比这里的 ffi 方案可移植得多：原生模块要按平台与 Node 版本构建。
+- 建议：不改方向；在新的 `./flock` 里把 `dlopen` 失败包成一条说清“当前平台没有可用的 libc 符号，需要 glibc 或 macOS 或 Windows”的错误（几行），README 的第一段写明 Bun 专用、基于 `bun:ffi`、不支持 NFS（flock 在 NFS 上语义不可靠，来自 fs-ext 说明，对 Linux 内核版本不同表现可能不同，未实测）。代价：几行代码与一段说明。若开发者不想对 `bun:ffi` 公开背书，则回到不对外发布的选项（发现 6）。
+
+### 5. 对已定决定的质疑：被否决的理由只否了“并进 nb-harness”，没有覆盖 B 的真正变体与 E
+
+- 严重程度：重要；类别：方向
+- 位置：t12 `README.md`“来源与决定”（“不把 nb-file-lock 并进 nb-harness：它的主要使用者与 Agent 无关”）；`packages/nb-story/package.json:34`
+- 现象：README 列的候选是 A（放进 nb-file-lock 并发布）、B（留在 nb-harness，只让 nb-story 改用）、C（两份副本）。被否的理由针对的是“把 nb-file-lock 并进 nb-harness”，那不是 B。B 的实质是 `nb-story` 用 `@notnotype/nb-harness/file-lock`：nb-story 本来就硬依赖 nb-harness（问答用，`dependencies` 里有），所以 0 个新包、0 个新传递依赖；这才是与 A 的真正差别。README 也没有列 E（零依赖小包）。
+- B 的真实代价：nb-story 的抽取线程与 `nbstory ingest` 的约定是“不加载 OMP”（`packages/nb-story/AGENTS.md`）；子路径 `./file-lock` 只载入 `flock.ts`，不会触发 OMP，但约定要靠一条“只许引这个子路径”的边界测试守住，且 nb-story 的非 Agent 部分在概念上依赖了 Agent harness。这是 t15 审查第 10 条说的“职责重叠”所在，也是方案 A 想解决的。
+- 为什么此条值得推翻：只在下面条件成立时才足以推翻 A：（a）开发者认为“多装 5 个包与新增一个公开的、带已知缺陷入口的包”比“nb-story 的锁放在 nb-harness 的子路径”更不可接受；（b）开发者认为 `bun:ffi` 的公开背书（发现 4）需要更小的承诺面。两者我都没有证据说明开发者的偏好，所以不硬推翻；建议在确认计划前把 B 与 E 的数字（发现 1）摆给开发者再确认一次，因为决定 2026-11-13 是在三个候选里做的，E 不在其中。
+- 建议：确认 A 前列出 A、B、E 三者的对照：新增公开包数、npm 用户多装的包数、公开导出数、是否需要“缺补丁”说明、ADR 数量。代价：几行表格。
+
+### 6. 反向选项：这次什么都不发布，或把锁放进 nb-runtime、nb-host
+
+- 严重程度：建议；类别：方向
+- 位置：同上；`docs/adr/0045` 备选方案段；`packages/nb-runtime`、`packages/nb-host`
+- 分析：
+  - 不发布（nb-story 保留自己的副本，nb-harness 与应用共用一份）：副本数 2 变 2，t15 审查第 10 条的“重叠”仍在，且 nb-story 与 nb-harness 的 Windows 路径仍要各自维护（ADR 0031：改到锁的代码要在 Windows 上重新实测一遍，维护两份就要测两遍）。比 A 差在重复，好在零发布面。
+  - 放进 nb-runtime：nb-runtime 的运行时依赖只有 TypeBox、前后端共用（`AGENTS.md` 的包表），再放 `bun:ffi` 会破坏它的边界，nb-story 发布时又得连带；差，不推荐。
+  - 放进 nb-host：nb-host 是 private 的服务端宿主，且 nb-harness 不得依赖宿主（nb-host 反过来依赖 nb-file-lock、nb-runtime）；会造成 nb-harness 依赖 nb-host 的方向反了；差，不推荐。
+  - 所以真正的备选只有 B 与 E，见发现 1 与 5。
+
+## 未发现问题的方面
+
+- 合并两份副本本身（方向对）：两份逐行相同，保留一份没有行为风险；`./flock` 不引 `proper-lockfile`、加一条边界断言是合适的。
+- nb-host 的状态根认领用套接字而不是 flock：套接字带 hello 应答，能告诉后来者实例在哪里，flock 做不到；不需要改，也不该并入 `./flock`。
+- dev-panel 的 procfs 判活锁：只在 Linux、只服务开发工具，不该用 `./flock`。
+- 依赖方向：nb-file-lock 不依赖 nb-runtime、nb-harness，A 不会造成环；nb-models 依赖 nb-harness 与 nb-harness 依赖 nb-file-lock 也不成环。
+- 应用包把工作区包打进 bundle，因此 nb-file-lock 公开与否对 `@notnotype/neuro-book` 的运行没有影响（`scripts/pack-app.ts` 的外部模块检查要求依赖打进 bundle）。
+
+## 数量
+
+- 阻断：0
+- 重要：3（发现 1、4、5）
+- 建议：3（发现 2、3、6）

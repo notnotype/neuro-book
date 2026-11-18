@@ -38,6 +38,8 @@ export type PromptMenuItem = {
     insertText: string;
     /** 为真时插入后菜单按新的查询继续，用于逐级进入。 */
     continues?: boolean;
+    /** 行尾的状态图标（例如 Skill 未初始化）；同一个菜单有一项带它时每行都留出这一列。 */
+    status?: {label: string; iconClass?: string; busy?: boolean; tone?: "neutral" | "warning" | "danger"};
 };
 
 export type PromptMenu = {
@@ -101,6 +103,7 @@ export type PromptEditorPortProps = {
     onEscape?: () => void;
     onShiftTab?: () => void;
     onMenuOpen?: (payload: {trigger: string}) => void;
+    onMenuSelect?: (payload: {trigger: string; id: string}) => void;
     onTokenActivate?: (token: PromptToken) => void;
     onAttachmentAdd?: (payload: {localId: string; kind: PromptAttachmentKind; file: File}) => void;
     onAttachmentRetry?: (payload: {localId: string}) => void;

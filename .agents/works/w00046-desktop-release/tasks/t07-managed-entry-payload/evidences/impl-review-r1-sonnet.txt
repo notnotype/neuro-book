@@ -1,0 +1,69 @@
+# w00046 t07 实现审查 r1（Sonnet）：4efe7dd88..799e6d197；实现 worktree HEAD 核对为 799e6d197，包内两个测试文件 10 通过
+
+### 1. withManagedEntry 里 nbook start 与托管入口抢同一个状态根：输了就永久挂起
+严重程度：重要（发布冒烟的间歇性挂死）；类别：正确性、竞态
+位置：scripts/release/pack-smoke.ts withManagedEntry（Bun.spawn(server) 之后立刻 mustRun nbook start）；run/mustRun 没有超时
+现象：先 spawn main.js 再马上 spawn `nbook start`，没有等托管入口认领状态根。`nbook start` 是前台命令：查不到实例就自己成为实例并一直运行。
+为什么是问题：谁先认领谁赢。nbook 赢时它不退出，`mustRun`（run 只等 exited，无截止）永远不返回；main.js 因 runtime.state-root.busy 以 1 退出；withManagedEntry 的 60 秒截止此时还没装上（在 await 之后）。冒烟挂死，nbook 与端口 4417 残留。
+如何核实：在 impl-lab/race.ts（仓库外，用 dist/app-package 的副本）里按同样顺序启动，8 次里 2 次 nbook start 报 started:true、pid 是它自己、端口 4417（默认端口），main.js 退出码 1（机器负载约 8）。负载低时概率会小，但不是 0；作者的单次通过不能证明没有这个竞态。
+建议改法：spawn 之后先用 queryNeuroBook（或轮询 `nbook status`）等到认领应答（starting 即可，nbook start 会等就绪），再跑 nbook start；同时给 nbook start 这一步加截止（例如沿用 withNbook 的 60 秒 SIGKILL），并在 started:true 时也能收口。或者改用 queryNeuroBook 直接取 url，不经 nbook start，那样就不用依赖“只报告”的行为。
+
+### 2. checkManagedEntry 的停止等待留下未清除的 Bun.sleep：每次 `bun scripts/pack-app.ts` 都多挂约 55 秒
+严重程度：重要；类别：资源释放与收口
+位置：packages/neuro-book/scripts/pack-app.ts checkManagedEntry 的 `Promise.race([child.exited, Bun.sleep(Math.max(0, deadline - Date.now())).then(() => null)])`
+现象：child 正常退出、race 赢了之后，Bun.sleep 的定时器还在，Bun 要等它到期才退出进程。
+为什么是问题：`build:app-package` 与 release:smoke 的“生成应用包”步骤每次都多等 60 秒减去已用时间。
+如何核实：在实现 worktree 的包目录执行 `time bun scripts/pack-app.ts <实验目录>/packout/app`，打印完“应用包已生成”后进程还活着，总用时 1:01.23（user 3.6s，几乎都在空等）。最小复现 impl-lab/sleep.ts：race 立刻返回，进程 8001 ms 后才退出。pack-app.test 在 bun test 里跑，看不出来，所以作者的测试没有暴露。
+建议改法：用 AbortSignal/clearTimeout 包一层（`const timer = setTimeout(...)`，race 后在 finally 里 clearTimeout），或和 pack-smoke 的写法一致：用 setTimeout 杀进程、await child.exited。pack-smoke.withManagedEntry 已经是这种写法，这里应对齐。
+（补充第 2 条：packages/neuro-book/e2e/app-package.e2e.ts 的 beforeAll 用 execFileSync 同步跑 pack-app.ts，每次 e2e 也被拖这 55 秒。）
+
+### 3. pack-app.test 的托管入口用例拦不住 checkManagedEntry 被删或被削弱
+严重程度：重要；类别：测试（变异检查）
+位置：packages/neuro-book/scripts/pack-app.test.ts “托管入口”用例；注释“打包本身已核对：就绪、health 200、写 stop 后以 0 退出”
+现象：用例自己另起 `server/main.js` 验就绪、占用、停止，从没依赖 packApp 里的 checkManagedEntry。仓库外副本（impl-lab/mut，源码照抄，node_modules 与 docs 软链，基线 7 通过）里做三个变异，全部仍是 7 通过 0 失败：(1) 删掉 `await checkManagedEntry(outDir)`；(2) 删掉改名后“引用旧入口名”的 `if (stale !== undefined) throw`；(3) 把 `health.status !== 200` 与 `code !== 0` 两个失败判断改成 `false &&`。
+为什么是问题：计划把“打包后以托管方式起一遍”作为发布闸门，但闸门本身零覆盖：提前退出、超时、health 非 200、停不下来、停止后非 0 退出这五条失败分支一条也没跑过，只有真实打包成功路径。注释还暗示测试覆盖了它，容易误导。
+如何核实：见上，sed 变异后 `bun test scripts/pack-app.test.ts`。
+建议改法：把 checkManagedEntry 导出，并让入口命令可注入（例如参数化为 `entry` 路径）；测试用一个很小的真脚本分别模拟“立刻退出 3”“就绪后不响应 stop”（缩短截止作参数）“health 非 200”，断言抛错内容与子进程被收口。至少加一个让 bundle 里 main.js 损坏时 packApp 抛错的用例，并把“打包本身已核对”那句注释改成不暗示覆盖。
+另：该用例的 finally 只收口 first，second 若卡住（`await second.exited` 无界）超时后会遗留进程；两个子进程都应收进 finally。
+
+### 4. 依赖闭包对照的判据比文档声称的弱：只拦“根锁里没有”的包；只枚举 node_modules 顶层
+严重程度：重要；类别：正确性（判据与声明不符）
+位置：packages/neuro-book/scripts/desktop-payload.ts 模块头第 9 至 12 行、lockMismatches、installedPackageDirectories、assembleDesktopPayload 第 164 至 171 行；desktop-payload.test.ts 的“锁文件的对照”
+现象：(a) 对照基准是整个仓库的根 bun.lock（本机实测 1955 个带 sha512 的条目，含 react、lodash、vite、typescript 等）。载荷依赖链将来带进任何仓库里已经有的第三方包（同版本同哈希），lockMismatches 都放行；头部写的“依赖链将来带进别的第三方包，都会被拦下”不成立，只有根锁里没有的才拦。（b）installedPackageDirectories 只看 node_modules 与 @scope 的第一层；hoisted 布局遇到版本冲突会在 `x/node_modules/y` 嵌套，这些包既不在 dependencies 清单、也没做许可核对与锁对照，而计划第 6 条明确要求“node_modules 下每个包”。(c) lockedPackages 丢掉没有 `sha512-` 的条目（git、tarball、file、旧 sha1）：它们不进对照，只靠后面“装上的包不在载荷锁里”间接拦下，嵌套的则拦不到。
+为什么是问题：这是 ADR 0051 决定 3 “载荷与 npm 包同一批字节、可复核”的核心闸门；今天依赖闭包只有 @oh-my-pi 的 18.14.0 同版本，所以现在不出事，但判据名不副实。测试只覆盖了“根锁里没有”和“哈希不同”，没覆盖“根锁有但不该出现”。
+如何核实：读代码；`bun -e` 对仓库 bun.lock 调 lockedPackages 得 size 1955，其中 react@19.2.7 等都在。
+建议改法：基准改成“应用包自己声明的 dependencies 在根锁里的传递闭包”（根锁每条的第三项带 dependencies，可按名字找），载荷锁的包集合要等于该闭包（名字与完整性哈希都比），多出与缺少都报；node_modules 枚举改成递归找所有含 package.json 的目录（遇嵌套就并入 dependencies 的 key，用路径作名）。否则把头部与计划里的声明降级，写成“只拦根锁里没有的”。
+
+### 5. checkManagedEntry 的 finally 不等子进程退出就删状态根；异常路径会覆盖原错误；临时目录没按仓库规则分配
+严重程度：建议；类别：资源释放与收口、规范
+位置：packages/neuro-book/scripts/pack-app.ts checkManagedEntry 的 finally 与 `mkdtemp(join(tmpdir(), "nbook-pack-app-"))`
+现象：`failure()` 路径先 kill 再 await child.exited，没问题；但 `queryNeuroBook`、`fetch`、`stdin.write` 抛错（连接被拒、协议错）时直接进 finally：只 `child.kill("SIGKILL")` 就 `rm(stateRoot, {recursive, force})`，没有 await child.exited。垂死的服务端还在写 `logs/`、SQLite 时，Linux 上 rm 可能 ENOTEMPTY，Windows 上文件被占用必然失败；rm 抛出的错会盖掉原错误。另外 `fetch(health)` 没有超时，卡住时 60 秒截止管不到它。
+为什么是问题：docs/testing/README.md 的“临时目录与环境键”第 5 条要求脚本的临时数据用 test-support 的路径分配并在 finally 清理；同包的 smoke-server.ts、measure-project.ts 都用 `createTestTmpRoot`，这里直接用 `os.tmpdir()`，既没有 owner 标记也进不了 24 小时回收。
+如何核实：读代码对照 smoke-server.ts 的写法；本条为从代码推断，未做故障注入。
+建议改法：finally 里先 `child.kill`、再 `await child.exited` 再 rm，rm 加 `.catch` 记诊断但不覆盖原错误；health 的 fetch 加 `AbortSignal.timeout(deadline - now)`；状态根用 `createTestTmpRoot("nbook-pack-app", "managed-entry")`。
+
+### 6. desktop-payload 命令行静默忽略写错的选项，会组出宿主平台的载荷
+严重程度：建议；类别：正确性（命令行）
+位置：packages/neuro-book/scripts/desktop-payload.ts 第 188 至 203 行（option、参数过滤）
+现象：只认 `--os <值>` 与 `--cpu <值>` 两个词；`--os=win32`、`--arch x64` 这类写法不报错，os 回落成 `process.platform`，位置参数过滤会把 `--os=win32` 也丢掉。
+为什么是问题：t11 在发布流水线里组装 Windows 载荷，写成等号形式会静默得到 Linux 载荷，然后“原生插件只应有 pi-natives-linux-x64”恰好通过，清单里 target 也是 linux，错误要到打安装包才暴露。
+如何核实：读代码；未运行（需要联网装依赖）。
+建议改法：用 `node:util` parseArgs（strict 模式，两个 string 选项，支持等号），未知选项报用法并以 2 退出；os、cpu 限定在 win32/linux/darwin 与 x64/arm64。
+
+### 7. 小问题（各自独立，合并成一条）
+严重程度：建议；类别：代码质量
+a. packages/neuro-book/scripts/pack-app.ts thirdPartyNotices：许可文件里的小节名仍写“服务端（server/nbook.js、server/project.js）”，现在服务端还有 server/main.js 与共用的 chunk-*.js；用户看到的 THIRD-PARTY-NOTICES.md 与包内容对不上。
+b. packages/neuro-book/src/server/start.ts:111 的注释说项目宿主入口“同一次 `build:server` 产出”，发布形态已改为 pack-app 打的包；模块头自己也说发布形态只以 pack-app 为准，这条注释与它矛盾。
+c. packages/neuro-book/scripts/desktop-payload.ts 为了 APP_NAME 与 clearGenerated 导入 ./pack-app，而 pack-app 会把 `src/server/instance`、Bun.build 的整套依赖一起拉进来；载荷脚本只需要一个小的共用模块（清空目录函数与名字），放到单独文件里两边导入更干净。
+d. LICENSE_FILE 正则不认 `LICENSE-MIT`、`LICENSE_MIT`、`UNLICENSE`（实测 false），带这类文件名的依赖会被判成“没有许可文件”，失败方向是安全的，但一旦依赖里出现双许可包会误拦；同时 `readdir().some` 不区分文件与目录。
+e. 载荷清单 tarball.name 取自 relative(dirname(manifestPath), tarball.path)：release:smoke 的冒烟用法里是带多层 `..` 的相对路径，写进清单没有意义；用 basename 并在文档说明清单与 tarball 同目录更稳。
+
+### 未发现问题的方面
+- 两入口共用 chunk 后改名：打包后核对没有文件引用旧名，包内文件白名单测试覆盖；start.ts 用 import.meta.dir 找 project.js，共用 chunk 与入口同目录，成立（dist/app-package 副本里 main.js 能起、能被 nbook 找到）。
+- checkManagedEntry 的 stderr 读取与 kill 顺序：stderr 一开始就读，failure() 先 kill 后 await exited；Bun 对不读的管道有缓冲（impl-lab/pipe.ts 写 512 KB 不阻塞），不会因 stderr 写满卡住子进程。
+- 发布清单摘要核对、清空目录的标记规则（跨标记拒绝）、先写标记后写内容、清单最后写：判据与顺序正确。
+- smokeDesktopPayload 另写一份 pending 清单、不碰 dist/release 的正式清单，与“冒烟全部通过后才写”的约定不冲突。
+- 包内 bun test 10 通过；neuro-book 的 `tsc --noEmit` 通过。
+未验证：release:smoke、联网的 desktop-payload 整段、Windows 运行（按规定未跑）；第 4 条(b)(c)、第 5、6 条为从代码推断。
+数量：阻断 0、重要 4（1、2、3、4）、建议 3（5、6、7）。
+有效发现：1, 2, 3, 4, 5, 6, 7

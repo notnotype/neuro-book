@@ -319,7 +319,10 @@
     --shell-chrome-line: transparent;
     --shell-seam: transparent;
     --shell-join-divider: var(--divider);
-    /* 卡片里容器分栏之间的线：两端各缩进 10px 的开放式分割线，与活动栏、侧栏之间那条短线同一种。 */
+    /*
+     * 一个容器一张卡片，几节之间画开放式分割线（新应用 docs/specs/ui/workbench-layout.md 输出 19，开发者 2026-11-16）：两端缩进，不碰卡片边，
+     * 悬停线同样缩进。2026-11-13 一节一张卡片时两节之间本来有缝，这条线设成过透明。
+     */
     --shell-pane-divider: var(--divider);
     --shell-pane-divider-inset: 10px;
     /* 编辑器标签条：比正文面低一档（往正文字色混 7%，t03 第三轮稿取中档）。 */

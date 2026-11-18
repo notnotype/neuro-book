@@ -64,7 +64,7 @@ export interface SettingsWorldOptions {
     readonly hubCapabilities?: ReadonlyArray<HostCapability>;
 }
 
-type HostCapability = NonNullable<Parameters<typeof createApplication>[1]["capabilities"]>[number];
+export type HostCapability = NonNullable<Parameters<typeof createApplication>[1]["capabilities"]>[number];
 
 export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<PluginDefinition>, options: SettingsWorldOptions = {}): Promise<SettingsWorld> {
     const apps: Application[] = [];

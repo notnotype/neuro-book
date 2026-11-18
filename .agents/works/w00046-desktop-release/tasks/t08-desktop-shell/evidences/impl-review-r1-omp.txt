@@ -1,0 +1,72 @@
+### 1. 整页外链的 will-navigate 载荷未解 JSON，拒绝后没有交给系统浏览器
+严重程度：重要；类别：正确性。
+位置：/tmp/w46-t08-impl-review/packages/neuro-book/desktop/src/bun/index.ts:134-137。
+现象：适配层把 event.data.detail 整体 String(...) 后当 URL；Electrobun 2.0.6 的 Windows NavigationStarting 实际发送字符串 {"url":"https://...","allowed":false}，SDK 只对 host-message/new-window-open 等事件解 JSON，will-navigate 仍是原字符串。因此 isWebUrl 恒为 false，导航规则虽拒绝外域，Utils.openExternal 却永远不执行。
+为什么是问题：desktop-shell 输出 11 明定整页外域 http/https 导航交系统浏览器。预加载只能兜住部分链接点击，location.href、location.assign、表单与同源页面的外域跳转不经点击兜底，用户点击后没有结果。此文件为本次新增，base 没有该适配层。
+如何核实：从代码推断，未在 Windows 运行。逐行核对固定 2.0.6 副本 package/src/native/win/nativeWrapper.cpp:7855-7873 的 JSON 构造及 package/src/sdks/main/proc/native.ts:3455-3478 的解码白名单，二者与本适配层的读取形状不一致；Windows 现有证据明确未验外链。
+建议改法：按 SDK 的真实事件合同解析、校验 detail.url，再用 URL.protocol 和精确 origin 分流；用实际 WebView2 验 location.assign 与跨域重定向，不仅验已被预加载截住的普通链接。
+
+### 2. 把监督失败当作“进程树已结束”，停止屏障在仍有活进程时放行
+严重程度：阻断；类别：不变量。
+位置：/tmp/w46-t08-impl-review/packages/neuro-book/src/desktop/owned-server.ts:91-102、143-150；shell.ts:253-258、287-290。
+现象：lease.completion reject 代表所有权无法确认，代码却捕获并转换成正常完成的 StopOutcome。stop() 随即返回，DesktopShell 放桌面锁并退出。强制结束后 10 秒继续等待的合同也没有实现：terminate 的 watchdog 在约 3.75 秒失败，finally 反而取消 10 秒诊断。
+为什么是问题：desktop-shell 输出 19、时序不变量要求证明整棵树真实结束才放锁，失败不是证明。owned-process 的这项失败语义在 base 已存在，但将其吞掉并当作完成是本次新增调用方的错误；不能把“已尽力结束”的注释当成树消失保证。
+如何核实：实现 HEAD=ac236021a450f02eab64ff9be79b674687c5893f。真实 POSIX 监督器、真实认领进程，不替换模块：bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/impl-r1/scratch/supervisor-barrier.ts。目标就绪后 SIGSTOP 暂停监督器、请求停止；3852 ms 后 stop 返回 {exitCode:null,forced:true}，目标和监督器都活着，queryNeuroBook 仍为 running。finally 恢复监督器并强杀实验目标组。Windows 监督器有同类 watchdog reject；Windows 实际进程残留未验证。
+建议改法：把“所有权失败”与“树已结束”分开；失败时保留 lease、桌面锁与停止态，继续确认或重试收口，10 秒写诊断而不解除屏障。补真实监督器停滞/失联的合同测试，断言失败时既不 exit 也不 release，而非仅断言错误被记下。
+
+### 3. 重启中的新服务端没纳入壳的所有权，关窗直接退出并强杀它
+严重程度：重要；类别：正确性 / 不变量。
+位置：/tmp/w46-t08-impl-review/packages/neuro-book/src/desktop/shell.ts:228-242、249-258。
+现象：意外退出后先把 #server 设为 null；选择重启时只把新租约放在局部变量，直到 await server.started 返回 ready 才赋回。重启仍在 starting 时关闭最后一个窗口，#stopAndExit 看到 null，直接放锁退出；新服务端只靠宿主断连被强杀，从未收到 stop。若已通过关闭并在退出前恰好 ready，重启续体也没检查 #finishing，会在停止之后重新登记租约。
+为什么是问题：输出 18、19、23 要求包含还在拉起中的自有服务端一律经 stop 与真实退出屏障收尾；重启不能另有一条绕过所有权的路径。本次新增流程，base 无此代码。
+如何核实：HEAD=ac236021a450f02eab64ff9be79b674687c5893f。bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/impl-r1/scratch/restart-close.ts。真实 DesktopShell、真实 owned-process、真实产品认领；替身仅提供可控 starting 入口和窗口端口。先等壳实际 load 页面，再杀首代，等第二代认领 starting 后经公开 closeRequested 与异步页面回答关闭：HOST OUTPUT 为 PAGE、RESTART、EXIT 0；receivedCooperativeStop=false，第二代被宿主断连结束。它的 stdin 监听会把收到 stop 记到文件，因此不是靠未观察输出推断。finally 收口实验宿主与目标。
+建议改法：新进程创建的同一同步段就交给 #server（带代次），停止路径始终能取得当前租约；await 返回后检查代次与 #finishing，已开始停止不得再登记/重试。补重启 starting 期间关窗及完成与关窗交错的真实进程测试。
+
+### 4. before-quit 只否决、不发起关闭，应用级退出永远停在原地
+严重程度：重要；类别：正确性。
+位置：/tmp/w46-t08-impl-review/packages/neuro-book/desktop/src/bun/index.ts:256-258；src/desktop/windows.ts:116-129。
+现象：before-quit 在 quitAllowed=false 时仅设置 allow:false，没有向壳/协调器送退出请求。WindowCoordinator 也根本没有计划承诺的 quitRequested 输入。只有用户逐个关窗才能到 #stopAndExit，应用级退出请求不会询问页面、不会停止服务端，也不会最终重试退出。
+为什么是问题：输出 19 要求退出请求先被拦截并纳入有序停止，不是永久忽略；计划 :44、49 已明确 quitRequested 与 allowQuit。设计审查第 7 条要求补应用退出入口，处理记录声称已落实，但代码只补了一半。Electrobun 的 SIGTERM 等路径调用 Utils.quit，因此至少框架退出通路确实可达。本次新增适配层问题。
+如何核实：从代码推断，未在 Windows 运行。固定 SDK Utils.ts:133-159 同步发 before-quit，allow:false 后直接 return null，Utils.quit 不会调 quitAfterApproval；proc/native.ts:2671-2674 的 SIGTERM 回调调用 quit。适配层没有后续动作，windows.test.ts 的 8 条用例也没有应用级退出场景。
+建议改法：补应用退出的协调入口；先同步否决，再经统一窗口关闭流程收集当前代次的许可，取消时保持运行，批准后停止自有服务、确认树消失、放锁并放行一次退出。用真实 Electrobun 验 before-quit、关闭询问被取消、停止中重复退出，不能只测 will-close。
+
+### 5. 等待另一个窗口确认关闭时，“退出”按钮没有接收者
+严重程度：重要；类别：正确性。
+位置：/tmp/w46-t08-impl-review/packages/neuro-book/src/desktop/shell.ts:90-93、130-134；desktop/src/views/shell/index.html:64。
+现象：waiting-close 页面渲染唯一按钮 exit，但 #takeLock 的 closing 分支只 sleep 后重试，不调用 #waitAction；#startupAction 为 null。用户点“退出”被静默丢弃，等待不限时，过后旧壳取消关闭时仍会为已经退出意图的用户转交开窗。
+为什么是问题：输出 3 明定 waiting-close 只给“退出”，场景 5 明确“新进程在等的时候点退出，不留下窗口”。这不是 t09 的页面关闭询问实现：壳的本地启动页按钮完全属于 t08。
+如何核实：HEAD=ac236021a450f02eab64ff9be79b674687c5893f；bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/impl-r1/scratch/waiting-close.ts。真实桌面认领返回 closing，等新壳实际显示 waiting-close 后调用与适配层相同的 startupAction('exit')，再经同一认领队列的应答屏障检查：exits=[]、windowCount=1、handoffs=2。finally 关闭实验窗口并释放认领，无固定等待断言。
+建议改法：让等待态也有可取消的用户动作通道，exit 一次性作废轮询与后续取锁/开窗，立即关闭自己的启动窗口并退出；覆盖按钮退出后旧壳取消关闭、停止并放锁两种后续，断言均不再转交或启动。
+
+### 6. 文档创建时直接 observe 空 documentElement，标题同步整段中止
+严重程度：重要；类别：正确性。
+位置：/tmp/w46-t08-impl-review/packages/neuro-book/desktop/src/bun/preload.ts:31-34。
+现象：预加载在 document 创建时执行，这时 document.documentElement 还为 null；MutationObserver.observe(document.documentElement,...) 抛 TypeError，后面的 DOMContentLoaded 监听也没注册。页面标题从未发给壳，窗口一直叫 NeuroBook，作品名和之后的标题变化都不显示。
+为什么是问题：desktop-shell 输出 10 要求标题跟页面。固定 2.0.6 Windows 使用 AddScriptToExecuteOnDocumentCreated 注入自定义脚本，时机早于 DOM。Windows 实测只记录空书架窗口叫 NeuroBook，不能证明标题桥有效。本次新增代码。
+如何核实：Chromium 真实文档创建原语已复现，Windows 从代码推断。node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/impl-r1/scratch/preload-smoke.mjs，从受审源码精确取 PRELOAD，用现装 Chrome addInitScript 在文档创建执行；结果 docAtInit=null、TypeError “parameter 1 is not of type Node”、页面最终 title=second 而 messages=[]。SDK nativeWrapper.cpp:7768-7785、7962-7965 证明 Windows 对应注入时机。实验无应用服务、无 e2e。
+建议改法：观察 document 本身，或等 DOMContentLoaded/根节点存在后安装 observer，并立即报告当前标题。用真正的文档创建注入验初始 title 与运行后修改 title 两种，不在 DOM 已建好后 eval 预加载冒充。
+
+### 7. 未知请求命中 Object.prototype，被当成已登记处理器执行
+严重程度：重要；类别：正确性 / 安全与性能。
+位置：/tmp/w46-t08-impl-review/packages/nb-host/src/server/claim.ts:222-225。
+现象：requests?.[type] 没有 Object.hasOwn 检查；requests 是普通对象。未登记的 toString、constructor、hasOwnProperty、__proto__ 会读到原型属性，而不是返回 unknownReply。真实返回分别是字符串 “[object Undefined]”、原请求对象、断连、断连。
+为什么是问题：desktop-shell 输出 2 要求所有不认识的请求固定回 {ok:false,code:'unknown-request'}；共享实现合同也定义只有登记的请求可执行。新接口把未声明的继承属性变成协议入口，既不是合法未知应答，也不是处理器的预期异常。base 没有 requests 扩展，旧逻辑对这些 type 统一 unknown-request。
+如何核实：实现 HEAD ac236021a450f02eab64ff9be79b674687c5893f；bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/impl-r1/scratch/claim-unknown.ts，真实认领与 sendRequest、64 KB 档案，仅登记 open-window。nope 正常 unknown-request，四种原型名结果如上；finally 放锁。现有测试只用 nope，没有覆盖对象继承键。
+建议改法：仅在 Object.hasOwn(requests,type) 时取处理器，或以 Map/无原型表储存登记；给真实套接字的未知类型场景加入 constructor、toString、__proto__，核对统一 JSON 应答且不执行任何继承函数。
+
+### 8. SDK 抢先截住 Ctrl 点击，但适配层未接 new-window-open，链接完全无响应
+严重程度：重要；类别：正确性。
+位置：/tmp/w46-t08-impl-review/packages/neuro-book/desktop/src/bun/index.ts:129-137；desktop/src/bun/preload.ts:20-30。
+现象：适配层只订阅 host-message 与 will-navigate；没有订阅 new-window-open。Electrobun 2.0.6 的 sandbox preload 已在 window 的捕获阶段拦 Ctrl/Meta 点击，执行 preventDefault、stopPropagation、stopImmediatePropagation 并发 new-window-open。自定义脚本挂在 document 捕获阶段，根本收不到这个事件，所以不会转成 open-window 的 host-message。
+为什么是问题：桌面新窗口合同及计划验收明确包含 Ctrl 加点击；同源作品链接不开窗口，外链也不开浏览器。不能用“预加载有 ctrlKey 条件”证明已覆盖，因为 SDK 更早的捕获监听终止了派发。不是 Spec 已接受的 iframe 弹窗限制。
+如何核实：真实 Chrome 点击、直接使用固定 SDK 的 initCmdClickHandling 与受审 PRELOAD，按 SDK 先、自定义后顺序安装；bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/impl-r1/scratch/ctrl-click.ts。Control 点击带 project 参数的链接，唯一消息是 new-window-open，0 条 open-window host-message。SDK index-sandboxed.ts:26-29 与 nativeWrapper.cpp:7768-7785 确认真实加载顺序；Windows 整壳从代码推断，未运行。
+建议改法：将 SDK 的 new-window-open 与自定义 host-message 统一送同一个 URL 分流/closing 检查入口，不重复模拟框架已经截住的行为。补 SDK 预加载共存的 Ctrl 点击实际合同验证，覆盖同源地址保留 project/query/hash、外链与 quit 待决拒绝。
+
+### 9. 启动中被迫强杀服务端却不记异常停止，下次启动不会提示
+严重程度：重要；类别：正确性。
+位置：/tmp/w46-t08-impl-review/packages/neuro-book/src/desktop/shell.ts:261-271。
+现象：启动中关掉末窗走 #allClosed；即便 server.stop() 返回 forced:true 或非 0，仍要 #ready 为真才写 unclean-stop.json。尚未 ready 的服务可能已经写设置、登记表或激活插件，强杀却被静默当成无需提示的正常取消。
+为什么是问题：输出 23 明定已经拉起且还在拉起中的服务按输出 18、19 停止；输出 19 对超时/强杀/非 0 没有 ready 例外。非合作杀壳不提示是输出 22 的另一条路径，不能套到壳主动停止超时。本次新增 ready 条件造成合同缺口。
+如何核实：HEAD=ac236021a450f02eab64ff9be79b674687c5893f。bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/impl-r1/scratch/starting-forced.ts；真实 DesktopShell、认领和监督器，目标 starting 且不理 stop/TERM，停止截止注入为 100 ms；关闭启动窗后真实强杀完成，结果 code=0、marker=null、claim=none。不是手动调用私有方法，也不是伪造 completion。
+建议改法：所有合作停止路径统一按 StopOutcome 写异常停止记录，不以页面是否加载过作过滤；补“启动中取消但 stop 超时”场景，并验下一次启动先提示再继续。
+

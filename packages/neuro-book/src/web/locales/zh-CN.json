@@ -48,6 +48,13 @@
             "textLabel": "{{path}} 未保存的正文"
         }
     },
+    "desktopFrame": {
+        "controls": "窗口",
+        "minimize": "最小化",
+        "maximize": "最大化",
+        "restore": "还原",
+        "close": "关闭"
+    },
     "offline": {
         "banner": "与服务端的连接已断开，正在重新连接…"
     },
@@ -67,5 +74,64 @@
         "unknown-outcome": "不知道操作有没有完成，请先核对再重试",
         "provider-error": "服务端处理时出错"
     },
-    "unknownResult": "收到了无法识别的结果（{{code}}）"
+    "unknownResult": "收到了无法识别的结果（{{code}}）",
+    "close": {
+        "layer": {
+            "title": "正在关闭…",
+            "hint": "正在确认这个窗口能不能关。"
+        },
+        "participantFailed": {
+            "title": "关闭前的检查出错",
+            "body": "检查有没有要保存的内容时出了错，仍然关闭可能丢掉没保存的内容。"
+        },
+        "rescuedLost": {
+            "title": "关闭后这些正文会丢失",
+            "body": "下面的文件还有没保存的正文，关闭窗口后就取不回了："
+        },
+        "work": {
+            "title": "关闭后 NeuroBook 的服务会停止",
+            "body": "下面的工作会被中断：",
+            "uncertain": "无法确认是否有工作在跑。"
+        },
+        "cancel": "取消",
+        "confirm": "仍然关闭"
+    },
+    "update": {
+        "available": {
+            "title": "NeuroBook {{version}} 可以更新",
+            "message": "下载之后，下次打开 NeuroBook 时安装。",
+            "trayMessage": "下载之后，从系统托盘退出 NeuroBook，再打开时安装。"
+        },
+        "notifyOnly": {
+            "title": "NeuroBook {{version}} 可以下载",
+            "message": "这份 NeuroBook 不会自动更新，可以到下载页下载新版本。",
+            "envRootMessage": "这次打开设了 NBOOK_STATE_ROOT，不会自动更新；不设这个环境变量打开 NeuroBook 时可以自动更新。"
+        },
+        "downloading": {
+            "title": "正在下载 NeuroBook {{version}}",
+            "message": "可以关掉这条通知，下载会继续。"
+        },
+        "downloadFailed": {
+            "title": "更新没有下载成功",
+            "message": "NeuroBook {{version}} 没有下载完，可以重试。"
+        },
+        "downloaded": {
+            "title": "NeuroBook {{version}} 已下载",
+            "message": "下次打开 NeuroBook 时安装。",
+            "trayMessage": "从系统托盘退出 NeuroBook，再打开时安装。"
+        },
+        "updated": {
+            "title": "已更新到 NeuroBook {{version}}",
+            "message": "现在用的就是新版本。"
+        },
+        "updateFailed": {
+            "title": "更新没有完成",
+            "message": "NeuroBook {{version}} 没有装上，现在用的还是原来的版本。之后检查到新版本时会再提示。"
+        },
+        "action": {
+            "download": "下载",
+            "openPage": "打开下载页",
+            "retry": "重试"
+        }
+    }
 }

@@ -1,0 +1,296 @@
+# 耦合审查（四）共享包：nb-harness、nb-runtime、nb-host、nb-models、nb-session、nb-profile
+
+审查日期 2026-11-18，master（ce2d432f1）。只读。
+本文件分两部分：前半是“核实记录”（F 编号，按核实先后逐条追加，每条是读代码核实的事实与证据）；后半是按任务格式整理的正式报告（表、按影响排序的耦合条目、第 3 题、前五件事与条数），引用 F 编号。
+路径缩写：H = packages/nb-harness/src，R = packages/nb-runtime/src，HO = packages/nb-host/src，M = packages/nb-models/src，S = packages/nb-session/src，P = packages/nb-profile/src。
+
+## 核实记录
+
+### F1. 扩展在 mount 里写的外部事实：运行中只在对话循环的边界第 1 步写出（提案第三节第 1 条仍成立）
+- 读代码核实：H/kernel/dispatch/mount.ts:50-52 运行中 `core.inbox.push`；全内核只有 H/kernel/run/loop.ts:208 一处取出（`while (core.inbox.length > 0) await write(...)`，grep `inbox` 只有这三处，含 dispatch/core.ts:120 定义）。
+- 只压缩的运行（loop.ts:183-198）不经过这一步就收口；`end()`（loop.ts:120-134）收口时也不写 inbox。运行结束后 inbox 里的事实一直留到下一次对话运行的第一个边界，期间没有任何东西把它写出（会话空闲时也不会自动冲刷：#external 只在“写的那一刻”判断 running）。
+- 影响：提醒、任务结果若在运行中到达，会滞留到用户下一次发消息；提案第六节 t10 的改动仍需要做。改法小：在 `end()` 与只压缩分支收口前各加一次 inbox 冲刷（同一写入批之前），或运行收口后由 RunControl 在队列里补一次 `writeAndReact`。
+### F2. 发出者只有用户与会话两种；宿主发起的输入只能冒充用户（提案第 1 条“发出者只有用户与会话”仍成立，并有一处新后果）
+- 读代码核实：H/kernel/api/basics.ts:55 `Issuer = {kind:"user"} | {kind:"session"; id}`；basics.ts:58 `Actor` 另加 `kernel`，但 Actor 只用于结算记录，不能发指令。
+- H/kernel/run/input.ts:70-72 `byField`：用户发的输入不写 `by`。宿主（日程插件、任务调度）若用 `send` 把提醒或任务结果送进会话，日志里与用户亲手打的字无法区分。
+- 新后果（读代码核实）：自动审批的审批模型把路径上的 `input`、`steer` 都当“用户说的话”作授权依据（H/kit/approval/review.ts:83-87，系统提示词 review.ts:57-59“what the user typed … when the user clearly asked for this specific action”）。宿主以用户名义送进来的任务结果（可能含抓取的外部网页内容）会被审批模型当成用户授权，这是提示注入的放大口。
+- 要改：Issuer 加 `{kind:"host"; source: string}`（或 `{kind:"extension"; id}`），`byField` 写出它；审批模型的 conversation 只取 `by` 缺省（用户）的输入。代价中：Issuer 进远程合同与 nb-agent-ui 适配器，需同步改 Spec runtime.md 输出 85。
+### F3. 审批与提问没有期限；审批只收用户应答（提案第 1 条仍成立）
+- 读代码核实：H/kernel/run/interaction.ts:52-89 `request` 只与 `answered`、`aborted` 两个 Promise 赛跑，没有计时器；结算值 `InteractionDecision`（H/kernel/api/events.ts:55）只有 allow、allow-session、deny、answer、interrupted、aborted、unavailable，没有 expired；在 H/kernel 与 H/kit 内 grep `expir|deadline` 只命中模型首包计时与 grep 工具，没有交互期限。
+- interaction.ts:95-99 `allowed`：审批 `issuer.kind === "user"` 才收；提问另收会话头 `questions:"caller"` 的父会话。
+- 宿主现有绕法：中止运行（abort）会以 kernel 结算 `aborted`，但会把整次运行收口，bot 说不出“没人理所以先不做了”。
+- 要改：`interactionRequested` 加可选 `expiresAt`（由宿主或审批钩子给），Interactions.request 多赛跑一个 `core.clock.wait`，到点写 `interactionResolved{decision:"expired", by:{kind:"kernel"}}`；工具侧给 `denied/code:"approval-expired"`。重开会话时恢复要按 expiresAt 补结算（recover.ts）。代价中：码表、Spec runtime.md 输出 39-45、nb-agent-ui 显示。
+### F4. 宿主发起的压缩不能带原因与方法（提案第 1 条仍成立）
+- 读代码核实：指令形状 H/kernel/api/host.ts:50 `compact: {args: {requirement?: string}}`，没有原因与方法。
+- 原因只有三值：H/kernel/compaction/compact.ts:128、H/kernel/api/extension.ts:33、H/kernel/run/loop.ts:64。空闲时受理的 compact 走只压缩的运行，固定 `reason:"manual"`（loop.ts:193）；运行中受理的也记 manual（loop.ts:240）。
+- 方法顺序：compact.ts:176 只有 overflow 用 `onOverflow`，其余（含 manual）都用 `onThreshold`；Profile 的 `compaction` 键只有 require、onThreshold、onOverflow（H/kernel/api/profile.ts:68），宿主层 `SessionEnv.compaction.order` 同样两档（host.ts:452）。
+- 现有逃生口（读代码核实）：方法调用经拦截链 `chainLayers(core, "compaction")`（compact.ts:196-199），注释说拦截层可以改 `job.method`。所以宿主今天能写一个扩展按自己的状态改方法，但扩展看不到“为什么压”（job.reason 仍是 manual），只能靠旁路状态。
+- 要改：`compact` 加 `{reason?: string; methods?: string[]}`，CompactionJob.reason 放开为字符串或加 idle、cache-expiry 两值；methods 给了就只用它、失败不换（提案“指定方法失败时不换”）。代价小到中。
+### F5. 事件开启的轮次：内核能在空闲时把扩展事件并进“下一轮”，但宿主没法不靠用户输入开这一轮
+- 读代码核实：空闲时写的对话事件进 `history.waiting`，开下一轮时成为它的 attachments（H/kernel/state/history.ts:41-42、63）。
+- `start` 指令（H/kernel/run/commands.ts:130-147）：缓冲区空时，如果上一轮已 `completed` 就失败 `nothing-to-continue`（:146），不看 `history.waiting` 有没有东西。所以“任务结果到了，让 bot 读一下再对用户说”只能由宿主伪造一条用户输入（又回到 F2）。
+- 轮的起点只有 `takeInputDrafts`（loop.ts:68-75，带 inputId）与 commands.ts:147 的 `inputId:null` 继续轮；ConversationTurn.input 为 null 只表示“继续”（H/kernel/api/conversation.ts:21-22），没有“由事件开启”的标记。nb-agent-ui 分轮只认用户消息开头的问题因此在内核一侧也没有可依赖的字段。
+- 要改：`start` 在 `history.waiting.length > 0` 时允许开一轮（turnStarted 带 `cause` 或 `openedBy: {extension, event}`），ConversationTurn 暴露它。代价小，属新可选行为，NeuroBook 不受影响。
+### F6. 句柄表的空闲关闭：30 秒写死，没有“常驻”选项；宿主能靠持一个订阅绕过（提案第 1 条“空闲 30 秒关会话”仍成立）
+- 读代码核实：H/kit/sessions/table.ts:23 `export const IDLE_CLOSE_MS = 30_000`，:330-337 `#maybeIdle` 无条件按它排计时；SessionTableOptions（:70-85）没有空闲时长或按会话豁免的选项。
+- 绕法（读代码核实）：:361-387 `#subscribe` 在取消前持一个引用，:331 refs>0 时不排关闭。所以 bot 的对话管理对主会话常开一个进程内订阅，会话就常驻。这是用法上的约定，不是合同：sessions.md 没写“订阅即钉住”是给宿主用的保证（推断：它是为远程订阅写的）。
+- 句柄表是 kit 里的可选件：内核只要 `SessionEnv.sessions.get(id, issuer)`（H/kernel/api/host.ts:442），宿主可以不用 SessionTable 自己写。
+- 要改（小）：SessionTableOptions 加 `idleCloseMs?: (entry) => number | null`（null 表示不因空闲关闭），或 `pin(id)` 返回释放函数，写进 sessions.md。任务会话照旧 30 秒关。
+### F7. 模型适配器不把缓存档位传给服务商，环境变量 PI_CACHE_RETENTION 能改掉它
+- 读代码核实：H/kernel/model/omp.ts:312-332 组 `SimpleStreamOptions` 时没有 `cacheRetention`，也没有 `sessionId`；在 H/kernel、H/kit、H/models 与 M 内 grep `cacheRetention|retention` 无结果（M/core/core.ts 只有价格里的 cacheRead/cacheWrite）。
+- OMP 的解析顺序：node_modules/@oh-my-pi/pi-ai/dist/types/utils.d.ts:91-96“explicit request option first, then the PI_CACHE_RETENTION env override, then the provider-supplied fallback”。不传就等于把档位交给进程环境与服务商缺省。
+- 影响：提案的“缓存过期前压缩”要算截止时刻，档位必须确定；现在 gateway 的环境变量能让实际寿命与计算不一致。NeuroBook 同样受影响（缓存命中率不可控）。
+- 要改（小）：ModelRequest 或 ModelTarget 加 `cacheRetention`，由 nb-models 的服务商配置给，适配器显式传；`sessionId` 一并传（OpenAI Responses 的路由缓存键，推断有命中率收益）。
+### F8. 一直写下去的会话：打开从头归约、全部事件常驻内存，压缩不缩短这两样（实测）
+- 读代码核实：LogHandle.events 是“打开时读回的全部事件”（H/kernel/api/storage.ts:50-52）；ADR 0035 决策 1 的检查点快照没有实现（H/kernel 内 grep `checkpoint` 无产品代码命中，提案也写“以后加”）。压缩只改模型上下文（history.committed 截断），日志与 `core.byId` 不缩（H/kernel/compaction/compact.ts:72-84 沿父节点走 byId）。
+- 实测（tests/kernel/measure-open.ts，每条回复 1500 字，机器 8 核、loadavg 约 24，数字偏慢）：2,000 轮 24,667 条事件，打开 578 ms、堆增 33 MB；8,000 轮 98,667 条事件，打开 1,140 ms、堆增 105 MB、RSS 增 144 MB。约每轮 12 条事件，近似线性。
+- 推断：一个每天 50 轮的 bot，约 160 天到 8,000 轮；之后每次 gateway 重启打开主会话超 1 秒，内存只增不减。主会话常驻（F6）避免反复打开，但内存线性增长没有上限。
+- 要改：按 ADR 0035 加检查点快照（打开从最近快照归约）；再考虑按压缩点把更早的事件移出内存、`log` 查询走磁盘分页。代价大，第一版可只记录打开耗时与事件数（提案已这样定）。
+### F9. nb-harness 里新旧两套 harness 并存；根入口 `.` 仍是旧实现，nb-session、nb-profile、pi-agent-core 只为旧实现留在依赖里
+- 读代码核实：packages/nb-harness/package.json 的 `"."` 指向 src/index.ts，导出旧的 `createHarness`、`createToolRegistry`、`registerPlugin` 等（src/index.ts:1-29）。`@notnotype/nb-session`、`@notnotype/nb-profile` 只在旧实现的 src/context.ts、complete.ts、harness.ts、run-result.ts、sse.ts、tools/*.ts 里被导入；src/kernel 与 src/kit 里没有（grep 核实）。`@oh-my-pi/pi-agent-core` 同样只在旧实现（tools/*.ts、context.ts、harness.ts、testing/index.ts），新内核与 kit 由各自的 architecture.test.ts 禁止它。
+- 旧实现的调用方（读代码核实）：nb-story（src/qa/engine.ts:21、probe.ts:8、tools.ts:9、harness-model.ts:6、server/qa-service.ts:33）、llmlint/web/server/agent/index.ts；nb-harness/AGENTS.md 写“迁移 Task 把 nb-story、nb-agent-ui 改到新内核后，删掉旧的 createHarness”。
+- 影响：第二个应用写 `import … from "@notnotype/nb-harness"` 拿到的是旧实现；装 nb-harness 时把 nb-session、nb-profile 与 pi-agent-core 一并装上。nb-session、nb-profile 两个包在新架构里没有新用户（新内核自带日志 kernel/log 与 Profile kernel/extension/profile.ts）。
+- 类别：可以拆开（代价中：nb-story 的问答引擎迁到新内核；之后删旧实现、删两项依赖、把 `kernel/` 上移为根入口）。
+### F10. 子代理与后台任务不在 kit 里，在 NeuroBook 的 nbook.agent 插件里；bot 以后派子代理、跑后台命令只能重写
+- 读代码核实：H/kit 下没有子代理或任务中心单元（kit/architecture.test.ts:40-56 的单元表只有 shapes、files、files/local、commands、tools、approval、compaction、guards、sessions、requests、testing；在 H 内 grep `subagent|子代理|startTask` 只命中类型与注释）。实现在 packages/neuro-book/src/plugins/agent/backend/subagents/（tools.ts 495 行、tree.ts 235、result.ts 186、children.ts 130、relations.ts 116、prompt.ts 111、tree-spend.ts 44）与 jobs/（center.ts 341、tools.ts 132、steer.ts 33），以及 builtin/shell-background.ts 189 行。
+- jobs/center.ts 只依赖 `@notnotype/nb-harness/kernel/contracts` 的 `Clock`（:9），与应用无关，是现成可搬的一块；subagents/tools.ts 依赖应用的 modes、points、profile-agents（:21-37）与 nb-runtime 的贡献声明，搬之前要先把这些换成参数。
+- kit 的 shell 工具已为后台留了口：`ShellBackground`（H/kit/tools/shell.ts:210），后台怎么跑由宿主给。
+- 类别：可以拆开。好处：bot 第三步“多 bot、子代理”与周期任务里的后台命令能复用（提案第四节第 11 小节第 3 条）。代价：任务中心小（搬文件加登记单元）；子代理工具中（先抽掉模式与贡献点依赖）。第一版不急。
+### F11. kit 各块的行为合同写在 NeuroBook 的 Spec 里（docs/specs/agent/*），以 nbook.agent 为主语
+- 读代码核实：nb-harness/AGENTS.md“宿主套件”一节写“其余各块的行为仍以 docs/specs/agent/ 下对应的 Spec 为准”；kit 源码头链接 docs/specs/agent/permissions.md（H/kit/approval/hook.ts:2）、agent/compaction.md（kit/compaction/index.ts:2）、agent/sessions.md（kit/sessions/table.ts:2）、agent/run-guards.md（kit/guards/index.ts:2）、agent/builtin-tools.md（kit/tools/shell.ts:2）。
+- 这些 Spec 的 owners 与正文以 NeuroBook 插件为主语：docs/specs/agent/sessions.md:7 owners 只有 `nbook.agent`，:14“`nbook.agent` 在服务端持有 Agent 会话”，:140 才提到句柄表在 kit；agent/compaction.md:31 方法名写死为 `nbook.agent.shake` 等。`nbook` 出现次数：builtin-tools 16、run-guards 17、sessions 11、permissions 10、compaction 6。只有文件访问有中立的 harness/host-kit.md。
+- 影响：bot 插件要知道 SessionTable 的空闲关闭、审批的规则分层、守卫的计数口径，得读 NeuroBook 的 Spec；NeuroBot 为它们提的改动（F3、F6）也得改 NeuroBook 的 Spec。机检没有覆盖 Spec 的归属（app-neutral 只查源码）。
+- 类别：不推荐耦合（违反 ADR 0045 与 nb-harness/AGENTS.md“应用专有的地址、文字与 id 一律由宿主传入”的精神：合同层面没有做到中立）。改法中：把每块与应用无关的部分移进 docs/specs/harness/host-kit.md（或按块分文件），agent/*.md 只写 NeuroBook 给的 id、文字与接线。
+### F12. 审批钩子的规则分三层“用户、项目、会话”，项目层与模式闸门是必填项
+- 读代码核实：H/kit/approval/hook.ts:22-42 `ApprovalHookOptions` 必填 `projectRules`（:26）、`projectRulesInvalidMessage`（:28）、`gated`（:31）、`modeWriteAction`（:32）、`gate`（:34）、`review`（:38）；`escalate` 可选（:40）。合并顺序写死在 rules.ts:184-194 `mergeLayers({user, project, session})`；项目层的 allow 规则一律忽略（hook.ts:65-69）。
+- 好的一面（读代码核实）：`Escalate`（kit/approval/types.ts:42-46）让宿主决定“要问人”的调用交给谁，注释写明为 w00043 的 bot 判 bot 留的；提案的“任务会话清单外直接拒绝”可以在 escalate 里做，不必在钩子外再包一层（推断：规则判 allow 的调用仍到不了 escalate，所以提案说的“包一层”仍需要，二者可并用）。
+- 影响：bot 没有项目、没有 Agent 模式时要传 `async () => []`、`() => false` 与两段用不上的文字。不挡场景。
+- 类别：可以接受（“项目层只许拒绝”是安全规则，泛化成“只许收紧的层”命名即可，收益小）。若要做：把三层改成宿主给的有序层表，每层标“可放行/只可收紧”，代价小到中。
+### F13. 内核会话头与工具上下文带一个可选的 `project` 字段
+- 读代码核实：SessionHeader.project（H/kernel/api/events.ts:266）、ToolSessionContext.project（api/host.ts:372）、CreateSessionOptions.project（api/host.ts:501）、SessionIndexEntry.project（api/storage.ts:23）与 `LogStore.list({project})` 的过滤（api/storage.ts:65、log/jsonl-store.ts:297）。内核只抄写与过滤，不解释它（session.ts:122、476、571）。审批模型把 `projectOf(context)` 作为“current project”交给模型（kit/approval/review.ts:124、143）。
+- 影响：它是 NeuroBook“作品/项目”的分组键，名字带应用概念；bot 可以把 bot id 或对话场所塞进去当分组用，但语义不对口（“项目规则”“当前项目”都会随之出现）。不挡场景，app-neutral 机检查不到这类通用词。
+- 类别：可以接受（只是一个可选的不透明字符串）。如果第二个应用要多个分组维度，再改成 `tags` 或 `scope` 记录，代价中（落盘格式要兼容读旧字段）。
+### F14. 压缩的三种触发不能分开开关：阈值触发关不掉而不影响手动；手动压缩借用阈值的方法顺序
+- 读代码核实：Profile `compaction: false`（H/kernel/api/profile.ts:68）一次关掉全部（compact.ts:173 返回 disabled；loop.ts:286 溢出也跳过）。没有“只关阈值”的开关：loop.ts:236-237 只要估算超过 `trigger` 就压；`triggerPoint`（compact.ts:58-62）只认有限的 `compactAt`，宿主给 Infinity 会落回按窗口算的缺省，要关只能给一个极大的有限数或让窗口为 0（后者影响别处）。
+- 把 `onThreshold` 设成 `[]` 也不行：手动压缩同样读 onThreshold（compact.ts:176），两者一起失效；而且超过阈值后每个边界都算一遍压缩前的请求、再写一条 `compaction-failed` 诊断（compact.ts:178、248）。
+- 影响：宿主想“自动只在溢出时压，其余由宿主按缓存寿命自己发起”（提案的两种新触发正是这样）做不干净；NeuroBook 不受影响。
+- 类别：可以拆开（小）：Profile 与 SessionEnv 的顺序加 `onManual`（或 F4 的 methods 参数），阈值触发加显式开关（`compactAt: null` 表示不按阈值）。
+### F15. nb-runtime 的远程协议把 NeuroBook 的“项目实例”写成拓扑角色
+- 读代码核实：R/remote/protocol.ts:151-156 `TargetSchema` 是 `"project" | "server" | {project} | {client}`；:170 实例 `role` 只有 hub、project、client；:171 每个实例描述带 `project` 代次；R/remote/contract.ts:20 提供方位置 `"server" | "project" | "client" | "any"`；R/remote/router.ts:55-67 `project-unavailable`、`project-gone`、`projectAccess`；R/remote/node.ts:146-149 客户端 `bind: {project}`。
+- 这是 ADR 0024 的多实例拓扑（服务端加每个作品一个项目子进程）。NeuroBot 不开项目子进程（提案第四节第 2 小节），这些都是可选的空档：nb-host 不给 `router.bindProject` 时一律 `project-unavailable`（HO/server/start.ts:123-124、227 实例描述 `project: null`）。
+- 影响：第一版不挡。提案路线里的“device”（远端主动连上 gateway、提供能力的实例）没有对应角色与目标，到那一步要改 wire 协议（推断）。app-neutral 机检（R/app-neutral.test.ts:12）只查应用名，通用词“project”查不到。
+- 类别：可以接受（第一版）。理由：拓扑角色是内核远程协议的一部分，改名或泛化要动 wire 版本、路由与 nb-host 两端，收益要等 device 出现才有；到那时把 `project` 泛化成“按键绑定的成员实例”。
+### F16. nb-host：不带 Origin 的升级与写请求照常放行，没有本机口令（提案第 1 条仍成立）
+- 读代码核实：HO/server/rpc-listener.ts:5-7、70-72 只有带 `Origin` 且不在允许范围时 403，没有 `Origin` 的升级放行；HO/http/dispatch.ts:79-85 写请求同理；在 HO 内 grep `token|口令` 没有命中鉴权代码。浏览器宿主连回不同服务端进程转入终态 `server-restarted`（HO/web/remote-session.ts:18-19、91）。
+- 影响：NeuroBot 的安全前提（本机进程不可信）现在不成立，t04 的本机口令要加在 nb-host。不是耦合问题，是缺项；列在这里是因为它决定 nb-host 要长一个“可选的连接鉴权”扩展点。
+- 类别：不涉及耦合分类（缺项）。建议：口令做成 `startHostServer` 的可选项，HTTP 分发与 RPC 升级共用同一个判定（与现在的来源判定同一处产出，ADR 0045 决策 1 的做法），代价中。
+### F17. 机检的缺口
+- R/app-neutral.test.ts:12 的应用名只有 `nbook|neurobook`，没有 neurobot、nbot（nb-harness、nb-host、nb-models 的同名检查都已加上：H/app-neutral.test.ts:14、HO/architecture.test.ts:26、M/app-neutral.test.ts:11）；它也不查导入与 package.json（nb-harness 的查）。
+- nb-session、nb-profile 没有任何应用无关检查（两包各 8、11 个源文件；grep 应用名目前为 0）。它们是公开发布的包（publishConfig public）。
+- 应用的地址方案与小说词汇以“例子”出现在 kit 的注释里，机检放过：H/kit/tools/types.ts:28“资源地址，例如 project://正文/第一章.md、session://plan.md”，H/kit/tools/shell-address.ts:18、H/kit/tools/shell.ts:183 也写 `project://`。不影响行为，只是读者会以为 kit 认识这些方案。
+- M/testing/store-contract.ts:8 的 `./testing` 出口值导入 `@notnotype/neuro-book-test-support/wait`，而它只在 devDependencies：monorepo 里能跑，包一旦被仓库外的应用使用就解析不到（nb-models 是 private，现在不出问题）。
+- 已运行（全部通过）：nb-harness 的 app-neutral、kernel 与 kit 的 architecture、models/boundary（19 项）；nb-runtime app-neutral（1）；nb-host architecture（4）；nb-models app-neutral 与 boundary（4）。
+- 类别：可以拆开（小）：补应用名、给两个小包加同一份扫描、把注释里的例子换成中性方案名。
+（更正 F15、F17：R/remote/contract.ts 的提供方位置在第 17 行，不是第 20 行；nb-session 有 4 个、nb-profile 有 7 个非测试源文件，合计 843 行。）
+### F18. 后台会话只是一个标记：内核在后台会话里仍会挂起等用户审批
+- 读代码核实：会话头 `background` 只进索引（H/kernel/log/index-file.ts:16、jsonl-store.ts:299）与工具上下文（H/kernel/session/session.ts:122）。运行循环总带着 `interactions`（H/kernel/run/control.ts:41、118），审批判 ask 时照常写 `interactionRequested` 并等（H/kernel/run/tools.ts:261-266）；只有 `interactions === undefined`（不带工具的单次请求）才得 `approval-unavailable`（:262）。
+- kit 的 `ask` 工具会看 `context.background` 直接失败（H/kit/tools/ask.ts:107），审批这一侧没有对应的处理，要靠宿主的审批钩子（`escalate` 按 context.background 交回 deny，H/kit/approval/types.ts:42-46）。
+- 影响：提案的“任务运行不等审批、清单外直接拒绝”可以全在宿主做，但漏了一处（例如任务会话换了钩子、或某个扩展在拦截层交回 ask）就会让无人值守的运行挂到 gateway 重启。内核没有兜底。
+- 类别：可以拆开（小）：CreateSessionOptions 加 `unattended: true`（或让 `background` 兼有此义），内核把 ask 换成 `denied/code:"approval-unattended"`，与 ask 工具的行为对齐；写进 runtime.md 输出 39 附近。NeuroBook 的后台会话（标题生成）不受影响（它不用工具）。
+### F19. 第 1 题的其余命中：只在注释、说明与包描述里，没有进入行为
+- 读代码核实（在六个包的非测试源码里 grep 应用名、`nbook` 前缀、`[a-z]+://` 方案、作品、小说、章节、看板娘、sticker、canon、计划模式等）：
+  - 应用名与 `nbook` 前缀：源码零命中（四个机检都通过，见 F17）；packages/nb-runtime/package.json:4 的 description 写“NeuroBook 内核”；packages/nb-harness/package.json:44 的脚本 `NBOOK_LLM_TESTS=1`（只给测试）。
+  - 地址方案：只有注释例子（F17 第 3 条）；kit 的文件访问把方案、根、别名全交给宿主（H/kit/files/local.ts:19-36 `roots`、`aliases`、`layout`、`classify`），没有内置方案。
+  - Profile id 例子 `builtin.writer`、`story.qa`（H/kernel/api/profile.ts:3）；“例如会话处在计划模式”（H/kernel/api/host.ts:394）；请求记录目录写“状态根下的 agent/requests/”“应用里是 agent.”（H/kit/requests/recorder.ts:31-32）。
+  - 审批模型的系统提示词写死在 kit（H/kit/approval/review.ts:57-70，英文，“anything outside the current project”“send project content”），宿主只能换对 Agent 的称呼（:122 `agentDescription`）。nb-harness/AGENTS.md 要求“宿主专有的说明文字、提示词……由宿主传入，kit 不给缺省值”，这段提示词是与应用无关的通用安全规则，但“project”的说法对 bot 不对口。
+  - 设置键：kit 不认识宿主的设置键（守卫、请求记录、审批都经宿主闭包现读，例如 kit/guards/cost-guard.ts:35 `limits: () => CostLimits`）；内核的核心设置只有 model、effort、approvalMode、readOnly（H/kernel/run/settings.ts:11-16）。
+- 类别：可以接受（审批提示词除外：可以拆开，小——让宿主可选地整段替换，或把“project”换成宿主给的“工作范围”称呼）。
+### F20. 花费上限按会话一生累计，常驻的主会话没有“按天”的口径
+- 读代码核实：H/kit/guards/cost-guard.ts:1-5、36-41 累计数是内核算的会话一生的 `ctx.spend`；宿主能给 `SpendScope`（:23-29）换范围，但 `record` 收的是绝对值，要按天得宿主自己记每天零点的基数再相减。超限后每次请求都被 `refusal` 拦下（:66-71），直到改上限。
+- 影响：任务会话每次一个新会话，一生就是一次运行，正合用；主对话若也装花费守卫，一个固定的上限迟早永久挡住 bot。提案只给任务会话装守卫（第四节第 6 小节），所以第一版不挡。
+- 类别：可以接受（第一版）；若主对话要按天限额，SpendScope 加一个窗口参数即可，代价小。
+### F21. 空闲时写进会话的扩展事件没有累计上限
+- 读代码核实：H/kernel/state/history.ts:41-42 `waiting: readonly LogEvent[]`，开下一轮时整个并进 attachments（:63），没有长度或条数上限；压缩的切点只在轮的开头与步上（H/kernel/compaction/compact.ts:86-112），`waiting` 不在任何一轮里，切不掉。
+- 影响：提案第四节第 6 小节已经指出（用户长时间不回时提醒与任务结果堆在轮外），要在 t10 定上限。上限放在内核（按条数或 token 截旧的）还是放在 NeuroBot 的扩展（写之前自己数）都行；放内核能让 NeuroBook 的扩展一并受益。
+- 类别：可以拆开（小），与 F5 一起做：既然要让事件开启一轮，最好让宿主在事件到达时直接开一轮，堆积就少了。
+（更正 F20：拦截在 H/kit/guards/cost-guard.ts:70-76，`refusal` 在第 76 行。）
+
+### F22. 第 4 题：包之间的依赖方向（读 package.json 与导入核实）
+- 运行时依赖（package.json 的 dependencies）：
+  - nb-runtime → typebox
+  - nb-profile → typebox；nb-session → 无
+  - nb-harness → nb-flock、nb-form（只用核心 `.`，nb-form 的 nb-ui、vue 是可选 peer）、nb-profile、nb-session、@oh-my-pi 五个包、typebox、unbash
+  - nb-host → nb-file-lock、nb-runtime、hono、typebox
+  - nb-models → nb-harness（只取 `./models`、`./kit/shapes` 与 `./kernel/contracts` 的类型，M/boundary.test.ts 禁止根入口与 `./kernel`）、nb-runtime（`./remote`、`./services`）、typebox
+- 没有环：nb-runtime、nb-session、nb-profile 是叶子；nb-harness 不依赖 nb-runtime（H/app-neutral.test.ts 第 2、3 条守住）；nb-host 与 nb-harness 互不依赖；nb-models 是唯一同时依赖 harness 与 runtime 的包，二者都不反向依赖它（ADR 0045 决策 2 写明）。
+- 没有任何一条依赖指向应用包（四个机检的导入扫描守住；nb-session、nb-profile、nb-runtime 没有导入扫描，但它们的 package.json 没有工作区依赖）。
+- 会让第二个应用带上不需要的东西的只有：nb-harness 的根入口与 nb-session、nb-profile、pi-agent-core（F9，旧实现）；nb-runtime 远程协议里的项目角色（F15，空着不用即可）；nb-models `./testing` 值导入 neuro-book-test-support（F17）。没有哪条会带上 NeuroBook 本身。
+- 类别：可以接受（方向本身干净）。
+
+---------------------------------------------------------------------
+## 正式报告
+
+结论先行：六个包里没有一条依赖指向 NeuroBook，应用名与 `nbook` 前缀已被四个机检挡住（全部通过），漏进来的应用概念只剩注释例子、内核会话头的可选 `project` 字段与 nb-runtime 远程协议里的“项目实例”角色，都不挡 bot。真正挡 bot 的是内核的几条假设：输入的发出者只有用户与会话、轮只由用户输入开启、外部事实只在对话循环的边界写出、等用户没有期限、压缩指令不带原因与方法、模型适配器不传缓存档位；提案第三节列的七条内核与宿主事实，以现在的代码逐条核实都仍成立（F1、F2、F3、F6、F16，缓存三档与适配器未传见 F7，对话视图一条不在本次范围）。kit 各块大多能挑着装，但它们的行为合同写在 NeuroBook 的 Spec 里。
+
+### 一、能否不装或关掉
+
+| 包或功能块 | 宿主能否不装或关掉 | 关了坏什么 | 证据 |
+|---|---|---|---|
+| nb-runtime | nb-harness 不需要它；nb-host、nb-models 必须依赖 | 不用就不能用 nb-host、nb-models | H/app-neutral.test.ts 第 2、3 条；两包 package.json |
+| nb-host 服务端 | 整包可不用；用了就必须带 HTTP 与诊断两个宿主插件和状态根认领，不能去掉 | — | HO/server/start.ts:65-69、103-107、115-116 |
+| nb-host 项目绑定 | 可不给 | 带绑定的连接一律 project-unavailable（bot 本来就不用） | HO/server/start.ts:123-124 |
+| nb-host 本机口令 | 没有这个功能 | — | F16 |
+| nb-models | 可不装：内核只要一个 ModelPort | 要自己写模型解析、凭据与设置 | H/kernel/api/host.ts:431 |
+| nb-session、nb-profile | 新内核不用；装 nb-harness 就会带上（旧实现的依赖） | — | F9 |
+| 内核必填项 | store、profiles、models、tools、resources、sessions、clock、approve 都必须给，没有缺省 | — | H/kernel/api/host.ts:426-444、397-398 |
+| 内核可选项 | extensions、attachments、retry、outbound、compaction 都可不给 | 不给 compaction 时压缩总失败，溢出直接收口 | host.ts:430-454；loop.ts:286-297 |
+| 压缩（总开关） | Profile `compaction:false` 一次全关 | 溢出时运行以 context_overflow 收口 | compact.ts:173；loop.ts:286 |
+| 压缩的三种触发 | 不能分开开关：阈值关不干净，手动借用阈值的方法顺序 | 想只留溢出与宿主发起时做不到 | F14 |
+| 压缩方法（kit） | shake、inplace、summary 各自可选，宿主自己填方法表与提示词 | — | H/kit/compaction/index.ts:20-22；types.ts:7-15 |
+| 审批 | 内核必须有 approve；kit 的审批钩子可选，可自写；审批模式枚举固定为四种核心设置 | 不装 kit 钩子就自写规则与地址判定 | host.ts:397-398；H/kernel/run/settings.ts:11-16 |
+| 自动审批模型 | 可选，Reviewer 与 Escalate 都由宿主给 | auto 模式没有审批者 | H/kit/approval/hook.ts:38-40；types.ts:42-46 |
+| 守卫（花费、循环） | 可选扩展，扩展 id 与上限由宿主给 | 无花费、重复调用保护 | H/kit/guards/index.ts:6-9 |
+| 内置工具 | 逐个可选：宿主登记，Profile 声明才有 | — | H/kit/tools/index.ts:31-52 |
+| ask、askForm | 可选；依赖 nb-form 核心 | — | H/kit/tools/ask.ts:8 |
+| shell 后台运行 | 可选（ShellBackground 由宿主给） | 没有后台命令 | H/kit/tools/shell.ts:210 |
+| 子代理、任务中心 | 包里没有，在 NeuroBook 插件里 | bot 要用得自写或先搬 | F10 |
+| 句柄表 | 整块可选（宿主可自写 sessions.get）；用它则空闲 30 秒关闭关不掉，只能靠持订阅绕过 | — | H/kit/sessions/table.ts:23、330-337、361-387 |
+| 请求记录器 | 可选 | 没有请求记录 | H/kit/requests/recorder.ts:23-36 |
+| 文件访问 | 工具与审批要一个 SessionFiles；本机实现 local.ts 可选 | — | H/kit/files/local.ts:19-36 |
+| 开场快照 opening | 可选扩展 | — | H/kernel/helpers/opening.ts:9-23 |
+| 后台会话、无人值守 | `background` 只是标记；审批仍会挂起等人，关不掉 | 无人值守的运行可能一直等 | F18 |
+
+### 二、逐条耦合（按影响排序）
+
+### 1. 输入的发出者绑死在“用户”上
+- 类别：不推荐耦合。
+- 位置：H/kernel/api/basics.ts:55；H/kernel/run/input.ts:70-72；H/kit/approval/review.ts:57-59、83-87（证据见 F2）。
+- 现象：Issuer 只有 user 与 session；宿主送进会话的输入只能以用户名义写，日志里不带 `by`，与用户亲手打的字无法区分。kit 的自动审批模型把路径上全部 `input`、`steer` 当作用户授权。
+- 挡住：bot 的提醒、任务结果、以后外部渠道的消息进会话；“外部内容不能改变权限”（提案第四节第 10 小节）在审批模型这一侧不成立。
+- 改法：Issuer 加 `{kind:"host"; source}`；`byField` 写出；审批模型只取用户发的输入；远程合同与 nb-agent-ui 适配器认新的 `by`。代价中（内核码表、runtime.md 输出 85、适配器）。
+
+### 2. kit 的行为合同写在 NeuroBook 的 Spec 里
+- 类别：不推荐耦合（与 ADR 0045、nb-harness/AGENTS.md 的“应用专有的东西由宿主传入”不一致：代码中立了，合同没有）。
+- 位置：docs/specs/agent/sessions.md:7、14、140；agent/compaction.md:31、99；kit 源码头链接这些文件（F11）。
+- 现象：句柄表、审批分层、守卫、内置工具、压缩方法的合同以 `nbook.agent` 为主语；只有文件访问有中立的 harness/host-kit.md。
+- 影响：bot 插件依赖的行为（空闲关闭、规则合并、守卫口径）没有中立的合同可依；bot 驱动的改动要改 NeuroBook 的 Spec，评审范围被拉大。
+- 改法：每块与应用无关的部分移进 docs/specs/harness/（host-kit.md 或按块分文件），agent/*.md 只写 NeuroBook 给的 id、文字与接线。代价中，纯文档。
+
+### 3. 模型适配器的缓存档位由进程环境决定
+- 类别：不推荐耦合（挡住缓存过期前压缩：截止时刻依赖确定的档位）。
+- 位置：H/kernel/model/omp.ts:312-332 不传 `cacheRetention`；OMP 会读 `PI_CACHE_RETENTION`（F7）。
+- 改法：ModelRequest 或 ModelTarget 加档位，nb-models 的服务商配置给出，适配器显式传；顺带传 `sessionId`。代价小。
+### 4. 外部事实的写出绑在对话循环的边界上
+- 类别：可以拆开（第一版必须做）。
+- 位置：H/kernel/dispatch/mount.ts:50-52；H/kernel/run/loop.ts:208（唯一取出处）、183-198（只压缩的运行）、120-134（收口）（F1）。
+- 现象：运行中到达的外部事实只在下一次对话请求前写出；运行收口、只压缩的运行都不写。
+- 挡住：运行中到点的提醒、任务结果滞留到用户下一次发消息。
+- 改法：收口与只压缩分支在 `runEnded` 之前冲刷 inbox，或收口后在队列里补写一次。代价小，NeuroBook 行为只是更早写出。
+
+### 5. 轮的开头绑在用户输入上
+- 类别：可以拆开。
+- 位置：H/kernel/run/commands.ts:143-147（`start` 在上一轮已完成时 `nothing-to-continue`，不看 history.waiting）；H/kernel/state/history.ts:41-42、63；ConversationTurn 没有“由事件开启”的标记（F5）。另：waiting 没有累计上限（F21）。
+- 挡住：宿主想让 bot 主动处理任务结果时只能伪造用户输入（落回第 1 条）；界面要的“事件开启的轮次”在内核侧没有字段可依。
+- 改法：`start` 在 waiting 非空时开一轮，turnStarted 记开启它的扩展事件；waiting 按条数或 token 设上限。代价小。
+
+### 6. 等用户的事项没有期限，审批只收用户应答
+- 类别：可以拆开（第一版必须做，提案归 t06）。
+- 位置：H/kernel/run/interaction.ts:52-89、95-99；H/kernel/api/events.ts:55（F3）。
+- 现象：同步事项只等应答或中止；没有 expired 结算。
+- 改法：`interactionRequested` 带可选 `expiresAt`，内核按注入时钟到点写 `decision:"expired", by:kernel`；重开时由恢复补结算。代价中。
+
+### 7. 后台会话标记与“不等人”脱钩
+- 类别：可以拆开。
+- 位置：H/kernel/run/tools.ts:261-266；H/kit/tools/ask.ts:107（F18）。
+- 现象：ask 工具看 `background` 不问，审批不看；无人值守全靠宿主钩子。
+- 改法：会话选项 `unattended`，内核把 ask 换成拒绝（`approval-unattended`）。代价小。
+### 8. 手动压缩的原因与方法绑在阈值的顺序上；阈值触发不能单独关
+- 类别：可以拆开（提案归 t08）。
+- 位置：H/kernel/api/host.ts:50（compact 只有 requirement）；compact.ts:128、176；loop.ts:193、240、236-237；compact.ts:58-62（F4、F14）。
+- 现象：宿主发起的压缩一律记 manual、用 onThreshold 的方法顺序；想只关阈值没有开关，把 onThreshold 设空会连手动一起失效并每个边界写诊断。现有逃生口是 compaction 拦截链能改 `job.method`，但看不到真实原因。
+- 改法：compact 加 `reason`、`methods`（给了就只用它、失败不换）；顺序加 `onManual`；`compactAt: null` 表示不按阈值。代价小到中。
+
+### 9. 句柄表的空闲关闭对所有会话一刀切
+- 类别：可以拆开。
+- 位置：H/kit/sessions/table.ts:23、330-337（F6）。
+- 现象：30 秒写死；常驻只能靠宿主持一个订阅（:361-387 订阅持引用），这条不是写下的合同。
+- 改法：选项 `idleCloseMs(entry)` 或 `pin(id)`，写进合同。代价小。
+
+### 10. nb-harness 里新旧两套实现并存
+- 类别：可以拆开。
+- 位置：packages/nb-harness/package.json 的 `"."`；src/index.ts:1-29；旧实现独占 nb-session、nb-profile、pi-agent-core（F9）。
+- 好处：第二个应用的 `import "@notnotype/nb-harness"` 拿到新内核；少装三个依赖；nb-session、nb-profile 可以退役。
+- 改法：先把 nb-story 的问答引擎（src/qa/engine.ts、probe.ts、tools.ts、harness-model.ts）迁到新内核，再删旧实现、上移 kernel。代价中，nb-harness/AGENTS.md 已有此计划。
+
+### 11. 子代理与任务中心在应用插件里
+- 类别：可以拆开（第一版不急）。
+- 位置：packages/neuro-book/src/plugins/agent/backend/jobs/center.ts（341 行，只依赖内核的 Clock）、subagents/*.ts（约 1,300 行，依赖应用的模式与贡献点）（F10）。
+- 好处：bot 的周期任务、以后的子代理与 NeuroBook 共用一份。
+- 改法：任务中心直接搬进 kit 新单元；子代理工具先把模式与贡献点换成参数再搬。代价小（任务中心）到中（子代理）。
+
+### 12. 审批模型的系统提示词写死在 kit，以“project”为工作范围
+- 类别：可以拆开（小）。
+- 位置：H/kit/approval/review.ts:57-70、122-124（F19）。
+- 改法：提示词可整段由宿主替换，或把“project”换成宿主给的范围称呼。
+
+### 13. 机检的缺口
+- 类别：可以拆开（小）。
+- 位置：R/app-neutral.test.ts:12 少了 neurobot、nbot，也不查导入；nb-session、nb-profile 没有扫描；注释里的 `project://正文/第一章.md`（H/kit/tools/types.ts:28 等）；M/testing/store-contract.ts:8 值导入只在 devDependencies 里的测试支持包（F17）。
+### 14. 审批规则固定为“用户、项目、会话”三层，项目层与模式闸门必填
+- 类别：可以接受。理由：“项目层只能收紧”是安全规则；bot 传空表与 `() => false` 即可，不挡场景；Escalate 已为 bot 留好口（F12）。
+
+### 15. 内核会话头与工具上下文的可选 `project` 字段
+- 类别：可以接受。理由：不透明的可选字符串，内核只抄写与过滤；bot 不用或拿来放分组键都行（F13）。
+
+### 16. nb-runtime 远程协议的“项目实例”角色
+- 类别：可以接受（第一版）。理由：bot 不开项目子进程，nb-host 不给绑定即可；泛化要动 wire 协议，等 device 出现再做（F15）。
+
+### 17. 花费上限按会话一生累计
+- 类别：可以接受（第一版只给任务会话装，一会话一运行）。主对话要按天限额时给 SpendScope 加窗口（F20）。
+
+### 18. nb-host 强制带 HTTP 与诊断两个宿主插件、强制状态根认领
+- 类别：可以接受。理由：这是 ADR 0045 决策 1 有意为之（“漏装不了这两个插件”“没有认领就起不了服务端”），是安全规则的一面（HO/server/start.ts:65-69、103-107）。
+
+### 19. 内核核心设置固定四种审批模式
+- 类别：可以接受。理由：内核只存模式、交给钩子解释（H/kernel/run/settings.ts:11-16；tools.ts:250）；bot 的“按会话种类”判定放在钩子或扩展设置里即可。
+
+### 20. nb-models 依赖 nb-runtime 的远程与服务形状
+- 类别：可以接受。理由：设置页的远程合同本来就建在 nb-runtime 上，两个应用都用 nb-runtime（ADR 0045 决策 2 备选“模型服务放进 nb-harness”一条已说明）；harness 不反向依赖它（F22）。
+
+### 21. 包之间的依赖方向
+- 类别：可以接受：无环，无指向应用的依赖（F22）。
+
+### 三、内核与 bot 用法冲突的假设
+
+1. 一个会话一直写下去（日志长度与打开耗时）
+   - 现状：打开从头读、从头归约，全部事件常驻内存；压缩不缩短日志与内存；检查点快照没有实现（H/kernel/api/storage.ts:50-52；kernel 内无 checkpoint）。实测（loadavg 约 24 时）2,000 轮 24,667 条事件打开 578 ms、堆增 33 MB；8,000 轮 98,667 条 1,140 ms、堆增 105 MB（F8）。
+   - 要改：第一版只记打开耗时与事件数；按 ADR 0035 决策 1 加检查点快照；之后考虑让压缩点之前的事件不常驻、`log` 查询走磁盘分页。代价大。
+2. 会话常驻不被关
+   - 现状：句柄表 30 秒写死（H/kit/sessions/table.ts:23）；持订阅可绕过（:361-387）；内核本身不关会话。
+   - 要改：句柄表加按会话的空闲策略或 pin（第 9 条）。
+3. 宿主而不是用户发起的输入（提醒、任务结果）
+   - 现状：Issuer 只有 user、session（F2）；扩展在 mount 里写的事实是另一条路，但运行中只在对话边界写出（F1），空闲时写的并进下一轮、不开轮、无上限（F5、F21）。
+   - 要改：Issuer 加宿主发出者；收口与只压缩运行冲刷 inbox；`start` 能由 waiting 开轮；waiting 设上限（第 1、4、5 条）。
+4. 审批与提问带期限；无人值守
+   - 现状：没有期限与 expired 结算，审批只收用户（F3）；后台会话照样挂起等审批（F18）。
+   - 要改：`expiresAt` 加内核结算；`unattended` 会话把 ask 换成拒绝（第 6、7 条）。另：用户在等审批时发消息，宿主要先 `resolve(deny, note)` 再 `send`，是两条指令（commands.ts、interaction.ts），中间运行会先跑一步；推断影响小，若要原子可加“拒绝并插话”的组合指令。
+5. 宿主发起的压缩带原因与方法
+   - 现状：compact 只带 requirement，原因固定 manual，方法顺序借 onThreshold，阈值触发关不干净（F4、F14）；缓存档位不传给服务商（F7）。
+   - 要改：第 3、8 条。
+6. 事件开启的轮次
+   - 现状：轮只由 `takeInputDrafts` 或“继续”开启，上一轮完成后 `start` 拒绝（F5）。
+   - 要改：第 5 条；ConversationTurn 暴露开启它的事件，供 nb-agent-ui 分轮。
+7. 另找到的：主对话的花费上限是一生累计（F20）；扩展 mount 时限缺省 30 秒（H/kernel/dispatch/mount.ts:18、87，可按扩展 `timeoutMs` 改，不冲突）。
+
+### 四、推荐先做的五件事
+1. Issuer 加宿主发出者，日志写出 `by`，审批模型只把用户本人的输入当授权（第 1 条）。这是第一版的安全前提，也是后面几件事的基础。
+2. 运行收口与只压缩的运行写出排着的外部事实；`start` 允许由空闲时写的事件开一轮；waiting 设上限（第 4、5 条）。改动都在 loop.ts、commands.ts，小。
+3. 审批与提问带期限（内核按过期结算）加无人值守会话的兜底（第 6、7 条）。
+4. 压缩指令带原因与方法、拆开阈值开关与手动顺序；模型适配器显式传缓存档位（第 3、8 条）。两种省钱的压缩触发都靠它。
+5. 把 kit 各块的中立合同移进 docs/specs/harness/，顺手给句柄表写下常驻选项（第 2、9 条）。上面四件的 Spec 改动正好落在新文件里，不必改 NeuroBook 的 Spec。
+
+### 各类条数（第二节 21 条）
+- 不推荐耦合：3 条（第 1、2、3 条）
+- 可以拆开：10 条（第 4 至 13 条）
+- 可以接受：8 条（第 14 至 21 条）
+- 另有 1 条缺项不分类：nb-host 没有本机口令（F16）；1 条性能假设单列在第三节第 1 项（F8）。

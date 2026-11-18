@@ -1,0 +1,142 @@
+# 审查报告：w00025 t09 第 2 到 4 片（前端）
+被审提交 63b79dde9（审查 worktree 与实现 worktree 的 HEAD 都核对过，均为 63b79dde9）。实验文件在 /tmp/review-w00025-t09-s24/exp/（用 vitest 配置 vitest.exp.config.ts 在实现 worktree 里跑）。
+
+## 1. 插图卡片：输入又变时中止的请求会把“已取消”当作失败显示（红字闪一下、列表被清空）
+- 严重程度：建议（偏高）；类别：正确性
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownImageCard.vue:60-65、116-122（`stopSearch`、`watch(query)`）与 81-89（`refresh` 收尾）
+- 现象：`watch(query)` 里只调 `stopSearch()`（abort 在途请求），没有给 `sequence` 加一；`sequence` 只在 `refresh()` 开头加。停手 150 ms 后若还要再等 `SEARCH_DELAY_MS` 才进下一次 `refresh()`，这 150 ms 里被 abort 的那次请求的 `await` 恢复时 `mine === sequence` 仍成立，于是走 `!result.ok` 分支：`items = []`、`failure = detail`、`status = "error"`。真实的远程调用被 abort 后就是返回 `{ok:false, code:"cancelled"}`（nb-runtime `remote/peer.ts:117-139`、`files/web/client.ts` 的 `fromRemote`），不是挂起。
+- 为什么是问题：注释写的是“迟到的结果（输入又变了……）丢弃”，实现只对“后到”的结果成立，对“被中止而立刻回来”的结果不成立。用户在搜索在途时继续打字，会看到列表清空并出现红色“加载失败：已取消”的提示，约 150 ms 后才变回“加载中”。现有测试（MarkdownMenus.dom.test.ts:380 “迟到的结果丢弃”）里的假 `find` 不响应 abort 信号，所以没有碰到这条路径。
+- 如何核实（已复现）：/tmp/review-w00025-t09-s24/exp/abort.exp.test.ts，复用该测试的 harness，`find` 在 `signal` abort 时 resolve `{ok:false, code:"cancelled", detail:"已取消"}`（与真实远程客户端一致）；打“林”，等 `find` 被调用，再打“林雪”，flush 之后卡片里的提示文字是 `imageCardFailed {"detail":"已取消"}`、行数 0。命令：`cd .../w00025-t09-links-images/packages/neuro-book && bunx vitest run --config /tmp/review-w00025-t09-s24/exp/vitest.exp.config.ts`。
+- 建议改法：最小改法是 `stopSearch()` 里加 `sequence += 1`（让所有被放弃的请求都作废），`refresh()` 里去掉自己的那次加一或保留都可以；再给 `refresh` 加一个“被取消的结果”测试（假 `find` 在 abort 时 resolve cancelled）。
+
+## 2. `nbook.edit.image` 命令的 `when` 用了 `canConvertBlock`：表格单元格里选了图，命令被拒绝，图静默不插入
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/editor/shared/editing.ts:56（`image: {kind: "block", ...}`）、web/editing-commands.ts:30-35（`requires`：`kind === "block"` 加 `canConvertBlock`）、web/state.ts:98（`canConvertBlock = enabled("paragraph")`）、markdown/web/components/menus/MarkdownMenus.vue 的 `insertImage`（`props.menus.run("image", ...)`）、editor/web/editing-menus.ts:`execute`（`void options.commands.execute(...)`，结果丢弃）。
+- 现象：`image` 的可用性有两层：控件里的 `enabled`（= `canInsertImages`，表格单元格里为真）和命令服务的 `when.requires`（= `writable` 加 `canConvertBlock`）。`canConvertBlock` 在表格单元格里恒为假（nb-markdown `editing-actions.ts` 的 `canConvertBlock` 对 `tableRole` 的祖先返回 false；节点选区也为假）。所以在表格单元格里：工具栏图片按钮可用、斜杠菜单与卡片都能开、选了图点回车；`menus.run("image")` 走到命令注册表（commands/shared/registry.ts:325）得到 `unavailable`，而 `execute` 包装是 `void` 丢弃结果：卡片收起，图没插入，也没有任何通知。
+- 为什么是问题：Spec 输出 55 明确把表格单元格列为图片可插入的位置，粘贴路径走插件自己的 `place`，不经命令，所以粘贴在单元格里是好的，而插图卡片在单元格里坏了，两个入口不一致。Spec 的命令表写的是 `nbook.edit.image` 的前置为 `canFormat`（markdown-editing.md 第 73 行），实现把它登记成 `kind: "block"` 偏离了 Spec。现有 DOM 测试把 `menus.run` 换成直接调 `editing.run`（MarkdownMenus.dom.test.ts 的 harness），绕过了命令层，所以没有发现。
+- 如何核实（已复现一半）：/tmp/review-w00025-t09-s24/exp/cell.exp.test.ts 在真实 Tiptap 编辑器里把光标放进表格单元格：`image.enabled=true`、`paragraph.enabled`（即 `canConvertBlock`）`=false`、`bold.enabled=true`。命令层拒绝的那一步由 registry.ts:325 与 editing-commands.ts:30-35 的代码读出（未起整套命令服务）。
+- 建议改法：把 `image` 改成 `kind: "format"`（与 Spec 命令表一致，`canFormat` 在单元格里为真），或给 `EditingActionInfo` 加一个只要 `writable` 的档位；同时让 `MarkdownMenus` 在 `menus.run` 返回不可用时给通知（`execute` 现在吞掉结果，所有走卡片的动作都有同样的静默失败面）。再补一条经真实命令服务（或至少经 `editing-commands.ts` 算出的 `requires`）的测试：单元格里 `image` 可执行。
+
+## 3. 链接里带图片（`[![图](a.png)](url)`、`[前文![图](a.png)后文](url)`）时，“整条链接”只算到图片前的文字：改地址只改一段，去掉链接留下残链，只有图片的链接不被识别
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-markdown/src/editor/links.ts:27-41（`linksIn`：`child.isText ? child.marks.find(...) : undefined`）
+- 现象：方言把链接标记加在图片节点上（`[![图](a.png)](https://x.com)` 解析后 `image` 节点带 `link` 标记），`linksIn` 只认文本节点，遇到图片就当“不在链接里”，且图片把前后的文字隔成两条。结果：
+  1. 只含图片的链接（徽章、可点击的封面图）：选中图片或光标在旁边，`linksTouching` 为空，“去掉链接”不可用，卡片不预填地址；
+  2. 文字加图片混合的链接：光标在“前文”里改地址，只有“前文”换成新地址，图片与“后文”仍带旧地址；去掉链接同样只去掉图片前的那一段，留下 `[![图](a.png)后文](旧地址)`。
+  这违反 Spec 输出 52 的“改所有碰到的链接的整条地址、去掉碰到的整条链接，不留残链”。nb-markdown 自己的 `reference-links.ts:linkRanges` 就是不分文本与行内节点、按 `child.marks` 与 `mark.eq` 合并的，`links.ts` 与它不一致。
+- 如何核实（已复现）：/tmp/review-w00025-t09-s24/exp/linkimg2.exp.test.ts（真实 Tiptap、真实语言与编码器）。`见[前文![图](a.png)后文](https://old.com)吧`，光标放进“前文”：`link` 动作之后写回 `见[前文](https://new.com)[![图](a.png)后文](https://old.com)吧`；`link-remove` 之后写回 `见前文[![图](a.png)后文](https://old.com)吧`。linkimg.exp.test.ts：`[![图](a.png)](https://x.com)` 里选中图片节点，`linksTouching` 为 0、`link-remove` 的 `enabled` 为 false。现有 links-images.dom.test.ts 的用例里没有行内节点。
+- 建议改法：`linksIn` 去掉 `child.isText` 的限制，对所有行内子节点按 `child.marks` 找链接标记，相邻且 `mark.eq` 的合并（与 `reference-links.ts` 同一判据，最好两处共用一个函数，现在是两份实现）。补两条测试：链接里夹一张图、链接只含一张图，改地址与去掉链接都作用于整条。
+
+## 4. 粘贴占位 `nb-markdown-image-uploading` 没有任何样式，也不是可朗读的状态：它在正文里看起来就是一段普通文字
+- 严重程度：建议；类别：正确性（外观）/ 可访问性
+- 位置：packages/nb-markdown/src/editor/image-paste.ts:59-66（`widgetFor`）；`grep -rn nb-markdown-image-uploading packages`（排除 node_modules）只有这一处，`display/markdown.css` 与别处都没有这个类的规则。
+- 现象：占位是一个 `contentEditable=false` 的 `<span>`，文字“正在上传 1 张图片”，没有颜色、没有图标或转圈、没有 `role="status"`/`aria-live`。上传几秒内，它与用户自己打的字没有视觉区别（同字体同颜色同大小），也不会被读屏软件当作状态播报。
+- 为什么是问题：Spec 输出 55 把它定义成“占位”，用户要能一眼看出这不是文档内容；它还夹在正文里，用户可以在它前后继续打字，更容易误认。nb-ui 的 Lab 规范也要求新视觉有场景可看，这个占位没有场景（Lab 里只登记了 `MarkdownImageCard`，编辑器场景里没有粘贴中的画面）。
+- 如何核实：grep 如上；在 image-paste.dom.test.ts 里占位只断言文字存在（`widgets(...)`、`textContent` 含“正在上传 1 张图片”），没有断言任何样式。
+- 建议改法：在 `display/markdown.css` 加 `.nb-markdown .nb-markdown-image-uploading`（弱色、斜体或前置转圈图标，`user-select: none`），给 `<span>` 加 `role="status"`；并在编辑器 Lab 场景里放一个粘贴中的状态（或在 e2e 里截图）。
+
+## 5. 只读文档里 Ctrl 点链接：浏览器自己也会跟随这条 `<a target="_blank">`，与 `openLink` 叠成两次打开（作品里的文件还会在新标签页里打开一个 404 页）
+- 严重程度：重要（未在真实浏览器里验证，从代码与 Tiptap 源码推断）；类别：正确性
+- 位置：packages/nb-markdown/src/editor/link-open.ts:91-104（`handleClick`，`event.preventDefault()`）；packages/nb-markdown/src/language/syntax/core/index.ts:410（`MarkdownLink.configure({openOnClick: false, ...})` 没有改 `HTMLAttributes`）
+- 现象：Tiptap Link 的 `renderHTML` 默认给 `<a>` 带 `target="_blank" rel="noopener noreferrer nofollow"`（node_modules/@tiptap/extension-link 3.27.3 的 `src/link.ts:254-255`）。可编辑的编辑器里 `contenteditable` 吞掉了链接的默认动作，所以没事；只读时 `editable=false`，`<a>` 就是普通链接。`handleClick` 是 ProseMirror 在 `mouseup` 上调的，在它里面 `preventDefault()` 取消不了随后的 `click` 的默认动作（导航）。所以只读文档里按住 Ctrl 点一条外部链接：浏览器按 `target=_blank` 自己开一个标签页，`openLink` 又用临时 `<a>` 开一个，共两个；点作品里的相对链接（`设定/林雪.md`）：浏览器会在新标签页里打开 `应用地址/设定/林雪.md`，同时编辑器区也打开了那个文件。Spec 输出 53 明说“只读文档同样能打开”，所以只读是被要求支持的路径。
+- 为什么 DOM 测试没发现：happy-dom 不跟随链接，测试里 `click` 是手工调 `handleClick` 的（image-paste.dom.test.ts 的 `clicked`）。
+- 如何核实：e2e 里把文档设为只读，Ctrl+点外部链接，数新开的页（`context.on("page")`）；预期 1 个，现在应得 2 个。Firefox 对可编辑区里 Ctrl+点链接是否也会跟随，e2e 也要看一次。
+- 建议改法：最小的改法是在 `MarkdownLinkOpener` 里加 `handleDOMEvents.click`（或捕获阶段的 `click` 监听）：按着修饰键且点在 `a[href]` 上时 `preventDefault()`，把默认导航也拦掉；更根本的是编辑器里的链接不要 `target="_blank"` 与真实 `href` 导航（`MarkdownLink.configure({HTMLAttributes: {target: null, rel: null}})`），因为编辑器里的链接从来不该由浏览器自己跟随。后者同时修了只读时单击链接就被浏览器带走的问题（Spec 53 写“单击照旧：选中整条链接”）。
+
+## 6. 粘贴插件判“纯文字粘贴”比 ProseMirror 自己宽：Shift+Insert（普通粘贴）也被当成 Ctrl+Shift+V 放过；还读了 `view.input` 这个非公开字段
+- 严重程度：建议；类别：正确性 / 代码质量
+- 位置：packages/nb-markdown/src/editor/image-paste.ts:165-166（`(view as unknown as {input?: {shiftKey?: boolean}}).input?.shiftKey === true`）
+- 现象：ProseMirror 自己的判据是 `plain = view.input.shiftKey && view.input.lastKeyCode != 45`（node_modules/prosemirror-view/dist/index.js:3724、3764），45 是 Insert 键：Shift+Insert 是 Windows、Linux 上经典的“粘贴”，不是“纯文字粘贴”。插件只看 `shiftKey`，所以 Shift+Insert 粘贴截图时 `handlePaste` 返回 false：只有图片的剪贴板走 ProseMirror 的 `capturePaste` 后备（往一个临时 contenteditable 里粘），来自网页的图则直接把外链 `<img src="https://…">` 当成图片节点插入，与 Spec 输出 55“从网页复制的图也存进作品，不留外链”相反。
+- 为什么是问题：测试里 `view.input.shiftKey` 是手工赋值（image-paste.dom.test.ts 的“Ctrl+Shift+V”用例），没有走真实的键盘事件，所以既没覆盖 Insert 的例外，也没发现这个字段依赖的是 ProseMirror 的内部实现。
+- 如何核实：读上面两处 ProseMirror 源码；真实浏览器里 Shift+Insert 粘贴一张图（e2e 可用 `page.keyboard.press("Shift+Insert")`）。
+- 建议改法：把判据收成一个函数，抄 ProseMirror 的写法：`input.shiftKey && input.lastKeyCode !== 45`，旁边写一句为什么读内部字段（ProseMirror 没有公开接口，升级时要核对）；或者改用 `handleKeyDown` 自己记录 Ctrl+Shift+V，不依赖内部字段。
+
+## 7. 粘贴插件（nb-markdown）按宿主的错误码名字判断 `stored`，与 `view-images.ts` 的 `maybeStored` 是两份规则
+- 严重程度：建议；类别：代码质量
+- 位置：packages/nb-markdown/src/editor/image-paste.ts:117（`stored: result.code === "unknown-outcome" || result.code === "cancelled" || result.code === "network"`）；packages/neuro-book/src/plugins/markdown/web/view-images.ts:15（`maybeStored`）；MarkdownImageCard.vue:191 也用 `maybeStored`
+- 现象：`ImageUploadResult` 的失败分支里 `code` 是不透明字符串（view-host.ts 注释写的是“宿主的码”），可是插件自己认得三个文件服务的码来算 `stored`；`view-images.ts` 又有一份 `maybeStored`，卡片用后者。两份要同步改。码的词表（`not-allowed-here`、`not-inserted` 是插件的，`too-large` 等是宿主的）也混在同一个 `code` 字段里，`imageFailureNotice` 一个 `switch` 兼管两边。
+- 为什么是问题：nb-markdown 是不依赖 neuro-book 的包，把 neuro-book 文件服务的码写进去，换一个宿主（t15、w00046 的拖入）就要再抄一份；以后文件服务加一个“结果未知”的码，只改一处会让粘贴与卡片的通知不一致。
+- 建议改法：让宿主在失败结果里带 `stored: boolean`（`ImageUploadResult` 的失败分支加这个字段，`view-images.ts` 的 `upload` 用 `maybeStored(code)` 填），插件只转交；插件自己的两个码（`not-allowed-here`、`not-inserted`）与宿主的码分开命名（例如插件的用一个字段 `reason`），这样词表不混。
+
+## 8. `as never` 与大块类型断言绕过类型检查
+- 严重程度：建议；类别：代码质量
+- 位置：packages/neuro-book/src/plugins/markdown/web/plugin.ts（`projectFiles.find(...) as never`）；MarkdownControl.vue:`indirectHost` 末尾的 `} as MarkdownViewHost`
+- 现象：`MediaSources.find` 声明返回 `FilesResult<FindResult>`，而远程客户端返回的失败带的是远程的码，类型不相容，于是用 `as never` 整个压掉。`media.ts` 其实只用 `found.detail`。`indirectHost` 是一个带 getter 的字面量，整个断言成 `MarkdownViewHost`，以后给接口加必填成员时编译器不会报。
+- 为什么是问题：AGENTS.md 的核心规则“不用 hack 绕过类型系统”；`as never` 是最强的一种，连结果的形状都不再检查。
+- 建议改法：把 `MediaSources.find` 的返回类型改成 media 真正需要的最小形状（`{ok: true, value: FindResult} | {ok: false, detail: string}`），`plugin.ts` 里用一行映射把远程失败转成它；`indirectHost` 去掉整体断言，逐个 getter 声明返回类型，让 `satisfies MarkdownViewHost` 或返回类型标注把关。
+
+## 9. 卸载时“只清自己的”那一句与它上面的 `editor.unmount()` 互相矛盾
+- 严重程度：建议；类别：不变量 / 文档
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:626-641（`onBeforeUnmount`）与 `.md` 的“宿主给扩展的能力经间接对象”一段
+- 现象：注释说“新的挂载可能已经先接手了（`current` 不再是我们的）：只清自己的”。可是同一个 `onBeforeUnmount` 里前面就是 `editor.unmount()`，Tiptap 的 `unmount()` 销毁的是 `this.editorView`（node_modules/@tiptap/core 3.27.3 `Editor.ts` 的 `unmount`），而新挂载的 `mount()` 已经用 `createView` 换成了新的视图：先挂后卸时被销毁的是新挂载的视图，实例槽里的编辑器就坏了。也就是说先挂后卸这个顺序本来就不被支持，护住 `hostTarget.current` 并不能让它安全。Vue 的顺序（同一轮刷新里旧组件的 `onBeforeUnmount` 在补丁时同步执行，新组件的 `onMounted` 是刷新后的回调）通常保证先卸后挂。
+- 为什么是问题：注释给读者的印象是“重叠挂载被考虑过了”，下一个人会据此放心地写出先挂后卸的路径。
+- 建议改法：二选一：确认顺序不会重叠，把“可能已经先接手”改成实话（防御性的写法，重叠时 `editor.unmount()` 仍然不安全），或者把整个 `onBeforeUnmount` 对“实例槽里的视图是不是自己挂的”做判断（`editor.view.dom` 是否在自己的 `root` 里）再决定是否 `unmount`。后者才是真正处理了重叠。
+
+## 10. 批注层的新测试让 happy-dom 真的去请求 `http://localhost:3000/a.md`
+- 严重程度：建议；类别：测试
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentLayer.dom.test.ts:339-351（新增的“既是链接又是批注的文字”）
+- 现象：用例里对 `<a href="a.md">` 派发 `click`（不取消默认），happy-dom 把它当导航，发出真实的 `fetch("http://localhost:3000/a.md")`。核实：`bunx vitest run src/plugins/markdown/web/components/menus/comments/MarkdownCommentLayer.dom.test.ts -t "既是链接又是批注"`，输出里有 `Failed to execute "fetch()" on "Window" with URL "http://localhost:3000/a.md": connect ECONNREFUSED 127.0.0.1:3000`，用例仍通过。
+- 为什么是问题：开发服务默认就在 3000 端口：开发服务开着时这条请求会真的打到它身上；没开着时是一条被吞的网络错误刷在输出里。测试不该依赖或打扰外部进程（docs/testing 的测试写法）。用例本来要证明的是“批注层不取消默认动作”，那只需要断言 `click.defaultPrevented === false`（它已经断言了 mousedown 的），导航本身不需要发生。
+- 建议改法：把链接的 `href` 换成 `#`、或在测试里给 `HTMLAnchorElement.prototype.click`/`window.open` 一个桩（同 MarkdownControl.dom.test.ts 里记录 `clicked` 的写法），并断言 `click` 事件的 `defaultPrevented` 为 false。
+
+## 11. 插图卡片的 Lab 场景：登记的 `input` 与夹具脱节，根容器带 `p-6`
+- 严重程度：建议；类别：代码质量（Lab 写法）
+- 位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:836-850（`MarkdownImageCard` 登记）、editor-scene/MarkdownImageCardFixture.vue（`defineProps<LabFixtureProps>()` 只读了 `props.scene`，没有用 `useLabSubject`；根 `<div class="h-full w-full p-6">`）
+- 现象：八个场景的 `input.props` 一模一样（`open: true, session: 1, anchor: null, media: null, current: ...`），夹具完全不读它们：`media` 由场景 id 在夹具里造，`current` 与 `open` 写死在模板里。Lab 的“数据”标签里改 `current` 或 `open` 没有任何效果，`media: null` 还与实际传给组件的非空 `media` 矛盾。Lab README 3.2 写明“fixture 是否真的把输入传给组件由 fixture 自己负责”；1.1 禁止根容器带外层内边距（`p-6`）。
+- 如何核实：读夹具文件；在 Lab 里把 `current` 改成 `user://模板/说明.md`，上传按钮不会随之置灰。
+- 建议改法：用 `useLabSubject` 绑定 `props.input`（`open`、`session`、`current`），夹具只补运行期的 `anchor`、`menus`、`media`；`input` 里不写夹具不读的键；去掉 `p-6`，用锚点元素自己的 `class` 定位。（计划第 69 行决定了独立场景，所以不是“该不该有 Lab 场景”的问题。）
+
+## 12. 插图卡片的几处可访问性与状态细节
+- 严重程度：建议；类别：代码质量 / 可访问性
+- 位置：MarkdownImageCard.vue:287-291（`<p role="status">` 放在 `role="listbox"` 容器里）；MarkdownTextPrompt.vue（`:invalid="!acceptable"` 在 `locked` 时也为真）
+- 现象：(a) `listbox` 的子元素只应是 `option` 或 `group`，读屏会把“正在读取”“没有匹配的图片”这些 `role="status"` 的段落当作列表里的非法子项，axe 的 `aria-required-children` 会报；(b) `locked`（碰到几条地址不同的链接）时输入框被禁用且为空，`acceptable` 因 `props.locked !== true` 为假，于是 `Input` 同时 `disabled` 与 `invalid`：一个灰掉的空输入框带着错误红框与 `aria-invalid`，而此时没有任何东西是错的，该说明的是“几条链接地址不同，只能去掉链接”。
+- 建议改法：(a) 把状态段落挪到 `listbox` 外面，放在列表之后；(b) `:invalid` 只在“有输入且不被接受”时为真（`acceptable` 与 `locked` 分开算），`locked` 时用输入框的占位或一行说明文字解释。
+
+## 13. `isSafeHref` 不剥空白与控制字符
+- 严重程度：建议（偏低）；类别：安全
+- 位置：packages/nb-markdown/src/editor/links.ts:19-22（`UNSAFE_SCHEME = /^\s*(?:javascript|vbscript|data):/iu`）
+- 现象：浏览器解析 URL 时会去掉方案名里的制表符与换行（`java\tscript:alert(1)` 等同于 `javascript:alert(1)`），`UNSAFE_SCHEME` 只容忍开头的空白，`isSafeHref("java\tscript:alert(1)")` 为真，会被写进 Markdown 文件。NeuroBook 自己的显示器经 Tiptap 的 `isAllowedUri`（它会先剥掉空白）仍然拒绝渲染，所以在应用里没有可利用的路径；风险只在这份文件被别的渲染器打开时。
+- 建议改法：测之前先 `href.replace(/[\u0000- ]/g, "")`（Tiptap 的 `isAllowedUri` 就是这么做的），一行；补一个用例。
+
+## 14. 代码块、原样块里粘贴图片：Spec 写“不接手、照原来的粘贴并给通知”，实现是接手、什么也不粘、只给通知
+- 严重程度：建议（Spec 与实现不一致，二选一改）；类别：文档 / 正确性
+- 位置：packages/nb-markdown/src/editor/image-paste.ts:171-177（`probe === undefined || !sameParent || !inlineContent || !canReplaceWith` 分支：`images.failed(...)` 后 `return true`）；docs/specs/workbench/markdown-editing.md 输出 55（“代码块、原样块里不接手，照原来的粘贴并给通知”）；image-paste.dom.test.ts “代码块里”用例标题自己写了“粘贴被接手（原来的粘贴……也不会放进图片）”
+- 现象：在代码块里粘贴一张只有图片的剪贴板：Spec 的字面是 ProseMirror 照常处理（只有图片、没有文字时通常什么也不放；从文件管理器复制文件时会把文件名当文字粘进代码块），同时有一条通知。实现把事件吞掉（`preventDefault`、返回 true），文件管理器复制文件的场景里文件名不再粘进代码块；选区跨块（`!sameParent`）、选在节点上也走同一个分支，同样是吞掉。验收场景 30 与输出 55 都没有写“吞掉”。
+- 为什么是问题：这是实现者已知的偏离（测试标题里写了），但 Spec 没跟着改，下一个读 Spec 的人会按“照原来的粘贴”写 e2e 与别的入口（w00046 的拖入也要同样的判断）。
+- 建议改法：先定哪边对：吞掉更简单也更不意外（通知里已说明这里放不了图），那就把 Spec 输出 55 改成“不接手的意思是：不上传，粘贴被吞掉，给通知”；要照 Spec，则这个分支 `return false` 让 ProseMirror 粘贴文字，并只在“剪贴板没有任何文字”时给通知。
+
+## 15. 没有消费者的公开导出，以及 Spec 命令表与实现的参数漂移
+- 严重程度：建议（偏低）；类别：代码质量 / 文档
+- 位置：packages/nb-markdown/src/editor/index.ts:9-12（`canInsertImages`、`insertImages`、`imageFilesOf` 从包的 `editor` 入口导出）；packages/neuro-book/src/plugins/editor/web/editing-commands.ts:22-23（`link` 的参数多了 `label`）；docs/specs/workbench/markdown-editing.md 第 71、73 行
+- 现象：这三个函数除了 nb-markdown 自己的测试（直接从相对路径导入）之外没有任何调用方；Spec 命令表里 `nbook.edit.link` 的参数是 `{href: string}`，实现是 `{href, label?}`（`additionalProperties: false`）。
+- 建议改法：公开入口只留有跨包调用方的（`sharedHref`、`linksTouching`、`isSafeHref`、`holdCaret`）；等 w00046 真要用 `insertImages` 时再导出。Spec 命令表补上 `label?`，并说明它只在光标处没有链接要插入一段文字时用。
+
+## e2e 必须覆盖的几条（本 Task 的 e2e 还没写，不算缺口）
+1. Ctrl 点链接（报告第 5 条）：编辑状态与只读状态下，Ctrl 点外部网址各只开 1 个新标签页；Ctrl 点相对路径的作品文件在编辑器区打开、不在浏览器里多开一页；Ctrl 点已不存在的文件时 Spec 写“给出通知”，现在只看到 `nbook.editor.open` 打开一个标签（要看它是否真有通知）；一段文字既是链接又是批注时只打开链接；Firefox 上对可编辑区里 Ctrl 点链接的原生行为看一次。
+2. 真实键入 Ctrl+K：焦点在正文里开卡片，在属性面板输入框里不响应，只读、代码块里不响应也不拦浏览器自己的 Ctrl+K；macOS 的 ⌘K 用 `Meta`。
+3. 真实剪贴板粘贴（Chrome 的剪贴板接口放一张 PNG）：磁盘上的文件头与宽高、正文里的相对地址（Spec 场景 28）；表格软件的“单元格文字加渲染图”照原来的粘贴；网页复制的 `<img>`（HTML 只有标签）存进作品而不是外链；Ctrl+Shift+V 与 Shift+Insert（报告第 6 条）；一次粘贴两张图在表格单元格里。
+4. 在表格单元格里用插图卡片选一张图并回车（报告第 2 条）：现在会静默不插入；同时在普通段落里、在标题里各做一次，确认命令层与控件层的可用性一致。
+5. 传输中的状态：占位的外观（报告第 4 条）；上传途中切到别的标签、拆分或移动标签（控件卸载重挂）后占位消失、已传完没插入的有通知、回来后不再显示“正在上传”；上传途中关闭文档、变只读。
+6. 插图卡片：真实的系统选文件框（Playwright 的 `filechooser`）开着时点别处不收、取消后焦点回输入框（Chrome 有 `cancel` 事件，没有该事件的浏览器里 `choosing` 会一直为真，卡片之后只能用 Esc 收）；上传途中 Esc；上传一张重名的图；连续快速输入时列表不闪红字（报告第 1 条）；缩略图坏图的占位；390 宽与英文界面的截图。
+7. 设置：`imageLocation` 四种值与 `imageFolder` 的不合规值（`..`、`.nbook`、反斜杠）退回缺省，项目层设置优先于用户层（Spec 56）。
+8. 链接里含图片（报告第 3 条）：改地址、去掉链接、再保存，文件里是一整条。
+9. 只读与三种宿主状态（场景 30）：只读时 Ctrl+K、工具栏图片按钮（置灰）、粘贴都没有反应；宿主没提供媒体能力（Lab）；提供了但没绑定作品。
+
+## 未发现问题的方面
+- 图片与链接地址的写出与读回：对 16 种文件名（空格、`<`、`>`、括号、方括号、反斜杠、引号、`&`、`*`、`_`、反引号）的 `![](...)` 写出再读回，src 全部原样（实验 roundtrip.exp.test.ts），序列化器与 `relativeTarget` 的编码配合没有问题。
+- `normalizeImageFolder` 对 `..`、`.`、空段、`\`、`.nbook`（大小写）、前导与末尾斜杠都退回缺省，四种位置在作品根下的文件与子目录里的文件都合成正确；`relativeAddress` 对同目录、子目录、上级目录、作品根的文件都对。
+- 粘贴插件的时序：换文档（`updateState`）、只读、销毁、Tiptap 卸载重挂（`unmount` 会销毁 ProseMirror 视图、插件视图的 `destroy` 会放弃任务；重挂时 `extensionManager.plugins` 重新建插件、`jobs` 是新的，旧状态里残留的占位项因 `jobs` 里没有而不画）都能收尾；占位用 `side: 1` 挂件随事务映射，各占一段时的 `move` 位置算对了。残留的是已放弃占位项留在状态里不清理（量极小，不单列）。
+- 控件宿主的间接对象：第二次挂载读到的是新的 `viewHost`（`base`、`openLink`、`images` 都在事件里才读），卸载只清自己的；`markRaw` 位置对（只包外层，嵌套的 `target` 不会被代理）。
+- 命令参数的 schema、`EditorMenus.notify(key, params)`、`formatLink` 公开键、中英文目录（locales.test.ts）、`governance:check`（无失败、无本次改动内的警告）、nb-markdown 的 `bun run typecheck`、neuro-book 的 `vue-tsc --noEmit -p tsconfig.web.json` 都通过；本次范围的 DOM 测试（5 个文件 135 条）与纯逻辑测试（6 个文件 41 条）、nb-markdown 的三个 DOM 测试文件（36 条）实测全部通过。
+- 跨插件导入：markdown 插件对 editor、files、settings 的运行时引用都经 `shared/contracts.ts`，`files/shared/upload` 只用了类型；安全：`openLink` 只对 `http`、`https`、`mailto` 创建临时 `<a>`，`javascript:` 等不动作（`classifyScheme` 按方案正则判）。
+- 链接卡片、插图卡片的 IME、Esc、回车只在输入框里算选定、`holdSelection`/`holdCaret` 的画与撤、换文档与变只读关卡片：读代码与测试都对得上，没有发现问题；`AnchoredPopover` 的 `onMousedown` 已经拦下了点非输入区域时的失焦，所以 `onFocusOut` 不会被卡片内的点击误触发。
+
+## 统计
+有效发现 15 条：重要 3 条（第 2、3、5 条）、建议 12 条（第 1、4、6 到 15 条）、阻断 0 条。第 1 条的严重度我定为“建议（偏高）”。
+最严重的三条：第 2 条（表格单元格里插图卡片选图被命令层拒绝、静默不插入）、第 3 条（链接里带图片时改地址与去掉链接只作用到图片前的文字，留下残链）、第 5 条（只读文档里 Ctrl 点链接会与浏览器自己的跟随叠成两次打开，从代码与 Tiptap 源码推断，未在真实浏览器里验证）。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+
+## 附：被审版本说明
+- 审查 worktree 与实现 worktree 的 HEAD 都是 63b79dde9；所有“读代码”的发现都来自审查 worktree（63b79dde9 的原样）。
+- 实现 worktree 在我审查途中出现了主 Agent 的未提交修改（04:49 起：nb-markdown 的 link-open.ts 加了 `selectLink`、core/index.ts 的 `enableClickSelection` 改 false、image-paste.dom.test.ts，另有未跟踪的 e2e/markdown-links-images.e2e.ts）。04:49 之后在实现 worktree 里跑的实验与测试（报告第 1、2、3 条的复现，DOM 测试 135 条）因此是在“63b79dde9 加这些未提交修改”上跑的；第 1、2、3 条不涉及被改的文件。第 5 条（Ctrl 点链接的默认动作）我读了这些未提交修改：它们只是把单击选中整条链接搬进 `MarkdownLinkOpener`，没有取消 `click` 的默认动作，也没有去掉 `target="_blank"`，所以第 5 条的结论不变。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15

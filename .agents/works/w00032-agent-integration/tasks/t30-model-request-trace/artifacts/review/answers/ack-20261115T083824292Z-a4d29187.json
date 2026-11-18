@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t30-model-request-trace",
+    "artifactId": "review",
+    "ackId": "20261115T083824292Z-a4d29187",
+    "answers": [
+        "20261115T083741160Z-7a7af285"
+    ],
+    "through": "20261115T083741160Z-7a7af285",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t30-model-request-trace/README.md"
+    ],
+    "ackedAt": "2026-11-15T08:38:24.292Z"
+}

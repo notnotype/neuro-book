@@ -1,0 +1,11 @@
+# w00046 t07 实现审查第一轮的处理结果（2026-11-13）
+# 范围 4efe7dd88..799e6d197；审查者 Claude Sonnet（t06 第二轮占着 omp，同一时间只跑一个 omp 审查；改动限于打包与发布脚本，按任务大小降级）。
+# 报告 impl-review-r1-sonnet.txt：7 条，重要 4、建议 3。修正在 b29a6e2ac。
+
+1 冒烟的 withManagedEntry 竞态（nbook start 可能抢先认领）：成立要改。先读托管入口标准输出的第一行 RPC listening on（认领之后才打印）再找实例；两步都有截止。
+2 checkManagedEntry 留下 Bun.sleep，脚本多挂约 55 秒：成立要改。改为一个 setTimeout 截止，finally 里清掉。
+3 打包核对的失败分支没有测试：成立要改。导出 checkManagedEntry，用经产品认领档案认领的替身入口测就绪前退出、health 非 200、停止退出码非 0、超时四种；变异（把两处判断改成 false &&）后用例变红。删掉“打包本身已核对”的误导注释；托管入口场景的 finally 收口两个子进程。删掉 packApp 里对 checkManagedEntry 的调用这一变异仍拦不住：托管入口的行为另由“托管入口”场景对真实打包产物验收，接受。
+4 依赖对照的基准是整个根锁、只看顶层 node_modules：成立要改。基准改为应用包声明的依赖在根锁里的传递闭包（按安装路径就近解析、含可选依赖），没有 sha512 的条目报出；node_modules 递归枚举，嵌套的包同样核对许可与锁。
+5 finally 不等子进程退出就删状态根、fetch 没有超时：成立要改（等退出、10 秒超时）。临时目录按测试规范分配：不改，这是发布脚本的一次性运行目录，不是测试数据，用系统临时目录并在 finally 删除。
+6 命令行静默忽略 --os=win32：成立要改，改用 node:util 的 parseArgs，不认识的参数以 2 退出。
+7 杂项：许可清单小节名补 main.js；LICENSE 正则认 LICENSE-MIT；tarball.name 只写文件名：改。start.ts:111 注释提到 build:server：在本范围内没找到这处（cli.test.ts 头注释提到它，与本改动无关），不改。载荷脚本导入整个 pack-app：pack-app 的主流程在 import.meta.main 守卫下，导入没有副作用，不改。

@@ -47,6 +47,13 @@ describe("编辑命令", () => {
         expect(Object.keys(EDITING_COMMAND_DECLARATIONS).filter((id) => id.startsWith("nbook.edit.comment"))).toEqual(["nbook.edit.comment"]);
     });
 
+    it("链接、去掉链接、图片要可写、能加格式（Spec 命令表）：图片不要 canConvertBlock，表格单元格里它恒为假、卡片里选了图会被命令层拒绝", () => {
+        for (const action of ["link", "link-remove", "image"]) {
+            const requires = [...(EDITING_COMMAND_DECLARATIONS[`nbook.edit.${action}`]?.when?.requires ?? [])].sort();
+            expect([action, requires]).toEqual([action, [editorState.key("canFormat"), editorState.key("writable")].sort()]);
+        }
+    });
+
     it("执行转给活动控件，控件拒绝时是 unavailable", async () => {
         const calls: Array<[string, unknown]> = [];
         let accept = true;

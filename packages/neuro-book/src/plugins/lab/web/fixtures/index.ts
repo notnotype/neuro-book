@@ -25,6 +25,7 @@ import type RecordForm from "nbook/plugins/canon/web/components/RecordForm.vue";
 import type RevertDialog from "nbook/plugins/canon/web/components/RevertDialog.vue";
 import type RevisionsView from "nbook/plugins/canon/web/components/RevisionsView.vue";
 import type WorldBanners from "nbook/plugins/canon/web/components/WorldBanners.vue";
+import type MarkdownImageCard from "nbook/plugins/markdown/web/components/menus/MarkdownImageCard.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
@@ -34,6 +35,8 @@ import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {InlineChip} from "@notnotype/nb-markdown/chip";
 import type {MarkdownDisplay, MarkdownImage} from "@notnotype/nb-markdown/display";
 import type {PromptAttachmentStrip, PromptEditor, PromptPasteFrame, PromptTextView} from "@notnotype/nb-markdown/prompt";
+import type {MarkdownProperties} from "@notnotype/nb-markdown/editor";
+import type {PropertyDescription} from "nbook/plugins/markdown/web/properties-catalog";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -55,11 +58,16 @@ import type ModelRow from "nbook/plugins/models/web/components/ModelRow.vue";
 import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDetail.vue";
 import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
 import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
+import type StatusLinePage from "nbook/plugins/agent/web/components/StatusLinePage.vue";
 import type ProfileDetail from "nbook/plugins/agent/web/components/ProfileDetail.vue";
 import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue";
 import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
 import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
+import type SubagentsEntry from "nbook/plugins/agent/web/components/SubagentsEntry.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
+import type SkillInitDialog from "nbook/plugins/agent/web/components/SkillInitDialog.vue";
+import type SkillsSettingsPage from "nbook/plugins/agent/web/components/SkillsSettingsPage.vue";
+import type {SkillEntry} from "nbook/plugins/agent/shared/skills";
 import type ProfileSettingsPage from "nbook/plugins/agent/web/components/ProfileSettingsPage.vue";
 import type ProfileToolsSection from "nbook/plugins/agent/web/components/ProfileToolsSection.vue";
 import type AddToolsDialog from "nbook/plugins/agent/web/components/AddToolsDialog.vue";
@@ -88,6 +96,7 @@ import type TasksHover from "nbook/plugins/tasks/web/components/TasksHover.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import type WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
+import type WorkbenchRegionStrip from "nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue";
 import type WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type WorkbenchItemStrip from "nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue";
 import type WorkbenchTitleBar from "nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue";
@@ -111,7 +120,7 @@ import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
 import {withAgentPageText} from "./agent-scene/agent-page-text";
 import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./agent-scene/profile-samples";
-import {CARD_SAMPLES, COMMAND_SAMPLES, sampleProps} from "./agent-scene/subagent-samples";
+import {CARD_SAMPLES, COMMAND_SAMPLES, ENTRY_PROFILES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
@@ -121,11 +130,28 @@ import {withMarkdownSceneText} from "./markdown-text";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
 import {nbLayoutFixtures} from "./nb-layout";
+import {LAB_STICKER_TEXT} from "./lab-stickers";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {rowDemoSettings, sceneThemeSetting, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
+
+/** `declared` 开头的几个场景里的属性声明（输出 59、60）：键只在那些场景里出现，别的属性面板场景不受影响。 */
+const PROPERTY_DECLARATIONS: Readonly<Record<string, PropertyDescription>> = {
+    叙事视角: {icon: "i-lucide-eye", label: "视角"},
+    截稿日: {icon: "i-lucide-calendar-clock", kind: "date"},
+    预计字数: {kind: "number"},
+    定稿: {kind: "checkbox"},
+    关键词: {icon: "i-lucide-tags", kind: "list"},
+    人物别名: {icon: "i-lucide-users", label: "出场人物与他们的别名（含绰号、尊称与外号，写在这里是为了让设定插件能按名字找到人）"},
+    人物关系: {icon: "i-lucide-eye", label: "人物之间的关系"},
+    pov: {icon: "i-lucide-eye", label: "Point of view"},
+    due: {kind: "date", label: "Due date"},
+};
+
+/** 属性面板的样例：一章的五个属性，每种类型一个，开头一行注释。 */
+const PROPERTIES_SAMPLE = "---\n# 第十二章\n视角: 林雪\n时间: 2025-12-21\n地点: [青石镇, 北山]\n字数目标: 4000\n已定稿: false\n---\n";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
 const DISPLAY_REPLY = [
@@ -158,6 +184,21 @@ const DISPLAY_REPLY = [
  * 场景登记。这不是第二份组件清单——组件清单由 component-index 扫文档得到，
  * 这里只补文档里没有的东西：一个组件可以摆出哪几个场景。两者按组件名对上。
  */
+
+/** Skill 页的场景数据：长短不一的名字放在一起，看徽标与按钮是否落在同一列。 */
+const SKILL_PAGE_ENTRIES: readonly SkillEntry[] = [
+    {id: "user.style-guide", name: "style-guide", description: "按本书的文风规则改写一段：人称、时态、对白格式与禁用词。", source: "user", location: "skills://user.style-guide/SKILL.md", status: "ready", license: "MIT"},
+    {id: "user.epub-export", name: "epub-export", description: "把选中的章节导成 EPUB，带目录、封面与脚注。", source: "user", location: "skills://user.epub-export/SKILL.md", status: "needs-init"},
+    {id: "user.lore-check", name: "lore-check", description: "对照人物卡与设定集，找出正文里前后矛盾的地方。", source: "user", location: "skills://user.lore-check/SKILL.md", status: "needs-init", problem: {code: "install-failed", detail: "error: GET https://registry.npmjs.org/epub-gen-memory - ETIMEDOUT"}},
+    {id: "user.tts-preview", name: "tts-preview", description: "用本机的语音合成朗读选中的一段，听对白的节奏。", source: "user", location: "skills://user.tts-preview/SKILL.md", status: "initializing"},
+    {id: "user.outline", name: "outline", description: "", source: "user", location: "skills://user.outline/SKILL.md", status: "invalid", problem: {code: "name-mismatch", name: "outline-helper"}},
+    {id: "user.voice-check-with-a-much-longer-name", name: "voice-check-with-a-much-longer-name", description: "逐段检查叙述视角有没有串，标出越界的句子。", source: "user", location: "skills://user.voice-check-with-a-much-longer-name/SKILL.md", status: "ready", external: {python: true, uvMissing: true, compatibility: "需要 Python 3.11 以上与 uv；朗读用的 espeak-ng 要自己装"}, metadata: {author: "林默", version: "0.3"}},
+    {id: "acme.docs.pdf-extract", name: "pdf-extract", description: "从扫描的 PDF 里抽出正文与页码，按章分段。", source: "plugin", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.pdf-extract/SKILL.md", status: "ready"},
+    {id: "acme.docs.raw-notes", name: "raw-notes", description: "把采访录音的转写整理成按人物分的笔记。", source: "plugin", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.raw-notes/SKILL.md", status: "invalid", problem: {code: "plugin-skill-unbuilt"}},
+    // 没有显示名的插件，组头写插件 id；id 很长时组头要折行，不撑出页面。
+    {id: "someverylongpublishername.averyveryverylongpluginnamewithoutbreaks.lint", name: "lint", description: "按本书的禁用词表检查选中的章节。", source: "plugin", plugin: {id: "someverylongpublishername.averyveryverylongpluginnamewithoutbreaks", title: null}, location: "skills://someverylongpublishername.averyveryverylongpluginnamewithoutbreaks.lint/SKILL.md", status: "ready"},
+    {id: "builtin.chapter-summary", name: "chapter-summary", description: "给一章写三五句提要，写进章节的元数据。", source: "builtin", location: "skills://builtin.chapter-summary/SKILL.md", status: "ready"},
+];
 export type LabScene = {
     id: string;
     label: string;
@@ -368,35 +409,44 @@ export const labFixtures: LabFixture[] = [
             const base = {
                 contextKey: "lab:surface",
                 doc: {version: 1 as const, tree: {version: 2 as const, root: {...leaf, size: {width: 0, height: 0}}}, panels: {g0: {role: "editor" as const, tabs: [], active: null}}, floats: [], hiddenBars: [], currentEditor: "g0"},
-                projection: {input: leaf},
+                projection: {input: leaf, strips: []},
             };
             return [
                 {id: "default", label: "侧栏、两个编辑组、右栏、面板（平铺）", input: {props: base}},
                 {id: "cards", label: "卡片：缝、圆角、相连按邻接算", input: {props: base}},
+                {id: "view-head", label: "标题区：右栏的视图接管面板头（左、中、右三列）", input: {props: base}},
             ];
         })(),
         load: async () => (await import("./WorkbenchSurfaceFixture.vue")).default,
     }),
     defineSubjectFixture<typeof WorkbenchPanelHead>({
         component: "WorkbenchPanelHead",
-        events: ["activate", "action", "context-menu"],
+        events: ["activate", "action", "context-menu", "toggle-fold"],
         writeBack: {activate: {layer: "props", key: "active"}},
         class: "w-full",
         scenes: (() => {
             const tab = (id: string, label: string, icon: string) => ({id: `view:${id}`, label, icon});
             const tabs = [tab("files", "资源管理器", "i-lucide-files"), tab("search", "搜索", "i-lucide-search"), tab("outline", "大纲", "i-lucide-list-tree"), tab("chat", "对话", "i-lucide-message-square"), tab("output", "输出", "i-lucide-terminal")];
             const named = [
-                {id: "collapse", label: "收起", icon: "i-lucide-chevrons-down", disabled: false, pressed: false},
+                {id: "float", label: "浮动", icon: "i-lucide-picture-in-picture-2", disabled: false},
                 {id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: false},
                 {id: "hide", label: "隐藏", icon: "i-lucide-x", disabled: false},
             ];
             const base = {panelId: "sidebar", label: "侧栏", moreLabel: "更多", active: "view:files"};
+            // 分节只写标题（输出 20）：能收成标题行时标题前有展开标记，整行是开关；框架按钮悬停才出，Lab 里指针移上去看。
+            const section = {...base, panelId: "section:files", tabs: tabs.slice(0, 1), titleOnly: true, frameActions: named.slice(0, 2)};
             return [
                 {id: "default", label: "几个标签、框架按钮", input: {props: {...base, tabs: tabs.slice(0, 3), frameActions: named}}},
                 {id: "many", label: "标签多：放不下时逐级让位（拖窄画布看）", input: {props: {...base, tabs, frameActions: named}}},
                 {id: "anonymous", label: "无名面板：没有隐藏按钮", input: {props: {...base, panelId: "p-1", label: "面板", tabs: tabs.slice(0, 2), frameActions: named.slice(0, 2)}}},
-                {id: "disabled", label: "框架按钮不可用", input: {props: {...base, tabs: tabs.slice(0, 2), frameActions: [{...named[0]!, disabled: true, reason: "编辑组不能收起"}, named[1]!, named[2]!]}}},
+                {id: "disabled", label: "框架按钮不可用", input: {props: {...base, tabs: tabs.slice(0, 2), frameActions: [{...named[0]!, disabled: true, reason: "这个视图不能浮动"}, named[1]!, named[2]!]}}},
                 {id: "empty", label: "没有标签：显示名称", input: {props: {...base, tabs: [], active: null, frameActions: named}}},
+                {id: "section", label: "分节：只写标题，不能收起（底部面板的、区域唯一的）", input: {props: section}},
+                {id: "fold-open", label: "分节：展开着，标题前的标记朝下", input: {props: {...section, fold: {collapsed: false}}}},
+                {id: "fold-collapsed", label: "分节：收成标题行，标记朝右、标题退成次要字色", input: {props: {...section, fold: {collapsed: true}}}},
+                {id: "fold-long", label: "分节：英文长标题被截断，标记不被挤掉", input: {props: {...section, tabs: [tab("files", "Workspace Explorer With A Rather Long Title", "i-lucide-files")], fold: {collapsed: false}}}},
+                {id: "fold-maximized", label: "分节：最大化着，没有标记，还原按钮按下、一直显示", input: {props: {...section, frameActions: [named[0]!, {...named[1]!, label: "还原", pressed: true}]}}},
+                {id: "fold-view-head", label: "分节：视图接管标题区，展开标记是左列最前面单独的按钮", input: {props: {...section, viewHead: {key: "c:1", popup: {expanded: false}}, fold: {collapsed: false}, foldLabel: "收起 资源管理器"}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue"),
@@ -429,6 +479,25 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchRegionStrip>({
+        component: "WorkbenchRegionStrip",
+        events: ["select", "context-menu"],
+        class: "h-[32px] w-full",
+        scenes: (() => {
+            const entry = (id: string, label: string, icon: string, current = false) => ({id: `view:${id}`, label, icon, tooltip: label, viewId: id, current, pressed: current});
+            const right = [entry("chat", "对话", "i-lucide-message-square", true), entry("outline", "大纲", "i-lucide-list-tree"), {id: "view:gone", label: "gone", icon: null, tooltip: "gone", viewId: "gone", current: false, pressed: false}];
+            const bottom = [entry("tasks", "后台任务", "i-lucide-list-checks", true), entry("notifications", "通知", "i-lucide-bell"), entry("output", "输出", "i-lucide-terminal")];
+            const base = {moreLabel: "更多", dragHint: "按空格拿起，方向键移动，回车放下"};
+            return [
+                {id: "icons", label: "右栏：图标入口，当前容器按下，声明不在的画占位图标", input: {props: {...base, region: "auxiliarybar", label: "右栏的视图容器", entries: right, variant: "icons"}}},
+                {id: "titles", label: "底部面板：标题入口，当前容器带下划线", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom, variant: "titles"}}},
+                {id: "narrow", label: "放不下：给并进来的头留 160px，后面的入口收进“更多”，当前容器的总在外面（拖窄画布看）", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: [...bottom, entry("problems", "问题", "i-lucide-circle-alert"), entry("terminal", "终端", "i-lucide-square-terminal")], variant: "titles", headMinWidth: 160}}},
+                {id: "hidden", label: "区域隐藏着：没有按下的入口", input: {props: {...base, region: "auxiliarybar", label: "右栏的视图容器", entries: right.map((item) => ({...item, pressed: false})), variant: "icons"}}},
+                {id: "dragging", label: "拖动中：被拖的入口留着位置、看不见，拖着的视图放下会并进的入口高亮", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom, variant: "titles", placeholder: "view:output", highlighted: "view:notifications"}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue"),
     }),
     defineLabFixture<typeof ThemeEditor>({
         component: "ThemeEditor",
@@ -520,7 +589,7 @@ export const labFixtures: LabFixture[] = [
                 context: null, icon: null, placement: "inline" as const,
             });
             const menus = [
-                {id: "file", label: "文件", sections: [[entry("nbook.project.open", "打开项目")], [entry("nbook.editor.save", "保存", {reason: "活动文档没有需要保存的修改"}), entry("nbook.editor.save-all", "全部保存")]]},
+                {id: "file", label: "文件", sections: [[entry("nbook.project.open", "打开项目"), entry("nbook.project.back-to-shelf", "回到书架")], [entry("nbook.editor.save", "保存", {reason: "活动文档没有需要保存的修改"}), entry("nbook.editor.save-all", "全部保存")]]},
                 {id: "edit", label: "编辑", sections: [[entry("nbook.edit.undo", "撤销", {reason: "没有活动的编辑器"}), entry("nbook.edit.redo", "重做", {reason: "没有活动的编辑器"})]]},
                 {id: "view", label: "视图", sections: [[entry("nbook.quick-open.open-commands", "命令面板", {shortcut: "Ctrl+Shift+P"})], [entry("nbook.view.set-part-hidden", "侧栏", {args: {part: "sidebar"}, checked: true}), entry("nbook.view.set-part-hidden", "右栏", {args: {part: "auxiliarybar"}, checked: false})], [entry("nbook.app.reload", "重新载入")]]},
                 {id: "help", label: "帮助", sections: [[entry("nbook.help.documentation", "文档")]]},
@@ -528,14 +597,15 @@ export const labFixtures: LabFixture[] = [
             const layout = {sidebar: {pressed: true, disabled: false}, panel: {pressed: true, disabled: false}, auxiliarybar: {pressed: false, disabled: false}};
             const base = {menus, searchShortcut: "Ctrl+Shift+P", layout, items: []};
             return [
-                {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部"}}},
-                {id: "no-project", label: "没有项目", input: {props: {...base, project: null}}},
+                {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部", shelf: "回到书架"}}},
+                {id: "no-project", label: "没有项目", input: {props: {...base, project: null, shelf: "回到书架"}}},
+                {id: "no-shelf", label: "没有书架插件：作品下拉没有“回到书架”，标志不可点", input: {props: {...base, project: "雾港"}}},
                 {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
                 {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
             ];
         })(),
         // 场景 `long` 一直是英文界面，id 被 e2e 引用，所以点名。
-        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchTitleBar>((await import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue")).default, {events: ["run", "search", "toggle-part", "open-project", "run-item"], class: "w-full"}), ["long"]),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchTitleBar>((await import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue")).default, {events: ["run", "search", "toggle-part", "open-project", "run-item", "back-to-shelf"], class: "w-full"}), ["long"]),
     }),
     defineLabFixture<typeof WorkbenchItemStrip>({
         component: "WorkbenchItemStrip",
@@ -694,6 +764,8 @@ export const labFixtures: LabFixture[] = [
             {id: "conversation", label: "100 条消息的长对话", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
             {id: "plain", label: "只有普通 Markdown", input: {props: {text: "## 小结\n\n- 第一章节奏**偏快**\n- 第二章的*伏笔*可以提前，~~旧的开头~~删掉\n\n#### 细节\n\n---\n\n```ts\nconst answer = 42;\n```\n\n| 章 | 字数 |\n|---|---|\n| 一 | 3200 |", locale: "zh-CN"}}},
             {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
+            {id: "stickers", label: "表情：夹在文字里、一段只有表情的大图、认不出的原文", input: {props: {text: LAB_STICKER_TEXT, locale: "zh-CN"}}},
+            {id: "stickers-late", label: "表情：目录晚到，先显示原文占位", input: {props: {text: LAB_STICKER_TEXT, locale: "zh-CN"}}},
         ],
         load: async () => withMarkdownSceneText((await import("./MarkdownDisplayFixture.vue")).default),
     }),
@@ -727,6 +799,31 @@ export const labFixtures: LabFixture[] = [
         load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptPasteFrame>((await import("@notnotype/nb-markdown/prompt")).PromptPasteFrame, {
             events: ["hover"],
             class: "w-full",
+        })),
+    }),
+    // 属性面板：写回直接改场景的 `raw` 与 `open`，点一下就能看到改过的原文（数据 tab）。
+    defineLabFixture<typeof MarkdownProperties>({
+        component: "MarkdownProperties",
+        scenes: [
+            {id: "open", label: "展开：五种类型各一个", input: {props: {raw: PROPERTIES_SAMPLE}, model: {open: true}}},
+            {id: "closed", label: "收起：一行摘要", input: {props: {raw: PROPERTIES_SAMPLE}, model: {open: false}}},
+            {id: "complex", label: "表示不了的属性", input: {props: {raw: `${PROPERTIES_SAMPLE.slice(0, -4)}人物关系:\n  林雪: 姐妹\n  沈舟: 旧识\n---\n`}, model: {open: true}}},
+            {id: "error", label: "YAML 写错", input: {props: {raw: "---\n视角: 林雪\n时间: 2025-12-21\n地点: [青石镇, 北山\n字数目标: 4000\n---\n"}, model: {open: false}}},
+            {id: "empty", label: "没有属性", input: {props: {raw: "---\n---\n"}, model: {open: true}}},
+            {id: "long", label: "很长的名字与值", input: {props: {raw: "---\n这一章里出场的所有人物与他们的别名: [林雪, 雪儿, 沈舟, 舟哥, 掌柜, 渡口的船夫, 北山的猎户]\n一句很长的提要: 雪是后半夜落下来的，林雪推开客栈的窗，镇子已经白了一层，石板路上只剩一行脚印\n---\n"}, model: {open: true}}},
+            {id: "readonly", label: "只读", input: {props: {raw: PROPERTIES_SAMPLE, readonly: true}, model: {open: true}}},
+            {id: "english", label: "英文界面", input: {props: {raw: "---\npov: Lin Xue\ndate: 2025-12-21\nplaces: [Qingshi, North Hill]\nword goal: 4000\nfinal: false\n---\n"}, model: {open: false}}},
+            // 宿主按属性名给图标、显示名与类型（输出 60）：`describe` 是运行期的函数，下面的 `runtimeProps` 给；只有这个场景里的键（`叙事视角` 等）有声明，别的场景不受影响。
+            {id: "declared", label: "插件的声明：图标、显示名、空值按声明的类型输入", input: {props: {raw: "---\n叙事视角: 林雪\n截稿日:\n预计字数:\n定稿:\n关键词:\n地点: 青石镇\n---\n"}, model: {open: true}}},
+            {id: "declared-long", label: "插件的声明：很长的显示名；表示不了的行有显示名、图标不换", input: {props: {raw: "---\n人物别名: [林雪, 雪儿]\n人物关系:\n  林雪: 姐妹\n  沈舟: 旧识\n---\n"}, model: {open: true}}},
+            {id: "declared-readonly", label: "插件的声明：只读（显示名照出，不能点着改名）", input: {props: {raw: "---\n叙事视角: 林雪\n截稿日: 2025-12-21\n预计字数: 4000\n定稿: true\n关键词: [雪, 客栈]\n---\n", readonly: true}, model: {open: true}}},
+            {id: "declared-english", label: "插件的声明：英文的显示名", input: {props: {raw: "---\npov: Lin Xue\ndue:\nword goal: 4000\n---\n"}, model: {open: true}}},
+        ],
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof MarkdownProperties>((await import("@notnotype/nb-markdown/editor")).MarkdownProperties, {
+            events: ["commit", "update:open", "leave"],
+            writeBack: {commit: {layer: "props", key: "raw"}},
+            class: "w-full max-w-[720px]",
+            runtimeProps: {describe: (name: string) => PROPERTY_DECLARATIONS[name] ?? null},
         })),
     }),
     defineLabFixture<typeof MarkdownImage>({
@@ -800,6 +897,7 @@ export const labFixtures: LabFixture[] = [
             {id: "english", label: "英文界面", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "empty", label: "没有标签：标志与提示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "stickers", label: "表情：显示成图、一段只有表情的大图、打出结尾冒号变成表情", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "comments", label: "批注：批注末尾的小符号出浮层、按住 Ctrl 悬停，Ctrl+Alt+M 加批注，块菜单整块批注", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "comments-margin", label: "批注：页边开着（视口够宽时画在稿纸右边）", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "comments-slots", label: "批注页边：一段几条批注、短段与长段、下一段有无批注、表格行", input: {props: {groupId: "g0", wrapTabs: true}}},
@@ -808,6 +906,21 @@ export const labFixtures: LabFixture[] = [
             {id: "recycle", label: "回收：每种编辑器只留 2 个控件", input: {props: {groupId: "g0", wrapTabs: true}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
+    }),
+    defineLabFixture<typeof MarkdownImageCard>({
+        component: "MarkdownImageCard",
+        // 卡片的数据来自夹具里的假文件服务；场景决定数据与宿主状态，`english` 用英文界面。需要的锚点、菜单文字与插图能力由夹具给出。
+        scenes: [
+            {id: "list", label: "存放目录里的图：缩略图、名字过长截中间、坏图画占位", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "loading", label: "读取中", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "empty", label: "没有图", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "error", label: "读不了：说明原因", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "truncated", label: "查到的比显示的多：末尾一行提示", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "no-library", label: "宿主没有提供插图能力：只能插入网址的图片，上传置灰", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "unbound", label: "没有绑定作品：列表为空，上传置灰", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+            {id: "english", label: "英文界面", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
+        ],
+        load: async () => (await import("./editor-scene/MarkdownImageCardFixture.vue")).default,
     }),
     defineLabFixture<typeof ImageViewer>({
         component: "ImageViewer",
@@ -1125,6 +1238,17 @@ function shelfFixtures(): LabFixture[] {
             ],
             load: async () => withProjectsText((await import("./WorksSettingsPageFixture.vue")).default),
         }),
+        defineLabFixture<typeof StatusLinePage>({
+            component: "StatusLinePage",
+            scenes: [
+                {id: "default", label: "缺省：左边上下文，右边用量与费用，模型默认关", input: {props: {setting: {}}}},
+                {id: "customized", label: "改过：用量排到费用后面，开了模型与插件的字数", input: {props: {setting: {order: ["cost", "usage"], visible: {model: true, "x.words": true}}, pluginItems: [{id: "x.words", side: "left", title: "本会话改的字数", description: "来自插件“字数统计”", defaultVisible: false, source: "x"}]}}},
+                {id: "readonly", label: "配置写不了：勾选与按钮都停用", input: {props: {setting: {}, writable: false}}},
+                {id: "crossed", label: "换过边：用量在左边第一位，上下文在右边最后", input: {props: {setting: {order: ["usage", "cost", "model", "context"], side: {usage: "left", context: "right"}}}}},
+                {id: "write-fails", label: "写入失败：拖动放下后回到原样", input: {props: {setting: {}}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/StatusLineFixture.vue")).default),
+        }),
         defineLabFixture<typeof PermissionRulesPage>({
             component: "PermissionRulesPage",
             scenes: [
@@ -1160,6 +1284,15 @@ function shelfFixtures(): LabFixture[] {
             component: "SubagentCard",
             scenes: ([["running", "运行中：最近一步、次数与用时"], ["question", "在问父 Agent"], ["waiting", "等你批准"], ["done", "完成：点开看结果全文"], ["failed", "出错"], ["dispatch-failed", "没派出去"], ["background", "后台、名字很长"], ["unknown", "进程崩溃后：状态未知"], ["running-narrow", "390px 宽"], ["background-narrow", "390px 宽、名字很长"]] as const).map(([id, label]) => ({id, label, input: {props: sampleProps(CARD_SAMPLES[id.replace(/-narrow$/u, "")]!)}})),
             load: async () => withAgentPageText((await import("./agent-scene/SubagentCardFixture.vue")).default),
+        }),
+        defineLabFixture<typeof SubagentsEntry>({
+            component: "SubagentsEntry",
+            scenes: [
+                {id: "list", label: "浮层开着：等你批准、在跑（带孙代理）、完成、出错", input: {props: {profiles: ENTRY_PROFILES}, model: {open: true}}},
+                {id: "dot", label: "关着：有没看过的出错，入口亮红点", input: {props: {profiles: ENTRY_PROFILES}, model: {open: false}}},
+                {id: "empty", label: "没有后代：入口不画", input: {props: {profiles: ENTRY_PROFILES}, model: {open: false}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/SubagentsEntryFixture.vue")).default),
         }),
         defineLabFixture<typeof BackgroundCommandCard>({
             component: "BackgroundCommandCard",
@@ -1210,6 +1343,29 @@ function shelfFixtures(): LabFixture[] {
             ],
             load: async () => withAgentPageText(createSubjectFixture<typeof NewProfileDialog>((await import("nbook/plugins/agent/web/components/NewProfileDialog.vue")).default)),
         }),
+        defineLabFixture<typeof SkillsSettingsPage>({
+            component: "SkillsSettingsPage",
+            scenes: [
+                {id: "full", label: "我的、插件与内置：可用、未初始化、上次没装好、正在初始化、无效、插件没打包", input: {props: {entries: SKILL_PAGE_ENTRIES}}},
+                {id: "empty", label: "还没有 Skill", input: {props: {entries: []}}},
+                {id: "loading", label: "读取中", input: {props: {entries: null}}},
+                {id: "full-english", label: "英文界面", input: {props: {entries: SKILL_PAGE_ENTRIES}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof SkillsSettingsPage>((await import("nbook/plugins/agent/web/components/SkillsSettingsPage.vue")).default, {class: "w-full max-w-[720px] p-6"})),
+        }),
+        defineLabFixture<typeof SkillInitDialog>({
+            component: "SkillInitDialog",
+            scenes: [
+                {id: "confirm", label: "确认：有锁，列直接依赖", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "no-lock", label: "确认：没有 bun.lock（说明行写会生成锁文件）", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: false, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "installing", label: "正在安装（能关掉，在后台继续）", input: {props: {name: "epub-export", phase: "installing", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "confirm-english", label: "英文界面：确认", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "no-lock-english", label: "英文界面：没有 bun.lock", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: false, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "installing-english", label: "英文界面：正在安装", input: {props: {name: "epub-export", phase: "installing", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "failed", label: "失败：中间换成安装输出", input: {props: {name: "epub-export", phase: "failed", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: {code: "install-failed", output: "bun install v1.4.4\nResolving dependencies\nResolved, downloaded and extracted [12]\nerror: GET https://registry.npmjs.org/epub-gen-memory - ETIMEDOUT\nerror: epub-gen-memory@^1.1.2 failed to resolve"}}, model: {open: true}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof SkillInitDialog>((await import("nbook/plugins/agent/web/components/SkillInitDialog.vue")).default)),
+        }),
         defineLabFixture<typeof ProvidersPage>({
             component: "ProvidersPage",
             scenes: [
@@ -1219,6 +1375,8 @@ function shelfFixtures(): LabFixture[] {
                 {id: "providers-write-failed", label: "写不进去（窗口通知记进事件）", input: {props: {writable: true}}},
                 {id: "providers-readonly", label: "模型服务没有运行（只读）", input: {props: {writable: true}}},
                 {id: "providers-english", label: "英文界面", input: {props: {writable: true}}},
+                {id: "providers-focus-key", label: "从对话的“设置密钥”打开：选中 OpenAI、焦点在密钥框", input: {props: {writable: true}}},
+                {id: "providers-focus-add", label: "从对话的“添加服务商”打开：添加窗口开着", input: {props: {writable: true}}},
             ],
             load: async () => withModelsText((await import("./ModelsPageFixture.vue")).default),
         }),
@@ -1229,6 +1387,7 @@ function shelfFixtures(): LabFixture[] {
                 {id: "roles-empty", label: "还没有模型，全部未绑定", input: {props: {writable: true}}},
                 {id: "roles-readonly", label: "模型服务没有运行（只读）", input: {props: {writable: true}}},
                 {id: "roles-english", label: "英文界面", input: {props: {writable: true}}},
+                {id: "roles-focus", label: "从对话的“去绑定”打开：滚到“润色”、焦点在它的模型下拉", input: {props: {writable: true}}},
             ],
             load: async () => withModelsText((await import("./ModelsPageFixture.vue")).default),
         }),

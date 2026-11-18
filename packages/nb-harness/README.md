@@ -28,6 +28,7 @@ NeuroBook 的 Agent harness：只经 Profile 运行的 Agent。按 Profile 与�
 | `./kit/compaction` | 三种压缩方法与压缩后的放回 |
 | `./kit/guards` | 费用与循环两个运行守卫 |
 | `./kit/sessions` | 会话句柄表（空闲关闭、停止）与标题生成 |
+| `./kit/requests` | 模型请求记录器（尚未稳定）：`traceModelPort` 包住模型端口，记下每次请求的内容、结果、线上事实与原始请求体，列出、读、查找、清理；`./kit/requests/types` 是两端共用的形状 |
 | `./kit/testing` | `sessionFilesContract`：宿主用它检查自己的 `SessionFiles` 实现 |
 
 浏览器只能加载 `./kit/shapes` 与 `./kit/files`：这两条导入链只值导入 `typebox`，不拖进 OMP 与 Node 内置模块。提问工具的表单用 `@notnotype/nb-form` 的核心入口检查与校验，不依赖 nb-ui 与 vue；表单怎么画由宿主定。

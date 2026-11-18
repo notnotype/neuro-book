@@ -168,7 +168,10 @@ export function createStagingCommitter(options: StagingCommitterOptions): Stagin
             try {
                 await mkdir(slot.absolute);
             } catch (error) {
-                if (errno(error) !== "EEXIST") return {ok: false, code: "io-failed", detail: `无法建立 ${prefix}`, cause: describe(error)};
+                const code = errno(error);
+                // 只读的父目录：同读取与移动的写法，是“没有权限”而不是笼统的写入失败（写入图片的 403 靠它，插图目录通常要现建）。
+                if (code === "EACCES" || code === "EPERM" || code === "EROFS") return {ok: false, code: "permission-denied", detail: `无权建立 ${prefix}`, cause: describe(error)};
+                if (code !== "EEXIST") return {ok: false, code: "io-failed", detail: `无法建立 ${prefix}`, cause: describe(error)};
                 // 别人刚建了同名的：再解析一次，是目录就接着用（悬空链接这类仍解析不出的照常失败）。
                 const again = await root.resolve(prefix);
                 if ("ok" in again) return again;

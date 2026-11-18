@@ -24,7 +24,7 @@ import {notificationsKey, quickPickKey, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKB
 import type {ActivityBarItemDeclaration, OverlayDeclaration, TitlebarMenuItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {ActivityBarItemImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
 
-import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
+import {clockKey, windowConnectionKey, windowDesktopKey, windowPluginsKey} from "nbook/shared/host";
 import type {Written} from "nbook/shared/convention-keys";
 import {HOST_LOCALES, hostLocaleSchema} from "nbook/shared/host-locales";
 import {windowProjectKey} from "nbook/shared/projects";
@@ -69,10 +69,11 @@ export const SWITCH_LOCALE_DECLARATION: WrittenCommandDeclaration = {
  */
 export const OPEN_SETTINGS_DECLARATION: WrittenCommandDeclaration = {
     category: settingsText("commands.category"),
-    description: "Open the settings window of this page, or focus it when it is already open. { section } jumps to a section id; { layer: \"user\" | \"project\" } switches between user and book settings.",
+    description: "Open the settings window of this page, or focus it when it is already open. { section } jumps to a section id; { layer: \"user\" | \"project\" } switches between user and book settings; { focus } is handed to that page, which decides what it points at (for example a role id).",
     args: Type.Object({
         section: Type.Optional(Type.String()),
         layer: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("project")])),
+        focus: Type.Optional(Type.String({minLength: 1})),
     }, {additionalProperties: false}),
     effect: "read",
     keybinding: "Mod+,",
@@ -150,7 +151,7 @@ export const settingsWindowEntry = defineEntry({
         });
         context.scope.register({kind: "settings-window", label: `${descriptor.id} window`, value: settingsWindow, release: (value) => value.dispose()});
         const published = bindingsOf(settingsWindowState, {windowOpen: settingsWindow.open});
-        const run = (args: unknown) => settingsWindow.openWindow(args as {readonly section?: string; readonly layer?: SettingLayer});
+        const run = (args: unknown) => settingsWindow.openWindow(args as {readonly section?: string; readonly layer?: SettingLayer; readonly focus?: string});
         const overlay: WorkbenchOverlayImplementation = {
             // `.vue` 只在 load() 里动态导入：插件的合同测试在 bun test 里导入本文件，bun 不能加载 `.vue`。
             load: async () => {
@@ -178,7 +179,7 @@ export const settingsBrowserPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: windowConnectionKey}, {key: windowProjectKey}, {key: windowPluginsKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: windowConnectionKey}, {key: windowProjectKey}, {key: windowPluginsKey, required: false}, {key: windowDesktopKey, required: false}],
         provides: [settingsKey, settingsWindowSourceKey],
         receives: [SETTINGS_PAGES_POINT, SETTINGS_CHOICES_POINT],
         remoteDelegates: [userSettingsContract, projectSettingsContract],
@@ -215,7 +216,9 @@ export const settingsBrowserPlugin: PluginDefinition = {
                 context.signal,
                 (event) => context.activation.trigger(event),
             );
+            const desktop = await context.services.resolve(windowDesktopKey);
             const windowSource = createSettingsWindowSource({
+                environment: {desktop: desktop.status === "resolved" && desktop.instance.available},
                 sections,
                 choices,
                 declarations,

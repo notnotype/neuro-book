@@ -12,10 +12,11 @@
 
 import {randomUUID} from "node:crypto";
 
+import type {FileLock} from "@notnotype/nb-flock";
+
 import type {BookFeatures} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import {bookIdFromTitle, isValidBookId, type Library} from "../core/library";
-import type {FileLock} from "../platform/flock";
 import type {IngestEvent, JobOutcome} from "./job";
 import {chapterWaits} from "./retry-policy";
 import {applyPlan, planFromSaved, planFromText, type IngestPlan} from "./start";

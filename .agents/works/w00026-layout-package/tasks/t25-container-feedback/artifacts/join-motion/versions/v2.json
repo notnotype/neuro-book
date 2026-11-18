@@ -1,0 +1,76 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t25-container-feedback",
+    "artifactId": "join-motion",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "活动栏与侧栏分开、合上时接缝怎么动",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "67aacb9ac26a71e03b59d123e699594019fe667ac3e0692138876b1507fbe4df",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "join-motion",
+            "type": "single",
+            "label": "侧栏收起、展开时，活动栏和侧栏相接的地方选哪种？",
+            "options": [
+                {
+                    "value": "smooth",
+                    "label": "甲 同步分开"
+                },
+                {
+                    "value": "droplet",
+                    "label": "乙 水滴"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "droplet"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 2,
+                "by": null
+            }
+        },
+        {
+            "id": "join-motion-2",
+            "type": "single",
+            "label": "侧栏收起、展开时，活动栏和侧栏相接的地方选哪种？",
+            "options": [
+                {
+                    "value": "smooth",
+                    "label": "甲 同步分开"
+                },
+                {
+                    "value": "droplet",
+                    "label": "乙 水滴"
+                },
+                {
+                    "value": "cap",
+                    "label": "丙 侧栏的角接过去"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "cap"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-16T03:11:50.072Z"
+}
