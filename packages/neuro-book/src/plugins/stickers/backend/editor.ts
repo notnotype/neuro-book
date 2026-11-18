@@ -16,13 +16,25 @@ import {isStickerName} from "@notnotype/nb-markdown";
 
 import type {WorkspaceFiles} from "nbook/plugins/files/shared/workspace-files";
 
-import type {EditCode} from "../shared/contracts";
-import {FOLDER_NAME, MANIFEST_FILE, MANIFEST_MAX_BYTES, packId, STAGING_PREFIX, STICKERS_PER_PACK_MAX, TEXT_MAX} from "../shared/contracts";
-import {isImageFileName} from "../shared/manifest";
+import type {ArchiveCode, EditCode} from "../shared/contracts";
+import {FOLDER_NAME, MANIFEST_FILE, MANIFEST_MAX_BYTES, packId, REPLACED_PREFIX, STAGING_PREFIX, STICKERS_PER_PACK_MAX, TEXT_MAX} from "../shared/contracts";
+import {isImageFileName, parseManifest} from "../shared/manifest";
+import {ARCHIVE_LIMITS, packNameFrom, unpackZip, zipPack} from "./archive";
 import type {StickerCatalog, StickerPackItem} from "./catalog";
+import {checkImage} from "./catalog";
+import {prepareImage, uploadName} from "./prepare-image";
 
 
-export type Edited<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly code: EditCode; readonly detail: string};
+/** 导入遇到同名的包时交回的信息：页面据此问“替换还是另存”（输出 36）。`token` 是已有的包的文件夹令牌，替换时带回。 */
+export interface ImportConflict {
+    readonly existing: {readonly id: string; readonly title: string; readonly count: number; readonly files: readonly string[]; readonly token: string | null};
+    /** 另存时会用的包名。 */
+    readonly copyAs: string | null;
+}
+
+export type Edited<T, Code extends string = EditCode> =
+    | {readonly ok: true; readonly value: T}
+    | {readonly ok: false; readonly code: Code; readonly detail: string; readonly conflict?: ImportConflict};
 
 /** 页面给的表情定位：清单里写的或推出来的名字（没写名字的认不出的图为 null）加文件名。 */
 export interface StickerTarget {
@@ -40,6 +52,10 @@ export interface StickerChange {
 
 /** 复制插件的包至多读这么多字节（同导出，复制出来的一定能导出）。 */
 export const COPY_BYTES_MAX = 64 * 1024 * 1024;
+/** 归档锁的排队上限（在跑的那个不算）。 */
+const ARCHIVE_QUEUE_MAX = 4;
+/** 加图时同名顺延的次数。 */
+const NAME_TRIES = 50;
 
 const USER = "user";
 const ROOT = `${USER}://stickers`;
@@ -57,7 +73,7 @@ class EditAbort extends Error {
     }
 }
 
-const failed = <T>(code: EditCode, detail: string): Edited<T> => ({ok: false, code, detail});
+const failed = <T, Code extends string = EditCode>(code: Code, detail: string): Edited<T, Code> => ({ok: false, code, detail});
 
 function filesFailure(code: string): EditCode {
     switch (code) {
@@ -147,6 +163,8 @@ export interface StickerEditorOptions {
 export class StickerEditor {
     readonly #options: StickerEditorOptions;
     readonly #locks = new KeyedLocks();
+    /** 导入、导出、复制同时只做一个，多的排队，队列满了得 `busy`。 */
+    #archiveWaiting = 0;
 
     constructor(options: StickerEditorOptions) {
         this.#options = options;
@@ -154,6 +172,18 @@ export class StickerEditor {
 
     get #files(): WorkspaceFiles {
         return this.#options.files();
+    }
+
+    /** 归档锁：先取它再取包锁（改名、导入、导出、复制都按这个顺序）。 */
+    async #archived<T, Code extends string>(run: () => Promise<Edited<T, Code>>): Promise<Edited<T, Code | "busy">> {
+        // 在跑的那个也算一个，排队的至多 `ARCHIVE_QUEUE_MAX` 个。
+        if (this.#archiveWaiting > ARCHIVE_QUEUE_MAX) return failed("busy", "正在导入、导出或复制别的表情包，稍后再试");
+        this.#archiveWaiting += 1;
+        try {
+            return await this.#locks.with(["\u0000archive"], run);
+        } finally {
+            this.#archiveWaiting -= 1;
+        }
     }
 
     /** 只写用户的包；交回它的文件夹名。 */
@@ -165,9 +195,9 @@ export class StickerEditor {
     }
 
     /** 在包锁里做一件事，写完刷新目录；`run` 抛出的 `EditAbort` 变成失败。 */
-    async #write<T>(folders: readonly string[], run: () => Promise<Edited<T>>): Promise<Edited<T>> {
+    async #write<T, Code extends string = EditCode>(folders: readonly string[], run: () => Promise<Edited<T, Code>>): Promise<Edited<T, Code | EditCode>> {
         return this.#locks.with(folders, async () => {
-            let result: Edited<T>;
+            let result: Edited<T, Code>;
             try {
                 result = await run();
             } catch (error) {
@@ -375,11 +405,11 @@ export class StickerEditor {
             const renamed = await this.#files.rename(packAddress(staging), name);
             if (renamed.ok) return {ok: true, value: {id: packId(USER, name)}};
             if (renamed.code !== "conflict") {
-                await this.#files.delete([{address: packAddress(staging)}]);
+                await this.#discard(staging);
                 return failed(filesFailure(renamed.code), renamed.detail);
             }
         }
-        await this.#files.delete([{address: packAddress(staging)}]);
+        await this.#discard(staging);
         return failed("pack-exists", `包名 ${candidates[0] ?? ""} 已经被用了`);
     }
 
@@ -423,14 +453,179 @@ export class StickerEditor {
         const {folder} = item.entry;
         const staging = `${STAGING_PREFIX}${randomUUID()}`;
         const candidates = [folder, ...Array.from({length: 49}, (_, index) => `${folder}-${String(index + 2)}`)].filter((name) => FOLDER_NAME.test(name));
-        return this.#write(candidates, async () => {
+        return this.#archived(() => this.#write(candidates, async () => {
             const copied = await this.#copyInto(item.directory, staging);
             if (!copied.ok || this.#options.catalog.rootVersion(item.root) !== version || this.#options.catalog.item(id) === undefined) {
-                await this.#files.delete([{address: packAddress(staging)}]);
+                await this.#discard(staging);
                 return copied.ok ? failed("pack-changed", "复制途中插件换了版本，再试一次") : copied;
             }
             return this.#publish(staging, candidates);
+        }));
+    }
+
+    /** 丢掉暂存（失败也不要紧：下次打开目录时按前缀清掉）。 */
+    async #discard(staging: string): Promise<void> {
+        await this.#files.delete([{address: packAddress(staging)}]);
+    }
+
+    /** 一个文件夹的身份令牌（`identify`）；不在为 null。 */
+    async #tokenOf(folder: string): Promise<string | null> {
+        const found = await this.#files.identify([packAddress(folder)]);
+        const first = found.ok ? found.value.items[0] : undefined;
+        return first !== undefined && "token" in first ? first.token : null;
+    }
+
+    /**
+     * 加图片（输出 29）：核对、缩小，写进包里（撞名按 `-2`、`-3` 顺延）；有表情列表的再在清单末尾加一项（名字省略、不常用），这一步
+     * 失败就把刚写的图删掉（带写完时取的令牌，不删别人刚放进来的同名文件）。没有表情列表、已经有 500 张图的包再加得 `manifest-full`。
+     * 图片不合格得 `image-rejected`，`detail` 是稳定的原因码（`RejectReason`）。
+     */
+    async addImage(id: string, file: string, bytes: Uint8Array): Promise<Edited<{readonly file: string; readonly resized: boolean}, EditCode | ArchiveCode>> {
+        const pack = this.#userPack(id);
+        if (!pack.ok) return pack;
+        const {folder} = pack.value.entry;
+        const prepared = await prepareImage(file, bytes);
+        if (!prepared.ok) return failed("image-rejected", prepared.reason);
+        return this.#write([folder], async () => {
+            const raw = await this.#readManifest(folder);
+            const listed = raw !== null && Array.isArray(raw.stickers);
+            if (!listed && (await this.#images(folder)).length >= STICKERS_PER_PACK_MAX) return failed("manifest-full", `文件夹里已经有 ${String(STICKERS_PER_PACK_MAX)} 张图`);
+            const dot = prepared.file.lastIndexOf(".");
+            let name: string | null = null;
+            for (let attempt = 1; attempt <= NAME_TRIES && name === null; attempt += 1) {
+                const candidate = attempt === 1 ? prepared.file : `${prepared.file.slice(0, dot)}-${String(attempt)}${prepared.file.slice(dot)}`;
+                if (!uploadName(candidate)) break;
+                const written = await this.#files.write(fileAddress(folder, candidate), prepared.bytes, {expect: "absent"});
+                if (written.ok) name = candidate;
+                else if (written.code !== "conflict") return failed(filesFailure(written.code), written.detail);
+            }
+            if (name === null) return failed("pack-exists", `${prepared.file} 的名字都被用了`);
+            if (listed) {
+                try {
+                    await this.#editManifest(folder, (current) => {
+                        (current.stickers as unknown[]).push({file: name});
+                    });
+                } catch (error) {
+                    const token = await this.#tokenOf(`${folder}/${name}`);
+                    const removed = await this.#files.delete([{address: fileAddress(folder, name), ...(token === null ? {} : {expected: token})}]);
+                    if (error instanceof EditAbort) return failed(removed.ok ? error.code : "write-failed", removed.ok ? error.message : `部分完成，以目录为准：${error.message}`);
+                    throw error;
+                }
+            }
+            return {ok: true, value: {file: name, resized: prepared.resized}};
         });
+    }
+
+    /**
+     * 导出（输出 35）：清单与文件夹顶层文件名合格的图片，只存不压；超过 600 项、求和超过 64 MiB、打出来的 zip 超过 64 MiB、没有图片都不导出，
+     * 这样导出的一定能导回来。插件的包也能导出；无效的表情包不能。
+     */
+    async exportPack(id: string): Promise<Edited<{readonly name: string; readonly bytes: Uint8Array}, EditCode | ArchiveCode>> {
+        const item = this.#options.catalog.item(id);
+        if (item === undefined) return failed("pack-missing", `没有表情包 ${id}`);
+        if (item.entry.status !== "ok") return failed("pack-invalid", "无效的表情包不能导出，先在文件夹里修好它");
+        const {folder} = item.entry;
+        return this.#archived(() => this.#locks.with([folder], async () => {
+            const children = await readdir(item.directory, {withFileTypes: true}).catch(() => null);
+            if (children === null) return failed("pack-missing", "表情包的文件夹读不了");
+            const names = children.filter((child) => child.isFile() && (child.name === MANIFEST_FILE || uploadName(child.name))).map((child) => child.name).sort(byCodeUnit);
+            const images = names.filter((name) => name !== MANIFEST_FILE);
+            if (images.length === 0) return failed("export-empty", "没有图片，导出的包导不回来");
+            if (names.length > ARCHIVE_LIMITS.entries) return failed("export-too-large", `超过 ${String(ARCHIVE_LIMITS.entries)} 个文件`);
+            const files: Array<{name: string; bytes: Uint8Array}> = [];
+            let total = 0;
+            for (const name of names) {
+                const bytes = await readFile(join(item.directory, name)).catch(() => null);
+                if (bytes === null) return failed("pack-changed", `读不了 ${name}`);
+                total += bytes.length;
+                if (total > ARCHIVE_LIMITS.archiveBytes) return failed("export-too-large", "超过 64 MiB");
+                files.push({name, bytes: new Uint8Array(bytes)});
+            }
+            const zipped = zipPack(folder, files);
+            if (zipped.length > ARCHIVE_LIMITS.archiveBytes) return failed("export-too-large", "打成 zip 超过 64 MiB");
+            return {ok: true, value: {name: `${folder}.zip`, bytes: zipped}};
+        }));
+    }
+
+    /**
+     * 导入 zip（输出 36）。先在内存里核对（路径、形状、重名、实际字节的上限、清单能解析、至少一张合格的图），再写进暂存；包名没被用就改名成
+     * 正式包名。被用了且没给 `choice` 时交回冲突（不写任何东西）：`copy` 另存成下一个空的 `-N`；`replace` 带已有的包的令牌，把旧包挪开、
+     * 换上新的、删旧的（第二步失败就把旧包改回来，改回也失败就留着，启动时写诊断）。
+     */
+    async importZip(archive: Uint8Array, zipName: string, choice?: {readonly mode: "copy"} | {readonly mode: "replace"; readonly token: string}): Promise<Edited<{readonly id: string}, EditCode | ArchiveCode>> {
+        return this.#archived(async () => {
+            const unpacked = unpackZip(archive);
+            if (!unpacked.ok) return failed("import-invalid", unpacked.reason);
+            const base = packNameFrom(unpacked.folder ?? zipName);
+            if (base === null) return failed("import-invalid", "转不出合规的包名（要有字母或数字），改一下文件夹或 zip 的名字");
+            const manifestBytes = unpacked.files.get(MANIFEST_FILE);
+            if (manifestBytes !== undefined) {
+                if (manifestBytes.length > MANIFEST_MAX_BYTES) return failed("import-invalid", "清单超过 256 KiB");
+                let json: unknown;
+                try {
+                    json = JSON.parse(new TextDecoder().decode(manifestBytes));
+                } catch {
+                    return failed("import-invalid", "清单读不懂");
+                }
+                const parsed = parseManifest(json);
+                if (!parsed.ok) return failed("import-invalid", `清单不合规则：${parsed.detail}`);
+            }
+            let accepted = 0;
+            for (const [name, bytes] of unpacked.files) if (name !== MANIFEST_FILE && (await checkImage(bytes, name)).ok) accepted += 1;
+            if (accepted === 0) return failed("import-invalid", "zip 里没有合格的图片");
+
+            const candidates = [base, ...Array.from({length: 49}, (_, index) => `${base}-${String(index + 2)}`)];
+            return this.#write(candidates, async () => {
+                const exists = await this.#tokenOf(base);
+                if (exists !== null && choice === undefined) return this.#conflict(base, exists, candidates);
+                if (exists !== null && choice?.mode === "replace" && choice.token !== exists) return failed("pack-changed", "已有的表情包被别处改过，重新选择");
+                if (exists === null && choice?.mode === "replace") return failed("pack-missing", "要替换的表情包已经不在了");
+                const staging = `${STAGING_PREFIX}${randomUUID()}`;
+                for (const [name, bytes] of unpacked.files) {
+                    const written = await this.#files.write(fileAddress(staging, name), bytes, {expect: "absent", createParents: true});
+                    if (!written.ok) {
+                        await this.#discard(staging);
+                        return failed(filesFailure(written.code), written.detail);
+                    }
+                }
+                if (choice?.mode === "replace") return this.#replace(staging, base, choice.token);
+                return this.#publish(staging, exists === null ? [base] : candidates.slice(1));
+            });
+        });
+    }
+
+    /** 同名冲突时页面要的信息：已有的包的概况与令牌，另存时会用的包名。 */
+    async #conflict(base: string, token: string, candidates: readonly string[]): Promise<Edited<never, "import-conflict">> {
+        const item = this.#options.catalog.item(packId(USER, base));
+        const free = await this.#files.identify(candidates.slice(1).map(packAddress));
+        const index = free.ok ? free.value.items.findIndex((entry) => "code" in entry) : -1;
+        return {
+            ok: false,
+            code: "import-conflict",
+            detail: `已经有一个包名是 ${base} 的表情包`,
+            conflict: {
+                existing: {id: packId(USER, base), title: item?.entry.title ?? base, count: item?.entry.stickers.length ?? 0, files: (item?.entry.stickers ?? []).slice(0, 4).map((sticker) => sticker.file), token},
+                copyAs: index < 0 ? null : (candidates[index + 1] ?? null),
+            },
+        };
+    }
+
+    /** 替换：旧包挪到 `.nbook-stickers-replaced-…`（这次改名带令牌），暂存改名成正式名，删掉旧的；换不上就把旧的改回来。 */
+    async #replace(staging: string, base: string, token: string): Promise<Edited<{readonly id: string}>> {
+        const moved = `${REPLACED_PREFIX}${base}-${randomUUID()}`;
+        const away = await this.#files.rename(packAddress(base), moved, {expected: token});
+        if (!away.ok) {
+            await this.#discard(staging);
+            return failed(away.code === "not-found" ? "pack-missing" : filesFailure(away.code), away.detail);
+        }
+        const placed = await this.#files.rename(packAddress(staging), base);
+        if (!placed.ok) {
+            const back = await this.#files.rename(packAddress(moved), base);
+            await this.#discard(staging);
+            return failed(back.ok ? filesFailure(placed.code) : "write-failed", back.ok ? placed.detail : `没换成，旧的表情包留在 ${moved}：${placed.detail}`);
+        }
+        await this.#files.delete([{address: packAddress(moved)}]);
+        return {ok: true, value: {id: packId(USER, base)}};
     }
 
     /** 从插件包的文件夹（目录记下的真实目录，同扫描）读清单与顶层图片，跳过链接与别的文件，写进暂存。 */

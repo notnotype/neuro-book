@@ -8,6 +8,8 @@ import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {access, chmod, mkdir, readdir, readFile, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {strToU8, zipSync} from "fflate";
+
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, ContributionHandle, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -26,11 +28,12 @@ import {browserCatalog, browserSummaries} from "./backend/browser-catalog";
 import {StickerCatalog} from "./backend/catalog";
 import type {StickerPackItem} from "./backend/catalog";
 import {packDetail} from "./backend/pack-detail";
+import {unpackZip} from "./backend/archive";
 import {StickerEditor} from "./backend/editor";
 import {revealPath} from "./backend/reveal";
 import {stickersBackendPlugin} from "./backend/plugin";
 import {pluginPackRoots} from "./backend/plugin-roots";
-import {createStickerRoutes} from "./backend/routes";
+import {createStickerRoutes, Gate, UPLOAD_MAX_BYTES} from "./backend/routes";
 import {descriptor} from "./plugin";
 import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, REPLACED_PREFIX, STAGING_PREFIX, stickerImageUrl, stickersCatalogContract, stickersServiceKey} from "./shared/contracts";
 import type {StickerPackEntry, StickerPacksDeclaration, StickersService} from "./shared/contracts";
@@ -590,6 +593,219 @@ describe("表情包页的写入", () => {
         expect((await readdir(user)).filter((name) => name.startsWith(STAGING_PREFIX))).toEqual([]);
     });
 });
+
+describe("表情包页的上传、导入与导出", () => {
+    const jpeg = (width: number, height: number): Promise<Uint8Array> => new Bun.Image(PIXEL).resize(width, height).jpeg().bytes();
+    const names = async (directory: string): Promise<string[]> => (await readdir(directory)).sort();
+
+    async function page(prepare: (user: string) => Promise<void>, options: {idleMs?: number; gate?: Gate} = {}) {
+        const {user, files} = await scene(prepare);
+        const catalog = await StickerCatalog.open({roots: [{key: "user", source: "user", prefix: "user", root: user, watch: false}], clock: {now: () => 0, schedule: () => () => undefined} as never, report: () => undefined});
+        catalogs.push(catalog);
+        const editor = new StickerEditor({files: () => files, catalog});
+        const routes = createStickerRoutes({catalog, files: () => files, editor, ...options});
+        const put = (id: string, file: string, body: Uint8Array, headers: Record<string, string> = {}) => routes.request(`/packs/${id}/images/${encodeURIComponent(file)}`, {method: "PUT", body, headers});
+        const post = (query: string, body: Uint8Array, headers: Record<string, string> = {}) => routes.request(`/import?${query}`, {method: "POST", body, headers});
+        return {user, catalog, editor, routes, put, post};
+    }
+    const stream = (chunks: number, size: number): ReadableStream<Uint8Array> => {
+        let sent = 0;
+        return new ReadableStream({pull(controller) {
+            if (sent >= chunks) return controller.close();
+            sent += 1;
+            controller.enqueue(new Uint8Array(size));
+        }});
+    };
+    const streamed = (body: ReadableStream<Uint8Array>): RequestInit => ({method: "PUT", body, duplex: "half"} as RequestInit);
+    const catZip = async (extra: Record<string, Uint8Array> = {}): Promise<Uint8Array> => zipSync({"cat/stickers.json": strToU8(JSON.stringify({title: "猫", stickers: [{file: "a.png", common: true}]})), "cat/a.png": await png(16, 16), ...extra});
+
+    test("输出 29：上传的图写进包里（超限的缩小）、撞名顺延、有表情列表的同时进清单；不合格的拒绝；跨站、插件的包不收", async () => {
+        const {user, catalog, put} = await page(async (user) => {
+            await pack(join(user, "listed"), {stickers: [{file: "a.png", name: "甲"}]}, {"a.png": await png(8, 8)});
+            await mkdir(join(user, "loose"));
+            await writeFile(join(user, "loose", "开心.png"), await png(8, 8));
+        });
+        const big = await put("user.listed", "大.jpg", await jpeg(2000, 1500));
+        expect(await big.json()).toEqual({file: "大.jpg", resized: true});
+        expect((await put("user.listed", "大.jpg", await jpeg(20, 20))).status).toBe(200);
+        expect(await names(join(user, "listed"))).toEqual(["a.png", "stickers.json", "大-2.jpg", "大.jpg"]);
+        expect((await manifestOfDisk(user, "listed")).stickers).toEqual([{file: "a.png", name: "甲"}, {file: "大.jpg"}, {file: "大-2.jpg"}]);
+        expect(catalog.item("user.listed")?.entry.stickers.find((sticker) => sticker.file === "大.jpg")).toMatchObject({width: 1024, height: 768});
+
+        // 没有表情列表的包：只写文件，不生成清单。
+        expect((await put("user.loose", "困.png", await png(8, 8))).status).toBe(200);
+        expect(await names(join(user, "loose"))).toEqual(["困.png", "开心.png"]);
+        expect(catalog.item("user.loose")?.entry.stickers.map((sticker) => sticker.name)).toEqual(["困", "开心"]);
+
+        const rejected = await put("user.loose", "假.png", strToU8("不是图片"));
+        expect(rejected.status).toBe(422);
+        expect(await rejected.json()).toMatchObject({error: {code: "image-rejected", reason: "type-mismatch"}});
+        expect((await put("user.loose", "a.png", await png(8, 8), {"sec-fetch-site": "cross-site"})).status).toBe(403);
+        expect((await put("user.loose", "a.png", await png(8, 8), {"sec-fetch-site": "none"})).status).toBe(403);
+        expect((await put("user.none", "a.png", await png(8, 8))).status).toBe(404);
+    });
+
+    test("输出 29：没有表情列表、文件夹里已有 500 张图的包再加得 manifest-full；插件的包不收上传", async () => {
+        const {put, catalog, user} = await page(async (user) => {
+            await mkdir(join(user, "full"));
+            const bytes = await png(8, 8);
+            for (let index = 0; index < 500; index += 1) await writeFile(join(user, "full", `a${String(index)}.png`), bytes);
+        });
+        const full = await put("user.full", "多.png", await png(8, 8));
+        expect(full.status).toBe(409);
+        expect(await full.json()).toMatchObject({error: {code: "manifest-full"}});
+        expect(await names(join(user, "full"))).toHaveLength(500);
+        // 插件的包：只读。
+        counter += 1;
+        const plugin = join(tmp, `u${String(counter)}`);
+        await lyra(join(plugin, "lyra"));
+        await catalog.addRoot({key: "acme.cute.packs", source: "plugin", prefix: "acme.cute", root: plugin, watch: false});
+        const refused = await put("acme.cute.lyra", "a.png", await png(8, 8));
+        expect(refused.status).toBe(403);
+        expect(await refused.json()).toMatchObject({error: {code: "not-user-pack"}});
+    });
+
+    test("输出 29：有表情列表、清单已满 500 项的包，图写进去后清单加不了项：图片删掉、整张算失败", async () => {
+        const {put, user} = await page(async (user) => {
+            await pack(join(user, "full"), {stickers: Array.from({length: 500}, (_, index) => ({name: `n${String(index)}`, file: "a.png"}))}, {"a.png": await png(8, 8)});
+        });
+        const refused = await put("user.full", "多.png", await png(8, 8));
+        expect(refused.status).toBe(409);
+        expect(await refused.json()).toMatchObject({error: {code: "manifest-full"}});
+        expect(await names(join(user, "full"))).toEqual(["a.png", "stickers.json"]);
+    });
+
+    test("归档锁：同时导出的排队，队列满了得 busy（在跑的加排队的至多 5 个）", async () => {
+        const {routes} = await page(async (user) => lyra(join(user, "lyra")));
+        const responses = await Promise.all(Array.from({length: 6}, () => routes.request("/export/user.lyra")));
+        expect(responses.map((response) => response.status).sort()).toEqual([200, 200, 200, 200, 200, 429]);
+    });
+
+    test("上传的体积：流式超过 32 MiB 得 413 且什么都没写；很久没有新字节得 408", async () => {
+        const {user, routes} = await page(async (user) => {
+            await mkdir(join(user, "loose"));
+        }, {idleMs: 30});
+        const over = await routes.request("/packs/user.loose/images/a.png", streamed(stream(33, 1024 * 1024)));
+        expect(over.status).toBe(413);
+        expect(UPLOAD_MAX_BYTES).toBe(32 * 1024 * 1024);
+        expect(await names(join(user, "loose"))).toEqual([]);
+        const stalled = await routes.request("/packs/user.loose/images/a.png", streamed(new ReadableStream({start: () => undefined})));
+        expect(stalled.status).toBe(408);
+    });
+
+    test("名额：队列满了得 429；排队的请求取消就退出队列", async () => {
+        const full = await page(async (user) => {
+            await mkdir(join(user, "loose"));
+        }, {gate: new Gate(0, 0)});
+        const busy = await full.put("user.loose", "a.png", await png(8, 8));
+        expect(busy.status).toBe(429);
+        expect(await busy.json()).toMatchObject({error: {code: "busy"}});
+
+        const gate = new Gate(1, 1);
+        const first = await gate.enter(new AbortController().signal);
+        const aborter = new AbortController();
+        const queued = gate.enter(aborter.signal);
+        expect(await gate.enter(new AbortController().signal)).toBeNull();
+        aborter.abort();
+        expect(await queued).toBeNull();
+        // 取消的退出了队列：下一个可以排队，前一个放了名额它就进。
+        const next = gate.enter(new AbortController().signal);
+        first?.();
+        const entered = await next;
+        expect(entered).not.toBeNull();
+        entered?.();
+    });
+
+    test("输出 36：导入 zip；同名先问，不写任何东西；另存为下一个空的包名；替换要带令牌，对不上不替换；替换后旧的没留下", async () => {
+        const {user, catalog, post, routes} = await page(async () => undefined);
+        const archive = await catZip();
+        const first = await post("name=cat.zip", archive);
+        expect(await first.json()).toEqual({id: "user.cat"});
+        expect(catalog.item("user.cat")?.entry).toMatchObject({title: "猫", status: "ok"});
+
+        const again = await post("name=cat.zip", archive);
+        expect(again.status).toBe(409);
+        const conflict = (await again.json()) as {error: {code: string}; conflict: {existing: {title: string; count: number; files: string[]; token: string}; copyAs: string}};
+        expect(conflict.error.code).toBe("import-conflict");
+        expect(conflict.conflict).toMatchObject({existing: {title: "猫", count: 1, files: ["a.png"]}, copyAs: "cat-2"});
+        expect(await names(user)).toEqual(["cat"]);
+
+        const copied = await post("name=cat.zip&mode=copy", archive);
+        expect(await copied.json()).toEqual({id: "user.cat-2"});
+        expect(await names(user)).toEqual(["cat", "cat-2"]);
+
+        const stale = await post(`name=cat.zip&mode=replace&token=${encodeURIComponent("不对的令牌")}`, archive);
+        expect(stale.status).toBe(409);
+        expect(await stale.json()).toMatchObject({error: {code: "pack-changed"}});
+
+        // 换成另一个内容：token 对上了才换，旧的 b.png 没了，没有 .nbook-stickers-replaced-* 留下。
+        await writeFile(join(user, "cat", "b.png"), await png(9, 9));
+        await catalog.refresh("user");
+        const latest = (await (await post("name=cat.zip", archive)).json()) as {conflict: {existing: {token: string}}};
+        const replaced = await post(`name=cat.zip&mode=replace&token=${encodeURIComponent(latest.conflict.existing.token)}`, await catZip({"cat/c.png": await png(12, 12)}));
+        expect(await replaced.json()).toEqual({id: "user.cat"});
+        expect(await names(join(user, "cat"))).toEqual(["a.png", "c.png", "stickers.json"]);
+        expect(await names(user)).toEqual(["cat", "cat-2"]);
+        expect(routes).toBeDefined();
+    });
+
+    test("输出 36：不合格的 zip 整个不导入、不留暂存；跨站不收；zip 炸弹（压得很小、解开很大）被挡下", async () => {
+        const {user, post} = await page(async () => undefined);
+        const bomb = zipSync({"cat/大.png": new Uint8Array(40 * 1024 * 1024)});
+        expect(bomb.length).toBeLessThan(1024 * 1024);
+        const refused = [
+            await post("name=cat.zip", zipSync({"cat/../开心.png": await png(8, 8)})),
+            await post("name=cat.zip", zipSync({"cat/readme.txt": strToU8("没有图")})),
+            await post("name=cat.zip", zipSync({"cat/stickers.json": strToU8("{不是 JSON"), "cat/a.png": await png(8, 8)})),
+            await post("name=cat.zip", zipSync({"cat/a.png": strToU8("不是图片")})),
+            await post("name=猫猫.zip", zipSync({"a.png": await png(8, 8)})),
+            await post("name=cat.zip", bomb),
+        ];
+        expect(refused.map((response) => response.status)).toEqual([422, 422, 422, 422, 422, 422]);
+        for (const response of refused) expect(await response.json()).toMatchObject({error: {code: "import-invalid"}});
+        expect((await post("name=cat.zip", await catZip(), {"sec-fetch-site": "cross-site"})).status).toBe(403);
+        expect(await names(user)).toEqual([]);
+    });
+
+    test("输出 35：导出是一个以包名命名的 zip，导回来内容一样；没有图片、无效的、超过 64 MiB 的不导出；插件的包能导出", async () => {
+        const {user, catalog, routes, post} = await page(async (user) => {
+            await lyra(join(user, "lyra"));
+            await mkdir(join(user, "empty"));
+            await pack(join(user, "bad"), "{不是 JSON");
+            await mkdir(join(user, "huge"));
+            for (const name of ["a", "b", "c"]) await writeFile(join(user, "huge", `${name}.png`), new Uint8Array(30 * 1024 * 1024));
+        });
+        const exported = await routes.request("/export/user.lyra");
+        expect(exported.status).toBe(200);
+        expect(exported.headers.get("content-type")).toBe("application/zip");
+        expect(exported.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''lyra.zip");
+        const bytes = new Uint8Array(await exported.arrayBuffer());
+        const unpacked = unpackZip(bytes);
+        if (!unpacked.ok) throw new Error(unpacked.reason);
+        expect(unpacked.folder).toBe("lyra");
+        expect([...unpacked.files.keys()].sort()).toEqual(["big.png", "fake.png", "happy.png", "heart.png", "shy.webp", "stickers.json", "困.png", "1.png"].sort());
+        // 导回：删掉原包再导入，表情与导出前一样。
+        const before = catalog.item("user.lyra")?.entry.stickers.map((sticker) => sticker.name);
+        await rm(join(user, "lyra"), {recursive: true});
+        await catalog.refresh("user");
+        expect(await (await post("name=lyra.zip", bytes)).json()).toEqual({id: "user.lyra"});
+        expect(catalog.item("user.lyra")?.entry.stickers.map((sticker) => sticker.name)).toEqual(before);
+
+        expect(await (await routes.request("/export/user.empty")).json()).toMatchObject({error: {code: "export-empty"}});
+        const invalid = await routes.request("/export/user.bad");
+        expect(invalid.status).toBe(422);
+        expect(await invalid.json()).toMatchObject({error: {code: "pack-invalid"}});
+        const huge = await routes.request("/export/user.huge");
+        expect(huge.status).toBe(413);
+        expect(await huge.json()).toMatchObject({error: {code: "export-too-large"}});
+        expect((await routes.request("/export/user.none")).status).toBe(404);
+        expect((await routes.request("/export/user.lyra", {headers: {"sec-fetch-site": "cross-site"}})).status).toBe(403);
+    });
+});
+
+async function manifestOfDisk(user: string, folder: string): Promise<{stickers?: Array<Record<string, unknown>>}> {
+    return JSON.parse(await readFile(join(user, folder, "stickers.json"), "utf8")) as {stickers?: Array<Record<string, unknown>>};
+}
 
 describe("浏览器目录", () => {
     test("输出 18：只带显示要用的字段；合计超过上限时放不下的表情包整包不进、写诊断", () => {

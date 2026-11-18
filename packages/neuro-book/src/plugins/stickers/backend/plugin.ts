@@ -103,7 +103,7 @@ export const stickersBackendPlugin: PluginDefinition = {
                 }))],
                 contributions: {
                     [SCHEMES_POINT]: {[STICKERS_SCHEME]: stickersScheme(catalog, userRoot)},
-                    [HTTP_ROUTES_POINT]: {[descriptor.id]: createStickerRoutes({catalog, files})},
+                    [HTTP_ROUTES_POINT]: {[descriptor.id]: createStickerRoutes({catalog, files, editor})},
                 },
                 receivers: {[STICKERS_POINT]: pluginPackRoots({catalog, packages: packages.status === "resolved" ? packages.instance : null, report})},
             };

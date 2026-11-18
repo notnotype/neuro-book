@@ -219,9 +219,12 @@ export type StickerPackDetail = Static<typeof PackDetailSchema>;
  */
 export const EDIT_CODES = [
     "not-user-pack", "pack-missing", "pack-exists", "pack-changed", "folder-invalid", "name-invalid", "name-duplicate",
-    "description-invalid", "sticker-missing", "manifest-full", "too-large", "permission-denied", "write-failed", "refresh-failed",
+    "description-invalid", "sticker-missing", "manifest-full", "too-large", "permission-denied", "write-failed", "refresh-failed", "busy",
 ] as const;
 export type EditCode = (typeof EDIT_CODES)[number];
+/** 加图、导入、导出另有的码（只经 HTTP 路由交回，不在远程方法里）。 */
+export const ARCHIVE_CODES = ["image-rejected", "import-invalid", "import-conflict", "export-too-large", "export-empty", "pack-invalid"] as const;
+export type ArchiveCode = (typeof ARCHIVE_CODES)[number];
 
 const EditDetail = Type.Object({detail: Type.String()}, {additionalProperties: false});
 const editErrors = Object.fromEntries(EDIT_CODES.map((code) => [code, EditDetail])) as {readonly [Code in EditCode]: typeof EditDetail};
