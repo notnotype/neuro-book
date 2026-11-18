@@ -75,6 +75,12 @@ export default {
             readChanged_one: "Read {{read}} file, changed {{changed}}",
             readChanged_other: "Read {{read}} files, changed {{changed}}",
         },
+        children: {
+            called_one: "{{count}} tool call",
+            called_other: "{{count}} tool calls",
+            calling_one: "{{count}} call so far",
+            calling_other: "{{count}} calls so far",
+        },
     },
     usage: {
         detail: "Input {{input}} · Output {{output}} · Cache read {{cacheRead}} · Cache write {{cacheWrite}}",

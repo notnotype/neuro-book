@@ -438,10 +438,11 @@ function makeChain(flat: readonly FlatEntry[], registry: AgentViewRegistry): Cha
     const read = new Set<string>();
     const changed = new Set<string>();
     let touching = 0;
-    for (const {effects} of settledEffects(tools, registry)) {
+    for (const {nested, effects} of settledEffects(tools, registry)) {
         effects.read.forEach((path) => read.add(path));
         effects.changed.forEach((change) => changed.add(change.path));
-        if (effects.read.length > 0 || effects.changed.length > 0) {
+        // “另有几次操作”只数这条链上的调用自己：子调用读改的文件算进上面的数，但它们不是这条链的步骤。
+        if (!nested && (effects.read.length > 0 || effects.changed.length > 0)) {
             touching += 1;
         }
     }
@@ -629,12 +630,15 @@ function computeMetrics(
     };
 }
 
-/** 只有成功的调用才算真正读过或改过文件。 */
-function settledEffects(tools: readonly ToolStep[], registry: AgentViewRegistry): Array<{tool: ToolStep; effects: ToolEffects}> {
-    return tools.flatMap((tool) => {
-        const effects = tool.call.status === "success" ? registry.resolveTool(tool.call.name).effects : undefined;
-        return effects === undefined ? [] : [{tool, effects: effects(tool.call)}];
-    });
+/**
+ * 只有成功的调用才算真正读过或改过文件。子调用（`nested`）按它自己的状态算：外层调用失败时，之前已经写成的照样算
+ * （docs/specs/ui/agent-conversation-view.md“有子调用的调用”）；它的改动记在外层调用名下。
+ */
+function settledEffects(tools: readonly ToolStep[], registry: AgentViewRegistry): Array<{tool: ToolStep; nested: boolean; effects: ToolEffects}> {
+    return tools.flatMap((tool) => [tool.call, ...(tool.call.children ?? [])].flatMap((call) => {
+        const effects = call.status === "success" ? registry.resolveTool(call.name).effects : undefined;
+        return effects === undefined ? [] : [{tool, nested: call !== tool.call, effects: effects(call)}];
+    }));
 }
 
 function collectChangedFiles(tools: readonly ToolStep[], registry: AgentViewRegistry): ChangedFile[] {
@@ -680,4 +684,29 @@ export function hasActiveCall(turn: ConversationTurn, activeCalls: ReadonlySet<s
             return calls.some((call) => call.invocation !== undefined && activeCalls.has(call.invocation));
         });
     });
+}
+
+// ─── 有子调用的调用 ─────────────────────────────────────────────
+
+/**
+ * 卡片收起时也要露出来的子调用：改了文件的、出错的、被拒的、不知道有没有执行完的（docs/specs/ui/agent-conversation-view.md
+ * “有子调用的调用”）。只读的、没改文件的成功调用点开卡片才看到。
+ */
+export function notableChildren(call: ToolCallView, registry: AgentViewRegistry): ToolCallView[] {
+    return (call.children ?? []).filter((child) => {
+        if (child.status === "success") return (registry.resolveTool(child.name).effects?.(child).changed.length ?? 0) > 0;
+        return child.status === "error" || child.status === "invalid" || child.status === "denied" || child.status === "unknown";
+    });
+}
+
+/** 子调用成功读过、改过的文件数，各自去重。 */
+export function childFiles(call: ToolCallView, registry: AgentViewRegistry): {read: number; changed: number} {
+    const read = new Set<string>();
+    const changed = new Set<string>();
+    for (const child of call.children ?? []) {
+        const effects = child.status === "success" ? registry.resolveTool(child.name).effects?.(child) : undefined;
+        effects?.read.forEach((path) => read.add(path));
+        effects?.changed.forEach((change) => changed.add(change.path));
+    }
+    return {read: read.size, changed: changed.size};
 }

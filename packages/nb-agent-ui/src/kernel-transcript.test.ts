@@ -6,7 +6,7 @@
 import {describe, expect, test} from "bun:test";
 
 import {defineExtension} from "@notnotype/nb-harness/kernel";
-import type {ApproveHook, Frame, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import type {ApproveHook, Frame, SessionApi, ToolContext} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestSession} from "@notnotype/nb-harness/kernel/testing";
 import type {TestSession} from "@notnotype/nb-harness/kernel/testing";
 
@@ -246,6 +246,83 @@ describe("工具", () => {
         expect(calls.map((call) => call.status)).toEqual(["success", "denied"]);
         expect(calls[1]!.note).toMatchObject({key: "kernel.tool.deniedByUser"});
         await expectConsistent(session, transcript);
+    });
+});
+
+describe("嵌套调用（docs/specs/ui/agent-conversation-view.md“有子调用的调用”，harness/runtime.md 输出 90–101）", () => {
+    /** 外层工具：执行 `program`，经 `ctx.invoke` 调别的工具（同 eval 的代码）。 */
+    let program: (ctx: ToolContext) => Promise<string> = async () => "";
+    const code = {id: "lab.code", invokes: true, execute: (_args: unknown, ctx: ToolContext) => program(ctx)};
+    const reader = {id: "lab.read", concurrency: "shared" as const, effect: "read" as const, execute: (args: Readonly<Record<string, unknown>>) => (args.path === "长.md" ? "字".repeat(3000) : `读到 ${String(args.path)}`)};
+    const writer = {id: "lab.write", effect: "write" as const, execute: (args: Readonly<Record<string, unknown>>) => `写好 ${String(args.path)}`};
+    const childrenOf = (transcript: KernelTranscript) => assistants(transcript.messages())[0]!.toolCalls[0]!.children ?? [];
+
+    test("子调用挂在外层调用下、按受理先后；等审批时先占位，事项带来源；批准后开始，结果只给预览；跟着的与重建的相同", async () => {
+        program = async (ctx) => {
+            await ctx.invoke!("lab.read", {path: "长.md"});
+            await ctx.invoke!("lab.write", {path: "一.md"});
+            await ctx.invoke!("lab.write", {path: "二.md"});
+            return "代码跑完了";
+        };
+        await using session = await createTestSession({approve: askForWrites, tools: [code, reader, writer]});
+        const {transcript, stop} = await follow(session.raw);
+        session.model.script({tools: [{tool: "lab.code", args: {title: "批量写"}}]}, "完");
+        const runId = await send(session, "写");
+
+        const [first] = await waitingFor(session, 1);
+        const parent = assistants(transcript.messages())[0]!.toolCalls[0]!;
+        expect(parent.startedAt).toBeNumber();
+        // 读已经做完；写在等审批，占位用的是嵌套调用的 id，事项也指着它。
+        expect(childrenOf(transcript).map((child) => [child.name, child.status, (child.args as {path: string}).path])).toEqual([["read", "success", "长.md"], ["write", "running", "一.md"]]);
+        expect(transcript.pending()[0]).toMatchObject({kind: "approval", callId: childrenOf(transcript)[1]!.id, within: {tool: "lab.code", invocation: parent.invocation}});
+        expect((await rebuilt(session.raw)).messages()).toEqual(transcript.messages());
+
+        await session.raw.resolve({commandId: id(), id: first!.id, decision: "allow"});
+        const [second] = await waitingFor(session, 1);
+        await session.raw.resolve({commandId: id(), id: second!.id, decision: "deny"});
+        await session.raw.waitRun(runId);
+        stop();
+
+        const children = childrenOf(transcript);
+        expect(children.map((child) => [child.name, child.status])).toEqual([["read", "success"], ["write", "success"], ["write", "denied"]]);
+        // 3000 个汉字约 9 KB，日志里只有前 2 KB。
+        expect(children[0]!.result!.truncated).toBe(true);
+        expect(children[1]).toMatchObject({result: {text: "写好 一.md", truncated: false}});
+        expect(children[1]!.startedAt).toBeNumber();
+        expect(children[2]!.note).toMatchObject({key: "kernel.tool.deniedByUser"});
+        expect(new Set(children.map((child) => child.id)).size).toBe(3);
+        await expectConsistent(session, transcript);
+    });
+
+    test("外层调用失败：之前已经写成的子调用照样是成功", async () => {
+        program = async (ctx) => {
+            await ctx.invoke!("lab.write", {path: "一.md"});
+            throw new Error("代码出错了");
+        };
+        await using session = await createTestSession({approve: async () => ({verdict: "allow", by: "test"}), tools: [code, writer]});
+        const {transcript, stop} = await follow(session.raw);
+        session.model.script({tools: [{tool: "lab.code"}]}, "完");
+        await session.say("写");
+        stop();
+        expect(assistants(transcript.messages())[0]!.toolCalls[0]!.status).toBe("error");
+        expect(childrenOf(transcript).map((child) => child.status)).toEqual(["success"]);
+        await expectConsistent(session, transcript);
+    });
+
+    test("外层调用有了结果、子调用还没有的（中途读起的日志）按不知道有没有执行完收口；之后到的结果照样换上", () => {
+        const transcript = createKernelTranscript();
+        const at = (seq: number, type: string, data: unknown) => ({id: `e${String(seq)}`, seq, at: seq, scope: "path", kind: "ctrl", type, data});
+        const within = {tool: "lab.code", invocation: "inv-1"};
+        transcript.applyPath([
+            at(1, "assistant", {content: [], toolCalls: [{id: "c1", tool: "lab.code", args: {}}]}),
+            at(2, "toolStarted", {callId: "c1", tool: "lab.code", args: {}, invocation: "inv-1"}),
+            at(3, "nestedToolStarted", {id: "n1", within, tool: "lab.write", args: {path: "一.md"}, approval: {by: "rule"}}),
+            at(4, "toolResult", {callId: "c1", tool: "lab.code", text: "停了", status: "error"}),
+        ]);
+        expect(childrenOf(transcript)[0]).toMatchObject({id: "n1", status: "unknown", note: {key: "kernel.tool.unknown"}, startedAt: 3});
+        transcript.applyEvent(at(5, "nestedToolResult", {id: "n1", within, tool: "lab.write", args: {path: "一.md"}, status: "ok", preview: "写好 一.md", size: 13}));
+        expect(childrenOf(transcript)[0]).toMatchObject({status: "success", result: {text: "写好 一.md", truncated: false}});
+        expect(transcript.problems()).toEqual([]);
     });
 });
 

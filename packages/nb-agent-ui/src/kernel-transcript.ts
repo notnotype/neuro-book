@@ -25,8 +25,16 @@ export type KernelTranscriptProblem = {readonly source: string; readonly reason:
 /**
  * 等用户的一个事项。`request` 是内核事件里的原文：审批是 `{tool, args, effect, reason?}`，提问是工具给的 `{question, data}`。
  * `async`：异步提问，不让运行停下，进停靠区（docs/specs/ui/agent-conversation-view.md“输入框与待处理区”）。
+ * `within`：嵌套调用的事项，`tool` 是外层工具的 id（没换成界面名），`invocation` 是外层那次调用的身份；`callId` 这时是嵌套调用的 id。
  */
-export type KernelPending = {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: JsonValue; readonly async?: true};
+export type KernelPending = {
+    readonly id: string;
+    readonly callId: string;
+    readonly kind: "approval" | "question";
+    readonly request: JsonValue;
+    readonly async?: true;
+    readonly within?: {readonly tool: string; readonly invocation: string};
+};
 
 export type KernelQueued = {readonly id: string; readonly mode: "steer" | "followup"; readonly text: string};
 
@@ -210,11 +218,32 @@ function callOutcome(data: JsonRecord): {status: ToolCallStatus; note?: Text} {
     }
 }
 
-/** 正在写的工具参数还不是合法的 JSON：抽路径与字数，让界面先画出“在写哪个文件、写了多少”。 */
+/**
+ * 正在写的工具参数还不是合法的 JSON：抽路径、标题与字数，让界面先画出“在写哪个文件、写了多少”，卡片的标题（例如 eval 的
+ * `title`）也不空着。只认已经写完的字段值。
+ */
 function streamingArgs(text: string): JsonValue {
-    const path = /"path"\s*:\s*"((?:[^"\\]|\\.)*)"/u.exec(text)?.[1];
-    return {...(path === undefined ? {} : {path}), partialChars: text.length};
+    const field = (name: string): string | undefined => {
+        const raw = new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, "u").exec(text)?.[1];
+        if (raw === undefined) return undefined;
+        try {
+            return JSON.parse(`"${raw}"`) as string;
+        } catch {
+            // 转义写了一半之类的：先按原样显示，参数写完后整条换掉。
+            return raw;
+        }
+    };
+    const path = field("path");
+    const title = field("title");
+    return {...(path === undefined ? {} : {path}), ...(title === undefined ? {} : {title}), partialChars: text.length};
 }
+
+/** 嵌套调用结果的预览是前若干字节，`size` 是全文的字节数：比预览长就是只给了预览。 */
+const utf8 = new TextEncoder();
+const isPreviewOnly = (preview: string, size: number | null): boolean => size !== null && size > utf8.encode(preview).length;
+
+/** 还没有结果的调用（审批中、执行中）：外层调用有了结果、它们还没有时，按“不知道有没有执行完”收口。 */
+const unsettled = (status: ToolCallStatus): boolean => status === "running" || status === "streaming";
 
 const NO_USAGE: KernelUsage = {cost: 0, unpriced: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, context: null, lastCacheHitRate: null};
 const NO_META: KernelMeta = {title: null, description: null, archived: false, settings: {}, extensionSettings: {}, model: null, profile: null, readOnly: null};
@@ -283,7 +312,35 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         return false;
     };
 
-    const assistantFrom = (data: JsonRecord, id: string, timestamp: number, status: AssistantMessageView["status"], blocks: readonly unknown[], calls: readonly unknown[]): AssistantMessageView => {
+    /**
+     * 改外层调用（按 `invocation` 找，嵌套事件只带外层的身份）下的一个子调用，没有就建：没开始就被拒的嵌套调用只有结果，
+     * 审批中的先放占位。找不到外层调用交回 false。
+     */
+    const updateChild = (parent: string, childId: string, change: (child: ToolCallView | undefined) => ToolCallView): boolean => {
+        for (let index = logged.length - 1; index >= 0; index -= 1) {
+            const message = logged[index]!;
+            if (message.kind !== "assistant") continue;
+            const at = message.toolCalls.findIndex((call) => call.invocation === parent);
+            if (at < 0) continue;
+            const call = message.toolCalls[at]!;
+            const children = call.children ?? [];
+            const position = children.findIndex((child) => child.id === childId);
+            const next = position < 0 ? [...children, change(undefined)] : children.map((child, i) => (i === position ? change(child) : child));
+            logged[index] = {...message, toolCalls: message.toolCalls.map((item, i) => (i === at ? {...call, children: next} : item))};
+            return true;
+        }
+        return false;
+    };
+
+    /** 嵌套事件与嵌套事项的 `within`：外层工具的 id 与那次调用的身份。 */
+    const withinOf = (data: JsonRecord): {tool: string; invocation: string} | null => {
+        const within = isRecord(data.within) ? data.within : null;
+        const tool = within === null ? null : stringField(within, "tool");
+        const invocation = within === null ? null : stringField(within, "invocation");
+        return tool === null || invocation === null ? null : {tool, invocation};
+    };
+
+    const assistantFrom =(data: JsonRecord, id: string, timestamp: number, status: AssistantMessageView["status"], blocks: readonly unknown[], calls: readonly unknown[]): AssistantMessageView => {
         let text = "";
         let thinking = "";
         for (const block of blocks) {
@@ -382,8 +439,35 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             case "toolStarted": {
                 const callId = stringField(data, "callId");
                 const invocation = stringField(data, "invocation");
-                // 实际执行的参数：拦截可能改过。`invocation` 是这次调用的唯一身份，宿主跨回复认调用用它（harness/runtime.md 输出 87）。
-                if (callId !== null) updateCall(callId, (call) => ({...call, ...(data.args === undefined ? {} : {args: toJsonValue(data.args)}), ...(invocation === null ? {} : {invocation})}));
+                // 实际执行的参数：拦截可能改过。`invocation` 是这次调用的唯一身份，宿主跨回复认调用用它（harness/runtime.md 输出 87），
+                // 嵌套事件也按它找外层调用。
+                if (callId !== null) updateCall(callId, (call) => ({...call, ...(data.args === undefined ? {} : {args: toJsonValue(data.args)}), ...(invocation === null ? {} : {invocation}), startedAt: at}));
+                return;
+            }
+            case "nestedToolStarted":
+            case "nestedToolResult": {
+                const within = withinOf(data);
+                const nested = stringField(data, "id");
+                const tool = stringField(data, "tool");
+                if (within === null || nested === null || tool === null) {
+                    problem(source, "嵌套调用缺 id、tool 或 within");
+                    return;
+                }
+                const args = toJsonValue(data.args ?? {});
+                const found = updateChild(within.invocation, nested, (child) => {
+                    const base: ToolCallView = {...(child ?? {status: "running" as const}), id: nested, name: toolName(tool), args, invocation: nested};
+                    if (type === "nestedToolStarted") return {...base, status: "running", startedAt: at};
+                    const outcome = callOutcome(data);
+                    const preview = stringField(data, "preview") ?? "";
+                    return {
+                        ...base,
+                        status: outcome.status,
+                        result: {text: preview, truncated: isPreviewOnly(preview, numberField(data, "size"))},
+                        ...(outcome.status === "success" ? {} : {error: preview}),
+                        ...(outcome.note === undefined ? {} : {note: outcome.note}),
+                    };
+                });
+                if (!found) problem(source, `嵌套调用找不到外层调用：${within.invocation}`);
                 return;
             }
             case "toolResult": {
@@ -401,6 +485,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                     result: {text, truncated: false, ...(data.details === undefined ? {} : {details: toJsonValue(data.details)})},
                     ...(outcome.status === "success" ? {} : {error: text}),
                     ...(outcome.note === undefined ? {} : {note: outcome.note}),
+                    // 内核在外层调用收口前结算全部嵌套调用（harness/runtime.md 输出 100）；宽限期之后才到的、中途读起的日志里会有
+                    // 没结果的，按不知道有没有执行完收口。之后真到了结果照样换上。
+                    ...(call.children === undefined ? {} : {children: call.children.map((child) => (unsettled(child.status) ? {...child, status: "unknown" as const, note: agentRef("kernel.tool.unknown")} : child))}),
                 }));
                 if (!found) problem(source, `工具结果找不到对应的调用：${callId}`);
                 return;
@@ -479,7 +566,15 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                     problem(source, "事项缺 id、callId 或 kind");
                     return;
                 }
-                pending = [...pending, {id: interaction, callId, kind, request: toJsonValue(data.request), ...(data.async === true ? {async: true as const} : {})}];
+                const within = withinOf(data);
+                const request = toJsonValue(data.request);
+                // 嵌套调用批准之后才写开始事件：等审批时先在外层调用下放一个占位，开始或结果到了按 id 补上。提问是执行中的工具问的，
+                // 那时它已经在了。
+                if (within !== null && kind === "approval" && isRecord(request) && typeof request.tool === "string") {
+                    const tool = request.tool;
+                    updateChild(within.invocation, callId, (child) => child ?? {id: callId, name: toolName(tool), status: "running", args: toJsonValue(request.args ?? {})});
+                }
+                pending = [...pending, {id: interaction, callId, kind, request, ...(data.async === true ? {async: true as const} : {}), ...(within === null ? {} : {within})}];
                 return;
             }
             case "interactionResolved":
