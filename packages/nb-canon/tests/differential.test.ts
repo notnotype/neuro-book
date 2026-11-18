@@ -10,7 +10,7 @@ import {describe, expect, test} from "bun:test";
 
 import {allPositions, buildRegistry, ChapterOrder, type Check, type ComponentDeclaration, type Entry, type Patch, type Placement, type ReadPosition, type StoryChange} from "../src/index";
 import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "../src/engine/incremental";
-import {createReferenceEngine} from "../src/engine/reference";
+import {createReferenceEngine, originsPageOf} from "../src/engine/reference";
 import {carryPatch} from "../src/model/apply";
 import type {Engine, EngineInputs, WorldData} from "../src/engine/types";
 import {PANEL, PERSON} from "./fixtures/world";
@@ -278,11 +278,14 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
                 for (const mode of ["actual", "planned"] as const) expect(inc.origins({entry: id, path}, position, mode), `${where()} origins ${id} ${path} ${mode}`).toEqual(ref.origins({entry: id, path}, position, mode));
             }
         }
-        // 来历的一页（增量引擎只数步、只为这一页取值）：第一页、中间的窄窗口、超出总数的偏移。
+        // 来历的一页（增量引擎只数步、只为这一页取值）：第一页、中间的窄窗口、超出总数的偏移。位置取得稀一些：这一组每个种子要
+        // 多算不少来历，深处的窗口与跳快照由下面长时间线的用例覆盖。
         for (const path of ["panel.存款", "character.态度", `know.认得[${[...inputs.world.entries.keys()][0]!}].看法`]) {
-            for (const position of positions.filter((_, index) => index % 4 === 0)) {
+            for (const position of positions.filter((_, index) => index % 6 === 0)) {
                 for (const mode of ["actual", "planned"] as const) {
-                    for (const [offset, limit] of [[0, 20], [1, 2], [3, 1], [50, 5]] as const) expect(inc.originsPage({entry: id, path}, position, mode, offset, limit), `${where()} originsPage ${id} ${path} ${mode} ${String(offset)}+${String(limit)}`).toEqual(ref.originsPage({entry: id, path}, position, mode, offset, limit));
+                    // 参照引擎的一页就是整条来历切出来的（`originsPageOf`）：整条只算一次，几个窗口都从它切。
+                    const whole = ref.origins({entry: id, path}, position, mode);
+                    for (const [offset, limit] of [[0, 20], [1, 2], [50, 5]] as const) expect(inc.originsPage({entry: id, path}, position, mode, offset, limit), `${where()} originsPage ${id} ${path} ${mode} ${String(offset)}+${String(limit)}`).toEqual(whole === "chapter-not-found" ? whole : originsPageOf(whole, offset, limit));
                 }
             }
         }
@@ -332,9 +335,11 @@ describe("差分：增量更新与整本重算逐字相同", () => {
         const sim = new Sim(random(7));
         for (let n = 0; n < 300; n += 1) {
             const id = `long${String(n)}`;
-            // 存款每条都改（稠密）；态度每 37 条记一笔（稀疏：相邻两步之间隔着几十个事件）；每 50 条里有一条加得太多、套不上。
+            // 存款每条都改（稠密）；态度每 37 条记一笔、外观每 41 条换一次（稀疏：相邻两步之间隔着几十个事件；外观每次的值不同，
+            // 跳到快照时取错了位置，那一步的结果就会错）；每 50 条里有一条加得太多、套不上。
             const patches: Patch[] = [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: n % 50 === 49 ? -1_000_000 : 1}];
             if (n % 37 === 0) patches.push({op: "note", at: {entry: "e1", path: "character.态度"}, value: `第 ${String(n)} 次`});
+            if (n % 41 === 0) patches.push({op: "set", at: {entry: "e1", path: "character.外观"}, value: `第 ${String(n)} 种样子`});
             sim.changes.set(id, {id, kind: "written", text: "长", at: {kind: "chapter", chapter: sim.chapters[n % sim.chapters.length]!, key: n}, told: [], involves: ["e1"], lines: [], links: [], patches, status: "active", by: {kind: "author"}});
             sim.createdAt.set(id, ++sim.version);
         }
@@ -343,7 +348,7 @@ describe("差分：增量更新与整本重算逐字相同", () => {
         const ref = createReferenceEngine(inputs);
         const end: ReadPosition = {kind: "chapter", chapter: sim.chapters.at(-1)!, edge: "end"};
         const middle: ReadPosition = {kind: "chapter", chapter: sim.chapters[2]!, edge: "start"};
-        for (const path of ["panel.存款", "character.态度"]) {
+        for (const path of ["panel.存款", "character.态度", "character.外观"]) {
             for (const position of [end, middle]) {
                 for (const [offset, limit] of [[0, 20], [20, 20], [3, 7], [0, 1], [1, 3], [280, 20], [400, 5]] as const) {
                     const page = inc.originsPage({entry: "e1", path}, position, "actual", offset, limit);

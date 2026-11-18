@@ -19,9 +19,10 @@
  *
  * 日志分段（场景 6）：除了独占一段的超长行，段大小都不超过 256 KiB 加一行；不满足时脚本以非零码退出。
  *
- * 作者界面的条目页（author-ui.md 输出 6 到 15）：打开热门条目页的一组读取；来历的第三页（真实游标翻过去）；稀疏地址的来历（脚本末尾
- * 在均匀分布的 20 章里给常出场条目的“外观”各写一次）；不带条目、只筛一章的 `changes`；在最新一章每发布一次以后，条目页那组慢读取的
- * 第一次（跟着世界版本换的缓存要重建）与重读。
+ * 作者界面的条目页（author-ui.md 输出 6 到 15）：打开热门条目页的一组读取；来历的第三页（真实游标翻过去，来历不足三页时不量）；
+ * 不带条目、只筛一章的 `changes`。另有两项在上面的指标都取完、重新打开以后量，多写的记录不进别的指标：在最新一章每发布一次以后，
+ * 条目页的一个慢读取的第一次（跟着世界版本换的缓存要重建）与重读，每次发布只让一项当第一次读、轮着来；稀疏地址的来历（在均匀分布的
+ * 20 章里给常出场条目的“外观”各写一次）。
  *
  * 用法（应用包目录）：bun scripts/perf/canon-scale.ts [章数=1000] [--diverge] [--fork]
  * 测量前看 `uptime`：负载高时多跑几次按较低的一端判断，不与 omp 审查同时跑。
@@ -288,19 +289,20 @@ for (let i = 0; i < 10; i += 1) {
 const pageReadSummary = Object.entries(pageReads).map(([name, {ms: spent, bytes}]) => `${name} 中位 ${ms(median(spent))} 毫秒、最大 ${ms(Math.max(...spent))}、${(bytes / 1024).toFixed(1)} KB`).join("；");
 const pageReadTotal = median(Array.from({length: 10}, (_, i) => Object.values(pageReads).reduce((sum, {ms: spent}) => sum + spent[i]!, 0)));
 const latestEnd: ReadPosition = {kind: "chapter", chapter: chapterIds.at(-1)!, edge: "end"};
-// 来历的中间页：用真实游标从第一页翻到第三页，量第三页（引擎只为一页取值，翻到哪一页都不该更慢）。
-const middlePages = Array.from({length: 10}, (_, i) => {
+// 来历的中间页：用真实游标从第一页翻到第三页，量第三页（引擎只为一页取值，翻到哪一页都不该更慢）。章数少、来历不足三页时这一项不量。
+const middlePages = Array.from({length: 10}, (_, i): number | null => {
     const address = {entry: hot[i % hot.length]!, path: "panel.存款"};
     let cursor: string | undefined;
     for (let page = 0; page < 2; page += 1) {
         const read = service.origins(address, latestEnd, "actual", cursor);
-        if (typeof read === "string" || read.cursor === undefined) throw new Error("来历不足三页");
+        if (typeof read === "string") throw new Error(`来历读不到：${read}`);
+        if (read.cursor === undefined) return null;
         cursor = read.cursor;
     }
     const begin = performance.now();
     if (typeof service.origins(address, latestEnd, "actual", cursor) === "string") throw new Error("来历的第三页读不到");
     return performance.now() - begin;
-});
+}).filter((spent) => spent !== null);
 // 不带条目、只筛一章的剧情变更（剧情诊断用的这类查询）：照旧先筛后排，不为它排全书。
 const narrowChanges = (): number => {
     const begin = performance.now();
@@ -368,26 +370,6 @@ if (fork) {
 // ---------- 在最新一章发布一次记账（含校验、计算、写入落盘） ----------
 const last = chapterIds.at(-1)!;
 const publishes: number[] = [];
-// 每次发布之后条目页那组慢读取各读两次：第一次要重建跟着世界版本换的缓存（按条目的变更列表；新加的事件碰到哪些字段），第二次是重读。
-// 带 changedAt 另在早章（第 2 章开头）读一次：倒扫只扫位置之前的事件。
-const afterPublish: Record<string, {first: number[]; again: number[]}> = {};
-const afterPublishReads: ReadonlyArray<readonly [string, () => unknown]> = [
-    ["entry 带 changedAt（最新一章末尾）", () => service.entry(hot[0]!, latestEnd, "actual", false, true)],
-    ["entry 带 changedAt（第 2 章开头）", () => service.entry(hot[0]!, {kind: "chapter", chapter: chapterIds[1]!, edge: "start"}, "actual", false, true)],
-    ["changes（条目、位置之前、倒序）", () => service.changes({entry: hot[0]!, before: {position: latestEnd, mode: "actual"}, order: "desc"}, undefined, 50)],
-    ["origins（存款第一页）", () => service.origins({entry: hot[0]!, path: "panel.存款"}, latestEnd, "actual")],
-    ["changes（只筛一章）", () => service.changes({chapter: last, kind: "written"}, undefined, 50)],
-];
-const readTwice = (): void => {
-    for (const [name, read] of afterPublishReads) {
-        const slot = (afterPublish[name] ??= {first: [], again: []});
-        for (const list of [slot.first, slot.again]) {
-            const begin = performance.now();
-            if (typeof read() === "string") throw new Error(name);
-            list.push(performance.now() - begin);
-        }
-    }
-};
 // `CANON_SCALE_PROFILE=publish`：只对这一段发布取调用栈采样，打印按文件与函数的自身耗时前几名（找发布慢在哪）。
 const profiling = process.env.CANON_SCALE_PROFILE === "publish" ? await import("bun:jsc") : null;
 profiling?.startSamplingProfiler();
@@ -398,9 +380,7 @@ for (let round = 0; round < 10; round += 1) {
     publishes.push(performance.now() - begin);
     // 子线已建时：主线最新一章的记账不在子线的依赖范围里，子线不更新（输出 8、17）。
     if (fork && service.status().lines.updated.length > 0) throw new Error(`子线被更新了：${JSON.stringify(service.status().lines.updated)}`);
-    readTwice();
 }
-const afterPublishSummary = Object.entries(afterPublish).map(([name, {first, again}]) => `${name} 第一次中位 ${ms(median(first))}、最大 ${ms(Math.max(...first))}，重读中位 ${ms(median(again))}`).join("；");
 
 // 当前线是子线时（回溯以后的后半本）：在子线上发布一次记账（输出 15），子线要增量更新，不是整份重建。
 const childPublishes: number[] = [];
@@ -434,24 +414,6 @@ for (let round = 0; round < 5; round += 1) {
     initial.push(performance.now() - begin);
 }
 
-// ---------- 稀疏地址的来历：一个字段只有 20 步，散在常出场条目约六千个事件之间 ----------
-// 在均匀分布的 20 章里给第一个常出场条目的“外观”各写一次（一次发布），再读它的来历第一页：引擎只为这一页取值，相邻两步隔得远时
-// 从快照起，不重放整条时间线。
-const sparsePuts: WriteRequest["puts"] = Array.from({length: 20}, (_, k) => {
-    const id = `tmp:look${String(k)}`;
-    return {ref: {kind: "change" as const, id}, after: {id, kind: "written" as const, text: "换了样子", at: {kind: "chapter" as const, chapter: chapterIds[Math.floor((k * chapters) / 20)]!, key: 7_000}, told: [], involves: [hot[0]!], lines: [], links: [], patches: [{op: "set" as const, at: {entry: hot[0]!, path: "character.外观"}, value: `第 ${String(k)} 种样子`}], status: "active" as const, by: author}};
-});
-await publish(service, {requestId: "scale-sparse", by: author, what: "edit", title: "外观", baseVersion: service.status().version, puts: sparsePuts});
-let sparseSteps = 0;
-const sparseReads = Array.from({length: 10}, () => {
-    const begin = performance.now();
-    const page = service.origins({entry: hot[0]!, path: "character.外观"}, latestEnd, "actual");
-    const spent = performance.now() - begin;
-    if (typeof page === "string") throw new Error(page);
-    sparseSteps = page.total;
-    return spent;
-});
-
 const pending = service.pending({}, undefined, Number.MAX_SAFE_INTEGER);
 const pendingCount = typeof pending === "string" ? 0 : pending.counts.pending;
 const suspectCount = typeof pending === "string" ? 0 : pending.items.reduce((sum, item) => sum + (item.kind === "canon" && item.item.kind === "check-mismatch" ? item.item.suspects.length : 0), 0);
@@ -475,6 +437,50 @@ if (fork) {
     await reopened.stop();
 }
 
+// ---------- 作者界面条目页的几项，在旧指标都取完以后重新打开量（多写的记录不进上面的指标） ----------
+const author2 = await open();
+const svc = author2.service;
+const lastAgain = chapterIds.at(-1)!;
+// 每次在最新一章发布以后，条目页的一个慢读取先读一次（跟着世界版本换的缓存要重建）、再读一次。每次发布只让一个读取当“第一次”，
+// 轮着来：前面的读取会预热读取戳与别的缓存，不让后读的那个沾光。
+const afterPublishReads: ReadonlyArray<readonly [string, () => unknown]> = [
+    ["entry 带 changedAt（最新一章末尾）", () => svc.entry(hot[0]!, latestEnd, "actual", false, true)],
+    ["entry 带 changedAt（第 2 章开头）", () => svc.entry(hot[0]!, {kind: "chapter", chapter: chapterIds[1]!, edge: "start"}, "actual", false, true)],
+    ["changes（条目、位置之前、倒序）", () => svc.changes({entry: hot[0]!, before: {position: latestEnd, mode: "actual"}, order: "desc"}, undefined, 50)],
+    ["origins（存款第一页）", () => svc.origins({entry: hot[0]!, path: "panel.存款"}, latestEnd, "actual")],
+    ["changes（只筛一章）", () => svc.changes({chapter: lastAgain, kind: "written"}, undefined, 50)],
+];
+const afterPublish: Record<string, {first: number[]; again: number[]}> = {};
+for (let round = 0; round < 6; round += 1) {
+    for (const [index, [name, read]] of afterPublishReads.entries()) {
+        await publish(svc, bookkeeping(svc, lastAgain, hot, chapters + 100 + (round * afterPublishReads.length + index) * 2, 100_000 * (round * afterPublishReads.length + index + 1)));
+        const slot = (afterPublish[name] ??= {first: [], again: []});
+        for (const list of [slot.first, slot.again]) {
+            const begin = performance.now();
+            if (typeof read() === "string") throw new Error(name);
+            list.push(performance.now() - begin);
+        }
+    }
+}
+const afterPublishSummary = Object.entries(afterPublish).map(([name, {first, again}]) => `${name} 第一次中位 ${ms(median(first))}、最大 ${ms(Math.max(...first))}，重读中位 ${ms(median(again))}`).join("；");
+
+// 稀疏地址的来历：一个字段只有 20 步，散在常出场条目约六千个事件之间。在均匀分布的 20 章里给第一个常出场条目的“外观”各写一次
+// （一次发布），再读它的来历第一页：引擎只为这一页取值，相邻两步隔得远时从快照起，不重放整条时间线。
+const sparsePuts: WriteRequest["puts"] = Array.from({length: 20}, (_, k) => {
+    const id = `tmp:look${String(k)}`;
+    return {ref: {kind: "change" as const, id}, after: {id, kind: "written" as const, text: "换了样子", at: {kind: "chapter" as const, chapter: chapterIds[Math.floor((k * chapters) / 20)]!, key: 7_000}, told: [], involves: [hot[0]!], lines: [], links: [], patches: [{op: "set" as const, at: {entry: hot[0]!, path: "character.外观"}, value: `第 ${String(k)} 种样子`}], status: "active" as const, by: author}};
+});
+await publish(svc, {requestId: "scale-sparse", by: author, what: "edit", title: "外观", baseVersion: svc.status().version, puts: sparsePuts});
+let sparseSteps = 0;
+const sparseReads = Array.from({length: 10}, () => {
+    const begin = performance.now();
+    const page = svc.origins({entry: hot[0]!, path: "character.外观"}, latestEnd, "actual");
+    const spent = performance.now() - begin;
+    if (typeof page === "string") throw new Error(page);
+    sparseSteps = page.total;
+    return spent;
+});
+await author2.stop();
 
 // `CANON_SCALE_KEEP=1` 时留下临时项目（打印路径），用来看日志或交给 measure-project 量常驻内存。
 if (process.env.CANON_SCALE_KEEP === "1") console.log(`留下临时项目：${root}`);
@@ -489,9 +495,11 @@ console.log(`随机读（实际）：中位 ${ms(median(actualReads))} 毫秒，
 console.log(`按计划第一次读（5 个位置里最慢的）：${ms(plannedFirst)} 毫秒（预算 1000）；之后在这些位置上读，中位 ${ms(median(plannedReads))} 毫秒（预算 20）`);
 console.log(`读条目并带各字段最近一次改动：中位 ${ms(median(touchedReads))} 毫秒，最大 ${ms(Math.max(...touchedReads))}（预算 20）；常出场条目存款的来历一页（最多 ${String(originSteps)} 步）10 次中位 ${ms(median(originPages))} 毫秒，最大 ${ms(Math.max(...originPages))}`);
 console.log(`打开热门条目页的一组读取（10 次）：合计中位 ${ms(pageReadTotal)} 毫秒；${pageReadSummary}`);
-console.log(`来历的第三页（真实游标翻过去）：10 次中位 ${ms(median(middlePages))} 毫秒，最大 ${ms(Math.max(...middlePages))}；稀疏地址（${String(sparseSteps)} 步散在整条时间线上）的第一页：10 次中位 ${ms(median(sparseReads))} 毫秒，最大 ${ms(Math.max(...sparseReads))}`);
+console.log(`来历的第三页（真实游标翻过去）：${middlePages.length === 0 ? "来历不足三页，没有量" : `${String(middlePages.length)} 次中位 ${ms(median(middlePages))} 毫秒，最大 ${ms(Math.max(...middlePages))}`}`);
 console.log(`不带条目、只筛一章的 changes：10 次中位 ${ms(median(narrowReads))} 毫秒，最大 ${ms(Math.max(...narrowReads))}`);
-console.log(`最新一章每发布一次以后（10 次）：${afterPublishSummary}`);
+console.log(`以下在旧指标都取完、重新打开以后量（多写了 30 次记账与 20 条外观的变更）：`);
+console.log(`最新一章每发布一次以后（每项 6 次，每次发布只让一项当第一次读）：${afterPublishSummary}`);
+console.log(`稀疏地址（${String(sparseSteps)} 步散在整条时间线上）的来历第一页：10 次中位 ${ms(median(sparseReads))} 毫秒，最大 ${ms(Math.max(...sparseReads))}`);
 console.log(`讲述（${String(chapters * 17)} 条）：不带筛选的第一页，第一次 ${ms(tellingsFirst)} 毫秒，之后中位 ${ms(median(tellingsAll))}；只读一章，中位 ${ms(median(tellingsOneChapter))}；改一章正文后通知 ${ms(textChangedMs)} 毫秒，接着读第一页 ${ms(tellingsAfterEdit)} 毫秒`);
 console.log(`最新一章发布一次记账：中位 ${ms(median(publishes))} 毫秒，最大 ${ms(Math.max(...publishes))}（预算 100）`);
 console.log(`改常出场条目的初值：中位 ${ms(median(initial))} 毫秒（预算 1000）`);

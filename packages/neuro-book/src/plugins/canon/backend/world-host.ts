@@ -321,7 +321,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
             queueRegistries("diagnostics");
         },
         registerDiagnostics: (plugin, registration) => {
-            computers.get(plugin)?.detach?.();
+            // 同一插件再登记直接替换：内核按插件替换、旧登记的停止函数按令牌认，不先注销（不发一次多余的 `diagnostics` 通知）。
             const item = {registration, detach: service === null ? null : service.registerDiagnostics(plugin, registration)};
             computers.set(plugin, item);
             return () => {

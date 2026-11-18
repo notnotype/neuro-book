@@ -103,8 +103,9 @@ export const canonProjectPlugin: PluginDefinition = {
                     const plugin = consumer.plugin ?? consumer.instanceId;
                     const holdings = {detach: null as (() => void) | null, views: new Set<string>()};
                     const facade: CanonProject = {
+                        // 再登记是替换：宿主与内核都按这一次登记认，旧的停止函数之后调也不起作用，所以不先注销（先注销会让窗口
+                        // 多收一次通知，还会短暂看到没有计算的中间状态）。
                         register: (registration) => {
-                            holdings.detach?.();
                             holdings.detach = host.registerDiagnostics(plugin, registration);
                         },
                         reportDataVersion: (dataVersion) => host.reportDataVersion(plugin, dataVersion),

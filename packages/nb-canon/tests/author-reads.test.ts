@@ -413,6 +413,8 @@ describe("canon.project 输出 30 到 33、canon.model 输出 37、canon.revisio
         };
         expect(listed(xia)).toEqual(["tmp:cast", "tmp:as", "tmp:involves", "tmp:patch"].map((id) => story[id]!));
         expect(listed(ge)).toEqual([story["tmp:as"]!]);
+        // 没有变更涉及它的 id（条目不存在）：空列表。
+        expect(listed("e404")).toEqual([]);
         const late = (await publish([written("tmp:late", at("ch2", 20), [], {involves: [xia]})]))["tmp:late"]!;
         expect(listed(xia)).toEqual([story["tmp:cast"]!, story["tmp:as"]!, late, story["tmp:involves"]!, story["tmp:patch"]!]);
     });

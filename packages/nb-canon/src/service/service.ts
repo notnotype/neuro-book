@@ -253,9 +253,14 @@ export class WorldService {
     /**
      * 诊断登记的代次：计算登记、注销、换数据版本、诊断声明变了，各加一（`#diagnosticsChanged`）。读取戳只含插件的数据版本与声明的
      * `[id, 版本]`，同一插件以同一数据版本换了一套计算、声明改了级别而没改版本时戳不变；分组缓存的键与 `pending` 游标的读取参数
-     * 带上它，旧结果与旧游标才会作废（project.md 输出 34）。只在本实例里有意义：进程重启以后旧游标同样不认。
+     * 带上它，旧结果与旧游标才会作废（project.md 输出 34）。
      */
     #diagnosticsEpoch = 0;
+    /**
+     * 这个服务实例的标识，进 `pending` 游标的读取参数：代次每次打开都从 0 算起，重启前后各登记一次以后代次相同，只靠代次认不出
+     * 旧游标。每次打开都不同，所以进程重启以后旧的 `pending` 游标得到 `cursor-stale`（别的方法的游标照旧按读取输入）。
+     */
+    readonly #instance = globalThis.crypto.randomUUID();
     /** 打开着的视图，按令牌（输出 24）；令牌的寿命由调用方那一层管，它在调用方断开或入口停止时调 `closeView`。 */
     readonly #views = new Map<string, ViewGrant>();
     /** 宿主给的章标题（输出 28）；只用于章表，不进世界、不影响计算。 */
@@ -531,7 +536,7 @@ export class WorldService {
         const groups = this.#groups(world, position, mode);
         if (typeof groups === "string") return groups;
         const stamp = this.#stamp();
-        const page = this.#page(stamp, groups[group], cursor, limit, {method: "pending", position, mode, group, diagnostics: this.#diagnosticsEpoch});
+        const page = this.#page(stamp, groups[group], cursor, limit, {method: "pending", position, mode, group, diagnostics: `${this.#instance}:${String(this.#diagnosticsEpoch)}`});
         if (page === "cursor-stale") return page;
         return {
             ...stamp,
@@ -1329,10 +1334,15 @@ export class WorldService {
             this.#world = this.#world.withOptions({...this.#world.options, ...registries});
             // 类型或字段声明变了（输出 34）。`digest` 不含显示名与给 Agent 的说明，所以另比整份类型。
             const after = this.#world.options;
-            if (after.registry !== before.registry && stableStringify(after.registry.types) !== stableStringify(before.registry.types)) this.#emit({kind: "inputChanged", what: "components"});
+            const components = after.registry !== before.registry && stableStringify(after.registry.types) !== stableStringify(before.registry.types);
             // 诊断声明与标注种类也比完整的内容：读取输入的摘要只含 `[id, 版本]`，级别、显示名这些改了而版本没改，摘要不变。
-            if (diagnosticDeclarations(after.diagnostics) !== diagnosticDeclarations(before.diagnostics)) this.#diagnosticsChanged();
-            if (markTypes(after.marks) !== markTypes(before.marks)) this.#emit({kind: "inputChanged", what: "marks"});
+            const diagnostics = diagnosticDeclarations(after.diagnostics) !== diagnosticDeclarations(before.diagnostics);
+            const marks = markTypes(after.marks) !== markTypes(before.marks);
+            // 宿主会把几张登记表并成一次给：先换好世界与诊断的代次，再依次通知，监听里同步重读时每一条通知看到的都是这一批全部生效以后的结果。
+            if (diagnostics) this.#diagnosticsEpoch += 1;
+            if (components) this.#emit({kind: "inputChanged", what: "components"});
+            if (diagnostics) this.#emit({kind: "inputChanged", what: "diagnostics"});
+            if (marks) this.#emit({kind: "inputChanged", what: "marks"});
         };
         const next = this.#queue.then(run, run);
         this.#queue = next.catch(() => undefined);

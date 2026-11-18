@@ -330,4 +330,33 @@ describe("canon.project 输出 34：诊断与标注的登记变了，世界版�
         await service.setRegistries({diagnostics: registryOf(early, {...late, level: "hint"})});
         expect([pageOf(service).items.map(describeItem), pageOf(service, {group: "hints"}).items.map(describeItem)]).toEqual([["early:零"], ["late:一", "late:二"]]);
     });
+
+    test("同一批里改了 Component 类型与诊断级别：第一条通知（components）里同步重读，看到的已经是这一批全部生效以后的分组", async () => {
+        const data = declaration("data");
+        const service = await open([data]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[data.id]: () => [finding("一")]}});
+        expect(pageOf(service).items.map(describeItem)).toEqual(["data:一"]);
+        const seen: Array<[string, string[]]> = [];
+        service.subscribe((event) => {
+            if (event.kind === "inputChanged") seen.push([event.what, pageOf(service).items.map(describeItem)]);
+        });
+        await service.setRegistries({registry: buildRegistry([PANEL, {...PERSON, label: "人"}]), diagnostics: registryOf({...data, level: "hint"})});
+        expect(seen).toEqual([["components", []], ["diagnostics", []]]);
+    });
+
+    test("进程重启以后，重启前拿到的 pending 游标得到 cursor-stale（代次每次打开都从头算，游标另带服务实例）", async () => {
+        const data = declaration("data");
+        const register = (service: WorldService) => service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[data.id]: () => [finding("一"), finding("二")]}});
+        const before = await open([data]);
+        register(before);
+        const first = before.pending({}, undefined, 1);
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("no cursor");
+        await before.stop();
+        services = services.filter((service) => service !== before);
+
+        const after = await open([data]);
+        register(after);
+        expect(after.pending({}, undefined, 1)).toMatchObject({inputDigest: first.inputDigest});
+        expect(after.pending({}, first.cursor, 1)).toBe("cursor-stale");
+    });
 });

@@ -450,7 +450,8 @@ function concernedEntries(change: StoryChange): readonly string[] {
  * 每个条目涉及的剧情变更，按安放的先后排好（同 `sortByPlacement`）。按世界数据与章序缓存（世界每前进一个版本就是一份新的数据，
  * 章序调整换一个章序对象），分组一次建好，每个条目的那一组第一次用到时才排。调用方不得改返回的数组。
  */
-const entryChanges = new WeakMap<WorldData, WeakMap<ChapterOrder, {readonly grouped: Map<string, StoryChange[]>; readonly sorted: Map<string, readonly StoryChange[]>}>>();
+const entryChanges = new WeakMap<WorldData, WeakMap<ChapterOrder, {readonly grouped: Map<string, StoryChange[]>; readonly sorted: Set<string>}>>();
+const NO_CHANGES: readonly StoryChange[] = Object.freeze([]);
 
 function changesOfEntry(world: World, entry: string): readonly StoryChange[] {
     const order = world.options.order;
@@ -466,15 +467,17 @@ function changesOfEntry(world: World, entry: string): readonly StoryChange[] {
                 else list.push(change);
             }
         }
-        byOrder.set(order, (index = {grouped, sorted: new Map()}));
+        byOrder.set(order, (index = {grouped, sorted: new Set()}));
     }
-    let sorted = index.sorted.get(entry);
-    if (sorted === undefined) {
-        const list = [...(index.grouped.get(entry) ?? [])];
+    // 没有涉及它的变更（条目不存在、或从没被提到）：不为查询串留键，否则任意的 id 都会在这一版里常驻。
+    const list = index.grouped.get(entry);
+    if (list === undefined) return NO_CHANGES;
+    // 这一组只在这里用：第一次用到时原地排序，不另留一份副本。
+    if (!index.sorted.has(entry)) {
         sortByPlacement(order, list);
-        index.sorted.set(entry, (sorted = list));
+        index.sorted.add(entry);
     }
-    return sorted;
+    return list;
 }
 
 /** `before` 筛选（见 `ChangeFilter.before`）：返回“这条变更安放在这个位置之前、在这条线视图里”的判断。 */
