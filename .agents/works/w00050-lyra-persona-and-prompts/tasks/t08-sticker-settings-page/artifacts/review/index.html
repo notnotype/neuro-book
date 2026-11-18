@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 2 轮：表情包设置页</title>
+<title>第 3 轮：表情包设置页</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -29,45 +29,19 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 2 轮：表情包设置页</h1>
+<h1>第 3 轮：表情包设置页</h1>
 
-<section data-nbdev-question="style-r2" data-nbdev-type="confirm" data-nbdev-label="整页按第 2 轮的样子做">
-  <h2>整页按这版的样子做？</h2>
-  <p class="rec"><strong>推荐同意：表情画成模切贴纸（沿外形一圈白边、一道浅影），选中时那圈边换成强调色，跟着贴纸的形状走；网格按常用、其他分组，替代第 1 轮的星标；左栏、属性栏照 Profile 页的写法，不加框。</strong></p>
+<section data-nbdev-question="style-r3" data-nbdev-type="confirm" data-nbdev-label="整页按第 3 轮的格子做">
+  <h2>整页按这版的格子做？</h2>
+  <p class="rec"><strong>推荐同意：按第 2 轮的意见，去掉白边；每个表情占一个 72px 的固定格子，图在格子里按比例缩小、居中，宽图（我不理解）、竖图（举牌）、不透明的方图（喵）和透明底的小表情都落在同一个框里，网格不随图片大小变；悬停加深格子底色，选中是格子的强调色描边。属性栏的大图同样是一个固定高度的格子。</strong></p>
   <div class="shots">
-    <figure><img src="r2/main.webp" alt="选中一个表情"><figcaption>选中一个表情：名字、说明、写法（可复制）、常用</figcaption></figure>
-    <figure><img src="r2/main-dark.webp" alt="暗色"><figcaption>暗色</figcaption></figure>
-    <figure><img src="r2/pack.webp" alt="没选表情"><figcaption>没选表情：表情包的显示名、说明、包名</figcaption></figure>
-    <figure><img src="r2/narrow.webp" alt="480px 宽"><figcaption>480px 宽</figcaption></figure>
-    <figure><img src="r2/problem.webp" alt="认不出"><figcaption>认不出的图排在最前，选中直接改名（第 1 轮已同意）</figcaption></figure>
-    <figure><img src="r2/plugin.webp" alt="插件的包"><figcaption>插件的包：只读，“复制到我的”（第 1 轮已同意）</figcaption></figure>
-    <figure><img src="r2/dragging.webp" alt="拖进图片"><figcaption>往网格里拖图片</figcaption></figure>
-    <figure><img src="r2/empty.webp" alt="还没有表情包"><figcaption>还没有表情包</figcaption></figure>
-  </div>
-</section>
-
-<section data-nbdev-question="unlisted-group" data-nbdev-type="confirm" data-nbdev-label="没加进清单的图放在网格最后一组，可以全部加进来">
-  <h2>没加进清单的图放在网格最后一组，可以一键全部加进来？</h2>
-  <p class="rec"><strong>推荐同意：你选了“只认清单”，在文件管理器里放进去的图不会自己变成表情；放在这一组，看得见、点一下就加。它们不进左栏的表情数。</strong></p>
-  <div class="shots">
-    <figure><img src="r2/unlisted.webp" alt="没加进来的图"><figcaption>选中一张：加进来，或删除文件</figcaption></figure>
-  </div>
-</section>
-
-<section data-nbdev-question="rename-r2" data-nbdev-type="confirm" data-nbdev-label="改包名在更多菜单与属性栏的“改…”，对话框写清代价">
-  <h2>改包名这样告诉代价？</h2>
-  <p class="rec"><strong>推荐同意：入口在头部“更多”菜单与属性栏包名旁的“改…”；对话框里用警示条写清旧写法会认不出、改回就恢复，按钮写明改成什么。</strong></p>
-  <div class="shots">
-    <figure><img src="r2/rename.webp" alt="改包名"><figcaption>改包名</figcaption></figure>
-    <figure><img src="r2/create.webp" alt="新建表情包"><figcaption>新建：包名同样可以以后再改</figcaption></figure>
-  </div>
-</section>
-
-<section data-nbdev-question="conflict-r2" data-nbdev-type="confirm" data-nbdev-label="导入同名的对话框按这版">
-  <h2>导入同名的对话框按这版？</h2>
-  <p class="rec"><strong>推荐同意：两边各一排贴纸预览加名字与个数，取消靠左，另存与替换靠右，替换用危险色。</strong></p>
-  <div class="shots">
-    <figure><img src="r2/conflict.webp" alt="导入同名"><figcaption>导入的 zip 与已有的包同名</figcaption></figure>
+    <figure><img src="r3/main.webp" alt="选中一个表情"><figcaption>“其他”一组里有宽图与竖图</figcaption></figure>
+    <figure><img src="r3/main-dark.webp" alt="暗色"><figcaption>暗色</figcaption></figure>
+    <figure><img src="r3/problem.webp" alt="认不出"><figcaption>cat：不透明的方图“喵”、认不出的 1.png</figcaption></figure>
+    <figure><img src="r3/unlisted.webp" alt="没加进来的图"><figcaption>没加进来的图（第 2 轮已同意）</figcaption></figure>
+    <figure><img src="r3/plugin.webp" alt="插件的包"><figcaption>插件的包</figcaption></figure>
+    <figure><img src="r3/narrow.webp" alt="480px 宽"><figcaption>480px 宽</figcaption></figure>
+    <figure><img src="r3/conflict.webp" alt="导入同名"><figcaption>导入同名的预览也换成格子</figcaption></figure>
   </div>
 </section>
 
@@ -76,11 +50,11 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <ol class="decided">
     <li>左列表右详情，同 Profile 页；选中表情后在旁边的属性栏改（会话里定）</li>
     <li>超过 1024 像素或 2 MiB 的静态图自动缩小，超限的动图拒绝（会话里定）</li>
-    <li>导入同名时问替换还是另存为新包（会话里定）</li>
-    <li>有清单之后只认清单里的表情（第 1 轮）</li>
-    <li>包名可以改，改之前告诉代价（第 1 轮）</li>
+    <li>导入同名时问替换还是另存为新包；对话框按第 2 版（会话里定、第 2 轮）</li>
+    <li>有清单之后只认清单里的表情；没加进来的图放在网格最后一组，可以全部加进来（第 1、2 轮）</li>
+    <li>包名可以改，入口在更多菜单与属性栏，对话框写清代价（第 1、2 轮）</li>
     <li>认不出的图标出来、选中直接改名；插件的包只读、复制到我的（第 1 轮）</li>
-    <li>第 1 轮的样子不通过：“样式有点丑”（第 1 轮）</li>
+    <li>不用白边；格子不随图片大小变；要支持不透明的矩形图（第 2 轮）</li>
   </ol>
 </section>
 </main>
