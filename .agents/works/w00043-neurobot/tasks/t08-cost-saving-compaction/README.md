@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-cost-saving-compaction
-status: planned
-updated: 2026-11-10
+status: shelved
+updated: 2026-11-18
 ---
 
 # 省钱的两种压缩触发
