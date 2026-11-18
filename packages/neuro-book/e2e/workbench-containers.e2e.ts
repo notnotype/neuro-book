@@ -15,7 +15,7 @@ import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Locator, Page} from "@playwright/test";
+import type {Page} from "@playwright/test";
 import {barRef, GRID_SNAPSHOT_VERSION, panelRef, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridSnapshotNode, LayoutDoc} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -24,6 +24,7 @@ import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 import {SAMPLE_VIEWS_RUN_EVENT} from "nbook/shared/testing/sample-views-contract";
 
 import {startProbeServer, startProductServer} from "./fixtures";
+import {pressEntry} from "./support/press-entry";
 import type {ProbeServer, ProductServer} from "./fixtures";
 
 const SESSIONS = "nbook.agent.sessions";
@@ -64,15 +65,6 @@ const collapseButton = (page: Page, view: string) => page.locator(`[data-panel-h
 const entry = (page: Page, container: string) => page.locator(`[data-tool-entry="${container}"]`);
 const pressedEntries = (page: Page) => page.locator('[data-tool-band] [data-tool-entry][aria-pressed="true"]');
 
-/**
- * 点活动栏的入口，再把指针移到状态栏中间的空白：指针留在入口上，入口的提示框会盖住侧栏顶上的标签，接着点侧栏的那一下就点在提示框上（高负载时偶发）。
- * 状态栏中间没有条目，移过去不触发别的悬停。
- */
-async function pressEntry(page: Page, target: Locator): Promise<void> {
-    await target.click();
-    const bar = await page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']").boundingBox();
-    if (bar !== null) await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
-}
 /** 侧栏挨着编辑区的那条边界：侧栏这一侧显示一个分节时是那个分节，显示几个时是区域的分支，所以只认编辑区那一侧。 */
 const sidebarSash = (page: Page) => page.getByRole("separator", {name: /^调整 \S+ 与 (?:center|g0) 的宽度$/u});
 

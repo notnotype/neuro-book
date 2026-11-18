@@ -9,8 +9,9 @@
  * 不是 px。所以展平不用换算单位，`fixed` 与 `weight` 之间切换也不用。收起的面板和呈现为零的轴不写，那就是它展开时的尺寸。
  * 例外只有 `setSiblingShares`：结构操作把一组面板搬到别处之后，按搬之前的比例重分它们在新位置合占的那一份，不引入新的单位。
  *
- * 输入可以是 Vue 的响应式代理（`ref`、`reactive`）：操作按 JSON 形状复制要改的文档，不用 `structuredClone`。结果与输入共享没改过的子对象（结构共享），
- * 输入是代理时结果里没改到的那部分仍是代理：要深拷贝结果用 JSON 拷贝，不要对它 `structuredClone`。
+ * 输入可以是 Vue 的响应式代理（`ref`、`reactive`）：操作按 JSON 形状整份复制文档，不用 `structuredClone`，结果是新的普通对象；结果和现状一样时返回原对象。
+ * 只改一处的几个操作（改尺寸意图、改分支比例这类）沿用输入里没改的子对象，传进来的面板记录也原样放进结果：输入是代理时这几处仍是代理，
+ * 要深拷贝结果用 JSON 拷贝，不要对它 `structuredClone`。
  */
 
 import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "./grid-types";
@@ -1149,7 +1150,7 @@ export function raiseFloat(doc: LayoutDoc, panel: string): LayoutResult {
  * 记录里的 `container` 不写进去：浮动窗不属于任何容器（输出 40），带着它的话“分节只有一个标签”在这块窗上各个入口答案不一。
  */
 export function openFloatPanel(doc: LayoutDoc, input: {readonly id: string; readonly panel: PanelRecord; readonly rect: LayoutFloatRect; readonly activate?: boolean}): LayoutResult {
-    if (doc.panels[input.id] !== undefined) return failure("rejected", `面板已存在 ${input.id}`);
+    if (idTaken(doc, input.id)) return failure("rejected", `面板已存在 ${input.id}`);
     if (doc.floats.length >= LAYOUT_MAX_FLOATS) return failure("limit-exceeded", `浮动窗 ${String(doc.floats.length)} 个`);
     const next = editable(doc);
     const {container: _container, ...record} = input.panel;

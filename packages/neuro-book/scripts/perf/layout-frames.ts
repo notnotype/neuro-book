@@ -162,8 +162,12 @@ const frames = (page: Page, count: number): Promise<void> => page.evaluate((targ
     raf(tick);
 }), count);
 
-/** 跑一段，返回这段里的总数（帧数由脚本自己的帧循环数）。 */
+/**
+ * 跑一段，返回这段里的总数（帧数由脚本自己的帧循环数）。CDP 的两次读数包在页面里计数的外面：先读起点再开始数，先停下再读终点，
+ * 样式重算与排版不会漏掉数帧的那段里发生的。
+ */
 async function measure(page: Page, cdp: CDPSession, run: () => Promise<void>): Promise<Totals> {
+    const before = await cdpCounts(cdp);
     await page.evaluate(() => {
         type Perf = {raf: number; mutations: number; sashStyles: number; ownRaf: typeof requestAnimationFrame; observer: MutationObserver | null; frames: number; counting: boolean; start: number; rafStart: number};
         const perf = (window as unknown as {__perf: Perf}).__perf;
@@ -188,9 +192,7 @@ async function measure(page: Page, cdp: CDPSession, run: () => Promise<void>): P
         };
         perf.ownRaf(tick);
     });
-    const before = await cdpCounts(cdp);
     await run();
-    const after = await cdpCounts(cdp);
     const inPage = await page.evaluate(() => {
         type Perf = {raf: number; mutations: number; sashStyles: number; observer: MutationObserver | null; frames: number; counting: boolean; start: number; rafStart: number};
         const perf = (window as unknown as {__perf: Perf}).__perf;
@@ -203,6 +205,7 @@ async function measure(page: Page, cdp: CDPSession, run: () => Promise<void>): P
         }
         return {raf: perf.raf - perf.rafStart, mutations: perf.mutations, sashStyles: perf.sashStyles, frames: perf.frames, ms: performance.now() - perf.start};
     });
+    const after = await cdpCounts(cdp);
     return {recalc: after.recalc - before.recalc, layout: after.layout - before.layout, ...inPage};
 }
 

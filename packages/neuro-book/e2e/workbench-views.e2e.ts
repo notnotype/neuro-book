@@ -17,7 +17,7 @@ import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Locator, Page} from "@playwright/test";
+import type {Page} from "@playwright/test";
 import {panelRef} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -26,6 +26,7 @@ import {SAMPLE_VIEWS_RUN_EVENT, SAMPLE_VIEWS_SWITCHES} from "nbook/shared/testin
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 
 import {startProbeServer} from "./fixtures";
+import {pressEntry} from "./support/press-entry";
 import type {ProbeServer} from "./fixtures";
 
 const A = "test.sample-views.alpha";
@@ -77,15 +78,6 @@ const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:h
 /** 活动栏里只含这个视图的入口；右栏、底部面板入口条上的入口也带 `data-tool-entry`，限定到活动栏上段。 */
 const toolEntry = (page: Page, viewId: string) => page.locator(`[data-tool-band] [data-tool-entry="view:${viewId}"]`);
 
-/**
- * 点活动栏的入口，再把指针移到状态栏中间的空白：指针留在入口上，入口的提示框会盖住侧栏顶上的标签，接着点侧栏的那一下就点在提示框上（高负载时偶发）。
- * 状态栏中间没有条目，移过去不触发别的悬停。
- */
-async function pressEntry(page: Page, target: Locator): Promise<void> {
-    await target.click();
-    const bar = await page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']").boundingBox();
-    if (bar !== null) await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
-}
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
 const frameOf = (page: Page, viewId: string, command: string) => headOf(page, viewId).locator(`[data-panel-action="nbook.view.${command}"]`);
 /**

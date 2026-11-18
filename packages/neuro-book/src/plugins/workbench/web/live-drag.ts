@@ -3,8 +3,9 @@
  *
  * 一帧的顺序固定：先让手势判定（读 DOM），再换预览，最后写卡片。写在读前面的话，判定里的 `elementsFromPoint` 每帧要强制重算一次样式。卡片的矩形每帧变，直接写在元素上，不进响应式；响应式的东西一场只变几次到几十次。
  *
- * 帧循环按需排：这一帧指针动了、候选还没等够稳定、卡片的尺寸或追赶还没到，任一成立就排下一帧，都不成立就停（按住不动时不空转）。
- * 停着时来了新的落点（`offer`）或新的指针样本（`wake`，宿主在指针移动时调）就排一帧；指针移动先于手势自己的那一帧，两者落在同一帧里，卡片不落后。
+ * 帧循环按需排：这一帧指针动了、候选还没等够稳定、卡片的尺寸或追赶还没到、被拖的标签在标签条里排序，任一成立就排下一帧，都不成立就停（按住不动时不空转）。
+ * 排序要一直排：标签重渲染时 Vue 可能整个换掉它的 style，靠每帧对一次补回（`placeSorted`）。
+ * 停着时来了新的落点（`offer`）或新的指针样本（`wake`，宿主在指针移动时调，监听要挂在手势的监听前面）就排一帧，卡片和判定同一帧，不落后。
  *
  * 判定的几何：拿起时量一份；第一次落到别处时来源收起，之后按收起后的布局判（`collapseSource`），预览怎么摆判定都不跟着变。回到原处（放下去是原样）时来源展开，
  * 判定换回拿起时的那份（`expandSource`）；再落到别处又收起（输出 38）。来源那块面板摘掉它还在时，拿起卡片就收起（撕下标签），不等落点。
@@ -320,7 +321,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             const settling = updateCard(now);
             lastFrame = now;
             if (changed || lifted !== (card.value !== null)) host.placeSortedAfterRender(sortingAt());
-            if (moved || changed || settling || !settled()) frame = host.requestFrame(tick);
+            if (moved || changed || settling || !settled() || sortingAt() !== null) frame = host.requestFrame(tick);
         } finally {
             ticking = false;
         }
