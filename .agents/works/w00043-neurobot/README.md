@@ -10,7 +10,7 @@ updated: 2026-11-18
 
 ## 目标
 
-新开子项目 NeuroBot（暂名）：用户面对的是有长期记忆的 bot（像真人员工），不是会话；bot 多渠道可联系、能互相协作与派子代理、有日程与周期任务。第一个用户是 NeuroBook 的看板娘，充当 AI 运营官。先调研同类项目与技术架构，讨论方向，再写提案。
+新开子项目 NeuroBot（暂名）：用户面对的是有长期记忆的 bot（像真人员工），不是会话；bot 多渠道可联系、能互相协作与派子代理、有日程与周期任务。第一个用户是 NeuroBook 的看板娘，充当 AI 运营官。先调研同类项目与技术架构，讨论方向，再写提案。2026-11-18 起 bot 先做成 NeuroBook 的内置插件，NeuroBot 独立应用暂停；第一版范围见 [NeuroBook 的 bot](../../../docs/proposals/neurobot.md)。
 
 ## 需求（开发者 2026-11-09）
 
@@ -87,50 +87,48 @@ updated: 2026-11-18
 
 ## Task 规划
 
-开发者 2026-11-10 同意。第一版按能用到什么程度分四步，每步做完都能实际用起来：
+2026-11-18 按已接受的 [NeuroBook 的 bot](../../../docs/proposals/neurobot.md) 与 [Agent 内核的输入缓冲区](../../../docs/proposals/agent-input-buffer-states.md) 重排（开发者“可以，都按推荐”）。NeuroBot 独立应用暂停，t04、t05 搁置；省钱压缩第一版不做，t08 搁置。第一版分三步：
 
-1. **能聊**：看板娘在 web 上有一条不断的对话，用户不开会话、不切会话。
-2. **能长期聊**：有记忆，省钱的压缩，上下文不超限。
-3. **能办事**：日程、到点提醒，周期任务自己去跑。
-4. **自用调参**：实际跑一段，按真实花费与记录调数值，攒下记忆评测的材料。
+1. **能聊**：星璃常驻在 NeuroBook 里，有一条不断的主对话，等用户时不卡住。
+2. **有记忆**：`bot://` 里的人设与记忆，常驻的几份进提示词。
+3. **能办事**：日程与周期任务往会话里注入，用户写下或确认过的条目算授权。
 
 | Task | 内容 | 依赖 |
 |---|---|---|
+| **已完成或搁置** | | |
+| [t01](tasks/t01-direction/README.md) | 方向与提案（已完成） | 无 |
+| [t02](tasks/t02-host-base/README.md) | 抽 `nb-file-lock`、`nb-host`、`nb-models` | 见该 Task |
+| [t04](tasks/t04-app-skeleton/README.md)、[t05](tasks/t05-models-settings/README.md)、[t08](tasks/t08-cost-saving-compaction/README.md) | 独立应用的骨架、模型设置页、省钱压缩（搁置） | 无 |
 | **准备** | | |
-| [t01](tasks/t01-direction/README.md) | 提案第二轮审查，接受 | 无 |
-| [w00032 t32](../w00032-agent-integration/tasks/t32-harness-backfill/README.md) | nb-harness 补回 Agent 的通用部分（别的 Work） | 无 |
-| [t02](tasks/t02-host-base/README.md) | 抽 `nb-file-lock`、`nb-host`、`nb-models` | `nb-models` 的两片在 w00032 t32 之后 |
-| [t03](tasks/t03-web-design/README.md) | web 界面设计评审（静态稿） | 无 |
-| [t13](tasks/t13-approval-simplification/README.md) | Agent 审批：自有目录、去掉地址表、询问写明来源（2026-11-18 加） | t01 的审批提案 |
+| [t03](tasks/t03-web-design/README.md) | NeuroBook 里 bot 的界面设计评审 | 无 |
+| [t13](tasks/t13-approval-simplification/README.md) | Agent 审批：自有目录、去掉地址表、询问写明来源 | 无 |
+| [t14](tasks/t14-input-buffer-states/README.md) | 内核的输入缓冲区：每条带状态（对所有会话生效） | 无 |
 | **第一步：能聊** | | |
-| [t04](tasks/t04-app-skeleton/README.md) | 应用骨架与 gateway | t01、t02 的 `nb-host` |
-| [t05](tasks/t05-models-settings/README.md) | 模型与设置页 | t02 的 `nb-models`、t04、t03 |
-| [t06](tasks/t06-main-conversation/README.md) | 主对话（原始记录、harness 接线、对话页） | w00032 t32、t04、t05、t03 |
-| [t07](tasks/t07-agent-ui-for-bot/README.md) | nb-agent-ui 的调整（事件开启的轮次、分隔线） | t03；与 w00032 t14 错开 |
-| **第二步：能长期聊** | | |
-| [t08](tasks/t08-cost-saving-compaction/README.md) | 省钱的两种压缩触发 | w00032 t32、t02 的 `nb-models` |
-| [t09](tasks/t09-bot-memory/README.md) | bot 的记忆 | t06、t08 |
+| [t06](tasks/t06-main-conversation/README.md) | `nbook.bots` 与主对话、等用户、bot 视图 | t14、t03 |
+| [t07](tasks/t07-agent-ui-for-bot/README.md) | nb-agent-ui 的 bot 档 | t03 |
+| **第二步：有记忆** | | |
+| [t09](tasks/t09-bot-memory/README.md) | bot 的记忆 | t06、t13 |
 | **第三步：能办事** | | |
-| [t10](tasks/t10-schedule/README.md) | 日程与周期任务插件 | t06、t07、t09 |
-| **第四步** | | |
+| [t10](tasks/t10-schedule/README.md) | `nbook.schedule` 与宿主消息的含义 | t14、t06、t07 |
 | [t11](tasks/t11-dogfood/README.md) | 第一版自用与调参 | t10 |
 
-最长的依赖链是 w00032 t32 → t02 的 `nb-models` → t05 → t06 → t09 → t10，起点是 t32。t01、t02 不碰 t32 的那几片、t03 与 t32 可以同时做；t04 在 `nb-host` 合入后就能开工。提案接受后，每个 Task 开工时先写自己那份 Spec 的草稿，再写计划。
+最长的依赖链是 t14 → t06 → t10 → t11。t03、t13、t14 可以同时开工。每个 Task 开工时先按提案改 `planned` Spec，再写计划。
 
-第一版之后的路线（QQ、记忆评测与 nb-memory、多 bot、组织、设备与渠道、社媒运营）不建 Task：提案写明每一步开工前另行讨论。
+第一版之后的路线（独立应用与外部渠道、记忆评测与 nb-memory、多 bot、触达、省钱压缩、联网、按天费用）不建 Task：提案写明每一步开工前另行讨论。
 
 ## Task
 
 - [t01 方向讨论与同类项目调研](tasks/t01-direction/README.md)
 - [t02 把两端宿主的通用部分与模型服务抽成包](tasks/t02-host-base/README.md)
-- [t03 第一版 web 界面设计评审](tasks/t03-web-design/README.md)
+- [t03 NeuroBook 里 bot 的界面设计评审](tasks/t03-web-design/README.md)
 - [t04 NeuroBot 应用骨架与 gateway](tasks/t04-app-skeleton/README.md)
 - [t05 模型与设置页](tasks/t05-models-settings/README.md)
-- [t06 主对话](tasks/t06-main-conversation/README.md)
-- [t07 nb-agent-ui 为 NeuroBot 做的调整](tasks/t07-agent-ui-for-bot/README.md)
+- [t06 bot 的主对话（`nbook.bots`）](tasks/t06-main-conversation/README.md)
+- [t07 nb-agent-ui 的 bot 档](tasks/t07-agent-ui-for-bot/README.md)
 - [t08 省钱的两种压缩触发](tasks/t08-cost-saving-compaction/README.md)
 - [t09 bot 的记忆](tasks/t09-bot-memory/README.md)
-- [t10 日程与周期任务插件](tasks/t10-schedule/README.md)
+- [t10 日程与周期任务（`nbook.schedule`）](tasks/t10-schedule/README.md)
 - [t11 第一版自用与调参](tasks/t11-dogfood/README.md)
 - [t12 不判旧的文件锁单独成包 nb-flock 并随 nb-story 发布](tasks/t12-flock-into-file-lock/README.md)
 - [t13 Agent 审批：自有目录、去掉地址表、询问写明来源](tasks/t13-approval-simplification/README.md)
+- [t14 Agent 内核的输入缓冲区：每条带状态](tasks/t14-input-buffer-states/README.md)

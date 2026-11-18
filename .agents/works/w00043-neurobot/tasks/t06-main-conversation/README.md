@@ -2,25 +2,29 @@
 schema: nbook.task/v2
 taskId: t06-main-conversation
 status: planned
-updated: 2026-11-10
+updated: 2026-11-18
 ---
 
-# 主对话
+# bot 的主对话（`nbook.bots`）
 
 ## 目标与范围
 
-bot 的主对话：主会话由对话管理常驻持有；原始记录（入站先落盘、出站按会话日志的序号投影并能补投、来源与信任级）；把 harness 接进应用（本机文件访问、审批缺省规则、任务会话不能写核心记忆）；插话（第一版不做连发合并）；主对话等用户时输入框可用、发消息即结算，审批与提问的期限由内核结算（nb-harness 内核改动）；gateway 重启后用继续指令接着处理（有次数上限）；web 的对话页、网页对话宿主（只取尾部窗口、往上翻再加载，关掉改历史与分支树）与断线重连。
+[bot 提案](../../../../../docs/proposals/neurobot.md)第四节第 3–5、7 小节与第 10 小节的对话部分：
+- `nbook.bots` 插件骨架：预设贡献点与缺省预设、首次启动建 bot、bot 记录、封闭名单（命令域、显示名）、bot 的设置分区；
+- 主对话：`ensureMain`（id 由 bot id 定，`session-exists` 时核对 `owner`）、激活后持有（`agentKey.hold` 与失败码）、会话头 `owner` 与 `ToolSessionContext.owner`（按调用方盖章）、列表不列有归属的会话及其后代、`owned-session` 拒绝改写历史、打开有归属的会话转给 bot 视图、Profile 解析不到、重启后以宿主身份接着跑与次数；
+- 等用户：审批与提问的期限、`expired`、`expired-run`、`send` 的 `settlePending`；
+- bot 视图：`nbook.agent` 浏览器一侧的固定会话宿主服务、未读与最后看到的位置、长会话的指标。
 
-合同：新建 `docs/specs/bot/conversations.md`，以及 `docs/specs/bot/memory.md` 的原始记录部分（都还不存在）；对话页写进 `bot/web.md`。会话日志与原始记录的分工按 [ADR 0035](../../../../../docs/adr/0035-harness-log-driven-kernel.md) 决策 1。审批与提问的期限、重启后用继续指令，改 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)。会用到的现有合同：[`harness/session.md`](../../../../../docs/specs/harness/session.md)（会话日志）、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)（对话视图）、[`runtime/browser-host.md`](../../../../../docs/specs/runtime/browser-host.md)（断线重连）。
+合同：新建 `docs/specs/bots/bots.md`、`docs/specs/bots/main-conversation.md`；改 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/session.md`](../../../../../docs/specs/harness/session.md)、[`agent/sessions.md`](../../../../../docs/specs/agent/sessions.md)、[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)、[`agent/subagents.md`](../../../../../docs/specs/agent/subagents.md)、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)。
 
-依赖：[w00032 t32](../../../w00032-agent-integration/tasks/t32-harness-backfill/README.md)、t04、t05、t03 里对话页的设计。
+依赖：t14（缓冲区与宿主发出者）、t03 里 bot 视图的设计。
 
-来源：w00043 的 [Task 规划](../../README.md#task-规划)（开发者 2026-11-10 同意）。
+来源：w00043 的 [Task 规划](../../README.md#task-规划)（2026-11-18 按已接受的 [bot 提案](../../../../../docs/proposals/neurobot.md) 与 [缓冲区提案](../../../../../docs/proposals/agent-input-buffer-states.md) 重排）。
 
 ## 当前状态
 
-2026-11-10 经 nbdev 新建，尚未开工。
+2026-11-10 经 nbdev 新建，尚未开工；2026-11-18 改成在 NeuroBook 里做，原始记录不做。
 
 ## 下一步
 
-等上面几项，再写 Spec 草稿与计划；后端与 web 量都不小，计划里再定要不要拆。
+等 t14 的内核部分与 t03；开工时先写 Spec 草稿，再写计划，后端与界面分开审。

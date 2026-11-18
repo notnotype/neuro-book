@@ -112,6 +112,8 @@ updated: 2026-11-18
 
 2026-11-18：开发者把 bot 改成 NeuroBook 的内置插件后，提案改写成第四稿（`78bafe8de`），派了三位审查（Opus 后端 17 条、Sonnet 界面 17 条、Sonnet 拉远看 9 条），阻断的一条（运行中注入的消息会卡在缓冲区）已用真实内核复现。按[处理记录](evidences/bot-proposal-review-r1-disposition.md)改成第五稿，新增的七项待定与原有三项一起列在提案第七节，等开发者定。
 
+2026-11-18：bot 提案（第八稿）与缓冲区提案（第三稿）都已接受，本 Task 完成。
+
 ## 下一步
 
 2026-11-18：开发者定了第五稿的十项，改成第六稿；第二轮审查（Opus，14 条，阻断 1）后改成第七稿，[处理记录](evidences/bot-proposal-review-r2-disposition.md)。开发者定了第七稿的两项；第三轮窄审查（Opus，11 条，阻断 1）后，“缓冲区归谁取”这一类三轮都找出新路径，按轮数上限交开发者，[处理记录](evidences/bot-proposal-review-r3-disposition.md)写了推荐的结构改法（宿主不和用户共用缓冲区），等开发者定。
