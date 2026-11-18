@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t04-app-skeleton
-status: planned
-updated: 2026-11-10
+status: shelved
+updated: 2026-11-18
 ---
 
 # NeuroBot 应用骨架与 gateway
