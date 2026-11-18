@@ -1,0 +1,128 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 2 轮：合并后的“消息”视图",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "7068bf39dd3f679d395c63e0c66e1ba150de16c077616b5f35d04a67431f58af",
+    "files": [
+        "index.html",
+        "r1/bots-only.webp",
+        "r1/narrow.webp",
+        "r1/wide-session.webp",
+        "r1/wide.webp",
+        "r2/drawer.webp",
+        "r2/dropdown-open.webp",
+        "r2/dropdown.webp",
+        "r2/pages-chat.webp",
+        "r2/pages-list.webp",
+        "r2/strip.webp",
+        "r2/wide.webp"
+    ],
+    "questions": [
+        {
+            "id": "list-content",
+            "type": "single",
+            "label": "左栏要不要放“会话”？",
+            "options": [
+                {
+                    "value": "bots-only",
+                    "label": "A 只放 bot"
+                },
+                {
+                    "value": "with-sessions",
+                    "label": "B bot 加折叠的会话"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "with-sessions"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "placement",
+            "type": "single",
+            "label": "打开作品时，消息页放在哪？",
+            "options": [
+                {
+                    "value": "page",
+                    "label": "A 编辑区整页"
+                },
+                {
+                    "value": "side",
+                    "label": "B 侧栏"
+                },
+                {
+                    "value": "both",
+                    "label": "C 两者都有"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "both"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 2,
+                "by": null
+            }
+        },
+        {
+            "id": "narrow-nav",
+            "type": "single",
+            "label": "侧栏窄的时候，导航和对话怎么共处？",
+            "options": [
+                {
+                    "value": "strip",
+                    "label": "A 头像列加抽屉"
+                },
+                {
+                    "value": "pages",
+                    "label": "B 列表页与对话页来回切"
+                },
+                {
+                    "value": "dropdown",
+                    "label": "C 点标题下拉"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "strip"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "nav-layout",
+            "type": "confirm",
+            "label": "导航按这样排",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T14:36:20.755Z"
+}

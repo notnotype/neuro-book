@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 1 轮：bot 的消息页</title>
+<title>第 2 轮：合并后的“消息”视图</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -23,6 +23,8 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .pair { display: grid; grid-template-columns: 1fr 2.6fr; gap: 8px; align-items: start; }
 .pair img + img { margin-top: 0; }
 .narrow-shot { max-width: 260px; margin: 0 auto; }
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.duo img + img { margin-top: 0; }
 .cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
@@ -32,60 +34,35 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 1 轮：bot 的消息页</h1>
+<h1>第 2 轮：合并后的“消息”视图</h1>
 
-<section>
-  <h2>现状与参照</h2>
-  <table>
-    <thead><tr><th>参照</th><th>用在哪</th></tr></thead>
-    <tbody>
-      <tr><td>现有的 Agent 对话视图（w00032 t17、t28、t29 的评审板）</td><td>右栏的聊天直接是它，关掉自带的头，换成星璃的头</td></tr>
-      <tr><td>书架页案头的看板娘（书架提案）</td><td>书架上进消息页的入口，下一轮画</td></tr>
-      <tr><td>IM 软件：左栏会话、右栏聊天，窄时左栏缩成头像列</td><td>版式（开发者 2026-11-18）</td></tr>
-    </tbody>
-  </table>
-</section>
-
-<section data-nbdev-question="list-content" data-nbdev-type="single" data-nbdev-recommend="with-sessions">
-  <h2>左栏要不要放“会话”？</h2>
-  <p class="rec"><strong>推荐 B：第一版左栏只有星璃一个，放一组折叠的会话，bot 和会话在一个地方找；以后的群聊排在 bot 下面。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="bots-only" data-nbdev-label="A 只放 bot">
-      <h3>A 只放 bot</h3>
-      <img src="r1/bots-only.webp" alt="左栏只有星璃">
-      <p>会话仍在原来的会话列表里，消息页只管 bot。</p>
+<section data-nbdev-question="narrow-nav" data-nbdev-type="single" data-nbdev-recommend="strip">
+  <h2>侧栏窄的时候，导航和对话怎么共处？</h2>
+  <p class="rec"><strong>推荐 A：头像列一直在，未读和“有事等你”不用点开就看得见；要找会话再展开抽屉。</strong></p>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="strip" data-nbdev-label="A 头像列加抽屉">
+      <h3>A 头像列加抽屉</h3>
+      <div class="duo"><img src="r2/strip.webp" alt="头像列收着"><img src="r2/drawer.webp" alt="点开抽屉"></div>
+      <p>头像列占 56px，对话窄一点。</p>
     </div>
-    <div class="cand" data-nbdev-option="with-sessions" data-nbdev-label="B bot 加折叠的会话">
-      <h3>B bot 加折叠的会话</h3>
-      <img src="r1/wide.webp" alt="左栏星璃加折叠的会话一组">
-      <img src="r1/wide-session.webp" alt="展开会话、正在看一个会话，星璃有两条未读、有事等你">
-      <p>看会话时，星璃的未读数与“有事等你”的点照样在左栏。</p>
+    <div class="cand" data-nbdev-option="pages" data-nbdev-label="B 列表页与对话页来回切">
+      <h3>B 列表页与对话页来回切</h3>
+      <div class="duo"><img src="r2/pages-list.webp" alt="列表页"><img src="r2/pages-chat.webp" alt="对话页，左上角返回"></div>
+      <p>像手机 IM；看对话时看不到别的未读。</p>
+    </div>
+    <div class="cand" data-nbdev-option="dropdown" data-nbdev-label="C 点标题下拉">
+      <h3>C 点标题下拉</h3>
+      <div class="duo"><img src="r2/dropdown.webp" alt="标题旁的未读数"><img src="r2/dropdown-open.webp" alt="下拉出列表"></div>
+      <p>沿用现在 Agent 对话视图的做法，未读只能汇总在标题旁。</p>
     </div>
   </div>
 </section>
 
-<section data-nbdev-question="placement" data-nbdev-type="single" data-nbdev-recommend="both">
-  <h2>打开作品时，消息页放在哪？</h2>
-  <p class="rec"><strong>推荐 C：同一个组件按宽度切换，宽时在编辑区整页看、窄时停在侧栏，头像列就是平时的入口。</strong></p>
-  <div class="cands three">
-    <div class="cand" data-nbdev-option="page" data-nbdev-label="A 编辑区整页">
-      <h3>A 编辑区整页</h3>
-      <img src="r1/wide.webp" alt="编辑区整页的宽版">
-      <p>和打开一章并排，切走就看不见未读。</p>
-    </div>
-    <div class="cand" data-nbdev-option="side" data-nbdev-label="B 侧栏">
-      <h3>B 侧栏</h3>
-      <img class="narrow-shot" src="r1/narrow.webp" alt="侧栏的窄版：头像列加对话">
-      <p>写稿时一直在边上，长回复读起来窄。</p>
-    </div>
-    <div class="cand" data-nbdev-option="both" data-nbdev-label="C 两者都有">
-      <h3>C 两者都有</h3>
-      <div class="pair">
-        <img src="r1/narrow.webp" alt="侧栏的窄版">
-        <img src="r1/wide.webp" alt="拖到编辑区或拉宽后的宽版">
-      </div>
-      <p>侧栏拉宽或拖进编辑区时自动变成宽版。</p>
-    </div>
+<section data-nbdev-question="nav-layout" data-nbdev-type="confirm" data-nbdev-label="导航按这样排">
+  <h2>导航这样排行不行？</h2>
+  <p class="rec"><strong>推荐同意：搜索与过滤（全部、bot、会话）在顶上；bot 一组、会话一组；子会话挂在父的下面，带状态。</strong></p>
+  <div class="cands" style="grid-template-columns: minmax(0, 1fr);">
+    <div class="cand"><img src="r2/wide.webp" alt="拉宽时左边导航、右边对话"></div>
   </div>
 </section>
 
@@ -93,7 +70,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <h2>已定</h2>
   <ol class="decided">
     <li>bot 的视图是 IM 式：左边是聊天与群聊，右边是聊天界面（开发者 2026-11-18）</li>
-    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程与记忆默认收起，从头部的入口进；关着时只剩头像加未读气泡；不自动收起（开发者 2026-11-18“可以”）</li>
+    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程与记忆默认收起；关着时只剩头像加未读气泡；不自动收起（2026-11-18）</li>
+    <li>左栏放会话；bot 与会话合并成一个“消息”视图，取代现在的会话面板与 Agent 对话视图；对话本身用同一个组件（第 1 轮）</li>
+    <li>放在侧栏；多开放到最后，倾向做成侧栏视图能开多个（第 1 轮）</li>
   </ol>
 </section>
 </main>
