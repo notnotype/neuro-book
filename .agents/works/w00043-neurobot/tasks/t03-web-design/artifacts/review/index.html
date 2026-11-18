@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 5 轮（改）：日程与记忆</title>
+<title>第 5 轮（再改）：日程</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -38,21 +38,13 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 5 轮（改）：日程与记忆</h1>
+<h1>第 5 轮（再改）：日程</h1>
 
-<section data-nbdev-question="schedule-rows" data-nbdev-type="confirm" data-nbdev-label="日程面板按这样画">
-  <h2>日程每行等高之后，这样行不行？</h2>
-  <p class="rec"><strong>推荐同意：每行固定两行高；状态写在名字后面（待你确认、上次出错、暂停中），出错时第二行换成原因；右边一格放开关，待你确认的换成“确认”。</strong></p>
+<section data-nbdev-question="schedule-confirm" data-nbdev-type="confirm" data-nbdev-label="日程面板按这样画">
+  <h2>“确认”挪到状态旁边、开关固定在右边，这样行不行？</h2>
+  <p class="rec"><strong>推荐同意：开关一直在右边那一格；“确认”跟在“待你确认”后面，点了就算你的授权；每行仍然等高。</strong></p>
   <div class="cands" style="grid-template-columns: minmax(0, 1fr);">
-    <div class="cand"><img src="r5/schedule-2.webp" alt="日程面板，每行等高"></div>
-  </div>
-</section>
-
-<section data-nbdev-question="memory-columns" data-nbdev-type="confirm" data-nbdev-label="记忆面板按这样画">
-  <h2>记忆做成双栏，这样行不行？</h2>
-  <p class="rec"><strong>推荐同意：左边是带子目录的文件树，常驻的文件用图钉；右边是内容，头上写路径、是否常驻与谁什么时候改的；“在资源管理器中显示”跳到资源管理器里的同一个文件。</strong></p>
-  <div class="cands" style="grid-template-columns: minmax(0, 1fr);">
-    <div class="cand"><img src="r5/memory-2.webp" alt="记忆面板，双栏"></div>
+    <div class="cand"><img src="r5/schedule-3.webp" alt="日程面板：确认在状态旁，开关固定在右边"></div>
   </div>
 </section>
 
@@ -60,12 +52,12 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <h2>已定</h2>
   <ol class="decided">
     <li>bot 的视图是 IM 式：左边是聊天与群聊，右边是聊天界面（开发者 2026-11-18）</li>
-    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程与记忆默认收起；关着时只剩头像加未读气泡；不自动收起</li>
+    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程默认收起；关着时只剩头像加未读气泡；不自动收起</li>
     <li>对话本身用同一个组件；放在侧栏；多开放到最后，倾向做成侧栏视图能开多个（第 1 轮）</li>
     <li>侧栏窄时用头像列加抽屉（第 2 轮）</li>
     <li>bot 与会话不混排：一个“消息”视图，顶上两个标签；bot 是 IM 会话列表，子会话与子 bot 进聊天头部的子代理入口；会话不按日分组（第 4 轮）</li>
     <li>会话标签照会话面板，不按日分组，滚到底加载，bot 标签上带未读（第 5 轮）</li>
-    <li>记忆文件在文件资源管理器里也看得到（开发者，第 5 轮）</li>
+    <li>记忆面板先不做；记忆文件在文件资源管理器里看（第 5 轮）</li>
   </ol>
 </section>
 </main>
