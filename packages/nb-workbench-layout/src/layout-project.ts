@@ -14,11 +14,11 @@
  * `merged`）：按被投影的那份文档判，所以拖动的预览、隐藏与拖到零的过渡、放不下收走都和放下的结果一致，不在两片叶之间来回搬。
  */
 
-import {GRID_UNBOUNDED, UNBOUNDED_EXTENT} from "../grid-geometry";
+import {GRID_UNBOUNDED, UNBOUNDED_EXTENT} from "@notnotype/nb-layout";
 import {barOfRef, hiddenRegionsAtZero, isContainerAnchor, isFixedChild, isPanelShown, isSectionCollapsed, REGION_ORIENTATION, regionNodeOf, treeLeaves} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, PanelName, PanelRecord} from "./layout-doc";
 import {INNER_SECTIONS_SUFFIX, STRIP_LEAF_PREFIX} from "./presented-ids";
-import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode, SashCollapseState} from "../grid-types";
+import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode, SashCollapseState} from "@notnotype/nb-layout";
 
 export interface PanelConstraints {
     readonly minimumSize: GridExtent;

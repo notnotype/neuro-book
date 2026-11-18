@@ -18,7 +18,7 @@ import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
-import {panelRef} from "@notnotype/nb-layout";
+import {panelRef} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {SAMPLE_VIEWS_RUN_EVENT, SAMPLE_VIEWS_SWITCHES} from "nbook/shared/testing/sample-views-contract";

@@ -4,8 +4,8 @@
  * 要不要卡片、什么时候换预览是 `LiveDrag` 的状态机定的，这里不再判断一次。
  */
 
-import {findTab} from "@notnotype/nb-layout";
-import type {LayoutDoc} from "@notnotype/nb-layout";
+import {findTab} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
 import {dropStripOf} from "./entry-drop";
 import type {WorkbenchDragSource, WorkbenchDropAction} from "./entry-drop";

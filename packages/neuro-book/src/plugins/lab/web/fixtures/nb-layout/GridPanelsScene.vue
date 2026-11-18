@@ -7,10 +7,12 @@
 import {computed, shallowRef, useTemplateRef} from "vue";
 
 import {
-    activateTab,
     createGrid,
-    edgeTargetOf,
     GRID_SNAPSHOT_VERSION,
+} from "@notnotype/nb-layout";
+import {
+    activateTab,
+    edgeTargetOf,
     movePanelToEdge,
     moveTabToEdge,
     moveTabToStrip,
@@ -21,8 +23,9 @@ import {
     rebaseIntents,
     setPanelCollapsed,
     tabKey,
-} from "@notnotype/nb-layout";
-import type {Grid, LayoutDoc, LayoutEdge, LayoutPolicy, LayoutProjectionOptions, LayoutResult, PanelRecord, TabRef} from "@notnotype/nb-layout";
+} from "@notnotype/nb-workbench-layout";
+import type {Grid} from "@notnotype/nb-layout";
+import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutProjectionOptions, LayoutResult, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 
 import GridStructureLeaf from "./GridStructureLeaf.vue";

@@ -14,10 +14,9 @@
  * 要深拷贝结果用 JSON 拷贝，不要对它 `structuredClone`。
  */
 
-import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "../grid-types";
+import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
 import {collidesWithPresentedIds} from "./presented-ids";
-import type {GridRect} from "../grid-rects";
-import type {GridExtent, GridOrientation, GridSnapshot, GridSnapshotBranch, GridSnapshotLeaf, GridSnapshotNode} from "../grid-types";
+import type {GridExtent, GridOrientation, GridRect, GridSnapshot, GridSnapshotBranch, GridSnapshotLeaf, GridSnapshotNode} from "@notnotype/nb-layout";
 
 export const LAYOUT_DOC_VERSION = 1;
 

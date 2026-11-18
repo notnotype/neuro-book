@@ -7,8 +7,9 @@
 
 import {computed, shallowRef} from "@vue/reactivity";
 
-import {activateTab, findTab, findTreeNode, floatTab, GRID_SNAPSHOT_VERSION, insertTab, isFloating, LAYOUT_DOC_VERSION, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, panelRef, removeTab, replaceTab, setCurrentEditor, treeEditorAnchor, treeLeaves} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutEdgeTarget, LayoutPolicy, LayoutResult, TabRef} from "@notnotype/nb-layout";
+import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {activateTab, findTab, findTreeNode, floatTab, insertTab, isFloating, LAYOUT_DOC_VERSION, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, panelRef, removeTab, replaceTab, setCurrentEditor, treeEditorAnchor, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc, LayoutEdgeTarget, LayoutPolicy, LayoutResult, TabRef} from "@notnotype/nb-workbench-layout";
 
 import {editorTabKey} from "./contracts";
 import type {EditorPanels, EditorPanelsService, PanelEntry, PanelTabs, PanelTree} from "./contracts";

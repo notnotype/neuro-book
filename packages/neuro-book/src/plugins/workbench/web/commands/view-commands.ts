@@ -6,8 +6,8 @@
  * 选择之间目标容器没了（没有成员也没有声明），按 `stale-target` 拒绝且不写。
  */
 
-import {findTab, tabKey} from "@notnotype/nb-layout";
-import type {LayoutResult} from "@notnotype/nb-layout";
+import {findTab, tabKey} from "@notnotype/nb-workbench-layout";
+import type {LayoutResult} from "@notnotype/nb-workbench-layout";
 import {Type} from "typebox";
 
 import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";

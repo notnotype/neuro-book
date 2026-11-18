@@ -5,7 +5,8 @@
 import type {Component} from "vue";
 import {h} from "vue";
 
-import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, SortableList, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, SortableList, Splitter} from "@notnotype/nb-layout/vue";
+import type {TabStrip} from "@notnotype/nb-workbench-layout/vue";
 
 import {defineLabFixture, type LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";

@@ -2,7 +2,7 @@
  * 工作台的公开状态（docs/specs/ui/workbench-layout.md 输出 36）：命令的 `when` 读其中的布尔键，字符串键只供读取。布局 store 还没创建或记录没读完时，依赖它们的布尔键为 false。
  */
 
-import {regionOf} from "@notnotype/nb-layout";
+import {regionOf} from "@notnotype/nb-workbench-layout";
 import {computed} from "@vue/reactivity";
 import type {ShallowRef} from "@vue/reactivity";
 

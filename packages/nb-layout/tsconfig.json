@@ -18,7 +18,6 @@
         "src"
     ],
     "exclude": [
-        "src/vue",
-        "src/workbench/vue"
+        "src/vue"
     ]
 }

@@ -1,5 +1,5 @@
 /**
- * 标签条（packages/nb-layout/src/vue/TabStrip.md）：键盘、多行的纵向导航、分区的插入位、放不下时的逐级让位。
+ * 标签条（packages/nb-workbench-layout/src/vue/TabStrip.md）：键盘、多行的纵向导航、分区的插入位、放不下时的逐级让位。
  */
 import {rm} from "node:fs/promises";
 import {join} from "node:path";

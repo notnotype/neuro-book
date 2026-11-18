@@ -3,8 +3,10 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {createGrid, movePanelToEdge, projectLayoutDoc, regionNodeOf, regionOf, regionOfStripLeaf, regionStripLeafId} from "@notnotype/nb-layout";
-import type {GridExtent, GridNodeInput, LayoutDoc} from "@notnotype/nb-layout";
+import {createGrid} from "@notnotype/nb-layout";
+import {movePanelToEdge, projectLayoutDoc, regionNodeOf, regionOf, regionOfStripLeaf, regionStripLeafId} from "@notnotype/nb-workbench-layout";
+import type {GridExtent, GridNodeInput} from "@notnotype/nb-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
 import {viewSection} from "../state/containers";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "../state/default-tree";

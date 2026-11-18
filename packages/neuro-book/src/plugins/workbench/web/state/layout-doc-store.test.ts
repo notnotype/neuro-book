@@ -11,8 +11,9 @@ import {effect} from "@vue/reactivity";
 import type {DeepReadonly} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {barRef, GRID_SNAPSHOT_VERSION, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, moveTabToStrip, panelRef, regionNodeOf, removeTab, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutResult, PanelName, TabRef} from "@notnotype/nb-layout";
+import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {barRef, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, moveTabToStrip, panelRef, regionNodeOf, removeTab, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc, LayoutResult, PanelName, TabRef} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 

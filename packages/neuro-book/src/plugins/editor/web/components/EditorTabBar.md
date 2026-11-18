@@ -5,7 +5,7 @@
 
 # EditorTabBar
 
-编辑组的标签条（受控，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 53、54、56、58、59）：语义、键盘、多行与分区在 nb-layout 的 [`TabStrip`](../../../../../../nb-layout/src/vue/TabStrip.md)，这里是标签里的内容与外观。VS Code 式，条底是主题角色 `--editor-tabs-surface`（比正文低一档），活动标签是与正文同色（`--panel-surface`）的一块、顶部两角圆，不加粗；不是活动组时活动标签的文字降为次级色。同一行相邻标签之间是开放式分隔线（1px `--divider`，上下各空出四分之一），活动与悬停标签两侧不画。每个标签依次是文件图标（共享的 [`FileIcon`](../../../../ui/file-icons/FileIcon.md)，页面标签没有）、名字（preview 为斜体，过长截断，悬停提示完整地址）、同名提示（次级色小字，至多占标签宽度的一半，过长同样截断）与状态位；固定与未保存另有读屏文字。
+编辑组的标签条（受控，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 53、54、56、58、59）：语义、键盘、多行与分区在 nb-workbench-layout 的 [`TabStrip`](../../../../../../nb-workbench-layout/src/vue/TabStrip.md)，这里是标签里的内容与外观。VS Code 式，条底是主题角色 `--editor-tabs-surface`（比正文低一档），活动标签是与正文同色（`--panel-surface`）的一块、顶部两角圆，不加粗；不是活动组时活动标签的文字降为次级色。同一行相邻标签之间是开放式分隔线（1px `--divider`，上下各空出四分之一），活动与悬停标签两侧不画。每个标签依次是文件图标（共享的 [`FileIcon`](../../../../ui/file-icons/FileIcon.md)，页面标签没有）、名字（preview 为斜体，过长截断，悬停提示完整地址）、同名提示（次级色小字，至多占标签宽度的一半，过长同样截断）与状态位；固定与未保存另有读屏文字。
 
 ## 数据
 

@@ -2,7 +2,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import type {LayoutDoc} from "@notnotype/nb-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
 import {presentDrag} from "./drag-presentation";
 import type {WorkbenchDropAction} from "./entry-drop";

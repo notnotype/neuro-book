@@ -1,11 +1,10 @@
 import {describe, expect, it} from "bun:test";
 
-import {createGrid} from "../grid";
-import {createGridGestureSession} from "../grid-gesture";
+import {createGrid, createGridGestureSession} from "@notnotype/nb-layout";
 import {docOf, H, sizeOf, testPolicy, V} from "./layout-doc-fixtures";
 import {fixedNodesOf, projectLayoutDoc, presentationCollapse, regionOfStripLeaf, regionStripLeafId} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
-import type {GridAxis, GridExtent, GridNodeInput} from "../grid-types";
+import type {GridAxis, GridExtent, GridNodeInput} from "@notnotype/nb-layout";
 import {moveTabToEdge, rebaseIntents, setActiveContainer, setPanelCollapsed} from "./layout-doc";
 import type {LayoutDoc} from "./layout-doc";
 

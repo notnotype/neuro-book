@@ -5,8 +5,9 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, GridSwap, LayoutDoc, PanelName} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, regionStripLeafId, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {GridExtent, GridSwap} from "@notnotype/nb-layout";
+import type {LayoutDoc, PanelName} from "@notnotype/nb-workbench-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";

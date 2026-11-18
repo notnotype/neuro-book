@@ -3,8 +3,9 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {barRef, findTreeNode, GRID_SNAPSHOT_VERSION, LAYOUT_DOC_VERSION, panelRef, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {LayoutDoc} from "@notnotype/nb-layout";
+import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {barRef, findTreeNode, LAYOUT_DOC_VERSION, panelRef, tabKey, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
 import {editorTabKey} from "./contracts";
 import {createMemoryEditorPanels, EDITOR_TAB_TYPE} from "./editor-panels";

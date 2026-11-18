@@ -7,7 +7,7 @@
 import {computed, shallowRef} from "@vue/reactivity";
 import type {Ref, ShallowRef} from "@vue/reactivity";
 
-import type {LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
+import type {LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-workbench-layout";
 
 import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
 

@@ -1,7 +1,7 @@
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
-import DropSectorsOverlay from "../../vue/DropSectorsOverlay.vue";
+import {DropSectorsOverlay} from "@notnotype/nb-layout/vue";
 import {docOf, H, testPolicy} from "../layout-doc-fixtures";
 import {layoutDropSectors} from "../layout-drop";
 

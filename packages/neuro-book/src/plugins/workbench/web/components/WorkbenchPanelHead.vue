@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 工具面板的面板头（同名 .md）：标签带或当前视图的标题、当前视图的动作、框架按钮。点了只发事件，切换与命令由宿主做。 */
-import {TabStrip, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {TabStrip} from "@notnotype/nb-workbench-layout/vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 

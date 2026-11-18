@@ -3,8 +3,10 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {activateTab, applyLayoutDrop, barRef, enumerateDropCandidates, layoutSeamsOf, previewPanelRects, findTab, findTreeNode, GRID_SNAPSHOT_VERSION, insertTab, isPanelShown, moveTabToEdge, openPanelAtEdge, panelRef, removeTab, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeLeaves, validateLayoutDoc} from "@notnotype/nb-layout";
-import type {GridSnapshotNode, LayoutDoc, LayoutResult, PanelName, PanelRecord, TabRef} from "@notnotype/nb-layout";
+import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, barRef, enumerateDropCandidates, layoutSeamsOf, previewPanelRects, findTab, findTreeNode, insertTab, isPanelShown, moveTabToEdge, openPanelAtEdge, panelRef, removeTab, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeLeaves, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import type {GridSnapshotNode} from "@notnotype/nb-layout";
+import type {LayoutDoc, LayoutResult, PanelName, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
 
 import {regionContainers, sectionLanding, settleContainers, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";

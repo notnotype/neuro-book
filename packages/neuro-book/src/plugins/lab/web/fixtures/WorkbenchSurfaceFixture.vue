@@ -20,8 +20,9 @@ import {
     setPanelCollapsed,
     setPanelHidden,
     tabKey,
-} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-layout";
+} from "@notnotype/nb-workbench-layout";
+import type {GridExtent} from "@notnotype/nb-layout";
+import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
 import {IconButton} from "@notnotype/nb-ui/components";
 import {computed, ref, shallowRef, Teleport} from "vue";
 

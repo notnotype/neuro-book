@@ -3,7 +3,7 @@
  * 编辑器只回答放下要做什么。放下走编辑器区的动作，不直接改布局：要先结算活动视图的输入，同一标签要合并，固定与 preview 跟着落点变。
  */
 
-import type {LayoutDropAction} from "@notnotype/nb-layout";
+import type {LayoutDropAction} from "@notnotype/nb-workbench-layout";
 import {computed} from "vue";
 
 import type {TextResolver} from "nbook/shared/localized-text";

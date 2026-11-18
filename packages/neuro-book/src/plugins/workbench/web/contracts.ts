@@ -1,6 +1,6 @@
 import type {Component, Ref} from "vue";
 
-import type {LayoutDropAction} from "@notnotype/nb-layout";
+import type {LayoutDropAction} from "@notnotype/nb-workbench-layout";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import type {Text} from "@notnotype/nb-ui/text";

@@ -2,8 +2,8 @@
  * 布局文档测试用的小语言：`H(["sidebar", V(["e", "panel"])])` 写一棵树，叶的尺寸默认均分一个 1000×600 的窗口。只给测试用。
  */
 
-import {GRID_SNAPSHOT_VERSION} from "../grid-types";
-import type {GridExtent, GridOrientation, GridSnapshotNode} from "../grid-types";
+import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import type {GridExtent, GridOrientation, GridSnapshotNode} from "@notnotype/nb-layout";
 import {barOfRef, barRef, panelRef, tabKey} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, LayoutPolicy, PanelName, PanelRecord, TabRef} from "./layout-doc";
 

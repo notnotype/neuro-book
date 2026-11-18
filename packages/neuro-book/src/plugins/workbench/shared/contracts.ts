@@ -3,7 +3,8 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {Ref} from "@vue/reactivity";
 import {defineDropKind} from "@notnotype/nb-layout";
-import type {GridDropPoint, LayoutDropAction, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
+import type {GridDropPoint} from "@notnotype/nb-layout";
+import type {LayoutDropAction, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-workbench-layout";
 
 import {Type} from "typebox";
 

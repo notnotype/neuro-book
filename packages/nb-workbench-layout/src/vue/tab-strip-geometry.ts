@@ -7,8 +7,8 @@
  * 和摘掉来源、补上空位之后的邻居中线比，看到的就是“盖过邻居一半它就让开”，和抓在标签的哪一点无关。
  */
 
-import {resolveListInsertion} from "../grid-drop";
-import type {GridDropPoint, GridDropRect} from "../grid-drop";
+import {resolveListInsertion} from "@notnotype/nb-layout";
+import type {GridDropPoint, GridDropRect} from "@notnotype/nb-layout";
 
 const rectOf = (element: Element): GridDropRect => {
     const box = element.getBoundingClientRect();

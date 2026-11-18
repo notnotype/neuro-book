@@ -10,7 +10,7 @@
 import {computed, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
-import type {LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
+import type {LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-workbench-layout";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";

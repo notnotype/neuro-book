@@ -1,6 +1,6 @@
 import {describe, expect, it} from "bun:test";
 
-import {createGrid} from "../grid";
+import {createGrid} from "@notnotype/nb-layout";
 import {docOf, H, shapeOf, sizeOf, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {
     activateTab,
@@ -44,7 +44,7 @@ import {
     validateLayoutDoc,
 } from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutResult} from "./layout-doc";
-import type {GridSnapshotBranch, GridSnapshotNode} from "../grid-types";
+import type {GridSnapshotBranch, GridSnapshotNode} from "@notnotype/nb-layout";
 import {enumerateDropCandidates} from "./layout-drop";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
