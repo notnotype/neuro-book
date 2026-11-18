@@ -1,0 +1,120 @@
+# w00043 t01 bot 提案第七稿 第三轮审查（Claude Opus，窄范围）
+
+### 1. “留着”在内核里不是一种状态：之后任何一次运行都会把留着的话取走，表里 error、中止保留、interrupted 三行的“留着，等用户”照字面实现不成立
+严重程度：阻断；类别：合同不闭合 / 违反开发者决定（t07 决定 1、3，2026-11-18 “等恢复”）
+位置：第 6 小节“缓冲区什么时候被取走”表第 2–4 行；“注入方按记录取”；第 5 小节“重启”的 `start({take: "none"})`“不取用户排的话”。
+现象：表把“留着”写成收口那一刻不取，但内核里缓冲区只是一个列表，没有“暂停/等恢复”标记。之后只要有任何一次运行开起来，loop.ts 225–227 在第一个边界无条件取走全部 steer，loop.ts 381–383（输出 7）在这一轮正常结束时取走最早的 followup，同一次运行接着跑。开那次运行的可以是：注入方的 `start({take: <宿主那条>})`、`nbook.bots` 的 `start({take: "none"})`、空闲时到点的另一条宿主消息（“空闲时两种都直接开一轮”）、异步提问的回答（输出 42）、父会话的 agent_send。于是：
+- error 行：注入方取走宿主那条，这次运行完成时把用户排的 followup 一并跑掉，违反 t07 决定 1“出错时不处理”。
+- interrupted 行：`take: "none"` 的自动接续第一个边界就取走用户在崩溃前排的 steer，完成时取走用户的 followup，违反 t07 决定 3“重启后不自动发出、等用户确认”，也和第 5 小节自己写的“不取用户排的话”矛盾。
+- 中止“留着”：留下的宿主消息标“等你继续”，但下一个整点别的条目到点注入，就把留着的 steer 并进这条宿主消息的轮、再接着跑留着的 followup——用户没点继续。
+核实：真实内核复现（/tmp/review-bot-proposal-r3/exp/retained.test.ts，packages/nb-harness 下 bun test，3 条通过）：
+1) 第一次运行 error 后缓冲区 `[followup:用户排的]`；空闲 send 一条宿主消息，运行 completed 后缓冲区空，输入顺序 `用户问题 → [日程] 宿主消息 → 用户排的 followup`。
+2) abort keepQueue 后缓冲区 `[steer, followup]`；send“新消息”，输入顺序 `新消息 → steer:留着的 steer（进了新消息那一轮）→ 留着的 followup`。
+3) closeSession interrupted 再打开：`runEnded:[interrupted]`，缓冲区 `[steer, followup]` 留着、会话 idle；之后任何 start 都走同一个循环（第 1、2 条已证）。
+为什么是问题：表与“注入方按记录取”都建立在“留着就不会被动”的假设上；照字面实现，用户排的话会被宿主或自动接续带着跑出去，宿主那条“等你继续”也会被别的条目顺手跑掉，开发者两条决定都失效。
+建议改法：二选一并写进 runtime.md：(a) 缓冲区条目加“保留”标记（`inputHeld{ids, reason: error|aborted|interrupted}` 进日志），循环取 steer 与 followup 时跳过带标记的，只有用户的继续或用户的新话（明确规则：新话先跑、保留的随后，或反之）清掉标记；`take` 只解除指定那一条。(b) 内核在 error、aborted(keep)、interrupted 收口后的下一次运行只取本次运行开始之后入队的条目（按 `queuedAt` 与 `runStarted` 的 seq 比较），留着的要显式 `start({take})` 才动。无论哪种，都要说明用户发新消息时新消息与留着的谁先跑（复现 2 里新消息先跑，而留着的 steer 被并进了新消息那一轮，用户看到的是两段不相干的话被当成一轮）。
+
+### 2. 第一行的“开下一次运行”没有发起者：`finished` 与只压缩的运行之后由谁、按什么检查开运行没写，开不起来时话又卡在缓冲区
+严重程度：重要；类别：合同缺口 / 消息静默滞留
+位置：第 6 小节表第 1 行“开下一轮或下一次运行”；第 1 条规则“第一行对所有会话都改”。
+现象：现在只有 `completed` 是“同一次运行接着跑”（loop.ts 381–383，输出 7）。`finished` 的 `runEnded` 与结果在同一个写入批（loop.ts 350，输出 26），只压缩的运行写 `runEnded{completed}` 后立即退出（loop.ts 195），这两种都只能是“下一次运行”。而现在开运行的只有指令（send、start、compact、resend），都走 `closedGuard`（session.ts 214–216：等进行中的重新装配做完）与 `startProblem`（commands.ts 90–94：只读、模型解析），并写带 `commandId` 的受理批。提案没写内核自己开的这次运行：
+- 发起者是谁、`runStarted` 记什么（第 6 小节说 `runStarted` 记发出者，这里既不是用户也不是宿主，`Actor` 里只有 `kernel`）；有没有 `commandId`、重开后崩溃恢复怎么认。
+- 时机：`RunControl.launch` 的 finally 里先调 `onIdle`（control.ts 128），重新装配挂在它上面（session.ts 629–632）。内核在 finally 里直接 launch 会在重新装配进行中开跑，或把重新装配挤到永远“下一次空闲”。
+- 开不起来时：只压缩的运行在对话模型不可用时照样能跑（输出 52，loop.ts 188–189 专门回退到压缩模型），用户在压缩中发的话入缓冲区；压缩完成后下一次运行的 `startProblem` 得 `no-model`。`finished` 之后若重新装配进了只读（`reassembly-failed`、`dependency-missing`）同样开不起来。这时话留在缓冲区、会话 idle，表里没有一行管它，正是前两轮那类问题。
+- 子会话：`finished` 后内核开的新运行不经 `agent_send`，没登记任务、不查 `concurrency-limit`（subagents.md 输出 10、12），父 Agent 收不到它的结果。
+核实：读 loop.ts 183–197、346–351，control.ts 113–134，session.ts 214–216、611–633，commands.ts 90–94。只压缩时 steer 留在缓冲区已由第二轮复现（bot-proposal-review-r2-stranded）。
+建议改法：在 runtime.md 写成一条明确的内核行为：`finished`、只压缩的运行收口后，若缓冲区有条目，在会话回到空闲、重新装配做完之后由内核以 `by: kernel` 发一次等价于 `start({take: <最早的那条>})` 的内部指令（`commandId` 由收口的 `runId` 派生，崩溃后可幂等重做）；`startProblem` 失败时把这条话按第 1 条的“保留”处理并发出可见的状态（或干脆改为：只压缩的运行在对话模型不可用时拒绝受理期间的 send）。子会话里这样开的运行按“用户在子会话里自己开的运行”的规则登记或明确不登记。
+
+### 3. 宿主 followup 进了父 Agent 正在等的子会话运行：同一次运行接着跑，父 Agent 拿到的“结果”变成对日程提示词的回答
+严重程度：重要；类别：数据正确性 / 表未覆盖的交互
+位置：第 6 小节表第 1 行（`completed` 内核接着取，同一次运行）；“目标的状态”表“带 `result` 的子会话：照常注入”；“目标”一条“任何会话都能排，子代理的会话也是普通会话”。
+现象：子代理的结果是那次运行最后一条回复的文字或 `yield` 值（subagents.md 输出 6、7；runtime.md 输出 13 `runResult`）。followup 在 `completed` 时被取进同一次运行（输出 7，loop.ts 381–383），所以父 Agent 正在前台或后台等的那次运行会多出一轮：
+- 自由结果的子会话：`runResult.text` 变成对“[系统 · 日程…]”那段提示词的回复，父 Agent 当成子任务的结论，静默错误。
+- `result: optional` 的子会话：现在 loop.ts 376–377 在交回文字结果时直接收口、不取 followup；第 1 条规则“对所有会话都改”后这里也要取，结果同样被后一轮覆盖，`valid: false` 的回退值来自日程那一轮。
+- `result: required`：表里只列了 `result-missing`，没列这种情况。
+目标状态表把这些都写成“照常注入”，“目标忙时不叠”只看本条目自己的上一次。
+核实：读 loop.ts 366–383、subagents.md 输出 6–7、runtime.md 输出 7、13。从代码推断，未单独复现（第 1 条复现 1 已证明 followup 在同一次运行里被接着跑）。
+建议改法：对 `caller` 不为空的会话（或有人在 `waitRun` 的运行）规定宿主消息一律等这次运行收口后另开运行，不并进当前运行；或者“目标忙”扩展为“目标有运行在跑就推迟”，子会话的条目只在空闲时注入。目标状态表里补一行“父 Agent 正在等的子会话”。
+
+### 4. “消息自带的期限”没有载体，也传不到它派出的子代理：普通会话里宿主任务派的子代理照样一直挂着、占着名额
+严重程度：重要；类别：合同缺口 / 无人值守时挂起
+位置：第 6 小节“等用户的期限”；第 7 小节“期限”（`CoreSettings`、“子会话建时继承父会话的设置（subagents.md 输出 3）”）；第 6 小节“重活交给子代理”。
+现象：
+- 载体：第 6 小节说会话没设期限时取“这条消息自带的期限（日程缺省 30 分钟）”，但宿主消息的形状只有 `source: {plugin, label, ref?, at?}`，`send` 的参数也没加字段；内核在写 `interactionRequested` 时要按“这一轮是谁开的”找期限，提案没写从哪读。照字面实现时要么另加字段（日志格式、远程合同都要改），要么塞进 `source`（与“来源只用于显示”的用途混在一起）。
+- 继承：第 7 小节靠“子会话建时继承父会话的设置”让子代理也有期限，但继承的是会话的 `CoreSettings`；目标是普通会话时期限来自消息、不在设置里，子代理继承到的是“没有期限”。subagents.md 输出 3 也只列了审批模式、只读与 Agent 模式三项，“继承期限”要在那里加，不是现成的。
+- 后果：普通会话的日程任务派子代理干活（第 6 小节推荐的做法），子代理碰到审批就无限期等用户；父会话前台等 1800 秒（subagents.md 输出 46 缺省 timeout）后转后台，这次运行收口，子代理继续挂着并占着 `subagentsPerSession` 的名额（输出 18：停在问题上的也算）。每小时一条的条目几轮之后，`agent_spawn` 全部得 `concurrency-limit`。“目标忙时不叠”看的是本条目开的那一轮，挡不住这种积累。
+核实：读提案第 6、7 小节，subagents.md 输出 3、6、18 与工具表 timeout 缺省；kernel-state.ts 的 `CoreSettings` 只有 model、effort、approvalMode、readOnly。
+建议改法：把期限做成“运行”的属性：`runStarted` 或开这一轮的输入带 `deadlineMs`（宿主消息在 `send` 里显式给，进日志），内核按这次运行的值给事项定到期时刻；`agent_spawn`、`agent_send` 建或启动子会话运行时把父运行此刻生效的期限写进子会话设置（在 subagents.md 输出 3 加一项）。
+
+### 5. “注入的话不算用户的授权”只对自愿用 `host` 的插件成立：`agentKey` 的视图缺省以用户身份，任何插件的话都进第一类材料、能以用户身份 `resolve` 审批、能解除 `expired-run` 与循环守卫
+严重程度：重要；类别：授权失真
+位置：第 6 小节“不算用户的授权”第 1、3 条（“`userAuthored` 由注入方填；插件本来就能经 `agentKey` 以用户的身份发消息，这个标记不扩大插件的权限”“用户的审批应答只认用户本人”）；“`source.plugin` 不由调用方填：`agentKey` 改成按调用方门面提供”；第 7 小节“用户本人的话……解除”。
+现象：`AgentService.session(id, issuer?)` 缺省以用户的身份（shared/contracts.ts 110–111），内核里用户的输入不写 `by`（input.ts 71–73，输出 85），`resolve` 对审批“只收用户的应答”（输出 41）而用户就是这个缺省身份。所以：
+- 审批模型的四类材料里，“用户亲手打的字”是任何插件不传 issuer 就能造出的；插件也能直接以用户身份 `resolve{allow-session}` 挂着的审批。提案用“插件本来就能以用户身份发”论证 `userAuthored` 不扩权，这个论证成立，但同一个事实也让“注入的话不算用户的授权”“审批只认用户本人”只是约定：照字面实现，开发者 2026-11-18 的决定只约束 `nbook.schedule` 自己。
+- `expired-run`（第 7 小节）与循环守卫（loop-guard.ts 69–71：任何 `inputId` 非空的 `turnStarted` 与任何 `steer` 都解除，不看 `by`）都把“没有 by”当成用户本人，插件缺省身份的话照样解除。提案写“循环守卫只在用户的新话时解除停止”，现有守卫并不区分，这句要么是要改守卫（要读到开这一轮那条输入的 `by`，`turnStarted` 现在只有 `inputId`），要么不成立。
+- 没有记录这个缺省的理由：在 sessions.md、services.md 里没搜到“插件调用 agentKey 为什么缺省是用户”的说明；`agentKey` 现在在 neuro-book 里没有 agent 插件之外的使用方（grep 只命中 plugins/agent/ 内 4 个文件）。
+为什么是问题：第 6 小节已经决定把 `agentKey` 改成按调用方门面提供，这是改缺省身份成本最低的时点；等别的插件用上之后再改就是破坏性变更。
+建议改法：按调用方门面时，非 `nbook.agent` 自己的调用方缺省身份是 `{kind: "host", source: {plugin: <盖章>}}`；“以用户身份”另设显式能力（例如只给持有用户发起的远程请求上下文的调用），或在 Spec 里明确写“插件可以冒充用户，以下几条只对 host 生效”作为已知限制交开发者确认。循环守卫的解除条件同步写成“开这一轮的输入或 steer 的 `by` 是用户”，并补一条验收。
+
+### 6. 重启后两个注入方抢同一个空闲会话，结果取决于插件谁先跑：先跑日程时被中断的那次运行不再接续，`take: "none"` 得 `nothing-to-continue`
+严重程度：重要；类别：竞态未闭合
+位置：第 5 小节“重启”（`nbook.bots` 以宿主身份 `start({take: "none"})`）；第 6 小节表第 4 行与“注入方按记录取”（服务端启动时 `nbook.schedule` 用 `start({take: <inputId>})`）。
+现象：主对话以 `interrupted` 收口、缓冲区里有一条宿主排的 followup 时，两个插件在启动时都要对同一个 idle 会话发 `start`。单写者保证只有一个受理，另一个得 `already-running`，但提案没定先后：
+- `nbook.schedule` 先：开一轮宿主消息，正常结束（`turnEnded completed`）。`nbook.bots` 的 `take: "none"` 要么当场 `already-running`，要么等它结束后再试；此时最后一轮已正常结束，按输出 4 / commands.ts 144–146 得 `nothing-to-continue`。被中断的那次工作没有接续，页面不显示“已自动继续”，连续 `interrupted` 的计数也被这次正常收口清零。
+- `nbook.bots` 先：接续那次运行，结束时内核按表第 1 行取走宿主那条（还会取走用户的，见第 1 条），`nbook.schedule` 随后得 `input-consumed`。
+两种顺序给用户的结果不同，提案也没写 `already-running` 时注入方重试还是放弃（第 6 小节“发送失败按码处理”只覆盖 `send`）。
+核实：读 commands.ts 130–148（`start` 不空闲即 `already-running`，最后一轮 completed 时 `nothing-to-continue`）；提案第 5、6 小节没有两个插件启动先后的约定。
+建议改法：把“重启后先接续、再交宿主消息”写成规则：`nbook.schedule` 对有归属的会话在启动时不自己 `start`，只登记，等 `nbook.bots` 的接续运行结束后由表第 1 行取走（或由 `nbook.bots` 在接续完成后通知）；对普通会话照现在写的取。并写明 `start` 得 `already-running` 时注入方等这次运行收口后重新判断记录，不重试 `start`。
+
+### 7. error 行只排除了两个码：确定性错误（上下文溢出、profile-failed、request-invalid、empty-reply 等）下注入方立刻取下一条，宿主消息一条条烧进失败的轮，日程视图却记成已送达
+严重程度：重要；类别：消息实际丢失 / 无效花费
+位置：第 6 小节“注入方按记录取”（“运行以 `error` 收口……就用带条件的 `start` 取它。码是 `cost-limit` 或 `tool-call-loop` 时不取”）。
+现象：`error` 收口的码很多（loop.ts：`no-model` 等解析码、`tools-missing`、`request-invalid`、`profile-failed`、`context_overflow`（溢出后压缩仍失败，loop.ts 286–297）、`empty-reply`、`result-missing`、`internal`，以及重发用完的服务商错误）。提案只对两个码不取，其余一律“取”，而且没有退避：
+- 确定性错误（主对话这种长会话最可能遇到的就是 `context_overflow`；Profile 抛错是 `profile-failed`）下，注入方取走的下一条必然同样失败。一条宿主消息被 `inputConsumed` 进一个以 error 结束的轮，注入方的记录随之清掉（“被取走”），日程视图上没有任何标记——第 6 小节“最终失败……在日程视图上标出”只管 `send` 失败，不管消息进去之后运行失败。之后每次到点都重复一次，用户回来看到的是一串报错的轮。
+- 暂时性错误（服务商限流、网络，重发已用完）下立刻再 `start` 也大概率再失败，同样把消息烧掉。
+- `tools-missing` 时会话已进只读（loop.ts 215），`start` 得 `read-only`；提案没写注入方遇到 `start` 失败时记录怎么办。
+核实：读 loop.ts 190–313 各 `end("error", …)` 分支、run-guards.md 输出 4、8、10。
+建议改法：反过来列：只对“这一次运行特有、换一条输入可能成功”的情况取（例如明确列出的暂时性服务商错误，且按日程的退避等一段时间再取）；其余码与 `start` 的失败都把条目标“等你处理”并在日程视图显示收口码，不自动取。并且把“宿主消息开的那次运行以 error 结束”作为日程侧的一个可见结局（每次触发的状态：已送达并完成 / 已送达但运行出错 / 跳过）。
+
+### 8. `expired-run` 的解除条件“用户本人的话进入这次运行”会被用户离开前排下的话触发：每条排着的 followup 都让无人值守的运行重新等满期限
+严重程度：建议；类别：规则与目标不一致
+位置：第 7 小节“过期之后本次运行不再询问”（“用户本人的话（插话或结算时那句）进入这次运行后，这个状态解除”“无人值守的任务因此不会一个接一个地等 30 分钟”）。
+现象：“进入这次运行”在内核里是 `input`（followup 开的下一轮，同一次运行，输出 7）或 `steer` 事件。用户离开前排了两条 followup，第一轮里的审批到期 → `expired-run` 置上 → 这一轮结束，内核取用户的第一条 followup 开下一轮，它是“用户本人的话进入这次运行”→ 状态解除 → 下一轮第一个审批又等满 30 分钟 → 到期 → 第二条 followup 再解除。用户根本不在，规则却按“用户回来了”处理；第 1 条里留着的 steer 被后来的运行取走时同样会解除。结算那句（`settlePending`）也只在下一个边界随 steer 进入，在它进入之前，同一批里仍在执行的工具发起的嵌套审批（输出 94）还按旧状态处理。
+核实：读 loop.ts 225–227、381–383；第 1 条复现里留着的 steer、followup 都在之后的运行里作为 `steer`、`input` 写入。
+建议改法：解除条件改为“入队时刻晚于本次运行里第一次过期的用户输入进入运行”（比较 `inputQueued` 的 seq 与那条 `interactionResolved{expired}` 的 seq），或者只由 `settlePending` 的那条与运行中新到的 steer 解除；`settlePending` 那条在受理批里就解除，不等边界。
+
+### 9. 带条件的 `start` 没定义叶子上有暂停运行时的语义；宿主消息进有暂停运行的普通会话会替用户把那次重试跑掉
+严重程度：建议；类别：合同缺口
+位置：第 6 小节“带条件的 `start`”（“指定的那条已经不在缓冲区时失败……不退化成没有输入的继续，所以不会把一次失败的运行再跑一遍”）；“目标：一个会话……任何会话都能排”。
+现象：`start` 与 `send` 遇到叶子上有暂停的运行（回退或切分支到运行中途，输出 36）时直接 `launch` 那次运行（commands.ts 109–110、136–137），不看缓冲区里是哪一条；循环在两轮之间时取 `buffer[0]`（loop.ts 199–203），在一轮中途时先把那一轮从断点重新请求（就是重试与 swipe）。所以 `start({take: X})` 照现有路径会：取到的不是 X（可能是用户排的那条），或者先把用户回退后还没决定要不要重来的那一步重跑一遍——正是提案说 `take` 要避免的“退化”。日程向普通会话或 bot 的子会话（都不受 `owned-session` 限制，可以回退）发 `send` 时同理：到点的宿主消息让暂停的运行接着跑，用户回退到某一步的状态被一条日程消息改掉。
+核实：读 commands.ts 96–148、control.ts 77–80、loop.ts 199–203、runtime.md 输出 35–36。
+建议改法：写明 `take` 不为 `undefined` 时遇到暂停的运行得失败码（例如 `run-paused`），注入方把条目标“等你处理”；宿主消息的 `send` 遇到暂停的运行同样不受理（或只入队、不 launch），避免宿主消息触发用户的重试。
+
+### 10. 中止那一行假定“停止”都是用户点的两个按钮之一，但父会话连带中止也保留队列，日志里又分不出是谁、按哪个选项停的
+严重程度：重要；类别：表未覆盖的路径 / 日志缺字段
+位置：第 6 小节表“中止（`aborted`）”行（“清空时日程记‘被中止’，留着时记‘等你继续’”）；“注入方按记录取”末句（“用户点‘停止、排队的留着’留下的，注入方不自己取，启动时也不取，等用户继续”）。
+现象：
+- 不是用户发起的 `aborted`：父会话的运行被中止时，前台等着的子代理运行跟着中止，而且固定 `keepQueue: true`（subagents.md 输出 16；subagents/children.ts 53、subagents/tools.ts 258）。日程可以排子会话（第 6 小节“目标”），排在子会话缓冲区里的宿主消息于是被记成“等你继续”，用户从没在这个子会话上点过停止，也不会去子会话里点继续；之后要等父 Agent 再 `agent_send`，由第 1 条的机制顺手跑掉。
+- 日志里认不出“谁停的、选了哪项”：`abort` 不带发出者（commands.ts 159–184 的 `abortCommand(host, args)` 没有 issuer），受理记录只有 `{commandId, name, value: {aborted}, argsHash}`（commands.ts 172），`keepQueue` 只在参数哈希里。注入方要区分“用户选了留着”“父会话连带”“插件经 agentKey 停的”，现在只能凭“收口后那条还在不在缓冲区”猜。第 6 小节给 `resolve`、`edit`、`remove`、`start` 都排了按发出者的权限，唯独漏了 `abort`。
+核实：读 subagents.md 输出 16、children.ts 43–53、commands.ts 159–184。
+建议改法：`abort` 受理记录写 `by` 与 `keepQueue`（进“指令按发出者的权限”表，并定谁能停宿主开的运行）；表的中止行拆成“用户停止（两个选项）”与“连带中止（父会话、关闭会话）”，后者对宿主消息按 error 行处理或明确由父会话的下一次放话带走，并在日程视图上标出真实原因。
+
+### 11. `ensureMain` 遇到 `session-exists` 直接打开，不核对会话头的 `owner`：服务端任何插件都能先占住 `bot-<id>`
+严重程度：建议；类别：归属校验缺口
+位置：第 5 小节“会话 id 与建立”（“建会话得 `session-exists` 时直接打开”）与“归属”（`owner.plugin` 由 `nbook.agent` 按调用方门面盖章）。
+现象：服务端 `AgentService.create` 收内核的 `CreateSessionOptions`，其中有可选的 `id`（nb-harness api/host.ts 498–509；远程 `create` 不传 id，remote.ts 222–223）。盖章只保证别的插件造不出 `owner.plugin = nbook.bots` 的会话，却不妨碍它用 `id: "bot-<botId>"` 建一个没有 `owner`、Profile 与历史都由它定的会话。`nbook.bots` 之后建主对话得 `session-exists`，照提案“直接打开”并持有，把它当主对话：`owner` 缺失时 `bot://`、自有目录全部不可用，`owned-session` 的拒绝也不生效；或者别处按 bot 记录里的主对话 id 授权 `bots://` 写（第二轮处理第 9 条）时认到这个会话。
+核实：读 api/host.ts 498–509、shared/contracts.ts 107–121、remote.ts 222–224。
+建议改法：`session-exists` 时读会话头，`owner` 必须等于 `{plugin: "nbook.bots", id: <bot id>}`，否则失败（例如 `main-conflict`，bot 视图显示原因），不打开不持有；或者把 `bot-` 前缀的 id 保留给 `nbook.bots` 的门面。
+
+## 未发现问题的方面
+- `settlePending` 的原子性：在 `accept` 的同一个队列项里认领全部等待者（interaction.ts `claim`）、写一个受理批，单写者下不会半成功；排除异步提问、不结算子会话停在主对话里的事项，与输出 43、subagents.md 输出 14 一致。
+- 模型请求重发等待期间（输出 62–68）：运行仍在 `running`，等待结束回到边界取 steer，宿主消息与用户的话都按表第 1 行处理，没有额外的滞留路径。
+- `changeProfile` 只在空闲时受理（输出 38），不产生新的收口方式。
+- `owner.plugin` 由门面盖章、远程 `create` 不收 `owner`：仔细检查后没有发现能绕过盖章造出归属 `nbook.bots` 的会话的路径（id 抢占见第 11 条）。
+- `userAuthored` 由注入方填本身不扩权的论证与 `agentKey` 现状一致（问题在缺省身份，见第 5 条）。
+- 带条件 `start` 与用户同时 `remove`、`send`：单写者下只有一方受理，`input-consumed`、`already-running` 都是确定的失败，不会重复取同一条（结局先后的问题见第 6 条）。
+
+## 各级数量
+阻断 1；重要 7；建议 3；共 11 条。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
