@@ -24,6 +24,9 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .pair img + img { margin-top: 0; }
 .narrow-shot { max-width: 260px; margin: 0 auto; }
 .navshot { max-width: 282px; margin: 0 auto; }
+.tabs-mock { display: flex; gap: 18px; max-width: 260px; margin: 0 auto 8px; padding: 0 4px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.tabs-mock span { padding: 4px 0 6px; }
+.tabs-mock .on { color: var(--text); border-bottom: 2px solid var(--accent); margin-bottom: -1px; }
 .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .duo img + img { margin-top: 0; }
 .cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
@@ -48,8 +51,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     </div>
     <div class="cand" data-nbdev-option="tabs" data-nbdev-label="B 一个视图两个标签">
       <h3>B 一个视图两个标签</h3>
-      <img src="r4/im-one.webp" alt="同一个视图，顶上切换 bot 与会话">
-      <p>顶上多一排“bot · 会话”标签，切到会话时左栏换成现在的会话面板。</p>
+      <div class="tabs-mock"><span>bot</span><span class="on">会话</span></div>
+      <img class="narrow-shot" src="r4/panel.webp" alt="切到会话时，左栏换成现在的会话面板">
+      <p>顶上多一排标签；切到会话时左栏换成现在的会话面板，右边换成会话的对话。</p>
     </div>
   </div>
 </section>
