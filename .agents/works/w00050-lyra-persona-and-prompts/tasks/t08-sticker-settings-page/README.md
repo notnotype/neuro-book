@@ -56,7 +56,8 @@ updated: 2026-11-18
 实施在 `.worktree/w00050-t08-sticker-page`（分支 `feat/w00050-t08-sticker-page`）：
 
 - 第 1 片（读取一侧）7ab40a359：目录的 extras 与计数、`refresh`、启动清暂存与报挪开的旧包、`pack` 与 `revealPack` 远程方法、取图给 extras 且 no-cache、`openExistingFolder`（`src/backend/open-folder.ts`）。stickers 与槽的 bun 测试、profile 页 DOM 测试、类型检查通过；六处变异都被抓到。远程方法的真实远程调用测试留到第 2 片。
+- 第 2 片（写入一侧）d54496e1f：`editor.ts`（按包排队；改清单经 `files.update`、没有列表先补；只改头时不补列表；`{file, name}` 定位；新建与复制走暂存；改包名、删除带令牌；复制前后核对插件根版本，复制从插件文件夹直接读）与九个远程方法、统一失败码。经真实远程调用的测试 5 条，八处变异都被抓到。待改 Spec 28 的措辞：只改显示名、说明时不补表情列表。
 
 ## 下一步
 
-- 第 2 片：`editor.ts`（锁、改清单、新建、改包名、删除、加进来、删文件、删表情、复制）与远程方法，补 `pack`、`revealPack` 的真实远程调用测试。之后第 3 片（上传与 zip）、第 4 片（页面）、第 5 片（e2e 与收口）。
+- 第 3 片：`prepareImage`、上传与导入导出三条路由与名额；之后第 4 片（页面）、第 5 片（e2e 与收口）。
