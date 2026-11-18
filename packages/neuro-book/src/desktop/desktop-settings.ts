@@ -14,7 +14,7 @@ import {DesktopSettingValuesSchema} from "../shared/desktop-bridge";
 import type {DesktopSettingValues} from "../shared/desktop-bridge";
 
 /** 页面还没交来值、也没有缓存时用的值，与 `nbook.desktop` 各项的缺省一致。 */
-export const DEFAULT_DESKTOP_SETTINGS: DesktopSettingValues = Object.freeze({zoom: 1, openAtLogin: false, closeLastWindow: "quit", windowBackdrop: "off"});
+export const DEFAULT_DESKTOP_SETTINGS: DesktopSettingValues = Object.freeze({zoom: 1, openAtLogin: false, closeLastWindow: "quit", windowBackdrop: "off", desktopShortcut: true});
 
 type DesktopSettingKey = keyof DesktopSettingValues;
 const DESKTOP_SETTING_KEYS = Object.keys(DEFAULT_DESKTOP_SETTINGS) as DesktopSettingKey[];

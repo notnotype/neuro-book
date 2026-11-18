@@ -70,11 +70,19 @@ describe("桌面桥", () => {
         expect(parseShellMessage({type: "update-hint", id: 1, hint, tray: "yes"})).toBeNull();
     });
 
-    it("桌面设置的值：四项齐全才收下；缺一项、多一项、关窗去向或窗口背景不认识的值都丢弃", () => {
-        const values = {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "mica"} as const;
+    it("桌面设置的值：五项齐全才收下；缺一项、多一项、关窗去向或窗口背景不认识的值都丢弃", () => {
+        const values = {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "mica", desktopShortcut: true} as const;
         expect(parsePageMessage({type: "desktop-settings", values})).toEqual({type: "desktop-settings", values});
-        for (const bad of [{zoom: 1.25, openAtLogin: false}, {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray"}, {...values, closeLastWindow: "hide"}, {...values, windowBackdrop: "glass"}, {...values, extra: 1}]) {
+        for (const bad of [{zoom: 1.25, openAtLogin: false}, {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "mica"}, {...values, desktopShortcut: "yes"}, {...values, closeLastWindow: "hide"}, {...values, windowBackdrop: "glass"}, {...values, extra: 1}]) {
             expect(parsePageMessage({type: "desktop-settings", values: bad})).toBeNull();
+        }
+    });
+
+    it("安装事实：三项齐全、状态根非空才收下", () => {
+        const facts = {installed: true, defaultStateRoot: false, stateRoot: "C:\\Users\\lin\\AppData\\Local\\NeuroBook"};
+        expect(parseShellMessage({type: "install-facts", facts})).toEqual({type: "install-facts", facts});
+        for (const bad of [{installed: true, defaultStateRoot: false}, {...facts, stateRoot: ""}, {...facts, installed: "yes"}, {...facts, extra: 1}]) {
+            expect(parseShellMessage({type: "install-facts", facts: bad})).toBeNull();
         }
     });
 

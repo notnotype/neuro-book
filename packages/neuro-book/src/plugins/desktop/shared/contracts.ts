@@ -86,6 +86,16 @@ export const {settings: desktopSettings, contributions: desktopSettingContributi
         section: DESKTOP_WINDOW_SECTION,
         order: 40,
     },
+    // 壳按页面交来的值删或补建桌面上的快捷方式（desktop-shell 输出 33）；只对安装版、缺省状态根的运行生效。
+    desktopShortcut: {
+        schema: Type.Boolean(),
+        default: true,
+        title: {"zh-CN": "在桌面放快捷方式", "en-US": "Shortcut on the desktop"},
+        description: {"zh-CN": "关掉时删掉桌面上的 NeuroBook 快捷方式，更新后重新出现的也会删掉；开始菜单里的不受影响。只对安装版、用缺省的数据目录时生效。", "en-US": "When off, the NeuroBook shortcut on the desktop is removed, including the one an update puts back; the Start menu entry stays. Only for the installed app with the default data folder."},
+        layers: ["user"],
+        section: DESKTOP_WINDOW_SECTION,
+        order: 25,
+    },
 });
 
 export const desktopSectionContribution = {capability: SETTINGS_SECTIONS_POINT, id: DESKTOP_WINDOW_SECTION, declaration: DESKTOP_WINDOW_SECTION_DECLARATION};

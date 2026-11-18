@@ -197,7 +197,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>, bound = false, de
                 {id: "window.connection", key: windowConnectionKey, create: () => ({state: () => "offline" as const, onChange: () => () => undefined})},
                 {id: "window.project", key: windowProjectKey, create: () => ({project: bound ? {id: "P", name: "雾港", generation: 1} : null})},
                 {id: "window.plugins", key: windowPluginsKey, create: () => feed.capability},
-                {id: "window.desktop", key: windowDesktopKey, create: () => ({available: desktop, reportSettings: () => undefined})},
+                {id: "window.desktop", key: windowDesktopKey, create: () => ({available: desktop, reportSettings: () => undefined, facts: () => null, onFacts: () => () => undefined})},
             ],
             plugins: [createDiagnosticsPlugin({location: "browser", store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)}), settings, workbenchDeclarations, ...plugins],
             gates: [],

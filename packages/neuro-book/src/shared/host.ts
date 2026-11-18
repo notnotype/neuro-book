@@ -10,7 +10,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {PluginProblem} from "nbook/plugin-platform/shared/types";
-import type {CloseReason, DesktopSettingValues} from "nbook/shared/desktop-bridge";
+import type {CloseReason, DesktopSettingValues, InstallFacts} from "nbook/shared/desktop-bridge";
 import type {DisplayText} from "nbook/shared/localized-text";
 
 /** 服务端的状态根。宿主拥有根的位置，根下的布局归各插件（例如 Storage 的 `storage/user.sqlite`）。 */
@@ -169,13 +169,18 @@ export const windowPluginFilesKey: ServiceKey<WindowPluginFiles> = defineService
 export const windowPluginsKey: ServiceKey<WindowPlugins> = defineServiceKey<WindowPlugins>("nbook/window-plugins");
 
 /**
- * 桌面壳（docs/specs/runtime/browser-host.md 输出 11）：窗口在不在桌面壳里，以及插件经壳能做的唯一一件事，把桌面专属设置的
- * 有效值交给壳。浏览器里 `available` 为 false，`reportSettings` 什么都不做。插件拿不到壳的其它能力。
+ * 桌面壳（docs/specs/runtime/browser-host.md 输出 11）：窗口在不在桌面壳里，插件经壳能做的唯一一件事（把桌面专属设置的有效值
+ * 交给壳），以及壳交来的这次运行的安装事实（docs/specs/runtime/desktop-shell.md 输出 34，只读）。浏览器里 `available` 为 false，
+ * `reportSettings` 什么都不做，`facts()` 一直是 null。插件拿不到壳的其它能力。
  */
 export interface WindowDesktop {
     /** 窗口在桌面壳里（页面里有壳的发送函数）；窗口启动时定下，之后不变。 */
     readonly available: boolean;
     reportSettings(values: DesktopSettingValues): void;
+    /** 壳交来的安装事实；页面就绪后才到，之前为 null。 */
+    facts(): InstallFacts | null;
+    /** 安装事实到了或变了时通知；返回取消订阅。 */
+    onFacts(listener: (facts: InstallFacts) => void): () => void;
 }
 
 export const windowDesktopKey: ServiceKey<WindowDesktop> = defineServiceKey<WindowDesktop>("nbook/window-desktop");

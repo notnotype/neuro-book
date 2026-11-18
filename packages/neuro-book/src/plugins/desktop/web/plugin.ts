@@ -12,6 +12,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
+import {watch} from "vue";
 
 import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
 import type {WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
@@ -88,9 +89,18 @@ export const desktopEntry = defineEntry({
         if (desktop !== null) {
             const keys = new Set(Object.values(desktopSettings).map((setting) => setting.key));
             report(zoom.values());
-            const stop = settings.onDidChange((changed) => {
+            const stopValues = settings.onDidChange((changed) => {
                 if ([...changed].some((key) => keys.has(key))) report(zoom.values());
             });
+            // 用户层由不可用或无效变回可用、值却没变时 `onDidChange` 不调用，壳就一直收不到第一份值（桌面快捷方式与开机自启都
+            // 靠第一份值对账，desktop-shell 输出 27、33）。所以层变回可用时补交一次。
+            const stopLayer = watch(() => settings.inspect(desktopSettings.zoom).user.status, (status, previous) => {
+                if (status === "ok" && previous !== "ok") report(zoom.values());
+            });
+            const stop = (): void => {
+                stopValues();
+                stopLayer();
+            };
             const onPageHide = (): void => zoom.flush();
             // 这个文件在后端的类型检查范围里，没有 DOM 类型：监听挂在 globalThis 上，事件只取用到的成员。keydown、wheel 派发的
             // 就是 KeyboardEvent、WheelEvent，所以按这几个成员读是成立的。

@@ -18,6 +18,7 @@ import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import {createDesktopBridge} from "nbook/shared/desktop-bridge";
+import type {InstallFacts} from "nbook/shared/desktop-bridge";
 import type {WindowNavigation} from "nbook/shared/host";
 
 import CloseLayer from "./CloseLayer.vue";
@@ -77,6 +78,14 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     // 桌面壳（browser-host 输出 11）：壳的发送函数由 Electrobun 的预加载在页面脚本之前装上，此时有没有就是窗口在不在壳里。
     const bridge = createDesktopBridge(window);
     const inDesktop = typeof (window as {__electrobunSendToHost?: unknown}).__electrobunSendToHost === "function";
+    // 安装事实（desktop-shell 输出 34）：壳在每次页面就绪时发，页面存活期间一直听。
+    let installFacts: InstallFacts | null = null;
+    const factsListeners = new Set<(facts: InstallFacts) => void>();
+    bridge.listen((message) => {
+        if (message.type !== "install-facts") return;
+        installFacts = message.facts;
+        for (const listener of factsListeners) listener(message.facts);
+    });
     const browserWindow = createBrowserWindow({
         connection,
         desktop: {available: inDesktop, reportSettings: (values) => {
@@ -86,6 +95,9 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
             } catch (error) {
                 browserWindow.record({level: "warn", event: "browser-host.desktop.send-failed", message: "Sending desktop settings to the shell failed", error});
             }
+        }, facts: () => installFacts, onFacts: (listener) => {
+            factsListeners.add(listener);
+            return () => factsListeners.delete(listener);
         }},
         page: window,
         console,
