@@ -156,4 +156,5 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - nb-story 迁新内核：另开 [w00047](../w00047-nb-story-new-kernel/README.md)（t31，2026-11-16）。
 - nb-history 接入：另开 [w00048](../w00048-history-integration/README.md)（t13，2026-11-16）。
 - Agent 与命令系统的对接（搁置）：另开 [w00049](../w00049-agent-command-bridge/README.md)（t16，2026-11-16）。
+- `read` 加一个参数让模型自己选要不要带地址头与行号：只读长篇正文、不打算按行改时省 token（开发者在 t21 提出，代码里调的已经交回原文对象，2026-11-18）。
 - 编辑组顶上的提示条（`EditorGroup` 里的 nb-ui `Banner`）重新设计：开发者认为现在的写法没做好，以后改；对话面板的模型提示用浮层提示卡，不跟它（[t29](tasks/t29-ui-polish-after-t15/README.md) 决定 10，2026-11-16）。

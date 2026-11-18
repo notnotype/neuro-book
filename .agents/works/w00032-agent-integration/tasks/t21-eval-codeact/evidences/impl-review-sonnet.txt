@@ -1,0 +1,67 @@
+# w00032 t21 切片 5 实现审查（前端与适配器部分，Sonnet）
+范围：aeab77d90、32f0920bf、c7f7b86ba（不含 backend/builtin/profiles 与 nb-harness 内核）
+
+## F1 [重要][正确性] 嵌套 write/edit 的参数被内核截到 2 KB，轮末改动与卡片的行数按截断后的内容算，严重偏小
+位置：packages/nb-agent-ui/src/conversation-turns.ts settledEffects（约 L638）；builtin-tools.ts writeEffects/editEffects（L23-52）；内核 packages/nb-harness/src/kernel/run/tools.ts clippedArgs（L265-273，输出 96）
+现象：内核写 nestedToolStarted/Result 时把参数里超过 2 KB 的字符串截成“前 2 KB + …（共 N 字节）”。适配器把这份截断的 args 原样放进子调用，`settledEffects` 再对子调用调 `effects(call)`，`writeEffects` 对 content 数行、`editEffects` 对 old_string/new_string/input 数行。eval 的主用途就是批量写整章（中文 3 字节/字，2 KB 约 700 字），所以几乎每个真实的章节写入都被截断。
+核实：在 /tmp/claude-1000/review-t21-impl/sonnet-lab/clip.test.ts 里用真实注册表跑：300 行（约 7 KB）的 write，完整参数得 added=300，按内核的截断格式得 added=86。轮末改动“+86”显示给用户，实际是 +300；edit 的 removed/added、apply_patch 的补丁解析（补丁被截半）同理。子行详情里的 diff（writeDiff）也是把截断串当全文，最后多出一行“…（共 N 字节）”被画成新增行。
+为什么是问题：Spec 验收 37 与计划都要求“轮末改动列出写成的那个”，测试里内容只有一两行所以没覆盖到；数字是错的而且没有任何提示。
+建议：最小改法是子调用的 effects 对被截断的参数不给行数：settledEffects 对子调用的 changed 把 added/removed 置 null（FileChangeView 已允许 null，mergeChange 已处理），或在 effects 里识别 `…（共 N 字节）` 结尾。两者都不如“内核把 size 以结构字段给出”干净，但后者要动内核。测试补一条超过 2 KB 的子调用 write。
+
+（F1 补充）同一份被截断的 args 还进了：卡片下与展开后的子行里 AgentToolStepRow 的 stat（`+86` 之类，行内增删行数，stat 用 renderer.effects(child)，nb-agent-ui/src/vue/stream/AgentToolStepRow.vue L46-50），以及子行详情里 writeDiff/editDiff 画出的 diff（末尾多一行“…（共 N 字节）”被画成新增行）。改法统一：子调用上标出“参数被截断”（例如适配器看到字符串以 `…（共 N 字节）` 结尾，或内核在 nestedToolStarted 里给一个结构字段），effects 与 diff 对它给 null/不画。
+
+## F2 [重要][界面] 已用时放在 CollapsibleCard 的 actions 插槽，运行与结束的切换会推动头部别的零件
+位置：packages/nb-agent-ui/src/vue/stream/AgentChainBlock.vue 约 L170（`<template v-if="elapsed(entry) !== null" #actions>`）；packages/nb-ui/src/components/layout/CollapsibleCard.vue（`.nb-collapsible-card__head` 里 trigger `flex:1` 后面跟 `v-if="$slots.actions"` 的 actions 容器，`flex-shrink:0; padding-right:6px`）
+现象：actions 容器只在运行中存在。运行中卡片头部是 [trigger（图标 标题 副标题 转圈 箭头）][用时]，结束后用时与容器一起消失，trigger 变宽，成功/失败图标与箭头向右移约 一个用时宽度加 6px（“0:59”约 26px，“10:00”再宽一位）；运行中分钟数从 9:59 到 10:00 也会让箭头与副标题截断位置动一次。同样地，副标题是 `flex:1` 的省略文本，用时出现与消失会改变它能显示的字数。
+为什么是问题：nb-ui/docs/ui-development-spec.md“3. 几何、排版与动效”第 4 条与“8. 开发后自检”的“零件对齐、换状态不变尺寸”明写：只在某个状态出现的零件（计数、说明）放进预留位置，用 visibility 或透明度切换，不撑开、不挤别的零件。头部右侧的状态图标与箭头正是用户点击的目标，每次跑完都往右跳一下。
+如何核实：从代码推断（未开浏览器）；DOM 测试只断言了 `[data-card-elapsed]` 存在与否，没有量宽度。可在 Lab 的 eval-running 与 eval-done 两个场景量 `.nb-collapsible-card__trigger` 的 offsetWidth（前者小于后者）。
+建议：不用 actions 插槽，把用时并进 trigger 里、紧挨转圈（运行中转圈旁边写用时，结束时用时位置保留为空白占位，或 `visibility:hidden`），宽度用 `min-width: 4ch` 加 tabular-nums 固定；或者给 CollapsibleCard 加一个“预留 actions 宽度”的做法。若认为头部右侧的用时和转圈是同一个零件，更简单：让用时在 trigger 内、转圈之前，状态图标出现时占位不变。
+
+## F3 [建议（偏重要）][正确性] eval 卡片副标题在流式生成代码时是空的：计划假设的“标题先到”不成立
+位置：packages/nb-agent-ui/src/kernel-transcript.ts streamingArgs（只认已写完的字段）；packages/neuro-book/src/plugins/agent/backend/eval/tool.ts L49-53（properties 顺序 `code`、`title`、`timeout`、`reset`，`strict: true`）；packages/neuro-book/src/plugins/agent/web/eval-renderer.ts 注释“流式生成中只有标题、没有代码时也不空着”
+现象：strict 的结构化输出按 schema 属性顺序出字段，所以流式里先是整段 `code`（eval 里最长的一段），`title` 在代码写完之后才出现。streamingArgs 只抽已经完整的 `path`、`title`，`code` 写了一半抽不出，所以 args 里只有 `partialChars`，evalSummary 得到 ""，卡片副标题空白、详情里“代码”行与代码块也是空的，直到整段代码生成完。计划“流式生成参数时 streamingArgs 同样抽出 title，卡片标题不空”要达到的目标，在这个字段顺序下只在最后一刻达到。（从代码推断：服务商是否严格保序没有实测；非 strict 的模型有可能先写 title。）
+建议：二选一，都很小：把 eval 声明的 properties 顺序改成 `title` 在 `code` 前（schema 里 title 本来就是“先说做什么”），同时 evalSummary 注释写明依赖这个顺序；或 streamingArgs 对 `code` 也抽“已写出的前缀”（`"code"\s*:\s*"((?:[^"\\]|\\.)*)` 允许缺结尾引号），让 evalSummary 在没有 title 时取代码第一行。第一种不动前端合同，优先。
+同位置另一处：EvalDetail 在没有 result 时一律写“正在运行…”（EvalDetail.vue L35）：参数还在生成（status streaming）与 eval 自己在等批准（startedAt 为空）时都不是“正在运行”，详情里写错状态。建议按 `call.startedAt === undefined` 不写这一行（或写“等待批准”）。
+
+## F4 [重要][测试] eval 的渲染器与详情、事项来源的两条取法、流式标题抽取都没有任何测试能区分对错
+位置：packages/neuro-book/src/plugins/agent/web/components/EvalDetail.vue、eval-renderer.ts（evalSummary）、session-host.ts pendingView（L1535-1539）、kernel-transcript.ts streamingArgs（title 与反转义）
+现象与核实：
+1) EvalDetail、evalSummary 没有 DOM 或单元测试（同目录 SubagentCard 有 dom 测试）；`data-eval-code`、`data-eval-output`、`data-eval-images` 三个属性除组件本身外全仓没有引用（grep 过）。e2e 的 eval 测试从头到尾没有点开 eval 卡片（只对 `.nb-collapsible-card` 做 toContainText 与 `[data-card-child]` 计数），所以代码行默认收起、输出块、图片张数、pending 文案、`details.images` 的取法全部没有被执行断言。Lab 三个场景只是画面，不是测试。
+2) pendingView 两条取法（本会话取适配器的 within、后代会话取 request.within）没有单元测试；e2e 只走本会话那条。后代会话那条是 t21 新引入的跨边界约定（会话树项不带事件上的 within），断了没人知道。
+3) streamingArgs 的 title 抽取与 JSON 反转义失败时按原样的回退（kernel-transcript.ts L221-241）没有测试（现有 L161 只测 path）。
+4) eval.md 验收 2 要求“对话里卡片列出被拒的那一次”：e2e 只写了批准路径；被拒路径只在合成数据的 DOM 测试里。
+建议：加一个 EvalDetail 的 dom 测试（有代码有输出、代码默认收起点开后有行号、无 result 写 pending、details.images=2 写张数）与 evalSummary 的几例（有 title、无 title 取首个非空行、空）；e2e 在卡片展开后断言 `[data-eval-output]` 含“改完了”；pendingView 的两条取法各补一条；e2e 补一条拒绝（可与现有的合并成两次 edit：批准一次、拒绝一次，卡片下露出被拒的那行）。
+
+## F5 [建议][测试] 子调用卡片的 DOM 测试对三处改坏不敏感（变异检查，改完已还原，git status 干净）
+位置：packages/nb-agent-ui/src/vue/AgentConversationView.dom.test.ts“有子调用的卡片”；conversation-turns.test.ts“有子调用的调用”
+变异 A：把 conversation-turns.ts notableChildren 里 `child.status === "error" || "invalid" || "denied" || "unknown"` 改成只留 `"denied"`：`bun test src/conversation-turns.test.ts`（45 条）与 vitest“有子调用”三条全部通过。Spec 与验收 37 要求出错、unknown 的子调用也在收起时露出，测试里的子调用只有 success 与 denied 两种，error、invalid、unknown 三个分支没人断言（Lab 场景 eval-done 里有 error 那行，但那不是测试）。
+变异 B：AgentChainBlock.vue 的 `children.findLast(` 改成 `children.find(`：三条通过。测试里运行中只有一个 running 子调用，选“正在调的那一个”按哪个选没被区分。（eval 的常见写法是 `Promise.all` 批量读，同时有几十个在 running，所以这个选择在真实场景里才有意义。）
+另：没有英文界面的副标题与计数断言（`process.children.called_one/_other` 的单复数、`wizard.within` 英文）；子调用展开状态按 id 记的行为（展开一个露出的子行后再展开卡片，状态不丢）没有断言；键盘（卡片触发器与子行的 Enter）没有断言。
+建议：evalCall 夹具里加一个 error 与一个 unknown 的子调用，断言露出的行数；加两个并发 running 的子调用并断言选的是哪个；加一条 en-US 的副标题断言（1 次与 3 次）。
+
+## F6 [建议][不变量] “哪个工具里的调用”只写在向导标题上：收起的小条与停靠区仍只写工具名；后代会话里提问的来源取不到
+位置：packages/nb-agent-ui/src/vue/wizard/AgentWizard.vue L99-104（collapsedWhat 用 `item.tool`）、AgentDock.vue L126（`dock.what.approval` 用 `first.tool`）；packages/neuro-book/src/plugins/agent/web/session-host.ts L1535-1539
+现象：1) 向导收起成小条后写“等待批准 write”，看不出是 eval 里的调用；停靠区（后代会话的事项）同样。2) pendingView 对后代会话只读 `request.within`：审批的 request 里有（tools.ts L391 写进去了），提问的 request 是工具自己给的 `{question, data}`，没有，所以后代会话里 eval 代码里发起的提问，向导标题没有“xx 里的调用”前缀，也没有诊断。本会话的提问走适配器的 within，没问题。
+为什么是问题：Spec 只要求向导标题写，所以不算违反；但用户把向导收起后，来源就丢了，与“知道它从哪来”的理由矛盾。后代会话的提问缺来源与本会话不一致，且现在没有写明是已知限制。
+建议：collapsedWhat 与 dock.what 也走同一个 `within` 拼法（把“<工具> 里的调用：”前缀抽成一个小函数，向导三处共用）；后代会话提问的限制在 session-host.ts 的注释里写明“提问取不到，已知限制”（TreePending 加 within 要改 harness/会话树合同，窄场景不值得；与“窄场景选简单改法”一致）。
+
+## F7 [建议][代码质量] 几处小事
+- kernel-transcript.ts L343：`const assistantFrom =(data: ...` 等号后少一个空格，是这次提交误改出来的（提交前是 `assistantFrom = (`），diff 里是无意义的行改动。
+- nestedToolStarted 的 `tool` 是拦截层改派后的最终工具（tools.ts L593 `final.tool`），nestedToolResult 的 `tool` 是代码原本调的那个（writeResult 里是闭包的 `tool`）。适配器两种事件都用 `name: toolName(tool)` 覆盖，改派时子行的名字会在开始与结果之间变一次，effects 也按另一个工具算。改派是少见路径，只需在适配器注释里写明“以最后一个事件的为准”，或结果事件不覆盖已有的 name。
+- EvalDetail：`reset: true` 且 code 为空（只重置内核）时，代码行与一个只有 1 行空白的代码块照样画出来（`lines("")` 得 `[{text: ""}]`，不是空数组，CodeBlock 的 emptyText 分支不会触发），卡片副标题也是空。建议 code 为空时不画代码行，副标题写“重置内核”之类（要新文案则两种语言各一条）。
+- EvalDetail 的 `result.truncated` 在 eval 上永远是 false（适配器 toolResult 固定写 false，全文在 `details.artifact` 里）；组件文档写“只公开了预览时块底写明”，对 eval 是死分支。eval 输出超窗口时结果文字末尾有“全文：<地址>”，但这里没有像 BackgroundCommandCard 那样把 `details.artifact` 做成可点的“打开输出文件”（BackgroundCommandCard.vue L141 有 reference.open）。建议 EvalDetail 读 `details.artifact` 给一个 reference.open 入口，并删掉文档里的死分支描述（或把它说成“交给 CodeBlock 的透传”）。
+- Lab 场景 evalScene（view.scenes.ts）用 `as never` 绕类型、`Record<string, unknown>` 接 call；改成 `Partial<ToolCallView>` 就不需要。eval-done 场景把 run 设成 running、assistant 设成 streaming 只是为了整轮不被收起，场景里没写这个理由。
+- 已用时那个 span 没有文字标签（`1:02` 单独读出来不知道是什么），建议 `title` 或 `aria-label` 写“已用时”（要新文案，两种语言各一条）；它在 trigger 按钮之外，读屏顺序上跟在卡片按钮后面，没有关联。
+
+## 未发现问题的方面
+- 适配器：嵌套事件按外层 invocation 挂；审批占位与之后的开始、结果按嵌套 id 合并（两条路径用同一个 updateChild）；外层有结果时把未收口的子调用改成 unknown、之后到的结果照样换上；`expectConsistent` 对前两条测试（占位、审批、拒绝、外层失败）覆盖了“跟着帧走”与“重建”相同；消息对象不被原地改动（updateChild、toolResult 都换新对象）。bun test src/kernel-transcript.test.ts src/conversation-turns.test.ts 76 条全过，vitest AgentConversationView.dom 与 AgentWizard.dom 55 条全过，`bun run typecheck`（nb-agent-ui）通过。
+- 2,000 个嵌套调用时 updateChild 的代价：在 /tmp/claude-1000/review-t21-impl/sonnet-lab/bench.test.ts 里喂 4,000 个事件（2,000 个 start 加 2,000 个 result）、31 条前置消息、每个事件后取一次 messages()：总共约 257 ms（约 64 微秒一个事件），不是问题。视图层每个事件会重算 settledEffects、childFiles（对全部子调用各调一次 effects），同量级，没有测。展开卡片后 2,000 行不分页、每秒随 ctx.now 重渲，不是回归（计划允许从简），不报。
+- 计数规则：子调用不算步骤数、“另有几次操作”、失败次数，改动记外层 toolCallId，父调用失败时已成功的写入照算（conversation-turns.test.ts 与 Spec 验收 37 逐句对上，除上面 F1 的数字问题与 F5 的分支覆盖）。
+- 向导：带 within 的审批与提问标题，批量与“第 n / N 个”照旧；不带 within 的向导标题没有变化（既有 DOM 测试仍通过）。
+- 原始视图：子调用缩进列出，按子调用 id 开合，不影响原有顶层调用。
+- 文字目录：nb-agent-ui 与 nbook.agent 的新键，zh-CN 与 en-US 两边成对，英文单复数键齐全（children.called_one/_other）。
+- 组件文档：EvalDetail.md 的标签（state:local、state:inject）与实现一致（ref + useAgentPageText），验证入口、数据块、不支持各节齐全。
+- e2e 写法：没有固定时长等待，都是 expect 自动等待；卡片在批准 edit 之前的断言有确定的内核状态（读已完成、edit 占位 running），顺序不依赖时序。
+
+## 数量
+阻断 0；重要 3（F1、F2、F4）；建议 4（F3 偏重要，F5、F6、F7）。共 7 条。
