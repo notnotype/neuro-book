@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：星璃默认表情包</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.3; }
+.lead { margin: 0 0 24px; color: var(--muted); }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .cands, .cands.three { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p, figcaption { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+figure { margin: 0 0 16px; }
+img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+code { font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：星璃默认表情包</h1>
+<p class="lead">用 image-gen（gpt-image）以定稿母版为参考出了 12 张，透明底、512×512 WebP，每张约 30 到 60 KB。生成一共发了 14 次请求（2 张定画风的样图、12 张正式的）。</p>
+
+<section data-nbdev-question="framing" data-nbdev-type="single" data-nbdev-recommend="closer">
+  <h2>构图要不要再收近一点重出？</h2>
+  <p class="rec"><strong>推荐重出（再发 12 次请求）：</strong>大图（约 120 像素）里人物一致、表情分得清；但句子里的行内小图只有约 28 像素，最下面一行可以看到 12 张几乎一样：半身加铺开的长发，脸只占画面的四分之一。改成只画头和手、脸占画面一半以上，表情再夸张一些（生气画青筋与鼓脸、灵感画大星星这类符号），小图才认得出。</p>
+  <figure><img src="r1/sheet.webp" alt="12 张对照"><figcaption>12 张在亮底、暗底上，最下面一行是 28px 的行内小图</figcaption></figure>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="closer" data-nbdev-label="收近到头和手、表情更夸张，重出">
+      <h3>收近到头和手、重出</h3>
+      <p>小图认得出；大图里看不到衣服的全貌</p>
+    </div>
+    <div class="cand" data-nbdev-option="keep" data-nbdev-label="就用这一批">
+      <h3>就用这一批</h3>
+      <p>大图好看，小图靠悬停提示认</p>
+    </div>
+    <div class="cand" data-nbdev-option="full-body" data-nbdev-label="全身">
+      <h3>全身</h3>
+      <img src="r1/full-body.webp" alt="全身样图">
+      <p>定画风时的样图；小图更认不出</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="white-border" data-nbdev-type="single" data-nbdev-recommend="keep-border">
+  <h2>图上的白边留着吗？</h2>
+  <p class="rec"><strong>推荐留着：</strong>这道白边是画在图片里的（贴纸常见的模切边），不是界面画的；t08 定的“不用白边”说的是设置页别给每张图外面再描一圈。留着白边，暗色背景上人物的红衣服与深色底分得开（上图第二、四行）。</p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="keep-border" data-nbdev-label="留着图里的白边"><h3>留着图里的白边</h3></div>
+    <div class="cand" data-nbdev-option="no-border" data-nbdev-label="不要白边，重出"><h3>不要白边，重出</h3></div>
+  </div>
+</section>
+
+<section data-nbdev-question="names" data-nbdev-type="text" data-nbdev-label="表情清单要增减或改名吗">
+  <h2>表情清单要增减或改名吗？</h2>
+  <p class="rec">现在 12 个，名字就是写法里的名字：<code>开心</code> <code>害羞</code> <code>捂脸</code> <code>思考</code> <code>灵感</code> <code>疑问</code> <code>好的</code> <code>困</code> <code>委屈</code> <code>生气</code> <code>惊讶</code> <code>喝茶</code>。前几个取自品牌设定里 <code>&lt;neurobook-mood&gt;</code> 的状态（思考、灵感、疑问、害羞、捂脸、困），其余是聊天常用的。重出时可以一起改，比如加“晚安”“加油”“比心”“谢谢”。不填就按这 12 个。</p>
+</section>
+
+<section data-nbdev-question="distribution" data-nbdev-type="single" data-nbdev-recommend="builtin">
+  <h2>怎么默认带给用户？</h2>
+  <p class="rec"><strong>推荐 A 内置：</strong>现在的 Spec 写明第一版只有插件与用户两种来源，没有内置表情包。Skill 已经有“内置”来源，照它给表情包也加一个：图随应用分发，id 是 <code>builtin.lyra</code>，写法照常是 <code>:lyra/开心:</code>；在设置里和插件的包一样只读，想改就“复制到我的”；内置的主创 Profile 默认能用它（提示词里列出）。应用升级时跟着更新，用户删不掉也改不坏。</p>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="builtin" data-nbdev-label="A 内置来源，只读、可复制">
+      <h3>A 内置来源</h3>
+      <p>要给表情目录加 <code>builtin</code> 来源（Spec 与目录各改一处），设置页多一组“内置”</p>
+    </div>
+    <div class="cand" data-nbdev-option="seed" data-nbdev-label="B 第一次启动复制进我的表情包">
+      <h3>B 第一次启动复制到 <code>user://stickers/lyra/</code></h3>
+      <p>用户能直接改、能删；删了不再复制回来；应用升级时旧用户拿不到新图</p>
+    </div>
+    <div class="cand" data-nbdev-option="zip" data-nbdev-label="C 只放一个 zip，用户自己导入">
+      <h3>C 只给一个 zip</h3>
+      <p>不改应用；要用的人在设置里“导入 zip”</p>
+    </div>
+  </div>
+</section>
+</main>
+</body>
+</html>
