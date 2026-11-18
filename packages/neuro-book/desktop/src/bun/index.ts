@@ -304,12 +304,12 @@ async function main(): Promise<void> {
         const url = target.kind === "page" ? target.url : SHELL_VIEW;
         if (target.kind === "page") serverOrigin = new URL(target.url).origin;
         // 启动页窗口之后会换成产品页，打开时就按产品窗口的下限摆。
-        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", transparent: backdropProbe && customFrame && target.kind === "page", navigationRules: JSON.stringify(navigationRules())});
+        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", transparent: backdropProbe && customFrame, navigationRules: JSON.stringify(navigationRules())});
         const id = win.id as WindowId;
         windows.set(id, {win, kind: target.kind === "page" ? "page" : "shell"});
         adoptWindow(win, id, customFrame);
         if (target.kind === "page") adoptPageWindow(win, id);
-        if (backdropProbe && customFrame && target.kind === "page") log(`desktop.backdrop.probe window=${String(id)} ${applyBackdropProbe(win.ptr as Pointer | null, true).join(" ")}`);
+        if (backdropProbe && customFrame) log(`desktop.backdrop.probe window=${String(id)} ${applyBackdropProbe(win.ptr as Pointer | null, true).join(" ")}`);
         win.on("will-close", (event: {response?: {allow: boolean}}) => {
             event.response = {allow: false};
             shell.windows.closeRequested(id);
