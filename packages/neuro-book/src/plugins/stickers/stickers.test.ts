@@ -32,7 +32,7 @@ import {packDetail} from "./backend/pack-detail";
 import {unpackZip} from "./backend/archive";
 import {StickerEditor} from "./backend/editor";
 import {revealPath} from "./backend/reveal";
-import {stickersBackendPlugin} from "./backend/plugin";
+import {createStickersBackendPlugin, stickersBackendPlugin} from "./backend/plugin";
 import {pluginPackRoots} from "./backend/plugin-roots";
 import {createStickerRoutes, Gate, UPLOAD_MAX_BYTES} from "./backend/routes";
 import {descriptor} from "./plugin";
@@ -107,14 +107,14 @@ function consumer(holder: {files: WorkspaceFiles | null; service: StickersServic
     })]};
 }
 
-async function scene(prepare: (user: string) => Promise<void> = async () => undefined): Promise<Scene> {
+async function scene(prepare: (user: string) => Promise<void> = async () => undefined, plugin: PluginDefinition = stickersBackendPlugin): Promise<Scene> {
     counter += 1;
     const root = join(tmp, `w${String(counter)}`);
     const user = join(root, "state", "user", "stickers");
     await mkdir(user, {recursive: true});
     await prepare(user);
     const holder = {files: null as WorkspaceFiles | null, service: null as StickersService | null};
-    const world = await settingsWorld(root, [definitionAt("server", filesDescriptor, filesBackendPlugin), definitionAt("server", descriptor, stickersBackendPlugin), consumer(holder)]);
+    const world = await settingsWorld(root, [definitionAt("server", filesDescriptor, filesBackendPlugin), definitionAt("server", descriptor, plugin), consumer(holder)]);
     worlds.push(world);
     if (holder.files === null || holder.service === null) throw new Error("测试插件没有激活");
     const events = () => world.diagnostics("hub").query({}).records.filter((record) => record.event.startsWith("stickers.")).map((record) => ({event: record.event, data: record.data}));
@@ -294,6 +294,12 @@ describe("表情目录", () => {
         await receiver.revoke?.(handle("acme.cute.a", "a"), undefined, "activation-stopped");
         await receiver.revoke?.(handle("acme.cute.b", "b"), undefined, "activation-stopped");
         expect(catalog.list()).toEqual([]);
+    });
+
+    test("输出 1：应用的安装里找不到内置表情包的目录时，目录里没有内置的包、写诊断 root-unavailable，用户的包照常", async () => {
+        const {service, events} = await scene(async (user) => lyra(join(user, "lyra")), createStickersBackendPlugin(() => null));
+        expect(service.list().map((entry) => entry.id)).toEqual(["user.lyra"]);
+        expect(events()).toContainEqual({event: "stickers.root-unavailable", data: {source: "builtin"}});
     });
 });
 
@@ -662,7 +668,7 @@ describe("表情包页的写入", () => {
         expect(listed.ok && "kind" in listed.value && listed.value.entries.find((entry) => entry.name === "builtin.lyra")?.meta?.source).toBe("内置");
         const read = await files.read("stickers://builtin.lyra/stickers.json");
         expect(read.ok).toBe(true);
-        expect(await files.write("stickers://builtin.lyra/x.json", "{}", {expect: {hash: "0"}})).toMatchObject({ok: false});
+        expect(await files.write("stickers://builtin.lyra/x.json", "{}", {expect: {hash: "0"}})).toMatchObject({ok: false, code: "unsupported-capability"});
         const remote = await api(world);
         expect(await remote.updatePack({id: "builtin.lyra", title: "改", description: null})).toMatchObject({ok: false, code: "not-user-pack"});
         expect(await remote.listFiles({id: "builtin.lyra", files: "all"})).toMatchObject({ok: false, code: "not-user-pack"});

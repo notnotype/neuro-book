@@ -13,6 +13,9 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+/** 写法的包段（输出 14）：`nbook.agent` 的槽与本插件的浏览器目录共用一份规则，别的插件经这里取。 */
+export {writingSegments} from "./writing";
+
 export const STICKERS_PLUGIN = "nbook.stickers";
 export const STICKERS_POINT = "stickers.packs";
 export const STICKERS_SCHEME = "stickers";

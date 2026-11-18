@@ -18,7 +18,7 @@ const props = defineProps<{scene: string}>();
 const packs: BrowserStickerPack[] = props.scene === "empty" ? [] : SAMPLES.filter((sample) => (sample.status ?? "ok") === "ok" && sample.id !== "user.many").map((sample) => {
     const detail = detailOf(sample);
     return {
-        id: sample.id, folder: sample.folder, title: sample.title, source: sample.source, ...(sample.plugin === undefined ? {} : {plugin: sample.plugin}), writing: sample.folder,
+        id: sample.id, folder: sample.folder, title: sample.title, source: sample.source, ...(sample.plugin === undefined ? {} : {plugin: sample.plugin}), writing: sample.writing ?? sample.folder,
         stickers: detail.stickers.map((sticker) => ({name: sticker.name, width: sticker.width, height: sticker.height, url: sticker.url})),
     };
 }).filter((pack) => pack.stickers.length > 0);

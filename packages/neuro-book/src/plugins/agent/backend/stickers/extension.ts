@@ -2,15 +2,15 @@
  * 提示词里的表情（docs/specs/agent/stickers.md 输出 14–17）：扩展 `nbook.agent.stickers` 交槽 `stickers`（稳定的），列出这个
  * Profile 白名单里的表情包与它们的常用表情。完整目录在 `stickers://`，模型按需翻。
  *
- * 槽的文字只随白名单里的表情包变：写法一律带包（`:文件夹名/名字:`），不受白名单以外的表情包增删影响；只有全部有效的表情包里
- * 有同名文件夹时改写表情包 id。稳定的槽进前缀缓存，改一个字就要重算之后的全部。
+ * 槽的文字只随白名单里的表情包变：写法一律带包（`:文件夹名/名字:`）；按文件夹名认不到这个包时
+ * （同名文件夹按来源分级，输出 7）改写表情包 id，所以白名单以外出现同名的包时槽也会变。稳定的槽进前缀缓存，改一个字就要重算之后的全部。
  */
 
 import {defineExtension} from "@notnotype/nb-harness/kernel";
 import type {AnyExtension} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {StickerPackEntry, StickersService} from "nbook/plugins/stickers/shared/contracts";
-import {writingSegments} from "nbook/plugins/stickers/shared/writing";
+import {writingSegments} from "nbook/plugins/stickers/shared/contracts";
 
 export const STICKERS_EXTENSION = "nbook.agent.stickers";
 export const STICKERS_SLOT = "stickers";
@@ -23,7 +23,7 @@ export const SLOT_CHARS_MAX = 6000;
 const MORE = "还有更多，见 stickers://";
 
 /**
- * 槽的文字；没有内容时 null。`allowed` 是白名单（有序），`packs` 是表情目录的全部（含白名单以外的，判断同名文件夹用）。纯函数。
+ * 槽的文字；没有内容时 null。`allowed` 是白名单（有序），`packs` 是表情目录的全部（含白名单以外的，按文件夹名分级时用）。纯函数。
  */
 export function stickersSection(allowed: readonly string[], packs: readonly StickerPackEntry[]): string | null {
     const valid = packs.filter((pack) => pack.status === "ok");

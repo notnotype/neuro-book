@@ -1334,6 +1334,8 @@ function shelfFixtures(): LabFixture[] {
                     {id: "problem", label: "没有清单的包：认不出的图要先改名", input: {props: page("user.cat", {initialSticker: extraKey("1.png")})}},
                     {id: "unlisted", label: "有清单的包：文件夹里没加进来的图", input: {props: page("user.lyra", {initialSticker: extraKey("摸摸头.png")})}},
                     {id: "plugin", label: "插件的包：只读、复制到我的", input: {props: page("acme.cute.mochi", {initialSticker: stickerKey("好耶.png", "好耶")})}},
+                    {id: "builtin-shadowed", label: "内置的包：只读，被我的同名包盖住", input: {props: page("builtin.lyra")}},
+                    {id: "builtin-shadowed-narrow-english", label: "内置的包被盖住：480px 宽、英文界面", input: {props: page("builtin.lyra")}},
                     {id: "empty-pack", label: "还没有表情的包：整个网格是落点", input: {props: page("user.empty")}},
                     {id: "uploading", label: "上传中：占位格", input: {props: page("user.lyra", {uploads: [{id: 1, packId: "user.lyra", name: "新图.png", state: "running"}, {id: 2, packId: "user.lyra", name: "另一张.jpg", state: "waiting"}]})}},
                     {id: "many", label: "很多表情：网格折行", input: {props: page("user.many")}},
@@ -1350,7 +1352,7 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof StickerPackRail>({
             component: "StickerPackRail",
             scenes: [
-                {id: "rail", label: "我的、插件各一组，有认不出的与无效的", input: {props: {groups: railGroups(SAMPLES.map(summaryOf)), current: "user.lyra"}}},
+                {id: "rail", label: "我的、插件、内置各一组，有认不出的、无效的与被盖住的", input: {props: {groups: railGroups(SAMPLES.map(summaryOf)), current: "user.lyra"}}},
                 {id: "disabled", label: "新建与导入停用", input: {props: {groups: railGroups(SAMPLES.map(summaryOf)), current: "user.cat", disabled: true}}},
                 {id: "english", label: "英文界面", input: {props: {groups: railGroups(SAMPLES.map(summaryOf)), current: "user.lyra"}}},
             ],

@@ -35,85 +35,90 @@ function answer<T, O = T>(result: Edited<T>, shape: (value: T) => O = (value) =>
     return result.ok ? ok(shape(result.value)) : fail(result.code, {detail: result.detail});
 }
 
-export const stickersBackendPlugin: PluginDefinition = {
-    id: descriptor.id,
-    contributionPoints: [packsPoint],
-    entries: [defineEntry({
-        id: "server",
-        location: "server",
-        activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: pluginPackagesKey, required: false}],
-        provides: [stickersServiceKey],
-        remoteProvides: [stickersCatalogContract],
-        receives: [STICKERS_POINT],
-        contributions: [{capability: SCHEMES_POINT, id: STICKERS_SCHEME, declaration: {}}, {capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
-        activate: async (context) => {
-            const diagnostics = context.services.require(diagnosticsKey);
-            const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
-                diagnostics.record({level: "warn", event: `stickers.${code}`, message, ...(data === undefined ? {} : {data}), source: {plugin: descriptor.id}});
-            };
-            const userRoot = join(context.services.require(stateRootKey).path, "user", "stickers");
-            const files = () => context.services.require(workspaceFilesKey);
-            /** 用户的包的文件夹身份令牌：目录扫描时一并取，表情包页改包名、删除、替换时带回，文件夹被别处换掉了就不做。 */
-            const identify = async (folders: readonly string[]): Promise<ReadonlyArray<string | null>> => {
-                if (folders.length === 0) return [];
-                const found = await files().identify(folders.map((folder) => `user://stickers/${folder}`));
-                return found.ok ? found.value.items.map((item) => ("token" in item ? item.token : null)) : folders.map(() => null);
-            };
-            // 内置的随应用分发、一次运行里不变，不监视；找不到目录（安装不全）时只少内置的包。
-            const builtinRoot = locateBuiltinStickers();
-            if (builtinRoot === null) report("root-unavailable", "内置表情包用不了：应用的安装里没有内置表情包的目录", {source: "builtin"});
-            const roots: StickerRoot[] = [
-                {key: "user", source: "user", prefix: "user", root: userRoot, watch: true},
-                ...(builtinRoot === null ? [] : [{key: "builtin", source: "builtin", prefix: "builtin", root: builtinRoot, watch: false} satisfies StickerRoot]),
-            ];
-            const catalog = await StickerCatalog.open({roots, clock: context.services.require(clockKey), report, identify});
-            const packages = await context.services.resolve(pluginPackagesKey);
-            context.onStop(() => catalog.close());
-            const editor = new StickerEditor({files, catalog});
-            return {
-                services: [provideService(stickersServiceKey, {list: () => catalog.list(), onChanged: (listener) => catalog.onChanged(listener)})],
-                remote: [provideRemote(stickersCatalogContract, () => ({
-                    methods: {
-                        catalog: (_input, call) => call.ok(browserCatalog(catalog.list(), report)),
-                        packs: (_input, call) => call.ok(browserSummaries(catalog.list(), report, (id) => catalog.item(id)?.counts)),
-                        pack: ({id}, call) => {
-                            const item = catalog.item(id);
-                            return item === undefined ? call.fail("pack-missing", {}) : call.ok(packDetail(item, summaryMarks(catalog.list())(id)));
-                        },
-                        createPack: async ({folder, title}, call) => answer(await editor.createPack(folder, title ?? null)),
-                        updatePack: async ({id, title, description}, call) => answer(await editor.updatePack(id, {title, description}), () => ({})),
-                        renamePack: async ({id, folder, token}, call) => answer(await editor.renamePack(id, folder, token)),
-                        deletePack: async ({id, token}, call) => answer(await editor.deletePack(id, token), () => ({})),
-                        updateSticker: async ({id, file, name, change}, call) => answer(await editor.updateSticker(id, {file, name}, change), () => ({})),
-                        deleteSticker: async ({id, file, name}, call) => answer(await editor.deleteSticker(id, {file, name}), () => ({})),
-                        listFiles: async ({id, files: wanted}, call) => answer(await editor.listFiles(id, wanted)),
-                        deleteFile: async ({id, file}, call) => answer(await editor.deleteFile(id, file), () => ({})),
-                        copyPack: async ({id}, call) => answer(await editor.copyPack(id)),
-                        revealPack: async ({id}, call) => {
-                            const path = await revealPath(catalog, userRoot, id);
-                            if (path === null) return call.fail("pack-missing", {});
-                            const opened = await openExistingFolder(path, process.env, process.platform);
-                            if (opened.ok) return call.ok({});
-                            return opened.code === "no-desktop" ? call.fail("no-desktop", {path}) : call.fail("open-failed", {path, detail: opened.detail ?? ""});
-                        },
-                    },
-                    events: {
-                        changed: {
-                            subscribe(_filter, sink, call) {
-                                if (call.signal.aborted) return;
-                                const stop = catalog.onChanged(() => sink.next({}));
-                                call.signal.addEventListener("abort", stop, {once: true});
+/** `locateBuiltin` 找内置表情包的目录：缺省按应用的安装找，测试传别的来模拟安装里没有这个目录。 */
+export function createStickersBackendPlugin(locateBuiltin: () => string | null = locateBuiltinStickers): PluginDefinition {
+    return {
+        id: descriptor.id,
+        contributionPoints: [packsPoint],
+        entries: [defineEntry({
+            id: "server",
+            location: "server",
+            activationEvents: ["onStartup"],
+            dependencies: [{key: diagnosticsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: pluginPackagesKey, required: false}],
+            provides: [stickersServiceKey],
+            remoteProvides: [stickersCatalogContract],
+            receives: [STICKERS_POINT],
+            contributions: [{capability: SCHEMES_POINT, id: STICKERS_SCHEME, declaration: {}}, {capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
+            activate: async (context) => {
+                const diagnostics = context.services.require(diagnosticsKey);
+                const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
+                    diagnostics.record({level: "warn", event: `stickers.${code}`, message, ...(data === undefined ? {} : {data}), source: {plugin: descriptor.id}});
+                };
+                const userRoot = join(context.services.require(stateRootKey).path, "user", "stickers");
+                const files = () => context.services.require(workspaceFilesKey);
+                /** 用户的包的文件夹身份令牌：目录扫描时一并取，表情包页改包名、删除、替换时带回，文件夹被别处换掉了就不做。 */
+                const identify = async (folders: readonly string[]): Promise<ReadonlyArray<string | null>> => {
+                    if (folders.length === 0) return [];
+                    const found = await files().identify(folders.map((folder) => `user://stickers/${folder}`));
+                    return found.ok ? found.value.items.map((item) => ("token" in item ? item.token : null)) : folders.map(() => null);
+                };
+                // 内置的随应用分发、一次运行里不变，不监视；找不到目录（安装不全）时只少内置的包。
+                const builtinRoot = locateBuiltin();
+                if (builtinRoot === null) report("root-unavailable", "内置表情包用不了：应用的安装里没有内置表情包的目录", {source: "builtin"});
+                const roots: StickerRoot[] = [
+                    {key: "user", source: "user", prefix: "user", root: userRoot, watch: true},
+                    ...(builtinRoot === null ? [] : [{key: "builtin", source: "builtin", prefix: "builtin", root: builtinRoot, watch: false} satisfies StickerRoot]),
+                ];
+                const catalog = await StickerCatalog.open({roots, clock: context.services.require(clockKey), report, identify});
+                const packages = await context.services.resolve(pluginPackagesKey);
+                context.onStop(() => catalog.close());
+                const editor = new StickerEditor({files, catalog});
+                return {
+                    services: [provideService(stickersServiceKey, {list: () => catalog.list(), onChanged: (listener) => catalog.onChanged(listener)})],
+                    remote: [provideRemote(stickersCatalogContract, () => ({
+                        methods: {
+                            catalog: (_input, call) => call.ok(browserCatalog(catalog.list(), report)),
+                            packs: (_input, call) => call.ok(browserSummaries(catalog.list(), report, (id) => catalog.item(id)?.counts)),
+                            pack: ({id}, call) => {
+                                const item = catalog.item(id);
+                                return item === undefined ? call.fail("pack-missing", {}) : call.ok(packDetail(item, summaryMarks(catalog.list())(id)));
+                            },
+                            createPack: async ({folder, title}, call) => answer(await editor.createPack(folder, title ?? null)),
+                            updatePack: async ({id, title, description}, call) => answer(await editor.updatePack(id, {title, description}), () => ({})),
+                            renamePack: async ({id, folder, token}, call) => answer(await editor.renamePack(id, folder, token)),
+                            deletePack: async ({id, token}, call) => answer(await editor.deletePack(id, token), () => ({})),
+                            updateSticker: async ({id, file, name, change}, call) => answer(await editor.updateSticker(id, {file, name}, change), () => ({})),
+                            deleteSticker: async ({id, file, name}, call) => answer(await editor.deleteSticker(id, {file, name}), () => ({})),
+                            listFiles: async ({id, files: wanted}, call) => answer(await editor.listFiles(id, wanted)),
+                            deleteFile: async ({id, file}, call) => answer(await editor.deleteFile(id, file), () => ({})),
+                            copyPack: async ({id}, call) => answer(await editor.copyPack(id)),
+                            revealPack: async ({id}, call) => {
+                                const path = await revealPath(catalog, userRoot, id);
+                                if (path === null) return call.fail("pack-missing", {});
+                                const opened = await openExistingFolder(path, process.env, process.platform);
+                                if (opened.ok) return call.ok({});
+                                return opened.code === "no-desktop" ? call.fail("no-desktop", {path}) : call.fail("open-failed", {path, detail: opened.detail ?? ""});
                             },
                         },
+                        events: {
+                            changed: {
+                                subscribe(_filter, sink, call) {
+                                    if (call.signal.aborted) return;
+                                    const stop = catalog.onChanged(() => sink.next({}));
+                                    call.signal.addEventListener("abort", stop, {once: true});
+                                },
+                            },
+                        },
+                    }))],
+                    contributions: {
+                        [SCHEMES_POINT]: {[STICKERS_SCHEME]: stickersScheme(catalog, userRoot)},
+                        [HTTP_ROUTES_POINT]: {[descriptor.id]: createStickerRoutes({catalog, files, editor})},
                     },
-                }))],
-                contributions: {
-                    [SCHEMES_POINT]: {[STICKERS_SCHEME]: stickersScheme(catalog, userRoot)},
-                    [HTTP_ROUTES_POINT]: {[descriptor.id]: createStickerRoutes({catalog, files, editor})},
-                },
-                receivers: {[STICKERS_POINT]: pluginPackRoots({catalog, packages: packages.status === "resolved" ? packages.instance : null, report})},
-            };
-        },
-    })],
-};
+                    receivers: {[STICKERS_POINT]: pluginPackRoots({catalog, packages: packages.status === "resolved" ? packages.instance : null, report})},
+                };
+            },
+        })],
+    };
+}
+
+export const stickersBackendPlugin = createStickersBackendPlugin();

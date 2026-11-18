@@ -11,10 +11,12 @@ import {packageRootOf} from "nbook/backend/package-root";
 
 /** 内置表情包在打包后的应用里的目录名（`scripts/pack-app.ts` 复制到这里）。 */
 export const PACKED_BUILTIN_DIRECTORY = "stickers";
+/** 内置表情包在源码里的位置（相对包根的各段）：从源码运行时读这里，打包时从这里复制。 */
+export const SOURCE_BUILTIN_DIRECTORY = ["src", "plugins", "stickers", "builtin"] as const;
 
 /** `from` 是起点目录（缺省本模块所在目录），测试用它模拟安装布局。 */
 export function locateBuiltinStickers(from: string = import.meta.dir): string | null {
     const root = packageRootOf(from);
     if (root === null) return null;
-    return [join(root, PACKED_BUILTIN_DIRECTORY), join(root, "src", "plugins", "stickers", "builtin")].find((candidate) => existsSync(candidate)) ?? null;
+    return [join(root, PACKED_BUILTIN_DIRECTORY), join(root, ...SOURCE_BUILTIN_DIRECTORY)].find((candidate) => existsSync(candidate)) ?? null;
 }

@@ -86,7 +86,7 @@ async function openFile(page: Page): Promise<Locator> {
 /** 补全里我的 lyra 的“开心”（没有清单，包的标题就是文件夹名）；内置的星璃与半身版各有一条同名的。 */
 const myHappy = (page: Page) => page.getByRole("option", {name: "开心 lyra", exact: true});
 
-const editorStickerButton =(page: Page) => page.locator("[data-editor-group-active] .markdown-toolbar").getByRole("button", {name: "表情", exact: true});
+const editorStickerButton = (page: Page) => page.locator("[data-editor-group-active] .markdown-toolbar").getByRole("button", {name: "表情", exact: true});
 const pickerCells = (page: Page) => page.locator("[data-state='open'] [data-sticker-picker-panel] [data-sticker-cell]");
 
 test("验收 11：编辑器里打 `:开` 回车插入表情；工具栏的“表情”选一个；重开后“最近用过”记得先后", async ({page}) => {
