@@ -110,6 +110,11 @@ omp（19 条：阻断 1、重要 18，[`evidences/design-review-omp.txt`](eviden
 
 2026-11-18 重开，范围已定（决定 1 到 4）；计划第 1 稿已获开发者确认（决定 5），卡片的注意力排序已定（决定 6）。设计审查三份报告都已处理，[计划](plan.md)到第 3 稿。调研：[omp 的 JS 内核](../../research/2026-11-18-omp-eval-js-kernel.md)。
 
+实施（分支 `feat/w00032-t21-eval`，worktree `.worktree/w00032-t21-eval`，未合入）：
+
+- 切片 1（Spec，`planned`）已在 master：b2655ce58、f756817c5、230a79020。
+- 切片 3 之一（dd28c3f25、79822481a）：输出窗口与全文挪进套件的 `kit/tools/output-capture.ts` 供 `shell` 与 eval 共用；eval 的内核：子进程与进程组、握手与协议版本、父进程看门狗线程、单元改写（`rewrite.ts`）、按单元归属的输出与调用、没人接的错误、直接写 fd 的输出用结束标记收全、意外退出。`backend/eval/kernel.test.ts` 与 `rewrite.test.ts` 19 条（真实子进程），看门狗与“等在途调用”两处做过变异检查。
+
 ## 下一步
 
-切片 1：写 Spec（`planned`）。切片 2 等审批简化提案的内核改动合入之后开工。
+切片 3 之二：eval 工具本身（每会话的内核、时限、重置判定与提示、结果的拼装、构建入口）。切片 2（内核通道）等审批简化提案的内核改动，先后待开发者定。
