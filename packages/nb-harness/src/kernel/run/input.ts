@@ -6,7 +6,7 @@
  */
 
 import {createHash} from "node:crypto";
-import type {Attributed, Issuer, JsonValue, Rejection, Resources, UserInput} from "../api/index.js";
+import type {Attributed, HeldCause, Issuer, JsonValue, Rejection, Resources, UserInput} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {chainLayers, failureDrafts, runChain} from "./chain.js";
@@ -67,18 +67,20 @@ export async function interceptInput(host: InputHost, input: UserInput): Promise
     return {ok: true, input: final, failed, original: input.text};
 }
 
-/** 写进输入事件的发出者：只记会话，用户（也是旧日志的读法）不写。 */
+/** 写进输入事件的发出者：只记会话与宿主，用户（也是旧日志的读法）不写。 */
 export function byField(issuer: Issuer | undefined): {by?: JsonValue} {
     return issuer === undefined || issuer.kind === "user" ? {} : {by: issuer as unknown as JsonValue};
 }
 
 /** `inputQueued` 的数据：改过的输入带原文或原文的哈希；会话以自己的身份发的带 `by`，用户发的不带（runtime.md 输出 85）。 */
-export function queuedData(id: string, intercepted: Extract<InterceptedInput, {ok: true}>, mode: "steer" | "followup", issuer: Issuer): JsonValue {
+export function queuedData(id: string, intercepted: Extract<InterceptedInput, {ok: true}>, mode: "steer" | "followup", issuer: Issuer, extra: {commandId?: string; held?: HeldCause} = {}): JsonValue {
     return {
         id,
         input: intercepted.input as unknown as JsonValue,
         mode,
         ...byField(issuer),
+        ...(extra.commandId === undefined ? {} : {commandId: extra.commandId}),
+        ...(extra.held === undefined ? {} : {state: "held", cause: extra.held as unknown as JsonValue}),
         ...(intercepted.original === undefined ? {} : {original: intercepted.original}),
         ...(intercepted.originalHash === undefined ? {} : {originalHash: intercepted.originalHash}),
     };

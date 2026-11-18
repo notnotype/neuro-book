@@ -9,14 +9,16 @@
  * `session-closed`、`read-only`、`log-broken` 也逐个列出，表即合同。
  */
 export const commandErrors = {
-    send: ["empty-input", "input-too-large", "input-rejected", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
-    enqueue: ["empty-input", "input-too-large", "input-rejected", "read-only", "command-id-conflict", "session-closed", "log-broken"],
-    edit: ["empty-input", "input-too-large", "input-rejected", "input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
-    remove: ["input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
+    send: ["empty-input", "input-too-large", "input-rejected", "not-allowed", "input-stale", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    enqueue: ["empty-input", "input-too-large", "input-rejected", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    edit: ["empty-input", "input-too-large", "input-rejected", "not-allowed", "input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
+    remove: ["not-allowed", "input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
     resolve: ["unknown-interaction", "already-answered", "not-allowed", "invalid-answer", "input-rejected", "read-only", "command-id-conflict", "session-closed", "log-broken"],
-    start: ["already-running", "nothing-to-continue", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
-    abort: ["command-id-conflict", "session-closed"],
-    rewind: ["running", "unknown-node", "invalid-target", "empty-input", "input-rejected", "command-id-conflict", "session-closed", "log-broken"],
+    start: ["already-running", "nothing-to-continue", "not-allowed", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    abort: ["not-allowed", "command-id-conflict", "session-closed"],
+    resume: ["nothing-to-resume", "held-by-user", "not-allowed", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    release: ["nothing-to-release", "held-by-user", "not-allowed", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
+    rewind: ["running", "unknown-node", "invalid-target", "empty-input", "input-rejected", "not-allowed", "command-id-conflict", "session-closed", "log-broken"],
     switchBranch: ["running", "unknown-node", "command-id-conflict", "session-closed", "log-broken"],
     fork: ["running", "unknown-node", "command-id-conflict", "session-closed", "log-broken"],
     compact: ["nothing-to-compact", "no-compaction-model", "read-only", "command-id-conflict", "session-closed", "log-broken"],
@@ -167,6 +169,8 @@ export const diagnosticCodes = {
     "mount-failed": "error",
     "mount-timeout": "error",
     "extension-revoked": "warn",
+    // 推迟到收口的指令没开起运行（runtime.md 输出 104）
+    "deferred-start-skipped": "warn",
     "unknown-profile": "error",
     "profile-code-updated": "info",
     // 宿主面

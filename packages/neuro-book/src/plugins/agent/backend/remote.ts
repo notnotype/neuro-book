@@ -254,6 +254,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         branchPoints: ({sessionId}, context) => whole(() => view(sessionId).branchPoints(), context) as never,
         siblings: ({sessionId, node}, context) => whole(() => view(sessionId).siblings({node}), context) as never,
         runResult: ({sessionId, runId}, context) => whole(() => view(sessionId).runResult({runId}), context) as never,
+        inputFate: ({sessionId, inputId}, context) => whole(() => view(sessionId).inputFate({inputId}), context) as never,
         preview: async ({sessionId, leaf}, context) => {
             try {
                 const preview = await view(sessionId).preview(leaf === undefined ? undefined : {leaf});

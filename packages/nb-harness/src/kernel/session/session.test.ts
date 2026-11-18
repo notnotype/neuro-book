@@ -7,6 +7,7 @@ import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {AnyProfile, LogEvent, SessionEnv} from "../api/index.js";
+import {defineExtension} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
 import {nodeFiles, type FilePort} from "../log/files.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
@@ -119,22 +120,43 @@ describe("指令与失败", () => {
         expect(report.result).toMatchObject({reason: "error", stopReason: "error", error: {kind: "rate_limit"}});
     });
 
-    test("空闲时入队的 followup 在这一轮结束后开下一轮，同一次运行", async () => {
-        await using session = await createTestSession();
-        session.model.script("答 B", "答 A");
-        await session.raw.enqueue({commandId: "q", input: {text: "A"}, mode: "followup"});
-        const report = await session.say("B");
-        expect(report.requests.map((request) => request.raw.messages.at(-1)!.content[0])).toMatchObject([{text: "B"}, {text: "A"}]);
-        expect(types(report.events).filter((type) => type === "runStarted" || type === "runEnded" || type === "turnStarted")).toEqual(["runStarted", "turnStarted", "turnStarted", "runEnded"]);
-        expect(report.result.text).toBe("答 A");
+    test("验收 2：运行中入队的 followup 在这一轮结束后开下一轮，同一次运行，用量是两次回复的和", async () => {
+        let entered!: () => void;
+        const replying = new Promise<void>((resolve) => (entered = resolve));
+        let open!: () => void;
+        const holding = new Promise<void>((resolve) => (open = resolve));
+        let held = false;
+        // 第一条回复写下后在反应里停住：这时运行还在取输入，入队的排队进同一次运行。
+        const hold = defineExtension({id: "lab.hold", on: {assistant: async () => {
+            if (held) return;
+            held = true;
+            entered();
+            await holding;
+        }}});
+        await using session = await createTestSession({extensions: [hold]});
+        session.model.script({text: "答 B", usage: {input: 100, output: 7}}, {text: "答 A", usage: {input: 120, output: 3}});
+        const sent = await session.raw.send({commandId: "b", input: {text: "B"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        await replying;
+        // 反应占着队列项：入队排在它之后、在“这一轮结束还有没有可取的”那一项之前受理。
+        const queued = session.raw.enqueue({commandId: "q", input: {text: "A"}, mode: "followup"});
+        open();
+        expect(await queued).toMatchObject({ok: true, value: {placement: "taken"}});
+        const result = await session.raw.waitRun(sent.value.runId);
+        expect(session.requests.map((request) => request.raw.messages.at(-1)!.content[0])).toMatchObject([{text: "B"}, {text: "A"}]);
+        expect(types(await session.events()).filter((type) => type === "runStarted" || type === "runEnded" || type === "turnStarted")).toEqual(["runStarted", "turnStarted", "turnStarted", "runEnded"]);
+        expect(result.text).toBe("答 A");
+        expect(result.usage).toMatchObject({input: 220, output: 10, complete: true});
     });
 
-    test("用量是这次运行全部回复的和", async () => {
+    test("验收 2：空闲时用户入队等于发送，开新运行", async () => {
         await using session = await createTestSession();
-        session.model.script({text: "一", usage: {input: 100, output: 7}}, {text: "二", usage: {input: 120, output: 3}});
-        await session.raw.enqueue({commandId: "q", input: {text: "下一个"}, mode: "followup"});
-        const report = await session.say("第一个");
-        expect(report.result.usage).toMatchObject({input: 220, output: 10, complete: true});
+        session.model.script("答 A");
+        const queued = await session.raw.enqueue({commandId: "q", input: {text: "A"}, mode: "followup"});
+        if (!queued.ok || queued.value.runId === undefined) throw new Error("enqueue did not start a run");
+        expect(queued.value.placement).toBe("taken");
+        expect((await session.raw.waitRun(queued.value.runId)).text).toBe("答 A");
+        expect((await session.raw.snapshot()).buffer).toEqual([]);
     });
 });
 

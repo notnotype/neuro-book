@@ -11,14 +11,15 @@
 import {createHash, randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, Frame, LogHandle, ModelInfo, ModelResolution, OutboundContext, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, Frame, InputFate, LogHandle, ModelInfo, ModelResolution, OutboundContext, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
+import {byField} from "../run/input.js";
 import {LogBrokenError, SessionCore, type EventDraft} from "../dispatch/core.js";
 import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
-import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setGeneratedMetaCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, releaseCommand, removeCommand, resumeCommand, sendCommand, setGeneratedMetaCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {compact, compactionCuts, estimateContext, triggerPoint} from "../compaction/compact.js";
 import {resolveCommand} from "../run/interaction.js";
 import {previewRequest} from "./preview.js";
@@ -168,6 +169,15 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     control.attach({
         core,
         react,
+        checks: {
+            closed: () => state.closed,
+            reassemblyPending: () => state.pendingReassembly !== null || state.reassembling !== null,
+            startProblem: () => {
+                if (state.readOnly !== null) return "read-only";
+                const resolution = env.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
+                return resolution.ok ? null : resolution.code;
+            },
+        },
         models: env.models,
         ...(env.retry === undefined ? {} : {retry: env.retry}),
         box,
@@ -209,6 +219,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         environment: () => state.react.environment(),
         readOnly: () => state.readOnly,
         closed: () => state.closed,
+        reassembling: () => state.reassembling?.promise ?? null,
     };
     // 指令等进行中的重新装配做完（装上扩展之前不受理指令，extensions.md 输出 19）；关闭之后得 session-closed。
     const closedGuard = async <T>(run: () => Promise<T>): Promise<T> => {
@@ -260,13 +271,15 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         as: (next) => buildApi(env, core, state.readOnly, next, state),
         send: (args) => closedGuard(() => sendCommand(host, issuer, args)),
         enqueue: (args) => closedGuard(() => enqueueCommand(host, issuer, args)),
-        start: (args) => closedGuard(() => startCommand(host, args)),
-        abort: (args) => closedGuard(() => abortCommand(host, args)),
-        edit: (args) => closedGuard(() => editCommand(host, args)),
-        remove: (args) => closedGuard(() => removeCommand(host, args)),
+        start: (args) => closedGuard(() => startCommand(host, issuer, args)),
+        resume: (args) => closedGuard(() => resumeCommand(host, issuer, args)),
+        release: (args) => closedGuard(() => releaseCommand(host, issuer, args)),
+        abort: (args) => closedGuard(() => abortCommand(host, issuer, args)),
+        edit: (args) => closedGuard(() => editCommand(host, issuer, args)),
+        remove: (args) => closedGuard(() => removeCommand(host, issuer, args)),
         // 应答会改变对话（结算事项、回答进缓冲区）：只读会话不受理（session.md 失败表的 unknown-profile）。
         resolve: (args) => closedGuard(async () => (state.readOnly !== null ? {ok: false, code: "read-only"} as const : resolveCommand({...host, interactions: control.interactions}, issuer, args))),
-        rewind: (args) => closedGuard(() => rewindCommand(host, args)),
+        rewind: (args) => closedGuard(() => rewindCommand(host, issuer, args)),
         switchBranch: (args) => closedGuard(() => switchBranchCommand(host, args)),
         fork: (args) => closedGuard(() => accept(host, "fork", args, async (): Promise<Outcome<"fork">> => {
             if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
@@ -287,7 +300,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             }
             if (compactionCuts(core).cuts.length === 0) return {fail: "nothing-to-compact"};
             const runId = core.newId();
-            return {value: {scheduled: "now", runId}, drafts: [{type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "compact"}}], launch: runId, launchOptions: {compact: {require: asked}}};
+            return {value: {scheduled: "now", runId}, drafts: [{type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "compact", ...byField(issuer)} as JsonValue}], launch: runId, launchOptions: {compact: {require: asked}}};
         })),
         changeSettings: (args) => closedGuard(() => changeSettingsCommand(host, args)),
         changeProfile: (args) => closedGuard(() => accept(host, "changeProfile", args, async (): Promise<Outcome<"changeProfile">> => {
@@ -389,6 +402,9 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         },
         async runResult({runId}) {
             return runResultOf(core.events, runId, core.byId);
+        },
+        async inputFate({inputId}) {
+            return inputFateOf(core, inputId);
         },
         preview: (args) => previewRequest({core, models: env.models, box: state.box, resources: state.react.resources, environment: (model, tools) => ({tools, model, now: core.clock.now(), initial: state.environment.initial, session: state.environment.session})}, args),
         // 过滤按查询参数：`afterSeq` 取最后一次出现在它之后的（合并过的诊断按最后一次算），`extension` 与 `level` 按值。
@@ -797,4 +813,22 @@ export function extensionState(session: SessionApi, id: string): Record<string, 
     if (state === undefined) throw new Error("not a kernel session");
     const at = state.core.stateAt();
     return {...at.path[id], ...at.session[id]};
+}
+
+/**
+ * 一条输入的结局（runtime.md 输出 110）：被哪次运行取走、被移除、留着，还是就绪地在缓冲区里。没入过这个会话的队为 null。
+ * 按日志顺序找最后的那条结局事件；旧日志的 `inputConsumed` 没有 `runId`，交回 null。
+ */
+function inputFateOf(core: SessionCore, inputId: string): InputFate | null {
+    let queued = false;
+    for (const event of core.events) {
+        const data = event.data as {id?: string; runId?: string; reason?: string};
+        if (data.id !== inputId) continue;
+        if (event.type === "inputQueued") queued = true;
+        else if (event.type === "inputConsumed") return {taken: data.runId ?? null};
+        else if (event.type === "inputRemoved") return {removed: data.reason === "user" ? "cancelled" : data.reason!};
+    }
+    if (!queued) return null;
+    const entry = core.session.kernel.buffer.find((item) => item.id === inputId);
+    return entry?.state === "held" && entry.cause !== undefined ? {held: entry.cause} : {pending: true};
 }

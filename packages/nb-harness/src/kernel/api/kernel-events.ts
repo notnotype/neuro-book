@@ -22,7 +22,7 @@ export const kernelEventSpecs = {
     archived: {scope: "session", kind: "ctrl"},
     runStarted: {scope: "path", kind: "ctrl"},
     runEnded: {scope: "path", kind: "ctrl"},
-    runResumed: {scope: "path", kind: "ctrl"},
+    runResumed: {scope: "session", kind: "ctrl"},
     turnStarted: {scope: "path", kind: "ctrl"},
     turnEnded: {scope: "path", kind: "ctrl"},
     input: {scope: "path", kind: "conv"},

@@ -14,7 +14,8 @@ import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {chainLayers, runChain, type ChainFailure} from "../run/chain.js";
-import {takeInputDrafts, takeSteerDrafts} from "../run/loop.js";
+import {takeSteerDrafts} from "../run/loop.js";
+import {readyEntries, takeInputDrafts} from "../run/settle.js";
 import {freezeRequest, isResponse} from "../run/model-call.js";
 import {toolInfo, type ToolBox} from "../run/tools.js";
 import {limitImages} from "../dispatch/attachments.js";
@@ -109,13 +110,14 @@ export async function previewRequest(host: PreviewHost, args: PreviewArgs = {}):
     const tools: readonly ToolDeclaration[] = host.box.current();
     const environment = host.environment(resolution.info, tools.map(toolInfo));
 
-    // 预览当前叶子时，把下一个边界确定会取走的输入投影进去（不写日志）：两轮之间取缓冲区的第一条开新的一轮，
-    // 一轮进行中取全部 steer。投影不到的：在跑的工具的结果、边界上可能触发的压缩。
+    // 预览当前叶子时，把下一个边界确定会取走的就绪的输入投影进去（不写日志）：两轮之间取就绪的第一条开新的一轮，
+    // 一轮进行中取全部就绪的 steer；留着的不投影（runtime.md 输出 55）。投影不到的：在跑的工具的结果、边界上可能触发的压缩。
     let projected: EventDraft[] = [];
     if (leaf === core.leaf) {
-        const next = core.session.kernel.buffer[0];
-        if (core.leafState.kernel.history.current === null) projected = next === undefined ? [] : takeInputDrafts(next.id, next.input, core.newId());
-        else projected = takeSteerDrafts(core);
+        const next = readyEntries(core.session.kernel.buffer)[0];
+        const runId = core.leafState.kernel.run?.runId ?? "preview";
+        if (core.leafState.kernel.history.current === null) projected = next === undefined ? [] : takeInputDrafts(next, core.newId(), runId);
+        else projected = takeSteerDrafts(core, runId);
     }
     const state = projected.length > 0 ? core.project(projected) : core.stateAt(leaf);
     const computed = computeRequest({assembly: core.assembly, state, environment, purpose: "turn", model: resolution.info.id, ...(core.session.kernel.core.effort === null ? {} : {effort: core.session.kernel.core.effort}), tools, cache: core.view, checks: false, inactive: (id) => core.revoked.has(id)});

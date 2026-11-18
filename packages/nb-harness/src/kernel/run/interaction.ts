@@ -7,12 +7,13 @@
  * 异步提问只写事项、不等：它跨运行存在，回答作为一条输入进缓冲区。
  */
 
-import type {Actor, CommandMap, CommandResult, InteractionDecision, InteractionSummary, Issuer, JsonValue} from "../api/index.js";
+import type {Actor, CommandMap, CommandResult, HeldCause, InteractionDecision, InteractionSummary, Issuer, JsonValue} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import type {PendingInteraction} from "../state/kernel-state.js";
 import {accept, isEmpty, startProblem, type CommandHost} from "./commands.js";
-import {interceptInput, queuedData} from "./input.js";
-import {takeInputDrafts} from "./loop.js";
+import {byField, interceptInput, queuedData} from "./input.js";
+import {canContinue} from "./permissions.js";
+import {openRunDrafts, projectSession, releaseDrafts} from "./settle.js";
 import {ctrl, interrupting, RunStoppedError} from "./writes.js";
 
 export interface Resolution {
@@ -127,22 +128,37 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
             drafts.push({type: "approvalRemembered", kind: "ctrl", scope: "session", data: {tool: (item.request as {tool: string}).tool, ...(remember === undefined ? {scope: "tool"} : {scope: "rule", rules: remember}), by: issuer as unknown as JsonValue}});
         }
         let launch: string | undefined;
+        let deferred = false;
         if (item.async && args.decision === "answer") {
-            // 异步提问的回答作为一条输入：过输入链；运行中当插话，空闲时开新一轮（或让暂停的运行接着跑）。
+            // 异步提问的回答作为一条输入（runtime.md 输出 42）：过输入链；先放行应答者能放行的，运行中当插话，空闲时开新一轮
+            // （或让应答者能接着跑的暂停的运行接着跑）。开不起运行时回答留着带码，应答照常成功。
             const intercepted = await interceptInput(host, {text: args.answer!.text});
             if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
             const inputId = core.newId();
-            const running = !control.idle;
-            drafts.push(...intercepted.failed, {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, running ? "steer" : "followup", issuer)});
-            if (!running) {
-                const problem = startProblem(host);
-                if (problem === null) {
-                    const paused = control.paused;
-                    if (paused !== null) launch = paused;
-                    else {
-                        launch = core.newId();
-                        drafts.push({type: "runStarted", kind: "ctrl", scope: "path", data: {runId: launch, kind: "chat"}}, ...takeInputDrafts(inputId, intercepted.input, core.newId(), issuer));
-                    }
+            const active = control.active;
+            const window = active !== null && !control.takesInput;
+            const mode = active !== null ? "steer" : "followup";
+            const queue = (held?: HeldCause): EventDraft => ({type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, mode, issuer, {commandId: args.commandId, ...(held === undefined ? {} : {held})})});
+            drafts.push(...intercepted.failed);
+            const paused = control.paused;
+            const pausedBy = core.leafState.kernel.runBy ?? {kind: "user"};
+            const problem = active === null ? startProblem(host) : null;
+            if (window) {
+                drafts.push(queue());
+                deferred = true;
+            } else if (active === null && paused !== null && !canContinue(pausedBy, null, issuer)) {
+                drafts.push(queue({queued: "idle", code: "not-allowed"}));
+            } else if (problem !== null) {
+                drafts.push(queue({queued: "idle", code: problem}));
+            } else {
+                drafts.push(...releaseDrafts(core.session.kernel.buffer, issuer, "keep").drafts, queue());
+                if (active === null && paused !== null) {
+                    launch = paused;
+                    drafts.push({type: "runResumed", kind: "ctrl", scope: "session", data: {runId: paused, ...byField(issuer)} as JsonValue});
+                } else if (active === null) {
+                    const opened = openRunDrafts(core, projectSession(core.session.kernel, drafts, core.head).buffer, issuer)!;
+                    launch = opened.runId;
+                    drafts.push(...opened.drafts);
                 }
             }
         }
@@ -155,9 +171,11 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
         const wake = claimed;
         // 接着跑的运行：同步事项叫醒的是在跑的那次；异步回答插进在跑的那次，或开、续一次（runtime.md 输出 88）。
         const runId = launch ?? control.active?.runId;
+        const answerId = deferred ? (drafts.at(-1)!.data as {id: string}).id : null;
         return {value: runId === undefined ? {} : {runId}, drafts, ...(launch === undefined ? {} : {launch}), written: async () => {
             claimed = undefined;
             wake?.(resolution);
+            if (answerId !== null) control.defer({issuer, mode: "keep", inputIds: [answerId]});
         }};
     });
     // 认领了却没写下（写日志失败）：以 aborted 叫醒等它的调用，不让它一直挂着。

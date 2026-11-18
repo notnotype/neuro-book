@@ -122,13 +122,16 @@ describe("steer 与 followup", () => {
         expect(session.requests[1]!.outline().at(-1)).toBe("user: event:continued | event:steer");
     });
 
-    test("输出 30：轮以 error 结束时不取 followup，缓冲区留着", async () => {
-        await using session = await createTestSession();
-        session.model.script({fail: "network"});
-        await session.raw.enqueue({commandId: id(), input: {text: "排着的"}, mode: "followup"});
+    test("输出 30、104：轮以 error 结束时不取 followup，排着的话转成留着（原因是出错）", async () => {
+        const block = blockingTool();
+        await using session = await createTestSession({tools: [block.tool]});
+        session.model.script({tools: [{tool: "lab.block"}]}, {fail: "network"});
         const runId = await sendRaw(session, "问");
+        await block.started;
+        await session.raw.enqueue({commandId: id(), input: {text: "排着的"}, mode: "followup"});
+        block.release();
         expect((await session.raw.waitRun(runId)).reason).toBe("error");
-        expect((await session.raw.snapshot()).buffer.map((item) => item.input.text)).toEqual(["排着的"]);
+        expect((await session.raw.snapshot()).buffer.map((item) => [item.input.text, item.state, item.cause])).toEqual([["排着的", "held", {end: "error"}]]);
     });
 });
 
@@ -136,19 +139,22 @@ describe("改与删", () => {
     test("输出 29、33：改与删只对缓冲区里的；已取走的得 input-consumed，没有的得 input-not-found；按 commandId 幂等", async () => {
         const reject = defineExtension({id: "lab.reject", intercept: {input: async (input, next) => (input.text.includes("禁词") ? {reject: {code: "banned"}} : next(input))}});
         await using session = await createTestSession({extensions: [reject]});
-        const first = await session.raw.enqueue({commandId: id(), input: {text: "第一条"}, mode: "followup"});
-        const second = await session.raw.enqueue({commandId: id(), input: {text: "第二条"}, mode: "followup"});
+        // 会话身份在空闲时排的话留着（输出 3），改与删按它自己的身份做；用户改不了别人排的（输出 108）。
+        const parent = session.raw.as({kind: "session", id: "parent"});
+        const first = await parent.enqueue({commandId: id(), input: {text: "第一条"}, mode: "followup"});
+        const second = await parent.enqueue({commandId: id(), input: {text: "第二条"}, mode: "followup"});
         if (!first.ok || !second.ok) throw new Error("enqueue failed");
         const edit = {commandId: id(), inputId: first.value.inputId, input: {text: "第一条（改）"}};
-        expect(await session.raw.edit(edit)).toMatchObject({ok: true, replayed: false});
-        expect(await session.raw.edit(edit)).toMatchObject({ok: true, replayed: true});
-        expect(await session.raw.edit({commandId: id(), inputId: first.value.inputId, input: {text: "有禁词"}})).toMatchObject({ok: false, code: "input-rejected", detail: {code: "banned", by: "lab.reject"}});
-        expect(await session.raw.remove({commandId: id(), inputId: second.value.inputId})).toMatchObject({ok: true});
-        expect(await session.raw.remove({commandId: id(), inputId: second.value.inputId})).toEqual({ok: false, code: "input-consumed"});
-        expect(await session.raw.edit({commandId: id(), inputId: "nope", input: {text: "x"}})).toEqual({ok: false, code: "input-not-found"});
+        expect(await session.raw.edit({...edit, commandId: id()})).toEqual({ok: false, code: "not-allowed"});
+        expect(await parent.edit(edit)).toMatchObject({ok: true, replayed: false});
+        expect(await parent.edit(edit)).toMatchObject({ok: true, replayed: true});
+        expect(await parent.edit({commandId: id(), inputId: first.value.inputId, input: {text: "有禁词"}})).toMatchObject({ok: false, code: "input-rejected", detail: {code: "banned", by: "lab.reject"}});
+        expect(await parent.remove({commandId: id(), inputId: second.value.inputId})).toMatchObject({ok: true});
+        expect(await parent.remove({commandId: id(), inputId: second.value.inputId})).toEqual({ok: false, code: "input-consumed"});
+        expect(await parent.edit({commandId: id(), inputId: "nope", input: {text: "x"}})).toEqual({ok: false, code: "input-not-found"});
         const snapshot = await session.raw.snapshot();
         expect(snapshot.buffer.map((item) => [item.input.text, item.edits])).toEqual([["第一条（改）", 1]]);
-        expect(dataOf(await session.raw.log({afterSeq: 0}).then((page) => page.events), "inputRemoved")).toEqual([{id: second.value.inputId, reason: "user"}]);
+        expect(dataOf(await session.raw.log({afterSeq: 0}).then((page) => page.events), "inputRemoved")).toEqual([{id: second.value.inputId, reason: "cancelled", by: {kind: "session", id: "parent"}}]);
     });
 });
 

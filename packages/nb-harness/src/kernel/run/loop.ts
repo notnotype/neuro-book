@@ -7,11 +7,12 @@
  *
  * 收口：任何一步出错或被中止，都写 `turnEnded`、`runEnded`。决定收口之后，还在跑的模型链与工具链再写日志都得
  * `RunStoppedError`（`writes.ts`）；收口前先等队列里已经交出去的写入写完，再看有没有发出了没结果的模型请求。
- * 写日志本身失败（句柄损坏）时什么都写不了，由 `RunControl` 在内存里把运行标为结束。
+ * 收口批由 `RunHost.settle` 在单写者队列的一项里组好写下（`settle.ts`）；回复没有工具调用时“还有没有可取的、要不要收口”
+ * 也在那一项里判断（runtime.md 输出 7、104）。写日志本身失败（句柄损坏）时什么都写不了，由 `RunControl` 在内存里把运行标为结束。
  */
 
 import {replyText} from "../api/index.js";
-import type {ApproveHook, EventData, Issuer, JsonValue, KernelEvents, ModelCaller, ModelInfoLookup, ModelInfo, ModelPort, ReplyEvent, Resources, RetryPolicy, RetryWait, ToolDeclaration, ToolInfo, UserInput} from "../api/index.js";
+import type {ApproveHook, EventData, JsonValue, KernelEvents, ModelCaller, ModelInfoLookup, ModelInfo, ModelPort, ReplyEvent, Resources, RetryPolicy, RetryWait, ToolDeclaration, ToolInfo} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {LogBrokenError} from "../dispatch/core.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
@@ -22,6 +23,7 @@ import {byField} from "./input.js";
 import {callModel, modelCaller, type ModelCallHost} from "./model-call.js";
 import type {Interactions} from "./interaction.js";
 import {backoffDelay, EMPTY_REPLY_RETRIES, isEmptyReply, NO_RETRY, retryDelay} from "./retry.js";
+import {readyEntries, takeInputDrafts, type SettleInput} from "./settle.js";
 import {ABORT_GRACE_MS, runTools, toolInfo, type ToolBox} from "./tools.js";
 import {ctrl, interrupting, RunStoppedError} from "./writes.js";
 
@@ -44,6 +46,10 @@ export interface RunHost {
     readonly retry?: () => RetryPolicy;
     /** 在等重发（推状态帧用）。 */
     retrying(wait: RetryWait | null): void;
+    /** 收口那一项（只在队列项里调用）：组收口批、写下、翻转空闲（`RunControl.settleIn`）。 */
+    settle(input: Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode">): Promise<void>;
+    /** 推迟的指令开运行之前要查的（runtime.md 输出 104）。 */
+    readonly checks: {closed(): boolean; reassemblyPending(): boolean; startProblem(): string | null};
 }
 
 export interface ActiveRun {
@@ -64,23 +70,13 @@ export interface RunCompaction {
     run(args: {reason: "threshold" | "overflow" | "manual"; require: readonly string[]; environment: ViewEnvironment; tools: readonly ToolDeclaration[]; model: string; signal: AbortSignal; write: (drafts: EventDraft[]) => Promise<unknown>; caller: ModelCaller; modelInfo: ModelInfoLookup; contextWindow: number}): Promise<CompactOutcome>;
 }
 
-/** 取走一条输入开新的一轮：`inputConsumed`、`turnStarted`、`input` 同批（提案第 2 节“写入批”）。 */
-export function takeInputDrafts(inputId: string, input: UserInput, turnId: string, by?: Issuer): EventDraft[] {
-    const {text, payload, attachments} = input;
-    return [
-        {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: inputId}},
-        ctrl("turnStarted", {turnId, inputId}),
-        {type: "input", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: inputId, ...byField(by)} as JsonValue},
-    ];
-}
-
-/** 取走缓冲区里全部 steer：按入队顺序，每条 `inputConsumed` 加一条 `steer`，同一个写入批（runtime.md 输出 28）。 */
-export function takeSteerDrafts(core: SessionCore): EventDraft[] {
-    return core.session.kernel.buffer.filter((item) => item.mode === "steer").flatMap((item): EventDraft[] => {
+/** 取走缓冲区里全部就绪的 steer：按入队顺序，每条 `inputConsumed` 加一条 `steer`，同一个写入批（runtime.md 输出 28）。 */
+export function takeSteerDrafts(core: SessionCore, runId: string): EventDraft[] {
+    return readyEntries(core.session.kernel.buffer).filter((item) => item.mode === "steer").flatMap((item): EventDraft[] => {
         const {text, payload, attachments} = item.input;
         return [
-            {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: item.id}},
-            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id, ...byField(item.by)} as JsonValue},
+            {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: item.id, runId}},
+            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id, ...byField(item.by), ...(item.commandId === undefined ? {} : {commandId: item.commandId})} as JsonValue},
         ];
     });
 }
@@ -135,7 +131,8 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         const kind = interrupted ? "interrupted" : reason === "aborted" ? "aborted" : "local";
         const settleOpen = core.leafState.kernel.openRequests.filter((request) => !failedAlready.has(request)).map((request) => ctrl("modelFailed", {request, kind}));
         const turn = core.leafState.kernel.history.current;
-        await write([...settleOpen, ...before, ...(turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: turnReason})]), ctrl("runEnded", {runId: run.runId, ...runData})]);
+        const {reason: endReason, ...rest} = runData;
+        await core.queue.run(() => host.settle({reason: endReason, data: rest, before: [...settleOpen, ...before, ...(turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: turnReason})])]}));
     };
     const abortedNow = new Promise<"aborted">((resolve) => {
         if (signal.aborted) resolve("aborted");
@@ -201,11 +198,11 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
             return await end("error", {reason: "error", error: {kind: "local", code: outcome.code === "nothing-to-compact" ? "compaction-failed" : outcome.code === "disabled" ? "compaction-failed" : outcome.code}});
         }
-        // 接着跑一个停在两轮之间的运行（回退到某一轮之前再发）：先取缓冲区里的第一条开一轮，没有就收口。
+        // 接着跑一个停在两轮之间的运行（回退到某一轮之前再发）：先取就绪的第一条开一轮，没有就收口。
         if (core.leafState.kernel.history.current === null) {
-            const next = core.session.kernel.buffer[0];
+            const next = readyEntries(core.session.kernel.buffer)[0];
             if (next === undefined) return await end("completed", {reason: "completed"});
-            await write(takeInputDrafts(next.id, next.input, core.newId(), next.by));
+            await write(takeInputDrafts(next, core.newId(), run.runId));
         }
         for (;;) {
             if (signal.aborted) return await end("aborted", {reason: "aborted"});
@@ -235,7 +232,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             }
 
             // 边界第 3 步：运行中到达的 steer 全部取走，进当前这一轮。
-            const steers = takeSteerDrafts(core);
+            const steers = takeSteerDrafts(core, run.runId);
             if (steers.length > 0) await write(steers);
 
             host.phase("requesting", null);
@@ -358,8 +355,11 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 if (outcome.finished !== null) {
                     // 收尾：结果、turnEnded、runEnded 同一个写入批，写下即结束（runtime.md 输出 26）。
                     stopped = true;
-                    const turn = core.leafState.kernel.history.current;
-                    await write([...outcome.drafts, ...(turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: "completed"})]), ctrl("runEnded", {runId: run.runId, reason: "finished", result: {via: "tool", tool: outcome.finished.tool, value: outcome.finished.value, valid: true}})]);
+                    const finished = outcome.finished;
+                    await core.queue.run(() => {
+                        const turn = core.leafState.kernel.history.current;
+                        return host.settle({reason: "finished", data: {result: {via: "tool", tool: finished.tool, value: finished.value, valid: true}}, before: [...outcome.drafts, ...(turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: "completed"})])]});
+                    });
                     return;
                 }
                 if (signal.aborted) return await end("aborted", {reason: "aborted"}, outcome.drafts);
@@ -374,25 +374,39 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 await write(replied.continues.map(({extension, text}) => conv("continued", {text, by: extension, count: continuedSoFar(core, extension) + 1})));
                 continue;
             }
-            // 最终回复时还有没取走的 steer：这一轮接着请求，下一个边界取走它们。
-            if (core.session.kernel.buffer.some((item) => item.mode === "steer")) continue;
-            const result = core.header.result;
-            if (result !== undefined) {
-                // 会话要交回结果而模型没调用 yield（runtime.md 输出 27）：必需的先催一次。
-                if (result.mode === "required" && !nudged) {
-                    nudged = true;
-                    await write([conv("continued", {text: RESULT_NUDGE, by: "core", count: continuedSoFar(core, "core") + 1})]);
-                    continue;
+            // 看缓冲区与写下这一步在同一个队列项里（runtime.md 输出 7、104）：在它之前受理的话由这次运行处理。
+            const next = await core.queue.run(async (): Promise<"continue" | "ended"> => {
+                const ready = readyEntries(core.session.kernel.buffer);
+                // 最终回复时还有就绪的 steer：这一轮接着请求，下一个边界取走它们。
+                if (ready.some((item) => item.mode === "steer")) return "continue";
+                const result = core.header.result;
+                if (result !== undefined) {
+                    // 会话要交回结果而模型没调用 yield（runtime.md 输出 27）：必需的先催一次。
+                    if (result.mode === "required" && !nudged) {
+                        nudged = true;
+                        await writeAndReact(core, [conv("continued", {text: RESULT_NUDGE, by: "core", count: continuedSoFar(core, "core") + 1})], host.react, signal);
+                        return "continue";
+                    }
+                    stopped = true;
+                    const fallback = {via: "text" as const, value: replyText(response.content), valid: false};
+                    const turn = core.leafState.kernel.history.current;
+                    const turnEnded = turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: "completed"})];
+                    if (result.mode === "required") await host.settle({reason: "error", data: {error: {kind: "local", code: "result-missing"}, result: fallback}, before: turnEnded});
+                    else await host.settle({reason: "completed", data: {result: fallback}, before: turnEnded});
+                    return "ended";
                 }
-                const fallback = {via: "text" as const, value: replyText(response.content), valid: false};
-                if (result.mode === "required") return await end("completed", {reason: "error", error: {kind: "local", code: "result-missing"}, result: fallback});
-                return await end("completed", {reason: "completed", result: fallback});
-            }
-            const turn = core.leafState.kernel.history.current;
-            const turnEnded = turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: "completed"})];
-            const followup = core.session.kernel.buffer.find((item) => item.mode === "followup");
-            if (followup === undefined) return await write([...turnEnded, ctrl("runEnded", {runId: run.runId, reason: "completed"})]).then(() => undefined);
-            await write([...turnEnded, ...takeInputDrafts(followup.id, followup.input, core.newId(), followup.by)]);
+                const turn = core.leafState.kernel.history.current;
+                const turnEnded = turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: "completed"})];
+                const followup = ready.find((item) => item.mode === "followup");
+                if (followup === undefined) {
+                    stopped = true;
+                    await host.settle({reason: "completed", data: {}, before: turnEnded});
+                    return "ended";
+                }
+                await writeAndReact(core, [...turnEnded, ...takeInputDrafts(followup, core.newId(), run.runId)], host.react, signal);
+                return "continue";
+            });
+            if (next === "ended") return;
         }
     } catch (error) {
         if (error instanceof LogBrokenError) throw error;

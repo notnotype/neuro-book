@@ -78,15 +78,16 @@ describe("回退", () => {
         await twoTurns(session);
         expect(await session.state(counter)).toEqual({onPath: 2, inSession: 2});
         const before = (await session.raw.rewindTargets()).find((target) => target.kind === "before-turn" && target.inputText === "第二问")!;
-        await session.raw.enqueue({commandId: id(), input: {text: "排着的"}, mode: "followup"});
+        // 会话身份在空闲时排的话留着（runtime.md 输出 3）：回退不动它，之后用户发话时放行、先跑（输出 105）。
+        await session.raw.as({kind: "session", id: "parent"}).enqueue({commandId: id(), input: {text: "排着的"}, mode: "followup"});
         const rewound = await session.raw.rewind({commandId: id(), to: before.id});
         expect(rewound).toMatchObject({ok: true, value: {leaf: before.id}});
         expect(await session.state(counter)).toEqual({onPath: 1, inSession: 3});
         expect(texts(await session.events(), "input")).toEqual(["第一问"]);
         expect((await session.raw.snapshot()).buffer.map((item) => item.input.text)).toEqual(["排着的"]);
-        session.model.script("另一个答二", "答排着的");
+        session.model.script("答排着的", "另一个答二");
         const sent = await session.say("改过的第二问");
-        expect(texts(await session.events(), "input")).toEqual(["第一问", "改过的第二问", "排着的"]);
+        expect(texts(await session.events(), "input")).toEqual(["第一问", "排着的", "改过的第二问"]);
         expect(sent.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: event:input", "assistant: event:assistant", "user: event:input"]);
         const runStarts = (await session.raw.log({afterSeq: 0})).events.filter((event) => event.type === "runStarted");
         expect(await session.raw.siblings({node: runStarts[1]!.id})).toHaveLength(2);
@@ -129,8 +130,11 @@ describe("回退", () => {
     test("输出 36：回退到同一次运行里第二轮之前（运行中途），send 入队并接着跑这次运行，先取这条开一轮", async () => {
         await using session = await createTestSession();
         session.model.script("答一", "答二", "新答二");
+        // 两轮在同一次运行里：第二问在运行中入队（空闲时用户入队等于发送）。
+        const first = await session.raw.send({commandId: id(), input: {text: "第一问"}});
+        if (!first.ok || first.value.runId === null) throw new Error("send did not start a run");
         await session.raw.enqueue({commandId: id(), input: {text: "第二问"}, mode: "followup"});
-        await session.say("第一问");
+        await session.raw.waitRun(first.value.runId);
         expect(texts(await session.events(), "input")).toEqual(["第一问", "第二问"]);
         const before = (await session.raw.rewindTargets()).find((target) => target.kind === "before-turn" && target.inputText === "第二问")!;
         await session.raw.rewind({commandId: id(), to: before.id});

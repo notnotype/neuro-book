@@ -130,8 +130,8 @@ export interface KernelEvents {
         /** 停的人：`abort` 停下的运行才有，用户写 `{kind: "user"}`（输出 30）。 */
         stoppedBy?: Issuer;
     }>;
-    /** 暂停的运行（回退到运行中途）接着跑；`by` 同 `runStarted`（输出 36）。 */
-    runResumed: K<"path", "ctrl", {runId: string; by?: Issuer}>;
+    /** 暂停的运行（回退到运行中途）接着跑；`by` 同 `runStarted`（输出 36）。会话级：不进路径，接着跑的请求仍与原来那次是兄弟（重试与 swipe）。 */
+    runResumed: K<"session", "ctrl", {runId: string; by?: Issuer}>;
     /** 没有新输入的“继续”运行，`inputId` 为 null。每轮一次的提醒挂在这里，“继续”运行也收得到。 */
     turnStarted: K<"path", "ctrl", {turnId: string; inputId: string | null}>;
     turnEnded: K<"path", "ctrl", {turnId: string; reason: "completed" | "error" | "interrupted" | "aborted"}>;
