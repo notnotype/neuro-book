@@ -53,7 +53,7 @@ export interface GridItem {
     /** 清单里这一项写的名字原样（表情是现在的名字）；extras 没写为 null。给写入定位用。 */
     readonly name: string | null;
     readonly common: boolean;
-    readonly description: string | undefined;
+    readonly description?: string;
 }
 
 export interface GridGroup {
@@ -77,7 +77,7 @@ export function gridGroups(detail: StickerPackDetail): GridGroup[] {
         bytes: sticker.bytes,
         name: sticker.name,
         common: sticker.common,
-        description: sticker.description,
+        ...(sticker.description === undefined ? {} : {description: sticker.description}),
     }));
     const extras = detail.extras.map((extra): GridItem => ({
         key: extraKey(extra.file),
@@ -90,7 +90,6 @@ export function gridGroups(detail: StickerPackDetail): GridGroup[] {
         bytes: extra.bytes,
         name: extra.raw,
         common: false,
-        description: undefined,
     }));
     const groups: GridGroup[] = [
         {id: "problem", items: extras.filter((item, index) => detail.extras[index]?.reason === "name")},

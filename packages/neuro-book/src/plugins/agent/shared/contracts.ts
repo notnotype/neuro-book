@@ -122,3 +122,13 @@ export interface AgentService {
 }
 
 export const agentKey: ServiceKey<AgentService> = defineServiceKey<AgentService>("nbook.agent/agent");
+
+/**
+ * 表情包页改包名时问 Agent：哪些 Profile 明确选了这个表情包（声明的白名单写了它的 id，或用户在 Profile 设置里加了它），改名之后它们要重新
+ * 勾选（docs/specs/agent/stickers.md 输出 33）。`nbook.agent` 的浏览器入口提供；表情包插件为设置页另开一个入口、对它可选依赖：服务依赖按
+ * 入口算，这样不会与表情包的另一个入口提供给 Markdown 的 `stickerResolverKey` 成环。交回显示名；查不到（Profile 目录取不到）为 null。
+ */
+export interface StickerAllowlistUsage {
+    profilesUsing(packId: string): Promise<readonly string[] | null>;
+}
+export const stickerAllowlistUsageKey: ServiceKey<StickerAllowlistUsage> = defineServiceKey<StickerAllowlistUsage>("nbook.agent/sticker-allowlist-usage");
