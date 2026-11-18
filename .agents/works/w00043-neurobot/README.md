@@ -71,6 +71,7 @@ updated: 2026-11-18
 - [仓库内的现状](research/2026-11-09-repo-survey.md)
 - [商业产品：Grok Bot、Muse、ChatGPT Dots、DeepSeek super-agent](research/2026-11-09-commercial-bots.md)
 - [开源实现：OpenClaw、CopilotKit/OpenBot、nanobot、Letta、QQ 接入、Koishi](research/2026-11-09-open-source-architecture.md)
+- [耦合审查汇总：功能能否关、bot 插件缺的接缝、内核与 bot 冲突的假设](research/2026-11-18-coupling-audit.md)（2026-11-18，四位审查者）
 
 ## Task 规划
 
