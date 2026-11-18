@@ -494,8 +494,14 @@ test.describe("输入框", () => {
         await page.keyboard.press("Enter");
         await expect.poll(() => lastAction(page)).toEqual({type: "composer.stop", clearQueue: true});
         await expect(editor(page)).toBeFocused();
-        // Lab 的宿主停下就收口运行，停止键随之消失：重开场景看停止键本身。
+        // Lab 的宿主停下就收口运行，停止键随之消失：重开场景。点菜单外面的按钮关上时不抢焦点，焦点在被点的按钮上。
         await openScene(page, "AgentConversationComposer", "stop-menu");
+        await stage(page).locator("[data-composer-action='stop-more']").click();
+        await expect(page.getByRole("menuitem", {name: "停止并清空排队（2 条）"})).toBeVisible();
+        const mode = stage(page).locator("[data-composer-action='mode']");
+        await mode.click();
+        await expect(page.getByRole("menuitem")).toHaveCount(0);
+        await expect(editor(page)).not.toBeFocused();
         await stage(page).locator("[data-composer-action='stop']").click();
         await expect.poll(() => lastAction(page)).toEqual({type: "composer.stop"});
     });
