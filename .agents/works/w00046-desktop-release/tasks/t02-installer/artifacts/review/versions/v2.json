@@ -1,0 +1,81 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00046-desktop-release",
+    "taskId": "t02-installer",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "t02 首次启动向导",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "922773417df3a00e159b4ae543615b6ca2a0d81c9ac134c4373bf56494391377",
+    "files": [
+        "index.html",
+        "r1/page.webp",
+        "r1/step-1.webp",
+        "r1/step-2.webp",
+        "r1/step-3.webp",
+        "r1/step-4.webp",
+        "r2/rail-1.webp",
+        "r2/rail-2.webp",
+        "r2/rail-3.webp",
+        "r2/rail-4.webp",
+        "r2/stage-1.webp",
+        "r2/stage-2.webp",
+        "r2/stage-3.webp",
+        "r2/stage-4.webp"
+    ],
+    "questions": [
+        {
+            "id": "form",
+            "type": "single",
+            "label": "首次启动向导做成一页对话框，还是分步向导？",
+            "options": [
+                {
+                    "value": "page",
+                    "label": "A 一页对话框"
+                },
+                {
+                    "value": "steps",
+                    "label": "B 分步向导"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "page"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "shell",
+            "type": "single",
+            "label": "向导用左侧品牌栏，还是上方舞台？",
+            "options": [
+                {
+                    "value": "rail",
+                    "label": "A 左侧品牌栏"
+                },
+                {
+                    "value": "stage",
+                    "label": "B 上方舞台"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "rail"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T12:23:07.217Z"
+}

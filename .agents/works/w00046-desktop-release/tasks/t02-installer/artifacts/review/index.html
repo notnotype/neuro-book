@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t02 第 1 轮：首次启动向导</title>
+<title>t02 第 2 轮：首次启动向导的外壳</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -28,26 +28,31 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t02 第 1 轮：首次启动向导</h1>
+<h1>t02 第 2 轮：首次启动向导的外壳</h1>
 
-<section data-nbdev-question="form" data-nbdev-type="single" data-nbdev-recommend="page">
-  <h2>首次启动向导做成一页对话框，还是分步向导？</h2>
-  <p class="rec"><strong>推荐 A 一页：七项设置一屏放得下，看一眼就能点“开始使用”；分步要点四次，每步内容又很少。</strong></p>
+<section data-nbdev-question="shell" data-nbdev-type="single" data-nbdev-recommend="rail">
+  <h2>向导用左侧品牌栏，还是上方舞台？</h2>
+  <p class="rec"><strong>推荐 A 左侧品牌栏：四步走到哪、还剩什么一直看得见，内容区每步都从同一个位置开始；看板娘与品牌赤红只在这一栏出现。</strong></p>
   <div class="cands">
-    <div class="cand" data-nbdev-option="page" data-nbdev-label="A 一页对话框">
-      <h3>A 一页对话框</h3>
-      <img src="r1/page.webp" alt="A 一页对话框">
-      <p>外观、桌面、数据位置三组；“以后都能在设置里改”放在页脚状态行。</p>
-    </div>
-    <div class="cand" data-nbdev-option="steps" data-nbdev-label="B 分步向导">
-      <h3>B 分步向导（欢迎 → 外观 → 桌面 → 数据位置）</h3>
+    <div class="cand" data-nbdev-option="rail" data-nbdev-label="A 左侧品牌栏">
+      <h3>A 左侧品牌栏</h3>
       <div class="steps">
-        <img src="r1/step-1.webp" alt="第 1 步 欢迎">
-        <img src="r1/step-2.webp" alt="第 2 步 外观">
-        <img src="r1/step-3.webp" alt="第 3 步 桌面">
-        <img src="r1/step-4.webp" alt="第 4 步 数据位置">
+        <img src="r2/rail-1.webp" alt="A 第 1 步 欢迎">
+        <img src="r2/rail-2.webp" alt="A 第 2 步 外观">
+        <img src="r2/rail-3.webp" alt="A 第 3 步 桌面">
+        <img src="r2/rail-4.webp" alt="A 第 4 步 准备好了">
       </div>
-      <p>第一步有“跳过”；以后加外部工具检测（t05）时多一步。</p>
+      <p>看板娘每步换一种心情（欢迎、想点子、专注、完成）。</p>
+    </div>
+    <div class="cand" data-nbdev-option="stage" data-nbdev-label="B 上方舞台">
+      <h3>B 上方舞台</h3>
+      <div class="steps">
+        <img src="r2/stage-1.webp" alt="B 第 1 步 欢迎">
+        <img src="r2/stage-2.webp" alt="B 第 2 步 外观">
+        <img src="r2/stage-3.webp" alt="B 第 3 步 桌面">
+        <img src="r2/stage-4.webp" alt="B 第 4 步 准备好了">
+      </div>
+      <p>顶上四段进度条，内容居中；第一步看板娘放大。</p>
     </div>
   </div>
 </section>
@@ -58,6 +63,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
     <tbody>
       <tr><td>主题、明暗、语言</td><td>选了立刻生效，对话框和背后的书架一起换</td></tr>
+      <tr><td>主题与明暗的卡片</td><td>缩略图是各主题真实的书架截图，随产品截图更新</td></tr>
+      <tr><td>键盘</td><td>回车是“下一步”，Esc 等于“跳过”；“上一步”保留已选的值</td></tr>
+      <tr><td>换步</td><td>内容横向滑入（系统要求减少动态效果时直接切换）</td></tr>
       <tr><td>便携版</td><td>不显示“在桌面放一个快捷方式”（便携版没有安装，不建快捷方式）</td></tr>
       <tr><td>出现时机</td><td>每个数据目录第一次打开桌面版时出现一次；完成或按 Esc 都算看过；命令面板里可以再打开；浏览器里不出现</td></tr>
       <tr><td>路径</td><td>可以选中复制；“打开”在资源管理器里打开</td></tr>
@@ -81,6 +89,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>继续用 Electrobun 的安装程序，选项放到首次启动向导里（会话里定）</li>
     <li>向导里问：桌面快捷方式、登录时打开、关窗去向、主题与语言；数据位置只显示（会话里定）</li>
     <li>上游先不提 issue（会话里定）</li>
+    <li>分步向导，不做一页对话框；要“高级一点、user-friendly 一点”（第 1 轮）</li>
   </ol>
 </section>
 </main>
