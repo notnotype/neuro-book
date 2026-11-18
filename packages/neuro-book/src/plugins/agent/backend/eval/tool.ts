@@ -11,7 +11,7 @@ import {join} from "node:path";
 import {Value} from "typebox/value";
 
 import {OutputCapture, saveFullOutput} from "@notnotype/nb-harness/kit/tools";
-import type {JsonValue, NestedOutcome, ToolContext, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {JsonValue, NestedOutcome, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {defineContract, implement, shape, slice} from "@notnotype/nb-harness/kernel";
 
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
@@ -19,6 +19,7 @@ import type {AgentToolServices} from "../../shared/resources";
 import {sessionFiles} from "../resources";
 import type {CallReply, CallTarget, GlobalObjects} from "./protocol";
 import {IMPORT_HELPER} from "./constants";
+import {objectsSection, type EvalObject} from "./objects";
 import {rewriteCell} from "./rewrite";
 import {describeExit, Kernel, KernelRegistry, type CellEnd, type KernelLaunch, type KernelOwner} from "./kernels";
 
@@ -31,7 +32,7 @@ export const EVAL_IDLE_MS = 30 * 60_000;
 const MAX_IMAGES = 8;
 
 /** 代码不能当变量声明的名字（eval.md 输出 3）：内核给的东西，声明了就盖掉，之后的单元都调不到。 */
-const KERNEL_NAMES = ["tool", "display", "console", "require", "ToolCallError", IMPORT_HELPER];
+export const KERNEL_NAMES: readonly string[] = ["tool", "display", "console", "require", "ToolCallError", IMPORT_HELPER];
 
 /** 给模型的说明（eval.md 输出 16；提示词规范：中文，集中放在这里）。全局对象的列表按会话拼在后面（`evalDescription`）。 */
 const DESCRIPTION = [
@@ -61,6 +62,15 @@ export const evalDeclaration: AgentToolDeclaration = {
     strict: true,
     invokes: true,
 };
+
+/**
+ * 这个会话里 eval 的声明（eval.md 输出 16）：基础说明后接“可用的全局对象”一节，版本带这一节的短哈希，列表变了内核按
+ * harness/runtime.md 输出 16 写 `tools-changed`，会话中途不悄悄换说明。`objects` 是这个工具集里至少有一个方法的对象。
+ */
+export function evalDeclarationFor(declaration: ToolDeclaration, objects: readonly EvalObject[]): ToolDeclaration {
+    const section = objectsSection(objects);
+    return section === null ? declaration : {...declaration, description: `${declaration.description}\n\n${section.text}`, version: `${declaration.version}+${section.hash}`};
+}
 
 /** 会话里能经代码调的工具在 eval 看来的样子：名字是交给服务商的名字，`returns` 来自 `agent.tools` 的声明。 */
 export interface CodeTool {
@@ -154,8 +164,9 @@ class EvalSession implements ToolImplementation, KernelOwner {
         }
         this.deps.registry.touch(this);
         const kernel = this.#kernel;
-        // 新内核、而这条路径上跑过 eval：之前的变量没了，结果第一行说明（eval.md 输出 12）。
-        const notice = fresh && (ctx.read(evalStateContract)?.cells ?? 0) > 0 ? `内核已重置（${this.#reason ?? "服务重启或分叉"}），之前的变量没了。` : null;
+        // 新内核、而这条路径上跑过 eval：之前的变量没了，结果第一行说明（eval.md 输出 12）。没有 `#reason` 的是这个实例新建的：
+        // 服务重启、分叉出的会话，或换了 Profile（内核换 Profile 时释放全部工具实现、按新上下文重建）；新实例分不出是哪一种。
+        const notice = fresh && (ctx.read(evalStateContract)?.cells ?? 0) > 0 ? `内核已重置（${this.#reason ?? "服务重启、分叉或换了 Profile"}），之前的变量没了。` : null;
         this.#reason = null;
 
         const cell = ++this.#cells;

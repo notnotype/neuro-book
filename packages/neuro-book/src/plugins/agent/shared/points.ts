@@ -19,6 +19,7 @@ export const TOOLS_POINT = "agent.tools";
 export const PROFILES_POINT = "agent.profiles";
 export const COMPACTION_METHODS_POINT = "agent.compactionMethods";
 export const SKILLS_POINT = "agent.skills";
+export const EVAL_OBJECTS_POINT = "agent.evalObjects";
 
 /** 激活事件前缀：本插件拥有，只有本插件触发（runtime/plugin-manifest.md）。 */
 export const AGENT_SESSION_PREFIX = "onAgentSession";
@@ -162,6 +163,22 @@ export function skillsDirectoryProblem(directory: string): string | null {
     return null;
 }
 
+/**
+ * 代码里可用的全局对象（docs/specs/agent/contributions.md 输出 25，agent/eval.md）：只有顶层声明，没有实现。对象的方法是带
+ * `global: {object, method}` 的工具（输出 24），由 `agent.tools` 贡献；这里只有名字、一行摘要与给模型读的说明。
+ */
+export const EvalObjectDeclarationSchema = Type.Object({
+    /** 代码里的全局名：JS 标识符。 */
+    name: Type.String({pattern: "^[A-Za-z_$][A-Za-z0-9_$]*$"}),
+    /** eval 的说明里给的一行。 */
+    summary: Type.String({minLength: 1}),
+    /** 写进 `docs://eval/<名>.md` 的说明（Markdown），排在方法签名之前。 */
+    docs: Type.Optional(Type.String()),
+}, {additionalProperties: false});
+export type AgentEvalObjectDeclaration = Static<typeof EvalObjectDeclarationSchema>;
+
+export const evalObjectsPoint: ContributionPointDefinition<AgentEvalObjectDeclaration> = {id: EVAL_OBJECTS_POINT, implementation: "none", idPrefix: "plugin", schema: EvalObjectDeclarationSchema};
+
 export const skillsPoint: ContributionPointDefinition<AgentSkillsDeclaration> = {
     id: SKILLS_POINT,
     implementation: "none",
@@ -184,6 +201,11 @@ export function agentTool(id: string, declaration: AgentToolDeclaration): {reado
 
 export function agentCompactionMethod(id: string): {readonly contribution: ContributionDeclaration<AgentCompactionMethodDeclaration>; readonly activationEvent: string} {
     return {contribution: {capability: COMPACTION_METHODS_POINT, id, declaration: {}}, activationEvent: onAgentCompaction(id)};
+}
+
+/** 顶层贡献：只有声明。对象的方法用 `agentTool` 另外贡献，声明里写 `global: {object: <这里的 name>, method}`。 */
+export function evalObject(id: string, declaration: AgentEvalObjectDeclaration): ContributionDeclaration<AgentEvalObjectDeclaration> {
+    return {capability: EVAL_OBJECTS_POINT, id, declaration};
 }
 
 /** 顶层贡献：只有声明，不用激活事件（插件的 Skill 不经入口激活，装好就在目录里）。 */

@@ -34,12 +34,13 @@ import {agentSessionsContract} from "../shared/remote";
 import {agentRequestsContract} from "../shared/requests";
 import {profileAgents} from "../shared/profile-agents";
 import {agentSettings} from "../shared/settings";
-import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, SKILLS_POINT, skillsPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
+import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, evalObjectsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, SKILLS_POINT, skillsPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
 
 import {createAgentRuntime} from "./agent";
 import {createAttachmentRoutes, sessionDirectoryExists} from "./attachments";
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./builtin";
 import {KernelRegistry} from "./eval/kernels";
+import {writeEvalDocs} from "./eval/objects";
 import {EVAL_STATE_EXTENSION, EVAL_TOOL, evalDeclaration, evalStateExtension, evalTool, kernelEntry} from "./eval/tool";
 import {BUILTIN_COMPACTION_CONTRIBUTIONS, builtinCompactionMethods} from "./compaction";
 import {approvalPreview} from "./builtin/preview";
@@ -73,7 +74,7 @@ const allActivated = (result: TriggerActivationResult): boolean => result.status
 export const agentBackendPlugin: PluginDefinition = {
     id: descriptor.id,
     activationEventPrefixes: [AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, AGENT_PROFILE_PREFIX, AGENT_COMPACTION_PREFIX],
-    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint, skillsPoint],
+    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint, skillsPoint, evalObjectsPoint],
     entries: [defineEntry({
         id: "server",
         location: "server",
@@ -156,8 +157,12 @@ export const agentBackendPlugin: PluginDefinition = {
                 context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.stickers,
                 stickerPacks().map((entry) => entry.id),
             );
+            // 全局对象的文档（resources.md 输出 16）：声明在进程生命期内不变，激活时生成一次，`docs://eval/` 指到这里。
+            const evalDocsContainer = join(stateRoot, "agent", "eval-docs");
+            await writeEvalDocs(join(evalDocsContainer, "eval"), runtime.evalDocs());
             const schemes = agentSchemes({
                 sessionsRoot: runtime.sessionsRoot,
+                evalDocs: {container: evalDocsContainer, names: () => [...runtime.evalObjects.keys()]},
                 profilesRoot,
                 tempContainer,
                 docsRoot: locateDocsRoot(),
