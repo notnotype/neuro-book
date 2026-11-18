@@ -1,0 +1,35 @@
+w00050 t09 Spec 逐条核对（2026-11-18，分支 feat/w00050-t09-sticker-picker，审查修正 845ede4a4 之后）
+格式：条目 → 实现 → 测试；对不上的分三类（没实现、与字面不一致、没有测试）。
+
+agent/stickers.md
+- 输出 18（显示名、来源、插件、写法包段） → stickers/backend/browser-catalog.ts、shared/writing.ts、shared/contracts.ts BrowserPackSchema → stickers.test.ts “输出 18、41：带显示名、来源、插件与写法的包段”；变异 M6 拦住。
+- 输出 39（入口、面板版式、分组顺序、标签、底部一行、方向键、Shift 不关、Esc、没有表情包） → StickerPickerPanel.vue、picker.ts pickerGroups、MarkdownToolbar/MarkdownSlashMenu/MarkdownMenus/MarkdownStickerCard、AgentConversationComposer 的 after-add 弹层、sticker-composer.ts → picker.test.ts 分组、sticker-picker.dom.test.ts（布局、插入、键盘与关闭、最近用过）、MarkdownMenus.dom.test.ts 表情三条、AgentConversationComposer.dom.test.ts 弹层三条、sticker-picker.e2e.ts。锚点按实施中的改动（输入框锚按钮、编辑器锚光标）已写回 Spec。
+- 输出 40（搜索：名字、拼音首字母、包段含显示名、包/ 空查询） → picker.ts searchStickers、picker-service.ts（拼音懒加载） → picker.test.ts 输出 40 四条；变异 M4、M5 拦住。
+- 输出 41（写法带包、编辑器插节点、输入框插文字、选区替换、代码里不可插） → picker.ts itemsOf、sticker-trigger.ts insertSticker/insertStickerAtTrigger、PromptEditor insertText → sticker-trigger.dom.test.ts “命令 sticker”、PromptEditor.dom.test.ts insertText。
+- 输出 42（补全触发、单字母不弹、无匹配不弹、8 项、确认、Esc、位置） → sticker-trigger.ts readSticker、prompt-text.ts findPromptTrigger、PromptEditor menuShown/hideWhenEmpty、MarkdownStickerMenu.vue、sticker-composer.ts stickerMenu → sticker-trigger.dom.test.ts、prompt-text.test.ts 触发规则表、PromptEditor.dom.test.ts `:` 菜单、MarkdownMenus.dom.test.ts 补全；变异 M1、M7、M10、M11 拦住。
+- 输出 43（最近用过：16 个、不重复、本机、目录没有的不列、坏记录当空） → picker.ts withUsed/recentItems、recent.ts → picker.test.ts 输出 43 两条、sticker-picker.dom.test.ts、e2e 验收 11（重开后的先后）。“坏记录当空”靠记录机制的 schema 校验（同 markdown.colors），没有单独测试。
+- 输出 44（输入框里认得出的是小图、认不出的是文字、晚到补认、补空格、就地编辑显示无补全） → prompt-text.ts tokenizeInline/stickerInsertionText、prompt-editor-extensions.ts promptSticker/relabelStickers、PromptEditor.vue、stickers.css → prompt-text.test.ts、PromptEditor.dom.test.ts 表情四条、e2e 验收 12；变异 M2、M3 拦住。“就地编辑时同样显示”：同一个注入的编辑器，没有单独测试。
+- 输出 45（用户消息大图规则、只有表情不画气泡、附件与省略时照画） → prompt-text.ts largeStickerLines/stickerOnlyMessage、PromptTextView.vue、AgentConversationTurn.vue bare、sticker-composer.ts bareness → prompt-text.test.ts、PromptTextView.dom.test.ts、AgentConversationView.dom.test.ts 无气泡两条、e2e 验收 12；变异 M8 拦住。
+- 验收 11、12 → e2e/sticker-picker.e2e.ts 两条通过（1920 宽窗口，见下）。
+- 实现合同新增项（stickerPickerKey、stickers.recent、nbook.edit.sticker、isStickerOnlyText） → 实际导出名是 nb-markdown/prompt 的 stickerOnlyMessage，Spec 要改成这个名字；另有 stickerDirectoryKey、MarkdownHost.stickerKnown、ToolbarButtonEntry.popover/after-add、PromptBarenessPort 要补进实现合同。
+
+ui/prompt-editor.md
+- 写法表“表情” → 同输出 44。
+- 输出 5 的 `:` 边界、imageUrl、hideWhenEmpty、补空格、appendSpace → prompt-text.ts、PromptEditor.vue、prompt-editor.types.ts → prompt-text.test.ts、PromptEditor.dom.test.ts。
+- 输出 14 的大图 → PromptTextView.vue → PromptTextView.dom.test.ts。
+- 另：组件命令面 focus 加了 "keep"（PromptEditor.md 已写），Spec 正文没提，不影响行为合同。
+
+workbench/markdown-editing.md
+- 输出 1（工具栏的“表情”）、输出 11（斜杠菜单的“表情”）→ MarkdownToolbar.vue、MarkdownSlashMenu.vue → MarkdownMenus.dom.test.ts 经 prompt 开选择器；工具栏与斜杠里出现“表情”本身由 e2e 验收 11 覆盖（工具栏），斜杠菜单的条目没有单独测试。
+- 输出 62 与命令表 nbook.edit.sticker → editor/shared/editing.ts、nb-markdown editing-actions.ts sticker → sticker-trigger.dom.test.ts、editor locales.test.ts。
+
+ui/agent-conversation-view.md
+- 只有表情不画气泡 → 同输出 45。
+- 带弹层的按钮（after-add、下方放不下翻上方、只读禁用、焦点） → AgentConversationComposer.vue → AgentConversationComposer.dom.test.ts 弹层三条。
+
+对不上的
+- 与字面不一致：实现合同里写的 `isStickerOnlyText` 实际叫 `stickerOnlyMessage`（改 Spec）。
+- 没有测试：斜杠菜单里“表情”这一项的出现；“坏记录当空”；就地编辑时的显示。三处都是现有机制的沿用，记为没有单独测试，不补。
+- 没实现：无。
+
+已知现象：1280 宽、右栏开着时编辑器工具栏放到“图片”就收进“⋯”，“表情”在“更多操作”里（输出 3 的既有规则）；e2e 用 1920 宽的窗口。

@@ -1,0 +1,102 @@
+### 1. 表情补全无匹配时菜单已隐藏，上下键与 Esc 仍被菜单键处理吞掉，aria-expanded 仍为 true
+- 严重程度：重要
+- 类别：正确性 / 不变量（hideWhenEmpty 与键盘捕获不同步）
+- 位置：packages/nb-markdown/src/prompt/PromptEditor.vue:386（menuOpen）、402（menu 计算属性隐藏）、478（handleKeyDown 里 `menuOpen.value && handleMenuKey`）、519、540-560（handleMenuKey）、963-965（aria 属性）
+- 现象：`hideWhenEmpty` 只让 `menu` 计算属性返回 null，`menuOpen`（只看 `trigger !== null`）仍为真。于是在输入框打 `:xyz`（没有匹配，菜单不显示）后：`handleMenuKey` 里 items 为空，ArrowUp/ArrowDown 直接 `return true`（吞掉），Esc 走 `dismissTrigger` 并 `return true`（不再发 `escape`），`aria-expanded` 写成 "true"、`aria-controls` 指向并不存在的菜单。只有 Enter、Tab 因 `activeItemId === null` 才落回正文。
+- 为什么是问题：Spec stickers 输出 42 写“没有匹配的表情时不弹，回车照常”，意图是这个状态下输入框表现得像没触发。实际上：多行草稿里光标无法用上下键换行；在草稿首行/末行按上方向键翻历史（handleRecallKey）被吞；Esc 的 `escape` 合同（输入框的取消/收起）头一次按下没有可见效果。查询只要里有一个没匹配的 `:词`（例如打 `写完了:` 后接任何字、`10:30` 之外的各种 `x:y` 形态，如 `你好，:)`）就进入这个状态，不罕见。读屏侧则收到“已展开”却没有菜单。
+- 如何核实：在 /tmp/review-w00050-t09-impl/exp/hidden.dom.test.ts 跑了一个真实 PromptEditor 的 DOM 实验（草稿空、triggers=[":"]、resolveMenu 恒返回 `{hideWhenEmpty:true, items:[]}`，插入 `:xyz` 后派发按键）：ArrowUp、ArrowDown、Escape 的 `defaultPrevented` 全为 true，`emitted("escape")` 为 undefined，`aria-expanded` 为 "true"。现有测试 PromptEditor.dom.test.ts 的“没有匹配时不弹”只测了 Enter 与 menu-open，没测这几个键。
+- 建议改法：让键盘捕获与可见性用同一个量：把 `menuOpen` 之后再加一个 `menuShown = computed(() => menu.value !== null)`，handleKeyDown、Shift+Tab 判断和 aria 三个属性都改用它；或把 hideWhenEmpty 的判断前移进 `menuOpen`。补一条测试：无匹配时 ArrowUp/ArrowDown/Esc 不被拦、aria-expanded 为 false。
+
+### 2. 编辑器选择器 `closeSticker` 的焦点判断两头都反：Esc 关上后焦点丢到 body；点了别的控件时反而把焦点抢回正文
+- 严重程度：重要
+- 类别：正确性（焦点与事件时序）/ 测试覆盖
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownMenus.vue 的 `closeSticker`（约 268-271 行）；面板 StickerPickerPanel.vue 的 `onKeydown`/`onFocusout`（约 118-130）
+- 现象：`closeSticker` 同步读 `document.activeElement`，只有它是 null 或 body 才把焦点还给正文，意图是“焦点已到别处时不抢回来”（MarkdownMenus.md 第 35 行）。但：
+  (a) Esc：面板在搜索框里发 close 时焦点还在搜索框（activeElement 是 input，不是 body），不还焦点；随后弹层卸载，焦点落到 body。结果 Esc 之后正文没有焦点，继续打字没有反应。
+  (b) 焦点离开面板（点了侧栏输入框、标题等别的控件）：面板的 `focusout` 里 `document.activeElement` 恰恰是 body（浏览器在 focusout 处理期间还没把焦点交给新目标，新目标在 `relatedTarget` 里），条件成立，于是 `editor.commands.focus()` 把焦点抢回正文（Tiptap 延到下一帧执行，等于从刚拿到焦点的控件手里夺走）。
+- 为什么是问题：(a) 违背“关上、焦点回正文”的预期，键盘用户 Esc 后掉出编辑器；(b) 与文档写的“不抢回来”相反，点别的输入框会被弹回正文。
+- 如何核实：
+  (a) 在 /tmp/review-w00050-t09-impl/exp/menus.dom.test.ts（复制 MarkdownMenus.dom.test.ts，加一条“正文有焦点 -> 开选择器 -> 在搜索框按 Esc”）跑：`hasFocus=false active=BODY`，卡片已卸载。现有 Esc 用例（MarkdownMenus.dom.test.ts 约 557 行）只断言卡片关上、没有插入，不看焦点；e2e 验收 11 末尾的 Esc 也只看格子消失。
+  (b) 在真实 Chrome（/usr/bin/google-chrome-stable，用 /tmp/review-w00050-t09-impl/exp/focus.mjs 单独的静态页）里量：焦点从面板内输入框移到页面上的按钮时，`focusout` 里 `document.activeElement` 是 `BODY#`，`relatedTarget` 是按钮。所以 (b) 的条件判断必成立（从代码与这个浏览器实测推断，未在应用里端到端复现）。
+- 建议改法：面板的 close 事件带原因（`escape` 或 `blur` 并附 `relatedTarget`），菜单层按原因处理：escape 总是还焦点；blur 且 `relatedTarget` 不为 null 时不还。补一条 Esc 后焦点回正文的 DOM 测试，一条“焦点移到别的输入框后不被抢回”的 e2e 点。
+
+### 3. Agent 输入框的弹层按钮在 Chrome 里“再点一下关上”会变成关上又打开；并且同一条 focusout 路径也会把焦点抢回编辑器
+- 严重程度：重要
+- 类别：正确性（事件时序）/ 测试用了替身没覆盖真实组合
+- 位置：packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue 的 `togglePopover`、`closePopover`（约 93-120 行）；packages/neuro-book/src/plugins/stickers/web/components/StickerPickerPanel.vue 的 `onFocusout`
+- 现象：面板在焦点离开时发 `close`。Chrome 里按下按钮（mousedown）会把焦点移到那颗 IconButton，面板先发 `focusout`（relatedTarget 是按钮、在面板外）-> `props.close()` -> `closePopover` 把 `popover` 置 null 并 `focus("keep")`；接着同一次点击的 `click` 到 `togglePopover`，这时 `popover.value` 已是 null，于是重新加载并再打开。用户想关，结果是闪一下又开着。同一路径里 `closePopover` 无条件 `focus("keep")`，焦点离开去了别的控件时同样把焦点抢回编辑器。
+- 为什么是问题：组件注释、Spec 的“再点按钮关上”与测试名都声称这个行为，但真实浏览器里走不通。Safari、Firefox（mac）按钮点击不取焦点，行为才不同，所以更难发现。
+- 如何核实：Composer 的 DOM 测试（AgentConversationComposer.dom.test.ts 的“再点按钮关上”）用的是替身 Picker，只有两个普通按钮，没有面板的 focusout 关闭，所以测不到；e2e 的表情按钮只测了“点开、选一个”。浏览器里 mousedown 取焦点与 focusout 的 relatedTarget 在 /tmp/review-w00050-t09-impl/exp/focus.mjs 里量过（见发现 2）。本条的完整复现需要 e2e，属于“从代码推断 + 浏览器行为实测”。
+- 建议改法：按钮上 `@mousedown.prevent`（按钮不取焦点，面板不会 focusout），或 `togglePopover` 在关闭时记下“刚刚由 focusout 关上、锚点按钮是 relatedTarget”再忽略这一次 click；`closePopover` 在 relatedTarget 不是 null 且不在编辑器里时不 `focus("keep")`。补一条用真实面板（或带 focusout 关闭的替身）的 Composer 测试。
+
+### 4. 发现 1 的触发面比想的宽：中文后紧跟 `:` 的常见写法都会进入“菜单隐藏但按键被吞”的状态；Shift+Tab 也被吞
+- 严重程度：重要（与发现 1 同一处修复，单列是为了给出触发面）
+- 类别：正确性 / 边界
+- 位置：packages/nb-markdown/src/prompt/prompt-text.ts 的 `findPromptTrigger`（`:` 分支，约 444-452 行）与 PromptEditor.vue:478、491
+- 现象：`:` 的边界规则是“在开头，或前一个字不是 ASCII 字母数字”，查询只要不是单个英文字母就算。我用 bun 直接调 `findPromptTrigger(before, [":","@","$","/"])` 得到：`问题:xxx` -> 触发，查询 `xxx`；`时间:10点` -> 触发，查询 `10点`；`你好:)` 与 `，:)`（颜文字紧跟中文）-> 触发，查询 `)`；`::bc` -> 触发。这些都不会有匹配的表情，菜单隐藏，但 `menuOpen` 为真，于是发现 1 的吞键全部生效，另外 `captureShiftTab` 为真时 Shift+Tab 在 `if (!menuOpen.value) emit("shift-tab"); return true` 里被静默吞掉（不发事件也不移动焦点）。
+- 为什么是问题：Spec 输出 42 只说“只打了 1 个英文字母时不弹”，没有说过中文后接标点这类查询要不要触发；中文输入里 `说明:`、`Q:`（Q 前是字母，不触发）之外的 `中文:` 非常常见，用户在这种位置按上方向键、Esc、Shift+Tab 都没有反应，直到打出空白。
+- 如何核实：/tmp/review-w00050-t09-impl/exp/trig.test.ts（`cd packages/nb-markdown && bun test /tmp/review-w00050-t09-impl/exp/trig.test.ts`）打印了上面每一行；吞键见发现 1 的实验。
+- 建议改法：修发现 1 即可消除全部副作用。另可考虑触发规则里要求查询“含至少一个字母、汉字或数字”，把 `)`、`-)` 这类纯标点查询排除（Spec 输出 42 同步写一句）；这属于产品取舍，交开发者决定。
+
+### 5. 选择器面板的“最近用过”是活的：按住 Shift 连续插入时网格会在手下重排
+- 严重程度：建议
+- 类别：正确性 / 交互
+- 位置：packages/neuro-book/src/plugins/stickers/web/components/StickerPickerPanel.vue 的 `groups` 计算属性（约 33-38 行）；两处宿主在 pick 后立刻调 `picker.used(item)`（MarkdownMenus.vue 的 `pickSticker`；agent/web/sticker-composer.ts 的 `onPick`）
+- 现象：`groups` 读 `props.picker.recent()`，而 `recent()` 读存储里的响应式记录。Shift+点击插入一个后记录马上变，面板里“最近用过”一组实时重排：没有记录时第一次 Shift 点击会在最上面多出一整组（标题加一行），下面各包整体下移；有记录时被点的那个跳到最前。下一次 Shift+点击落在已经移位的格子上。
+- 为什么是问题：Shift 连发的用途就是连续点好几个；被点的格子在手下换位，容易点错。Spec 输出 43 只要求“经选择器插入的记进最近用过”，没要求面板开着时实时更新。
+- 如何核实：从代码读出（`groups` 依赖 `picker.recent()` 的响应式读）；没有写进 DOM 测试。未在浏览器里量位移，标“从代码推断”。
+- 建议改法：面板打开时取一次 `recent()` 的快照（`const recentAtOpen = props.picker.recent()` 放在 setup，不做响应式），关上再打开才更新；目录晚到/拼音库到的重算仍保持响应式。
+
+### 6. Agent 输入框的弹层面板加载失败没有任何诊断，按钮表现为失灵；Markdown 一侧同样的失败有处理
+- 严重程度：建议
+- 类别：错误路径 / 与同类做法不一致
+- 位置：packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue 的 `onToolbarButton`（`void togglePopover(...)`）与 `togglePopover`（`await load()` 无 catch）；packages/neuro-book/src/plugins/agent/web/sticker-composer.ts 的 `popover`（`await picker.loadPanel()` 无 catch）；对照 packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownStickerCard.vue 的 `load`（catch 后 report 并 close）
+- 现象：面板是按需 `import()` 的分块；部署换了版本、网络断了时 `loadPanel` reject，Agent 一侧是未处理的 promise 拒绝，只进浏览器控制台，用户看到按钮点了没反应；Markdown 一侧 MarkdownStickerCard 注释里明确写了“加载失败时记诊断并关上”。
+- 为什么是问题：同一个选择器两个入口，失败语义不一致；项目规范要求错误至少留一条诊断。
+- 如何核实：读代码；两处调用链上没有 catch/report。
+- 建议改法：nb-agent-ui 的端口里加可选的 `report`（或让 `ToolbarButtonEntry.popover` 的失败由 Composer 捕获后发一个 `action`/事件交宿主记诊断），宿主把它接到 diagnostics；至少在 `togglePopover` 里 try/catch 并通过现有的提示通道告知。
+
+### 7. 面板格子的可访问名是写法原文，读屏读成“冒号 lyra 斜杠 开心 冒号”
+- 严重程度：建议
+- 类别：可访问性
+- 位置：packages/neuro-book/src/plugins/stickers/web/components/StickerPickerPanel.vue 约 192 行（`:aria-label="item.raw"`）
+- 现象：每个格子 `role="option"`，名字取 `item.raw`（`:lyra/开心:`）；底部那一行（名字与写法）又是 `aria-hidden`，读屏用户听不到“开心”这个名字，只能听到符号串。
+- 为什么是问题：选择器是给人选的，名字比写法有意义；写法对读屏几乎不可读。
+- 建议改法：aria-label 用 `${name}，${packTitle}`；写法留给 `title` 或 `aria-description`。
+
+### 8. PromptEditor 里表情节点视图不传错误回调：目录查询失败被静默吞掉
+- 严重程度：建议
+- 类别：错误路径 / 与同类做法不一致
+- 位置：packages/nb-markdown/src/prompt/prompt-editor-extensions.ts 的 `PromptSticker.addNodeView`（`buildSticker(document, raw, stickers())` 缺第四个参数）；对照 packages/nb-markdown/src/prompt/PromptSticker.vue 的 `render`（传了 `host.report(...)`）
+- 现象：同一个 `buildSticker`，已发送视图在失败时 `host.report("markdown.sticker.resolve-failed", ...)`，输入框里的节点视图没有第四个参数，查询 reject 时只显示原文、没有诊断。
+- 如何核实：`buildSticker` 在 reject 分支调用 `report?.(error)`（language/syntax/sticker/view.ts 55-59 行），节点视图调用处没有传。
+- 建议改法：`PromptExtensionOptions` 加一个 `report` 选项，由 PromptEditor 传 `host.report`，节点视图转给 `buildSticker`。
+
+### 9. 代码质量三处小问题：补全菜单与斜杠菜单大段重复、无样式的类名、模板里把同一个判断算两遍
+- 严重程度：建议
+- 类别：代码质量
+- 位置：
+  (a) packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownStickerMenu.vue（138 行）与 MarkdownSlashMenu.vue（196 行）：`onKeyDown` 的上下/回车/Tab/Esc 分支、`onCompositionStart`/`onCompositionEnd`、`onBlur`、`attach` 里五个事件的挂接与摘除、aria-controls/activedescendant 的 watch 几乎逐行相同。
+  (b) packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue 约 637 行：`class="acv-composer__popover"` 在整个文件里没有对应样式（grep 只命中模板这一处），而且弹层被传送到 body，作用域样式本来也到不了。
+  (c) packages/nb-agent-ui/src/vue/stream/AgentConversationTurn.vue 的模板：`:class="bare(turn.user) ? ... "` 与 `:data-user-bare="bare(turn.user) ? '' : undefined"` 各调一次 `bare`，每次都把全部文字块重新分词（`stickerOnlyMessage` 里走 `parsePromptText`）。
+- 为什么是问题：(a) 两份菜单以后各改各的，组字、失焦、aria 这类细节最容易漏改一边（发现 2 这类焦点问题就是这种细节）；(b) 读的人会找样式找不到；(c) 每条用户消息每次重渲染多一次完整解析。
+- 如何核实：读代码、`wc -l`、`grep -n acv-composer__popover`。
+- 建议改法：(a) 抽一个 `useTriggerMenu(editor, scroller, {read, items, onChoose})` 之类的组合函数，斜杠与表情两个菜单各自只留“读触发状态与项”；(b) 删掉类名，选择器用 `data-composer-popover`；(c) 在 `<script>` 里算一次放进局部变量（例如 `v-for` 里用 `v-bind` 的方式，或把 `bare` 的结果挂进 `turn` 的计算属性）。
+
+## 未发现问题的方面
+- 触发规则：`findPromptTrigger` 的 `:` 规则与 `editor/sticker-trigger.ts` 的 `readSticker` 在边界上一致（开头或前字非 ASCII 字母数字、查询无空白与 `:`、单个英文字母不触发）。用 bun 直接调 `findPromptTrigger` 验证了 `http://x`、`10:30`、`a/b:cd`、`:ab:`、`:a:b`、`@a:bc`、`$x:ab`、`/cmd:ab` 的结果与计划表一致，`@`、`$`、`/` 既有行为没变；唯一差别是 PromptEditor 以空白切词、编辑器以文本块，两边的空白判断都用 `\s`，等价。
+- 文字往返：`stickerInsertionText` 对 `他说:好` + `:lyra/开心:` 补空格、对 `a:b` + `:x:`、空前文给出预期结果；`parsePromptText` 对 `x:a:b: :b:` 的分词、对链接地址里的 `:a:`（保持引用小块）、`$s:a:`、`@r:a:` 都与“先认别的写法、再认表情、认不出就是文字”的规则一致。`atomLeafText` 把表情节点读成原文进 `before` 是对的（前面的表情不会被后面的写法吃掉）。
+- 现有 PromptEditor、prompt-text、PromptTextView、sticker-trigger 的测试在本 worktree 实际跑过：nb-markdown `bunx vitest run src/prompt src/editor/sticker-trigger.dom.test.ts` 97 项全过、`bun test src/prompt/prompt-text.test.ts` 124 项全过；neuro-book `bun test src/plugins/stickers` 117 过 1 败，失败的是“zip 炸弹”那条 5 秒超时（负载 30 以上，与本 Task 无关）。
+- 输入后的撤销：手打 `:开心:` 变节点、再撤销，与同批快速输入一起回退，没有留下半个节点；`relabelStickers` 用 `addToHistory:false`，不进撤销历史。
+- 服务响应式：`known`、`search`、`groups`、`recent` 都直接读 `shallowRef`/存储的响应式字段，在 `PromptEditor` 的 `menu` 计算属性、`PromptTextView` 的 `blocks` 计算属性里读会跟着目录与拼音库重算；补认的 watch 用 `known(":_:") !== undefined` 探测，目录失败时保持 undefined，不会反复触发。
+- 样式：`stickers.css` 抽出后选择器从 `.nb-markdown .nb-sticker…`（0,3,0）降到 `.nb-sticker…`（0,2,0）；仓库里没有会压过它的 `img` 规则（`.nb-markdown img` 不存在），展示器与两处提示词视图的规则没有被别的选择器抢走。
+- 两个菜单共用 `scroller` 写 aria 属性：只有两者同时打开才会互相覆盖，而斜杠菜单的查询里没有能匹配到含 `:` 的项，实际无法同时打开，不算问题。
+- 后端目录字段与写法包段：`writingSegments` 在完整目录上算、槽与浏览器目录共用，同名文件夹写 id；无效包（folder-name 等）不进。
+- 测试写法：新增测试里没有 mock、spy、假计时器、固定等待；e2e 用可观察状态等待。
+
+## 数量
+- 阻断：0
+- 重要：4（发现 1、2、3、4；其中 4 与 1 同一处修复）
+- 建议：5（发现 5、6、7、8、9）
+
+有效发现编号：1、2、3、4、5、6、7、8、9
