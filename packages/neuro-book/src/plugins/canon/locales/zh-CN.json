@@ -1,0 +1,497 @@
+{
+    "commands": {
+        "category": "设定",
+        "open-entry": {
+            "title": "打开条目"
+        },
+        "new-entry": {
+            "title": "新建条目"
+        },
+        "open-receipt": {
+            "title": "看回执"
+        },
+        "open-change": {
+            "title": "打开情节"
+        },
+        "show-pending": {
+            "title": "显示待处理"
+        },
+        "show-revisions": {
+            "title": "显示改动记录"
+        }
+    },
+    "views": {
+        "entries": {
+            "title": "设定",
+            "actions": {
+                "nbook": {
+                    "canon": {
+                        "new-entry": {
+                            "title": "新建条目"
+                        }
+                    }
+                }
+            }
+        },
+        "pending": {
+            "title": "待处理"
+        },
+        "revisions": {
+            "title": "改动记录"
+        }
+    },
+    "world": {
+        "unbound": "打开作品后可用",
+        "disconnected": "世界已断开",
+        "retry": "重试",
+        "failed": "没有读出来"
+    },
+    "entries": {
+        "label": "条目树",
+        "empty": "还没有条目",
+        "unappeared": "未出场",
+        "deleted": "已删除",
+        "more": "再显示（还有 {{count}} 项）",
+        "loading": "读取中…",
+        "createUnder": "在它下面新建"
+    },
+    "editorPages": {
+        "entry": {
+            "title": "条目"
+        },
+        "receipt": {
+            "title": "回执"
+        },
+        "change": {
+            "title": "情节"
+        }
+    },
+    "componentViews": {
+        "person": {
+            "title": "人物"
+        },
+        "panel": {
+            "title": "面板"
+        }
+    },
+    "entry": {
+        "missing": "找不到这个条目",
+        "deleted": "这个条目已删除",
+        "notAppeared": "在{{position}}还没出场",
+        "positionGone": "原来选的那一章已经不在了",
+        "sameAs": "是谁：",
+        "position": "位置",
+        "planned": "按计划",
+        "tabs": {
+            "label": "条目的分页",
+            "text": "文字",
+            "plot": "情节"
+        },
+        "writeUnavailable": "这里还不能写",
+        "more": "更多",
+        "delete": "删除条目",
+        "deleteTitle": "删除“{{name}}”？",
+        "deleteDescription": "删除以后，引用它的地方会显示“已删除的条目”；可以在改动记录里还原。",
+        "deleteConfirm": "删除",
+        "deleteSaved": "删除“{{name}}”"
+    },
+    "position": {
+        "initial": "初值",
+        "start": "第 {{index}} 章开头",
+        "end": "第 {{index}} 章末尾",
+        "startTitled": "第 {{index}} 章开头：{{title}}",
+        "endTitled": "第 {{index}} 章末尾：{{title}}"
+    },
+    "place": {
+        "chapter": "第 {{index}} 章",
+        "prehistory": "前史",
+        "unscheduled": "未安放"
+    },
+    "mark": {
+        "changed": "{{place}}改过",
+        "checked": "{{place}}核对过"
+    },
+    "value": {
+        "unknown": "未知",
+        "incomplete": "不完整",
+        "label": "{{label}}：{{value}}",
+        "blockFailed": "这一块没有渲染出来：{{reason}}",
+        "deletedRef": "已删除的条目",
+        "listSeparator": "、",
+        "yes": "是",
+        "no": "否",
+        "notReduced": "还没归纳（起点：{{anchor}}，之后记了 {{count}} 句）"
+    },
+    "origin": {
+        "caption": "{{label}}是怎么来的",
+        "more": "再显示更早的（还有 {{count}} 步）",
+        "initial": "初值",
+        "check": "核对：正文写 {{written}}",
+        "checkOk": "对得上",
+        "checkMismatch": "对不上",
+        "carried": "从另一条线带过来",
+        "basisQuote": "原文：“{{quote}}”",
+        "basisEstimate": "估计：{{note}}",
+        "basisAuthor": "作者给的",
+        "basisDerived": "由核对推出",
+        "editStep": "改这一笔",
+        "failed": "来历没有读出来",
+        "where": "位置",
+        "what": "发生了什么",
+        "delta": "变化",
+        "result": "结果"
+    },
+    "fields": {
+        "empty": "这个分页还没有字段",
+        "notReduced": "还没归纳",
+        "anchor": "起点：{{value}}",
+        "viewFailed": "专门的界面没有加载出来，先用字段表：{{reason}}",
+        "notesMore": "还有更早的 {{count}} 句"
+    },
+    "panel": {
+        "empty": "这个面板还没有内容",
+        "ledger": "{{label}}的流水",
+        "cards": "面板的值"
+    },
+    "plot": {
+        "empty": "还没有涉及它的情节",
+        "plan": "计划",
+        "held": "待定",
+        "undone": "已撤销"
+    },
+    "blocked": {
+        "readOnly": "世界只读：{{reason}}",
+        "unknown": "不确定世界里写进去了什么，先不能写",
+        "busy": "{{holder}}正在写，写完以后才能改",
+        "disconnected": "世界已断开",
+        "planned": "先关掉按计划",
+        "initial": "先选一章"
+    },
+    "failure": {
+        "valueConflict": "这个值刚刚变了",
+        "versionConflict": "这个对象刚被改过",
+        "validation": "没有通过检查：{{reason}}",
+        "resultMismatch": "写完的结果对不上：{{reason}}",
+        "writeFailed": "没有写进去，可以再试一次",
+        "worldLocked": "另一个 NeuroBook 正在用这部作品，稍后再试",
+        "tooLarge": "这次改动太大，分开改",
+        "unknownOutcome": "不确定这次改动有没有写进去",
+        "recheck": "再查一次",
+        "other": "这次改动没有成功",
+        "accumulated": "这个数是几笔累出来的：改其中一笔，或者记一笔"
+    },
+    "edit": {
+        "button": "改",
+        "label": "改{{label}}",
+        "heading": "改{{label}}",
+        "intent": "这是",
+        "creative": "改设定",
+        "story": "剧情里变了",
+        "save": "保存",
+        "cancel": "取消",
+        "previewing": "正在预览…",
+        "routeInit": "改初值",
+        "routePatch": "改{{place}}“{{text}}”那一笔",
+        "routeChange": "在{{position}}记一条变更",
+        "pendingAdded": "多了 {{count}} 条待处理",
+        "pendingResolved": "少了 {{count}} 条待处理",
+        "valueFollows": "{{label}}跟着变成 {{value}}",
+        "noImpact": "别的都不变",
+        "unsupported": "这种字段还不能在这里改"
+    },
+    "record": {
+        "heading": "记一笔",
+        "delta": "变化",
+        "text": "发生了什么",
+        "deltaPlaceholder": "+300 或 -200",
+        "textPlaceholder": "比如：领了工资",
+        "submit": "记一笔",
+        "saved": "记了一笔：{{text}}"
+    },
+    "notice": {
+        "receipt": "看回执",
+        "close": "关闭",
+        "label": "刚保存的改动",
+        "undo": "撤销"
+    },
+    "newEntry": {
+        "title": "新建条目",
+        "name": "名字",
+        "kind": "种类",
+        "kindPlaceholder": "比如：人物、地点、物品",
+        "folder": "分组",
+        "parent": "放在谁下面",
+        "root": "最上面一层",
+        "types": "启用哪些数据",
+        "sameAs": "它是谁的另一个身份",
+        "none": "不是",
+        "appears": "从哪里出场",
+        "fromStart": "一开始就在",
+        "chapterStart": "第 {{index}} 章开头",
+        "confirm": "新建",
+        "saved": "新建“{{name}}”"
+    },
+    "names": {
+        "address": "{{entry}}的{{label}}",
+        "someEntry": "一个条目",
+        "someChange": "一条情节"
+    },
+    "impact": {
+        "value": "{{label}}：{{before}} → {{after}}",
+        "broken": "{{count}} 条情节套不上了",
+        "textChanged": "{{label}}改了"
+    },
+    "revert": {
+        "title": "还原“{{title}}”？",
+        "titleUnknown": "还原这次改动？",
+        "impact": "还原以后：",
+        "dependents": "后面这些改动依赖它，要一起还原：",
+        "moreDependents": "还有 {{count}} 次",
+        "withDependents": "连同这些一起还原",
+        "confirm": "还原",
+        "notRevertable": "调整章序的改动不能还原",
+        "authorSource": "这次改动里有对决定的修改，要作者亲自确认，这里还不能还原",
+        "notFound": "找不到这次改动",
+        "untitled": "一次改动",
+        "saved": "还原“{{title}}”",
+        "savedWithDependents": "还原“{{title}}”与之后的 {{count}} 次改动"
+    },
+    "receipt": {
+        "missing": "找不到这次改动",
+        "meta": "{{by}} · {{time}} · {{what}}",
+        "revertOf": "还原的是：",
+        "revert": "还原这次修订",
+        "dependents": "后面有 {{count}} 次改动依赖它",
+        "created": "新建",
+        "modified": "修改",
+        "deleted": "删除",
+        "chapters": "章序",
+        "impact": "带来的变化",
+        "chapterOrder": "章序",
+        "chapterGone": "已删除的一章",
+        "chapterTitled": "第 {{index}} 章：{{title}}",
+        "revisionsCrumb": "改动记录",
+        "absent": "（没有）",
+        "complex": "（一组值）",
+        "several": "改了几处",
+        "reordered": "顺序变了",
+        "patchSeparator": "；",
+        "written": "已写",
+        "active": "生效",
+        "kinds": {
+            "check": "核对点",
+            "decision": "一条决定",
+            "suggestion": "一条建议"
+        },
+        "fields": {
+            "name": "名字",
+            "summary": "简介",
+            "aliases": "别名",
+            "text": "主文字",
+            "data": "启用的数据",
+            "type": "种类",
+            "folder": "分组",
+            "order": "顺序",
+            "parent": "放在谁下面",
+            "sameAs": "是谁的另一个身份",
+            "appears": "出场",
+            "deleted": "已删除",
+            "initBasis": "初值的依据",
+            "other": "别的设置",
+            "changeText": "文字",
+            "at": "安放",
+            "kind": "已写还是计划",
+            "status": "生效状态",
+            "held": "待定的原因",
+            "undoneReason": "撤销的原因",
+            "patches": "改动",
+            "involves": "涉及的条目",
+            "told": "原句"
+        },
+        "by": {
+            "author": "作者",
+            "agent": "Agent",
+            "task": "任务：{{name}}",
+            "system": "系统"
+        },
+        "what": {
+            "opening": "开篇",
+            "plan": "计划",
+            "bookkeeping": "记账",
+            "edit": "编辑",
+            "creative": "改设定",
+            "resolve": "处理待处理",
+            "suggest": "采纳建议",
+            "revert": "还原",
+            "reorder": "调整章序",
+            "other": "改动"
+        },
+        "changed": "改了"
+    },
+    "change": {
+        "missing": "找不到这条情节",
+        "route": "会写回这条情节",
+        "patchSaved": "改“{{text}}”里{{label}}那一笔",
+        "activateSaved": "把“{{text}}”改成生效",
+        "activate": "改成生效",
+        "heldConflict": "待定：与设定冲突。{{note}}",
+        "heldUnsure": "待定：写入者没把握。{{note}}",
+        "undoneReason": "撤销的原因：{{reason}}",
+        "quotes": "讲到它的原句",
+        "quote": "“{{quote}}”",
+        "openChapter": "打开这一章",
+        "chapterMissing": "没找到这一章的文件",
+        "involved": "涉及的条目",
+        "patches": "改动",
+        "noPatches": "这条情节没有改什么",
+        "basis": "依据：{{basis}}",
+        "sources": {
+            "chapter": "{{place}}正文",
+            "chapterUnknown": "章节正文",
+            "outline": "细纲",
+            "seed": "种子",
+            "message": "作者的消息",
+            "ui": "界面上写的",
+            "note": "笔记"
+        },
+        "patchGone": "这一处已经不在了：这条情节刚被改过，关掉再点一次“改”"
+    },
+    "patch": {
+        "anItem": "一项",
+        "added": "{{label}}：加上 {{value}}",
+        "removed": "{{label}}：去掉 {{value}}",
+        "removedItem": "{{label}}：去掉一项",
+        "note": "{{label}}：记“{{text}}”",
+        "blockReplaced": "{{label}}：换了一段",
+        "blockAdded": "{{label}}：加了一段",
+        "blockRemoved": "{{label}}：删了一段"
+    },
+    "statusItems": {
+        "pending-count": {
+            "title": "待处理",
+            "text": "待处理 {{count}}"
+        }
+    },
+    "state": {
+        "hasPending": {
+            "reason": "没有待处理的问题"
+        }
+    },
+    "revisions": {
+        "label": "改动记录",
+        "meta": "{{by}} · {{time}}",
+        "values": "{{count}} 处值变了",
+        "noImpact": "没有带来别的变化",
+        "separator": "，",
+        "allChapters": "全部章",
+        "allWriters": "全部写入者",
+        "chapterFilter": "按章筛",
+        "writerFilter": "按写入者筛",
+        "writers": {
+            "author": "作者",
+            "agent": "Agent",
+            "task": "任务",
+            "system": "系统"
+        },
+        "receipt": "看回执",
+        "revert": "还原",
+        "more": "再显示更多",
+        "empty": "还没有改动",
+        "emptyFiltered": "没有符合筛选的改动",
+        "loading": "读取中…"
+    },
+    "pending": {
+        "label": "待处理",
+        "groups": {
+            "pending": "待处理",
+            "hints": "只是提示",
+            "handled": "已处理"
+        },
+        "more": "再显示更多",
+        "loading": "读取中…",
+        "empty": {
+            "pending": "没有待处理的问题",
+            "hints": "没有提示",
+            "handled": "还没有处理过的"
+        },
+        "noSelection": "选一条看详情",
+        "pluginCheck": "插件的一项检查",
+        "incomplete": {
+            "unavailable": "这些检查没有算出来：{{names}}",
+            "truncated": "这些检查报得太多，只列出了一部分：{{names}}",
+            "disabled": "这些检查所在的插件停用了，没有算：{{names}}"
+        },
+        "busy": "{{holder}}正在独占写入",
+        "breakExclusive": {
+            "action": "强行解除",
+            "title": "强行解除“{{holder}}”的独占写入？",
+            "body": "解除以后，它的下一次写入会失败。只在确定它已经不再写的时候这样做。",
+            "confirm": "强行解除",
+            "cancel": "取消"
+        },
+        "what": {
+            "change": "“{{text}}”",
+            "someChange": "一条情节",
+            "check": "一个核对点",
+            "decision": "一条决策",
+            "suggestion": "一条建议"
+        },
+        "paragraph": "{{chapter}}第 {{paragraph}} 段",
+        "rows": {
+            "check-mismatch": "{{address}}对不上：正文写 {{written}}，算出来是 {{computed}}",
+            "cannot-apply": "{{what}}套不上了",
+            "held": "{{what}}待定",
+            "chapter-deleted": "{{what}}安放的那一章已经删除",
+            "time-conflict": "{{count}} 条情节的时间说法互相矛盾",
+            "time-invalid": "{{what}}的时间说法有问题",
+            "time-placement-mismatch": "{{what}}的时间与安放的先后对不上",
+            "fork-time-mismatch": "回溯分叉的时间对不上：{{what}}",
+            "line-out-of-bounds": "{{what}}安放在世界线的范围之外",
+            "line-missing": "{{what}}所在的世界线不存在",
+            "line-planned": "{{what}}写在一条还只是计划的世界线上",
+            "telling-lost": "{{what}}的一句原句在正文里找不到了",
+            "duplicate-quote": "{{what}}的原句在这一章出现了 {{count}} 次",
+            "mark-kind-unknown": "{{what}}里有不认识的标记",
+            "mark-version-unsupported": "{{what}}里的标记版本太新",
+            "component-unknown": "{{entry}}用了没有登记的数据类型",
+            "component-version-unsupported": "{{entry}}的数据类型版本太新",
+            "diagnostic-duplicate-key": "{{label}}在同一处报了两次",
+            "binder-line-planned": "{{chapter}}有一段讲的是还只是计划的世界线",
+            "binder-line-ended": "{{chapter}}有一段讲的是已经结束的世界线",
+            "telling-line-mismatch": "{{what}}的原句所在的段讲的是另一条世界线"
+        },
+        "heldReasons": {
+            "conflict": "与设定冲突",
+            "unsure": "写入者没把握"
+        },
+        "applyFailures": {
+            "entry-missing": "要改的条目不在了",
+            "element-missing": "要改的那一项不在了",
+            "type-mismatch": "值的类型对不上",
+            "unknown-value": "前面的值不知道，没法在它上面改",
+            "constraint-violated": "改完的值不合字段的限制",
+            "number-out-of-range": "改完的数超出了范围",
+            "invalid-asset-path": "资源路径不对"
+        },
+        "detail": {
+            "label": "详情",
+            "computed": "算出来的数",
+            "written": "正文写的数",
+            "suspects": "可能是这几笔",
+            "estimate": "估计",
+            "initial": "初值",
+            "reason": "原因",
+            "root": "让它套不上的那次改动",
+            "followers": "跟着套不上的",
+            "followersCount": "还有 {{count}} 条",
+            "decision": "作者当时的决定",
+            "earlierDecision": "检查升级之前的决定",
+            "openChange": "打开这条情节",
+            "openEntry": "打开条目",
+            "objects": "相关的对象",
+            "revision": "“{{title}}”",
+            "someRevision": "一次改动",
+            "openRoot": "看那次改动的回执"
+        }
+    }
+}

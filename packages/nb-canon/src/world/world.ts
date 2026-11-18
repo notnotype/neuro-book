@@ -631,7 +631,8 @@ export class World {
     reorder(order: ChapterOrder, time: string, requestId: string): WriteResult | null {
         const recorded = this.index.recordedChapters;
         if (recorded !== null && sameJson(recorded, order.ids)) return null;
-        if (recorded === null && order.ids.length === 0 && this.version === 0) return null;
+        // 从没记过、宿主给的也是空的：没有东西要记，不论世界里写过什么（否则没有活页夹的作品每读一次清单就多一条空的章序调整）。
+        if (recorded === null && order.ids.length === 0) return null;
         const options = {...this.options, order};
         const moved = this.withOptions(options);
         const version = this.version + 1;

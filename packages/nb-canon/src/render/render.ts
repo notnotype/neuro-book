@@ -12,6 +12,9 @@ import type {Root} from "mdast";
 
 import type {ComponentRegistry} from "../components/registry";
 import {parsePath} from "../core/address";
+import {displayText} from "../core/display";
+
+export {displayText};
 import type {ChapterOrder} from "../core/position";
 import type {ReadPosition} from "../core/schema";
 import type {Engine, EntryView, IncompleteMark, Mode} from "../engine/types";
@@ -156,16 +159,6 @@ export function evaluate(expression: Expression, references: readonly FieldRefer
     return {value: value ?? null, incomplete, unavailable};
 }
 
-/** 给作者看的显示文字：数加千位分隔，未知写“未知”（输出 7）。 */
-export function displayText(value: unknown): string {
-    if (value === null || value === undefined) return "未知";
-    if (typeof value === "number") return value.toLocaleString("en-US", {maximumFractionDigits: 4});
-    if (typeof value === "boolean") return value ? "是" : "否";
-    if (typeof value === "string") return value;
-    if (Array.isArray(value)) return value.map((item) => (item as {label?: string}).label ?? "").join("、");
-    if (typeof value === "object" && "说明" in (value as object)) return String((value as {说明?: unknown}).说明 ?? "");
-    return JSON.stringify(value);
-}
 
 export type AuthorNode =
     | {readonly type: "canonValue"; readonly path: string; readonly entry: string | null; readonly label?: string; readonly raw: unknown; readonly display: string; readonly unknown?: true; readonly incomplete?: IncompleteMark}

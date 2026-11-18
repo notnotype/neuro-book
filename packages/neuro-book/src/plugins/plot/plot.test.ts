@@ -183,7 +183,7 @@ describe("剧情插件的远程合同", () => {
         keep.release();
     }, 30_000);
 
-    it("写作指示快照的服务：能推（换内容后数据版本变、旧游标作废，同内容再推游标仍有效）；失败码经真实合同；推了快照以后读待处理仍完整、远程 brief 读到它", async () => {
+    it("写作指示快照的服务：能推（换内容后数据版本变、旧游标作废，同内容再推游标仍有效；浏览器收到 inputChanged diagnostics）；失败码经真实合同；推了快照以后读待处理仍完整、远程 brief 读到它", async () => {
         let instructions: RemoteUse<typeof plotInstructionsContract> | null = null;
         const instructionsCaller: PluginDefinition = {id: "test.instructions-caller", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
             instructions = context.remote.use(plotInstructionsContract);
@@ -204,12 +204,18 @@ describe("剧情插件的远程合同", () => {
             return status.ok && status.value.version >= 0;
         });
         const use = instructions!;
+        const inputs: string[] = [];
+        expect((await window.canon.subscribe((event) => {
+            if (event.kind === "inputChanged") inputs.push(event.what);
+        })).ok).toBe(true);
         const empty = await use.current({});
         if (!empty.ok) throw new Error(JSON.stringify(empty));
         const snapshot = {chapter: "1", version: "v1", tone: "冷"};
         const first = await use.put({chapter: "1", snapshot});
         if (!first.ok) throw new Error(JSON.stringify(first));
         expect(first.value.dataVersion).not.toBe(empty.value.dataVersion);
+        // 剧情插件报告了新的数据版本：世界版本没动，经项目子进程与链路到浏览器的是 inputChanged（canon.project 输出 34）。
+        await until(() => inputs.includes("diagnostics"));
         // 同内容再推：数据版本不变。
         expect(await use.put({chapter: "1", snapshot})).toMatchObject({ok: true, value: {dataVersion: first.value.dataVersion}});
         // 数据版本报告给 canon：换内容以后读取输入变了，旧游标作废；同内容再推游标仍有效。

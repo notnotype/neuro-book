@@ -32,6 +32,7 @@ import {stickersBrowserPlugin} from "nbook/plugins/stickers/web/plugin";
 import {stickersCatalogs} from "nbook/plugins/stickers/web/text";
 import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
+import {canonCatalogs} from "nbook/plugins/canon/web/text";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {canonBrowserPlugin} from "nbook/plugins/canon/web/plugin";
@@ -102,6 +103,7 @@ export interface BuiltinCatalogs {
  */
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
     "nbook.agent": agentCatalogs,
+    "nbook.canon": canonCatalogs,
     "nbook.editor": editorCatalogs,
     "nbook.explorer": explorerCatalogs,
     "nbook.html-preview": htmlPreviewCatalogs,

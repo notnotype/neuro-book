@@ -5,6 +5,26 @@ import type EditorGroupHead from "nbook/plugins/editor/web/components/EditorGrou
 import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
+import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
+import type ChangePage from "nbook/plugins/canon/web/components/ChangePage.vue";
+import type BreakExclusiveDialog from "nbook/plugins/canon/web/components/BreakExclusiveDialog.vue";
+import type ConfirmBar from "nbook/plugins/canon/web/components/ConfirmBar.vue";
+import type EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
+import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
+import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
+import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
+import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
+import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
+import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
+import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
+import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
+import type PendingView from "nbook/plugins/canon/web/components/PendingView.vue";
+import type PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
+import type ReceiptPage from "nbook/plugins/canon/web/components/ReceiptPage.vue";
+import type RecordForm from "nbook/plugins/canon/web/components/RecordForm.vue";
+import type RevertDialog from "nbook/plugins/canon/web/components/RevertDialog.vue";
+import type RevisionsView from "nbook/plugins/canon/web/components/RevisionsView.vue";
+import type WorldBanners from "nbook/plugins/canon/web/components/WorldBanners.vue";
 import type MarkdownImageCard from "nbook/plugins/markdown/web/components/menus/MarkdownImageCard.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
@@ -965,6 +985,42 @@ export const labFixtures: LabFixture[] = [
         runtimeProps: async () => ({list: async (address: string) => ({ok: true as const, entries: [{name: "卷二", address: `${address}/卷二`, kind: "directory" as const}, {name: "第一章 雨夜.md", address: `${address}/第一章 雨夜.md`, kind: "file" as const}, {name: "第二章 旧城.md", address: `${address}/第二章 旧城.md`, kind: "file" as const}]})}),
         subject: () => import("nbook/plugins/editor/web/components/EditorBreadcrumbs.vue"),
     }),
+    defineLabFixture<typeof EditorPageBreadcrumbs>({
+        component: "EditorPageBreadcrumbs",
+        scenes: [
+            {id: "entry", label: "条目页：设定 › 人物 › 星瑕 › 哥哥（“人物”与最后一段不可点）", input: {props: {items: [{label: "设定"}, {label: "人物"}, {label: "星瑕"}, {label: "哥哥"}]}}},
+            {id: "long", label: "中间的段很长：先缩短它", input: {props: {items: [{label: "设定"}, {label: "改动记录里一条很长很长的修订标题：按故事种子开局，建了 18 个条目、10 条前史，记下 7 个未决问题"}, {label: "这次改动"}]}}},
+            {id: "plain", label: "没有可点的段", input: {props: {items: [{label: "设定"}, {label: "第 2 章"}, {label: "订了星瑾小时候最喜欢的蛋糕"}]}}},
+        ],
+        load: async () => (await import("./EditorPageBreadcrumbsFixture.vue")).default,
+    }),
+    defineLabFixture<typeof EntryTree>({
+        component: "EntryTree",
+        scenes: (() => {
+            const item = (id: string, name: string, extra: Record<string, unknown> = {}) => ({id, name, folder: "", hasChildren: false, appeared: true, deleted: false, ...extra});
+            const layer = (items: ReturnType<typeof item>[], remaining = 0, loading = false) => ({items, remaining, loading});
+            const root = layer([
+                item("xingxia", "星瑕", {folder: "人物", hasChildren: true}),
+                item("baling", "白灵", {folder: "人物"}),
+                item("hui", "彗", {folder: "人物", appeared: false}),
+                item("federation", "联邦"),
+                item("academy", "第三魔法学院", {folder: "地点"}),
+                item("old", "被删掉的旧设定", {folder: "地点", deleted: true, hasChildren: true}),
+            ], 12);
+            const xingxia = layer([item("gege", "哥哥", {appeared: false}), item("girl", "魔法少女星")], 0);
+            const sample = {props: {layers: {"": root, xingxia}, selected: "gege"}, model: {expanded: ["folder:人物", "folder:地点", "xingxia"]}};
+            return [
+                {id: "sample", label: "分组、未出场、已删除、还有 12 项", input: sample},
+                {id: "loading-layer", label: "展开了还没读到的一层", input: {props: {layers: {"": root}}, model: {expanded: ["folder:人物", "xingxia"]}}},
+                {id: "loading", label: "根这一层还没读到", input: {props: {layers: {} as Record<string, ReturnType<typeof layer>>}, model: {expanded: []}}},
+                {id: "empty", label: "还没有条目", input: {props: {layers: {"": layer([])}}, model: {expanded: []}}},
+                {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, disconnected: true}, model: sample.model}},
+                {id: "sample-english", label: "英文界面", input: sample},
+            ];
+        })(),
+        load: async () => (await import("./EntryTreeFixture.vue")).default,
+    }),
+    ...canonEntryPageFixtures(),
     defineSubjectFixture<typeof EditorTabBar>({
         component: "EditorTabBar",
         events: ["activate", "keep", "close", "unpin", "move", "menu"],
@@ -1695,4 +1751,362 @@ function settingsFixtures(): LabFixture[] {
 
 export function findLabFixture(component: string): LabFixture | null {
     return labFixtures.find((fixture) => fixture.component === component) ?? null;
+}
+
+/** 条目页的几个组件（canon 插件，docs/specs/canon/author-ui.md 输出 6 到 15）：场景用星瑕样本里的样子手写。 */
+function canonEntryPageFixtures() {
+    const origins = [
+        {key: "p3", where: "第 3 章", what: "被扒手偷了", basis: {text: "估计：大概三百", estimate: true}, delta: "−300", result: "2,400 元", change: "c3"},
+        {key: "k2", where: "第 2 章", what: "核对：正文写 2,800，对不上", result: "", check: "mismatch" as const},
+        {key: "p2", where: "第 2 章", what: "领了打工的工资", basis: {text: "原文：“店长塞给她三千”", estimate: false}, delta: "+3,000", result: "2,700 元", change: "c2"},
+        {key: "p1", where: "第 1 章", what: "交了学费", basis: {text: "作者给的", estimate: false}, delta: "−800", result: "−300 元", change: "c1"},
+        {key: "init", where: "", what: "初值", result: "500 元"},
+    ];
+    const row = (path: string, label: string, display: string, extra: Record<string, unknown> = {}) => ({path, label, display, unknown: false, incomplete: false, mark: null as string | null, ...extra});
+    const fields = [
+        row("character.外观", "外观", "黑发，左眼下有颗痣", {mark: "前史改过"}),
+        row("character.状态", "状态", "未知", {unknown: true}),
+        row("character.态度", "现在的态度", "对学院长提防，对白灵信任", {mark: "第 2 章改过", notes: [{where: "第 1 章", text: "起点：谁也不信"}, {where: "第 2 章", text: "白灵替她挡了一次"}], notReduced: true}),
+        row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本", "半块面包"]}),
+    ];
+    const t = (value: string) => ({type: "text", value});
+    const value = (path: string, label: string, display: string, extra: Record<string, unknown> = {}) => ({type: "canonValue", path, entry: null, label, display, ...extra});
+    const blocks = [
+        {id: "b1", tree: {type: "root", children: [{type: "heading", depth: 1, children: [t("近况")]}, {type: "paragraph", children: [t("星瑕现在有 "), value("panel.存款", "存款", "2,400"), t(" 元，魔力 "), value("panel.魔力", "魔力", "未知", {unknown: true}), t("。")]}]}},
+        {id: "b2", tree: {type: "root", children: [{type: "paragraph", children: [t("她的另一个身份是 "), {type: "canonRef", id: "gege", name: "哥哥", deleted: false}, t("。"), {type: "strong", children: [t("没人知道。")]}]}]}},
+        {id: "b3", error: {message: "不认识的标签 <Foo>"}, text: "<Foo>坏掉的一块</Foo>"},
+    ];
+    const marks = {"panel.存款": "第 3 章改过"};
+    const cards = [
+        row("panel.存款", "存款", "2,400 元", {mark: "第 3 章改过"}),
+        row("panel.魔力", "魔力", "3,110", {incomplete: true}),
+        row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本"]}),
+    ];
+    const plot = [
+        {id: "c4", where: "第 4 章", text: "她会离开学院", flags: ["plan" as const], patches: []},
+        {id: "c3", where: "第 3 章", text: "被扒手偷了", flags: [] as ("plan" | "held" | "undone")[], patches: ["存款 −300"]},
+        {id: "c2", where: "第 2 章", text: "领了打工的工资", flags: ["held" as const], patches: ["存款 +3,000"]},
+        {id: "c1", where: "第 1 章", text: "交了学费", flags: ["undone" as const], patches: ["存款 −800", "状态 → 入学"]},
+    ];
+    const positions = [{value: "initial", label: "初值"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}, {value: "2:start", label: "第 2 章开头"}, {value: "2:end", label: "第 2 章末尾"}];
+    const tabs = [{value: "text", label: "文字"}, {value: "data:character", label: "人物"}, {value: "data:panel", label: "面板"}, {value: "plot", label: "情节", count: 4}];
+    const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, positions, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
+    return [
+        defineLabFixture<typeof OriginList>({
+            component: "OriginList",
+            scenes: [
+                {id: "sample", label: "估计、核对对不上、初值", input: {props: {rows: origins, caption: "存款是怎么来的"}}},
+                {id: "more", label: "还有没读的步", input: {props: {rows: [...origins.slice(0, 2), origins[4]!], remaining: 29}}},
+                {id: "loading", label: "读取中", input: {props: {rows: [], loading: true}}},
+                {id: "failed", label: "读取失败", input: {props: {rows: [], failed: true}}},
+                {id: "sample-english", label: "英文界面", input: {props: {rows: origins, remaining: 3}}},
+            ],
+            load: async () => (await import("./OriginListFixture.vue")).default,
+        }),
+        defineLabFixture<typeof FieldTable>({
+            component: "FieldTable",
+            scenes: [
+                {id: "sample", label: "人物：改过、未知、语义档的各句、列表", input: {props: {rows: fields}}},
+                {id: "open", label: "展开着一个字段", input: {props: {rows: fields, open: "character.外观"}}},
+                {id: "empty", label: "没有字段", input: {props: {rows: []}}},
+                {id: "sample-english", label: "英文界面", input: {props: {rows: fields}}},
+            ],
+            load: async () => (await import("./FieldTableFixture.vue")).default,
+        }),
+        defineLabFixture<typeof EntryText>({
+            component: "EntryText",
+            scenes: [
+                {id: "sample", label: "值、改过、未知、引用、出错的块", input: {props: {blocks, self: "xingxia", marks}}},
+                {id: "open", label: "展开着存款", input: {props: {blocks, self: "xingxia", marks, open: "xingxia|panel.存款"}}},
+                {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks}}},
+            ],
+            load: async () => (await import("./EntryTextFixture.vue")).default,
+        }),
+        defineLabFixture<typeof PanelView>({
+            component: "PanelView",
+            scenes: [
+                {id: "sample", label: "选中存款，旁边是流水", input: {props: {cards, selected: "panel.存款", ledger: origins, ledgerRemaining: 12}}},
+                {id: "loading", label: "流水读取中", input: {props: {cards, selected: "panel.魔力", ledger: [], ledgerLoading: true}}},
+                {id: "empty", label: "面板还没有内容", input: {props: {cards: []}}},
+                {id: "sample-english", label: "英文界面", input: {props: {cards, selected: "panel.存款", ledger: origins}}},
+            ],
+            load: async () => (await import("./PanelViewFixture.vue")).default,
+        }),
+        defineLabFixture<typeof PlotList>({
+            component: "PlotList",
+            scenes: [
+                {id: "sample", label: "计划、待定、已撤销与改动", input: {props: {rows: plot, remaining: 8}}},
+                {id: "loading", label: "读取中", input: {props: {rows: [], loading: true}}},
+                {id: "empty", label: "还没有情节", input: {props: {rows: []}}},
+                {id: "sample-english", label: "英文界面", input: {props: {rows: plot}}},
+            ],
+            load: async () => (await import("./PlotListFixture.vue")).default,
+        }),
+        defineLabFixture<typeof EntryPage>({
+            component: "EntryPage",
+            scenes: [
+                {id: "sample", label: "页头与分页", input: page},
+                {id: "same-as", label: "马甲、还没出场、选过的章不在了", input: {props: {...page.props, name: "哥哥", summary: "星瑕扮成的男生", sameAs: {id: "xingxia", name: "星瑕"}, notAppeared: "第 1 章末尾", positionGone: true}, model: {...page.model, position: "1:end"}}},
+                {id: "disconnected", label: "世界已断开", input: {props: {...page.props, disconnected: true}, model: page.model}},
+                {id: "read-only", label: "世界只读", input: {props: {...page.props, readOnly: "不确定世界里写进去了什么，先不能写"}, model: page.model}},
+                {id: "loading", label: "读取中", input: {props: {status: "loading" as const}, model: {position: "", planned: false, tab: ""}}},
+                {id: "failed", label: "读取失败", input: {props: {status: "failed" as const}, model: {position: "", planned: false, tab: ""}}},
+                {id: "missing", label: "找不到", input: {props: {status: "missing" as const}, model: {position: "", planned: false, tab: ""}}},
+                {id: "deleted", label: "已删除", input: {props: {status: "deleted" as const, name: "旧设定"}, model: {position: "", planned: false, tab: ""}}},
+                {id: "sample-english", label: "英文界面", input: page},
+            ],
+            load: async () => (await import("./EntryPageFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ConfirmBar>({
+            component: "ConfirmBar",
+            scenes: [
+                {id: "number", label: "改一个数：预览写回哪里与带来的变化", input: {props: {label: "存款", kind: "number" as const, unit: "元", intents: ["creative" as const, "story" as const], preview: {route: "改第 2 章“领了打工的工资”那一笔", impact: ["少了 1 条待处理", "魔力跟着变成 3,000"]}}, model: {value: "2,800", intent: "creative" as const}}},
+                {id: "accumulated", label: "累出来的数：保存不可用", input: {props: {label: "存款", kind: "number" as const, unit: "元", intents: ["creative" as const, "story" as const], error: "这个数是几笔累出来的：改其中一笔，或者记一笔", locked: true}, model: {value: "500", intent: "creative" as const}}},
+                {id: "text", label: "改文字，只有“改设定”", input: {props: {label: "外观", kind: "text" as const, intents: ["creative" as const], preview: {route: "改初值", impact: ["别的都不变"]}}, model: {value: "银发，左眼下有颗痣", intent: "creative" as const}}},
+                {id: "conflict", label: "这个值刚刚变了", input: {props: {label: "状态", kind: "enum" as const, options: ["入学", "休学", "毕业"], intents: ["creative" as const, "story" as const], preview: {route: "在第 3 章记一条变更", impact: ["别的都不变"]}, error: "这个值刚刚变了"}, model: {value: "休学", intent: "story" as const}}},
+                {id: "unknown", label: "不确定有没有写进去", input: {props: {label: "存款", kind: "number" as const, intents: ["creative" as const], preview: {route: "改初值", impact: []}, error: "不确定这次改动有没有写进去", recheck: true}, model: {value: "800", intent: "creative" as const}}},
+                {id: "number-english", label: "英文界面", input: {props: {label: "Savings", kind: "number" as const, unit: "", intents: ["creative" as const, "story" as const], preview: {route: "Changes the initial value", impact: ["Nothing else changes"]}}, model: {value: "800", intent: "creative" as const}}},
+            ],
+            load: async () => (await import("./ConfirmBarFixture.vue")).default,
+        }),
+        defineLabFixture<typeof RecordForm>({
+            component: "RecordForm",
+            scenes: [
+                {id: "exact", label: "精确档：一句话与变化量", input: {props: {}, model: {text: "领了工资", delta: "+3000"}}},
+                {id: "semantic", label: "语义档：只有一句话", input: {props: {semantic: true}, model: {text: "白灵替她挡了一次", delta: ""}}},
+                {id: "blocked", label: "初值上不能记", input: {props: {blockedReason: "先选一章"}, model: {text: "", delta: ""}}},
+                {id: "failed", label: "上一次没记进去", input: {props: {error: "这个值刚刚变了"}, model: {text: "领了工资", delta: "+3000"}}},
+                {id: "exact-english", label: "英文界面", input: {props: {}, model: {text: "", delta: ""}}},
+            ],
+            load: async () => (await import("./RecordFormFixture.vue")).default,
+        }),
+        defineLabFixture<typeof NoticeBar>({
+            component: "NoticeBar",
+            scenes: [
+                {id: "sample", label: "刚保存了一次就地改", input: {props: {title: "改外观"}}},
+                {id: "long", label: "很长的标题截断", input: {props: {title: "记了一笔：在第三魔法学院门口被一个自称是星瑕远房表哥的人借走了三百块"}}},
+                {id: "sample-english", label: "英文界面", input: {props: {title: "Edit Appearance"}}},
+            ],
+            load: async () => (await import("./NoticeBarFixture.vue")).default,
+        }),
+        defineLabFixture<typeof NewEntryDialog>({
+            component: "NewEntryDialog",
+            scenes: (() => {
+                const draft = {name: "", kind: "", folder: "", folderTouched: false, parent: null as string | null, types: [] as string[], sameAs: null as string | null, appears: null as string | null};
+                const options = {kinds: ["人物", "地点", "组织"], entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], types: [{id: "nbook.canon.person", label: "人物"}, {id: "nbook.canon.panel", label: "面板"}], chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
+                return [
+                    {id: "empty", label: "空的：名字为空时不能新建", input: {props: options, model: {open: true, draft}}},
+                    {id: "filled", label: "在星瑕下面建一个物品，启用面板", input: {props: options, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", folder: "物品", parent: "xingxia", types: ["nbook.canon.panel"]}}}},
+                    {id: "failed", label: "没建成", input: {props: {...options, error: "这次改动没有成功"}, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", folder: "物品"}}}},
+                    {id: "empty-english", label: "英文界面", input: {props: options, model: {open: true, draft}}},
+                ];
+            })(),
+            load: async () => (await import("./NewEntryDialogFixture.vue")).default,
+        }),
+        defineLabFixture<typeof WorldBanners>({
+            component: "WorldBanners",
+            scenes: [
+                {id: "disconnected", label: "世界已断开", input: {props: {disconnected: true}}},
+                {id: "read-only", label: "世界只读", input: {props: {readOnly: "世界只读：日志的版本号重复了"}}},
+                {id: "both", label: "断开又只读", input: {props: {disconnected: true, readOnly: "不确定世界里写进去了什么，先不能写"}}},
+                {id: "disconnected-english", label: "英文界面", input: {props: {disconnected: true}}},
+            ],
+            load: async () => (await import("./WorldBannersFixture.vue")).default,
+        }),
+        defineLabFixture<typeof RevertDialog>({
+            component: "RevertDialog",
+            scenes: [
+                {id: "ready", label: "没有依赖：写带来的变化", input: {props: {title: "改外观", phase: "ready" as const, impact: ["星瑕的外观：银发 → 黑发", "少了 1 条待处理"]}, model: {open: true}}},
+                {id: "dependents", label: "有依赖：列出后面依赖它的改动", input: {props: {title: "领了打工的工资", phase: "dependents" as const, dependents: ["改第 2 章“领了打工的工资”那一笔", "记了一笔：买了书", null], moreDependents: 4}, model: {open: true}}},
+                {id: "previewing", label: "正在预览", input: {props: {title: "改外观", phase: "previewing" as const}, model: {open: true}}},
+                {id: "not-revertable", label: "章序调整不能还原", input: {props: {title: "调整章序", phase: "blocked" as const, reason: "调整章序的改动不能还原"}, model: {open: true}}},
+                {id: "busy", label: "别人正在写", input: {props: {title: "改外观", phase: "ready" as const, impact: ["别的都不变"], reason: "第 3 章记账正在写，写完以后才能改"}, model: {open: true}}},
+                {id: "unknown", label: "不确定有没有还原", input: {props: {title: "改外观", phase: "ready" as const, impact: ["星瑕的外观：银发 → 黑发"], error: "不确定这次改动有没有写进去", recheck: true}, model: {open: true}}},
+                {id: "saving", label: "还原中", input: {props: {title: "改外观", phase: "ready" as const, impact: ["星瑕的外观：银发 → 黑发"], saving: true}, model: {open: true}}},
+                {id: "ready-english", label: "英文界面", input: {props: {title: "Edit Appearance", phase: "ready" as const, impact: ["Xingxia's Appearance: silver → black"]}, model: {open: true}}},
+            ],
+            load: async () => (await import("./RevertDialogFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ReceiptPage>({
+            component: "ReceiptPage",
+            scenes: (() => {
+                const model = {
+                    title: "改存款",
+                    by: "作者",
+                    time: "2026-11-11 14:03",
+                    what: "改设定",
+                    sections: [
+                        {kind: "modify" as const, items: [{key: "1", ref: {kind: "entry" as const, id: "xingxia"}, name: "星瑕", fields: [{label: "存款", before: "500 元", after: "800 元"}, {label: "外观", before: "黑发，左眼下有颗痣", after: "银发，左眼下有颗痣"}]}]},
+                    ],
+                    impact: ["少了 1 条待处理", "星瑕的魔力：2,700 → 3,000"],
+                    reverts: [],
+                };
+                const created = {
+                    ...model,
+                    title: "新建“魔杖”",
+                    sections: [{kind: "create" as const, items: [{key: "1", ref: {kind: "entry" as const, id: "wand"}, name: "魔杖", fields: []}]}],
+                    impact: ["别的都不变"],
+                };
+                const reverted = {
+                    ...model,
+                    title: "还原“改存款”",
+                    what: "还原",
+                    sections: [{kind: "modify" as const, items: [{key: "1", ref: {kind: "entry" as const, id: "xingxia"}, name: "星瑕", fields: [{label: "存款", before: "800 元", after: "500 元"}]}]}, {kind: "delete" as const, items: [{key: "2", ref: null, name: "被扒手偷了", fields: []}]}],
+                    reverts: ["r1"],
+                };
+                const reorder = {...model, title: "调整章序", what: "调整章序", sections: [{kind: "chapters" as const, items: [{key: "1", ref: null, name: "", fields: [{label: "章序", before: "第 1 章：入学、第 2 章：打工", after: "第 2 章：打工、第 1 章：入学"}]}]}], impact: ["别的都不变"]};
+                return [
+                    {id: "edit", label: "改了两个字段", input: {props: {status: "normal" as const, model}}},
+                    {id: "dependents", label: "后面有改动依赖它", input: {props: {status: "normal" as const, model, dependents: 2}}},
+                    {id: "created", label: "新建一个条目", input: {props: {status: "normal" as const, model: created}}},
+                    {id: "reverted", label: "一次还原：还原的是哪一次", input: {props: {status: "normal" as const, model: reverted, reverted: [{id: "r1", title: "改存款"}]}}},
+                    {id: "reorder", label: "章序调整不能还原", input: {props: {status: "normal" as const, model: reorder, revertBlocked: "调整章序的改动不能还原"}}},
+                    {id: "read-only", label: "世界只读", input: {props: {status: "normal" as const, model, readOnly: "世界只读：日志的版本号重复了", revertBlocked: "世界只读：日志的版本号重复了"}}},
+                    {id: "loading", label: "读取中", input: {props: {status: "loading" as const}}},
+                    {id: "missing", label: "找不到", input: {props: {status: "missing" as const}}},
+                    {id: "edit-english", label: "英文界面", input: {props: {status: "normal" as const, model: {...model, title: "Edit Savings", by: "Author", what: "Setting change", sections: [{kind: "modify" as const, items: [{key: "1", ref: {kind: "entry" as const, id: "xingxia"}, name: "Xingxia", fields: [{label: "Savings", before: "500", after: "800"}]}]}], impact: ["Nothing else changes"]}}}},
+                ];
+            })(),
+            load: async () => (await import("./ReceiptPageFixture.vue")).default,
+        }),
+        defineLabFixture<typeof RevisionsView>({
+            component: "RevisionsView",
+            scenes: (() => {
+                const row = (id: string, title: string, meta: string, summary: string, extra: {notRevertable?: boolean; note?: string} = {}) => ({id, title, meta, summary, notRevertable: extra.notRevertable ?? false, note: extra.note ?? ""});
+                const rows = [
+                    row("r7", "改存款", "作者 · 2026-11-13 14:12", "2 处值变了，少了 1 条待处理"),
+                    row("r6", "第 3 章记账", "任务：第 3 章记账 · 2026-11-13 14:08", "4 处值变了，多了 1 条待处理"),
+                    row("r5", "还原“改外观”", "作者 · 2026-11-13 14:05", "1 处值变了"),
+                    row("r4", "改外观", "作者 · 2026-11-13 14:03", "1 处值变了", {note: "后面有 1 次改动依赖它"}),
+                    row("r3", "补上星瑕领工资的那一笔", "Agent · 2026-11-13 13:58", "1 处值变了，1 条情节套不上了"),
+                    row("r2", "新建“星瑕”", "作者 · 2026-11-13 13:50", "没有带来别的变化", {note: "后面有 4 次改动依赖它"}),
+                    row("r1", "章序调整", "系统 · 2026-11-13 13:49", "没有带来别的变化", {notRevertable: true, note: "调整章序的改动不能还原"}),
+                ];
+                const chapters = [{value: "all", label: "全部章"}, {value: "1", label: "第 1 章：入学"}, {value: "2", label: "第 2 章：打工"}, {value: "3", label: "第 3 章"}];
+                const writers = [{value: "all", label: "全部写入者"}, {value: "author", label: "作者"}, {value: "agent", label: "Agent"}, {value: "task", label: "任务"}, {value: "system", label: "系统"}];
+                const model = {chapter: "all", writer: "all"};
+                const sample = {props: {status: "normal" as const, rows, more: true, chapters, writers}, model};
+                const busy = "第 3 章记账正在写，写完以后才能改";
+                const readOnly = "世界只读：日志的版本号重复了";
+                return [
+                    {id: "sample", label: "七次修订：有依赖的、章序调整、还有更多", input: sample},
+                    {id: "current", label: "键盘停在第四行", input: {props: {...sample.props, more: false}, model: {...model, current: "r4"}}},
+                    {id: "long-title", label: "很长的标题", input: {props: {...sample.props, more: false, rows: [row("r9", "把第 3 章到第 9 章里所有提到星瑕存款的地方按新的工资标准重新记一遍账", "Agent · 2026-11-13 15:01", "12 处值变了，少了 3 条待处理，2 条情节套不上了"), ...rows.slice(0, 2)]}, model}},
+                    {id: "busy", label: "别人正在独占写", input: {props: {...sample.props, revertBlocked: busy}, model}},
+                    {id: "read-only", label: "世界只读", input: {props: {...sample.props, revertBlocked: readOnly, readOnly}, model}},
+                    {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, revertBlocked: "世界已断开", disconnected: true}, model}},
+                    {id: "loading", label: "读取中", input: {props: {status: "loading" as const, rows: [], chapters, writers}, model}},
+                    {id: "failed", label: "没有读出来", input: {props: {status: "failed" as const, rows: [], chapters, writers}, model}},
+                    {id: "empty", label: "还没有改动", input: {props: {status: "normal" as const, rows: [], chapters, writers}, model}},
+                    {id: "empty-filtered", label: "没有符合筛选的", input: {props: {status: "normal" as const, rows: [], chapters, writers}, model: {chapter: "3", writer: "agent"}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {...sample.props, more: false, chapters: [{value: "all", label: "All chapters"}], writers: [{value: "all", label: "All writers"}], rows: [row("e2", "Edit Savings", "Author · 2026-11-13 14:12", "2 values changed, 1 fewer pending"), row("e1", "Chapter reorder", "System · 2026-11-13 13:49", "Nothing else changed", {notRevertable: true, note: "Chapter reorders cannot be reverted"})]}, model}},
+                ];
+            })(),
+            load: async () => (await import("./RevisionsViewFixture.vue")).default,
+        }),
+        ...(() => {
+            const rows = (items: readonly [string, string, string][]) => items.map(([key, text, place]) => ({key, text, place}));
+            const group = (items: readonly [string, string, string][], extra: {count?: number | null; loading?: boolean; more?: boolean} = {}) => ({rows: rows(items), count: extra.count === undefined ? items.length : extra.count, loading: extra.loading ?? false, more: extra.more ?? false});
+            const groups = {
+                pending: group([
+                    ["check", "星瑕的存款对不上：正文写 2,700，算出来是 24,500", "第 2 章"],
+                    ["held", "“订了星瑾小时候最喜欢的那家店”待定", "第 2 章"],
+                    ["chain", "传话链断了", "第 3 章第 4 段"],
+                ]),
+                hints: group([["dup", "“领了工资”的原句在这一章出现了 2 次", "第 1 章"]]),
+                handled: group([], {count: 2}),
+            };
+            const detail = {
+                title: "星瑕的存款对不上：正文写 2,700，算出来是 24,500",
+                place: "第 2 章",
+                quote: {text: "她看了一眼余额：2700。", chapter: "2"},
+                facts: [{label: "正文写的数", value: "2,700"}, {label: "算出来的数", value: "24,500"}],
+                suspects: [
+                    {key: "c3", text: "工资到账，三千左右", place: "第 2 章", estimate: true, target: {kind: "change" as const, id: "c3"}, initial: false},
+                    {key: "c2", text: "订了星瑾小时候最喜欢的那家店", place: "第 2 章", estimate: false, target: {kind: "change" as const, id: "c2"}, initial: false},
+                    {key: "init", text: "初值", place: "", estimate: false, target: {kind: "entry" as const, id: "xingxia"}, initial: true},
+                ],
+                links: [{label: "打开条目", target: {kind: "entry" as const, id: "xingxia"}}],
+            };
+            const held = {title: "“订了星瑾小时候最喜欢的那家店”待定", place: "第 2 章", quote: {text: "她订了那家店。", chapter: "2"}, facts: [{label: "原因", value: "与设定冲突：存款不够"}], suspects: [], links: [{label: "打开这条情节", target: {kind: "change" as const, id: "c2"}}]};
+            const handled = {title: "传话链断了", place: "第 3 章第 4 段", quote: null, facts: [{label: "作者当时的决定", value: "有意为之：她是故意不传话的"}], suspects: [], links: [{label: "星瑕", target: {kind: "entry" as const, id: "xingxia"}}, {label: "“她没把话带到”", target: {kind: "change" as const, id: "c5"}}]};
+            const sample = {props: {groups, selected: {group: "pending" as const, key: "check"}, detail}, model: {expanded: ["pending" as const]}};
+            return [
+                defineLabFixture<typeof PendingView>({
+                    component: "PendingView",
+                    scenes: [
+                        {id: "sample", label: "核对点不符：详情有原句、两个数与嫌疑", input: sample},
+                        {id: "all-groups", label: "三组都展开", input: {props: {...sample.props, groups: {...groups, handled: group([["chain-old", "传话链断了", "第 1 章"], ["chain-2", "传话链断了", "第 2 章"]])}}, model: {expanded: ["pending" as const, "hints" as const, "handled" as const]}}},
+                        {id: "busy", label: "别人正在独占写入、结果不完整", input: {props: {...sample.props, holder: "第 3 章记账", notes: ["这些检查没有算出来：传话链断了", "这些检查所在的插件停用了，没有算：插件的一项检查"]}, model: sample.model}},
+                        {id: "no-selection", label: "没有选中", input: {props: {groups}, model: sample.model}},
+                        {id: "more-and-hints", label: "一组没列完、“只是提示”展开有项", input: {props: {...sample.props, groups: {...groups, pending: {...groups.pending, more: true}}}, model: {expanded: ["pending" as const, "hints" as const]}}},
+                        {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, disconnected: true}, model: sample.model}},
+                        {id: "loading", label: "读取中", input: {props: {groups: {pending: group([], {count: null, loading: true}), hints: group([], {count: null}), handled: group([], {count: null})}}, model: sample.model}},
+                        {id: "empty", label: "没有待处理的问题", input: {props: {groups: {pending: group([]), hints: group([]), handled: group([])}}, model: sample.model}},
+                        {id: "read-only", label: "世界只读", input: {props: {...sample.props, readOnly: "世界只读：日志的版本号重复了"}, model: sample.model}},
+                        {id: "sample-english", label: "英文界面", input: {props: {groups: {pending: group([["check", "Xingxia's Savings does not match: the text says 2,700, computed 24,500", "Chapter 2"]]), hints: group([]), handled: group([])}, selected: {group: "pending" as const, key: "check"}, detail: {...detail, title: "Xingxia's Savings does not match: the text says 2,700, computed 24,500", place: "Chapter 2", facts: [{label: "In the text", value: "2,700"}, {label: "Computed", value: "24,500"}], suspects: [{...detail.suspects[0]!, text: "Salary arrived, about three thousand", place: "Chapter 2"}], links: [{label: "Open entry", target: {kind: "entry" as const, id: "xingxia"}}]}}, model: sample.model}},
+                    ],
+                    load: async () => (await import("./PendingViewFixture.vue")).default,
+                }),
+                defineLabFixture<typeof PendingDetail>({
+                    component: "PendingDetail",
+                    scenes: [
+                        {id: "check-mismatch", label: "核对点不符", input: {props: {detail}}},
+                        {id: "held", label: "待定的情节", input: {props: {detail: held}}},
+                        {id: "handled", label: "已处理的插件发现", input: {props: {detail: handled}}},
+                        {id: "long-text", label: "很长的原句与链接", input: {props: {detail: {
+                            title: "“她在第三章末尾把这些年攒下的钱全部取出来交给了哥哥让他去还清赌债”套不上了",
+                            place: "第 3 章",
+                            quote: {text: "她把卡里的钱一笔一笔转给哥哥，转到最后余额只剩下一个零头，她盯着那个零头看了很久很久，才想起来今天还没吃饭。", chapter: "3"},
+                            facts: [{label: "原因", value: "改完的数超出了范围"}, {label: "让它套不上的那次改动", value: "“把第 3 章到第 9 章里所有提到星瑕存款的地方按新的工资标准重新记一遍账”"}],
+                            suspects: [],
+                            links: [{label: "打开这条情节", target: {kind: "change" as const, id: "c9"}}, {label: "“她在第三章末尾把这些年攒下的钱全部取出来交给了哥哥让他去还清赌债”", target: {kind: "change" as const, id: "c8"}}, {label: "看那次改动的回执", target: {kind: "receipt" as const, id: "r7"}}],
+                        }}}},
+                    ],
+                    load: async () => (await import("./PendingDetailFixture.vue")).default,
+                }),
+                defineLabFixture<typeof BreakExclusiveDialog>({
+                    component: "BreakExclusiveDialog",
+                    scenes: [
+                        {id: "confirm", label: "二次确认", input: {props: {holder: "第 3 章记账"}, model: {open: true}}},
+                        {id: "saving", label: "解除中", input: {props: {holder: "第 3 章记账", saving: true}, model: {open: true}}},
+                        {id: "failed", label: "没有解除", input: {props: {holder: "第 3 章记账", error: "世界已断开"}, model: {open: true}}},
+                    ],
+                    load: async () => (await import("./BreakExclusiveDialogFixture.vue")).default,
+                }),
+            ];
+        })(),
+        defineLabFixture<typeof ChangePage>({
+            component: "ChangePage",
+            scenes: (() => {
+                const model = {
+                    text: "被扒手偷了",
+                    place: "第 3 章",
+                    kind: "已写",
+                    status: "active" as const,
+                    statusText: "生效",
+                    heldReason: "",
+                    undoneReason: "",
+                    quotes: [{key: "t1", quote: "她摸了摸口袋，钱包不见了", source: "第 3 章正文", chapter: "3"}, {key: "t2", quote: "被偷了大概三百", source: "细纲", chapter: null}],
+                    involved: [{id: "xingxia", name: "星瑕"}, {id: "pickpocket", name: "扒手"}],
+                    patches: [
+                        {index: 0, line: "星瑕的存款 −300", basis: {text: "估计：大概三百", estimate: true}, editable: true, label: "星瑕的存款"},
+                        {index: 1, line: "星瑕的样子 → 狼狈", editable: false, label: "星瑕的样子"},
+                    ],
+                };
+                const held = {...model, status: "held" as const, statusText: "待定", heldReason: "待定：与设定冲突。第 2 章末尾的存款是 2,700，扣 300 以后和第 3 章正文写的 2,800 对不上"};
+                return [
+                    {id: "active", label: "生效的一条：原句、涉及的条目、改动", input: {props: {status: "normal" as const, model}}},
+                    {id: "active-editing", label: "改那一笔：确认条在顶上", input: {props: {status: "normal" as const, model}}},
+                    {id: "held", label: "待定：写原因与“改成生效”", input: {props: {status: "normal" as const, model: held}}},
+                    {id: "activating", label: "改成生效：预览", input: {props: {status: "normal" as const, model: held, activation: {preview: ["少了 1 条待处理", "星瑕的存款：2,700 → 2,400"], previewing: false, error: "", recheck: false, saving: false, locked: false}}}},
+                    {id: "activation-invalid", label: "改成生效：校验不过", input: {props: {status: "normal" as const, model: held, activation: {preview: null, previewing: false, error: "没有通过检查：quote does not contain 300", recheck: false, saving: false, locked: true}}}},
+                    {id: "blocked", label: "写不了：“改”不可用，章节文件没找到", input: {props: {status: "normal" as const, model, blocked: "第 3 章记账正在写，写完以后才能改", chapterMissing: "3"}}},
+                    {id: "missing", label: "找不到", input: {props: {status: "missing" as const}}},
+                    {id: "active-english", label: "英文界面", input: {props: {status: "normal" as const, model: {...model, text: "Pickpocketed", place: "Chapter 3", kind: "written", statusText: "in effect", quotes: [{key: "t1", quote: "Her wallet was gone", source: "Chapter 3 text", chapter: "3"}], involved: [{id: "xingxia", name: "Xingxia"}], patches: [{index: 0, line: "Xingxia's Savings −300", basis: {text: "estimate: about 300", estimate: true}, editable: true, label: "Xingxia's Savings"}]}}}},
+                ];
+            })(),
+            load: async () => (await import("./ChangePageFixture.vue")).default,
+        }),
+    ];
 }

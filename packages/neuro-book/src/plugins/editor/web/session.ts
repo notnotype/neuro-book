@@ -16,7 +16,7 @@ import {createEditorArea} from "./area";
 import type {EditorArea} from "./area";
 import type {AutoSaveSettings} from "./auto-save";
 import type {EditorCatalog} from "./editors";
-import type {TabsSnapshot} from "./groups/groups";
+import type {PageTab, TabsSnapshot} from "./groups/groups";
 import type {EditorRecentStore} from "./recent-record";
 import type {EditorTabsStore} from "./tabs-record";
 
@@ -39,6 +39,8 @@ export interface EditorSessionOptions {
     readonly enablePreview?: () => boolean;
     /** 自动保存的设置，响应式读取（见 `EditorAreaOptions.autoSave`）。 */
     readonly autoSave?: () => AutoSaveSettings;
+    /** 页面标签此刻有没有面包屑（见 `EditorAreaOptions.pageHasBreadcrumbs`）。 */
+    readonly pageHasBreadcrumbs?: (tab: PageTab) => boolean;
 }
 
 export interface EditorSession {
@@ -82,6 +84,7 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
             ...(options.conflict === undefined ? {} : {conflict: options.conflict}),
             ...(options.enablePreview === undefined ? {} : {enablePreview: options.enablePreview}),
             ...(options.autoSave === undefined ? {} : {autoSave: options.autoSave}),
+            ...(options.pageHasBreadcrumbs === undefined ? {} : {pageHasBreadcrumbs: options.pageHasBreadcrumbs}),
         });
     };
 

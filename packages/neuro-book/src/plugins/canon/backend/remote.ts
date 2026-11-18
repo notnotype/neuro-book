@@ -24,6 +24,21 @@ type Failure = {readonly ok: false; readonly code: "canon"; readonly detail: Can
 
 const fail = (failure: CanonFailure): Failure => ({ok: false, code: "canon", detail: failure});
 
+/**
+ * 就地改与它的预览的失败。`accumulated-value` 在内核里带着整份来历（常出场的数值字段有几千步、几百 KB），预览又是确认条
+ * 一打开就调的：链路上只带步数，调用方要看来历用分页的 `origins`。
+ */
+function editFailure(failure: CanonFailure): Failure {
+    if (failure.code !== "accumulated-value" || !Array.isArray(failure.origins)) return fail(failure);
+    const {origins, ...rest} = failure;
+    return fail({...rest, steps: origins.length});
+}
+
+/** 就地改、记一笔的写入结果：成功同 `published`，失败经 `editFailure`。 */
+function edited(result: Parameters<typeof published>[0]): ReturnType<typeof published> {
+    return result.ok ? published(result) : editFailure(result.failure as CanonFailure);
+}
+
 /** 写入结果去掉内存里的世界。 */
 function published(result: {readonly ok: boolean; readonly failure?: unknown; readonly revision?: {readonly id: string; readonly version: number}; readonly ids?: Readonly<Record<string, string>>; readonly repeated?: boolean; readonly laterRecords?: readonly string[]}): {readonly ok: true; readonly value: Published} | Failure {
     if (!result.ok) return fail(result.failure as CanonFailure);
@@ -83,9 +98,10 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             status: () => withWorld((service) => ({ok: true as const, value: service.status()})),
             entry: (input) => withWorld((service) => {
                 if (input.view !== undefined) return read(service.viewed(own(input.view)).entry(input.id, input.position, input.mode));
-                return read(service.entry(input.id, position(service, input.position), input.mode, input.withOrigins === true));
+                return read(service.entry(input.id, position(service, input.position), input.mode, input.withOrigins === true, input.withChangedAt === true));
             }),
-            tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => service.tree(input.parent, input.cursor, limit))),
+            tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => (input.position === undefined ? service.tree(input.parent, input.cursor, limit) : service.tree(input.parent, input.cursor, limit, {position: input.position, mode: input.mode ?? "actual"})))),
+            origins: (input) => withWorld((service) => denied(service, input.view, "origins") ?? paged(input.limit, (limit) => service.origins(input.at, position(service, input.position), input.mode, input.cursor, limit), 20)),
             lookup: (input) => withWorld((service) => read(input.view === undefined ? service.lookup(input.names, position(service, input.position)) : service.viewed(own(input.view)).lookup(input.names, input.position))),
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.changes(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).changes(input.filter ?? {}, input.cursor, limit)))),
             time: (input) => withWorld((service) => {
@@ -103,6 +119,9 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             decisions: (input) => withWorld((service) => denied(service, input.view, "decisions") ?? paged(input.limit, (limit) => service.decisions({...(input.status === undefined ? {} : {status: input.status}), ...(input.about === undefined ? {} : {about: input.about})}, input.cursor, limit))),
             suggestions: (input) => withWorld((service) => denied(service, input.view, "suggestions") ?? paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),
             revisions: (input) => withWorld((service) => denied(service, input.view, "revisions") ?? paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit), 20)),
+            revision: (input) => withWorld((service) => denied(service, input.view, "revision") ?? within(service.revision(input.id))),
+            chapters: (input) => withWorld((service) => read(input.view === undefined ? service.chapters() : service.viewed(own(input.view)).chapters())),
+            components: () => withWorld((service) => within(service.components())),
             render: (input) => withWorld((service) => read(input.view === undefined ? service.render(input.entry, position(service, input.position), input.mode, input.audience) : service.viewed(own(input.view)).render(input.entry, input.position, input.mode, input.audience))),
             preview: (input) => withWorld((service) => {
                 const refused = denied(service, input.view, "preview");
@@ -120,8 +139,15 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
                 return "code" in result ? fail(result) : {ok: true as const, value: result};
             }),
             publish: (input) => withWorld(async (service) => denied(service, input.view, "publish") ?? published(await service.publish(input.request, input.token))),
-            editInPlace: ({token, view, ...edit}) => withWorld(async (service) => denied(service, view, "editInPlace") ?? published(await service.editInPlace(edit, token))),
-            recordDelta: ({token, view, ...delta}) => withWorld(async (service) => denied(service, view, "recordDelta") ?? published(await service.recordDelta(delta, token))),
+            editInPlace: ({token, view, ...edit}) => withWorld(async (service) => denied(service, view, "editInPlace") ?? edited(await service.editInPlace(edit, token))),
+            recordDelta: ({token, view, ...delta}) => withWorld(async (service) => denied(service, view, "recordDelta") ?? edited(await service.recordDelta(delta, token))),
+            recordNote: ({token, view, ...note}) => withWorld(async (service) => denied(service, view, "recordNote") ?? edited(await service.recordNote(note, token))),
+            previewEdit: (input) => withWorld((service) => {
+                const refused = denied(service, input.view, "previewEdit");
+                if (refused !== null) return refused;
+                const result = service.previewEdit(input.input);
+                return result.ok ? within({route: result.route, revision: result.revision, ids: result.ids, laterRecords: result.laterRecords}) : editFailure(result.failure as CanonFailure);
+            }),
             writeBack: ({token, view, ...input}) => withWorld(async (service) => denied(service, view, "writeBack") ?? published(await service.writeBack(input, token))),
             revert: ({token, view, revision, withDependents, ...meta}) => withWorld(async (service) => denied(service, view, "revert") ?? published(await service.revert(revision, withDependents, meta, token))),
             openView: (input) => withWorld((service) => {
@@ -161,6 +187,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             exclusive: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "exclusive" && sink.next({holder: event.holder})))},
             reduced: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "reduced" && sink.next({})))},
             textChanged: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "textChanged" && sink.next(event.chapter === null || event.chapter === undefined ? {} : {chapter: event.chapter})))},
+            inputChanged: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "inputChanged" && sink.next({what: event.what})))},
             lease: {
                 subscribe: (filter, sink, {signal}) => void forward(host, signal, (service) => {
                     // 订阅开始算一次续期；令牌已经不是当前的独占（过期、被解除）时推 ended，之后不会再有推送。

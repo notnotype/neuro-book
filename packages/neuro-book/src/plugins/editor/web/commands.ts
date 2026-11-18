@@ -13,7 +13,7 @@ import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
 
-import {OPEN_PAGE_COMMAND} from "../shared/contracts";
+import {OPEN_PAGE_COMMAND, PAGE_ARG_MAX_LENGTH} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import type {ActionResult, BatchCloseResult, EditorArea} from "./area";
 import type {EditorTab} from "./groups/groups";
@@ -63,7 +63,8 @@ const OPEN_ARGS = Type.Object({
     group: Type.Optional(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 
-const OPEN_PAGE_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
+/** `arg`：带参数的页面（声明了 `instances`）必须给，别的页面不能给；长度在这里查，要不要给在执行时对着声明查。 */
+const OPEN_PAGE_ARGS = Type.Object({id: Type.String({minLength: 1}), arg: Type.Optional(Type.String({minLength: 1, maxLength: PAGE_ARG_MAX_LENGTH}))}, {additionalProperties: false});
 /** 作用于哪个标签：标签的右键菜单给被右击的那个（docs/specs/workbench/editor.md 输出 57），缺省活动组的活动标签。 */
 const TAB_ARGS = Type.Object({tabId: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
 
@@ -108,7 +109,7 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommand
     [OPEN_PREVIEW_COMMAND]: {category: EDITOR, description: "Open the preview of the active file (for example an HTML page) in the active group, or with side true in the group to the right.", args: OPEN_PREVIEW_ARGS, effect: "read", when: when("hasPreview"), expose: {agent: "auto"}},
     [CHANGE_LANGUAGE_COMMAND]: {category: EDITOR, description: "Change the language (syntax highlighting and editing rules) of the active source editor, given by language id; without a language, pick one from the registered languages. The choice is remembered on the tab.", args: CHANGE_LANGUAGE_ARGS, effect: "read", when: when("hasLanguage"), expose: {agent: "auto"}},
     // 只移动键盘焦点：Agent 不需要。
-    [FOCUS_BREADCRUMBS_COMMAND]: {category: EDITOR, description: "Move keyboard focus to the breadcrumbs of the active editor group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
+    [FOCUS_BREADCRUMBS_COMMAND]: {category: EDITOR, description: "Move keyboard focus to the breadcrumbs of the active editor group.", args: NO_ARGS, effect: "read", when: when("breadcrumbs"), expose: {agent: "never"}},
     [FOCUS_COMMAND]: {category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [UNDO_COMMAND]: {category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
     [REDO_COMMAND]: {category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
@@ -117,6 +118,8 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommand
 };
 
 const unavailable = (reason: DisplayText): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
+/** 参数的形状对、对着此刻的声明不对（例如给不带参数的页面带了参数）。 */
+const invalidArgs = (reason: DisplayText): CommandResult<unknown> => ({ok: false, code: "invalid-args", reason});
 /** 把文件标签的路径写进剪贴板（docs/specs/workbench/editor.md 输出 57）：绝对路径取自 Files 的 `realPath`，相对路径是相对所在根的路径。 */
 export async function copyTabPath(sources: Pick<EditorCommandSources, "files" | "clipboard">, tab: EditorTab, relative: boolean): Promise<ActionResult> {
     if (tab.kind === "page") return {ok: false, reason: editorText("refusal.pageNoPath")};
@@ -139,7 +142,7 @@ const fromAction = (result: ActionResult): CommandResult<unknown> => (result.ok 
 const fromBatch = (result: BatchCloseResult): CommandResult<unknown> => (result.ok ? {ok: true, value: {closed: result.closed}} : unavailable(result.reason));
 
 export interface EditorCommandSources {
-    readonly pages: Pick<EditorPageRegistry, "available">;
+    readonly pages: Pick<EditorPageRegistry, "available" | "declaration">;
     readonly editors: EditorCatalog;
     /** 已登记的语言（输出 43）。 */
     readonly languages: Pick<LanguageRegistry, "has" | "list" | "name">;
@@ -187,9 +190,11 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             return fromAction(current.open(address, {mode, ...(editor === undefined ? {} : {editor}), ...(reveal === undefined ? {} : {reveal}), ...(group === undefined ? {} : {group})}));
         }),
         [OPEN_PAGE_COMMAND]: run((current, args) => {
-            const {id} = args as Static<typeof OPEN_PAGE_ARGS>;
+            const {id, arg} = args as Static<typeof OPEN_PAGE_ARGS>;
             if (!pages.available(id)) return unavailable(editorText("refusal.noPage", {id}));
-            return fromAction(current.openPage(id));
+            const declaration = pages.declaration(id);
+            if ((declaration?.instances === true) !== (arg !== undefined)) return invalidArgs(editorText(arg === undefined ? "refusal.pageArgRequired" : "refusal.pageArgUnexpected", {id}));
+            return fromAction(current.openPage(id, {...(arg === undefined ? {} : {arg}), restore: declaration?.restore === true}));
         }),
         [SAVE_COMMAND]: run(async (current) => fromAction(await current.save())),
         [SAVE_ALL_COMMAND]: run(async (current) => fromAction(await current.saveAll())),

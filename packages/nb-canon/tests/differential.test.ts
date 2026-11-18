@@ -10,7 +10,7 @@ import {describe, expect, test} from "bun:test";
 
 import {allPositions, buildRegistry, ChapterOrder, type Check, type ComponentDeclaration, type Entry, type Patch, type Placement, type ReadPosition, type StoryChange} from "../src/index";
 import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "../src/engine/incremental";
-import {createReferenceEngine} from "../src/engine/reference";
+import {createReferenceEngine, originsPageOf} from "../src/engine/reference";
 import {carryPatch} from "../src/model/apply";
 import type {Engine, EngineInputs, WorldData} from "../src/engine/types";
 import {PANEL, PERSON} from "./fixtures/world";
@@ -256,12 +256,37 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
         for (const position of positions) {
             for (const mode of ["actual", "planned"] as const) {
                 expect(inc.entry(id, position, mode), `${where()} entry ${id} ${JSON.stringify(position)} ${mode}`).toEqual(ref.entry(id, position, mode));
+                expect(inc.lastTouched(id, position, mode), `${where()} lastTouched ${id} ${JSON.stringify(position)} ${mode}`).toEqual(ref.lastTouched(id, position, mode));
+            }
+        }
+        // canon.project 输出 32：最近一次定下字段的那一步，就是来历里最后一步剧情变更或给起点的核对点。
+        for (const path of ["panel.存款", "character.态度"]) {
+            for (const position of positions.filter((_, index) => index % 3 === 0)) {
+                const steps = ref.origins({entry: id, path}, position, "actual");
+                const touched = inc.lastTouched(id, position, "actual");
+                if (steps === "chapter-not-found" || touched === "chapter-not-found") {
+                    expect(touched).toBe(steps as "chapter-not-found");
+                    continue;
+                }
+                const last = steps.filter((step) => step.kind === "patch" || (step.kind === "check" && step.result === "anchor")).at(-1);
+                expect(touched[path], `${where()} lastTouched 对来历 ${id} ${path} ${JSON.stringify(position)}`).toEqual(last === undefined ? undefined : last.kind === "patch" ? {kind: "patch", change: last.change} : {kind: "check", check: (last as {check: string}).check});
             }
         }
         // 列表元素子字段的来历（事件与归纳键）也比，两种模式都比；只取前三个条目的那一行，全比会让每个种子慢几倍。
         for (const path of ["panel.存款", "character.态度", ...[...inputs.world.entries.keys()].slice(0, 3).map((other) => `know.认得[${other}].看法`)]) {
             for (const position of positions.filter((_, index) => index % 3 === 0)) {
                 for (const mode of ["actual", "planned"] as const) expect(inc.origins({entry: id, path}, position, mode), `${where()} origins ${id} ${path} ${mode}`).toEqual(ref.origins({entry: id, path}, position, mode));
+            }
+        }
+        // 来历的一页（增量引擎只数步、只为这一页取值）：第一页、中间的窄窗口、超出总数的偏移。位置取得稀一些：这一组每个种子要
+        // 多算不少来历，深处的窗口与跳快照由下面长时间线的用例覆盖。
+        for (const path of ["panel.存款", "character.态度", `know.认得[${[...inputs.world.entries.keys()][0]!}].看法`]) {
+            for (const position of positions.filter((_, index) => index % 6 === 0)) {
+                for (const mode of ["actual", "planned"] as const) {
+                    // 参照引擎的一页就是整条来历切出来的（`originsPageOf`）：整条只算一次，几个窗口都从它切。
+                    const whole = ref.origins({entry: id, path}, position, mode);
+                    for (const [offset, limit] of [[0, 20], [1, 2], [50, 5]] as const) expect(inc.originsPage({entry: id, path}, position, mode, offset, limit), `${where()} originsPage ${id} ${path} ${mode} ${String(offset)}+${String(limit)}`).toEqual(whole === "chapter-not-found" ? whole : originsPageOf(whole, offset, limit));
+                }
             }
         }
     }
@@ -305,6 +330,37 @@ describe("差分：增量更新与整本重算逐字相同", () => {
             }
         }
     }, 30_000);
+
+    test("来历的一页在几百个事件的长时间线上：稠密与稀疏的地址各翻几页，隔得远时跳到快照取值，结果与参照引擎相同", () => {
+        const sim = new Sim(random(7));
+        for (let n = 0; n < 300; n += 1) {
+            const id = `long${String(n)}`;
+            // 存款每条都改（稠密）；态度每 37 条记一笔、外观每 41 条换一次（稀疏：相邻两步之间隔着几十个事件；外观每次的值不同，
+            // 跳到快照时取错了位置，那一步的结果就会错）；每 50 条里有一条加得太多、套不上。
+            const patches: Patch[] = [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: n % 50 === 49 ? -1_000_000 : 1}];
+            if (n % 37 === 0) patches.push({op: "note", at: {entry: "e1", path: "character.态度"}, value: `第 ${String(n)} 次`});
+            if (n % 41 === 0) patches.push({op: "set", at: {entry: "e1", path: "character.外观"}, value: `第 ${String(n)} 种样子`});
+            sim.changes.set(id, {id, kind: "written", text: "长", at: {kind: "chapter", chapter: sim.chapters[n % sim.chapters.length]!, key: n}, told: [], involves: ["e1"], lines: [], links: [], patches, status: "active", by: {kind: "author"}});
+            sim.createdAt.set(id, ++sim.version);
+        }
+        const inputs = sim.inputs();
+        const inc = createIncrementalEngine(inputs);
+        const ref = createReferenceEngine(inputs);
+        const end: ReadPosition = {kind: "chapter", chapter: sim.chapters.at(-1)!, edge: "end"};
+        const middle: ReadPosition = {kind: "chapter", chapter: sim.chapters[2]!, edge: "start"};
+        for (const path of ["panel.存款", "character.态度", "character.外观"]) {
+            for (const position of [end, middle]) {
+                for (const [offset, limit] of [[0, 20], [20, 20], [3, 7], [0, 1], [1, 3], [280, 20], [400, 5]] as const) {
+                    const page = inc.originsPage({entry: "e1", path}, position, "actual", offset, limit);
+                    expect(page, `${path} ${JSON.stringify(position)} ${String(offset)}+${String(limit)}`).toEqual(ref.originsPage({entry: "e1", path}, position, "actual", offset, limit));
+                }
+            }
+        }
+        const dense = inc.originsPage({entry: "e1", path: "panel.存款"}, end, "actual", 0, 20);
+        const sparse = inc.originsPage({entry: "e1", path: "character.态度"}, end, "actual", 0, 3);
+        if (dense === "chapter-not-found" || sparse === "chapter-not-found") throw new Error("chapter-not-found");
+        expect([dense.total, sparse.total, sparse.steps.length, sparse.reduced?.kind]).toEqual([294, 9, 3, "reduce"]);
+    });
 
     test("序列里套不上的变更足够多（至少 10%），翻转与传染的路径走到了", () => {
         expect(failures.failed / (failures.applied + failures.failed)).toBeGreaterThanOrEqual(0.1);

@@ -4,10 +4,9 @@
  * 待处理与回执和原型算出的相比，只在差异清单（`sample/differences.ts`）里有出入；关掉再打开，结果逐字相同。
  *
  * 原型的写入与结果由 w00039 t29 的 `scripts/xingxia-export.ts` 从 t16 草稿 worktree 导出，存成
- * `sample/xingxia-prototype.json`（草稿从不提交）。
+ * `src/sample/xingxia-prototype.json`（草稿从不提交）。
  */
 
-import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
@@ -15,11 +14,11 @@ import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotyp
 
 import {buildRegistry, type ReadPosition} from "../src/index";
 import {WorldService} from "../src/node/index";
-import {componentDeclarations, type PrototypeSample} from "./sample/convert";
+import {componentDeclarations, loadXingxiaSample, type PrototypeSample} from "../src/sample/index";
 import {DIFFERENCES} from "./sample/differences";
 import {differences, ports, replay} from "./sample/replay";
 
-const sample = JSON.parse(await readFile(join(import.meta.dir, "sample", "xingxia-prototype.json"), "utf8")) as PrototypeSample & {readonly receipts: ReadonlyArray<{readonly id: string; readonly impact: {readonly resolved: readonly string[]; readonly added: readonly string[]; readonly values: ReadonlyArray<{readonly label: string}>}}>};
+const sample = (await loadXingxiaSample()) as PrototypeSample & {readonly receipts: ReadonlyArray<{readonly id: string; readonly impact: {readonly resolved: readonly string[]; readonly added: readonly string[]; readonly values: ReadonlyArray<{readonly label: string}>}}>};
 
 let root = "";
 beforeEach(async () => {

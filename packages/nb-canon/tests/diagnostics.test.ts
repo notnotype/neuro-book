@@ -3,7 +3,7 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
 import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotype/neuro-book-test-support/tmp";
 
-import {buildDiagnosticRegistry, buildRegistry, type Decision, type DiagnosticDeclaration, type Entry, type StoryChangeDraft, type WriteRequest} from "../src/index";
+import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry, type Decision, type DiagnosticDeclaration, type Entry, type StoryChangeDraft, type WriteRequest} from "../src/index";
 import type {Finding, GroupItem, WorldService} from "../src/node/index";
 import {PROJECT, sign, verify} from "./fixtures/authorization";
 import {openTestService} from "./fixtures/service";
@@ -146,6 +146,72 @@ describe("canon.model 输出 34：一次计算的结果怎样处理", () => {
 
 const change = (chapter: string, extra: Partial<StoryChangeDraft> = {}, key = 0): StoryChangeDraft => ({id: "tmp:c", kind: "written", text: "一件事", at: {kind: "chapter", chapter, key}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}, ...extra});
 
+describe("canon.project 方法表 pending：一页带这一页提到的诊断的显示名", () => {
+    test("发现、重复键的提示、没算出、被截断的诊断带声明的 label；别的组里的不带；声明已经不在的（停用）不带", async () => {
+        const [found, quiet, broken, many, twice] = [declaration("found", {label: "传话链断了"}), declaration("quiet", {label: "没有发现"}), declaration("broken", {label: "算不出来"}), declaration("many", {label: "太多了"}), declaration("twice", {level: "hint", label: "报了两次"})];
+        const gone = declaration("gone", {label: "停用的"});
+        const service = await open([found, quiet, broken, many, twice, gone]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {
+            [found.id]: () => [finding("钟")],
+            [quiet.id]: () => [],
+            [broken.id]: () => {
+                throw new Error("坏了");
+            },
+            [many.id]: () => Array.from({length: 1001}, (_, index) => finding(String(index).padStart(4, "0"))),
+            [twice.id]: () => [finding("同一处"), finding("同一处")],
+            [gone.id]: () => [],
+        }});
+        pageOf(service);
+        // 插件不再声明 gone：它成了“因插件停用而未计算”的，声明不在了，没有显示名。
+        await service.setRegistries({diagnostics: registryOf(found, quiet, broken, many, twice)});
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {
+            [found.id]: () => [finding("钟")],
+            [quiet.id]: () => [],
+            [broken.id]: () => {
+                throw new Error("坏了");
+            },
+            [many.id]: () => [finding("一")],
+            [twice.id]: () => [finding("同一处"), finding("同一处")],
+        }});
+        const page = pageOf(service);
+        expect(page.disabled).toEqual([gone.id]);
+        expect(page.labels).toEqual({[broken.id]: "算不出来", [found.id]: "传话链断了", [many.id]: "太多了"});
+        const hints = pageOf(service, {group: "hints"});
+        expect(hints.labels).toEqual({[broken.id]: "算不出来", [twice.id]: "报了两次"});
+    });
+
+    test("待处理级的诊断报了重复键：提示组里只有那条重复键的提示，提示页也带它的显示名", async () => {
+        const twice = declaration("twice", {label: "报了两次"});
+        const service = await open([twice]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[twice.id]: () => [finding("同一处"), finding("同一处")]}});
+        const hints = pageOf(service, {group: "hints"});
+        expect(hints.items.map(describeItem)).toEqual(["diagnostic-duplicate-key"]);
+        expect(hints.labels).toEqual({[twice.id]: "报了两次"});
+    });
+
+    test("只带这一页提到的：分页读时每页只有本页的发现的显示名", async () => {
+        const first = declaration("a-first", {label: "第一个"});
+        const second = declaration("b-second", {label: "第二个"});
+        const service = await open([first, second]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[first.id]: () => [finding("甲")], [second.id]: () => [finding("乙")]}});
+        const one = service.pending({}, undefined, 1);
+        if (typeof one === "string") throw new Error(one);
+        expect(one.items.map(describeItem)).toEqual(["a-first:甲"]);
+        expect(one.labels).toEqual({[first.id]: "第一个"});
+        const two = service.pending({}, one.cursor, 1);
+        if (typeof two === "string") throw new Error(two);
+        expect(two.items.map(describeItem)).toEqual(["b-second:乙"]);
+        expect(two.labels).toEqual({[second.id]: "第二个"});
+    });
+
+    test("截断的诊断在任何一组的页上都带显示名", async () => {
+        const many = declaration("many", {label: "太多了"});
+        const service = await open([many]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[many.id]: () => Array.from({length: 1001}, (_, index) => finding(String(index).padStart(4, "0")))}});
+        expect(pageOf(service, {group: "handled"}).labels).toEqual({[many.id]: "太多了"});
+    });
+});
+
 describe("canon.model 输出 16：三组的全序", () => {
     test("核对点取比较时点排序：挂靠的变更没套上时回到核对点自己的安放，不按挂靠的变更排", async () => {
         const service = await open([]);
@@ -206,5 +272,91 @@ describe("canon.model 输出 36：插件的数据版本是读取输入的一部�
         expect(pageOf(service).inputDigest).not.toBe(first.inputDigest);
         stop();
         expect(pageOf(service).unavailable).toEqual([{diagnostic: data.id, reason: "not-registered"}]);
+    });
+});
+
+describe("canon.project 输出 34：诊断与标注的登记变了，世界版本不动也发 inputChanged", () => {
+    const FLAG = {id: "test.mark.flag", version: 1, label: "旗", attachTo: ["telling" as const], schema: {type: "object", properties: {who: {type: "string"}}}, refs: [{path: "who"}]};
+    const inputs = (service: WorldService): string[] => {
+        const seen: string[] = [];
+        service.subscribe((event) => {
+            if (event.kind === "inputChanged") seen.push(event.what);
+        });
+        return seen;
+    };
+
+    test("计算登记、换数据版本、注销、诊断声明变了、标注种类变了各发一次；原样再给一次、数据版本没变、注销过的再注销都不发", async () => {
+        const data = declaration("data");
+        const service = await open([data]);
+        const version = service.status().version;
+        const seen = inputs(service);
+        const stop = service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[data.id]: () => []}});
+        expect(seen.splice(0)).toEqual(["diagnostics"]);
+        service.reportDataVersion(PLUGIN, "1");
+        expect(seen.splice(0)).toEqual([]);
+        service.reportDataVersion(PLUGIN, "2");
+        expect(seen.splice(0)).toEqual(["diagnostics"]);
+        stop();
+        stop();
+        expect(seen.splice(0)).toEqual(["diagnostics"]);
+
+        await service.setRegistries({diagnostics: registryOf(data)});
+        expect(seen.splice(0)).toEqual([]);
+        // 只改级别、没改版本：读取输入的摘要不变，照样要通知。
+        await service.setRegistries({diagnostics: registryOf({...data, level: "hint"})});
+        expect(seen.splice(0)).toEqual(["diagnostics"]);
+        await service.setRegistries({marks: buildMarkRegistry([{plugin: "test.mark", declaration: FLAG}])});
+        expect(seen.splice(0)).toEqual(["marks"]);
+        await service.setRegistries({marks: buildMarkRegistry([{plugin: "test.mark", declaration: FLAG}])});
+        expect(seen.splice(0)).toEqual([]);
+        expect(service.status().version).toBe(version);
+    });
+
+    test("同一插件以同一数据版本换了一套计算、声明改了级别而没改版本：重读拿到新的分组，之前的游标作废", async () => {
+        const early = declaration("early");
+        const late = declaration("late");
+        const service = await open([early, late]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[late.id]: () => [finding("一"), finding("二")]}});
+        const first = service.pending({}, undefined, 1);
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("no cursor");
+        expect(first.unavailable).toEqual([{diagnostic: early.id, reason: "not-registered"}]);
+
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[early.id]: () => [finding("零")], [late.id]: () => [finding("一"), finding("二")]}});
+        expect(service.pending({}, first.cursor, 1)).toBe("cursor-stale");
+        const again = pageOf(service);
+        expect(again.inputDigest).toBe(first.inputDigest);
+        expect([again.unavailable, again.items.map(describeItem)]).toEqual([[], ["early:零", "late:一", "late:二"]]);
+
+        await service.setRegistries({diagnostics: registryOf(early, {...late, level: "hint"})});
+        expect([pageOf(service).items.map(describeItem), pageOf(service, {group: "hints"}).items.map(describeItem)]).toEqual([["early:零"], ["late:一", "late:二"]]);
+    });
+
+    test("同一批里改了 Component 类型与诊断级别：第一条通知（components）里同步重读，看到的已经是这一批全部生效以后的分组", async () => {
+        const data = declaration("data");
+        const service = await open([data]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[data.id]: () => [finding("一")]}});
+        expect(pageOf(service).items.map(describeItem)).toEqual(["data:一"]);
+        const seen: Array<[string, string[]]> = [];
+        service.subscribe((event) => {
+            if (event.kind === "inputChanged") seen.push([event.what, pageOf(service).items.map(describeItem)]);
+        });
+        await service.setRegistries({registry: buildRegistry([PANEL, {...PERSON, label: "人"}]), diagnostics: registryOf({...data, level: "hint"})});
+        expect(seen).toEqual([["components", []], ["diagnostics", []]]);
+    });
+
+    test("进程重启以后，重启前拿到的 pending 游标得到 cursor-stale（代次每次打开都从头算，游标另带服务实例）", async () => {
+        const data = declaration("data");
+        const register = (service: WorldService) => service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[data.id]: () => [finding("一"), finding("二")]}});
+        const before = await open([data]);
+        register(before);
+        const first = before.pending({}, undefined, 1);
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("no cursor");
+        await before.stop();
+        services = services.filter((service) => service !== before);
+
+        const after = await open([data]);
+        register(after);
+        expect(after.pending({}, undefined, 1)).toMatchObject({inputDigest: first.inputDigest});
+        expect(after.pending({}, first.cursor, 1)).toBe("cursor-stale");
     });
 });

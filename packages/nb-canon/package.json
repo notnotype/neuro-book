@@ -8,7 +8,8 @@
     "exports": {
         ".": "./src/index.ts",
         "./schema": "./src/schema.ts",
-        "./node": "./src/node/index.ts"
+        "./node": "./src/node/index.ts",
+        "./sample": "./src/sample/index.ts"
     },
     "scripts": {
         "test": "bun test",

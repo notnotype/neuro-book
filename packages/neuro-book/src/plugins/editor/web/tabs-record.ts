@@ -12,14 +12,21 @@ import {RESOURCE_PATH_PATTERN} from "nbook/plugins/files/shared/contracts";
 import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import {defineStore} from "nbook/shared/store/store";
 
-import {LANGUAGE_ID_PATTERN} from "../shared/contracts";
+import {LANGUAGE_ID_PATTERN, PAGE_ARG_MAX_LENGTH} from "../shared/contracts";
 import type {TabsSnapshot} from "./groups/groups";
 
 const ADDRESS_PATTERN = `^(?:project|user)://${RESOURCE_PATH_PATTERN.slice(1)}`;
 
 const TabsSchema = Type.Object({
     tabs: Type.Record(Type.String({minLength: 1, maxLength: 64}), Type.Union([
+        // 页面标签（docs/specs/workbench/editor.md 输出 33）：不恢复的只留这个记号；要恢复的另记页面 id、参数与记着的标题。
         Type.Object({page: Type.Literal(true)}, {additionalProperties: false}),
+        Type.Object({
+            page: Type.Literal(true),
+            id: Type.String({pattern: "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"}),
+            arg: Type.Optional(Type.String({minLength: 1, maxLength: PAGE_ARG_MAX_LENGTH})),
+            title: Type.Optional(Type.String({maxLength: 500})),
+        }, {additionalProperties: false}),
         Type.Object({
             address: Type.String({pattern: ADDRESS_PATTERN}),
             editor: Type.String({pattern: "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"}),

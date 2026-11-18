@@ -11,10 +11,10 @@ import {pageIdOf} from "./pages";
 import type {EditorPageSource} from "./pages";
 
 export function tabLabel(area: EditorArea, tab: EditorTab, text: TextResolver, pages: EditorPageSource | null): string {
-    // 页面标签（docs/specs/workbench/editor.md 输出 33）按页面的标题显示；贡献方停了、标题取不到时显示页面 id。
+    // 页面标签（docs/specs/workbench/editor.md 输出 33）按页面的标题显示：页面此刻给的、标签上记着的、声明的，依次取；都没有时显示页面 id。
     if (tab.address === LOST_TAB_ADDRESS) return text.t(editorText("tab.lost"));
     const page = pageIdOf(tab.address);
-    if (page !== null) return pages?.title(page, text) ?? page;
+    if (page !== null) return pages?.title(tab, text) ?? (tab.kind === "page" ? tab.title : undefined) ?? page;
     // 预览视图的标题写“预览 a.html”（输出 47），与同组里这个文件的源码标签分得开。
     const preview = tab.kind === "file" && area.editors.declaration(tab.editor)?.role === "preview";
     return preview ? text.t(editorText("tab.previewOf", {name: nameOf(tab.address)})) : nameOf(tab.address);

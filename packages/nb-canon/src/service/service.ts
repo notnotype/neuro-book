@@ -14,28 +14,31 @@ import {GREGORIAN, resolveFuzzy, validateCalendar, type Calendar, type CalendarP
 
 import {EMPTY_DIAGNOSTIC_REGISTRY, type DiagnosticRegistry} from "../components/diagnostics-registry";
 import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/marks";
-import type {ComponentRegistry} from "../components/registry";
+import {effectiveFields, type ComponentRegistry, type ComponentType} from "../components/registry";
 import {compareIds} from "../core/ids";
-import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
-import type {AuthorSource, Decision, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
+import {ChapterOrder, compareRanks, defaultPosition, placementRank, positionRank} from "../core/position";
+import {parsePath} from "../core/address";
+import type {Address, AuthorSource, Decision, Entry, FieldDeclaration, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
-import type {Mode, PendingItem, PlanProgress, ReductionInput} from "../engine/types";
+import {fieldOf} from "../engine/reference";
+import type {ChangedAt, EntryView, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress, ReductionInput, TouchedBy} from "../engine/types";
 import type {LogFiles} from "../node/files";
 import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type Tail} from "../node/log";
 import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor, type RenderOptions} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
-import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
+import {editInPlace, previewEdit, recordDelta, recordNote, type DeltaRecord, type EditPreview, type EditPreviewInput, type EditResult, type InPlaceEdit, type NoteRecord} from "../world/edits";
 import {marksIn} from "../world/references";
 import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
 import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
-import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositionWithin, tellingWithin, ViewAudit, type ViewedReads, type ViewGrant} from "./views";
+import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositionWithin, tellingWithin, ViewAudit, type ChapterItem, type TreeItem, type TreeItemAt, type TreePage, type ViewedReads, type ViewGrant} from "./views";
 import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
+import type {LineView} from "../lines/set";
 import {lineTable, MAIN_LINE} from "../lines/table";
-import {changeItem, createReadView, lineSummaries, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, tellingInLine, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
+import {changeItem, createReadView, cursorPaging, lineSummaries, originsPageOn, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, tellingInLine, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
 import {World, type ChapterLine, type RevertMeta, type WriteResult} from "../world/world";
@@ -70,7 +73,21 @@ export type ServiceEvent =
     | {readonly kind: "exclusive"; readonly holder: string | null}
     | {readonly kind: "reduced"}
     /** 宿主通知某一章（`null` 是全部）的正文变了，正文快照随之更新，版本不变（project.md 输出 25）。 */
-    | {readonly kind: "textChanged"; readonly chapter: string | null};
+    | {readonly kind: "textChanged"; readonly chapter: string | null}
+    /** 章表、登记的 Component 类型、插件诊断的登记或标注种类变了，而世界版本没有前进（project.md 输出 34）。 */
+    | {readonly kind: "inputChanged"; readonly what: "chapters" | "components" | "diagnostics" | "marks"};
+
+/** 诊断声明的完整内容（按 id 排，含所属插件、版本、级别、显示名、键与输入），比较登记前后是否变了用。 */
+function diagnosticDeclarations(registry: DiagnosticRegistry | undefined): string {
+    const current = registry ?? EMPTY_DIAGNOSTIC_REGISTRY;
+    return stableStringify(current.versions.map(([id]) => current.byId(id)));
+}
+
+/** 可用标注种类（按 id 排：版本、显示名、挂在哪、引用；载荷的校验是函数，比不了），比较登记前后是否变了用。 */
+function markTypes(registry: MarkRegistry | undefined): string {
+    const current = registry ?? EMPTY_MARK_REGISTRY;
+    return stableStringify(current.versions.map(([id]) => current.byKind(id)));
+}
 
 export type {ReadStamp} from "./reads";
 export type {ViewedReads} from "./views";
@@ -127,6 +144,24 @@ interface PendingGroups {
     readonly disabled: readonly string[];
 }
 
+/**
+ * 一页提到的插件诊断的显示名（`PendingPage.labels`）。停用的诊断按定义就是登记里已经没有声明的（见 `#groups` 的 `disabled`），
+ * 拿不到显示名，所以不算在“提到的”里。
+ */
+function diagnosticLabels(registry: DiagnosticRegistry, groups: PendingGroups, items: readonly GroupItem[]): Record<string, string> {
+    const mentioned = new Set([...groups.unavailable.map((item) => item.diagnostic), ...groups.truncated]);
+    for (const item of items) {
+        if (item.kind === "finding") mentioned.add(item.diagnostic);
+        else if (item.kind === "hint" && item.hint.code === "diagnostic-duplicate-key") mentioned.add(item.hint.diagnostic);
+    }
+    const labels: Record<string, string> = {};
+    for (const id of [...mentioned].sort()) {
+        const label = registry.byId(id)?.label;
+        if (label !== undefined) labels[id] = label;
+    }
+    return labels;
+}
+
 /** 世界里的全部讲述，按讲述 id（发现挂在讲述上时找它的发生点）。 */
 function tellingsById(world: World): Map<string, Telling> {
     const found = new Map<string, Telling>();
@@ -170,6 +205,24 @@ function recomputedOn(world: World): number {
     return [...others].reduce((sum, line) => sum + (world.lines.peek(line)?.engine.recomputed ?? 0), world.line().engine.recomputed);
 }
 
+/** 一个地址是不是声明过的（model.md 输出 37）：名字、别名、一句话与主文字的块，或这个条目上有声明的字段、它的元素与子字段。 */
+function addressDeclared(world: World, entry: Entry, address: Address): boolean {
+    const parsed = parsePath(address.path);
+    if (parsed === null) return false;
+    if (parsed.root !== "namespace") return true;
+    const field = fieldOf(world.options.registry, entry, {entry: address.entry, path: `${parsed.namespace}.${parsed.field}`});
+    if (field === undefined) return false;
+    if (parsed.element === undefined) return true;
+    return field.kind === "list" && (parsed.sub === undefined || (field.item ?? []).some((item) => item.id === parsed.sub));
+}
+
+/** 一次修订能不能还原、不能的原因（revisions.md 输出 14）：章序调整不能还原；有后面的修订依赖它时要连同它们一起。 */
+function revertableOf(world: World, revision: string): {readonly ok: true} | {readonly ok: false; readonly reason: "not-revertable"} | {readonly ok: false; readonly reason: "has-dependents"; readonly dependents: readonly string[]} {
+    const set = world.dependents(revision);
+    if (set === "not-revertable") return {ok: false, reason: "not-revertable"};
+    return set.length > 1 ? {ok: false, reason: "has-dependents", dependents: set.slice(1)} : {ok: true};
+}
+
 export class WorldService {
     #world: World;
     #tail: Tail;
@@ -195,10 +248,23 @@ export class WorldService {
     readonly #computers = new Map<string, {readonly token: object; readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}>();
     /** 这个实例里登记过的诊断 id 与插件：插件停用以后，它的诊断列在“因插件停用而未计算的诊断”里（model.md 输出 34）。 */
     readonly #seenDiagnostics = new Map<string, string>();
-    /** 三组的计算结果，按读取输入的摘要、模式与位置；只留最近几份。 */
+    /** 三组的计算结果，按读取输入的摘要、诊断登记的代次、模式与位置；只留最近几份。 */
     readonly #groupsCache = new Map<string, PendingGroups>();
+    /**
+     * 诊断登记的代次：计算登记、注销、换数据版本、诊断声明变了，各加一（`#diagnosticsChanged`）。读取戳只含插件的数据版本与声明的
+     * `[id, 版本]`，同一插件以同一数据版本换了一套计算、声明改了级别而没改版本时戳不变；分组缓存的键与 `pending` 游标的读取参数
+     * 带上它，旧结果与旧游标才会作废（project.md 输出 34）。
+     */
+    #diagnosticsEpoch = 0;
+    /**
+     * 这个服务实例的标识，进 `pending` 游标的读取参数：代次每次打开都从 0 算起，重启前后各登记一次以后代次相同，只靠代次认不出
+     * 旧游标。每次打开都不同，所以进程重启以后旧的 `pending` 游标得到 `cursor-stale`（别的方法的游标照旧按读取输入）。
+     */
+    readonly #instance = globalThis.crypto.randomUUID();
     /** 打开着的视图，按令牌（输出 24）；令牌的寿命由调用方那一层管，它在调用方断开或入口停止时调 `closeView`。 */
     readonly #views = new Map<string, ViewGrant>();
+    /** 宿主给的章标题（输出 28）；只用于章表，不进世界、不影响计算。 */
+    #chapterTitles: ReadonlyMap<string, string> = new Map();
     readonly #viewAudit = new ViewAudit();
     /** 最近几次诊断计算的耗时（project.md 输出 26）。 */
     readonly #timings: {readonly diagnostic: string; readonly ms: number}[] = [];
@@ -228,7 +294,7 @@ export class WorldService {
      * 打开世界（输出 4）；章序与登记的类型由宿主给。打开后章序与记下的不同就发布章序调整（输出 9）。宿主读不出活页夹清单
      * 时给 `invalid`：按日志里最近一次记下的章序计算，不发布章序调整，写诊断（输出 23）。
      */
-    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
+    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>; readonly chapterTitles?: ReadonlyMap<string, string>; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
         const started = performance.now();
         const opened = await openLog(ports.files, ports.logDir, {lock: ports.lock, sideDir: ports.sideDir, now: ports.now});
         if ("code" in opened) return opened;
@@ -256,7 +322,7 @@ export class WorldService {
         service = new WorldService(ports, world, opened.tail, readOnly, diagnostics, reductions);
         service.#syncTexts(chapters);
         service.#noteDiagnostics(initial.diagnostics);
-        await service.setChapters(initial.chapters, initial.chapterLines);
+        await service.setChapters(initial.chapters, initial.chapterLines, initial.chapterTitles);
         service.#work.open = {recomputed: recomputedOn(service.#world), ms: performance.now() - started};
         return service;
     }
@@ -321,8 +387,116 @@ export class WorldService {
         return found;
     }
 
-    entry(id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
-        return this.#entryOn(this.#world, id, position, mode, withOrigins);
+    /**
+     * 条目在这个位置的样子，另带上级链、本体与分组（输出 33）；`withChangedAt` 时每个字段状态带最近一次改动（输出 32）。
+     * 带视图令牌的读取不走这里（`#viewedOn`），所以拿不到这几项：上级与本体会说出马甲是谁。
+     */
+    entry(id: string, position: ReadPosition, mode: Mode, withOrigins = false, withChangedAt = false) {
+        const world = this.#world;
+        const read = this.#entryOn(world, id, position, mode, withOrigins);
+        if (typeof read === "string" || read.view === null) return read;
+        const line = world.lineAt(position, mode)!;
+        const named = (other: string): {readonly id: string; readonly name: string} => {
+            const view = line.engine.entry(other, position, mode);
+            return {id: other, name: (view === null || view === "chapter-not-found" ? undefined : view.name) ?? world.data.entries.get(other)?.init.name ?? ""};
+        };
+        const stored = world.data.entries.get(id)!;
+        const ancestors: {readonly id: string; readonly name: string}[] = [];
+        // 上级链从直接上级往上走；写入校验不让它成环，`seen` 只防坏数据把读取卡死。
+        const seen = new Set([id]);
+        for (let up = stored.parent; up !== null && !seen.has(up) && world.data.entries.has(up); up = world.data.entries.get(up)!.parent) {
+            seen.add(up);
+            ancestors.unshift(named(up));
+        }
+        const view = withChangedAt ? this.#withChangedAt(world, line, read.view, position, mode) : read.view;
+        // 每个命名空间生效的字段声明（components.md 输出 21）：类型固定的加条目上实例声明的。面板这类只有实例字段的类型，
+        // 字段的种类与单位只在这里拿得到。
+        const declarations: Record<string, readonly FieldDeclaration[]> = {};
+        for (const namespace of Object.keys(view.namespaces)) {
+            const type = world.options.registry.byNamespace(namespace);
+            if (type !== undefined) declarations[namespace] = effectiveFields(type, stored.init.data[namespace]?.declared);
+        }
+        return {...read, view, ancestors, sameAs: stored.sameAs === undefined ? null : named(stored.sameAs), folder: stored.folder, declarations};
+    }
+
+    /** 给每个字段状态补上最近一次改动（输出 32）。引擎给的视图可能与它的快照共用对象，这里只新建要改的那几层。 */
+    #withChangedAt(world: World, line: LineView, view: EntryView, position: ReadPosition, mode: Mode): EntryView {
+        const touched = line.engine.lastTouched(view.id, position, mode);
+        if (touched === "chapter-not-found") return view;
+        const namespaces: Record<string, NamespaceView> = {};
+        for (const [namespace, data] of Object.entries(view.namespaces)) {
+            const fields: Record<string, FieldState> = {};
+            for (const [field, state] of Object.entries(data.fields)) {
+                const path = `${namespace}.${field}`;
+                const by = touched[path];
+                const changedAt = by === undefined ? null : this.#changedAt(world, line, by, {entry: view.id, path});
+                fields[field] = changedAt === null ? state : {...state, changedAt};
+            }
+            namespaces[namespace] = {...data, fields};
+        }
+        return {...view, namespaces};
+    }
+
+    /**
+     * 一步的出处与安放。子线上带过去的值在引擎里是一条合成的变更（id 是分叉那条）：换成原线上最近定下它的那一步，原线上也只是
+     * 带过去的就再往上找；一路都只有初值时没有（输出 32 的“不给分叉”）。
+     */
+    #changedAt(world: World, line: LineView, by: TouchedBy, address: Address): ChangedAt | null {
+        let current: LineView | undefined = line;
+        let step: TouchedBy | undefined = by;
+        const table = lineTable(world.data, world.options.order);
+        while (step !== undefined && step.kind === "patch" && current !== undefined && current.synthetic.has(step.change)) {
+            const fork: string = step.change;
+            const definer = [...table.lines.values()].find((entry) => entry.fork.id === fork);
+            if (definer === undefined) return null;
+            current = world.line(definer.parent);
+            const steps: readonly OriginStep[] = current?.engine.originsAfter(definer.fork.fork.trigger ?? definer.fork.fork.cut, address) ?? [];
+            const last: OriginStep | undefined = steps.filter((item) => item.kind === "patch" || (item.kind === "check" && item.result === "anchor")).at(-1);
+            step = last?.kind === "patch" ? {kind: "patch", change: last.change} : last?.kind === "check" ? {kind: "check", check: last.check} : undefined;
+        }
+        if (step === undefined) return null;
+        if (step.kind === "check") {
+            const check = world.data.checks.get(step.check);
+            return check === undefined ? null : {by: "check", id: check.id, at: check.place};
+        }
+        const change = world.data.changes.get(step.change);
+        return change === undefined ? null : {by: "change", id: change.id, at: change.at};
+    }
+
+    /**
+     * 一个地址的来历的一页（model.md 输出 37）：从最近一步往前；初值与归纳两步在页外。条目不存在、路径不是声明过的地址时
+     * 结果是空的。常出场的数值字段可以有几千步，所以不整份返回；引擎每翻一页只数步、只为这一页取值（`originsPage`）。
+     */
+    origins(address: Address, position: ReadPosition, mode: Mode, cursor?: string, limit = 20) {
+        const world = this.#world;
+        if (positionRank(world.options.order, position) === null) return "chapter-not-found" as const;
+        if (world.lineAt(position, mode) === undefined) return "line-not-found" as const;
+        const stamp = this.#stampOf(world);
+        const paging = cursorPaging(stamp, cursor, {method: "origins", address, position, mode}, this.#ports.digest);
+        if (paging === "cursor-stale") return paging;
+        const entry = world.data.entries.get(address.entry);
+        const page = entry === undefined || !addressDeclared(world, entry, address) ? {steps: [], total: 0, initial: null, reduced: null} : originsPageOn(world, world.positionLine(position, mode), address, position, mode, paging.offset, limit);
+        if (page === "chapter-not-found") return page;
+        const next = paging.next(limit, page.total);
+        return {
+            ...stamp,
+            items: page.steps.map((step) => {
+                // 界面一行一步要写“在哪、发生了什么”：变更给安放与文字，核对点给安放。
+                if (step.kind === "patch") {
+                    const change = world.data.changes.get(step.change);
+                    return change === undefined ? step : {...step, at: change.at, text: change.text};
+                }
+                if (step.kind === "check") {
+                    const check = world.data.checks.get(step.check);
+                    return check === undefined ? step : {...step, at: check.place};
+                }
+                return step;
+            }),
+            total: page.total,
+            initial: page.initial,
+            reduced: page.reduced,
+            ...(next === undefined ? {} : {cursor: next}),
+        };
     }
 
     #entryOn(world: World, id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
@@ -362,7 +536,7 @@ export class WorldService {
         const groups = this.#groups(world, position, mode);
         if (typeof groups === "string") return groups;
         const stamp = this.#stamp();
-        const page = this.#page(stamp, groups[group], cursor, limit, {method: "pending", position, mode, group});
+        const page = this.#page(stamp, groups[group], cursor, limit, {method: "pending", position, mode, group, diagnostics: `${this.#instance}:${String(this.#diagnosticsEpoch)}`});
         if (page === "cursor-stale") return page;
         return {
             ...stamp,
@@ -372,6 +546,7 @@ export class WorldService {
             unavailable: groups.unavailable,
             truncated: groups.truncated,
             disabled: groups.disabled,
+            labels: diagnosticLabels(world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY, groups, page.items),
             counts: {pending: groups.pending.length, hints: groups.hints.length, handled: groups.handled.length},
             decisionsPending: [...world.data.decisions.values()].filter((decision) => decision.status === "pending").length,
             suggestionsOpen: [...world.data.suggestions.values()].filter((suggestion) => suggestion.status === "open").length,
@@ -381,7 +556,7 @@ export class WorldService {
 
     /** 三组的计算：内核的待处理与提示，再调每个登记了的诊断（输出 34 的处理顺序见 diagnostics.ts）。按读取输入缓存。 */
     #groups(world: World, position: ReadPosition, mode: Mode): PendingGroups | "chapter-not-found" | "line-not-found" {
-        const key = `${this.#stamp().inputDigest}|${mode}|${stableStringify(position)}`;
+        const key = `${this.#stamp().inputDigest}|${String(this.#diagnosticsEpoch)}|${mode}|${stableStringify(position)}`;
         const cached = this.#groupsCache.get(key);
         if (cached !== undefined) return cached;
         const canon = world.pending(position, mode);
@@ -679,12 +854,21 @@ export class WorldService {
                 if (found === "view-denied") return found;
                 // 带令牌时 `worldline` 是令牌的线、只列它视图里的；要别的线的拒。
                 if ((filter.worldline !== undefined && filter.worldline !== found.line) || (filter.inView !== undefined && filter.inView !== found.line)) return this.#deny(found, "changes", filter);
+                // `before` 的位置同别的读取位置：晚于上限或指向别的线的拒，没写线的补上令牌的线。
+                const before = filter.before === undefined ? undefined : within("changes", filter.before.position);
+                if (before === "view-denied") return before;
                 const stamp = this.#stampOf(world);
-                const scoped = {...filter, worldline: found.line, inView: found.line};
+                const scoped = {...filter, worldline: found.line, inView: found.line, ...(before === undefined ? {} : {before: {position: before.position, mode: filter.before!.mode}})};
                 // 计划的进展按上限算，不按全书：上限之后才兑现的计划在视图里是未兑现。
-                const page = this.#page(stamp, listChanges(world, scoped, found.until).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...scoped});
+                const matching = listChanges(world, scoped, found.until).filter((change) => placementWithin(order(), found, change.at));
+                const page = this.#page(stamp, matching, cursor, limit, {method: "changes", view: token, ...scoped});
                 if (page === "cursor-stale") return page;
-                return {...stamp, items: page.items.map((change) => changeItem(world, change, found.line)), ...(page.next === undefined ? {} : {cursor: page.next})};
+                return {...stamp, items: page.items.map((change) => changeItem(world, change, found.line)), total: matching.length, ...(page.next === undefined ? {} : {cursor: page.next})};
+            },
+            chapters: () => {
+                const found = grant("chapters");
+                if (found === "view-denied") return found;
+                return {...this.#stampOf(world), items: this.#chapterItems(world).filter((item) => chapterWithin(order(), found, item.id))};
             },
             time: (query, mode = "actual", cursor, limit = 50) => {
                 const found = grant("time", query);
@@ -731,10 +915,12 @@ export class WorldService {
         const token = {};
         this.#computers.set(plugin, {token, compute: registration.compute, dataVersion: registration.dataVersion});
         this.#inputGeneration += 1;
+        this.#diagnosticsChanged();
         return () => {
             if (this.#computers.get(plugin)?.token !== token) return;
             this.#computers.delete(plugin);
             this.#inputGeneration += 1;
+            this.#diagnosticsChanged();
         };
     }
 
@@ -744,18 +930,84 @@ export class WorldService {
         if (current === undefined || current.dataVersion === dataVersion) return;
         this.#computers.set(plugin, {...current, dataVersion});
         this.#inputGeneration += 1;
+        this.#diagnosticsChanged();
     }
 
-    /** 条目树的一层：父条目（null 是根）下按顺序的条目（输出：`tree`）。 */
-    tree(parent: string | null, cursor?: string, limit = 50) {
+    /** 插件诊断的结果可能变了而世界版本不动：先换代次（旧分组与旧游标作废），再通知调用方重读（project.md 输出 34）。 */
+    #diagnosticsChanged(): void {
+        this.#diagnosticsEpoch += 1;
+        this.#emit({kind: "inputChanged", what: "diagnostics"});
+    }
+
+    /** 章表（project.md 输出 28）：宿主此刻给的章序、标题与各段讲的线。 */
+    chapters(): ReadStamp & {readonly items: readonly ChapterItem[]} {
+        return {...this.#stamp(), items: this.#chapterItems(this.#world)};
+    }
+
+    #chapterItems(world: World): ChapterItem[] {
+        return world.options.order.ids.map((id, index) => ({
+            id,
+            index: index + 1,
+            title: this.#chapterTitles.get(id) ?? null,
+            // 没分段的章讲一条线：与读取位置的线同一个口径（`positionLine` 已经把读不到的线换成主线或祖先线）。
+            lines: world.options.chapterLines?.get(id) ?? [{from: 1, line: world.positionLine({kind: "chapter", chapter: id, edge: "start"})}],
+        }));
+    }
+
+    /** 登记的 Component 类型与字段声明（components.md 输出 21）。 */
+    components(): ReadStamp & {readonly items: readonly ComponentType[]} {
+        return {...this.#stamp(), items: this.#world.options.registry.types};
+    }
+
+    /** 一次修订的全部，带能不能还原（project.md 输出 29）；没有这次修订时 `revision` 是 null。 */
+    revision(id: string) {
         const world = this.#world;
-        const children = [...world.data.entries.values()].filter((entry) => entry.parent === parent).sort((a, b) => a.order - b.order || compareIds(a.id, b.id));
+        const found = world.revisions.find((revision) => revision.id === id);
+        return {...this.#stamp(), revision: found ?? null, ...(found === undefined ? {} : {revertable: revertableOf(world, found.id)})};
+    }
+
+    /**
+     * 条目树的一层：父条目（null 是根）下按顺序的条目（输出：`tree`）。已删除的条目只在它还有没删除的子孙时列出（墓碑，
+     * model.md 输出 23），`hasChildren` 与 `remaining` 只数会列出的。给了 `at` 时每项另带这个位置上的名字、出场与本体（输出 30）。
+     */
+    tree(parent: string | null, cursor?: string, limit?: number): (ReadStamp & TreePage<TreeItem>) | "cursor-stale";
+    tree(parent: string | null, cursor: string | undefined, limit: number | undefined, at: {readonly position: ReadPosition; readonly mode: Mode}): (ReadStamp & TreePage<TreeItemAt>) | "cursor-stale" | "chapter-not-found" | "line-not-found";
+    tree(parent: string | null, cursor?: string, limit = 50, at?: {readonly position: ReadPosition; readonly mode: Mode}): (ReadStamp & TreePage<TreeItem | TreeItemAt>) | "cursor-stale" | "chapter-not-found" | "line-not-found" {
+        const world = this.#world;
+        if (at !== undefined && positionRank(world.options.order, at.position) === null) return "chapter-not-found" as const;
+        const engine = at === undefined ? undefined : world.lineAt(at.position, at.mode)?.engine;
+        if (at !== undefined && engine === undefined) return "line-not-found" as const;
+        const below = new Map<string | null, Entry[]>();
+        for (const entry of world.data.entries.values()) {
+            const siblings = below.get(entry.parent);
+            if (siblings === undefined) below.set(entry.parent, [entry]);
+            else siblings.push(entry);
+        }
+        const shown = new Map<string, boolean>();
+        const listed = (entry: Entry): boolean => {
+            const known = shown.get(entry.id);
+            if (known !== undefined) return known;
+            // 先记成不列，再往下看：坏数据里上级成环时不会转不出来。
+            shown.set(entry.id, false);
+            const result = entry.deleted !== true || (below.get(entry.id) ?? []).some(listed);
+            shown.set(entry.id, result);
+            return result;
+        };
+        const children = (below.get(parent) ?? []).filter(listed).sort((a, b) => a.order - b.order || compareIds(a.id, b.id));
         const stamp = this.#stamp();
-        const page = this.#page(stamp, children, cursor, limit, {method: "tree", parent});
+        const page = this.#page(stamp, children, cursor, limit, {method: "tree", parent, ...(at === undefined ? {} : {position: at.position, mode: at.mode})});
         if (page === "cursor-stale") return page;
+        const last = page.items.at(-1);
         return {
             ...stamp,
-            items: page.items.map((entry) => ({id: entry.id, name: entry.init.name, type: entry.type, folder: entry.folder, deleted: entry.deleted === true, hasChildren: [...world.data.entries.values()].some((other) => other.parent === entry.id)})),
+            items: page.items.map((entry) => {
+                const item = {id: entry.id, name: entry.init.name, type: entry.type, folder: entry.folder, deleted: entry.deleted === true, hasChildren: (below.get(entry.id) ?? []).some(listed)};
+                if (engine === undefined || at === undefined) return item;
+                const view = engine.entry(entry.id, at.position, at.mode);
+                const found = view === null || view === "chapter-not-found" ? undefined : view;
+                return {...item, nameAt: found?.name ?? entry.init.name, appeared: found?.appeared ?? false, sameAs: entry.sameAs ?? null};
+            }),
+            remaining: last === undefined ? 0 : children.length - children.indexOf(last) - 1,
             ...(page.next === undefined ? {} : {cursor: page.next}),
         };
     }
@@ -785,12 +1037,19 @@ export class WorldService {
     changes(filter: ChangeFilter = {}, cursor?: string, limit = 50) {
         const world = this.#world;
         // 套没套上与计划进展按 `worldline` 算，缺省当前线（活页夹最新一章末尾讲的线）。线不存在得 `line-not-found`。
-        const worldline = filter.worldline ?? world.positionLine(defaultPosition(world.options.order));
+        // 给了 `before` 而没写 `worldline`：按这个位置的线算（输出 31），不然子线上的变更套没套上会按最新一章讲的线判成 null。
+        const worldline = filter.worldline ?? (filter.before === undefined ? world.positionLine(defaultPosition(world.options.order)) : world.positionLine(filter.before.position, filter.before.mode));
         for (const line of [worldline, filter.inView]) if (line !== undefined && world.line(line) === undefined) return "line-not-found" as const;
+        if (filter.before !== undefined) {
+            if (positionRank(world.options.order, filter.before.position) === null) return "chapter-not-found" as const;
+            if (world.lineAt(filter.before.position, filter.before.mode) === undefined) return "line-not-found" as const;
+        }
         const stamp = this.#stamp();
-        const page = this.#page(stamp, listChanges(world, {...filter, worldline}), cursor, limit, {method: "changes", ...filter, worldline});
+        const matching = listChanges(world, {...filter, worldline});
+        // `before` 与 `order` 在 filter 里，随它进游标的读取参数（输出 19、31）：换了位置或顺序，旧游标作废。
+        const page = this.#page(stamp, matching, cursor, limit, {method: "changes", ...filter, worldline});
         if (page === "cursor-stale") return page;
-        return {...stamp, items: page.items.map((change) => changeItem(world, change, worldline)), ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items.map((change) => changeItem(world, change, worldline)), total: matching.length, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 讲述（方法表 `tellings`，model.md 输出 24 到 27；筛选与先后见 reads.ts）。 */
@@ -848,11 +1107,7 @@ export class WorldService {
         if (page === "cursor-stale") return page;
         return {
             ...stamp,
-            items: page.items.map((revision) => {
-                const set = world.dependents(revision.id);
-                const revertable = set === "not-revertable" ? {ok: false, reason: "not-revertable"} : set.length > 1 ? {ok: false, reason: "has-dependents", dependents: set.slice(1)} : {ok: true};
-                return {id: revision.id, version: revision.version, by: revision.by, what: revision.what, title: revision.title, time: revision.time, chapter: revision.chapter, impact: revision.impact, revertable};
-            }),
+            items: page.items.map((revision) => ({id: revision.id, version: revision.version, by: revision.by, what: revision.what, title: revision.title, time: revision.time, chapter: revision.chapter, impact: revision.impact, revertable: revertableOf(world, revision.id)})),
             ...(page.next === undefined ? {} : {cursor: page.next}),
         };
     }
@@ -893,8 +1148,21 @@ export class WorldService {
         return this.#write(token, (world) => editInPlace(world, edit, this.#ports.now()));
     }
 
-    recordDelta(input: Parameters<typeof recordDelta>[1], token?: string): Promise<EditResult | {readonly ok: false; readonly failure: ServiceFailure}> {
+    recordDelta(input: DeltaRecord, token?: string): Promise<EditResult | {readonly ok: false; readonly failure: ServiceFailure}> {
         return this.#write(token, (world) => recordDelta(world, input, this.#ports.now()));
+    }
+
+    /** 语义档的记一笔（revisions.md 输出 23）。 */
+    recordNote(input: NoteRecord, token?: string): Promise<EditResult | {readonly ok: false; readonly failure: ServiceFailure}> {
+        return this.#write(token, (world) => recordNote(world, input, this.#ports.now()));
+    }
+
+    /**
+     * 就地改与记一笔的预览（revisions.md 输出 22）：只按世界算。只读、别人持有独占、正在停止这些服务的状态不在这里判断，
+     * 调用方按 `status` 与独占的事件另行处理。
+     */
+    previewEdit(input: EditPreviewInput): EditPreview {
+        return previewEdit(this.#world, input, this.#ports.now());
     }
 
     writeBack(input: WriteBackInput, token?: string): Promise<WriteBackResult | {readonly ok: false; readonly failure: ServiceFailure}> {
@@ -993,13 +1261,15 @@ export class WorldService {
     }
 
     /** 宿主给出新章序（输出 9）：与记下的不同就发布章序调整；`invalid` 时保持原章序并写诊断（输出 23）。 */
-    async setChapters(chapters: readonly string[] | "invalid", chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>): Promise<void> {
+    async setChapters(chapters: readonly string[] | "invalid", chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>, titles?: ReadonlyMap<string, string>): Promise<void> {
         if (chapters === "invalid") {
             this.diagnostics.push({code: "binder-invalid"});
             return;
         }
         this.#syncTexts(chapters);
         const order = new ChapterOrder(chapters);
+        const tableBefore = stableStringify(this.#chapterItems(this.#world));
+        const versionBefore = this.#world.version;
         await this.#write(undefined, (world) => {
             const moved = world.withOptions({...world.options, order, chapterLines: chapterLines ?? new Map()});
             const result = moved.reorder(order, this.#ports.now(), `reorder-${this.#ports.digest(stableStringify({chapters, version: world.version}))}`);
@@ -1007,9 +1277,15 @@ export class WorldService {
         }, true).then((result) => {
             // 没有要发布的章序调整，或世界只读时：只换上新章序计算。
             if ((result as {repeated?: boolean}).repeated === true || !result.ok) this.#world = this.#world.withOptions({...this.#world.options, order, chapterLines: chapterLines ?? new Map()});
+            // 标题与章序一起换上：排在写入队列里等的这段时间，章表还是原来那一份。
+            this.#chapterTitles = titles ?? new Map();
             if (!result.ok && "failure" in result && (result.failure.code === "world-read-only" || result.failure.code === "write-unknown")) {
-                this.diagnostics.push({code: "reorder-not-recorded", reason: result.failure.code});
+                const reason = result.failure.code;
+                if (!this.diagnostics.some((item) => item.code === "reorder-not-recorded" && item.reason === reason)) this.diagnostics.push({code: "reorder-not-recorded", reason});
             }
+            // 章表变了而没有发布章序调整（只改了段的线或标题，或世界只读）：版本不动，调用方靠这个事件知道要重读（输出 34）。
+            // 发布了章序调整时已经有 `changed`。
+            if (this.#world.version === versionBefore && stableStringify(this.#chapterItems(this.#world)) !== tableBefore) this.#emit({kind: "inputChanged", what: "chapters"});
         });
     }
 
@@ -1054,7 +1330,19 @@ export class WorldService {
     setRegistries(registries: {readonly registry?: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<void> {
         const run = () => {
             this.#noteDiagnostics(registries.diagnostics);
+            const before = this.#world.options;
             this.#world = this.#world.withOptions({...this.#world.options, ...registries});
+            // 类型或字段声明变了（输出 34）。`digest` 不含显示名与给 Agent 的说明，所以另比整份类型。
+            const after = this.#world.options;
+            const components = after.registry !== before.registry && stableStringify(after.registry.types) !== stableStringify(before.registry.types);
+            // 诊断声明与标注种类也比完整的内容：读取输入的摘要只含 `[id, 版本]`，级别、显示名这些改了而版本没改，摘要不变。
+            const diagnostics = diagnosticDeclarations(after.diagnostics) !== diagnosticDeclarations(before.diagnostics);
+            const marks = markTypes(after.marks) !== markTypes(before.marks);
+            // 宿主会把几张登记表并成一次给：先换好世界与诊断的代次，再依次通知，监听里同步重读时每一条通知看到的都是这一批全部生效以后的结果。
+            if (diagnostics) this.#diagnosticsEpoch += 1;
+            if (components) this.#emit({kind: "inputChanged", what: "components"});
+            if (diagnostics) this.#emit({kind: "inputChanged", what: "diagnostics"});
+            if (marks) this.#emit({kind: "inputChanged", what: "marks"});
         };
         const next = this.#queue.then(run, run);
         this.#queue = next.catch(() => undefined);

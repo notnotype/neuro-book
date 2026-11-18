@@ -18,7 +18,7 @@ type Props = {
     tabId: string | null;
     /** 编辑器此刻的组件（`editor-registry.ts`）：不在（gone）、未交付（pending）或已交付（ready，带组件）。 */
     control: (editor: string) => {kind: "gone"} | {kind: "pending"} | {kind: "ready"; component: Component};
-    /** 页面标签（输出 33）的标题与组件；不给时页面标签显示页面 id 与“这个页面已经不在了”。 */
+    /** 页面标签（输出 33）的标题、组件、每个标签的 `context` 与面包屑；不给时页面标签显示页面 id 与“这个页面已经不在了”。 */
     pages?: EditorPageSource | null;
     /** 没有标签时的提示，宿主已按命令可用性筛好（`web/empty-tips.ts`）；缺省为空，空态只有标志。 */
     emptyTips?: ReadonlyArray<{command: string; label: string; keys: ReadonlyArray<string> | null; hint: string | null}>;
@@ -38,7 +38,7 @@ type Emits = {
 
 无 slots、expose；attrs 落在根 `section`（组此刻显示的那块内容写 `data-editor-group`，活动组另有 `data-editor-group-active`，每组只有一块带这两个标记；它们是样式与测试钩子）。资源树拖来的文件不在这里接：外壳根登记落点（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 39）。
 
-标签区下面是面包屑（[`EditorBreadcrumbs`](EditorBreadcrumbs.md)，输出 60）：活动标签是文件时才有，段由活动标签的地址算出，目录读取经控制器的 `list`，Markdown 的标题段读本组控件句柄的大纲（`handleOf`），选中文件在本组 preview 打开、选中标题交给句柄的 `revealHeading`，Escape 把焦点还给本组的编辑器；命令 `focus-breadcrumbs` 经控制器的 `breadcrumbFocus` 聚焦本组的面包屑。
+标签区下面是面包屑（[`EditorBreadcrumbs`](EditorBreadcrumbs.md)，输出 60）：活动标签是文件时才有，段由活动标签的地址算出，目录读取经控制器的 `list`，Markdown 的标题段读本组控件句柄的大纲（`handleOf`），选中文件在本组 preview 打开、选中标题交给句柄的 `revealHeading`，Escape 把焦点还给本组的编辑器；命令 `focus-breadcrumbs` 经控制器的 `breadcrumbFocus` 聚焦本组的面包屑。活动标签是页面、页面给了面包屑时，同一个位置画页面的面包屑（[`EditorPageBreadcrumbs`](EditorPageBreadcrumbs.md)，输出 33）：各段来自 `pages.crumbs`，Escape 把焦点还给页面的容器。属性 `breadcrumbs` 为假时两种都不画。
 
 ## 布局与状态
 
@@ -48,7 +48,7 @@ type Emits = {
 - 打开失败：原因与“重试”（`role="alert"`）；不是 UTF-8 文本时只有原因，没有重试（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 37）。
 - 已知二进制（标签的编辑器是 `nbook.editor.binary`）：一行“不能在这里打开”（`data-editor-unavailable="binary"`），不读文件。
 - 标签的编辑器不在了：说明与“用默认编辑器打开”（`data-editor-unavailable="gone"`、`data-editor-reopen-default`）；还没交付：800 ms 内空白，之后一行“正在加载编辑器”（`data-editor-pending`，CSS 动画延迟显示，不用计时器）（输出 40）。
-- 活动标签是页面（`page://<id>`，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 33）：内容区渲染页面组件（属性 `context`），自己滚动；贡献方停了时一行“这个页面已经不在了”。页面标签的文字是页面标题。
+- 活动标签是页面（`page://<id>`，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 33）：内容区渲染页面组件，自己滚动；组件收到的 `context` 是这个标签自己的那一份（`pages.context(标签)`，带它的参数与 `state`），同一个标签每次是同一个对象，所以切走再回来组件重新挂上、`state` 还在；声明在、实现还没交付时（刷新后恢复、贡献方还没激活）是一行“正在加载页面”（`role="status"`、`aria-busy`），交付后换成页面；声明不在、或交付过又撤回（贡献方停了）时一行“这个页面已经不在了”。页面标签的文字是页面标题。页面的容器可以用程序聚焦（`tabindex="-1"`），不在 Tab 顺序里。
 - 其余：这个标签的控件（容器带 `data-editor-kind="<编辑器 id>"`），编辑器已交付、标签在控制器的 `mountedControls` 里才挂；换编辑器时换一个控件。文档还在读取时控件隐藏（`v-show`），内容区空白。
 
 不是组此刻显示的那块内容只留控件：`visible` 为假，由内容层停放；面包屑、进度条、状态条、失败原因与页面都不画（页面合同里没有“不可见”的信号，隐藏了也会继续生效，所以切走就卸载）。

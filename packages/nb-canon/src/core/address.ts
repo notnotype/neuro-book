@@ -34,6 +34,16 @@ export function parsePath(path: string): ParsedPath | null {
     return {root: "namespace", namespace: root, field, ...(element === undefined ? {} : {element}), ...(sub === undefined ? {} : {sub})};
 }
 
+/**
+ * 一条路径归到哪个“字段”名下（project.md 输出 32 的“含它的元素与子字段”）：命名空间里的是 `命名空间.字段`，名字、别名、一句话
+ * 与主文字的块就是它自己。不合写法返回 null。
+ */
+export function fieldPath(path: string): string | null {
+    const parsed = parsePath(path);
+    if (parsed === null) return null;
+    return parsed.root === "namespace" ? `${parsed.namespace}.${parsed.field}` : formatPath(parsed);
+}
+
 export function formatPath(parsed: ParsedPath): string {
     if (parsed.root === "entry") return `entry.${parsed.field}`;
     if (parsed.root === "text") return `text[${parsed.block}]`;
