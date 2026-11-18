@@ -123,6 +123,17 @@ export type OriginStep =
     /** 从父线带过来（canon/worldlines.md 输出 6）：只由线层给出，引擎给的是这个合成事件的 `patch` 一步。 */
     | {readonly kind: "carried"; readonly fork: string; readonly line: string; readonly change: string; readonly value: unknown; readonly key: EventKey | null};
 
+/**
+ * 来历的一页（project.md 方法表 `origins`、model.md 输出 37）：`steps` 从最近一步往前，跳过 `offset` 步以后最多 `limit` 步；
+ * `total` 是初值与归纳以外的步数；初值与归纳两步在页外，没有时为 null。
+ */
+export interface OriginsPage {
+    readonly steps: readonly OriginStep[];
+    readonly total: number;
+    readonly initial: OriginStep | null;
+    readonly reduced: OriginStep | null;
+}
+
 export type PendingItem =
     | {readonly kind: "check-mismatch"; readonly check: string; readonly at: Address; readonly computed: number; readonly written: number; readonly suspects: readonly string[]}
     | {readonly kind: "cannot-apply"; readonly root: string; readonly changes: readonly string[]}
@@ -147,6 +158,8 @@ export interface Engine {
     /** 读取位置指向不在章序里的章时返回 `chapter-not-found`。 */
     entry(id: string, position: ReadPosition, mode: Mode): EntryView | null | "chapter-not-found";
     origins(address: Address, position: ReadPosition, mode: Mode): readonly OriginStep[] | "chapter-not-found";
+    /** `origins` 的一页（口径与先后相同）：常出场的数值字段有几千步，界面一次只看一页，不必为一页算出整条。 */
+    originsPage(address: Address, position: ReadPosition, mode: Mode, offset: number, limit: number): OriginsPage | "chapter-not-found";
     /**
      * 这个位置之前，这个条目的每个字段（键见 `fieldPath`）最近一次是被谁定下的；只由初值给出的字段不在结果里。与来历同一个口径：
      * 整条变更套上了、补丁碰到这个字段（含元素与子字段）就算；精确档的核对点不改值，不算。只看事件、不复制值，所以比取来历便宜得多。

@@ -20,7 +20,7 @@ import type {Address, Check, Entry, FieldDeclaration, ReadPosition, StoryChange}
 import {applyChange, incompleteAt, initialFoldState, isCarry, namespaceFields, replayAnchor, type ChangeResult, type FoldState} from "../model/apply";
 import {buildEntryView, carrySlotOf, readEntryAddress, type EntryFold} from "./views";
 import {sortPending, type RankedPending} from "./pending";
-import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, TouchedBy} from "./types";
+import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginsPage, OriginStep, PendingItem, PlanProgress, TouchedBy} from "./types";
 
 type FoldEvent =
     | {readonly kind: "change"; readonly rank: Rank; readonly tie: OrderTie; readonly change: StoryChange}
@@ -39,6 +39,18 @@ interface CheckPoint {
     readonly point: Point;
 }
 
+
+/** 从整条来历（初值在最前、归纳在最后）切出一页：参照引擎的 `originsPage`，也是增量引擎不能按页算时的退路。 */
+export function originsPageOf(steps: readonly OriginStep[], offset: number, limit: number): OriginsPage {
+    const between = steps.filter((step) => step.kind !== "init" && step.kind !== "reduce");
+    const end = Math.max(0, between.length - offset);
+    return {
+        steps: between.slice(Math.max(0, end - limit), end).reverse(),
+        total: between.length,
+        initial: steps.find((step) => step.kind === "init") ?? null,
+        reduced: steps.find((step) => step.kind === "reduce") ?? null,
+    };
+}
 
 export function createReferenceEngine(inputs: EngineInputs): Engine {
     const {world, order, registry} = inputs;
@@ -319,6 +331,12 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
             return originsUpTo(at, eventsFor(mode, rank), (event) => rankBefore(event.rank, rank), checksBefore(rank));
+        },
+
+        originsPage(at, position, mode, offset, limit) {
+            const rank = resolve(position);
+            if (rank === "chapter-not-found") return rank;
+            return originsPageOf(originsUpTo(at, eventsFor(mode, rank), (event) => rankBefore(event.rank, rank), checksBefore(rank)), offset, limit);
         },
 
         lastTouched(id, position, mode) {

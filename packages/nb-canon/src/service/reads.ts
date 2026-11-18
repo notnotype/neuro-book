@@ -15,7 +15,7 @@ import {compareIds} from "../core/ids";
 import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, rankBefore, type ChapterOrder} from "../core/position";
 import type {Check, Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
-import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress} from "../engine/types";
+import type {ChangeOutcome, EntryView, EventKey, Mode, OriginsPage, OriginStep, PlanProgress} from "../engine/types";
 import {renderEntryForAgent, renderEntryPlain, type PlainOptions} from "../render/entry";
 import {aboutMatches} from "../world/decisions";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
@@ -206,13 +206,6 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
     // 视图不拉住线视图与引擎：每次调用再取（LineSet 里有备忘），这样线集淘汰一条线时，缓存着的读取视图不会让它的引擎活下去
     // （worldlines 输出 9 的常驻名额）；被淘汰的线再被读到时重建。
     const lineView = (): LineView => world.line(line)!;
-    const table = lineTable(world.data, order);
-    const carried = (steps: readonly OriginStep[]): OriginStep[] => steps.map((step) => {
-        if (step.kind !== "patch" || !lineView().synthetic.has(step.change)) return step;
-        const definer = [...table.lines.values()].find((entry) => entry.fork.id === step.change)!;
-        const {fork} = definer.fork;
-        return {kind: "carried", fork: step.change, line: definer.parent, change: fork.trigger ?? fork.cut, value: step.result, key: lineView().engine.eventKey(step.change, "actual")};
-    });
     // 视图本身、章序与戳都冻结：同一个视图对象会交给一份读取输入上的几个插件（服务的 `#readViewOf`），谁改了都会影响别人。
     const view: CanonReadView = {
         version: world.version,
@@ -247,7 +240,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         renderPlain: (entry, position, mode, options) => deepFreeze(renderEntryPlain(world, entry, position.line === undefined ? {...position, line} : position, mode, options)),
         origins: (address, position, mode) => {
             const steps = lineView().engine.origins(address, position, mode);
-            return deepFreeze(steps === "chapter-not-found" ? steps : carried(steps));
+            return deepFreeze(steps === "chapter-not-found" ? steps : carriedSteps(world, line, steps));
         },
         outcome: (change) => deepFreeze(lineView().engine.outcome(change)),
         progress: (plan, position) => lineView().engine.progress(plan, position),
@@ -272,6 +265,27 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         time: (query, mode) => deepFreeze(answerTime(world.time(mode, line), world.options.time ?? DEFAULT_TIME, world.data, query)),
     };
     return Object.freeze(view);
+}
+
+/** 来历里这条线的合成事件（从父线带过去的值）那一步换成 `carried`（worldlines 输出 6）；别的步原样。 */
+function carriedSteps(world: World, line: string, steps: readonly OriginStep[]): OriginStep[] {
+    const view = world.line(line)!;
+    return steps.map((step) => {
+        if (step.kind !== "patch" || !view.synthetic.has(step.change)) return step;
+        const definer = [...lineTable(world.data, world.options.order).lines.values()].find((entry) => entry.fork.id === step.change)!;
+        const {fork} = definer.fork;
+        return {kind: "carried", fork: step.change, line: definer.parent, change: fork.trigger ?? fork.cut, value: step.result, key: view.engine.eventKey(step.change, "actual")};
+    });
+}
+
+/**
+ * 一条线上一个地址的来历的一页（服务的 `origins`）：引擎只为这一页取值，`carried` 与冻结也只做这一页。`line` 必须是这份世界上
+ * 可建的线。
+ */
+export function originsPageOn(world: World, line: string, address: Address, position: ReadPosition, mode: Mode, offset: number, limit: number): OriginsPage | "chapter-not-found" {
+    const page = world.line(line)!.engine.originsPage(address, position, mode, offset, limit);
+    // 初值与归纳两步不是补丁，`carried` 不换它们。
+    return deepFreeze(page === "chapter-not-found" ? page : {...page, steps: carriedSteps(world, line, page.steps)});
 }
 
 /**
@@ -345,6 +359,17 @@ function declarationsInput(world: World) {
  * 得到 `cursor-stale`。`params` 是方法名与影响结果的参数（条数不算）。canon 与插件的列表共用它。
  */
 export function pageOf<T>(stamp: ReadStamp, items: readonly T[], cursor: string | undefined, limit: number, params: {readonly method: string} & Readonly<Record<string, unknown>>, digest: (text: string) => string): {readonly items: readonly T[]; readonly next?: string} | "cursor-stale" {
+    const paging = cursorPaging(stamp, cursor, params, digest);
+    if (paging === "cursor-stale") return paging;
+    const next = paging.next(limit, items.length);
+    return {items: items.slice(paging.offset, paging.offset + limit), ...(next === undefined ? {} : {next})};
+}
+
+/**
+ * `pageOf` 的两步，给不先列出全部的列表用（来历按页算）：由游标得到偏移（同样的作废规则），再按这一页的条数与总数给下一页的游标
+ * （没有下一页时为 undefined）。
+ */
+export function cursorPaging(stamp: ReadStamp, cursor: string | undefined, params: {readonly method: string} & Readonly<Record<string, unknown>>, digest: (text: string) => string): {readonly offset: number; readonly next: (limit: number, total: number) => string | undefined} | "cursor-stale" {
     const query = digest(stableStringify(params));
     let offset = 0;
     if (cursor !== undefined) {
@@ -352,9 +377,7 @@ export function pageOf<T>(stamp: ReadStamp, items: readonly T[], cursor: string 
         if (input !== stamp.inputDigest || bound !== query || rest.length > 0 || at === undefined || !/^\d+$/u.test(at)) return "cursor-stale";
         offset = Number(at);
     }
-    const slice = items.slice(offset, offset + limit);
-    const next = offset + limit < items.length ? `${stamp.inputDigest}:${query}:${String(offset + limit)}` : undefined;
-    return {items: slice, ...(next === undefined ? {} : {next})};
+    return {offset, next: (limit, total) => (offset + limit < total ? `${stamp.inputDigest}:${query}:${String(offset + limit)}` : undefined)};
 }
 
 /** 剧情变更涉及这个条目：在 `involves` 里、是参与者（本体或马甲）、或补丁改到它（列表按条目筛时用）。 */

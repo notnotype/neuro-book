@@ -38,7 +38,7 @@ import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
 import type {LineView} from "../lines/set";
 import {lineTable, MAIN_LINE} from "../lines/table";
-import {changeItem, createReadView, lineSummaries, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, tellingInLine, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
+import {changeItem, createReadView, cursorPaging, lineSummaries, originsPageOn, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, tellingInLine, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
 import {World, type ChapterLine, type RevertMeta, type WriteResult} from "../world/world";
@@ -460,22 +460,22 @@ export class WorldService {
 
     /**
      * 一个地址的来历的一页（model.md 输出 37）：从最近一步往前；初值与归纳两步在页外。条目不存在、路径不是声明过的地址时
-     * 结果是空的。常出场的数值字段可以有几千步，所以不整份返回；每翻一页都重算整条来历，只在作者点开一个值时才调。
+     * 结果是空的。常出场的数值字段可以有几千步，所以不整份返回；引擎每翻一页只数步、只为这一页取值（`originsPage`）。
      */
     origins(address: Address, position: ReadPosition, mode: Mode, cursor?: string, limit = 20) {
         const world = this.#world;
         if (positionRank(world.options.order, position) === null) return "chapter-not-found" as const;
         if (world.lineAt(position, mode) === undefined) return "line-not-found" as const;
         const stamp = this.#stampOf(world);
+        const paging = cursorPaging(stamp, cursor, {method: "origins", address, position, mode}, this.#ports.digest);
+        if (paging === "cursor-stale") return paging;
         const entry = world.data.entries.get(address.entry);
-        const steps = entry === undefined || !addressDeclared(world, entry, address) ? [] : this.#readViewOf(world, world.positionLine(position, mode)).origins(address, position, mode);
-        if (steps === "chapter-not-found") return steps;
-        const between = steps.filter((step) => step.kind !== "init" && step.kind !== "reduce").reverse();
-        const page = this.#page(stamp, between, cursor, limit, {method: "origins", address, position, mode});
-        if (page === "cursor-stale") return page;
+        const page = entry === undefined || !addressDeclared(world, entry, address) ? {steps: [], total: 0, initial: null, reduced: null} : originsPageOn(world, world.positionLine(position, mode), address, position, mode, paging.offset, limit);
+        if (page === "chapter-not-found") return page;
+        const next = paging.next(limit, page.total);
         return {
             ...stamp,
-            items: page.items.map((step) => {
+            items: page.steps.map((step) => {
                 // 界面一行一步要写“在哪、发生了什么”：变更给安放与文字，核对点给安放。
                 if (step.kind === "patch") {
                     const change = world.data.changes.get(step.change);
@@ -487,10 +487,10 @@ export class WorldService {
                 }
                 return step;
             }),
-            total: between.length,
-            initial: steps.find((step) => step.kind === "init") ?? null,
-            reduced: steps.find((step) => step.kind === "reduce") ?? null,
-            ...(page.next === undefined ? {} : {cursor: page.next}),
+            total: page.total,
+            initial: page.initial,
+            reduced: page.reduced,
+            ...(next === undefined ? {} : {cursor: next}),
         };
     }
 

@@ -276,6 +276,20 @@ describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目�
         if (typeof rest === "string") throw new Error(rest);
         expect([...first.items, ...rest.items]).toHaveLength(between.length);
         expect(rest.cursor).toBeUndefined();
+        // 一页一步翻到底：每一步（含改完的值与核对的结果）与整条来历的对应位置一样，安放与文字是页上另加的。
+        const bare = (item: object): unknown => {
+            const {at: _at, text: _text, ...step} = item as Record<string, unknown>;
+            return step;
+        };
+        const paged: unknown[] = [];
+        let cursor: string | undefined;
+        do {
+            const page = service.origins(address, end("ch2"), "actual", cursor, 1);
+            if (typeof page === "string") throw new Error(page);
+            paged.push(...page.items.map(bare));
+            cursor = page.cursor;
+        } while (cursor !== undefined);
+        expect(paged).toEqual(between);
         // 核对点的一步带它的安放。
         const check = [...first.items, ...rest.items].find((step) => step.kind === "check") as {check: string; at: unknown} | undefined;
         expect(check?.at).toEqual((service.object({kind: "check", id: check!.check}).object as {place: unknown}).place);

@@ -26,9 +26,9 @@ import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type 
 import type {Address, Check, Entry, EntryState, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
 import {sameJson} from "../core/stable-json";
 import {applyChange, incompleteAt, isCarry, replayAnchor, replayChangeOnEntry, type ChangeResult, type FoldState, type IncompleteEvent} from "../model/apply";
-import {fieldOf, reductionFieldId} from "./reference";
+import {fieldOf, originsPageOf, reductionFieldId} from "./reference";
 import {sortPending, type RankedPending} from "./pending";
-import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, TouchedBy, WorldData} from "./types";
+import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginsPage, OriginStep, PendingItem, PlanProgress, TouchedBy, WorldData} from "./types";
 import {buildEntryView, carrySlotOf, readEntryAddress, type EntryFold} from "./views";
 
 const SNAPSHOT_EVERY = 8;
@@ -324,11 +324,8 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
     }
 
     let checksByAddress: Map<string, Array<{check: Check; point: Point}>> | undefined;
-    /**
-     * 这个位置之前对这个地址最近一次核对不符时正文写的数（model.md 输出 11）。只求这个地址自己的核对点：读一个条目时不必把全书的
-     * 核对点都求一遍。`exactChecks` 按先后排好，按地址分出来的每一组也是有序的，排在位置之前的是一段前缀。
-     */
-    function textSaysAt(rank: Rank, at: Address): number | undefined {
+    /** 一个地址自己的精确档核对点：`exactChecks` 按先后排好，按地址分出来的每一组也是有序的，排在某个位置之前的是一段前缀。 */
+    function checksAt(at: Address): ReadonlyArray<{check: Check; point: Point}> {
         if (checksByAddress === undefined) {
             checksByAddress = new Map();
             for (const item of exactChecks()) {
@@ -338,7 +335,15 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                 else list.push(item);
             }
         }
-        const list = checksByAddress.get(addressKey(at)) ?? [];
+        return checksByAddress.get(addressKey(at)) ?? [];
+    }
+
+    /**
+     * 这个位置之前对这个地址最近一次核对不符时正文写的数（model.md 输出 11）。只求这个地址自己的核对点：读一个条目时不必把全书的
+     * 核对点都求一遍。
+     */
+    function textSaysAt(rank: Rank, at: Address): number | undefined {
+        const list = checksAt(at);
         for (let index = list.length - 1; index >= 0; index -= 1) {
             if (!rankBefore(list[index]!.point.rank, rank)) continue;
             return evaluate(list[index]!).result === "mismatch" ? list[index]!.check.value : undefined;
@@ -441,19 +446,85 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         }
         steps.sort(compareEvents);
         const ordered = [initStep, ...steps.map((item) => item.step)];
+        const reduced = reduceStep(entry, at, fold);
+        if (reduced !== null) ordered.push(reduced);
+        return ordered;
+    }
+
+    /** 来历末尾的归纳一步（model.md 输出 15）：语义档、到这一刻有过事件时才有；`fold` 是这一刻的折叠结果。 */
+    function reduceStep(entry: Entry, at: Address, fold: {readonly state: EntryState; readonly events: ReadonlyMap<string, readonly string[]>}): OriginStep | null {
         const field = fieldOf(registry, entry, at);
-        if (field?.precision === "semantic") {
-            const events = fold.events.get(at.path) ?? [];
-            if (events.length > 0) {
-                const raw = readEntryAddress(fold.state, at.path);
-                const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
-                const namespace = at.path.split(".")[0]!;
-                const data = fold.state.data[namespace];
-                const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: reductionFieldId(at), label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
-                ordered.push({kind: "reduce", anchor, events: [...events], cached: reduced !== undefined});
+        if (field?.precision !== "semantic") return null;
+        const events = fold.events.get(at.path) ?? [];
+        if (events.length === 0) return null;
+        const raw = readEntryAddress(fold.state, at.path);
+        const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
+        const namespace = at.path.split(".")[0]!;
+        const data = fold.state.data[namespace];
+        const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: reductionFieldId(at), label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
+        return {kind: "reduce", anchor, events: [...events], cached: reduced !== undefined};
+    }
+
+    /**
+     * 来历的一页（`originsPage`）。先只数步、不重放：时间线上到位置为止碰到这个地址的事件（语义档核对点一步，套上了的变更每个相交的
+     * 补丁一步），与这个地址的精确档核对点，按全序合并；同一点上时间线的在前，与 `originsUpTo` 里稳定排序的结果相同。再只为这一页的
+     * 补丁取值：相邻两步之间隔的事件不多时接着重放，隔得多时改从下一步之前最近的那份快照起，所以稀疏的地址翻一页不会重放整条时间线。
+     */
+    function originsWindow(at: Address, entry: Entry, snapshot: Snapshot, timeline: Timeline, rank: Rank, offset: number, limit: number): OriginsPage {
+        const point: Point = {rank, tie: {version: -Infinity, id: ""}, inclusive: false};
+        const count = countBefore(timeline, point);
+        type Slot = {readonly item: number; readonly patch?: StoryChange["patches"][number]} | {readonly check: {check: Check; point: Point}};
+        const slots: Slot[] = [];
+        const checks = checksAt(at).filter((item) => rankBefore(item.point.rank, rank));
+        let nextCheck = 0;
+        const checksBeforeEvent = (event?: {readonly rank: Rank; readonly tie: OrderTie}) => {
+            while (nextCheck < checks.length && (event === undefined || compareEvents(checks[nextCheck]!.point, event) < 0)) slots.push({check: checks[nextCheck++]!});
+        };
+        for (let index = 0; index < count; index += 1) {
+            const item = timeline.items[index]!;
+            if (item.ev.kind === "anchor") {
+                if (item.ev.check.at.path !== at.path) continue;
+                checksBeforeEvent(item.ev);
+                slots.push({item: index});
+                continue;
+            }
+            if (!item.applied) continue;
+            for (const patch of item.ev.change.patches) {
+                if (!addressesOverlap(patch.at, at)) continue;
+                checksBeforeEvent(item.ev);
+                slots.push({item: index, patch});
             }
         }
-        return ordered;
+        checksBeforeEvent();
+
+        const end = Math.max(0, slots.length - offset);
+        let fold: MutableFold | undefined;
+        let foldIndex = -1;
+        const valueAfter = (index: number): unknown => {
+            if (fold === undefined || index - foldIndex > SNAPSHOT_EVERY * 2) fold = foldThrough(timeline, entry, registry, index);
+            else for (let next = foldIndex + 1; next <= index; next += 1) replayItem(fold, timeline.items[next]!, entry.id, registry);
+            foldIndex = index;
+            return readEntryAddress(fold.state, at.path);
+        };
+        const steps = slots.slice(Math.max(0, end - limit), end).map((slot): OriginStep => {
+            if ("check" in slot) {
+                const result = evaluate(slot.check);
+                return {kind: "check", check: result.check.id, written: result.check.value, result: result.result};
+            }
+            const ev = timeline.items[slot.item]!.ev;
+            if (ev.kind === "anchor") return {kind: "check", check: ev.check.id, written: ev.check.value, result: "anchor"};
+            const value = valueAfter(slot.item);
+            const patch = slot.patch!;
+            return {kind: "patch", change: ev.change.id, op: patch.op, result: structuredClone(value), ...(patch.basis === undefined ? {} : {basis: patch.basis})};
+        });
+        const basis = entry.initBasis?.[at.path];
+        const atPoint = foldAtPoint(snapshot, world, registry, at.entry, point);
+        return {
+            steps: steps.reverse(),
+            total: slots.length,
+            initial: {kind: "init", value: structuredClone(readEntryAddress(entry.init, at.path)), ...(basis === undefined ? {} : {basis})},
+            reduced: atPoint === undefined ? null : reduceStep(entry, at, atPoint),
+        };
     }
 
     return {
@@ -525,6 +596,19 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
             return originsUpTo(at, snapshotFor(mode, rank), (event) => rankBefore(event.rank, rank), checksBefore(rank));
+        },
+
+        originsPage(at, position, mode, offset, limit) {
+            const rank = resolve(position);
+            if (rank === "chapter-not-found") return rank;
+            const snapshot = snapshotFor(mode, rank);
+            const entry = world.entries.get(at.entry);
+            const timeline = snapshot.timelines.get(at.entry);
+            // 条目不在、已删除或没有时间线（没有事件碰过它）：没有几步，整条算再切。
+            if (entry === undefined || entry.deleted === true || timeline === undefined) {
+                return originsPageOf(originsUpTo(at, snapshot, (event) => rankBefore(event.rank, rank), checksBefore(rank)), offset, limit);
+            }
+            return originsWindow(at, entry, snapshot, timeline, rank, offset, limit);
         },
 
         lastTouched(id, position, mode) {
