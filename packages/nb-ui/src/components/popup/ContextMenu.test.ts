@@ -1,4 +1,4 @@
-/** ContextMenu（同名 .md）的键盘：打开即聚焦首个可用项，方向键与 Home/End 在同级循环，子菜单的进出（右方向键、Enter、空格），Enter 选择。 */
+/** ContextMenu（同名 .md）的打开与键盘：打开即夹回视口、聚焦首个可用项（挂着再打开与打开时才挂上都是），方向键与 Home/End 在同级循环，子菜单的进出（右方向键、Enter、空格），Enter 选择。 */
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -36,6 +36,31 @@ async function open() {
     await flushPromises();
     return wrapper;
 }
+
+describe("ContextMenu 打开", () => {
+    it("挂着再打开、打开时才挂上（宿主用 v-if）：都夹回视口并聚焦首个可用项", async () => {
+        const far = {x: window.innerWidth + 400, y: window.innerHeight + 400, items: ITEMS};
+        const keptMounted = async () => {
+            const wrapper = mount(ContextMenu, {props: {...far, open: false}, attachTo: document.body});
+            mounted.push(wrapper);
+            await flushPromises();
+            await wrapper.setProps({open: true});
+        };
+        const mountedOpen = async () => {
+            mounted.push(mount(ContextMenu, {props: {...far, open: true}, attachTo: document.body}));
+        };
+        for (const show of [keptMounted, mountedOpen]) {
+            await show();
+            await flushPromises();
+            const panel = document.querySelector<HTMLElement>("[data-menu-panel][data-menu-depth='0']");
+            expect(panel, show.name).not.toBeNull();
+            expect(Number.parseFloat(panel!.style.left), show.name).toBeLessThan(window.innerWidth);
+            expect(Number.parseFloat(panel!.style.top), show.name).toBeLessThan(window.innerHeight);
+            expect(focused(), show.name).toBe("新建");
+            for (const wrapper of mounted.splice(0)) wrapper.unmount();
+        }
+    });
+});
 
 describe("ContextMenu 键盘", () => {
     it("打开即聚焦首个可用项；上下方向键跳过禁用项与分隔线并循环；Home/End 到首末项", async () => {

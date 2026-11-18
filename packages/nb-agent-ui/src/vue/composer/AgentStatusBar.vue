@@ -165,7 +165,6 @@ const showsRight = computed(() => rightItems.value.some((item) => !isEmpty(item.
 
 // ─── 右键菜单 ───────────────────────────────────────────────────────────
 
-/** `ContextMenu` 要常挂着、靠 `open` 的变化定位与夹取：打开时才挂上的话它不会量自己，菜单会伸出视口。 */
 const menu = ref({open: false, x: 0, y: 0});
 /** 打开菜单时焦点在哪：菜单把焦点拿走，选了项、Esc、Tab 关闭时还回去（点到菜单外时焦点已跟着用户走了，不抢）。 */
 let opener: HTMLElement | null = null;
