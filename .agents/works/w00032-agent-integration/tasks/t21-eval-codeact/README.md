@@ -13,7 +13,7 @@ updated: 2026-11-18
 
 来源：t12 讨论（2026-10-28）；t04 定工具发现搁置时开发者说以后有需求打算用 CodeAct 实现。
 
-合同：本 Task 搁置，行为合同未变。
+合同（planned）：新建 [`agent/eval.md`](../../../../../docs/specs/agent/eval.md)；[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md) 输出 90 到 102 与 [`harness/session.md`](../../../../../docs/specs/harness/session.md) 的兼容；[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md) 输出 24、25，[`agent/permissions.md`](../../../../../docs/specs/agent/permissions.md) 输出 24、25，[`agent/resources.md`](../../../../../docs/specs/agent/resources.md) 输出 16、17，[`agent/builtin-tools.md`](../../../../../docs/specs/agent/builtin-tools.md) 输出 29，[`agent/builtin-profiles.md`](../../../../../docs/specs/agent/builtin-profiles.md) 输出 18，[`agent/run-guards.md`](../../../../../docs/specs/agent/run-guards.md) 输出 15，[`agent/compaction.md`](../../../../../docs/specs/agent/compaction.md) 输出 9，[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md) 的子调用与场景 37。
 
 ## 已知情况
 

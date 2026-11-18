@@ -97,7 +97,7 @@
 ## Spec 与文档改动
 
 - 新建 `docs/specs/agent/eval.md`（planned）：工具、审批、内核寿命与上限、输出、`tool.*` 的返回、时限、重置提示、全局对象与文档。
-- `harness/runtime.md`：输出 96 起：`invokes`、`NestedOutcome`、嵌套调用的身份、`codeCallable`、`global` 工具只走代码（清单与执行端）、`invoke` 的流水线与改派后的再核、两种新事件与出站过滤、嵌套的审批与提问、并发、上限、收口、恢复、`leafMoves`。
+- `harness/runtime.md`：输出 90 起：`invokes`、`NestedOutcome`、嵌套调用的身份、`codeCallable`、`global` 工具只走代码（清单与执行端）、`invoke` 的流水线与改派后的再核、两种新事件与出站过滤、嵌套的审批与提问、并发、上限、收口、恢复、`leafMoves`。
 - `harness/session.md`：两种新事件；降级不受支持。
 - `agent/contributions.md`：`agent.tools` 的 `invokes`、`codeCallable`、`global`、`returns`；新贡献点 `agent.evalObjects`。
 - `agent/permissions.md`：嵌套调用照常判定、事项带来源；eval 是执行档且不能记。

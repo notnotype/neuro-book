@@ -250,6 +250,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
+| Agent 的代码执行 | [`agent/eval.md`](agent/eval.md) | `nbook.agent.eval`：常驻 JS 内核、代码里调工具与全局对象、时限与重置、审批 |
 | 插件安装与升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、重启生效的升级、兼容与安全模式；操作在下一次启动生效 |
 | 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | 服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点 |
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
