@@ -81,7 +81,8 @@ const rendered = computed(() => {
     }));
 });
 /** 整个菜单（跨组）有一项带图标时，其余项也留出图标列，名称左边对齐。 */
-const iconColumn = computed(() => props.groups.some((group) => group.items.some((item) => item.iconClass)));
+const iconColumn = computed(() => props.groups.some((group) => group.items.some((item) => item.iconClass || item.imageUrl)));
+const imageColumn = computed(() => props.groups.some((group) => group.items.some((item) => item.imageUrl)));
 /** 同理：有一项带状态时每行行尾都留一个图标宽，名称与次要文字的右缘对齐。 */
 const statusColumn = computed(() => props.groups.some((group) => group.items.some((item) => item.status !== undefined)));
 const STATUS_TONE = {neutral: "text-[var(--text-secondary)]", warning: "text-[var(--status-warning)]", danger: "text-[var(--status-danger)]"} as const;
@@ -222,7 +223,7 @@ defineExpose({
                             :id="row.domId"
                             :key="row.item.id"
                             role="option"
-                            class="nb-ui-menu-item"
+                            :class="['nb-ui-menu-item', {'nb-ui-menu-item--image': imageColumn}]"
                             :aria-selected="isActive(row.item) ? 'true' : 'false'"
                             :aria-disabled="row.item.disabled === true ? 'true' : undefined"
                             :data-highlighted="isActive(row.item) ? '' : undefined"
@@ -231,6 +232,9 @@ defineExpose({
                             @click="onClick(row.item)"
                         >
                             <MenuRow :label="row.item.label" :lead-column="iconColumn" :icon="row.item.iconClass" muted-icon :hint="row.item.hint">
+                                <template v-if="row.item.imageUrl" #lead>
+                                    <img :src="row.item.imageUrl" alt="" class="nb-ui-menu-item__image" draggable="false" data-suggestion-menu-image>
+                                </template>
                                 <template #trailing>
                                     <span v-if="statusColumn" class="ml-2 flex w-4 shrink-0 items-center justify-center" data-suggestion-menu-status>
                                         <template v-if="row.item.status !== undefined">

@@ -7,6 +7,8 @@ export type SuggestionMenuItem = Readonly<{
     id: string;
     label: string;
     iconClass?: string;
+    /** 一张小图（例如表情），画在图标的位置；整个菜单有一项带图时图标列放宽到 24px */
+    imageUrl?: string;
     /** 右侧的次要文字：快捷键、路径或一句说明；放不下时先截它 */
     hint?: string;
     disabled?: boolean;

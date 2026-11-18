@@ -117,4 +117,17 @@ describe("SuggestionMenu 的选项 id", () => {
         await mountMenu(GROUPS, null);
         expect(document.querySelectorAll("[data-suggestion-menu-status]")).toHaveLength(0);
     });
+
+    it("带小图的项把图画在图标列，名称与提示照常；整个菜单有一项带图时每行都留出放宽的图标列", async () => {
+        const groups: SuggestionMenuGroup[] = [{id: "stickers", items: [
+            {id: "lyra/开心", label: "开心", imageUrl: "/img/happy.png", hint: "星璃"},
+            {id: "plain", label: "没有图"},
+        ]}];
+        await mountMenu(groups, null);
+        const options = [...document.querySelectorAll<HTMLElement>("[role='option']")];
+        expect(options.map((option) => option.querySelector<HTMLImageElement>("[data-suggestion-menu-image]")?.getAttribute("src") ?? null)).toEqual(["/img/happy.png", null]);
+        expect(options.map((option) => option.classList.contains("nb-ui-menu-item--image"))).toEqual([true, true]);
+        expect(options.map((option) => option.querySelectorAll(".nb-ui-menu-item__icon").length)).toEqual([1, 1]);
+        expect(options[0]?.textContent?.replace(/\s+/g, "")).toBe("开心星璃");
+    });
 });
