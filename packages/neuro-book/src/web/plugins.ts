@@ -29,6 +29,7 @@ import {tasksBrowserPlugin} from "nbook/plugins/tasks/web/plugin";
 import {tasksCatalogs} from "nbook/plugins/tasks/web/text";
 import {agentBrowserPlugin} from "nbook/plugins/agent/web/plugin";
 import {stickersBrowserPlugin} from "nbook/plugins/stickers/web/plugin";
+import {stickersCatalogs} from "nbook/plugins/stickers/web/text";
 import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
@@ -111,6 +112,7 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.plugins": pluginsCatalogs,
     "nbook.projects": projectsCatalogs,
     "nbook.settings": settingsCatalogs,
+    "nbook.stickers": stickersCatalogs,
     "nbook.workbench": workbenchCatalogs,
 };
 

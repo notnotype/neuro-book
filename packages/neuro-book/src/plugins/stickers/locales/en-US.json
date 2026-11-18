@@ -1,0 +1,160 @@
+{
+    "settingsPages": {
+        "packs": {
+            "title": "Stickers",
+            "description": "Create, edit, import and export sticker packs"
+        }
+    },
+    "page": {
+        "loading": "Loading sticker packs…",
+        "loadFailed": "Can't load sticker packs ({{code}})",
+        "retry": "Retry",
+        "emptyTitle": "No sticker packs yet"
+    },
+    "rail": {
+        "label": "Sticker packs",
+        "mine": "Mine",
+        "new": "New sticker pack",
+        "import": "Import zip",
+        "problem": "Some images aren't usable",
+        "invalid": "This pack is invalid",
+        "noThumb": "No stickers"
+    },
+    "head": {
+        "copy": "Copy to mine",
+        "export": "Export",
+        "more": "More"
+    },
+    "menu": {
+        "reveal": "Show in folder",
+        "rename": "Rename pack…",
+        "delete": "Delete pack"
+    },
+    "group": {
+        "problem": "Unrecognized",
+        "common": "Common",
+        "other": "Other",
+        "unlisted": "In the folder, not added yet",
+        "commonTip": "Common stickers go into the prompt with their descriptions; the model has to look up the rest.",
+        "addAll": "Add all",
+        "more": "{{count}} more not shown"
+    },
+    "grid": {
+        "add": "Add",
+        "addLabel": "Add images",
+        "drop": "Drop to add {{count}} images",
+        "dropEmpty": "Drop images here, or click to choose files",
+        "uploading": "Uploading {{name}}"
+    },
+    "panel": {
+        "label": "Properties",
+        "back": "Back to pack",
+        "name": "Name",
+        "description": "Description",
+        "placeholder": "Optional",
+        "syntax": "Syntax",
+        "copySyntax": "Copy syntax",
+        "common": "Common",
+        "deleteSticker": "Delete sticker",
+        "deleteFile": "Delete file",
+        "listIt": "Add it",
+        "unlistedHint": "In the folder, not in the pack yet",
+        "nameRule": "A name starts with a letter or _, uses only letters, digits, _ and -, and has at most 32 characters.",
+        "displayName": "Display name",
+        "packName": "Pack name",
+        "changePackName": "Change…",
+        "packSummary": "{{count}} stickers, {{common}} common",
+        "fileInfo": "{{file}}",
+        "sizeInfo": "{{width}} × {{height}}, {{size}}",
+        "pluginNote": "This pack comes from a plugin and is read-only. Copy it to mine to edit it."
+    },
+    "dialog": {
+        "cancel": "Cancel",
+        "create": {
+            "title": "New sticker pack",
+            "displayName": "Display name",
+            "folder": "Pack name",
+            "hint": "The pack name goes into the syntax: {{syntax}}",
+            "confirm": "Create"
+        },
+        "rename": {
+            "title": "Rename pack",
+            "newName": "New pack name",
+            "confirm": "Rename to {{name}}",
+            "warnTitle": "Stickers written with the old pack name stop resolving",
+            "warnMessage": "Syntax already written in chats and files, like {{example}}, will show as plain text; renaming back makes it resolve again.",
+            "usageLoading": "Looking for Profiles that use it…",
+            "usageList": "These Profiles selected it and need it selected again on the Profile page after renaming: {{names}}",
+            "usageGeneric": "Profiles that selected it need it selected again after renaming."
+        },
+        "conflict": {
+            "title": "A sticker pack named {{name}} already exists",
+            "existing": "Existing",
+            "incoming": "Importing",
+            "count": "{{count}} stickers",
+            "countUnknown": "Sticker count unknown",
+            "copyAs": "Save as {{name}}",
+            "copyUnavailable": "Save as new",
+            "replace": "Replace existing",
+            "replaceNote": "Replacing deletes the existing pack."
+        },
+        "deletePack": {
+            "title": "Delete sticker pack “{{name}}”?",
+            "description": "Its {{count}} stickers and all images are deleted and cannot be restored.",
+            "confirm": "Delete"
+        },
+        "deleteSticker": {
+            "title": "Delete “{{name}}”?",
+            "description": "The image file is deleted too and cannot be restored.",
+            "confirm": "Delete"
+        }
+    },
+    "notify": {
+        "title": "Stickers",
+        "uploaded": "Some images were not added: {{list}}",
+        "resized": "{{count}} images were too large and were scaled down.",
+        "revealNoDesktop": "This machine has no desktop, so the folder can't be opened. Location: {{path}}",
+        "revealFailed": "Couldn't open the folder. Location: {{path}}",
+        "exportFailed": "Export failed: {{reason}}",
+        "unknownOutcome": "Not sure whether the write succeeded; sticker packs were reloaded.",
+        "failed": "Didn't work: {{reason}}",
+        "imported": "Imported “{{name}}”.",
+        "readFile": "The file can't be read any more. Choose it again."
+    },
+    "error": {
+        "not-user-pack": "Packs from plugins can't be changed. Copy it to mine first.",
+        "pack-missing": "This pack is gone.",
+        "pack-exists": "A pack with that name already exists.",
+        "pack-changed": "The pack was just changed elsewhere. The page has refreshed; try again.",
+        "folder-invalid": "A pack name uses only lowercase letters, digits and hyphens, 1 to 64 characters, and doesn't start or end with a hyphen.",
+        "name-invalid": "That name isn't valid: it starts with a letter or _, uses only letters, digits, _ and -, and has at most 32 characters.",
+        "name-duplicate": "Another sticker already uses that name.",
+        "description-invalid": "A description has at most 200 characters.",
+        "sticker-missing": "This sticker is no longer in the manifest.",
+        "manifest-full": "The manifest is full: at most 500 stickers and 256 KiB.",
+        "too-large": "The file is too large.",
+        "permission-denied": "No permission to write this folder.",
+        "write-failed": "The write didn't finish and may be partly done; trust what the page shows now.",
+        "refresh-failed": "Written, but the page couldn't refresh. Reopen the page.",
+        "busy": "Another import, export or upload is running. Try again shortly.",
+        "image-rejected": "The image isn't usable: {{reason}}",
+        "import-invalid": "This zip can't be imported: {{reason}}",
+        "import-conflict": "A pack with that name already exists.",
+        "export-too-large": "Too large to export: a zip is at most 64 MiB and 600 files.",
+        "export-empty": "No images, so the exported pack couldn't be imported back.",
+        "pack-invalid": "This pack is invalid. Fix it in the folder first.",
+        "timeout": "No data for a long time, so the connection was closed.",
+        "cross-site": "Requests from other web pages are not accepted.",
+        "unavailable": "Can't reach the service."
+    },
+    "reject": {
+        "file-invalid": "the file name can't be used",
+        "type-mismatch": "the content doesn't match the extension, or isn't PNG, GIF, WebP or JPEG",
+        "unreadable": "the image can't be read",
+        "too-many-pixels": "too many pixels (over 30 million)",
+        "gif-too-large": "a GIF over 1024 pixels or 2 MiB can't be shrunk",
+        "animated-too-large": "an animated WebP over 1024 pixels or 2 MiB can't be shrunk",
+        "still-too-large": "still over 2 MiB after shrinking",
+        "folder": "folders aren't accepted, only image files"
+    }
+}
