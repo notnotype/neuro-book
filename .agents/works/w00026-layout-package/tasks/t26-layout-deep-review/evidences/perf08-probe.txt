@@ -1,0 +1,19 @@
+# perf-08 实测（2026-11-18）：过渡结束改看过渡本身，在 Chrome 里没有可观察的收益
+
+审查（deep-review-perf.txt 的 perf-08，读代码）：useGridMotion 按“时长 + 50ms”掐表收尾，主线程忙、过渡开始得晚时，计时器先到，最后一段跳到终点。计划第 2 稿改成：写终点的渲染之后收集网格根直接子元素上的 CSS 过渡，全部 settle 再收尾。
+
+实现之后在 Lab（NestedGrid 的 default 场景，reducedMotion: no-preference，--motion-layout: 400ms）里点“程序布局”，在渲染写进 DOM 之后、收集过渡之前用 MutationObserver 的回调同步占住主线程 600ms（模拟一次很慢的渲染），useGridMotion 里加临时日志。输出（时间是 performance.now 的毫秒）：
+
+  PROBE await 16378 token=1 two=false            （update 里登记收集）
+  PROBE collect 16984 token=1/1 moving=true      （忙完之后才收集：过渡这时才建起来）
+  PROBE collected 8 width:null,left:null,…       （8 个过渡，startTime 还是 pending）
+  PROBE settled 16995 token=1/1                  （11ms 后全部结束）
+  PROBE stop 16995 moving=true
+
+  页面里逐帧量左叶宽度：忙之前 189；忙完第 0 帧 189，第 1 帧 229（终点），之后不动。
+
+读法：Chrome 的文档时间线只在每帧开始时前进，过渡按建起来那一刻的时间线时间计时，也就是忙之前那一帧的时间。忙了 600ms 之后的下一帧，过渡已经超过 400ms，直接到终点：过渡本身就“跳”了，不是计时器掐的。
+原来的计时器从 update 起算（不早于那一帧），所以它永远不比过渡本身先到；改成等 finished 结束得一样早，只多一套轮次令牌与收集。
+另一个对照（忙在收集之后，即过渡建起来之后再占住主线程 600ms）：同样是忙完第 1 帧到终点，Animation.finished 在忙完 4ms 后 resolve。
+
+结论：perf-08 不成立（实测），不改；改动撤回，Lab 的对应用例也不加。happy-dom 里拿不到动画，现有单元测试守的本来就是掐表那条路。

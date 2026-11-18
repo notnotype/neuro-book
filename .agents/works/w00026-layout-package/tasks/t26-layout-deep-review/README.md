@@ -83,6 +83,10 @@ updated: 2026-11-18
 - 片 2（`e9bb34207`）：4 个 e2e 文件里点活动栏入口的 32 处改成 `pressEntry`，点完把指针移到状态栏中间；Lab 的表面场景也有状态栏，用同一个位置（计划写的是画布外，状态栏一样没有悬停效果，少一种写法）。组件说明（docs-02、08、09、11）按 t28、t29 之后的代码补齐；docs-18 的六处注释改成说现在的约束。验证：改到的 4 个 e2e 文件 124 条，123 过；`workbench-containers:1277`（滑到一半点回来逐帧取样）失败一次，它用 `evaluate` 点入口、不经改到的辅助函数，按真实时间逐帧取样，负载 9 左右时帧间隔变长、提前走完；单独重跑 3 次都过，归负载。
 - 片 3（`25c3a26b5`）：基线脚本 `scripts/perf/layout-frames.ts`，自己起产品服务器（和 `e2e/fixtures.ts` 同一种起法，cwd 指向要量的那份检出），没有按计划导入各检出的 `e2e/fixtures.ts`：那里的等待用的是 Playwright Test 的 `expect.poll`，脚本不在测试运行器里。基线构建在 detached worktree `.worktree/w00026-t26-perf-base`（`ba3de16c6`）。第一次测量与读法见 [`evidences/perf-baseline.txt`](evidences/perf-baseline.txt)：基线与分支每项都在噪声内；perf-01 每次树滚动 16 次、每次改窗口 38 次分隔线样式写入，perf-04 按住不动每秒 60 次帧回调，都量到了。
 
+- 片 4：perf-01 与 perf-08。
+  - perf-01：`useSashSnap` 收网格根，捕获阶段的 scroll 只在滚动的是文档或包着根的元素时重新对齐（`NestedGrid`、`Splitter` 两个调用方传各自的根）；`SashHandle` 按装饰元素（`WeakMap`）记下上次写的几何与线芯变量，值一样不写。“线芯宽度一轮读一次”没做：读在一帧量的那一半里，第一次之后样式是干净的，再读不触发重算，不同种类的分隔线主题也可能给不同的宽度。测试：`splitter.dom.test.ts` 加“面板里的滚动不重新对齐、包着网格的元素滚动重新对齐”；去重在 happy-dom 里证不了（它的 `MutationObserver` 不记 `style.left = …` 这种写法），放进 `lab-nested-grid` 的新用例：叶里的滚动不排帧、不写分隔线，文档的滚动重新对齐一次但一条都不写。变异检查：去掉判根，`frames` 不为 0；去掉去重，写了 8 次，都失败。
+  - perf-08 实测不成立，不改（[`evidences/perf08-probe.txt`](evidences/perf08-probe.txt)）：Chrome 的过渡按建起来那一刻的时间线时间计时，主线程忙过之后过渡本身就到了终点；原来的计时器从 `update` 起算，不会比它先到。改成等过渡结束只多一套机制，撤回。
+
 ## 下一步
 
-片 4：perf-01（滚动只认包着网格根的、装饰写入去重）、perf-08（过渡结束看过渡本身）。
+片 4 的 e2e（`lab-nested-grid`、`lab-grid-panels`、`lab-grid-swap`、`lab-workbench-surface`、`workbench-shell`、`workbench-float`）跑完后提交；接着片 5：perf-09、perf-04、perf-03。
