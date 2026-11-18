@@ -387,8 +387,14 @@ describe("AgentConversationComposer 留着的话与停止的两个选项", () =>
         archived.unmount();
     });
 
-    /** 停止旁的下拉：输入框里还有 `+` 菜单与审批下拉，按它包住的箭头找。 */
-    const stopMenu = (view: ReturnType<typeof mountComposer>) => view.findAllComponents(DropdownMenu).find((menu) => menu.find("[data-composer-action='stop-more']").exists())!;
+    /** 像用户一样打开停止旁的下拉：聚焦箭头、按下方向键，等菜单挂到 body 上（测试写法的“组件测试经用户操作触发子组件的事件”）。 */
+    async function openStopMenu(view: ReturnType<typeof mountComposer>): Promise<void> {
+        const more = view.get("[data-composer-action='stop-more']");
+        (more.element as HTMLElement).focus();
+        await more.trigger("keydown", {key: "ArrowDown"});
+        for (let round = 0; round < 5; round += 1) await nextTick();
+    }
+    const menuItems = () => [...document.body.querySelectorAll("[role=menuitem]")] as HTMLElement[];
 
     it("stopClearing 不为空时停止旁有下拉箭头，选“停止并清空排队”发出 clearQueue；点停止本身不带；停止中箭头 aria-disabled、不开菜单；有字时不出现", async () => {
         const base = {run: {status: "running" as const}, interaction: {canStop: true, canQueue: true, stopClearing: {count: 3}}};
@@ -396,17 +402,18 @@ describe("AgentConversationComposer 留着的话与停止的两个选项", () =>
         const more = view.get("[data-composer-action='stop-more']");
         expect(more.attributes("aria-haspopup")).toBe("menu");
         expect(more.attributes("aria-label")).toBe("更多停止方式");
-        const menu = stopMenu(view);
-        expect(menu.props("items")).toEqual([expect.objectContaining({id: "clear", label: "停止并清空排队（3 条）", tone: "danger"})]);
-        menu.vm.$emit("select", "clear");
+        await openStopMenu(view);
+        expect(menuItems().map((item) => item.textContent?.trim())).toEqual(["停止并清空排队（3 条）"]);
+        menuItems()[0]!.click();
+        await flushPromises();
         await view.get(".acv-composer__primary").trigger("click");
         expect(actionsOf(view)).toEqual([{type: "composer.stop", clearQueue: true}, {type: "composer.stop"}]);
         view.unmount();
 
         const stopping = mountComposer({ctx: ctx({...base, run: {status: "stopping"}})});
         expect(stopping.get("[data-composer-action='stop-more']").attributes("aria-disabled")).toBe("true");
-        stopMenu(stopping).vm.$emit("update:open", true);
-        await nextTick();
+        await openStopMenu(stopping);
+        expect(menuItems()).toEqual([]);
         expect(stopping.get("[data-composer-action='stop-more']").attributes("aria-expanded")).toBe("false");
         stopping.unmount();
 
