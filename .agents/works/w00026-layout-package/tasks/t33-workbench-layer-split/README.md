@@ -53,9 +53,17 @@ updated: 2026-11-18
   - Spec 的三处实现路径（`ui/workbench-layout` 的 151、364、365 行）随代码在分支上改：文件一搬，旧链接就断，`docs:check` 会失败；master 上这份与分支起点相同，合入不会盖掉新内容。
   - 根 `AGENTS.md` 的仓库结构里先不加新包这一行：主工作区的这个文件有别的会话没提交的改动，这次不暂存它，留到它提交之后再补。
   - e2e：12 个文件 226 条，带 `NB_E2E_WIDE`，跑到第 96 条时撞上 90 分钟上限。Lab 的 7 个文件几乎全部失败，失败都在打开页面后 15 秒内等不到 Lab 就绪：截图停在宿主的加载条，trace 里 Vite 的模块请求在打开后 54 秒才轮到 Lab。当时负载 24 到 39，可用内存 2 GB，别的会话的 eval 内核、开发服务与截图都在跑。过了就绪的用例全部通过，没有一条是行为断言失败。`workbench-containers` 19 条过 18 条（1276 失败），`workbench-dnd`、`workbench-live-drag`、`workbench-shell`、`workbench-views` 没轮到。负载 25 时单独重跑 `lab-drop-sectors` 与 `lab-tab-strip`：过 2 条（TabStrip 的键盘与多行），其余 4 条照样卡在就绪。
+  - e2e 第二轮（合并 master 后重建三份产物，等负载降到 12 以下才开跑）：Lab 的 7 个文件、上一轮没轮到的 4 个文件与 `workbench-containers:1276`，192 条，181 过、11 败。开跑时负载 10.8，跑的过程中升到 41（别的会话的 eval 内核与类型检查），可用内存 2 GB。
+    - 产品页的用例全过，包括 `workbench-dnd`、`workbench-live-drag`、`workbench-views`，以及 `workbench-shell` 的产品页部分。
+    - 失败的 11 条里，8 条是 Lab 打开后 15 秒内等不到就绪（`lab-drag-session:95`、`lab-nested-grid:418` 两种配色、`lab-scenes:41`、`lab-workbench-surface` 的 83、264、282、387），`workbench-shell:792` 是 Lab 场景 15 秒内没挂上，`workbench-shell:883` 是开发服务连不上（`ERR_CONNECTION_REFUSED`）。
+    - `workbench-containers:1276` 两轮都失败：点回之后第 1 帧指示块离终点不到 1px，滑回在一帧之内基本走完。这个指示块的实现（`WorkbenchToolStrip.vue`、`use-entry-indicator.ts`）本分支没改，这一条按逐帧时序怕负载处理，等负载低时单独重跑确认。
+  - 第 3 片的包说明在分支上（`a0cb8ecdf`）：nb-layout 的 README 与 AGENTS 改成通用布局工具，加一条分界规则（导出名、数据属性、类型名里不出现工作台概念）；`grid.md` 的“布局文档”一节搬进新包 README，原处留一句链接。
+  - `governance:check` 有 14 条失败，master 上同样是这 14 条，都是分支起点之前就有的。
+  - 用 nbdev 在 4317 起开发服务看了一遍：Lab 的 `TabStrip` 三个场景（滚动、多行、自适应）亮色下画法正常，截图报告没有溢出、页面错误与被裁的焦点环；产品页 `/workbench` 挂上、没有页面错误。看完已停掉。
+  - 实现审查：Claude Sonnet，固定在 `a0cb8ecdf` 的审查 worktree，2026-11-18 在后台开始，不阻塞。
 
 ## 下一步
 
-1. 负载降下来以后，重跑 Lab 的 7 个文件、没轮到的 4 个文件与 `workbench-containers:1276`，再用 nbdev 起开发服务（不用 4217）看 `lab?c=TabStrip`。
-2. 第 3 片：两个 Spec 的实现合同与证据（在 master，合入之后），nb-layout 的 README、AGENTS 与 `grid.md`，“布局文档”一节搬进新包的文档。
-3. 实现审查（Claude Sonnet，不阻塞）、合入 master。
+1. 负载降到 15 以下后，逐条单独重跑上面失败的 11 条（已在后台排好）；还失败的在 master 上对照。
+2. 合入 master，`bun install`；在 master 上补两份 Spec 的实现合同与证据（新包路径）。根 `AGENTS.md` 的仓库结构等别的会话的改动提交之后再加新包这一行。
+3. 实现审查回来后逐条处理，修正单独提交。
