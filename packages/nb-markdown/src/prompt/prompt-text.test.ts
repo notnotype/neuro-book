@@ -31,6 +31,10 @@ import {
     renumberInsertion,
     serializeFileToken,
     serializeImageToken,
+    largeStickerLines,
+    PROMPT_STICKER_NODE,
+    stickerInsertionText,
+    stickerOnlyMessage,
     usedPromptNumbers,
     type PromptNodeJSON,
     type PromptTokenAttrs,
@@ -487,5 +491,91 @@ describe("findPromptLinks", () => {
         expect(found.map((link) => text.slice(link.start, link.end))).toEqual([label, label]);
         expect(found[0]!.start).toBe(1);
         expect(found[1]!.destination).toBe("sessions://s/a.png");
+    });
+});
+
+describe("prompt-text 表情写法（docs/specs/agent/stickers.md 输出 42、44、45）", () => {
+    const KNOWN = new Set([":lyra/开心:", ":lyra/困:", ":好:", ":cat/喵:"]);
+    const known = (raw: string): boolean => KNOWN.has(raw);
+    const kinds = (doc: PromptNodeJSON): string[] => (doc.content ?? []).flatMap((block) => (block.content ?? []).map((node) => (node.type === PROMPT_STICKER_NODE ? `sticker ${String(node.attrs?.raw)}` : node.type === "text" ? `text ${node.text ?? ""}` : String(node.type))));
+
+    describe("触发规则表：`:` 在开头或前一个字不是 ASCII 字母数字；查询至少 1 个字、没有 `:`，1 个英文字母不算", () => {
+        const triggers = ["@", "$", "/", ":"];
+        it.each([
+            [":开", {trigger: ":", query: "开", offset: 0}],
+            ["写完啦:开", {trigger: ":", query: "开", offset: 3}],
+            ["(:开", {trigger: ":", query: "开", offset: 1}],
+            ["，:开", {trigger: ":", query: "开", offset: 1}],
+            ["好的 :kx", {trigger: ":", query: "kx", offset: 3}],
+            [":lyra/", {trigger: ":", query: "lyra/", offset: 0}],
+            ["你好:开:心", {trigger: ":", query: "心", offset: 4}],
+            // `@` 的查询里含着靠光标更近的 `:` 触发：取近的那个。
+            ["@章:开", {trigger: ":", query: "开", offset: 2}],
+            ["@a:开", {trigger: "@", query: "a:开", offset: 0}],
+        ])("%j 构成触发", (before, expected) => {
+            expect(findPromptTrigger(before, triggers)).toEqual(expected);
+        });
+
+        it.each([
+            ":",
+            "好的 :D",
+            ":P",
+            "10:30",
+            "http://x",
+            "abc:开",
+            "时间:12:30",
+            `:开${PROMPT_ATOM_CHAR}`,
+        ])("%j 不构成触发", (before) => {
+            expect(findPromptTrigger(before, triggers)).toBeNull();
+        });
+
+        it("宿主没有列出 `:` 时不触发；`备注:$a` 里 `$` 照旧不触发，`:` 触发", () => {
+            expect(findPromptTrigger("写完啦:开", ["@", "$"])).toBeNull();
+            expect(findPromptTrigger("备注:$a", ["$"])).toBeNull();
+            expect(findPromptTrigger("备注:$a", ["$", ":"])).toEqual({trigger: ":", query: "$a", offset: 2});
+        });
+    });
+
+    it("认得出的写法是表情节点，认不出的、代码里的、链接里的是文字；写回逐字相同", () => {
+        const text = "好:lyra/开心:呀 :lyra/没有: `:lyra/困:` std::string::npos [见](https://x.com/:lyra/困:)\n```\n:lyra/困:\n```";
+        const doc = parsePromptText(text, {commands: [], stickerKnown: known});
+        expect(promptNodeText(doc)).toBe(text);
+        expect(kinds(doc).filter((kind) => kind.startsWith("sticker"))).toEqual(["sticker :lyra/开心:"]);
+        expect(kinds(parsePromptText(":lyra/开心:", {commands: []}))).toEqual(["text :lyra/开心:"]);
+        expect(kinds(parsePromptText(":lyra/开心:", {commands: [], stickerKnown: () => undefined}))).toEqual(["text :lyra/开心:"]);
+    });
+
+    it("打完收尾的 `:` 时认得出的写法写完；认不出的不算", () => {
+        const line = "今天:lyra/开心:";
+        expect(findCompletedWriting(line, line.length - 1, line.length, {commands: [], firstLine: true, stickerKnown: known})).toMatchObject({start: 2, end: line.length, attrs: {kind: "sticker", raw: ":lyra/开心:"}});
+        expect(findCompletedWriting("今天:lyra/x:", 9, 10, {commands: [], firstLine: true, stickerKnown: known})).toBeNull();
+        expect(findCompletedWriting(line, line.length - 1, line.length, {commands: [], firstLine: true})).toBeNull();
+    });
+
+    it("插入写法时，会被前文的 `:词` 连成别的写法就先补空格；插进去以后读回仍是这个表情", () => {
+        for (const before of ["他说:好", "备注:你好", "a:b"]) {
+            const inserted = stickerInsertionText(before, ":lyra/开心:");
+            expect(inserted).toBe(" :lyra/开心:");
+            const doc = parsePromptText(before + inserted, {commands: [], stickerKnown: known});
+            expect(kinds(doc).at(-1)).toBe("sticker :lyra/开心:");
+        }
+        for (const before of ["", "写完啦", "好 ", ":lyra/困:"]) expect(stickerInsertionText(before, ":lyra/开心:")).toBe(":lyra/开心:");
+    });
+
+    it("大图：一段（空行分开）里只有表情与空白、1 到 3 个；夹着文字或多于 3 个的不是", () => {
+        const doc = (text: string) => parsePromptText(text, {commands: [], stickerKnown: known});
+        expect([...largeStickerLines(doc(":lyra/开心: :lyra/困:"))]).toEqual([0]);
+        expect([...largeStickerLines(doc(":lyra/开心:\n:好:\n\n写完啦:lyra/困:"))]).toEqual([0, 1]);
+        expect([...largeStickerLines(doc(":lyra/开心::好::lyra/困::cat/喵:"))]).toEqual([]);
+        expect([...largeStickerLines(doc(":lyra/没有:"))]).toEqual([]);
+    });
+
+    it("只有表情的消息：几个文字块拼起来去掉空白只剩 1 到 3 个认得出的写法", () => {
+        expect(stickerOnlyMessage([" :lyra/开心: "], known)).toBe(true);
+        expect(stickerOnlyMessage([":lyra/开心:", ":好:\n\n:lyra/困:"], known)).toBe(true);
+        expect(stickerOnlyMessage([":lyra/开心::好::lyra/困::cat/喵:"], known)).toBe(false);
+        expect(stickerOnlyMessage([":lyra/开心: 呀"], known)).toBe(false);
+        expect(stickerOnlyMessage([":lyra/没有:"], known)).toBe(false);
+        expect(stickerOnlyMessage(["", " "], known)).toBe(false);
     });
 });

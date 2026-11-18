@@ -30,7 +30,10 @@ import {SuggestionMenu, suggestionMenuOptions, suggestionOptionId, type Suggesti
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState as PMEditorState, TextSelection} from "@tiptap/pm/state";
 import type {EditorView} from "@tiptap/pm/view";
+import {useMarkdownHost} from "../host";
 import {provideMarkdownText} from "../host/text";
+import {parseSticker} from "../stickers";
+import "../stickers.css";
 import type {MarkdownLocale} from "../locale";
 
 import PromptAttachmentStrip from "./PromptAttachmentStrip.vue";
@@ -49,6 +52,7 @@ import {
     pendingLocalIds,
     promptTriggerKey,
     readyTokenNode,
+    relabelStickers,
     replaceWithBlocks,
     startBlockPosition,
     type PromptNodeContext,
@@ -79,6 +83,7 @@ import {
     renumberInsertion,
     resolvePastePolicy,
     PROMPT_ATOM_CHAR,
+    stickerInsertionText,
     tokenNode,
     triggerNeedsSpace,
     usedPromptNumbers,
@@ -86,6 +91,7 @@ import {
     type PromptNumberSet,
     type PromptNumbers,
     type PromptPendingAttrs,
+    type PromptParseOptions,
 } from "./prompt-text";
 
 const props = withDefaults(defineProps<{
@@ -133,6 +139,16 @@ const props = withDefaults(defineProps<{
     fill: false,
     bare: false,
 });
+
+/**
+ * 宿主的表情目录（docs/specs/agent/stickers.md 输出 44）：`stickerKnown` 决定写法成不成为表情节点，`stickers` 查图。在函数里读：宿主的
+ * 判断背后是响应式状态，目录到了之后再读得到。
+ */
+const host = useMarkdownHost();
+function parseOptions(): PromptParseOptions {
+    const known = host.stickerKnown;
+    return known === undefined ? {commands: props.commands} : {commands: props.commands, stickerKnown: known};
+}
 
 const emit = defineEmits<{
     (e: "change", text: string): void;
@@ -206,7 +222,7 @@ const nodeContext: PromptNodeContext = {
 
 onMounted(() => {
     const instance = new PromptTiptapEditor({
-        content: parsePromptText(props.draft.text, {commands: props.commands}),
+        content: parsePromptText(props.draft.text, parseOptions()),
         editable: !props.readonly,
         extensions: createPromptExtensions({
             context: nodeContext,
@@ -216,6 +232,8 @@ onMounted(() => {
             readonly: () => props.readonly,
             resolvedTarget: (nodeId) => tracker.resolvedTarget(nodeId),
             nodeViews: {token: PromptTokenView, pasteBlock: PromptPasteBlockView},
+            stickerKnown: () => host.stickerKnown,
+            stickers: () => host.stickers,
         }),
         coreExtensionOptions: {clipboardTextSerializer: {blockSeparator: "\n"}},
         editorProps: {
@@ -259,6 +277,19 @@ onBeforeUnmount(() => {
 });
 
 watch(() => props.draft.version, () => applyDraft());
+
+/**
+ * 目录晚到时补认一次（docs/specs/agent/stickers.md 输出 44）：宿主的判断从“还不知道”变成知道时，正文里认得出、还是文字的写法换成
+ * 表情节点。用一条合法的写法探一下宿主知不知道；之后目录再变（加了表情）不补认。
+ */
+const STICKER_PROBE = ":_:";
+watch(() => host.stickerKnown !== undefined && host.stickerKnown(STICKER_PROBE) !== undefined, (ready, wasReady) => {
+    const current = editor.value;
+    const known = host.stickerKnown;
+    if (!ready || wasReady || current === null || current.isDestroyed || known === undefined) return;
+    const tr = relabelStickers(current.state, known);
+    if (tr !== null) current.view.dispatch(tr);
+});
 
 watch(() => props.readonly, (readonly) => {
     editor.value?.setEditable(!readonly, false);
@@ -306,7 +337,7 @@ function applyDraft(): void {
         return;
     }
     tracker.reset(current.state.doc);
-    const doc = current.schema.nodeFromJSON(parsePromptText(props.draft.text, {commands: props.commands}));
+    const doc = current.schema.nodeFromJSON(parsePromptText(props.draft.text, parseOptions()));
     // 新建状态而不是发事务：撤销历史随之清空，也不触发 update，因此不发 change。
     current.view.updateState(PMEditorState.create({doc, plugins: current.state.plugins, selection: edgeSelection(doc, "end")}));
     loadedVersion = props.draft.version;
@@ -359,14 +390,16 @@ const menu = computed<PromptEditorMenu | null>(() => {
     if (!menuOpen.value || !active) {
         return null;
     }
-    return props.resolveMenu({trigger: active.trigger, query: active.query, atStart: active.atStart});
+    const resolved = props.resolveMenu({trigger: active.trigger, query: active.query, atStart: active.atStart});
+    // 没有项时不显示的菜单（表情补全，ui/prompt-editor.md 输出 5）：回车与 Tab 照常交给正文。
+    return resolved.hideWhenEmpty === true && resolved.items.length === 0 && resolved.loading !== true ? null : resolved;
 });
 
 watch(menu, (next) => {
     activeItemId.value = keepActive(next?.items ?? [], activeItemId.value);
 });
 
-watch(menuOpen, (open, wasOpen) => {
+watch(() => menu.value !== null, (open, wasOpen) => {
     if (open && !wasOpen && trigger.value) {
         emit("menu-open", {trigger: trigger.value.trigger});
     }
@@ -381,7 +414,7 @@ function toGroups(items: readonly PromptEditorMenuItem[]): SuggestionMenuGroup[]
     items.forEach((item, index) => {
         const last = groups.at(-1);
         if (last === undefined || (item.group ?? undefined) !== last.label) groups.push({id: String(index), label: item.group || undefined, items: []});
-        groups.at(-1)!.items.push({id: item.id, label: item.label, iconClass: item.iconClass, hint: item.description, disabled: item.disabled, status: item.status});
+        groups.at(-1)!.items.push({id: item.id, label: item.label, iconClass: item.iconClass, imageUrl: item.imageUrl, hint: item.description, disabled: item.disabled, status: item.status});
     });
     return groups;
 }
@@ -419,7 +452,9 @@ function confirmItem(id: string): void {
     if (!current || !active || !item || item.disabled) {
         return;
     }
-    insertParsed(current, item.insertText + (item.continues ? "" : " "), {from: active.from, to: active.to, structure: false});
+    const text = parseSticker(item.insertText) === null ? item.insertText : stickerInsertionText(insertionContext(current.state.doc, active.from, active.to).before, item.insertText);
+    const space = item.continues === true || item.appendSpace === false ? "" : " ";
+    insertParsed(current, text + space, {from: active.from, to: active.to, structure: false});
     current.view.focus();
     emit("menu-select", {trigger: active.trigger, id: item.id});
 }
@@ -573,7 +608,7 @@ function applyRecall(index: number | null): void {
         return;
     }
     const text = index === null ? "" : props.recall[index] ?? "";
-    const doc = current.schema.nodeFromJSON(parsePromptText(text, {commands: props.commands}));
+    const doc = current.schema.nodeFromJSON(parsePromptText(text, parseOptions()));
     const tr = current.state.tr.replaceWith(0, current.state.doc.content.size, doc.content);
     tr.setSelection(edgeSelection(tr.doc, "end"));
     recallIndex = index;
@@ -683,7 +718,7 @@ function insertParsed(current: Editor, text: string, options: {from?: number; to
     const {state} = current;
     const from = options.from ?? state.selection.from;
     const to = options.to ?? state.selection.to;
-    const blocks = parsePromptInsertion(text, {commands: props.commands, ...insertionContext(state.doc, from, to), structure: options.structure});
+    const blocks = parsePromptInsertion(text, {...parseOptions(), ...insertionContext(state.doc, from, to), structure: options.structure});
     const renumbered = renumberInsertion(blocks, usedPromptNumbers(docNodes(state.doc)), highWater);
     highWater = renumbered.highWater;
     current.view.dispatch(replaceWithBlocks(state.tr, from, to, renumbered.nodes));
@@ -946,7 +981,10 @@ defineExpose({
     insertText(text: string): void {
         const current = editor.value;
         if (current && !props.readonly) {
-            insertParsed(current, normalizePastedText(text), {structure: true});
+            // 表情写法（选择器插入的）会和前文的 `:词` 连成别的写法时先补空格（docs/specs/agent/stickers.md 输出 44）。
+            const {from, to} = current.state.selection;
+            const insert = parseSticker(text) === null ? normalizePastedText(text) : stickerInsertionText(insertionContext(current.state.doc, from, to).before, text);
+            insertParsed(current, insert, {structure: true});
         }
     },
     insertFiles(files: readonly File[]): void {

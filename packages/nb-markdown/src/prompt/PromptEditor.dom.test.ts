@@ -7,7 +7,7 @@
 import type {Editor} from "@tiptap/core";
 import {closeHistory} from "@tiptap/pm/history";
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
-import {nextTick} from "vue";
+import {nextTick, shallowRef} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
 import type {ChipEnv} from "../chip/chip";
@@ -430,5 +430,85 @@ describe("PromptEditor 界面语言", () => {
 
         const plain = await mountEditor({draft});
         expect(plain.find("[data-inline-chip='reference']").classes()).toContain("nb-chip--other");
+    });
+});
+
+describe("PromptEditor 表情（docs/specs/agent/stickers.md 输出 42、44）", () => {
+    const KNOWN = new Set([":lyra/开心:", ":lyra/困:"]);
+    /** 宿主：`ready` 为假时目录还没到（`stickerKnown` 交回 undefined）。 */
+    function stickerHost(ready = true) {
+        const loaded = shallowRef(ready);
+        const host = {
+            ...defaultMarkdownHost,
+            stickerKnown: (raw: string) => (loaded.value ? KNOWN.has(raw) : undefined),
+            stickers: async (ref: {raw: string}) => (KNOWN.has(ref.raw) ? {url: `/img/${ref.raw}.png`, width: 64, height: 64, release: () => undefined} : null),
+        };
+        return {host, loaded};
+    }
+    async function mountHosted(host: object, props: Partial<Props> & {draft: PromptEditorDraft}): Promise<VueWrapper> {
+        const wrapper = mount(PromptEditor, {props: {locale: "zh-CN", ...props}, attachTo: document.body, global: {provide: {[markdownHostKey as symbol]: host}}});
+        mounted.push(wrapper);
+        await flushPromises();
+        await nextTick();
+        return wrapper;
+    }
+    const stickers = (wrapper: VueWrapper): string[] => [...(wrapper.element as HTMLElement).querySelectorAll<HTMLElement>("[data-prompt-sticker]")].map((element) => element.dataset.sticker ?? "");
+    const resolveMenu = (context: PromptEditorMenuContext) => ({
+        hideWhenEmpty: true,
+        items: context.trigger === ":" && "开心".startsWith(context.query) ? [{id: "lyra/开心", label: "开心", description: "星璃", imageUrl: "/img/happy.png", insertText: ":lyra/开心:", appendSpace: false}] : [],
+    });
+
+    it("认得出的写法是表情（行内小图），认不出的就是文字；写回不变", async () => {
+        const {host} = stickerHost();
+        const wrapper = await mountHosted(host, {draft: {text: "好:lyra/开心:呀 :lyra/没有: `:lyra/困:`", version: 1}});
+        expect(stickers(wrapper)).toEqual([":lyra/开心:"]);
+        await flushPromises();
+        expect(wrapper.element.querySelector(".nb-sticker.has-image img")?.getAttribute("src")).toBe("/img/:lyra/开心:.png");
+        exposed(wrapper).focus("end");
+        exposed(wrapper).insertText("!");
+        expect(changes(wrapper).at(-1)).toBe("好:lyra/开心:呀 :lyra/没有: `:lyra/困:`!");
+    });
+
+    it("目录晚到：到了之后补认一次，不发 change", async () => {
+        const {host, loaded} = stickerHost(false);
+        const wrapper = await mountHosted(host, {draft: {text: "早:lyra/困:", version: 1}});
+        expect(stickers(wrapper)).toEqual([]);
+        loaded.value = true;
+        await nextTick();
+        expect(stickers(wrapper)).toEqual([":lyra/困:"]);
+        expect(changes(wrapper)).toEqual([]);
+    });
+
+    it("`:` 菜单：没有匹配时不弹、回车照常发送；有匹配时带小图，确认后不补空格，前文有 `:词` 时先补一个空格", async () => {
+        const {host} = stickerHost();
+        const wrapper = await mountHosted(host, {draft: {text: "他说:好", version: 1}, triggers: [":"], resolveMenu});
+        exposed(wrapper).focus("end");
+        prosemirror(wrapper).dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        exposed(wrapper).insertText(":xyz");
+        await nextTick();
+        expect(document.querySelector("[role='listbox']")).toBeNull();
+        expect(wrapper.emitted("menu-open")).toBeUndefined();
+        prosemirror(wrapper).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        expect(wrapper.emitted("submit")).toEqual([[{mod: false}]]);
+        await wrapper.setProps({draft: {text: "他说:好", version: 2}});
+        exposed(wrapper).focus("end");
+        exposed(wrapper).insertText(":开");
+        await nextTick();
+        expect(document.querySelector<HTMLImageElement>("[role='option'] [data-suggestion-menu-image]")?.getAttribute("src")).toBe("/img/happy.png");
+        prosemirror(wrapper).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(changes(wrapper).at(-1)).toBe("他说:好 :lyra/开心:");
+        expect(stickers(wrapper)).toEqual([":lyra/开心:"]);
+    });
+
+    it("insertText 插入表情写法：会和前文连成别的写法时先补空格，否则紧挨着", async () => {
+        const {host} = stickerHost();
+        const wrapper = await mountHosted(host, {draft: {text: "备注:你好", version: 1}});
+        exposed(wrapper).focus("end");
+        exposed(wrapper).insertText(":lyra/开心:");
+        expect(changes(wrapper).at(-1)).toBe("备注:你好 :lyra/开心:");
+        exposed(wrapper).insertText(":lyra/困:");
+        expect(changes(wrapper).at(-1)).toBe("备注:你好 :lyra/开心::lyra/困:");
+        expect(stickers(wrapper)).toEqual([":lyra/开心:", ":lyra/困:"]);
     });
 });

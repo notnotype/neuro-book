@@ -28,6 +28,10 @@ export type PromptEditorMenuItem = {
     continues?: boolean;
     /** 行尾的状态图标（例如 Skill 未初始化）；同一个菜单有一项带它时每行都留出这一列。 */
     status?: {label: string; iconClass?: string; busy?: boolean; tone?: "neutral" | "warning" | "danger"};
+    /** 一张小图（例如表情），画在图标的位置。 */
+    imageUrl?: string;
+    /** 为假时确认后不补空格（表情：中文里紧挨着写）；缺省真。 */
+    appendSpace?: boolean;
 };
 
 export type PromptEditorMenu = {
@@ -37,6 +41,8 @@ export type PromptEditorMenu = {
     loading?: boolean;
     /** 没有结果时的说明；默认“没有匹配项”。 */
     emptyText?: string;
+    /** 为真时没有项（也不在加载）就不显示菜单，回车与 Tab 照常交给正文（表情补全）。 */
+    hideWhenEmpty?: boolean;
 };
 
 export type PromptEditorAttachment =

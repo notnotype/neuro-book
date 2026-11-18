@@ -33,6 +33,11 @@ export interface MarkdownHost {
     readonly imageMissing?: MarkdownText;
     /** 表情目录（docs/specs/agent/stickers.md 输出 10）：按写法查表情；没有时表情写法显示原文。 */
     readonly stickers?: StickerResolver;
+    /**
+     * 同步地认一条表情写法（输出 44）：提示词编辑器与已发送的文字里，认得出的写法才成为表情，认不出的就是文字。目录还没取到时交回
+     * undefined；背后是响应式状态，在 computed 与渲染里读会跟着变。没有时提示词里的表情写法都是文字。
+     */
+    readonly stickerKnown?: (raw: string) => boolean | undefined;
 }
 
 export const markdownHostKey: InjectionKey<MarkdownHost> = Symbol("nb-markdown/host");

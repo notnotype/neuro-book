@@ -3,10 +3,11 @@
  * `865c9f593`），期望值不变；有意改变：小块换成 InlineChip，标记属性从 `data-prompt-token` 换成 `data-inline-chip`。
  */
 
-import {mount, type VueWrapper} from "@vue/test-utils";
-import {nextTick} from "vue";
+import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
+import {nextTick, shallowRef} from "vue";
 import {describe, expect, it} from "vitest";
 
+import {defaultMarkdownHost, markdownHostKey} from "../host";
 import type {PromptEditorToken} from "./prompt-editor.types";
 import PromptTextView from "./PromptTextView.vue";
 
@@ -96,5 +97,44 @@ describe("PromptTextView", () => {
         const wrapper = mountView({text: "看 [第一章](chapter://c1"});
         expect(wrapper.find("[data-inline-chip]").exists()).toBe(false);
         expect(wrapper.find(".prompt-text__line").text()).toBe("看 [第一章](chapter://c1");
+    });
+});
+
+describe("PromptTextView 表情（docs/specs/agent/stickers.md 输出 44、45）", () => {
+    const KNOWN = new Set([":lyra/开心:", ":lyra/困:"]);
+    function mountHosted(text: string, loaded = shallowRef(true)): VueWrapper {
+        const host = {
+            ...defaultMarkdownHost,
+            stickerKnown: (raw: string) => (loaded.value ? KNOWN.has(raw) : undefined),
+            stickers: async (ref: {raw: string}) => (KNOWN.has(ref.raw) ? {url: `/img/${ref.raw}.png`, width: 64, height: 64, release: () => undefined} : null),
+        };
+        return mount(PromptTextView, {props: {locale: "zh-CN", text}, global: {provide: {[markdownHostKey as symbol]: host}}});
+    }
+
+    it("认得出的是图，认不出的是文字；紧挨文字的一侧留间隙，句子里的不是大图", async () => {
+        const wrapper = mountHosted("写完啦:lyra/开心:明天 :lyra/没有:");
+        await flushPromises();
+        const sticker = (wrapper.element as HTMLElement).querySelector<HTMLElement>(".nb-sticker.has-image");
+        expect(sticker?.dataset.sticker).toBe(":lyra/开心:");
+        expect(sticker?.className).toContain("nb-sticker--gap-start");
+        expect(sticker?.className).toContain("nb-sticker--gap-end");
+        expect(wrapper.text()).toContain(":lyra/没有:");
+        expect(wrapper.element.querySelector(".nb-sticker-block")).toBeNull();
+    });
+
+    it("一段只有 1 到 3 个表情时这一段是大图", async () => {
+        const wrapper = mountHosted(":lyra/开心: :lyra/困:\n\n后面一句:lyra/困:");
+        await flushPromises();
+        const lines = wrapper.findAll(".prompt-text__line");
+        expect(lines.map((line) => line.classes().includes("nb-sticker-block"))).toEqual([true, false, false]);
+    });
+
+    it("目录晚到时重算：到了之后写法换成表情", async () => {
+        const loaded = shallowRef(false);
+        const wrapper = mountHosted("早:lyra/困:", loaded);
+        expect(wrapper.element.querySelector("[data-sticker]")).toBeNull();
+        loaded.value = true;
+        await nextTick();
+        expect((wrapper.element as HTMLElement).querySelector<HTMLElement>("[data-sticker]")?.dataset.sticker).toBe(":lyra/困:");
     });
 });

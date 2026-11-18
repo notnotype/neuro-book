@@ -16,6 +16,7 @@ import {
     PROMPT_ATOM_CHAR,
     PROMPT_PASTE_BLOCK_NODE,
     PROMPT_PENDING_NODE,
+    PROMPT_STICKER_NODE,
     PROMPT_TOKEN_NODE,
     fileTokenAttrs,
     findCompletedWriting,
@@ -26,8 +27,12 @@ import {
     type PromptPasteBlockAttrs,
     type PromptPendingAttrs,
     type PromptTokenAttrs,
+    type StickerKnown,
+    stickerWritingsIn,
 } from "./prompt-text";
-import {fencedLines} from "../link-syntax";
+import {codeSpanTest, fencedLines} from "../link-syntax";
+import {buildSticker} from "../language/syntax/sticker/view";
+import type {StickerResolver} from "../stickers";
 
 /**
  * 节点视图读取的编辑器状态。由 PromptEditor 经扩展选项传给节点视图（节点视图的 `extension` prop），
@@ -55,6 +60,10 @@ export interface PromptExtensionOptions {
     resolvedTarget: (localId: string) => string | null;
     /** 测试里用纯 DOM 渲染，不挂 Vue 节点视图。 */
     nodeViews?: {token: Component; pasteBlock: Component} | null;
+    /** 认得出的表情写法打完收尾的 `:` 时变成表情节点（docs/specs/agent/stickers.md 输出 44）；不给时表情写法都是文字。 */
+    stickerKnown?: () => StickerKnown | undefined;
+    /** 表情节点查图用的宿主端口；没有时显示原文。 */
+    stickers?: () => StickerResolver | undefined;
 }
 
 export interface PromptTriggerActive {
@@ -105,13 +114,14 @@ export function createPromptExtensions(options: PromptExtensionOptions): AnyExte
         PromptToken.configure({context: options.context, view: views?.token ?? null}),
         PendingAttachment.configure({context: options.context, view: views?.token ?? null}),
         PasteBlock.configure({context: options.context, view: views?.pasteBlock ?? null}),
+        PromptSticker.configure({stickers: options.stickers ?? (() => undefined)}),
         Extension.create({
             name: "promptPlugins",
             addProseMirrorPlugins() {
                 return [
                     createTriggerPlugin(promptTriggerKey, (state) => (options.readonly() ? null : readTrigger(state, options.triggers()))),
                     createConsistencyPlugin(options.resolvedTarget),
-                    createCompletionPlugin(options.commands),
+                    createCompletionPlugin(options.commands, options.stickerKnown ?? (() => undefined)),
                 ];
             },
         }),
@@ -161,6 +171,42 @@ const PromptToken = Node.create<AtomOptions>({
     },
     addNodeView() {
         return this.options.view ? VueNodeViewRenderer(this.options.view as never) : null;
+    },
+});
+
+/**
+ * 表情：行内原子节点，原文在 `raw`，写回原文。样子同 Markdown 的表情（`buildSticker`，`stickers.css`）：查到时是行内小图，查不到时是
+ * 原文。不可选中、不发 `token-activate`；退格与方向键按一整个处理（`deleteAdjacentAtom` 对所有行内原子节点）。
+ */
+const PromptSticker = Node.create<{stickers: () => StickerResolver | undefined}>({
+    name: PROMPT_STICKER_NODE,
+    group: "inline",
+    inline: true,
+    atom: true,
+    selectable: false,
+    draggable: false,
+    addOptions() {
+        return {stickers: () => undefined};
+    },
+    addAttributes() {
+        return {raw: {default: "", rendered: false}};
+    },
+    parseHTML() {
+        return [];
+    },
+    renderHTML({node}) {
+        return ["span", {"class": "nb-sticker", "data-sticker": String(node.attrs.raw)}, String(node.attrs.raw)];
+    },
+    renderText({node}) {
+        return String(node.attrs.raw);
+    },
+    addNodeView() {
+        const stickers = this.options.stickers;
+        return ({node}) => {
+            const element = buildSticker(document, String(node.attrs.raw), stickers());
+            element.dom.dataset.promptSticker = "";
+            return {dom: element.dom, destroy: () => element.destroy(), ignoreMutation: () => true};
+        };
     },
 });
 
@@ -238,7 +284,7 @@ const EMPTY_CONTEXT: PromptNodeContext = {
 
 /** 行内原子节点在触发匹配里读成占位字符；写回原文时用 renderText。 */
 export function atomLeafText(leaf: PMNode): string {
-    if (leaf.type.name === PROMPT_TOKEN_NODE) {
+    if (leaf.type.name === PROMPT_TOKEN_NODE || leaf.type.name === PROMPT_STICKER_NODE) {
         return String(leaf.attrs.raw);
     }
     return "";
@@ -325,7 +371,7 @@ const completionKey = new PluginKey("promptCompletion");
  * 手打的写法写完时变成标签（文字不变，只是显示）：只看单步输入的文字，例如打完 `$reviewer` 后的空格或逗号、
  * 引用写法收尾的 `)`。粘贴、菜单确认、“转为文字”都不是单步输入文字，不受影响；追加的事务与输入同属一个撤销步骤。
  */
-function createCompletionPlugin(commands: () => readonly string[]): Plugin {
+function createCompletionPlugin(commands: () => readonly string[], stickerKnown: () => StickerKnown | undefined): Plugin {
     return new Plugin({
         key: completionKey,
         appendTransaction(transactions, _oldState, newState) {
@@ -350,16 +396,42 @@ function createCompletionPlugin(commands: () => readonly string[]): Plugin {
             for (let index = 0; index <= $from.index(0); index += 1) lines.push(newState.doc.child(index).textContent);
             if (fencedLines(lines).at(-1) === true) return null;
             const line = paragraph.textBetween(0, paragraph.content.size, undefined, PROMPT_ATOM_CHAR);
-            const found = findCompletedWriting(line, $from.parentOffset, $to.parentOffset, {commands: commands(), firstLine: $from.index(0) === 0});
+            const known = stickerKnown();
+            const found = findCompletedWriting(line, $from.parentOffset, $to.parentOffset, {commands: commands(), firstLine: $from.index(0) === 0, ...(known === undefined ? {} : {stickerKnown: known})});
             if (!found) {
                 return null;
             }
             const start = $from.start();
-            return newState.tr
-                .replaceWith(start + found.start, start + found.end, newState.schema.nodes[PROMPT_TOKEN_NODE]!.create(found.attrs))
-                .setMeta(completionKey, true);
+            const node = found.attrs.kind === "sticker"
+                ? newState.schema.nodes[PROMPT_STICKER_NODE]!.create({raw: found.attrs.raw})
+                : newState.schema.nodes[PROMPT_TOKEN_NODE]!.create(found.attrs);
+            return newState.tr.replaceWith(start + found.start, start + found.end, node).setMeta(completionKey, true);
         },
     });
+}
+
+/**
+ * 目录晚到时补认（docs/specs/agent/stickers.md 输出 44）：正文里认得出、还是文字的表情写法换成表情节点。围栏代码块与行内代码里的不换，
+ * 跨过别的行内节点的不换。不进撤销历史：这只是显示，文字不变。没有要换的交回 null。
+ */
+export function relabelStickers(state: EditorState, known: StickerKnown): Transaction | null {
+    const lines: string[] = [];
+    state.doc.forEach((block) => lines.push(block.textContent));
+    const fenced = fencedLines(lines);
+    const replacements: Array<{from: number; to: number; raw: string}> = [];
+    state.doc.forEach((block, offset, index) => {
+        if (block.type.name !== "paragraph" || fenced[index] === true) return;
+        const line = block.textBetween(0, block.content.size, undefined, PROMPT_ATOM_CHAR);
+        const inCode = codeSpanTest(line);
+        for (const sticker of stickerWritingsIn(line)) {
+            if (inCode(sticker.start) || known(sticker.raw) !== true) continue;
+            replacements.push({from: offset + 1 + sticker.start, to: offset + 1 + sticker.start + sticker.raw.length, raw: sticker.raw});
+        }
+    });
+    if (replacements.length === 0) return null;
+    const tr = state.tr;
+    for (const item of replacements.reverse()) tr.replaceWith(item.from, item.to, state.schema.nodes[PROMPT_STICKER_NODE]!.create({raw: item.raw}));
+    return tr.setMeta("addToHistory", false);
 }
 
 /**

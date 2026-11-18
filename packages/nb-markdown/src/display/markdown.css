@@ -4,6 +4,8 @@
  * `--markdown-line-height`、`--markdown-block-gap`），由各自的宿主给出：编辑器是纸面，展示器是对话里的正文。
  */
 
+@import "../stickers.css";
+
 .nb-markdown {
     color: var(--text-main);
     font-size: var(--markdown-font-size, 1em);
@@ -305,61 +307,6 @@
     font-size: 0.9em;
     font-style: italic;
     user-select: none;
-}
-
-/*
- * 表情（docs/specs/agent/stickers.md 输出 10–12）。还没查到或认不出时是写法的原文，按普通文字排，查询中用弱色。换成图后：夹在
- * 文字里约 1.6 倍字高，上下用负外边距收回，不撑高这一行（有没有表情的行一样高）；只有表情的文本块里是大图，照常占高度。
- * 前后留一点间隙。宽按图片比例（`<img>` 带宽高属性，加载前就占好位置）。
- */
-.nb-markdown .nb-sticker.is-loading {
-    color: var(--text-muted);
-}
-
-/* 紧挨文字的一侧留间隙（`stickerGapClasses`）；表情之间、空白旁边不加，并排的表情之间只隔一个空格。 */
-.nb-markdown .nb-sticker--gap-start {
-    margin-inline-start: 0.15em;
-}
-
-.nb-markdown .nb-sticker--gap-end {
-    margin-inline-end: 0.15em;
-}
-
-/*
- * 对齐到汉字字形的中心（基线以上约 0.34 个字高，浏览器里量的），不用 `middle`：它对的是西文小写字母的中线，比汉字低约 0.1 个
- * 字高。行内块里没有行，基线是下外边距的边：图高 1.6em、上下外边距各 -0.3em 时，`-0.16em` 让图的中心落在基线以上 0.34em。
- */
-.nb-markdown .nb-sticker.has-image {
-    display: inline-block;
-    margin-block: -0.3em;
-    vertical-align: -0.16em;
-    line-height: 0;
-}
-
-.nb-markdown .nb-sticker__image {
-    display: block;
-    width: auto;
-    height: var(--nb-sticker-size, 1.6em);
-    max-width: none;
-}
-
-/* 大图高度固定、宽按比例；比文本块还宽的（横幅表情、窄对话栏）缩到块宽，图在框里按比例放下。 */
-.nb-markdown .nb-sticker-block .nb-sticker.has-image {
-    max-width: 100%;
-    margin-block: 0;
-    vertical-align: bottom;
-}
-
-.nb-markdown .nb-sticker-block .nb-sticker__image {
-    height: var(--nb-sticker-large-size, 120px);
-    max-width: 100%;
-    object-fit: contain;
-}
-
-.nb-markdown .nb-sticker.ProseMirror-selectednode {
-    outline: 2px solid var(--accent, currentColor);
-    outline-offset: 1px;
-    border-radius: 2px;
 }
 
 /* 没有选区时卡片开着（链接、插图），光标处的一条竖线：焦点在卡片里，浏览器不画正文的光标。 */

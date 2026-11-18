@@ -18,6 +18,8 @@ export {selectRubyAt, selectedRubyText} from "./ruby-text";
 export {createMarkdownEditorExtensions} from "./markdown-editor-extensions";
 export {activeSlash, dismissSlash, markdownSlashKey, removeSlashQuery} from "./slash-trigger";
 export type {SlashMatch} from "./slash-trigger";
+export {activeSticker, canInsertSticker, dismissSticker, insertSticker, insertStickerAtTrigger, markdownStickerKey} from "./sticker-trigger";
+export type {StickerMatch} from "./sticker-trigger";
 export {REFRESH_REFERENCE_LINKS} from "./reference-links";
 export {default as MarkdownProperties} from "./properties/MarkdownProperties.vue";
 export type {PropertyDescription} from "./properties/model";

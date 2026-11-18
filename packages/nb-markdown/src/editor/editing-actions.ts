@@ -12,6 +12,7 @@ import type {CommentRef} from "./comments";
 import {requestProperties} from "./frontmatter";
 import {canInsertImages, insertImages} from "./images";
 import {canLink, linksTouching, setLinkHref, unsetLinks} from "./links";
+import {canInsertSticker, insertSticker} from "./sticker-trigger";
 
 export type EditingArgs = Readonly<Record<string, unknown>>;
 
@@ -230,6 +231,11 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
     image: {
         run: (editor, args) => typeof args.src === "string" && insertImages(editor, [{src: args.src, alt: typeof args.alt === "string" ? args.alt : ""}]),
         enabled: (editor) => canInsertImages(editor),
+    },
+    // 表情（输出 62）：选择器在宿主那边，选定时带着写法来执行；不是完整写法时不插。
+    sticker: {
+        run: (editor, args) => insertSticker(editor, text(args)),
+        enabled: (editor) => canInsertSticker(editor),
     },
     // 新建 frontmatter 或展开属性面板（输出 48）：随时可用，焦点由宿主交给面板。
     properties: {run: (editor) => requestProperties(editor), enabled: (editor) => editor.isEditable},
