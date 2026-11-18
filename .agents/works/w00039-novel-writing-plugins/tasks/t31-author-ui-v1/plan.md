@@ -311,6 +311,36 @@ Spec（主工作区）：`canon/project.md` 输出 34 与事件一段写明 `wha
 
 待确认清单：`reportDataVersion` 也发事件（S7 内核审查说交开发者定）。理由是数据版本变了，插件的发现就跟着变，不发事件的话，界面要等世界下一次变化才看得到。
 
+#### S8 的细计划（2026-11-18，开工前补）
+
+S8 是第一批的收口：合进 master、补上 S4 记下的一处缺口、e2e、截图、收口审查、Spec 晋升、合入。
+
+开工前查到的现状（2026-11-18）：
+
+- 分支落后 master 911 个提交，master 没有改 nb-canon、canon 与剧情插件；试合（`git merge-tree`）有两处冲突：`docs/modules/monorepo-boundaries.md`、Lab 的 `fixtures/index.ts`。编辑器与工作台各有几十个文件自动合并（编辑器的 `area.ts`、`EditorGroup.vue`、`plugin.ts`，工作台合同，外壳 e2e）。
+- 编辑器的公开状态 `activeDocument` 只给文件标签的地址，页面标签是空串，所以条目树要跟着活动的条目页选中，编辑器那边没有现成的信号。
+- 验收 9 的“停止再激活”在运行时做不出来：停用插件要重启（`plugins.e2e`），没有单独停一个插件的接口。组件测试已经测了贡献撤回与加载失败两种回退。
+
+做法：
+
+- **S8a 合进 master**：在 worktree 里 `git merge master`，解两处冲突，确认没有新加的包或依赖（有就先 `bun install`）。跑 `test:affected --typecheck --since <合并前的 HEAD>` 与 e2e `editor-area`、`welcome`：编辑器自动合并的部分碰到了 E 片改过的页面标签。
+- **S8b 条目树跟着条目页**：条目页（`EntryPageHost`）挂上时，把窗口里一份的设定视图状态的 `selected` 设成它的条目。页面标签只在所在组的活动标签时挂载，所以“挂上”就是“成为它那一组的活动标签”。已知限制：编辑区拆成两组时，在两组之间切换焦点不会让树跟着变（两页都挂着），记进待确认清单；要做到需要编辑器公开活动页面。树里没有加载到那一项时不展开去找它（同输出 3 的“不在了就没有选中项”）。组件测试一条：先开 A 的页再开 B 的页，切回 A 的标签，树选中 A。
+- **S8c e2e `e2e/canon-author.e2e.ts`**：`beforeAll` 用 `bun scripts/canon-sample.ts <目录>` 生成星瑕作品，登记进 `projects.json` 后起生产服务（同 `editor-area.e2e.ts`）。用例：
+  - 验收 1：设定树、条目页的标签标题与面包屑、“哥哥”的面包屑与点回星瑕、换位置后值跟着变、存款的来历（估计的那笔）；
+  - 验收 2：两个条目页各自的位置与展开的来历、填了一半的就地改、刷新后两个标签都在、标题对；
+  - 验收 3：改一个只在初值设过的字段，预览写“改初值”，保存后有提示，看回执，撤销以后改动记录多两条；
+  - 验收 5：状态栏“待处理 1”，点进去选中那一条，改这一笔，改对了以后这一条消失、状态栏条目消失；
+  - 验收 10 的后一半：在改动记录里还原一次修订，条目页上的值回到原样。
+  - 每个用例等页面上可观察的状态，不按时长等；结束时控制台没有错误。
+- **截图**（亮色，1440 与 390 宽）：设定树与条目页、面板分页与来历、确认条、回执页、变更详情页、待处理、改动记录。用 `nbdev dev start --sample` 起服务、自写的 Playwright 脚本走一遍，图与说明发一份 `report` 产物。
+- **e2e 的范围**：`canon-author`、`editor-area`、`welcome`、`lab-scenes`、`workbench-views`、`workbench-shell`、`workbench-containers`、`plugins`，共 8 个文件。`plugins:78` 在 master 上就失败，合入前对照一次。
+- **收口审查**：K-d 的提交派 omp（后端），S8 的提交连同合并带进来、和本 Task 相交的部分派 Claude Sonnet（前端）。两份报告到齐后一起处理，修正单独提交。
+- **Spec 晋升**（主工作区，收口审查处理完以后）：
+  - `canon/author-ui.md` 改成 `implemented`，补“实现合同”与“证据”。逐条核对输出与验收，和实现不符的地方按实现改，并在交付里列出：输出 18 点了“撤销”提示先留着（已在待确认清单），输出 19 删去碰不到的 `not-deletable` 半句，验收 9 写明由组件测试覆盖。
+  - 四份内核 Spec（`project.md`、`revisions.md`、`model.md`、`components.md`）与 `workbench/editor.md` 输出 33：本 Task 加的条目级“（planned）”去掉，逐条对着测试核对。
+  - `docs/specs/README.md` 注册表里 `canon/author-ui.md` 的状态改掉。
+- **合入**：两份收口审查处理完、Spec 晋升提交以后，把分支合进 master，在 master 上跑一次 `test:affected --typecheck --since <合入前的 master>`。Task README 写第一批完成，Work README 更新推进状态。不 push。
+
 ### 五、底部面板默认隐藏
 
 待处理、改动记录两个视图不写容器，各自是底部面板里的一个隐式容器。“默认隐藏”用视图声明的 `revealRegion: false`（`workbench.views` 输出 18，2026-11-13 查到已在 master）。底部面板的入口条是 w00026 t24 的第二步，做完以后这两个视图各是底部面板的一个入口。
