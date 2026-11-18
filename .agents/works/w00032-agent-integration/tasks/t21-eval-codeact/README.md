@@ -40,7 +40,7 @@ omp 的 eval（事实见[外部参照](../../../../../docs/research/agent-runtim
 
 ## 设计审查
 
-计划第 1 稿，三位审查者并行：omp（后端与事实核对，进行中）、Claude Opus（从整体看）、Claude Sonnet（对话视图一节）。依据的事实主会话抽查过（适配器按 `callId` 找调用、子代理树数 `toolStarted`、压缩放回最近文件、`remember` 规则、`settledEffects` 只认成功、`CollapsibleCard` 收起时没有正文、`mapEventContent`）。修订见[计划](plan.md)第 2 稿。
+计划第 1 稿，三位审查者并行：omp（后端与事实核对）、Claude Opus（从整体看）、Claude Sonnet（对话视图一节）。依据的事实主会话抽查过（适配器按 `callId` 找调用、子代理树数 `toolStarted`、压缩放回最近文件、`remember` 规则、`settledEffects` 只认成功、`CollapsibleCard` 收起时没有正文、`mapEventContent`）。Opus 与 Sonnet 的修订成第 2 稿，omp 的叠加成[计划](plan.md)第 3 稿。
 
 Opus（11 条：重要 7、建议 4，[`evidences/design-review-opus.txt`](evidences/design-review-opus.txt)），全部成立、已改进计划：
 
@@ -76,12 +76,38 @@ Sonnet（13 条：重要 7、建议 6，[`evidences/design-review-sonnet.txt`](e
 | F12 | 代码流式生成时卡片标题为空 | `streamingArgs` 抽出 `title` |
 | F13 | 渲染器放哪个包没分工 | 通用部分在 nb-agent-ui，eval 的渲染器在 `plugins/agent/web`；`activeCalls` 不变 |
 
-影响产品行为的几处，供开发者知悉：eval 的询问没有“本会话都批准”“以后都允许”；嵌套调用在界面上只有 2 KB 预览；全局对象的方法收单个对象参数（`browser.goto({url})`）；切片 5 之前 eval 不进内置 Profile。
+omp（19 条：阻断 1、重要 18，[`evidences/design-review-omp.txt`](evidences/design-review-omp.txt)；第 9、11、15、16、17、19 条带真实运行的实验），成立的已改进计划：
+
+| 条 | 问题 | 处理 |
+|---|---|---|
+| 1 | `invoke` 交回 `ToolResult`，装不下 `blocked`、`unknown` | 另立 `NestedOutcome`，`status` 必填；`unknown` 在代码里抛错并说明要先核对 |
+| 2（阻断） | 父调用返回、单元超时不结算已受理的嵌套调用，父结果交出后还可能落盘或等审批 | `invoke` 收父工具给的 `signal`；触发后按顶层宽限期结算，父工具等结算写完再交结果；正常结束时等没 `await` 的在途调用 |
+| 3 | 拦截层改派后，准入的禁止项与 `concurrency` 槽失效 | 改派后对最终目标再核准入与参数，不许改派到另一种 `concurrency`；顶层改派到只走代码的工具得 `code-only` |
+| 4 | 恢复只认回复里的调用，嵌套的待审批、已批准未开始、已开始都不结算 | 打开会话时与顶层同一批结算嵌套调用 |
+| 5 | 新的内核事件名让旧版把整份会话判成损坏 | 接受取舍：照 `session.md`“只加不改”与 t18 的先例，Spec 写明降级不受支持 |
+| 6 | 用父 `callId` 加后缀造 id 会和顶层撞键 | 嵌套调用由内核造全局唯一的 id，按它关联 |
+| 7 | 十次嵌套写入成十个组，来源也指不回唯一一次调用 | 同一次 eval 的嵌套写入共用一个组（按父调用的 `invocation`），来源是各自的嵌套 id。顶层来源用 `callId` 跨回复可能重复是现有问题，另记 |
+| 8 | 压缩放回漏掉经 eval 读写的文件 | 放回显式认两种新事件 |
+| 9 | 杀内核不杀它起的子进程（实测 `sleep` 留下） | 内核做进程组组长，杀整组；IPC 断开时内核自己收组；Windows 不在第一版验证 |
+| 10 | 只改应用包的构建会漏掉 `dist/server` 的入口 | 入口按绝对路径定位，构建清单的所有读方一起改，起进程先握手 |
+| 11 | 同一条回复的第二个 eval 读不到第一个的结果，会误判重置（实测） | 重置改用内核给的 `ctx.leafMoves`（`leafChanged` 的条数），不再比较结果里的单元标记 |
+| 12 | 主创可以从 eval 派子代理，而派子代理留到下一批 | 派子代理、给子代理发话与答话声明 `codeCallable: false`；`shell` 在嵌套调用里不接受 `async` |
+| 13 | eval 的“本会话都批准”会放行之后完全不同的代码 | 同 Opus 第 4 条：`remember: false`，直接提交得 `invalid-answer` |
+| 14 | 只在请求里藏起只走代码的工具，执行端仍受理模型直接调它 | 执行端按来源判，得 `code-only` |
+| 15 | `Bun.spawn` 传 `env` 是替换，还会读工作目录的 `.env`（实测） | 显式叠加服务端环境，`--no-env-file` |
+| 16 | 回退没跨过 eval 时，路径上最后一个单元相同，不会重置（实测） | 同第 11 条，任何回退、切分支都重置，与决定 2 的字面一致 |
+| 17 | 只把声明降成 `var`，严格模式下变量会丢（实测） | 改写只有一条路：整段包进异步函数，顶层声明改成对全局的赋值 |
+| 18 | 脱敏时 `details` 不写日志，单元标记跟着丢 | 同第 11 条；“路径上跑过 eval”只数 eval 的 `toolResult`，脱敏也数得到 |
+| 19 | 经 IPC 来的参数可能不是能写进日志的 JSON（实测 `Map`、`NaN`、`bigint` 都能过来） | 审批与写日志前核对，不合格只让这一次调用失败 |
+
+另记（不在本 Task 改）：顶层工具调用写入的来源条目用的是 `callId`，服务商只保证它在一条回复里不重复，跨回复可能指错调用（omp 第 7 条顺带发现，base 上就有）。
+
+影响产品行为的几处，供开发者知悉：eval 的询问没有“本会话都批准”“以后都允许”；嵌套调用在界面上只有 2 KB 预览；全局对象的方法收单个对象参数（`browser.goto({url})`）；切片 5 之前 eval 不进内置 Profile；任何回退、切分支都重置内核（照决定 2 的字面）；写过嵌套调用的会话，旧版本打不开。
 
 ## 当前状态
 
-2026-11-18 重开，范围已定（决定 1 到 4）；[计划](plan.md)第 1 稿已获开发者确认（决定 5）。调研：[omp 的 JS 内核](../../research/2026-11-18-omp-eval-js-kernel.md)。
+2026-11-18 重开，范围已定（决定 1 到 4）；计划第 1 稿已获开发者确认（决定 5），卡片的注意力排序已定（决定 6）。设计审查三份报告都已处理，[计划](plan.md)到第 3 稿。调研：[omp 的 JS 内核](../../research/2026-11-18-omp-eval-js-kernel.md)。
 
 ## 下一步
 
-设计审查：后端与事实核对派 omp，从整体看派 Claude Opus；界面部分等评审板定稿后派 Sonnet。
+切片 1：写 Spec（`planned`）。切片 2 等审批简化提案的内核改动合入之后开工。
