@@ -61,7 +61,7 @@ Workbench（每个窗口一个，nbook.workbench 拥有）
 - 输入：记录 `workbench.layout`（可缺失、损坏、版本不支持）；实测的外壳容器尺寸；视图目录；窗口是否绑定项目。
 - 前置：工作台浏览器入口已激活。Storage 不可用时按默认树渲染，只是不能保存。
 
-文档的形状（`@notnotype/nb-layout` 导出，校验函数 `validateLayoutDoc` 是唯一权威）：
+文档的形状（`@notnotype/nb-workbench-layout` 导出，校验函数 `validateLayoutDoc` 是唯一权威）：
 
 ```ts
 interface LayoutDoc {
@@ -351,8 +351,8 @@ Smoke 入口：`e2e/workbench-containers.e2e.ts`、`e2e/workbench-dnd.e2e.ts`、
 
 ## 实现合同
 
-- **公开入口**：`@notnotype/nb-layout` 的布局文档操作、落点判定与投影，`@notnotype/nb-layout/vue` 的 `NestedGrid`；对插件与 Agent 是命令、公开状态与贡献点（输出 35、36，“边界与兼容”），对编辑器是服务键 `editorPanelsKey`。
-- **owner 与依赖方向**：`nbook.workbench` 是树的唯一写者。`nb-layout` 不知道角色与骨架的含义，规则经 `LayoutPolicy` 由工作台给。编辑器只经 `editorPanelsKey` 改结构。
+- **公开入口**：`@notnotype/nb-workbench-layout` 的布局文档操作、落点判定与投影，`@notnotype/nb-workbench-layout/vue` 的 `TabStrip`，`@notnotype/nb-layout/vue` 的 `NestedGrid`；对插件与 Agent 是命令、公开状态与贡献点（输出 35、36，“边界与兼容”），对编辑器是服务键 `editorPanelsKey`。
+- **owner 与依赖方向**：`nbook.workbench` 是树的唯一写者。`nb-layout` 不认识工作台；`nb-workbench-layout` 只经 `nb-layout` 的公开入口用它（[ADR 0054](../../adr/0054-nb-layout-general-library.md)），也不知道角色与骨架的含义，规则经 `LayoutPolicy` 由工作台给。编辑器只经 `editorPanelsKey` 改结构。
 - **骨架靠几处守住**：落点只给合骨架的目标（`layoutEdgeTarget`）；具名面板不移动（`moveTabToEdge`）；store 的 `apply` 出口过 `fitsSkeleton`；读记录时有容器之前存的布局回落默认树（`predatesContainers`，“状态与转换”里读记录的回落规则，验收 30）。`default-tree.test.ts` 的随机操作性质测试钉住。
 - **文档只在内存里有一份**：打开时从记录读一次，之后记录只管存，别的窗口保存不改本窗口的显示。
 - **内容项不换父元素**：这是内容不重建、滚动不丢的唯一保证（[ui.nested-grid](nested-grid.md) 输出 82）。

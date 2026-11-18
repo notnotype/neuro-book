@@ -262,7 +262,7 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 ## 实现合同
 
 - 公开入口：`@notnotype/nb-layout` 的 `createGrid` 与结构操作（含 `splitLeaf`）、快照与 `resizeBranches`；`@notnotype/nb-layout/vue` 的 `NestedGrid`、`useLayoutExtent`、`useGridLayout`、`useSashGesture`、`moveGridFocus`。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)。
-- owner 与依赖方向：owner 是 `ui`；`nb-layout` 的核心入口（含落点几何）不依赖 Vue、DOM 与 dnd-kit，Vue 层依赖核心入口与 nb-ui；工作台与插件只经包入口消费，不跨包深导入。
+- owner 与依赖方向：owner 是 `ui`；`nb-layout` 的核心入口（含落点几何）不依赖 Vue、DOM 与 dnd-kit，Vue 层依赖核心入口与 nb-ui；工作台与插件只经包入口消费，不跨包深导入；工作台的布局文档、落点规则与标签条在 `nb-workbench-layout`，它同样只经这两个入口用本包，本包不依赖它（[ADR 0054](../../adr/0054-nb-layout-general-library.md)）。
 - 不变量：
   - 几何只有 CSS px 一种口径，矩形由布局结果一处算出，渲染层不再换算（输出 27、33）。
   - 手势只提交一次完整的原子意图，由宿主用 `resizeBranches` 一次落账；拒绝时回滚预览并给诊断（输出 7，“时序与寿命”的同步接纳）。
