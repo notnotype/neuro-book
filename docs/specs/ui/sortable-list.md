@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.sortable-list
 owners:
   - nb-layout
@@ -99,6 +99,20 @@ type SortableListProps = {
 
 Smoke：Lab 的 `SortableList` 场景，`packages/neuro-book/e2e/lab-sortable-list.e2e.ts`。
 
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-layout` 的 `sortableSlotIn`、`sortableSlots`、`slotOfKey`、`moveInSections`、`SORTABLE_STICKY_PX` 与类型 `SortableLayout`、`SortableSection`、`SortableSlot`、`SortableSpan`、`SortableSwitch`；`@notnotype/nb-layout/vue` 的 `useSortable`、`SortableList` 与类型 `SortableMove`、`UseSortableOptions`、`SortableHandle`。
+- **owner 与依赖方向**：nb-layout。位置判定是核心里不碰 DOM 的纯函数；`useSortable` 接同包的拖动会话（[ui.layout-drag](layout-drag.md)），`SortableList` 只按预览摆放。使用方经包入口用。
+- **关键不变量**：
+  - 判定每次按当前布局量（相对列表根的 `offsetTop` 链，不含正在走的位移），判定本身不改状态，预览从会话状态派生（`sortable.test.ts`“拖动的判定”，`lab-sortable-list.e2e.ts`）。
+  - 粘滞：刚换过去，从换位处往回挪不到 `SORTABLE_STICKY_PX` 不换回来（`sortable.test.ts`“一路拖过去不来回翻”，`lab-agent-ui.e2e.ts`“左边唯一的一项慢慢拖过右边的分区头”）。
+  - 会话收场先发布空状态、再提交，`onMove` 返回 Promise 时预览留到它 settle、期间不能拿起（`SortableList.dom.test.ts`，`lab-sortable-list.e2e.ts`“宿主写得慢”“宿主没采纳”）。
+  - 收场在会话的 `onActiveChange` 里同步落回，不靠监听状态回到空；拖动中停用、结构变了整场中止或取消（`SortableList.dom.test.ts`）。
+  - 键盘一场的停靠点只是位置下标的载体：会话把同一个点对象交回判定（`SortableList.dom.test.ts`，`lab-sortable-list.e2e.ts`“键盘”）。
+
 ## 证据
 
 - 批准依据：[w00032 t38 的评审板与计划](../../../.agents/works/w00032-agent-integration/tasks/t38-status-line-sorting/README.md)（决定 2、4、6，开发者 2026-11-18 确认）
+- 实现入口：[`sortable.ts`](../../../packages/nb-layout/src/sortable.ts)、[`vue/useSortable.ts`](../../../packages/nb-layout/src/vue/useSortable.ts)、[`vue/SortableList.vue`](../../../packages/nb-layout/src/vue/SortableList.vue)
+- 合同测试：[`sortable.test.ts`](../../../packages/nb-layout/src/sortable.test.ts)、[`vue/SortableList.dom.test.ts`](../../../packages/nb-layout/src/vue/SortableList.dom.test.ts)
+- Smoke：[`lab-sortable-list.e2e.ts`](../../../packages/neuro-book/e2e/lab-sortable-list.e2e.ts)（真实浏览器，Lab 的 `SortableList` 场景）
