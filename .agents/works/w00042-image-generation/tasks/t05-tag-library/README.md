@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t05-tag-library
 status: planned
-updated: 2026-11-10
+updated: 2026-11-18
 ---
 
 # 标签库
