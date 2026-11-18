@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t08-sticker-settings-page",
+    "artifactId": "review",
+    "ackId": "20261118T031211310Z-0ceba80c",
+    "answers": [
+        "20261118T031132244Z-5efc57de"
+    ],
+    "through": "20261118T031132244Z-5efc57de",
+    "included": [
+        ".agents/works/w00050-lyra-persona-and-prompts/tasks/t08-sticker-settings-page/README.md"
+    ],
+    "ackedAt": "2026-11-18T03:12:11.310Z"
+}
