@@ -181,6 +181,8 @@ export interface EditorArea {
     openPage(id: string, options?: {readonly arg?: string; readonly restore?: boolean}): OpenResult;
     /** 记下页面标签最近一次得到的标题（输出 33），给恢复后还没点开的标签显示。 */
     rememberPageTitle(tabId: string, title: string): void;
+    /** 活动标签是有面包屑的页面标签（输出 33）：命令 `focus-breadcrumbs` 对它可用。响应式。 */
+    activePageHasBreadcrumbs(): boolean;
     activate(tabId: string, options?: {readonly focusView?: boolean}): ActionResult;
     /** preview 转为 permanent（双击标签）。 */
     keep(tabId: string): void;
@@ -992,6 +994,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         open,
         rememberPageTitle: (tabId, title) => {
             if (!disposed) groups.rememberPageTitle(tabId, title);
+        },
+        activePageHasBreadcrumbs: () => {
+            const tab = groups.activeTab();
+            return tab !== null && tab.kind === "page" && options.pageHasBreadcrumbs?.(tab) === true;
         },
         openPage: (id, pageOptions = {}) => {
             if (disposed) return {ok: false, reason: editorText("refusal.disposed")};

@@ -455,6 +455,9 @@
         "focused": {
             "reason": "编辑区没有焦点"
         },
+        "breadcrumbs": {
+            "reason": "活动标签没有面包屑"
+        },
         "active": {
             "reason": "没有活动的编辑器"
         },

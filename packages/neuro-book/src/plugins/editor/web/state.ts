@@ -17,6 +17,8 @@ import type {TextDocument} from "./documents/store";
 export const editorState = definePublicState("nbook.editor", {
     focused: {type: "boolean", unready: false, reason: editorText("state.focused.reason")},
     active: {type: "boolean", unready: false, reason: editorText("state.active.reason")},
+    // 能聚焦面包屑（输出 33、60）：有活动的编辑器（文件标签），或活动标签是有面包屑的页面。
+    breadcrumbs: {type: "boolean", unready: false, reason: editorText("state.breadcrumbs.reason")},
     writable: {type: "boolean", unready: false, reason: editorText("state.writable.reason")},
     lineNavigation: {type: "boolean", unready: false, reason: editorText("state.lineNavigation.reason")},
     dirty: {type: "boolean", unready: false, reason: editorText("state.dirty.reason")},
@@ -80,6 +82,7 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>,
         focused: computed(() => area.value?.focused.value === true),
         // 有活动的文件标签、控件交出了句柄；不要求文本文档，字节标签上关闭、拆分照常可用（输出 41）。
         active: computed(() => handle.value !== null && fileTab.value !== null),
+        breadcrumbs: computed(() => (handle.value !== null && fileTab.value !== null) || area.value?.activePageHasBreadcrumbs() === true),
         // 视图能不能输入：预览视图与只读文档都不行（输出 48），撤销、重做随之不可用。
         writable: computed(() => handle.value !== null && area.value?.viewWritable(area.value.groups.activeGroup.value) === true),
         lineNavigation: computed(() => handle.value?.navigation !== undefined),

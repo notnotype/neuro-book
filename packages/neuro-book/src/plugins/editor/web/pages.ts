@@ -98,6 +98,11 @@ export interface EditorPageSource {
     liveTitle(tab: PageTabRef, text: TextResolver): string | null;
     /** 页面组件；还没交付实现时为 null。 */
     component(id: string): Component | null;
+    /**
+     * 声明在、实现还没交付过（例如刷新后恢复的标签，贡献方还没激活）：编辑组显示“正在加载页面”，交付后自己换成页面。
+     * 交付过又撤回的（贡献方停了）不算，那时说明页面已经不在了。响应式。
+     */
+    pending(id: string): boolean;
     /** 这个页面铺主题的场景图。 */
     scene(id: string): boolean;
     /** 这个标签的 `context`：同一个标签每次拿到同一个对象。 */
@@ -110,6 +115,8 @@ export interface EditorPageSource {
 export class EditorPageRegistry {
     readonly #declarations: ContributionDeclarations;
     readonly #published = shallowRef<ReadonlyMap<string, ContributionHandle<EditorPageDeclaration, EditorPageImplementation>>>(new Map());
+    /** 交付过又撤回的页面 id：声明可能还在，但它不会自己回来，不当成还在加载。 */
+    readonly #revoked = shallowRef<ReadonlySet<string>>(new Set());
     /** 每个交付句柄一个异步组件：同一次交付反复渲染不重新加载，换了句柄（重新激活）才重新加载。 */
     readonly #components = new WeakMap<ContributionHandle<EditorPageDeclaration, EditorPageImplementation>, Component>();
     readonly #states: {readonly loading: Component; readonly failed: Component};
@@ -123,12 +130,14 @@ export class EditorPageRegistry {
         return {
             published: (handle) => {
                 this.#published.value = new Map(this.#published.value).set(handle.id, handle);
+                if (this.#revoked.value.has(handle.id)) this.#revoked.value = new Set([...this.#revoked.value].filter((id) => id !== handle.id));
             },
             revoke: (handle) => {
                 if (this.#published.value.get(handle.id) !== handle) return;
                 const next = new Map(this.#published.value);
                 next.delete(handle.id);
                 this.#published.value = next;
+                this.#revoked.value = new Set(this.#revoked.value).add(handle.id);
             },
         };
     }
@@ -191,6 +200,7 @@ export class EditorPageRegistry {
             }),
             release: (tabId) => void contexts.delete(tabId),
             scene: (id) => this.declaration(id)?.scene === true,
+            pending: (id) => !this.#published.value.has(id) && !this.#revoked.value.has(id) && this.declaration(id) !== null,
             component: (id) => {
                 const handle = this.#published.value.get(id);
                 if (handle === undefined) return null;

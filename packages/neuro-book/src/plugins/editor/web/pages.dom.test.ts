@@ -5,7 +5,7 @@
 
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
-import {computed, defineComponent, h, nextTick, ref} from "vue";
+import {computed, defineComponent, h, nextTick, ref, shallowRef} from "vue";
 import type {Component} from "vue";
 
 import type {Application} from "@notnotype/nb-runtime/application";
@@ -16,6 +16,7 @@ import {editorText} from "../shared/text";
 import {createEditorArea} from "./area";
 import EditorGroup from "./components/EditorGroup.vue";
 import {EditorPageRegistry, pageAddress} from "./pages";
+import {editorStateValues} from "./state";
 import type {EditorPageImplementation} from "./pages";
 import {editorCatalogs} from "./text";
 
@@ -44,7 +45,8 @@ function deferred(): {readonly load: () => Promise<Component>; resolve(component
     return {load: () => promise, resolve: (component) => settle.resolve(component), reject: (error) => settle.reject(error)};
 }
 
-async function start(load: () => Promise<Component>, extra: {readonly declaration?: Record<string, unknown>; readonly implementation?: Partial<EditorPageImplementation>} = {}): Promise<EditorPageRegistry> {
+/** `activationEvents` 给空列表时提供方的入口永不激活：声明照样登记，实现一直不交付（刷新后恢复、贡献方还没激活的样子）。 */
+async function start(load: () => Promise<Component>, extra: {readonly declaration?: Record<string, unknown>; readonly implementation?: Partial<EditorPageImplementation>; readonly activationEvents?: readonly string[]} = {}): Promise<EditorPageRegistry> {
     const holder: {registry: EditorPageRegistry | null} = {registry: null};
     const owner: PluginDefinition = {
         id: "test.owner",
@@ -65,7 +67,7 @@ async function start(load: () => Promise<Component>, extra: {readonly declaratio
         entries: [{
             id: "main",
             location: "browser",
-            activationEvents: ["onStartup"],
+            activationEvents: [...(extra.activationEvents ?? ["onStartup"])],
             contributions: [{capability: EDITOR_PAGES_POINT, id: PAGE_ID, declaration: {title: {"zh-CN": "样例", "en-US": "Sample"}, icon: "i-lucide-file", ...extra.declaration}}],
             activate: () => {
                 const implementation: EditorPageImplementation = {load, ...extra.implementation};
@@ -265,9 +267,12 @@ describe("Spec workbench.editor 输出 33、场景 44：编辑组里两个同种
             // 组件是重新挂上的（组件里的计数归零），state 还是这个标签原来的那一份。
             expect(counter(first).attributes()).toMatchObject({"data-state": "1", "data-local": "0"});
 
-            // 面包屑：点带命令的段执行它；命令 focus-breadcrumbs 对有面包屑的页面可用，Enter 再执行一次，Escape 把焦点还回去。
+            // 面包屑：点带命令的段执行它；命令 focus-breadcrumbs 对有面包屑的页面可用，Escape 把焦点还回去（段是原生按钮，Enter 等于点击，这里测不了）。
             await first.get("[data-page-crumb=\"0\"]").trigger("click");
             expect(executed).toEqual(["test.sample.open"]);
+            // 命令的 `when` 读公开状态 `breadcrumbs`：页面标签不是“活动的编辑器”，有面包屑时照样可用。
+            const state = editorStateValues(shallowRef(area));
+            expect([state.active.value, state.breadcrumbs.value]).toEqual([false, true]);
             expect(area.focusBreadcrumbs()).toEqual({ok: true});
             await nextTick();
             expect(document.activeElement).toBe(first.get("[data-page-crumb=\"0\"]").element);
@@ -282,6 +287,38 @@ describe("Spec workbench.editor 输出 33、场景 44：编辑组里两个同种
         } finally {
             first.unmount();
             second.unmount();
+            area.dispose();
+            memory.dispose();
+            document.body.innerHTML = "";
+        }
+    });
+
+    it("声明在、实现还没交付（刷新后恢复、贡献方还没激活）：内容区是“正在加载页面”，不是“这个页面已经不在了”；声明也不在时才是后者", async () => {
+        const registry = await start(() => Promise.resolve(Counter), {declaration: {instances: true, restore: true}, activationEvents: []});
+        const memory = createMemoryFiles({project: [], user: []});
+        const source = registry.source({recent: []});
+        const area = createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
+            throw error;
+        }});
+        const waiting = area.openPage(PAGE_ID, {arg: "a", restore: true});
+        const gone = area.openPage("test.pages.gone", {arg: "x", restore: true});
+        if (!waiting.ok || !gone.ok) throw new Error("打不开页面");
+        const show = (tabId: string) => mount(EditorGroup, {props: {area, groupId: area.groups.activeGroup.value, tabId, control: () => ({kind: "pending" as const}), pages: source, breadcrumbs: true}, attachTo: document.body, global: {provide: provideText(port)}});
+        const [pending, missing] = [show(waiting.tabId), show(gone.tabId)];
+        try {
+            area.activate(waiting.tabId);
+            await flushPromises();
+            const loading = pending.get("[data-editor-page-pending]");
+            expect([loading.attributes("role"), loading.attributes("aria-busy"), loading.text()]).toEqual(["status", "true", port.t(editorText("page.loading"))]);
+            expect(pending.find("[data-editor-page-missing]").exists()).toBe(false);
+
+            area.activate(gone.tabId);
+            await flushPromises();
+            expect(missing.find("[data-editor-page-missing]").exists()).toBe(true);
+            expect(missing.find("[data-editor-page-pending]").exists()).toBe(false);
+        } finally {
+            pending.unmount();
+            missing.unmount();
             area.dispose();
             memory.dispose();
             document.body.innerHTML = "";

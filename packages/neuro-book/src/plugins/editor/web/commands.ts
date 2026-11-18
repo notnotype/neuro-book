@@ -109,7 +109,7 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommand
     [OPEN_PREVIEW_COMMAND]: {category: EDITOR, description: "Open the preview of the active file (for example an HTML page) in the active group, or with side true in the group to the right.", args: OPEN_PREVIEW_ARGS, effect: "read", when: when("hasPreview"), expose: {agent: "auto"}},
     [CHANGE_LANGUAGE_COMMAND]: {category: EDITOR, description: "Change the language (syntax highlighting and editing rules) of the active source editor, given by language id; without a language, pick one from the registered languages. The choice is remembered on the tab.", args: CHANGE_LANGUAGE_ARGS, effect: "read", when: when("hasLanguage"), expose: {agent: "auto"}},
     // 只移动键盘焦点：Agent 不需要。
-    [FOCUS_BREADCRUMBS_COMMAND]: {category: EDITOR, description: "Move keyboard focus to the breadcrumbs of the active editor group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
+    [FOCUS_BREADCRUMBS_COMMAND]: {category: EDITOR, description: "Move keyboard focus to the breadcrumbs of the active editor group.", args: NO_ARGS, effect: "read", when: when("breadcrumbs"), expose: {agent: "never"}},
     [FOCUS_COMMAND]: {category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [UNDO_COMMAND]: {category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
     [REDO_COMMAND]: {category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},

@@ -141,6 +141,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "quickPick.changeLanguage.current": {"zh-CN": "{id}（当前）", "en-US": "{id} (current)"},
     "state.focused.reason": {"zh-CN": "编辑区没有焦点", "en-US": "The editor does not have focus"},
     "state.active.reason": {"zh-CN": "没有活动的编辑器", "en-US": "There is no active editor"},
+    "state.breadcrumbs.reason": {"zh-CN": "活动标签没有面包屑", "en-US": "The active tab has no breadcrumbs"},
     "state.writable.reason": {"zh-CN": "活动的编辑器是只读的", "en-US": "The active editor is read-only"},
     "state.lineNavigation.reason": {"zh-CN": "活动的编辑器不支持跳转到行", "en-US": "The active editor cannot go to a line"},
     "state.dirty.reason": {"zh-CN": "活动文档没有未保存的修改", "en-US": "The active document has no unsaved changes"},

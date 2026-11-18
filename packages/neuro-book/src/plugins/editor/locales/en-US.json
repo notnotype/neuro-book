@@ -455,6 +455,9 @@
         "focused": {
             "reason": "The editor does not have focus"
         },
+        "breadcrumbs": {
+            "reason": "The active tab has no breadcrumbs"
+        },
         "active": {
             "reason": "There is no active editor"
         },
