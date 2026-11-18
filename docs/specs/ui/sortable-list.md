@@ -40,12 +40,12 @@ function useSortable(options: {
     onMove: (move: SortableMove) => void | Promise<unknown>;
 }): {preview: ComputedRef<readonly SortableSection[]>; held: Readonly<Ref<string | null>>; announcement: Readonly<Ref<string>>};
 
-// 组件：sections 带标题；move 是函数属性（`@move` 写法照常），返回 Promise 时放下后的次序留到它 settle。
+// 组件：sections 带标题；onMove 是函数属性（模板里写 `@move`），返回 Promise 时放下后的次序留到它 settle。
 type SortableListProps = {
     sections: readonly {id: string; title: string; keys: readonly string[]}[];
     label: (key: string) => string;
     disabled?: boolean;
-    move?: (move: SortableMove) => void | Promise<unknown>;
+    onMove?: (move: SortableMove) => void | Promise<unknown>;
 };
 // 插槽 item：{key, held, section}，画一行除把手以外的内容。
 ```
