@@ -125,6 +125,7 @@ owners:
 | `timeout` | 单元超过时限，内核已重置 | 拆小、加大 `timeout`，重新建变量 |
 | `kernel-unavailable` | 内核起不来（入口不可用、版本不符、进程起不来），带原因 | 不重试同一段代码；把原因告诉用户 |
 | `kernel-exited` | 执行中内核意外退出（带退出码或信号与错误流的尾部），内核已重置 | 看原因；重新建变量后重试 |
+| `returns-mismatch` | 工具成功了，但交回的结构不符合它声明的 `returns`；代码里以 `ToolCallError` 收到 | 报给工具的作者；代码里可以 `catch` 后改用别的办法 |
 | `invoke-not-allowed`、`code-only`、`invoke-limit`、`parent-finished`、`async-in-code` | 嵌套调用的拒绝，代码里以 `ToolCallError` 收到 | 见 [`harness/runtime.md`](../harness/runtime.md) 输出 92 到 100、[`builtin-tools.md`](builtin-tools.md) 输出 29 |
 
 ## 边界与兼容
