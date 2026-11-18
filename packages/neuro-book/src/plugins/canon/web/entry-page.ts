@@ -7,7 +7,7 @@
  * 标题。
  */
 
-import {defineComponent, h, reactive} from "vue";
+import {defineComponent, h, onMounted, reactive} from "vue";
 import type {PropType} from "vue";
 
 import type {ReadPosition} from "@notnotype/nb-canon";
@@ -70,6 +70,11 @@ export interface EntryPageOptions {
     readonly execute: (id: string, args: unknown) => void;
     /** 设定视图的 id：面包屑的“设定”显示它。 */
     readonly entriesView: string;
+    /**
+     * 一个条目页挂上了：设定视图据此选中它的条目。页面标签只在所在组的活动标签时挂载，所以挂上就是成为那一组的活动标签；编辑区拆成
+     * 两组时在组之间换焦点不会再挂一次（编辑器的公开状态只给文件标签的地址，没有活动页面）。
+     */
+    readonly shown?: (entry: string) => void;
 }
 
 export function createEntryPage(options: EntryPageOptions): EditorPageImplementation<EntryPageState> {
@@ -85,6 +90,9 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                 props: {context: {type: Object as PropType<EditorPageContext<EntryPageState>>, required: true}},
                 setup(props) {
                     const text = useCanonText();
+                    onMounted(() => {
+                        if (props.context.arg !== undefined) options.shown?.(props.context.arg);
+                    });
                     return () => {
                         const world = options.world();
                         const id = props.context.arg;

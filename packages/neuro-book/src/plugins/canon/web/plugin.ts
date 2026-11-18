@@ -165,6 +165,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 receipt: (revision) => execute(OPEN_RECEIPT_COMMAND, {revision}),
             });
             const revert = createRevertRequests();
+            const state = entriesViewState();
             const page = createEntryPage({
                 world: worldOf,
                 fetchOrigins: originsFetcher((input) => clientOf().call("origins", input)),
@@ -174,6 +175,9 @@ export const canonBrowserPlugin: PluginDefinition = {
                 revert,
                 execute,
                 entriesView: ENTRIES_VIEW_ID,
+                shown: (entry) => {
+                    state.selected.value = entry;
+                },
             });
             const receiptPage = createReceiptPage({world: worldOf, notices, revert, execute, entriesView: ENTRIES_VIEW_ID, revisionsView: REVISIONS_VIEW_ID});
             const files = await context.services.resolve(filesKey);
@@ -206,7 +210,6 @@ export const canonBrowserPlugin: PluginDefinition = {
                     });
                 },
             };
-            const state = entriesViewState();
             const pendingState = pendingViewState();
             const revisionsView = createRevisionsView({world: worldOf, state: revisionsViewState(), revert, receipt: (revision) => execute(OPEN_RECEIPT_COMMAND, {revision})});
             const pendingView = createPendingView({

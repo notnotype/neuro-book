@@ -31,6 +31,7 @@ import EntryTree from "./components/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
 import {createNotices} from "./notices";
+import {ENTRIES_VIEW_ID} from "./plugin";
 import {createRevertRequests} from "./revert";
 import type {EntryPageState} from "./entry-page";
 import {canonCatalogs} from "./text";
@@ -63,7 +64,7 @@ interface Opened {
     remount(): ReturnType<typeof mount>;
 }
 
-async function setup(): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>}> {
+async function setup(): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
     venue = await canonNodeWorld(tmp);
     const editor = pageStandIn();
     await venue.window("mine", [editor.plugin]);
@@ -80,7 +81,13 @@ async function setup(): Promise<{other: CanonNodeWindow; page: EditorPageImpleme
         };
         return {wrapper: mountOnce(), state: context.state, remount: mountOnce};
     };
-    return {other, page, open};
+    // 同一个浏览器入口交给工作台的设定视图：与页面共用窗口里那一份视图状态。
+    const tree = async (): Promise<ReturnType<typeof mount>> => {
+        const wrapper = mount(await editor.view(ENTRIES_VIEW_ID).implementation.load(), {global: {provide: provideText(port)}, attachTo: document.body});
+        cleanups.push(() => wrapper.unmount());
+        return wrapper;
+    };
+    return {other, page, open, tree};
 }
 
 const valueText = (wrapper: ReturnType<typeof mount>): string => wrapper.find("[data-value]").text();
@@ -310,6 +317,28 @@ describe("条目页", () => {
         await venue!.endProject();
         await waitUntil("横幅", () => wrapper.text().includes("世界已断开"), {timeoutMs: 10_000});
         expect(wrapper.find("[data-value]").exists()).toBe(true);
+    });
+
+    it("条目页挂上时设定树选中它的条目：开了星瑕又开星瑾，切回星瑕的标签，选中的是星瑕", async () => {
+        const {other, open, tree} = await setup();
+        const star = person("星瑕");
+        const sister = person("星瑾");
+        const ids = await publish(other.canon, [star, sister]);
+        const view = await tree();
+        await waitUntil("分组", () => view.find('[data-tree-id="folder:人物"]').exists());
+        await view.get('[data-tree-id="folder:人物"]').trigger("click");
+        await waitUntil("条目出现", () => view.find(`[data-tree-id="${ids[sister.id]!}"]`).exists());
+        const selected = (id: string) => view.get(`[data-tree-id="${id}"]`).attributes("aria-selected") === "true";
+
+        // 编辑器只挂活动标签：开星瑾的页时星瑕的页卸载，切回来再挂上。
+        const starPage = await open(ids[star.id]!);
+        await waitUntil("选中星瑕", () => selected(ids[star.id]!));
+        starPage.wrapper.unmount();
+        const sisterPage = await open(ids[sister.id]!);
+        await waitUntil("选中星瑾", () => selected(ids[sister.id]!) && !selected(ids[star.id]!));
+        sisterPage.wrapper.unmount();
+        starPage.remount();
+        await waitUntil("切回星瑕", () => selected(ids[star.id]!) && !selected(ids[sister.id]!));
     });
 });
 
