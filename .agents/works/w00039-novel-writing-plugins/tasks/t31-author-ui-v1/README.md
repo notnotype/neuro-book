@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t31-author-ui-v1
 status: active
-updated: 2026-11-13
+updated: 2026-11-18
 ---
 
 # 作者界面第一版
@@ -136,7 +136,9 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 
   - S7 实现审查（2026-11-13）：前端派 Claude Sonnet（11 条：重要 4、建议 7），K-e 派 Claude Opus（6 条：重要 3、建议 3）。到齐后一起归类，修正 `56cecd84a`。要点：读取层的结果带 `stale`，待处理视图只在现在的结果上选第一条（停放回来后 `show-pending` 按旧结果选是第 1 条，已复现）；两个视图“停放时不读”与两个 show 命令补了测试；详情里长链接截断；选中的位置跟着变；强行解除确认时核对持有者。补测试时另发现两个真问题一并改了：内核的 `cannot-apply.root` 是弄坏它的那次修订，不是情节（实现、S7 计划与 Spec 输出 23 都当成了情节，Spec 已改）；行的 `data-row` 用 NUL 分隔，按选择器找行在浏览器里对不上。内核第 6 条（诊断登记变了不发事件，启动时会一直显示“没算出”）是既有问题，并入 K-d。修正后 `test:affected --typecheck` 全过（nb-canon 610 条、bun 2947 条、组件 733 条），真实浏览器重走待处理的路径无误。[前端报告](evidences/impl-review-s7-sonnet.txt)、[内核报告](evidences/impl-review-s7-opus.txt)、[处理](evidences/impl-review-s7-resolution.txt)。
 
+- K-d（2026-11-18 开工）：开发者定用自主推进做完 K-d 与 S8。开工前在 1000 章规模样本上逐段计时，`entry` 的 `changedAt` 慢在引擎倒扫整条时间线，`origins` 慢在每页重放全部步并整份冻结，`changes` 慢在每次对两万条排序；细计划见 `plan.md` 的“K-d 的细计划”，交 omp 做设计审查。
+
 ## 下一步
 
-1. K-d 内核读取的性能，S8 之前做；一并补上诊断登记变了的事件（`inputChanged` 加一种，改 Spec project 输出 34 与事件表；S7 内核审查第 6 条）。
+1. K-d：设计审查处理完以后按 K-d1 到 K-d5 实施。
 2. S8：e2e（含状态栏点进待处理、验收 5、改动记录里还原）、截图、收口审查、Spec 晋升；合入前把 `plugins.e2e` 与 master 对比。
