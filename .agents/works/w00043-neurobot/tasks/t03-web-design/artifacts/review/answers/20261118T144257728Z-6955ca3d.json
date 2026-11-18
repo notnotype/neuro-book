@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "answerId": "20261118T144257728Z-6955ca3d",
+    "artifactVersion": 2,
+    "contentHash": "7068bf39dd3f679d395c63e0c66e1ba150de16c077616b5f35d04a67431f58af",
+    "submittedAt": "2026-11-18T14:42:52.534Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "narrow-nav": "strip",
+        "nav-layout": true
+    },
+    "comments": {
+        "narrow-nav": "我觉得可以，就是这个导航的样式不是特别好看，还可以优化。还有这个 “还有 12 个会话” 不要，做下拉刷新",
+        "nav-layout": "我不是很喜欢这个干巴地把 bot 和 会话放在这里作为一组的标题这种设计"
+    },
+    "note": null
+}
