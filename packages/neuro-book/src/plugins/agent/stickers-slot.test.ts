@@ -38,7 +38,7 @@ const pack = (id: string, stickers: Array<{name: string; common?: boolean; descr
     source: "user",
     title: id,
     status: "ok",
-    stickers: stickers.map((sticker, index) => ({name: sticker.name, file: `${String(index)}.png`, common: sticker.common ?? true, width: 8, height: 8, version: "1-1", ...(sticker.description === undefined ? {} : {description: sticker.description})})),
+    stickers: stickers.map((sticker, index) => ({name: sticker.name, file: `${String(index)}.png`, common: sticker.common ?? true, width: 8, height: 8, version: "1-1", bytes: 8, ...(sticker.description === undefined ? {} : {description: sticker.description})})),
     ...extra,
 });
 

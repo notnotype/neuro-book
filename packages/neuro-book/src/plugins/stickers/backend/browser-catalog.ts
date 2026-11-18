@@ -5,7 +5,7 @@
  */
 
 import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, packSummary, stickerImageUrl} from "../shared/contracts";
-import type {BrowserStickerPack, StickerPackEntry, StickerPackSummary} from "../shared/contracts";
+import type {BrowserStickerPack, ExtraCounts, StickerPackEntry, StickerPackSummary} from "../shared/contracts";
 
 type Report = (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 
@@ -42,8 +42,8 @@ export function browserCatalog(packs: readonly StickerPackEntry[], report: Repor
 }
 
 /** 设置页的表情包概要：同样有字节预算，表情数不限（概要里没有表情）。 */
-export function browserSummaries(packs: readonly StickerPackEntry[], report: Report): StickerPackSummary[] {
-    const {kept, skipped} = withinBudget(packs.map((pack) => ({id: pack.id, stickers: 0, value: packSummary(pack)})));
+export function browserSummaries(packs: readonly StickerPackEntry[], report: Report, counts: (id: string) => ExtraCounts | undefined = () => undefined): StickerPackSummary[] {
+    const {kept, skipped} = withinBudget(packs.map((pack) => ({id: pack.id, stickers: 0, value: packSummary(pack, counts(pack.id))})));
     if (skipped.length > 0) report("catalog-truncated", `表情包概要放不下（超过 ${String(BROWSER_BYTES_MAX)} 字节），这些表情包不列：${skipped.join("、")}`, {skipped, summaries: true});
     return kept;
 }

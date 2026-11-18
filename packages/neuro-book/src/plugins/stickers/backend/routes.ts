@@ -2,6 +2,9 @@
  * 取图路由（docs/specs/agent/stickers.md 的“边界与兼容”）：`GET /api/nbook.stickers/image/<表情包 id>/<文件名>?v=<版本>`。只给
  * 目录里有效的表情；字节经文件服务读 `stickers://`（根身份、链接与路径包含的规则在那里），读到后再按字节核对一次类型、大小与
  * 宽高，扫描之后被换掉的文件不按旧的结论给出去。响应头与跨站规则同文件服务的按地址读取字节。
+ *
+ * 表情包页另要显示两类不是表情的图（目录的 `extras`：名字当不了表情名的、清单没列的）：同样只给目录分好类的、读到时字节核对过的；
+ * 它们一律 `no-cache`、不回 304：版本来自扫描，扫描之后被换掉的文件不能被长期缓存（输出 26）。
  */
 
 import {Hono} from "hono";
@@ -31,14 +34,20 @@ export function createStickerRoutes(options: {readonly catalog: Pick<StickerCata
         if (crossSite(c.req.raw)) return Response.json({error: {code: "cross-site", message: "不接受别的网页读取表情"}}, {status: 403, headers: SAFE_HEADERS});
         const pack = c.req.param("pack");
         const file = c.req.param("file");
-        const sticker = options.catalog.item(pack)?.entry.stickers.find((candidate) => candidate.file === file);
-        if (sticker === undefined) return notFound();
+        const item = options.catalog.item(pack);
+        const sticker = item?.entry.stickers.find((candidate) => candidate.file === file);
+        const extra = sticker === undefined ? item?.extras.find((candidate) => candidate.file === file) : undefined;
+        const found = sticker ?? extra;
+        if (found === undefined) return notFound();
         const read = await options.files().read(`${STICKERS_SCHEME}://${pack}/${file}`);
         if (!read.ok) return notFound();
         const checked = await checkImage(read.value.bytes, file);
         if (!checked.ok) return notFound();
-        const etag = `"${sticker.version}"`;
-        const current = c.req.query("v") === sticker.version;
+        if (sticker === undefined) {
+            return new Response(c.req.method === "HEAD" ? null : read.value.bytes, {headers: {...SAFE_HEADERS, "Content-Type": checked.type, "Content-Length": String(read.value.bytes.length), "Cache-Control": "no-cache"}});
+        }
+        const etag = `"${found.version}"`;
+        const current = c.req.query("v") === found.version;
         const cache = current ? "private, max-age=31536000, immutable" : "no-cache";
         if (c.req.header("if-none-match") === etag) return new Response(null, {status: 304, headers: {...SAFE_HEADERS, "ETag": etag, "Cache-Control": cache}});
         return new Response(c.req.method === "HEAD" ? null : read.value.bytes, {headers: {

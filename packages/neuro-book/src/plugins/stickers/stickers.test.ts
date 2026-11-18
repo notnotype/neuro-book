@@ -5,12 +5,13 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {chmod, mkdir, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
+import {access, chmod, mkdir, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ContributionHandle, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {openExistingFolder} from "nbook/backend/open-folder";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {definitionAt} from "nbook/manifest";
@@ -23,11 +24,14 @@ import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
 
 import {browserCatalog, browserSummaries} from "./backend/browser-catalog";
 import {StickerCatalog} from "./backend/catalog";
+import type {StickerPackItem} from "./backend/catalog";
+import {packDetail} from "./backend/pack-detail";
+import {revealPath} from "./backend/reveal";
 import {stickersBackendPlugin} from "./backend/plugin";
 import {pluginPackRoots} from "./backend/plugin-roots";
 import {createStickerRoutes} from "./backend/routes";
 import {descriptor} from "./plugin";
-import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, stickerImageUrl, stickersServiceKey} from "./shared/contracts";
+import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, REPLACED_PREFIX, STAGING_PREFIX, stickerImageUrl, stickersServiceKey} from "./shared/contracts";
 import type {StickerPackEntry, StickerPacksDeclaration, StickersService} from "./shared/contracts";
 
 const PIXEL = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (char) => char.charCodeAt(0));
@@ -332,9 +336,119 @@ describe("取图路由", () => {
     });
 });
 
+describe("表情包页的读取", () => {
+    /** 只扫不监视的目录（手动时钟，不会自己重扫）。 */
+    async function quietCatalog(user: string, report: (code: string, message: string, data?: unknown) => void = () => undefined): Promise<StickerCatalog> {
+        const catalog = await StickerCatalog.open({roots: [{key: "user", source: "user", prefix: "user", root: user, watch: false}], clock: {now: () => 0, schedule: () => () => undefined} as never, report});
+        catalogs.push(catalog);
+        return catalog;
+    }
+
+    test("输出 26、27：详情里有表情、认不出的与没加进来的图，概要带两个计数；这两类图能取、不长期缓存", async () => {
+        const {user, files} = await scene(async (user) => {
+            await lyra(join(user, "lyra"));
+            await writeFile(join(user, "lyra", "摸摸头.png"), await png(24, 24));
+            await mkdir(join(user, "cat"));
+            for (const file of ["开心.png", "1.png"]) await writeFile(join(user, "cat", file), await png(16, 16));
+        });
+        const catalog = await quietCatalog(user);
+        const cat = catalog.item("user.cat");
+        if (cat === undefined) throw new Error("没有 cat");
+        const catDetail = packDetail(cat, "token");
+        expect(catDetail).toMatchObject({listed: false, token: "token", summary: {id: "user.cat", count: 1, unrecognized: 1, unlisted: 0}});
+        expect(catDetail.stickers.map(({name, file, bytes}) => ({name, file, bytes: bytes > 0}))).toEqual([{name: "开心", file: "开心.png", bytes: true}]);
+        expect(catDetail.extras.map(({file, reason, raw}) => ({file, reason, raw}))).toEqual([{file: "1.png", reason: "name", raw: null}]);
+        // 有表情列表的：清单里名字不合规的项（写了名字的带原样）与文件夹里没列的图。
+        const lyraDetail = packDetail(catalog.item("user.lyra")!, null);
+        expect(lyraDetail).toMatchObject({listed: true, summary: {unrecognized: 2, unlisted: 1}});
+        expect(lyraDetail.extras.map(({file, reason, raw}) => ({file, reason, raw}))).toEqual([
+            {file: "1.png", reason: "name", raw: null},
+            {file: "happy.png", reason: "name", raw: "1坏名字"},
+            {file: "摸摸头.png", reason: "unlisted", raw: null},
+        ]);
+        expect(browserSummaries(catalog.list(), () => undefined, (id) => catalog.item(id)?.counts).find((summary) => summary.id === "user.lyra")).toMatchObject({unrecognized: 2, unlisted: 1});
+
+        const routes = createStickerRoutes({catalog, files: () => files});
+        const extra = lyraDetail.extras.find((item) => item.reason === "unlisted")!;
+        const url = extra.url.replace("/api/nbook.stickers", "");
+        const response = await routes.request(url);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toBe("no-cache");
+        expect(response.headers.get("etag")).toBeNull();
+        expect((await routes.request(url, {headers: {"if-none-match": `"${extra.url.split("v=")[1] ?? ""}"`}})).status).toBe(200);
+    });
+
+    test("详情序列化后不超过远程消息的预算：放不下的 extras 从后面截，计数照实", () => {
+        const long = `${"长".repeat(70)}.png`;
+        const item: StickerPackItem = {
+            directory: "/x",
+            root: "user",
+            listed: true,
+            entry: {id: "user.big", folder: "big", source: "user", title: "big", status: "ok", stickers: []},
+            extras: Array.from({length: 3000}, (_, index) => ({file: `${String(index)}${long}`, reason: "unlisted" as const, raw: null, width: 8, height: 8, version: "1-1", bytes: 8})),
+            counts: {unrecognized: 0, unlisted: 3000},
+        };
+        const detail = packDetail(item, null);
+        expect(new TextEncoder().encode(JSON.stringify(detail)).length).toBeLessThanOrEqual(BROWSER_BYTES_MAX);
+        expect(detail.extras.length).toBeGreaterThan(0);
+        expect(detail.extras.length).toBeLessThan(3000);
+        expect(detail.summary.unlisted).toBe(3000);
+    });
+
+    test("输出 36：打开目录时删掉没提交的暂存；替换时挪开的旧包不动、写诊断；两者都不是表情包", async () => {
+        counter += 1;
+        const user = join(tmp, `s${String(counter)}`);
+        await lyra(join(user, `${STAGING_PREFIX}abc`));
+        await lyra(join(user, `${REPLACED_PREFIX}lyra-abc`));
+        const reports: string[] = [];
+        const catalog = await quietCatalog(user, (code) => reports.push(code));
+        expect(catalog.list()).toEqual([]);
+        expect(await access(join(user, `${STAGING_PREFIX}abc`)).then(() => true, () => false)).toBe(false);
+        expect(await access(join(user, `${REPLACED_PREFIX}lyra-abc`, "stickers.json")).then(() => true, () => false)).toBe(true);
+        expect(reports).toEqual(["replace-leftover"]);
+    });
+
+    test("写完立刻 refresh：不等监视的合并，目录已是写完的样子", async () => {
+        counter += 1;
+        const user = join(tmp, `r${String(counter)}`);
+        await mkdir(user, {recursive: true});
+        const catalog = await quietCatalog(user);
+        let changed = 0;
+        catalog.onChanged(() => (changed += 1));
+        await lyra(join(user, "lyra"));
+        await catalog.refresh("user");
+        expect(catalog.item("user.lyra")?.entry.status).toBe("ok");
+        expect(changed).toBe(1);
+        // 只多了一张没列进清单的图：表情不变，也算变了（表情包页要显示它）。
+        await writeFile(join(user, "lyra", "新图.png"), await png(8, 8));
+        await catalog.refresh("user");
+        expect(catalog.item("user.lyra")?.counts.unlisted).toBe(1);
+        expect(changed).toBe(2);
+    });
+
+    test("输出 37：只打开目录里这个表情包的真实文件夹；被换成链接的、不在的不打开；没有桌面时不打开、不建文件夹", async () => {
+        counter += 1;
+        const user = join(tmp, `o${String(counter)}`);
+        await lyra(join(user, "lyra"));
+        await lyra(join(user, "cat"));
+        const catalog = await quietCatalog(user);
+        expect(await revealPath(catalog, user, "user.lyra")).toBe(join(user, "lyra"));
+        expect(await revealPath(catalog, user, "user.none")).toBeNull();
+        // 扫描之后 cat 被换成指向别处的链接：目录还是旧的，按真实路径拒绝。
+        await rename(join(user, "cat"), join(tmp, `o${String(counter)}-elsewhere`));
+        await symlink(join(tmp, `o${String(counter)}-elsewhere`), join(user, "cat"));
+        expect(await revealPath(catalog, user, "user.cat")).toBeNull();
+
+        expect(await openExistingFolder(join(user, "lyra"), {}, "linux")).toEqual({ok: false, code: "no-desktop"});
+        const missing = join(user, "missing");
+        expect(await openExistingFolder(missing, {}, "linux")).toMatchObject({ok: false, code: "open-failed"});
+        expect(await access(missing).then(() => true, () => false)).toBe(false);
+    });
+});
+
 describe("浏览器目录", () => {
     test("输出 18：只带显示要用的字段；合计超过上限时放不下的表情包整包不进、写诊断", () => {
-        const entry = (id: string, count: number): StickerPackEntry => ({id, folder: id.split(".")[1] as string, source: "user", title: id, status: "ok", stickers: Array.from({length: count}, (_, index) => ({name: `n${String(index)}`, file: `f${String(index)}.png`, description: "说明", common: false, width: 8, height: 8, version: "1-1"}))});
+        const entry = (id: string, count: number): StickerPackEntry => ({id, folder: id.split(".")[1] as string, source: "user", title: id, status: "ok", stickers: Array.from({length: count}, (_, index) => ({name: `n${String(index)}`, file: `f${String(index)}.png`, description: "说明", common: false, width: 8, height: 8, version: "1-1", bytes: 8}))});
         const reports: string[] = [];
         const result = browserCatalog([entry("user.a", BROWSER_STICKERS_MAX - 1), entry("user.b", 2), entry("user.c", 1)], (code) => reports.push(code));
         expect(result.map((pack) => pack.id)).toEqual(["user.a", "user.c"]);
@@ -344,7 +458,7 @@ describe("浏览器目录", () => {
 
     test("输出 18、19：目录与设置页的概要序列化后不超过远程消息的预算，放不下的表情包整包不进、写诊断", () => {
         const longFile = `${"f".repeat(240)}.png`;
-        const packs = Array.from({length: 12}, (_, pack): StickerPackEntry => ({id: `user.p${String(pack).padStart(2, "0")}`, folder: `p${String(pack)}`, source: "user", title: "长".repeat(200), description: "说".repeat(200), status: "ok", stickers: Array.from({length: 400}, (_, index) => ({name: `名${String(index)}`, file: longFile, common: false, width: 8, height: 8, version: "1-1"}))}));
+        const packs = Array.from({length: 12}, (_, pack): StickerPackEntry => ({id: `user.p${String(pack).padStart(2, "0")}`, folder: `p${String(pack)}`, source: "user", title: "长".repeat(200), description: "说".repeat(200), status: "ok", stickers: Array.from({length: 400}, (_, index) => ({name: `名${String(index)}`, file: longFile, common: false, width: 8, height: 8, version: "1-1", bytes: 8}))}));
         const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
         const reports: string[] = [];
         const result = browserCatalog(packs, (code) => reports.push(code));
