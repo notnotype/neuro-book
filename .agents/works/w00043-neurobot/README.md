@@ -65,6 +65,7 @@ updated: 2026-11-18
 | 2026-11-13 | t12 计划审查（两位 Sonnet，一位从整体看）后开发者改定方案 E：不判旧的文件锁单独成零依赖的小包 `nb-flock` 随 nb-story 发布，nb-file-lock 保持 private 与只有 `.`，ADR 0045 不改；见 [t12](tasks/t12-flock-into-file-lock/README.md) |
 | 2026-11-18 | 开发者：NeuroBook 本身也适合做成 bot 员工的交互，用户仍可以用会话（不推荐）；NeuroBook 不需要多渠道与网关。按主 Agent 的推荐，bot 先做成 NeuroBook 的内置插件，NeuroBot 独立应用暂停（不删，等要外部渠道、远端设备或不开界面的常驻服务时再议）；第一版只有一个 bot；日程与周期任务做成 NeuroBook 的内置插件。提案 `neurobot.md` 不标接受，改写成 NeuroBook 的 bot 提案；t04、t05 随改写取消，t06 到 t10 改成在 NeuroBook 里做 |
 | 2026-11-18 | 开发者最在意耦合：nb-agent-ui 要能适配会话模式、bot 模式、会话加 bot 模式；要求派几个子代理深查现有组件的耦合（功能与业务功能能否关掉，哪些可以拆开、哪些不推荐耦合、哪些可以接受）。开发者提出 bot 与 Profile 的关系（Profile 能否衍生多个 bot、插件怎样提供 bot）与新的 `bot://` 空间，待讨论 |
+| 2026-11-18 | 耦合审查（[汇总](research/2026-11-18-coupling-audit.md)）后开发者定：内置插件不做成能关，接受这个取舍，以后确实需要再开；启动必需只留基础插件以后做（建了 [w00027 t20](../w00027-plugin-platform/tasks/t20-startup-required-base-plugins/README.md)，现在启动不慢）；会话能读别的会话的日志是有意的设计（Agent 的能力），不收紧 |
 
 ## 调研
 
