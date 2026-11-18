@@ -591,6 +591,9 @@ function closeContainerMenu(reason: ContextMenuCloseReason): void {
 
 /** “打开项目”的命令 id：项目插件的公开合同，工作台不为它依赖项目插件的模块。 */
 const OPEN_PROJECT_COMMAND = "nbook.project.open";
+/** “回到书架”的命令 id（同上）：命令在目录里时标题栏才画回书架的入口。 */
+const BACK_TO_SHELF_COMMAND = "nbook.project.back-to-shelf";
+const shelfTitle = computed(() => props.chrome?.commandTitle(BACK_TO_SHELF_COMMAND, resolver) ?? null);
 
 const titleMenus = computed(() => props.chrome?.menus(resolver) ?? []);
 const panelVisible = computed(() => props.layout.actions.partVisible("panel"));
@@ -896,10 +899,12 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     :search-shortcut="chrome.searchShortcut()"
                     :layout="layoutButtons"
                     :items="chrome.titleEntries(resolver)"
+                    :shelf="shelfTitle"
                     @run="(command, args) => run(command, {...args})"
                     @search="run(OPEN_COMMANDS_ID)"
                     @toggle-part="(part) => run(SET_PART_HIDDEN_COMMAND, {part})"
                     @open-project="run(OPEN_PROJECT_COMMAND)"
+                    @back-to-shelf="run(BACK_TO_SHELF_COMMAND)"
                     @run-item="(id) => chrome?.runItem(id)"
                 />
                 <div v-else class="workbench-shell__titlebar">

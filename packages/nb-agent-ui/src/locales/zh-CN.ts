@@ -377,6 +377,15 @@ export default {
         free: "免费",
         unpriced: "此模型没有单价，费用上限对它无效",
         detail: "输入 {{input}}，输出 {{output}}，缓存读 {{cacheRead}}，缓存写 {{cacheWrite}}",
+        line: {
+            plugin: "插件",
+            settings: "状态栏设置…",
+            menuLabel: "状态栏",
+            context: {title: "上下文用量", description: "圆环与百分比，点开看上下文详情"},
+            usage: {title: "用量与缓存命中", description: "累计 tokens、输入、输出、缓存命中，明细在悬停"},
+            cost: {title: "费用", description: "累计费用，单价未知时不显示"},
+            model: {title: "模型与推理档", description: "这次对话用的模型"},
+        },
     },
     messageEditor: {
         label: "编辑这条消息",

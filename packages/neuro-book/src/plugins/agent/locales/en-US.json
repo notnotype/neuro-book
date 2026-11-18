@@ -94,6 +94,10 @@
         "notSaved": "Permission rules"
     },
     "settings": {
+        "statusLine": {
+            "title": "Conversation status bar",
+            "description": "Which items the line under the composer shows and in what order; only changes are stored, edit it in the Status bar page"
+        },
         "toolBindings": {
             "title": "Agent tool bindings",
             "description": "Add or remove tools per profile: added brings in tools the profile does not list, removed drops optional ones (required tools stay)"
@@ -416,6 +420,10 @@
         }
     },
     "settingsPages": {
+        "status-line": {
+            "title": "Status bar",
+            "description": "What the line under the composer shows, and in what order"
+        },
         "permissions": {
             "title": "Permission rules",
             "description": "Which tool calls are allowed, asked about, or denied"
@@ -428,6 +436,17 @@
             "title": "Skills",
             "description": "Skills in the Skills folder, their status and initialization"
         }
+    },
+    "statusLine": {
+        "left": "Left",
+        "right": "Right",
+        "preview": "Preview",
+        "plugin": "Plugin",
+        "moveUp": "Move up",
+        "moveDown": "Move down",
+        "moveUpOf": "Move “{{name}}” up",
+        "moveDownOf": "Move “{{name}}” down",
+        "notSaved": "Status bar settings"
     },
     "profiles": {
         "loading": "Loading profiles…",
@@ -477,7 +496,8 @@
             "model": "Model and approval",
             "tools": "Tools",
             "agents": "Allowed sub-agents",
-            "skills": "Skills"
+            "skills": "Skills",
+            "stickers": "Sticker packs"
         },
         "model": {
             "label": "Model",
@@ -627,6 +647,38 @@
                 "builtin": "Built-in"
             },
             "invalid": "Invalid"
+        },
+        "stickers": {
+            "section": {
+                "help": "Which sticker packs this Profile's prompt lists common stickers from; takes effect from the next turn",
+                "count": "{{count}} listed",
+                "restore": "Restore defaults",
+                "add": "Add sticker pack"
+            },
+            "remove": "Stop listing {{name}} ({{id}})",
+            "required": "Required",
+            "addBack": "Add back",
+            "addBackLabel": "Add back {{name}} ({{id}})",
+            "add": {
+                "title": "Add sticker packs",
+                "done": "Add",
+                "search": "Search sticker packs",
+                "empty": "No other sticker packs available",
+                "noMatch": "No matching sticker pack",
+                "blocked": "Cannot add",
+                "replaces": "(replaces the one with the same name)",
+                "join": "Select {{name}} ({{id}})",
+                "unjoin": "Deselect {{name}} ({{id}})"
+            },
+            "userAdded": "Added by me",
+            "gone": "This sticker pack was not found; it comes back once your own is in the stickers folder again, or its plugin is enabled again",
+            "goneGroup": "Deleted or unavailable",
+            "removedGroup": "Removed",
+            "groups": {
+                "user": "My sticker packs"
+            },
+            "invalid": "Invalid",
+            "count": "{{count}} stickers"
         }
     },
     "skills": {

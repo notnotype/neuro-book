@@ -7,7 +7,7 @@
  */
 
 import type {MarkdownTargets} from "@notnotype/nb-markdown";
-import type {MarkdownLocale, MarkdownText} from "@notnotype/nb-markdown";
+import type {MarkdownLocale, MarkdownText, StickerResolver} from "@notnotype/nb-markdown";
 import type {ChipEnv} from "@notnotype/nb-markdown/chip";
 import type {MarkdownHost} from "@notnotype/nb-markdown/host";
 import type {MarkdownLanguage} from "@notnotype/nb-markdown/language";
@@ -45,9 +45,10 @@ export const nbookChips: ChipEnv = {
  */
 export const NBOOK_IMAGE_MISSING: MarkdownText = markdownText("image.missing");
 
-export function nbookMarkdownHost(options: {readonly language?: () => MarkdownLanguage; readonly report?: MarkdownReport}): MarkdownHost {
+export function nbookMarkdownHost(options: {readonly language?: () => MarkdownLanguage; readonly report?: MarkdownReport; readonly stickers?: StickerResolver | null}): MarkdownHost {
     return {
         ...(options.language === undefined ? {} : {language: options.language}),
+        ...(options.stickers === undefined || options.stickers === null ? {} : {stickers: options.stickers}),
         chips: nbookChips,
         report: options.report ?? (() => undefined),
         imageMissing: NBOOK_IMAGE_MISSING,

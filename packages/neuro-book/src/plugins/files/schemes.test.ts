@@ -280,16 +280,19 @@ describe("注册与寿命", () => {
         expect(await agent.list("later://later")).toMatchObject({ok: false, code: "unknown-scheme"});
     });
 
-    test("验收 8：挂载点空闲满 5 分钟关闭，之后按新目录重开；打开中的挂载点认着原来的目录", async () => {
+    test("挂载点的目录被整个换掉：下一次请求按当前声明重开，读到新目录，不报根不在；之后照常使用", async () => {
         const {world, agent, container} = await scene();
         expect(await agent.create("notes://a/one.md", "file", asAgent("a"))).toMatchObject({ok: true});
-        // 外部把挂载点的目录换成新的：还开着的挂载点认原目录，报根不在，不改投。
+        // 外部把挂载点的目录换成新的（删掉后放进同名的新目录，更新表情包、Skill 的常见做法）。
         await rm(join(container, "a"), {recursive: true});
         await mkdir(join(container, "a"));
         await writeFile(join(container, "a", "two.md"), "新");
-        expect(await agent.read("notes://a/two.md")).toMatchObject({ok: false, code: "root-gone"});
-        world.clock.advance(IDLE_CLOSE_MS);
-        await waitUntil("空闲关闭后按新目录重开", async () => (await agent.read("notes://a/two.md")).ok);
+        const read = await agent.read("notes://a/two.md");
+        expect(read.ok && new TextDecoder().decode(read.value.bytes)).toBe("新");
+        expect(await agent.read("notes://a/one.md")).toMatchObject({ok: false, code: "not-found"});
+        expect(await agent.create("notes://a/three.md", "file", asAgent("a"))).toMatchObject({ok: true});
+        expect(await lstat(join(container, "a", "three.md"))).toBeTruthy();
+        expect(world.diagnostics("hub").query({}).records.filter((record) => record.event === "files.mount.reopened")).toHaveLength(1);
     });
 
     test("容器被换成链接：重新打开挂载点时不跟着链接打开到别处", async () => {

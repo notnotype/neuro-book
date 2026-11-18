@@ -1,0 +1,118 @@
+### 1. 转义只看本文字节点：前一个文字节点以 `:名字` 结尾、后面紧跟表情节点时，要升到完全转义，同一块别处的写法被改写
+- 严重程度：重要
+- 类别：正确性 / 合同（stickers.md 输出 23“留作文字的写法写回时同一块别处的字节不变”）
+- 位置：packages/nb-markdown/src/language/codec/render/escape.ts:283-284（`stickerColonEscapes(text)` 只传文字节点自己的 text）；packages/nb-markdown/src/language/codec/render/inline.ts:195-204（`after` 对非文字节点只给占位符 "￼"）
+- 现象：文字节点 `时间:ab` 后面紧跟表情节点 `:c:`，写出的字节是 `时间:ab:c:`，读回成 `时间` + 表情 `:ab:` + `c:`，与编辑器的文档不一致；最小转义这一级读回校验失败，阶梯升到“canonical + full”，整块被重写。实测（实现 worktree，真实语言与编解码器，原文 `你好 _斜体_ 和 __粗体__ [链接](a.md)\n`，末尾追加文字 ` 时间:ab` 和表情 `:c:`）写出
+  `你好 *斜体* 和 **粗体** [链接](a.md) 时间\:ab:c:`——`_斜体_` 变 `*斜体*`、`__粗体__` 变 `**粗体**`。
+  对照：表情在前文字在后（`:c:` + `d:ab`）、`ab:` + `:c:` 都不触发。
+- 为什么是问题：输出 23 和 codec.test.ts“同一块里加了留作文字的写法，别处的写法不变”承诺的是最小改动；这里是同一类编辑（新加的内容里有留作文字的写法）换了个相邻形态就退成整块重写。输入规则（`stickerEndingAt` 取最后一个冒号对）让这个形态很容易打出来：在 `备注:ok` 后面直接打 `:c:`，文字是 `备注:ok`、表情是 `:c:`，字节是 `备注:ok:c:`，这三个冒号的配对与文字节点里的完全不同。
+- 如何核实：/tmp/review-w00050-t02-impl/exp/e2.test.ts（`cd 实现worktree/packages/nb-markdown && bun test <该文件>`），第一条输出。
+- 建议改法：转义判断要看到下一个节点：`EscapeAround` 里带上“下一个节点是表情”（或把 `after` 对表情节点给 `:`），`stickerColonEscapes` 对 `text + 后随冒号` 判断；同理前一个节点是表情时 `before` 是 `:`，当前没有需要但应一并对称处理。补一条“文字 + 表情相邻”的编解码测试（现有测试只有表情在前或只有文字）。
+
+### 2. 编辑器大图装饰的增量重算会清掉相邻块的装饰且不补回：在只有表情的段落旁边打字，那一段的大图立刻变小
+- 严重程度：阻断（编辑器里最常见的操作触发，输出 11 在编辑器里站不住）
+- 类别：正确性
+- 位置：packages/nb-markdown/src/editor/sticker-views.ts:63-72（`apply`）
+- 现象：`set.find(start, end)` 的范围是闭区间，边界上相接的装饰也算（ProseMirror 文档：“including decorations that start or end directly at the boundaries”）；而重新判断用的 `doc.nodesBetween(start, end)` 不访问只在边界相接的块。于是改动所在顶层块的前一块（装饰的 to 等于 start）与后一块（from 等于 end）的 `nb-sticker-block` 装饰被 remove、不会 add 回来。
+  实测（实现 worktree，vitest + happy-dom，真实扩展组）：
+  - 文档 `:a:\n\n你好\n`，在第二段末尾打一个字：第一段 `nb-sticker-block` 从 true 变 false（初始 [true,false]，之后 [false,false]）。
+  - 文档 `:a:\n\n:b:\n\n:c:\n`，在中间段里打一个空格：[true,true,true] 变成 [false,true,false]。
+  - 在 `:a:\n\n:b:` 第一段开头打字：第二段的大图也丢了。
+  丢了之后要等那一块自己被编辑才会回来；重载文档才恢复。
+- 为什么是问题：写文章时表情自成一段、下一段继续写，是这个功能的主要用法（Lyra 的表情通常单独成行）。现有测试“大图随同一段里的编辑更新”只有一个块，覆盖不到。
+- 如何核实：/tmp/review-w00050-t02-impl/exp/d1.dom.test.ts、d2.dom.test.ts（`cd 实现worktree/packages/nb-markdown && bunx vitest run --config /tmp/review-w00050-t02-impl/exp/vitest.config.ts --silent=false --reporter=verbose`）。
+- 建议改法：remove 时只去掉完全落在 [start, end] 内的装饰（`set.find(start, end).filter((d) => d.from >= start && d.to <= end)`）；或每次直接对 `tr.doc` 全量重算（装饰只在有表情的文本块里产生，`nodesBetween` + `block.forEach` 的代价不大），省掉这套映射。补一条多块的 e2e/dom 测试：相邻块打字后大图类名仍在。
+
+### 3. 表情节点的 `raw` 不校验：粘贴带 `data-sticker` 的 HTML 能造出写不回的节点，保存时落到“各级写法都读不回来”的终态
+- 严重程度：建议（触发需要外来 HTML，概率低；后果是整块写不出）
+- 类别：边界 / 外部输入
+- 位置：packages/nb-markdown/src/language/syntax/sticker/index.ts:41-44（`parseHTML` 的 `getAttrs`）、:84（`writeInline` 原样写 `rawOf(node)`）
+- 现象：`parseHTML` 把任何 `span[data-sticker]` 认成表情节点，`raw` 取属性原文，不过 `parseSticker`。实测（happy-dom，真实扩展组）`view.pasteHTML('<p>前<span data-sticker="**x y**">q</span>后</p>')` 得到节点 `{type:"sticker", attrs:{raw:"**x y**"}}`；`codec.write` 返回 `{ok:false, reason:"各级写法都读不回来"}`（空串、`x y` 同样）。这一块写不出，走“终态页”。
+- 为什么是问题：规则是“节点的 raw 一定是一个合法写法”，读（tokenizer）与输入规则都保证了，唯独粘贴入口没有；剪贴板内容属于外部输入。`writeInline` 又原样写出，没有第二道防线。
+- 如何核实：/tmp/review-w00050-t02-impl/exp/d3.dom.test.ts 的第二个用例（输出里 `PASTE`、`WRITE` 两行）；编解码层可看 e3.test.ts。
+- 建议改法：`getAttrs` 里 `parseSticker(raw) === null` 时返回 `false`（该元素不认成表情，落回普通文字）；raw 取 NFC 之前的原文不变。补进“粘贴”那条用例。
+
+### 4. 编辑器里的表情查询失败静默：节点视图没传 `report`，宿主端口 reject 后只留原文、没有诊断
+- 严重程度：建议
+- 类别：代码质量 / 规则（禁止静默吞错）
+- 位置：packages/nb-markdown/src/editor/sticker-views.ts:21（`buildSticker(document, rawOf(node), host?.stickers ?? undefined)` 没有第四个参数）；对照展示器 static-views.ts 的 `host.report("展示器查不到表情，显示原文", error)`
+- 现象：`buildSticker` 的 reject 分支是 `report?.(error); showText()`。展示器传了 `report`，编辑器没传，`MarkdownViewHost` 里也没有可传的出口。同一个失败（浏览器目录服务抛错）在对话里有诊断、在编辑器里没有。
+- 为什么是问题：违反“不用静默的 catch 吞错，至少写一条诊断”；失败时用户看到的只是表情不显示，查不出原因。`createStickerDirectory` 的 `resolve` 本身不会 reject（取不到时回答 null），所以今天触发不到，但端口合同（`StickerResolver` 返回 Promise）允许 reject，别的宿主会碰到。
+- 如何核实：读代码；Lab 里给 `stickers` 一个 reject 的实现，对话与编辑器两处对照。
+- 建议改法：`MarkdownViewHost` 加可选 `report`（`MarkdownControl` 已有 `markdownReportKey` 注入可用），节点视图透传；或把 `report` 放进 `ResolvedSticker` 合同的说明里明确“端口自己不 reject”，二选一。
+
+### 5. 图片 alt 里的 `:名字:` 也被转义：同一块里改别的字，alt 的字节变了
+- 严重程度：建议
+- 类别：合同（stickers.md 输出 23 的“同一块里别的字节不变”）
+- 位置：packages/nb-markdown/src/language/syntax/core/write.ts:296（`context.escape(alt)`）与 codec/render/escape.ts:284
+- 现象：`:` 的转义判断对所有走 `escapeText` 的调用生效，图片 alt 是其中之一，而 alt 是 marked 里不过行内词法的纯字符串，不会读成表情。实测原文 `看 ![:cat:](a.png) 和 _斜体_\n`，末尾追加一个字，写出 `看 ![\:cat:](a.png) 和 _斜体_加`：alt 被改成 `\:cat:`（读回等价，所以校验通过，字节变了）。
+- 为什么是问题：只影响“块被改写”时 alt 里恰好有写法形状的情形，读回等价、危害小；但与输出 23“只转义会读成写法的冒号”不一致，转义范围比读法宽。
+- 如何核实：/tmp/review-w00050-t02-impl/exp/e4.test.ts 第一行输出。
+- 建议改法：`EscapeAround.place` 带一个“这段文字不会被读成表情”的标记（alt 给它），或在 `context.escape` 的 alt 调用处不走表情转义。属窄场景，也可记为已知限制。
+（更正第 4 条：`MarkdownControl.vue` 目前没有注入 `markdownReportKey`，只有 `MarkdownHosted.vue` 在用；`withHost` 已经提供了这个键，控件里 `inject` 即可，不是“已有注入”。）
+
+### 6. 表情包列表为空时整节不画：白名单里已不在目录的项没有地方列出，违反“已删除或不可用”
+- 严重程度：建议（边界；与 Spec 失败表不一致）
+- 类别：正确性 / 与 Skill 一节的行为差异
+- 位置：packages/neuro-book/src/plugins/agent/web/profile-view.ts（`stickersField` 第一行：`packs.length === 0 ||` 返回 null）；测试 profile-page.dom.test.ts“没有表情包时没有这一节”把它固化了
+- 现象：`skillsField` 只在目录为 null（没取到）时不画，目录为空数组照样画一节（里面是“已删除或不可用”）。`stickersField` 把“空数组”也当成不画。用户删光全部表情包文件夹后，Profile 设置里 `stickers.added` 里的 id 变成“已删除”，这一节整个消失：看不到那几行、也点不到“恢复默认”，`modified` 的状态没处显示。
+- 为什么是问题：stickers.md 失败表“白名单里的 id 不在目录里：不报错；槽不列它，Profile 设置里列在‘已删除或不可用’”；profile-settings.md 输出 27“行、分组、添加与恢复默认同 Skill 一节”。目录为空恰是这一行最容易出现的时刻（整包被删）。
+- 如何核实：读 `skillsField` 与 `stickersField` 的开头两行对照；用 `packsClient([])` 外加 `profileSettings.stickers = {added:["user.lyra"], removed:[]}` 开设置页，那一节不出现。
+- 建议改法：只在 `packs === null` 时不画；空数组且白名单、绑定都没有内容时再决定是否隐藏（要隐藏“从没有过表情包”的新用户，条件改成 `packs.length === 0 && allowed.length === 0 && binding === undefined`），并把测试拆成两条。
+
+### 7. `stickersField` 把 `skillsField` 的分组、“已删除”“已去掉”、候选逻辑整段复制了一份
+- 严重程度：建议
+- 类别：代码质量（重复）
+- 位置：packages/neuro-book/src/plugins/agent/web/profile-view.ts `stickersField`（约 60 行）对照 `skillsField`
+- 现象：两个函数的骨架相同：取 id、算 declared/allowed、`byId`、`row` 与 `goneRow`、按来源分组并把“我的”排前、`gone`/`removed` 两组、`candidates`。差别只在行的内容（缩略图、表情数）、分组的显示名与无效态的文字。第 6 条的差异就是复制后各自漂移的第一例（Skill 一节后来加的规则要在两处同步）。
+- 为什么是问题：计划与 Spec 都写“同 Skill 一节”，实现却是两份；以后 Skill 一节再改（例如内置在后的分组）表情包不会跟着变。同一批改动里 `withSkillsChoice`/`withAgentsChoice` 已经合并成 `withAllowlistChoice`、`profile-skills` 合并成 `profile-allowlist`，唯独视图构造没有合并，不一致。
+- 建议改法：抽一个按“行构造器、分组键、文字键”参数化的 `allowlistField`，`skillsField` 与 `stickersField` 只给各自的差异；至少把 gone/removed/candidates 的拼装抽成共用函数。
+
+### 8. 测试：前端几处判据没有被测到
+- 严重程度：重要（第 2 条漏掉就是因为这个）
+- 类别：测试
+- 位置：packages/nb-markdown/src/language/syntax/sticker/sticker.dom.test.ts、codec.test.ts、packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts、stickers/web/markdown-wiring.dom.test.ts、e2e/stickers.e2e.ts
+- 现象与缺口（逐条是我核实过没有断言的行为）：
+  1. 编辑器装饰的“相邻块”：所有编辑器用例都是单块文档，第 2 条的缺陷就是这样漏过去的。
+  2. 编解码：没有“文字节点与表情节点相邻”的用例（第 1 条）；没有标题、表格单元格、强调、链接里的表情与 `\:` 的用例（计划与 brief 点名要测的邻接情形里只测了汉字、字母、另一个表情）。
+  3. 编辑器的宿主接线：markdown-wiring.dom.test.ts 只挂展示器；`MarkdownControl.vue` 里 `stickers: inject(markdownStickersKey, null)` 与 `indirectHost` 的 getter 删掉，没有任何测试失败（e2e 只测对话里的展示器；Lab 的编辑器场景是手工看）。验收 4、5 的编辑器部分因此只有 dom 测试里直接传 `host.stickers` 的覆盖。
+  4. 输入法组字期间不变（输出 22）：没有用例（Tiptap 的 `view.composing` 与 compositionend 路径）。
+  5. 设置页：`profile-page.dom.test.ts` 用 `dialog.vm.$emit("done")` 绕过对话框，`kind: "stickers"` 的对话框文字（`profiles.stickers.add.*`）、“加回”（`addBackKey` 的 stickers 分支，`onAddBackSticker`）、“已删除或不可用”、无效表情包行都没有断言；`onAddBackSticker` 写成调 `changeSkills` 也不会失败。
+  6. 目录晚到时占位、换图在展示器有，编辑器没有（编辑器的用例大多不传 `stickers`）。
+- 如何核实：对上述各点做变异（删 `MarkdownControl.vue` 的 `stickers:` 行；把 `onAddBackSticker` 改成 `changeSkills`；把 `sticker-views.ts` 的 `set.find(...)` 范围放宽）再跑对应测试，均不失败（其中第三种我在 /tmp 副本里验证了现有测试全过、新用例才会红）。
+- 建议改法：补相邻块的编辑器用例（打字、删整块）、文字+表情相邻的编解码用例、`MarkdownControl` 里编辑器经 `withHost` 拿到表情的用例（可以在 markdown-wiring 里挂 `components.MarkdownControl`）、设置页的“加回”与“已删除”各一条。
+（更正第 8 条“如何核实”：第 3、4、5 点是用 grep 确认这些测试文件里没有触及 `MarkdownControl`、`composing`/`composition`、stickers 的 add-back（add-back 只在 Skill 用例里，profile-page.dom.test.ts:411-423），没有真的做变异；只有第 1 点是实跑验证的（现有测试全绿，我的多块用例才红，d1/d2.dom.test.ts；套上第 2 条的修法后 d4.dom.test.ts 转绿）。）
+
+### 9. 按 UI 审查改的排版进了编辑器共用的 CSS：编辑器里有三处行为与展示器不同或有风险
+- 严重程度：建议
+- 类别：不变量（同一份 CSS 两处使用）
+- 位置：packages/nb-markdown/src/display/markdown.css:13-16（`text-wrap: pretty`）、:26-29（`p:has(> .nb-markdown-image-node:only-child)`）、:325 前后（`.nb-sticker__image { max-width: none }`）
+- 现象：
+  1. `.nb-markdown :is(p, li) { text-wrap: pretty }` 在稿纸里也生效。`pretty` 会在打字时重新平衡段落末几行的换行，编辑中的段落末尾行尾字会随输入跳动；展示器是只读的，没有这个问题。（从 CSS 行为推断，未在真实 Chrome 里打字验证。）
+  2. “单独一段的图片前后 1.5 倍间距”的选择器要求图片是段落的唯一子节点。编辑器里 ProseMirror 会在以不可编辑内联节点结尾的段落加 `<br class="ProseMirror-trailingBreak">`，实测（happy-dom，真实扩展组）`![a](x.png)` 的段落是 `<p><span class="nb-markdown-image-node">…</span><br class="ProseMirror-trailingBreak"></p>`，`:only-child` 不成立，这条规则在编辑器里不生效；提示块与 HTML 卡片的 1.5 倍间距在编辑器里生效。同一篇文章展示器与编辑器的块间距层级不一致。
+  3. `.nb-sticker__image` 去掉了 `max-width`，高度固定（行内 1.6em、大图 120px），宽按比例。表情包允许宽、高各至 1024 像素、不限比例，4:1 的横幅表情在大图下宽 480px，超过窄对话栏（Agent 面板常见 360px 上下）时横向溢出，没有 `object-fit` 兜底。（从 CSS 推断，未在浏览器里量。）
+- 建议改法：1) 把 `text-wrap: pretty` 限到 `.nb-markdown-display`；2) 选择器改成 `p:has(> .nb-markdown-image-node:first-child:nth-last-child(-n+2))` 之类容忍尾部的 `<br>`，或在编辑器里给这类段落加类名；3) 大图加 `max-width: 100%` 并配 `object-fit: contain`，行内小图不动。
+
+### 10. 展示器流式输出时，同一段里表情之后每多一个字，整段（含已显示的表情图）被拆掉重建、重新查询
+- 严重程度：建议（体验，未验证）
+- 类别：性能 / 体验（从代码推断，没有在真实 Chrome 里录像）
+- 位置：packages/nb-markdown/src/display/renderer.ts `update`（头尾按 key 比较、中间整块替换）与 packages/nb-markdown/src/language/syntax/sticker/view.ts（每次建新 `<img>`，`is-loading` 直到 `load` 事件）
+- 现象：回复流式追加时最后一个文本块每次都换成新块，块里已显示的表情元素被 `destroy` 并重新 `buildSticker`：先放原文，等端口的 Promise（微任务）后换成新的 `<img>`，`decoding="async"` 的图要等解码，`is-loading` 要到 `load` 事件才去掉。像 `今天写完啦:lyra/开心:明天见，辛苦` 这种表情在中间的一段，表情后每来一个 token，表情图都会重新走一遍“原文、换图、解码”，可能闪烁；且每次都发一次查询（目录里线性查找，见第 11 条）。
+- 为什么是问题：Spec“时序与寿命”只说块被替换时释放图片；流式时被替换的恰是用户正在看的那一段。已知限制只豁免“显示出来后不随目录变化重画”，没有豁免这个。
+- 如何核实：Lab 的 `MarkdownDisplay` 场景 `streaming`，把 `LAB_STICKER_TEXT` 的第一句放进流式文本，录屏看表情；或在 `buildSticker` 里数 `img` 的创建次数。
+- 建议改法（任选）：按块更新时对“只有末尾文字在增长的文本块”复用已有的表情元素；或表情视图按 `raw` 缓存最近解析到的 `{url,width,height}`，新视图一建立就同步放 `<img>` 不再经 Promise；至少让 `is-loading` 在图已解码过（`image.complete`）时不出现。
+（行号更正，以被审提交为准：第 2 条 sticker-views.ts:78（`set.find(start, end)` 一行，`apply` 在 :66-83）；第 3 条 sticker/index.ts:32（`getAttrs`）与 `writeInline` 一行；第 4 条 sticker-views.ts:19；第 9 条第 3 点 markdown.css:331；第 6 条 profile-view.ts:402。）
+
+## 未发现问题的方面（仔细检查后）
+- 展示器的块级释放：`update` 里被替换或移除的块都走 `view.destroy`，卸载时 `destroy()` 取消未完成查询并释放已显示的表情（dom 测试覆盖卸载路径）；`buildSticker` 在查询晚于 `destroy` 完成时也会 `release`，没有泄漏。
+- `markdownStickersKey` 的提供：`markdownKey` 交出的六个组件全部经 `withHost`，`MarkdownControl`、`MarkdownHosted` 两处 inject 都拿得到；没有表情包服务时（`stickerResolverKey` 可选依赖）退回原文，wiring 测试覆盖展示器一侧。
+- 表情节点的读：`:a:` 的 tokenizer 与 `start` 的切分、`stickerAt` 与 `stickerEndingAt`、`isStickerName` 对 NFC 与码点计长的处理一致；内联代码、`\:`、时间都读成文字；推测过的带标记（code、粗体、链接）包着表情的写回都写得出（e5.test.ts）。
+- 退格还原、HTML 粘贴（正常 `data-sticker`）、复制纯文字、代码标记旁打出写法：行为符合 Spec 输出 22、24。
+- `withAllowlistChoice` 合并：`agents`、`skills` 的写与恢复默认逻辑与合并前一致，旧名没有残留引用（grep 过）；Skill 一节的 `addBackKey` 仍取 `profiles.skills.*`。
+- 缩略图可访问性：`alt=""` 加相邻的显示名，占位 `aria-hidden`；中英文目录键一一对应（英文“{{count}} stickers”一个时仍是复数，沿用已有写法，不算问题）。
+- `tsc --noEmit` 与 `vue-tsc` 在实现 worktree 通过（nb-markdown 包）；nb-markdown 的 sticker 相关 bun 与 vitest 用例全过。
+- 说明：实现 worktree 在审查中前进到 75c4e2f44（`selectable: false`），与上面各条无关；各条实验在 ff0629d1b 与该提交上结果相同。
+
+## 数量
+阻断 1（第 2 条）、重要 2（第 1、8 条）、建议 7（第 3、4、5、6、7、9、10 条），共 10 条。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10

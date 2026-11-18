@@ -1,0 +1,14 @@
+t16 Windows 验收（pc-notype，2026-11-17）：同一个测试版（含 t13、t16、t18），脚本 t16check.ts；只读 CDP 与窗口属性查询，没有截屏与鼠标键盘输入。
+拖放用 CDP 的 Input.dispatchDragEvent（dragEnter、dragOver、drop，数据是文件夹的路径）送进浏览器自己的拖放通道，页面拿到的是文件夹目录项；没有用真实鼠标从资源管理器拖，所以“资源管理器到 WebView2 窗口”那一段只做了存在性检查：产品窗口树里有一个窗口登记了 COM 拖放目标（窗口属性 OleDropTargetInterface），说明 WebView2 允许外部拖放。真拖一次要开发者手测。
+输出里的中文在控制台编码下乱码，是字节对的：“拖入的文件夹 WinHello（251 个文件，12 KiB）”。
+
+prepared C:\Users\notnotype\nb-w00046\t18\dropsrc\WinHello: 251 files to upload, node_modules skipped
+native drop target (OleDropTargetInterface window property): top-level=false, on 1 of 27 windows in the window tree
+dispatchDragEvent dragEnter: ok
+dispatchDragEvent dragOver: ok
+dispatchDragEvent drop: ok
+after the drop: "安装插件 example.winhello 1.0.0 插件完全受信任：安装后它可以访问全部作品、服务器与本机资源。只安装你信任的来源。 拖入的文件夹 WinHello（251 个文件，12 KiB） 取消 安装"
+staging dir while previewing: 1 upload(s)
+installed: manifest=true, assets files=250, node_modules=false
+staging dir after install: 0 upload(s)
+RESULT ok

@@ -1,0 +1,237 @@
+# 耦合审查（三）NeuroBook 后端：内置插件、Agent 插件与两端宿主
+
+审查时间 2026-11-18，master 只读。标注：[核实] 读代码确认；[推断] 由代码与 Spec 推出、未运行验证。
+
+## 一、内置插件依赖图（后端两个位置）
+
+宿主能力（服务端 server/start.ts:205-239）：stateRoot、startupEnv、userDirectories、clock、runningWork、pluginInventory、pluginUploads、pluginPackages、projects；宿主插件 runtime.diagnostics、nbook.http（server/plugins.ts:52-55，由 nb-host 建）。
+项目宿主能力（project/start.ts:145-149）：currentProject、clock、runningWork；宿主插件 runtime.diagnostics（project/plugins.ts:58-60）。
+
+服务端位置（必需依赖 → ，可选依赖 ~>，远程使用 =>，贡献 +>）：
+- runtime.diagnostics（宿主）：所有人都依赖它
+- nbook.http（宿主）：接收 http.routes；agent、files、stickers、projects、plugins +> 路由
+- nbook.state → diagnostics
+- nbook.settings → diagnostics、clock、stateRoot
+  - nbook.commands → diagnostics、state、settings（服务端没有消费者）
+  - nbook.models → diagnostics、settings、stateRoot、startupEnv
+  - nbook.projects(server) → diagnostics、projects(宿主)、settings、storage、clock、userDirectories；=> projects 的项目入口统计
+- nbook.storage → diagnostics、stateRoot
+- nbook.tasks → diagnostics、clock；~> runningWork
+- nbook.files(server) → diagnostics、clock、stateRoot；~> projects(宿主)；接收 files.schemes、files.ledger
+  - nbook.stickers → diagnostics、stateRoot、clock、files；~> pluginPackages；+> files.schemes(stickers)
+  - nbook.agent → diagnostics、settings、stateRoot、clock、files；~> models、tasks、runningWork、pluginPackages、stickers；+> files.schemes(sessions/profiles/temps/docs/skills)、http.routes、settings 分区
+- nbook.plot(server) ~> models（只提供远程 plotModel 给自己的项目入口）
+- nbook.plugins → diagnostics、pluginInventory、pluginUploads（三者都是宿主能力）
+
+项目位置：
+- state → diagnostics；storage(project) → diagnostics、currentProject；settings(project) → diagnostics、clock、currentProject，=> 服务端 settings 的用户层
+- files(project) → diagnostics、clock、currentProject
+- markdown(project)：没有入口，只定义贡献点（markdown/shared/plugin.ts:15）
+- projects(project) → diagnostics、clock、currentProject、storage；=> files 的项目远程、读 markdown 方言声明
+- canon(project) → diagnostics、currentProject；~> settings
+  - plot(project) → canon、storage、diagnostics；=> plot 服务端入口调模型
+
+只有浏览器入口或只有声明的（不在后端图里）：workbench、editor、explorer、markdown(browser)、image-viewer、html-preview、desktop、theme-study（locations 为空，只有主题贡献）。
+
+证据：各插件 backend/plugin.ts 的 dependencies 行（agent/backend/plugin.ts:78、files/backend/plugin.ts:199,267、stickers/backend/plugin.ts:33、models/backend/plugin.ts:28、tasks/backend/plugin.ts:30、projects/backend/plugin.ts:40、projects/project/plugin.ts:37、canon/backend/plugin.ts:39、plot/backend/plugin.ts:224、plot/backend/server.ts:98、settings/backend/plugin.ts:37、storage/backend/plugin.ts:39、commands/shared/plugin.ts:175、state/shared/plugin.ts:58、plugins/backend/plugin.ts:44）。[核实]
+
+### 启动语义（决定“去掉会坏什么”）
+- 两端宿主把所有内置插件列为启动必需：server/start.ts:242、project/start.ts:152 的 `requiredPlugins: plugins.filter(非第三方)`。[核实]
+- 内核对必需插件激活它在本位置的全部入口，不看 activationEvents（nb-runtime/src/application/bootstrap.ts:228-229），结果不是 activated（受阻或失败）就记为必需失败、不开放接纳（bootstrap.ts:261、runtime/plugins.md 输出 7）。[核实]
+- 所以：从清单里去掉一个提供方，凡是必需依赖它的入口以 missing-service 受阻，整个服务端（或每个项目实例）起不来；去掉一个没有人必需依赖的插件，启动照常。贡献给缺席贡献点的声明只是 pending，不报错（nb-runtime/src/plugins/host.ts:893-897、runtime/plugins.md 输出 18）。[核实]
+- 推论：任何一个内置插件的服务端入口激活失败（例如 agent 建目录、stickers 打开目录失败），整个服务端都起不来；项目里 canon 或 plot 激活失败，这部作品打不开。[推断，来自上面两条]
+
+### 表：插件 | 必需还是可选 | 去掉会坏什么 | 证据
+| 插件 | 必需/可选 | 从清单去掉的后果 | 证据 |
+|---|---|---|---|
+| runtime.diagnostics | 必需（宿主插件） | 装配失败，起不来 | nb-host/src/server/start.ts:313,321；project/plugins.ts:58 |
+| nbook.http | 必需（宿主插件） | 装配失败 | nb-host start.ts:313,322；server/plugins.ts:52 |
+| nbook.state | 基础 | commands 受阻→服务端起不来；浏览器大量入口坏 | commands/shared/plugin.ts:175 |
+| nbook.settings | 基础 | commands、models、projects、agent 受阻→服务端起不来；项目里 settings 项目层没了（canon 可选依赖，照开） | 见依赖图 |
+| nbook.storage | 基础 | projects(server) 受阻→服务端起不来；项目里 projects、plot 受阻→作品打不开 | projects/backend/plugin.ts:40；plot/backend/plugin.ts:224 |
+| nbook.files | 基础 | agent、stickers 受阻→服务端起不来；浏览器的编辑器、资源管理器坏 | agent/backend/plugin.ts:78；stickers/backend/plugin.ts:33 |
+| nbook.projects | 基础（书架与打开作品） | 服务端没有消费者；浏览器没有打开项目的入口 | 服务端无人依赖它（grep projectsRemoteContract 只在 projects 内） |
+| nbook.commands | 基础（浏览器） | 服务端无人依赖；浏览器 editor、explorer、workbench、agent 受阻 | editor/web/plugin.ts:100 等 |
+| nbook.models | 可选（对 agent、plot） | agent 会话能开、发请求 no-model；plot 检查不可用 | agent/backend/agent.ts:117,203；plot/backend/server.ts:98-104 |
+| nbook.tasks | 可选 | Skill 安装看不到进度 | agent/backend/plugin.ts:109-110 |
+| nbook.stickers | 可选 | Agent 提示词里没有表情；Markdown 不显示表情 | agent/backend/plugin.ts:147-149；markdown/web/plugin.ts:96 |
+| nbook.agent | 叶子（无人依赖） | 只少了 Agent；其余照常 | 除装配、sdk/agent.ts、cli/skill.ts 外无人引用 agent（grep 核实） |
+| nbook.plugins | 叶子 | 少了插件管理页，第三方插件照装（宿主装配，不经它） | server/start.ts:124-127,211-233 |
+| nbook.canon | 项目里必需 | plot(project) 受阻→每部作品都打不开 | plot/backend/plugin.ts:224 |
+| nbook.plot | 叶子 | 只少剧情诊断；canon 照常 | 无人依赖 plot |
+| nbook.markdown | 项目里只有贡献点 | projects 统计里的方言表为空（字数算法退化） | projects/project/plugin.ts:58 |
+
+### 能不能让用户停用内置插件
+没有。plugin-install.md:19 与输出 4、14：“内置插件……不能启用或禁用”，请求得 builtin-fixed；实现在 plugin-platform/backend/inventory.ts:343,355。安全模式只关第三方（plugin-install.md:54）。在 src/、docs/specs/runtime/ 里按“禁用/停用/disable/enabled/feature flag”换说法搜，没搜到内置插件或业务功能的开关。[核实]
+
+### 会话或数据引用了缺席插件的工具、Profile、扩展时
+（第三方插件被禁用即属此类；内置插件今天去不掉，只能改清单）
+- 工具：声明随插件注销消失，之后的请求里没有这个工具；Profile 的 required 工具缺了→Profile 状态 unavailable（contributions.md 输出 6、8）。
+- Profile：解析不到→用它的会话进只读 unknown-profile，回来后解除（contributions.md 输出 11、12）。
+- 扩展：打开已有会话时 Profile 依赖的扩展缺失→只读 dependency-missing；新建→profile-invalid（contributions.md 输出 2）。
+- 文件方案：files.schemes 的方案没了，地址读写失败（resources.md），会话日志里的旧地址不迁移。[推断]
+
+## 二、逐条耦合（按影响排序）
+
+### 1. 所有内置插件都是启动必需，并在启动时全部激活
+类别：不推荐耦合
+位置：server/start.ts:242；project/start.ts:152；nb-runtime/src/application/bootstrap.ts:228-229,261；server-host.md:29
+现象：两端宿主把“非第三方”的插件全列进 requiredPlugins。内核对必需插件激活它在本位置的全部入口，不看 activationEvents，任何一个受阻或失败都算启动失败。结果：
+- stickers、plot、models、agent 这类可有可无的功能，激活失败一次就让整个服务端起不来；canon 或 plot 的项目入口失败，作品打不开。[推断，按 bootstrap.ts 的逻辑]
+- 懒激活形同虚设：agent 入口没写 onStartup（agent/backend/plugin.ts:75-82），tasks 的注释说“入口自己不必启动即激活”（tasks/backend/plugin.ts:6），实际都在启动时激活。agent 启动时要扫全部会话索引、打开 Skill 目录、清临时目录（plugin.ts:97-141）。[核实]
+- Spec 已过时：server-host.md:29 写“当前有服务端入口的插件（diagnostics、http、commands）都是启动必需”，实际是 13 个。
+- 为什么全列成必需：在 Spec、ADR、Task 记录里没找到理由（application.md:42 只说“装配方可以指定”）。
+挡住的场景：能关掉某功能；bot 插件以后出错会拖垮整个应用；去掉某个业务插件（没有用户开关，只能改清单）时，依赖它的插件让启动失败，而不是自己降级。
+建议：requiredPlugins 只列基础集（diagnostics、http、state、settings、storage、files、projects、commands；项目里加 markdown），其余内置插件按 activationEvents 激活，失败进插件页的“问题”（plugin-install.md 输出 10 已能显示服务端入口的失败）。代价：小（两处各改一行，再加一张基础集清单），外加一次核对：哪些入口依赖“启动即激活”的副作用（例如 plugins 的上传路由、files 的路由），给它们补 onStartup。顺手改正 server-host.md:29。
+
+### 2. 会话共用一个库，任何会话都能读任何会话的日志与 home，会话没有归属
+类别：不推荐耦合（对 bot 场景；对今天的写作会话可以接受）
+位置：agent/backend/agent.ts:140,187（一个 `<状态根>/agent/sessions` 库）；agent/backend/schemes.ts:131-137（sessionRule：读一律放行，写只限自己的 home）；resources.md:47 与验收 1（“A 读 sessions://<B>/session.jsonl 成功”）；会话头没有归属字段（nb-harness/src/kernel/api/events.ts:260-277，只有 profile、project、caller、background）。[核实]
+现象：bot 的主对话、周期任务会话和用户的普通会话在同一个库、同一个 sessions:// 下。任何会话（包括读了外部网页的任务会话）都能按 id 读别的会话的完整日志和 home 文件；浏览器的远程服务对任何会话 id 都能发指令、归档、改设置（sessions.md 输出 2：都以用户身份）。列表只能按 project、archived、background 筛（contracts.ts:113），分不出“这是 bot 的”。
+挡住的场景：提案第 5、7 小节要的“任务运行不能写核心记忆”“外部内容带提示注入”隔离；bot 的主会话出现在用户的会话面板里（除非标 background，但标了又被当成后台会话、runningWork 文案也是“后台”）；以后多 bot 互相读对话。
+建议：给会话头加一个归属（例如 `owner: 插件 id`，经 agentKey.create 写入、远程 create 不能写），列表按它筛；sessions:// 的读规则改成“同归属或有父子关系才可读”，归属插件可以经贡献声明放宽。代价：中（会话头格式在 nb-harness，改合同要跟另一位审查者对齐；NeuroBook 侧改 schemes.ts、remote.ts 的过滤与 list）。
+
+### 3. 审批规则来源、资源分类与会话布局写死在 nbook.agent，方案的拥有者与 Profile 都插不进去
+类别：可以拆开（好处：bot 插件能复用 nbook.agent 而不改它的内部）
+位置：
+- 审批钩子只建一次，规则只来自用户设置与作品的 .nbook/permissions.json：agent/backend/agent.ts:221-229、permissions/index.ts:37-62。规则设置 permissionRules 是 agent 声明的项，别的插件只能读不能写（packages/neuro-book/AGENTS.md:21）。[核实]
+- 资源分类按方案名写死：agent/backend/resources.ts:56-69，projects、user、sessions、profiles、temps 以外的方案（stickers://、以后的 bot://）一律 write: denied；nb-harness 的文件访问据此拒写（kit/files/local.ts:176）。[核实]
+- 会话布局写死：resources.ts:162-174，工作目录只有 project:// 或 session://，localWrites 同。[核实]
+- 工具集按 Profile 与 Profile 绑定现算（agent.ts:213-216 `tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile])`），没有按会话的输入。[核实]
+现象：files.schemes 让内置插件能登记自己的方案（files/shared/schemes.ts:17-21），但登记了也只能读：Agent 的内置写入工具写不进去，审批也分不出“bot 记忆目录内放行”。
+挡住的场景：提案第 7 小节的缺省规则（记忆目录与工作目录内的读写放行）、bot 的工作目录、任务会话按清单裁剪工具集。
+建议：在 nbook.agent 加两个贡献点或声明字段：方案声明带 Agent 的分类（content、write: allowed/ask/denied，可按 profile 或 caller.agent 判）；Profile 声明带布局（working、localWrites）与“审批钩子外包一层”的扩展点（或允许 Profile 自带规则）。按会话裁剪工具集可以放在 Profile 的扩展里做（见第三节）。代价：中（resources.ts、agent.ts 的装配各一处，Spec 改 resources.md、permissions.md、contributions.md）。
+
+### 4. 服务端宿主的项目管理引用 nbook.projects 插件的内部模块
+类别：可以拆开（好处：项目身份规则只有宿主一份，宿主不依赖一个插件的目录；以后第二个应用复用项目子进程时不用带上这个插件）
+位置：server/projects/identity.ts:15-18 引用 plugins/projects/shared/contracts、cover、directory-name、paths；server/dev/sample.ts:20 引用 project-url。[核实]
+现象：ADR 0024 决策 2 说“服务端宿主定义项目：目录校验、与路径无关的项目身份、项目登记表”，但校验规则（id 与颜色的正则、标题长度、封面路径的规范化、目录名、~ 展开）写在 nbook.projects 的 shared/ 里，宿主反过来引用插件；cover、directory-name、paths 三个不是 contracts.ts。architecture.test.ts 只查“插件到插件”（architecture.test.ts:112-116 的 pluginOf 只认 plugins/ 下的文件），宿主到插件内部的引用不在检查范围，所以没拦。
+影响：nbook.projects 不能单独去掉或换实现（宿主编译期就要它）；宿主与插件谁拥有“项目身份”说不清。
+建议：把这几个纯函数与常量挪到 src/shared/projects.ts（宿主能力 projectsKey 的合同已在那里，shared/projects.ts:50 的注释还指回插件），插件改为引用 shared。顺手给 architecture.test.ts 加一条“宿主（server/、project/）只引用插件的 shared/contracts.ts 与定义入口”。代价：小（四个文件、约 100 行搬家，改导入）。
+
+### 5. nbook.agent 与 nbook.stickers 直接用插件平台的内部（装载器、宿主模块表、插件包目录）
+类别：可以接受
+位置：agent/backend/profile-bundles.ts:21,289,298（allowedSpecifier、registerHostModules，来自 plugin-platform/backend/loader）；agent/backend/agent.ts:21-22（serverHostModules、SERVER_SHARED_MODULES）；agent/backend/plugin.ts:27 与 stickers/backend/plugin.ts:15（pluginPackagesKey，定义在 plugin-platform/backend/packages.ts:31，服务 id `plugin-platform/packages`，由宿主作能力提供 server/start.ts:233）。[核实]
+现象：用户级 Profile 的打包与求值复用第三方插件的装载规则；插件 Skill 与表情包按插件 id 找安装目录。
+理由：用户 Profile 是“受信的用户代码，与插件同等信任”（contributions.md:22），它能 import 什么必须和插件一致，否则两套规则会漂移；这本来是一件事的两面。pluginPackagesKey 是宿主能力，可选依赖，没装第三方插件时降级（agent/backend/plugin.ts:203）。ADR 0030 决策 2 计划在出现第二个应用时把 plugin-platform 搬成包，到时这两处跟着改导入即可。
+注意：architecture.test.ts 只限制 plugin-platform 不引用应用，不限制插件引用 plugin-platform 的 backend 内部；搬包时这几处要改走包的公开入口。
+
+### 6. nbook.agent 认得 stickers、tasks、models：都是可选依赖，缺了降级
+类别：可以接受
+位置：agent/backend/plugin.ts:78（三者 required: false）、88-90、109-111、117、147-154；Profile 声明里的 stickers 字段 agent/shared/points.ts:93-96；表情的提示词扩展在 agent 里 agent/backend/stickers/extension.ts；agent.ts:203 没有模型时用 NO_MODELS（sessions.md 输出 13）。[核实]
+现象：stickers 只提供目录服务，“把表情写进提示词”的扩展、白名单的合成与 Profile 的 stickers 字段都归 agent；tasks 只用来显示 Skill 安装进度；models 缺了会话能开、发请求得 no-model。
+理由：三者缺席时 agent 都照常激活，影响只限对应功能，符合“可选能力继续”（runtime/plugins.md 输出 7）。把表情扩展挪进 stickers 要让 Profile 声明可由别的插件扩字段（ProfileDeclarationSchema 是 additionalProperties: false，points.ts:106），代价中、好处只是 agent 少一个可选依赖，不值。
+补充：models 的凭据库放在 `<状态根>/agent/credentials.db`（models/backend/plugin.ts:36，models/service.md:28 写定），目录名是 agent 的；去掉 agent 不受影响，是持久格式里的命名遗留，改要迁移，可以接受。
+
+### 7. plot 硬依赖 canon；plot 的服务端入口直接拿 models 当模型网关
+类别：可以接受
+位置：plot/backend/plugin.ts:224（canonProjectKey 必需）；plot/plugin.ts:9-23（声明贡献给 canon 的三个贡献点）；plot/backend/server.ts:49-104（服务端入口用 modelsKey 的 port，只给本插件的项目入口，consumer.plugin 校验 :58,63）。[核实]
+理由：ADR 0041（plot/plugin.ts:11 引用）定剧情建在世界引擎之上，plot 没有 canon 没有意义，是一个能力的两面；canon 不依赖 plot（只经贡献点接收），方向正确。plot 的模型请求不经 agent，所以不进 Agent 的请求记录（request-trace），也不受 Agent 的花费守卫，这是有意的“后台检查”路径（server.ts:22 purpose: background）。
+受第 1 条影响的部分不在这里重复：今天 canon 或 plot 项目入口激活失败会让作品打不开。
+给 bot 的提示：bot 要“背景调模型”时有两条路（自己依赖 modelsKey，或经 agent 开后台会话）；要进请求记录与花费守卫就走 agent。
+
+### 8. Agent 与 canon、plot 之间今天没有耦合，也没有接上的通路
+类别：可以拆开（指“按 ADR 0024 决策 7 补通路”；现状本身无害）
+位置：ADR 0024 决策 7（“需要项目里的数据的工具写在插件的项目级入口，项目参数由 harness 注入并经租约路由到对应项目实例”）；agent/plugin.ts:7-8 注释“项目级入口……在用到它们的 Task 里加”；agent 只有服务端入口、agent.tools 只在服务端接收（agent/backend/plugin.ts:75-81）；canon 的远程合同允许 server 调用（canon/shared/contracts.ts:222），但 canon、plot 都没有给 Agent 贡献工具（grep TOOLS_POINT/agentTool 在 agent 以外只有 sdk/agent.ts）。[核实]
+现象：Agent 只能经文件读写碰作品，碰不到世界引擎与剧情诊断；项目位置的插件也贡献不了工具（贡献按实例交付，项目实例里没有 agent.tools 的接收者）。
+影响：bot 想查“某角色此刻知道什么”只能自己在服务端入口里经 canonWorldContract.at({project}) 调，再包成自己的工具；ADR 0024 说的“项目参数由 harness 注入、经租约路由”的通用机制没有。
+建议：等第一个要世界数据的 Agent 工具出现时，在 agent 里加“项目位置的工具提供方”：服务端代理按会话的 project 路由到项目实例的远程（与 ADR 0024 决策 7 一致）。代价：中。bot 第一版不需要它时不必先做。
+
+### 9. 宿主里写死的插件 id 与宿主自己的插件
+类别：可以接受
+位置：
+- 服务端：HTTP_PLUGIN_ID = "nbook.http"、HOST_PLUGINS 只认 runtime.diagnostics 与 nbook.http（server/plugins.ts:50-55）；普通插件的定义表按 id 写 12 项（server/plugins.ts:58-71）；nb-host 把这两个宿主插件强制加进必需集合（nb-host/src/server/start.ts:313,321-322）。
+- 项目：projectHostPlugins 只有 runtime.diagnostics（project/plugins.ts:42,58-60）；定义表 8 项（project/plugins.ts:45-54）。
+- 宿主能力里有几项只为某个插件存在：pluginInventory、pluginUploads 只给 nbook.plugins；pluginPackages 给 agent、stickers；userDirectories 给 projects（server/start.ts:205-239）。
+- 宿主的 HTTP 路由里有浏览器引导、插件文件、插件目录、在跑的工作（server/start.ts:193-198），都不指名业务插件。[核实]
+理由：ADR 0026 决定“插件定义是常量，宿主只是装配者，例外只有两个宿主适配器”，按 id 的定义表就是这个装配，builtin-manifest.test.ts 与 manifest.test.ts:43 保证清单与表一致；宿主能力是中立的服务（状态根、目录、插件包），不带业务语义。代价是加一个内置插件要改清单与每个位置的定义表（后端 1–2 处、浏览器 1 处），对内置插件的数量（23 个）可以接受。
+唯一不中立的是第 4 条（宿主引用 projects 插件内部）。
+
+## 三、第 2 题：nbook.agent 的耦合，与 bot 插件建在它上面缺什么
+
+### 3.1 nbook.agent 服务端对其它插件的耦合（agent/backend/plugin.ts:78）
+| 对象 | 方式 | 硬/可选 | 说明 |
+|---|---|---|---|
+| settings | settingsKey 必需 | 硬 | 读只读命令、Profile 设置、规则、上限等几十处；settings 是基础插件，可以接受 |
+| files | workspaceFilesKey 必需；贡献 files.schemes 五个方案 | 硬 | 会话的资源视图、附件、放回都经它；一个能力的两面，可以接受 |
+| 宿主 | stateRoot、clock 必需；runningWork、pluginPackages 可选 | 硬/可选 | 中立的宿主能力 |
+| models | modelsKey 可选 | 可选 | 缺了 no-model（agent.ts:117,203） |
+| tasks | tasksKey 可选 | 可选 | 只给 Skill 安装进度（plugin.ts:109-110） |
+| stickers | stickersServiceKey 可选 | 可选 | 只给表情提示词（plugin.ts:147-154），见第 6 条 |
+| projects | 没有服务依赖 | 无 | 只经会话头的 project 与 files 的 projects:// 地址 |
+| plot、canon | 无 | 无 | 见第 8 条 |
+| commands | 无（服务端） | 无 | 浏览器入口依赖 commandServiceKey，不在本次范围 |
+| http、settings 分区 | 贡献 | 贡献 | 拥有者缺席时 pending，不构成依赖 |
+反向：除宿主装配、sdk/agent.ts、cli/skill.ts 以外没有模块引用 agent（grep `nbook/plugins/agent/` 核实），agent 是叶子。[核实]
+
+### 3.2 bot 插件逐项能不能只经公开服务与贡献点做到
+已有、可以直接用的 [核实]：
+- 建会话、指定 Profile/项目/后台/id：agentKey.create（agent/shared/contracts.ts:109；harness CreateSessionOptions host.ts:498-509）。
+- 发消息、插话、继续、压缩、改设置：agentKey.session(id).send/enqueue/start/compact/changeSettings（kit/sessions/table.ts:129-145 按 COMMANDS 转发）。
+- 订阅帧、等运行结束：view.subscribe、waitRun（table.ts:135-136）。
+- 后台任务、幂等：agentKey.startTask，taskId 必须是 UUID（contracts.ts:91-105），按“任务加计划时刻”派生 UUID v5 即可。
+- 自己的工具、Profile、扩展、压缩方法：agent.tools、agent.profiles、agent.extensions、agent.compactionMethods（agent/shared/points.ts:17-21）；Profile 可 hidden（points.ts:73）。
+- 自己的方案：files.schemes 接受内置插件登记（files/shared/schemes.ts:17-21）；自己的 HTTP 路由、远程服务、设置项、存储分区照常。
+- 停止先后：bot 依赖 agentKey，按依赖逆序先停（runtime/plugins.md 输出 13）；在跑的工作经 runningWorkKey 登记。
+
+### 3.3 缺口（逐项，按挡住第一版的程度排）
+G1 审批规则插不进去。审批钩子在 agent.ts:221-229 建一次，规则只来自 agent 的用户设置 permissionRules 与作品的 .nbook/permissions.json（permissions/index.ts:37-62）；别的插件不能写 agent 的设置（packages/neuro-book/AGENTS.md:21）。提案第 7 小节的“记忆目录与工作目录内放行”“按会话种类外包一层钩子”“记住按 bot 存”都做不到。[核实] 见第 3 条。
+G2 新方案默认只读。resources.ts:56-69 的 classify 只认五个方案名，bot:// 的写一律 denied，nb-harness 文件访问据此拒写（kit/files/local.ts:176）。bot 用内置写入工具写自己的记忆会被拒。[核实]
+G3 工作目录布局写死。resources.ts:162-174：working 只能是 project:// 或 session://，shell 的 NBOOK_* 环境变量也只有这两个；bot 的 workspace/ 当不了工作目录。[核实]
+G4 工具集不能按会话裁剪。agent.ts:213-216 只按 Profile 与 Profile 绑定算。退路：任务会话用 Profile 自带扩展的工具拦截挡掉清单外的调用（harness/runtime.md 输出 17、23，拦截在审批外层）；但输出 79 说同一回复的调用“切段之前先过审批阶段”，清单外的调用可能先停在“问用户”再被拦，无人值守时会卡住。[推断，需 nb-harness 审查者核实先后]
+G5 无人值守的审批没有出口。permissions/index.ts:3-4“不传 escalate：要问人的一律交回内核问用户”；没有期限（提案说归 harness t06）。任务会话今天只能用 approvalMode: yolo（全放）或停在等用户。[核实前半，期限属 harness]
+G6 会话没有归属、彼此可读。见第 2 条：bot 主会话会出现在用户的会话列表里，任务会话能读主对话的日志与 home。[核实]
+G7 同进程订阅的失败拿不到。agentKey 交出的视图 subscribe 是同步接口，打不开会话时只写诊断 session-subscribe-failed（kit/sessions/table.ts:362-370）；远程层用的 subscribeOpened（table.ts:218）不在 AgentService 上。常驻主会话靠“持有订阅不空闲关闭”（table.ts:362-375 订阅期间持有句柄）可以做到，但订阅悄悄没建成时 bot 不知道，会话 30 秒后关（IDLE_CLOSE_MS，table.ts:23）。[核实]
+G8 激活期间不能开会话，也没有“已就绪”回调。contributions.md 输出 3：提供方在自己的激活里建或开会话会形成等待环；ActivationContext 只有 signal、onStop、services、activation.trigger（nb-runtime/src/plugins/contracts.ts:80-115），没有“实例可用后”的钩子。bot 只能在 activate 返回后自己起一个异步任务去打开主会话、接续被中断的运行。[核实合同，做法为推断]
+G9 调用方身份只有 user 与 session（nb-harness/src/kernel/api/basics.ts:55）。bot 代用户结算挂着的审批（提案第 7 小节“用户发消息就以拒绝结算”）是如实的；但日程插件、到期结算这类程序动作在日志里也只能记成 user。[核实；改合同属 harness]
+G10 列表筛选不够。AgentService.list 只有 project、archived、background（contracts.ts:113），没有按 Profile 或归属筛；bot 要自己记会话 id。[核实，小]
+G11 放回内容接不进来。压缩后的放回只接 Skill（plugin.ts:123 restoreMore；agent.ts:236-239）。核心记忆可以改用 Profile 的 opening 放（提案第 5 小节已这样设计），日记可以用扩展的压缩拦截（Interceptors.compaction，nb-harness/src/kernel/api/extension.ts:79-84），所以不挡第一版。[核实]
+G12 第三方或第二个应用拿不到 agentKey。SDK 的 agent 子路径只转出贡献点与定义写法（src/sdk/agent.ts:13-14），没有 agentKey 与远程合同；内置 bot 可以直接引 agent/shared/contracts.ts，不挡第一版。多渠道的第二个应用复用不了 nbook.agent，只能复用 nb-harness 的 kit（SessionTable、审批钩子、文件访问），NeuroBook 侧这几处装配（agent.ts:140-245）要在那边重写一份。[核实]
+不缺的：花费与轮数上限可在 bot 的 Profile 里自带 kit 的 costGuard、loopGuard（agent 的全局守卫见 guards/index.ts:22-27）；提醒写进会话要的“轮外事实”属 harness（提案归 t10）。
+
+## 四、第 3 题：业务插件的后端能不能关，插件之间的硬引用
+
+能不能关（今天只能改清单，没有用户开关；后果按第一节的启动语义）[核实]：
+- nbook.plot：能去掉，没人依赖它（服务端入口只给自己的项目入口当模型网关）。没有按作品关的设置：每个打开的作品都起它的项目入口、读它的四张表（plot/backend/plugin.ts:233-240）。
+- nbook.canon：去掉会让 plot 的项目入口受阻→每部作品都打不开；要关 canon 必须连 plot 一起去掉。
+- nbook.tasks：能去掉；agent 只少安装进度。浏览器的底部面板、状态栏条目随之没有。
+- nbook.stickers：能去掉；agent 与 markdown 降级。
+- nbook.models：能去掉；agent 会话只读式可用（发请求 no-model），plot 检查报模型不可用。
+- nbook.state、nbook.storage、nbook.settings、nbook.files：基础，去掉任一个服务端或项目起不来（见表）。
+
+插件之间的硬引用（必需服务依赖）：plot→canon、storage；projects→settings、storage（另加宿主 projects、userDirectories）；commands→state、settings；models→settings；agent→settings、files；stickers→files。其余都是可选依赖、贡献或远程（远程不进依赖图，ADR 0024 决策 4）。
+编译期引用：描述文件（plugin.ts）引用别的插件的 shared/contracts 拿贡献点 id（agent、editor、explorer→settings；plot→canon；theme-study→workbench），architecture.test.ts:111-116 允许，只是常量，不构成运行期依赖，可以接受。
+机检之外的跨插件引用只有 import type（agent/shared/settings.ts 引 settings/shared/sections、stickers/backend/routes.ts 引 files/shared/workspace-files），规则允许，可以接受。
+
+## 五、第 5 题：假定“本机进程可信”的位置（只点位置，不展开）
+bot 无人值守地跑 shell 时，命令本身就是本机进程，下面这些门对它不设防：
+1. RPC 端口放行不带 Origin 的 WebSocket 升级：nb-host/src/server/rpc-listener.ts:5-7,70-72（注释“不带的只有本机的非浏览器客户端”）。
+2. HTTP 写请求不带 Origin 时放行：nb-host/src/http/dispatch.ts:79-85；agent 的附件上传“别的网页发起的拒绝”同样只看 Origin（sessions.md 输出 15）。
+3. 经 RPC 进来的调用一律当成用户本人：sessions.md 输出 2 与“边界与兼容”（“浏览器是用户本人”）；agentSessionsContract 有 resolve（结算挂着的审批）、changeSettings（可把 approvalMode 改成 yolo）、startTask（agent/shared/remote.ts:318，callers 只写了 browser，但端口分不出真假浏览器）。
+4. 改审批规则与模型凭据：userSettingsContract 可写用户层设置（settings/shared/contracts.ts:134，含 agent 的 permissionRules）；modelsSettingsContract 可改服务商与凭据（models/backend/plugin.ts:41）。
+5. 装插件即下次启动执行代码：pluginsRegistryContract 的 install 接受本机路径（plugins/backend/plugin.ts:67-78，callers browser，plugins/shared/contracts.ts:33）。
+6. 实例地址可查：状态根认领经本机套接字应答（server/instance.ts:35-50，nb-host claimStateRoot），本机进程能找到端口。
+7. 同进程信任（不是本机进程，但同类假定）：Files 不核对 caller.agent 的真伪（files/shared/schemes.ts:30-31）；agentKey 可以任何身份调用（sessions.md“边界与兼容”）；ADR 0027 信任所有插件。
+8. 会话之间可读：任何会话能读别的会话的日志（第 2 条），任务会话读了外部内容后能把主对话读出来交给命令。
+这些在 ADR 0022、0027 的信任模型下成立（用户本人与本机进程等同）；bot 跑无人值守的命令时等于把“用户本人”的权限交给了模型。提案第 7 小节“任务清单缺省不放行 shell”是现阶段唯一的挡板。
+
+## 六、第 4 题小结：宿主对具体插件的耦合
+- 写死的插件 id：服务端只有 nbook.http 与 runtime.diagnostics 两个宿主插件（server/plugins.ts:50-55），项目只有 runtime.diagnostics（project/plugins.ts:42）；按 id 的定义表是 ADR 0026 的装配方式（第 9 条，可以接受）。
+- 宿主自己的插件：同上两个，ADR 0026 决策 5 记了启动与停机依赖。
+- 宿主引用插件内部：只有 server/projects/identity.ts 与 server/dev/sample.ts 引 nbook.projects 的 shared 模块（第 4 条，可以拆开）。
+- 宿主对插件集合的整体假定：所有内置插件启动必需（第 1 条，不推荐耦合）。
+- 机检现状：bun test src/architecture.test.ts 8 项通过（负载 25 时默认 5 秒超时会误报失败，加 --timeout 60000 重跑通过）。它不查“宿主 → 插件内部”的方向。
+
+## 七、推荐先做的五件事
+1. 缩小启动必需集合（第 1 条）：requiredPlugins 只列基础插件，其余按激活事件懒激活、失败进插件页；同时改正 server-host.md:29。代价小。好处：业务插件与以后的 bot 出错不拖垮应用，懒激活生效，是“能关掉某功能”的前提。
+2. 会话归属（第 2 条、G6、G10）：会话头加 owner，列表与 sessions:// 读规则按它收紧。代价中，要和 nb-harness 的审查者对齐会话头合同。好处：bot 主对话不混进用户会话、任务会话读不到主对话。
+3. nbook.agent 给方案拥有者与 Profile 开口子（第 3 条、G1–G3）：方案声明带 Agent 的分类，Profile 带布局，审批钩子能由 Profile 或插件外包一层、规则可由插件贡献。代价中。好处：bot 只经公开贡献点就能有自己的记忆目录、工作目录和缺省规则。
+4. AgentService 补两个小口子（G7、G8）：交出 subscribeOpened（或让 subscribe 报失败），并写明“激活后再开会话”的做法（或给插件一个实例可用后的回调）。代价小。好处：常驻主会话可靠，不靠诊断日志发现订阅没建成。
+5. 把项目身份规则挪进 src/shared（第 4 条），并给 architecture.test.ts 加“宿主只引用插件的 contracts 与定义入口”。代价小。好处：宿主与 nbook.projects 的边界清楚，项目子进程以后能被第二个应用复用。
+另：G4、G5（无人值守任务的工具清单与审批出口）要先请 nb-harness 的审查者确认“工具拦截与审批阶段的先后”，再决定放在 bot 的扩展里还是 agent 的审批钩子里。
+
+## 八、各类条数
+- 不推荐耦合：2（第 1、2 条）
+- 可以拆开：3（第 3、4、8 条）
+- 可以接受：4（第 5、6、7、9 条）；另有第四节的编译期常量引用与 import type 两类，同为可以接受，不单独编号
+- bot 缺口：12 项（G1–G12），其中挡第一版的是 G1–G6

@@ -94,6 +94,10 @@
         "notSaved": "权限规则"
     },
     "settings": {
+        "statusLine": {
+            "title": "对话状态栏",
+            "description": "输入框下面那一行显示哪些项、按什么顺序；只记改过的，在“状态栏”页里改"
+        },
         "toolBindings": {
             "title": "Agent 工具绑定",
             "description": "按 Profile 增减工具：added 加上 Profile 没写的工具，removed 去掉可选的工具（必需的去不掉）"
@@ -416,6 +420,10 @@
         }
     },
     "settingsPages": {
+        "status-line": {
+            "title": "状态栏",
+            "description": "输入框下面那一行显示什么、按什么顺序"
+        },
         "permissions": {
             "title": "权限规则",
             "description": "哪些工具调用放行、询问或拒绝"
@@ -428,6 +436,17 @@
             "title": "Skill",
             "description": "放进 Skill 文件夹的 Skill、它们的状态与初始化"
         }
+    },
+    "statusLine": {
+        "left": "左边",
+        "right": "右边",
+        "preview": "预览",
+        "plugin": "插件",
+        "moveUp": "上移",
+        "moveDown": "下移",
+        "moveUpOf": "上移“{{name}}”",
+        "moveDownOf": "下移“{{name}}”",
+        "notSaved": "状态栏设置"
     },
     "profiles": {
         "loading": "正在读取 Profile…",
@@ -477,7 +496,8 @@
             "model": "模型与审批",
             "tools": "工具",
             "agents": "可派的子代理",
-            "skills": "Skill"
+            "skills": "Skill",
+            "stickers": "表情包"
         },
         "model": {
             "label": "模型",
@@ -627,6 +647,38 @@
                 "builtin": "内置"
             },
             "invalid": "无效"
+        },
+        "stickers": {
+            "section": {
+                "help": "这个 Profile 的提示词里列哪些表情包的常用表情；下一轮起生效",
+                "count": "列出 {{count}} 个",
+                "restore": "恢复默认",
+                "add": "添加表情包"
+            },
+            "remove": "不再列出 {{name}}（{{id}}）",
+            "required": "必需",
+            "addBack": "加回",
+            "addBackLabel": "加回 {{name}}（{{id}}）",
+            "add": {
+                "title": "添加表情包",
+                "done": "添加",
+                "search": "搜索表情包",
+                "empty": "没有别的可用的表情包",
+                "noMatch": "没有匹配的表情包",
+                "blocked": "不能添加",
+                "replaces": "（替换同名的）",
+                "join": "选上 {{name}}（{{id}}）",
+                "unjoin": "不选 {{name}}（{{id}}）"
+            },
+            "userAdded": "我加的",
+            "gone": "没有找到这个表情包：自己的放回表情包文件夹、插件的重新启用插件后恢复",
+            "goneGroup": "已删除或不可用",
+            "removedGroup": "已去掉",
+            "groups": {
+                "user": "我的表情包"
+            },
+            "invalid": "无效",
+            "count": "{{count}} 个表情"
         }
     },
     "skills": {

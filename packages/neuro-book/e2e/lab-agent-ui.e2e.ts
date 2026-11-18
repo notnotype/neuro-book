@@ -646,3 +646,72 @@ test.describe("向导与状态栏（docs/specs/agent/conversation.md 输出 10�
         });
     }
 });
+
+test.describe("状态栏的可选项（docs/specs/agent/conversation.md 输出 45）", () => {
+    const item = (page: Page, id: string) => page.locator(`[data-agent-status] [data-status-item="${id}"]`);
+    const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
+
+    test("缺省：右边用量与费用；设置打开模型与插件的项、改了次序后按设置排", async ({page}) => {
+        await openScene(page, "AgentStatusBar", "idle");
+        await expect(item(page, "usage")).toBeVisible();
+        await expect(item(page, "cost")).toBeVisible();
+        await expect(item(page, "model")).toHaveCount(0);
+
+        await openScene(page, "AgentStatusBar", "model-and-plugin");
+        const order = await page.locator("[data-status-right] [data-status-item]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-item")));
+        expect(order).toEqual(["model", "cost", "usage"]);
+        await expect(item(page, "lab.words")).toBeVisible();
+    });
+
+    test("窄（280px）：右边从前往后收进“…”，费用最后收；收起的不占位也看不见；悬停写收起的项", async ({page}) => {
+        await openScene(page, "AgentStatusBar", "narrow", "desktop");
+        await expect(page.locator("[data-status-more]")).toBeVisible();
+        await expect(item(page, "cost")).toBeVisible();
+        await expect(item(page, "model")).toBeHidden();
+        await expect(item(page, "usage")).toBeHidden();
+        const bar = await box(page, "[data-agent-status]");
+        const cost = await box(page, "[data-status-item='cost']");
+        expect(cost.x + cost.width).toBeLessThanOrEqual(bar.x + bar.width + TOLERANCE_PX);
+        await page.locator("[data-status-more]").hover();
+        await expect(page.locator(".nb-ui-tooltip-surface")).toContainText("Claude Sonnet");
+    });
+
+    test("右键弹勾选菜单，勾一项发 statusLine.toggle，最后一项发 statusLine.openSettings", async ({page}) => {
+        await openScene(page, "AgentConversationView", "status-line");
+        await page.locator("[data-agent-status]").click({button: "right", position: {x: 20, y: 10}});
+        await expect(page.getByRole("menuitemcheckbox", {name: "用量与缓存命中"})).toBeVisible();
+        await page.getByRole("menuitemcheckbox", {name: "用量与缓存命中"}).click();
+        expect(await lastAction(page)).toEqual({type: "statusLine.toggle", id: "usage"});
+        await page.locator("[data-agent-status]").click({button: "right", position: {x: 20, y: 10}});
+        await page.getByRole("menuitem", {name: "状态栏设置…"}).click();
+        expect(await lastAction(page)).toEqual({type: "statusLine.openSettings"});
+    });
+});
+
+test.describe("状态栏设置页（docs/specs/agent/conversation.md 输出 46）", () => {
+    const rows = (page: Page, side: "left" | "right") => page.locator(`[data-status-group='${side}'] [data-status-row]`).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
+
+    test("缺省：左右两组按目录次序；预览与列表一致；首行不能上移、末行不能下移", async ({page}) => {
+        await openScene(page, "StatusLinePage", "default");
+        expect(await rows(page, "left")).toEqual(["context"]);
+        expect(await rows(page, "right")).toEqual(["usage", "cost", "model"]);
+        await expect(page.locator("[data-status-row='usage'] [data-status-move-up]")).toBeDisabled();
+        await expect(page.locator("[data-status-row='model'] [data-status-move-down]")).toBeDisabled();
+        await expect(page.locator("[data-status-line-preview] [data-status-item='usage']")).toBeVisible();
+        await expect(page.locator("[data-status-line-preview] [data-status-item='model']")).toHaveCount(0);
+    });
+
+    test("改过的设置：次序按设置排，插件的项带“插件”标记、预览里画着", async ({page}) => {
+        await openScene(page, "StatusLinePage", "customized");
+        expect(await rows(page, "right")).toEqual(["cost", "usage", "model"]);
+        expect(await rows(page, "left")).toEqual(["context", "x.words"]);
+        await expect(page.locator("[data-status-row='x.words']")).toContainText("插件");
+        await expect(page.locator("[data-status-line-preview] [data-status-item='x.words']")).toBeVisible();
+    });
+
+    test("配置写不了：勾选与上移下移都停用", async ({page}) => {
+        await openScene(page, "StatusLinePage", "readonly");
+        await expect(page.locator("[data-status-row='cost'] [data-status-move-down]")).toBeDisabled();
+        await expect(page.locator("[data-status-row='cost'] input[type='checkbox'], [data-status-row='cost'] [role='checkbox']").first()).toBeDisabled();
+    });
+});

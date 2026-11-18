@@ -5,7 +5,7 @@
 import {computed, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 
 import {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
-import type {AgentConversationServices, AgentViewAction, AgentViewRegistry, AgentWelcomeView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentViewAction, AgentViewRegistry, AgentWelcomeView, StatusLineSetting} from "@notnotype/nb-agent-ui";
 import type {AgentViewRenderers} from "@notnotype/nb-agent-ui/vue";
 
 import SkillInitDialog from "./components/SkillInitDialog.vue";
@@ -37,6 +37,8 @@ const props = defineProps<{
     subagents: {readonly profiles: readonly ProfileEntry[]; readonly seen: SeenErrors; readonly results: RunResults};
     /** 右栏的视图接管了面板头时工作台给的标题区（views.md 输出 19）；编辑区页面没有。 */
     head?: ViewHead | null;
+    /** 状态栏的设置与它的两个动作（conversation.md 输出 45）：勾选改设置、“状态栏设置…”打开设置分区。 */
+    statusLine: {readonly setting: StatusLineSetting; toggle(id: string): void; openSettings(): void};
 }>();
 
 const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
@@ -84,6 +86,14 @@ watch([() => props.host.ctx.value.session?.id ?? null, () => props.host.ctx.valu
 
 /** 顶栏的新建也要先选 Profile。 */
 async function onAction(action: AgentViewAction): Promise<void> {
+    if (action.type === "statusLine.toggle") {
+        props.statusLine.toggle(action.id);
+        return;
+    }
+    if (action.type === "statusLine.openSettings") {
+        props.statusLine.openSettings();
+        return;
+    }
     if (action.type !== "session.create" || action.profileKey !== undefined) {
         props.host.act(action);
         return;
@@ -107,6 +117,7 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
         new-session
         :welcome="props.welcome"
         :draft-profile="props.draftProfile"
+        :status-line="props.statusLine.setting"
         :head-targets="headTargets"
         :sessions-open="sessionsOpen"
         @update:sessions-open="(open: boolean) => (sessionsOpen = open)"

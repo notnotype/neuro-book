@@ -627,6 +627,9 @@ export type BuiltinAgentViewAction =
     // 恢复
     | {type: "availability.act"; action: string}
     | {type: "connection.reconnect"}
+    // 状态栏：右键菜单里勾选一项、打开设置（宿主改用户设置、打开设置分区）
+    | {type: "statusLine.toggle"; id: string}
+    | {type: "statusLine.openSettings"}
     // 面板数据
     | {type: "attachments.query"; search: string; offset: number}
     | {type: "linkedAgents.refresh"}

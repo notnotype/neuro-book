@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t38 第 1 轮：状态栏设置的后续</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.why { margin: 0 0 16px; color: var(--muted); font-size: 15px; }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .cands, .cands.three { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.cand ul { margin: 8px 0 0; padding-left: 1.2em; font-size: 14px; color: var(--muted); }
+img.shot { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.pair figure { margin: 0; }
+.pair figcaption { font-size: 13px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+code { font-size: 14px; }
+
+/* ── 原型：颜色、字号取自 Lab 里的设置页（亮色） ── */
+.proto { --pg: #fffcf5; --hover: #efe9de; --preview: #e7e2d8; --tx: #2b2620; --tx2: #5e5951; --mt: #9f998f; --ac: #0a7aff; color: var(--tx); background: var(--pg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 14px; line-height: 20px; }
+.proto.is-dragging, .proto.is-dragging * { cursor: grabbing !important; }
+.sl-preview { display: flex; flex-direction: column; gap: 4px; padding: 8px 4px 6px; border-radius: 10px; background: #e7e2d8; }
+.sl-label { padding-inline: 10px; color: #9f998f; font-size: 11px; line-height: 14px; }
+.sl-bar { display: flex; justify-content: space-between; gap: 8px; min-height: 18px; padding: 0 10px; color: #8a8378; font-size: 11px; line-height: 18px; white-space: nowrap; overflow: hidden; }
+.sl-bar-side { display: flex; gap: 8px; min-width: 0; }
+.sl-groups { position: relative; display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.sl-group { margin: 0; padding: 0; border: 0; border-radius: 0; }
+.sl-title { margin: 0 0 4px; padding-inline: 4px; color: #9f998f; font-size: 12px; font-weight: 600; line-height: 18px; }
+.sl-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; min-height: 28px; }
+.sl-list:not(:has(.sl-row))::after { content: "这一边没有项"; display: block; padding: 4px 10px; color: #b3ada3; font-size: 12px; }
+.sl-row { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 4px 6px; border-radius: 6px; background: transparent; color: #2b2620; font-size: 14px; line-height: 20px; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+.sl-row:hover { background: #efe9de; }
+.proto.is-dragging .sl-row:hover { background: transparent; }
+/* 每个控件放进与第一行同高的盒子里居中：对齐的是标题那一行，不是两行字的中间。 */
+.sl-line { display: flex; flex-shrink: 0; align-items: center; height: 20px; }
+.sl-grip { width: 8px; height: 12px; background-image: radial-gradient(circle, #9f998f 1.2px, transparent 1.4px); background-size: 4px 4px; }
+.sl-check { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; border: 1px solid rgba(43,38,32,.2); background: #fffdf8; color: transparent; cursor: pointer; }
+.sl-check[aria-checked="true"] { border-color: #0a7aff; background: linear-gradient(180deg, #0a7aff 0%, #0a6be0 100%); color: #fff; box-shadow: 0 2px 6px rgba(10,122,255,.3); }
+.sl-text { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; cursor: pointer; }
+.sl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-desc { color: #9f998f; font-size: 12px; line-height: 16px; }
+.sl-badge { padding: 0 6px; border: 1px solid rgba(43,38,32,.18); border-radius: 5px; color: #5e5951; font-size: 11px; line-height: 16px; font-weight: 600; }
+.sl-moves { gap: 2px; }
+.sl-moves button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #2b2620; cursor: pointer; }
+.sl-moves button:hover:not(:disabled) { background: rgba(43,38,32,.08); }
+.sl-moves button:disabled { color: #c9c3b8; cursor: default; }
+.sl-chip { white-space: nowrap; }
+.sl-status { margin: 10px 0 0; min-height: 20px; color: #5e5951; font-size: 13px; }
+/* A 行跟手：拿起的那一行盖在邻居上，底不透明，抬起一点。 */
+.sl-row.is-held { z-index: 2; background: #fffcf5; box-shadow: 0 0 0 1px rgba(43,38,32,.08), 0 6px 16px rgba(43,38,32,.12); }
+.sl-row.is-held.is-landing { box-shadow: 0 0 0 1px rgba(43,38,32,0), 0 0 0 rgba(43,38,32,0); }
+/* B 卡片跟手：列表里留着的是空位，什么都不画。 */
+.sl-row.is-slot { visibility: hidden; }
+.sl-card { position: fixed; z-index: 10; margin: 0; list-style: none; background: #fffcf5; box-shadow: 0 0 0 1px rgba(43,38,32,.1), 0 10px 28px rgba(43,38,32,.18); pointer-events: none; }
+.sl-card.is-landing { box-shadow: 0 0 0 1px rgba(43,38,32,0), 0 0 0 rgba(43,38,32,0); }
+
+/* ── 窄时的状态栏示意 ── */
+.bars { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.bar { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 6px; background: #fffcf5; border: 1px dashed #d9d3c7; color: #8a8378; font-size: 11px; white-space: nowrap; overflow: hidden; }
+.bar .l { display: flex; gap: 6px; min-width: 0; flex: 1; overflow: hidden; }
+.bar .r { display: flex; gap: 6px; flex-shrink: 0; }
+.bar .wait { color: #b45309; }
+.bar .wait::before { content: "● "; }
+.bar .more { padding: 0 3px; border-radius: 3px; background: #efe9de; }
+.bar .gone { color: var(--mark); text-decoration: line-through; }
+.w1 { width: 520px; } .w2 { width: 380px; } .w3 { width: 270px; } .w4 { width: 170px; }
+.cands.stack { grid-template-columns: minmax(0, 1fr); }
+.cands.stack .cand { display: grid; grid-template-columns: 220px minmax(0, 1fr); column-gap: 16px; }
+.cands.stack .cand h3, .cands.stack .cand p { grid-column: 1; }
+.cands.stack .cand .bars { grid-column: 2; grid-row: 1 / span 3; margin: 0; }
+.bar { max-width: 100%; }
+</style>
+</head>
+<body>
+<main>
+<h1>t38 第 1 轮：状态栏设置的后续</h1>
+
+<section data-nbdev-question="mode-flags" data-nbdev-type="single" data-nbdev-recommend="closable" data-nbdev-label="状态栏上“计划模式”“全部放行”两个标记怎么处理？">
+  <h2>“计划模式”“全部放行”这两个标记要不要能关？</h2>
+  <p class="rec"><strong>推荐 A：这两个标记改成可选项，缺省开着，右键菜单与设置页都能关。“等你批准”“断线”这类正在发生、要你处理的提醒照旧关不掉。</strong></p>
+  <p class="why">现在关不掉，是因为 t29 第 1 轮定了“提醒类总显示”，那一轮的推荐没写理由。当时我把模式标记和“等你批准”“断线”归成了一类。可模式是你自己选的、一直持续的状态，输入框工具栏上本来就有，“全部放行”在那里还是红色，状态栏这两个标记等于再显示一遍：</p>
+  <img class="shot" src="r1/mode-flags-now.webp" alt="输入框工具栏有“计划”“全部放行”，下面状态栏又写了“计划模式”“全部放行”">
+  <div class="cands three" style="margin-top:16px">
+    <div class="cand" data-nbdev-option="closable" data-nbdev-label="A 改成可选项，缺省开">
+      <h3>A 改成可选项，缺省开</h3>
+      <p>目录里多两项：“Agent 模式”（不是普通模式时显示）、“全部放行警告”。关掉以后，只剩工具栏上那个。</p>
+    </div>
+    <div class="cand" data-nbdev-option="remove" data-nbdev-label="B 状态栏不再显示">
+      <h3>B 状态栏不再显示</h3>
+      <p>两个标记从状态栏拿掉，只看工具栏。窄屏时工具栏上的模式只剩图标，“全部放行”的红色还在。</p>
+    </div>
+    <div class="cand" data-nbdev-option="keep" data-nbdev-label="C 保持总显示">
+      <h3>C 保持总显示</h3>
+      <p>不改。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="drag-feel" data-nbdev-type="single" data-nbdev-recommend="row" data-nbdev-label="设置页拖动排序用哪一种实时布局？">
+  <h2>拖动用哪一种实时布局？</h2>
+  <p class="rec"><strong>推荐 A 行跟手：列表短，只在竖直方向排，拿起的那一行本身就是落下后的样子，用不着另一张卡片。工作台标签条里排序也是这种手感。</strong></p>
+  <p class="why">两个原型都能直接拖，也能拖到另一组；松手后上面的预览才变，拖动中按 Esc 回原样。两种的判定相同，同标签条：往下拖时，被拖的行下沿过了下一行的中线，下一行就让上来；往上同理。另一组的标题也算一行，过了它就进了那一组。都不再画落点线。</p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="row" data-nbdev-label="A 行跟手">
+      <h3>A 行跟手</h3>
+      <div class="proto" data-proto="row"></div>
+      <p>被拖的行只上下动，夹在两组之间；邻居实时让开。</p>
+    </div>
+    <div class="cand" data-nbdev-option="card" data-nbdev-label="B 卡片跟手，列表留空位">
+      <h3>B 卡片跟手，列表留空位</h3>
+      <div class="proto" data-proto="card"></div>
+      <p>行拿起成卡片，跟着指针随便走；列表里在要落下的地方留出空位，什么都不画，松手时卡片落进空位。工作台把视图拖出标签条是这种。</p>
+    </div>
+  </div>
+  <p class="why" style="margin-top:12px">两种都一样的：改用指针手势（现在用的是浏览器原生拖放，它只能画浏览器自己的半透明拖影，做不了实时布局，也不支持触摸）；键盘在行上按空格拿起，上下键挪（可以跨组），回车放下，Esc 取消；上移下移按钮保留，也能跨组：右边第一项按上移，到左边最后。</p>
+</section>
+
+<section data-nbdev-question="narrow-rule" data-nbdev-type="single" data-nbdev-recommend="both-sides" data-nbdev-label="项可以换边以后，状态栏窄了先收哪些？">
+  <h2>项可以换边以后，状态栏窄了先收哪些？</h2>
+  <p class="rec"><strong>推荐 A：先收右边（从前往后，同现在）；右边收完还放不下，再收左边的数据项（从后往前，离提醒最近的先收），都收进右边同一个“…”。提醒不收，最后才截断。</strong></p>
+  <p class="why">现在左边只有上下文圆环与插件的项，窄了直接截断；能换边以后，左边可能放了用量、费用，窄的时候会把“等你批准”“断线”这些提醒挤出去。插件声明的一边改成缺省的一边。下面的例子：用户把“用量”拖到了左边，此刻在等批准。</p>
+  <div class="cands stack">
+    <div class="cand" data-nbdev-option="both-sides" data-nbdev-label="A 左右都收，提醒最后">
+      <h3>A 左右都收，提醒最后</h3>
+      <div class="bars">
+        <div class="bar w1"><span class="l"><span>◔ 13%</span><span>⚡162.4k ⛁62%</span><span class="wait">等你批准</span></span><span class="r"><span>$0.07</span><span>Sonnet · 低</span></span></div>
+        <div class="bar w2"><span class="l"><span>◔ 13%</span><span>⚡162.4k ⛁62%</span><span class="wait">等你批准</span></span><span class="r"><span class="more">…</span><span>Sonnet · 低</span></span></div>
+        <div class="bar w3"><span class="l"><span>◔ 13%</span><span class="wait">等你批准</span></span><span class="r"><span class="more">…</span></span></div>
+        <div class="bar w4"><span class="l"><span class="wait">等你批准</span></span><span class="r"><span class="more">…</span></span></div>
+      </div>
+      <p>收起的项悬停“…”看。</p>
+    </div>
+    <div class="cand" data-nbdev-option="clip" data-nbdev-label="B 左边不收，只截断（现状）">
+      <h3>B 左边不收，只截断（现状）</h3>
+      <div class="bars">
+        <div class="bar w1"><span class="l"><span>◔ 13%</span><span>⚡162.4k ⛁62%</span><span class="wait">等你批准</span></span><span class="r"><span>$0.07</span><span>Sonnet · 低</span></span></div>
+        <div class="bar w2"><span class="l"><span>◔ 13%</span><span>⚡162.4k ⛁62%</span><span class="wait">等你批准</span></span><span class="r"><span class="more">…</span><span>Sonnet · 低</span></span></div>
+        <div class="bar w3"><span class="l"><span>◔ 13%</span><span>⚡162.4k ⛁62%</span><span class="wait">等你批准</span></span><span class="r"><span class="more">…</span></span></div>
+        <div class="bar w4"><span class="l"><span>◔ 13%</span><span>⚡162.4k ⛁62%</span><span class="wait">等你批准</span></span><span class="r"><span class="more">…</span></span></div>
+      </div>
+      <p>最简单；窄了提醒先被截掉。</p>
+    </div>
+    <div class="cand" data-nbdev-option="reminders-first" data-nbdev-label="C 提醒排在左边最前">
+      <h3>C 提醒排在左边最前</h3>
+      <div class="bars">
+        <div class="bar w1"><span class="l"><span class="wait">等你批准</span><span>◔ 13%</span><span>⚡162.4k ⛁62%</span></span><span class="r"><span>$0.07</span><span>Sonnet · 低</span></span></div>
+        <div class="bar w2"><span class="l"><span class="wait">等你批准</span><span>◔ 13%</span><span>⚡162.4k ⛁62%</span></span><span class="r"><span class="more">…</span><span>Sonnet · 低</span></span></div>
+        <div class="bar w3"><span class="l"><span class="wait">等你批准</span><span>◔ 13%</span><span>⚡162.4k ⛁62%</span></span><span class="r"><span class="more">…</span></span></div>
+        <div class="bar w4"><span class="l"><span class="wait">等你批准</span><span>◔ 13%</span></span><span class="r"><span class="more">…</span></span></div>
+      </div>
+      <p>左边不收；提醒一出现，圆环就往右挪。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="sortable-form" data-nbdev-type="single" data-nbdev-recommend="both" data-nbdev-label="拖动排序做成 composable 还是组件？">
+  <h2>拖动排序做成 composable 还是组件？</h2>
+  <p class="rec"><strong>推荐 A：核心是 composable，竖排的分组列表再包一个薄组件，设置页用组件。手势复用 nb-layout 现有的拖动会话，与工作台同一套门槛、取消与键盘。</strong></p>
+  <p class="why">现在设置页的拖动是页面里手写的原生拖放，上面几个问题（不能跨组、只有落点线、没有键盘）都出在这里。拆出来以后只写一次、各处一个手感。</p>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="both" data-nbdev-label="A composable 加薄组件">
+      <h3>A composable 加薄组件</h3>
+      <ul>
+        <li><code>useSortable</code>：手势（起拖门槛、指针捕获、Esc 与失焦取消、键盘拿起）用 nb-layout 的拖动会话；判定、跨组、让位动画、读屏播报在这里。</li>
+        <li><code>SortableList</code>：分几组的竖排列表，每行用插槽画；只负责摆放与把属性接到行上。</li>
+        <li>横排、网格这类形状直接用 composable。</li>
+      </ul>
+    </div>
+    <div class="cand" data-nbdev-option="composable" data-nbdev-label="B 只做 composable">
+      <h3>B 只做 composable</h3>
+      <ul>
+        <li>只有 <code>useSortable</code>，每个用的地方自己画列表、接属性、写让位的样式。</li>
+        <li>用的地方多了，每处都要接对同样几样东西。</li>
+      </ul>
+    </div>
+    <div class="cand" data-nbdev-option="component" data-nbdev-label="C 只做组件">
+      <h3>C 只做组件</h3>
+      <ul>
+        <li>只有 <code>SortableList</code>，逻辑都在组件里。</li>
+        <li>竖排列表最省事；横排、网格要另写一份。</li>
+      </ul>
+    </div>
+  </div>
+  <p class="why" style="margin-top:12px">放在 nb-layout 的 Vue 层：拖动手势与判定在那里，nb-ui 不能反过来依赖 nb-layout。以后表单里的对象列表（现在只有上移下移按钮）也能接上。</p>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>单选组的圆点比文字低约 1.5 像素（nb-ui 的单选组，所有设置页都有）</td>
+        <td>圆点放进与第一行同高的盒子里居中。左边是现在，右边是草稿里改过的（放大 3 倍）：
+          <div class="pair"><figure><img class="shot" src="r1/radio-before.webp" alt="改前：圆点比文字偏低"><figcaption>现在</figcaption></figure><figure><img class="shot" src="r1/radio-after.webp" alt="改后：圆点与文字同一中线"><figcaption>改后</figcaption></figure></div>
+        </td>
+      </tr>
+      <tr><td>状态栏设置页每一行的把手、上移下移按钮，对的是两行字的中间</td><td>对齐标题那一行（上面原型里已经是改后的样子）</td></tr>
+      <tr><td>拖动时行上下沿的蓝线</td><td>删掉，由实时布局代替</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>右键勾选显隐，设置页分左右两组排序，用量四项合成一项（t29 第 1 轮）</li>
+    <li>排序用拖动加上移下移（t37）</li>
+    <li>这一版不做缓存倒计时（t37）</li>
+  </ol>
+</section>
+</main>
+<script src="r1/sortable-proto.js" defer></script>
+</body>
+</html>

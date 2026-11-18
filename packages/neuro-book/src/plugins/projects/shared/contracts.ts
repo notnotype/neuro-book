@@ -18,6 +18,8 @@ import {defineSetting} from "nbook/shared/settings";
 import {projectsText} from "./text";
 
 export const OPEN_PROJECT_COMMAND = "nbook.project.open";
+/** 回到书架：本窗口整页导航到 `/`（docs/specs/workbench/commands.md 的“命令目录（项目）”）。 */
+export const BACK_TO_SHELF_COMMAND = "nbook.project.back-to-shelf";
 
 /** 作品目录：新建作品的缺省父目录（服务端上的路径），只在用户层；空串为没设。首次新建成功后由书架页写入。 */
 export const librarySetting = defineSetting({

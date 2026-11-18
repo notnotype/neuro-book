@@ -1,0 +1,29 @@
+t13 切片 6 第 2 轮 Windows 验收（2026-11-18，pc-notype，Windows 11 build 26200，100% 缩放）
+
+对象：master 4b6806d8d 构建的桌面包（0.13.0，正式标识 io.github.notnotype.neurobook，装在默认位置）。运行时设 NBOOK_STATE_ROOT 指向测试状态根（自带一份作品副本，设置 closeLastWindow=tray），所以不碰开发者的默认状态根；
+WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9338 读页面。没有屏幕截取、没有系统鼠标键盘输入：托盘点击是向壳的托盘窗口发回调消息（WM_USER+100，lParam 为 WM_LBUTTONUP/WM_RBUTTONUP），菜单用 WM_KEYDOWN，
+对话框的 Enter、Esc 用 CDP 的键盘事件，关闭框用 WM_SYSCOMMAND SC_CLOSE（X 发出的就是它）。脚本：windows-acceptance-r2-dialog-check.ts、windows-acceptance-r2-background-check.ts（第 1 轮的见 windows-acceptance-check.ts）。
+
+一、托盘“退出”遇到在跑的工作（输出 30）
+“在跑的工作”目前只有 agent 插件登记（要真实模型调用），所以这里走“整个取不到”的分支：用 NtSuspendProcess 挂起自有服务端，托盘“退出”8 秒内得不到 /api/runtime/work 的应答。shell.log 记了每一次 desktop.tray.work-check-failed（Error: no answer before the deadline）。
+有工作、项数文字的分支（“N 项”“另有部分工作无法确认”）没有在真实应用里验到，只有单元测试（src/desktop/tray.test.ts、shell.test.ts）。
+
+对话框文字：“NeuroBook 有工作在跑，退出会中断它们 / 无法确认是否有工作在跑。 / 取消 / 打开 NeuroBook / 仍然退出”，与 Spec 一致。
+
+A Enter：缺省按钮“取消”拿到焦点（document.activeElement 的文字是“取消”）；Enter（keyDown 带 text "\r"）后对话框关闭，仍有 4 个应用进程、没有窗口（留在后台）；服务端恢复后应答 200。
+B Esc：对话框关闭，4 个进程仍在。
+C 关闭框（SC_CLOSE）：对话框关闭，4 个进程仍在。（“关掉对话框等于取消”）
+D 打开 NeuroBook：对话框关闭，开出 1 个产品窗口，4 个进程仍在；这次退出作废。
+E 仍然退出（先恢复服务端）：应用进程归零；shell.log：desktop.tray.removed、desktop.server.stopped forced=false exitCode=0、exit 0；托盘图标删掉。
+方法上的一处：第一版脚本用 CDP 的 rawKeyDown 发 Enter，对话框没关——rawKeyDown 不产生让按钮被激活的字符事件，不是产品问题；改成 keyDown 加 text 之后通过。
+
+二、后台 30 分钟（切片 6 余项）
+设置 tray，关掉最后一个窗口进入后台（02:16:17Z），每 2 分钟查一次：服务端一直答 200，4 个进程一直在，无窗口；工作集内存从 260 MB 降到 53 MB（后台时页面进程都关了，剩壳和服务端）。
+30 分钟后经托盘“打开”开出窗口，页面 rpc 在线，服务端进程号不变（同一个 27628），shell.log 里没有服务端退出或重启记录。
+
+三、没有做的（原因）
+- 开机自启加托盘、图标建不出来后的重试：自启只在安装版、缺省状态根下登记（Spec），要真实注销再登录；为此改开发者缺省状态根的设置不合适。
+- 改缩放后的托盘图标、资源管理器重启后图标是否还在：前者要改开发者的显示缩放，后者要杀开发者的 explorer.exe，都会打扰他正在用的桌面；Spec 里这两项本来就是已知限制（图标不随缩放重建、不处理 TaskbarCreated，后者在“后续”里）。需要时由开发者同意后再做。
+- 托盘提示文字（UIA）：Windows 11 把新图标收在溢出区，这轮没有临时改注册表，UIA 读不到（not-found）；提示文字第 1 轮已验过，这轮的变化点只有退出对话框与后台时长。
+
+结论：t13 在 Windows 上除上面第三节外都验过。Spec 输出 28 到 31 晋升 implemented 要开发者批准（writing-specs 要求晋升前逐条核对输出、失败码与验收场景各自对应的代码和测试，核对还没做）。

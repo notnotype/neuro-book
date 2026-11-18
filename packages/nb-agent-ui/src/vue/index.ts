@@ -5,6 +5,8 @@
 
 export {default as AgentConversationView} from "./AgentConversationView.vue";
 export {default as AgentSessionList} from "./AgentSessionList.vue";
+// 设置页预览状态栏用同一个组件（显隐、次序与窄时收起都是它自己的算法）。
+export {default as AgentStatusBar} from "./composer/AgentStatusBar.vue";
 export {default as AgentSessionPanel} from "./AgentSessionPanel.vue";
 export {default as AgentModelCatalog} from "./catalog/AgentModelCatalog.vue";
 export {default as AgentRequestTrace} from "./requests/AgentRequestTrace.vue";

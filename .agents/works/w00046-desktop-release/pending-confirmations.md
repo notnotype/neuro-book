@@ -87,3 +87,5 @@
 
 | 2026-11-17 | t16 | 产品取舍（开发者定） | 上传上限改为总 64 MiB、单个 32 MiB，并先把 nb-host 的请求转交改成流式 | Bun 请求体缺省上限 128 MiB，转交会把整个请求体读进内存（审查者本机实测） | 加大上限要给 nb-host 加请求体上限配置 | [t16 第 3 轮](tasks/t16-plugin-drag-install/evidences/design-review-r3-proposal.md)；开发者 2026-11-17 同意 |
 | 2026-11-17 | 全 Work | 方向（开发者提） | 之后要在后台长时间进行的事（上传、下载等）都做成 NeuroBook 的后台任务（`nbook.tasks`） | 窗口关掉不影响它，进度与结果在后台任务视图里统一看 | 无 | [`workbench.background-tasks`](../../../docs/specs/workbench/background-tasks.md)；见 README 的“桌面端体验的决定” |
+| 2026-11-17 | t14 | 产品取舍（待开发者定） | 页面一侧的 `Notification` 在缺省 WebView2 里不进系统通知（探针：没有通知窗口、通知平台没有记录与处理器登记）。推荐壳先用 `Utils.showNotification`（旧式气泡，Win10/11 转 Toast，应用名与图标不是 NeuroBook、无点击回调）接通整条链路，再按需要升级到经 FFI 的 WinRT Toast（带名字与图标、能点击置前，需要开始菜单快捷方式带 AppUserModelID） | 前者改动小、能验证链路与产品取舍；后者工作量与脆弱度都大，先看前者够不够用 | 之后换成 WinRT Toast 只改壳这一侧，页面与窄接口不变 | 待开发者定；[probe-r1](tasks/t14-system-notifications/evidences/probe-r1.txt) |
+| 2026-11-18 | t21 | 产品取舍 | 桌面窗口缺省大小 1280×800 改为 1600×1000（放不下仍取工作区九成）；标题栏搜索最宽 560px 改为 360px；书架首页不画后备标题栏，顶端一条透明拖动行、窗口按钮浮在页面上 | 开发者说“大一点”“小一点”“像 JetBrains”，具体数值与做法是我定的 | 改常量与一处样式 | [t21](tasks/t21-desktop-polish/README.md) |

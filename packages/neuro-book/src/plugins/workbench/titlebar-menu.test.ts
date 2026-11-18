@@ -199,6 +199,16 @@ describe("标题栏菜单的贡献", () => {
         expect(shown.value).toEqual([]);
     });
 
+    it("别的插件的命令标题（标题栏的回书架入口用它）：命令在时给标题，提供它的入口停止后经 computed 读也变成 null", async () => {
+        const commands = control();
+        const {chrome} = await start([commandPlugin([], commands)]);
+        const label = computed(() => chrome.commandTitle("test.menu.open", workbenchTestText("zh-CN")));
+        expect(label.value).toBe("test.menu.open");
+        expect(chrome.commandTitle("test.menu.nope", workbenchTestText("zh-CN"))).toBeNull();
+        expect((await commands.context!.scope.parent!.close()).status).toBe("closed");
+        expect(label.value).toBeNull();
+    });
+
     it("只接受浏览器入口的贡献；id 在自己的命名空间里；组不认识、位置没有的字段都被拒", async () => {
         const {application, chrome} = await start([
             commandPlugin([], control()),

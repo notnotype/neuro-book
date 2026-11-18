@@ -25,6 +25,8 @@ import {tasksKey} from "nbook/plugins/tasks/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {clockKey, runningWorkKey, stateRootKey} from "nbook/shared/host";
 import {pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
+import {stickersServiceKey} from "nbook/plugins/stickers/shared/contracts";
+import type {StickerPackEntry} from "nbook/plugins/stickers/shared/contracts";
 
 import {descriptor} from "../plugin";
 import {agentKey} from "../shared/contracts";
@@ -51,10 +53,11 @@ import {locateDocsRoot} from "./docs-root";
 import {SkillCatalog, sourceRoot} from "./skills/catalog";
 import {SKILLS_EXTENSION, skillsExtension} from "./skills/extension";
 import {restoreSkills} from "./skills/restore";
+import {STICKERS_EXTENSION, stickersExtension} from "./stickers/extension";
 import {openFolder} from "./skills/folder";
 import {SkillInstaller} from "./skills/install";
 import {pluginSkillRoots} from "./skills/plugin-roots";
-import {profileSkills} from "../shared/profile-skills";
+import {profileAllowlist} from "../shared/profile-allowlist";
 import {agentRemote, PreviewTokens} from "./remote";
 import {requestsRemote} from "./requests";
 import {filesFor} from "./resources";
@@ -72,11 +75,11 @@ export const agentBackendPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}, {key: tasksKey, required: false}, {key: runningWorkKey, required: false}, {key: pluginPackagesKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}, {key: tasksKey, required: false}, {key: runningWorkKey, required: false}, {key: pluginPackagesKey, required: false}, {key: stickersServiceKey, required: false}],
         provides: [agentKey],
         remoteProvides: [agentSessionsContract, agentRequestsContract],
         receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT, SKILLS_POINT],
-        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...JOB_TOOL_CONTRIBUTIONS, ...SUBAGENT_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION, {capability: EXTENSIONS_POINT, id: SUBAGENTS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: SKILLS_EXTENSION, declaration: {}}],
+        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...JOB_TOOL_CONTRIBUTIONS, ...SUBAGENT_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION, {capability: EXTENSIONS_POINT, id: SUBAGENTS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: SKILLS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: STICKERS_EXTENSION, declaration: {}}],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
@@ -136,11 +139,19 @@ export const agentBackendPlugin: PluginDefinition = {
                 const archived = new Set((await runtime.listSessions()).filter((session) => session.archived).map((session) => session.id));
                 await sweepTemps(tempContainer, async (session) => !archived.has(session) && (await lstat(join(runtime.sessionsRoot, session)).then(() => true, () => false)), (message) => report("temps-sweep", message));
             }
-            const allowedSkills = (profile: string): ReadonlySet<string> => new Set(profileSkills(
+            const allowedSkills = (profile: string): ReadonlySet<string> => new Set(profileAllowlist(
                 runtime.service.profiles().find((entry) => entry.key === profile)?.skills,
                 context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.skills,
                 skillCatalog.list().map((entry) => entry.id),
             ));
+            // 表情包白名单（stickers.md 的“白名单”）：没装 `nbook.stickers` 时目录为空，槽没有内容。
+            const stickerCatalog = await context.services.resolve(stickersServiceKey);
+            const stickerPacks = (): readonly StickerPackEntry[] => (stickerCatalog.status === "resolved" ? stickerCatalog.instance.list() : []);
+            const allowedStickers = (profile: string): readonly string[] => profileAllowlist(
+                runtime.service.profiles().find((entry) => entry.key === profile)?.stickers,
+                context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.stickers,
+                stickerPacks().map((entry) => entry.id),
+            );
             const schemes = agentSchemes({
                 sessionsRoot: runtime.sessionsRoot,
                 profilesRoot,
@@ -183,7 +194,7 @@ export const agentBackendPlugin: PluginDefinition = {
             return {
                 services: [provideService(agentKey, runtime.service)],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, skills: skillCatalog, skillInstaller: installer, skillsFolder: {path: userSkills, open: () => openFolder(userSkills, process.env, process.platform)}, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews)), provideRemote(agentRequestsContract, () => requestsRemote({recorder: runtime.requests, owners: runtime.requestOwners, titles: runtime.titles, sessionEntry: (id) => runtime.sessionEntry(id)}))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock), ...subagentToolImplementations}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills})}},
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock), ...subagentToolImplementations}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills}), [STICKERS_EXTENSION]: stickersExtension({stickers: {list: stickerPacks}, allowed: allowedStickers})}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

@@ -383,6 +383,15 @@ export default {
         free: "Free",
         unpriced: "This model has no price, so the cost limit doesn't apply to it",
         detail: "Input {{input}}, output {{output}}, cache read {{cacheRead}}, cache write {{cacheWrite}}",
+        line: {
+            plugin: "Plugin",
+            settings: "Status bar settings…",
+            menuLabel: "Status bar",
+            context: {title: "Context usage", description: "The ring and percentage; click to see the context details"},
+            usage: {title: "Usage and cache hits", description: "Total tokens, input, output and cache hits; details on hover"},
+            cost: {title: "Cost", description: "Total cost; hidden when the price is unknown"},
+            model: {title: "Model and effort", description: "The model this conversation uses"},
+        },
     },
     messageEditor: {
         label: "Edit this message",

@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import {visibleEntries} from "../registry";
 import type {AgentViewRegistry, HeaderActionEntry} from "../registry";
+import type {StatusLineSetting} from "../status-line";
 import {assignTurnKeys, reuseTurnGroups, splitIntoTurnGroups} from "../conversation-turns";
 import {useStreamScroll} from "@notnotype/nb-ui/composables";
 import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
@@ -60,6 +61,8 @@ const props = withDefaults(defineProps<{
     draftProfile?: {readonly name: string; readonly icon: string} | null;
     /** 没有消息时的第一屏（AgentWelcome）；不给时写“还没有消息”。 */
     welcome?: AgentWelcomeView | null;
+    /** 用户的状态栏设置（显隐与次序，见 `status-line.ts`）；给了才有右键菜单，宿主处理 `statusLine.toggle`、`statusLine.openSettings`。 */
+    statusLine?: StatusLineSetting;
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
@@ -525,7 +528,15 @@ defineExpose({focusComposer, scrollToLatest});
             v-bind="{inert: waitingForUser}"
             @action="onAction"
         />
-        <AgentStatusBar v-if="props.statusBar" :ctx="props.ctx" :registry="props.registry" @inspect="openInspector" />
+        <AgentStatusBar
+            v-if="props.statusBar"
+            :ctx="props.ctx"
+            :registry="props.registry"
+            v-bind="props.statusLine === undefined ? {} : {statusLine: props.statusLine}"
+            @inspect="openInspector"
+            @toggle="(id: string) => emit('action', {type: 'statusLine.toggle', id})"
+            @open-settings="emit('action', {type: 'statusLine.openSettings'})"
+        />
         <Dialog
             :open="inspectorOpen"
             size="default"

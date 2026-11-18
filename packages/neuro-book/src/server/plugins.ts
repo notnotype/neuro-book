@@ -24,6 +24,7 @@ import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
 import {tasksBackendPlugin} from "nbook/plugins/tasks/backend/plugin";
 import {plotServerPlugin} from "nbook/plugins/plot/backend/server";
 import {agentBackendPlugin} from "nbook/plugins/agent/backend/plugin";
+import {stickersBackendPlugin} from "nbook/plugins/stickers/backend/plugin";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 
@@ -63,6 +64,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
     "nbook.tasks": tasksBackendPlugin,
     "nbook.plot": plotServerPlugin,
     "nbook.agent": agentBackendPlugin,
+    "nbook.stickers": stickersBackendPlugin,
     "nbook.files": filesBackendPlugin,
 };
 

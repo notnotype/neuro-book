@@ -1,0 +1,160 @@
+# 耦合审查（一）：nb-agent-ui 与 NeuroBook 宿主
+审查日期 2026-11-18，只读。范围：packages/nb-agent-ui、docs/specs/ui/agent-conversation-view.md、packages/neuro-book/src/plugins/agent/web/。
+已读：包的 AGENTS.md、README、boundary.test.ts（已跑，3 条通过）、neurobot.md 第四节第 1、4、8 小节与第六节。
+标注：[读码] 读代码核实；[推断] 从代码推出、没有运行证据。
+路径缩写：V=packages/nb-agent-ui/src/vue/AgentConversationView.vue，T=.../vue/stream/AgentConversationTurn.vue，H=.../vue/head/AgentConversationHead.vue，C=.../vue/composer/AgentConversationComposer.vue，CT=.../src/conversation-turns.ts，KT=.../src/kernel-transcript.ts，SH=packages/neuro-book/src/plugins/agent/web/session-host.ts，CH=.../agent/web/ConversationHost.vue（nb-agent-ui 下的路径都省了 packages/nb-agent-ui/src/ 前缀）。
+
+## 一、总表：功能或组件 | 今天能否关掉或换掉 | 怎么关、关了坏什么 | 证据
+
+| 功能或组件 | 能否关/换 | 怎么关、关了坏什么 | 证据 |
+|---|---|---|---|
+| 会话标题栏 | 能关，但是整块关 | prop header=false；连带没了溢出菜单（上下文、分支树、原始视图切换）、常驻的顶栏动作、head-trailing 插槽（子代理入口）、会话下拉；原始视图只能靠受控 viewMode | V:47,408；H:117；Spec“顶栏” |
+| 新会话按钮 | 能关 | prop newSession 缺省 false；顶层会话才有；子会话是“返回”箭头 | V:55；H:62-80 |
+| 会话列表/面板/子会话行 | 本来就在视图外 | AgentSessionList、AgentSessionPanel 是独立组件，宿主不挂即无；不给 sessions 插槽时标题不是按钮、欢迎屏没有“查看全部” | V:82,412,423-424,442；AgentSessionPanel.vue |
+| 分支树 | 能关 | ctx.interaction.canOpenTree 不给即无入口；ctx.branches 不填则无分支切换条；入口只在顶栏溢出菜单里（header=false 时随之没有） | V:144,570-579；T:166,208 |
+| 编辑/重试/从此处分支 | 能关 | 不装 builtinMessageActionsContribution，或 canMutateHistory 保持 false（缺省 false）；nb-story 就这么用 | vue/builtin-message-actions.ts:27-42；context.ts:40；QaPage.vue:57 |
+| 输入框里模型选择 | 能关（靠数据） | composer.models、thinkingLevels、roles 都空则不画；Spec 写明了这个行为 | C:534-560；Spec“输入框与待处理区” |
+| 模式与审批两个控件 | 能关（靠数据） | composer.modes 空、composer.approval 不给 | C:480,494 |
+| 审批向导替换输入框 | 不能关 | 阻塞事项一律替换输入框（v-show）；只能把事项标 async 或带 source 才进停靠区（语义是“异步提问/子代理事项”，不是“并存”） | V:306-309,522-531；wizard.ts:99 |
+| 向导里两个“记住”按钮 | 只能一起关 | item.remember=false 两个都没；单独留一个或改文案不行 | vue/wizard/AgentApprovalWizard.vue:115-116；types.ts:291 |
+| 状态栏 | 能关 | prop statusBar 缺省 false；关了则上下文检查器只剩顶栏菜单入口 | V:53,531 |
+| 状态栏的项 | 能换一部分 | 内置四项写死，宿主经 statusItems 加项、用户 statusLine 设置显隐；无会话（ctx.session=null）时数据项一律不画 | status-line.ts:35-40；AgentStatusBar.vue:94,127-129 |
+| 分轮规则 | 不能换 | 只认“普通用户消息开头”，视图直接调用，没有 prop、注册表点或消息字段 | CT:227-241；V:217 |
+| 助手的名字与头像 | 只能整视图一份 | 角色注册表里一个静态 assistant 角色；头像取 ctx.session.profileIcon；消息上没有说话者 | T:98-109,198-200；vue/builtin-roles.ts；types.ts:95-117 |
+| 适配器对扩展事件 | 不能换 | 一律跳过，没有映射入口 | KT:558,685,707；harness.ts applyEvent 的 default |
+| 整段历史 | 视图支持分页，宿主没用 | 视图有 history.loadPrevious 与“更早的内容”；NeuroBook 宿主整条路径取完一次 applyPath，没给 ctx.history 赋值 | V:178-250,283-292；SH:400-415 |
+| 子代理树 | 能关（在宿主） | 不登记 subagentContribution、不给 head-trailing 插槽；nb-agent-ui 里只有数据口（session.path、PendingInputCommon.source、user.author），关了不坏 | agent/web/subagent-renderers.ts；CH:129-135；types.ts:77,166-180,254 |
+| 模型请求页 | 能关 | AgentRequestTrace 是独立组件；入口是宿主 requestEntriesContribution，不登记即无；消息上的 request 字段只是数据 | agent/web/request-entries.ts；types.ts:95-117 |
+| 任务列表 | 能关 | 从 builtinToolsContribution.tools 里按 id 过滤 task（README 写了这个做法）；关了退回通用卡片 | vue/builtin-tools.ts:11-22；builtin-tools.ts:182-185 |
+| 工具详情 | 逐个工具能换 | 渲染器的 detail 字段；没有就显示原始参数与结果 JSON；整包不装则全部通用卡片 | registry.ts GENERIC_TOOL_RENDERER:299 |
+| 输入框命令（/new /fork /rename…） | 缺省全开 | 不装 builtinComposerContribution，或 interaction.commands 列出要的；不写时全部列出 | vue/builtin-composer.ts:30-35 |
+| 贴纸 | 与本包无关 | 本包内没搜到 sticker；表情包在 nbook.markdown 的展示器与 nbook.stickers 插件里，没有表情服务时显示原文 | 搜 packages/nb-agent-ui 无命中；stickers/web/markdown-wiring.dom.test.ts 头注释 |
+| Markdown 与提示词编辑器 | 注入式，干净 | renderers.markdown/promptEditor/promptTextView，缺省退化成纯文字与文本框；边界由 boundary.test.ts 机检、nb-markdown 有类型断言 | ports.ts；vue/host.ts；boundary.test.ts |
+
+## 二、逐条耦合（按对 bot 场景的影响排序）
+
+### 1. 分轮只认“普通用户消息开头”，视图里没有任何注入点
+类别：不推荐耦合
+位置：CT:227-241（splitIntoTurnGroups）、CT:258-262（buildTurn 里 user 只在组首是 intent=normal 的用户消息时才有）、V:217（视图直接调用）；types.ts:120（SystemMessageSource 只有 prompt/reminder/compaction/branch_summary/custom）。
+现象 [读码]：一条消息要自成一轮，只有“intent 为 normal 的 user 消息”这一条路。提醒、定时任务结果、别的 bot 的话这类没有用户开头的内容，会并进上一轮：上一轮的最终回复、轮末汇总、整轮收起、“已完成/已停止”状态都会算错（status 取组内最后一条，CT:552-578）。唯一的变通是把事件伪装成带 author 的 user 消息（types.ts:77，T:103-106 按 author 换头像与名称，Spec 末段也这么写）；伪装的代价 [读码]：它仍带“编辑/重试/分支”操作（vue/builtin-message-actions.ts 的 rewritable 不看 author）、仍是“用户”色调、不能是没有模型调用的轮、宿主的 recallOf 要自己滤掉（SH:102-111）。nb-story 为同一个缺口写了一整个“按轮分开的转录”（nb-story/src/web/qa/turn-transcripts.ts:1-8）。
+挡住：bot 模式（提醒、任务结果、bot 之间讨论）；会话加 bot 模式里把子会话结果当作自成一轮的内容。
+建议：消息加可选字段，例如 `startsTurn?: true` 加 `origin?: {label: Text; icon: string}`（user 与 system 消息都可带），splitIntoTurnGroups 认它，T 的角色行用 origin；字段缺省时行为不变。比往视图加 `turnSplitter` 回调好：回调不可 JSON 化，违反 ctx 必须能 JSON 化的合同（types.ts 头注释）。代价：小（types、CT 两处、T 的角色行、单测与一个 Lab 场景）。neurobot.md 第六节“由事件开启的轮次”已有同样设想，这里补充了 author 伪装的现状与副作用。
+
+### 2. 等用户时审批向导一律替换输入框，没有开关
+类别：不推荐耦合
+位置：V:306-309（blockingInputs/dockedInputs 的划分）、V:522-531（输入框 v-show=!waitingForUser 且 inert）、wizard.ts:99（isDocked = 带 source 或 async）。
+现象 [读码]：有阻塞事项时输入框被隐藏并失去焦点，用户不能说话；视图没有 prop 改这一点。停靠区是现成的“并存”形态（不替换输入框），但进入条件是事项自带的 `async` 或 `source`，语义是“异步提问/后代会话的事项”：把普通审批标成 async 能蹭到并存，但停靠区一次一个、各自单独提交、没有“全部拒绝”（Spec“停靠区”），与同步向导对一批审批的处理不同，且 async 的含义被改写。
+挡住：bot 模式的“等用户时输入框与审批并存”（neurobot.md 第四节第 8 小节）；bot 常驻时主对话停在等批准，用户却想先说一句别的话。
+建议：给 PendingInputCommon 加显式的 `placement?: "wizard" | "dock"`，isDocked 先看它，缺省沿用现在的规则；停靠区对批量审批的单项提交语义在 Spec 里写清。比加视图 prop 好：并存与否按事项定，宿主可以只让某类事项并存。代价：小到中（wizard.ts、V 两处、Spec 与停靠区对批量审批的验收；“记住”的收口见第 8 条）。
+
+### 3. 整段历史一次取完：适配器只会“整份重建路径”，宿主没有用视图已有的分页
+类别：不推荐耦合
+位置：SH:400-415（loadPath 循环取完 `more`，最后一次 applyPath）；KT:679-690（applyPath 先 resetPath 再整份归约）；KT:158-183 与 426（压缩详情的 keptTurns 靠路径上全部 turnStarted 数“保留了几轮”）；V:178-250、283-292（视图已有 history.hasMore/loading/error 与 history.loadPrevious）；搜 SH 内没有给 ctx.history 赋值（createAgentContext 缺省 hasMore=false）。
+现象 [读码]：视图侧已经会往前分页，适配器与宿主侧不会：没有“只应用路径后缀”“往前补一页”的入口，窗口化后 keptTurns 也会算错（数不到被窗口外的轮）。[推断]：消息流没有虚拟列表或 content-visibility（在 packages/nb-agent-ui/src 内搜 virtual、content-visibility、IntersectionObserver，只有分支树里一处），所有轮次都进 DOM；运行中宿主每秒换一次 ctx（SH:48,803-816），视图每次对全部消息跑 splitIntoTurnGroups 与 reuseTurnGroups（V:217，O(n)）。
+挡住：bot 模式（一条不断的对话，几周后每次打开、重连都整条重取重画；neurobot.md 第四节第 8 小节“长流按窗口取”）；会话加 bot 模式里 bot 对话与大量子会话并存时的内存。
+建议：KernelTranscript 加 `applyPath(events, {partial: true})` 与 `prependPath(events)`（保持引用稳定，已交出的消息对象不动）；keptTurns 在窗口内数不到时给 null（CompactionView 已允许 null）；宿主实现 loadPrevious。长流渲染开销另测，没证据前不加虚拟列表。代价：中（适配器两个入口与它的契约测试、keptTurns 兜底、宿主分页；视图基本不用动）。
+
+### 4. 适配器对扩展事件一律跳过，没有“扩展事件到消息”的映射入口
+类别：不推荐耦合
+位置：KT:558（isExtensionEvent：type 含 "/" 或 record.kind 为 "ext"）、KT:685 与 707（跳过）；createKernelTranscript 的 options 只有 toolName 与 authorOf（KT:234）；harness.ts applyEvent 的 default 把不认识的事件记成 problem（旧适配器）。
+现象 [读码]：扩展写进日志的事件（提醒、任务结果、bot 之间的消息、日程）不会变成任何视图消息；只会被 notePath 记进路径与锚点。认不出的非扩展事件会记进 problems()，但扩展事件连 problems 也不进。
+挡住：bot 模式的事件消息；与第 1 条配套：映射出来的消息要能自成一轮。
+建议：options 加 `extensionEvent?: (event: {type; data; id; at}) => MessageView | readonly MessageView[] | null`，在 reducePath 的跳过之前调用，返回的消息按路径顺序进 logged；映射函数由宿主给，核心不认扩展的具体形状。代价：小（一个选项、applyPath 与 applyEvent 两处调用、契约测试）。
+
+### 5. 助手的名字、头像与模型徽章是整个视图一份，消息上没有说话者
+类别：不推荐耦合
+位置：T:98-109（assistant 角色取注册表里唯一一项，头像优先 ctx.session.profileIcon）、T:198-200（角色行总写 lastAssistant.model）；vue/builtin-roles.ts；types.ts:77（只有 UserMessageView 有 author）、types.ts:95-117（AssistantMessageView 没有）；types.ts:170 的 profileName 在 nb-agent-ui/src 内没有渲染处（搜到的只有类型与测试）。
+现象 [读码]：bot 的名字只能靠“换掉 assistant 角色的静态 label”，头像靠 SessionView.profileIcon；同一对话里换了说话者（bot 之间讨论）画不出来。模型徽章不能关：模型按 bot 设置、用户不该关心时，每轮仍挂一个。
+挡住：bot 模式的身份展示；以后 bot 之间讨论（至少两个助手说话者）。
+建议：AssistantMessageView 加可选 `author?: {label: Text; icon: string}`（与 UserMessageView 同形），T 的助手角色行优先用它；加一个视图级开关或 ctx 字段隐藏模型徽章。代价：小到中（types、T、AgentRawView 显示、测试）。
+
+### 6. 宿主的数据层（session-host.ts，1751 行）把“打开一个会话”的流程、内核协议、NeuroBook 概念和 ctx 装配揉在一起
+类别：可以拆开（代价大，延后）
+位置：SH:252-1751。装配 ctx 在 SH:1590-1700；打开/新建/恢复在 SH:922-1062（recent、drafts 都按“位置最近用过的会话”）；NeuroBook 概念：Profile 与主创（SH:36,1608-1655）、权限规则（rememberRules，SH:143-185）、Skill、Agent 模式 normal/discuss/plan（SH:94-98）、模型服务的角色（RoleOption）、作品 project；`nbook/…` 导入 3 处（localized-text、models/shared/contracts、shared/settings）；CH:109-135 与 plugin.ts:395-530 里装配 registry、renderers、services。
+现象 [读码]：宿主一个“对话位置”对应一个 SessionHost，核心动作是 open(sessionId)；固定会话的 bot 位置要改成“打开固定 id、不显示 create/select”，会话列表、profile 选择、welcome 的最近对话、draftProfile 都用不上。作为 NeuroBook 内置插件时，复用 SessionHost 加一组关闭项即可；以后的 NeuroBot 不依赖 @notnotype/neuro-book（neurobot.md 第四节第 3 小节），要复制或重写这 1751 行里的纯逻辑。
+挡住：NeuroBot 复用；bot 作为内置插件时只是多写一些“关掉”的配置。
+建议：不现在拆。bot 先在 NeuroBook 内置插件里做，用 SessionHost 加参数（固定会话、关会话操作），验证“bot 需要哪些关”之后，再把已是纯函数的部分挪进 nb-agent-ui 核心：recallOf（SH:102）、pendingView 的映射（SH:1535-1590）、branchesOf/rewindTargetFor（SH:583-635）、用量与 availability 的装配（SH:1590-1700）。代价：大（NeuroBot 开工时才值得；窄场景先走简单做法）。
+
+### 7. 内置登记一包拿走，命令缺省全开，还带着没有 v2 工具对应的旧名
+类别：可以拆开
+位置：vue/builtins.ts（四份登记合成一个 builtinContributions）；vue/builtin-composer.ts:30-35（命令的 when：interaction.commands 为 undefined 时全部显示，含 /new /fork /rename /clear /summarize /plan /mode）；builtin-tools.ts:172-201（request_user_input/ask、switch_mode、run_workflow、execute_sql、agent_collaboration 里的 create_agent、invoke_agent、detach_agent、report_result）。
+现象 [读码]：会话式命令的缺省极性是“全开”，不是会话式的宿主忘了写 interaction.commands 就会列出发出去没人处理的死入口（nb-story 的做法是整个不装，QaPage.vue:54-63）。工具名：在 packages/ 内除 legacy、llmlint 外没搜到 create_agent、invoke_agent、detach_agent、report_result、execute_sql、run_workflow、request_user_input 这些名字的定义，v2 的子代理工具是 agent_spawn 等，由宿主自己登记（agent/web/subagent-renderers.ts:30-35）；switch_mode、/plan、模式向导是 NeuroBook 的概念，但 composer.modes 是通用列表，不算越界。
+挡住：bot 模式不想要 /new /fork /clear；NeuroBot 想要一份不带旧名的工具登记。
+建议：builtin-composer 拆成“输入框触发字符”与“会话式命令”两份，后者不进缺省的 builtinContributions，宿主明确加；builtin-tools.ts 删掉在 v2 里没有对应工具的旧名（先确认 nb-story 与 Lab 不用）。代价：小（两个文件、测试里的断言、README 一句）。
+
+### 8. “本会话都批准/以后都允许”两个按钮与“会话”字样的界面文案
+类别：可以拆开
+位置：vue/wizard/AgentApprovalWizard.vue:115-116（两个按钮只受 item.remember !== false 控制）；types.ts:291；locales/zh-CN.ts 中的文案：352、355（本会话都批准）、195（只对这个会话生效）、213-214（当前会话不能添加图片/文件）、432（本会话命中率）、502（会话费用已达上限）、507（开一个新会话）等 [读码，共 32 处含“会话”，其中约 13 处是会话列表与会话面板自己的文案，这些正当]。
+现象：neurobot.md 要求“两个记住收成一个按 bot 的范围”，现在不能只留一个或改文案；错误文案里的“开一个新会话”对“用户看不到会话”的 bot 是错的话。会话列表有 labels 覆盖（README 会话列表一节），视图文案没有。
+建议：PendingApprovalView.remember 改成可带 `scopes`（或一个 `scope: {label: Text}`）决定画哪几个按钮与文案；视图里不属于会话列表的“会话”字样改成中性说法（“对话”），或给视图加 `labels` 覆盖。代价：小（向导一个组件加字段，文案改 10 来处，locales.test.ts 照常核对）。
+
+### 9. 顶栏是一整块：关会话标题栏就连带关掉溢出菜单与宿主入口
+类别：可以拆开
+位置：V:47,408（header 为 false 则整块不渲染）；H:117（溢出菜单在顶栏右列里，且要求 session !== null）；H:62-80（左列：子会话是返回箭头，否则 newSession 时是新建）；H:48-49（标题是会话标题，空串写“未命名会话”，无会话写“新对话”）；V:140-146（溢出项：上下文、分支树、登记的顶栏动作、原始视图切换）。
+现象 [读码]：Spec“顶栏”承认 header=false 后原始视图入口随之没有，宿主要用受控 viewMode。同样没有的还有：分支树入口（只在溢出菜单里）、登记的顶栏动作（常驻两个、其余溢出）、head-trailing 插槽。bot 想要“只显示 bot 名字与头像，不显示会话标题，但保留查看模型请求、上下文”时做不到。
+挡住：bot 模式的顶栏；会话加 bot 模式里 bot 的头与会话的头样式不同。
+建议：把 AgentConversationHead 作为受管组件导出（现在是内部零件，H 已经是自包含的，三列 Teleport），视图再加一个 `head` 插槽，缺省仍是现在的头；宿主要 bot 头就用自己的组件，溢出菜单的内容作为 ctx 或登记项的结果交给它（或把溢出菜单抽成一个可单独挂的组件）。代价：中（导出与 .md、一个插槽、溢出菜单抽组件；不必改已有宿主）。
+
+### 10. 两个适配器重复实现，旧的 harness.ts 只剩 nb-story 在用
+类别：可以拆开
+位置：harness.ts（417 行，OMP 日志）与 KT（768 行，新内核）各自一份 isRecord/stringField/numberField/toJsonValue 与 ERROR_KEYS（harness.ts:55-70,101-109；KT:111-135,141-150）；ADR 0035 第 51 行写明迁移 Task 把 nb-story 与 nb-agent-ui 改到新内核后删旧实现；nb-story 仍用 createHarnessTranscript（nb-story/src/web/qa/turn-transcripts.ts:12,24）。docs/modules/monorepo-boundaries.md:19 与 Spec“边界与兼容”里把 harness 适配器当本包的合同，没有区分新旧。
+现象 [读码]：bot 要在新内核（KT）上做；第 1、3、4 条的新入口都只加在 KT。旧适配器下改动会白做，也容易两边漂移。
+建议：新入口只加在 KT；两份共同的小函数抽一个内部文件（text.ts 旁），等 nb-story 迁移后删 harness.ts；Spec 与 boundaries 一句话写明“harness.ts 是旧内核适配器，待退役”。代价：小。
+
+### 11. 合同里有没人发出、没人读的字段与扩展点
+类别：可以拆开
+位置：registry.ts:398-399（panels、trayItems 两个扩展点会合并，但在 nb-agent-ui/src 内没搜到消费方；checkHeaderTargets 还在拒绝 panel 目标，registry.ts:436-441）；types.ts 的 ctx.workspaceChanges、ctx.extensions（只被宿主渲染器读）、ctx.workflows（只有 vue/stream/AgentTurnBlock.vue:73 读 currentAction）；action 类型 sessions.query、view.close、changes.select/accept/acceptAll/refresh/openInbox、linkedAgents.refresh、attachments.query、context.selectTrace、history.refresh、workflow.submit/cancel 在 nb-agent-ui/src 内没搜到发出处（session.rename/archive/restore 由 AgentSessionPanel.vue:162-163 发出，不算）。Spec“待处理区依次显示已登记条目；内置条目为 Workflow 待回答、工作区变更、排队消息”里前两项没有实现。
+现象 [读码]：这些是旧应用 61 项功能基线的遗留（Spec“目标与非目标”），不影响运行，但宿主作者读 Spec 会以为要填。
+建议：标 planned 或删除；panels/trayItems 要么实现要么删点。代价：小，但会碰注册表测试与 Spec。优先级低于上面各条。
+
+### 12. 关闭方式散在 props、ctx.interaction、ctx.composer、注册表四处，没有成文的“用法档”
+类别：可以拆开
+位置：NeuroBook 宿主 CH:109-125（status-bar、new-session、welcome、draft-profile、status-line、head-targets、sessions-open、两个插槽）与 nb-story QaPage.vue:56-63,308,594（header=false、process-disclosure=live、composer-layout=inline、不装内置工具与命令、interaction 只写四项）各自推出一组组合；没有一处写“只读问答档、会话档、bot 档分别要开哪些”。
+现象 [读码]：第二个宿主（nb-story）就已经重新推了一遍；bot 与 NeuroBot 会再推两遍。组合错了的失败是静默的（例如命令缺省全开，见第 7 条）。
+建议：在 Spec“输入与前置条件”加一节“用法档”，用表写会话档、问答档、bot 档各自的 props、interaction、registry 与 ctx 约定；每档一个 Lab 场景加一条挂载测试，防止某个“关”被改坏。代价：小（文档与测试，不动结构）。见第三节的形状推荐。
+
+### 13. 日期分隔线与未读分隔线没有地方放
+类别：可以拆开
+位置：CT:307-309（isDividerSource 只认 compaction 与 branch_summary）、CT:366-367 与 CT:428-433（最终回复之后的分隔线被收进轮末 trailing，不会出现在两轮之间）；vue/stream/AgentTurnBlock.vue:149-161（分隔线是消息的 label 加可选展开体）。
+现象 [读码]：宿主想在两轮之间放“11月17日”这样的线，只能造 source 为 custom 的 system 消息，那会画成淡色信息条目（不是分隔线），而且并进上一轮。neurobot.md 的“按天分隔线”“你离开后的未读分隔线”都落在这里。
+建议：与第 1 条一起做：system 消息加 `startsTurn` 后，如果它的 source 是新值 `divider`（或字段 `variant: "divider"`），分轮时放在轮与轮之间、不属于任何一轮，轮末汇总与整轮收起都不算它。代价：小（和第 1 条同一处改动，加一个 source 值与渲染分支）。
+
+### 14. 视图根组件是 758 行的单体编排，零件只经 ./lab 暴露
+类别：可以接受
+位置：V（滚动与跟随、历史分页、欢迎屏、向导与停靠区与输入框的互斥、预览对话框、检查器与分支树弹窗）；AGENTS.md“边界”末条：./vue 只导出 View、SessionList、SessionPanel、ModelCatalog、RequestTrace（另有 AgentStatusBar，vue/index.ts:11），零件走 ./lab“不是宿主接口”。
+理由 [读码+判断]：三种用法的差别已经落在可单独换的几块上（会话列表与面板本来就在视图外，顶栏可以第 9 条那样抽出，ctx 与注册表控制其余），而滚动跟随、分页、向导与输入框的互斥、焦点回收是一团相互依赖的时序（V:193-310 一整段），拆成可拼装的零件会把这团时序交给每个宿主，各写各的，漂移的风险高于收益。保持一个编排组件，把“变的部分”做成数据字段与插槽（第 1、2、5、9 条）。
+
+### 15. 其余可以接受的耦合
+类别：可以接受（逐项给理由）
+(a) ctx.session 是会话（V:204,256,473,519 用 session.id 做滚动重置与组件 key；types.ts:166-180）：bot 是一个固定会话，会话加 bot 模式里切换会话也就是切 ctx；bot 的身份先映射到 SessionView 的 profileName/profileIcon，第 5 条加 author 后再收窄。
+(b) Markdown 与编辑器注入（ports.ts，vue/host.ts，boundary.test.ts 三条机检，nb-markdown 有 agent-ports.typecheck.ts）：边界清晰，缺省实现能独立挂载。AgentViewRenderers 里的 form、backgroundCommand 是带领域味的槽，但是通用的“宿主给组件”形状，不挡任何场景。
+(c) 状态栏按会话累计用量、无会话时不画数据项（AgentStatusBar.vue:94,127-129）：bot 一生累计的费用没有意义，由宿主决定 usage 给什么（例如今天或最近一次压缩以来），视图不用改。
+(d) 贴纸与模型请求页：已经在视图之外（宿主登记与 nbook.markdown），关了不坏本包。NeuroBot 要贴纸要在自己的 Markdown 展示器里接，与本包无关。
+(e) steer 一律显示为“补充说明”条（vue/stream/AgentTurnBlock.vue:166-167）：neurobot.md 说怎么显示在 t03 设计评审里定，现在没有证据说明需要开关；评审定了再加。
+(f) 文档与现状不一致，只需改字：docs/modules/monorepo-boundaries.md:19 说核心“不依赖任何包”，AGENTS.md 与 boundary.test.ts 是“只依赖 @notnotype/nb-ui/text”；Spec“边界与兼容”第一条说“当前宿主只有新应用 Component Lab 的场景”，实际宿主是 NeuroBook 的 agent 插件与 nb-story。
+
+## 三、三种用法下包应该是什么形状
+
+推荐：保持“无界面的核心 加 一个编排好的视图”，把三种用法的差别做成数据字段、事项级字段和少数插槽；不拆成几种外壳，也不堆布尔开关。
+理由：
+- 核心已经是无界面的（types、conversation-turns、registry、kernel-transcript、wizard、composer-actions、status-line，boundary.test.ts 机检不引 Vue 运行时）；会话列表与面板也早已在视图外。差别大的“外壳”就是顶栏与会话导航，这两块要么已独立，要么按第 9 条抽出即可。
+- 滚动跟随、分页、向导与输入框互斥是一团时序（第 14 条），拆成零件会让每个宿主各写一份。
+- 实际要关的东西大多已经是数据驱动（canMutateHistory、canOpenTree、composer.models 为空、statusBar、header），缺的是：轮次起点、事项并存、说话者、事件映射、窗口化。这五样都是“消息或事项上加可选字段”，缺省行为不变，nb-story 与 NeuroBook 现有用法不受影响。
+- 布尔开关越多组合越多；所以另外把组合写成“用法档”（第 12 条），每档有一个场景与挂载测试。
+
+三档的约定（建议写进 Spec）：
+1. 会话档（现状）：header 或 headTargets，sessions 插槽，newSession，statusBar，内置四份登记，canMutateHistory 与 canOpenTree 按会话，审批向导替换输入框。
+2. bot 档：无会话标题（用第 9 条的 head 插槽放 bot 的头）、无 sessions 插槽、无 newSession；不装 builtinMessageActionsContribution（或 canMutateHistory 保持 false）；不给 canOpenTree；composer.models 为空（隐藏模型选择）；interaction.commands 只列宿主做了的；事项 placement 取 dock（第 2 条）；事件经适配器的 extensionEvent 映射成带 startsTurn/origin 的消息（第 1、4、13 条）；助手消息带 author（第 5 条）；历史由宿主按窗口取、视图按 history.loadPrevious 往前翻（第 3 条）；欢迎屏 welcome 为 null。
+3. 会话加 bot 档：两个视图并排，宿主各给自己的 ctx（bot 的固定会话与被选中的子会话），中间或旁边挂 AgentSessionList，bot 的行带 icon 与 status；bot 派出的会话在 bot 的流里用宿主登记的工具卡片画（现有 SubagentCard 做法），子会话的待处理事项经 PendingInputCommon.source 进 bot 视图的停靠区，点“打开子会话”发 session.select；子会话视图保持会话档，顶栏返回箭头靠 ctx.session.path。这一档不需要视图支持“同时显示两个会话”。
+
+## 四、推荐先做的五件事（都是小到中，缺省行为不变）
+1. 消息加 startsTurn 与 origin，适配器加 extensionEvent 映射入口，分隔线按天放在两轮之间（第 1、4、13 条合并做；小）。这是 bot 的核心：没有它，事件内容会污染上一轮。
+2. PendingInputCommon 加 placement，等用户时审批与输入框并存（第 2 条；小到中，含停靠区批量审批语义的 Spec 与验收）。
+3. 适配器支持只应用路径后缀与往前补一页，keptTurns 窗口内算不出给 null，宿主实现 loadPrevious（第 3 条；中）。先量长对话打开与每秒换 ctx 的耗时，再决定要不要虚拟列表。
+4. AssistantMessageView 加 author，模型徽章可关（第 5 条；小到中）。
+5. 把三档用法写进 Spec 并各配一个 Lab 场景与挂载测试；顺手修会话式命令缺省全开与旧工具名（第 7 条）、“记住”按钮范围与“会话”文案（第 8 条）（第 7、8、12 条；小）。
+之后：顶栏抽成可替换的 head 插槽（第 9 条，中）；NeuroBot 开工时才拆 session-host 的纯函数（第 6 条，大）；harness.ts 随 nb-story 迁移退役（第 10 条）；死合同清理（第 11 条）。
+
+## 五、条数
+不推荐耦合 5 条（第 1 到 5 条）；可以拆开 8 条（第 6 到 13 条）；可以接受 2 条（第 14 条，第 15 条含 (a) 到 (f) 六小项）。已被 boundary.test.ts 挡住、没有重复报的：核心不引 Vue 运行时与宿主源码、Vue 层不引宿主源码。
+未覆盖：没有跑 Lab、e2e 与开发服务；第 3 条的性能判断是 [推断]；没有逐个读 AgentRequestTrace、AgentModelCatalog、AgentContextInspector 的内部（只核对了它们与视图的接口）。

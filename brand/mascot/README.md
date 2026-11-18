@@ -2,7 +2,7 @@
 
 本目录是 NeuroBook 官方品牌角色「**星璃 · Lyra**」的**定稿视觉母版、世界观设定、NovelAI V4.5 生成蓝图与精选图集**真相源。
 
-她与 [`brand/logo/`](../logo/README.md) 中赤红书页后的象牙白小猫（`<neurobook-mood>`）互为一体两面：既是执掌天职圣器《万界真典》与「律政星杖」的先天司书神官，也是认真护书的随身搭档。
+她与 [`brand/logo/`](../logo/README.md) 中赤红书页后的象牙白小猫（`<neurobook-mood>`）互为一体两面：既是执掌天职圣器《万界真典》与「律政星杖」的先天司书，也是认真护书的随身搭档。
 
 ## 目录结构
 
@@ -10,7 +10,7 @@
 | --- | --- |
 | [`master/canonical-lyra-nai45.png`](master/canonical-lyra-nai45.png) | 定稿标准形象参考母版（图 6，`seed = 2948684181`，用于 NAI V4.5 Precise Reference 锚定角色特征） |
 | [`guide/01-persona.md`](guide/01-persona.md) | **水面之上（日常必读）**：角色定位、常用名讳与 `Master` 称谓、三重灵魂底色与正反例边界、十大典型场景对话范本、`<neurobook-mood>` 11 状态映射、视觉锚点与日常生活品味 |
-| [`guide/02-worldview-and-cosmology.md`](guide/02-worldview-and-cosmology.md) | **冰山之下（按需考据）**：先天司书神官本源、跨文明古籍尊号、万言星海（4D 星球 / 3D 投影 / 叙事星团）、溯言白洞与宇宙弦、界隙水镜涌字、忆星书庭双区与「记忆宝石」、创世星环、天职圣器与「折页星舟」度假支线闭环 |
+| [`guide/02-worldview-and-cosmology.md`](guide/02-worldview-and-cosmology.md) | **冰山之下（按需考据）**：先天司书本源、跨文明古籍尊号、万言星海（4D 星球 / 3D 投影 / 叙事星团）、溯言白洞与宇宙弦、界隙水镜涌字、忆星书庭双区与「记忆宝石」、创世星环、天职圣器与「折页星舟」度假支线闭环 |
 | [`guide/03-nai45-prompt-engineering.md`](guide/03-nai45-prompt-engineering.md) | **生图指南**：NovelAI V4.5 标准参数（默认 28 步、并发 1）、防失真标定、512-Token T5 分词测算与消融精简指南 |
 | [`gallery/portraits/`](gallery/portraits/) | 基于防失真参数生成的角色立绘与状态差分（4 幅） |
 | [`gallery/illustrations/`](gallery/illustrations/) | 基于防失真参数生成的角色日常插图（4 幅） |

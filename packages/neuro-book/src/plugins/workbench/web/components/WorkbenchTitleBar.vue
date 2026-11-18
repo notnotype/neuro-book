@@ -28,6 +28,8 @@ const props = defineProps<{
     searchShortcut: string | null;
     layout: Readonly<Record<Part, LayoutButton>>;
     items: StripEntry[];
+    /** “回到书架”命令的标题；命令不在目录里（没装书架插件）时为 null 或不给：作品下拉没有这一项，标志不可点。 */
+    shelf?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -36,6 +38,7 @@ const emit = defineEmits<{
     (event: "toggle-part", part: Part): void;
     (event: "open-project"): void;
     (event: "run-item", itemId: string): void;
+    (event: "back-to-shelf"): void;
 }>();
 
 /** 布局按钮的名字（目录里 `titlebar.toggle` 下的键）。 */
@@ -43,14 +46,17 @@ const TOGGLE_KEYS: Readonly<Record<Part, WorkbenchTextKey>> = {sidebar: "titleba
 
 /**
  * 判定让位时搜索要留的宽度（外壳四输出 30）：两侧先让，搜索留着这么宽；全部收完以后搜索才继续收窄，网格保证它最窄
- * 120px、仍是一条带文字的长条。取值按第一轮让位表（中文、项目名两个字时约 1040、900、760、640、520 处切换）反推。
+ * 120px、仍是一条带文字的长条。取值略小于搜索的最宽值（360px）：搜索窄一点仍然够用，两侧不必为了让它撑满而早早收起（2026-11-18 搜索收窄时从 480 改成 320）。
  */
-const SEARCH_COMFORT = 480;
+const SEARCH_COMFORT = 320;
 /** 条目区收到最少时只剩“更多”，与条目同高的方形按钮。 */
 const ITEMS_MORE = 28;
 const PART_ICONS: Readonly<Record<Part, string>> = {sidebar: "i-lucide-panel-left", panel: "i-lucide-panel-bottom", auxiliarybar: "i-lucide-panel-right"};
 const PARTS: ReadonlyArray<Part> = ["sidebar", "panel", "auxiliarybar"];
 const OPEN_PROJECT = "open-project";
+const BACK_TO_SHELF = "back-to-shelf";
+/** 在标志上按下后移动超过这么多像素再松开，不算点击：想拖窗口却按在了标志上（桌面窗口里标志不是拖动区域）。 */
+const CLICK_SLOP = 4;
 const GROUP_PREFIX = "group:";
 
 const text = useWorkbenchText();
@@ -160,11 +166,18 @@ const compactItems = computed<DropdownMenuItemData[]>(() => menus.value.map((gro
     children: sectioned(group.sections, dropdownItemOf, (index) => ({label: "", id: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
-const projectItems = computed<DropdownMenuItemData[]>(() => [{label: text("titlebar.openProject"), id: OPEN_PROJECT}]);
+const projectItems = computed<DropdownMenuItemData[]>(() => [
+    {label: text("titlebar.openProject"), id: OPEN_PROJECT},
+    ...(props.shelf == null ? [] : [{label: props.shelf, id: BACK_TO_SHELF}]),
+]);
 
 function select(value: string): void {
     if (value === OPEN_PROJECT) {
         emit("open-project");
+        return;
+    }
+    if (value === BACK_TO_SHELF) {
+        emit("back-to-shelf");
         return;
     }
     const entry = entries.value.get(value);
@@ -288,6 +301,20 @@ function onRootKeydown(event: KeyboardEvent): void {
     void nextTick(() => endSession(true));
 }
 
+let brandPress: {readonly x: number; readonly y: number} | null = null;
+
+function onBrandPointerdown(event: PointerEvent): void {
+    brandPress = {x: event.clientX, y: event.clientY};
+}
+
+function onBrandClick(event: MouseEvent): void {
+    const press = brandPress;
+    brandPress = null;
+    // 键盘触发的 click 没有按下记录（detail 为 0）：照常执行。
+    if (press !== null && event.detail > 0 && Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK_SLOP) return;
+    emit("back-to-shelf");
+}
+
 onMounted(() => {
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("keyup", onKeyup, true);
@@ -303,13 +330,27 @@ onBeforeUnmount(() => {
 <template>
     <header ref="root" class="workbench-titlebar" :aria-label="text('titlebar.label')" data-workbench-titlebar data-desktop-titlebar :data-titlebar-level="level" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
         <div class="workbench-titlebar__start">
-            <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
-            <NeuroBookMark v-else class="workbench-titlebar__mark" />
+            <!--
+                标志：有“回到书架”命令时是回书架的按钮，否则只是图案。两种都包在同一个盒子里，内边距等于原来标志的左右外边距之和，
+                盒子宽度与测量层量的一样，让位的切换点不变。
+            -->
+            <component
+                :is="shelf == null ? 'span' : 'button'"
+                class="workbench-titlebar__brand-box"
+                :class="[showLockup ? 'workbench-titlebar__brand-box--lockup' : 'workbench-titlebar__brand-box--mark', shelf == null ? '' : 'workbench-titlebar__brand-button nb-ui-focus-ring']"
+                v-bind="shelf == null ? {} : {type: 'button', 'aria-label': shelf, title: shelf}"
+                data-titlebar-brand
+                @pointerdown="shelf == null ? undefined : onBrandPointerdown($event)"
+                @click="shelf == null ? undefined : onBrandClick($event)"
+            >
+                <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
+                <NeuroBookMark v-else class="workbench-titlebar__mark" />
+            </component>
             <DropdownMenu v-if="project !== null" :items="projectItems" align="start" @select="select">
                 <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="text('titlebar.projectButton', {name: project})" data-titlebar-project>
                     <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                     <span v-if="showProjectName" class="workbench-titlebar__project-name">{{ project }}</span>
-                    <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+                    <span class="i-lucide-chevron-down workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                 </Button>
             </DropdownMenu>
             <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" :title="text('titlebar.openProject')" :aria-label="text('titlebar.openProject')" data-titlebar-project @click="emit('open-project')">
@@ -391,10 +432,10 @@ onBeforeUnmount(() => {
     /*
      * 左右两栏等分，搜索才在整条标题栏的正中；左组（标志、项目、菜单）放不进一半时左栏按内容撑开，搜索往右让。
      * 两边都不让挤掉：左右栏最小取内容宽（项目名有上限、会截断，条目区有上限、多的收进“更多”），空间不够时收窄的是
-     * 中间的搜索，最宽 560px、最窄 120px；再不够就按 `level` 逐级收起两侧的项（外壳四输出 30）。
+     * 中间的搜索，最宽 360px、最窄 120px；再不够就按 `level` 逐级收起两侧的项（外壳四输出 30）。
      */
     position: relative;
-    grid-template-columns: minmax(max-content, 1fr) minmax(120px, 560px) minmax(max-content, 1fr);
+    grid-template-columns: minmax(max-content, 1fr) minmax(120px, 360px) minmax(max-content, 1fr);
     align-items: center;
     gap: var(--space-2);
     width: 100%;
@@ -433,11 +474,26 @@ onBeforeUnmount(() => {
     min-width: 0;
 }
 
-/* 横排标志（标志 + 字标，墨色跟随文字色）；放不下时先换成单独的图形标志。测量层的复本同样的盒子。 */
+/*
+ * 横排标志（标志 + 字标，墨色跟随文字色）；放不下时先换成单独的图形标志。测量层的复本按外边距量：真元素包在 brand-box 里，
+ * 盒子的左右内边距之和等于复本的左右外边距之和，两边宽度相同。
+ */
 .workbench-titlebar__brand,
 .workbench-titlebar__measure-lockup {
     flex: 0 0 auto;
     height: 17px;
+}
+
+/*
+ * 字标的基线比同一行的菜单、项目名文字低约 2px（Windows 上实测：字标底在 25px，文字的基线在 23px 上下）：往上提 1px，
+ * 图形仍在 26px 的悬停面里、基本居中。只提图形、不动悬停面，面与邻居的按钮同高。测量层的复本只量宽度，不用提。
+ */
+.workbench-titlebar__brand {
+    position: relative;
+    top: -1px;
+}
+
+.workbench-titlebar__measure-lockup {
     margin-inline: var(--space-1) var(--space-2);
 }
 
@@ -445,7 +501,52 @@ onBeforeUnmount(() => {
 .workbench-titlebar__measure-mark {
     flex: 0 0 auto;
     height: 18px;
+}
+
+.workbench-titlebar__measure-mark {
     margin-inline: var(--space-1);
+}
+
+/* 高度与标题栏里的 IconButton（sm）同样 26px：悬停面与邻居一样高。 */
+.workbench-titlebar__brand-box {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    height: 26px;
+    color: inherit;
+}
+
+.workbench-titlebar__brand-box--lockup {
+    padding-inline: calc((var(--space-1) + var(--space-2)) / 2);
+}
+
+.workbench-titlebar__brand-box--mark {
+    padding-inline: var(--space-1);
+}
+
+/* 与标题栏里别的按钮同向的反馈（nb-ui IconButton default 的悬停与按下底色），不改标志的墨色。 */
+.workbench-titlebar__brand-button {
+    border: 0;
+    border-radius: var(--radius-button-sm);
+    background: transparent;
+    cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-titlebar__brand-button:hover {
+    background: color-mix(in srgb, var(--text-main) 15%, transparent);
+}
+
+.workbench-titlebar__brand-button:active {
+    background: color-mix(in srgb, var(--text-main) 24%, transparent);
+}
+
+@media (forced-colors: active) {
+    .workbench-titlebar__brand-button:hover,
+    .workbench-titlebar__brand-button:active {
+        background: Highlight;
+        color: HighlightText;
+    }
 }
 
 /* 项目切换与菜单之间的短分隔。 */
@@ -495,9 +596,11 @@ onBeforeUnmount(() => {
     font-size: var(--text-2xs);
 }
 
+/* 项目名与旁边的菜单文字同色（图标与下拉箭头仍是淡的）：名字淡一档时，在一排深色文字里像是没对齐。 */
 .workbench-titlebar__project {
     min-width: 0;
     max-width: 220px;
+    color: var(--text-main);
 }
 
 .workbench-titlebar__project-name,
@@ -529,23 +632,5 @@ onBeforeUnmount(() => {
     visibility: hidden;
     pointer-events: none;
     white-space: nowrap;
-}
-</style>
-
-<style>
-/*
- * 桌面窗口里标题栏就是窗口的拖动区域（ui/workbench-shell.md 输出 28，browser-host 的“窗口外框”）：空白处 drag，拖动、双击最大化、
- * 贴边分屏由 WebView2 交给系统；有点击或悬停行为的一切 no-drag，否则点下去就是拖窗口。普通浏览器里 app-region 不生效。
- * 不放进 scoped 块：scoped 选择器命不中子组件内部渲染的元素（nb-ui Menubar 里 reka 的菜单触发器）。无命令的条目也有悬停提示，
- * 一并 no-drag。
- */
-[data-desktop-titlebar] {
-    -webkit-app-region: drag;
-    app-region: drag;
-}
-
-[data-desktop-titlebar] :is(button, a[href], input, select, textarea, [role="menubar"], [role="menuitem"], [role="button"], [tabindex]:not([tabindex="-1"]), [data-workbench-item]) {
-    -webkit-app-region: no-drag;
-    app-region: no-drag;
 }
 </style>

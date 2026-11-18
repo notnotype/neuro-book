@@ -25,8 +25,8 @@ const menus: MenuGroup[] = [
 ];
 const layout = {sidebar: {pressed: true, disabled: false}, panel: {pressed: false, disabled: false}, auxiliarybar: {pressed: false, disabled: true}};
 
-function mountBar(project: string | null = "雾港") {
-    return mount(WorkbenchTitleBar, {props: {project, menus, searchShortcut: "Ctrl+Shift+P", layout, items: []}, global: {provide: provideText(workbenchTestText("zh-CN"))}, attachTo: document.body});
+function mountBar(project: string | null = "雾港", shelf: string | null = null) {
+    return mount(WorkbenchTitleBar, {props: {project, menus, searchShortcut: "Ctrl+Shift+P", layout, items: [], shelf}, global: {provide: provideText(workbenchTestText("zh-CN"))}, attachTo: document.body});
 }
 
 describe("WorkbenchTitleBar", () => {
@@ -80,6 +80,39 @@ describe("WorkbenchTitleBar", () => {
         const wrapper = mountBar(null);
         await wrapper.get("[data-titlebar-project]").trigger("click");
         expect(wrapper.emitted("open-project")).toHaveLength(1);
+        wrapper.unmount();
+    });
+
+    it("有“回到书架”命令时标志是可聚焦的按钮，名字是命令标题，点了发 back-to-shelf；按下后挪开超过 4px 再松开不算点击", async () => {
+        const wrapper = mountBar("雾港", "回到书架");
+        const brand = wrapper.get("button[data-titlebar-brand]");
+        expect(brand.attributes("aria-label")).toBe("回到书架");
+        expect(brand.attributes("tabindex")).toBeUndefined();
+        await brand.trigger("pointerdown", {clientX: 10, clientY: 10});
+        await brand.trigger("click", {clientX: 11, clientY: 12, detail: 1});
+        expect(wrapper.emitted("back-to-shelf")).toHaveLength(1);
+        await brand.trigger("pointerdown", {clientX: 10, clientY: 10});
+        await brand.trigger("click", {clientX: 30, clientY: 10, detail: 1});
+        expect(wrapper.emitted("back-to-shelf")).toHaveLength(1);
+        // 键盘触发的点击（detail 为 0）照常。
+        await brand.trigger("click", {detail: 0});
+        expect(wrapper.emitted("back-to-shelf")).toHaveLength(2);
+        wrapper.unmount();
+    });
+
+    it("没有作品但有“回到书架”命令：项目切换仍是单个“打开项目…”按钮，回书架经标志", async () => {
+        const wrapper = mountBar(null, "回到书架");
+        await wrapper.get("[data-titlebar-project]").trigger("click");
+        expect(wrapper.emitted("open-project")).toHaveLength(1);
+        await wrapper.get("button[data-titlebar-brand]").trigger("click", {detail: 0});
+        expect(wrapper.emitted("back-to-shelf")).toHaveLength(1);
+        wrapper.unmount();
+    });
+
+    it("没有“回到书架”命令（没装书架插件）时标志只是图案，不是按钮", () => {
+        const wrapper = mountBar("雾港", null);
+        expect(wrapper.find("button[data-titlebar-brand]").exists()).toBe(false);
+        expect(wrapper.find("[data-titlebar-brand]").exists()).toBe(true);
         wrapper.unmount();
     });
 

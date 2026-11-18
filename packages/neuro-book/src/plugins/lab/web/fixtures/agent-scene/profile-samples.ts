@@ -97,6 +97,19 @@ const WRITER_SKILLS: ProfileToolsField = {
     modified: true,
     candidates: [{id: "user", provider: "我的 Skill", tools: [{...agentRow("user.tts-preview", "tts-preview", "", "用本机的语音合成朗读选中的一段"), providerName: "user.tts-preview", blocked: false}]}],
 };
+/** 表情包的缩略图：一块带字的色块（SVG）。 */
+const stickerThumb = (label: string, color: string): string => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" rx="8" fill="${color}"/><text x="24" y="31" font-size="18" text-anchor="middle" fill="white">${label}</text></svg>`)}`;
+/** 写作助手的“表情包”一节：我加了星璃的，插件带来一个，一个被去掉。 */
+const WRITER_STICKERS: ProfileToolsField = {
+    groups: [
+        {id: "user", provider: "我的表情包", tools: [{...agentRow("user.lyra", "星璃", "我加的", "12 个表情 · 星璃的日常表情"), thumbnail: stickerThumb("璃", "#ea76cb")}]},
+        {id: "plugin:acme.cute", provider: "可爱表情", tools: [{...agentRow("acme.cute.cats", "猫猫", "", "40 个表情 · 各种猫"), thumbnail: stickerThumb("喵", "#df8e1d")}]},
+        {id: "removed", provider: "已去掉", tools: [{...agentRow("user.old", "旧表情", "", "3 个表情"), restorable: true}]},
+    ],
+    count: 2,
+    modified: true,
+    candidates: [{id: "user", provider: "我的表情包", tools: [{...agentRow("user.old", "旧表情", "", "3 个表情"), providerName: "user.old", blocked: false}]}],
+};
 /** 用户写的 Profile 的“Skill”一节：声明了几个，用户加了一个，一个已不在目录里。 */
 const LORE_SKILLS: ProfileToolsField = {
     groups: [
@@ -111,7 +124,7 @@ export const SAMPLE_WRITER_TOOLS = WRITER_TOOLS;
 export const SAMPLE_TOOL_CANDIDATES = CANDIDATES;
 
 export const SAMPLE_PROFILES: readonly ProfileView[] = [
-    {key: "nbook.agent.main", name: "写作助手", description: "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。", icon: "i-lucide-feather", source: "内置", statusText: null, hidden: false, user: false, notice: null, model: model(), approval: approval(), tools: WRITER_TOOLS, agents: WRITER_AGENTS, skills: WRITER_SKILLS},
+    {key: "nbook.agent.main", name: "写作助手", description: "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。", icon: "i-lucide-feather", source: "内置", statusText: null, hidden: false, user: false, notice: null, model: model(), approval: approval(), tools: WRITER_TOOLS, agents: WRITER_AGENTS, skills: WRITER_SKILLS, stickers: WRITER_STICKERS},
     {
         key: "user.lore-check",
         name: "设定核对",
@@ -127,6 +140,7 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         tools: LORE_TOOLS,
         agents: null,
         skills: LORE_SKILLS,
+        stickers: null,
     },
     {
         key: "user.draft-review",
@@ -143,6 +157,7 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         tools: null,
         agents: null,
         skills: null,
+        stickers: null,
     },
     {
         key: "plot.qa",
@@ -159,6 +174,7 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         tools: MISSING_TOOLS,
         agents: null,
         skills: null,
+        stickers: null,
     },
-    {key: "nbook.agent.session-title", name: "会话标题", description: "给一段对话起标题，并写一句说明。", icon: "i-lucide-heading", source: "内置", statusText: null, hidden: true, user: false, notice: null, model: model({hint: "跟随默认时用“微型”角色"}), approval: null, tools: null, agents: null, skills: null},
+    {key: "nbook.agent.session-title", name: "会话标题", description: "给一段对话起标题，并写一句说明。", icon: "i-lucide-heading", source: "内置", statusText: null, hidden: true, user: false, notice: null, model: model({hint: "跟随默认时用“微型”角色"}), approval: null, tools: null, agents: null, skills: null, stickers: null},
 ];

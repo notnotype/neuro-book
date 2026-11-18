@@ -38,16 +38,18 @@ import type {TrayView} from "../../../src/desktop/tray";
 import {scanApplyResults} from "../../../src/desktop/update-install";
 import type {UpdaterPort} from "../../../src/desktop/update-install";
 import type {OpenTarget, WindowId, WindowPort} from "../../../src/desktop/windows";
+import {centeredFrame, MIN_PAGE_SIZE, minimumFrame} from "../../../src/desktop/window-size";
+import type {Size} from "../../../src/desktop/window-size";
 import {DESKTOP_EVENT, parsePageMessage} from "../../../src/shared/desktop-bridge";
 import type {CloseReason, DesktopSettingValues, ShellMessage, WindowControl} from "../../../src/shared/desktop-bridge";
 import {PRODUCT_VERSION} from "../../../src/shared/product";
 
 import {preloadScript} from "./preload";
 import {changeLoginItem, readLoginItem} from "./login-item";
-import {adoptCustomFrame, setWindowIcon} from "./win32";
+import {adoptCustomFrame, setMinimumSize, setWindowIcon} from "./win32";
 
 const SHELL_VIEW = "views://shell/index.html";
-const DEFAULT_SIZE = {width: 1280, height: 800};
+const DEFAULT_SIZE = {width: 1600, height: 1000};
 const WEBVIEW2_DOWNLOAD = "https://developer.microsoft.com/microsoft-edge/webview2/";
 /** “打开下载页”（desktop-update 输出 10）：最新 Release 的页面。 */
 const DOWNLOAD_PAGE = "https://github.com/notnotype/neuro-book/releases/latest";
@@ -62,6 +64,8 @@ const TRAY_OPEN = "nbook.tray.open";
 const TRAY_QUIT = "nbook.tray.quit";
 /** 托盘图标在 100% 缩放下的边长；按建图标那一刻主显示器的缩放比例放大，之后不随缩放重建（已知限制）。 */
 const TRAY_ICON_PX = 16;
+/** 产品窗口最小尺寸的窗口过程（`win32.ts` 运行时编译它，见源码开头）。 */
+const minSizeSource = join(PATHS.RESOURCES_FOLDER, "app", "min-size.c");
 /**
  * 页面能自己画标题栏的 WebView2 最低主版本：WebView2 的非客户区支持（CSS `app-region` 成为系统标题栏命中）从 123 起才有，
  * 更旧的运行时里拖动区域不生效，窗口退回系统标题栏（输出 10）。
@@ -267,6 +271,15 @@ async function main(): Promise<void> {
     };
 
     /**
+     * 窗口成为产品窗口时设最小尺寸（输出 10）：直接开产品页时，与启动页窗口换成产品页时。启动页阶段与对话框不设。编译失败只在第一个
+     * 窗口交回一次（`win32.ts`）。
+     */
+    const adoptPageWindow = (win: BrowserWindow, id: WindowId): void => {
+        const problems = setMinimumSize(win.ptr as Pointer | null, MIN_PAGE_SIZE, minSizeSource);
+        if (problems.length > 0) log(`desktop.window.min-size-unavailable window=${String(id)} ${problems.join("; ")}`);
+    };
+
+    /**
      * 是否最大化推给窗口（输出 10）：`resize` 时与上一次发给这个窗口的相同就不发；页面查询、报就绪时照发（页面换了文档，上一次
      * 发的已经不在它那里）。记录随窗口关掉删除。
      */
@@ -288,10 +301,12 @@ async function main(): Promise<void> {
     const openManaged = (target: OpenTarget): WindowId => {
         const url = target.kind === "page" ? target.url : SHELL_VIEW;
         if (target.kind === "page") serverOrigin = new URL(target.url).origin;
-        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", navigationRules: JSON.stringify(navigationRules())});
+        // 启动页窗口之后会换成产品页，打开时就按产品窗口的下限摆。
+        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", navigationRules: JSON.stringify(navigationRules())});
         const id = win.id as WindowId;
         windows.set(id, {win, kind: target.kind === "page" ? "page" : "shell"});
         adoptWindow(win, id, customFrame);
+        if (target.kind === "page") adoptPageWindow(win, id);
         win.on("will-close", (event: {response?: {allow: boolean}}) => {
             event.response = {allow: false};
             shell.windows.closeRequested(id);
@@ -475,6 +490,7 @@ async function main(): Promise<void> {
             serverOrigin = new URL(url).origin;
             managed.win.webview.setNavigationRules(navigationRules());
             managed.kind = "page";
+            adoptPageWindow(managed.win, id);
             managed.win.webview.loadURL(url);
         },
         commitClose: (id) => windows.get(id)?.win.close(),
@@ -618,13 +634,9 @@ async function main(): Promise<void> {
     }
 }
 
-/** 缺省大小居中；工作区放不下时取它的九成（输出 10）。 */
-function centered(size: {width: number; height: number}): {x: number; y: number; width: number; height: number} {
-    const area = Screen.getPrimaryDisplay().workArea;
-    if (area.width <= 0 || area.height <= 0) return {x: 120, y: 80, ...size};
-    const width = Math.min(size.width, Math.floor(area.width * 0.9));
-    const height = Math.min(size.height, Math.floor(area.height * 0.9));
-    return {x: area.x + Math.floor((area.width - width) / 2), y: area.y + Math.floor((area.height - height) / 2), width, height};
+/** 在主显示器的工作区里居中（输出 10）；`minimum` 是外框的下限，只有产品窗口与启动页传。规则在核心的 `centeredFrame`。 */
+function centered(size: Size, minimum?: Size): {x: number; y: number; width: number; height: number} {
+    return centeredFrame(Screen.getPrimaryDisplay().workArea, size, minimum);
 }
 
 void main().catch((error: unknown) => {

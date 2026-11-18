@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t38-status-line-sorting",
+    "artifactId": "review",
+    "ackId": "20261118T011237015Z-3a97ae03",
+    "answers": [
+        "20261118T011130495Z-7e28b846"
+    ],
+    "through": "20261118T011130495Z-7e28b846",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t38-status-line-sorting/README.md"
+    ],
+    "ackedAt": "2026-11-18T01:12:37.015Z"
+}

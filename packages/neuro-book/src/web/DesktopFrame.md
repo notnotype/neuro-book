@@ -10,9 +10,10 @@
 
 ## 布局
 
-- **窗口按钮** `[data-desktop-controls]`：固定在右上角，高 36px，三个按钮各占 `--nb-window-controls-width` 的三分之一（138px，每个 46px；宽度只在 `styles.css` 写一处），贴住窗口右缘；`role="group"`，名字是“窗口”。层级取 nb-ui 登记表的 `desktopFrame`：模态、命令面板开着时也在上面。
+- **窗口按钮** `[data-desktop-controls]`：固定在右上角，高 36px，宽 `--nb-window-controls-width`（120px，由 `styles.css` 里的 `--nb-window-controls-lead` 18px 与 `--nb-window-control-width` 34px 算出，三个值只在那里写）：左边 18px 里一道 16px 高、1px 宽的短分隔线（与工作台标题栏里项目切换与菜单之间的同款），把它们与左边的布局按钮分成两组；然后是三个 34×36 的命中区，贴住窗口右缘与上缘。`role="group"`，名字是“窗口”。层级取 nb-ui 登记表的 `desktopFrame`：模态、命令面板开着时也在上面。
+- **芯**：每个命中区中间是 26×26 的芯，与标题栏里的布局按钮（nb-ui `IconButton` 的 `sm`、default 变体）同样大小、圆角、颜色、过渡与按下缩放；图标是 15px 的内联 SVG，图形取自 lucide（minus、square、copy、x），与布局按钮的 lucide 图标同形同粗。指针在命中区里任何位置都点亮芯。
 - **后备标题栏** `[data-desktop-fallback-bar]`：只在 `<html>` 带 `data-desktop-frame-bar`（`#app` 里没有 `[data-desktop-titlebar]`）时画。顶上 36px 满宽，左边 16px 的图形标志与文档标题（截断），右边留出按钮的宽度；整条是拖动区域。读屏不读它（`aria-hidden`）：它只是文档标题的重复。
-- 颜色按三级回退：主题变量 → 加载页的 `--host-loading-*`（主题还没加载时）→ 系统色。窗口在前台时按钮字形用正文色，不在前台时用次要文字色；悬停底色是字形色的 10%；关闭按钮悬停是 Windows 的红 `#c42b1c` 配白色字形（系统按钮就是这个颜色，不随主题变）。高对比度模式下悬停用 `Highlight`。
+- 颜色与圆角按三级回退：主题变量 → 加载页的 `--host-loading-*`（主题还没加载时）→ 系统色或定值。静止图标是次要文字色，悬停时芯的底色是正文色的 15%、图标变正文色，按下 24% 并缩到 0.93；不随窗口前台与否变化（标题栏里别的图标也不变）。关闭按钮悬停是 Windows 的红 `#c42b1c` 配白色图标（系统按钮就是这个颜色，不随主题变）。高对比度模式下图标是 `ButtonText`，悬停芯用 `Highlight`，分隔线用 `CanvasText`。
 - 标题栏与按钮随页面缩放（Ctrl+滚轮、Ctrl+加减）同比变化，不做反向补偿。
 
 ## 交互
@@ -37,18 +38,19 @@ type Props = {
 ## 状态
 
 - 没有能力标记：什么都不画。
-- 最大化：中间的按钮字形是“还原”，名字是“还原”。
+- 最大化：中间的按钮图标是“还原”（两个叠着的方块），名字是“还原”。
 - 页面有自己的标题栏（工作台）：只画按钮，按钮压在标题栏右栏末尾留出的位置上。
 
 ## 不支持
 
 - Windows 11 悬停最大化按钮弹出的贴靠布局（要原生层对按钮回 `HTMAXBUTTON`）；Win+Z 照常可用。
-- 窗口不在前台时整条标题栏变淡（只让按钮字形变淡）。
 - macOS 的红绿灯与 Linux：外框只在 Windows 的桌面壳里出现。
 
 ## 注意事项
 
-- 按钮是原生 `<button>` 而不是 nb-ui 的 `IconButton`：系统标题栏的按钮是贴边、无圆角、无内边距的矩形，`IconButton` 做不出来。字形用 Windows 的图标字体（Windows 11 是 Segoe Fluent Icons，Windows 10 是 Segoe MDL2 Assets），与系统按钮像素一致；外框只在 Windows 上出现，所以不做别的字体回退。
+- 按钮是原生 `<button>` 而不是 nb-ui 的 `IconButton`：命中区（34×36，关闭按钮一直到窗口角上）比看得见的芯大，`IconButton` 是定边长的方块，做不出来。芯的尺寸与状态值与 `IconButton` 同步，那边改了这里跟着改。
+- 图标用内联 SVG 而不是 `i-lucide-*` 类：图标类是遮罩加 `background-color: currentColor`，高对比度模式下背景色被强制成 Canvas，按钮会整个消失；SVG 的描边用 `currentColor`，颜色由系统给。启动页（`desktop/src/views/shell/index.html`）是静态 HTML，用同样的四个图形。
+- 2026-11-16 以前按钮用 Windows 的图标字体、46×36 的直角块，开发者试用后觉得与标题栏不是一套、偏大（w00046 t18）。
 - 模态打开时 reka 给内容之外的兄弟节点设 `aria-hidden`，外框根也在其中，这是模态的预期。
 
 ## 隐藏通道理由

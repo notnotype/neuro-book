@@ -29,6 +29,8 @@ import {usePropertiesOpen} from "../properties-open";
 import MarkdownMenus from "./menus/MarkdownMenus.vue";
 import MarkdownToolbar from "./menus/MarkdownToolbar.vue";
 import {markdownAssetsKey} from "../parts/asset-urls";
+import {markdownReportKey} from "../parts/report";
+import {markdownStickersKey} from "../parts/stickers";
 import {syntaxCatalogKey} from "../syntax-catalog";
 
 // `locale`：控件合同的一员。本控件不按它取文字：引用小块的悬停提示与图片的说明经窗口注入的翻译端口（下面的 `context`），
@@ -69,6 +71,7 @@ const describeProperty = inject(markdownPropertiesDescribeKey, undefined);
 
 /** 插图能力（输出 54 到 58）：没有提供时（Lab、不带编辑器区的场景）粘贴照原来的粘贴、插图卡片只能插网址。 */
 const media = inject(markdownMediaKey, null);
+const report = inject(markdownReportKey, null);
 
 /**
  * 打开链接（输出 53）：作品里的文件与用户资产在编辑器区打开；外部网址在新标签页打开（用临时的 `<a>`：`window.open` 打开
@@ -98,6 +101,8 @@ const viewHost: MarkdownViewHost = {
     base: () => bound?.address.value ?? null,
     context: markdownViewContext(text),
     assets: inject(markdownAssetsKey, null),
+    stickers: inject(markdownStickersKey, null) ?? undefined,
+    report: (message, error) => report?.("markdown.view.failed", message, error),
     chips: nbookChips,
     imageMissing: NBOOK_IMAGE_MISSING,
     ...(menus === null ? {} : {openLink}),
@@ -131,6 +136,12 @@ const indirectHost = (target: HostTarget): MarkdownViewHost => ({
     },
     get images(): MarkdownViewHost["images"] {
         return target.current?.images;
+    },
+    get stickers(): MarkdownViewHost["stickers"] {
+        return target.current?.stickers;
+    },
+    get report(): MarkdownViewHost["report"] {
+        return target.current?.report;
     },
 });
 

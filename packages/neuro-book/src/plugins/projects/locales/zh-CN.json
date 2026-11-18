@@ -11,6 +11,10 @@
                 "open": {
                     "title": "打开项目",
                     "category": "项目"
+                },
+                "back-to-shelf": {
+                    "title": "回到书架",
+                    "category": "项目"
                 }
             },
             "help": {

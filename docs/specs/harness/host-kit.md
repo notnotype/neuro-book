@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: harness.host-kit
 owners:
   - nb-harness
@@ -19,7 +19,7 @@ nb-harness 的宿主套件（工具、审批、压缩、守卫、会话句柄表
 - 地址的完整语法、方案注册、读授权与写授权的规则：属于宿主的文件服务（NeuroBook 见 [`workspace/resources.md`](../workspace/resources.md) 与 [`agent/resources.md`](../agent/resources.md)）。
 - 写锁、改动记录、来源与操作分组的落点：由实现记，本 Spec 只要求写入能按调用区分（输出 8）。
 - 监视与订阅、文件操作（移动、复制、删除）、glob 与 grep：不在这份接口里，工具在 `readPath` 交回的本机路径上自己做。
-- 本机参考实现不是任何应用的正式实现：它不加写锁、不记来源。
+- 本机参考实现不是任何应用的正式实现：它不加写锁、不记来源、不按调用分组（输出 8 对它只是把调用的 `signal` 合进读写）。
 
 ## 术语与参与者
 
@@ -31,7 +31,7 @@ nb-harness 的宿主套件（工具、审批、压缩、守卫、会话句柄表
 
 ## 输入与前置条件
 
-宿主按每次调用时内核给的会话上下文（`ToolSessionContext`）现建文件访问，不按会话缓存。接口（`@notnotype/nb-harness/kit/files` 交出，类型与浏览器可用的纯函数在同一入口）：
+宿主按内核给的会话上下文（`ToolSessionContext`）建文件访问；上下文变了（换 Profile、换主项目）就重新建，不跨上下文复用。接口（`@notnotype/nb-harness/kit/files` 交出，类型与浏览器可用的纯函数在同一入口）：
 
 ```ts
 type FileFailure = {readonly ok: false; readonly code: string; readonly detail: string};
@@ -64,7 +64,7 @@ interface ArtifactStore {
 type SessionFilesFactory = (context: ToolSessionContext, owner: string | null) => SessionFiles;
 ```
 
-`DirectoryListing` 是一层目录项（名字与种类）；`VirtualListing` 是 `{kind: "virtual", description, entries}`，每个条目带全局地址，可带标题与几项元数据。`SessionFilesFactory` 的 `owner` 是用它的工具 id，作写入分组的缺省标题；不属于哪个工具时为 null。
+`DirectoryListing` 是一层目录项（名字与种类），不带 `kind`，靠这一点与虚拟根区分；`VirtualListing` 是 `{kind: "virtual", description, entries}`，每个条目带全局地址，可带标题与几项元数据。`SessionFilesFactory` 的 `owner` 是用它的工具 id，作写入分组的缺省标题；不属于哪个工具时为 null。宿主的实现可以多带字段与选项（例如 NeuroBook 的分类多交回内容的分类，`call` 的 `info` 多收 `note`），套件不依赖它们。
 
 ## 输出与可观察行为
 
@@ -81,7 +81,7 @@ type SessionFilesFactory = (context: ToolSessionContext, owner: string | null) =
    - `signal` 在提交之前触发为 `cancelled`，目标保持原样；
    - 宿主不许写的位置为 `permission-denied`，不露出的位置为 `protected-path`，解析后落在根外为 `outside-root`；写虚拟根为 `permission-denied`；方案本身不支持写时（只读的方案）为 `unsupported-capability`，在授权之前就拒绝。
 7. **列出**：`list` 对目录交回一层目录项，不读文件内容；对虚拟根交回 `VirtualListing`。不存在为 `not-found`，是文件为 `not-a-directory`。
-8. **按调用绑定**：`call({callId, signal}, info?)` 交回绑定一次工具调用的 `read` 与 `write`：经它的写入在宿主的记录里属于这次调用（同一次调用的写入可以与别的调用区分开），`info.title` 给了时作这次调用的标题，否则用工厂的 `owner`；调用的 `signal` 合进每次读写，触发后在途与之后的写都以 `cancelled` 结束。工具每次执行只调一次 `call`，复用交回的对象。
+8. **按调用绑定**：`call({callId, signal}, info?)` 交回绑定一次工具调用的 `read` 与 `write`：经它的写入在宿主的记录里属于这次调用（同一次调用的写入可以与别的调用区分开），`info.title` 给了时作这次调用的标题，否则用工厂的 `owner`，两者都没有时用宿主自己的缺省标题；调用的 `signal` 合进每次读写，触发后在途与之后的写都以 `cancelled` 结束。工具每次执行只调一次 `call`，复用交回的对象。
 9. **失败经结果交回**：所有方法的预期失败都经 `{ok: false, code, detail}` 交回，不抛错；`detail` 用地址描述，不带服务端的绝对路径。失败码是开放字符串：下面“失败与恢复”表里的码含义固定，套件只按这些码分支；其余码（宿主自己的）由套件原样交给模型。
 10. **布局**：`layout` 给套件用到的几处地址，都可以写单数地址：
     - `working`：`shell` 的工作目录，`grep`、`glob` 不给根时的缺省根；
@@ -133,15 +133,26 @@ type SessionFilesFactory = (context: ToolSessionContext, owner: string | null) =
 
 ## 验收与 Smoke
 
-1. 同一份合同测试由本机参考实现与 NeuroBook 的实现各跑一遍，逐条覆盖输出 1 到 11 与失败码表。
+1. 同一份合同测试由本机参考实现与 NeuroBook 的实现各跑一遍，覆盖输出 1 到 7、9、11 与两个宿主都有的失败码；虚拟根与不露出的位置只对有它们的宿主跑。按调用分组的记录（输出 8）、读上限与布局的取值（输出 10）合同测试看不到，由各宿主自己的测试核对。
 2. 经 `call` 写入的两次调用，在宿主的记录里分属两次调用；同一次调用里的两次写属于同一次调用。
-3. 调用的 `signal` 在写入函数运行中触发：结果为 `cancelled`，目标保持原样。
+3. 调用的 `signal` 已经触发后经它写：结果为 `cancelled`，目标保持原样。
 
 Smoke：`@notnotype/nb-harness/kit/testing` 的合同测试对本机参考实现跑一遍。
+
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-harness/kit/files`（本 Spec 的接口类型、`KNOWN_FILE_FAILURES`、内核读取端口的适配 `kernelResources` 与几个地址纯函数）、`@notnotype/nb-harness/kit/files/local` 的 `localFiles`、`@notnotype/nb-harness/kit/testing` 的 `sessionFilesContract(name, setup)`。
+- **owner 与依赖方向**：nb-harness 定接口、本机参考实现与合同测试，不依赖任何宿主。NeuroBook 的实现在 `nbook.agent`，建在 `nbook.files` 的写入接口上（暂存、提交、改动记录与来源都在那一层，[ADR 0040](../../adr/0040-file-writes-staged-and-committed-by-root-owner.md)）；工厂只在 `nbook.agent` 内部传给套件，不经 `AgentService` 交给别的插件。
+- **关键不变量**：
+  - `kit/files` 入口没有运行时导入，浏览器可用（nb-harness 的 `kit/architecture.test.ts`）。
+  - 合同测试按夹具参数化：宿主没给虚拟根或不露出的位置时，对应用例不跑；按调用分组的记录合同测试看不到，宿主要自己测（NeuroBook 的 `resources.test.ts`“验收 6”与“host-kit 输出 8、验收 2”）。
+  - NeuroBook 的分组在一次调用第一次写时建一次，这次调用的写入共用，两次调用各一组（同上两条）。
+  - NeuroBook 的 `classify` 与方案的写授权是两份判断，宿主写的位置在两处各列一份：改一处要同改另一处，合同测试“输出 3、6”与“输出 11”核对两者一致。
+  - 宿主写全文不带会话身份，落在会话 home 的 `artifacts/` 下，会话读得到、写不了；写入函数抛错时连写了一半的文件也不留（合同测试“输出 11”）。
 
 ## 证据
 
 - 批准依据：[w00032 t32](../../../.agents/works/w00032-agent-integration/tasks/t32-harness-backfill/README.md) 的“决定”（开发者 2026-11-09 同意补回 nb-harness，2026-11-10 定公开子路径）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)、[ADR 0040](../../adr/0040-file-writes-staged-and-committed-by-root-owner.md)
 - 实现入口：[`kit/files/index.ts`](../../../packages/nb-harness/src/kit/files/index.ts)（接口与共用函数）、[`kit/files/local.ts`](../../../packages/nb-harness/src/kit/files/local.ts)（本机参考实现）、[`kit/testing/files-contract.ts`](../../../packages/nb-harness/src/kit/testing/files-contract.ts)（合同测试）；NeuroBook 的实现在 [`backend/resources.ts`](../../../packages/neuro-book/src/plugins/agent/backend/resources.ts)
-- 合同测试：[`kit/files/local.test.ts`](../../../packages/nb-harness/src/kit/files/local.test.ts)（本机参考实现）、[`resources.test.ts`](../../../packages/neuro-book/src/plugins/agent/resources.test.ts)（NeuroBook 的实现，经真实插件宿主）、[`kit/files/kernel-resources.test.ts`](../../../packages/nb-harness/src/kit/files/kernel-resources.test.ts)
+- 合同测试：[`kit/files/local.test.ts`](../../../packages/nb-harness/src/kit/files/local.test.ts)（本机参考实现）、[`resources.test.ts`](../../../packages/neuro-book/src/plugins/agent/resources.test.ts)（NeuroBook 的实现，经真实插件宿主）、[`kit/files/kernel-resources.test.ts`](../../../packages/nb-harness/src/kit/files/kernel-resources.test.ts)；布局的取值经真实工具核对：[`builtin-tools.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.test.ts)、[`builtin-tools-project.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools-project.test.ts)（工作目录与环境变量）、[`modes.test.ts`](../../../packages/neuro-book/src/plugins/agent/modes.test.ts)（只写草稿）、[`auto-review.test.ts`](../../../packages/neuro-book/src/plugins/agent/auto-review.test.ts)（`auto` 下不问的写）
 - Smoke：[`kit/files/local.test.ts`](../../../packages/nb-harness/src/kit/files/local.test.ts)（对本机参考实现跑整份合同测试）

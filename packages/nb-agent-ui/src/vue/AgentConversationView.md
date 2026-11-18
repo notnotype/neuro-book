@@ -72,6 +72,8 @@ type AgentConversationViewProps = {
     composerLayout?: "stacked" | "inline";
     /** 输入框下面的状态栏。默认 false。 */
     statusBar?: boolean;
+    /** 用户的状态栏设置（显隐与次序，见 AgentStatusBar）；给了才有右键菜单，菜单发 `statusLine.toggle {id}`、`statusLine.openSettings` 两个 action。 */
+    statusLine?: StatusLineSetting;
     /** 顶层会话时头的左边放新建按钮。默认 false。 */
     newSession?: boolean;
     /** 把头的三列送到这几个元素里；`anchor` 是会话列表锚着的按钮。默认 null，画在内容顶上。 */

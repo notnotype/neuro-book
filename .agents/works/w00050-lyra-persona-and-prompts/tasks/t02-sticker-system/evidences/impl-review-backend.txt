@@ -1,0 +1,61 @@
+### 1. root-gone 重开失败会泄漏挂载点借用（重要）
+- 严重程度：重要；类别：不变量；位置：`packages/neuro-book/src/plugins/files/backend/mounted.ts:230-238,275-315`
+- 现象：`#borrow` 在 `mount.ready` 得到 `Fail` 时返回带 `opened`、`release` 的失败对象；新的 `#run` 先在 `"ok" in lease` 分支直接返回，没有调用 `lease.release()`。因此打开失败的挂载点仍留在 `#mounts`，`borrows` 永远大于 0，状态仍是 `opening`。容器被换成链接或容器暂时不存在时，第一次重开失败，后续请求复用这个失败 Promise 并继续累加借用数，直到方案停止才清掉。
+- 为什么是问题：借用为 0 才关闭是挂载点的核心寿命不变量；这里会让失败挂载点永久占用打开点上限，反复请求还会持续增加计数。超过 64 个不同的失败挂载点后会留下不可驱逐的 `opening` 条目，正常挂载点可能被迫超过软上限并产生错误的寿命状态。这是本次把 `finally` 改成手动释放时丢掉失败分支收口造成的回归。
+- 如何核实：在 `schemes.test.ts` 的 `container 被换成链接` 场景后，再对同一挂载点重复调用 `agent.read("notes://a/x.md")`，或为一个 `mount` 返回 `directory` 不存在/为文件的方案连续请求；请求均复用失败结果，但 `MountedScheme.openCount` 只增不减、停止前失败挂载点不会进入可关闭的空闲状态。对照基线 `cd468dcf6` 的 `#run` 的 `finally`，失败借用会调用 `lease.release()`。
+- 建议改法：保留统一的 `try/finally`，对所有成功借用（包括 `opened` 为失败结果的借用）都释放；或者在 `#borrow` 发现 `ready` 为 `Fail` 时立即撤销并清理该挂载点后再返回失败。测试至少覆盖打开失败后的重复请求与 `openCount`/后续新请求不受污染。
+### 1. root-gone 重开失败会泄漏挂载点借用（撤回）
+- 严重程度：不计；类别：不成立；位置：`packages/neuro-book/src/plugins/files/backend/mounted.ts:284-294`
+- 核实后发现：`#borrow` 只有在 `opened` 是成功的 `Opened` 对象时才返回带 `release` 的借用；`ready` 返回 `Fail` 时会先把 `mount.borrows` 减回去、从表中删除，再直接返回失败。因此 `#run` 的 `"ok" in lease` 早返不会遗漏释放。前一条把 `!('ok' in opened)` 的分支方向读反，撤回。
+### 2. `catalog()` 的总消息仍可超过 1 MiB（重要）
+- 严重程度：重要；类别：安全与性能 / 正确性；位置：`packages/neuro-book/src/plugins/stickers/backend/browser-catalog.ts:9-23`、`packages/neuro-book/src/plugins/stickers/backend/plugin.ts:49-53`
+- 现象：实现只限制合计 5000 个表情，不限制 JSON 远程响应字节数；5000 是“每包整包放入”的计数上限，不是消息上限。每个条目包含名字、宽高和 URL，包 id、文件名、版本也会进入 URL。按实现的 5000 个一项包、合法最长文件名和 64 字符 id 构造，`JSON.stringify` 后为 2,812,781 字节（2.68 MiB），而 RPC 单条消息上限是 `1,048,576` 字节。
+- 为什么是问题：浏览器目录方法一次返回整数组，超过限制时不是这次调用失败，而是 WebSocket 单条消息超限、整条 RPC 连接断开。窗口反复重连仍会重新请求同一个超大目录，表情目录功能会把整个浏览器连接拖断。设计审查已明确要求按 RPC 上限核实，但当前测试只验证数量，不验证序列化后的字节数。
+- 如何核实：在实现 worktree 执行 `bun -e 'const one={name:"字".repeat(32),width:1024,height:1024,url:"/api/nbook.stickers/image/user."+"a".repeat(64)+"/"+encodeURIComponent("a".repeat(251)+".png")+"?v=123456789-2097152"}; const packs=Array.from({length:5000},(_,i)=>({id:[...]})); console.log(new TextEncoder().encode(JSON.stringify(packs)).length)'`（实际同形输入输出 2812781 字节）；对照 `packages/nb-host/src/shared/socket.ts:16` 的 `RPC_MAX_MESSAGE_BYTES = 1024 * 1024`。
+- 建议改法：在生成目录时按 `encodedBytes`/UTF-8 字节预算与条目上限双重截断，并在合同测试中断言 `JSON.stringify` 的 UTF-8 长度低于 RPC 上限；或者把目录拆成分页/按包查询。仅把 5000 改成一个经验数字不能保证最长 id、文件名和版本下不越界。
+### 3. 表情服务的“可选依赖”只在 Agent 激活时解析一次，后续提供方补回不会恢复槽（重要）
+- 严重程度：重要；类别：正确性 / 初始化顺序；位置：`packages/neuro-book/src/plugins/agent/backend/plugin.ts:147-153,197`、`packages/neuro-book/src/plugins/stickers/backend/plugin.ts:29-46`
+- 现象：`nbook.agent` 的 `onStartup` 入口把 `stickersServiceKey` 声明为可选依赖，并在激活期间 `await context.services.resolve` 一次；结果为 `missing-provider` 时，闭包里的 `stickerCatalog.status` 永久是失败结果，`stickerPacks()` 永远返回空数组。`nbook.stickers` 是同样的 `onStartup` 入口，启动时两个入口并行激活；`agent` 没有等到它，启动时先解析到缺失并不会再次解析。即使表情插件随后激活并提供服务，Agent 的槽仍为空，直到 Agent 入口被显式停掉并重新激活。
+- 为什么是问题：Spec 只把“没有声明或用户没加没有白名单”定义为空，并要求插件来源的发布与撤回随目录变化；可选依赖的合同明确“缺失只使对应能力不可用”，不是把一次缺失缓存成永久状态。产品清单把两个插件都放入服务端启动，但 `onStartup` 没有顺序保证；这使默认启动顺序成为隐含耦合。反向的 `stickers` 服务应先激活，或 Agent 应动态重解析/订阅目录变化，否则按白名单加包后新会话的系统块仍没有表情槽。
+- 如何核实：在真实应用装配里记录两入口的激活顺序，或用应用测试让 `nbook.agent` 先激活、`stickersServiceKey` 提供者延迟；读取 `agent` 激活时的 `resolve` 结果会是 `missing-provider`，之后提供者激活也不会改变已闭包的 `stickerCatalog`。运行时合同支持这一结论：服务解析失败在同一作用域稳定，只有显式 `recover`/新代次才重试；这里没有 `recover`，也没有 `stickersService.onChanged` 订阅。
+- 建议改法：把 `nbook.stickers` 作为 Agent 的必需依赖会扩大无表情插件场景的启动失败，不推荐；更简单的是把槽扩展拆为依赖 stickers 的独立入口/扩展提供方，或在 Agent 入口得到可选服务后监听目录变化并在下一次请求时重新解析（服务撤回时清空、重新提供时恢复）。同时增加真实“Agent 先激活、表情服务后激活”的集成用例，而不是只测两个插件都已启动的正常路径。
+### 4. 用户目录任一变动都会全量重扫并逐张解码所有图片（重要）
+- 严重程度：重要；类别：安全与性能 / 正确性；位置：`packages/neuro-book/src/plugins/stickers/backend/catalog.ts:4-6,238-243,183-230`
+- 现象：用户根的监视器与每个包目录的监视器都调用同一个 `rescan`，其工作函数无论事件来自哪个路径都执行 `#scanRoot(current)`，因此改一张图会重新枚举并读取用户根下每个表情包的全部清单和图片。`readImage` 先 `readFile` 整张图，再交给 `Bun.Image(...).metadata()`；在允许的单包上限下，一次最多读、解码 500 × 2 MiB = 1,000 MiB，且用户包总数没有总上限，根级一次扫描的工作量随包数无界增长。每次重扫还是串行排在同一 `#scanning` 队列里，连续保存会让目录更新长期滞后。
+- 为什么是问题：Spec 输出 1 要“重扫变了的表情包”，不是所有包；当前实现既违反了这个增量语义，也把一次普通的清单/图片修改放大成全用户库的磁盘读取与图片解析。大库中用户只是补一张图，其他包的诊断、版本和变更通知都被不必要地重新计算；用户根事件还可能在包重建期间排队多轮。
+- 如何核实：在真实临时用户根放两个包，分别在各包目录下修改 `stickers.json`，在 `StickerCatalog` 的真实 `readFile`/图片文件访问上观察修改一个包时另一个包的图片也被再次读取；源码路径是 `#syncWatchers` 的两个回调都调用 `#schedule(root.key, ...#scanRoot(current))`，而 `#scanRoot` 对根下所有子目录调用 `#readPack`。把一个包构造为 500 张、每张接近 2 MiB 时，单次重扫的上限就是上述 1,000 MiB。
+- 建议改法：事件回调携带受影响的包目录，只重扫该包；根事件只增量处理新增、删除或替换的子目录，必要时再做一次受控全量对账。扫描图片先以 `stat` 拦截大小，宽高/类型优先解析文件头，避免为每张图创建完整 `Bun.Image`；同时给用户目录总包数/总图片数或扫描预算设硬上限，并为超限写诊断，不要让浏览器 5000 项上限掩盖服务端无界扫描。
+### 5. `stickers.json` 的表情名校验未限制 Unicode 码点数以外的 JSON 攻击面（建议）
+- 严重程度：建议；类别：安全与性能 / 边界校验；位置：`packages/neuro-book/src/plugins/stickers/shared/manifest.ts:23-24,33-63`
+- 现象：清单文件本身限制为 256 KiB、表情最多取 500 项，表情名经 `isStickerName` 限 32 个码点；但 `parseManifest` 对对象属性没有深度/键数限制，对 `title`、`description`、`when` 只用 `trim() !== ""` 和长度限制，对 `file` 只排除 `/`、反斜杠、NUL 与点段。对于 256 KiB 内可构造的超深对象、极多无关属性或长字符串集合，整个清单仍会被 `JSON.parse` 建成对象并遍历前 500 项；每次扫描都重新做这份分配。更直接地，合法文件名允许以 `..` 之外的点段组合（如 `...png`），虽不越界但会被路由作为允许扩展名处理，合同只要求扩展名匹配并未明确隐藏文件名边界。
+- 为什么是问题：清单是用户/插件外部输入，固定 256 KiB 并不等于固定解析复杂度；恶意或损坏清单可以在用户目录监视触发的每次重扫中消耗 CPU/内存。当前测试只覆盖字段类型和图片，不覆盖深度、属性数量、重复垃圾项和清单解析耗时上界。
+- 如何核实：生成 256 KiB、嵌套数千层或每项带大量无关属性的 JSON，放入真实表情目录后触发监视重扫，观察 `parseManifest` 在整包扫描中仍接受/分配；对照 `JSON.parse` 在 `#readPack` 的直接调用。
+- 建议改法：在边界先用字节读取上限已经有的文件，但再限制对象深度/键数，或采用流式 JSON 解析并在达到 500 项后停止；只接受清单合同允许的字段并明确未知字段是否拒绝。为深度、键量、超大无关字段增加真实目录合同测试。
+### 6. 设置页 `packs()` 概要没有消息预算（重要）
+- 严重程度：重要；类别：安全与性能 / 正确性；位置：`packages/neuro-book/src/plugins/stickers/backend/plugin.ts:49-53`、`packages/neuro-book/src/plugins/stickers/shared/contracts.ts:108-120,146-149`
+- 现象：`packs()` 直接把 `catalog.list()` 的所有条目映射成概要，没有 5000 项限制、总包数限制或序列化字节预算。概要虽然不带完整表情，但每个条目仍可带 `id`、`folder`、200 字符 `title`、200 字符 `description`、插件信息与缩略图 URL；用户可创建任意多的空包/无效包，插件贡献也可带任意多的包。RPC 单条消息仍只有 1 MiB。
+- 为什么是问题：打开 Profile 设置页时 `sticker-packs.ts` 会调用这个方法；足够多的合法或无效包即可让单条响应超限，断开整个浏览器 RPC 连接。当前 5000 表情上限只用于 `catalog()`，不能约束概要方法；设计审查要求的“浏览器目录与概要都要在上限内”在实现中只完成了一半。
+- 如何核实：构造 5000 个 `StickerPackEntry`，每项填满 200 字符标题与说明，调用 `catalog.list().map(packSummary)` 后计算 `new TextEncoder().encode(JSON.stringify(result)).length`，再与 `packages/nb-host/src/shared/socket.ts:16` 的 `1,048,576` 比较；也可用真实设置页远程服务场地发送该响应，观察 RPC 超限断链。
+- 建议改法：为 `packs()` 定义按 id 截断的概要上限和 `stickers.packs-truncated` 诊断，或分页/按需按包读取；实现中按 UTF-8 编码后的预算截断，不只按包数量估算。合同、设置页状态和测试要表达“目录被截断/继续加载”的结果。
+### 7. 取图缓存版本不绑定实际读取内容（重要）
+- 严重程度：重要；类别：正确性 / 安全与性能；位置：`packages/neuro-book/src/plugins/stickers/backend/catalog.ts:308-317`、`packages/neuro-book/src/plugins/stickers/backend/routes.ts:34-49`
+- 现象：目录条目的 `version` 只由扫描时 `mtime`（四舍五入到毫秒）与文件大小组成；路由判断 `?v` 是否当前时只比较这个旧字符串，然后经 Files 读取当前字节并返回，未重新取得当前文件的版本或内容哈希。文件内容可以在扫描后被原地换成同大小内容并保留/恢复 mtime，或者在毫秒精度内连续替换；此时 URL 仍被判为当前，响应带旧 ETag 和 `private, ... immutable`，但 body 已是另一份内容。
+- 为什么是问题：`immutable` 告诉浏览器在一年内不再验证这个 URL；版本不再唯一标识字节时，表情会显示旧缓存或新旧内容按同一 ETag 混用。Spec 明确要求版本随文件变化、版本一致才长期缓存；现有 Files 原始路由还把 inode、ctime、mtime、size 一起纳入 ETag，说明仅 mtime+size 不足以覆盖原子替换与恢复时间戳的边界。
+- 如何核实：在真实临时包中先扫描得到 `version`，再用同大小的另一张合法 PNG 替换文件并恢复原 mtime，直接请求带旧 `?v` 的路由；当前实现返回 200、旧 ETag/immutable 和替换后的字节。也可在一个毫秒内原子替换同大小文件后比较两次响应。
+- 建议改法：版本至少加入 `ctime`/inode 等文件身份信息，并在路由读取前后用当前 stat/基线核对；更稳妥是扫描时或路由读后对字节做内容哈希，URL 与 ETag 使用内容寻址版本。版本不一致时不要以旧 URL 返回 immutable。
+### 8. 诊断去重表按表情包 id 永不回收，会随目录生命周期无界增长（建议）
+- 严重程度：建议；类别：安全与性能；位置：`packages/neuro-book/src/plugins/stickers/backend/catalog.ts:64-67,169-180`
+- 现象：`#reported` 以 `pack:<id>`、`fields:<id>`、`stickers:<id>` 和 `duplicate:<id>:<root>` 保存上次序列化的问题，但 `removeRoot`、包删除、插件撤回和目录重建都不会删除这些键。每创建并删除一个新的用户包名，至少可以留下三条 Map 项；插件贡献使用新的 contribution id/包 id 时还会留下 duplicate 键。
+- 为什么是问题：这是常驻服务，用户可长期同步/生成大量临时包名，诊断去重状态会只增不减；它不受当前目录 5000 表情上限约束，最终内存占用和 JSON 序列化时间都随历史目录增长。去重合同只要求同一问题不重复写，不要求为已不存在的包保留历史键。
+- 如何核实：在真实 `StickerCatalog` 上循环创建包含一个固定错误的唯一目录名、等待每次重扫、删除目录，观察 `#reported.size`（可在仓库外副本临时暴露 getter）单调增加；源码中没有任何 `#reported.delete` 或按当前 id 清理。
+- 建议改法：每次 `#derive` 后按当前根/目录 id 清理不再存在的去重键，或把去重状态放在当前条目 map 中；重复贡献的键也按当前根集合清理。增加创建、删除、再创建唯一包的内存/诊断行为测试。
+
+未发现问题的方面
+- 挂载点并发重开：`retire` 只摘掉旧表项，旧借用仍由 `#release` 结算，最后一个借用才关闭；并发请求会让旧目录上的在途操作完成，新请求复用同一个新挂载点。重开后仍为 `root-gone` 时本次只重试一次；从 `saveText`/`commitStaged` 的调用链看，写操作在真正提交前的根定位失败才返回 `root-gone`，没有把已成功提交的写再次执行成二次写入。
+- 取图路由路径边界：Hono 参数已解码一次，清单中的 `file` 精确匹配会拒绝编码后的 `/`、`..`、空段、NUL 和不存在文件；经 `WorkspaceFiles.read("stickers://…")` 失败统一为 404。`same-origin`、`none` 与无 `Sec-Fetch-Site` 放行，`same-site`/`cross-site` 拒绝，响应带 `sandbox`、`nosniff`、`ETag` 和版本条件的 `immutable`/`no-cache`；缓存版本不足的问题已列第 7 条。
+- 槽的稳定性与顺序：白名单条目按 `profileAllowlist` 的声明在前、用户添加在后，`"all"` 取目录按 id 码元序；包内按清单序，8 个包、60 个常用表情和 6000 字符截断均为确定性遍历。白名单外目录只有与白名单包同文件夹名时才会按 Spec 的例外改变写法；可选服务缺失后不恢复的问题已列第 3 条。
+- 插件根发布与撤回：`plugin-roots.ts` 在异步目录查询前后用 contribution token 核对；`addRoot` 与随后 `removeRoot` 经目录队列按调用顺序结算，撤回后再发布使用新 token，不会把旧查询结果重新加回目录。
+- 文件夹替换监视：表情包子目录被删除后重建时，根监视事件会关闭旧子目录 watcher，重扫后由 `#syncWatchers` 建立新 watcher；已有真实测试覆盖换包后目录读到新清单。全量重扫与图片读取成本的问题已列第 4 条。
+
+各级数量：阻断 0；重要 5；建议 2；撤回 1（不计入有效发现）。
+有效发现：2, 3, 4, 5, 6, 7, 8

@@ -1,0 +1,189 @@
+NeuroBook 前端耦合审查（二）：工作台、各插件的界面与前端包
+日期：2026-11-18；只读审查；仓库 master；范围见派发说明。nb-agent-ui 内部不审，只看 NeuroBook 怎么用它。
+路径省略前缀 packages/neuro-book/src/（除非写全）。“读代码核实”= 直接读到该行；“推断”= 由依赖图与规则推出，没有运行验证（按规定没跑 e2e 与开发服务）。
+
+【结论】
+1. 前端的插件分层本身是好的：工作台、视图、页面、命令、设置、状态都经贡献点；跨插件运行时导入只指向 `shared/contracts.ts`（architecture.test.ts 守着）；工作台不写死任何业务视图 id，缺省布局由视图声明算出；贡献点的拥有者不在时，贡献挂起、不报错（plugin-manifest.md 输出 10）；没有项目的窗口是一等状态。所以“界面不加载、别的照常”在设计上基本成立，叶子插件很多。
+2. 卡点不在界面分层，在三处：(a) 没有停用内置插件的机制（Spec 一刀切拒绝，服务端把全部内置插件当启动必需）；(b) 对话界面的接线层闭在 agent 的浏览器入口里，没有对外服务，bot 视图要么抄要么先抽；(c) 几个封闭名单与字符串引用让“新增或关掉一个内置插件”要改别的插件。
+3. 前端包（nb-ui、nb-layout、nb-form、nb-markdown）里没有应用特有的概念漏进去，只有注释里的旧路径与命名痕迹。
+
+==== 一、概览表：每个有界面（或有浏览器入口）的内置插件能不能不加载 ====
+说明：“怎么关”今天都只有改 manifest.ts 重新构建一条路（见第 1 条）；“关了坏什么”是推断。核心项写“不能”。
+
+| 插件或功能 | 能否关掉 | 怎么关、关了坏什么 | 证据 |
+|---|---|---|---|
+| nbook.workbench（外壳、布局、命令面板、主题、主题编辑器、通知） | 不能 | 窗口必需；所有界面插件经它的贡献点交视图与页面。主题编辑器与素材后端属于它与 files，不能单独关（第 5 条） | web/host/window.ts:139；workbench/web/plugin.ts:129 |
+| runtime.diagnostics、nbook.state、nbook.commands、nbook.settings、nbook.storage、nbook.http | 不能 | window.ts:139 必需，或被 workbench、commands 声明为必需依赖 | window.ts:139；commands/shared/plugin.ts:175；workbench/web/plugin.ts:129 |
+| nbook.files（浏览器是无界面门面，后端含主题素材路由） | 实际不能 | editor、explorer、markdown 都把 `filesKey` 当必需依赖 | editor/web/plugin.ts:100；explorer/web/plugin.ts:96；markdown/web/plugin.ts:96 |
+| nbook.markdown | 能，要连 editor 与 agent 一起关 | 两者把 `markdownKey` 当必需依赖，受阻（missing-service，推断）；projects 书架的字数用 markdown/shared 的纯函数，照常 | editor/web/plugin.ts:100、:133；agent/web/plugin.ts:171 |
+| nbook.editor | 能 | 工作台没有编辑器槽时“回到欢迎文字”；agent 的“打开文件”失败只记诊断；html-preview、image-viewer、markdown 的编辑器贡献与主题编辑器页变成挂起；主题编辑器的浮窗版还在（推断） | workbench/web/editor-area.ts:1-4；agent/web/plugin.ts:298；workbench/web/plugin.ts:140、:318 |
+| nbook.explorer | 能 | 没有文件树视图；`nbook.files.*` 命令消失，编辑器空状态提示按 `commands.get` 跳过它们 | explorer/web/plugin.ts:21；editor/web/empty-tips.ts:23-35 |
+| nbook.agent（对话视图、会话面板、页面、状态栏条目、四个设置页） | 能，是叶子 | 没有任何内置插件向它的贡献点贡献；坏的只有：models 的两项设置落到“其它”页（第 4 条）、主题“工作态场景”不亮（第 3 条） | 附 A；models/shared/settings.ts:19；workbench/web/plugin.ts:167-171 |
+| nbook.models（浏览器入口只有设置页） | 能 | agent 的模型下拉隐藏，服务端 agent 以 `models: null` 运行（实际是不能运行模型，推断）；设置页“服务商”“角色”没了 | models/web/plugin.ts:31；agent/backend/plugin.ts:78、:117；agent/web/plugin.ts:263 |
+| nbook.stickers | 能 | markdown、agent 都是可选依赖；表情写法显示原文，Profile 页不画表情包一节 | markdown/web/plugin.ts:96、:136；agent/web/plugin.ts:223 |
+| nbook.tasks（后台任务面板、状态栏条目、完成通知） | 能 | agent 服务端 `tasksKey` 可选 | tasks/web/plugin.ts:76-77；agent/backend/plugin.ts:78 |
+| nbook.html-preview、nbook.image-viewer | 能 | 叶子；各自向编辑器贡献一种编辑器，没有它们对应文件回到默认编辑器（推断） | html-preview/web/plugin.ts:66、:106-107；image-viewer/web/plugin.ts:29 |
+| nbook.theme-study（只有声明与素材） | 能 | 没有“书房”主题；选了它的用户退回缺省主题（workbench/web/themes.ts:211 注释写明）；web/plugins.ts 里留着它的素材表，无害 | theme-study/plugin.ts；web/plugins.ts:14、:121-129 |
+| nbook.desktop | 能 | 桌面壳设置与缩放快捷键没了；其它依赖都是可选 | desktop/web/plugin.ts:60-61 |
+| nbook.projects（书架、回书架、项目切换、欢迎页） | 能，但失去 `/` 首页 | `workbench.home` 无人提供，`/` 回到欢迎文字；回书架命令不在目录，标题栏不画入口；欢迎页的命令 `nbook.help.welcome` 没了 | workbench/shared/home.ts；WorkbenchShell.vue:480-482；editor/web/empty-tips.ts:25 |
+| nbook.plugins（设置里的“插件”分区） | 能 | 设置左栏没有“插件”；agent 的 Profile 页查插件显示名失败，降级为 id | agent/web/plugin.ts:704-708 |
+| nbook.canon、nbook.plot | 能，无界面 | plot 的项目入口硬依赖 canon；canon 的浏览器入口只提供一个没人用的客户端门面 | plot/backend/plugin.ts:19；canon/web/plugin.ts:23-28 |
+| nbook.lab | 产品里没有 | 只在开发清单；只有 agent 的一处按路径认它（第 8 条） | development-manifest.ts；agent/web/plugin.ts:217 |
+
+专项问题的回答（要点）：
+ - 硬引用。跨插件运行时导入：全部指向 `shared/contracts.ts`（机检）。没被机检拦下的：类型层导入落在别的文件里约 40 处（第 12 条）；字符串形式的命令 id 与状态键（第 3、7 条）；models 对 agent 分区 id 的字符串引用（第 4 条）；封闭名单（第 6 条）。工作台里写死的视图 id：没搜到（在 workbench/web、workbench/shared 下搜 `"nbook.<插件>…"` 字面量，只命中命令 id、`nbook.agent/active`）；缺省布局点名视图：没有，由视图声明与容器声明重算（workbench/web/plugin.ts:189-196）。命令面板、菜单、快捷键：都走 `commands.definitions` 与各自的贡献点，工作台只按命令 id 查目录。设置分区：走 `settings.sections` 与 `SETTINGS_PAGES_POINT`，类别是封闭联合（第 6 条）。
+ - 停用机制：今天没有（第 1 条）；要做出来需要的清单在第 1 条。
+ - 业务功能核心与可选：附 A。对“打开了项目”的假设：浅（第 9 条）。
+ - 前端包：第 10 条。
+==== 附 A：核心与可选（回答第 2 问，浏览器一侧；依据是各入口 `dependencies` 里 `required` 的写法，读代码核实；“关了”的效果是由依赖图与 plugin-manifest.md 输出 10 的“拥有者未登记则贡献待校验、不报错”推断，没有运行验证）====
+核心（实际上不能关）：runtime.diagnostics、nbook.state、nbook.commands、nbook.settings、nbook.storage、nbook.workbench（window.ts:139 必需；workbench 与 commands 把 settings、storage、state 声明为必需依赖）；nbook.http（宿主适配器）；nbook.files（editor、explorer、markdown 都把 `filesKey` 声明为必需，它只是一个没有界面的门面）。
+有硬依赖链、可以成组关闭：markdown（被 editor、agent 的入口声明为必需 `markdownKey`）→ 关 markdown 要连 editor、agent 一起关。
+可选、叶子（没有别的内置插件把它们声明为必需依赖；读代码核实）：nbook.agent（没有任何内置插件向它的贡献点贡献，在 plugins/ 里搜 agentTool、agentExtension、agentProfile、PROFILES_POINT 只命中 agent 自己与 Lab 场景；别处对它只有第 3 与第 4 条两处软引用）、nbook.tasks、nbook.stickers（markdown、agent 都是可选依赖）、nbook.html-preview、nbook.image-viewer、nbook.theme-study（只有声明与素材）、nbook.desktop、nbook.explorer、nbook.editor（工作台在没有编辑器槽提供者时“回到欢迎文字”，plugins/workbench/web/editor-area.ts:1-4）、nbook.projects（没有它 `/` 没有首页、没有“回书架”，命令不在目录里时标题栏不画入口，WorkbenchShell.vue:480-482 与 spec 输出 36）、nbook.models 与 nbook.plugins（浏览器入口只有设置页，按页面激活）、nbook.canon 与 nbook.plot（没有界面；plot 只有 project 与 server 位置，canon 的浏览器入口只提供一个没人用的 `canonClientKey`：在 src 范围内除它自己外没搜到使用者）。
+业务功能的核心与可选：对“写作”这个产品，核心是 files + markdown + editor + explorer + projects + workbench；agent 对产品是主功能，但在架构上是叶子，可以整体关闭；canon、plot 是后台能力，plot 硬依赖 canon（plot/backend/plugin.ts 的依赖 `canonProjectKey`）；tasks、stickers、html-preview、image-viewer、theme-study、desktop 是增强件。
+注意：服务端与项目子进程把所有内置插件当启动必需（第 1 条），所以“可选”今天只是依赖关系上的可选，不是运行上的可选。
+
+==== 附 B：bot 界面的接点清单（回答第 3 问；只列接点与耦合性质，不做界面设计）====
+以下每一项都是 bot 插件要接的地方；“怎么接”是现有合同，“耦合”是接上之后产生的依赖。
+1. 插件登记（装配登记，机检会兜底）：manifest.ts 的 `productPlugins`、`plugins/bot/plugin.ts` 描述、web/plugins.ts 的 `browserPluginDefinitions`（:64-84）与 `builtinPluginCatalogs`（:102-115）、静态素材表 `builtinPluginAssets`（若有）、plugins/plugins/shared/builtin-names.ts 名单与两份语言目录（第 6 条）。如果要有后端，还有 server 与 project 的定义表。耦合：登记，可以接受。
+2. 工作台里的视图：向 `workbench.views` 贡献（workbench/shared/views.ts:128）。`location` 取 sidebar、auxiliarybar、panel；不写 `container` 就拥有自己的隐式容器，在活动栏有一个入口（workbench-layout.md 输出 41）；写 `container: PROJECT_VIEW_CONTAINER`（views.ts:141）就并进“项目”容器，这个容器名带“项目”语义，bot 不该进。视图标题后的计数用 `badge()`（web/contracts.ts:36-42）；活动栏入口是否显示这个计数，我没核实。耦合：只依赖 workbench 的 `shared/contracts`，与 explorer、tasks 同一做法。可以接受。
+3. 活动栏底部条目、状态栏、标题栏：`workbench.activitybar-items`、`workbench.statusbar-items`、`workbench.titlebar-items`（shared/items.ts:25-54），显示条件 `when.requires` 写公开状态键。耦合：公开状态键是字符串，插件间读取没有机检（第 3 条）。
+4. 独立页面：`workbench.pages`（workbench/web/pages.ts:19-33）：路径必须是小写段，贡献 id 必须等于路径，`/api`、`/assets` 保留，页面标题是普通字符串（没有语言目录的引用）；可选 `reloadOnLeave`。耦合：路径唯一，路由归宿主 web/router.ts；页面没有工作台的外壳。这是“单独页面”的做法，也是 Lab 在用的做法（plugins/lab/web/plugin.ts:23）。
+5. 编辑区页面（把 bot 对话当一个标签开在编辑区）：`editor.pages`（editor/shared/contracts.ts 的 `EDITOR_PAGES_POINT`），agent 就是这样做它的“页面”位置（agent/web/plugin.ts:536）。耦合：需要 `nbook.editor` 在；没有它时贡献待校验、不报错，bot 只剩视图。可以接受。
+6. 无项目首页：`workbench.home` 单提供者（workbench/shared/home.ts，“几个首页同时在时全部不采用”）。书架占着，bot 不能直接要它；要进入工作台的方式是 `/workbench` 或自己的页面路径。耦合：能力的两面，可以接受，但要在设计里明确 `/` 属于谁。
+7. 对话组件：见第 2 条，没有现成的接点，需要 agent 提供浏览器服务，或复制接线层。耦合：不推荐复制。
+8. 渲染 Markdown 与输入框：`markdownKey` 服务（markdown/shared/contracts.ts:43-47，`MarkdownDisplay`、`PromptEditor`、`PromptTextView`），agent 就是必需依赖它。耦合：bot 也会硬依赖 markdown，而 markdown 硬依赖 files（markdown/web/plugin.ts:96）；这条链在没有项目的窗口里照常工作，可以接受。
+9. 命令：`commands.definitions`，id 受域词表约束（第 6 条）；命令声明里 `expose.agent` 决定 Agent 能不能调它（agent/web/plugin.ts:95-100 的写法）。快捷键写在命令声明里。耦合：封闭词表。
+10. 设置：`defineSetting` 写进 `shared/contracts.ts`，设置页用 `SETTINGS_PAGES_POINT`；`category` 只有 app、ai、plugins（第 6 条）；`layers: ["user"]` 或含 project。耦合：封闭联合。
+11. 公开状态与存储：`state.public`（键 `nbook.<插件>/<名>`）；`storageKey` 的记录，`scope: "user" | "project"`，没有项目时只有用户层（agent/web/plugin.ts:117 的写法）。耦合：按作用域，没有项目也能存。
+12. 远程服务：服务端入口提供合同，浏览器入口 `context.remote.use(合同)` 订阅事件（agent/web/plugin.ts:195、:263-282 的写法）。耦合：合同放在 bot 自己的 `shared/contracts.ts`，没问题。
+13. 通知、快速选择：`notificationsKey`、`quickPickKey`（workbench 提供，agent、tasks、projects 都在用）。耦合：依赖 workbench，可以接受。
+14. 主题“工作中”信号：第 3 条。
+15. 窗口的项目绑定：窗口一生只绑定一个项目代次；在绑定了项目的窗口里，Agent 会话创建时默认归该项目（session-host.ts:145-146 的注释“新建的会话归它”）。bot 的会话是不是该归项目，是设计问题；复用会话宿主时要有一个“覆盖 project”的参数。耦合：设计决定，可以接受。
+16. 对话位置键：agent 的最近会话记录与对话位置名绑定（第 2 条），bot 位置要有自己的名字。
+
+==== 二、逐条耦合（按影响排序） ====
+说明：证据标“读代码核实”的是直接读到的行；标“推断”的是由依赖图或规则推出、没有运行验证。路径省略前缀 packages/neuro-book/src/，其它包写全。
+
+### 1. 内置插件不能停用：没有机制，且服务端把全部内置插件当“启动必需”
+类别：可以拆开（代价中）
+位置（读代码核实）：docs/specs/runtime/plugin-install.md:19、:51、:123（内置插件的启用、禁用一律拒绝，`builtin-fixed`）；manifest.ts:44（`productPlugins` 常量表）；server/main.ts:13-14、project/main.ts:10（两个进程入口直接传它）；server/start.ts:123（`options.manifest ?? productPlugins`）、:242 与 project/start.ts:152（`requiredPlugins` 取全部非第三方插件，任何一个内置入口失败整个服务启动失败，plugin-manifest.md:135）；web/host/window.ts:139、:447-489（浏览器只登记服务端引导集合里出现的内置插件，构建里的 `browserPluginDefinitions` 是全集，web/plugins.ts:64-84）。
+现象：今天没有任何办法让用户停用内置插件，设置、Profile、命令行参数都没有（在 src、docs/specs、docs/adr 里搜 disabledPlugins、停用、disable plugin、NBOOK_*PLUGIN，只命中第三方插件的启停）。能缩小插件集合的只有改 manifest.ts，或测试里传 `startServer({manifest})`。没有测试从产品清单去掉一个内置插件再起整套应用（在 src、e2e 里没搜到），所以“关了坏什么”只能从依赖图推。有利的一面：浏览器已经跟着服务端走，服务端少一个插件，浏览器就少一个，不用改前端构建。
+追到上游：“内置不能禁用”不是原始决策。ADR 0022:30 与提案 extensible-application-platform.md:351、:464 写的是“启动必需的内置插件不能禁用”，并要求禁用前列出连带受阻的范围、由用户确认（:462）；w00027 t01 计划写“本轮不能禁用；哪些非核心内置插件可以禁用以后再定”（.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md:75），是明写的“以后再定”，之后 Spec 收成一律拒绝。放开它不违反已接受的 ADR，改的是 Spec 一句话。
+挡住的场景：用户关掉某个内置功能；bot、日程做成内置插件后让不想要的人关掉；第二个应用从内置插件里挑一部分。
+建议：加“按配置过滤产品清单”一层，不改插件本身。(1) 状态根里一份停用名单（或环境变量、命令行参数），服务端启动时读、过滤后传给 `startServer`，项目子进程经已有的 `plugins` 启动消息（project/start.ts:99-110）带同一份；(2) 停用前对过滤后的清单跑内核的受阻推导，必需依赖缺失就拒绝或列出连带范围；(3) 描述符加“核心/可选”标记，核心不许停用；(4) 改 plugin-install.md 输出 4，`builtin-fixed` 只对核心；(5) `BUILTIN_PLUGIN_IDS` 与清单的相等测试改成子集；(6) 补“逐个去掉可选插件再启动”的合同测试，把本报告表里的推断变成证据。下次启动生效，与第三方插件一致。
+
+### 2. 对话界面只能在 `nbook.agent` 内部用：没有对外的浏览器服务，bot 界面无处可接
+类别：可以拆开（代价中；是 bot 界面复用的第一道门）
+位置（读代码核实）：plugins/agent/web/plugin.ts：入口 `activate`（:185-726）是约 540 行的闭包，本入口没有 `provides`，只返回 `receivers` 与 `contributions`（:692-722）；:311 与 :464 对话位置写死为 `"view" | "page"`，最近会话的存储键按位置名分；:464-640 `conversationComponent` 把 nb-agent-ui、Profile、Skill 菜单、文件提及、附件、模型角色、子代理卡接成组件；session-host.ts:143-250（`SessionHostDeps`，约 20 个注入项）；agent/shared/contracts.ts:124（`agentKey` 只在服务端）。nb-agent-ui 在应用里只有 `plugins/agent/web/` 引用。
+现象：nb-agent-ui 是视图包，“怎样把一个会话挂到界面上”的接线层（`session-host.ts` 1751 行加 `ConversationHost.vue`、`SessionPanelHost.vue` 与各种适配）只在 agent 浏览器入口的闭包里被创建，不经任何服务键或 `shared/contracts.ts` 公开。`SessionHostDeps` 的注入面做得好（外部能力都是参数，不碰全局），问题只在没人能拿到这个工厂与接线。
+挡住的场景：bot 要在工作台里做“一条不断的对话”的视图，会话由 bot 自己的身份决定（固定会话、没有列表与新建）。bot 插件不能 import `nbook/plugins/agent/web/*`（architecture.test.ts:118-120），只能抄一份接线，或让 agent 先对外开服务。
+建议：在 agent/shared/contracts.ts 定义浏览器服务键（例如 `agentConversationKey`），`mount({session: 固定 id 或自由, position: 调用方给的名字, features})` 返回组件与控制句柄。要动的：把 `conversationComponent` 与 `hostAt` 抽成独立模块，位置名改成参数，会话列表与新建做成可关的特性，会话归属项目可由调用方覆盖（session-host.ts:145-146 现在“新建的会话归窗口绑定的作品”）。nb-agent-ui 不用动。代价中：纯搬运加一个服务键，agent 现有 `session-host.test.ts` 与 dom 测试覆盖搬运。
+追到上游：对话宿主留在应用里、各应用自己写，来自 ADR 0045 决策 6 与提案 neurobot.md:52、:351。ADR 的备选方案给的理由是“接口只会照着 NeuroBook 设计、等写出来再比重复多少”，同一节写明开发者没有另外说明理由，不当作开发者的理由引用；那是 2026-11-10 的判断，当时 bot 还不是内置插件。现在 NeuroBook 内会有 agent 视图与 bot 视图两个使用者，“等写出来再比”的条件已具备：先在 NeuroBook 内做服务，不急着做共享包；会话合同 `agentSessionsContract` 是 NeuroBook 专有的，抽包要再加传输抽象，等 NeuroBot 网页宿主（w00043 t06、t07）写出来再判。
+
+### 3. 工作台按字符串读 Agent 的公开状态，主题“工作态场景”只认 Agent
+类别：可以拆开（代价小）
+位置：plugins/workbench/web/plugin.ts:167-171（`stateService.read("nbook.agent/active")`）、:284（`themes.resolve(…, agentWorking())`）；plugins/agent/web/plugin.ts:116-118（`definePublicState(descriptor.id, {active})`）。（读代码核实）
+现象：工作台决定要不要换成主题的“工作态场景”（书房主题的忙碌版插图）时，直接读 Agent 插件的公开状态键，键写成字符串字面量，不在 agent 的 `shared/contracts.ts` 里（别的插件读公开状态的键是 `publicStateKey` 加字符串，没有机检）。没装 Agent 时读不到，按空闲，所以降级是对的；耦合只是“方向与形状”：工作台认识一个具体业务插件，而且只认它。
+挡住的场景：bot 在后台干活、日程在跑任务时，主题的“工作中”不会亮；以后每加一个“AI 在忙”的插件都要改工作台。
+建议改法：工作台自己定义一个“忙碌”贡献点或公开状态约定（例如 `nbook.workbench/busy`，任何插件用 `state.public` 贡献并写 true），工作台读它的并集；agent 插件把现在的 `active` 同时发布成这个键。代价：小（工作台约 10 行、agent 约 5 行、一条 Spec 说明）。同类的“读别的插件公开键”还有 plugins/html-preview/web/plugin.ts:106-107（`"nbook.editor/activeEditor"`、`"nbook.editor/activeDocument"`），应把这两个键常量放进 editor/shared/contracts.ts。
+
+### 4. models 的设置挂在 agent 的分区下，靠字符串反向引用
+类别：不推荐耦合（代价小）。理由：这是为绕开依赖环而写的反向字符串引用，让 `nbook.models` 隐含地认识 `nbook.agent`；它挡住“关掉 agent 之后设置页仍然干净”这个场景，也与“插件之间只经贡献点与 shared/contracts 协作”的目录约定（packages/neuro-book/AGENTS.md）的精神相反
+位置：plugins/models/shared/settings.ts:18-19（注释：“Agent 依赖模型服务，反过来引用会成环，所以按 id 写”）、:28、:54（两项设置 `section: "nbook.agent.reliability"`）；agent 的分区声明在 plugins/agent/plugin.ts:16、agent/shared/settings.ts。设置分区缺失时的降级见 docs/specs/settings/settings-window.md:32、:166、:253（落到“其它”并记诊断）。（读代码核实）
+现象：模型服务的“压缩”等设置（`nbook.models` 声明）显示在 Agent 的“可靠性”分区里。`nbook.models` 要绕过类型与依赖环，用字符串引用 `nbook.agent` 的分区 id。降级是有的（分区不存在就落到“其它”），所以不会坏，但“不装 agent，models 的设置出现在‘其它’页”是一个没人设计过的状态。
+挡住的场景：停用 agent 或者 bot 另做 Agent 之外的运行体时，这两项设置的归属说不清；是 models 是否独立可复用（ADR 0045 把模型服务抽成 nb-models，设置分区的名字留给各应用）的一个裂缝。
+建议改法：把这两个设置项的“分区归属”改由 agent 声明（agent 在自己的描述里把别的插件的设置键加进它的分区，或者分区在 settings 一侧有“按键列表收录”的写法），models 不再写 `nbook.agent.*`。代价：小到中（需要 settings 贡献点支持“分区认领别人的键”，或者把这两项设置挪到 agent 的 `shared/settings.ts` 去声明，属于数据迁移：键名按插件 id 前缀，挪了会改键）。若不愿动键，可以接受维持现状并在 models 的 AGENTS 里登记为已知反向引用。
+
+### 5. 主题素材的上传与清理住在 `nbook.files` 里，工作台因此依赖 files 的合同与后端
+类别：可以拆开（代价中）
+位置：plugins/files/shared/contracts.ts:418-438（`THEME_ASSET_UPLOAD_URL`、`THEME_ICON_UPLOAD_URL`、`THEME_ASSET_DIRECTORY_ADDRESS = "user://theme-assets"`、`THEME_ASSET_FILE_NAME` 正则、`THEME_ASSET_SWEEP_*`）；plugins/files/backend/theme-asset-common.ts、theme-asset-route.ts、theme-asset-sweep.ts（共 289 行，路由挂在 `/api/nbook.files/theme-*`）；plugins/files/backend/svg-icon.ts；工作台的运行时导入：plugins/workbench/web/themes.ts:12、web/components/theme-editor/asset-upload.ts:5、package-io.ts:17、theme-editor-model.ts:21、assets.ts:6。工作台本身没有后端入口（plugins/workbench/plugin.ts:14 `locations: ["browser"]`）。（读代码核实）
+现象：主题编辑器（工作台里约 4100 行、44 个文件）要把图片与图标存到用户目录，后端路由、体积与类型检查、清理逻辑都放在文件插件里，合同常量与正则也在文件插件的 `shared/contracts.ts`。文件插件因此带着一块与“项目文件”无关的主题业务，工作台因此在运行时依赖 files。
+挡住的场景：(a) 想把主题与外观整体做成可关的功能（主题编辑器连同素材后端一起关）；(b) 工作台壳不依赖 `nbook.files`，bot 的独立页面或第二个应用只要壳；(c) `nbook.files` 只做“文件”，别的应用想要文件能力时不用背着主题。
+建议改法：把素材的后端三个文件与常量搬到工作台（给 `nbook.workbench` 加一个 `server` 位置的入口），或者新建 `nbook.themes` 插件接管主题（theme-study 的声明、主题编辑器、素材后端）。要动的：搬 289 行后端加相应测试，改 5 个导入，插件描述加一个运行位置；素材写入用到的 `entryToken`（files/backend/rooted）需要经 files 的服务暴露或换成素材目录自己的加锁写（不要深导入）。代价：中。收益是主题子系统自成一体，也是以后把“工作台壳”和“主题”拆开的前提。
+
+### 6. 新增一个内置插件要改另外三个插件里的封闭名单
+类别：可以拆开（每项代价小）
+位置：（读代码核实）
+ - plugins/commands/shared/registry.ts:83（`COMMAND_DOMAINS` 封闭词表）、:136（词表外的内置命令域被拒绝，原因“未登记的命令域”）。内置插件的命令只能写 `nbook.<域>.<动作>`，域不是插件 id；现有域里没有 bot、schedule。
+ - plugins/settings/shared/sections.ts:57（设置分区的 `category` 是 `"app" | "ai" | "plugins"` 的封闭联合）。
+ - plugins/plugins/shared/builtin-names.ts:11-34（`BUILTIN_PLUGIN_IDS` 封闭列表，内置插件的显示名与说明放在 `nbook.plugins` 的两份语言目录里，描述符没有这两项）、builtin-names.test.ts:43-45（与产品清单逐项相等）。
+ - web/plugins.ts:64-84、:102-115（浏览器定义表、消息目录表各登一项）与 manifest.ts:44（清单）。这两处有“漏登就失败”的机检（builtin-manifest.test.ts、browser-bootstrap.test.ts），属于合理的装配登记，不在本条抱怨之内。
+现象：前三项是别的插件拥有的封闭名单，没有贡献点、也没有机检把“没登记”报成可读的提示（命令域有诊断，另两项是测试失败）。bot 与日程至少要新增两个命令域（`bot`、`schedule`），也许要一个设置类别，并改 `nbook.plugins` 的名单与两份目录。另有一个命名问题：`nbook.tasks` 已经是“后台任务”（plugins/tasks/plugin.ts 注释，命令域 `tasks`，状态键 `nbook.tasks/*`，视图 `TASKS_VIEW`），日程与周期任务不能再叫 tasks。
+挡住的场景：内置插件当“能力包”增删时的代价，以及以后让“第三方 bot 插件”与内置的 bot 插件有同样能力（ADR 0027 要求的“能力相同”）：第三方插件的命令 id 以自己的插件 id 开头（registry.ts:134-137），没有这道门槛，内置反倒更受限。
+建议改法：命令域改成“内置插件的命令 id 可以以插件 id 去掉发布者的名字开头”（`nbook.bot.*` 由 `nbook.bot` 插件拥有），保留旧域词表给已有命令；`category` 加成开放（字符串）或加一个贡献点；内置名称与说明写进描述符（`displayName`、`description`）再由插件页读。代价：小，各一两个文件加测试；命令域那条要改 docs/specs/workbench/commands.md 的域词表。
+
+### 7. 别的插件的命令 id 与状态键写成字符串字面量，且有重复；机检不查这类引用
+类别：可以拆开（代价小）；其中“不在目录里就不画”的那几处可以接受
+位置：（读代码核实）
+ - `"nbook.editor.open"` 字面量散在 6 处：plugins/agent/web/plugin.ts:87、explorer/web/controller.ts:35、editor/web/commands.ts:27（定义处，在 `web/` 下，别的插件不能运行时引用）、projects/web/welcome.ts:73 与 :149、markdown/web/components/MarkdownControl.vue:93。
+ - `"nbook.view.open"`：workbench/shared/views.ts:20 已经导出 `OPEN_VIEW_COMMAND`，但 agent/web/plugin.ts:88 与 tasks/web/plugin.ts:35 各自又写了一份字面量。
+ - 工作台按字面量认项目插件的命令：workbench/web/components/WorkbenchShell.vue:480-482（`nbook.project.open`、`nbook.project.back-to-shelf`；projects/shared/contracts.ts:20、:22 已有常量，explorer/web/view-host.ts:14 就是导入它的）、WorkbenchCommandPalette.vue:32-34。编辑器空状态提示写死 `nbook.quick-open.open-commands`、`nbook.files.new-file`、`nbook.help.welcome`（editor/web/empty-tips.ts:23-25），按 `commands.get` 查到才显示。
+现象：命令 id 是公开合同（注释里都这么写），命令不在目录里时界面降级（不画或禁用），所以不是硬依赖。问题在两点：一是 `nbook.editor.open` 没有放在 `shared/contracts.ts`，每个想“打开一个文件”的插件都得再抄一份；二是 id 改名时没有任何机检能发现，只会变成一个静默的“按钮没了”。
+挡住的场景：bot 的界面要“在编辑器里打开某文件、打开某视图”，会成为第 7 与第 8 个抄写者。
+建议改法：把 `OPEN_COMMAND`（editor）放进 editor/shared/contracts.ts，agent、tasks 改用 workbench 已导出的 `OPEN_VIEW_COMMAND`；可选地加一条架构测试：产品代码里出现 `"nbook.<域>.<动作>"` 字面量时必须能在某个插件的声明里找到。代价：小。工作台认项目命令的字面量写法（注释说“工作台不为它依赖项目插件的模块”）与降级到位的空状态提示，可以接受。
+
+### 8. 产品插件按路径名认 Lab 页面
+类别：可以拆开（代价小）
+位置：plugins/agent/web/plugin.ts:156（把 `globalThis` 收窄成带 `location.pathname` 的形状）、:217（`if (browser.location?.pathname.startsWith("/lab") !== true) void activity.start(…)`）；docs/specs/agent/conversation.md:42 写了“Lab 窗口不启动活动条目”。在 plugins/ 里除 lab 自己外没搜到第二处（grep `"/lab"`、`pathname`）。（读代码核实）
+现象：Agent 的浏览器入口认识“当前页是不是 Component Lab”，是产品代码里唯一一处按路由名为开发工具开分支的地方。字符串 `/lab` 因此进入生产构建（Lab 自身的代码被 `check:dist` 排除，这个字面量不会被它拦下，推断：门禁扫的是 Lab 模块与 fixture 的标记，没有逐个核对）。
+挡住的场景：bot、日程这类“进窗口就订阅后台数据”的插件每个都要抄这个判断，否则 Lab 里会多出一路订阅；Lab 的 Spec 要求“排除发生在构建图阶段，不用路由守卫隐藏”，这与它同一个精神。
+建议改法：让订阅由一个宿主能力决定，例如 `agentActivityEnabled` 之类的可选服务，Lab 的场景宿主把它提供成 false，产品不提供即缺省为 true；或者订阅挪到“有视图或状态栏条目被挂上”时再开（现在 `onStartup` 就开，是因为状态栏要显示计数）。代价：小。
+
+### 9. 业务界面对“打开了项目”的假设：浅，可以接受（读代码核实）
+类别：可以接受
+位置：shared/projects.ts:174（`windowProjectKey`）、web/host/window.ts:282、:326（窗口一律提供它，值可以是 null）；十个浏览器入口声明它为必需依赖：workbench/web/plugin.ts:129、explorer/web/plugin.ts:96、editor/web/plugin.ts:100、files/web/plugin.ts:26、storage/web/plugin.ts:24、settings/web/plugin.ts:123 与 :182、canon/web/plugin.ts:23、html-preview/web/plugin.ts:67、agent/web/plugin.ts:171、projects/web/plugin.ts:92（markdown 是可选，markdown/web/plugin.ts:96）；各入口对 `project === null` 的处理：explorer/web/plugin.ts:108、editor/web/plugin.ts:118、145-146、165、299（标签与最近文件不持久化、只在内存）、html-preview/web/plugin.ts:86（`denial: "no-project"`）、files/web/plugin.ts:33-34、agent/web/plugin.ts:188、:117 与 :293（最近会话按有无项目落作品层或用户层）、markdown/web/plugin.ts:110-124（上传不可用、列表为空）、workbench/web/state/layout-doc-store.ts:56-58、577-578（布局按“有无项目”分作品层与用户层两份记录）、WorkbenchStatusBar.vue:70、WorkbenchShell.vue:94（“未打开项目”文字）。
+结论：这是“值可为空的宿主能力”，不是“没有项目就起不来”。没绑定项目的窗口是一等状态：`/workbench` 页面“不打开作品、直接进入空工作台”（docs/specs/ui/workbench-shell.md:105，输出 37），`/` 在没有项目时由 `workbench.home` 的贡献者接管（输出 36）。所以 bot 的视图可以在没开项目的窗口里用，前提是它不依赖 explorer、editor 的项目文件功能。要注意的三点（见下面“接点清单”）：（a）窗口一生只绑定一个项目代次（files/web/plugin.ts:32 注释、window.ts 启动序列），切换项目是整页导航，bot 视图随之重建，服务端的会话不丢；（b）`workbench.home` 是单提供者，书架已占着，bot 想做 `/` 要另做一个“有项目 / 没项目”的分流，或自己用页面贡献点占一个路径；（c）`/workbench` 是直接输入地址进入的，没有产品入口，bot 的“常驻”入口要自己提供。这些是能力的两面，拆开的代价高于收益，故可以接受。
+
+### 10. 前端包里没有应用特有的概念漏进去（只有注释与命名上的痕迹）
+类别：可以接受（两处小痕迹可以顺手清）
+位置（读代码核实，范围：packages/nb-ui、nb-layout、nb-form、nb-markdown 的 src，去掉测试、fixtures、lab）：
+ - nb-ui：src/colorway/presets.ts:8、colorway-contract.ts:9 的注释引用旧应用路径“NeuroBook 主仓 app/utils/theme”；src/theme/theme-loader.ts:130 的注释用 nbook 举例；themes/nbook 目录是 nb-ui 自带的一套主题名，不是应用依赖。没有对 `nbook/…`、插件 id、工作台概念的运行时引用。nb-ui 已有第二个、第三个使用者（nb-story、dev-panel，见 packages/nb-layout/AGENTS.md“与 nb-ui 里那份的关系”）。
+ - nb-layout：核心的模型是工作台形状：`PanelName = "sidebar" | "auxiliarybar" | "panel"`、`PanelRole = "tool" | "editor"`（src/layout-doc.ts:21-22、:158），说明书开头就写“工作台的布局工具”。这是设计意图，不是漏入；通用的是 grid.ts 一层。
+ - nb-form：只有 `policy: "agent"`（模型生成表单的检查策略，src/check.ts）与一处注释对照应用的 `CatalogKey`（src/builtin-text.ts:21）。
+ - nb-markdown：带 NeuroBook 的写作语法：表情 `:包/名字:`（src/stickers.ts）、“NeuroBook Markdown 原样语法”（src/markdown-dialect.ts:2）、批注与注音等编辑扩展；文件方案、链接目标分类由宿主经 `provideMarkdownHost` 给（AGENTS.md“不认任何作品的文件方案”，src/boundary.test.ts 守着不引 `nbook/…`）。注释里点了应用文件路径：src/locale.ts:6（`packages/neuro-book/src/plugins/markdown/web/host.ts`）、src/names.ts:6。
+ - 四个包都有 boundary.test.ts 按白名单扫导入（nb-layout、nb-form 只许 vue、nb-ui、typebox 等列名的包；nb-markdown 另写明不引 `nbook/…` 与插件内核），所以运行时不会引到应用；但没有哪个包的测试扫“源码里不写应用名”（nb-host 才有，ADR 0045 决策 1），上面的注释痕迹就是这么留下的。
+建议：不用改。若要让第二个应用无顾虑地用，把上面注释里的旧应用路径删掉即可（代价极小）；如果 bot 要用 nb-layout，需要明确它是“带侧栏、右栏、底部面板的工作台布局”，聊天型应用（NeuroBot 的多渠道界面）可能只用 grid 一层；这条要等第二个应用的界面设计出来再判。
+
+### 11. editor 必需 markdown，markdown 又向 editor 贡献编辑器：一个能力的两面
+类别：可以接受
+位置：plugins/editor/web/plugin.ts:65-68、:133（`builtinComponents(context.services.require(markdownKey))`，Markdown 编辑控件由 markdown 服务给）、:100（`markdownKey` 必需）；plugins/markdown/web/plugin.ts 向 editor 的贡献点贡献编辑器（运行时导入 editor/shared/contracts 共 10 处，反过来 editor 导入 markdown/shared/contracts 共 2 处：`dialectTable`、`countWords` 等纯函数与服务键）。（读代码核实）
+现象：两个插件互相有运行时导入，但都只经对方的 `shared/contracts.ts`，没有环依赖（服务依赖只有 editor → markdown 一个方向）。Markdown 同时是“富文本组件库”（显示、提示词编辑器）与“编辑器的一种”，拆成两个插件能让 bot、agent 不为用显示器而加载编辑内核，但 nb-markdown 包已经做了这个分层（显示与编辑器扩展分入口），插件层再拆收益小；`AGENTS.md` 的前端一节已要求带 DOM 的部分放进按需加载的 `.vue`，所以实际上不会多加载。
+结论：不用拆。需要注意的是 bot 与 agent 一样会因此硬依赖 markdown 与 files（见附 B 第 8 项）。
+
+### 12. 约 40 处“只引类型”的跨插件导入落在 `shared/contracts.ts` 之外
+类别：可以接受
+位置：architecture.test.ts:118（只拦非类型的跨插件运行时导入；`typeOnly` 的放行）；我用 grep 数到非 lab、非测试的 `import type … from "nbook/plugins/<别的插件>/(web|shared)/…"` 共约 40 条，集中在：editor → workbench/web/contracts（6）、agent 与 models 与 projects → settings/web/contracts（9）、各插件 → settings/shared/sections 与 workbench/shared/views、items（约 12）、projects 与 agent → editor/web/pages（3）、markdown → editor/web/control、markdown → files/shared/upload、stickers → files/shared/workspace-files、explorer 与 agent → workbench 的组件类型等。（读代码核实：来源是命令行统计，不是人工逐条核对，数目是量级）
+现象：运行时不依赖，只是类型层的耦合；这些文件（`web/contracts.ts`、`shared/sections.ts`）实际上就是“实现一侧的合同”，`AGENTS.md` 目录约定只把 `shared/contracts.ts` 称作对外合同，与实情有出入。
+建议：不改代码。可在 packages/neuro-book/AGENTS.md 一句话写明“实现类型的公开文件”（`web/contracts.ts`、`shared/sections.ts` 等）也算对外，并给出名单；今后 bot 插件照现有做法即可。代价：极小，只改文字。
+
+### 13. Lab 的场景可以深入任何插件的 web 与 shared，抬高了重构代价
+类别：可以接受（有明文例外）
+位置：architecture.test.ts:79（`labSceneMayImport`）；packages/neuro-book/AGENTS.md 目录约定的“例外：Lab 的场景”；统计：plugins/lab/web/fixtures 下共 61 个文件导入别的插件，其中 workbench/web 50 处、agent/web 31 处、commands/shared 23 处、settings 35 处、markdown/web 18 处（命令行统计，读代码核实量级）。
+现象：Lab 是开发清单里的插件，不进产品，例外合理；代价是第 2 条那种“把 agent 的接线层抽成服务”会同时改 Lab 约 30 处导入，工作台里搬文件会动约 50 处。
+建议：不改。做第 2 条时，把 Lab 场景改成走新服务可以顺便减少对内部文件的引用。
+
+### 14. 浏览器窗口宿主（启动、引导选择、失败页）留在应用里，第二个应用要用得自己写
+类别：可以接受（ADR 0045 决策 6 明确不抽）
+位置：web/host/window.ts（596 行）：:139 写死必需插件、:36-39 导入工作台的 `notificationsKey`、`workbenchRootKey`、:282 项目绑定、:447-489 `selectPlugins`；web/host/*、FailurePage.vue、DesktopFrame.vue；nb-host/web 只给“内核实例、远程会话与重连、套接字、客户端身份、控制台诊断出口”（docs/adr/0045-shared-host-packages-for-second-app.md 决策 1）。（读代码核实）
+现象：窗口宿主含有“按作品绑定”“第三方插件的清单与目录”“桌面壳”这些 NeuroBook 的概念，与 NeuroBot 的“常驻、多渠道”不同，ADR 0045 决策 6 与“备选方案”都写了“等写出来再比重复多少”。我没有搜到 NeuroBot 的网页宿主已经开工（在 packages 下没有它的目录，只有 w00043 的文档），所以现在判拆不拆无从下手。
+建议：不动。等 bot 与 NeuroBot 的第二份窗口宿主出来，再把 `selectPlugins`、失败页状态机、消息目录登记这几块与 NeuroBook 的差异比一遍。
+
+==== 三、推荐先做的五件事与各类条数 ====
+按“先挡住 bot 与日程开工的、再做能关掉功能的”排：
+1. 开放 bot 与日程要撞上的封闭名单，并把共用命令 id 放进合同（第 6、7 条；代价小）：命令域改成内置插件可用自己的插件名作域；设置类别改开放；内置插件显示名与说明进描述符；`nbook.editor.open` 放进 editor/shared/contracts.ts，agent 与 tasks 改用 workbench 已导出的 `OPEN_VIEW_COMMAND`。顺手定日程插件不叫 tasks（该名字与命令域已被后台任务占用）。
+2. 把对话接线层做成 `nbook.agent` 的浏览器服务（第 2 条；代价中）：抽出 `conversationComponent` 与 `hostAt`，位置名改成调用方给、会话可固定、可关会话列表与新建、可覆盖归属项目。这是 bot 视图复用 agent 对话的前提；先在 NeuroBook 内做服务，抽成共享包等 NeuroBot 网页宿主出来再判。
+3. 做“停用可选内置插件”（第 1 条；代价中）：状态根里的停用名单，服务端与项目子进程用同一份过滤产品清单；停用前跑依赖闭包检查；核心与可选标记进描述符；改 plugin-install.md 输出 4（只拒绝核心）；补“逐个去掉可选插件再启动”的合同测试，把附 A 的推断变成证据。
+4. 清掉两处对 agent 的字符串引用（第 3、4 条；代价小）：工作台改读“忙碌”约定而不是 `nbook.agent/active`（顺便让 bot 与日程的后台工作也能点亮主题工作态）；models 的两项设置不再写 `nbook.agent.reliability`。
+5. 把主题素材后端从 `nbook.files` 迁出（第 5 条；代价中）：让 files 只做文件，工作台壳不再依赖 files 的合同；这是把“主题”做成可关功能、让第二个应用只取壳的前提。可排在 3 之后。
+（第 8 条的 Lab 路径判断顺手在第 2 条里一起改，代价小。）
+
+条数（共 14 条）：
+ - 不推荐耦合：1 条（第 4 条）。
+ - 可以拆开：7 条（第 1、2、3、5、6、7、8 条；代价中 3 条：1、2、5；小 4 条：3、6、7、8）。
+ - 可以接受：6 条（第 9 到 14 条：项目假设浅、editor 与 markdown 的两面、类型层导入、Lab 场景例外、窗口宿主留在应用里、前端包无应用概念漏入）。
+没有查到违反 architecture.test.ts、ADR 0026、ADR 0030 已写边界的代码（跨插件运行时导入、前后端互引、产品引 testing 与 plugin-sdk 都有机检，我没有再重复报）；机检放过的是类型层与字符串层，已在第 3、4、7、12 条报出。
+
+未验证与局限：
+ - “关了坏什么”全部来自依赖图与 Spec，没有真跑；建议先做第 3 件事里的合同测试，把它们变成证据。
+ - 没有核实活动栏入口是否显示视图的 `badge()` 计数（附 B 第 2 项）。
+ - 没有逐个读 explorer、editor、markdown 的内部实现，只读了它们的入口与跨插件接点；后端部分只看了对前端判断有用的依赖声明。

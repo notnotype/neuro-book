@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t37-status-line-customization
-status: planned
-updated: 2026-11-16
+status: done
+updated: 2026-11-17
 ---
 
 # 对话状态栏的自定义
@@ -29,8 +29,16 @@ updated: 2026-11-16
 
 ## 当前状态
 
-2026-11-17 开工，计划写好（[plan.md](plan.md)），评审板两题已答（决定 1、2）；草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `StatusLineDraft`。
+2026-11-17 完成并合入 master（四片：目录与解算与窄时收项的纯逻辑、状态栏按设置显示与右键菜单、设置项与贡献点与设置页、Lab 场景与 e2e）。Spec 条目已晋升（conversation.md 输出 15、45、46，agent-conversation-view.md 的“状态栏”，contributions.md 输出 22），按 2026-11-17 起的规矩不用审批。
+
+实现审查（Sonnet，前端）：13 条，重要 6、建议 7，证据 [`evidences/impl-review.txt`](evidences/impl-review.txt)。处理：
+
+- 成立、已改（重要 6 条与几条建议）：量到宽度 0 的项挡住整个右边的收起；最后一项也放不下时右边不收、把左边提醒挤没（改成全收）；宿主项渲染抛错整条状态栏挂不上（包了 `RenderGuard`），异步加载失败后永远 0 宽（`fail()`）；预览里右键弹出点了没用的菜单（预览整块 `inert`）；右键勾选写失败的通知文案借了“发送失败”（改用设置页同一个失败文案）；右键菜单关闭后焦点没还；向下拖的落点线画在上沿；上移下移连点同一项丢步（改成相对 `shift`）；收起的槽没贴左缘可能撑出横向滚动；左边宿主项没有包装元素；`openSettings` 两条路径合一；`.md` 与过期的 e2e 标题跟上。
+- 接受取舍、未改：上移下移后焦点在 Chromium 下可能丢（从代码推断，未在真实浏览器验证，不加焦点管理与播报机制）；`order` 里残留的已卸载插件 id 满 64 项会被 schema 拒（几乎不会发生，记为已知限制）；插件项变化时整份注册表重建（没有证据显示下游缓存受影响）；`hostScene` 拼 input 的写法。
+- 没做：SDK 的 `agentStatusItem` 助手（计划里写了，第三方现在手写清单）；插件经真实运行时发布 `agent.statusItems` 的端到端用例（接收者与撤回有用例，校验有用例）。
+
+另：最终形态与 Spec 一致，内置四项（上下文、用量、费用、模型）内联在 `AgentStatusBar`；`AgentStatusBar` 现在是 nb-agent-ui 的公开组件（设置页预览复用它）。
 
 ## 下一步
 
-写 Spec（标 planned）、开 worktree、按切片实施。
+“用户脚本”那条路径要不要加，待开发者定（要的话另建 Task）。nb-ui 的 `ContextMenu` 只在 `open`、`x`、`y` 变化时夹取位置，打开时才挂上的菜单不会被夹取，宿主要常挂着靠 `open` 驱动；这点可以考虑改上游（挂载即量），需要时另开。

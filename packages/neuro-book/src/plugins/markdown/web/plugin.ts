@@ -14,11 +14,13 @@ import type {Component} from "vue";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {StickerResolver} from "@notnotype/nb-markdown";
 
 import {IMAGE_FOLDER_DEFAULT, imageFolderSetting, imageLocationSetting} from "nbook/plugins/editor/shared/contracts";
 import {filesKey, projectFilesContract} from "nbook/plugins/files/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
+import {stickerResolverKey} from "nbook/plugins/stickers/shared/contracts";
 import {windowProjectKey} from "nbook/shared/projects";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 
@@ -40,6 +42,7 @@ import type {AssetUrls} from "./parts/asset-urls";
 import {forwardExpose} from "./parts/forward-expose";
 import {markdownReportKey} from "./parts/report";
 import type {MarkdownReport} from "./parts/report";
+import {markdownStickersKey} from "./parts/stickers";
 import {SyntaxCatalog, syntaxCatalogKey} from "./syntax-catalog";
 
 interface Host {
@@ -50,6 +53,8 @@ interface Host {
     readonly propertiesOpen: PropertiesOpen;
     readonly media: MarkdownMedia;
     readonly describeProperty: DescribeProperty;
+    /** 表情目录（`nbook.stickers` 没装时为 null，表情写法显示原文）。 */
+    readonly stickers: StickerResolver | null;
 }
 
 /**
@@ -74,6 +79,7 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
             provideToChildren(markdownPropertiesOpenKey, host.propertiesOpen);
             provideToChildren(markdownMediaKey, host.media);
             provideToChildren(markdownPropertiesDescribeKey, host.describeProperty);
+            if (host.stickers !== null) provideToChildren(markdownStickersKey, host.stickers);
             const exposed = forwardExpose(expose);
             return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props, ref: exposed}, slots));
         },
@@ -87,7 +93,7 @@ export const markdownBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}, {key: windowProjectKey, required: false}, {key: settingsKey, required: false}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}, {key: windowProjectKey, required: false}, {key: settingsKey, required: false}, {key: windowTextKey, required: false}, {key: stickerResolverKey, required: false}],
         provides: [markdownKey],
         receives: [MARKDOWN_SYNTAXES_POINT],
         activate: async (context) => {
@@ -127,7 +133,8 @@ export const markdownBrowserPlugin: PluginDefinition = {
                 text: (display) => text.t(display),
                 conflict: (name, kept, ignored) => diagnostics.record({level: "warn", event: "markdown.properties.conflict", message: `属性 ${name} 的声明 ${ignored} 与 ${kept} 同名，${kept} 生效、${ignored} 被忽略`, data: {name, kept, ignored}, source: {plugin: descriptor.id}}),
             });
-            const host: Host = {catalog, assets, report, colors, propertiesOpen, media, describeProperty};
+            const stickers = await context.services.resolve(stickerResolverKey);
+            const host: Host = {catalog, assets, report, colors, propertiesOpen, media, describeProperty, stickers: stickers.status === "resolved" ? stickers.instance : null};
             // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
             const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
                 withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});

@@ -37,6 +37,8 @@ export {formatListTime, markdownPreviewLine} from "./format";
 export type {AgentTextKey} from "./text";
 export {acceptSubmission, applyComposerAction, nextMode} from "./composer-actions";
 export {createAgentContext} from "./context";
+export {BUILTIN_STATUS_ITEMS, collapsedCount, moveStatusItem, resolveStatusLine, statusLineCatalog, toggleStatusItem} from "./status-line";
+export type {ResolvedStatusItem, StatusLineItem, StatusLineSetting, StatusLineSide} from "./status-line";
 export type {AgentContextPatch} from "./context";
 export {createHarnessTranscript, logSeqOf, modelErrorText} from "./harness";
 export {createKernelTranscript} from "./kernel-transcript";

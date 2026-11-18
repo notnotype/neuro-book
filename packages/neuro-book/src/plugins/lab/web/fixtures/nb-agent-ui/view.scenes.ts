@@ -89,6 +89,7 @@ export const WELCOME_STARTERS = [
 
 export const agentConversationViewScenes: Scene[] = [
     hostScene("idle-host", "宿主接好的样子：状态栏、审批模式", {}),
+    {...hostScene("status-line", "状态栏可右键：勾选菜单与“状态栏设置…”（设置为空）", {}), input: {...hostScene("status-line", "", {}).input, props: {...hostScene("status-line", "", {}).input.props, statusLine: {}}}},
     hostScene("compaction-summary", "压缩分隔线：摘要、放回、要求（点开看详情）", {messages: [...compactionBase(), compactionDivider("c1", {text: SUMMARY_TEXT, compaction: SUMMARIZED})]}),
     hostScene("compaction-shake", "压缩分隔线：整理工具结果，没有摘要也没有放回", {messages: [...compactionBase(), compactionDivider("c1", {compaction: {method: "nbook.agent.shake", tokensBefore: 92_400, tokensAfter: 41_000, model: null, require: [], restored: [], omitted: 6, keptTurns: null}})]}),
     hostScene("compaction-grew", "压缩分隔线：只有一轮，压缩后反而更大（不写节省）", {messages: [...compactionBase(), compactionDivider("c1", {text: SUMMARY_TEXT, compaction: {...SUMMARIZED, tokensBefore: 3_200, tokensAfter: 6_900, restored: [], require: [], model: {name: "p/m", input: 3_000, output: 1_900, cacheRead: 0, cacheWrite: 0, cost: null}, keptTurns: null}})]}),

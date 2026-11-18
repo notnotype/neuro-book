@@ -64,12 +64,13 @@ updated: 2026-11-15
 | [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。已完成，合入 master |
 | [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。已完成，合入 master；desktop-update 已晋升 implemented |
 | [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。已完成：第一次正式发布 v0.13.0（2026-11-15）走完，registry 冒烟改为先等版本可见 |
-| [t18](tasks/t18-desktop-window-feedback/README.md) | 开发者试用 t03、t04 后的反馈：窗口按钮与标题栏统一、回到书架的入口、窗口最小 800×560。进行中 |
+| [t18](tasks/t18-desktop-window-feedback/README.md) | 开发者试用 t03、t04 后的反馈：窗口按钮与标题栏统一、回到书架的入口、窗口最小 800×560。实现、两路审查与 Windows 验收完成并合入 master |
 | [t19](tasks/t19-resize-relayout/README.md) | 改窗口大小时页面的重排开销（分隔条吸附、过渡列表）。完成（每步样式重算 26 → 7.65，样式时间约少四成），已合入 |
-| [t13](tasks/t13-tray/README.md) | 托盘与关窗去向。切片 1 到 5 合入 master（82d15e3cc），实现审查已处理；Windows 验收（切片 6）等 pc-notype |
+| [t13](tasks/t13-tray/README.md) | 托盘与关窗去向。切片 1 到 5 合入 master（82d15e3cc），实现审查已处理；Windows 验收两轮完成（主流程、退出对话框、后台 30 分钟）；自启、缩放图标、资源管理器重启未做，Spec 晋升待开发者批准 |
 | [t14](tasks/t14-system-notifications/README.md) | 系统通知（先实测 WebView2 的网页通知）。调研完，等 Windows 探针 |
 | [t15](tasks/t15-drag-import/README.md) | 从系统拖入文件、图片与文件夹（文件树、编辑器插图、书架导入）。未开工 |
 | [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。实现与两路审查完成并合入 master；切片 6（Windows 拖放手测）等 pc-notype |
 | [t20](tasks/t20-background-tasks-from-browser/README.md) | 浏览器入口登记后台任务与可续传上传（t15 批量拖入的前置，2026-11-17 开发者同意分两步）。未开工 |
 | [t17](tasks/t17-window-backdrop/README.md) | 磨砂透明的窗口背景（实验）。未开工 |
+| [t21](tasks/t21-desktop-polish/README.md) | 开发者 2026-11-18 的第二轮反馈：清理 pc-notype 残留、默认窗口 1600×1000、搜索收窄、标志与项目名对齐、书架顶端像 JetBrains 欢迎页。已完成，合入 master；真实桌面里试书架顶端待开发者 |
 | [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、CHANGELOG 与由它生成的中文 Release 说明、发版脚本 `release:prepare`、发布手册、安装包改名。已完成，合入 master；推送后演练待开发者授权 |

@@ -184,6 +184,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记、后台任务）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行、`$` 菜单与确认框、设置里的 Skill 页 |
 | Profile 设置页 | [`agent/profile-settings.md`](agent/profile-settings.md) | 看和改 Profile：列表、模型与审批、工具绑定、用户级 Profile 的新建打开删除 |
+| 表情包 | [`agent/stickers.md`](agent/stickers.md) | 表情包与清单、来源与目录、`:包/名字:` 写法（nb-markdown 内置方言，经宿主端口查表情）、`stickers://`、取图路由、Profile 白名单与提示词槽、设置里的表情包一节 |
 | 子代理 | [`agent/subagents.md`](agent/subagents.md) | `agent_spawn`、`agent_send`、`agent_answer`：派发检查与白名单、子会话的会话头与身份、等待与结果、审批与提问的去处、中止连带、上限、`tree` 远程 |
 | 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程 |
 | 模型请求记录 | [`agent/request-trace.md`](agent/request-trace.md) | 每次模型请求的记录：相同内容只存一份、按天保留、响应头与请求头的过滤、进程中断；编辑区的“模型请求”页：按会话与轮分组、常驻筛选、全文查找、消息大纲、和上一次比较、窄时切换；`#N`、按角色筛选、逐行差异等几项 planned |
@@ -234,6 +235,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 剧情：决策的守卫与检查、章的写作指示 | [`plot/decisions.md`](plot/decisions.md) | 地址守卫与读者守卫、约束与未定的事、到期没定与悬空、开写前的视图、涉及本章的决策、写作指示快照与它的检查 |
 | 剧情：写完以后的检查 | [`plot/checks.md`](plot/checks.md) | 本章涉及的知识点、窄问题的各层与问法、固定的一次调用、试读与判一致、预算与优先、引文核对、检查记录与过期、成为待处理、账本视图、费用记录 |
 | 剧情：写手的上下文 | [`plot/brief.md`](plot/brief.md) | 上下文的组成与顺序、这一场的秘密与绝密、在场的人、场景条件、称谓表、伏笔与决策段、本章允许新增什么与自陈、体积预算与裁剪、回溯与补叙章、确定与记录、名字的关卡 |
+| Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补 |
 
 ## 待实现规范
 
@@ -244,6 +246,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随、按矩形摆放与 Tab 顺序 |
 | 布局拖动 | [`ui/layout-drag.md`](ui/layout-drag.md) | `nb-layout` 的手势会话：起拖门槛、指针与键盘、取消、放下规则、边缘滚动，以及跨插件的落点登记。待晋升 |
+| 可拖动排序的分组列表 | [`ui/sortable-list.md`](ui/sortable-list.md) | `nb-layout` 的 `useSortable` 与 `SortableList`：实时布局的拖动排序、跨组、空组落点、键盘与读屏、放下后等宿主写完 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
@@ -257,14 +260,12 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |
 | Harness 视图 | [`harness/profile.md`](harness/profile.md) | 新内核由状态算请求：模板节点与文字拼法、缺省布局、轮的渲染与 `render`、纯函数提交与提交缓存、槽、请求校验、块的来源、开发检查 |
 | Harness 运行 | [`harness/runtime.md`](harness/runtime.md) | 新内核的指令、运行循环与运行结果（逐步补齐）：输入缓冲区、受理批、followup、失败与中止的收口、位置章、帧、`waitRun` |
-| Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补。待晋升 |
 | Harness 模型端口 | [`harness/models.md`](harness/models.md) | 模型端口与 OMP 适配器：失败归类、密钥遮盖、相邻 user 合并、工具名换算、思考签名、用量与停止原因 |
 | Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
 | 剧情图谱：图的修订 | [`story/revisions.md`](story/revisions.md) | 确认或驳回候选身份、手动连两个对象、改对象种类、挪称呼；修订按书单独保存、套用后查询、不剧透、可撤销、重抽后按锚对应 |
 | 世界引擎：作者界面（设定侧） | [`canon/author-ui.md`](canon/author-ui.md) | 条目树、条目页（位置与按计划、文字与数据分页、来历、情节）、数据分页的贡献点、就地改与记一笔、新建与删除、回执页、变更详情页、待处理与改动记录、状态栏计数、读取的新鲜度与失败的呈现 |
 | 图像提示词 | [`images/prompt.md`](images/prompt.md) | 项与数值权重、NovelAI 与 SD 两种读法、规范写法与原文的保留、随机项与图中文字、按空行切段、语法检查与一键改 |
 | 图像配方 | [`images/recipes.md`](images/recipes.md) | 配方、预设、片段、风格组合四种文件；节与角色框；预设的引用加差异、更新与换预设；本书默认；我的预设库与官方预设；展开、内容快照与恢复；id 索引与重复 id |
-| 表情包 | [`agent/stickers.md`](agent/stickers.md) | 表情包与清单、来源与目录、`:名字:` 写法（方言，展示器与编辑器共用）、`stickers://`、取图路由、Profile 白名单与提示词槽、设置里的表情包一节 |
 
 ## 旧应用的规范与 Reference（只作参照）
 

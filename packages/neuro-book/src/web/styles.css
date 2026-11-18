@@ -134,7 +134,10 @@ html:has(.nb-workbench-page) {
  */
 html[data-desktop-frame] {
     --nb-window-frame-height: 36px;
-    --nb-window-controls-width: 138px;
+    /* 窗口按钮组（DesktopFrame.vue）：左边一段放分隔线，然后三个按钮的命中区。组宽只由这三个值算出，页面的标题栏按它留位。 */
+    --nb-window-control-width: 34px;
+    --nb-window-controls-lead: 18px;
+    --nb-window-controls-width: calc(var(--nb-window-controls-lead) + 3 * var(--nb-window-control-width));
     --nb-window-frame-offset: 0px;
     --nb-viewport-block: 100%;
     overflow: hidden;
@@ -143,6 +146,27 @@ html[data-desktop-frame] {
 
 html[data-desktop-frame-bar] {
     --nb-window-frame-offset: var(--nb-window-frame-height);
+}
+
+/*
+ * 页面自己画的标题栏（`data-desktop-titlebar`，工作台标题栏与书架顶端那一行）就是窗口的拖动区域（ui/workbench-shell.md 输出 28，
+ * browser-host 的“窗口外框”）：空白处 drag，拖动、双击最大化、贴边分屏由 WebView2 交给系统；有点击或悬停行为的一切 no-drag，
+ * 否则点下去就是拖窗口。普通浏览器里 app-region 不生效。写在这里而不是某个页面的组件里：书架首页不加载工作台的样式；也不用 scoped，
+ * scoped 选择器命不中子组件内部渲染的元素（nb-ui Menubar 里 reka 的菜单触发器）。无命令的条目也有悬停提示，一并 no-drag。
+ */
+[data-desktop-titlebar] {
+    -webkit-app-region: drag;
+    app-region: drag;
+}
+
+[data-desktop-titlebar] :is(button, a[href], input, select, textarea, [role="menubar"], [role="menuitem"], [role="button"], [tabindex]:not([tabindex="-1"]), [data-workbench-item]) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+}
+
+/* 页面标题栏的右端没有按钮时（书架首页，`data-desktop-titlebar="plain"`），窗口按钮左边的分隔线没有可分隔的东西：隐去，占位不变。 */
+html:has([data-desktop-titlebar="plain"]) .desktop-frame__divider {
+    visibility: hidden;
 }
 
 html[data-desktop-frame] #app {
