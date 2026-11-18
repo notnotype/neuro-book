@@ -32,5 +32,7 @@ updated: 2026-11-05
 
 2026-11-17：t27 合入 master（`bcc1d3528`），实现审查在后台。
 
+2026-11-18：t28 合入 master（`f8e7bcdaa`），实现审查在后台。t26 拆成三个（[待确认清单](pending-confirmations.md)）：[t26](tasks/t26-layout-deep-review/README.md) 留性能基线与代码修复；Spec 的晋升与重写拆到 [t30](tasks/t30-layout-specs-rewrite/README.md)；通用库的提案拆到 [t31](tasks/t31-general-layout-library/README.md)（交开发者看）。顺序 t26 与 t30 交错（t30 只改文档，在 t26 等 e2e 时做）→ t31 提案 → t14。
+
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06；t14 于 2026-11-16 排到 t26 之后）。
