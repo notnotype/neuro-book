@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "answerId": "20261118T154300984Z-b8e5ffe8",
+    "artifactVersion": 8,
+    "contentHash": "0dbb13c59fe12a706e3b4978e053bf9c648754d9cb81b99c5fbadf772d576d88",
+    "submittedAt": "2026-11-18T15:42:59.888Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "sessions-tab": true,
+        "schedule-panel": false,
+        "memory-panel": false
+    },
+    "comments": {
+        "schedule-panel": "我感觉样式有点丑啊，首先每周简报和每天整理读者评论的高度都不一样。",
+        "memory-panel": "记忆面板我建议双栏目，而且记忆也可能有子目录的，并且记忆文件我打算在文件资源管理器这个视图上让用户能看到。"
+    },
+    "note": null
+}
