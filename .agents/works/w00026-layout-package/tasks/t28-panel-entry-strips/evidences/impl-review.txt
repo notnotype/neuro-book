@@ -1,0 +1,122 @@
+# t28 实现审查（Claude Sonnet，claude -p，2026-11-18，固定在 5af0540f3）
+
+范围：第 1、2 片 edf347efc^..58e171af2，第 3 到 5 片 1d641cb42..5af0540f3。审查者写不了报告文件，报告取自它的标准输出；最后一行 REVIEW-DONE 是启动脚本加的。
+
+审查报告写不进指定文件：对 `findings.txt` 的 `cat >>` 和 Write 都被权限拒绝，`exp/` 目录也建不了，所以全文写在下面。
+
+**实际做了什么。**
+- 读完了 s12.diff 和 s35.diff 全文，并对照审查 worktree 里的 `layout-drag.ts`、`useGridMotion.ts`、`NestedGrid`、`WorkbenchShell.vue`、`adjacency.ts`、`title-actions.ts`。
+- 在 `w00026-t28-panel-entry-strips` 里跑了单元测试：nb-layout 的 `layout-project.test.ts` 47 条全过；workbench 的 `entry-drop`、`layout-present`、`live-drag`、`adjacency`、`layout-doc-store` 五个文件 133 条全过。
+- 没跑类型检查、e2e 和开发服务；第 9 条原本想做对照实验，因为实验文件写不进 `exp/` 而没做。
+- 下面各条都来自读代码与推断，不是实验结果，每条的“如何核实”需要作者跑。
+
+---
+
+### 1. 视图接管标题区的回退按“入口条叶的布局宽度减一个估计常量”判，区域隐藏、拖到零时会翻，入口多于两个时估计偏小
+- 严重程度：重要（推断）
+- 类别：正确性 / 过渡中的状态
+- 位置：`WorkbenchShell.vue:315-320`（`panelViewHead`）、`:223-229`（`stripEntriesReserve`）
+- 现象：并进入口条的那一节，用 `presented[strip:<区域>].width - stripEntriesReserve(region) - 2*26 - 20 < 220` 决定要不要接管标题区。views.md 输出 19 写的是“入口之后剩下的头那一段”的宽度，这里有两处对不上：
+  1. `presented` 是布局发布的尺寸。区域隐藏或拖到零时入口条叶宽度为 0（`Surface` 里 `lastPresented` 就有“size ≤ 0 则跳过”的处理）。右栏一隐藏，对话视图的头在收起过渡一开始就从“视图三列”换成普通头，`head-slots` 先发 null，显示时再换回来。输出 19 的回退本来是给窄宽度用的，不是给显隐用的。
+  2. `stripEntriesReserve` 取 `Math.min(2, 入口数)`。入口超过两个时，实际入口占的宽度（右栏每个 24px 加 4px 间距）比估计大，算出“还够 220”但头那一段实际已不够。入口数从 1 变 2 时估计从 52 跳到 78，同一个右栏宽度（约 344 与 370 之间）会越过阈值。
+- 为什么是问题：判据是布局宽度加估计常量，与区域显隐耦合。待确认清单 2026-11-17 只说明了常量取值，没有覆盖这两点。
+- 如何核实：
+  - 右栏开着对话，点按下的入口隐藏右栏，逐帧看入口条里的头是否出现 `.workbench-panel-head__title`、`head-slots` 是否收到 null。
+  - 右栏放 4 个容器，拖到约 340px，量对话头三列的实际宽度。
+- 建议改法：判断时用区域不为零时的最近一次宽度；或让入口条用 `ResizeObserver` 量 `.workbench-region-strip__head` 的实际宽度交回。
+
+### 2. 视图动作的预算用 2 个入口的估计，实际入口更多时动作按钮放不下却不进“⋯”
+- 严重程度：建议
+- 类别：正确性 / 合同
+- 位置：`WorkbenchShell.vue:209-229`（`headReserved`、`stripEntriesReserve`）、`:235`（`viewActionsOf`）、`:990`（`head-min-width`）；`title-actions.ts:49`（`buttonBudget`）
+- 现象：`buttonBudget(width, reserved, …)` 是纯数值：`(叶宽 - reserved - 24) / 26` 取整。`reserved` 里入口那部分是常量（右栏 2×26+26，底部面板 2×72+26），而入口条按量到的宽度尽量多地摆入口，只给头留 `headMinWidth`。`headMinWidth` 只含截断标题、框架按钮和内边距，不含视图动作。
+- 为什么是问题：Spec 输出 47 写的让位顺序是“截断标题、入口进更多、视图动作进⋯、框架按钮最后”。入口多于两个（右栏 4 个图标约 112px，估计 78px）或标题入口比 72px 宽时，视图动作按钮多画出来，会挤掉后面的按钮，或被 `.workbench-region-strip` 的 `overflow: hidden` 裁掉。e2e“最窄时每个按钮都在条里”只用了两个入口。
+- 如何核实：右栏放 4 个容器、当前视图有 3 个以上 inline 动作，宽度拖到 200 到 260，用该 e2e 的 `offenders` 检查。
+- 建议改法：预算改用入口条交回的头段实际宽度，或把入口按实际个数和量到的宽度算进 `reserved`。同时把 `headReserved` 里“先加 `stripEntriesReserve` 再在 `:990` 减掉”的写法拆成两个函数。
+
+### 3. 拖放几何里的入口条不排除被最大化盖住的、正在离开的入口条叶
+- 严重程度：建议
+- 类别：正确性 / 边界
+- 位置：`layout-drag.ts` 的 `measureBands`（约 :439-452）、`bandAt`；对比 `geometryOf`（:388-392）
+- 现象：`geometryOf` 排除 `data-leaving` 的叶，面板几何也只量被最大化的那一块。`measureBands` 只用 `rectOf(element)`，不看这条入口条所在的叶是 `inert`（被最大化盖住，`NestedGrid.vue:657`）还是 `data-leaving`。有面板最大化时 `barAccepts` 为假，`bandAt` 命中仍返回“放不进入口条”，落点是 null。
+- 为什么是问题：最大化着的面板拖自己的标签，指针经过被盖住的右栏、底部面板入口条那 32px 时落点指示消失（取消），实际上指针下是最大化的那块面板。活动栏是看得见的，所以以前没有这个问题。
+- 如何核实：最大化一块面板，拖它的标签，指针移到右栏入口条原来的位置，看 `[data-drop-kind]` 是否消失。
+- 建议改法：`measureBands` 跳过 `closest("[inert], [data-leaving]")` 的入口条。
+
+### 4. 入口条叶成了 F6 的一站，右栏、底部面板每个区域在 F6 循环里占两站
+- 严重程度：建议
+- 类别：行为 / 既有约定
+- 位置：`WorkbenchSurface.vue` 模板里的 `strip` 插槽；`nb-layout/src/vue/grid-focus.ts:93-127`
+- 现象：`moveGridFocus` 的每一站是“有可聚焦元素的叶”。入口条叶里有入口按钮和并进来的头，所以 F6 先停在入口条，再停到分节的叶，一个区域两站。
+- 为什么是问题：Spec 输出 18 写“F6、Shift+F6 在面板之间循环”，入口条不是面板。拖放键盘区域的 Tab 已经把入口条列成独立区域（输出 31 写明了），F6 没有对应说明，也没有测试。
+- 如何核实：在默认布局按 F6，数经过的次数。
+- 建议改法：如果这是有意的，在 Spec 输出 18 补一句；如果不是，让入口条叶与分节的叶算同一站。
+
+### 5. 浮动、停靠过渡的 e2e 放宽后，普通（头在自己叶里的）分节不再有“内容上边 = 外框上边 + 头”的逐帧检查
+- 严重程度：建议
+- 类别：测试
+- 位置：`e2e/workbench-float.e2e.ts` 的 `expectOneCard`（约 :447-470）
+- 现象：原来断言每帧 `|内容上边 - 外框上边 - 头高| ≤ 1`，现在只断言在起止值之间且单调，容差 1px。唯一用例用的视图戊现在总是并进入口条的，所以没有头在自己叶里的分节来做这条检查。
+- 为什么是问题：放宽对戊本身是合理的（待确认清单 2026-11-17 最后一条），但侧栏的分节、几节的容器里的浮出与停靠不再有同样强度的覆盖，如果回归了不会被发现。
+- 如何核实：把 `film` 的目标换成侧栏的视图，看是否还有地方检查这条恒等式。
+- 建议改法：补一个侧栏分节的浮出、停靠用例，保留原来的严格断言。
+
+### 6. 键盘 Tab 绕回的用例从 6 次改成 16 次，只断言“出现过重复”
+- 严重程度：建议
+- 类别：测试
+- 位置：`e2e/workbench-dnd.e2e.ts` 约 :456-475
+- 现象：`cycle = seen.slice(1).indexOf(seen[0]) + 1` 并 `> 1`。循环长度不再与区域数对账，如果多出重复的区域站（例如入口条的键盘区域重复列出），也会通过。
+- 为什么是问题：这条用例原来要防的是“区域为空时 Tab 卡住”，现在也不会发现多列、漏列了区域。
+- 如何核实：故意让 `bars` 重复列一次，看这条是否失败。
+- 建议改法：断言 `cycle` 等于期望的区域数，期望数由页面上有几块入口条、面板、浮动站算出。
+
+### 7. 拖含几个视图的入口时，每次指针移动都量整个拖动几何
+- 严重程度：建议
+- 类别：性能
+- 位置：`layout-drag.ts` 的 `containerDrop`（约 :951）
+- 现象：原来只量活动栏上段一个矩形；现在 `bandAt(geometry(options.doc()), point)`，没有冻结（含几个视图的入口不走实时布局，`frozen` 为 null）时每次 `measureGeometry`：每块面板约 3 次 `querySelector` 加 2 次矩形，再加三条入口条的入口。粗估每次指针移动 50 次左右的 DOM 查询与矩形读取，原来约 2 次。
+- 为什么是问题：量级不大，但是没必要，入口条判定只需要 `measureBands()`。
+- 如何核实：在 `containerDrop` 里计数 `querySelector` 次数。
+- 建议改法：这个路径只调 `measureBands()`。
+
+### 8. 几处同一规则、同一属性写了多份，靠注释约束“一起改”
+- 严重程度：建议
+- 类别：代码质量
+- 位置：
+  - `layout-constraints.ts:91-93`（`stripTopInset`）与 `shell/adjacency.ts:144-153`（`cardInsetPx`）。
+  - `data-tool-entry` 同时写在活动栏入口和入口条入口上。
+  - `WorkbenchRegionStrip.vue` 的 `region: string`。
+- 现象：
+  - `stripTopInset` 注释写着“和 `cardInset` 是同一套规则，两处一起改”。`cardInsetPx` 已经有 outer/inner/joined 三种按 gap 算数的实现，它的位置在 `shell/` 里，layout-constraints 也在同一个包里，可以直接复用。
+  - 入口条入口复用 `data-tool-entry`，使 e2e 里约 15 处选择器要改成 `[data-tool-band] [data-tool-entry]`；`landingElement` 也要写 `[data-tool-entry="x"], [data-region-entry="x"]` 两个选择器。
+  - `region` prop 是 `string`，其余地方是 `PanelName`，拼错不会报。
+- 为什么是问题：规则分叉是以后改主题缝宽时的隐患。
+- 如何核实：读代码即可。
+- 建议改法：
+  - `stripTopInset` 复用 `cardInsetPx({kind: "outer"|"inner", occupied: …}, gap)`。
+  - 入口条入口只用 `data-region-entry`，拖放的 `entriesIn` 与键盘 `start` 用这个属性。
+  - 把 `region` 的类型改成 `PanelName`。
+
+### 9. `move-container` 的预览与放下走的是两个不同的领域函数（未核实）
+- 严重程度：建议
+- 类别：正确性 / 预览与放下一致
+- 位置：`entry-drop.ts` 的 `applyEntryDrop` 里 `move-container` 分支
+- 现象：放下走 `moveContainerTo`（按注释，分节的先后、大小、收成标题行都带着），预览走 `moveTabToEdge`（把标签挪到目标区域的落点）。两者对分节的 id、比例、收起状态不一定相同。
+- 为什么是问题：单视图来源的预览与放下可能在目标区域里的位置、大小上不一致，放下那一刻出现跳变；同一份文档里 `new-container` 的预览也是这样做的，所以现状可能被接受。
+- 如何核实：我写了对照脚本（收起来源的分节，分别 `commit: false` 与 `commit: true`，比较目标区域的分节 id、大小、收起标记），但写不进 `exp/`，没跑。请作者在 `entry-drop.test.ts` 里加一条同样的对照。
+- 建议改法：对照有差异时，预览分支也用 `moveContainerTo` 在内存里算一份。
+
+---
+
+**未发现问题的方面**
+- 投影：`layout-project.ts` 的 `withStrip` 的包装分支、并不并按文档判、拖到零时 `collapsedTo` 的删除、`sashes` 搬家（47 条单测覆盖，我没找到漏的组合）。
+- 交换：`decideMotion` 的 `settleFirst` 与 `swapTouchesBand`、`stop()` 之后紧接 `start()`、`planSwap` 在空带上规划，逻辑一致。
+- 抽出的 `use-entry-indicator.ts`：与原来活动栏里的实现逐行对照，`placedToken` 初值、watch 的 key、`onMounted`、`transitionend` 的处理都保持，活动栏行为没变。
+- 入口条的量尺、“更多”收起、选中标记的位置公式（沿 `offsetParent` 累加）。
+- `WorkbenchPanelHead` 的 `titleInEntry`：隐藏的标题元素还在，读屏名称、拖动源（入口带 `data-tool-view`）、右键菜单（`openStripMenu`）都接上了。
+- 头跨两片叶的一致性（`mergedIn` 一处决定、`headless`、`panelOfLeaf`、悬停与焦点按叶记、焦点交接）：读下来没有找到会落错面板的路径。`restoring` 的“网格没有过渡才搬回”依赖 `update` 在渲染之前同步设 `moving`，我核实了 `useGridMotion.update` 的顺序，成立。
+- `entry-drop.ts` 的 `entryDropAt` 条件分支与单测一致。
+
+**各级数量**：阻断 0，重要 1，建议 8。
+
+**有效发现编号**：1、2、3、4、5、6、7、8、9（其中第 9 条未核实）
