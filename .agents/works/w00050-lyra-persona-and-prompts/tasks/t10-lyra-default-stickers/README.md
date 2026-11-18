@@ -50,4 +50,4 @@ updated: 2026-11-18
 
 ## 下一步
 
-两包定稿图已出在本地 `.local/brand/mascot/stickers/final/`（`lyra` 15 张加白边、`lyra-chibi` 12 张）。写内置来源的 Spec 与计划（资源目录照 Agent 文档的做法：开发时在源码里，打包时复制进包，服务端按包根找），交开发者确认后实施；排在 t09 之后。
+两包定稿图已出在本地 `.local/brand/mascot/stickers/final/`（`lyra` 15 张加白边、`lyra-chibi` 12 张）。计划第 1 稿见 [`plan.md`](plan.md)，等开发者确认；排在 t09 之后实施。
