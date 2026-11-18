@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t30-layout-specs-rewrite
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -64,6 +64,9 @@ updated: 2026-11-18
   - “没做”的 5 处：两处是“锚不进呈现树”的全称说法（原句在空区域时不成立），另外是输出 22、44、47 里各有一句没做或缺断言。
   - 落标记交给 Claude Sonnet 出草稿：去掉的删，整条标题上留的挪到缺断言的那几句，锚的两句按新测试改写后去掉，F6 与 Tab 停靠按第 1 片的新测试去掉。主会话审标记的 diff 后提交。
 
+- 第 4 片落标记 `10637398b`：Claude Sonnet 出草稿，主会话审过。去掉标记之后两份对比，除标记外只改了该改的四处：锚的两句、已删的输出 29 那句、第 146 行；第 146 行留下的历程括号“（开发者 2026-11-16 定）”删掉。剩 68 处句子级标记（30 行），每处缺什么见 [`evidences/promotion-changes.txt`](evidences/promotion-changes.txt) 末尾。`docs:check` 通过；`governance:check` 的失败都在别的包的测试里（nb-host、plugin-platform 等），不是本 Task 的文件。
+- 2026-11-18 完成。实现审查（omp，默认模型）在后台：detached worktree `.worktree/review-t30-impl` 固定在 `10637398b`，报告在 `reports/impl/findings.txt`。分支 `docs/w00026-t30-specs` 与它的 worktree 留到审查处理完。
+
 ## 下一步
 
-审 Sonnet 的标记草稿（`reports/draft2/`），提交；收口：`grep -n planned` 逐处对上 `promotion.txt` 与改动表；`docs:check`、`governance:check`；实现审查（omp）。
+实现审查待处理。
