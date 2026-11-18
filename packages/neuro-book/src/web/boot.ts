@@ -98,6 +98,8 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         }, facts: () => installFacts, onFacts: (listener) => {
             factsListeners.add(listener);
             return () => factsListeners.delete(listener);
+        }, openStateRoot: () => {
+            if (inDesktop) bridge.send({type: "open-state-root"});
         }},
         page: window,
         console,

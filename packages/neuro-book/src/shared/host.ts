@@ -181,6 +181,8 @@ export interface WindowDesktop {
     facts(): InstallFacts | null;
     /** 安装事实到了或变了时通知；返回取消订阅。 */
     onFacts(listener: (facts: InstallFacts) => void): () => void;
+    /** 请壳用系统的文件管理器打开这次运行的状态根；壳打不开只记日志，没有回音。浏览器里什么都不做。 */
+    openStateRoot(): void;
 }
 
 export const windowDesktopKey: ServiceKey<WindowDesktop> = defineServiceKey<WindowDesktop>("nbook/window-desktop");

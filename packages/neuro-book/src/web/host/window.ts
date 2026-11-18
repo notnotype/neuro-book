@@ -172,7 +172,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     /** 关闭参与方：放在窗口这一层，启动重试新建运行实例时不丢，关闭前询问在启动之前就能拿到它。 */
     const participants: CloseParticipant[] = [];
     let closeAgreed: () => boolean = () => false;
-    const desktop: WindowDesktop = Object.freeze(options.desktop ?? {available: false, reportSettings() {}, facts: () => null, onFacts: () => () => {}});
+    const desktop: WindowDesktop = Object.freeze(options.desktop ?? {available: false, reportSettings() {}, facts: () => null, onFacts: () => () => {}, openStateRoot() {}});
     /** 进入 ready 的那个运行实例取到的通知服务；只在 ready 时交出去。 */
     let readyNotifications: Notifications | null = null;
     const close: WindowClose = Object.freeze({

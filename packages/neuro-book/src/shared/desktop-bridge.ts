@@ -129,6 +129,8 @@ const PageMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("desktop-settings"), values: DesktopSettingValuesSchema}),
     /** 窗口带磨砂背景时，页面当前的明暗：壳据此设 DWM 的明暗标志，磨砂的底色与页面同向（desktop-shell 输出 32）。 */
     Type.Object({type: Type.Literal("window-appearance"), dark: Type.Boolean()}),
+    /** 用系统的文件管理器打开这次运行的状态根（首次启动向导第四步，desktop-shell 输出 34）；壳自己知道路径，页面不给路径。 */
+    Type.Object({type: Type.Literal("open-state-root")}, {additionalProperties: false}),
     Type.Object({type: Type.Literal("title"), title: Type.String()}),
     Type.Object({type: Type.Literal("open-window"), url: Type.String()}),
 ]);

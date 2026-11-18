@@ -86,6 +86,11 @@ describe("桌面桥", () => {
         }
     });
 
+    it("打开状态根：只有类型，不带路径；带了别的字段整条丢弃", () => {
+        expect(parsePageMessage({type: "open-state-root"})).toEqual({type: "open-state-root"});
+        expect(parsePageMessage({type: "open-state-root", path: "C:\\Windows"})).toBeNull();
+    });
+
     it("窗口明暗：dark 是布尔才收下", () => {
         expect(parsePageMessage({type: "window-appearance", dark: true})).toEqual({type: "window-appearance", dark: true});
         expect(parsePageMessage({type: "window-appearance", dark: "dark"})).toBeNull();

@@ -469,6 +469,10 @@ async function main(): Promise<void> {
             case "window-state-query":
                 pushWindowState(id, true);
                 return;
+            case "open-state-root":
+                // 状态根在壳启动时已建出 logs\desktop，一定是目录；打不开只记日志（输出 34）。
+                if (root.ok && !Utils.openPath(root.stateRoot)) log(`desktop.state-root.open-failed ${root.stateRoot}`);
+                return;
             case "page-gone":
                 shell.windows.pageGone(id);
                 return;

@@ -18,6 +18,7 @@ import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {clockKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
+import {revealFolder} from "nbook/backend/open-folder";
 
 import {descriptor} from "../plugin";
 import {librarySetting, projectStatsRemoteContract, projectsRemoteContract} from "../shared/contracts";
@@ -74,6 +75,12 @@ export const projectsBackendPlugin: PluginDefinition = {
                         return {ok: true, value: shelf.value};
                     },
                     library: async () => ({ok: true, value: library()}),
+                    revealLibrary: async () => {
+                        const revealed = await revealFolder(library().path, process.env, process.platform);
+                        if (revealed.ok) return {ok: true, value: {}};
+                        if (revealed.detail !== undefined) record({level: "warn", event: "projects.library-reveal-failed", message: `Opening the works folder failed: ${revealed.code}`, data: {detail: revealed.detail}});
+                        return {ok: false, code: revealed.code, detail: {}};
+                    },
                     browse: async ({path}) => {
                         const listed = await projects.list();
                         if (!listed.ok) return {ok: false, code: "registry-invalid", detail: {detail: listed.detail}};
