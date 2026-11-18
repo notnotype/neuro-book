@@ -131,6 +131,16 @@ const AGENT_TOOL_KEYS: Readonly<Record<string, string>> = {
     "nbook.agent.jobs": "agent.jobs",
 };
 
+/**
+ * 事项是不是代码里调的工具的（eval 里的 `tool.write`），交回外层工具的 id：本会话的从适配器取（事件上的 `within`）；后代会话的
+ * 事项来自会话树，项里不带事件上的字段，只有审批的原文里带着。后代会话里提问的原文没有，取不到，向导不写来源（已知限制）。
+ */
+export function pendingWithin(item: {readonly within?: {readonly tool: string}; readonly request: unknown}): string | undefined {
+    if (item.within !== undefined) return item.within.tool;
+    const request = item.request as {within?: {tool?: unknown}} | null | undefined;
+    return typeof request?.within?.tool === "string" ? request.within.tool : undefined;
+}
+
 /** 给视图看的工具名：`nbook.agent.edit-replace` 和 `edit` 给模型的名字相同，画法也相同。 */
 export function displayToolName(id: string): string {
     const mapped = AGENT_TOOL_KEYS[id];
@@ -1539,9 +1549,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
 
     /** 一个等用户的事项换成视图要的样子；`source` 是后代会话的（停靠区标来源），`async` 是异步提问。 */
     function pendingView(item: {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: unknown; readonly within?: {readonly tool: string}}, extra: {readonly source?: {sessionId: string; name: string; icon: string}; readonly async?: true; readonly approvalMode?: string}): PendingInputView {
-        const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest; within?: {tool?: unknown}};
-        // 代码里调的工具的事项（eval 里的 `tool.write`）：本会话的从适配器取，后代会话的只有审批原文里带着（会话树的项不带事件上的 `within`）。
-        const withinTool = item.within?.tool ?? (typeof request.within?.tool === "string" ? request.within.tool : undefined);
+        const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest};
+        const withinTool = pendingWithin(item);
         const common = {...(extra.source === undefined ? {} : {source: extra.source}), ...(extra.async === true ? {async: true as const} : {}), ...(withinTool === undefined ? {} : {within: {tool: displayToolName(withinTool)}})};
         if (item.kind === "approval") {
             return {...common, kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: approvalReason(request.reason)}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};

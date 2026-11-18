@@ -31,10 +31,13 @@ describe("审批向导", () => {
         view.unmount();
     });
 
-    it("代码里调的工具（带 within）：标题写明是哪个工具里的调用，批量与第几个照旧", () => {
+    it("代码里调的工具（带 within）：标题与收起的小条写明是哪个工具里的调用，批量与第几个照旧", async () => {
         const view = wizard([{...approval("a"), within: {tool: "eval"}}, {...approval("b", "shell"), within: {tool: "eval"}}]);
         expect(view.get(".acv-wizard-frame__title").text()).toBe("eval 里的调用：修改文件");
         expect(view.get("[data-wizard-count]").text()).toBe("第 1 / 2 个");
+        // 收起成小条后来源还在。
+        await view.get("[data-wizard-collapse]").trigger("click");
+        expect(view.get("[data-wizard-collapsed]").text()).toContain("eval 里的调用：edit");
         view.unmount();
         const asked = wizard([{...question, within: {tool: "eval"}} as PendingInputView]);
         expect(asked.get(".acv-wizard-frame__title").text()).toBe("eval 里的调用：视角？");

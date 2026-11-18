@@ -623,6 +623,13 @@ describe("有子调用的调用（Spec“有子调用的调用”，验收场景
         expect(turn!.changedFiles).toEqual([{toolCallId: "t1", change: {path: "第一章.md", added: 2, removed: null}}]);
     });
 
+    it("参数只给了预览的子调用（内核截短了长字符串）：改的文件照算，增删行数不给", () => {
+        const call: ToolCallView = {...tool("t1", "eval", {code: "…"}), children: [{...tool("n1", "write", {path: "第一章.md", content: "截短的前 2 KB…（共 9000 字节）"}), argsPreview: true}]};
+        const [turn] = buildTurns(input([user("u1", "写整章"), assistant("a1", {toolCalls: [call]}), assistant("a2", {text: "写好了。"})]));
+        expect(turn!.changedFiles).toEqual([{toolCallId: "t1", change: {path: "第一章.md", added: null, removed: null}}]);
+        expect(notableChildren(call, registry).map((child) => child.id)).toEqual(["n1"]);
+    });
+
     it("卡片收起时露出改了文件的与被拒的子调用，只读的不露；计数各自去重", () => {
         const call = evalCall();
         expect(notableChildren(call, registry).map((child) => child.id)).toEqual(["n2", "n3"]);

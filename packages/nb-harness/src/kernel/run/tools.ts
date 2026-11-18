@@ -261,15 +261,24 @@ function headBytes(text: string, limit: number): string {
     return bytes.subarray(0, end).toString("utf8");
 }
 
-/** 参数里超过上限的字符串截短并注明总字节数；形状不变，界面照样取 `path` 这类短字段（输出 96）。 */
-function clippedArgs(value: JsonValue): JsonValue {
+/**
+ * 参数里超过上限的字符串截短并注明总字节数；形状不变，界面照样取 `path` 这类短字段（输出 96）。`clipped` 是有没有截过：事件上写成
+ * `argsClipped`，界面据此不按参数算增删行数，不靠认那段注明的文字。
+ */
+function clippedArgs(value: JsonValue): {readonly value: JsonValue; readonly clipped: boolean} {
     if (typeof value === "string") {
         const size = Buffer.byteLength(value, "utf8");
-        return size <= NESTED_PREVIEW_BYTES ? value : `${headBytes(value, NESTED_PREVIEW_BYTES)}…（共 ${String(size)} 字节）`;
+        return size <= NESTED_PREVIEW_BYTES ? {value, clipped: false} : {value: `${headBytes(value, NESTED_PREVIEW_BYTES)}…（共 ${String(size)} 字节）`, clipped: true};
     }
-    if (Array.isArray(value)) return value.map(clippedArgs);
-    if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clippedArgs(item as JsonValue)]));
-    return value;
+    if (Array.isArray(value)) {
+        const items = value.map(clippedArgs);
+        return {value: items.map((item) => item.value), clipped: items.some((item) => item.clipped)};
+    }
+    if (value !== null && typeof value === "object") {
+        const entries = Object.entries(value).map(([key, item]) => [key, clippedArgs(item as JsonValue)] as const);
+        return {value: Object.fromEntries(entries.map(([key, item]) => [key, item.value])), clipped: entries.some(([, item]) => item.clipped)};
+    }
+    return {value, clipped: false};
 }
 
 /**
@@ -537,7 +546,12 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
     const invokeNested = async (scope: NestedScope, tool: string, args: Readonly<Record<string, unknown>>, options: InvokeOptions | undefined): Promise<NestedOutcome> => {
         const id = core.newId();
         const within = scope.within;
-        const loggedArgs = (value: Readonly<Record<string, unknown>>): Readonly<Record<string, JsonValue>> => (jsonProblem(value) === null ? clippedArgs(value as JsonValue) as Readonly<Record<string, JsonValue>> : {});
+        /** 写进嵌套事件的参数：`args` 加截过时的 `argsClipped`。 */
+        const loggedArgs = (value: Readonly<Record<string, unknown>>): {args: Readonly<Record<string, JsonValue>>; argsClipped?: true} => {
+            if (jsonProblem(value) !== null) return {args: {}};
+            const clipped = clippedArgs(value as JsonValue);
+            return {args: clipped.value as Readonly<Record<string, JsonValue>>, ...(clipped.clipped ? {argsClipped: true as const} : {})};
+        };
         let written = false;
         const writeResult = async (result: ToolResult, status: ToolStatus, by: string | null, callArgs: Readonly<Record<string, unknown>>): Promise<NestedOutcome> => {
             const outcome: NestedOutcome = {status, text: result.text, ...(result.code === undefined ? {} : {code: result.code}), ...(result.details === undefined || result.redacted === true ? {} : {details: result.details}), ...(result.images === undefined || result.images.length === 0 || result.redacted === true ? {} : {images: result.images})};
@@ -545,7 +559,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             written = true;
             const imageCount = result.redacted === true ? 0 : (result.images?.length ?? 0);
             try {
-                await host.write([ctrl("nestedToolResult", {id, within, tool, args: loggedArgs(callArgs), status, ...(result.code === undefined ? {} : {code: result.code}), ...(by === null ? {} : {by}), preview: headBytes(result.text, NESTED_PREVIEW_BYTES), size: Buffer.byteLength(result.text, "utf8"), ...(imageCount === 0 ? {} : {imageCount})})]);
+                await host.write([ctrl("nestedToolResult", {id, within, tool, ...loggedArgs(callArgs), status, ...(result.code === undefined ? {} : {code: result.code}), ...(by === null ? {} : {by}), preview: headBytes(result.text, NESTED_PREVIEW_BYTES), size: Buffer.byteLength(result.text, "utf8"), ...(imageCount === 0 ? {} : {imageCount})})]);
             } catch (error) {
                 // 运行已经收口（父调用之后才到的结算）：结果照样交给代码，日志里不再写。
                 if (!(error instanceof RunStoppedError)) throw error;
@@ -590,7 +604,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             start: async (final, approvedBy) => {
                 release = await scope.lock.acquire(concurrency, callSignal);
                 if (callSignal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
-                await host.write([ctrl("nestedToolStarted", {id, within, tool: final.tool, args: loggedArgs(final.args), approval: {by: approvedBy}})]);
+                await host.write([ctrl("nestedToolStarted", {id, within, tool: final.tool, ...loggedArgs(final.args), approval: {by: approvedBy}})]);
                 isStarted = true;
                 return {signal: callSignal, callId: id, invocation: id, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], leafMoves, within, ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, id, callSignal, nested)})};
             },

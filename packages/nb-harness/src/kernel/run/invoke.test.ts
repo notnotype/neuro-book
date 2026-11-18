@@ -300,17 +300,23 @@ describe("嵌套调用", () => {
         expect(seen[2]).toBe(1);
     });
 
-    test("输出 96：嵌套事件里超过 2 KB 的参数字符串截短，结果只记前 2 KB 的预览与全文字节数", async () => {
+    test("输出 96：嵌套事件里超过 2 KB 的参数字符串截短并标出 argsClipped，结果只记前 2 KB 的预览与全文字节数", async () => {
         const long = "字".repeat(1_000);
-        program = async (ctx) => (await ctx.invoke!("lab.write", {path: "长.md", content: long})).status;
+        program = async (ctx) => {
+            await ctx.invoke!("lab.write", {path: "短.md", content: "一行"});
+            return (await ctx.invoke!("lab.write", {path: "长.md", content: long})).status;
+        };
         await using session = await createTestSession({tools: [code, writer({execute: () => "x".repeat(5_000)})]});
         session.model.script({tools: [{tool: "lab.code"}]}, "完成");
         const {events} = await session.say("写长的");
-        const started = dataOf<{args: {path: string; content: string}}>(events, "nestedToolStarted")[0]!;
-        expect(started.args.path).toBe("长.md");
-        expect(Buffer.byteLength(started.args.content, "utf8")).toBeLessThan(2_200);
-        expect(started.args.content).toContain("共 3000 字节");
-        const result = dataOf<{preview: string; size: number}>(events, "nestedToolResult")[0]!;
+        const [short, started] = dataOf<{args: {path: string; content: string}; argsClipped?: true}>(events, "nestedToolStarted");
+        expect(short!.argsClipped).toBeUndefined();
+        expect(started!.args.path).toBe("长.md");
+        expect(Buffer.byteLength(started!.args.content, "utf8")).toBeLessThan(2_200);
+        expect(started!.args.content).toContain("共 3000 字节");
+        expect(started!.argsClipped).toBe(true);
+        const result = dataOf<{preview: string; size: number; argsClipped?: true}>(events, "nestedToolResult")[1]!;
+        expect(result.argsClipped).toBe(true);
         expect(result.preview).toHaveLength(2_048);
         expect(result.size).toBe(5_000);
     });

@@ -13,7 +13,10 @@ import {argString} from "@notnotype/nb-agent-ui";
 
 import {agentText} from "../shared/text";
 
-/** 卡片副标题：模型写的标题；没写时取代码的第一行（流式生成中只有标题、没有代码时也不空着）。 */
+/**
+ * 卡片副标题：模型写的标题；没写时取代码的第一行。参数里 `title` 排在 `code` 前面，流式生成代码时标题已经写完了（适配器从半截
+ * 参数里抽出 `title`）。
+ */
 export function evalSummary(call: ToolCallView): string {
     const title = argString(call, "title").trim();
     if (title !== "") return title;

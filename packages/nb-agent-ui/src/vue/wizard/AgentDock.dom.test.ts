@@ -30,6 +30,12 @@ describe("AgentDock", () => {
         view.unmount();
     });
 
+    it("代码里调的工具的事项（带 within）：收起的小条也写明是哪个工具里的调用", () => {
+        const view = dock([{...approval("a"), within: {tool: "eval"}}], {held: true});
+        expect(view.get("[data-dock-collapsed]").text()).toContain("子代理「核对员」：eval 里的调用：");
+        view.unmount();
+    });
+
     it("几个事项一次一个：第 n / m 个、上一个与下一个；打开子会话发 session.select", async () => {
         const view = dock([approval("a"), approval("b")]);
         expect(view.get("[data-wizard-count]").text()).toBe("第 1 / 2 个");

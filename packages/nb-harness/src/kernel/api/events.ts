@@ -175,10 +175,10 @@ export interface KernelEvents {
     toolStarted: K<"path", "ctrl", {callId: string; tool: string; args: Readonly<Record<string, JsonValue>>; invocation: string; approval?: {by: string}}>;
     /**
      * 嵌套调用（runtime.md 输出 96）：开始执行时一条，每个嵌套调用（包括没开始的）有且只有一条结果。不投影进请求；结果只记预览与
-     * 字节数，全文模型已经在父调用的结果里看到。`args` 里超过 2 KB 的字符串截短。
+     * 字节数，全文模型已经在父调用的结果里看到。`args` 里超过 2 KB 的字符串截短，截过时带 `argsClipped`。
      */
-    nestedToolStarted: K<"path", "ctrl", {id: string; within: {tool: string; invocation: string}; tool: string; args: Readonly<Record<string, JsonValue>>; approval: {by: string}}>;
-    nestedToolResult: K<"path", "ctrl", {id: string; within: {tool: string; invocation: string}; tool: string; args: Readonly<Record<string, JsonValue>>; status: ToolStatus; code?: string; by?: string; preview: string; size: number; imageCount?: number}>;
+    nestedToolStarted: K<"path", "ctrl", {id: string; within: {tool: string; invocation: string}; tool: string; args: Readonly<Record<string, JsonValue>>; argsClipped?: true; approval: {by: string}}>;
+    nestedToolResult: K<"path", "ctrl", {id: string; within: {tool: string; invocation: string}; tool: string; args: Readonly<Record<string, JsonValue>>; argsClipped?: true; status: ToolStatus; code?: string; by?: string; preview: string; size: number; imageCount?: number}>;
     /** `details` 给程序看、不进请求；工具拦截改过结果时原本的文字记在 `raw`（`redacted` 时只记哈希）。 */
     toolResult: K<"path", "conv", {
         callId: string;

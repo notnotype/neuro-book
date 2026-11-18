@@ -46,9 +46,10 @@ export const evalDeclaration: AgentToolDeclaration = {
     description: DESCRIPTION,
     parameters: {
         type: "object",
+        // `title` 排在 `code` 前面：模型按这个顺序生成参数，界面在代码还在生成时就能写出卡片的标题。
         properties: {
-            code: {type: "string", description: "要执行的 JavaScript"},
             title: {type: "string", description: "一句话说明这段代码做什么"},
+            code: {type: "string", description: "要执行的 JavaScript"},
             timeout: {type: "integer", minimum: 1, maximum: MAX_TIMEOUT_SECONDS, description: "单元时限（秒），缺省 30"},
             reset: {type: "boolean", description: "先重置内核"},
         },

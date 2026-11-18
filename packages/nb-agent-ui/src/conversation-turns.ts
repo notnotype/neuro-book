@@ -26,7 +26,7 @@ import type {
     UserMessageView,
 } from "./types";
 import type {AgentViewRegistry, FileChangeView, ToolEffects, ToolRendererEntry} from "./registry";
-import {presentationOf} from "./registry";
+import {callEffects, presentationOf} from "./registry";
 import {agentRef} from "./text";
 import {toolCallPhase} from "./tool-status";
 
@@ -636,8 +636,8 @@ function computeMetrics(
  */
 function settledEffects(tools: readonly ToolStep[], registry: AgentViewRegistry): Array<{tool: ToolStep; nested: boolean; effects: ToolEffects}> {
     return tools.flatMap((tool) => [tool.call, ...(tool.call.children ?? [])].flatMap((call) => {
-        const effects = call.status === "success" ? registry.resolveTool(call.name).effects : undefined;
-        return effects === undefined ? [] : [{tool, nested: call !== tool.call, effects: effects(call)}];
+        const effects = call.status === "success" ? callEffects(registry.resolveTool(call.name), call) : undefined;
+        return effects === undefined ? [] : [{tool, nested: call !== tool.call, effects}];
     }));
 }
 
@@ -694,7 +694,7 @@ export function hasActiveCall(turn: ConversationTurn, activeCalls: ReadonlySet<s
  */
 export function notableChildren(call: ToolCallView, registry: AgentViewRegistry): ToolCallView[] {
     return (call.children ?? []).filter((child) => {
-        if (child.status === "success") return (registry.resolveTool(child.name).effects?.(child).changed.length ?? 0) > 0;
+        if (child.status === "success") return (callEffects(registry.resolveTool(child.name), child)?.changed.length ?? 0) > 0;
         return child.status === "error" || child.status === "invalid" || child.status === "denied" || child.status === "unknown";
     });
 }
@@ -704,7 +704,7 @@ export function childFiles(call: ToolCallView, registry: AgentViewRegistry): {re
     const read = new Set<string>();
     const changed = new Set<string>();
     for (const child of call.children ?? []) {
-        const effects = child.status === "success" ? registry.resolveTool(child.name).effects?.(child) : undefined;
+        const effects = child.status === "success" ? callEffects(registry.resolveTool(child.name), child) : undefined;
         effects?.read.forEach((path) => read.add(path));
         effects?.changed.forEach((change) => changed.add(change.path));
     }

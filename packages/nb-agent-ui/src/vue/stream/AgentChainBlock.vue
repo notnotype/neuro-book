@@ -63,28 +63,25 @@ function childStep(parent: ToolStep, child: ToolCallView): ToolStep {
 }
 
 /**
- * 卡片的副标题：工具的摘要；有子调用时接上计数，运行中写已调用几次与正在调的那一个（docs/specs/ui/agent-conversation-view.md
- * “有子调用的调用”）。
+ * 卡片的副标题（docs/specs/ui/agent-conversation-view.md“有子调用的调用”与下一条）：工具的摘要；运行中、已经开始执行的接上已用时
+ * （从开始执行算起，含等审批的时间）；有子调用时接上计数，运行中写已调用几次与正在调的那一个（最近受理、还没有结果的）。
+ * 已用时放在副标题里而不是头部右侧：跑完时它消失，头部右侧的状态图标与箭头不挪位置。
  */
 function cardSubtitle(step: ToolStep): string {
-    const summary = rendererOf(step).summary(step.call);
-    const children = step.call.children ?? [];
-    if (children.length === 0) return summary;
     const running = toolCallPhase(step.call.status) === "running";
-    const parts = describeChildren(children.length, childFiles(step.call, props.registry), running).map(text);
-    const active = running ? children.findLast((child) => toolCallPhase(child.status) === "running") : undefined;
-    if (active !== undefined) {
-        const renderer = props.registry.resolveTool(active.name);
-        parts.push(`${text(renderer.label)} ${renderer.summary(active)}`.trim());
-    }
-    return [summary, ...parts].filter((part) => part !== "").join(" · ");
-}
-
-/** 运行中的卡片从开始执行算起的用时（含等审批的时间）；没开始执行或已经结束的不显示。 */
-function elapsed(step: ToolStep): string | null {
+    const parts = [rendererOf(step).summary(step.call)];
     const started = step.call.startedAt;
-    if (started === undefined || toolCallPhase(step.call.status) !== "running") return null;
-    return formatDuration(Math.max(0, props.ctx.now - started));
+    if (running && started !== undefined) parts.push(formatDuration(Math.max(0, props.ctx.now - started)));
+    const children = step.call.children ?? [];
+    if (children.length > 0) {
+        parts.push(...describeChildren(children.length, childFiles(step.call, props.registry), running).map(text));
+        const active = running ? children.findLast((child) => toolCallPhase(child.status) === "running") : undefined;
+        if (active !== undefined) {
+            const renderer = props.registry.resolveTool(active.name);
+            parts.push(`${text(renderer.label)} ${renderer.summary(active)}`.trim());
+        }
+    }
+    return parts.filter((part) => part !== "").join(" · ");
 }
 
 function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error" {
@@ -169,9 +166,6 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                         :expanded="openSet.isOpen(entry.id)"
                         @update:expanded="openSet.set(entry.id, $event)"
                     >
-                        <template v-if="elapsed(entry) !== null" #actions>
-                            <span class="acv-card__elapsed" data-card-elapsed>{{ elapsed(entry) }}</span>
-                        </template>
                         <AgentToolDetail :call="entry.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
                         <!-- 展开后列出全部子调用，每个点开是它自己的详情 -->
                         <div v-if="entry.call.children?.length" class="acv-card__children" data-card-children>
@@ -273,12 +267,6 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
 
 .acv-steps__nested {
     padding-left: 20px;
-}
-
-.acv-card__elapsed {
-    color: var(--text-muted);
-    font-size: var(--text-2xs);
-    font-variant-numeric: tabular-nums;
 }
 
 /* 卡片正文里的子调用：与详情隔一道发丝线，行与思维链里的步骤行同一种。 */

@@ -161,6 +161,15 @@ describe("一轮对话", () => {
         expect(message!.toolCalls).toEqual([{id: "c1", name: "write", status: "streaming", args: {path: "project://正文/一.md", partialChars: 44}}]);
     });
 
+    test("工具参数流式：写完的 title 也抽出来（eval 的卡片在代码还在生成时就有标题），转义按 JSON 还原；还没写完的不抽", () => {
+        const transcript = createKernelTranscript({toolName: (tool) => tool.slice(tool.lastIndexOf(".") + 1)});
+        transcript.applyFrame({type: "delta", request: 1, purpose: "turn", n: 1, part: "toolArgs", callId: "c1", tool: "nbook.agent.eval", text: '{"title":"统计\\"雨夜\\"出现几次","code":"const n = 1'});
+        expect(assistants(transcript.messages())[0]!.toolCalls[0]!.args).toMatchObject({title: '统计"雨夜"出现几次'});
+        const other = createKernelTranscript();
+        other.applyFrame({type: "delta", request: 1, purpose: "turn", n: 1, part: "toolArgs", callId: "c1", tool: "nbook.agent.eval", text: '{"title":"统计'});
+        expect(assistants(other.messages())[0]!.toolCalls[0]!.args).toEqual({partialChars: 12});
+    });
+
     test("乐观消息：显示在最后；内核确认换掉最早的；被拒撤掉；结果未知标出来", async () => {
         await using session = await createTestSession();
         const {transcript, stop} = await follow(session.raw);
@@ -260,7 +269,7 @@ describe("嵌套调用（docs/specs/ui/agent-conversation-view.md“有子调用
     test("子调用挂在外层调用下、按受理先后；等审批时先占位，事项带来源；批准后开始，结果只给预览；跟着的与重建的相同", async () => {
         program = async (ctx) => {
             await ctx.invoke!("lab.read", {path: "长.md"});
-            await ctx.invoke!("lab.write", {path: "一.md"});
+            await ctx.invoke!("lab.write", {path: "一.md", content: "字".repeat(1_000)});
             await ctx.invoke!("lab.write", {path: "二.md"});
             return "代码跑完了";
         };
@@ -289,6 +298,9 @@ describe("嵌套调用（docs/specs/ui/agent-conversation-view.md“有子调用
         expect(children[0]!.result!.truncated).toBe(true);
         expect(children[1]).toMatchObject({result: {text: "写好 一.md", truncated: false}});
         expect(children[1]!.startedAt).toBeNumber();
+        // 写的内容约 3 KB，内核写日志时截短了：标成只有预览，界面不按它算增删行数；短参数的不标。
+        expect(children[1]!.argsPreview).toBe(true);
+        expect(children[2]!.argsPreview).toBeUndefined();
         expect(children[2]!.note).toMatchObject({key: "kernel.tool.deniedByUser"});
         expect(new Set(children.map((child) => child.id)).size).toBe(3);
         await expectConsistent(session, transcript);
