@@ -64,10 +64,18 @@ export type ZoomLevel = Static<typeof ZoomLevelSchema>;
 export const CloseLastWindowSchema = Type.Union([Type.Literal("quit"), Type.Literal("tray")]);
 export type CloseLastWindow = Static<typeof CloseLastWindowSchema>;
 
+/**
+ * 窗口背景（desktop-shell 输出 32）：`off` 是普通窗口；`mica` 是 Windows 11 的 Mica（壁纸色调的底，不随背后的窗口变），`acrylic`
+ * 是 Acrylic（背后的内容模糊着透出来）。窗口建立时才定（Electrobun 的 `transparent` 只能在创建时设），所以改了只对新开的窗口生效。
+ */
+export const WindowBackdropSchema = Type.Union([Type.Literal("off"), Type.Literal("mica"), Type.Literal("acrylic")]);
+export type WindowBackdrop = Static<typeof WindowBackdropSchema>;
+
 export const DesktopSettingValuesSchema = Type.Object({
     zoom: ZoomLevelSchema,
     openAtLogin: Type.Boolean(),
     closeLastWindow: CloseLastWindowSchema,
+    windowBackdrop: WindowBackdropSchema,
 }, {additionalProperties: false});
 export type DesktopSettingValues = Static<typeof DesktopSettingValuesSchema>;
 
@@ -104,6 +112,8 @@ const PageMessageSchema = Type.Union([
     /** 外框一建立就问一次当前的窗口状态：整页导航之后、壳下一次推送之前，按钮不该显示错的字形。 */
     Type.Object({type: Type.Literal("window-state-query")}),
     Type.Object({type: Type.Literal("desktop-settings"), values: DesktopSettingValuesSchema}),
+    /** 窗口带磨砂背景时，页面当前的明暗：壳据此设 DWM 的明暗标志，磨砂的底色与页面同向（desktop-shell 输出 32）。 */
+    Type.Object({type: Type.Literal("window-appearance"), dark: Type.Boolean()}),
     Type.Object({type: Type.Literal("title"), title: Type.String()}),
     Type.Object({type: Type.Literal("open-window"), url: Type.String()}),
 ]);

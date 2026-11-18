@@ -29,6 +29,7 @@ import {createCloseQuery} from "./host/close-query";
 import {createCloseUi, installCloseKeyGuard} from "./host/close-ui";
 import {createConnection} from "./host/connection";
 import {createDesktopFrame} from "./host/desktop-frame";
+import {watchWindowAppearance} from "./host/window-appearance";
 import {createDesktopUpdates} from "./host/desktop-updates";
 import {readLocaleHint, writeLocaleHint} from "./host/locale-hint";
 import {createHostTextEngine} from "./host/text-engine";
@@ -110,6 +111,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     const closeUi = createCloseUi({document, exemptRoots: () => [closeRoot, frameRoot]});
     const desktopFrame = createDesktopFrame({global: window, bridge, document, report: (input) => browserWindow.record(input)});
     createApp(DesktopFrame, {frame: desktopFrame}).provide(TEXT_PORT_KEY, text.port).mount(frameRoot);
+    watchWindowAppearance({document, bridge, report: (event, error) => browserWindow.record({level: "warn", event, message: "Reporting the window appearance to the desktop shell failed", ...(error === undefined ? {} : {error})})});
     const closeQuery = createCloseQuery({
         bridge,
         window: browserWindow,

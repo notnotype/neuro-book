@@ -26,7 +26,7 @@ import Electrobun, {BrowserWindow, PATHS, Screen, Tray, Updater, Utils} from "el
 import type {Pointer} from "bun:ffi";
 import {spawnSync} from "node:child_process";
 import {appendFileSync, mkdirSync} from "node:fs";
-import {homedir} from "node:os";
+import {homedir, release} from "node:os";
 import {dirname, join} from "node:path";
 
 import {systemClock} from "../../../src/desktop/deadline";
@@ -38,6 +38,7 @@ import type {TrayView} from "../../../src/desktop/tray";
 import {scanApplyResults} from "../../../src/desktop/update-install";
 import type {UpdaterPort} from "../../../src/desktop/update-install";
 import type {OpenTarget, WindowId, WindowPort} from "../../../src/desktop/windows";
+import {backdropFor} from "../../../src/desktop/backdrop";
 import {centeredFrame, MIN_PAGE_SIZE, minimumFrame} from "../../../src/desktop/window-size";
 import type {Size} from "../../../src/desktop/window-size";
 import {DESKTOP_EVENT, parsePageMessage} from "../../../src/shared/desktop-bridge";
@@ -46,7 +47,7 @@ import {PRODUCT_VERSION} from "../../../src/shared/product";
 
 import {preloadScript} from "./preload";
 import {changeLoginItem, readLoginItem} from "./login-item";
-import {adoptCustomFrame, applyBackdropProbe, setMinimumSize, setWindowIcon} from "./win32";
+import {adoptCustomFrame, applyBackdrop, setBackdropDark, setMinimumSize, setWindowIcon} from "./win32";
 
 const SHELL_VIEW = "views://shell/index.html";
 const DEFAULT_SIZE = {width: 1600, height: 1000};
@@ -192,6 +193,8 @@ async function updateHelperRunning(): Promise<boolean | null> {
 interface ManagedWindow {
     readonly win: BrowserWindow;
     kind: "shell" | "page";
+    /** 窗口建出时的磨砂背景（输出 32）；没有为 null。`transparent` 只能在创建时设，之后不变。 */
+    readonly backdrop: "mica" | "acrylic" | null;
 }
 
 async function main(): Promise<void> {
@@ -210,8 +213,6 @@ async function main(): Promise<void> {
         logFile = join(dir, "shell.log");
     }
     // webview2Args：环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 有没有传到壳（冒烟靠它打开调试端口；只记有没有，不记值）。
-    // 实验（w00046 t17）：环境变量 NBOOK_BACKDROP_PROBE=1 时产品窗口以 transparent 建出并加 Mica；探针之后换成设置项。
-    const backdropProbe = process.env.NBOOK_BACKDROP_PROBE === "1";
     const customFrame = process.platform === "win32" && webView2.major !== null && webView2.major >= CUSTOM_FRAME_MIN_WEBVIEW2;
     log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2=${String(webView2.major)} customFrame=${String(customFrame)} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
 
@@ -304,12 +305,17 @@ async function main(): Promise<void> {
         const url = target.kind === "page" ? target.url : SHELL_VIEW;
         if (target.kind === "page") serverOrigin = new URL(target.url).origin;
         // 启动页窗口之后会换成产品页，打开时就按产品窗口的下限摆。
-        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", transparent: backdropProbe && customFrame, navigationRules: JSON.stringify(navigationRules())});
+        // 窗口背景（输出 32）：按建这个窗口时的设置值定；启动页窗口也一样，它之后会换成产品页，`transparent` 创建后改不了。
+        const backdrop = backdropFor(desktopValues.windowBackdrop, {platform: process.platform, release: release(), customFrame});
+        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(customFrame, backdrop), titleBarStyle: customFrame ? "hiddenInset" : "default", transparent: backdrop !== null, navigationRules: JSON.stringify(navigationRules())});
         const id = win.id as WindowId;
-        windows.set(id, {win, kind: target.kind === "page" ? "page" : "shell"});
+        windows.set(id, {win, kind: target.kind === "page" ? "page" : "shell", backdrop});
         adoptWindow(win, id, customFrame);
         if (target.kind === "page") adoptPageWindow(win, id);
-        if (backdropProbe && customFrame) log(`desktop.backdrop.probe window=${String(id)} ${applyBackdropProbe(win.ptr as Pointer | null, true).join(" ")}`);
+        if (backdrop !== null) {
+            const problems = applyBackdrop(win.ptr as Pointer | null, backdrop, null);
+            log(problems.length === 0 ? `desktop.backdrop.applied window=${String(id)} kind=${backdrop}` : `desktop.backdrop.failed window=${String(id)} kind=${backdrop} ${problems.join("; ")}`);
+        }
         win.on("will-close", (event: {response?: {allow: boolean}}) => {
             event.response = {allow: false};
             shell.windows.closeRequested(id);
@@ -436,6 +442,14 @@ async function main(): Promise<void> {
             case "window-control":
                 onWindowControl(id, win, message.action);
                 return;
+            case "window-appearance": {
+                // 页面的明暗变了：磨砂的底色跟着变。没有磨砂的窗口不理。
+                const managed = windows.get(id);
+                if (managed?.backdrop === null || managed === undefined) return;
+                const problems = setBackdropDark(managed.win.ptr as Pointer | null, message.dark);
+                if (problems.length > 0) log(`desktop.backdrop.dark-failed window=${String(id)} ${problems.join("; ")}`);
+                return;
+            }
             case "window-state-query":
                 pushWindowState(id, true);
                 return;

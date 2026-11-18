@@ -8,7 +8,7 @@ import {Type} from "typebox";
 
 import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
-import {CloseLastWindowSchema, ZoomLevelSchema} from "nbook/shared/desktop-bridge";
+import {CloseLastWindowSchema, WindowBackdropSchema, ZoomLevelSchema} from "nbook/shared/desktop-bridge";
 import type {ZoomLevel} from "nbook/shared/desktop-bridge";
 import {defineSettings} from "nbook/shared/settings";
 
@@ -67,6 +67,43 @@ export const {settings: desktopSettings, contributions: desktopSettingContributi
         layers: ["user"],
         section: DESKTOP_WINDOW_SECTION,
         order: 30,
+    },
+    // 壳在建窗口时按它定窗口是不是透明（desktop-shell 输出 32）：改了只对之后新开的窗口生效。
+    windowBackdrop: {
+        schema: WindowBackdropSchema,
+        default: "off",
+        title: {"zh-CN": "窗口背景", "en-US": "Window background"},
+        description: {
+            "zh-CN": "磨砂透明的窗口背景，需要 Windows 11 22H2 以上。改了之后新开的窗口生效。",
+            "en-US": "A frosted, translucent window background; needs Windows 11 22H2 or later. Applies to windows opened after the change.",
+        },
+        choices: [
+            {value: "off", title: {"zh-CN": "关", "en-US": "Off"}},
+            {value: "mica", title: {"zh-CN": "Mica（壁纸色调）", "en-US": "Mica (wallpaper tint)"}},
+            {value: "acrylic", title: {"zh-CN": "Acrylic（模糊背后的窗口）", "en-US": "Acrylic (blurs what is behind)"}},
+        ],
+        layers: ["user"],
+        section: DESKTOP_WINDOW_SECTION,
+        order: 40,
+    },
+    // 试验：磨砂窗口里外层面板的样式（只改页面的样式，不经过壳），开发者挑定一种之后删掉这一项，样式收成一种。
+    windowBackdropStyle: {
+        schema: Type.Union([Type.Literal("a"), Type.Literal("b"), Type.Literal("c"), Type.Literal("d")]),
+        default: "d",
+        title: {"zh-CN": "窗口背景样式（试验）", "en-US": "Window background style (experiment)"},
+        description: {
+            "zh-CN": "a 只有窗口底透明、卡片不透明；b 所有卡片半透明；c 侧栏与右栏半透明、编辑器不透明；d 在 c 上再罩一层主题底色。立即生效。",
+            "en-US": "a: transparent ground, opaque cards; b: every card translucent; c: side panels translucent, editor opaque; d: c plus a theme-colour wash. Applies immediately.",
+        },
+        choices: [
+            {value: "a", title: "a"},
+            {value: "b", title: "b"},
+            {value: "c", title: "c"},
+            {value: "d", title: "d"},
+        ],
+        layers: ["user"],
+        section: DESKTOP_WINDOW_SECTION,
+        order: 50,
     },
 });
 

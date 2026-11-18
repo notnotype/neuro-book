@@ -17,8 +17,26 @@
 import {DESKTOP_FRAME_MARKER} from "../../../src/shared/desktop-bridge";
 
 /** 产品窗口与启动页窗口的预加载脚本；`customFrame` 是这个窗口没有系统标题栏。 */
-export function preloadScript(customFrame: boolean): string {
-    return customFrame ? `${FRAME}\n${BRIDGE}` : BRIDGE;
+export function preloadScript(customFrame: boolean, backdrop: "mica" | "acrylic" | null = null): string {
+    return customFrame ? `${FRAME}\n${backdrop === null ? "" : `${backdropScript(backdrop)}\n`}${BRIDGE}` : BRIDGE;
+}
+
+/**
+ * 窗口以磨砂背景建出时（desktop-shell 输出 32），`<html>` 一出现就设 `data-window-backdrop`：样式据此让页面的底透明，页面脚本之前就生效，
+ * 不闪一下不透明的底。值是这个窗口实际的背景，设置改了也不变（窗口是按建立时的设置建的）。
+ */
+function backdropScript(backdrop: "mica" | "acrylic"): string {
+    return `(() => {
+  const mark = () => {
+    if (document.documentElement === null) return false;
+    document.documentElement.setAttribute("data-window-backdrop", ${JSON.stringify(backdrop)});
+    return true;
+  };
+  if (!mark()) {
+    const observer = new MutationObserver(() => { if (mark()) observer.disconnect(); });
+    observer.observe(document, {childList: true});
+  }
+})();`;
 }
 
 const FRAME = `(() => {

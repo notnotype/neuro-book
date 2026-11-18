@@ -22,6 +22,8 @@ import {cc, dlopen, FFIType, ptr} from "bun:ffi";
 import type {Pointer} from "bun:ffi";
 import {relative} from "node:path";
 
+import {DWM_BACKDROP_TYPE} from "../../../src/desktop/backdrop";
+
 const GWL_STYLE = -16;
 const WS_SYSMENU = 0x0008_0000n;
 const WS_MINIMIZEBOX = 0x0002_0000n;
@@ -39,6 +41,8 @@ const IMAGE_ICON = 1;
 const LR_LOADFROMFILE = 0x0010;
 const SM_CXICON = 11;
 const SM_CXSMICON = 49;
+const DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+const DWMWA_SYSTEMBACKDROP_TYPE = 38;
 
 type User32 = ReturnType<typeof openUser32>;
 
@@ -221,19 +225,47 @@ export function setMinimumSize(hwnd: Pointer | null, size: {readonly width: numb
 }
 
 /**
- * 实验（w00046 t17）：给已经以 `transparent: true` 建出的窗口加 Mica。`DwmExtendFrameIntoClientArea(-1)` 把客户区并入 DWM 的玻璃，
- * `DWMWA_SYSTEMBACKDROP_TYPE`（38）取 2 是 Mica，`DWMWA_USE_IMMERSIVE_DARK_MODE`（20）跟随系统明暗。交回每个调用的 HRESULT 与窗口的
- * 扩展样式，写进日志给验收看。
+ * 给已经以 `transparent: true` 建出的窗口加系统背景（desktop-shell 输出 32）。`DwmExtendFrameIntoClientArea(-1)` 把客户区并入
+ * DWM 的玻璃，`DWMWA_SYSTEMBACKDROP_TYPE`（38）取 2 是 Mica、3 是 Acrylic，`DWMWA_USE_IMMERSIVE_DARK_MODE`（20）定磨砂是深色还是
+ * 浅色（`dark` 为 null 时不动，沿用 Electrobun 建窗口时按系统设的）。交回没做成的项与原因（HRESULT 非 0）；窗口照常可用，只是不磨砂。
  */
-export function applyBackdropProbe(hwnd: Pointer | null, dark: boolean): string[] {
+export function applyBackdrop(hwnd: Pointer | null, kind: "mica" | "acrylic", dark: boolean | null): string[] {
+    if (process.platform !== "win32") return [];
+    if (hwnd === null) return ["window handle is null"];
+    const lib = dwm();
+    if (typeof lib === "string") return [lib];
+    const problems: string[] = [];
+    const margins = new Int32Array([-1, -1, -1, -1]);
+    const extend = lib.DwmExtendFrameIntoClientArea(hwnd, ptr(margins));
+    if (extend !== 0) problems.push(`DwmExtendFrameIntoClientArea 0x${(extend >>> 0).toString(16)}`);
+    if (dark !== null) problems.push(...setBackdropDark(hwnd, dark));
+    const type = lib.DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ptr(new Int32Array([DWM_BACKDROP_TYPE[kind]])), 4);
+    if (type !== 0) problems.push(`DWMWA_SYSTEMBACKDROP_TYPE 0x${(type >>> 0).toString(16)}`);
+    return problems;
+}
+
+/** 磨砂窗口的明暗跟页面走（页面交来 `window-appearance`）。 */
+export function setBackdropDark(hwnd: Pointer | null, dark: boolean): string[] {
     if (process.platform !== "win32" || hwnd === null) return [];
-    const dwm = dlopen("dwmapi.dll", {
+    const lib = dwm();
+    if (typeof lib === "string") return [lib];
+    const result = lib.DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ptr(new Int32Array([dark ? 1 : 0])), 4);
+    return result === 0 ? [] : [`DWMWA_USE_IMMERSIVE_DARK_MODE 0x${(result >>> 0).toString(16)}`];
+}
+
+type Dwm = ReturnType<typeof openDwm>;
+function openDwm() {
+    return dlopen("dwmapi.dll", {
         DwmSetWindowAttribute: {args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.u32], returns: FFIType.i32},
         DwmExtendFrameIntoClientArea: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32},
     }).symbols;
-    const lib = library();
-    const attr = (id: number, value: number): number => dwm.DwmSetWindowAttribute(hwnd, id, ptr(new Int32Array([value])), 4);
-    const margins = new Int32Array([-1, -1, -1, -1]);
-    const ex = typeof lib === "string" ? "n/a" : `0x${BigInt.asUintN(64, BigInt(lib.GetWindowLongPtrW(hwnd, -20))).toString(16)}`;
-    return [`extend=${String(dwm.DwmExtendFrameIntoClientArea(hwnd, ptr(margins)))}`, `dark(${String(dark)})=${String(attr(20, dark ? 1 : 0))}`, `mica=${String(attr(38, 2))}`, `exStyle=${ex}`];
+}
+let dwmLib: Dwm | null = null;
+function dwm(): Dwm | string {
+    try {
+        dwmLib ??= openDwm();
+        return dwmLib;
+    } catch (error) {
+        return `dwmapi unavailable: ${error instanceof Error ? error.message : String(error)}`;
+    }
 }

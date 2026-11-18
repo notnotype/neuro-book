@@ -70,12 +70,18 @@ describe("桌面桥", () => {
         expect(parseShellMessage({type: "update-hint", id: 1, hint, tray: "yes"})).toBeNull();
     });
 
-    it("桌面设置的值：三项齐全才收下；缺一项、多一项、关窗去向不认识的值都丢弃", () => {
-        const values = {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray"} as const;
+    it("桌面设置的值：四项齐全才收下；缺一项、多一项、关窗去向或窗口背景不认识的值都丢弃", () => {
+        const values = {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "mica"} as const;
         expect(parsePageMessage({type: "desktop-settings", values})).toEqual({type: "desktop-settings", values});
-        for (const bad of [{zoom: 1.25, openAtLogin: false}, {...values, closeLastWindow: "hide"}, {...values, extra: 1}]) {
+        for (const bad of [{zoom: 1.25, openAtLogin: false}, {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray"}, {...values, closeLastWindow: "hide"}, {...values, windowBackdrop: "glass"}, {...values, extra: 1}]) {
             expect(parsePageMessage({type: "desktop-settings", values: bad})).toBeNull();
         }
+    });
+
+    it("窗口明暗：dark 是布尔才收下", () => {
+        expect(parsePageMessage({type: "window-appearance", dark: true})).toEqual({type: "window-appearance", dark: true});
+        expect(parsePageMessage({type: "window-appearance", dark: "dark"})).toBeNull();
+        expect(parsePageMessage({type: "window-appearance"})).toBeNull();
     });
 
     it("页面一侧：只把形状对的事件交给处理器；停止监听后不再收到", () => {

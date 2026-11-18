@@ -85,11 +85,20 @@ export const desktopEntry = defineEntry({
             if (desktop === null || settings.inspect(desktopSettings.zoom).user.status !== "ok") return;
             desktop.reportSettings(values);
         }
+        // 试验项：磨砂窗口里外层面板的样式，只改页面的样式、不经过壳。
+        const applyBackdropStyle = (): void => {
+            // 这个文件在后端的类型检查范围里，没有 DOM 类型（同下面的键盘与滚轮监听）：只取用到的成员。
+            (globalThis as unknown as {readonly document: {readonly documentElement: {readonly dataset: Record<string, string>}}}).document.documentElement.dataset.windowBackdropStyle = settings.get(desktopSettings.windowBackdropStyle);
+        };
         if (desktop !== null) {
             const keys = new Set(Object.values(desktopSettings).map((setting) => setting.key));
+            applyBackdropStyle();
             report(zoom.values());
             const stop = settings.onDidChange((changed) => {
-                if ([...changed].some((key) => keys.has(key))) report(zoom.values());
+                if ([...changed].some((key) => keys.has(key))) {
+                    applyBackdropStyle();
+                    report(zoom.values());
+                }
             });
             const onPageHide = (): void => zoom.flush();
             // 这个文件在后端的类型检查范围里，没有 DOM 类型：监听挂在 globalThis 上，事件只取用到的成员。keydown、wheel 派发的
