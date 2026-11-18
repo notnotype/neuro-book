@@ -17,6 +17,8 @@ updated: 2026-11-18
 
 2026-11-18 开工。先盘点：两份 Spec 里每一处 planned 有没有实现、有没有测试守着，nested-grid 的条目被哪些地方按小标题引用，Smoke 与证据行缺哪些 e2e（Claude Sonnet，`claude -p`，只读，报告在主工作区 `.local/agent/works/w00026-layout-package/tasks/t30-layout-specs-rewrite/reports/inventory.txt`）。盘点回来后写 `plan.md`，做设计审查，再动 Spec。
 
+盘点回来（[`evidences/inventory.txt`](evidences/inventory.txt)）：workbench-layout 149 处标记，A（已实现、有测试）141，B（已实现、没找到测试）3，C（没做）1，N（不是功能条目）4；nested-grid 7 处，A 6，B 1。计划第 1 稿见 [`plan.md`](plan.md)。
+
 ## 下一步
 
-等盘点结果，写计划。
+计划的设计审查（Claude Sonnet），处理完再动 Spec。

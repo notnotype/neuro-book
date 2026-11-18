@@ -1,0 +1,335 @@
+# w00026 t30：布局两份 Spec 的“（planned）”盘点（只读，未改任何仓库文件）
+
+## 缩写
+
+路径前缀：W = packages/neuro-book/src/plugins/workbench/web/；E = packages/neuro-book/e2e/；L = packages/nb-layout/src/。
+代码：CT = W state/containers.ts；PR = W state/layout-present.ts；ST = W state/layout-doc-store.ts；DT = W state/default-tree.ts；LC = W state/layout-constraints.ts；ED = W entry-drop.ts；LV = W live-drag.ts；LG = W layout-drag.ts；SH = W components/WorkbenchShell.vue；SF = W components/WorkbenchSurface.vue；PH = W components/WorkbenchPanelHead.vue；RS = W components/WorkbenchRegionStrip.vue；LD = L layout-doc.ts；LP = L layout-project.ts；LDR = L layout-drop.ts。
+单元测试：CTt、PRt、STt、DTt、LCt、EDt、LVt 是上面各文件同目录的 `.test.ts`；LDt、LDRt、LPt = L 下的 layout-doc、layout-drop、layout-project 的 `.test.ts`；cmd = W commands/ 下的 part-、panel-、view-commands.test.ts；PHt、RSt = 两个组件的 `.dom.test.ts`。
+e2e：wc = E workbench-containers；wd = workbench-dnd；ws = workbench-shell；wv = workbench-views；wl = workbench-live-drag；wf = workbench-float；ea = editor-area；lws = lab-workbench-surface；lds = lab-drop-sectors。后面的数字是测试起始行。
+
+结论：A 已实现且有测试；B 已实现但没找到测试；C 没实现或只做了一部分；N 不是功能条目（标记的含义要改写）；? 拿不准。
+
+计数口径：`grep -c "（planned）"` 是 97 行；同一行有几处就按几处算，共 149 处。另有两处写成“，planned）”的变体（L148 的“……右下角，planned）”、L152 的“……单独的按钮，planned）”）也算进去。
+
+## 第 1 节：workbench-layout.md 的“（planned）”
+
+### 前言、术语、输入
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 1 | 16 | 目标：点入口切换的是整个容器，切走再切回来是原样（输出 40 到 47） | A | CT:82 regionContainers；LD:707 setActiveContainer；SH:505 prepareRegionSwap | CTt:63；LDt:973；STt:869；wc:548（验收 24） |
+| 2 | 28 | 不承诺：容器的其它形态（隐藏单个视图、容器嵌套、插件开入口条、编辑组进容器） | N | 无（本来就不做） | 非目标，不是待实现；“（planned）”整个去掉，保留这条非目标 |
+| 3 | 29 | 不承诺：活动栏隐藏时切换侧栏的容器，只能经命令 | N | 无（已知限制） | 已知限制；有测试：wv:553（头不变、切换经命令）、wc:1487（打开视图命令）。标记去掉，改写成已知限制 |
+| 4 | 38 | 术语树图 panels 行：分节的归属，锚上的入口顺序与当前容器 | A | LD:31-48 PanelRecord（`container`、`entries`、`activeContainer`） | LDt:1112、1374；LDt:860 起整个“区域与容器” |
+| 5 | 43 | 具名面板：它是区域的锚，没有标签，不属于任何容器…（输出 40、48） | A | LD:191 isContainerAnchor；LDR:104 emptyRegionDrop | LDt:881、940；DTt:146 |
+| 6 | 46 | 术语：区域 | A | LD:212 regionOf | LDt:881 |
+| 7 | 47 | 术语：分节 | A | LD:43；LD:742 splitIntoSections | LDt:1134、1278；DTt:87 |
+| 8 | 48 | 术语：容器 | A | CT:82 regionContainers | CTt:63、74 |
+| 9 | 49 | 术语：入口 | A | PR:121 regionEntries | PRt:201；wv:508；wv:421 |
+| 10 | 50 | 文档树：不在当前容器里的分节也在里面 | A | LD（可见性只看 `container`，不删节点） | LDt:897；STt:869；wc:548（记录里尺寸意图前后相同） |
+| 11 | 51 | 呈现树：锚与不在当前容器里的分节也不在里面 | A | LP:171 projectLayoutDoc | LPt:560（锚与区域的包装）；LDt:897、941；SF:246 |
+| 12 | 54 | 当前面板：在入口条里切了容器，焦点没动，当前面板跟着换 | A | SH（入口条的焦点回落）；PR:164 focusLandings | wc:228（“在条里切容器后当前面板是新并进来的那一节”）；PRt:320 |
+| 13 | 80 | 类型注释：`hidden` 隐藏的是整个区域 | A | LD:38-39；LD:1195 setPanelHidden | STt:715；wv:292；LDt:904 |
+| 14 | 82 | 类型注释：`container` 分节所属容器的 id | A | LD:43 | LDt:1374、1379 |
+| 15 | 91 | 锚的记录另存入口顺序、当前容器、区域是否拖到零；`version` 不变 | A | LD:44-47（`entries`、`activeContainer`），拖到零记在锚的 `collapsed`（LD:40-41）；LD:20 `LAYOUT_DOC_VERSION = 1` | LDt:1112、1353、1362；STt:696。注：正文的 `PanelRecord` 示例没写 `entries`、`activeContainer`，写 L91 时对一下字段名 |
+
+### 输出与可观察行为：模型、尺寸
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 16 | 95 | 前言“视图容器…还没有实现。标题后面带‘（planned）’…” | N | 前言本身过时（容器、入口都已实现，输出 40 到 48 均有 e2e） | 整段要重写或删除；“标题后面带…的条目整条是目标合同”这套说明属于 README 的规则，不必留在 Spec |
+| 17 | 95 | 同段第二处引用“一句话后面带‘（planned）’的只有那一句是…” | N | 同上 | 同上 |
+| 18 | 99 | 输出 1：默认树加按声明建的分节；同一份声明算出同一棵树 | A | DT:65 defaultLayoutDoc | DTt:146、170、176、184 |
+| 19 | 99 | 输出 1：内置声明下侧栏是会话与资源管理器，右栏是对话，底部面板是后台任务与通知 | A | workbench/plugin.ts:11（项目容器）；tasks/web/plugin.ts:66、workbench/web/plugin.ts:105（底部面板，revealRegion false） | E fe:124（会话、资源管理器两节）；wv:372（全链路按声明出现在默认位置）；wc 的 CONVERSATION 样例 |
+| 20 | 99 | 输出 1：第一次生成文档时有容器的区域显示，没有的隐藏 | A | DT:116 reconcileViews；ST（首次生成） | DTt:161、270；STt:105 |
+| 21 | 99 | 输出 1：骨架按锚判…合法但不满足的记录按“状态与转换”读 | A | DT:186 fitsSkeleton、DT:194 predatesContainers | DTt:64、87；STt:281；wc:2057（验收 30） |
+| 22 | 101 | 输出 3：分节的标签被拖走或关掉后，分节移除 | A | LD（拖空的无名工具面板移除） | LDt:531；wd:307 |
+| 23 | 101 | 输出 3：锚留在树里不移动；区域被拖空时隐藏，用户打开的空区域不隐藏 | A | LD:949 相关；CT:233 settleContainers | LDt:949、1238；CTt:181；wd:344；ws:281 |
+| 24 | 102 | 输出 4：第一次生成时容器里分节、区域里入口的先后按 `order` | A | CT:37 viewHome；DT:65 | DTt:146；CTt:48、64 |
+| 25 | 102 | 输出 4：文档已有之后出现的视图成为容器最后一个分节…入口排最后；同时出现按 `order` | A | DT:116 reconcileViews | DTt:193、206、218 |
+| 26 | 102 | 输出 4：区域隐藏着就保持隐藏，当前容器不换；区域原来没有容器时它成为当前容器 | A | DT:116 | DTt:228、234 |
+| 27 | 117 | 输出 6：右栏、底部面板的入口条占 32px，区域最小最大高度与只有一节时一样 | A | LC:99-117（`regionStrip`，PANEL_HEAD_HEIGHT）；LP 的 `regionStrip` | LPt:560、578（区域合计同只有一节时）。“底部面板至少 112”没有数值断言，是 80+32 推出来的 |
+| 28 | 120 | 输出 6：“其它工具面板”只剩浮动窗 | A | LC（panelConstraints 按区域取） | LCt:25 |
+| 29 | 120 | 输出 6：区域约束是区域那一行与当前容器各视图声明的并；切换不改尺寸意图，只在呈现时夹 | A | LC | LCt:48；wc:548 |
+| 30 | 122 | 输出 8：不在当前容器里的分节不写意图，切换容器不改任何尺寸意图 | A | ST（setActiveContainer 不动意图） | STt:869；LDt:974；wc:548 |
+| 31 | 124 | 输出 10：放不下时把区域里显示着的分节、打开着的空区域收走 | A | LC（收走顺序） | LCt:72；ws:618 |
+| 32 | 125 | 输出 11：隐藏与拖到零画得一样、只差记录 | A | LD:38-41；LP:171 | STt:715；wv:292；LPt:351 |
+| 33 | 129 | 输出 11 表“隐藏”行：锚的 `hidden`，隐藏的是整个区域 | A | LD:38-39 | STt:715 |
+| 34 | 129 | 输出 11 表“隐藏”行：焦点与键盘落点照旧按隐藏算，不落到零宽的面板 | A | PR:164 focusLandings | PRt:336；wd:505（隐藏的区域不是落点） |
+| 35 | 129 | 输出 11 表“隐藏”行：‘显示’清掉隐藏与拖到零；拉开边界同时清掉隐藏 | A | ST（showRegion）；LD:1195 | cmd part-commands.test:94；STt:715；wv:292 |
+| 36 | 130 | 输出 11 表“收成标题行”行：分节的 `collapsed` | A | LD:1209 setPanelCollapsed | LDt:1009-1095 |
+| 37 | 130 | 同行：区域此刻只显示一个分节时不收成标题行、没有收起按钮，`collapsed` 留在记录里 | A | LD:1209 | LDt:1010、1028、1041；cmd panel-commands.test:159；wd:738 |
+| 38 | 131 | 输出 11 表“拖到零”行：记在锚上，是整个区域的状态 | A | LD:40-41 | LDt:1353；STt:696、715 |
+| 39 | 131 | 同行：区域里有几个分节都一样，内容停放 | A | LP:171 | LPt:351；ws:454 |
+| 40 | 132 | 输出 11 表“不在当前容器”行 | A | LD（可见性）；PR:102 | LDt:897；PRt:129；wc:548 |
+| 41 | 136 | 输出 11：区域里一个分节都没有时“显示”照样打开它，是一块空面板 | A | ST（显示空区域）；SF:246 | STt:438；ws:281 |
+| 42 | 136 | 输出 11：隐藏与拖到零同时为真时“显示”把两个都清掉；分节收成标题行的不动 | A | ST | cmd part-commands.test:94；ws:200 |
+| 43 | 137 | 输出 11：一列全部收成标题行时最后一节垫底，分隔线不能拖 | A | LP（`fillers`，LP:125）；SF:489 sashDisabledOf | LPt:541；PRt:166；ws:468；wc:377、409；wd:755 |
+| 44 | 138 | 输出 12：区域那条边界越过 24px 时整个区域拖到零 | A | LP；W shell 阈值 SHELL_DRAG_COLLAPSE_THRESHOLD | ws:324、454；LPt:351；nb-layout sash-drag.test.ts:112 |
+| 45 | 138 | 输出 12：侧栏、右栏分节之间这样拖是收成标题行，底部面板分节之间停在最小宽度 | A | LP:101 | LPt:351、368、408；ws:436 |
+| 46 | 138 | 输出 12：区域隐藏时拉开就是显示，同一次落账清掉隐藏 | A | ST | STt:715；wv:292 |
+| 47 | 139 | 输出 13：区域里最大化的是分节，切走它所在的容器时退出 | A | ST（切换时退出最大化） | STt:641、941 |
+| 48 | 139 | 输出 13：头并在入口条里的那一节最大化时在自己的叶里画头，还原时过渡结束才搬回 | A | PR:49 mergedSections；SH；RS | wc:296。“这一刻正文上移一行、不随过渡”没有单独断言 |
+| 49 | 139 | 输出 13：头换了地方时焦点交给新头里同一个元素，没有就给标题 | A | SH | wc:296（焦点在还原按钮上，回到条里同一个按钮） |
+
+### 输出与可观察行为：渲染、面板头与活动栏
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 50 | 145 | 输出 16：面板不可见时焦点移到活动栏里它所在容器的入口 | A | PR:164 focusLandings | PRt:320-346；ws:200 |
+| 51 | 146 | 输出 17：分节另要所在容器是当前容器，区域没隐藏、没拖到零 | A | PR:102 regionVisible | PRt:129-166；LDt:897 |
+| 52 | 147 | 输出 18：活动栏与右栏、底部面板的入口条也各是一站，入口条在区域的分节之前 | B | 入口条是树里的叶，排在内层之前（LP:171）；入口是普通按钮，各一个 Tab 停靠（RS） | 树序有 LPt:560；没有断言“F6 或 Tab 停在入口条上”（搜了 F6、Tab、一站、入口条：ws:573 的 F6 只验面板之间，wd:445 是拖动里的 Tab） |
+| 53 | 148 | 输出 19：一个容器一张卡片（同一区域相邻两块相连，开放式分割线） | A | W shell/adjacency.ts；SF（sashStyleOf，SF:456） | wc:848；wv:950、1004；adjacency.test.ts:153 |
+| 54 | 148 | 输出 19：一个角圆当且仅当两侧的边都不相连，相连的边上没有投影与外框 | A | adjacency.ts | adjacency.test.ts；wc:710、848 |
+| 55 | 148 | 输出 19：侧栏里贴着活动栏、宽度大于零的每一块都和活动栏相连 | A | adjacency.ts joinedToBar | adjacency.test.ts；wc:848、917 |
+| 56 | 148 | 输出 19（变体“，planned）”）：几节时是最上面一节的右上角、最下面一节的右下角 | A | adjacency.ts；SF | wc:917 |
+| 57 | 152 | 输出 20：分节的头只写它那个视图的标题，容器只有一个分节时头照样画 | A | PR:149 titleOnlyPanels | PRt:303；wv:540、553 |
+| 58 | 152 | 输出 20：标题行是开关（展开标记、整行拖动源、aria-expanded、Enter、双击） | A | PH；SH toggleFold | PHt:135-191；wc:409、493；wd:738；E fe:141 |
+| 59 | 152 | 输出 20：右栏、底部面板当前容器只有一节时头并进入口条，没有标记 | A | PH；RS | wc:228；wd:738 |
+| 60 | 152 | 输出 20：浮动窗只写标题的头没有插入位，拖到头上是添加到最后；分节的标题行按输出 25 第 7 行 | A | LDR（分节规则） | LDRt:546；wd:543 |
+| 61 | 152 | 输出 20：活动栏隐藏时侧栏的头不变，容器只能经命令切换 | A | PR:149 | PRt:303；wv:553 |
+| 62 | 152 | 输出 20：分节没有隐藏按钮，隐藏是区域的事 | A | PH（框架按钮只有浮动、最大化） | ws:624-630（断言按钮恰两个）；wd:738 |
+| 63 | 152 | 输出 20：底部面板的分节不折叠、没有展开标记 | A | LD:1209（row-region 拒绝） | wd:738；cmd panel-commands.test:159；LPt:351 |
+| 64 | 152 | 输出 20：视图动作、框架按钮与滚动条随鼠标显示的范围（头并在入口条里的跨入口条与它自己） | A | W components/hover-actions.css；PH | wc:228、409；wv:320 |
+| 65 | 152 | 输出 20：框架按钮里有按下的（最大化着的还原）时一直显示 | A | PH | wc:493 |
+| 66 | 152 | 输出 20（变体“，planned）”）：视图接管标题区时展开标记是左列最前面一个单独的按钮 | A | PH | PHt:191 |
+| 67 | 154 | 输出 22：活动栏（上段是侧栏的入口条，点入口切换或隐藏，按下态至多一项） | A | SH:468-530；PR:121、138 | PRt:201-300；wv:421、508、1195；wd:782 |
+| 68 | 154 | 输出 22：按下的底色是条里一个独立的块（和内容同时滑） | A | W components/WorkbenchToolStrip.vue | wc:1277、982 |
+| 69 | 155 | 输出 23：移动到（分节标题与浮动窗视图标签的右键菜单、`nbook.view.move-view`） | A | SH:423-464；W commands/view-commands.ts:25、166；ST:500-532 | PRt:353；cmd view-commands.test:114-220；STt:364-452；wv:631、749、1318、1336；wd:915 |
+
+### 输出与可观察行为：拖动
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 70 | 159 | 输出 24：来源是分节的标题、浮动窗的视图标签、活动栏的入口、编辑器标签 | A | LG:204；W layout-drag.ts 头注释 | wd:284、307、445；wl:390；ea（编辑器标签拖动） |
+| 71 | 166 | 输出 25 第 2 行：活动栏上段、入口条，两个入口之间新建容器，入口上并入 | A | ED:158 applyEntryDrop | EDt:54-199；wd:940、985、1007；wc:1647、1734、1782 |
+| 72 | 168 | 输出 25 第 4 行：分节的标题行按第 7 行 | A | LDR | LDRt:516、546；wd:543 |
+| 73 | 169 | 输出 25 第 5 行：分节按第 7 行 | A | LDR | LDRt:516 |
+| 74 | 170 | 输出 25 第 6 行：分节按第 7 行 | A | LDR | LDRt:516；wd:675 |
+| 75 | 171 | 输出 25 第 7 行：分节的标题行与正文 | A | LDR；LC:95 | LDRt:492-594；LCt:240；wd:307、675 |
+| 76 | 171 | 同行：垫底那一节下面那片卡片底不是停靠的落点，是浮动打开 | A | LDR；LG | wd:755 |
+| 77 | 174 | 分节没有窄带，整块是前后两半 | A | LDR；LC:127 | LDRt:516、526；LCt:127、137；wd:675 |
+| 78 | 177 | 输出 26 接受矩阵表头：分节的标题行与正文 | A | LC:119 layoutAccepts | LCt:83；LDRt:200；wd:641 |
+| 79 | 183 | 输出 27：分节换位置，归属按输出 40 改写 | A | LD:1015 movePanelToEdge | LDt:1134、1262；wd:344 |
+| 80 | 183 | 输出 27：锚不移动（输出 3） | A | LD:1015、1059 | LDt:255、1238 |
+| 81 | 183 | 输出 27：浮动窗的一个视图标签放进区域时成为新分节 | A | LD:742；LD:1114 | LDt:1147；wd:307 |
+| 82 | 184 | 输出 28：分节的归属、入口顺序与当前容器也在比较之内 | A | LD:442 sameLayoutShape | LDt:1362；EDt:199 |
+| 83 | 184 | 输出 28：分节放到自己的任一半、紧挨着的那一半、它们之间的缝，都是原处 | A | LDR | LDRt:567；wd:373、863 |
+| 84 | 185 | 输出 29（已删除条）：要放进隐藏的区域用“移动到”；侧栏还可以放到活动栏 | A | 见输出 23、45 的代码 | wd:961、985 |
+| 85 | 187 | 输出 31：Tab 在落点区域之间循环，含活动栏与入口条 | A | LG:157；LDR:473 enumerateDropCandidates | wd:445、468、1047；EDt:73 |
+| 86 | 187 | 输出 31：分节上是前后两个位置，入口与入口之间的空位各是一个位置 | A | LDR:473；ED | LDRt:567；EDt:73；wd:782 |
+| 87 | 187 | 输出 31：标签、分节的标题、入口是可聚焦的拖动源，可访问描述“按空格拿起并拖动” | A | PH；RS | PHt:72；RSt:51；wd:445 |
+| 88 | 188 | 输出 32：各区域的当前容器在结构键里，拖动中容器被命令切走则整场取消 | A | PR（结构键） | PRt:108；wc:1959 |
+
+### 输出与可观察行为：命令与公开状态、实时布局、浮动
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 89 | 201 | 输出 35 表：`set-part-hidden` 区域的隐藏写在锚上，当前容器不变 | A | W commands/part-commands.ts | cmd part-commands.test:94 |
+| 90 | 202 | 输出 35 表：`set-panel-collapsed` 底部面板的分节不折叠，`unavailable` | A | W commands/panel-commands.ts:95 | cmd panel-commands.test:159 |
+| 91 | 204 | 输出 35 表：`nbook.view.move-view` | A | W commands/view-commands.ts:25、42、166-170 | cmd view-commands.test:114-220；wv:760；STt:427 |
+| 92 | 205 | 输出 35 表：`nbook.view.open` 切到视图所在的容器，区域隐藏或拖到零时展开 | A | ST:477 | STt:869-941；wc:1487 |
+| 93 | 211 | 输出 36：公开状态按区域求值 | A | W state/public-state.ts | cmd panel-commands.test:83、116；STt:658 |
+| 94 | 211 | 输出 36：打开着的空区域也算可见 | A | PR:86、102 | STt:438 |
+| 95 | 211 | 输出 36：`focusedPart` 取当前面板所在区域的名字，编辑组是 `editor` | A | public-state.ts:56 | cmd panel-commands.test:94-101；wv:1225 |
+| 96 | 212 | 输出 37：分节是前后两块，没有中央 | A | LDR；W components（DropSectorsOverlay） | LDRt:307、555；wd:1258；lds |
+| 97 | 212 | 输出 37：打开着的空区域整块一块，写“放在这里” | A | LDR:104-132 emptyRegionDrop | LDRt:357、610；ws:312 |
+| 98 | 212 | 输出 37：分节标题行算前半，分区照画 | A | LDR | wd:1293 |
+| 99 | 213 | 输出 38：拖含几个视图的入口时是落点指示 | A | LG:953、987 | wc:1676；EDt:99 |
+| 100 | 216 | 输出 38：回到原处展开后，再摆到别处又收起 | A | LV:114 | LVt:108；wl:238 |
+| 101 | 216 | 输出 38：预览不切换当前容器，来源是唯一分节时预览里区域是空的 | A | LG；ED | wc:1913；EDt:117 |
+| 102 | 218 | 输出 38：活动栏上两个入口之间空位按标签条的插入位算 | A | LG:254 | LVt:393；wl:742 |
+| 103 | 218 | 输出 38：分节的标题行不吸收 | A | LDR（分节落点是前后两半，不是标签条）；LV | LDRt:516；wl:238（只测了前后两半的落点，没有“不吸收”的单独断言） |
+| 104 | 218 | 输出 38：活动栏上的预览只动入口，侧栏不切、隐藏着也不展开 | A | LG；ED | wl:742、780；EDt:117、125 |
+| 105 | 218 | 输出 38：指针在入口上时不吸收，入口高亮，侧栏不切 | A | LG:254 | wl:841；EDt:81 |
+| 106 | 218 | 输出 38：来源是侧栏里容器唯一的视图时活动栏是它自己的入口条，不收起来源 | A | LV | LVt:423；wl:870 |
+| 107 | 220 | 输出 38：分节不是并入的目标，按前后两半 | A | LDR | LDRt:516、539 |
+| 108 | 225 | 输出 39：分节浮出来是只有一个标签的窗，归属清掉 | A | LD:1114 floatTab | STt:515；LDt:1263 |
+| 109 | 225 | 输出 39：整窗拖动经过打开着的空区域不停靠，多标签的窗要先撕下标签 | A | LDR:104-132 | LDRt:623（只有单元测试，没有 e2e） |
+| 110 | 230 | 输出 39：工具视图的窗停靠进区域，每个标签成一个分节；分节上能停靠的是缝与两端 14% | A | LD:742；LDR | LDRt:546；LDt:1147；wf:336（验收 23） |
+| 111 | 230 | 输出 39：框架按钮“回到停靠”各回声明的容器，成为最后一个分节 | A | ST:269 附近 | STt:498、515；wf:400；cmd panel-commands.test:215 |
+| 112 | 236 | 输出 39“不可”：最大化、收起（命令 `unavailable`），隐藏只有区域 | A | LD（浮动窗不可收起、隐藏只有具名面板） | LDt:807；cmd panel-commands.test:215 |
+
+### 区域与容器（输出 40 到 48）
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 113 | 240 | 输出 40 锚、分节与归属 | A | LD:191、742、1015 | LDt:1134-1318；DTt:87；wd:344、543 |
+| 114 | 241 | 输出 41 容器的身份、标题与图标 | A | CT:21、37、115 | CTt:47-122；PRt:201-226；wv:508（悬停文字写出两个视图） |
+| 115 | 242 | 输出 42 切换容器（整条标题） | A | LD:707；ST（showContainer） | LDt:973；STt:869；wv:421、493；wc:548 |
+| 116 | 242 | 输出 42：侧栏切换的样子（卡片不动，内容竖着滚） | A | SH:505 prepareRegionSwap；SF；nb-layout 的 grid-swap.ts | wc:982、1277；lab-grid-swap.e2e.ts（nested-grid 交换）；LDt 之外的 grid-swap.test.ts |
+| 117 | 242 | 输出 42：右栏、底部面板切换的样子（入口条不动，横着滚） | A | SH:505；SF | wc:1091、1169、1252 |
+| 118 | 243 | 输出 43 当前容器空了 | A | CT:233 settleContainers | CTt:158-197；STt:364；wd:344；wc:1913 |
+| 119 | 244 | 输出 44 入口的右键菜单：“移到”另外两个区域各一项，以及“重置” | C | 只做了“重置”：SH:562-567（注释写“现在只有‘重置’”）、SH:575；整个容器搬区域的底层已有：CT:166 moveContainerTo、ST:530 `moveContainer`（拖入口到别的区域的入口条走它，输出 46） | 缺：入口右键菜单里的“移到右栏”“移到底部面板”（侧栏入口）与对应的“移到侧栏”等项；没有 locale 键，WorkbenchShell.md:30 与 wv:699 注释也写着“还没有”。“重置”有测试：wv:690、CTt:293；“移到”底层有 CTt:211、STt:955 |
+| 120 | 245 | 输出 45 入口条上的落点 | A | ED:158；LG | EDt:54-199；wd:940-1047；wc:1647-1852 |
+| 121 | 246 | 输出 46 拖入口 | A | LG:912-987；ED | RSt:51；EDt:99、153；wc:1676、1806、1829；wd:940 |
+| 122 | 247 | 输出 47 右栏、底部面板的入口条（整条标题，t28 已实现） | A | RS；LP:171；LC:99 | RSt:29-77；LPt:556-630；wc:228-377；PRt:70 |
+| 123 | 247 | 输出 47：底部面板并进来的头不写看得见的标题，按下的入口就是它的标题 | A | PH；SH:575 openStripMenu | PHt:171；wc:358 |
+| 124 | 247 | 输出 47：入口是拖动源，入口条上的落点见 45、46 | A | RS；ED | RSt:51；wc:1782、1852 |
+| 125 | 248 | 输出 48 空区域 | A | LDR:104；SF:246；SH:990 | LDt:940-972；LDRt:596-632；STt:438；ws:281；wd:940、961 |
+
+### 状态与转换、副作用、失败、边界
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 126 | 265 | 状态表：有容器之前存的记录，回落默认布局 | A | DT:194 predatesContainers | STt:281、316、330；wc:2057 |
+| 127 | 279 | 时序：区域的当前容器只在提交时变 | A | ST；PR | PRt:108；EDt:117；wc:1913 |
+| 128 | 288 | 副作用：视图容器不改记录版本，多出的字段 | A | LD:20、43-47 | LDt:1374；STt:281 |
+| 129 | 297 | 失败码：`move-view` 目标容器既没有成员也没有声明是 `stale-target` | A | W commands/view-commands.ts:170 | cmd view-commands.test:158；STt:427、916 |
+| 130 | 310 | 边界：`move-view` 的参数随输出 35 改 | A | view-commands.ts:42-46 | cmd view-commands.test:146-150 |
+| 131 | 312 | 标记：锚不进呈现树，`[data-leaf="sidebar"]` 这类选择器选不到东西 | B | LP:171（有分节时锚被去掉）；SF:246 | 没有断言“选不到”（搜了 data-leaf、sidebar、锚：e2e 里只有按分节 id 取叶的 helper）。另：这句和输出 48 不一致，区域打开着又没有分节时锚就是那块空面板，选择器能选到；改写成“有分节时” |
+
+### 验收与 Smoke
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 132 | 318 | 验收 1 的后半：改放到工具视图浮动窗的标签条，A 的内容仍从侧栏滑到窗里 | B | LG；W 内容层 | wd:284（并入窗、只写一次）、wd:581（量了内容在新旧之间，但是窗到窗）、E lab-grid-panels:74（量了树里面板到面板）。没有找到“侧栏的视图并入浮动窗，逐帧量内容矩形”的用例 |
+| 133 | 325 | 验收 8（右栏隐藏、移动到、空区域） | A | 见输出 23、48 | wd:961；ws:281；wd:915 |
+| 134 | 327 | 验收 10（编辑器标签与工具视图、分节的前后两半等） | A | LDR；LC | wd:641、675、719、832；LCt:240；wd:373 |
+| 135 | 331 | 验收 14（活动栏入口、更多、拖入口、命令切换） | A | 见输出 22、45、46 | wv:421、508、553、1195；wd:940、985、1007；wc:1520、1676 |
+| 136 | 332 | 验收 15 前半：树里的工具面板不再有标签带，浮动窗标签带逐级让位 | A | W 标签带；TabStrip | wv:1144、1318 |
+| 137 | 339 | 验收 22：编辑器标签拖到别组的中央（工具视图没有中央），盖层与同一节点 | A | LV | wl:648 |
+| 138 | 339 | 验收 22：视图拖到浮动窗标签条、编辑器标签拖到别组标签条，卡片收回 | A | LV | wl:701；LVt:144、240 |
+| 139 | 340 | 验收 23：窗到分节两端 14% 窄带或缝才停靠，每个标签成一个分节 | A | LDR；LD | wf:336；LDRt:546；LDt:1147 |
+| 140 | 341 | 验收 24 | A | CT；LD:707 | wc:548 |
+| 141 | 342 | 验收 25 | A | ED；LG | wc:1647；wl:742 |
+| 142 | 343 | 验收 26 | A | ED | wc:1734；wl:841 |
+| 143 | 344 | 验收 27 | A | CT:233 | CTt:189；wv:508、631 |
+| 144 | 345 | 验收 28 | A | LP；PR | wc:1520；LPt:351 |
+| 145 | 346 | 验收 29 | A | CT:233 | wc:1913；CTt:158 |
+| 146 | 347 | 验收 30 | A | DT:194 | wc:2057；STt:281 |
+| 147 | 348 | 验收 31 | A | ST:500 | STt:398（引用验收 31）；wd:915 |
+| 148 | 349 | 验收 32 | A | PR（结构键） | wc:1959；PRt:108 |
+| 149 | 350 | 验收 33 | A | SH:505 | wc:982 |
+
+### 第 1 节计数
+
+A 141，B 3（#52、#131、#132），C 1（#119），N 4（#2、#3、#16、#17），? 0。合计 149。
+
+### 第 1 节补充
+
+1. 输出 44 的线索属实：入口右键菜单只有“重置”，没有“移到”。底层 `moveContainer`、`moveContainerTo` 已有，也有单元测试，所以补菜单项的工作量小。
+2. 输出 47 的入口条已在 t28 实现，测试齐全（wc:228 到 wc:409、RSt、LPt:556 起）。
+3. 输出 23 的“移动到”是全套实现：分节标题与浮动窗标签的右键菜单、命令、命令面板第二步、过期关闭（wv:1318、wv:1336）。
+4. 标记以外要顺手改的几处：L95 的前言；L366 的“。；”标点错位；L367 的“标 planned 的视图容器条目”（标记清零后这句要改成不含 planned）；L91 与 `PanelRecord` 示例的字段名对一下。
+
+## 第 2 节：nested-grid.md 的“（planned）”
+
+nested-grid.md 一共 7 处，不止 2 处（status: planned 在 frontmatter，不计）。
+
+| # | 行 | 条目与句首 | 结 | 代码 | 测试或缺什么 |
+|---|---|---|---|---|---|
+| 1 | 46 | “过渡”末句：还在树里、这一轮降到零的叶，过渡结束前头与内容还画着，又长出来的照常显示 | A | L vue/NestedGrid.vue:144（离开的叶留着）；L vue/useLeafParking.ts；L grid-motion.ts:275 | L vue/NestedGrid.dom.test.ts:937；wc:1346、1416 |
+| 2 | 47 | “交换”（整条） | A | L grid-swap.ts；L vue/useGridMotion.ts:137、182；L vue/NestedGrid.vue:77、149、841 | L grid-swap.test.ts:48-141；L vue/useGridMotion.dom.test.ts:158-241；L vue/NestedGrid.dom.test.ts:1147-1244；E lab-grid-swap.e2e.ts:110-235（验收 11）；wc:982-1252 |
+| 3 | 47 | “交换”：网格同时只有一条带 | A | useGridMotion.ts:137 | useGridMotion.dom.test.ts:203、241；lab-grid-swap.e2e.ts:199；wc:1252 |
+| 4 | 47 | “交换”：宿主可以读这一刻有没有过渡在走（`moving`），减少动态效果时一直为假 | A | NestedGrid.vue:143、271、633 | NestedGrid.dom.test.ts:1190 |
+| 5 | 47 | “交换”：静止的底（`swap-backdrop`） | A | NestedGrid.vue:121、165、641；SF（宿主给卡片） | NestedGrid.dom.test.ts:1172；wc:982（卡片不动） |
+| 6 | 48 | “分隔线的宿主样式”（整条，按分隔线写内联样式；同名以网格为准） | B | NestedGrid.vue:65、296-306（`sashStyle`、`sashLookOf`，样式在前、网格的位置在后覆盖）；宿主 SF:456 sashStyleOf | nb-layout 没有直接测 `sashStyle` 的用例（搜了 sashStyle、sash-style、宿主样式、内联样式、data-sash-kind）；只有宿主一侧的 e2e 间接覆盖：wc:848、917（线所在那 1px 也是卡片）。“同名的以网格为准”无断言 |
+| 7 | 48 | “分隔线的宿主样式”：`sashDisabled`，指针、键盘都不行，线照画 | A | NestedGrid.vue:70、355；SF:489 | NestedGrid.dom.test.ts:340、1147；ws:468、wc:377 |
+
+计数：A 6，B 1，C 0，N 0，? 0。
+
+补充：nested-grid.md 的“证据”只列了 t06 的扁平渲染（L131），没有交换与分隔线宿主样式的证据行；去掉标记、晋升时要补 lab-grid-swap.e2e.ts、NestedGrid.dom.test.ts、grid-swap.test.ts 与 wc。status 仍是 planned，L118 写明“Storage 宿主、未知引用合成保存及真实浏览器验收未闭合”，这与两条条目标记无关，晋升整份 Spec 是另一件事。
+
+## 第 3 节：引用 nested-grid 条目的地方
+
+范围：packages/、docs/、.agents/skills/、AGENTS.md，不含 neuro-book-legacy、archived、works、tasks。packages/neuro-book/dist/ 里有源码注释的副本（未被 git 跟踪），不列。“分支的收起”“交换”这类小标题是 id。
+
+### 引用了具体小标题的
+
+| 文件:行 | 引用的条目 |
+|---|---|
+| docs/specs/ui/workbench-layout.md:53 | “内容层” |
+| docs/specs/ui/workbench-layout.md:143 | “按矩形摆放”“内容层” |
+| docs/specs/ui/workbench-layout.md:144 | “过渡” |
+| docs/specs/ui/workbench-layout.md:148 | “过渡” |
+| docs/specs/ui/workbench-layout.md:242 | “交换”（文字是“ui/nested-grid 的交换”，没引号） |
+| docs/specs/ui/workbench-layout.md:360 | “内容层” |
+| docs/proposals/workbench-single-tree-layout.md:430 | “过渡” |
+| docs/proposals/workbench-single-tree-layout.md:434 | “浮动窗” |
+| packages/neuro-book/e2e/lab-grid-panels.e2e.ts:2 | “内容层”（另有行 167 的“nested-grid 验收 10”，是验收编号） |
+| packages/neuro-book/e2e/lab-grid-swap.e2e.ts:2 | “交换”，验收 11 |
+| packages/neuro-book/e2e/editor-area.e2e.ts:770 | “过渡” |
+| packages/neuro-book/e2e/editor-area.e2e.ts:782 | “内容层” |
+| packages/neuro-book/e2e/editor-area.e2e.ts:392 | “分配接着上一帧”（不是小标题，是“副作用与数据”里的一句，L78） |
+| packages/neuro-book/e2e/workbench-shell.e2e.ts:542 | “过渡” |
+| packages/neuro-book/e2e/workbench-shell.e2e.ts:573 | “移动焦点” |
+| packages/neuro-book/e2e/workbench-float.e2e.ts:417 | “过渡” |
+| packages/neuro-book/e2e/workbench-containers.e2e.ts:613 | “内容层”“过渡”“交换” |
+| packages/neuro-book/e2e/workbench-containers.e2e.ts:1252 | “交换” |
+| packages/neuro-book/e2e/workbench-containers.e2e.ts:1346 | “过渡”“内容层” |
+| packages/neuro-book/e2e/workbench-containers.e2e.ts:1416 | “过渡” |
+| packages/neuro-book/src/plugins/lab/web/fixtures/nb-layout/GridStructureScene.vue:3 | “按矩形摆放”到“读屏顺序” |
+| packages/neuro-book/src/plugins/lab/web/fixtures/nb-layout/GridPanelsScene.vue:3 | “内容层” |
+| packages/neuro-book/src/plugins/lab/web/fixtures/nb-layout/GridSwapScene.vue:3 | “交换” |
+| packages/neuro-book/src/plugins/workbench/web/commands/pane-focus-commands.ts:2 | “移动焦点” |
+| packages/neuro-book/src/plugins/workbench/web/components/hover-actions.css:5 | “内容层” |
+| packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:298 | “过渡” |
+| packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:391 | “过渡” |
+| packages/nb-layout/src/vue/layout-motion.ts:2 | “过渡” |
+| packages/nb-layout/src/vue/useLeafParking.ts:2、useLeafParking.dom.test.ts:9 | “停放” |
+| packages/nb-layout/src/vue/grid-focus.ts:2、useGridFocus.ts:2 | “Tab 顺序”“移动焦点” |
+| packages/nb-layout/src/vue/grid-focus.dom.test.ts:7 | “Tab 顺序” |
+| packages/nb-layout/src/vue/useRenderOrder.ts:2 | “按矩形摆放”“读屏顺序” |
+| packages/nb-layout/src/vue/useRenderOrder.dom.test.ts:7 | “按矩形摆放” |
+| packages/nb-layout/src/vue/useContentLayer.ts:2 | “内容层” |
+| packages/nb-layout/src/vue/useGridMotion.ts:2 | “过渡” |
+| packages/nb-layout/src/vue/useGridMotion.ts:137、182 | “交换” |
+| packages/nb-layout/src/vue/useGridMotion.dom.test.ts:13 | “过渡” |
+| packages/nb-layout/src/vue/useGridMotion.dom.test.ts:158 | “交换”（describe 名） |
+| packages/nb-layout/src/vue/NestedGrid.vue:5 | “按矩形摆放” |
+| packages/nb-layout/src/vue/NestedGrid.vue:49 | “内容层” |
+| packages/nb-layout/src/vue/NestedGrid.vue:51 | “最大化” |
+| packages/nb-layout/src/vue/NestedGrid.vue:57 | “浮动窗” |
+| packages/nb-layout/src/vue/NestedGrid.vue:77、841 | “交换” |
+| packages/nb-layout/src/vue/NestedGrid.vue:144 | “过渡” |
+| packages/nb-layout/src/vue/NestedGrid.vue:317 | “分支的收起” |
+| packages/nb-layout/src/vue/NestedGrid.dom.test.ts:362 | “分支的收起” |
+| packages/nb-layout/src/vue/NestedGrid.md:21 | “交换” |
+| packages/nb-layout/src/vue/NestedGrid.md:31 | “浮动窗” |
+| packages/nb-layout/src/grid-swap.ts:2、grid-swap.test.ts:10 | “交换” |
+| packages/nb-layout/src/grid-rects.ts:2、grid-rects.test.ts:8 | “按矩形摆放”“取整” |
+| packages/nb-layout/src/grid-rects.ts:76 | “内容层” |
+| packages/nb-layout/src/grid-rects.ts:89 | “过渡” |
+| packages/nb-layout/src/grid-rects.ts:173 | “最大化” |
+| packages/nb-layout/src/grid-motion.ts:2、grid-motion.test.ts:9 | “按矩形摆放”“过渡” |
+| packages/nb-layout/src/grid-motion.ts:251、275、359 | “过渡” |
+| packages/nb-layout/src/grid-geometry.ts:272、466 | “分支的收起” |
+| packages/nb-layout/src/grid.test.ts:925 | “分支的收起” |
+| packages/nb-layout/src/grid.md:13 | “分支的收起” |
+| packages/nb-layout/src/layout-project.ts:271 | “分支的收起” |
+| packages/nb-layout/src/grid.ts:10 | 「状态与转换」 |
+
+### 只引用整份 Spec（没有小标题，改标题时不受影响）
+
+docs/specs/ui/workbench-layout.md:9、123、273；docs/specs/ui/layout-drag.md:20；docs/specs/workbench/editor.md:148；docs/specs/README.md:248（注册表）；packages/nb-layout/README.md:3、AGENTS.md:5；packages/nb-layout/src/grid.md:54；packages/nb-layout/src/grid-types.ts:7、grid-geometry.ts:4、vue/useGridLayout.ts:5；packages/nb-ui/src/components/layout/grid-types.ts:7、grid-geometry.ts:4；packages/nb-ui/docs/ui-development-spec.md:212（只提 lab-nested-grid.e2e.ts）；packages/neuro-book/e2e/lab-grid-structure.e2e.ts:2、lab-nested-grid.e2e.ts:2、editor-area.e2e.ts:799；packages/neuro-book/src/plugins/lab/web/fixtures/nb-layout/NestedGridAcceptanceFixture.vue:3；docs/proposals 里的 workbench-shell-abstractions.md:21、359，workbench-view-host.md:10、62、212、348，workbench-single-tree-layout.md:10、351、408，workbench-view-containers.md:12、130；docs/research/vscode/12-workbench-view-host-refactor.md:4；docs/modules/monorepo-boundaries.md（一处）。
+
+另：nested-grid.md 自己引用自己的小标题（L126 的“分支的收起”“过渡”“交换”“分隔线的宿主样式”，L131 的“按矩形摆放”“取整”“过渡”“停放”“Tab 顺序”“移动焦点”“读屏顺序”）。.agents/skills/ 和仓库根 AGENTS.md 里没有引用。
+
+说明：引用“交换”的有 10 处（workbench-layout.md:242、lab-grid-swap.e2e.ts:2、GridSwapScene.vue:3、useGridMotion.ts:137 与 182、useGridMotion.dom.test.ts:158、NestedGrid.md:21、NestedGrid.vue:77 与 841、grid-swap.ts:2、grid-swap.test.ts:10、wc:613 与 1252）；“分隔线的宿主样式”只被 nested-grid.md 自己引用，代码与测试里没有按小标题引用它。
+
+## 第 4 节：Smoke 与证据行缺的 e2e
+
+“验收与 Smoke”最后一行（L352）现写：workbench-shell、workbench-views、workbench-dnd、lab-grid-structure。
+“证据”Smoke 行（L366）现写：workbench-dnd、workbench-shell、workbench-views。
+“证据”合同测试行（L365）现写：default-tree、layout-doc-store、layout-constraints、nb-layout 的 layout-doc、layout-drop。
+
+文件头或测试名引用 workbench-layout、但两行里都没写的 e2e：
+
+| 文件 | 在验什么（来源） | 引用次数 |
+|---|---|---|
+| workbench-containers.e2e.ts | 视图容器：切换、拖到零、拖到活动栏、入口条、切换滚动、一容器一卡片（文件头：输出 22、41、42、43、45，验收 24 到 33；测试名另引输出 11、13、19、20、47） | 20 |
+| workbench-live-drag.e2e.ts | 实时布局：输出 38（文件头“实时布局”） | 3 |
+| workbench-float.e2e.ts | 应用内浮动：输出 39（文件头） | 4 |
+| lab-workbench-surface.e2e.ts | 一棵树的表面：“渲染”“面板头与活动栏”，容器搬走、搬回（输出 44） | 2 |
+| lab-drop-sectors.e2e.ts | 落点分区外观：输出 37 | 1 |
+| lab-grid-panels.e2e.ts | 验收 1 的内容跨面板滑动（Lab） | 1 |
+| workbench-drag-cost.e2e.ts | 拖动的每帧开销：输出 38“开销”、验收 19 一类 | 1 |
+| editor-area.e2e.ts | 编辑区、编辑组的拖动、拆分（输出 33、39 等，另与 workbench.editor 共用） | 14 |
+| files-explorer.e2e.ts | 文件拖出树走工作台的落点（输出 39）、分节标题行（输出 20、40） | 4 |
+
+仅顺带引用一次、不算在验这份 Spec：workbench-titlebar.e2e.ts:182（用输出 22 读入口按下态）。
+
+另：现在写在 Smoke 行里的 lab-grid-structure.e2e.ts 验的是 nested-grid（文件头引用 nested-grid，没引用 workbench-layout）。写 Smoke 行时要么保留并说明，要么换成 workbench-containers。
+
+合同测试行同样没写、但在验这份 Spec 的单元测试：W state/containers.test.ts、state/layout-present.test.ts、entry-drop.test.ts、live-drag.test.ts、commands/part-commands.test.ts、panel-commands.test.ts、view-commands.test.ts、shell/adjacency.test.ts、components/WorkbenchPanelHead.dom.test.ts、WorkbenchRegionStrip.dom.test.ts；L layout-project.test.ts。
