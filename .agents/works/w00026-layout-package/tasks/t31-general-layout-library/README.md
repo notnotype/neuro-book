@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t31-general-layout-library
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -67,6 +67,12 @@ updated: 2026-11-18
   - 第一个外部使用方是 nb-story：第二档在改造 nb-story、让它用 nb-layout 的公开面时做，形状由它校验。
 - 修订：Claude Sonnet 按决定与三份审查出修订稿、改动表与新 ADR 草稿，写在 `reports/revise/`，主会话审过再落。开发者这次的话按接受处理：修订稿的 `status` 写 `accepted`。
 
+- 修订稿（改动表 [`evidences/revise-changes.txt`](evidences/revise-changes.txt)）主会话审过：决策记录、分档、手感引擎两步与 ADR 草稿对得上开发者的话。改了两处：
+  - ADR 第 5 条“核对结果补在这条之下”，改成记在实施的 Task 里，接受后的 ADR 不再改；
+  - ADR 0029 的决定 6 本来就把“其它工作区包另作决定”留着，所以写“补充”，不写“部分取代”。
+- 提案接受、ADR 0054 写好：`9939156b6`。第一档建成 t33 到 t37，顺序写在 Work README。
+- 2026-11-18 完成。
+
 ## 下一步
 
-审修订稿、落提案与 ADR；把第一档拆成 Task，排进 Work 的推进顺序（t14 在去掉 nb-ui 依赖之后，t32 照旧）。
+无。第一档从 t33 开始。
