@@ -19,7 +19,7 @@ import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/s
 import {diagnosticText} from "nbook/shared/localized-text";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {autoSaveDelaySetting, autoSaveSetting, breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
+import {autoSaveDelaySetting, autoSaveSetting, breadcrumbsSetting, codeSettings, markdownSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {editorPanelsKey, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -29,8 +29,8 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, editorMenusKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorCodeContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
-import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
+import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, editorMenusKey, markdownEditorOptionsKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorCodeContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
+import type {EditorImplementation, MarkdownEditorOptions, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
 import {codeEditorOptionsKey} from "./code/options";
@@ -126,6 +126,11 @@ export const editorBrowserPlugin: PluginDefinition = {
                 lineNumbers: settings.get(codeSettings["code.lineNumbers"]),
                 minimap: settings.get(codeSettings["code.minimap"]),
                 wordWrap: settings.get(codeSettings["code.wordWrap"]),
+            }));
+            const markdownOptions = computed((): MarkdownEditorOptions => ({
+                fontFamily: settings.get(markdownSettings["markdown.fontFamily"]),
+                fontSize: settings.get(markdownSettings["markdown.fontSize"]),
+                lineHeight: settings.get(markdownSettings["markdown.lineHeight"]) / 100,
             }));
             const report = (error: unknown): void => {
                 diagnostics.record({level: "error", event: "editor.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
@@ -340,6 +345,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                             setup: (props) => {
                                 provideToChildren(editorLanguagesKey, languages);
                                 provideToChildren(codeEditorOptionsKey, codeOptions);
+                                provideToChildren(markdownEditorOptionsKey, markdownOptions);
                                 provideToChildren(editorMenusKey, menus);
                                 return () => {
                                     if (session.area.value === null) return null;

@@ -13,7 +13,7 @@ import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host"
 import {codecFor, frontmatterOf, isWholeFrontmatter} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
-import {editorMenusKey, editorToolbarSlotKey} from "nbook/plugins/editor/shared/contracts";
+import {editorMenusKey, editorToolbarSlotKey, markdownEditorOptionsKey} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, EditorEditing, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -42,6 +42,18 @@ const emit = defineEmits<EditorControlEmits>();
 const menus = inject(editorMenusKey, null);
 /** 工具栏并入面包屑那一行时传送到这里；传送出去后它不在控件里，这个控件不可见时要自己不画。 */
 const toolbarSlot = inject(editorToolbarSlotKey, null);
+/** 纸面排版（设置“Markdown 正文”）；没有注入时（Lab）用样式里的缺省。 */
+const paperOptions = inject(markdownEditorOptionsKey, null);
+/** 变量只写在本控件的根上：更外层的 `--markdown-font-size` 会被对话里的 Markdown 展示器继承。字体留空不写，走皮肤与界面字体。 */
+const paperStyle = computed(() => {
+    const options = paperOptions?.value;
+    if (options === undefined) return undefined;
+    return {
+        "--markdown-font-size": `${String(options.fontSize)}px`,
+        "--markdown-line-height": String(options.lineHeight),
+        ...(options.fontFamily === "" ? {} : {"--markdown-user-font": options.fontFamily}),
+    };
+});
 const toolbarTarget = computed(() => (menus?.toolbarPlacement.value === "merged" ? (toolbarSlot?.value as HTMLElement | null | undefined) ?? null : null));
 const catalog = inject(syntaxCatalogKey, null);
 if (catalog === null) throw new Error("MarkdownControl 要由 nbook.markdown 交出的组件挂上：缺少方言目录（syntaxCatalogKey）");
@@ -662,7 +674,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="shell" class="markdown-control-root relative flex h-full w-full flex-col" :data-comment-margin="marginDrawn ? '' : undefined">
+    <div ref="shell" class="markdown-control-root relative flex h-full w-full flex-col" :style="paperStyle" :data-comment-margin="marginDrawn ? '' : undefined">
         <Teleport :to="toolbarTarget" :disabled="toolbarTarget === null">
             <MarkdownToolbar v-if="menus !== null && menus.toolbarVisible.value && (toolbarTarget === null || props.visible)" :editing="editing" :menus="menus" :readonly="props.readonly" @prompt="(action) => menuLayer?.prompt(action)" @refocus="currentEditor?.commands.focus()" />
         </Teleport>
@@ -773,7 +785,7 @@ onBeforeUnmount(() => {
 }
 
 .markdown-control :deep(.markdown-control__prose) {
-    font-family: var(--font-prose, inherit);
+    font-family: var(--markdown-user-font, var(--font-prose, inherit));
     min-height: 60vh;
     outline: none;
     color: var(--text-main);

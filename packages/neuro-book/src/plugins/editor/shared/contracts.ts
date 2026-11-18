@@ -133,6 +133,20 @@ export type EditorToolbarPlacement = "full" | "merged" | "bottom";
 /** 编辑组面包屑那一行右侧留给控件的位置（`merged` 时工具栏传送到这里）：每组一个。值是元素；这个文件也进后端的类型检查，写不了 DOM 类型。 */
 export const editorToolbarSlotKey: InjectionKey<Readonly<Ref<object | null>>> = Symbol("nbook.editor/toolbar-slot");
 
+/**
+ * Markdown 编辑器纸面的排版（`nbook.editor` 的“Markdown 正文”设置，docs/specs/workbench/editor.md 输出 52）：编辑器区从配置读成一份
+ * 响应式的值，经注入交给 Markdown 控件（它在 markdown 插件里，跨插件只经这个文件）。没有注入时（Lab）控件用自己样式里的缺省。
+ */
+export interface MarkdownEditorOptions {
+    /** 空串不覆盖：跟随皮肤的正文字体，皮肤没有时用界面字体。 */
+    readonly fontFamily: string;
+    readonly fontSize: number;
+    /** 字号的倍数（设置里存的是整数百分比）。 */
+    readonly lineHeight: number;
+}
+
+export const markdownEditorOptionsKey: InjectionKey<Readonly<Ref<MarkdownEditorOptions>>> = Symbol("nbook.editor/markdown-options");
+
 /** 键盘事件里键位匹配要读的字段（`KeyboardEvent` 的子集，测试里不用造整个事件）。 */
 export interface KeyEventLike {
     readonly code: string;

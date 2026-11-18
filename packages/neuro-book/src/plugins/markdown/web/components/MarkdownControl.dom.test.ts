@@ -11,6 +11,7 @@ import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
 import {computed, defineComponent, h, nextTick, ref, shallowRef} from "vue";
+import type {Ref} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
@@ -24,8 +25,8 @@ import {editorCatalogs} from "nbook/plugins/editor/web/text";
 
 import {holdSelection, listComments, markdownEditingActions} from "@notnotype/nb-markdown/editor";
 
-import {EDITING_ACTIONS, editorMenusKey, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
-import type {EditorControlHandle, EditorMenus, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
+import {EDITING_ACTIONS, editorMenusKey, markdownEditorOptionsKey, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
+import type {EditorControlHandle, EditorMenus, MarkdownEditorOptions, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
@@ -68,7 +69,7 @@ interface Opened {
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
-async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean; readonly media?: MarkdownMedia; readonly wrapMenus?: (menus: EditorMenus) => EditorMenus} = {}): Promise<Opened> {
+async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean; readonly media?: MarkdownMedia; readonly wrapMenus?: (menus: EditorMenus) => EditorMenus; readonly paper?: Ref<MarkdownEditorOptions>} = {}): Promise<Opened> {
     const memory = area?.memory ?? createMemoryFiles({project: [["a.md", text]], user: []});
     const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
@@ -95,7 +96,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerTabHandle(tabId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, [markdownPropertiesOpenKey as symbol]: propertiesOpen, ...(options.menus === true ? {[editorMenusKey as symbol]: ((menus) => (options.wrapMenus === undefined ? menus : options.wrapMenus(menus)))(options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port))} : {}), ...(options.media === undefined ? {} : {[markdownMediaKey as symbol]: options.media})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, [markdownPropertiesOpenKey as symbol]: propertiesOpen, ...(options.menus === true ? {[editorMenusKey as symbol]: ((menus) => (options.wrapMenus === undefined ? menus : options.wrapMenus(menus)))(options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port))} : {}), ...(options.media === undefined ? {} : {[markdownMediaKey as symbol]: options.media}), ...(options.paper === undefined ? {} : {[markdownEditorOptionsKey as symbol]: options.paper})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
     return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper, propertiesOpen};
@@ -214,6 +215,23 @@ async function typed(text: string, at: "start" | "end" | number, keys: ReadonlyA
     handle.flushPendingChange();
     return binding.text.value;
 }
+
+describe("纸面排版（workbench.editor 输出 32、52）", () => {
+    it("没有注入：根上不写变量；注入后字号、行距写在根的内联变量上，字体留空不写，改设置立即跟着变", async () => {
+        const plain = await opened("甲\n");
+        const root = (wrapper: VueWrapper) => (wrapper.element as HTMLElement).style;
+        expect(root(plain.wrapper).getPropertyValue("--markdown-font-size")).toBe("");
+        const paper = ref<MarkdownEditorOptions>({fontFamily: "", fontSize: 20, lineHeight: 2.2});
+        const {wrapper} = await opened("乙\n", undefined, undefined, {paper});
+        expect(root(wrapper).getPropertyValue("--markdown-font-size")).toBe("20px");
+        expect(root(wrapper).getPropertyValue("--markdown-line-height")).toBe("2.2");
+        expect(root(wrapper).getPropertyValue("--markdown-user-font")).toBe("");
+        paper.value = {fontFamily: "Noto Serif SC, serif", fontSize: 18, lineHeight: 1.6};
+        await nextTick();
+        expect(root(wrapper).getPropertyValue("--markdown-font-size")).toBe("18px");
+        expect(root(wrapper).getPropertyValue("--markdown-user-font")).toBe("Noto Serif SC, serif");
+    });
+});
 
 describe("在格式的边界打字（workbench.editor 输出 62）", () => {
     const cases: ReadonlyArray<readonly [string, string, "start" | "end" | number, string, string]> = [
