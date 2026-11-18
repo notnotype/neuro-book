@@ -99,8 +99,9 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
     test.beforeAll(async () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-containers");
         await mkdir(join(tmp, "state"), {recursive: true});
-        // 样例插件自己贡献编辑区的内容，和产品的编辑器只能留一个；这里不看编辑器。
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.editor"}});
+        // 样例插件自己贡献编辑区的内容，和产品的编辑器只能留一个；这里不看编辑器。canon 与依赖它的剧情插件带着侧栏“设定”与
+        // 底部面板的视图，会改变这里按样例插件假定的容器（同 workbench-views 的做法）。
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.editor,nbook.canon,nbook.plot"}});
     });
 
     test.afterAll(async () => {
@@ -1576,7 +1577,7 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
     test.beforeAll(async () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-containers-drag");
         await mkdir(join(tmp, "state"), {recursive: true});
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.editor"}});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.editor,nbook.canon,nbook.plot"}});
     });
 
     test.afterAll(async () => {
