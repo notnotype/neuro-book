@@ -74,8 +74,8 @@ owners:
 13. `sessions://` 的根先列有关的会话：读它的会话的父会话、子会话、兄弟会话排在前面，各带状态（运行中、等用户、空闲），子会话另列派它的调用 id（子会话的标题是 `name` 或 `prompt` 的开头）；状态不靠打开会话取得；之后按最近使用，合计仍至多 200 个，不重复，不列后台会话。
 14. `profiles://` 的根每项多一列“可派”或“不可派”：按读它的会话的 Profile 的白名单（[`subagents.md`](subagents.md)）。
 15. `skills://` 的根列出 Skill 目录，挂载点 `<Skill id>` 是那个 Skill 的目录：能读、能列、能取真实路径，Agent 不可写；根与挂载点的细则见 [`skills.md`](skills.md) 输出 23、24。
-16. 全局对象的文档（planned）：`docs://` 的根多一个条目 `eval`；`docs://eval/<对象名>.md` 读到这个对象的说明：一行摘要、插件写的说明、每个方法由参数与 `returns` 生成的 TypeScript 签名加方法的说明（[`eval.md`](eval.md)）。列出 `docs://eval/` 得到已登记的对象。只读；对象没登记为 `not-found`。
-17. 代码里调用的写入（planned）：工具在嵌套调用里（[`harness/runtime.md`](../harness/runtime.md) 输出 90）经 `call(ctx)` 写入时，来源另带的条目 id 是嵌套调用的 id；同一个父调用里的嵌套调用写入的文件成一个操作分组，标题缺省为父调用的工具 id。
+16. 全局对象的文档：`docs://` 的根多一个条目 `eval`；`docs://eval/<对象名>.md` 读到这个对象的说明：一行摘要、插件写的说明、每个方法由参数与 `returns` 生成的 TypeScript 签名加方法的说明（[`eval.md`](eval.md)）。列出 `docs://eval` 得到已登记的对象。只读；对象没登记为 `not-found`。
+17. 代码里调用的写入：工具在嵌套调用里（[`harness/runtime.md`](../harness/runtime.md) 输出 90）经 `call(ctx)` 写入时，来源另带的条目 id 是嵌套调用的 id；同一个父调用里的嵌套调用写入的文件成一个操作分组，标题缺省为父调用的工具 id。
 
 ## 状态与转换
 

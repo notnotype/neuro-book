@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t21-eval-codeact
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -141,9 +141,14 @@ omp（19 条：阻断 1、重要 18，[`evidences/design-review-omp.txt`](eviden
 - 切片 4（全局对象，88043837e、65515af4d 合入；按自主推进做，没有单独的设计审查，几处细化写在[计划](plan.md)“切片 4 的细化”，由 Task 收口的实现审查一起审）：贡献点 `agent.evalObjects`（`implementation: "none"`，SDK `/agent` 加 `evalObject` 助手）；`backend/eval/objects.ts` 挑有效对象（与内核名、宿主全局重名的不登记，两个插件同名的双方都不登记，诊断 `eval-object-conflict`），方法的对象不是同一插件的有效对象时工具不进工具表（`eval-object-missing`）；`docs://eval/<名>.md` 激活时生成到状态根的 `agent/eval-docs/`，签名由 `parameters` 与 `returns` 打印；eval 的说明按会话列出对象、版本写成 `1+<哈希>`，换 Profile 后模型收到 `tools-changed`。示例插件 `word-stats` 与场景 10（3 条，含会话中途换 Profile）、`objects.test.ts` 6 条；方法过滤、按会话的说明（两条用例各抓一次）、同名、宿主全局冲突四处做过变异检查。场景 10 测出换 Profile 会重置内核（内核换 Profile 时重建全部工具实现），Spec 输出 11、12 补上这个时机，原因写成“服务重启、分叉或换了 Profile”，记进[待确认清单](../../pending-confirmations.md)。顺带：SDK 的组件清单补上 master 上落下的 `DateInput`、`TagInput` 与 t38 落下的 `SortableList`（`src/sdk` 的测试在 master 上就失败）；会话宿主一条改写历史的用例只等“有说明”，上一步的说明还在时会提前放行，负载高时失败，改成等这一步的码。SDK 打包测试有 4 条 vue-tsc 在负载 35 时超过 60 秒，分支基点上同样负载同样超时，放宽上限后 4 条都过。
 - 切片 5（界面，aeab77d90、32f0920bf、c7f7b86ba 合入）：nb-agent-ui 的 `ToolCallView` 加 `children`、`startedAt`，事项加 `within`；适配器认两种嵌套事件与带 `within` 的事项（按外层调用的 `invocation` 挂子调用，等审批时先占位，结果只给预览，外层有结果而子调用没有的按 `unknown` 收口，流式参数抽出 `title`）；子调用读改的文件按它自己的状态算进思维链摘要与轮末改动；卡片副标题接计数、运行中写已调用几次与正在调的那一个、头部写已用时，收起时改了文件与出错、被拒、结果未知的子调用露在卡片下，展开后列出全部；原始视图列子调用；向导标题写“eval 里的调用：…”。应用：eval 的渲染器与详情 `EvalDetail`（代码在上默认收起，输出在下，图片只写张数），会话宿主带上 `within`，eval 进主创与临时帮手的可选工具、主创提示词加 eval 一节（version 5）；Lab 三个场景；e2e 一条（`agent-conversation.e2e.ts` 末尾）。契约测试加 3 条（真内核，跟帧与重建相同）、计数 2 条、DOM 5 条；子调用计数、父调用收口、审批占位、卡片下的子行、已用时、向导来源、宿主的 `within` 映射七处做过变异检查（最后一处经 e2e）。e2e 第一次跑时消息留在输入框没发出去，之后连跑三次都过，trace 被覆盖，原因没查明。“复制工具调用”入口在视图里不存在，没做；图片不画、运行中的卡片都写用时、向导来源写 eval，三条记进[待确认清单](../../pending-confirmations.md)。Agent 插件 475 条、nb-agent-ui 280 加 170 条过（`session-tree` 一条纯 CPU 用例负载 35 时超 5 秒，与 master 对照、重跑都过）。
 - 切片 6（真实模型，02a1eeaee、17087803d 合入）：`eval.llm.test.ts`，五章各不同字数，让模型用一次 eval 读完、统计、把结果写进文件，询问模式下逐个批准。第一次跑：链路都通（eval 批准、代码里的写工具带来源批准），但字数每章多 46，因为代码里 `tool.read` 交回的是带地址头与行号的文字。按决定 10 改成代码里调 `read` 交回对象（套件 read 在嵌套调用里给 `details`，宿主声明 `READ_RETURNS`；顶层不带，原文不在日志里多存一份），read 版本升到 2，eval 与 read 的说明写清；补套件 read、`eval.test.ts` 各一条。重跑：一次 eval 读五章，字数全对，写工具的事项带来源。模型 deepseek-flash，密钥只经环境变量传入，输出遮盖过。
+- 收口：Sonnet 的处理、read 交回对象与切片 6 在最新 master 上重跑受影响的验证后合入（nb-agent-ui、Agent 插件、应用的单测与类型检查、三份构建、`agent-conversation.e2e.ts:783`，负载 37）；omp 的处理（ecc46c50e）跑了 nb-harness 内核测试，`log/store.test.ts` 一条在负载 27 时超时，master 上同样。`runtime.md` 输出 96 的 `argsClipped` 与对话视图 Spec 的小条来源两处，是被 w00043 的 5cb584b1f 一起提交的，内容无误。
+
+## Spec 晋升
+
+omp 逐句核对（[报告](evidences/spec-promotion-omp.txt)：91 句，可去掉 12、改写 5、留 76），处理见[处理记录](evidences/spec-promotion-resolution.txt)。补测时又找出三处代码问题并修正（c33229619）：意外退出时内核起的子进程不结束；同一条回复里先重置再调 eval 时没有重置提示；传不出内核的参数报成代码错误而不是 `invalid-arguments`。单元时限与空闲回收改用宿主时钟，测试推时钟、不按真实时长等。
+
+晋升结果：`eval.md` 整份晋升为 `implemented`（补了实现合同与证据），留 4 句标“（planned）”：`kernel-unavailable` 经 eval 交回、`unknown` 结局的说明、会话关闭之后的调用与关闭时正在起的内核、验收 4 的两种打包产物。`builtin-tools.md` 输出 29、30，`contributions.md` 的 `agent.evalObjects` 与输出 24、25，`resources.md` 输出 16、17，`builtin-profiles.md` 输出 18，`compaction.md` 输出 9 那一句，对话视图 Spec 的子调用、已用时、来源与验收 37，标记都去掉了。改写的几处：`timeout` 是整数；停止的码 `aborted` 进失败表；虚拟根的条目不带结尾斜杠；`docs://eval` 不带结尾斜杠；时限从内核开始执行算起；“待办”从不能调的清单里删掉（应用里没有这个工具）。
 
 ## 下一步
 
-合入前在最新 master 上重跑了受影响的验证（nb-agent-ui、Agent 插件、应用的单测与类型检查、三份构建、`agent-conversation.e2e.ts:783`），负载 37 时全过。`runtime.md` 输出 96 的 `argsClipped` 与对话视图 Spec 的小条来源两处改动，是被 w00043 的 5cb584b1f 一起提交的，内容无误。
-
-两份实现审查都已处理并合入。nb-harness 内核测试 380 条里 `log/store.test.ts` 一条在负载 27 时超时，master 上同样负载同样超时，与这次改动无关。下一步晋升本 Task 的 planned 条目。
+完成。剩下 4 句 planned 等以后有对应的测试场合再补：发布检查从两种打包产物起服务时顺带验收 4；会话关闭与 `kernel-unavailable` 要能在应用里换掉内核入口才测得到。
