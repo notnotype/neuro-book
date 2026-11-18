@@ -34,7 +34,7 @@ beforeAll(async () => {
     const server = join(tmp, "app", "server");
     const externals = SERVER_EXTERNALS.flatMap((pattern) => ["--external", pattern]);
     // 命令行开代码分割（入口 cli/main.ts 的说明）：入口是 nbook.js，本体在旁边的 chunk 里。
-    for (const [entry, output] of [["src/cli/main.ts", ["--splitting", "--outdir", server, "--entry-naming", "nbook.js", "--chunk-naming", "nbook-[hash].[ext]"]], ["src/project/main.ts", ["--outfile", join(server, "project.js")]]] as const) {
+    for (const [entry, output] of [["src/cli/main.ts", ["--splitting", "--outdir", server, "--entry-naming", "nbook.js", "--chunk-naming", "nbook-[hash].[ext]"]], ["src/project/main.ts", ["--outfile", join(server, "project.js")]], ["src/plugins/agent/backend/eval/kernel-entry.ts", ["--outfile", join(server, "eval-kernel.js")]]] as const) {
         const built = Bun.spawnSync(["bun", "build", entry, "--target", "bun", ...externals, ...output], {cwd: PACKAGE_ROOT, stderr: "pipe"});
         if (built.exitCode !== 0) throw new Error(`构建 ${entry} 失败：${built.stderr.toString()}`);
     }

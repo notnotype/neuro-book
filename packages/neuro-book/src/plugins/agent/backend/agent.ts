@@ -10,7 +10,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, Clock, CompactionRestoreArgs, CompactionRestored, ModelPort, RunResult, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, CompactionRestoreArgs, CompactionRestored, ModelPort, RunResult, SessionIndexEntry, StorageResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
 import {RequestRecorder, RequestTraceUnavailable, traceModelPort} from "@notnotype/nb-harness/kit/requests";
@@ -47,6 +47,7 @@ import {SESSION_META_MATERIAL} from "./session-meta";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
 import {createPermissionHook} from "./permissions";
 import {modesContract} from "./permissions/modes";
+import type {CodeTool} from "./eval/tool";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {
@@ -105,6 +106,8 @@ export interface AgentRuntime {
     readonly kernelClock: Clock;
     /** 会话目录的根：`sessions://` 的容器。 */
     readonly sessionsRoot: string;
+    /** 这个会话此刻能经代码调的工具（eval 用，eval.md 输出 6）：与内核的生效工具集同一份来源，带交给服务商的名字与 `returns`。 */
+    codeTools(context: ToolSessionContext): readonly CodeTool[];
     /** 存储层的会话列表，不加缺省的过滤（含归档与后台的），`sessions://` 与临时目录的清理用。 */
     listSessions(): Promise<readonly SessionIndexEntry[]>;
     stop(): Promise<void>;
@@ -391,6 +394,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     return {
         host,
         tools,
+        codeTools: (context) => tools.codeToolsOf(tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile])),
         compaction,
         profiles,
         userProfiles,

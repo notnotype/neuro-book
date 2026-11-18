@@ -58,6 +58,14 @@ const ToolDeclarationSchema = Type.Object({
     group: Type.Optional(Type.String({minLength: 1})),
     /** 装到所有 Profile 的工具集里（contributions.md 输出 4）。 */
     defaultForAll: Type.Optional(Type.Boolean()),
+    /** 执行时能经 `ctx.invoke` 调别的工具（contributions.md 输出 24，harness/runtime.md 输出 90）。 */
+    invokes: Type.Optional(Type.Literal(true)),
+    /** 不能被代码调用：靠结果归约改状态的、寿命超出一次调用的（harness/runtime.md 输出 92）。 */
+    codeCallable: Type.Optional(Type.Literal(false)),
+    /** 是某个全局对象的方法，只能从代码里调（contributions.md 输出 24、25）。 */
+    global: Type.Optional(Type.Object({object: Type.String({pattern: "^[A-Za-z_$][A-Za-z0-9_$]*$"}), method: Type.String({pattern: "^[A-Za-z_$][A-Za-z0-9_$]*$"})}, {additionalProperties: false})),
+    /** 代码调用时交回的结构化值的形状（JSON Schema，同 MCP 的 `outputSchema`，eval.md 输出 7）。 */
+    returns: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 }, {additionalProperties: false});
 
 const ProfileDeclarationSchema = Type.Object({

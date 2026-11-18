@@ -4,7 +4,8 @@
  * - `server/nbook.js`：命令行 `nbook`（`src/cli/main.ts`）；`server/main.js`：服务端的托管入口（`src/server/main.ts`，桌面壳这类
  *   托管宿主以 `--stop-stdin` 运行它，docs/specs/runtime/server-host.md 的“托管宿主”）。两个入口一次打包、开代码分割（理由见
  *   `src/cli/main.ts`），共用旁边的 `chunk-<hash>.js`，服务端只有一份。`server/project.js`：项目宿主（`src/project/main.ts`），
- *   服务端从入口旁边找它，单独打（它在另一个进程里，与服务端共用 chunk 没有收益）。两个都由这里用 Bun 打包，依赖打进去，只有 OMP（`@oh-my-pi/*`）
+ *   服务端从入口旁边找它，单独打（它在另一个进程里，与服务端共用 chunk 没有收益）；`server/eval-kernel.js`：eval 的内核进程（`src/plugins/agent/backend/eval/kernel-entry.ts`），
+ *   同样单独打、服务端从旁边找。这些都由这里用 Bun 打包，依赖打进去，只有 OMP（`@oh-my-pi/*`）
  *   例外：它带每个平台约 122 MB 的原生插件，按平台从 npm 装，所以不打进 bundle，写进包的 `dependencies`（w00032 t09 决定 33）。
  * - `web/`：前端构建产物（`vite build` 的 `dist/web`），不含 Vite 的元数据目录 `.vite/`。
  * - `LICENSE`（仓库根的 AGPL）、给用户的 `README.md`（`scripts/app-package/README.md`，填上 Bun 版本与构建所用的提交）、
@@ -51,7 +52,12 @@ const FORBIDDEN_TEXT = ["new Worker(", "import.meta.resolve("];
  * （`src/plugin-platform/backend/loader.ts`），`nbook.agent` 装载用户写的 Profile 打好的包
  * （`src/plugins/agent/backend/profile-bundles.ts`）。别的计算出来的 `import(…)` 都拒绝：打包看不见它要的模块。
  */
-const ALLOWED_DYNAMIC_IMPORTS = ["attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`)", "import(bundleFile)"];
+const ALLOWED_DYNAMIC_IMPORTS = ["attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`)", "import(bundleFile)", "import(target, options)"];
+/**
+ * 允许的 `new Worker(`：eval 内核的父进程看门狗线程，代码是一段 Blob URL，不按路径找文件
+ * （`src/plugins/agent/backend/eval/kernel-entry.ts`）。eval 内核的 `import(target, options)` 同样在上面放行：模块是用户代码要的。
+ */
+const ALLOWED_WORKERS = ["new Worker(watchdogUrl"];
 /**
  * 不打进服务端 bundle、由包的 `dependencies` 安装的模块（决定 33）。`package.json` 的 `build:server` 与命令行测试的构建用同一组。
  */
@@ -114,7 +120,7 @@ export function bundleProblems(source: string): string[] {
     return [
         ...[...new Set(external)].map((path) => `引用了外部模块 ${path}：依赖要打进 bundle`),
         ...(computed === 0 ? [] : [`有 ${String(computed)} 处计算出来的动态导入：打包看不见它要的模块`]),
-        ...FORBIDDEN_TEXT.filter((text) => source.includes(text)).map((text) => `出现了 ${text}：运行时按路径找文件，装到别处会找不到`),
+        ...FORBIDDEN_TEXT.filter((text) => ALLOWED_WORKERS.reduce((rest, allowed) => rest.replaceAll(allowed, ""), source).includes(text)).map((text) => `出现了 ${text}：运行时按路径找文件，装到别处会找不到`),
     ];
 }
 
@@ -211,7 +217,7 @@ async function thirdPartyNotices(serverPackages: ReadonlySet<string>, webRoot: s
     return [
         "# 第三方许可",
         "这个包里的 `server/` 与 `web/` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明。",
-        noticeSection("服务端（server/nbook.js、server/main.js、server/project.js）", await packageNotices(serverPackages)),
+        noticeSection("服务端（server/nbook.js、server/main.js、server/project.js、server/eval-kernel.js）", await packageNotices(serverPackages)),
         noticeSection("前端（web/）", web),
         ["## 字体", ...fonts.map(({file, text}) => `### web/assets/${file}\n\n\`\`\`\n${text}\n\`\`\``)].join("\n\n"),
     ].join("\n\n") + "\n";
@@ -244,6 +250,8 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
     const serverPackages = new Set([
         ...await bundleServerEntries(serverDir),
         ...await bundle(["src/project/main.ts"], serverDir, {entry: "project.js", chunk: "project-[hash].[ext]"}),
+        // eval 的内核进程入口（docs/specs/agent/eval.md）：服务端按与自己同目录的 `eval-kernel.js` 找它（`backend/eval/tool.ts` 的 `kernelEntry`）。
+        ...await bundle(["src/plugins/agent/backend/eval/kernel-entry.ts"], serverDir, {entry: "eval-kernel.js", chunk: "eval-kernel-[hash].[ext]"}),
     ]);
     await chmod(join(outDir, "server", "nbook.js"), 0o755);
     const dependencies = new Set<string>();

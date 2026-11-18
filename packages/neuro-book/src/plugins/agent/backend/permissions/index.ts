@@ -14,6 +14,7 @@ import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import {AUTO_ESCALATED_PREFIX, AUTO_FAILED_REASON, MODE_ASK_REASON} from "../../shared/permissions";
 import type {Rule} from "../../shared/permissions";
 import type {ToolSubject} from "../../shared/points";
+import {EVAL_TOOL} from "../eval/tool";
 import {filesFor} from "../resources";
 import {readProjectRules} from "./project-rules";
 
@@ -46,6 +47,7 @@ export function createPermissionHook(options: PermissionHookOptions): ApproveHoo
         modeWriteAction: options.modeWriteAction,
         gate: {askReason: MODE_ASK_REASON, blockedText: MODE_BLOCKED_TEXT},
         subjectsOf: options.subjectsOf,
+        rememberable: (tool) => tool !== EVAL_TOOL,
         review: modelReviewer({
             agentDescription: "a writing and coding agent",
             provider: "nbook.agent",

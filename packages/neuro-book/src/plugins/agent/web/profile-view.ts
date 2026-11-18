@@ -275,6 +275,7 @@ const BUILTIN_TOOL_SUMMARIES = {
     "nbook.agent.grep": "profiles.tools.summary.grep",
     "nbook.agent.glob": "profiles.tools.summary.glob",
     "nbook.agent.shell": "profiles.tools.summary.shell",
+    "nbook.agent.eval": "profiles.tools.summary.eval",
     "nbook.agent.switch-mode": "profiles.tools.summary.switch-mode",
     "nbook.agent.ask": "profiles.tools.summary.ask",
     "nbook.agent.ask-form": "profiles.tools.summary.ask-form",
