@@ -257,6 +257,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await page.keyboard.press("Enter");
         await expect(strip.locator(`[data-panel-head="${conversation}"]`)).toHaveCount(1);
         await expect(strip.locator("[data-region-entry]").first()).toBeFocused();
+        // 入口条里每个入口一个 Tab 停靠（输出 47）。
+        await page.keyboard.press("Tab");
+        await expect(strip.locator("[data-region-entry]").nth(1)).toBeFocused();
+        await page.keyboard.press("Shift+Tab");
+        await expect(strip.locator("[data-region-entry]").first()).toBeFocused();
         await runCommand(page, "最大化/还原面板");
         await expect(page.locator(`[data-panel-head="${conversation}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`)).toHaveAttribute("aria-pressed", "true");
     });

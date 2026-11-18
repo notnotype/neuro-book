@@ -280,6 +280,9 @@ test.describe("产品页", () => {
 
     test("右栏拖空后还能打开：唯一的视图移走，右栏隐藏；开关打开空右栏、写着提示，开关能再关掉；把视图拖进去，整个容器搬过去；再移走，右栏随之隐藏（输出 11、36、43、45；ADR 0050）", async ({page}) => {
         await open(page);
+        // 区域里有分节时锚不进呈现树：按具名面板名选不到叶（“边界与兼容”的标记）。
+        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
         const toggle = regionToggle(page, "auxiliarybar");
         await moveViaMenu(page, CONVERSATION, "新容器（侧栏）");
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -293,6 +296,8 @@ test.describe("产品页", () => {
         await expect(toggle).toHaveAttribute("aria-pressed", "true");
         const empty = page.locator("[data-empty-region]");
         await expect(empty).toHaveText("把视图拖到这里");
+        // 空区域打开着时锚就是那块空面板（输出 48）。
+        await expect(leaf(page, "auxiliarybar")).toHaveCount(1);
         await expect(leaf(page, "auxiliarybar").locator("[data-panel-head]")).toHaveCount(0);
         await toggle.click();
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -588,6 +593,33 @@ test.describe("产品页", () => {
         expect(second).not.toBe(first);
         await page.keyboard.press("Shift+F6");
         expect(await part()).toBe(first);
+    });
+
+    test("F6 也停在活动栏与右栏、底部面板的入口条上，入口条在它区域的分节之前（输出 18）", async ({page}) => {
+        await open(page);
+        for (const region of ["auxiliarybar", "panel"] as const) {
+            if (await regionToggle(page, region).getAttribute("aria-pressed") !== "true") await regionToggle(page, region).click();
+            await expect(page.locator(`[data-region-strip="${region}"]`)).toBeVisible();
+        }
+        const part = () => page.evaluate(() => {
+            const owner = document.activeElement?.closest<HTMLElement>("[data-content-leaf], [data-leaf]");
+            return owner?.dataset.contentLeaf ?? owner?.dataset.leaf ?? null;
+        });
+        // 从标题栏起按 F6 走一圈，记下每一站。
+        await panelToggle(page).focus();
+        const stops: Array<string | null> = [];
+        for (let step = 0; step < 24; step += 1) {
+            await page.keyboard.press("F6");
+            const at = await part();
+            if (stops.includes(at)) break;
+            stops.push(at);
+        }
+        const conversation = await sectionOf(page, CONVERSATION);
+        expect(stops).toContain("activitybar");
+        expect(stops).toContain("strip:panel");
+        const strip = stops.indexOf("strip:auxiliarybar");
+        expect(strip, JSON.stringify(stops)).toBeGreaterThanOrEqual(0);
+        expect(stops.indexOf(conversation), JSON.stringify(stops)).toBeGreaterThan(strip);
     });
 
     test("保存失败：状态栏显示“布局未保存”，库恢复后点“重试”补上（验收 12）", async ({page}) => {
