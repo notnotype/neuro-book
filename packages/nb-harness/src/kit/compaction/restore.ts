@@ -35,7 +35,10 @@ export interface RestoreOptions {
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
-/** 压缩前的路径里，最近成功读过或改过的文件地址，最近的在前：调用与结果按 `callId` 配对，只收成功的。 */
+/**
+ * 压缩前的路径里，最近成功读过或改过的文件地址，最近的在前：调用与结果按 `callId` 配对，只收成功的。代码里调的工具
+ * （`nestedToolResult`，docs/specs/agent/compaction.md 输出 9）同样算：它的结果不记 `details`，`edit` 按参数取改的文件。
+ */
 export function recentFiles(path: readonly LogEvent[], files: Pick<SessionFiles, "expand">, tools: BuiltinToolIds): string[] {
     const started = new Map<string, {readonly tool: string; readonly args: Readonly<Record<string, unknown>>}>();
     const found: string[] = [];
@@ -55,10 +58,25 @@ export function recentFiles(path: readonly LogEvent[], files: Pick<SessionFiles,
                 const expanded = files.expand(address);
                 if (expanded.ok) found.push(expanded.address);
             }
+        } else if (event.type === "nestedToolResult") {
+            const data = event.data as {tool: string; status: string; args: Readonly<Record<string, unknown>>};
+            if (data.status !== "ok") continue;
+            const addresses = data.tool === tools.read || data.tool === tools.write || tools.edits.includes(data.tool) ? argumentFiles(data.args) : [];
+            for (const address of addresses) {
+                const expanded = files.expand(address);
+                if (expanded.ok) found.push(expanded.address);
+            }
         }
     }
     // 同一个文件读过又改过，只算最近的一次；最近的排前面。
     return [...new Set(found.reverse())];
+}
+
+/** 参数里的文件：`read`、`write` 与替换式的 `edit` 是 `path`，行锚式的 `edit` 是 `input` 里每段的 `[地址#` 头（同 `kit/tools/edit.ts`）。 */
+function argumentFiles(args: Readonly<Record<string, unknown>>): string[] {
+    if (typeof args.path === "string") return [args.path];
+    if (typeof args.input === "string") return [...args.input.matchAll(/^\[([^#\r\n]+)#/gmu)].map((match) => match[1]!);
+    return [];
 }
 
 /**

@@ -91,6 +91,11 @@ const continuedSoFar = (core: SessionCore, extension: string): number => core.le
 const conv = (type: keyof KernelEvents, data: object): EventDraft => ({type, kind: "conv", scope: "path", data: data as JsonValue});
 
 /** 工具集变了给模型的提醒文字：新增、去掉、改了版本的。 */
+/** 模型看得到的工具：只走代码的（声明带 `global`）不进请求、不进 Profile 看到的工具列表（runtime.md 输出 93）。 */
+function offeredTools(tools: readonly ToolDeclaration[]): ToolDeclaration[] {
+    return tools.filter((tool) => tool.global === undefined);
+}
+
 function toolsChangedText(before: readonly {id: string; version: string}[], after: readonly {id: string; version: string}[]): string {
     const was = new Map(before.map((tool) => [tool.id, tool.version]));
     const now = new Map(after.map((tool) => [tool.id, tool.version]));
@@ -188,7 +193,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             const session = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
             const resolution = session.ok ? session : host.models.resolve({settings: core.session.kernel.core, purpose: "compaction", profile: core.assembly.profile.id});
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
-            const tools = host.box.current();
+            const tools = offeredTools(host.box.current());
             const environment = host.environment(resolution.info, tools.map(toolInfo));
             const outcome = await Promise.race([host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
             if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
@@ -209,6 +214,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
 
             // 边界第 2 步：工具集。必需工具缺失时收口；与路径上告诉过模型的不同就重新告诉它。
             const tools = host.box.current();
+            const offered = offeredTools(tools);
             await host.box.retire(tools);
             const required = (core.assembly.profile as {tools?: {required?: readonly string[]}}).tools?.required ?? [];
             const missing = required.filter((id) => !tools.some((tool) => tool.id === id));
@@ -217,10 +223,16 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 core.diagnostics.add({code: "tools-missing", entry: "host", subject: "required", params: {missing: missing.join(", ")}, message: `required tools are missing: ${missing.join(", ")}; the session is read-only until it is reopened`, hint: "check the tool ids in the Profile's tools.required, or make the host declare them"}, core.head);
                 return await end("error", {reason: "error", error: {kind: "local", code: "tools-missing"}});
             }
-            const announced = tools.map((tool) => ({id: tool.id, version: tool.version})).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+            const announced = tools.map((tool) => ({id: tool.id, version: tool.version, ...(tool.global === undefined ? {} : {code: true as const})})).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
             const last = core.leafState.kernel.announced;
             if (last === null) await write([ctrl("toolsAnnounced", {tools: announced})]);
-            else if (JSON.stringify(last) !== JSON.stringify(announced)) await write([ctrl("toolsAnnounced", {tools: announced}), conv("notice", {code: "tools-changed", text: toolsChangedText(last, announced)})]);
+            else if (JSON.stringify(last) !== JSON.stringify(announced)) {
+                // 只走代码的工具照样记进 toolsAnnounced（回退时照样比对），但不写进给模型的提醒：模型调不到它们（runtime.md 输出 93）。
+                const visible = (list: readonly {id: string; version: string; code?: true}[]) => list.filter((tool) => tool.code !== true).map(({id, version}) => ({id, version}));
+                const before = visible(last);
+                const after = visible(announced);
+                await write(JSON.stringify(before) === JSON.stringify(after) ? [ctrl("toolsAnnounced", {tools: announced})] : [ctrl("toolsAnnounced", {tools: announced}), conv("notice", {code: "tools-changed", text: toolsChangedText(before, after)})]);
+            }
 
             // 边界第 3 步：运行中到达的 steer 全部取走，进当前这一轮。
             const steers = takeSteerDrafts(core);
@@ -229,7 +241,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             host.phase("requesting", null);
             const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
-            const environment = host.environment(resolution.info, tools.map(toolInfo));
+            const environment = host.environment(resolution.info, offered.map(toolInfo));
 
             // 边界第 4 步：运行中受理的 compact，或估算超过触发点，先压缩再算请求。失败只留诊断，请求照发。
             const requested = host.takeCompactRequests();
@@ -237,7 +249,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (requested.length > 0 || (trigger !== Number.POSITIVE_INFINITY && host.compaction.estimate() > trigger)) {
                 host.phase("compacting", null);
                 // 和中止赛跑：不理会信号的压缩方法或放回内容的回调挡不住中止（runtime.md 输出 51）；收口之后它们的写入被拒绝。
-                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
+                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools: offered, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
                 if (outcome === "aborted" || (!outcome.ok && (outcome.code === "aborted" || signal.aborted))) return await end("aborted", {reason: "aborted"});
                 host.phase("requesting", null);
             }
@@ -251,7 +263,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 purpose: "turn",
                 model: resolution.info.id,
                 ...(core.session.kernel.core.effort === null ? {} : {effort: core.session.kernel.core.effort}),
-                tools,
+                tools: offered,
                 cache: core.view,
                 checks: core.dev,
                 inactive: (extension) => core.revoked.has(extension),
@@ -287,7 +299,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                     // 溢出：记下这次失败的请求，按溢出的顺序压缩，成功就把请求再发一次（runtime.md 输出 50）。
                     await write([...modelFailures, failure]);
                     host.phase("compacting", null);
-                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
+                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools: offered, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
                     if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
                     if (outcome.ok) {
                         overflowRetried = true;

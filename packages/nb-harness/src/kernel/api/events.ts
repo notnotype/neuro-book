@@ -169,9 +169,16 @@ export interface KernelEvents {
 
     // ---- 工具（path）----
     /** 告诉过模型的工具集（t04 决定 6）：边界比对，不同就写新的一条并提醒模型。 */
-    toolsAnnounced: K<"path", "ctrl", {tools: readonly {id: string; version: string}[]}>;
+    /** `code`：只走代码的工具（声明带 `global`）：照样比对，不写进给模型的 `tools-changed`（runtime.md 输出 93）。 */
+    toolsAnnounced: K<"path", "ctrl", {tools: readonly {id: string; version: string; code?: true}[]}>;
     /** 审批之后、执行之前写；`args` 是全部拦截之后实际执行的参数，`approval.by` 是放行的判定来源。 */
     toolStarted: K<"path", "ctrl", {callId: string; tool: string; args: Readonly<Record<string, JsonValue>>; invocation: string; approval?: {by: string}}>;
+    /**
+     * 嵌套调用（runtime.md 输出 96）：开始执行时一条，每个嵌套调用（包括没开始的）有且只有一条结果。不投影进请求；结果只记预览与
+     * 字节数，全文模型已经在父调用的结果里看到。`args` 里超过 2 KB 的字符串截短。
+     */
+    nestedToolStarted: K<"path", "ctrl", {id: string; within: {tool: string; invocation: string}; tool: string; args: Readonly<Record<string, JsonValue>>; approval: {by: string}}>;
+    nestedToolResult: K<"path", "ctrl", {id: string; within: {tool: string; invocation: string}; tool: string; args: Readonly<Record<string, JsonValue>>; status: ToolStatus; code?: string; by?: string; preview: string; size: number; imageCount?: number}>;
     /** `details` 给程序看、不进请求；工具拦截改过结果时原本的文字记在 `raw`（`redacted` 时只记哈希）。 */
     toolResult: K<"path", "conv", {
         callId: string;
@@ -189,7 +196,8 @@ export interface KernelEvents {
     }>;
 
     // ---- 等用户（path）----
-    interactionRequested: K<"path", "ctrl", {id: string; callId: string; kind: "approval" | "question"; request: JsonValue; async: boolean}>;
+    /** `within`：嵌套调用的事项（runtime.md 输出 94），`callId` 是嵌套调用的 id。 */
+    interactionRequested: K<"path", "ctrl", {id: string; callId: string; kind: "approval" | "question"; request: JsonValue; async: boolean; within?: {tool: string; invocation: string}}>;
     interactionResolved: K<"path", "ctrl", {id: string; decision: InteractionDecision; by: Actor; code?: string; data?: JsonValue; note?: string}>;
 
     // ---- 压缩与失败（path）----
