@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "answerId": "20261118T141728218Z-efe14a5d",
+    "artifactVersion": 1,
+    "contentHash": "defba3221e924b8623456fe6491f9542a8469d518d5fca4677d80671cf66621f",
+    "submittedAt": "2026-11-18T14:17:18.723Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "list-content": "with-sessions"
+    },
+    "comments": {
+        "list-content": "这个想法可以。现有代码中是有单独的对话视图（用户可以随便拖拽，可以放到左侧边栏，也可以放到底部面板）\n\n这里有两种选择：\n- bot 视图也单独一个 view\n- bot 视图和 view 视图合并成一个多功能 view（就是 B 选项），要注意做好多种状态的切换，例如（过滤，搜索，纯 session，纯 bot，子 session，子 bot 等等）\n\n---\n\n第二题我觉得这个 B 侧栏的设计比较不错，你觉得现在 bot 视图和 session 视图是不是应该用一个组件？\n\n---\n我再提一个需求，这种 bot、session 模式下，一个对话窗口可能不够了，用户应该有多开对话窗口并自由排列的能力\n"
+    },
+    "note": null
+}
