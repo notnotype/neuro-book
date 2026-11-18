@@ -58,7 +58,7 @@
 
 ### nbook.agent：eval 工具与内核（`packages/neuro-book/src/plugins/agent/backend/eval/`）
 
-- **工具** `nbook.agent.eval`（`providerName: "eval"`）：参数 `{code: string, title?: string, timeout?: number, reset?: boolean}`；`effect: "exec"`、`exclusive`、`strict`、`invokes: true`。说明文字（英文，给模型）：用法、`tool.<providerName>(args)` 的返回与失败、可用的全局对象各一行加文档地址、不支持顶层静态 `import`（用 `await import("node:…")`）、变量跨调用保留与何时丢。
+- **工具** `nbook.agent.eval`（`providerName: "eval"`）：参数 `{code: string, title?: string, timeout?: number, reset?: boolean}`；`effect: "exec"`、`exclusive`、`strict`、`invokes: true`。说明文字（中文，同其它内置工具，[提示词规范](../../../../../docs/standards/prompts.md)）：用法、`tool.<providerName>(args)` 的返回与失败、可用的全局对象各一行加文档地址、不支持顶层静态 `import`（用 `await import("node:…")`）、变量跨调用保留与何时丢。
 - **审批**：执行档；审批钩子对 eval 一律 `remember: false`，界面没有“本会话都批准”“以后都允许”，直接提交 `allow-session` 照现有规则得 `invalid-answer`（一次点击就等于放开任意代码，理由同 `shell` 不许记解释器）。要少问的用户用审批模式。`auto` 的审批模型读请求里的 `code`，超过现有判定对象上限的照旧转人工。
 - **内核宿主** `kernels.ts`：工具实现每个会话建一次，内核寿命挂在它上面，`dispose` 时杀进程。第一次调用时起子进程：`Bun.spawn([process.execPath, "--no-env-file", <kernel-entry>], {ipc, cwd, env: {...服务端环境, ...布局变量}, detached})`：工作目录与布局变量同 `shell`（[`builtin-tools.md`](../../../../../docs/specs/agent/builtin-tools.md) 输出 18、20）；显式继承服务端环境（`Bun.spawn` 传 `env` 是替换）、不读工作目录里的 `.env`，与 `shell` 一致。全服务端至多 8 个内核，超出时回收最久没用的那个，走下面的重置提示。
 - **进程收口**：内核是自己进程组的组长，杀内核就杀整个组（代码里起的子进程一起收掉），等它们退出再交重置的结果；内核发现 IPC 断开（服务端异常退出）时杀自己的组。Windows 上的进程组与 Job Object 不在第一版验证（[`owned-process`](../../../../../packages/owned-process/README.md) 有现成的做法，它只给 stdio、接不上 IPC，以后要时再接）。
@@ -78,7 +78,7 @@
 
 一个方法就是一个工具，各有自己的 `parameters`、`effect`、`description`、`returns`；声明带 `global: {object, method}`。这样审批记忆与规则、审批预览、参数校验、拦截、日志、Profile 绑定都按方法、都现成，插件也不用自己分派。
 
-- **对象**：新贡献点 `agent.evalObjects`，`{name, summary, docs?}`（`name` 是 JS 标识符，`summary` 一行英文，`docs` 是可选的 Markdown 说明），id `<插件 id>.<名>`。方法工具的 `global.object` 指向它。
+- **对象**：新贡献点 `agent.evalObjects`，`{name, summary, docs?}`（`name` 是 JS 标识符，`summary` 一行说明，`docs` 是可选的 Markdown 说明），id `<插件 id>.<名>`。方法工具的 `global.object` 指向它。
 - **内核里的写法**：`browser.goto({url})` 是 Proxy，映射为 `invoke(<方法工具的 id>, {url})`，单个对象参数，同 `tool.*`；返回同上。第一版没有插件提供的内核侧代码（句柄、回调这类更顺手的写法留给 w00033 设计时再加）。
 - **重名**：对象名与内置名（`tool`、`display`、内核保留的全局）冲突时拒绝插件一方；两个插件登记同名对象时双方都不进会话，诊断写明两个来源（结果不随加载顺序变）。
 - **文档**：`docs://eval/<对象名>`，由 nbook.agent 生成：一行摘要、插件写的说明、每个方法由 `parameters` 与 `returns` 生成的 TypeScript 签名加它的 `description`。eval 的说明只列这个会话里至少有一个方法在生效工具集的对象。

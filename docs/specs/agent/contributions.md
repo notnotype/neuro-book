@@ -36,7 +36,7 @@ owners:
 |---|---|---|---|
 | `agent.extensions` | 实现 | `{tags?: string[]; dependsOn?: string[]}` | `<插件 id>.<名>` |
 | `agent.tools` | 实现 | 工具声明里可序列化的部分（说明、参数、`providerName?`、`version`、`finish`、`concurrency`、`strict`、`effect` 的固定值）加 `group?: string`、`defaultForAll?: boolean`、`customFormat?: {syntax: "lark", definition: string}`（原样转给内核，模型按这份语法写参数） | `<插件 id>.<名>`，规则同 [`harness/models.md`](../harness/models.md) 的工具 id |
-| `agent.evalObjects`（planned） | 无（只有声明） | `{name: string, summary: string, docs?: string}`：`name` 是 JS 标识符，`summary` 一行英文，`docs` 是 Markdown | `<插件 id>.<名>` |
+| `agent.evalObjects`（planned） | 无（只有声明） | `{name: string, summary: string, docs?: string}`：`name` 是 JS 标识符，`summary` 一行说明，`docs` 是 Markdown | `<插件 id>.<名>` |
 | `agent.statusItems` | 实现（只接受浏览器入口） | `{title: Text, description?: Text, side: "left" \| "right", defaultVisible?: boolean}` | `<插件 id>.<名>` |
 | `agent.profiles` | 实现 | `{name, description, tools: {required: string[]; optional: string[]}, role?: string, hidden?: boolean, defaultTools?: false, icon?: string, modelNeeds?: {vision?: boolean; thinking?: boolean; minContext?: number}}`（`icon` planned） | `<插件 id>.<名>` |
 
