@@ -11,12 +11,12 @@
 export {
     AlertDialog, AnchoredPopover, Badge, Banner, Breadcrumb, Button, Checkbox,
     CheckboxGroup, CodeBlock, Collapsible, CollapsibleCard, CollapsibleRow, ColorSwatches,
-    ContextMenu, CopyButton, DetailDialog, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
+    ContextMenu, CopyButton, DateInput, DetailDialog, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
     EmptyState, Field, IconButton, InfoTip, Input, Kbd,
     Menubar, Notification, NotificationStack, NumberInput, OverlayScrollbar,
     Popover, Progress, QuickPick, RadioGroup, ScrollArea, SearchSelect,
     SegmentedControl, Select, Separator, Skeleton, Slider, Spinner,
-    SuggestionMenu, Switch, Table, Tabs, Textarea,
+    SuggestionMenu, Switch, Table, Tabs, TagInput, Textarea,
     ToggleGroup, Toolbar, Tooltip, Tree,
 } from "@notnotype/nb-ui/components";
 
@@ -24,6 +24,7 @@ export type {
     Align, AlertDialogTone, BadgeSize, BadgeTone, BadgeVariant, BannerTone,
     BreadcrumbItemData, ButtonSize, ButtonVariant, CheckboxOption, CodeBlockLine,
     CollapsibleCardStatus, CollapsibleRowStatus, ColorSwatchesSize, ControlSize, ContextMenuCloseReason, ContextMenuItem, CopyButtonState,
+    DateInputSize, DateInputVariant,
     DialogCloseReason, DialogSize, DrawerDirection, FloatingWindowCloseReason, DropdownMenuItemData,
     DropdownMenuItemType, FocusRingStyle, GenericTreeNode, IconButtonSize, IconButtonVariant,
     InputType, KbdSize, MenubarItemData, MenubarMenuData,
@@ -33,12 +34,12 @@ export type {
     SegmentedControlSize, SegmentedControlValue, SelectDirection, SelectOption,
     SelectSize, Side, SkeletonShape, SliderSize, SpinnerSize, 
     SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionMenuStatus, SuggestionSide, SwitchSize,
-    TableColumn, TableDensity, TabsItem, TabsSize, ToggleGroupOption,
+    TableColumn, TableDensity, TabsItem, TabsSize, TagInputSize, TagInputVariant, ToggleGroupOption,
     ToggleGroupSize, Tone,
     FieldContext,
 } from "@notnotype/nb-ui/components";
 
-export {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
+export {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, SortableList, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
 export type {DropFeedbackPreview, SplitterPanelConfig, TabStripItem, TabStripPartition} from "@notnotype/nb-layout/vue";
 export type {
     GridBranchChange, GridGestureCommit, GridGesturePreview,

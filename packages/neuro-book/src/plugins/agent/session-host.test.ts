@@ -1089,7 +1089,8 @@ describe("改写历史（输出 25、26）", () => {
         const before = seen.length;
         const reply = assistants(h.ctx().messages)[0]!;
         h.host.act({type: "message.branchFrom", messageId: reply.id});
-        await until("说明不确定", () => seen.length === before + 1 && h.ctx().composer.notice !== undefined);
+        // 等“结果未知”这条说明本身：上一步被拒的说明还留着，只等“有说明”会在第一次回退还在途时就放行，第二次点击被宿主拦下。
+        await until("说明不确定", () => seen.length === before + 1 && (h.ctx().composer.notice as {key?: string} | undefined)?.key === "conversation.history.unknown");
         h.host.act({type: "message.branchFrom", messageId: reply.id});
         await until("再来一次", () => seen.length === before + 2);
         expect(seen[before + 1]).toBe(seen[before]);
