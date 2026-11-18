@@ -1168,6 +1168,8 @@ function shelfFixtures(): LabFixture[] {
                 {id: "default", label: "缺省：左边上下文，右边用量与费用，模型默认关", input: {props: {setting: {}}}},
                 {id: "customized", label: "改过：用量排到费用后面，开了模型与插件的字数", input: {props: {setting: {order: ["cost", "usage"], visible: {model: true, "x.words": true}}, pluginItems: [{id: "x.words", side: "left", title: "本会话改的字数", description: "来自插件“字数统计”", defaultVisible: false, source: "x"}]}}},
                 {id: "readonly", label: "配置写不了：勾选与按钮都停用", input: {props: {setting: {}, writable: false}}},
+                {id: "crossed", label: "换过边：用量在左边第一位，上下文在右边最后", input: {props: {setting: {order: ["usage", "cost", "model", "context"], side: {usage: "left", context: "right"}}}}},
+                {id: "write-fails", label: "写入失败：拖动放下后回到原样", input: {props: {setting: {}}}},
             ],
             load: async () => withAgentPageText((await import("./agent-scene/StatusLineFixture.vue")).default),
         }),

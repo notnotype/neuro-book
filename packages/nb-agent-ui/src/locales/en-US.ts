@@ -376,8 +376,6 @@ export default {
         stopSlow: "A tool isn't responding; still waiting",
         retry: "Retry {{attempt}}/{{max}} in {{seconds}} s",
         costWarned: "Over the warning line",
-        yolo: "Everything allowed",
-        modeFlag: "{{mode}} mode",
         connecting: "Reconnecting",
         disconnected: "Disconnected",
         free: "Free",

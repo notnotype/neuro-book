@@ -370,8 +370,6 @@ export default {
         stopSlow: "工具未响应，正在等待",
         retry: "重发 {{attempt}}/{{max}}，{{seconds}} 秒后",
         costWarned: "超过告警线",
-        yolo: "全部放行",
-        modeFlag: "{{mode}}模式",
         connecting: "正在重连",
         disconnected: "连接断开",
         free: "免费",
