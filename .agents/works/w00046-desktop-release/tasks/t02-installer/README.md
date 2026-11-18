@@ -26,7 +26,7 @@ updated: 2026-11-18
 
 ## 当前状态
 
-草稿 worktree `.worktree/w00046-t02-drafts`（分支 `t02/drafts`，不合并）里搭了两版静态稿：A 一页对话框、B 分步向导；两轮定稿：分步向导、上方舞台。Spec 与计划第 1 稿已写，设计审查中。
+草稿 worktree `.worktree/w00046-t02-drafts`（分支 `t02/drafts`，不合并）里搭了两版静态稿：A 一页对话框、B 分步向导；两轮定稿：分步向导、上方舞台。设计审查第 1 轮（Sonnet 15 条、omp 12 条，[处理](evidences/design-review-r1-disposition.md)）已吸收进计划第 2 稿与 Spec；新增待确认 5 条。
 
 ## 下一步
 
