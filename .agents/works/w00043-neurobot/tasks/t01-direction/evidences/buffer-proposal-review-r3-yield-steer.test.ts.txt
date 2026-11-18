@@ -1,0 +1,28 @@
+// 子会话以 yield 交出结果的那一轮里到达的插话：send 交回 currentRunId（这次运行），运行以 finished 收口，话没被取走、留在缓冲区
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+const {defineExtension} = await import(`${K}/extension/define.ts`);
+let n = 0;
+const id = () => `c-${++n}`;
+test("yield 那一轮里到达的插话", async () => {
+    let entered!: () => void;
+    const inHandler = new Promise<void>((r) => (entered = r));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const ext = defineExtension({id: "lab.gate", on: {assistant: async () => { entered(); await gate; }}});
+    const schema = {type: "object", properties: {title: {type: "string"}}, required: ["title"]};
+    await using s = await createTestSession({extensions: [ext], result: {mode: "optional", schema}});
+    s.model.script({tools: [{tool: "yield", args: {title: "雨夜"}}]});
+    const sent = await s.raw.send({commandId: id(), input: {text: "起个标题"}});
+    if (!sent.ok) throw new Error("send failed");
+    await inHandler;
+    const steer = s.raw.send({commandId: id(), input: {text: "改成两个字以内"}, mode: "steer"});
+    release();
+    const steerResult = await steer;
+    const result = await s.raw.waitRun(sent.value.runId!);
+    const snap = await s.raw.snapshot();
+    console.log("steer send:", JSON.stringify(steerResult.ok ? steerResult.value : steerResult), "runId:", sent.value.runId);
+    console.log("run:", result.reason, JSON.stringify(result.result));
+    console.log("status:", snap.status.state, "buffer:", JSON.stringify(snap.buffer.map((b: any) => [b.mode, b.input.text])));
+});
