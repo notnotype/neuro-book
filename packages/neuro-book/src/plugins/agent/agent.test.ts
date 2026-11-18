@@ -25,8 +25,12 @@ import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
 import type {AgentWorld} from "./testing/world";
 
-/** 服务停了之后的调用：门面已作废（ServiceRevokedError），或停止门交回 unavailable。 */
-const stoppedService = (error: unknown): boolean => error instanceof Error && (error.name === "ServiceRevokedError" || (error as {code?: unknown}).code === "unavailable");
+/**
+ * 关掉整个世界之后经门面的调用：调用方（测试的探针插件）先于 `nbook.agent` 停，它拿着的按调用方门面随之作废
+ * （runtime/services.md 输出 12）。`nbook.agent` 的停止门（unavailable）在这个先后里从门面与远程都碰不到（远程先断开，得 cancelled），
+ * 由句柄表的测试守着（kit/sessions/table.test.ts）。
+ */
+const revoked = (error: unknown): boolean => error instanceof Error && error.name === "ServiceRevokedError";
 function thrownBy(call: () => unknown): unknown {
     try {
         call();
@@ -359,7 +363,7 @@ describe("会话", () => {
         await waitUntil("取消订阅后空闲关闭", async () => !(await locked(w, session.id)));
     });
 
-    test("输出 14：停止时还在建的会话也会被关上、锁放掉；停止之后服务的每个入口都得 unavailable", async () => {
+    test("输出 14：停止时还在建的会话也会被关上、锁放掉；停止之后经门面的每个入口都抛 ServiceRevokedError", async () => {
         let entered!: () => void;
         const mounting = new Promise<void>((resolve) => {
             entered = resolve;
@@ -383,14 +387,12 @@ describe("会话", () => {
         const created = await creating;
         const id = created.ok ? created.value.id : null;
         if (id !== null) expect(await locked(w, id)).toBe(false);
-        // 关掉整个世界时调用方（测试的探针插件）也停了：它拿着的按调用方门面随之作废（runtime/services.md 输出 12），
-        // 门面还在时由 `nbook.agent` 的停止门交回 unavailable。两者都表示服务不能再用。
         for (const call of [() => w.service.list(), () => w.service.profiles(), () => w.service.running(), () => w.service.session("x")]) {
-            expect(stoppedService(thrownBy(call))).toBe(true);
+            expect(revoked(thrownBy(call))).toBe(true);
         }
     });
 
-    test("输出 14：停止时运行中的会话按 interrupted 关闭，之后的调用得 unavailable", async () => {
+    test("输出 14：停止时运行中的会话按 interrupted 关闭，之后经门面的调用抛 ServiceRevokedError", async () => {
         const w = await world([profilesPlugin({count: 0})]);
         const session = await createSession(w);
         const hold = endpoint.hold();
@@ -401,7 +403,7 @@ describe("会话", () => {
         const closing = w.close();
         hold.release();
         await closing;
-        expect(stoppedService(await (async () => w.service.create({profile: WRITER}))().then(() => null, (error: unknown) => error))).toBe(true);
+        expect(revoked(await (async () => w.service.create({profile: WRITER}))().then(() => null, (error: unknown) => error))).toBe(true);
         const store = createJsonlStore({root: join(w.stateRoot, "agent", "sessions")});
         const opened = await store.open(session.id);
         if (!opened.ok) throw new Error(opened.code);

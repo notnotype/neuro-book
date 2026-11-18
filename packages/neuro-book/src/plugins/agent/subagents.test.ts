@@ -568,3 +568,92 @@ describe("续用与边界", () => {
         expect(listed.ok && listed.value.filter((entry) => entry.caller !== undefined)).toEqual([]);
     });
 });
+
+describe("话的去向（t14：harness/runtime.md 输出 103–110）", () => {
+    /** 派一个子代理并让它跑两轮（压缩要有可压的历史），交回子会话 id。 */
+    async function twoTurnChild(parent: SessionApi, prompt: string): Promise<string> {
+        endpoint.scriptFor(prompt, "第一轮做完了。", "第二轮做完了。");
+        await turn(parent, "派", [adhoc(prompt), "派好了"]);
+        const child = (await toolResults(parent, "nbook.agent.spawn"))[0]!.details!.sessionId!;
+        await turn(parent, "再做一轮", [{tool: "agent_send", args: {id: child, message: "再做一轮"}}, "好"]);
+        return child;
+    }
+
+    test("输出 10：子会话只压缩时（不取输入），queue 立即以 running 交回、不登记任务；前台等到这句话被取走（先 pending）再登记任务跟到完成", async () => {
+        const {w, parent} = await open({...localModelSettings(endpoint.baseUrl, {compactionRole: true})});
+        const child = await twoTurnChild(parent, "整理第三章的伏笔");
+        const compaction = endpoint.holdFor("整理第三章的伏笔");
+        const compacted = await childOf(w, child).compact({commandId: cid()});
+        expect(compacted.ok).toBe(true);
+        await compaction.arrived;
+
+        endpoint.script({tool: "agent_send", args: {id: child, message: "先排一句", queue: true}}, {tool: "agent_send", args: {id: child, message: "再插一句"}});
+        const sent = await parent.send({commandId: cid(), input: {text: "给子会话放两句"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        // 压缩还挂着：排队的那句已经交回（不在 lane 里等收口）。
+        await waitUntil("queue 交回", async () => (await toolResults(parent, "nbook.agent.send")).length === 2);
+        const queued = (await toolResults(parent, "nbook.agent.send"))[1]!;
+        expect(queued.details).toMatchObject({status: "running", sessionId: child});
+        expect(queued.details!.jobId).toBeUndefined();
+        expect(queued.text).toContain("排在它之后");
+
+        // 两句都在压缩期间进了缓冲区（前台那句在等去向）。
+        await waitUntil("两句都排着", async () => (await childOf(w, child).snapshot()).buffer.length === 2);
+        // 放开压缩：收口批先把两句随收口留着、同一批放行，开下一次运行先取“先排一句”；“再插一句”这时还排着（pending），之后在边界被同一次运行取走。
+        endpoint.scriptFor("整理第三章的伏笔", "压缩摘要", "两句都处理了。");
+        endpoint.script("好");
+        compaction.release();
+        await parent.waitRun(sent.value.runId);
+        const foreground = (await toolResults(parent, "nbook.agent.send"))[2]!;
+        expect(foreground.details).toMatchObject({status: "completed", sessionId: child});
+        expect(foreground.details!.jobId).toBeString();
+        const inputs = (await childOf(w, child).path()).filter((event) => event.type === "input" || event.type === "steer").map((event) => (event.data as {text: string}).text);
+        expect(inputs.slice(-2)).toEqual(["先排一句", "再插一句"]);
+    });
+
+    /** 派一个 async 子代理，它的第一个请求挂着；再排一句父会话的话（queue），交回子会话、任务与挂起。 */
+    async function busyChildWithQueued(parent: SessionApi, prompt: string) {
+        endpoint.scriptFor(prompt, "第一轮做完了。", "排着的那句也做了。");
+        const held = endpoint.holdFor(prompt);
+        await turn(parent, "派", [adhoc(prompt, {async: true}), "好"]);
+        await held.arrived;
+        const spawned = (await toolResults(parent, "nbook.agent.spawn"))[0]!.details!;
+        await turn(parent, "排一句", [{tool: "agent_send", args: {id: spawned.sessionId, message: "排着的那句", queue: true}}, "好"]);
+        return {child: spawned.sessionId!, jobId: spawned.jobId!, held};
+    }
+
+    test("jobs.md 输出 4、11，输出 10：用户停的子代理（killJob），排着的话 heldBy 用户；父 Agent 不带话继续得 held-by-user，再发话开新的一轮、结果另写被用户暂停的条数", async () => {
+        const {w, parent} = await open();
+        const {client} = await w.window("jobs");
+        const {child, jobId, held} = await busyChildWithQueued(parent, "核对第五章的称谓");
+        expect(ok(await client.killJob({sessionId: parent.id, jobId}))).toEqual({outcome: "killed"});
+        held.release();
+        await waitUntil("排着的话留着", async () => (await childOf(w, child).snapshot()).buffer.some((item) => item.state === "held"));
+        expect((await childOf(w, child).snapshot()).buffer.map((item) => [item.state, item.heldBy])).toEqual([["held", {kind: "user"}]]);
+
+        await turn(parent, "继续", [{tool: "agent_send", args: {id: child}}, "好"]);
+        expect((await toolResults(parent, "nbook.agent.send")).at(-1)).toMatchObject({code: "held-by-user"});
+
+        await turn(parent, "再说一句", [{tool: "agent_send", args: {id: child, message: "新的一句"}}, "好"]);
+        // 被停的运行已经收口（不是回退出来的暂停），新话照常开新的一轮；用户留下的那句不动。
+        const sent = (await toolResults(parent, "nbook.agent.send")).at(-1)!;
+        expect(sent.details).toMatchObject({status: "completed"});
+        expect(sent.text).toContain("子会话里有 1 条你排的话被用户暂停，未发出。");
+    });
+
+    test("输出 16、jobs.md 输出 4：父 Agent 用 kill 停的子代理，排着的话 heldBy 父会话；父 Agent 不带话继续接着跑并放行它们", async () => {
+        const {w, parent} = await open();
+        const {child, jobId, held} = await busyChildWithQueued(parent, "核对第六章的称谓");
+        await turn(parent, "停", [{tool: "kill", args: {job: jobId}}, "好"]);
+        held.release();
+        await waitUntil("排着的话留着", async () => (await childOf(w, child).snapshot()).buffer.some((item) => item.state === "held"));
+        expect((await childOf(w, child).snapshot()).buffer.map((item) => [item.state, item.heldBy])).toEqual([["held", {kind: "session", id: parent.id}]]);
+
+        await turn(parent, "继续", [{tool: "agent_send", args: {id: child}}, "好"]);
+        const resumed = (await toolResults(parent, "nbook.agent.send")).at(-1)!;
+        expect(resumed.code).toBeUndefined();
+        expect(resumed.details!.jobId).toBeString();
+        await waitUntil("排着的话被取走", async () => (await childOf(w, child).snapshot()).buffer.length === 0);
+        expect((await childOf(w, child).path()).some((event) => (event.data as {text?: string}).text === "排着的那句")).toBe(true);
+    });
+});

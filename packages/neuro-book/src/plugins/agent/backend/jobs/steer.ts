@@ -12,7 +12,8 @@ export interface SteerWatch {
     release(): void;
 }
 
-export async function watchSteer(table: SessionTable, sessionId: string): Promise<SteerWatch> {
+/** `failed`：放行之后读快照失败时调用（记诊断）；这次少一次到达判断，等待照常按别的条件结束。 */
+export async function watchSteer(table: SessionTable, sessionId: string, failed: (error: unknown) => void): Promise<SteerWatch> {
     let arrive!: () => void;
     const arrived = new Promise<void>((resolve) => {
         arrive = resolve;
@@ -26,7 +27,7 @@ export async function watchSteer(table: SessionTable, sessionId: string): Promis
         else if (frame.event.type === "inputReleased" && data.mode === "keep") {
             void table.view(sessionId).snapshot().then((snapshot) => {
                 if (readySteer(snapshot.buffer)) arrive();
-            }, () => undefined);
+            }, failed);
         }
     });
     // 会话打不开：没有插话能来，等待只按别的条件结束。

@@ -104,12 +104,12 @@ async function waitResult(outcome: WaitOutcome, timeoutSeconds: number, now: num
     }
 }
 
-export function jobTools(center: JobCenter, table: SessionTable, clock: Clock): Readonly<Record<string, AgentToolImplementation>> {
+export function jobTools(center: JobCenter, table: SessionTable, clock: Clock, report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void): Readonly<Record<string, AgentToolImplementation>> {
     return {
         [WAIT_TOOL]: {create: () => ({execute: async (args, context) => {
             const timeoutSeconds = typeof args.timeout === "number" ? args.timeout : WAIT_TIMEOUT_SECONDS;
             const ids = Array.isArray(args.jobs) ? args.jobs.filter((id): id is string => typeof id === "string") : undefined;
-            const watch = await watchSteer(table, context.sessionId);
+            const watch = await watchSteer(table, context.sessionId, (error) => report("steer-watch-failed", `reading session ${context.sessionId} after a release threw`, {session: context.sessionId, message: error instanceof Error ? error.message : String(error)}));
             try {
                 const outcome = await center.wait(context.sessionId, {...(ids === undefined ? {} : {ids}), timeoutMs: timeoutSeconds * 1000, signal: context.signal, interrupted: watch.arrived});
                 return await waitResult(outcome, timeoutSeconds, clock.now());

@@ -202,5 +202,26 @@ describe("按调用方盖章（sessions.md 输出 21）", () => {
         const queued = await view.enqueue({commandId: randomUUID(), input: {text: "整理这周的简报"}, mode: "followup"});
         expect(queued).toMatchObject({ok: true, value: {placement: "held"}});
         expect((await view.snapshot()).buffer.map((item) => [item.state, item.by])).toEqual([["held", {kind: "host", source: {plugin: "test.scheduler", label: "每周简报", ref: "weekly"}}]]);
+
+        // 视图上的 `as` 同样盖章：换成别的插件时 `plugin` 仍是调用方，换成会话身份抛错；换成用户照准。按日志里记下的发出者断言。
+        const forged = view.as({kind: "host", source: {plugin: "nbook.other", label: "冒充"}});
+        expect(forged.issuer).toEqual({kind: "host", source: {plugin: "test.scheduler", label: "冒充"}});
+        await forged.enqueue({commandId: randomUUID(), input: {text: "冒充别的插件"}, mode: "followup"});
+        expect(() => view.as({kind: "session", id: "some-parent"})).toThrow(TypeError);
+        expect(() => forged.as({kind: "session", id: "some-parent"})).toThrow(TypeError);
+        await view.as({kind: "user"}).enqueue({commandId: randomUUID(), input: {text: "代替用户"}, mode: "followup"});
+        const issuers = (await view.log({afterSeq: 0})).events.filter((event) => event.type === "inputQueued").map((event) => (event.data as {by?: unknown}).by ?? {kind: "user"});
+        expect(issuers.slice(1)).toEqual([{kind: "host", source: {plugin: "test.scheduler", label: "冒充"}}, {kind: "user"}]);
+
+        // 建会话不能指定会话的 caller（子代理关系只由 nbook.agent 自己建）。
+        expect(await service.create({profile: SOLVER, caller: {kind: "session", id: view.id, callId: "forged"}, questions: "caller"})).toMatchObject({ok: false, code: "not-allowed"});
+
+        // startTask 的运行按调用方盖章：开运行的是宿主。
+        endpoint.script({tool: "yield", args: {answer: "一"}});
+        const task = await service.startTask({taskId: randomUUID(), profile: SOLVER, input: {text: "算"}}, {source: {label: "定时任务"}});
+        if (!task.ok) throw new Error(task.code);
+        await task.result;
+        const started = (await service.session(task.sessionId).log({afterSeq: 0})).events.find((event) => event.type === "runStarted");
+        expect((started?.data as {by?: unknown}).by).toEqual({kind: "host", source: {plugin: "test.scheduler", label: "定时任务"}});
     });
 });

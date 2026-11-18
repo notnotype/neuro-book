@@ -11,7 +11,7 @@ import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, Clock, CompactionRestoreArgs, Issuer, CompactionRestored, ModelPort, RunResult, SessionIndexEntry, StorageResult, ToolDeclaration, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, CompactionRestoreArgs, Issuer, CompactionRestored, ModelPort, RunResult, SessionApi, SessionIndexEntry, StorageResult, ToolDeclaration, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
 import {RequestRecorder, RequestTraceUnavailable, traceModelPort} from "@notnotype/nb-harness/kit/requests";
@@ -474,18 +474,27 @@ function sessionDeclarations(declarations: ToolDeclaration[], objects: ReadonlyM
 
 /**
  * 交给别的插件的门面（sessions.md 输出 21）：视图的发出者按调用方盖章，缺省是它的插件的宿主身份，`asUser` 时代替用户。
- * 宿主自己（没有插件身份的调用方）按实例 id 记。
+ * 宿主自己（没有插件身份的调用方）按实例 id 记。交出的视图的 `as` 同样经这里盖章：换成用户照准（本来就能 `asUser`），换成宿主时
+ * `plugin` 仍是调用方，换成会话身份抛错；建会话时不能指定会话的 `caller`（子代理关系只由 `nbook.agent` 自己建）。
  */
 export function agentFacade(service: AgentRuntimeService, consumer: ConsumerIdentity): AgentService {
     const plugin = consumer.plugin ?? consumer.instanceId;
-    const issuerOf = (view: SessionViewOptions | undefined): Issuer => {
-        if (view?.asUser === true) return {kind: "user"};
-        const source = view?.source;
-        return {kind: "host", source: {plugin, label: source?.label ?? plugin, ...(source?.ref === undefined ? {} : {ref: source.ref}), ...(source?.at === undefined ? {} : {at: source.at})}};
+    const hostIssuer = (source: SessionViewOptions["source"]): Issuer =>
+        ({kind: "host", source: {plugin, label: source?.label ?? plugin, ...(source?.ref === undefined ? {} : {ref: source.ref}), ...(source?.at === undefined ? {} : {at: source.at})}});
+    const issuerOf = (view: SessionViewOptions | undefined): Issuer => (view?.asUser === true ? {kind: "user"} : hostIssuer(view?.source));
+    const restamp = (next: Issuer): Issuer => {
+        if (next.kind === "user") return next;
+        if (next.kind === "host") return hostIssuer(next.source);
+        throw new TypeError(`plugin ${plugin} cannot act as session ${next.id} (sessions.md output 21)`);
     };
+    const guarded = (view: SessionApi): SessionApi => ({...view, as: (next: Issuer) => guarded(view.as(restamp(next)))});
     return {
-        create: (options, view) => service.create(options, issuerOf(view)),
-        session: (id, view) => service.session(id, issuerOf(view)),
+        create: async (options, view) => {
+            if (options.caller?.kind === "session") return {ok: false, code: "not-allowed", detail: "only nbook.agent creates sub-agent sessions"};
+            const created = await service.create(options, issuerOf(view));
+            return created.ok ? {ok: true, value: guarded(created.value)} : created;
+        },
+        session: (id, view) => guarded(service.session(id, issuerOf(view))),
         startTask: (task, view) => service.startTask(task, issuerOf(view)),
         list: (filter) => service.list(filter),
         profiles: () => service.profiles(),

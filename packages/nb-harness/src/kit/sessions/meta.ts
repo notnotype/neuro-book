@@ -170,7 +170,10 @@ export class SessionMeta {
         const sent = await this.#step(() => titleSession.send({commandId: randomUUID(), input: {text}}));
         if (!sent.ok || sent.value.runId === null) {
             // 没开起运行：话留在标题会话的缓冲区里，自己取消，不让它被下一次生成带走。
-            if (sent.ok) await this.#step(() => titleSession.remove({commandId: randomUUID(), inputId: sent.value.inputId}));
+            if (sent.ok) {
+                const removed = await this.#step(() => titleSession.remove({commandId: randomUUID(), inputId: sent.value.inputId}));
+                if (!removed.ok) this.#failed(session, `could not cancel the input left in the title session: ${removed.code}`);
+            }
             this.#failed(session, sent.ok ? "the title session already has a run" : `could not send to the title session: ${sent.code}`);
             return null;
         }

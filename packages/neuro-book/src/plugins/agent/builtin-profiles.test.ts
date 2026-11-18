@@ -431,6 +431,9 @@ describe("标题和说明", () => {
         expect(w.work.collect()).toEqual({items: [], failed: []});
         hold.release();
         await waitUntil("标题写下", async () => (await metaOf(session))[1] !== null);
+        // 标题会话里的话以宿主的身份发（输出 9）：用户放行不了、停不了它排的话。
+        const started = (await w.service.session(titleId).log({afterSeq: 0})).events.find((event) => event.type === "runStarted");
+        expect((started?.data as {by?: unknown} | undefined)?.by).toEqual({kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}});
 
         const listed = await w.service.list();
         if (!listed.ok) throw new Error(listed.code);
