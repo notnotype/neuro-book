@@ -525,6 +525,23 @@ const MARGIN_SPACE = MARGIN_WIDTH + MARGIN_GAP;
 const MARGIN_SIDE_MIN = 32;
 const MARGIN_HIDE_SLACK = 32;
 const shell = ref<HTMLElement | null>(null);
+
+/**
+ * 排版变了（桌面里 Ctrl+滚轮连改字号）正文高度跟着变，滚动位置是像素，不处理视野会漂到别处：改之前记下视野顶端那一块与它
+ * 离滚动容器顶边的距离，样式生效后把滚动位置补回去。`pre` 的监听先于组件重画，此时 DOM 还是旧样式；没滚动过（在顶端）不处理。
+ */
+watch(() => paperOptions?.value, async () => {
+    const box = scroller.value;
+    const body = root.value?.querySelector(".markdown-control__prose");
+    if (box === null || body === null || body === undefined || box.scrollTop === 0) return;
+    const top = box.getBoundingClientRect().top;
+    const anchor = [...body.children].find((block) => block.getBoundingClientRect().bottom > top + 1);
+    if (anchor === undefined) return;
+    const offset = anchor.getBoundingClientRect().top - top;
+    await nextTick();
+    if (!anchor.isConnected) return;
+    box.scrollTop += anchor.getBoundingClientRect().top - box.getBoundingClientRect().top - offset;
+}, {flush: "pre"});
 const wide = ref(false);
 let measure = 720;
 let shellObserver: ResizeObserver | null = null;

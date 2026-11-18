@@ -22,6 +22,7 @@ let server: ProductServer;
 const FILES: Readonly<Record<string, string>> = {
     "note.md": "# 标题\n\n正文一段。\n",
     "code/a.py": "def a():\n    return 1\n",
+    "long.md": Array.from({length: 300}, (_, index) => `第 ${String(index + 1)} 段，这一段有一些文字，用来撑出长文档的高度。`).join("\n\n") + "\n",
 };
 
 test.beforeAll(async () => {
@@ -151,4 +152,27 @@ test("浏览器里（没有壳）：Markdown 编辑器上的 Ctrl+滚轮不被�
     expect(await markdownSize(page)).toBe("17px");
     expect(await userLayer()).toEqual({});
     expect((await page.evaluate(() => (window as unknown as {__wheelPrevented: boolean[]}).__wheelPrevented)).includes(true)).toBe(false);
+});
+
+test("桌面里长文档：改一档字号后视野里的那一段还在原处附近（不漂到别处）", async ({page}) => {
+    await installShell(page);
+    await openWorkbench(page);
+    await item(page, "project://long.md").dblclick();
+    await expect(prose(page)).toContainText("第 1 段");
+    const scroller = page.locator("[data-editor-group-active] .markdown-control__scroller");
+    /** 视野顶端那一段的序号：第一个底边落在滚动容器顶边以下的段落。 */
+    const topParagraph = (): Promise<number> => scroller.evaluate((element) => {
+        const top = element.getBoundingClientRect().top;
+        const blocks = [...element.querySelectorAll(".markdown-control__prose > p")];
+        return blocks.findIndex((block) => block.getBoundingClientRect().bottom > top + 1);
+    });
+    await scroller.evaluate((element) => {
+        element.scrollTop = element.scrollHeight / 2;
+    });
+    await expect.poll(topParagraph).toBeGreaterThan(100);
+    const before = await topParagraph();
+    await ctrlWheel(page, scroller, -100);
+    await expect.poll(() => markdownSize(page)).toBe("18px");
+    await expect.poll(userLayer).toEqual({"nbook.editor/markdown.fontSize": 18});
+    expect(Math.abs((await topParagraph()) - before)).toBeLessThanOrEqual(3);
 });

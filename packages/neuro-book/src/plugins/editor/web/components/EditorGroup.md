@@ -67,4 +67,5 @@ type Emits = {
 
 ## 隐藏通道理由
 
+- Ctrl+滚轮调字号（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 67）：根 `<section>` 上挂捕获阶段的 `wheel`（`@wheel.capture`），经注入的 `editorWheelZoomKey`（`../wheel-zoom.ts`）步进字号设置；没有注入（Lab、组件测试）或不在桌面里什么都不做。必须是捕获阶段：Monaco 内部的滚动监听消耗 Ctrl+滚轮。事件落在控件根（`data-editor-control`）里按它认是哪种编辑器，落在工具栏、面包屑旁的槽等地方按本组当前标签的编辑器，认不出的只 `preventDefault`。累积器每个编辑组内容各一份。
 - `state:inject`：经 `useText()` 取宿主注入的翻译端口，标签条的无障碍文字、状态条、读取失败与编辑器不可用的说明这些界面文字都在本插件的目录（命名空间 `nbook.editor`，`../../locales/`）；语言随端口切换，不重新挂载，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。 交给控件的 `locale` 属性是控件合同的一员（`shared/contracts.ts` 的 `EditorControlProps`，别的插件的控件要用），取自同一个端口的当前语言，不是编辑组自己取文字用的。
