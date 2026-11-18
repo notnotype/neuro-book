@@ -8,7 +8,7 @@ import {describe, expect, test} from "bun:test";
 import {defineExtension} from "@notnotype/nb-harness/kernel";
 import type {ApproveHook, Frame, SessionApi, ToolContext} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestSession} from "@notnotype/nb-harness/kernel/testing";
-import type {TestSession} from "@notnotype/nb-harness/kernel/testing";
+import type {TestSession, TestTool} from "@notnotype/nb-harness/kernel/testing";
 
 import {createKernelTranscript} from "./kernel-transcript";
 import type {KernelTranscript} from "./kernel-transcript";
@@ -252,7 +252,7 @@ describe("工具", () => {
 describe("嵌套调用（docs/specs/ui/agent-conversation-view.md“有子调用的调用”，harness/runtime.md 输出 90–101）", () => {
     /** 外层工具：执行 `program`，经 `ctx.invoke` 调别的工具（同 eval 的代码）。 */
     let program: (ctx: ToolContext) => Promise<string> = async () => "";
-    const code = {id: "lab.code", invokes: true, execute: (_args: unknown, ctx: ToolContext) => program(ctx)};
+    const code: TestTool = {id: "lab.code", invokes: true, execute: (_args, ctx) => program(ctx)};
     const reader = {id: "lab.read", concurrency: "shared" as const, effect: "read" as const, execute: (args: Readonly<Record<string, unknown>>) => (args.path === "长.md" ? "字".repeat(3000) : `读到 ${String(args.path)}`)};
     const writer = {id: "lab.write", effect: "write" as const, execute: (args: Readonly<Record<string, unknown>>) => `写好 ${String(args.path)}`};
     const childrenOf = (transcript: KernelTranscript) => assistants(transcript.messages())[0]!.toolCalls[0]!.children ?? [];

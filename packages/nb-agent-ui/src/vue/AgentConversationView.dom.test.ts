@@ -70,12 +70,13 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; port?: TextPort} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; port?: TextPort; viewMode?: "turns" | "raw"} = {}) {
     return mount(AgentConversationView, {
         ...(options.port === undefined ? {} : {global: {provide: {[TEXT_PORT_KEY as symbol]: options.port}}}),
         props: {
             ...(options.header === undefined ? {} : {header: options.header}),
             ...(options.processDisclosure === undefined ? {} : {processDisclosure: options.processDisclosure}),
+            ...(options.viewMode === undefined ? {} : {viewMode: options.viewMode}),
             ctx: options.ctx ?? context(),
             registry: options.registry ?? registry,
             locale,
@@ -423,6 +424,53 @@ describe("宿主的详情组件（验收 21）", () => {
         await view.get("[data-detail-link]").trigger("click");
         expect(seen.at(-1)).toBe("en-US:function");
         expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "chapter://c1"}]);
+        view.unmount();
+    });
+});
+
+describe("有子调用的卡片（Spec“有子调用的调用”，验收场景 37）", () => {
+    const code: AgentViewContribution = {
+        source: "test:code",
+        tools: [{id: "code", toolNames: ["eval"], category: "other", icon: "i-lucide-square-code", label: "运行代码", presentation: "card", summary: (call) => String((call.args as {title?: string}).title ?? "")}],
+    };
+    const codeRegistry = createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, code]);
+    const children = [
+        {id: "n1", name: "read", status: "success" as const, args: {path: "大纲.md"}},
+        {id: "n2", name: "write", status: "success" as const, args: {path: "第一章.md", content: "一"}},
+        {id: "n3", name: "write", status: "denied" as const, args: {path: "第二章.md", content: "二"}},
+    ];
+    function withEval(call: Record<string, unknown>, running = false): AgentConversationContext {
+        const ctx = context();
+        ctx.run = running ? {status: "running", phase: ""} : ctx.run;
+        ctx.now = 65_000;
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: running ? "streaming" : "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "e1", name: "eval", args: {title: "批量改"}, ...call} as never]}];
+        return ctx;
+    }
+    const card = (view: ReturnType<typeof mountView>) => view.get(".acv-steps .nb-collapsible-card");
+
+    it("收起的卡片副标题写计数；改了文件与被拒的子调用紧跟着露出，只读的不露；展开后列出全部，收起的那几行不再重复", async () => {
+        const view = mountView("zh-CN", {}, {ctx: withEval({status: "error", children}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(card(view).text()).toContain("批量改 · 调用了 3 次工具 · 读了 1 个文件，改了 1 个");
+        expect(view.findAll("[data-card-child]").map((row) => row.text())).toEqual([expect.stringContaining("第一章.md"), expect.stringContaining("第二章.md")]);
+        await card(view).get("button").trigger("click");
+        expect(view.findAll("[data-card-children] .nb-collapsible-row").length).toBe(3);
+        expect(view.find("[data-card-child]").exists()).toBe(false);
+        view.unmount();
+    });
+
+    it("运行中：副标题写已调用几次与正在调的那一个，头部写已用时；结束后不写用时", () => {
+        const running = mountView("zh-CN", {}, {ctx: withEval({status: "running", startedAt: 3_000, children: [children[0], {id: "n4", name: "read", status: "running", args: {path: "第十二章.md"}}]}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(card(running).text()).toContain("批量改 · 已调用 2 次 · 读取 第十二章.md");
+        expect(running.get("[data-card-elapsed]").text()).toBe("1:02");
+        running.unmount();
+        const done = mountView("zh-CN", {}, {ctx: withEval({status: "success", startedAt: 3_000, children}, true), plain: true, processDisclosure: "live", registry: codeRegistry});
+        expect(done.find("[data-card-elapsed]").exists()).toBe(false);
+        done.unmount();
+    });
+
+    it("原始视图在这次调用下缩进列出全部子调用", () => {
+        const view = mountView("zh-CN", {}, {ctx: withEval({status: "error", children}), plain: true, registry: codeRegistry, viewMode: "raw"});
+        expect(view.findAll(".acv-raw__nested").map((row) => row.text())).toEqual([expect.stringContaining("大纲.md"), expect.stringContaining("第一章.md"), expect.stringContaining("第二章.md")]);
         view.unmount();
     });
 });

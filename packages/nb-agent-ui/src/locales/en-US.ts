@@ -326,6 +326,7 @@ export default {
         collapse: "Collapse",
         expand: "Expand",
         count: "{{index}} of {{total}}",
+        within: "Called from {{tool}}: {{what}}",
         questionCount: "Question {{index}} of {{total}}",
         previousItem: "Previous",
         nextItem: "Next",

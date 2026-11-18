@@ -318,6 +318,7 @@ export default {
         collapse: "收起",
         expand: "展开",
         count: "第 {{index}} / {{total}} 个",
+        within: "{{tool}} 里的调用：{{what}}",
         questionCount: "第 {{index}} / {{total}} 题",
         previousItem: "上一个",
         nextItem: "下一个",

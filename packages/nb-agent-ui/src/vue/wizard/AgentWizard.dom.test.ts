@@ -31,6 +31,16 @@ describe("审批向导", () => {
         view.unmount();
     });
 
+    it("代码里调的工具（带 within）：标题写明是哪个工具里的调用，批量与第几个照旧", () => {
+        const view = wizard([{...approval("a"), within: {tool: "eval"}}, {...approval("b", "shell"), within: {tool: "eval"}}]);
+        expect(view.get(".acv-wizard-frame__title").text()).toBe("eval 里的调用：修改文件");
+        expect(view.get("[data-wizard-count]").text()).toBe("第 1 / 2 个");
+        view.unmount();
+        const asked = wizard([{...question, within: {tool: "eval"}} as PendingInputView]);
+        expect(asked.get(".acv-wizard-frame__title").text()).toBe("eval 里的调用：视角？");
+        asked.unmount();
+    });
+
     it("能记时有“本会话都批准”“以后都允许”，按钮写明记什么；不能记时都没有", async () => {
         const remembered = wizard([{...approval("a", "shell"), remember: {label: "git diff *"}}]);
         expect(remembered.get("[data-approval-decision='allow-session']").text()).toContain("git diff *");

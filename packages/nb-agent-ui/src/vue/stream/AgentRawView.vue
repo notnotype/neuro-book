@@ -138,19 +138,23 @@ function usageLine(message: AssistantMessageView): string {
                     <p class="acv-raw__text acv-raw__text--muted">{{ message.thinking }}</p>
                 </CollapsibleRow>
                 <p v-if="message.text" class="acv-raw__text">{{ message.text }}</p>
-                <CollapsibleRow
-                    v-for="call in message.toolCalls"
-                    :running-label="t('turn.running')"
-                    :key="call.id"
-                    :icon="props.registry.resolveTool(call.name).icon"
-                    :label="text(props.registry.resolveTool(call.name).label)"
-                    :detail="props.registry.resolveTool(call.name).summary(call)"
-                    :status="toolCallPhase(call.status)"
-                    :expanded="openSet.isOpen(call.id)"
-                    @update:expanded="toggle(call.id)"
-                >
-                    <AgentToolDetail :call="call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
-                </CollapsibleRow>
+                <template v-for="call in message.toolCalls" :key="call.id">
+                    <!-- 子调用（嵌套调用）缩进列在它下面，不再有自己的子调用 -->
+                    <CollapsibleRow
+                        v-for="item in [call, ...(call.children ?? [])]"
+                        :key="item.id"
+                        :class="{'acv-raw__nested': item !== call}"
+                        :running-label="t('turn.running')"
+                        :icon="props.registry.resolveTool(item.name).icon"
+                        :label="text(props.registry.resolveTool(item.name).label)"
+                        :detail="props.registry.resolveTool(item.name).summary(item)"
+                        :status="toolCallPhase(item.status)"
+                        :expanded="openSet.isOpen(item.id)"
+                        @update:expanded="toggle(item.id)"
+                    >
+                        <AgentToolDetail :call="item" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
+                    </CollapsibleRow>
+                </template>
                 <p v-if="message.error" class="acv-raw__text acv-raw__text--danger">{{ message.error }}</p>
                 <p v-if="message.usage" class="acv-raw__usage">{{ usageLine(message) }}</p>
             </div>
@@ -255,6 +259,10 @@ function usageLine(message: AssistantMessageView): string {
 
 .acv-raw__text--danger {
     color: var(--status-danger);
+}
+
+.acv-raw__nested {
+    margin-left: 20px;
 }
 
 .acv-raw__usage {

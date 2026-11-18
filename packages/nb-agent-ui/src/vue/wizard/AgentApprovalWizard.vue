@@ -43,9 +43,9 @@ const hasPreview = computed(() => files.value.length > 0);
 const showArgs = computed(() => !isShell.value && (item.value.preview.state !== "loading") && (!hasPreview.value || files.value.some((file) => file.kind !== "diff")));
 
 const title = computed(() => {
-    if (isShell.value) return t("wizard.approval.shell");
-    if (item.value.tool === "edit" || item.value.tool === "write") return t("wizard.approval.edit");
-    return t("wizard.approval.tool", {tool: item.value.tool});
+    const what = isShell.value ? t("wizard.approval.shell") : item.value.tool === "edit" || item.value.tool === "write" ? t("wizard.approval.edit") : t("wizard.approval.tool", {tool: item.value.tool});
+    // 代码里调的工具（例如 eval 的 `tool.write`）：写明是哪个工具里的调用，用户才知道它从哪来（Spec“输入框与待处理区”）。
+    return item.value.within === undefined ? what : t("wizard.within", {tool: item.value.within.tool, what});
 });
 const detail = computed(() => (typeof args.value.path === "string" ? args.value.path : files.value.length === 1 ? files.value[0]!.address : undefined));
 const count = computed(() => (batch.value ? t("wizard.count", {index: step.value + 1, total: props.items.length}) : undefined));
