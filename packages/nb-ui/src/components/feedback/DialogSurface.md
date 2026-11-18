@@ -23,6 +23,8 @@
 - CSS 变量 `--nb-dialog-close-room`（没有标题栏时角上关闭按钮占的见方，宿主的正文按它让位）；
 - CSS 变量 `--nb-dialog-from-x`、`--nb-dialog-from-y`、`--nb-dialog-from-scale`、`--nb-dialog-enter-duration`、`--nb-dialog-enter-ease`、`--nb-dialog-leave-duration`：入场与关闭动画的起点，由宿主经 `style` 写进来（见下一节），没写就是原地缩放淡入。
 
+文字选择：标题不可选；页脚状态行可选（出错时是服务端给的原文）；正文能否选由里面的内容自己声明（见 nb-ui 开发规范的“文字能否选中”）。
+
 ## 入场与关闭
 
 用关键帧而不是过渡：reka 关闭时等的是 `animationend`，过渡来不及播就被卸掉了。起点读上面那几个变量：有来处时（用户点按钮、菜单项打开）从来处长出来（起始缩放 0.3，入场 `--motion-dialog`、退场 `--motion-dialog-leave`），没有来处时（快捷键、命令面板、程序打开）原地缩放（0.96，入场 `--motion-base`、退场 `--motion-fast`）。关闭沿用同一组起点变量，收回去；退场中的面不接指针，点在它上面就是点到下面。系统要求减少动态效果时时长令牌是 0，动画不播，第一帧就是终点。变量怎么算见 [`Dialog.md`](Dialog.md) 的“从触发点展开”。
