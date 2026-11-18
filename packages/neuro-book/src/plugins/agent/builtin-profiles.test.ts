@@ -174,6 +174,8 @@ describe("主创", () => {
     test("输出 16：主创声明全部 Skill、表情包只有内置的星璃（槽里的文字与显示由 stickers-slot.test.ts 与 e2e 验收 13 覆盖）", async () => {
         const w = await world();
         expect(w.service.profiles().find((profile) => profile.key === MAIN_PROFILE)).toMatchObject({skills: {allowed: "all"}, stickers: {allowed: ["builtin.lyra"]}});
+        const adhoc = w.service.profiles().find((profile) => profile.key === ADHOC_PROFILE);
+        expect([adhoc?.skills, adhoc?.stickers]).toEqual([undefined, undefined]);
     });
 
     test("输出 2：缺省的 edit 是 replace", async () => {
