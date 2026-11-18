@@ -154,3 +154,22 @@
 - 风险：`settleRun` 把 28 处收口收成一处，改动面最大。由第 2 片之前写好的路径用例兜底（清单 1.1–1.14 每条一例，用真实内核与扩展造的时间窗）；实现审查专门查“有没有收口点没走它”：写 `runEnded` 的地方（`grep -n 'ctrl("runEnded"\|type: "runEnded"' src/kernel`）只剩 settle 的批组装函数与恢复。
 - 风险：`agentKey` 改成按调用方门面后，别的插件经它拿到的身份变成宿主。现在的调用方只有测试世界（包一层 `asUser`）与本插件；`agent.test.ts` 用真实的门面装配测宿主身份。
 - 风险：乐观消息改按 `commandId` 确认后，结果未知时的重发（同一 `commandId`）要仍能对上；`kernel-transcript.test.ts` 加重发用例。
+
+## 附：第 2、3 片的实现细节（2026-11-18，开工时补）
+
+收口（`run/settle.ts`）：
+- `settleInQueue` 只在单写者队列的一项里调用。组批：调用方给的收尾事件（`settleOpen`、`turnEnded` 等）→ `runEnded`（中止时带停止记录的 `stoppedBy`）→ 停止的范围（不保留时清空停的人能取消的、其余与 `keepQueue` 时的就绪的 `inputHeld{heldBy}`）→ 剩下就绪的 `inputHeld{cause: {end, code?}}`（不在“这期间到达的”集合里的）→ 每个停止的 `commandAccepted{aborted: true}` → 推迟的放行。
+- 推迟的放行：先查三种不开（`host.closed()`、待做的重新装配、`startProblem` 或它抛错记 `internal`）；不开时“这期间到达的”另成一条带 `code` 的 `inputHeld`、写诊断 `deferred-start-skipped`。开时把前面的草稿用 `reduceSessionKernel` 叠在当前状态上投影出缓冲区，按每条推迟指令的发出者算能放行的（`releasable`），写 `inputReleased`，再写 `runStarted{by}`（有用户记用户，否则最先的）与取走投影里就绪的第一条。
+- 写批放在 `try`；`finally` 里调 `control.settled(runId, next)`：清当前运行、推 `idle` 帧（`broken` 不改），开了下一次运行就换成它、推 `running`，否则调 `onIdle`；结算 `waitRun`。`launch` 的 `.finally` 对已经 `settled` 的运行什么都不做。
+- 回复没有工具调用的那一步整个在一个队列项里判断：就绪的插话→接着请求；会话要结果→催或收口；就绪的排队→写 `turnEnded` 与取走、接着；都没有→`settleInQueue`。其余收口点（出错、中止、只压缩、交出结果、文字收口）先 `queue.drain()`，再在一项里 `settleInQueue`。
+
+停止（`commands.ts` 的 `abortCommand`，收 `issuer`）：同步判权限（用户；会话要会话头 `caller.id` 是它；宿主要路径归约的 `runBy` 与它同一插件）→ `control.recordStop({runId, by, keep, scope: 缓冲区全部 id, commandId})`：已有记录就只追加 `commandId`；`control` 在 `settleInQueue` 开始组批时置 `#settling`，之后到的 `abort` 交回 `{aborted: false}` → 触发信号 → 等收口批写下，交回其中自己的 `commandAccepted` 的 seq。`closeSession` 不带原因的关闭在 `control` 上记 `closing`，留着的 `cause.code` 是 `session-closed`。
+
+指令（`commands.ts`、`permissions.ts`、`interaction.ts`、`tree.ts`）：
+- `control.takesInput`：有当前运行、不是只压缩的、不在中止中、没开始组收口批。`send`、用户的 `enqueue`、`resume`、`release`、异步回答在 `active && !takesInput` 时写下自己的话（就绪），受理成功后 `control.defer({issuer, mode, inputIds})`，交回去向 `later`；会话、宿主的 `enqueue` 这时写 `inputQueued{state: "held", cause: {queued: "idle"}}`。
+- `send`：`replaces` 先校验（`input-stale`、`not-allowed`），写 `inputRemoved{replaced}`；再写放行（`releasable`，模式取 `release` 选项缺省 `keep`），再写 `inputQueued{commandId}`。空闲时：叶子上有暂停的运行，发出者能接着跑就 `runResumed{by}` 并接着跑，不能就把话写成留着（去向 `held`）；否则 `runStarted{by}`，取投影缓冲区里就绪的第一条开第一轮。
+- `start`、`resume`、`release`：按“附”之前的“关键设计”与 Spec 输出 4、106、107；能不能接着跑读路径归约的 `lastChat` 与 `runBy`。
+- `takeInputDrafts`、`takeSteerDrafts` 带上条目的 `commandId` 与 `inputConsumed.runId`，只取就绪的。
+- 异步回答：放行应答者的，再放回答；开不起来时回答写成留着带码，`resolve` 照常成功。
+- `rewind{resend}`：以视图的发出者入队；落在运行中途时同 `start` 的权限，受理批里直接取走这条（不靠循环取第一条）。
+- NeuroBook 的远程合同从 `commandErrors` 派生方法：新指令进码表的同一次提交里补 `shared/remote.ts` 的参数表，保持 neuro-book 的类型检查通过。
