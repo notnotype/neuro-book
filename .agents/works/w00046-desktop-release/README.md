@@ -74,5 +74,5 @@ updated: 2026-11-15
 | [t17](tasks/t17-window-backdrop/README.md) | 磨砂透明的窗口背景（实验）。已合入 master（f92d24efd），设置缺省关 |
 | [t21](tasks/t21-desktop-polish/README.md) | 开发者 2026-11-18 的第二轮反馈：清理 pc-notype 残留、默认窗口 1600×1000、搜索收窄、标志与项目名对齐、书架顶端像 JetBrains 欢迎页。已完成，合入 master；真实桌面里试书架顶端待开发者 |
 | [t22](tasks/t22-desktop-user-select/README.md) | 桌面壳里界面框架默认不可选中文字，内容区显式可选（2026-11-18 开发者提出）。完成，合入 master（4d07ba077） |
-| [t23](tasks/t23-macos-desktop/README.md) | macOS 桌面版（Apple Silicon，未签名）：GitHub Actions 构建并补传到 Release（2026-11-18 开发者提出，尽力而为）。进行中 |
+| [t23](tasks/t23-macos-desktop/README.md) | macOS 桌面版（Apple Silicon，未签名）：GitHub Actions 构建并补传到 Release（2026-11-18 开发者提出，尽力而为）。v0.14.1 的 Release 上已有 DMG，等真机反馈 |
 | [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、CHANGELOG 与由它生成的中文 Release 说明、发版脚本 `release:prepare`、发布手册、安装包改名。已完成，合入 master；推送后演练待开发者授权 |
