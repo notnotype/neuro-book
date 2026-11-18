@@ -78,6 +78,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-17 | t36 合入：视图的标题区（对话写在面板头上）、头改三列与子会话返回、第一屏与开场指令、模型不可用的提示卡与设置定位、子代理入口与浮层；前端实现审查 20 条（重要 4），成立的已修。Spec 条目已晋升、回写已写（开发者同日定这两件事不必审批，规范已改），审查带出的两处取舍开发者定保持现状，t36 完成（[t36](tasks/t36-conversation-panel-redesign/README.md)） |
 | 2026-11-17 | t37 合入：状态栏可自定义（右键勾选、设置页拖动与上移下移排序、窄时从前往后收进悬停、插件经 `agent.statusItems` 加项）；缓存倒计时本版不做，交给插件项自己写；前端实现审查 13 条（重要 6），成立的已修；Spec 条目已晋升，t37 完成（[t37](tasks/t37-status-line-customization/README.md)）。待开发者定：要不要加“用户脚本”路径 |
 | 2026-11-18 | t38 合入：状态栏不再标“计划模式”“全部放行”；状态栏的项可以换边，窄时先右后左收起；nb-layout 新增共用的实时布局排序 `useSortable`、`SortableList`（行跟手、跨组、键盘、放下等写完），状态栏设置页改用它；nb-ui 单选组与复选框对齐第一行。设计审查 16 条、实现审查 14 条，成立的已改；`ui/sortable-list.md` 晋升 implemented，t38 完成（[t38](tasks/t38-status-line-sorting/README.md)） |
+| 2026-11-18 | t39 合入：nb-ui 的 `ContextMenu` 打开时才挂上（`v-if`）也夹回视口并聚焦首项，调用方不用再常挂着；用户脚本状态栏项按开发者决定不做（t37 决定 4）。小任务，不写计划、不审查；t39 完成（[t39](tasks/t39-context-menu-measure-on-mount/README.md)） |
 
 ## 待确认
 
