@@ -53,3 +53,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0051](0051-desktop-shell-electrobun-tag-release.md) | 桌面版用 Electrobun 壳托管随包的 Bun 与服务端，载荷由同一个 npm 应用包组装，状态根与 `nbook` 共用；先做 Windows 的无界面安装包与便携包、不签名；更新只靠 HTTPS、只升不降、下次启动换上；打产品版本标签由 CI 验证后全自动发布 npm 与 GitHub Release（部分取代 0033 决定 6 的三选一实测；发布阶段与 Release 说明见 0053） |
 | [0052](0052-non-stale-file-lock-package.md) | 不判旧的文件锁（`flock`、`LockFileEx`，进程退出即放）合成一份，单独成零依赖的包 `nb-flock` 随 nb-story 发布；`nb-file-lock` 仍不发布；按场景选判旧的 `holdLock` 或不判旧的 `tryLock`（补充 0029 决策 6 的发布清单） |
 | [0053](0053-release-stages-and-changelog.md) | 发布分 canary、preview、stable 三个阶段，阶段写在 `PRODUCT_STAGE`、不进版本号；第一个稳定版之前只有一条更新线、npm 只发 `latest`；变更记录按发布单元写、不进 npm 包，Release 说明由应用的变更记录在门禁里生成；第一个稳定版时照 omp 改成支线（补充 0029 决定 5、0051 决定 7） |
+| [0054](0054-nb-layout-general-library.md) | nb-layout 做成通用布局库：工作台层拆进不发布的 `nb-workbench-layout`，nb-layout 不依赖 nb-ui、失败一种形状、发 MIT 与编译产物；分两档做，手感编排进库与发布排在第二档，第一个外部使用方是 nb-story（部分取代 0044 第 6 条，补充 0029） |
