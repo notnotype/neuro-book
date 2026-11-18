@@ -30,7 +30,7 @@
 - [界面文字的消息目录](i18n-message-catalogs.md)：每个插件、每个共享包自带按语言分的 JSON 目录（i18next 原生格式），声明按约定取键，失败文案按“拥有者 + 码”取。
 - [工作台布局：一棵树、按矩形摆放与 nb-layout](workbench-single-tree-layout.md)：除标题栏外工作台是一棵树，内容按矩形摆放在同一层，两种拖动手感、应用内浮动、手机呈现，布局工具拆成单独的包。
 - [Agent 审批：一份自有目录、去掉 Agent 的地址表、询问写明来源](agent-approval-simplification.md)：只写会话自己的目录在任何模式下都放行（不含宿主写的子目录），能不能写只由文件服务按方案登记判断，审批向导写明这次为什么问、放行也看得到；模式闸门不写成规则。
-- [NeuroBot（暂名）第一版](neurobot.md)：常驻、有记忆的 AI 员工；用户面对 bot 而不是会话，对话由系统维持，原始记录、简单记忆、日程与周期任务；monorepo 里的新应用，建在 nb-runtime 与 nb-harness 上。
+- [NeuroBook 的 bot 第一版](neurobot.md)：常驻、有记忆的 AI 员工，做成 NeuroBook 的内置插件 `nbook.bots` 与 `nbook.schedule`；用户面对 bot 而不是会话，主对话由系统维持，Markdown 记忆，周期任务往主对话注入宿主发出的消息；独立应用 NeuroBot 暂停。
 - [文件访问与改动记账](file-access-and-history.md)：读拿本机路径自己读；写只有一个入口，写入方暂存、拥有根的进程在锁里提交并经记账槽记账；外部改动由监视与对账发现；分四个阶段交付。
 - [图像生成第一版：工作台、配方与标签库](image-generation-v1.md)：提示词按节组织、预设引用加差异、风格组合与片段；标签系统；应用级图片仓库与空间管理，书里的生成记录与 `.image` 插图；插图方言、管线、Agent 工具另写。
 - [工作台的视图容器](workbench-view-containers.md)：侧栏、右栏、底部面板各一次显示一个容器，入口切换整个容器；具名面板当区域的锚，容器里是一个视图一节的分节，插件声明或用户拖出来。

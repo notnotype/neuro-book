@@ -70,6 +70,7 @@ updated: 2026-11-18
 | 2026-11-18 | 开发者：审批的四关太复杂，问“地址能不能写”能否放进规则、模式闸门能否用规则实现（切换模式就是换规则），要一版新方案；主 Agent 写了第一稿（模式与审批模式都写成规则组），开发者同意审查并要求带拉远看；三位审查者核出它会改掉至少五处已定结论、复杂度没降，改写成第二稿 [Agent 审批：一份自有目录、去掉 Agent 的地址表、询问写明来源](../../../docs/proposals/agent-approval-simplification.md)（[审查处理](tasks/t01-direction/evidences/approval-proposal-review-r1-disposition.md)），待开发者看 |
 | 2026-11-18 | 开发者看过第二稿的逐步讲解后，同意两项待定：普通模式下只写自有目录在任何审批模式下都不问；不把模式闸门写成规则。第二稿派 Claude Opus 做一轮审查 |
 | 2026-11-18 | Opus 审查第二稿（[处理](tasks/t01-direction/evidences/approval-proposal-review-r2-disposition.md)），10 条都成立、已改进提案；开发者同意为询问来源改 nb-harness 内核（加 `cause` 写进会话日志），接受逐个确认下命令只写自有目录也不问，审批提案接受 |
+| 2026-11-18 | bot 提案第四稿的五项（开发者逐项答）：(1) Profile 是岗位、bot 是在岗的人，一个 Profile 可以有多个 bot，插件提供 bot 预设，“同意”；(2) 星璃做成 bot，“同意，profile://memory 有了 bot 后应该改成 bot://”（[w00050 t04](../w00050-lyra-persona-and-prompts/tasks/t04-profile-memory-init-and-permissions/README.md) 的三项改由 bot 提案覆盖）；(3) “NeuroBook 没有多渠道入站，不用做原始记录”；(4) 主对话不绑作品，“同意”；(5) “本机口令先不做”。提案 [`neurobot.md`](../../../docs/proposals/neurobot.md) 按此改写成第四稿 |
 
 ## 调研
 
