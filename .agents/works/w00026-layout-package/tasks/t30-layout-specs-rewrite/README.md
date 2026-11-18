@@ -43,6 +43,14 @@ updated: 2026-11-18
   - Claude Sonnet 起草第 3 片：句子表、符号表、编号表、成熟度建议、新的 nested-grid 与 `NestedGrid.md` 草稿，写在同目录 `reports/draft/`，不动仓库，主会话逐句审过再落进仓库。
   - 第 1 片（补测试）等 t26 审查修正合入 master 再开 worktree：两边都改 `workbench-containers.e2e.ts`。
 
+- 第 1 片（一）`42844c5f0`（分支 `docs/w00026-t30-specs`）：`sashStyle` 写到那一条分隔线上、同名以网格的位置为准（变异检查：样式放到后面盖住位置时失败）；有分节时锚不进呈现树、空区域打开时锚就是那块面板；F6 停在活动栏与两条入口条上、入口条在分节之前；入口条里每个入口一个 Tab 停靠。降级里别的几条等 omp 的逐句结论再补。
+- 第 3 片 nested-grid：Claude Sonnet 起草（句子表、符号表、编号表、成熟度建议、整份 Spec 与 `NestedGrid.md`），存为 `evidences/nested-grid-*.txt`。138 条输出，标题带组名前缀，开头写组名的读法；失败 1 到 4。主会话的决定：
+  - 成熟度保持 `planned`，不照草稿晋升：草稿自己说输出 11 到 16、19、24、25、28、30、36、58、112 没找到能区分的断言，只按测试名抽查过。条目级标记全部去掉；`目标与非目标` 里列“晋升为 implemented 之前要补的”，加上这十几条。“宿主样式”已由第 1 片的测试守着，从清单里拿掉。
+  - 草稿删掉的“减少动态效果时不渐显、停留时长照旧”（判为与 `Splitter.md` 重复）补回第 13 条：`Splitter.md` 确有这句，但它说的是独立 Splitter，多写半句不丢行为。
+  - 草稿按代码改正的两处照收：浮动窗的字段是 `gesture?`，不是 `moving?`；原第 112 行“Component Lab --suite workbench-shell”只在旧应用里，删掉。第 122 行“不再有百分比换算……Reka 拖动通道”是历程，删掉。
+  - 草稿列的“只在 `NestedGrid.md` 里的行为句子”（`evidences/nested-grid-notes.txt` 第 5 节）不升进 Spec：不加输出条目；以后晋升时再看。
+- 第 2 片包文档：`NestedGrid.md` 换成草稿（压掉与 Spec 重复的行为正文，链接编号）；`grid.md`、`Splitter.md`、`DropFeedbackOverlay.md` 按补丁补几处。两个比例的边界在 `grid-drop.ts` 里核过（插入位大于 0.5 不合法、边缘不小于 0.5 不合法，缺省 0.2）。代码注释与测试名里指向某一条子规则的引用改编号，交给 Claude Sonnet 按编号表机械迁移。
+
 ## 下一步
 
-t26 审查修正合入后开 worktree `w00026-t30-specs` 做第 1 片；omp 报告与草稿回来后按计划第 2 到 4 片。
+引用迁移回来后审 diff、跑类型检查与单元测试，worktree 合入 master，紧接着提交新的 nested-grid；再按 omp 的逐句结论补第 1 片其余测试、做第 4 片（workbench-layout）。
