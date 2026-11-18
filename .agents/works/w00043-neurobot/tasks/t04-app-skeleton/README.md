@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t04-app-skeleton
-status: planned
-updated: 2026-11-10
+status: shelved
+updated: 2026-11-18
 ---
 
 # NeuroBot 应用骨架与 gateway
@@ -20,6 +20,8 @@ updated: 2026-11-10
 ## 当前状态
 
 2026-11-10 经 nbdev 新建，尚未开工。
+
+2026-11-18 搁置：开发者定 bot 做成 NeuroBook 的内置插件，NeuroBot 独立应用暂停（w00043 决定表）。
 
 ## 下一步
 

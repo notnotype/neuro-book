@@ -1,0 +1,218 @@
+# 审查报告（Sonnet）：w00046 t02 前端部分（向导、宿主接线、Spec 输出 34）
+
+### 1. 向导（nbook.desktop）写不了主题、明暗、语言：配置服务只许声明者写
+- 严重程度：阻断
+- 类别：依赖的机制不存在 / 合同
+- 位置：plan.md:38（“写经配置服务（主题 `nbook.workbench/theme`、明暗 `nbook.workbench/appearance`、语言 `nbook.settings/locale`……）”）；Spec 输出 34“值”一段
+- 现象：计划让 `nbook.desktop` 的宿主入口直接用配置服务写三个别的插件声明的项。
+- 为什么是问题：`SettingsService` 的合同是“所有已声明的项都可读，只写调用方插件自己声明的项”（src/shared/settings.ts:426）。写入核对见 src/plugins/settings/shared/layers.ts:136-141 `writeProblem`（实例在 instance.ts:255-256 选路前先调它，所以在页面这一侧就返回，不会到服务端）：`plugin !== declared.plugin` 返回 `denied`（“配置项 … 由 nbook.workbench 声明，nbook.desktop 不能写”）。configuration.md 输出 11 同写。输出 19 的“用户编辑”路径只放行 `nbook.settings` 自己的入口，别的插件一律 `denied`。所以计划写的实现路径在运行时一定返回 `denied`，第二步三个控件一个也改不了；只有桌面三项（本插件声明）写得动。这不是风格问题：它直接让“主题、明暗、语言立刻生效”（决定 6）落空，而且 dom 测试（受控组件）与 Lab 场景都测不出，要到切片 5 的 e2e 才发现，返工的是宿主接线整块。
+- 如何核实：读 src/plugins/settings/shared/layers.ts:139-141；仓库里没有任何别的插件对 `themeSetting`、`appearanceSetting`、`localeSetting` 调 `settings.update`（grep `themeSetting` 的使用点只有 workbench 自己的 plugin.ts 与 `theme-commands.ts`，localeSetting 只有 settings 自己的 web/plugin.ts:258、280）。仓库自己的做法是“声明者贡献命令”：theme-commands.ts 开头注释写明“主题与明暗是工作台声明的配置项，只有声明者能写，所以命令由工作台贡献”。
+- 建议改法（三选一，计划要选定并写进 Spec）：
+  a) 经命令服务调现成命令：`nbook.settings.switch-theme {theme}`、`nbook.settings.switch-appearance {appearance}`、`nbook.settings.switch-locale {locale}`（theme-commands.ts:21-22，settings/web/plugin.ts 的 SWITCH_LOCALE_COMMAND）。三条命令带参数时直接写、不开选择，失败返回 `CommandResult`（`code` 加给人读的 `reason` 字符串）。代价：宿主要依赖 `commandServiceKey`；失败原因是文字不是结构化码，“回到配置服务的值”仍可做（重新读 `settings.get`）。命令声明 `expose.agent: auto`，向导的写入也因此对 Agent 可见，无副作用。
+  b) 把向导宿主放进 `nbook.workbench` 或 `nbook.settings`：违反“工作台不认识贡献方”的依赖方向，不建议。
+  c) 让声明者插件各开一个窄的写入服务：工作量大，与 a 相比没有收益。
+  推荐 a，并在计划里写明依赖与失败映射；切片 5 的 e2e 里加一条“写入被拒绝时控件回到原值”的断言。
+
+### 2. 文字目录“实施时看”不够：ADR 0034 已定死，且漏了三处登记与失败文案的写法
+- 严重程度：重要
+- 类别：被破坏的既有约定 / 遗漏
+- 位置：plan.md:39；plan.md:38（“写失败……显示原因”）；plan.md:35（props 里的“错误文字”）；Spec 输出 34“值”“再次打开”（“目录不在、没有桌面时在向导底部说明”）
+- 现象：计划写“本插件现在的文字是内联双语，按现有写法，向导的文字较多时新建 `locales/`，实施时看 i18n Spec 的要求定”。
+- 为什么是问题：
+  1. 要求不是“实施时看”的开放问题。ADR 0034 决策 3：“每个插件、每个共享包自带按语言分的 JSON 消息目录”，ADR 同文第 21 行把“内联 `{zh-CN, en-US}`”列为被取代的旧写法，且其来源是一句没写理由的“不引入 vue-i18n”。向导约 40 条以上界面文字（四步标题、说明、三行开关的说明、两处位置、各种失败说明，英文版另算），必须走目录；“按现有写法”会再造一批待迁移的内联文字。zoom 等现有设置项仍是内联，那是历史遗留，不是新写的依据。
+  2. 登记处不止“新建 locales/”：a) `src/web/plugins.ts:103` 的 `builtinPluginCatalogs` 要加 `"nbook.desktop"`（该表里现在没有它）；b) `scripts/ci/message-catalogs.ts:54-67` 的目录登记表要加一行，否则 governance:check 不查它（缺键、占位符不一致都不报）；c) 要有 `web/text.ts` 导出 `desktopCatalogs` 与 `useDesktopText`，`shared/text.ts` 放命名空间常量，照 settings 的三件套（src/plugins/settings/web/text.ts）；d) 照 settings 的 `locales.test.ts` 补一份键表测试。这四处计划只字未提，切片 4 的完成标准里也没有。
+  3. 失败文案：i18n.md 输出 13（planned）与 ADR 0034 决策 2 要求“失败说明按拥有者 + 码取文字，诊断原文只进详情”。计划的“写失败时回到配置服务的值并显示原因”“错误文字”props 没说原因从哪来：直接把 `result.detail`（`SettingWriteResult.detail` 是英文诊断串）或 `places` 的 `open-failed` 原因当文案，就违反这条。需要写明：向导按 `SettingsFailure` 码与 `open-failed`、`no-desktop`、“文件夹不在”这几个码查本目录的 `errors.*`，详情放“详情”一行（或只记诊断）。
+  4. 向导的“位置”说明“第一次新建作品时会建出这个文件夹”这类说明依赖 `places.open` 的结果码，服务端不翻译（i18n.md“服务端只解析字符串与 LocaleMap”），所以 `places.open` 的返回里必须是码，不能是句子。计划的“`openExistingFolder` 的结果（`no-desktop`、`open-failed` 带原因）”要明确“原因”是诊断不是文案。
+- 如何核实：读 docs/adr/0034-language-policy.md 决策 3 与 21 行；src/web/plugins.ts:103-116；scripts/ci/message-catalogs.ts:54-67；docs/specs/ui/i18n.md 输出 13；src/plugins/settings/web/text.ts。
+- 建议改法：计划里直接写“新建 `src/plugins/desktop/locales/{zh-CN,en-US}.json`，登记三处，键表测试”，不再写“实施时看”；失败说明按码查目录；已有的内联设置项文字（本 Task 新增的“在桌面放快捷方式”配置项）也一并用约定键，不再写内联双语。
+
+### 3. “主题选择项来自 THEME_CHOICES_PROVIDER”：这个提供者没有给别的插件的读法
+- 严重程度：重要
+- 类别：依赖的机制不存在
+- 位置：plan.md:37（“主题选择项来自 `THEME_CHOICES_PROVIDER`”）；plan.md:35（props 里“主题列表与缩略图”）
+- 现象：`THEME_CHOICES_PROVIDER`（"nbook.workbench.themes"）只是 `settings.choices` 贡献点上的一个提供者 id，由 `nbook.settings` 的 `ChoiceSourceRegistry` 收下（src/plugins/settings/web/plugin.ts:211、238），选项经 `SettingsWindowSource.options()` 给设置窗口。这个服务键 `settingsWindowSourceKey` 的注释写明“不是公开接口：门面只发给 `nbook.settings` 自己、没有经过代理的调用方；别的插件解析这个键，门面工厂抛错”（src/plugins/settings/web/window-source.ts:8-10）。工作台自己的 `ThemeCatalog`（src/plugins/workbench/web/themes.ts:93）也没有服务键对外（工作台只提供 `workbenchRootKey`、`quickPickKey`、`notificationsKey`、`editorPanelsKey`，主题目录只在 workbench 内部经闭包交给主题设置页与主题编辑器）。`THEME_CHOICES_PROVIDER` 只在 workbench 自己的 shared/contracts.ts 与 web/plugin.ts 里出现；`ThemeCatalog` 在 workbench 之外只有 Lab 的 ThemeEditorFixture.vue 用（同样不是服务）。
+- 为什么是问题：`nbook.desktop` 的宿主拿不到主题列表，切片 4 的 `FirstRunWizard` 的“主题列表”这个 props 没有来源，切片 5 的接线写不出来。与发现 1 同一类：计划按“配置服务能读能写、选项提供者能读”设想，没有对照各插件之间实际公开了什么。
+- 如何核实：读 window-source.ts 第 1-10、62 行；`grep -rn "defineServiceKey" src/plugins/workbench src/plugins/settings` 只有上述几个键；`grep -rln THEME_CHOICES_PROVIDER src` 只有 workbench 的两个文件；`grep -rln ThemeCatalog src` 在 workbench 之外只有 Lab 夹具。
+- 能走通的读法（计划要选一个写进去）：
+  a) `context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT)`（nb-runtime `ContributionDeclarations.list`，任何插件可调，返回全部已接受声明）。拿到内置四套与插件主题；但名字是 `workbenchText(...)` 的 `TextRef`，声明里不写 `ns`，要自己补命名空间（i18n.md“声明里不写，由宿主在登记时补上”）；用户在主题编辑器里自建的主题（`USER_THEME_PLUGIN`，来自用户主题库，不走贡献点）读不到。向导里对“用户已有自建主题的升级用户”会少一张卡片，当前所选主题是自建主题时控件没有选中项。
+  b) 给工作台加一个窄的只读服务键（主题 id、标题、来源），写进 skins.md 与 SDK。工作量大一点，但自建主题与标题解析都在工作台那边已经做好。
+  推荐 b；若要保持 Task 范围小，选 a 并在 Spec 输出 34 写明“自建主题不列出；当前主题不在列表里时控件不选中任何卡片、也不改值”。
+- 另：缩略图的“内置四个”以代码为准是 nbook、macos、eye-green（护眼绿）、eye-sepia（护眼米黄）（src/plugins/workbench/shared/themes.ts:144-149）。定稿截图 r2/stage-2.webp 的卡片标题是 NeuroBook、macOS、Aurora、Editorial，后两个不是产品里的主题名（Aurora 只在 Lab 的 lab-theme.ts 里）。实施以真实四个为准，Lab 场景与缩略图重截，否则开发者验收时会发现“截图里的卡片名对不上”。
+
+### 4. “没有记录就打开”没有定义连接未就绪、读错误、坏记录时的行为；记录的 locality 没写；设置层没就绪时会显示缺省值
+- 严重程度：重要
+- 类别：失败路径 / 合同 / 兼容与迁移
+- 位置：plan.md:38（“激活后读用户层存储 `first-run` 键，没有记录就打开……写记录 `{version: 1, at: <ISO 时间>}`”）；plan.md:76（风险）；Spec 输出 34“何时出现”
+- 现象与依据（都已读实现核实）：
+  1. 读的结果是四态：`RecordSnapshot` 是 `missing | ok | corrupt/unsupported-version | error`（src/shared/storage.ts:164-168）。服务端不可达、分区关闭时，路由层折算成 `unavailable`，`read` 返回 `{status:"error"}`（src/plugins/storage/shared/remote-route.ts:27-32、45-50）；合同明写“读取失败返回 error 快照，调用方在读取成功前不应写入默认值”（persistence.md“失败与恢复”）。计划只写了“没有记录就打开”，没有说 `error`、`corrupt` 时开不开。桌面版启动时页面先于服务端连接稳定是常态（壳连的是自己拉起的服务端，重连期间页面已经起来），所以 `error` 是常见路径，不是边角：按“读不到就当没有”实现，每次重连窗口都会弹向导；按“读不到就不开”实现，第一次启动时若恰好连接晚了几百毫秒，这次会话就永远不出现向导（入口只在激活时读一次）。
+  2. 仓库已有的做法没被采用：`defineStore` 的 `persist(record, {initial})` 给出 `ready`、`base`、`canSave`、`failure`，并在重连后由订阅重新推快照（src/shared/store/persisted.ts:31-66；remote-route.ts:41-44 注释“重连后内核重建订阅，拥有者先推一次当时的快照”），设置窗口的尺寸记录就是这样用的（src/plugins/settings/web/window-size.ts）。向导的“是否出现”应是 `ready && base.status === "missing"` 的派生状态，对晚到的连接自然成立。计划里没有 store，只有“读一次”。
+  3. `locality` 必填且没有缺省（src/shared/storage.ts:46-52；persistence.md:30、52）。计划没写。写成 `local` 的后果：`local` 按浏览器客户端身份分开存，而客户端身份按来源存在浏览器存储里，端口一变就换新（Spec“已知限制”写明开发服务与桌面版共用 4217 起的端口，端口一变客户端身份随之换新）；那样升级前后、或端口顺延后向导会再出现，且 Spec 写的是“状态根第一次”“用户层存储里没有记录”。应当是 `scope: "user", locality: "shared"`，并写进 Spec。
+  4. 值形状 `{version: 1, at: ISO}`：记录自己已有 `version`（`defineRecord` 的 `version`，不认识的版本落到 `unsupported-version`），值里再放一个 `version` 是两套版本号；只需要 `{at: string}`。`at` 的 schema 不要用 `format: "date-time"`：描述要经 JSON 往返交给服务端核对，自定义 format 不保证在对端登记过。时间用 `clockKey` 的时钟，不用 `Date.now()`（e2e 才能注入）。
+  5. 设置层没就绪：向导显示“配置项此刻的有效值”，用户层还没推到页面时 `inspect().user.status` 是 `unavailable`，读到的是缺省值。升级用户的主题是 macos、语言是 English 时，向导会先按缺省显示 NeuroBook 与简体中文，再跳变；用户若在这一刻点了某个值，写入走 `unavailable`。同一个插件的 `report()` 为同一件事专门写了守卫（src/plugins/desktop/web/plugin.ts 里“用户层此刻不可用或无效时……读到的是缺省值，交给壳会被当真”）。向导的出现条件要加上“用户层 `status === "ok"`”。
+  6. 多窗口：计划把“各开一个”记为已知限制，但没用订阅：窗口 A 写了记录后，窗口 B 的向导还开着、B 完成时再写一次（`save` 带 `expect: null` 会得到 `conflict`，计划说“写失败记诊断”，于是诊断里出现一条其实没有问题的失败）。`subscribe`（或 persist 字段）本来就在，A 写记录后 B 收到快照就能关掉自己的向导；这样“已知限制”缩成“两个窗口同时首次就绪的几百毫秒”。
+- 如何核实：读 src/shared/storage.ts:46-52、164-168；remote-route.ts；persisted.ts；src/plugins/settings/web/window-size.ts；src/plugins/desktop/web/plugin.ts 里的 `report` 守卫。
+- 建议改法：
+  - 记录：`defineRecord({key: "first-run", scope: "user", locality: "shared", version: 1, schema: {at: String}})`，用 `defineStore` 的 `persist`；
+  - 出现条件写成表：`ready && base.status === "missing" && 用户层配置 ok && 在桌面 && 本页没有关闭过` → 打开；`corrupt` 或 `unsupported-version` → 不开并记一条诊断（记录是别的版本写的，说明已经看过）；`error` 或 `!ready` → 等，不开；
+  - 完成与跳过：`reset`/`save` 带 `expect`，`conflict` 当作成功（别的窗口已写）；其余失败码记诊断；
+  - 把这张表写进 Spec 输出 34“何时出现”，现在的“用户层存储里没有记录”会被读成“读不到也算没有”。
+
+### 5. 主题缩略图：静态资产的维护没有机检，回退卡片比设置里的现成做法差；明暗卡片、插件与自建主题的口径不一
+- 严重程度：建议（偏重要：这是“会过时”的那一类）
+- 类别：结构 / 维护方式 / 兼容
+- 位置：plan.md:37、plan.md:78；Spec 输出 34 第 2 步
+- 现象与依据：
+  1. 内置主题在代码里是四套（nbook、macos、eye-green、eye-sepia，src/plugins/workbench/shared/themes.ts:144-149），其中两套护眼主题“只多了配色”（同文件 143 行注释）：改一个颜色值，代码层看不出任何东西与缩略图有关。计划的维护方式只有“`.md` 写明生成命令，改主题时一并重截”（plan.md:78），没有任何检查把“内置主题 id 集合”“缩略图文件集合”“主题声明”连起来：新增第五套内置主题时，向导不报错、只是那一张退成“只写名字的卡片”，悄悄不一致；改护眼配色时缩略图不变。至少要有一条机检：列出 `BUILTIN_THEME_CONTRIBUTIONS` 的 id，断言 `web/assets/first-run/` 下每个 id 都有亮、暗两张，反之亦然；或者把缩略图文件名写成 `<主题 id>-<light|dark>.webp` 并在 `.md` 里说明重截命令来自哪个 Lab 场景（计划写了“由 Lab 的书架场景截出”但没有指出是哪个场景，也没有检查它存在）。
+  2. 设置窗口的“主题”页已经有一套不靠静态资产的预览：`ThemeSettingsPage` 的主题卡片用 `themeSwatch(entry, appearance, baseColors)` 取那套主题在某个明暗下实际生效的背景、文字与强调色，画 72px 的色块加“Aa”（src/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.md 的“布局”、theme-swatch.ts:1-22）。它覆盖插件主题与用户自建主题、两种明暗，永远与主题声明一致。计划让“没有缩略图的（插件主题）画只写名字的卡片”，比仓库里同一件事的现有做法差一档：用户在向导里看到的是一张空卡，到设置里却是有色块的卡。建议：内置四套用开发者定的真实书架截图（决定 6，不动），其余（插件主题、自建主题、截图缺失）退到色块卡，而不是纯文字卡。`themeSwatch` 在 workbench 内部，用它要在工作台开一个窄出口（与发现 3 的 b 方案是同一个出口）。
+  3. 能不能用真实主题渲染一个小预览？不建议：产品主题是 `:root[data-nb-theme=…][data-nb-appearance=…]` 下的 CSS（design-language 第六节“特异性”一段与坑 #31 都建立在这个选择器上），一个子元素里没法套另一套主题；做成 iframe 或影子根代价远大于 8 张图。静态截图是对的取舍，问题只在上面第 1 点的“没人看护”。
+  4. 截图里是书架上写着字的真实界面，一种语言（Lab 场景的语言）。语言在同一屏就能切换（决定 6），缩略图里的字不会跟着换。缩略图只有 ~115 到 130px 宽显示（定稿图里一行四张），字本来就读不出，影响小，但 Lab 的英文场景截图里这一点要接受并写进 `.md`。
+  5. 体积：定稿图 stage-2.webp 整张 24 KB，估计一张 440 宽的缩略图 15 到 25 KB，八张 120 到 200 KB，对 `load()` 才加载的向导组件包不是问题。宽 440 对每行四张（显示约 130px，2 倍屏 260px）偏大，280 到 320 宽够用；这是取舍不是缺陷。资产只在 `<img>` 渲染时才请求；注意 `OverlayFrame` 在每个页面挂载时就调用 `load()`（overlays.ts 的 `provider.load().then(...)`），所以向导组件与 `neurobook-mood.js`（79 KB）会在浏览器里每个页面都下载一遍（见发现 9 的第 1 点）。
+- 如何核实：读 themes.ts:143-149；ThemeSettingsPage.md；theme-swatch.ts；`ls packages/neuro-book/src/plugins/theme-study/assets`（同类资产的体积参照：主题场景图 76 到 113 KB 一张）。
+- 建议改法：加一条机检把内置主题集合与缩略图文件集合对上；回退卡用色块；`.md` 写明具体场景名与命令；Lab 的“插件主题”“自建主题”场景各画一次回退卡。
+
+### 6. Dialog 的用法与 Dialog.md 的合同对不上：关掉页脚就没有状态行，`size` 不对没有状态行，没给标题，Esc 要关 closeOnRequest
+- 严重程度：重要
+- 类别：违反合同 / 返工风险
+- 位置：plan.md:35（“外框用 nb-ui `Dialog`（`show-header=false`、`show-footer=false`、不点遮罩关、`initial-focus` 指主按钮），宽 640、高 540；Esc 经 `request-close("escape")` 交宿主”）
+- 现象与依据（packages/nb-ui/src/components/feedback/Dialog.md 与 Dialog.vue、DialogSurface.vue）：
+  1. “向导底部说明原因”（Spec 输出 34“值”）与定稿图左下角的“以后都能在设置里改”，正好是 Dialog 页脚的状态行：`status` 插槽放平时的中性文字，`status` 属性放错误（危险色加图标，读屏礼貌播报，按钮不动）。计划却选了 `show-footer=false`，状态行随页脚一起没了（Dialog.vue:235-254，DialogSurface.vue:142-170 状态行在 `<footer>` 里）；于是“错误文字”只能在内容里自造一块，要自己补 `role="alert"`、播报与位置。应当用 `footer` 插槽放按钮、`status` 属性放错误。
+  2. 状态行“只在 md 及以上尺寸有；`sm`、`default` 按钮平分整行、没有状态行”（Dialog.md“状态行”）。计划只写了“宽 640”，没写 `size`；不写就是 `default`，没有状态行、按钮还会等宽填满一行，与定稿图（右下两个按钮）不符。要写 `size="md"` 并以 `width: 640` 覆盖。
+  3. `show-header=false` 时标题只是视觉隐藏的可访问名称，没给 `title` 就是缺省的“对话框”（Dialog.md“可访问性”）。读屏用户听到的只有“对话框”。要给 `title`（固定写“首次启动向导”或每步的标题），否则切片 4 的“读屏”这一项没法通过。
+  4. Esc 与点遮罩：`closeOnRequest` 缺省为 true，`request-close` 之后随即发 `update:open(false)`（Dialog.md“交互”）。向导的打开态由宿主控，Esc 要当“跳过”，宿主若同时接了 `update:open` 就会关两次；要写明 `:close-on-request="false"` 并在 `request-close` 里自己处理。`closeOnOverlay=false` 写了，`closable` 缺省 false，没问题。
+  5. 高度：`height: 540` 是像素，`size=md` 的最大高度是 85cqh（Dialog.md 尺寸表）。Spec 写产品窗口客户区最小 800×560（输出 10）；85% 是 476px，已经小于 540。更要紧的是界面缩放：缩放档位最高 200%（desktop-bridge.ts 的 `ZoomLevelSchema`），页面的 CSS 视口随之缩到 400×280（缩放 1.5 时 533×373），85cqh 只有 238 到 317px，减掉页脚后正文只有约 180 到 250px，第 2 步（四张主题卡加明暗加语言）放不下，只能在窄条里滚动。升级用户里已经设了大缩放的人正是会碰到的。计划的 Lab 场景只列了“390 宽”，没有“矮视口/高缩放”。要么给向导一个紧凑形态（视口矮时隐藏看板娘、卡片变小），要么在 Spec 写明“矮视口时正文滚动”，并加一张矮视口的 Lab 场景（例如 533×373）。
+- 如何核实：读 Dialog.md 的“布局”表、“交互”的状态行与关闭两条、Dialog.vue:235-254；`bun test` 里没有现成覆盖，可在 Lab 里把 `size` 改成 `default` 看状态行消失。
+- 建议改法：`<Dialog size="md" :width="640" :height="540" title=… :closable="false" :close-on-overlay="false" :close-on-request="false" :show-header="false" initial-focus=…>`，按钮进 `footer` 插槽，中性提示进 `status` 插槽，错误进 `status` 属性；计划里把这几项逐条写出来。
+
+### 7. 动效写法违反 design-language 七、动效：看板娘尺寸过渡取了 `--motion-base`，内容换页没引 `.nb-ui-switch`，三段动画叠在一起没排
+- 严重程度：重要（动效规则有“计算样式可证伪”的判据，验收会被查出来）
+- 类别：被破坏的既有约定
+- 位置：plan.md:36；Spec 输出 34“动效”
+- 现象与依据：
+  1. 计划：“看板娘的尺寸与位置用 `--motion-base` 与 `--ease-layout` 过渡”。design-language“时长只有三档，按语义选”：`--motion-base`（180ms）是“没有位移的进出：遮罩、没有来处的对话框”，“控件里有位移或形变”用 `--motion-move`（280ms），“布局的外框移动”用 `--motion-layout`（470ms）（src/tokens.css:79-92 的值）。“缓动”一节专门写了反例：“这条曲线四分之一时长走完 78%……沿用 180ms 的 `--motion-base`，45ms 就走了八成，看着是跳过去的。有位移的动效用 `--motion-move`。”128px 缩到 48px 加位置移动正是这一条的情形，计划选的组合恰是被点名的错配；定稿时开发者看的是“过渡动画”，这样实现出来会像跳变。改 `--motion-move`（或整体位移用 `--motion-layout`）。
+  2. 计划：“内容用 Vue `Transition` 横向滑入（方向随前进、后退）”。“内容切换走 `--motion-base`，不是浮层档”一节写明：同一块地方换内容用 opacity 加约 6px 横向位移，`out-in` 时进出都取 `--motion-fast`，“配方只有一个来源”：基座的 `.nb-ui-switch-*`（src/styles.css:816-837，单方向，进入 `translateX(6px)`，离开 `translateX(-6px)`），“需要内容换页的地方一律引它；不要各自在 scoped 里复制一份同配方”。计划没说引它，也没说位移多少、`mode` 是什么。“横向滑入”若被读成整页滑入（位移是容器宽的量级），就违反“约 6px”的写法；若复制一份成 scoped 样式，违反“不复制”；而“方向随前进、后退”这个配方本身没有（它只有一个方向）。要二选一并写进计划：a) 用 `.nb-ui-switch` 的单方向（“固定单方向是允许的简化”），退回时同样向左；b) 在 nb-ui 里把 `.nb-ui-switch` 加一个反向修饰（改基座，计划里要列出 nb-ui 的文件与它的 `docs`、`token-consumption` 之类的测试）。两者都要把“约 6px”这个量级写进验收，避免与评审板上的“横向滑入”印象不一致。
+  3. 第 1 步到第 2 步三段动画同时发生：看板娘尺寸与位置（280 到 470ms）、`<neurobook-mood>` 自带的换心情动画（尾巴形变 `dur: 460`，neurobook-mood.js:201）、内容 `out-in`（120+120ms）。NeuroBookMood.md 说“换心情时播切换动画”；组件把尺寸交给使用方的 `width`，元素内 SVG 是 `width:100%; overflow:visible`（neurobook-mood.js 的 BASE_CSS），所以尺寸过渡中切换动画会随之缩放，是否好看没有人看过。计划没有规定先后（先缩再换心情，还是同时），也没有在 Lab 里留逐帧截图。建议：心情在尺寸过渡开始时就换，只有这一处同时发生，其余错开；Lab 场景在 0、120、280、460ms 各截一张。这一条是推断，没有运行证据，标为“待 Lab 确认”。
+  4. 减少动态效果：时长类 token 在 `prefers-reduced-motion` 下归零（tokens.css:280-287，带 `!important`），尺寸、`Transition` 都读 token 就自动成立，这点没问题；但计划写“都不动”，而 `.nb-ui-switch` 在减少动态效果下的做法是“保留淡入淡出、去掉位移”（styles.css:831-837），时长已经是 0，等价于直接切换。验收判据要写成“计算样式的 `transition-duration` 为 0s”，不要写成“截图里没有动”。
+  5. 其他禁条：宽度与外边距的过渡必须显式列出属性（禁 `transition: all`），且属性是布局属性，每帧触发布局：向导固定宽高、内容不多，可以接受，但要避免下面的内容区同时依赖看板娘高度（见定稿图里看板娘 128px 时标题在其下）；最好给看板娘一个固定的占位盒、只对盒内元素做 `transform: scale()`，不改布局。计划写“只改宽度与外边距”是最容易触发每帧布局的写法。
+- 如何核实：读 design-language.md:494-612；tokens.css:79-92、280-287；styles.css:816-837；用计算样式断言 `transition-duration`（design-language“判据”）。
+- 建议改法：看板娘用 `--motion-move` 加 `--ease-layout`，位移与缩放用 `transform`；内容引 `.nb-ui-switch`（方向问题二选一写明）；计划里补“三段动画的先后”一行与 Lab 逐帧截图。
+
+### 8. 键盘、焦点与读屏：决定 6 的“回车下一步”在计划与 Spec 里都没有了；换步后的焦点与播报、卡片的角色没写
+- 严重程度：重要
+- 类别：与已定设计一致 / UI 专属（可达性）
+- 位置：plan.md:35-37、plan.md:52（dom 测试清单）；Spec 输出 34“键盘与关闭”；Task README 决定 6
+- 现象与依据：
+  1. 决定 6 写的是“回车下一步、Esc 跳过、上一步保留已选值”。计划与 Spec 输出 34 都只有“打开时焦点在当前步的主按钮上；Esc 等于跳过”，回车一词整份计划没出现（plan.md 里找不到“回车”“Enter”）。主按钮聚焦时回车靠原生按钮行为成立，但在点了一张卡片、拨了一个开关、选了语言之后焦点已经离开主按钮，回车就不再是“下一步”：一个按决定 6 写验收的人会在这里得到不一致。要定：焦点在非按钮控件（卡片、开关、分段控件）上按回车算不算下一步？通常的做法是：焦点在按钮或链接上时回车保持它自己的行为，焦点在选择类控件上时回车不动作（单选组原生就不处理回车），“下一步”靠 Tab 回到主按钮。无论定哪一种都要写进 Spec，并有一条 dom 测试（计划的 dom 测试清单里没有“回车”）。
+  2. 换步后的焦点：计划把“跳过/开始”“上一步/下一步”写成各步的内容。若按钮在被 `Transition` 包着的内容里，换步时当前聚焦的按钮被卸载，焦点掉到 `body`，或被焦点锁收回到面板本身（后一种是从 reka 行为推断，未在运行时核实），都不是新步的主按钮（Dialog.md“初始焦点”只在打开时生效，换步不再算）。键盘用户每步都要重新 Tab 到主按钮，“Esc 与回车”的体验也断了。把按钮放进 Dialog 的 `footer` 插槽（见发现 6）就是同一个元素跨步存在，焦点自然保持；只改文字与显示项。
+  3. 读屏：四段进度条没有写角色与名字。应有“第 2 步，共 4 步：外观”这样一句读得出的文字（`aria-current="step"` 的有序列表，或一个视觉隐藏的 `aria-live="polite"` 行），否则四段颜色的进度对读屏用户不存在；Dialog.md 明写“动效不承担必要信息”，进度只靠颜色也违反 ui-development-spec 第 6 条。每步标题换了之后也要播报：把当前步的标题作为 `aria-live="polite"` 或在换步后把焦点移到标题（`tabindex=-1`）。
+  4. 卡片选择：主题（四张以上）与明暗（三张）是互斥单选，nb-ui 的 `RadioGroup` 是圆钮加文字的形态，不是缩略图卡片；计划只说用卡片，没说角色。要自画就要写成 `role="radiogroup"` 加 `role="radio"` 与 `aria-checked`，方向键在组内移动、Tab 只停在选中项（ui-development-spec 第 5 条第 5 点：“复合选择控件必须暴露正确角色和状态，并支持预期方向键、Home/End、Enter、Escape”）。切片 4 的 dom 测试清单（步进、跳过、Esc、退回、开关事件、减少动态效果）没有一条测这个。缩略图 `<img>` 应是 `alt=""`（卡片名已经是标签），“跟随系统”的一半亮一半暗是同一张卡片，名字里写“跟随系统”。
+  5. 390 宽：一行四张卡片在 358px 宽里每张只有约 80px，缩略图里的字全读不出，要换行成两列；英文文案更长（例如 desktopSettings.openAtLogin 的英文标题“Open NeuroBook when you sign in to Windows”已 42 个字符）。计划的 Lab 场景列了英文与 390 宽，但没有“英文加 390 宽”的组合，也没有“暗色加英文”。长标题要有换行规则（不是 `truncate`：开关行的说明在窄屏被截断就读不出）。
+  6. VS Code 首次启动的主题选择作参照：方向键移动时就预览（不提交），Esc 还原，`Enter` 提交。向导的卡片点一下才生效；加“键盘焦点移动不生效、回车或空格选中才生效”（与 `RadioGroup` 的单选语义“方向键即选中”不同，有取舍）是值得的，但属于增强，不是缺陷。
+- 如何核实：`grep -n "回车\|Enter" plan.md` 只在 Task 决定里出现；Dialog.md“初始焦点”；ui-development-spec.md:193-206。
+- 建议改法：Spec 输出 34 的“键盘”一段加一行回车的定义；按钮进 footer 插槽；进度与步标题的读屏文字写进 `.md` 的“可访问性”；dom 测试加“方向键选中卡片、Tab 只停选中项、换步后焦点仍在主按钮、读屏文字随步变化”。
+
+### 9. 浮层接线：向导组件在每个浏览器页面都被加载；与设置窗口、通知同时出现时的行为没写；入口耦合与命令声明缺项
+- 严重程度：建议（第 1、3 点偏重要）
+- 类别：隐含的耦合与共享状态 / 遗漏
+- 位置：plan.md:38；Spec 输出 34“再次打开”
+- 现象与依据：
+  1. 浮层的实现会被无条件加载：`OverlayFrame` 在 setup 里立刻调用 `provider.load()`（src/plugins/workbench/web/overlays.ts 的 `OverlayFrame`，`provider.load().then(...)`），不看浮层开没开。向导是浮层，所以向导组件及其依赖（含 79 KB 的 `neurobook-mood.js`、一批主题缩略图的 URL 模块）在每个浏览器窗口、每次页面加载都被拉一遍，而浏览器里它永远不会开。计划说“桌面里时贡献浮层”，但贡献声明是静态的（`implementation: "required"`，声明必须配实现，src/plugins/workbench/shared/overlays.ts 与 nb-runtime `host.ts:901`），不能按环境有无。办法：声明总在，实现 `load()` 在 `desktop === null` 时返回一个空组件、不 `import` 向导的 `.vue`（设置窗口的 `load` 已有“`.vue` 只在 load() 里动态导入”的写法可照）。同时把“打不开就不下载”写进切片 5 的验收（e2e 的浏览器用例里断言没有请求向导的 chunk）。
+  2. 同时出现时的叠放，Spec 与计划都没写，按 z-index 登记表（nb-ui/src/theme/z-index.ts）与 Dialog.md 推断：设置窗口是 `FloatingWindow`，整档（8900 到 8999）在模态（9000 起）之下；向导开着时，按 Ctrl+, 或在命令面板（9200）执行“打开设置”，设置窗口会在向导的遮罩后面打开，用户看到“没反应”。通知（9050）高于模态，所以更新提示（桌面更新）能显示在向导之上，但模态的焦点锁让键盘够不到它（鼠标可点，通知卡有 `pointer-events-auto`）。这几处是推断，未在运行时核实，建议 Spec 写一句“向导是模态，开着时设置窗口等要等它关掉才看得见”，或者在向导开着时让命令返回不可用。最少要在 e2e 里走一次“向导开着时用命令面板开设置窗口”看看实际是什么样。
+  3. 入口耦合：计划把向导宿主写进 `nbook.desktop` 现有的浏览器入口（`desktopEntry`，src/plugins/desktop/web/plugin.ts）。该入口目前依赖 `settingsKey`、`diagnosticsKey`（必需）和两个可选项，负责缩放快捷键与把有效值交给壳；向导要加 `storageKey`、命令服务、时钟（都是必需依赖），任何一个解析失败整个入口就起不来：缩放快捷键与开机自启的同步也一起没了。仓库里的做法是分入口：设置插件把设置窗口放在单独的 `settingsWindowEntry`（settings/web/plugin.ts:117-170，注释说明“依赖工作台的通知，所以不能是配置核心入口”）。建议向导单开一个入口 `first-run`（`activationEvents: ["onStartup"]`），失败不拖累缩放与壳同步。
+  4. 命令声明：`nbook.help.desktop-welcome` 要写 `expose: {agent: "never"}`（设置窗口的打开命令是 never，src/plugins/settings/web/plugin.ts:80；缩放三条命令同样）与 `effect: "read"`（它不写配置，写入发生在用户点的时候）。Agent 不该能在用户面前弹出模态向导。命令重复执行（向导已开着）要幂等：不重置当前步，不重复写记录。`when` 用 `inDesktop` 与缩放命令一致，没有问题。
+  5. 页面切换：书架到工作台是整页加载（src/web/boot.ts:64 `navigateDocument: (href) => location.assign(href)`），不是单页路由，所以向导不会“跨页保留状态”，也不会因路由重开；向导开着时用户点不了书架（模态），所以只有两种情形会换页：壳转交开窗（新窗口新页面，读到的是还没有记录，会再开一个，计划已记为已知限制）和用户用快捷键。没有发现丢状态的问题；仅需知道“重载页面 = 向导从第 1 步重来、已改的值保留”，写进 Spec 一句。
+  6. 命令在项目窗口里执行时：发现 1 的建议 a（经命令改主题、明暗、语言）走 `auto` 层，项目层已覆盖该项时会写进作品目录里的项目设置文件。首次向导通常在书架（没有项目层）上出现，不影响；但“再次打开”命令在工作台页上跑时，用户以为在改个人偏好，实际改了作品的文件。Spec 写一句：向导只改用户层，项目层已覆盖时在第二步的控件旁标注“本作品使用自己的主题”，并不去改它；这需要向导读 `settings.inspect(...).source`。
+- 如何核实：读 overlays.ts（`OverlayFrame`）、z-index.ts、Dialog.md“叠放与层级”、NotificationStack.md“交互”、settings/web/plugin.ts:80、117-170；boot.ts:64。
+- 建议改法：见各点；至少做第 1、3 点。
+
+### 10. 向导默认在“有桌面壳的页面 + 没有记录”时弹出：6 个已有 e2e 文件模拟了桌面壳，计划的回归清单只列了 3 个
+- 严重程度：重要
+- 类别：验收映射 / 兼容
+- 位置：plan.md:53、plan.md:71（“合入前 e2e：`desktop-first-run`（新）、`desktop-settings`、`desktop-frame`、`settings`”）、plan.md:53（“照 `desktop-settings.e2e.ts` 的 `installFrame`”）
+- 现象与依据：页面认为自己在桌面里的判据是全局上有 `__electrobunSendToHost`（boot.ts 的 `inDesktop` 与 `desktop.available`）。仓库里模拟壳的 e2e 有 6 个文件：`desktop-close`、`desktop-update`、`text-selection`、`desktop-settings`、`desktop-frame`、`editor-font-size`（`grep -rln "__electrobunSendToHost\|__nbookDesktopFrame" e2e`）。它们各起一个全新的状态根（`createTestTmpRoot`），用户层存储里没有 `first-run` 记录。向导一实现，这 6 个文件里每一次打开页面都会先弹出一个模态向导：遮罩盖住页面、焦点被锁、页面背景不可交互、Esc 被向导拿去当“跳过”。`desktop-close`（测关闭前询问与 Esc）、`desktop-update`（测更新提示的按钮）、`editor-font-size` 与 `text-selection`（测桌面里的滚轮与选择）会大面积失败；`desktop-frame` 的“窗口按钮可点”也被遮罩挡住。计划的合入前清单漏了其中 4 个，且没有想到“全部先失败”这件事：当前的 e2e 规则是“只重跑覆盖改动的文件和失败项”，漏列的文件会在第二轮才暴露。
+- 另：计划说“照 `desktop-settings.e2e.ts` 的 `installFrame`”，但那个文件里的函数叫 `installShell`（e2e/desktop-settings.e2e.ts:47），`installFrame` 在 `desktop-frame.e2e.ts:50` 与 `text-selection.e2e.ts:51` 各有一份不同的拷贝；现在是六份各写各的模拟壳，新增第七份会让 `install-facts` 这类消息的形状在多处漂移。
+- 如何核实：`grep -rln "__electrobunSendToHost" packages/neuro-book/e2e`；读 e2e/desktop-settings.e2e.ts:26-60 的状态根建立方式。
+- 建议改法：
+  1. 在 `e2e/fixtures` 里做一份共用的模拟壳（带 `install-facts` 的发送、记录发给壳的消息），六个文件改用它；
+  2. `startProductServer` 加一个选项，起服务端前把 `first-run` 记录预置进状态根（或提供一个“已看过向导”的状态根模板）；只有 `desktop-first-run` 用空的；
+  3. 回归清单改成“全部 6 个模拟壳的 e2e 加 `settings`”，并在计划里写明先改共用模拟壳再动向导；
+  4. 否则就得接受向导对这 6 个文件各自的 `beforeEach` 要加一步“关向导”，这与“向导只在第一次出现”的验收互相拉扯。
+
+### 11. 写入与失败的做法与设置窗口不一致：没有“在途值”，多次快速点击的顺序、`unknown-outcome` 与遮罩类型都没写
+- 严重程度：建议
+- 类别：与现有约定不一致 / 遗漏
+- 位置：plan.md:35（props“错误文字”）、plan.md:38（“写失败时回到配置服务的值并显示原因”）；Spec 输出 34“值”
+- 现象与依据：
+  1. 设置窗口对写入有“在途值”：`SettingsListSection.vue` 的 `shown()` 在写入进行中显示 `window.pending(key)` 的值，失败后控件回到层里的实际值，原因经通知给用户（settings-window.ts 的 `notifyFailure`，`unknown-outcome` 另有“结果未知”的说法）。配置服务本身不乐观：`update()` 在远程写成功后才 `apply(layer, snapshot)`（src/plugins/settings/shared/instance.ts:262-265），`settings.get` 在这之前仍是旧值。向导按计划“每个控件显示配置项此刻的有效值”，点一张卡片后要等一次往返才亮起，期间再点另一张会得到两个在途写入、先后完成的顺序由服务端写入队列决定。“立刻生效”（决定 6）在本机是毫秒级，感觉不出，但在服务端忙（别的进程在写设置文件、`busy`）时会明显滞后，且滞后期间控件没有任何忙的表示。要写明：向导按设置窗口的做法显示在途值（或在途期间禁用同组其它项），失败时回到有效值。
+  2. `unknown-outcome`（写请求发出后连接中断）：设置窗口有专门文案；计划只写“显示原因”，没说结果未知时说什么。按 ADR 0034 与 i18n.md 输出 13（“结果未知的文案要用户先核对，不承诺未写入或可以安全重试”），这个码要有单独的目录键（见发现 2）。
+  3. 遮罩类型：定稿图里向导背后是被模糊的书架，而 `Dialog` 的 `overlayType` 缺省是 `opaque`（`--overlay-bg` 的暗罩、不模糊，Dialog.vue:90、143）。决定 6 的“主题、明暗当场生效”要让用户从后面的书架看到变化，计划没写 `overlay-type`：取 `blur` 要承担一整屏 `backdrop-blur-sm`，设计语言“窄屏另有性能降级”一段说明过模糊的开销随面积与半径增长，换主题时整页重绘加模糊，是否卡要在 Lab 或 e2e 里量一次；取 `transparent` 则背后的书架完全清晰但没有“模态”的感觉。要在计划里选一个，并在 Lab 场景里留明、暗两张图。
+  4. 值是即时写的，所以“跳过”“Esc”不撤销任何已改的值，“上一步保留已选值”天然成立；但 Spec 没有说“跳过不回滚”。用户在第二步试了暗色又按 Esc，界面留在暗色。建议在 Spec 的“键盘与关闭”里写一句，免得有人实现成“跳过时恢复进入前的值”。
+  5. 写入的层：写主题、明暗时若走 `settings.update` 的 `auto`，项目层已覆盖该项就会改作品里的项目设置文件（见发现 9 第 6 点），向导文案说的是“你的偏好”。
+- 如何核实：读 SettingsListSection.vue:60-92、instance.ts:250-266、Dialog.vue:49、90、143、design-language.md 第六节末尾的“窄屏另有性能降级”。
+- 建议改法：写进计划与 Spec 各一句；遮罩选 `blur`、Lab 里量一次整页换主题的帧时间；在途值与失败文案（含 `unknown-outcome`）列入 `.md` 与 dom 测试。
+
+### 12. 验收映射：动效与“减少动态效果”放在 happy-dom 里测不出；升级用户、写入失败、记录写不成都没有对应测试
+- 严重程度：重要
+- 类别：验收映射
+- 位置：plan.md:56-66（验收映射表）、plan.md:52-53（切片 4、5 的测试清单）
+- 现象与依据：
+  1. 表里“输出 34 四步、值、键盘、动效、减少动态效果 | 切片 4 dom 测试与 Lab 截图”。dom 测试在 happy-dom 里跑（packages/neuro-book/vitest.config.ts:19），没有真实的样式计算与 `prefers-reduced-motion`：过渡时长来自 CSS 变量令牌，`transition-duration` 的解析值、看板娘 128px 到 48px 的位置与尺寸、“减少动态效果时时长为 0”，都读不出。design-language“判据”写的就是“读元素的计算样式，`transition-duration` 必须等于对应 token 的解析值”，nb-ui 的做法是 `token-consumption.test.ts` 静态扫描加真实浏览器里读样式。向导的动效验收要放到真实浏览器：e2e 里 `page.emulateMedia({reducedMotion: "reduce"})`（lab.e2e.ts、themes.e2e.ts 已有同类用法）后读 `transition-duration` 与看板娘的 `getBoundingClientRect`，不减少时读到的是 `--motion-move` 的值（发现 7）。dom 测试能测的只有：步进、事件、键盘、按钮显隐。
+  2. Spec 输出 34 写了、验收表没有对应用例的行为：
+     - “升级前已在桌面版里用过的状态根同样出现一次”：e2e 应预置有设置、有项目、没有 `first-run` 记录的状态根，断言出现；计划的 e2e 清单只有“第一次出现”。
+     - “完成或跳过写不成时记诊断，下次还会出现”：要一条在记录写失败（例如让用户层存储返回 `io-error`）时诊断里有条目、重载后向导再出现的用例；可在真实服务端里把用户库文件设为只读做，不必替身。
+     - “写入失败时控件回到配置服务里的值，向导底部说明原因”：要真实地让一次设置写入失败（例如把设置文件改成只读，e2e 里有同类做法）并断言控件值与状态行文字，现在只有 Lab 场景（静态）。
+     - “点遮罩不关”“再次打开不改记录之外的东西”：dom 测试能测前者；后者要在 e2e 里断言命令执行前后设置值与记录的 `at` 不变（见发现 4：计划写的“完成或跳过同样写记录”会改写 `at`，与“不改记录之外的东西”的措辞要对齐）。
+     - “浏览器里不出现”：e2e 里不装壳，断言页面里没有向导的 DOM，并且（发现 9 第 1 点）没有请求向导的包。
+  3. 第 6 步 Windows 验收只做“向导出现、关快捷方式、开快捷方式”；“便携版第一次打开：第三步没有前两行”（场景 19 的最后一句）计划放在 e2e 里用“安装事实为便携时”模拟，没有真实便携版的验证，计划“未验证”一节只列了首次安装与 OneDrive 两项，没有列这一条：它依赖壳端的 `installed` 判据与页面端的 `facts()`，只有 e2e 时壳端那半没有验。
+  4. 受控组件的“力度”：`change(key, value)` 用字符串 key（plan.md:35）会让类型失去约束：键与值的组合（theme 配 string、appearance 配三个字面量、locale 配语言标签、三项开关配布尔）在组件事件上是一个联合类型，不是 `(key: string, value: unknown)`；写成判别联合 `{key: "theme"; value: string} | {key: "appearance"; value: "light" | "dark" | "system"} | …` 才能让宿主的 `switch` 得到编译期核对，也让 dom 测试断言“发出的事件”时有稳定的形状。
+- 如何核实：读 vitest.config.ts；design-language.md“判据”；`grep -n emulateMedia e2e/lab.e2e.ts`。
+- 建议改法：验收表加 4 行（升级用户、记录写失败、设置写失败、浏览器不加载）；动效的行改成 e2e 的计算样式断言；“未验证”加便携版的壳端判据。
+
+### 13. 第 4 步的路径要“可以选中复制”：桌面壳根上默认不可选，计划没有写选择性、折行与对应测试
+- 严重程度：建议
+- 类别：遗漏 / 被破坏的既有约定
+- 位置：plan.md:30、35、37；Spec 输出 34 第 4 步（“路径可以选中复制”）
+- 现象与依据：ui-development-spec.md 4.7：桌面壳在根上默认不可选，组件各自声明；“内容（正文、代码、原文、路径、错误与诊断……）写可选，即使外层是不可选的容器”；“通知、确认对话框与气泡面板整体不可选”。向导是 Dialog，在桌面里整体按“框架”处理，路径行必须显式 `select-text`，计划没写。仓库已有一条专测这件事的 e2e（e2e/text-selection.e2e.ts：把含文字的文本节点整个选中，读 `Selection.toString()`），新增区域没有登记进去的话不会被覆盖。
+  另有两点：
+  1. Windows 的状态根路径很长（`C:\Users\<名字>\AppData\Local\<应用标识>\…\`，通常 60 到 90 个字符），390 宽或缩放 150% 以上的视口放不下；要有折行规则（`break-all` 或水平滚动），并在 Lab 里放一个 120 字符的路径。nb-ui 有 `CopyButton`（controls/CopyButton.md），“选中复制”之外加一个复制按钮对键盘与读屏用户更稳；这是 Spec 以外的增强，开发者定要不要。
+  2. “打开”的目标禁用状态：`places.open` 的失败码是 `no-desktop`（服务端没有桌面）与 `open-failed`，“文件夹不在”是第三种结果（作品目录还没建）。三种在向导底部各说什么没有列表；“文件夹不在”不是错误，是正常的新用户状态（计划自己也说了“不替用户建”），不应走危险色的状态行。要区分：中性提示与错误两档。
+- 如何核实：读 ui-development-spec.md 4.7；e2e/text-selection.e2e.ts 的 `copyable` 与 `expectSelectable`。
+- 建议改法：第 4 步的路径元素 `select-text`；text-selection e2e 加一个“向导的路径”用例（装模拟壳后打开向导）；第三种结果在 Spec 里写成中性提示。
+
+### 14. “缩略图由 Lab 的书架场景截出”：Lab 里没有产品的四套内置主题，截不出开发者验过的图
+- 严重程度：重要
+- 类别：依赖的机制不存在 / 与已定设计一致
+- 位置：plan.md:37（“内置四个主题各两张缩略图……由 Lab 的书架场景截出；生成命令写进组件 `.md`”）；Task 决定 6（“主题与明暗卡片用真实书架截图”）
+- 现象与依据：
+  1. Lab 的主题切换器装的是 nb-ui 的主题包：`installThemePacks([nbookTheme, macosTheme, editorialTheme, auroraTheme])`（src/plugins/lab/web/lab-theme.ts:24），也就是 NeuroBook、macOS、Editorial、Aurora 四个；产品的内置主题是 nbook、macos、eye-green、eye-sepia 四个（workbench/shared/themes.ts:144-149）。护眼绿与护眼米黄是产品里的 `ThemeDeclaration`（只给配色，基座取 nbook），Lab 里没有。定稿评审板的四张卡片标题正是 Lab 的四个（NeuroBook、macOS、Aurora、Editorial），后两个在产品里不存在：开发者验过并确认的那张图，换成真实内置四套之后，卡片内容就变了，这一点没有被发现。
+  2. 同一文件 34-40 行写明：Lab 的配色只留 nbook 的两套（nbook-light、nbook-dark），“Lab 里看到的 macOS 主题不是它设计时的样子；真要按设计观感评判它，得先把 macos-light / macos-dark 放回”。所以连 macOS 这一张，Lab 截出来也不是产品里的样子，而决定 6 要的恰恰是“真实”。
+  3. 计划 78 行的维护方式“改主题时一并重截”因此指向了一个截不到这些主题的来源。
+- 如何核实：读 lab-theme.ts:18-46；`grep -rn "eye-green" src/plugins/lab` 无结果；对照 workbench/shared/themes.ts:144-149。
+- 建议改法：缩略图的来源改为产品页：用 e2e 的产品服务端（`startProductServer`）加预置的设置（`theme`、`appearance`）打开书架页截图，一条脚本循环四个主题加两种明暗（共 8 张），脚本进 `scripts/` 或 `e2e/` 下并在 `.md` 里写命令；书架里的作品数据用固定的 fixture（与定稿图一致的那份）。这样“真实书架截图”才成立，并且重截是一条可重复的命令。同时在计划里列出真实的四个主题名，重做评审板里那两张图的卡片名（Aurora、Editorial 改成护眼绿、护眼米黄），让开发者确认的是真实的样子。
+
+### 15. 参照与小项：语言列表硬写两种、第 1 步没有语言入口、卡片只在点击后生效
+- 严重程度：建议
+- 类别：对照参照 / 别扭
+- 位置：plan.md:37（“语言用 `SegmentedControl`”）；Spec 输出 34 第 2 步（“界面语言（简体中文、English）”）
+- 现象与依据：
+  1. 语言选项应来自 `HOST_LOCALES`，不要写死两个：设置里的语言项由 `localeSettingFor(HOST_LOCALES)` 生成，注释写明“加一种语言时设置与命令一起变”（src/plugins/settings/shared/contracts.ts:53-72）。向导写死“简体中文、English”会在加第三种语言时漏掉；`SegmentedControl` 三项以上、名字长时 ui-development-spec 4.2 建议改 `RadioGroup` 或 `Select`，窄屏也放不下。
+  2. 新装的桌面版第一屏一定是中文：初始语言是 `readLocaleHint(...) ?? "zh-CN"`（src/web/boot.ts:55），本机没有记录就取 zh-CN，不看系统语言（`grep navigator.language src/web src/shared` 无结果）。英文系统的新用户第一屏看到“欢迎来到 NeuroBook”，要到第 2 步才能换语言。决定 4 把语言放在第 2 步，可以保留，但第 1 步可以不改顺序地加一处小的语言入口（例如右上角“English”），或者首次时按系统语言设初值。这是建议，不是缺陷，开发者定。
+  3. VS Code 首次启动的主题选择作参照：方向键或悬停时预览、回车或点击才提交，Esc 还原；“跳过”后仍能从欢迎页再进。计划有第二点（命令再打开），没有第一点（预览不提交）。向导里每次点击就写设置文件并推到全部窗口，试四套主题就是四次写入加四次广播；对习惯“试一试”的用户，预览不提交更好，但会让“立刻生效”（决定 6）的实现复杂一档，属于以后的增强。
+  4. 没有对应的位置：Spec 输出 34 的“完成或跳过时写记录”没说“关窗”（标题栏关闭、Alt+F4）算什么：既不是跳过也不是完成，记录不写，下次又出现。这是合理的，但要写进 Spec，免得验收时当作缺陷。
+- 如何核实：读 settings/shared/contracts.ts:53-72；boot.ts:55；ui-development-spec.md 4.2。
+- 建议改法：语言选项取 `HOST_LOCALES`；其余三点在 Spec 里各写一句取舍。
+
+## 未发现问题的方面
+- 向导挂在 `workbench.overlays` 的挂载时机与页面寿命：overlays.ts 与 home-page.ts 核实了书架与工作台页共用同一个页面根、每页一份、随页面卸载；书架到工作台是整页加载（boot.ts:64 `location.assign`），不会因路由重开或跨页丢状态；单个浮层加载失败只影响自己（`OverlayFrame` 的 `onErrorCaptured`）。唯一的问题是发现 9 的第 1 点（无条件加载）。
+- 主题、明暗、语言“当场生效”的生效路径本身：语言由 `nbook.settings` 的 `locale` 入口的 effect 推给翻译引擎，换语言不重载页面，组件经 `usePluginText` 随端口变；主题由工作台应用到文档根，Dialog 传送到 body，外观随之变。问题在写入的权限（发现 1）与来源（发现 3），不在生效路径。
+- 减少动态效果：时长类令牌在 `prefers-reduced-motion` 下归零（tokens.css:280-287），按令牌写就自动成立；`NeuroBookMood` 自己也在减少动态效果时不循环、不播切换动画（neurobook-mood.js 第 8 行说明与 `reduce()`）。
+- 与已定决定 1、2、3、5 的一致性：未发现悄悄改动。决定 4、6 见发现 8（“回车下一步”丢失）与发现 14（“真实书架截图”的来源）。
+- 缩略图体积：估计 8 张合计 120 到 200 KB，不是问题（发现 5 第 5 点）。
+- 命令 id `nbook.help.desktop-welcome`：`help` 在命令域词表里，命名合规。
+
+## 条数
+- 阻断：1（发现 1）
+- 重要：9（发现 2、3、4、6、7、8、9 的第 1、3 点、10、12、14；按条数记发现 2、3、4、6、7、8、10、12、14 共 9 条，发现 9 记为建议）
+- 建议：5（发现 5、9、11、13、15）
+- 合计 15 条；按影响的阅读顺序：1、3、14、4、10、2、6、8、7、12、5、9、11、13、15（文件里按核实先后编号）
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15

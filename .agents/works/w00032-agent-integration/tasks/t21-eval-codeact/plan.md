@@ -95,6 +95,16 @@
 - **文档**：`docs://eval/<对象名>`，由 nbook.agent 生成：一行摘要、插件写的说明、每个方法由 `parameters` 与 `returns` 生成的 TypeScript 签名加它的 `description`。eval 的说明只列这个会话里至少有一个方法在生效工具集的对象。
 - **示例与验收**：`plugin-sdk/examples/` 加一个最小的全局对象示例（带讲解注释与场景测试）。
 
+#### 切片 4 的细化（2026-11-18，开发者用自主推进推进这一片）
+
+照上面的形状落到代码，几处在设计审查之后才定，由 Task 收口的实现审查一起审：
+
+- **贡献点** `agent.evalObjects`：`implementation: "none"`（同 `agent.skills`，只有声明，不用入口与激活），`idPrefix: "plugin"`，schema `{name: JS 标识符, summary: 非空, docs?: string}`。SDK 的 `/agent` 子路径加助手 `evalObject(id, declaration)` 与常量、类型。
+- **校验与诊断**（`backend/eval/objects.ts`）：对象名与内核名（`tool`、`display`、`console`、`require`、`ToolCallError`、解析函数）或宿主全局上已有的名字（`Math`、`process`、`Bun` 这类）冲突的不登记；两个插件同名的双方都不登记，诊断 `eval-object-conflict` 写明两个插件。带 `global` 的工具，`global.object` 不是同一插件登记的有效对象时不进工具表（`AgentTools.all()`），诊断 `eval-object-missing`。
+- **文档**：`docs://eval/<对象名>.md`。`docs://` 的 `eval` 挂载点用挂载声明自己的 `container`（文件服务已有的机制，`skills://` 在用），指向状态根下 nbook.agent 维护的 `agent/eval-docs/`；激活时按声明生成一次（第三方插件集合在进程生命期内不变，插件安装的 Spec），删掉不再有的对象的文件。内容：一行摘要、插件写的说明、每个方法由 `parameters` 与 `returns` 生成的 TypeScript 签名加方法的 `description`。签名打印器手写（技术选型），只认对象、数组、标量、枚举、`const`、联合、可选、`additionalProperties`，认不出的写 `unknown`。
+- **按会话的说明**：`agent.ts` 给内核的 `declarations(context)` 里，eval 的声明换成按这个会话的工具集算出的说明：基础说明后接“可用的全局对象”一节（每个对象一行摘要加文档地址），`version` 写成 `1+<这一节的短哈希>`；列表变了内核按输出 16 写 `tools-changed`。没有对象时说明与版本都是基础的那份。
+- **示例**：`plugin-sdk/examples/plugins/word-stats`：全局对象 `stats` 与方法 `stats.count({text})`（`returns` 声明 `{chars, lines}`）；场景 10 用 Agent 的测试场地（`agentWorld` 与脚本化的模型端点）装进去，eval 里 `await stats.count(...)` 拿到对象，`docs://eval/stats.md` 读得到签名。
+
 ### 对话视图
 
 注意力排序已定（README 决定 6），做起来复杂的地方可以从简。分工：子调用的数据、适配、计数与折叠卡片下的子行是通用能力，在 `packages/nb-agent-ui`；eval 的渲染器登记与详情组件是 `nbook.agent.eval` 的，在 `plugins/agent/web`。`activeCalls` 不变（eval 是前台调用，运行中的轮次本来就不收起）。
@@ -142,8 +152,8 @@ Spec 写好后按编号补；先列要覆盖的场景：
 - 入口：从应用包与 `dist/server` 各起一次服务，在另一个目录的会话里跑一条 eval；握手版本不符时得有原因的失败。→ 应用包测试、`eval.test.ts`
 - 中途停止：子进程被杀，在途的嵌套调用收到中止。→ `eval.test.ts`
 - 内核里的执行环境（3.1 稿）：没 await 的调用失败时单元判失败并提示；`await tool`、`tool.then` 不卡；拼错工具名得 `unknown-tool` 并列出能用的；代码里 `process.chdir` 过下一个单元仍在工作目录；`import` 与 `import("./相对")` 按工作目录解析，`require` 可用；`Bun.$` 不取 `.text()` 的输出进本单元；内核卡在同步死循环时服务端被杀，内核与它的子进程都结束；代码里 `process.exit(0)` 得 `kernel-exited`；上一个单元留下的定时器晚到的调用得 `parent-finished`；会话关闭后再调直接失败；`reset: true` 带空代码只重置。→ `eval.test.ts`（真实子进程）
-- 说明按会话：绑定了一个全局对象的会话，说明里列出它；切换 Profile 去掉它之后，下一次请求前有 `tools-changed`。→ `eval.test.ts`
-- 全局对象：只在绑定了它的方法时可用；同名两方都不进；文档里有生成的签名。→ 示例场景测试
+- 说明按会话：绑定了一个全局对象的会话，说明里列出它；切换 Profile 去掉它之后，下一次请求前有 `tools-changed`。→ 示例场景 10（切片 4 实施时从 `eval.test.ts` 挪过来：场景 10 已有带全局对象的插件与两个 Profile）
+- 全局对象：只在绑定了它的方法时可用；文档里有生成的签名。→ 示例场景 10；同名两方都不进、与内核或宿主全局的名字冲突、方法的对象无效、签名打印、说明的哈希 → `backend/eval/objects.test.ts`
 - 界面：父调用失败时已写成的嵌套写入仍列在改动里；被拒的写入列出目标；跟帧与重建出的子调用相同；运行中副标题的次数与当前一步。→ 适配器契约测试、nb-agent-ui DOM 测试、Lab 场景与 e2e
 
 ## 验证

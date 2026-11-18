@@ -78,7 +78,8 @@ t10 会给目录加内置来源与“我的优先”的同名规则；本 Task �
 - `plugins/markdown`：可选解析 `stickerPickerKey`（`resolve`，晚到时按钮后出现，不拦激活）。
   - `MarkdownStickerMenu.vue`：补全，照 `MarkdownSlashMenu`；确认后 `insertStickerAtTrigger` 并 `used`。
   - 工具栏“表情”（`prompt: sticker`，进 `PROMPTS`；固定宽度表加一格）、斜杠“块”组“表情”。
-  - 菜单层（审查第 10 条）照插图卡片接：打开时 `holdSelection`/`holdCaret`，选区菜单 `suspended`、批注层 `blocked`，与注音、链接、插图卡片互斥，换文档或变只读时关；锚点：工具栏按钮在视图里时锚按钮，在“⋯”里或从斜杠打开时锚光标（`selectionAnchor`）；从 `+` 块的斜杠打开、放弃时回收空段落（同 `removeSlashBlock`）。选了经 `menus.run('sticker', {text})`。
+  - 菜单层（审查第 10 条）照插图卡片接：打开时 `holdSelection`/`holdCaret`，选区菜单 `suspended`、批注层 `blocked`，与注音、链接、插图卡片互斥，换文档或变只读时关；锚点一律是光标（`selectionAnchor`，同插图卡片）。选了用控件的编辑动作 `editing.run('sticker', {text})`（同步交回成败，Shift 连着插时竖线马上跟过去）。
+  - 实施中改的（2026-11-18）：原写“工具栏按钮在视图里时锚按钮”与“`+` 块放弃时回收空段落”，实施时改成同插图卡片：锚在光标；从斜杠菜单选了“表情”不算放弃斜杠菜单（同插图），`/` 已删、块留着。Spec 输出 39、62 同改。
 
 ### neuro-book：输入框接线
 

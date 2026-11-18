@@ -326,6 +326,15 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 能照着改的例子是 SDK 包里的 `examples/plugins/skill-pack`。
 
+### 给 Agent 的代码一个全局对象
+
+Agent 有一个 eval 工具（[代码执行](../../../docs/specs/agent/eval.md)）：模型写一段 JS，在代码里调工具、批量做事。插件可以给这段代码一个全局对象，例如 `stats.count({text})`。能照着改的例子是 SDK 包里的 `examples/plugins/word-stats`。
+
+- **对象**：在 `plugin.ts` 里用 `/agent` 的 `evalObject` 声明，``plugin.descriptor([evalObject(`${plugin.id}.stats`, {name: "stats", summary: "一行摘要", docs: "给模型读的说明"})])``。只有声明，不用入口与激活。`name` 是代码里的全局名，与内核给的名字（`tool`、`display`、`console`、`require`）或 JS 的全局（`Math`、`process`）重名的不登记；两个插件登记同名对象时两个都不登记，诊断里写明两方。
+- **方法**：每个方法是一个工具，用 `agentTool` 写在服务端入口，声明里多一个 `global: {object: "stats", method: "count"}`；`global.object` 要是同一插件登记的对象。这样的工具不进模型的工具清单，只能在代码里调；审批、规则、参数校验与日志都按方法走，和别的工具一样，会写文件的方法照常要用户批准。
+- **交回的值**：声明了 `returns`（JSON Schema）的方法，代码拿到的是结果的 `details`（照 `returns` 校验过）；没声明的拿到结果文字。方法收一个参数对象。
+- **文档**：`nbook.agent` 为每个对象生成 `docs://eval/<名>.md`：摘要、`docs`、每个方法由 `parameters` 与 `returns` 生成的 TypeScript 签名加它的 `description`。eval 的说明里只放一行摘要与这个地址，模型用之前去读。只有绑定了至少一个方法的会话里才列出这个对象。
+
 ### 作者可用的内置命令
 
 内置插件的命令很多，作者能依赖的（属于 `engines.neurobook` 的兼容范围）只有下面这些；别的内置命令随产品改动，不要写进插件。

@@ -133,6 +133,7 @@ describe("代码里调工具（eval.md 输出 6 到 9）", () => {
         const kernel = await startKernel();
         let called = 0;
         const calls: Calls = async () => ((called += 1), {ok: true, value: null});
+        // test-lint-allow fixed-wait: 这个定时器是交给内核的代码、被测的对象（上一个单元留下的），测试等的是 `late` 这个 Promise
         await run(kernel, `globalThis.late = new Promise((done) => setTimeout(() => tool.read({}).then(() => done("ran"), (e) => done(e.code)), 200)); 1`, calls, ["read"]);
         // 下一个单元等那个定时器；它发起的调用属于已经结束的单元。
         expect(value((await run(kernel, `await late`, calls, ["read"])).end)).toBe("parent-finished");

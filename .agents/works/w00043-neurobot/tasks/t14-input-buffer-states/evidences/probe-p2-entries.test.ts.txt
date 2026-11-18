@@ -1,0 +1,84 @@
+// t14 探针 2：几个入口在空闲或收口前后对缓冲区的处理（真实内核）
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+
+let n = 0;
+const id = () => `p2-${++n}`;
+const gate = () => {
+    let open!: () => void;
+    const p = new Promise<void>((r) => (open = r));
+    return {p, open};
+};
+const bufferOf = async (s: any) => (await s.raw.snapshot()).buffer.map((b: any) => [b.mode, b.input.text, b.by?.kind ?? "user"]);
+
+test("E 空闲时回答异步提问、但开不起运行（模型解析失败）", async () => {
+    const {createTestModel} = await import(`${K}/testing/model.ts`);
+    const tm = createTestModel();
+    let broken = false;
+    const models = {resolve: (q: any) => (broken ? {ok: false, code: "no-credentials"} : tm.port.resolve(q))};
+    const asker = {id: "lab.later", execute: async (_a: any, context: any) => { await context.ask({question: "要几章？"}, {async: true}); return "先接着做"; }};
+    await using s = await createTestSession({tools: [asker], models});
+    tm.script({tools: [{tool: "lab.later"}]}, "先写着");
+    const first = await s.say("开始");
+    const q = first.events.find((e: any) => e.type === "interactionRequested");
+    broken = true;
+    const r = await s.raw.resolve({commandId: id(), id: q.data.id, decision: "answer", answer: {text: "三章"}});
+    console.log("E resolve:", JSON.stringify(r.ok ? r.value : r));
+    const sent = await s.raw.send({commandId: id(), input: {text: "同样情形下的 send"}});
+    console.log("E send:", JSON.stringify(sent.ok ? sent.value : sent));
+    const st = await s.raw.start({commandId: id()});
+    console.log("E start:", JSON.stringify(st.ok ? st.value : st));
+    console.log("E status:", (await s.raw.snapshot()).status.state, "buffer:", JSON.stringify(await bufferOf(s)));
+});
+
+test("F 停止（keepQueue）进行中到达的用户的话", async () => {
+    const entered = gate();
+    let finishTool!: () => void;
+    const slow = {id: "slow", execute: (_a: any, ctx: any) => new Promise<string>((resolve) => { entered.open(); ctx.signal.addEventListener("abort", () => { finishTool = () => resolve("stopped"); }); })};
+    await using s = await createTestSession({tools: [slow]});
+    s.model.script({tools: [{tool: "slow"}]}, "答二");
+    const sent = await s.raw.send({commandId: id(), input: {text: "任务"}});
+    if (!sent.ok) throw new Error(JSON.stringify(sent));
+    await entered.p;
+    await s.raw.send({commandId: id(), input: {text: "停止前排的"}});
+    const aborting = s.raw.abort({commandId: id(), keepQueue: true});
+    await new Promise((r) => setTimeout(r, 10));
+    const during = await s.raw.send({commandId: id(), input: {text: "停止进行中用户发的"}});
+    console.log("F send during aborting:", JSON.stringify(during.ok ? during.value : during));
+    finishTool();
+    console.log("F abort:", JSON.stringify(await aborting));
+    const log = (await s.raw.log({afterSeq: 0, limit: 500})).events;
+    console.log("F tail:", log.slice(-4).map((e: any) => e.type + (e.type === "runEnded" ? `(${e.data.reason})` : "")).join(" "));
+    console.log("F status:", (await s.raw.snapshot()).status.state, "buffer:", JSON.stringify(await bufferOf(s)));
+});
+
+test("G 出错之后 start（错误气泡的重试）：接着跑失败那一轮还是取缓冲区", async () => {
+    const entered = gate();
+    const hold = gate();
+    await using s = await createTestSession({tools: [{id: "slow", execute: async () => { entered.open(); await hold.p; return "ok"; }}]});
+    s.model.script({tools: [{tool: "slow"}]}, {fail: "provider", retryable: false, message: "boom"}, "重试的答复", "下一条");
+    const sent = await s.raw.send({commandId: id(), input: {text: "用户的话"}});
+    if (!sent.ok) throw new Error(JSON.stringify(sent));
+    await entered.p;
+    await s.raw.as({kind: "session", id: "parent"}).send({commandId: id(), input: {text: "运行中会话排的"}});
+    hold.open();
+    console.log("G first run:", (await s.raw.waitRun(sent.value.runId)).reason, "buffer:", JSON.stringify(await bufferOf(s)));
+    const st = await s.raw.start({commandId: id()});
+    console.log("G start:", JSON.stringify(st.ok ? st.value : st));
+    if (st.ok) console.log("G second run:", (await s.raw.waitRun(st.value.runId)).reason);
+    const turns = (await s.raw.path()).filter((e: any) => e.type === "turnStarted" || e.type === "input").map((e: any) => e.type === "input" ? `input:${e.data.text}(${e.data.by?.kind ?? "user"})` : `turn(input=${e.data.inputId === null ? "null" : "id"})`);
+    console.log("G path:", JSON.stringify(turns), "buffer:", JSON.stringify(await bufferOf(s)));
+});
+
+test("H 空闲时用户 enqueue，再由用户 send：谁先跑", async () => {
+    await using s = await createTestSession({});
+    s.model.script("答一", "答二", "答三");
+    const q = await s.raw.enqueue({commandId: id(), input: {text: "空闲时排的"}, mode: "steer"});
+    console.log("H enqueue steer on idle:", JSON.stringify(q.ok ? q.value : q), "status:", (await s.raw.snapshot()).status.state);
+    const sent = await s.raw.send({commandId: id(), input: {text: "之后发的"}});
+    if (!sent.ok) throw new Error(JSON.stringify(sent));
+    await s.raw.waitRun(sent.value.runId);
+    const path = (await s.raw.path()).filter((e: any) => e.type === "input" || e.type === "steer").map((e: any) => `${e.type}:${e.data.text}`);
+    console.log("H path:", JSON.stringify(path), "buffer:", JSON.stringify(await bufferOf(s)));
+});

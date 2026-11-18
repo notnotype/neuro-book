@@ -250,6 +250,24 @@ describe("各方案对 Agent 的权限", () => {
 });
 
 describe("写入接口的会话绑定版", () => {
+    test("输出 17：代码里调的工具的写入：同一个父调用里的几次调用共用一个组，标题是父调用的工具；来源是各自的嵌套调用", async () => {
+        const w = await world();
+        const {id, resources} = await open(w);
+        const messages: ChangesMessage[] = [];
+        const subscribed = await remote!.use(userFilesContract).events.changes.subscribe({}, (message) => messages.push(message));
+        expect(subscribed.ok).toBe(true);
+        await waitUntil("订阅就绪", () => messages.some((message) => message.kind === "ready"));
+        const signal = new AbortController().signal;
+        const within = {tool: "nbook.agent.eval", invocation: `parent-${id}`};
+        expect(await resources.call({callId: "nested-1", signal, within}).write("user://甲.md", "甲", {expect: "absent"})).toMatchObject({ok: true});
+        expect(await resources.call({callId: "nested-2", signal, within}).write("user://乙.md", "乙", {expect: "absent"})).toMatchObject({ok: true});
+        const events = (): FileChange[] => messages.flatMap((message) => (message.kind === "batch" ? message.events : [])).filter((event) => ["甲.md", "乙.md"].includes(event.path));
+        await waitUntil("两条事件", () => events().length === 2);
+        expect(events().map((event) => event.source.kind === "agent" ? event.source.entry : null).sort()).toEqual(["nested-1", "nested-2"]);
+        expect(new Set(events().map((event) => event.group?.id)).size).toBe(1);
+        expect(events()[0]?.group?.title).toBe("nbook.agent.eval");
+    });
+
     test("验收 6：一次调用里写两个、删一个，三条事件都是这个会话、带这次调用的条目 id 与同一个组（标题是工具 id）；取消后不再写", async () => {
         const w = await world();
         const {id, resources} = await open(w);

@@ -10,7 +10,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, Clock, CompactionRestoreArgs, CompactionRestored, ModelPort, RunResult, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, CompactionRestoreArgs, CompactionRestored, ModelPort, RunResult, SessionIndexEntry, StorageResult, ToolDeclaration, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
 import {RequestRecorder, RequestTraceUnavailable, traceModelPort} from "@notnotype/nb-harness/kit/requests";
@@ -47,6 +47,8 @@ import {SESSION_META_MATERIAL} from "./session-meta";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
 import {createPermissionHook} from "./permissions";
 import {modesContract} from "./permissions/modes";
+import {objectDoc, validEvalObjects, type EvalObject} from "./eval/objects";
+import {EVAL_TOOL, evalDeclarationFor, KERNEL_NAMES, type CodeTool} from "./eval/tool";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {
@@ -105,6 +107,12 @@ export interface AgentRuntime {
     readonly kernelClock: Clock;
     /** 会话目录的根：`sessions://` 的容器。 */
     readonly sessionsRoot: string;
+    /** 这个会话此刻能经代码调的工具（eval 用，eval.md 输出 6）：与内核的生效工具集同一份来源，带交给服务商的名字与 `returns`。 */
+    codeTools(context: ToolSessionContext): readonly CodeTool[];
+    /** 有效的全局对象，按名字（contributions.md 输出 25）。 */
+    readonly evalObjects: ReadonlyMap<string, EvalObject>;
+    /** 每个全局对象的文档（`docs://eval/<名>.md` 的内容，resources.md 输出 16）。 */
+    evalDocs(): ReadonlyMap<string, string>;
     /** 存储层的会话列表，不加缺省的过滤（含归档与后台的），`sessions://` 与临时目录的清理用。 */
     listSessions(): Promise<readonly SessionIndexEntry[]>;
     stop(): Promise<void>;
@@ -166,7 +174,9 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     const sessionFilesFor = filesFor(options.files);
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
-    const tools = new AgentTools({catalogChanged, declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
+    // 全局对象（contributions.md 输出 25）：声明在进程生命期内不变，挑一次。
+    const evalObjects = validEvalObjects(options.declarations, KERNEL_NAMES, options.report);
+    const tools = new AgentTools({catalogChanged, evalObjectOf: (object) => evalObjects.get(object), declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,
@@ -217,7 +227,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         models,
         retry: () => ({maxRetries: options.settings.get(agentSettings.settings.modelRetries)}),
         tools: {
-            declarations: (context) => tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]),
+            declarations: (context) => sessionDeclarations(tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]), evalObjects),
             create: (id, context) => tools.create(id, context),
         },
         resources: (context) => kernelResources(sessionFilesFor(context, null)),
@@ -391,6 +401,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     return {
         host,
         tools,
+        codeTools: (context) => tools.codeToolsOf(tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile])),
+        evalObjects,
+        evalDocs: () => {
+            const methods = tools.evalMethods();
+            return new Map([...evalObjects.values()].map((object) => [object.name, objectDoc(object, methods.filter((method) => method.object === object.name))]));
+        },
         compaction,
         profiles,
         userProfiles,
@@ -438,3 +454,16 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     };
 }
 
+/** 一个会话的工具集交给内核之前：eval 的说明按这个会话里的全局对象算（eval.md 输出 16）。 */
+function sessionDeclarations(declarations: ToolDeclaration[], objects: ReadonlyMap<string, EvalObject>): ToolDeclaration[] {
+    const index = declarations.findIndex((declaration) => declaration.id === EVAL_TOOL);
+    if (index < 0) return declarations;
+    const present = new Set(declarations.flatMap((declaration) => (declaration.global === undefined ? [] : [declaration.global.object])));
+    const listed = [...present].flatMap((name) => {
+        const object = objects.get(name);
+        return object === undefined ? [] : [object];
+    });
+    const next = [...declarations];
+    next[index] = evalDeclarationFor(declarations[index]!, listed);
+    return next;
+}

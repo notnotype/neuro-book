@@ -23,6 +23,7 @@
 验证范围与工具按仓库 [验证门禁](../../docs/testing/README.md#验证门禁) 执行；本包只补条件：
 
 - 组件行为变化运行受影响的 Vitest 合同；公开类型、props/emits 或导出变化运行 `bun run typecheck`。
+- 入口加了或删了组件：插件 SDK 的组件清单要跟着改（`packages/neuro-book/src/sdk/components.ts`；不给插件用的列进同目录 `sdk.test.ts` 的 `NOT_FOR_PLUGINS` 并写理由），再跑 `packages/neuro-book/src/sdk` 的测试。只跑本包的测试查不出清单落下了（w00032 t21：`DateInput`、`TagInput`、`SortableList` 三个都落下了）。
 - 组件类名、图标、token 或 `src/styles.css` 变化不需要生成产物；样式层序与写法的改动，先读 `src/tailwind.css` 的头注释和 [`docs/design-language.md`](docs/design-language.md) 的分层相关条目。
 - 只有改动覆盖的行为有 e2e 专属边界时才运行 `bun run test:e2e`；不因修改位于本包而默认跑全套。
 - 组件组合或公开用法变化时，在 Component Lab 检查相应场景。

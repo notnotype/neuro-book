@@ -14,6 +14,8 @@ import type {ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolR
 import {providerToolName} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {ToolCatalogEntry} from "../shared/contracts";
+import type {EvalMethod} from "./eval/objects";
+import type {CodeTool} from "./eval/tool";
 import {profileToolIds} from "../shared/profile-tools";
 import type {ToolRequirements} from "../shared/profile-tools";
 import {onAgentTool, TOOLS_POINT} from "../shared/points";
@@ -31,6 +33,11 @@ export interface AgentToolsOptions {
     /** 激活声明了 `onAgentTool:<id>` 的入口；有入口激活失败或受阻时交回 false。 */
     readonly activate: (event: string) => Promise<boolean>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    /**
+     * 全局对象的方法（声明带 `global`）要它的对象有效、且是同一插件登记的（contributions.md 输出 24）；不然不进工具表。
+     * 缺省都有效（没有全局对象的测试场地）。
+     */
+    readonly evalObjectOf?: (object: string) => {readonly plugin: string} | undefined;
     /** 交给工具工厂的会话服务（资源视图与全文保存），按内核给的会话上下文构造。 */
     /** `toolId` 是要构造的工具，资源视图拿它作 `call(ctx)` 的分组缺省标题。 */
     readonly services: (context: ToolSessionContext, toolId: string) => AgentToolServices;
@@ -45,6 +52,8 @@ export class AgentTools {
     readonly #published = new Map<string, Handle>();
     /** 工具 id → 用着它的包装（撤回时逐个作废）。 */
     readonly #wrappers = new Map<string, Set<ToolWrapper>>();
+    /** 报过 `eval-object-missing` 的工具：每次取工具集都会重算，同一个只报一次。 */
+    readonly #missing = new Set<string>();
 
     constructor(private readonly options: AgentToolsOptions) {}
 
@@ -61,10 +70,16 @@ export class AgentTools {
         },
     };
 
-    /** 已接受的全部工具声明，按 id。 */
+    /** 已接受的全部工具声明，按 id；对象无效的全局对象方法不在里面。 */
     all(): ReadonlyMap<string, ToolDeclaration> {
         const tools = new Map<string, ToolDeclaration>();
         for (const descriptor of this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT)) {
+            const global = descriptor.declaration.global;
+            if (global !== undefined && this.options.evalObjectOf !== undefined && this.options.evalObjectOf(global.object)?.plugin !== descriptor.plugin) {
+                if (!this.#missing.has(descriptor.id)) this.options.report("eval-object-missing", `${descriptor.id} is a method of ${global.object}, which ${descriptor.plugin} does not register as a valid eval object; the tool is left out`, {tool: descriptor.id, object: global.object});
+                this.#missing.add(descriptor.id);
+                continue;
+            }
             tools.set(descriptor.id, this.#declaration(descriptor.id, descriptor.plugin, descriptor.declaration));
         }
         return tools;
@@ -124,6 +139,27 @@ export class AgentTools {
         }
     }
 
+    /** 全部有效的全局对象方法，生成 `docs://eval/` 的文档用（resources.md 输出 16）。 */
+    evalMethods(): EvalMethod[] {
+        const valid = this.all();
+        return this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).flatMap((descriptor) => {
+            const global = descriptor.declaration.global;
+            if (global === undefined || !valid.has(descriptor.id)) return [];
+            return [{object: global.object, method: global.method, description: descriptor.declaration.description, parameters: descriptor.declaration.parameters, ...(descriptor.declaration.returns === undefined ? {} : {returns: descriptor.declaration.returns})}];
+        });
+    }
+
+    /** 会话工具集在代码里的样子（eval.md 输出 6、7）：名字是交给服务商的名字；`returns` 只在 `agent.tools` 的声明里，内核的声明没有。 */
+    codeToolsOf(declarations: readonly ToolDeclaration[]): CodeTool[] {
+        const returns = new Map(this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).flatMap((descriptor) => (descriptor.declaration.returns === undefined ? [] : [[descriptor.id, descriptor.declaration.returns] as const])));
+        return declarations.map((declaration) => ({
+            id: declaration.id,
+            name: providerToolName(declaration),
+            ...(returns.has(declaration.id) ? {returns: returns.get(declaration.id)!} : {}),
+            ...(declaration.global === undefined ? {} : {global: declaration.global}),
+        }));
+    }
+
     forget(id: string, wrapper: ToolWrapper): void {
         this.#wrappers.get(id)?.delete(wrapper);
     }
@@ -153,6 +189,10 @@ export class AgentTools {
             strict: declaration.strict ?? false,
             ...(declaration.customFormat === undefined ? {} : {customFormat: declaration.customFormat}),
             effect,
+            // 代码调用的三个字段原样交给内核（harness/runtime.md 输出 90 到 93）；`returns` 只有 eval 用，不进内核。
+            ...(declaration.invokes === true ? {invokes: true as const} : {}),
+            ...(declaration.codeCallable === false ? {codeCallable: false as const} : {}),
+            ...(declaration.global === undefined ? {} : {global: declaration.global}),
         };
     }
 }

@@ -1,0 +1,8 @@
+{
+    "name": "word-stats",
+    "publisher": "example",
+    "version": "0.1.0",
+    "description": "字数统计：给 Agent 的 eval 代码一个全局对象 stats，演示全局对象与它的方法",
+    "private": true,
+    "type": "module"
+}

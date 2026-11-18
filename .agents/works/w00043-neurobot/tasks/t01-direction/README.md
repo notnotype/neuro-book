@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-direction
-status: active
-updated: 2026-11-10
+status: done
+updated: 2026-11-18
 ---
 
 # 方向讨论与同类项目调研
@@ -112,8 +112,10 @@ updated: 2026-11-10
 
 2026-11-18：开发者把 bot 改成 NeuroBook 的内置插件后，提案改写成第四稿（`78bafe8de`），派了三位审查（Opus 后端 17 条、Sonnet 界面 17 条、Sonnet 拉远看 9 条），阻断的一条（运行中注入的消息会卡在缓冲区）已用真实内核复现。按[处理记录](evidences/bot-proposal-review-r1-disposition.md)改成第五稿，新增的七项待定与原有三项一起列在提案第七节，等开发者定。
 
+2026-11-18：bot 提案（第八稿）与缓冲区提案（第三稿）都已接受，本 Task 完成。
+
 ## 下一步
 
-2026-11-18：开发者定了第五稿的十项，改成第六稿；第二轮审查（Opus，14 条，阻断 1）后改成第七稿，[处理记录](evidences/bot-proposal-review-r2-disposition.md)。等开发者定第七稿第七节的两项，再决定接受，或审第三轮（同一对象的最后一轮）。
+2026-11-18：开发者定了第五稿的十项，改成第六稿；第二轮审查（Opus，14 条，阻断 1）后改成第七稿，[处理记录](evidences/bot-proposal-review-r2-disposition.md)。开发者定了第七稿的两项；第三轮窄审查（Opus，11 条，阻断 1）后，“缓冲区归谁取”这一类三轮都找出新路径，按轮数上限交开发者，[处理记录](evidences/bot-proposal-review-r3-disposition.md)写了推荐的结构改法（宿主不和用户共用缓冲区），等开发者定。
 
 2026-11-10 第三稿（Opus）已按上表与开发者的答复改完；按“第一版先把框架搭起来”从第一版挪进路线的九项列在提案第七节。改稿时的两处取舍：两种新压缩触发的判断与截止时刻放进 nb-harness 的 kit（开发者 2026-11-09 定“新的压缩触发点放进 nb-harness”），到点的计时与主会话的持有放在 NeuroBot（B2）；本机口令要让引导接口也不给本机进程，做法在 t04 的 Spec 里定，可参照 nb-story 的一次性登录链接。t04、t06 到 t10 的范围已按第三稿同步。等开发者决定接受提案（改成 `accepted`），或再审一轮。

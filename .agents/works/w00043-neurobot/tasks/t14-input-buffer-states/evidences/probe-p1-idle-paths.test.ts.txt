@@ -1,0 +1,114 @@
+// t14 探针 1：会话回到空闲的几条路径上，缓冲区里的话落到哪里（真实内核，只读仓库）
+import {test} from "bun:test";
+import {mkdtempSync} from "node:fs";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+const {defineExtension} = await import(`${K}/extension/define.ts`);
+const {defineProfile} = await import(`${K}/extension/profile.ts`);
+const {closeSession} = await import(`${K}/index.ts`);
+
+let n = 0;
+const id = () => `p1-${++n}`;
+const gate = () => {
+    let open!: () => void;
+    const p = new Promise<void>((r) => (open = r));
+    return {p, open};
+};
+const bufferOf = async (s: any) => (await s.raw.snapshot()).buffer.map((b: any) => [b.mode, b.input.text, b.by?.kind ?? "user"]);
+const typesOf = async (s: any, keep: string[]) => (await s.raw.log({afterSeq: 0, limit: 2000})).events.filter((e: any) => keep.includes(e.type)).map((e: any) => e.type + (e.type === "runEnded" ? `(${e.data.reason})` : "")).join(" ");
+
+test("A runEnded 已写、反应还在跑时到达的 send（排在收口批之后的队列项）", async () => {
+    const entered = gate();
+    const hold = gate();
+    const ext = defineExtension({id: "lab.endgate", on: {runEnded: async () => { entered.open(); await hold.p; }}});
+    await using s = await createTestSession({extensions: [ext]});
+    s.model.script("答一", "答二");
+    const sent = await s.raw.send({commandId: id(), input: {text: "第一句"}});
+    if (!sent.ok) throw new Error(JSON.stringify(sent));
+    await entered.p; // 收口批已经写下，它的反应占着队列项
+    const late = s.raw.send({commandId: id(), input: {text: "收口批之后的 send"}});
+    const lateQ = s.raw.enqueue({commandId: id(), input: {text: "收口批之后的 enqueue"}, mode: "followup"});
+    hold.open();
+    const r1 = await late;
+    const r2 = await lateQ;
+    await s.raw.waitRun(sent.value.runId);
+    const r1run = r1.ok && r1.value.runId ? (await s.raw.waitRun(r1.value.runId)).reason : null;
+    console.log("A send:", JSON.stringify(r1.ok ? r1.value : r1), "second run:", r1run);
+    console.log("A enqueue:", JSON.stringify(r2.ok ? r2.value : r2));
+    console.log("A events:", await typesOf(s, ["inputQueued", "runStarted", "inputConsumed", "runEnded"]));
+    console.log("A status:", (await s.raw.snapshot()).status.state, "buffer:", JSON.stringify(await bufferOf(s)));
+});
+
+test("B 只压缩的运行期间到达的插话（steer）", async () => {
+    const entered = gate();
+    const hold = gate();
+    const slow = async (job: any) => {
+        entered.open();
+        await hold.p;
+        const cut = job.cuts.filter((c: any) => c.kind === "turn").at(-1);
+        return {method: "slow", firstKeptEntryId: cut?.entryId ?? null, replacement: "摘要", omitted: [], tokensBefore: 10, tokensAfter: 5};
+    };
+    const profile = defineProfile({id: "lab.c", version: "1", name: "c", description: "c", system: "s", compaction: {onThreshold: ["slow"]}});
+    await using s = await createTestSession({profile, compaction: {methods: {slow}}});
+    s.model.script("答一", "答二");
+    await s.say("第一问");
+    const c = await s.raw.compact({commandId: id()});
+    await entered.p;
+    const st = await s.raw.send({commandId: id(), input: {text: "压缩期间的插话"}, mode: "steer"});
+    const fo = await s.raw.send({commandId: id(), input: {text: "压缩期间的 followup"}});
+    console.log("B compact:", JSON.stringify(c.ok ? c.value : c));
+    console.log("B steer send:", JSON.stringify(st.ok ? st.value : st));
+    console.log("B followup send:", JSON.stringify(fo.ok ? fo.value : fo));
+    hold.open();
+    const reason = c.ok && c.value.runId ? (await s.raw.waitRun(c.value.runId)).reason : null;
+    console.log("B compact run:", reason, "status:", (await s.raw.snapshot()).status.state, "buffer:", JSON.stringify(await bufferOf(s)), "model requests:", s.model.requests.length);
+});
+
+test("C 进程内中断（closeSession interrupted）后重开", async () => {
+    const root = mkdtempSync("/tmp/t14-probes/store-");
+    const entered = gate();
+    const slow = {id: "slow", execute: (_a: any, ctx: any) => new Promise<string>((resolve) => { entered.open(); ctx.signal.addEventListener("abort", () => resolve("stopped")); })};
+    const s1 = await createTestSession({store: {root}, tools: [slow]});
+    s1.model.script({tools: [{tool: "slow"}]}, "答二");
+    const sent = await s1.raw.send({commandId: id(), input: {text: "任务"}});
+    if (!sent.ok) throw new Error(JSON.stringify(sent));
+    await entered.p;
+    await s1.raw.send({commandId: id(), input: {text: "中断前排的 followup"}});
+    await s1.raw.as({kind: "session", id: "parent"}).send({commandId: id(), input: {text: "中断前会话排的 steer"}, mode: "steer"});
+    await closeSession(s1.raw, {reason: "interrupted"});
+    const s2 = await createTestSession({store: {root}, open: s1.id, tools: [slow]});
+    console.log("C after reopen:", await typesOf(s2, ["runStarted", "runEnded", "inputQueued", "inputConsumed", "inputRemoved"]));
+    console.log("C status:", (await s2.raw.snapshot()).status.state, "buffer:", JSON.stringify(await bufferOf(s2)));
+    s2.model.script("答三", "答四", "答五");
+    const st = await s2.raw.start({commandId: id()});
+    console.log("C start:", JSON.stringify(st.ok ? st.value : st));
+    if (st.ok) await s2.raw.waitRun(st.value.runId);
+    const inputs = (await s2.raw.log({afterSeq: 0, limit: 2000})).events.filter((e: any) => e.type === "input" || e.type === "steer" || e.type === "turnStarted").map((e: any) => e.type === "turnStarted" ? `turn(input=${e.data.inputId === null ? "null" : "id"})` : `${e.type}:${e.data.text}`);
+    console.log("C path after start:", JSON.stringify(inputs), "buffer:", JSON.stringify(await bufferOf(s2)));
+    await closeSession(s2.raw);
+});
+
+test("D 暂停的运行接着跑：会话空闲时排的话与用户新话，谁开那一轮", async () => {
+    const entered = gate();
+    const hold = gate();
+    const slow = {id: "slow", execute: async () => { entered.open(); await hold.p; return "ok"; }};
+    await using s = await createTestSession({tools: [slow]});
+    s.model.script({tools: [{tool: "slow"}]}, "答一", "答二", "答三", "答四", "答五");
+    const sent = await s.raw.send({commandId: id(), input: {text: "第一句"}});
+    if (!sent.ok) throw new Error(JSON.stringify(sent));
+    await entered.p;
+    await s.raw.send({commandId: id(), input: {text: "第二句（同一运行的第二轮）"}});
+    hold.open();
+    await s.raw.waitRun(sent.value.runId);
+    const targets = await s.raw.rewindTargets();
+    const mid = targets.find((t: any) => t.kind === "after-turn" && t.inputText === "第一句");
+    const rw = await s.raw.rewind({commandId: id(), to: mid.id});
+    console.log("D rewind:", JSON.stringify(rw.ok ? "ok" : rw), "status:", (await s.raw.snapshot()).status.state);
+    const q = await s.raw.as({kind: "session", id: "parent"}).enqueue({commandId: id(), input: {text: "暂停时会话排的"}, mode: "followup"});
+    console.log("D enqueue while paused:", JSON.stringify(q.ok ? q.value : q));
+    const u = await s.raw.send({commandId: id(), input: {text: "用户新话"}});
+    console.log("D user send while paused:", JSON.stringify(u.ok ? u.value : u));
+    if (u.ok && u.value.runId) console.log("D resumed run:", (await s.raw.waitRun(u.value.runId)).reason);
+    const path = (await s.raw.path()).filter((e: any) => e.type === "input" || e.type === "runStarted" || e.type === "runEnded").map((e: any) => e.type === "input" ? `input:${e.data.text}` : e.type);
+    console.log("D path:", JSON.stringify(path), "buffer:", JSON.stringify(await bufferOf(s)));
+});

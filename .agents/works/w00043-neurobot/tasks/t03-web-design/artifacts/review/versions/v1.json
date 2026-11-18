@@ -1,0 +1,76 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t03-web-design",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：bot 的消息页",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "defba3221e924b8623456fe6491f9542a8469d518d5fca4677d80671cf66621f",
+    "files": [
+        "index.html",
+        "r1/bots-only.webp",
+        "r1/narrow.webp",
+        "r1/wide-session.webp",
+        "r1/wide.webp"
+    ],
+    "questions": [
+        {
+            "id": "list-content",
+            "type": "single",
+            "label": "左栏要不要放“会话”？",
+            "options": [
+                {
+                    "value": "bots-only",
+                    "label": "A 只放 bot"
+                },
+                {
+                    "value": "with-sessions",
+                    "label": "B bot 加折叠的会话"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "with-sessions"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "placement",
+            "type": "single",
+            "label": "打开作品时，消息页放在哪？",
+            "options": [
+                {
+                    "value": "page",
+                    "label": "A 编辑区整页"
+                },
+                {
+                    "value": "side",
+                    "label": "B 侧栏"
+                },
+                {
+                    "value": "both",
+                    "label": "C 两者都有"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "both"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T14:02:58.709Z"
+}

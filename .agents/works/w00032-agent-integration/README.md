@@ -80,6 +80,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-18 | t38 合入：状态栏不再标“计划模式”“全部放行”；状态栏的项可以换边，窄时先右后左收起；nb-layout 新增共用的实时布局排序 `useSortable`、`SortableList`（行跟手、跨组、键盘、放下等写完），状态栏设置页改用它；nb-ui 单选组与复选框对齐第一行。设计审查 16 条、实现审查 14 条，成立的已改；`ui/sortable-list.md` 晋升 implemented，t38 完成（[t38](tasks/t38-status-line-sorting/README.md)） |
 | 2026-11-18 | t39 合入：nb-ui 的 `ContextMenu` 打开时才挂上（`v-if`）也夹回视口并聚焦首项，调用方不用再常挂着；用户脚本状态栏项按开发者决定不做（t37 决定 4）。小任务，不写计划、不审查；t39 完成（[t39](tasks/t39-context-menu-measure-on-mount/README.md)） |
 | 2026-11-18 | t21 重开并推进：范围、计划（三份设计审查与 omp 对照，3.1 稿）与 Spec（planned）已定；切片 2 内核的嵌套调用通道先合入（不等审批简化提案，开发者定），eval 内核的子进程部分随之合入、还没接进应用（[t21](tasks/t21-eval-codeact/README.md)） |
+| 2026-11-18 | t21 切片 3、4 合入：eval 工具接进应用（每会话的内核、重置提示、累计时限、嵌套写入成组，还没进内置 Profile）；插件给 eval 代码登记全局对象（`agent.evalObjects`、`docs://eval/`、eval 的说明按会话列出对象），示例插件 `word-stats`。换 Profile 会重置内核，记进待确认清单（[t21](tasks/t21-eval-codeact/README.md)） |
 
 ## 待确认
 
@@ -124,7 +125,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t27](tasks/t27-run-reliability/README.md) | 运行可靠性：模型请求重试、卡死超时、循环检测与费用上限（对照 omp 的设置项，排在 t18 之前） | t12 |
 | [t18](tasks/t18-builtin-profiles/README.md) | 内置 Profile、提示词规范与评测 | t05、t12、t15 |
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |
-| [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），搁置 | t04、t12 |
+| [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），进行中（切片 1 到 4 已合入） | t04、t12 |
 | [t22](tasks/t22-background-work/README.md) | 后台任务与协作：shell 后台、Agent 后台调用、Monitor、活动面板，搁置 | t07、t12、t14 |
 | [t23](tasks/t23-session-history/README.md) | Agent 查询会话历史：分页、搜索、视角，搁置 | t14 |
 | [t24](tasks/t24-workflow-integration/README.md) | Workflow 与 Agent 的对接，搁置 | t14 |

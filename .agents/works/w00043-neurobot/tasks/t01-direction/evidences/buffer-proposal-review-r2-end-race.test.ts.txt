@@ -1,0 +1,40 @@
+// 运行最后一条回复写下、runEnded 还没写时到达的 send：control 仍认为在跑，只入队；随后 runEnded，话留在空闲会话里
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+const {defineExtension} = await import(`${K}/extension/define.ts`);
+let n = 0;
+const id = () => `c-${++n}`;
+test("回复写下后、runEnded 之前到达的 send", async () => {
+    let enteredHandler!: () => void;
+    const inHandler = new Promise<void>((r) => (enteredHandler = r));
+    let releaseHandler!: () => void;
+    const handlerGate = new Promise<void>((r) => (releaseHandler = r));
+    let releaseInput!: () => void;
+    const inputGate = new Promise<void>((r) => (releaseInput = r));
+    let enteredInput!: () => void;
+    const inInput = new Promise<void>((r) => (enteredInput = r));
+    let replies = 0;
+    const gate = defineExtension({id: "lab.gate",
+        on: {assistant: async () => { replies += 1; if (replies === 1) { enteredHandler(); await handlerGate; } }},
+        intercept: {input: async (input: any, next: any) => { if (input.text === "迟到") { enteredInput(); await inputGate; } return next(input); }},
+    });
+    await using s = await createTestSession({extensions: [gate]});
+    s.model.script("答一", "答二");
+    const sent = await s.raw.send({commandId: id(), input: {text: "第一句"}});
+    if (!sent.ok) throw new Error("send failed");
+    await inHandler;                    // 回复的写入批还在队列里（反应在等）
+    const late = s.raw.send({commandId: id(), input: {text: "迟到"}});   // 排在它后面
+    releaseHandler();                   // 回复批结束；循环读缓冲区（空）→ 把 runEnded 排在 send 后面
+    await inInput;
+    await new Promise((r) => setTimeout(r, 20));
+    releaseInput();                     // send 的受理：control 仍有 active → 只写 inputQueued
+    const lateResult = await late;
+    const result = await s.raw.waitRun(sent.value.runId!);
+    await new Promise((r) => setTimeout(r, 20));
+    const snap = await s.raw.snapshot();
+    const types = (await s.raw.log({afterSeq: 0, limit: 500})).events.map((e: any) => e.type).filter((t: string) => ["inputQueued", "runEnded", "inputConsumed", "runStarted"].includes(t));
+    console.log("late send:", JSON.stringify(lateResult.ok ? lateResult.value : lateResult));
+    console.log("run:", result.reason, "events:", types.join(" "));
+    console.log("status:", snap.status.state, "buffer:", JSON.stringify(snap.buffer.map((b: any) => b.input.text)));
+});

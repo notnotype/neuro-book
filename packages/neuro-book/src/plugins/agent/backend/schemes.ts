@@ -39,6 +39,8 @@ export interface AgentSchemesOptions {
     readonly tempContainer: string | null;
     /** 产品文档目录（含 `builtin/`、`agent/`）；没生成时为 null。 */
     readonly docsRoot: string | null;
+    /** 全局对象的文档（resources.md 输出 16）：`docs://eval/` 挂到 `<container>/eval/`，`names` 是有文档的对象。 */
+    readonly evalDocs: {readonly container: string; readonly names: () => readonly string[]};
     readonly listSessions: () => Promise<readonly SessionIndexEntry[]>;
     readonly profiles: () => readonly ProfileEntry[];
     /** 会话之间的父子关系：根先列读它的会话的父、子、兄弟（resources.md 输出 13）。 */
@@ -150,10 +152,17 @@ export function agentSchemes(options: AgentSchemesOptions): Record<(typeof AGENT
             capabilities: ["read", "list", "realPath"],
             container: options.docsRoot ?? options.sessionsRoot,
             root: () => ({
-                description: options.docsRoot === null ? "产品文档。开发环境里还没有生成，先运行 bun run build:agent-docs。" : "产品文档，只读。builtin/ 是 NeuroBook 自带的文档（插件 SDK 在 builtin/sdk/），agent/ 是 Agent 的使用说明。",
-                entries: options.docsRoot === null ? [] : [{name: "builtin", title: "NeuroBook 自带的文档"}, {name: "agent", title: "Agent 的使用说明"}],
+                description: `${options.docsRoot === null ? "产品文档。开发环境里还没有生成，先运行 bun run build:agent-docs。" : "产品文档，只读。builtin/ 是 NeuroBook 自带的文档（插件 SDK 在 builtin/sdk/），agent/ 是 Agent 的使用说明。"}${options.evalDocs.names().length === 0 ? "" : " eval/ 是 eval 的代码里可用的全局对象，每个一份。"}`,
+                entries: [
+                    ...(options.docsRoot === null ? [] : [{name: "builtin", title: "NeuroBook 自带的文档"}, {name: "agent", title: "Agent 的使用说明"}]),
+                    ...(options.evalDocs.names().length === 0 ? [] : [{name: "eval", title: "eval 的代码里可用的全局对象，每个一份"}]),
+                ],
             }),
-            mount: async (name) => (options.docsRoot !== null && ["builtin", "agent"].includes(name) && (await exists(join(options.docsRoot, name))) ? {create: false} : null),
+            mount: async (name) => {
+                // 全局对象的文档由 nbook.agent 按声明生成，不在产品文档目录里：挂载点另给自己的容器（同 skills://）。
+                if (name === "eval") return options.evalDocs.names().length === 0 ? null : {create: false, container: options.evalDocs.container};
+                return options.docsRoot !== null && ["builtin", "agent"].includes(name) && (await exists(join(options.docsRoot, name))) ? {create: false} : null;
+            },
             authorize: (_caller, _mount, operation) => (writes(operation) ? "permission-denied" : true),
         },
         skills: {

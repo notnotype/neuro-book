@@ -1,0 +1,99 @@
+bun test v1.4.4 (38afee6c8)
+
+../../../../../../tmp/t14-probes/p1-idle-paths.test.ts:
+A send: {"inputId":"2ca26731e643","runId":null,"currentRunId":"4fa4dba0cc59"} second run: null
+A enqueue: {"inputId":"713c71c3c779","position":1}
+A events: inputQueued runStarted inputConsumed runEnded(completed) inputQueued inputQueued
+A status: idle buffer: [["followup","收口批之后的 send","user"],["followup","收口批之后的 enqueue","user"]]
+B compact: {"scheduled":"now","runId":"4d6b64b50bc9"}
+B steer send: {"inputId":"181c666271ce","runId":null,"currentRunId":"4d6b64b50bc9"}
+B followup send: {"inputId":"12590581c3b7","runId":null,"currentRunId":"4d6b64b50bc9"}
+B compact run: completed status: idle buffer: [["steer","压缩期间的插话","user"],["followup","压缩期间的 followup","user"]] model requests: 1
+C after reopen: inputQueued runStarted inputConsumed inputQueued inputQueued runEnded(interrupted)
+C status: idle buffer: [["followup","中断前排的 followup","user"],["steer","中断前会话排的 steer","session"]]
+C start: {"runId":"780ceea53883"}
+C path after start: ["turn(input=id)","input:任务","turn(input=id)","input:中断前排的 followup","steer:中断前会话排的 steer"] buffer: []
+D rewind: "ok" status: idle
+D enqueue while paused: {"inputId":"64ea3e79c66a","position":0,"currentRunId":"8c320df18506"}
+D user send while paused: {"inputId":"c9256dfcf795","runId":"8c320df18506"}
+D resumed run: completed
+D path: ["runStarted","input:第一句","input:暂停时会话排的","input:用户新话","runEnded"] buffer: []
+
+ 4 pass
+ 0 fail
+Ran 4 tests across 1 file. [1.65s]
+bun test v1.4.4 (38afee6c8)
+
+../../../../../../tmp/t14-probes/p2-entries.test.ts:
+E resolve: {}
+E send: {"ok":false,"code":"no-credentials"}
+E start: {"ok":false,"code":"no-credentials"}
+E status: idle buffer: [["followup","三章","user"]]
+
+ 1 pass
+ 3 filtered out
+ 0 fail
+Ran 1 test across 1 file. [695.00ms]
+=== /tmp/t14-probes/old-bot-proposal-review-r1-stranded-buffer.test.ts
+../../../../../../tmp/t14-probes/old-bot-proposal-review-r1-stranded-buffer.test.ts:
+host send while running: {"inputId":"92955aae3e30","runId":null,"currentRunId":"3be9946a997c"}
+run reason: error
+buffer after error: [{"mode":"followup","text":"[日程] 每周简报"}]
+run state: {"state":"idle"}
+model requests: 2
+compact: {"scheduled":"now","runId":"73c359c0b670"}
+host send during compact-only run: {"inputId":"00aca90dec5f","runId":null,"currentRunId":"73c359c0b670"}
+compact run: completed
+buffer after compact run: [{"mode":"followup","text":"[日程] 每周简报"}]
+run state: {"state":"idle"}
+model requests: 1
+ 2 pass
+ 0 fail
+Ran 2 tests across 1 file. [879.00ms]
+=== /tmp/t14-probes/old-buffer-proposal-review-r1-abort-window.test.ts
+../../../../../../tmp/t14-probes/old-buffer-proposal-review-r1-abort-window.test.ts:
+status while aborting: {"state":"aborting","runId":"d05e4e7c5e96"}
+send during aborting: {"inputId":"66ed0d68fa03","runId":null,"currentRunId":"d05e4e7c5e96"}
+abort: {"ok":true,"value":{"aborted":true},"seq":22,"replayed":false}
+removed: [{"id":"53bed61f94b3","reason":"aborted"},{"id":"66ed0d68fa03","reason":"aborted"}]
+buffer after: 0 true
+ 1 pass
+ 0 fail
+Ran 1 test across 1 file. [1445.00ms]
+=== /tmp/t14-probes/old-buffer-proposal-review-r1-idle-enqueue.test.ts
+../../../../../../tmp/t14-probes/old-buffer-proposal-review-r1-idle-enqueue.test.ts:
+enqueue on idle: {"inputId":"380e8219571c","position":0}
+status after enqueue: {"state":"idle"} buffer: 1
+run: completed inputs on path: [{"text":"会话身份发的","by":{"kind":"session","id":"other-session"}},{"text":"用户空闲时排的","by":"user"}] buffer after: 0
+ 1 pass
+ 0 fail
+Ran 1 test across 1 file. [1287.00ms]
+=== /tmp/t14-probes/old-buffer-proposal-review-r1-result-text.test.ts
+../../../../../../tmp/t14-probes/old-buffer-proposal-review-r1-result-text.test.ts:
+optional send while running: {"inputId":"2e446e0344fc","runId":null,"currentRunId":"a47cd9376d72"}
+optional run reason: completed null result via: text
+optional buffer after run: [{"mode":"followup","text":"运行中的 followup"}]
+optional status: {"state":"idle"}
+required send while running: {"inputId":"c6e49dfa11ad","runId":null,"currentRunId":"8ca80fc88016"}
+required run reason: error {"kind":"local","code":"result-missing"} result via: text
+required buffer after run: [{"mode":"followup","text":"运行中的 followup"}]
+required status: {"state":"idle"}
+ 2 pass
+ 0 fail
+Ran 2 tests across 1 file. [1.88s]
+=== /tmp/t14-probes/old-buffer-proposal-review-r2-end-race.test.ts
+../../../../../../tmp/t14-probes/old-buffer-proposal-review-r2-end-race.test.ts:
+late send: {"inputId":"6f9188178572","runId":null,"currentRunId":"9b1b3825b7f8"}
+run: completed events: inputQueued runStarted inputConsumed inputQueued runEnded
+status: idle buffer: ["迟到"]
+ 1 pass
+ 0 fail
+Ran 1 test across 1 file. [841.00ms]
+=== /tmp/t14-probes/old-buffer-proposal-review-r3-yield-steer.test.ts
+../../../../../../tmp/t14-probes/old-buffer-proposal-review-r3-yield-steer.test.ts:
+steer send: {"inputId":"ad7a3db3385c","runId":null,"currentRunId":"9d014347ca7b"} runId: 9d014347ca7b
+run: finished {"via":"tool","tool":"yield","value":{"title":"雨夜"},"valid":true}
+status: idle buffer: [["steer","改成两个字以内"]]
+ 1 pass
+ 0 fail
+Ran 1 test across 1 file. [867.00ms]

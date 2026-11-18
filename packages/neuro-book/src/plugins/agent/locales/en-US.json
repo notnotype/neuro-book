@@ -553,6 +553,7 @@
                 "grep": "Searches file contents with a regular expression.",
                 "glob": "Finds files by path pattern.",
                 "shell": "Runs a command.",
+                "eval": "Runs JavaScript to do batch work; the code can call other tools.",
                 "switch-mode": "Asks to switch to discuss, plan, or normal mode.",
                 "ask": "Asks the user with fixed choices.",
                 "ask-form": "Asks the user, with choices or a form.",

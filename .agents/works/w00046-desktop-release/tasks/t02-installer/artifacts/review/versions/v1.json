@@ -1,0 +1,49 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00046-desktop-release",
+    "taskId": "t02-installer",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t02 首次启动向导",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "86c5d6a961e04fac304a37e665456706d4ad99e6422bd5514d77a6d83a67dc35",
+    "files": [
+        "index.html",
+        "r1/page.webp",
+        "r1/step-1.webp",
+        "r1/step-2.webp",
+        "r1/step-3.webp",
+        "r1/step-4.webp"
+    ],
+    "questions": [
+        {
+            "id": "form",
+            "type": "single",
+            "label": "首次启动向导做成一页对话框，还是分步向导？",
+            "options": [
+                {
+                    "value": "page",
+                    "label": "A 一页对话框"
+                },
+                {
+                    "value": "steps",
+                    "label": "B 分步向导"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "page"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T12:05:07.107Z"
+}

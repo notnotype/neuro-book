@@ -1,0 +1,145 @@
+# 后端审查报告（Opus）：提案《Agent 内核的输入缓冲区：每条带状态》
+审查对象：/tmp/review-buffer-r1/proposal-89af44967.md（89af44967）。按核实顺序追加；最后一节按影响给出排序。
+
+### 1. 收口表漏了带 result 的会话以文字收口这条路径：运行 completed，但缓冲区里的 followup 现在就不被取走
+严重程度：重要；类别：遗漏、与代码不符（维度 2、4）
+位置：提案第一节问题 1“两种收口不看缓冲区”、第四节第 2 小节收口表“一轮正常结束（completed）| 照旧：取最早一条排队”；代码 packages/nb-harness/src/kernel/run/loop.ts 第 379–390 行；runtime.md 输出 27。
+现象：会话头带 result 时，模型停下没调 yield，循环在第 388/389 行直接 end() 收口，根本走不到第 393 行取 followup。optional 时 runEnded.reason 是 completed（结果 via text），required 时 turnEnded 是 completed、runEnded 是 error/result-missing。两种情况运行中进来的 followup 都留在缓冲区、会话空闲，与提案列的“只压缩”“finished”是同一类毛病，但提案只数了两条。
+核实：/tmp/review-buffer-r1/repro/result-text.test.ts，在 packages/nb-harness 下 `bun test /tmp/review-buffer-r1/repro/result-text.test.ts`。输出：optional “run reason: completed … result via: text / buffer after run: [followup] / status idle”；required “run reason: error result-missing / buffer after run: [followup] / idle”。
+为什么是问题：收口表按“completed → 照旧取最早一条排队”写，实现者照字面会让 optional 文字收口也接着开下一轮，这会把已经交给父 Agent 的 text 结果改成后一轮的（runResult 取最后一条回复）；若不接着跑，表里又没有它的行，这条 followup 是“就绪”却没人取，正是提案要消灭的状态。required 的 result-missing 落在“出错”行还是“completed”行也不清楚（轮 completed、运行 error）。NeuroBook 子代理带 outputSchema 时就是 result required（backend/subagents/tools.ts 第 344 行）。
+建议：收口表按 runEnded 的结果来分，而不是按轮：凡运行带出了 result（finished、via text 的 completed、result-missing）都转成留着（finished 或单列 result-delivered），并把问题 1 改成“三种收口”；同时写明 result-missing 用哪个原因。
+
+### 2. 回滚说法与内核实际相反：旧内核读到新事件名得 log-corrupt，会话整个打不开
+严重程度：重要；类别：依赖的机制不存在、迁移与回滚（维度 2、3）
+位置：提案第五节“迁移与回滚：……回滚时新事件会被旧内核当作未知的会话级事件，需要随内核一起回滚”；第四节第 5 小节“新事件：inputHeld、inputReleased、inputMerged”。
+现象：内核打开日志时逐条校验，内核事件名（不带 `/`）不在 kernelEventSpecs 里就失败：packages/nb-harness/src/kernel/log/validate.ts 第 151–153 行 `if (spec === undefined) return fail(\`unknown kernel event ${record.type}\`)`，第 115–116 行转成 corrupt。harness/session.md 输出 7 与第 181 行写明“不支持降级：旧版本读到它不认识的内核事件名……得 log-corrupt，不改动文件”。
+为什么是问题：按提案的收口表，任何出错一次、停止时选“留着”、重启过的会话都会写 inputHeld；回滚内核后这些会话全部以 log-corrupt 打不开（错误表里是“不能打开；交用户或修复工具”），不是“当作未知事件”。提案对回滚代价的描述会让发布决策低估影响面。
+核实：读上述两处代码与 session.md 第 123、169、181 行；未另跑实验（判定逻辑是一行 if）。
+建议：改写回滚一节为“不支持降级，同 nestedToolStarted 的先例；回滚后写过新事件的会话 log-corrupt”，并说明是否要在发布说明或 ADR 0035 的补充里记一笔；若要求可回滚，就得把状态塞进已有事件的可选字段（例如 runEnded 带 held 列表），由提案在两者间明确取舍。
+
+### 3. “重启中断”只在打开会话的恢复里转成留着，而正常退出走的是进程内 interrupted 收口，恢复不会再跑
+严重程度：重要；类别：遗漏、违反 t07 决定 3（维度 1、4）
+位置：提案第四节第 2 小节收口表“重启中断（interrupted）| 打开会话恢复时全部转成留着（interrupted）”；第 5 小节旧日志补法“规则同第 2 小节”。
+现象：NeuroBook 停止时 SessionTable.stop 把打开着的会话按 interrupted 关闭（packages/nb-harness/src/kit/sessions/table.ts 第 190–199 行），内核在进程里就写下 runEnded{reason: "interrupted"}（run/loop.ts 第 128–131 行，interrupting(signal) 时改记 interrupted；runtime.md 输出 53）。重开时 recovery.ts 第 71 行 `state.run === null` 直接返回空，“打开会话恢复时”这一步根本不发生。只有 kill -9 这类没收口的才走恢复。
+为什么是问题：按表照字面实现，最常见的重启（正常停服务、桌面版退出）之后缓冲区里的话仍是就绪；重启后第一个由会话或宿主开的运行（例如 bot 的重启续跑、周期任务）会在一轮结束时取走用户排的 followup、在边界上取走插话——正是问题 2 要消灭的情形，也违反 t07 决定 3“重启后队列还在但不自动发出，等用户确认”。旧日志补法“按收口方式补出”若照同一张表，也会漏掉这些 runEnded{interrupted}。
+建议：把这一行改成“运行以 interrupted 收口时（进程内收尾写 runEnded{interrupted} 的同一批，或重开恢复写的那一批）全部转成留着”，即在 loop.ts end() 与 recoveryDrafts 两处都写 inputHeld；旧日志补法按 runEnded.reason === "interrupted" 认，不按“是否经过恢复”认。
+
+### 4. “只压缩的运行接着开一轮、与正常结束时一样”照字面有三处做不出来或会坏
+严重程度：重要；类别：接口与合同、依赖的机制（维度 2、3、7）
+位置：提案第四节第 2 小节收口表第二行与表下一段“沿用正常结束时‘同一次运行接着跑’的做法，所以不经过重新装配、不另记一次启动”。
+现象与问题：
+(a) 取哪条不对。正常结束只取“最早一条 followup”（loop.ts 第 393–395 行），而正常结束时不可能还剩 steer（第 378 行有 steer 就不结束这一轮）。只压缩的运行里剩下的可能只有 steer：界面运行中按“插话”发的、bot 视图里运行中发的（第二轮复现 bot-proposal-review-r2-stranded 第二个用例就是这条）。照“与正常结束时一样”实现，只有 steer 时不开轮、运行结束，steer 仍然就绪而会话空闲，问题 1 原样留着。应写成“取第一条就绪的（不论 steer、followup）开一轮”，即 loop.ts 第 205–209 行暂停运行接着跑的取法。
+(b) 运行类别失真。runStarted{kind: "compact"} 已写下、不可改，后面却有了对话轮。nb-agent-ui 按这个 kind 区别对待整次运行：kernel-transcript.ts 第 431–447 行，compact 运行以 aborted 收口时只写“压缩已停止”的系统条目、不把这一轮标为已停止，以 error 收口时写系统条目而不是错误块，以 interrupted 收口时不出“继续”（第 440 行 `interrupted = reason === "interrupted" && !compactRun`）；conversation-turns.ts 第 553–554 行 compact 运行里最新一轮不显示“运行中”。这些都会落在新开的那一轮上。提案说“不另记一次启动”，却没给 kind 的新含义或新事件（例如在开轮的批里写一条 runKindChanged，或另起 runStarted{kind:"chat"} 作为同一 runId 的续段）。
+(c) runResult 与 waitRun 的含义变了：compact 运行的结果从“只有压缩用量、text 为空”变成含对话回复的文字与用量（results.ts 第 42–77 行按 runStarted 到 runEnded 整段累加），runtime.md 输出 13、52 都要改，提案第六节没列。
+另外压缩失败（compaction-failed、nothing-to-compact 映射成 error，loop.ts 第 202 行）按表落到“出错 → 留着”，而运行中边界上的压缩失败是“只诊断，请求照发”（输出 46）。用户在手动压缩时发的话因为压缩失败要再点继续，与边界上的处理不一致，提案没说明理由。
+建议：(a) 改写取法；(b) 明确 kind 的处理并在第六节列出 agent-conversation-view 与 runtime 输出 13、52 的改动；或者干脆另开一次 chat 运行（提案第八节否掉的备选），把“发起者、重新装配的先后”在这一处单独定，比给 compact 运行补对话语义更干净——这一取舍值得交开发者。
+
+### 5. 空闲时 enqueue 的话不经任何收口，一直“就绪”又没人取，之后别的发出者开的运行照样把它带走
+严重程度：重要；类别：遗漏、状态表不完整（维度 4）
+位置：提案第四节第 1、2 小节（状态只在“运行收口时”转换）；runtime.md 输出 3（enqueue 只写 inputQueued，不开运行）；commands.ts 第 118–128 行。
+现象：会话空闲时 enqueue 不开运行，这条话就绪地留在缓冲区。之后会话或宿主以自己的身份 send，开的运行在第一轮结束时按“取最早一条就绪的排队”把用户这条取走。
+核实：/tmp/review-buffer-r1/repro/idle-enqueue.test.ts（packages/nb-harness 下 `bun test /tmp/review-buffer-r1/repro/idle-enqueue.test.ts`）。输出：`enqueue on idle: {"position":0}`、`status idle buffer: 1`；会话身份 send 之后 `inputs on path: [会话身份发的(by session), 用户空闲时排的(by user)]`、`buffer after: 0`。
+为什么是问题：这条路径在 NeuroBook 里真会出现：对话视图运行中按插话或排队走 remote.enqueue（web/session-host.ts 第 1105 行），运行恰在受理前结束时就落到空闲会话里；桌面版重启也不会把它转成留着（没有没收口的运行，见第 3 条）。提案的目标是“取不取由内核一处决定，对所有收口方式成立”，而这条不经过收口，是收口表之外的入口；bot 周期任务以宿主身份发话时，正好把用户这条顺手带走，即问题 2 的原样。
+建议：二选一写进提案：(1) enqueue 在空闲（且没有暂停的运行）时入队即为留着（原因例如 `idle`），等它的发出者或用户放行；(2) enqueue 在空闲时等同 send（开运行）。(1) 与 t07“不自动发出、等用户确认”的精神一致，(2) 改动 enqueue 的合同（输出 3）。另外把“状态在哪些时刻转换”从“收口时”扩成“收口时与入队时”，并在第 2 小节表前写明。
+
+### 6. 子会话连带中止与 kill 转成“stopped、只有用户能放行”，与 subagents.md 输出 16“之后的放话照常送达”和提案第 6 小节自己的放行规则冲突
+严重程度：重要；类别：与已定合同不一致、别扭（维度 1、3、7）
+位置：提案第四节第 3 小节“例外：stopped 只有用户能放行”、第 6 小节第二条“父会话连带中止子会话时用 keepQueue: true……转成留着（stopped），等用户”；agent/subagents.md 输出 16、10；backend/subagents/tools.ts 第 255–260 行、children.ts 第 50–53 行。
+现象：NeuroBook 有两条以父会话身份发 abort{keepQueue: true} 的路径：父运行被中止时的连带（tools.ts 第 258 行，view 的发出者是 issuerOf(job.owner)），和父 Agent 自己调 kill（children.ts 第 52 行）。给父模型的结果文字写着“子会话留着，之后可以用 agent_send 接着用”。按提案，这两种之后子会话缓冲区里父 Agent 自己排的插话与排队都成了 stopped，父 Agent 放不了；它再 agent_send 时，子会话空闲，新话开新运行先跑，而它更早排的那几条卡在后面等用户——既违反“留着的先跑”，也让 subagents.md 输出 16“之后的放话照常送达”不再成立（提案第六节只说要改 subagents.md 的“连带中止时留着”，没说要废掉“照常送达”）。不带 message 的 agent_send 走 start：按表“只放行自己的”而 stopped 除外，结果是一次没有新输入的“继续”运行，排着的话仍不动。
+为什么是问题：stopped 的设计来源是用户在停止按钮上选“停止、排队的留着”（开发者原话），连带中止与 kill 不是用户的选择，却被归进同一个只许用户解开的原因。另外用户在父会话点的若是“停止并清空”，子会话照样 keepQueue，用户的选择没传下去。
+核实：读上述代码与 Spec；子代理路径未跑实验（属 NeuroBook 后端，结论从代码推断）。
+建议：给连带与 kill 单列原因（例如 `cascaded`，按“谁发新话放行自己的”处理，父 Agent 的 agent_send 放行自己排的），stopped 只用于用户在停止按钮上的选择；或者由发出 abort 的那一方决定原因（见第 7 条 abort 没有发出者）。父会话“停止并清空”是否连带清空子会话里父 Agent 排的话，交开发者。
+
+### 7. 权限表漏了 abort：它不收发出者，缺省清空会删掉别人排的话，stopped 也分不清是谁选的
+严重程度：重要；类别：接口与合同、遗漏（维度 3、4）
+位置：提案第四节第 4 小节权限表（只有 edit、remove、release、start/resume）；第 2 小节“中止：缺省清空；keepQueue 时转成留着（stopped）”。代码：session/session.ts 第 264 行 `abort: (args) => closedGuard(() => abortCommand(host, args))`，commands.ts 第 159–184 行，abort 不收 issuer。
+现象：任何视图（含会话、将来的宿主）都能 abort；缺省（不带 keepQueue）时 commands.ts 第 171 行对缓冲区每一条写 inputRemoved{reason: "aborted"}，不分发出者。于是宿主或别的会话一次 abort 就能删掉用户排的全部话，绕过了“remove 只能删自己发的”；反过来用户 abort 时会顺带删掉宿主排的周期任务（这一条也许是想要的，但要写明）。带 keepQueue 时，“stopped 只有用户能放行”的前提是“用户选了停止、留着”，但内核根本不知道这次 abort 是谁发的：子会话的连带中止（第 6 条）、宿主的中止都会产出同一种 stopped。
+另外 abort 的清空写在运行收口之后的另一批里（commands.ts 第 169–174 行：先 await control.abort() 等 runEnded 写下，再排队写 inputRemoved 与 commandAccepted）。若 stopped 的 inputHeld 也照此写在 abort 的受理批里，中间有一个窗口：runEnded 已写、会话已空闲（control.ts 第 123–131 行的 finally 先跑 onIdle），别的指令可以先受理开运行，而这时这些话仍是就绪的。
+建议：abort 收发出者并写进 commandAccepted 或 inputHeld 的详情；权限表加一行 abort（例如：缺省清空只删发出者自己有权 remove 的那些；keepQueue 产生的原因按发出者分 stopped 与别的）；inputHeld 与 runEnded 写在同一批（由 abort 把 keepQueue 交给循环的 end()），不留窗口。
+
+### 8. merge 合成的那一条在日志里没有内容表示，payload、附件、原文与脱敏、输入拦截都没定；send 的受理批与返回值随之改变却没写
+严重程度：重要；类别：接口与合同、遗漏（维度 3、4）
+位置：提案第四节第 3 小节“merge：……合成一条输入，开一轮”“合成的那一条在日志里记下由哪几条合成（inputMerged{from, into}），原来的几条以‘已合并’离开缓冲区”；第五节“新事件 inputMerged{from, into}”。
+现象与问题：
+(a) inputMerged 只有 from、into 两个 id，合成后的 UserInput 写在哪里没说。缓冲区的归约（state/kernel-state.ts 第 109–117 行）只从 inputQueued 建条目，into 要么另写一条 inputQueued（那它的 by、mode、original、originalHash 取谁的？），要么 inputMerged 自带 input。
+(b) UserInput 有 `payload?: P`（api/basics.ts 第 35–39 行），宿主与扩展可以带结构化载荷；两条带 payload 的输入没有通用的合法合并。附件合起来可能超过 input-too-large 的上限（edit/send 的失败码里有它）。各条的 original、originalHash（输入拦截改过或脱敏过的标记，runtime.md 输出 24、session.md 输出 10）合成后丢失或含义不清。
+(c) 合成文字是模型实际看到的新输入，却不经输入拦截链；拦截层原本对每条独立判定（例如长度、敏感词、脱敏），合成后的整体没人看过。
+(d) send 在空闲时的受理批现在是 inputQueued(新)、runStarted、inputConsumed(新)、turnStarted、input(新)（runtime.md 输出 2，commands.ts 第 111–114 行）。“留着的先跑”之后，被取走开第一轮的不再是这条新话（merge 下是 into，keep、followups 下是最早一条留着的），成功值里的 inputId 指向一条已合并或还排着的话。输出 2 要改，提案第六节没列；按 commandId 重发交回的仍是旧 value，调用方据此 edit/remove 会得 input-consumed。对话视图按“第一条 input/steer 事件弹掉第一条乐观消息”对齐（nb-agent-ui/src/kernel-transcript.ts 第 704 行），keep、followups 模式下会把留着的那条显示成刚发的这条（前端审查者另看）。
+(e) “相邻”在留着的话夹着别的发出者时怎么切、不能合并的那几条在 merge 模式下按 steer 还是 followup 跑、merge 时 steer 与 followup 合成后是什么模式，都没写；放行时会话在跑（“在跑就转成就绪”）时 merge 是否仍合成也没写。
+建议：给 inputMerged 定完整数据（合成后的 input、mode、by，以及来源各条的 original 标记的处理），写明带 payload 的条目不参与合并、合并后过一次输入拦截（拒绝时怎么办）、超限时怎么办；改写 runtime.md 输出 2 的受理批与 send 的成功值（例如加 `consumed` 字段指向实际开轮的那条）；把 (e) 的几种情况各写一句。
+
+### 9. 中止进行中到达的话：send 已经交回成功，随后被缺省清空删掉；带 keepQueue 时又成了只许用户放行的 stopped
+严重程度：重要；类别：遗漏、边界（维度 4）
+位置：提案第四节第 2 小节“中止（aborted）| 缺省清空，同现在；keepQueue: true 时全部转成留着（stopped）”。代码 commands.ts 第 168–174 行：abort 先等运行收口，再按“那时”的缓冲区逐条写 inputRemoved。
+现象：运行处于 aborting（等工具宽限期、等模型端口交回）时，control.idle 仍为 false，别的发出者的 send 照常受理成“排着”、返回 ok；运行收口后 abort 的清空批把它一起删掉。
+核实：/tmp/review-buffer-r1/repro/abort-window.test.ts（packages/nb-harness 下 `bun test /tmp/review-buffer-r1/repro/abort-window.test.ts`）。输出：`status while aborting: {"state":"aborting"}`；会话身份的 send 交回 `{"inputId":"17c7…","runId":null,"currentRunId":…}`；随后 `removed: [{中止前排的, aborted}, {17c7…, aborted}]`。
+为什么是问题：用户点“停止并清空”时清的应是他看到的那些；停止进行中宿主发来的周期任务、父 Agent 的 agent_send（NeuroBook 对子会话用 child-stopping 挡住了，但宿主与别的调用方没有）被静默删掉，发出方拿到的是成功。keepQueue 时它们成了 stopped，只能等用户，而这条话是在停止决定之后才到的，发出者自己也放不了。现状就有这个窗口，但提案要把“谁的话能被谁处置”做成内核规则，正该在这里定。
+建议：二选一写明：(1) aborting 期间的 send、enqueue 直接失败（例如 `stopping`，与 subagents 的 child-stopping 对齐）；(2) 清空与 stopped 只作用于受理 abort 那一刻已在缓冲区里的条目（abort 受理时记下 id 列表），之后到达的按普通收口规则处理（例如就绪，或按发出者转成留着）。
+
+### 10. “stopped 只有用户能放行”收窄了开发者“直到下一次恢复（可以是缓冲区新进）”的原话，属于应交开发者的取舍
+严重程度：重要；类别：与已定设计一致、应交开发者（维度 1、9）
+位置：提案第四节第 3 小节“例外：stopped（用户选了‘停止、排队的留着’）只有用户能放行”，权限表 release 列“（stopped 除外）”。依据：w00043 README 第 76 行开发者原话“停止后停止，缓冲区也不清空，直到下一次恢复（可以是缓冲区新进）再继续运行”，主 Agent 推荐“等恢复”，开发者答“可以，等恢复”。
+现象：开发者给“恢复”举的例子是“缓冲区新进”，没有限定新进的是谁的话；bot 场景里最常见的新进就是周期任务。提案把它收窄成“只有用户的新话或继续”，宿主的周期任务进来不恢复（它自己的那条照跑，用户留着的不动）。提案第八节的决策记录里也没有这一条的来源。
+为什么是问题：两种读法产品行为不同：按原话，用户停止后一小时周期任务到点，会把用户留着的话连同周期任务一起跑掉（可能正是用户不想要的）；按提案，周期任务单独跑、用户的话一直挂着。这是产品取舍，不是内核细节，提案没写理由就定了。还要连带定：enqueue（只入队、不开运行）算不算“缓冲区新进”。
+建议：在待定项里列出这一条，给两种读法的例子，由开发者选；提案第七节“待定项：无”应随之改。
+
+### 11. “原发出者”“同一个发出者”没有判等规则；“宿主”这种发出者内核里还不存在，依赖 bot 提案却列为非目标
+严重程度：重要；类别：依赖的机制、接口（维度 2、3）
+位置：提案第四节第 3 小节“会话或宿主以自己的身份发新话，只放行自己排的”“merge：同一个发出者的、相邻的”；第 4 小节权限表“原发出者（会话、宿主）”；第二节非目标“宿主消息的来源与授权：在 bot 提案”。
+现象：内核的 Issuer 只有 `{kind: "user"} | {kind: "session", id}`（api/basics.ts 第 55 行），没有宿主。bot 提案第 143–145 行打算加 `{kind: "host", source: {plugin, label, ref?, at?}}`，其中 `at` 是计划时刻、`ref` 是日程条目 id。按整个对象判等，同一个日程条目的两期（at 不同）互不算“自己”，周期任务出错后第二期到点放不了第一期留着的；按 plugin 判等，同一插件的不同条目、甚至别的功能互相放行和合并。merge 时两期周期任务是否合成一条也随判等而变。session 发出者按 id 判等没有问题，但用户的话“不写 by”（输出 85），旧日志里 by 缺省读作用户，判等要把“缺省”与 `{kind:"user"}` 视为相同，也没写。
+为什么是问题：权限表、放行和 merge 三处都靠“同一个发出者”，判等不定这三处都不能照字面实现；而提案把宿主发出者留给 bot 提案，又在自己的表里用它，两份提案谁先落地都缺一半。
+建议：在本提案里定 Issuer 的判等（例如 host 按 `source.plugin` 加 `source.ref`，不看 label 与 at），并把“内核加 host 发出者”的最小形状从 bot 提案挪进本提案或写明本提案以它为前提、按什么顺序合入。
+
+### 12. “运行只取就绪的……其余规则不变”会让输出 28 的“还有 steer 就不结束这一轮”在留着的插话上空转；内核读缓冲区的 8 处都要改，提案只点了 2 处
+严重程度：建议（照字面实现会是重要缺陷）；类别：接口与合同（维度 3、6）
+位置：提案第四节第 1 小节“运行只取就绪的：边界上取全部就绪的插话，一轮正常结束时取最早一条就绪的排队，其余规则不变”。
+现象：留着的话会在别的发出者开的运行里一直待在缓冲区（提案的本意）。内核读缓冲区的地方：run/loop.ts 第 79 行（取 steer）、第 206 行（暂停运行在轮之间取第一条）、第 378 行（“最终回复时还有 steer 就接着请求”，输出 28 第二句）、第 393 行（取 followup）；run/commands.ts 第 126 行（enqueue 的 position）、第 140 行（start 取第一条）、第 171 行（abort 清空）；session/preview.ts 第 116 行（预览投影第一条，输出 55）。其中第 378 行不是“取”的规则，按“其余规则不变”保留，就会在缓冲区有一条留着的 steer 时：最终回复 → 还有 steer → continue → 边界不取（不是就绪）→ 再请求 → 再最终回复……无限请求模型。start 与暂停运行取 `buffer[0]` 若不改，会把留着的那条开成一轮。
+建议：把“只看就绪的”写成缓冲区的一条总规则，并在 Spec 改动清单里逐条列出输出 4、7、28（两句）、36、55 与 enqueue 的 position（是算全部还是只算就绪的）；为第 378 行补一条验收场景“别的发出者的运行里有留着的 steer 时，最终回复照常结束这一轮”。
+
+### 13. release、resume、start 的几种情形没定：开不起来时、有暂停的运行时、非用户 start 没有自己的留着时；resume 与 start 的分工、模式参数放在哪也没写
+严重程度：重要；类别：接口与合同、遗漏（维度 3、4）
+位置：提案第四节第 3 小节“用户点继续（start，或新增的 resume）”“按条放行 release({inputIds})”“放行时会话空闲就开运行”；第 4 小节“start 记下谁开的（写进 runStarted）”。
+现象与问题：
+(a) 开不起来时。release/resume 在空闲时要开运行，但会话可能只读（tools-missing 收口后进只读直到重开，loop.ts 第 222 行；reassembly-failed、dependency-missing）或模型解析不到。提案只给“只压缩之后开不起来转成 cannot-continue”，release 失败是整条指令失败（话仍留着），还是转成就绪但不开运行（又成第 5 条的空闲就绪）没写。日程插件出错后用 release 放行自己的周期任务（提案原文），正是常遇到模型不可用的时候。
+(b) 暂停的运行。回退到运行中途后 control.paused 非空（control.ts 第 78–80 行），start/send 不写 runStarted，直接 launch 原来的 runId（commands.ts 第 110、137 行）。“start 记下谁开的写进 runStarted”在这条路径上无处可写；放行时若暂停在一轮中途，merge 合成的那条进当前这一轮（作为 steer）还是等这轮结束（作为 followup）也没写。
+(c) 非用户的 start。权限表说会话、宿主“能，但只放行自己的”。它没有自己留着的话、而用户的都留着时，按 start 现有规则（输出 4）缓冲区里没有可取的就开一次没有新输入的“继续”运行：宿主一次 start 就把出错的那一轮接着跑了，而用户那几条留着的仍不动——bot 的重启续跑（bot 提案第 137 行 `start({take: "none"})`）正依赖这一点，但本提案没写它是有意的行为。
+(d) resume 与 start 的分工。start 现在就“缓冲区不空时取第一条”，提案又加 resume，两者区别（是否带模式、是否要求有留着的）没写；放行模式是“放行的指令带的”，start 目前没有 mode 参数，send 也没有，需要给 send、start、release、resume 都加，remote.ts 的 argsMatchKernel（第 326–328 行）会逼着远程合同同步改，提案第六节 agent/sessions.md 一行只提了 release、resume。
+建议：逐条写成规则：(a) 开不起来时整条失败、带码、话仍留着；(b) 暂停运行接着跑时 runStarted 不重写，发起者另记（例如 inputReleased.by 或新的 runResumed）；(c) 明确非用户 start 在没有自己的留着时是否允许“继续”；(d) 要么去掉 resume，要么写明它与 start 的区别，并列出 mode 参数加在哪些指令上。
+
+### 14. 旧日志补法没说怎样区分“旧日志”与“新内核写的日志”，也没说按哪条路径、按什么顺序认收口
+严重程度：建议；类别：接口与合同（维度 3、5 旧日志）
+位置：提案第四节第 5 小节“旧日志没有这些事件：归约时按收口方式补出状态，规则同第 2 小节；补出来的只在内存里”。
+现象与问题：
+(a) 新旧之分。日志没有格式版本区分这件事（会话头 format 不变，否则旧日志要 needs-migration）。新内核写的日志里，收口批之后紧跟 inputHeld；若归约对所有日志都“按收口补”，新日志里提案有意不留着的情形（只压缩成功后接着开轮的那一刻、中止缺省清空、第 9 条若改成只清受理时那几条）会被补成留着，或与显式事件叠加出不同结果。应写成“只对没有任何 inputHeld/inputReleased 的日志补”或“只对同一批里没有 inputHeld 的 runEnded 补”，二者在“旧日志被新内核续写”时结果不同。
+(b) 路径与顺序。缓冲区是 session 级、runEnded 是 path 级。回退、重试会在多条分支上各留一个 runEnded（runtime.md 输出 36），补法按日志顺序（含已被回退掉的分支）还是只按当前路径，提案没写；按当前路径补会因为切分支改变缓冲区状态，违背“回退与 fork 不撤销”。
+(c) 第 3 条说的进程内 interrupted 收口、第 1 条的 result 文字收口，在补法里同样要有规则。
+建议：写明补法按日志顺序扫所有 runEnded（不分路径），只在“这次收口之后没有显式的 inputHeld/inputReleased”时补，并给一条验收：旧日志用新内核打开后续写一次出错，再重开，缓冲区状态与续写前后一致。
+
+### 15. 小处：引用的行号过时；“edit 只能改自己发的”让 inputEdited 记编辑者变成冗余，并收回了用户在子会话里改父 Agent 排的话的能力
+严重程度：建议；类别：别扭、证据（维度 7）
+位置：提案第三节“loop.ts 第 381–383 行；同文件第 183–197、347–350 行”；第四节第 4 小节权限表 edit 行与“inputEdited 记下编辑者”。
+现象：89af44967 上取 followup 在 loop.ts 第 393–395 行，只压缩的运行在第 188–203 行，finished 收口在第 358–364 行（第 381–383 行是 result 的催一次，正好是第 1 条那条漏掉的路径）。edit 限定为原发出者后，编辑者恒等于发出者，“记下编辑者”不再提供信息；而现在用户能改子会话里父 Agent 排的话（edit 不看发出者），改后变成 not-allowed，提案第五节“普通会话的行为变化”没列这一条。
+建议：行号改为函数名或按现行代码更新；删去“记下编辑者”或说明它为将来放宽留着；在行为变化里补上“用户不能再改子会话里父 Agent 排的话、宿主排的话，只能删除”。
+
+## 按影响排序
+因为逐条追加，编号是核实顺序。按影响从高到低：3、5、1（三条都是收口表之外仍会留下“就绪却没人取”或被别人带走的路径，合起来说明第 2 小节的表还不完整，提案的首要目标“对所有收口方式成立”没达到）> 4（只压缩接着跑照字面做不出来）> 6、7、9、10（谁能放行、谁能清空的规则与现有子代理合同、开发者原话冲突）> 8、11、13（merge、发出者判等、放行指令的合同缺口）> 2（回滚说法错）> 12、14、15。
+
+## 未发现问题的方面
+- 出错类收口（profile-failed、request-invalid、tools-missing、模型解析失败、重发用完、empty-reply、context_overflow、internal）都写 runEnded{error}，归到“出错 → 留着”没有歧义（result-missing 除外，见第 1 条）。
+- 模型重发等待期间到达的话：等待结束回到边界取就绪的 steer（输出 66），与提案的取法不冲突。
+- changeProfile 只在空闲时受理，与缓冲区状态无交互；fork 不带缓冲区，新事件是 session 级、回退与 fork 不撤销的说法与现有 inputQueued、inputRemoved 一致。
+- 索引 index.json 不存缓冲区（log/index-file.ts），快照的 buffer 由归约现算，新字段 state、by 不会与缓存冲突。
+- 远程合同按 commandErrors 自动暴露内核指令（backend/remote.ts 第 41–42 行），视图身份固定为用户（第 171 行）；新增 release、resume 时 argsMatchKernel 会在编译期逼出合同的同步修改，不会静默漏掉。
+
+## 各级数量
+阻断 0；重要 12（第 1–11、13 条）；建议 3（第 12、14、15 条）；撤回 0。
+
+## 应交开发者而提案自己定了的事
+- stopped 是否只有用户能放行，还是按原话“缓冲区新进”（含周期任务、含只入队的 enqueue）就恢复（第 10 条）。
+- 子会话的连带中止与 kill 是否等同用户的“停止、留着”；父会话“停止并清空”是否连带清空子会话里父 Agent 排的话（第 6 条）。
+- 只压缩的运行接着开轮（给 compact 运行补对话语义）还是另开一次 chat 运行（第 4 条）；这条与“交出结果后留着”是开发者提问之后主 Agent 改的，决策记录里没有开发者对改后版本的确认。
+- finished（以及第 1 条的 result 文字收口）转成留着，与 t07 决定 1“排队在本次运行以 completed 结束后按序作为新输入”不同（这些运行的轮都是 completed），需要开发者认可这一偏离。
+- 空闲时 enqueue 的话是留着还是直接开运行（第 5 条）。
+- 不支持回滚（写过新事件的会话在旧内核上打不开）是否可接受（第 2 条）。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15

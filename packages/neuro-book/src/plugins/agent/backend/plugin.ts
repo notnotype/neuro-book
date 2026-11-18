@@ -34,11 +34,14 @@ import {agentSessionsContract} from "../shared/remote";
 import {agentRequestsContract} from "../shared/requests";
 import {profileAgents} from "../shared/profile-agents";
 import {agentSettings} from "../shared/settings";
-import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, SKILLS_POINT, skillsPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
+import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, evalObjectsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, SKILLS_POINT, skillsPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
 
 import {createAgentRuntime} from "./agent";
 import {createAttachmentRoutes, sessionDirectoryExists} from "./attachments";
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./builtin";
+import {KernelRegistry} from "./eval/kernels";
+import {writeEvalDocs} from "./eval/objects";
+import {EVAL_STATE_EXTENSION, EVAL_TOOL, evalDeclaration, evalStateExtension, evalTool, kernelEntry} from "./eval/tool";
 import {BUILTIN_COMPACTION_CONTRIBUTIONS, builtinCompactionMethods} from "./compaction";
 import {approvalPreview} from "./builtin/preview";
 import {shellBackground} from "./builtin/shell-background";
@@ -71,7 +74,7 @@ const allActivated = (result: TriggerActivationResult): boolean => result.status
 export const agentBackendPlugin: PluginDefinition = {
     id: descriptor.id,
     activationEventPrefixes: [AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, AGENT_PROFILE_PREFIX, AGENT_COMPACTION_PREFIX],
-    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint, skillsPoint],
+    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint, skillsPoint, evalObjectsPoint],
     entries: [defineEntry({
         id: "server",
         location: "server",
@@ -79,7 +82,7 @@ export const agentBackendPlugin: PluginDefinition = {
         provides: [agentKey],
         remoteProvides: [agentSessionsContract, agentRequestsContract],
         receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT, SKILLS_POINT],
-        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...JOB_TOOL_CONTRIBUTIONS, ...SUBAGENT_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION, {capability: EXTENSIONS_POINT, id: SUBAGENTS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: SKILLS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: STICKERS_EXTENSION, declaration: {}}],
+        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...JOB_TOOL_CONTRIBUTIONS, ...SUBAGENT_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION, {capability: TOOLS_POINT, id: EVAL_TOOL, declaration: evalDeclaration}, {capability: EXTENSIONS_POINT, id: EVAL_STATE_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: SUBAGENTS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: SKILLS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: STICKERS_EXTENSION, declaration: {}}],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
@@ -110,6 +113,8 @@ export const agentBackendPlugin: PluginDefinition = {
                 ...(tasks.status === "resolved" ? {tasks: tasks.instance} : {}),
             });
             skillInstaller = installer;
+            // 全服务端 eval 内核的总数（eval.md 输出 11）：跟着这一次激活，会话关闭时各自的内核随实现释放。
+            const evalKernels = new KernelRegistry();
             const runtime = await createAgentRuntime({
                 stateRoot: context.services.require(stateRootKey).path,
                 settings: context.services.require(settingsKey),
@@ -152,8 +157,12 @@ export const agentBackendPlugin: PluginDefinition = {
                 context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.stickers,
                 stickerPacks().map((entry) => entry.id),
             );
+            // 全局对象的文档（resources.md 输出 16）：声明在进程生命期内不变，激活时生成一次，`docs://eval/` 指到这里。
+            const evalDocsContainer = join(stateRoot, "agent", "eval-docs");
+            await writeEvalDocs(join(evalDocsContainer, "eval"), runtime.evalDocs());
             const schemes = agentSchemes({
                 sessionsRoot: runtime.sessionsRoot,
+                evalDocs: {container: evalDocsContainer, names: () => [...runtime.evalObjects.keys()]},
                 profilesRoot,
                 tempContainer,
                 docsRoot: locateDocsRoot(),
@@ -194,7 +203,7 @@ export const agentBackendPlugin: PluginDefinition = {
             return {
                 services: [provideService(agentKey, runtime.service)],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, skills: skillCatalog, skillInstaller: installer, skillsFolder: {path: userSkills, open: () => openFolder(userSkills, process.env, process.platform)}, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews)), provideRemote(agentRequestsContract, () => requestsRemote({recorder: runtime.requests, owners: runtime.requestOwners, titles: runtime.titles, sessionEntry: (id) => runtime.sessionEntry(id)}))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock), ...subagentToolImplementations}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills}), [STICKERS_EXTENSION]: stickersExtension({stickers: {list: stickerPacks}, allowed: allowedStickers})}},
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock), ...subagentToolImplementations, [EVAL_TOOL]: evalTool({registry: evalKernels, entry: kernelEntry(), toolsOf: (context) => runtime.codeTools(context)})}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills}), [STICKERS_EXTENSION]: stickersExtension({stickers: {list: stickerPacks}, allowed: allowedStickers}), [EVAL_STATE_EXTENSION]: evalStateExtension}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00046-desktop-release",
+    "taskId": "t02-installer",
+    "artifactId": "review",
+    "answerId": "20261118T122946277Z-b25274eb",
+    "artifactVersion": 2,
+    "contentHash": "922773417df3a00e159b4ae543615b6ca2a0d81c9ac134c4373bf56494391377",
+    "submittedAt": "2026-11-18T12:29:42.999Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "shell": "stage"
+    },
+    "comments": {
+        "shell": "第一屏可以居中，切换到第二屏可以做一个动画"
+    },
+    "note": null
+}
