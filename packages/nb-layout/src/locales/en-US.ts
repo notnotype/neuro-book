@@ -10,4 +10,13 @@ export default {
         resize: "Resize the floating window with the arrow keys",
         move: "Move the floating window with the arrow keys",
     },
+    sortable: {
+        handle: "Move {{name}}",
+        hint: "Drag to reorder, or press Space to pick up, arrow keys to move, and Enter to drop",
+        placeholder: "Drop here",
+        picked: "Picked up {{name}}, position {{index}} in {{section}}",
+        moved: "Position {{index}} in {{section}}",
+        dropped: "Moved {{name}} to position {{index}} in {{section}}",
+        cancelled: "Cancelled; {{name}} is back where it was",
+    },
 };

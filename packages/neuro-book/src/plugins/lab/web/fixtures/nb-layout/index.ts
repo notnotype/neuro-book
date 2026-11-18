@@ -5,7 +5,7 @@
 import type {Component} from "vue";
 import {h} from "vue";
 
-import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, SortableList, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
 
 import {defineLabFixture, type LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
@@ -95,6 +95,18 @@ export const nbLayoutFixtures: LabFixture[] = [
             {id: "adapt", label: "放不下时逐级让位", input: {props: {items: [], active: null, label: "标签"}}},
         ],
         load: async () => (await import("./TabStripFixture.vue")).default,
+    }),
+    defineLabFixture<typeof SortableList>({
+        component: "SortableList",
+        // 输入只是占位（类型要求登记必填的项），夹具自己持有分卷与章节的次序：放下要真的改得动。断言在 e2e/lab-sortable-list.e2e.ts。
+        scenes: [
+            {id: "default", label: "两卷章节，能跨卷拖", input: {props: {sections: []}}},
+            {id: "empty", label: "第二卷是空的：显示“拖到这里”", input: {props: {sections: []}}},
+            {id: "slow", label: "写入慢：放下后 600ms 才采纳，次序不闪回", input: {props: {sections: []}}},
+            {id: "fail", label: "写入失败：放下后回到原样", input: {props: {sections: []}}},
+            {id: "disabled", label: "停用：不能拿起", input: {props: {sections: []}}},
+        ],
+        load: async () => (await import("./SortableListFixture.vue")).default,
     }),
     defineSubjectFixture<typeof DropIndicatorLabel>({
         component: "DropIndicatorLabel",

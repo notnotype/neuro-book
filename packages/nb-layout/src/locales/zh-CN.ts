@@ -10,4 +10,13 @@ export default {
         resize: "用方向键调整浮动窗大小",
         move: "用方向键移动浮动窗",
     },
+    sortable: {
+        handle: "移动{{name}}",
+        hint: "拖动排序；也可以按空格拿起，用方向键移动，回车放下",
+        placeholder: "拖到这里",
+        picked: "已拿起{{name}}，在{{section}}第 {{index}} 位",
+        moved: "{{section}}第 {{index}} 位",
+        dropped: "已把{{name}}放到{{section}}第 {{index}} 位",
+        cancelled: "已取消，{{name}}回到原处",
+    },
 };
