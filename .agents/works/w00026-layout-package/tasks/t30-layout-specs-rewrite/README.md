@@ -51,6 +51,19 @@ updated: 2026-11-18
   - 草稿列的“只在 `NestedGrid.md` 里的行为句子”（`evidences/nested-grid-notes.txt` 第 5 节）不升进 Spec：不加输出条目；以后晋升时再看。
 - 第 2 片包文档：`NestedGrid.md` 换成草稿（压掉与 Spec 重复的行为正文，链接编号）；`grid.md`、`Splitter.md`、`DropFeedbackOverlay.md` 按补丁补几处。两个比例的边界在 `grid-drop.ts` 里核过（插入位大于 0.5 不合法、边缘不小于 0.5 不合法，缺省 0.2）。代码注释与测试名里指向某一条子规则的引用改编号，交给 Claude Sonnet 按编号表机械迁移。
 
+- 第 2 片 `ae607f38c`、第 3 片 nested-grid `e09869392`，2026-11-18 合入（`b7f57492c`）。代码注释与测试名的引用迁移：Claude Sonnet 按编号表改了约 40 处，主会话审 diff，只动引用那几个字；抽查 15 个编号都对上新 Spec；改掉两处多出的空格。`layout-project.ts:125` 写的是属性名、不是引用，不改。nb-layout `bun test` 593、vitest 258、两个包的类型检查都过。
+- 第 4 片第一步 `b4ffc7435`：
+  - 引用 nested-grid 的地方改成编号，输出 44 改写；
+  - 删掉过时的前言，非目标去掉标记；
+  - 实现合同只写包入口，补“当前容器只在提交时变”“切换容器不改尺寸意图”两条有测试的不变量，骨架那条补上 `predatesContainers`；
+  - Smoke 末行只写四个入口，证据补齐，删掉“。；”；
+  - `PanelRecord` 示例的 `collapsed` 注明同名不同义；
+  - `docs/specs/README.md` 写明标记的范围，以及去掉标记的判据。
+- 输出 44 的“移到”菜单项另建 [t32](../t32-entry-menu-move-to/README.md)，待确认清单同日一行。
+- omp 逐句核对（[`evidences/promotion.txt`](evidences/promotion.txt)，只读，没跑测试）：workbench-layout 149 处，去掉 100、留 39、没做 5、改写 5；盘点判 A 的 141 处里 40 处降为留或没做，大多是整条标题上的标记，那一条里有几句缺能区分的断言。
+  - “没做”的 5 处：两处是“锚不进呈现树”的全称说法（原句在空区域时不成立），另外是输出 22、44、47 里各有一句没做或缺断言。
+  - 落标记交给 Claude Sonnet 出草稿：去掉的删，整条标题上留的挪到缺断言的那几句，锚的两句按新测试改写后去掉，F6 与 Tab 停靠按第 1 片的新测试去掉。主会话审标记的 diff 后提交。
+
 ## 下一步
 
-引用迁移回来后审 diff、跑类型检查与单元测试，worktree 合入 master，紧接着提交新的 nested-grid；再按 omp 的逐句结论补第 1 片其余测试、做第 4 片（workbench-layout）。
+审 Sonnet 的标记草稿（`reports/draft2/`），提交；收口：`grep -n planned` 逐处对上 `promotion.txt` 与改动表；`docs:check`、`governance:check`；实现审查（omp）。
