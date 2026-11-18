@@ -2,9 +2,11 @@
 
 本包位于 `packages/nb-layout`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)；本文件只写本包的约定。
 
-`@notnotype/nb-layout` 是工作台的布局工具，决策见 [ADR 0044](../../docs/adr/0044-workbench-single-layout-tree.md)，行为合同是 [`ui.nested-grid`](../../docs/specs/ui/nested-grid.md) 与 [`ui.layout-drag`](../../docs/specs/ui/layout-drag.md)。
+`@notnotype/nb-layout` 是布局工具：布局树、尺寸求解、落点与拖动。决策见 [ADR 0044](../../docs/adr/0044-workbench-single-layout-tree.md) 与 [ADR 0054](../../docs/adr/0054-nb-layout-general-library.md)（做成不认识工作台的通用库，发布之前 `private`），行为合同是 [`ui.nested-grid`](../../docs/specs/ui/nested-grid.md) 与 [`ui.layout-drag`](../../docs/specs/ui/layout-drag.md)。
 
 ## 边界
+
+- 导出的标识符、数据属性与类型名里不出现工作台概念（活动栏、状态栏、区域、容器、编辑组、具名面板）；有这些概念的放 [`nb-workbench-layout`](../nb-workbench-layout/AGENTS.md)，它只经本包的公开入口用本包，本包不依赖它。
 
 - 核心（`.` 入口，`src/` 下除 `vue/` 以外的文件）不依赖任何包，不依赖 Vue 与 DOM：插件激活时就要建模型，Bun 里也要能测。`src/boundary.test.ts` 读源码核对导入，新增文件同样受约束。
 - Vue 层（`./vue` 入口，`src/vue/`）只依赖 `vue`、`@notnotype/nb-ui`、`tabbable` 与核心。样式写在组件的 scoped CSS 里、用 nb-ui 的 token，不用原子类：宿主的 Tailwind 不扫描本包，用了宿主也不会生成。
