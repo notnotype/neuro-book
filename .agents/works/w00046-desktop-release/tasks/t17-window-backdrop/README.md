@@ -34,8 +34,14 @@ Windows 11 22H2 以上的 Mica：bun:ffi 设 DWM 背景，外层面板半透明�
 
 ## 当前状态
 
-可行性已证实，产品实现未做。要开发者定：用 Acrylic（背后窗口模糊透出，开发者描述的效果）还是 Mica（壁纸色调），或设置里两种都给；页面一侧的深浅色要跟系统走（探针里亮色主题放在深色玻璃上字读不清）。
+2026-11-18：做成了设置项并在 Windows 上实测，代码在分支 `feat/w00046-t17-backdrop`（worktree `.worktree/w00046-t17-backdrop`），没有合入 master（等开发者定外观）。
+
+- `nbook.desktop` 加了“窗口背景”：关、Mica、Acrylic（`windowBackdrop`，只在 Windows 11 22H2 以上有效，更早的系统与没有自画外框的窗口按普通窗口建）。壳在建每个窗口前按缓存里的值定要不要 `transparent: true`（启动页窗口也一样，它之后换成产品页），建好后用 dwmapi 设 `DwmExtendFrameIntoClientArea(-1)` 与 `DWMWA_SYSTEMBACKDROP_TYPE`；预加载脚本在 `<html>` 上设 `data-window-backdrop`；页面把当前明暗（`data-nb-appearance`）经新消息 `window-appearance` 交给壳，壳设 DWM 的明暗标志。改设置只对之后新开的窗口生效。
+- 样式：`html[data-window-backdrop]` 下窗体底透明、关掉主题自带的底纹，外层面板半透明，编辑器仍不透明；高对比度与“减少透明”偏好下不生效。外层面板有四种试验样式（设置里的“窗口背景样式（试验）”，a 只有底透明、b 所有卡片半透明、c 侧栏与右栏半透明、d 在 c 上再罩一层主题底色，缺省 d），等开发者挑定后收成一种、删掉这个设置。
+- 实测发现并处理的坑：DWM 会在磨砂窗口的非客户区画系统标题按钮，透过透明的页面叠在我们自己画的那组后面成重影；去掉 `WS_SYSMENU` 之后不再画（`DWMWA_NCRENDERING_POLICY` 关掉也能去，但会带出 8px 灰边和直角，已否决）。代价是没有系统菜单（Alt+空格）。
+- 验证：`src/desktop/backdrop.test.ts`、桌面设置缓存与桥消息的单元测试、`window-appearance.dom.test.ts`、类型检查通过；在 pc-notype 上装测试版实机看过（截图是开发者当场允许的），壳日志 `desktop.backdrop.applied`、窗口扩展样式带无重绘面位。
+- 没验证：Alt+F4、双击标题栏最大化、拖到屏幕边缘贴边（去掉 `WS_SYSMENU` 的影响，要开发者手试）；深色主题下的样子；改设置后新开窗口的流程；高对比度。
 
 ## 下一步
 
-开发者定了效果后写 plan.md：`nbook.desktop` 下加窗口背景选项（关、Mica、Acrylic），改设置要重开窗口才生效（`transparent` 只能创建时设）；壳建窗口时读设置（缓存）传 `transparent` 并调 DWM；页面在开着时让外层面板半透明、关掉主题自己的 `--window-backdrop`、颜色方案跟系统明暗；Windows 10、22H2 以下、高对比度、系统“透明效果”关着时退回普通背景，不出现或不生效。
+开发者在测试版里挑样式（a 到 d）与 Mica、Acrylic，并试上面“没验证”的几项；定了之后：收成一种样式、写 Spec（desktop-shell 输出 32 等）与 plan.md、补 e2e、做实现审查、合入。
