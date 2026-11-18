@@ -74,8 +74,20 @@ export type ServiceEvent =
     | {readonly kind: "reduced"}
     /** 宿主通知某一章（`null` 是全部）的正文变了，正文快照随之更新，版本不变（project.md 输出 25）。 */
     | {readonly kind: "textChanged"; readonly chapter: string | null}
-    /** 章表或登记的 Component 类型变了，而世界版本没有前进（project.md 输出 34）。 */
-    | {readonly kind: "inputChanged"; readonly what: "chapters" | "components"};
+    /** 章表、登记的 Component 类型、插件诊断的登记或标注种类变了，而世界版本没有前进（project.md 输出 34）。 */
+    | {readonly kind: "inputChanged"; readonly what: "chapters" | "components" | "diagnostics" | "marks"};
+
+/** 诊断声明的完整内容（按 id 排，含所属插件、版本、级别、显示名、键与输入），比较登记前后是否变了用。 */
+function diagnosticDeclarations(registry: DiagnosticRegistry | undefined): string {
+    const current = registry ?? EMPTY_DIAGNOSTIC_REGISTRY;
+    return stableStringify(current.versions.map(([id]) => current.byId(id)));
+}
+
+/** 可用标注种类（按 id 排：版本、显示名、挂在哪、引用；载荷的校验是函数，比不了），比较登记前后是否变了用。 */
+function markTypes(registry: MarkRegistry | undefined): string {
+    const current = registry ?? EMPTY_MARK_REGISTRY;
+    return stableStringify(current.versions.map(([id]) => current.byKind(id)));
+}
 
 export type {ReadStamp} from "./reads";
 export type {ViewedReads} from "./views";
@@ -236,8 +248,14 @@ export class WorldService {
     readonly #computers = new Map<string, {readonly token: object; readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}>();
     /** 这个实例里登记过的诊断 id 与插件：插件停用以后，它的诊断列在“因插件停用而未计算的诊断”里（model.md 输出 34）。 */
     readonly #seenDiagnostics = new Map<string, string>();
-    /** 三组的计算结果，按读取输入的摘要、模式与位置；只留最近几份。 */
+    /** 三组的计算结果，按读取输入的摘要、诊断登记的代次、模式与位置；只留最近几份。 */
     readonly #groupsCache = new Map<string, PendingGroups>();
+    /**
+     * 诊断登记的代次：计算登记、注销、换数据版本、诊断声明变了，各加一（`#diagnosticsChanged`）。读取戳只含插件的数据版本与声明的
+     * `[id, 版本]`，同一插件以同一数据版本换了一套计算、声明改了级别而没改版本时戳不变；分组缓存的键与 `pending` 游标的读取参数
+     * 带上它，旧结果与旧游标才会作废（project.md 输出 34）。只在本实例里有意义：进程重启以后旧游标同样不认。
+     */
+    #diagnosticsEpoch = 0;
     /** 打开着的视图，按令牌（输出 24）；令牌的寿命由调用方那一层管，它在调用方断开或入口停止时调 `closeView`。 */
     readonly #views = new Map<string, ViewGrant>();
     /** 宿主给的章标题（输出 28）；只用于章表，不进世界、不影响计算。 */
@@ -513,7 +531,7 @@ export class WorldService {
         const groups = this.#groups(world, position, mode);
         if (typeof groups === "string") return groups;
         const stamp = this.#stamp();
-        const page = this.#page(stamp, groups[group], cursor, limit, {method: "pending", position, mode, group});
+        const page = this.#page(stamp, groups[group], cursor, limit, {method: "pending", position, mode, group, diagnostics: this.#diagnosticsEpoch});
         if (page === "cursor-stale") return page;
         return {
             ...stamp,
@@ -533,7 +551,7 @@ export class WorldService {
 
     /** 三组的计算：内核的待处理与提示，再调每个登记了的诊断（输出 34 的处理顺序见 diagnostics.ts）。按读取输入缓存。 */
     #groups(world: World, position: ReadPosition, mode: Mode): PendingGroups | "chapter-not-found" | "line-not-found" {
-        const key = `${this.#stamp().inputDigest}|${mode}|${stableStringify(position)}`;
+        const key = `${this.#stamp().inputDigest}|${String(this.#diagnosticsEpoch)}|${mode}|${stableStringify(position)}`;
         const cached = this.#groupsCache.get(key);
         if (cached !== undefined) return cached;
         const canon = world.pending(position, mode);
@@ -892,10 +910,12 @@ export class WorldService {
         const token = {};
         this.#computers.set(plugin, {token, compute: registration.compute, dataVersion: registration.dataVersion});
         this.#inputGeneration += 1;
+        this.#diagnosticsChanged();
         return () => {
             if (this.#computers.get(plugin)?.token !== token) return;
             this.#computers.delete(plugin);
             this.#inputGeneration += 1;
+            this.#diagnosticsChanged();
         };
     }
 
@@ -905,6 +925,13 @@ export class WorldService {
         if (current === undefined || current.dataVersion === dataVersion) return;
         this.#computers.set(plugin, {...current, dataVersion});
         this.#inputGeneration += 1;
+        this.#diagnosticsChanged();
+    }
+
+    /** 插件诊断的结果可能变了而世界版本不动：先换代次（旧分组与旧游标作废），再通知调用方重读（project.md 输出 34）。 */
+    #diagnosticsChanged(): void {
+        this.#diagnosticsEpoch += 1;
+        this.#emit({kind: "inputChanged", what: "diagnostics"});
     }
 
     /** 章表（project.md 输出 28）：宿主此刻给的章序、标题与各段讲的线。 */
@@ -1298,11 +1325,14 @@ export class WorldService {
     setRegistries(registries: {readonly registry?: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<void> {
         const run = () => {
             this.#noteDiagnostics(registries.diagnostics);
-            const before = this.#world.options.registry;
+            const before = this.#world.options;
             this.#world = this.#world.withOptions({...this.#world.options, ...registries});
             // 类型或字段声明变了（输出 34）。`digest` 不含显示名与给 Agent 的说明，所以另比整份类型。
-            const after = this.#world.options.registry;
-            if (after !== before && stableStringify(after.types) !== stableStringify(before.types)) this.#emit({kind: "inputChanged", what: "components"});
+            const after = this.#world.options;
+            if (after.registry !== before.registry && stableStringify(after.registry.types) !== stableStringify(before.registry.types)) this.#emit({kind: "inputChanged", what: "components"});
+            // 诊断声明与标注种类也比完整的内容：读取输入的摘要只含 `[id, 版本]`，级别、显示名这些改了而版本没改，摘要不变。
+            if (diagnosticDeclarations(after.diagnostics) !== diagnosticDeclarations(before.diagnostics)) this.#diagnosticsChanged();
+            if (markTypes(after.marks) !== markTypes(before.marks)) this.#emit({kind: "inputChanged", what: "marks"});
         };
         const next = this.#queue.then(run, run);
         this.#queue = next.catch(() => undefined);

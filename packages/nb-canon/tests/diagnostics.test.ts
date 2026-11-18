@@ -3,7 +3,7 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
 import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotype/neuro-book-test-support/tmp";
 
-import {buildDiagnosticRegistry, buildRegistry, type Decision, type DiagnosticDeclaration, type Entry, type StoryChangeDraft, type WriteRequest} from "../src/index";
+import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry, type Decision, type DiagnosticDeclaration, type Entry, type StoryChangeDraft, type WriteRequest} from "../src/index";
 import type {Finding, GroupItem, WorldService} from "../src/node/index";
 import {PROJECT, sign, verify} from "./fixtures/authorization";
 import {openTestService} from "./fixtures/service";
@@ -272,5 +272,62 @@ describe("canon.model 输出 36：插件的数据版本是读取输入的一部�
         expect(pageOf(service).inputDigest).not.toBe(first.inputDigest);
         stop();
         expect(pageOf(service).unavailable).toEqual([{diagnostic: data.id, reason: "not-registered"}]);
+    });
+});
+
+describe("canon.project 输出 34：诊断与标注的登记变了，世界版本不动也发 inputChanged", () => {
+    const FLAG = {id: "test.mark.flag", version: 1, label: "旗", attachTo: ["telling" as const], schema: {type: "object", properties: {who: {type: "string"}}}, refs: [{path: "who"}]};
+    const inputs = (service: WorldService): string[] => {
+        const seen: string[] = [];
+        service.subscribe((event) => {
+            if (event.kind === "inputChanged") seen.push(event.what);
+        });
+        return seen;
+    };
+
+    test("计算登记、换数据版本、注销、诊断声明变了、标注种类变了各发一次；原样再给一次、数据版本没变、注销过的再注销都不发", async () => {
+        const data = declaration("data");
+        const service = await open([data]);
+        const version = service.status().version;
+        const seen = inputs(service);
+        const stop = service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[data.id]: () => []}});
+        expect(seen.splice(0)).toEqual(["diagnostics"]);
+        service.reportDataVersion(PLUGIN, "1");
+        expect(seen.splice(0)).toEqual([]);
+        service.reportDataVersion(PLUGIN, "2");
+        expect(seen.splice(0)).toEqual(["diagnostics"]);
+        stop();
+        stop();
+        expect(seen.splice(0)).toEqual(["diagnostics"]);
+
+        await service.setRegistries({diagnostics: registryOf(data)});
+        expect(seen.splice(0)).toEqual([]);
+        // 只改级别、没改版本：读取输入的摘要不变，照样要通知。
+        await service.setRegistries({diagnostics: registryOf({...data, level: "hint"})});
+        expect(seen.splice(0)).toEqual(["diagnostics"]);
+        await service.setRegistries({marks: buildMarkRegistry([{plugin: "test.mark", declaration: FLAG}])});
+        expect(seen.splice(0)).toEqual(["marks"]);
+        await service.setRegistries({marks: buildMarkRegistry([{plugin: "test.mark", declaration: FLAG}])});
+        expect(seen.splice(0)).toEqual([]);
+        expect(service.status().version).toBe(version);
+    });
+
+    test("同一插件以同一数据版本换了一套计算、声明改了级别而没改版本：重读拿到新的分组，之前的游标作废", async () => {
+        const early = declaration("early");
+        const late = declaration("late");
+        const service = await open([early, late]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[late.id]: () => [finding("一"), finding("二")]}});
+        const first = service.pending({}, undefined, 1);
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("no cursor");
+        expect(first.unavailable).toEqual([{diagnostic: early.id, reason: "not-registered"}]);
+
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[early.id]: () => [finding("零")], [late.id]: () => [finding("一"), finding("二")]}});
+        expect(service.pending({}, first.cursor, 1)).toBe("cursor-stale");
+        const again = pageOf(service);
+        expect(again.inputDigest).toBe(first.inputDigest);
+        expect([again.unavailable, again.items.map(describeItem)]).toEqual([[], ["early:零", "late:一", "late:二"]]);
+
+        await service.setRegistries({diagnostics: registryOf(early, {...late, level: "hint"})});
+        expect([pageOf(service).items.map(describeItem), pageOf(service, {group: "hints"}).items.map(describeItem)]).toEqual([["early:零"], ["late:一", "late:二"]]);
     });
 });

@@ -237,7 +237,7 @@ const events = {
     /** 宿主通知某一章（或全部）的正文变了，版本不变（输出 25）。 */
     textChanged: {filter: Type.Object({}), payload: Type.Object({chapter: Type.Optional(Type.String())})},
     /** 章表或登记的类型变了，版本不变（输出 34）。 */
-    inputChanged: {filter: Type.Object({}), payload: Type.Object({what: Type.Union([Type.Literal("chapters"), Type.Literal("components")])})},
+    inputChanged: {filter: Type.Object({}), payload: Type.Object({what: Type.Union([Type.Literal("chapters"), Type.Literal("components"), Type.Literal("diagnostics"), Type.Literal("marks")])})},
     /**
      * 独占的租约订阅（输出 10）：申请到令牌的调用方订阅它；订阅结束（连接断开、调用方实例失效、退订）即结束独占。
      * 推一次 `held`，独占结束时推 `ended`。
@@ -373,8 +373,8 @@ export type CanonEvent =
     | {readonly kind: "exclusive"; readonly holder: string | null}
     | {readonly kind: "reduced"}
     | {readonly kind: "textChanged"; readonly chapter?: string}
-    /** 章表或登记的类型变了，世界版本没动：重读 `chapters` 或 `components` 以及依赖它们的读取（输出 34）。 */
-    | {readonly kind: "inputChanged"; readonly what: "chapters" | "components"}
+    /** 章表、登记的类型、插件诊断的登记或标注种类变了，世界版本没动：重读依赖它们的读取（输出 34）。 */
+    | {readonly kind: "inputChanged"; readonly what: "chapters" | "components" | "diagnostics" | "marks"}
     /** 同一项目代次内重连后订阅已重建：中间可能漏了事件，先读一次 `status` 拿当前版本再重读（Spec project“时序与寿命”）。 */
     | {readonly kind: "resync"}
     /** 订阅被提供方结束（项目实例停止、链路关闭）；之后不再有事件。调用方自己 `release` 时不发。 */
