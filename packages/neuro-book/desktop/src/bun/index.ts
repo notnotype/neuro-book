@@ -49,7 +49,7 @@ import {changeLoginItem, readLoginItem} from "./login-item";
 import {adoptCustomFrame, setMinimumSize, setWindowIcon} from "./win32";
 
 const SHELL_VIEW = "views://shell/index.html";
-const DEFAULT_SIZE = {width: 1280, height: 800};
+const DEFAULT_SIZE = {width: 1600, height: 1000};
 const WEBVIEW2_DOWNLOAD = "https://developer.microsoft.com/microsoft-edge/webview2/";
 /** “打开下载页”（desktop-update 输出 10）：最新 Release 的页面。 */
 const DOWNLOAD_PAGE = "https://github.com/notnotype/neuro-book/releases/latest";

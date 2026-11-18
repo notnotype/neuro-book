@@ -46,9 +46,9 @@ const TOGGLE_KEYS: Readonly<Record<Part, WorkbenchTextKey>> = {sidebar: "titleba
 
 /**
  * 判定让位时搜索要留的宽度（外壳四输出 30）：两侧先让，搜索留着这么宽；全部收完以后搜索才继续收窄，网格保证它最窄
- * 120px、仍是一条带文字的长条。取值按第一轮让位表（中文、项目名两个字时约 1040、900、760、640、520 处切换）反推。
+ * 120px、仍是一条带文字的长条。取值略小于搜索的最宽值（360px）：搜索窄一点仍然够用，两侧不必为了让它撑满而早早收起（2026-11-18 搜索收窄时从 480 改成 320）。
  */
-const SEARCH_COMFORT = 480;
+const SEARCH_COMFORT = 320;
 /** 条目区收到最少时只剩“更多”，与条目同高的方形按钮。 */
 const ITEMS_MORE = 28;
 const PART_ICONS: Readonly<Record<Part, string>> = {sidebar: "i-lucide-panel-left", panel: "i-lucide-panel-bottom", auxiliarybar: "i-lucide-panel-right"};
@@ -350,7 +350,7 @@ onBeforeUnmount(() => {
                 <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="text('titlebar.projectButton', {name: project})" data-titlebar-project>
                     <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                     <span v-if="showProjectName" class="workbench-titlebar__project-name">{{ project }}</span>
-                    <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+                    <span class="i-lucide-chevron-down workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                 </Button>
             </DropdownMenu>
             <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" :title="text('titlebar.openProject')" :aria-label="text('titlebar.openProject')" data-titlebar-project @click="emit('open-project')">
@@ -432,10 +432,10 @@ onBeforeUnmount(() => {
     /*
      * 左右两栏等分，搜索才在整条标题栏的正中；左组（标志、项目、菜单）放不进一半时左栏按内容撑开，搜索往右让。
      * 两边都不让挤掉：左右栏最小取内容宽（项目名有上限、会截断，条目区有上限、多的收进“更多”），空间不够时收窄的是
-     * 中间的搜索，最宽 560px、最窄 120px；再不够就按 `level` 逐级收起两侧的项（外壳四输出 30）。
+     * 中间的搜索，最宽 360px、最窄 120px；再不够就按 `level` 逐级收起两侧的项（外壳四输出 30）。
      */
     position: relative;
-    grid-template-columns: minmax(max-content, 1fr) minmax(120px, 560px) minmax(max-content, 1fr);
+    grid-template-columns: minmax(max-content, 1fr) minmax(120px, 360px) minmax(max-content, 1fr);
     align-items: center;
     gap: var(--space-2);
     width: 100%;
@@ -482,6 +482,15 @@ onBeforeUnmount(() => {
 .workbench-titlebar__measure-lockup {
     flex: 0 0 auto;
     height: 17px;
+}
+
+/*
+ * 字标的基线比同一行的菜单、项目名文字低约 2px（Windows 上实测：字标底在 25px，文字的基线在 23px 上下）：往上提 1px，
+ * 图形仍在 26px 的悬停面里、基本居中。只提图形、不动悬停面，面与邻居的按钮同高。测量层的复本只量宽度，不用提。
+ */
+.workbench-titlebar__brand {
+    position: relative;
+    top: -1px;
 }
 
 .workbench-titlebar__measure-lockup {
@@ -587,9 +596,11 @@ onBeforeUnmount(() => {
     font-size: var(--text-2xs);
 }
 
+/* 项目名与旁边的菜单文字同色（图标与下拉箭头仍是淡的）：名字淡一档时，在一排深色文字里像是没对齐。 */
 .workbench-titlebar__project {
     min-width: 0;
     max-width: 220px;
+    color: var(--text-main);
 }
 
 .workbench-titlebar__project-name,
@@ -621,23 +632,5 @@ onBeforeUnmount(() => {
     visibility: hidden;
     pointer-events: none;
     white-space: nowrap;
-}
-</style>
-
-<style>
-/*
- * 桌面窗口里标题栏就是窗口的拖动区域（ui/workbench-shell.md 输出 28，browser-host 的“窗口外框”）：空白处 drag，拖动、双击最大化、
- * 贴边分屏由 WebView2 交给系统；有点击或悬停行为的一切 no-drag，否则点下去就是拖窗口。普通浏览器里 app-region 不生效。
- * 不放进 scoped 块：scoped 选择器命不中子组件内部渲染的元素（nb-ui Menubar 里 reka 的菜单触发器）。无命令的条目也有悬停提示，
- * 一并 no-drag。
- */
-[data-desktop-titlebar] {
-    -webkit-app-region: drag;
-    app-region: drag;
-}
-
-[data-desktop-titlebar] :is(button, a[href], input, select, textarea, [role="menubar"], [role="menuitem"], [role="button"], [tabindex]:not([tabindex="-1"]), [data-workbench-item]) {
-    -webkit-app-region: no-drag;
-    app-region: no-drag;
 }
 </style>
