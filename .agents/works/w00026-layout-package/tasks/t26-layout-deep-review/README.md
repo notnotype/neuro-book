@@ -96,6 +96,23 @@ updated: 2026-11-18
 
 - 片 6：修后复测见 [`evidences/perf-baseline.txt`](evidences/perf-baseline.txt) 的“修后复测”（树滚动的分隔线写入 16 → 0，改窗口每次的 DOM 记录 103.5 → 71.5，实时布局按住不动每秒的帧回调 60 → 0，其余在噪声内）。2026-11-18 合入 master（`aa8de685e`），master 自分支起点的 14 个提交没碰这些路径，没有先并。实现审查（Claude Sonnet，`claude -p`）在后台，审查 worktree `.worktree/review-t26-impl` 固定在 `9625e49c9`。
 
+- 实现审查（Claude Sonnet，2026-11-18，[`evidences/impl-review.txt`](evidences/impl-review.txt)）：10 条，都是建议，都是读代码（它的沙箱没批准跑测试）。逐条核实：
+
+  | 条 | 内容 | 处理 |
+  |---|---|---|
+  | 1 | 网格在 Shadow DOM 里时，`contains` 不跨 Shadow 边界，文档滚动不再重新对齐分隔线 | 成立，改：滚动的是文档就排帧，元素从根往上走、到 Shadow 根接着走宿主；`splitter.dom.test.ts` 加 Shadow DOM 用例（换回旧写法失败） |
+  | 2 | 停着之后被叫醒的那一帧，会话的 `pointermove` 先挂、先排了发布的帧，帧循环排在后面，这一帧读写顺序反过来 | 成立，改：`wakeLive` 在构造时挂上（早于会话按下时挂的），`dispose` 时摘 |
+  | 3 | 标签条里排序靠每帧重写补回被重渲染换掉的 style，循环停下后补不回来 | 成立，改：排序期间帧循环不停；`live-drag.test.ts` 加用例（去掉这一条件失败） |
+  | 4 | `layoutStructureKey` 的注释被新加的缓存常量隔开 | 成立，改 |
+  | 5 | 基线脚本移出主 tsconfig 后没进 `tsconfig.browser-test.json`，没有类型检查 | 成立，改：加进 include，`vue-tsc` 通过 |
+  | 6 | 基线脚本路线上各站没断言；CDP 读数的窗口比页面里数帧的窗口窄 | 窗口成立，改：CDP 两次读数包在数帧外面。各站断言不加，接受：两份构建走同一条路线，比的是同一条路线上的开销，不是落点本身 |
+  | 7 | `openFloatPanel` 只查面板记录，id 撞树里的分支不拒 | 成立，改：用 `idTaken`；`layout-doc.test.ts` 加分支 id 的用例（换回失败） |
+  | 8 | 头注释与 `grid.md` 写“结果与输入共享子对象”，实际多数操作整份拷贝 | 成立，改说明；待确认清单 api-08 那一行同改 |
+  | 9 | “按根所在窗口挂监听”没有测试 | 成立，补：happy-dom 的 iframe 有自己的窗口与文档，`useSashGesture.dom.test.ts` 加用例（窗口改回全局 `window` 失败） |
+  | 10 | `pressEntry` 抄了四份；状态栏不在时 `boundingBox` 会等到超时 | 成立，改：挪进 `e2e/support/press-entry.ts`，先 `count()` |
+
+- 审查修正 `55f32190f`，2026-11-18 合入 master。验证：nb-layout `bun test` 593、vitest 257、类型检查；neuro-book 类型检查（含 `tsconfig.browser-test.json`，基线脚本与 e2e 都在里面）；工作台与编辑器单元测试 789；e2e `workbench-drag-cost`、`workbench-live-drag`、`workbench-dnd`、`editor-area`、`workbench-views`、`workbench-containers`、`lab-workbench-surface` 208 条全过。每条新用例都做了变异检查（换回旧写法失败）。
+
 ## 下一步
 
-实现审查待处理：报告回来后逐条核实，修正单独提交。基线 worktree `.worktree/w00026-t26-perf-base` 与分支的 worktree 留到审查处理完（修正若改到热路径要重跑测量）。
+无。t26 完成；审查 worktree、基线 worktree、分支与它的 worktree 已删。

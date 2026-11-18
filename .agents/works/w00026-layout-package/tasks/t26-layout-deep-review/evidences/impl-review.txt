@@ -1,0 +1,137 @@
+# w00026 t26 实现审查（ba3de16c6..9625e49c9）
+
+没跑单元测试和类型检查，沙箱对这类命令要求批准，没人批准。下面的判断来自逐行阅读和对调用方的追查，没有数字实验。需要作者核实的地方写在各条的"如何核实"里。
+
+### 1. useSashSnap 的滚动过滤在 Shadow DOM 里挂不上文档滚动
+- 严重程度：建议（对原行为是回归）
+- 类别：正确性 / 不变量
+- 位置：`packages/nb-layout/src/vue/useSashSnap.ts` 的 `onScroll`（约 69 到 76 行）
+- 现象：`target.contains(element)` 用节点树的包含关系，不穿过 Shadow 边界。网格根在 Shadow Root 里时，文档滚动（事件目标是 `document`）或宿主祖先元素滚动，`document.contains(root)`、`ancestor.contains(root)` 都是 false，对齐不再排帧。改之前 `schedule` 不过滤，会重排。
+- 为什么是问题：这个库明确支持 Shadow DOM。`NestedGrid.vue:274` 注释写"grid 可能在 Shadow DOM 里"，`useGridFocus.ts` 按 `getRootNode()` 取，`NestedGrid.dom.test.ts:1001` 有 `attachShadow` 用例。分数 dpr 下页面滚动之后，静止接缝与装饰带不再按设备像素对齐（最多差半个设备像素），没有任何告警。
+- 如何核实：dom 测试里把网格挂进 `attachShadow` 的根，`document.dispatchEvent(new Event("scroll"))`，看分隔线位置是否重新对齐（按代码推演现在不会）。
+- 建议改法：改成沿 `root` 向上走（`parentNode ?? (getRootNode() as ShadowRoot).host`）能不能走到 `target`。或者保守些：`target` 是 `Document` 时一律排帧，别的元素再用宿主链的走法。
+
+### 2. 帧循环停着之后第一次被叫醒的那一帧，手势的发布排在实时帧循环前面，"先读后写"在这一帧反过来
+- 严重程度：建议（影响面小，未实测）
+- 类别：不变量 / 性能
+- 位置：`layout-drag.ts` 的 `activate`（挂 `wakeLive`，约 1004 到 1006 行）、`drag-session.ts` 的 `attachPointer`（按下时就挂了 `onPointerMove`）、`live-drag.ts` 的 `wake`
+- 现象：窗口上同一阶段（捕获）的 `pointermove` 监听按挂的先后执行。会话的 `onPointerMove` 在 `armed` 时挂，早于 `activate` 里挂的 `wakeLive`。指针从静止到动的那次事件：
+  1. 会话的 `schedule()` 先排了 `publish` 的帧回调，`wake()` 再排 `tick`。
+  2. 这一帧里 `publish` 先跑：`resolve` 读完 DOM 后写 `setRejected`、`moveGhost`、`placeFloat`。
+  3. `host.publish(next)` 触发的 Vue 渲染微任务，在这个回调之后、`tick` 之前就清掉了。
+  4. 然后 `tick` 开头的 `host.placeSorted(sortingAt())` 才读 `getBoundingClientRect`。
+
+  循环一直在跑（连续移动）时，`tick` 是上一帧末尾排的，在新事件之前，顺序是对的，`tick` 里的 `session.flush()` 先做发布。
+- 为什么是问题：`live-drag.ts` 头注释和 `tick` 里写的"读在判定之前、写在判定之后，这一帧不强制重算"，在"叫醒的那一帧"不成立。只有标签条里排序（`sortingAt()` 非空，要读矩形），并且这一帧 `resolve` 或 Vue 渲染写过东西时，才会多一次强制重算。实时布局下 `moveGhost` 多半没有拖影，主要是 `setRejected` 切换与 Vue 渲染。事件频率低于帧率的指针（慢速移动、低报告率的笔）每个事件都是一次"叫醒"。现有的 `workbench-drag-cost` 用连续移动的路径，量不到这种。
+- 如何核实：在"拖编辑器标签：每帧至多一次样式重算"用例旁加一条，每两帧才移动一次指针，数 `RecalcStyleCount`。
+- 建议改法：`wakeLive` 在 `createLayoutDrag` 构造时一次性挂上，早于会话按下时挂的监听，`wake` 对 `!active` 直接返回，不要在 `activate` 里挂、`onActiveChange(false)` 里摘。这样叫醒的帧回调总排在手势发布之前，`tick` 里的 `session.flush()` 先做发布，顺序和循环在跑时一致。或者接受现状，把头注释改成"叫醒的那一帧除外"。
+
+### 3. 排序靠每帧重写自愈，循环停着之后重渲染换掉 `translate`、`visibility` 就不再被补回
+- 严重程度：建议（推断，未复现）
+- 类别：不变量
+- 位置：`layout-drag.ts` 的 `measureSorted`（约 369 到 395 行）与 `live-drag.ts` `tick` 的停止条件
+- 现象：`measureSorted` 里写着"Vue 重渲染这个标签时可能整个换掉 style：值对不上就重写，不只看上一次写了什么"。这是每帧循环在做自愈：只要循环在跑，下一帧就把被换掉的 `translate`、`visibility: visible`、`z-index` 写回去。现在循环按需排。指针不动、候选稳定、卡片到位之后循环停下，`placeSortedAfterRender` 只在预览或卡片状态变的那一帧调。指针按住不动时标签重渲染（自动保存结束带来的脏标记变化、标题变化、整条标签带重渲染），拖着的标签会回到原位或被隐藏，直到指针再动一下。
+- 为什么是问题：改前这类情形一帧内补回，改后没有触发源，是"漏一种就停住"的那一类。同类的卡片没有这个问题，`placeLifted` 在渲染时用记下的 `liftedRect` 写回。
+- 如何核实：e2e 里拖编辑器标签进标签条排序、按住不动，用 `page.evaluate` 触发那个标签的重渲染（改一个会进标签渲染的响应式值），看 `frame.style.translate` 与 `visibility` 是否还在。
+- 建议改法：排序期间（`sortingAt() !== null`）循环不停；或者标签条重渲染时通知 `wake`；或者把这三项写成 `data-*` 属性加样式，不靠内联写。
+
+### 4. `layoutStructureKey` 的原文档注释被新加的常量截断，函数失去文档
+- 严重程度：建议
+- 类别：代码质量
+- 位置：`packages/neuro-book/src/plugins/workbench/web/state/layout-present.ts:250` 到 257
+- 现象：新加的 `/** 按文档的对象身份记住结构键…… */` 和 `const structureKeys`，插在原来"拖动的结构键（输出 32）：……当前容器在里面（ADR 0046 决策 5）"那段注释与 `export function layoutStructureKey` 之间。原注释现在悬在 `structureKeys` 上面，被后一段 JSDoc 盖掉，函数本身没有 JSDoc。
+- 如何核实：读该文件 250 到 257 行。
+- 建议改法：把 `structureKeys` 的常量和注释挪到原注释之前，或者并进函数注释。
+
+### 5. 基线脚本被移出主 tsconfig，却没进任何别的 tsconfig，从此没人做类型检查
+- 严重程度：建议
+- 类别：代码质量 / 测试
+- 位置：`packages/neuro-book/tsconfig.json` 的 exclude 末尾，对照 `tsconfig.browser-test.json` 的 include
+- 现象：提交说明写"基线脚本不进主 tsconfig（在浏览器里跑，同 browser-runner）"。`browser-runner.ts`、`files-perf.ts`、`page-agent.ts` 排除在主 tsconfig 之外，同时都列在 `tsconfig.browser-test.json` 的 include 里，`bun run typecheck` 的第三段 `vue-tsc -p tsconfig.browser-test.json` 会检查它们。`scripts/perf/layout-frames.ts` 只加进了 exclude，没加进这份 include，`bun run typecheck` 检查不到它。
+- 为什么是问题：451 行的脚本里有 `page.evaluate` 的页面内代码和 `Performance.getMetrics` 返回值的强转。改 Playwright 或页面接口时它会静悄悄地烂掉，发现在要用它量基线的那一天。
+- 如何核实：`grep layout-frames packages/neuro-book/tsconfig*.json`，只在 `tsconfig.json` 的 exclude 里出现。我没能运行 `vue-tsc`，没验证它在 browser-test 配置下能不能过。
+- 建议改法：加进 `tsconfig.browser-test.json` 的 include，并跑一次 `vue-tsc -p tsconfig.browser-test.json` 修掉出来的错。
+
+### 6. 基线脚本 `live-path` 没验证每一站是否到位，归一的窗口也不严格
+- 严重程度：建议
+- 类别：测试 / 量错
+- 位置：`layout-frames.ts` 的 `live-path`（1673 到 1702 行）、`measure`（1509 到 1550 行）
+- 现象：
+  - 路线四站的坐标在 `stops` 数组里一次性算好，是编辑组中心摆好预览之后量的入口条位置。之后拖动过程中预览一变布局，入口条可能挪位。脚本只在起点做了 `assertLiveDrag`，途中没断言候选真的落在右栏入口条、底部面板、活动栏上。路线走偏的话，数出来的是"在编辑组里乱走"的开销，表里照样出数。`live-hold` 同样只断言了拿起（`[data-lifted]`），没断言预览已经是某个候选。
+  - 归一的分母 `per.count = totals.frames` 来自页面内帧循环，它从"记 CDP 起点之前"开始，到"记 CDP 终点之后"才停。`raf`、`mutations` 的窗口和它一样宽，`recalc`、`layout` 的窗口是中间窄的那段。差几次 CDP 往返（一两帧），60 帧的场景里是百分之几的系统偏差，两个检出之间大体抵消，但表头写的是"按帧归一"。
+- 如何核实：每一站加断言（落点标记或预览键），看是否总能通过；把 CDP 读数挪进页面内计数之内。
+- 建议改法：每一站之后断言预览键或 `data-drop-kind`。`measure` 里先读 CDP 起点再开页面内计数，结束时先停页面内计数再读 CDP 终点。
+
+### 7. `openFloatPanel` 没换成 `idTaken`，新浮动窗的 id 撞上树里的节点不会被拒绝
+- 严重程度：建议
+- 类别：不变量 / 一致性
+- 位置：`packages/nb-layout/src/layout-doc.ts:1152`（`openFloatPanel`），调用方 `layout-drop.ts:382` 与 `editor-panels.ts:125`
+- 现象：第 1 片把 `openPanelAtEdge`、`floatTab`、`splitPanelInPlace` 都换成 `idTaken`（面板记录加树节点，含分支）。`openFloatPanel` 仍只查 `doc.panels[input.id]`。宿主的 `newId("panel")` 给出的 id 等于树里某个分支的 id 时（正是第 1 片要防的计数器式 `newId`），文档里就有浮动窗面板和分支同 id，`validateLayoutDoc` 的重复检查只看树内，不会拒绝。
+- 如何核实：`openFloatPanel(doc, {id: "<某个分支 id>", ...})` 返回 ok；对照 `floatTab` 同样情形返回 `rejected`。
+- 建议改法：改成 `idTaken(doc, input.id)`。
+
+### 8. 结构共享的说明与代码对不上
+- 严重程度：建议
+- 类别：文档
+- 位置：`layout-doc.ts` 头注释第 12、13 行；`grid.md` 第 40 行
+- 现象：说明写"结果与输入共享没改过的子对象（结构共享），输入是代理时结果里没改到的那部分仍是代理"。`editable()` 现在是 `copyJson` 整份深拷贝，所有走 `editable` 的操作（二十多处）的结果都是全新的普通对象，不与输入共享子对象，也不会带代理。真正共享的只有三处用展开的（`layout-doc.ts` 约 294、521、547 行），以及 `openPanelAtEdge` 里 `next.panels[input.id] = input.panel`（共享调用方传进来的记录）。
+- 为什么是问题：写给宿主的合同与实际不符。读的人会以为结果与输入的子对象可以按身份比较，或者以为结果里有代理要避开 `structuredClone`，对大多数操作都不成立。以后有人据此依赖共享，换成真共享实现时才会出问题。
+- 建议改法：改写成"结果是新的普通对象（整份拷贝）；没有变化时返回原对象；少数只改一处的操作沿用输入的子对象"。
+
+### 9. `useSashGesture` 新增的"按根的 ownerDocument 取窗口"没有测试，只测了换根
+- 严重程度：建议
+- 类别：测试
+- 位置：`packages/nb-layout/src/vue/useSashGesture.dom.test.ts`
+- 现象：新用例只验证根从 A 换到 B、置空、`dispose` 后 A 与 B 上不留监听，这能抓住旧实现（`detach` 读 `options.root.value`，那时已是新元素）。同一提交的另一半改动没有用例：监听挂在 `root.ownerDocument.defaultView` 与 `ownerDocument` 上，`requestAnimationFrame`、`setTimeout` 走那个窗口。比如根在 iframe 的文档里，`blur`、`keydown` 挂在 iframe 窗口上，换根后从那里摘掉。`window` 的 `blur` 与 `document` 的 `keydown` 也没被 `tracked` 记录（只记根元素）。
+- 如何核实：把 `attach` 里的 `owner` 改回 `window`，现有用例仍通过（jsdom 里根就在同一个窗口）。
+- 建议改法：用例里造一个 iframe，根建在 iframe 的文档里，断言监听挂在 iframe 窗口上、换根后摘掉；或者不做这半改动。
+
+### 10. `pressEntry` 在四个 e2e 文件里各抄了一份，守卫可能是死的
+- 严重程度：建议
+- 类别：代码质量
+- 位置：`e2e/workbench-containers.e2e.ts`、`workbench-dnd.e2e.ts`、`workbench-views.e2e.ts`、`lab-workbench-surface.e2e.ts` 各一份（同样的函数体与同样的注释）
+- 现象：四份一样的实现，改一处要改四处，而 e2e 目录有 `fixtures.ts` 与 `support/` 可放共享辅助。另外据我对 Playwright 实现的理解（未实测），`locator.boundingBox()` 在选择器匹配不到元素时会等到超时再抛，不返回 null。`if (bar !== null)` 只覆盖"元素在但不可见"。状态栏被隐藏（`hiddenBars`）的用例里调 `pressEntry`，会卡到用例超时而不是跳过。
+- 如何核实：在状态栏隐藏的场景里调 `pressEntry`。
+- 建议改法：放进共享辅助；守卫改成先 `count()`。
+- 是否改变原用例要测的东西：逐处看了，指针移到状态栏中间不改变这些用例断言的内容（焦点、`aria-pressed`、可见性、几何），没发现改变用例含义。
+
+## 未发现问题的方面
+
+- **帧循环的停止条件**：下面几种情况逐个对过，没发现"循环停下之后没有任何触发源"，唯一的例外是第 3 条。
+  - 候选稳定计时（`settled()`）。
+  - 卡片缩放与追赶（`settling`）。
+  - 尺寸刷新率节流：节流窗口里 `!arrived` 保持循环，到位马上写。
+  - 来源收起与展开（经 `tearOff`、`changed`）。
+  - `offer`：边缘滚动、内容滚动、窗口大小改变都经手势发布到 `offer`，再 `wake`。
+  - `placeSortedAfterRender` 走 `nextTick`，不依赖帧。
+- **`ticking`、`frame`、`resumed`**：
+  - `offer` 在 `tick` 内发生时由本帧处理。
+  - `end` 在 `tick` 中间发生（判定时结构变了）时，`source === null` 提前返回，`finally` 复位 `ticking`，`end` 已取消排着的帧。
+  - `begin`、`end` 连着发生时，`begin` 重置 `resumed`，`end` 取消帧。
+  - `wake` 对 `!active.value` 直接返回。没发现状态残留。
+  - `tick` 内抛错后循环不再自续（改前每帧先排下一帧），但下一次指针移动或 `offer` 会重新叫醒，不算问题。
+- **单元测试**：
+  - "停了两秒再动"用 `frame(2000)` 推进时钟，没有 `resumed` 处理的实现会一步缩到 380，用例会失败。
+  - "按住不动"用例移除 `settling` 或 `!settled()` 任一项都会失败（按代码推演，未运行）。
+  - e2e"按住不动"的第二半把读帧回调排在手势与帧循环之后，帧循环晚一帧就会失败，判据是真的。
+- **perf-01 的装饰写入去重**：
+  - 签名带方向；元素换掉走新的 `WeakMap` 键；模板里没有 `:style`。
+  - 除了 `writeDecorationGeometry`、`writeLineCore`，没有别处写这几个内联属性，记下的值不会过时。
+  - `splitter.dom.test.ts` 的新用例在两个方向上都能抓住错误实现（总排帧或总不排帧）。
+  - `useSashSnap(rootEl)` 在 `NestedGrid.vue`、`Splitter.vue` 里 `rootEl` 都先于调用声明，没有暂时性死区。
+- **第 1 片**：
+  - `copyJson` 对 `__proto__` 键的处理正确，规模数据（2000 个标签 1.2ms）有出处。
+  - `validateLayoutDoc` 新规则不会拒掉缺省树（条叶 id 等于条名）、Lab 的 `GridPanelsScene`、宿主的 `section:<视图 id>`、`region:<区域>`、`p-<uuid>`、`b-<uuid>`、`g<N>` 这些 id。
+  - 条叶 id 等于条名从 t07 引入布局文档起就是这样（`git log -S` 查过），磁盘上的旧记录不会因此被拒。
+  - 呈现里生成的 id 只有 `strip:` 前缀与 `:sections` 后缀两种，`layout-project.ts` 只有一处模板字符串生成 id。
+  - 默认树 `reconcileViews` 的 `newId` 用 `freeId`，新的占用检查不会让它的补视图静默跳过。
+- **`layoutStructureKey` 的 WeakMap 缓存**：工作台没有就地修改文档的写法（搜了 `panels`、`floats`、`tree` 的赋值与 push、splice）。`persisted.ts` 的深冻结不影响作 WeakMap 键。
+- **`tab-drag.ts` 的 `computed`**：依赖都是响应式的（`props`、`groups.groups` 的 computed），固定状态通过换掉标签对象触发，缓存不会过时。
+- **编辑组头尺寸观察（perf-09）**：只比较高度，没变不换对象，逻辑正确。
+- **基线脚本**：每次新的状态根与作品，页面自己的帧用包过的原函数，脚本自己的帧用 `ownRaf` 不计入，与计划写的一致。
+
+## 数量
+
+阻断 0；重要 0；建议 10。
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10
