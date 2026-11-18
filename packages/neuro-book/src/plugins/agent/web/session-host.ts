@@ -37,6 +37,7 @@ import type {ModelFailure, ModelNoticeInput} from "./model-notice";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
 import type {AncestorItem, JobItem, TreeItem} from "../shared/subagents";
 import {agentText} from "../shared/text";
+import {heldReason} from "./held-reason";
 import {mergeHeld} from "./resume-merge";
 import type {SubagentStore} from "./subagent-store";
 import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./request-entries";
@@ -63,19 +64,6 @@ type PendingSend = {
 };
 
 /** 结果未知的失败码：指令可能已经受理，不能当成被拒。 */
-/** 留着的原因里认得的码（运行没开起来的原因，harness/runtime.md 输出 104），其余照写码本身。 */
-const HELD_CODE_KEYS = {
-    "no-model": "conversation.held.codes.no-model",
-    "no-credentials": "conversation.held.codes.no-credentials",
-    "unknown-model": "conversation.held.codes.unknown-model",
-    "role-unbound": "conversation.held.codes.role-unbound",
-    "profile-invalid": "conversation.held.codes.profile-invalid",
-    "read-only": "conversation.held.codes.read-only",
-    "session-closing": "conversation.held.codes.session-closing",
-    "reassembly-pending": "conversation.held.codes.reassembly-pending",
-    "log-broken": "conversation.held.codes.log-broken",
-    "not-allowed": "conversation.held.codes.not-allowed",
-} as const;
 const UNKNOWN_OUTCOME = new Set(["unknown-outcome", "unavailable", "timeout", "disconnected", "server-restarted", "provider-error"]);
 const REJECT_KEYS = {
     "empty-input": "conversation.reject.emptyInput",
@@ -1102,31 +1090,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             text: item.text,
             delivery: item.mode,
             ...(item.by === undefined ? {} : {author: authorOf(target, item.by), editable: false}),
-            ...(item.state === "held" ? {held: {reason: heldReason(item)}} : {}),
+            ...(item.state === "held" ? {held: {reason: heldReason(item, (ref) => deps.text.t(ref))}} : {}),
         };
-    }
-
-    /** 留着的原因按 `cause` 与 `heldBy` 取文案（输出 48）；带码时写运行没开起来，码不认识时写码本身。 */
-    function heldReason(item: KernelQueued): string {
-        const t = deps.text.t;
-        const cause = item.cause;
-        if (cause === undefined) return t(agentText("conversation.held.unknown"));
-        if (cause.code !== undefined) {
-            const key = HELD_CODE_KEYS[cause.code as keyof typeof HELD_CODE_KEYS];
-            return t(agentText("conversation.held.notStarted", {reason: key === undefined ? cause.code : t(agentText(key))}));
-        }
-        if ("queued" in cause) return t(agentText("conversation.held.idle"));
-        switch (cause.end) {
-            case "completed": return t(agentText("conversation.held.completed"));
-            case "finished": return t(agentText("conversation.held.finished"));
-            case "error": return t(agentText("conversation.held.error"));
-            case "interrupted": return t(agentText("conversation.held.interrupted"));
-            case "aborted":
-                if (item.heldBy?.kind === "session") return t(agentText("conversation.held.stoppedByAgent"));
-                if (item.heldBy?.kind === "host") return t(agentText("conversation.held.stoppedByHost", {name: item.heldBy.source.label}));
-                return t(agentText("conversation.held.stoppedByYou"));
-            default: return t(agentText("conversation.held.unknown"));
-        }
     }
 
     /** 停止的第二个选项（输出 49）：在跑、缓冲区里有用户自己的话时给出，条数是全部条数（用户的停止清空全部）。 */
@@ -1240,7 +1205,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                     return;
                 }
                 if (current !== target) return;
-                if (target.transcript.run().status === "idle" || target.transcript.run().status === "stopping") {
+                // 按这次运行自己的结果判断，不看转录器的状态：`start` 的回应可能先于状态帧到达。
+                const ended = await remote.runResult({sessionId: target.id, runId: started.value.value.runId});
+                if (current !== target) return;
+                if (!ended.ok || ended.value !== null || target.transcript.run().status === "stopping") {
                     if (typed !== null) {
                         setDraft(draftText === "" ? typed.text : `${draftText}\n${typed.text}`);
                         typed.restore();
