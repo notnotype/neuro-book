@@ -259,6 +259,30 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(page.locator(`[data-panel-head="${conversation}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`)).toHaveAttribute("aria-pressed", "true");
     });
 
+    test("右栏隐藏的那段过渡里，并进入口条、视图接管了标题区的头不换画法：入口条缩到零的每一帧都还是视图的三列（views.md 输出 19；ui/workbench-layout 输出 47）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const conversation = await sectionOf(page, CONVERSATION);
+        const head = page.locator(`[data-region-strip="auxiliarybar"] [data-panel-head="${conversation}"]`);
+        await expect(head.locator("[data-panel-head-start]")).toHaveCount(1);
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        await page.addStyleTag({content: ":root { --motion-layout: 1500ms !important; }"});
+        // 点按下的入口隐藏右栏；逐帧看入口条里的头，直到过渡结束。
+        const frames = await page.evaluate(async (panel) => {
+            const rows: boolean[] = [];
+            document.querySelector<HTMLElement>('[data-region-strip="auxiliarybar"] [data-region-entry][aria-pressed="true"]')!.click();
+            for (let index = 0; index < 150; index += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const own = document.querySelector(`[data-region-strip="auxiliarybar"] [data-panel-head="${CSS.escape(panel)}"]`);
+                if (own !== null && own.getBoundingClientRect().width > 0) rows.push(own.querySelector("[data-panel-head-start]") !== null);
+                if (index > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
+            }
+            return rows;
+        }, conversation);
+        expect(frames.length).toBeGreaterThan(3);
+        expect(frames.every(Boolean), `逐帧：${frames.join(",")}`).toBe(true);
+    });
+
     test("入口条里最大化、还原时焦点跟着头走；右栏拖到最窄时当前容器的入口与“更多”在外面，条里每个按钮都在条里、点得到（ui/workbench-layout 输出 13、47）", async ({page}) => {
         await open(page);
         const conversation = await sectionOf(page, CONVERSATION);
@@ -1728,6 +1752,23 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
     const stripEntry = (page: Page, container: string) => page.locator(`[data-region-strip="auxiliarybar"] [data-tool-entry="${container}"]`);
     const barEntry = (page: Page, container: string) => page.locator(`[data-tool-band] [data-tool-entry="${container}"]`);
 
+    test("有面板最大化时，被盖住的右栏入口条不是落点：指针经过它原来的位置，落点还是盖在上面的那块面板（ui/workbench-layout 输出 13、47）", async ({page}) => {
+        await open(page);
+        const stripBox = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
+        // 最大化资源管理器那一节，拖它自己的标题：最大化时是落点指示。
+        await page.locator(`[data-panel-head="${await sectionOf(page, EXPLORER)}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`).click();
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        const from = await centerOf(tab(page, EXPLORER));
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x + 10, from.y + 10, {steps: 2});
+        await page.mouse.move(stripBox.x + 12, stripBox.y + stripBox.height / 2, {steps: 10});
+        await expect(page.locator("[data-drop-feedback]")).toHaveAttribute("data-drop-kind", /.+/u);
+        await expect(page.locator("[data-drop-feedback]")).not.toHaveAttribute("data-drop-kind", /container|entry/u);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+    });
+
     test("右栏的入口条上：拖到两个入口之间，入口横着让开，右栏还是原来的容器、零写入；放下右栏多一个只含它的入口并切到它（输出 45、47）", async ({page}) => {
         await open(page);
         const before = await stripIds(page);
@@ -1829,6 +1870,8 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await expect(surface(page)).toHaveAttribute("data-live-preview", /edge/u);
         await page.mouse.up();
         await expect(page.locator('[data-region-strip="auxiliarybar"] [data-panel-head]')).toHaveCount(0);
+        // 过渡走完再量两节的外框。
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
         const [upper, lower] = [await box(page, await sectionOf(page, EXPLORER)), await box(page, delta)];
         expect(upper.y).toBeLessThan(lower.y);
         expect(Math.abs(upper.x - lower.x)).toBeLessThanOrEqual(1);

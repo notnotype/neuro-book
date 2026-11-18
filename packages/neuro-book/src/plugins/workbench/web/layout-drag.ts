@@ -329,7 +329,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     /** 抓住的点占标签的比例：第一次排序时定，这一场不变，换到别的标签条里也一样。 */
     let sortGrab: number | null = null;
     function sortTargetOf(at: {readonly point: GridDropPoint; readonly panel: string}, tab: string): {readonly frame: HTMLElement; readonly bounds: GridDropRect; readonly vertical: boolean} | null {
-        const band = bandAt(geometry(options.doc()), at.point);
+        const band = bandAt(geometry(options.doc()).bands, at.point);
         const viewId = viewIdOf(tab);
         if (band !== undefined) {
             if (viewId === null) return null;
@@ -446,7 +446,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return (["sidebar", "auxiliarybar", "panel"] as const).flatMap((region): EntryBand[] => {
             const element = bandElement(region);
             const row = rectOf(element);
-            if (element === null || row === null) return [];
+            // 被最大化的面板盖住的（叶 `inert`）、正在离开的入口条不是落点：指针下是盖在上面的那块面板，不是它。
+            if (element === null || row === null || element.closest("[inert], [data-leaving]") !== null) return [];
             if (region === "sidebar") return [{region, axis: "y", row, groupEnd: row.bottom, merged: null, rect: row, entries: entriesIn(element, "y")}];
             const groupEnd = rectOf(element.querySelector("[data-region-entries]"))?.right ?? row.left;
             const merged = element.querySelector<HTMLElement>("[data-panel-head]")?.dataset.panelHead ?? null;
@@ -454,7 +455,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         });
     }
 
-    const bandAt = (seen: DragGeometry, point: GridDropPoint): EntryBand | undefined => seen.bands.find((band) => contains(band.rect, point));
+    const bandAt = (bands: ReadonlyArray<EntryBand>, point: GridDropPoint): EntryBand | undefined => bands.find((band) => contains(band.rect, point));
     /** 键盘区域的 id 是入口条的 id（`entryStripOf`）。 */
     const bandOfRegion = (id: string): EntryBand | undefined => geometry(options.doc()).bands.find((band) => entryStripOf(band.region) === id);
 
@@ -766,7 +767,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (live.active.value && frozen === null) freeze(doc, source);
         const seen = geometry(doc);
         // 放不进入口条的（编辑器标签、有面板最大化）是取消，不开窗（输出 39“不浮动”）。入口条先判：它不在任何面板上，交给库就成了无落点、浮动打开。
-        const band = bandAt(seen, point);
+        const band = bandAt(seen.bands, point);
         if (band !== undefined) return entryDrop(source, point, band);
         dropOrigin(doc);
         const {panels} = seen;
@@ -820,7 +821,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const doc = options.doc();
         if (options.editorTabs() === null || top?.closest("[data-no-drag]") != null) return null;
         const seen = geometry(doc);
-        if (bandAt(seen, point) !== undefined) return null;
+        if (bandAt(seen.bands, point) !== undefined) return null;
         const {panels} = seen;
         const input: LayoutDropInput = {doc, source: FILE_SOURCE, point, panels, floats: seen.floats, excluded: seen.excluded, policy: options.policy()};
         const resolved = resolveLayoutDrop(input);
@@ -950,7 +951,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
 
     /** 拖含几个视图的入口（输出 46）：只有入口条是落点，别处没有落点、不开窗，也不算被拒绝。 */
     function containerDrop(source: ContainerSource, point: GridDropPoint): LayoutDragDrop | null {
-        const band = bandAt(geometry(options.doc()), point);
+        // 只量入口条：含几个视图的入口不走实时布局，没有冻结的几何，量整份几何（每块面板的头与卡片）每次指针移动都白做。
+        const band = bandAt(frozen?.geometry.bands ?? measureBands(), point);
         return band === undefined ? null : entryDrop(source, point, band);
     }
 

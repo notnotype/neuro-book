@@ -423,7 +423,7 @@ test.describe("应用内浮动", () => {
         const home = await sectionOf(page, E);
         const source = await boxOf(page, home);
         /** 点一下按钮，逐帧量视图所在的外框与内容，直到网格的过渡结束；点在页面里，第一帧就开始量。 */
-        const film = (button: string) => page.evaluate(async ({button, view}) => {
+        const film = (button: string, view: string) => page.evaluate(async ({button, view}) => {
             const box = (element: Element) => {
                 const rect = element.getBoundingClientRect();
                 return {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
@@ -443,7 +443,7 @@ test.describe("应用内浮动", () => {
                 if (index > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
             }
             return rows;
-        }, {button, view: E});
+        }, {button, view});
         /**
          * 每一帧内容的左、右、下边就是外框的：同一个起点、同一个终点、同一条曲线，不是两张卡片错开；内容一直盖在外框上面。
          * 上边是外框的上边加面板头。戊是底部面板唯一的一节，头并在入口条里（ui/workbench-layout 输出 47），叶里没有头：浮出去时内容的上边距从 0
@@ -472,7 +472,7 @@ test.describe("应用内浮动", () => {
         const near = (left: {x: number; y: number}, right: {x: number; y: number}): boolean => Math.abs(left.x - right.x) <= 2 && Math.abs(left.y - right.y) <= 2;
 
         // 浮动：窗出现的第一帧，外框在那一节原来的位置（按新叶算，浮动窗没有兄弟，会直接画在终点）；确实量到了半路。
-        const floating = await film(`[data-panel-head="${home}"] [data-panel-action="nbook.view.float"]`);
+        const floating = await film(`[data-panel-head="${home}"] [data-panel-action="nbook.view.float"]`, E);
         await expect(moving).toHaveCount(0);
         const panel = await panelOfTab(page, E);
         const floatBox = await boxOf(page, panel);
@@ -481,11 +481,31 @@ test.describe("应用内浮动", () => {
         expectOneCard(floating, true);
 
         // 停靠：窗的叶回到树里的第一帧，外框还在窗的位置，从那里飞回去；内容跟着、压在外框上面。
-        const docking = await film(`[data-panel-head="${panel}"] [data-panel-action="nbook.view.dock"]`);
+        const docking = await film(`[data-panel-head="${panel}"] [data-panel-action="nbook.view.dock"]`, E);
         await expect(moving).toHaveCount(0);
         expect(near(docking.find((row) => !row.float)!.frame, floatBox)).toBe(true);
         expect(docking.some(({frame}) => !near(frame, floatBox) && !near(frame, source))).toBe(true);
         expectOneCard(docking, false);
+
+        // 侧栏的分节头在它自己的叶里：浮出去、停靠回来，两头都有头，每一帧内容的上边都是外框上边加头高（不用上面那段放宽）。
+        const expectHeadKept = (rows: Awaited<ReturnType<typeof film>>) => {
+            const head = rows.at(-1)!.content.y - rows.at(-1)!.frame.y;
+            expect(head).toBeGreaterThan(0);
+            for (const {frame, content: inner, contentOnTop} of rows) {
+                expect(Math.abs(inner.y - frame.y - head)).toBeLessThanOrEqual(1);
+                expect(Math.abs(inner.x - frame.x)).toBeLessThanOrEqual(1);
+                expect(Math.abs(inner.y + inner.height - (frame.y + frame.height))).toBeLessThanOrEqual(1);
+                expect(contentOnTop).toBe(true);
+            }
+        };
+        const alpha = await sectionOf(page, A);
+        const out = await film(`[data-panel-head="${alpha}"] [data-panel-action="nbook.view.float"]`, A);
+        await expect(moving).toHaveCount(0);
+        expect(out.some((row) => row.float)).toBe(true);
+        expectHeadKept(out);
+        const back = await film(`[data-panel-head="${await panelOfTab(page, A)}"] [data-panel-action="nbook.view.dock"]`, A);
+        await expect(moving).toHaveCount(0);
+        expectHeadKept(back);
     });
 
     test("缩放：角与边的手柄，有最小尺寸；放下写一次；键盘缩放与移动", async ({page}) => {

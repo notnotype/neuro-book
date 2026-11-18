@@ -459,9 +459,12 @@ test.describe("产品页：拖放", () => {
         await open(page);
         // 这一刻的落点。可能没有落点，不用会等元素出现的定位器。
         const signature = (): Promise<string> => page.evaluate(() => {
+            // 区域、插入线各取位置：两条入口条的第一个位置种类与文字相同，要靠线的位置分开。
             const box = document.querySelector("[data-drop-feedback-area]")?.getBoundingClientRect();
+            const mark = document.querySelector("[data-drop-feedback-line]")?.getBoundingClientRect();
             const label = document.querySelector("[data-drop-feedback-label]")?.textContent ?? "";
-            return `${document.querySelector("[data-drop-kind]")?.getAttribute("data-drop-kind") ?? ""}|${box === undefined ? "" : `${String(box.x)},${String(box.width)}`}|${label}`;
+            const at = (rect: DOMRect | undefined) => (rect === undefined ? "" : `${String(Math.round(rect.x))},${String(Math.round(rect.y))},${String(Math.round(rect.width))}`);
+            return `${document.querySelector("[data-drop-kind]")?.getAttribute("data-drop-kind") ?? ""}|${at(box)}|${at(mark)}|${label}`;
         });
         // 右栏只有丁这一节：它自己的区域只有原位，以前这块区域是空的，Tab 走到它就卡住。
         // 区域有活动栏与两条入口条、各块面板和“浮动”，按 16 次足够绕回第一个。
@@ -476,6 +479,8 @@ test.describe("产品页：拖放", () => {
         }
         const cycle = seen.slice(1).indexOf(seen[0]!) + 1;
         expect(cycle).toBeGreaterThan(1);
+        // 一圈里每个区域只停一次：多列、重复列了区域时一圈里会有重复的落点。
+        expect(new Set(seen.slice(0, cycle)).size).toBe(cycle);
         await page.keyboard.press("Escape");
         await expect(ghost(page)).toHaveCount(0);
 
@@ -747,7 +752,8 @@ test.describe("产品页：拖放", () => {
         await fold(page, delta).click();
         // 丁垫底：外框拉到这一列的底，比标题行高得多。
         await expect.poll(async () => (await leaf(page, delta).boundingBox())!.height).toBeGreaterThan(200);
-        const writes = await writesOf(page);
+        // 两次收起各写一次，等它们落盘再数：不然晚到的那次会算进下面的拖动里。
+        const writes = await settledWrites(page);
         await dragTo(page, entry(page, C), await inLeaf(page, delta, {x: 0.5, y: 0.7}));
         await expect(ghost(page)).toBeVisible();
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "float");
