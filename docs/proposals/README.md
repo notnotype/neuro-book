@@ -35,6 +35,7 @@
 - [图像生成第一版：工作台、配方与标签库](image-generation-v1.md)：提示词按节组织、预设引用加差异、风格组合与片段；标签系统；应用级图片仓库与空间管理，书里的生成记录与 `.image` 插图；插图方言、管线、Agent 工具另写。
 - [工作台的视图容器](workbench-view-containers.md)：侧栏、右栏、底部面板各一次显示一个容器，入口切换整个容器；具名面板当区域的锚，容器里是一个视图一节的分节，插件声明或用户拖出来。
 - [桌面发行](desktop-distribution.md)：Electrobun 桌面壳随包带 Bun、先做 Windows 安装包与便携包、状态根与 `nbook` 共用、外部工具向导，打 `v*` 标签后 CI 构建冒烟并发布 npm 包、桌面包与 GitHub Release。
+- [nb-layout 做成能发到 npm 的通用布局库](nb-layout-general-library.md)：工作台的布局文档与拖动控制器拆进不发布的工作区包，nb-layout 只留网格、分隔线、拖动会话与落点几何，收窄入口、统一错误码、去掉 nb-ui 依赖、发编译产物；许可证与发布时机交开发者定。
 
 ### 旧应用的提案（只作参照）
 
