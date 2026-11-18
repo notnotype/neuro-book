@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 6 轮：排队区与停止</title>
+<title>第 7 轮：书房的入口</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -38,25 +38,23 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 6 轮：排队区与停止</h1>
+<h1>第 7 轮：书房的入口</h1>
 
-<section data-nbdev-question="queue-held" data-nbdev-type="confirm" data-nbdev-label="排队区按这样画">
-  <h2>排队区这样画行不行？</h2>
-  <p class="rec"><strong>推荐同意：照现在的排队区改，只加两样：别人排的话（例如日程）标来源、只能取消；留着时上面一行写“已暂停”、原因和“继续”，留着的行改成虚线框。输入框的发送键这时也是“继续”，两处是同一个动作。</strong></p>
+<section data-nbdev-question="shelf-entry" data-nbdev-type="confirm" data-nbdev-label="书房入口按这样画">
+  <h2>案头的入口这样画行不行？</h2>
+  <p class="rec"><strong>推荐同意：案头的看板娘就是星璃的小猫形态，入口就放在她身上。有未读时右上角是计数、下方小气泡写最新一句；等你处理时换成黄色感叹号与“等你批准：……”；没有未读时什么都不加。</strong></p>
   <div class="cands">
-    <div class="cand"><h3>现在</h3><img src="r6/queue-now.webp" alt="现在的排队区：补充说明与排队两行"></div>
-    <div class="cand"><h3>运行中，有日程排进来</h3><img src="r6/queue-running.webp" alt="运行中：自己排的两条与日程的每周简报"></div>
-    <div class="cand"><h3>上一轮出错之后</h3><img src="r6/queue-error.webp" alt="出错后：已暂停、原因、继续"></div>
-    <div class="cand"><h3>你停止之后</h3><img src="r6/queue-stopped.webp" alt="你停止后：已暂停、继续"></div>
+    <div class="cand"><h3>有未读</h3><img src="r7/entry-unread.webp" alt="看板娘右上角未读 3，下方气泡写最新一句"></div>
+    <div class="cand"><h3>等你处理</h3><img src="r7/entry-waiting.webp" alt="看板娘右上角黄色感叹号，气泡写等你批准"></div>
   </div>
 </section>
 
-<section data-nbdev-question="stop-menu" data-nbdev-type="single" data-nbdev-recommend="split">
-  <h2>“停止并清空排队”放在哪？</h2>
-  <p class="rec"><strong>推荐 A：点停止键就是最常用的“停止，排队的留着”，要清空才点旁边的箭头；B 每次停止都要多选一次。两种都只在排队里有你自己的话时出现。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="split" data-nbdev-label="A 停止键旁接下拉箭头"><h3>A 停止键旁接下拉箭头</h3><img src="r6/stop-split.webp" alt="停止键右边接一个下拉箭头，菜单里是停止并清空排队"></div>
-    <div class="cand" data-nbdev-option="ask" data-nbdev-label="B 点停止先选"><h3>B 点停止先选</h3><img src="r6/stop-ask.webp" alt="点停止弹出两项：停止，排队的留着；停止并清空排队"></div>
+<section data-nbdev-question="shelf-open" data-nbdev-type="single" data-nbdev-recommend="drawer">
+  <h2>点看板娘之后在哪里聊？</h2>
+  <p class="rec"><strong>推荐 A：和打开作品后侧栏里的聊天一样宽、一样的头部，换地方不用重新认；浮窗压在书架中间，还多一个窗口位置要记。</strong></p>
+  <div class="cands" style="grid-template-columns: minmax(0, 1fr);">
+    <div class="cand" data-nbdev-option="drawer" data-nbdev-label="A 右边滑出"><h3>A 右边滑出，书房不压暗</h3><img src="r7/open-drawer.webp" alt="书房右边滑出星璃的聊天"></div>
+    <div class="cand" data-nbdev-option="window" data-nbdev-label="B 看板娘旁的小浮窗"><h3>B 看板娘旁的小浮窗，可拖动</h3><img src="r7/open-window.webp" alt="看板娘左边弹出星璃的聊天小窗"></div>
   </div>
 </section>
 
@@ -71,6 +69,8 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>会话标签照会话面板，不按日分组，滚到底加载，bot 标签上带未读（第 5 轮）</li>
     <li>记忆面板先不做；记忆文件在文件资源管理器里看（第 5 轮）</li>
     <li>日程面板：每行等高，开关固定在右边，“确认”跟在“待你确认”后面（第 5 轮）</li>
+    <li>排队区：别人排的话标来源、只能取消；留着时上面一行写“已暂停”、原因与“继续”（第 6 轮）</li>
+    <li>停止键右边接下拉箭头，菜单里是“停止并清空排队”（第 6 轮）</li>
   </ol>
 </section>
 </main>
