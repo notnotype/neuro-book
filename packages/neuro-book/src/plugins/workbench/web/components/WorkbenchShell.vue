@@ -212,7 +212,9 @@ function headReserved(panelId: string): number {
     const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2;
     const others = titleOnlyPanelIds.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
     const region = mergedRegionOf(panelId);
-    return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX + (foldOf(panelId) === null ? 0 : FOLD_MARK_PX) + (region === null ? 0 : stripEntriesReserve(region));
+    // 底部面板并成一行时头不写标题（标题在入口上，输出 47），不给截断的标题留宽。
+    const title = region === "panel" ? 0 : TAB_TRUNCATED_PX;
+    return title + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX + (foldOf(panelId) === null ? 0 : FOLD_MARK_PX) + (region === null ? 0 : stripEntriesReserve(region));
 }
 
 /**
@@ -523,7 +525,10 @@ const stripEntries = computed((): Readonly<Record<"auxiliarybar" | "panel", Regi
             const label = text(entry.label.title);
             const views = entry.views.map(viewTitle);
             const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
-            return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && showing};
+            const viewId = entry.views.length === 1 ? (entry.views[0] ?? null) : null;
+            // 底部面板的入口是容器的标题，只含一个视图的写那个视图的计数（views.md 输出 17）：并成一行时头不写标题，计数只在这里。右栏的入口是图标，不写。
+            const count = region === "panel" && viewId !== null ? props.views.badge?.(viewId) ?? null : null;
+            return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId, current: entry.current, pressed: entry.current && showing, count};
         });
     };
     return {auxiliarybar: entriesOf("auxiliarybar"), panel: entriesOf("panel")};
@@ -542,6 +547,20 @@ function containerMenuItemsOf(container: string): ContextMenuItem[] {
 }
 
 const containerMenuItems = computed(() => (containerMenu.value === null ? [] : containerMenuItemsOf(containerMenu.value.container)));
+
+/**
+ * 入口条上入口的右键与菜单键（输出 44、47）：容器的菜单。底部面板并成一行时那一节的头不写标题，按下的入口就是它的标题：
+ * 这个入口开那个视图的“移动到”（输出 23），和别处点它的标题一样。
+ */
+function openStripMenu(region: PanelName, merged: string | null, container: string, at: {readonly x: number; readonly y: number}): void {
+    const section = merged === null ? undefined : renderedDoc.value.panels[merged];
+    const key = section?.active ?? null;
+    if (region === "panel" && section?.container === container && key !== null) {
+        openMoveMenu(key, at);
+        return;
+    }
+    openContainerMenu(container, at);
+}
 
 /** 一项都没有时不开：空菜单只会吃掉一次按键。 */
 function openContainerMenu(container: string, at: {readonly x: number; readonly y: number}): void {
@@ -594,11 +613,16 @@ const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), texta
 /** 在界面上、能接焦点：画出来了，也不在停放的内容里。 */
 const reachable = (element: HTMLElement | null | undefined): element is HTMLElement => element != null && element.offsetParent !== null && element.closest("[inert]") === null;
 
+/** 面板头上的标题按钮；底部面板并成一行时头不写标题，按下的入口就是它的标题（输出 47）。 */
+function titleIn(head: HTMLElement | null): HTMLElement | null {
+    return head?.querySelector<HTMLElement>('[data-panel-tab][tabindex="0"]') ?? head?.closest("[data-region-strip]")?.querySelector<HTMLElement>('[data-region-entry][aria-pressed="true"]') ?? null;
+}
+
 /** 落点在界面上对应的元素；不保证看得见，调用方用 `reachable` 筛。 */
 function landingElement(root: HTMLElement, landing: FocusLanding): HTMLElement | null {
     // 侧栏的入口在活动栏（`data-tool-entry`），右栏、底部面板的在入口条（`data-region-entry`）；容器 id 在三个区域里不重。
     if (landing.kind === "entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(landing.container)}"], [data-region-entry="${CSS.escape(landing.container)}"]`);
-    const tab = root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(landing.panel)}"] [data-panel-tab][tabindex="0"]`);
+    const tab = titleIn(root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(landing.panel)}"]`));
     if (landing.kind === "tab") return tab;
     // 切到的分节：里面第一个能聚焦的；内容还没加载出来、或它收成了标题行时给它的标题。
     const key = doc.value.panels[landing.panel]?.active ?? null;
@@ -646,7 +670,7 @@ function onHeadMounted(panelId: string): void {
         const active = root.ownerDocument.activeElement;
         if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null && active.isConnected) return;
         const heads = [...root.querySelectorAll<HTMLElement>(`[data-panel-head="${CSS.escape(panelId)}"]`)];
-        const target = heads.map((head) => head.querySelector<HTMLElement>(remembered.selector) ?? head.querySelector<HTMLElement>("[data-panel-tab]")).find(reachable);
+        const target = heads.map((head) => head.querySelector<HTMLElement>(remembered.selector) ?? titleIn(head)).find(reachable);
         target?.focus({preventScroll: true});
     });
 }
@@ -964,10 +988,11 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :placeholder="entryPlaceholderIn(stripEntriesOf(region))"
                         :highlighted="mergeEntry"
                         @select="(id) => selectRegionEntry(region, id)"
-                        @context-menu="openContainerMenu"
+                        @context-menu="(id, at) => openStripMenu(region, merged, id, at)"
                     >
                         <!-- 并进来的那一节的头：同分节的头，以面板为 key，换了并进来的那一节就是新的头（head-slots 先 null 再给新的、焦点交接）。 -->
-                        <WorkbenchPanelHead v-if="merged !== null" :key="merged" v-bind="toolHeadProps(merged, idPrefix)" v-on="toolHeadEvents(merged)" @vue:mounted="onHeadMounted(merged)">
+                        <!-- 底部面板的入口写着容器的标题，并进来的头不再写一遍（输出 47）。 -->
+                        <WorkbenchPanelHead v-if="merged !== null" :key="merged" v-bind="toolHeadProps(merged, idPrefix)" :title-in-entry="region === 'panel'" v-on="toolHeadEvents(merged)" @vue:mounted="onHeadMounted(merged)">
                             <template v-if="headActions.has(merged)" #actions>
                                 <TitleActions :model="headActions.get(merged)!.model" :identity="viewIdentity(headActions.get(merged)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(merged)!.viewId, key)" />
                             </template>

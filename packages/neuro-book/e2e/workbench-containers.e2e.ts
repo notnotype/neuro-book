@@ -321,6 +321,25 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(Math.abs(entryInset - titleInset), `入口文字 ${String(entryInset)}，分节标题 ${String(titleInset)}`).toBeLessThanOrEqual(1);
     });
 
+    test("底部面板当前容器只有一节：头并进入口条、不写看得见的标题，按下的入口就是它的标题：内容区的名称照旧，右键这个入口开视图的“移动到”（ui/workbench-layout 输出 47）", async ({page}) => {
+        await open(page);
+        const toggle = page.locator('[data-titlebar-layout="panel"]');
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+        const strip = page.locator('[data-region-strip="panel"]');
+        const omega = "test.sample-views.omega";
+        const own = strip.locator(`[data-tool-view="${omega}"]`);
+        if ((await own.getAttribute("aria-pressed")) !== "true") await own.click();
+        await expect(own).toHaveAttribute("aria-pressed", "true");
+        const section = await sectionOf(page, omega);
+        await expect(strip.locator(`[data-panel-head="${section}"]`)).toHaveCount(1);
+        await expect(strip.locator("[data-panel-tab]")).toHaveCount(0);
+        await expect(page.getByRole("region", {name: "样例戊", exact: true})).toHaveCount(1);
+        await own.click({button: "right"});
+        await expect(page.getByRole("menu").getByRole("menuitem", {name: "新容器（右栏）", exact: true})).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("menu")).toHaveCount(0);
+    });
+
     test("右栏当前容器有几节：入口条只有入口，各节在自己的叶里画头、能收起；全部收起时入口条在上，最后一节垫底到卡片的底，这一列的分隔线拖不动（ui/workbench-layout 输出 11、47）", async ({page}) => {
         await open(page);
         // 资源管理器移进右栏的新容器，会话再移进它那个容器：右栏这个容器两节（都不接管标题区，标题按钮就是开关）。

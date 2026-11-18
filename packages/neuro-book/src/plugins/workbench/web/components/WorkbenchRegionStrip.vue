@@ -27,6 +27,8 @@ export interface RegionStripEntry {
     readonly current: boolean;
     /** 当前容器且区域可见；至多一项。 */
     readonly pressed: boolean;
+    /** 标题入口在标题后写的计数（只含一个视图的容器，同那个视图的标签，docs/specs/workbench/views.md 输出 17）；没有是 null 或不给。图标入口不写。 */
+    readonly count?: number | null;
 }
 
 const PLACEHOLDER_ICON = "i-lucide-circle-help";
@@ -67,6 +69,9 @@ const emit = defineEmits<{
     /** 入口的右键菜单（键盘是菜单键）；坐标是视口坐标。 */
     (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
 }>();
+
+/** 标题入口写的字：标题，有计数时后面接计数（“通知 2”），读屏名称同样带上。 */
+const titleOf = (entry: RegionStripEntry): string => (entry.count == null ? entry.label : `${entry.label} ${String(entry.count)}`);
 
 /** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在入口下面。 */
 function onEntryContextMenu(id: string, event: MouseEvent): void {
@@ -113,7 +118,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => observer?.disconnect());
 // 换了入口（名称、个数）时标题入口的宽要重量；量尺在下一次渲染之后才是新的。
-watch(() => props.entries.map((entry) => entry.label).join("\n"), () => requestAnimationFrame(measure), {flush: "post"});
+watch(() => props.entries.map(titleOf).join("\n"), () => requestAnimationFrame(measure), {flush: "post"});
 
 const widthOf = (id: string): number => (props.variant === "icons" ? ICON_ENTRY_PX : titleWidths.value.get(id) ?? 0);
 const strip = computed(() => {
@@ -178,7 +183,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             @contextmenu="onEntryContextMenu(entry.id, $event)"
                         >
                             <span v-if="variant === 'icons'" class="workbench-region-strip__icon" :class="entry.icon ?? PLACEHOLDER_ICON" aria-hidden="true"></span>
-                            <span v-else class="workbench-region-strip__title">{{ entry.label }}</span>
+                            <span v-else class="workbench-region-strip__title">{{ titleOf(entry) }}</span>
                         </button>
                     </Tooltip>
                 </div>
@@ -193,7 +198,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
         <!-- 标题入口的量尺：一行看不见的全部入口，不占位置，不进可访问树。 -->
         <div v-if="variant === 'titles'" ref="measureEl" class="workbench-region-strip__ruler" aria-hidden="true">
             <span v-for="entry in entries" :key="entry.id" class="workbench-region-strip__entry" :data-measure-entry="entry.id">
-                <span class="workbench-region-strip__title">{{ entry.label }}</span>
+                <span class="workbench-region-strip__title">{{ titleOf(entry) }}</span>
             </span>
         </div>
     </div>

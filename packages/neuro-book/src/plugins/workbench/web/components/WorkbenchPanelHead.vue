@@ -50,6 +50,11 @@ const props = withDefaults(defineProps<{
     dragHint?: string;
     /** 不画标签带，只写活动标签的标题（侧栏这一列，切视图靠活动栏）。 */
     titleOnly?: boolean;
+    /**
+     * 标题写在入口上（底部面板并成一行时，docs/specs/ui/workbench-layout.md 输出 47）：头不画看得见的标题，只有视图动作与框架按钮；
+     * 内容区名称指向的隐藏标题照旧在，标题按钮（`data-panel-tab`）不在，拖动、右键与焦点落到标题都由宿主交给那个入口。
+     */
+    titleInEntry?: boolean;
     frameActions?: ReadonlyArray<PanelFrameAction>;
     /** 只写标题时活动视图接管了标题区：整行改成三列，左、中、右的位置交给视图（`head-slots`）。 */
     viewHead?: PanelViewHead | null;
@@ -60,7 +65,7 @@ const props = withDefaults(defineProps<{
     fold?: {readonly collapsed: boolean} | null;
     /** 接管标题区时单独的展开标记的可访问名称（`fold` 给了才用）。 */
     foldLabel?: string;
-}>(), {draggingTab: null, idPrefix: "workbench-panel", dragHint: "", titleOnly: false, frameActions: () => [], viewHead: null, fold: null, foldLabel: ""});
+}>(), {draggingTab: null, idPrefix: "workbench-panel", dragHint: "", titleOnly: false, titleInEntry: false, frameActions: () => [], viewHead: null, fold: null, foldLabel: ""});
 
 const emit = defineEmits<{
     (event: "activate", id: string): void;
@@ -189,7 +194,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
         <div v-else class="workbench-panel-head__band" :data-panel-band="panelId" :data-panel-strip="panelId">
             <!-- 头只写标题时它就是拖动源（docs/specs/ui/workbench-layout.md 输出 20），怎么拖写在描述里。
                  焦点光晕画在里面：标题要省略号，外面一层是 `overflow: hidden`，画在外面会被裁掉（和标签一样用内描）。 -->
-            <h2 v-if="activeTab !== null" class="workbench-panel-head__title">
+            <h2 v-if="activeTab !== null && !titleInEntry" class="workbench-panel-head__title">
                 <button
                     :id="panelTabDomId(idPrefix, activeTab.id)"
                     type="button"
@@ -208,7 +213,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                 </button>
             </h2>
             <TabStrip
-                v-else-if="items.length > 0"
+                v-else-if="!titleInEntry && items.length > 0"
                 class="workbench-panel-head__tabs"
                 overflow="adapt"
                 :max-item-width="TAB_MAX_WIDTH"
@@ -226,7 +231,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                 @reorder="(id: string, delta: -1 | 1) => emit('reorder', id, delta)"
                 @context-menu="(id: string, at: {x: number; y: number}) => emit('context-menu', id, at)"
             />
-            <h2 v-else class="workbench-panel-head__title">{{ label }}</h2>
+            <h2 v-else-if="!titleInEntry" class="workbench-panel-head__title">{{ label }}</h2>
         </div>
         <div ref="endColumn" class="workbench-panel-head__end">
             <div v-if="viewHeadShown" :key="`end:${viewHead!.key}`" ref="headEnd" class="workbench-panel-head__view-end" data-no-drag data-panel-head-end></div>

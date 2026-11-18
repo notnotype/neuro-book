@@ -145,9 +145,9 @@ test("通知中心：关掉的通知留在中心，铃铛带点、写条数；�
     const entry = page.locator("[data-notification-entry]").filter({hasText: "导出《雾港》"});
     await expect(entry).toBeVisible();
     await expect(bell).toHaveAttribute("aria-label", "通知");
-    // 底部面板里“通知”是自己一个容器的一节，头只写标题；看过了，标题后没有计数（views.md 输出 17）。
-    const notificationsHead = page.locator('[data-panel-tab="view:nbook.workbench.notifications"]');
-    await expect(notificationsHead).toHaveText("通知");
+    // 底部面板里“通知”是自己一个容器的一节：头并进入口条、不写标题，入口就是它的标题；看过了，入口上没有计数（views.md 输出 17）。
+    const notificationsEntry = page.locator('[data-region-strip="panel"] [data-tool-view="nbook.workbench.notifications"]');
+    await expect(notificationsEntry).toHaveText("通知");
 
     const second = await startTask({title: "导出《雾港》为 PDF"});
     await probe(`/${second}/succeed`, {});
@@ -155,14 +155,15 @@ test("通知中心：关掉的通知留在中心，铃铛带点、写条数；�
     await expect(toasts(page).filter({hasText: "导出《雾港》为 PDF"})).toHaveCount(0);
     await expect(bell).toHaveAttribute("aria-label", "通知");
 
-    // 点状态栏的任务条目，底部面板切到“后台任务”的容器，“通知”那一节停放、看不见：之后的通知照常弹出，铃铛写没看过的条数。
-    // 底部面板的入口条在视图容器的第二步，这时计数只在铃铛上。
+    // 点状态栏的任务条目，底部面板切到“后台任务”的容器，“通知”那一节停放、看不见：之后的通知照常弹出，铃铛写没看过的条数，
+    // “通知”的入口在标题后写同一个数（views.md 输出 17）。
     await statusItem(page).click();
-    await expect(notificationsHead).toBeHidden();
+    await expect(notificationsEntry).toHaveAttribute("aria-pressed", "false");
     const third = await startTask({title: "重建全文索引"});
     await probe(`/${third}/succeed`, {});
     await expect(toasts(page).filter({hasText: "重建全文索引"})).toBeVisible();
     await expect(bell).toHaveAttribute("aria-label", "通知：1 条没看过");
+    await expect(notificationsEntry).toHaveText("通知 1");
     await context.close();
 });
 

@@ -40,6 +40,14 @@ describe("WorkbenchRegionStrip", () => {
         expect(titles.find("[data-region-entry]").attributes("aria-label")).toBeUndefined();
     });
 
+    it("标题入口在标题后写计数，读屏名称同样带上；图标入口不写（views.md 输出 17）", () => {
+        const counted = [{...entry("view:notes", "通知", true), count: 2}, entry("view:tasks", "后台任务")];
+        const titles = mount(WorkbenchRegionStrip, {props: {region: "panel", label: "视图容器", moreLabel: "更多", entries: counted, variant: "titles"}, attachTo: document.body});
+        expect(titles.findAll("[data-region-entry]").map((button) => button.text())).toEqual(["通知 2", "后台任务"]);
+        const icons = mount(WorkbenchRegionStrip, {props: {region: "auxiliarybar", label: "视图容器", moreLabel: "更多", entries: counted, variant: "icons"}, attachTo: document.body});
+        expect(icons.get("[data-region-entry='view:notes']").attributes("aria-label")).toBe("通知");
+    });
+
     it("点入口发 select；入口是拖动源，同活动栏：只含一个视图的写着它的视图，含几个视图的拖的是容器（输出 46）", async () => {
         const wrapper = mountStrip("icons");
         await wrapper.findAll("[data-region-entry]")[1]!.trigger("click");

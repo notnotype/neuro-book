@@ -23,6 +23,7 @@
 - 动作区带 `data-hover-actions`，框架按钮的容器带 `data-hover-actions="frame"`，两者随鼠标显示的范围由宿主给（`hover-actions.css`）；框架按钮里有按下的（最大化着的还原）时这一组一直显示。收着时悬停范围就是这一行（头带 `data-hover-actions-scope`），展开着时是整张卡片（宿主写）。
 - 有 `fold` 时整行是开关：标题按钮铺满标题这一格，标记在按钮里，按钮带 `aria-expanded` 与 `aria-controls`（内容 region 的 id）；点它先把焦点放到按钮上再发 `activate`，切换由宿主做（展开着收起，收着展开）。Enter 是按钮的点击；空格先交给键盘拖动。
 - `titleOnly`（侧栏这一列，别的工具面板只有一个标签时；由外壳按已提交的文档算）时只有活动标签的标题：一个可聚焦的按钮，点了发 `activate`（面板收着时宿主展开），是这个视图的拖动源，名称是标题，`dragHint` 写在描述里。内容区的名称不指向这个按钮，指向一个带 `hidden` 的元素，写活动标签的标题（id 由 `panelTitleDomId` 算）。
+- `titleInEntry`（底部面板并成一行时，入口条的入口写着标题，Spec 输出 47）：不画标题按钮，头里只有视图动作与框架按钮；隐藏的标题元素照旧在。拖动、右键与“焦点落到标题”由宿主交给那个入口。
 - 接管标题区时有 `fold`：展开标记是左列最前面一个单独的按钮（`data-panel-fold`，名称是 `foldLabel`，带 `aria-expanded`），点了发 `toggle-fold`；它算进两侧等宽，标题照旧居中。标题按钮照旧是视图的弹层开关。
 - 接管标题区时，标题按钮仍是这个组件画的：id、`data-panel-tab`、拖动描述、点击与右键都不变，名称是视图送进来的文字。`viewHead.popup` 不为 null 时按钮带 `aria-haspopup="dialog"` 与 `aria-expanded`。左列与右列视图的那一格带 `data-no-drag`，视图把可交互的东西放这里，不放进按钮。三个位置连同按钮经 `head-slots` 交出去；`viewHead.key` 变了（实例换代）就换一组新元素再交一次，不再接管或组件卸载时交 null。
 - 面板头的空白处不起拖：整块面板不能拖（输出 24）。
@@ -72,6 +73,8 @@ type Props = {
     dragHint?: string;
     /** 不画标签带，只写活动标签的标题；默认 false。没有活动标签时同没有标签。 */
     titleOnly?: boolean;
+    /** 标题写在入口条的入口上：不画标题按钮，隐藏的标题照旧；默认 false。 */
+    titleInEntry?: boolean;
     /** 框架按钮，按给定顺序排；默认无。 */
     frameActions?: ReadonlyArray<PanelFrameAction>;
     /** 只写标题时活动视图接管了标题区；默认 null。不是 `titleOnly` 或没有活动标签时不起作用。 */
