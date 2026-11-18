@@ -37,7 +37,7 @@ export const KERNEL_NAMES: readonly string[] = ["tool", "display", "console", "r
 /** 给模型的说明（eval.md 输出 16；提示词规范：中文，集中放在这里）。全局对象的列表按会话拼在后面（`evalDescription`）。 */
 const DESCRIPTION = [
     "在这个会话的 JS 内核（Bun）里执行一段代码，用来批量做事：一次读很多章、统计、按结果再改。顶层声明的变量与函数在之后的调用里还在，不要重复已经成功的设置；结果第一行写着“内核已重置”时，之前的变量没了，只重建还要用的那部分。",
-    "代码里调工具：`await tool.<名>(参数对象)`，名字与你调工具时用的相同（带 - 或 . 的写 tool[\"名\"]）；声明了结构化结果的工具交回对象，其余交回结果文字。失败时抛 ToolCallError（有 status 与 code，unknown 表示不知道有没有执行完，先核对再重做）。每个 tool.* 与对象的方法都是异步的，都要 await；批量调用可能有失败时用 Promise.allSettled。代码里调的工具照常要审批。",
+    "代码里调工具：`await tool.<名>(参数对象)`，名字与你调工具时用的相同（带 - 或 . 的写 tool[\"名\"]）；声明了结构化结果的工具交回对象，其余交回结果文字。read 交回对象：文本的原文在 content 里（不带地址头与行号，统计用它），more 为 true 时用 offset: next 读下一页；目录的条目在 entries 里。失败时抛 ToolCallError（有 status 与 code，unknown 表示不知道有没有执行完，先核对再重做）。每个 tool.* 与对象的方法都是异步的，都要 await；批量调用可能有失败时用 Promise.allSettled。代码里调的工具照常要审批。",
     "可以用顶层 await、import（node:、bun:、相对路径与包名按工作目录解析）、require；console 的输出与最后一个表达式的值是结果；display({data, mime}) 附一张图。要命令的输出用 Bun.$`…`.text()。不支持 export 与 TypeScript 语法。",
     "失败后只重试失败的那一步，前面的步骤可能已经生效。timeout 是秒数，缺省 30，等审批的时间不算；超时会重置内核。reset 为 true 时先重置内核（code 可以为空）。",
 ].join("\n\n");
