@@ -27,6 +27,7 @@ export type {BuiltinToolTexts, KitToolDeclaration, KitToolImplementation} from "
 export type {AskAnswer, AskQuestion} from "./ask.js";
 export type {PreparedCommand, ShellBackground} from "./shell.js";
 export {capLine, capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, PART_LINES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window.js";
+export {OutputCapture, saveFullOutput} from "./output-capture.js";
 
 export type BuiltinToolName = "read" | "write" | "edit" | "editReplace" | "grep" | "glob" | "shell" | "ask" | "askForm";
 

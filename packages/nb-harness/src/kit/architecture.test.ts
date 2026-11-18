@@ -67,8 +67,8 @@ const KERNEL_ENTRIES = [join(SRC, "kernel", "index"), join(SRC, "kernel", "contr
 
 /** 工具、压缩、审批对 `node:fs` 只许这些只读函数。 */
 const READ_ONLY_FS = ["open", "stat", "lstat", "readFile", "readdir", "realpath", "createReadStream"];
-/** `tools/shell.ts` 的输出暂存（在系统临时目录里，不在任何根里）。 */
-const SHELL_SPOOL_FS = ["mkdtempSync", "openSync", "writeSync", "closeSync", "rmSync"];
+/** `tools/output-capture.ts` 的输出暂存（`shell` 与 `eval` 共用，在系统临时目录里，不在任何根里）。 */
+const OUTPUT_SPOOL_FS = ["mkdtempSync", "openSync", "writeSync", "closeSync", "rmSync"];
 const READ_ONLY_UNITS = ["tools", "compaction", "approval"];
 const WRITE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
     [/\bBun\.write\b/u, "Bun.write"],
@@ -228,7 +228,7 @@ function browserChain(entry: string): ImportUse[] {
 function writeViolations(pathInKit: string, text: string, uses: readonly ImportUse[]): string[] {
     const unit = unitOf(pathInKit);
     if (unit === null || !READ_ONLY_UNITS.includes(unit)) return [];
-    const allowed = pathInKit === "tools/shell.ts" ? [...READ_ONLY_FS, ...SHELL_SPOOL_FS] : READ_ONLY_FS;
+    const allowed = pathInKit === "tools/output-capture.ts" ? [...READ_ONLY_FS, ...OUTPUT_SPOOL_FS] : READ_ONLY_FS;
     const problems: string[] = [];
     for (const use of uses) {
         if (use.specifier !== "node:fs" && use.specifier !== "node:fs/promises") continue;
@@ -331,7 +331,8 @@ describe("nb-harness 宿主套件的边界", () => {
         expect(writeViolations("tools/write.ts", "", [use("tools/write.ts", "node:fs")])).toHaveLength(1);
         expect(writeViolations("compaction/x.ts", "await Bun.file(path).write(text);", [])).toHaveLength(1);
         expect(writeViolations("approval/x.ts", "Bun.spawn([\"ls\"])", [])).toHaveLength(1);
-        expect(writeViolations("tools/shell.ts", "", [use("tools/shell.ts", "node:fs", {names: ["writeSync", "openSync"]})])).toEqual([]);
+        expect(writeViolations("tools/output-capture.ts", "", [use("tools/output-capture.ts", "node:fs", {names: ["writeSync", "openSync"]})])).toEqual([]);
+        expect(writeViolations("tools/shell.ts", "", [use("tools/shell.ts", "node:fs", {names: ["writeSync"]})])).toHaveLength(1);
         expect(writeViolations("tools/read.ts", "", [use("tools/read.ts", "node:fs/promises", {names: ["readFile", "stat"]})])).toEqual([]);
     });
 });
