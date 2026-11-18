@@ -458,3 +458,7 @@ w00026 t26 让一个审查者以第三方身份，只用公开入口写了一份
   - **保持新包** `nb-workbench-layout`，理由改成两条：许可证（nb-layout 发 MIT，工作台层是 AGPL 仓库里的领域代码，不放进 MIT 的包）与依赖方向由包边界守住。“纯 TS、Bun 里能测”是 t04 的理由，不是新包的理由。
   - 之前已定的不变：布局文档搬进不发布的工作区包；发编译产物（补充 ADR 0029）；nb-layout 发 MIT；t14 排在去掉 nb-ui 依赖之后。
 - 2026-11-18（t34 计划，待开发者追认）：“错误与诊断”里说 `stale-context`、`stale-revision`、`handler-missing`、`handler-threw` 在代码与 Spec 里没有对应的失败、不预设，这句与代码不符：`useGridLayout` 的提交回调已有网格未就绪、承载盒尺寸不可用、上下文已切换、版本已变、容器尺寸已变五种拒绝，`useSashGesture` 有提交处理器抛出，`NestedGrid` 有没接 `onGestureCommit` 与接纳后没发布匹配布局，nested-grid 的“状态与转换”也写了缺 grid 或容器尺寸时不接受提交。`onGestureCommit` 的返回类型在第一档改成码，这些失败必须有码，所以在 t34 定码，不留到第二档：提交的返回类型里是 `not-ready`、`stale-context`、`stale-revision`、`stale-size`、`handler-missing`、`handler-threw`；`not-published`（接纳后没发布匹配布局）与 `notify-failed`（落账后通知宿主时抛出）只是诊断，不在提交的返回类型里。
+- 2026-11-18（t34 计划第 3 稿，待开发者追认）：“错误与诊断”的另外几处按第二轮设计审查落成：
+  - “每次布局都发的诊断合并成一条一个码”与“`issues` 只发新增”：求解与预览结果里的诊断照旧逐条、完整（状态快照）；通知宿主时按键（码、`cause`、轴；节点 id 与数值不进键）只发新出现的，同一批里同键的合成一条、节点 id 取并集。只按码合成会把不同原因（最小值合计超出、分隔条占满、交叉轴不够）混成一条，宿主拼不出说得清的文字。
+  - 诊断形状加 `params`（提案写的是 `{code, message}`），与失败同形；`SashGestureScope.issues` 这个公开的累计列表删掉，改成回调，累计由宿主自己做。
+  - 候选表里 229（根节点没有父分支）改归 `invalid-argument`，617、632（目标父节点已不存在，实际不可达）改归 `not-found`；失败码与诊断码不相交，诊断里“没有收起策略”叫 `no-collapse-policy`，不与失败码 `not-collapsible` 同名。

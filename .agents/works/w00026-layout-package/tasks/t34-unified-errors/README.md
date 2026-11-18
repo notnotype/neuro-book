@@ -15,7 +15,7 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18 经 nbdev 新建。计划见 [`plan.md`](plan.md)（第 2 稿）。
+2026-11-18 经 nbdev 新建。计划见 [`plan.md`](plan.md)（第 3 稿）。
 
 - 第 1 稿的设计审查（Claude Sonnet，[`evidences/design-review.txt`](evidences/design-review.txt)）：15 条，重要 7、建议 8，都成立（第 6 条的 `PLUGIN_API_SINCE` 一项除外，见表），改成第 2 稿；几条改了设计（只发新增的判据、切片边界、公开面清单），第 2 稿再送一轮：
 
@@ -38,12 +38,28 @@ updated: 2026-11-18
   | 15 | Spec 文字同步 | 并入计划“Spec 与文档改动” |
 
 - 对待确认项，审查同意定码，并建议 `handler-missing` 进提交码、决策记录写明 `not-published`、`notify-failed` 只是诊断：决策记录与待确认清单已照改。
+- 第 2 稿的设计审查（第二轮，[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)）：12 条，阻断 1、重要 5、建议 6，都成立，改成第 3 稿，送第三轮（同一对象最后一轮）：
+
+  | 条 | 内容 | 处理 |
+  |---|---|---|
+  | 1 | 键含数值参数，拖窗口每个像素都是新诊断（阻断） | 键只取码、`cause`、轴；`ids`、`branch` 与度量不进键 |
+  | 2 | `not-collapsible` 一码两义 | 诊断改名 `no-collapse-policy`；失败码与诊断码不相交，加类型级测试 |
+  | 3 | 快照恢复漏了 209 | 新码 `unresolved-root`，带 `dropped` |
+  | 4 | 合成后的 `params` 没定义，删 `context` 丢了分支与轴 | 逐个 `cause` 写 `ids` 是什么、带不带 `branch`、`axis`；`allocateAxis` 传内部范围参数；结果里不合成，只在通知时同键合成 |
+  | 5 | 第 1 片验证漏两个包，第 3 片漏约 36 处读 `detail` | 每片三个包都做类型检查；测试迁移规则列全文件 |
+  | 6 | 作用域边界：空布局、`gesture-update`、键盘、同步回调 | 空布局与换工作面清空键集；载荷是快照不去重；键盘不发诊断记为已知限制；通知挪到收尾之后 |
+  | 7 | 两处靠中文碰巧通过的断言 | `useGridLayout.dom.test.ts:208` 改成真的检查并先变异；e2e 395 读码与版本属性，夹具去掉中文兜底 |
+  | 8 | `PLUGIN_API_SINCE` 理由成立但缺防遗忘；SDK 一列可以定；新类型要不要进 SDK | Work README 加“发版前”一行；SDK 一列填定；`GridIssue` 等几个类型进 SDK 的类型导出，写“新增” |
+  | 9 | `collapsePolicyProblem`、`serializeTree`、`swapSkipped` 三处中文 | 前者归 t36 定入口时一起定；`serializeTree` 的异常文字改英文；`swapSkipped` 并入第 2 片 |
+  | 10 | `params` 没有类型；`duplicate-id` 与 `id-taken` 两个名字 | 每层一张内部映射类型加构造函数，编译期检查；L2 改回 `duplicate-id` |
+  | 11 | 232、280、503、506、`stale-*` 的取值歧义 | 逐条写明 |
+  | 12 | 和提案不同的不止一处 | 决策记录追加第二条，待确认清单加一行 |
 
 - 盘点时发现提案“错误与诊断”有一句与代码不符：L1 的提交回调已有上下文已切换、版本已变、处理器抛出等失败，提案说不预设这些码。本 Task 给它们定码，提案追加决策记录，记入[待确认清单](../../pending-confirmations.md)。
 - 代码在 t33 合入 master 之后开 worktree。
 
 ## 下一步
 
-1. 第 2 稿设计审查（Claude Sonnet，第二轮，阻塞）。
+1. 第 3 稿设计审查（Claude Sonnet，第三轮，阻塞；同一对象最后一轮，仍有实质问题就停下交开发者）。
 2. master 上写两份 Spec 的 planned 条目。
 3. t33 合入后开 worktree，按计划四片实施。
