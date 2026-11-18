@@ -9,6 +9,7 @@
  * 5. 程序布局零提交
  * 6. 三个恢复场景：未知引用过滤保留原件、畸形快照拒绝、高版本快照拒绝
  * 7. 主题（nbook、macos）× 配色（light、dark）× 桌面与 390×844 画布的几何与一次键盘调整
+ * 8. 分隔线的对齐只跟挪得动它的滚动，位置没变时不写
  *
  * 手势一律以 px 提交（`GridGestureCommit.changes`），断言面是真实 DOM 几何与提交载荷。
  */
@@ -286,6 +287,59 @@ test("程序布局零提交", async ({page}) => {
     await showEventLog(page);
     const names = await eventNames(page);
     expect(names.filter((n) => n === "gesture-end")).toHaveLength(0);
+});
+
+test("分隔线的对齐只跟挪得动它的滚动：叶里的滚动不排帧、不写分隔线；重新对齐时位置没变也不写", async ({page}) => {
+    await gotoNestedGrid(page);
+    // 叶里放一块能滚的内容：网格里面的滚动（资源管理器的树、编辑器正文）挪不动分隔线。
+    await nestedGridLocators(page).topLeaf.evaluate((leaf) => {
+        const scroller = document.createElement("div");
+        scroller.dataset.testScroller = "";
+        scroller.style.cssText = "position: absolute; inset: 0; overflow: auto;";
+        scroller.innerHTML = "<div style=\"height: 4000px\"></div>";
+        leaf.append(scroller);
+    });
+    const counts = await page.evaluate(async () => {
+        const root = document.querySelector("#nb-lab-target [data-grid-scope]")!;
+        const raw = window.requestAnimationFrame.bind(window);
+        const twoFrames = (): Promise<void> => new Promise((done) => raw(() => raw(() => done())));
+        await twoFrames();
+        // 页面自己排的动画帧回调：等帧用上面的原函数，不算进去。
+        let frames = 0;
+        window.requestAnimationFrame = (callback) => raw((time) => {
+            frames += 1;
+            callback(time);
+        });
+        let writes = 0;
+        const sashWrites = (records: MutationRecord[]): number => records.filter((record) => record.target instanceof Element && record.target.closest(".nb-grid-sash") !== null).length;
+        const observer = new MutationObserver((records) => {
+            writes += sashWrites(records);
+        });
+        observer.observe(root, {subtree: true, attributes: true, attributeFilter: ["style"]});
+        const take = (): {frames: number; writes: number} => {
+            writes += sashWrites(observer.takeRecords());
+            const result = {frames, writes};
+            frames = 0;
+            writes = 0;
+            return result;
+        };
+        const scroller = document.querySelector<HTMLElement>("[data-test-scroller]")!;
+        for (let step = 0; step < 10; step += 1) {
+            scroller.scrollTop += 100;
+            await twoFrames();
+        }
+        const inside = {...take(), scrolled: scroller.scrollTop};
+        // 文档的滚动算挪得动分隔线：重新对齐一次，但位置没变，一条都不写。
+        document.dispatchEvent(new Event("scroll"));
+        await twoFrames();
+        const outside = take();
+        observer.disconnect();
+        return {inside, outside};
+    });
+    expect(counts.inside.scrolled).toBeGreaterThan(0);
+    expect(counts.inside).toMatchObject({frames: 0, writes: 0});
+    expect(counts.outside.frames).toBeGreaterThan(0);
+    expect(counts.outside.writes).toBe(0);
 });
 
 test("恢复场景：未知引用过滤但原件保留且调整后不丢", async ({page}) => {

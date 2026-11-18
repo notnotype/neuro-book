@@ -135,7 +135,7 @@ const renderLayout = computed(() => preview.value?.layout ?? props.layout);
 
 const dpr = useDevicePixelRatio();
 const text = useLayoutText();
-const snapHost = useSashSnap();
+const snapHost = useSashSnap(rootEl);
 
 const parking = useLeafParking();
 const {parked} = parking;
