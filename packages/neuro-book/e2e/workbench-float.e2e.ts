@@ -25,14 +25,20 @@ const NOT_FLOATABLE = "test.sample-views.zeta";
 const LEAF = "[data-workbench-surface] > [data-grid-scope] > [data-leaf]";
 const leaf = (page: Page, id: string) => page.locator(`${LEAF}[data-leaf="${id}"]`);
 const windows = (page: Page) => page.locator(`${LEAF}[data-float]`);
-const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
+/**
+ * 视图的标题：头上的标题按钮。底部面板并成一行时头不写标题，按下的入口就是它的标题（右键开“移动到”、拖它就是拖这个视图，
+ * docs/specs/ui/workbench-layout.md 输出 47）；只在没有标题按钮时取到它。
+ */
+const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"], [data-region-strip="panel"] [data-tool-view="${viewId}"][aria-pressed="true"]`);
 const ghost = (page: Page) => page.locator("[data-workbench-drag-ghost]");
 const feedback = (page: Page) => page.locator("[data-drop-kind]");
 const area = (page: Page) => page.locator("[data-drop-feedback-area]");
 const label = (page: Page) => page.locator("[data-drop-feedback-label]");
 const content = (page: Page, viewId: string) => page.locator(`[data-content="view:${viewId}"]`);
 const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"]`);
-const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
+/** 视图所在分节的面板头：头里有它的标题；底部面板并成一行时头不写标题，是按下的入口是它的那条入口条里并进来的头（输出 47）。 */
+const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"]), [data-region-strip="panel"]:has([data-tool-view="${viewId}"][aria-pressed="true"]) [data-panel-head]`);
+const panelOfTab = async (page: Page, viewId: string): Promise<string> => (await headOf(page, viewId).getAttribute("data-panel-head"))!;
 /**
  * 视图所在的块：每个样例视图没写容器，是自己的隐式容器里唯一的分节（docs/specs/ui/workbench-layout.md 输出 40、41），分节的 id 是布局起的；
  * 内容项上写着它所在的叶。侧栏显示甲、右栏显示丁、底部面板显示戊。

@@ -52,7 +52,11 @@ const shrunk = (page: Page, id: string) => expect.poll(async () => {
 const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"]`);
 /** 浮动窗头里放标签的那一段：松手在它空着的右端是“插到末尾”，不会落在框架按钮上。 */
 const band = (page: Page, panel: string) => page.locator(`[data-panel-band="${panel}"]`);
-const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
+/**
+ * 视图的标题：头上的标题按钮。底部面板并成一行时头不写标题，按下的入口就是它的标题（右键开“移动到”、拖它就是拖这个视图，
+ * docs/specs/ui/workbench-layout.md 输出 47）；只在没有标题按钮时取到它。
+ */
+const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"], [data-region-strip="panel"] [data-tool-view="${viewId}"][aria-pressed="true"]`);
 /** 只含这个视图的活动栏入口（输出 22、41：入口是容器的，只含一个视图的入口写着它的视图 id）。 */
 const entry = (page: Page, viewId: string) => page.locator(`[data-tool-band] [data-tool-view="${viewId}"]`);
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
@@ -785,14 +789,16 @@ test.describe("产品页：拖放", () => {
         await open(page);
         const writes = await writesOf(page);
         const count = await shell(page).getAttribute("data-panel-count");
-        // 侧栏、底部面板的分节：标题右边、动作按钮左边之间空着的一点。
+        // 侧栏、底部面板的分节：头里标题右边（底部面板并成一行时头不写标题，从头的左缘起）、动作按钮左边之间空着的一点。
         const blanks: Array<{x: number; y: number}> = [];
         for (const viewId of [A, E]) {
             const section = await sectionOf(page, viewId);
             const title = (await tab(page, viewId).boundingBox())!;
+            const own = (await head(page, section).boundingBox())!;
             const actions = (await head(page, section).locator("[data-panel-action]").first().boundingBox())!;
-            expect(actions.x - (title.x + title.width)).toBeGreaterThan(16);
-            blanks.push({x: (title.x + title.width + actions.x) / 2, y: title.y + title.height / 2});
+            const start = Math.max(title.x + title.width, own.x);
+            expect(actions.x - start).toBeGreaterThan(16);
+            blanks.push({x: (start + actions.x) / 2, y: own.y + own.height / 2});
         }
         for (const blank of blanks) {
             await page.mouse.move(blank.x, blank.y);
@@ -901,9 +907,10 @@ test.describe("产品页：拖放", () => {
         const created = await sectionOf(page, A);
         // 底部面板原来的容器（戊）不是当前容器了，它的分节停放。
         await expect(content(page, E)).toHaveAttribute("inert", "");
-        // 分节的头只写标题（输出 20）。
-        await expect(head(page, created).locator(`[data-panel-tab="view:${A}"]`)).toBeVisible();
+        // 新容器只有这一节：头并进底部面板的入口条，不写标题，入口写着它的标题（输出 20、47）；没有标签带。
+        await expect(head(page, created).locator("[data-panel-tab]")).toHaveCount(0);
         await expect(head(page, created).locator('[role="tab"]')).toHaveCount(0);
+        await expect(page.locator(`[data-region-strip="panel"] [data-tool-view="${A}"]`)).toHaveAttribute("aria-pressed", "true");
         await expect(sample(page, A)).toBeVisible();
         await expect.poll(() => writesOf(page)).toBeGreaterThan(writes);
         await page.reload();

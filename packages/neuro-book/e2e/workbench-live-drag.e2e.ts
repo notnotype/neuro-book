@@ -27,7 +27,11 @@ const shrunk = (page: Page, id: string) => expect.poll(async () => {
     const found = await leaf(page, id).boundingBox();
     return found === null ? 0 : Math.round(found.width * found.height);
 }).toBe(0);
-const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
+/**
+ * 视图的标题：头上的标题按钮。底部面板并成一行时头不写标题，按下的入口就是它的标题（右键开“移动到”、拖它就是拖这个视图，
+ * docs/specs/ui/workbench-layout.md 输出 47）；只在没有标题按钮时取到它。
+ */
+const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"], [data-region-strip="panel"] [data-tool-view="${viewId}"][aria-pressed="true"]`);
 const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
 /**
  * 视图所在面板的 id：内容项上写着它所在的叶（输出 14）。每个样例视图是自己的隐式容器里唯一的分节（输出 40），分节在区域之间移动时

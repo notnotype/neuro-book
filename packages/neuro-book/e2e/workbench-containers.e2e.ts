@@ -1792,7 +1792,8 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
         await expect(stripEntry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
         await expect(barEntry(page, PROJECT_CONTAINER)).toHaveCount(0);
-        // 两节都在右栏这一列：外框的左缘就是入口条叶外框的左缘。
+        // 两节都在右栏这一列：过渡走完，外框的左缘就是入口条叶外框的左缘。
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
         const stripLeft = (await box(page, "strip:auxiliarybar")).x;
         for (const view of [EXPLORER, SESSIONS]) expect(Math.abs((await box(page, await sectionOf(page, view))).x - stripLeft)).toBeLessThanOrEqual(1);
     });

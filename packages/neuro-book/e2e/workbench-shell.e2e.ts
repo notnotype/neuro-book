@@ -86,7 +86,8 @@ async function sectionOf(page: Page, view: string): Promise<string> {
 /** 视图所在分节的外框。区域只在挨着编辑区的方向上伸缩，所以侧栏、右栏的宽与底部面板的高，量区域里任何一个分节都一样。 */
 const sectionBox = async (page: Page, view: string): Promise<Box> => box(page, await sectionOf(page, view));
 /** 视图所在分节的面板头：分节的头只写它那个视图的标题（输出 20）。 */
-const headOf = (page: Page, view: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"])`);
+/** 视图所在分节的面板头：头里有它的标题；底部面板并成一行时头不写标题，是按下的入口是它的那条入口条里并进来的头（输出 47）。 */
+const headOf = (page: Page, view: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"]), [data-region-strip="panel"]:has([data-tool-view="${view}"][aria-pressed="true"]) [data-panel-head]`);
 /** 分节头里的框架按钮；`command` 是命令名（`nbook.view.` 之后的部分）。 */
 const frame = (page: Page, view: string, command: string) => headOf(page, view).locator(`[data-panel-action="nbook.view.${command}"]`);
 /** 分节的标题行是展开、收起的开关（输出 20）：能收起时标题按钮带 `aria-expanded`。 */
@@ -768,7 +769,8 @@ test.describe("Lab", () => {
         const act = (name: string) => page.locator(`[data-surface-action="${name}"]`).click();
         // 夹具的五个视图各是自己的容器：分节的头按它那个视图找，活动栏的入口按容器 id。
         const head = (view: string, action: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"]) [data-panel-action="${action}"]`);
-        const entry = (view: string) => page.locator(`[data-tool-entry="view:${view}"]`);
+        // 右栏、底部面板入口条上的入口也带 `data-tool-entry`：这里说的是活动栏的入口。
+        const entry = (view: string) => page.locator(`[data-tool-band] [data-tool-entry="view:${view}"]`);
         const left = async (selector: string): Promise<number> => (await page.locator(selector).boundingBox())?.x ?? Number.NaN;
         const settled = async (visible: boolean): Promise<void> => {
             expect(await instances()).toEqual(before);

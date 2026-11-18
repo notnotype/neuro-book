@@ -62,9 +62,14 @@ async function box(page: Page, id: string): Promise<Box> {
 
 const sample = (page: Page, viewId: string) => page.locator(`[data-sample-view="${viewId}"]`);
 const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"]`);
-const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
+/**
+ * 视图的标题：头上的标题按钮。底部面板并成一行时头不写标题，按下的入口就是它的标题（右键开“移动到”、拖它就是拖这个视图，
+ * docs/specs/ui/workbench-layout.md 输出 47）；只在没有标题按钮时取到它。
+ */
+const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"], [data-region-strip="panel"] [data-tool-view="${viewId}"][aria-pressed="true"]`);
 /** 视图所在分节的面板头：区域的锚不进呈现树，分节的头只写它那个视图的标题（输出 20、40），所以按视图找。 */
-const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
+/** 视图所在分节的面板头：头里有它的标题；底部面板并成一行时头不写标题，是按下的入口是它的那条入口条里并进来的头（输出 47）。 */
+const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"]), [data-region-strip="panel"]:has([data-tool-view="${viewId}"][aria-pressed="true"]) [data-panel-head]`);
 /**
  * 活动栏里视图自己那个容器的入口（输出 22、41）：样例视图都没写容器，各是自己的隐式容器 `view:<视图 id>`。视图并进别的容器后
  * 这个容器没有成员，入口也就没有了。
@@ -138,7 +143,7 @@ async function instanceOf(page: Page, viewId: string): Promise<{instance: string
 }
 
 /** 标签所在面板的 id（面板头上写着）。分节的 id 是布局起的（输出 40），要用它时按视图取。 */
-const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
+const panelOfTab = async (page: Page, viewId: string): Promise<string> => (await headOf(page, viewId).getAttribute("data-panel-head"))!;
 
 /**
  * 搭一个三个标签的浮动窗（戊、丁、己，按这个先后）并返回它的面板 id。区域里的分节只写标题，带标签条的只剩浮动窗（输出 20、39）：
@@ -1250,9 +1255,10 @@ test.describe("产品页：测试插件贡献的视图", () => {
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
             return rect.width > 0 && hit !== null && (hit === element || element.contains(hit));
         });
-        // 底部面板的分节只写标题：框架按钮是“浮动”与“最大化”，分节不折叠、没有隐藏（隐藏是区域的事），都在头上完整可点。
-        const omegaHead = `[data-panel-head]:has([data-panel-tab="view:${E}"])`;
-        await expect.poll(() => hitsItself(`${omegaHead} [data-panel-tab="view:${E}"]`)).toBe(true);
+        // 底部面板的当前容器只有戊一节：头并进入口条、不写标题，入口就是它的标题（输出 47）；框架按钮是“浮动”与“最大化”，
+        // 分节不折叠、没有隐藏（隐藏是区域的事），入口与按钮都完整可点。
+        const omegaHead = `[data-region-strip="panel"]:has([data-tool-view="${E}"][aria-pressed="true"]) [data-panel-head]`;
+        await expect.poll(() => hitsItself(`[data-region-strip="panel"] [data-tool-view="${E}"]`)).toBe(true);
         for (const action of ["float", "toggle-panel-maximized"]) {
             expect(await hitsItself(`${omegaHead} [data-panel-action="nbook.view.${action}"]`), action).toBe(true);
         }
