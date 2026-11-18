@@ -18,7 +18,7 @@ updated: 2026-11-18
    - 口吻 3（致星璃的信）：`user.lyra-letter`
    - 口吻 4a（小猫之神式系统内对话）：`user.lyra-meowssiah`
    - 口吻 4b（Femiris 式预置 `Message[]` 对话）：`user.lyra-femiris`
-3. **跨维通讯装置设定补充**：在 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md) 与 [`brand/mascot/guide/02-worldview-and-cosmology.md`](../../../../../brand/mascot/guide/02-worldview-and-cosmology.md) 中明确区分巨构两端仅用于单向涌字造书的「界隙水镜」，与星璃书案上专门通过真名契约与现世 NeuroBook 双向沟通的**「星语共鸣台（星语台 / 契约星窗）」**。
+3. **跨维沟通媒介设定补充**：在 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md) 与 [`brand/mascot/guide/02-worldview-and-cosmology.md`](../../../../../brand/mascot/guide/02-worldview-and-cosmology.md) 中明确区分巨构两端仅用于单向涌字造书的「界隙水镜」，与星璃怀中《万界真典》最前面同现世 NeuroBook 双向连通的**「契约扉页」**。
 4. **关系阶段完全由 `profile://memory/master.md` 动态驱动（系统提示词去“初见”硬编码）**：
    - 系统提示词本身不再硬编码“你们刚刚签订契约、今天是初见”（否则日后熟络了仍会被系统提示词拉回初见状态），而是规定：**与 Master 的相识阶段、过往交集及他对书庭概念的了解程度完全取决于挂载的 `profile://memory/master.md`**；
    - `master.md` 初始状态记录为「刚刚缔结真名契约后的初见」并附有未打勾 `[ ]` 的书庭概念清单，使星璃在初见期提起「万言星海」「界隙水镜」「记忆宝石」等未解锁概念时自然展现向新朋友介绍自家小窝的好奇与解释欲，并在熟稔后随 `master.md` 的更新自然过渡到老搭档/自称“小璃”的亲密相处模式；
@@ -32,10 +32,10 @@ updated: 2026-11-18
    - **收敛为两个实验 Profile 对比思维链路线**：
      1. `user.lyra`（**单人格思维链劫持**）：要求模型直接以星璃第一人称心声思考，并用脑内旁白对话口吻（“星璃，……”）引导角色；
      2. `user.lyra-dual`（**双人格合理化：《万界真典》伴生书灵「真典（Codex）」+ 少女司书「星璃（Lyra）」**）：将模型天然存在的理性分析/工具检索/规则把控回路设定为怀中圣器《万界真典》的伴生书灵**「真典（Codex）」**；在 `Thinking` 中由「真典」负责查阅记忆、调用工具并引导星璃，最终回复完全由「星璃」本人自然开口。
-   - **恢复 4 份完整第一人称专题记忆文件 + 自主「回想」沉淀机制（`profile://memory/`）**：
+   - **7 份单一主题第一人称原子记忆手记 + 扩展自主「回想」落盘机制（`profile://memory/`）**：
      - 常驻自动注入（`alwaysLoad: true`）：`INDEX.md`（总目录）与 `master.md`（关于 Master 的近况）；
-     - 按需读取的 4 份完整第一人称随身手记（`alwaysLoad: false`，完全以星璃自己整理记忆的口吻编写，不写任何给自己下达的外部命令）：`01-origin-and-names.md`、`02-atrium-and-star-sea.md`、`03-regalia-and-starboat.md`、`04-wardrobe-and-hobbies.md`；
-     - 自主回想（Active Recollection）：当被问及过往故事或某次「折页星舟」星球旅行且目录中尚无具体记录时，模型在不违背 `01`~`04` 设定的前提下自主“回想”一段经历，并以星璃第一人称手记写入 `profile://memory/` 沉淀为持久记忆。
+     - 按需读取的 7 份单一主题第一人称随身手记（`alwaysLoad: false`，由原 `01`~`04` 无损拆分，完全以星璃自己整理记忆的口吻编写，不写任何给自己下达的外部命令）：`01-origin-and-names.md`、`02-star-sea.md`、`03-atrium-and-books.md`、`04-regalia-and-orrery.md`、`05-starfire-and-starboat.md`、`06-appearance-and-barefoot.md`、`07-daily-hobbies.md`；
+     - 自主回想（Active Recollection）：当被问及过往故事、某次「折页星舟」星球旅行，或**尚未记载的书庭日常、昼夜环境节律、起居空间与生活细节**时，模型在不违背 `01`~`07` 设定的前提下自主“回想”具体、有画面感且前后自洽的细节，并以星璃第一人称手记写入或追加至 `profile://memory/` 沉淀为持久记忆（新建文件时同步更新 `INDEX.md`）。
    - **根治宽泛提问（“跟我讲讲你的故事吧”）的全盘托出与念稿感**：
      - 在记忆文件中用星璃自己的少女心思自然流露哪些是私密小习惯（如在家不穿鞋、发呆扑光丝、年纪秘密），彻底去除外部命令式括号与“要是 Master 问起我就按这里记的讲给他听”的背书诱导；
      - 在 `<meta_instruction>` 与 `<lyra_persona>` 中将命令与角色记忆分离：每次只按需读取与当前话题最相关的单个文件，面对宽泛提问采用**简短身份点题 + 分享一个具体切面（如刚回想起来的一段星球旅行故事）+ 留白互动（询问对方还想听什么，或俏皮反客为主让 Master 先介绍自己）**。
@@ -44,8 +44,11 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18（`active`）：已恢复 `01`~`04` 四份完整第一人称专题记忆文件（100% 保留原始细节、去除命令式语气），并更新 `user.lyra` / `user.lyra-dual`（`version: "13"`）热编译生效。
+2026-11-18（`active`）：
+- 统一跨维沟通媒介为怀中《万界真典》的**「契约扉页」**，已同步写入基础提示词（`lyra-core.ts`）、世界观文档（`brand/mascot/guide/01-persona.md`、`02-worldview-and-cosmology.md`）与工作任务记录，并清理旧的「星语共鸣台」表述、5 份早期口吻草稿及 5 个废弃实验 Profile 缓存目录。
+- 将原 `01`~`04` 四份综合记忆文件无损拆分为 `01`~`07` 七份单一主题原子手记（将私密赤足习惯与日常爱好、外部星海与内部造书机制、圣器星环与星火星舟彻底隔离），并同步更新 `INDEX.md` 与运行时 `user.lyra` / `user.lyra-dual` 记忆目录。
+- 已更新 `user.lyra` / `user.lyra-dual`（`version: "16"`）：将自主回想并落盘机制扩展至未记载的书庭日常、昼夜环境节律与生活细节，保持鲜活女孩身份锚点与按单文件按需检索。
 
 ## 下一步
 
-- 在 NeuroBook 中实测新建会话下提问“我想了解你，跟我讲讲你的故事吧”，验证自主回想写入 `profile://memory/` 及“只讲一角 + 留白反问”的实际表现。
+- 在 NeuroBook 中实测 `version: "16"` 的开场对话、书庭昼夜日常回想落盘以及单文件按需检索表现，并视需要补充预置的星璃过往星球旅行/小故事手记。
