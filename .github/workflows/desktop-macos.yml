@@ -1,0 +1,163 @@
+# macOS 桌面版（w00046 t23）：给一个已发布的版本补上 Apple Silicon 的桌面包，资产补传到同一个 GitHub Release。
+#
+# 手动触发，输入版本标签与那次发布流水线（release.yml）的运行编号：应用包取那次运行的 `npm-packages` 产物，与 Windows 版是
+# 同一份应用包（同一个版本号对应同一份服务端，提案 4.1）；载荷在 ubuntu 上按 darwin-arm64 组装，壳与安装包在 macOS runner
+# 上用 Hutch 构建。不签名、不公证，不跑冒烟（还没有 macOS 的冒烟脚本，由开发者在真机上试）。
+#
+# 资产名：安装包 `NeuroBook-macos-arm64.dmg`（不带版本号，releases/latest/download/<名> 是固定链接）；更新用的
+# `stable-macos-arm64-*` 由 Electrobun 定，与 Windows 的 `stable-win-x64-*` 互不相干；校验和另写 `SHA256SUMS-macos`。
+name: Desktop macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "版本标签，例如 v0.14.0（Release 要已经存在）"
+        required: true
+      release-run:
+        description: "那个标签的 Release 流水线的运行编号（取它的 npm-packages 产物）"
+        required: true
+      publish:
+        description: "构建后把资产补传到 Release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: desktop-macos-${{ inputs.tag }}
+
+jobs:
+  inputs:
+    name: macOS 的壳与载荷
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - id: version
+        run: |
+          version="${TAG#v}"
+          source_version="$(bun -e 'console.log(JSON.parse(await Bun.file("packages/neuro-book/package.json").text()).version)')"
+          if [ "$version" != "$source_version" ]; then echo "标签 $TAG 与源码版本 $source_version 不一致" >&2; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ inputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-packages
+          path: dist/release/
+          run-id: ${{ inputs.release-run }}
+          github-token: ${{ github.token }}
+      - name: 壳与载荷（darwin-arm64）
+        working-directory: packages/neuro-book
+        run: |
+          bun desktop/scripts/build.ts ../../dist/release/release-manifest.json --os darwin --cpu arm64
+          bun ../../scripts/release/tag.ts verify-built --version "${{ steps.version.outputs.version }}" --desktop desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-inputs
+          path: |
+            packages/neuro-book/desktop/bundle/
+            packages/neuro-book/desktop/payload/
+          retention-days: 14
+          if-no-files-found: error
+
+  build:
+    name: macOS 桌面包（Apple Silicon）
+    needs: inputs
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: packages/neuro-book
+    env:
+      VERSION: ${{ needs.inputs.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      # Hutch 的版本固定在 desktop/package.json 的 config.hutch（与 Windows 作业相同）。
+      - name: 装 Hutch
+        run: |
+          version="$(bun -e 'console.log(JSON.parse(await Bun.file("desktop/package.json").text()).config.hutch)')"
+          curl -fsSL https://hutch.blackboard.sh/hutch/install.sh | sh -s -- --version "$version" --no-modify-path
+          echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
+          installed="$("$HOME/.hutch/bin/hutch" --version)"
+          case "$installed" in *"$version"*) ;; *) echo "hutch --version 是 $installed，不是 $version" >&2; exit 1 ;; esac
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-macos-inputs
+          path: ${{ runner.temp }}/inputs
+      - name: 正式变体
+        run: bun desktop/scripts/build-variant.ts --inputs "$RUNNER_TEMP/inputs" --out "$RUNNER_TEMP/variant" --version "$VERSION"
+      # 冻结：之后上传的都是这个目录。
+      - name: 发布资产
+        run: |
+          assets="$RUNNER_TEMP/release-assets"
+          mkdir -p "$assets"
+          cp "$RUNNER_TEMP/variant/artifacts/"* "$assets/"
+          mv "$assets/macos-arm64-NeuroBook.dmg" "$assets/NeuroBook-macos-arm64.dmg"
+          (cd "$assets" && shasum -a 256 * | grep -v ' SHA256SUMS' > SHA256SUMS-macos)
+          ls -l "$assets"
+          cat "$assets/SHA256SUMS-macos"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-assets
+          path: ${{ runner.temp }}/release-assets/
+          retention-days: 35
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-macos-build-log
+          path: ${{ runner.temp }}/variant/hutch-build.log
+          retention-days: 14
+          if-no-files-found: warn
+
+  release:
+    name: 补传到 Release
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-macos-assets
+          path: ${{ runner.temp }}/assets
+      # 只补缺的：同名资产已在而内容不同时失败，不覆盖（与 release.yml 的规则相同）。
+      - name: 上传
+        run: |
+          existing="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          for file in "$RUNNER_TEMP/assets/"*; do
+            name="$(basename "$file")"
+            if printf '%s\n' "$existing" | grep -qxF "$name"; then
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$RUNNER_TEMP/existing" --clobber
+              if cmp -s "$file" "$RUNNER_TEMP/existing/$name"; then echo "已在：$name"; continue; fi
+              echo "Release 上已有不同内容的 $name" >&2; exit 1
+            fi
+            gh release upload "$TAG" "$file" --repo "$GITHUB_REPOSITORY"
+            echo "上传：$name"
+          done

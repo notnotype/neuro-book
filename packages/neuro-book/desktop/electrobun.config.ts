@@ -33,6 +33,9 @@ export default {
         // 嵌进 launcher.exe、bun.exe 与安装程序。来源是 brand/logo/06-production/desktop/windows/neurobook.ico（16–256，
         // 每个尺寸都从不带边框的应用图标 SVG 渲染），不在这里手工编辑。
         win: {icon: "assets/neurobook.ico"},
+        // macOS 的应用图标：iconset 从 brand/logo/06-production/desktop/macos/ 复制，Electrobun 用 iconutil 转成 icns。不签名、
+        // 不公证（原生可执行文件带 ad-hoc 签名），第一次打开要在“隐私与安全性”里允许，或 `xattr -dr com.apple.quarantine`。
+        mac: {icons: "assets/neurobook.iconset"},
     },
     release: {
         baseUrl,
