@@ -141,6 +141,13 @@ function setLineRef(value: unknown): void {
 }
 
 /**
+ * 每个装饰元素上一次写的值（几何与线芯各一份）：和这次一样就不写。对齐每次滚动、改窗口、拖动都会跑，绝大多数分隔线的值没变，
+ * 照写的话每条线每次要改七八个内联属性，下一帧都要重算样式。只有这里写这两个元素的内联样式（模板里没有 `:style`），记下的值不会过时。
+ */
+const writtenGeometry = new WeakMap<HTMLElement, string>();
+const writtenCore = new WeakMap<HTMLElement, string>();
+
+/**
  * 写装饰的几何：只写主轴（起点与厚度），长轴两端交给样式（按 `data-axis`，取缩进变量，缺省贴满）。宿主与主题改变量就能
  * 缩进，不用重新测量；换方向时把另一方向留下的值清掉。不用负 inset 外扩（那正是收起边界被裁细的来源），也不用
  * transform 叠位移（几何与样式各留一份会互相打架）。
@@ -149,6 +156,11 @@ function writeDecorationGeometry(target: HTMLElement, box: SashBandBox, horizont
     const style = target.style;
     const start = `${Math.round(box.startPx * 10000) / 10000}px`;
     const thickness = `${Math.round(box.thicknessPx * 10000) / 10000}px`;
+    const signature = `${horizontal ? "x" : "y"} ${start} ${thickness}`;
+    if (writtenGeometry.get(target) === signature) {
+        return;
+    }
+    writtenGeometry.set(target, signature);
     style.top = style.bottom = style.left = style.right = "";
     if (horizontal) {
         style.height = "";
@@ -228,13 +240,22 @@ function readLineSize(target: HTMLElement): number {
  */
 function writeLineCore(target: HTMLElement, band: SashBandBox, seamStartPx: number | null, size: number): void {
     if (seamStartPx === null || !(size > 0) || size >= band.thicknessPx) {
+        if (writtenCore.get(target) === "") {
+            return;
+        }
+        writtenCore.set(target, "");
         target.style.removeProperty("--nb-sash-core-start");
         target.style.removeProperty("--nb-sash-core-size");
         return;
     }
     const wanted = seamStartPx + (SEAM_THICKNESS_PX - size) / 2;
-    const start = Math.min(Math.max(wanted, band.startPx), band.startPx + band.thicknessPx - size);
-    target.style.setProperty("--nb-sash-core-start", `${Math.round((start - band.startPx) * 10000) / 10000}px`);
+    const start = `${Math.round((Math.min(Math.max(wanted, band.startPx), band.startPx + band.thicknessPx - size) - band.startPx) * 10000) / 10000}px`;
+    const signature = `${start} ${size}px`;
+    if (writtenCore.get(target) === signature) {
+        return;
+    }
+    writtenCore.set(target, signature);
+    target.style.setProperty("--nb-sash-core-start", start);
     target.style.setProperty("--nb-sash-core-size", `${size}px`);
 }
 

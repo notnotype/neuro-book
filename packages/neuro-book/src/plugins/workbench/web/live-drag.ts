@@ -3,6 +3,9 @@
  *
  * 一帧的顺序固定：先让手势判定（读 DOM），再换预览，最后写卡片。写在读前面的话，判定里的 `elementsFromPoint` 每帧要强制重算一次样式。卡片的矩形每帧变，直接写在元素上，不进响应式；响应式的东西一场只变几次到几十次。
  *
+ * 帧循环按需排：这一帧指针动了、候选还没等够稳定、卡片的尺寸或追赶还没到，任一成立就排下一帧，都不成立就停（按住不动时不空转）。
+ * 停着时来了新的落点（`offer`）或新的指针样本（`wake`，宿主在指针移动时调）就排一帧；指针移动先于手势自己的那一帧，两者落在同一帧里，卡片不落后。
+ *
  * 判定的几何：拿起时量一份；第一次落到别处时来源收起，之后按收起后的布局判（`collapseSource`），预览怎么摆判定都不跟着变。回到原处（放下去是原样）时来源展开，
  * 判定换回拿起时的那份（`expandSource`）；再落到别处又收起（输出 38）。来源那块面板摘掉它还在时，拿起卡片就收起（撕下标签），不等落点。
  *
@@ -28,6 +31,9 @@ const CARD_STILL_PX = 0.1;
 const CARD_REFRESH_MS: Readonly<Record<LiveCardRefresh, number>> = {"display": 0, "60": 1000 / 60, "30": 1000 / 30};
 /** 帧的时间戳有抖动：离该写的时刻差这么多也算到了，不然 60Hz 的屏上选 30 有时要隔三帧才写一次。 */
 const CARD_REFRESH_SLACK_MS = 2;
+
+/** 停了之后重新开始的第一帧按这么长缓动：真实的间隔可能是好几秒，按它算缩放一步就到终点。 */
+const NOMINAL_FRAME_MS = 1000 / 60;
 
 /** 卡片的尺寸多久写一次：跟随屏幕每帧写，或每秒至多 60、30 次。 */
 export type LiveCardRefresh = "display" | "60" | "30";
@@ -90,8 +96,10 @@ export interface LiveDrag {
     /** 网格根的左上角（视口坐标），这一场拿起时读的。 */
     origin(): {readonly x: number; readonly y: number};
     begin(source: LayoutTabSource, point: GridDropPoint | null): void;
-    /** 这一刻判定的落点。 */
+    /** 这一刻判定的落点。帧循环停着时排一帧。 */
     offer(drop: LayoutDragDrop | null): void;
+    /** 有新的指针样本（宿主在指针移动时调）：帧循环停着时排一帧。 */
+    wake(): void;
     /** 指针在已显示的空位里：候选不变，是这个落点。 */
     stickyDrop(point: GridDropPoint): LayoutDragDrop | null;
     end(): void;
@@ -135,6 +143,10 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let offered: LayoutDragDrop | null = null;
     let shown: LayoutDragDrop | null = null;
     let frame: number | null = null;
+    /** 正在跑这一帧：这期间判定发出的 `offer` 就在这一帧里处理，不另排。 */
+    let ticking = false;
+    /** 帧循环停过：重新开始的第一帧按 `NOMINAL_FRAME_MS` 缓动。 */
+    let resumed = false;
     function candidateOf(drop: LayoutDragDrop, from: LayoutTabSource): LiveDropCandidate {
         const {action} = drop;
         // 自己的标签条、已经吸收它的那条要跟手。第一次进别的标签条和别的落点一样等稳定：路过不闪，也不会路过活动栏就把隐藏的侧栏弹出来。
@@ -155,12 +167,13 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         return strip === null || !(offered.inPlace || strip === absorbedIn);
     }
 
-    function updateCard(now: number): void {
+    /** 写这一帧的卡片；返回卡片的尺寸或追赶还没到终点（还要下一帧）。 */
+    function updateCard(now: number): boolean {
         if (source === null || pointer === null || !wantsCard()) {
             card.value = null;
             cardSize = null;
             written = null;
-            return;
+            return false;
         }
         const homePanel = host.homeOf(source);
         if (homeRect === undefined) homeRect = homePanel === null ? null : host.panelRect(homePanel);
@@ -196,9 +209,11 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         if (size !== drawn) sizeDue = drawn === null || now - sizeDue >= interval ? now + interval : sizeDue + interval;
         const rect = {x: pointer.x - origin.x - grab.x * size.width + chase.x, y: pointer.y - origin.y - grab.y * size.height + chase.y, width: size.width, height: size.height};
         if (card.value?.key !== source.tab) card.value = {key: source.tab};
-        if (written !== null && written.x === rect.x && written.y === rect.y && written.width === rect.width && written.height === rect.height) return;
+        const settling = !arrived || chase.x !== 0 || chase.y !== 0;
+        if (written !== null && written.x === rect.x && written.y === rect.y && written.width === rect.width && written.height === rect.height) return settling;
         written = rect;
         host.placeCard(rect);
+        return settling;
     }
 
     const isHome = (from: LayoutTabSource, strip: string | null): boolean => strip !== null && host.isHomeStrip(from, strip);
@@ -272,21 +287,43 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         return panel === null ? null : {point: pointer, panel};
     }
 
-    function tick(now: number): void {
+    /** 候选等够稳定了：显示的就是此刻的候选（`stepLiveDrop` 不会再换预览）。 */
+    function settled(): boolean {
+        const shownKey = state.preview.kind === "candidate" ? state.preview.key : null;
+        return state.candidate === shownKey;
+    }
+
+    function wake(): void {
+        if (!active.value || ticking || frame !== null) return;
+        resumed = true;
         frame = host.requestFrame(tick);
+    }
+
+    function tick(now: number): void {
+        frame = null;
         if (source === null) return;
-        // 读在判定之前、写在判定之后：两次读之间没有写，这一帧不强制重算。用上一帧的状态；状态一变，渲染之后再放一次（`placeSortedAfterRender`）。
-        const placeSorted = host.placeSorted(sortingAt());
-        host.settleDrop();
-        // 判定时结构变了会结束这一场。
-        if (source === null) return;
-        placeSorted();
-        pointer = host.pointer() ?? pointer;
-        const lifted = card.value !== null;
-        const changed = stepPreview(source, now);
-        updateCard(now);
-        lastFrame = now;
-        if (changed || lifted !== (card.value !== null)) host.placeSortedAfterRender(sortingAt());
+        ticking = true;
+        try {
+            // 读在判定之前、写在判定之后：两次读之间没有写，这一帧不强制重算。用上一帧的状态；状态一变，渲染之后再放一次（`placeSortedAfterRender`）。
+            const placeSorted = host.placeSorted(sortingAt());
+            host.settleDrop();
+            // 判定时结构变了会结束这一场。
+            if (source === null) return;
+            placeSorted();
+            const sample = host.pointer();
+            const moved = sample !== null && (pointer === null || sample.x !== pointer.x || sample.y !== pointer.y);
+            pointer = sample ?? pointer;
+            if (resumed) lastFrame = now - NOMINAL_FRAME_MS;
+            resumed = false;
+            const lifted = card.value !== null;
+            const changed = stepPreview(source, now);
+            const settling = updateCard(now);
+            lastFrame = now;
+            if (changed || lifted !== (card.value !== null)) host.placeSortedAfterRender(sortingAt());
+            if (moved || changed || settling || !settled()) frame = host.requestFrame(tick);
+        } finally {
+            ticking = false;
+        }
     }
 
     return {
@@ -311,13 +348,16 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             started = false;
             offered = null;
             shown = null;
+            resumed = false;
             previewKey.value = "none";
             active.value = true;
             frame = host.requestFrame(tick);
         },
         offer: (drop) => {
             offered = drop;
+            wake();
         },
+        wake,
         stickyDrop: (point) => (active.value && insideShownSlot(state, point) ? shown : null),
         end: () => {
             if (!active.value) return;

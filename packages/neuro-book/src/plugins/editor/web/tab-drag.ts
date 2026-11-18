@@ -4,6 +4,7 @@
  */
 
 import type {LayoutDropAction} from "@notnotype/nb-layout";
+import {computed} from "vue";
 
 import type {TextResolver} from "nbook/shared/localized-text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
@@ -24,9 +25,10 @@ export interface EditorTabDragDeps {
 
 export function createEditorTabDrag(deps: EditorTabDragDeps): EditorTabDrag {
     const tabOf = (tabId: string) => deps.area().groups.find(tabId);
+    // 固定状态与多行设置变了，标签条的分区就变了：那一场拖动取消。拖动每帧都问，编辑组与这两项不变时不重算。
+    const structure = computed(() => JSON.stringify([deps.wrapTabs(), deps.area().groups.groups.value.map((group) => group.tabs.flatMap((tab) => (tab.kind === "file" && tab.pinned === true ? [tab.id] : [])))]));
     return {
-        // 固定状态与多行设置变了，标签条的分区就变了：那一场拖动取消。
-        structure: () => JSON.stringify([deps.wrapTabs(), deps.area().groups.groups.value.map((group) => group.tabs.flatMap((tab) => (tab.kind === "file" && tab.pinned === true ? [tab.id] : [])))]),
+        structure: () => structure.value,
         ghost: (tabId) => {
             const tab = tabOf(tabId)?.tab;
             if (tab === undefined) return null;

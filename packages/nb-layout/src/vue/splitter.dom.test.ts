@@ -1059,6 +1059,26 @@ describe("静止接缝（常驻的 1px 分界线）", () => {
         expect(seam.style.width).toBe("1px");
     });
 
+    it("滚动包着分隔线的元素才重新对齐：网格里面的滚动不挪分隔线，不重量", async () => {
+        const wrapper = mountSplitter(FREE_PANELS);
+        await nextTick();
+        const sash = sashElements(wrapper)[1]!;
+        const line = lineElement(sash);
+        Object.defineProperty(window, "devicePixelRatio", {value: 1.25, configurable: true});
+        stubRect(sash, {left: 600.2, top: 0, right: 601.2, bottom: 300});
+        await settleSnap();
+        expect(Number.parseFloat(line.style.left)).toBeCloseTo(-0.9);
+
+        // 分隔线换了位置（中心 600.5 → 600.8，起点 −0.7）：面板里滚动挪不动它，不重新对齐；包着网格的元素滚动挪得动，重新对齐。
+        stubRect(sash, {left: 600, top: 0, right: 601, bottom: 300});
+        panelElements(wrapper)[0]!.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+        expect(Number.parseFloat(line.style.left)).toBeCloseTo(-0.9);
+        rootElement(wrapper).parentElement!.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+        expect(Number.parseFloat(line.style.left)).toBeCloseTo(-0.7);
+    });
+
     it("dpr 1.25 上近端边落在设备像素边界上，厚度仍是 CSS px 的 1", async () => {
         const wrapper = mountSplitter(FREE_PANELS);
         await nextTick();

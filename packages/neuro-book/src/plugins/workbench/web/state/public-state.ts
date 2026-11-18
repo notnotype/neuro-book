@@ -14,7 +14,7 @@ import type {LayoutDocStore} from "./layout-doc-store";
 
 export const workbenchState = definePublicState("nbook.workbench", {
     layoutReady: {type: "boolean", unready: false, reason: workbenchText("state.layoutReady.reason")},
-    /** 手机呈现（w00026 t11）之前恒为真。 */
+    /** 还没有手机呈现：就绪后恒为真。 */
     nonPhone: {type: "boolean", unready: false, reason: workbenchText("state.nonPhone.reason")},
     hasCurrentPanel: {type: "boolean", unready: false, reason: workbenchText("state.hasCurrentPanel.reason")},
     maximized: {type: "boolean", unready: false, reason: workbenchText("state.maximized.reason")},

@@ -37,6 +37,8 @@
 
 工作台的一棵树在 `layout-doc.ts`：文档树（用户的布局）、领域操作与校验；`layout-project.ts` 由文档算交给 `createGrid` 的呈现树；`layout-drop.ts` 是落点规则。行为见 [ui.workbench-layout](../../../docs/specs/ui/workbench-layout.md)。文档的尺寸意图都是 CSS px，只经 `rebaseIntents` 从呈现尺寸写回，不读 `serialize()`（那里的 `weight` 是反解的比例）。
 
+操作都是纯函数：失败返回问题码、文档不变，结果和现状一样时返回原对象。输入可以放在 Vue 的 `ref`、`reactive` 里（操作按 JSON 形状复制要改的部分）；结果与输入共享没改过的子对象，输入是响应式代理时结果里没改到的那部分仍是代理，要深拷贝结果用 JSON 拷贝，不要对它 `structuredClone`。新建面板与分支要的 id 由 `LayoutPolicy.newId` 给，库写入前再核对没被用过，用过了就拒绝这次操作（`rejected`）。读回来的文档经 `validateLayoutDoc`：条的叶 id 要等于条名，节点、面板、浮动窗的 id 不能是条名，也不能撞上呈现里生成的 id（`strip:` 开头、`:sections` 结尾）。
+
 ## 快照与引用
 
 v2 快照只保存结构、方向、稳定 id/ref 和两轴尺寸意图，不保存运行约束。恢复先完整校验，再一次发布；当前树或 `resolveRef` 提供当前约束。未知引用过滤结果单独报告，宿主保留原记录；过滤后的 `serialize()` 不是无损替代。

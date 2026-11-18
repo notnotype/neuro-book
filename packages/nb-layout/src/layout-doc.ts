@@ -9,10 +9,12 @@
  * 不是 px。所以展平不用换算单位，`fixed` 与 `weight` 之间切换也不用。收起的面板和呈现为零的轴不写，那就是它展开时的尺寸。
  * 例外只有 `setSiblingShares`：结构操作把一组面板搬到别处之后，按搬之前的比例重分它们在新位置合占的那一份，不引入新的单位。
  *
- * 文档放在 `shallowRef` 里：操作用 `structuredClone` 复制，Vue 的响应式代理会让它抛错。
+ * 输入可以是 Vue 的响应式代理（`ref`、`reactive`）：操作按 JSON 形状复制要改的文档，不用 `structuredClone`。结果与输入共享没改过的子对象（结构共享），
+ * 输入是代理时结果里没改到的那部分仍是代理：要深拷贝结果用 JSON 拷贝，不要对它 `structuredClone`。
  */
 
 import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "./grid-types";
+import {collidesWithPresentedIds} from "./presented-ids";
 import type {GridExtent, GridOrientation, GridSnapshot, GridSnapshotBranch, GridSnapshotLeaf, GridSnapshotNode} from "./grid-types";
 
 export const LAYOUT_DOC_VERSION = 1;
@@ -121,9 +123,34 @@ type MutableDoc = {
     currentEditor: string | null;
 };
 
-const editable = (doc: LayoutDoc): MutableDoc => structuredClone(doc) as unknown as MutableDoc;
+/**
+ * 按 JSON 形状深拷贝：文档只有对象、数组与原始值。对象用 `Object.fromEntries` 重建，键是 `__proto__` 也是自有键，不会改到原型。
+ * 规模：2000 个标签的文档做一次外缘移动（含这次拷贝）约 1.2ms（`layout-doc.test.ts` 的规模用例，2026-11-18 量），拖动预览每次落点各做一次。
+ */
+function copyJson<T>(value: T): T {
+    if (Array.isArray(value)) return value.map(copyJson) as T;
+    if (value !== null && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        return Object.fromEntries(Object.keys(record).map((key) => [key, copyJson(record[key])])) as T;
+    }
+    return value;
+}
+
+const editable = (doc: LayoutDoc): MutableDoc => copyJson(doc) as unknown as MutableDoc;
 /** 改到一半的文档当只读的看：`MutableDoc` 只是把 `LayoutDoc` 的只读去掉。 */
 const asDoc = (next: MutableDoc): LayoutDoc => next as unknown as LayoutDoc;
+
+/** 这个 id 在文档里已被用过：面板记录（浮动窗也有记录）或树上的节点（含分支）。 */
+const idTaken = (doc: LayoutDoc | MutableDoc, id: string): boolean => doc.panels[id] !== undefined || findTreeNode(doc.tree.root as GridSnapshotNode, id) !== null;
+
+/**
+ * 向宿主要一个新 id（`LayoutPolicy.newId`），写入前核对没被用过；用过了是 null，调用方拒绝这次操作，不覆盖别的面板或节点。
+ * 宿主的 `newId` 本该给不重复的，但计数器式的实现在重新载入文档后会从头数，库不靠这一点。
+ */
+function freshId(next: MutableDoc, policy: LayoutPolicy, kind: "panel" | "branch"): string | null {
+    const id = policy.newId(kind);
+    return idTaken(next, id) ? null : id;
+}
 
 const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
 const crossOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "height" : "width");
@@ -635,7 +662,7 @@ function splitPanelInPlace(next: MutableDoc, id: string, newId: () => string): s
     const leaves: GridSnapshotNode[] = [];
     for (const [index, tab] of panel.tabs.entries()) {
         const sectionId = index === 0 ? id : newId();
-        if (index > 0 && (next.panels[sectionId] !== undefined || findTreeNode(next.tree.root, sectionId) !== null)) return `面板已存在 ${sectionId}`;
+        if (index > 0 && idTaken(next, sectionId)) return `面板已存在 ${sectionId}`;
         next.panels[sectionId] = {...base, tabs: [tab], active: tabKey(tab)};
         leaves.push({kind: "leaf", id: sectionId, ref: panelRef(sectionId), size: {...hit.node.size, [main]: share}});
     }
@@ -864,17 +891,22 @@ export function edgeTargetOf(doc: LayoutDoc, panel: string, edge: LayoutEdge): L
     return {kind: "split", panel, edge};
 }
 
+/** 放一片叶的结果：放好了；目标已不在（`not-found`）；要新建的分支拿到的 id 已被占用（`rejected`）。 */
+type Placement = "placed" | "missing" | "taken";
+
+const placementFailure = (placement: Exclude<Placement, "placed">): LayoutResult => (placement === "missing" ? failure("not-found", "目标已不存在") : failure("rejected", "新分支的 id 已被占用"));
+
 /**
  * 把一片叶放到外缘目标（来源已经摘掉）。`between` 新块只从两块取、各让三分之一；`split` 新块取目标的一半；`spread` 见下。
  */
-function placeLeaf(next: MutableDoc, target: LayoutEdgeTarget, leaf: GridSnapshotLeaf, aliases: ReadonlyMap<string, string>, newBranchId: () => string): boolean {
+function placeLeaf(next: MutableDoc, target: LayoutEdgeTarget, leaf: GridSnapshotLeaf, aliases: ReadonlyMap<string, string>, newBranchId: () => string | null): Placement {
     const root = next.tree.root;
     if (target.kind === "between") {
         const before = resolveAlias(aliases, target.before);
         const after = resolveAlias(aliases, target.after);
         const beforeHit = findTreeNode(root, before);
         const afterHit = findTreeNode(root, after);
-        if (beforeHit === null || afterHit === null || beforeHit.parent === null || beforeHit.parent !== afterHit.parent) return false;
+        if (beforeHit === null || afterHit === null || beforeHit.parent === null || beforeHit.parent !== afterHit.parent) return "missing";
         const parent = beforeHit.parent;
         const main = axisOf(parent.orientation);
         const cross = crossOf(parent.orientation);
@@ -883,11 +915,11 @@ function placeLeaf(next: MutableDoc, target: LayoutEdgeTarget, leaf: GridSnapsho
         const placed: GridSnapshotLeaf = {...leaf, size: {...leaf.size, [main]: share, [cross]: beforeHit.node.size[cross]}};
         children.splice(beforeHit.index + 1, 0, placed);
         replaceChildren(next, parent.id, children);
-        return true;
+        return "placed";
     }
     const panel = resolveAlias(aliases, target.panel);
     const hit = findTreeNode(root, panel);
-    if (hit === null) return false;
+    if (hit === null) return "missing";
     const orientation = orientationOfEdge(target.edge);
     const main = axisOf(orientation);
     const cross = crossOf(orientation);
@@ -903,7 +935,7 @@ function placeLeaf(next: MutableDoc, target: LayoutEdgeTarget, leaf: GridSnapsho
             const placed: GridSnapshotLeaf = {...leaf, size: {...leaf.size, [main]: total / (sharing.size + 1), [cross]: hit.node.size[cross]}};
             children.splice(hit.index + (isBeforeEdge(target.edge) ? 0 : 1), 0, placed);
             replaceChildren(next, parent.id, children);
-            return true;
+            return "placed";
         }
     }
     const half = hit.node.size[main] / 2;
@@ -914,17 +946,19 @@ function placeLeaf(next: MutableDoc, target: LayoutEdgeTarget, leaf: GridSnapsho
         const children = [...hit.parent.children];
         children.splice(hit.index, 1, ...pair);
         replaceChildren(next, hit.parent.id, children);
-        return true;
+        return "placed";
     }
-    const branch: GridSnapshotBranch = {kind: "branch", id: newBranchId(), orientation, size: {...hit.node.size}, children: pair};
+    const branchId = newBranchId();
+    if (branchId === null) return "taken";
+    const branch: GridSnapshotBranch = {kind: "branch", id: branchId, orientation, size: {...hit.node.size}, children: pair};
     if (hit.parent === null) {
         next.tree.root = branch;
-        return true;
+        return "placed";
     }
     const children = [...hit.parent.children];
     children.splice(hit.index, 1, branch);
     replaceChildren(next, hit.parent.id, children);
-    return true;
+    return "placed";
 }
 
 function replaceChildren(next: MutableDoc, branchId: string, children: GridSnapshotNode[]): void {
@@ -1010,7 +1044,8 @@ export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; 
         if (root === null) return failure("rejected", "不能摘掉整棵树");
         next.tree.root = root;
     }
-    if (!placeLeaf(next, input.target, {...leaf, size: {...leaf.size}}, aliases, () => policy.newId("branch"))) return failure("not-found", "目标已不存在");
+    const placed = placeLeaf(next, input.target, {...leaf, size: {...leaf.size}}, aliases, () => freshId(next, policy, "branch"));
+    if (placed !== "placed") return placementFailure(placed);
     const problem = settleLanding(next, input.panel, input.container, policy);
     if (problem !== null) return failure("rejected", problem);
     if (floating && source.role === "editor") next.currentEditor = input.panel;
@@ -1038,10 +1073,12 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
     takeTab(next, found.panel, found.index);
     // 来源拖空的先隐藏，再放：`spread` 按占份额的块分，它不该算在里面。
     settleEmptyPanel(next, found.panel);
-    const id = policy.newId("panel");
+    const id = freshId(next, policy, "panel");
+    if (id === null) return failure("rejected", "新面板的 id 已被占用");
     next.panels[id] = {role: source.role, tabs: [found.tab], active: input.tab};
     const leaf: GridSnapshotLeaf = {kind: "leaf", id, ref: panelRef(id), size: {width: 0, height: 0}};
-    if (!placeLeaf(next, input.target, leaf, new Map(), () => policy.newId("branch"))) return failure("not-found", "目标已不存在");
+    const placed = placeLeaf(next, input.target, leaf, new Map(), () => freshId(next, policy, "branch"));
+    if (placed !== "placed") return placementFailure(placed);
     const problem = settleLanding(next, id, input.container, policy);
     if (problem !== null) return failure("rejected", problem);
     if (source.role === "editor") next.currentEditor = id;
@@ -1054,12 +1091,13 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
  * `panel.container` 不要求已经在入口顺序里：入口顺序由调用方在同一次提交里补（`setContainerEntries`）。
  */
 export function openPanelAtEdge(doc: LayoutDoc, input: {readonly id: string; readonly panel: PanelRecord; readonly target: LayoutEdgeTarget; readonly activate?: boolean}, policy: LayoutPolicy): LayoutResult {
-    if (doc.panels[input.id] !== undefined || findTreeNode(doc.tree.root, input.id) !== null) return failure("rejected", `面板已存在 ${input.id}`);
+    if (idTaken(doc, input.id)) return failure("rejected", `面板已存在 ${input.id}`);
     if (crossesAnchor(doc, input.target)) return failure("rejected", ANCHOR_CROSS_EDGE);
     const next = editable(doc);
     next.panels[input.id] = input.panel;
     const leaf: GridSnapshotLeaf = {kind: "leaf", id: input.id, ref: panelRef(input.id), size: {width: 0, height: 0}};
-    if (!placeLeaf(next, input.target, leaf, new Map(), () => policy.newId("branch"))) return failure("not-found", "目标已不存在");
+    const placed = placeLeaf(next, input.target, leaf, new Map(), () => freshId(next, policy, "branch"));
+    if (placed !== "placed") return placementFailure(placed);
     const problem = settleLanding(next, input.id, input.panel.container, policy);
     if (problem !== null) return failure("rejected", problem);
     if (input.panel.role === "editor" && input.activate !== false) next.currentEditor = input.id;
@@ -1081,8 +1119,8 @@ export function floatTab(doc: LayoutDoc, input: {readonly tab: string; readonly 
     if (doc.floats.length >= LAYOUT_MAX_FLOATS) return failure("limit-exceeded", `浮动窗 ${String(doc.floats.length)} 个`);
     const next = editable(doc);
     takeTab(next, found.panel, found.index);
-    const id = policy.newId("panel");
-    if (next.panels[id] !== undefined) return failure("rejected", `面板已存在 ${id}`);
+    const id = freshId(next, policy, "panel");
+    if (id === null) return failure("rejected", "新面板的 id 已被占用");
     next.panels[id] = {role: source.role, tabs: [found.tab], active: input.tab};
     next.floats.push({panel: id, rect: roundFloatRect(input.rect)});
     if (source.role === "editor") next.currentEditor = id;
@@ -1271,6 +1309,10 @@ const isFiniteSize = (value: unknown): boolean => isObject(value) && typeof valu
 function validateNode(value: unknown, seen: Set<string>, depth: number): string | null {
     if (!isObject(value)) return "节点不是对象";
     if (typeof value.id !== "string" || value.id === "" || FORBIDDEN_IDS.has(value.id)) return `非法 id：${String(value.id)}`;
+    // 宿主按叶 id 认条（画活动栏、状态栏），条的叶 id 就是条名，别的节点不能叫这个名字；呈现里生成的 id 也不能撞。
+    const bar = value.kind === "leaf" && typeof value.ref === "string" ? barOfRef(value.ref) : null;
+    if (bar !== null ? value.id !== bar : BAR_NAMES.has(value.id)) return `节点 ${value.id} 与条的名字不符`;
+    if (collidesWithPresentedIds(value.id)) return `节点 ${value.id} 撞上呈现里生成的 id`;
     if (seen.has(value.id)) return `重复 id：${value.id}`;
     seen.add(value.id);
     if (seen.size > GRID_MAX_NODES) return "节点太多";
@@ -1340,7 +1382,7 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
     let editors = 0;
     for (const float of floating) if (!panelIds.includes(float)) return invalid(`浮动窗 ${float} 没有面板记录`);
     for (const id of panelIds) {
-        if (FORBIDDEN_IDS.has(id)) return invalid(`非法面板 id：${id}`);
+        if (FORBIDDEN_IDS.has(id) || BAR_NAMES.has(id) || collidesWithPresentedIds(id)) return invalid(`非法面板 id：${id}`);
         const panel = value.panels[id];
         if (!isObject(panel) || (panel.role !== "tool" && panel.role !== "editor") || !Array.isArray(panel.tabs) || !panel.tabs.every(isTabRef)) return invalid(`面板 ${id} 不合法`);
         if (floating.has(id) && (panel.name !== undefined || panel.hidden !== undefined || panel.collapsed !== undefined)) return invalid(`浮动窗 ${id} 不能具名、隐藏或收起`);

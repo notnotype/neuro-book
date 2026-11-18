@@ -154,6 +154,60 @@ test.describe("拖动的每帧开销", () => {
         await page.mouse.up();
     });
 
+    test("实时布局按住不动：页面不排动画帧；再动一步，卡片在指针移动后的那一帧就跟上", async ({page}) => {
+        test.setTimeout(120_000);
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        // 页面自己排的动画帧回调执行一次记一次；用例自己等帧用原函数，不算进去。
+        await page.addInitScript(() => {
+            const raw = window.requestAnimationFrame.bind(window);
+            const host = window as unknown as {__raf: {calls: number; raw: typeof requestAnimationFrame}};
+            host.__raf = {calls: 0, raw};
+            window.requestAnimationFrame = (callback) => raw((time) => {
+                host.__raf.calls += 1;
+                callback(time);
+            });
+        });
+        await openBook(page);
+        await lift(page, page.locator("[data-panel-tab=\"view:nbook.explorer\"]"));
+        const body = await page.locator("[data-editor-group-active]").boundingBox();
+        if (body === null) throw new Error("没有编辑组");
+        const at = {x: body.x + body.width * 0.5, y: body.y + body.height * 0.5};
+        await page.mouse.move(at.x, at.y, {steps: 8});
+        await expect(page.locator("[data-lifted]")).toHaveCount(1);
+        await settle(page);
+        const held = await page.evaluate(() => new Promise<number>((done) => {
+            const host = window as unknown as {__raf: {calls: number; raw: typeof requestAnimationFrame}};
+            const wait = (count: number, then: () => void): void => {
+                host.__raf.raw(() => (count <= 1 ? then() : wait(count - 1, then)));
+            };
+            // 前 10 帧里可能还有收尾的一两帧；之后的 60 帧（约一秒）里一次都不该有。
+            wait(10, () => {
+                const start = host.__raf.calls;
+                wait(60, () => done(host.__raf.calls - start));
+            });
+        }));
+        expect(held).toBe(0);
+
+        // 指针移动时登记一个原函数的帧回调：它和手势、帧循环排在同一帧，读到的卡片位置就是这一帧写的。
+        const card = page.locator("[data-lifted]");
+        const before = await card.boundingBox();
+        if (before === null) throw new Error("没有卡片");
+        await page.evaluate(() => {
+            const host = window as unknown as {__raf: {raw: typeof requestAnimationFrame}; __cardX?: number};
+            window.addEventListener("pointermove", () => {
+                host.__raf.raw(() => {
+                    host.__cardX = document.querySelector("[data-lifted]")!.getBoundingClientRect().x;
+                });
+            }, {capture: true, once: true});
+        });
+        await page.mouse.move(at.x + 30, at.y);
+        await expect.poll(() => page.evaluate(() => (window as unknown as {__cardX?: number}).__cardX ?? null)).not.toBeNull();
+        const followed = await page.evaluate(() => (window as unknown as {__cardX: number}).__cardX);
+        expect(followed - before.x).toBeCloseTo(30, 0);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+    });
+
     test("实时布局，拖编辑器标签：每帧至多一次样式重算、不布局", async ({page}) => {
         test.setTimeout(120_000);
         await page.emulateMedia({reducedMotion: "no-preference"});

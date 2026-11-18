@@ -24,7 +24,7 @@ import {cardInsetPx} from "../shell/adjacency";
 
 export const PANEL_HEAD_HEIGHT = SHELL_PANEL_COLLAPSED_HEIGHT;
 export const EDITOR_GROUP_MINIMUM: GridExtent = {width: 220, height: 120};
-/** 新浮动窗的大小（原型试过的手感），不小于角色的最小尺寸，不大于树区域。 */
+/** 新浮动窗的大小：不小于角色的最小尺寸，不大于树区域。 */
 export const FLOAT_DEFAULT: GridExtent = {width: 460, height: 340};
 /** 窗至少这么宽留在树区域里：加上头的高度，标签条总能抓到。 */
 export const FLOAT_KEEP_WIDTH = 80;

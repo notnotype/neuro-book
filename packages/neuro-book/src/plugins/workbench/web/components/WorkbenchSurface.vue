@@ -151,12 +151,17 @@ const EDITOR_HEAD_ONE_ROW = 34;
 const editorHeadHeights = shallowRef<Readonly<Record<string, number>>>({});
 const headObserver = typeof ResizeObserver === "function" ? new ResizeObserver((entries) => {
     const next = {...editorHeadHeights.value};
+    let changed = false;
     for (const entry of entries) {
         const panel = (entry.target as HTMLElement).dataset.surfaceHead;
         // 布局尺寸，不用 `getBoundingClientRect`：Lab 的画布有 CSS `zoom`，内容的矩形也是布局尺寸。
-        if (panel !== undefined) next[panel] = entry.borderBoxSize[0]?.blockSize ?? 0;
+        const height = entry.borderBoxSize[0]?.blockSize ?? 0;
+        if (panel === undefined || next[panel] === height) continue;
+        next[panel] = height;
+        changed = true;
     }
-    editorHeadHeights.value = next;
+    // 只有宽变了也会回调（改窗口宽度时每一步都来）：高度都没变就不换对象，换了内容层整个重算、整个网格重渲染一次。
+    if (changed) editorHeadHeights.value = next;
 }) : null;
 onBeforeUnmount(() => headObserver?.disconnect());
 /** 写在编辑组头的外层上：观察它的高度。 */

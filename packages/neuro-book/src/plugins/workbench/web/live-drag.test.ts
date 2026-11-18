@@ -62,7 +62,9 @@ function setup(over: Partial<LiveDragHost> = {}) {
         scheduled = null;
         run?.(now);
     };
-    return {live, frame, shown, placed, collapses, expansions, sorted};
+    /** 帧循环停着：没有排着的帧。 */
+    const idle = (): boolean => scheduled === null;
+    return {live, frame, idle, shown, placed, collapses, expansions, sorted};
 }
 
 describe("createLiveDrag", () => {
@@ -346,6 +348,46 @@ describe("createLiveDrag", () => {
         const writes = t.placed.length;
         for (let index = 0; index < 30; index += 1) t.frame();
         expect(t.placed.length).toBe(writes);
+    });
+
+    it("按住不动不空转：候选稳定、卡片到位之后不再排帧；来了落点或新的指针样本再排，卡片在那一帧跟上", () => {
+        let pointer = {x: 900, y: 400};
+        const t = setup({pointer: () => pointer});
+        t.live.begin(SOURCE, pointer);
+        t.live.offer(CENTER);
+        for (let index = 0; index < 90; index += 1) t.frame();
+        expect(t.live.previewKey.value).not.toBe("none");
+        expect(t.idle()).toBe(true);
+        // 同一个落点再来一次：排一帧，什么都没变，又停下。
+        t.live.offer(CENTER);
+        expect(t.idle()).toBe(false);
+        t.frame();
+        expect(t.idle()).toBe(true);
+        const writes = t.placed.length;
+        const before = t.placed.at(-1)!;
+        pointer = {x: 950, y: 420};
+        t.live.wake();
+        expect(t.idle()).toBe(false);
+        t.frame();
+        expect(t.placed.length).toBe(writes + 1);
+        expect(t.placed.at(-1)).toMatchObject({x: before.x + 50, y: before.y + 20, width: before.width, height: before.height});
+    });
+
+    it("停了两秒再动：第一帧按一帧的时长缓动，卡片的尺寸不一步到终点", () => {
+        let pointer = {x: 300, y: 400};
+        const t = setup({cardShrink: () => "panel", pointer: () => pointer});
+        t.live.begin(SOURCE, pointer);
+        t.live.offer(HOME_SPLIT);
+        for (let index = 0; index < 60; index += 1) t.frame();
+        expect(t.idle()).toBe(true);
+        expect(t.placed.at(-1)?.width).toBe(600);
+        t.frame(2000);
+        // 离开来源面板：要缩到紧凑的 380。一帧 16ms、时间常数 90ms，第一帧走五分之一不到。
+        pointer = {x: 900, y: 400};
+        t.live.wake();
+        t.frame();
+        expect(t.placed.at(-1)?.width).toBeLessThan(600);
+        expect(t.placed.at(-1)?.width).toBeGreaterThan(540);
     });
 
     it("活动栏的入口之间是一条标签条：第一次进去等稳定，吸收之后卡片收回、拖的视图在活动栏里排序；入口上是并入，卡片留着", () => {

@@ -59,6 +59,16 @@ const band = (page: Page, panel: string) => page.locator(`[data-panel-band="${pa
 const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"], [data-region-strip="panel"] [data-tool-view="${viewId}"][aria-pressed="true"]`);
 /** 只含这个视图的活动栏入口（输出 22、41：入口是容器的，只含一个视图的入口写着它的视图 id）。 */
 const entry = (page: Page, viewId: string) => page.locator(`[data-tool-band] [data-tool-view="${viewId}"]`);
+
+/**
+ * 点活动栏的入口，再把指针移到状态栏中间的空白：指针留在入口上，入口的提示框会盖住侧栏顶上的标签，接着点侧栏的那一下就点在提示框上（高负载时偶发）。
+ * 状态栏中间没有条目，移过去不触发别的悬停。
+ */
+async function pressEntry(page: Page, target: Locator): Promise<void> {
+    await target.click();
+    const bar = await page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']").boundingBox();
+    if (bar !== null) await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+}
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
 /** 分节的标题行是展开、收起的开关（输出 20）：能收起时标题按钮带 `aria-expanded`。 */
 const fold = (page: Page, panel: string) => head(page, panel).locator("[data-panel-tab][aria-expanded]");
@@ -976,7 +986,7 @@ test.describe("产品页：拖放", () => {
         await open(page);
         // 点当前容器按下着的入口，侧栏隐藏（输出 22）。
         const alpha = await sectionOf(page, A);
-        await entry(page, A).click();
+        await pressEntry(page, entry(page, A));
         await shrunk(page, alpha);
         await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
         const writes = await settledWrites(page);
@@ -1020,7 +1030,7 @@ test.describe("产品页：拖放", () => {
 
         // 侧栏隐藏着换序：不显示它，落点是换位置。
         const alpha = await sectionOf(page, A);
-        await entry(page, A).click();
+        await pressEntry(page, entry(page, A));
         await shrunk(page, alpha);
         await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
         const hiddenWrites = await settledWrites(page);

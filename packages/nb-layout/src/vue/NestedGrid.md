@@ -73,6 +73,11 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 | `data-grid-scope` | grid 根 | 值是实例 id；`moveGridFocus` 靠它找 grid，宿主取根用它 |
 | `data-leaf` | 叶外框 | 值是节点 id；外框按 `left`/`top` 加宽高摆放，过渡中会动 |
 | `data-content`、`data-content-leaf` | 内容项的外层 | 值是它的 key、所属叶 id；过渡中会动，飞行中带 `data-flying` |
+| `data-flying` | 外框与内容外层 | 这次过渡里压在别的面板上面飞过去的项：换了叶的内容、整块挪到别处的面板、从浮动窗回到树里的叶；还原最大化的过渡结束之前，被还原的那块也带它 |
+| `data-lifted` | 内容外层 | 这一项被拿起（`lifted`），盖在别的上面跟手 |
+| `data-float` | 外框与内容外层 | 这块叶是浮动窗 |
+| `data-float-gesture` | 浮动窗的外框、内容外层与手柄层 | 手势进行中，值是 `move` 或 `resize`：跟手、不过渡 |
+| `data-float-chrome` | 浮动窗的手柄层（`float-chrome` 插槽的外层） | 值是浮动窗的 id |
 | `data-sash-kind` | 分隔线 | 值是宿主 `sashKind` 给的种类，没给时没有这个属性；宿主据此设 `--nb-splitter-seam` |
 | `data-leaf-content` | 叶的内容容器 | 值是节点 id；宿主 Teleport 内容用它。过渡中的尺寸见上；要最终尺寸读宿主自己的布局结果。`node` 变化后的同一次渲染里新叶的它已经存在 |
 | `data-moving` | 外框与分隔线 | 过渡进行中 |
@@ -108,6 +113,12 @@ type NestedGridProps = {
     contents?: ReadonlyArray<GridContentInput>;
     /** 这块叶盖住除 exclude 以外的全部区域，别的叶不动；默认 null。只在内存，宿主决定。 */
     maximized?: {leaf: string; exclude: ReadonlyArray<string>} | null;
+    /** 拿起的内容项（实时布局）：盖在别的面板与分隔线上跟手，不接指针，矩形由 placeLifted 写；变成 null 时飞回它的叶。默认 null。 */
+    lifted?: {key: string} | null;
+    /** 宿主的拖动进行中（不论内容拿没拿起）：离开的叶立即消失，不留着缩回去。默认 false。 */
+    dragging?: boolean;
+    /** 浮动窗：不在树里的叶，后面的压在前面的上面；矩形相对网格根，只有矩形变了不过渡。默认没有。 */
+    floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 data-sash-kind，宿主据此给不同的线不同的颜色；默认不写。 */
     sashKind?: (sash: {branch: string; before: string; after: string}) => string | undefined;
     /** 写在分隔线元素上的内联样式（多半是 CSS 变量），宿主据此在线所占的那一条里画东西；位置与尺寸由网格写，同名属性被覆盖。默认不写。 */
@@ -118,13 +129,20 @@ type NestedGridProps = {
      * 叶在外框里画成的卡片：inset 是相对外框上右下左的内缩，radius 是左上、右上、右下、左下的圆角，都是 CSS 长度。过渡中外框露出、盖住保持尺寸的内层时按它裁；默认按外框的矩形裁。
      * 给了 fill 时形状可以伸出外框（内缩为负）：外框里的东西照旧裁在外框里，伸出去的部分画成 fill，这块外框画在别的外框下面，伸到邻居那里的部分被邻居盖住。
      */
-    leafShape?: (leaf: string) => {inset: [string, string, string, string]; radius: [string, string, string, string]; fill?: string} | undefined;
+    leafShape?: (leaf: string) => GridLeafShape | undefined;
     /**
      * 交换：下一次布局变化里一组叶换成另一组时整块平移（见上）。和那次布局变化在同一个同步段里给，token 变了才算新的；默认 null。
      * window.inset 是外接矩形上右下左的内缩（px），window.radius 是四个角（CSS 长度）。
      */
     swap?: {token: number; leaving: ReadonlyArray<string>; entering: ReadonlyArray<string>; axis: "width" | "height"; direction: 1 | -1; gap: number; window?: {inset: [number, number, number, number]; radius?: [string, string, string, string]}} | null;
 };
+
+/** 内容层的一项：key 是身份（不变就不重建、不换父元素），换 leaf 是在叶之间移动；insetTop 是叶顶部留给面板头的高度；不 active 的停放、不卸载。 */
+type GridContentInput = {key: string; leaf: string; insetTop: number; active: boolean};
+/** 浮动窗：rect 相对网格根；gesture 是手势进行中（跟手、不过渡；move 还不接指针，判定才看得到底下）。 */
+type GridFloatInput = {id: string; rect: GridRect; gesture?: "move" | "resize"};
+/** 叶画成的卡片：inset 上右下左的内缩、radius 四个角（CSS 长度）；fill 是形状伸出外框（内缩为负）时伸出去那部分的颜色。 */
+type GridLeafShape = {inset: [string, string, string, string]; radius: [string, string, string, string]; fill?: string};
 
 type NestedGridEmits = {
     /** 手势建立并冻结上下文时发出。 */
@@ -145,6 +163,14 @@ type NestedGridSlots = {
     leaf(props: {node: GridLeaf<unknown>}): unknown;
     /** 内容层的一项；leaf 是它此刻所属的叶。 */
     content(props: {contentKey: string; leaf: string; active: boolean}): unknown;
+    /** 拿起的内容项的头：卡片上面那一条。 */
+    "lifted-head"?(props: {contentKey: string}): unknown;
+    /** 盖在分隔线之上、拿起的内容之下的一层（实时布局的分区、空位），不接指针。 */
+    overlay?(): unknown;
+    /** 浮动窗的手柄：网格根的直接子元素，矩形同浮动窗，叠在它的内容上面；外层不接指针，里面的控件自己开。 */
+    "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
+    /** 交换进行中静止的底：在所有外框下面、两组外框的外接矩形上；inset、radius 是裁切窗在这一层里的四边内缩（px）与四个角。 */
+    "swap-backdrop"?(props: {inset: [number, number, number, number]; radius: [string, string, string, string] | null}): unknown;
     empty(): unknown;
 };
 ```
