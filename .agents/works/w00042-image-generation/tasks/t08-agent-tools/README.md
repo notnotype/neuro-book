@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t08-agent-tools
 status: planned
-updated: 2026-11-06
+updated: 2026-11-18
 ---
 
 # Agent 工具
@@ -16,6 +16,10 @@ updated: 2026-11-06
 ## 当前状态
 
 2026-11-06 经 nbdev 新建，尚未开工。
+
+2026-11-18 范围加了两样（[Work 决定](../../README.md#决定)）：
+- 把词库里没有的词或自然语言翻译成标签；
+- 标签效果记忆表：固定种子、只换一个词，记下这个词影响画面的哪一部分，例如 `collar` 几乎只改衣领。
 
 ## 下一步
 

@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t06-image-backends
 status: planned
-updated: 2026-11-06
+updated: 2026-11-18
 ---
 
 # 生成后端与任务
@@ -16,6 +16,10 @@ NovelAI 与 ComfyUI 要自己写；gpt-image、nano banana 以后可以用 OMP �
 ## 当前状态
 
 2026-11-06 经 nbdev 新建，尚未开工。
+
+2026-11-18 范围加了两样（[Work 决定](../../README.md#决定)）：
+- 显示余额与 V5 的 Opus 免费配额（开发者叫它“电池”），以及这一次生成要花多少；
+- 角色位置、氛围迁移、精确参考的请求。
 
 ## 下一步
 
