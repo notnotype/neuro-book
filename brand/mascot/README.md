@@ -19,6 +19,8 @@
 
 本地探索批次、7 张初筛原图、28 步消融实验及防失真标定对比图保留在 `.local/brand/mascot/current/`，不进入 Git。
 
+应用自带的星璃表情包在 [`packages/neuro-book/src/plugins/stickers/builtin/`](../../packages/neuro-book/src/plugins/stickers/builtin/)：`lyra`（15 张）切自开发者生成的三张 3×3 表情图，`lyra-chibi`（12 张）由 image-gen 以 [`master/canonical-lyra-nai45.png`](master/canonical-lyra-nai45.png) 为参考生成；都抠了图、带白色模切边（`lyra` 的是抠图后补的），缩到 512×512 存 WebP。原图、切格与抠图脚本留在本地 `.local/brand/mascot/stickers/`，不进入 Git；挑选与做法见 [`w00050 t10`](../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t10-lyra-default-stickers/README.md)。
+
 ## 标准生成基线（NovelAI V4.5 防失真配方）
 
 - **模型**：`nai-diffusion-4-5-full`

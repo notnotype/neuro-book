@@ -1,0 +1,44 @@
+w00050 t10 晋升核对：docs/specs/agent/stickers.md 与 builtin-profiles.md 输出 16 里标“（planned）”的句子，逐句对应到测试断言
+master 34294928f（实现 93535ca32 等五个提交、审查修正 b3660c0ed、核对时补的测试 5cb3ec33c、3041b7bd2、34294928f）
+
+测试文件简称：
+  ST = packages/neuro-book/src/plugins/stickers/stickers.test.ts
+  RS = packages/neuro-book/src/plugins/stickers/web/resolver.test.ts
+  PK = packages/neuro-book/src/plugins/stickers/web/picker.test.ts
+  SL = packages/neuro-book/src/plugins/agent/stickers-slot.test.ts
+  SP = packages/neuro-book/src/plugins/stickers/web/sticker-page.dom.test.ts
+  PP = packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts
+  BR = packages/neuro-book/src/plugins/stickers/backend/builtin-root.test.ts
+  PA = packages/neuro-book/scripts/pack-app.test.ts
+  BP = packages/neuro-book/src/plugins/agent/builtin-profiles.test.ts
+  E13 = packages/neuro-book/e2e/builtin-stickers.e2e.ts；EAP = packages/neuro-book/e2e/app-package.e2e.ts
+
+目标“应用也自带两个”：ST“内置来源”断言 builtin.lyra 与 builtin.lyra-chibi 都在、status ok。
+术语“来源 builtin、id builtin.<文件夹名>”：ST“内置来源”toMatchObject({source: "builtin", folder: "lyra"})，id 即 builtin.lyra。
+“内置来源”一表：ST“内置来源”断言 lyra 的显示名“星璃”、15 个名字与顺序逐个相等、全部 common、宽 512；chibi 显示名“星璃 · 半身”、12 个全部 common（5cb3ec33c 补名字与 chibi 两条）。“随安装包分发、只读”见副作用一行与输出 13。
+
+输出 1（内置启动时扫一遍、不监视、找不到目录时诊断 root-unavailable 且别的来源照常、改安装目录到下次启动才生效）：
+  - 扫一遍：ST“内置来源”启动后即列出。
+  - 不监视、下次启动才生效：ST“输出 1：内置来源启动时扫一遍、不监视”：往内置目录放新包、同时往用户目录放一个，等用户的出现后断言内置的新包不在（5cb3ec33c 补；把 watch 改成 true 变异后失败）。
+  - 找不到目录：ST“输出 1：应用的安装里找不到内置表情包的目录时”：只有 user.lyra、诊断 {event: stickers.root-unavailable, data: {source: builtin}}（审查第 4 条后补）。
+输出 7（带包按文件夹名分级）：RS“输出 7”断言我的胜出、同一级重名认不出、胜出的不在目录里认不出；ST“输出 7、14、18、41”断言服务端分级结果（胜出且唯一写文件夹名，其余写 id）。
+输出 8（不带包分级）：RS“输出 8”断言取最高一级、这一级恰好一个才认得，两个内置都有时认不出。Spec 句子顺带改写成一句（不再是“原句加 planned 句”），语义不变。
+输出 13（根列出时来源写“内置”、只能经 stickers:// 读）：ST“内置来源”断言根里 builtin.lyra 的 meta.source 为“内置”、read ok、write 得 unsupported-capability（审查第 5 条后补上码）、updatePack 与 listFiles 得 not-user-pack。原 planned 句只写“同插件的只能读”，晋升时补上“来源写内置”，有上面的断言。
+输出 14（按文件夹名认不到时写 id）：SL“输出 14、17”断言只有按文件夹名认不到白名单里的包时改写 id；ST“输出 7、14、18、41”；E13 复制后请求里有 :builtin.lyra/开心:。
+输出 18（浏览器只认包段等于它的）：RS“输出 7”胜出的包不在浏览器目录里时认不出。
+输出 19（Profile 设置内置组在最后）：PP“没有声明的 Profile……内置的在最后”。
+输出 25（内置在最后一组、组头“内置”、被盖住的标注）：SP“内置的包（输出 25、26）”断言行顺序、组头 ["我的","可爱表情包","内置"]、被盖住的行有 data-sticker-rail-flag=shadowed、aria-label 含“被我的同名包盖住”、未盖住的 chibi 没有标注、头部 [data-sticker-shadowed] 含 :builtin.lyra/…:；ST“内置来源”断言复制前后 summary 的 shadowed。原 planned 句写“行里另写‘被我的同名包盖住’”，实现是行尾弱色图标加读屏文字、头部一句，晋升时按实现改写；有认不出的图时行尾仍是提示图标（StickerPackRail.vue 的 v-else-if），没有测试，不写进 Spec。E13 断言复制后内置行的 shadowed 标注可见。
+输出 26（内置同插件：导出、复制到我的、菜单只有在文件夹中显示）：SP 同上断言有导出按钮、“更多”菜单项恰好是 [在文件夹中显示]（34294928f 补；第一稿写“插件用例覆盖菜单分支”是错的，插件用例没有菜单断言）、没有“添加”格、点复制调用 copyPack(builtin.lyra)。
+输出 27（内置属性栏只读）：SP 同上点格子后没有 input[data-sticker-name]、面板写 :builtin.lyra/开心:。
+输出 32（复制内置成 user.<包名>、显示名与说明照抄、白名单不跟）：ST“内置来源”copyPack 得 user.lyra、文件夹里是清单与全部图、清单 title 与 description 和内置的相同（5cb3ec33c 补说明）；E13 复制后请求里仍有 stickers://builtin.lyra/（白名单没跟着换）、:lyra/开心: 显示我的新图（宽 64）。
+输出 33、34：括号里的 planned 句（之后显示同名的插件或内置包）由分级规则保证（RS“输出 7”）；对话框不提这一点，审查第 3 条，按“窄场景记为已知限制”写进“不承诺”。
+输出 35（内置能导出）：ST“输出 35”导出 builtin.lyra 得 200、zip 里文件夹 lyra、文件与内置目录一致。
+输出 37（内置打开安装里的文件夹）：ST“输出 35”同一用例 revealPath(builtin.lyra) 等于内置目录下的 lyra（只测拒绝与路径，不真的打开文件管理器，同插件的用例）。
+输出 39（选择器内置在最后）：PK“内置的包排在各插件之后，组头不写插件名”。
+输出 41（插入的写法按目录给的包段）：PK“插入的写法用目录给的包段（输出 41）：被我的同名包盖住的写 id”。
+副作用（npm 包里 stickers/<文件夹名>/、源码运行时是插件源码目录）：BR 两种布局与都没有；PA 解包后定位到 package/stickers；EAP 装好的 nbook 取 /api/nbook.stickers/image/builtin.lyra/开心.webp 得 200 image/webp。原稿另有“桌面版用同一份 npm 包的内容”，没有断言、也不是这份 Spec 的合同（桌面载荷解开整个 npm 包，见 scripts/desktop-payload.ts，从代码推断），晋升时删去。
+失败表“内置目录找不到”：同输出 1。
+验收 13：E13 全文（全新状态根、主创槽列出 builtin.lyra 与清单里每个 :lyra/…:、不含 chibi、回复图宽 512；复制、换图后同一写法宽 64、槽里 :builtin.lyra/开心:、内置行标被盖住）。
+builtin-profiles 输出 16：BP“输出 16”断言主创 stickers {allowed: ["builtin.lyra"]}、临时帮手 skills 与 stickers 都没有声明（3041b7bd2 补）；槽在提示词里由 E13 的请求断言覆盖。原稿另有“升 Profile 版本”，没有断言，且输出 1 已有“升提示词时升 Profile 版本”的通则，晋升时删去（版本号 6 在 main.ts）。
+
+换模型复核（Claude Sonnet，spec-check-verify.txt，29 条）：没有兜底 4 条、证据写错 1 条，处理如下：输出 26 菜单与导出补了断言、改正证据；输出 16 升版本与副作用的桌面版从 Spec 删去；输出 33、34 与“不承诺”的对话框一句是已知限制、不需要测试，对话框说明句的原文是“会显示成原文”，Spec 写法属实。复核另指出输出 1“不监视”只测了新放进的包、没测改已有文件（同一机制，不另补）；输出 35 的“插件的包也能导出”没有插件包的导出请求（不是这次晋升的句子，没有动）。

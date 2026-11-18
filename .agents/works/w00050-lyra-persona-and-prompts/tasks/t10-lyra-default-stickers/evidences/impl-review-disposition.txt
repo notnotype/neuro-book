@@ -1,0 +1,12 @@
+w00050 t10 实现审查（Claude Sonnet，审 4659fda07..760c31b9d，报告 impl-review.txt）的处理
+7 条：重要 1、建议 6。修正提交 b3660c0ed（变基前 4035a7a66）。
+
+1. 英文语言包把 Skill 的“内置”组名改成 “Built-in sticker packs”（重要）：成立，要改。Profile 设置的 Skill 一节与 Skill 页两处还原成 “Built-in”，表情包一节新增的那条保留。原因是改语言包时按整段文字替换，命中了三处同样的 groups 块。
+2. architecture.test.ts 失败：槽扩展跨插件导入 stickers/shared/writing（建议，基线就有）：成立，要改。stickers/shared/contracts.ts 转出 writingSegments，槽改从 contracts 取；architecture.test.ts 通过。
+3. 改包名、删除对话框在有同名内置或插件包时仍写“显示原文”：成立，接受取舍。这是窄场景（我的包与内置或插件包同名，再改名或删除），改要把同名关系传进对话框；按“窄场景记为已知限制”写进 Spec 的“不承诺”，输出 33、34 的括号注明对话框不提。
+4. 内置目录找不到的 root-unavailable 没有测试：成立，要改。插件定义改为 createStickersBackendPlugin(locateBuiltin)（缺省按安装找），测试传 () => null，断言只有用户的包、诊断带 source builtin。
+5. 新用例的 stickers:// 写入断言没写码：成立，要改。补 code: "unsupported-capability"，与既有用例一致。
+6. Lab 没有内置组与被盖住的场景：成立，要改。样本加内置的被盖住的 lyra（writing 与 shadowed 照服务端的形状），StickerPacksPage 加 builtin-shadowed 与 builtin-shadowed-narrow-english，StickerPackRail 的 rail 场景带上内置组；选择器夹具改用样本的 writing。nbdev shot 截图看过：480 宽英文的头部长句正常折行，没有挤走按钮；内置组在最后，被盖住的行尾是弱色眼睛图标。rail 场景的 lab:shot 以 1 退出，原因是顶部“新建”按钮的焦点环被舞台裁掉 1 像素，与本次改动无关（只在列表末尾加了一组，从结构推断原来就有）。
+7. 小项：成立，要改。extension.ts 头注释与参数注释改成分级规则；sticker-picker.e2e.ts 的格式改动还原；源码目录由 builtin-root.ts 导出 SOURCE_BUILTIN_DIRECTORY，pack-app 与 locate 共用；pack-app 的 import 归进 ../src 一组。
+
+修正后跑过：typecheck；bun test architecture、stickers 全部、agent stickers、builtin-profiles、pack-app 168 条；vitest stickers 与 agent web 112 条、Lab fixtures；变基到 master 后重跑同一组 bun 测试与 typecheck 通过。e2e 在修正前跑过五个文件（builtin-stickers、stickers、sticker-packs、sticker-picker、app-package）全过；修正改的是语言包、导入路径、测试、Lab，以及把插件定义包进一个工厂函数（stickers.test.ts 的测试世界照真实激活走这个函数），没有重跑 e2e。
