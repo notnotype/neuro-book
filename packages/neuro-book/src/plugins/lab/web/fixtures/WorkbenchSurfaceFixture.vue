@@ -309,7 +309,8 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
                         :head-min-width="merged === null ? 0 : 160"
                         @select="(id) => selectRegionEntry(region, id)"
                     >
-                        <WorkbenchPanelHead v-if="merged !== null" :key="merged" v-bind="headProps(merged, idPrefix)" v-on="headEvents(merged)">
+                        <!-- 底部面板的入口写着标题，并进来的头不再写一遍（同产品的外壳，输出 47）。 -->
+                        <WorkbenchPanelHead v-if="merged !== null" :key="merged" v-bind="headProps(merged, idPrefix)" :title-in-entry="region === 'panel'" v-on="headEvents(merged)">
                             <template #actions>
                                 <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="刷新" :data-view-action="merged" />
                             </template>
