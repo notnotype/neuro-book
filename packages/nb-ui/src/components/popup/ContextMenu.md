@@ -71,7 +71,7 @@ interface ContextMenuEmits {
 interface ContextMenuSlots {} // 不提供插槽
 ```
 
-`open`、`x`、`y` 都由父组件控制；组件不会自行把 `open` 改为 false，只发 `update:open`。组件不提供 `expose` API；根节点是 Teleport，attrs 不属于稳定公共合同。`x`、`y` 是视口坐标而不是页面滚动坐标，通常应从 `contextmenu` 事件的 client 坐标取得。初始 `open=true` 时位置直接取输入值；首次挂载不会主动测量钳位。打开后只在 `open`、`x` 或 `y` 变化时重新测量，视口尺寸单独变化不会触发重算。
+`open`、`x`、`y` 都由父组件控制；组件不会自行把 `open` 改为 false，只发 `update:open`。组件不提供 `expose` API；根节点是 Teleport，attrs 不属于稳定公共合同。`x`、`y` 是视口坐标而不是页面滚动坐标，通常应从 `contextmenu` 事件的 client 坐标取得。宿主可以一直挂着、只切换 `open`，也可以打开时才挂上（`v-if` 加 `open=true`）：两种都在菜单画出来之后测量、钳位，并把焦点放到第一个可用项。之后只在 `open`、`x` 或 `y` 变化时重新测量，视口尺寸单独变化不会触发重算。
 
 ## 不支持
 
