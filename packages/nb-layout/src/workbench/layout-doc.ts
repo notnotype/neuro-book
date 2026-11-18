@@ -14,9 +14,10 @@
  * 要深拷贝结果用 JSON 拷贝，不要对它 `structuredClone`。
  */
 
-import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "./grid-types";
+import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "../grid-types";
 import {collidesWithPresentedIds} from "./presented-ids";
-import type {GridExtent, GridOrientation, GridSnapshot, GridSnapshotBranch, GridSnapshotLeaf, GridSnapshotNode} from "./grid-types";
+import type {GridRect} from "../grid-rects";
+import type {GridExtent, GridOrientation, GridSnapshot, GridSnapshotBranch, GridSnapshotLeaf, GridSnapshotNode} from "../grid-types";
 
 export const LAYOUT_DOC_VERSION = 1;
 
@@ -48,13 +49,8 @@ export interface PanelRecord {
     readonly activeContainer?: string | null;
 }
 
-/** 浮动窗的矩形：卡片本身，相对树区域的 CSS 像素。写入时取整，所以比较不用容差，也不落在半个像素上。 */
-export interface LayoutFloatRect {
-    readonly x: number;
-    readonly y: number;
-    readonly width: number;
-    readonly height: number;
-}
+/** 浮动窗的矩形：卡片本身，相对树区域的 CSS 像素。写入时取整，所以比较不用容差，也不落在半个像素上。拉边与夹取在 `grid-rects.ts`。 */
+export type LayoutFloatRect = GridRect;
 
 /** 浮动窗：一块不在树里的面板。 */
 export interface LayoutFloat {
@@ -1158,37 +1154,6 @@ export function openFloatPanel(doc: LayoutDoc, input: {readonly id: string; read
     next.floats.push({panel: input.id, rect: roundFloatRect(input.rect)});
     if (input.panel.role === "editor" && input.activate !== false) next.currentEditor = input.id;
     return finish(doc, next);
-}
-
-/** 窗留在树区域里的部分：标签条总能抓到。窗口变小时呈现用夹取之后的矩形，记录不改。比区域还大时缩到区域。 */
-export function clampFloatRect(rect: LayoutFloatRect, extent: GridExtent, keep: {readonly width: number; readonly height: number}): LayoutFloatRect {
-    const width = Math.min(rect.width, extent.width);
-    const height = Math.min(rect.height, extent.height);
-    return {
-        x: Math.min(Math.max(rect.x, keep.width - width), extent.width - keep.width),
-        y: Math.min(Math.max(rect.y, 0), extent.height - keep.height),
-        width,
-        height,
-    };
-}
-
-/** 缩放的方向：正号是右、下边跟着指针，负号是左、上边跟着指针，同时改写 `x`、`y`。 */
-export interface LayoutFloatResize {
-    readonly width: -1 | 0 | 1;
-    readonly height: -1 | 0 | 1;
-}
-
-/** 缩放之后的矩形。到了尺寸的上下限时对边不动。 */
-export function resizeFloatRect(start: LayoutFloatRect, direction: LayoutFloatResize, delta: {readonly x: number; readonly y: number}, bounds: {readonly min: GridExtent; readonly max: GridExtent}): LayoutFloatRect {
-    const clamp = (value: number, low: number, high: number): number => Math.min(Math.max(value, low), Math.max(low, high));
-    const width = clamp(start.width + direction.width * delta.x, bounds.min.width, bounds.max.width);
-    const height = clamp(start.height + direction.height * delta.y, bounds.min.height, bounds.max.height);
-    return {
-        x: direction.width === -1 ? start.x + start.width - width : start.x,
-        y: direction.height === -1 ? start.y + start.height - height : start.y,
-        width,
-        height,
-    };
 }
 
 // ── 显隐与收起 ──

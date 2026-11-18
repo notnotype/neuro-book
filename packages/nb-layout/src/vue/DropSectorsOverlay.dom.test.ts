@@ -1,23 +1,29 @@
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {layoutDropSectors} from "../layout-drop";
-import type {LayoutDropSector} from "../layout-drop";
-import {docOf, H, testPolicy} from "../layout-doc-fixtures";
 import DropSectorsOverlay from "./DropSectorsOverlay.vue";
 
-/** 落点分区只画宿主给的东西：形状来自真实的 `layoutDropSectors`，这里看当前块、字与整层的有无。 */
+/**
+ * 落点分区只画宿主给的东西：这里看当前块、字与整层的有无。形状是手写的五块（相对矩形的 0 到 1），左右窄带占 28%，同工作台的分区；
+ * 工作台真实算出来的形状画得出来，由 nb-workbench-layout 那边的用例守着。
+ */
 
 const wrappers: VueWrapper[] = [];
 afterEach(() => {
     for (const wrapper of wrappers.splice(0)) wrapper.unmount();
 });
 
-function fiveSectors(): ReadonlyArray<LayoutDropSector> {
-    const geometry = {id: "a", strip: null, body: {left: 0, top: 0, right: 100, bottom: 100}};
-    const sectors = layoutDropSectors({doc: docOf(H(["a", "b"], "root")), source: {kind: "tab", tab: "view:b"}, point: {x: 0, y: 0}, panels: [geometry], policy: testPolicy()}, geometry);
-    if (sectors === null) throw new Error("没有分区");
-    return sectors;
+type Sector = {readonly id: string; readonly points: ReadonlyArray<readonly [number, number]>};
+const BAND = 0.28;
+function fiveSectors(): ReadonlyArray<Sector> {
+    const [low, high] = [BAND, 1 - BAND];
+    return [
+        {id: "left", points: [[0, 0], [low, low], [low, high], [0, 1]]},
+        {id: "right", points: [[1, 0], [1, 1], [high, high], [high, low]]},
+        {id: "top", points: [[0, 0], [1, 0], [high, low], [low, low]]},
+        {id: "bottom", points: [[0, 1], [low, high], [high, high], [1, 1]]},
+        {id: "center", points: [[low, low], [high, low], [high, high], [low, high]]},
+    ];
 }
 
 const LABELS = {left: "左", right: "右", top: "上", bottom: "下", center: "中"};

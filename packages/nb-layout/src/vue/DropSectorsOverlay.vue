@@ -1,21 +1,21 @@
 <script setup lang="ts">
-/** 落点分区（同名 .md）：拖动经过面板正文时画出这块面板能往哪放。形状由 `layoutDropSectors` 算，这里只画。 */
+/** 落点分区（同名 .md）：拖动经过面板正文时画出这块面板能往哪放。形状由宿主算（工作台用 `layoutDropSectors`），这里只画。 */
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {computed} from "vue";
 
 import type {GridDropRect} from "../grid-drop";
-import type {LayoutDropSector, LayoutDropSectorId} from "../layout-drop";
 
 defineOptions({inheritAttrs: false});
 
 const props = defineProps<{
     /** 这块面板正文的矩形（视口坐标）；没有为 null，整层不渲染。 */
     rect: GridDropRect | null;
-    sectors: ReadonlyArray<LayoutDropSector>;
+    /** 每块的 id 与多边形顶点（视口坐标）；id 写进 `data-drop-sector`。 */
+    sectors: ReadonlyArray<{readonly id: string; readonly points: ReadonlyArray<readonly [number, number]>}>;
     /** 指针此刻落在哪块；没有为 null。 */
-    active: LayoutDropSectorId | null;
-    /** 每块写的字；不给不写。当前块不写：`DropFeedbackOverlay` 的提示在说它。 */
-    labels?: Partial<Record<LayoutDropSectorId, string>>;
+    active: string | null;
+    /** 每块写的字，按 id 取；不给不写。当前块不写：`DropFeedbackOverlay` 的提示在说它。 */
+    labels?: Readonly<Record<string, string | undefined>>;
 }>();
 
 /** 比这小的块不写字：编辑组最窄 220px，左右窄带约 62px，写了会压到边外和中央的字上。 */

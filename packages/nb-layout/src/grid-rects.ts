@@ -120,6 +120,37 @@ export interface GridPlacement<R> {
     readonly items: ReadonlyArray<GridPlacementItem<R>>;
 }
 
+/** 窗留在树区域里的部分：标签条总能抓到。窗口变小时呈现用夹取之后的矩形，记录不改。比区域还大时缩到区域。 */
+export function clampFloatRect(rect: GridRect, extent: GridExtent, keep: {readonly width: number; readonly height: number}): GridRect {
+    const width = Math.min(rect.width, extent.width);
+    const height = Math.min(rect.height, extent.height);
+    return {
+        x: Math.min(Math.max(rect.x, keep.width - width), extent.width - keep.width),
+        y: Math.min(Math.max(rect.y, 0), extent.height - keep.height),
+        width,
+        height,
+    };
+}
+
+/** 缩放的方向：正号是右、下边跟着指针，负号是左、上边跟着指针，同时改写 `x`、`y`。 */
+export interface LayoutFloatResize {
+    readonly width: -1 | 0 | 1;
+    readonly height: -1 | 0 | 1;
+}
+
+/** 缩放之后的矩形。到了尺寸的上下限时对边不动。 */
+export function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, delta: {readonly x: number; readonly y: number}, bounds: {readonly min: GridExtent; readonly max: GridExtent}): GridRect {
+    const clamp = (value: number, low: number, high: number): number => Math.min(Math.max(value, low), Math.max(low, high));
+    const width = clamp(start.width + direction.width * delta.x, bounds.min.width, bounds.max.width);
+    const height = clamp(start.height + direction.height * delta.y, bounds.min.height, bounds.max.height);
+    return {
+        x: direction.width === -1 ? start.x + start.width - width : start.x,
+        y: direction.height === -1 ? start.y + start.height - height : start.y,
+        width,
+        height,
+    };
+}
+
 /** 宿主给的浮动窗：一块不在树里的叶，内容项照常归属它，所以进出浮动窗内容不换父元素。 */
 export interface GridFloatInput {
     readonly id: string;

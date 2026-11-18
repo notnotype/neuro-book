@@ -2,10 +2,9 @@
 /** 浮动窗的手柄（同名 .md）：缩放和键盘移动。只算矩形。 */
 import {computed, shallowRef} from "vue";
 
-import type {GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
-import {resizeFloatRect} from "../layout-doc";
-import type {LayoutFloatResize} from "../layout-doc";
+import {resizeFloatRect} from "../grid-rects";
+import type {GridRect, LayoutFloatResize} from "../grid-rects";
 import {useLayoutText} from "./text";
 
 defineOptions({name: "FloatWindowHandles"});

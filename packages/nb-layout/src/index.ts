@@ -3,11 +3,12 @@
  * 组件与组合式函数在 `@notnotype/nb-layout/vue`。
  */
 export * from "./grid";
-export * from "./layout-doc";
-export * from "./layout-project";
-export * from "./layout-drop";
+export * from "./workbench/layout-doc";
+export * from "./workbench/layout-project";
+export * from "./workbench/layout-drop";
 export * from "./live-drop";
-export type {GridContentInput, GridFloatInput, GridLeafShape, GridRect} from "./grid-rects";
+export {clampFloatRect, resizeFloatRect} from "./grid-rects";
+export type {GridContentInput, GridFloatInput, GridLeafShape, GridRect, LayoutFloatResize} from "./grid-rects";
 export type {GridSwap, GridSwapWindow} from "./grid-swap";
 export * from "./sash-drag";
 export {

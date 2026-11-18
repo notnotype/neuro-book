@@ -7,7 +7,7 @@ import type {GridOrientation} from "../grid-types";
  * 绘制盒。落点解析归宿主，本类型只是搬运。
  *
  * - `areaRect`：内容落点接住的半区 / 空容器整个内容盒；
- * - `entryRect`：要高亮的切换器条目；
+ * - `entryRect`：宿主给的次级高亮盒（例如工作台入口条上的入口），可选；
  * - `indicator`：插入线，只在没有有效半区的落点画；
  * - `orientation`：目标容器主轴，决定插入线的长轴与短轴。
  *
@@ -16,7 +16,7 @@ import type {GridOrientation} from "../grid-types";
  */
 export type DropFeedbackPreview = Readonly<{
     readonly areaRect: GridDropRect | null;
-    readonly entryRect: GridDropRect | null;
+    readonly entryRect?: GridDropRect | null;
     readonly indicator: GridDropRect | null;
     readonly orientation: GridOrientation;
     /** false 表示保留上一份半区但当前不可提交；缺省按可提交绘制。 */
@@ -37,7 +37,7 @@ export type DropFeedbackPreview = Readonly<{
  * - 区域（`[data-drop-feedback-area]`）：内容落点的半区 / 空容器整个内容盒，四边内缩 `min(6, 尺寸/4)`；
  * - 插线（`[data-drop-feedback-line]`）：沿目标轴的实色插入线，只在长轴两端内缩 `min(2, 长轴/4)`；只在没有
  *   有效半区的落点画——内容落点的 `preview` 同时给半区与插线，两个形状会叠成两个落点；
- * - 条目（`[data-drop-feedback-entry]`）：切换器上接收条目 / 锚点条目，不内缩；
+ * - 次级高亮（`[data-drop-feedback-entry]`）：`entryRect` 给的盒，不内缩；
  * - 标签（`[data-drop-feedback-label]`）：独立 fixed 包装的提示药丸，图标随 `iconClass`；只要还有有效形状
  *   和非空文案就显示；
  * - 无障碍（`[data-drop-feedback-live]`）：独立 aria-live 播报，仅在语义标签变化时更新，不逐像素播报。
@@ -326,7 +326,7 @@ watch(
                 :style="areaBoxStyle"
             />
 
-            <!-- 插入线：只在没有有效半区的落点（切换器换序 / 空头部）显示 -->
+            <!-- 插入线：只在没有有效半区的落点（换序、空头部）显示 -->
             <DropIndicator
                 v-if="lineBoxStyle !== null"
                 variant="line"
@@ -335,7 +335,7 @@ watch(
                 :style="lineBoxStyle"
             />
 
-            <!-- 切换器条目高亮：接收条目或锚点条目 -->
+            <!-- 次级高亮：宿主给的 entryRect -->
             <DropIndicator
                 v-if="entryBoxStyle !== null"
                 variant="entry"

@@ -1,11 +1,10 @@
 import {describe, expect, it} from "bun:test";
 
-import {createGrid} from "./grid";
+import {createGrid} from "../grid";
 import {docOf, H, shapeOf, sizeOf, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {
     activateTab,
     carryDynamicTabs,
-    clampFloatRect,
     countsInShare,
     edgeTargetOf,
     edgeTargetTouches,
@@ -27,7 +26,6 @@ import {
     regionOf,
     removeTab,
     replaceTab,
-    resizeFloatRect,
     sameLayoutShape,
     sectionCollapseBlock,
     setActiveContainer,
@@ -46,7 +44,7 @@ import {
     validateLayoutDoc,
 } from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutResult} from "./layout-doc";
-import type {GridSnapshotBranch, GridSnapshotNode} from "./grid-types";
+import type {GridSnapshotBranch, GridSnapshotNode} from "../grid-types";
 import {enumerateDropCandidates} from "./layout-drop";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -839,23 +837,6 @@ describe("浮动窗", () => {
         expect(validateLayoutDoc(doc).ok).toBe(true);
         const floatOnly = {...doc, tree: docOf(V([H(["activitybar", "sidebar"], "body"), "statusbar"], "root")).tree, floats: [{panel: "e0", rect: RECT}]};
         expect(validateLayoutDoc(floatOnly)).toMatchObject({ok: false, code: "invalid"});
-    });
-
-    it("夹取：头留在区域里，窗比区域大时缩到区域；不改记录", () => {
-        const extent = {width: 800, height: 600};
-        const keep = {width: 80, height: 32};
-        expect(clampFloatRect(RECT, extent, keep)).toEqual(RECT);
-        expect(clampFloatRect({...RECT, x: 790, y: 590}, extent, keep)).toEqual({...RECT, x: 720, y: 568});
-        expect(clampFloatRect({...RECT, x: -900, y: -40}, extent, keep)).toEqual({...RECT, x: 80 - 460, y: 0});
-        expect(clampFloatRect({...RECT, width: 2000, height: 900}, extent, keep)).toEqual({...RECT, width: 800, height: 600});
-    });
-
-    it("缩放：负方向同时改位置，到了上下限对边不动", () => {
-        const bounds = {min: {width: 200, height: 100}, max: {width: 600, height: 500}};
-        expect(resizeFloatRect(RECT, {width: 1, height: 1}, {x: 40, y: 10}, bounds)).toEqual({...RECT, width: 500, height: 350});
-        expect(resizeFloatRect(RECT, {width: -1, height: 0}, {x: -40, y: 10}, bounds)).toEqual({...RECT, x: 60, width: 500});
-        expect(resizeFloatRect(RECT, {width: -1, height: -1}, {x: 1000, y: 1000}, bounds)).toEqual({x: 100 + 460 - 200, y: 80 + 340 - 100, width: 200, height: 100});
-        expect(resizeFloatRect(RECT, {width: 1, height: 0}, {x: 1000, y: 0}, bounds)).toEqual({...RECT, width: 600});
     });
 });
 

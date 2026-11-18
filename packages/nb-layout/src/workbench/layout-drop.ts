@@ -5,14 +5,14 @@
  * 动作的身份就是它的内容，会话按它判断“和上次显示的是不是同一个”。缝和外缘是两个落点：缝放到两块之间，外缘往这一块的这个方向分。
  */
 
-import type {GridDropPoint, GridDropRect} from "./grid-drop";
-import {placeGrid} from "./grid-rects";
-import {createGrid} from "./grid";
+import type {GridDropPoint, GridDropRect} from "../grid-drop";
+import {placeGrid} from "../grid-rects";
+import {createGrid} from "../grid";
 import {activateTab, edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isContainerAnchor, isNodeShown, isSectionCollapsed, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, REGION_ORIENTATION, sectionRegionOf, setFloatRect, tabKey, treeLeaves} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelName, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
-import type {GridExtent, GridOrientation, GridSnapshotNode} from "./grid-types";
+import type {GridExtent, GridOrientation, GridSnapshotNode} from "../grid-types";
 
 /** 外缘窄带占这一块的比例。 */
 export const LAYOUT_EDGE_RATIO = 0.28;

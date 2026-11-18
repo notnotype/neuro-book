@@ -6,7 +6,7 @@ import type {LayoutDropAction, LayoutDropInput, LayoutDropPanelGeometry, LayoutD
 import {edgeTargetOf, isPanelShown, regionOf, setPanelCollapsed} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutSource} from "./layout-doc";
 import type {LayoutProjectionOptions} from "./layout-project";
-import type {GridDropRect} from "./grid-drop";
+import type {GridDropRect} from "../grid-drop";
 
 /** 落点规则（docs/specs/ui/workbench-layout.md 输出 25 到 29）。 */
 
