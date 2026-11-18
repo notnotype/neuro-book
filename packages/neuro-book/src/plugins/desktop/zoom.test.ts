@@ -22,7 +22,7 @@ import type {DesktopSettingValues} from "nbook/shared/desktop-bridge";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {descriptor} from "./plugin";
-import {createWheelAccumulator, createZoomController, steppedZoom, WHEEL_STEP, zoomKeyAction} from "./web/zoom";
+import {createZoomController, steppedZoom, zoomKeyAction} from "./web/zoom";
 
 const silent = {error: () => undefined};
 let tmp = "";
@@ -117,16 +117,6 @@ describe("档位与输入", () => {
         expect(key("Equal", {altKey: true})).toBeNull();
         expect(key("Equal", {metaKey: true})).toBeNull();
         expect(key("KeyS")).toBeNull();
-    });
-
-    it("Ctrl+滚轮累积满一档才换，换了方向先清零", () => {
-        const wheel = createWheelAccumulator();
-        expect(wheel(-40)).toBeNull();
-        expect(wheel(-40)).toBeNull();
-        expect(wheel(-40)).toBe("in");
-        expect(wheel(-40)).toBeNull();
-        expect(wheel(60)).toBeNull();
-        expect(wheel(WHEEL_STEP)).toBe("out");
     });
 });
 

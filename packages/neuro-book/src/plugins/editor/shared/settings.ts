@@ -22,6 +22,7 @@ export const EDITOR_SECTION_DECLARATION: WrittenSettingsSectionDeclaration = {
         {id: "tabs"},
         {id: "saving"},
         {id: "images"},
+        {id: "markdown"},
         {id: "code"},
     ],
 };
@@ -155,6 +156,46 @@ export const imageFolderSetting = defineSetting({
     order: 20,
 });
 
+export const CODE_FONT_SIZE_MIN = 8;
+export const CODE_FONT_SIZE_MAX = 40;
+export const CODE_FONT_SIZE_DEFAULT = 14;
+export const MARKDOWN_FONT_SIZE_MIN = 8;
+export const MARKDOWN_FONT_SIZE_MAX = 40;
+export const MARKDOWN_FONT_SIZE_DEFAULT = 17;
+/** 行距存整数百分比（195 是 1.95 倍）：设置窗口的数字框按 1 步进，小数没有步进；取值下限 120 避免注音与行内小块叠在上一行。 */
+export const MARKDOWN_LINE_HEIGHT_MIN = 120;
+export const MARKDOWN_LINE_HEIGHT_MAX = 300;
+export const MARKDOWN_LINE_HEIGHT_DEFAULT = 195;
+
+/**
+ * Markdown 编辑器纸面的排版（settings-window 的“Markdown 正文”小组，docs/specs/workbench/editor.md 输出 52）：字体、字号、行距。
+ * 字号与行距只允许用户层。对话里的 Markdown 不归它。
+ */
+export const {settings: markdownSettings, contributions: markdownSettingContributions} = defineSettings("nbook.editor", {
+    "markdown.fontFamily": {
+        schema: Type.String({maxLength: 200}),
+        default: "",
+        description: editorText("settings.markdown.fontFamily.description"),
+        layers: ["user"],
+        section: EDITOR_SECTION, group: "markdown", order: 10,
+    },
+    "markdown.fontSize": {
+        schema: Type.Integer({minimum: MARKDOWN_FONT_SIZE_MIN, maximum: MARKDOWN_FONT_SIZE_MAX}),
+        default: MARKDOWN_FONT_SIZE_DEFAULT,
+        layers: ["user"],
+        section: EDITOR_SECTION, group: "markdown", order: 20,
+        ui: {unit: editorText("settings.markdown.fontSize.unit")},
+    },
+    "markdown.lineHeight": {
+        schema: Type.Integer({minimum: MARKDOWN_LINE_HEIGHT_MIN, maximum: MARKDOWN_LINE_HEIGHT_MAX}),
+        default: MARKDOWN_LINE_HEIGHT_DEFAULT,
+        description: editorText("settings.markdown.lineHeight.description"),
+        layers: ["user"],
+        section: EDITOR_SECTION, group: "markdown", order: 30,
+        ui: {unit: editorText("settings.markdown.lineHeight.unit")},
+    },
+});
+
 /**
  * 源码编辑器（Monaco）的排版（settings-window 的“代码编辑器”小组）。Markdown 正文的排版不在这里。改动立即生效：编辑器
  * 不重建，缩进两项同时用到已打开的文件。
@@ -167,8 +208,10 @@ export const {settings: codeSettings, contributions: codeSettingContributions} =
         section: EDITOR_SECTION, group: "code", order: 10,
     },
     "code.fontSize": {
-        schema: Type.Integer({minimum: 8, maximum: 40}),
-        default: 14,
+        schema: Type.Integer({minimum: CODE_FONT_SIZE_MIN, maximum: CODE_FONT_SIZE_MAX}),
+        default: CODE_FONT_SIZE_DEFAULT,
+        // 桌面里 Ctrl+滚轮改它并写用户层：项目层有值时有效值不变，字号会先变后弹回，所以只允许用户层（字号是个人偏好）。
+        layers: ["user"],
         section: EDITOR_SECTION, group: "code", order: 20,
         ui: {unit: editorText("settings.code.fontSize.unit")},
     },

@@ -89,13 +89,16 @@
         "nbook": {
             "editor": {
                 "title": "Editor",
-                "description": "Tabs and breadcrumbs",
+                "description": "Tabs, saving, images and editor typography",
                 "groups": {
                     "tabs": {
                         "title": "Tabs"
                     },
                     "saving": {
                         "title": "Saving"
+                    },
+                    "markdown": {
+                        "title": "Markdown Body"
                     },
                     "code": {
                         "title": "Code Editor"
@@ -225,6 +228,21 @@
         "imageFolder": {
             "title": "Image folder",
             "description": "Used by “A folder in the project root” and “A subfolder next to the current file”. Nested names are fine (assets/images). It cannot start with /, contain .., or be under .nbook; otherwise “插图” is used"
+        },
+        "markdown": {
+            "fontFamily": {
+                "title": "Font Family",
+                "description": "A CSS font-family list; leave empty to use the skin's body font, or the interface font when the skin has none. A value here overrides the skin"
+            },
+            "fontSize": {
+                "title": "Font Size",
+                "unit": "px"
+            },
+            "lineHeight": {
+                "title": "Line Spacing",
+                "description": "A percentage of the font size; 195 means 1.95 times",
+                "unit": "%"
+            }
         }
     },
     "categories": {

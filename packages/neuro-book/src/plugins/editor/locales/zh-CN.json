@@ -89,13 +89,16 @@
         "nbook": {
             "editor": {
                 "title": "编辑器",
-                "description": "标签栏与面包屑",
+                "description": "标签、保存、图片与编辑器排版",
                 "groups": {
                     "tabs": {
                         "title": "标签"
                     },
                     "saving": {
                         "title": "保存"
+                    },
+                    "markdown": {
+                        "title": "Markdown 正文"
                     },
                     "code": {
                         "title": "代码编辑器"
@@ -225,6 +228,21 @@
         "imageFolder": {
             "title": "图片目录名",
             "description": "“作品根下的指定目录”与“当前文件旁的子目录”用这个名字，可以写几级（资源/插图）；不能以 / 开头、不含 ..、不在 .nbook 下，不合规时用“插图”"
+        },
+        "markdown": {
+            "fontFamily": {
+                "title": "字体",
+                "description": "CSS 的 font-family 写法；留空时跟随皮肤的正文字体，皮肤没有就用界面字体，填了就盖过皮肤"
+            },
+            "fontSize": {
+                "title": "字号",
+                "unit": "像素"
+            },
+            "lineHeight": {
+                "title": "行距",
+                "description": "字号的百分比，195 就是 1.95 倍",
+                "unit": "%"
+            }
         }
     },
     "categories": {

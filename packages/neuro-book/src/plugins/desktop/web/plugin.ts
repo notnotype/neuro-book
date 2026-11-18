@@ -20,11 +20,12 @@ import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {notificationsKey} from "nbook/plugins/workbench/shared/contracts";
 import type {DesktopSettingValues} from "nbook/shared/desktop-bridge";
 import {windowDesktopKey} from "nbook/shared/host";
+import {createWheelAccumulator} from "nbook/shared/wheel-steps";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import {desktopSettings} from "../shared/contracts";
-import {createWheelAccumulator, createZoomController, zoomKeyAction} from "./zoom";
+import {createZoomController, zoomKeyAction} from "./zoom";
 import type {ZoomAction, ZoomKey} from "./zoom";
 
 export const desktopState = definePublicState(descriptor.id, {

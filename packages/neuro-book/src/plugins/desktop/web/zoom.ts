@@ -67,22 +67,6 @@ export function zoomKeyAction(event: ZoomKey): ZoomAction | null {
     }
 }
 
-/** 滚轮累积满这么多才换一档：触控板的捏合会合成大量细小的 Ctrl+滚轮事件。 */
-export const WHEEL_STEP = 100;
-
-/** Ctrl+滚轮的累积：交回这次要换的方向，没满一档时为 null。换了方向先清零。 */
-export function createWheelAccumulator(): (deltaY: number) => ZoomAction | null {
-    let total = 0;
-    return (deltaY) => {
-        if (deltaY === 0) return null;
-        if (Math.sign(deltaY) !== Math.sign(total)) total = 0;
-        total += deltaY;
-        if (Math.abs(total) < WHEEL_STEP) return null;
-        total = 0;
-        return deltaY < 0 ? "in" : "out";
-    };
-}
-
 /** 写回的防抖时长。 */
 export const ZOOM_WRITE_DELAY_MS = 300;
 
