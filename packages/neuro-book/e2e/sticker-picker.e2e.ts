@@ -83,7 +83,10 @@ async function openFile(page: Page): Promise<Locator> {
     return prose;
 }
 
-const editorStickerButton = (page: Page) => page.locator("[data-editor-group-active] .markdown-toolbar").getByRole("button", {name: "表情", exact: true});
+/** 补全里我的 lyra 的“开心”（没有清单，包的标题就是文件夹名）；内置的星璃与半身版各有一条同名的。 */
+const myHappy = (page: Page) => page.getByRole("option", {name: "开心 lyra", exact: true});
+
+const editorStickerButton =(page: Page) => page.locator("[data-editor-group-active] .markdown-toolbar").getByRole("button", {name: "表情", exact: true});
 const pickerCells = (page: Page) => page.locator("[data-state='open'] [data-sticker-picker-panel] [data-sticker-cell]");
 
 test("验收 11：编辑器里打 `:开` 回车插入表情；工具栏的“表情”选一个；重开后“最近用过”记得先后", async ({page}) => {
@@ -92,8 +95,10 @@ test("验收 11：编辑器里打 `:开` 回车插入表情；工具栏的“表
     await prose.locator("p").first().click();
     await page.keyboard.press("End");
     await page.keyboard.type(":开");
-    const option = page.locator("[role='option']").filter({hasText: "开心"});
+    // 内置的两套也有“开心”：补全里我的排在最前、默认高亮，回车插入的是它。
+    const option = myHappy(page);
     await expect(option.locator("[data-suggestion-menu-image]")).toBeVisible();
+    await expect(option).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Enter");
     await expectImage(prose, ":lyra/开心:");
     await page.keyboard.press("Control+s");
@@ -133,8 +138,9 @@ test("验收 12：输入框里打 `:kx` 选“开心”发出去是写法原文�
     await input(page).click();
     await page.keyboard.type("写完啦:kx");
     // 拼音库第一次搜索时才加载：等补全出现。
-    const option = page.locator("[role='option']").filter({hasText: "开心"});
+    const option = myHappy(page);
     await expect(option).toBeVisible();
+    await expect(option).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Enter");
     await expectImage(input(page), ":lyra/开心:");
     await page.keyboard.type("明天见");

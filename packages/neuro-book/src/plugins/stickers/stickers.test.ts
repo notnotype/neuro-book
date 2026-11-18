@@ -682,6 +682,7 @@ describe("表情包页的写入", () => {
         // 复制成我的 lyra（包名没被用，不加 -2）：图与清单都过来；之后按文件夹名认的是我的，内置的写 id、标被盖住。
         expect(await remote.copyPack({id: "builtin.lyra"})).toEqual({ok: true, value: {id: "user.lyra"}});
         expect((await readdir(join(user, "lyra"))).sort()).toEqual(["stickers.json", ...manifest.stickers.map((item) => item.file)].sort());
+        expect((await manifestOf(user, "lyra")).title).toBe("星璃");
         expect(await marks()).toEqual({summary: {"user.lyra": ["lyra", false], "builtin.lyra": ["builtin.lyra", true]}, catalog: {"user.lyra": "lyra", "builtin.lyra": "builtin.lyra"}});
         const detail = await remote.pack({id: "builtin.lyra"});
         expect(detail.ok && detail.value.summary).toMatchObject({writing: "builtin.lyra", shadowed: true});
@@ -892,7 +893,7 @@ describe("表情包页的上传、导入与导出", () => {
         expect(await names(user)).toEqual([]);
     });
 
-    test("输出 35：导出是一个以包名命名的 zip，导回来内容一样；没有图片、无效的、超过 64 MiB 的不导出；插件的包能导出", async () => {
+    test("输出 35：导出是一个以包名命名的 zip，导回来内容一样；没有图片、无效的、超过 64 MiB 的不导出；插件的包能导出；内置的包能导出、能在文件夹中显示", async () => {
         const {user, catalog, routes, post} = await page(async (user) => {
             await lyra(join(user, "lyra"));
             await mkdir(join(user, "empty"));
@@ -925,6 +926,18 @@ describe("表情包页的上传、导入与导出", () => {
         expect(await huge.json()).toMatchObject({error: {code: "export-too-large"}});
         expect((await routes.request("/export/user.none")).status).toBe(404);
         expect((await routes.request("/export/user.lyra", {headers: {"sec-fetch-site": "cross-site"}})).status).toBe(403);
+
+        // 内置的包同插件的包：能导出、能在文件夹中显示（打开应用自带的目录）。
+        const builtinRoot = locateBuiltinStickers();
+        if (builtinRoot === null) throw new Error("找不到内置表情包的目录");
+        await catalog.addRoot({key: "builtin", source: "builtin", prefix: "builtin", root: builtinRoot, watch: false});
+        const builtin = await routes.request("/export/builtin.lyra");
+        expect(builtin.status).toBe(200);
+        const builtinUnpacked = unpackZip(new Uint8Array(await builtin.arrayBuffer()));
+        if (!builtinUnpacked.ok) throw new Error(builtinUnpacked.reason);
+        expect(builtinUnpacked.folder).toBe("lyra");
+        expect([...builtinUnpacked.files.keys()].sort()).toEqual((await readdir(join(builtinRoot, "lyra"))).sort());
+        expect(await revealPath(catalog, user, "builtin.lyra")).toBe(join(builtinRoot, "lyra"));
     });
 
     test("输出 35：导出前按导入端的规则核对：只差大小写的重名、超过 32 MiB 的单个文件都不导出，不让用户拿到导不回来的备份", async () => {
