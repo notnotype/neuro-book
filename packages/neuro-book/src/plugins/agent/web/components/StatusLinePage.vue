@@ -7,7 +7,7 @@ import {computed, ref} from "vue";
 import {Badge, Checkbox, IconButton} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {createAgentContext, createAgentViewRegistry, resolveStatusLine, statusLineCatalog} from "@notnotype/nb-agent-ui";
-import type {StatusLineItem, StatusLineSetting} from "@notnotype/nb-agent-ui";
+import type {StatusLineItem, StatusLineSetting, StatusLineSlot} from "@notnotype/nb-agent-ui";
 import {AgentStatusBar} from "@notnotype/nb-agent-ui/vue";
 import {defineComponent, h} from "vue";
 
@@ -22,10 +22,10 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     toggle: [id: string];
-    /** 把一项移到它那一侧的第 `to` 位（拖动与上移下移共用）。 */
-    move: [id: string, to: number];
-    /** 上移、下移：在这一侧里挪几位；位置由写入时按最新的次序算。 */
-    shift: [id: string, delta: number];
+    /** 把一项移到哪一边的第几位。 */
+    move: [id: string, to: StatusLineSlot];
+    /** 上移、下移：在“左边接右边”这一串里挪一位；位置由写入时按最新的次序算。 */
+    shift: [id: string, delta: -1 | 1];
 }>();
 
 const t = useAgentPageText();
@@ -82,7 +82,7 @@ function drop(side: "left" | "right", index: number): void {
     dragging.value = null;
     overIndex.value = null;
     if (from === null || from.side !== side) return;
-    emit("move", from.id, index);
+    emit("move", from.id, {side, index});
 }
 /** 落点线：向上拖画在目标行上沿，向下拖画在下沿（落下后拖的这一项排在目标行的位置）。 */
 function isOver(group: {side: "left" | "right"; rows: readonly {id: string}[]}, index: number, edge: "before" | "after"): boolean {
@@ -135,7 +135,7 @@ function dragEnd(): void {
                             icon-class="i-lucide-arrow-up"
                             :title="t('statusLine.moveUp')"
                             :aria-label="t('statusLine.moveUpOf', {name: port.t(row.title)})"
-                            :disabled="!props.writable || index === 0"
+                            :disabled="!props.writable || (group.side === 'left' && index === 0)"
                             data-status-move-up
                             @click="emit('shift', row.id, -1)"
                         />
@@ -144,7 +144,7 @@ function dragEnd(): void {
                             icon-class="i-lucide-arrow-down"
                             :title="t('statusLine.moveDown')"
                             :aria-label="t('statusLine.moveDownOf', {name: port.t(row.title)})"
-                            :disabled="!props.writable || index === group.rows.length - 1"
+                            :disabled="!props.writable || (group.side === 'right' && index === group.rows.length - 1)"
                             data-status-move-down
                             @click="emit('shift', row.id, 1)"
                         />

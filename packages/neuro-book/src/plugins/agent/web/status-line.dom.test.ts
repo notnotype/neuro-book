@@ -48,21 +48,34 @@ describe("状态栏设置的写入（输出 45）", () => {
     it("勾选与移动写进用户层；同一拍连点几下都留下；改回缺省时去掉", async () => {
         const settings = settingsWith();
         const writer = createStatusLineWriter(settings, () => catalog);
-        const results = await Promise.all([writer.toggle("model"), writer.toggle("x.words"), writer.move("cost", 0)]);
+        const results = await Promise.all([writer.toggle("model"), writer.toggle("x.words"), writer.move("cost", {side: "right", index: 0})]);
         expect(results.every((result) => result.ok)).toBe(true);
-        expect(current(settings)).toEqual({order: ["cost", "usage", "model"], visible: {model: true, "x.words": true}});
+        expect(current(settings)).toEqual({order: ["context", "x.words", "cost", "usage", "model"], visible: {model: true, "x.words": true}});
         await writer.toggle("model");
-        await writer.move("usage", 0);
+        await writer.move("usage", {side: "right", index: 0});
         expect(current(settings)).toEqual({visible: {"x.words": true}});
+    });
+
+    it("换边写进 side；换回原处设置回到空对象", async () => {
+        const settings = settingsWith();
+        const writer = createStatusLineWriter(settings, () => catalog);
+        expect((await writer.move("usage", {side: "left", index: 0})).ok).toBe(true);
+        expect(current(settings)).toEqual({order: ["usage", "context", "x.words", "cost", "model"], side: {usage: "left"}});
+        await writer.move("usage", {side: "right", index: 0});
+        expect(current(settings)).toEqual({});
     });
 
     it("上移下移按写的那一刻的位置算：同一项连点两下挪两格，不是一格", async () => {
         const settings = settingsWith();
         const writer = createStatusLineWriter(settings, () => catalog);
         await Promise.all([writer.shift("usage", 1), writer.shift("usage", 1)]);
-        expect(current(settings)).toEqual({order: ["cost", "model", "usage"]});
-        await writer.shift("usage", -5);
+        expect(current(settings)).toEqual({order: ["context", "x.words", "cost", "model", "usage"]});
+        await Promise.all([writer.shift("usage", -1), writer.shift("usage", -1)]);
         expect(current(settings)).toEqual({});
+        // 右边第一项上移到左边最后。
+        await writer.shift("usage", -1);
+        expect(current(settings).side).toEqual({usage: "left"});
+        expect(resolveStatusLine(catalog, current(settings)).left.map((item) => item.id)).toEqual(["context", "x.words", "usage"]);
     });
 
     it("目录是写的那一刻取的：插件的项停用后设置里它的显隐照样留着", async () => {
@@ -100,11 +113,14 @@ describe("“状态栏”设置页（输出 46）", () => {
         expect(rows("right")).toEqual(["usage", "cost", "model"]);
         const up = (id: string) => document.body.querySelector<HTMLButtonElement>(`[data-status-row="${id}"] [data-status-move-up]`)!;
         const down = (id: string) => document.body.querySelector<HTMLButtonElement>(`[data-status-row="${id}"] [data-status-move-down]`)!;
-        expect(up("usage").disabled).toBe(true);
+        // 只有左边第一项不能上移、右边最后一项不能下移：右边第一项上移到左边去。
+        expect(up("context").disabled).toBe(true);
+        expect(up("usage").disabled).toBe(false);
+        expect(down("context").disabled).toBe(false);
         expect(down("model").disabled).toBe(true);
 
         down("usage").click();
-        await waitUntil("次序写进设置", () => current(settings).order?.join() === "cost,usage,model");
+        await waitUntil("次序写进设置", () => current(settings).order?.join() === "context,cost,usage,model");
         await flushPromises();
         expect(rows("right")).toEqual(["cost", "usage", "model"]);
 
@@ -138,7 +154,7 @@ describe("“状态栏”设置页（输出 46）", () => {
         await flushPromises();
         expect(current(settings)).toEqual({});
         drag("model", "usage");
-        await waitUntil("拖动写进设置", () => current(settings).order?.join() === "model,usage,cost");
+        await waitUntil("拖动写进设置", () => current(settings).order?.join() === "context,model,usage,cost");
         await flushPromises();
 
         // 落点线：向下拖画在目标行下沿（落下后排在它的位置，也就是它的后面），向上拖画在上沿。

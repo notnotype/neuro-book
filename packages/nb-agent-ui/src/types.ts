@@ -379,7 +379,7 @@ export type ComposerRoleView = {
     unavailable?: string;
 };
 
-/** 审批模式的一项；`danger` 的（全部放行）选中时状态栏有警告。 */
+/** 审批模式的一项；`danger` 的（全部放行）选中时，输入框工具栏上的审批模式控件画成警告色。 */
 export type ComposerApprovalOption = {
     key: string;
     label: Text;

@@ -6,6 +6,7 @@
 import {defineComponent, h} from "vue";
 import type {Component, PropType} from "vue";
 import {statusLineCatalog} from "@notnotype/nb-agent-ui";
+import type {StatusLineSlot} from "@notnotype/nb-agent-ui";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
@@ -36,8 +37,8 @@ export function statusLinePage(component: Component, deps: {
                 setting: deps.settings.get(agentSettings.settings.statusLine),
                 writable: props.context.writable.value,
                 onToggle: (id: string) => void deps.writer.toggle(id).then(reportIfFailed),
-                onMove: (id: string, to: number) => void deps.writer.move(id, to).then(reportIfFailed),
-                onShift: (id: string, delta: number) => void deps.writer.shift(id, delta).then(reportIfFailed),
+                onMove: (id: string, to: StatusLineSlot) => void deps.writer.move(id, to).then(reportIfFailed),
+                onShift: (id: string, delta: -1 | 1) => void deps.writer.shift(id, delta).then(reportIfFailed),
             });
         },
     });

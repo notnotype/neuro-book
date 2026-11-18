@@ -5,8 +5,8 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {collapsedCount, moveStatusItem, resolveStatusLine, statusLineCatalog, toggleStatusItem} from "./status-line";
-import type {StatusLineItem} from "./status-line";
+import {collapsedItems, moveStatusItem, resolveStatusLine, shiftStatusItem, statusLineCatalog, toggleStatusItem} from "./status-line";
+import type {StatusLineItem, StatusLineSetting} from "./status-line";
 
 const plugin = (id: string, side: "left" | "right", defaultVisible = false): StatusLineItem => ({id, side, title: id, defaultVisible, source: "x.words"});
 const ids = (items: readonly {readonly id: string}[]) => items.map((item) => item.id);
@@ -37,6 +37,17 @@ describe("解算", () => {
     });
 });
 
+describe("换边", () => {
+    const catalog = statusLineCatalog([plugin("x.words", "left")]);
+
+    it("side 改一项在哪边；目录里没有的 id 忽略；解出来的项带的是生效的一边", () => {
+        const {left, right} = resolveStatusLine(catalog, {side: {usage: "left", gone: "left"}});
+        expect(ids(left)).toEqual(["context", "usage", "x.words"]);
+        expect(ids(right)).toEqual(["cost", "model"]);
+        expect(left.find((item) => item.id === "usage")?.side).toBe("left");
+    });
+});
+
 describe("写回", () => {
     const catalog = statusLineCatalog([plugin("x.words", "left")]);
 
@@ -48,37 +59,97 @@ describe("写回", () => {
         expect(toggleStatusItem(catalog, {}, "没有这项")).toEqual({});
     });
 
-    it("移动：这一侧写成完整次序，另一侧与目录里没有的 id 原样留着；移回缺省次序时 order 去掉", () => {
-        const moved = moveStatusItem(catalog, {order: ["gone"]}, "cost", 0);
-        expect(moved.order).toEqual(["gone", "cost", "usage", "model"]);
+    it("同一边里移动：写成完整次序，目录里没有的 id 原样留着；移回缺省次序时 order 去掉；位置夹在这一边的范围里", () => {
+        const moved = moveStatusItem(catalog, {order: ["gone"]}, "cost", {side: "right", index: 0});
+        expect(moved.order?.[0]).toBe("gone");
         expect(ids(resolveStatusLine(catalog, moved).right)).toEqual(["cost", "usage", "model"]);
-        expect(moveStatusItem(catalog, {order: ["gone", "cost", "usage", "model"]}, "usage", 0)).toEqual({order: ["gone", "usage", "cost", "model"]});
-        expect(moveStatusItem(catalog, {order: ["cost", "usage", "model"]}, "usage", 0)).toEqual({});
-        // 位置不变与夹取
-        expect(moveStatusItem(catalog, {}, "usage", 0)).toEqual({});
-        expect(moveStatusItem(catalog, {}, "usage", -5)).toEqual({});
-        expect(ids(resolveStatusLine(catalog, moveStatusItem(catalog, {}, "usage", 99)).right)).toEqual(["cost", "model", "usage"]);
-        // 不能移到另一侧：左边只有两项，位置夹在左边的范围里
-        expect(ids(resolveStatusLine(catalog, moveStatusItem(catalog, {}, "context", 3)).left)).toEqual(["x.words", "context"]);
+        expect(moveStatusItem(catalog, {order: ["cost", "usage", "model"]}, "usage", {side: "right", index: 0})).toEqual({});
+        expect(moveStatusItem(catalog, {}, "usage", {side: "right", index: 0})).toEqual({});
+        expect(moveStatusItem(catalog, {}, "usage", {side: "right", index: -5})).toEqual({});
+        expect(ids(resolveStatusLine(catalog, moveStatusItem(catalog, {}, "usage", {side: "right", index: 99})).right)).toEqual(["cost", "model", "usage"]);
+        expect(moveStatusItem(catalog, {}, "没有这项", {side: "left", index: 0})).toEqual({});
     });
 
-    it("移动不丢显隐，显隐不丢次序", () => {
-        const first = moveStatusItem(catalog, {visible: {model: true}}, "model", 0);
-        expect(first).toEqual({order: ["model", "usage", "cost"], visible: {model: true}});
-        expect(toggleStatusItem(catalog, first, "usage")).toEqual({order: ["model", "usage", "cost"], visible: {model: true, usage: false}});
+    it("换边：记下 side 与次序；换到另一边第 0 位时 order 不被当成缺省去掉；换回原处设置回到空对象", () => {
+        const moved = moveStatusItem(catalog, {}, "usage", {side: "left", index: 0});
+        expect(moved.side).toEqual({usage: "left"});
+        expect(ids(resolveStatusLine(catalog, moved).left)).toEqual(["usage", "context", "x.words"]);
+        expect(ids(resolveStatusLine(catalog, moved).right)).toEqual(["cost", "model"]);
+        // 换到另一边、恰好排在目录次序的位置上：只记 side，不记 order。
+        expect(moveStatusItem(catalog, {}, "usage", {side: "left", index: 1})).toEqual({side: {usage: "left"}});
+        expect(moveStatusItem(catalog, moved, "usage", {side: "right", index: 0})).toEqual({});
+    });
+
+    it("移动不丢显隐，显隐不丢次序与边", () => {
+        const first = moveStatusItem(catalog, {visible: {model: true}}, "model", {side: "right", index: 0});
+        expect(ids(resolveStatusLine(catalog, first).right)).toEqual(["model", "usage", "cost"]);
+        expect(first.visible).toEqual({model: true});
+        const crossed = moveStatusItem(catalog, first, "cost", {side: "left", index: 0});
+        const toggled = toggleStatusItem(catalog, crossed, "usage");
+        expect(toggled.visible).toEqual({model: true, usage: false});
+        expect(toggled.side).toEqual(crossed.side);
+        expect(toggled.order).toEqual(crossed.order);
+    });
+
+    it("停用插件留下的 side 原样留着，插件回来时生效", () => {
+        const moved = moveStatusItem(catalog, {side: {"x.gone": "right"}}, "usage", {side: "left", index: 0});
+        expect(moved.side).toEqual({"x.gone": "right", usage: "left"});
+    });
+});
+
+describe("上移下移", () => {
+    const catalog = statusLineCatalog([plugin("x.words", "left")]);
+    const line = (setting: StatusLineSetting) => {
+        const {left, right} = resolveStatusLine(catalog, setting);
+        return [ids(left).join(" "), ids(right).join(" ")];
+    };
+
+    it("在“左边接右边”这一串里挪一位：右边第一项上移到左边最后，左边最后一项下移到右边第一", () => {
+        expect(line(shiftStatusItem(catalog, {}, "usage", -1))).toEqual(["context x.words usage", "cost model"]);
+        expect(line(shiftStatusItem(catalog, {}, "x.words", 1))).toEqual(["context", "x.words usage cost model"]);
+        expect(line(shiftStatusItem(catalog, {}, "cost", -1))).toEqual(["context x.words", "cost usage model"]);
+        expect(line(shiftStatusItem(catalog, {}, "context", 1))).toEqual(["x.words context", "usage cost model"]);
+    });
+
+    it("只有左边第一项不能上移、右边最后一项不能下移；左边空了右边第一项照样能上移", () => {
+        expect(shiftStatusItem(catalog, {}, "context", -1)).toEqual({});
+        expect(shiftStatusItem(catalog, {}, "model", 1)).toEqual({});
+        const emptyLeft = {side: {context: "right", "x.words": "right"}} as const;
+        expect(line(emptyLeft)).toEqual(["", "context usage cost model x.words"]);
+        expect(line(shiftStatusItem(catalog, emptyLeft, "context", -1))).toEqual(["context", "usage cost model x.words"]);
     });
 });
 
 describe("窄时收项", () => {
-    it("放得下一项不收；放不下从第一项起收，收了就多一个“…”的位置；最后一项也放不下时全收", () => {
-        const widths = [80, 40, 50];
-        expect(collapsedCount(widths, 200, 8, 16)).toBe(0);
-        expect(collapsedCount(widths, 130, 8, 16)).toBe(1);
-        expect(collapsedCount(widths, 121, 8, 16)).toBe(2);
-        expect(collapsedCount(widths, 80, 8, 16)).toBe(2);
-        expect(collapsedCount(widths, 10, 8, 16)).toBe(3);
-        expect(collapsedCount([30], 40, 8, 16)).toBe(0);
-        expect(collapsedCount([30], 5, 8, 16)).toBe(1);
-        expect(collapsedCount([], 5, 8, 16)).toBe(0);
+    const items = (pairs: Record<string, number>) => Object.entries(pairs).map(([id, width]) => ({id, width}));
+    const collapse = (left: Record<string, number>, right: Record<string, number>, available: number, reserved = 0) =>
+        collapsedItems({left: items(left), right: items(right), reserved, available, gap: 8, moreWidth: 16});
+
+    it("放得下不收；先收右边，从前往后，收了就多一个“…”的位置", () => {
+        // 全放下：40 + 80 + 50 + 2 个间距 16 = 186
+        expect(collapse({context: 40}, {usage: 80, cost: 50}, 186)).toEqual([]);
+        // 收 usage：40 + “…”16 + 50 + 2 个间距 16 = 122
+        expect(collapse({context: 40}, {usage: 80, cost: 50}, 185)).toEqual(["usage"]);
+        expect(collapse({context: 40}, {usage: 80, cost: 50}, 122)).toEqual(["usage"]);
+        expect(collapse({context: 40}, {usage: 80, cost: 50}, 121)).toEqual(["usage", "cost"]);
+    });
+
+    it("右边收完再收左边的数据项，从后往前；全都放不下时全收", () => {
+        // 右边全收：40 + 60 + 16 + 2 个间距 16 = 132
+        expect(collapse({context: 40, usage: 60}, {cost: 50}, 132)).toEqual(["cost"]);
+        expect(collapse({context: 40, usage: 60}, {cost: 50}, 131)).toEqual(["cost", "usage"]);
+        expect(collapse({context: 40, usage: 60}, {cost: 50}, 63)).toEqual(["cost", "usage", "context"]);
+        expect(collapse({}, {}, 0)).toEqual([]);
+        // 左边一块总在：左边空着时它与右边之间照样有一个间距。
+        expect(collapse({}, {cost: 50}, 58)).toEqual([]);
+        expect(collapse({}, {cost: 50}, 57)).toEqual(["cost"]);
+    });
+
+    it("提醒的宽照算、不收；没有提醒时不扣它两边的间距", () => {
+        // 40 + 提醒 70 + 50 + 2 个间距 16 = 176
+        expect(collapse({context: 40}, {cost: 50}, 176, 70)).toEqual([]);
+        expect(collapse({context: 40}, {cost: 50}, 175, 70)).toEqual(["cost"]);
+        // 没有提醒：40 + 50 + 1 个间距 8 = 98
+        expect(collapse({context: 40}, {cost: 50}, 98)).toEqual([]);
     });
 });

@@ -691,11 +691,12 @@ test.describe("状态栏的可选项（docs/specs/agent/conversation.md 输出 4
 test.describe("状态栏设置页（docs/specs/agent/conversation.md 输出 46）", () => {
     const rows = (page: Page, side: "left" | "right") => page.locator(`[data-status-group='${side}'] [data-status-row]`).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
 
-    test("缺省：左右两组按目录次序；预览与列表一致；首行不能上移、末行不能下移", async ({page}) => {
+    test("缺省：左右两组按目录次序；预览与列表一致；左边第一项不能上移、右边最后一项不能下移", async ({page}) => {
         await openScene(page, "StatusLinePage", "default");
         expect(await rows(page, "left")).toEqual(["context"]);
         expect(await rows(page, "right")).toEqual(["usage", "cost", "model"]);
-        await expect(page.locator("[data-status-row='usage'] [data-status-move-up]")).toBeDisabled();
+        await expect(page.locator("[data-status-row='context'] [data-status-move-up]")).toBeDisabled();
+        await expect(page.locator("[data-status-row='usage'] [data-status-move-up]")).toBeEnabled();
         await expect(page.locator("[data-status-row='model'] [data-status-move-down]")).toBeDisabled();
         await expect(page.locator("[data-status-line-preview] [data-status-item='usage']")).toBeVisible();
         await expect(page.locator("[data-status-line-preview] [data-status-item='model']")).toHaveCount(0);

@@ -686,7 +686,8 @@ test("Agent 模式：还没有会话时选计划；写作品被拦；写计划�
     await mode.click();
     await mode.click();
     await expect(mode).toContainText("计划");
-    await expect(page.locator("[data-status-mode]")).toContainText("计划模式");
+    // 模式只看工具栏的控件，状态栏不另标（modes.md 输出 13）。
+    await expect(page.locator("[data-agent-status]")).not.toContainText("计划");
     await expect(page.locator('[data-composer-action="approval"]')).toHaveClass(/is-muted/u);
 
     await script(
@@ -700,7 +701,6 @@ test("Agent 模式：还没有会话时选计划；写作品被拦；写计划�
     await page.locator("[data-mode-switch-approve]").click();
     await expect(page.getByText("开始实现")).toBeVisible();
     await expect(mode).toContainText("普通");
-    await expect(page.locator("[data-status-mode]")).toHaveCount(0);
     const seen = JSON.stringify((await requests()).map((request) => request.messages));
     expect(seen).toContain("现在是计划模式");
     expect(seen).toContain("mode-blocked");
