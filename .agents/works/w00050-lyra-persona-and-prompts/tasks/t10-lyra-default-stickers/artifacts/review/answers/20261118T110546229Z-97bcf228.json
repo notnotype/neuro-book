@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t10-lyra-default-stickers",
+    "artifactId": "review",
+    "answerId": "20261118T110546229Z-97bcf228",
+    "artifactVersion": 2,
+    "contentHash": "139921262fffff855fe93f9b9a27b36f3ce2cd657d4d6a4afae38d652986664f",
+    "submittedAt": "2026-11-18T11:05:44.642Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "picks": true,
+        "edge": "edge",
+        "first-batch": "two-packs"
+    },
+    "comments": {},
+    "note": null
+}
