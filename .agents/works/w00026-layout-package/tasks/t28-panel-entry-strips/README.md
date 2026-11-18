@@ -155,6 +155,16 @@ updated: 2026-11-18
 - 合入 master 前把 master 并进分支（`76d74c471` 之后，83 个提交，没有冲突，没有新依赖；碰到工作台的是标题栏的“回到书架”）。并完：类型检查，工作台单元测试 541、DOM 测试 95，nb-layout 577 加 247。
 - Spec：`ui/workbench-layout` 输出 25 第 2 行、31、45（三条入口条、跨区域整个容器搬过来）、47（入口是拖动源；底部面板并成一行不写标题、入口当标题用），`workbench/views` 输出 17（底部面板入口写计数）（master）。
 
+- 合入前的大范围 e2e（`NB_E2E_WIDE`，第 3 片那 13 个文件加 `workbench-titlebar`，负载 2 到 8）分三轮：
+  - 第一轮跑到 `workbench-float` 停下：底部面板并成一行之后头里没有标题按钮，`dnd`、`float`、`live-drag` 里几十处拿底部面板视图的标题当把手，每条都要等满 60 秒超时。跑完的部分：`themes` 6 条是分支之前就有的；`containers` 1 条是搬容器后量外框时还在过渡（改成等过渡走完）；`agent-conversation`（服务断开）、`editor-area`、`files-explorer` 各 1 条第二轮单独重跑过；Lab 全过。
+  - 取标题、取视图所在头的辅助函数改成“有标题按钮用它，底部面板并成一行时用按下的入口与入口条里并进来的头”（`dnd`、`float`、`live-drag`、`views`、`shell`）；`dnd` 的“面板头空白”从头的左缘量（原来量的是标题右边，入口在头左边，中点落到别的入口上起了拖）；`dnd` 893 新容器只有一节，改成断言头里没有标题按钮、入口按下；Lab 的外壳测试里一处活动栏入口没限定到上段。
+  - 第二、三轮：改过的与没跑到的文件和失败项，全部通过；`workbench-views` 225（右栏拖到零后刷新，视图没加载过）在第三轮的整文件里失败一次，单独连跑 3 次都过，记为偶发。`workbench-titlebar` 的逐级让位这次负载低时过了（负载高时 master 上也超时，第 5a 片记录里有对照）。
+  - 提交：`d37ce13b7`（测试）。
+- Lab 截图（`nbdev shot`，浅色，入口条组件的五个场景与工作台表面的缺省场景，平铺主题 macos 一张）：测量没有越界与被裁的光晕；看图发现 Lab 的工作台表面夹具没给底部面板并进来的头 `titleInEntry`，一行里写了两遍“视图 E”，改了（`642fab9da`），`lab-workbench-surface` 17 条重跑过。入口条组件场景的截图只裁到 24px 的舞台，下划线在最底下 2px，看不清，在工作台表面的截图里看得到。
+- master 又有新提交（w00032 t38 的 nb-layout `SortableList`、状态栏）：`git merge-tree` 试算没有冲突，重叠的文件只有 Lab 夹具的登记；再并一次进分支（`5af0540f3`），类型检查、nb-layout 589 加 253、工作台 541 条过。
+- 合入 master：`f8e7bcdaa`。
+- 实现审查（Claude Sonnet，`claude -p`，2026-11-18 启动，不阻塞）：审查 worktree `.worktree/review-t28-impl` 固定在 `5af0540f3`，范围是第 1、2 片（`edf347efc^..58e171af2`）与第 3 到 5 片（`1d641cb42..5af0540f3`）；说明与报告在主工作区 `.local/agent/works/w00026-layout-package/tasks/t28-panel-entry-strips/reports/`（`brief.md`、`findings.txt`）。
+
 ## 下一步
 
-第 3 到 5 片合入前一次大范围 e2e（第 3 片那 13 个文件加 `workbench-titlebar`），处理失败；Lab 里入口条的几个场景用 `nbdev shot` 看版面；合入 master，交 Sonnet 做 t28 的实现审查。
+处理 t28 的实现审查（回来之后，修正单独提交）；按 Work 的顺序开始 t26。
