@@ -11,7 +11,7 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 ### 改动
 
 - 0.14.0 的发布没有走完、没有单独发出，它的变化（见下面 [0.14.0] 一节）都在这一版里。
-- SDK 的落点组件不再只认工作台的五块：`DropSectorsOverlay` 的 `sectors`、`active`、`labels` 按任意字符串 id 写，分区的形状由插件自己给；`DropFeedbackOverlay` 的 `entryRect` 可以不传。把分区放在变量里传的插件不用改；在模板里直接写数组字面量、每块带着 `action` 的，要去掉 `action`（组件只画，不管放下做什么），否则类型检查报多余属性。
+- SDK 的落点组件不再只认工作台的五块：`DropSectorsOverlay` 的 `sectors`、`active`、`labels` 按任意字符串 id 写，分区的形状由插件自己给；`DropFeedbackOverlay` 的 `entryRect` 可以不传。已经构建的插件照常运行；把分区放在变量里传的插件重新编译也不用改，在模板里直接写数组字面量、每块带着 `action` 的，要去掉 `action`（组件只画，不管放下做什么），否则类型检查报多余属性。
 
 ## [0.14.0] - 2026-11-18
 
