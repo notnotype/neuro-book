@@ -62,14 +62,20 @@ async function box(page: Page, id: string): Promise<Box> {
 
 const sample = (page: Page, viewId: string) => page.locator(`[data-sample-view="${viewId}"]`);
 const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"]`);
-const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
+/**
+ * 视图的标题：头上的标题按钮。底部面板并成一行时头不写标题，按下的入口就是它的标题（右键开“移动到”、拖它就是拖这个视图，
+ * docs/specs/ui/workbench-layout.md 输出 47）；只在没有标题按钮时取到它。
+ */
+const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"], [data-region-strip="panel"] [data-tool-view="${viewId}"][aria-pressed="true"]`);
 /** 视图所在分节的面板头：区域的锚不进呈现树，分节的头只写它那个视图的标题（输出 20、40），所以按视图找。 */
-const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
+/** 视图所在分节的面板头：头里有它的标题；底部面板并成一行时头不写标题，是按下的入口是它的那条入口条里并进来的头（输出 47）。 */
+const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"]), [data-region-strip="panel"]:has([data-tool-view="${viewId}"][aria-pressed="true"]) [data-panel-head]`);
 /**
  * 活动栏里视图自己那个容器的入口（输出 22、41）：样例视图都没写容器，各是自己的隐式容器 `view:<视图 id>`。视图并进别的容器后
  * 这个容器没有成员，入口也就没有了。
  */
-const toolEntry = (page: Page, viewId: string) => page.locator(`[data-tool-entry="view:${viewId}"]`);
+/** 活动栏里只含这个视图的入口；右栏、底部面板入口条上的入口也带 `data-tool-entry`，限定到活动栏上段。 */
+const toolEntry = (page: Page, viewId: string) => page.locator(`[data-tool-band] [data-tool-entry="view:${viewId}"]`);
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
 const frameOf = (page: Page, viewId: string, command: string) => headOf(page, viewId).locator(`[data-panel-action="nbook.view.${command}"]`);
 /**
@@ -137,7 +143,7 @@ async function instanceOf(page: Page, viewId: string): Promise<{instance: string
 }
 
 /** 标签所在面板的 id（面板头上写着）。分节的 id 是布局起的（输出 40），要用它时按视图取。 */
-const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
+const panelOfTab = async (page: Page, viewId: string): Promise<string> => (await headOf(page, viewId).getAttribute("data-panel-head"))!;
 
 /**
  * 搭一个三个标签的浮动窗（戊、丁、己，按这个先后）并返回它的面板 id。区域里的分节只写标题，带标签条的只剩浮动窗（输出 20、39）：
@@ -366,7 +372,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(tab(page, B)).toHaveCount(0);
         await expect(tab(page, A)).toHaveCount(1);
         // 活动栏只列侧栏这一列的视图：右栏、面板的视图不在。
-        await expect(page.locator("[data-tool-entry]")).toHaveCount(3);
+        await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(3);
         for (const viewId of [D, E, F]) await expect(toolEntry(page, viewId)).toHaveCount(0);
     });
 
@@ -404,7 +410,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test("活动栏：点不是当前容器的入口切到它；点当前容器的入口隐藏侧栏（不看焦点在哪），再点展开；按下态是当前容器且侧栏可见，至多一项；拖到零时点入口展开（输出 22、42；验收 14）", async ({page}) => {
         await open(page);
-        const pressed = page.locator('[data-tool-entry][aria-pressed="true"]');
+        const pressed = page.locator('[data-tool-band] [data-tool-entry][aria-pressed="true"]');
         // 侧栏的三个样例视图各是自己的容器：一个容器一项，只有当前容器的那一项按下。
         await expect(toolEntry(page, A)).toHaveAttribute("aria-pressed", "true");
         await expect(pressed).toHaveCount(1);
@@ -503,7 +509,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await moveViaMenu(page, B, "样例甲");
         await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "sidebar"});
         await expect.poll(entries).toEqual(containers(A, C));
-        const current = page.locator('[data-tool-entry][aria-pressed="true"]');
+        const current = page.locator('[data-tool-band] [data-tool-entry][aria-pressed="true"]');
         await expect(current).toHaveCount(1);
         await expect(current).toHaveAttribute("data-tool-entry", `view:${A}`);
         expect(await current.getAttribute("data-tool-view")).toBeNull();
@@ -556,7 +562,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         // 活动栏隐藏时侧栏的头不变（输出 20）：还是只写标题，换容器经命令。
         await runCommand(page, "切换区域显隐");
         await pick(page, "选中后立即切换", "活动栏");
-        await expect(page.locator("[data-tool-entry]")).toHaveCount(0);
+        await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(0);
         await titleOnly(A);
         await runCommand(page, "打开视图");
         await pick(page, "选择要打开的视图", "样例丙");
@@ -726,8 +732,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(0);
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
         expect((await saved(page))?.doc.panels.auxiliarybar).toMatchObject({activeContainer: `view:${D}`, entries: [`view:${A}`, `view:${D}`]});
-        // 打开菜单的入口不在了：焦点到这个容器第一个分节的标题，不落到页面上（输出 16）。
-        await expect(tab(page, D)).toBeFocused();
+        // 打开菜单的那个活动栏入口不在了：焦点到这个容器在右栏入口条上的入口（ui/workbench-layout 输出 47），不落到页面上（输出 16）。
+        await expect(page.locator(`[data-region-strip="auxiliarybar"] [data-region-entry="view:${D}"]`)).toBeFocused();
     });
 
     test("键盘：分节标题上按菜单键打开“移动到”菜单，按 Escape 关闭，焦点回到标题，不落到页面上（输出 16、20、23）", async ({page}) => {
@@ -990,12 +996,16 @@ test.describe("产品页：测试插件贡献的视图", () => {
             };
         }, side);
         // 同一张卡片里几节之间的线：丙移进样例甲的容器，侧栏显示上下两个分节，一个容器一张卡片，两节之间是开放式分割线（取 `--shell-pane-divider`）。
-        const paneSeams = () => page.evaluate(() => [...document.querySelectorAll('[data-sash-kind="panes"]')].map((sash) => {
-            const seam = sash.querySelector(".sash-seam")!;
+        // 右栏、底部面板的入口条和下面分节之间也是同一张卡片里的缝，宽度为 0、不画线（ui/workbench-layout 输出 47）：只量画了线的。
+        const paneSeams = () => page.evaluate(() => [...document.querySelectorAll('[data-sash-kind="panes"]')].flatMap((sash) => {
+            const seam = sash.querySelector<HTMLElement>(".sash-seam");
+            if (seam === null) return [];
             const style = getComputedStyle(seam);
-            const [start, end] = (seam as HTMLElement).dataset.axis === "width" ? [style.top, style.bottom] : [style.left, style.right];
-            return {color: style.backgroundColor, start, end};
+            const [start, end] = seam.dataset.axis === "width" ? [style.top, style.bottom] : [style.left, style.right];
+            return [{color: style.backgroundColor, start, end}];
         }));
+        const stripSeams = () => page.evaluate(() => [...document.querySelectorAll('[data-sash-kind="panes"]')].filter((sash) => (sash.getAttribute("aria-label") ?? "").includes("strip:")).map((sash) => sash.querySelector(".sash-seam") === null));
+        expect(await stripSeams()).not.toContain(false);
         const nbook = await shellLook();
         expect(nbook.editorRadius).toBe("12px");
         expect(nbook.activityCorners).toEqual(["12px", "0px"]);
@@ -1196,7 +1206,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const picked = (await menu.last().innerText()).trim();
         await menu.last().click();
         // 选中的容器成为当前容器，它的入口回到活动栏外面一层；原来的当前容器让出位置。
-        const entry = page.locator("[data-tool-entry]").and(page.getByRole("button", {name: picked, exact: true}));
+        const entry = page.locator("[data-tool-band] [data-tool-entry]").and(page.getByRole("button", {name: picked, exact: true}));
         await expect(entry).toHaveAttribute("aria-pressed", "true");
         await expect(toolEntry(page, C)).toHaveCount(0);
         await expect(entries).toHaveCount(shown);
@@ -1245,9 +1255,10 @@ test.describe("产品页：测试插件贡献的视图", () => {
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
             return rect.width > 0 && hit !== null && (hit === element || element.contains(hit));
         });
-        // 底部面板的分节只写标题：框架按钮是“浮动”与“最大化”，分节不折叠、没有隐藏（隐藏是区域的事），都在头上完整可点。
-        const omegaHead = `[data-panel-head]:has([data-panel-tab="view:${E}"])`;
-        await expect.poll(() => hitsItself(`${omegaHead} [data-panel-tab="view:${E}"]`)).toBe(true);
+        // 底部面板的当前容器只有戊一节：头并进入口条、不写标题，入口就是它的标题（输出 47）；框架按钮是“浮动”与“最大化”，
+        // 分节不折叠、没有隐藏（隐藏是区域的事），入口与按钮都完整可点。
+        const omegaHead = `[data-region-strip="panel"]:has([data-tool-view="${E}"][aria-pressed="true"]) [data-panel-head]`;
+        await expect.poll(() => hitsItself(`[data-region-strip="panel"] [data-tool-view="${E}"]`)).toBe(true);
         for (const action of ["float", "toggle-panel-maximized"]) {
             expect(await hitsItself(`${omegaHead} [data-panel-action="nbook.view.${action}"]`), action).toBe(true);
         }

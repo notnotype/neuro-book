@@ -168,6 +168,19 @@ describe("WorkbenchPanelHead 的展开标记（ui/workbench-layout.md 输出 20�
         expect(head().hasAttribute("data-hover-actions-scope")).toBe(true);
     });
 
+    it("标题写在入口上（底部面板并成一行，输出 47）：头里没有看得见的标题、没有标题按钮，内容区名称指向的隐藏标题还在，框架按钮照旧", () => {
+        const wrapper = mount(WorkbenchPanelHead, {
+            attachTo: document.body,
+            props: {panelId: "s1", label: "通知", tabs: [TAB], active: TAB.id, moreLabel: "更多", idPrefix: "probe", titleOnly: true, titleInEntry: true, frameActions: [{id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false}]},
+        });
+        mounted.push(wrapper);
+        expect(document.querySelector("[data-panel-tab]")).toBeNull();
+        expect(document.querySelector(".workbench-panel-head__title")).toBeNull();
+        const hidden = document.getElementById(panelTitleDomId("probe", TAB.id));
+        expect([hidden?.hidden, hidden?.textContent]).toEqual([true, TAB.label]);
+        expect(document.querySelector("[data-panel-action='maximize']")).not.toBeNull();
+    });
+
     it("不能收起时没有标记、没有 aria-expanded；框架按钮在悬停才出的容器里（frame）", () => {
         mountFold(null);
         expect(document.querySelector("[data-panel-fold]")).toBeNull();

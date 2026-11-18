@@ -28,13 +28,15 @@ import {computed, ref, shallowRef, Teleport} from "vue";
 import WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
 import type {PanelFrameAction, PanelHeadTab, PanelViewHead} from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
 import type {PanelHeadSlots} from "nbook/plugins/workbench/web/views/view-head";
+import WorkbenchRegionStrip from "nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue";
+import type {RegionStripEntry} from "nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue";
 import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import {collapseOrder, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import {implicitContainerOf, moveContainerTo, sectionLanding, settleContainers} from "nbook/plugins/workbench/web/state/containers";
-import {containerEntries, effectiveVisibleTabs, sidebarVisible, titleOnlyPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
+import {effectiveVisibleTabs, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels} from "nbook/plugins/workbench/web/state/layout-present";
 import type {ViewCatalog} from "nbook/plugins/workbench/web/views/registry";
 import {applyEntryDrop} from "nbook/plugins/workbench/web/entry-drop";
 import {CUSTOM_CONTAINER_PREFIX} from "nbook/plugins/workbench/shared/views";
@@ -123,8 +125,8 @@ const ACTIONS: Readonly<Record<string, () => void>> = {
     "c-to-new-panel": () => commit(intoContainer("c", "panel", implicitContainerOf("e"))),
     "d-below-b": () => commit(intoContainer("d", "sidebar", implicitContainerOf("b"))),
     // 活动栏上段的落点（输出 45），和拖到那里放下是同一个函数：D 放到入口最后，新建一个只含它的用户容器；D 放到 A 的入口上，成为 A 的最后一个分节。都切过去。
-    "d-new-entry": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "new-container", container: `${CUSTOM_CONTAINER_PREFIX}lab`, before: null}, POLICY, {commit: true})),
-    "d-into-a": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "join-container", container: implicitContainerOf("a")}, POLICY, {commit: true})),
+    "d-new-entry": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "new-container", region: "sidebar", container: `${CUSTOM_CONTAINER_PREFIX}lab`, before: null}, POLICY, {commit: true})),
+    "d-into-a": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "join-container", region: "sidebar", container: implicitContainerOf("a")}, POLICY, {commit: true})),
 };
 
 function headTabs(panelId: string): PanelHeadTab[] {
@@ -164,14 +166,41 @@ function toggleFold(panelId: string): void {
     if (fold !== null) commit((current) => setPanelCollapsed(current, panelId, !fold.collapsed));
 }
 
+/** 分节的头：画在它自己的叶里，或并成一行时画在入口条里，两处同一组属性与事件。 */
+function headProps(panelId: string, idPrefix: string): InstanceType<typeof WorkbenchPanelHead>["$props"] {
+    const fold = foldOf(panelId);
+    return {
+        panelId,
+        label: doc.value.panels[panelId]?.name ?? panelId,
+        tabs: headTabs(panelId),
+        active: doc.value.panels[panelId]?.active ?? null,
+        moreLabel: "更多",
+        idPrefix,
+        titleOnly: titleOnly.value.has(panelId),
+        frameActions: frameActions(panelId),
+        viewHead: viewHeadOf(panelId),
+        fold,
+        foldLabel: fold?.collapsed === true ? "展开" : "收起",
+    };
+}
+function headEvents(panelId: string): Record<string, (...args: never[]) => void> {
+    return {
+        activate: (key: string) => activateFromHead(panelId, key),
+        "toggle-fold": () => toggleFold(panelId),
+        "head-slots": (slots: PanelHeadSlots | null) => (headSlots.value = slots),
+        action: (action: string) => runFrame(panelId, action),
+        "context-menu": (key: string) => (lastMenu.value = key),
+    };
+}
+
 function runFrame(panelId: string, action: string): void {
     if (action === "maximize") maximized.value = maximized.value === panelId ? null : panelId;
 }
 
-const sidebarShowing = computed(() => sidebarVisible(doc.value, {removed: collapse.value.removed, maximized: maximized.value}, visible.value));
+const sidebarShowing = computed(() => regionVisible(doc.value, "sidebar", {removed: collapse.value.removed, maximized: maximized.value}, visible.value));
 
 /** 一个容器一个入口（输出 22、41）；这里的容器都只含一个视图时入口就是那个视图的，D 并进 B 的容器后那个入口含两个视图。 */
-const entries = computed<ToolStripEntry[]>(() => containerEntries(doc.value, CATALOG).map((entry) => {
+const entries = computed<ToolStripEntry[]>(() => regionEntries(doc.value, "sidebar", CATALOG).map((entry) => {
     const titles = entry.views.map((viewId) => VIEWS.find((item) => item.id === viewId)?.label ?? viewId);
     const label = typeof entry.label.title === "string" ? entry.label.title : entry.id;
     return {id: entry.id, label, icon: entry.label.icon, tooltip: titles.length === 1 ? label : `${label}：${titles.join("、")}`, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && sidebarShowing.value};
@@ -183,8 +212,27 @@ const STRIP_ITEMS: ReadonlyArray<ToolStripItem> = [
 ];
 
 /** 点入口（输出 22）：和产品的外壳用同一个判定。焦点的去向是外壳的事，夹具不管。 */
+/** 右栏、底部面板入口条的入口，同活动栏（输出 47）。 */
+function stripEntries(region: PanelName): RegionStripEntry[] {
+    const showing = regionVisible(doc.value, region, {removed: collapse.value.removed, maximized: maximized.value}, visible.value);
+    return regionEntries(doc.value, region, CATALOG).map((entry) => {
+        const label = typeof entry.label.title === "string" ? entry.label.title : entry.id;
+        return {id: entry.id, label, icon: entry.label.icon, tooltip: label, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && showing};
+    });
+}
+
+function selectRegionEntry(region: PanelName, container: string): void {
+    const showing = regionVisible(doc.value, region, {removed: collapse.value.removed, maximized: maximized.value}, visible.value);
+    const intent = regionEntryIntent(doc.value, region, container, {regionVisible: showing});
+    if (intent.kind === "show") {
+        maximized.value = null;
+        commit((current) => showContainer(current, region, intent.container));
+    }
+    if (intent.kind === "hide") commit((current) => setPanelHidden(current, region, true));
+}
+
 function selectEntry(container: string): void {
-    const intent = toolEntryIntent(doc.value, container, {sidebarVisible: sidebarShowing.value});
+    const intent = regionEntryIntent(doc.value, "sidebar", container, {regionVisible: sidebarShowing.value});
     if (intent.kind === "show") {
         maximized.value = null;
         commit((current) => showContainer(current, "sidebar", intent.container));
@@ -244,28 +292,30 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
                     <div class="workbench-surface-fixture__empty" data-empty-region>把视图拖到这里</div>
                 </template>
                 <template #head="{panelId, idPrefix}">
-                    <WorkbenchPanelHead
-                        :panel-id="panelId"
-                        :label="doc.panels[panelId]?.name ?? panelId"
-                        :tabs="headTabs(panelId)"
-                        :active="doc.panels[panelId]?.active ?? null"
-                        more-label="更多"
-                        :id-prefix="idPrefix"
-                        :title-only="titleOnly.has(panelId)"
-                        :frame-actions="frameActions(panelId)"
-                        :view-head="viewHeadOf(panelId)"
-                        :fold="foldOf(panelId)"
-                        :fold-label="foldOf(panelId)?.collapsed === true ? '展开' : '收起'"
-                        @activate="(key) => activateFromHead(panelId, key)"
-                        @toggle-fold="toggleFold(panelId)"
-                        @head-slots="(slots) => (headSlots = slots)"
-                        @action="(action) => runFrame(panelId, action)"
-                        @context-menu="(key) => (lastMenu = key)"
-                    >
+                    <WorkbenchPanelHead v-bind="headProps(panelId, idPrefix)" v-on="headEvents(panelId)">
                         <template #actions>
                             <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="刷新" :data-view-action="panelId" />
                         </template>
                     </WorkbenchPanelHead>
+                </template>
+                <!-- 右栏、底部面板的入口条（输出 47）：当前容器只有一节时那一节的头并在这一行里，同分节的头。 -->
+                <template #strip="{region, merged, idPrefix}">
+                    <WorkbenchRegionStrip
+                        :region="region"
+                        :label="`${region} 的视图容器`"
+                        more-label="更多"
+                        :entries="stripEntries(region)"
+                        :variant="region === 'panel' ? 'titles' : 'icons'"
+                        :head-min-width="merged === null ? 0 : 160"
+                        @select="(id) => selectRegionEntry(region, id)"
+                    >
+                        <!-- 底部面板的入口写着标题，并进来的头不再写一遍（同产品的外壳，输出 47）。 -->
+                        <WorkbenchPanelHead v-if="merged !== null" :key="merged" v-bind="headProps(merged, idPrefix)" :title-in-entry="region === 'panel'" v-on="headEvents(merged)">
+                            <template #actions>
+                                <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="刷新" :data-view-action="merged" />
+                            </template>
+                        </WorkbenchPanelHead>
+                    </WorkbenchRegionStrip>
                 </template>
                 <template #content="{contentKey}">
                     <GridStructureLeaf :id="labelOf(contentKey)" :create-instance="createInstance" />

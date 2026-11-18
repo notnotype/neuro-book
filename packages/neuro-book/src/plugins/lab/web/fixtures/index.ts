@@ -76,6 +76,7 @@ import type TasksHover from "nbook/plugins/tasks/web/components/TasksHover.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import type WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
+import type WorkbenchRegionStrip from "nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue";
 import type WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type WorkbenchItemStrip from "nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue";
 import type WorkbenchTitleBar from "nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue";
@@ -458,6 +459,25 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchRegionStrip>({
+        component: "WorkbenchRegionStrip",
+        events: ["select", "context-menu"],
+        class: "h-[32px] w-full",
+        scenes: (() => {
+            const entry = (id: string, label: string, icon: string, current = false) => ({id: `view:${id}`, label, icon, tooltip: label, viewId: id, current, pressed: current});
+            const right = [entry("chat", "对话", "i-lucide-message-square", true), entry("outline", "大纲", "i-lucide-list-tree"), {id: "view:gone", label: "gone", icon: null, tooltip: "gone", viewId: "gone", current: false, pressed: false}];
+            const bottom = [entry("tasks", "后台任务", "i-lucide-list-checks", true), entry("notifications", "通知", "i-lucide-bell"), entry("output", "输出", "i-lucide-terminal")];
+            const base = {moreLabel: "更多", dragHint: "按空格拿起，方向键移动，回车放下"};
+            return [
+                {id: "icons", label: "右栏：图标入口，当前容器按下，声明不在的画占位图标", input: {props: {...base, region: "auxiliarybar", label: "右栏的视图容器", entries: right, variant: "icons"}}},
+                {id: "titles", label: "底部面板：标题入口，当前容器带下划线", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom, variant: "titles"}}},
+                {id: "narrow", label: "放不下：给并进来的头留 160px，后面的入口收进“更多”，当前容器的总在外面（拖窄画布看）", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: [...bottom, entry("problems", "问题", "i-lucide-circle-alert"), entry("terminal", "终端", "i-lucide-square-terminal")], variant: "titles", headMinWidth: 160}}},
+                {id: "hidden", label: "区域隐藏着：没有按下的入口", input: {props: {...base, region: "auxiliarybar", label: "右栏的视图容器", entries: right.map((item) => ({...item, pressed: false})), variant: "icons"}}},
+                {id: "dragging", label: "拖动中：被拖的入口留着位置、看不见，拖着的视图放下会并进的入口高亮", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom, variant: "titles", placeholder: "view:output", highlighted: "view:notifications"}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue"),
     }),
     defineLabFixture<typeof ThemeEditor>({
         component: "ThemeEditor",

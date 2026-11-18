@@ -407,6 +407,8 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "shell.drop.joinContainer": {"zh-CN": "并入{part}", "en-US": "Add to {part}"},
     // w00026 t25：打开着的空区域（docs/specs/ui/workbench-layout.md 输出 11；ADR 0050）。
     "shell.emptyRegion": {"zh-CN": "把视图拖到这里", "en-US": "Drag a view here"},
+    "shell.regionStrip.auxiliarybar": {"zh-CN": "右栏的视图容器", "en-US": "Secondary side bar containers"},
+    "shell.regionStrip.panel": {"zh-CN": "底部面板的视图容器", "en-US": "Panel containers"},
     // w00026 t24 切片 5：“移动到”的新容器（docs/specs/ui/workbench-layout.md 输出 23）。
     "viewCommands.newContainerIn.sidebar": {"zh-CN": "新容器（侧栏）", "en-US": "New container (Sidebar)"},
     "viewCommands.newContainerIn.auxiliarybar": {"zh-CN": "新容器（右栏）", "en-US": "New container (Secondary Side Bar)"},

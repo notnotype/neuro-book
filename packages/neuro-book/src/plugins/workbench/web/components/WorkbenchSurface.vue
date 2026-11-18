@@ -2,10 +2,10 @@
 /**
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
-import {createGrid, hiddenRegionsAtZero, isContainerAnchor, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
+import {createGrid, hiddenRegionsAtZero, isContainerAnchor, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, regionOfStripLeaf, treeLeaves} from "@notnotype/nb-layout";
 import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, GridSwap, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
-import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
 
 import {cardInset, cardInsetPx, joinedToBar, layoutCardEdges, leafIdsOf, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
@@ -70,6 +70,8 @@ defineSlots<{
     head?(props: {panelId: string; idPrefix: string}): unknown;
     /** 打开着的空区域（区域的锚进了呈现树，ADR 0050）：整块卡片里画什么，没有头。 */
     "empty-region"?(props: {panelId: string}): unknown;
+    /** 右栏、底部面板卡片顶上的入口条（输出 47）：`merged` 是此刻画在这一行里的那一节（它的头在这里），没有时是 null。 */
+    strip?(props: {region: PanelName; merged: string | null; idPrefix: string}): unknown;
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
     /** 拿起的内容项的头。 */
     "lifted-head"?(props: {contentKey: string}): unknown;
@@ -173,7 +175,7 @@ const contents = computed(() => {
     // 垫底的分节（投影的 `fillers`，一列全部收起时最后一节，输出 11）外框拉到了底，内容层会按外框摆出它的内容：它仍是收起的，内容不显示、不可交互。
     // 只给垫底的：别的收起的分节外框只有标题行高，被拉开时内容在拖动中就出现（输出 12）。
     const fillers = props.projection.fillers;
-    const laid = layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW);
+    const laid = layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW, headless.value);
     const items = fillers.size === 0 ? laid : laid.map((item) => (fillers.has(item.leaf) ? {...item, active: false} : item));
     const {lifted} = props;
     if (lifted === null || items.some((item) => item.key === lifted.key)) return items;
@@ -182,9 +184,59 @@ const contents = computed(() => {
 });
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
 
-const roleOf = (id: string): "tool" | "editor" | null => props.doc.panels[id]?.role ?? null;
+/** 叶是什么角色：入口条叶（只在呈现里）算工具面板，它和区域的分节拼成一张卡片、有卡片的底色与悬停范围。 */
+const roleOf = (id: string): "tool" | "editor" | null => (regionOfStripLeaf(id) !== null ? "tool" : props.doc.panels[id]?.role ?? null);
 /** 卡片组（输出 19）：工具面板按区域，一个区域里相邻的几块拼成一张卡片；实时布局的空位自成一块，四周照旧留缝。 */
-const groupOf = (id: string): string | null => (id === props.slotPanel ? null : regionOf(props.doc, id));
+const groupOf = (id: string): string | null => (id === props.slotPanel ? null : regionOfStripLeaf(id) ?? regionOf(props.doc, id));
+
+// ── 入口条与并成一行（docs/specs/ui/workbench-layout.md 输出 20、47） ────────────────
+
+/** 这一次呈现里的入口条：入口条叶 → 区域与并进来的那一节（投影按被投影的文档判，表面不另算）。 */
+const stripPlacements = computed(() => new Map(props.projection.strips.map((strip) => [strip.leaf, strip] as const)));
+
+/**
+ * 还原过渡里的那一节（输出 13）：最大化着时它在自己的叶里画头；还原时入口条叶在过渡结束前还被盖着，头留在叶里，等网格没有过渡（`moving` 为假）
+ * 才搬回入口条，这一刻正文上移一行、不随过渡（待确认清单 2026-11-17）。判“为假”不判由真变假：减少动态效果时没有过渡，它一直为假，提交后就搬回。
+ * 别的区域同时在过渡时跟着推迟，已知限制。
+ */
+const restoring = shallowRef<string | null>(null);
+const floatingPanels = computed<ReadonlySet<string>>(() => new Set(props.floats.map((float) => float.id)));
+watch(() => props.maximized, (next, previous) => {
+    if (previous === null || next === previous) return;
+    restoring.value = previous;
+    // 网格在这次渲染里才开始过渡：渲染之后还没在动，就是没有过渡（减少动态效果、几何没变）。
+    void nextTick(() => {
+        if (gridEl.value?.moving !== true) restoring.value = null;
+    });
+});
+watch(() => gridEl.value?.moving === true, (moving) => {
+    if (!moving) restoring.value = null;
+});
+
+/**
+ * 入口条叶此刻画成并着哪一节，表面里只有这一处决定（正文的上边、叶插槽画不画头、入口条里接不接头、悬停与焦点的面板都读它）：投影的 `merged`；
+ * 正在离开的入口条叶用最后一次呈现的；那一节最大化着或还在还原过渡里时是 null，它在自己的叶里画头，同一块面板不出现两个头；它是实时布局的空位时也是 null。
+ */
+function mergedIn(stripLeaf: string): string | null {
+    const merged = drawnAsBefore(stripLeaf) ? lastPresented.strips.get(stripLeaf) ?? null : stripPlacements.value.get(stripLeaf)?.merged ?? null;
+    // 实时布局预览里的空位（拿起了它唯一的视图）什么都不画，头也不留在入口条里（输出 38）；浮起来的那一节画在浮动窗里，窗有自己的头，
+    // 缩走的入口条照最后一次呈现的样子画时也不再接它的头。
+    if (merged === null || merged === props.maximized || merged === restoring.value || merged === props.slotPanel || floatingPanels.value.has(merged)) return null;
+    return merged;
+}
+/** 此刻叶里不画头的分节：并在入口条里的，以及正在离开、离开前并着的（滑出去时不冒出自己的头，内容不下跳）。 */
+const headless = computed<ReadonlySet<string>>(() => {
+    const panels = new Set<string>();
+    for (const leaf of stripPlacements.value.keys()) {
+        const merged = mergedIn(leaf);
+        if (merged !== null) panels.add(merged);
+    }
+    // 浮起来的那一节画在浮动窗里，窗有自己的头：从入口条下面飞出去的那一刻起内容就让出头。
+    for (const id of lastPresented.headless) if (drawnAsBefore(id) && id !== props.maximized && !floatingPanels.value.has(id)) panels.add(id);
+    return panels;
+});
+/** 叶代表哪块面板：入口条叶是并进来的那一节，没有并时不代表面板（和活动栏一样）。 */
+const panelOfLeaf = (leaf: string | null): string | null => (leaf === null ? null : regionOfStripLeaf(leaf) === null ? leaf : mergedIn(leaf));
 
 /** 呈现里的区域的锚就是打开着的空区域（ADR 0050）：有分节时锚不进呈现树。它没有头，画宿主给的提示。 */
 const isEmptyRegion = (id: string): boolean => {
@@ -258,14 +310,19 @@ watch(() => barJoinedKey(cards.value), (leaves, previous) => {
 watch(shapedLeaves, (shaped) => {
     if (shaped.size === 0) freshlyJoined.value = new Set();
 });
-const lastPresented = {cards: new Map<string, CardEdges>(), scene: new Map<string, PanelName>()};
+const lastPresented = {cards: new Map<string, CardEdges>(), scene: new Map<string, PanelName>(), strips: new Map<string, string | null>(), headless: new Set<string>()};
 /** 活动栏最近一次没和面板相连时右边的样子：面板长出来的这段活动栏照这个画（`cardOf`）。 */
 let separatedBarRight: CardEdges["right"] = {kind: "inner", occupied: 0};
-watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]) => {
+watch([cards, sceneCorners, presentedLeaves, stripPlacements], ([nextCards, nextScene, presented, strips]) => {
     const sizes = preview.value ?? host.layout.value.sizes;
+    const merged = new Set([...strips.values()].flatMap((strip) => (strip.merged === null ? [] : [strip.merged])));
     for (const id of presented) {
         const size = sizes[id];
         if (size !== undefined && (size.width <= 0 || size.height <= 0)) continue;
+        const strip = strips.get(id);
+        if (strip !== undefined) lastPresented.strips.set(id, strip.merged);
+        if (merged.has(id)) lastPresented.headless.add(id);
+        else lastPresented.headless.delete(id);
         const edges = nextCards[id];
         if (edges === undefined) lastPresented.cards.delete(id);
         else lastPresented.cards.set(id, edges);
@@ -281,9 +338,10 @@ watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]
  * 刚离开、要留着缩回去的那块这时已经在 `outgoingLeaves` 里，它缩回去的这段还要用记录。
  */
 watch([presentedLeaves, outgoingLeaves], ([presented, outgoing]) => {
-    for (const records of [lastPresented.cards, lastPresented.scene]) {
+    for (const records of [lastPresented.cards, lastPresented.scene, lastPresented.strips]) {
         for (const id of records.keys()) if (!presented.has(id) && !outgoing.has(id)) records.delete(id);
     }
+    for (const id of lastPresented.headless) if (!presented.has(id) && !outgoing.has(id)) lastPresented.headless.delete(id);
 }, {flush: "post"});
 
 const drawnAsBefore = (id: string): boolean => !presentedLeaves.value.has(id) || outgoingLeaves.value.has(id);
@@ -427,11 +485,20 @@ const sashDisabledOf = (sash: SashRef): boolean => fillerColumns.value.has(sash.
 
 // ── 指针与焦点在哪块面板 ──────────────────────────────────────────────────
 
-const pointerPanel = shallowRef<string | null>(null);
-const focusedPanel = shallowRef<string | null>(null);
+/**
+ * 指针、焦点按叶记，面板按此刻的投影现算（输出 36）：在入口条里点入口切容器时焦点没动、没有新的 `focusin`，并进来的那一节一换，当前面板跟着换。
+ */
+const pointerLeaf = shallowRef<string | null>(null);
+const focusedLeaf = shallowRef<string | null>(null);
+const pointerPanel = computed(() => panelOfLeaf(pointerLeaf.value));
+const focusedPanel = computed(() => {
+    const panel = panelOfLeaf(focusedLeaf.value);
+    return panel !== null && props.doc.panels[panel] !== undefined ? panel : null;
+});
+watch(focusedPanel, (panel) => emit("focus-panel", panel));
 
 /** 外框和内容项都是这个 grid 根的直接子元素；视图里还可以嵌别的 grid，往外找到属于这一层的那个。 */
-function panelOf(target: EventTarget | null): string | null {
+function leafOf(target: EventTarget | null): string | null {
     const gridRoot = rootEl.value?.querySelector(":scope > [data-grid-scope]");
     let element = target instanceof Element ? target.closest("[data-content-leaf], [data-leaf]") : null;
     while (element !== null && element.parentElement !== gridRoot) element = element.parentElement?.closest("[data-content-leaf], [data-leaf]") ?? null;
@@ -440,27 +507,20 @@ function panelOf(target: EventTarget | null): string | null {
 
 function raiseIfFloat(target: EventTarget | null): void {
     const chrome = target instanceof Element ? target.closest("[data-float-chrome]")?.getAttribute("data-float-chrome") : null;
-    const panel = chrome ?? panelOf(target);
+    const panel = chrome ?? leafOf(target);
     if (panel !== null && props.floats.some((float) => float.id === panel)) emit("raise-float", panel);
 }
 
 function onFocusIn(event: FocusEvent): void {
-    const panel = panelOf(event.target);
-    setFocusedPanel(panel !== null && props.doc.panels[panel] !== undefined ? panel : null);
+    focusedLeaf.value = leafOf(event.target);
     raiseIfFloat(event.target);
 }
 
 function onFocusOut(event: FocusEvent): void {
-    if (!(event.relatedTarget instanceof Node) || rootEl.value?.contains(event.relatedTarget) !== true) setFocusedPanel(null);
+    if (!(event.relatedTarget instanceof Node) || rootEl.value?.contains(event.relatedTarget) !== true) focusedLeaf.value = null;
 }
 
-function setFocusedPanel(panel: string | null): void {
-    if (focusedPanel.value === panel) return;
-    focusedPanel.value = panel;
-    emit("focus-panel", panel);
-}
-
-const actionsShownOn = (panel: string): boolean => pointerPanel.value === panel || focusedPanel.value === panel;
+const actionsShownOn = (panel: string | null): boolean => panel !== null && (pointerPanel.value === panel || focusedPanel.value === panel);
 
 defineExpose({
     /** 进行中的过渡直接到终点（拖动拿起后要量矩形）。 */
@@ -480,8 +540,8 @@ defineExpose({
         class="workbench-surface"
         tabindex="-1"
         data-workbench-surface
-        @pointerover="pointerPanel = panelOf($event.target)"
-        @pointerleave="pointerPanel = null"
+        @pointerover="pointerLeaf = leafOf($event.target)"
+        @pointerleave="pointerLeaf = null"
         @pointerdown.capture="raiseIfFloat($event.target)"
         @focusin="onFocusIn"
         @focusout="onFocusOut"
@@ -523,8 +583,8 @@ defineExpose({
                         :data-shell-slot="node.id === slotPanel ? '' : undefined"
                         :data-panel-role="roleOf(node.id) ?? undefined"
                         :data-panel-name="swappingLeaves.has(node.id) ? undefined : sceneOf(node.id)"
-                        :data-hover-actions-scope="roleOf(node.id) === null || isSectionCollapsed(doc, node.id) ? undefined : ''"
-                        :data-hover-actions-active="actionsShownOn(node.id) ? '' : undefined"
+                        :data-hover-actions-scope="panelOfLeaf(node.id) === null || roleOf(node.id) === null || isSectionCollapsed(doc, node.id) ? undefined : ''"
+                        :data-hover-actions-active="actionsShownOn(panelOfLeaf(node.id)) ? '' : undefined"
                     >
                         <slot v-if="node.id === ACTIVITY_BAR" name="activitybar"></slot>
                         <template v-else-if="node.id !== slotPanel">
@@ -532,7 +592,8 @@ defineExpose({
                                 <slot name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
                             </div>
                             <slot v-else-if="isEmptyRegion(node.id)" name="empty-region" :panel-id="node.id"></slot>
-                            <slot v-else-if="roleOf(node.id) === 'tool'" name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
+                            <slot v-else-if="regionOfStripLeaf(node.id) !== null" name="strip" :region="regionOfStripLeaf(node.id)!" :merged="mergedIn(node.id)" :id-prefix="idPrefix"></slot>
+                            <slot v-else-if="roleOf(node.id) === 'tool' && !headless.has(node.id)" name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
                         </template>
                     </div>
                 </div>

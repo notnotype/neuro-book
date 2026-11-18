@@ -3,9 +3,10 @@
  * 活动栏（同名 .md）：上段列侧栏的容器，一个容器一个入口；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
  */
 import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
+import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 上段的一个入口：侧栏里的一个容器（docs/specs/ui/workbench-layout.md 输出 22、41）。 */
 export interface ToolStripEntry {
@@ -117,90 +118,18 @@ const shownEntries = computed((previous?: ReadonlyArray<ToolStripEntry>) => {
 });
 const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 
-/**
- * 按下的底色是条目区里一个独立的块（输出 22），位置是按下的那个入口。侧栏切换容器、内容滚过去的那一次（`slideToken` 变了），它和内容同时滑过去
- * （`data-sliding`，时长与曲线同布局过渡）；别的时候直接到位：窗口缩放、入口收进“更多”、拖动中入口换位、别的途径换了当前容器。
- * 没有按下的（侧栏隐藏）时留在原处淡出，再按下时在新的位置淡入，不滑；第一次放下时不淡入（`data-settled` 之前没有过渡）。
- */
-const indicator = ref<{readonly x: number; readonly y: number; readonly width: number; readonly height: number} | null>(null);
-const indicatorShown = ref(false);
-const sliding = ref(false);
-const settled = ref(false);
-const indicatorEl = ref<HTMLElement | null>(null);
-let placedOn: string | null = null;
-let placedToken = props.slideToken;
-
-/**
- * 入口相对条目区的位置：沿 `offsetParent` 一路加到条目区。`offset*` 是排版的位置、不含 `transform`，拖动中按钮外层带着换位的 `translate`
- * （它可能成了按钮的 `offsetParent`）也量到的是终点；量不到条目区（还没挂上）时是 null。
- */
-function entryOffset(button: HTMLElement): {readonly x: number; readonly y: number} | null {
-    const band = bandEl.value;
-    let x = 0;
-    let y = 0;
-    for (let element: HTMLElement | null = button; element !== band; element = element.offsetParent as HTMLElement | null) {
-        if (element === null) return null;
-        x += element.offsetLeft;
-        y += element.offsetTop;
-    }
-    return {x, y};
-}
-
-function placeIndicator(): void {
-    const id = shownEntries.value.find((entry) => entry.pressed)?.id ?? null;
-    const switched = props.slideToken !== placedToken;
-    placedToken = props.slideToken;
-    const button = id === null ? undefined : [...(bandEl.value?.querySelectorAll<HTMLElement>("[data-tool-entry]") ?? [])].find((element) => element.dataset.toolEntry === id);
-    const at = button === undefined ? null : entryOffset(button);
-    if (id === null || button === undefined || at === null) {
-        indicatorShown.value = false;
-        placedOn = null;
-        settleAfterFirstPlacement();
-        return;
-    }
-    const next = {...at, width: button.offsetWidth, height: button.offsetHeight};
-    const current = indicator.value;
-    const moved = current === null || current.x !== next.x || current.y !== next.y || current.width !== next.width || current.height !== next.height;
-    // 挪了位置才改：滑到一半又点了别的入口，接着滑（过渡从此刻的位置重定向）；别的原因挪了位置（缩放、拖动换位）直接到位。
-    if (moved) sliding.value = switched && placedOn !== null && placedOn !== id;
-    placedOn = id;
-    indicatorShown.value = true;
-    if (moved) indicator.value = next;
-    settleAfterFirstPlacement();
-}
-
-/**
- * 第一次放下不淡入：有了入口的那一次放置（挂上时文档可能还没到、入口是空的）画进 DOM 之后，强制算一次样式（过渡的起点就是放好的样子），
- * 再打开过渡。那一次没有按下的（侧栏隐藏着），之后按下时照常淡入。
- */
-let settling = false;
-function settleAfterFirstPlacement(): void {
-    if (settled.value || settling || shownEntries.value.length === 0) return;
-    settling = true;
-    void nextTick(() => {
-        indicatorEl.value?.getBoundingClientRect();
-        settled.value = true;
-    });
-}
-
-/** 按下的入口、摆出来的入口、条目区的高度与这一次是不是滚过去：拖动预览每一帧都换新的 `entries` 数组，只按这几样比，不每帧量。 */
-const indicatorKey = computed(() => `${shownEntries.value.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}`).join(",")}|${String(available.value)}|${String(props.slideToken)}`);
-watch(indicatorKey, placeIndicator, {flush: "post"});
-onMounted(placeIndicator);
-
-/**
- * 滑完再摘掉过渡。滑到一半又换了一次（又点了别的入口）时浏览器先取消上一段、马上开始下一段：这时摘掉，下一段也跟着没了，块一下子到终点；
- * 所以不听 `transitioncancel`，`transitionend` 来时还有别的 `transform` 过渡在走也不摘。
- */
-function onIndicatorTransitionEnd(event: TransitionEvent): void {
-    if (event.propertyName !== "transform") return;
-    const running = (event.currentTarget as HTMLElement).getAnimations().some((animation) => (animation as Animation & {transitionProperty?: string}).transitionProperty === "transform");
-    if (!running) sliding.value = false;
-}
-
-const indicatorStyle = computed(() => {
-    const at = indicator.value;
-    return at === null ? {} : {transform: `translate(${String(at.x)}px, ${String(at.y)}px)`, width: `${String(at.width)}px`, height: `${String(at.height)}px`};
+/** 按下的底色是条目区里一个独立的块（输出 22），侧栏切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
+const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: indicatorStyle, onTransitionEnd: onIndicatorTransitionEnd} = useEntryIndicator({
+    band: bandEl,
+    pressed: () => {
+        const id = shownEntries.value.find((entry) => entry.pressed)?.id;
+        const button = id === undefined ? undefined : [...(bandEl.value?.querySelectorAll<HTMLElement>("[data-tool-entry]") ?? [])].find((element) => element.dataset.toolEntry === id);
+        return id === undefined || button === undefined ? null : {id, button};
+    },
+    hasEntries: () => shownEntries.value.length > 0,
+    slideToken: () => props.slideToken,
+    // 按下的入口、摆出来的入口与条目区的高度：入口是定宽的按钮，别的不会挪动它。
+    layoutKey: () => `${shownEntries.value.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}`).join(",")}|${String(available.value)}`,
 });
 </script>
 
@@ -220,7 +149,7 @@ const indicatorStyle = computed(() => {
             ></span>
             <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
             <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
-                <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
+                <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" data-entry-frame :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
                     <Tooltip :text="entry.tooltip" side="right">
                         <IconButton
                             size="lg"

@@ -56,6 +56,11 @@ async function box(page: Page, id: string): Promise<Box> {
     return found;
 }
 
+/** 底部面板这一块的高：顶上的入口条（ui/workbench-layout 输出 47）加分节，记忆的尺寸是这一整块的。 */
+async function panelRegionHeight(page: Page, section: string): Promise<number> {
+    return (await box(page, "strip:panel")).height + (await box(page, section)).height;
+}
+
 /** 所有叶外框的矩形（取整），用来比较“放大后回到原样”。 */
 const leafRects = (page: Page): Promise<Record<string, number[]>> => page.evaluate((selector) => Object.fromEntries([...document.querySelectorAll(selector)].map((element) => {
     const {x, y, width, height} = element.getBoundingClientRect();
@@ -81,7 +86,8 @@ async function sectionOf(page: Page, view: string): Promise<string> {
 /** 视图所在分节的外框。区域只在挨着编辑区的方向上伸缩，所以侧栏、右栏的宽与底部面板的高，量区域里任何一个分节都一样。 */
 const sectionBox = async (page: Page, view: string): Promise<Box> => box(page, await sectionOf(page, view));
 /** 视图所在分节的面板头：分节的头只写它那个视图的标题（输出 20）。 */
-const headOf = (page: Page, view: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"])`);
+/** 视图所在分节的面板头：头里有它的标题；底部面板并成一行时头不写标题，是按下的入口是它的那条入口条里并进来的头（输出 47）。 */
+const headOf = (page: Page, view: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"]), [data-region-strip="panel"]:has([data-tool-view="${view}"][aria-pressed="true"]) [data-panel-head]`);
 /** 分节头里的框架按钮；`command` 是命令名（`nbook.view.` 之后的部分）。 */
 const frame = (page: Page, view: string, command: string) => headOf(page, view).locator(`[data-panel-action="nbook.view.${command}"]`);
 /** 分节的标题行是展开、收起的开关（输出 20）：能收起时标题按钮带 `aria-expanded`。 */
@@ -423,7 +429,7 @@ test.describe("产品页", () => {
         await shrunk(page, sessions);
         await expect(toggle).toHaveText("显示面板");
         await toggle.click();
-        await expect.poll(async () => (await box(page, sessions)).height).toBe(200);
+        await expect.poll(() => panelRegionHeight(page, sessions)).toBe(200);
         await expect(toggle).toHaveText("隐藏面板");
     });
 
@@ -450,12 +456,12 @@ test.describe("产品页", () => {
         const sessions = await sessionsToPanel(page);
         await panelSash(page).focus();
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, sessions)).height).toBe(0);
+        await expect.poll(() => panelRegionHeight(page, sessions)).toBe(0);
         await expect(panelSash(page)).toBeVisible();
         await parked(page, '[data-content="view:nbook.agent.sessions"]');
         await expect.poll(async () => (await saved(page))?.doc.panels.panel?.collapsed).toBe(true);
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, sessions)).height).toBe(200);
+        await expect.poll(() => panelRegionHeight(page, sessions)).toBe(200);
         await unparked(page, '[data-content="view:nbook.agent.sessions"]');
     });
 
@@ -763,7 +769,8 @@ test.describe("Lab", () => {
         const act = (name: string) => page.locator(`[data-surface-action="${name}"]`).click();
         // 夹具的五个视图各是自己的容器：分节的头按它那个视图找，活动栏的入口按容器 id。
         const head = (view: string, action: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"]) [data-panel-action="${action}"]`);
-        const entry = (view: string) => page.locator(`[data-tool-entry="view:${view}"]`);
+        // 右栏、底部面板入口条上的入口也带 `data-tool-entry`：这里说的是活动栏的入口。
+        const entry = (view: string) => page.locator(`[data-tool-band] [data-tool-entry="view:${view}"]`);
         const left = async (selector: string): Promise<number> => (await page.locator(selector).boundingBox())?.x ?? Number.NaN;
         const settled = async (visible: boolean): Promise<void> => {
             expect(await instances()).toEqual(before);

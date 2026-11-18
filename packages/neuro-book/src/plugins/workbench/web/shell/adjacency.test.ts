@@ -3,7 +3,7 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {createGrid, movePanelToEdge, projectLayoutDoc, regionNodeOf, regionOf} from "@notnotype/nb-layout";
+import {createGrid, movePanelToEdge, projectLayoutDoc, regionNodeOf, regionOf, regionOfStripLeaf, regionStripLeafId} from "@notnotype/nb-layout";
 import type {GridExtent, GridNodeInput, LayoutDoc} from "@notnotype/nb-layout";
 
 import {viewSection} from "../state/containers";
@@ -27,7 +27,7 @@ function cards(doc: LayoutDoc, sizesOverride: Readonly<Record<string, GridExtent
         activitybar: "activitybar",
         activitybarGroup: "sidebar",
         plain: new Set(["statusbar"]),
-        groupOf: (id) => regionOf(doc, id),
+        groupOf: (id) => regionOfStripLeaf(id) ?? regionOf(doc, id),
     });
 }
 
@@ -51,8 +51,11 @@ describe("卡片的边", () => {
         expect(result.activitybar).toEqual({top: outer, right: barJoined, bottom: outer, left: outer});
         expect(result[SIDE]).toEqual({top: outer, right: inner(1), bottom: outer, left: barJoined});
         expect(result[INITIAL_EDITOR_PANEL]).toEqual({top: outer, right: inner(1), bottom: inner(1), left: inner(1)});
-        expect(result[OUT]).toEqual({top: inner(1), right: inner(1), bottom: outer, left: inner(1)});
-        expect(result[AUX]).toEqual({top: outer, right: outer, bottom: outer, left: inner(1)});
+        // 右栏、底部面板顶上是入口条（输出 47），和下面的分节拼成一张卡片：入口条叶占卡片的上边，分节的上边相连。
+        expect(result[regionStripLeafId("panel")]).toEqual({top: inner(1), right: inner(1), bottom: joined, left: inner(1)});
+        expect(result[OUT]).toEqual({top: joined, right: inner(1), bottom: outer, left: inner(1)});
+        expect(result[regionStripLeafId("auxiliarybar")]).toEqual({top: outer, right: outer, bottom: joined, left: inner(1)});
+        expect(result[AUX]).toEqual({top: joined, right: outer, bottom: outer, left: inner(1)});
         // 锚不画卡片。
         expect(result.sidebar).toBeUndefined();
         expect(result.statusbar).toBeUndefined();

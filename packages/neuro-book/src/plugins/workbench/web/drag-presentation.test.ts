@@ -33,21 +33,21 @@ describe("presentDrag", () => {
     it("实时布局里卡片收回、指针在标签条上：标签自己在条里跟手，不要拖影；落点指示照样要拖影", () => {
         const onStrip = dropOf({kind: "strip", panel: "sidebar", index: 1});
         expect(presentDrag(input({drop: onStrip})).ghost).toBe(false);
-        expect(presentDrag(input({drop: dropOf({kind: "move-entry", container: "view:a", before: null})})).ghost).toBe(false);
+        expect(presentDrag(input({drop: dropOf({kind: "move-entry", region: "sidebar", container: "view:a", before: null})})).ghost).toBe(false);
         expect(presentDrag(input({drop: onStrip, lifted: true})).ghost).toBe(false);
         expect(presentDrag(input({drop: onStrip, live: false})).ghost).toBe(true);
         expect(presentDrag(input({drop: dropOf({kind: "center", panel: "auxiliarybar"})})).ghost).toBe(true);
         // 活动栏的入口之间也是标签条；入口上（并入）不是。
-        expect(presentDrag(input({drop: dropOf({kind: "new-container", container: "custom:a", before: null})})).ghost).toBe(false);
-        expect(presentDrag(input({drop: dropOf({kind: "join-container", container: "view:b"})})).ghost).toBe(true);
+        expect(presentDrag(input({drop: dropOf({kind: "new-container", region: "sidebar", container: "custom:a", before: null})})).ghost).toBe(false);
+        expect(presentDrag(input({drop: dropOf({kind: "join-container", region: "sidebar", container: "view:b"})})).ghost).toBe(true);
     });
 
     it("并入活动栏的入口：实时布局按已显示的落点高亮；落点指示由反馈层框出入口，外壳不再盖一层", () => {
-        const join: WorkbenchDropAction = {kind: "join-container", container: "view:b"};
+        const join: WorkbenchDropAction = {kind: "join-container", region: "sidebar", container: "view:b"};
         expect(presentDrag(input({shownAction: join})).mergeEntry).toBe("view:b");
         expect(presentDrag(input({drop: dropOf(join)})).mergeEntry).toBeNull();
         expect(presentDrag(input({live: false, drop: dropOf(join)})).mergeEntry).toBeNull();
-        expect(presentDrag(input({live: false, source: {kind: "container", container: "c"}, drop: dropOf({kind: "move-entry", container: "c", before: null})})).mergeEntry).toBeNull();
+        expect(presentDrag(input({live: false, source: {kind: "container", container: "c"}, drop: dropOf({kind: "move-entry", region: "sidebar", container: "c", before: null})})).mergeEntry).toBeNull();
     });
 
     it("拿起的是面板唯一的标签：那块面板是空位，头不留在原地；面板里还有别的标签时不是", () => {

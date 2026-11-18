@@ -281,6 +281,10 @@
             "withProject": "工作台已就绪。当前项目：{{name}}"
         },
         "activityBar": "活动栏",
+        "regionStrip": {
+            "auxiliarybar": "右栏的视图容器",
+            "panel": "底部面板的视图容器"
+        },
         "drag": {
             "hint": "按空格拿起并拖动",
             "hintFold": "按 Enter 展开或收起，按空格拿起并拖动"
