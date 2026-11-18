@@ -301,6 +301,22 @@ describe("表情目录", () => {
         expect(service.list().map((entry) => entry.id)).toEqual(["user.lyra"]);
         expect(events()).toContainEqual({event: "stickers.root-unavailable", data: {source: "builtin"}});
     });
+
+    test("输出 1：内置来源启动时扫一遍、不监视：之后放进安装目录的包到下次启动才出现", async () => {
+        counter += 1;
+        const builtinRoot = join(tmp, `b${String(counter)}`);
+        await lyra(join(builtinRoot, "lyra"));
+        const {world, user, service} = await scene(async () => undefined, createStickersBackendPlugin(() => builtinRoot));
+        expect(service.list().map((entry) => [entry.id, entry.source])).toEqual([["builtin.lyra", "builtin"]]);
+        await lyra(join(builtinRoot, "later"));
+        // 同时往用户的目录放一个：它出现说明监视已经处理过这段时间的变化，内置的那个仍不在。
+        await lyra(join(user, "mine"));
+        await waitUntil("用户的新包出现", () => {
+            world.clock.advance(200);
+            return byId(service, "user.mine")?.status === "ok" || null;
+        });
+        expect(byId(service, "builtin.later")).toBeUndefined();
+    });
 });
 
 describe("stickers://", () => {
@@ -661,7 +677,10 @@ describe("表情包页的写入", () => {
         expect(byId(service, "builtin.lyra")).toMatchObject({source: "builtin", folder: "lyra", title: "星璃", status: "ok"});
         expect(byId(service, "builtin.lyra")?.stickers.map((sticker) => sticker.file)).toEqual(manifest.stickers.map((item) => item.file));
         expect(byId(service, "builtin.lyra")?.stickers.every((sticker) => sticker.common && sticker.width === 512)).toBe(true);
+        // Spec“内置来源”一表的名字与顺序。
+        expect(byId(service, "builtin.lyra")?.stickers.map((sticker) => sticker.name)).toEqual(["开心", "嘿嘿", "比心", "害羞", "期待", "惊讶", "疑问", "嗯", "无语", "烦", "生气", "委屈", "大哭", "困", "偷看"]);
         expect(byId(service, "builtin.lyra-chibi")).toMatchObject({source: "builtin", title: "星璃 · 半身", status: "ok"});
+        expect(byId(service, "builtin.lyra-chibi")?.stickers.map((sticker) => sticker.common)).toEqual(Array.from({length: 12}, () => true));
 
         // stickers:// 根写来源；内置的同插件的只能读。
         const listed = await files.list("stickers://");
@@ -688,7 +707,8 @@ describe("表情包页的写入", () => {
         // 复制成我的 lyra（包名没被用，不加 -2）：图与清单都过来；之后按文件夹名认的是我的，内置的写 id、标被盖住。
         expect(await remote.copyPack({id: "builtin.lyra"})).toEqual({ok: true, value: {id: "user.lyra"}});
         expect((await readdir(join(user, "lyra"))).sort()).toEqual(["stickers.json", ...manifest.stickers.map((item) => item.file)].sort());
-        expect((await manifestOf(user, "lyra")).title).toBe("星璃");
+        expect(await manifestOf(user, "lyra")).toMatchObject({title: "星璃", description: byId(service, "builtin.lyra")?.description});
+        expect((await manifestOf(user, "lyra")).description).toContain("星璃");
         expect(await marks()).toEqual({summary: {"user.lyra": ["lyra", false], "builtin.lyra": ["builtin.lyra", true]}, catalog: {"user.lyra": "lyra", "builtin.lyra": "builtin.lyra"}});
         const detail = await remote.pack({id: "builtin.lyra"});
         expect(detail.ok && detail.value.summary).toMatchObject({writing: "builtin.lyra", shadowed: true});
