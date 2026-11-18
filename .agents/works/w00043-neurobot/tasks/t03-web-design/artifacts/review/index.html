@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 2 轮：合并后的“消息”视图</title>
+<title>第 3 轮：导航的样式</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -23,6 +23,7 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .pair { display: grid; grid-template-columns: 1fr 2.6fr; gap: 8px; align-items: start; }
 .pair img + img { margin-top: 0; }
 .narrow-shot { max-width: 260px; margin: 0 auto; }
+.navshot { max-width: 282px; margin: 0 auto; }
 .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .duo img + img { margin-top: 0; }
 .cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
@@ -34,45 +35,50 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 2 轮：合并后的“消息”视图</h1>
+<h1>第 3 轮：导航的样式</h1>
 
-<section data-nbdev-question="narrow-nav" data-nbdev-type="single" data-nbdev-recommend="strip">
-  <h2>侧栏窄的时候，导航和对话怎么共处？</h2>
-  <p class="rec"><strong>推荐 A：头像列一直在，未读和“有事等你”不用点开就看得见；要找会话再展开抽屉。</strong></p>
+<section data-nbdev-question="nav-style" data-nbdev-type="single" data-nbdev-recommend="rows">
+  <h2>不要分组标题，bot 和会话靠什么区分？</h2>
+  <p class="rec"><strong>推荐 C：bot 是“人”，大行、宋体名字、两行预览；会话是“活儿”，紧凑的单行，多了也好扫。</strong></p>
   <div class="cands three">
-    <div class="cand" data-nbdev-option="strip" data-nbdev-label="A 头像列加抽屉">
-      <h3>A 头像列加抽屉</h3>
-      <div class="duo"><img src="r2/strip.webp" alt="头像列收着"><img src="r2/drawer.webp" alt="点开抽屉"></div>
-      <p>头像列占 56px，对话窄一点。</p>
+    <div class="cand" data-nbdev-option="pinned" data-nbdev-label="A 置顶头像">
+      <h3>A 置顶头像</h3>
+      <img class="navshot" src="r3/pinned.webp" alt="bot 在顶上排成一行头像，会话在下面">
+      <p>bot 多了横着排；只有星璃时顶上有点空。</p>
     </div>
-    <div class="cand" data-nbdev-option="pages" data-nbdev-label="B 列表页与对话页来回切">
-      <h3>B 列表页与对话页来回切</h3>
-      <div class="duo"><img src="r2/pages-list.webp" alt="列表页"><img src="r2/pages-chat.webp" alt="对话页，左上角返回"></div>
-      <p>像手机 IM；看对话时看不到别的未读。</p>
+    <div class="cand" data-nbdev-option="mixed" data-nbdev-label="B 混排">
+      <h3>B 混排</h3>
+      <img class="navshot" src="r3/mixed.webp" alt="bot 与会话按最近活动混在一个列表">
+      <p>像 IM 的会话列表，按最近活动排；bot 是圆头像，会话是图标。</p>
     </div>
-    <div class="cand" data-nbdev-option="dropdown" data-nbdev-label="C 点标题下拉">
-      <h3>C 点标题下拉</h3>
-      <div class="duo"><img src="r2/dropdown.webp" alt="标题旁的未读数"><img src="r2/dropdown-open.webp" alt="下拉出列表"></div>
-      <p>沿用现在 Agent 对话视图的做法，未读只能汇总在标题旁。</p>
+    <div class="cand" data-nbdev-option="rows" data-nbdev-label="C 大行加细行">
+      <h3>C 大行加细行</h3>
+      <img class="navshot" src="r3/rows.webp" alt="bot 是大行，会话是紧凑的单行，中间一条线">
+      <p>会话不显示预览，悬停或选中时再看。</p>
     </div>
   </div>
 </section>
 
-<section data-nbdev-question="nav-layout" data-nbdev-type="confirm" data-nbdev-label="导航按这样排">
-  <h2>导航这样排行不行？</h2>
-  <p class="rec"><strong>推荐同意：搜索与过滤（全部、bot、会话）在顶上；bot 一组、会话一组；子会话挂在父的下面，带状态。</strong></p>
-  <div class="cands" style="grid-template-columns: minmax(0, 1fr);">
-    <div class="cand"><img src="r2/wide.webp" alt="拉宽时左边导航、右边对话"></div>
-  </div>
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>“还有 12 个会话”</td><td>去掉，列表滚到底自动加载更多（第 2 轮）</td></tr>
+      <tr><td>过滤（全部、bot、会话）</td><td>第 2 轮的蓝色分段条太抢眼，收成搜索框右边的过滤按钮</td></tr>
+    </tbody>
+  </table>
 </section>
 
 <section>
   <h2>已定</h2>
   <ol class="decided">
     <li>bot 的视图是 IM 式：左边是聊天与群聊，右边是聊天界面（开发者 2026-11-18）</li>
-    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程与记忆默认收起；关着时只剩头像加未读气泡；不自动收起（2026-11-18）</li>
+    <li>注意力顺序：先看最新的对话与输入框；等你处理的事贴在输入框上方；日程与记忆默认收起；关着时只剩头像加未读气泡；不自动收起</li>
     <li>左栏放会话；bot 与会话合并成一个“消息”视图，取代现在的会话面板与 Agent 对话视图；对话本身用同一个组件（第 1 轮）</li>
     <li>放在侧栏；多开放到最后，倾向做成侧栏视图能开多个（第 1 轮）</li>
+    <li>侧栏窄时用头像列加抽屉（第 2 轮）</li>
+    <li>导航的排法：搜索与过滤在顶上、bot 与会话、子会话挂在父的下面（第 2 轮）</li>
   </ol>
 </section>
 </main>
