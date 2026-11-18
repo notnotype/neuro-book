@@ -22,6 +22,7 @@ let server: ProductServer;
 const FILES: Readonly<Record<string, string>> = {
     "note.md": "# 标题\n\n正文一段。\n",
     "code/a.py": "def a():\n    return 1\n",
+    "code/long.py": Array.from({length: 400}, (_, index) => `def f${String(index)}():\n    return ${String(index)}`).join("\n") + "\n",
     "long.md": Array.from({length: 300}, (_, index) => `第 ${String(index + 1)} 段，这一段有一些文字，用来撑出长文档的高度。`).join("\n\n") + "\n",
 };
 
@@ -83,7 +84,8 @@ async function recordWheel(page: Page): Promise<void> {
     await page.addInitScript(() => {
         const seen: boolean[] = [];
         (window as unknown as {__wheelPrevented: boolean[]}).__wheelPrevented = seen;
-        window.addEventListener("wheel", (event) => seen.push(event.defaultPrevented));
+        // 先于页面的监听登记：到下一个宏任务再读，才看得到别人拦没拦。
+        window.addEventListener("wheel", (event) => void setTimeout(() => seen.push(event.defaultPrevented)));
     });
 }
 
@@ -118,10 +120,11 @@ test("桌面里：Ctrl+滚轮在 Markdown 编辑器与源码编辑器上改各�
     await installShell(page);
     await openWorkbench(page);
     await openNote(page);
-    // 不满一档（累积 60）：不换。
-    await ctrlWheel(page, prose(page), -60);
+    // 不满一档（累积 40）：不换。
+    await ctrlWheel(page, prose(page), -20);
+    await ctrlWheel(page, prose(page), -20);
     expect(await markdownSize(page)).toBe("17px");
-    await ctrlWheel(page, prose(page), -60);
+    await ctrlWheel(page, prose(page), -20);
     await expect.poll(() => markdownSize(page)).toBe("18px");
     await expect.poll(userLayer).toEqual({"nbook.editor/markdown.fontSize": 18});
     // 缩小回缺省：用户层的键被删掉，不是写进缺省值。
@@ -139,8 +142,26 @@ test("桌面里：Ctrl+滚轮在 Markdown 编辑器与源码编辑器上改各�
     await ctrlWheel(page, monaco(page), -100);
     await expect.poll(() => codeSize(page)).toBe("15px");
     await expect.poll(userLayer).toEqual({"nbook.editor/markdown.fontSize": 18, "nbook.editor/code.fontSize": 15});
-    // 源码编辑器里 Ctrl+滚轮不顺便把代码滚走（捕获阶段先拦下）。
-    expect(await monaco(page).locator(".view-lines").evaluate((element) => (element.parentElement as HTMLElement).scrollTop ?? 0)).toBe(0);
+});
+
+test("桌面里：源码编辑器上的 Ctrl+滚轮不顺便把代码滚走（捕获阶段先于 Monaco 自己的滚动监听拦下）", async ({page}) => {
+    await installShell(page);
+    await openWorkbench(page);
+    await item(page, "project://code").click();
+    await item(page, "project://code/long.py").dblclick();
+    await expect(monaco(page).locator(".view-lines")).toContainText("f0");
+    // Monaco 用样式 `top` 位移滚动（元素自己的 scrollTop 恒为 0），字号一变行高也变、位移跟着变：看第一条可见行的行号。先用键盘翻到中段，记下它。
+    const offset = (): Promise<string> => monaco(page).locator(".margin-view-overlays .line-numbers").evaluateAll((elements) => String(Math.min(...elements.map((element) => Number(element.textContent)))));
+    await monaco(page).locator(".view-lines").click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("PageDown");
+    await page.keyboard.press("PageDown");
+    await page.keyboard.press("PageDown");
+    await expect.poll(async () => Number(await offset())).toBeGreaterThan(10);
+    const scrolled = await offset();
+    await ctrlWheel(page, monaco(page), 100);
+    await expect.poll(() => codeSize(page)).toBe("13px");
+    expect(await offset()).toBe(scrolled);
 });
 
 test("浏览器里（没有壳）：Markdown 编辑器上的 Ctrl+滚轮不被拦、字号与设置都不变", async ({page}) => {
@@ -151,7 +172,15 @@ test("浏览器里（没有壳）：Markdown 编辑器上的 Ctrl+滚轮不被�
     await ctrlWheel(page, prose(page), -100);
     expect(await markdownSize(page)).toBe("17px");
     expect(await userLayer()).toEqual({});
-    expect((await page.evaluate(() => (window as unknown as {__wheelPrevented: boolean[]}).__wheelPrevented)).includes(true)).toBe(false);
+    // 事件确实到过窗口（数组为空时“没被拦”是空断言），并且没被页面拦下。
+    const seen = await page.evaluate(() => (window as unknown as {__wheelPrevented: boolean[]}).__wheelPrevented);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.includes(true)).toBe(false);
+    // 源码编辑器上同样不改字号与设置（Monaco 自己消耗 Ctrl+滚轮，保持原样）。
+    await openCode(page);
+    await ctrlWheel(page, monaco(page), -100);
+    expect(await codeSize(page)).toBe("14px");
+    expect(await userLayer()).toEqual({});
 });
 
 test("桌面里长文档：改一档字号后视野里的那一段还在原处附近（不漂到别处）", async ({page}) => {

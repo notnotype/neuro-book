@@ -49,6 +49,11 @@ async function installShell(page: Page): Promise<void> {
         const messages: unknown[] = [];
         (window as unknown as {__shellSent: unknown[]}).__shellSent = messages;
         (window as unknown as {__electrobunSendToHost: (message: unknown) => void}).__electrobunSendToHost = (message) => void messages.push(message);
+        // 冒泡到窗口的滚轮事件有没有被拦下（桌面里 Ctrl+滚轮在编辑器与图片查看器之外由全局监听拦下）。
+        const wheels: boolean[] = [];
+        (window as unknown as {__wheelPrevented: boolean[]}).__wheelPrevented = wheels;
+        // 同一目标上的监听按登记顺序执行，这里先于页面的监听：到下一个宏任务再读，才看得到别人拦没拦。
+        window.addEventListener("wheel", (event) => void setTimeout(() => wheels.push(event.defaultPrevented)), {passive: true});
     });
 }
 
@@ -110,12 +115,14 @@ test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+
 
     // Ctrl+滚轮不换界面缩放（只在编辑器上改字号、在图片查看器里缩放图片）：滚几格，壳收到的缩放不变。上面已等防抖写回
     // 落盘：写回之后配置服务会再交一次同样的值，所以下面按不同的值核对，不按条数。
-    const box = await page.locator("[data-workbench-root]").boundingBox();
-    await page.mouse.move((box?.x ?? 0) + 400, (box?.y ?? 0) + 300);
+    // 指针放在标题栏上：不在任何编辑组里，走的是桌面插件的全局监听。
+    const box = await page.locator("[data-workbench-titlebar]").boundingBox();
+    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
     await page.keyboard.down("Control");
     await page.mouse.wheel(0, 150);
     await page.mouse.wheel(0, -300);
     await page.keyboard.up("Control");
+    await expect.poll(() => page.evaluate(() => (window as unknown as {__wheelPrevented: boolean[]}).__wheelPrevented)).toEqual([true, true]);
     const settled = await zooms(page);
     expect(settled.at(-1)).toBe(1.25);
     expect([...new Set(settled)]).toEqual([1, 1.1, 1.25]);

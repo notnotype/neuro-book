@@ -1,5 +1,5 @@
 /**
- * 桌面窗口的界面缩放（desktop-shell 的“桌面专属设置”，`web/zoom.ts`）：档位换算、快捷键与滚轮的判定、改档与写回。写回用真实的
+ * 桌面窗口的界面缩放（desktop-shell 的“桌面专属设置”，`web/zoom.ts`）：档位换算、快捷键的判定、改档与写回（Ctrl+滚轮的累积在 `src/shared/wheel-steps.test.ts`，它不再换界面缩放）。写回用真实的
  * 配置拥有者（服务端位置的 `nbook.settings`，写状态根下的 settings.json）；防抖的计时由测试手动推进。
  */
 

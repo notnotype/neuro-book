@@ -101,12 +101,23 @@ const userLayer = async (file: string): Promise<unknown> => JSON.parse(await rea
 describe("Ctrl+滚轮累积", () => {
     it("累积满一档才换，换了方向先清零", () => {
         const wheel = createWheelAccumulator();
-        expect(wheel(-40)).toBeNull();
-        expect(wheel(-40)).toBeNull();
-        expect(wheel(-40)).toBe("in");
-        expect(wheel(-40)).toBeNull();
-        expect(wheel(60)).toBeNull();
+        expect(wheel(-20)).toBeNull();
+        expect(wheel(-20)).toBeNull();
+        expect(wheel(-20)).toBe("in");
+        expect(wheel(-20)).toBeNull();
+        expect(wheel(30)).toBeNull();
         expect(wheel(WHEEL_STEP)).toBe("out");
+    });
+
+    it("一格普通滚轮在任何页面缩放下都换一档：100% 时 100、200% 时 50；一次事件最多一档，换档后清零", () => {
+        for (const delta of [100, 80, 50]) {
+            const wheel = createWheelAccumulator();
+            expect(wheel(-delta)).toBe("in");
+            expect(wheel(-delta)).toBe("in");
+        }
+        const wheel = createWheelAccumulator();
+        expect(wheel(-100)).toBe("in");
+        expect(wheel(-20)).toBeNull();
     });
 });
 
@@ -170,6 +181,23 @@ describe("整数设置的按档改与写回", () => {
         } finally {
             await chmod(file, 0o644);
         }
+    });
+
+    it("写在途时又走一档：目标不被在途的写清掉，第二次防抖写的是最后一档；写失败后还能继续走", async () => {
+        const {settings, file} = await serverSettings();
+        const timer = manualSchedule();
+        const stepped = createSteppedSetting(options(settings, timer));
+        stepped.step(1);
+        timer.flush();
+        stepped.step(1);
+        expect(stepped.current()).toBe(19);
+        await waitUntil("在途的写落盘", async () => JSON.stringify(await userLayer(file)) === JSON.stringify({[KEY]: 18}));
+        // 在途的写完成时目标已经是 19：不清它，有效值仍是 19，不闪回 18。
+        expect(stepped.current()).toBe(19);
+        timer.flush();
+        await waitUntil("最后一档写进", async () => JSON.stringify(await userLayer(file)) === JSON.stringify({[KEY]: 19}));
+        await waitUntil("读到 19", () => settings.get(setting) === 19);
+        expect(stepped.current()).toBe(19);
     });
 
     it("页面要离开：flush 立即写；dispose 也先写回再取消计时", async () => {

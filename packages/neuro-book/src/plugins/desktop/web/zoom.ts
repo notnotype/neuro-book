@@ -4,6 +4,8 @@
  * 改档先把目标档位交给壳（界面立即变），再在防抖里写用户层；防抖期间再改，从目标档位接着算，不从还没写回的旧值算，所以连按
  * 几下不会丢档或回弹。写回失败时说明原因，把壳拉回配置服务里的值。快捷键不写进命令声明：声明只能写一个键位，分发器按
  * `event.key` 精确比对，Ctrl+Shift+=、小键盘与别的键盘布局都命不中；这里按 `event.code` 认。
+ *
+ * 同形的整数设置版本是 `nbook/shared/wheel-steps` 的 `createSteppedSetting`，两处不合并的理由写在那里。
  */
 
 import type {DesktopSettingValues} from "nbook/shared/desktop-bridge";

@@ -7,8 +7,12 @@ import {shallowRef} from "@vue/reactivity";
 
 import type {SettingDefinition, SettingsService} from "./settings";
 
-/** 滚轮累积满这么多才换一档：触控板的捏合会合成大量细小的 Ctrl+滚轮事件，普通滚轮一格是 100。 */
-export const WHEEL_STEP = 100;
+/**
+ * 滚轮累积满这么多才换一档，换档后清零（一次事件最多一档）：触控板的捏合会合成大量细小的 Ctrl+滚轮事件。`deltaY` 是 CSS 像素，
+ * 页面缩放不是 100% 时一格普通滚轮小于 100（200% 时是 50），所以阈值取一格在页面最大缩放（200%）下的像素数：任何缩放下一格都换一档，
+ * 又不会因为阈值更低而在 100% 时一格换两档（清零保证）。
+ */
+export const WHEEL_STEP = 50;
 
 /** 滚轮换档的方向：向上滚（`deltaY` 为负）是 `in`（放大）。 */
 export type WheelDirection = "in" | "out";
@@ -58,7 +62,8 @@ export interface SteppedSetting {
 
 /**
  * 整数设置的“按档改、防抖写回”：同桌面界面缩放（`plugins/desktop/web/zoom.ts` 的 `createZoomController`）的做法，档位表换成
- * 一个整数范围。值等于缺省值时写 `undefined`（删掉用户层的键，回到缺省，而不是把缺省值写进文件）；写入不带 `expect`，别处在
+ * 一个整数范围。两处各留一份没有合并：缩放的档位表不是等距的、每次改档还要把目标值交给壳（`report`），合并要给这个函数加
+ * 两个钩子，收益小于代价；改防抖里的竞态（写在途时又改档）时两处一起看。值等于缺省值时写 `undefined`（删掉用户层的键，回到缺省，而不是把缺省值写进文件）；写入不带 `expect`，别处在
  * 防抖期间改了同一项，以本窗口的目标为准（最后写者赢）。写成功时配置服务已同步应用，清掉目标不会让值回跳。
  */
 export function createSteppedSetting(options: SteppedSettingOptions): SteppedSetting {
