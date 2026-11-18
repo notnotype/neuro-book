@@ -676,6 +676,30 @@ test.describe("状态栏的可选项（docs/specs/agent/conversation.md 输出 4
         await expect(page.locator(".nb-ui-tooltip-surface")).toContainText("Claude Sonnet");
     });
 
+    test("用量换到左边：画在上下文后面、提醒前面", async ({page}) => {
+        await openScene(page, "AgentStatusBar", "left-usage", "desktop");
+        const left = await page.locator("[data-agent-status] .acv-status__left [data-status-item]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-item")));
+        expect(left).toEqual(["context", "usage"]);
+        const usage = await box(page, "[data-status-item='usage']");
+        const reminder = await box(page, "[data-status-phase]");
+        expect(usage.x + usage.width).toBeLessThanOrEqual(reminder.x);
+    });
+
+    test("窄（280px）且用量在左边：右边收完再收左边的用量；提醒完整，上下文留着；悬停按呈现顺序写收起的项", async ({page}) => {
+        await openScene(page, "AgentStatusBar", "narrow-left-usage", "desktop");
+        await expect(page.locator("[data-status-more]")).toBeVisible();
+        await expect(item(page, "context")).toBeVisible();
+        await expect(item(page, "usage")).toBeHidden();
+        await expect(item(page, "cost")).toBeHidden();
+        await expect(item(page, "model")).toBeHidden();
+        const bar = await box(page, "[data-agent-status]");
+        const reminder = await box(page, "[data-status-phase]");
+        expect(reminder.x + reminder.width).toBeLessThanOrEqual(bar.x + bar.width + TOLERANCE_PX);
+        await expect(page.locator("[data-status-phase]")).toHaveText("等你回答");
+        await page.locator("[data-status-more]").hover();
+        await expect(page.locator(".nb-ui-tooltip-surface")).toContainText(/^162\.4k · .*\$0\.07 · Claude Sonnet/u);
+    });
+
     test("右键弹勾选菜单，勾一项发 statusLine.toggle，最后一项发 statusLine.openSettings", async ({page}) => {
         await openScene(page, "AgentConversationView", "status-line");
         await page.locator("[data-agent-status]").click({button: "right", position: {x: 20, y: 10}});
@@ -689,7 +713,19 @@ test.describe("状态栏的可选项（docs/specs/agent/conversation.md 输出 4
 });
 
 test.describe("状态栏设置页（docs/specs/agent/conversation.md 输出 46）", () => {
-    const rows = (page: Page, side: "left" | "right") => page.locator(`[data-status-group='${side}'] [data-status-row]`).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
+    const rows = (page: Page, side: "left" | "right") => page.locator(`[data-sortable-section='${side}'] [data-status-row]`).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
+    const previewIn = (page: Page, side: "left" | "right") => page.locator(`[data-status-line-preview] .acv-status__${side} [data-status-item]`).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-item")));
+    /** 在一行的标题上按下，竖直挪 `dy`（分多步，每步都过会话的帧合并），松手。 */
+    async function dragRow(page: Page, id: string, dy: number): Promise<void> {
+        const box = (await page.locator(`[data-status-row='${id}']`).boundingBox())!;
+        const x = box.x + 60;
+        const y = box.y + 10;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x, y + Math.sign(dy) * 8, {steps: 2});
+        await page.mouse.move(x, y + dy, {steps: 12});
+        await page.mouse.up();
+    }
 
     test("缺省：左右两组按目录次序；预览与列表一致；左边第一项不能上移、右边最后一项不能下移", async ({page}) => {
         await openScene(page, "StatusLinePage", "default");
@@ -710,9 +746,45 @@ test.describe("状态栏设置页（docs/specs/agent/conversation.md 输出 46�
         await expect(page.locator("[data-status-line-preview] [data-status-item='x.words']")).toBeVisible();
     });
 
-    test("配置写不了：勾选与上移下移都停用", async ({page}) => {
+    test("配置写不了：勾选、上移下移与拖动把手都停用", async ({page}) => {
         await openScene(page, "StatusLinePage", "readonly");
         await expect(page.locator("[data-status-row='cost'] [data-status-move-down]")).toBeDisabled();
         await expect(page.locator("[data-status-row='cost'] input[type='checkbox'], [data-status-row='cost'] [role='checkbox']").first()).toBeDisabled();
+        await expect(page.locator("[data-sortable-key='cost'] [data-sortable-handle]")).toBeDisabled();
+    });
+
+    test("拖到另一组：用量拖到左边第一位，写完后两组与预览都跟着变；没有落点线", async ({page}) => {
+        await openScene(page, "StatusLinePage", "default", "desktop");
+        const from = (await page.locator("[data-status-row='usage']").boundingBox())!;
+        const to = (await page.locator("[data-status-row='context']").boundingBox())!;
+        await dragRow(page, "usage", to.y - from.y - 8);
+        await expect.poll(() => rows(page, "left")).toEqual(["usage", "context"]);
+        expect(await rows(page, "right")).toEqual(["cost", "model"]);
+        await expect.poll(() => previewIn(page, "left")).toEqual(["usage", "context"]);
+        await expect(page.locator(".is-over, .is-over-after")).toHaveCount(0);
+    });
+
+    test("上移跨组：右边第一项上移到左边最后；左边第一项不能上移", async ({page}) => {
+        await openScene(page, "StatusLinePage", "default", "desktop");
+        await expect(page.locator("[data-status-row='context'] [data-status-move-up]")).toBeDisabled();
+        await page.locator("[data-status-row='usage'] [data-status-move-up]").click();
+        await expect.poll(() => rows(page, "left")).toEqual(["context", "usage"]);
+        expect(await rows(page, "right")).toEqual(["cost", "model"]);
+    });
+
+    test("换过边的设置：两组与预览按设置画", async ({page}) => {
+        await openScene(page, "StatusLinePage", "crossed", "desktop");
+        expect(await rows(page, "left")).toEqual(["usage"]);
+        expect(await rows(page, "right")).toEqual(["cost", "model", "context"]);
+        await expect.poll(() => previewIn(page, "left")).toEqual(["usage"]);
+    });
+
+    test("写入失败：拖动放下后回到原样", async ({page}) => {
+        await openScene(page, "StatusLinePage", "write-fails", "desktop");
+        const from = (await page.locator("[data-status-row='usage']").boundingBox())!;
+        const to = (await page.locator("[data-status-row='context']").boundingBox())!;
+        await dragRow(page, "usage", to.y - from.y - 8);
+        await expect.poll(() => rows(page, "left")).toEqual(["context"]);
+        expect(await rows(page, "right")).toEqual(["usage", "cost", "model"]);
     });
 });

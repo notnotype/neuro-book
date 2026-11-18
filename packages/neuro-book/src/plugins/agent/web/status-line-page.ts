@@ -37,7 +37,8 @@ export function statusLinePage(component: Component, deps: {
                 setting: deps.settings.get(agentSettings.settings.statusLine),
                 writable: props.context.writable.value,
                 onToggle: (id: string) => void deps.writer.toggle(id).then(reportIfFailed),
-                onMove: (id: string, to: StatusLineSlot) => void deps.writer.move(id, to).then(reportIfFailed),
+                // 交回写入的 Promise：拖动放下后的次序留到它 settle（写成功时设置已是新次序，失败就回原样并报告）。
+                onMove: (id: string, to: StatusLineSlot) => deps.writer.move(id, to).then(reportIfFailed),
                 onShift: (id: string, delta: -1 | 1) => void deps.writer.shift(id, delta).then(reportIfFailed),
             });
         },

@@ -408,7 +408,7 @@ test("状态栏可自定义（conversation.md 输出 45、46）：右键勾选�
     await page.getByRole("menuitem", {name: "状态栏设置…"}).click();
     const settingsPage = page.locator("[data-status-line-page]");
     await expect(settingsPage).toBeVisible();
-    const rows = () => settingsPage.locator("[data-status-group='right'] [data-status-row]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
+    const rows = () => settingsPage.locator("[data-sortable-section='right'] [data-status-row]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status-row")));
     await expect.poll(rows).toEqual(["usage", "cost", "model"]);
     await settingsPage.locator("[data-status-row='model'] [data-status-move-up]").click();
     await expect.poll(rows).toEqual(["usage", "model", "cost"]);
