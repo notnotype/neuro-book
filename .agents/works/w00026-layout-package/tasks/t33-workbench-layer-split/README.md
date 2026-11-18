@@ -31,6 +31,20 @@ updated: 2026-11-18
   | 8 | e2e 漏直接受影响的文件，切片 1 没有浏览器验证 | 两片各列文件，切片 2 共 12 个，带 `NB_E2E_WIDE` |
   | 9 | 边界测试拆分前后都过，没有约束力 | 切片 1 先挪进 `src/workbench/` 并用 `excluding` 拦（先红）；L2 的边界分两层 |
 
+- 第 1 片（worktree `w00026-t33-workbench-split`，分支 `refactor/w00026-t33-workbench-split`，`d341ba632`）：工作台层挪进 nb-layout 的 `src/workbench/`，L0、L1 不再导入它。验证：
+  - nb-layout 类型检查，`bun test` 593、vitest 259 全过，`boundary.test` 先红后绿；
+  - neuro-book 类型检查，工作台与编辑器单元测试 789 全过；
+  - e2e 四个文件 109 条：107 过，`editor-area` 的 2171、2207 失败。单独重跑三轮，各失败两次、通过两次，负载 17 到 30。现象与 Work README 记的已知问题一样（预览停在 `source-removed`、拆组没发生）。第 1 片的运行时改动只有类型、注释与导入路径，搬到 `grid-rects.ts` 的两个函数体逐字未变，所以归负载，不另做基线对照。
+- 和计划第 2 稿不同的两处（`plan.md` 已改）：
+  - 浮动窗矩形用已有的 `GridRect`。设计审查第 3 条以为 L0 没有这个形状的类型，其实 `GridRect` 就是 `{x, y, width, height}`。`LayoutFloatRect` 写成它的别名。
+  - TabStrip 一族第 1 片留在 `src/vue/`，第 2 片直接搬进新包。挪进 `src/workbench/vue/` 会断掉 Lab 的扫描、`TabStrip.md` 的相对链接与 `COMPONENT_EXPORT_PATTERN`，L0、L1 也没有别的文件导入它们。
+- SDK 比对的判据改成“没有两个包的模块说明符”：搬前的产物里已有打包工具写的 `//#region ../nb-layout/…` 来源注释，照字面 grep 不会是零。搬前的产物在任务临时目录，比对结果随第 2 片记。
+- L0、L1 注释里仍有的工作台说法（按分界判据，注释不算 L2 概念，不改；t35、t36 碰到这些文件时顺手改成通用说法）：
+  - `grid-drop.ts:24` 工作台边缘并入；`grid-types.ts:51` 工作台里一列工具面板；
+  - `grid-motion.ts:34` 编辑组的头、`:161` 底部面板和编辑区、`:176` 切换侧栏的容器、`:280` 视图被活动栏吸收；
+  - `sortable.ts:5` 链接 `ui/workbench-layout` 输出 38、`:74` 工作台实时布局的粘滞；
+  - `vue/DropSectorsOverlay.vue:21` 编辑组最窄 220px；`vue/useRenderOrder.ts:24`、`:44` 编辑组；`vue/drop-targets.ts:3` 不需要工作台在场。
+
 ## 下一步
 
-开 worktree `w00026-t33-workbench-split`（分支 `refactor/w00026-t33-workbench-split`），做第 1 片。
+第 2 片：新包 `packages/nb-workbench-layout`，搬家、改导入、SDK 与登记。

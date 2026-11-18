@@ -4,7 +4,7 @@
 
 - 新包的配置列全（第 1 条）；
 - SDK 打包与比对产物（第 2 条）；
-- 浮动窗矩形下沉的类型（第 3 条）；
+- 浮动窗矩形下沉的类型（第 3 条；实施时改用已有的 `GridRect`）；
 - `DropSectorsOverlay` 只放宽、不改接口（第 4 条）；
 - `entryRect` 与分界判据（第 5 条）；
 - 导入按 AST 改（第 6 条）；
@@ -33,7 +33,7 @@
 
 ### 切片 1 的闸：先把要搬的文件挪进 `src/workbench/`
 
-- 先在 nb-layout 里把要搬的文件 `git mv` 到 `src/workbench/` 子目录：`layout-doc`、`layout-project`、`layout-drop`、`presented-ids`、`layout-doc-fixtures` 及测试，`vue/TabStrip.*` 与 `vue/tab-strip-geometry*` 到 `src/workbench/vue/`。
+- 先在 nb-layout 里把要搬的文件 `git mv` 到 `src/workbench/` 子目录：`layout-doc`、`layout-project`、`layout-drop`、`presented-ids`、`layout-doc-fixtures` 及测试。`vue/TabStrip.*` 与 `vue/tab-strip-geometry*` 切片 1 留在原处，切片 2 直接搬进新包：挪进 `src/workbench/vue/` 会断掉 Lab 按 `src/vue/*.vue` 的扫描、`TabStrip.md` 里按目录深度写的链接与 `COMPONENT_EXPORT_PATTERN`（只认 `./X.vue`），L0、L1 里也没有别的文件导入它们。
 - `boundary.test.ts` 加 `excluding: ["workbench"]`：L0、L1 不得导入 `src/workbench/`。现在会失败，切片 1 做完转绿。
 - 切片 2 再把整个子目录搬进新包。
 - 审查核实过：L0、L1 反向导入这些文件的只有 `FloatWindowHandles.vue`、`DropSectorsOverlay.vue` 两处，以及 `DropSectorsOverlay.dom.test.ts` 用的夹具。
@@ -41,9 +41,9 @@
 ### L1 里带 L2 概念的三处（切片 1）
 
 - **浮动窗矩形下沉到 L0**：
-  - `grid-rects.ts` 新增 `GridFloatRect`（`{x, y, width, height}`）；
-  - `resizeFloatRect`、`clampFloatRect`、`LayoutFloatResize` 随它下沉：两个函数共用一个矩形，不分居两包；
-  - L2 的 `LayoutFloatRect` 写成 `GridFloatRect` 的别名，结构兼容，应用不用改；
+  - 用 `grid-rects.ts` 已有的 `GridRect`：它就是 `{x, y, width, height}`，不另立类型；
+  - `resizeFloatRect`、`clampFloatRect`、`LayoutFloatResize` 下沉到 `grid-rects.ts`，按 `GridRect` 写：两个函数共用一个矩形，不分居两包；
+  - L2 的 `LayoutFloatRect` 写成 `GridRect` 的别名，结构兼容，应用不用改；
   - 公开入口补这几个值与类型的导出。
 - **`DropSectorsOverlay`**：
   - 只把 `sectors` 的 `id` 放宽成 `string`：`sectors: ReadonlyArray<{readonly id: string; readonly points: ReadonlyArray<readonly [number, number]>}>`、`active: string | null`；
@@ -107,7 +107,7 @@
   - `componentsDoc()` 把新包的 `vue` 目录也读进来，`TabStrip` 仍归“布局”组。
 - `src/sdk/components.ts`：`TabStrip` 与 `TabStripItem`、`TabStripPartition` 改从新包重导出，名字不变。
 - `sdk.test.ts`：两处入口列表加新包的 `.` 与 `/vue`。
-- 对照：搬前搬后各跑一次 `build:sdk` 到临时目录，比对 `docs/components.md`、`docs/exports.md` 与三份 `*.d.ts` 的导出名，要一致；`grep -r "nb-workbench-layout\|nb-layout"` 输出目录要零命中。
+- 对照：搬前搬后各跑一次 `build:sdk` 到临时目录，比对 `docs/components.md`、`docs/exports.md` 与三份 `*.d.ts` 的导出名，要一致；输出目录里没有 `@notnotype/nb-layout` 或 `@notnotype/nb-workbench-layout` 的模块说明符（打包工具写的 `//#region ../nb-layout/…` 来源注释不算，搬前就有）。
 
 ### 登记与链接（切片 2）
 
@@ -154,7 +154,7 @@
 不改行为，没有新的输出条目。判据：
 
 - 切片 1：`boundary.test` 由红转绿；
-- 切片 2：两包的边界测试与类型检查通过，SDK 产物比对一致、零外部引用；
+- 切片 2：两包的边界测试与类型检查通过，SDK 产物比对一致、没有这两个包的模块说明符；
 - 上面的 e2e 照过。
 
 ## 不做与风险
