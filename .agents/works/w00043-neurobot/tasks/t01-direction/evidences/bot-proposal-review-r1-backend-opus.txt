@@ -1,0 +1,184 @@
+# w00043 t01 提案第四稿（bot 内置插件）后端与设计审查 · Opus
+
+审查对象：/tmp/review-bot-proposal-r1/proposal-78bafe8de.md（提交 78bafe8de）。复现脚本在 /tmp/review-bot-proposal-r1/repro/。
+
+### 1. 运行中 send 进缓冲区的宿主消息，在 error 收口与只压缩的运行之后无人取走，日程注入会静默滞留
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：提案第四节第 5 小节“空闲时它开一轮；运行中它进缓冲区，当前这一轮结束时接着开一轮……所以‘由事件开启一轮’不用新的指令”，与第 7 小节“宿主发起的压缩进行中来了消息时”；`packages/nb-harness/src/kernel/run/loop.ts:183-197`（只压缩的运行做完直接 end）、`loop.ts:378-383`（只在 completed 时取 followup）、runtime.md 输出 30（“轮以 error 或 aborted 结束时不取 followup”）、输出 30 的 `abort` 缺省清空缓冲区、输出 34（重启后“缓冲区里的输入留着，不自动发出”）。
+- **现象**：`send` 运行中只写 `inputQueued`（缺省 `followup`），只有“这一轮以 completed 结束”才会接着开一轮。其余收口方式：`error`（模型失败、`cost-limit`、`tool-call-loop`、`tools-missing`、`empty-reply`）→ 留在缓冲区，会话回到 idle，没人 `start`；`aborted`（用户在 bot 视图点停止）→ 缺省 `inputRemoved{aborted}`，注入被删掉；`interrupted`（重启）→ 留着；只压缩的运行（`runStarted{kind:"compact"}`，正是第 7 小节空闲压缩、缓存过期前压缩要开的那种）→ 收口时根本不看缓冲区，留着。
+- **如何核实**：`cd packages/nb-harness && bun test /tmp/review-bot-proposal-r1/repro/stranded-buffer.test.ts`（真实内核、内存存储、假模型）。输出：运行中 send 得 `runId: null`；第二次模型请求 `fail` 后 `run reason: error`，`buffer after error: [{"mode":"followup","text":"[日程] 每周简报"}]`、`run state: idle`；只压缩的运行 `completed` 后同样 `buffer: [followup]`、`idle`、没有新的模型请求。另外 `sendCommand`（run/commands.ts:101-117）空闲时直接取走新输入开一轮，所以滞留的宿主消息要等用户下一句话的那一轮结束才被当作 followup 取走，先后颠倒。
+- **为什么是问题**：提案据“现有 send 语义”去掉了前三稿的“运行收口时写出外部事实”，也据此说“不用新的指令”。这条前提只在 completed 收口时成立。日程的“已发”记录在 `send` 受理后就写，日程插件认为发出了，bot 却永远没处理；按天费用上限（第 4 小节）一触发，当天之后的所有注入都滞留或在下一次运行开头就 `cost-limit` 结束。第 7 小节说“压缩请求还没发出的就中止”，而 `abort` 不带 `keepQueue` 时恰好把已排队的消息删掉。用户在 bot 视图里的输入也走 nbook.agent 的对话宿主直接 `send`，不经 nbook.bots，提案说的“等压缩做完再发这条消息”没有执行者。
+- **建议改法**：二选一并写进 runtime.md：(a) 内核规则“运行以任何原因收口（abort 清空的除外）后缓冲区里还有输入时，同一个写入批开下一次运行”，只压缩的运行同样；(b) 不改内核，`nbook.bots` 订阅主对话的 `runEnded`，空闲且缓冲区不空时 `start`（`start` 会先取缓冲区第一条），并对 error 的种类限次（`cost-limit`、`tool-call-loop` 时不续，等日界或用户）。另外：宿主发起的压缩中止一律用 `abort{keepQueue: true}`；“压缩中来消息”的规则放进内核（只压缩的运行收口后按 (a) 接着跑），不靠 nbook.bots 拦用户的 send。第六节的 runtime.md 改动清单补这一条。
+
+### 2. “宿主消息不算用户授权”会经子代理洗白：审批模型今天把父会话发给子会话的话（by: session）当成用户亲手打的字
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：提案第四节第 5 小节“不算用户的授权：auto 的审批模型拿到的对话材料里，宿主发出的消息单独标出来”、第 5 小节“重活交给子代理”、第 12 小节；`packages/nb-harness/src/kit/approval/review.ts:81-100`（`conversation()` 把路径上所有 `input`、`steer` 都当作 `{user: text}`，不看 `data.by`）；`packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:209,348`、`children.ts:46`（子会话的初始输入与 `agent_send` 以 `{kind:"session", id: 父}` 发出）；permissions.md 输出 20（“只看用户亲手打的字”）。
+- **现象**：子会话的审批模式在建时取父会话此刻的值（subagents.md 输出 3）。主对话若在 `auto`，bot 按日程注入的提示词派子代理，子会话里的第一条 `input` 是父会话写的任务说明，`by: session`；审批模型把它当作“用户明确要求”。提案只要求主对话里的 host 消息单独标出来，没管它被模型改写成子代理任务后的样子。
+- **为什么是问题**：开发者 2026-11-18 定“注入的话不算用户的授权”，而开发者同日定“重活由 bot 派子代理”——第一版的周期任务的主要执行路径正是子代理。按现状，审批模型在子会话里看到的“用户的话”完全由 Agent 生成，正是 review.ts 文件头说的“Agent 的解释可能在说服它”那条路。这也不只是 bot 的问题：Spec 输出 20 写的是“用户亲手打的字”，实现与 Spec 不符，普通会话的子代理今天就是这样。
+- **如何核实**：读 review.ts:84-100，`user()` 不读 `by`；读 runtime.md 输出 85 确认子会话的输入带 `by: {kind:"session"}`。可以在 `kit/approval/review.test.ts` 里加一条：子会话路径上只有 `by: session` 的输入，判定材料里仍出现 `{user: ...}`。
+- **建议改法**：审批模型的材料按 `by` 分三类：用户（无 `by`）、会话（标“派你的 Agent 写的任务，不代表用户授权”）、宿主（标来源）；只有第一类算授权依据。没有用户亲手的话的子会话（bot 派的全部子代理）在 `auto` 下等于“没有授权依据”，提示词里写明。第六节在 `harness/host-kit.md`、`agent/permissions.md` 输出 20 都补上 `by: session` 这一类，验收加“bot 按注入派的子代理在 auto 下删除作品文件被转人工”。
+
+### 3. 第三节对费用上限的描述不准，“按本地日历日累计”在现有守卫上没有可用的数据，触顶后的注入与日界恢复也没定
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第三节“运行守卫：费用上限按会话一生累计”、第四节第 4 小节“费用上限”、第六节 `agent/run-guards.md` 一行；run-guards.md 输出 4、13 与实现合同；`packages/nb-harness/src/kit/guards/cost-guard.ts`（只比 `ctx.spend` 或 `scope.total` 的绝对值）；`packages/neuro-book/src/plugins/agent/backend/subagents/tree-spend.ts`（按会话存绝对值，关着的会话取索引里的 `spend` 总数）；session.md 输出 22（索引只有 `spend: {cost, unpriced}` 总数）。
+- **现象**：(a) 现状是“整棵会话树的一生累计”（run-guards 输出 13），不是“按会话”。主对话的树会把 bot 派过的每个子代理都算进来，几个月后 `descendantsOf(root)` 每次请求前遍历全部后代。(b) 内核只给一生累计（runtime.md 输出 70），索引也只有总数，关着的子会话拿不到“今天花了多少”。按日计要么在每个日界记下整棵树的基线（要持久化，跨重启、跨时区变更），要么按事件的 `at` 重算（违背 run-guards“累计数在内核、扩展不另记”的不变量，且关着的子会话要打开才能算）。(c) 用户级的 `nbook.agent/maxCost` 仍按一生累计装在每个会话上，设了就会让主对话某天永久顶住；提案没说主对话是改用日上限还是两者都比。(d) 触顶后对话请求以 `error`、`cost-limit` 收口（输出 4），恢复方式是“调高上限后 start”。到了第二天没人 `start`；当天之后空闲时到点的注入会开一轮、立刻 `cost-limit` 收口，注入的话已经被取走（成了这一轮的 input），日程那边记成“已发”，等于丢了。
+- **为什么是问题**：第 4 小节把它写成一句话的设定，第六节只列“有归属的会话按本地日历日累计”，后续切片照字面做时会发现没有数据源，或者做出一个只看主对话自己、不含子代理的日上限（重活全在子代理里，几乎不起作用）。
+- **如何核实**：读 tree-spend.ts 的 `load`/`record`/`total` 与 cost-guard.ts 的 `check`；`grep -n spend packages/nb-harness/src/kernel/log/index-file.ts` 确认索引只存总数。
+- **建议改法**：Spec 里写清：日上限比的是“主对话树今天的花费 = 树的一生累计 − 本地日界时记下的基线”，基线由 `nbook.bots` 持久化（日界、重启后首次判断时补记）；用户级 `maxCost` 对有归属的会话不生效或取两者较严，二选一写明；日界时若主对话停在 `cost-limit`，`nbook.bots` 负责 `start`；日程注入前先查当日是否已触顶，触顶的写一条说明并按“错过”处理，不发。也可以把第一版收窄成“只告警（warnCost 按日），不设硬上限”，交开发者定。
+
+### 4. 主对话“第一次用到才建、靠订阅持有”在重启后没有起点：恢复、自动接续、省钱压缩的计时都要等有人打开；订阅失败无声
+- **严重程度**：重要；**类别**：不变量
+- **位置**：提案第四节第 4 小节“建与持有”“重启”、第 7 小节“到点发起压缩的计时由 nbook.bots 持有”；`packages/nb-harness/src/kit/sessions/table.ts:362-387`（同进程 `subscribe` 打不开会话时只写诊断 `session-subscribe-failed`）、`table.ts:218`（返回失败的 `subscribeOpened` 不在 `AgentService` 上，`agent/shared/contracts.ts:107-111` 只有 `session(id, issuer?)`）；session.md 输出 15（恢复发生在“打开时”）；耦合审查缺口 G7、G8。
+- **现象**：(a) 提案只写了“建”的时机（打开 bot 视图或第一次注入），没写服务端重启后谁、什么时候重新打开并订阅已存在的主对话。重启后会话没被打开时：被中断的运行不会写 `interrupted`（恢复在打开时做），“nbook.bots 用 start 接着处理”没有触发点；省钱压缩的计时“挂在订阅上”也不会起；直到用户打开 bot 视图或下一次日程到点。(b) 插件激活里不能开会话（contributions.md 输出 3），激活返回后起异步任务去开，平台没有“实例可用后”的回调（G8）；这个异步任务与 `nbook.agent` 停止（sessions.md 输出 14，停止时按 `interrupted` 关闭）之间的先后也没写。(c) 经 `agentKey.session(id).subscribe` 持有时，打开失败（`session-busy`、`log-broken`、Profile 解析不到而只读）只进诊断，nbook.bots 以为持有着，30 秒后句柄被关，计时与“常驻”都悄悄失效（G7 原样带进第四稿，提案没提）。(d) “自动接续有次数上限”的计数存在哪里没写；存内存的话进程反复崩溃时每次都从 0 开始，正好挡不住它要挡的情况。
+- **为什么是问题**：常驻是 bot 的核心性质；这几处缺了，重启后的第一段时间 bot 的行为与“一直开着”不同，且没有可观察的失败。
+- **如何核实**：读 table.ts:362-387 与 `AgentService`；session.md 输出 15、sessions.md 输出 14。
+- **建议改法**：`AgentService` 加返回结果的 `hold(sessionId)`（或把 `subscribeOpened` 放上去），失败交回码，nbook.bots 按码重试或在 bot 视图上显示；nbook.bots 激活返回后由平台的 `onStarted` 类钩子（要新增，或在 `activation.trigger` 之后自起任务并写明与停止的先后）打开每个 bot 的主对话：这一步同时完成恢复、自动接续与计时的起点。接续次数从日志算（自上一次 `completed`/`finished` 以来连续的 `runEnded{interrupted}` 条数），不另存。
+
+### 5. 会话头 `owner` 只写了“宿主解释、内核不管”，实际要动内核的四处，且 fork、子会话、changeProfile、Profile 丢失时的语义都没定
+- **严重程度**：重要；**类别**：不变量
+- **位置**：提案第四节第 4 小节“归属”、第 9 小节“自有目录”、第六节 `harness/session.md` 一行；`packages/nb-harness/src/kernel/log/validate.ts:28-34`（会话头逐字段校验）、`session/session.ts:122`（`ToolSessionContext` 由内核从会话头拼出，只有 `sessionId/profile/project/background`）、`session/session.ts:480,498-509`（`CreateSessionOptions`）、`log/index-file.ts:16,69-72`、`log/jsonl-store.ts:251`（索引字段变化触发重建）；`packages/neuro-book/src/plugins/agent/backend/resources.ts:25-44,162-170`（单数地址改写与布局只看 `ToolSessionContext`，同步）。
+- **现象**：(a) 内核要改：建会话的选项、会话头校验、索引与 `list` 的筛选、以及把 `owner` 带进 `ToolSessionContext`——`bot://` 的改写（`expand` 是同步的，只有 context）、自有目录（`sessionLayout(context)`）都只能从这里拿。第六节只列了 session.md 的“会话头加 owner，索引与列表照抄”，漏了 runtime.md 的 `ToolSessionContext` 与 host-kit.md 的 `SessionFilesFactory`/布局。(b) `fork`：runtime.md 输出 37 列了照抄的字段（`caller`、`questions`），`background` 明确不继承；`owner` 没说。照抄则出现两个同 owner 的会话，`bot://` 自有目录与“谁能写 bots://<id>/”都放给 fork 出来的会话；不照抄则 fork 出现在会话列表里。bot 视图关掉了分支入口，但普通会话界面按归属筛选后能打开主对话。(c) 子会话：`agent_spawn` 建的子会话没有 `owner`，列表靠“后代”排除——要经 nbook.agent 的关系表求闭包，`LogStore.list` 本身做不到，提案写在 session.md 里不对。(d) `changeProfile`：bot 记录存“Profile 的引用”，主对话的 Profile 却以日志里最后一条 `profileChanged` 为准（runtime.md 输出 38）；用户在输入框上换了 Profile 后两边不一致，哪边是真相源没写。Profile 被删或解析不到时主对话进只读（输出 57），日程注入 `send` 得 `read-only`、bot 视图不可用，提案没有处理路径。(e) 谁能写 `owner`：远程 `create` 是用户身份，必须拒绝带 `owner`，否则浏览器能造一个归属 bot 的会话拿到 `bot://` 的免问写。
+- **为什么是问题**：后续切片照“内核不管”去做，会在 ToolSessionContext 处卡住或绕成异步查表；fork 的取舍直接决定自有目录的边界，属于安全相关的语义。
+- **如何核实**：读上列行号；`grep -n "owner\|ToolSessionContext" docs/specs/harness/runtime.md docs/specs/harness/host-kit.md` 无相关条目。
+- **建议改法**：session.md 写明：`owner` 由 `createSession` 选项给，远程不收；`fork` 不继承（同 `background`）；子会话不继承，列表按“根会话有 owner”排除后代，由 nbook.agent 的关系表做；runtime.md 的 `ToolSessionContext` 加 `owner?`。bot 记录里不存 Profile 引用（以主对话为准），或者 bot 视图不提供换 Profile、`nbook.bots` 是唯一能对主对话 `changeProfile` 的一方，二选一。Profile 丢失时 `nbook.bots` 把主对话切回预设的 Profile 并写一条说明。
+
+### 6. “发消息即以拒绝结算”拆成 resolve 加 send 两条指令：有竞态、有半成功，且没说子代理停在父会话里的事项算不算
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第四节第 6 小节第一条；runtime.md 输出 41（`resolve` 逐个事项、单写者裁决、后到的得 `already-answered`）、输出 44（一条回复可以有多个待处理事项）、sessions.md 失败表（`unknown-outcome` 要带同一个 `commandId` 重发）；subagents.md 输出 14（子会话等用户的事项在所有祖先里都看得到、答得了）。
+- **现象**：提案的做法是先对每个挂着的事项 `resolve{deny, note}`，再 `send`。(a) 每个事项一条指令、再加一条 send，各自一个 `commandId`；远程链路在中间断开时可能“拒绝已生效、消息没进”或反之，重发也只能各自补，界面要实现一个小事务。(b) 与期限赛跑：用户点发送的同时事项到期，`resolve` 得 `already-answered{by: kernel}`；提案没说这时还发不发消息、用户的话还附不附在拒绝里。(c) 运行在 resolve 之后接着跑，`send` 进来时可能已在下一轮、或已收口（idle 时 `send` 开新的运行）；`send` 用 steer 还是 followup 没写——followup 时模型先拿到“没批准，用户说：……”，接着可能再申请一次，用户那句话要等这一轮结束才进去。(d) 同一句话既进了拒绝的 note（给模型的工具结果），又作为输入进了对话，模型看到两遍。(e) 主对话里还停着子代理的审批（subagents.md 输出 14）时，用户发消息算不算也拒绝它们，没写；拒绝的话子代理的工作被一句闲聊打断，不拒绝的话子代理继续挂到期限。
+- **为什么是问题**：这是第一版里用户最常走的路径（bot 在等审批时用户直接说话），而这些分支照字面实现会各自做出不同的选择，且不好写成确定的测试。
+- **如何核实**：读 runtime.md 输出 41、44 与 `packages/nb-harness/src/kernel/run/interaction.ts`；用 `createTestSession` 让一条回复带两个要审批的调用，依次 `resolve` 与 `send`，观察 `send` 落在哪一轮。
+- **建议改法**：内核给 `send` 加一个选项（例如 `settlePending: {decision: "deny"}`），在同一个受理批里写当前路径上全部同步事项的 `interactionResolved{deny, by: user}` 与这条输入（steer），一个 `commandId`、原子、幂等；note 只写固定的“用户发了新消息，见下一条”，不重复正文；期限与它的先后由单写者队列自然裁决（先到的生效，后到的照常只入队）。子代理的事项不随父会话的消息结算，写明。第六节 runtime.md 补这一条。
+
+### 7. 去掉“过期后同一调用不再申请”之后，无人值守的一次任务可以让主对话连续卡上数个 30 分钟，期间所有注入排队
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第四节第 6 小节第四条“本稿改成只靠给模型的文字，模型不一定照做，算已知限制”、第 9 小节最后一条“用户选每次询问时……等 30 分钟后过期失败，这是预期行为”；runtime.md 输出 79（同一条回复的调用先全部问完再执行）、输出 2、7（运行中的 send 只入队）。
+- **现象**：主对话只有一条，是单线程的。审批模式为“每次询问”（或 `auto` 转人工）时，周期任务里每一个要问的调用都停 30 分钟；模型在“不要再申请同一操作”之后换个参数、换个工具（`write` 换 `shell`、换路径）再申请，又是 30 分钟。一个十步的任务最坏挂几个小时。这段时间运行一直是 `waiting`，后来到点的注入全部堆在缓冲区（并受第 1 条影响）；“空闲时开一轮”的省钱压缩也不计时（第 7 小节“运行中（含等用户）不计时”）。
+- **为什么是问题**：提案把它当成“模型不一定照做”的小限制，但后果是整个 bot 停摆，而且不需要模型违背提示，只要它换一种做法就会发生。前三稿的钩子之所以存在就是为了这个；第四稿给的去掉理由是“要另包一层审批钩子”，但这件事不需要按会话种类包钩子，可以放进所有会话共用的审批钩子套件里。
+- **如何核实**：读 `packages/nb-harness/src/kit/approval/hook.ts` 的判定顺序，确认没有“本次运行已有过期事项”的状态；按提案设计推演：一次运行里第二个 `ask` 照常写 `interactionRequested` 并等待。
+- **建议改法**：在内核或审批钩子套件里加一条通用规则：一次运行里已有事项以 `expired` 结算后，本次运行之后判定为 `ask` 的调用直接 `denied{expired-run}`，文字说明用户不在、本次不再询问。规则对普通会话也成立（没有期限的会话永远不会触发），不需要按会话种类区分。若坚持不做，至少写明“过期之后本次运行的累计等待上限”（例如 60 分钟），到了以 `error` 收口，由第 1 条的机制接着处理排队的注入。
+
+### 8. `fetch` 的地址检查写得不够具体，按“读”放行让只读模式、讨论模式也能对外发请求；“只读”这一等级的含义被改了
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：提案第四节第 9 小节“抓取工具”、第 12 小节；agent/sessions.md 输出 4（只读的工具在任何情况都放行，只读模式只拦写与执行）；kit/approval/judge.ts:52（`effect === "read"` 直接 `mode:read` 放行，先于审批模式与 `auto` 审批模型）；runtime/server-host.md 的 `Host` 检查（第 71 行）。
+- **现象**：(a) “拒绝回环、链路本地与内网地址”没写怎么判：按主机名解析结果判、再按另一次解析去连，就是 DNS 重绑定；重定向每一跳要重新判；`0.0.0.0`、`::ffff:127.0.0.1`、十进制或八进制写法、IPv6 唯一本地地址（fc00::/7）、CGNAT 100.64/10、云元数据 169.254.169.254 都要列；进程设了 `HTTP(S)_PROXY` 时 Bun 的 fetch 走代理，按目标地址判就失效。NeuroBook 自己的端口有 `Host` 检查挡重绑定（server-host.md 第 71 行），但局域网里的路由器、本机别的服务没有。(b) 等级为 `read` 在审批判定里排在模式之前直接放行（judge.ts:52），所以只读模式、讨论与计划模式、`auto` 的审批模型都看不到它。今天“读”的工具都不产生对外副作用；`fetch` 的 URL 本身就是写出去的数据。提案写的代价“模型可以把数据拼进网址带出去，用户可以按网址写规则”只对事先知道外带地址的用户有用。(c) 开发者 2026-11-10 定的是“只读联网抓取工具、任务缺省不许跑 shell”；“任何审批模式下都不问”与“普通会话同样能用”是作者加的。
+- **为什么是问题**：bot 无人值守、会读外部网页（注入源），又能读任何会话的日志（开发者定为有意设计）与 `bot://` 记忆；`fetch` 是一条零关卡的外带通道，且普通会话也一并获得。
+- **如何核实**：读 judge.ts:44-56 的判定顺序；读 sessions.md 输出 4。
+- **建议改法**：Spec 写明地址检查的做法：自己解析、对解析出的每个地址判、用判过的地址连（固定 IP 连接，`Host` 头用原名），每次重定向重判，至多 N 跳，忽略代理环境变量或代理时拒绝。等级上给 `fetch` 一个能被规则与审批模式区分的标记：缺省放行没有查询串、长度不超过某值的 GET，其余在 `auto` 下交审批模型、在“每次询问”下问；只读模式下照放行需要开发者明确同意。把“普通会话也能用”列成交开发者确认的一项。
+
+### 9. “子代理写不了 bots://”挡不住注入进长期记忆：结果文字直接回到主对话，主对话写自有目录任何模式都不问，`load: always` 还能让一次写入常驻进系统提示词
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：提案第四节第 8 小节“常驻注入……frontmatter 标了常驻的文件（例如 `load: always`）”、第 9 小节“谁能写 bots://<id>/……子代理读外部网页后被注入的指令，因此改不了 bot 的记忆与人设”、第 12 小节“外部内容”；审批提案“只写自有目录的调用，在任何 Agent 模式、任何审批模式下都放行”（agent-approval-simplification.md 第 34、88 行）与“shell 直接写磁盘，不经文件服务授权”（第 64 行）。
+- **现象**：(a) 子代理的结果（`agent_spawn` 交回的文字或 `yield` 的值）原样进主对话的工具结果；主对话写 `bot://` 属于自有目录，在“每次询问”下也不问、`auto` 下不经审批模型。所以“网页 → 资料员 → 结果文字 → 主对话写记忆”只比“网页 → 主对话”多一跳，没有任何关卡。(b) 常驻与否由文件自己的 frontmatter 决定，bot 写一个带 `load: always` 的文件，下次压缩后它就进了每次请求的稳定槽——被注入的内容可以把自己升级成系统级提示，并且跨压缩、跨重启一直存在。(c) “子代理只能读”只对经文件服务的工具成立；子代理的 Profile 若有 `shell`（白名单里除了资料员还可能有别的 Profile，例如 `adhoc`），命令直接写真实路径，文件服务的授权管不到；主对话处在“全部放行”时子会话继承这个模式（subagents.md 输出 3）。
+- **为什么是问题**：第 12 小节把“用户能随时打开记忆文件”当作第一版的缓解，但没有任何东西提示用户去看；常驻记忆的变化对用户不可见，对模型却是最高优先级的上下文。前三稿审查里反复提到的“写入长期记忆前检查来源”被推到路线第 2 步，而第一版已经开了这条路。
+- **如何核实**：读 subagents.md 输出 3 与审批提案第 64、88 行；按第 8 小节推演：主对话 `write bot://memory/x.md`（frontmatter `load: always`）→ 自有目录放行 → 下一次压缩后 `opening` 取到。
+- **建议改法**：至少做两件小事：常驻名单不由文件自己的 frontmatter 决定，改成 `bots://<id>/` 下一份只有用户（与 `nbook.bots` 建 bot 时）能写的清单，或者 bot 改动常驻文件时不算自有目录、按审批模式问；主对话写 `bot://` 时在对话里留一条可见的“记忆已更新：文件名”。第 9 小节删去“因此改不了 bot 的记忆与人设”这句因果，改写成“只挡经文件工具的直接写”。
+
+### 10. 日程的“该发/已发”与 commandId 去重只在快乐路径上闭合：改条目、发送失败、主对话还没建、夏令时都会出岔
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第四节第 5 小节“到点时，按‘条目 id 加计划时刻’生成幂等键……发出之前先记下‘该发’”“错过的”，第 4 小节“主对话在第一次用到时才建，例如……第一次注入”，第 3 小节“bot 记录只存……主对话的会话 id”；session.md 输出 17（`argsHash` 是参数去掉 `commandId` 后的哈希，参数不同得 `command-id-conflict`；校验失败的指令不写日志）；runtime.md 输出 5（空闲时 `send` 在开始前判定的失败：`read-only`、`no-model` 等，不写日志）。
+- **现象**：(a) 补发时若用条目的当前内容组输入，而用户在两步之间改了提示词或名字（来源标签若进了输入文字），参数哈希变了，内核得 `command-id-conflict` 而不是 `replayed`；提案没说“该发”记录要存当时的完整输入。(b) `send` 以 `no-model`、`read-only`（Profile 解析不到）、`input-rejected`、`session-busy` 失败时不进日志，同一个 `commandId` 可以重试，但提案只写了“重启后照记录补发”，运行期间谁重试、隔多久、试几次、最后怎样告诉用户都没有；这几种失败恰好是首次运行没配模型时最常见的。(c) 主对话由第一次注入触发创建：建会话与写 bot 记录是两步，中间崩溃留下一个有 owner 却没被记录的会话，下次再建一个；sessions.md 的 `startTask` 用 `task-<taskId>` 作会话 id 解决了同样的问题，提案没有照做。(d) 夏令时：Europe/London 秋季 01:00–02:00 出现两次，“条目 id 加计划时刻”若用 UTC 时刻，`0 1 * * *` 在那天得到两个不同的键、发两次；春季那一小时不存在，条目被跳过还是顺延没写。错过几次合并成一次时，合并后的键取哪一个计划时刻也没写，与“该发”记录的对应关系不清。
+- **为什么是问题**：提案说“内核的 commandId 去重保证只生效一次”，但这只保证同一输入的重发；日程侧的这几种情况会直接变成重复注入、丢注入或 `command-id-conflict` 卡死在“该发”。
+- **如何核实**：读 session.md 输出 17 与 `packages/nb-harness/src/kernel/run/commands.ts:80-87`（`replay()` 比参数哈希）。
+- **建议改法**：“该发”记录存完整的输入与来源（快照），补发只用快照；运行期间失败按码分类：`no-model`、`read-only` 等待相关状态变化（模型设置变更、Profile 目录变更）后重试，其余指数退避，最终失败在主对话之外（日程视图）标红；主对话 id 由 bot id 定（例如 `bot-<botId>`），建会话得 `session-exists` 时打开；cron 的时区语义照一个现成库（例如 croner）的定义写进 schedule.md：重复的本地时刻只发第一次，不存在的本地时刻顺延到下一个存在的时刻，合并补发用最后一个错过的计划时刻作键。
+
+### 11. “给模型时加一行来源说明”没有落点；内核与套件里另有几处把任何输入都当成“用户的新话”
+- **严重程度**：重要；**类别**：接口与合同（不变量）
+- **位置**：提案第四节第 5 小节“给模型时，这条消息前面加一行固定格式的来源说明”；runtime.md 输出 85（“`by` 不进给模型的请求”）、输出 14、49（压缩后摘要与重新渲染）；`packages/nb-harness/src/kit/guards/loop-guard.ts:68-69`（只要 `turnStarted.inputId` 不是 null 就解除循环停止）；run-guards.md 输出 10（“用户发新话后解除”）。
+- **现象**：(a) 三种可能的落点各有后果，提案没选：宿主把说明拼进输入文字——那它进了日志正文、进了 `argsHash`（第 10 条的改名冲突），界面显示时要再剥掉，且 `by` 与正文重复；Profile 的 `render`——每个 bot 的 Profile 都要记得写，子 Profile 不一定有；内核视图按 `by` 渲染——要改输出 85，并规定回退、fork（复制路径上的 `by`）、`changeProfile` 之后的重新渲染都一致。(b) 压缩：摘要方法看到的是压缩前的请求，只要说明在请求里，摘要就能保留来源；若说明只在界面上，摘要里会写成“用户要求每周简报”，压缩之后模型就把注入当成用户的要求了。(c) loop-guard 把任何带 `inputId` 的新一轮都当“用户发新话”：到点的注入会解除 `tool-call-loop` 停止，让刚被判定为死循环的模型接着跑；同类的“用户的新话”判断还有审批模型的材料（第 2 条）。
+- **为什么是问题**：开发者要的是“注入的话要标明来源、不算用户的授权”，这需要对模型、摘要、守卫、审批四处都成立；提案只点了模型与审批模型两处，且没定谁渲染。
+- **如何核实**：读 runtime.md 输出 85；读 loop-guard.ts:68-69；用 `createTestSession` 以 `session.as({kind:"session", id:"p"})` 发一条输入，`session.requests.at(-1)` 里看不到任何来源标记（输出 85 的现状）。
+- **建议改法**：选内核视图：runtime.md 输出 85 改成“`by` 是 host 时，视图在这条用户消息前加固定格式的来源行（`origin: {kind: "fixed", by: "kernel"}`），回退、fork、重开后一致”；`by: session` 是否同样加来源行一并决定（与第 2 条对齐）。loop-guard 与“用户的新话”类判断改为看 `input.by` 为空，run-guards.md 输出 10 写明。
+
+### 12. 日记“每次压缩后追加摘要里新增的一节”与现有压缩方法对不上：shake 不出摘要、小节靠模型自觉、写入者没定
+- **严重程度**：建议；**类别**：正确性
+- **位置**：提案第四节第 8 小节“日记”；agent/compaction.md 输出 1（`shake` 不调模型、保留所有轮、`replacement` 沿用上一次）、输出 4–5（摘要的小节由提示词定）、输出 7；耦合审查 G11（放回只接 Skill，扩展只能经压缩拦截看结果）。
+- **现象**：(a) 阈值触发的缺省顺序是 `shake → inplace → summary`，`shake` 省够 20% 就停，这次“压缩成功”没有新摘要，也就没有“新增的一节”；下一次真正摘要时“这一段”指自上次摘要还是自上次压缩，没定，定错就漏一段。(b) “新增”一节写进了 `replacement`，会作为摘要的一部分留在对话里并在下一次压缩被当作旧摘要再处理；日记要从摘要文字里按标题切出这一节，模型没按格式写时这一次日记写什么（跳过、整段、写诊断）没定。(c) 谁写日记文件没定：压缩方法属 `nbook.agent`（compaction.md），bot 的“压缩方法给摘要提示词多要一节”要么是 `nbook.bots` 新贡献一个方法，要么是 Profile 的 `compaction.require`；追加文件要么在压缩拦截里做（拦截没有“压缩已写入日志”的时点，写进日记的可能是之后被丢弃的结果），要么在 `nbook.bots` 订阅到 `compaction` 事件后做（可行，且能补写）。
+- **为什么是问题**：日记是开发者 2026-11-09 定的“跑起来后评测再定 nb-memory”的数据来源之一；但提案自己也说“会话日志只追加，压缩也不删，评测从它重放”。日记若断续或重复，评测时反而要以会话日志为准。
+- **如何核实**：读 compaction.md 输出 1、4、5；`grep -n "compaction" packages/nb-harness/src/kernel/api/extension.ts` 看拦截的时点。
+- **建议改法**：日记由 `nbook.bots` 在订阅到 `compaction` 事件（`replacement` 不为 null）后追加，范围是“上一条有摘要的压缩到这一条”，按日志 seq 记进度，失败可补；“新增的一节”经 Profile 的 `compaction.require` 要求，切不出时写诊断并跳过。或者第一版不做日记，等评测时从会话日志直接生成，减少一个机制。
+
+补正（第 1 条）：这不是新问题。前三稿第一轮审查第 6 条（proposal-review-r1-backend-opus.txt:57-63）已经指出“宿主发起的压缩期间用户发来的消息会停在输入缓冲区，压缩完也不会自动发出”，第二轮第 1 条（proposal-review-r2-backend-opus.txt:5-13）对 inbox 指出了同一类洞（只压缩的运行不经边界、收口不清 inbox），第二轮第 11 条指出 `abort` 缺省清空缓冲区。第四稿把提醒从 inbox 换到缓冲区，理由是“经内核的输入缓冲区，用不到这条改动”，但缓冲区在只压缩的运行与非 completed 收口上有同样的洞，三条旧发现原样带回。
+
+### 13. 几处已定项被悄悄改掉或归错了决策者
+- **严重程度**：重要；**类别**：文档
+- **位置**：提案第二节非目标、第四节第 6、9、12 小节、第八节；`.agents/works/w00043-neurobot/README.md` 第 63、69 行（决定表）。
+- **现象**：(a) 开发者 2026-11-10 定“第一版加只读的联网抓取工具，**任务缺省不许跑 shell**”。第四稿没有任务会话了，周期任务直接在主对话里跑，主对话的 Profile 若带 `shell`，无人值守的注入就能跑命令（第 12 小节自己写了“bot 无人值守地跑命令”）。11-18 的决定只说“工具清单的三处强制与按会话裁剪工具集不做”，没有撤销“缺省不许跑 shell”这条安全前提。第四稿既没沿用（例如缺省预设的 Profile 不带 `shell`，要跑命令派带 shell 的子代理），也没列成待确认项。(b) 11-10 定第一版网页做“标题未读数”，第四稿第二节把“标签页标题的未读数”列进非目标、路线第 4 步，没有交开发者。(c) 第 9 小节“前三稿的任务会话、任务的工具清单、按会话裁剪工具集、按会话种类包一层审批钩子都不做（开发者 2026-11-18）”：开发者 11-18 的原话（决定表第 69 行）没有“按会话种类包一层审批钩子”，这是作者加的，却记在开发者名下。(d) 第 6 小节去掉“拒绝或过期之后本次运行不再申请”是作者的取舍，写成了“已知限制”，没进第七节待定项；后果见第 7 条。
+- **为什么是问题**：开发者按第八节核对“自己定过什么”时，这几处看不出被改过；(a) 是安全前提，改掉后第 12 小节的已知风险（被注入的命令连上本机 RPC）在无人值守下没有任何缓解。
+- **如何核实**：对照决定表第 63、69 行与提案第二节、第 9 小节原文。
+- **建议改法**：(a) 推荐：缺省预设的 Profile 不装 `shell`，命令类的活派一个带 `shell` 的子 Profile（子会话的审批照常问用户、带期限），写进第 3、5 小节；或列为待定项交开发者。(b)(d) 列进第七节待定项。(c) 改成“按会话种类包一层审批钩子随之不需要（主 Agent 的推论）”。
+
+补正（第 5 条）：`owner` 还必须对扩展可见。插件经 `agent.extensions` 贡献的扩展会装到所有会话上（runtime.md 输出 57），`nbook.bots` 放人设与常驻记忆的 `opening` 扩展、主对话的按天费用守卫，都要在 `ctx` 里认出“这是哪个 bot 的主对话”；同一个 Profile 给多个 bot 用（第 3 小节），也不能靠 Profile 的 `extensions` 区分 bot。今天扩展的 `ctx.session` 就是 `ToolSessionContext`（cost-guard.ts 的 `ctx.session.sessionId`），所以 runtime.md 加 `ToolSessionContext.owner` 是必需项，不是可选的优化。
+
+### 14. 上游选择：`owner` 与 `background` 是两个“把会话藏出列表”的旗子；否决 `background` 的理由有一半不成立
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：提案第四节第 14 小节最后一条“用 background: true 把主对话藏出会话列表……running() 也不列后台会话，混用会让在跑的工作、活动指示这些地方看不到主对话”；agent/sessions.md 输出 12、15、20；`packages/nb-harness/src/kit/sessions/table.ts:150,158,186`。
+- **现象**：(a) sessions.md 输出 20 明写“后台会话（`background: true`）也算”进在跑的工作，所以“在跑的工作看不到”不成立；剩下的理由只有 `activity`（输出 15 只列前台）与 `running()`。(b) 加 `owner` 之后，会话头上有两个都表示“由某个程序持有、列表缺省不列”的字段：`background`（任务中心发起的）与 `owner`（插件持有的），列表、索引、fork 规则、`running()`、`activity` 每一处都要分别定两者的组合；提案自己说 `owner` “是一个通用字段，以后别的插件持有的会话也能用”——任务中心正是“别的插件持有的会话”。
+- **为什么是问题**：同一件事两套标记，属于用户级规则里说的“同一件事各写一份”的信号。`background` 当初的理由（session.md：“后台会话：列表缺省不列；fork 不继承”，sessions.md 输出 12）是任务中心的会话不打扰列表，与 `owner` 的理由相同；它被排除在 `activity` 之外的理由在 Spec 里没有记录（没查到）。
+- **如何核实**：`grep -n "background" docs/specs/agent/sessions.md docs/specs/harness/session.md packages/nb-harness/src/kit/sessions/table.ts`。
+- **建议改法**：候选一（改上游）：`owner` 取代 `background`，任务中心的会话写 `owner: {plugin: "nbook.agent", id: "tasks"}`；列表缺省不列有 owner 的根及其后代，`activity` 与 `running()` 改成由 owner 插件声明是否列出。代价：索引与旧日志要把 `background: true` 读作对应的 owner（读时映射，不改文件），`startTask` 的 `background` 参数保留为别名，涉及 sessions.md 输出 1、11、12、15、20 与 session.md 输出 19。候选二：保留两个字段，但在 session.md 写一张组合表。交开发者选；推荐候选一，否则第二个 bot 类插件来时还要再加第三种。
+
+### 15. 第六节的 Spec 改动清单漏项
+- **严重程度**：建议；**类别**：文档
+- **位置**：提案第六节。
+- **现象**：照前面各条，至少缺这些：
+  - `harness/runtime.md`：缓冲区在非 completed 收口与只压缩的运行之后怎样（第 1 条）；`ToolSessionContext.owner`（第 5 条）；`send` 带结算挂着事项的选项（第 6 条）；`interactionRequested` 带到期时刻（界面的“已过期”提示与路线里的倒计时都要它）；发出者 `host` 调 `resolve` 得 `not-allowed`、调 `abort`/`compact` 是否允许；`Issuer` 类型（`kernel/api/basics.ts:55`）与远程合同里 `by` 的形状。
+  - `harness/session.md`：`owner` 的 fork 规则、`CreateSessionOptions`、索引读旧条目的规则（同输出 19 对 `background` 的写法）。
+  - `harness/host-kit.md`：`SessionFilesFactory`、布局的 `own` 按 owner 加根（审批提案已改输出 10，这里要接上）；审批钩子套件的“本次运行已过期则不再问”（第 7 条）；审批材料对 `by: session` 的处理（第 2 条）。
+  - `agent/subagents.md` 输出 3：子会话建时取父会话的设置，名单里加“等用户的期限”（提案写在 sessions.md，但继承路径在这里）。
+  - `agent/sessions.md`：`AgentService` 返回失败的持有/订阅（第 4 条）；远程 `create` 拒收 `owner`；输出 14“停止后不自动续跑”对主对话的例外；输出 15 `activity`、输出 20 在跑的工作对有归属的会话怎样列。
+  - `agent/permissions.md` 输出 20（材料按 `by` 分类）；`agent/run-guards.md` 输出 10（loop-guard 只认用户的新话）、输出 13（树的按日累计与基线）。
+  - `agent/compaction.md`：压缩的原因加两个值后方法顺序怎样选（就地与摘要各自的顺序），日记的写入者。
+  - `agent/builtin-profiles.md` 或 `bots/bots.md`：“资料员” Profile 归谁、工具清单。
+  - `runtime/server-host.md` 的已知限制：本机进程可信这条要加上“无人值守的 bot 会执行注入的命令”这一新暴露面，否则 Spec 的风险描述与第 12 小节不一致。
+  - `docs/adr/`：内核加第三种发出者、会话头加通用的 `owner`、无人值守的审批期限，这三项改的是内核合同与 ADR 0035 的事件模型，按 adr/README 应另记 ADR 或在 0035 上补一条。
+- **为什么是问题**：清单是后续 Task 的范围依据；漏掉的项会在实现时临时决定。
+- **如何核实**：逐项对照上列 Spec 的现有条目。
+- **建议改法**：按上表补进第六节。
+
+### 16. 常驻之后，长会话的代价不只在“打开”：每次重新装配都从头重新归约，期间不受理指令
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：提案第三节“长会话”、第四节第 4 小节“不轮换会话……第一版只记录打开耗时”；`packages/nb-harness/src/kernel/session/session.ts:744`（插件发布、撤回、`profilesChanged` 触发的重新装配调用 `core.reassemble`）、`dispatch/core.ts:266-269`（“按新的归约函数从头重新归约内存里的全部事件”）；runtime.md 输出 57（“重新装配做完之前不受理指令”）。
+- **现象**：主对话一直开着，所以它会经历每一次插件热更、用户 Profile 改动（`profilesChanged`）、扩展增减；每次都在内存里把全部事件重新归约一遍，这段时间发消息、注入、审批应答都排着。第三节实测的 98,667 条事件打开 1,140 ms 里包括读文件与解析，重新归约是其中的一部分，但它发生得更频繁，且是在用户正用着的时候。另外事件全部常驻，主对话一直占着那 105 MB（负载约 24 时测得），普通会话 30 秒后就放掉。
+- **为什么是问题**：提案说“到时候按实测决定”，但只打算测打开耗时，测不到这一项；开发模式下改一次后端文件就会触发。
+- **如何核实**：读上列代码；在 `createTestSession` 上灌十万条事件后调用 `profilesChanged`，量重新装配的耗时。
+- **建议改法**：第一版的指标里同时记“重新装配耗时”和主对话的事件数，与打开耗时同一个预算；第 13 小节路线的检查点快照同样适用于重新归约（归约函数没变的扩展不必重算），在 session.md 的非目标里写明。
+
+### 17. 第 12 小节的已知风险写窄了：被注入的命令不需要连 RPC 端口，直接改状态根里的文件就能达到同样效果
+- **严重程度**：建议；**类别**：文档
+- **位置**：提案第四节第 12 小节“只要有一条被注入的命令连上本机的 RPC 端口，就能以用户的身份批准审批、把审批模式改成全部放行、改审批规则与模型凭据。fetch 拒绝回环地址，挡不住 shell”；审批提案第 64 行（“shell 直接写磁盘，不经文件服务”）。
+- **现象**：`shell` 以用户身份运行，设置、审批规则（`nbook.agent/permissionRules` 在设置文件里，作品的 `.nbook/permissions.json`）、模型凭据、`bots://` 的真实目录都在本机磁盘上，命令直接改文件即可，RPC 只是其中一条路。提案把风险写成“RPC 端口”这一个入口，给人的印象是补上本机口令就堵上了。
+- **为什么是问题**：路线第 1 步写“以后接外部渠道或远程访问时，必须先补本机口令”；按现在的描述，补完口令会被当成风险已消除，而文件这条路仍在。
+- **如何核实**：读审批提案第 64 行；server-host.md 的已知限制。
+- **建议改法**：改写为“bot 能执行命令时，被注入的命令拥有用户的全部本机权限：改设置与规则文件、读凭据、连 RPC 端口；本机口令只堵 RPC 这一条。第一版的缓解是缺省预设不装 shell（见第 13 条）与审批模式”。
+
+## 未发现问题的方面
+
+- 第三节的事实核对：句柄表的关闭条件与“订阅在取消前持有引用”（table.ts:216-230、362-387）、插件不能在激活里建或开会话（contributions.md 输出 3）、`opening` 在创建与每次压缩后取一次（extensions.md 输出 30）、重启后以 `interrupted` 收口且 `start` 能不带新输入接着跑（runtime.md 输出 4、34）、发出者只有 user 与 session（basics.ts:55）、`auto` 的审批模型只读输入与工具调用（review.ts）、本机进程可信（server-host.md 第 72 行）都属实。只有“费用上限按会话一生累计”不准（第 3 条）。
+- `commandId` 幂等跨重启成立（session.md 输出 17，`replay()` 比参数哈希），日程用它去重的思路是对的，问题在日程侧（第 10 条）。
+- 显式缓存档位压过 `PI_CACHE_RETENTION`：`@oh-my-pi/pi-ai` 的 `resolveCacheRetention` 是“显式选项优先、其次环境变量”（node_modules/@oh-my-pi/pi-ai/dist/types/utils.d.ts:91-96），提案第 7 小节的做法可行。缓存过期前压缩的锚点已改成“最后一次对话请求”，前三稿第二轮第 3 条已处理。
+- `bots://<id>/` 的写授权（用户、`nbook.bots`、本 bot 的主对话）能在现有方案登记的 `authorize(caller, mount, operation, path)` 里表达：`caller.agent === null` 是服务端插件与用户，`caller.agent.session` 与 bot 记录里的主对话 id 比较即可，不需要 `owner`（`owner` 是改写与自有目录要用，见第 5 条）。
+- 宿主消息的身份在 `resolve` 上是安全的：审批只收用户的应答（runtime.md 输出 41），模式切换请求只能由用户答（sessions.md 输出 19），宿主消息开出的轮不会替用户批准。
+- 等用户的期限放在内核、用注入的时钟、重启后按输出 43 结算为 `interrupted`，三者不冲突；子代理工具在父会话有插话时提前返回（subagents.md 输出 6），用户在 bot 等前台子代理时发消息不会被卡 30 分钟。
+- 星璃与 w00050 t04 的三项改由本稿覆盖，与开发者 11-18 第 (2) 项一致；`profile://` 不加免问与审批提案一致。
+
+## 各级数量
+
+阻断 1（第 1 条）；重要 11（第 2、3、4、5、6、7、8、9、10、11、13 条）；建议 5（第 12、14、15、16、17 条）。共 17 条，无撤回。
+
+## 第七节三个待定项
+
+1. 提醒与任务同一种机制：同意，但前提是先修第 1、7 条——否则“最多晚 30 分钟”不成立，审批连环过期可晚数小时，`cost-limit` 或 error 收口后注入会一直滞留。
+2. 第一版不做“待你处理”：同意；但日程发送失败（第 10 条的 `no-model`、`read-only` 等）不在主对话的流里，要在日程视图上有失败标记，否则用户无处得知。
+3. 周期任务只给主对话：同意；`no-bot` 的判定依赖 `owner` 进 `ToolSessionContext`（第 5 条）。
+
+## 应交开发者决定、提案自己定了的
+
+- 缺省预设的 Profile 带不带 `shell`（11-10 定过“任务缺省不许跑 shell”，第 13 条）。
+- `fetch` 在只读、讨论与计划模式下照样放行，以及普通会话也装上（第 8 条）。
+- 按天费用是硬上限还是只告警，与用户级 `maxCost` 的关系（第 3 条）。
+- 标签页标题未读数移出第一版（11-10 定过要做，第 13 条）。
+- `owner` 与 `background` 合并还是并存（第 14 条）。
+- 去掉“过期后本次运行不再申请”（第 7 条）。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17

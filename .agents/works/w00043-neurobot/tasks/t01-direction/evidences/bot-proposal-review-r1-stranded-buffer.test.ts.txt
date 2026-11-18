@@ -1,0 +1,57 @@
+// 复现：运行中 send 进缓冲区的 followup，在运行以 error 收口、或只压缩的运行收口后，留在缓冲区里没人取。
+import {expect, test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+const {defineProfile} = await import(`${K}/extension/profile.ts`);
+
+let n = 0;
+const id = () => `c-${++n}`;
+
+test("error 收口后缓冲区里的 followup 没人取", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    await using s = await createTestSession({tools: [{id: "slow", execute: async () => { entered(); await gate; return "ok"; }}]});
+    s.model.script({tools: [{tool: "slow"}]}, {fail: "provider", retryable: false, message: "boom"});
+    const sent = await s.raw.send({commandId: id(), input: {text: "用户的话"}});
+    if (!sent.ok) throw new Error("send failed");
+    await inside;
+    const host = await s.raw.send({commandId: id(), input: {text: "[日程] 每周简报"}});
+    console.log("host send while running:", JSON.stringify(host.ok ? host.value : host));
+    release();
+    const result = await s.raw.waitRun(sent.value.runId!);
+    console.log("run reason:", result.reason);
+    const snap = await s.raw.snapshot();
+    console.log("buffer after error:", JSON.stringify(snap.buffer?.map((b: any) => ({mode: b.mode, text: b.input?.text})) ?? snap));
+    console.log("run state:", JSON.stringify(snap.run ?? snap.status));
+    console.log("model requests:", s.model.requests.length);
+});
+
+test("只压缩的运行收口后缓冲区里的 followup 没人取", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    const slow = async (job: any) => {
+        entered();
+        await gate;
+        const cut = job.cuts.filter((c: any) => c.kind === "turn").at(-1);
+        return {method: "slow", firstKeptEntryId: cut?.entryId ?? null, replacement: "摘要", omitted: [], tokensBefore: 10, tokensAfter: 5};
+    };
+    const profile = defineProfile({id: "lab.c", version: "1", name: "c", description: "c", system: "s", compaction: {onThreshold: ["slow"]}});
+    await using s = await createTestSession({profile, compaction: {methods: {slow}}});
+    s.model.script("答一", "答二");
+    await s.say("第一问");
+    const c = await s.raw.compact({commandId: id()});
+    console.log("compact:", JSON.stringify(c.ok ? c.value : c));
+    await inside;
+    const host = await s.raw.send({commandId: id(), input: {text: "[日程] 每周简报"}});
+    console.log("host send during compact-only run:", JSON.stringify(host.ok ? host.value : host));
+    release();
+    if (c.ok && c.value.runId) console.log("compact run:", (await s.raw.waitRun(c.value.runId)).reason);
+    const snap = await s.raw.snapshot();
+    console.log("buffer after compact run:", JSON.stringify(snap.buffer?.map((b: any) => ({mode: b.mode, text: b.input?.text})) ?? Object.keys(snap)));
+    console.log("run state:", JSON.stringify(snap.run ?? snap.status));
+    console.log("model requests:", s.model.requests.length);
+});
