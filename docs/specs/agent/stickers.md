@@ -13,7 +13,7 @@ owners:
 
 ## 目标与非目标
 
-让 Agent 在回复里发表情：用户把表情包（一个带清单的图片文件夹）放进 `user://stickers/`，或由插件带来；每个 Profile 有自己能用的表情包，常用的表情连同“什么时候用”放进提示词，完整目录在 `stickers://` 里由模型按需翻；模型在回复里写 `:包/名字:`，对话里显示成图。表情写法是 nb-markdown 的一种内置方言，Markdown 编辑器、展示器与字数用的是同一份规则。
+让 Agent 在回复里发表情：用户把表情包（一个图片文件夹，可以带清单）放进 `user://stickers/`，或由插件带来；每个 Profile 有自己能用的表情包，常用的表情连同说明放进提示词，完整目录在 `stickers://` 里由模型按需翻；模型在回复里写 `:包/名字:`，对话里显示成图。表情写法是 nb-markdown 的一种内置方言，Markdown 编辑器、展示器与字数用的是同一份规则。
 
 不承诺：
 
@@ -28,8 +28,8 @@ owners:
 
 ## 术语与参与者
 
-- **表情包**：一个文件夹，里面有清单 `stickers.json` 和图片。**文件夹名**是表情包的名字。
-- **表情**：清单里的一项：名字、图片文件、什么时候用、是否常用。
+- **表情包**：一个文件夹，里面是图片，可以有清单 `stickers.json`。**文件夹名**是表情包的名字。
+- **表情**：表情包里的一张图片：名字、图片文件、说明（可选）、是否常用。
 - **来源**：`plugin`（第三方插件经贡献点 `stickers.packs` 带来）、`user`（`user://stickers/` 下的）。**表情包 id**：用户的是 `user.<文件夹名>`，插件的是 `<插件 id>.<文件夹名>`；来源以条目的 `source` 为准，不从 id 前缀推断。
 - **表情目录**：应用当前认得的全部表情包。
 - **白名单**：一个 Profile 能用的表情包 id 的有序列表，合成规则同 Skill（[`skills.md`](skills.md) 的“白名单”）：声明的在前，用户加的在后。
@@ -37,17 +37,17 @@ owners:
 
 ## 输入与前置条件
 
-**清单** `stickers.json`，至多 256 KiB：
+**清单** `stickers.json`，可选，至多 256 KiB：
 
 ```ts
 interface StickerPackManifest {
     title?: string;           // 显示名，缺省用文件夹名
     description?: string;     // 一句话说这个表情包是谁的、什么风格
-    stickers: Array<{
-        name: string;         // 表情名
+    stickers?: Array<{        // 省略时按文件夹里的图片（见下文“没有表情列表”）
         file: string;         // 图片文件名
-        when?: string;        // 什么时候用，给模型看
-        common?: boolean;     // 常用的进提示词（输出 14）
+        name?: string;        // 表情名，缺省取 file 去掉扩展名的部分
+        description?: string; // 说明，给模型看：表情是什么、怎么用，简单的表情不用写
+        common?: boolean;     // 常用的进提示词（输出 14），缺省否
     }>;
 }
 ```
@@ -55,10 +55,12 @@ interface StickerPackManifest {
 | 项 | 规则 |
 |---|---|
 | 文件夹名 | 1–64 个小写字母、数字与连字符，不以连字符开头或结尾，没有连续的连字符 |
-| 表情名 | 规范化到 NFC 后 1–32 个码点，只含 Unicode 字母、数字、`_`、`-`，第一个是字母或 `_`；区分大小写；同一个表情包里不重名 |
+| 表情名 | 规范化到 NFC 后 1–32 个码点，只含 Unicode 字母、数字、`_`、`-`，第一个是字母或 `_`；区分大小写；同一个表情包里不重名。取自文件名时同样按这条规则 |
 | `file` | 表情包文件夹里的单段文件名，不是链接；扩展名 `.png`、`.gif`、`.webp`、`.jpg`、`.jpeg`（不分大小写）；按文件开头的字节判定是这四种图片之一且与扩展名相符；至多 2 MiB；宽、高都不超过 1024 像素 |
-| `title`、`description`、`when` | 至多 200 个字符 |
+| `title`、`description`（表情包与表情的） | 至多 200 个字符 |
 | `stickers` | 至多 500 项 |
+
+**没有表情列表**（没有清单，或清单里没写 `stickers`）：表情包文件夹里扩展名是上表几种的每个文件是一个表情，按文件名的码元顺序；名字取文件名去掉扩展名的部分，全部算常用，没有说明。别的文件（以点开头的、扩展名不是图片的、子文件夹）不算表情。清单写了 `stickers` 时只认列出的项，文件夹里没列的图片不算表情。
 
 **插件来源**：插件用顶层贡献 `stickers.packs` 声明插件包里的一个目录，声明 `{directory}`，路径规则同 `agent.skills`（[`skills.md`](skills.md) 输出 30）；目录里每个子文件夹是一个表情包。贡献 id 以插件 id 加 `.` 开头。
 
@@ -82,9 +84,9 @@ interface StickerPackManifest {
 ### 目录
 
 1. `nbook.stickers` 启动时建好 `user://stickers/`（已有的不动）、扫一遍，之后随 `user://stickers/` 的文件变化更新；插件来源随 `stickers.packs` 的发布与撤回出现、消失，插件的目录不监视。
-2. 无效的表情包只隔离它一个：照样列出，状态 `invalid`，`problem` 写原因。算无效的：没有 `stickers.json`、它超过 256 KiB、读不懂或不是对象、`stickers` 不是数组、文件夹名不合规则、文件夹是链接。
+2. 无效的表情包只隔离它一个：照样列出，状态 `invalid`，`problem` 写原因。算无效的：`stickers.json` 超过 256 KiB、读不懂或不是对象、`stickers` 写了但不是数组、文件夹名不合规则、文件夹是链接、文件夹读不了（查不了有没有清单，或没有表情列表时列不出文件）。没有 `stickers.json` 不算无效。
 3. 表情包的可选字段（`title`、`description`）不合规则时只忽略那个字段，表情包照常可用。
-4. 无效的表情只隔离它一项，这一项不列，别的照常。算无效的：名字不合规则、同包重名（后出现的）、`when` 超长、文件不在、是链接、扩展名不对、字节不是相符的图片、超过 2 MiB 或 1024 像素。`stickers` 超过 500 项时只认前 500 项。
+4. 无效的表情只隔离它一项，这一项不列，别的照常。算无效的：名字（写的或取自文件名的）不合规则、同包重名（后出现的）、`description` 超长、文件不在、是链接、扩展名不对、字节不是相符的图片、超过 2 MiB 或 1024 像素。`stickers` 超过 500 项时只认前 500 项。
 5. 诊断只在问题变了时写：同一个表情包的问题与上一次扫描相同时不再写。码见“失败与恢复”。
 6. 同一个插件的两个 `stickers.packs` 贡献里有同名文件夹时，按贡献 id 的码元顺序先到的生效，后到的不列。声明的目录不在插件包里、不是目录或经过链接时，这个贡献不出表情包。
 
@@ -106,14 +108,14 @@ interface StickerPackManifest {
 
 ### 提示词里的槽
 
-14. 槽 `stickers` 的内容：开头一句写法说明（`:包/名字:`，完整目录在 `stickers://`）；之后白名单里每个有效的表情包一段，按白名单的顺序：显示名、说明、这个表情包的地址 `stickers://<表情包 id>/`，常用的表情每个一行 `写法 — 什么时候用`。写法一律带包：包写文件夹名；全部有效的表情包里有同名文件夹时写表情包 id。
+14. 槽 `stickers` 的内容：开头一句写法说明（`:包/名字:`，完整目录在 `stickers://`）；之后白名单里每个有效的表情包一段，按白名单的顺序：显示名、说明、这个表情包的地址 `stickers://<表情包 id>/`，常用的表情每个一行，有说明的写 `写法 — 说明`，没有的只写写法。写法一律带包：包写文件夹名；全部有效的表情包里有同名文件夹时写表情包 id。
 15. 上限：至多 8 个表情包、合计 60 个常用表情，按白名单的顺序、包内按清单顺序取；多出的不列，末尾写一句“还有更多，见 stickers://”。整个槽至多 6000 个字符。
 16. 白名单为空、或白名单里没有有效的表情包时，槽没有内容（模板摆了也不渲染）。
 17. 槽的内容只随白名单里的表情包变：表情目录与白名单不变时逐字相同；白名单以外的表情包增删不改槽（同名文件夹的情形除外，见输出 14）。变了的从下一次请求起用新的内容。
 
 ### 浏览器一侧的目录
 
-18. 浏览器一侧的目录只带显示要用的：每个有效的表情包的 id、文件夹名，每个有效表情的名字、宽、高与取图地址；不带说明与“什么时候用”。合计至多 5000 个表情、序列化后至多 768 KiB（远程调用单条消息的上限以内），放不下的表情包整包不进浏览器目录（按 id 的码元顺序取），写诊断 `stickers.catalog-truncated`；Profile 设置用的表情包概要按同样的字节上限取。`stickers://` 与槽不受这条影响。目录变了经通知更新。
+18. 浏览器一侧的目录只带显示要用的：每个有效的表情包的 id、文件夹名，每个有效表情的名字、宽、高与取图地址；不带表情包与表情的说明。合计至多 5000 个表情、序列化后至多 768 KiB（远程调用单条消息的上限以内），放不下的表情包整包不进浏览器目录（按 id 的码元顺序取），写诊断 `stickers.catalog-truncated`；Profile 设置用的表情包概要按同样的字节上限取。`stickers://` 与槽不受这条影响。目录变了经通知更新。
 
 ### 界面
 
@@ -171,6 +173,7 @@ interface StickerPackManifest {
 5. Given 窗口启动时恢复了一个含表情的对话和一个含表情的编辑器标签，When 浏览器目录晚于它们取到，Then 两处都先显示占位、取到后显示成图。
 6. Given 一个测试插件经 `stickers.packs` 带一个表情包，When 插件启用、停用，Then `stickers://` 的根与浏览器目录随之出现、消失这个表情包。
 7. Given 显示过 `:lyra/开心:` 的对话，When 删掉 `user://stickers/lyra/` 再放进同名的新文件夹，Then 之后新显示的块与 `stickers://user.lyra/` 都是新文件夹的内容。
+8. Given `user://stickers/cat/` 里只有 `开心.png`、`困.png`、`1.png` 与 `readme.txt`，没有清单，Profile 白名单里有 `user.cat`，When 开会话发一句话、模型回复 `:cat/开心:`，Then 槽里列出 `:cat/困:` 与 `:cat/开心:` 两行（没有说明），回复里显示成图；诊断有一条 `stickers.sticker-invalid` 写 `1.png` 当不了表情名，`readme.txt` 不报。
 
 Smoke：真实浏览器里打开 Lab 的表情场景（展示器与编辑器各一个），与 e2e 里一个会话的回复显示。
 
@@ -187,7 +190,7 @@ Smoke：真实浏览器里打开 Lab 的表情场景（展示器与编辑器各�
 
 ## 证据
 
-- 批准依据：开发者在 2026-11-17 的对话里确认：表情写法、两种大小、在 Agent 回复里显示、按 Skill 的方式选包、第一版不做用户发表情、先用占位图（“其他的都同意”）；表情写法做成方言、编辑器也能用（“可以，都同意”）；设计审查后改为 nb-markdown 的内置方言加宿主端口、槽里一律教带包的写法、在 Files 修挂载点被换掉后的重开（“没问题”）。Task：[`w00050 t02`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t02-sticker-system/README.md)。
+- 批准依据：开发者在 2026-11-17 的对话里确认：表情写法、两种大小、在 Agent 回复里显示、按 Skill 的方式选包、第一版不做用户发表情、先用占位图（“其他的都同意”）；表情写法做成方言、编辑器也能用（“可以，都同意”）；设计审查后改为 nb-markdown 的内置方言加宿主端口、槽里一律教带包的写法、在 Files 修挂载点被换掉后的重开（“没问题”）。2026-11-18 开发者提出表情的 `when` 改成可选的说明、名字可以不写；确认清单可省、没有表情列表时图片都算常用、文件名当不了名字时隔离并写诊断、写了列表只认列表（[`w00050 t07`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t07-sticker-format-simplify/README.md)）。Task：[`w00050 t02`](../../../.agents/works/w00050-lyra-persona-and-prompts/tasks/t02-sticker-system/README.md)。
 - 实现入口：[`plugins/stickers/backend/plugin.ts`](../../../packages/neuro-book/src/plugins/stickers/backend/plugin.ts)、[`plugins/stickers/web/plugin.ts`](../../../packages/neuro-book/src/plugins/stickers/web/plugin.ts)、[`agent/backend/stickers/extension.ts`](../../../packages/neuro-book/src/plugins/agent/backend/stickers/extension.ts)、[`nb-markdown/src/stickers.ts`](../../../packages/nb-markdown/src/stickers.ts)、[`nb-markdown/src/language/syntax/sticker/index.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/index.ts)
-- 合同测试：[`stickers.test.ts`](../../../packages/neuro-book/src/plugins/stickers/stickers.test.ts)、[`web/resolver.test.ts`](../../../packages/neuro-book/src/plugins/stickers/web/resolver.test.ts)、[`web/markdown-wiring.dom.test.ts`](../../../packages/neuro-book/src/plugins/stickers/web/markdown-wiring.dom.test.ts)、[`stickers-slot.test.ts`](../../../packages/neuro-book/src/plugins/agent/stickers-slot.test.ts)、[`profile-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts)、[`nb-markdown stickers.test.ts`](../../../packages/nb-markdown/src/stickers.test.ts)、[`sticker/codec.test.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/codec.test.ts)、[`sticker/sticker.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/sticker.dom.test.ts)
+- 合同测试：[`stickers.test.ts`](../../../packages/neuro-book/src/plugins/stickers/stickers.test.ts)、[`web/resolver.test.ts`](../../../packages/neuro-book/src/plugins/stickers/web/resolver.test.ts)、[`web/markdown-wiring.dom.test.ts`](../../../packages/neuro-book/src/plugins/stickers/web/markdown-wiring.dom.test.ts)、[`stickers-slot.test.ts`](../../../packages/neuro-book/src/plugins/agent/stickers-slot.test.ts)、[`profile-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts)、[`shared/manifest.test.ts`](../../../packages/neuro-book/src/plugins/stickers/shared/manifest.test.ts)、[`nb-markdown stickers.test.ts`](../../../packages/nb-markdown/src/stickers.test.ts)、[`sticker/codec.test.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/codec.test.ts)、[`sticker/sticker.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/sticker/sticker.dom.test.ts)
 - Smoke：[`e2e/stickers.e2e.ts`](../../../packages/neuro-book/e2e/stickers.e2e.ts)

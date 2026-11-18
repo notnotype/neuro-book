@@ -74,7 +74,7 @@ owners:
 19. Profile 声明可派的子代理：`agent.profiles` 的声明加 `agents?: {allowed: string[]; recommended?: string[]}`，值是 Profile 的 key；`recommended` 里不在 `allowed` 的项忽略。不声明就是空白名单。Profile 目录的条目带上声明的 `agents`，白名单的合成与用途见 [`subagents.md`](subagents.md)。
 20. Profile 声明可用的 Skill：`agent.profiles` 的声明加 `skills?: {allowed: string[] | "all"}`，值是 Skill 的 id，`"all"` 是 Skill 目录里的全部；不声明就是空白名单。白名单的合成与用途见 [`skills.md`](skills.md)。
 21. Profile 的开场指令：`agent.profiles` 的声明加 `starters?: {text: string; icon?: string}[]`（`text` 非空，`icon` 是图标 class），对话第一屏的“试试这些”用它（[conversation.md](conversation.md) 输出 41）。只显示前 3 条，多写的不显示，不因此拒绝整个声明；文字与 `name` 一样不翻译。用户级 Profile 没有声明，没有开场指令。
-22. 对话状态栏的项：`agent.statusItems` 的贡献在对话状态栏的目录里多一项（[conversation.md](conversation.md) 输出 45），实现 `{load(): Promise<Component>}`，组件的属性是 `{ctx}`（对话视图的 `AgentConversationContext`），画一小段行内内容；声明里 `side` 决定在左在右，`defaultVisible` 缺省关（用户勾上才显示），标题与说明是设置页与右键菜单里的文字，来源插件显示为“插件”。只接受浏览器入口的贡献，写在顶层是 `implementation-required`、写在服务端入口下是 `invalid-declaration`。组件渲染出错时只这一项不画（状态栏其余项照常）。插件被停用或撤回后这一项从目录里消失，设置里关于它的显隐与次序保留，插件回来时生效。
+22. 对话状态栏的项：`agent.statusItems` 的贡献在对话状态栏的目录里多一项（[conversation.md](conversation.md) 输出 45），实现 `{load(): Promise<Component>}`，组件的属性是 `{ctx}`（对话视图的 `AgentConversationContext`），画一小段行内内容；声明里 `side` 是缺省的一边（用户可以换到另一边，[conversation.md](conversation.md) 输出 45），`defaultVisible` 缺省关（用户勾上才显示），标题与说明是设置页与右键菜单里的文字，来源插件显示为“插件”。只接受浏览器入口的贡献，写在顶层是 `implementation-required`、写在服务端入口下是 `invalid-declaration`。组件渲染出错时只这一项不画（状态栏其余项照常）。插件被停用或撤回后这一项从目录里消失，设置里关于它的显隐、次序与边保留，插件回来时生效。（planned）
 23. Profile 声明可用的表情包：`agent.profiles` 的声明加 `stickers?: {allowed: string[] | "all"}`，值是表情包 id；不声明就是空白名单。白名单的合成与用途见 [`stickers.md`](stickers.md)。
 
 ## 状态与转换

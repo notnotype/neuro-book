@@ -28,7 +28,7 @@ export function stickersScheme(catalog: Pick<StickerCatalog, "list" | "item">, c
                     ...(pack.description === undefined ? {} : {description: pack.description}),
                 },
             }));
-            return {description: entries.length === 0 ? "表情包目录。还没有表情包：用户把表情包文件夹放进 user://stickers/ 后会列在这里。" : "表情包目录，只读。每个表情包的文件在 stickers://<id>/ 下，清单是 stickers.json（name 是写法里的名字，when 是什么时候用）。写法是 :文件夹名/名字:。", entries};
+            return {description: entries.length === 0 ? "表情包目录。还没有表情包：用户把表情包文件夹放进 user://stickers/ 后会列在这里。" : "表情包目录，只读。每个表情包的文件在 stickers://<id>/ 下。清单 stickers.json 写了表情列表 stickers 的以列表为准（name 是写法里的名字，description 是说明）；没有清单或没写列表的，每张图片是一个表情，名字是去掉扩展名的文件名。写法是 :文件夹名/名字:。", entries};
         },
         // 链接的表情包不挂（挂载点不能是链接），无效的照样能看清单。
         mount: (name) => {

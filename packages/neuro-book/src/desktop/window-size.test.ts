@@ -6,12 +6,12 @@ import {describe, expect, it} from "bun:test";
 
 import {centeredFrame, minimumFrame} from "./window-size";
 
-const DEFAULT = {width: 1280, height: 800};
+const DEFAULT = {width: 1600, height: 1000};
 const DIALOG = {width: 480, height: 260};
 
 describe("centeredFrame", () => {
     it("工作区够大：缺省大小居中", () => {
-        expect(centeredFrame({x: 0, y: 0, width: 2560, height: 1392}, DEFAULT, minimumFrame(true))).toEqual({x: 640, y: 296, width: 1280, height: 800});
+        expect(centeredFrame({x: 0, y: 0, width: 2560, height: 1392}, DEFAULT, minimumFrame(true))).toEqual({x: 480, y: 196, width: 1600, height: 1000});
     });
 
     it("工作区高 600：取九成（540）会小于最小外框，抬到最小外框，仍在工作区里；有系统标题栏时外框更高，以工作区为准", () => {

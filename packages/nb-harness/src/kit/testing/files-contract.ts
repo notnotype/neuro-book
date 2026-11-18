@@ -66,6 +66,29 @@ export function sessionFilesContract(name: string, setup: () => Promise<SessionF
             expect(codeOf(files.expand(`${fixture.writable}/../x`))).toBe("invalid-address");
         });
 
+        it("输出 2：改写失败时，每个方法与绑定调用的读写都交回改写的失败", async () => {
+            const bad = `${fixture.writable}/../x`;
+            const call = fixture.files.call({callId: "call-bad", signal: new AbortController().signal});
+            expect(writeOf(fixture.files.classify(bad))).toBe("失败：invalid-address");
+            expect([
+                codeOf(await fixture.files.readPath(bad)),
+                codeOf(await fixture.files.read(bad)),
+                codeOf(await fixture.files.write(bad, "x", {expect: "any"})),
+                codeOf(await fixture.files.list(bad)),
+                codeOf(await call.read(bad)),
+                codeOf(await call.write(bad, "x", {expect: "any"})),
+            ]).toEqual(Array(6).fill("invalid-address"));
+        });
+
+        it("输出 6：字节内容原样写入，不经文字编码", async () => {
+            const dir = await fresh();
+            const bytes = new Uint8Array([0xff, 0x00, 0x80, 0x0a]);
+            expect((await fixture.files.write(`${dir.global}/a.bin`, bytes, {expect: "absent"})).ok).toBe(true);
+            const read = await fixture.files.read(`${dir.global}/a.bin`);
+            expect(read.ok && [...read.value.bytes]).toEqual([...bytes]);
+            expect([...(await readFile(join(dir.path, "a.bin")))]).toEqual([...bytes]);
+        });
+
         it("输出 2、6：经单数地址写、经全局地址读到同样的字节；字符串按 UTF-8 编码；写交回的基线就是读到的基线", async () => {
             const dir = await fresh();
             const written = await fixture.files.write(`${dir.singular}/a.md`, "第一章\n", {expect: "absent"});
@@ -145,12 +168,14 @@ export function sessionFilesContract(name: string, setup: () => Promise<SessionF
             expect(codeOf(await fixture.files.list(`${dir.global}/a.md`))).toBe("not-a-directory");
         });
 
-        it("输出 6：经符号链接落到根外的写为 outside-root，根外的文件不变", async () => {
+        it("输出 4、5、6：经符号链接落到根外的读、取本机路径与写都为 outside-root，根外的文件不变", async () => {
             const dir = await fresh();
             const outside = await mkdtemp(join(tmpdir(), "kit-files-outside-"));
             try {
                 await writeFile(join(outside, "secret.md"), "根外");
                 await symlink(join(outside, "secret.md"), join(dir.path, "link.md"));
+                expect(codeOf(await fixture.files.read(`${dir.global}/link.md`))).toBe("outside-root");
+                expect(codeOf(await fixture.files.readPath(`${dir.global}/link.md`))).toBe("outside-root");
                 expect(codeOf(await fixture.files.write(`${dir.global}/link.md`, "改了", {expect: "any"}))).toBe("outside-root");
                 expect(await readFile(join(outside, "secret.md"), "utf8")).toBe("根外");
             } finally {
@@ -182,10 +207,16 @@ export function sessionFilesContract(name: string, setup: () => Promise<SessionF
             expect(text(await fixture.files.read(saved.value.address))).toBe("全文第二段");
             expect(writeOf(fixture.files.classify(saved.value.address))).toBe("denied");
             expect(codeOf(await fixture.files.write(saved.value.address, "改了", {expect: "any"}))).toBe("permission-denied");
-            const thrown = await fixture.artifacts.save("broken", async () => {
+            const thrown = await fixture.artifacts.save("broken", async (sink) => {
+                await sink.write(new TextEncoder().encode("半截"));
                 throw new Error("写到一半出错");
             });
             expect(thrown.ok).toBe(false);
+            // 全文都落在同一个目录：失败的那份不留文件（含写了一半的临时文件）。
+            const folder = saved.value.address.slice(0, saved.value.address.lastIndexOf("/"));
+            const listed = await fixture.files.list(folder);
+            if (!listed.ok || listed.value.kind === "virtual") throw new Error(`列出全文目录失败：${JSON.stringify(listed)}`);
+            expect(listed.value.entries.map((entry) => entry.name)).toEqual([saved.value.address.slice(folder.length + 1)]);
         });
 
         it("输出 4、5、7：虚拟根列出说明与带全局地址的条目，读根得到同一份内容的文字，取本机路径为 unsupported-capability，写为 permission-denied", async () => {
@@ -198,9 +229,10 @@ export function sessionFilesContract(name: string, setup: () => Promise<SessionF
             expect(codeOf(await fixture.files.write(fixture.virtual, "x", {expect: "any"}))).toBe("permission-denied");
         });
 
-        it("失败码：不露出的位置为 protected-path", async () => {
+        it("输出 6、失败码：不露出的位置读与写都为 protected-path", async () => {
             if (fixture.protected === undefined) return;
             expect(codeOf(await fixture.files.read(fixture.protected))).toBe("protected-path");
+            expect(codeOf(await fixture.files.write(fixture.protected, "x", {expect: "any"}))).toBe("protected-path");
         });
     });
 }

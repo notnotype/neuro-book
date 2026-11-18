@@ -1,0 +1,189 @@
+# t38 计划设计审查报告（只读；依据 plan.md、README 决定 1 到 6、会话与手势源码、TabStrip、AgentStatusBar、status-line.ts 现状）
+
+## 发现 1
+严重程度：阻断
+类别：接口与合同（useSortable 与 createDragSession 的键盘接法）
+位置：plan.md“useSortable”的“键盘”一条；“sortable.ts”里的 sortableStep
+现象：计划写“空格拿起，上下键用 sortableStep 一步一位（跨分区），回车放下”。会话里方向键根本到不了宿主：`drag-session.ts` 的 onSessionKey 挂在窗口捕获阶段，`gesture.key()` 对 SESSION_KEYS（含 ArrowUp/ArrowDown/Tab/Enter/Escape）一律返回 true，适配层随即 preventDefault 加 stopPropagation（drag-session.ts 约 105 行）。键盘一步一位只能由 `keyboard.stops(region)` 给出的点列表驱动（drag-gesture.ts 的 moveCursor，按 cursor.stop±1 取 points[...] 当 `point`），宿主没有“按方向键”的回调。
+为什么是问题：
+ a. sortableStep 照字面实现是死函数：没有任何调用点能接到方向键。真正要写的是“把所有位置（含分区头之间的、空分区的第 0 位）展平成有序的点列表”，并让 resolve 在 `region !== null` 时按“最近的停靠点”换算成位置。而计划里 resolve 只有指针一支（sortableSlotIn 用跟手的 held 区间加回滞），点到位置的换算没写。键盘点不是“被拖行的前沿”，直接喂给带回滞的 sortableSlotIn，行高不一时会一步跳两位或原地不动。
+ b. Tab 会被会话吞掉：只配一个区域（把整个列表当一个 region）时，Tab 走 `moveCursor((region+1)%1, 0)`，光标被传回第一个位置，读屏用户按 Tab 会被甩到最上面。要么每个分区一个 region（Tab 在区间循环，方向键只在区内走，此时“上下键跨分区”就不成立，要改文案与验收），要么单区域并在 Spec 里写明 Tab 的行为。
+ c. DragKeyboardOptions 的必填项计划一个都没落字：`regions(source)`（空则不拿起，disabled 时应返回空）、`stops(region)`（axis 与 points）、`start(source, regions, origin)`（起点是来源当前的位置，直接 Enter 不移动）、`refocus(source)`（会话文档里写明“拿起时的元素已被换掉时”才用，这里要按 data-sortable-key 找把手）。另外键盘拿起时 sourceAt 要只认把手（`[data-sortable-handle]`），勾选框上的空格必须保留给勾选；计划把“把手”和“整行都能起拖”写在同一句里，指针与键盘两个 sourceAt 的边界没分开。
+ d. 参照（layout-drag.ts 的工作台）键盘拖动用落点指示、不走实时布局（workbench-layout.md 输出 38 开头：“键盘拖动、系统减少动效……这一场是落点指示”）。计划里键盘也让 preview 实时变，没写被拖行此时有没有 translate（键盘没有指针可跟）。
+如何核实：读 drag-gesture.ts 的 `key()`（SESSION_KEYS、Tab 分支 `moveCursor(current, cursor, (cursor.region + 1) % count, 0)`）与 drag-session.ts 的 `onSessionKey`；对照 layout-drag.ts 约 983 到 1040 行的 keyboard 配置。
+建议改法：删掉 sortableStep，改为 `sortableStops(snapshot, source): {points, slots}`（按展平后的位置序给点与对应 slot），resolve 里 `region !== null` 走“最近停靠点到 slot”的纯映射；写明单 region（Tab 无意义，Spec 里说明）或每分区一个 region 二选一；补全 regions/stops/start/refocus；keyboard 的 sourceAt 只认 `[data-sortable-handle]`；决定键盘一场的预览形态（建议同参照：只高亮落点，或预览但不写 translate）。
+
+## 发现 2
+严重程度：阻断
+类别：失败路径与时序（放下后的 preview 与异步写入）
+位置：plan.md“useSortable”：“preview 拖动中是放下后的样子，平时等于 sections()”“放下后被拖那一行从 translate 滑回 0”“onMove 一场至多一次”；“status-line-writes.ts move”；“Lab 场景”
+现象：真实运行时设置是异步写、写成功才更新快照：`setting-writes.ts` 文件头写明“配置服务写成功才更新快照”，StatusLinePage 的 `setting` 来自 `deps.settings.get(...)`（status-line-page.ts），`onMove` 是 `void writer.move(...).then(report)`。按计划，一场结束（会话收场顺序：onActiveChange(false) 在 commit 之前）后 preview 回到 `sections()`，而 `sections()` 此刻还是旧次序。
+为什么是问题：
+ a. 每次成功放下，行先回到旧位置（TransitionGroup 的 move 或直接跳），等 RPC 写完（几十到几百毫秒）再跳到新位置，被拖那一行的 translate 滑回也是相对旧位置算的。这是对主功能最显眼的回归，而 Lab 的 StatusLineFixture 是同步改 ref（`@move` 里直接 `setting = moveStatusItem(...)`），Lab 与 e2e 看不到它，只有真实应用会闪。
+ b. 写入失败时 reportWriteFailure 弹通知，此时旧次序恰好是对的；所以只在成功路径上有问题，“修”成乐观保持又要自己处理失败回退，计划两头都没写。
+ c. 连续两次拖：第二次拿起时快照量的是 DOM（旧次序），onMove 的 `to.index` 按第二次的预览算，写入队列里第一次的写还没落地，第二次的 `moveStatusItem(id, {side,index})` 在写的那一刻对“已含第一次改动”的值求，下标语义与屏幕上看到的不一致。再有，第一次的写在第二场拖动中途落地会让 `structure()`（sections() 序列化）变化，整场被 structure-changed 取消。
+如何核实：读 `setting-writes.ts` 头注释与 `createSettingWriter.edit`；读 `status-line-page.ts` 的 `h(component, {setting: deps.settings.get(...)})`；对照 drag-gesture.ts 的 `finish()`（active=null、released、publish(null)、activeChanged(false)、ended、commit 的顺序）。
+建议改法：`onMove` 允许返回 Promise<SortableMoveResult | void>；useSortable 在 commit 后让 preview 停在放下的结果，直到 `sections()` 的序列化变化或 Promise settle（失败就回原样）再放开；这段时间内 structure() 与下一场的快照都按 preview 的次序。Lab 夹具把 `@move` 改成异步（延迟几十毫秒再改 ref，并给一个会失败的场景），Spec 写明“放下后的显示留到宿主写完”。
+
+## 发现 3
+严重程度：重要
+类别：时序与共享状态（被拖行的 translate 与 Vue 异步重排；TransitionGroup 的 move 与 translate）
+位置：plan.md“useSortable”：“被拖那一行的 translate 每帧直接写到元素上”；“SortableList.vue”：“同一组里换序，元素身份不变”“不参与 move 过渡”
+现象与问题：
+ a. 位置换了的那一帧，translate 依赖的“被拖行在布局里的位置”是旧的。translate = 期望的 top（指针推出）减去被拖行此刻在布局里的 top；换位发生在 resolve 里（改 preview），而 Vue 在微任务里才重排 DOM。如果 translate 在同一次 resolve 里按旧 DOM 算并写入，重排后行位于“新布局位置 + 旧 translate”，绘制出来的那一帧被拖行跳一个邻居高度（约 40px）。原型没有这个问题，因为它同步 placeAt 改 DOM 再量 layoutTop（sortable-proto.js 的 move()：flip 后才 `source.style.transform = translateY(top - layoutTop(source))`）；计划改成“预览走响应式”后这个同步性没了。工作台的做法是换位后用 `nextTick` 再量再写（layout-drag.ts 的 `placeSortedAfterRender`），计划没有对应的一步。
+ b. 被拖行不参与 move 过渡，计划只说“不参与”，没说怎么做。Vue TransitionGroup 的 FLIP 用 getBoundingClientRect 前后差给每个移动的子节点写内联 `transform`；TabStrip 靠 `.nb-tab-frame--placeholder { transform: none !important }` 压掉（TabStrip.vue 样式末尾，注释写明“过渡的 transform 会让它先滑回空位再跳到指针下”）。SortableList 要有同样的类，并且 Vue 量被拖行的矩形时矩形里已带着 translate，会算出非零的位移。
+ c. 叠放：被拖行写 `translate` 形成层叠上下文，邻居 move 过渡中有 `transform` 也各自形成层叠上下文，同层按 DOM 顺序画，排在被拖行后面的、正在滑的邻居会盖到被拖行上面。工作台给被拖的帧写了 `z-index: 1`（layout-drag.ts 的 measureSorted）；计划只说“盖在邻居上”，没有 z-index，也没有 `position: relative`。
+ d. move 过渡何时开：TabStrip 的 `animateMoves` 只在拖动中开（“平时换序直接到位”）。计划未说。取消（Esc）与上移下移（设置写完之后改次序）要不要滑，原型里都是滑的（finish(true) 里的 flip、点击上下按钮的 flip）；若沿用“只在拖动中开”，取消时 onActiveChange(false) 之后才还原 preview，move 类已摘，邻居会瞬移，不是“回原样”的动画。
+如何核实：对照 sortable-proto.js 的 `move()` 与 layout-drag.ts 约 305 到 372 行；TabStrip.vue 的 `--placeholder` 样式。
+建议改法：translate 不读旧 DOM：用快照算出被拖行在预览布局里的静止 top（快照可算）；或在 preview 变化后 `nextTick` 再量再写，并在 flush 之后做（design-language 的“读在写前面”）。SortableList 的样式里写明 `transform: none !important`、`position: relative; z-index: 1`；规定 move 类在“拖动中与结束后的一个过渡时长内”都开，写进 Spec。
+
+## 发现 4
+严重程度：重要
+类别：边界（快照几何：单一 gap、占位行、分区头与“摘掉来源补上空位”）
+位置：plan.md“sortable.ts”的 SortableSnapshot（`gap: number`、`head: SortableSpan | null`）与判定段“摘掉来源、补上空位”；“SortableList.vue”的空分区占位行
+现象与问题：
+ a. 原型的“摘掉来源”是对每个在来源之后的邻居统一减 `source.offsetHeight + gap`（gap 写死 2，judge()）。这成立只因为原型里右组的标题被当作一个邻居、两组各自是同一间距的行。真实页面里：行间距 2px（`.status-line-page__list` 的 gap）、分区头与列表间 4px（`.status-line-page__group` 的 gap）、分区之间 16px（`.status-line-page` 的 gap）；来源是某区最后一项时，摘掉它让后面的分区头上移“来源高度 + 行间距”，来源是该区唯一一项时只上移“来源高度”（没有前一个行间距可吃），区变空后还要加上占位行。快照里只有一个 `gap`，表达不了这三种。
+ b. 来源是某区唯一一项时，预览里这个区变成“拖到这里”的占位行（高度与带说明的行不同，估计单行约 28px 对两行约 44px）。“摘掉来源补上空位”的几何把占位行当作不存在，后面所有邻居的中线与真实预览相差“来源高度减占位高度”，约 12 到 16px。回滞带的宽度正好等于来源高度（往后要过 中线 + 来源长度，往前过中线），偏差吃掉三分之一以上；反过来拖进一个空区，占位行被来源替换，又差一次。结果是松手落点与看到的不一致，边界附近容易来回切换。
+如何核实：用 getBoundingClientRect 量 StatusLinePage 的真实间距与占位行高度；在 Lab 里造“左边只剩一项”的场景，量拖动中邻居预览位置与快照推算位置的差（单元测试可以用 sortable.ts 的快照直接推）。
+建议改法：快照不存统一的 gap，存每个元素（头、成员、占位）的实际 span，并显式记录“占位行的 span 与高度”；摘掉来源的几何用函数“重排后的 span 序列”从头算，而不是在拿起时的位置上平移；sortable.test.ts 加：唯一成员的来源、拖进空区、行高不等、头与行混排的用例，判据用“判定落点所在位置与按这个位置重排后算出的布局一致”。
+
+## 发现 5
+严重程度：重要
+类别：边界（与 README 决定 6 冲突：空分区作落点够不到）
+位置：plan.md“useSortable”：“位置夹在第一个分区头到最后一个成员之间”；“SortableList.vue”：“空分区放一行‘拖到这里’的占位，作落点”；README 决定 6“空的一组显示‘拖到这里’作落点”
+现象：被拖行的位置夹在“第一个分区头到最后一个成员”之间。若最后一个分区是空的（例如右边的四项都被拖到左边），“最后一个成员”是左边最后一项，也就是被拖行自己或在它上面，被拖行的下沿最多到这一项的下沿；而进右边空区要过右边分区头的中线（快照里的邻居），那条线在夹范围之外。占位行也不在快照里（成员为空），所以夹范围不含它。
+为什么是问题：空区只能用键盘（或上移下移按钮）进，指针拖不进去，“拖到这里”的提示就是骗人的。左边为空时（第一区空）同理：夹范围从第一个头开始，进第一区的第 0 位要上越第二个头的中线，这条线在范围内，可以到；所以只有最后一区为空时坏，且恰好是最常见的“把右边清空再放回去”的情形。
+如何核实：写 sortable.test.ts：两分区，第二区 members 为空，来源是第一区最后一项，把 held 推到夹范围的下限，断言 sortableSlotIn 能否交回 {section: 第二区, index: 0}。
+建议改法：夹范围用“快照里最后一个元素（含占位行）的下沿”；占位行进快照并作为第 0 位的落点区域（命中占位行的 span 即视为进了这一区）。
+
+## 发现 6
+严重程度：重要
+类别：边界（快照被动画污染、滚动与窗口尺寸之后过期）
+位置：plan.md“useSortable”：“拿起（activate）时量快照……整场不再读 DOM”；“不做与风险”最后一条
+现象与问题：
+ a. 拿起时量快照用 getBoundingClientRect。上一场放下后被拖行从 translate 滑回 0 要 `--motion-move`（约 280ms），邻居的 move 过渡也在走；在这段时间内再次拿起（用户刚放下就接着拖另一行是常态），量到的是动画中间的位置，整场判定都建立在错误的中线上。原型专门减掉了正在走的位移（`layoutTop = rect.top - translateY`），工作台在拿起时先 `options.settleMotion()` 把动画送到终点（layout-drag.ts 的 activate）。计划两者都没有。
+ b. 快照是视口坐标。设置页本身是个滚动容器，拖动中滚轮仍可滚（会话只拦触摸的 touchmove，`onTouchMove`；`scroll` 缺省 `reevaluate` 只是用同一指针坐标重新判定，快照没跟着滚）。滚了 Δ 之后邻居在视口里移了 Δ，快照还在老位置，判定整体偏 Δ。计划的风险段只说“窗口改了尺寸”，没提滚动；也没配 `autoScroll`，窄屏（390 宽）上列表加预览超过一屏时拖不到屏外的行。
+ c. 风险段说“量到容器尺寸变了就取消”，但 `structure()` 按计划只是 `sections()` 的序列化，没有尺寸；工作台是把 extentKey 放进 structure（layout-drag.ts 的 `structure:`）。会话的 `resized` 只会重新判定，不会取消。
+如何核实：读 drag-gesture.ts 的 `scrolled()/resized()`（只 schedule 或 withdraw）与 drag-session.ts 的 `onScroll`；读 layout-drag.ts 的 activate 里的 `options.settleMotion()` 与 structure 配置。
+建议改法：快照用布局量（offsetTop/offsetHeight 加上滚动容器的 scrollTop，不受 transform 与 translate 影响），或沿用 settleMotion；判定时用“指针的文档坐标”，滚动后自然正确；`scroll: "withdraw"` 或把滚动位置并进 structure 键；把容器宽度并进 structure；窄屏要不要 autoScroll 在计划里表个态。
+
+## 发现 7
+严重程度：重要
+类别：合同（resolve 要纯：preview 与 translate 不该在 resolve 里改）
+位置：plan.md“useSortable”：“resolve 用 sortableSlotIn 算位置并改 preview；被拖那一行的 translate 每帧直接写到元素上”
+现象：会话合同（layout-drag.md 的 DragSessionOptions.resolve）写“同步判定这一刻的落点，不产生副作用；可以读宿主维护的状态”；drag-gesture.ts 的注释放宽成“放下时、自动滚动时也会调……可以记下最近的落点（实时布局的粘滞与候选），不能假定一次移动只调一次”。计划把“改 preview（响应式）”和“写 translate”放进 resolve。
+为什么是问题：
+ a. 放下时 `drop()` 用松手坐标再 resolve 一次，这一次不发布；如果 resolve 里改了 preview，它会在 `finish` 之前多发生一次预览变化，之后 onActiveChange(false) 再把它还原，同步段内闪两次，且预览与 `shown`（最后发布的落点）不一致。
+ b. 撤下（`scroll: "withdraw"` 或 `invalidate()`）时会话发布 `drop: null` 并拒绝提交，但 preview 已经被 resolve 改了，显示与提交对不上。计划没选 scroll 模式，缺省 reevaluate 暂时碰不到，但配成 withdraw 就坏。
+ c. 与 layout-drag.ts 对照：它的 resolve 只在 `stableDrop` 里记粘滞，translate 另走 `measureSorted` 加 `session.flush()` 在写之前读（读写分开）。
+如何核实：读 drag-gesture.ts 的 `drop()` 与 `publish()`；layout-drag.ts 的 resolve、moveGhost 的调用点。
+建议改法：resolve 只返回 `{section, index}` 并在闭包变量里记最近的 slot（回滞需要）；preview 由 `session.state.value?.drop` 派生（`watch(..., {flush: "sync"})` 按会话文档里“副作用要严格先于 commit”的办法）；translate 单独在“状态变化之后”那一步读后写。
+
+## 发现 8
+严重程度：重要
+类别：隐含耦合（提醒宽的量法形成错误的不动点；dom 测试替身测不到）
+位置：plan.md“AgentStatusBar.vue”：“提醒包在一个量宽的容器里，available = 栏宽 - 内边距 - 提醒宽 - 间距，取代 LEFT_MIN”；“验收映射”：“AgentStatusBar.dom.test.ts（量宽替身，同现有写法）”
+现象：现有 CSS 里提醒（运行阶段、告警、断线）与左边的数据项同在 `.acv-status__left`（`flex: 1; min-width: 0; overflow: hidden`），阶段文字 `.acv-status__text` 带省略。若提醒容器沿用可收缩（min-width: 0）的样式，`offsetWidth` 量到的是被挤压后的宽度，不是它的自然宽度。
+为什么是问题：量被挤压后的宽度会得到自洽但错误的稳定点。右边项没收起时右边占去大部分宽度，左边只剩 s，提醒被挤成 s（省略号），量到宽度 = s，available = 栏宽 - 内边距 - s - 间距 恰好等于右边当前占的宽度，collapsedItems 判定“放得下”，不收起，于是提醒被截断而右边没收：违反决定 3 与计划自己写的“提醒不收，最后才截断”。要在量宽时让提醒容器不收缩（`flex-shrink: 0`，量自然宽）并且把截断放到“可用宽度为负”之后，另外要把“提醒没有内容时不扣间距”写进算法（间距个数取决于提醒存不存在、左右各有几项）。
+dom 测试（happy-dom 没有布局，现有替身按 `data-status-item` 返回表里的宽度，`clientWidth` 按 `data-agent-status` 返回栏宽，AgentStatusBar.dom.test.ts 约 156 到 172 行）只能喂数字，给不出“自然宽与被挤压宽的差”，所以这一类错误只能被 e2e 或真实浏览器逮住；计划的验证只有“把用量换到左边后拉窄看收起次序”的人工一步，没有 e2e。另外现有测试的数字（以 LEFT_MIN=72 为前提的 `collapsed()` 期望）整批要重算，替身还要给“提醒容器”和左边项加量宽标记（现在上下文圆环没有 data-status-item）。
+如何核实：读 AgentStatusBar.vue 的 `.acv-status__left` 与 `.acv-status__phase/.acv-status__text` 样式；在 Lab 里把提醒文字加长（运行阶段 `run.phase` 是任意字符串，工具名也会进来）观察。时间文字 `formatDuration` 在 9s→10s、59s→1m 0s 处位数变化，tabular-nums 不能解决位数，会每次变宽时重新判定一次收起，这一点计划的风险段已提到。
+建议改法：提醒容器用 `flex-shrink: 0` 或量内层自然宽的元素（或 `scrollWidth`）；把“提醒宽为 0 不扣间距”写进 collapsedItems 的输入；补一条 Playwright（Lab 的状态栏场景）在窄宽下断言“提醒文字没被截断时右边已收起”。
+
+## 发现 9
+严重程度：重要
+类别：遗漏（左边项被收起后上下文圆环的检查入口丢失，收起文字不对）
+位置：plan.md“collapsedItems 先右后左”“收起的项都进右边的…，悬停按呈现顺序列出”；AgentStatusBar.vue 的 `textOf`
+现象：`textOf(item)` 只有 usage、cost、model 三个 case，其余用 `text(item.title)`（宿主项只有标题）。`context`（左，圆环与百分比）此前从不收起，不在 `textOf` 里；按计划它成了可收的数据项，收起后悬停里写的是“上下文用量”这个标题，不是百分比，数值信息丢了；而圆环本身是上下文检查器的入口（`inspectable` 时点击打开，AgentContextMeter 的 `@inspect`），收进只读悬停后这个入口没了（缓存命中按钮在 usage 里，usage 同样可能被收起）。
+为什么是问题：用户把别的项拖到左边 context 之前（左边是 [费用, context]，从后往前先收 context），或窄到右边全收完之后，圆环就进了只读悬停，检查器的入口随之消失；计划与 Spec 改动里都没说这是接受的取舍。
+如何核实：AgentStatusBar.vue 里 `textOf`、`leftItems`、`@inspect` 的位置；`canInspectContext` 为真时圆环是按钮。
+建议改法：二选一并写进 Spec：`context` 不进左边的收起序列（“左边的数据项里 context 最后收，且收了在悬停里写百分比，检查器入口还在顶栏菜单里”）；或收起时“…”本身成为可点的菜单项（列出各项并给 context 一个“打开上下文详情”）。同时补 `textOf` 的 context 分支。
+
+## 发现 10
+严重程度：重要
+类别：兼容与一致性（side 与 order 的联合归一化、toggle 丢 side、shift 在空侧）
+位置：plan.md“status-line.ts”：“resolveStatusLine 按 side[id] ?? item.side 分边”“moveStatusItem……normalized 一并去掉与目录相同的 side”“shiftStatusItem”
+现象与问题：
+ a. 现有 `normalized(catalog, order, visible)` 判“次序是否等于缺省”用 `resolveStatusLine(catalog, {})` 与 `resolveStatusLine(catalog, {order})` 的两侧 id 串比较，两边都不带 side。换边之后若比较仍不带 side，会误判：目录 context(左) usage cost model(右)，把 usage 拖到左边第 0 位，写出的 order=[usage, context, cost, model]；不带 side 解算时右边仍是 [usage, cost, model]、左边 [context]，与缺省相同，sameOrder 为真，`order` 被去掉，只剩 side={usage:left}；再解算时左边按目录序是 [context, usage]，用户放在第一位的次序丢了。计划没写这个函数要带 side 比较（默认值与当前值都要用同一份 side 解算）。从代码推断，未跑实现。
+ b. `toggleStatusItem` 现在调 `normalized(catalog, setting.order ?? [], {...})`，输出只含 order 与 visible。给 `normalized` 加 side 参数后，toggleStatusItem 与右键菜单走的 toggle 都必须把 `setting.side` 传下去，否则勾一下复选框就把用户的换边设置清掉。验收映射的“side 解算、换边、写回去掉缺省”没列“勾选与换边互不丢”，现有的“移动不丢显隐，显隐不丢次序”（status-line.test.ts 第 65 行）也没有 side。“右键菜单不变”只有在 b 修好之后成立：菜单项取 `[...resolved.left, ...resolved.right]`，按解算后的边列，换边后菜单次序随之变，toggle 经 toggleStatusItem 写回。
+ c. “只记与目录不同的一边”是相对写入那一刻的目录的差：插件的声明边变了、或用户明确选的边恰好等于当时的声明边（没有记）而插件之后改了声明边，用户的选择被悄悄换掉。这是一个没有记录理由的设计取舍（README 决定 3 只说“项可以换边”），低风险，但应该在 Spec 里写明“边的缺省随插件声明走”。
+ d. shift 边界：整串是“左边接右边”，左边为空时右边第一项“上移”停用（整串第一项），按钮换不了边，空区只能靠拖动或键盘；右边为空时左边最后一项没有下移，同理。可以接受，但应写进 Spec 输出 46，否则会被当成 bug 报。
+ e. schema：`side` 加 64 键上限而 `visible` 现在没有上限（StatusLineSchema 里 visible 只有 minLength 的键），不一致；已停用插件的 id 在 side、order、visible 里原样留着永远不清，写到上限会让写入被 schema 拒绝（“未保存”通知）。窄场景，建议只在 Spec 记为已知限制，不加机制。
+如何核实：读 status-line.ts 的 `normalized` 与 `toggleStatusItem`；在 /tmp 里复制两个函数加 side 参数模拟上面的例子（我没改仓库）。
+建议改法：`normalized` 的输入改成 `{order, visible, side}`，defaults 与 current 都用同一份 side 解算；toggle 与 move 都经同一个构造函数，保证三个字段互不丢；status-line.test.ts 加“换边后勾选不丢 side”“换边到第 0 位 order 不被去掉”“同 id 来回换边后设置回到空对象”三条。
+
+## 发现 11
+严重程度：重要
+类别：可访问性（平铺 TransitionGroup 丢掉分组与列表语义）
+位置：plan.md“SortableList.vue”：“渲染一个平铺的 TransitionGroup：分区头与行交错”
+现象：现状是 `section > h4 + ul > li`（StatusLinePage.vue）：每组是一个列表，读屏报“左边，列表，3 项”。平铺后分区头与行同级；`ul` 里不能放标题，用 `div` 就没有 list/listitem；分区头只是行之间的一个元素，行与所在区的关系读屏读不出来。拖动中行换区时这个关系是靠“视觉位置”表达的，读屏里只有 `role="status"` 的播报。
+为什么是问题：本次明确要补键盘与读屏，而静态结构反而退化；也没说分区头是否 `aria-hidden`、行的可访问名里有没有区名。
+如何核实：看现有 StatusLinePage.vue 模板与计划的描述；用 Playwright 的 `toMatchAriaSnapshot` 或 axe 对比。
+建议改法：容器 `role="list"`、行 `role="listitem"`，分区头 `role="presentation"` 并把区名写进每一行的 `aria-label` 或 `aria-describedby`（“左边，费用，第 2 位”）。无论怎么做，Spec 里写明读屏看到什么。播报文案里的“第几位”写成区内位置，与按钮的 aria-label 一致。
+
+## 发现 12
+严重程度：重要
+类别：验收映射（测试写不出来或会漏）
+位置：plan.md“验收映射”“切片 3、4”
+现象与问题：
+ a. “输出 46（跨组拖动、上移跨组、一次写入）→ status-line.dom.test.ts”：Vue 层 dom 测试是 happy-dom，没有布局，`getBoundingClientRect` 全 0、`elementsFromPoint`、指针捕获不全；拖动会话的快照与判定在里面算不出有意义的位置。真正能写的只有：键盘路径（stops 为 0 间距时退化）、写入形状；跨组指针拖动只能是 e2e。现有的拖动用例（status-line.dom.test.ts 约 120 行以后的“拖动：落在同一侧的另一行……”）用原生 DragEvent，换成会话后要整个删掉，计划没说。
+ b. Lab 夹具 StatusLineFixture.vue 的 `@move="(id, to:number) => ..."` 签名要跟着改成 `{side,index}`，而且它根本没接 `@shift`（上移下移在 Lab 里点了无效）。计划写了“lab-agent-ui.e2e.ts 的‘状态栏设置页’改成拖到另一组、上移跨组”，但没有列出夹具这个文件，也没把夹具改成异步（见发现 2），所以“上移跨组”那条 e2e 现在跑不起来。
+ c. “拿起的行底不透明（取计算后的背景色）”：背景是 `--bg-panel` 且 `is-held` 切换，e2e 断言要在拖动中取，且要排除悬停样式；计划里有这条，OK，但“读屏播报”“Esc 零写入”只有 e2e 才有真实布局，sortable.test.ts 只测纯函数，useSortable 本身（会话接线、preview 派生、onMove 至多一次）没有任何测试层承接：dom 测试又没布局。建议把“位置判定”（纯）与“会话接线”（要真实 DOM）分层，后者用 Lab 的 e2e，前者在 sortable.test.ts 里写到覆盖发现 4、5 的几何。
+ d. 一场内“至多一次 onMove”由会话保证（finish 只 commit 一次），不必再自己写测试，但“回到原位不提交”靠 actionKey 返回 null，应该有 sortable 的单元测试（from 等于 to 时 key 为 null）。
+如何核实：读 status-line.dom.test.ts 与 StatusLineFixture.vue；确认 `packages/nb-layout/src/vue/drag-session.dom.test.ts` 里是怎样给 happy-dom 补指针与布局的（它能不能给 useSortable 复用）。
+建议改法：在计划里列出 StatusLineFixture.vue、status-line.dom.test.ts（拖动用例整体替换）、lab-agent-ui 场景，并把“跨组指针拖动”只映射到 e2e；useSortable 的接线测试复用 drag-session.dom.test.ts 的做法。
+
+## 发现 13
+严重程度：建议
+类别：遗漏（删除模式标记波及的地方）
+位置：plan.md“Lab 与 e2e”“Spec 与文档改动”；删除 `modeFlag`、`yolo`、对应文案
+现象：已列的：view.scenes.ts 的 `host-cost`、`modes-plan-yolo`，agent-conversation.e2e.ts 689、703 行。没列的（我在 worktree 里 grep 得到）：
+ - packages/nb-agent-ui/src/locales.test.ts 第 300 行 `status.modeFlag`、第 317 行 `status.yolo`：它们在 LEGACY 表里，locales.test 要求 LEGACY 里的键在 zh-CN 与 en-US 都存在（第 433、442 行），删 `zh-CN.ts`（约 374 行 modeFlag）与 `en-US.ts`（约 380 行）里的键而不改这张表，测试会失败；反过来只改表不删键，则留着没人引用的文案。
+ - view.scenes.ts 的 `modes-plan-allow-writes`，标题写“……审批控件变淡，状态栏标出”，标题要改（计划只列了两条场景）。
+ - AgentStatusBar.dom.test.ts 的三处：约 39 到 51 行（`[data-status-mode]` 期望存在）、82 到 90 行（没选会话时模式与全部放行照常）、145 到 148 行（“全部放行有警告”整条）。
+ - packages/nb-agent-ui/src/types.ts 约 382 行的注释“`danger` 的（全部放行）选中时状态栏有警告”会过时。
+ - docs/specs/agent/contributions.md 输出 22 写“声明里 side 决定在左在右”，变成缺省边后要改一句；agent-conversation-view.md 第 331 行“视图的属性 statusLine 是用户设置 {order?…; visible?…}”要加 side、“解算”那一段要改（计划只提到“可选项与次序”，没提解算规则）。
+如何核实：`grep -rnE "modeFlag|status\.yolo|data-status-mode|data-status-yolo|modes-plan"` 在 packages 与 docs/specs 下。
+建议改法：把以上补进计划的改动清单；locales 的处理写明（删键并同步 LEGACY 表）。
+
+## 发现 14
+严重程度：建议
+类别：规范（nb-layout 的 Vue 层不能用原子类；把手与首行对齐的行高来源）
+位置：plan.md“SortableList.vue”：“组件画把手（六点图标，在与首行同高的盒子里居中）”
+现象：packages/nb-layout/AGENTS.md：“Vue 层样式写在 scoped CSS 里、用 nb-ui 的 token，不用原子类：宿主的 Tailwind 不扫描本包”。现有 StatusLinePage 的把手是 `i-lucide-grip-vertical` 原子图标类；放进 nb-layout 的组件里这类图标不会生成（TabStrip 的“更多”图标因此由宿主传 `moreIconClass`）。
+另：“与首行同高的盒子”用 `1lh` 的话，行高来自把手所在元素自己的字号，而首行文字的字号是插槽里（Checkbox 的 label，`text-[length:var(--text-sm)]`）定的。组件不知道它，把手盒子取的是行容器的 `1lh`，与标题文字的行高差 1.5px 左右，正是决定 5 要消灭的那类错位。
+建议改法：把手图标要么内联 SVG（不依赖宿主的图标引擎），要么 `handleIconClass` 属性由宿主给；把手要么放进 `#item` 插槽由宿主摆（宿主知道首行字号），要么由组件在行上写 `font-size`/`line-height` 的 CSS 变量让两边取同一个值。
+
+## 发现 15
+严重程度：建议
+类别：参照有、计划没有（对照 workbench-layout.md 输出 38 “标签条上”、layout-drag.ts 与原型）
+位置：plan.md“useSortable”
+现象：参照里有而计划没写的项：
+ - 抓住的点：被拖行“抓住的点（按下的那一点）在指针下”，用 `activate` 的 `at.pressed`（过门槛时指针已离开按下点几个像素）；计划只写“位置夹在……”，没说抓点比例，会在拿起瞬间跳几像素。
+ - 系统减少动效：参照里这一场退成落点指示（layoutMotionMs 为 0）；计划没有这条。至少要写“减少动效时预览直接到位、不播 translate 回位”。
+ - 触摸：整行都是指针来源，行上没有 `touch-action`。会话要求触摸按住 200ms 才起拖，但页面不能在这 200ms 里被浏览器当成滚动（TabStrip 对标签写了 `touch-action: none`，整行写 none 会让 390 宽的设置页无法用手指滚动）。计划“未验证的边界：触摸拖动”只说没在真机试，没有选择方案。建议只在把手上写 `touch-action: none`，行内其它位置触摸起拖不做（或需要按住）。
+ - `disabled()` 在一场进行中变真（例如层切换使设置变得不可写）：会话没有自动停，需要 `session.abort()`，计划只写“disabled?: () => boolean”。
+ - `root` 是 Ref<HTMLElement | null>，会话要在根存在时创建、在卸载与根换掉时 `dispose()`；计划没写这个寿命。
+ - 键盘拿起后焦点回到把手的时序：会话在放下后的下一帧还焦点，而提交会触发异步写入后才重排（发现 2），旧的把手元素若被换掉，要靠 `keyboard.refocus`。
+如何核实：对照 layout-drag.ts 的 activate 与 sortGrab、TabStrip.vue 的 `.nb-tab { touch-action: none }`。
+建议改法：把这几项各补一行进 useSortable 的约定与 Spec。
+
+## 发现 16
+严重程度：建议
+类别：遗漏（公开接口的签名变化波及的调用点）
+位置：plan.md“status-line.ts”
+现象：`moveStatusItem` 的第四个参数从 `to: number` 变成 `{side, index}`，`collapsedCount` 换成 `collapsedItems`，`packages/nb-agent-ui/src/index.ts` 第 40 行把它们作为包的公开导出；现有调用点：status-line.test.ts（`moveStatusItem` 约 10 处调用、`collapsedCount` 第 75 到 82 行）、StatusLineFixture.vue 第 4、24 行、status-line-writes.ts 第 29、34 行。计划只列了 writes 与 plugin.ts，没列导出清单（新增 shiftStatusItem、collapsedItems，删 collapsedCount）与测试、夹具。
+建议改法：补进切片 2 与 4 的文件清单；`shiftStatusItem` 要不要公开导出（Lab 夹具要用，见发现 12b）一并定。
+
+## 未发现问题的方面
+- README 决定 1 到 6 的覆盖：决定 1（删两个标记）、2（行跟手、底不透明、不画落点线）、3（先右后左、提醒不收）、4（composable 加薄组件、放 nb-layout 的 Vue 层、复用会话）、5（对齐与删落点线，单选组与复选框的 `1lh` 改法在 worktree 里已有未提交的改动，与计划一致）、6（把手是可聚焦按钮、空组占位）都有对应条目，没有看到悄悄改变已定项；已定项我没有再议。
+- 核心不依赖 DOM：sortable.ts 只做纯函数，符合 nb-layout 的 boundary.test.ts 约束（新文件受约束，不引入 vue 或 DOM 即可）。
+- 依赖的会话机制本身存在且保证成立：一场至多提交一次、Esc 与失焦取消零写入、结构键变了取消、放下后 click 被吞、键盘放下后焦点还给来源（下一帧）、指针捕获由根持有——这些我读了 drag-gesture.ts 与 drag-session.ts 确认，计划对它们的依赖没有错。
+- 右键菜单（不含 toggle 保 side 的问题，见发现 10b）与 schema 的 `additionalProperties: false`、`side` 值只收 left/right 的写法没有问题。
+- nb-ui 的 RadioGroup 与 Checkbox 的 `1lh` 改法本身没发现问题。
+
+## 数量
+阻断 2：发现 1、2
+重要 10：发现 3、4、5、6、7、8、9、10、11、12
+建议 4：发现 13、14、15、16
+共 16 条。
+没有跑类型检查与单元测试（计划未实现，没有可跑的新代码）；没有改仓库任何文件。所有“从代码推断”的结论都标了依据位置，发现 10a、4b 的数值是我按当前样式估的，建议实现前用 Lab 量一次。

@@ -5,7 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {mkdir, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
+import {chmod, mkdir, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -57,21 +57,23 @@ async function pack(directory: string, manifest: unknown, images: Readonly<Recor
     for (const [name, bytes] of Object.entries(images)) await writeFile(join(directory, name), bytes);
 }
 
-/** 星璃的表情包：两个常用、一个不常用、一个文件不在、一个名字不合规则、一个字节不是图片、一张太大。 */
+/** 星璃的表情包：两个常用、一个不常用、一个名字取自文件名，一个文件不在、一个名字不合规则、一个文件名当不了名字、一个字节不是图片、一张太大。 */
 async function lyra(directory: string): Promise<void> {
     await pack(directory, {
         title: "星璃",
         description: "星璃的表情",
         stickers: [
-            {name: "开心", file: "happy.png", when: "被夸的时候", common: true},
-            {name: "害羞", file: "shy.webp", when: "被问到私事", common: true},
+            {name: "开心", file: "happy.png", description: "被夸的时候", common: true},
+            {name: "害羞", file: "shy.webp", description: "被问到私事", common: true},
             {name: "比心", file: "heart.png"},
+            {file: "困.png", common: true},
+            {file: "1.png"},
             {name: "没有图", file: "missing.png"},
             {name: "1坏名字", file: "happy.png"},
             {name: "假图", file: "fake.png"},
             {name: "太大", file: "big.png"},
         ],
-    }, {"happy.png": await png(64, 64), "shy.webp": await webp(96, 64), "heart.png": await png(32, 32), "fake.png": new TextEncoder().encode("not an image"), "big.png": await png(1100, 20)});
+    }, {"happy.png": await png(64, 64), "shy.webp": await webp(96, 64), "heart.png": await png(32, 32), "fake.png": new TextEncoder().encode("not an image"), "big.png": await png(1100, 20), "困.png": await png(16, 16), "1.png": await png(8, 8)});
 }
 
 interface Scene {
@@ -123,20 +125,22 @@ describe("表情目录", () => {
         });
         const lyraPack = byId(service, "user.lyra");
         expect(lyraPack).toMatchObject({folder: "lyra", source: "user", title: "星璃", description: "星璃的表情", status: "ok"});
-        expect(lyraPack?.stickers.map(({name, file, when, common, width, height}) => ({name, file, when, common, width, height}))).toEqual([
-            {name: "开心", file: "happy.png", when: "被夸的时候", common: true, width: 64, height: 64},
-            {name: "害羞", file: "shy.webp", when: "被问到私事", common: true, width: 96, height: 64},
-            {name: "比心", file: "heart.png", when: undefined, common: false, width: 32, height: 32},
+        expect(lyraPack?.stickers.map(({name, file, description, common, width, height}) => ({name, file, description, common, width, height}))).toEqual([
+            {name: "开心", file: "happy.png", description: "被夸的时候", common: true, width: 64, height: 64},
+            {name: "害羞", file: "shy.webp", description: "被问到私事", common: true, width: 96, height: 64},
+            {name: "比心", file: "heart.png", description: undefined, common: false, width: 32, height: 32},
+            {name: "困", file: "困.png", description: undefined, common: true, width: 16, height: 16},
         ]);
-        expect(byId(service, "user.empty")).toMatchObject({status: "invalid", problem: {code: "manifest-missing"}, stickers: []});
+        // 没有清单不算无效：空文件夹是一个没有表情的表情包。
+        expect(byId(service, "user.empty")).toMatchObject({status: "ok", stickers: []});
         expect(byId(service, "user.Bad-Name")).toMatchObject({status: "invalid", problem: {code: "folder-name"}});
         expect(byId(service, "user.broken")).toMatchObject({status: "invalid", problem: {code: "manifest-unreadable"}});
         // 可选字段不合规只忽略字段；`common` 不合规是这一项不合规。
         expect(byId(service, "user.fields")).toMatchObject({status: "ok", title: "fields", stickers: []});
         const stickerInvalid = events().filter((item) => item.event === "stickers.sticker-invalid").map((item) => (item.data as {id: string; stickers: string[]}));
-        expect(stickerInvalid.find((item) => item.id === "user.lyra")?.stickers).toHaveLength(4);
+        expect(stickerInvalid.find((item) => item.id === "user.lyra")?.stickers).toHaveLength(5);
         expect(events().filter((item) => item.event === "stickers.field-ignored")).toHaveLength(1);
-        expect(events().filter((item) => item.event === "stickers.pack-invalid")).toHaveLength(3);
+        expect(events().filter((item) => item.event === "stickers.pack-invalid")).toHaveLength(2);
 
         // 清单里加一个有效的表情，等它出现（重扫做完了）：别的问题没变，不再写诊断。
         const before = events().length;
@@ -147,6 +151,55 @@ describe("表情目录", () => {
             return byId(service, "user.lyra")?.stickers.some((sticker) => sticker.name === "晚安") || null;
         });
         expect(events().length).toBe(before);
+    });
+
+    test("没有表情列表：每张图片一个表情，按文件名排、名字取文件名、都算常用；当不了名字与重名的写诊断，别的文件不报；写了列表只认列表；加图随监视出现", async () => {
+        const {world, user, service, events} = await scene(async (user) => {
+            const cat = join(user, "cat");
+            await mkdir(join(cat, "sub"), {recursive: true});
+            // 子文件夹不算表情，扩展名像图片的也一样。
+            await mkdir(join(cat, "相册.png"));
+            for (const [file, bytes] of Object.entries({"开心.png": await png(16, 16), "开心.webp": await webp(16, 16), "困.webp": await webp(24, 16), "1.png": await png(8, 8), ".hidden.png": await png(8, 8), "readme.txt": new TextEncoder().encode("说明")})) await writeFile(join(cat, file), bytes);
+            await writeFile(join(cat, "sub", "里面.png"), await png(8, 8));
+            await symlink(join(cat, "开心.png"), join(cat, "链接.png"));
+            await pack(join(user, "titled"), {title: "有标题"}, {"a.png": await png(8, 8)});
+            await pack(join(user, "listed"), {stickers: [{file: "a.png"}]}, {"a.png": await png(8, 8), "b.png": await png(8, 8)});
+        });
+        expect(byId(service, "user.cat")?.stickers.map(({name, file, description, common}) => ({name, file, description, common}))).toEqual([
+            {name: "困", file: "困.webp", description: undefined, common: true},
+            {name: "开心", file: "开心.png", description: undefined, common: true},
+        ]);
+        expect(byId(service, "user.cat")).toMatchObject({status: "ok", title: "cat"});
+        const catProblems = events().find((item) => item.event === "stickers.sticker-invalid" && (item.data as {id: string}).id === "user.cat")?.data as {stickers: string[]} | undefined;
+        expect(catProblems?.stickers).toEqual([expect.stringMatching(/^1\.png：文件名当不了表情名（/u), "开心.webp：名字 开心 与前面的表情重名", "链接：文件是链接"]);
+        expect(byId(service, "user.titled")).toMatchObject({status: "ok", title: "有标题", stickers: [{name: "a", common: true}]});
+        expect(byId(service, "user.listed")?.stickers.map((sticker) => sticker.name)).toEqual(["a"]);
+
+        await writeFile(join(user, "cat", "晚安.png"), await png(8, 8));
+        await waitUntil("加的图片出现", () => {
+            world.clock.advance(200);
+            return byId(service, "user.cat")?.stickers.some((sticker) => sticker.name === "晚安") || null;
+        });
+    });
+
+    test("输出 2：表情包文件夹读不了时是无效的，不当成没有清单或空的表情包", async () => {
+        const locked: string[] = [];
+        try {
+            const {service} = await scene(async (user) => {
+                // 只能进、不能列：查得到没有清单，列不出图片。只能列、不能进：查不了有没有清单。
+                for (const [folder, mode] of [["unlisted", 0o100], ["unsearchable", 0o400]] as const) {
+                    const directory = join(user, folder);
+                    await mkdir(directory);
+                    await writeFile(join(directory, "a.png"), await png(8, 8));
+                    await chmod(directory, mode);
+                    locked.push(directory);
+                }
+            });
+            expect(byId(service, "user.unlisted")).toMatchObject({status: "invalid", problem: {code: "folder-unreadable"}, stickers: []});
+            expect(byId(service, "user.unsearchable")).toMatchObject({status: "invalid", problem: {code: "manifest-unreadable"}, stickers: []});
+        } finally {
+            for (const directory of locked) await chmod(directory, 0o700);
+        }
     });
 
     test("输出 1：新放进的表情包、整个换掉的表情包都随监视重扫出现；链接的表情包是无效的", async () => {
@@ -237,7 +290,7 @@ describe("stickers://", () => {
     test("输出 13：根列出表情包；表情包的文件能读能列、不能写；整个文件夹换掉后读到新的", async () => {
         const {world, user, files} = await scene(async (user) => lyra(join(user, "lyra")));
         const listed = await files.list("stickers://");
-        expect(listed.ok && "kind" in listed.value && listed.value.entries.map((entry) => [entry.name, entry.title, entry.meta?.stickers])).toEqual([["user.lyra", "星璃", "3"]]);
+        expect(listed.ok && "kind" in listed.value && listed.value.entries.map((entry) => [entry.name, entry.title, entry.meta?.stickers])).toEqual([["user.lyra", "星璃", "4"]]);
         const manifest = await files.read("stickers://user.lyra/stickers.json");
         expect(manifest.ok && new TextDecoder().decode(manifest.value.bytes)).toContain("被夸的时候");
         // 方案没有写能力，文件服务这一层就拒绝；Agent 的资源层对它分类为不可写（agent/resources.md），工具得 permission-denied。
@@ -281,7 +334,7 @@ describe("取图路由", () => {
 
 describe("浏览器目录", () => {
     test("输出 18：只带显示要用的字段；合计超过上限时放不下的表情包整包不进、写诊断", () => {
-        const entry = (id: string, count: number): StickerPackEntry => ({id, folder: id.split(".")[1] as string, source: "user", title: id, status: "ok", stickers: Array.from({length: count}, (_, index) => ({name: `n${String(index)}`, file: `f${String(index)}.png`, common: false, width: 8, height: 8, version: "1-1"}))});
+        const entry = (id: string, count: number): StickerPackEntry => ({id, folder: id.split(".")[1] as string, source: "user", title: id, status: "ok", stickers: Array.from({length: count}, (_, index) => ({name: `n${String(index)}`, file: `f${String(index)}.png`, description: "说明", common: false, width: 8, height: 8, version: "1-1"}))});
         const reports: string[] = [];
         const result = browserCatalog([entry("user.a", BROWSER_STICKERS_MAX - 1), entry("user.b", 2), entry("user.c", 1)], (code) => reports.push(code));
         expect(result.map((pack) => pack.id)).toEqual(["user.a", "user.c"]);

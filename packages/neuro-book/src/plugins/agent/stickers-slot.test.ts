@@ -32,19 +32,19 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-const pack = (id: string, stickers: Array<{name: string; common?: boolean; when?: string}>, extra: Partial<StickerPackEntry> = {}): StickerPackEntry => ({
+const pack = (id: string, stickers: Array<{name: string; common?: boolean; description?: string}>, extra: Partial<StickerPackEntry> = {}): StickerPackEntry => ({
     id,
     folder: id.slice(id.lastIndexOf(".") + 1),
     source: "user",
     title: id,
     status: "ok",
-    stickers: stickers.map((sticker, index) => ({name: sticker.name, file: `${String(index)}.png`, common: sticker.common ?? true, width: 8, height: 8, version: "1-1", ...(sticker.when === undefined ? {} : {when: sticker.when})})),
+    stickers: stickers.map((sticker, index) => ({name: sticker.name, file: `${String(index)}.png`, common: sticker.common ?? true, width: 8, height: 8, version: "1-1", ...(sticker.description === undefined ? {} : {description: sticker.description})})),
     ...extra,
 });
 
 describe("槽的文字", () => {
-    test("输出 14、16：白名单里有效的表情包按白名单顺序各一段，常用的表情带写法与什么时候用；白名单空或都无效时没有内容", () => {
-        const packs = [pack("user.lyra", [{name: "开心", when: "被夸的时候"}, {name: "害羞"}], {title: "星璃", description: "星璃的表情"}), pack("user.cat", [{name: "喵"}]), pack("user.broken", [], {status: "invalid"})];
+    test("输出 14、16：白名单里有效的表情包按白名单顺序各一段，常用的表情带写法，有说明的带说明；白名单空或都无效时没有内容", () => {
+        const packs = [pack("user.lyra", [{name: "开心", description: "被夸的时候"}, {name: "害羞"}], {title: "星璃", description: "星璃的表情"}), pack("user.cat", [{name: "喵"}]), pack("user.broken", [], {status: "invalid"})];
         // 白名单的顺序不是 id 的字母序：段落按白名单排。
         const section = stickersSection(["user.lyra", "user.cat"], packs) ?? "";
         expect(section.indexOf("## 星璃（stickers://user.lyra/）")).toBeLessThan(section.indexOf("## user.cat（stickers://user.cat/）"));
@@ -70,7 +70,7 @@ describe("槽的文字", () => {
         const big = [pack("user.big", Array.from({length: SLOT_STICKERS_MAX + 5}, (_, index) => ({name: `s${String(index)}`})))];
         expect((stickersSection(["user.big"], big) ?? "").match(/^:big\//gmu)).toHaveLength(SLOT_STICKERS_MAX);
         expect(stickersSection(["user.x"], [pack("user.x", [{name: "a"}, {name: "b", common: false}])])).toContain("还有更多");
-        const long = Array.from({length: SLOT_PACKS_MAX}, (_, index) => pack(`user.l${String(index)}`, Array.from({length: 7}, (_, inner) => ({name: `n${String(inner)}`, when: "长".repeat(150)}))));
+        const long = Array.from({length: SLOT_PACKS_MAX}, (_, index) => pack(`user.l${String(index)}`, Array.from({length: 7}, (_, inner) => ({name: `n${String(inner)}`, description: "长".repeat(150)}))));
         expect((stickersSection(long.map((entry) => entry.id), long) ?? "").length).toBeLessThanOrEqual(SLOT_CHARS_MAX);
     });
 });
@@ -80,7 +80,7 @@ describe("请求里的槽", () => {
         counter += 1;
         const user = join(tmp, `u${String(counter)}`);
         await mkdir(join(user, "lyra"), {recursive: true});
-        await writeFile(join(user, "lyra", "stickers.json"), JSON.stringify({title: "星璃", stickers: [{name: "开心", file: "a.png", when: "被夸的时候", common: true}, {name: "害羞", file: "a.png", common: true}, {name: "比心", file: "a.png"}]}));
+        await writeFile(join(user, "lyra", "stickers.json"), JSON.stringify({title: "星璃", stickers: [{name: "开心", file: "a.png", description: "被夸的时候", common: true}, {name: "害羞", file: "a.png", common: true}, {name: "比心", file: "a.png"}]}));
         await writeFile(join(user, "lyra", "a.png"), await png());
         const catalog = await StickerCatalog.open({roots: [{key: "user", source: "user", prefix: "user", root: user, watch: false}], clock: {now: () => 0, schedule: () => () => undefined} as never, report: () => undefined});
         cleanups.push(() => catalog.close());

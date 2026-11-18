@@ -89,6 +89,8 @@ test("工作台：只画窗口按钮、不画后备标题栏；标题栏空白�
     await page.setViewportSize({width: 1280, height: 800});
     await openWorkbench(page);
     await expect(controls(page)).toBeVisible();
+    // 窗口按钮左边的分隔线分隔的是标题栏右端的布局按钮：工作台里看得见。
+    expect(await page.locator(".desktop-frame__divider").evaluate((element) => getComputedStyle(element).visibility)).toBe("visible");
     await expect(fallbackBar(page)).toHaveCount(0);
     await expect(page.locator("html")).not.toHaveAttribute("data-desktop-frame-bar", /.*/u);
     expect(await sent(page, "window-state-query")).toHaveLength(1);
@@ -156,22 +158,40 @@ test("高对比度模式下三个窗口按钮的图标仍看得见：描边色�
     }
 });
 
-test("书架首页与“页面不存在”：画后备标题栏，内容从 36px 处开始，视口没有滚动条，按钮贴住右缘", async ({page}) => {
+test("“页面不存在”：画后备标题栏，内容从 36px 处开始，视口没有滚动条，按钮贴住右缘", async ({page}) => {
     await installFrame(page);
     await page.setViewportSize({width: 1000, height: 700});
-    for (const path of ["/", "/nope"]) {
-        await page.goto(new URL(path, server.url).href);
-        await expect(path === "/" ? page.locator("[data-bookshelf-page]") : page.locator("[data-page-not-found]")).toBeVisible();
-        await expect(fallbackBar(page)).toBeVisible();
-        await expect(page.locator("html")).toHaveAttribute("data-desktop-frame-bar", "");
-        if (path === "/nope") await expect(fallbackBar(page)).toContainText("页面不存在");
-        expect(await region(page, "[data-desktop-fallback-bar]")).toEqual(["drag"]);
-        const app = await page.locator("#app").boundingBox();
-        expect(app?.y).toBe(36);
-        expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight && document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-        const buttons = await controls(page).boundingBox();
-        expect((buttons?.x ?? 0) + (buttons?.width ?? 0)).toBe(1000);
-    }
+    await page.goto(new URL("/nope", server.url).href);
+    await expect(page.locator("[data-page-not-found]")).toBeVisible();
+    await expect(fallbackBar(page)).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-desktop-frame-bar", "");
+    await expect(fallbackBar(page)).toContainText("页面不存在");
+    expect(await region(page, "[data-desktop-fallback-bar]")).toEqual(["drag"]);
+    const app = await page.locator("#app").boundingBox();
+    expect(app?.y).toBe(36);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight && document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const buttons = await controls(page).boundingBox();
+    expect((buttons?.x ?? 0) + (buttons?.width ?? 0)).toBe(1000);
+});
+
+test("书架首页：不画后备标题栏，页面从窗口顶端开始，顶端 36px 的透明行是拖动区域，窗口按钮浮在页面上、左边没有分隔线", async ({page}) => {
+    await installFrame(page);
+    await page.setViewportSize({width: 1000, height: 700});
+    await page.goto(new URL("/", server.url).href);
+    await expect(page.locator("[data-bookshelf-page]")).toBeVisible();
+    await expect(fallbackBar(page)).toHaveCount(0);
+    await expect(page.locator("html")).not.toHaveAttribute("data-desktop-frame-bar", /.*/u);
+    expect((await page.locator("#app").boundingBox())?.y).toBe(0);
+    const strip = page.locator("[data-bookshelf-page] [data-desktop-titlebar]");
+    const box = await strip.boundingBox();
+    expect(box).toMatchObject({x: 0, y: 0, width: 1000, height: 36});
+    expect(await region(page, "[data-bookshelf-page] [data-desktop-titlebar]")).toEqual(["drag"]);
+    // 书架上有点击行为的部分（设置齿轮、卡片按钮）不能是拖动区域。
+    expect(await region(page, "[data-bookshelf-page] button")).not.toContain("drag");
+    expect(await page.locator(".desktop-frame__divider").evaluate((element) => getComputedStyle(element).visibility)).toBe("hidden");
+    const buttons = await controls(page).boundingBox();
+    expect((buttons?.x ?? 0) + (buttons?.width ?? 0)).toBe(1000);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight && document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("按钮把动作交给壳；壳推来最大化后按钮名换成“还原”", async ({page}) => {

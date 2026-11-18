@@ -2,7 +2,8 @@
  * 本机参考实现跑一遍 `SessionFiles` 的合同（docs/specs/harness/host-kit.md）：kit 自己的测试把它当真实依赖用，所以它先要过合同。
  */
 
-import {mkdir, rm} from "node:fs/promises";
+import {describe, expect, test} from "bun:test";
+import {mkdir, rm, truncate, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -31,4 +32,27 @@ sessionFilesContract("本机参考实现", async () => {
         denied: "work://readonly/a.md",
         close: () => rm(root, {recursive: true, force: true}),
     };
+});
+
+describe("本机参考实现自己的上限", () => {
+    test("输出 5：超过 32 MiB 的文件读为 too-large，不整份读进内存", async () => {
+        const root = await createTestTmpRoot("nb-harness-kit", "local-files-limit");
+        try {
+            const work = join(root, "work");
+            await mkdir(work, {recursive: true});
+            // 延长成稀疏文件：不真的写 32 MiB。
+            await writeFile(join(work, "big.bin"), "");
+            await truncate(join(work, "big.bin"), 32 * 1024 * 1024 + 1);
+            const {files} = localFiles({
+                roots: {work},
+                aliases: {},
+                layout: {working: "work://", scratch: [], localWrites: [], shellEnv: {}, searchExcludes: () => []},
+                classify: () => "allowed",
+                artifacts: "work://artifacts",
+            });
+            expect(await files.read("work://big.bin")).toMatchObject({ok: false, code: "too-large"});
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    });
 });
