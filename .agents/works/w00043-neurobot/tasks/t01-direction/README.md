@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-direction
-status: active
-updated: 2026-11-10
+status: done
+updated: 2026-11-18
 ---
 
 # 方向讨论与同类项目调研
