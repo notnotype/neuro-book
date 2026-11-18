@@ -21,16 +21,16 @@ import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {notificationsKey} from "nbook/plugins/workbench/shared/contracts";
 import type {DesktopSettingValues} from "nbook/shared/desktop-bridge";
 import {windowDesktopKey} from "nbook/shared/host";
-import {bindingsOf, definePublicState} from "nbook/shared/store/public";
+import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import {desktopSettings} from "../shared/contracts";
+import {firstRunEntry} from "./first-run-entry";
+import {desktopState} from "./state";
 import {createZoomController, zoomKeyAction} from "./zoom";
 import type {ZoomAction, ZoomKey} from "./zoom";
 
-export const desktopState = definePublicState(descriptor.id, {
-    inDesktop: {type: "boolean", unready: false, reason: {"zh-CN": "只在 NeuroBook 桌面版里可用", "en-US": "Only available in the NeuroBook desktop app"}},
-});
+export {desktopState};
 
 /** 内置命令的 id 是 `nbook.<域>.<动作>`（commands.md），缩放属于视图域；旧桌面菜单的 `view.zoom-*` 落到这三条。 */
 export const ZOOM_IN_COMMAND = "nbook.view.zoom-in";
@@ -147,5 +147,5 @@ export const desktopEntry = defineEntry({
 
 export const desktopBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [desktopEntry],
+    entries: [desktopEntry, firstRunEntry],
 };

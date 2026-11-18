@@ -6,17 +6,12 @@ import {Button, Dialog, SegmentedControl, Switch} from "@notnotype/nb-ui/compone
 
 import NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 
+import type {FirstRunChange} from "../first-run";
 import {useDesktopText} from "../text";
 
 type FirstRunStep = 1 | 2 | 3 | 4;
 type Appearance = "light" | "dark" | "system";
 type DesktopOption = "desktopShortcut" | "openAtLogin" | "tray";
-
-export type FirstRunChange =
-    | {key: "theme"; value: string}
-    | {key: "appearance"; value: Appearance}
-    | {key: "locale"; value: string}
-    | {key: DesktopOption; value: boolean};
 
 const props = defineProps<{
     open: boolean;
