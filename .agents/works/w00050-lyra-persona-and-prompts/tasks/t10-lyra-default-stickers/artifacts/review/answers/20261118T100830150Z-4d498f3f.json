@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t10-lyra-default-stickers",
+    "artifactId": "review",
+    "answerId": "20261118T100830150Z-4d498f3f",
+    "artifactVersion": 1,
+    "contentHash": "3a0a550a91dda045a3e04da6819573003c9c0dd04208e0a84d92ce352409708f",
+    "submittedAt": "2026-11-18T10:08:28.200Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "framing": "closer",
+        "white-border": "keep-border",
+        "distribution": "builtin"
+    },
+    "comments": {
+        "framing": "这一版可以保留，我觉得还挺不错的。看看大图效果会不会更好"
+    },
+    "note": null
+}
