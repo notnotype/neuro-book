@@ -1,0 +1,183 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t08-sticker-settings-page",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "表情包设置页",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "f5ffa67ebb55770e459dd379c0f11ecaae079405c7ca8a7acca9ef9599cf92ef",
+    "files": [
+        "index.html",
+        "r1/conflict.webp",
+        "r1/create.webp",
+        "r1/dragging.webp",
+        "r1/empty.webp",
+        "r1/main-dark.webp",
+        "r1/main.webp",
+        "r1/narrow.webp",
+        "r1/pack.webp",
+        "r1/plugin.webp",
+        "r1/problem.webp",
+        "r2/conflict.webp",
+        "r2/create.webp",
+        "r2/dragging.webp",
+        "r2/empty.webp",
+        "r2/main-dark.webp",
+        "r2/main.webp",
+        "r2/narrow.webp",
+        "r2/pack.webp",
+        "r2/plugin.webp",
+        "r2/problem.webp",
+        "r2/rename.webp",
+        "r2/unlisted.webp"
+    ],
+    "questions": [
+        {
+            "id": "unlisted-images",
+            "type": "single",
+            "label": "有了清单之后，文件夹里没列进清单的图片还算不算表情？",
+            "options": [
+                {
+                    "value": "listed",
+                    "label": "A 只认清单（t07 现在的规则）"
+                },
+                {
+                    "value": "extra",
+                    "label": "B 文件夹里的图都算，清单只补充"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "extra"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "page-layout",
+            "type": "confirm",
+            "label": "整页按这版做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "pack-name",
+            "type": "confirm",
+            "label": "新建时填包名，建好后不能改",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "problem-rename",
+            "type": "confirm",
+            "label": "当不了名字的图在网格里标出来，选中直接改名",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "plugin-pack",
+            "type": "confirm",
+            "label": "插件的包只读，“复制到我的”之后再改",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "import-conflict",
+            "type": "confirm",
+            "label": "导入同名时按这个对话框问",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "style-r2",
+            "type": "confirm",
+            "label": "整页按第 2 轮的样子做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "unlisted-group",
+            "type": "confirm",
+            "label": "没加进清单的图放在网格最后一组，可以全部加进来",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "rename-r2",
+            "type": "confirm",
+            "label": "改包名在更多菜单与属性栏的“改…”，对话框写清代价",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "conflict-r2",
+            "type": "confirm",
+            "label": "导入同名的对话框按这版",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T03:19:56.668Z"
+}
