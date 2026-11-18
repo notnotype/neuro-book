@@ -368,6 +368,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         },
                     },
                     warnCost: () => settings.get(agentSettings.settings.warnCost),
+                    resumeMode: () => settings.get(agentSettings.settings.resumeMode),
                     rememberRules: (rules) => rulesWriter.append(rules),
                     models: () => models.value,
                     roles: () => roles.value,

@@ -107,6 +107,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
             recent.value = id;
         }},
         warnCost: () => 0,
+        resumeMode: () => "merge",
         rememberRules: async () => ({ok: true}),
         models: () => [{key: "local/m", label: "M", supportsImages: false}],
         roles: () => null,
@@ -134,8 +135,8 @@ const until = <T>(what: string, check: () => T | Promise<T>) => waitUntil(what, 
 const idle = (h: Harness) => until("运行结束", () => h.ctx().run.status === "idle");
 const approvals = (ctx: AgentConversationContext) => ctx.pendingInputs.filter((item): item is PendingApprovalView => item.kind === "approval");
 
-async function started(w: AgentWorld): Promise<Harness> {
-    const h = await harness(w);
+async function started(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}): Promise<Harness> {
+    const h = await harness(w, overrides);
     expect(await h.host.create(PROFILE)).not.toBeNull();
     return h;
 }
@@ -355,6 +356,119 @@ describe("发送、排队与停止（输出 6）", () => {
         expect((await view.snapshot()).buffer.map((item) => item.input.text)).toEqual(["改过的"]);
         await until("排队的还在", () => h.ctx().composer.queued.length === 1);
         expect(h.ctx().stopRequestedAt).toBeUndefined();
+    });
+});
+
+describe("留着的话与继续（conversation.md 输出 47–50）", () => {
+    const userTexts = (h: Harness): string[] => h.ctx().messages.filter((message) => message.kind === "user").map((message) => (message as {blocks: {text?: string}[]}).blocks.map((block) => block.text ?? "").join(""));
+
+    /** 开一轮挂着，排 `queued` 几条，再停下：排的话都留着。 */
+    async function stoppedWithHeld(h: Harness, queued: readonly string[]): Promise<void> {
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复");
+        h.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        await until("运行中", () => h.ctx().run.status === "running");
+        for (const text of queued) h.host.act({type: "composer.submit", text, delivery: "followup"});
+        await until("都排上", () => h.ctx().composer.queued.length === queued.length);
+        expect(h.ctx().interaction.stopClearing).toEqual({count: queued.length});
+        h.host.act({type: "composer.stop"});
+        hold.release();
+        await idle(h);
+        await until("留着", () => h.ctx().composer.queued.every((item) => item.held !== undefined) && h.ctx().composer.queued.length === queued.length);
+    }
+
+    test("输出 48、49：停止后排的话留着、写明原因，只有空闲时没有停止的第二个选项；空着继续、只留一条时放行它接着跑", async () => {
+        const w = await world();
+        const h = await started(w);
+        await stoppedWithHeld(h, ["排一条"]);
+        expect(h.ctx().composer.queued[0]).toMatchObject({text: "排一条", held: {reason: "conversation.held.stoppedByYou"}});
+        expect(h.ctx().composer.queued[0]!.author).toBeUndefined();
+        expect(h.ctx().interaction.stopClearing).toBeNull();
+        endpoint.script("处理了排的那条");
+        h.host.act({type: "run.continue"});
+        await until("接着跑完", () => assistants(h.ctx().messages).at(-1)?.text === "处理了排的那条");
+        await idle(h);
+        expect(h.ctx().composer.queued).toEqual([]);
+        expect(userTexts(h).at(-1)).toBe("排一条");
+    });
+
+    test("输出 49：停止并清空排队，缓冲区不留", async () => {
+        const w = await world();
+        const h = await started(w);
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复");
+        h.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        await until("运行中", () => h.ctx().run.status === "running");
+        h.host.act({type: "composer.submit", text: "排一条", delivery: "followup"});
+        await until("排上", () => h.ctx().composer.queued.length === 1);
+        h.host.act({type: "composer.stop", clearQueue: true});
+        hold.release();
+        await idle(h);
+        await until("清空", () => h.ctx().composer.queued.length === 0);
+        expect((await w.service.session(h.host.sessionId.value!).snapshot()).buffer).toEqual([]);
+    });
+
+    test("输出 47、50：合并时用户留着的话与写的字合成一条（入队顺序、空一行），合成的一条换掉留着的", async () => {
+        const w = await world();
+        const h = await started(w);
+        await stoppedWithHeld(h, ["排一", "排二"]);
+        endpoint.script("三句一起处理了");
+        h.host.act({type: "composer.submit", text: "新的话", delivery: "prompt"});
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "三句一起处理了");
+        await idle(h);
+        expect(userTexts(h).at(-1)).toBe("排一\n\n排二\n\n新的话");
+        expect(h.ctx().composer.queued).toEqual([]);
+        expect(h.ctx().messages.some((message) => (message as {delivery?: string}).delivery !== undefined)).toBe(false);
+    });
+
+    test("输出 47、50：保留原插话与排队时空着继续放行，各自一条按排队顺序跑", async () => {
+        const w = await world();
+        const h = await started(w, {resumeMode: () => "keep"});
+        await stoppedWithHeld(h, ["排一", "排二"]);
+        endpoint.script("处理了一", "处理了二");
+        h.host.act({type: "run.continue"});
+        await until("都跑完", () => assistants(h.ctx().messages).at(-1)?.text === "处理了二");
+        await idle(h);
+        expect(userTexts(h).slice(-2)).toEqual(["排一", "排二"]);
+    });
+
+    test("输出 50：合成的一条得 input-stale 时按新的快照重新合成、再发一次；被拒时只把写的字放回输入框", async () => {
+        const w = await world();
+        const base = await started(w);
+        await stoppedWithHeld(base, ["排一", "排二"]);
+        const sends: {replaces?: unknown; input: {text: string}}[] = [];
+        let reply: "stale" | "reject" | "real" = "stale";
+        const flaky = new Proxy(base.client, {get(target, key, receiver) {
+            if (key !== "send") return Reflect.get(target, key, receiver);
+            return async (input: {sessionId: string; commandId: string; input: {text: string}; replaces?: unknown}) => {
+                sends.push(input);
+                const current = reply;
+                if (current === "stale") {
+                    reply = "real";
+                    return {ok: false, code: "input-stale"};
+                }
+                if (current === "reject") return {ok: false, code: "input-rejected"};
+                return target.send(input as never);
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: flaky});
+        await h.host.open(base.host.sessionId.value!);
+        await until("读到留着的", () => h.ctx().composer.queued.length === 2);
+        endpoint.script("合成的处理了");
+        h.host.act({type: "run.continue"});
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "合成的处理了");
+        await idle(h);
+        expect(sends.map((item) => item.input.text)).toEqual(["排一\n\n排二", "排一\n\n排二"]);
+        expect(sends[1]!.replaces).toHaveLength(2);
+
+        await stoppedWithHeld(h, ["再排一", "再排二"]);
+        reply = "reject";
+        h.host.act({type: "composer.submit", text: "写的字", delivery: "prompt"});
+        await until("被拒", () => h.ctx().composer.notice !== undefined);
+        expect(h.ctx().composer.draft.text).toBe("写的字");
+        expect(h.ctx().composer.queued).toHaveLength(2);
     });
 });
 

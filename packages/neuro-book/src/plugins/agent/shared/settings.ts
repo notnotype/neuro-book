@@ -134,6 +134,19 @@ export const agentSettings = defineSettings("nbook.agent", {
         group: "requests",
         order: 10,
     },
+    /** 有留着的话时继续怎么发（docs/specs/agent/conversation.md 输出 47）；界面点继续时现读。 */
+    resumeMode: {
+        schema: Type.Union([Type.Literal("merge"), Type.Literal("keep"), Type.Literal("followups")]),
+        default: "merge",
+        title: agentText("settings.resumeMode.title"),
+        description: agentText("settings.resumeMode.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        // 同组的两个超时（`nbook.models`）占 20、30。
+        group: "requests",
+        order: 40,
+        choices: [{value: "merge"}, {value: "keep"}, {value: "followups"}],
+    },
     warnCost: {
         schema: Type.Number({minimum: 0}),
         default: 0,

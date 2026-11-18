@@ -15,6 +15,7 @@ import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
 import {findPromptLinks} from "@notnotype/nb-markdown";
+import type {KernelQueued} from "@notnotype/nb-agent-ui";
 import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, KernelIssuer, MessageView, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
@@ -36,6 +37,7 @@ import type {ModelFailure, ModelNoticeInput} from "./model-notice";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
 import type {AncestorItem, JobItem, TreeItem} from "../shared/subagents";
 import {agentText} from "../shared/text";
+import {mergeHeld} from "./resume-merge";
 import type {SubagentStore} from "./subagent-store";
 import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./request-entries";
 
@@ -48,9 +50,32 @@ const KEPT_UI_STATES = 20;
 const TICK_MS = 1_000;
 
 /** 发出去、结果还没定的一句话：重发用同一个指令 id 和同一份附件，明确被拒时 `restore` 把附件放回输入框。 */
-type PendingSend = {readonly commandId: string; readonly input: {readonly text: string; readonly attachments?: UploadedAttachment[]}; restore(): void};
+/**
+ * 发出去还没确认的一条。合并留着的话发出的那一条带 `replaces`（重发沿用）与 `typed`（用户这次写的字；被拒时只放回它，空着继续时为 null，
+ * 合成的文字不放回输入框，conversation.md 输出 50）。
+ */
+type PendingSend = {
+    readonly commandId: string;
+    readonly input: {readonly text: string; readonly attachments?: readonly UploadedAttachment[]};
+    readonly replaces?: readonly {readonly id: string; readonly edits: number}[];
+    readonly typed?: string | null;
+    restore(): void;
+};
 
 /** 结果未知的失败码：指令可能已经受理，不能当成被拒。 */
+/** 留着的原因里认得的码（运行没开起来的原因，harness/runtime.md 输出 104），其余照写码本身。 */
+const HELD_CODE_KEYS = {
+    "no-model": "conversation.held.codes.no-model",
+    "no-credentials": "conversation.held.codes.no-credentials",
+    "unknown-model": "conversation.held.codes.unknown-model",
+    "role-unbound": "conversation.held.codes.role-unbound",
+    "profile-invalid": "conversation.held.codes.profile-invalid",
+    "read-only": "conversation.held.codes.read-only",
+    "session-closing": "conversation.held.codes.session-closing",
+    "reassembly-pending": "conversation.held.codes.reassembly-pending",
+    "log-broken": "conversation.held.codes.log-broken",
+    "not-allowed": "conversation.held.codes.not-allowed",
+} as const;
 const UNKNOWN_OUTCOME = new Set(["unknown-outcome", "unavailable", "timeout", "disconnected", "server-restarted", "provider-error"]);
 const REJECT_KEYS = {
     "empty-input": "conversation.reject.emptyInput",
@@ -158,6 +183,8 @@ export interface SessionHostDeps {
     /** 按会话的草稿；写是尽力而为，丢了只是少一份没发的字。 */
     readonly drafts: {read(session: string): Promise<string | null>; write(session: string, text: string): void};
     readonly warnCost: () => number;
+    /** 有留着的话时继续怎么发（conversation.md 输出 47）；点继续时现读。 */
+    readonly resumeMode: () => "merge" | "keep" | "followups";
     /** “以后都允许”：加到用户规则末尾（permissions.md 输出 23）。 */
     readonly rememberRules: (rules: readonly Rule[]) => Promise<SettingWriteResult>;
     /** 模型下拉；模型服务不在时为 null。 */
@@ -1068,12 +1095,54 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
 
     const commandId = (): string => deps.newId();
 
+    /** 排队区的一条（conversation.md 输出 48）：别人排的带作者、只能取消；留着的带原因。 */
+    function queuedView(target: Current, item: KernelQueued) {
+        return {
+            id: item.id,
+            text: item.text,
+            delivery: item.mode,
+            ...(item.by === undefined ? {} : {author: authorOf(target, item.by), editable: false}),
+            ...(item.state === "held" ? {held: {reason: heldReason(item)}} : {}),
+        };
+    }
+
+    /** 留着的原因按 `cause` 与 `heldBy` 取文案（输出 48）；带码时写运行没开起来，码不认识时写码本身。 */
+    function heldReason(item: KernelQueued): string {
+        const t = deps.text.t;
+        const cause = item.cause;
+        if (cause === undefined) return t(agentText("conversation.held.unknown"));
+        if (cause.code !== undefined) {
+            const key = HELD_CODE_KEYS[cause.code as keyof typeof HELD_CODE_KEYS];
+            return t(agentText("conversation.held.notStarted", {reason: key === undefined ? cause.code : t(agentText(key))}));
+        }
+        if ("queued" in cause) return t(agentText("conversation.held.idle"));
+        switch (cause.end) {
+            case "completed": return t(agentText("conversation.held.completed"));
+            case "finished": return t(agentText("conversation.held.finished"));
+            case "error": return t(agentText("conversation.held.error"));
+            case "interrupted": return t(agentText("conversation.held.interrupted"));
+            case "aborted":
+                if (item.heldBy?.kind === "session") return t(agentText("conversation.held.stoppedByAgent"));
+                if (item.heldBy?.kind === "host") return t(agentText("conversation.held.stoppedByHost", {name: item.heldBy.source.label}));
+                return t(agentText("conversation.held.stoppedByYou"));
+            default: return t(agentText("conversation.held.unknown"));
+        }
+    }
+
+    /** 停止的第二个选项（输出 49）：在跑、缓冲区里有用户自己的话时给出，条数是全部条数（用户的停止清空全部）。 */
+    function stopClearingOf(target: Current | null): {readonly count: number} | null {
+        if (target === null || target.transcript.run().status === "idle") return null;
+        const queue = target.transcript.queue();
+        return queue.some((item) => item.by === undefined) ? {count: queue.length} : null;
+    }
+
     /** 发送结果未知：消息标出来，可以重发或移除，重发带上原来的附件。明确被拒：撤掉，文字与附件放回输入框，说明原因。 */
-    function settleSend(target: Current, optimisticId: string, sent: PendingSend, result: {ok: boolean; code?: string}): void {
+    function settleSend(target: Current, optimisticId: string, sent: PendingSend, result: {ok: boolean; code?: string; value?: {readonly value?: {readonly placement?: string}}}): void {
         if (current !== target) return;
         if (result.ok) {
-            // 受理了：`input` 帧先于响应到达，通常已经换掉；重连重建时帧被跳过，这里兜住，不留一条永远“发送中”的。
-            target.transcript.removeOptimistic(optimisticId);
+            // 受理了。交给运行的（`taken`）等它的 `input` 按 `commandId` 确认：实时帧与重连后按路径重建都会清（nb-agent-ui 的转录器），
+            // 合并的那一条前面还有别人的话先跑时，它要留着显示“前面还有 N 条”。别的去向排队区会显示它，这里撤掉。
+            if (result.value?.value?.placement !== "taken") target.transcript.removeOptimistic(optimisticId);
             bump();
             return;
         }
@@ -1082,7 +1151,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             unknownSends.set(optimisticId, sent);
         } else {
             target.transcript.removeOptimistic(optimisticId);
-            setDraft(sent.input.text);
+            const typed = sent.typed === undefined ? sent.input.text : sent.typed;
+            if (typed !== null) setDraft(draftText === "" ? typed : `${draftText}\n${typed}`);
             sent.restore();
             const key = REJECT_KEYS[result.code as keyof typeof REJECT_KEYS];
             notice = key === undefined ? agentText("conversation.reject.other", {code: result.code ?? ""}) : agentText(key);
@@ -1102,6 +1172,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const target = current!;
         const {attachments, restore} = takeAttachments(text);
         const input = attachments.length === 0 ? {text} : {text, attachments: [...attachments]};
+        if (delivery === "prompt" && target.transcript.queue().some((item) => item.state === "held")) {
+            await continueRun(target, {text, attachments, restore});
+            return;
+        }
         if (delivery === "prompt") {
             const id = commandId();
             const optimisticId = `optimistic-${id}`;
@@ -1117,6 +1191,100 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             restore();
             notice = agentText("conversation.reject.other", {code: queued.code});
             bump();
+        }
+    }
+
+    /** 继续进行中（含两步之间）：头行的“继续”与发送键不可用（conversation.md 输出 50）。 */
+    let continuing = false;
+
+    /**
+     * 有留着的话或中断的运行时的继续（conversation.md 输出 50 的表）。`typed` 是空闲时写了字回车的那句（连同它的附件），空着继续为 null。
+     * 合并：用户留着的话（与写的字）合成一条走 `send{replaces}`；空着继续且用户留着的不到两条时走 `resume{keep}`；中断的运行先 `start`
+     * 接着跑，再在这次运行里发。保留与按排队顺序：`resume{mode}`，写了字时 `send{release: mode}`。
+     */
+    async function continueRun(target: Current, typed: {readonly text: string; readonly attachments: readonly UploadedAttachment[]; restore(): void} | null): Promise<void> {
+        if (continuing) {
+            if (typed !== null) {
+                setDraft(typed.text);
+                typed.restore();
+            }
+            return;
+        }
+        continuing = true;
+        bump();
+        const fail = (code: string): void => {
+            if (current !== target) return;
+            if (typed !== null) {
+                setDraft(draftText === "" ? typed.text : `${draftText}\n${typed.text}`);
+                typed.restore();
+            }
+            notice = agentText("conversation.continue.failed", {code});
+            bump();
+        };
+        try {
+            const mode = deps.resumeMode();
+            const idle = target.transcript.run().status === "idle";
+            const input = typed === null ? null : typed.attachments.length === 0 ? {text: typed.text} : {text: typed.text, attachments: [...typed.attachments]};
+            if (mode !== "merge") {
+                const done = input === null
+                    ? await remote.resume({sessionId: target.id, commandId: commandId(), mode})
+                    : await remote.send({sessionId: target.id, commandId: commandId(), input, release: mode});
+                if (!done.ok && done.code !== "nothing-to-resume") fail(done.code);
+                return;
+            }
+            // 合并：中断的运行先接着跑（空闲时）；第二步之前它已被停止或已收口就不再发。
+            if (idle && target.transcript.interrupted()) {
+                const started = await remote.start({sessionId: target.id, commandId: commandId()});
+                if (!started.ok) {
+                    fail(started.code);
+                    return;
+                }
+                if (current !== target) return;
+                if (target.transcript.run().status === "idle" || target.transcript.run().status === "stopping") {
+                    if (typed !== null) {
+                        setDraft(draftText === "" ? typed.text : `${draftText}\n${typed.text}`);
+                        typed.restore();
+                    }
+                    notice = agentText("conversation.continue.stopped");
+                    bump();
+                    return;
+                }
+            }
+            await sendMerged(target, typed, input);
+        } finally {
+            continuing = false;
+            if (current === target) bump();
+        }
+    }
+
+    /** 合并的一条：用户留着的话（与写的字）合成；空着继续、用户留着的不到两条时只放行。`input-stale` 时按新的快照重新合成、再发一次。 */
+    async function sendMerged(target: Current, typed: {readonly text: string; readonly attachments: readonly UploadedAttachment[]; restore(): void} | null, input: {readonly text: string; readonly attachments?: readonly UploadedAttachment[]} | null): Promise<void> {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const userHeld = target.transcript.queue().filter((item) => item.state === "held" && item.by === undefined);
+            if (typed === null && userHeld.length < 2) {
+                const resumed = await remote.resume({sessionId: target.id, commandId: commandId(), mode: "keep"});
+                if (!resumed.ok && resumed.code !== "nothing-to-resume" && current === target) {
+                    notice = agentText("conversation.continue.failed", {code: resumed.code});
+                    bump();
+                }
+                return;
+            }
+            const merged = mergeHeld(userHeld.map((item) => ({id: item.id, edits: item.edits, text: item.text, attachments: (item.attachments ?? []) as unknown as readonly UploadedAttachment[]})), input);
+            const id = commandId();
+            const optimisticId = `optimistic-${id}`;
+            target.transcript.addOptimistic({id: optimisticId, commandId: id, text: merged.input.text, timestamp: deps.now()});
+            bump();
+            const sent: PendingSend = {commandId: id, input: merged.input, ...(merged.replaces.length === 0 ? {} : {replaces: merged.replaces}), typed: typed?.text ?? null, restore: typed?.restore ?? (() => undefined)};
+            const result = await remote.send({sessionId: target.id, commandId: id, input: merged.input, ...(sent.replaces === undefined ? {} : {replaces: sent.replaces})});
+            // 留着的话在读到之后被改过或取消了：撤掉这条，按新的快照再合成一次（不重做 `start`）。
+            if (!result.ok && result.code === "input-stale" && attempt === 0) {
+                target.transcript.removeOptimistic(optimisticId);
+                await remote.snapshot({sessionId: target.id}).catch(() => null);
+                if (current !== target) return;
+                continue;
+            }
+            settleSend(target, optimisticId, sent, result);
+            return;
         }
     }
 
@@ -1370,11 +1538,14 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 if (target === null) return;
                 stopRequestedAt = deps.now();
                 bump();
-                // 排队的消息留着（开发者 2026-11-05 定）。
-                await remote.abort({sessionId: target.id, commandId: commandId(), keepQueue: true});
+                // 排队的消息留着（开发者 2026-11-05 定）；“停止并清空排队”不留（conversation.md 输出 49）。
+                await remote.abort({sessionId: target.id, commandId: commandId(), ...(action.type === "composer.stop" && action.clearQueue === true ? {} : {keepQueue: true})});
                 return;
             case "run.continue":
-                if (target !== null) await remote.start({sessionId: target.id, commandId: commandId()});
+                if (target === null) return;
+                // 只有中断的运行、没有留着的话：照旧接着跑（输出 9）。
+                if (!target.transcript.queue().some((item) => item.state === "held")) await remote.start({sessionId: target.id, commandId: commandId()});
+                else await continueRun(target, null);
                 return;
             case "input.submit":
                 await resolveInput(action.batchKey, action.resolutions as never, action.sessionId);
@@ -1402,7 +1573,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 const sent = unknownSends.get(action.messageId);
                 if (sent === undefined || target === null) return;
                 unknownSends.delete(action.messageId);
-                settleSend(target, action.messageId, sent, await remote.send({sessionId: target.id, commandId: sent.commandId, input: sent.input}));
+                settleSend(target, action.messageId, sent, await remote.send({sessionId: target.id, commandId: sent.commandId, input: sent.input, ...(sent.replaces === undefined ? {} : {replaces: sent.replaces})}));
                 return;
             }
             case "message.dismiss":
@@ -1647,7 +1818,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 ...(target.ancestors.length === 0 ? {} : {path: [...target.ancestors].reverse().map((item) => ({id: item.id, title: item.profile === null ? null : item.title ?? "", ...(item.icon === undefined ? {} : {icon: item.icon})}))}),
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: [...HOST_TRIGGERS, ...(deps.triggers ?? [])], canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
+            interaction: {canSend: !continuing, stopClearing: stopClearingOf(target ?? null), canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: [...HOST_TRIGGERS, ...(deps.triggers ?? [])], canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),
@@ -1680,7 +1851,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 modes: meta !== null && meta !== undefined && meta.profile !== MAIN_PROFILE ? [] : MODE_OPTIONS.map((option) => ({...option, label: modeLabel(option.key)})),
                 mode: modeOfCurrent(target ?? null),
                 resume: target?.transcript.interrupted() === true,
-                queued: (target?.transcript.queue() ?? []).map((item) => ({id: item.id, text: item.text, delivery: item.mode})),
+                queued: target === null || target === undefined ? [] : target.transcript.queue().map((item) => queuedView(target, item)),
                 draft,
                 recall: target === null || target === undefined ? [] : recallOf(target.transcript.messages()),
                 attachments: [...uploads].map(([localId, entry]) => (entry.state === "ready"

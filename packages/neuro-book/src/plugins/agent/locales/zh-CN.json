@@ -110,6 +110,21 @@
             "title": "模型请求重试次数",
             "description": "模型请求失败后最多再发几次；0 表示不重试"
         },
+        "resumeMode": {
+            "title": "继续时怎么发留着的话",
+            "description": "停下或出错后排队区里留着的话，点继续或回车时怎么发",
+            "choices": {
+                "merge": {
+                    "title": "合并一起发"
+                },
+                "keep": {
+                    "title": "保留原插话与排队"
+                },
+                "followups": {
+                    "title": "按排队顺序"
+                }
+            }
+        },
         "warnCost": {
             "title": "费用告警线（美元）",
             "description": "这个会话的费用到这条线时提醒一次；0 表示不告警。没填单价的模型不计入"
@@ -388,6 +403,34 @@
         "requests": {
             "open": "查看模型请求",
             "openThis": "查看这次请求"
+        },
+        "held": {
+            "completed": "上一轮已结束",
+            "finished": "交出结果之后",
+            "error": "上一轮出错",
+            "stoppedByYou": "你停止了这一轮",
+            "stoppedByAgent": "派它的 Agent 停止了",
+            "stoppedByHost": "{{name}}停止了",
+            "interrupted": "上次运行被中断",
+            "idle": "空闲时排的",
+            "notStarted": "运行没开起来：{{reason}}",
+            "unknown": "上一轮没有正常结束",
+            "codes": {
+                "no-model": "没有可用的模型",
+                "no-credentials": "模型服务商没有密钥",
+                "unknown-model": "找不到这个模型",
+                "role-unbound": "模型角色还没绑定模型",
+                "profile-invalid": "Profile 有错误",
+                "read-only": "会话是只读的",
+                "session-closing": "会话正在关闭",
+                "reassembly-pending": "扩展正在更新",
+                "log-broken": "会话日志写不进去",
+                "not-allowed": "没有权限接着跑"
+            }
+        },
+        "continue": {
+            "stopped": "这次运行已经停下，合并的话没有发出。",
+            "failed": "没能继续（{{code}}）。"
         }
     },
     "views": {

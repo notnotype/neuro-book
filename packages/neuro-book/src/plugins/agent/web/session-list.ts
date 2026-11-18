@@ -111,7 +111,8 @@ export function createSessionList(options: {
                     ...(entry.archived ? {archived: true} : {}),
                     ...(entry.parent !== undefined && byId.has(entry.parent) ? {parentId: entry.parent} : {}),
                     ...(kids === 0 ? {} : {childCount: kids}),
-                    ...(below.some((id) => activity.get(id) === "waiting") ? {childWaiting: true} : {}),
+                    // 与会话行自己的状态同一个口径：留着只有用户能放行的话也算等你处理（conversation.md 输出 48）。
+                    ...(below.some((id) => listStatus(activity.get(id)) === "waiting") ? {childWaiting: true} : {}),
                     ...(matched.has(entry.id) ? {} : {dimmed: true}),
                 };
             })
