@@ -133,7 +133,10 @@ test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+
     // 直接改设置文件：拥有者推给页面，页面交给壳（三项都交，关窗去向也在内）。
     expect(await lastValues(page)).toMatchObject({closeLastWindow: "quit"});
     await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.desktop/zoom": 1.5, "nbook.desktop/closeLastWindow": "tray"}));
-    await expect.poll(() => lastValues(page)).toEqual({zoom: 1.5, openAtLogin: false, closeLastWindow: "tray"});
+    await expect.poll(() => lastValues(page)).toEqual({zoom: 1.5, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "off"});
+    // 窗口背景（desktop-shell 输出 32）：改了交给壳，壳只对之后新开的窗口用它。
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.desktop/zoom": 1.5, "nbook.desktop/closeLastWindow": "tray", "nbook.desktop/windowBackdrop": "acrylic"}));
+    await expect.poll(() => lastValues(page)).toEqual({zoom: 1.5, openAtLogin: false, closeLastWindow: "tray", windowBackdrop: "acrylic"});
 });
 
 test("图片查看器里的 Ctrl+滚轮缩放图片，不改界面缩放", async ({page}) => {
