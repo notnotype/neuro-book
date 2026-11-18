@@ -33,6 +33,8 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     inputEdited: async (data, map, type) => queued(data, map, type),
     inputRemoved: null,
     inputConsumed: null,
+    inputHeld: null,
+    inputReleased: null,
     commandAccepted: null,
     settingsChanged: null,
     leafChanged: null,
@@ -42,6 +44,7 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     descriptionChanged: async (data, map, type) => ({...data, description: await map.text(data.description as string, {type, field: "description"})}),
     archived: null,
     runStarted: null,
+    runResumed: null,
     runEnded: async (data, map, type) => {
         const result = data.result as {via: "tool" | "text"; tool?: string; value: JsonValue} | undefined;
         if (result === undefined) return data;

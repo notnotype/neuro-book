@@ -1,6 +1,6 @@
 /** 内核的全部公开类型与码表；运行时的部分只有常量数据与工具名的换算（请求校验与适配器共用）。 */
 
-export type {Actor, Attributed, Clock, DeepReadonly, Issuer, JsonValue, Rejection, Scope, UserAttachment, UserInput} from "./basics.js";
+export type {Actor, Attributed, Clock, DeepReadonly, HostSource, Issuer, JsonValue, Rejection, Scope, UserAttachment, UserInput} from "./basics.js";
 export {commandErrors, diagnosticCodes, hostOnlyCommands, runErrorCodes, storageErrors, toolResultCodes} from "./codes.js";
 export type {CommandErrorTable, DiagnosticCode, DiagnosticLevel, HostOnlyCommand, RunErrorCode, StorageError, ToolResultCode} from "./codes.js";
 export type {
@@ -10,8 +10,8 @@ export type {ConversationTurn, CoreHistory, Format, RenderTable, ReplyEvent, Ste
 export type {AssistantCtx, InterceptCtx, MountCtx, ReactCtx, Resources, ViewCtx, Writes} from "./ctx.js";
 export {LOG_FORMAT} from "./events.js";
 export type {
-    AnyEventSpec, BatchMark, BlobRef, EntryPoint, EventData, EventKind, EventsDecl, EventSpec, FailureCode, InteractionDecision, KernelEvent, KernelEventName, KernelEvents, LogEvent, LogRecord,
-    Position, RunResultValue, SessionHeader,
+    AnyEventSpec, BatchMark, BlobRef, EntryPoint, EventData, EventKind, EventsDecl, EventSpec, FailureCode, HeldCause, InteractionDecision, KernelEvent, KernelEventName, KernelEvents, LogEvent, LogRecord,
+    Position, RunEndReason, RunResultValue, SessionHeader,
 } from "./events.js";
 export type {
     AnyExtension, CompactionCut, CompactionJob, CompactionMethod, CompactionMethodImpl, CompactionResult, ContributedExtension, DefineExtension, Extension, ExtensionFields, Implement, Interceptors, SettingsSchema, StateOfExtension,

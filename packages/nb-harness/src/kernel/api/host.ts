@@ -9,7 +9,7 @@
 import type {Attributed, Clock, Issuer, JsonValue, UserInput} from "./basics.js";
 import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.js";
 import type {Resources} from "./ctx.js";
-import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
+import type {EntryPoint, HeldCause, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
 import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionChoice, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
@@ -125,8 +125,16 @@ export interface BufferedInput {
     /** 入队时的 seq，缓冲区按它排。 */
     queuedAt: number;
     edits: number;
-    /** 别的会话以自己的身份发进来的（父会话给子会话放话）；用户发的没有（runtime.md 输出 85）。 */
+    /** 会话或宿主以自己的身份发进来的；用户发的没有（runtime.md 输出 85）。 */
     by?: Issuer;
+    /** 受理它的指令；旧日志没有。 */
+    commandId?: string;
+    /** 就绪的会被运行取走；留着的要放行（runtime.md 输出 103）。旧日志的条目都是就绪的。 */
+    state: "ready" | "held";
+    /** 留着的原因；只在留着时有。 */
+    cause?: HeldCause;
+    /** 停止时留下的停的人；只在留着、且是停止留下的时有。 */
+    heldBy?: Issuer;
 }
 
 export interface ExtensionInfo {

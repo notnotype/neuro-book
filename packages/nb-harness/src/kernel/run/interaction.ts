@@ -90,12 +90,12 @@ export class Interactions {
 
 }
 
-const actorLabel = (actor: Actor): string => (actor.kind === "session" ? `session:${actor.id}` : actor.kind);
+const actorLabel = (actor: Actor): string => (actor.kind === "session" ? `session:${actor.id}` : actor.kind === "host" ? `host:${actor.source.plugin}` : actor.kind);
 
 /** 谁能应答：审批只收用户；提问用户都能答，会话头 `questions: "caller"` 时也收派这个会话的父会话。 */
 function allowed(core: SessionCore, item: PendingInteraction, issuer: Issuer): boolean {
     if (issuer.kind === "user") return true;
-    return item.kind === "question" && core.header.questions === "caller" && core.header.caller?.kind === "session" && core.header.caller.id === issuer.id;
+    return issuer.kind === "session" && item.kind === "question" && core.header.questions === "caller" && core.header.caller?.kind === "session" && core.header.caller.id === issuer.id;
 }
 
 export async function resolveCommand(host: CommandHost & {interactions: Interactions}, issuer: Issuer, args: CommandMap["resolve"]["args"] & {commandId: string}): Promise<CommandResult<"resolve">> {
