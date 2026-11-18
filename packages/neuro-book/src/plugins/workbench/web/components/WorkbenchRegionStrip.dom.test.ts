@@ -1,6 +1,6 @@
 /**
  * WorkbenchRegionStrip（同名 .md）：一个容器一个入口，按下态写在 `aria-pressed`；点、Enter 发 `select`；右键与菜单键发 `context-menu`；
- * 并进来的头画在默认插槽里；入口这一片不是拖动源（docs/specs/ui/workbench-layout.md 输出 47）。放不下时收进“更多”要真实宽度，在 Lab 的 e2e 里量。
+ * 并进来的头画在默认插槽里；入口是拖动源，拖动中画占位与并入的高亮（docs/specs/ui/workbench-layout.md 输出 45 到 47）。放不下时收进“更多”要真实宽度，在 Lab 的 e2e 里量；拖放本身在 e2e 里。
  */
 
 import {mount} from "@vue/test-utils";
@@ -10,8 +10,8 @@ import {h} from "vue";
 import WorkbenchRegionStrip from "./WorkbenchRegionStrip.vue";
 import type {RegionStripEntry} from "./WorkbenchRegionStrip.vue";
 
-const entry = (id: string, label: string, pressed = false): RegionStripEntry => ({id, label, icon: "i-lucide-square", tooltip: label, current: pressed, pressed});
-const ENTRIES = [entry("view:chat", "对话", true), entry("view:outline", "大纲")];
+const entry = (id: string, label: string, pressed = false, viewId: string | null = id.slice("view:".length)): RegionStripEntry => ({id, label, icon: "i-lucide-square", tooltip: label, viewId, current: pressed, pressed});
+const ENTRIES = [entry("view:chat", "对话", true), entry("custom:notes", "笔记", false, null)];
 
 function mountStrip(variant: "icons" | "titles", slot?: () => unknown) {
     return mount(WorkbenchRegionStrip, {
@@ -33,18 +33,25 @@ describe("WorkbenchRegionStrip", () => {
         const buttons = icons.findAll("[data-region-entry]");
         expect(buttons.map((button) => [button.attributes("data-region-entry"), button.attributes("aria-label"), button.attributes("aria-pressed")])).toEqual([
             ["view:chat", "对话", "true"],
-            ["view:outline", "大纲", "false"],
+            ["custom:notes", "笔记", "false"],
         ]);
         const titles = mountStrip("titles");
-        expect(titles.findAll("[data-region-entry]").map((button) => button.text())).toEqual(["对话", "大纲"]);
+        expect(titles.findAll("[data-region-entry]").map((button) => button.text())).toEqual(["对话", "笔记"]);
         expect(titles.find("[data-region-entry]").attributes("aria-label")).toBeUndefined();
     });
 
-    it("点入口发 select；入口不是拖动源（没有活动栏入口的 data-tool-entry）", async () => {
+    it("点入口发 select；入口是拖动源，同活动栏：只含一个视图的写着它的视图，含几个视图的拖的是容器（输出 46）", async () => {
         const wrapper = mountStrip("icons");
         await wrapper.findAll("[data-region-entry]")[1]!.trigger("click");
-        expect(wrapper.emitted("select")).toEqual([["view:outline"]]);
-        expect(wrapper.find("[data-tool-entry]").exists()).toBe(false);
+        expect(wrapper.emitted("select")).toEqual([["custom:notes"]]);
+        expect(wrapper.findAll("[data-tool-entry]").map((button) => [button.attributes("data-tool-entry"), button.attributes("data-tool-view")])).toEqual([["view:chat", "chat"], ["custom:notes", undefined]]);
+    });
+
+    it("拖动中：被拖的入口留着位置、不进可访问树，拖着的视图放下会并进的入口带并入的高亮", () => {
+        const wrapper = mount(WorkbenchRegionStrip, {props: {region: "panel", label: "视图容器", moreLabel: "更多", entries: ENTRIES, variant: "titles", placeholder: "view:chat", highlighted: "custom:notes"}, attachTo: document.body});
+        expect(wrapper.get("[data-tool-entry='view:chat']").element.closest("[data-entry-frame]")?.getAttribute("aria-hidden")).toBe("true");
+        expect(wrapper.get("[data-tool-entry='custom:notes']").attributes("data-tool-merge")).toBe("");
+        expect(wrapper.findAll("[data-tool-merge]")).toHaveLength(1);
     });
 
     it("右键发 context-menu 带指针坐标；菜单键没有可靠坐标时开在入口下面", async () => {

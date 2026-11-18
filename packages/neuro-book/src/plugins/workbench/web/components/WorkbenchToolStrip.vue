@@ -149,7 +149,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
             ></span>
             <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
             <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
-                <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
+                <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" data-entry-frame :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
                     <Tooltip :text="entry.tooltip" side="right">
                         <IconButton
                             size="lg"

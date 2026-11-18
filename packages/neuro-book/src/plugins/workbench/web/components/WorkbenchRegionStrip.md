@@ -22,7 +22,7 @@
 - 点入口、Enter 发 `select`（宿主按 `regionEntryIntent` 切换容器或隐藏区域）；按下鼠标不抢焦点。
 - 右键与菜单键发 `context-menu`，坐标是视口坐标（菜单键时在入口下面）。
 - 每个入口是一个 Tab 停靠，同活动栏，没有方向键导航。读屏是一组带 `aria-pressed` 的按钮，组的名称是 `label`；图标入口的可访问名称是容器名称，标题入口就是它写的字。
-- 入口这一片还不是拖动源，也不是落点（入口带 `data-region-entry`，不带活动栏入口的 `data-tool-entry`），拖放在 w00026 t28 第 5 片接上。
+- 入口是拖动源，同活动栏（输出 45、46）：带 `data-tool-entry`（容器 id），只含一个视图的另带 `data-tool-view`，拖它就是拖这个视图；含几个视图的拖的是容器。可访问描述是 `dragHint`。落点的判定与放下由宿主的拖动会话做（`layout-drag.ts`），这里只画：`placeholder` 的入口留着位置、看不见（它正被拖着），别的入口换位时滑过去；`highlighted` 的入口盖一层并入的高亮（`--layout-merge-*`）。每个入口外面一层 `data-entry-frame`，实时布局排序时宿主在它上面写跟手的位移。
 
 ## 数据
 
@@ -36,6 +36,8 @@ interface RegionStripEntry {
     readonly icon: string | null;
     /** 悬停文字：写出容器里的各个视图。 */
     readonly tooltip: string;
+    /** 只含一个视图的容器是那个视图的 id（拖它就是拖这个视图）；含几个视图的是 null。 */
+    readonly viewId: string | null;
     /** 区域的当前容器：放不下时它总在外面。 */
     readonly current: boolean;
     /** 当前容器且区域可见；至多一项。 */
@@ -54,6 +56,12 @@ defineProps<{
     headMinWidth?: number;
     /** 宿主让区域的内容滚过去的那一次换一个新值，和按下的入口在同一次更新里变：只有这时按下的块滑过去；默认 0。 */
     slideToken?: number;
+    /** 入口的可访问描述：怎么拿起拖动。 */
+    dragHint?: string;
+    /** 正被拖着、留着位置看不见的入口（容器 id）；默认 null。 */
+    placeholder?: string | null;
+    /** 盖并入高亮的入口（容器 id）；默认 null。 */
+    highlighted?: string | null;
 }>();
 
 defineEmits<{
@@ -64,7 +72,7 @@ defineEmits<{
 
 插槽：默认插槽是并进来的那一节的头（宿主以面板 id 为 `key`，换了并进来的那一节就是新的头）。
 
-标记：根 `data-region-strip`（区域）；入口 `data-region-entry`（容器 id）、按下的 `data-pressed`；“更多” `data-region-more`；按下的块 `data-region-indicator`，显示着 `data-shown`、滑着 `data-sliding`。
+标记：根 `data-region-strip`（区域）；入口这一组 `data-region-entries`（拖动几何量它的末端）；入口 `data-region-entry` 与 `data-tool-entry`（容器 id）、`data-tool-view`、按下的 `data-pressed`、并入高亮的 `data-tool-merge`；外面一层 `data-entry-frame`；“更多” `data-region-more`；按下的块 `data-region-indicator`，显示着 `data-shown`、滑着 `data-sliding`。
 
 ## 状态
 
@@ -72,4 +80,4 @@ defineEmits<{
 
 ## 不支持
 
-- 入口的拖放：t28 第 5 片。
+- 落点的判定与放下：宿主的拖动会话做，组件只画占位与并入的高亮。

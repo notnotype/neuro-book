@@ -4,7 +4,7 @@ import {describe, expect, it} from "bun:test";
 
 import type {GridDropRect, GridRect, LayoutDoc} from "@notnotype/nb-layout";
 
-import {BAR_STRIP} from "./entry-drop";
+import {BAR_STRIP, entryStripOf} from "./entry-drop";
 import type {WorkbenchDropAction} from "./entry-drop";
 import type {LayoutDragDrop, LayoutTabSource} from "./layout-drag";
 import {createLiveDrag} from "./live-drag";
@@ -351,7 +351,7 @@ describe("createLiveDrag", () => {
     it("活动栏的入口之间是一条标签条：第一次进去等稳定，吸收之后卡片收回、拖的视图在活动栏里排序；入口上是并入，卡片留着", () => {
         const t = setup();
         t.live.begin(SOURCE, {x: 20, y: 100});
-        t.live.offer(dropOf({kind: "new-container", container: "custom:a", before: null}));
+        t.live.offer(dropOf({kind: "new-container", region: "sidebar", container: "custom:a", before: null}));
         t.frame();
         expect(t.shown.length).toBe(0);
         t.frame(200);
@@ -360,17 +360,28 @@ describe("createLiveDrag", () => {
         expect(t.collapses).toEqual([SOURCE.tab]);
         t.frame();
         expect(t.sorted.at(-1)).toBe(BAR_STRIP);
-        t.live.offer(dropOf({kind: "join-container", container: "view:b"}));
+        t.live.offer(dropOf({kind: "join-container", region: "sidebar", container: "view:b"}));
         t.frame();
         t.frame(200);
         expect(t.live.card.value).toEqual({key: SOURCE.tab});
-        expect(t.live.shownAction.value).toEqual({kind: "join-container", container: "view:b"});
+        expect(t.live.shownAction.value).toEqual({kind: "join-container", region: "sidebar", container: "view:b"});
+    });
+
+    it("右栏、底部面板的入口条同活动栏：入口之间是这一条入口条，吸收之后拖的视图在它里面排序；整个容器搬过来也是", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 900, y: 40});
+        t.live.offer(dropOf({kind: "move-container", region: "auxiliarybar", container: "view:a", before: null}));
+        t.frame();
+        t.frame(200);
+        expect(t.live.card.value).toBeNull();
+        t.frame();
+        expect(t.sorted.at(-1)).toBe(entryStripOf("auxiliarybar"));
     });
 
     it("来源是侧栏里一个容器唯一的视图时活动栏是它自己的标签条：入口之间马上跟手，不收起来源", () => {
         const t = setup({isHomeStrip: (_from, strip) => strip === "home" || strip === BAR_STRIP});
         t.live.begin(SOURCE, {x: 20, y: 100});
-        t.live.offer(dropOf({kind: "move-entry", container: "view:a", before: "view:b"}));
+        t.live.offer(dropOf({kind: "move-entry", region: "sidebar", container: "view:a", before: "view:b"}));
         t.frame();
         expect(t.shown).toEqual([DOC]);
         expect(t.live.card.value).toBeNull();

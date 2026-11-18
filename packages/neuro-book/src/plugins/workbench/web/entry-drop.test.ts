@@ -1,10 +1,10 @@
 /**
- * 活动栏上段的落点（docs/specs/ui/workbench-layout.md 输出 28、45、46）。
+ * 入口条上的落点（docs/specs/ui/workbench-layout.md 输出 28、45、46、47）：活动栏上段与右栏、底部面板的入口条。
  */
 import {describe, expect, it} from "bun:test";
 
 import {isPanelShown, regionNodeOf, setPanelCollapsed, setPanelHidden} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutResult} from "@notnotype/nb-layout";
+import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-layout";
 
 import type {ViewDeclaration, ViewLocation} from "../shared/views";
 import {applyEntryDrop, barSpotAt, barStopsOf, entryDropAt} from "./entry-drop";
@@ -26,10 +26,14 @@ const VIEWS: ViewCatalog = new Map([
     ["search", VIEW("搜索", "sidebar", {order: 5})],
     ["marks", VIEW("书签", "sidebar", {order: 6})],
     ["chat", VIEW("对话", "auxiliarybar")],
+    ["notes", VIEW("笔记", "auxiliarybar", {order: 1})],
+    ["terminal", VIEW("终端", "panel")],
 ]);
 const SEARCH = "view:search";
 const MARKS = "view:marks";
 const NEW = "custom:new";
+const CHAT = "view:chat";
+const NOTES = "view:notes";
 
 const doc = (): LayoutDoc => defaultLayoutDoc(VIEWS, CONTAINERS);
 function must(result: LayoutResult): LayoutDoc {
@@ -37,18 +41,19 @@ function must(result: LayoutResult): LayoutDoc {
     return result.doc;
 }
 const tab = (viewId: string): WorkbenchDragSource => ({kind: "tab", tab: `view:${viewId}`});
-const anchorOf = (current: LayoutDoc): string => regionNodeOf(current, "sidebar")?.anchor ?? "";
+const anchorOf = (current: LayoutDoc, region: PanelName = "sidebar"): string => regionNodeOf(current, region)?.anchor ?? "";
 const sidebar = (current: LayoutDoc) => current.panels[anchorOf(current)];
-const shownIds = (current: LayoutDoc): ReadonlyArray<string> => regionContainers(current, "sidebar").map((container) => container.id);
+const anchorIn = (current: LayoutDoc, region: PanelName) => current.panels[anchorOf(current, region)];
+const shownIds = (current: LayoutDoc, region: PanelName = "sidebar"): ReadonlyArray<string> => regionContainers(current, region).map((container) => container.id);
 const drop = (current: LayoutDoc, source: WorkbenchDragSource, action: EntryDropAction, commit: boolean): LayoutDoc => must(applyEntryDrop(current, source, action, POLICY, {commit}));
 const shownView = (current: LayoutDoc, viewId: string): boolean => {
     const section = viewSection(current, viewId);
     return section !== null && isPanelShown(current, section.panel);
 };
 
-describe("指针在活动栏上段的哪（输出 45）", () => {
-    /** 两个 38px 的入口，中间隔 4px。 */
-    const ENTRIES: ReadonlyArray<BarEntryRect> = [{container: "A", top: 0, bottom: 38}, {container: "B", top: 42, bottom: 80}];
+describe("指针在入口条的哪（输出 45、47）", () => {
+    /** 两个 38px 的入口，中间隔 4px：活动栏从上到下量，入口条从左到右量，判定一样。 */
+    const ENTRIES: ReadonlyArray<BarEntryRect> = [{container: "A", start: 0, end: 38}, {container: "B", start: 42, end: 80}];
 
     it("入口中间那一段是入口上，上下两头和入口之间的间距是空位；最后一个下面是最后", () => {
         expect(barSpotAt(ENTRIES, 19, {entries: true})).toEqual({kind: "entry", container: "A"});
@@ -75,23 +80,33 @@ describe("指针在活动栏上段的哪（输出 45）", () => {
 describe("落点是什么（输出 45、46）", () => {
     it("入口之间新建容器；来源是侧栏里一个容器唯一的视图时只给这个容器换位置；入口上是并入", () => {
         const current = doc();
-        expect(entryDropAt(current, tab("files"), {kind: "gap", before: SEARCH}, NEW)).toEqual({kind: "new-container", container: NEW, before: SEARCH});
-        expect(entryDropAt(current, tab("chat"), {kind: "gap", before: null}, NEW)).toEqual({kind: "new-container", container: NEW, before: null});
-        expect(entryDropAt(current, tab("search"), {kind: "gap", before: PROJECT}, NEW)).toEqual({kind: "move-entry", container: SEARCH, before: PROJECT});
-        expect(entryDropAt(current, tab("files"), {kind: "entry", container: SEARCH}, NEW)).toEqual({kind: "join-container", container: SEARCH});
+        expect(entryDropAt(current, tab("files"), {kind: "gap", before: SEARCH}, NEW, "sidebar")).toEqual({kind: "new-container", region: "sidebar", container: NEW, before: SEARCH});
+        expect(entryDropAt(current, tab("outline"), {kind: "gap", before: null}, NEW, "sidebar")).toEqual({kind: "new-container", region: "sidebar", container: NEW, before: null});
+        expect(entryDropAt(current, tab("search"), {kind: "gap", before: PROJECT}, NEW, "sidebar")).toEqual({kind: "move-entry", region: "sidebar", container: SEARCH, before: PROJECT});
+        expect(entryDropAt(current, tab("files"), {kind: "entry", container: SEARCH}, NEW, "sidebar")).toEqual({kind: "join-container", region: "sidebar", container: SEARCH});
+    });
+
+    it("落在另一个区域的入口之间：视图是它容器唯一的成员时整个容器搬过来，否则新建只含它的容器；落在右栏、底部面板的入口条上同活动栏（输出 46、47）", () => {
+        const current = doc();
+        expect(entryDropAt(current, tab("chat"), {kind: "gap", before: SEARCH}, NEW, "sidebar")).toEqual({kind: "move-container", region: "sidebar", container: CHAT, before: SEARCH});
+        expect(entryDropAt(current, tab("search"), {kind: "gap", before: null}, NEW, "panel")).toEqual({kind: "move-container", region: "panel", container: SEARCH, before: null});
+        expect(entryDropAt(current, tab("files"), {kind: "gap", before: CHAT}, NEW, "auxiliarybar")).toEqual({kind: "new-container", region: "auxiliarybar", container: NEW, before: CHAT});
+        expect(entryDropAt(current, tab("chat"), {kind: "gap", before: null}, NEW, "auxiliarybar")).toEqual({kind: "move-entry", region: "auxiliarybar", container: CHAT, before: null});
+        expect(entryDropAt(current, tab("files"), {kind: "entry", container: NOTES}, NEW, "auxiliarybar")).toEqual({kind: "join-container", region: "auxiliarybar", container: NOTES});
+        expect(entryDropAt(current, {kind: "container", container: PROJECT}, {kind: "gap", before: CHAT}, NEW, "auxiliarybar")).toEqual({kind: "move-container", region: "auxiliarybar", container: PROJECT, before: CHAT});
     });
 
     it("拖含几个视图的入口：只在入口之间，入口上没有落点；整个浮动窗不进活动栏", () => {
         const source: WorkbenchDragSource = {kind: "container", container: PROJECT};
-        expect(entryDropAt(doc(), source, {kind: "gap", before: null}, NEW)).toEqual({kind: "move-entry", container: PROJECT, before: null});
-        expect(entryDropAt(doc(), source, {kind: "entry", container: SEARCH}, NEW)).toBeNull();
-        expect(entryDropAt(doc(), {kind: "panel", panel: "x"}, {kind: "gap", before: null}, NEW)).toBeNull();
+        expect(entryDropAt(doc(), source, {kind: "gap", before: null}, NEW, "sidebar")).toEqual({kind: "move-entry", region: "sidebar", container: PROJECT, before: null});
+        expect(entryDropAt(doc(), source, {kind: "entry", container: SEARCH}, NEW, "sidebar")).toBeNull();
+        expect(entryDropAt(doc(), {kind: "panel", panel: "x"}, {kind: "gap", before: null}, NEW, "sidebar")).toBeNull();
     });
 });
 
 describe("放下与预览（输出 38、45）", () => {
     it("新建容器：放下时侧栏切到它，入口排在落下的空位；视图是它唯一的分节", () => {
-        const after = drop(doc(), tab("files"), {kind: "new-container", container: NEW, before: SEARCH}, true);
+        const after = drop(doc(), tab("files"), {kind: "new-container", region: "sidebar", container: NEW, before: SEARCH}, true);
         expect(shownIds(after)).toEqual([PROJECT, NEW, SEARCH, MARKS]);
         expect(sidebar(after)?.activeContainer).toBe(NEW);
         expect(viewSection(after, "files")?.container).toBe(NEW);
@@ -100,7 +115,7 @@ describe("放下与预览（输出 38、45）", () => {
     });
 
     it("预览里不切：入口已经排好，侧栏还是原来的容器，少了被拖走的那个视图", () => {
-        const preview = drop(doc(), tab("files"), {kind: "new-container", container: NEW, before: SEARCH}, false);
+        const preview = drop(doc(), tab("files"), {kind: "new-container", region: "sidebar", container: NEW, before: SEARCH}, false);
         expect(shownIds(preview)).toEqual([PROJECT, NEW, SEARCH, MARKS]);
         expect(sidebar(preview)?.activeContainer).toBe(PROJECT);
         expect(shownView(preview, "files")).toBe(false);
@@ -110,38 +125,71 @@ describe("放下与预览（输出 38、45）", () => {
     it("侧栏隐藏或拖到零时，放下在同一次写入里展开；预览里不展开", () => {
         const hidden = must(setPanelHidden(doc(), anchorOf(doc()), true));
         const folded = must(setPanelCollapsed(hidden, anchorOf(hidden), true));
-        const after = drop(folded, tab("chat"), {kind: "new-container", container: NEW, before: null}, true);
+        const after = drop(folded, tab("chat"), {kind: "new-container", region: "sidebar", container: NEW, before: null}, true);
         expect(sidebar(after)?.activeContainer).toBe(NEW);
         expect([sidebar(after)?.hidden, sidebar(after)?.collapsed]).not.toContain(true);
-        expect(sidebar(drop(folded, tab("chat"), {kind: "new-container", container: NEW, before: null}, false))).toMatchObject({hidden: true, collapsed: true});
+        expect(sidebar(drop(folded, tab("chat"), {kind: "new-container", region: "sidebar", container: NEW, before: null}, false))).toMatchObject({hidden: true, collapsed: true});
     });
 
     it("并入：成为那个容器最后一个分节，放下才切到它", () => {
-        const after = drop(doc(), tab("chat"), {kind: "join-container", container: PROJECT}, true);
+        const after = drop(doc(), tab("chat"), {kind: "join-container", region: "sidebar", container: PROJECT}, true);
         const members = regionContainers(after, "sidebar").find((container) => container.id === PROJECT)?.views;
         expect(members).toEqual(["files", "outline", "chat"]);
-        const preview = drop(doc(), tab("chat"), {kind: "join-container", container: SEARCH}, false);
+        const preview = drop(doc(), tab("chat"), {kind: "join-container", region: "sidebar", container: SEARCH}, false);
         expect(sidebar(preview)?.activeContainer).toBe(PROJECT);
         expect(regionContainers(preview, "sidebar").find((container) => container.id === SEARCH)?.views).toEqual(["search", "chat"]);
-        expect(sidebar(drop(doc(), tab("chat"), {kind: "join-container", container: SEARCH}, true))?.activeContainer).toBe(SEARCH);
+        expect(sidebar(drop(doc(), tab("chat"), {kind: "join-container", region: "sidebar", container: SEARCH}, true))?.activeContainer).toBe(SEARCH);
     });
 
     it("换序只改入口顺序：容器、显隐、当前容器都不变", () => {
-        const after = drop(doc(), tab("search"), {kind: "move-entry", container: SEARCH, before: PROJECT}, true);
+        const after = drop(doc(), tab("search"), {kind: "move-entry", region: "sidebar", container: SEARCH, before: PROJECT}, true);
         expect(shownIds(after)).toEqual([SEARCH, PROJECT, MARKS]);
         expect(sidebar(after)?.activeContainer).toBe(PROJECT);
         expect(viewSection(after, "search")?.container).toBe(SEARCH);
-        const multi = drop(doc(), {kind: "container", container: PROJECT}, {kind: "move-entry", container: PROJECT, before: null}, true);
+        const multi = drop(doc(), {kind: "container", container: PROJECT}, {kind: "move-entry", region: "sidebar", container: PROJECT, before: null}, true);
         expect(shownIds(multi)).toEqual([SEARCH, MARKS, PROJECT]);
+    });
+
+    it("整个容器搬到另一个区域：放下同“移到”（分节与先后都带着，目标区域显示并切到它），入口排在落下的空位；预览里只挪单视图的来源、入口让位、不切（输出 38、44、46）", () => {
+        const multi = drop(doc(), {kind: "container", container: PROJECT}, {kind: "move-container", region: "auxiliarybar", container: PROJECT, before: CHAT}, true);
+        expect(shownIds(multi, "auxiliarybar")).toEqual([PROJECT, CHAT, NOTES]);
+        expect(regionContainers(multi, "auxiliarybar").find((container) => container.id === PROJECT)?.views).toEqual(["files", "outline"]);
+        expect(anchorIn(multi, "auxiliarybar")?.activeContainer).toBe(PROJECT);
+        expect(shownIds(multi)).toEqual([SEARCH, MARKS]);
+
+        const hidden = must(setPanelHidden(doc(), anchorOf(doc(), "panel"), true));
+        const sole = drop(hidden, tab("search"), {kind: "move-container", region: "panel", container: SEARCH, before: null}, true);
+        expect(viewSection(sole, "search")).toMatchObject({region: "panel", container: SEARCH});
+        expect(anchorIn(sole, "panel")?.activeContainer).toBe(SEARCH);
+        expect(anchorIn(sole, "panel")?.hidden).not.toBe(true);
+
+        const preview = drop(doc(), tab("search"), {kind: "move-container", region: "auxiliarybar", container: SEARCH, before: NOTES}, false);
+        expect(shownIds(preview, "auxiliarybar")).toEqual([CHAT, SEARCH, NOTES]);
+        expect(anchorIn(preview, "auxiliarybar")?.activeContainer).toBe(anchorIn(doc(), "auxiliarybar")?.activeContainer);
+        expect(shownView(preview, "search")).toBe(false);
+        expect(shownIds(preview)).toEqual([PROJECT, MARKS]);
+        expect(() => drop(doc(), {kind: "container", container: PROJECT}, {kind: "move-container", region: "auxiliarybar", container: PROJECT, before: null}, false)).toThrow();
+    });
+
+    it("右栏的入口条：新建、并入放下时右栏切到它，换序不切（输出 45、47）", () => {
+        const fresh = drop(doc(), tab("files"), {kind: "new-container", region: "auxiliarybar", container: NEW, before: null}, true);
+        expect(shownIds(fresh, "auxiliarybar")).toEqual([CHAT, NOTES, NEW]);
+        expect(anchorIn(fresh, "auxiliarybar")?.activeContainer).toBe(NEW);
+        const joined = drop(doc(), tab("files"), {kind: "join-container", region: "auxiliarybar", container: NOTES}, true);
+        expect(regionContainers(joined, "auxiliarybar").find((container) => container.id === NOTES)?.views).toEqual(["notes", "files"]);
+        expect(anchorIn(joined, "auxiliarybar")?.activeContainer).toBe(NOTES);
+        const sorted = drop(doc(), tab("notes"), {kind: "move-entry", region: "auxiliarybar", container: NOTES, before: CHAT}, true);
+        expect(shownIds(sorted, "auxiliarybar")).toEqual([NOTES, CHAT]);
+        expect(anchorIn(sorted, "auxiliarybar")?.activeContainer).toBe(anchorIn(doc(), "auxiliarybar")?.activeContainer);
     });
 
     it("原处返回原文档（输出 28）：自己的入口上、紧挨着它的两个空位", () => {
         const current = doc();
-        expect(drop(current, tab("search"), {kind: "join-container", container: SEARCH}, true)).toBe(current);
-        expect(drop(current, tab("search"), {kind: "move-entry", container: SEARCH, before: SEARCH}, true)).toBe(current);
-        expect(drop(current, tab("search"), {kind: "move-entry", container: SEARCH, before: MARKS}, true)).toBe(current);
-        expect(drop(current, {kind: "container", container: MARKS}, {kind: "move-entry", container: MARKS, before: null}, true)).toBe(current);
+        expect(drop(current, tab("search"), {kind: "join-container", region: "sidebar", container: SEARCH}, true)).toBe(current);
+        expect(drop(current, tab("search"), {kind: "move-entry", region: "sidebar", container: SEARCH, before: SEARCH}, true)).toBe(current);
+        expect(drop(current, tab("search"), {kind: "move-entry", region: "sidebar", container: SEARCH, before: MARKS}, true)).toBe(current);
+        expect(drop(current, {kind: "container", container: MARKS}, {kind: "move-entry", region: "sidebar", container: MARKS, before: null}, true)).toBe(current);
         // 它已经是那个容器最后一个分节、容器又是当前的：只切换的话什么都没变。
-        expect(drop(current, tab("outline"), {kind: "join-container", container: PROJECT}, true)).toBe(current);
+        expect(drop(current, tab("outline"), {kind: "join-container", region: "sidebar", container: PROJECT}, true)).toBe(current);
     });
 });

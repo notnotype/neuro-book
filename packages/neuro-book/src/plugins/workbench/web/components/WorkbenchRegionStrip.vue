@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 右栏、底部面板的入口条（同名 .md；docs/specs/ui/workbench-layout.md 输出 47）：区域卡片顶上一行，一个容器一个入口，右栏画图标、底部面板画标题。
- * 当前容器只有一节时，那一节的头由宿主放进默认插槽，接在入口后面占这一行剩下的宽度。点了只发 `select` 或 `context-menu`，做什么由宿主定。
+ * 当前容器只有一节时，那一节的头由宿主放进默认插槽，接在入口后面占这一行剩下的宽度。点了只发 `select` 或 `context-menu`，做什么由宿主定；
+ * 入口是拖动源（`data-tool-entry`，同活动栏），拖放由宿主的拖动会话接管，这里只画占位与并入的高亮。
  */
 import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
@@ -20,6 +21,8 @@ export interface RegionStripEntry {
     readonly icon: string | null;
     /** 悬停文字：写出容器里的各个视图。 */
     readonly tooltip: string;
+    /** 只含一个视图的容器是那个视图的 id：拖这个入口就是拖这个视图。含几个视图的是 null：拖它只在入口条上换序或整个搬到另一个区域（输出 46）。 */
+    readonly viewId: string | null;
     /** 区域的当前容器：放不下时它总在外面。 */
     readonly current: boolean;
     /** 当前容器且区域可见；至多一项。 */
@@ -51,7 +54,13 @@ const props = withDefaults(defineProps<{
      * 别的途径换了当前容器（命令、“移动到”、当前容器空了）内容不滚，标记也直接到位。
      */
     slideToken?: number;
-}>(), {headMinWidth: 0, slideToken: 0});
+    /** 入口的可访问描述：怎么拿起拖动。每个入口都能拖。 */
+    dragHint?: string;
+    /** 这个入口留着盒子、看不见：它正被拖着（实时布局），别的入口让出它的位置。 */
+    placeholder?: string | null;
+    /** 这个入口盖一层并入的高亮：拖着的视图放下会并进这个容器（输出 45）。 */
+    highlighted?: string | null;
+}>(), {headMinWidth: 0, slideToken: 0, dragHint: "", placeholder: null, highlighted: null});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
@@ -136,7 +145,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 
 <template>
     <div ref="rootEl" class="workbench-region-strip" :class="`workbench-region-strip--${variant}`" :data-region-strip="region">
-        <div ref="entriesEl" class="workbench-region-strip__entries" role="group" :aria-label="label">
+        <div ref="entriesEl" class="workbench-region-strip__entries" role="group" :aria-label="label" data-region-entries>
             <span
                 ref="indicatorEl"
                 class="workbench-region-strip__indicator"
@@ -148,22 +157,32 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                 :style="indicatorStyle"
                 @transitionend="onIndicatorTransitionEnd"
             ></span>
-            <Tooltip v-for="entry in shownEntries" :key="entry.id" :text="entry.tooltip" side="bottom">
-                <button
-                    type="button"
-                    class="workbench-region-strip__entry nb-ui-focus-ring-inset"
-                    :aria-label="variant === 'icons' ? entry.label : undefined"
-                    :aria-pressed="entry.pressed"
-                    :data-region-entry="entry.id"
-                    :data-pressed="entry.pressed ? '' : undefined"
-                    @mousedown.prevent
-                    @click="emit('select', entry.id)"
-                    @contextmenu="onEntryContextMenu(entry.id, $event)"
-                >
-                    <span v-if="variant === 'icons'" class="workbench-region-strip__icon" :class="entry.icon ?? PLACEHOLDER_ICON" aria-hidden="true"></span>
-                    <span v-else class="workbench-region-strip__title">{{ entry.label }}</span>
-                </button>
-            </Tooltip>
+            <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
+            <TransitionGroup tag="div" class="workbench-region-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-region-strip__frame--moving' : 'workbench-region-strip__frame--still'">
+                <div v-for="entry in shownEntries" :key="entry.id" class="workbench-region-strip__frame" data-entry-frame :class="{'workbench-region-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
+                    <Tooltip :text="entry.tooltip" side="bottom">
+                        <button
+                            type="button"
+                            class="workbench-region-strip__entry nb-ui-focus-ring-inset"
+                            :class="{'workbench-region-strip__entry--merge': entry.id === highlighted}"
+                            :aria-label="variant === 'icons' ? entry.label : undefined"
+                            :aria-pressed="entry.pressed"
+                            :aria-description="dragHint === '' ? undefined : dragHint"
+                            :data-region-entry="entry.id"
+                            :data-tool-entry="entry.id"
+                            :data-tool-view="entry.viewId ?? undefined"
+                            :data-tool-merge="entry.id === highlighted ? '' : undefined"
+                            :data-pressed="entry.pressed ? '' : undefined"
+                            @mousedown.prevent
+                            @click="emit('select', entry.id)"
+                            @contextmenu="onEntryContextMenu(entry.id, $event)"
+                        >
+                            <span v-if="variant === 'icons'" class="workbench-region-strip__icon" :class="entry.icon ?? PLACEHOLDER_ICON" aria-hidden="true"></span>
+                            <span v-else class="workbench-region-strip__title">{{ entry.label }}</span>
+                        </button>
+                    </Tooltip>
+                </div>
+            </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="bottom" align="start" @select="(id: string) => emit('select', id)">
                 <IconButton size="xs" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-region-strip__more" data-region-more />
             </DropdownMenu>
@@ -245,6 +264,26 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
     min-width: 0;
 }
 
+/* 条目直接排在入口这一组里：这一层只给 `TransitionGroup` 一个容器。 */
+.workbench-region-strip__list {
+    display: contents;
+}
+
+.workbench-region-strip__frame {
+    display: flex;
+    flex: 0 0 auto;
+}
+
+.workbench-region-strip__frame--moving {
+    transition: transform var(--motion-move) var(--ease-layout);
+}
+
+.workbench-region-strip__frame--placeholder {
+    visibility: hidden;
+    /* 宿主拖着它在条里排序时它自己跟手（写 `translate`），不参与换位过渡：过渡的 `transform` 会让它先滑回空位再跳到指针下。 */
+    transform: none !important;
+}
+
 .workbench-region-strip__entry {
     position: relative;
     display: inline-flex;
@@ -255,6 +294,8 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
     color: var(--text-secondary);
     font-size: var(--text-xs);
     white-space: nowrap;
+    /* 入口也是拖动源：触摸按住起拖。 */
+    touch-action: none;
     transition: color var(--motion-fast) var(--ease-layout), background-color var(--motion-fast) var(--ease-layout);
 }
 
@@ -312,6 +353,13 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 
 .workbench-region-strip--titles .workbench-region-strip__indicator {
     box-shadow: inset 0 -2px 0 var(--accent-main);
+}
+
+/* 并入的高亮：和面板并入的盖层同一种填充与描边（`--layout-merge-*`），压在按下与悬停的样子上面：拖动中指针就停在这个入口上。 */
+.workbench-region-strip .workbench-region-strip__entry--merge,
+.workbench-region-strip .workbench-region-strip__entry--merge:hover {
+    background: var(--layout-merge-fill);
+    box-shadow: inset 0 0 0 var(--layout-merge-border-width) var(--layout-merge-border);
 }
 
 .workbench-region-strip__ruler {

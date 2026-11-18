@@ -69,7 +69,8 @@ const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:h
  * 活动栏里视图自己那个容器的入口（输出 22、41）：样例视图都没写容器，各是自己的隐式容器 `view:<视图 id>`。视图并进别的容器后
  * 这个容器没有成员，入口也就没有了。
  */
-const toolEntry = (page: Page, viewId: string) => page.locator(`[data-tool-entry="view:${viewId}"]`);
+/** 活动栏里只含这个视图的入口；右栏、底部面板入口条上的入口也带 `data-tool-entry`，限定到活动栏上段。 */
+const toolEntry = (page: Page, viewId: string) => page.locator(`[data-tool-band] [data-tool-entry="view:${viewId}"]`);
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
 const frameOf = (page: Page, viewId: string, command: string) => headOf(page, viewId).locator(`[data-panel-action="nbook.view.${command}"]`);
 /**
@@ -366,7 +367,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(tab(page, B)).toHaveCount(0);
         await expect(tab(page, A)).toHaveCount(1);
         // 活动栏只列侧栏这一列的视图：右栏、面板的视图不在。
-        await expect(page.locator("[data-tool-entry]")).toHaveCount(3);
+        await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(3);
         for (const viewId of [D, E, F]) await expect(toolEntry(page, viewId)).toHaveCount(0);
     });
 
@@ -404,7 +405,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test("活动栏：点不是当前容器的入口切到它；点当前容器的入口隐藏侧栏（不看焦点在哪），再点展开；按下态是当前容器且侧栏可见，至多一项；拖到零时点入口展开（输出 22、42；验收 14）", async ({page}) => {
         await open(page);
-        const pressed = page.locator('[data-tool-entry][aria-pressed="true"]');
+        const pressed = page.locator('[data-tool-band] [data-tool-entry][aria-pressed="true"]');
         // 侧栏的三个样例视图各是自己的容器：一个容器一项，只有当前容器的那一项按下。
         await expect(toolEntry(page, A)).toHaveAttribute("aria-pressed", "true");
         await expect(pressed).toHaveCount(1);
@@ -503,7 +504,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await moveViaMenu(page, B, "样例甲");
         await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "sidebar"});
         await expect.poll(entries).toEqual(containers(A, C));
-        const current = page.locator('[data-tool-entry][aria-pressed="true"]');
+        const current = page.locator('[data-tool-band] [data-tool-entry][aria-pressed="true"]');
         await expect(current).toHaveCount(1);
         await expect(current).toHaveAttribute("data-tool-entry", `view:${A}`);
         expect(await current.getAttribute("data-tool-view")).toBeNull();
@@ -556,7 +557,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         // 活动栏隐藏时侧栏的头不变（输出 20）：还是只写标题，换容器经命令。
         await runCommand(page, "切换区域显隐");
         await pick(page, "选中后立即切换", "活动栏");
-        await expect(page.locator("[data-tool-entry]")).toHaveCount(0);
+        await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(0);
         await titleOnly(A);
         await runCommand(page, "打开视图");
         await pick(page, "选择要打开的视图", "样例丙");
@@ -1200,7 +1201,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const picked = (await menu.last().innerText()).trim();
         await menu.last().click();
         // 选中的容器成为当前容器，它的入口回到活动栏外面一层；原来的当前容器让出位置。
-        const entry = page.locator("[data-tool-entry]").and(page.getByRole("button", {name: picked, exact: true}));
+        const entry = page.locator("[data-tool-band] [data-tool-entry]").and(page.getByRole("button", {name: picked, exact: true}));
         await expect(entry).toHaveAttribute("aria-pressed", "true");
         await expect(toolEntry(page, C)).toHaveCount(0);
         await expect(entries).toHaveCount(shown);

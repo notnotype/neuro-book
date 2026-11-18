@@ -512,16 +512,23 @@ function selectRegionEntry(region: PanelName, container: string): void {
     if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: region, hidden: true});
 }
 
-/** 右栏、底部面板入口条的入口：区域里的容器，按入口顺序（输出 41、47），和活动栏同一个求值；按下态是当前容器且区域可见。 */
-function regionStripEntries(region: PanelName): RegionStripEntry[] {
-    const showing = regionShowing(region);
-    return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => {
-        const label = text(entry.label.title);
-        const views = entry.views.map(viewTitle);
-        const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
-        return {id: entry.id, label, icon: entry.label.icon, tooltip, current: entry.current, pressed: entry.current && showing};
-    });
-}
+/**
+ * 右栏、底部面板入口条的入口：区域里的容器，按入口顺序（输出 41、47），和活动栏同一个求值；按下态是当前容器且区域可见。
+ * 收成一个计算属性：模板里每次现算的话，外壳每渲一次两条入口条都拿到新数组、跟着重渲。
+ */
+const stripEntries = computed((): Readonly<Record<"auxiliarybar" | "panel", RegionStripEntry[]>> => {
+    const entriesOf = (region: "auxiliarybar" | "panel"): RegionStripEntry[] => {
+        const showing = regionShowing(region);
+        return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => {
+            const label = text(entry.label.title);
+            const views = entry.views.map(viewTitle);
+            const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
+            return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && showing};
+        });
+    };
+    return {auxiliarybar: entriesOf("auxiliarybar"), panel: entriesOf("panel")};
+});
+const stripEntriesOf = (region: PanelName): RegionStripEntry[] => (region === "sidebar" ? [] : stripEntries.value[region]);
 
 // ── 入口的右键菜单 ────────────────────────────────────────────────────────
 
@@ -797,11 +804,12 @@ const cardTitle = computed(() => (dragSource.value === null ? null : ghostOf(dra
 const wantsGhost = computed(() => dragView.value.ghost);
 /** 拖影的身份；位置经 `moveGhost` 写。 */
 const dragGhost = computed(() => (dragSource.value === null || !wantsGhost.value ? null : ghostOf(dragSource.value)));
-/** 正被拖着、活动栏上留着位置的入口：只含被拖视图的那个容器的。 */
-const toolPlaceholder = computed(() => {
+/** 正被拖着、入口条上留着位置的入口：只含被拖视图的那个容器的。 */
+function entryPlaceholderIn(entries: ReadonlyArray<{readonly id: string; readonly viewId: string | null}>): string | null {
     const viewId = dragPlaceholder.value === null ? null : viewIdOf(dragPlaceholder.value);
-    return viewId === null ? null : (toolEntries.value.find((entry) => entry.viewId === viewId)?.id ?? null);
-});
+    return viewId === null ? null : (entries.find((entry) => entry.viewId === viewId)?.id ?? null);
+}
+const toolPlaceholder = computed(() => entryPlaceholderIn(toolEntries.value));
 /** 并入的盖层：矩形按预览算，来源收起时目标会动，盖层跟着过渡。 */
 const mergeRect = computed(() => {
     const panel = mergeTarget.value;
@@ -820,8 +828,12 @@ function dropLabel(drop: LayoutDragDrop): string {
     if (drop.inPlace) return message("shell.drop.inPlace");
     const {action} = drop;
     if (action.kind === "new-container") return message("shell.drop.newContainer");
-    if (action.kind === "move-entry") return message("shell.drop.insert");
-    if (action.kind === "join-container") return message("shell.drop.joinContainer", {part: toolEntries.value.find((entry) => entry.id === action.container)?.label ?? action.container});
+    // 整个容器搬过来也是“放在这里”：入口落在这个空位，和换序一样。
+    if (action.kind === "move-entry" || action.kind === "move-container") return message("shell.drop.insert");
+    if (action.kind === "join-container") {
+        const entries = [...toolEntries.value, ...stripEntries.value.auxiliarybar, ...stripEntries.value.panel];
+        return message("shell.drop.joinContainer", {part: entries.find((entry) => entry.id === action.container)?.label ?? action.container});
+    }
     if (action.kind === "strip") return message("shell.drop.insert");
     if (action.kind === "center") return message("shell.drop.addTab");
     if (action.kind === "float") return message("shell.drop.float");
@@ -944,10 +956,13 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :region="region"
                         :label="message(region === 'panel' ? 'shell.regionStrip.panel' : 'shell.regionStrip.auxiliarybar')"
                         :more-label="message('common.more')"
-                        :entries="regionStripEntries(region)"
+                        :entries="stripEntriesOf(region)"
                         :variant="region === 'panel' ? 'titles' : 'icons'"
                         :head-min-width="merged === null ? 0 : headReserved(merged) - stripEntriesReserve(region)"
                         :slide-token="slides[region]"
+                        :drag-hint="message('shell.drag.hint')"
+                        :placeholder="entryPlaceholderIn(stripEntriesOf(region))"
+                        :highlighted="mergeEntry"
                         @select="(id) => selectRegionEntry(region, id)"
                         @context-menu="openContainerMenu"
                     >

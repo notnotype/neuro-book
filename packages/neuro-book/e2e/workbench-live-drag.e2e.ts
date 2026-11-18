@@ -735,11 +735,11 @@ test.describe("实时布局", () => {
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
-    test("活动栏也是标签条：别处的视图放到两个入口之间被吸收，入口让位，零写入；Esc 回原样；放下是侧栏的新容器（输出 22、38、45）", async ({page}) => {
+    test("活动栏也是标签条：别处的视图放到两个入口之间被吸收，入口让位，零写入；Esc 回原样；它是右栏一个容器唯一的视图，放下整个容器搬到侧栏、id 不变（输出 22、38、45、46）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
         const entries = page.locator("[data-tool-band] [data-tool-entry]");
-        // 入口列的是容器（输出 22）：拖出来的新容器是用户容器，id 是随机的，比较时记成 custom。
+        // 入口列的是容器（输出 22）：样例丁是右栏里它那个容器唯一的视图，落在入口之间是整个容器搬过来，入口是它原来的容器（输出 45）。
         const order = (): Promise<string[]> => entries.evaluateAll((elements) => elements.map((element) => {
             const id = (element as HTMLElement).dataset.toolEntry ?? "";
             return id.startsWith("custom:") ? "custom" : id;
@@ -755,7 +755,7 @@ test.describe("实时布局", () => {
         await expect(page.locator("[data-lifted]")).toHaveCount(0);
         await expect(ghost(page)).toHaveCount(0);
         await expect.poll(() => placed.evaluate((element) => getComputedStyle(element.closest(".workbench-tool-strip__frame") as Element).visibility)).toBe("visible");
-        await expect.poll(order).toEqual(["custom", ...before]);
+        await expect.poll(order).toEqual([`view:${AUXILIARY_VIEW}`, ...before]);
         expect(await writesOf(page)).toBe(writes);
         await page.keyboard.press("Escape");
         await page.mouse.up();
@@ -767,8 +767,8 @@ test.describe("实时布局", () => {
         await expect(placed).toHaveCount(1);
         await page.mouse.up();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
-        await expect.poll(order).toEqual(["custom", ...before]);
-        // 放下才切：侧栏切到这个新容器，入口按下（输出 45）。
+        await expect.poll(order).toEqual([`view:${AUXILIARY_VIEW}`, ...before]);
+        // 放下才切：侧栏切到这个容器，入口按下（输出 45）。
         await expect(placed).toHaveAttribute("aria-pressed", "true");
         expect(await regionOf(page, AUXILIARY_VIEW)).toBe("sidebar");
     });
@@ -777,7 +777,7 @@ test.describe("实时布局", () => {
         await open(page);
         // 分节没有隐藏按钮（输出 20）：点当前容器按下着的入口，侧栏隐藏（输出 22）。
         const alpha = await sectionOf(page, "test.sample-views.alpha");
-        await page.locator("[data-tool-entry][aria-pressed=\"true\"]").click();
+        await page.locator("[data-tool-band] [data-tool-entry][aria-pressed=\"true\"]").click();
         await shrunk(page, alpha);
         await settled(page);
         const writes = await writesOf(page);

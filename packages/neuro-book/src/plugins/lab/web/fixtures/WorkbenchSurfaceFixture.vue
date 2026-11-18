@@ -125,8 +125,8 @@ const ACTIONS: Readonly<Record<string, () => void>> = {
     "c-to-new-panel": () => commit(intoContainer("c", "panel", implicitContainerOf("e"))),
     "d-below-b": () => commit(intoContainer("d", "sidebar", implicitContainerOf("b"))),
     // 活动栏上段的落点（输出 45），和拖到那里放下是同一个函数：D 放到入口最后，新建一个只含它的用户容器；D 放到 A 的入口上，成为 A 的最后一个分节。都切过去。
-    "d-new-entry": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "new-container", container: `${CUSTOM_CONTAINER_PREFIX}lab`, before: null}, POLICY, {commit: true})),
-    "d-into-a": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "join-container", container: implicitContainerOf("a")}, POLICY, {commit: true})),
+    "d-new-entry": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "new-container", region: "sidebar", container: `${CUSTOM_CONTAINER_PREFIX}lab`, before: null}, POLICY, {commit: true})),
+    "d-into-a": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "join-container", region: "sidebar", container: implicitContainerOf("a")}, POLICY, {commit: true})),
 };
 
 function headTabs(panelId: string): PanelHeadTab[] {
@@ -217,7 +217,7 @@ function stripEntries(region: PanelName): RegionStripEntry[] {
     const showing = regionVisible(doc.value, region, {removed: collapse.value.removed, maximized: maximized.value}, visible.value);
     return regionEntries(doc.value, region, CATALOG).map((entry) => {
         const label = typeof entry.label.title === "string" ? entry.label.title : entry.id;
-        return {id: entry.id, label, icon: entry.label.icon, tooltip: label, current: entry.current, pressed: entry.current && showing};
+        return {id: entry.id, label, icon: entry.label.icon, tooltip: label, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && showing};
     });
 }
 
