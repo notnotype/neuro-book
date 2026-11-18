@@ -78,6 +78,8 @@ master 在实施期间改过转录器与内核的同一批文件，合并提交 
 - 单元与合同测试：nb-harness 全包 888 条，nb-agent-ui 284 条（bun）加 185 条（vitest），neuro-book `src/plugins/agent` 508 条，都过。
 - e2e（合并后重建）：`agent-conversation`、`agent-subagents`、`lab-agent-ui` 共 77 条，76 条过；`agent-conversation` 的“按状态换场景”一次因测试端点连接被关（`fetch failed`）失败，单独重跑两次都过，归为环境。合并之前跑过的 `lab-scenes` 被已有的 ThemeEditor 404 挡在版面检查之前（分支起点上就有），新加的 8 个场景改用 `nbdev shot` 量，越界、焦点环与光晕都是 0；`agent-subagents` 验收 4 一次失败时另一位审查者正在同一个 worktree 跑测试，单独重跑两次都过。
 - 截图（390 宽、亮色）：英文留着场景里原因先截断、Continue 完整；英文占位文字缩短到一行。
+- 合入后在 master 上跑 `bun run test:affected --since 32a0d7268 --typecheck --with-consumers`（选中 11 个包，类型检查全过）：失败 2 项都是 master 原有的，`32a0d7268..HEAD` 对相关文件没有差异——dev-panel 的 `web-build.test.ts`（构建日志混进断言）、neuro-book 的 `server.test.ts` 六条与 `builtin-names.test.ts` 一条（都缺或多了 `nbook.stickers`）。
+- 最后一轮样式修改（a867ae719）之后重拍 8 个场景（排队区 `many`、`held`、`held-disabled`，输入框 `stop-menu`、`stopping`、`held`，对话视图 `held-english`、`ahead`），越界、焦点环与光晕被裁都是 0。焦点的两条 e2e 改成肯定式断言后通过（f5f642cd5）。
 
 待开发者追认的决定见 Work 的[待确认清单](../../pending-confirmations.md)。
 
