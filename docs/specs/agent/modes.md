@@ -63,7 +63,7 @@ owners:
 
 11. 输入框工具栏上 Agent 模式控件与审批模式控件并排，都一直可见。点 Agent 模式切下一种（normal、discuss、plan 循环），Shift+Tab 相同：补全菜单开着时 Shift+Tab 不切模式，没有监听者的编辑器（就地编辑）不吞这个键，切换后读屏播报。非 `normal` 时审批模式控件变淡，提示切回普通模式后按它走，仍可点；全部放行保留红色警告。
 12. `/plan`：切到 `plan`，已在 `plan` 不动；带文字时切完把文字发出去。`/mode <名>`：只管 Agent 模式，接 key 与显示名，不接审批模式；没参数切下一种；名字不对提示可选项。
-13. 非 `normal` 在状态栏标出。
+13. 状态栏不另标模式：非 `normal` 只看工具栏的模式控件（输出 11）。（planned）
 
 14. 子会话的模式：派子代理时，子会话的 Agent 模式取父会话此刻的值（[`subagents.md`](subagents.md) 输出 3），之后两边各改各的。父会话不在 `normal` 时：派发只允许装了这个扩展的子 Profile，否则得 `mode-unsupported`、不建子会话；对子会话 `agent_send`、`agent_answer` 之前先把子会话的模式收紧到父会话的（子会话没有模式的得 `mode-unsupported`），父会话切回 `normal` 后子会话不自动放宽。子会话里的 `switch_mode` 请求只能由用户答，父 Agent 答得 `not-allowed`。没有闸门或能被父 Agent 放宽的子会话会绕过父会话的模式。
 
