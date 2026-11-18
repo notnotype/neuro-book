@@ -124,5 +124,5 @@ updated: 2026-11-10
 
 2026-11-10 合入 master（合并提交 `1b7d042c6`），按计划“Spec 与文档改动”改了 `docs/specs/agent/` 下八份 Spec 的 owner、实现合同与证据（行为合同不变）、`harness/host-kit.md` 的证据与注册表“待晋升”、`ui/forms.md` 的依赖、`docs/modules/monorepo-boundaries.md`；删旧 `src/tools/` 记进 [t31](../t31-nb-story-new-kernel/README.md)。
 
-- `harness/host-kit.md` 晋升 `implemented` 待开发者批准。
+- `harness/host-kit.md` 晋升 `implemented`：开发者 2026-11-18 批准（“其他的都没问题”）。晋升前由 Sonnet 逐条核对输出、失败码与验收的实现和测试：实现没有缺的、没有与 Spec 冲突的；缺的是测试与措辞。合同测试补了改写失败、字节写入、根外链接的读与本机路径、不露出位置的写、全文失败不留文件，本机实现补了读上限，NeuroBook 补了按调用分组的标题与两次调用分组（合并提交 `ce5e631ef`，两处变异都被抓到）；Spec 的验收 1、3 改成合同测试实际覆盖的范围，补了宿主可以多带字段、本机实现不分组、缺省标题，加了“实现合同”。核对中发现的另一处：NeuroBook 有主项目时 `auto` 下不问 `project://` 的写，没有专门的测试。
 - 接着做 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md)（nb-file-lock、nb-host、nb-models），t14 的前后端实施也可以开始。
