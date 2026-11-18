@@ -7,6 +7,7 @@ import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 
 import type {StickerResolver} from "@notnotype/nb-markdown";
+import type {Component} from "vue";
 import type {ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
@@ -135,8 +136,79 @@ export const stickersServiceKey: ServiceKey<StickersService> = defineServiceKey<
 export const stickerResolverKey: ServiceKey<StickerResolver> = defineServiceKey<StickerResolver>("nbook.stickers/resolver");
 
 const BrowserStickerSchema = Type.Object({name: Type.String(), width: Type.Number(), height: Type.Number(), url: Type.String()}, {additionalProperties: false});
-const BrowserPackSchema = Type.Object({id: Type.String(), folder: Type.String(), stickers: Type.Array(BrowserStickerSchema)}, {additionalProperties: false});
+const BrowserPluginSchema = Type.Object({id: Type.String(), title: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false});
+/**
+ * 浏览器目录的一个表情包（输出 18）：`title`、`source`、`plugin` 给选择器分组与组头；`writing` 是写法的包段，后端在完整目录上算好
+ * （`shared/writing.ts`），浏览器目录按预算截断后再算会漏掉同名的包。
+ */
+const BrowserPackSchema = Type.Object({
+    id: Type.String(),
+    folder: Type.String(),
+    title: Type.String(),
+    source: Type.Union([Type.Literal("user"), Type.Literal("plugin")]),
+    plugin: Type.Optional(BrowserPluginSchema),
+    writing: Type.String(),
+    stickers: Type.Array(BrowserStickerSchema),
+}, {additionalProperties: false});
 export type BrowserStickerPack = Static<typeof BrowserPackSchema>;
+
+/** 浏览器一侧的表情目录（`browser` 入口交出）：选择器的入口经它取目录，不另取一份。 */
+export interface StickerDirectoryService {
+    /** 当前的目录；还没取到（或取不到）时为 null。 */
+    current(): readonly BrowserStickerPack[] | null;
+    /** 目录换了（取到、更新）时调用；交回取消订阅的函数。 */
+    subscribe(listener: () => void): () => void;
+}
+
+export const stickerDirectoryKey: ServiceKey<StickerDirectoryService> = defineServiceKey<StickerDirectoryService>("nbook.stickers/directory");
+
+/** 选择器与补全里的一个表情（docs/specs/agent/stickers.md 输出 39 到 43）。 */
+export interface StickerPickerItem {
+    /** 表情包 id。 */
+    readonly pack: string;
+    readonly name: string;
+    readonly url: string;
+    readonly width: number;
+    readonly height: number;
+    /** 插入的写法（输出 41）。 */
+    readonly raw: string;
+    readonly packTitle: string;
+}
+
+/** 选择器的一组：一个表情包。 */
+export interface StickerPickerGroup {
+    /** 表情包 id。 */
+    readonly id: string;
+    readonly title: string;
+    /** 插件的包写插件显示名（没有时插件 id），我的包为 null。 */
+    readonly plugin: string | null;
+    readonly items: readonly StickerPickerItem[];
+}
+
+/**
+ * 选择器服务（`picker` 入口交出，Markdown 编辑器与 Agent 输入框可选依赖）。读的几个函数背后是响应式状态：在 `computed` 或渲染里调用会
+ * 随目录、拼音库与最近用过的变化重算。都是同步的：输入框的触发菜单要同步交回。
+ */
+export interface StickerPicker {
+    /** 分好组的表情包（输出 39 的顺序）。 */
+    groups(): readonly StickerPickerGroup[];
+    /** 输出 40 的搜索；`包/` 后面没有字时不受 `limit`。 */
+    search(query: string, limit: number): readonly StickerPickerItem[];
+    /** 一条写法认不认得出；目录还没取到时为 undefined。 */
+    known(raw: string): boolean | undefined;
+    /** 最近用过（输出 43），目录里已经没有的不列。 */
+    recent(): readonly StickerPickerItem[];
+    /** 插入了一个表情之后调用。 */
+    used(item: StickerPickerItem): void;
+    /**
+     * 面板组件（`StickerPickerPanel`，按需加载）。发出 `pick(item, keepOpen)` 与 `close()`；插在哪里、焦点回哪里由宿主决定。
+     */
+    loadPanel(): Promise<Component>;
+    /** 打开设置里的表情包页（面板在没有表情包时的“在设置里新建”）。 */
+    openPacksPage(): void;
+}
+
+export const stickerPickerKey: ServiceKey<StickerPicker> = defineServiceKey<StickerPicker>("nbook.stickers/picker");
 
 /** 设置页用的表情包概要（输出 19）：每个表情包一行，带第一个常用表情的缩略图地址（没有常用的取第一个，没有表情为 null）。 */
 const PackSummarySchema = Type.Object({

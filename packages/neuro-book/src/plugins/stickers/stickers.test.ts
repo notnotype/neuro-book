@@ -955,6 +955,22 @@ describe("浏览器目录", () => {
         expect(reports).toEqual(["catalog-truncated"]);
     });
 
+    test("输出 18、41：带显示名、来源、插件与写法的包段；包段在完整目录上算，同名的包被截掉或没有表情时照样写 id", () => {
+        const sticker = {name: "开心", file: "a.png", common: true, width: 8, height: 8, version: "1-1", bytes: 8};
+        const packs: StickerPackEntry[] = [
+            {id: "acme.cute.lyra", folder: "lyra", source: "plugin", plugin: {id: "acme.cute", title: "可爱"}, title: "插件的星璃", status: "ok", stickers: []},
+            {id: "user.cat", folder: "cat", source: "user", title: "猫猫", status: "ok", stickers: [sticker]},
+            {id: "user.lyra", folder: "lyra", source: "user", title: "星璃", status: "ok", stickers: [sticker]},
+            // 无效的包不算同名：它不进写法（输出 7 只在有效的包里认）。
+            {id: "acme.cute.cat", folder: "cat", source: "plugin", plugin: {id: "acme.cute", title: "可爱"}, title: "坏", status: "invalid", problem: {code: "manifest-invalid"}, stickers: []},
+        ];
+        const result = browserCatalog(packs, () => undefined);
+        expect(result.map((pack) => ({id: pack.id, title: pack.title, source: pack.source, plugin: pack.plugin, writing: pack.writing}))).toEqual([
+            {id: "user.cat", title: "猫猫", source: "user", plugin: undefined, writing: "cat"},
+            {id: "user.lyra", title: "星璃", source: "user", plugin: undefined, writing: "user.lyra"},
+        ]);
+    });
+
     test("输出 18、19：目录与设置页的概要序列化后不超过远程消息的预算，放不下的表情包整包不进、写诊断", () => {
         const longFile = `${"f".repeat(240)}.png`;
         const packs = Array.from({length: 12}, (_, pack): StickerPackEntry => ({id: `user.p${String(pack).padStart(2, "0")}`, folder: `p${String(pack)}`, source: "user", title: "长".repeat(200), description: "说".repeat(200), status: "ok", stickers: Array.from({length: 400}, (_, index) => ({name: `名${String(index)}`, file: longFile, common: false, width: 8, height: 8, version: "1-1", bytes: 8}))}));

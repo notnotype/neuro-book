@@ -47,6 +47,7 @@ import type StickerFields from "nbook/plugins/stickers/web/components/StickerFie
 import type StickerGrid from "nbook/plugins/stickers/web/components/StickerGrid.vue";
 import type StickerPackNameDialog from "nbook/plugins/stickers/web/components/StickerPackNameDialog.vue";
 import type StickerPackRail from "nbook/plugins/stickers/web/components/StickerPackRail.vue";
+import type StickerPickerPanel from "nbook/plugins/stickers/web/components/StickerPickerPanel.vue";
 import type StickerSlot from "nbook/plugins/stickers/web/components/StickerSlot.vue";
 import type StickerPacksPage from "nbook/plugins/stickers/web/components/StickerPacksPage.vue";
 import {extraKey, railGroups, stickerKey} from "nbook/plugins/stickers/web/pack-view";
@@ -1332,6 +1333,18 @@ function shelfFixtures(): LabFixture[] {
                 {id: "faded", label: "调淡：认不出的、没加进来的", input: {props: {url: detailOf(sampleById("user.lyra")!).stickers[0]!.url, faded: true}}},
             ],
             load: async () => createSubjectFixture<typeof StickerSlot>((await import("nbook/plugins/stickers/web/components/StickerSlot.vue")).default, {class: "h-24 w-24 p-2"}),
+        }),
+        defineLabFixture<typeof StickerPickerPanel>({
+            component: "StickerPickerPanel",
+            // 面板要一个选择器服务：台子按场景名用样本表情包造一个真的（`stickers-scene/StickerPickerFixture.vue`）。
+            scenes: [
+                {id: "packs", label: "几个表情包：组头、标签、底部的写法"},
+                {id: "recent", label: "有最近用过"},
+                {id: "empty", label: "一个表情包也没有"},
+                {id: "narrow", label: "300px 宽"},
+                {id: "english", label: "英文界面"},
+            ],
+            load: async () => withStickersPageText((await import("./stickers-scene/StickerPickerFixture.vue")).default),
         }),
         defineLabFixture<typeof PackFields>({
             component: "PackFields",
