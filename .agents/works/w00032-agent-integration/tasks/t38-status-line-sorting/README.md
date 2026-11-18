@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t38-status-line-sorting
-status: active
+status: done
 updated: 2026-11-18
 ---
 
