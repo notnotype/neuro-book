@@ -314,6 +314,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "commands.nbook.edit.link.title": {"zh-CN": "链接", "en-US": "Link"},
     "commands.nbook.edit.link-remove.title": {"zh-CN": "去掉链接", "en-US": "Remove Link"},
     "commands.nbook.edit.image.title": {"zh-CN": "图片", "en-US": "Image"},
+    "commands.nbook.edit.sticker.title": {"zh-CN": "表情", "en-US": "Sticker"},
     "commands.nbook.edit.strike.title": {"zh-CN": "删除线", "en-US": "Strikethrough"},
     "commands.nbook.edit.subscript.title": {"zh-CN": "下标", "en-US": "Subscript"},
     "commands.nbook.edit.superscript.title": {"zh-CN": "上标", "en-US": "Superscript"},

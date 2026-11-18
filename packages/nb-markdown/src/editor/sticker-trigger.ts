@@ -86,13 +86,15 @@ const isWriting = (raw: string): boolean => {
     return ref !== null && ref.raw === raw;
 };
 
-/** 选择器选定：在光标处插入（有选区时替换），光标落在表情后面。不是完整写法、此处放不了时返回 false。 */
+/**
+ * 选择器选定：在光标处插入（有选区时替换），光标落在表情后面。不是完整写法、此处放不了时返回 false。不移焦点：按住 Shift 连着插时
+ * 焦点留在选择器里，关上时宿主把焦点还给正文。
+ */
 export function insertSticker(editor: Editor, raw: string): boolean {
     const type = stickerType(editor.state);
     if (type === undefined || !isWriting(raw) || !canInsertSticker(editor)) return false;
     // 不继承光标处的标记：行内代码已排除，粗体、颜色这些对图片没有意义，写出时也不必为它拆开标记。
     editor.view.dispatch(editor.state.tr.replaceSelectionWith(type.create({raw}), false).scrollIntoView());
-    editor.view.focus();
     return true;
 }
 

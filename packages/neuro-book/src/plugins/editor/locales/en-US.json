@@ -426,6 +426,9 @@
                 },
                 "image": {
                     "title": "Image"
+                },
+                "sticker": {
+                    "title": "Sticker"
                 }
             },
             "view": {

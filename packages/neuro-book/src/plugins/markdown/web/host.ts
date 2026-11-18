@@ -45,10 +45,11 @@ export const nbookChips: ChipEnv = {
  */
 export const NBOOK_IMAGE_MISSING: MarkdownText = markdownText("image.missing");
 
-export function nbookMarkdownHost(options: {readonly language?: () => MarkdownLanguage; readonly report?: MarkdownReport; readonly stickers?: StickerResolver | null}): MarkdownHost {
+export function nbookMarkdownHost(options: {readonly language?: () => MarkdownLanguage; readonly report?: MarkdownReport; readonly stickers?: StickerResolver | null; readonly stickerKnown?: ((raw: string) => boolean | undefined) | null}): MarkdownHost {
     return {
         ...(options.language === undefined ? {} : {language: options.language}),
         ...(options.stickers === undefined || options.stickers === null ? {} : {stickers: options.stickers}),
+        ...(options.stickerKnown === undefined || options.stickerKnown === null ? {} : {stickerKnown: options.stickerKnown}),
         chips: nbookChips,
         report: options.report ?? (() => undefined),
         imageMissing: NBOOK_IMAGE_MISSING,

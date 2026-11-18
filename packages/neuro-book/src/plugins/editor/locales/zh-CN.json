@@ -426,6 +426,9 @@
                 },
                 "image": {
                     "title": "图片"
+                },
+                "sticker": {
+                    "title": "表情"
                 }
             },
             "view": {

@@ -3,12 +3,14 @@
 import {holdCaret, holdSelection, linksTouching, releaseSelection, removeSlashBlock, selectedRubyText, selectRubyAt, sharedHref} from "@notnotype/nb-markdown/editor";
 import {relativeTarget} from "@notnotype/nb-markdown";
 import type {Editor} from "@tiptap/core";
-import {computed, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
+import {computed, inject, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
 
 import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
+import type {StickerPickerItem} from "nbook/plugins/stickers/shared/contracts";
 
 import {nbookTargets} from "../../host";
 import type {MarkdownMedia} from "../../media";
+import {markdownStickerPickerKey} from "../../parts/stickers";
 
 import MarkdownCommentLayer from "./comments/MarkdownCommentLayer.vue";
 import MarkdownBlockGutter from "./MarkdownBlockGutter.vue";
@@ -16,6 +18,8 @@ import MarkdownContextMenu from "./MarkdownContextMenu.vue";
 import MarkdownImageCard from "./MarkdownImageCard.vue";
 import MarkdownSelectionMenu from "./MarkdownSelectionMenu.vue";
 import MarkdownSlashMenu from "./MarkdownSlashMenu.vue";
+import MarkdownStickerCard from "./MarkdownStickerCard.vue";
+import MarkdownStickerMenu from "./MarkdownStickerMenu.vue";
 import MarkdownTextPrompt from "./MarkdownTextPrompt.vue";
 import {altOfName, altOfUrl} from "./image-card-text";
 import {linkRequest} from "./link-input";
@@ -40,6 +44,11 @@ const props = defineProps<{
 type PromptKind = "ruby" | "bilingual" | "link";
 const prompting = ref<PromptKind | null>(null);
 const imageOpen = ref(false);
+/** 表情选择器（输出 62）：没装表情包插件时为 null，没有按钮、斜杠项与 `:` 补全。 */
+const picker = inject(markdownStickerPickerKey, null);
+const stickerOpen = ref(false);
+/** 卡片与选择器开着：选区菜单不显示，批注浮层不弹。 */
+const cardOpen = computed(() => prompting.value !== null || imageOpen.value || stickerOpen.value);
 /** 光标在链接里的卡片：有没有“去掉链接”、碰到的几条地址是否不同（不同时不预填、不能确认）。 */
 const linkMixed = ref(false);
 const commentLayer = useTemplateRef<InstanceType<typeof MarkdownCommentLayer>>("commentLayer");
@@ -59,14 +68,19 @@ function hold(editor: Editor, caret: boolean): void {
     if (!holdSelection(editor) && caret) holdCaret(editor);
 }
 
-function openPrompt(action: PromptKind | "image"): void {
+function openPrompt(action: PromptKind | "image" | "sticker"): void {
     const editor = props.editor;
     if (editor === null) return;
     if (action === "image") {
         openImage();
         return;
     }
+    if (action === "sticker") {
+        openSticker();
+        return;
+    }
     if (imageOpen.value) imageOpen.value = false;
+    if (stickerOpen.value) stickerOpen.value = false;
     const hasRuby = action === "ruby" && props.editing.active("ruby");
     let initial = hasRuby ? selectedRubyText(editor) ?? "" : "";
     let removable = hasRuby;
@@ -95,9 +109,21 @@ function openImage(): void {
     const editor = props.editor;
     if (editor === null || props.readonly || !props.editing.enabled("image")) return;
     if (prompting.value !== null) prompting.value = null;
+    if (stickerOpen.value) stickerOpen.value = false;
     imageSession.value += 1;
     if (imageOpen.value) releaseSelection(editor);
     imageOpen.value = true;
+    hold(editor, true);
+}
+
+/** 表情选择器（输出 62）：锚在光标（同插图卡片），选区画成高亮、没有选区时光标处画竖线，与别的卡片互斥。 */
+function openSticker(): void {
+    const editor = props.editor;
+    if (editor === null || picker === null || props.readonly || !props.editing.enabled("sticker")) return;
+    if (prompting.value !== null) prompting.value = null;
+    if (imageOpen.value) imageOpen.value = false;
+    if (stickerOpen.value) releaseSelection(editor);
+    stickerOpen.value = true;
     hold(editor, true);
 }
 
@@ -112,6 +138,11 @@ watch(imageOpen, (now) => {
     if (editor === null) return;
     if (now) hold(editor, true);
     else releaseSelection(editor);
+}, {flush: "sync"});
+watch(stickerOpen, (now) => {
+    const editor = props.editor;
+    if (editor === null || now) return;
+    releaseSelection(editor);
 }, {flush: "sync"});
 
 /**
@@ -174,6 +205,7 @@ const linkAccepts = (text: string): boolean => linkRequest(text, props.base()) !
 watch(() => [props.binding, props.readonly] as const, () => {
     prompting.value = null;
     imageOpen.value = false;
+    stickerOpen.value = false;
     insertedBlock = null;
 }, {flush: "sync"});
 
@@ -216,6 +248,28 @@ function cancelImage(): void {
     props.editor?.commands.focus();
 }
 
+/**
+ * 选择器里选了表情：插在光标处、记进最近用过（输出 41、43）。用控件的编辑动作（与命令 `nbook.edit.sticker` 同一个实现）而不经命令
+ * 服务：要同步知道插进去没有，按住 Shift 连着插时光标已在表情后面，竖线马上跟着挪过去。
+ */
+function pickSticker(item: StickerPickerItem, keepOpen: boolean): void {
+    const editor = props.editor;
+    if (editor === null || picker === null) return;
+    releaseSelection(editor);
+    if (props.editing.run("sticker", {text: item.raw})) picker.used(item);
+    if (keepOpen) {
+        hold(editor, true);
+        return;
+    }
+    stickerOpen.value = false;
+    editor.commands.focus();
+}
+/** 选择器关上（Esc、焦点离开）：焦点已到别处（点了别的控件）时不抢回来。 */
+function closeSticker(): void {
+    stickerOpen.value = false;
+    if (document.activeElement === null || document.activeElement === document.body) props.editor?.commands.focus();
+}
+
 defineExpose({
     /** 工具栏的“⋯”里点了注音、双语、链接或图片。 */
     prompt: openPrompt,
@@ -230,7 +284,7 @@ defineExpose({
         :menus="props.menus"
         :readonly="props.readonly"
         :binding="props.binding"
-        :suspended="prompting !== null || imageOpen || commentWriting"
+        :suspended="cardOpen || commentWriting"
         @prompt="(action) => (action === 'comment' ? commentLayer?.beginAdd() : openPrompt(action))"
     />
     <MarkdownSlashMenu
@@ -242,6 +296,14 @@ defineExpose({
         :binding="props.binding"
         @prompt="openPrompt"
         @closed="onSlashClosed"
+    />
+    <MarkdownStickerMenu
+        v-if="picker !== null"
+        :editor="props.editor"
+        :scroller="props.scroller"
+        :readonly="props.readonly"
+        :binding="props.binding"
+        :picker="picker"
     />
     <MarkdownBlockGutter
         :editor="props.editor"
@@ -271,7 +333,7 @@ defineExpose({
         :menus="props.menus"
         :readonly="props.readonly"
         :binding="props.binding"
-        :blocked="prompting !== null || imageOpen || contextOpen"
+        :blocked="cardOpen || contextOpen"
         :margin-drawn="props.marginDrawn"
         @writing="(writing) => { commentWriting = writing; }"
     />
@@ -302,5 +364,13 @@ defineExpose({
         @insert="insertImage"
         @cancel="cancelImage"
         @dismiss="imageOpen = false"
+    />
+    <MarkdownStickerCard
+        v-if="picker !== null"
+        :open="stickerOpen"
+        :anchor="anchor"
+        :picker="picker"
+        @pick="pickSticker"
+        @close="closeSticker"
     />
 </template>

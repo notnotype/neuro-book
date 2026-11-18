@@ -9,15 +9,22 @@ import {Editor} from "@tiptap/core";
 import {EditorState} from "@tiptap/pm/state";
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
+
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {markRaw, nextTick, ref} from "vue";
 
 import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 import {keyEventMatches} from "nbook/plugins/editor/web/key-event";
 import type {FilesResult, FindResult, Listing} from "nbook/plugins/files/shared/contracts";
 import type {UploadResult} from "nbook/plugins/files/shared/upload";
+import type {BrowserStickerPack, StickerPicker} from "nbook/plugins/stickers/shared/contracts";
+import {createStickerPicker} from "nbook/plugins/stickers/web/picker-service";
+import {memoryRecent} from "nbook/plugins/stickers/web/recent";
+import {createStickerDirectory} from "nbook/plugins/stickers/web/resolver";
 
 import {createMarkdownMedia} from "../../media";
 import type {MarkdownMedia} from "../../media";
+import {markdownStickerPickerKey} from "../../parts/stickers";
 import MarkdownMenus from "./MarkdownMenus.vue";
 
 const language = defaultMarkdownLanguage();
@@ -73,7 +80,7 @@ function mediaOf(scene: MediaScene = {}) {
     return {media, uploads, searches};
 }
 
-function harness(markdown: string, options: {readonly readonly?: boolean; readonly media?: MarkdownMedia | null} = {}) {
+function harness(markdown: string, options: {readonly readonly?: boolean; readonly media?: MarkdownMedia | null; readonly picker?: StickerPicker} = {}) {
     const scroller = document.createElement("div");
     const element = document.createElement("div");
     scroller.append(element);
@@ -127,6 +134,7 @@ function harness(markdown: string, options: {readonly readonly?: boolean; readon
     const wrapper = mount(MarkdownMenus, {
         props: {editor: markRaw(editor), scroller, editing, menus, readonly, binding: "a", marginDrawn: false, base: () => BASE, media},
         attachTo: document.body,
+        ...(options.picker === undefined ? {} : {global: {provide: {[markdownStickerPickerKey as symbol]: options.picker}}}),
     });
     cleanups.push(() => {
         wrapper.unmount();
@@ -478,5 +486,87 @@ describe("插图卡片（输出 54、58）", () => {
         keyDown(query(), {key: "Escape"});
         await flushPromises();
         expect(caret()).toBe(0);
+    });
+});
+
+describe("表情（stickers 输出 39 到 43，输出 62）", () => {
+    const sticker = (name: string) => ({name, width: 64, height: 64, url: `/img/${name}.png`});
+    const LYRA: BrowserStickerPack = {id: "user.lyra", folder: "lyra", title: "星璃", source: "user", writing: "lyra", stickers: ["开心", "困", "害羞"].map(sticker)};
+    /** 真的选择器服务：真的浏览器目录、内存里的最近用过。 */
+    function picker(): StickerPicker {
+        const directory = createStickerDirectory();
+        directory.set([LYRA]);
+        const controller = new AbortController();
+        cleanups.push(() => controller.abort());
+        return createStickerPicker({directory, recent: memoryRecent(), openPacksPage: () => undefined, report: () => undefined, signal: controller.signal});
+    }
+    const stickersIn = (editor: Editor): string[] => {
+        const found: string[] = [];
+        editor.state.doc.descendants((node) => {
+            if (node.type.name === "sticker") found.push(String(node.attrs.raw));
+        });
+        return found;
+    };
+    const openPicker = async (wrapper: ReturnType<typeof harness>["wrapper"]): Promise<HTMLElement> => {
+        (wrapper.vm as unknown as {prompt: (action: string) => void}).prompt("sticker");
+        // 面板的代码第一次打开时才加载：等到格子画出来。
+        await waitUntil("选择器的格子画出来", () => document.querySelector("[data-markdown-sticker-card] [data-sticker-cell]"));
+        return document.querySelector<HTMLElement>("[data-markdown-sticker-card]") as HTMLElement;
+    };
+    const cell = (card: HTMLElement, raw: string): HTMLElement => {
+        const found = [...card.querySelectorAll<HTMLElement>("[data-sticker-cell]")].find((element) => element.dataset.stickerRaw === raw);
+        if (found === undefined) throw new Error(`没有 ${raw}`);
+        return found;
+    };
+
+    it("打 `:开`：补全一行是小图、名字与表情包名；回车换成表情、记进最近用过", async () => {
+        const chosen = picker();
+        const {editor} = harness("写完啦\n", {picker: chosen});
+        editor.commands.setTextSelection(find(editor, "写完啦").to);
+        for (const char of ":开") editor.view.dispatch(editor.state.tr.insertText(char));
+        await nextTick();
+        const option = document.querySelector<HTMLElement>("[role='option']");
+        expect(option?.querySelector("[data-suggestion-menu-image]")?.getAttribute("src")).toBe("/img/开心.png");
+        expect(option?.textContent?.replace(/\s+/gu, "")).toBe("开心星璃");
+        keyDown(editor.view.dom, {key: "Enter"});
+        await nextTick();
+        expect(stickersIn(editor)).toEqual([":lyra/开心:"]);
+        expect(chosen.recent().map((item) => item.raw)).toEqual([":lyra/开心:"]);
+        expect(document.querySelector("[role='option']")).toBeNull();
+    });
+
+    it("选择器：开着时光标处画竖线、选区菜单让位；点一下插在光标处、关上、焦点回正文；Shift 点插入后不关", async () => {
+        const {editor, wrapper} = harness("今天很开心\n", {picker: picker()});
+        editor.commands.setTextSelection(find(editor, "今天").to);
+        const card = await openPicker(wrapper);
+        expect(caret()).toBe(1);
+        cell(card, ":lyra/困:").dispatchEvent(new MouseEvent("click", {bubbles: true, shiftKey: true}));
+        await nextTick();
+        expect(document.querySelector("[data-state='open'] [data-markdown-sticker-card]")).not.toBeNull();
+        expect(caret()).toBe(1);
+        cell(card, ":lyra/害羞:").click();
+        await nextTick();
+        expect(stickersIn(editor)).toEqual([":lyra/困:", ":lyra/害羞:"]);
+        expect(editor.getText()).toBe("今天:lyra/困::lyra/害羞:很开心");
+        expect(document.querySelector("[data-state='open'] [data-markdown-sticker-card]")).toBeNull();
+        expect(caret()).toBe(0);
+        // Tiptap 的 focus 延到下一帧才落到正文上。
+        await waitUntil("焦点回到正文", () => editor.view.dom.contains(document.activeElement) || null);
+    });
+
+    it("Esc 关上不插；没装表情包插件、只读、代码块里打不开", async () => {
+        const {editor, wrapper} = harness("今天\n", {picker: picker()});
+        editor.commands.setTextSelection(3);
+        const card = await openPicker(wrapper);
+        keyDown(card.querySelector("input")!, {key: "Escape"});
+        await nextTick();
+        expect(document.querySelector("[data-state='open'] [data-markdown-sticker-card]")).toBeNull();
+        expect(stickersIn(editor)).toEqual([]);
+        for (const scene of [harness("今天\n"), harness("今天\n", {picker: picker(), readonly: true}), harness("```\nx\n```\n", {picker: picker()})]) {
+            scene.editor.commands.setTextSelection(2);
+            (scene.wrapper.vm as unknown as {prompt: (action: string) => void}).prompt("sticker");
+            await flushPromises();
+            expect(document.querySelector("[data-state='open'] [data-markdown-sticker-card]")).toBeNull();
+        }
     });
 });

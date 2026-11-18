@@ -49,7 +49,7 @@ import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
 import {NBOOK_IMAGE_MISSING, nbookChips, nbookMarkdownHost} from "../host";
 import {exposeOf} from "../parts/forward-expose";
 import {markdownReportKey} from "../parts/report";
-import {markdownStickersKey} from "../parts/stickers";
+import {markdownStickerPickerKey, markdownStickersKey} from "../parts/stickers";
 import {syntaxCatalogKey} from "../syntax-catalog";
 
 defineOptions({inheritAttrs: false});
@@ -68,6 +68,8 @@ provideMarkdownHost(nbookMarkdownHost({
     }} : {}),
     report,
     stickers: inject(markdownStickersKey, null),
+    // 提示词编辑器与已发送的文字只把认得出的表情写法画成表情（docs/specs/agent/stickers.md 输出 44）。
+    stickerKnown: inject(markdownStickerPickerKey, null)?.known ?? null,
 }));
 
 /** 宿主信息只收属性、不读 `provideMarkdownHost` 的两个组件：小块的分类与图标经 `env`，图片的说明经 `missing`（文字两者都经窗口注入的翻译端口）。 */
