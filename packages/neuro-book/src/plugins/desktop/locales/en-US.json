@@ -1,0 +1,85 @@
+{
+    "settings": {
+        "desktopShortcut": {
+            "title": "Shortcut on the desktop",
+            "description": "When off, the NeuroBook shortcut on the desktop is removed, including the one an update puts back; the Start menu entry stays. Only for the installed app with the default data folder."
+        }
+    },
+    "commands": {
+        "nbook": {
+            "help": {
+                "desktop-welcome": {
+                    "title": "Open Desktop Welcome",
+                    "category": "Help"
+                }
+            }
+        }
+    },
+    "firstRun": {
+        "title": "Welcome to NeuroBook",
+        "progress": "Step {{step}} of {{total}}: {{name}}",
+        "steps": {
+            "welcome": "Welcome",
+            "appearance": "Appearance",
+            "desktop": "Desktop",
+            "ready": "Ready"
+        },
+        "welcome": {
+            "heading": "Welcome to NeuroBook",
+            "lead": "Three quick steps to set up how NeuroBook looks and fits into your desktop."
+        },
+        "appearance": {
+            "heading": "Pick a look you like",
+            "theme": "Theme",
+            "scheme": "Light or dark",
+            "locale": "Display language",
+            "schemes": {
+                "light": "Light",
+                "dark": "Dark",
+                "system": "Match system"
+            }
+        },
+        "desktop": {
+            "heading": "How NeuroBook fits into Windows",
+            "desktopShortcut": {
+                "title": "Desktop shortcut",
+                "detail": "Put a NeuroBook icon on the desktop"
+            },
+            "openAtLogin": {
+                "title": "Open at sign-in",
+                "detail": "Open NeuroBook when you sign in to Windows"
+            },
+            "tray": {
+                "title": "Stay in the tray",
+                "detail": "Keep running when the last window closes; click the tray icon to come back"
+            }
+        },
+        "ready": {
+            "heading": "You're all set",
+            "lead": "Your works are ordinary folders on this computer, easy to back up and sync.",
+            "stateRoot": "Settings and bookshelf",
+            "library": "New works go in",
+            "open": "Open",
+            "missing": "This folder is created when you make your first work."
+        },
+        "later": "You can change all of this later in Settings",
+        "buttons": {
+            "skip": "Skip",
+            "start": "Start",
+            "back": "Back",
+            "next": "Next",
+            "finish": "Start writing"
+        },
+        "errors": {
+            "notSaved": "{{name}} was not changed; it is back to its previous value.",
+            "unknownOutcome": "Not sure whether {{name}} was changed; check it in Settings.",
+            "reveal": {
+                "not-directory": "The works location is not a folder.",
+                "not-accessible": "No permission to open the works folder.",
+                "no-desktop": "There is no desktop on this computer to open the folder in.",
+                "open-failed": "The folder did not open.",
+                "unavailable": "Cannot reach the NeuroBook service right now; try again later."
+            }
+        }
+    }
+}

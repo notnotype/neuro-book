@@ -12,6 +12,8 @@ import {CloseLastWindowSchema, WindowBackdropSchema, ZoomLevelSchema} from "nboo
 import type {ZoomLevel} from "nbook/shared/desktop-bridge";
 import {defineSettings} from "nbook/shared/settings";
 
+import {desktopText} from "./text";
+
 export const DESKTOP_PLUGIN = "nbook.desktop";
 
 /** 界面缩放的档位，从小到大（schema 在桥里，壳也用它校验）；命令与快捷键在相邻两档之间移动。 */
@@ -87,11 +89,11 @@ export const {settings: desktopSettings, contributions: desktopSettingContributi
         order: 40,
     },
     // 壳按页面交来的值删或补建桌面上的快捷方式（desktop-shell 输出 33）；只对安装版、缺省状态根的运行生效。
+    // 标题省略，登记时补成约定键 `settings.desktopShortcut.title`；说明是可选字段，要自己写引用。
     desktopShortcut: {
         schema: Type.Boolean(),
         default: true,
-        title: {"zh-CN": "在桌面放快捷方式", "en-US": "Shortcut on the desktop"},
-        description: {"zh-CN": "关掉时删掉桌面上的 NeuroBook 快捷方式，更新后重新出现的也会删掉；开始菜单里的不受影响。只对安装版、用缺省的数据目录时生效。", "en-US": "When off, the NeuroBook shortcut on the desktop is removed, including the one an update puts back; the Start menu entry stays. Only for the installed app with the default data folder."},
+        description: desktopText("settings.desktopShortcut.description"),
         layers: ["user"],
         section: DESKTOP_WINDOW_SECTION,
         order: 25,

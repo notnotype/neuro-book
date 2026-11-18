@@ -53,6 +53,7 @@ export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
     {path: "packages/neuro-book/src/plugins/canon/locales", source: "zh-CN"},
     // 命令表的失败原因：服务端翻不了文字引用，命令插件从目录取成语言映射（src/plugins/commands/shared/text.ts），不登记进窗口。
     {path: "packages/neuro-book/src/plugins/commands/locales", source: "zh-CN"},
+    {path: "packages/neuro-book/src/plugins/desktop/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/editor/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/explorer/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/html-preview/locales", source: "zh-CN"},
