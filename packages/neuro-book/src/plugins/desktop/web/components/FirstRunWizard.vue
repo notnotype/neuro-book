@@ -139,7 +139,7 @@ const contentKey = computed(() => `step-${props.step}`);
                                 :key="item.id"
                                 type="button"
                                 role="radio"
-                                class="first-run__card"
+                                class="first-run__card nb-ui-focus-ring"
                                 :aria-checked="item.id === theme"
                                 :tabindex="tabStop(themeIds, theme, item.id)"
                                 :data-theme-card="item.id"
@@ -158,7 +158,7 @@ const contentKey = computed(() => `step-${props.step}`);
                                     :key="item"
                                     type="button"
                                     role="radio"
-                                    class="first-run__card first-run__card--scheme"
+                                    class="first-run__card first-run__card--scheme nb-ui-focus-ring"
                                     :aria-checked="item === appearance"
                                     :tabindex="tabStop(APPEARANCES, appearance, item)"
                                     :data-scheme-card="item"
@@ -322,7 +322,7 @@ const contentKey = computed(() => `step-${props.step}`);
 
 .first-run__lead {
     margin: 0;
-    font-size: 15px;
+    font-size: var(--text-lg);
     line-height: 1.6;
     color: var(--text-muted);
 }
@@ -343,10 +343,10 @@ const contentKey = computed(() => `step-${props.step}`);
     min-width: 0;
     padding: 0;
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-panel);
     background: none;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-xs);
     color: var(--text-main);
     cursor: pointer;
 }
@@ -415,7 +415,7 @@ const contentKey = computed(() => `step-${props.step}`);
     flex-direction: column;
     width: 100%;
     overflow: hidden;
-    border-radius: 10px;
+    border-radius: var(--radius-panel);
     background: color-mix(in srgb, var(--text-main) 4%, transparent);
     text-align: left;
 }
@@ -451,20 +451,20 @@ label.first-run__row {
 }
 
 .first-run__row-title {
-    font-size: 14px;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--text-main);
 }
 
 .first-run__row-detail {
-    font-size: 13px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
 }
 
 /* 路径是内容：在不可选的外框里也要能选中复制（ui-development-spec 4.7）。 */
 .first-run__path {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
     overflow-wrap: anywhere;
     user-select: text;

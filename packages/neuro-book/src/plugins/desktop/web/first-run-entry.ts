@@ -141,7 +141,9 @@ export const firstRunEntry = defineEntry({
             if (message === null) return null;
             if (message.kind === "reveal") return text.t(desktopText(`firstRun.errors.reveal.${message.code}`));
             const name = text.t(desktopText(ITEM_NAME[message.item]));
-            return text.t(desktopText(message.kind === "unknown-outcome" ? "firstRun.errors.unknownOutcome" : "firstRun.errors.notSaved", {name}));
+            if (message.kind === "unknown-outcome") return text.t(desktopText("firstRun.errors.unknownOutcome", {name}));
+            if (message.cause === null) return text.t(desktopText("firstRun.errors.notSaved", {name}));
+            return text.t(desktopText("firstRun.errors.notSavedBecause", {name, cause: text.t(desktopText(`firstRun.errors.causes.${message.cause}`))}));
         };
         const overlay: WorkbenchOverlayImplementation = {
             // `.vue` 只在 load() 里动态导入：插件的合同测试在 bun test 里导入本文件，bun 不能加载 `.vue`。

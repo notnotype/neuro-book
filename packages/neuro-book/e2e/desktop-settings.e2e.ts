@@ -175,6 +175,7 @@ test("用户层坏了又修回、有效值没变时，页面补交一次桌面�
     await installShell(page);
     await openWorkbench(page);
     // 坏的用户层不交值（读到的是缺省值，交给壳会被当真）。
+    // test-lint-allow fixed-wait: 断言“没有交值”，没有可等的信号；等过插件激活与配置快照到达的时间
     await page.waitForTimeout(1_000);
     expect(await lastValues(page)).toBeUndefined();
     await writeFile(join(stateRoot, "settings.json"), "{}\n");

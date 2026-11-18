@@ -66,6 +66,8 @@ test("第一次打开桌面版：走完四步，外观与桌面三项写进用�
     await expect.poll(readSettings).toMatchObject({"nbook.workbench/theme": "macos", "nbook.workbench/appearance": "dark"});
     await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
     await expect(page.locator("[data-theme-card='macos']")).toHaveAttribute("aria-checked", "true");
+    // 缩略图真的加载出来了（构建进了包、地址对）：每张卡片的图都有尺寸。
+    expect(await page.locator("[data-theme-card] img").evaluateAll((images) => images.map((image) => (image as HTMLImageElement).naturalWidth > 0))).toEqual([true, true, true, true]);
     await primary(page).click();
 
     // 第三步：三行都在（安装版、缺省状态根）；关掉桌面快捷方式，写进用户层并交给壳。
@@ -95,6 +97,7 @@ test("第一次打开桌面版：走完四步，外观与桌面三项写进用�
     await page.reload();
     await expect(page.locator("[data-bookshelf-page]")).toBeVisible();
     await expect.poll(async () => (await shellSent(page)).some((message) => message.type === "desktop-settings")).toBe(true);
+    // test-lint-allow fixed-wait: 断言“没有再出现”，没有可等的信号；先等到出现条件之一（用户层可用）成立，再给记录的订阅留出时间。去掉对记录的判断时这条会红（变异核对过）
     await page.waitForTimeout(1_500);
     await expect(wizard(page)).toHaveCount(0);
 
@@ -130,7 +133,7 @@ test("Esc 跳过也写记录；已改的值不撤销", async ({page}) => {
     expect(await readSettings()).toMatchObject({"nbook.workbench/appearance": "dark"});
 });
 
-test("设置写不进去时开关回到原值，状态行说明", async ({page}) => {
+test("设置写不进去时开关回到原值，状态行说明原因", async ({page}) => {
     await writeFile(join(stateRoot, "settings.json"), "{}\n");
     await chmod(join(stateRoot, "settings.json"), 0o444);
     await openDesktop(page);
@@ -139,7 +142,7 @@ test("设置写不进去时开关回到原值，状态行说明", async ({page})
     const login = page.locator("[data-desktop-option='openAtLogin'] [role='switch']");
     await expect(login).toHaveAttribute("aria-checked", "false");
     await login.click();
-    await expect(wizard(page)).toContainText("登录时打开没有改成，回到了原来的值。");
+    await expect(wizard(page)).toContainText("登录时打开没有改成（设置文件写不进去），回到了原来的值。");
     await expect(login).toHaveAttribute("aria-checked", "false");
 });
 
@@ -159,6 +162,7 @@ test("浏览器里（没有壳）：不出现，也不加载向导的代码", as
     page.on("request", (request) => requested.push(request.url()));
     await page.goto(server!.url);
     await expect(page.locator("[data-bookshelf-page]")).toBeVisible();
+    // test-lint-allow fixed-wait: 断言浏览器里“没有出现、没有请求”，没有可等的信号；等过页面浮层挂载与加载的几帧。在浏览器里也导入向导时这条会红（变异核对过）
     await page.waitForTimeout(1_500);
     await expect(wizard(page)).toHaveCount(0);
     expect(requested.filter((url) => /FirstRunWizard/u.test(url))).toEqual([]);

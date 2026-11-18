@@ -36,7 +36,15 @@ export const firstRunStore = defineStore("desktop-first-run", ({persist}) => {
     return {
         state: {seen},
         actions: {
-            remember: (at: string) => seen.commit(() => ({at})),
+            /**
+             * 记下看过：已有记录（命令重开的向导）不重写；上一次没写成、队列暂停时先整条放弃再写，否则这次会排在暂停的那条
+             * 后面一直不发。
+             */
+            remember: (at: string) => {
+                if (seen.base?.status === "ok") return Promise.resolve("unchanged" as const);
+                if (seen.save.state === "failed" || seen.save.state === "unknown") seen.discardAll();
+                return seen.commit(() => ({at}));
+            },
         },
     };
 });
@@ -65,7 +73,7 @@ export type RevealOutcome = "ok" | "missing" | "not-directory" | "not-accessible
 
 /** 状态行的文字：宿主按码取好（键在本插件的目录里）。 */
 export type FirstRunMessage =
-    | {readonly kind: "not-saved"; readonly item: "theme" | "appearance" | "locale" | DesktopOption}
+    | {readonly kind: "not-saved"; readonly item: "theme" | "appearance" | "locale" | DesktopOption; readonly cause: "unavailable" | "write-failed" | null}
     | {readonly kind: "unknown-outcome"; readonly item: DesktopOption}
     | {readonly kind: "reveal"; readonly code: Exclude<RevealOutcome, "ok" | "missing">};
 
@@ -183,7 +191,8 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
                 const command = change.key === "theme" ? SWITCH_THEME : change.key === "appearance" ? SWITCH_APPEARANCE : SWITCH_LOCALE;
                 const result = await options.commands.execute(command, {[change.key]: change.value});
                 if (!result.ok) {
-                    message = {kind: "not-saved", item: change.key};
+                    // 命令的失败码只分得出连不上；写入失败、结果未知都并成 execution-error，不另说原因。
+                    message = {kind: "not-saved", item: change.key, cause: result.code === "unavailable" ? "unavailable" : null};
                     options.report("desktop.first-run.write-failed", `Switching ${change.key} failed: ${result.code}`, {reason: result.reason});
                 }
             } else {
@@ -191,7 +200,9 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
                     ? await settings.update(desktopSettings.closeLastWindow, change.value ? "tray" : "quit", {layer: "user"})
                     : await settings.update(change.key === "desktopShortcut" ? desktopSettings.desktopShortcut : desktopSettings.openAtLogin, change.value, {layer: "user"});
                 if (!result.ok) {
-                    message = result.code === "unknown-outcome" ? {kind: "unknown-outcome", item: change.key} : {kind: "not-saved", item: change.key};
+                    message = result.code === "unknown-outcome"
+                        ? {kind: "unknown-outcome", item: change.key}
+                        : {kind: "not-saved", item: change.key, cause: result.code === "unavailable" || result.code === "write-failed" ? result.code : null};
                     options.report("desktop.first-run.write-failed", `Writing ${change.key} failed: ${result.code}`, {detail: result.detail});
                 }
             }

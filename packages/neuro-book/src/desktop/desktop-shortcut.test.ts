@@ -103,7 +103,11 @@ describe("串行同步", () => {
     it("前一个还在做时连改几次：只做最新的那一个，桌面上的结果跟最后的值一致", async () => {
         const port = filePort(file);
         const lines: string[] = [];
-        const sync = createShortcutSync(port, (line) => lines.push(line));
+        const both = deferred();
+        const sync = createShortcutSync(port, (line) => {
+            lines.push(line);
+            if (lines.length === 2) both.resolve();
+        });
         const gate = deferred();
         port.gate = gate.promise;
         sync.request("ensure-present");
@@ -112,7 +116,7 @@ describe("串行同步", () => {
         sync.request("ensure-absent");
         port.gate = null;
         gate.resolve();
-        while (lines.length < 2) await new Promise((resolve) => setTimeout(resolve, 1));
+        await both.promise;
         await sync.close(5_000);
         expect(port.calls).toEqual(["ensure-present", "ensure-absent"]);
         expect(await exists(file)).toBe(false);

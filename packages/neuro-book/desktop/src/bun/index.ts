@@ -635,9 +635,7 @@ async function main(): Promise<void> {
             // 先删图标：进程结束时 Electrobun 不删，通知区域会留下残影，直到指针划过。
             tray?.remove();
             tray = null;
-            // 桌面快捷方式在做的那一次至多等 5 秒（输出 33）：页面都已关掉，不会再有新的值。
-            const pending = shortcutSync?.close(5_000) ?? Promise.resolve();
-            void pending.finally(() => Utils.quit(code));
+            Utils.quit(code);
         },
     };
 
@@ -670,6 +668,7 @@ async function main(): Promise<void> {
         report: log,
         updates,
         closeLastWindow: desktopValues.closeLastWindow,
+        ...(shortcutSync === null ? {} : {shortcuts: shortcutSync}),
     });
     await shell.run();
 

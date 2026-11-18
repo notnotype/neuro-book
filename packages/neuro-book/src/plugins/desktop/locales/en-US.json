@@ -79,6 +79,11 @@
                 "no-desktop": "There is no desktop on this computer to open the folder in.",
                 "open-failed": "The folder did not open.",
                 "unavailable": "Cannot reach the NeuroBook service right now; try again later."
+            },
+            "notSavedBecause": "{{name}} was not changed ({{cause}}); it is back to its previous value.",
+            "causes": {
+                "unavailable": "cannot reach the NeuroBook service right now",
+                "write-failed": "the settings file cannot be written"
             }
         }
     }

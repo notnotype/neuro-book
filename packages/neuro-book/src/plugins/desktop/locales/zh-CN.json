@@ -79,6 +79,11 @@
                 "no-desktop": "这台电脑上没有可用的桌面，打不开文件夹。",
                 "open-failed": "文件夹没有打开。",
                 "unavailable": "现在连不上 NeuroBook 的服务，稍后再试。"
+            },
+            "notSavedBecause": "{{name}}没有改成（{{cause}}），回到了原来的值。",
+            "causes": {
+                "unavailable": "现在连不上 NeuroBook 的服务",
+                "write-failed": "设置文件写不进去"
             }
         }
     }

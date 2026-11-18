@@ -7,7 +7,7 @@
  *   bun run build            # 先有 dist/server 与 dist/web
  *   node scripts/first-run-thumbnails.ts
  *
- * 由 Node 运行（与 lab-shot 相同：Bun 下 Playwright 连接浏览器的握手会超时）。
+ * 由 Node 运行（与 lab-shot 相同：Bun 下 Playwright 连接浏览器的握手会超时）。`sharp` 是仓库根的开发依赖（工作区里共用），本包不另声明。
  */
 
 import {randomUUID} from "node:crypto";
