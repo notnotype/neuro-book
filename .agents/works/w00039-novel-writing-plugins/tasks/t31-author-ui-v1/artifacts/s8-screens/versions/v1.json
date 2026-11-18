@@ -1,0 +1,27 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t31-author-ui-v1",
+    "artifactId": "s8-screens",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "作者界面第一批：收口截图",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "fe3741738e26b7abbf7bf5e2687e5f0a909bf029761cbb16bf955aac4a98a122",
+    "files": [
+        "01-entry-text-origins.webp",
+        "02-panel-ledger.webp",
+        "03-confirm-bar.webp",
+        "04-revisions.webp",
+        "05-receipt.webp",
+        "06-pending.webp",
+        "07-change-page.webp",
+        "08-entry-390.webp",
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-11-18T11:47:21.066Z"
+}
