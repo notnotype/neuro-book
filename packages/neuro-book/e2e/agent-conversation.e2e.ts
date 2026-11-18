@@ -348,6 +348,8 @@ test("验收 8：运行中排两条、点停止，两条显示已暂停；写一
     await script("三句一起处理了");
     await send(page, "新的一句");
     await expect(page.getByText("三句一起处理了")).toBeVisible();
+    // 继续的几步之间只挡发送，输入框不失焦（interaction.continuing）。
+    await expect(input(page)).toBeFocused();
     await expect(page.locator("li[data-queued]")).toHaveCount(0);
     const merged = await requests();
     expect(JSON.stringify(merged.at(-1)?.messages)).toContain("排一\\n\\n排二\\n\\n新的一句");
