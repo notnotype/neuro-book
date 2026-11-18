@@ -220,6 +220,21 @@ describe("回执页", () => {
         expect(third.get("[data-receipt-impact]").text()).not.toContain("notReduced");
     });
 
+    it("章序调整的回执：“章序”一节写调整前后的章序（输出 20）", async () => {
+        const {other, open} = await setup();
+        // 世界打开时按活页夹的清单发布过一次章序调整（从没有章到第 1 章），不靠目录监视再造一次。
+        let revision = "";
+        await waitUntil("章序调整", async () => {
+            const listed = await other.canon.call("revisions", {limit: 50});
+            revision = listed.ok ? (listed.value.items.find((item) => item.what === "reorder")?.id ?? "") : "";
+            return revision !== "";
+        });
+        const wrapper = await open(revision);
+        await waitUntil("章序一节", () => wrapper.find("[data-receipt-section='chapters']").exists());
+        // 节名“章序”，一行写调整以后的章序，章写成“第 N 章”；改前没有章时不写改前与箭头（同新建的字段）。
+        expect(wrapper.get("[data-receipt-section='chapters']").text().replace(/\s+/gu, "")).toBe("章序章序第1章");
+    });
+
     it("别的调用方独占写入时“还原这次修订”不可用并写出它申请时给的那句，释放以后恢复", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

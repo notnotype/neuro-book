@@ -65,11 +65,12 @@ const REVERT_OVERLAY_DECLARATION: OverlayDeclaration = {};
 /** author-ui.md 的“输入与前置条件”：侧栏，排在文件资源管理器（`order: 0`）之后。标题由约定键补（`views.<id>.title`）。 */
 const ENTRIES_VIEW: WrittenViewDeclaration = {icon: "i-lucide-book", location: "sidebar", order: 10, layout: "fill", actions: [{command: NEW_ENTRY_COMMAND, icon: "i-lucide-plus"}]};
 /**
- * 底部面板的两个视图（author-ui.md 输出 33）：不写容器，各是一个隐式容器；不因它们让底部面板默认显示，经状态栏条目、命令与
- * 回执页的面包屑打开（workbench/views.md 输出 18）。
+ * 底部面板的两个视图（author-ui.md 输出 33）：不写容器，各是一个隐式容器，入口条上各是一个入口；不因它们让底部面板默认显示，
+ * 经状态栏条目、入口条、命令与回执页的面包屑打开（workbench/views.md 输出 18）。`order` 排在后台任务（10）与通知（20）前面，
+ * 两个挨着。
  */
-const PENDING_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-circle-alert", location: "panel", order: 10, layout: "fill", revealRegion: false};
-const REVISIONS_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-history", location: "panel", order: 20, layout: "fill", revealRegion: false};
+const PENDING_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-circle-alert", location: "panel", order: 5, layout: "fill", revealRegion: false};
+const REVISIONS_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-history", location: "panel", order: 6, layout: "fill", revealRegion: false};
 
 /** 公开状态 `nbook.canon/hasPending`：状态栏条目的 `when`（输出 25）。 */
 export const canonState = definePublicState("nbook.canon", {
@@ -212,15 +213,19 @@ export const canonBrowserPlugin: PluginDefinition = {
             };
             const pendingState = pendingViewState();
             const revisionsView = createRevisionsView({world: worldOf, state: revisionsViewState(), revert, receipt: (revision) => execute(OPEN_RECEIPT_COMMAND, {revision})});
-            const pendingView = createPendingView({
-                world: worldOf,
-                state: pendingState,
-                open: (target) => {
-                    if (target.kind === "receipt") execute(OPEN_RECEIPT_COMMAND, {revision: target.id});
-                    else execute(target.kind === "entry" ? OPEN_ENTRY_COMMAND : OPEN_CHANGE_COMMAND, {id: target.id});
-                },
-                openChapter: (chapter) => void openChapter(chapter),
-            });
+            const pendingView: ViewImplementation = {
+                ...createPendingView({
+                    world: worldOf,
+                    state: pendingState,
+                    open: (target) => {
+                        if (target.kind === "receipt") execute(OPEN_RECEIPT_COMMAND, {revision: target.id});
+                        else execute(target.kind === "entry" ? OPEN_ENTRY_COMMAND : OPEN_CHANGE_COMMAND, {id: target.id});
+                    },
+                    openChapter: (chapter) => void openChapter(chapter),
+                }),
+                // 入口条与面板头上的计数（workbench/views.md 输出 17）：与状态栏的“待处理 N”同一个读取，两处的数一样。
+                badge: () => pendingCount.count.value,
+            };
             const view: ViewImplementation = {
                 load: async () => createEntriesViewHost((await import("./components/EntryTree.vue")).default, {
                     world: worldOf(),

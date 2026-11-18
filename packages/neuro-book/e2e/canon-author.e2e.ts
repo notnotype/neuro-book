@@ -1,7 +1,8 @@
 /**
- * 作者界面（设定侧）在真实 Chrome 与生产构建上的验收（docs/specs/canon/author-ui.md 验收 1、2、3、5 与 10 的“在改动记录里还原”）：
+ * 作者界面（设定侧）在真实 Chrome 与生产构建上的验收（docs/specs/canon/author-ui.md 验收 1、2、3、5、11、14 与 10 的“在改动记录里还原”）：
  * `scripts/canon-sample.ts` 生成星瑕样本作品（经产品的世界宿主逐次发布），登记成项目 `book`；世界服务、存储与项目子进程都是真的。
- * 用例共用一部作品、按顺序跑：前面的用例只读或改了又撤销，第 5 个场景最后才把那一笔改对。等页面上可观察的变化，不按时长等。
+ * 用例共用一部作品、按顺序跑：前面的用例只读、改了又撤销或只改文字字段，验收 5 最后才把那一笔改对（它要状态栏有“待处理 1”）。
+ * 等页面上可观察的变化，不按时长等。
  */
 
 import {execFile} from "node:child_process";
@@ -67,6 +68,11 @@ const value = (page: Page, path: string) => entryPage(page).locator(`[data-value
 /** 数据分页（字段表）里一个字段的值。 */
 const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-field="${path}"] .canon-value`);
 const positionSelect = (page: Page) => entryPage(page).getByRole("combobox", {name: "位置"});
+const statusBar = (page: Page) => page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']");
+/** 状态栏的“待处理 N”。状态栏另有一份量宽度用的副本（aria-hidden），按按钮的角色找只找到看得见的那一个。 */
+const pendingItem = (page: Page) => statusBar(page).getByRole("button").filter({hasText: /^待处理 \d+$/u});
+/** 底部面板入口条上一个视图的入口。 */
+const panelEntry = (page: Page, view: string) => page.locator(`[data-region-strip="panel"] [data-tool-view="${view}"]`);
 
 /** 打开设定视图，展开“人物”分组（以及给了的上级条目），点开这个条目的页。 */
 async function openEntry(page: Page, name: string, parents: readonly string[] = []): Promise<void> {
@@ -93,6 +99,10 @@ async function choosePosition(page: Page, label: RegExp): Promise<void> {
 test("验收 1：设定树与条目页：马甲在本体下面、标签标题与面包屑、换位置后值跟着变、存款的来历里估计的那笔是警告色", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
+    // 新作品第一次打开：待处理、改动记录不让底部面板默认显示（输出 33）。面板收起时入口条还在、高度为 0，入口按钮自己的盒子不空，
+    // 不能按入口判断；状态栏的面板开关写着“显示面板”。
+    await expect(statusBar(page).getByText("显示面板")).toBeVisible();
+    await expect(page.locator("[data-pending-view]")).toHaveCount(0);
     await expect(crumbs(page)).toHaveText(["设定", "人物", "星瑕"]);
     await expect(positionSelect(page)).toHaveText(/第 3 章末尾/u);
 
@@ -141,9 +151,16 @@ test("验收 2：两个条目页各有各的位置、展开的来历与填了一
 
     await openEntry(page, "星瑾");
     await expect(positionSelect(page)).toHaveText(/第 3 章末尾/u);
+    await choosePosition(page, /第 2 章末尾/u);
     await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
     await expect(positionSelect(page)).toHaveText(/第 1 章末尾/u);
     await expect(entryPage(page).locator("[data-origin-list]")).toBeVisible();
+    // 设定树跟着切过来的条目页选中。
+    await expect(row(page, "星瑕")).toHaveAttribute("aria-selected", "true");
+    await page.locator("[data-editor-tab]", {hasText: "星瑾"}).click();
+    await expect(row(page, "星瑾")).toHaveAttribute("aria-selected", "true");
+    await expect(row(page, "星瑕")).not.toHaveAttribute("aria-selected", "true");
+    await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
 
     // 填了一半的就地改：切走再回来，确认条与填的字还在。
     await entryPage(page).getByRole("tab", {name: "人物"}).click();
@@ -161,11 +178,14 @@ test("验收 2：两个条目页各有各的位置、展开的来历与填了一
     const labels = page.locator("[data-editor-tab-label]");
     await expect(labels.filter({hasText: /^星瑕$/u})).toHaveCount(1);
     await expect(labels.filter({hasText: /^星瑾$/u})).toHaveCount(1);
-    await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
-    await expect(positionSelect(page)).toHaveText(/第 3 章末尾/u);
+    for (const name of ["星瑕", "星瑾"]) {
+        await page.locator("[data-editor-tab]", {hasText: name}).click();
+        await expect(activeTabLabel(page)).toHaveText(name);
+        await expect(positionSelect(page)).toHaveText(/第 3 章末尾/u);
+    }
 });
 
-/** 从命令面板打开改动记录（底部面板的入口条做好之前，命令面板与回执页的面包屑是它的入口），等行出来。 */
+/** 从命令面板打开改动记录（`nbook.canon.show-revisions`），等行出来。 */
 async function showRevisions(page: Page): Promise<Locator> {
     await page.keyboard.press("Control+Shift+P");
     await page.keyboard.type("显示改动记录");
@@ -220,7 +240,12 @@ test("验收 10 的后一半：在改动记录里还原一次修订，条目页�
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(field).toHaveText("在打工");
 
-    const newest = (await showRevisions(page)).first();
+    // 从底部面板的入口条到改动记录：状态栏的“待处理 N”先把底部面板打开在待处理上，再点入口条上的“改动记录”。
+    await pendingItem(page).click();
+    await expect(page.locator("[data-pending-view]")).toBeVisible();
+    await panelEntry(page, "nbook.canon.revisions").click();
+    const newest = page.locator("[data-revision-row]").first();
+    await expect(newest).toBeVisible();
     await newest.locator("[data-revision-revert]").click();
     await expect(page.locator("[data-revert-dialog]")).toBeVisible();
     await page.getByRole("dialog").getByRole("button", {name: "还原", exact: true}).click();
@@ -228,12 +253,89 @@ test("验收 10 的后一半：在改动记录里还原一次修订，条目页�
     await expect(field).toHaveText(before);
 });
 
+test("验收 11：只用键盘改一个值：Tab 走到“改”、Enter、填、Tab 到“保存”、Enter，焦点回到“改”；再 Enter、Escape，确认条收起、焦点还在“改”", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑕");
+    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    const edit = entryPage(page).locator("[data-edit=\"character.外观\"]");
+    const before = await fieldValue(page, "character.外观").innerText();
+    // 值按钮与“改”各一个 Tab 停靠，值在前。
+    await fieldValue(page, "character.外观").focus();
+    await page.keyboard.press("Tab");
+    await expect(edit).toBeFocused();
+    await page.keyboard.press("Enter");
+    const box = entryPage(page).locator("[data-confirm-bar]").getByRole("textbox");
+    await expect(box).toBeFocused();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.type("银白长发");
+    const save = entryPage(page).locator("[data-confirm-bar]").getByRole("button", {name: "保存"});
+    await expect(save).toBeEnabled();
+    for (let presses = 0; presses < 4 && !(await save.evaluate((element) => element === document.activeElement)); presses += 1) await page.keyboard.press("Tab");
+    await expect(save).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(fieldValue(page, "character.外观")).toHaveText("银白长发");
+    await expect(edit).toBeFocused();
+
+    await page.keyboard.press("Enter");
+    await expect(box).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(entryPage(page).locator("[data-confirm-bar]")).toHaveCount(0);
+    await expect(edit).toBeFocused();
+    expect(before).not.toBe("银白长发");
+});
+
+/**
+ * 页面或视图里会横着滚的地方：根自己、它里面 `overflow-x` 是 auto 或 scroll 的元素、它外面最近的那个滚动容器，内容比宽度宽的都算；
+ * 再加上整页。空数组是没有。
+ */
+async function horizontalScrolls(root: Locator): Promise<string[]> {
+    return root.first().evaluate((element) => {
+        const scrolls = (node: Element) => ["auto", "scroll"].includes(getComputedStyle(node).overflowX);
+        const candidates = [element, ...element.querySelectorAll("*")].filter((node) => node === element || scrolls(node));
+        for (let up = element.parentElement; up !== null; up = up.parentElement) {
+            if (!scrolls(up)) continue;
+            candidates.push(up);
+            break;
+        }
+        const wide = candidates.filter((node) => node.scrollWidth > node.clientWidth + 1).map((node) => `${node.tagName.toLowerCase()}.${node.className} ${String(node.scrollWidth)}>${String(node.clientWidth)}`);
+        if (document.documentElement.scrollWidth > window.innerWidth + 1) wide.push(`document ${String(document.documentElement.scrollWidth)}>${String(window.innerWidth)}`);
+        return wide;
+    });
+}
+
+// 设定视图不在这里量：390 宽时工作台把侧栏让给编辑区，点活动栏也不出来。
+test("验收 14：390 像素宽时，条目页、回执页、变更详情页与待处理、改动记录两个视图都没有横向滚动", async ({page}) => {
+    await open(page);
+    const narrow = async (root: Locator): Promise<void> => {
+        await page.setViewportSize({width: 390, height: 844});
+        await expect(root.first()).toBeVisible();
+        expect(await horizontalScrolls(root)).toEqual([]);
+        await page.setViewportSize({width: 1440, height: 900});
+    };
+    // 在宽屏上走到每一处，再换成 390 宽量。
+    await openEntry(page, "星瑕");
+    for (const tab of ["文字", "人物", "面板", "情节"]) {
+        await entryPage(page).getByRole("tab", {name: new RegExp(`^${tab}`, "u")}).click();
+        await narrow(entryPage(page));
+    }
+    await pendingItem(page).click();
+    await expect(page.locator("[data-pending-detail]")).toBeVisible();
+    await narrow(page.locator("[data-pending-view]"));
+    await page.locator("[data-suspect-open]").first().click();
+    await narrow(page.locator("[data-change-page]"));
+    await panelEntry(page, "nbook.canon.revisions").click();
+    await expect(page.locator("[data-revision-row]").first()).toBeVisible();
+    await narrow(page.locator("[data-revisions-view]"));
+    await page.locator("[data-revision-row]").first().locator("[data-revision-receipt]").click();
+    await narrow(page.locator("[data-receipt-page]"));
+});
+
 test("验收 5：状态栏“待处理 1”点进去选中那一条；改这一笔开出变更详情页，改成对得上的数并保存，这一条与状态栏条目都消失", async ({page}) => {
     await open(page);
-    // 状态栏另有一份量宽度用的副本（aria-hidden），按按钮的角色找只找到看得见的那一个。
-    const count = page.getByRole("button").filter({hasText: /^待处理 1$/u});
-    await expect(count).toBeVisible();
-    await count.click();
+    await expect(pendingItem(page)).toHaveText("待处理 1");
+    await pendingItem(page).click();
+    // 入口条上的入口写同一个数（views.md 输出 17）。
+    await expect(panelEntry(page, "nbook.canon.pending")).toContainText("1");
     const selected = page.locator("[data-pending-row][aria-current=\"true\"]");
     await expect(selected).toContainText("存款对不上");
     const detail = page.locator("[data-pending-detail]");
@@ -247,9 +349,14 @@ test("验收 5：状态栏“待处理 1”点进去选中那一条；改这一�
     await expect(change).toBeVisible();
     await change.locator("[data-edit-patch]").first().click();
     const bar = change.locator("[data-confirm-bar]");
-    await bar.getByRole("spinbutton").or(bar.getByRole("textbox")).first().fill("-2000");
+    // 数的改动用数字输入（nb-ui 的 NumberInput：文字框加 inputmode="decimal"）。
+    await bar.locator("input[inputmode=\"decimal\"]").fill("-2000");
     await bar.getByRole("button", {name: "保存"}).click();
 
+    // 先看视图还在、“待处理”一组的数变成 0，再看那一行没有了；状态栏还在（别的条目照常），只是“待处理 N”不显示了。
+    await expect(page.locator("[data-pending-group=\"pending\"] [data-pending-count]")).toHaveText("0");
     await expect(page.locator("[data-pending-row]", {hasText: "存款对不上"})).toHaveCount(0);
-    await expect(page.getByRole("button").filter({hasText: /^待处理 \d+$/u})).toHaveCount(0);
+    await expect(statusBar(page)).toContainText("星瑕");
+    await expect(pendingItem(page)).toHaveCount(0);
+    await expect(panelEntry(page, "nbook.canon.pending")).not.toContainText("1");
 });

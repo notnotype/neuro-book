@@ -4,7 +4,7 @@
  * 按编辑器的做法给每个标签一份 `context`。数据都经真实的世界服务发布。
  */
 
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {appendFile, mkdir, readdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {mount} from "@vue/test-utils";
@@ -19,6 +19,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import type {EditorPageContext, EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
+import {CANON_BUDGET_BYTES} from "../shared/contracts";
 import {countedClient} from "../testing/counted-client";
 import {pageStandIn} from "../testing/page-stand-in";
 import {change, nextId, person, publish} from "../testing/world-fixtures";
@@ -433,6 +434,14 @@ describe("写入", () => {
         expect(wrapper.get("[data-notice-bar]").text()).toContain("改外观");
         await waitUntil("焦点回到“改”", () => document.activeElement?.getAttribute("data-edit") === "character.外观");
 
+        // 取消与 Escape 一样收起确认条，焦点也回到那个“改”，不掉到页面外（输出 16、验收 11）。
+        await startEdit(wrapper, "character.外观");
+        await buttonByText(wrapper, "取消")!.trigger("click");
+        await waitUntil("取消以后", () => !wrapper.find("[data-confirm-bar]").exists() && document.activeElement?.getAttribute("data-edit") === "character.外观");
+        const again = await startEdit(wrapper, "character.外观");
+        await again.get("textarea").trigger("keydown", {key: "Escape"});
+        await waitUntil("Escape 以后", () => !wrapper.find("[data-confirm-bar]").exists() && document.activeElement?.getAttribute("data-edit") === "character.外观");
+
         state.planned = true;
         await waitUntil("按计划时不可用", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") !== undefined);
         expect(wrapper.get("[data-edit='character.外观']").attributes("title")).toBe("先关掉按计划");
@@ -509,6 +518,21 @@ describe("写入", () => {
         await waitUntil("恢复", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") === undefined);
     });
 
+    it("填的字太长、一次调用装不下：确认条写“这次改动太大，分开改”，不能保存，填的字还在（输出 29）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists());
+        state.tab = "data:character";
+        const bar = await startEdit(wrapper, "character.外观");
+        const long = "长".repeat(Math.ceil(CANON_BUDGET_BYTES / 3) + 1);
+        await bar.get("textarea").setValue(long);
+        await waitUntil("太大", () => wrapper.get("[data-confirm-bar]").text().includes("这次改动太大，分开改"), {timeoutMs: 10_000});
+        expect(buttonByText(wrapper, "保存")!.attributes("disabled")).toBeDefined();
+        expect((wrapper.get("[data-confirm-bar] textarea").element as HTMLTextAreaElement).value).toBe(long);
+    });
+
     it("删除条目：确认以后标签留着、显示“这个条目已删除”，顶上有提示", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
@@ -522,5 +546,30 @@ describe("写入", () => {
         confirm.click();
         await waitUntil("已删除", () => wrapper.text().includes("这个条目已删除"));
         expect(wrapper.get("[data-notice-bar]").text()).toContain("删除“星瑕”");
+    });
+});
+
+describe("世界只读（验收 8 的前一半）", () => {
+    it("日志里有一行认不出的格式：重新打开以后页面顶上有横幅，“改”与“记一笔”都不可用", async () => {
+        venue = await canonNodeWorld(tmp);
+        const writer = await venue.window("writer");
+        const star = person("星瑕");
+        const id = (await publish(writer.canon, [star]))[star.id]!;
+        const status = await writer.canon.call("status", {});
+        if (!status.ok) throw new Error(JSON.stringify(status.failure));
+        await venue.close();
+        // 接在最后一段末尾写一行格式 1 的修订：重放读到它就停，世界只读（canon.project 输出 2、4）。
+        const logDir = join(tmp, "Book", ".nbook", "world", "log");
+        const segment = (await readdir(logDir)).filter((name) => name.endsWith(".jsonl")).sort().at(-1)!;
+        await appendFile(join(logDir, segment), `${JSON.stringify({format: 1, version: status.value.version + 1})}\n`);
+
+        const {open} = await setup();
+        const {wrapper, state} = await open(id);
+        await waitUntil("横幅", () => wrapper.text().includes("世界只读"));
+        state.tab = "data:panel";
+        await waitUntil("“改”", () => wrapper.find("[data-edit='panel.存款']").exists());
+        expect(wrapper.get("[data-edit='panel.存款']").attributes("disabled")).toBeDefined();
+        // 按钮在没填的时候本来就不可用，看输入框：只读时连输入都不让填。
+        expect(wrapper.findAll("[data-record-form] input").map((input) => input.attributes("disabled") !== undefined)).toEqual([true, true]);
     });
 });
