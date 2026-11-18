@@ -206,26 +206,46 @@ const folds = computed<ReadonlyMap<string, {readonly collapsed: boolean}>>(() =>
 const foldOf = (panelId: string): {readonly collapsed: boolean} | null => folds.value.get(panelId) ?? null;
 /** 展开标记占的宽度：标题按钮里标记前的 9px、标记 14px、标记与标题之间 5px（WorkbenchPanelHead 的样式）；接管标题区时单独的按钮是 24px 加间距，比这个窄。 */
 const FOLD_MARK_PX = 28;
-function headReserved(panelId: string): number {
+/** 头自己要留的宽：截断的标题、别的标签的图标、框架按钮、内边距与展开标记；入口条交给它的 `head-min-width` 就是这个数。 */
+function headOwnReserve(panelId: string): number {
     const panel = renderedDoc.value.panels[panelId];
     // 浮动窗只有“回到停靠”；树里是浮动、最大化（收起不是按钮了，是标题前的标记）。
     const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2;
     const others = titleOnlyPanelIds.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
-    const region = mergedRegionOf(panelId);
     // 底部面板并成一行时头不写标题（标题在入口上，输出 47），不给截断的标题留宽。
-    const title = region === "panel" ? 0 : TAB_TRUNCATED_PX;
-    return title + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX + (foldOf(panelId) === null ? 0 : FOLD_MARK_PX) + (region === null ? 0 : stripEntriesReserve(region));
+    const title = mergedRegionOf(panelId) === "panel" ? 0 : TAB_TRUNCATED_PX;
+    return title + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX + (foldOf(panelId) === null ? 0 : FOLD_MARK_PX);
+}
+
+/** 视图动作的预算要扣掉的宽（`buttonBudget`）：头自己留的，并进入口条时再加上入口占的。 */
+function headReserved(panelId: string): number {
+    const region = mergedRegionOf(panelId);
+    return headOwnReserve(panelId) + (region === null ? 0 : stripEntriesReserve(region));
 }
 
 /**
- * 并进入口条时入口占的宽（`headReserved` 要扣掉）：至少摆得下当前容器的入口加“更多”。右栏是 24px 的图标；底部面板的标题入口宽度各不相同，
- * 按一个短标题估（入口条自己按量到的宽收进“更多”，这里只是给视图动作的预算）。
+ * 并进入口条时入口占的宽：每个入口一份，加“更多”。右栏是 24px 的图标；底部面板的标题入口宽度各不相同，按一个短标题估。
+ * 按全部入口算，宁可多扣：少扣时视图动作按钮多画出来、被入口条裁掉，多扣时只是早一点收进“⋯”。
  */
 const STRIP_ICON_ENTRY_PX = 26;
 const STRIP_TITLE_ENTRY_PX = 72;
 function stripEntriesReserve(region: PanelName): number {
-    const shown = Math.min(2, regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).length);
-    return shown * (region === "panel" ? STRIP_TITLE_ENTRY_PX : STRIP_ICON_ENTRY_PX) + STRIP_ICON_ENTRY_PX;
+    const count = regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).length;
+    return count * (region === "panel" ? STRIP_TITLE_ENTRY_PX : STRIP_ICON_ENTRY_PX) + STRIP_ICON_ENTRY_PX;
+}
+
+/**
+ * 入口条叶最近一次不为零的布局宽：区域隐藏、拖到零的那段过渡里它的宽是 0，接管标题区与否照显示着的时候判，头不在收起过程中换画法。
+ * 只是缓存，不是响应式状态：读它的地方同时读了 `presented`，宽一变照样重算。
+ */
+const stripWidths = new Map<PanelName, number>();
+function stripWidthOf(region: PanelName): number | null {
+    const width = state.value.presented[regionStripLeafId(region)]?.width ?? null;
+    if (width !== null && width > 0) {
+        stripWidths.set(region, width);
+        return width;
+    }
+    return stripWidths.get(region) ?? width;
 }
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
@@ -315,7 +335,7 @@ function panelViewHead(panelId: string): PanelViewHead | null {
     const found = headOfPanel(panelId);
     if (found === null) return null;
     const region = mergedRegionOf(panelId);
-    const stripWidth = region === null ? null : state.value.presented[regionStripLeafId(region)]?.width ?? null;
+    const stripWidth = region === null ? null : stripWidthOf(region);
     if (region !== null && stripWidth !== null && stripWidth - stripEntriesReserve(region) - FRAME_BUTTON_PX * 2 - HEAD_PADDING_PX < VIEW_HEAD_MIN_PX) return null;
     return {key: `${found.viewId}:${String(instances.generations.value.get(found.viewId) ?? 0)}`, popup: found.control.head.titlePopup.value};
 }
@@ -987,7 +1007,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :more-label="message('common.more')"
                         :entries="stripEntriesOf(region)"
                         :variant="region === 'panel' ? 'titles' : 'icons'"
-                        :head-min-width="merged === null ? 0 : headReserved(merged) - stripEntriesReserve(region)"
+                        :head-min-width="merged === null ? 0 : headOwnReserve(merged)"
                         :slide-token="slides[region]"
                         :drag-hint="message('shell.drag.hint')"
                         :placeholder="entryPlaceholderIn(stripEntriesOf(region))"

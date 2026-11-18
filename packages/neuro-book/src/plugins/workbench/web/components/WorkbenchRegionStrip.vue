@@ -4,6 +4,7 @@
  * 当前容器只有一节时，那一节的头由宿主放进默认插槽，接在入口后面占这一行剩下的宽度。点了只发 `select` 或 `context-menu`，做什么由宿主定；
  * 入口是拖动源（`data-tool-entry`，同活动栏），拖放由宿主的拖动会话接管，这里只画占位与并入的高亮。
  */
+import type {PanelName} from "@notnotype/nb-layout";
 import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
@@ -39,7 +40,7 @@ defineOptions({name: "WorkbenchRegionStrip"});
 
 const props = withDefaults(defineProps<{
     /** 这条入口条属于哪个区域：写在根上，宿主、测试与拖放按它找。 */
-    region: string;
+    region: PanelName;
     /** 入口这一组的可访问名称。 */
     label: string;
     moreLabel: string;

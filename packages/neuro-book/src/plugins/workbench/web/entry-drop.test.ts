@@ -171,6 +171,19 @@ describe("放下与预览（输出 38、45）", () => {
         expect(() => drop(doc(), {kind: "container", container: PROJECT}, {kind: "move-container", region: "auxiliarybar", container: PROJECT, before: null}, false)).toThrow();
     });
 
+    it("整个容器搬过来：预览（单视图来源挪进目标区域）与放下（同“移到”）在入口顺序、视图落在哪个区域哪个容器上一致，只差放下切过去", () => {
+        for (const [view, region, before] of [["search", "auxiliarybar", NOTES], ["chat", "sidebar", MARKS], ["search", "panel", null]] as const) {
+            const container = `view:${view}`;
+            const action = {kind: "move-container", region, container, before} as const;
+            const preview = drop(doc(), tab(view), action, false);
+            const after = drop(doc(), tab(view), action, true);
+            expect(shownIds(preview, region)).toEqual(shownIds(after, region));
+            expect(viewSection(preview, view)).toMatchObject({region, container});
+            expect(viewSection(after, view)).toMatchObject({region, container});
+            expect(anchorIn(after, region)?.activeContainer).toBe(container);
+        }
+    });
+
     it("右栏的入口条：新建、并入放下时右栏切到它，换序不切（输出 45、47）", () => {
         const fresh = drop(doc(), tab("files"), {kind: "new-container", region: "auxiliarybar", container: NEW, before: null}, true);
         expect(shownIds(fresh, "auxiliarybar")).toEqual([CHAT, NOTES, NEW]);
