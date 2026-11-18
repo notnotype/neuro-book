@@ -219,14 +219,28 @@ export type ComposerTriggerEntry = RegistryEntryBase & {
 };
 
 /**
- * 输入框工具栏上的按钮。点了发出 `action`，或者（给了 `trigger` 时）往编辑器里插这个触发字符、打开它的菜单，不发 action，
- * 例如 nb-story 的 `+` 插 `@` 选引用。`placement` 为 `leading` 时放在正文前面（单行版式）或工具栏最前（两层版式）。
+ * 输入框工具栏上的按钮。点了发出 `action`；给了 `trigger` 时往编辑器里插这个触发字符、打开它的菜单，不发 action，例如 nb-story 的
+ * `+` 插 `@` 选引用；给了 `popover` 时在按钮旁开一个弹层，里面是它交回的组件（例如表情选择器）。`placement`：`leading` 放在正文
+ * 前面（单行版式）或工具栏最前（两层版式）；`after-add` 放在 `+` 后面（单行版式里并入前置按钮）；缺省 `trailing`，在模式控件后面。
  */
 export type ToolbarButtonEntry = RegistryEntryBase & {
     icon: string;
     label: Text;
-    placement?: "leading" | "trailing";
-} & ({action: AgentViewAction; trigger?: never} | {trigger: string; action?: never});
+    placement?: "leading" | "after-add" | "trailing";
+} & (
+    | {action: AgentViewAction; trigger?: never; popover?: never}
+    | {trigger: string; action?: never; popover?: never}
+    | {popover: () => Promise<Component<ToolbarPopoverProps>>; action?: never; trigger?: never}
+);
+
+/**
+ * 弹层按钮的组件收到的属性：`insert` 把一段文字插在编辑器的光标处（同输入框的文字写法），`close` 关上弹层、焦点回编辑器。
+ * 组件自己处理 Esc 与焦点离开（调 `close`）。
+ */
+export type ToolbarPopoverProps = {
+    insert: (text: string) => void;
+    close: () => void;
+};
 
 // ─── 注册表 ─────────────────────────────────────────────────────────────
 

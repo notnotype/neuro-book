@@ -173,7 +173,7 @@ interface PromptEditorEmits {
 ```ts
 interface PromptEditorExpose {
     /** 聚焦，光标落在开头或末尾；默认末尾。 */
-    focus(at?: "start" | "end"): void;
+    focus(at?: "start" | "end" | "keep"): void;
     /** 在光标处插入文字，能识别的写法变成小块，发出 change；只读时不做任何事。 */
     insertText(text: string): void;
     /** 在光标处加入文件，与粘贴文件相同：按 acceptImages、acceptFiles 接受或发出 attachment-reject；只读时不做任何事。例如输入框的“添加附件”按钮。 */

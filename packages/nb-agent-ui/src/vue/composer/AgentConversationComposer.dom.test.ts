@@ -8,7 +8,7 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {DropdownMenu, Slider} from "@notnotype/nb-ui/components";
 
 import {createAgentContext, type AgentContextPatch} from "../../context";
-import {createAgentViewRegistry, type AgentViewContribution} from "../../registry";
+import {createAgentViewRegistry, type AgentViewContribution, type ToolbarPopoverProps} from "../../registry";
 import {builtinComposerContribution} from "../builtin-composer";
 import {provideAgentView} from "../host";
 import AgentConversationComposer from "./AgentConversationComposer.vue";
@@ -16,6 +16,7 @@ import AgentModelPicker from "./AgentModelPicker.vue";
 import AgentRoleModelPicker from "./AgentRoleModelPicker.vue";
 import PlainPromptEditor from "../fallback/PlainPromptEditor.vue";
 import {defineComponent, h, nextTick} from "vue";
+import type {PropType} from "vue";
 
 const plus: AgentViewContribution = {source: "test-plus", toolbarButtons: [{id: "insert-ref", icon: "i-lucide-plus", label: "插入引用", placement: "leading", trigger: "@"}]};
 const registry = createAgentViewRegistry([builtinComposerContribution, plus]);
@@ -254,5 +255,70 @@ describe("AgentConversationComposer 可用性的说明（ui/agent-conversation-v
         expect(gap.wrapper.get("[data-composer-availability]").text()).toContain("这个模型不能看图。");
         expect(placeholder(gap.wrapper)).toBe("输入消息，回车发送");
         gap.wrapper.unmount();
+    });
+});
+
+describe("AgentConversationComposer 带弹层的按钮（ui/agent-conversation-view.md 的“输入框与待处理区”）", () => {
+    /** 宿主登记的弹层组件：两个按钮，一个插一段文字、一个关上。 */
+    const Picker = defineComponent({
+        props: {
+            insert: {type: Function as PropType<ToolbarPopoverProps["insert"]>, required: true},
+            close: {type: Function as PropType<ToolbarPopoverProps["close"]>, required: true},
+        },
+        setup: (props) => () => h("div", [
+            h("button", {"data-test-insert": "", onClick: () => props.insert(":lyra/开心:")}, "插"),
+            h("button", {"data-test-close": "", onClick: () => props.close()}, "关"),
+        ]),
+    });
+    const stickers: AgentViewContribution = {source: "test-stickers", toolbarButtons: [{id: "stickers", icon: "i-lucide-smile-plus", label: "表情", placement: "after-add", popover: async () => Picker}]};
+    const withStickers = createAgentViewRegistry([builtinComposerContribution, plus, stickers]);
+    function mountWith(context: ReturnType<typeof ctx>, layout: "stacked" | "inline" = "stacked") {
+        const Host = defineComponent({
+            setup() {
+                // 显式注入编辑器：`+` 菜单才列出触发字符（缺省的普通文本框没有触发菜单）。
+                provideAgentView({locale: () => "zh-CN", renderers: () => ({promptEditor: PlainPromptEditor})});
+                return () => h(AgentConversationComposer, {ctx: context, services: {}, registry: withStickers, layout});
+            },
+        });
+        return mount(Host, {attachTo: document.body});
+    }
+
+    it("两层版式里在 `+` 后面；单行版式里并入前置按钮", () => {
+        const stacked = mountWith(ctx({interaction: {triggers: ["/"]}}));
+        const tools = [...stacked.get(".acv-composer__tools").element.querySelectorAll<HTMLElement>("[data-composer-action='plus'], [data-composer-toolbar]")].map((element) => element.dataset.composerAction ?? element.dataset.composerToolbar);
+        expect(tools.indexOf("stickers")).toBe(tools.indexOf("plus") + 1);
+        stacked.unmount();
+        const inline = mountWith(ctx(), "inline");
+        expect(inline.find(".acv-composer__leading [data-composer-toolbar='stickers']").exists()).toBe(true);
+        inline.unmount();
+    });
+
+    it("点了开弹层；组件插的文字落在光标处；关上后焦点回编辑器、光标不动；再点按钮关上", async () => {
+        const wrapper = mountWith(ctx({composer: {draft: {text: "今天写完啦明天见", version: 1}}}));
+        const textarea = wrapper.get("textarea").element as HTMLTextAreaElement;
+        textarea.focus();
+        textarea.setSelectionRange(5, 5);
+        await wrapper.get("[data-composer-toolbar='stickers']").trigger("click");
+        await flushPromises();
+        expect(wrapper.get("[data-composer-toolbar='stickers']").attributes("aria-expanded")).toBe("true");
+        document.querySelector<HTMLButtonElement>("[data-composer-popover] [data-test-insert]")!.click();
+        await nextTick();
+        expect(textarea.value).toBe("今天写完啦:lyra/开心:明天见");
+        document.querySelector<HTMLButtonElement>("[data-composer-popover] [data-test-close]")!.click();
+        await flushPromises();
+        expect(document.activeElement).toBe(textarea);
+        expect(textarea.selectionStart).toBe(5 + ":lyra/开心:".length);
+        expect(wrapper.get("[data-composer-toolbar='stickers']").attributes("aria-expanded")).toBe("false");
+        await wrapper.get("[data-composer-toolbar='stickers']").trigger("click");
+        await flushPromises();
+        await wrapper.get("[data-composer-toolbar='stickers']").trigger("click");
+        expect(wrapper.get("[data-composer-toolbar='stickers']").attributes("aria-expanded")).toBe("false");
+        wrapper.unmount();
+    });
+
+    it("不能发送时按钮禁用", () => {
+        const wrapper = mountWith(ctx({interaction: {canSend: false}}));
+        expect(wrapper.get("[data-composer-toolbar='stickers']").attributes("disabled")).toBeDefined();
+        wrapper.unmount();
     });
 });

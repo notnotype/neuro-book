@@ -12,7 +12,7 @@ import {computed, inject, provide} from "vue";
 
 import type {AgentLocale} from "../types";
 import {firstLine, markdownPreviewLine} from "../format";
-import type {MarkdownPreviewPort} from "../ports";
+import type {MarkdownPreviewPort, PromptBarenessPort} from "../ports";
 import PlainForm from "./fallback/PlainForm.vue";
 import PlainMarkdown from "./fallback/PlainMarkdown.vue";
 import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
@@ -29,6 +29,8 @@ export type AgentViewRenderers = {
     promptEditor?: Component;
     promptTextView?: Component;
     markdownPreview?: MarkdownPreviewPort;
+    /** 只有表情的用户消息不画气泡；不注入时都画。 */
+    promptBareness?: PromptBarenessPort;
     /** 提问向导的表单：收 `schema`、`modelValue`，发 `update:modelValue`、`update:valid`。 */
     form?: Component;
     /** 后台命令（`shell` 带 `async`）的节点：收 `ToolComponentProps`、发 `action`；不注入时画通用卡片。 */
@@ -57,6 +59,7 @@ export type ResolvedRenderers = {
     promptEditor: Component;
     promptTextView: Component;
     markdownPreview: MarkdownPreviewPort;
+    promptBareness: PromptBarenessPort;
     form: Component;
     backgroundCommand?: Component;
     /** 用的是缺省的普通文本框：没有标签、附件与粘贴块，输入框据此隐藏“添加附件”、不列 `/` 命令菜单。 */
@@ -95,6 +98,7 @@ export function useAgentRenderers(): ComputedRef<ResolvedRenderers> {
             promptEditor: given.promptEditor ?? PlainPromptEditor,
             promptTextView: given.promptTextView ?? PlainPromptTextView,
             markdownPreview: given.markdownPreview === undefined ? markdownPreviewLine : guardPreview(given.markdownPreview),
+            promptBareness: given.promptBareness ?? (() => false),
             form: given.form ?? PlainForm,
             ...(given.backgroundCommand === undefined ? {} : {backgroundCommand: given.backgroundCommand}),
             plainEditor: given.promptEditor === undefined,

@@ -39,7 +39,7 @@ type PlainPromptEditorEmits = {
 
 type PlainPromptEditorExpose = {
     /** 聚焦，光标落在开头或末尾；默认末尾。 */
-    focus(at?: "start" | "end"): void;
+    focus(at?: "start" | "end" | "keep"): void;
     /** 在光标处插入文字，发出 change；只读时不做任何事。 */
     insertText(text: string): void;
     /** 收不了附件，什么也不做。 */

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import {computed, nextTick, ref, watch} from "vue";
-import {Button, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import {computed, nextTick, ref, shallowRef, watch} from "vue";
+import type {Component} from "vue";
+import {AnchoredPopover, Button, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
     PromptAttachmentKind,
@@ -10,7 +11,7 @@ import type {
     PromptToken,
 } from "../../ports";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
-import {visibleEntries, type AgentViewRegistry, type ToolbarButtonEntry} from "../../registry";
+import {visibleEntries, type AgentViewRegistry, type ToolbarButtonEntry, type ToolbarPopoverProps} from "../../registry";
 import {commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "../../composer-actions";
 import AgentContextMeter from "./AgentContextMeter.vue";
 import AgentModelPicker from "./AgentModelPicker.vue";
@@ -60,8 +61,10 @@ const triggers = computed(() => visibleEntries(props.registry.list("triggers"), 
     .filter((char) => char === "/" || props.services.resolveTriggerMenu !== undefined)
     .filter((char) => props.ctx.interaction.triggers === undefined || props.ctx.interaction.triggers.includes(char)));
 const toolbarButtons = computed(() => visibleEntries(props.registry.list("toolbarButtons"), props.ctx));
-const leadingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement === "leading"));
-const trailingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement !== "leading"));
+// 单行版式没有 `+`：放在它后面的按钮并入前置按钮。
+const leadingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement === "leading" || (inline.value && button.placement === "after-add")));
+const afterAddButtons = computed(() => (inline.value ? [] : toolbarButtons.value.filter((button) => button.placement === "after-add")));
+const trailingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement === undefined || button.placement === "trailing"));
 
 /** `+` 菜单：把打字才找得到的入口（`@`、`/`）和选文件放在一处。单行版式没有它：那里没有附件，触发符也有自己的登记按钮。 */
 const plusMenu = computed<DropdownMenuItemData[]>(() => {
@@ -78,14 +81,45 @@ function onPlusMenu(id: string): void {
     else withEditor((editor) => editor.openTrigger(id));
 }
 
-/** 带 `trigger` 的按钮往编辑器里插触发字符、打开它的菜单（编辑器负责聚焦与补空格），其余发出登记的 action。 */
-function onToolbarButton(button: ToolbarButtonEntry): void {
+/**
+ * 带 `trigger` 的按钮往编辑器里插触发字符、打开它的菜单（编辑器负责聚焦与补空格）；带 `popover` 的开弹层（再点一下关上）；其余发出
+ * 登记的 action。
+ */
+function onToolbarButton(button: ToolbarButtonEntry, event: MouseEvent): void {
     if (button.trigger !== undefined) {
         const trigger = button.trigger;
         withEditor((editor) => editor.openTrigger(trigger));
     }
+    else if (button.popover !== undefined) void togglePopover(button, event.currentTarget as HTMLElement);
     else if (button.action !== undefined) emit("action", button.action);
 }
+
+/** 开着的弹层：哪个按钮的、锚在哪、里面是什么组件。同时只开一个。 */
+const popover = shallowRef<{id: string; anchor: HTMLElement; component: Component<ToolbarPopoverProps>} | null>(null);
+async function togglePopover(button: ToolbarButtonEntry, anchor: HTMLElement): Promise<void> {
+    if (popover.value?.id === button.id) {
+        closePopover();
+        return;
+    }
+    const load = button.popover;
+    if (load === undefined) return;
+    const component = await load();
+    popover.value = {id: button.id, anchor, component};
+}
+/** 关上弹层，焦点回编辑器、光标不动（`focus("keep")`）。 */
+function closePopover(): void {
+    if (popover.value === null) return;
+    popover.value = null;
+    withEditor((editor) => editor.focus("keep"));
+}
+const popoverProps = computed<ToolbarPopoverProps>(() => ({
+    insert: (text) => withEditor((editor) => editor.insertText(text)),
+    close: closePopover,
+}));
+// 只读（运行中不能写、可用性变了）时弹层关上。
+watch(() => readonly.value, (isReadonly) => {
+    if (isReadonly) popover.value = null;
+});
 
 /**
  * 编辑器在函数身份变化时按当前查询重新取菜单：宿主换了 resolveTriggerMenu、登记的命令或界面语言变了，
@@ -394,7 +428,7 @@ defineExpose({
                     :title="text(button.label)"
                     :aria-label="text(button.label)"
                     :data-composer-toolbar="button.id"
-                    @click="onToolbarButton(button)"
+                    @click="onToolbarButton(button, $event)"
                 />
             </div>
             <div class="acv-composer__editor">
@@ -454,7 +488,7 @@ defineExpose({
                             :title="text(button.label)"
                             :aria-label="text(button.label)"
                             :data-composer-toolbar="button.id"
-                            @click="onToolbarButton(button)"
+                            @click="onToolbarButton(button, $event)"
                         />
                     </template>
                     <DropdownMenu
@@ -474,6 +508,18 @@ defineExpose({
                             data-composer-action="plus"
                         />
                     </DropdownMenu>
+                    <IconButton
+                        v-for="button in afterAddButtons"
+                        :key="button.id"
+                        size="sm"
+                        :icon-class="button.icon"
+                        :disabled="readonly"
+                        :title="text(button.label)"
+                        :aria-label="text(button.label)"
+                        :aria-expanded="button.popover === undefined ? undefined : popover?.id === button.id"
+                        :data-composer-toolbar="button.id"
+                        @click="onToolbarButton(button, $event)"
+                    />
                     <input ref="fileInputRef" type="file" multiple class="acv-composer__file-input" tabindex="-1" aria-hidden="true" @change="onFilesChosen">
                     <span class="sr-only" aria-live="polite">{{ modeAnnouncement }}</span>
                     <button
@@ -527,7 +573,7 @@ defineExpose({
                         :title="text(button.label)"
                         :aria-label="text(button.label)"
                         :data-composer-toolbar="button.id"
-                        @click="onToolbarButton(button)"
+                        @click="onToolbarButton(button, $event)"
                     />
                 </div>
                 <div class="acv-composer__send">
@@ -586,6 +632,12 @@ defineExpose({
                 </div>
             </div>
         </div>
+        <!-- 弹层按钮（例如表情选择器）：锚在按钮上；输入框在面板底部，放不下下方时翻到上方。 -->
+        <AnchoredPopover :open="popover !== null" :anchor="popover?.anchor ?? null" side="bottom" align="start">
+            <div class="acv-composer__popover" data-composer-popover>
+                <component :is="popover.component" v-if="popover !== null" v-bind="popoverProps" />
+            </div>
+        </AnchoredPopover>
     </footer>
 </template>
 

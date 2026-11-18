@@ -80,6 +80,7 @@ const expose: PromptEditorPortExpose = {
             const element = textarea.value;
             if (element === null) return;
             element.focus();
+            if (at === "keep") return;
             const position = at === "start" ? 0 : element.value.length;
             element.setSelectionRange(position, position);
         });
@@ -90,6 +91,8 @@ const expose: PromptEditorPortExpose = {
         const start = element.selectionStart;
         value.value = value.value.slice(0, start) + text + value.value.slice(element.selectionEnd);
         emit("change", value.value);
+        // 换了值浏览器会把光标放到末尾：放回插入的文字后面。
+        void nextTick(() => element.setSelectionRange(start + text.length, start + text.length));
     },
     // 普通文本框收不了附件；输入框在缺省实现下不显示“添加附件”。
     insertFiles() {},

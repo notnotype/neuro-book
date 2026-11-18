@@ -282,6 +282,9 @@
         "renameCommand": {
             "needTitle": "Add the new title, for example /rename Ending of chapter three."
         },
+        "stickers": {
+            "button": "Stickers"
+        },
         "mentions": {
             "title": "Project files",
             "empty": "No matching files",

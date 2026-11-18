@@ -70,7 +70,7 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; port?: TextPort; viewMode?: "turns" | "raw"} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; promptBareness?: (texts: readonly string[]) => boolean; port?: TextPort; viewMode?: "turns" | "raw"} = {}) {
     return mount(AgentConversationView, {
         ...(options.port === undefined ? {} : {global: {provide: {[TEXT_PORT_KEY as symbol]: options.port}}}),
         props: {
@@ -80,7 +80,7 @@ function mountView(locale: AgentLocale, services: Partial<AgentConversationServi
             ctx: options.ctx ?? context(),
             registry: options.registry ?? registry,
             locale,
-            renderers: {...(options.plain === true ? {} : {markdown: FakeMarkdown}), ...(options.markdownPreview === undefined ? {} : {markdownPreview: options.markdownPreview})},
+            renderers: {...(options.plain === true ? {} : {markdown: FakeMarkdown}), ...(options.markdownPreview === undefined ? {} : {markdownPreview: options.markdownPreview}), ...(options.promptBareness === undefined ? {} : {promptBareness: options.promptBareness})},
             services: options.bareServices === true ? services : {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
         },
         attachTo: document.body,
@@ -889,6 +889,34 @@ describe("登记的顶栏动作（验收 36）", () => {
         await view.get("[data-header-action='a']").trigger("click");
         menu.vm.$emit("select", "header:c");
         expect(view.emitted("action")).toEqual([[{type: "lab:a"}], [{type: "lab:c"}]]);
+        view.unmount();
+    });
+});
+
+describe("只有表情的用户消息不画气泡（Spec“消息”）", () => {
+    // 宿主的判断：拼起来去掉空白后恰好是一个表情写法。
+    const promptBareness = (texts: readonly string[]): boolean => texts.join("").trim() === ":lyra/开心:";
+    function bareCtx(): AgentConversationContext {
+        const ctx = context();
+        ctx.messages = [
+            {kind: "user", id: "u1", timestamp: 1, intent: "normal", blocks: [{kind: "text", text: " :lyra/开心: "}], contentOmitted: false},
+            {kind: "user", id: "u2", timestamp: 2, intent: "normal", blocks: [{kind: "text", text: "写完啦:lyra/开心:"}], contentOmitted: false},
+            {kind: "user", id: "u3", timestamp: 3, intent: "normal", blocks: [{kind: "text", text: ":lyra/开心:"}, {kind: "attachment", locator: "session://attachments/a.png", name: "a.png", mimeType: "image/png", bytes: 3}], contentOmitted: false},
+            {kind: "user", id: "u4", timestamp: 4, intent: "normal", blocks: [{kind: "text", text: ":lyra/开心:"}], contentOmitted: true},
+        ];
+        return ctx;
+    }
+    const shapes = (view: ReturnType<typeof mountView>): string[] => view.findAll(".acv-user-bubble, .acv-user-bare").map((element) => (element.classes().includes("acv-user-bare") ? "bare" : "bubble"));
+
+    it("宿主判为只有表情、没有附件、正文没被省略的不画气泡；其余照常", () => {
+        const view = mountView("zh-CN", {}, {ctx: bareCtx(), promptBareness});
+        expect(shapes(view)).toEqual(["bare", "bubble", "bubble", "bubble"]);
+        view.unmount();
+    });
+
+    it("宿主没给判断时都画气泡", () => {
+        const view = mountView("zh-CN", {}, {ctx: bareCtx()});
+        expect(shapes(view)).toEqual(["bubble", "bubble", "bubble", "bubble"]);
         view.unmount();
     });
 });

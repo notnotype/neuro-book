@@ -975,8 +975,9 @@ function setAttribute(element: HTMLElement, name: string, value: string | null):
 }
 
 defineExpose({
-    focus(at: "start" | "end" = "end"): void {
-        focusAt(at);
+    focus(at: "start" | "end" | "keep" = "end"): void {
+        if (at === "keep") editor.value?.view.focus();
+        else focusAt(at);
     },
     insertText(text: string): void {
         const current = editor.value;

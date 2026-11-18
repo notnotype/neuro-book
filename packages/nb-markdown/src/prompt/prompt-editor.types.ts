@@ -75,7 +75,8 @@ export type PromptEditorAttachmentKind = "image" | "file";
 
 export interface PromptEditorExpose {
     /** 聚焦，光标落在开头或末尾；默认末尾。 */
-    focus(at?: "start" | "end"): void;
+    /** 聚焦：光标移到开头、末尾，或 `"keep"` 留在原处（弹层关上时把焦点还回来）。 */
+    focus(at?: "start" | "end" | "keep"): void;
     /** 在光标处插入文字，能识别的写法变成标签，发出 change；只读时不做任何事。 */
     insertText(text: string): void;
     /** 在光标处加入文件，与粘贴文件相同；只读时不做任何事。 */

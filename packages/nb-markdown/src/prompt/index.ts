@@ -8,5 +8,6 @@ export {default as PromptTextView} from "./PromptTextView.vue";
 export {default as PromptAttachmentStrip} from "./PromptAttachmentStrip.vue";
 export {default as PromptPasteFrame} from "./PromptPasteFrame.vue";
 export * from "./prompt-editor.types";
-export {parsePromptText, promptReferenceText} from "./prompt-text";
+export {parsePromptText, promptReferenceText, stickerOnlyMessage} from "./prompt-text";
+export type {StickerKnown} from "./prompt-text";
 export type {PromptNodeJSON} from "./prompt-text";

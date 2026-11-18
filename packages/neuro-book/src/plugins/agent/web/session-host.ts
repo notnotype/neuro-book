@@ -66,7 +66,8 @@ const COMPACT_REJECT_KEYS = {
 } as const;
 /** 宿主做了的输入框命令。 */
 const HOST_COMMANDS = ["compact", "new", "fork", "rename", "model", "plan", "mode"] as const;
-const HOST_TRIGGERS = ["@", "/", "$"] as const;
+/** 宿主总是做了的触发字符；表情的 `:` 只在有表情选择器时做（`SessionHostDeps.triggers`）。 */
+const HOST_TRIGGERS: readonly string[] = ["@", "/", "$"];
 /** 打字时攒一下再写草稿。 */
 const DRAFT_SAVE_DELAY_MS = 500;
 /** 上方向键最多翻多少条。 */
@@ -173,6 +174,10 @@ export interface SessionHostDeps {
     readonly openRequests: (target: {readonly sessionId: string; readonly request?: number}) => void;
     readonly openAddress: (address: string) => void;
     readonly openLink: (href: string) => void;
+    /** 宿主在 `@`、`/`、`$` 之外做了的触发字符（有表情选择器时是 `:`，docs/specs/agent/stickers.md 输出 42）；不给时没有。 */
+    readonly triggers?: readonly string[];
+    /** `:` 菜单里选了一个表情（`id` 是写法）：记进最近用过（输出 43）。 */
+    readonly stickerSelected?: (raw: string) => void;
     /** Skill（skills.md 输出 26–28）：`$` 菜单选中之后的事、点开标签的地址；`profile` 是当前会话的 Profile。 */
     readonly skills: {
         selected(id: string, profile: string): void;
@@ -1494,6 +1499,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 return;
             case "menu.selected":
                 if (action.trigger === "$") deps.skills.selected(action.id, profileKey());
+                else if (action.trigger === ":") deps.stickerSelected?.(action.id);
                 return;
             case "skill.open": {
                 const address = deps.skills.address(action.name, profileKey());
@@ -1637,7 +1643,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 ...(target.ancestors.length === 0 ? {} : {path: [...target.ancestors].reverse().map((item) => ({id: item.id, title: item.profile === null ? null : item.title ?? "", ...(item.icon === undefined ? {} : {icon: item.icon})}))}),
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: [...HOST_TRIGGERS, ...(deps.triggers ?? [])], canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),

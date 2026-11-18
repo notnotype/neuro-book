@@ -282,6 +282,9 @@
         "renameCommand": {
             "needTitle": "写上新标题，例如 /rename 第三章的结尾。"
         },
+        "stickers": {
+            "button": "表情"
+        },
         "mentions": {
             "title": "项目文件",
             "empty": "没有匹配的文件",
