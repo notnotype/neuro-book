@@ -241,7 +241,25 @@ export function applyBackdrop(hwnd: Pointer | null, kind: "mica" | "acrylic", da
     if (dark !== null) problems.push(...setBackdropDark(hwnd, dark));
     const type = lib.DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ptr(new Int32Array([DWM_BACKDROP_TYPE[kind]])), 4);
     if (type !== 0) problems.push(`DWMWA_SYSTEMBACKDROP_TYPE 0x${(type >>> 0).toString(16)}`);
+    problems.push(...dropSystemMenu(hwnd));
     return problems;
+}
+
+/**
+ * 去掉 `WS_SYSMENU`（最小化、最大化框与标题栏样式留着，`adoptCustomFrame` 补的那几位不动）。磨砂窗口的页面是透明的，DWM 在非客户区
+ * 画的系统标题按钮（最小化、最大化、关闭）会从透明处透出来，叠在页面自己画的那组按钮后面成了重影；没有 `WS_SYSMENU` 它就不画。
+ * 代价：没有系统菜单（Alt+空格、标题栏图标的菜单）。圆角、阴影、贴边与双击最大化靠的是标题栏与最大化框，实测不受影响。
+ */
+function dropSystemMenu(hwnd: Pointer): string[] {
+    const lib = library();
+    if (typeof lib === "string") return [lib];
+    const style = BigInt(lib.GetWindowLongPtrW(hwnd, GWL_STYLE));
+    const wanted = style & ~WS_SYSMENU;
+    if (wanted === style) return [];
+    lib.SetWindowLongPtrW(hwnd, GWL_STYLE, wanted);
+    if (BigInt(lib.GetWindowLongPtrW(hwnd, GWL_STYLE)) !== wanted) return [`WS_SYSMENU not removed (still 0x${style.toString(16)})`];
+    if (!lib.SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED)) return ["SetWindowPos(SWP_FRAMECHANGED) failed"];
+    return [];
 }
 
 /** 磨砂窗口的明暗跟页面走（页面交来 `window-appearance`）。 */
