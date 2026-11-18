@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t26-layout-deep-review
 status: active
-updated: 2026-11-16
+updated: 2026-11-18
 ---
 
 # 布局工具深入审查：设计与代码质量、文档与规范、API 形状、性能
@@ -74,6 +74,15 @@ updated: 2026-11-16
 
   第 2 稿的改法都按审查给的方向写，没有新的机制，不再送第二轮；实现审查照常。
 
+## 实施
+
+分支 `fix/w00026-t26-layout-review`，从 master 的 `ba3de16c6`（t28 审查修正 `077e0e6c1` 与记录之后）开出。
+
+- 片 1（`194782993`）：api-06、api-08、design-03、design-04。布局文档的操作按 JSON 形状复制（`Object.fromEntries` 重建，`__proto__` 是自有键），结果与输入共享没改过的子对象，写进 `layout-doc.ts` 头注释与 `grid.md`；`newId` 给出的面板、分支 id 已被占用（面板、树、浮动窗）时拒绝（`rejected`）；校验拦条的叶 id 不等于条名、节点与面板 id 是条名或撞上呈现里生成的 id（`strip:` 开头、`:sections` 结尾，前后缀挪到不导出的 `presented-ids.ts`，`layout-project.ts` 也从那里取）；`useSashGesture` 记下挂上时的根、窗口与文档，换根先摘旧的，计时器与帧走记下的窗口。2000 个标签的文档做一次外缘移动（含拷贝）约 1.2ms。验证：nb-layout `bun test` 593、vitest 254、类型检查；neuro-book 类型检查、工作台单元测试 542；e2e `lab-grid-swap`、`lab-workbench-surface`、`workbench-shell` 39 条全过。变异检查：去掉 `freshId` 的查重、`detach` 改回读 `options.root.value`，新用例都失败。
+
+- 片 2（`e9bb34207`）：4 个 e2e 文件里点活动栏入口的 32 处改成 `pressEntry`，点完把指针移到状态栏中间；Lab 的表面场景也有状态栏，用同一个位置（计划写的是画布外，状态栏一样没有悬停效果，少一种写法）。组件说明（docs-02、08、09、11）按 t28、t29 之后的代码补齐；docs-18 的六处注释改成说现在的约束。验证：改到的 4 个 e2e 文件 124 条，123 过；`workbench-containers:1277`（滑到一半点回来逐帧取样）失败一次，它用 `evaluate` 点入口、不经改到的辅助函数，按真实时间逐帧取样，负载 9 左右时帧间隔变长、提前走完；单独重跑 3 次都过，归负载。
+- 片 3（`25c3a26b5`）：基线脚本 `scripts/perf/layout-frames.ts`，自己起产品服务器（和 `e2e/fixtures.ts` 同一种起法，cwd 指向要量的那份检出），没有按计划导入各检出的 `e2e/fixtures.ts`：那里的等待用的是 Playwright Test 的 `expect.poll`，脚本不在测试运行器里。基线构建在 detached worktree `.worktree/w00026-t26-perf-base`（`ba3de16c6`）。第一次测量与读法见 [`evidences/perf-baseline.txt`](evidences/perf-baseline.txt)：基线与分支每项都在噪声内；perf-01 每次树滚动 16 次、每次改窗口 38 次分隔线样式写入，perf-04 按住不动每秒 60 次帧回调，都量到了。
+
 ## 下一步
 
-从 master（t28 的审查修正合入之后，`077e0e6c1`）开分支 `fix/w00026-t26-layout-review`，按计划第 2 稿第 1 片做起。
+片 4：perf-01（滚动只认包着网格根的、装饰写入去重）、perf-08（过渡结束看过渡本身）。

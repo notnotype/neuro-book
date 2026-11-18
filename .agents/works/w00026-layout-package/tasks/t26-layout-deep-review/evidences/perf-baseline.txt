@@ -1,0 +1,36 @@
+# t26 性能基线（2026-11-18）
+
+脚本：packages/neuro-book/scripts/perf/layout-frames.ts（分支 fix/w00026-t26-layout-review）。
+基线 base：master 的 ba3de16c6（本分支的起点），detached worktree .worktree/w00026-t26-perf-base，bun run build 一次。
+分支 branch：e9bb34207（片 1、片 2，没有性能改动），同样 bun run build。
+
+命令（在分支的 packages/neuro-book 里）：
+  node scripts/perf/layout-frames.ts --checkout base=<基线检出> --checkout branch=<分支检出> --rounds 3 --out <结果.json>
+
+两份构建交替各跑 3 轮，每轮新的状态根与作品（一章 2300 段的长正文、一章短的、240 个小文件），1440×900，reducedMotion: no-preference，本机 Chrome 无头。表里是 3 轮的中位数。
+单位：still、sidebar-sash、live-hold、live-path 按帧（脚本自己的帧循环数的帧），tree-scroll 按每次滚轮（30 次，每次后等 2 帧），resize 按每次改窗口宽度（20 次，1300 与 1440 交替，每次后等 3 帧）。
+recalc、layout：CDP Performance.getMetrics 的 RecalcStyleCount、LayoutCount 差值；raf：页面自己排的动画帧回调执行次数（脚本自己的不算）；mutations：MutationObserver 的全部记录；sashStyles：其中写在分隔线（.nb-grid-sash 里）的 style。
+
+第一次测量：
+load before: 1.87 4.84 6.21 2/2902 2312874
+场景	单位	构建	recalc/单位	layout/单位	raf/单位	mutations/单位	sashStyles/单位	raf/秒	帧数
+still	frame	base	0.30	0.00	0.00	0.00	0.00	0.0	120
+still	frame	branch	0.31	0.00	0.00	0.00	0.00	0.0	120
+tree-scroll	scroll	base	11.30	1.03	7.40	35.63	16.00	134.3	99
+tree-scroll	scroll	branch	11.33	1.03	7.40	35.63	16.00	134.9	99
+sidebar-sash	frame	base	2.66	0.65	0.63	18.93	6.91	24.5	191
+sidebar-sash	frame	branch	2.72	0.67	0.65	19.44	7.10	24.7	186
+resize	resize	base	12.00	6.00	2.00	103.50	38.00	24.0	61
+resize	resize	branch	12.00	6.00	2.00	103.50	38.00	23.4	62
+live-hold	frame	base	0.00	0.00	1.00	0.00	0.00	60.0	60
+live-hold	frame	branch	0.02	0.02	1.00	0.03	0.00	59.9	60
+live-path	frame	base	1.35	0.62	1.13	4.63	1.31	62.8	334
+live-path	frame	branch	1.33	0.62	1.13	4.68	1.32	62.8	335
+load after: 4.70 5.01 6.06 2/2910 2337399
+
+读法：
+- base 与 branch 每项都在噪声内，脚本本身稳定；次数一项是确定的，帧数与 raf/秒 随负载有小幅波动。
+- perf-01：tree-scroll 每次滚轮 16 次分隔线 style 写入（资源管理器树里的滚动重排了全部分隔线），resize 每次 38 次。
+- perf-04：live-hold 按住不动每帧 1 次动画帧回调（每秒 60 次），没有任何样式与 DOM 变化。
+- perf-09：resize 每次 103.5 条 DOM 记录，修后看它降多少（编辑组头的尺寸观察）。
+- still 每帧 0.3 次样式重算、没有动画帧回调：不是布局工具的帧（编辑器光标闪烁一类），修后不变就不追。
