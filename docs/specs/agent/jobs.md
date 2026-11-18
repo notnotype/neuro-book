@@ -55,7 +55,7 @@ Agent 的工具启动的、要跑一阵的事——子代理运行（[`subagents
 8. `nbook.agent` 停止时：先拒绝新的调用，再取消在跑的后台命令（记 `interrupted`，`status.json` 照写），再由会话的关闭把子代理运行按 `interrupted` 收口（这时不对子会话发中止），最后丢掉任务表。
 9. 远程 `jobs({sessionId})` 交回这个会话启动、还在任务中心里的全部任务（前台在等的也列，卡片与“停止”要用），每项 `{id, kind, state, summary, invocation, foreground, startedAt, endedAt?, lastLine?, exitCode?, lines?, sessionId?, runId?}`：`invocation` 是启动它的那次工具调用，`foreground` 是正被前台的调用等着，`sessionId`、`runId` 是子代理任务的子会话与这次运行，`lastLine` 是后台命令输出的最后一行（至多每 250 毫秒更新一次）。`jobsChanged` 在任一项变化时推送整份，合并后至多每秒 4 次；先订阅再取，`onResync` 重取。
 10. 远程 `jobTail({sessionId, jobId, lines?})` 读后台命令输出文件的最后 `lines` 行（缺省 50，0–200，每行截到 768 字节），有 `status.json` 时一并交回；按文件读，任务已移出或进程重启后照样读得到。没有这个文件得 `job-unknown`。远程 `jobStatuses({sessionId, jobIds})` 一次读多个后台命令的 `status.json`（至多 100 个），读不到的交回 null。
-11. 远程 `killJob({sessionId, jobId})` 以用户的身份停这个会话启动的任何任务（前台、后台），结果同输出 4。（planned）停 `agent` 任务时子会话按用户停的记（`heldBy` 是用户），不换成父会话的身份；之后只有用户能放行那些话（[`subagents.md`](subagents.md) 输出 10）。
+11. 远程 `killJob({sessionId, jobId})` 以用户的身份停这个会话启动的任何任务（前台、后台），结果同输出 4。（planned）停 `agent` 任务时子会话按用户停的记（`heldBy`、`runEnded.stoppedBy` 是用户），不换成父会话的身份；之后只有用户能放行那些话（[`subagents.md`](subagents.md) 输出 10）。
 12. `wait` 交回的结果与上一次 `wait` 相同时照常计入重复调用检测（[`run-guards.md`](run-guards.md) 输出 14）。
 
 ## 状态与转换
