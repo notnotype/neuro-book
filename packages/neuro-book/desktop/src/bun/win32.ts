@@ -219,3 +219,21 @@ export function setMinimumSize(hwnd: Pointer | null, size: {readonly width: numb
     removeProps();
     return ["window procedure changed while installing the minimum size"];
 }
+
+/**
+ * 实验（w00046 t17）：给已经以 `transparent: true` 建出的窗口加 Mica。`DwmExtendFrameIntoClientArea(-1)` 把客户区并入 DWM 的玻璃，
+ * `DWMWA_SYSTEMBACKDROP_TYPE`（38）取 2 是 Mica，`DWMWA_USE_IMMERSIVE_DARK_MODE`（20）跟随系统明暗。交回每个调用的 HRESULT 与窗口的
+ * 扩展样式，写进日志给验收看。
+ */
+export function applyBackdropProbe(hwnd: Pointer | null, dark: boolean): string[] {
+    if (process.platform !== "win32" || hwnd === null) return [];
+    const dwm = dlopen("dwmapi.dll", {
+        DwmSetWindowAttribute: {args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.u32], returns: FFIType.i32},
+        DwmExtendFrameIntoClientArea: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32},
+    }).symbols;
+    const lib = library();
+    const attr = (id: number, value: number): number => dwm.DwmSetWindowAttribute(hwnd, id, ptr(new Int32Array([value])), 4);
+    const margins = new Int32Array([-1, -1, -1, -1]);
+    const ex = typeof lib === "string" ? "n/a" : `0x${BigInt.asUintN(64, BigInt(lib.GetWindowLongPtrW(hwnd, -20))).toString(16)}`;
+    return [`extend=${String(dwm.DwmExtendFrameIntoClientArea(hwnd, ptr(margins)))}`, `dark(${String(dark)})=${String(attr(20, dark ? 1 : 0))}`, `mica=${String(attr(38, 2))}`, `exStyle=${ex}`];
+}

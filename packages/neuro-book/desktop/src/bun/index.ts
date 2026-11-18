@@ -46,7 +46,7 @@ import {PRODUCT_VERSION} from "../../../src/shared/product";
 
 import {preloadScript} from "./preload";
 import {changeLoginItem, readLoginItem} from "./login-item";
-import {adoptCustomFrame, setMinimumSize, setWindowIcon} from "./win32";
+import {adoptCustomFrame, applyBackdropProbe, setMinimumSize, setWindowIcon} from "./win32";
 
 const SHELL_VIEW = "views://shell/index.html";
 const DEFAULT_SIZE = {width: 1600, height: 1000};
@@ -210,6 +210,8 @@ async function main(): Promise<void> {
         logFile = join(dir, "shell.log");
     }
     // webview2Args：环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 有没有传到壳（冒烟靠它打开调试端口；只记有没有，不记值）。
+    // 实验（w00046 t17）：环境变量 NBOOK_BACKDROP_PROBE=1 时产品窗口以 transparent 建出并加 Mica；探针之后换成设置项。
+    const backdropProbe = process.env.NBOOK_BACKDROP_PROBE === "1";
     const customFrame = process.platform === "win32" && webView2.major !== null && webView2.major >= CUSTOM_FRAME_MIN_WEBVIEW2;
     log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2=${String(webView2.major)} customFrame=${String(customFrame)} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
 
@@ -302,11 +304,12 @@ async function main(): Promise<void> {
         const url = target.kind === "page" ? target.url : SHELL_VIEW;
         if (target.kind === "page") serverOrigin = new URL(target.url).origin;
         // 启动页窗口之后会换成产品页，打开时就按产品窗口的下限摆。
-        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", navigationRules: JSON.stringify(navigationRules())});
+        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE, minimumFrame(customFrame)), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", transparent: backdropProbe && customFrame && target.kind === "page", navigationRules: JSON.stringify(navigationRules())});
         const id = win.id as WindowId;
         windows.set(id, {win, kind: target.kind === "page" ? "page" : "shell"});
         adoptWindow(win, id, customFrame);
         if (target.kind === "page") adoptPageWindow(win, id);
+        if (backdropProbe && customFrame && target.kind === "page") log(`desktop.backdrop.probe window=${String(id)} ${applyBackdropProbe(win.ptr as Pointer | null, true).join(" ")}`);
         win.on("will-close", (event: {response?: {allow: boolean}}) => {
             event.response = {allow: false};
             shell.windows.closeRequested(id);
