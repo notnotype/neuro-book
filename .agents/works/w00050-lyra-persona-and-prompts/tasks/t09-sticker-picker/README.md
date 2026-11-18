@@ -35,8 +35,11 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18 定了入口、列表、触发与样子（决定 1 到 4）。第 1 轮评审板（[`artifacts/review`](artifacts/review/index.html) v1）已答复，设计定稿（决定 5 到 8）。草稿在 `.worktree/w00050-t09-drafts`（分支 `w00050-t09/drafts`，不合并），样本里星璃一包用的是 t10 的第一批图。
+- 2026-11-18 定了决定 1 到 9；计划第 2 稿经设计审查（17 条全部成立）后实施，worktree `.worktree/w00050-t09-sticker-picker`（分支 `feat/w00050-t09-sticker-picker`），6 个提交：选择器服务与面板、nb-ui 候选菜单带图、nb-markdown（提示词编辑器的表情节点、`:` 触发、已发送视图、编辑器补全与插入动作、共用 `stickers.css`）、编辑器接线、输入框接线、e2e。
+- 实施中改的两处（已写回计划与 Spec）：编辑器里的选择器锚在光标、同插图卡片（决定 8 原写“从按钮下方弹出”，输入框里仍锚在按钮）；从斜杠菜单选了“表情”不回收 `+` 块（同插图）。
+- 已跑：nb-markdown、nb-agent-ui 全部测试与类型检查；应用的类型检查，表情包、Markdown、编辑器、Agent 插件相关的 bun 与 DOM 测试；`sticker-picker.e2e.ts` 2 条；10 处变异检查都被测试拦住；Lab 的选择器面板 5 个场景截图无越界。
+- 进行中：实现审查（前端，Sonnet）；其余 7 个 e2e 文件。
 
 ## 下一步
 
-计划第 1 稿开发者 2026-11-18 确认后写进 Spec（planned），派 Sonnet 做设计审查：17 条全部成立，计划改到第 2 稿（[`plan.md`](plan.md)），Spec 的 planned 条目同步修订，报告与处理在 `evidences/`。下一步建 worktree 按切片实施。
+处理实现审查，跑完 e2e，Spec 晋升，合入 master。
