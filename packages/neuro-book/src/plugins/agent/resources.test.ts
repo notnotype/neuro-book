@@ -277,6 +277,25 @@ describe("写入接口的会话绑定版", () => {
         const other = await open(w);
         expect(await other.resources.read(`sessions://${id}/session.jsonl`)).toMatchObject({ok: true});
     });
+
+    test("host-kit 输出 8、验收 2：两次调用的写分属两个组；给了标题用标题，没给用工具 id", async () => {
+        const w = await world();
+        const {resources} = await open(w);
+        const messages: ChangesMessage[] = [];
+        const subscribed = await remote!.use(userFilesContract).events.changes.subscribe({}, (message) => messages.push(message));
+        expect(subscribed.ok).toBe(true);
+        await waitUntil("订阅就绪", () => messages.some((message) => message.kind === "ready"));
+
+        const signal = new AbortController().signal;
+        expect(await resources.call({callId: "call-a", signal}, {title: "整理大纲"}).write("user://甲.md", "甲", {expect: "absent"})).toMatchObject({ok: true});
+        expect(await resources.call({callId: "call-b", signal}).write("user://乙.md", "乙", {expect: "absent"})).toMatchObject({ok: true});
+        const events = (): FileChange[] => messages.flatMap((message) => (message.kind === "batch" ? message.events : [])).filter((event) => ["甲.md", "乙.md"].includes(event.path));
+        await waitUntil("两条事件", () => events().length === 2);
+        const byPath = Object.fromEntries(events().map((event) => [event.path, event.group]));
+        expect(byPath["甲.md"]?.title).toBe("整理大纲");
+        expect(byPath["乙.md"]?.title).toBe(GRAB);
+        expect(byPath["甲.md"]?.id).not.toBe(byPath["乙.md"]?.id);
+    });
 });
 
 describe("按需建目录与临时目录", () => {
