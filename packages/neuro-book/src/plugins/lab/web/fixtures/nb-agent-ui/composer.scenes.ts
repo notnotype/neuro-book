@@ -22,6 +22,13 @@ const QUEUED: ComposerView["queued"] = [
     {id: "q2", text: "改完第三章顺便检查第五章的错别字。\n第二段有个“的地得”。", delivery: "followup"},
 ];
 
+/** 留着的话：停止后留下的两条，加一条宿主（日程）排的、空闲时排的（docs/specs/agent/conversation.md 输出 48 的原因文案）。 */
+const HELD: ComposerView["queued"] = [
+    {id: "h1", text: "保留雨夜那段对话，别删。", delivery: "steer", held: {reason: "你停止了这一轮"}},
+    {id: "h2", text: "改完第三章顺便检查第五章的错别字。", delivery: "followup", held: {reason: "你停止了这一轮"}},
+    {id: "h3", text: "每天早上整理昨天的修改记录。", delivery: "followup", author: {label: "日程", icon: "i-lucide-calendar-clock"}, editable: false, held: {reason: "空闲时排的"}},
+];
+
 const NO_FILES = {interaction: {...conversationContext().interaction, canRegisterAttachments: false}};
 
 export const agentConversationComposerScenes: Scene[] = [
@@ -29,6 +36,18 @@ export const agentConversationComposerScenes: Scene[] = [
     {id: "draft", label: "带草稿", input: {props: {ctx: composerCtx({draft: {text: DRAFT, version: 1}})}}},
     {id: "running", label: "运行中（停止按钮）", input: {props: {ctx: composerCtx({}, {run: {status: "running", phase: "正在思考"}})}}},
     {id: "queued", label: "运行中，有排队消息", input: {props: {ctx: composerCtx({queued: QUEUED, draft: {text: "再补一句：钟声要写十二下。", version: 1}}, {run: {status: "running", phase: "正在思考"}})}}},
+    {id: "held", label: "空闲，有留着的话（发送键是继续）", input: {props: {ctx: composerCtx({queued: HELD})}}},
+    {id: "held-resume", label: "中断且有留着的话", input: {props: {ctx: composerCtx({queued: HELD.slice(0, 2), resume: true})}}},
+    {
+        id: "stop-menu",
+        label: "运行中，停止旁有“停止并清空排队”",
+        input: {props: {ctx: composerCtx({queued: QUEUED}, {run: {status: "running", phase: "正在思考"}, interaction: {...conversationContext().interaction, canStop: true, stopClearing: {count: 2}}})}},
+    },
+    {
+        id: "stopping",
+        label: "停止中（继续与下拉不可用）",
+        input: {props: {ctx: composerCtx({queued: HELD}, {run: {status: "stopping", phase: ""}, interaction: {...conversationContext().interaction, canStop: true, stopClearing: {count: 3}}})}},
+    },
     {id: "plan-mode", label: "规划模式", input: {props: {ctx: composerCtx({mode: "plan"})}}},
     {id: "no-images", label: "模型不支持图片", input: {props: {ctx: composerCtx({modelKey: "deepseek-chat"})}}},
     {id: "plain", label: "缺省实现（没有注入编辑器）", input: {props: {ctx: composerCtx({draft: {text: "/rename 雨夜", version: 1}})}}},
@@ -158,4 +177,6 @@ export const agentQueuedMessagesScenes: QueuedScene[] = [
         label: "超过 3 条",
         input: {props: {queued: [...QUEUED, {id: "q3", text: "第三条。", delivery: "followup"}, {id: "q4", text: "第四条。", delivery: "followup"}, {id: "q5", text: "第五条。", delivery: "steer"}]}},
     },
+    {id: "held", label: "留着的话（原因不止一种）", input: {props: {queued: [...HELD, ...QUEUED]}}},
+    {id: "held-disabled", label: "留着的话，继续不可用", input: {props: {queued: HELD.slice(0, 2), continueDisabled: "正在停止"}}},
 ];

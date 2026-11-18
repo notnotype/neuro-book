@@ -105,13 +105,14 @@ export function createSessionList(options: {
                     title: entry.title ?? "",
                     ...(entry.description === null ? {} : {description: entry.description}),
                     updatedAt: latest,
-                    status: activity.get(entry.id) ?? "idle",
+                    status: listStatus(activity.get(entry.id)),
                     ...(profile?.icon === undefined ? {} : {icon: profile.icon}),
                     iconTitle: profile?.name ?? entry.profile,
                     ...(entry.archived ? {archived: true} : {}),
                     ...(entry.parent !== undefined && byId.has(entry.parent) ? {parentId: entry.parent} : {}),
                     ...(kids === 0 ? {} : {childCount: kids}),
-                    ...(below.some((id) => activity.get(id) === "waiting") ? {childWaiting: true} : {}),
+                    // 与会话行自己的状态同一个口径：留着只有用户能放行的话也算等你处理（conversation.md 输出 48）。
+                    ...(below.some((id) => listStatus(activity.get(id)) === "waiting") ? {childWaiting: true} : {}),
                     ...(matched.has(entry.id) ? {} : {dimmed: true}),
                 };
             })
@@ -198,4 +199,9 @@ export function createRecentSessions(options: {
             .sort((a, b) => b.at - a.at);
     });
     return {sessions, refresh};
+}
+
+/** 只有用户能放行的留着的话在列表里按等你处理画（agent/conversation.md 输出 48）。 */
+function listStatus(state: "running" | "waiting" | "held" | undefined): "running" | "waiting" | "idle" {
+    return state === "held" ? "waiting" : state ?? "idle";
 }

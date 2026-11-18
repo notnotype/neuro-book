@@ -85,8 +85,10 @@ export type UserMessageView = {
     contentOmitted: boolean;
     /** 仅尚未确认送达的乐观消息有值。 */
     delivery?: "pending" | "unknown";
-    /** 别的会话以自己的身份发来的话（派子代理的父 Agent）：头像与名称用它；缺省是用户。 */
+    /** 别的会话或宿主以自己的身份发来的话（派子代理的父 Agent、日程）：头像与名称用它；缺省是用户。 */
     author?: {label: Text; icon: string};
+    /** 乐观消息前面还有几条别的发出者的话先跑（合并留着的话发出的那一条）；视图写“前面还有 N 条”。 */
+    ahead?: number;
 };
 
 /**
@@ -214,6 +216,16 @@ export type InteractionView = {
     canAnswer: boolean;
     canMutateHistory: boolean;
     canStop: boolean;
+    /**
+     * 停止并清空排队（ui/agent-conversation-view.md 的“停止的第二个选项”）：缓冲区里有用户自己的话（就绪或留着）时给出，
+     * `count` 是会被清掉的条数；没有时为 null 或不写，停止键旁不画下拉箭头。
+     */
+    stopClearing?: {count: number} | null;
+    /**
+     * 宿主正在执行一次“继续”（几步之间也算，docs/specs/agent/conversation.md 输出 50）：发送键与排队区的“继续”不可用，
+     * 编辑器照常可写、不失焦。缺省为 false。
+     */
+    continuing?: boolean;
     canRegisterAttachments: boolean;
     canChangeRuntime: boolean;
     /** 能切 Agent 模式。不写时跟 `canChangeRuntime`；宿主在还没有会话时也给它，先开 `plan` 再发第一条。 */
@@ -421,7 +433,11 @@ export type ComposerView = {
     resume?: boolean;
     /** 宿主要说的一句，例如发送被拒的原因；显示在输入框上方。 */
     notice?: Text;
-    queued: Array<{id: string; text: string; delivery: "steer" | "followup"}>;
+    /**
+     * 排队的话（ui/agent-conversation-view.md 的排队区）。没有 `author` 的是用户自己的；`editable` 缺省为真；`held` 表示留着，
+     * 原因文案由宿主写好。
+     */
+    queued: Array<{id: string; text: string; delivery: "steer" | "followup"; author?: {label: Text; icon: string}; editable?: boolean; held?: {reason: Text}}>;
     attachments: ComposerAttachmentView[];
     /** 已发送的内容，最新的在前，供输入历史使用。 */
     recall: string[];
@@ -603,7 +619,7 @@ export type BuiltinAgentViewAction =
     // 输入框；附件都写在文字里（见 PromptEditor 的文字写法），submit 不另带附件。
     // File 对象不可 JSON 化，只在 composer.attachmentAdded 中出现。
     | {type: "composer.submit"; text: string; delivery: SubmitDelivery}
-    | {type: "composer.stop"}
+    | {type: "composer.stop"; clearQueue?: boolean}
     | {type: "composer.draftChanged"; text: string}
     // 把一段文字放进输入框（第一屏的开场指令）：宿主换掉草稿、版本加一，编辑器才会显示它。`draftChanged` 方向相反，是编辑器报告用户打的字。
     | {type: "composer.fill"; text: string}

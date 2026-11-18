@@ -59,7 +59,14 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
     if (options.userSettings !== undefined) await writeFile(join(stateRoot, "settings.json"), JSON.stringify(options.userSettings));
     let service: AgentService | null = null;
     const probe: PluginDefinition = {id: "test.agent-probe", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: agentKey}], activate: (context) => {
-        service = context.services.require(agentKey);
+        // 测试世界代替用户操作会话（sessions.md 输出 21 的 asUser）：现有用例按用户的身份写。按插件身份的另有用例。
+        const facade = context.services.require(agentKey);
+        service = {
+            ...facade,
+            create: (options, view) => facade.create(options, {asUser: true, ...view}),
+            session: (id, view) => facade.session(id, {asUser: true, ...view}),
+            startTask: (task, view) => facade.startTask(task, {asUser: true, ...view}),
+        };
         return {};
     }})]};
     const work = createRunningWork((record) => settings.diagnostics("hub").record(record));

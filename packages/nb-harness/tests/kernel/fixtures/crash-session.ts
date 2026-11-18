@@ -72,6 +72,7 @@ if (mode === "compacting") {
     });
     session.model.script({fail: "network", retryable: true});
 } else session.model.script({tools: [{tool: "lab.block"}, {tool: "lab.never"}]});
-if (mode === "in-tool") await session.raw.enqueue({commandId: "queued", input: {text: "排着的"}, mode: "followup"});
 if (mode !== "compacting") void session.raw.send({commandId: "first", input: {text: "问"}});
+// 运行中排的一条：受理排在发送之后，按运行中只入队（空闲时用户的入队等于发送，runtime.md 输出 3）。
+if (mode === "in-tool") await session.raw.enqueue({commandId: "queued", input: {text: "排着的"}, mode: "followup"});
 setInterval(() => undefined, 1 << 30);

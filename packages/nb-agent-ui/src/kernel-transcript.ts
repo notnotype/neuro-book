@@ -36,7 +36,25 @@ export type KernelPending = {
     readonly within?: {readonly tool: string; readonly invocation: string};
 };
 
-export type KernelQueued = {readonly id: string; readonly mode: "steer" | "followup"; readonly text: string};
+/**
+ * 缓冲区里的一条（harness/runtime.md 输出 103）：发出者（没有是用户）、就绪或留着、留着的原因与停的人、改过几次、受理它的指令。
+ * `attachments` 是原样的附件（合并留着的话时要带上）。
+ */
+export type KernelQueued = {
+    readonly id: string;
+    readonly mode: "steer" | "followup";
+    readonly text: string;
+    readonly attachments?: readonly JsonValue[];
+    readonly by?: KernelIssuer;
+    readonly state: "ready" | "held";
+    readonly cause?: KernelHeldCause;
+    readonly heldBy?: KernelIssuer | {readonly kind: "user"};
+    readonly edits: number;
+    readonly commandId?: string;
+};
+
+/** 话为什么留着：运行的收口方式（加码），或空闲时排的（开不起运行时带码）。 */
+export type KernelHeldCause = {readonly end: string; readonly code?: string} | {readonly queued: "idle"; readonly code?: string};
 
 export type KernelRun = {
     readonly status: RunStatus;
@@ -253,8 +271,51 @@ type LiveCall = {readonly id: string; readonly name: string; args: string};
 type Live = {request: number; next: number; text: string; thinking: string; calls: LiveCall[]; broken: boolean};
 type Optimistic = {readonly commandId: string; view: UserMessageView};
 
-/** 别的会话以自己的身份发来的话的发出者（`input`、`steer` 事件的 `by`，harness/runtime.md 输出 85）。 */
-export type KernelIssuer = {readonly kind: "session"; readonly id: string};
+/** 别的会话或宿主以自己的身份发来的话的发出者（`input`、`steer` 事件的 `by`，harness/runtime.md 输出 85）；用户发的没有。 */
+export type KernelIssuer = {readonly kind: "session"; readonly id: string} | {readonly kind: "host"; readonly source: {readonly plugin: string; readonly label: string; readonly ref?: string; readonly at?: number}};
+
+/** 事件里的发出者；认不出的按没有（用户）。 */
+function issuerOf(value: unknown): KernelIssuer | {readonly kind: "user"} | null {
+    if (!isRecord(value)) return null;
+    if (value.kind === "user") return {kind: "user"};
+    if (value.kind === "session" && typeof value.id === "string") return {kind: "session", id: value.id};
+    if (value.kind === "host" && isRecord(value.source) && typeof value.source.plugin === "string" && typeof value.source.label === "string") {
+        const {plugin, label, ref, at} = value.source;
+        return {kind: "host", source: {plugin, label, ...(typeof ref === "string" ? {ref} : {}), ...(typeof at === "number" ? {at} : {})}};
+    }
+    return null;
+}
+
+function heldCauseOf(value: unknown): KernelHeldCause | undefined {
+    if (!isRecord(value)) return undefined;
+    const code = typeof value.code === "string" ? {code: value.code} : {};
+    if (typeof value.end === "string") return {end: value.end, ...code};
+    if (value.queued === "idle") return {queued: "idle", ...code};
+    return undefined;
+}
+
+/** 缓冲区里的一条：事件与快照共用一个读法。 */
+function queuedOf(data: JsonRecord, defaults: {readonly state?: unknown; readonly edits?: unknown}): KernelQueued | null {
+    const id = stringField(data, "id");
+    if (id === null) return null;
+    const input = isRecord(data.input) ? data.input : {};
+    const by = issuerOf(data.by);
+    const heldBy = issuerOf(data.heldBy);
+    const cause = heldCauseOf(data.cause);
+    const held = defaults.state === "held";
+    return {
+        id,
+        mode: data.mode === "steer" ? "steer" : "followup",
+        text: stringField(input, "text") ?? "",
+        ...(Array.isArray(input.attachments) ? {attachments: input.attachments as readonly JsonValue[]} : {}),
+        ...(by === null || by.kind === "user" ? {} : {by}),
+        state: held ? "held" : "ready",
+        ...(held && cause !== undefined ? {cause} : {}),
+        ...(held && heldBy !== null ? {heldBy} : {}),
+        edits: typeof defaults.edits === "number" ? defaults.edits : 0,
+        ...(typeof data.commandId === "string" ? {commandId: data.commandId} : {}),
+    };
+}
 
 /**
  * `toolName`：工具 id 换成界面认的名字。`authorOf`：路径上 `by` 是别的会话的那些话（父 Agent 发给子代理的）用谁的头像与名称；
@@ -296,6 +357,25 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     let queue: KernelQueued[] = [];
     let run = IDLE_RUN;
     let optimistic: Optimistic[] = [];
+    const confirmOptimistic = (commandId: string) => {
+        optimistic = optimistic.filter((item) => item.commandId !== commandId);
+    };
+    /** 乐观消息前面还有几条别的发出者放行出来、还没取走的话：取走一条少一条（ui/agent-conversation-view.md 的“前面还有 N 条”）。 */
+    /**
+     * 乐观消息等的是它被运行取走（`input`、`steer`）。它在那之前转成留着或被取消时（那次运行先收口、停止并清空），不会再被取走：
+     * 撤掉乐观消息，留着的由排队区显示（`queue()` 不再藏它），取消的就没了。重连后快照里已是留着的同样撤。
+     */
+    const dropOptimisticFor = (items: readonly KernelQueued[]): void => {
+        const ids = new Set(items.flatMap((item) => (item.commandId === undefined ? [] : [item.commandId])));
+        if (ids.size > 0) optimistic = optimistic.filter((item) => !ids.has(item.commandId));
+    };
+
+    const withAhead = (item: Optimistic): UserMessageView => {
+        const index = queue.findIndex((entry) => entry.commandId === item.commandId);
+        if (index <= 0) return item.view;
+        const ahead = queue.slice(0, index).filter((entry) => entry.state === "ready" && entry.by !== undefined).length;
+        return ahead === 0 ? item.view : {...item.view, ahead};
+    };
 
     let cached: readonly MessageView[] | null = null;
     const touched = (): void => {
@@ -421,7 +501,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 const text = stringField(data, "text") ?? "";
                 // 带范围的附件文字里已经有它的标签，气泡按标签显示，不再单列一块。
                 const attachments = Array.isArray(data.attachments) ? data.attachments.flatMap((item): ContentBlockView[] => (isRecord(item) && typeof item.uri === "string" && typeof item.from !== "number" ? [{kind: "attachment", locator: item.uri, name: item.uri.slice(item.uri.lastIndexOf("/") + 1), mimeType: item.kind === "image" ? "image/*" : "", bytes: 0}] : [])) : [];
-                const by = isRecord(data.by) && data.by.kind === "session" && typeof data.by.id === "string" ? {kind: "session" as const, id: data.by.id} : null;
+                const issuer = issuerOf(data.by);
+                const by = issuer === null || issuer.kind === "user" ? null : issuer;
                 const author = by === null ? undefined : options.authorOf?.(by);
                 logged.push({kind: "user", id, timestamp: at, intent: type === "steer" ? "steer" : "normal", blocks: [...(text === "" ? [] : [{kind: "text" as const, text}]), ...attachments], contentOmitted: false, ...(author === undefined ? {} : {author})});
                 return;
@@ -605,24 +686,46 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 else if (typeof data.extension === "string" && isRecord(data.patch)) meta = {...meta, extensionSettings: {...meta.extensionSettings, [data.extension]: {...meta.extensionSettings[data.extension], ...(toJsonValue(data.patch) as {[key: string]: JsonValue})}}};
                 return true;
             case "inputQueued": {
-                const id = stringField(data, "id");
-                const input = isRecord(data.input) ? data.input : {};
-                if (id !== null) queue = [...queue, {id, mode: data.mode === "steer" ? "steer" : "followup", text: stringField(input, "text") ?? ""}];
+                const item = queuedOf(data, {state: data.state});
+                if (item !== null) queue = [...queue, item];
                 return true;
             }
             case "inputEdited": {
                 const input = isRecord(data.input) ? data.input : {};
-                queue = queue.map((item) => (item.id === data.id ? {...item, text: stringField(input, "text") ?? item.text} : item));
+                queue = queue.map((item) => (item.id === data.id ? {...item, text: stringField(input, "text") ?? item.text, edits: item.edits + 1} : item));
+                return true;
+            }
+            case "inputHeld": {
+                // 已经留着的不改原因与停的人（harness/runtime.md 输出 109）。
+                const ids = new Set(Array.isArray(data.ids) ? data.ids : []);
+                const cause = heldCauseOf(data.cause);
+                const heldBy = issuerOf(data.heldBy);
+                queue = queue.map((item) => (ids.has(item.id) && item.state === "ready" ? {...item, state: "held", ...(cause === undefined ? {} : {cause}), ...(heldBy === null ? {} : {heldBy})} : item));
+                dropOptimisticFor(queue.filter((item) => ids.has(item.id)));
+                return true;
+            }
+            case "inputReleased": {
+                const ids = new Set(Array.isArray(data.ids) ? data.ids : []);
+                queue = queue.map((item) => {
+                    if (!ids.has(item.id)) return item;
+                    const {cause: _cause, heldBy: _heldBy, ...rest} = item;
+                    return {...rest, state: "ready", ...(data.mode === "followups" ? {mode: "followup" as const} : {})};
+                });
                 return true;
             }
             case "inputRemoved":
+                dropOptimisticFor(queue.filter((item) => item.id === data.id));
+                queue = queue.filter((item) => item.id !== data.id);
+                return true;
             case "inputConsumed":
                 queue = queue.filter((item) => item.id !== data.id);
                 return true;
             case "commandAccepted": {
-                // `send` 撞上别的运行时进了缓冲区（值里没有 runId）：排队区会显示它，乐观消息撤掉。
+                // `send` 的话没成为新开那次运行的输入时（插进在跑的运行、推迟、留着）排队区会显示它，乐观消息撤掉；
+                // 开了新运行的等它的 `input` 确认（harness/runtime.md 输出 110）。
                 const value = isRecord(data.value) ? data.value : {};
-                if (data.name === "send" && value.runId === null) optimistic = optimistic.filter((item) => item.commandId !== data.commandId);
+                const opened = value.placement === undefined ? value.runId !== null : value.placement === "taken" && typeof value.runId === "string";
+                if (data.name === "send" && !opened) optimistic = optimistic.filter((item) => item.commandId !== data.commandId);
                 return true;
             }
             default:
@@ -766,10 +869,11 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 readOnly,
             };
             queue = Array.isArray(snapshot.buffer) ? snapshot.buffer.flatMap((item): KernelQueued[] => {
-                if (!isRecord(item) || typeof item.id !== "string") return [];
-                const input = isRecord(item.input) ? item.input : {};
-                return [{id: item.id, mode: item.mode === "steer" ? "steer" : "followup", text: stringField(input, "text") ?? ""}];
+                if (!isRecord(item)) return [];
+                const queued = queuedOf(item, {state: item.state, edits: item.edits});
+                return queued === null ? [] : [queued];
             }) : [];
+            dropOptimisticFor(queue.filter((item) => item.state === "held"));
             if (isRecord(snapshot.status)) applyStatus(snapshot.status);
             touched();
         },
@@ -781,6 +885,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 if (parsed === null) continue;
                 notePath(parsed);
                 if (isExtensionEvent(parsed)) continue;
+                // 重建时路径上已经有这条话：按受理它的指令清掉对应的乐观消息，不会多出一份（旧日志没有 commandId，不清）。
+                if ((parsed.type === "input" || parsed.type === "steer") && typeof parsed.data.commandId === "string") confirmOptimistic(parsed.data.commandId);
                 reducePath(parsed.type, parsed.data, parsed.id, parsed.at);
             }
             // 打开时运行已在跑：开始时刻在路径里读到了，补进状态。
@@ -797,9 +903,12 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             }
             touched();
             if (USAGE_EVENTS.has(parsed.type)) addUsage(parsed.data);
-            // 内核确认了：换掉最早的乐观消息。拦截可能改写了文字，所以只按先后，不按内容。只看实时到的：`applyPath` 重放的是历史，
-            // 不是这条乐观消息的确认，重连重建时吃掉它，“结果未知、可以重发”的消息就没了。
-            if (parsed.type === "input" || parsed.type === "steer") optimistic = optimistic.slice(1);
+            // 内核确认了：按受理它的指令换掉对应的乐观消息（留着的先跑时先到的是旧话，不能按先后）。拦截可能改写了文字，不按内容。
+            // 旧内核的事件没有 commandId：换掉最早的一条。
+            if (parsed.type === "input" || parsed.type === "steer") {
+                if (typeof parsed.data.commandId === "string") confirmOptimistic(parsed.data.commandId);
+                else optimistic = optimistic.slice(1);
+            }
             if (parsed.type === "leafChanged") return "leaf-changed";
             notePath(parsed);
             if (isExtensionEvent(parsed) || reduceSession(parsed.type, parsed.data)) return null;
@@ -848,7 +957,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 })};
             });
             const streaming = live === null || live.broken ? [] : [liveMessage(live)];
-            cached = [...settled, ...optimistic.map((item) => item.view), ...streaming];
+            cached = [...settled, ...optimistic.map((item) => withAhead(item)), ...streaming];
             return cached;
         },
         pending: () => pending,
@@ -858,7 +967,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         attachmentsOf: (messageId) => inputAttachments.get(messageId) ?? [],
         pathIds: () => pathIds,
         usage: () => ({...usage, context, lastCacheHitRate}),
-        queue: () => queue,
+        // 有乐观消息代表的那条不在排队区重复显示（合并发出的那一条）。
+        queue: () => (optimistic.length === 0 ? queue : queue.filter((item) => item.commandId === undefined || !optimistic.some((pending) => pending.commandId === item.commandId))),
         meta: () => meta,
         interrupted: () => interrupted,
         problems: () => problems,

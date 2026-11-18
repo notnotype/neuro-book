@@ -336,3 +336,93 @@ describe("AgentConversationComposer 带弹层的按钮（ui/agent-conversation-v
         wrapper.unmount();
     });
 });
+
+describe("AgentConversationComposer 留着的话与停止的两个选项", () => {
+    const heldItem = {id: "h1", text: "留着的", delivery: "followup" as const, held: {reason: "你停止了运行"}};
+    const actionsOf = (view: ReturnType<typeof mountComposer>) => (view.findComponent(AgentConversationComposer).emitted("action") ?? []).map((args) => args[0]);
+    const placeholderOf = (view: ReturnType<typeof mountComposer>) => view.get("textarea").attributes("placeholder");
+
+    it("空闲有留着的：占位与发送键是继续，空着发送与头行的继续都发 run.continue；中断与留着同时成立时占位合成一句", async () => {
+        const view = mountComposer({ctx: ctx({composer: {queued: [heldItem]}})});
+        expect(placeholderOf(view)).toBe("按回车继续排队的话，或输入新消息一起发");
+        const primary = view.get(".acv-composer__primary");
+        expect(primary.attributes("data-composer-action")).toBe("resume");
+        await primary.trigger("click");
+        await view.get("[data-queued-continue]").trigger("click");
+        expect(actionsOf(view)).toEqual([{type: "run.continue"}, {type: "run.continue"}]);
+        view.unmount();
+
+        const both = mountComposer({ctx: ctx({composer: {queued: [heldItem], resume: true}})});
+        expect(placeholderOf(both)).toBe("上次运行已中断，排队的话已暂停。按回车继续");
+        both.unmount();
+    });
+
+    it("宿主正在继续：编辑器照常可写，发送键与头行的继续不可用、写明原因；点头行的继续后焦点回编辑器", async () => {
+        const busy = mountComposer({ctx: ctx({interaction: {continuing: true}, composer: {queued: [heldItem]}})});
+        expect(busy.get("textarea").attributes("readonly")).toBeUndefined();
+        expect(busy.get(".acv-composer__primary").attributes("disabled")).toBeDefined();
+        expect(busy.get("[data-queued-continue]").attributes("title")).toBe("正在继续");
+        busy.unmount();
+
+        const view = mountComposer({ctx: ctx({composer: {queued: [heldItem]}})});
+        (view.get("[data-queued-continue]").element as HTMLElement).focus();
+        await view.get("[data-queued-continue]").trigger("click");
+        await flushPromises();
+        expect(document.activeElement).toBe(view.get("textarea").element);
+        view.unmount();
+    });
+
+    it("运行中有留着的按运行中的规则；停止中、不可用时头行的继续不可用", () => {
+        const running = mountComposer({ctx: ctx({run: {status: "running"}, interaction: {canStop: true}, composer: {queued: [heldItem]}})});
+        expect(running.get(".acv-composer__primary").attributes("data-composer-action")).toBe("stop");
+        expect(running.get("[data-queued-continue]").attributes("aria-disabled")).toBe("false");
+        running.unmount();
+
+        const stopping = mountComposer({ctx: ctx({run: {status: "stopping"}, composer: {queued: [heldItem]}})});
+        expect(stopping.get("[data-queued-continue]").attributes("aria-disabled")).toBe("true");
+        stopping.unmount();
+
+        const archived = mountComposer({ctx: ctx({availability: {status: "archived", message: "此会话已归档。", actions: []}, composer: {queued: [heldItem]}})});
+        expect(archived.get("[data-queued-continue]").attributes("title")).toBe("此会话已归档。");
+        archived.unmount();
+    });
+
+    /** 像用户一样打开停止旁的下拉：聚焦箭头、按下方向键，等菜单挂到 body 上（测试写法的“组件测试经用户操作触发子组件的事件”）。 */
+    async function openStopMenu(view: ReturnType<typeof mountComposer>): Promise<void> {
+        const more = view.get("[data-composer-action='stop-more']");
+        (more.element as HTMLElement).focus();
+        await more.trigger("keydown", {key: "ArrowDown"});
+        for (let round = 0; round < 5; round += 1) await nextTick();
+    }
+    const menuItems = () => [...document.body.querySelectorAll("[role=menuitem]")] as HTMLElement[];
+
+    it("stopClearing 不为空时停止旁有下拉箭头，选“停止并清空排队”发出 clearQueue；点停止本身不带；停止中箭头 aria-disabled、不开菜单；有字时不出现", async () => {
+        const base = {run: {status: "running" as const}, interaction: {canStop: true, canQueue: true, stopClearing: {count: 3}}};
+        const view = mountComposer({ctx: ctx(base)});
+        const more = view.get("[data-composer-action='stop-more']");
+        expect(more.attributes("aria-haspopup")).toBe("menu");
+        expect(more.attributes("aria-label")).toBe("更多停止方式");
+        await openStopMenu(view);
+        expect(menuItems().map((item) => item.textContent?.trim())).toEqual(["停止并清空排队（3 条）"]);
+        menuItems()[0]!.click();
+        await flushPromises();
+        await view.get(".acv-composer__primary").trigger("click");
+        expect(actionsOf(view)).toEqual([{type: "composer.stop", clearQueue: true}, {type: "composer.stop"}]);
+        view.unmount();
+
+        const stopping = mountComposer({ctx: ctx({...base, run: {status: "stopping"}})});
+        expect(stopping.get("[data-composer-action='stop-more']").attributes("aria-disabled")).toBe("true");
+        await openStopMenu(stopping);
+        expect(menuItems()).toEqual([]);
+        expect(stopping.get("[data-composer-action='stop-more']").attributes("aria-expanded")).toBe("false");
+        stopping.unmount();
+
+        const typed = mountComposer({ctx: ctx({...base, composer: {draft: {text: "还要说", version: 1}}})});
+        expect(typed.find("[data-composer-action='stop-more']").exists()).toBe(false);
+        typed.unmount();
+
+        const none = mountComposer({ctx: ctx({...base, interaction: {canStop: true, stopClearing: null}})});
+        expect(none.find("[data-composer-action='stop-more']").exists()).toBe(false);
+        none.unmount();
+    });
+});

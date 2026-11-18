@@ -45,7 +45,7 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
     icon: "i-lucide-shield-check",
     category: "ai",
     order: 30,
-    groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}, {id: "subagents"}],
+    groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}, {id: "resume"}, {id: "subagents"}],
 };
 
 export const REQUESTS_SECTION = "nbook.agent.requests";
@@ -133,6 +133,18 @@ export const agentSettings = defineSettings("nbook.agent", {
         section: RUN_GUARDS_SECTION,
         group: "requests",
         order: 10,
+    },
+    /** 有留着的话时继续怎么发（docs/specs/agent/conversation.md 输出 47）；界面点继续时现读。 */
+    resumeMode: {
+        schema: Type.Union([Type.Literal("merge"), Type.Literal("keep"), Type.Literal("followups")]),
+        default: "merge",
+        title: agentText("settings.resumeMode.title"),
+        description: agentText("settings.resumeMode.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "resume",
+        order: 10,
+        choices: [{value: "merge"}, {value: "keep"}, {value: "followups"}],
     },
     warnCost: {
         schema: Type.Number({minimum: 0}),

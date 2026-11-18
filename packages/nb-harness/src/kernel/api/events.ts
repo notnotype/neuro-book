@@ -63,17 +63,34 @@ interface QueuedText {
     readonly originalHash?: string;
 }
 
+/** 运行的收口方式。 */
+export type RunEndReason = "finished" | "completed" | "error" | "interrupted" | "aborted";
+
+/** 话为什么留着：这次运行的收口方式（加码），或空闲时排的（开不起运行时带码）。runtime.md 输出 103–104。 */
+export type HeldCause = {readonly end: RunEndReason; readonly code?: string} | {readonly queued: "idle"; readonly code?: string};
+
 /** 内核事件（驼峰，日志里的类型名就是处理函数的键）。`conv` 的进对话；`ctrl` 的只给扩展看。 */
 export interface KernelEvents {
     sessionCreated: K<"path", "ctrl", {initial: JsonValue}>;
 
     // ---- 输入缓冲区（session）----
-    /** `by` 只在会话以自己的身份发出时有（runtime.md 输出 85）。 */
-    inputQueued: K<"session", "ctrl", QueuedText & {id: string; mode: "steer" | "followup"; by?: Issuer}>;
+    /**
+     * `by` 只在会话或宿主以自己的身份发出时有（runtime.md 输出 85）。缺省就绪；空闲时会话、宿主排的带
+     * `state: "held"` 与 `cause`（输出 3）。旧日志没有 `commandId`、`state`。
+     */
+    inputQueued: K<"session", "ctrl", QueuedText & {id: string; mode: "steer" | "followup"; by?: Issuer; commandId?: string; state?: "held"; cause?: HeldCause}>;
     inputEdited: K<"session", "ctrl", QueuedText & {id: string}>;
-    inputRemoved: K<"session", "ctrl", {id: string; reason: "user" | "aborted"}>;
-    /** 与 `turnStarted`、`input`（或 `steer`）在同一个写入批里写，崩溃不会丢掉用户的话。 */
-    inputConsumed: K<"session", "ctrl", {id: string}>;
+    /** 旧日志的 `user` 读作 `cancelled`（session.md 输出 24）；`replaced` 带替换它的那条新输入。 */
+    inputRemoved: K<"session", "ctrl", {id: string; reason: "user" | "cancelled" | "aborted" | "replaced"; by?: Issuer; replacedBy?: string}>;
+    /** 与 `turnStarted`、`input`（或 `steer`）在同一个写入批里写，崩溃不会丢掉用户的话。`runId` 是取走它的运行（旧日志没有）。 */
+    inputConsumed: K<"session", "ctrl", {id: string; runId?: string}>;
+    /**
+     * 就绪的话转成留着（runtime.md 输出 104）：与收口同批写。已经留着的不在 `ids` 里，原因不改（输出 109）。
+     * `heldBy` 是停止时留下的停的人，用户写 `{kind: "user"}`：缺省表示“不是停止留下的”。
+     */
+    inputHeld: K<"session", "ctrl", {ids: readonly string[]; cause: HeldCause; heldBy?: Issuer}>;
+    /** 留着的话放行，转回就绪（输出 105–107）；`mode: "followups"` 时都转成排队。`by` 用户不写。 */
+    inputReleased: K<"session", "ctrl", {ids: readonly string[]; by?: Issuer; mode: "keep" | "followups"}>;
 
     // ---- 会话级（session）----
     /** 被受理的指令；重发同一个 `commandId` 查它，返回第一次的 `value`。`value` 引用的 id 都在同一批里写出。 */
@@ -102,23 +119,28 @@ export interface KernelEvents {
     archived: K<"session", "ctrl", {archived: boolean}>;
 
     // ---- 运行与轮（path）----
-    runStarted: K<"path", "ctrl", {runId: string; kind: "chat" | "compact"}>;
+    /** `by` 是开这次运行的发出者，用户与旧日志不写（runtime.md 输出 85）。 */
+    runStarted: K<"path", "ctrl", {runId: string; kind: "chat" | "compact"; by?: Issuer}>;
     runEnded: K<"path", "ctrl", {
         runId: string;
-        reason: "finished" | "completed" | "error" | "interrupted" | "aborted";
+        reason: RunEndReason;
         result?: RunResultValue;
         /** `error` 收口的原因：模型失败的类别，或内核的码（`tools-missing`、`profile-failed`……）。 */
         error?: {kind: ModelErrorKind; code?: string};
+        /** 停的人：`abort` 停下的运行才有，用户写 `{kind: "user"}`（输出 30）。 */
+        stoppedBy?: Issuer;
     }>;
+    /** 暂停的运行（回退到运行中途）接着跑；`by` 同 `runStarted`（输出 36）。会话级：不进路径，接着跑的请求仍与原来那次是兄弟（重试与 swipe）。 */
+    runResumed: K<"session", "ctrl", {runId: string; by?: Issuer}>;
     /** 没有新输入的“继续”运行，`inputId` 为 null。每轮一次的提醒挂在这里，“继续”运行也收得到。 */
     turnStarted: K<"path", "ctrl", {turnId: string; inputId: string | null}>;
     turnEnded: K<"path", "ctrl", {turnId: string; reason: "completed" | "error" | "interrupted" | "aborted"}>;
 
     // ---- 对话（path、conv）----
     /** 开新一轮的用户的话；`queued` 是缓冲区里的 id，原文字段在 `inputQueued`、`inputEdited`。 */
-    input: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer}>;
-    /** 运行中途插进当前这一轮的用户的话。 */
-    steer: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer}>;
+    input: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer; commandId?: string}>;
+    /** 运行中途插进当前这一轮的用户的话。`commandId` 是受理它的指令，界面按它确认乐观消息。 */
+    steer: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer; commandId?: string}>;
     /** `request` 与 `modelStarted`、流式增量的 `request` 对得上。 */
     assistant: K<"path", "conv", {
         request: number;

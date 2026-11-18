@@ -11,7 +11,7 @@ import {join} from "node:path";
 
 import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService, provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {PluginDefinition, TriggerActivationResult} from "@notnotype/nb-runtime/plugins";
 
@@ -36,7 +36,7 @@ import {profileAgents} from "../shared/profile-agents";
 import {agentSettings} from "../shared/settings";
 import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, evalObjectsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, SKILLS_POINT, skillsPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
 
-import {createAgentRuntime} from "./agent";
+import {agentFacade, createAgentRuntime} from "./agent";
 import {createAttachmentRoutes, sessionDirectoryExists} from "./attachments";
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./builtin";
 import {KernelRegistry} from "./eval/kernels";
@@ -170,7 +170,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 listSessions: async () => (await runtime.listSessions()).filter((session) => !session.archived && !session.background),
                 profiles: () => runtime.service.profiles(),
                 relations: runtime.relations,
-                activity: () => runtime.sessions.activity(),
+                activity: () => runtime.sessions.activity().filter((item): item is {id: string; state: "running" | "waiting"} => item.state !== "held"),
                 skills: {userRoot: join(stateRoot, "user", "skills"), list: () => skillCatalog.list(), item: (id) => skillCatalog.item(id), allowed: allowedSkills},
                 allowedAgents: (profile) => profileAgents(runtime.service.profiles().find((entry) => entry.key === profile)?.agents, context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.agents).allowed,
             });
@@ -192,6 +192,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 depthLimit: () => settings.get(agentSettings.settings.subagentDepth),
                 stopping: () => runtime.stopping(),
                 report,
+                clock: runtime.kernelClock,
             });
             let stopped: Promise<void> | null = null;
             const stop = () => (stopped ??= Promise.all([runtime.stop(), installer.stop().then(() => skillCatalog.close())]).then(() => undefined).finally(() => previews.clear()));
@@ -201,9 +202,10 @@ export const agentBackendPlugin: PluginDefinition = {
             const work = await context.services.resolve(runningWorkKey);
             if (work.status === "resolved") work.instance.register(() => runtime.runningWork());
             return {
-                services: [provideService(agentKey, runtime.service)],
+                // 别的插件拿到按调用方生成的门面：视图的发出者由门面盖章（sessions.md 输出 21）。
+                services: [provideServicePerConsumer(agentKey, (consumer) => agentFacade(runtime.service, consumer))],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, skills: skillCatalog, skillInstaller: installer, skillsFolder: {path: userSkills, open: () => openFolder(userSkills, process.env, process.platform)}, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews)), provideRemote(agentRequestsContract, () => requestsRemote({recorder: runtime.requests, owners: runtime.requestOwners, titles: runtime.titles, sessionEntry: (id) => runtime.sessionEntry(id)}))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock), ...subagentToolImplementations, [EVAL_TOOL]: evalTool({registry: evalKernels, entry: kernelEntry(), clock, toolsOf: (context) => runtime.codeTools(context)})}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills}), [STICKERS_EXTENSION]: stickersExtension({stickers: {list: stickerPacks}, allowed: allowedStickers}), [EVAL_STATE_EXTENSION]: evalStateExtension}},
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock, report), ...subagentToolImplementations, [EVAL_TOOL]: evalTool({registry: evalKernels, entry: kernelEntry(), clock, toolsOf: (context) => runtime.codeTools(context)})}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills}), [STICKERS_EXTENSION]: stickersExtension({stickers: {list: stickerPacks}, allowed: allowedStickers}), [EVAL_STATE_EXTENSION]: evalStateExtension}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

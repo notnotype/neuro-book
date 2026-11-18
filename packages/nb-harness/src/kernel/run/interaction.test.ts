@@ -409,13 +409,14 @@ describe("会话之间的输入与交回的运行", () => {
         expect(dataOf(events, "input").map((data) => data.by)).toEqual([parent, undefined]);
     });
 
-    test("输出 85：只入队的话之后由 start 开运行，路径上的 input 仍记发出者", async () => {
+    test("输出 85、106：会话在空闲时排的话留着，用户 resume 放行后开运行，路径上的 input 仍记发出者", async () => {
         await using session = await createTestSession({caller: {kind: "session", id: "parent", callId: "c1"}});
         session.model.script("收到");
-        expect(await session.raw.as(parent).enqueue({commandId: id(), input: {text: "排在后面的话"}, mode: "followup"})).toMatchObject({ok: true});
-        const started = await session.raw.start({commandId: id()});
-        if (!started.ok) throw new Error(started.code);
-        await session.raw.waitRun(started.value.runId);
+        expect(await session.raw.as(parent).enqueue({commandId: id(), input: {text: "排在后面的话"}, mode: "followup"})).toMatchObject({ok: true, value: {placement: "held"}});
+        expect(await session.raw.start({commandId: id()})).toEqual({ok: false, code: "nothing-to-continue"});
+        const resumed = await session.raw.resume({commandId: id()});
+        if (!resumed.ok || resumed.value.runId === null) throw new Error("resume did not start a run");
+        await session.raw.waitRun(resumed.value.runId);
         expect(dataOf(await session.events(), "input").map((data) => [data.text, data.by])).toEqual([["排在后面的话", parent]]);
     });
 

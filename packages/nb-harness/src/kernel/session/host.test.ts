@@ -393,7 +393,8 @@ describe("出站过滤的订阅与分页", () => {
             scanned = at;
             if (waiting !== null && scanned >= waiting.target) waiting.open();
         });
-        const queued = await session.raw.enqueue({commandId: id(), input: {text: "排着"}, mode: "followup"});
+        // 会话身份在空闲时排的话只写 inputQueued 与受理记录（用户的入队等于发送，runtime.md 输出 3）。
+        const queued = await session.raw.as({kind: "session", id: "parent"}).enqueue({commandId: id(), input: {text: "排着"}, mode: "followup"});
         if (!queued.ok) throw new Error(queued.code);
         if (scanned < queued.seq) {
             const reached = gate();
@@ -412,7 +413,7 @@ describe("出站过滤的订阅与分页", () => {
             },
         };
         await using session = await createTestSession({outbound});
-        for (const text of ["一", "二", "三"]) await session.raw.enqueue({commandId: id(), input: {text}, mode: "followup"});
+        for (const text of ["一", "二", "三"]) await session.raw.as({kind: "session", id: "parent"}).enqueue({commandId: id(), input: {text}, mode: "followup"});
         const head = (await session.raw.snapshot()).head;
         // 三次入队各写 inputQueued 与 commandAccepted，全被过滤掉。
         expect(await session.raw.log({afterSeq: head - 6, limit: 2})).toEqual({events: [], head, more: true, through: head - 4});
@@ -529,21 +530,15 @@ describe("预览", () => {
         expect((session.model.requests[1]!.messages[0]!.content[0] as {text: string}).text).toBe("第一问");
     });
 
-    test("输出 55：缓冲区里排着的输入投影进下一次请求；工具调用的参数算进 token", async () => {
+    test("输出 55：工具调用的参数算进 token；预览与随后真实的请求一致", async () => {
         await using session = await createTestSession({tools: [{id: "lab.search", execute: () => "结果"}]});
         const query = "查".repeat(3000);
         session.model.script({tools: [{tool: "lab.search", args: {query}}]}, "答一", "答二");
         await session.say("第一问");
-        expect((await session.raw.preview()).tokens.byArea.history).toBeGreaterThan(3000);
-        await session.raw.enqueue({commandId: id(), input: {text: "下一问"}, mode: "followup"});
         const preview = await session.raw.preview();
-        const last = preview.request.messages.at(-1)!;
-        expect([last.role, (last.content[0] as {text: string}).text]).toEqual(["user", "下一问"]);
-        expect(preview.tokens.byArea.turn).toBeGreaterThan(0);
-        const started = await session.raw.start({commandId: id()});
-        if (!started.ok) throw new Error(started.code);
-        await session.raw.waitRun(started.value.runId);
-        expect(session.model.requests.at(-1)!.messages).toEqual(preview.request.messages.map((message) => expect.objectContaining({role: message.role})));
+        expect(preview.tokens.byArea.history).toBeGreaterThan(3000);
+        await session.say("下一问");
+        expect(session.model.requests.at(-1)!.messages.slice(0, preview.request.messages.length)).toEqual(preview.request.messages.map((message) => expect.objectContaining({role: message.role})));
     });
 });
 
@@ -615,6 +610,63 @@ describe("插件宿主", () => {
         expect((await session.diagnostics()).some((item) => item.code === "extension-revoked")).toBe(true);
         expect(model.requests[1]!.system.some((block) => (block as {text: string}).text === "计数器在")).toBe(false);
         await host.close(session.id);
+    });
+
+    test("runtime 验收 14：收口时有待做的重新装配，推迟的话不开运行、留着带 reassembly-pending；之后的话等重新装配做完", async () => {
+        const model = createTestModel();
+        const started = gate();
+        const release = gate();
+        const host = createAgentHost(hostEnv(model, [{id: "lab.hold", execute: async () => {
+            started.open();
+            await release.promise;
+            return "好了";
+        }}]));
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        const handle = handleOf(counter);
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
+        await waitIdleWrites(session);
+        model.script({tools: [{tool: "lab.hold"}]}, "新话的回答");
+        const sent = await session.send({commandId: "s1", input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await started.promise;
+        host.extensions.revoke(handle, "deactivated");
+        const stopping = session.abort({commandId: "stop", keepQueue: true});
+        const late = await session.send({commandId: "late", input: {text: "停止中发的"}});
+        expect(late).toMatchObject({ok: true, value: {placement: "later"}});
+        release.open();
+        await stopping;
+        await session.waitRun(sent.value.runId);
+        const next = await session.send({commandId: "next", input: {text: "之后发的"}});
+        if (!next.ok || next.value.runId === null) throw new Error("the next send did not start a run");
+        await session.waitRun(next.value.runId);
+        const events = (await session.log({afterSeq: 0})).events;
+        const held = events.find((event) => event.type === "inputHeld" && (event.data as {cause: {code?: string}}).cause.code === "reassembly-pending");
+        expect(held?.data).toMatchObject({cause: {end: "aborted", code: "reassembly-pending"}});
+        const order = events.filter((event) => event.type === "profileChanged" || event.type === "runStarted").map((event) => event.type);
+        expect(order.slice(-2)).toEqual(["profileChanged", "runStarted"]);
+        expect((await session.diagnostics()).some((item) => item.code === "deferred-start-skipped")).toBe(true);
+        await host.close(session.id);
+    });
+
+    test("runtime 输出 104：受理批的反应期间关闭开始，不开运行、不留下未处理的错误", async () => {
+        const entered = gate();
+        const hold = gate();
+        const stall = defineExtension({id: "lab.stall", on: {runStarted: async () => {
+            entered.open();
+            await hold.promise;
+        }}});
+        await using session = await createTestSession({extensions: [stall]});
+        session.model.script("不该被请求");
+        const sending = session.raw.send({commandId: "s", input: {text: "问"}});
+        await entered.promise;
+        const closing = closeSession(session.raw, {reason: "interrupted"});
+        hold.open();
+        await sending;
+        await closing;
+        expect(session.model.requests).toHaveLength(0);
     });
 
     test("输出 57：运行中撤回的扩展也不进压缩前的请求", async () => {

@@ -67,6 +67,19 @@ function hostScene(id: string, label: string, patch: Omit<Partial<AgentConversat
 }
 
 const WAITING: Partial<AgentConversationContext> = {run: {status: "waiting", phase: ""}};
+type Queued = AgentConversationContext["composer"]["queued"];
+const HELD_ZH: Queued = [
+    {id: "h1", text: "保留雨夜那段对话，别删。", delivery: "steer", held: {reason: "上一轮出错"}},
+    {id: "h2", text: "改完第三章顺便检查第五章的错别字。", delivery: "followup", held: {reason: "你停止了这一轮"}},
+    {id: "h3", text: "每天早上整理昨天的修改记录。", delivery: "followup", author: {label: "日程", icon: "i-lucide-calendar-clock"}, editable: false, held: {reason: "空闲时排的"}},
+];
+const HELD_EN: Queued = [
+    {id: "h1", text: "Keep the dialogue in the rainy-night scene.", delivery: "steer", held: {reason: "The run couldn't start: the model role isn't bound to a model"}},
+    {id: "h2", text: "After chapter three, check chapter five for typos.", delivery: "followup", held: {reason: "You stopped this turn"}},
+    {id: "h3", text: "Every morning, tidy up yesterday's edit log.", delivery: "followup", author: {label: "Morning digest schedule", icon: "i-lucide-calendar-clock"}, editable: false, held: {reason: "Queued while idle"}},
+];
+/** 合并留着的话发出的一条：宿主的两条话先跑（ui/agent-conversation-view.md 的 `ahead`）。 */
+const AHEAD_MESSAGE: MessageView = {kind: "user", id: "ahead-u", timestamp: conversationContext().now - 2_000, intent: "normal", delivery: "pending", ahead: 2, blocks: [{kind: "text", text: "保留雨夜那段对话，别删。\n\n再补一句：钟声要写十二下。"}], contentOmitted: false};
 
 /** 压缩分隔线的几种详情（docs/specs/ui/agent-conversation-view.md）：数字与字符串，适配器从事件里取。 */
 const compactionDivider = (id: string, patch: Partial<Extract<MessageView, {kind: "system"}>>): MessageView => ({kind: "system", id, timestamp: 900, source: "compaction", label: agentRef("harness.compaction"), text: "", ...patch});
@@ -291,6 +304,22 @@ export const agentConversationViewScenes: Scene[] = [
         id: "english",
         label: "英文界面",
         input: {props: {ctx: conversationContext(), teleportTarget: false, locale: "en-US"}, model: {viewMode: "turns"}},
+    },
+    {
+        id: "held",
+        label: "停止后留着的话（点继续或写字回车：自己的合成一条，日程的单独一条在前）",
+        input: {props: {ctx: conversationContext({composer: {...conversationContext().composer, queued: HELD_ZH}}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
+    },
+    {
+        // 排队区头行与标签宽度固定：英文原因长，按 390 宽看原因先截断、Continue 完整（ui-development 的第 5 条）。
+        id: "held-english",
+        label: "留着的话（英文）",
+        input: {props: {ctx: conversationContext({composer: {...conversationContext().composer, queued: HELD_EN}}), teleportTarget: false, locale: "en-US"}, model: {viewMode: "turns"}},
+    },
+    {
+        id: "ahead",
+        label: "合并的一条前面还有 2 条",
+        input: {props: {ctx: conversationContext({messages: [...conversationContext().messages, AHEAD_MESSAGE], run: {status: "running", phase: "正在思考", startedAt: conversationContext().now - 4_000}}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
     },
     {
         id: "plain",

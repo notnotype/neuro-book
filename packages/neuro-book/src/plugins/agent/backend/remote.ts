@@ -18,7 +18,7 @@ import {capLine, LINE_BYTES} from "@notnotype/nb-harness/kit/tools";
 
 import {PushThrottle} from "nbook/shared/push-throttle";
 
-import type {AgentService, ProfileAdmin} from "../shared/contracts";
+import type {AgentRuntimeService, ProfileAdmin} from "../shared/contracts";
 import type {Rule} from "../shared/permissions";
 import type {agentSessionsContract, ApprovalPreview, JobTail, RemoteCommandName} from "../shared/remote";
 import type {AncestorItem, JobItem} from "../shared/subagents";
@@ -42,7 +42,7 @@ const HOST_ONLY: ReadonlySet<string> = new Set(hostOnlyCommands);
 const COMMANDS = (Object.keys(commandErrors) as RemoteCommandName[]).filter((name) => !HOST_ONLY.has(name));
 
 export interface AgentRemoteOptions {
-    readonly service: AgentService;
+    readonly service: AgentRuntimeService;
     readonly profileAdmin: ProfileAdmin;
     readonly sessions: SessionTable;
     readonly clock: RuntimeClock;
@@ -254,6 +254,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         branchPoints: ({sessionId}, context) => whole(() => view(sessionId).branchPoints(), context) as never,
         siblings: ({sessionId, node}, context) => whole(() => view(sessionId).siblings({node}), context) as never,
         runResult: ({sessionId, runId}, context) => whole(() => view(sessionId).runResult({runId}), context) as never,
+        inputFate: ({sessionId, inputId}, context) => whole(() => view(sessionId).inputFate({inputId}), context) as never,
         preview: async ({sessionId, leaf}, context) => {
             try {
                 const preview = await view(sessionId).preview(leaf === undefined ? undefined : {leaf});

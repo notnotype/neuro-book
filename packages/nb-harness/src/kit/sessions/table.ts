@@ -9,7 +9,7 @@
  */
 
 import {commandErrors} from "../../kernel/contracts.js";
-import type {AgentHost, CreateSessionOptions, Frame, Issuer, SessionApi, StorageResult} from "../../kernel/contracts.js";
+import type {AgentHost, CreateSessionOptions, Frame, Issuer, SessionApi, SessionSnapshot, StorageResult} from "../../kernel/contracts.js";
 
 /**
  * 计时口：登记一次到点回调，交回的函数同步取消（取消之后回调不会再跑）。与宿主运行时的时钟同形（例如 nb-runtime 的
@@ -52,6 +52,8 @@ interface Entry {
      * （子代理向父 Agent 提问）用户没有要处理的，不算，宿主的 `userOnly` 认出的除外。
      */
     waiting: boolean;
+    /** 空闲、缓冲区里有只有用户能放行的留着的话（用户停止留下的，或用户自己的话留着）：活动里算作等用户（agent/sessions.md 输出 15）。 */
+    held: boolean;
     questions: "caller" | "user";
     /** `userOnly` 认出的提问的 id。 */
     userOnly: Set<string>;
@@ -65,7 +67,11 @@ interface Entry {
 }
 
 const COMMANDS = Object.keys(commandErrors) as (keyof typeof commandErrors)[];
-const QUERIES = ["snapshot", "log", "rewindTargets", "path", "siblings", "treeNodes", "branchPoints", "runResult", "preview", "diagnostics"] as const;
+const QUERIES = ["snapshot", "log", "rewindTargets", "path", "siblings", "treeNodes", "branchPoints", "runResult", "inputFate", "preview", "diagnostics"] as const;
+/** 改变缓冲区条目的事件：活动里“留着的话”要跟着重算。 */
+const BUFFER_EVENTS = new Set(["inputQueued", "inputHeld", "inputReleased", "inputRemoved", "inputConsumed", "inputEdited"]);
+/** 有没有只有用户能放行的留着的话：用户停止留下的，或用户自己的话留着（sessions.md 输出 15）。 */
+const heldForUser = (buffer: SessionSnapshot["buffer"]): boolean => buffer.some((item) => item.state === "held" && (item.heldBy?.kind === "user" || item.by === undefined));
 
 export interface SessionTableOptions {
     readonly host: AgentHost;
@@ -118,7 +124,7 @@ export class SessionTable {
         if (!created.ok) return created;
         const session = created.value;
         // 停止在建会话期间开始：照样登记，停止等这次建会话结束后关掉它。
-        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, questions: options.questions ?? "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, held: false, questions: options.questions ?? "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
         this.#entries.set(session.id, entry);
         this.#watch(entry, session);
         this.#maybeIdle(entry);
@@ -145,9 +151,12 @@ export class SessionTable {
         return api as unknown as SessionApi;
     }
 
-    /** 运行中与等用户的前台会话（sessions.md 输出 15）。只看打开着的：同步等待不会被空闲关闭，所以打开着的表就够。 */
-    activity(): {id: string; state: "running" | "waiting"}[] {
-        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.idle && !entry.background).map((entry) => ({id: entry.id, state: entry.waiting ? "waiting" : "running"}));
+    /**
+     * 运行中与等用户的前台会话（sessions.md 输出 15）。只看打开着的：同步等待不会被空闲关闭，所以打开着的表就够；空闲会话里留着的话
+     * 只在会话打开着时算（空闲关闭之后不再列出，已知限制）。
+     */
+    activity(): {id: string; state: "running" | "waiting" | "held"}[] {
+        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.background && (!entry.idle || entry.held)).map((entry) => ({id: entry.id, state: !entry.idle ? (entry.waiting ? "waiting" : "running") : "held"}));
     }
 
     /**
@@ -255,7 +264,7 @@ export class SessionTable {
                 continue;
             }
             if (entry === undefined) {
-                entry = {id, state: "opening", session: null, background: false, waiting: false, questions: "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+                entry = {id, state: "opening", session: null, background: false, waiting: false, held: false, questions: "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
                 entry.ready = this.#open(entry);
                 this.#entries.set(id, entry);
             }
@@ -285,12 +294,15 @@ export class SessionTable {
                 this.#entries.delete(entry.id);
                 return {ok: false, code: opened.code, ...(opened.detail === undefined ? {} : {detail: opened.detail})};
             }
-            const {header} = await opened.value.snapshot();
+            const {header, buffer} = await opened.value.snapshot();
             entry.background = header.background === true;
             entry.questions = header.questions;
             entry.session = opened.value;
             entry.state = "open";
+            // 空闲关闭或服务端重启之前留下的话：打开时就算，不等下一条缓冲区事件（sessions.md 输出 15）。
+            entry.held = heldForUser(buffer);
             this.#watch(entry, opened.value);
+            if (entry.held && !entry.background) this.#activityChanged();
             return {ok: true};
         } catch (error) {
             this.#entries.delete(entry.id);
@@ -304,6 +316,7 @@ export class SessionTable {
         entry.stopWatching = session.subscribe((frame) => {
             if (frame.type === "log") {
                 if (frame.event.type === "interactionRequested" && this.options.userOnly?.(frame.event.data) === true) entry.userOnly.add((frame.event.data as {id: string}).id);
+                if (BUFFER_EVENTS.has(frame.event.type)) void this.#refreshHeld(entry, session);
                 for (const listener of this.#logListeners) listener(entry.id, frame);
                 return;
             }
@@ -320,6 +333,19 @@ export class SessionTable {
                 entry.cancelIdle = null;
             }
         });
+    }
+
+    /** 缓冲区变了：按快照重算有没有只有用户能放行的留着的话。读快照失败（会话正在关闭）时不改，记一条诊断。 */
+    async #refreshHeld(entry: Entry, session: SessionApi): Promise<void> {
+        const snapshot = await session.snapshot().catch((error: unknown) => {
+            this.options.report("session-held-refresh-failed", `reading session ${entry.id} for held input threw`, {session: entry.id, message: error instanceof Error ? error.message : String(error)});
+            return null;
+        });
+        if (snapshot === null) return;
+        const held = heldForUser(snapshot.buffer);
+        if (held === entry.held) return;
+        entry.held = held;
+        this.#activityChanged();
     }
 
     #release(entry: Entry): void {

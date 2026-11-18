@@ -4,7 +4,7 @@
  * （最后一条 path 事件或 `leafChanged` 指向的节点）。
  */
 
-import type {BufferedInput, CoreSettings, Issuer, JsonValue, LogEvent, UserInput} from "../api/index.js";
+import type {BufferedInput, CoreSettings, HeldCause, Issuer, JsonValue, LogEvent, RunEndReason, UserInput} from "../api/index.js";
 import {initialHistory, reduceHistory, type HistoryState} from "./history.js";
 
 export interface PathKernelState {
@@ -24,7 +24,28 @@ export interface PathKernelState {
      * 压缩会切掉早先的步，`continue` 的上限不能跟着重置（extensions.md 输出 17）。
      */
     readonly continued: Readonly<Record<string, number>>;
+    /**
+     * 叶子上最后一次对话运行（只压缩的运行不算）：`start`、`resume` 判断能不能接着跑、谁能接着跑，`abort` 判断谁能停
+     * （runtime.md 输出 4、106、108）。按路径事实归约，回退、切分支后跟着叶子变；还没有对话运行时为 null。
+     */
+    readonly lastChat: LastChatRun | null;
+    /** 进行中的运行是谁开的（含只压缩的运行）；旧日志的 `runStarted` 没有 `by`，按用户算。没有运行时为 null。 */
+    readonly runBy: Issuer | null;
 }
+
+export interface LastChatRun {
+    readonly runId: string;
+    /** 开它的发出者；旧日志没有 `by` 时是用户（开发者 2026-11-18 定，不按第一条输入推断）。 */
+    readonly by: Issuer;
+    /** 收口方式；还没收口（在跑或暂停）时为 null。 */
+    readonly end: RunEndReason | null;
+    /** `abort` 停下时的停的人。 */
+    readonly stoppedBy: Issuer | null;
+    /** 这次运行的最后一轮以 `completed` 结束（之后没有开新的轮）。 */
+    readonly lastTurnCompleted: boolean;
+}
+
+const USER: Issuer = {kind: "user"};
 
 export interface PendingInteraction {
     readonly id: string;
@@ -36,23 +57,38 @@ export interface PendingInteraction {
     readonly within?: {readonly tool: string; readonly invocation: string};
 }
 
-export const initialPathKernel: PathKernelState = {history: initialHistory, run: null, openRequests: [], announced: null, resultRequested: false, pending: [], continued: {}};
+export const initialPathKernel: PathKernelState = {history: initialHistory, run: null, openRequests: [], announced: null, resultRequested: false, pending: [], continued: {}, lastChat: null, runBy: null};
 
 export function reducePathKernel(state: PathKernelState, event: LogEvent): PathKernelState {
     const history = reduceHistory(state.history, event);
-    let {run, openRequests, announced, resultRequested, pending, continued} = state;
+    let {run, openRequests, announced, resultRequested, pending, continued, lastChat, runBy} = state;
     const data = event.data as Record<string, unknown>;
     switch (event.type) {
-        case "runStarted":
+        case "runStarted": {
+            const by = (data.by as Issuer | undefined) ?? USER;
             run = {runId: data.runId as string, turnId: null};
+            runBy = by;
+            if (data.kind !== "compact") lastChat = {runId: data.runId as string, by, end: null, stoppedBy: null, lastTurnCompleted: false};
             break;
+        }
         case "runEnded":
+            if (lastChat !== null && lastChat.runId === data.runId) {
+                lastChat = {...lastChat, end: data.reason as RunEndReason, stoppedBy: (data.stoppedBy as Issuer | undefined) ?? null};
+            }
             run = null;
+            runBy = null;
             openRequests = [];
             break;
         case "turnStarted":
             run = run === null ? null : {...run, turnId: data.turnId as string};
+            if (lastChat !== null && run !== null && lastChat.runId === run.runId && lastChat.lastTurnCompleted) lastChat = {...lastChat, lastTurnCompleted: false};
             continued = {};
+            break;
+        case "turnEnded":
+            if (lastChat !== null && run !== null && lastChat.runId === run.runId) {
+                const completed = data.reason === "completed";
+                if (completed !== lastChat.lastTurnCompleted) lastChat = {...lastChat, lastTurnCompleted: completed};
+            }
             break;
         case "modelStarted":
             openRequests = [...openRequests, data.request as number];
@@ -78,8 +114,8 @@ export function reducePathKernel(state: PathKernelState, event: LogEvent): PathK
             pending = pending.filter((item) => item.id !== data.id);
             break;
     }
-    const same = history === state.history && run === state.run && openRequests === state.openRequests && announced === state.announced && resultRequested === state.resultRequested && pending === state.pending && continued === state.continued;
-    return same ? state : {history, run, openRequests, announced, resultRequested, pending, continued};
+    const same = history === state.history && run === state.run && openRequests === state.openRequests && announced === state.announced && resultRequested === state.resultRequested && pending === state.pending && continued === state.continued && lastChat === state.lastChat && runBy === state.runBy;
+    return same ? state : {history, run, openRequests, announced, resultRequested, pending, continued, lastChat, runBy};
 }
 
 export interface SessionKernelState {
@@ -108,8 +144,39 @@ export function initialSessionKernel(core: CoreSettings = DEFAULT_CORE_SETTINGS)
 export function reduceSessionKernel(state: SessionKernelState, event: LogEvent): SessionKernelState {
     const data = event.data as Record<string, unknown>;
     switch (event.type) {
-        case "inputQueued":
-            return {...state, buffer: [...state.buffer, {id: data.id as string, mode: data.mode as BufferedInput["mode"], input: data.input as UserInput, queuedAt: event.seq, edits: 0, ...(data.by === undefined ? {} : {by: data.by as Issuer})}]};
+        case "inputQueued": {
+            const entry: BufferedInput = {
+                id: data.id as string,
+                mode: data.mode as BufferedInput["mode"],
+                input: data.input as UserInput,
+                queuedAt: event.seq,
+                edits: 0,
+                state: data.state === "held" ? "held" : "ready",
+                ...(data.by === undefined ? {} : {by: data.by as Issuer}),
+                ...(data.commandId === undefined ? {} : {commandId: data.commandId as string}),
+                ...(data.state === "held" && data.cause !== undefined ? {cause: data.cause as HeldCause} : {}),
+            };
+            return {...state, buffer: [...state.buffer, entry]};
+        }
+        case "inputHeld": {
+            // 已经留着的不改原因与停的人（runtime.md 输出 109）：只转就绪的。
+            const ids = new Set(data.ids as string[]);
+            const heldBy = data.heldBy as Issuer | undefined;
+            const cause = data.cause as HeldCause;
+            return {...state, buffer: state.buffer.map((item) => (ids.has(item.id) && item.state === "ready" ? {...item, state: "held", cause, ...(heldBy === undefined ? {} : {heldBy})} : item))};
+        }
+        case "inputReleased": {
+            const ids = new Set(data.ids as string[]);
+            const followups = data.mode === "followups";
+            return {
+                ...state,
+                buffer: state.buffer.map((item) => {
+                    if (!ids.has(item.id) || item.state !== "held") return item;
+                    const {cause: _cause, heldBy: _heldBy, ...rest} = item;
+                    return {...rest, state: "ready", ...(followups ? {mode: "followup" as const} : {})};
+                }),
+            };
+        }
         case "inputEdited":
             return {...state, buffer: state.buffer.map((item) => (item.id === data.id ? {...item, input: data.input as UserInput, edits: item.edits + 1} : item))};
         case "inputRemoved":

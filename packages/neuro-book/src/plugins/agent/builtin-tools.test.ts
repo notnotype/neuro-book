@@ -534,7 +534,7 @@ describe("ask", () => {
         endpoint.script({tool: "ask", args: {questions: QUESTIONS}}, "好");
         const started = await w.service.startTask({taskId: crypto.randomUUID(), profile: ASK_FORM, input: {text: "问"}, background: true});
         if (!started.ok) throw new Error(started.code);
-        const background = w.service.session(started.sessionId, {kind: "user"});
+        const background = w.service.session(started.sessionId);
         await background.waitRun(started.runId);
         const events = await background.path();
         expect(events.some((event) => event.type === "interactionRequested")).toBe(false);

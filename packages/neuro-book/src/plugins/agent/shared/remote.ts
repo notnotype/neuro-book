@@ -14,7 +14,7 @@ import type {Static, TSchema} from "typebox";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
+import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputFate, InputMode, LogEvent, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
 import type {FilePreview} from "@notnotype/nb-harness/kit/shapes";
 
 import {TASK_ID} from "./contracts";
@@ -40,6 +40,7 @@ const COMMAND_DETAILS = {
     "already-running": Type.Object({runId: Type.String()}, {additionalProperties: false}),
     running: Type.Object({runId: Type.String()}, {additionalProperties: false}),
     "dependency-missing": Type.Object({extension: Type.String(), dependency: Type.String()}, {additionalProperties: false}),
+    "nothing-to-release": Type.Object({ids: Type.Array(Type.String())}, {additionalProperties: false}),
 } as const;
 type DetailCode = keyof typeof COMMAND_DETAILS;
 
@@ -77,9 +78,17 @@ const Attachment = Type.Object({
 const Input = Type.Object({text: Type.String(), payload: Type.Optional(Json), attachments: Type.Optional(Type.Array(Attachment))}, {additionalProperties: false});
 const Mode = Type.Unsafe<InputMode>(Type.Union([Type.Literal("steer"), Type.Literal("followup")]));
 
+/** 放行出来的话怎么跑（harness/runtime.md 输出 105）。 */
+const ReleaseMode = Type.Union([Type.Literal("keep"), Type.Literal("followups")]);
+
 /** 各指令的参数（不含会话 id 与 `commandId`），逐个写字段：与内核的 `CommandMap` 由下面的类型核对锁住。 */
 const commandArgs = {
-    send: {input: Input, mode: Type.Optional(Mode)},
+    send: {
+        input: Input,
+        mode: Type.Optional(Mode),
+        release: Type.Optional(ReleaseMode),
+        replaces: Type.Optional(Type.Array(Type.Object({id: Type.String(), edits: Type.Integer({minimum: 0})}, {additionalProperties: false}))),
+    },
     enqueue: {input: Input, mode: Mode},
     edit: {inputId: Type.String(), input: Input},
     remove: {inputId: Type.String()},
@@ -90,6 +99,8 @@ const commandArgs = {
         note: Type.Optional(Type.String()),
     },
     start: {},
+    resume: {mode: Type.Optional(ReleaseMode)},
+    release: {inputIds: Type.Array(Type.String())},
     abort: {keepQueue: Type.Optional(Type.Boolean())},
     rewind: {to: Nullable(Type.String()), resend: Type.Optional(Input)},
     switchBranch: {node: Type.String()},
@@ -130,7 +141,8 @@ export type LogItem = {readonly kind: "event"; readonly event: LogEvent} | {read
 export type PreviewItem = {readonly kind: "inline"; readonly preview: PreviewResult} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
 
 /** `root`：这个会话所在会话树的根（自己就是根时是自己），状态栏按根数“运行中”（sessions.md 输出 19）。 */
-export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting"; readonly root: string};
+/** `held`：空闲、有只有用户能放行的留着的话（sessions.md 输出 15）。 */
+export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting" | "held"; readonly root: string};
 
 /** `list` 的条目：会话头的调用方是会话时带 `parent`（sessions.md 输出 18）。 */
 export type ListedSession = SessionIndexEntry & {readonly parent?: string};
@@ -203,6 +215,7 @@ const methods = {
     branchPoints: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<BranchPoint[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
     siblings: {input: Type.Object({...BySession, node: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<{node: string; latestLeaf: string}[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
     runResult: {input: Type.Object({...BySession, runId: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<RunResult | null>(Type.Unknown()), effect: "read", errors: wholeErrors},
+    inputFate: {input: Type.Object({...BySession, inputId: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<InputFate | null>(Type.Unknown()), effect: "read", errors: wholeErrors},
     preview: {
         input: Type.Object({...BySession, leaf: Type.Optional(Nullable(Type.String()))}, {additionalProperties: false}),
         output: object<PreviewItem>(),
@@ -324,10 +337,10 @@ export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessi
 type ArgsOf<K extends RemoteCommandName> = Static<ReturnType<typeof Type.Object<(typeof commandArgs)[K]>>>;
 type Matches<K extends RemoteCommandName> = [keyof ArgsOf<K>] extends [keyof CommandMap[K]["args"]] ? ([keyof CommandMap[K]["args"]] extends [keyof ArgsOf<K>] ? (ArgsOf<K> extends CommandMap[K]["args"] ? true : false) : false) : false;
 const argsMatchKernel: {readonly [K in RemoteCommandName]: Matches<K>} = {
-    send: true, enqueue: true, edit: true, remove: true, resolve: true, start: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
+    send: true, enqueue: true, edit: true, remove: true, resolve: true, start: true, resume: true, release: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
 };
 const detailsMatchKernel: {readonly [C in DetailCode]: CommandErrorDetails[C] extends Static<(typeof COMMAND_DETAILS)[C]> ? true : false} = {
-    "input-rejected": true, "already-answered": true, "invalid-value": true, "unknown-key": true, "already-running": true, running: true, "dependency-missing": true,
+    "input-rejected": true, "already-answered": true, "invalid-value": true, "unknown-key": true, "already-running": true, running: true, "dependency-missing": true, "nothing-to-release": true,
 };
 const allDetailCodesListed: [Exclude<keyof CommandErrorDetails, DetailCode>] extends [never] ? true : false = true;
 void argsMatchKernel;

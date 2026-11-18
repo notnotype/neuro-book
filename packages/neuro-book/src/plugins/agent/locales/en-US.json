@@ -110,6 +110,21 @@
             "title": "Model request retries",
             "description": "How many times a failed model request is sent again; 0 turns retries off"
         },
+        "resumeMode": {
+            "title": "Sending held messages when you continue",
+            "description": "How messages paused in the queue after a stop or an error are sent when you press Continue or Enter",
+            "choices": {
+                "merge": {
+                    "title": "Merge into one message"
+                },
+                "keep": {
+                    "title": "Keep steers and queued messages as they were"
+                },
+                "followups": {
+                    "title": "Send in queue order"
+                }
+            }
+        },
         "warnCost": {
             "title": "Cost warning (USD)",
             "description": "Warns once when this session's cost reaches this amount; 0 turns it off. Models without a price are not counted"
@@ -179,6 +194,9 @@
                 },
                 "subagents": {
                     "title": "Sub-agents and background jobs"
+                },
+                "resume": {
+                    "title": "Continue"
                 }
             }
         },
@@ -388,6 +406,35 @@
         "requests": {
             "open": "View model requests",
             "openThis": "View this request"
+        },
+        "held": {
+            "completed": "The last turn ended",
+            "finished": "After the result was handed back",
+            "error": "The last turn failed",
+            "stoppedByYou": "You stopped this turn",
+            "stoppedByAgent": "The agent that started it stopped it",
+            "stoppedByHost": "{{name}} stopped it",
+            "interrupted": "The last run was interrupted",
+            "idle": "Queued while idle",
+            "notStarted": "The run couldn't start: {{reason}}",
+            "unknown": "The last turn didn't end normally",
+            "codes": {
+                "no-model": "no model is available",
+                "no-credentials": "the model provider has no key",
+                "unknown-model": "the model wasn't found",
+                "role-unbound": "the model role isn't bound to a model",
+                "profile-invalid": "the profile has errors",
+                "read-only": "the session is read-only",
+                "session-closing": "the session is closing",
+                "reassembly-pending": "extensions are updating",
+                "log-broken": "the session log can't be written",
+                "not-allowed": "not allowed to continue",
+                "internal": "an internal error occurred"
+            }
+        },
+        "continue": {
+            "stopped": "This run already ended; the merged message wasn't sent. You can continue again.",
+            "failed": "Couldn't continue ({{code}})."
         }
     },
     "views": {

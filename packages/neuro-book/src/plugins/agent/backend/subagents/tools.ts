@@ -12,13 +12,13 @@
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
 
-import type {AnyProfile, Issuer, JsonValue, ModelPort, SessionApi, SessionSnapshot, ToolContext, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {AnyProfile, Clock, HeldCause, Issuer, JsonValue, ModelPort, SessionApi, SessionSnapshot, ToolContext, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 import {failed} from "@notnotype/nb-harness/kit/files";
-import {SessionUnavailable, type SessionTable} from "@notnotype/nb-harness/kit/sessions";
+import {SessionTableStopping, SessionUnavailable, type SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
-import type {AgentService, ProfileEntry} from "../../shared/contracts";
+import type {AgentRuntimeService, ProfileEntry} from "../../shared/contracts";
 import {AGENT_MODES_EXTENSION} from "../../shared/permissions";
 import type {AgentMode} from "../../shared/permissions";
 import {profileAgents} from "../../shared/profile-agents";
@@ -32,6 +32,7 @@ import {watchSteer, type SteerWatch} from "../jobs/steer";
 import {modesContract} from "../permissions/modes";
 import type {ChildRuns, SaveFull} from "./children";
 import {asyncQuestionsOf} from "./children";
+import {watchFate, type SettledFate} from "./fate";
 import {SPAWN_TOOL} from "./prompt";
 import type {SessionRelations} from "./relations";
 import {isModeSwitch, pendingOf, resultOf} from "./result";
@@ -122,7 +123,7 @@ export const SUBAGENT_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<
 
 export interface SubagentToolDeps {
     readonly table: SessionTable;
-    readonly service: AgentService;
+    readonly service: AgentRuntimeService;
     readonly relations: SessionRelations;
     readonly jobs: JobCenter;
     readonly children: ChildRuns;
@@ -135,6 +136,8 @@ export interface SubagentToolDeps {
     /** `nbook.agent` 开始停止之后为真（输出 16：这时不对子会话发中止）。 */
     readonly stopping: () => boolean;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    /** 前台等 `later` 的话的去向时计超时（输出 6），与任务中心同一个时钟。 */
+    readonly clock: Pick<Clock, "wait" | "now">;
 }
 
 /**
@@ -162,6 +165,14 @@ const isFailure = (value: unknown): value is Failure => typeof value === "object
 function failure(code: string, text: string, sessionId?: string): ToolResult {
     const result = failed(code, `${code}: ${text}`);
     return sessionId === undefined ? result : {...result, details: {code, sessionId}};
+}
+
+/** 话为什么留着，写给父 Agent（subagents.md 输出 10）。带码的是收口批没开起下一次运行（harness/runtime.md 输出 104）。 */
+function heldText(cause: HeldCause): string {
+    if ("queued" in cause) return cause.code === undefined ? "这句话没有被处理，留着（子会话的叶子停在别人开的运行中途）。" : `子会话的运行没开起来（${cause.code}），这句话没有被处理，留着。`;
+    if (cause.code !== undefined) return `子会话这一轮收口后，下一次运行没开起来（${cause.code}），这句话没有被处理，留着。`;
+    const why: Readonly<Record<string, string>> = {finished: "子会话已交出结果", completed: "子会话这一轮已结束", error: "子会话这一轮出错了", aborted: "子会话这一轮被停止了", interrupted: "子会话这一轮被中断了"};
+    return `${why[cause.end] ?? "子会话这一轮没有正常结束"}，这句话没有被处理，留着。`;
 }
 
 /** 内核与存储的失败原样交回（“失败与恢复”的最后一段）。 */
@@ -244,7 +255,7 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
         let delivered = false;
         let steer: SteerWatch | null = null;
         try {
-            steer = await watchSteer(deps.table, job.owner);
+            steer = await watchSteer(deps.table, job.owner, (error) => noteFailure("steer-watch-failed", job.owner, error));
             const outcome = await deps.jobs.follow(job, {timeoutMs: timeoutMs(args), signal: call.signal, interrupted: steer.arrived, ...(answered === undefined ? {} : {answered})});
             if (outcome === "ended" || outcome === "question") {
                 const result = await deps.children.report(job);
@@ -431,23 +442,169 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
         const message = typeof args.message === "string" ? args.message : undefined;
         const queue = args.queue === true;
         const foreground = !queue && args.async !== true;
+        let sent: {readonly inputId: string; readonly placement: "taken" | "later" | "held"; readonly title: string} | null = null;
         const outcome = await runOnChild(parent, child, call, services, foreground, {
             check: async (_view, snapshot) => stoppingChild(snapshot, child, "话没有放进去")
                 ?? (message === undefined && snapshot.status.state !== "idle" ? failure("already-running", `子会话 ${child} 在跑；用 wait 等它，或带 message 插话。`, child) : null),
-            issue: async (view) => {
-                if (message === undefined) {
-                    const started = await view.start({commandId: call.invocation});
-                    return started.ok ? {runId: started.value.runId, ownRun: true} : {failure: passthrough(started, `子会话 ${child} 没能继续`, child)};
-                }
-                const sent = await view.send({commandId: call.invocation, input: {text: message}, mode: queue ? "followup" : "steer"});
+            issue: async (view, snapshot) => {
+                if (message === undefined) return continueChild(view, child, call);
+                const accepted = await view.send({commandId: call.invocation, input: {text: message}, mode: queue ? "followup" : "steer"});
+                if (!accepted.ok) return {failure: passthrough(accepted, `话没有放进子会话 ${child}`, child)};
+                sent = {inputId: accepted.value.inputId, placement: accepted.value.placement, title: snapshot.title ?? child};
+                // 按去向认任务（subagents.md 输出 10），不按 `currentRunId`：`held` 的话没有运行会跑它；`later` 的话由正在收口的运行之后开的那次
+                // 取走，在 lane 外等（不占着这个子会话的 lane，`queue`、`async` 立即交回）。
+                if (accepted.value.placement !== "taken") return {runId: null, ownRun: false};
                 // 交回的 `runId` 是这次开的或接着跑的（算调用方开的）；插进别人的运行时是 `currentRunId`。
-                return sent.ok ? {runId: sent.value.runId ?? sent.value.currentRunId ?? null, ownRun: sent.value.runId !== null} : {failure: passthrough(sent, `话没有放进子会话 ${child}`, child)};
+                return {runId: accepted.value.runId ?? accepted.value.currentRunId ?? null, ownRun: accepted.value.runId !== null};
             },
         });
         if (isFailure(outcome)) return outcome.failure;
-        if (outcome.job === null) return untracked(child, outcome.runId, call, "话已送达");
-        return settle(outcome.job, call, args, foreground);
+        const view = deps.table.view(child, issuerOf(parent));
+        // `sent` 在 `issue` 回调里赋值，控制流分析看不到，按声明的类型重新取。
+        const delivered = sent as {readonly inputId: string; readonly placement: "taken" | "later" | "held"; readonly title: string} | null;
+        if (delivered?.placement === "later") return withNotes(await afterLater(parent, child, delivered.inputId, delivered.title, call, services, args, foreground), await pausedNotes(view, parent));
+        if (delivered?.placement === "held") {
+            const fate = await view.inputFate({inputId: delivered.inputId}).catch((error: unknown) => noteFailure("subagent-fate-failed", child, error));
+            const why = fate !== null && "held" in fate ? heldText(fate.held) : "这句话没有被处理，留着。";
+            return withNotes(await untracked(child, null, call, why), await pausedNotes(view, parent));
+        }
+        const result = outcome.job === null ? await untracked(child, outcome.runId, call, "话已送达") : await settle(outcome.job, call, args, foreground);
+        // 跟着任务等完的：这句话可能在那次运行收口时还没被取走、转成留着（输出 10）。
+        const notes = foreground && delivered !== null && outcome.job !== null ? await takenThenHeld(view, child, delivered.inputId) : [];
+        return withNotes(result, [...notes, ...await pausedNotes(view, parent)]);
     };
+
+    /**
+     * 去向 `later` 的话（输出 10 的最后几句）：后台立即交回，不登记任务（已知限制）；前台等这句话的去向，与 `settle` 一样受父会话中止、
+     * 超时与插话约束。被取走后补占名额、登记任务接着等；占不到名额时同 `untracked`。
+     */
+    const afterLater = async (parent: string, child: string, inputId: string, title: string, call: ToolContext, services: AgentToolServices, args: Readonly<Record<string, unknown>>, foreground: boolean): Promise<ToolResult> => {
+        const queuedNote = `子会话正在收口（例如在压缩），这句话排在它之后，由之后开的运行处理；这次运行没有登记成任务，打开 sessions://${child}/ 看它`;
+        // 子会话还在跑（收口中），按 `running` 交回（输出 10 的 `queue: true`）；没有任务可 `wait`。
+        const queued = (why?: string): ToolResult => {
+            const result = resultOf({sessionId: child, invocation: call.invocation, status: "running", note: why === undefined ? queuedNote : `${why}。${queuedNote}`});
+            return {text: result.text, details: result.details};
+        };
+        if (!foreground) return queued();
+        const view = deps.table.view(child, issuerOf(parent));
+        // 前台等的总时长是 `timeout`：等去向用掉的，从之后跟任务的等待里扣掉。
+        const startedAt = deps.clock.now();
+        let fate: Awaited<ReturnType<typeof watchFate>>;
+        try {
+            fate = await watchFate(deps.table, child, inputId, issuerOf(parent), (error) => noteFailure("subagent-fate-failed", child, error));
+        } catch (error) {
+            // `nbook.agent` 正在停止：话已经送进子会话，只是等不了它的去向。
+            if (error instanceof SessionTableStopping) return unavailable();
+            throw error;
+        }
+        const steer = await watchSteer(deps.table, parent, (error) => noteFailure("steer-watch-failed", parent, error)).catch((error: unknown) => {
+            fate.release();
+            throw error;
+        });
+        const timer = new AbortController();
+        const stop = new AbortController();
+        try {
+            const ended = await new Promise<SettledFate | "aborted" | "interrupted" | "timeout">((resolve) => {
+                fate.settled.then(resolve, () => undefined);
+                steer.arrived.then(() => resolve("interrupted"), () => undefined);
+                deps.clock.wait(timeoutMs(args), timer.signal).then(() => resolve("timeout"), () => undefined);
+                if (call.signal.aborted) resolve("aborted");
+                else call.signal.addEventListener("abort", () => resolve("aborted"), {once: true, signal: stop.signal});
+            });
+            if (ended === "aborted") {
+                // 父会话中止，这句话跟着撤（输出 16）：还没被取走就以父会话的身份取消；已经被同一刻开的运行取走，就登记任务、按任务的中止收口
+                // （父会话自己开的运行跟着停）。
+                const withdrawn = await view.remove({commandId: `${call.invocation}-withdraw`, inputId}).catch((error: unknown) => noteFailure("subagent-withdraw-failed", child, error));
+                if (withdrawn?.ok === true) {
+                    const aborted = resultOf({sessionId: child, invocation: call.invocation, status: "aborted", note: "你的运行被中止了；这句话还没被子会话处理，已经撤回"});
+                    return {text: aborted.text, details: aborted.details};
+                }
+                const now = await view.inputFate({inputId}).catch((error: unknown) => noteFailure("subagent-fate-failed", child, error));
+                if (now !== null && "taken" in now && now.taken !== null) {
+                    const job = adopt(parent, child, now.taken, null, await openedBy(view, now.taken, parent), call, services, title);
+                    if (job !== null) {
+                        deps.jobs.attach(job);
+                        return settle(job, call, args, true);
+                    }
+                }
+                const aborted = resultOf({sessionId: child, invocation: call.invocation, status: "aborted", note: "你的运行被中止了，没有等子会话收口"});
+                return {text: aborted.text, details: aborted.details};
+            }
+            if (ended === "interrupted" || ended === "timeout") {
+                return queued(ended === "interrupted" ? "用户插话了，先处理用户的话" : `等了 ${String(timeoutMs(args) / 1000)} 秒子会话还没收口`);
+            }
+            if ("held" in ended) return untracked(child, null, call, heldText(ended.held));
+            if ("removed" in ended) return untracked(child, null, call, `这句话被取消了（${ended.removed}），没有被处理`);
+            if (ended.taken === null) return untracked(child, null, call, "话已送达");
+            // 收口批开的下一次运行，推迟的指令里有用户时由用户开（harness/runtime.md 输出 104）：按开它的人认，用户开的不连带中止（输出 16）。
+            const job = adopt(parent, child, ended.taken, null, await openedBy(view, ended.taken, parent), call, services, title);
+            if (job === null) return untracked(child, ended.taken, call, "话已送达");
+            deps.jobs.attach(job);
+            const left = Math.max(1, Math.ceil((timeoutMs(args) - (deps.clock.now() - startedAt)) / 1000));
+            return settle(job, call, {...args, timeout: left}, true);
+        } finally {
+            timer.abort();
+            stop.abort();
+            fate.release();
+            steer.release();
+        }
+    };
+
+    /** 这次运行是不是父会话开的（`runStarted.by`）：决定父会话中止时连不连带（输出 16）。 */
+    const openedBy = async (view: SessionApi, runId: string, parent: string): Promise<boolean> => {
+        const started = (await view.path()).find((event) => event.type === "runStarted" && (event.data as {runId?: string}).runId === runId);
+        const by = (started?.data as {by?: Issuer} | undefined)?.by;
+        return by?.kind === "session" && by.id === parent;
+    };
+
+    /**
+     * 不带话的 `agent_send`（subagents.md 输出 10）：能接着跑父会话开的那次运行就先 `start`，再 `resume` 放行父会话自己排的；
+     * 只有留着的话时只 `resume`。用户停止的运行与用户留下的话只有用户能动，写明；别的失败原样交回。
+     */
+    const continueChild = async (view: SessionApi, child: string, call: ToolContext): Promise<{readonly runId: string | null; readonly ownRun: boolean} | Failure> => {
+        const started = await view.start({commandId: call.invocation});
+        if (started.ok) {
+            // 接着跑之后放行父会话留着的话；没有可放的是常态，别的失败只记诊断：运行已经开了，任务照常认。
+            const released = await view.resume({commandId: `${call.invocation}-release`});
+            if (!released.ok && released.code !== "nothing-to-resume" && released.code !== "held-by-user") deps.report("subagent-release-failed", `releasing held input in sub-agent session ${child} failed: ${released.code}`, {session: child, code: released.code});
+            return {runId: started.value.runId, ownRun: true};
+        }
+        if (started.code !== "nothing-to-continue" && started.code !== "not-allowed") return {failure: passthrough(started, `子会话 ${child} 没能继续`, child)};
+        const resumed = await view.resume({commandId: `${call.invocation}-resume`});
+        if (resumed.ok) return {runId: resumed.value.runId, ownRun: true};
+        if (resumed.code === "held-by-user") return {failure: failure("held-by-user", `子会话 ${child} 里留着的话是用户停止时留下的，只有用户能放行。`, child)};
+        if (resumed.code !== "nothing-to-resume") return {failure: passthrough(resumed, `子会话 ${child} 没能继续`, child)};
+        if (started.code === "not-allowed") {
+            // 叶子上最后一次对话运行（不算只压缩的）的收口：内核按它判能不能接着跑（harness/runtime.md 输出 4）。
+            const path = await view.path();
+            const chat = path.findLast((event) => event.type === "runStarted" && (event.data as {kind?: string}).kind !== "compact")?.data as {runId?: string} | undefined;
+            const ended = path.findLast((event) => event.type === "runEnded" && (event.data as {runId?: string}).runId === chat?.runId)?.data as {stoppedBy?: Issuer} | undefined;
+            return {failure: failure("not-allowed", ended?.stoppedBy?.kind === "user" ? `子会话 ${child} 的上一次运行被用户停止，只有用户能接着跑。` : `子会话 ${child} 的上一次运行不是你开的，你不能接着跑；带 message 发新的话。`, child)};
+        }
+        return {failure: failure("nothing-to-continue", `子会话 ${child} 没有可以继续的运行，也没有留着的话；带 message 发新的话。`, child)};
+    };
+
+    /** 读会话（去向、快照）失败：记一条诊断，交回 null；读它的只是补充说明或一次到达判断，不挡结果。 */
+    const noteFailure = (code: string, session: string, error: unknown): null => {
+        deps.report(code, `reading session ${session} threw`, {session, message: error instanceof Error ? error.message : String(error)});
+        return null;
+    };
+
+    /** 跟着任务等完之后：这句话没被那次运行取走、转成留着时写明原因。 */
+    const takenThenHeld = async (view: SessionApi, child: string, inputId: string): Promise<string[]> => {
+        const fate = await view.inputFate({inputId}).catch((error: unknown) => noteFailure("subagent-fate-failed", child, error));
+        return fate !== null && "held" in fate ? [heldText(fate.held)] : [];
+    };
+
+    /** 子会话里有父会话排的话被用户暂停时，写给父 Agent 的说明（subagents.md 输出 10）。 */
+    const pausedNotes = async (view: SessionApi, parent: string): Promise<string[]> => {
+        const buffer = (await view.snapshot().catch((error: unknown) => noteFailure("subagent-snapshot-failed", view.id, error)))?.buffer ?? [];
+        const paused = buffer.filter((item) => item.state === "held" && item.heldBy?.kind === "user" && item.by?.kind === "session" && item.by.id === parent).length;
+        return paused > 0 ? [`子会话里有 ${paused} 条你排的话被用户暂停，未发出。`] : [];
+    };
+
+    const withNotes = (result: ToolResult, notes: readonly string[]): ToolResult => (notes.length === 0 ? result : {...result, text: [result.text, ...notes].join("\n")});
+
 
     const answer = async (context: ToolSessionContext, services: AgentToolServices, args: Readonly<Record<string, unknown>>, call: ToolContext): Promise<ToolResult> => {
         const parent = context.sessionId;

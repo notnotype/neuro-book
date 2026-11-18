@@ -125,6 +125,26 @@ describe("会话的句柄表", () => {
         await table.stop();
     });
 
+    test("输出 15：用户停止留下的话进活动（held）；空闲关闭之后再打开会话，打开时就算出来", async () => {
+        const {table, model, clock, closed} = await setup();
+        model.script({text: "半句话", hold: true});
+        const view = table.view("s-1");
+        const sent = await view.send({commandId: "c-1", input: {text: "你好"}});
+        expect(sent.ok).toBe(true);
+        await waitUntil("开始运行", () => table.activity().length === 1);
+        expect((await view.enqueue({commandId: "c-2", input: {text: "排着的"}, mode: "followup"})).ok).toBe(true);
+        expect((await view.abort({commandId: "c-3", keepQueue: true})).ok).toBe(true);
+        await waitUntil("停下后留着", () => table.activity()[0]?.state === "held");
+        clock.advance(IDLE_CLOSE_MS);
+        await waitUntil("空闲后关闭", () => closed.length === 1);
+        expect(table.activity()).toEqual([]);
+        const subscribed = await table.subscribeOpened("s-1", {kind: "user"}, () => undefined);
+        if (!subscribed.ok) throw new Error(subscribed.code);
+        expect(table.activity()).toEqual([{id: "s-1", state: "held"}]);
+        subscribed.release();
+        await table.stop();
+    });
+
     test("输出 14：停止关掉打开着的会话，之后的调用以 unavailable 被拒", async () => {
         const {table, closed} = await setup();
         await table.view("s-1").snapshot();

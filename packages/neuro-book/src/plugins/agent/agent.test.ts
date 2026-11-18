@@ -25,6 +25,21 @@ import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
 import type {AgentWorld} from "./testing/world";
 
+/**
+ * 关掉整个世界之后经门面的调用：调用方（测试的探针插件）先于 `nbook.agent` 停，它拿着的按调用方门面随之作废
+ * （runtime/services.md 输出 12）。`nbook.agent` 的停止门（unavailable）在这个先后里从门面与远程都碰不到（远程先断开，得 cancelled），
+ * 由句柄表的测试守着（kit/sessions/table.test.ts）。
+ */
+const revoked = (error: unknown): boolean => error instanceof Error && error.name === "ServiceRevokedError";
+function thrownBy(call: () => unknown): unknown {
+    try {
+        call();
+    } catch (error) {
+        return error;
+    }
+    return null;
+}
+
 let root = "";
 let counter = 0;
 let endpoint: FakeEndpoint;
@@ -348,7 +363,7 @@ describe("会话", () => {
         await waitUntil("取消订阅后空闲关闭", async () => !(await locked(w, session.id)));
     });
 
-    test("输出 14：停止时还在建的会话也会被关上、锁放掉；停止之后服务的每个入口都得 unavailable", async () => {
+    test("输出 14：停止时还在建的会话也会被关上、锁放掉；停止之后经门面的每个入口都抛 ServiceRevokedError", async () => {
         let entered!: () => void;
         const mounting = new Promise<void>((resolve) => {
             entered = resolve;
@@ -373,11 +388,11 @@ describe("会话", () => {
         const id = created.ok ? created.value.id : null;
         if (id !== null) expect(await locked(w, id)).toBe(false);
         for (const call of [() => w.service.list(), () => w.service.profiles(), () => w.service.running(), () => w.service.session("x")]) {
-            expect(() => call()).toThrow(expect.objectContaining({code: "unavailable"}));
+            expect(revoked(thrownBy(call))).toBe(true);
         }
     });
 
-    test("输出 14：停止时运行中的会话按 interrupted 关闭，之后的调用得 unavailable", async () => {
+    test("输出 14：停止时运行中的会话按 interrupted 关闭，之后经门面的调用抛 ServiceRevokedError", async () => {
         const w = await world([profilesPlugin({count: 0})]);
         const session = await createSession(w);
         const hold = endpoint.hold();
@@ -388,7 +403,7 @@ describe("会话", () => {
         const closing = w.close();
         hold.release();
         await closing;
-        await expect(w.service.create({profile: WRITER})).rejects.toMatchObject({code: "unavailable"});
+        expect(revoked(await (async () => w.service.create({profile: WRITER}))().then(() => null, (error: unknown) => error))).toBe(true);
         const store = createJsonlStore({root: join(w.stateRoot, "agent", "sessions")});
         const opened = await store.open(session.id);
         if (!opened.ok) throw new Error(opened.code);

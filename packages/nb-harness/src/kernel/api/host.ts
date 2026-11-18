@@ -9,7 +9,7 @@
 import type {Attributed, Clock, Issuer, JsonValue, UserInput} from "./basics.js";
 import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.js";
 import type {Resources} from "./ctx.js";
-import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
+import type {EntryPoint, HeldCause, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
 import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionChoice, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
@@ -29,9 +29,20 @@ export interface CommandMap {
     /**
      * `runId` 是这次开始或接着跑的运行，入队进在跑的运行时为 null，这时 `currentRunId` 是那次运行（runtime.md 输出 88）。
      */
-    send: {args: {input: UserInput; mode?: InputMode}; value: {inputId: string; runId: string | null; currentRunId?: string}};
-    /** 只入队，不开始。会话有在跑或暂停的运行时 `currentRunId` 是它。 */
-    enqueue: {args: {input: UserInput; mode: InputMode}; value: {inputId: string; position: number; currentRunId?: string}};
+    /**
+     * `release` 是放行出来的话怎么跑（缺省 `keep`），`replaces` 是条件替换的留着的话（runtime.md 输出 105、107）；
+     * `placement` 是这条话受理时的去向（输出 110）。
+     */
+    send: {args: {input: UserInput; mode?: InputMode; release?: ReleaseMode; replaces?: readonly {id: string; edits: number}[]}; value: {inputId: string; runId: string | null; currentRunId?: string; placement: Placement}};
+    /**
+     * 入队。有运行在取输入时只入队；空闲时用户的入队等同 `send`（交回开的运行），会话、宿主的写成留着（输出 3）。
+     * 会话有在跑或暂停的运行时 `currentRunId` 是它。
+     */
+    enqueue: {args: {input: UserInput; mode: InputMode}; value: {inputId: string; position: number; currentRunId?: string; runId?: string; placement: Placement}};
+    /** 只放行、不送新话（输出 106）；空闲时开运行或接着跑中断与暂停的运行。 */
+    resume: {args: {mode?: ReleaseMode}; value: {runId: string | null; released: string[]}};
+    /** 按条放行（输出 107）。 */
+    release: {args: {inputIds: string[]}; value: {runId: string | null; released: string[]}};
     edit: {args: {inputId: string; input: UserInput}; value: {}};
     remove: {args: {inputId: string}; value: {}};
     /** 应答等用户的事项。`answer` 只给提问；`note` 是拒绝时附给模型的话。 */
@@ -58,6 +69,15 @@ export interface CommandMap {
     setGeneratedMeta: {args: {title?: string; description?: string}; value: {titleApplied: boolean}};
 }
 export type CommandName = keyof CommandMap;
+
+/** 放行出来的话怎么跑：`keep` 各保持原模式，`followups` 都转成排队。 */
+export type ReleaseMode = "keep" | "followups";
+
+/** `send` 交回的话的去向（runtime.md 输出 110）。 */
+export type Placement = "taken" | "later" | "held";
+
+/** 一条输入的结局（`inputFate`）：被哪次运行取走、留着、被移除、还在缓冲区里就绪。 */
+export type InputFate = {readonly taken: string | null} | {readonly held: HeldCause} | {readonly removed: string} | {readonly pending: true};
 export type CommandErrorCode<K extends CommandName> = CommandErrorTable[K][number];
 
 /** 按码给的失败详情；没列出的码没有 `detail`。 */
@@ -69,6 +89,7 @@ export interface CommandErrorDetails {
     "already-running": {runId: string};
     running: {runId: string};
     "dependency-missing": {extension: string; dependency: string};
+    "nothing-to-release": {ids: string[]};
 }
 type DetailOf<C extends string> = C extends keyof CommandErrorDetails ? {detail: CommandErrorDetails[C]} : {detail?: undefined};
 
@@ -125,8 +146,16 @@ export interface BufferedInput {
     /** 入队时的 seq，缓冲区按它排。 */
     queuedAt: number;
     edits: number;
-    /** 别的会话以自己的身份发进来的（父会话给子会话放话）；用户发的没有（runtime.md 输出 85）。 */
+    /** 会话或宿主以自己的身份发进来的；用户发的没有（runtime.md 输出 85）。 */
     by?: Issuer;
+    /** 受理它的指令；旧日志没有。 */
+    commandId?: string;
+    /** 就绪的会被运行取走；留着的要放行（runtime.md 输出 103）。旧日志的条目都是就绪的。 */
+    state: "ready" | "held";
+    /** 留着的原因；只在留着时有。 */
+    cause?: HeldCause;
+    /** 停止时留下的停的人；只在留着、且是停止留下的时有。 */
+    heldBy?: Issuer;
 }
 
 export interface ExtensionInfo {
@@ -236,6 +265,8 @@ export interface SessionQueries {
     /** 与 `node` 同一个父节点的兄弟（重试与 swipe 的结果）。 */
     siblings(args: {node: string}): Promise<{node: string; latestLeaf: string}[]>;
     runResult(args: {runId: string}): Promise<RunResult | null>;
+    /** 一条输入的结局（runtime.md 输出 110）；不是这个会话里入过队的为 null。不经出站过滤。 */
+    inputFate(args: {inputId: string}): Promise<InputFate | null>;
     preview(args?: PreviewArgs): Promise<PreviewResult>;
     diagnostics(args?: {afterSeq?: number; extension?: string; level?: DiagnosticLevel}): Promise<Diagnostic[]>;
 }

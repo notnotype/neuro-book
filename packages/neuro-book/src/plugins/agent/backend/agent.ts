@@ -7,10 +7,11 @@ import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, Clock, CompactionRestoreArgs, CompactionRestored, ModelPort, RunResult, SessionIndexEntry, StorageResult, ToolDeclaration, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, CompactionRestoreArgs, Issuer, CompactionRestored, ModelPort, RunResult, SessionApi, SessionIndexEntry, StorageResult, ToolDeclaration, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
 import {RequestRecorder, RequestTraceUnavailable, traceModelPort} from "@notnotype/nb-harness/kit/requests";
@@ -26,7 +27,7 @@ import type {RunningWorkItem} from "nbook/shared/host";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {SESSION_TITLE_PROFILE, TASK_ID, taskSessionId} from "../shared/contracts";
-import type {AgentService, ProfileAdmin, StartTaskOptions, StartTaskResult} from "../shared/contracts";
+import type {AgentRuntimeService, AgentService, ProfileAdmin, SessionViewOptions, StartTaskOptions, StartTaskResult} from "../shared/contracts";
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
@@ -77,7 +78,7 @@ export interface AgentRuntime {
     readonly userProfiles: ProfileBundles;
     readonly sessions: SessionTable;
     readonly meta: SessionMeta;
-    readonly service: AgentService;
+    readonly service: AgentRuntimeService;
     readonly profileAdmin: ProfileAdmin;
     /** 会话之间的父子关系（subagents.md）。 */
     readonly relations: SessionRelations;
@@ -308,12 +309,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
      * 重发时会话已在就核对参数、再发同一个 `send`（内核按 `commandId` 交回第一次的结果）；上次建了会话、没来得及 `send` 的，
      * 这次补上。
      */
-    const startTask = async (task: StartTaskOptions): Promise<StartTaskResult & {readonly result?: Promise<RunResult>}> => {
+    const startTask = async (task: StartTaskOptions, issuer?: Issuer): Promise<StartTaskResult & {readonly result?: Promise<RunResult>}> => {
         if (!new RegExp(TASK_ID, "u").test(task.taskId)) return {ok: false, code: "invalid-task-id"};
         const sessionId = taskSessionId(task.taskId);
         const created = await createSession({profile: task.profile, id: sessionId, ...(task.initial === undefined ? {} : {initial: task.initial}), ...(task.project === undefined ? {} : {project: task.project}), ...(task.background === true ? {background: true} : {})});
         if (!created.ok && created.code !== "session-exists") return created;
-        const view = table.view(sessionId);
+        const view = table.view(sessionId, issuer);
         if (!created.ok) {
             const {header} = await view.snapshot();
             if (header.profile !== task.profile || header.project !== task.project || (header.background === true) !== (task.background === true)) {
@@ -332,9 +333,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     };
 
     // 每个入口先过停止门；建会话与发起任务整段登记成在途，停止等它们登记完（sessions.md 输出 14）。
-    const service: AgentService = {
-        create: (createOptions) => table.accept(() => createSession(createOptions)),
-        startTask: (task) => table.accept(() => startTask(task)),
+    const service: AgentRuntimeService = {
+        create: async (createOptions, issuer) => {
+            const created = await table.accept(() => createSession(createOptions));
+            return created.ok && issuer !== undefined ? {ok: true, value: created.value.as(issuer)} : created;
+        },
+        startTask: (task, issuer) => table.accept(() => startTask(task, issuer)),
         session: (id, issuer) => {
             table.gate();
             return table.view(id, issuer);
@@ -358,7 +362,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         const created = await createSession(metaOptions);
         if (created.ok) internal.add(metaOptions.id);
         return created;
-    }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
+    }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report, issuer: {kind: "host", source: {plugin: "nbook.agent", label: "标题生成"}}});
     const children = new ChildRuns({table, jobs, report: options.report});
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 
@@ -466,4 +470,34 @@ function sessionDeclarations(declarations: ToolDeclaration[], objects: ReadonlyM
     const next = [...declarations];
     next[index] = evalDeclarationFor(declarations[index]!, listed);
     return next;
+}
+
+/**
+ * 交给别的插件的门面（sessions.md 输出 21）：视图的发出者按调用方盖章，缺省是它的插件的宿主身份，`asUser` 时代替用户。
+ * 宿主自己（没有插件身份的调用方）按实例 id 记。交出的视图的 `as` 同样经这里盖章：换成用户照准（本来就能 `asUser`），换成宿主时
+ * `plugin` 仍是调用方，换成会话身份抛错；建会话时不能指定会话的 `caller`（子代理关系只由 `nbook.agent` 自己建）。
+ */
+export function agentFacade(service: AgentRuntimeService, consumer: ConsumerIdentity): AgentService {
+    const plugin = consumer.plugin ?? consumer.instanceId;
+    const hostIssuer = (source: SessionViewOptions["source"]): Issuer =>
+        ({kind: "host", source: {plugin, label: source?.label ?? plugin, ...(source?.ref === undefined ? {} : {ref: source.ref}), ...(source?.at === undefined ? {} : {at: source.at})}});
+    const issuerOf = (view: SessionViewOptions | undefined): Issuer => (view?.asUser === true ? {kind: "user"} : hostIssuer(view?.source));
+    const restamp = (next: Issuer): Issuer => {
+        if (next.kind === "user") return next;
+        if (next.kind === "host") return hostIssuer(next.source);
+        throw new TypeError(`plugin ${plugin} cannot act as session ${next.id} (sessions.md output 21)`);
+    };
+    const guarded = (view: SessionApi): SessionApi => ({...view, as: (next: Issuer) => guarded(view.as(restamp(next)))});
+    return {
+        create: async (options, view) => {
+            if (options.caller?.kind === "session") return {ok: false, code: "not-allowed", detail: "only nbook.agent creates sub-agent sessions"};
+            const created = await service.create(options, issuerOf(view));
+            return created.ok ? {ok: true, value: guarded(created.value)} : created;
+        },
+        session: (id, view) => guarded(service.session(id, issuerOf(view))),
+        startTask: (task, view) => service.startTask(task, issuerOf(view)),
+        list: (filter) => service.list(filter),
+        profiles: () => service.profiles(),
+        running: () => service.running(),
+    };
 }

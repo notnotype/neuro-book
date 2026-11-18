@@ -284,7 +284,16 @@ test("验收 4：两个窗口开同一会话，一个批准，另一个的向导
     await other.close();
 });
 
-test("验收 5：服务端在运行中重启：重新加载后回到这个会话，显示中断的样子，回车继续", async ({page}) => {
+/** 运行中 Ctrl 加回车排一条（排到这一轮之后）。 */
+async function queue(page: Page, text: string): Promise<void> {
+    await input(page).click();
+    await page.keyboard.type(text);
+    await page.keyboard.press("Control+Enter");
+}
+
+const queuedHead = (page: Page) => page.locator("[data-queued-head]");
+
+test("验收 5：服务端在运行中重启：重新加载后回到这个会话，显示中断的样子，排着的话显示已暂停；回车先接着跑中断的那一轮，再发出排着的话", async ({page}) => {
     await openConversation(page);
     await newSession(page);
     await control("/hold");
@@ -292,6 +301,8 @@ test("验收 5：服务端在运行中重启：重新加载后回到这个会话
     await send(page, "写一章");
     await control("/hold/arrived");
     await expect(page.locator("[data-status-phase]")).toBeVisible();
+    await queue(page, "再加一段");
+    await expect(page.locator("li[data-queued]")).toHaveCount(1);
     const port = Number(new URL(server.url).port);
     expect(await server.stop()).toBe(0);
     server = await startProductServer(stateRoot, port);
@@ -300,11 +311,59 @@ test("验收 5：服务端在运行中重启：重新加载后回到这个会话
     await expect(page.getByText("写一章", {exact: true})).toBeVisible();
     const resume = page.locator("[data-composer-action='resume']");
     await expect(resume).toBeVisible();
-    await script("接着写完了");
+    await expect(queuedHead(page)).toContainText("已暂停 1 条");
+    await expect(input(page).locator("[data-placeholder]").first()).toHaveAttribute("data-placeholder", /上次运行已中断，排队的话已暂停/u);
+    // 接着跑的那次挂住：放行排着的话（第二步）时运行还在跑，排着的话进这次运行。
+    await control("/hold");
+    await script("接着写完了", "这一段也加好了");
     await input(page).click();
     await page.keyboard.press("Enter");
+    await control("/hold/arrived");
+    // 放行之后排着的话是就绪的，等这一轮结束被取走。
+    await expect(queuedHead(page)).toHaveCount(0);
+    await expect(page.locator("li[data-queued][data-held='true']")).toHaveCount(0);
+    await control("/hold/release");
     await expect(page.getByText("接着写完了")).toBeVisible();
+    await expect(page.getByText("这一段也加好了")).toBeVisible();
+    await expect(page.locator("li[data-queued]")).toHaveCount(0);
     await expect(resume).toHaveCount(0);
+});
+
+test("验收 8：运行中排两条、点停止，两条显示已暂停；写一句回车，合成的一条先跑；停止键旁的箭头“停止并清空排队”清掉排着的话", async ({page}) => {
+    await openConversation(page);
+    await newSession(page);
+    await control("/hold");
+    await script("不会看到这条");
+    await send(page, "开始");
+    await control("/hold/arrived");
+    await queue(page, "排一");
+    await queue(page, "排二");
+    await expect(page.locator("li[data-queued]")).toHaveCount(2);
+    await page.locator("[data-composer-action='stop']").click();
+    await control("/hold/release");
+    await expect(queuedHead(page)).toContainText("已暂停 2 条");
+    await expect(queuedHead(page)).toContainText("你停止了这一轮");
+    await expect(page.locator("li[data-queued][data-held='true']")).toHaveCount(2);
+
+    await script("三句一起处理了");
+    await send(page, "新的一句");
+    await expect(page.getByText("三句一起处理了")).toBeVisible();
+    await expect(page.locator("li[data-queued]")).toHaveCount(0);
+    const merged = await requests();
+    expect(JSON.stringify(merged.at(-1)?.messages)).toContain("排一\\n\\n排二\\n\\n新的一句");
+
+    await control("/hold");
+    await script("不会看到这条");
+    await send(page, "再来");
+    await control("/hold/arrived");
+    await queue(page, "要清掉的");
+    await expect(page.locator("li[data-queued]")).toHaveCount(1);
+    await page.locator("[data-composer-action='stop-more']").click();
+    await page.getByRole("menuitem", {name: "停止并清空排队（1 条）"}).click();
+    await expect(input(page)).toBeFocused();
+    await control("/hold/release");
+    await expect(page.locator("[data-composer-action='stop']")).toHaveCount(0);
+    await expect(page.locator("li[data-queued]")).toHaveCount(0);
 });
 
 /**

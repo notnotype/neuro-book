@@ -84,5 +84,8 @@ export function recoveryDrafts(core: SessionCore): EventDraft[] {
     const turn = state.history.current;
     if (turn !== null) drafts.push({type: "turnEnded", kind: "ctrl", scope: "path", data: {turnId: turn.id, reason: "interrupted"}});
     drafts.push({type: "runEnded", kind: "ctrl", scope: "path", data: {runId: state.run.runId, reason: "interrupted"}});
+    // 回到空闲：还就绪的话与收口同批转成留着，不自动发出（runtime.md 输出 34、104）。
+    const ready = core.session.kernel.buffer.filter((item) => item.state === "ready").map((item) => item.id);
+    if (ready.length > 0) drafts.push({type: "inputHeld", kind: "ctrl", scope: "session", data: {ids: ready, cause: {end: "interrupted"}}});
     return drafts;
 }

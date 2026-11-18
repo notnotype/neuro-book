@@ -5,11 +5,12 @@
  * 那条分支上的运行是暂停的：`start`（或 `send`）让它接着跑，下一次模型请求的回复成为旧回复的兄弟节点（重试与 swipe）。
  */
 
-import type {CommandMap, CommandResult, JsonValue, LogEvent, RewindTarget} from "../api/index.js";
+import type {CommandMap, CommandResult, Issuer, JsonValue, LogEvent, RewindTarget} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {accept, isEmpty, startProblem, type CommandHost} from "./commands.js";
-import {interceptInput, queuedData} from "./input.js";
-import {takeInputDrafts} from "./loop.js";
+import {byField, interceptInput, queuedData} from "./input.js";
+import {canContinue} from "./permissions.js";
+import {takeInputDrafts} from "./settle.js";
 
 /** 当前路径上的回退目标，按路径顺序。一次前向扫描：用户的话在 turnStarted 之后才出现，到时补进这一轮的目标里。 */
 export function rewindTargets(core: SessionCore): RewindTarget[] {
@@ -53,7 +54,7 @@ export function rewindTargets(core: SessionCore): RewindTarget[] {
     return targets;
 }
 
-export function rewindCommand(host: CommandHost, args: CommandMap["rewind"]["args"] & {commandId: string}): Promise<CommandResult<"rewind">> {
+export function rewindCommand(host: CommandHost, issuer: Issuer, args: CommandMap["rewind"]["args"] & {commandId: string}): Promise<CommandResult<"rewind">> {
     return accept(host, "rewind", args, async () => {
         const {core, control} = host;
         if (!control.idle) return {fail: "running", detail: {runId: control.active?.runId ?? ""}};
@@ -63,19 +64,27 @@ export function rewindCommand(host: CommandHost, args: CommandMap["rewind"]["arg
         const leaf: string = args.to;
         const moved: EventDraft = {type: "leafChanged", kind: "ctrl", scope: "session", data: {leaf}};
         if (args.resend === undefined) return {value: {leaf}, drafts: [moved]};
-        // 编辑重发：回退后入队；目标在运行外就开新的运行，在运行中途就让暂停的运行接着跑。
+        // 编辑重发：回退后以发出者的身份入队；目标在运行外就开新的运行，在运行中途就让暂停的运行接着跑、先取这条话。
+        // 不放行留着的话：它们是在别的上下文里排的（runtime.md 输出 36）。
         if (isEmpty(args.resend)) return {fail: "empty-input"};
+        const target = core.pathState(leaf).kernel;
+        if (target.run !== null && !canContinue(target.runBy ?? {kind: "user"}, null, issuer)) return {fail: "not-allowed"};
         const problem = startProblem(host);
         if (problem !== null) return {fail: problem};
         const intercepted = await interceptInput(host, args.resend);
         if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
         const inputId = core.newId();
-        const queued: EventDraft = {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, "followup", {kind: "user"})};
-        const paused = core.pathState(leaf).kernel.run;
-        if (paused !== null) return {value: {leaf, inputId, runId: paused.runId}, drafts: [...intercepted.failed, moved, queued], launch: paused.runId};
+        const queued: EventDraft = {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, "followup", issuer, {commandId: args.commandId})};
+        const entry = {id: inputId, input: intercepted.input, ...(issuer.kind === "user" ? {} : {by: issuer}), commandId: args.commandId};
+        if (target.run !== null) {
+            const runId = target.run.runId;
+            // 停在两轮之间时这条话就在受理批里开下一轮；停在一轮当中时它在这一轮结束时按排队取。
+            const take = target.history.current === null ? takeInputDrafts(entry, core.newId(), runId) : [];
+            return {value: {leaf, inputId, runId}, drafts: [...intercepted.failed, moved, queued, {type: "runResumed", kind: "ctrl", scope: "session", data: {runId, ...byField(issuer)} as JsonValue}, ...take], launch: runId};
+        }
         const runId = core.newId();
-        const started: EventDraft = {type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "chat"}};
-        return {value: {leaf, inputId, runId}, drafts: [...intercepted.failed, moved, queued, started, ...takeInputDrafts(inputId, intercepted.input, core.newId())], launch: runId};
+        const started: EventDraft = {type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "chat", ...byField(issuer)} as JsonValue};
+        return {value: {leaf, inputId, runId}, drafts: [...intercepted.failed, moved, queued, started, ...takeInputDrafts(entry, core.newId(), runId)], launch: runId};
     });
 }
 

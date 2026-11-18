@@ -50,9 +50,18 @@ export interface Attributed extends Rejection {
 
 /**
  * 指令的发出者。由宿主按调用来源注入（`session.as(issuer)`），不是指令参数：界面拿不到改发出者的入口。
- * `session` 是派这个会话的父会话（多 Agent，t14）。
+ * `session` 是派这个会话的父会话（多 Agent）；`host` 是宿主自己（例如到点的日程），`source.plugin` 由宿主按调用方
+ * 盖章、不由调用方自填（runtime.md 输出 45）。判等：会话按 `id`，宿主按 `source.plugin`。
  */
-export type Issuer = {readonly kind: "user"} | {readonly kind: "session"; readonly id: string};
+export type Issuer = {readonly kind: "user"} | {readonly kind: "session"; readonly id: string} | {readonly kind: "host"; readonly source: HostSource};
+
+/** 宿主消息的来源：`plugin` 是盖章的插件，`label` 给人与模型看，`ref` 是来源里的条目，`at` 是计划时刻（毫秒）。 */
+export interface HostSource {
+    readonly plugin: string;
+    readonly label: string;
+    readonly ref?: string;
+    readonly at?: number;
+}
 
 /** 事件里记“谁做的”：发出者，或内核自己（恢复、中止的结算）。 */
 export type Actor = Issuer | {readonly kind: "kernel"};

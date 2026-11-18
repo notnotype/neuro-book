@@ -482,6 +482,45 @@ test.describe("输入框", () => {
         await expect.poll(async () => (await lastAction(page))?.type).toBe("composer.stop");
     });
 
+    test("停止的第二个选项（验收 39）：Tab 从停止键到下拉箭头，回车打开、回车选“停止并清空排队”，发出 clearQueue、焦点回编辑器；点停止键本身不带", async ({page}) => {
+        await openScene(page, "AgentConversationComposer", "stop-menu");
+        const more = stage(page).locator("[data-composer-action='stop-more']");
+        await stage(page).locator("[data-composer-action='stop']").focus();
+        await page.keyboard.press("Tab");
+        await expect(more).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(more).toHaveAttribute("aria-expanded", "true");
+        await expect(page.getByRole("menuitem", {name: "停止并清空排队（2 条）"})).toBeVisible();
+        await page.keyboard.press("Enter");
+        await expect.poll(() => lastAction(page)).toEqual({type: "composer.stop", clearQueue: true});
+        await expect(editor(page)).toBeFocused();
+        // Lab 的宿主停下就收口运行，停止键随之消失：重开场景。点菜单外面的按钮关上时不抢焦点，焦点在被点的按钮上。
+        await openScene(page, "AgentConversationComposer", "stop-menu");
+        await stage(page).locator("[data-composer-action='stop-more']").click();
+        await expect(page.getByRole("menuitem", {name: "停止并清空排队（2 条）"})).toBeVisible();
+        const mode = stage(page).locator("[data-composer-action='mode']");
+        await mode.click();
+        await expect(page.getByRole("menuitem")).toHaveCount(0);
+        await expect(editor(page)).not.toBeFocused();
+        await stage(page).locator("[data-composer-action='stop']").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "composer.stop"});
+    });
+
+    test("留着的话（验收 38）：390 宽英文场景里原因先截断、Continue 完整；点 Continue 发 run.continue", async ({page}) => {
+        await openScene(page, "AgentConversationView", "held-english");
+        const head = stage(page).locator("[data-queued-head]");
+        await expect(head).toContainText("3 paused");
+        const reason = await head.locator(".acv-queued__head-reason").evaluate((element) => ({scroll: element.scrollWidth, client: element.clientWidth}));
+        expect(reason.scroll).toBeGreaterThan(reason.client);
+        const box = await head.boundingBox();
+        const button = await head.locator("[data-queued-continue]").boundingBox();
+        expect(button!.x + button!.width).toBeLessThanOrEqual(box!.x + box!.width + TOLERANCE_PX);
+        expect(await head.locator("[data-queued-continue]").evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+        await expect(stage(page).locator("li[data-queued][data-held='true']")).toHaveCount(3);
+        await head.locator("[data-queued-continue]").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "run.continue"});
+    });
+
     test("附件：模型不支持图片时也能加（发送时换一行字，conversation.md 输出 31）；上传中与失败时不能发送；重试后就绪，发送的文字里有图片标签", async ({page}) => {
         await openScene(page, "AgentConversationComposer", "no-images");
         await attach(page, [{name: "草图.png", mimeType: "image/png"}, {name: "设定.txt", mimeType: "text/plain"}]);

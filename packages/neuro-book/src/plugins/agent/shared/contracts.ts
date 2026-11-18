@@ -104,11 +104,21 @@ export const TASK_ID = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 /** 任务的会话 id：内核自己生成的会话 id 不带这个前缀，普通会话不会撞上。 */
 export const taskSessionId = (taskId: string): string => `task-${taskId.toLowerCase()}`;
 
+/**
+ * 插件经 `agentKey` 取视图时的身份（sessions.md 输出 21）：缺省是调用方插件的宿主身份（`source.plugin` 由门面按调用方填），
+ * `source` 给出给人与模型看的来源；`asUser` 时代替用户发话（开发者 2026-11-18 允许）。冒充不了别的插件或会话。
+ */
+export interface SessionViewOptions {
+    readonly asUser?: boolean;
+    readonly source?: {readonly label: string; readonly ref?: string; readonly at?: number};
+}
+
+/** 别的插件经 `agentKey` 拿到的门面：按调用方生成，视图的发出者见 `SessionViewOptions`。 */
 export interface AgentService {
     /** 建会话；交回的是视图（sessions.md 输出 6）。 */
-    create(options: CreateSessionOptions): Promise<CreateResult>;
-    /** 某个会话的视图：本身不持引用，每次调用时打开；缺省以用户的身份。 */
-    session(id: string, issuer?: Issuer): SessionApi;
+    create(options: CreateSessionOptions, view?: SessionViewOptions): Promise<CreateResult>;
+    /** 某个会话的视图：本身不持引用，每次调用时打开。 */
+    session(id: string, view?: SessionViewOptions): SessionApi;
     /** 缺省不列归档的与后台的（sessions.md 输出 1）。 */
     list(filter?: {readonly project?: string; readonly archived?: boolean; readonly background?: boolean}): Promise<StorageResult<readonly SessionIndexEntry[]>>;
     profiles(): readonly ProfileEntry[];
@@ -118,7 +128,17 @@ export interface AgentService {
      * 发起任务：建会话（已有就核对参数）、受理输入并开始运行，不等运行结束；`result` 在运行结束时完成，期间持有会话。
      * 参数与已有的任务不一致时 `task-conflict`。
      */
-    startTask(options: StartTaskOptions): Promise<StartTaskResult & {readonly result?: Promise<RunResult>}>;
+    startTask(options: StartTaskOptions, view?: SessionViewOptions): Promise<StartTaskResult & {readonly result?: Promise<RunResult>}>;
+}
+
+/** `nbook.agent` 自己用的服务：视图按给定的发出者（缺省用户），只在插件内部与远程实现里用，不进 `agentKey`。 */
+export interface AgentRuntimeService {
+    create(options: CreateSessionOptions, issuer?: Issuer): Promise<CreateResult>;
+    session(id: string, issuer?: Issuer): SessionApi;
+    list: AgentService["list"];
+    profiles: AgentService["profiles"];
+    running: AgentService["running"];
+    startTask(options: StartTaskOptions, issuer?: Issuer): Promise<StartTaskResult & {readonly result?: Promise<RunResult>}>;
 }
 
 export const agentKey: ServiceKey<AgentService> = defineServiceKey<AgentService>("nbook.agent/agent");

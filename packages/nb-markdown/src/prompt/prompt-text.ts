@@ -366,6 +366,28 @@ export function renumberInsertion(
     return {nodes: result, highWater: next};
 }
 
+/**
+ * 按顺序把几段提示词文字拼成一段，段与段之间空一行。每段的图片、文件与粘贴编号各自从 1 数起，拼在一起会撞号，
+ * 所以后面的段与前面撞号的整体换新号（与插入时同一套规则，粘贴块与它的位置标记一起换），未编号的旧图片补号。
+ * 宿主把几条排队的话合成一条发出时用（docs/specs/ui/prompt-editor.md 的公开接口）。
+ */
+export function concatPromptTexts(texts: readonly string[]): string {
+    const used: Record<PromptNumberSet, Set<number>> = {image: new Set(), file: new Set()};
+    let highWater: PromptNumbers = {image: 0, file: 0};
+    const parts = texts.map((text) => {
+        // 拼起来的段不在正文开头，`/名称` 不当命令认。
+        const doc = parsePromptText(text, {commands: []});
+        const renumbered = renumberInsertion(doc.content ?? [], used, highWater);
+        highWater = renumbered.highWater;
+        const numbers = usedPromptNumbers(renumbered.nodes);
+        for (const set of ["image", "file"] as const) {
+            for (const number of numbers[set]) used[set].add(number);
+        }
+        return promptNodeText({...doc, content: renumbered.nodes});
+    });
+    return parts.join("\n\n");
+}
+
 /** 换掉 `\r\n` 与 `\r`；剪贴板与文件里的换行不统一。 */
 export function normalizePastedText(text: string): string {
     return text.replace(/\r\n?/gu, "\n");

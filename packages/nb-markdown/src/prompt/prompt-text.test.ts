@@ -13,6 +13,7 @@ import {defaultMarkdownLanguage as markdownLanguage} from "../language/syntax";
 import {schemeTargets} from "../targets";
 import type {MarkdownTargets} from "../targets";
 
+import {concatPromptTexts} from "./text";
 import {
     DEFAULT_PASTE_POLICY,
     PROMPT_ATOM_CHAR,
@@ -303,6 +304,18 @@ describe("prompt-text 编号", () => {
         const file: PromptNodeJSON = {type: "promptToken", attrs: {kind: "file", raw: serializeFileToken(1, "a.pdf", FILE_TARGET), number: 1, label: "a.pdf", target: FILE_TARGET}};
         const result = renumberInsertion([{type: "paragraph", content: [file]}], {image: new Set(), file: new Set([1])}, {image: 0, file: 1});
         expect(result.nodes[0]?.content?.[0]?.attrs).toMatchObject({number: 2, raw: serializeFileToken(2, "a.pdf", FILE_TARGET)});
+    });
+
+    it("拼接几段：段间空一行，后面各段撞号的换新号，粘贴块与位置标记一起换，开头的 /名称 不当命令", () => {
+        const first = `看这张 ${serializeImageToken(1, IMAGE_TARGET)} 和 ${serializeFileToken(1, "a.pdf", FILE_TARGET)}`;
+        const second = `/plan 再看 ${serializeImageToken(1, IMAGE_TARGET)}\n[paste #1]\n<paste id="1">\n粘贴的\n</paste>`;
+        const third = `还有 ${serializeImageToken(1, IMAGE_TARGET)}`;
+        expect(concatPromptTexts([first, second, third])).toBe([
+            first,
+            `/plan 再看 ${serializeImageToken(2, IMAGE_TARGET)}\n[paste #2]\n<paste id="2">\n粘贴的\n</paste>`,
+            `还有 ${serializeImageToken(3, IMAGE_TARGET)}`,
+        ].join("\n\n"));
+        expect(concatPromptTexts(["只有一段"])).toBe("只有一段");
     });
 });
 

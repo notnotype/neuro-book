@@ -133,17 +133,37 @@ function startRun() {
     writeCtx({run: {status: "running", phase: "正在思考"}});
 }
 
-/** 排队中的消息按投递方式交出去：补充说明在下一步之前插入，排队消息在运行结束后作为下一轮发出。 */
+/** 排队中的就绪的话按投递方式交出去：补充说明在下一步之前插入，排队消息在运行结束后作为下一轮发出；留着的不动。 */
 function flushQueued(delivery: "steer" | "followup", now: number): MessageView[] {
-    return ctx.value.composer.queued.filter((item) => item.delivery === delivery).map((item, index): MessageView => ({
+    return ctx.value.composer.queued.filter((item) => item.delivery === delivery && item.held === undefined).map((item, index): MessageView => ({
         kind: "user", id: `lab-${delivery}-${now}-${index}`, timestamp: now,
         intent: delivery === "steer" ? "steer" : "normal", blocks: [{kind: "text", text: item.text}], contentOmitted: false,
     }));
 }
 
 function remainingQueue(delivery: "steer" | "followup") {
-    return {...ctx.value.composer, queued: ctx.value.composer.queued.filter((item) => item.delivery !== delivery)};
+    return {...ctx.value.composer, queued: ctx.value.composer.queued.filter((item) => item.delivery !== delivery || item.held !== undefined)};
 }
+
+/** 模拟运行出错停下：排队的话全部留着，等用户继续（docs/specs/agent/conversation.md 输出 48 的原因文案）。 */
+function failRun() {
+    const current = ctx.value;
+    writeCtx({
+        messages: current.messages.map((message) => message.kind === "assistant" ? finishCalls(message) : message),
+        composer: {...current.composer, queued: current.composer.queued.map((item) => ({...item, held: item.held ?? {reason: "上一轮出错"}}))},
+        run: {status: "idle", phase: ""},
+    });
+}
+
+/**
+ * 停止的第二个选项随缓冲区变：有用户自己的话（没有 `author`）时给出，条数是缓冲区的全部条数（输出 49）。
+ * 场景数据里不写死，免得排队、停止之后还是旧值。
+ */
+const viewCtx = computed<AgentConversationContext>(() => {
+    const queued = ctx.value.composer.queued;
+    const stopClearing = running.value && queued.some((item) => item.author === undefined) ? {count: queued.length} : null;
+    return {...ctx.value, interaction: {...ctx.value.interaction, stopClearing}};
+});
 
 const STREAM_CHUNKS = [
     "第六章开头准备改成深夜来客：门铃在凌晨三点响了，林默没有开灯。",
@@ -231,6 +251,7 @@ function switchSession() {
         data-lab-subject
         class="h-full w-full"
         v-bind="subject.bindings.value"
+        :ctx="viewCtx"
         :services="services"
         :registry="registry"
         :renderers="renderers"
@@ -245,6 +266,7 @@ function switchSession() {
                 <Button size="sm" variant="secondary" data-lab-action="step" @click="appendStep">追加一步</Button>
                 <Button size="sm" variant="secondary" data-lab-action="clock" @click="advanceClock">时间 +10 秒</Button>
                 <Button size="sm" variant="secondary" data-lab-action="finish" @click="finishRun">运行结束</Button>
+                <Button size="sm" variant="secondary" data-lab-action="fail" @click="failRun">运行出错</Button>
             </template>
             <Button size="sm" variant="secondary" data-lab-action="session" @click="switchSession">切换会话</Button>
             <Button size="sm" variant="secondary" data-lab-action="fail-upload" :aria-pressed="host.failNextUpload.value" @click="host.failNextUpload.value = !host.failNextUpload.value">下次上传失败</Button>
