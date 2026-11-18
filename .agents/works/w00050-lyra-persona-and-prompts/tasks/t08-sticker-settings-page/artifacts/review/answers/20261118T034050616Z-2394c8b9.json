@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t08-sticker-settings-page",
+    "artifactId": "review",
+    "answerId": "20261118T034050616Z-2394c8b9",
+    "artifactVersion": 3,
+    "contentHash": "d9feb2969813c0bd2b37e35adf6c7bac83a2592c025f1cb99dcaff0a6831c4eb",
+    "submittedAt": "2026-11-18T03:40:47.922Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "style-r3": true
+    },
+    "comments": {},
+    "note": null
+}
