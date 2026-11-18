@@ -30,11 +30,13 @@
 ### 目录：`stickers/backend/catalog.ts`、`plugin.ts`
 
 - `StickerSource` 加 `"builtin"`；`plugin.ts` 开目录时多一个根 `{key: "builtin", source: "builtin", prefix: "builtin", root, watch: false}`。
-- 只读：凡是现在按 `source === "plugin"` 判只读的地方（`stickers://` 写入、表情包页、`editor.ts` 的写入入口）改成 `source !== "user"`，逐处搜出来改，不漏 `pack-view.ts` 的分组与页面的按钮。
-- 按文件夹名认包的优先级（决定 8）：抽一个共用函数 `packByFolder(packs, folder)`：候选按来源分级 user > plugin > builtin，取最高一级；这一级里不止一个是认不出。浏览器的 `findSticker`、服务端的取图与 `stickers://` 不受影响（按 id）；槽与选择器的写法规则统一成“写文件夹名；按文件夹名认不到这个包时写 id”（`stickers/shared/` 里，t09 已把写法函数提到这里）。
+- 只读：服务端的写入入口（`editor.ts` 的 `not-user-pack`）与 `reveal.ts` 已按 `source !== "user"` 判，不用改；页面 `StickerPacksPage.vue` 的 `pluginPack` 按 `source === "plugin"` 判，改成 `source !== "user"`；`stickers://` 的写入已对全部来源拒绝。逐处搜 `"plugin"` 核对，不漏。
+- 按文件夹名认包的优先级（决定 8）：抽一个共用函数 `packByFolder(packs, folder)`：候选按来源分级 user > plugin > builtin，取最高一级；这一级里不止一个是认不出。浏览器的 `findSticker`、服务端的取图与 `stickers://` 不受影响（按 id）；槽与选择器的写法规则统一成“写文件夹名；按文件夹名认不到这个包时写 id”：改 `stickers/shared/writing.ts` 的 `writingSegments`，槽（`agent/backend/stickers/extension.ts`）与浏览器目录（`backend/browser-catalog.ts`）都用它，不用另改。复制到我的之后：我的 `lyra` 写 `:lyra/…:`，被盖住的内置包写 `:builtin.lyra/…:`；主创白名单仍是 `builtin.lyra`，槽里那段随之改写成 `:builtin.lyra/…:`（决定 8 的“提示词里也写 `:lyra/…:`”指我的那一份）。
+- 浏览器的 `findSticker`（`web/resolver.ts`）的按文件夹名认包改用 `packByFolder`；`packByFolder` 放 `stickers/shared/`，与 `writingSegments` 共用分级。已知限制：浏览器目录按预算整包丢弃时（输出 18），在浏览器里按文件夹名认包看的是截断后的目录，我的同名包被丢掉时会认成内置的；预算是 5000 个表情，不另处理。
 
 ### 界面
 
+- 分组：表情包页（`web/pack-view.ts`，现在只认 `source === "plugin"`，内置的会掉出分组）、Profile 设置的表情包一节、选择器（`web/picker.ts` 的 `pickerGroups`，现在把非用户的都按插件名排，内置的要单独排最后）都按我的、各插件、内置。
 - 表情包页与 Profile 设置的表情包一节：分组顺序我的、各插件、内置（同 Skill 页）；内置的包同插件的包：只读、“复制到我的”、“在文件夹中显示”、能导出。复制到我的包名沿用 `lyra`（我的没有同名时），复制后旧写法显示我的那一份。
 - 组头文字“内置”，中英两份。
 
