@@ -1,0 +1,24 @@
+w00050 t09 设计审查处理（2026-11-18）
+审查者：Claude Sonnet 子代理（前端，只读），对象：plan.md 第 1 稿与已提交的 planned Spec 条目。报告：design-review.txt，17 条（阻断 0、重要 12、建议 5）。
+
+逐条归类（成立要改 / 接受取舍 / 不成立）：
+1 重要 写法被前文 :词 吃掉开头冒号：成立，要改。插入前检查重新分词后是否仍是一个整体，否则补一个空格；往返用例加前文 :词。Spec 44、prompt-editor 输出 5 写明。
+2 重要 无匹配时弹空菜单、颜文字回车被抢：成立，要改。PromptEditorMenu 加 hideWhenEmpty；颜文字一点交开发者定，开发者选“只打 1 个英文字母时不弹”（README 决定 9），Spec 42 与验收 12（:k 改 :kx）同改。
+3 重要 HOST_TRIGGERS 写死、注册表没有登记点、就地编辑器：成立，要改。HOST_TRIGGERS 随服务加 :，注册表加登记；就地编辑器只显示不开补全，Spec 44 写明。
+4 重要 .nb-sticker 样式限定在 .nb-markdown 下：成立，要改。抽成 stickers.css 四处共同引入，提示词节点用裸 span，三处 Lab 场景各量一次。
+5 重要 新小块种类牵动公开类型：成立，要改。改用独立节点 promptSticker，不进 PromptTokenAttrs，不发 token-activate。
+6 重要 命令要改 plugins/editor、参数不校验、行内代码：成立，要改。计划加 plugins/editor 与 nb-markdown 动作表；run 先 parseSticker，失败返回 false；行内代码里不可用。
+7 重要 浏览器入口加依赖会拖住 Markdown：成立，要改。browser 入口只多交 stickerDirectoryKey；新入口 picker 提供 stickerPickerKey；面板按需加载；Markdown 与 Agent 都用 resolve。
+8 重要 分组顺序无来源、缺插件名、截断目录算写法：成立，要改。浏览器目录带插件 {id,title} 与后端在完整目录上算好的写法包段；选择器自己排分组。Spec 18、39 改。
+9 重要 “+ 后面”用现有 placement 做不到：成立，要改。placement 加 after-add，单行版式并入前置按钮。
+10 重要 编辑器弹层漏了既有联动、“⋯”里没有锚点：成立，要改。照插图卡片接 hold、suspended、blocked、互斥、重置、+ 块回收；按钮在视图里锚按钮，否则锚光标。Spec 39 补。
+11 重要 search 是 Promise：成立，要改。search 同步，拼音库 shallowRef 懒加载。
+12 建议 显示名搜索、包/ 空查询、recent 存什么：成立，要改。包段也按显示名；包/ 空查询列全部；recent 存 id 与名字。Spec 40 改。
+13 重要 不画气泡的判断输入与边界：成立，要改。端口收文字块数组；附件、省略、编辑中一律画气泡；无气泡的版面加 Lab 场景。Spec 45 改。
+14 建议 任何 :词: 都成原子小块：成立，要改。只在宿主同步端口认得出时成为节点，认不出就是文字；目录晚到后重新识别一次。Spec 44 改（不再是“认不出显示原文”的已知限制），输出 45 的已知限制随之去掉。
+15 建议 findPromptTrigger 的规则并存：成立，要改。每个触发字符一条规则的表，列出用例。
+16 建议 验收与 e2e 缺口：成立，要改。e2e 加 markdown-editing、markdown-input（共 8 个）；三处 Lab 量法；失败用例；最近用过等落盘后重开。
+17 建议 输入框弹层方向与决定 8 字面不同：成立，按决定 8 的字面写“下方放不下翻到上方”，输入框在底部，实际朝上；计划写明理由。
+
+接受取舍：无。不成立：无。
+需要开发者定的：第 2 条的颜文字（已定为决定 9）。

@@ -1,0 +1,159 @@
+# w00050 t09 设计审查报告（只读，Sonnet 5.5）
+依据：plan.md、spec-diff.txt、Task 记录决定 1 到 8，以及 nb-markdown、nb-agent-ui、nb-ui、neuro-book 的相关代码。以下按影响排序。
+
+### 1. 输入框不补空格，插入的写法会被前面文字里的 `:词` 吃掉开头冒号，发出的消息里表情显示成文字
+严重程度：重要（已用真实函数复现）
+类别：接口与合同 / 异常输入
+位置：plan.md“`PromptEditorMenuItem` 加 `appendSpace`”；`packages/nb-markdown/src/stickers.ts:49 stickerAt`；`prompt-text.ts:475 tokenizeInline`；`PromptEditor.vue:422 confirmItem`、`:946 insertText`
+现象：表情项确认与弹层 `insert(text)` 都不补空格（决定 6 的“中文里不补空格”），写法直接贴在前一个字后面。从左往右扫的 `stickerAt` 会把前面文字里的 `:词` 当成写法的开头。
+核实：`bun /tmp/review-w00050-t09-design/exp/t1.ts`：`stickerAt` 逐段扫 `"他说:好:lyra/开心:"` 只认出 `:好:`，`"备注:你好:lyra/开心:"` 只认出 `:你好:`，后面的 `lyra/开心:` 成了普通文字。
+为什么是问题：PromptEditor 在光标处插入时节点结构是对的，但草稿保存再读回（`applyDraft` 走 `parsePromptText`）、发送后的 `PromptTextView` 都是按文字重新分词，结果与插入时不同。“文字原样往返”只保证文字，不保证小块的分法；用户发出的表情变成一段原文，且 `isStickerOnlyText` 也数不对。Markdown 编辑器靠 `escapeText` 的 `\:` 转义躲开了这一点，提示词的文字格式没有转义，所以不能照搬。半角冒号在中文提示词里并不罕见（`说明:`、`他说:好`）。
+建议：插入时检查“插入后整行重新分词，刚插入的写法是不是仍是一个整体”，不是时在前面补一个空格（只在需要时补，不影响中文紧贴的常见情形）；`prompt-text.test.ts` 的往返用例加这类前文。补全菜单确认（`replace [from,to)`）同样要过这个检查。
+
+### 2. 输入框的 `:` 菜单在没有匹配时照样弹出“没有匹配项”，有匹配时还会抢走回车
+严重程度：重要
+类别：失败路径 / 对照参照
+位置：`packages/nb-markdown/src/prompt/PromptEditor.vue:1002`（`v-if="menu"`）、`:102 resolveMenu` 的返回类型（`PromptEditorMenu`，不能为 null）；`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:94-108`；plan.md“`resolveTriggerMenu` 对 `:` 用 `picker.search`”
+现象：`PromptEditor` 只要触发成立就渲染 `SuggestionMenu`，`items` 为空时显示 `prompt.menuEmpty`（“没有匹配项”）；`resolveMenu` 的类型不允许返回“不显示”。plan 没有写无结果时怎么办。
+为什么是问题：新触发的条件很宽：开头，或前一个字不是 ASCII 字母数字（空格、中文、`"`、`)`、`(` 都算）再加一个字。于是这些常见输入都会弹一个空菜单：`时间:12`、`{"a":1}`、`(:`、`好的 :D`、`::1`。Markdown 编辑器的斜杠菜单是“筛不出项时菜单不显示”，同类参照不弹空菜单。有匹配项时（`:D` 的 `d` 是 `大笑`、`打` 的拼音首字母，`:k` 是 `开心`）回车会确认第一项而不是发送，这是决定 3 与验收 12 要的行为，但与颜文字、代码冲突，计划应当承认并给出退路。
+核实：读 `PromptEditor.vue:362-370, :1002-1011`；`session-host.ts` 与 composer 里没有隐藏空菜单的通道。
+建议：给 `PromptEditorMenu` 加一个“无项时不显示”的开关（例如 `hideWhenEmpty`），表情菜单置真；Spec 42 补一句“没有匹配的表情时不弹”；颜文字问题在 Spec 里记为已知取舍，或把 `:` 触发限定成“开头、空白、中文标点之后”（比决定 3 更窄，需开发者定）。
+
+### 3. 输入框接线漏了两处硬性登记，`:` 触发与按钮会被静默过滤
+严重程度：重要
+类别：依赖的机制 / 遗漏
+位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:69` 与 `:1638`（`HOST_TRIGGERS = ["@", "/", "$"]` 写进 `interaction.triggers`）；`AgentConversationComposer.vue:58-61`；`plugins/agent/web/plugin.ts:478-513`（注册表由 `createAgentViewRegistry([...baseContributions, ...])` 建，没有 `toolbarButtons`、`triggers` 登记）；`nb-agent-ui/src/vue/stream/AgentMessageEditor.vue:31`
+现象：composer 把触发字符按 `ctx.interaction.triggers.includes(char)` 过滤。宿主的名单是写死的常量，不含 `:`。plan 只写“登记触发 `:`”，所以登记了也被丢掉。另外，当前宿主根本没有登记过工具栏按钮，登记点要新建；表情服务有没有（`stickerPickerKey` 可选）决定这两处是否出现，`HOST_TRIGGERS` 与注册表都要随服务有无变化，目前都是静态的。
+还有：历史消息的就地编辑器 `AgentMessageEditor` 只给 `["@"]`，没有 `:` 补全也没有按钮，但里面能显示表情小块；Spec 说“和输入框同一个注入的编辑器”。
+建议：plan 的“输入框接线”补上 `HOST_TRIGGERS` 随服务出现、注册表登记点、`AgentMessageEditor` 要不要也开 `:`（不开就在 Spec 写明）。
+
+### 4. “沿用 `.nb-sticker` 样式、同一份类名”在提示词编辑器与已发送文字视图里不成立：样式全部限定在 `.nb-markdown` 下
+严重程度：重要
+类别：依赖的机制 / 对照参照
+位置：`packages/nb-markdown/src/display/markdown.css:315-361`（每条规则都是 `.nb-markdown .nb-sticker…`）；`display/MarkdownDisplay.vue:13`（只有它 `import "./markdown.css"`）；`prompt/PromptEditor.vue`、`PromptTextView.vue`（根元素是 `.prompt-editor`、`.prompt-text`，没有 `nb-markdown`）
+现象：图高 `1.6em`、`margin-block:-0.3em`、`vertical-align:-0.16em`、`line-height:0`、间隙类 `--gap-start/end`、大图 `.nb-sticker-block` 都挂在 `.nb-markdown` 后代选择器上。提示词两个组件不在这个祖先下，也不保证 `markdown.css` 被加载。plan 的“约束”一段把它当成现成的。
+为什么是问题：不改就是原图尺寸直接塞进输入框（评审板附言“表情和文字高度没对齐”正是这一类）。提示词编辑器的字号、行高与展示器不同，`-0.16em`、`-0.3em` 这类按展示器行高量出来的数在输入框里不一定成立，验收 12 的“竖直中心差不超过 2px”要两处分别量。`.prompt-token-node` 是 `inline-flex; max-width:16rem; vertical-align: baseline`，会改变图在行内的基线，不能直接套。
+建议：plan 增加一步：把 `.nb-sticker` 规则从 `.nb-markdown` 里抽出来、放到独立的 `sticker.css`，由展示器、编辑器、两个提示词组件共同引入；提示词里的节点视图用裸 `<span class="nb-sticker">`（不挂 `inline-flex` 外壳）；Lab 场景要有提示词编辑器与 `PromptTextView` 各一个带表情的版本，用同一个量法。
+
+### 5. 提示词里加 `sticker` 小块种类，牵动公开类型与穷尽的 switch，计划没算
+严重程度：重要
+类别：接口与合同 / 隐含耦合
+位置：`prompt/prompt-text.ts:264 promptTokenFromAttrs`（对 `attrs.kind` 穷尽 switch，返回 `PromptEditorToken`）；`prompt/prompt-editor.types.ts:59`（`PromptEditorToken` 联合，公开）；`prompt/agent-ports.typecheck.ts:27-31`；`prompt/PromptTokenView.vue:30-58`（`ChipInput.kind`、`InlineChip` 的 `kind`）；`PromptTextView.vue:105-115`（`InlineChip` 的 `kind`）；nb-agent-ui 的 `PromptToken` 与 `tokenAction`
+现象：plan 说“新 kind `sticker`”。`PromptEditorToken` 是组件对外发出 `token-activate` 的参数类型，nb-agent-ui 的 `PromptToken`、宿主的 `tokenAction` 与 `agent-ports.typecheck.ts` 要求它们互相兼容；neuro-book 与 nb-story 两个宿主都注入。小块外观又是 `InlineChip`（带边框的标签），而表情要的是行内小图，节点视图与静态视图都要分叉。
+为什么是问题：给联合加一员会让两个包的类型检查同时报错，需要同步改 nb-agent-ui 公开类型；点击表情是否要发 `token-activate`、发什么也没定。
+建议：改用独立的节点类型（例如 `promptSticker`，`atom`、`selectable:false`，自己的节点视图，不进 `PromptTokenAttrs`），或者小块种类里加 `sticker` 但在 `promptTokenFromAttrs` 里明确“不可激活”并在 `PromptTextView` 里不挂 `activate`。两种都要在 plan 里写出，并把 `atomLeafText`（`prompt-editor-extensions.ts:239`，只认 `PROMPT_TOKEN_NODE`）、`readTrigger` 的占位字符、`getText` 的写回一起核对。
+
+### 6. 命令 `nbook.edit.sticker` 要落在 `nbook.editor` 插件，plan 一处都没列；参数只写 `{text}` 会破坏“节点原文一定是一个写法”
+严重程度：重要
+类别：遗漏 / 接口与合同
+位置：`packages/neuro-book/src/plugins/editor/shared/editing.ts:28`（`EDITING_ACTIONS`，注释：“命令声明、公开键与菜单都读这一份”，`EditingActionId` 由它导出）、`editor/web/editing-commands.ts:16-25`（`ARGS` 表）、`editor/web/editing-menus.ts`、`editor/locales/*.json`（`locales.test.ts` 逐键核对）、`plugins/lab/web/fixtures/editor-scene/lab-editor-menus.ts`；`MarkdownToolbar.vue:67`、`MarkdownSlashMenu.vue:20`（都经 `EditingActionId` 取图标与标题）；`nb-markdown/src/editor/editing-actions.ts:230`
+现象：工具栏与斜杠菜单的条目、命令、`canFormat` 前置都是 `nbook.editor` 的数据（`image` 就在那里登记，`args:"image"`）。plan 只列了 `plugins/markdown`，没有 `plugins/editor`、没有 nb-markdown 的 `editing-actions.ts` 里的 `sticker` 动作，也没有标题的中英文本与 Lab 菜单替身。
+同时，命令参数只写 `{text: string}`（Spec 命令表“一个表情写法”）：`ARGS.text` 是 `minLength:1` 的任意字符串，命令是公开的（命令面板之外插件也能调），`insertStickerAtTrigger(editor, writing)` 同理。把非写法的字符串造成节点，违反 Spec 的不变量“节点的原文一定是一个写法”（读、输入规则、粘贴都只造合法原文），读回时落到规范写法。
+另外有一种插入位置 plan 没提：光标在行内代码里时，表情节点会带 `code` 标记；`code` 标记是 `textOnly` 写法（`language/syntax/core/write.ts:248`），表情没有声明 `marklessInline`。写出与读回是否一致我没跑出来（想在 happy-dom 里复现，配置在包外解析不到依赖，**未验证**），应当在实现里明确“行内代码里不插入或去掉 code 标记”，并补一条用例。
+建议：plan 补“`nbook.editor` 插件与 nb-markdown 的动作表”这一块；新动作 `run` 里先 `parseSticker(text)`，失败返回 false；`insertStickerAtTrigger` 同；定义行内代码、表格单元格、标题里能不能插。
+
+### 7. `stickers` 浏览器入口要新增的依赖会拖慢并可能卡住它提供的 `stickerResolverKey`，而 Markdown 在激活时就 `await` 它
+严重程度：重要
+类别：依赖的机制 / 失败路径
+位置：`plugins/stickers/web/plugin.ts:31-63, :64-72`；`plugins/markdown/web/plugin.ts:96, :136`（`await context.services.resolve(stickerResolverKey)`）；`plugins/agent/web/plugin.ts:458-460`（Agent 入口 `await` Markdown 服务）
+现象：现在的 `browser` 入口只依赖 `diagnosticsKey`、同步 `activate`，注释说明另一个 `page` 入口就是为了避开成环才拆开的（“服务依赖按入口算”）。plan 把 `stickerPickerKey` 放进同一个 `browser` 入口，却要新加：`storageKey`（最近用过的记录）、`windowTextKey` 与 `displayLocale`（面板文字，`windowTextPort` 是 async）、打开设置“表情包页”的入口（`settingsKey`/通知），并且服务里直接交一个 Vue `Component`（`Panel`）。
+为什么是问题：①Markdown 入口激活时 `await` 它（`markdown/web/plugin.ts:136`），Agent 的对话组件加载时再 `await` Markdown；新增依赖变慢或卡住，就拖住 Markdown 服务，窗口启动时恢复的对话与编辑器标签的表情显示（验收 5）一起变慢。②静态 import 面板组件会把 Vue 与 nb-ui 面板代码并进启动入口，现有的 `page` 入口就是用 `import("./components/…")` 按需加载的。③Markdown 依赖 stickers，Agent 依赖 Markdown，plan 说“依赖成环”风险只字未提；新依赖里 `settingsKey` 本身又被 Markdown 可选依赖，需要核对没有环。
+建议：新开第三个入口（例如 `picker`）提供 `stickerPickerKey`，只依赖新增的“目录”服务（把 `directory` 作为独立服务从 `browser` 入口交出，不再只交 `resolve` 函数）；`Panel` 改成 `loadPanel(): Promise<Component>` 或 `defineAsyncComponent`；Markdown 与 Agent 对它都是 `resolve`（非 `require`），晚到时按钮后出现，不拦激活。
+
+### 8. “我的在前、各插件一组”的分组顺序没有来源：浏览器目录是按 id 码元序排的，而且 `source` 一个字段画不出“插件名”
+严重程度：重要
+类别：依赖的机制 / 与已定设计一致
+位置：`plugins/stickers/backend/catalog.ts:121`（`byCodeUnit(left.id, right.id)`）、`backend/catalog.ts:289` 与 `backend/plugin-roots.ts:37`（插件的 `prefix` 是插件 id，用户的是 `user`）；`backend/browser-catalog.ts:42-46`；plan“关键设计”与 Spec 39、18
+现象：plan 说“选择器的分组顺序跟着目录的来源顺序走，不另写”，Spec 39 写“表情包的顺序同浏览器目录（我的在前、各插件一组）”。实际目录按 id 的码元顺序，用户的 id 以 `user.` 开头，插件的以插件 id 开头：`acme.x.cats` 排在 `user.lyra` 前面，`zeta.…` 排在后面。“我的在前”不是目录的性质。
+同时新字段只有 `title` 与 `source`（user/plugin）：Spec 39 要“组头写显示名（插件的包另写插件名）、各插件一组”，这需要插件 id 与插件标题（`PackSummarySchema` 里有 `plugin: {id, title}`，浏览器目录没有）。按“每包至多多 200 字符”的预算估，加上这个字段是否仍成立也没算。
+另一个相关点：写法函数“提到 `shared/`，槽与选择器共用”。输出 14 的规则是“全部有效的表情包里有同名文件夹时写 id”，但浏览器目录丢掉了没有表情的包，并且按预算整包丢弃（`browserCatalog` 的 `filter` 与 `withinBudget`），选择器算“同名文件夹”时拿到的是被截断的集合，可能写出不带 id 的文件夹名，而完整目录里其实有同名包。
+建议：要么在浏览器目录里带 `plugin`（id、标题）并在选择器里自己排序（`user` 一组在前、插件按标题或 id），Spec 39 与 plan 改成“选择器自己排”；要么让后端在目录里直接给每个表情包算好 `writingPack`（folder 或 id），选择器不再自己推导，字节预算对应放宽。
+
+### 9. “表情按钮在 `+` 后面”用现有的 `placement` 做不到，单行版式的“前置按钮”也无法与它同时满足
+严重程度：重要
+类别：与已定设计一致 / 依赖的机制
+位置：`packages/nb-agent-ui/src/registry.ts:225-229`（`placement?: "leading" | "trailing"`）；`AgentConversationComposer.vue:62-64, :386-399, :446-462, :520-532`；Task 决定 8
+现象：两层版式里 `leading` 按钮画在 `+` 的前面（`v-for leadingButtons` 在 `DropdownMenu`（`+`）之前），`trailing` 画在模式 chip、审批 chip 的后面。单行版式里 `leading` 被搬到正文前面（`inline && leadingButtons.length>0`），`trailing` 仍在右边的工具栏里。决定 8 要“`+` 后面，单行版式在前置按钮里”：一条登记只有一个 `placement`，注册项的 `when(ctx)` 又拿不到版式（版式是 composer 的 prop，不在 `ctx` 里）。
+为什么是问题：照字面实现，两层版式里不是在 `+` 前就是在审批 chip 后，与开发者看过的评审板图（笑脸紧贴 `+` 右侧）不一致；这是已定决定被悄悄改变。
+建议：二选一并写进 plan：①给 `ToolbarButtonEntry.placement` 加第三个值（如 `after-plus`），composer 在 `+` 之后渲染；单行版式里把它并入前置按钮；②登记两条（`when` 里读新增的 `ctx.layout`）。不论哪种，nb-agent-ui 的这个改动与 `AgentConversationComposer.md` 都要列出。
+
+### 10. 编辑器的“表情选择器弹层”要接的既有联动没有列：保持选区、选区菜单与批注浮层让位、与别的卡片互斥、重置，以及“⋯”里没有按钮可以当锚点
+严重程度：重要
+类别：遗漏 / 对照参照
+位置：`plugins/markdown/web/components/menus/MarkdownMenus.vue:30-110, :117-131`（`prompting`、`imageOpen`、`hold()`、`holdSelection`/`holdCaret`/`releaseSelection`、`suspended`、`blocked`、`binding/readonly` 变化时重置）、`MarkdownToolbar.vue:21-22`（`PROMPTS` 集合）与折叠逻辑、`MarkdownImageCard`（锚点用 `selectionAnchor(editor, scroller)`）；`nb-ui/…/AnchoredPopover.md`（“不处理 Escape 与点外面，由宿主决定”）
+现象：plan 对菜单层的描述只有“开 `AnchoredPopover` 装 `picker.Panel`，锚在工具栏按钮上，斜杠打开时锚在光标；Esc、点外面关上，焦点回正文”。同类参照（插图卡片）还做了：焦点进卡片后用 `holdSelection` 把选区画成高亮（光标则 `holdCaret`），否则搜索框一拿到焦点，“有选区时替换选区”（Spec 41）的选区就不可见；`MarkdownSelectionMenu` 要 `suspended`、批注层要 `blocked`；注音、链接、插图卡片与新弹层要互斥；换文档或变只读时关掉；`+` 块插入的 `/` 在斜杠放弃时被 `removeSlashBlock` 回收（表情弹层放弃后留下空段落，与 Spec 62“选择器放弃时不留下什么”不符）。
+另外，工具栏放不下时“表情”进“⋯”菜单（评审板写了“放不下时和别的按钮一样收进⋯”），此时没有按钮可当锚点，菜单一关就没了；底部浮条（`placement: bottom`）时“下方弹出”会立刻翻到上方。插图卡片对这些情况的答案是锚在选区而不是按钮。
+为什么是问题：选区丢失导致替换行为不可见；与选区菜单、批注浮层叠在一起；`AnchoredPopover` 自己不处理 Esc、点外面、焦点回收，这三样要在两个宿主（编辑器、输入框）各做一遍，行为容易不一致。
+建议：plan 写明“照插图卡片接 `hold`/`suspended`/`blocked`/重置/互斥”，锚点统一用 `selectionAnchor`（工具栏、“⋯”、斜杠三条入口一致），与决定 8 的“从按钮下方弹出”冲突的部分交开发者确认；Esc、点外面与焦点回收收进 `StickerPickerPanel`（`close` 事件）而不是两个宿主各写；只用 `AnchoredPopover` 的外框。
+
+### 11. `StickerPicker.search()` 返回 Promise，与输入框菜单必须同步交回的约定冲突，也与斜杠菜单的现成做法相反
+严重程度：重要
+类别：接口与合同 / 对照参照
+位置：plan.md“`search(query, limit): Promise<readonly PickerItem[]>`”；`plugins/agent/web/mentions.ts:1-6, :31-60`（“菜单函数要同步交回（`resolveTriggerMenu` 约定）：没取到的查询先显示加载中，数据到了调 `onChange`，宿主换一个新函数”）；`PromptEditor.vue:362`（`resolveMenu` 在 `computed` 里同步调用）；`plugins/markdown/web/components/menus/MarkdownSlashMenu.vue:34-51`
+现象：目录在内存里，按名字筛是同步的；异步只来自“拼音库第一次用时才加载”。plan 把整个 `search` 做成 Promise。输入框一侧要为它再写一份 `createFileMentions` 那样的缓存、`asking` 集合、`onChange` 重取与竞态（按键快于结果、旧查询的结果晚到），并且每个新查询都先显示一次“正在加载”，菜单会闪；`SuggestionMenu` 的“加载中已有项照常显示”只对上一次查询的项，不是这一次的。
+斜杠菜单已经有现成的更简单形态：同步 `matches()`，拼音库用一个 `shallowRef` 装着、加载完成前只按名字筛、加载好后自然重算。
+建议：`search` 改成同步，返回按名字筛出的项；拼音在服务里用 `shallowRef` 装，加载完成前只按名字与包名，加载后响应式重算；输入框的 `resolveTriggerMenu` 对 `:` 因此可以直接同步。拼音首字母是否对“名字里的西文字母”也算，也在这里写清（`nonZh: "consecutive"` 的行为）。
+
+### 12. 决定 3 的“包名”被收窄成 `包/` 前缀，空查询 `:lyra/` 的行为没有定义，“最近用过”存什么也没定
+严重程度：建议
+类别：与已定设计一致 / 失败路径
+位置：Task 决定 3（“按名字、拼音首字母与包名筛”）；plan.md“搜索：名字包含、拼音首字母、`包/` 前缀限定”；Spec 40；评审板文字（“打 `:lyra/` 只列这个包”）；plan.md `web/recent.ts`（`{pack, name}[]`）
+现象：①决定 3 写“按包名筛”，评审板菜单右侧写的是表情包的显示名（“两个包都有‘开心’时靠它分开”）。Spec 40 只认 `包/查询`，包段“按文件夹名或 id 的开头”，中文显示名（“星璃”）不能搜。用户看到的是显示名，自然会打显示名。②`:lyra/`（斜杠后没有字）满足“至少 1 个字”，评审板说“只列这个包”，Spec 与 plan 没写：列全部还是前 8 个；8 项上限让一个 20 个表情的包不能这样浏览。③`recent` 的 `pack` 是 id 还是文件夹名没写：文件夹名在重名时歧义，id 在改名（`renamePack` 改 id）后失效；“目录里已没有的不列”的判断依赖它。
+建议：Spec 40 明确“包段同时按显示名匹配”或明确不支持（让开发者定）；`包/` 空查询的行为写出来（建议列该包全部、不受 8 项上限）；`recent` 存表情包 id 加名字。
+
+### 13. “只有表情的消息不画气泡”的判断输入、阈值与边界没定清
+严重程度：重要
+类别：接口与合同 / 异常输入
+位置：plan.md“`PromptBarenessPort = (text: string) => boolean`”；`nb-agent-ui/src/vue/stream/AgentConversationTurn.vue:181-187`（气泡在 Turn 里画，内容在 `AgentUserContent`）；`AgentUserContent.vue:25-41`（一条消息可有多个文字块与附件块，每个文字块各开一个 `promptTextView`）；Spec 45、`prompt-editor.md` 输出 14
+现象与问题：
+(a) 端口收一个 `string`，但消息是 `blocks[]`。多个文字块时判断哪段文字？拼接还是逐块？“没有附件”要在 Turn 里自己数块，这段逻辑 plan 没写落在哪。
+(b) `contentOmitted`（正文被省略，只显示预览，旁边有“仅显示预览”一行）：预览文字恰好只有表情时气泡消失，提示文字却还在；应当规定省略时一律画气泡。
+(c) 大图规则与不画气泡的规则尺度不同：大图是“每一段（空行分段）里不超过 3 个”，不画气泡是“整条消息去掉空白后共 1 到 3 个”。`:a:\n\n:b:\n\n:c:\n\n:d:` 是四个大图、画气泡；`:a: :b: :c:` 是三张并排大图、不画气泡，宽度三个 120px 高的图在窄栏里会折行，Spec 45 没写。
+(d) 气泡去掉后，消息头里的时间、操作按钮、`delivery: pending`、`unknown` 的重发提示（`AgentDeliveryNotice`）仍在气泡外，行为不变；但用户消息的气泡去掉后的版面没有设计（左缩进 `--nb-agent-block-indent` 与消息头的对齐、气泡去掉后与下一条消息的间距），验收 12 只量了行内小图的竖直位置。
+(e) 编辑历史消息（`AgentMessageEditor`）打开时按现有逻辑换掉气泡，保存后又变回无气泡，应在验收里列。
+建议：端口改成 `(blocks: readonly ContentBlockView[]) => boolean` 之类，或在 Turn 里先归一成字符串再问；写明省略时、多文字块时的规则；把 (d) 加进 Lab 场景。
+
+### 14. 提示词里任何形如 `:词:` 的文字都会变成不可编辑的原子小块，包括代码与冒号分隔的文字（认不出表情时也是）
+严重程度：建议
+类别：异常输入 / 与同类实现不同
+位置：plan.md“读入、粘贴、菜单确认时成为表情小块（新 kind `sticker`），手打的在打出收尾的 `:` 时变”；`stickers.ts` 的 `stickerAt`；`prompt-text.ts:475 tokenizeInline`
+现象：用 exp/t1.ts 扫：`std::string::npos` → `:string:`，`a:b:c` → `:b:`，`{"a":b:c}` → `:b:`，`http://x.com:abc:` → `:abc:`。这些在提示词编辑器里（粘贴时、读入草稿时、手打收尾 `:` 时）都成原子小块：光标一步跨过、退格删掉整个、不能在里面改字，显示成原文只是因为“查不到就显示原文”。Markdown 编辑器有 `\:` 转义和“紧接着退格还原”，提示词的文字格式没有任何还原手段。
+为什么是问题：粘贴代码与日志进提示词很常见，因为查不到表情而变成原子是一种沉默的编辑行为变化；`isStickerOnlyText`、大图规则也会数到它们。
+建议：小块只在宿主端口“认得出这条写法”时成立（`stickers` 端口加一个同步的 `known(ref)`，或目录还没取到时一律保持文字）；认不出的留作普通文字。这样 Spec 44 里“认不出显示原文”也同时变成“认不出就是文字”，更简单。如果开发者要保持现在的写法，至少在 Spec 里把这个行为记为已知取舍。
+
+### 15. `findPromptTrigger` 的循环语义与新规则的并存方式要先定义（含查询里的 `:` 与多个触发字符同在一个词里）
+严重程度：建议
+类别：接口与合同
+位置：`prompt-text.ts:397-415`（对一个词里每个字符依次判，首个满足的触发字符就返回；`continue` 时继续往后）；plan.md“触发 `:` 的边界与别的触发不同……只对 `:` 生效”
+现象：现在的前提是“所有触发字符用同一个前缀规则”。加了“只对 `:` 用另一套”之后：①`时间:12:30`：第一个 `:` 满足，查询是 `12:30`，含 `:`。Spec 42 说“查询不含 `:`”，实现是返回 null、还是继续找后一个 `:`（它前面是 `2`，不满足），没写。②词里有 `@`/`$` 与 `:` 时先到先得：`备注:$review` 的 `:` 先成立，`$` 永远不再触发（修改前 `$` 前面是 ASCII `:`，本来就不触发，所以不是回归，但应测一遍）。③`readTrigger` 的 `atStart` 对 `:` 没意义。
+建议：把“每个触发字符各有自己的前缀规则与查询规则”写成 `findPromptTrigger` 的数据表，并在 `prompt-text.test.ts` 里列出：`10:30`、`http://x`、`备注:$a`、`你好:开:心`、`::1`、`:开` 在行首、`(:开`、`，:开`、ATOM 字符前后。
+
+### 16. 验收映射与 e2e 清单的缺口
+严重程度：建议
+类别：验收映射
+位置：plan.md“验收映射”“验证”
+现象与建议：
+(a) 会被工具栏与斜杠菜单改动影响的 `e2e/markdown-editing.e2e.ts`（“版心变窄时收进更多操作”、斜杠菜单条目）与 `markdown-input.e2e.ts` 不在 6 个文件清单里：工具栏多一个 28px 按钮，`MarkdownToolbar.vue` 里的 `BUTTON/COLOR` 常量是手写宽度，折叠边界会移动；“块”组条目多一项。清单要加上，或写明为什么不跑。
+(b) 验收 12 的“竖直中心差不超过 2px”只在 e2e 里量，但输入框、已发送消息、回复三处的行高不同（见发现 4）；应分别在 Lab 的真实布局里量（`PromptEditor`、`PromptTextView`、展示器各一个场景），不只在 `sticker-picker.e2e.ts` 里量输入框那一处。
+(c) 发现 1（往返）、发现 2（空菜单与回车）、发现 14（原子小块）都没有对应的失败用例：建议在 `prompt-text.test.ts` 加“前文含 `:词` 时插入写法后整行重新分词仍是一个整体”，在 `PromptEditor.dom.test.ts` 加“`:xyz` 无匹配时不显示菜单、回车发送”。
+(d) 验收 11 的第二句要“重开编辑器后最近用过的顺序”，依赖 user/local 记录的写入与读回；`colors.ts` 的同类记录在保存失败时只改显示。用例要等记录落盘后再重开，不能只在内存里看；`stickers.recent` 与目录删除（输出 43 “目录里没有的不列”）也没有用例。
+(e) 未验证边界只写了输入法组字。还有：`Shift+点击` 连发时焦点在面板里、插入后焦点是否回到编辑器、再次插入的位置（光标在哪）没有覆盖。
+
+### 17. 对话视图弹层的默认方向与决定 8 不一致
+严重程度：建议
+类别：与已定设计一致
+位置：plan.md“nb-agent-ui：点了在按钮上方（放不下翻到下方）开 `AnchoredPopover`”；Spec `agent-conversation-view.md` 的新增条目；Task 决定 8（“选择器从按钮下方弹出（放不下翻到上方）”）
+现象：输入框在面板底部，朝上开更合理，AnchoredPopover 放不下时也会翻面，实际效果多半相同。但这是对已定决定的改写，Task 记录里没有这条取舍。
+建议：在 plan 里写一句“输入框朝上，因为它在面板底部”，或回到决定 8 的字面。
+
+## 未发现问题的方面
+- nb-agent-ui 的包边界：`PromptBarenessPort` 与弹层按钮的“登记组件”形状，与现有的 `MarkdownPreviewPort`、`PanelEntry` 同类，不需要依赖 nb-markdown；本身没发现越界（具体落点问题见发现 9、13）。
+- 编辑器里 `:` 补全与已有输入规则（打出收尾 `:` 变节点、退格还原）：输入规则在 `handleTextInput` 里先把写法换成节点，触发插件按新状态重算后找不到 `:查询`，补全随之收起，没有两个机制同时操作同一处文字的路径；补全确认后用自定义事务插入节点，退格会整个删掉（与 Spec 21 一致），不会进入“还原成文字”的路径。
+- 编辑器斜杠菜单与 `:` 补全两个菜单同时打开：要同时满足斜杠查询里含 `:` 并仍匹配某一项，名称与拼音首字母都不含 `:`，实际上不会同时打开；两个键盘处理器都在 `scroller` 的捕获阶段、只用 `stopPropagation`，没有互斥保证，但没有可达的触发路径。
+- `stickerAt`/`SHAPE` 对 `10:30`、`:D`、`http://` 的行为：`10:30:45`、`:D` 不被认成写法（名字首字符须是字母或下划线），与决定 3 的例子一致；URL 靠“前一个字不是 ASCII 字母数字”排除。
+- 键盘输入法组字：`MarkdownSlashMenu` 与 `PromptEditor.syncTrigger` 都已有组字期间冻结查询、组字结束重算的做法，plan 的“组字时由宿主判断”沿用即可；真实输入法验证按 plan 写成未验证，合适。
+- “最近用过”用 `defineRecord`（user/local）并仿 `colors.ts` 的失败只改显示：没发现问题；多窗口并发写同一条记录的语义我没有核实（`persist.commit` 对外部变更的合并行为），**未验证**。
+
+## 各级数量
+阻断 0；重要 12（发现 1 到 11、13）；建议 5（发现 12、14、15、16、17）。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17

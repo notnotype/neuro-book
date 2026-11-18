@@ -1,119 +1,123 @@
 # t09 计划：表情选择器、补全与输入框发表情
 
+第 2 稿（2026-11-18）：按设计审查（[`evidences/design-review.txt`](evidences/design-review.txt)，17 条，处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)）修订；第 1 稿开发者已确认，修订只补实现路径与边界，另有决定 9 改了补全的触发。
+
 ## Context
 
-开发者 2026-11-18 意见第 3 条：编辑器没有表情的输入控件、没有选择器，Agent 输入框不能发表情。设计在会话与第 1 轮评审板里定了（[README](README.md) 决定 1 到 8）：编辑器与输入框都能打 `:` 补全、点按钮开选择器；选择器版式 A（搜索、表情包标签、分组网格、底部写名字与写法，“最近用过”在最前）；输入框里显示成行内小图，发出的消息与回复同一大小规则，只有表情的一条消息不画气泡。
+开发者 2026-11-18 意见第 3 条：编辑器没有表情的输入控件、没有选择器，Agent 输入框不能发表情。设计定在 [README](README.md) 决定 1 到 9：编辑器与输入框都能打 `:` 补全、点按钮开选择器；选择器版式 A（搜索、表情包标签、分组网格、底部写名字与写法，“最近用过”在最前）；输入框里显示成行内小图，发出的消息与回复同一大小规则，只有表情的一条消息不画气泡；查询只有 1 个英文字母时不弹（颜文字）。
 
-依据：[`agent/stickers.md`](../../../../../docs/specs/agent/stickers.md)（写法、目录、输出 10 到 18）、[`ui/prompt-editor.md`](../../../../../docs/specs/ui/prompt-editor.md)（触发菜单、小块、静态显示）、[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md)（工具栏、斜杠菜单、命令表）、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)（输入框与用户消息）。
+依据：[`agent/stickers.md`](../../../../../docs/specs/agent/stickers.md)（写法、目录、输出 10 到 18、39 到 45）、[`ui/prompt-editor.md`](../../../../../docs/specs/ui/prompt-editor.md)、[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md)（输出 1、11、54、62，命令表）、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)。
 
-约束：行内小图沿用展示器现有的样式（`.nb-sticker`，按汉字字形中心对齐，`markdown.css`）；评审板附言“表情和文字高度没对齐”来自草稿用了 `vertical-align: middle`，产品里输入框与用户消息都用同一份类名，验收时在真实浏览器里量。t10 会给目录加内置来源，选择器的分组顺序跟着目录的来源顺序走，不另写。
+t10 会给目录加内置来源与“我的优先”的同名规则；本 Task 的写法包段由后端算好随目录下发（下文），t10 只改后端的算法。
 
 ## 技术选型
 
-- 拼音首字母：沿用斜杠菜单已有的 `pinyin-pro`，第一次用到时才加载。
-- 最近用过：仓库的记录机制 `defineRecord`（`scope: "user"`、`locality: "local"`），同 `markdown.colors`；不裸写 `localStorage`。
-- 弹层：nb-ui 的 `AnchoredPopover`（插图卡片、注音卡片同款）；补全用 `SuggestionMenu`。
+- 拼音首字母：沿用斜杠菜单的 `pinyin-pro`，懒加载，装在 `shallowRef` 里；加载完成前只按名字与包筛，加载后响应式重算（同 `MarkdownSlashMenu`）。
+- 最近用过：`defineRecord`（`scope: "user"`、`locality: "local"`），同 `markdown/web/colors.ts`。
+- 弹层：nb-ui `AnchoredPopover` 只当外框；补全用 `SuggestionMenu`。
 - 没有新依赖。
 
 ## 关键设计
 
+### 共用样式：`nb-markdown/src/stickers.css`（新）
+
+- 把 `display/markdown.css` 里 `.nb-markdown .nb-sticker…` 的规则（尺寸、`vertical-align: -0.16em`、`margin-block`、间隙类、大图、选中描边）搬成不带 `.nb-markdown` 前缀的 `.nb-sticker…`，由展示器、Markdown 编辑器、`PromptEditor`、`PromptTextView` 共同引入（审查第 4 条）。提示词里的表情节点视图用裸 `<span class="nb-sticker">`，不套 `InlineChip` 的 `inline-flex` 外壳。
+- 行高不同的三处（展示器、输入框、用户消息）各有一个 Lab 场景，按同一量法核对图与汉字的竖直中心。
+
 ### `plugins/stickers`（目录与选择器服务）
 
-- 浏览器目录（输出 18）每个表情包多带 `title`（显示名）与 `source`，选择器的组头与标签要用；仍不带说明。`shared/contracts.ts` 的 `BrowserPackSchema` 加两个字段，`backend` 生成目录处补上，预算测试照跑（每包至多多 200 字符）。
-- 新浏览器服务 `stickerPickerKey`（`web/plugin.ts` 的 `browser` 入口一并提供，与 `stickerResolverKey` 同一份目录）：
+- 浏览器目录（输出 18）每个表情包多带：`title`、`source`、插件的 `{id, title}`（插件来源才有），以及后端算好的写法包段 `writing`（输出 14 的规则，在完整目录上算，不受浏览器目录截断影响，审查第 8 条）。槽也改用这个函数，函数放 `stickers/shared/writing.ts`。预算测试按新字段重算。
+- 选择器自己排分组：我的在前，各插件按插件显示名（没有时插件 id）一组；同组内按目录顺序（Spec 39 改成“选择器自己排”）。
+- 入口拆分（审查第 7 条）：`browser` 入口不加依赖，多交一个服务 `stickerDirectoryKey`（目录的响应式快照与 `resolve`，`stickerResolverKey` 仍交 `resolve`，Markdown 不受影响）；新入口 `picker` 依赖 `stickerDirectoryKey`、`storageKey`（可选）、`windowTextKey`（可选）、`settingsKey`（可选，打开表情包页），提供 `stickerPickerKey`：
 
   ```ts
   interface StickerPicker {
-      /** 当前目录（响应式），按来源分组的顺序。 */
-      readonly packs: Readonly<Ref<readonly PickerPack[]>>;
-      /** 补全与搜索：名字包含、拼音首字母、`包/` 前缀限定；至多 limit 项。 */
-      search(query: string, limit: number): Promise<readonly PickerItem[]>;
-      /** 最近用过（至多 16 个，新的在前），目录里已没有的不列。 */
+      /** 分好组的表情包（响应式）。 */
+      readonly groups: Readonly<Ref<readonly PickerGroup[]>>;
+      /** 同步：名字包含、拼音首字母开头、`包/` 限定（包段按文件夹名、id 或显示名的开头）；拼音库未到时只按名字与包。 */
+      search(query: string, limit: number): readonly PickerItem[];
+      /** 同步认一条写法（提示词编辑器决定是否成为表情小块）；目录未到时 undefined。 */
+      known(raw: string): boolean | undefined;
       readonly recent: Readonly<Ref<readonly PickerItem[]>>;
-      /** 插入之后调用：记进最近用过。 */
       used(item: PickerItem): void;
-      /** 面板组件：props `{autofocus?}`，emit `pick(item, keepOpen)`、`close`。 */
-      readonly Panel: Component;
+      /** 面板组件，按需加载。 */
+      loadPanel(): Promise<Component>;
+      openPacksPage(): void;
   }
-  interface PickerItem { pack: string; name: string; url: string; width: number; height: number; writing: string; packTitle: string }
   ```
 
-  写法 `writing` 的包段按输出 14 的规则：写文件夹名，全部有效的表情包里有同名文件夹时写 id；与槽共用一个函数（现在写在 `agent/backend/stickers/extension.ts` 的槽里，提到 `stickers/shared/`，槽改为调用它）。
-- `web/recent.ts`：记录 `stickers.recent`（`{pack, name}[]`，至多 16），读坏了当空；保存失败只改显示，同 `colors.ts`。
-- `web/components/StickerPickerPanel.vue` 与同名 `.md`：版式 A。标签行（最近、各包的第一张图）只用底色标当前，不画边线（决定 5 附言）；网格按包分组、格子约 52px、方向键在格子间移动、回车插入；底部一行是指着的表情（大图、名字、写法）；搜索时不分组；没有表情包时一句话加“在设置里新建”（打开表情包页）。Lab 场景：有最近、搜索、没有表情包、390 宽、英文界面。
-- 面板只发 `pick`，插在哪里由宿主决定；Shift+点击与 Shift+回车发 `keepOpen: true`。
+  `search` 同步（审查第 11 条）。`包/` 后面没有字时列这个包的全部（不受 8 项上限）。`recent` 存表情包 id 与名字（审查第 12 条）；目录里没有的不列；坏记录当空。
+- `web/components/StickerPickerPanel.vue` 与同名 `.md`：版式 A；标签只用底色标当前；方向键、回车、Shift+回车或 Shift+点击不关；Esc、点外面、焦点离开时发 `close`，焦点回收由面板发出的事件统一处理，两个宿主不各写（审查第 10 条）。没有表情包时“在设置里新建”调 `openPacksPage`。Lab 场景：有最近、搜索、没有表情包、390 宽、英文界面。
 
 ### nb-ui `SuggestionMenu`
 
-- `SuggestionMenuItem` 加 `imageUrl?: string`：画在图标列，24px、`object-fit: contain`；整个菜单有一项带图时图标列按 24px 留。`SuggestionMenu.md` 与测试同改。
+- `SuggestionMenuItem` 加 `imageUrl?`：图标列 24px、`object-fit: contain`。`.md` 与测试同改。
 
-### nb-markdown：编辑器的 `:` 补全
+### nb-markdown：编辑器
 
-- `editor/sticker-trigger.ts`，照 `slash-trigger.ts`：`createTriggerPlugin`，读光标前同一文本块的文字，匹配“开头或一个不是 ASCII 字母数字的字、半角 `:`、至少 1 个不是空白与 `:` 的字”；代码块、原样块、行内代码里不触发；组字时由宿主判断。导出 `activeSticker`、`dismissSticker`、`insertStickerAtTrigger(editor, writing)`（把 `:查询` 换成表情节点，节点的原文走 `parseSticker`，`closeHistory` 同斜杠）。
-- 与输入规则（输出 22）的关系：打出收尾的 `:` 时输入规则先把写法变成节点，触发随之消失，不冲突。
+- `editor/sticker-trigger.ts`（照 `slash-trigger.ts`）：段落、标题、列表项、表格单元格里，光标前是“开头或一个不是 ASCII 字母数字的字、半角 `:`、查询”，查询没有空白与 `:`，且不是“只有 1 个 ASCII 字母”（决定 9）；光标在行内代码、代码块、原样块里不触发。导出 `activeSticker`、`dismissSticker`、`insertStickerAtTrigger(editor, raw)`。
+- 编辑动作表 `editor/editing-actions.ts` 加 `sticker`：`run` 先 `parseSticker(text)`，不是一个完整写法返回 false（审查第 6 条，守住“节点原文一定是写法”）；光标或选区在行内代码里不可用；插入后不留 `code` 标记。`insertStickerAtTrigger` 同样校验。
 
 ### nb-markdown：`PromptEditor` 与 `PromptTextView`
 
-- 文字写法加“表情”：`:名字:`、`:包/名字:`，判断用 `stickers.ts` 的 `stickerAt`，反引号代码里不认；读入、粘贴、菜单确认时成为表情小块（新 kind `sticker`），手打的在打出收尾的 `:` 时变（同输出 2 的“写完时”）。小块的样子是行内小图：经宿主端口 `stickers` 查，查到画图（`.nb-sticker` 同一套类名），查不到或没有端口时显示原文文字。写回原样。
-- 触发 `:` 的边界与别的触发不同：前一个字不是 ASCII 字母数字即可（中文里紧跟汉字也算），查询至少 1 个字；规则写进 `findPromptTrigger`，只对 `:` 生效。宿主的 `triggers` 里列了 `:` 才开。
-- `PromptEditorMenuItem` 加 `imageUrl?`（交给 `SuggestionMenu`）与 `appendSpace?: boolean`（缺省真；表情项为假，中文里不补空格）。
-- `PromptTextView`：表情小块同上；一段（以空行分段）里只有表情与空白、表情不超过 3 个时这一段的表情是大图，规则与展示器共用一个函数（`stickerBlockSize`，现有的块后处理里提出来）。
-- 新导出 `isStickerOnlyText(text)`：去掉空白后只剩 1 到 3 个写法（只看写法，不查目录），给宿主判断“只有表情的消息”。
+- 宿主端口 `MarkdownHost` 加 `stickerKnown?: (raw: string) => boolean | undefined`（同步）。表情是独立节点类型 `promptSticker`（`atom`、自己的节点视图、不进 `PromptTokenAttrs`、不发 `token-activate`，审查第 5 条）：只在 `stickerKnown` 为真时成立；为假、未定或没有端口时就是文字（审查第 14 条，Spec 44 改成“认不出的就是文字”）。目录晚到时，已打开的正文在目录到了后按原文重新识别一次（不进撤销历史）。
+- 往返（审查第 1 条）：插入写法（菜单确认、弹层 `insert`）前检查插入后同一行重新分词时它仍是一个整体，不是就在前面补一个空格；`prompt-text.test.ts` 的往返用例加“前文有 `:词`”。
+- `findPromptTrigger` 改成每个触发字符一条规则的表（审查第 15 条）：`@`、`$`、`/` 照旧；`:` 用决定 3、9 的边界。查询含 `:` 时不触发、也不往后找。
+- `PromptEditorMenu` 加 `hideWhenEmpty?: boolean`（审查第 2 条，表情菜单为真：没有匹配时不弹，回车照常发送）；`PromptEditorMenuItem` 加 `imageUrl?` 与 `appendSpace?`（缺省真）。
+- `PromptTextView`：表情节点同上；一段（空行分段）只有表情与空白、不超过 3 个时是大图，规则与展示器共用 `stickerBlockSize`。
+- 导出 `stickerOnlyMessage(texts: readonly string[], known)`：所有文字块拼起来去掉空白后只剩 1 到 3 个认得出的写法。
 
 ### nb-agent-ui
 
-- 新端口 `PromptBarenessPort = (text: string) => boolean`（同 `MarkdownPreviewPort` 的形状，宿主注入，不注入时恒为假）：用户消息没有附件、端口为真时不画气泡，内容照常经 `PromptTextView`；样式在 `AgentConversationTurn`。
-- `ToolbarButtonEntry` 加第三种 `{popover: Component}`：点了在按钮上方（放不下翻到下方）开 `AnchoredPopover`，里面渲染登记的组件，交给它 `{insert(text), close()}`；`insert` 经编辑器的 `insertText` 插在光标处并把焦点交回编辑器。只读、不可发送时按钮禁用。`AgentConversationComposer.md` 同改。
+- 端口 `PromptBarenessPort = (texts: readonly string[]) => boolean`（审查第 13 条）：`AgentConversationTurn` 收集这条用户消息的文字块；有附件块、正文被省略（`contentOmitted`）、正在就地编辑时一律画气泡；端口为真时不画气泡，内容照常经 `AgentUserContent`。无气泡时左缩进与消息头对齐、和下一条的间距同有气泡时；Lab 加一个场景。
+- `ToolbarButtonEntry`：`placement` 加 `"after-add"`（`+` 后面；单行版式并入前置按钮，审查第 9 条）；加第三种形态 `{popover: () => Promise<Component>}`，点了用 `AnchoredPopover` 在按钮旁打开（输入框在面板底部，放不下下方时翻到上方，实际朝上），交给组件 `{insert(text), close()}`；`insert` 走编辑器 `insertText`（同上补空格检查）并把焦点交回编辑器。只读、不可发送时禁用。
 
-### neuro-book：编辑器接线（`plugins/markdown`）
+### neuro-book：编辑器接线
 
-- 可选依赖 `stickerPickerKey`；没有时不出按钮、斜杠项与补全（Lab、没有表情插件的宿主）。
-- `MarkdownStickerMenu.vue`：补全菜单，照 `MarkdownSlashMenu`（键盘在滚动容器捕获阶段拦，菜单开着才拦），项来自 `picker.search(query, 8)`，一行小图、名字、表情包名；确认后 `insertStickerAtTrigger` 并 `picker.used`。
-- 工具栏：图片后面加“表情”（`prompt: sticker`）；斜杠菜单“块”组“图片”后面加“表情”（同样发 `prompt: sticker`，先删 `/查询`）。菜单层开 `AnchoredPopover` 装 `picker.Panel`：锚在工具栏按钮上，斜杠打开时锚在光标；选了经命令 `nbook.edit.sticker {text}` 插在光标处（`canFormat`，代码块里不可用）；Esc、点外面关上，焦点回正文。只读时按钮置灰。
+- `plugins/editor`（审查第 6 条）：`shared/editing.ts` 的 `EDITING_ACTIONS` 加 `sticker`（`args: "text"`，`canFormat`）；`web/editing-commands.ts` 的参数表、`editing-menus.ts`、`locales/*.json` 的标题中英两份、Lab 的 `editor-scene/lab-editor-menus.ts` 替身同改。
+- `plugins/markdown`：可选解析 `stickerPickerKey`（`resolve`，晚到时按钮后出现，不拦激活）。
+  - `MarkdownStickerMenu.vue`：补全，照 `MarkdownSlashMenu`；确认后 `insertStickerAtTrigger` 并 `used`。
+  - 工具栏“表情”（`prompt: sticker`，进 `PROMPTS`；固定宽度表加一格）、斜杠“块”组“表情”。
+  - 菜单层（审查第 10 条）照插图卡片接：打开时 `holdSelection`/`holdCaret`，选区菜单 `suspended`、批注层 `blocked`，与注音、链接、插图卡片互斥，换文档或变只读时关；锚点：工具栏按钮在视图里时锚按钮，在“⋯”里或从斜杠打开时锚光标（`selectionAnchor`）；从 `+` 块的斜杠打开、放弃时回收空段落（同 `removeSlashBlock`）。选了经 `menus.run('sticker', {text})`。
 
-### neuro-book：输入框接线（`plugins/agent/web`）
+### neuro-book：输入框接线
 
-- 可选依赖 `stickerPickerKey`；有时：登记触发 `:`（`resolveTriggerMenu` 对 `:` 用 `picker.search`，项带 `imageUrl`、`appendSpace: false`，确认后 `picker.used`）；登记工具栏按钮“表情”（`popover` 装 `picker.Panel`，在 `+` 后面，单行版式放进前置按钮）；注入 `PromptBarenessPort = isStickerOnlyText`。
+- `plugins/agent/web`（审查第 3 条）：`HOST_TRIGGERS` 随 `stickerPickerKey` 是否解析到加 `:`；注册表加一条 `toolbarButtons`（`placement: "after-add"`、`popover: picker.loadPanel`）与 `:` 的触发；`resolveTriggerMenu` 对 `:` 用 `picker.search(query, 8)`，项带 `imageUrl`、`appendSpace: false`，菜单 `hideWhenEmpty`；确认后 `used`。Markdown 宿主的 `stickerKnown` 接 `picker.known`；注入 `PromptBarenessPort`。
+- 历史消息的就地编辑器（`AgentMessageEditor`）显示表情节点，不开 `:` 补全与按钮（Spec 写明）。
 
 ## Spec 与文档改动
 
-- `agent/stickers.md`：“不承诺”去掉输入框发表情、编辑器插入菜单两条；新增输出 39 起：选择器（版式、分组顺序、最近用过、搜索规则、插入的写法、`keepOpen`）、补全（触发规则、筛选、确认）、输入框里与用户消息里的样子、只有表情的消息不画气泡；输出 18 加 `title`、`source`；验收加 11、12（编辑器、输入框各一组）。实现合同加 `stickerPickerKey`、记录 `stickers.recent`。
-- `ui/prompt-editor.md`：文字写法表加“表情”；触发菜单补 `:` 的边界；`appendSpace`、`imageUrl`；静态显示的大图规则。
-- `workbench/markdown-editing.md`：输出 1 工具栏、输出 11 斜杠菜单加“表情”；新增 `:` 补全一条；命令表加 `nbook.edit.sticker`。
-- `ui/agent-conversation-view.md`：输入框按钮的弹层一种；只有表情的用户消息不画气泡。
-- 组件 `.md`：`SuggestionMenu`、`PromptEditor`、`PromptTextView`、`AgentConversationComposer`、`MarkdownToolbar`、`MarkdownMenus`、新的 `StickerPickerPanel`、`MarkdownStickerMenu`。
+已提交的 planned 条目按审查改：stickers 输出 18（插件信息与写法包段）、39（分组由选择器排、锚点）、40（包段也按显示名、`包/` 空查询）、42（决定 9、没有匹配时不弹）、44（认不出的就是文字）、45（文字块、省略、编辑时）；验收 12 的 `:k` 改 `:kx`；prompt-editor 的写法表与输出 5（`hideWhenEmpty`、补空格检查）；agent-conversation-view 的按钮位置与就地编辑。组件 `.md` 同计划第 1 稿，另加 `stickers.css` 的说明进 `MarkdownDisplay.md`。
 
 ## 切片
 
-1. **Spec**（主工作区，planned 条目）。
-2. **目录与服务**：浏览器目录加字段、写法函数提到 shared、`stickerPickerKey`（search、recent、used），面板先不做。验证：`bun test src/plugins/stickers src/plugins/agent/stickers-slot.test.ts`、typecheck。
-3. **nb-ui 与 nb-markdown**：`SuggestionMenu.imageUrl`；`PromptEditor`/`PromptTextView` 的表情小块、`:` 触发、`appendSpace`、大图规则、`isStickerOnlyText`；编辑器的 `sticker-trigger.ts`。验证：nb-ui、nb-markdown 的 vitest 与 typecheck，`check:dist`。
-4. **选择器面板**：`StickerPickerPanel` 与 Lab 场景，DOM 测试（分组、搜索、方向键、Shift 不关、最近用过）。
-5. **编辑器接线**：补全菜单、工具栏、斜杠、命令、弹层。验证：markdown 的 DOM 测试、e2e。
-6. **输入框接线**：nb-agent-ui 的弹层按钮与无气泡；agent 插件的触发、按钮、端口。验证：nb-agent-ui 测试、agent 的 DOM 测试、e2e。
-7. 收口：实现审查（前端派 Sonnet；切片 2 的目录字段很小，按任务大小降级不另开 omp），Spec 晋升。
+1. **Spec 修订**（主工作区）。
+2. **目录与服务**：后端目录字段与写法包段、`stickerDirectoryKey`、`picker` 入口的 `search`、`known`、`recent`。验证：`bun test src/plugins/stickers src/plugins/agent/stickers-slot.test.ts`、typecheck。
+3. **nb-ui 与 nb-markdown**：`imageUrl`；`stickers.css`；提示词的 `promptSticker`、触发规则表、`hideWhenEmpty`、补空格检查、大图、`stickerOnlyMessage`；编辑器的 `sticker-trigger.ts` 与 `sticker` 动作。验证：两包 vitest 与 typecheck，`check:dist`。
+4. **选择器面板**与 Lab 场景、DOM 测试。
+5. **编辑器接线**（`plugins/editor` 与 `plugins/markdown`）。
+6. **输入框接线**（nb-agent-ui 与 `plugins/agent/web`）。
+7. 收口：e2e、实现审查（前端派 Sonnet；后端目录字段改动小，按任务大小降级不另开 omp）、Spec 晋升。
 
 ## 验收映射
 
 | Spec | 覆盖 |
 |---|---|
-| stickers 输出 18（新字段） | `stickers.test.ts` 目录预算用例 |
-| stickers 新输出：搜索、最近、写法 | `web/picker.test.ts`（真实目录数据，替身只换记录存储） |
-| stickers 新输出：面板 | `StickerPickerPanel.dom.test.ts`、Lab 场景 |
-| prompt-editor 表情写法、`:` 触发、`appendSpace`、大图 | `PromptEditor.dom.test.ts`、`prompt-text.test.ts`、`PromptTextView.dom.test.ts` |
-| markdown-editing `:` 补全、工具栏、斜杠、命令 | `sticker-trigger.dom.test.ts`（nb-markdown）、`MarkdownMenus.dom.test.ts` |
-| agent-conversation-view 弹层按钮、无气泡 | `AgentConversationComposer.dom.test.ts`、`AgentUserContent.dom.test.ts` |
-| stickers 验收 11（编辑器） | `e2e/sticker-picker.e2e.ts`：打 `:开` 回车、保存是 `:lyra/开心:`；工具栏按钮选一个、重开后“最近用过”里有它 |
-| stickers 验收 12（输入框） | 同文件：打 `:k` 选“开心”发送，请求里是写法原文、消息里是图；只发一个表情的消息没有气泡、是大图；行内小图与文字的竖直中心差不超过 2px |
+| stickers 输出 18 | `stickers.test.ts` 目录预算与写法包段（截断时仍按完整目录写 id） |
+| 输出 39 到 43 | `web/picker.test.ts`（真实目录数据；分组、搜索含拼音与显示名、`包/` 空查询、`known`、最近用过的读写与目录删除后不列）、`StickerPickerPanel.dom.test.ts` |
+| 输出 42、44、prompt-editor 输出 1、5 | `prompt-text.test.ts`（触发规则表：`10:30`、`http://x`、`备注:$a`、`你好:开:心`、`::1`、`:D`、`:kx`、`(:开`、`，:开`；往返含前文 `:词`）、`PromptEditor.dom.test.ts`（无匹配不弹、回车发送；认不出的是文字；目录晚到后识别） |
+| markdown-editing 输出 62 与命令 | `sticker-trigger.dom.test.ts`、`editing-actions.dom.test.ts`（非写法参数返回 false、行内代码不可用）、`MarkdownMenus.dom.test.ts` |
+| 输出 45、agent-conversation-view | `AgentConversationTurn`/`AgentUserContent` 的 DOM 测试（附件、省略、多文字块、编辑中）、`AgentConversationComposer.dom.test.ts`（`after-add`、弹层插入、单行版式） |
+| 样式对齐 | Lab 三个场景的量法（展示器、`PromptEditor`、`PromptTextView`） |
+| 验收 11、12 | `e2e/sticker-picker.e2e.ts`（最近用过等记录写入后再重开） |
 
 ## 验证
 
-- 每片自跑上面的命令；改到的包跑各自的 typecheck。
-- e2e 合入前一次：`sticker-picker.e2e.ts`（新）、`stickers.e2e.ts`、`sticker-packs.e2e.ts`（目录字段变了）、覆盖输入框与提示词编辑器的 `agent-conversation.e2e.ts`、`lab-agent-ui.e2e.ts`、`lab-markdown.e2e.ts`，共 6 个。实施中只重跑改到的那个。
-- 未验证边界：真实输入法组字中的 `:`（CDP 不能完整模拟组字，同 t02）。
+- 每片自跑上面的命令。
+- e2e 合入前一次：`sticker-picker.e2e.ts`（新）、`stickers.e2e.ts`、`sticker-packs.e2e.ts`、`agent-conversation.e2e.ts`、`lab-agent-ui.e2e.ts`、`lab-markdown.e2e.ts`、`markdown-editing.e2e.ts`（工具栏折叠与斜杠条目）、`markdown-input.e2e.ts`，共 8 个。实施中只重跑改到的。
+- 未验证边界：真实输入法组字中的 `:`；多窗口同时写“最近用过”的合并（记录机制的行为，按现有 `colors.ts` 的程度接受）。
 
 ## 不做与风险
 
-- 不做：表情的拖放插入、选择器里的收藏与排序、按 Profile 限制列出的包（决定 2）、全角冒号触发（决定 3）。
-- 风险：`PromptEditor` 加一种小块要守住“文字原样往返”（输出 1），由 `prompt-text.test.ts` 的往返用例加表情写法兜底，用真实解析函数。
-- 风险：`isStickerOnlyText` 只看写法不查目录，认不出的写法单发时也不画气泡、显示原文；记为已知限制写进 Spec。
+- 不做：拖放插入、收藏与排序、按 Profile 限制列出的包、全角冒号触发、就地编辑历史消息时的补全与按钮。
+- 风险：提示词的表情只在“认得出”时成为节点，目录晚到时要重新识别一次；用 `PromptEditor.dom.test.ts` 的晚到用例兜底，用真实的 `parsePromptText`。
