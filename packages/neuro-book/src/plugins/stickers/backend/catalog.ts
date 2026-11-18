@@ -8,19 +8,22 @@
  *
  * 图片第一次见到时读一遍：按开头的字节判定类型、取宽高（`Bun.Image`）、算版本（修改时间、大小与 inode）。取图路由读的时候再判
  * 一次，扫描之后被换掉的文件不会按旧的结论给出去。
+ *
+ * 表情包页另要两类不是表情的图（`extras`）：名字当不了表情名的、有表情列表时文件夹里清单没列的；它们只在目录条目旁边记着，不进
+ * 条目（浏览器目录与槽只看条目）。页面写完文件用 `refresh` 等到目录已是写完的样子。
  */
 
 import {watch, type FSWatcher, type Stats} from "node:fs";
-import {lstat, mkdir, readdir, readFile} from "node:fs/promises";
+import {lstat, mkdir, readdir, readFile, rm} from "node:fs/promises";
 import {join, sep} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import {sniffImageType} from "nbook/shared/image-type";
 
-import {FOLDER_NAME, IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, IMAGE_TYPES, MANIFEST_FILE, MANIFEST_MAX_BYTES, packId} from "../shared/contracts";
-import type {StickerEntry, StickerPackEntry, StickerPackProblem, StickerSource} from "../shared/contracts";
-import {parseManifest, stickersFromFiles} from "../shared/manifest";
+import {EXTRAS_MAX, FOLDER_NAME, IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, IMAGE_TYPES, MANIFEST_FILE, MANIFEST_MAX_BYTES, packId, REPLACED_PREFIX, STAGING_PREFIX} from "../shared/contracts";
+import type {ExtraCounts, StickerEntry, StickerExtra, StickerPackEntry, StickerPackProblem, StickerSource} from "../shared/contracts";
+import {isImageFileName, parseManifest, stickersFromFiles} from "../shared/manifest";
 
 /** 文件变化合并成一次重扫的等待时长：解压、同步工具会连着改好几个文件。 */
 const RESCAN_DELAY_MS = 150;
@@ -36,17 +39,29 @@ export interface StickerRoot {
     readonly plugin?: {readonly id: string; readonly title: string | null};
 }
 
-/** 目录里的一项：条目加真实目录与所属根的 `key`。 */
+/**
+ * 目录里的一项：条目加真实目录与所属根的 `key`；`listed` 是清单写了表情列表；`extras` 每类至多 `EXTRAS_MAX` 张，`counts` 是总数。
+ */
 export interface StickerPackItem {
     readonly entry: StickerPackEntry;
     readonly directory: string;
     readonly root: string;
+    readonly listed: boolean;
+    readonly extras: readonly StickerExtra[];
+    readonly counts: ExtraCounts;
+    /**
+     * 用户的包的文件夹身份令牌（表情包页改包名、删除、替换时带回）；插件的包与取不到时为 null。在读这个包的内容之前取：
+     * 取到之后文件夹又被换掉时，令牌比内容旧，带回去的条件操作会被拒绝，不会把旧内容配上新文件夹的令牌。
+     */
+    readonly token: string | null;
 }
 
 export interface StickerCatalogOptions {
     readonly roots: readonly StickerRoot[];
     readonly clock: RuntimeClock;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    /** 按文件夹名取用户的包的身份令牌，与入参同序；某项取不到时是 null。缺省时都是 null（没有 Files 服务的场合）。 */
+    readonly identify?: (folders: readonly string[]) => Promise<ReadonlyArray<string | null>>;
 }
 
 const byCodeUnit = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
@@ -74,6 +89,9 @@ export class StickerCatalog {
     readonly #listeners = new Set<() => void>();
     readonly #watchers = new Map<string, FSWatcher>();
     readonly #pending = new Map<string, () => void>();
+    /** 每个根被加进来的次数：插件撤回再登记同一个贡献时变，复制插件的包据此发现途中换了版本。 */
+    readonly #rootVersions = new Map<string, number>();
+    #rootCounter = 0;
     #scanning: Promise<void> = Promise.resolve();
     #closed = false;
 
@@ -85,7 +103,12 @@ export class StickerCatalog {
     /** 建好要监视的根（用户的表情包文件夹）并扫一遍。 */
     static async open(options: StickerCatalogOptions): Promise<StickerCatalog> {
         const catalog = new StickerCatalog(options);
-        for (const root of options.roots) if (root.watch) await mkdir(root.root, {recursive: true});
+        for (const root of options.roots) {
+            catalog.#rootCounter += 1;
+            catalog.#rootVersions.set(root.key, catalog.#rootCounter);
+            if (root.watch) await mkdir(root.root, {recursive: true});
+            if (root.source === "user") await catalog.#sweep(root.root);
+        }
         await catalog.#queue(async () => {
             for (const root of catalog.#roots) catalog.#byRoot.set(root.key, await catalog.#scanRoot(root));
             return catalog.#derive();
@@ -102,12 +125,39 @@ export class StickerCatalog {
         return this.#items.get(id);
     }
 
+    /** 全部表情包的项（含无效的），按 id 的码元顺序。 */
+    items(): readonly StickerPackItem[] {
+        return [...this.#items.values()].sort((left, right) => byCodeUnit(left.entry.id, right.entry.id));
+    }
+
+    /**
+     * 立即重扫一个根并等它发布（表情包页写完文件后用）：跳过监视的合并等待，排进同一个扫描队列；此前已到、还在等合并的监视事件被这次
+     * 吸收，扫描期间新来的照常再扫。扫描失败时 reject（写已经完成，调用方报“目录没刷新”）。
+     */
+    refresh(rootKey: string): Promise<void> {
+        this.#pending.get(rootKey)?.();
+        this.#pending.delete(rootKey);
+        return this.#queue(async () => {
+            const current = this.#roots.find((candidate) => candidate.key === rootKey);
+            if (current === undefined) return false;
+            this.#byRoot.set(rootKey, await this.#scanRoot(current));
+            return this.#derive();
+        }, true);
+    }
+
     onChanged(listener: () => void): () => void {
         this.#listeners.add(listener);
         return () => this.#listeners.delete(listener);
     }
 
+    /** 根当前的版本；根不在时 undefined。 */
+    rootVersion(key: string): number | undefined {
+        return this.#rootVersions.get(key);
+    }
+
     async addRoot(root: StickerRoot): Promise<void> {
+        this.#rootCounter += 1;
+        this.#rootVersions.set(root.key, this.#rootCounter);
         await this.#queue(async () => {
             this.#roots = [...this.#roots.filter((candidate) => candidate.key !== root.key), root];
             this.#byRoot.set(root.key, await this.#scanRoot(root));
@@ -116,6 +166,7 @@ export class StickerCatalog {
     }
 
     async removeRoot(key: string): Promise<void> {
+        this.#rootVersions.delete(key);
         await this.#queue(async () => {
             this.#roots = this.#roots.filter((candidate) => candidate.key !== key);
             this.#byRoot.delete(key);
@@ -139,8 +190,11 @@ export class StickerCatalog {
         await this.#scanning;
     }
 
-    /** 重扫一个接一个地做，免得后完成的旧结果盖掉新的；每次之后对一遍监视器，内容变了才通知。 */
-    #queue(work: () => Promise<boolean>): Promise<void> {
+    /**
+     * 重扫一个接一个地做，免得后完成的旧结果盖掉新的；每次之后对一遍监视器，内容变了才通知。失败写诊断、不卡住后面的；`rejects` 时
+     * 交给调用方的 promise 照样 reject（`refresh` 要知道）。
+     */
+    #queue(work: () => Promise<boolean>, rejects = false): Promise<void> {
         const run = this.#scanning.then(async () => {
             if (this.#closed) return;
             const changed = await work();
@@ -148,7 +202,20 @@ export class StickerCatalog {
             if (changed) for (const listener of [...this.#listeners]) listener();
         });
         this.#scanning = run.catch((error: unknown) => this.#options.report("scan-failed", "表情目录重扫失败", {message: error instanceof Error ? error.message : String(error)}));
-        return this.#scanning;
+        return rejects ? run : this.#scanning;
+    }
+
+    /** 打开时清掉没提交的暂存；挪开的旧包不动，写诊断（输出 36）。 */
+    async #sweep(root: string): Promise<void> {
+        const children = await readdir(root, {withFileTypes: true}).catch(() => []);
+        for (const child of children) {
+            const path = join(root, child.name);
+            if (child.name.startsWith(STAGING_PREFIX)) {
+                await rm(path, {recursive: true, force: true}).catch((error: unknown) => this.#options.report("staging-left", `删不掉表情包页的暂存 ${path}`, {path, message: error instanceof Error ? error.message : String(error)}));
+            } else if (child.name.startsWith(REPLACED_PREFIX)) {
+                this.#options.report("replace-leftover", `替换表情包时挪开的旧包还在 ${path}，没有自动改回；需要的话手动改回原名`, {path});
+            }
+        }
     }
 
     /** 由各根的扫描结果合成目录，写变了的诊断；交回内容是否变了。 */
@@ -173,7 +240,7 @@ export class StickerCatalog {
         for (const key of [...this.#reported.keys()]) if (!touched.has(key)) this.#reported.delete(key);
         const changed = next.size !== this.#items.size || [...next].some(([id, item]) => {
             const before = this.#items.get(id);
-            return before === undefined || before.directory !== item.directory || JSON.stringify(before.entry) !== JSON.stringify(item.entry);
+            return before === undefined || before.directory !== item.directory || before.listed !== item.listed || before.token !== item.token || JSON.stringify(before.entry) !== JSON.stringify(item.entry) || JSON.stringify(before.counts) !== JSON.stringify(item.counts) || JSON.stringify(before.extras) !== JSON.stringify(item.extras);
         });
         this.#items = next;
         return changed;
@@ -194,10 +261,8 @@ export class StickerCatalog {
     }
 
     async #scanRoot(root: StickerRoot): Promise<Array<{readonly item: StickerPackItem; readonly findings: PackFindings}>> {
-        const children = await readdir(root.root, {withFileTypes: true}).catch((error: unknown) => {
-            if (errorCode(error) !== "ENOENT") this.#options.report("scan-failed", `读不了表情包文件夹 ${root.root}`, {source: root.source, message: error instanceof Error ? error.message : String(error)});
-            return [];
-        });
+        // 根读不了（不是“不存在”）时让扫描失败：照空目录发布会让页面以为用户的包全没了；失败时保留上一次发布的目录。
+        const children = await readdir(root.root, {withFileTypes: true}).catch((error: unknown) => (errorCode(error) === "ENOENT" ? [] : Promise.reject(error)));
         const packs = [];
         const previous = this.#images.get(root.key) ?? new Map();
         const images = new Map<string, {readonly stamp: string; readonly result: ImageRead}>();
@@ -211,17 +276,18 @@ export class StickerCatalog {
             return result;
         };
         // 按名字排序：readdir 的顺序随文件系统变，诊断的先后要稳定。文件与以点开头的条目不是表情包；链接照样列出，状态是无效。
-        for (const child of children.sort((left, right) => byCodeUnit(left.name, right.name))) {
-            if (child.name.startsWith(".") || !(child.isDirectory() || child.isSymbolicLink())) continue;
-            packs.push(await this.#readPack(root, join(root.root, child.name), child.name, child.isSymbolicLink(), read));
+        const folders = children.sort((left, right) => byCodeUnit(left.name, right.name)).filter((child) => !child.name.startsWith(".") && (child.isDirectory() || child.isSymbolicLink()));
+        const tokens = root.source === "user" && this.#options.identify !== undefined ? await this.#options.identify(folders.map((child) => child.name)).catch(() => []) : [];
+        for (const [index, child] of folders.entries()) {
+            packs.push(await this.#readPack(root, join(root.root, child.name), child.name, child.isSymbolicLink(), read, tokens[index] ?? null));
         }
         this.#images.set(root.key, images);
         return packs;
     }
 
-    async #readPack(root: StickerRoot, directory: string, folder: string, link: boolean, readImage: (path: string, file: string) => Promise<ImageRead>): Promise<{readonly item: StickerPackItem; readonly findings: PackFindings}> {
+    async #readPack(root: StickerRoot, directory: string, folder: string, link: boolean, readImage: (path: string, file: string) => Promise<ImageRead>, token: string | null): Promise<{readonly item: StickerPackItem; readonly findings: PackFindings}> {
         const base = {id: packId(root.prefix, folder), folder, source: root.source, ...(root.plugin === undefined ? {} : {plugin: root.plugin})};
-        const invalid = (problem: StickerPackProblem) => ({item: {directory, root: root.key, entry: {...base, title: folder, status: "invalid" as const, problem, stickers: []}}, findings: {invalid: problem, ignored: [], stickers: []}});
+        const invalid = (problem: StickerPackProblem) => ({item: {directory, root: root.key, entry: {...base, title: folder, status: "invalid" as const, problem, stickers: []}, listed: false, extras: [], counts: {unrecognized: 0, unlisted: 0}, token}, findings: {invalid: problem, ignored: [], stickers: []}});
         if (link) return invalid({code: "symlink"});
         if (!FOLDER_NAME.test(folder)) return invalid({code: "folder-name"});
         const manifestPath = join(directory, MANIFEST_FILE);
@@ -240,26 +306,49 @@ export class StickerCatalog {
         }
         const parsed = parseManifest(json);
         if (!parsed.ok) return invalid({code: "manifest-invalid", detail: parsed.detail});
-        let listed = parsed.stickers;
-        if (listed === null) {
-            const files = await fileNames(directory);
-            if (!Array.isArray(files)) return invalid({code: "folder-unreadable", detail: files.message});
-            listed = stickersFromFiles(files);
-        }
+        // 有表情列表时也列一次文件夹：找清单没列的图（extras）。
+        const files = await fileNames(directory);
+        if (!Array.isArray(files)) return invalid({code: "folder-unreadable", detail: files.message});
+        const listed = parsed.stickers ?? stickersFromFiles(files);
         const problems: string[] = [];
         const stickers: StickerEntry[] = [];
+        const named: StickerExtra[] = [];
+        const counts = {unrecognized: 0, unlisted: 0};
         for (const item of listed.items) {
             if (!item.ok) {
                 problems.push(`${item.label}：${item.reason}`);
+                // 名字的问题、图本身没问题的，表情包页列为“认不出”，让用户改名。
+                if (item.named === undefined) continue;
+                const image = await readImage(join(directory, item.named.file), item.named.file);
+                if (!image.ok) continue;
+                counts.unrecognized += 1;
+                if (named.length < EXTRAS_MAX) named.push({file: item.named.file, reason: "name", raw: item.named.raw, width: image.width, height: image.height, version: image.version, bytes: image.bytes});
                 continue;
             }
             const image = await readImage(join(directory, item.sticker.file), item.sticker.file);
             if (!image.ok) problems.push(`${item.sticker.name}：${image.reason}`);
-            else stickers.push({...item.sticker, width: image.width, height: image.height, version: image.version});
+            else stickers.push({...item.sticker, width: image.width, height: image.height, version: image.version, bytes: image.bytes});
         }
         if (listed.truncated > 0) problems.push(`超过 500 项，后面 ${String(listed.truncated)} 项不认`);
+        const unlisted: StickerExtra[] = [];
+        if (parsed.stickers !== null) {
+            for (const file of files.filter((candidate) => isImageFileName(candidate) && !listed.referenced.has(candidate)).sort(byCodeUnit)) {
+                const image = await readImage(join(directory, file), file);
+                if (!image.ok) continue;
+                counts.unlisted += 1;
+                if (unlisted.length < EXTRAS_MAX) unlisted.push({file, reason: "unlisted", raw: null, width: image.width, height: image.height, version: image.version, bytes: image.bytes});
+            }
+        }
         return {
-            item: {directory, root: root.key, entry: {...base, title: parsed.title ?? folder, ...(parsed.description === undefined ? {} : {description: parsed.description}), status: "ok", stickers}},
+            item: {
+                directory,
+                root: root.key,
+                entry: {...base, title: parsed.title ?? folder, ...(parsed.description === undefined ? {} : {description: parsed.description}), status: "ok", stickers},
+                listed: parsed.stickers !== null,
+                extras: [...named, ...unlisted],
+                counts,
+                token,
+            },
             findings: {ignored: parsed.ignored, stickers: problems},
         };
     }
@@ -352,7 +441,7 @@ async function fileNames(directory: string): Promise<string[] | Error> {
     }
 }
 
-type ImageRead = {readonly ok: true; readonly width: number; readonly height: number; readonly version: string} | {readonly ok: false; readonly reason: string};
+type ImageRead = {readonly ok: true; readonly width: number; readonly height: number; readonly version: string; readonly bytes: number} | {readonly ok: false; readonly reason: string};
 
 /**
  * 扫描时核对一张表情图：普通文件、不是链接，再核对字节；交回版本。版本带 inode：换成另一个文件（原子替换）时即使大小与修改时间
@@ -364,5 +453,5 @@ async function readImage(path: string, file: string, info: Stats): Promise<Image
     if (info.size > IMAGE_MAX_BYTES) return {ok: false, reason: "超过 2 MiB"};
     const checked = await checkImage(new Uint8Array(await readFile(path)), file);
     if (!checked.ok) return checked;
-    return {ok: true, width: checked.width, height: checked.height, version: `${String(Math.round(info.mtimeMs))}-${String(info.size)}-${String(info.ino)}`};
+    return {ok: true, width: checked.width, height: checked.height, version: `${String(Math.round(info.mtimeMs))}-${String(info.size)}-${String(info.ino)}`, bytes: info.size};
 }

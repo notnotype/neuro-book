@@ -3,7 +3,7 @@
 `docs/standards/` 保存跨功能域的编码与仓库协作流程。产品可观察行为仍以 [`../specs/README.md`](../specs/README.md) 登记的当前规范为准。
 
 - [`code/README.md`](code/README.md)：按改动路径分流，只加载对应领域与语言的编码、性能和审查规范。
-- [`prompts.md`](prompts.md)：给模型看的文字（Profile 提示词、开场、提醒、工具说明）的语言、结构与版本。
+- [`prompts.md`](prompts.md)：给模型看的文字（Profile 提示词、开场、提醒、工具说明与伴生记忆种子）的语言、结构、角色/记忆披露、思维链边界与版本。
 - [`repository-workflow.md`](repository-workflow.md)：维护者 Issue、Task、Git、PR、合并和发布授权流程。
 - [`releasing.md`](releasing.md)：发布手册：阶段与版本号、写变更记录、发版、流水线、失败与重跑、本机发布。
 

@@ -178,6 +178,7 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 
 - 公开接口：`LogStore` 与两种实现、会话头与事件的格式（`KernelEvents`）、码表 `storageErrors`，经 `@notnotype/nb-harness/kernel` 与 `/kernel/contracts` 导出。
 - 格式版本 1。事件名与字段只加不改；改变已有字段的语义要升格式版本，并由迁移脚本转换旧日志。
+- 不支持降级：旧版本读到它不认识的内核事件名（例如后来加的 `nestedToolStarted`、`nestedToolResult`，[`runtime.md`](runtime.md) 输出 96）得 `log-corrupt`，不改动文件。
 - 扩展是受信任代码（ADR 0022）：内核拒绝写错前缀与种类的事件，但不防扩展有意写错数据。
 
 ## 验收与 Smoke

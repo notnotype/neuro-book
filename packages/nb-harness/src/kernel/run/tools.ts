@@ -14,7 +14,7 @@
 import {createHash} from "node:crypto";
 import {Value} from "typebox/value";
 import {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "../api/index.js";
-import type {ApprovalCtx, ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, ReplyEvent, Resources, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolImage, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
+import type {ApprovalCtx, ApproveHook, InvokeOptions, JsonValue, KernelEvents, EventData, ModelCaller, NestedOutcome, ReplyEvent, Resources, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolImage, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {canonicalJson} from "../log/json.js";
@@ -193,9 +193,17 @@ function normalizeResult(value: unknown, who: string): ToolResult {
 }
 
 /** 工具的 `ctx.ask`：同步的等回答，异步的写下问题就返回 `{kind: "unavailable", code: "async"}`（回答以后作为输入到来）。 */
-function askFor(host: ToolRunHost, interactions: Interactions, callId: string, signal: AbortSignal): NonNullable<ToolContext["ask"]> {
+/** 嵌套调用的提问带上来源；`onWaiting` 在等用户的前后各调一次（输出 90、94）。 */
+function askFor(host: ToolRunHost, interactions: Interactions, callId: string, signal: AbortSignal, nested?: NestedAsk): NonNullable<ToolContext["ask"]> {
     return async (request, options) => {
-        const resolution = await interactions.request(host.core, host.write, {callId, kind: "question", request: request as unknown as JsonValue, async: options?.async === true}, signal);
+        const async = options?.async === true;
+        if (!async) nested?.onWaiting?.(true);
+        let resolution;
+        try {
+            resolution = await interactions.request(host.core, host.write, {callId, kind: "question", request: request as unknown as JsonValue, async, ...(nested === undefined ? {} : {within: nested.within})}, signal);
+        } finally {
+            if (!async) nested?.onWaiting?.(false);
+        }
         if (resolution === null) return {kind: "unavailable", code: "async"};
         if (resolution.decision === "answer") {
             const answer = resolution.data as {text: string; data?: JsonValue};
@@ -203,6 +211,129 @@ function askFor(host: ToolRunHost, interactions: Interactions, callId: string, s
         }
         return {kind: "unavailable", code: resolution.decision === "aborted" ? "aborted" : "declined"};
     };
+}
+
+interface NestedAsk {
+    readonly within: {readonly tool: string; readonly invocation: string};
+    readonly onWaiting?: (waiting: boolean) => void;
+}
+
+/** 一次嵌套调用至多 2,000 个（输出 99）：`loop-guard` 不数它们，这是代码里失控循环的上限。 */
+export const INVOKE_LIMIT = 2_000;
+/** 嵌套调用的参数与结果进日志时字符串的上限（输出 96）：全文模型已经在父调用的结果里看到，界面的子行只要预览。 */
+export const NESTED_PREVIEW_BYTES = 2_048;
+
+/** 参数不是能如实写进日志的 JSON 时的说明（session.md“事件”一节的“值”）；经 IPC 从代码里来的参数可能带 `Map`、`NaN`、`bigint`。 */
+function jsonProblem(value: unknown, path = "args", seen = new Set<object>()): string | null {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return null;
+    if (typeof value === "number") return Number.isFinite(value) ? null : `${path} is ${String(value)}`;
+    if (typeof value !== "object") return `${path} is a ${typeof value}`;
+    if (seen.has(value)) return `${path} is a circular reference`;
+    seen.add(value);
+    try {
+        if (Array.isArray(value)) {
+            for (let index = 0; index < value.length; index += 1) {
+                const problem = jsonProblem(value[index], `${path}[${String(index)}]`, seen);
+                if (problem !== null) return problem;
+            }
+            return null;
+        }
+        const prototype = Object.getPrototypeOf(value) as unknown;
+        if (prototype !== Object.prototype && prototype !== null) return `${path} is not a plain object`;
+        for (const [key, item] of Object.entries(value)) {
+            if (item === undefined) return `${path}.${key} is undefined`;
+            const problem = jsonProblem(item, `${path}.${key}`, seen);
+            if (problem !== null) return problem;
+        }
+        return null;
+    } finally {
+        seen.delete(value);
+    }
+}
+
+/** UTF-8 不超过 `limit` 字节的前缀，不切断字符。 */
+function headBytes(text: string, limit: number): string {
+    const bytes = Buffer.from(text, "utf8");
+    if (bytes.length <= limit) return text;
+    let end = limit;
+    // 落在一个多字节字符的中间（续字节是 10xxxxxx）时往前退到它的开头。
+    while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end -= 1;
+    return bytes.subarray(0, end).toString("utf8");
+}
+
+/** 参数里超过上限的字符串截短并注明总字节数；形状不变，界面照样取 `path` 这类短字段（输出 96）。 */
+function clippedArgs(value: JsonValue): JsonValue {
+    if (typeof value === "string") {
+        const size = Buffer.byteLength(value, "utf8");
+        return size <= NESTED_PREVIEW_BYTES ? value : `${headBytes(value, NESTED_PREVIEW_BYTES)}…（共 ${String(size)} 字节）`;
+    }
+    if (Array.isArray(value)) return value.map(clippedArgs);
+    if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clippedArgs(item as JsonValue)]));
+    return value;
+}
+
+/**
+ * 同一个父调用里嵌套调用的执行顺序（输出 98）：`shared` 的并发，`exclusive` 的等在途的都结束、独占执行。先到先排，
+ * 排在 `exclusive` 后面的 `shared` 不插队。只管执行这一段，审批与等用户不占它。
+ */
+class NestedLock {
+    #shared = 0;
+    #exclusive = false;
+    readonly #queue: Array<{readonly kind: "shared" | "exclusive"; readonly grant: () => void}> = [];
+
+    acquire(kind: "shared" | "exclusive", signal: AbortSignal): Promise<() => void> {
+        return new Promise((resolve, reject) => {
+            const entry = {kind, grant: () => resolve(this.#releaser(kind))};
+            const abort = (): void => {
+                const index = this.#queue.indexOf(entry);
+                if (index < 0) return;
+                this.#queue.splice(index, 1);
+                reject(new RunStoppedError("waiting to run a nested call"));
+            };
+            if (signal.aborted) return void reject(new RunStoppedError("waiting to run a nested call"));
+            signal.addEventListener("abort", abort, {once: true});
+            this.#queue.push({kind, grant: () => {
+                signal.removeEventListener("abort", abort);
+                entry.grant();
+            }});
+            this.#pump();
+        });
+    }
+
+    #releaser(kind: "shared" | "exclusive"): () => void {
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            if (kind === "shared") this.#shared -= 1;
+            else this.#exclusive = false;
+            this.#pump();
+        };
+    }
+
+    #pump(): void {
+        for (;;) {
+            const head = this.#queue[0];
+            if (head === undefined || this.#exclusive) return;
+            if (head.kind === "exclusive" && this.#shared > 0) return;
+            this.#queue.shift();
+            if (head.kind === "exclusive") this.#exclusive = true;
+            else this.#shared += 1;
+            head.grant();
+        }
+    }
+}
+
+/** 一个声明了 `invokes` 的父调用的嵌套调用共用的状态：计数、锁、在途的调用与“父调用已结束”（输出 98 到 100）。 */
+class NestedScope {
+    count = 0;
+    finished = false;
+    readonly lock = new NestedLock();
+    /** 在途的嵌套调用：各自交回结局（照实完成，或宽限期到了记成 unknown）时 settle，不等迟到的执行本身。 */
+    readonly inflight = new Set<Promise<unknown>>();
+    /** 父调用的执行交回时还有在途的嵌套调用：触发它，按宽限期结算（输出 100）。 */
+    readonly closing = new AbortController();
+    constructor(readonly within: {readonly tool: string; readonly invocation: string}) {}
 }
 
 export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: readonly ToolDeclaration[], signal: AbortSignal): Promise<ToolsOutcome> {
@@ -213,6 +344,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
     const finishAlone = calls.length === 1 && finishCalls.length === 1;
     const state = core.stateAt();
     const reader = hostReader(core.assembly, state);
+    const leafMoves = core.session.kernel.leafMoves;
     const outcomes = new Map<string, CallOutcome>();
     const preset = (call: ToolCall, text: string, code: string): CallOutcome => ({data: {callId: call.id, tool: call.tool, text, status: "error", code}, failures: [], args: null});
     // 写过 toolStarted 的调用：据此区分“开始了、结果未知”与“根本没开始”。没开始的肯定没执行，记 denied，界面不必提示用户
@@ -230,13 +362,15 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
 
     const runnable: ToolCall[] = [];
     for (const call of calls) {
-        if (!byId.has(call.tool)) outcomes.set(call.id, preset(call, `Unknown tool ${call.tool}.`, "unknown-tool"));
-        else if (finishCalls.length > 0 && !finishAlone && byId.get(call.tool)!.finish) outcomes.set(call.id, preset(call, `${call.tool} finishes the run and must be called alone; it was not run.`, "finish-not-alone"));
+        const declaration = byId.get(call.tool);
+        if (declaration === undefined) outcomes.set(call.id, preset(call, `Unknown tool ${call.tool}.`, "unknown-tool"));
+        else if (declaration.global !== undefined) outcomes.set(call.id, preset(call, `${call.tool} can only be called from code (it is ${declaration.global.object}.${declaration.global.method}).`, "code-only"));
+        else if (finishCalls.length > 0 && !finishAlone && declaration.finish) outcomes.set(call.id, preset(call, `${call.tool} finishes the run and must be called alone; it was not run.`, "finish-not-alone"));
         else runnable.push(call);
     }
 
-    /** 参数校验、只读模式、审批钩子。不问用户。 */
-    const judge = async (call: ToolCall): Promise<Judgment> => {
+    /** 参数校验、只读模式、审批钩子。不问用户。`within` 是嵌套调用的来源（输出 92）。 */
+    const judge = async (call: ToolCall, within?: NestedAsk["within"]): Promise<Judgment> => {
         const declaration = byId.get(call.tool);
         // 拦截层可能把调用改派到这次运行没有的工具。
         if (declaration === undefined) return {kind: "settled", value: {text: `Unknown tool ${call.tool}.`, status: "error", code: "unknown-tool"}, by: null};
@@ -247,20 +381,26 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
         if (settings.readOnly && effect !== "read") return {kind: "settled", value: {text: `${call.tool} is not allowed in read-only mode.`, status: "denied", code: "read-only"}, by: "core"};
         let verdict;
         try {
-            verdict = await host.approve(call, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered, rememberedRules: core.session.kernel.rememberedRules}, {signal, sessionId: core.header.id, context: host.box.sessionContext(), model: host.model, read: hostReader(core.assembly, core.stateAt()) as ApprovalCtx["read"]});
+            verdict = await host.approve(call, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered, rememberedRules: core.session.kernel.rememberedRules, ...(within === undefined ? {} : {within})}, {signal, sessionId: core.header.id, context: host.box.sessionContext(), model: host.model, read: hostReader(core.assembly, core.stateAt()) as ApprovalCtx["read"]});
         } catch (error) {
             core.diagnostics.add({code: "intercept-threw", entry: "intercept.tool", subject: "approve", params: {tool: call.tool}, message: `the approval hook threw for ${call.tool}; the call is denied`, cause: error}, core.head);
             return {kind: "settled", value: {text: `The call to ${call.tool} was denied because approval failed.`, status: "denied", code: "intercept-failed"}, by: "core"};
         }
         if (verdict.verdict === "deny") return {kind: "settled", value: {text: `The call to ${call.tool} was denied (${verdict.rejection.code}).${typeof verdict.rejection.params?.reason === "string" ? ` ${verdict.rejection.params.reason}` : ""}`, status: "denied", code: verdict.rejection.code}, by: verdict.rejection.by};
         if (verdict.verdict === "allow") return {kind: "allowed", by: verdict.by};
-        return {kind: "ask", request: {tool: call.tool, args: call.args, effect, ...(verdict.reason === undefined ? {} : {reason: verdict.reason}), ...(verdict.remember === undefined ? {} : {remember: verdict.remember})} as unknown as JsonValue};
+        return {kind: "ask", request: {tool: call.tool, args: call.args, effect, ...(verdict.reason === undefined ? {} : {reason: verdict.reason}), ...(verdict.remember === undefined ? {} : {remember: verdict.remember}), ...(within === undefined ? {} : {within})} as unknown as JsonValue};
     };
 
-    /** 问用户（runtime.md 输出 39）并等应答。 */
-    const askUser = async (call: ToolCall, request: JsonValue): Promise<Exclude<Judgment, {kind: "ask"}>> => {
+    /** 问用户（runtime.md 输出 39）并等应答。嵌套调用的事项带来源，等的前后告诉父工具（输出 94）。 */
+    const askUser = async (call: ToolCall, request: JsonValue, callSignal: AbortSignal, nested?: NestedAsk): Promise<Exclude<Judgment, {kind: "ask"}>> => {
         if (host.interactions === undefined) return {kind: "settled", value: {text: `The call to ${call.tool} needs the user's approval, which this run cannot ask for.`, status: "denied", code: "approval-unavailable"}, by: "core"};
-        const resolution = (await host.interactions.request(core, host.write, {callId: call.id, kind: "approval", request, async: false}, signal))!;
+        nested?.onWaiting?.(true);
+        let resolution;
+        try {
+            resolution = (await host.interactions.request(core, host.write, {callId: call.id, kind: "approval", request, async: false, ...(nested === undefined ? {} : {within: nested.within})}, callSignal))!;
+        } finally {
+            nested?.onWaiting?.(false);
+        }
         if (resolution.decision === "aborted" || resolution.decision === "interrupted") return {kind: "settled", value: {text: `The call to ${call.tool} was not run: the run was aborted while it waited for approval.`, status: "denied", code: resolution.decision === "interrupted" ? "interrupted-before-approval" : "aborted"}, by: "core"};
         if (resolution.decision === "deny") return {kind: "settled", value: {text: `The user denied the call to ${call.tool}.${resolution.note === undefined ? "" : ` The user said: ${resolution.note}`}`, status: "denied", code: "user-denied"}, by: "user"};
         return {kind: "allowed", by: "user"};
@@ -283,14 +423,33 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
         // 全部判定完才写事项：钩子可能很慢，先写的话向导的“第 1 / N 个”的分母会一直变。`askUser` 同步走到写入，写入顺序就是调用顺序。
         const asking = await Promise.allSettled(runnable.map(async (call) => {
             const entry = judged.get(call.id);
-            if (entry?.judgment.kind === "ask") entry.judgment = await askUser(call, entry.judgment.request);
+            if (entry?.judgment.kind === "ask") entry.judgment = await askUser(call, entry.judgment.request, signal);
         }));
         // 中止之后不再写事项，没写的调用由外面记成没开始；写日志失败这类错误照常往外抛。
         const failed = asking.find((result) => result.status === "rejected" && !(result.reason instanceof RunStoppedError));
         if (failed !== undefined) throw (failed as PromiseRejectedResult).reason;
     };
 
-    const runCall = async (call: ToolCall): Promise<CallOutcome> => {
+    /**
+     * 一次调用经过拦截链到执行（顶层与嵌套共用）：最里层先问 `decide` 这次能不能执行（判定、要问就问），能执行就建实现、
+     * `start` 写开始的事件并给出执行用的上下文、执行、`finish` 收尾。结局的状态与署名在这里按拦截链的结果算出。
+     */
+    interface Attempt {
+        readonly call: ToolCall;
+        readonly signal: AbortSignal;
+        decide(final: ToolCall): Promise<Exclude<Judgment, {kind: "ask"}>>;
+        start(final: ToolCall, approvedBy: string): Promise<ToolContext>;
+        /** 执行交回之后、结局写下之前（父调用在这里收口它在途的嵌套调用）。 */
+        finish?(): Promise<void>;
+    }
+    interface Attempted {
+        readonly data: Omit<ToolResultData, "callId" | "tool">;
+        readonly status: ToolStatus;
+        readonly final: ToolResult;
+        readonly failures: readonly ChainFailure[];
+        readonly args: Readonly<Record<string, unknown>> | null;
+    }
+    const attempt = async (a: Attempt): Promise<Attempted> => {
         let terminalValue: ToolResult | null = null;
         let executed: ToolResult | null = null;
         let executedArgs: Readonly<Record<string, unknown>> | null = null;
@@ -300,8 +459,8 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             core,
             method: "tool",
             layers: chainLayers(core, "tool"),
-            input: deepFreeze(call),
-            signal,
+            input: deepFreeze(a.call),
+            signal: a.signal,
             timeoutMs: (item) => item.definition.timeoutMs ?? HANDLER_TIMEOUT_MS,
             ctxFor: (item, invocation, layerSignal) => interceptCtx({assembly: core.assembly, item, state, environment: host.environment(), resources: host.resources, signal: layerSignal, invocation, phase: "run"}),
             onNext: (_item, _received, passed) => void deepFreeze(passed),
@@ -311,38 +470,32 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                     kernelBy = by;
                     return value;
                 };
-                // 中止之后不再开始新的调用：交给外面记成 unknown。
-                if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
-                // 审批阶段判定的不是现在要执行的这个时按现在的重来，要问就再问一次：拦截改了工具或参数（规范化 JSON 比较）；
-                // 或者放行之后、轮到它之前设置变了（排在慢调用后面时用户开了只读）。拒绝了的不重新判定：放宽设置不改用户的决定。
-                const recorded = judged.get(final.id);
-                const stillHolds = recorded !== undefined && recorded.tool === final.tool && recorded.args === canonicalJson(final.args) && (recorded.judgment.kind !== "allowed" || recorded.settings === judgingSettings());
-                let judgment = stillHolds ? recorded.judgment : await judge(final);
-                if (judgment.kind === "ask") judgment = await askUser(final, judgment.request);
+                // 中止之后不再开始新的调用：交给外面记成没开始或 unknown。
+                if (a.signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
+                const judgment = await a.decide(final);
                 if (judgment.kind === "settled") return settle(judgment.value, judgment.by);
-                const approvedBy = judgment.by;
-                // 先建好实现、再看一次中止，才写 toolStarted 并执行：建实现可能很慢，中止之后不该再开始执行。
+                // 先建好实现、再看一次中止，才写开始的事件并执行：建实现可能很慢，中止之后不该再开始执行。
                 let implementation: ToolImplementation;
                 try {
                     implementation = await host.box.implementation(final.tool);
                 } catch (error) {
                     return settle({text: `${final.tool} is not available: ${messageOf(error)}`, status: "error", code: "tool-unavailable"});
                 }
-                if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
-                const invocation = core.newId();
-                await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation, approval: {by: approvedBy}})]);
-                started.add(final.id);
+                if (a.signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
+                const context = await a.start(final, judgment.by);
                 executedArgs = final.args;
                 try {
-                    executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, invocation, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, final.id, signal)})}), `tool ${final.tool}`);
+                    executed = normalizeResult(await implementation.execute(final.args, context), `tool ${final.tool}`);
                 } catch (error) {
                     executed = Object.freeze({text: `${final.tool} failed: ${messageOf(error)}`, status: "error", code: "tool-threw"} as const);
+                } finally {
+                    await a.finish?.();
                 }
                 return settle(executed);
             },
             onFailure: (item) => {
                 if ((item.definition.onFailure as {tool?: "deny" | "ignore"} | undefined)?.tool === "ignore") return {kind: "skip"};
-                policy = {value: {text: `The call to ${call.tool} was denied because an interceptor failed.`, status: "denied", code: "intercept-failed"}, by: item.definition.id};
+                policy = {value: {text: `The call to ${a.call.tool} was denied because an interceptor failed.`, status: "denied", code: "intercept-failed"}, by: item.definition.id};
                 return {kind: "result", value: policy.value};
             },
             normalize: (item, returned) => normalizeResult(returned, `tool interceptor of ${item.definition.id}`),
@@ -358,9 +511,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
         }
         const ran = executed as ToolResult | null;
         const changed = ran !== null && (final.text !== ran.text || imagesKey(final.images) !== imagesKey(ran.images));
-        const data: ToolResultData = {
-            callId: call.id,
-            tool: call.tool,
+        const data: Omit<ToolResultData, "callId" | "tool"> = {
             text: final.text,
             ...(final.images === undefined || final.images.length === 0 || final.redacted === true ? {} : {images: final.images}),
             status,
@@ -370,9 +521,151 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             ...(final.details === undefined || final.redacted === true ? {} : {details: final.details}),
             ...(!changed ? {} : final.redacted === true ? {rawHash: rawHashOf(ran)} : {raw: ran.text, ...(ran.images === undefined || ran.images.length === 0 ? {} : {rawImages: ran.images})}),
         };
+        return {data, status, final, failures: outcome.failures, args: executedArgs};
+    };
+
+    /** 嵌套调用的准入（输出 92、95）：交回不允许的原因，允许时为 null。 */
+    const notInvocable = (declaration: ToolDeclaration | undefined, tool: string): ToolResult | null => {
+        if (declaration === undefined) return {text: `Unknown tool ${tool}.`, status: "error", code: "unknown-tool"};
+        if (declaration.finish) return {text: `${tool} finishes the run; it cannot be called from code.`, status: "error", code: "invoke-not-allowed"};
+        if (declaration.invokes === true) return {text: `${tool} calls other tools itself; it cannot be called from code.`, status: "error", code: "invoke-not-allowed"};
+        if (declaration.codeCallable === false) return {text: `${tool} cannot be called from code.`, status: "error", code: "invoke-not-allowed"};
+        return null;
+    };
+
+    /** 嵌套调用（输出 90 到 101）：判定、问用户、拦截与执行同顶层，事件与收口是它自己的。不抛。 */
+    const invokeNested = async (scope: NestedScope, tool: string, args: Readonly<Record<string, unknown>>, options: InvokeOptions | undefined): Promise<NestedOutcome> => {
+        const id = core.newId();
+        const within = scope.within;
+        const loggedArgs = (value: Readonly<Record<string, unknown>>): Readonly<Record<string, JsonValue>> => (jsonProblem(value) === null ? clippedArgs(value as JsonValue) as Readonly<Record<string, JsonValue>> : {});
+        let written = false;
+        const writeResult = async (result: ToolResult, status: ToolStatus, by: string | null, callArgs: Readonly<Record<string, unknown>>): Promise<NestedOutcome> => {
+            const outcome: NestedOutcome = {status, text: result.text, ...(result.code === undefined ? {} : {code: result.code}), ...(result.details === undefined || result.redacted === true ? {} : {details: result.details}), ...(result.images === undefined || result.images.length === 0 || result.redacted === true ? {} : {images: result.images})};
+            if (written) return outcome;
+            written = true;
+            const imageCount = result.redacted === true ? 0 : (result.images?.length ?? 0);
+            try {
+                await host.write([ctrl("nestedToolResult", {id, within, tool, args: loggedArgs(callArgs), status, ...(result.code === undefined ? {} : {code: result.code}), ...(by === null ? {} : {by}), preview: headBytes(result.text, NESTED_PREVIEW_BYTES), size: Buffer.byteLength(result.text, "utf8"), ...(imageCount === 0 ? {} : {imageCount})})]);
+            } catch (error) {
+                // 运行已经收口（父调用之后才到的结算）：结果照样交给代码，日志里不再写。
+                if (!(error instanceof RunStoppedError)) throw error;
+            }
+            return outcome;
+        };
+        const refuse = (result: ToolResult): Promise<NestedOutcome> => writeResult(result, result.status ?? "error", null, args);
+
+        if (scope.finished) return refuse({text: `The call that ran this code has finished; ${tool} was not run.`, status: "error", code: "parent-finished"});
+        if (scope.count >= INVOKE_LIMIT) return refuse({text: `Code may call at most ${String(INVOKE_LIMIT)} tools per run of ${within.tool}; ${tool} was not run.`, status: "error", code: "invoke-limit"});
+        scope.count += 1;
+        const problem = jsonProblem(args);
+        if (problem !== null) return refuse({text: `Invalid arguments for ${tool}: ${problem}; arguments must be plain JSON.`, status: "error", code: "invalid-arguments"});
+        const denied = notInvocable(byId.get(tool), tool);
+        if (denied !== null) return refuse(denied);
+
+        const sources = [signal, scope.closing.signal, ...(options?.signal === undefined ? [] : [options.signal])];
+        const callSignal = AbortSignal.any(sources);
+        const nested: NestedAsk = {within, ...(options?.onWaiting === undefined ? {} : {onWaiting: options.onWaiting})};
+        const call: ToolCall = {id, tool, args: deepFreeze({...args})};
+        const concurrency = byId.get(tool)!.concurrency;
+        let isStarted = false;
+        let release: (() => void) | null = null;
+        const running = attempt({
+            call,
+            signal: callSignal,
+            decide: async (final) => {
+                if (final.tool !== tool) {
+                    // 拦截层改派了：最终目标照样要过准入，且不能换到另一种 concurrency（输出 95）。
+                    const target = byId.get(final.tool);
+                    const refused = notInvocable(target, final.tool) ?? (target!.concurrency !== concurrency ? {text: `${final.tool} cannot replace ${tool} in code: it runs with a different concurrency.`, status: "error" as const, code: "invoke-not-allowed"} : null);
+                    if (refused !== null) return {kind: "settled", value: refused, by: null};
+                }
+                const problems = jsonProblem(final.args);
+                if (problems !== null) return {kind: "settled", value: {text: `Invalid arguments for ${final.tool}: ${problems}`, status: "error", code: "invalid-arguments"}, by: null};
+                let judgment = await judge(final, within);
+                if (judgment.kind === "ask") judgment = await askUser(final, judgment.request, callSignal, nested);
+                // 等审批的时候父调用可能已经结束、工具可能被移出：批准之后再核一遍（输出 92）。
+                if (judgment.kind === "allowed" && scope.finished) return {kind: "settled", value: {text: `The call that ran this code has finished; ${final.tool} was not run.`, status: "error", code: "parent-finished"}, by: null};
+                return judgment;
+            },
+            start: async (final, approvedBy) => {
+                release = await scope.lock.acquire(concurrency, callSignal);
+                if (callSignal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
+                await host.write([ctrl("nestedToolStarted", {id, within, tool: final.tool, args: loggedArgs(final.args), approval: {by: approvedBy}})]);
+                isStarted = true;
+                return {signal: callSignal, callId: id, invocation: id, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], leafMoves, within, ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, id, callSignal, nested)})};
+            },
+        }).finally(() => release?.());
+
+        // 宽限期（输出 100）：这次调用的信号触发之后才起表；期内完成的照实，没开始的 denied，开始了没完成的 unknown，之后到的只诊断。
+        const graceTimer = new AbortController();
+        const graceOver = new Promise<"grace">((resolve) => {
+            const startGrace = (): void => void core.clock.wait(ABORT_GRACE_MS, graceTimer.signal).then(() => resolve("grace"), () => undefined);
+            if (callSignal.aborted) startGrace();
+            else callSignal.addEventListener("abort", startGrace, {once: true});
+        });
+        const settled = running.then(
+            (done) => writeResult(done.final, done.status, done.data.by ?? null, done.args ?? args),
+            (error: unknown) => {
+                if (!(error instanceof RunStoppedError)) throw error;
+                return writeResult({text: `${tool} was not run: the code that called it was stopped first.`, status: "denied", code: "aborted"}, "denied", "core", args);
+            },
+        );
+        let answered!: () => void;
+        const handedBack = new Promise<void>((resolve) => (answered = resolve));
+        scope.inflight.add(handedBack);
+        try {
+            const first = await Promise.race([settled, graceOver]);
+            if (first !== "grace") return first;
+            void settled.then(() => core.diagnostics.add({code: "late-result-dropped", entry: "host", subject: id, params: {callId: id, tool}, message: `${tool} (called from ${within.tool}) finished after the abort grace period; its result is not written`}, core.head), () => undefined);
+            return isStarted
+                ? writeResult({text: `${tool} did not finish before the code that called it was stopped.`, code: "aborted"}, "unknown", null, args)
+                : writeResult({text: `${tool} was not run: the code that called it was stopped first.`, status: "denied", code: "aborted"}, "denied", "core", args);
+        } finally {
+            graceTimer.abort();
+            scope.inflight.delete(handedBack);
+            answered();
+        }
+    };
+
+    const runCall = async (call: ToolCall): Promise<CallOutcome> => {
+        let scope: NestedScope | null = null;
+        const done = await attempt({
+            call,
+            signal,
+            decide: async (final) => {
+                // 拦截层把顶层调用改派到只走代码的工具：同样不执行（输出 95）。
+                const target = byId.get(final.tool);
+                if (target?.global !== undefined) return {kind: "settled", value: {text: `${final.tool} can only be called from code.`, status: "error", code: "code-only"}, by: null};
+                // 审批阶段判定的不是现在要执行的这个时按现在的重来，要问就再问一次：拦截改了工具或参数（规范化 JSON 比较）；
+                // 或者放行之后、轮到它之前设置变了（排在慢调用后面时用户开了只读）。拒绝了的不重新判定：放宽设置不改用户的决定。
+                const recorded = judged.get(final.id);
+                const stillHolds = recorded !== undefined && recorded.tool === final.tool && recorded.args === canonicalJson(final.args) && (recorded.judgment.kind !== "allowed" || recorded.settings === judgingSettings());
+                const judgment = stillHolds ? recorded.judgment : await judge(final);
+                return judgment.kind === "ask" ? askUser(final, judgment.request, signal) : judgment;
+            },
+            start: async (final, approvedBy) => {
+                const invocation = core.newId();
+                await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation, approval: {by: approvedBy}})]);
+                started.add(final.id);
+                const context: ToolContext = {signal, callId: final.id, invocation, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], leafMoves, ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, final.id, signal)})};
+                if (byId.get(final.tool)?.invokes !== true) return context;
+                const opened = new NestedScope({tool: final.tool, invocation});
+                scope = opened;
+                return {...context, invoke: (tool, args, options) => invokeNested(opened, tool, args, options)};
+            },
+            finish: async () => {
+                // 父调用的执行交回了：之后的 invoke 得 parent-finished；还在途的按宽限期结算完，结果都写在父调用的结果之前（输出 100）。
+                const opened = scope as NestedScope | null;
+                if (opened === null) return;
+                opened.finished = true;
+                if (opened.inflight.size === 0) return;
+                opened.closing.abort();
+                await Promise.allSettled([...opened.inflight]);
+            },
+        });
         // 宽限期过了：这个调用已经记成 unknown，迟到的结果只写诊断，帧也不能再说它成功了。
-        if (!graceExpired) core.emit({type: "tool", callId: call.id, status});
-        return {data, failures: outcome.failures, args: executedArgs};
+        if (!graceExpired) core.emit({type: "tool", callId: call.id, status: done.status});
+        return {data: {callId: call.id, tool: call.tool, ...done.data}, failures: done.failures, args: done.args};
     };
 
     // 宽限期：中止之后才起表；没中止就永远不到。

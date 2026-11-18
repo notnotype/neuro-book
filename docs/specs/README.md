@@ -184,7 +184,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记、后台任务）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行、`$` 菜单与确认框、设置里的 Skill 页 |
 | Profile 设置页 | [`agent/profile-settings.md`](agent/profile-settings.md) | 看和改 Profile：列表、模型与审批、工具绑定、用户级 Profile 的新建打开删除 |
-| 表情包 | [`agent/stickers.md`](agent/stickers.md) | 表情包与清单、来源与目录、`:包/名字:` 写法（nb-markdown 内置方言，经宿主端口查表情）、`stickers://`、取图路由、Profile 白名单与提示词槽、设置里的表情包一节 |
+| 表情包 | [`agent/stickers.md`](agent/stickers.md) | 表情包与清单、来源与目录、`:包/名字:` 写法（nb-markdown 内置方言，经宿主端口查表情）、`stickers://`、取图路由、Profile 白名单与提示词槽、设置里的表情包一节、设置里的表情包页（新建、编辑、导入导出） |
 | 子代理 | [`agent/subagents.md`](agent/subagents.md) | `agent_spawn`、`agent_send`、`agent_answer`：派发检查与白名单、子会话的会话头与身份、等待与结果、审批与提问的去处、中止连带、上限、`tree` 远程 |
 | 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程 |
 | 模型请求记录 | [`agent/request-trace.md`](agent/request-trace.md) | 每次模型请求的记录：相同内容只存一份、按天保留、响应头与请求头的过滤、进程中断；编辑区的“模型请求”页：按会话与轮分组、常驻筛选、全文查找、消息大纲、和上一次比较、窄时切换；`#N`、按角色筛选、逐行差异等几项 planned |
@@ -250,6 +250,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
+| Agent 的代码执行 | [`agent/eval.md`](agent/eval.md) | `nbook.agent.eval`：常驻 JS 内核、代码里调工具与全局对象、时限与重置、审批 |
 | 插件安装与升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、重启生效的升级、兼容与安全模式；操作在下一次启动生效 |
 | 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | 服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点 |
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |

@@ -10,18 +10,26 @@ import {IMAGE_TYPES, STICKERS_PER_PACK_MAX, TEXT_MAX} from "./contracts";
 
 export interface ManifestSticker {
     readonly name: string;
+    /** 清单里这一项写的名字原样；省略名字（名字取文件名）时没有。表情包页按它精确定位清单项。 */
+    readonly raw?: string;
     readonly file: string;
     readonly description?: string;
     readonly common: boolean;
 }
 
-/** 不合规的一项：`label` 指出是哪一项（“第 N 项”或文件名），诊断里写成 `label：reason`。 */
-export type ManifestItem = {readonly ok: true; readonly sticker: ManifestSticker} | {readonly ok: false; readonly label: string; readonly reason: string};
+/**
+ * 不合规的一项：`label` 指出是哪一项（“第 N 项”或文件名），诊断里写成 `label：reason`。问题出在名字（当不了表情名、重名）而文件名
+ * 本身合格时带 `named`：文件与清单里写的名字原样（没写为 null），表情包页据此把这张图列为“认不出”、让用户改名。
+ */
+export type ManifestItem =
+    | {readonly ok: true; readonly sticker: ManifestSticker}
+    | {readonly ok: false; readonly label: string; readonly reason: string; readonly named?: {readonly file: string; readonly raw: string | null}};
 
-/** 一组表情与超出 500 项上限没认的项数。 */
+/** 一组表情与超出 500 项上限没认的项数。`referenced` 是清单各项写了的、合格的文件名（有表情列表时用来找没列的图）。 */
 export interface ManifestStickers {
     readonly items: readonly ManifestItem[];
     readonly truncated: number;
+    readonly referenced: ReadonlySet<string>;
 }
 
 export type ManifestResult =
@@ -44,6 +52,9 @@ function imageStem(file: string): string | null {
     const dot = file.lastIndexOf(".");
     return dot > 0 && IMAGE_TYPES[file.slice(dot + 1).toLowerCase()] !== undefined ? file.slice(0, dot) : null;
 }
+
+/** 文件夹里的这个文件名会不会被当成图片：不以点开头，扩展名是允许的几种。 */
+export const isImageFileName = (file: string): boolean => !file.startsWith(".") && imageStem(file) !== null;
 
 /** 清单里的 `file`：表情包文件夹里的单段文件名，扩展名是允许的几种；交回文件名与去掉扩展名的部分。 */
 function listedFile(file: unknown): {readonly ok: true; readonly file: string; readonly stem: string} | {readonly ok: false; readonly reason: string} {
@@ -79,6 +90,7 @@ export function parseManifest(value: unknown): ManifestResult {
     const header = {ok: true as const, ...(title === undefined ? {} : {title}), ...(description === undefined ? {} : {description}), ignored};
     if (!Array.isArray(value.stickers)) return {...header, stickers: null};
     const seen = new Set<string>();
+    const referenced = new Set<string>();
     const listed: readonly unknown[] = value.stickers.slice(0, STICKERS_PER_PACK_MAX);
     const items = listed.map((raw, index): ManifestItem => {
         const label = `第 ${String(index + 1)} 项`;
@@ -87,15 +99,17 @@ export function parseManifest(value: unknown): ManifestResult {
         const {name, file, description: text, common} = raw;
         const image = listedFile(file);
         if (!image.ok) return fail(image.reason);
+        referenced.add(image.file);
+        const named = {file: image.file, raw: typeof name === "string" ? name : null};
         const written = name === undefined ? image.stem : name;
-        if (typeof written !== "string" || !isStickerName(written)) return fail(name === undefined ? `文件名 ${image.stem} ${STEM_RULE}` : "name 不合规则");
+        if (typeof written !== "string" || !isStickerName(written)) return {ok: false, label, reason: name === undefined ? `文件名 ${image.stem} ${STEM_RULE}` : "name 不合规则", named};
         if (text !== undefined && !shortText(text)) return fail("description 不是 1 到 200 个字符的文字");
         if (common !== undefined && typeof common !== "boolean") return fail("common 不是布尔值");
         const claimed = claimName(written, seen);
-        if (!claimed.ok) return fail(claimed.reason);
-        return {ok: true, sticker: {name: claimed.name, file: image.file, ...(text === undefined ? {} : {description: text as string}), common: common === true}};
+        if (!claimed.ok) return {ok: false, label, reason: claimed.reason, named};
+        return {ok: true, sticker: {name: claimed.name, ...(typeof name === "string" ? {raw: name} : {}), file: image.file, ...(text === undefined ? {} : {description: text as string}), common: common === true}};
     });
-    return {...header, stickers: {items, truncated: value.stickers.length - listed.length}};
+    return {...header, stickers: {items, truncated: value.stickers.length - listed.length, referenced}};
 }
 
 /**
@@ -109,9 +123,10 @@ export function stickersFromFiles(files: readonly string[]): ManifestStickers {
     }).sort((left, right) => byCodeUnit(left.file, right.file));
     const seen = new Set<string>();
     const items = images.slice(0, STICKERS_PER_PACK_MAX).map(({file, stem}): ManifestItem => {
-        if (!isStickerName(stem)) return {ok: false, label: file, reason: `文件名${STEM_RULE}`};
+        const named = {file, raw: null};
+        if (!isStickerName(stem)) return {ok: false, label: file, reason: `文件名${STEM_RULE}`, named};
         const claimed = claimName(stem, seen);
-        return claimed.ok ? {ok: true, sticker: {name: claimed.name, file, common: true}} : {ok: false, label: file, reason: claimed.reason};
+        return claimed.ok ? {ok: true, sticker: {name: claimed.name, file, common: true}} : {ok: false, label: file, reason: claimed.reason, named};
     });
-    return {items, truncated: images.length - Math.min(images.length, STICKERS_PER_PACK_MAX)};
+    return {items, truncated: images.length - Math.min(images.length, STICKERS_PER_PACK_MAX), referenced: new Set(images.map((image) => image.file))};
 }

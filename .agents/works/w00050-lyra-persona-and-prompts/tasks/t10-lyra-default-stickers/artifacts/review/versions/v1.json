@@ -1,0 +1,115 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t10-lyra-default-stickers",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：星璃默认表情包",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "3a0a550a91dda045a3e04da6819573003c9c0dd04208e0a84d92ce352409708f",
+    "files": [
+        "index.html",
+        "r1/full-body.webp",
+        "r1/sheet.webp"
+    ],
+    "questions": [
+        {
+            "id": "framing",
+            "type": "single",
+            "label": "构图要不要再收近一点重出？",
+            "options": [
+                {
+                    "value": "closer",
+                    "label": "收近到头和手、表情更夸张，重出"
+                },
+                {
+                    "value": "keep",
+                    "label": "就用这一批"
+                },
+                {
+                    "value": "full-body",
+                    "label": "全身"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "closer"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "white-border",
+            "type": "single",
+            "label": "图上的白边留着吗？",
+            "options": [
+                {
+                    "value": "keep-border",
+                    "label": "留着图里的白边"
+                },
+                {
+                    "value": "no-border",
+                    "label": "不要白边，重出"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "keep-border"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "names",
+            "type": "text",
+            "label": "表情清单要增减或改名吗",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "distribution",
+            "type": "single",
+            "label": "怎么默认带给用户？",
+            "options": [
+                {
+                    "value": "builtin",
+                    "label": "A 内置来源，只读、可复制"
+                },
+                {
+                    "value": "seed",
+                    "label": "B 第一次启动复制进我的表情包"
+                },
+                {
+                    "value": "zip",
+                    "label": "C 只放一个 zip，用户自己导入"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "builtin"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T09:34:47.046Z"
+}

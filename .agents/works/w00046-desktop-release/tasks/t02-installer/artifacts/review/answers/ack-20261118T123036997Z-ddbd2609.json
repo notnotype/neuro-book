@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00046-desktop-release",
+    "taskId": "t02-installer",
+    "artifactId": "review",
+    "ackId": "20261118T123036997Z-ddbd2609",
+    "answers": [
+        "20261118T122946277Z-b25274eb"
+    ],
+    "through": "20261118T122946277Z-b25274eb",
+    "included": [
+        ".agents/works/w00046-desktop-release/tasks/t02-installer/README.md"
+    ],
+    "ackedAt": "2026-11-18T12:30:36.997Z"
+}

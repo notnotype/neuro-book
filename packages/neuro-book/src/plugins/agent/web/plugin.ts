@@ -7,7 +7,7 @@ import {computed, markRaw, defineComponent, h, onBeforeUnmount, onMounted, shall
 import type {Component} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
@@ -42,7 +42,7 @@ import {Type} from "typebox";
 import type {AgentConversationServices, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
-import {MAIN_PROFILE} from "../shared/contracts";
+import {MAIN_PROFILE, stickerAllowlistUsageKey} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
 import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, REQUESTS_SECTION, SKILLS_SECTION, STATUS_LINE_SECTION} from "../shared/settings";
@@ -64,6 +64,7 @@ import {createSkillInit} from "./skill-init";
 import type {SkillInit} from "./skill-init";
 import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu} from "./skills";
 import {createStickerPacksClient} from "./sticker-packs";
+import {profilesUsingSticker} from "./sticker-usage";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
@@ -168,6 +169,7 @@ export const agentBrowserPlugin: PluginDefinition = {
         location: "browser",
         activationEvents: ["onStartup"],
         receives: [STATUS_ITEMS_POINT],
+        provides: [stickerAllowlistUsageKey],
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: notificationsKey}, {key: markdownKey}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: CONVERSATION_VIEW, declaration: CONVERSATION_DECLARATION},
@@ -690,6 +692,12 @@ export const agentBrowserPlugin: PluginDefinition = {
             };
             const published = bindingsOf(agentState, {active: activity.active});
             return {
+                services: [provideService(stickerAllowlistUsageKey, {
+                    profilesUsing: async (packId) => {
+                        const listed = await remote.profiles({});
+                        return listed.ok ? profilesUsingSticker(listed.value, settings.get(agentSettings.settings.profileSettings), packId) : null;
+                    },
+                })],
                 receivers: {[STATUS_ITEMS_POINT]: statusItems.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[CONVERSATION_VIEW]: view, [SESSIONS_VIEW]: sessionsView},

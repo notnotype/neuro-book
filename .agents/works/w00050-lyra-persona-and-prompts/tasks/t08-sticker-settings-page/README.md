@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t08-sticker-settings-page
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -11,7 +11,7 @@ updated: 2026-11-18
 
 设置里加表情包页：新建包、拖图进来、改名字与描述、标常用、删除；包导出为 zip、从 zip 导入（以后表情包市场的分发格式）；插件带来的包只读，可复制到我的。后端补 user://stickers/ 的写入，Spec 输出 20 与“应用不写里面的文件”要改。界面先出静态稿。依赖 t07 的格式。来源：开发者 2026-11-18 意见第 1 条；市场另开 Work。
 
-合同：[`agent/stickers.md`](../../../../../docs/specs/agent/stickers.md)输出 20、25 到 38、验收 9、10（planned）。计划：[`plan.md`](plan.md)。
+合同：[`agent/stickers.md`](../../../../../docs/specs/agent/stickers.md)输出 20、25 到 38、验收 9、10（已实现并晋升，核对见 `evidences/spec-check.txt`）。计划：[`plan.md`](plan.md)。
 
 ## 决定
 
@@ -51,16 +51,23 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18 设计定稿（三轮评审板与计划前四问，上面 1 到 19）；Spec 写成 planned 条目；计划第 3 版（两轮设计审查已处理，见 `evidences/design-review-*.txt` 与处理记录）。草稿在 `.worktree/w00050-t08-drafts`（分支 `w00050-t08/drafts`，不合并）。
+2026-11-18 完成并合入 master（分支 feat/w00050-t08-sticker-page，变基后快进合入）。设计定稿见上面 1 到 19；草稿在 `.worktree/w00050-t08-drafts`（分支 `w00050-t08/drafts`，不合并）。
 
-实施在 `.worktree/w00050-t08-sticker-page`（分支 `feat/w00050-t08-sticker-page`）：
+实施五片，各片的验证与变异检查见提交记录：
 
-- 第 1 片（读取一侧）7ab40a359：目录的 extras 与计数、`refresh`、启动清暂存与报挪开的旧包、`pack` 与 `revealPack` 远程方法、取图给 extras 且 no-cache、`openExistingFolder`（`src/backend/open-folder.ts`）。stickers 与槽的 bun 测试、profile 页 DOM 测试、类型检查通过；六处变异都被抓到。远程方法的真实远程调用测试留到第 2 片。
-- 第 2 片（写入一侧）d54496e1f：`editor.ts`（按包排队；改清单经 `files.update`、没有列表先补；只改头时不补列表；`{file, name}` 定位；新建与复制走暂存；改包名、删除带令牌；复制前后核对插件根版本，复制从插件文件夹直接读）与九个远程方法、统一失败码。经真实远程调用的测试 5 条，八处变异都被抓到。待改 Spec 28 的措辞：只改显示名、说明时不补表情列表。
-- 第 3 片（上传、导入、导出）c423b6c20：`prepare-image.ts`（缩小、转 WebP、GIF 与动态 WebP 超限拒绝、3000 万像素上限）、`archive.ts`（按实际字节流式核对的导入、导出打包）、编辑器的 `addImage`、`importZip`（冲突、另存、带令牌替换）、`exportPack`（归档锁、64 MiB、能导回）、三条路由（来源规则、名额、读体 30 秒空闲超时、413、429）。bun 测试 69 条、DOM 测试 35 条、类型检查通过。
-  - 实现中的两处小决定，Spec 要跟着写：macOS 压缩带进来的 `__MACOSX` 与 `.DS_Store` 忽略、不算路径不合规则（输出 36）；导入上传的包名转不出（纯中文文件夹或 zip 名）报错，提示改名。
-  - 变异检查有两处活下来，都是有意的重复防线：替换时先比一次令牌（改名自己也带令牌检查，先比一次省得白写暂存）、导出读文件时先累加求和（打好的 zip 还要再量，先求和是为了不白读大文件）。
+- 第 1 片 读取一侧：目录的 extras 与计数、`refresh`、启动清暂存与报挪开的旧包、`pack` 与 `revealPack`、`openExistingFolder`。
+- 第 2 片 写入一侧：`editor.ts` 按包排队、改清单、新建与复制走暂存、改包名与删除带令牌，九个远程方法。
+- 第 3 片 上传、导入、导出：`prepare-image.ts`、`archive.ts`、三条路由。
+- 第 4 片 页面：七个组件与 `packs-page.ts`、文字、Lab 场景、Agent 的白名单名单服务。
+- 第 5 片 e2e 与收口。
+
+实现审查（后端 omp、前端 Sonnet）两份报告全部成立：后端 10 条（有效 1 到 9 与测试缺口 12，撤回 2 条）、前端 23 条（重要 8、建议 15），全部已改，处理记录见 `evidences/impl-review-disposition.txt`，原报告见 `evidences/impl-review-backend.txt`、`impl-review-frontend.txt`。要点：删除只认包内图片文件、令牌随扫描取并取自打开对话框那一刻、清单项按原样名字定位、导出的包一定能导回、取消贯穿到写盘之前、写入失败统一通知、改名后选中保持、格子里 Esc 不关设置窗口、输入法组字不提交。
+
+验证：stickers、Agent 相关 bun 测试 128 条、DOM 测试 112 条、类型检查、架构与清单测试、`governance:check`（只剩别的文件里原有的 11 条固定等待）、构建与 `check:dist`、e2e（sticker-packs 5 条、stickers 4 条、agent-profiles 3 条）通过。`stickers.e2e` 验收 4 在负载 10 以上偶发超时，单独重跑与变基后复跑都通过。
+
+Spec 已晋升：输出 20、25 到 38、验收 9、10 去掉 planned，补实现合同与证据；Spec 的措辞按实现改了几处（见 `evidences/spec-check.txt` 末尾）。
 
 ## 下一步
 
-- 第 4 片：页面（七个组件、`packs-page.ts`、登记、文字、Lab、Agent 的白名单名单服务）；之后第 5 片（e2e 与收口）。
+- t09 表情选择器（另开 Task，尚未开始）。
+- 未验证：设置窗口默认 960 宽时网格实际有几列（评审稿按 898 宽画 4 列）。

@@ -1,0 +1,98 @@
+### 1. 删除接口未把目标限制为包内图片
+严重程度：阻断；类别：正确性／安全。
+位置：packages/neuro-book/src/plugins/stickers/backend/editor.ts:322、337、369–385；shared/contracts.ts:236、268、270。
+现象：无表情列表的 deleteSticker 不检查 file 或 name；有列表的 deleteFile 只排除清单引用。随后把目标交给可递归删除目录的 Files.delete。因而 stickers.json、readme.txt 或任意子目录都可被删；无列表包还可把任意目录作为 deleteSticker 目标。
+为什么是问题：输出 30 只允许删除选中的表情或未加入清单的图片；删除清单会改变包语义，递归删除目录会删除无关数据。
+如何核实：从代码推断；Files 的 deleteEntry 对目录递归删除。真实远程测试应请求 stickers.json、普通文件和子目录，并断言拒绝且内容未变。
+建议改法：服务端校验单段图片名，并在包锁内确认目标是包内普通图片；不属于允许类别时返回 sticker-missing。
+
+### 2. 添加图片的补偿可能误删替换文件或隐瞒补偿失败
+严重程度：重要；类别：不变量。
+位置：packages/neuro-book/src/plugins/stickers/backend/editor.ts:503–512；Files 批量删除结果见 packages/neuro-book/src/plugins/files/backend/batch.ts:135–147。
+现象：清单写入失败后才 identify 文件并以所得令牌删除；identify 失败时不带 expected，退化成无条件删除。若同名文件在写入后被替换、identify 后又被替换，补偿可能删除替换文件。另一个独立缺口是仅检查批量调用的外层 ok，不检查 items[0].status；逐项 source-changed 等失败会被当成已删除，只返回原清单错误。
+为什么是问题：冻结计划要求补偿只删本次写入文件，且补偿失败要报告部分完成。当前错误结果可能损坏别处写入或谎报无残留。
+如何核实：从代码推断；Files 批量调用在逐项失败时仍可外层 ok，Files 行为测试已有该合同。stickers.test.ts:668 只测补偿成功。
+建议改法：令 Files 写入操作交回可直接用于 expected 的提交身份；identify 无结果时不得无条件删除；消费逐项删除结果，补偿未完成时报告 write-failed 和部分完成。
+
+### 3. 上传或导入请求取消后仍可能继续处理并落盘
+严重程度：重要；类别：不变量。
+位置：packages/neuro-book/src/plugins/stickers/backend/routes.ts:69–82、97–120、149–162；backend/editor.ts:555–593。
+现象：Gate 只在排队阶段监听 abort；名额取得后读体、解码、写入和暂存提交均不检查取消。读体已完成后客户端断开，已排在编辑器锁上的请求仍能改盘。活动读体也不主动响应 abort；仅等新数据空闲超时。
+为什么是问题：计划 69 行要求取消后停止处理、清理并释放名额。客户端重试时前一请求仍可能稍后提交，造成额外文件或包。
+如何核实：从代码推断。stickers.test.ts:696–717 只取消 Gate 等候者，没有取消活动 HTTP 读体或已读完、等待编辑锁的请求。
+建议改法：把取消信号贯穿读体与可取消的写前阶段；不可逆提交开始后完成一致性收尾再释放资源。补真实 HTTP 的取消场景。
+
+### 4. 包详情可能把旧目录内容与新包令牌拼在一起
+严重程度：重要；类别：不变量。
+位置：packages/neuro-book/src/plugins/stickers/backend/plugin.ts:60–75；backend/editor.ts:613–628；backend/catalog.ts:130–138。
+现象：pack 先取目录快照，再异步按路径 identify 令牌；两步不共锁，也不核对令牌身份是否对应快照。并发导入替换完成新包正式改名后、目录刷新发布前，仍可能用旧目录项的摘要配上新文件夹令牌。
+为什么是问题：用户看到旧包内容并确认后，带回新包令牌会通过新包的条件删除或改名操作；目录令牌不再绑定用户看到的对象。
+如何核实：从代码推断；在真实 Files 场地令替换完成正式 rename、目录刷新尚未发布时读取详情，比较摘要和令牌身份。
+建议改法：让目录项与文件夹身份令牌同次扫描发布；或详情在包锁内重取当前项和令牌，无法证明一致时不给令牌。
+
+### 5. 导出的 ZIP 可能被自己的导入器拒绝
+严重程度：重要；类别：正确性／兼容性。
+位置：packages/neuro-book/src/plugins/stickers/backend/editor.ts:527–546、573–575；backend/archive.ts:69–74、86–90。
+现象：导出按扩展名包含所有顶层图片，只检查合计不超过 64 MiB；导入会拒绝任一超过 32 MiB 的图片。Linux 等区分大小写的文件系统还可有 `Happy.png` 与 `happy.png` 两张有效表情，导出时两者都写入 ZIP，导入的大小写无关重名检查会拒绝整个 ZIP。
+为什么是问题：计划与 Spec 承诺导出的包能导回；当前用户可成功下载但无法恢复的备份。
+如何核实：`bun /tmp/review-w00050-t08-impl/exp/archive-roundtrip.ts` 用 `zipPack` 生成两张仅大小写不同的图片，`unpackZip` 返回“同一个文件名出现了两次”。超过 32 MiB 单项的差异由导出总量检查和导入单项检查直接推出；现有 stickers.test.ts:770 未覆盖这两种边界。
+建议改法：导出前按导入端相同的单项上限与 NFC/大小写重名规则核对，遇到不可导回包时明确返回 export-too-large 或对应错误。
+
+### 6. extras 被截断后计数变化不触发目录 changed
+严重程度：重要；类别：正确性。
+位置：packages/neuro-book/src/plugins/stickers/backend/catalog.ts:234–239、327–344；backend/plugin.ts:71–75、95–99。
+现象：目录变更判断比较 entry、listed 和截断后的 extras，不比较 counts。已有 500 张未列图时，再添加排序在后面的有效图片，counts.unlisted 会增加，但 extras 列表不变，因此不发 changed。
+为什么是问题：概要和详情对外公布总数。订阅 changed 后再取列表的调用方会一直看到旧计数，直到另一次目录变化。
+如何核实：运行 `bun /tmp/review-w00050-t08-impl/exp/catalog-counts.ts`，观察前后 counts 从 500 变为 501、extras 仍为 500、changed 仍为 0。实验使用 StickerCatalog 和真实临时目录。
+建议改法：目录发布比较包含 counts，或统一比较完整的对外快照。
+
+### 7. 重复文件项可能无法按定位合同独立编辑或删除
+严重程度：重要；类别：正确性／合同。
+位置：packages/neuro-book/src/plugins/stickers/backend/editor.ts:125–140、296–339；shared/manifest.ts:101–108；backend/pack-detail.ts:20–29；计划 42 行。
+现象：计划要求有清单时用 `{file, name 原文或 null}` 区分条目。实现把 `name: null` 匹配到任何未通过名字校验的同行；非 null 又同时匹配原始名和推导名。清单中同一个文件一项省略名字、一项显式写与文件名主干相同的名字时，后项因重名成为 extra，但两项的目标都可能匹配两行，无法独立修复或删除。详情对有效项还只返回规范化显示名，不携带原始定位值。
+为什么是问题：两个表情行共享同一操作目标，违反计划同文件多项要可区分的定位合同，重名错误无法按页面操作修复。
+如何核实：从代码推断；现有 stickers.test.ts:518–523 覆盖共享图片文件与未列包删除，未覆盖同文件重复条目消歧。
+建议改法：详情分开显示名和定位原文；有清单时精确匹配显式原文或缺省，不用推导名兜底；无清单按文件定位。
+
+### 8. 用户根目录扫描错误被发布为空目录
+严重程度：重要；类别：不变量。
+位置：packages/neuro-book/src/plugins/stickers/backend/catalog.ts:256–260。
+现象：根目录 `readdir` 的非 ENOENT 错误只记诊断并返回空数组；refresh 随后正常发布空目录并 resolve。实验中把用户根移走并以普通文件占据原路径，refresh 返回成功，原包全部消失，只有 scan-failed 诊断。
+为什么是问题：计划约定 refresh 扫描失败时 reject。调用方无法区分真实空目录与根目录读取失败，页面会误显示用户包已全部删除。
+如何核实：运行 `bun /tmp/review-w00050-t08-impl/exp/refresh-failure.ts`，观察 `rejected: false`、`publishedPacks: 0`、`reports: ["scan-failed"]`。
+建议改法：非 ENOENT 的根扫描错误 reject 并保留上次发布快照；测试覆盖根路径被替换和权限失败。
+
+### 9. 插件贡献已撤回时，旧目录快照仍可用于打开文件夹
+严重程度：重要；类别：正确性／合同。
+位置：packages/neuro-book/src/plugins/stickers/backend/reveal.ts:12–16；backend/plugin.ts:85–90；backend/plugin-roots.ts:40–43。
+现象：revoke 同步删除 rootVersion，随后排队移除目录项；排队期间 catalog.item 仍有旧快照。revealPath 对插件包直接返回旧 directory，不核对 rootVersion，因而 revealPack 仍会调用打开器。
+为什么是问题：Spec 37、冻结计划及设计审查处理均要求插件撤回后返回 pack-missing；当前只在 revoke 完成后检查空目录的测试漏掉并发窗口。
+如何核实：从代码推断。可在 root 移除已使 rootVersion 删除、removeRoot 发布尚未完成时调用 revealPath；该路径只对插件目录返回快照值。
+建议改法：插件来源授权时确认目录项所属根的登记代次仍有效；过期项按 pack-missing 处理。
+
+### 10. 详情预算超限（撤回）
+严重程度：重要；类别：正确性／边界。
+位置：packages/neuro-book/src/plugins/stickers/backend/pack-detail.ts:14–42；backend/catalog.ts:256–326。
+现象：先前实验直接构造了不可能由实际文件系统与清单得到的详情。改用真实临时目录重跑后，清单 207014 字节、750 项 extras 的详情为 568457 字节，低于 786432 字节上限。原先 959673 字节数据不构成发现。
+如何核实：`bun /tmp/review-w00050-t08-impl/exp/detail-budget-real.ts`。
+建议改法：无；撤回原发现。
+
+### 11. ZIP 混合布局及目录项冲突（撤回）
+严重程度：重要；类别：正确性／兼容性。
+位置：packages/neuro-book/src/plugins/stickers/backend/archive.ts:60–76、114–128。
+现象：复核后确认实现忽略 ZIP 子目录中的图片与非图片符合 Spec、计划“子文件夹与别的文件忽略”；混合根文件与子目录的实验不能证明违规。目录项与文件同名的 ZIP 尚无可观察的数据损坏依据，也不能据此认定错误。
+如何核实：`bun /tmp/review-w00050-t08-impl/exp/archive-shapes.ts` 确认子目录图被忽略；对先前目录项冲突疑点没有保留发现。
+建议改法：无；撤回原发现。
+
+### 12. 删除 API 缺少非图片与目录目标的负例测试
+严重程度：建议；类别：测试。
+位置：packages/neuro-book/src/plugins/stickers/stickers.test.ts:467–523。
+现象：输出 30 的真实远程调用用例覆盖有效表情、有效未列图、共享文件引用；未覆盖 stickers.json、普通非图片文件或子目录作为删除目标。本条只记录测试缺口，产品合同问题见第 1 条。
+为什么是问题：现有测试不能防止将来把删除范围扩展到非图片或目录。
+如何核实：`bun test src/plugins/stickers` 已通过 88 项；检查上述用例的实际断言。
+建议改法：在输出 30 的真实远程测试中加入拒绝非图片和目录目标、目标内容未改变的断言。
+
+---
+未发现问题的方面：读图的字节与格式核验、上传图缩放与动态 WebP 拒绝、普通用户包改名和删除把令牌直接传给 Files 条件操作、替换失败回滚旧目录的已覆盖路径。
+各级数量：阻断 1，重要 8，建议 1。撤回项不计入数量。
+有效发现编号：1–9、12

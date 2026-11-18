@@ -11,6 +11,8 @@
 
 自上而下：下一次请求的组成（总量、窗口与压缩线、比例条、各块的 token 与占比，写明是估算）；缓存（本会话与最近一次的命中率、累计用量，服务商不报缓存时说明）；系统提示词、扩展的槽、诊断三块默认收起。系统提示词展开时才取。算不出时只留原因与缓存。
 
+文字选择：整块可选，系统提示词、槽位与诊断要能复制（见 nb-ui 开发规范的“文字能否选中”）。
+
 ## 数据
 
 `inspection`（`ContextInspectionView`）、`systemPrompt`（`SystemPromptView`，没取时为 null）、`usage`（`ctx.usage`）。事件 `load-system-prompt`。

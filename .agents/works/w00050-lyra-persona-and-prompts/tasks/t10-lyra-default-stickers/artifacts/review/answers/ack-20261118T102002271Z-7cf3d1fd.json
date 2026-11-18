@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t10-lyra-default-stickers",
+    "artifactId": "review",
+    "ackId": "20261118T102002271Z-7cf3d1fd",
+    "answers": [
+        "20261118T100830150Z-4d498f3f"
+    ],
+    "through": "20261118T100830150Z-4d498f3f",
+    "included": [
+        ".agents/works/w00050-lyra-persona-and-prompts/tasks/t10-lyra-default-stickers/README.md"
+    ],
+    "ackedAt": "2026-11-18T10:20:02.271Z"
+}

@@ -818,8 +818,10 @@ onBeforeUnmount(() => {
     overflow-wrap: anywhere;
 }
 
+/* 失败原因、插件说明与来源路径都是内容，要能复制（nb-ui 规范的“文字能否选中”）。 */
 .plugins-page__problem-reason {
     margin: 0;
+    user-select: text;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
     color: var(--status-danger);
@@ -958,6 +960,7 @@ onBeforeUnmount(() => {
 /* 说明只占一行，放不下截断，悬停看全文：多数行没有说明，长说明不把窄屏下的每一行都拉高。 */
 .plugins-page__description {
     margin: 0;
+    user-select: text;
     overflow: hidden;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
@@ -968,6 +971,7 @@ onBeforeUnmount(() => {
 
 .plugins-page__reason {
     margin: 0;
+    user-select: text;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
     color: var(--text-secondary);
@@ -1017,6 +1021,7 @@ onBeforeUnmount(() => {
 
 .plugins-page__path {
     margin: 0;
+    user-select: text;
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-secondary);

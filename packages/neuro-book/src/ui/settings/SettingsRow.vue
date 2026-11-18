@@ -246,6 +246,8 @@ async function run(action: RowAction): Promise<void> {
 }
 
 .settings-row__text {
+    /* 设置名与说明是内容（可复制去搜，同 VS Code）；桌面壳里根上默认不可选（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
     display: flex;
     min-width: 0;
     flex: 1 1 var(--settings-row-text-min);

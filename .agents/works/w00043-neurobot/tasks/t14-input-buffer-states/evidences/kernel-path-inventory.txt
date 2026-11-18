@@ -1,0 +1,138 @@
+# w00043 t14 开工前清单：内核里会话回到空闲、读写输入缓冲区的全部路径
+仓库 master（bf556544b 时的工作区），行号为当时的文件。探针在 /tmp/t14-probes/，输出在同目录 *.out。
+通用机制（第 1 节都适用）：
+- 队列：dispatch/queue.ts 单写者，一项=一个写入批连同它的反应（reactions.ts:59 writeAndReact）。指令的校验与写入在同一项（commands.ts:41-70 accept）。abort 不经队列（commands.ts:159-184）。
+- 运行循环在队列外（loop.ts:118），每次写日志排一项（loop.ts:122 write）。“看缓冲区决定收口”读 core.session.kernel.buffer 是在队列项之外读的（loop.ts:378、393、206），写 runEnded 再排一项（loop.ts:394 / 138 / 362）。
+- control.idle = (#active === null)（control.ts:75-77）。#active 只在 runLoop 的 promise 结束后的 .finally 里清（control.ts:123-124），之后才 setStatus idle、onIdle、结算 waitRun（125-131）。所以 idle 变真晚于 runEnded 批（含它的反应）写完，中间至少隔几个微任务。
+- 指令看“空闲”只看 control.idle：send（commands.ts:100）、start（133）、enqueue 的 currentRunId（125）、resolve 异步回答（interaction.ts:135）、rewind/switchBranch/fork/changeProfile 的 running 拒绝（tree.ts:59、85；session.ts:272、294）、compact（session.ts:284）、changeSettings 的 scheduled（commands.ts:262）、Mounts.running（session.ts:162）。
+
+## 第 1 节 会话从“有运行”变成“空闲”的全部路径（共 14 条：写 runEnded 的 9 条，不写的 5 条）
+窗口内 send/enqueue 的交回（下面各条通用，除非另写）：control.idle 还是假，send 只写 inputQueued，交回 {inputId, runId: null, currentRunId: 正在收口的运行}；enqueue 交回 {inputId, position, currentRunId}。运行不再读缓冲区，话留在空闲会话里。
+
+1.1 正常结束、缓冲区无排队：决定在 loop.ts:378（有 steer 就 continue）与 393（find followup），都在队列项之外读；runEnded{completed} 与 turnEnded 在 394 另排一项。idle 在 control.ts:123 的 finally。
+  探针 old-r2-end-race：回复批的反应期间到达的 send → currentRunId，收口后 buffer ["迟到"]、idle。
+  探针 p1-A（新）：runEnded 批已写、它的反应占着队列项时到达的 send 与 enqueue，排在收口批之后受理，仍看到 idle=假：send 交回 {runId:null, currentRunId:<已收口的运行>}，enqueue 交回 position 1；事件序列 …runEnded(completed) inputQueued inputQueued，两条都留在空闲会话里。窗口不止“回复写下到 runEnded 之间”，而是一直到 runEnded 批连同反应写完、再加几个微任务。
+1.2 正常结束、有排队：loop.ts:395 turnEnded 与 takeInputDrafts 同批，同一次运行接着跑，不回空闲。
+1.3 只压缩的运行（空闲时 compact，session.ts:279-291 开 runStarted{kind:"compact"}）：loop.ts:188-203，不读缓冲区；经 end()（loop.ts:125-139，先 queue.drain 再写）写 runEnded completed/aborted/error（195 模型解析码；202 compaction-failed，nothing-to-compact 与 disabled 都映射成它）。
+  探针 old-bot-r1 与 p1-B（新）：压缩期间到达的 steer 和 followup 都交回 currentRunId=压缩运行，压完 completed，buffer [steer, followup] 都留着，模型请求数不变（1，是此前那句的）。
+1.4 收尾工具交出结果 finished：loop.ts:358-363，stopped=true 后直接写 [工具结果…, turnEnded, runEnded{finished}] 一批，不读缓冲区。
+  探针 old-r3-yield-steer：yield 那一轮里到达的插话 → currentRunId=这次运行，运行 finished，buffer [steer] 留着。
+1.5 文字收口（会话头带 result）：loop.ts:379-389。378 先把 steer 留给下一边界，所以只有 followup 会卡；optional → end("completed",{reason:"completed", result:text})；required 先催一次（382-386）再 end("completed",{reason:"error", code:"result-missing"})。
+  探针 old-r1-result-text：两种模式运行中的 followup 都留在 buffer。
+1.6 出错 end("error")：loop.ts:195（只压缩，模型解析码）、202（压缩失败）、224（tools-missing，另 markReadOnly）、243（模型解析码）、273（request-invalid）、275（profile-failed，另写 extensionFailed）、309（context_overflow）、318（服务商或其它 ModelErrorKind）、325（empty-reply）、404（internal，循环抛非 LogBroken 的错）。共 10 处。
+  探针 old-bot-r1：provider 错后 followup 留着、idle。
+1.7 中止 end("aborted")：loop.ts:199、201、211、253、280、284、297、303、308、365、370，共 11 处。abort 指令：control.abort（control.ts:108-115）置 aborting、触发信号、等循环与 finally 完 → 这时 idle 已真 → abortCommand 才在 commands.ts:171 读缓冲区、174 另排一项写 inputRemoved{reason:"aborted"}×N 与 commandAccepted。即：runEnded 批 → idle → 清空批，三步分开；清空的是“清空那一刻”的缓冲区。
+  探针 old-r1-abort-window：aborting 期间以会话身份发的 send → currentRunId，随后被一起 inputRemoved{aborted}；keepQueue 时不写 inputRemoved。
+1.8 进程内中断：closeSession(reason:"interrupted")（session.ts:764-777）→ control.shutdown(new ProcessInterrupt()) → end() 把 aborted 改记 interrupted（loop.ts:129-131，turnEnded 与没回复的 modelFailed 也改）。不写 inputRemoved，缓冲区留着。调用方：kit 句柄表停止时（kit/sessions/table.ts:190-199、339-348）、agent-host close（agent-host.ts:126-130）。不带 reason 的 closeSession 写 runEnded{aborted}，同样不清缓冲区。之后的指令得 session-closed（session.ts:214-217）。
+  探针 p1-C（新）：中断后重开，日志里已有 runEnded(interrupted)，重开不再恢复；buffer [followup(用户), steer(会话)] 留着、idle；重开后 start 不是接着跑中断那一轮，而是取 buffer[0] 开新一轮（turn input=id），会话的 steer 在边界被取走，buffer 清空。
+1.9 打开会话时的恢复：session.ts:539-540，recover.ts:64-86；在 profileChanged 那一批之后另写一批 [interactionResolved…, nestedToolResult…, toolResult…, modelFailed{interrupted}…, turnEnded, runEnded{interrupted}]。叶子是 leafChanged 定的不恢复（recover.ts:66）。缓冲区留着。openSession 交回之前不受理指令，所以没有窗口。未跑探针（要伪造崩溃的日志），从代码推断。
+1.10 句柄损坏 log-broken：control.ts:50-57 置 broken、结算等待者；循环以 LogBrokenError 退出，finally 清 #active → idle 真、status 仍 broken；不写 runEnded（重开时由 1.9 收口）。之后的指令得 log-broken（commands.ts:50）。
+1.11 重新装配失败：运行结束后 onIdle（session.ts:629-632，在 control.ts:128 调）排重新装配；reassembleNow 失败置 readOnly="reassembly-failed"（session.ts:663-674）。不写 runEnded、不动缓冲区；装配期间指令在 closedGuard 里等（session.ts:215）。之后 send 因 startProblem 得 read-only，enqueue 得 read-only。tools-missing（1.6）也会进只读。
+1.12 changeProfile：只在 idle 时受理（session.ts:294），不是“有运行→空闲”的路径；换装配不读不写缓冲区，留着的照旧。
+1.13 回退或切分支到运行中途（暂停的运行）：rewind/switchBranch 只在 idle 受理（tree.ts:59、85），写 leafChanged；叶子上 run 非空 → control.paused 非空（control.ts:80-82），idle 真，不写任何收口事件。从暂停的叶子再回退到别处，那次运行就永远没有 runEnded。接着跑的入口：send（commands.ts:109-110，只写 inputQueued、不写 runStarted，launch 原 runId）、start（136-137，不写事件）、异步回答（interaction.ts:140-141）、rewind{resend} 落在运行中途（tree.ts:74-75）；compact 在暂停时挂到这次运行的下一边界（session.ts:284-285），不开运行。接着跑时 history.current 为空就取 buffer[0]（loop.ts:205-209），缓冲区空就 end completed（207）；不为空就接着那一轮，新话在一轮结束时按 followup 取。
+  探针 p1-D（新）：暂停期间会话 enqueue 的话 position 0、currentRunId=暂停的运行；用户随后 send 交回 runId=暂停的运行；接着跑时先取的是会话排的 buffer[0]，用户的话在下一轮，路径为 [第一句, 暂停时会话排的, 用户新话]，同一次运行。
+1.14 关闭空闲会话：kit 句柄表在无引用、无运行 30 秒后关（table.ts:3、331-335），不写事件，缓冲区随日志留着，重开后仍在。
+1.15 补充与更正：本节标题的计数按条目改为“14 条，其中 1.2 不回空闲；写 runEnded 的 8 条（1.1、1.3–1.9），不写而让 idle 变真或会话停在空闲的 5 条（1.10–1.14）”。runEnded 的写入点合计：loop.ts 里 end() 调用 24 处（错 10、中止 11、只压缩 completed 1、暂停运行空缓冲区 completed 1、文字收口 2，其中 1 处与错重合于 404 的 internal 已计入错）＋ 直接写 2 处（362 finished、394 completed）＋ recover.ts:84 一处。
+  探针 p2-F（新）：停止用 keepQueue（界面的做法）时，停止进行中用户发的 send 交回 {runId:null, currentRunId:<被停的运行>}；日志尾为 toolResult turnEnded runEnded(aborted) commandAccepted，没有任何缓冲区事件；buffer [停止前排的, 停止进行中用户发的] 都留在空闲会话里，两条无法区分先后与来历。
+  另一条让话卡在空闲会话里的路径（不经收口）：异步提问的回答在空闲时到达但开不起运行。探针 p2-E（新）：模型解析失败（no-credentials）时 resolve 成功、交回 {}（没有 runId），回答作为 followup 留在 buffer；同一时刻的 send、start 都以 no-credentials 失败。代码 interaction.ts:136-147：startProblem 非空时只写 inputQueued，不报错。
+  再更正计数（以 grep 为准）：loop.ts 里 await end( 共 25 处 = end("error") 10（195 202 224 243 273 275 309 318 325 404）＋ end("aborted") 11 ＋ end("completed") 4（200 只压缩成功、207 暂停的运行接着跑时缓冲区空、388 result-missing、389 文字收口）。加上直接写的 362、394 与 recover.ts:84，全内核写 runEnded 的地方共 28 处。
+
+## 第 2 节 读输入缓冲区的全部地方（内核 11 处，内核外 4 处）
+缓冲区本体：state/kernel-state.ts:110-117 会话级归约（inputQueued 追加，带 id/mode/input/queuedAt=seq/edits=0/by；inputEdited 换 input、edits+1；inputRemoved 与 inputConsumed 删除）。类型 BufferedInput 在 api/host.ts:121-130（没有状态字段）。
+内核读它的地方：
+2.1 边界取插话 takeSteerDrafts：loop.ts:78-86，在 238-239 调；全部 mode=steer，按入队序，每条 inputConsumed＋steer（带 by）一批。
+2.2 “还有插话就不结束这一轮”：loop.ts:378（队列项外读）。
+2.3 一轮结束取排队：loop.ts:393 找第一条 followup（跳过排在前面的 steer 不可能，因 378 已保证无 steer），395 取走。
+2.4 暂停的运行接着跑：loop.ts:205-209 取 buffer[0]（不分 mode）。
+2.5 start 取第一条：commands.ts:140-142，buffer[0] 不分 mode，带它原来的 by。缓冲区空才写 turnStarted{inputId:null} 接着跑（143-147）。
+2.6 enqueue 交回的 position：commands.ts:126 = 受理前 buffer.length（不是“第几个会被取”：steer 与 followup 混排）。
+2.7 abort 清空：commands.ts:171（队列项外、运行收口与 idle 之后读）。
+2.8 edit/remove 的存在检查 bufferProblem：commands.ts:187-190（不在时再扫全日志区分 input-not-found 与 input-consumed）。
+2.9 快照：session.ts:344 原样复制 buffer。
+2.10 预览投影：session/preview.ts:114-119，叶子两轮之间时投影 buffer[0]（不分 mode、不带 by，takeInputDrafts 没传 by），在一轮里时投影全部 steer。会话空闲时也投影，所以空闲预览里会出现下一次运行才可能取的话。
+2.11 恢复与空闲判断：recover.ts 不读缓冲区（注释 7 行“缓冲区里的输入留着”）；control.idle/paused 不看缓冲区。kit/sessions/table.ts 的活动与空闲关闭只看状态帧（312-317），不看缓冲区。
+内核外：
+2.12 NeuroBook jobs/steer.ts:14-33 watchSteer：以用户身份订阅（19），任何 inputQueued{mode:"steer"} 帧都算到达（20），不看 by；再读快照 buffer.some(steer)（26）。调用方：subagents/tools.ts:247（前台等子代理）、jobs/tools.ts:112（wait 工具）。所以会话或别的发出者往本会话插的话、以及早已卡在空闲缓冲区里的 steer，都会让等待立刻以“用户插话了”结束。
+2.13 nb-agent-ui kernel-transcript.ts：queue 只存 {id, mode, text}（31、267），无 by、无状态；增量归约 509-523（inputQueued/inputEdited/inputRemoved/inputConsumed）；applySnapshot 670-674 从 snapshot.buffer 重建。乐观消息：commandAccepted{name:"send", value.runId:null} 时撤掉对应 commandId 的乐观消息（524-528，改由排队区显示）；任何实时到的 input 或 steer 事件撤掉最早一条乐观消息（704，只按先后，不看发出者）。
+2.14 NeuroBook web/session-host.ts：用 transcript.queue() 的两处——queued.edit（1382-1390：remove 后把文字放回输入框）、给视图的 queued 列表（1671）；queued.remove 走 remote.remove（1379-1380）。不读快照的 buffer 字段本身。
+2.15 子代理 subagents/tools.ts 不读缓冲区，靠 send 交回的 runId ?? currentRunId 认任务（363、444），靠 resolve 交回 runId 是否为空判断“回答已排进缓冲区、现在没有运行可开”（476 的文案）；needsSlot 只看 status（293-297）。任务中心（remote.ts 的 jobs/killJob）不读缓冲区。
+
+## 第 3 节 把一条输入放进缓冲区或直接开一轮的入口（内核 5 个指令，调用方 12 处）
+内核指令（发出者都来自视图 SessionApi.as(issuer)，session.ts:260-269；内核内 Issuer 只有 user 与 session 两种，api/basics.ts）：
+3.1 send（commands.ts:96-116，带 issuer）：在跑 → 只写 inputQueued，交回 currentRunId；空闲且叶子有暂停的运行 → inputQueued＋launch 原运行（不写 runStarted）；空闲 → inputQueued、runStarted、inputConsumed、turnStarted、input 同一受理批，开新运行。mode 缺省 followup。空闲时 startProblem 失败直接失败、不入队。
+3.2 enqueue（118-128，带 issuer）：只写 inputQueued，从不开运行；只读时失败；交回 position 与 currentRunId（在跑或暂停时）。
+  探针 old-r1-idle-enqueue：空闲 enqueue 后会话身份 send 开的运行，在一轮结束时把用户排的取走（路径 [会话身份发的, 用户空闲时排的(user)]）。
+  探针 p2-H（新）：空闲时用户 enqueue 一条 steer，再 send：新话先成为第一轮输入，空闲时排的 steer 在下一边界作为 steer 进同一轮。
+3.3 start（130-149，不收 issuer）：只在 idle；暂停的运行 → launch 原运行；缓冲区非空 → runStarted＋取 buffer[0]（带它原 by）；缓冲区空 → runStarted＋turnStarted{inputId:null}（“继续”）；末尾是完整回复 → nothing-to-continue。
+  探针 p2-G（新）：出错收口后缓冲区里有会话排的 followup，start（即错误气泡的“重试”）不接着跑失败那一轮，而是取这条 followup 开新的一轮。p1-C 在中断后同样如此。
+3.4 resolve 的异步回答（interaction.ts:130-148，带 issuer）：在跑 → inputQueued{mode:steer}；空闲 → inputQueued{followup}，能开就开新运行或接着暂停的运行，开不起来只入队、成功交回 {}（见 p2-E）。
+3.5 rewind{resend}（tree.ts:65-78，不收 issuer）：inputQueued 写死 {kind:"user"}（73），开新运行时 takeInputDrafts 不带 by（78）；落在运行中途 → 入队＋launch 暂停的运行，这时这条排在缓冲区末尾，接着跑先取的是 buffer[0]（loop.ts:206），不一定是它。
+调用方（谁调、以谁的身份、经远程合同还是进程内）：
+3.6 用户界面：web/session-host.ts → 远程合同 → remote.ts:171 view(sessionId) 固定 {kind:"user"}、175-178 按 COMMANDS 转发。具体：输入框发送 send（1102）、Ctrl+Enter/插话 enqueue（1105，mode steer 或 followup）、“按回车继续” run.continue → start（1367-1368）、结果未知时重发 send（1396，同一 commandId）、错误气泡的重试 = rewind{to}（无 resend）＋ start（650-669）、编辑重发 = rewind{to, resend}（660）＋不再 start、应答提问 resolve（1228-1229）。
+3.7 任务入口 startTask：远程合同 remote.ts:337-340 与进程内 AgentService.startTask（agent.ts:330，table.accept）；实现 agent.ts:303-325，table.view(sessionId) 不带 issuer → 用户；commandId=taskId 的 send；runId 为空时报 already-running，但话已入队（323 之前的 send 已写 inputQueued）。
+3.8 子代理建会话后的第一条：subagents/tools.ts:361 view.send，身份 {kind:"session", id: 父会话}（349、210）。
+3.9 agent_send：tools.ts:437-445，身份父会话；带话 → send，mode = queue ? followup : steer；不带话 → start（只在子会话 idle 时，432-433 检查）。认任务用 runId ?? currentRunId。
+3.10 agent_answer：tools.ts:470-477，身份父会话，resolve（异步提问的回答会入队或开运行）。
+3.11 标题会话：kit/sessions/meta.ts:149、162，table.view(id) 不带 issuer → 用户身份 send；runId 为空时记失败返回，但话已留在标题会话的缓冲区里。
+3.12 AgentService.session(id, issuer?)（contracts.ts:111，agent.ts:331-334）：issuer 缺省时 table.view 缺省 {kind:"user"}（kit table.ts:129）。v2 包里经 agentKey 拿 AgentService 的只有 agent 插件自己与测试（plugin.ts:199、testing/world.ts:61）；plugin.ts:201 内置工具用 service.session(sessionId) 改设置，身份缺省为用户。
+  行号更正：3.7 实现在 agent.ts:304-325，send 在 316，“runId 为空报 already-running”在 319；3.9 不带话只在子会话 idle 时走 start 的检查在 tools.ts:436，agent_send 主体 426-450；3.10 resolve 在 472。
+3.13 不是输入入口但会开运行的：compact（session.ts:279-291，空闲时 runStarted{kind:"compact"}，不收 issuer）。changeProfile、fork 不开运行。
+
+## 第 4 节 每条内核指令对发出者的处理（16 条指令：收 issuer 的 3 条，写 by 的 4 种事件）
+指令表 api/codes.ts:11-28（commandErrors 即合同；hostOnlyCommands = [setGeneratedMeta]，31 行）；视图分发 session.ts:257-326，issuer 是 buildApi 的参数，as(next) 换身份（260）。
+| 指令 | 收 issuer | 写进日志的发出者 |
+| send | 收（commands.ts:96） | inputQueued.by 与 input.by 只在非用户时写（input.ts:79-81 byField；用户不写 by）|
+| enqueue | 收（118） | inputQueued.by 同上 |
+| resolve | 收（interaction.ts:101） | interactionResolved.by = issuer（121，用户也写）；approvalRemembered.by（127）；异步回答的 inputQueued/input.by 同 byField；权限：用户全可，会话只能答 questions=caller 且 caller 是它的提问（96-99），不允许得 not-allowed |
+| start | 不收（commands.ts:130） | runStarted 没有 by；取 buffer[0] 时 input.by 用那条原来的 by |
+| abort | 不收（159） | runEnded 无 by；inputRemoved{reason:"aborted"} 无 by；commandAccepted 无 by |
+| edit | 不收（192） | inputEdited 没有编辑者；queuedData 写死 {kind:"user"}（199），条目原 by 由归约保留（kernel-state.ts:114）；任何身份都能改任何一条 |
+| remove | 不收（205） | inputRemoved{reason:"user"}（209），不论谁删 |
+| rewind | 不收（tree.ts:56） | resend 的 inputQueued 写死用户（73）；leafChanged 无 by |
+| switchBranch、fork、compact、changeSettings、archive | 不收 | 无发出者字段 |
+| changeProfile | 不收 | profileChanged.reason:"user" 写死（session.ts:310） |
+| setTitle | 不收 | titleChanged.by:"user" 写死（commands.ts:217） |
+| setGeneratedMeta | 不收 | titleChanged.by:"auto"（229），只给宿主，远程合同不暴露（remote.ts:41-42） |
+失败码表里除 resolve 外没有任何指令有 not-allowed；abort 只有 command-id-conflict 与 session-closed 两个码。commandAccepted（commands.ts:54）只有 commandId/name/value/argsHash，不记发出者。出站过滤按视图的 issuer（session.ts:242、439），与指令权限无关。
+  更正：标题里“写 by 的 4 种事件”应为 5 种：inputQueued、input、steer（loop.ts:83 带原条目的 by）、interactionResolved、approvalRemembered。
+NeuroBook 怎样决定发出者：
+4.1 AgentService.session(id, issuer?)（contracts.ts:111；agent.ts:331-334）原样交给 kit 句柄表 table.view(id, issuer)，缺省 {kind:"user"}（kit/sessions/table.ts:129），调用方可以自填任何 Issuer（包括 user 或任意会话 id），没有按调用方门面盖章。
+4.2 远程合同（用户界面与任务中心）：remote.ts:171 一律 {kind:"user"}；订阅 subscribeOpened 也用 user（remote.ts:399）。
+4.3 子代理：subagents/tools.ts:210 issuerOf(parent) = {kind:"session", id: 父会话}；ChildRuns.start 同（children.ts:46）。父 Agent 停子代理（工具中止时 tools.ts:259）与任务的 kill（children.ts:52-55，任务中心 killJob 经 remote.ts:217-221 → jobs.kill(null, jobId) 也走这里）都用父会话身份的视图调 abort；abort 本身不收身份，所以日志里看不出谁停的。
+4.4 startTask（agent.ts:309、316）、标题会话（kit meta.ts:149）、内置工具改设置（plugin.ts:201）：都不带 issuer → 用户。
+4.5 jobs/steer.ts 的订阅以用户身份（19）。
+
+## 第 5 节 事件与字段（9 种；作用域登记在 api/kernel-events.ts:9-26，字段在 api/events.ts）
+| 事件 | 作用域/种类 | 现有字段 |
+| inputQueued | session/ctrl（kernel-events.ts:9） | id, mode("steer"|"followup"), input, original?, originalHash?, by?（events.ts:60-64、72；by 只在非用户发出时有）。没有 commandId、没有状态 |
+| inputEdited | session/ctrl（10） | id, input, original?, originalHash?（73）；没有编辑者，mode 不改 |
+| inputRemoved | session/ctrl（11） | id, reason("user"|"aborted")（74）；没有 by |
+| inputConsumed | session/ctrl（12） | id（76）；与 turnStarted＋input 或 steer 同批 |
+| input | path/conv（25） | text, payload?, attachments?, queued(缓冲区 id), by?（119）；没有 commandId |
+| steer | path/conv（26） | 同 input（121） |
+| runStarted | path/ctrl（21） | runId, kind("chat"|"compact")（105）；没有 by |
+| runEnded | path/ctrl（22） | runId, reason("finished"|"completed"|"error"|"interrupted"|"aborted"), result?, error?{kind, code?}（106-112） |
+| commandAccepted | session/ctrl（13） | commandId, name, value, argsHash?（81）；没有发出者；dispatch/core.ts:233-236 进 core.commands 供重发 |
+相关的 turnStarted：path/ctrl（23），{turnId, inputId|null}（114）。
+会话级归约：state/kernel-state.ts:108-139 reduceSessionKernel，只处理 session 作用域事件（dispatch/core.ts:203-215 按 event.scope 分派：path 事件只进 reducePathKernel，session 事件只进 reduceSessionKernel），所以缓冲区现在只由 inputQueued/inputEdited/inputRemoved/inputConsumed 四种决定，归约不读 path 事件。path 侧 run 由 runStarted/runEnded 决定（kernel-state.ts:46-52）。
+指令交回值（api/host.ts）：send {inputId, runId|null, currentRunId?}（32）；enqueue {inputId, position, currentRunId?}（34）；start {runId}（41）；resolve {runId?}（39）；rewind {leaf, inputId?, runId?}（45）；abort {aborted}（43）；edit/remove {}（35-36）。
+
+## 第 6 节 与提案假设冲突的事实（6 条）
+6.1 “收口之后受理的按空闲处理”不能只靠把决定与 runEnded 放进同一批。control.idle 由内存里的 #active 决定，只在 runLoop 结束后的 .finally 里清（control.ts:123-124），晚于 runEnded 批连同它的反应。探针 p1-A：排在 runEnded 批之后受理的 send、enqueue 仍看到“在跑”，交回已收口运行的 currentRunId，话留在空闲会话里。提案第三节把窗口写成“回复写下后、运行收口前”，实际一直延到收口批的反应写完之后。实现时空闲判断要和 runEnded 在同一个队列项里翻转（或改按日志里的 run 状态判断），否则“同批写 inputHeld”之后仍会有就绪的话进空闲会话。
+6.2 停止时 idle 先于清空：abortCommand 等 control.abort 连同 finally 结束（idle 已真）后，才读缓冲区（commands.ts:171）并另排一项写 inputRemoved 与受理记录。这段空档里别的发出者 send 会开新运行，新运行的第一个边界会取走本该被清空的插话。提案只说“受理记录写在 runEnded 之后的另一个写入批里”，没提 idle 已经先变真。
+6.3 异步提问的回答在空闲又开不起运行时不失败：resolve 成功、交回 {}，回答作为 followup 入队（interaction.ts:136-147，探针 p2-E）。NeuroBook 依赖这一点（subagents/tools.ts:476 的“回答已排进子会话的缓冲区”）。提案失败表写“开运行的各指令：开不起来时照现有的码失败，话仍留着”，但这个入口现在根本不报码；若改成失败，事项也不会被结算（整条指令不写），与现有的 agent_answer 文案矛盾。
+  （6.2 的“空档里别的 send 会开新运行”是从代码推断，没有复现；空档只有几个微任务，p1-A 的时序说明排在收口批之后的指令更可能仍看到“在跑”。确定的是清空列表在 idle 之后、队列项之外读取。）
+6.4 start 不是“接着跑中断或失败的那一轮”：runEnded 之后 run 为空，start 总是新开一次运行（新 runId）；缓冲区非空时取 buffer[0] 开新一轮（探针 p2-G、p1-C），只有缓冲区空、且末轮不是 completed 时才写 turnStarted{inputId:null} 续写（commands.ts:143-147）。提案里“宿主只能 start 自己开的那次运行”“用户的 resume 先接着跑中断的那一轮”都要先定义“那一轮/那次运行”指什么：现在两者之间没有 runId 关联，只能按叶子上最后一轮的状态推断。另外照提案（空闲时全部留着）实施后，新日志里 start 的“缓冲区非空取 buffer[0]”分支只剩旧日志会走到。
+6.5 任务中心停子代理并不经远程的 abort：任务中心是 remote.ts:216 killJob → jobs.kill(null, jobId) → children.ts:52-55 用父会话身份的视图 abort。提案第 2 节说“任务中心里用户停子代理，经远程合同进来，按用户停的记”，实际进来的是 killJob，身份在 children.ts 换成了父会话；子代理卡片的停止（session-host.ts:338-339）才是远程 abort、用户身份。
+6.6 提案第三节列 NeuroBook 的入口时没有 nb-harness kit 的标题会话：kit/sessions/meta.ts:149、162 以用户身份（table.view 缺省）往标题会话 send，标题会话已有运行时只记失败，话留在它的缓冲区里。按提案的权限表它会被当成“用户的话”，只有用户能放行，而用户看不到标题会话。另外不带 reason 的 closeSession（agent-host close 无 options）是第三种停止：写 runEnded{aborted}、不清缓冲区、没有发出者，提案的停止规则没覆盖它。
+  （6.6 补充：v2 里不带 reason 的关闭只来自 kit 句柄表的空闲关闭 table.ts:335，它只关 idle 的会话，所以这第三种停止在 NeuroBook 的产品路径上碰不到，只在直接用内核 API 的宿主与测试里会出现。）
+
+## 第 7 节 没能验证的
+- 1.9 打开时的崩溃恢复：没伪造崩溃日志跑，只读了 recover.ts 与 session.ts:539-540。
+- 1.10 句柄损坏、1.11 重新装配失败：只读代码，没跑。
+- 6.2 停止空档里别的 send 开新运行：推断，未复现。
+- 两个发出者先后停止、任务中心 killJob 与子代理卡片停止的实际身份：只读代码（children.ts、remote.ts、session-host.ts），没在 NeuroBook 里跑。
+- NeuroBook 层的行为（agent_send 拿到已收口运行的 currentRunId 后报的结果、watchSteer 被会话插话触发、乐观消息被别人的 input 撤掉、标题会话卡话）都只从代码推断；探针只覆盖内核。
+- 所有探针用 test-session 的内存存储（p1-C 用 jsonl 存储），负载 59 时运行，全部通过、输出稳定性只跑了一次。
+探针文件：/tmp/t14-probes/old-*.test.ts（6 份旧复现，输出 old-probes.out）、p1-idle-paths.test.ts（A–D，输出 p1.out）、p2-entries.test.ts（E–H，输出 p2.out；E 改写后单独重跑，输出 p2-E.out，p2.out 里的 E 是改写前用错模型端口的那次，作废）。
+其它行号更正：4.3 的 killJob 在 remote.ts:216-221。

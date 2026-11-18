@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t09-sticker-picker",
+    "artifactId": "review",
+    "ackId": "20261118T093924169Z-72c996b8",
+    "answers": [
+        "20261118T093843229Z-f4f15970"
+    ],
+    "through": "20261118T093843229Z-f4f15970",
+    "included": [
+        ".agents/works/w00050-lyra-persona-and-prompts/tasks/t09-sticker-picker/README.md"
+    ],
+    "ackedAt": "2026-11-18T09:39:24.169Z"
+}

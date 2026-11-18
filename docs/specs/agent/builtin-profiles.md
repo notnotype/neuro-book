@@ -66,6 +66,7 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 15. 主创派子代理：主创加上子代理与任务中心的工具（`agent_spawn`、`agent_send`、`agent_answer`、`wait`、`kill`、`jobs`），声明 `agents: {allowed: ["nbook.agent.adhoc"], recommended: ["nbook.agent.adhoc"]}`，提示词加一句什么时候派、派了怎样用结果；升 Profile 版本。
 16. 主创声明 `skills: {allowed: "all"}`：放进 `user://skills/` 的 Skill 马上能 `$`；临时帮手不声明 Skill（[`skills.md`](skills.md)）。
 17. 主创声明三条开场指令（[contributions.md](contributions.md) 输出 21）：润色一段环境描写、规划一幕高潮的细纲、对当前章节做一致性体检，各带图标；临时帮手不声明。
+18. 代码执行（planned）：主创与临时帮手的可选工具多一个 `nbook.agent.eval`（[`eval.md`](eval.md)），同 `shell`；提示词里 eval 的说明只在生效工具集里有它时渲染。
 
 ## 状态与转换
 

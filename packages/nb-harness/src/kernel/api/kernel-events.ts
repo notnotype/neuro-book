@@ -32,6 +32,8 @@ export const kernelEventSpecs = {
     modelFailed: {scope: "path", kind: "ctrl"},
     toolsAnnounced: {scope: "path", kind: "ctrl"},
     toolStarted: {scope: "path", kind: "ctrl"},
+    nestedToolStarted: {scope: "path", kind: "ctrl"},
+    nestedToolResult: {scope: "path", kind: "ctrl"},
     toolResult: {scope: "path", kind: "conv"},
     interactionRequested: {scope: "path", kind: "ctrl"},
     interactionResolved: {scope: "path", kind: "ctrl"},

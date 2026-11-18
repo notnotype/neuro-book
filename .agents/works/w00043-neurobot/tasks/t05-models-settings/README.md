@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t05-models-settings
-status: planned
-updated: 2026-11-10
+status: shelved
+updated: 2026-11-18
 ---
 
 # 模型与设置页
@@ -20,6 +20,8 @@ updated: 2026-11-10
 ## 当前状态
 
 2026-11-10 经 nbdev 新建，尚未开工。
+
+2026-11-18 搁置：bot 做成 NeuroBook 的内置插件，用 NeuroBook 现有的模型设置页。
 
 ## 下一步
 

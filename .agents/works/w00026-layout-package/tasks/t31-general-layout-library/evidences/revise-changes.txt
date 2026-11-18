@@ -1,0 +1,72 @@
+t31 提案修订：每条审查意见怎么吸收（提案文件 revise/nb-layout-general-library.md；节名指提案里的小节）
+编号：设计=常规设计审查，拉=拉远看，体验=实际体验。
+
+== 开发者 2026-11-18 的三件决定 ==
+决定 1 手感引擎分两步：写在“手感引擎分两步”；“分档的理由”“第二档”列出编排进库；决策记录追加。
+决定 2 发布准备两档、nb-story 是第一个外部使用方：写在“推荐：分两档……”（第一档/第二档/何时触发）；目标与非目标；决策记录追加。
+决定 3 保持新包，理由改两条硬理由：写在“分层与新包”（L2 的两条硬理由）；备选 B′ 写明“纯 TS、Bun 里能测”是 t04 的理由、已删，不是新包理由。
+status 改 accepted、decided 2026-11-18；adrs 填 docs/adr/0054-nb-layout-general-library.md（docs/adr/ 现有最大 0053；0054 以落盘时为准）；待定项改成“无”；决策记录只追加，不改之前的。
+
+== 常规设计审查 12 条 ==
+设计 1（阻断，L1 带 L2 概念）：吸收。“分层与新包”里 L1 带 L2 概念的文件逐个列表与去向：DropSectorsOverlay 改泛型；resizeFloatRect/LayoutFloatResize 下沉 L0；DropFeedbackOverlay 的 entryRect 改可选；TabStrip 与 tab-strip-geometry 同进 L2（手感引擎第一步不需要标签条排序进库）；L1 测试夹具换成 L1 自己的。另列“导出清单的去向”家族表（也回应体验 17）。
+设计 2（阻断，手感引擎）：按开发者决定 1 吸收。“手感引擎分两步”写明真实耦合（直接读落点内部、三个领域函数、约 25 个回调、wakeLive 的跨包时序、design-09/10 没做）；第一步整理加纯部分进库，第二步等第二宿主；写明第二宿主候选、进库时的写法（接口草案、引擎与会话同属一个对象、标签条排序一起设计）与第一步验收（两份 e2e 与 Lab 场景不变）。证据一节改正“独立设计结论与本稿一致”：它在控制器上的结论是留在应用，开发者 11-18 改为分两步。
+设计 3（CSS 变量迁移）：吸收。单列“CSS 变量迁移”：旧名到新名（主题角色变量、motion 令牌）、主题合同（theme/system.md）、:root 默认值含减少动效、layoutMotionMs 的 getPropertyValue 路径与单元测试、桥接样式放 nb-ui 的 tokens.css 且只写变量名、受影响文件与 6 个 e2e；z-index 断言放桥接所在的包（“去掉 nb-ui 依赖”）；Spec 预期改动加 theme/system。另：t14 README 与 ADR 0044 后果里“发布依赖 8 变 9”——我核了 nb-story 的 package.json，nb-ui、nb-form、nb-agent-ui 确实在 devDependencies，写进“影响—迁移”并标“实施时核实”，ADR 草稿后果里也写了。
+  数字提示：审查说 18 个主题角色变量，我核 tokens.ts 现登记 19 个（sash-line 5、drop-area 2、layout-* 12），Vue 层读到其中 13 个，另读未登记的 --layout-sector-radius。见文末“待修的两处”。
+设计 4（发布脚本衔接）：吸收，写在“第二档：发布流水线”：BUILT_PACKAGES 与 RELEASE_PACKAGES 两条路为什么都不行，要加第三条通道，license/engines 检查按包配置，构建可复现性，变更记录位置（照 ADR 0053 第 4 条）；“private 先加”写在“分层与新包”；问题一节改成“没有发布路径”，不再写“发布物是源码（ADR 0029）”。
+  措辞：审查说 ADR 0029 没有 nb-layout 的发布决定、“取代”不成立。事实吸收（问题一节、第二档末条、ADR 草稿头部都写明决定 6 留着“另作决定”、ADR 0033 才是先例但不能照搬）；但任务要求仍写“部分取代 ADR 0029”，ADR 草稿头部写成“决定 2 的‘发布源码’对 nb-layout 不适用，其余不变，本 ADR 即决定 6 所留的决定”。如开发者觉得应写“补充”而不是“取代”，只改头部一行。
+设计 5（MIT 事实）：吸收，“MIT：要处理的事实”：包内 LICENSE、去 nb-ui 后只剩 tabbable（MIT）、发布脚本会丢 MIT 声明（third-party-notices 的 @notnotype/* 过滤，SDK pack 也走）、根 README 两处补例外、MIT 的包不再从 AGPL 搬内容并写进包的 AGENTS.md、Trellis 来历核对（控制器整理时顺手核）。不做法律判断。
+设计 6（错误码）：吸收，“错误与诊断一种形状”：L0 先按 grid.ts 35 处逐处分类，列出约 11 类的候选名；删去代码与 Spec 里没有对应失败的 stale-context、stale-revision、handler-missing、handler-threw、out-of-bounds；失败整体范围含 issues、dropped、onGestureCommit 返回类型、NestedGrid 里写死的中文 issues；测试里按中文断言约 30 处、应用里构造点与按码分支的三个文件照审查写；Spec 要先新增条目（“对 Spec 的预期改动”）。
+设计 7（SDK）：吸收，单列“对插件 SDK 的影响”：Splitter* 保留旧名别名加弃用期、TabStrip 由 SDK 从 L2 重导出、pack.ts 的 typePaths 与 componentsDoc 要改、搬前搬后清单一致。出声明的工具选择放进“第二档：发布流水线”（SDK 已有 rolldown-plugin-dts 一套，要说明为什么不复用或会不会各出一份）。
+设计 8（源码与发布目录一致、已知的坑）：吸收，“第二档：发布流水线”：保证一致至少做一项（nb-story 网页构建消费产物、DOM 测试别名切到产物、style.css 快照），冒烟扩成含拖一次卡片与键盘；已知的坑逐条列出并标“凭记忆、实施前核实”（import.meta.env 静态替换、sideEffects 与多入口、TS2742/TS4023、产物导入图、API 报告工具、data-* 表与 CSS 变量表文档）。
+设计 9（影响面漏项）：吸收。导入数字改成约 105 处、56 个文件（含 3 个 e2e）；登记处清单写在“分层与新包”（workspaces、monorepo-boundaries、COMPONENT_BARRELS、Lab 的 component-index 与夹具、根 README 包表与包数）；./locales 与文案的处理写在“去掉 nb-ui 依赖”（第一档只去掉对 nb-ui 文字端口的依赖、保留 ./locales；第二档默认英文、中文目录随 L2 适配器走、改 message-catalogs 与 i18n Spec）；Spec 成熟度只有 planned/implemented 的摩擦写在“公开入口”的稳定性标注（先写映射规则或先晋升）；layout-drag 的目标与非目标要重写写在“对 Spec 的预期改动”；NestedGrid README 重写、链接不用仓库相对路径写在“库里补的小东西”。
+设计 10（快照版本与 L2 绑定）：吸收，“L0 的快照格式与 L2 持久化绑在一起”：L0 快照格式破坏性变化必须同批给 LAYOUT_DOC_VERSION 写迁移，0.x 期间也一样；“版本”里引用。
+设计 11（placeGrid 不在公开入口）：吸收，写进“导出清单的去向”表，并说明显式清单基线用脚本从 L2 文件的实际导入里抽。
+设计 12（对照参照与验收映射）：对照部分吸收，写进备选 C（核实 dockview、splitpanes、reka-ui、allotment，凭记忆的说法标出）。验收映射部分：“第三方只用公开入口就能……”只靠一次拖分隔线的冒烟不够——吸收为冒烟扩成含拖卡片与键盘（第二档），第一档的验收放在控制器整理一步（e2e 与 Lab 场景不变）。
+
+== 拉远看 7 条 ==
+拉 1（发布准备没有第二个使用方校验）：按开发者决定 2 吸收，分两档；t14 只用 Splitter、校验不了 NestedGrid 与拖动，所以第二个使用方是 nb-story 的改造，不是 t14（写在“何时触发第二档”与目标）。其中“发布条件写成可验证”：第二档触发条件就是 nb-story 改造用到公开面。
+拉 2（备选 B 在发源码前提下被否、新包真理由没写）：按开发者决定 3 吸收：新包的两条硬理由；备选 B 拆成 B（发源码）与 B′（单包、发编译产物、白名单），逐条回应 B 的三条缺点与 B′ 给不了的两条；新包的代价（路径、登记、AGENTS.md 等）写进 B′；“纯 TS、Bun 里能测”已删，说明是 t04 的理由；Trellis 核对在 MIT 一节。
+拉 3（手感引擎）：按开发者决定 1 吸收，同设计 2。范围清单与行数估计：第一步只进卡片缩放与追赶、帧调度，不开放范围；进库的函数名与留 L2 的函数名在第二步做接口草案时给（写成第二步的要求）。
+拉 4（锁死的东西）：吸收三处：SDK 的 Splitter*/TabStrip（别名、弃用期）；错误码集合开放、宿主必须有默认分支、新增码不算破坏；CSS 变量只承诺主题级的一小批；GridSnapshot 承诺只从 1.0 起；MIT 不再从 AGPL 搬内容并写进包的 AGENTS.md。写在“版本”“错误与诊断”“CSS 变量迁移”“对插件 SDK 的影响”“MIT”。
+拉 5（外部库对比未核实）：吸收，备选 C 里补近邻（allotment、splitpanes、reka-ui）与真差异，要求第二档开工前核实；“更简单的做法”部分没有新的做法要采纳。
+拉 6（掉进实现细节、架构取舍缺位）：部分吸收。(a) 实现细节：45 处 rejected 的 8 个码名与 useDragSession/useGridHost 的参数清单——码名改成“按逐处分类再定”，useDragSession/useGridHost 的参数清单本来就只写了名字，保留名字与解决的接线，参数细节进 Task；(b) 缺位项：版本与发布的协调（第三条通道）、与 ADR 0053 的关系（变更记录位置）、读者场景（README 起步“五件事”）、回滚点（“影响—发布与回滚”）已写；“成本与顺序、各步工作量”不吸收——任务要求提案不写切片与推进顺序（README 规则：切片进 Work、推进进 Task），所以只写分档与触发条件，不排步骤也不估工作量。
+拉 7（YAGNI）：吸收：issues 事件只发新增、不加“最近 N 条查询接口”；开发模式报错只做具体几条（sashSize 为 0、没接 onGestureCommit、contextKey 对不上、revision 没转交），不做通用机制；./locales 与默认英文放第二档，中文目录随 L2 适配器走；稳定性标注先只标有使用方的符号，全量标注放第二档。
+
+== 实际体验 21 条 ==
+体验 1（README 不教起步）：吸收，第一档，“库里补的小东西”：README 写成“五件事”最小可运行例子加“我要做 X 用哪个导出”表，第一句写定位与“不是现成的标签停靠布局”，useGridLayout/useLayoutExtent/createDragSession 各补一份短 .md。
+体验 2（说明里的“输出 N”打不开）：吸收，同一节：说明里不引“输出 N”，规则写进包里；语言第一档仍中文，第二档随默认英文文案定。
+体验 3（硬依赖 nb-ui）：吸收，“去掉 nb-ui 依赖”：加一条用只有 vue 与 tabbable 的空项目类型检查公开入口、读进的 nb-ui 文件为 0 的机检（覆盖 import 这一路）。
+体验 4（CSS 变量没有总清单、过渡默认“没有”）：吸收，“CSS 变量迁移”：过渡默认要是“有”，README 变量表分“不定义也能看”与“想换外观才改”两栏的要求写进主题级一小批的承诺；“不引入 style.css 与不定义变量各自的后果”并入 README 起步。机检扫描 var(-- 在“去掉 nb-ui 依赖”。
+体验 5（收起展开没有入口）：吸收，第一档，“库里补的小东西”：库提供设置收起状态的入口，内部找兄弟吸收差额；形状在 Spec 里定（提案不定函数名）。
+体验 6（restoreSize 谁维护）：吸收，同一节：推荐谁收起谁记，写进 Spec。
+体验 7（快照不存约束、没有 clone）：快照存约束与 grid.clone() 属新能力，放“非目标”；README 写明 restore 可对 createGrid(null) 用、收起状态不进快照。
+体验 8（读取失败保留原件）：restoreOrKeep 放“非目标”；第一档只在 README 写推荐 load 流程与 dropped 非空算失败。
+体验 9（同向嵌套、16 层）：splitLeaf 并入父分支、normalize、拆固定叶丢 fixed 放“非目标”；README 写 16 层上限对拖拽拆分的实际影响。
+体验 10（窄窗口、issues 中文一次七条）：吸收，“错误与诊断”：每次布局都发的诊断合并成一条一个码；README 单列窄窗口。
+体验 11（手势接纳配四件、拖不动不报错）：吸收，useGridHost 一定要做并写明与 useGridLayout/useLayoutExtent 的关系、尺寸回灌顺序；开发模式报错覆盖 revision 没转交、contextKey 对不上、没接 onGestureCommit。写在“库里补的小东西”“错误与诊断”。
+体验 12（NestedGrid 不是泛型）：放“非目标”，等 nb-story 改造时看。
+体验 13（键盘只有下一块上一块）：方向焦点放“非目标”；README 键盘一节写清三点。
+体验 14（两种矩形与坐标）：第一步抽进库的部分包含卡片位置换算（“手感引擎分两步”）；GridRect 与 GridDropRect 互转放“非目标”，README 写明两种矩形与坐标。
+体验 15（引擎接口只有数字）：第二步要求先写接口草案并让审查者对一遍（“手感引擎分两步”进库时的写法）。第一步抽进库的只有纯部分，不需要这份草案。
+体验 16（引擎与内容层绑定）：写进“手感引擎分两步”：引擎要求宿主使用 NestedGrid 内容层并按预览出内容，nb-story 改造也校验这条；README 的“拖标签”一节从这里讲起放第二档。
+体验 17（导出去向表）：吸收，“分层与新包”里“导出清单的去向”家族表；逐个符号的清单由脚本从 L2 导入里抽，作为显式清单基线。
+体验 18（交互元素不起拖、data-drag-feedback）：README 写这两个约定；createDragSession 默认过滤与拖影放“非目标”。
+体验 19（落点指示版缺拖影与半区线）：放“非目标”（拖影）；半区与插入线的几何已在 L0，README 的“我要做 X 用哪个导出”表里写。落点指示手感算不算引擎的一部分：不算，引擎只指实时布局，写进“手感引擎分两步”的范围就是实时布局的纯部分。
+体验 20（约 440 行）：数字写进“非目标”，说清是选择的代价，缓解是 README 与第二档官方示例；官方示例作为第二宿主候选写进“手感引擎分两步”。数字用审查的明细：约 410 行核心加零碎约 30 行，合计约 440，手感引擎本身另算。
+体验 21（第三方视角的升级兼容）：API 报告对 .vue 的 props/emits/slots/expose 覆盖放进“已知的坑”（第二档）；稳定性标注第二档时先把体验审查用到的那批符号过一遍，写成第二档标注的输入。
+
+== 没有不吸收的意见 ==
+只有两处是“部分吸收”，理由已写：拉 6 的“成本与顺序、各步工作量”（任务与提案 README 规则不让写）；设计 4 的“取代”措辞（按任务保留“部分取代”，事实已改，头部一行可换成“补充”）。
+
+== 待修的两处（revise/nb-layout-general-library.md 里还没改上；该文件后来拒绝了 Edit，我没有绕过）==
+1) “问题”一节“样式靠 nb-ui”第二条：把
+   “scoped CSS 读约 45 个 CSS 变量，其中 18 个是 nb-ui 登记、`theme/system.md` 写成主题合同的角色变量，另有 motion 令牌；”
+   换成
+   “scoped CSS 读约 45 个 CSS 变量，其中十几个是 nb-ui 登记、`theme/system.md` 写成主题合同的角色变量（审查按 18 个算，`tokens.ts` 现登记 19 个，见“CSS 变量迁移”），另有 motion 令牌；”
+2) “CSS 变量迁移”一节“旧名到新名”下第一条：把
+   “**18 个是主题角色变量**，……”及其三个子条（末条以“（19 个里去掉重名后以 `tokens.ts` 为准，实施时逐个核）；”结尾）
+   换成
+   “**主题角色变量**，在 nb-ui 的 `src/theme/tokens.ts` 登记，`docs/specs/theme/system.md`（变量体系第 2 层）写成主题可改的合同，`nbook` 主题的 `vars.css` 与作者文档也有。审查数的是 18 个，`tokens.ts` 现登记 19 个，实施时逐个核：”
+   后接三个子条（sash-line 5 个；drop-area 2 个；layout-* 12 个，去掉末尾那句括号），再加一条：
+   “库的 Vue 层现在读到其中 13 个（`--layout-slot-*`、`--layout-merge-*` 是实时布局的，由应用的样式读，随控制器整理决定归哪一边）；另读 `--layout-sector-radius`，它没有登记，迁移时补登记或改成内部变量；”
+   事实依据：在 packages/nb-layout/src/vue 下 grep var(--sash-line|drop-area|layout-…) 得 14 个不同名字，其中 --layout-sector-radius 不在 tokens.ts。

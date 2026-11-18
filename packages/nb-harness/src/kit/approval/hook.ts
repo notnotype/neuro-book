@@ -38,6 +38,11 @@ export interface ApprovalHookOptions {
     readonly review: Reviewer;
     /** 要问人的调用交给它；缺省原样交回询问，由内核问用户。 */
     readonly escalate?: Escalate;
+    /**
+     * 这个工具的询问能不能记成“本会话都批准”“以后都允许”（permissions.md 输出 18、25）；缺省都能。执行任意代码的工具
+     * （eval）交回 false：没有可判定的对象，记下来等于以后的任何代码都不问。
+     */
+    readonly rememberable?: (tool: string) => boolean;
     readonly report: (code: string, message: string, params?: Record<string, unknown>) => void;
 }
 
@@ -110,7 +115,9 @@ export function createApprovalHook(options: ApprovalHookOptions): ApproveHook {
         } else {
             verdict = decided;
         }
-        if (verdict.verdict !== "ask" || !views.hasCommand) return verdict;
+        if (verdict.verdict !== "ask") return verdict;
+        if (options.rememberable?.(call.tool) === false) return {...verdict, remember: false};
+        if (!views.hasCommand) return verdict;
         return {...verdict, remember: rememberFor(call.tool, views) as unknown as JsonValue};
     };
 }

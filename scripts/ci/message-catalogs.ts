@@ -60,6 +60,7 @@ export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
     {path: "packages/neuro-book/src/plugins/markdown/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/models/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/agent/locales", source: "zh-CN"},
+    {path: "packages/neuro-book/src/plugins/stickers/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/plugins/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/tasks/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/projects/locales", source: "zh-CN"},

@@ -384,6 +384,8 @@ export interface ApprovalInfo {
     readonly remembered: readonly string[];
     /** “本会话都批准”记下的规则，原样（`scope: "rule"` 的 `approvalRemembered`）。 */
     readonly rememberedRules: readonly JsonValue[];
+    /** 这是一次嵌套调用（runtime.md 输出 92）：父调用的工具与 `invocation`，钩子据此在询问里写明来源。 */
+    readonly within?: {readonly tool: string; readonly invocation: string};
 }
 export interface ApprovalCtx {
     readonly signal: AbortSignal;

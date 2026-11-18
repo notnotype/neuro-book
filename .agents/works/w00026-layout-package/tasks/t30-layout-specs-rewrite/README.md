@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t30-layout-specs-rewrite
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -51,6 +51,41 @@ updated: 2026-11-18
   - 草稿列的“只在 `NestedGrid.md` 里的行为句子”（`evidences/nested-grid-notes.txt` 第 5 节）不升进 Spec：不加输出条目；以后晋升时再看。
 - 第 2 片包文档：`NestedGrid.md` 换成草稿（压掉与 Spec 重复的行为正文，链接编号）；`grid.md`、`Splitter.md`、`DropFeedbackOverlay.md` 按补丁补几处。两个比例的边界在 `grid-drop.ts` 里核过（插入位大于 0.5 不合法、边缘不小于 0.5 不合法，缺省 0.2）。代码注释与测试名里指向某一条子规则的引用改编号，交给 Claude Sonnet 按编号表机械迁移。
 
+- 第 2 片 `ae607f38c`、第 3 片 nested-grid `e09869392`，2026-11-18 合入（`b7f57492c`）。代码注释与测试名的引用迁移：Claude Sonnet 按编号表改了约 40 处，主会话审 diff，只动引用那几个字；抽查 15 个编号都对上新 Spec；改掉两处多出的空格。`layout-project.ts:125` 写的是属性名、不是引用，不改。nb-layout `bun test` 593、vitest 258、两个包的类型检查都过。
+- 第 4 片第一步 `b4ffc7435`：
+  - 引用 nested-grid 的地方改成编号，输出 44 改写；
+  - 删掉过时的前言，非目标去掉标记；
+  - 实现合同只写包入口，补“当前容器只在提交时变”“切换容器不改尺寸意图”两条有测试的不变量，骨架那条补上 `predatesContainers`；
+  - Smoke 末行只写四个入口，证据补齐，删掉“。；”；
+  - `PanelRecord` 示例的 `collapsed` 注明同名不同义；
+  - `docs/specs/README.md` 写明标记的范围，以及去掉标记的判据。
+- 输出 44 的“移到”菜单项另建 [t32](../t32-entry-menu-move-to/README.md)，待确认清单同日一行。
+- omp 逐句核对（[`evidences/promotion.txt`](evidences/promotion.txt)，只读，没跑测试）：workbench-layout 149 处，去掉 100、留 39、没做 5、改写 5；盘点判 A 的 141 处里 40 处降为留或没做，大多是整条标题上的标记，那一条里有几句缺能区分的断言。
+  - “没做”的 5 处：两处是“锚不进呈现树”的全称说法（原句在空区域时不成立），另外是输出 22、44、47 里各有一句没做或缺断言。
+  - 落标记交给 Claude Sonnet 出草稿：去掉的删，整条标题上留的挪到缺断言的那几句，锚的两句按新测试改写后去掉，F6 与 Tab 停靠按第 1 片的新测试去掉。主会话审标记的 diff 后提交。
+
+- 第 4 片落标记 `10637398b`：Claude Sonnet 出草稿，主会话审过。去掉标记之后两份对比，除标记外只改了该改的四处：锚的两句、已删的输出 29 那句、第 146 行；第 146 行留下的历程括号“（开发者 2026-11-16 定）”删掉。剩 68 处句子级标记（30 行），每处缺什么见 [`evidences/promotion-changes.txt`](evidences/promotion-changes.txt) 末尾。`docs:check` 通过；`governance:check` 的失败都在别的包的测试里（nb-host、plugin-platform 等），不是本 Task 的文件。
+- 2026-11-18 完成。实现审查（omp，默认模型）在后台：detached worktree `.worktree/review-t30-impl` 固定在 `10637398b`，报告在 `reports/impl/findings.txt`。分支 `docs/w00026-t30-specs` 与它的 worktree 留到审查处理完。
+
+- 实现审查（omp，2026-11-18，[`evidences/impl-review.txt`](evidences/impl-review.txt)）：12 条，重要 9、建议 3。抽查 51 处去掉的标记、拆条、编号与实现合同。逐条处理：
+
+  | 条 | 内容 | 处理 |
+  |---|---|---|
+  | 1 | F6 用例没锁住底部入口条的先后 | 部分成立：底部缺省那一节是空列表、没有可聚焦的东西，F6 本来就跳过它，断不了；先后由投影的树序（`layout-project.test.ts`）加 F6 按树序走两条测试合起来证明。用例补 Shift+F6 反向与两条入口条都是一站 |
+  | 2 | Tab 停靠只测了右栏，底部文字入口与读屏按钮组没断言 | 成立：底部文字入口那半句补回标记 |
+  | 3 | 键盘拖动的落点循环没断言两条入口条 | 成立：补回标记 |
+  | 4 | 输出 6 多节时的高度约束没有断言 | 成立：补回标记 |
+  | 5 | 输出 46 写“大小都带着”，实际跨轴平分（测试断言 1:1:1） | 成立，Spec 错：输出 46 写明搬法（侧栏、右栏之间保留比例，进出底部面板平分，进底部面板展开），44、45、48 引它 |
+  | 6 | 输出 48 引着没做的“移到” | 成立：改引输出 46 |
+  | 7 | `resolveGridInsertion` 写成一个插入位一条线 | 成立（起草时写错）：改正，唯一一条线归 `resolveListInsertion` |
+  | 8 | 包文档把 `gesture-end`、落账、成功通知混在一起 | 成立：分开写，`onApplied` 的异常经 `onIssues` |
+  | 9 | `splitLeaf` 入参形状没接过去，零意图的说法不准 | 成立：改 |
+  | 10 | 结构操作与快照恢复的深度差一层 | 成立，分支之前就有：`grid.md` 写明实际边界，Work README 记已知问题 |
+  | 11 | `predatesContainers`、键盘步长两处引用指错 | 成立：改 |
+  | 12 | 旧组名对不上、实现合同引错失败项 | 成立：组名说明补旧名对照，改引“时序与寿命” |
+
+  包文档与测试的修正 `0ec24d5e7`，合入 `2d670cae0`；Spec 的修正在主工作区提交。
+
 ## 下一步
 
-引用迁移回来后审 diff、跑类型检查与单元测试，worktree 合入 master，紧接着提交新的 nested-grid；再按 omp 的逐句结论补第 1 片其余测试、做第 4 片（workbench-layout）。
+无。分支 `docs/w00026-t30-specs` 与它的 worktree、审查 worktree 删掉。

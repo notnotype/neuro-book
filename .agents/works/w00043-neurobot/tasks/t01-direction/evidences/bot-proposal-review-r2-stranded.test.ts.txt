@@ -1,0 +1,59 @@
+// 第二轮复现：第六稿只补了“只压缩的运行之后取 followup”与“error 收口由注入方 start”，
+// 这里看另外两条收口路径上缓冲区里的话会不会留下：
+// 1) 运行以收尾工具 finished 结束（带 result 的会话，例如子会话、任务会话）时，运行中进来的 followup；
+// 2) 只压缩的运行中进来的 steer（bot 视图里用户运行中发的话是 steer；条目也能改成 steer）。
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+const {defineProfile} = await import(`${K}/extension/profile.ts`);
+
+let n = 0;
+const id = () => `c-${++n}`;
+
+test("finished 收口后缓冲区里的 followup", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    const slow = {id: "slow", execute: async () => { entered(); await gate; return "ok"; }};
+    const answer = {id: "lab.answer", finish: true, parameters: {type: "object", properties: {answer: {type: "string"}}, required: ["answer"]}, execute: () => "收到"};
+    await using s = await createTestSession({tools: [slow, answer]});
+    s.model.script({tools: [{tool: "slow"}]}, {tools: [{tool: "lab.answer", args: {answer: "完成"}}]});
+    const sent = await s.raw.send({commandId: id(), input: {text: "任务"}});
+    if (!sent.ok) throw new Error("send failed");
+    await inside;
+    const host = await s.raw.send({commandId: id(), input: {text: "[日程] 每周简报"}});
+    console.log("send while running:", JSON.stringify(host.ok ? host.value : host));
+    release();
+    const result = await s.raw.waitRun(sent.value.runId!);
+    console.log("run reason:", result.reason);
+    const snap = await s.raw.snapshot();
+    console.log("buffer after finished:", JSON.stringify(snap.buffer?.map((b: any) => ({mode: b.mode, text: b.input?.text}))));
+    console.log("run state:", JSON.stringify(snap.run ?? snap.status));
+});
+
+test("只压缩的运行中进来的 steer", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    const slow = async (job: any) => {
+        entered();
+        await gate;
+        const cut = job.cuts.filter((c: any) => c.kind === "turn").at(-1);
+        return {method: "slow", firstKeptEntryId: cut?.entryId ?? null, replacement: "摘要", omitted: [], tokensBefore: 10, tokensAfter: 5};
+    };
+    const profile = defineProfile({id: "lab.c", version: "1", name: "c", description: "c", system: "s", compaction: {onThreshold: ["slow"]}});
+    await using s = await createTestSession({profile, compaction: {methods: {slow}}});
+    s.model.script("答一", "答二");
+    await s.say("第一问");
+    const c = await s.raw.compact({commandId: id()});
+    await inside;
+    const steer = await s.raw.send({commandId: id(), input: {text: "用户插话"}, mode: "steer"});
+    console.log("steer during compact-only run:", JSON.stringify(steer.ok ? steer.value : steer));
+    release();
+    if (c.ok && c.value.runId) console.log("compact run:", (await s.raw.waitRun(c.value.runId)).reason);
+    const snap = await s.raw.snapshot();
+    console.log("buffer after compact run:", JSON.stringify(snap.buffer?.map((b: any) => ({mode: b.mode, text: b.input?.text}))));
+    console.log("run state:", JSON.stringify(snap.run ?? snap.status));
+});

@@ -22,9 +22,11 @@ describe("清单", () => {
         if (!parsed.ok || parsed.stickers === null) throw new Error("清单应当有效且有列表");
         expect(parsed.stickers.items).toEqual([
             {ok: true, sticker: {name: "开心", file: "开心.PNG", description: "被夸的时候", common: false}},
-            {ok: false, label: "第 2 项", reason: expect.stringMatching(/^文件名 1 当不了表情名（/u)},
-            {ok: false, label: "第 3 项", reason: "名字 开心 与前面的表情重名"},
+            {ok: false, label: "第 2 项", reason: expect.stringMatching(/^文件名 1 当不了表情名（/u), named: {file: "1.png", raw: null}},
+            {ok: false, label: "第 3 项", reason: "名字 开心 与前面的表情重名", named: {file: "a.png", raw: "开心"}},
         ]);
+        // 清单各项写了的文件（含不合规的项），有表情列表时用来找没列的图。
+        expect([...parsed.stickers.referenced].sort()).toEqual(["1.png", "a.png", "开心.PNG"]);
     });
 });
 

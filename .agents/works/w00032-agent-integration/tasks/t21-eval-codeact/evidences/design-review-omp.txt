@@ -1,0 +1,170 @@
+### 1. 嵌套调用的返回类型装不下内核结局
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:36、38、41、49–50`（内核通道、协议、Proxy）；`packages/nb-harness/src/kernel/api/tool.ts:46–71`；`packages/nb-harness/src/kernel/run/tools.ts:350–370、419–423`。
+- **现象**：`invoke` 承诺交回 `ToolResult`，但这个类型是工具实现交给内核的值，`status` 只有 `ok/error/denied`，还可以省略。内核结算时才派生出 `blocked`（拦截不调用 `next` 且拒绝）和 `unknown`（已开始、宽限期后仍没结果）。计划的 Proxy 明列会抛的三个状态，也没有覆盖 `unknown`。
+- **为什么是问题**：照计划实现要么在 TypeBox/TS 层丢掉结局，要么强转后让「不知道有没有写」落入普通返回分支；模型会把它当成功或安全失败，在同一单元里重复写。
+- **如何核实**：对照 `api/tool.ts` 的 `ToolStatus` 与 `ToolResult["status"]`，再读 `run/tools.ts` 的 `status = "blocked"` 与宽限期结算；这两者不是类型别名。
+- **建议改法**：定义明确、必填判别值的嵌套结算类型（成功/已知失败/结果未知），让 `invoke`、IPC reply、Proxy 与事件各用正确的一层。若中止或超时后不会给已死单元回包，也要明确哪些结局只写日志，不能当成功解包。以真实拦截拒绝和不响应取消的工具测试。
+
+### 2. 父调用返回和单元超时不结束已接收的嵌套调用
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：`plan.md:40–41、49–52、96–101`；`packages/nb-harness/src/kernel/run/tools.ts:195–205、378–436`、`run/control.ts:136–145`、`run/interaction.ts:52–88`；omp 调研:25–26。
+- **现象**：`parent-finished` 只拒绝后来进入的 `invoke`；计划允许并发，但没有规定父 `done` 到来时怎样收已接收的调用。用的是运行的 `signal`；30 秒单元超时只杀 Bun，并不触发 `RunControl.abort`。若单元发起工具调用后先返回，或在嵌套工具执行时超时，宿主侧已经收到的调用仍能执行、提交结果或等用户。
+- **为什么是问题**：父工具可报完、下一段工具甚至下一次模型请求已开始，挂起的嵌套写仍能落盘；若调用正等用户，会出现父结果已经交付却仍有待批。现有 2 秒宽限期只围住回复里每个顶层 `runCall`，不会自动为脱离它的嵌套调用逐个结算。
+- **如何核实**：读 `run/tools.ts` 宽限期 `segment` 和 `askFor` 的信号。参照实现特意在单元结束后等在途桥接调用并处理漏 `await`，并非 IPC 隐含保证。验收用真实子进程先发调用再返回，宿主测试工具以可观察栅栏挂起；另测单元超时与运行中止各一次。
+- **建议改法**：每次 eval 建子作用域，入队时登记、结束时关入口并清收队列；正常结束先排空或明确定义取消，单元超时/中止同时取消宿主子作用域和内核。宽限期内就绪的按实结算，未开始 `denied`，已开始未完成 `unknown`，迟到只诊断；结算完再交父结果，不把停止 eval 扩成无意停止整轮。
+
+### 3. 嵌套入口的禁止项会在拦截改派后失效
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`plan.md:36–40`（只嵌套一层、排除自己和收尾工具）；`packages/nb-harness/src/kernel/run/tools.ts:231–250、299–337、397–400`；`docs/specs/harness/runtime.md:17、26、79`（输出编号）。
+- **现象**：现有 `runCall` 支持拦截层改派工具。复用的 `judge(final)` 会重验最终工具的存在、参数、只读和审批，却不重验收尾工具、调用来源或排他调度；这些原本在进链前由顶层批处理。照计划只在 `invoke` 入口判拒绝，`shared` 子调用可以被改派为 `exclusive`、`finish` 或 eval 本身。
+- **为什么是问题**：无 `ctx.invoke` 只切断下一层调用，不阻止同一个 eval 实现在正等子调用时被重入；收尾工具也会被执行却不收尾。改派到排他工具则会在兄弟调用仍在途时执行。反过来，顶层改派也不能绕过 `exposure: "code"`。
+- **如何核实**：`run/tools.ts:316–337` 已按 `final.tool` 建实现和执行；同文件的工具拦截测试（556 行起）可用真实内核扩成改派场景，由另一个在途工具同步见证是否重叠。
+- **建议改法**：复用终端时将调用来源、排他槽、父工具身份作为不可由拦截改写的元数据；对最终目标再验可见性和嵌套禁项。禁止超出已分配调度槽的改派，或在明确的统一调度点重新获准后才写 `toolStarted`。
+
+### 4. 恢复只认识回复里的调用，关掉审批也不会补嵌套结果
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`plan.md:38–41、86、101`；`packages/nb-harness/src/kernel/run/recover.ts:12–50`、`kernel/run/loop.ts:119–133、333–354`、`kernel/state/kernel-state.ts:47–50、72–77`；`docs/specs/harness/runtime.md` 输出 25、34、43、53、87。
+- **现象**：现有恢复从最后一个 `assistant.toolCalls` 找未结算项，再用 `toolStarted.callId` 判有没有启动，不是扫描所有开始记录；嵌套调用不在这个列表里。只补计划写的「有 start、没 result → unknown」仍漏掉另一类可观察事实：服务在嵌套审批待答、甚至已批准但尚未写 start 时停止，`interactionResolved` 和结果会分开缺失。`runEnded` 也不会清待答。
+- **为什么是问题**：相同的中断在顶层会结算成确定没执行，嵌套却留下无结局的审批或执行记录；若正常中止路径不收子调用就写 `runEnded`，重开时连恢复分支都不会走（`state.run === null`）。
+- **如何核实**：从 `openSession`（`kernel/session/session.ts:538–540`）追到 `unansweredCalls` 和 `recoveryDrafts` 的两个集合；现有测试 `kernel/session/host.test.ts:188–190` 只断言顶层。新增 JSONL 合同场景，分别在子审批待答、批准未 start、已 start、子结果已落盘四个边界中断，重开后每个公开过的子调用恰有一次结算。
+- **建议改法**：给在接收时就分配、与父 invocation 关联的子调用身份；恢复用该身份对账审批、开始、结果，已知没开始与已开始分别结算，不生成模型 `toolResult`。运行内和重开使用同一套结算规则；把欠的结果和同步事项结算放入收尾批，保留 `extensionFailed`/迟到诊断的语义。
+
+### 5. 裸名新事件会让旧版本把整份会话判成损坏
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`plan.md:38–39、74–78、85–86`；`packages/nb-harness/src/kernel/log/validate.ts:98–100、112–116、148–160`、`kernel/api/kernel-events.ts:33–37`；`docs/specs/harness/session.md:123–130、177–181`。
+- **现象**：`nestedToolResult` 不是可由旧读方跳过的扩展事件；当前 `format: 1` 读方对不在 `kernelEventSpecs` 的裸名立即报 `unknown kernel event`，继而返回 `log-corrupt`。把它标成 `version: 2` 也无用，校验只检查记录的 `version` 是数字。添加可选 `toolStarted.within` 则不会触发这个错误。
+- **为什么是问题**：升级后只要写过一条嵌套结果，旧安装版/旧 npm 消费方就打不开整个会话（连同回退到事件以前的分支）；诊断把不支持的格式说成损坏。计划、Spec 改动和测试均未定降级行为。
+- **如何核实**：对照 `validate.ts` 的未知格式、未知裸名、带 `/` 扩展事件三个分支；用新版真运行写出该记录，再让旧版 `openSession` 打开同一日志副本，另外测试旧日志正向重开和 fork。
+- **建议改法**：先规定降级边界。若保留新内核事件，定下旧读方的明确不支持行为和发布顺序（需要时为写新类型的会话使用有迁移语义的格式门槛）；若要求旧版仍能读，不能仅增加裸名，需用旧读方已接受、且不误投影旧对话的持久表示。当前 NeuroBook 用 `nb-harness/kernel` 的 JSONL（`backend/agent.ts:189`），不是 `nb-session` 旧格式，不要在后者补一个无效迁移。
+
+### 6. 用父 callId 加后缀造子 ID，会和顶层调用撞键
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:36–41`；`packages/nb-harness/src/kernel/api/tool.ts:36–43、84–88`、`kernel/model/omp.ts:235–237`、`kernel/run/tools.ts:220–235、275–286、332–334`、`kernel/session/session.ts:222–234`；`packages/nb-agent-ui/src/kernel-transcript.ts:382–405、722–725`。
+- **现象**：服务商的 ID 只有「同一回复内互不重复」合同，适配器照抄，没有保留 `~` 命名空间。父调用 ID 为 `c`、同批另一个顶层调用 ID 为 `c~1`，两者符合合同。第一个嵌套调用也会是 `c~1`。不同回复还能重复 `c`，子调用会再次得到相同 ID。
+- **为什么是问题**：复用现有 `started` 或 `judged` 的 `callId` 键会污染另一调用的开始或批准记录。现有恢复扫描会把子 start 算给顶层，出站过滤的参数查询和对话适配器会把子参数、invocation 贴到兄弟卡上。分开内存 Map 也解决不了日志读方的跨回复关联。
+- **如何核实**：按所列调用链核对 ID 入站和以 `callId` 为键的读方。用真实 `createSession` 注入带上述合法 ID 的 `ModelPort`，同批排两个调用。让后一个在开始前终止，断言它没有借用子 start，且子结果、待批只匹配自己的父 invocation。
+- **建议改法**：`callId` 留给服务商的回复协议。内部与持久化关联用内核生成的 invocation 或带作用域的复合身份。展示用后缀不得作为批准、恢复、过滤和历史关联的键。
+
+### 7. 十次嵌套 write 会产生十个组，写入来源也没有 invocation
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:38、78、99`（内核、资源 Spec 与验收）；`packages/neuro-book/src/plugins/agent/backend/resources.ts:71–81`；`packages/neuro-book/src/plugins/files/backend/workspace-files.ts:112–116、365`；`packages/nb-harness/src/kit/files/index.ts:66`、`kit/tools/write.ts:37–41`；`docs/specs/agent/resources.md:70`。
+- **现象**：`call(ctx)` 只收 `callId` 与 `signal`，写入的 `source.entry` 是 `callId`。每调用一次 `resources.call` 都有独立的惰性分组闭包，底层 `files.group` 用 `randomUUID` 造组。一次 eval 中 10 次成功 `write` 会造 10 个组，即使传同一个 `callId` 也一样。
+- **为什么是问题**：按组展示或撤销的消费者得到十个操作组，达不到验收要求。服务商 `callId` 跨回复不唯一，不能用现有 `source.entry` 指回唯一一次运行；若为共组而把子来源都换成父身份，又丢了验收要求的每次写的实际来源。这个缺口不在会话回退，回退本来也不会撤销文件。
+- **如何核实**：`plugins/agent/resources.test.ts:253–297` 已用真实 Files 订阅断言一次门面内同组、两次门面分组不同。把场景接到真实 eval，取 10 条文件变更的 `source` 与 `group.id`，核对每一条能关联子条目，且组 id 相同。
+- **建议改法**：分开「这笔是谁写的」和「按哪一组撤销」。明确来源用子身份（兼容已有 `entry`），父调用持有一个可信操作组并传给资源层，让每个子门面用各自的来源、信号和同一个组。一般工具仍按一次调用自动成组。Spec 同步注明分组只供撤销和记账，不承诺事务回滚。
+
+### 8. 压缩会漏掉经 eval 读写的最近文件
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:38–39、74–78、99`；`packages/nb-harness/src/kit/compaction/restore.ts:38–61、98–111`；`packages/nb-harness/src/kernel/state/history.ts:65–77`；`packages/nb-harness/src/kernel/view/format.ts:145–151`。
+- **现象**：最近文件放回直接遍历原始路径。它按 `callId` 把 `toolStarted` 和 `toolResult` 配对，从成功 read/write 的参数找地址，从 edit 的 `details.files` 找已写成的文件。照计划只增加 `nestedToolResult`，这三类嵌套调用都收不到。父结果的工具 id 是 eval，补进父文本也不触发放回。
+- **为什么是问题**：计划的主要用法是批量读、编辑章节。把相同的已成功调用搬入 eval 后，一次有摘要的压缩会丢掉原本会放回的最近文件及可用行锚。组请求已经由 `history.ts` 单独只收顶层结果，放回读方可以获得子结果而不增加模型工具消息。
+- **如何核实**：读 `recentFiles` 那两个类型分支与 `CompactionRestore.run` 的消费点。用真实 eval 读、写、部分成功的 edit，经过真正的压缩方法与 restore 后，检查放回地址以及模型请求没有子工具消息。
+- **建议改法**：为压缩放回显式接入子开始和子结果，按 invocation 配对，保持成功与部分成功的现有规则。同步盘点离开标准对话投影、直接消费原始日志的读方。
+
+### 9. 杀掉内核不等于停止它启动的进程
+
+- **严重程度** 重要。**类别** 不变量。
+- **位置** `plan.md:24、48、52–53、97、101、116`；`packages/owned-process/src/index.ts:15–27`、`src/types.ts:22–51`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:420–436`。
+- **现象** 计划只对内核 PID 发 SIGKILL。普通子进程在内核被杀后仍可继续。正常关服务会关会话并触发工具释放，但进程被异常终止时不会走 `dispose`，计划也未规定断开后的收口。
+- **为什么是问题** 用户停止、超时或主动重置后，单元启动的命令仍可能占资源或继续修改文件。下一次调用已拿到新内核时，旧命令仍可能与它并行。
+- **如何核实** `bun --no-install --no-env-file /tmp/claude-1000/review-t21-design/lab/kernel-process.ts`。Linux、Bun 1.4.4 实测内核退出码为 137，收到的普通 `sleep` 子进程仍在运行，探针随后清理了它。探针验证的是计划指定的原生进程行为。异常宿主退出与 Windows 未验证。
+- **建议改法** 明确普通后代归内核一并收口，等待终态后再发布重置。仓库已有 `owned-process` 封装进程组、Job Object 和宿主断开监督，可评估复用。它当前只给目标 stdio，无法原样接入所提 Bun IPC；需要在协议决定时一起选通信方式。用真实进程覆盖超时、停止和宿主断开。不把进程所有权描述为沙箱。
+
+### 10. 单独修改应用包构建会漏掉日常服务端产物的内核入口
+
+- **严重程度** 重要。**类别** 正确性。
+- **位置** `plan.md:48、87、108`；`packages/neuro-book/package.json:20–29`、`scripts/pack-app.ts:19–22、125–128、243–246`、`src/cli/cli.test.ts:37–41`、`src/server/start.ts:117–119`、`src/server/projects/manager.ts:523–527`。
+- **现象** `pack-app.ts`、`build:server`、命令行测试各自列服务端入口。按计划只在第一处加 `kernel-entry`，解包验收可过，但 `bun run build && bun run start` 用的 `dist/server` 没有这个文件。`Bun.spawn` 接收的路径字符串也不自动成为构建入口。
+- **为什么是问题** 用户会在服务和会话已成功启动后，第一次调 eval 才遇到入口缺失。同一份定位代码还得兼顾源码与打包文件，并在工具更换工作目录后仍能找到入口。项目宿主已经处理过升级时磁盘子入口换代的情形，延迟启动的 eval 也要说清协议版本不一致时的行为。
+- **如何核实** 对照三处入口清单和 `start` 脚本。验收应从应用 tarball 和常规 `dist/server` 各启动一次，在另一个临时目录对应的会话里执行一条实际 eval 并核对输出。`--version`、压缩包里有文件、从源码目录直接启动都不足以验证定位。
+- **建议改法** 在切片 3 明确入口文件名、源码和打包定位以及构建清单的所有读方。沿用 `productProjectEntry` 的绝对路径策略。给 IPC 加启动握手，在版本不符和入口不可用时交回有原因的工具失败。
+
+### 11. 同一条回复的第二个 eval 会误判内核需要重置
+
+- **严重程度** 重要。**类别** 正确性。
+- **位置** `plan.md:47、54、96`；`packages/nb-harness/src/kernel/api/tool.ts:93–97`、`run/tools.ts:208–215、332–337、397–436`、`run/loop.ts:333–354`。
+- **现象** `exclusive` 让两个 eval 依次执行，但整批共享一份 `ctx.read` 快照，所有顶层 `toolResult` 在批末才提交。假设路径和进程上一单元都是 P。同一回复内第一个 eval 执行 A 后，活进程最后单元变成 A。第二个 eval 读到的路径标记仍是 P。
+- **为什么是问题** 按计划的比较条件，第二次会杀掉健康进程，丢掉 A 留下的变量并显示错误的重置提示。把 `ctx.read` 改成动态取值也不够，A 的结果尚未提交，并且修改通用快照会破坏既有工具合同。
+- **如何核实** `bun --no-install --no-env-file /tmp/claude-1000/review-t21-design/lab/batch-reader.ts` 使用真实 `nb-harness` 和脚本模型。观测到两个 `toolStarted` 先于两个 `toolResult`，B 读到的路径标记为 `null`、活标记为 A。下一批 C 两个标记都为 B。主工作区中探针所用内核源码与被审提交一致。
+- **建议改法** 在进入这条回复的第一项 eval 时核对路径，之后在同批按内存中的已执行单元向前推进。以可信的回复身份标识批次，或给单元边界提供独立的已提交事件。验收用一条模型回复发两个 eval，第二个实际读取第一个留下的变量。
+
+### 12. 按计划的嵌套准入条件，主创可以从 eval 派子代理
+
+- **严重程度** 重要。**类别** 正确性。
+- **位置** `plan.md:9、36–40、115、122`。`packages/neuro-book/src/plugins/agent/backend/builtin/profiles/main.ts:17–26`、`shared/profile-tools.ts:28–35`、`backend/subagents/tools.ts:52–73、116–119、338–365`。
+- **现象** 开发者把代码中派子代理留到下一批。计划只拒绝不在生效工具集、收尾和调用自身。主创缺省绑定 `agent_spawn`，它是普通的 `shared`、`read` 工具。照字面接线，`tool.agent_spawn` 会到达真正创建和启动子会话的实现。`agent_send` 和 `agent_answer` 也会启动或推进现有子会话。
+- **为什么是问题** 缺一个首版能力限制。子代理任务的寿命、父身份、提问和后台转移都会进入 eval 的合同，却不在验收里。执行档审批约束整段代码，批准后桥接准入仍须兑现产品范围。
+- **如何核实** 对照主创可选清单与 `profileToolIds` 的缺省合并规则，再沿 `spawn` 到 `deps.service.create`、`view.send`。验收应从正常主创会话试调子代理工具，断言桥回拒绝，且会话树、任务表和模型请求都无新增。
+- **建议改法** 把能否经代码调用作为小的白名单或显式声明，并在拦截后的最终目标处再验。首版排除子代理调用，保留顶层工具不变。一并写清 `shell` 和 `ask` 的异步参数是保留原有独立寿命，还是在嵌套调用中禁用。
+
+### 13. eval 的缺省会话记忆会批准之后完全不同的代码
+
+- **严重程度** 重要。**类别** 安全与性能。
+- **位置** `plan.md:11、47、55、98`，`docs/specs/agent/permissions.md:99、103–105`，`packages/nb-harness/src/kit/approval/hook.ts:70–85、102–114、202–226`，`kernel/run/interaction.ts:113–128`。
+- **现象** eval 声明为执行档，没有命令判定对象，也没有指定 `remember`。审批钩子会保留缺省值；用户选择“本会话都批准”时，内核把这次同意记成整个工具的放行。下一次代码换成任意其他内容，只要没有拒绝规则或模式闸门，`ask` 与 `auto` 也会走会话放行。现有 `shell` 刻意禁止记住过宽的解释器前缀。
+- **为什么是问题** 用户以为批准范围跟预览里的代码相关，存下的范围实为整个任意代码执行能力。只验证嵌套 `write` 被询问，抓不到父调用的这一差异。
+- **如何核实** `kernel/run/interaction.test.ts` 已覆盖缺省记忆按整个工具生效。补一条真实审批：代码 A 等批时直接送 `allow-session` 应返回 `invalid-answer`，单次批准 A 后，代码 B 仍进入审批。无需执行带副作用的代码。
+- **建议改法** 给父 eval 的人审请求显式设 `remember: false`，服务端同时拒绝直接提交 `allow-session`；规则明确放行或 `yolo` 的既有行为照旧。自动审批读取的是请求参数中的 `code`，与人工预览分开验，且保留超过 16,000 字符的序列化判定对象转人工的既有上限。
+
+### 14. 从请求藏起 `code` 工具不会限制顶层执行
+
+- **严重程度** 重要。**类别** 正确性。
+- **位置** `plan.md:36–38、59、102`，`packages/nb-harness/src/kernel/run/loop.ts:210–223、247–258、333–345`，`run/tools.ts:208–215、231–244、308–321`，`model/omp.ts:223–237`。
+- **现象** 内核取一次生效工具集，同时交给请求构造和 `runTools`。后者用声明 id 建表，只按表里有没有这个 id 判定能否执行。模型适配器收到未映射的名字时也会保留它。若仅在请求构造处排除 `exposure: "code"`，绑定了该工具的会话仍会受理以该 id 为目标的顶层调用。
+- **为什么是问题** 请求清单只是模型拿到的说明，执行端没有兑现“只能经 invoke”。现有验收只检查绑定有无，无法区分顶层和代码桥两条入口。
+- **如何核实** 对照上述两份入参。用真实内核、脚本模型和一个无副作用的 `code` 工具，断言普通回复不能触发其实现，同一 Profile 经合法的 `invoke` 能调用。
+- **建议改法** 根据调用来源，在内核准入处约束工具曝光；顶层校验与重新派发都用可直调集合，嵌套路径仍按生效工具集验目标。把拒绝码纳入验收，不能只断言模型请求里找不到该声明。
+
+### 15. Bun 内核与 shell 的环境继承和 .env 加载行为不同
+
+- **严重程度**：重要。**类别**：正确性。
+- **位置**：`plan.md:48`，`docs/specs/agent/builtin-tools.md:90–92`，`packages/nb-harness/src/kit/tools/shell.ts:212–234`，`packages/neuro-book/src/plugins/agent/backend/resources.ts:162–168`。
+- **现象**：`shell` 只给原生 `executeShell` 传布局变量，由执行器在服务端环境上叠加。Bun 的 `spawn` 传入同样的 `env` 会替换继承的环境。Bun 进程缺省还会加载实际工作目录下的 `.env`。
+- **为什么是问题**：直接复用 shell 的 `env` 参数会丢失服务端环境，并额外引入项目环境文件的值。计划要求两种调用使用相同的环境，当前验收没有比较它们。
+- **如何核实**：Linux、Bun 1.4.4、`@oh-my-pi/pi-natives` 18.14.0 实测。宿主给 `NBOOK_REVIEW_SENTINEL=present`，实验工作目录的 `.env` 给 `NBOOK_REVIEW_DOTENV=local-fixture`，两边参数都传 `{NBOOK_SESSION: "review"}`。按这三个变量的顺序，原生 shell 得 `["present", null, "review"]`，Bun 内核得 `[null, "local-fixture", "review"]`，Bun 加 `--no-env-file` 后得 `[null, null, "review"]`。
+- **建议改法**：共用工作目录和布局变量的解析。启动内核时显式叠加继承环境并禁用 Bun 自动加载环境文件。用隔离的临时项目和无项目会话对照两个工具的实际目录与哨兵值。
+
+### 16. 路径最后一个单元相同，实际回退后仍会保留旧变量
+
+- **严重程度**：重要。**类别**：正确性。
+- **位置** `plan.md:10、54、100`，Task 决定 2。`packages/nb-harness/src/kernel/run/tree.ts:25–48、56–65、82–89`，`kernel/dispatch/core.ts:176–178、228–230`。
+- **现象** 在一轮里执行单元 A，下一轮只聊天，再回退到第一轮末尾。叶子确实变了，两条路径的最后单元仍都是 A，活内核也是 A。切换两条共用 A、之后都未跑 eval 的分支也会得到同样的比较结果。
+- **为什么是问题** 计划只比较最后单元，漏掉决策要求重置的回退。现有验收只测回退跨过 eval 的情况。此外，回退到第一次 eval 之前且实际杀掉旧内核时，所选路径没有单元，不能用“路径上曾跑过”作为是否显示提示的唯一条件。
+- **如何核实** 在主工作区运行 `bun --no-install --no-env-file /tmp/claude-1000/review-t21-design/lab/rewind-marker.ts`。真实内核受理 `rewind`，下一次工具读到 `{ "leafMoved":true, "targetReached":true, "path":"A", "live":"A" }`。探针复用了被审提交的内核源码；活标记由夹具模拟。
+- **建议改法** 在会话受理实际移动叶子时让宿主失效这一代内核，记下下次结果须显示的原因。路径标记仍可用来辨认重开、分叉时丢失的状态。验收分别覆盖跨过 eval 和没有跨过 eval 的回退，断言变量恢复为空且提示出现。
+
+### 17. 仅把声明改成 `var` 会丢掉严格模式的变量
+
+- **严重程度** 重要。**类别** 正确性。
+- **位置** `plan.md:24–26、50、96`，omp `eval/js/shared/rewrite-imports.ts:983–1001、1113–1143、1184–1202`。
+- **现象** 单元带 `"use strict"` 时，间接 `eval` 的 `var` 和函数声明也留在该次求值的作用域里。把 `let`、`const` 或 `class` 改成 `var` 不会发布绑定。计划还只明确在有顶层 `await` 时加包装，单独的 `for await` 和顶层 `return` 需要各自识别。
+- **为什么是问题** 普通的顶层声明和简单 `await` 用例都能过，严格模式的单元却运行成功后静默丢变量。Acorn 允许解析顶层 `return` 也不会让 Bun 的间接 `eval` 执行它。
+- **如何核实** Bun 1.4.4 中，先用间接 `eval` 执行带严格模式指令的 `var` 声明，下一次查询其 `typeof` 得 `undefined`。用工作区 Acorn 按计划选项解析，`for await` 是 `ForOfStatement` 且 `await: true`，顶层 `if` 分支里的 `return` 也解析通过，原样交给间接 `eval` 都报 `SyntaxError`。omp 显式识别这些包装条件。
+- **建议改法** 写清持久化适用的脚本语义。支持严格模式时须显式发布声明，若首版不支持则在执行前明确报错。用真实子进程验证跨单元读值、顶层 `return`、`for await` 以及包装后函数能读到后续单元更新的全局绑定。
+
+### 18. 脱敏会删掉用于判断内核寿命的单元标记
+
+- **严重程度** 重要。**类别** 正确性。
+- **位置** `plan.md:54、96`，`docs/specs/harness/runtime.md` 输出 23，`packages/nb-harness/src/kernel/run/tools.ts:350–371`。
+- **现象** 计划把 `{kernel, cell}` 放在 `toolResult.details` 中。工具拦截层在执行后标记 `redacted` 时，内核有意不把 `details` 写入日志。路径归约看不到标记，活内核仍记得刚执行的单元。
+- **为什么是问题** 即使两次 eval 分属不同回复，也没有回退、重启或超时，只要第一次结果经过脱敏，第二次就会误重置。放宽通用 `details` 的脱敏又会破坏已有的日志保密合同。
+- **如何核实** 用真实 `createTestSession`，脚本模型分两轮调用带单元标记的测试工具，拦截层在 `next` 完成后修改文字并标记 `redacted`。两条结果都有 `rawHash`，都无 `details`。第二次调用读到路径标记 `null`，夹具中的活标记为 A。
+- **建议改法** 将单元身份作为宿主生成的控制数据提交，例如同批写独立的单元结算标记。继续按现有合同脱敏用户可见结果。验收让真实内核经脱敏拦截，再由下一单元读取之前的变量，同时确认日志里搜不到被遮住的内容。
+
+### 19. Bun IPC 能传过日志无法原样保存的调用参数
+
+- **严重程度** 重要。**类别** 不变量。
+- **位置** `plan.md:36、38、49、61`；`packages/nb-harness/src/kernel/run/tools.ts:171–175、239–244、332–334`；`kernel/api/json-value.ts:9–43`；`docs/specs/harness/session.md:91–96`。
+- **现象** `invoke` 接 `Record<string, unknown>`，全局对象还会把 JS 的可变参数装进 `args` 数组。类型层的对象合同和目标工具的 schema 校验都不足以确认任意嵌套值可以如实写入日志。当前工具入口只验各工具的 schema，然后把执行参数写进 `toolStarted`。
+- **为什么是问题** 原生桥能收到 `Map`、`undefined`、`NaN` 和 `bigint`。宽松工具的参数通过 schema 后，日志里的参数可能被改变、丢弃，或在编码时抛错。回放、审批和工具执行需要指向同一份参数。
+- **如何核实** Linux 上用 Bun 1.4.4 启动无文件操作的子进程，经 `process.send` 传这四个普通测试值。宿主收到的 `Map` 类型、值为 `undefined` 的自有键、`NaN` 和 `bigint` 均保留。现有 `kernel/log/store.test.ts:491–502` 验证日志值比 JS 值更窄。
+- **建议改法** 宿主在审批和日志前校验参数满足日志的 `JsonValue` 合同，拦截改派后的最终参数也须符合。码与路径交给这一条调用，不能让会话写入失败。`done` 的任意 JS 完成值可在子进程用计划中的 `Bun.inspect` 转成显示文字。用真实 Bun IPC 断言非法值只让该调用失败且会话可继续、可重开。

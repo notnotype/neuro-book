@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-cost-saving-compaction
-status: planned
-updated: 2026-11-10
+status: shelved
+updated: 2026-11-18
 ---
 
 # 省钱的两种压缩触发
@@ -20,6 +20,8 @@ nb-harness 的压缩指令带原因与方法顺序；kit 里加两种新触发�
 ## 当前状态
 
 2026-11-10 经 nbdev 新建，尚未开工。
+
+2026-11-18 搁置：开发者定“省钱压缩第一版先不做，以后可以做”，做法与量级估算记在 bot 提案的路线。
 
 ## 下一步
 

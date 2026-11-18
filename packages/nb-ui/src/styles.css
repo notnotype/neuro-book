@@ -835,3 +835,20 @@ input.nb-ui-native-input[type="number"] {
         transform: none;
     }
 }
+
+/*
+ * 错误提示一律可选，原文要能复制去搜、去报告（docs/ui-development-spec.md 的“文字能否选中”）：各处都标 `role="alert"`，一条规则
+ * 代替逐个组件声明，宿主（例如桌面壳）在根上默认不可选时也成立。本文件进 components 层，utilities 层的 `select-none` 与不分层的
+ * 组件样式照样盖得过它。
+ */
+[role="alert"] {
+    user-select: text;
+}
+
+/*
+ * 按钮类控件一律不可选：内容根写了 `user-select: text` 时，里面原生的 `<button>`、`<summary>`、标签页按钮会继承成可选，双击折叠标题就选中
+ * 标题、拖选时把“已执行 3 步”这类标签带进复制结果（nb-ui 规范的“文字能否选中”）。`:where` 加 components 层，组件自己要放开的照样盖得过。
+ */
+:where(button, summary, [role="button"], [role="tab"]) {
+    user-select: none;
+}

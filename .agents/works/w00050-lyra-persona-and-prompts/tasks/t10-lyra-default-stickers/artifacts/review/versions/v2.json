@@ -1,0 +1,187 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t10-lyra-default-stickers",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：星璃默认表情包",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "139921262fffff855fe93f9b9a27b36f3ce2cd657d4d6a4afae38d652986664f",
+    "files": [
+        "index.html",
+        "r1/full-body.webp",
+        "r1/sheet.webp",
+        "r2/border.webp",
+        "r2/chat.webp",
+        "r2/grid.webp"
+    ],
+    "questions": [
+        {
+            "id": "framing",
+            "type": "single",
+            "label": "构图要不要再收近一点重出？",
+            "options": [
+                {
+                    "value": "closer",
+                    "label": "收近到头和手、表情更夸张，重出"
+                },
+                {
+                    "value": "keep",
+                    "label": "就用这一批"
+                },
+                {
+                    "value": "full-body",
+                    "label": "全身"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "closer"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "white-border",
+            "type": "single",
+            "label": "图上的白边留着吗？",
+            "options": [
+                {
+                    "value": "keep-border",
+                    "label": "留着图里的白边"
+                },
+                {
+                    "value": "no-border",
+                    "label": "不要白边，重出"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "keep-border"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "names",
+            "type": "text",
+            "label": "表情清单要增减或改名吗",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 2,
+                "by": null
+            }
+        },
+        {
+            "id": "distribution",
+            "type": "single",
+            "label": "怎么默认带给用户？",
+            "options": [
+                {
+                    "value": "builtin",
+                    "label": "A 内置来源，只读、可复制"
+                },
+                {
+                    "value": "seed",
+                    "label": "B 第一次启动复制进我的表情包"
+                },
+                {
+                    "value": "zip",
+                    "label": "C 只放一个 zip，用户自己导入"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "builtin"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "picks",
+            "type": "confirm",
+            "label": "收近版挑这 15 张、用这些名字",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "edge",
+            "type": "single",
+            "label": "收近版也加一圈白边吗？",
+            "options": [
+                {
+                    "value": "edge",
+                    "label": "加白边"
+                },
+                {
+                    "value": "plain",
+                    "label": "不加"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "edge"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "first-batch",
+            "type": "single",
+            "label": "第一批（半身、12 张）怎么用？",
+            "options": [
+                {
+                    "value": "two-packs",
+                    "label": "A 两个内置包，主创默认只列收近版"
+                },
+                {
+                    "value": "close-only",
+                    "label": "B 只内置收近版"
+                },
+                {
+                    "value": "first-only",
+                    "label": "C 只内置第一批"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "two-packs"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T10:21:31.061Z"
+}

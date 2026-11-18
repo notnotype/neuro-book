@@ -13,7 +13,7 @@ updated: 2026-11-18
 
 来源：t12 讨论（2026-10-28）；t04 定工具发现搁置时开发者说以后有需求打算用 CodeAct 实现。
 
-合同：本 Task 搁置，行为合同未变。
+合同（planned）：新建 [`agent/eval.md`](../../../../../docs/specs/agent/eval.md)；[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md) 输出 90 到 102 与 [`harness/session.md`](../../../../../docs/specs/harness/session.md) 的兼容；[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md) 输出 24、25，[`agent/permissions.md`](../../../../../docs/specs/agent/permissions.md) 输出 24、25，[`agent/resources.md`](../../../../../docs/specs/agent/resources.md) 输出 16、17，[`agent/builtin-tools.md`](../../../../../docs/specs/agent/builtin-tools.md) 输出 29，[`agent/builtin-profiles.md`](../../../../../docs/specs/agent/builtin-profiles.md) 输出 18，[`agent/run-guards.md`](../../../../../docs/specs/agent/run-guards.md) 输出 15，[`agent/compaction.md`](../../../../../docs/specs/agent/compaction.md) 输出 9，[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md) 的子调用与场景 37。
 
 ## 已知情况
 
@@ -35,11 +35,89 @@ omp 的 eval（事实见[外部参照](../../../../../docs/research/agent-runtim
 | 2 | 2026-11-18 | 内核状态：每个会话一个常驻内核，顶层变量跨调用保留；回退、分叉、服务重启、空闲超时后内核重置，下一次调用的结果写明“内核已重置，之前的变量没了” |
 | 3 | 2026-11-18 | 审批：整段代码按执行档审批（`ask`、`allow-writes` 询问并展示代码，`auto` 交审批模型，`yolo` 放行）；批准后代码里经 `tool.*` 调的工具再按各自的档位照常审批 |
 | 4 | 2026-11-18 | 语言：只做 JS（Bun），不支持装依赖 |
+| 5 | 2026-11-18 | 开发者确认[计划](plan.md)第 1 稿与三项待确认：eval 同 `shell`，作写作助手与临时帮手的可选工具；单元时限缺省 30 秒（等用户应答不计），内核空闲 30 分钟回收；全局对象第一版只有 `对象.方法(...参数)` 一种写法 |
+| 6 | 2026-11-18 | 卡片的注意力排序（会话里问答）：eval 是思维链里的卡片，嵌套调用收成一行计数（例如“调用了 30 次工具：读了 28 个文件，改了 2 个”），改文件、出错、被拒的几次直接列出，其余点开看；嵌套调用读写的文件照常算进思维链摘要与轮末汇总；详情里代码在上、默认收起，输出在下；运行中显示已用时、已调用次数与当前一步。开发者补充：这几条做起来复杂时可以从简（例如运行中只转圈和用时） |
+| 7 | 2026-11-18 | 开发者确认计划第 3 稿（设计审查三份报告的修订与“供开发者知悉”的几处）；另派一个子代理细读 omp 的 eval 做对照：omp 维护久、稳定，看它处理了而计划没有的 |
+| 8 | 2026-11-18 | omp 对照（20 条建议，[`evidences/omp-eval-comparison.txt`](evidences/omp-eval-comparison.txt)）按推荐并进计划 3.1 稿与 Spec：内核拦没人接的错误、独立线程的父进程看门狗、Proxy 不交 `then`、值的显示改用 `node:util.inspect`、改写的边角（嵌套 `var`、函数名、严格模式、`import`、保留名、语法错误的代码框）、意外退出与握手超时、按单元归属输出与调用、说明按会话算并随列表升版本。单元时限改回决定 5 的原话“等用户应答不计”，工具执行计入（第 3 稿的“有嵌套调用在途就不计”会让自己没有时限的工具卡住单元），`invoke` 为此加 `onWaiting`。以后再做：可复用的初始化、进度行、自动转后台、压缩后列出变量 |
+| 9 | 2026-11-18 | 开发者：eval 先做内核通道（切片 2）并合入，不等审批简化提案；实施那份提案时把 `cause` 也填进嵌套调用（已追加进它的决策记录） |
+
+## 设计审查
+
+计划第 1 稿，三位审查者并行：omp（后端与事实核对）、Claude Opus（从整体看）、Claude Sonnet（对话视图一节）。依据的事实主会话抽查过（适配器按 `callId` 找调用、子代理树数 `toolStarted`、压缩放回最近文件、`remember` 规则、`settledEffects` 只认成功、`CollapsibleCard` 收起时没有正文、`mapEventContent`）。Opus 与 Sonnet 的修订成第 2 稿，omp 的叠加成[计划](plan.md)第 3 稿。
+
+Opus（11 条：重要 7、建议 4，[`evidences/design-review-opus.txt`](evidences/design-review-opus.txt)），全部成立、已改进计划：
+
+| 条 | 问题 | 处理 |
+|---|---|---|
+| 1 | 嵌套调用开头复用 `toolStarted`、结尾新造事件，现有三处读方只看到一半；靠归约改状态的工具在代码里调时状态丢失 | 开头也用新事件 `nestedToolStarted`，与 `nestedToolResult` 成对，现有读方不变；嵌套结果不进归约，靠归约的工具声明 `codeCallable: false`，从代码里调直接拒 |
+| 2 | 全局对象映射成一个 `{method, args}` 工具，审批记忆、规则、校验、生成文档都只能按整个对象 | 一个方法一个工具（`global: {object, method}`），对象经新贡献点 `agent.evalObjects` 登记摘要；文档由参数与 `returns` 生成 TypeScript 签名 |
+| 3 | `tool.<名>` 返回字符串还是对象看这一次有没有 `details` | 返回由声明决定：有 `returns` 交回校验过的 `details`，没有一律文字；图片并进本单元 |
+| 4 | eval 没规定“本会话都批准”记什么，按现行规则一次点击放开任意代码 | eval 一律 `remember: false` |
+| 5 | “等用户应答不计时”需要 `invoke` 给不出的信号 | 改为“有嵌套调用在途就不计时”，另加每次父调用 2,000 个嵌套调用的上限 |
+| 6 | 嵌套结果全文进日志，批量读 300 章一次约 2.7 MB 且不去重 | 只记前 2 KB 预览与字节数，图片只记张数 |
+| 7 | 声明级的 `exposure` 装不下 MCP 按绑定的选择；`code` 工具无从发现 | 去掉 `exposure`，带 `global` 的方法工具才只走代码；按绑定选择的方向写进 Spec，留给 w00036 |
+| 8 | `invoke` 发给每个工具，公开面过宽 | 声明 `invokes: true` 的工具才有，第一版只有 eval |
+| 9 | 全局对象重名按加载顺序取舍 | 同名双方都不进会话并诊断 |
+| 10 | 只有空闲回收，内核进程数没有上限 | 全服务端至多 8 个，超出回收最久没用的，走重置提示 |
+| 11 | 界面切片之前合入的 eval 会弹出来历不明的询问 | 切片 5 之前 eval 不进内置 Profile |
+
+Sonnet（13 条：重要 7、建议 6，[`evidences/design-review-sonnet.txt`](evidences/design-review-sonnet.txt)），全部成立、已改进计划：
+
+| 条 | 问题 | 处理 |
+|---|---|---|
+| F1 | 嵌套读写只在父调用成功时计入，eval 失败时已写的文件从摘要与改动里消失 | 按子调用自己的状态计入 |
+| F2 | 没启动的嵌套调用（被拒、被拦）没有参数可显示 | 每个嵌套调用都写 `nestedToolResult`，带 `args` |
+| F3 | 只写了“适配器映射成子调用”，`children`、未知事件、孤儿子调用、`effects` 签名、原始视图与复制都没列 | 逐项写进计划；父调用有结果而子调用没有的按 `unknown` |
+| F4 | 计数口径没定 | 嵌套调用不进步骤数、其余操作数与失败数，只在卡片里计；文件去重与思维链同一个函数 |
+| F5 | 折叠的 `CollapsibleCard` 没有正文，放不下计数与改动 | 计数进副标题，改动、出错、被拒的几次作为卡片下方的缩进行，照工具组的做法 |
+| F6 | 运行中进度在折叠的思维链里看不到；没有开始时刻 | `ToolCallView.startedAt`；副标题写次数与当前一步，用时在卡片里；思维链摘要行从简（决定 6 允许） |
+| F7 | 待办项没有 `within`；批准前没有子调用；嵌套提问没处理；`node` 工具会在卡片里常显 | `PendingApprovalView.within`、等审批时的占位子调用、提问同样带来源、子调用一律按 `line` 画 |
+| F8 | “eval 的预览是代码”与预览合同不符 | 不加预览类型，向导对 eval 把代码排在最前 |
+| F9 | 没有只读的语法高亮部件 | 不做高亮，`AgentCodeBlock` 加标题 |
+| F10 | 新事件要进出站过滤 | 两种事件的参数与预览走 `mapEventContent` |
+| F11 | 缺适配器契约测试 | 加真内核、跟帧与重建两路一致的契约测试；e2e 只一个文件 |
+| F12 | 代码流式生成时卡片标题为空 | `streamingArgs` 抽出 `title` |
+| F13 | 渲染器放哪个包没分工 | 通用部分在 nb-agent-ui，eval 的渲染器在 `plugins/agent/web`；`activeCalls` 不变 |
+
+omp（19 条：阻断 1、重要 18，[`evidences/design-review-omp.txt`](evidences/design-review-omp.txt)；第 9、11、15、16、17、19 条带真实运行的实验），成立的已改进计划：
+
+| 条 | 问题 | 处理 |
+|---|---|---|
+| 1 | `invoke` 交回 `ToolResult`，装不下 `blocked`、`unknown` | 另立 `NestedOutcome`，`status` 必填；`unknown` 在代码里抛错并说明要先核对 |
+| 2（阻断） | 父调用返回、单元超时不结算已受理的嵌套调用，父结果交出后还可能落盘或等审批 | `invoke` 收父工具给的 `signal`；触发后按顶层宽限期结算，父工具等结算写完再交结果；正常结束时等没 `await` 的在途调用 |
+| 3 | 拦截层改派后，准入的禁止项与 `concurrency` 槽失效 | 改派后对最终目标再核准入与参数，不许改派到另一种 `concurrency`；顶层改派到只走代码的工具得 `code-only` |
+| 4 | 恢复只认回复里的调用，嵌套的待审批、已批准未开始、已开始都不结算 | 打开会话时与顶层同一批结算嵌套调用 |
+| 5 | 新的内核事件名让旧版把整份会话判成损坏 | 接受取舍：照 `session.md`“只加不改”与 t18 的先例，Spec 写明降级不受支持 |
+| 6 | 用父 `callId` 加后缀造 id 会和顶层撞键 | 嵌套调用由内核造全局唯一的 id，按它关联 |
+| 7 | 十次嵌套写入成十个组，来源也指不回唯一一次调用 | 同一次 eval 的嵌套写入共用一个组（按父调用的 `invocation`），来源是各自的嵌套 id。顶层来源用 `callId` 跨回复可能重复是现有问题，另记 |
+| 8 | 压缩放回漏掉经 eval 读写的文件 | 放回显式认两种新事件 |
+| 9 | 杀内核不杀它起的子进程（实测 `sleep` 留下） | 内核做进程组组长，杀整组；IPC 断开时内核自己收组；Windows 不在第一版验证 |
+| 10 | 只改应用包的构建会漏掉 `dist/server` 的入口 | 入口按绝对路径定位，构建清单的所有读方一起改，起进程先握手 |
+| 11 | 同一条回复的第二个 eval 读不到第一个的结果，会误判重置（实测） | 重置改用内核给的 `ctx.leafMoves`（`leafChanged` 的条数），不再比较结果里的单元标记 |
+| 12 | 主创可以从 eval 派子代理，而派子代理留到下一批 | 派子代理、给子代理发话与答话声明 `codeCallable: false`；`shell` 在嵌套调用里不接受 `async` |
+| 13 | eval 的“本会话都批准”会放行之后完全不同的代码 | 同 Opus 第 4 条：`remember: false`，直接提交得 `invalid-answer` |
+| 14 | 只在请求里藏起只走代码的工具，执行端仍受理模型直接调它 | 执行端按来源判，得 `code-only` |
+| 15 | `Bun.spawn` 传 `env` 是替换，还会读工作目录的 `.env`（实测） | 显式叠加服务端环境，`--no-env-file` |
+| 16 | 回退没跨过 eval 时，路径上最后一个单元相同，不会重置（实测） | 同第 11 条，任何回退、切分支都重置，与决定 2 的字面一致 |
+| 17 | 只把声明降成 `var`，严格模式下变量会丢（实测） | 改写只有一条路：整段包进异步函数，顶层声明改成对全局的赋值 |
+| 18 | 脱敏时 `details` 不写日志，单元标记跟着丢 | 同第 11 条；“路径上跑过 eval”只数 eval 的 `toolResult`，脱敏也数得到 |
+| 19 | 经 IPC 来的参数可能不是能写进日志的 JSON（实测 `Map`、`NaN`、`bigint` 都能过来） | 审批与写日志前核对，不合格只让这一次调用失败 |
+
+另记（不在本 Task 改）：顶层工具调用写入的来源条目用的是 `callId`，服务商只保证它在一条回复里不重复，跨回复可能指错调用（omp 第 7 条顺带发现，base 上就有）。
+
+影响产品行为的几处，供开发者知悉：eval 的询问没有“本会话都批准”“以后都允许”；嵌套调用在界面上只有 2 KB 预览；全局对象的方法收单个对象参数（`browser.goto({url})`）；切片 5 之前 eval 不进内置 Profile；任何回退、切分支都重置内核（照决定 2 的字面）；写过嵌套调用的会话，旧版本打不开。
 
 ## 当前状态
 
-2026-11-18 重开，范围已定（决定 1 到 4），下一步写计划。
+2026-11-18 重开，范围已定（决定 1 到 4）；计划第 1 稿已获开发者确认（决定 5），卡片的注意力排序已定（决定 6）。设计审查三份报告都已处理，[计划](plan.md)到第 3 稿。调研：[omp 的 JS 内核](../../research/2026-11-18-omp-eval-js-kernel.md)。
+
+实施（分支 `feat/w00032-t21-eval`，worktree `.worktree/w00032-t21-eval`）：
+
+- 切片 1（Spec，`planned`）已在 master：b2655ce58、f756817c5、230a79020。
+- 切片 3 之一（dd28c3f25、79822481a）：输出窗口与全文挪进套件的 `kit/tools/output-capture.ts` 供 `shell` 与 eval 共用；eval 的内核：子进程与进程组、握手与协议版本、父进程看门狗线程、单元改写（`rewrite.ts`）、按单元归属的输出与调用、没人接的错误、直接写 fd 的输出用结束标记收全、意外退出。`backend/eval/kernel.test.ts` 与 `rewrite.test.ts` 19 条（真实子进程），看门狗与“等在途调用”两处做过变异检查。
+- 切片 2（内核通道，按决定 9 先合入，0e7fb6704）：`ToolContext.invoke` 与 `NestedOutcome`、只走代码的工具（清单、执行端、`tools-changed` 与 `toolsAnnounced` 的 `code` 标记）、嵌套调用的身份与准入、改派后再核、两种新事件与出站过滤、嵌套的审批与提问带来源、`onWaiting`、并发锁、2,000 的上限、收口与宽限期、恢复（与顶层同一批）、`leafMoves`、压缩放回认嵌套调用。`run/invoke.test.ts` 12 条（含两条真 `kill -9` 的恢复）；父调用收口、只走代码的预检、恢复三处做过变异检查（预检那处第一次没抓到：执行前的再核也拦住了，用例改成断言“不进审批阶段”）。nb-harness 全量 853 条过（一条存储用例负载 21 时超时，单独重跑过）；应用 Agent 插件 457 条过；两包类型检查过。
+- 切片 3 之二（917cfe30f 合入；eval 工具已贡献，还没进任何内置 Profile）：`backend/eval/tool.ts`（每会话的内核、`leafMoves` 判回退、路径上数 eval 次数的扩展 `nbook.agent.eval-state` 决定重置提示、累计时限与 `onWaiting` 暂停、`returns` 校验、图片至多 8 张、全文同 `shell`、空闲 30 分钟与 8 个的总数上限）；声明的 `invokes`、`codeCallable`、`global`、`returns` 接进 `agent.tools` 并传给内核；派子代理三件与 `switch_mode` 标 `codeCallable: false`；审批钩子加 `rememberable`，eval 交回 false；资源视图按父调用给嵌套写入成组；套件 `shell` 在嵌套调用里拒 `async`（`async-in-code`）；`build:server`、应用包与命令行测试都产出 `eval-kernel.js`，应用包的发布检查按原文放行内核的一处动态导入与看门狗的 Blob Worker；界面文字补 eval 的一句说明。`eval.test.ts` 8 条（真实服务端与子进程）、`resources.test.ts` 加 1 条；“不能记”、回退重置、嵌套写入成组三处做过变异检查。Agent 插件 498 条过（架构检查一条负载 33 时超时，放宽上限单独跑过）。
 
 ## 下一步
 
-调研 omp 的 JS 内核与本仓库的工具、审批、会话生命周期接口，写 `plan.md` 交开发者确认。
+切片 4：全局对象（`agent.evalObjects` 贡献点、重名、`docs://eval/` 与签名生成、eval 的说明按会话列出对象并随列表升版本、SDK 示例）。然后切片 5（界面）、切片 6（真实模型），收口做实现审查。

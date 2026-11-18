@@ -245,6 +245,8 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
 <style scoped>
 .markdown-toolbar {
     box-sizing: border-box;
+    /* 工具栏是框架，不供选字（nb-ui 规范的“文字能否选中”）。 */
+    user-select: none;
     flex-shrink: 0;
 }
 

@@ -1,0 +1,389 @@
+/**
+ * eval 工具（docs/specs/agent/eval.md）：每个会话一个常驻内核（`kernels.ts`），一次调用执行一个单元，代码里的 `tool.<名>` 与全局对象
+ * 经内核的 `ctx.invoke` 照常审批、拦截、记日志（harness/runtime.md 输出 90 起）。
+ *
+ * 所有权：工具实现每个会话建一次（内核按会话缓存实现），内核进程的寿命挂在它上面：`dispose` 时结束。全服务端的内核总数由
+ * `KernelRegistry` 管，超了回收最久没用的会话的内核，那个会话下一次调用时提示重置。
+ */
+
+import {join} from "node:path";
+
+import {Value} from "typebox/value";
+
+import {OutputCapture, saveFullOutput} from "@notnotype/nb-harness/kit/tools";
+import type {JsonValue, NestedOutcome, ToolContext, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import {defineContract, implement, shape, slice} from "@notnotype/nb-harness/kernel";
+
+import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
+import type {AgentToolServices} from "../../shared/resources";
+import {sessionFiles} from "../resources";
+import type {CallReply, CallTarget, GlobalObjects} from "./protocol";
+import {IMPORT_HELPER} from "./constants";
+import {rewriteCell} from "./rewrite";
+import {describeExit, Kernel, KernelRegistry, type CellEnd, type KernelLaunch, type KernelOwner} from "./kernels";
+
+export const EVAL_TOOL = "nbook.agent.eval";
+const DEFAULT_TIMEOUT_SECONDS = 30;
+const MAX_TIMEOUT_SECONDS = 3_600;
+/** 空闲回收（eval.md 输出 11）。 */
+export const EVAL_IDLE_MS = 30 * 60_000;
+/** 一个单元的结果至多附几张图（eval.md 输出 4）。 */
+const MAX_IMAGES = 8;
+
+/** 代码不能当变量声明的名字（eval.md 输出 3）：内核给的东西，声明了就盖掉，之后的单元都调不到。 */
+const KERNEL_NAMES = ["tool", "display", "console", "require", "ToolCallError", IMPORT_HELPER];
+
+/** 给模型的说明（eval.md 输出 16；提示词规范：中文，集中放在这里）。全局对象的列表按会话拼在后面（`evalDescription`）。 */
+const DESCRIPTION = [
+    "在这个会话的 JS 内核（Bun）里执行一段代码，用来批量做事：一次读很多章、统计、按结果再改。顶层声明的变量与函数在之后的调用里还在，不要重复已经成功的设置；结果第一行写着“内核已重置”时，之前的变量没了，只重建还要用的那部分。",
+    "代码里调工具：`await tool.<名>(参数对象)`，名字与你调工具时用的相同（带 - 或 . 的写 tool[\"名\"]）；声明了结构化结果的工具交回对象，其余交回结果文字。失败时抛 ToolCallError（有 status 与 code，unknown 表示不知道有没有执行完，先核对再重做）。每个 tool.* 与对象的方法都是异步的，都要 await；批量调用可能有失败时用 Promise.allSettled。代码里调的工具照常要审批。",
+    "可以用顶层 await、import（node:、bun:、相对路径与包名按工作目录解析）、require；console 的输出与最后一个表达式的值是结果；display({data, mime}) 附一张图。要命令的输出用 Bun.$`…`.text()。不支持 export 与 TypeScript 语法。",
+    "失败后只重试失败的那一步，前面的步骤可能已经生效。timeout 是秒数，缺省 30，等审批的时间不算；超时会重置内核。reset 为 true 时先重置内核（code 可以为空）。",
+].join("\n\n");
+
+export const evalDeclaration: AgentToolDeclaration = {
+    description: DESCRIPTION,
+    parameters: {
+        type: "object",
+        properties: {
+            code: {type: "string", description: "要执行的 JavaScript"},
+            title: {type: "string", description: "一句话说明这段代码做什么"},
+            timeout: {type: "integer", minimum: 1, maximum: MAX_TIMEOUT_SECONDS, description: "单元时限（秒），缺省 30"},
+            reset: {type: "boolean", description: "先重置内核"},
+        },
+        required: ["code"],
+        additionalProperties: false,
+    },
+    providerName: "eval",
+    version: "1",
+    effect: "exec",
+    concurrency: "exclusive",
+    strict: true,
+    invokes: true,
+};
+
+/** 会话里能经代码调的工具在 eval 看来的样子：名字是交给服务商的名字，`returns` 来自 `agent.tools` 的声明。 */
+export interface CodeTool {
+    readonly id: string;
+    readonly name: string;
+    readonly returns?: Readonly<Record<string, unknown>>;
+    readonly global?: {readonly object: string; readonly method: string};
+}
+
+export interface EvalToolDeps {
+    readonly registry: KernelRegistry;
+    /** 内核入口文件的绝对路径（`kernelEntry()`）。 */
+    readonly entry: string;
+    /** 这个会话此刻的工具集（与内核的生效工具集同一份来源）。 */
+    readonly toolsOf: (context: ToolSessionContext) => readonly CodeTool[];
+    readonly idleMs?: number;
+    readonly handshakeMs?: number;
+}
+
+/** 内核入口：打包产物里是与本模块的包同目录的 `eval-kernel.js`（`build:server` 与应用包一起产出），源码里是 `kernel-entry.ts`。 */
+export function kernelEntry(): string {
+    return import.meta.path.endsWith(".js") ? join(import.meta.dir, "eval-kernel.js") : join(import.meta.dir, "kernel-entry.ts");
+}
+
+// ─── 路径上跑过几次 eval（重置提示用，eval.md 输出 12） ─────────────────
+
+export const EVAL_STATE_EXTENSION = "nbook.agent.eval-state";
+/** 当前路径上 eval 的结果数。只看工具 id：结果被脱敏时 `details` 不写日志，工具 id 还在。 */
+export const evalStateContract = defineContract(EVAL_STATE_EXTENSION, {exports: shape<{cells: number}>()});
+export const evalStateExtension = implement(evalStateContract, {
+    state: {cells: slice.path(0)},
+    reduce: {toolResult: (event, state) => ((event.data as {tool: string}).tool === EVAL_TOOL ? {cells: state.cells + 1} : undefined)},
+    exports: {cells: (state) => state.cells},
+});
+
+// ─── 实现 ─────────────────────────────────────────────
+
+export function evalTool(deps: EvalToolDeps): AgentToolImplementation {
+    return {create: (context, services) => new EvalSession(context, services, deps)};
+}
+
+/** 内核重置的原因，写进下一次结果的第一行（eval.md 输出 12）。 */
+type ResetReason = "回退或切分支" | "主动重置" | "超时" | "被停止" | "意外退出" | "空闲" | "被回收";
+
+class EvalSession implements ToolImplementation, KernelOwner {
+    #kernel: Kernel | null = null;
+    #closed = false;
+    /** 上一次调用时的 `ctx.leafMoves`：变了说明中间回退或切过分支。 */
+    #leafMoves: number | null = null;
+    #reason: ResetReason | null = null;
+    #cells = 0;
+    #idle: ReturnType<typeof setTimeout> | null = null;
+
+    constructor(private readonly context: ToolSessionContext, private readonly services: AgentToolServices, private readonly deps: EvalToolDeps) {}
+
+    evict(): void {
+        void this.#reset("被回收");
+    }
+
+    async dispose(): Promise<void> {
+        this.#closed = true;
+        this.#clearIdle();
+        const kernel = this.#kernel;
+        this.#kernel = null;
+        this.deps.registry.release(this);
+        await kernel?.kill();
+    }
+
+    async execute(args: Readonly<Record<string, unknown>>, ctx: ToolContext): Promise<ToolResult> {
+        if (this.#closed) return failure("kernel-unavailable", "会话已关闭，内核不再可用。");
+        this.#clearIdle();
+        if (this.#leafMoves !== null && ctx.leafMoves !== this.#leafMoves && this.#kernel !== null) await this.#reset("回退或切分支");
+        this.#leafMoves = ctx.leafMoves;
+        if (args.reset === true) await this.#reset("主动重置");
+        const code = args.code as string;
+        if (code.trim() === "" && args.reset === true) return {text: "内核已重置。", details: {reset: true}};
+
+        const tools = this.deps.toolsOf(this.context);
+        const globals = globalObjects(tools);
+        const rewritten = rewriteCell(code, new Set([...KERNEL_NAMES, ...globals.map((object) => object.name)]));
+        if (!rewritten.ok) return failure("code-error", rewritten.failure.message);
+
+        let fresh = false;
+        if (this.#kernel === null || !this.#kernel.alive) {
+            const launch = await this.#launch(ctx.signal);
+            if ("failure" in launch) return launch.failure;
+            const started = await Kernel.start(launch, {signal: ctx.signal, ...(this.deps.handshakeMs === undefined ? {} : {handshakeMs: this.deps.handshakeMs})});
+            if (!started.ok) return failure("kernel-unavailable", started.reason);
+            this.#kernel = started.kernel;
+            fresh = true;
+        }
+        this.deps.registry.touch(this);
+        const kernel = this.#kernel;
+        // 新内核、而这条路径上跑过 eval：之前的变量没了，结果第一行说明（eval.md 输出 12）。
+        const notice = fresh && (ctx.read(evalStateContract)?.cells ?? 0) > 0 ? `内核已重置（${this.#reason ?? "服务重启或分叉"}），之前的变量没了。` : null;
+        this.#reason = null;
+
+        const cell = ++this.#cells;
+        const outcome = await this.#run(kernel, cell, rewritten.source, code, tools, globals, ctx, args.timeout as number | undefined);
+        if (outcome.reset !== null) await this.#reset(outcome.reset);
+        else this.#scheduleIdle();
+        return this.#result(outcome, notice, cell);
+    }
+
+    /** 工作目录与环境同 `shell`（builtin-tools.md 输出 18、20）：服务端环境加布局变量，不读工作目录的 `.env`（入口带 `--no-env-file`）。 */
+    async #launch(signal: AbortSignal): Promise<KernelLaunch | {failure: ToolResult}> {
+        const files = sessionFiles(this.services.resources, this.context);
+        const cwd = await files.readPath(files.layout.working, {signal});
+        if (!cwd.ok) return {failure: failure("kernel-unavailable", `工作目录取不到：${cwd.detail}`)};
+        const env: Record<string, string> = {};
+        for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
+        for (const [name, address] of Object.entries(files.layout.shellEnv)) {
+            const located = await files.readPath(address, {signal});
+            if (located.ok) env[name] = located.value.path;
+        }
+        return {entry: this.deps.entry, cwd: cwd.value.path, env};
+    }
+
+    async #run(kernel: Kernel, cell: number, source: string, code: string, tools: readonly CodeTool[], globals: GlobalObjects, ctx: ToolContext, timeoutSeconds: number | undefined): Promise<CellOutcome> {
+        const capture = new OutputCapture();
+        const images: {data: string; mime: string}[] = [];
+        let dropped = 0;
+        const addImage = (image: {readonly data: string; readonly mime: string}): void => {
+            if (images.length < MAX_IMAGES) images.push({data: image.data, mime: image.mime});
+            else dropped += 1;
+        };
+        // 这个单元的范围：超时或停止时触发，内核按宽限期结算在途的嵌套调用（harness/runtime.md 输出 100）。
+        const scope = new AbortController();
+        const deadline = new Deadline((timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS) * 1000, () => scope.abort("timeout"));
+        const stop = (): void => scope.abort("aborted");
+        ctx.signal.addEventListener("abort", stop, {once: true});
+        const byName = new Map(tools.filter((tool) => tool.global === undefined).map((tool) => [tool.name, tool]));
+        const byMethod = new Map(tools.filter((tool) => tool.global !== undefined).map((tool) => [`${tool.global!.object}.${tool.global!.method}`, tool]));
+        const call = async (target: CallTarget, args: unknown): Promise<CallReply> => {
+            const label = target.kind === "tool" ? target.name : `${target.object}.${target.method}`;
+            const tool = target.kind === "tool" ? byName.get(target.name) : byMethod.get(label);
+            if (tool === undefined) return {ok: false, tool: label, status: "error", code: "unknown-tool", message: `没有 ${label}。`};
+            if (ctx.invoke === undefined) return {ok: false, tool: label, status: "error", code: "invoke-not-allowed", message: "这次运行不能从代码里调工具。"};
+            const outcome = await ctx.invoke(tool.id, (args ?? {}) as Record<string, unknown>, {signal: scope.signal, onWaiting: (waiting) => (waiting ? deadline.pause() : deadline.resume())});
+            for (const image of outcome.images ?? []) addImage(image);
+            return replyOf(label, tool, outcome);
+        };
+        // 代码一跑起来，超时或停止都要能打断它：两路信号都结束内核，结果由内核的退出交回。
+        const killer = (): void => void kernel.kill();
+        scope.signal.addEventListener("abort", killer, {once: true});
+        let end: CellEnd;
+        try {
+            deadline.start();
+            end = await kernel.run({cell, source, tools: [...byName.keys()], globals}, {text: (text) => capture.push(text), image: addImage, call});
+        } finally {
+            deadline.stop();
+            ctx.signal.removeEventListener("abort", stop);
+            scope.signal.removeEventListener("abort", killer);
+        }
+        const why = scope.signal.reason as "timeout" | "aborted" | undefined;
+        return {end, capture, images, dropped, code, why, reset: end.kind === "exited" ? (why === "timeout" ? "超时" : why === "aborted" ? "被停止" : "意外退出") : null, timeoutSeconds: timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS};
+    }
+
+    async #result(outcome: CellOutcome, notice: string | null, cell: number): Promise<ToolResult> {
+        const {end, capture} = outcome;
+        let status: ToolResult["status"] = "ok";
+        let errorCode: string | undefined;
+        const tail: string[] = [];
+        if (end.kind === "done" && end.ok) {
+            if (end.value !== undefined) capture.push(capture.totalBytes === 0 || end.value.startsWith("\n") ? end.value : `\n${end.value}`);
+        } else if (end.kind === "done") {
+            status = "error";
+            errorCode = "code-error";
+            tail.push(`${end.error.message}${stackWithin(end.error.stack, outcome.code)}`);
+        } else if (outcome.why === "timeout") {
+            status = "error";
+            errorCode = "timeout";
+            tail.push(`超过 ${String(outcome.timeoutSeconds)} 秒的时限，内核已结束并重置，之前的变量没了。`);
+        } else if (outcome.why === "aborted") {
+            status = "error";
+            errorCode = "aborted";
+            tail.push("运行被停止，内核已结束并重置，之前的变量没了。");
+        } else {
+            status = "error";
+            errorCode = "kernel-exited";
+            const stderr = end.exit.stderrTail.trim();
+            tail.push(`内核意外退出（${describeExit(end.exit)}），已重置，之前的变量没了。${stderr === "" ? "" : `\n内核的错误输出最后一段：\n${stderr}`}`);
+        }
+        const {text, clipped} = capture.window();
+        const full = capture.overflowed ? await saveFullOutput(this.services.artifacts, capture, "eval") : {};
+        capture.dispose();
+        const lines = [
+            ...(notice === null ? [] : [notice]),
+            ...(text === "" && tail.length === 0 && outcome.images.length === 0 ? ["（没有输出）"] : text === "" ? [] : [text.endsWith("\n") ? text.slice(0, -1) : text]),
+            ...tail,
+            ...(clipped ? [`（输出 ${String(capture.totalBytes)} 字节，这里只有一部分）`] : []),
+            ...(full.address === undefined ? [] : [`全文：${full.address}，用 read 分页读`]),
+            ...(full.problem === undefined ? [] : [`全文没能保存：${full.problem}`]),
+            ...(outcome.dropped === 0 ? [] : [`（另有 ${String(outcome.dropped)} 张图没有附上：一次至多 ${String(MAX_IMAGES)} 张）`]),
+        ];
+        const details: JsonValue = {cell, bytes: capture.totalBytes, images: outcome.images.length, ...(full.address === undefined ? {} : {artifact: full.address}), ...(errorCode === undefined ? {} : {code: errorCode})};
+        return {
+            text: lines.join("\n"),
+            ...(outcome.images.length === 0 ? {} : {images: outcome.images}),
+            ...(status === "ok" ? {} : {status, code: errorCode!}),
+            details,
+        };
+    }
+
+    async #reset(reason: ResetReason): Promise<void> {
+        this.#clearIdle();
+        const kernel = this.#kernel;
+        this.#kernel = null;
+        this.deps.registry.release(this);
+        if (kernel !== null) {
+            this.#reason = reason;
+            await kernel.kill();
+        }
+    }
+
+    #scheduleIdle(): void {
+        this.#idle = setTimeout(() => void this.#reset("空闲"), this.deps.idleMs ?? EVAL_IDLE_MS);
+        // 空闲回收不该拖住进程退出。
+        (this.#idle as {unref?: () => void}).unref?.();
+    }
+
+    #clearIdle(): void {
+        if (this.#idle !== null) clearTimeout(this.#idle);
+        this.#idle = null;
+    }
+}
+
+interface CellOutcome {
+    readonly end: CellEnd;
+    readonly capture: OutputCapture;
+    readonly images: readonly {data: string; mime: string}[];
+    readonly dropped: number;
+    readonly code: string;
+    readonly why: "timeout" | "aborted" | undefined;
+    readonly reset: ResetReason | null;
+    readonly timeoutSeconds: number;
+}
+
+/** 嵌套调用的结局交给代码（eval.md 输出 7、8）：声明了 `returns` 的成功时交回校验过的 `details`。 */
+function replyOf(label: string, tool: CodeTool, outcome: NestedOutcome): CallReply {
+    if (outcome.status !== "ok") {
+        const message = outcome.status === "unknown" ? `${outcome.text}（不知道有没有执行完，先核对再重做）` : outcome.text;
+        return {ok: false, tool: label, status: outcome.status, ...(outcome.code === undefined ? {} : {code: outcome.code}), message};
+    }
+    if (tool.returns === undefined) return {ok: true, value: outcome.text};
+    if (!Value.Check(tool.returns as never, outcome.details)) return {ok: false, tool: label, status: "error", code: "returns-mismatch", message: `${label} 交回的结构不符合它声明的 returns。`};
+    return {ok: true, value: outcome.details};
+}
+
+/** 这个会话里的全局对象：至少有一个方法在生效工具集里的才算（eval.md 输出 16）。 */
+function globalObjects(tools: readonly CodeTool[]): GlobalObjects {
+    const methods = new Map<string, string[]>();
+    for (const tool of tools) {
+        if (tool.global === undefined) continue;
+        const list = methods.get(tool.global.object) ?? [];
+        list.push(tool.global.method);
+        methods.set(tool.global.object, list);
+    }
+    return [...methods.entries()].map(([name, list]) => ({name, methods: list}));
+}
+
+/** 堆栈里落在模型写的那几行之外的帧（包装的收尾）去掉。 */
+function stackWithin(stack: string | undefined, code: string): string {
+    if (stack === undefined) return "";
+    const lines = code.split("\n").length;
+    const kept = stack.split("\n").filter((frame) => {
+        const match = /cell-\d+\.js:(\d+):/u.exec(frame);
+        return match === null || Number(match[1]) <= lines;
+    });
+    return kept.length === 0 ? "" : `\n${kept.join("\n")}`;
+}
+
+function failure(code: string, text: string): ToolResult {
+    return {text, status: "error", code, details: {code}};
+}
+
+/**
+ * 单元时限（eval.md 输出 14）：累计计时，等用户应答时暂停（嵌套调用的 `onWaiting`，可能几个并发地等，按计数）。
+ * 剩余时间到了调 `expire`。
+ */
+class Deadline {
+    #remaining: number;
+    #since = 0;
+    #waiting = 0;
+    #timer: ReturnType<typeof setTimeout> | null = null;
+    #stopped = false;
+
+    constructor(budgetMs: number, private readonly expire: () => void) {
+        this.#remaining = budgetMs;
+    }
+
+    start(): void {
+        this.#arm();
+    }
+
+    pause(): void {
+        this.#waiting += 1;
+        if (this.#waiting === 1) this.#disarm();
+    }
+
+    resume(): void {
+        this.#waiting = Math.max(0, this.#waiting - 1);
+        if (this.#waiting === 0) this.#arm();
+    }
+
+    stop(): void {
+        this.#stopped = true;
+        this.#disarm();
+    }
+
+    #arm(): void {
+        if (this.#stopped || this.#timer !== null) return;
+        this.#since = Date.now();
+        this.#timer = setTimeout(() => {
+            this.#timer = null;
+            if (!this.#stopped) this.expire();
+        }, Math.max(0, this.#remaining));
+    }
+
+    #disarm(): void {
+        if (this.#timer === null) return;
+        clearTimeout(this.#timer);
+        this.#timer = null;
+        this.#remaining -= Date.now() - this.#since;
+    }
+}

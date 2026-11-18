@@ -26,6 +26,8 @@ updated: 2026-11-17
 
 2026-11-17 经 nbdev 新建（`planned`），已记录现状代码位置与设计要点，待排期实现。
 
+2026-11-18 开发者在 w00043 定：星璃做成 bot，“profile://memory 有了 bot 后应该改成 bot://”（[w00043 决定表](../../../w00043-neurobot/README.md#决定)）。本 Task 的三项改由 [bot 提案](../../../../../docs/proposals/neurobot.md)第四节第 3、8、9 小节覆盖：记忆初始化改成 bot 预设的记忆种子；写记忆不问改由 `bot://` 进自有目录，`profile://` 不加免问；frontmatter 常驻注入按 bot 做。bot 做出来之前照旧用 `profile://memory/` 做实验。
+
 ## 下一步
 
 - 确定 Profile 初始文件种子的声明接口（静态目录映射 vs. `mount` 初始化回调）与 `profile://` 默认放行边界，更新 Spec 后实现。

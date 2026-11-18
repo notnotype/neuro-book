@@ -105,6 +105,7 @@ owners:
 
 27. `shell` 的 `async`：参数加 `async?`，为真时转后台，见 [`jobs.md`](jobs.md) 输出 7。
 28. `ask` 的 `async`：参数加 `async?`，为真时提出异步提问（[`harness/runtime.md`](../harness/runtime.md) 输出 40、43），工具立即返回一句“问题已提出，回答会作为一条输入送来”，运行接着跑；问题留到有人回答，跨轮也在；回答作为一条输入进缓冲区。后台会话里同样得 `ask-unavailable`。
+29. 代码里调 `shell`（planned）：在嵌套调用里（[`harness/runtime.md`](../harness/runtime.md) 输出 90）`async` 为真时不执行，得 `error`、码 `async-in-code`：转后台的命令寿命超出这段代码。别的参数照常。
 
 ## 状态与转换
 

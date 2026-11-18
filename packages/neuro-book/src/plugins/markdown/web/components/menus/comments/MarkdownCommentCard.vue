@@ -243,6 +243,8 @@ function onKeydown(event: KeyboardEvent): void {
 
 .markdown-comment-card__body {
     margin: 0;
+    /* 批注意见是内容，要能复制（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
     max-height: calc(12 * 1.55em);
     overflow-y: auto;
     white-space: pre-wrap;

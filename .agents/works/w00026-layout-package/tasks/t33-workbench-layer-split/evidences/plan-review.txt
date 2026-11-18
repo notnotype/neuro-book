@@ -1,0 +1,119 @@
+t33 计划第 1 稿 设计审查（只读；未改仓库文件）
+
+核对方式：逐文件读了计划点到的文件与 grep 全仓导入；跑了 `bun test src/boundary.test.ts`（nb-layout，2 条通过）。"L2 用到今天不在公开入口里的 L0 名字"想用 TS 脚本机器核对，脚本需审批没跑成，改为逐行读 import 核对（见第 3 条），结论请在实施时用类型检查复核。
+
+### 1. 新包的配置文件与依赖没列全，照字面做 `bun test` 与 Lab 都会断
+严重程度：阻断
+位置：plan.md 第 20 到 36 行（新包 package.json 一节）、第 69 到 70 行（登记）
+现象：计划只写了 `package.json` 的 name、exports（`.`、`./vue`）、两个依赖、两条脚本。nb-layout 现有而新包同样需要、计划没提的有：
+- `bunfig.toml`（`pathIgnorePatterns = ["**/*.dom.test.ts"]`）。搬过去的 `TabStrip.dom.test.ts`、`tab-strip-geometry.dom.test.ts` 不排除时，`bun test` 会去加载 `.vue`，直接失败；
+- `vitest.config.ts`（happy-dom、`@vitejs/plugin-vue`、`setupFiles` 指向 `@notnotype/neuro-book-test-support/vitest`、`execArgv` 那行）；
+- `tsconfig.json`（排除 `src/vue`）与 `tsconfig.vue.json`（DOM lib、`vueCompilerOptions`）；`typecheck` 脚本 `tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json` 依赖它们；
+- devDependencies：`@notnotype/neuro-book-test-support`（boundary.test 与 vitest 的 setup 都用）、`@vitejs/plugin-vue`、`@vue/test-utils`、`happy-dom`、`vitest`、`vue`、`vue-tsc`、`typescript`、`@types/bun`；peerDependencies 的 `vue`；
+- `./lab-sources` 导出与 `src/vue/lab-sources.ts` 新文件（含 `/// <reference types="vite/client" />` 与 `import.meta.glob`）。计划第 48 行说“`lab-sources.ts` 只登记留在 L1 的组件”，但这个文件是 glob，没有可“登记”的东西；真正要做的是新包里建一份、`package.json` 加导出、`component-index.ts` 多引一对 `nbWorkbenchLayoutComponentDocs/Modules`；
+- `AGENTS.md` 必须含 `../../AGENTS.md` 字样，否则 `governance:check` 报“包级 AGENTS.md 未引用根共享规则”（scripts/ci/agent-governance-contract.ts:448）。
+为什么是问题：这些都是“照 nb-layout 的写法”四个字能带出来、但计划没写进验收的东西；漏掉任一项，切片 2 的验证命令就红，返工的是配置而不是设计。
+建议改法：新包一节列全上面八项，写明“bunfig、vitest、两份 tsconfig 从 nb-layout 复制后改 include”；Lab 登记写成“新建 lab-sources 与 component-index 引入”，删掉“lab-sources.ts 只登记留在 L1 的组件”这句。
+
+### 2. SDK 打包：`pack.ts` 的类型路径映射、组件分组与 `sdk.test.ts` 两条测试，照计划只改“重导出”会红，且可能把外部引用写进发布的 d.ts
+严重程度：阻断
+位置：plan.md 第 63 行；packages/neuro-book/plugin-sdk/pack.ts:77 到 81、:234 到 238；src/sdk/sdk.test.ts:47 到 62
+现象：
+- `typePaths()` 只给 `@notnotype/nb-layout`、`/vue` 映射到源码（pack.ts:78、79）。文件头注释（pack.ts:7）写明：经 `node_modules` 解析到的工作区包被 TypeScript 当外部库，不生成声明。SDK 的 d.ts 经 `src/sdk/workbench.ts:24` 的 `ViewContext` → `workbench/web/contracts.ts`、`shared/contracts.ts` 引入 `LayoutDropAction`、`LayoutEdgeTarget`、`LayoutFloatRect`（shared/contracts.ts:6），这些搬走后来自新包。不加 `@notnotype/nb-workbench-layout` 与 `/vue` 的映射，发布的 `index.d.ts`/`browser.d.ts`/`components.d.ts` 会留下作者项目装不到的 `import ... from "@notnotype/nb-workbench-layout"`。
+- `componentsDoc()`（pack.ts:234 到 238）靠读 `nb-layout/vue` 目录里的 `.vue` 给组件分到“布局”组。`TabStrip.vue` 搬走后它掉到“其它”组，`docs/components.md` 的分组变了，而计划的判据是“名字清单一致”，名字没变分组变了，对照若只比名字会漏掉。
+- `sdk.test.ts:50` 的 `entries` 只读 `nb-ui/components` 与 `nb-layout/vue` 两个入口，`TabStrip` 不在其中后，“列出的与入口里单文件组件逐个对上”那条失败；`:61` 的 `layout` 类型集合不含 `TabStripItem`、`TabStripPartition`（搬到新包 `/vue`），`sdk.filter(!layout.has)` 会多出这两个名字，与 `nbUi` 对不上，第二条也失败。
+为什么是问题：计划只写“`TabStrip` 改从新包重导出，名字不变”，没有覆盖这三处；其中第一处不会在仓库内报错（类型被当外部库），只在作者项目里出问题，最难发现。
+建议改法：
+- `typePaths` 加两行新包映射；`componentsDoc` 把新包的 `vue` 目录也读进 `directoryOf`（同归 `layout`）；`sdk.test.ts` 两处入口列表都加新包 `/vue`、`.`；
+- “名字清单对照”写成可执行的：搬前搬后各跑一次 `build:sdk` 到临时目录，对 `docs/components.md`、`docs/exports.md`、三份 `*.d.ts` 的导出名做 diff，并 `grep -r "nb-workbench-layout\|nb-layout" <输出目录>` 要求零命中。
+
+### 3. `resizeFloatRect` 下沉：它的类型是 L2 的 `LayoutFloatRect`，且 L0 公开入口要加值导出；计划列的“要补的 L0 名字”与实际不符
+严重程度：重要
+位置：plan.md 第 42、44 行；layout-doc.ts:52、:1164、:1176、:1182；grid-rects.ts:124 到 130；index.ts:8
+现象：
+- `resizeFloatRect(start: LayoutFloatRect, direction: LayoutFloatResize, …): LayoutFloatRect`。`LayoutFloatRect` 是 `{x, y, width, height}`，定义在要搬走的 layout-doc.ts:52，而 grid-rects.ts 里与 `GridFloatInput` 放一起的是 `GridRect`（`left/top/right/bottom`），形状不同。直接“下沉到 grid-rects.ts”必然反向导入 L2 的类型，或在 L0 新定义一个同形状的类型再让 L2 的 `LayoutFloatRect` 去对齐，计划没写用哪种。
+- 同一段里紧挨着的 `clampFloatRect`（layout-doc.ts:1164，同样吃 `LayoutFloatRect`）留在 L2，结果一对浮动窗矩形函数分居两包。
+- 公开入口 `index.ts:8` 对 grid-rects 只有 `export type {GridContentInput, GridFloatInput, GridLeafShape, GridRect}`；下沉后的 `resizeFloatRect` 是值导出，要新增一行，`FloatWindowHandles.vue`（相对导入）不受影响，但 L2 与应用都要从公开入口取。
+- 按 import 逐行核对：L2 搬走文件今天不在 `.` 入口里的 L0 名字，源码里只有一个，`placeGrid`（layout-drop.ts:9，用在 :426、:441）；其余 `grid-types`、`grid-geometry`、`grid-drop`、`grid` 的名字都已经在公开入口（`export * from "./grid"` 带出 `grid-types` 全部）。计划写的“`GridPlacement`、`GridLeafPlacement` 一类”是臆测：layout-drop 只用 `placeGrid` 的返回值推断，没有按名字导入这些类型。把它们一并公开，会让“受版本承诺约束”的面无理由变大（提案第 162 行正是为剔出“无人使用”清点而写）。
+为什么是问题：实施时会在“反向导入 L2 类型”与“L0 新建类型”之间当场做设计决定，而且公开面可能多出无人使用的名字。
+建议改法：计划里定下：L0 在 grid-rects.ts 新增 `GridFloatRect`（`{x, y, width, height}`），`resizeFloatRect`、`LayoutFloatResize` 随它下沉，L2 的 `LayoutFloatRect` 写成该类型的别名或保持同形状（结构类型兼容，应用侧零改动）；`clampFloatRect` 同样下沉更自然（二者共用一个矩形），一起列入“要下沉的”。公开入口只补 `placeGrid` 与上面确实被 L2 导入的名字，清单以类型检查结果为准，不预先写 `GridPlacement` 一类。
+
+### 4. `DropSectorsOverlay` 改泛型：应用侧并不需要映射；`labels` 改必填会破坏现有调用；换夹具会丢掉“真实形状”的覆盖
+严重程度：重要
+位置：plan.md 第 45、47 行；DropSectorsOverlay.vue:11 到 19；WorkbenchDragFeedback.vue:29、:69；layout-drop.ts:307 到 312、:324；DropSectorsOverlay.dom.test.ts:4 到 25；fixtures/nb-layout/index.ts（DropSectorsOverlay 场景）
+现象：
+- 不是泛型，只是把 `id` 放宽成 `string`。`LayoutDropSector` 的 `{id, points: ReadonlyArray<readonly [number, number]>, action}` 结构上已经满足 `{id: string; points}`，`WorkbenchDragFeedback.vue:69` 把 `sectors?.items` 原样传入就能过类型检查。“工作台把 `LayoutDropSector` 映射过去，这层映射放在应用里”照字面实现会多写一层每次渲染都跑的无用映射。
+- `labels` 现在是可选的 `Partial<Record<LayoutDropSectorId, string>>`（组件文档写“不给不写”，Lab 的“没有落点”场景不传 `labels`，`WorkbenchDragFeedback.vue:29` 的 `sectorLabels?` 也是可选）。计划改成 `labels: Record<string, string>`：变成必填，Lab 场景与 `WorkbenchDragFeedback` 都要改；而且 `Partial<Record<…, string>>` 的值含 `undefined`，不能直接赋给 `Record<string, string>`，反而逼出映射。这是行为/接口改动，违反“本 Task 只搬家”。
+- 该组件的 dom 测试（`DropSectorsOverlay.dom.test.ts:15 到 25`）用的就是真实的 `layoutDropSectors` 输出：它验证了“判定算出来的形状，组件能画”。换成 L1 手写夹具后，这个覆盖就没了；Lab 场景手写形状的注释还写着“形状与判定一致由 layout-drop.test.ts 守住”，那条测试并不挂组件。另外真实输出含 `id: "whole"`（layout-drop.ts:324），而 `DropSectorsOverlay.md` 写的 `data-drop-sector` 取值只有 left/right/top/bottom/center。
+为什么是问题：映射多余、`labels` 必填是回归、测试迁移丢覆盖。
+建议改法：`sectors: ReadonlyArray<{readonly id: string; readonly points: ReadonlyArray<readonly [number, number]>}>`、`active: string | null`、`labels?: Readonly<Record<string, string | undefined>>`（保持可选，应用侧不动）；L1 测试用手写的小夹具，同时在 L2 包留一条挂载 L1 组件 + 真实 `layoutDropSectors` 的 dom 测试，保住原覆盖；`DropSectorsOverlay.md` 的数据一节与 `data-drop-sector` 取值要同改（计划“Spec 与文档改动”没列组件 `.md`；同理 `DropFeedbackOverlay.md`、`FloatWindowHandles.md` 也要改）。
+
+### 5. `entryRect` 改可选没有真正去掉 L2 概念，且没回答“谁负责画”；计划自己的分界判据按字面会命中一批留在 nb-layout 的文件
+严重程度：重要
+位置：plan.md 第 46 行、第 33 行；DropFeedbackOverlay.vue:10、:19、:132 到 161、:343；DropFeedbackOverlay.dom.test.ts:93 到 236（约 10 条用例）；grid-motion.ts:280、grid-drop.ts:24、DropSectorsOverlay.vue:21
+现象：
+- 只改类型为可选，组件里画 `[data-drop-feedback-entry]` 元素的分支、“切换器条目”文案、10 条 dom 用例全部原样留在 L1。提案写“元素留 L1；工作台的入口条反馈由 L2 经插槽或 `entryRect` 给”，计划只取了前半，没说 L2 怎么给（今天是应用的 `WorkbenchDragFeedback` 传 `entryRect`，仍是这条路）。结果是 L1 仍带着“活动栏入口条”这个 L2 概念，MIT 库里写着“切换器”。
+- 计划的分界判据（第 33 行）是“文件里出现活动栏、状态栏、区域名、容器、编辑组这些词的，属于本包”。按词匹配留在 nb-layout 的文件：`grid-motion.ts:280`（“视图被活动栏吸收”）、`grid-drop.ts:24`（“工作台边缘并入”）、`DropSectorsOverlay.vue:21`（“编辑组最窄 220px”）、`useRenderOrder.ts:24、:44`（“编辑组”）、多份测试里的“侧栏”等；若“容器”也算，命中面更大。这条判据写进 AGENTS.md 后立刻与现状矛盾。
+为什么是问题：实施者要么放任判据与现状矛盾，要么顺手去改这些注释与文案（越出“不改行为”）。
+建议改法：判据限定“导出的标识符、数据属性、类型名”，不含注释与测试里的场景描述；`entryRect` 一项直接写决定：“元素与分支留 L1，注释改成‘次级高亮盒’一类通用说法，由宿主决定高亮什么；不拆、不改名（t36 的事）”，并把 L1 里仍残留的工作台词汇列成已知清单写进 Task README。
+
+### 6. 导入改写脚本：计划只提了 `import type` 与值导入分开，漏了多行导入、行内 `type`、`.vue` 的 script 块与名字表的口径
+严重程度：重要
+位置：plan.md 第 57 到 62 行；NestedGridAcceptanceFixture.vue:10 到 22；WorkbenchSurfaceFixture.vue:10 到 23；GridPanelsScene.vue:12 到 25；fixtures/nb-layout/index.ts:8、:13 到 15
+现象：应用与 e2e 里从 `@notnotype/nb-layout`（或 `/vue`）导入的有 56 个文件、108 处（全仓 grep 计数）。逐个看到的写法：
+- 多行导入占相当比例（上面三个文件，加 `sdk/components.ts:43` 的类型导出），行扫描会漏；
+- `NestedGridAcceptanceFixture.vue` 用行内 `type` 修饰符（`import {createGrid, type Grid, …}`），拆分时必须按“每个说明符的修饰符”保留，而不是按整条语句是不是 `import type`；
+- `.vue` 里导入在 `<script setup lang="ts">` 块内，需先抽出 script 块再解析、写回时保持位置，TS 的 `createSourceFile` 不能直接吃 `.vue`；
+- `fixtures/nb-layout/index.ts:8` 是 `import type {… TabStrip} from "@notnotype/nb-layout/vue"`，`:13 到 15` 是 `await import("@notnotype/nb-layout/vue")` 加名字联合类型取组件——前者要把 `TabStrip` 拆到新包，后者没有 `TabStrip` 不受影响，但“动态 `import()`”要在脚本的覆盖范围里写明；
+- `export type {…} from` 的重导出：`sdk/components.ts:41 到 46`（见第 2 条）。
+- “名字到包的表”按“搬走文件导出的全部名字”建（第 58 行）会错：`resizeFloatRect`、`LayoutFloatResize`（若按第 3 条下沉）搬走文件里有、新位置却是 L0；表应按新位置的公开入口导出名建，并在 dry run 里对每个说明符断言“新包入口确有这个名字”。
+- 没找到 `vi.mock("@notnotype/nb-layout")`、`require`、别名导入（`as`）的用法，可不处理。
+为什么是问题：行级脚本会静默漏掉多行与行内 `type` 的导入，这类漏改只在类型检查时暴露，且 `.vue` 的漏改在 vue-tsc 里才报。
+建议改法：用 TypeScript 的 AST（`.vue` 先用 `@vue/compiler-sfc` 取 script 块）按说明符粒度改写；dry run 输出“文件：旧导入 → 新导入”并要求处理完后全仓 `grep` 里 `from "@notnotype/nb-layout"` 的名字都能在 L0/L1 公开入口里找到（可用类型检查替代）。
+
+### 7. 登记与文档漏项，另有一项多余
+严重程度：重要
+位置：plan.md 第 65 到 73 行、第 75 到 79 行
+现象：
+- 漏：`packages/neuro-book/src/plugins/editor/web/components/EditorTabBar.md:8` 有指向 `nb-layout/src/vue/TabStrip.md` 的 Markdown 链接，搬走后 `docs:check` 的链接检查会红；`docs/specs/ui/workbench-layout.md:151` 同样链接 `TabStrip.md`（计划只写了“实现合同与证据”，没写正文里的链接）；`docs/proposals/workbench-view-containers.md:43` 与 `e2e/lab-tab-strip.e2e.ts:2` 的路径引用（后者是注释，前者是反引号路径）要不要改，计划没表态；
+- 漏：`packages/neuro-book/package.json` 里 nb-layout 在 `devDependencies`（第 69 行，应用是构建产物，运行时不装），计划只写“加 `workspace:*`”没写区段，写进 `dependencies` 会被应用包的依赖清单带出去；
+- 漏：`bun.lock` 要有新工作区条目与应用依赖的变化，CI 用 `--frozen-lockfile` 时不提交会红（风险一节只提了冲突，没进登记清单）；
+- 多余：“根 `README.md` 的包表与 `docs/` 里现有的包数”。根 README 的“npm 包”表只列发布的包（没有 nb-layout，没有 neuro-book-test-support），`scripts/release/packages.ts` 里“加包时同步根 README 两份的包表”指的也是发布包；新包 `private`，不进表也不改 `PROJECT-STATUS.md` 里“8 个包”。照做会白改文档；
+- 顺带核对没问题：`private: true` 不会撞发布检查（`release/packages.ts` 只检查 `RELEASE_PACKAGES` 里的包，nb-layout 不在其中）。
+为什么是问题：漏的会让 `docs:check` 或安装出问题，多余的会改出错的文档。
+建议改法：登记清单补上面四项漏的，删掉 README 包表与包数那条（改为“确认不适用，理由：新包 private、不在发布清单”）。
+
+### 8. e2e 选择漏了直接受影响的文件，切片 1 没有任何浏览器验证
+严重程度：重要
+位置：plan.md 第 89、100 行
+现象：计划选的七个文件是 `workbench-shell`、`workbench-views`、`workbench-containers`、`workbench-dnd`、`lab-workbench-surface`、`lab-drop-sectors`、`lab-nested-grid`，另说“加 `TabStrip` 的 Lab 场景”。漏的、且与本 Task 改动直接相连的：
+- `workbench-float.e2e.ts`：切片 1 改了 `FloatWindowHandles` 的导入与 `resizeFloatRect` 位置，这是唯一验证手柄真实缩放的 e2e（`nb-layout` 的单元测试在 happy-dom 里量不到真实矩形）；
+- `editor-area.e2e.ts`：`EditorTabBar` 用 `TabStrip`，且 :908 用到 `.nb-ui-drop-feedback__line`；
+- `lab-scenes.e2e.ts`：遍历全部登记场景，并有“场景数少于阈值说明组件索引或来源断了”的守卫（:75），是检查 `component-index.ts` 与新 `lab-sources` 接线的最直接用例；
+- `lab-grid-panels.e2e.ts`（`GridPanelsScene.vue` 导入 layout-doc 一族，被改写）、`lab-tab-strip.e2e.ts`（计划写的“TabStrip 的 Lab 场景”就是它，应写成文件名）、`workbench-live-drag.e2e.ts` 与 `lab-drag-session.e2e.ts`（`DropFeedbackOverlay` 改动）。
+切片 1 的验证只有“nb-layout `bun test`、vitest、类型检查；neuro-book 类型检查与工作台单元测试”，三个组件（`DropSectorsOverlay`、`FloatWindowHandles`、`DropFeedbackOverlay`）在切片 1 里被改，却没有任何真实浏览器验证，要拖到切片 2 才一起跑，出问题时分不清是下沉还是搬家引起。
+为什么是问题：把“只搬家”的主要风险（解析、导入、Lab 索引）与切片 1 的组件改动混在同一轮 e2e 里，失败后定位成本高；漏掉的文件正好是改动最直接的承载者。
+建议改法：切片 1 验证加 `lab-drop-sectors`、`workbench-dnd`、`workbench-float`、`editor-area`；切片 2 验证清单改为上面七个加 `lab-scenes`、`lab-tab-strip`、`lab-grid-panels`、`workbench-live-drag`、`lab-drag-session`，写成文件名。开发服务的解析问题，除“e2e 自起服务不受影响”外，还要在新包 `bun install` 之后单独起一次 dev 服务打开 `lab?c=TabStrip` 验证（Vite 对 `exports` 的缓存）。
+
+### 9. `boundary.test` 的改动几乎没有约束力：今天的规则就能过，新增的第三条永远过；切片 1 没有闸，L2 的纯 TS 入口也没有规则
+严重程度：建议
+位置：plan.md 第 49 到 53 行、第 83 到 89 行；packages/nb-layout/src/boundary.test.ts；packages/neuro-book-test-support/src/import-boundary.ts
+现象：
+- 我跑了 `bun test src/boundary.test.ts`：2 条通过。原因是 L1 规则 `within: SOURCE_ROOT` 允许 `../layout-drop`、`../layout-doc` 这类包内相对导入，所以提案说的“L1 的依赖规则今天就过不了”与事实不符；切片 1“L1 去掉 L2 概念”没有任何自动闸，只能靠人看。
+- 第三条规则“nb-layout 里不出现 `@notnotype/nb-workbench-layout`”，扫描器本来就拒绝 `vue`、`tabbable`、nb-ui 以外的所有包，已被前两条覆盖，不会因这条多一次失败。真正的闸是搬走后相对导入断掉（类型检查与测试红）。
+- `scanImports` 只扫非测试的 `.ts`、`.vue`，`ImportRule.excluding` 只认目录，不能表达“不得导入这几个文件”。
+- L2 的 `.` 入口会被服务端的 `workbench/shared/contracts.ts`、`shared/editor-panels.ts` 导入（Bun 加载不了 `.vue`），计划的 L2 边界测试只说“只经 `@notnotype/nb-layout` 与 `/vue` 导入”，没有“核心入口不导入 vue、nb-ui”的规则，`TabStrip` 一类 L2 的 Vue 代码误入 `src/` 顶层时没有人拦。
+为什么是问题：计划把 boundary 测试当作验收判据（验收映射第 2 条“两条 `boundary.test` 通过”），而它们在拆分前后都通过，不能证明拆分达标。
+建议改法：切片 1 用一条专门的小测试（按说明符文件名断言 L0、L1 不导入待搬的五个文件），或先把待搬文件 `git mv` 进 `src/workbench/` 子目录并用 `excluding` 拦，切片 2 再整体搬走子目录；L2 的边界测试分两层：`src/` 顶层只许 `@notnotype/nb-layout`，`src/vue/` 许 `vue`、nb-ui（含 `/components`、`/utils`）、`@notnotype/nb-layout` 与 `@notnotype/nb-layout/vue`；验收映射改成“切片 1 的新测试红转绿、搬走后两包的 boundary 测试与类型检查通过”。
+
+未发现问题的方面：
+- 要搬的文件清单本身：layout-doc、layout-project、layout-drop、presented-ids、layout-doc-fixtures 及三份测试，加 TabStrip 一族五个文件。除 `layout-doc-fixtures.ts` 被 `DropSectorsOverlay.dom.test.ts` 与应用的 `default-tree.test.ts`（后者只是同名函数 `docOf`，自己定义，不导入夹具）使用外，没有 L0、L1 文件反向导入这些文件（grep：只有 `FloatWindowHandles.vue`、`DropSectorsOverlay.vue` 两处，计划已覆盖）；`live-drop.ts` 只用 `grid-drop` 的类型，留 L0 成立。
+- 搬走文件对 L0 的其余导入（`grid-types`、`grid-geometry`、`grid-drop`、`grid`）所需名字全部已在公开入口里（只有 `placeGrid` 例外，见第 3 条）；`tab-strip-geometry.ts` 只导入 `resolveListInsertion` 与两个类型，都已公开。
+- `TabStrip.vue` 只导入 `@notnotype/nb-ui/components`、`/utils`、`vue`，不用 nb-layout 的翻译端口（没有 `./text` 导入），所以不牵涉 `nb-layout` 目录翻译与 `text-engine.ts` 的命名空间登记。
+- `scripts/release/packages.ts`：`private: true` 与 nb-layout 不在 `RELEASE_PACKAGES` 里，不冲突；`pack-smoke.ts` 不引用 nb-layout。
+- Lab 组件索引不按路径前缀硬编码（`lab-tab-strip.e2e.ts` 用 `lab?c=TabStrip` 按组件名进场景），新前缀不会断场景地址；`check-dist.ts` 的 lab-sources 守卫是按文档 frontmatter 内容拦，不受新包影响。
+- `check-documentation.ts` 的 `COMPONENT_BARRELS` 登记方式（路径 + `export {default as X} from "./X.vue"` 的正则）与新包入口写法兼容；`TabStrip.md` 与 `TabStrip.vue` 同目录同深度，文档内的相对链接（`../../../../docs/specs/...`）搬后仍有效。
+- 根 `package.json` 的 `workspaces`、`monorepo-boundaries.md` 布局工具一行、根 `AGENTS.md` 的仓库结构，登记点正确；没有 `vi.mock`、`require` 形式引用 nb-layout 的地方；`test-affected` 的依赖图按 package.json 自动算，新包不需要额外登记。
+
+各级数量：阻断 2，重要 6，建议 1（共 9）。
+有效发现编号：1、2、3、4、5、6、7、8、9

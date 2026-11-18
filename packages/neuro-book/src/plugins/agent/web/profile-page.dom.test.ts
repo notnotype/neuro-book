@@ -434,7 +434,7 @@ describe("Skill（skills.md 的白名单）", () => {
 });
 
 describe("表情包（stickers.md 输出 19、profile-settings.md 输出 27）", () => {
-    const summary = (folder: string, extra: Partial<StickerPackSummary> = {}): StickerPackSummary => ({id: `user.${folder}`, folder, source: "user", title: folder, status: "ok", count: 3, thumbnail: `/api/nbook.stickers/image/user.${folder}/a.png?v=1-1`, ...extra});
+    const summary = (folder: string, extra: Partial<StickerPackSummary> = {}): StickerPackSummary => ({id: `user.${folder}`, folder, source: "user", title: folder, status: "ok", count: 3, thumbnail: `/api/nbook.stickers/image/user.${folder}/a.png?v=1-1`, unrecognized: 0, unlisted: 0, ...extra});
     const packsClient = (entries: readonly StickerPackSummary[]): StickerPacksClient => ({entries: shallowRef(entries), ensure: () => undefined});
     const profileSettings = (settings: ReturnType<typeof open>["settings"]) => settings.get(agentSettings.settings.profileSettings);
 

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：表情选择器与补全</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.3; }
+.lead { margin: 0 0 24px; color: var(--muted); }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands, .shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .cands, .shots { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p, figcaption { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+figure { margin: 0; }
+img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+code { font-size: 14px; }
+ul, ol { margin: 0; padding-left: 1.4em; }
+ol.decided { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：表情选择器与补全</h1>
+<p class="lead">样本里“星璃”一包用的是刚生成的默认表情（第一批，画风另议）；“猫猫日常”“小狗”是色块占位。</p>
+
+<section data-nbdev-question="picker-layout" data-nbdev-type="single" data-nbdev-recommend="tabs">
+  <h2>选择器面板用哪种版式？</h2>
+  <p class="rec"><strong>推荐 A：</strong>面板约 350×420，顶上搜索，表情包标签横排在搜索框下面（第一个是“最近用过”），网格按包分组、往下滚时标签跟着亮；底部一行写指着的表情的名字与写法，网格里不写字，格子能放得更密（一行 6 个）。点一下插入并关上面板，Shift 点插入后不关，方便连发几个。B 把表情包放到左边一竖列，省掉底部一行，名字只在悬停提示里。</p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="tabs" data-nbdev-label="A 顶上标签、底部写名字">
+      <h3>A 顶上标签、底部写名字</h3>
+      <img src="r1/tabs.webp" alt="版式 A">
+      <p>指着的是“思考”，底部写名字与 <code>:lyra/思考:</code></p>
+    </div>
+    <div class="cand" data-nbdev-option="rail" data-nbdev-label="B 左边一竖列表情包">
+      <h3>B 左边一竖列表情包</h3>
+      <img src="r1/rail.webp" alt="版式 B">
+      <p>名字只在悬停提示里</p>
+    </div>
+  </div>
+  <div class="shots" style="margin-top: 16px">
+    <figure><img src="r1/tabs-dark.webp" alt="A 暗色"><figcaption>A 暗色</figcaption></figure>
+    <figure><img src="r1/search.webp" alt="搜索"><figcaption>A 里搜“开”：不分组、标签收起</figcaption></figure>
+    <figure><img src="r1/narrow.webp" alt="390 宽"><figcaption>390 宽：面板夹在窗口里</figcaption></figure>
+    <figure><img src="r1/empty.webp" alt="没有表情包"><figcaption>一个表情包也没有：去设置里新建</figcaption></figure>
+  </div>
+</section>
+
+<section data-nbdev-question="completion-row" data-nbdev-type="confirm" data-nbdev-label="补全菜单一行是小图、名字、表情包名">
+  <h2>补全菜单这样画行不行？</h2>
+  <p class="rec"><strong>推荐同意：</strong>就是现在斜杠菜单与输入框 <code>@</code> 菜单的那种列表，每行左边是 24px 的小图、名字，右边淡色写表情包的显示名（两个包都有“开心”时靠它分开）。编辑器里跟着光标在下方；输入框里与外框同宽、在上方，和现有的 <code>@</code> 菜单一样。按名字与拼音首字母筛：打 <code>:开</code> 与 <code>:k</code> 都能找到“开心”；打 <code>:lyra/</code> 只列这个包。确认后插入的写法一律带包（同提示词里的写法）。</p>
+  <div class="shots">
+    <figure><img src="r1/complete-editor.webp" alt="编辑器里的补全"><figcaption>编辑器里打 <code>:开</code></figcaption></figure>
+    <figure><img src="r1/complete-composer.webp" alt="输入框里的补全"><figcaption>输入框里打 <code>:k</code>（开心、困的首字母）</figcaption></figure>
+  </div>
+</section>
+
+<section data-nbdev-question="sticker-only-message" data-nbdev-type="single" data-nbdev-recommend="bare">
+  <h2>只有表情的一条消息还画气泡吗？</h2>
+  <p class="rec"><strong>推荐不画：</strong>聊天软件里单发一个表情都不带气泡，大图直接放在消息的位置；句子里夹着表情的照常是气泡里的行内小图。两张图上面一条都是句子里的小图，下面一条是只有表情的消息。</p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="bare" data-nbdev-label="不画气泡">
+      <h3>不画气泡</h3>
+      <img src="r1/message-bare.webp" alt="不画气泡">
+    </div>
+    <div class="cand" data-nbdev-option="bubble" data-nbdev-label="照常在气泡里">
+      <h3>照常在气泡里</h3>
+      <img src="r1/message-bubble.webp" alt="在气泡里">
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="entry-places" data-nbdev-type="confirm" data-nbdev-label="按钮放在这几个位置">
+  <h2>按钮放在这几处行不行？</h2>
+  <p class="rec"><strong>推荐同意：</strong></p>
+  <ul>
+    <li>编辑器工具栏：图片按钮后面，“链接、图片、表情”一组；放不下时和别的按钮一样收进“⋯”。</li>
+    <li>斜杠菜单：“块”组里“图片”的后面。</li>
+    <li>输入框工具栏：左边 <code>+</code> 的后面（上面两张图里的笑脸）；单行版式放在前置按钮里。</li>
+    <li>选择器从按钮下方弹出（放不下翻到上方），插入在光标处；打开时焦点进搜索框，Esc 关上、焦点回正文。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>入口：编辑器打 <code>:</code> 补全、工具栏按钮、斜杠菜单；输入框打 <code>:</code> 补全、工具栏按钮（会话里定）</li>
+    <li>列全部有效的表情包，最前面一排“最近用过”（本机记住，至多 16 个）（会话里定）</li>
+    <li>半角 <code>:</code> 前面不是英文字母或数字、后面打了至少 1 个字才弹；全角冒号不触发（会话里定）</li>
+    <li>输入框里显示成行内小图；发出的消息与回复同一规则：单独一段且不超过 3 个时大图（会话里定）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

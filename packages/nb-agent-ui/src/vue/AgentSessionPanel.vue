@@ -267,6 +267,8 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
 }
 
 .acv-panel__scope {
+    /* 原生按钮，没有 nb-ui 按钮自带的不可选（nb-ui 规范的“文字能否选中”）。 */
+    user-select: none;
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;

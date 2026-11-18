@@ -123,6 +123,8 @@ async function pick(path: string): Promise<void> {
 }
 
 .works-settings__path {
+    /* 路径要能复制（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
     font-family: var(--font-mono);
     color: var(--text-secondary);
 }

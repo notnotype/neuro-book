@@ -1,0 +1,14 @@
+import {createKernelTranscript} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-agent-ui/src/kernel-transcript";
+
+const mk = (code: string, by: string) => {
+    const t = createKernelTranscript();
+    t.applyPath([
+        {id: "i1", type: "input", at: 1, data: {text: "x"}},
+        {id: "a1", type: "assistant", at: 2, data: {request: 1, content: [], toolCalls: [{id: "c1", tool: "bash", args: {command: "ls"}}]}},
+        {id: "r1", type: "toolResult", at: 3, data: {callId: "c1", status: "denied", code, by, text: "t"}},
+    ]);
+    const a = t.messages().find((m) => m.kind === "assistant");
+    return a && a.kind === "assistant" ? JSON.stringify(a.toolCalls[0]!.note) : "none";
+};
+console.log("user-denied ->", mk("user-denied", "user"));
+console.log("expired     ->", mk("expired", "kernel"));

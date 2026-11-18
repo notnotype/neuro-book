@@ -27,6 +27,8 @@
 - Alt+←、→ 发 `reorder`，Delete 与中键发 `close`，右键、Shift+F10、菜单键发 `context-menu`。宿主不要这些事件时不接就是。
 - 选中的标签是 Tab 停靠点，没有选中时是第一个。`action` 插槽里的按钮宿主写 `tabindex="-1"`。
 
+文字选择：标签条整条不可选（见 nb-ui 开发规范的“文字能否选中”）。
+
 ## 数据
 
 ```ts

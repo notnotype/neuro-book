@@ -137,8 +137,24 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
   - S7 实现审查（2026-11-13）：前端派 Claude Sonnet（11 条：重要 4、建议 7），K-e 派 Claude Opus（6 条：重要 3、建议 3）。到齐后一起归类，修正 `56cecd84a`。要点：读取层的结果带 `stale`，待处理视图只在现在的结果上选第一条（停放回来后 `show-pending` 按旧结果选是第 1 条，已复现）；两个视图“停放时不读”与两个 show 命令补了测试；详情里长链接截断；选中的位置跟着变；强行解除确认时核对持有者。补测试时另发现两个真问题一并改了：内核的 `cannot-apply.root` 是弄坏它的那次修订，不是情节（实现、S7 计划与 Spec 输出 23 都当成了情节，Spec 已改）；行的 `data-row` 用 NUL 分隔，按选择器找行在浏览器里对不上。内核第 6 条（诊断登记变了不发事件，启动时会一直显示“没算出”）是既有问题，并入 K-d。修正后 `test:affected --typecheck` 全过（nb-canon 610 条、bun 2947 条、组件 733 条），真实浏览器重走待处理的路径无误。[前端报告](evidences/impl-review-s7-sonnet.txt)、[内核报告](evidences/impl-review-s7-opus.txt)、[处理](evidences/impl-review-s7-resolution.txt)。
 
 - K-d（2026-11-18 开工）：开发者定用自主推进做完 K-d 与 S8。开工前在 1000 章规模样本上逐段计时，`entry` 的 `changedAt` 慢在引擎倒扫整条时间线，`origins` 慢在每页重放全部步并整份冻结，`changes` 慢在每次对两万条排序；细计划见 `plan.md` 的“K-d 的细计划”，交 omp 做设计审查。
+- S8a 合进 master（2026-11-18，`2b5aba138`）：分支落后 911 个提交；两处冲突（边界表 nb-story 一行取 master 的、nb-canon 一行取分支的；Lab 夹具的导入两边都留），master 加了 `nb-flock` 包，合并后 `bun install`。`test:affected --typecheck --since 56cecd84a`：类型检查与组件测试全过，bun 3428 过、17 败。负载降下来后单独重跑，超时的都过了；剩下 9 条是 master 自己带来的断言失败，分支没改它们涉及的文件：`server.test.ts` 6 条与 `builtin-names.test.ts` 1 条是新内置插件 `nbook.stickers` 没写进期望，`sdk.test.ts` 2 条是 nb-ui 新加的 `DateInput`、`SortableList`、`TagInput` 没列进 SDK。
+- K-d 设计审查（2026-11-18，omp 默认模型；90 分钟被截停，续跑补齐报告）：6 条（重要 3、建议 3），5 条成立、都改进了计划，第 2 条（合同版本）不成立：`inputChanged` 是本分支才加的，master 上没有。要点：诊断登记的代次进 `pending` 的分组缓存与游标；`lastTouched` 改成按事件缓存，因为时间线每次发布都会换新对象，按时间线建索引在“发布后重读”时省不下来；来历的一页隔得远时跳到快照；变更列表只为按条目筛的查询建索引，窄查询照旧先筛后排；测量补上早章、中间页、稀疏地址与窄查询。[报告](evidences/design-review-kd-omp.txt)、[处理](evidences/design-review-kd-resolution.txt)。
+- S8b 条目树跟着条目页（`8a43f89e2`，与 K-d 的审查并行做的）：条目页挂上时把设定视图的选中设成它的条目；组件测试接真实世界与产品的浏览器入口，变异检查抓得到。编辑区拆成两组时在组之间换焦点树不跟着变，记进待确认清单。`test:affected --typecheck` 剩下的失败只有 S8a 认出的 master 带来的 9 条。
+- K-d 实施（2026-11-18）：
+  - K-d1（`83ba1ead4`，Spec `23b029115`）：`inputChanged` 加 `diagnostics`、`marks`；服务里加诊断登记的代次，进 `pending` 的分组缓存与游标。nb-canon 两条用例，剧情插件的链路用例补“浏览器收到 diagnostics”；三处变异检查都抓得到。
+  - K-d2（`a4c3f9aae`）：`lastTouched` 按事件缓存它碰到的字段。
+  - K-d3（`2d96babbd`）：来历按页算，引擎只数步、只为这一页取值，隔得远时跳到快照；差分测试加 `originsPage` 的几种窗口与三百个事件的长时间线；两处变异检查。
+  - K-d4（`b4e49867e`）：按条目筛的 `changes` 走按条目的索引；两处变异检查。
+  - K-d5（`21ed0568b`）：规模脚本加发布后第一次读与重读、来历第三页、稀疏地址、只筛一章的 `changes`；60 章试跑过。1000 章的正式测量等负载降下来再跑（别的会话的评测与类型检查让负载在 15 到 36 之间）。
+  - 临时探针（1000 章、负载 5 到 10，直接调服务）：`entry` 带 `changedAt` 中位 15 → 0.72 毫秒；`origins` 存款 81 → 6.9；按条目的 `changes` 20 → 3.5。
+  - 验证：nb-canon 614 条全过、typecheck 过；`test:affected --typecheck` 剩下的失败只有 S8a 认出的 master 带来的 9 条，另有三条负载下的超时单独重跑都过。
+- S8c e2e（`6c79ad14c`）：`e2e/canon-author.e2e.ts` 生成星瑕样本作品后起生产服务，五个场景（验收 1、2、3、5 与在改动记录里还原）都过，每个用例结束时控制台没有错误。写的过程中改了三处用例写法：设定视图已开着时再点活动栏会把侧栏收起来；没有带值写法的条目页不能用值来判断读到了；状态栏另有一份量宽度用的副本。
+- 截图（2026-11-18）：开发服务加新生成的星瑕样本，亮色，1440 与 390 宽，八张，控制台没有错误、390 宽没有横向滚动，发成 `report` 产物 `s8-screens`（`cc193967b`）。看到 master 合进来的底部面板入口条（待处理、后台任务、改动记录、通知）已经接上本 Task 的两个视图。
+- 收口审查（2026-11-18 启动）：K-d 的提交（`8a43f89e2..21ed0568b`）派 omp；S8 的提交连同合并带进来的部分派 Claude Sonnet，并逐条核对 `author-ui.md` 能不能晋升。
 
 ## 下一步
 
-1. K-d：设计审查处理完以后按 K-d1 到 K-d5 实施。
+1. 等两份收口审查，处理后单独提交修正。
+2. 负载降下来以后：1000 章规模测量（K-d5 的证据）；外壳 e2e（`editor-area`、`welcome`、`lab-scenes`、`workbench-views`、`workbench-shell`、`workbench-containers`、`plugins`，加 `canon-author`）。
+3. Spec 晋升、合入 master。
 2. S8：e2e（含状态栏点进待处理、验收 5、改动记录里还原）、截图、收口审查、Spec 晋升；合入前把 `plugins.e2e` 与 master 对比。

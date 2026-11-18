@@ -1,0 +1,30 @@
+// 带 result 的会话（子会话、任务会话）以文字收口（optional：completed；required：result-missing）时，运行中进来的 followup 是否被取走
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+
+let n = 0;
+const id = () => `c-${++n}`;
+
+for (const mode of ["optional", "required"] as const) {
+    test(`result ${mode}：文字收口后缓冲区里的 followup`, async () => {
+        let release!: () => void;
+        const gate = new Promise<void>((r) => (release = r));
+        let entered!: () => void;
+        const inside = new Promise<void>((r) => (entered = r));
+        const slow = {id: "slow", execute: async () => { entered(); await gate; return "ok"; }};
+        await using s = await createTestSession({tools: [slow], result: {mode, schema: {type: "object"}}});
+        s.model.script({tools: [{tool: "slow"}]}, "文字答复", "第二次文字", "第三次");
+        const sent = await s.raw.send({commandId: id(), input: {text: "任务"}});
+        if (!sent.ok) throw new Error("send failed " + JSON.stringify(sent));
+        await inside;
+        const f = await s.raw.send({commandId: id(), input: {text: "运行中的 followup"}});
+        console.log(mode, "send while running:", JSON.stringify(f.ok ? f.value : f));
+        release();
+        const result = await s.raw.waitRun(sent.value.runId!);
+        console.log(mode, "run reason:", result.reason, JSON.stringify(result.error ?? null), "result via:", result.result?.via);
+        const snap = await s.raw.snapshot();
+        console.log(mode, "buffer after run:", JSON.stringify(snap.buffer?.map((b: any) => ({mode: b.mode, text: b.input?.text}))));
+        console.log(mode, "status:", JSON.stringify(snap.run ?? snap.status));
+    });
+}

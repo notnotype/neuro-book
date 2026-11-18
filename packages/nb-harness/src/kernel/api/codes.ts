@@ -74,6 +74,14 @@ export const toolResultCodes = [
     "approval-unavailable",
     /** 只读模式下的写或执行。 */
     "read-only",
+    /** 代码里调了不能调的工具：收尾工具、声明了 `invokes` 或 `codeCallable: false` 的、改派到另一种 `concurrency` 的（runtime.md 输出 92、95）。 */
+    "invoke-not-allowed",
+    /** 模型直接调了只走代码的工具（声明带 `global`，输出 93）。 */
+    "code-only",
+    /** 一次父调用的嵌套调用超过上限（输出 99）。 */
+    "invoke-limit",
+    /** 父调用已经结束之后才调 `invoke`（输出 100）。 */
+    "parent-finished",
 ] as const;
 
 /** 运行以 `error` 结束时 `runEnded.error.code` 的内核码（模型失败另按 `ModelErrorKind`）。 */

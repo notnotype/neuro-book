@@ -281,6 +281,8 @@ defineExpose({focusTab: (id: string) => tabElement(id)?.focus()});
 
 .nb-tab-strip {
     position: relative;
+    /* 标签是框架，不供选字（nb-ui 规范的“文字能否选中”）。 */
+    user-select: none;
     display: flex;
     align-items: flex-end;
     min-width: 0;

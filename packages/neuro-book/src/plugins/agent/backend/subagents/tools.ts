@@ -114,9 +114,10 @@ export const answerDeclaration: AgentToolDeclaration = {
 
 /** 给模型的名字带 `agent_` 前缀；界面按 id 显式映射。 */
 export const SUBAGENT_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentToolDeclaration>> = [
-    {capability: TOOLS_POINT, id: SPAWN_TOOL, declaration: {...spawnDeclaration, providerName: "agent_spawn"}},
-    {capability: TOOLS_POINT, id: SEND_TOOL, declaration: {...sendDeclaration, providerName: "agent_send"}},
-    {capability: TOOLS_POINT, id: ANSWER_TOOL, declaration: {...answerDeclaration, providerName: "agent_answer"}},
+    // 代码里不能派子代理、给子代理发话与答话（eval.md 输出 19）：子会话的寿命与提问超出一次代码执行，代码里派子代理留到下一批。
+    {capability: TOOLS_POINT, id: SPAWN_TOOL, declaration: {...spawnDeclaration, providerName: "agent_spawn", codeCallable: false}},
+    {capability: TOOLS_POINT, id: SEND_TOOL, declaration: {...sendDeclaration, providerName: "agent_send", codeCallable: false}},
+    {capability: TOOLS_POINT, id: ANSWER_TOOL, declaration: {...answerDeclaration, providerName: "agent_answer", codeCallable: false}},
 ];
 
 export interface SubagentToolDeps {

@@ -27,6 +27,8 @@ type Props = {
 
 `state:local`：可放下的宽度、颜色弹层的开关。`state:inject`：图标按钮的翻译端口；上次用过的颜色（`markdownColorsKey`，见 `MarkdownColorButton.md`），颜色按钮收进“⋯”时在子菜单里选的颜色也记下。`env:global`：`ResizeObserver`，卸载时断开。
 
+文字选择：工具栏不可选（见 nb-ui 开发规范的“文字能否选中”）。
+
 ## 不支持
 
 键盘快捷键（在 Tiptap 里）。

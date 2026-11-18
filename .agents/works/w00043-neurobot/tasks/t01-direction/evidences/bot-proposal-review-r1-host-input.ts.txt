@@ -1,0 +1,16 @@
+import {createKernelTranscript} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-agent-ui/src/kernel-transcript";
+import {splitIntoTurnGroups} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-agent-ui/src/conversation-turns";
+
+const t = createKernelTranscript();
+t.applyPath([
+    {id: "i1", type: "input", at: 1000, data: {text: "你好"}},
+    {id: "a1", type: "assistant", at: 2000, data: {request: 1, content: [{kind: "text", text: "嗨"}], toolCalls: []}},
+    {id: "i2", type: "input", at: 3000, data: {text: "每周简报", by: {kind: "host", source: {plugin: "nbook.schedule", label: "每周简报"}}}},
+    {id: "a2", type: "assistant", at: 4000, data: {request: 2, content: [{kind: "text", text: "简报"}], toolCalls: []}},
+]);
+const msgs = t.messages();
+console.log(msgs.map((m) => `${m.kind}${m.kind === "user" ? ":" + m.intent + ":author=" + JSON.stringify(m.author) : ""}`).join(" | "));
+console.log("turn groups:", splitIntoTurnGroups(msgs).map((g) => g.length));
+// 排队区：运行中收到的 inputQueued 不带 by
+t.applySnapshot({head: 5, buffer: [{id: "q1", mode: "followup", input: {text: "每周简报", by: {kind: "host"}}}], status: {state: "running"}, settings: {}, extensionSettings: {}});
+console.log("queue:", JSON.stringify(t.queue()));

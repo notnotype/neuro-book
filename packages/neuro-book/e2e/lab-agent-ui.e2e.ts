@@ -827,3 +827,61 @@ test.describe("状态栏设置页（docs/specs/agent/conversation.md 输出 46�
         expect(await rows(page, "right")).toEqual(["usage", "cost", "model"]);
     });
 });
+
+/*
+ * 文字选择（docs/specs/runtime/browser-host.md 输出 12 的“文字选择”）：桌面壳在 `<html>` 上设 `data-desktop-frame`，根上默认不可选；
+ * 对话里的内容由组件自己声明可选。判法同 text-selection.e2e.ts：把含某段文案的文本节点整个选中，读 `Selection.toString()`（不可选的读出空串）。
+ */
+test.describe("桌面壳里的文字选择", () => {
+    test.beforeEach(async ({page}) => {
+        await page.addInitScript(() => {
+            const mark = (): boolean => document.documentElement !== null && (document.documentElement.setAttribute("data-desktop-frame", ""), true);
+            if (!mark()) {
+                const observer = new MutationObserver(() => void (mark() && observer.disconnect()));
+                observer.observe(document, {childList: true});
+            }
+        });
+    });
+
+    /** 区域里第一个含 `needle` 的文本节点整个选中后能复制走的文字；没有这样的节点时是 `null`。 */
+    const copyable = (page: Page, selector: string, needle: string): Promise<string | null> => page.locator(selector).first().evaluate((root, wanted) => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+            if (!(node.textContent ?? "").includes(wanted)) continue;
+            const selection = getSelection()!;
+            selection.setBaseAndExtent(node, 0, node, node.textContent!.length);
+            const text = selection.toString();
+            selection.removeAllRanges();
+            return text;
+        }
+        return null;
+    }, needle);
+
+    test("消息流里的回复可选", async ({page}) => {
+        await openScene(page, "AgentConversationView", "answer");
+        await expect(page.locator("html")).toHaveAttribute("data-desktop-frame", "");
+        await expect(stage(page).locator("[data-lab-answer]")).toContainText("第十二下钟声");
+        expect(await copyable(page, ".lab-main [data-agent-stream]", "第十二下钟声")).toContain("第十二下钟声");
+        // 消息流里的折叠标题是按钮：继承不到消息流的可选。
+        const summary = stage(page).locator("[data-turn-summary]").first();
+        const label = await summary.evaluate((element) => {
+            const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) if ((node.textContent ?? "").trim() !== "") return node.textContent!.trim();
+            return "";
+        });
+        expect(label).not.toBe("");
+        expect(await copyable(page, ".lab-main [data-turn-summary]", label)).toBe("");
+    });
+
+    test("停靠区里的审批向导（在消息流之外）：要改的路径与正文里的改动可选，标题不可选", async ({page}) => {
+        await openScene(page, "AgentDock", "approval");
+        const frame = stage(page).locator(".acv-wizard-frame").first();
+        await expect(frame.locator(".acv-wizard-frame__body")).toContainText("他回头看了一眼");
+        // diff 按词拆成几个文本节点，判新增的那一段。
+        expect(await copyable(page, ".lab-main .acv-wizard-frame__body", "看了一眼")).toBe("看了一眼");
+        expect(await copyable(page, ".lab-main .acv-wizard-frame__detail", "第三章")).toContain("第三章");
+        const title = (await frame.locator(".acv-wizard-frame__title").innerText()).trim();
+        expect(title).not.toBe("");
+        expect(await copyable(page, ".lab-main .acv-wizard-frame__title", title)).toBe("");
+    });
+});

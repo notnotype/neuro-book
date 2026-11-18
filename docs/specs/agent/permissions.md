@@ -111,6 +111,8 @@ type Subject =
     - 绑定作品时列出这本书的规则，只读；放行规则标明不生效，文件坏了写明后果。
     - 同页改 `readOnlyCommands`、`modeWriteAction`；这三项不再出现在“其它”。
 23. 审批向导的“以后都允许”：写进“我的规则”末尾，不盖过已有的拒绝，同时按“本会话都批准”应答，当场生效。记的内容同输出 18；不能记时（`remember: false`）没有这个选项。已有同样的规则时不重复写。写入失败时这次与本会话仍然批准，界面提示没有存下。
+24. 代码里的调用（planned）：代码经 `eval` 调的工具（[`harness/runtime.md`](../harness/runtime.md) 输出 90 起）逐个照本 Spec 判定：规则、模式闸门、自有目录、只读模式、“本会话都批准”与“以后都允许”的记忆都同模型直接调用。要问的，询问的事项带来源（[`harness/runtime.md`](../harness/runtime.md) 输出 94），审批向导写明是 eval 里的调用。
+25. `eval` 本身（planned）：等级是 `exec`；它的询问不能记（`remember: false`，没有“本会话都批准”与“以后都允许”，应答 `allow-session` 得 `invalid-answer`），规则或审批模式放行的照旧。`auto` 下审批模型看到的判定对象是代码全文，超过判定对象上限的照现有规则转人工。
 
 ## 状态与转换
 

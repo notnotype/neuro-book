@@ -36,6 +36,7 @@ owners:
 |---|---|---|---|
 | `agent.extensions` | 实现 | `{tags?: string[]; dependsOn?: string[]}` | `<插件 id>.<名>` |
 | `agent.tools` | 实现 | 工具声明里可序列化的部分（说明、参数、`providerName?`、`version`、`finish`、`concurrency`、`strict`、`effect` 的固定值）加 `group?: string`、`defaultForAll?: boolean`、`customFormat?: {syntax: "lark", definition: string}`（原样转给内核，模型按这份语法写参数） | `<插件 id>.<名>`，规则同 [`harness/models.md`](../harness/models.md) 的工具 id |
+| `agent.evalObjects`（planned） | 无（只有声明） | `{name: string, summary: string, docs?: string}`：`name` 是 JS 标识符，`summary` 一行说明，`docs` 是 Markdown | `<插件 id>.<名>` |
 | `agent.statusItems` | 实现（只接受浏览器入口） | `{title: Text, description?: Text, side: "left" \| "right", defaultVisible?: boolean}` | `<插件 id>.<名>` |
 | `agent.profiles` | 实现 | `{name, description, tools: {required: string[]; optional: string[]}, role?: string, hidden?: boolean, defaultTools?: false, icon?: string, modelNeeds?: {vision?: boolean; thinking?: boolean; minContext?: number}}`（`icon` planned） | `<插件 id>.<名>` |
 
@@ -76,6 +77,8 @@ owners:
 21. Profile 的开场指令：`agent.profiles` 的声明加 `starters?: {text: string; icon?: string}[]`（`text` 非空，`icon` 是图标 class），对话第一屏的“试试这些”用它（[conversation.md](conversation.md) 输出 41）。只显示前 3 条，多写的不显示，不因此拒绝整个声明；文字与 `name` 一样不翻译。用户级 Profile 没有声明，没有开场指令。
 22. 对话状态栏的项：`agent.statusItems` 的贡献在对话状态栏的目录里多一项（[conversation.md](conversation.md) 输出 45），实现 `{load(): Promise<Component>}`，组件的属性是 `{ctx}`（对话视图的 `AgentConversationContext`），画一小段行内内容；声明里 `side` 是缺省的一边（用户可以换到另一边，[conversation.md](conversation.md) 输出 45），`defaultVisible` 缺省关（用户勾上才显示），标题与说明是设置页与右键菜单里的文字，来源插件显示为“插件”。只接受浏览器入口的贡献，写在顶层是 `implementation-required`、写在服务端入口下是 `invalid-declaration`。组件渲染出错时只这一项不画（状态栏其余项照常）。插件被停用或撤回后这一项从目录里消失，设置里关于它的显隐、次序与边保留，插件回来时生效。
 23. Profile 声明可用的表情包：`agent.profiles` 的声明加 `stickers?: {allowed: string[] | "all"}`，值是表情包 id；不声明就是空白名单。白名单的合成与用途见 [`stickers.md`](stickers.md)。
+24. 工具声明的代码调用字段（planned）：`agent.tools` 的声明加 `invokes?: true`（执行时能经 `ctx.invoke` 调别的工具）、`codeCallable?: false`（不能被代码调用）、`global?: {object: string, method: string}`（是某个全局对象的方法，只能从代码里调）、`returns?: <JSON Schema>`（代码调用时交回的结构化值的形状），含义见 [`harness/runtime.md`](../harness/runtime.md) 输出 90 到 99 与 [`eval.md`](eval.md)。`global.object` 必须是同一个插件登记的 `agent.evalObjects` 的 `name`，否则这个工具不进工具表，诊断 `eval-object-missing`。
+25. 全局对象（planned）：`agent.evalObjects` 登记一个代码里可用的对象，它的方法是带 `global` 的工具（输出 24）。对象名与内核给的名字（`tool`、`display`、`console`、`require`）或 JS 运行时的全局（`Math`、`process`、`Bun` 等）冲突时这个对象不登记，诊断 `eval-object-conflict`；两个插件登记同名对象时双方都不登记，诊断 `eval-object-conflict` 写明两个来源。对象与方法的用法、文档见 [`eval.md`](eval.md)。
 
 ## 状态与转换
 

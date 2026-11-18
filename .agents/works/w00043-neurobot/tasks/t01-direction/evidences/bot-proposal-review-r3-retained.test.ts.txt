@@ -1,0 +1,63 @@
+// 第三轮复现：表里“留着”的话（error 后的 followup、停止并保留后的 steer 与 followup）在之后任何一次运行里会不会被内核取走。
+import {test} from "bun:test";
+const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const {createTestSession} = await import(`${K}/testing/test-session.ts`);
+const {closeSession} = await import(`${K}/session/session.ts`);
+
+let n = 0;
+const id = () => `c-${++n}`;
+const gated = () => {
+    let release!: () => void; const gate = new Promise<void>((r) => (release = r));
+    let entered!: () => void; const inside = new Promise<void>((r) => (entered = r));
+    const tool = {id: "slow", execute: async (_a: any, ctx: any) => { entered(); await Promise.race([gate, new Promise<void>((r) => ctx.signal?.addEventListener("abort", () => r()))]); return "ok"; }};
+    return {tool, release, inside};
+};
+const buf = async (s: any) => JSON.stringify((await s.raw.snapshot()).buffer?.map((b: any) => `${b.mode}:${b.input?.text}`));
+const inputs = async (s: any) => (await s.events()).filter((e: any) => e.type === "input" || e.type === "steer").map((e: any) => `${e.type}:${e.data.text}`);
+
+test("error 收口后留着的 followup，下一次运行完成时被内核取走", async () => {
+    const g = gated();
+    await using s = await createTestSession({tools: [g.tool]});
+    s.model.script({tools: [{tool: "slow"}]}, {fail: "provider"}, "答宿主", "答用户排的");
+    const sent = await s.raw.send({commandId: id(), input: {text: "用户问题"}});
+    await g.inside;
+    await s.raw.send({commandId: id(), input: {text: "用户排的 followup"}});
+    g.release();
+    console.log("run1:", (await s.raw.waitRun(sent.value.runId)).reason, "buffer:", await buf(s));
+    // 模拟注入方 start({take}) 或空闲时到点的宿主消息：空闲 send 开一轮
+    const host = await s.raw.send({commandId: id(), input: {text: "[日程] 宿主消息"}});
+    console.log("run2:", (await s.raw.waitRun(host.value.runId)).reason, "buffer:", await buf(s));
+    console.log("inputs:", JSON.stringify(await inputs(s)));
+});
+
+test("停止并保留后，空闲 send 开的运行把留着的 steer 并进本轮、followup 接着跑", async () => {
+    const g = gated();
+    await using s = await createTestSession({tools: [g.tool]});
+    s.model.script({tools: [{tool: "slow"}]}, "答新消息", "答留着的 followup");
+    const sent = await s.raw.send({commandId: id(), input: {text: "原任务"}});
+    await g.inside;
+    await s.raw.send({commandId: id(), input: {text: "留着的 steer"}, mode: "steer"});
+    await s.raw.send({commandId: id(), input: {text: "留着的 followup"}});
+    await s.raw.abort({commandId: id(), keepQueue: true});
+    console.log("run1:", (await s.raw.waitRun(sent.value.runId)).reason, "buffer:", await buf(s));
+    const next = await s.raw.send({commandId: id(), input: {text: "新消息"}});
+    console.log("run2:", (await s.raw.waitRun(next.value.runId)).reason, "buffer:", await buf(s));
+    console.log("inputs:", JSON.stringify(await inputs(s)));
+});
+
+test("重启 interrupted 后留着的 steer 与 followup，之后开的运行同样取走", async () => {
+    const g = gated();
+    const root = `/tmp/review-bot-proposal-r3/exp/root-${Date.now()}`;
+    await using s = await createTestSession({tools: [g.tool], store: {root}});
+    s.model.script({tools: [{tool: "slow"}]}, "答宿主", "答用户 followup");
+    await s.raw.send({commandId: id(), input: {text: "原任务"}});
+    await g.inside;
+    await s.raw.send({commandId: id(), input: {text: "用户 steer"}, mode: "steer"});
+    await s.raw.send({commandId: id(), input: {text: "用户 followup"}});
+    await closeSession(s.raw, {reason: "interrupted"});
+    await s.reopen();
+    const ends = (await s.events()).filter((e: any) => e.type === "runEnded").map((e: any) => e.data.reason);
+    console.log("after reopen runEnded:", JSON.stringify(ends), "buffer:", await buf(s));
+    const st = await s.raw.snapshot();
+    console.log("idle?", JSON.stringify(st.run ?? st.status));
+});

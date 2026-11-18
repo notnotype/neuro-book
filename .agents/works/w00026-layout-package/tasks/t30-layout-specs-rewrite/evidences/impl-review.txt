@@ -1,0 +1,91 @@
+### 1. F6 用例没有锁住底部入口条的先后顺序
+严重程度：重要；类别：测试。
+位置：docs/specs/ui/workbench-layout.md:145；packages/neuro-book/e2e/workbench-shell.e2e.ts:598–622。
+现象：新增测试确实按 F6 并读焦点归属，检查了活动栏、右栏、底部面板的入口条都有停靠，但只比较了右栏入口条与对话分节的位置。把底部入口条排到它的分节后面，断言仍能满足；原来的 Shift+F6 用例只验证一步折返，同样不比较入口条与分节。
+建议：让底部面板有可聚焦的分节，逐步断言两个区域的入口条都先于各自分节，并用 Shift+F6 核对反序；只晋升已断言的部分，其余暂留句级标记。
+
+### 2. 一个右栏 Tab 往返不足以晋升两条入口条的键盘与读屏合同
+严重程度：重要；类别：测试。
+位置：docs/specs/ui/workbench-layout.md:245；packages/neuro-book/e2e/workbench-containers.e2e.ts:220–232、251–264；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchRegionStrip.vue:153–193。
+现象：新增断言从右栏第一项按 Tab 到第二项，再按 Shift+Tab 返回；未遍历所有入口与条的边界，不测底部面板的文字版入口。既有断言读了右栏按下项，却没有检查读屏的按钮组：删去 role="group"，或只让底部文字按钮跳出 Tab 顺序，这些断言都不会变红。原标记却从“每个入口一个 Tab 停靠，读屏是一组带按下态的按钮”整句拿掉了。
+建议：两种入口用同一套键盘序列及角色、名称、pressed 断言；在证据齐全之前，只晋升已覆盖的部分。
+
+第 2 条补充：`WorkbenchRegionStrip.dom.test.ts:29–40` 已断言图标版的 `role="group"`、组名和 pressed，也断言文字版的文字。无条件移除组角色会被它抓住。仍缺的反例是仅文字版丢失组角色，或底部文字入口跳出实际 Tab 顺序。第 2 条范围以此为准。
+
+### 3. 键盘拖放循环测试没有验证右栏、底部入口条在循环内
+严重程度：重要
+位置：docs/specs/ui/workbench-layout.md:185（输出 31）；packages/neuro-book/e2e/workbench-dnd.e2e.ts:437–485、1038–1068。
+现象：`promotion-changes.txt:105` 删除了两条入口条的标记。所引测试里，一条只检查按 Tab 后拖影还在，另一条检查落点签名出现长度大于 1 的循环，但都不校验右栏或底部入口条的落点身份。明确按坐标验证入口条停靠的测试只走到活动栏。删掉右栏和底部两站，仍能绕过这些断言。
+建议：用有两条入口条的真实布局，按 Tab 逐站断言插入线或高亮所在的入口条，再去掉标记。
+
+### 4. 输出 6 只给 32px 标记，多分节高度约束漏标
+严重程度：重要；类别：测试。
+位置：docs/specs/ui/workbench-layout.md:115；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:87–94、110–114；packages/neuro-book/e2e/lab-workbench-surface.e2e.ts:65–68。
+现象：计划二稿第 58 行把入口条 32px 和“底部面板至少 112”都列为待证实；`promotion-changes.txt:192` 也承认没断言多分节最小高度与主题留缝的关系。最终标记落在冒号之前，只明确覆盖 32px。Lab 量的是分节头；投影测试给的 32 是夹具输入。两者都不能区分产品入口条在多分节时有没有为顶上留缝增加相应高度。
+建议：把 32px 限定为卡片内入口条的高度，单列并标记多分节的最小高度约束；用有、无主题间距的产品布局量入口条和拖到最小的底部面板，再晋升。
+
+### 5. 输出 46 晋升了与跨轴搬运相反的尺寸规则
+严重程度：重要；类别：正确性。
+位置：docs/specs/ui/workbench-layout.md:244（输出 46）；packages/neuro-book/src/plugins/workbench/web/entry-drop.ts:178–182、state/containers.ts:157–175；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.test.ts:955–994。
+现象：拖入口跨区域落下时调用 `moveContainerTo`。输出 46 拿掉标题标记后承诺分节“大小……都带着”，只说搬进底部面板要展开。实现只在同轴时保留沿主轴的意图比例，跨轴一律平分；测试明确断言三节原先的比例是 1:2:3 的实例搬进底部面板后为 1:1:1。原来留作目标合同的文字不能按现状晋升。
+建议：输出 46 区分同轴保留比例、跨轴平分、进底部面板展开；输出 44 的 planned 菜单动作及输出 45 的单节例子引用这条搬运规则，避免三处各写一个版本。
+
+
+### 6. 空区域搬运仍引用未实现的菜单项和同区域换序
+严重程度：建议。类别：文档。
+位置：`docs/specs/ui/workbench-layout.md:242–246`、`.agents/works/w00026-layout-package/tasks/t30-layout-specs-rewrite/plan.md:123–127`。
+现象：输出 48 描述单视图容器跨区落入空区域且保留 id，却仍指向输出 44 带 planned 的“移到”，以及输出 45 在同一入口条上调整位置的描述。计划明确要求这里改引输出 46。宿主按原引用查不到这条已晋升的跨区搬运规则。
+核实与建议：对照输出 45 的同区域换序和输出 46 的跨区域搬运。输出 48 改引输出 46，并保留空区域落点特有的容器 id 规则。
+
+补充核对（第 3 条）：`workbench-dnd.e2e.ts:437–458` 明确按 Tab 四次。`:460–485` 的签名也读取了插入线坐标，但只以此判断存在循环，没有把逐站反馈坐标与右栏、底部入口条的身份对应。第 3 条指断言缺失，实际经过哪些站未执行验证。
+
+### 7. 落点几何迁移把列表的唯一指示线规则写给了内容区
+严重程度：重要。类别：正确性。
+位置：`packages/nb-layout/src/vue/DropFeedbackOverlay.md:57–58`、`packages/nb-layout/src/grid-drop.ts:192–232`、`packages/nb-layout/src/grid-drop.test.ts:182–202`。
+现象：新增的 `resolveGridInsertion` 说明承诺每个 `beforeId` 有唯一指示线。两个可见成员有间隙时，指针落在前一个的后缘带与后一个的前缘带都会得到 `beforeId` 为后一个成员，指示线分别贴前一个后缘与后一个前缘。两处会提交到同一个位置，反馈可以画在不同的位置。把这条承诺用于宿主的反馈去重会吞掉合法的位置变化。
+核实：对照 `grid-drop.ts:196–218` 的两条返回路径。`:225–232` 将唯一指示线明确定义给 `resolveListInsertion`，其测试在 `grid-drop.test.ts:188–202` 对三段指针位置断言同一锚点和同一条线。
+建议：`resolveGridInsertion` 写成返回本次边缘命中的指示线，说明同一 `beforeId` 可有不同的线。保留 `resolveListInsertion` 的唯一指示线合同。
+
+### 8. 手势接入文档混淆结束事件、同步落账和成功通知
+严重程度：重要。类别：正确性。
+位置：`packages/nb-layout/src/grid.md:22,34`、`packages/nb-layout/src/vue/NestedGrid.md:47,87–89,175–181`、`docs/specs/ui/nested-grid.md:212–213`。
+现象：`grid.md:22` 仍把 `gesture-end` 与宿主落账并列说明。组件在调用 `onGestureCommit` 之前就发这个事件，即使宿主拒绝或缺少回调也会发。照这段在事件里改树或保存，会越过同步接纳。`NestedGrid.md` 补写的 `onApplied` 异常“只报 issues”也没区分两条诊断出口，只监听组件 `@issues` 的宿主收不到通知异常。
+核实：`NestedGrid.vue:520–531` 先发事件，再调用提交回调，缺失或拒绝即回滚预览。`useGridLayout.ts:81–113` 校验后调用一次 `resizeBranches` 并发布，随后才调 `onApplied`，异常经组合函数选项 `onIssues` 报告。`grid.md:22` 是基线已有的表述，本次迁移后仍与 `:34` 的提交入口并存。
+建议：明确 `gesture-end` 只观察手势结束，原子落账经 `onGestureCommit`，成功后的宿主保存走 `onApplied` 或自建宿主的同等成功路径。把 `onIssues` 的接线补进组合函数的说明。
+
+### 9. 拆分签名迁移漏了入参形状，零意图均分的说法也不准确
+重要（正确性）。见 `docs/specs/ui/nested-grid.md:264`、`packages/nb-layout/src/grid.md:28–30`、`packages/nb-layout/src/grid-types.ts:128–137`、`packages/nb-layout/src/grid.ts:508–537`。
+旧 Spec 的 `splitLeaf(targetId, {branchId, orientation, side, leaf, ratio})` 被删，新的签名链接指向 `grid.md`，那里只写 `splitLeaf(targetId, split)`。正文没有给出 `branchId`、`leaf` 的字段名和形状，也没有写 `ratio` 是新叶份额，缺省 `0.5`，必须有限且严格介于 0 与 1。签名仍可在公开类型中查到。
+`grid.md` 沿用零意图时“两端取同一正权重”的说法。实际用 `1` 作共同基数，再按 `ratio` 拆。以 1001px 容器和 1px sash 直接调用 `createGrid`、`splitLeaf`、`layout`，目标的主轴意图为 0，省略比例时两叶各 500px，给 `ratio: 0.25` 时新叶 250px、原叶 750px。现有零意图用例只测省略比例（`grid.test.ts:514–523`）。
+建议把公开的 `GridSplitInput<T>` 签名接到包文档，并写明零意图时以正数为分配基数，仍按指定比例拆分。
+
+### 10. 结构操作与快照恢复对 16 层的计数差一层
+重要（正确性，基线已有）。见 `packages/nb-layout/src/grid.md:30,48`、`packages/nb-layout/src/grid.ts:172–200,520–523`、`packages/nb-layout/src/grid-snapshot.ts:102–108,204`。
+原 Spec 的拆分段要求结构操作与快照恢复共用上限。迁移后包文档两处都写 16 层，但结构操作把根计作第 1 层，恢复从 0 开始。由公开的 `createGrid`、`serialize`、`restore`、`splitLeaf` 验证：16 层的目标再拆一层会被拒且快照不变。17 层的快照能恢复，恢复后连拆分第二层的叶也被拒，因为整棵树已超过结构操作上限。18 层的快照才被恢复入口拒绝。
+建议在迁移中说明实际兼容边界，另立任务统一深度口径。改恢复阈值前明确如何处理已可读取的 17 层快照，并用同一棵边界树核对拆分与恢复。
+
+### 11. 工作台两处新引用漏掉对应的规则
+建议（文档）。见 `docs/specs/ui/workbench-layout.md:121,150,262–263,335,345,356`、`docs/specs/ui/nested-grid.md:63–66,82,207–213`、`packages/nb-layout/src/vue/NestedGrid.md:49`。
+- 骨架不变量给 `predatesContainers` 引了输出 20，那里讲工具面板头。即使改成验收 20，记录也属于不同的回落路径：面板跑到编辑组旁边时不保留开着的标签。有容器之前的旧档回落时会保留，规则在“状态与转换”第 263 行，有验收 30 和 `layout-doc-store.test.ts:281–313` 的断言。
+- 输出 9 以冒号把方向键 10px、Shift 1px、Home、End、Enter 一起归到嵌套网格输出 7 到 10、26。那几条讲手势边界、取消和双轴。步长与键位作用在 `NestedGrid.md` 的“交互”，应单独链接。容器尺寸、结构变化取消也可指到嵌套网格“时序与寿命”。
+建议把两处引用分别落到恢复规则和键盘说明，保留已经对上的验收 30 与手势编号。
+
+### 12. 嵌套网格改名后旧组名失去入口，提交拒绝也指错失败项
+建议（文档）。见 `docs/specs/ui/nested-grid.md:54,83–88,177–184,231,268` 和任务 `plan.md:89–92,112`。
+- 计划允许整组继续按旧小标题引用。Spec 把组名改成“摆放”“Tab”，在组名说明中没有给旧名的映射。`packages/nb-layout/src/grid-rects.ts:2`、`packages/neuro-book/e2e/lab-grid-structure.e2e.ts:252` 分别仍引用“按矩形摆放”“Tab 顺序”。可保留旧组名作为输出前缀，使这些整组引用继续可查。指单条的引用仍用编号。
+- 实现合同的手势拒绝和回滚引用“失败 1”，该项只列畸形树输入和非法尺寸等数据错误。过期上下文或宿主拒绝这类手势失败应指“时序与寿命”及 `NestedGrid.md:47` 的同步接纳、回滚和诊断合同。
+
+第 7 条复现补充。两次输入的指针横坐标分别为 70 和 150。两次 `beforeId` 都是 `b`。`resolveGridInsertion` 的指示线左缘分别为 80 和 140，`resolveListInsertion` 两次都为 109。`DropFeedbackOverlay.md:71` 的通用接入须知也应限定唯一线坐标适用的落点类型。
+
+## 核查范围与结论
+
+审查范围为 `6064f6492..10637398b` 中的 t30 布局改写。以计划第 2 稿、任务 README、晋升证据与拆条证据为准。
+
+- 从 `promotion-changes.txt` 的 100 条删标记录抽查 51 条，覆盖 13 节。术语 5、输入 3、模型 5、尺寸 5、渲染 5、面板头与活动栏 5、拖动 5、命令与公开状态 5、区域与容器 4、状态与转换 2、失败与恢复 1、边界与兼容 1、验收 5。节内不足 5 条的全部纳入。核对测试的实际断言，并复核保留和迁移的标记。工作台正文剩 68 处 `planned`，含 2 处逗号变体。
+- 核对嵌套网格的拆条、签名迁移和宿主可依赖的先后。交换 `token` 的同轮消费与过期、`content-parked` 的焦点责任、插槽的同轮读数有明确去向。宿主存储与尚缺断言的行为集中列在“目标与非目标”。保持 `status: planned` 符合任务决定。
+- 五条工作台不变量均核对实现和断言入口。旧档回落保留编辑器标签有验收 30 的证据，引用问题见第 11 条。内存文档与跨窗口订阅、内容项父元素、预览与提交时的容器切换、切换前后尺寸意图，在所核对的路径上未发现新增冲突。
+- 两份 Spec 的输出编号分别为 1 到 48、1 到 138，连续。静态检查的 54 个和 28 个相对文件链接目标均存在。引用内容的问题见第 6、11、12 条。
+- 验证包括静态检查、代码与断言核对，以及第 7、9、10 条的包内纯函数或公开 API 实测。浏览器行为依据已读的测试与实现判断，未运行 e2e、开发服务或测试套件。
+
+有效发现共 12 条，阻断 0、重要 9、建议 3。第 10 条为基线已有的实现问题，单独记录。
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12。

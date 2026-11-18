@@ -27,6 +27,7 @@ owners:
 - **运行**：`runStarted` 到 `runEnded` 之间；**轮**：`turnStarted` 到 `turnEnded` 之间，从一条输入开始（没有新输入的“继续”运行除外）。
 - **受理批**：指令受理时写下的写入批。
 - **帧**：向外吐的东西：`log`（日志事件）、`delta`（流式增量）、`status`（运行状态）、`diagnostic`、`reset`。
+- **嵌套调用**：工具在执行中经 `ToolContext.invoke` 发起的工具调用；发起它的那次调用是它的**父调用**（输出 90）。
 
 ## 输入与前置条件
 
@@ -154,6 +155,19 @@ owners:
 87. 调用的唯一身份：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
 88. 指令交回运行：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
 89. 内核调模型端口的 `call` 时另给这次调用的说明：会话 id、请求序号与请求哈希（与这次的 `modelStarted` 的 `request`、`hash` 相同）、所在的轮（轮 id、这一轮在当前路径上的序号；开这一轮的是用户的话时还有那段话；轮外不给）、改过这次请求的扩展（只算这一次 `next` 经过的那几层，一层调两次 `next` 时两次各算各的；`modelStarted.modifiedBy` 同样按此）；`complete()` 的调用没有说明。说明里还可以带一个观察者，由宿主包在端口外面时传进去，适配器把它拿得到的线上事实交给它（[`models.md`](models.md) 输出 20）。不认识说明的端口照常工作。（planned）
+90. 代码调用的入口：声明 `invokes: true` 的工具执行时，`ToolContext` 有 `invoke(tool, args, {signal?, onWaiting?})`，交回这次调用的结局 `NestedOutcome{status, text, code?, details?, images?}`，`status` 必填，是 `ok`、`error`、`denied`、`blocked`、`unknown` 之一；`invoke` 不抛，受理不了的也以结局交回。`onWaiting(true)` 在这个嵌套调用开始等用户应答（输出 94 的审批或同步提问）时调，`onWaiting(false)` 在应答到了时调。没声明的工具拿不到 `invoke`。经 `invoke` 发起的调用（嵌套调用）拿到的 `ToolContext` 没有 `invoke`，另有 `within: {tool, invocation}`（父调用的工具 id 与 `invocation`）。
+91. 嵌套调用的身份：每个嵌套调用受理时得到一个全局唯一的 id，与任何调用的 `callId` 都不同；它的 `ToolContext.callId` 与 `invocation` 都是这个 id，事件、审批与提问的事项、恢复都按它关联。
+92. 准入：按调用这一刻的生效工具集判，审批等到之后、执行之前再判一遍（等的时候工具可能被移出）。目标不在生效工具集得 `error`、码 `unknown-tool`；是收尾工具、声明了 `invokes`、或声明 `codeCallable: false` 的工具得 `error`、码 `invoke-not-allowed`；参数不是能如实写进日志的 JSON（[`session.md`](session.md)“事件”一节的“值”）得 `error`、码 `invalid-arguments`。之后照输出 18 校验参数、只读模式、调审批钩子，钩子的 `ApprovalCtx` 多一个 `within`。
+93. 只走代码的工具：声明带 `global: {object, method}` 的工具不进请求的工具清单与 Profile 看到的工具列表，也不进 `notice{tools-changed}` 的文字（只有这类工具变了时只写 `toolsAnnounced`、不写提醒），照样进 `toolsAnnounced`（条目标 `code: true`）；模型直接发起的调用指向它得 `error`、码 `code-only`。
+94. 嵌套的询问与提问：审批钩子判 `ask` 时立即写 `interactionRequested{kind: "approval"}`，事项带 `within` 与嵌套调用的 id，等应答后才往下走，不并进输出 79 的批量阶段；运行状态 `waiting{pending}` 列出它。嵌套工具经 `ctx.ask` 提问时事项同样带 `within`。应答的规则同顶层（输出 39、40）。
+95. 改派之后：拦截层把嵌套调用改成别的工具或参数时，对最终的调用再判一遍输出 92 的准入与参数；改成 `concurrency` 与原工具不同的工具得 `error`、码 `invoke-not-allowed`。顶层调用被改派到输出 93 的工具得 `code-only`。
+96. 嵌套调用的事件：开始执行时写 `nestedToolStarted{id, within, tool, args, approval: {by}}`。每个嵌套调用（包括没开始的）有且只有一条 `nestedToolResult{id, within, tool, args, status, code?, by?, preview, size, imageCount?}`：`args` 是实际执行的参数，没开始的是调用方传入的，其中超过 2 KB 的字符串截成前 2 KB 并注明总字节数；`preview` 是结果文字的前 2 KB（按 UTF-8 字节，不切断字符），`size` 是全文的字节数，`imageCount` 是图片张数（没有不写）；全文、`details` 与图片不写进日志。两种事件都是 path 的 ctrl 事件，各自单独成一个写入批。
+97. 嵌套调用不进请求：组请求不投影输出 96 的事件；`toolStarted`、`toolResult` 里没有嵌套调用，按它们归约的扩展看不到嵌套调用（要看的扩展按事件名订输出 96 的事件）；压缩时放回最近文件把嵌套调用成功读写的文件算在内；父调用的 `toolResult` 照常。出站过滤（输出 54）对这两种事件，`args` 按工具参数、`preview` 按工具结果交给 `mapEventContent`。
+98. 嵌套调用的并发：同一个父调用的嵌套调用里，`shared` 的并发执行；`exclusive` 的等这个父调用在途的嵌套调用都结束才开始，执行期间不开始别的。
+99. 嵌套调用的上限：一个父调用至多 2,000 个嵌套调用，之后的得 `error`、码 `invoke-limit`。
+100. 嵌套调用的收口：嵌套调用的中止信号是运行的信号与 `invoke` 传入的 `signal` 合并。信号触发后按输出 25 的宽限期结算这个父调用在途的嵌套调用（没开始的 `denied`、码 `aborted`；开始了没完成的 `unknown`、码 `aborted`；宽限期之后到的只诊断 `late-result-dropped`），结算写完 `invoke` 才交回。父调用的执行交回时还有在途的嵌套调用，同样结算之后才写父调用的结果；之后再调 `invoke` 得 `error`、码 `parent-finished`。
+101. 嵌套调用的恢复：打开会话结算上次没收口的运行时（[`session.md`](session.md) 输出 15），嵌套调用在同一批结算：等审批的事项结算为 `interrupted`，写 `nestedToolResult{status: "denied", code: "interrupted-before-approval"}`；开始执行没有结果的写 `unknown`、码 `interrupted`；嵌套的同步提问结算为 `interrupted`。
+102. 叶子移动的计数：`ToolContext.leafMoves` 是这一批调用开始时会话里 `leafChanged` 的条数；同一条回复里的调用与它们的嵌套调用拿到同一个值，回退、切分支之后的下一批变大。跨调用保留状态的工具据此判断两次调用之间叶子有没有被移动过。
 
 ## 状态与转换
 
@@ -170,6 +184,7 @@ owners:
 - 运行循环在队列之外：它每次写日志都排进队列并等写完；等模型的时候不占队列，所以运行中的入队不必等运行结束。
 - 中止不经队列：立刻触发信号，收口作为队列里的一项写入。
 - `waitRun` 完成时会话已经空闲：紧接着发下一条不会得到 `already-running`。
+- `invoke` 从父调用开始执行起可用，到父调用的执行交回为止；嵌套调用的结果都写在父调用的 `toolResult` 之前（输出 100）。
 
 ## 副作用与数据
 
@@ -204,6 +219,7 @@ owners:
 4. 一个扩展把输入脱敏、另一个把超过 16 KB 的工具结果脱敏：重开后事件一致，会话目录全文（含 `blobs/`）搜不到原文。
 5. 子进程在工具执行中被 `kill -9`：重开后执行中的调用 `unknown`、没开始的 `denied{interrupted-before-approval}`、运行 `interrupted`，缓冲区里排着的 followup 还在；子进程在受理批写下、运行循环开始之前被杀：重开后运行 `interrupted`，用同一个 `commandId` 重发得到第一次的值与 `replayed: true`。
 6. 子进程在等审批时被 `kill -9`：重开后这次审批结算为 `interrupted`、调用 `denied{interrupted-before-approval}`；同一次运行里先提的异步提问还待处理，应答后作为输入开新的运行。
+7. 嵌套调用：一个声明 `invokes` 的测试工具在一次调用里并发调两个 `shared` 工具、再调一个要审批的写工具；拒绝之后它照样交回，日志里三条 `nestedToolResult` 都在父调用的 `toolResult` 之前，请求里只有父调用的结果；在等这次审批时 `kill -9`，重开后它结算为 `denied{interrupted-before-approval}`。
 
 Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:llm`）：一轮对话、重开、再一轮；带工具调用；流式中途中止；回退后重发。
 

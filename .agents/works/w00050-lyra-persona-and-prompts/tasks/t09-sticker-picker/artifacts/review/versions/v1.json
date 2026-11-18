@@ -1,0 +1,104 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t09-sticker-picker",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：表情选择器与补全",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "3be3fcf1794377d8c70e8aa1aa3d449c20e0367d65f03445abad5ac717b68270",
+    "files": [
+        "index.html",
+        "r1/complete-composer.webp",
+        "r1/complete-editor.webp",
+        "r1/empty.webp",
+        "r1/message-bare.webp",
+        "r1/message-bubble.webp",
+        "r1/narrow.webp",
+        "r1/rail.webp",
+        "r1/search.webp",
+        "r1/tabs-dark.webp",
+        "r1/tabs.webp"
+    ],
+    "questions": [
+        {
+            "id": "picker-layout",
+            "type": "single",
+            "label": "选择器面板用哪种版式？",
+            "options": [
+                {
+                    "value": "tabs",
+                    "label": "A 顶上标签、底部写名字"
+                },
+                {
+                    "value": "rail",
+                    "label": "B 左边一竖列表情包"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "tabs"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "completion-row",
+            "type": "confirm",
+            "label": "补全菜单一行是小图、名字、表情包名",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "sticker-only-message",
+            "type": "single",
+            "label": "只有表情的一条消息还画气泡吗？",
+            "options": [
+                {
+                    "value": "bare",
+                    "label": "不画气泡"
+                },
+                {
+                    "value": "bubble",
+                    "label": "照常在气泡里"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "bare"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "entry-places",
+            "type": "confirm",
+            "label": "按钮放在这几个位置",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-18T09:34:38.611Z"
+}

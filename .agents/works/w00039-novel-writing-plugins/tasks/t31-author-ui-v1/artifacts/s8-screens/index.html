@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作者界面第一批（设定侧）：收口截图</title>
+<style>
+    body { margin: 0; font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #1f2328; background: #f6f5f1; }
+    main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+    h1 { font-size: 24px; margin: 0 0 8px; }
+    h2 { font-size: 18px; margin: 40px 0 8px; }
+    p, li { max-width: 72ch; }
+    figure { margin: 12px 0 0; }
+    img { display: block; max-width: 100%; border: 1px solid #d8d5cc; border-radius: 8px; background: #fff; }
+    figcaption { margin-top: 6px; color: #57606a; font-size: 14px; }
+    .narrow img { max-width: 390px; }
+    code { font-size: 13px; background: #ecebe5; padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+<h1>作者界面第一批（设定侧）：收口截图</h1>
+<p>w00039 t31 S8，2026-11-18。开发服务加脚本新生成的星瑕样本作品，本机 Chrome，亮色主题，1440×900 与 390×844。走查期间控制台没有错误，390 宽时页面没有横向滚动。端到端的验收由 <code>e2e/canon-author.e2e.ts</code> 守着（验收 1、2、3、5 与在改动记录里还原，五个场景都过）。</p>
+
+<h2>条目页：文字里的值与它的来历</h2>
+<figure><img src="01-entry-text-origins.webp" alt="星瑕的条目页，文字分页，点开存款以后下面列出存款的来历"><figcaption>侧栏“设定”里马甲挂在本体下面；面包屑“设定 › 人物 › 星瑕”；位置缺省是最新一章末尾。点文字里的“存款”，下面列出它是怎么来的：估计的那一笔用警告色写依据，核对点写对没对上，变更的每一步可以“改这一笔”。</figcaption></figure>
+
+<h2>面板分页：值卡与流水</h2>
+<figure><img src="02-panel-ledger.webp" alt="面板分页，左边一列值卡，右边是选中的存款的流水与记一笔"><figcaption>值卡写“第 N 章改过”，常显的“改”；选中存款，右边是记一笔的输入与流水（同来历，按页）。</figcaption></figure>
+
+<h2>就地改的确认条</h2>
+<figure><img src="03-confirm-bar.webp" alt="人物分页里改性格，确认条写改初值与带来的变化"><figcaption>改一个只在初值设过的字段：停一下就预览写回哪里（“改初值”）与带来的变化，再点保存。</figcaption></figure>
+
+<h2>改动记录与回执</h2>
+<figure><img src="04-revisions.webp" alt="底部面板的改动记录视图，从新到旧列出修订"><figcaption>底部面板的“改动记录”：从新到旧，每行写标题、谁、什么时候与带来的变化的一句摘要，带“看回执”“还原”，可按章、按写入者筛。底部面板的入口条（待处理、后台任务、改动记录、通知）随 master 合进来。</figcaption></figure>
+<figure><img src="05-receipt.webp" alt="一次修订的回执页"><figcaption>回执页：改了什么（字段的改前改后）、带来的变化；它是一次还原时写还原的是哪一次。</figcaption></figure>
+
+<h2>待处理与变更详情</h2>
+<figure><img src="06-pending.webp" alt="状态栏点待处理以后，底部面板的待处理视图选中那一条，右边是详情"><figcaption>状态栏“待处理 1”点进去：选中“星瑕的存款对不上”，详情有原句与“打开这一章”、正文写的与算出来的数、嫌疑的几笔（估计的在前）。</figcaption></figure>
+<figure><img src="07-change-page.webp" alt="从嫌疑的一笔打开的变更详情页"><figcaption>“改这一笔”开出那条变更的详情页：文字、安放、原句、每一处改动与依据，数的改动旁有“改”。</figcaption></figure>
+
+<h2>390 宽</h2>
+<figure class="narrow"><img src="08-entry-390.webp" alt="390 像素宽时的条目页面板分页与底部面板"><figcaption>页头换行：标题与简介在上，位置选择与“按计划”在下一行；值卡一列；底部面板的待处理上下排；没有横向滚动。编辑区的标签条在窄屏换成两行是编辑器原有的行为。</figcaption></figure>
+</main>
+</body>
+</html>

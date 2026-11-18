@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 2 轮：星璃默认表情包</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.3; }
+.lead { margin: 0 0 24px; color: var(--muted); }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p, figcaption { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+figure { margin: 0 0 16px; }
+img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+code { font-size: 14px; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 2 轮：星璃默认表情包</h1>
+<p class="lead">你给的三张 3×3 切成 27 格，用 rembg 的 isnet-anime 抠人物，再把“明显不是白底”的颜色并进来，问号、感叹号、Zzz、气团这些符号都留住了；邻格切进来的碎块去掉了。每张 512×512 透明底 WebP。</p>
+
+<section data-nbdev-question="picks" data-nbdev-type="confirm" data-nbdev-label="收近版挑这 15 张、用这些名字">
+  <h2>收近版挑这 15 张、用这些名字行不行？</h2>
+  <p class="rec"><strong>推荐：</strong>蓝框的 15 张，一种表情一张，挑符号最清楚的那一格；名字就是写法里的名字（<code>:lyra/开心:</code>）。没挑的 12 张大多是同一表情的另一版（三张里各有一版开心、生气、睡觉、哭、偷看），留在本地不进包。要换哪一格、改哪个名字，写在附言里，例如“2-7 换掉 1-5”“嗯 改叫 认真”。</p>
+  <figure><img src="r2/grid.webp" alt="27 格与推荐"><figcaption>编号是第几张图的第几格（从左到右、从上到下）</figcaption></figure>
+</section>
+
+<section data-nbdev-question="edge" data-nbdev-type="single" data-nbdev-recommend="edge">
+  <h2>收近版也加一圈白边吗？</h2>
+  <p class="rec"><strong>推荐加：</strong>你给的图本来没有白边，我按外形补了一圈（同第一批的模切边）。暗色底上加了白边的更像贴纸，头发和底色也分得开；亮色底上看不太出差别。</p>
+  <figure><img src="r2/border.webp" alt="加不加白边"></figure>
+  <div class="cands" style="grid-template-columns: repeat(2, minmax(0, 1fr))">
+    <div class="cand" data-nbdev-option="edge" data-nbdev-label="加白边"><h3>加白边</h3></div>
+    <div class="cand" data-nbdev-option="plain" data-nbdev-label="不加"><h3>不加</h3></div>
+  </div>
+</section>
+
+<section data-nbdev-question="first-batch" data-nbdev-type="single" data-nbdev-recommend="two-packs">
+  <h2>第一批（半身、12 张）怎么用？</h2>
+  <p class="rec"><strong>推荐 A：两个内置包。</strong>下图左边是第一批，右边是收近版；上面一行是单发时的大图（约 120 像素），下面两行是句子里的行内小图。大图两版都好看，第一批的衣服、尾巴更完整；行内小图第一批几乎分不出，收近版靠符号认得出来。所以收近版做主包 <code>lyra</code>（星璃），第一批做第二个包 <code>lyra-chibi</code>（星璃 · 半身）；内置主创 Profile 默认只列主包，第二个包在 Profile 设置里自己勾。</p>
+  <figure><img src="r2/chat.webp" alt="两版在对话里的样子"></figure>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="two-packs" data-nbdev-label="A 两个内置包，主创默认只列收近版">
+      <h3>A 两个内置包</h3>
+      <p>两版都能用，名字可以重复（<code>:lyra/开心:</code> 与 <code>:lyra-chibi/开心:</code>）</p>
+    </div>
+    <div class="cand" data-nbdev-option="close-only" data-nbdev-label="B 只内置收近版">
+      <h3>B 只内置收近版</h3>
+      <p>第一批留在本地，以后想用再导入</p>
+    </div>
+    <div class="cand" data-nbdev-option="first-only" data-nbdev-label="C 只内置第一批">
+      <h3>C 只内置第一批</h3>
+      <p>行内小图认不出，要靠悬停提示</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>构图收近；第一批也保留，比过大图再定怎么用（第 1 轮）</li>
+    <li>第一批图里的白边留着（第 1 轮）</li>
+    <li>收近版用你给的三张 3×3，不再重新生成（会话里）</li>
+    <li>内置来源：随应用分发、只读、可复制到我的，内置主创默认能用（第 1 轮）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

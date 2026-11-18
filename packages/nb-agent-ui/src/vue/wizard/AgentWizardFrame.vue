@@ -85,6 +85,8 @@ const count = computed(() => (docked.value === null ? props.count : [docked.valu
 }
 
 .acv-wizard-frame__head {
+    /* 标题与计数是框架：同步向导在消息流里，不写会继承消息流的可选；标题行里的详情自己放开（nb-ui 规范的“文字能否选中”）。 */
+    user-select: none;
     display: flex;
     flex-shrink: 0;
     align-items: center;
@@ -120,6 +122,8 @@ const count = computed(() => (docked.value === null ? props.count : [docked.valu
 
 .acv-wizard-frame__detail {
     min-width: 0;
+    /* 详情是要改的路径或要跑的命令，要能复制。 */
+    user-select: text;
     overflow: hidden;
     color: var(--text-secondary);
     font-family: var(--font-mono);
@@ -145,6 +149,8 @@ const count = computed(() => (docked.value === null ? props.count : [docked.valu
     margin: -4px;
     padding: 4px;
     overflow: auto;
+    /* 审批的命令、diff 与参数要能复制；停靠态在消息流之外，所以写在这里，不靠宿主容器（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
 }
 
 .acv-wizard-frame__body.is-tall {

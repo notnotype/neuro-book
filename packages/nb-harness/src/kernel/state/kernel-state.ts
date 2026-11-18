@@ -14,7 +14,7 @@ export interface PathKernelState {
     /** 发出了还没有结果的模型请求（各种用途：对话、审批、压缩、后台），按发出的顺序。中止与恢复按它逐项收口。 */
     readonly openRequests: readonly number[];
     /** 这条路径上最后一次告诉模型的工具集（`toolsAnnounced`）；还没告诉过时为 null。 */
-    readonly announced: readonly {readonly id: string; readonly version: string}[] | null;
+    readonly announced: readonly {readonly id: string; readonly version: string; readonly code?: true}[] | null;
     /** 这条路径上写过 `notice{code: "result-requested"}`。 */
     readonly resultRequested: boolean;
     /** 这条路径上还没应答的等用户事项（`interactionRequested` 之后、`interactionResolved` 之前），按提出的顺序。 */
@@ -32,6 +32,8 @@ export interface PendingInteraction {
     readonly kind: "approval" | "question";
     readonly request: JsonValue;
     readonly async: boolean;
+    /** 嵌套调用的事项：父调用的工具与 `invocation`（runtime.md 输出 94）。 */
+    readonly within?: {readonly tool: string; readonly invocation: string};
 }
 
 export const initialPathKernel: PathKernelState = {history: initialHistory, run: null, openRequests: [], announced: null, resultRequested: false, pending: [], continued: {}};
@@ -64,13 +66,13 @@ export function reducePathKernel(state: PathKernelState, event: LogEvent): PathK
             continued = {...continued, [data.by as string]: (continued[data.by as string] ?? 0) + 1};
             break;
         case "toolsAnnounced":
-            announced = data.tools as {id: string; version: string}[];
+            announced = data.tools as {id: string; version: string; code?: true}[];
             break;
         case "notice":
             if (data.code === "result-requested") resultRequested = true;
             break;
         case "interactionRequested":
-            pending = [...pending, {id: data.id as string, callId: data.callId as string, kind: data.kind as PendingInteraction["kind"], request: data.request as JsonValue, async: data.async === true}];
+            pending = [...pending, {id: data.id as string, callId: data.callId as string, kind: data.kind as PendingInteraction["kind"], request: data.request as JsonValue, async: data.async === true, ...(data.within === undefined ? {} : {within: data.within as {tool: string; invocation: string}})}];
             break;
         case "interactionResolved":
             pending = pending.filter((item) => item.id !== data.id);
@@ -93,12 +95,14 @@ export interface SessionKernelState {
     readonly remembered: readonly string[];
     readonly rememberedRules: readonly JsonValue[];
     readonly profile: {readonly id: string; readonly hash: string} | null;
+    /** `leafChanged` 的条数（回退、切分支）：给跨调用保留状态的工具判断叶子动过没有（runtime.md 输出 102）。 */
+    readonly leafMoves: number;
 }
 
 export const DEFAULT_CORE_SETTINGS: CoreSettings = {model: null, effort: null, approvalMode: "ask", readOnly: false};
 
 export function initialSessionKernel(core: CoreSettings = DEFAULT_CORE_SETTINGS): SessionKernelState {
-    return {buffer: [], core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null};
+    return {buffer: [], core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null, leafMoves: 0};
 }
 
 export function reduceSessionKernel(state: SessionKernelState, event: LogEvent): SessionKernelState {
@@ -128,6 +132,8 @@ export function reduceSessionKernel(state: SessionKernelState, event: LogEvent):
             return state.remembered.includes(data.tool as string) ? state : {...state, remembered: [...state.remembered, data.tool as string]};
         case "profileChanged":
             return {...state, profile: {id: data.profile as string, hash: data.hash as string}};
+        case "leafChanged":
+            return {...state, leafMoves: state.leafMoves + 1};
     }
     return state;
 }

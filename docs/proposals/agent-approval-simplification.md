@@ -180,3 +180,4 @@ adrs: []
 | 2026-11-18 | 开发者 | 同意改 nb-harness 内核：询问与放行加 `cause`，写进会话日志 |
 | 2026-11-18 | 开发者 | 接受“逐个确认下命令只把输出写到自有目录也不问”在行为变化 1 里 |
 | 2026-11-18 | 开发者 | 没有异议，接受本提案 |
+| 2026-11-18 | 开发者 | eval（[w00032 t21](../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/README.md)）的内核嵌套调用通道先于本提案合入；实施本提案时，询问与放行的 `cause` 同样填进嵌套调用（[`harness/runtime.md`](../specs/harness/runtime.md) 输出 90 起） |

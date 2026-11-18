@@ -1,0 +1,174 @@
+# w00043 t01 bot 提案第四稿（副本 proposal-78bafe8de.md）前端审查，Sonnet
+范围：第四节第 10 小节，及第 4、5、6、8 小节落到界面、nb-agent-ui、浏览器一侧的部分。只读；证据来自 Spec 与源码，没有跑 e2e。
+
+### 1. 主对话仍能被通用会话视图原样打开，“关掉改写历史”只关了 bot 视图这一个入口
+- **严重程度**：重要；**类别**：不变量
+- **位置**：提案第四节第 10 小节“bot 视图关掉：……改写历史的入口”；packages/neuro-book/src/plugins/agent/web/plugin.ts（`FOCUS_SESSION_COMMAND` 的实现约 :639-646、`ACTIVITY_ITEM` 的 `command` 约 :95）、web/session-host.ts:1638
+- **现象**：提案靠“bot 视图里不显示编辑、重试、分支”来保证主对话的叶子不被拉回旧位置。但主对话只是一个普通的 Agent 会话。状态栏的“Agent：N 运行中 · M 等你处理”条目点一下，执行 `FOCUS_SESSION_COMMAND`，实现是 `reveal()` 后 `host.open(sessionId)`，把这个会话开进 `nbook.agent` 自己的对话视图。该视图的 `interaction` 写死为 `canMutateHistory: true, canOpenTree: true, canArchive: true`（session-host.ts:1638）。“模型请求”页的 `request.open-session`、子会话顶栏的祖先路径（`Current.ancestors`）走的也是 `session.select`/同一条命令。bot 在后台跑周期任务时这个状态栏条目会常亮，而且等审批时点击的目标 `activity.target` 优先指向等用户的会话，恰好就是主对话。
+- **为什么是问题**：提案写的危险（“重试两周前的一条，之后的周期任务与压缩点都落到被放弃的旁支上”）在这条路上完全没有被挡住；用户从状态栏进去后，编辑、重试、分支、归档、`/fork` 都可用。UI 隐藏不是不变量，且提案第五节“接口”里没有任何服务端对 `owner` 会话拒绝回退、分支、归档的条目。
+- **如何核实**：`grep -n "FOCUS_SESSION_COMMAND\|interaction:" packages/neuro-book/src/plugins/agent/web/plugin.ts packages/neuro-book/src/plugins/agent/web/session-host.ts`；读 activity.ts 的 `target`。
+- **建议改法**：二选一或并用。(a) 带 `owner` 的会话在 `FOCUS_SESSION_COMMAND` 与 `session.select` 里改走 owner 插件登记的“打开”入口（bot 视图），通用视图不显示这类会话；(b) 服务端对带 `owner` 的会话拒绝 `rewind`、`fork`、分支切换与归档，码如 `owned-session`，作为合同写进 `agent/sessions.md`。无论哪种，把“通用视图能不能打开 owned 会话”写进第六节要改的 Spec。
+
+### 2. “对话宿主做成服务、带一组选项”没有列出选项，而宿主有至少六条路径会把当前会话换掉
+- **严重程度**：重要；**类别**：不变量 / 合同
+- **位置**：提案第四节第 10 小节“对话宿主做成服务”；web/session-host.ts（`SessionHost` 接口 :205-221、`restore` :1046、`newCommand` :1116、`forkCommand` :1125、`interaction` :1638、`HOST_COMMANDS` :68）；web/ConversationHost.vue；web/plugin.ts:313、:466、:520
+- **现象**：现在的宿主是“对话位置”的宿主：`hostAt(position: "view" | "page")`，会话在其中可切换。`restore()` 从 `recentRecord(position)` 恢复上次会话；`open(id)`、`create()`、`/new`、`/fork`、`SubagentsEntry` 的 `session.select`、`composer` 顶栏的会话列表，都会改 `current`。`interaction` 的十几个开关是写死的（`canArchive: true`、`canMutateHistory`、`commands: HOST_COMMANDS` 含 `new`、`fork`、`rename`）。提案只说“按会话 id 打开、带一组选项”，brief 里列的选项（不显示会话列表与新会话、关掉改写历史、隐藏标题栏、待处理事项不替换输入框、往前取历史）都没有落成类型。
+- **为什么是问题**：照字面实现，bot 视图里输入 `/new` 或 `/fork`、点子代理卡片、归档，都会把 bot 视图换成别的会话，“同一个 bot 一个视图”的不变量被破坏；`restore` 还会把 bot 视图开成“最近用过的普通会话”。要的其实是一个新档：“固定会话”宿主（`current` 只能是这个 id，`session.select` 对后代转交给通用视图），不是在现有宿主上堆选项。
+- **另外**：(a) 服务键要放在 `nbook.agent` 的 `shared/contracts.ts`（architecture.test.ts 只许跨插件运行时导入 `shared/contracts.ts`，且共用代码不得 import web 目录，类型导入也算），选项类型因此要在 shared 里单独声明，不能引 `SessionHost`；markdown 服务（交 `Component`）是现成先例。(b) `ConversationHost` 的 `[VIEW_HEAD]` 标题区接管是内置视图专属，bot 视图若不申请，面板头只会显示声明里的静态标题，bot 的名字与头像是用户数据，写不进声明；“隐藏标题栏”与“显示是谁”要分开写。(c) 服务要导出的是“组件工厂”（`conversationComponent` 里闭包了 models、profiles、skills、mentions、statusItems 等二十来项依赖），不是 `createSessionHost`。
+- **如何核实**：`grep -n "hostAt\|restore()\|HOST_COMMANDS\|canArchive" packages/neuro-book/src/plugins/agent/web/*.ts`；`sed -n 100,125p packages/neuro-book/src/architecture.test.ts`。
+- **建议改法**：第 10 小节加一张“固定会话档”的选项表：`pinnedSession`（禁 `open/create/restore/fork`，`session.select` 转发给通用视图）、`interaction` 覆盖项（`canMutateHistory`、`canOpenTree`、`canArchive`、`commands` 的白名单：去掉 `new`、`fork`，`/compact` 与 `/rename` 是否保留要定）、`head: "none" | "identity"`、`pendingPlacement`、`history: "windowed"`；服务键与选项类型放 `agent/shared/contracts.ts`；写明视图关闭与重开时 `borrow` 的释放延时照旧。
+
+### 3. 书架页上进入 bot：`workbench.home` 只许一个贡献，书架页没有视图区，提案的“同一个 bot 一个视图实例”两处落不了地
+- **严重程度**：重要；**类别**：不变量
+- **位置**：提案第四节第 10 小节“bot 视图”；docs/specs/ui/workbench-shell.md 输出 36；docs/specs/workbench/bookshelf.md:38 与“实现合同”（“没有贡献或贡献多于一个时回到空工作台”）；docs/specs/workbench/views.md 输出 14、19
+- **现象**：(a) 没有绑定项目的窗口显示书架页，它是 `nbook.projects` 向 `workbench.home` 贡献的唯一首页；规定“没有贡献或贡献多于一个时回到空工作台”。`nbook.bots` 若按直觉再贡献一个首页，书架页就消失。(b) 书架页没有视图区，也没有状态栏：视图（`workbench.views`）、`badge()`、状态栏的 Agent 活动条都只在工作台页面里。(c) 视图声明是静态的、一个 id 一个声明，“同一个 bot 只有一个视图实例”在只有一个 bot 时靠“固定 id”成立，数据形状“按多个 bot 设计”时每个 bot 要动态声明，工作台还没有这条能力。(d) 书架的案头上已经有“看板娘”（`idle` 心情组件，bookshelf.md 第 52 行），与“第一个 bot 是 NeuroBook 的看板娘”是同一个角色，提案没提这个自然入口。
+- **为什么是问题**：提案把“放在哪里”整体推给 t03，但这是合同问题不是外观问题：书架页上的 bot 入口只能是 `nbook.projects` 自己嵌入 bot 视图（需要 projects 依赖 bots 的服务键，bots 又依赖 agent 的对话宿主服务），或者 bots 经新的贡献点往书架页挂一块；两者都要在第六节列出要改的 Spec（bookshelf.md、workbench-shell.md）。静态稿阶段不知道这件事，会出图后返工。
+- **如何核实**：`grep -n "首页贡献\|workbench.home" docs/specs/workbench/bookshelf.md docs/specs/ui/workbench-shell.md`。
+- **建议改法**：第 10 小节先定“两个落点”：项目窗口里是 `nbook.bots` 贡献的右栏视图（固定 id，与 `nbook.agent.conversation` 同在 auxiliarybar）；书架页里是 `nbook.projects` 的案头嵌入一块（点看板娘进入，用 bots 的服务键拿组件）。第六节加上 `bookshelf.md`、`workbench-shell.md` 的预期改动；多 bot 时的动态视图声明明确放进“第一版之后”。
+
+### 4. “用 `@` 引用文件”的提示在主对话里是死路：`@` 菜单写 `project://` 地址，主对话没有主项目
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第四节第 4 小节“不绑作品”（“要碰哪本书在对话里说，或者用 `@` 引用文件”）；web/mentions.ts:1-5、web/plugin.ts:470-480（`projectFiles`）；docs/specs/agent/resources.md 第 28、59 行
+- **现象**：`@` 菜单的数据来自窗口的当前项目（`windowProject.project?.id`，`projectFiles.find`），选中后插入 `[名字](project://路径)`。主对话按提案“和现在没有主项目的会话一样”，`project://` 为 `no-project`（resources.md 第 59 行）。所以在项目窗口里对 bot 用 `@` 选一个章节，插进输入框的是 bot 读不了的地址；在书架页（无项目）里 `@` 只显示“没有项目”。
+- **为什么是问题**：提案把它当作“bot 碰书”的两条路之一，实际一条是坏的，用户第一次试就会遇到 bot 回 `no-project`。
+- **如何核实**：读 mentions.ts 第 1-5 行与 plugin.ts 里 `find: projectFiles === null ? null : …`；读 resources.md 的改写规则。
+- **建议改法**：二选一：bot 视图的 `@` 菜单改写成 `projects://<窗口项目 id>/路径`（全局地址，Spec 已有），同时在服务选项里加 `mentions: "global-address"`；或者 bot 视图关掉 `@` 的文件菜单，提案只留“在对话里说书名”。无论哪种，把这条写进用法档表，并加一条挂载测试（bot 档下 `@` 选出的文本里没有 `project://`）。
+
+### 5. `bots://` 文件“像别的文件一样能打开、能编辑”：浏览器侧至少缺四层，且对话里的改动标签会重蹈 w00050 t05 的崩溃
+- **严重程度**：重要；**类别**：正确性 / 文档
+- **位置**：提案第四节第 8 小节“用户怎么看、怎么改”与第 10 小节；docs/specs/workspace/resources.md 第 16、198 行；packages/neuro-book/src/plugins/files/shared/resource.ts:9（`SCHEMES = ["project", "user"]`）；.agents/works/w00050-lyra-persona-and-prompts/tasks/t05-editor-open-virtual-scheme-crash/README.md；docs/specs/workbench/files-explorer.md 第 25 行
+- **现象**：(a) “浏览器访问已注册的方案”现在是 `(planned)`，浏览器经远程合同只能读写 `project://` 与 `user://` 两份合同；(b) 编辑器的文档层只认这两个方案，w00050 t05 记录的是点 `profile://` 的改动标签会让 `editor.open` 抛错并锁死整个编辑器（状态 `planned`，未修）；(c) 资源管理器的根只有项目根与用户资产根；(d) 对话里文件改动标签的路径是工具参数的原样，主对话里写记忆是 `bot://memory/x.md`（单数地址，要按会话 `owner` 才能展开成 `bots://<id>/…`），浏览器不知道这是哪个 bot；(e) 用户编辑与 bot 的并发写：project 文件有条件保存与冲突处理，`bots://` 要不要同一套没写。提案只写“由 t03 定”，t03 是外观评审。
+- **为什么是问题**：这是一个跨 `nbook.files`、编辑器、资源管理器、Agent 地址改写的横向改动，量级与“对话宿主服务”相当，却没有出现在第五节“接口”与第六节 Spec 清单里；且 t05 的修复在 w00050 里是 `planned`，bot 的第一个界面入口（打开记忆）依赖它。
+- **如何核实**：`grep -n "SCHEMES" packages/neuro-book/src/plugins/files/shared/resource.ts`；`grep -n "planned" docs/specs/workspace/resources.md | head`；读 t05 的 README。
+- **建议改法**：第六节加 `workspace/resources.md`、`workbench/files-explorer.md`、编辑器文档层；写明依赖 w00050 t05 先合入，或第一版把记忆入口收窄成“在 bot 视图里用只读卡片打开记忆目录”并把“编辑”放进路线；对话里的 `bot://` 改动标签由宿主按 `owner` 展开成 `bots://<id>/…` 后再发 `openAddress`，不展开就不显示可点的标签。
+
+### 6. “发消息即以拒绝结算”的界面交互合同缺口：提问与模式切换怎么办、已选的怎么办、两步不是原子的
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第四节第 6 小节、第 10 小节“待处理事项停在哪里”；nb-agent-ui/src/types.ts:555-558（`InputResolution`）、wizard.ts（`choose` 的注释“已经选了的（尤其是拒绝）是用户的决定，不改”）；web/session-host.ts:1070-1110（`submit`）、:1205-1235（`resolveInput`）；docs/specs/ui/agent-conversation-view.md 第 324 行（停靠区）
+- **现象**：现有结算是逐项的：审批 `deny`+`note`；提问必须有 `answer.text` 与 `data.answers`；模式切换是 `{approved:false, note}`。提案只说“以拒绝结算”并附上这句话，没写：
+  1. 挂着的是**提问**（含带表单的）或**模式切换**时发消息怎么结算：提问没有“拒绝”，把自由文字当答案会让工具拿到不合形状的 `data`；
+  2. 一批审批里用户**已经选了一部分**（向导状态里有 allow 的）再发消息，这些选择是丢弃还是保留；
+  3. 要发 N+1 个远程调用（N 次 `resolve`、1 次 `send/enqueue`），第一次 `resolve` 之后运行就可能继续，消息到达时已是 steer 还是新一轮（`submit` 的 `delivery` 由输入框按运行状态定）；部分失败（`already-answered`、`expired`、`send` 被拒）时哪些回滚、草稿放不放回；
+  4. 这句话同时出现在拒绝的 `note` 与随后的用户消息里，模型会看到两遍，对话里也是两处；
+  5. 多窗口同时开着：一个窗口里发消息结算，另一个窗口的向导里用户正在填答案，当前宿主对 `already-answered` 静默处理（session-host.ts:1231），用户填到一半的答案消失而没有说明。
+- **为什么是问题**：这条是开发者 2026-11-10 的决定，界面上最先被用到，却是提案里最没有写成合同的一条；照字面实现会在“提问”这一支上直接出现形状错误，在“批一半”这一支上违背向导自己写的规则。
+- **如何核实**：`sed -n 553,560p packages/nb-agent-ui/src/types.ts`；读 session-host.ts 的 `resolveInput` 与 `submit`。
+- **建议改法**：在 `agent-conversation-view.md` 里定一个宿主级动作（例如 `input.rejectAndSend {text}`），由宿主按固定顺序做完：提问以 `answer.text` 写明“用户没有回答，说：…”且 `data.answers` 为空数组（并要求提问工具接受），模式切换为 `approved:false` 加备注，审批为 `deny`，已选的不保留（写进规则，并在输入框旁一行提示“发出会拒绝 N 项”）；`note` 与消息只留一份（建议只留 `note`，消息作为 steer 的正文不重复进模型上下文需要内核配合，否则接受重复并写明）；失败的结果统一回到“草稿放回、事项原样”。
+
+### 7. 过期结算的显示：适配器会把 `expired` 当成“被规则拒绝”，提案的界面清单里没有这一项
+- **严重程度**：重要；**类别**：正确性
+- **位置**：提案第四节第 6 小节“期限”“到期之后才到的点击，对话宿主提示已过期”；nb-agent-ui/src/kernel-transcript.ts:195-211（`callOutcome`）
+- **现象**：`callOutcome` 对 `denied` 只认 `user-denied`/`by:"user"`、`read-only`、`mode-blocked`、`aborted`、`interrupted-before-approval`，其余一律落成 `kernel.tool.deniedByRule`（“被规则拒绝”）。提案新增的 `denied` 加码 `expired`（结算者是内核）因此会显示成“被规则拒绝”。提问的过期同理没有展示。第十小节的“扩展事件到消息的映射入口”不覆盖这条，它是内核事件字段的映射。另外“到期之后才到的点击，对话宿主提示已过期”只在网络竞态时才发生；常见的情形是用户半小时后回来，向导已经消失，对话里只剩一个事后的工具结果。
+- **为什么是问题**：bot 的无人值守审批过期是常态（周期任务遇到要问的调用，等 30 分钟，提案第 9 小节明说“预期行为”），用户回来看到“被规则拒绝”会去查规则，而不是知道自己没在场；这也与第 9 小节要求“在 bot 视图里说明”冲突。
+- **如何核实**：读 callOutcome；构造 `{status:"denied", code:"expired", by:"kernel"}` 喂给 `createKernelTranscript().applyPath`（packages/nb-agent-ui 的 `kernel-transcript.test.ts` 有现成写法），看 `note` 的引用是 `kernel.tool.deniedByRule`。
+- **建议改法**：第 10 小节列“适配器的映射”：`expired` 加文案“你不在，到期未批准”，提问的过期同样；停靠区或向导里的事项在服务端过期后保留一条“已过期”的占位直到用户翻看过一次，不直接消失；中英文各补一句并过 `locales.test.ts`。
+
+（第 7 条的复现，真实适配器，不绕运行时）：`cd /tmp/review-bot-proposal-r1/repro && bun expired.ts`，输出
+`user-denied -> kernel.tool.deniedByUser`、`expired -> kernel.tool.deniedByRule`。
+
+### 8. 宿主发出的消息：适配器当成用户亲手输入，排队区可被用户编辑与删除，来源说明写在日志还是请求里没定
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：提案第四节第 5 小节“内核加一种发出者 `host`”与第 10 小节“一轮由什么开启，以及来源的标签”；nb-agent-ui/src/kernel-transcript.ts:365-369（`by` 只认 `kind:"session"`）、:509-523（`inputQueued` 的 `queue`，没有 `by`）、types.ts:66-76（`UserMessageView.author`）、web/session-host.ts:1382（`queued.edit`）
+- **现象（真实适配器复现）**：`cd /tmp/review-bot-proposal-r1/repro && bun host-input.ts`。一条日志 `input` 带 `by:{kind:"host",source:{…}}` 经 `applyPath` 后是 `user:normal:author=undefined`，与用户自己的消息完全一样，也就是在没有改适配器之前，到点的周期任务会以“我说的话”显示在对话里；`queue()` 对宿主排队的消息只给 `{id, mode, text}`，没有 `by`，于是运行中到点的宿主消息出现在排队区，带“编辑”“移除”（`queued.edit`/`queued.remove`），用户可以改写或删掉定时注入的提示词，而日程那边的“已发”记录不变。
+- **为什么是问题**：(a) “宿主发出的消息自成一轮”现在不用新字段就成立（普通 `input` 本来就开新轮），要新加的是**来源标签**，不是“一轮由什么开启”；提案把两件事写成一条。(b) `UserMessageView.author?: {label, icon}` 已经承担“别的会话以自己的身份发来的话”，宿主消息应复用它，而不是再加一个并行字段，提案没有提这个现成的字段。(c) 第 5 小节说“给模型时前面加一行固定格式的来源说明”：若加在日志的 `text` 里，视图会把这行当用户气泡的正文显示；若只在建请求时加，界面看不到。没写在哪一层。(d) 轮次的用时：宿主消息开的轮 `durationMs` 从这条 `input` 的时间算起，对周期任务是触发时刻，合理，但对“排队后才取走”的消息是取走时刻，要在 Spec 里写明。
+- **建议改法**：Spec 写成：适配器把 `by.kind==="host"` 映射为带 `author`（来源标签与图标）的用户视图，轮次规则不改；`KernelQueued` 加 `by`，宿主消息在排队区只读（可取消要不要，由内核的 `inputRemoved` 权限定，建议不可由用户移除）；来源说明行只在建请求时加并写进 `harness/runtime.md`，日志里 `text` 保持原文；加两条测试：适配器测试（宿主消息有 `author`、轮次不并入上一轮）、挂载测试（排队区里宿主条目没有编辑和移除）。
+
+### 9. “往前取历史”：后端的 `path` 只能从根往后读，适配器只会整份重建，窗口边界会切开调用与结果
+- **严重程度**：重要；**类别**：正确性 / 文档
+- **位置**：提案第四节第 10 小节“按需往前取历史”、第 4 小节“不轮换会话”、第五节“接口”；packages/neuro-book/src/plugins/agent/backend/remote.ts:235-240（`path`）、web/session-host.ts:402-418（`loadPath`）、packages/nb-agent-ui/src/kernel-transcript.ts:96（`applyPath` 整份重建）、:679（`resetPath`）；docs/specs/agent/sessions.md 第 69 行
+- **现象**：(a) 远程 `path({sessionId, leaf, from})` 的 `from` 是**从根数起**的下标，服务端每次先 `await view(sessionId).path(…)` 得到整条路径再 `slice(from)`；内核的 `path()` 返回整条（`Promise<LogEvent[]>`）。要读“最后 N 条”，浏览器要先知道路径总长（快照里没有），要读“更早一页”需要反向游标。提案第五节的“接口”清单里 `nbook.agent` 一栏没有“路径的反向分页”。(b) 适配器的 `applyPath(events)` 先 `resetPath()` 再归约，没有“把更早一页接在前面”的入口。(c) 只应用后缀会切开调用与结果：真实适配器复现（`cd /tmp/review-bot-proposal-r1/repro && bun suffix.ts`）：从第 3 条起应用，得到 `problems: 工具结果找不到对应的调用：c1`，`pathIds()` 为空（改写历史、回退目标要靠它，bot 视图虽关了入口，但“找请求”“上下文检查器”也读路径）。待处理事项、中断判断、压缩分隔线的“保留最近几轮”（`turnStarts`）同样依赖完整路径。(d) 视图一侧其实已经有：`history.loadPrevious`、`HistoryView`、“更早的内容”行与锚点保持都在 Spec 与组件里（agent-conversation-view.md 的“历史与滚动”），缺的是宿主与适配器，提案把它写成“nb-agent-ui 的新字段”，容易误导排期。
+- **为什么是问题**：这是第 10 小节里最贵的一条，却被当作可选字段。每次翻页若仍要服务端重建整条路径，就只省了浏览器的内存与传输，没省服务端的 1,140 ms 量级（第三节的实测），第 4 小节“只记录打开耗时”的结论要连带改。
+- **如何核实**：读 remote.ts 235-240 与 session-host.ts 的 `loadPath`；跑上面的 suffix.ts。
+- **建议改法**：第五节补一行 `nbook.agent`：`path` 增加 `before`/`last` 参数并交回总长；适配器加 `prependPath(events)`（只补前面、保留 `pathIds` 的完整性，或明确“窗口模式下 `pathIds` 不全，改写历史入口一律关”），孤儿工具结果不进 `problems()`（按窗口边界处理）；写明“断线重连只补增量”靠的是 `log afterSeq`，不再 `applyPath`，且重连时不得清掉正在生成的那条（`resetPath` 会清）。
+
+### 10. 第四稿去掉了“扩展排着的外部事实”，但界面上有四处要“在对话里留一条说明”，没有承载它们的机制，“扩展事件到消息的映射入口”也没说映射什么
+- **严重程度**：重要；**类别**：正确性 / 文档
+- **位置**：提案第四节第 4 小节“重启……页面上显示‘已自动继续’”；第 5 小节“前三稿还要内核在运行收口时写出扩展排着的外部事实……所以去掉”与“一次性条目过期超过一个时限就不发，在对话里补一条说明”；第 6 小节“到期之后才到的点击，对话宿主提示已过期”；第七节待定项 2“过期与错过的都在流里留一条说明”；第 10 小节“适配器加‘扩展事件到消息’的映射入口”
+- **现象**：第四稿把提醒与周期任务统一成宿主消息，因此删掉了“运行收口时写出扩展事实”那条内核改动，理由是用不到。但下面这些说明都不是宿主消息，也不该是（宿主消息会开一轮、花一次模型调用）：(1) 重启后“已自动继续”，数据源没写，`start` 不带输入时日志里没有“这是自动的”的标记，用户手动点“继续”也是 `start`；(2) 过期的一次性日程“补一条说明”，服务端没在运行、没有运行中的轮，写进主对话的日志需要一种不触发运行的写入；(3) 审批过期的说明（见第 7 条，那条走工具结果）；(4) 待定项 2 把“待你处理”入口的功能让给“流里的说明”，但说明本身没有来源。提案在第 10 小节又加了“扩展事件到消息的映射入口”，却不说映射哪个事件。适配器现在对认不出的事件记 `problems()` 并跳过（kernel-transcript.ts 的 `default` 分支），所以这条入口是新的，且与“去掉扩展事实”互相指向对方。
+- **为什么是问题**：待定项 2 的推荐（不做入口）整个建立在“流里留一条说明”上；这个前提现在没有实现路径，推荐就不成立。
+- **如何核实**：`grep -n "扩展事实\|补一条说明\|已自动继续\|流里留" /tmp/review-bot-proposal-r1/proposal-78bafe8de.md`；读 kernel-transcript.ts 的 `reducePath` 的 `default`。
+- **建议改法**：二选一并写进第 5 小节：(a) 保留一种不开运行的“宿主通知”写入（`session.notice({source, code, text})`，写成扩展事件，适配器映射成 `SystemMessageView` 的 `reminder`/`custom` 一行，不进模型上下文或在下一轮请求里作为系统提醒带入）；(b) 都折进宿主消息，接受每条说明一次模型调用，并在待定项 1 里把代价算上。同时把“已自动继续”改成可由日志推出（`start` 带 `by:{kind:"host"}`）。
+
+### 11. 待处理事项“不替换输入框”：现成的停靠区已经做了这件事，提案却另加“事项上的可选字段”，且没有对照停靠区的既有合同
+- **严重程度**：建议；**类别**：代码质量 / 文档
+- **位置**：提案第四节第 10 小节“待处理事项停在哪里”；nb-agent-ui/src/wizard.ts（`isDocked` 只看 `source !== undefined || async === true`）、vue/AgentConversationView.vue:306-308、:495、:519-528；docs/specs/ui/agent-conversation-view.md 第 324 行
+- **现象**：视图已经区分“阻塞的事项”（向导，替换输入框，`inert`）与“停靠的事项”（`AgentDock`，输入框照常可用，一次一个、每项单独提交、没有“全部拒绝”、最高占视图 40%）。bot 想要的“审批与提问不替换输入框，两者并存”就是把主对话自己的审批也走停靠区；改动点是 `isDocked` 的判定从“只看事项”改成“看事项或视图选项”。而提案的写法是“事项上的可选字段”，每个事项都带，与“视图选项”两处同时存在容易不一致。又，停靠区的合同（一次一个、各自提交）与“一批审批可以来回改再一起提交”的向导不同，bot 的主对话一回合可能发 3 个审批，在停靠区里变成逐个点，用户觉得变慢；与第 6 小节“发消息即全部拒绝”配合时，也要写停靠区里有没有“全部拒绝”。
+- **如何核实**：`grep -n "isDocked" packages/nb-agent-ui/src/*.ts packages/nb-agent-ui/src/vue/*.vue`。
+- **建议改法**：用一个视图选项 `pendingPlacement: "wizard" | "dock"`（缺省 wizard）替代事项字段，不动事项形状；Spec 写明 dock 档下同步审批进停靠区的合同（逐个提交、有无“全部拒绝”、播报文字不带“子代理”）。顺带：第 10 小节“助手身份可以按消息给”在只有一个 bot、没有群的第一版里用不上，`ctx.session` 的 `profileName/profileIcon` 映射 bot 身份即可（耦合审查原文也是这样建议的，见 coupling-audit-agent-ui-sonnet.txt 第 129 行），按消息给的字段放进路线。
+
+### 12. 用法档只列了名字：“会话加 bot”档的定义没有从耦合审查带进提案，三档与“可选字段”的关系也没说；缺省不变性没有验收
+- **严重程度**：建议；**类别**：文档 / 测试
+- **位置**：提案第四节第 10 小节“用法档”；research/2026-11-18-coupling-audit.md 第 42 行；evidences/coupling-audit-agent-ui-sonnet.txt 第 148-155 行（给出了会话加 bot 档的定义）
+- **现象**：耦合审查把“会话加 bot”定义为“两个视图并排，各给自己的 ctx（bot 的固定会话与被选中的子会话），子会话的待处理事项经 `PendingInputCommon.source` 进 bot 视图的停靠区，点‘打开子会话’发 `session.select`；子会话视图保持会话档”。提案只留下“三种用法写进 Spec，每档配 Lab 场景与挂载测试”，brief 里问的三点都没有答案：(a) 并排的是什么（NeuroBook 里就是右栏 bot 视图 + 编辑区或右栏里的通用会话视图），子会话在哪个视图打开（与第 1、2 条的路由问题是同一个）；(b) 三档与“可选字段”是什么关系：按耦合审查是“组合写成档，档由数据字段与少数 props 决定”，提案没有写出每档的取值表，读者会以为是三个枚举开关；(c) 验收：“字段缺省时现在的行为不变”要有一条机检的回归，最低限度是现有的 `AgentConversationView.dom.test.ts` 与 nb-story 的挂载在不传新字段时快照不变；提案没说。
+- **如何核实**：读上述两处耦合审查原文，对照提案第 10 小节。
+- **建议改法**：第 10 小节写一张表：行是档（会话、bot、会话加 bot），列是视图选项（`header`、`newSession`、`pendingPlacement`、`canMutateHistory`、`commands` 白名单、`history`、`identity`），格子是取值；会话加 bot 档写成“bot 视图（bot 档）+ 通用视图（会话档）”，约定 bot 视图里 `session.select` 一律转给通用视图；每档一个 Lab 场景，场景里断言“bot 档下没有新会话按钮、没有编辑与重试、`/new` 不在命令菜单”；再补一条“不传新字段，会话档渲染与改动前一致”的测试。
+
+### 13. 主对话的会话 id 从哪来：“第一次用到时才建”在两个窗口同时打开时会建两个，客户端也不应该自己带 `owner`
+- **严重程度**：重要；**类别**：正确性 / 安全
+- **位置**：提案第四节第 4 小节“建与持有”“归属”；第 10 小节“按会话 id 打开”；web/session-host.ts:1022（`remote.create({profile, project?})`）
+- **现象**：宿主现在经 `remote.create({profile, project})` 建会话，不带归属。提案让主对话“在第一次用到时才建，例如打开 bot 视图或第一次注入”，会话头的 `owner` 又是“自有目录与 `bot://` 改写”的依据（`bot://` 可写且不问）。所以：(a) 两个窗口（或书架页与项目窗口）同时第一次打开 bot 视图，各自去建，会得到两个都有 `owner` 的会话，持有的、被注入的与被显示的可能不是同一个；(b) 若浏览器可以在 `create` 里自带 `owner`，任何页面（包括被注入后在页面里跑的东西，或另一个插件）都能造出一个对 `bots://<id>/` 有免问写权限的会话，而提案第 12 小节只讨论了本机 RPC 可信，没讨论 `owner` 是否可由客户端声明；(c) 视图要拿到会话 id，需要一条 `nbook.bots` 的远程方法，提案第五节“接口”里 `nbook.bots` 没有列出它自己的远程合同。
+- **为什么是问题**：这是界面“打开 bot 视图”的第一步，既影响首次运行（空状态与没有模型的引导要在会话建好之前还是之后出），也决定多窗口一致性。
+- **如何核实**：`grep -n "remote.create" packages/neuro-book/src/plugins/agent/web/session-host.ts`；读第四节第 4 小节。
+- **建议改法**：`nbook.bots` 提供远程方法 `ensureMain({botId}) -> {sessionId}`，服务端幂等（同一 bot 只有一个，并发串行化）；`nbook.agent` 的浏览器侧 `create` 不接受 `owner`，只有服务端内部接口能带；第 5 小节“接口”补上 `nbook.bots` 的合同；首次运行的顺序写成：没有模型 → 引导卡，不建会话；有模型 → `ensureMain` → 打开。
+
+### 14. 按天分隔线、未读分隔线与“最后看到的位置”：什么算看到、基线是哪个、关着时怎么知道有未读，都是合同数据，不是 t03 的外观
+- **严重程度**：建议；**类别**：文档 / 正确性
+- **位置**：提案第四节第 10 小节“按天的分隔线；页面内‘你离开后’的未读分隔线”；docs/specs/storage/persistence.md 第 30、111、179 行；docs/specs/workbench/views.md 输出 17（`badge()`）；web/session-host.ts:1715-1740（`borrow`，视图没人借用后释放订阅）
+- **现象**：提案把存储、数值与“有未读时入口怎么提示”分给 Spec 与 t03，但有几件事必须在这一稿定下，否则静态稿与实现会各做各的：
+  1. **基线**：用户正在看时“最后看到”不断前进，未读分隔线若直接用它就会随阅读移动或消失；要把“打开视图那一刻的最后看到”固定成本次访问的基线，另存一份“当前最后看到”。
+  2. **谁来写**：几个窗口共用一份（`shared` 记录，订阅会推给别的窗口）。一个后台标签里的窗口，视图在运行中、订阅活着、却没人看，不能算看到；“看到”应绑工作台的“有效可见”与窗口焦点。并且只前进不后退，否则旧窗口会把位置写回去。
+  3. **关着时的未读**：视图没人借用时宿主释放订阅，浏览器侧没有数据可算未读。入口提示（徽标）要么由 `nbook.bots` 另开一个轻量订阅（只订会话的最新消息时间），要么只在有视图可见时才有未读概念；工作台的 `badge()` 不依赖视图实例，是现成的承载点，但只在工作台页面里有，书架页没有（第 3 条）。
+  4. **按天分隔线**：按哪个时区与哪天（浏览器本地日历日，与第 4 小节“按本地日历日累计费用”是否同一个日历，服务端与浏览器时区不同时）；分隔线放在轮与轮之间还是轮内（一轮可以跨零点，宿主消息开的轮没有用户消息）；这条线在适配器还是视图里算，要不要进轮次的整轮收起。
+  5. **与往前翻页的关系**：分页只加载后缀时，“这是不是这天的第一条”要靠相邻消息判断，更早一页接上来可能让已显示的分隔线位置变化，需要与锚点保持一起测。
+- **建议改法**：Spec 里把五点写成输出条目，各配一条验收（两窗口、后台窗口、`lastSeen` 不后退、跨零点的一轮）；分隔线由视图根据消息时间戳与注入的时区算，不进适配器。
+
+### 15. 日程视图的“最小范围”过于概括：没有暂停、没有周期表达式的编辑与校验、没有错过与已发的状态
+- **严重程度**：建议；**类别**：文档
+- **位置**：提案第四节第 10 小节“日程视图：列出条目，能增删改，并显示下一次触发的时刻”；第 5 小节日程的条目字段、错过与补发
+- **现象**：数据形状里有：一次性与周期（cron）、时区、目标 bot、提示词、谁建谁改、错过补发。视图没写：(a) cron 表达式怎么编辑与校验（只给文本框？给“每天几点、每周几”的预设？校验失败的错误出口）；(b) 暂停与恢复（周期任务是无人值守地花钱的，没有暂停只有删除，用户出差前很可能需要）；(c) 条目的状态：已错过、已补发、上一次结果（对应对话里的轮），否则用户无法在日程里确认“昨晚的简报发了没有”；(d) 日程条目用的提示词是 bot 的指令，编辑它就是改 bot 行为，要不要经与 `bot://` 相同的写保护；(e) 视图在哪个位置，是侧栏视图还是编辑区页面，书架页上有没有，与第 3 条同样需要先定；(f) 视图改时与 bot 用工具同时改同一条（谁最后改的字段已有，冲突提示没有）。
+- **建议改法**：第 10 小节日程视图列“最小能用”的清单：列表、新建（一次性/周期两种表单，周期用预设加高级文本）、编辑、暂停恢复、删除（确认）、状态列（下一次、上一次、已错过）、校验错误出口；不做的写进非目标。
+
+### 16. 去掉的界面项：“标签页标题未读数”与“最小设置页”是 2026-11-10 开发者已批准的第一版网页范围，提案只在非目标里写了去掉，没有标成对已定项的改变（设置部分收窄，见第 18 条）
+- **严重程度**：建议；**类别**：文档 / 一致性
+- **位置**：提案第二节非目标（“标签页标题的未读数”）、第四节第 4 小节“费用上限……放在 bot 的设置里”、第 2 小节“设置类别不加”、第 7 小节“在设置页上显示”、第八节决策记录 2026-11-10 第四条
+- **现象**：2026-11-10 的决定写明“第一版网页只做标题未读数、页面内未读分隔线、按天分隔线与最小设置页”。第四稿把标题未读数列为非目标、把最小设置页取消，而决策表这一行没有加“2026-11-18 起改为……”的标注，也没有写去掉的理由：独立应用里关了页面就看不到 bot，标签页标题是唯一的提示；NeuroBook 里用户本来就在工作台里，这个理由部分成立（工作台里有状态栏活动条与 `badge()`），但“页面关了”仍是第一版的主要场景（周期任务在夜里跑），提案自己在第 12 小节也承认没有页面以外的触达。设置也自相矛盾：第 7 小节“寿命……在设置页上显示”、第 4 小节“上限的数值放在 bot 的设置里”都需要设置页，而第 2 小节只说“设置类别不加，放进现有的 `ai`”，没有说有哪个页面、里面有哪些项（费用上限、等用户的期限、缓存档位、空闲压缩开关）；设置窗口的 `category` 只决定页面在左栏的分组，登记了设置项并不会自动长出页面。
+- **建议改法**：决策表加一行说明 11-18 对 11-10 那条的改动与理由；设置页写成“bot 的设置”一页（放在 `ai` 分组下），列出具体项；标题未读数若不做，写“推迟到触达那一步，因为……”，不要只放进非目标。
+
+### 17. 待定项的判断与依赖
+- **严重程度**：建议；**类别**：文档
+- **待定项 1（提醒与任务同一机制）**：同意推荐，前提是第 10 条的机制定下（否则“提醒晚到”“说明”无法落地）；注意每条提醒一次模型调用加上到点的宿主消息在空闲时才开一轮，用户在页面前时输入框里可能同时有草稿，宿主消息进来的轮次不能抢走焦点或清草稿，写一条挂载测试。
+- **待定项 2（第一版要不要“待你处理”入口）**：推荐不做可以成立，但依据要改：不是“说明留在流里”（第 10 条），而是已有的状态栏“Agent：N 运行中 · M 等你处理”活动条在项目窗口里就是这个入口，条件是第 1 条把点击目标路由到 bot 视图；书架页没有状态栏，那里的缺口靠第 3 条的入口与徽标补。若这两条定不下，应当把入口放回第一版。
+- **待定项 3（普通会话能不能排周期任务）**：同意只给 bot 主对话；`no-bot` 码要在日程视图里给用户一句可操作的说明，不要只在工具失败里出现。
+
+### 18. 对第 16 条设置部分的收窄：设置窗口有声明式的分区，不是只能手写页面；缺的是提案没有写出分区与项
+- **严重程度**：建议；**类别**：文档
+- **位置**：docs/specs/settings/settings-window.md 第 44-70 行（`settings.sections` 带 `groups`、`settings.pages` 两种声明）；提案第二节第 2 小节、第 7 小节
+- **更正**：第 16 条里“登记了设置项并不会自动长出页面”这句话我没有核实到位：设置窗口除了手写的 `settings.pages`，还有声明式的 `settings.sections`，设置项可经分区声明出控件。所以不能断言“没有页面就没有入口”。仍然成立的是：提案没写 `nbook.bots` 贡献的是哪个分区或页面、有哪些项、与“设置类别不加”的关系（`category` 只有 `app|ai|plugins` 三值，写 `ai` 是分组，不是“不新增页面”）。第 16 条里标题未读数与决策表缺标注的部分不受影响。
+
+### 19. 视图里的失败与状态文案仍以“会话”为单位，bot 视图里会指向不存在的操作
+- **严重程度**：建议；**类别**：文档 / 测试
+- **位置**：提案第一节“用户看不到‘会话’”与第四节第 1 小节；nb-agent-ui/src/locales/zh-CN.ts:505（`compactionFailed`：“可以换一个压缩模型，或者开一个新会话”）；`canRestore`/`archived`/`readOnly` 相关的横幅（agent-conversation-view.md “失败与恢复”表）
+- **现象**：提案的产品承诺是用户“看不到会话”，对话视图的提示却有若干条把“开新会话”“恢复会话”当补救办法，在 bot 视图里这些动作都被关掉了（第 2 条），用户读到一条“开一个新会话”而没有任何地方可点。同类的还有归档与只读状态的横幅。前两轮审查提过同类问题（r1 第 11、12、17 条），第四稿的非目标里写了“重新开始对话”不做，但没有逐项处置视图里的这类文案与状态。
+- **如何核实**：`grep -n "新会话\|新建会话" packages/nb-agent-ui/src/locales/zh-CN.ts`；读 agent-conversation-view.md 的“失败与恢复”表。
+- **建议改法**：用法档表加一列“文案变体”：bot 档下 `compactionFailed` 等换成不提会话的说法（经注册表或 ctx 的文案覆盖，不是复制一份语言包）；把“bot 档下不得出现‘新会话’字样”写成挂载测试的一条断言；归档与只读在 bot 档下不可达（第 1 条守卫），横幅不需要处理，但要在 Spec 里写明不可达的理由。
+
+---
+## 未发现问题的方面
+- **主对话遇到运行中来的宿主消息会劫持当前轮**（r2 第 3 条）：第四稿让宿主消息走缓冲区、本轮结束后开下一轮（`inputQueued` 到 `inputConsumed` 再 `input`），与现有适配器的轮次规则一致（用 splitIntoTurnGroups 复现过：普通 `input` 开新轮，宿主消息不并入上一轮），这一点没有问题；第 8 条只是显示与排队区。
+- **整条历史一次取完的内存与时间问题**（r2 第 1 条）的方向是对的，问题在落地（第 9 条）。
+- **多个窗口各开一个宿主、各订阅一份**：订阅与释放延时（`borrow`、`RELEASE_DELAY_MS`）的机制本身没有发现新问题；跨窗口的结算竞态见第 6 条第 5 点。
+- **依赖单向**（`nbook.schedule` 到 `nbook.bots` 到 `nbook.agent`）与 `architecture.test.ts` 的跨插件导入规则：服务键放各自的 `shared/contracts.ts` 即不冲突，注意事项见第 2 条。
+- 已核实“数据形状按多个 bot 设计、第一版一个 bot”与动态视图声明的矛盾只在第 3 条（c）里提，不再单列。
+
+## 数量
+- 阻断：0
+- 重要：11（第 1、2、3、4、5、6、7、8、9、10、13 条）
+- 建议：6（第 11、12、14、15、16、19 条）；另有第 17 条（三个待定项的判断，不算发现）与第 18 条（对第 16 条的收窄说明）
+- 已用真实适配器复现的：第 7、8、9 条（repro 脚本在 /tmp/review-bot-proposal-r1/repro/：expired.ts、host-input.ts、suffix.ts；运行方式 `cd /tmp/review-bot-proposal-r1/repro && bun <文件>`）
+
+## 对第七节三个待定项的判断
+1. 提醒与任务用同一机制：同意，前提是先解决第 10 条（没有承载“不开运行的说明”的机制时，提醒晚到与失败说明无处落地）。
+2. “待你处理”入口：推荐不做可以成立，但要把依据换成“状态栏活动条已是入口，且点击目标路由到 bot 视图（第 1 条）”，书架页另靠第 3 条的入口与徽标；这两条定不下就放回第一版。
+3. 普通会话排周期任务：同意只给 bot 主对话；`no-bot` 要在日程视图里给可操作的说明。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16（设置部分收窄见 18）, 19
