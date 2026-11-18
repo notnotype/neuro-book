@@ -15,7 +15,7 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18 经 nbdev 新建。计划见 [`plan.md`](plan.md)（第 3 稿）。
+2026-11-18 经 nbdev 新建。计划见 [`plan.md`](plan.md)（第 3 稿）。**停下等开发者**，见下面第三轮审查一条。
 
 - 第 1 稿的设计审查（Claude Sonnet，[`evidences/design-review.txt`](evidences/design-review.txt)）：15 条，重要 7、建议 8，都成立（第 6 条的 `PLUGIN_API_SINCE` 一项除外，见表），改成第 2 稿；几条改了设计（只发新增的判据、切片边界、公开面清单），第 2 稿再送一轮：
 
@@ -55,11 +55,24 @@ updated: 2026-11-18
   | 11 | 232、280、503、506、`stale-*` 的取值歧义 | 逐条写明 |
   | 12 | 和提案不同的不止一处 | 决策记录追加第二条，待确认清单加一行 |
 
+- 第 3 稿的设计审查（第三轮，[`evidences/design-review-r3.txt`](evidences/design-review-r3.txt)）：12 条，阻断 0、重要 6、建议 6。第二轮 12 条里 8 条核实到位，L0 的 34 处、诊断表的位置与 `cause`、两个出口的时序都与代码对上；剩下的重要问题：
+  1. 同键合成后 `branch`、度量只对应第一条，`ids` 却是并集，对不上；
+  2. 宿主的 `onIssues` 在松手那一帧（`flush`）抛出时 `finish` 不跑，手势卡住（计划只处理了 `finish` 里那一处）；
+  3. L0 的 401、452 一个条件管“不存在”与“不是分支”，应像 475、594 那样拆开；
+  4. `ids` 是字符串数组，宿主照 `ui/i18n` 把 `params` 交给翻译端口时类型不合、数组被丢；
+  5. L2 几处 `not-found`、`duplicate-id`、`limit-exceeded` 的 `params` 取不到 id（`freshId` 吞了撞车的 id、落点只有目标），L2 的逐行表还没写；
+  6. `validateLayoutDoc` 的 32 条中文问题文字仍进 `message`，与“`message` 是英文”不一致。
+
+  **停下等开发者**（满三轮仍有实质问题，reviewing 与 autonomous-delivery 的停止条件）。三轮下来，失败的形状（L0 结构操作、快照恢复、L1 提交码）已经收敛，第三轮只剩 401、452 一处；反复出边界问题的是诊断的“合成与只发新增”与 L2 拆码。推荐：
+  - **拆成两个 Task**：t34 只做失败的形状（计划第 1 片，加 401、452 拆开，`GridParamValue` 按第 4 条定），设计已收敛，可以直接做；诊断（码、两个出口、只发新增与合成、删 `SashGestureScope.issues`）另建 Task，重新出设计，先定“结果是状态快照、通知只发边沿”的合同再写计划。
+  - **L2 拆码延后**：把 `rejected` 拆成四个码今天没有使用方（应用只看 `not-found`、`limit-exceeded`，第一轮第 13 条），nb-workbench-layout 也不发布；本档只把 `detail` 改名 `message`、改英文，拆码等有使用方时再做。
+  - 备选：照第三轮的建议改成第 4 稿，不再送审直接实施，实现审查兜底。
+
 - 盘点时发现提案“错误与诊断”有一句与代码不符：L1 的提交回调已有上下文已切换、版本已变、处理器抛出等失败，提案说不预设这些码。本 Task 给它们定码，提案追加决策记录，记入[待确认清单](../../pending-confirmations.md)。
 - 代码在 t33 合入 master 之后开 worktree。
 
 ## 下一步
 
-1. 第 3 稿设计审查（Claude Sonnet，第三轮，阻塞；同一对象最后一轮，仍有实质问题就停下交开发者）。
+1. 等开发者定：拆成“失败的形状”与“诊断”两个 Task、L2 拆码延后（推荐），或改成第 4 稿直接实施。
 2. master 上写两份 Spec 的 planned 条目。
 3. t33 合入后开 worktree，按计划四片实施。

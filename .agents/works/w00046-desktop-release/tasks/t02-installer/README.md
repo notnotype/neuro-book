@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-installer
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -26,9 +26,9 @@ updated: 2026-11-18
 
 ## 当前状态
 
-草稿 worktree `.worktree/w00046-t02-drafts`（分支 `t02/drafts`，不合并）里搭了两版静态稿：A 一页对话框、B 分步向导；两轮定稿：分步向导、上方舞台。设计审查第 1 轮（Sonnet 15 条、omp 12 条，[处理](evidences/design-review-r1-disposition.md)）已吸收进计划第 2 稿与 Spec；新增待确认 5 条。切片 2 到 6 已实施，实现审查进行中。
+完成，合入 master（e0012fa24，没有 push）。设计两轮定稿；设计审查第 1 轮（Sonnet 15 条、omp 12 条，[处理](evidences/design-review-r1-disposition.md)）；实现审查第 1 轮（Sonnet 10 条、omp 有效 2 条，[处理](evidences/impl-review-r1-disposition.md)）；Windows 验收第 1 轮（[证据](evidences/windows-acceptance-r1.md)：快捷方式端口六步、装上的测试版里走完向导）。Spec 输出 33、34 仍标 planned，晋升前按 writing-specs 逐条核对。
 
-## 实施进度（分支 `feat/w00046-t02-t02-first-run`，worktree `.worktree/w00046-t02-t02-first-run`）
+## 实施进度（已合入 master，e0012fa24；worktree 与分支已删）
 
 | 切片 | 提交 | 内容 |
 |---|---|---|
@@ -42,4 +42,5 @@ updated: 2026-11-18
 
 ## 下一步
 
-处理实现审查；Windows 验收（切片 7）；合入 master。
+- Spec 输出 33、34 与场景 19 的晋升核对。
+- 没验的：缺省状态根下真实安装里关掉快捷方式、更新换上后再删一次（要用开发者真实的状态根）；首次安装（Setup 装完自动打开）时向导的样子。
