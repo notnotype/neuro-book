@@ -85,19 +85,27 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18：切片 1 到 4 都已提交到 `feat/w00032-t38-status-line-sorting`，并已并进 master（dacd65622，干净，master 带进来的改动不碰本 Task 的文件）：
+2026-11-18 完成，已合入 master（0429b568d）。提交：
 
 | 提交 | 内容 |
 |---|---|
 | 18cc9b372 | nb-ui 单选组与复选框对齐标签第一行（量法与前后数值见 [`evidences/alignment-measure.txt`](evidences/alignment-measure.txt)） |
 | 38b018112 | 状态栏去掉模式标记；设置加 `side`、项可换边；窄时先右后左收起；每一项由 `AgentStatusItem` 画 |
-| a258d0116 | nb-layout 的 `useSortable` 与 `SortableList`（Spec `ui/sortable-list.md`）、Lab 场景、`lab-sortable-list.e2e.ts` |
+| a258d0116 | nb-layout 的 `useSortable` 与 `SortableList`、Lab 场景、`lab-sortable-list.e2e.ts` |
 | d2453ebb3 | 状态栏设置页改用 `SortableList`，拖动放下等写完；设置页与状态栏的新场景与 e2e |
+| a8cec42c0 | 实现审查的修正（排序的粘滞、落回、播报；状态栏换边后的量宽、宽 0 的槽） |
 
-Spec 在 master 上：c7f53f610（输出 15、45、46 等改写并标 planned，新 Spec `ui/sortable-list.md`）、ff4a88b79。
+Spec（master）：c7f53f610、ff4a88b79、859c36de0；晋升 7e9f3af35：`ui/sortable-list.md` 为 implemented（实现合同与证据），`agent/conversation.md` 输出 15、45、46，`ui/agent-conversation-view.md` 的“状态栏”，`agent/modes.md` 输出 13，`agent/contributions.md` 输出 22 去掉 planned、补证据（晋升不用审批，开发者 2026-11-17 定）。
 
-已跑的验证：各包类型检查（合并后再跑一次）；nb-agent-ui 全部（vitest 165、bun 275）、nb-layout 全部（vitest 247、bun 586）、nb-ui 两个控件相关的五个测试文件、应用的 `status-line.dom.test.ts` 与 Lab 登记测试；`lab-sortable-list.e2e.ts` 8 条全过，并对“等写入不闪回”“拿起的行底不透明”做了变异检查（都会失败）；新增与改过的 Lab 场景用 `nbdev shot` 量过（桌面与 390 宽都没有越界、裁切）。`lab-agent-ui.e2e.ts`、`agent-conversation.e2e.ts` 与前端实现审查（Sonnet）进行中。
+验证（合并 master 之后的代码上）：
+- 类型检查：nb-ui、nb-agent-ui、nb-layout、neuro-book 都通过。
+- 单元与挂载测试：nb-layout 全部（bun 589、vitest 253）、nb-agent-ui 全部（bun 275、vitest 166）、nb-ui 两个控件相关的五个文件 154 条、应用的 `status-line.dom.test.ts` 9 条与 Lab 登记测试 9 条。
+- e2e：`lab-sortable-list.e2e.ts` 8 条，`lab-agent-ui.e2e.ts` 全文件，`agent-conversation.e2e.ts` 的验收 1、状态栏可自定义、模型选择器、Agent 模式四条；末轮 56 过、1 条失败，是我写错的期望（拖过头落在右边第 2 位而不是第 1 位），改成“左边变空”后单独重跑通过。之前一轮负载 30 时 `lab-agent-ui` 有三条在打开场景时超时，负载降下来后在这一轮里都过了。
+- 变异检查：去掉“等写入时留住次序”、拿起的行的底色、粘滞，对应的 e2e 都会失败；去掉缺省次序按 `side` 解算，`status-line.test.ts` 失败；收起次序改成先左后右，单元与挂载测试都失败。
+- Lab：新增与改过的场景（`SortableList` 五个、状态栏三个、设置页五个）用 `nbdev shot` 量过桌面与 390 宽，没有越界、裁切与页面错误。
+
+未验证：触摸拖动没在真机上试；`agent-conversation.e2e.ts` 只跑了与状态栏、模式相关的四条，没有跑全文件。
 
 ## 下一步
 
-处理实现审查与 e2e 结果，Spec 去掉 planned 并补证据，合入 master。
+无。可选的后续：nb-form 的对象列表（现在只有上移下移按钮）需要拖动时接 `SortableList`。
