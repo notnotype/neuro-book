@@ -71,7 +71,7 @@ const shapes = computed(() => {
 </template>
 
 <style scoped>
-/* 压暗走不透明度加调暗，不用模糊：底下的内容还要认得出（t01 决定 14）。 */
+/* 压暗走不透明度加调暗，不用模糊：底下的内容还要认得出。 */
 .nb-drop-sectors {
     position: fixed;
     overflow: hidden;

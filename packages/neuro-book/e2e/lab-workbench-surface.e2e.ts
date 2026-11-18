@@ -6,7 +6,7 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Page} from "@playwright/test";
+import type {Locator, Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import type {LabDebugState} from "nbook/plugins/lab/shared/debug-api";
@@ -48,6 +48,16 @@ const fixture = (page: Page) => page.locator(".workbench-surface-fixture");
 const visibleTabs = async (page: Page) => ((await fixture(page).getAttribute("data-visible-tabs")) ?? "").split(" ").filter((tab) => tab !== "");
 /** 活动栏入口：一个容器一个（输出 22、41）；这里的视图都没写容器，入口是隐式容器 `view:<视图 id>`。 */
 const entry = (page: Page, viewId: string) => page.locator(`[data-tool-entry="view:${viewId}"]`);
+
+/**
+ * 点活动栏的入口，再把指针移到状态栏中间：指针留在入口上，入口的提示框会盖住侧栏顶上的标签，接着点侧栏的那一下就点在提示框上（高负载时偶发）。
+ * 场景的状态栏只有一行字，移过去不触发别的悬停。
+ */
+async function pressEntry(page: Page, target: Locator): Promise<void> {
+    await target.click();
+    const bar = await page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']").boundingBox();
+    if (bar !== null) await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+}
 /** 视图的分节：区域里一个视图一个分节（输出 40），id 是 `section:<视图 id>`。 */
 const section = (viewId: string): string => `section:${viewId}`;
 const frameButton = (page: Page, panel: string, action: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-action="${action}"]`);
@@ -86,10 +96,10 @@ test.describe("面板头", () => {
         await expect(region).toHaveAccessibleName("视图 A");
 
         const instance = await page.locator("[data-content='view:a'] [data-structure-leaf]").getAttribute("data-structure-instance");
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await expect(page.locator("[data-content='view:b']")).toBeVisible();
         await expect(page.locator("[data-content='view:a']")).toBeHidden();
-        await entry(page, "a").click();
+        await pressEntry(page, entry(page, "a"));
         await expect(page.locator("[data-content='view:a']")).toBeVisible();
         expect(await page.locator("[data-content='view:a'] [data-structure-leaf]").getAttribute("data-structure-instance")).toBe(instance);
 
@@ -195,7 +205,7 @@ test.describe("有效可见", () => {
         await expect.poll(() => visibleTabs(page)).toEqual(expect.arrayContaining(["view:b", "view:d"]));
 
         // 点当前容器按下着的入口：侧栏隐藏（输出 22）。
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await expect.poll(() => visibleTabs(page)).not.toContain("view:b");
         expect(await visibleTabs(page)).not.toContain("view:d");
         await shrunk(page, section("b"));
@@ -279,18 +289,18 @@ test.describe("活动栏", () => {
 
     test("不是当前容器：切到它并显示；是当前容器且侧栏可见：隐藏侧栏，不看焦点在哪（输出 22、42）", async ({page}) => {
         await open(page);
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "true");
         await expect(entry(page, "a")).toHaveAttribute("aria-pressed", "false");
         await expect(page.locator("[data-content='view:b']")).toBeVisible();
 
         // 焦点在别的面板里，点按下的入口也是隐藏，没有“先聚焦”这一步。
         await page.locator("[data-content='view:c'] [data-structure-first]").focus();
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await shrunk(page, section("b"));
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "false");
 
-        await entry(page, "b").click();
+        await pressEntry(page, entry(page, "b"));
         await expect(page.locator(`[data-leaf='${section("b")}']`)).toHaveCount(1);
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "true");
     });
@@ -339,7 +349,7 @@ test.describe("卡片按邻接算", () => {
     test("侧栏隐藏后活动栏不再相连；最大化时盖住的面板四边贴窗体", async ({page}) => {
         await open(page, "cards");
         // 分节没有隐藏按钮（输出 20）：点按下着的入口隐藏侧栏（输出 22）。
-        await entry(page, "a").click();
+        await pressEntry(page, entry(page, "a"));
         await expect(page.locator("[data-shell-card='activitybar']")).not.toHaveAttribute("data-shell-join", /.+/);
 
         const panelId = section("e");

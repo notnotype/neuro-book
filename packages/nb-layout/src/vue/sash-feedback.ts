@@ -6,7 +6,7 @@
  *
  * 光标只覆盖**显式 cursor**（`input`、`link` 等）声明，因此第一次占用时注入一条属性作用域的样式，
  * 只在根上有属性时生效；释放只拿掉属性，样式留着。不每次拿掉：插入或移除一张样式表会让整页重算样式，
- * 指针每划过一条分隔线就是两次（w00026 t21 量到）。
+ * 指针每划过一条分隔线就是两次。
  */
 import type {SashHitTarget, SashPoint, SashPointerKind} from "../sash-hit-area";
 

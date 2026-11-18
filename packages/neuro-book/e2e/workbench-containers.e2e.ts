@@ -15,7 +15,7 @@ import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Page} from "@playwright/test";
+import type {Locator, Page} from "@playwright/test";
 import {barRef, GRID_SNAPSHOT_VERSION, panelRef, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridSnapshotNode, LayoutDoc} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -63,6 +63,16 @@ const collapseButton = (page: Page, view: string) => page.locator(`[data-panel-h
 /** 活动栏里一个容器的入口（输出 22）；样例视图的容器是 `view:<视图 id>`。 */
 const entry = (page: Page, container: string) => page.locator(`[data-tool-entry="${container}"]`);
 const pressedEntries = (page: Page) => page.locator('[data-tool-band] [data-tool-entry][aria-pressed="true"]');
+
+/**
+ * 点活动栏的入口，再把指针移到状态栏中间的空白：指针留在入口上，入口的提示框会盖住侧栏顶上的标签，接着点侧栏的那一下就点在提示框上（高负载时偶发）。
+ * 状态栏中间没有条目，移过去不触发别的悬停。
+ */
+async function pressEntry(page: Page, target: Locator): Promise<void> {
+    await target.click();
+    const bar = await page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']").boundingBox();
+    if (bar !== null) await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+}
 /** 侧栏挨着编辑区的那条边界：侧栏这一侧显示一个分节时是那个分节，显示几个时是区域的分支，所以只认编辑区那一侧。 */
 const sidebarSash = (page: Page) => page.getByRole("separator", {name: /^调整 \S+ 与 (?:center|g0) 的宽度$/u});
 
@@ -538,7 +548,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
     test("切到别的容器再切回来：两个分节的先后、高度与收起都是原样，实例、输入与滚动保留；记录里的尺寸意图前后相同（验收 24；输出 42）", async ({page}) => {
         await open(page);
         // 搭一个两个分节的容器：样例乙移进样例甲的容器，成为它最后一个分节，侧栏切到这个容器（输出 23）。
-        await entry(page, `view:${B}`).click();
+        await pressEntry(page, entry(page, `view:${B}`));
         await expect(sample(page, B)).toBeVisible();
         await moveViaMenu(page, B, "样例甲");
         await expect(entry(page, `view:${B}`)).toHaveCount(0);
@@ -574,7 +584,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const intents = intentsOf(record!);
 
         // 切到“项目”：样例甲那个容器的分节不显示，内容停放、不卸载；记录里只换了当前容器，尺寸意图没动。
-        await entry(page, PROJECT_CONTAINER).click();
+        await pressEntry(page, entry(page, PROJECT_CONTAINER));
         await expect(tab(page, SESSIONS)).toBeVisible();
         await expect(tab(page, A)).toHaveCount(0);
         await expect(content(page, A)).toHaveAttribute("inert", "");
@@ -584,7 +594,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(await instances()).toEqual(before);
 
         // 切回来：原样。
-        await entry(page, `view:${A}`).click();
+        await pressEntry(page, entry(page, `view:${A}`));
         await expect(sample(page, A)).toBeVisible();
         await expect.poll(heights).toEqual(expected);
         expect((await box(page, upper)).y).toBeLessThan((await box(page, lower)).y);
@@ -655,7 +665,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         };
 
         // 切到样例甲的容器，再切回“项目”：整张卡片竖着滚进来（输出 42），高度不变、上边在走。
-        await entry(page, `view:${A}`).click();
+        await pressEntry(page, entry(page, `view:${A}`));
         await expect(leaf(page, explorer)).toHaveCount(0);
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
         expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`), "frameTop");
@@ -702,7 +712,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await open(page);
         const moving = page.locator("[data-workbench-surface] [data-moving]");
         const bar = page.locator('[data-shell-card="activitybar"]');
-        await entry(page, `view:${A}`).click();
+        await pressEntry(page, entry(page, `view:${A}`));
         await expect(moving).toHaveCount(0);
         const section = await sectionOf(page, A);
         await expect(bar).toHaveAttribute("data-shell-join", "start");
@@ -1529,14 +1539,14 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect((await saved(page))?.panels[explorer]?.collapsed ?? false).toBe(false);
 
         // 点“项目”的入口：它是当前容器，侧栏拖到零，所以是展开（输出 22），不是隐藏。两个分节的高度原样。
-        await entry(page, PROJECT_CONTAINER).click();
+        await pressEntry(page, entry(page, PROJECT_CONTAINER));
         await expect.poll(widths).toEqual([width, width]);
         await expect.poll(heights).toEqual(expanded);
         await expect(entry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => (await saved(page))?.panels.sidebar?.collapsed ?? false).toBe(false);
 
         // 只有一个分节的容器是当前容器：拖到零记在区域上，不是把这个分节收成标题行。
-        await entry(page, `view:${A}`).click();
+        await pressEntry(page, entry(page, `view:${A}`));
         await expect(sample(page, A)).toBeVisible();
         const single = await sectionOf(page, A);
         await sidebarSash(page).focus();
@@ -1544,11 +1554,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect.poll(async () => (await box(page, single)).width).toBe(0);
         await expect.poll(async () => (await saved(page))?.panels.sidebar?.collapsed).toBe(true);
         // 点另一个入口：切过去并展开。
-        await entry(page, PROJECT_CONTAINER).click();
+        await pressEntry(page, entry(page, PROJECT_CONTAINER));
         await expect.poll(widths).toEqual([width, width]);
         await expect(tab(page, SESSIONS)).toBeVisible();
         // 再点回来：侧栏是展开的，这个分节也没有收成标题行。
-        await entry(page, `view:${A}`).click();
+        await pressEntry(page, entry(page, `view:${A}`));
         await expect(sample(page, A)).toBeVisible();
         await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => (await box(page, single)).width).toBe(width);
@@ -1902,7 +1912,7 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
 
     test("当前容器只有一个视图、把它拖向右栏：预览里侧栏是空的、没有切到别的容器，活动栏仍接得住；Escape 原样、零写入；放下侧栏切到入口顺序上相邻的容器（验收 29；输出 38、43）", async ({page}) => {
         await open(page);
-        await entry(page, `view:${A}`).click();
+        await pressEntry(page, entry(page, `view:${A}`));
         await expect(sample(page, A)).toBeVisible();
         // 切换时整张卡片滚进来（输出 42）：滚完再拿标签，不然量到的位置在按下时已经变了。
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);

@@ -17,7 +17,7 @@ import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Page} from "@playwright/test";
+import type {Locator, Page} from "@playwright/test";
 import {panelRef} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -76,6 +76,16 @@ const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:h
  */
 /** 活动栏里只含这个视图的入口；右栏、底部面板入口条上的入口也带 `data-tool-entry`，限定到活动栏上段。 */
 const toolEntry = (page: Page, viewId: string) => page.locator(`[data-tool-band] [data-tool-entry="view:${viewId}"]`);
+
+/**
+ * 点活动栏的入口，再把指针移到状态栏中间的空白：指针留在入口上，入口的提示框会盖住侧栏顶上的标签，接着点侧栏的那一下就点在提示框上（高负载时偶发）。
+ * 状态栏中间没有条目，移过去不触发别的悬停。
+ */
+async function pressEntry(page: Page, target: Locator): Promise<void> {
+    await target.click();
+    const bar = await page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']").boundingBox();
+    if (bar !== null) await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+}
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
 const frameOf = (page: Page, viewId: string, command: string) => headOf(page, viewId).locator(`[data-panel-action="nbook.view.${command}"]`);
 /**
@@ -122,7 +132,7 @@ async function pickExact(page: Page, placeholder: string, label: string): Promis
  */
 async function showView(page: Page, viewId: string): Promise<void> {
     const entry = toolEntry(page, viewId);
-    if (await entry.getAttribute("aria-pressed") !== "true") await entry.click();
+    if (await entry.getAttribute("aria-pressed") !== "true") await pressEntry(page, entry);
     await expect(entry).toHaveAttribute("aria-pressed", "true");
 }
 
@@ -284,7 +294,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const side = await panelOfTab(page, A);
         const vertical = sidebarSash(page);
         const horizontal = panelSash(page);
-        await toolEntry(page, A).click();
+        await pressEntry(page, toolEntry(page, A));
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
         await expect.poll(async () => (await box(page, side)).width).toBe(0);
         await expect(toolEntry(page, A)).not.toHaveAttribute("aria-pressed", "true");
@@ -417,7 +427,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
         // 不是当前容器：切到它。原来那个容器的分节不显示，内容停放、不卸载（输出 42）。
         await sample(page, A).locator("input").focus();
-        await toolEntry(page, B).click();
+        await pressEntry(page, toolEntry(page, B));
         await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "true");
         await expect(pressed).toHaveCount(1);
         await expect(sample(page, B)).toBeVisible();
@@ -430,14 +440,14 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect.poll(() => focusedPanelOf(page)).toBe(section);
 
         // 当前容器、侧栏可见：隐藏侧栏。没有按下的入口了；焦点所在的分节看不见了，移到它那个容器的入口（输出 16）。
-        await toolEntry(page, B).click();
+        await pressEntry(page, toolEntry(page, B));
         // 隐藏按拖到零画（输出 11）：那块还在，宽度为零。
         await expect.poll(async () => (await box(page, section)).width).toBe(0);
         await expect(pressed).toHaveCount(0);
         await expect(toolEntry(page, B)).toBeFocused();
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar).toMatchObject({hidden: true, activeContainer: `view:${B}`});
         // 隐藏之后点它：显示回来，宽度是原来的。
-        await toolEntry(page, B).click();
+        await pressEntry(page, toolEntry(page, B));
         await expect(sample(page, B)).toBeVisible();
         await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => Math.round((await box(page, section)).width)).toBe(Math.round(width));
@@ -447,16 +457,16 @@ test.describe("产品页：测试插件贡献的视图", () => {
         // 可见但焦点不在里面：照样是隐藏，没有“先聚焦”这一步。
         await sample(page, E).locator("input").focus();
         await expect.poll(() => focusedPanelOf(page)).toBe(await panelOfTab(page, E));
-        await toolEntry(page, B).click();
+        await pressEntry(page, toolEntry(page, B));
         await expect.poll(async () => (await box(page, section)).width).toBe(0);
         // 侧栏隐藏着点另一个入口：切过去，同一次写入把侧栏显示出来。
-        await toolEntry(page, A).click();
+        await pressEntry(page, toolEntry(page, A));
         await expect(sample(page, A)).toBeVisible();
         await expect(toolEntry(page, A)).toHaveAttribute("aria-pressed", "true");
         await expect(pressed).toHaveCount(1);
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar).toMatchObject({activeContainer: `view:${A}`});
         expect((await saved(page))?.doc.panels.sidebar?.hidden ?? false).toBe(false);
-        await toolEntry(page, B).click();
+        await pressEntry(page, toolEntry(page, B));
         await expect(sample(page, B)).toBeVisible();
 
         // 拖到零：内容停放，没有按下的入口；点当前容器的入口是展开，不是隐藏。
@@ -468,13 +478,13 @@ test.describe("产品页：测试插件贡献的视图", () => {
         };
         await toZero();
         await parked(page, B);
-        await toolEntry(page, B).click();
+        await pressEntry(page, toolEntry(page, B));
         await expect(sample(page, B)).toBeVisible();
         await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => Math.round((await box(page, section)).width)).toBe(Math.round(width));
         // 拖到零时点另一个入口：切过去并展开，宽度是原来的。
         await toZero();
-        await toolEntry(page, C).click();
+        await pressEntry(page, toolEntry(page, C));
         await expect(sample(page, C)).toBeVisible();
         await expect(toolEntry(page, C)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => Math.round((await box(page, await panelOfTab(page, C))).width)).toBe(Math.round(width));
@@ -902,7 +912,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const delta = page.locator(`[data-view-frame="${D}"]`);
         await expect(delta).toHaveAttribute("data-view-state", "render-failed");
         await expect(delta).toContainText("按开关渲染出错");
-        await toolEntry(page, B).click();
+        await pressEntry(page, toolEntry(page, B));
         const beta = page.locator(`[data-view-frame="${B}"]`);
         await expect(beta).toHaveAttribute("data-view-state", "load-failed");
 
@@ -913,7 +923,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await beta.locator("[data-view-reload]").click();
         await expect(sample(page, B)).toBeVisible();
         expect(await instanceOf(page, B)).toMatchObject({generation: "2"});
-        await toolEntry(page, A).click();
+        await pressEntry(page, toolEntry(page, A));
         await delta.locator("[data-view-retry-render]").click();
         await expect(sample(page, D)).toBeVisible();
         expect(await instanceOf(page, D)).toMatchObject({generation: "2"});
@@ -933,7 +943,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect((await box(page, "g0")).width).toBeGreaterThanOrEqual(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         // 点被收走的面板里的视图：活动栏仍可点，页面仍不横向溢出。
-        await toolEntry(page, A).click();
+        await pressEntry(page, toolEntry(page, A));
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
 
@@ -1357,7 +1367,7 @@ test.describe("产品页：别的插件给视图贡献的标题动作（docs/spe
     test("视图自己的按钮在前、贡献的在后；“⋯”里自己的 menu 动作在前、分隔线后是贡献的；贡献项执行时收到固定参数或这个视图实例（输出 20）", async ({page}) => {
         await page.goto(new URL("/workbench", server.url).href);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
-        await toolEntry(page, C).click();
+        await pressEntry(page, toolEntry(page, C));
         await expect(sample(page, C)).toBeVisible();
         const actions = headOf(page, C);
         // 丙自己的动作收进了“⋯”，所以面板头里的按钮只有贡献的那一个，后面是“⋯”。

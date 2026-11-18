@@ -16,7 +16,7 @@
 - 右栏、底部面板的入口条：[`WorkbenchRegionStrip`](WorkbenchRegionStrip.md)，画在表面的 `strip` 插槽里（Spec 输出 47）。当前容器只有一节时，那一节的头放进它的默认插槽，和分节自己的叶里的头是同一组属性与事件（`toolHeadProps`、`toolHeadEvents`），以面板为 `key`。并进来的头没有展开标记（`foldOf` 排除此刻投影里并进来的）；视图接管标题区时，头那一段的布局宽度小于 `VIEW_HEAD_MIN_PX` 就不接管（`views.md` 输出 19）。
 - 工具面板：[`WorkbenchPanelHead`](WorkbenchPanelHead.md) 加视图内容（[`WorkbenchViewFrame`](WorkbenchViewFrame.md)）。视图动作由共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md) 画在面板头，按面板宽度算放几个按钮，其余收进“⋯”：一个截断的标签、其余只留图标的宽度总要留给标签带。
 - 视图的标题区（[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 19）：只写标题的面板里，活动视图申请了标题区、实例就绪时，面板头改成三列，交来的位置按面板记下，再分给此刻在这块面板里的那个实例；视图换面板时旧面板头拆掉与新面板头画出的先后不定，按面板记就与先后无关。点标题时先记下面板收没收：收着只展开，展开着才通知视图；这时展开、收起走头上单独的展开标记（`toggle-fold`）。
-- 编辑区：树里每块 `role: "editor"` 的面板是 `editorArea` 提供者的一个组组件（属性 `panelId`、`context: {visible}`，别的面板最大化盖住它时 `visible` 为假），提供者的区级组件在外壳根上挂一次，交出标签的拖动；提供者换了才重挂。没有提供者时编辑组里是欢迎文字，那块面板有标签时写不可用的原因。
+- 编辑区：提供者（`editorArea`，Spec 的“贡献点”里 `workbench.editor-area` 的形状）交三个组件，外壳这样挂：`head` 是每块编辑组的头（`panel-id`、`dragging-tab`、`frame-actions`）；`group` 是每个内容项一个（`panel-id`、`tab-id`、`context`，空的编辑组 `tab-id` 为 null；别的面板最大化盖住它时 `context.visible` 为假）；`host` 在外壳根上挂一次，交出标签的拖动（`attach-tab-drag`）。提供者换了才重挂。没有提供者时编辑组里是欢迎文字，那块面板有标签时写不可用的原因。
 - 状态栏：[`WorkbenchStatusBar`](WorkbenchStatusBar.md)。
 
 ## 交互
@@ -51,6 +51,18 @@ type Props = {
     chrome?: ShellChrome;
     /** 作品的显示名；必填，没有项目为 null。 */
     project: string | null;
+    /** 通知中心里没看过的条数（状态栏铃铛的点）；没有通知服务时不给。 */
+    unreadNotifications?: number;
+    /** 拖动时画不画落点分区（设置 `nbook.workbench/dropSectors`）；缺省画。 */
+    dropSectors?: boolean;
+    /** 拖动的手感（设置 `nbook.workbench/dragFeel`）；缺省实时布局。 */
+    dragFeel?: "live" | "indicator";
+    /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）；缺省离开标签条就缩。 */
+    dragCardShrink?: "strip" | "panel";
+    /** 卡片的尺寸多久写一次（设置 `nbook.workbench/dragCardRefresh`）；缺省跟随屏幕每帧写。 */
+    dragCardRefresh?: LiveCardRefresh;
+    /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
+    dropSplit?: DropSplit;
 };
 ```
 
@@ -62,7 +74,7 @@ type Props = {
 
 ## 不支持
 
-手机呈现（w00026 t11）、浮动窗（t09）、拖动中实时重排（t08）都不在这里。
+手机上的另一套呈现、操作系统级的独立窗口都不在这里：窄屏只保证不溢出、够得着（见 `WorkbenchSurface`），浮动窗是应用内的。
 
 ## 隐藏通道理由
 
