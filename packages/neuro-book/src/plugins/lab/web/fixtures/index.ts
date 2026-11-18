@@ -2116,6 +2116,8 @@ function canonEntryPageFixtures() {
             })(),
             load: async () => (await import("./ChangePageFixture.vue")).default,
         }),
+    ];
+}
 
 /** 首次启动向导（desktop-shell 输出 34）的场景：四步、便携版、写入失败、作品目录还没建、插件主题、英文。 */
 function firstRunScenes() {
