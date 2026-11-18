@@ -835,3 +835,12 @@ input.nb-ui-native-input[type="number"] {
         transform: none;
     }
 }
+
+/*
+ * 错误提示一律可选，原文要能复制去搜、去报告（docs/ui-development-spec.md 的“文字能否选中”）：各处都标 `role="alert"`，一条规则
+ * 代替逐个组件声明，宿主（例如桌面壳）在根上默认不可选时也成立。本文件进 components 层，utilities 层的 `select-none` 与不分层的
+ * 组件样式照样盖得过它。
+ */
+[role="alert"] {
+    user-select: text;
+}

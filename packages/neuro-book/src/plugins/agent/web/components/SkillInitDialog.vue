@@ -99,7 +99,8 @@ const close = (): void => emit("update:open", false);
 .skill-init__spin { flex: none; width: 14px; height: 14px; color: var(--text-muted); }
 .skill-init__box { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); background: var(--bg-subtle); }
 .skill-init__caption { flex: none; font-size: var(--text-xs); color: var(--text-muted); }
-.skill-init__output { flex: 1 1 auto; min-height: 0; margin: 0; overflow: auto; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); }
+/* 命令输出是内容，要能复制（nb-ui 规范的“文字能否选中”）。 */
+.skill-init__output { user-select: text; flex: 1 1 auto; min-height: 0; margin: 0; overflow: auto; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); }
 .skill-init__note { flex: none; height: calc(2em * var(--leading-ui)); overflow: hidden; font-size: var(--text-xs); color: var(--text-muted); }
 .skill-init__note.is-warning { color: var(--status-warning); }
 .skill-init__note.is-danger { color: var(--status-danger); }

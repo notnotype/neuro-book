@@ -494,6 +494,8 @@ watch(currentContent, (state, before) => {
     min-height: 0;
     /* 窄档的规则按详情自己的宽：两栏时它只有查看器的一部分宽。 */
     container: ard / inline-size;
+    /* 请求与回应的原文要能复制；行号、返回按钮自己写了不可选（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
 }
 .ard__back {
     flex: none;

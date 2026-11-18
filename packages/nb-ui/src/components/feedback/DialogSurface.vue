@@ -104,10 +104,10 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
             :data-dialog-drag="props.window ? '' : undefined"
         >
             <div class="min-w-0 flex-1" :class="props.window ? 'cursor-move' : ''">
-                <DialogTitle v-if="$slots.header" as="div" class="nb-ui-dialog-title truncate">
+                <DialogTitle v-if="$slots.header" as="div" class="nb-ui-dialog-title truncate select-none">
                     <slot name="header" />
                 </DialogTitle>
-                <DialogTitle v-else class="nb-ui-dialog-title truncate" :class="props.title === '' ? 'sr-only' : ''">{{ props.titleText }}</DialogTitle>
+                <DialogTitle v-else class="nb-ui-dialog-title truncate select-none" :class="props.title === '' ? 'sr-only' : ''">{{ props.titleText }}</DialogTitle>
             </div>
             <slot name="header-extra"></slot>
             <IconButton v-if="props.closable" size="sm" :title="props.closeText" :aria-label="props.closeText" :disabled="props.busy" @click="emit('request-close', 'close-button')">
@@ -145,10 +145,11 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
             :class="fillsRow() ? '' : 'justify-end'"
             :style="{boxShadow: scrollableBelow ? '0 -1px 0 var(--divider)' : 'none'}"
         >
-            <!-- 状态行一直占着按钮左边的位置（空着也在）：平时是 status 插槽的中性状态，出错时换成错误，按钮不动。 -->
+            <!-- 状态行一直占着按钮左边的位置（空着也在）：平时是 status 插槽的中性状态，出错时换成错误，按钮不动。出错时是服务端给的原文，
+                 要能复制，所以可选（宿主可能在根上默认不可选，ui-development-spec 的“文字能否选中”）；标题是框架，不可选。 -->
             <p
                 v-if="!fillsRow()"
-                class="nb-dialog__status m-0 flex min-w-0 flex-1 items-center gap-1.5"
+                class="nb-dialog__status m-0 flex min-w-0 flex-1 items-center gap-1.5 select-text"
                 :class="props.status !== '' ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'"
                 :style="{fontSize: 'var(--text-xs)'}"
                 :title="props.status || undefined"
@@ -174,7 +175,7 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
 <style scoped>
 /*
  * 拖动区域不让浏览器拿触摸手势去滚动、也不起选字：按住就是拖窗口。面板自己只关触摸手势（它不继承，正文是滚动容器，
- * 里面照常滚）；选字是继承的，只关在区域上，正文里照常能选。
+ * 里面照常滚）；选字是继承的，只关在区域上，正文能不能选由里面的内容自己声明（宿主可能在根上默认不可选）。
  */
 .nb-dialog--window {
     touch-action: none;

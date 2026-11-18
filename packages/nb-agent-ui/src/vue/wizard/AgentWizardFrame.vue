@@ -120,6 +120,7 @@ const count = computed(() => (docked.value === null ? props.count : [docked.valu
 
 .acv-wizard-frame__detail {
     min-width: 0;
+    user-select: text;
     overflow: hidden;
     color: var(--text-secondary);
     font-family: var(--font-mono);
@@ -145,6 +146,8 @@ const count = computed(() => (docked.value === null ? props.count : [docked.valu
     margin: -4px;
     padding: 4px;
     overflow: auto;
+    /* 审批的命令、diff 与参数要能复制；停靠态在消息流之外，所以写在这里，不靠宿主容器（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
 }
 
 .acv-wizard-frame__body.is-tall {

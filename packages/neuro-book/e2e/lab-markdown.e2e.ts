@@ -246,3 +246,28 @@ test("PromptEditor 粘贴分档：30 行成为粘贴块，150 行转为文件附
     await expect(page.locator("[data-lab-stage] [data-prompt-card-state='ready']")).toHaveCount(1, {timeout: 10_000});
     await expect.poll(() => promptText(page)).toContain("[file #2 · paste-2.txt](session://attachments/paste-2.txt)");
 });
+
+test("桌面壳里（根上默认不可选）展示器的正文仍可选（docs/specs/runtime/browser-host.md 输出 12 的“文字选择”）", async ({page}) => {
+    await page.addInitScript(() => {
+        const mark = (): boolean => document.documentElement !== null && (document.documentElement.setAttribute("data-desktop-frame", ""), true);
+        if (!mark()) {
+            const observer = new MutationObserver(() => void (mark() && observer.disconnect()));
+            observer.observe(document, {childList: true});
+        }
+    });
+    await page.goto(`${dev.pageUrl}lab?c=MarkdownDisplay&s=plain&vp=1200x900`);
+    await expect.poll(() => labState(page)).toMatchObject({ready: true, scene: "plain"});
+    const strong = page.locator("[data-lab-stage] [data-markdown-display] strong").first();
+    const wanted = (await strong.innerText()).trim();
+    expect(wanted).not.toBe("");
+    // 把这段文字的文本节点整个选中，读用户能复制走的文字；不可选时是空串（判法见 text-selection.e2e.ts）。
+    const copied = await strong.evaluate((element) => {
+        const node = element.firstChild!;
+        const selection = getSelection()!;
+        selection.setBaseAndExtent(node, 0, node, node.textContent!.length);
+        const text = selection.toString();
+        selection.removeAllRanges();
+        return text;
+    });
+    expect(copied).toBe(wanted);
+});

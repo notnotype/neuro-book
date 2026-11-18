@@ -496,6 +496,8 @@ function onLeaveOpen(open: boolean): void {
 
 /* 左栏四周留出焦点线的余量：它条目多时自己滚动，滚动容器会裁掉贴边的线。 */
 .settings-window__nav {
+    /* 分区导航是框架，不供选字（nb-ui 规范的“文字能否选中”）。 */
+    user-select: none;
     display: flex;
     min-height: 0;
     flex: 1;

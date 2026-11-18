@@ -193,6 +193,8 @@ defineExpose({focusShelf});
 <style scoped>
 .bookshelf-page {
     min-height: 100%;
+    /* 书架整页是框架（卡片、标题、统计都可点或只作标注），不供选字；读取失败的原因是 `role="alert"`，仍可选（nb-ui 规范的“文字能否选中”）。 */
+    user-select: none;
     overflow-x: hidden;
     background: var(--window-backdrop, var(--bg-main));
     color: var(--text-main);

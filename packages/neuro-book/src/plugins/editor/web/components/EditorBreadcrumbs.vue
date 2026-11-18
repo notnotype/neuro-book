@@ -241,6 +241,8 @@ watch(() => props.focusSeq, (next, previous) => {
 
 <style scoped>
 .editor-crumbs {
+    /* 面包屑是导航，不供选字（nb-ui 规范的“文字能否选中”）。 */
+    user-select: none;
     display: flex;
     align-items: center;
     gap: 2px;

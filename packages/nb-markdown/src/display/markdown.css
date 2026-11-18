@@ -10,6 +10,15 @@
     line-height: var(--markdown-line-height, 1.7);
 }
 
+/*
+ * 正文是内容，要能选中复制；宿主（桌面壳）在根上默认不可选时也成立（nb-ui 规范的“文字能否选中”）。编辑器的纸面也写：可编辑根里
+ * 不可编辑的节点视图（`contenteditable=false`）会从祖先继承不可选，根上写了才恢复。后备渲染只挂 `.nb-markdown-display`，一并写。
+ */
+.nb-markdown,
+.nb-markdown-display {
+    user-select: text;
+}
+
 /* 段落与列表项的末行不只剩一两个字（不支持的浏览器忽略）。只给展示器：编辑器里打字时末几行会随输入重排。 */
 .nb-markdown-display :is(p, li) {
     text-wrap: pretty;

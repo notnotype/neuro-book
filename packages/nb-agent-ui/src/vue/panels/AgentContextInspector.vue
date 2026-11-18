@@ -114,6 +114,8 @@ function onSystemToggle(event: Event): void {
 
 <style scoped>
 .acv-inspector {
+    /* 系统提示词、槽位与诊断是内容，要能复制（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
     display: flex;
     flex-direction: column;
     gap: 16px;

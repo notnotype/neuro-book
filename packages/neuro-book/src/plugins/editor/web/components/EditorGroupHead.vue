@@ -181,7 +181,7 @@ const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.
             <ContextMenu :open="tabMenuState !== null" :x="tabMenuState?.x ?? 0" :y="tabMenuState?.y ?? 0" :items="tabMenuItems" @request-close="tabMenuState = null" />
             <TitleActions
                 v-if="hasTitleActions"
-                class="editor-group-head__title-actions"
+                class="editor-group-head__title-actions select-none"
                 :model="titleModel!"
                 :identity="titleActions!.identity"
                 :more-label="t('area.moreActions')"

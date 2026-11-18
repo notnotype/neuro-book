@@ -380,6 +380,8 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
 
 .provider-detail__hint {
     margin: 0;
+    /* 提示与检查失败的原文要能复制（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
     color: var(--text-muted);

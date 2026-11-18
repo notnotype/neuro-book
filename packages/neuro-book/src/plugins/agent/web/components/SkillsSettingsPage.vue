@@ -134,7 +134,8 @@ function details(entry: SkillEntry): ReadonlyArray<{readonly term: string; reado
 .skills-page__spin { width: 12px; height: 12px; margin-right: var(--space-1); }
 .skills-page__details { grid-column: 1 / -1; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-1) var(--space-4); margin: var(--space-3) 0 0; padding: var(--space-3); border-radius: var(--radius-control); background: var(--bg-subtle); font-size: var(--text-xs); line-height: var(--leading-ui); }
 .skills-page__details dt { color: var(--text-muted); }
-.skills-page__details dd { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+/* 详情的值与输出是内容，要能复制（nb-ui 规范的“文字能否选中”）。 */
+.skills-page__details dd { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; user-select: text; }
 /* 窄时名字与说明占满第一行，徽标与按钮落到第二行、仍在各自的列里：按钮列不收，名字不被挤成几个字。 */
 @container (max-width: 480px) {
     .skills-page__meta { grid-column: 1 / -1; }

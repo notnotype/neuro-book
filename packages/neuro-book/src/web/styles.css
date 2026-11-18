@@ -42,6 +42,8 @@
     justify-content: center;
     gap: 0.5rem;
     text-align: center;
+    /* 失败原因与抢救出的正文要能复制；桌面里根上默认不可选（见“窗口外框”一节的文字选择）。 */
+    user-select: text;
 }
 
 .nb-host-page h1 {
@@ -146,6 +148,15 @@ html[data-desktop-frame] {
 
 html[data-desktop-frame-bar] {
     --nb-window-frame-offset: var(--nb-window-frame-height);
+}
+
+/*
+ * 文字选择（browser-host 输出 12 的“文字选择”）：外框开着时界面框架的文字默认不能选中，像原生应用；内容区在各自组件的根上写
+ * `user-select: text` 放开（规则见 packages/nb-ui/docs/ui-development-spec.md 的“文字能否选中”）。输入框与可编辑区照常能选。
+ * 普通浏览器里不加这条，组件自己声明的照旧。
+ */
+html[data-desktop-frame] {
+    user-select: none;
 }
 
 /*

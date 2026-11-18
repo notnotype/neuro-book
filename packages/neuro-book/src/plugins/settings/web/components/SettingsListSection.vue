@@ -204,6 +204,8 @@ function excludedText(titles: ReadonlyArray<string>): string {
 
 .settings-list-section__group-title {
     margin: 0 0 var(--space-2);
+    /* 小组标题是框架，不供选字（nb-ui 规范的“文字能否选中”）；设置项自己的名字与说明可选。 */
+    user-select: none;
     padding-bottom: var(--space-3);
     border-bottom: var(--border-w) solid var(--divider);
     font-size: var(--text-xs);

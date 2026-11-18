@@ -627,6 +627,8 @@ defineExpose({focusComposer, scrollToLatest});
     overflow-y: auto;
     padding: 20px 12px 12px;
     overflow-anchor: none;
+    /* 消息、工具输出与提示都是内容；欢迎页、消息动作这些框架自己写了不可选（nb-ui 规范的“文字能否选中”）。 */
+    user-select: text;
 }
 
 /* 消息在头下淡出（t29 决定 5）：离开顶部后顶端 16px 渐隐；在顶部时不渐隐，免得盖住第一条。遮罩只看透明度，颜色无关。 */
