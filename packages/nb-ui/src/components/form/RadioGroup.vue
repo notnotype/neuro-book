@@ -87,17 +87,19 @@ function handleUpdate(value: unknown): void {
             <label
                 v-for="option in props.options"
                 :key="option.value"
-                class="group flex items-start gap-2.5 select-none"
+                class="group flex items-start gap-2.5 select-none leading-snug"
                 :class="[
                     (props.disabled || option.disabled) ? 'cursor-not-allowed opacity-45' : props.readonly ? 'cursor-default' : 'cursor-pointer',
+                    props.size === 'sm' ? 'text-[length:var(--text-xs)]' : 'text-[length:var(--text-sm)]',
                 ]"
             >
+                <!-- 字号与行高写在 label 上，圆钮的 1lh 就是标签第一行的行高；上外边距让它落在第一行的竖直中线上，有说明时也不往下偏。 -->
                 <RadioGroupItem
                     :value="option.value"
                     :disabled="option.disabled"
                     class="nb-ui-focus-ring relative flex shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] transition-[background-color,border-color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] disabled:cursor-not-allowed disabled:active:transform-none focus-visible:border-[var(--focus-outline)] data-[state=checked]:border-[var(--accent-main)] data-[state=checked]:focus-visible:border-[var(--focus-outline)] data-[state=checked]:bg-[var(--accent-main)]"
                     :class="[
-                        props.size === 'sm' ? 'h-4 w-4 mt-0.5' : 'h-5 w-5 mt-0.5',
+                        props.size === 'sm' ? 'h-4 w-4 mt-[calc((1lh-16px)/2)]' : 'h-5 w-5 mt-[calc((1lh-20px)/2)]',
                         isInvalid ? '!border-[color:var(--status-danger)]' : '',
                         // 只读不画成可点：悬停不描边、按下不缩。
                         props.readonly ? '' : 'hover:border-[var(--accent-main)] group-not-disabled:active:scale-[0.92]',
@@ -115,8 +117,7 @@ function handleUpdate(value: unknown): void {
 
                 <div class="min-w-0 flex-1">
                     <span
-                        class="block font-medium text-[var(--text-main)] leading-snug transition-colors"
-                        :class="props.size === 'sm' ? 'text-[length:var(--text-xs)]' : 'text-[length:var(--text-sm)]'"
+                        class="block font-medium text-[var(--text-main)] transition-colors"
                     >{{ option.label }}</span>
                     <span
                         v-if="option.description"

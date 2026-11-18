@@ -96,8 +96,9 @@ function handleChange(event: Event): void {
             @click="handleClick"
             @change="handleChange"
         >
+        <!-- 上外边距让方框落在标签第一行的竖直中线上（1lh 是继承来的行高）；方框要与 input 同级，peer-focus-visible 才画得出焦点环。 -->
         <span
-            class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-[background-color,border-color,color,box-shadow,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] not-disabled:group-active:scale-[0.92] mt-0.5"
+            class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-[background-color,border-color,color,box-shadow,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] not-disabled:group-active:scale-[0.92] mt-[calc((1lh-18px)/2)]"
             :class="[
                 (isChecked || isIndeterminate)
                     ? 'border-[var(--accent-main)] bg-[linear-gradient(180deg,var(--accent-main)_0%,color-mix(in_srgb,var(--accent-main)_88%,#000000)_100%)] text-[var(--text-inverse)] shadow-[0_2px_6px_color-mix(in_srgb,var(--accent-main)_35%,transparent)]'
