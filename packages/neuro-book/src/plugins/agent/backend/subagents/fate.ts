@@ -31,6 +31,8 @@ export async function watchFate(table: SessionTable, sessionId: string, inputId:
     });
     const view = table.view(sessionId, issuer);
     const check = async (): Promise<void> => {
+        // 一批事件在内核的一次同步写入里逐条推帧：先让出一次，查询在整批写完之后才发，看到的是整批的结果。
+        await Promise.resolve();
         const now = settledOf(await view.inputFate({inputId}));
         if (now !== null) settle(now);
     };
@@ -38,7 +40,6 @@ export async function watchFate(table: SessionTable, sessionId: string, inputId:
         if (frame.type !== "log" || !FATE_EVENTS.has(frame.event.type)) return;
         const data = frame.event.data as {id?: string; ids?: readonly string[]};
         if (data.id !== inputId && data.ids?.includes(inputId) !== true) return;
-        // 查询在这一批事件之后执行，看到的是整批写完的结果。
         check().catch(failed);
     });
     if (!subscribed.ok) return {settled, release: () => undefined};

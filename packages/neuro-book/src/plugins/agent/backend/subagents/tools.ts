@@ -16,7 +16,7 @@ import type {AnyProfile, Clock, HeldCause, Issuer, JsonValue, ModelPort, Session
 
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 import {failed} from "@notnotype/nb-harness/kit/files";
-import {SessionUnavailable, type SessionTable} from "@notnotype/nb-harness/kit/sessions";
+import {SessionTableStopping, SessionUnavailable, type SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
 import type {AgentRuntimeService, ProfileEntry} from "../../shared/contracts";
 import {AGENT_MODES_EXTENSION} from "../../shared/permissions";
@@ -137,7 +137,7 @@ export interface SubagentToolDeps {
     readonly stopping: () => boolean;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
     /** 前台等 `later` 的话的去向时计超时（输出 6），与任务中心同一个时钟。 */
-    readonly clock: Pick<Clock, "wait">;
+    readonly clock: Pick<Clock, "wait" | "now">;
 }
 
 /**
@@ -486,7 +486,17 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
             return {text: result.text, details: result.details};
         };
         if (!foreground) return queued();
-        const fate = await watchFate(deps.table, child, inputId, issuerOf(parent), (error) => noteFailure("subagent-fate-failed", child, error));
+        const view = deps.table.view(child, issuerOf(parent));
+        // 前台等的总时长是 `timeout`：等去向用掉的，从之后跟任务的等待里扣掉。
+        const startedAt = deps.clock.now();
+        let fate: Awaited<ReturnType<typeof watchFate>>;
+        try {
+            fate = await watchFate(deps.table, child, inputId, issuerOf(parent), (error) => noteFailure("subagent-fate-failed", child, error));
+        } catch (error) {
+            // `nbook.agent` 正在停止：话已经送进子会话，只是等不了它的去向。
+            if (error instanceof SessionTableStopping) return unavailable();
+            throw error;
+        }
         const steer = await watchSteer(deps.table, parent, (error) => noteFailure("steer-watch-failed", parent, error)).catch((error: unknown) => {
             fate.release();
             throw error;
@@ -502,7 +512,22 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
                 else call.signal.addEventListener("abort", () => resolve("aborted"), {once: true, signal: stop.signal});
             });
             if (ended === "aborted") {
-                const aborted = resultOf({sessionId: child, invocation: call.invocation, status: "aborted", note: "你的运行被中止了，没有等子会话收口；这句话还排在子会话里，之后照常处理"});
+                // 父会话中止，这句话跟着撤（输出 16）：还没被取走就以父会话的身份取消；已经被同一刻开的运行取走，就登记任务、按任务的中止收口
+                // （父会话自己开的运行跟着停）。
+                const withdrawn = await view.remove({commandId: `${call.invocation}-withdraw`, inputId}).catch((error: unknown) => noteFailure("subagent-withdraw-failed", child, error));
+                if (withdrawn?.ok === true) {
+                    const aborted = resultOf({sessionId: child, invocation: call.invocation, status: "aborted", note: "你的运行被中止了；这句话还没被子会话处理，已经撤回"});
+                    return {text: aborted.text, details: aborted.details};
+                }
+                const now = await view.inputFate({inputId}).catch((error: unknown) => noteFailure("subagent-fate-failed", child, error));
+                if (now !== null && "taken" in now && now.taken !== null) {
+                    const job = adopt(parent, child, now.taken, null, await openedBy(view, now.taken, parent), call, services, title);
+                    if (job !== null) {
+                        deps.jobs.attach(job);
+                        return settle(job, call, args, true);
+                    }
+                }
+                const aborted = resultOf({sessionId: child, invocation: call.invocation, status: "aborted", note: "你的运行被中止了，没有等子会话收口"});
                 return {text: aborted.text, details: aborted.details};
             }
             if (ended === "interrupted" || ended === "timeout") {
@@ -511,16 +536,25 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
             if ("held" in ended) return untracked(child, null, call, heldText(ended.held));
             if ("removed" in ended) return untracked(child, null, call, `这句话被取消了（${ended.removed}），没有被处理`);
             if (ended.taken === null) return untracked(child, null, call, "话已送达");
-            const job = adopt(parent, child, ended.taken, null, true, call, services, title);
+            // 收口批开的下一次运行，推迟的指令里有用户时由用户开（harness/runtime.md 输出 104）：按开它的人认，用户开的不连带中止（输出 16）。
+            const job = adopt(parent, child, ended.taken, null, await openedBy(view, ended.taken, parent), call, services, title);
             if (job === null) return untracked(child, ended.taken, call, "话已送达");
             deps.jobs.attach(job);
-            return settle(job, call, args, true);
+            const left = Math.max(1, Math.ceil((timeoutMs(args) - (deps.clock.now() - startedAt)) / 1000));
+            return settle(job, call, {...args, timeout: left}, true);
         } finally {
             timer.abort();
             stop.abort();
             fate.release();
             steer.release();
         }
+    };
+
+    /** 这次运行是不是父会话开的（`runStarted.by`）：决定父会话中止时连不连带（输出 16）。 */
+    const openedBy = async (view: SessionApi, runId: string, parent: string): Promise<boolean> => {
+        const started = (await view.path()).find((event) => event.type === "runStarted" && (event.data as {runId?: string}).runId === runId);
+        const by = (started?.data as {by?: Issuer} | undefined)?.by;
+        return by?.kind === "session" && by.id === parent;
     };
 
     /**
@@ -541,7 +575,10 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
         if (resumed.code === "held-by-user") return {failure: failure("held-by-user", `子会话 ${child} 里留着的话是用户停止时留下的，只有用户能放行。`, child)};
         if (resumed.code !== "nothing-to-resume") return {failure: passthrough(resumed, `子会话 ${child} 没能继续`, child)};
         if (started.code === "not-allowed") {
-            const ended = (await view.path()).findLast((event) => event.type === "runEnded")?.data as {stoppedBy?: Issuer} | undefined;
+            // 叶子上最后一次对话运行（不算只压缩的）的收口：内核按它判能不能接着跑（harness/runtime.md 输出 4）。
+            const path = await view.path();
+            const chat = path.findLast((event) => event.type === "runStarted" && (event.data as {kind?: string}).kind !== "compact")?.data as {runId?: string} | undefined;
+            const ended = path.findLast((event) => event.type === "runEnded" && (event.data as {runId?: string}).runId === chat?.runId)?.data as {stoppedBy?: Issuer} | undefined;
             return {failure: failure("not-allowed", ended?.stoppedBy?.kind === "user" ? `子会话 ${child} 的上一次运行被用户停止，只有用户能接着跑。` : `子会话 ${child} 的上一次运行不是你开的，你不能接着跑；带 message 发新的话。`, child)};
         }
         return {failure: failure("nothing-to-continue", `子会话 ${child} 没有可以继续的运行，也没有留着的话；带 message 发新的话。`, child)};

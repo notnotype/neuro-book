@@ -611,6 +611,60 @@ describe("话的去向（t14：harness/runtime.md 输出 103–110）", () => {
         expect(inputs.slice(-2)).toEqual(["先排一句", "再插一句"]);
     });
 
+    /** 子会话跑两轮后开始只压缩、压缩请求挂着；交回子会话（用户视图）与压缩的挂起。 */
+    async function compactingChild(w: AgentWorld, parent: SessionApi, prompt: string) {
+        const child = await twoTurnChild(parent, prompt);
+        const view = childOf(w, child);
+        const compaction = endpoint.holdFor(prompt);
+        expect((await view.compact({commandId: cid()})).ok).toBe(true);
+        await compaction.arrived;
+        return {child, view, compaction};
+    }
+
+    test("输出 16：前台等去向时父会话中止，这句话从子会话撤回，之后不开运行", async () => {
+        const {w, parent} = await open({...localModelSettings(endpoint.baseUrl, {compactionRole: true})});
+        const {view, compaction, child} = await compactingChild(w, parent, "整理第四章的伏笔");
+        endpoint.script({tool: "agent_send", args: {id: child, message: "父会话这句"}});
+        const sent = await parent.send({commandId: cid(), input: {text: "给子会话一句"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await waitUntil("排着", async () => (await view.snapshot()).buffer.length === 1);
+        const runsBefore = (await view.path()).filter((event) => event.type === "runStarted").length;
+        expect((await parent.abort({commandId: cid()})).ok).toBe(true);
+        await parent.waitRun(sent.value.runId);
+        const result = (await toolResults(parent, "nbook.agent.send")).at(-1)!;
+        expect(result.details).toMatchObject({status: "aborted", sessionId: child});
+        expect(result.text).toContain("已经撤回");
+        expect((await view.snapshot()).buffer).toEqual([]);
+        endpoint.scriptFor("整理第四章的伏笔", "压缩摘要");
+        compaction.release();
+        await waitUntil("压缩收口", async () => (await view.snapshot()).status.state === "idle");
+        expect((await view.path()).filter((event) => event.type === "runStarted").length).toBe(runsBefore);
+    });
+
+    test("输出 16：前台等到的那次运行是用户开的（推迟的话里有用户的），父会话中止时不连带停它", async () => {
+        const {w, parent} = await open({...localModelSettings(endpoint.baseUrl, {compactionRole: true})});
+        const {view, compaction, child} = await compactingChild(w, parent, "整理第五章的伏笔");
+        const {client} = await w.window("jobs");
+        expect((await view.send({commandId: cid(), input: {text: "用户先说"}})).ok).toBe(true);
+        endpoint.script({tool: "agent_send", args: {id: child, message: "父会话这句"}});
+        const sent = await parent.send({commandId: cid(), input: {text: "给子会话一句"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await waitUntil("两句排着", async () => (await view.snapshot()).buffer.length === 2);
+        // 压缩之后的请求第一条用户消息不再是派它的 prompt：挂下一个到达的请求（父会话正等在工具里，不会发请求）。
+        endpoint.scriptFor("整理第五章的伏笔", "压缩摘要");
+        const nextRun = endpoint.hold();
+        compaction.release();
+        await nextRun.arrived;
+        const started = (await view.path()).filter((event) => event.type === "runStarted").at(-1)!.data as {runId: string; by?: unknown};
+        expect(started.by).toBeUndefined();
+        await waitUntil("父会话登记了任务", async () => ok(await client.jobs({sessionId: parent.id})).length === 1);
+        expect((await parent.abort({commandId: cid()})).ok).toBe(true);
+        await parent.waitRun(sent.value.runId);
+        endpoint.script("两句都处理了。");
+        nextRun.release();
+        expect((await view.waitRun(started.runId)).reason).toBe("completed");
+    });
+
     /** 派一个 async 子代理，它的第一个请求挂着；再排一句父会话的话（queue），交回子会话、任务与挂起。 */
     async function busyChildWithQueued(parent: SessionApi, prompt: string) {
         endpoint.scriptFor(prompt, "第一轮做完了。", "排着的那句也做了。");
