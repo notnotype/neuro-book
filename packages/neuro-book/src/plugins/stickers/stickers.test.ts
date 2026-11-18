@@ -5,11 +5,11 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {access, chmod, mkdir, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
+import {access, chmod, mkdir, readdir, readFile, rename, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {ContributionHandle, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ActivationContext, ContributionHandle, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {openExistingFolder} from "nbook/backend/open-folder";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -26,12 +26,13 @@ import {browserCatalog, browserSummaries} from "./backend/browser-catalog";
 import {StickerCatalog} from "./backend/catalog";
 import type {StickerPackItem} from "./backend/catalog";
 import {packDetail} from "./backend/pack-detail";
+import {StickerEditor} from "./backend/editor";
 import {revealPath} from "./backend/reveal";
 import {stickersBackendPlugin} from "./backend/plugin";
 import {pluginPackRoots} from "./backend/plugin-roots";
 import {createStickerRoutes} from "./backend/routes";
 import {descriptor} from "./plugin";
-import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, REPLACED_PREFIX, STAGING_PREFIX, stickerImageUrl, stickersServiceKey} from "./shared/contracts";
+import {BROWSER_BYTES_MAX, BROWSER_STICKERS_MAX, REPLACED_PREFIX, STAGING_PREFIX, stickerImageUrl, stickersCatalogContract, stickersServiceKey} from "./shared/contracts";
 import type {StickerPackEntry, StickerPacksDeclaration, StickersService} from "./shared/contracts";
 
 const PIXEL = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (char) => char.charCodeAt(0));
@@ -443,6 +444,150 @@ describe("表情包页的读取", () => {
         const missing = join(user, "missing");
         expect(await openExistingFolder(missing, {}, "linux")).toMatchObject({ok: false, code: "open-failed"});
         expect(await access(missing).then(() => true, () => false)).toBe(false);
+    });
+});
+
+describe("表情包页的写入", () => {
+    /** 窗口里的探针：拿到浏览器一侧的远程调用，像表情包页那样调 `nbook.stickers` 的方法。 */
+    async function api(world: SettingsWorld) {
+        const holder: {remote: ActivationContext["remote"] | null} = {remote: null};
+        await world.window(`w${String(counter)}`, [{id: "x.page", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+            holder.remote = context.remote;
+            return {};
+        }})]}], {bound: false});
+        if (holder.remote === null) throw new Error("探针没有激活");
+        return holder.remote.use(stickersCatalogContract);
+    }
+    const manifestOf = async (user: string, folder: string): Promise<{title?: string; description?: string; stickers?: Array<Record<string, unknown>>}> => JSON.parse(await readFile(join(user, folder, "stickers.json"), "utf8"));
+    const exists = (path: string): Promise<boolean> => access(path).then(() => true, () => false);
+
+    test("输出 31、28、30：新建；改显示名与说明；没有表情列表时改表情先补列表；名字的核对；加进来、删文件、删表情；返回时目录已是写完的样子", async () => {
+        const {world, user, service} = await scene();
+        const remote = await api(world);
+        expect(await remote.createPack({folder: "cat", title: "猫猫"})).toEqual({ok: true, value: {id: "user.cat"}});
+        expect(service.list().find((entry) => entry.id === "user.cat")).toMatchObject({title: "猫猫", status: "ok"});
+        expect(await remote.createPack({folder: "cat", title: null})).toMatchObject({ok: false, code: "pack-exists"});
+        expect(await remote.createPack({folder: "Cat", title: null})).toMatchObject({ok: false, code: "folder-invalid"});
+        expect(await remote.pack({id: "user.none"})).toMatchObject({ok: false, code: "pack-missing"});
+        // 不在目录里的不打开（真的打开会在测试机上弹出文件管理器，这里只测拒绝的一侧）。
+        expect(await remote.revealPack({id: "user.none"})).toMatchObject({ok: false, code: "pack-missing"});
+
+        for (const file of ["开心.png", "1.png"]) await writeFile(join(user, "cat", file), await png(16, 16));
+        expect(await remote.updatePack({id: "user.cat", title: "猫", description: "喵喵"})).toEqual({ok: true, value: {}});
+        // 只改头不补列表：仍按文件夹里的图片。
+        expect(await manifestOf(user, "cat")).toEqual({title: "猫", description: "喵喵"});
+        expect((await remote.pack({id: "user.cat"})).ok && (await remote.pack({id: "user.cat"}))).toMatchObject({value: {listed: false, summary: {unrecognized: 1}}});
+
+        // 给认不出的 1.png 写名字：先补列表（两张、都常用），再改这一项；文件不改名。
+        expect(await remote.updateSticker({id: "user.cat", file: "1.png", name: null, change: {name: "一", description: "第一张"}})).toEqual({ok: true, value: {}});
+        expect((await manifestOf(user, "cat")).stickers).toEqual([{file: "1.png", common: true, name: "一", description: "第一张"}, {file: "开心.png", common: true}]);
+        const detail = await remote.pack({id: "user.cat"});
+        if (!detail.ok) throw new Error(detail.code);
+        expect(detail.value.stickers.map((sticker) => sticker.name)).toEqual(["一", "开心"]);
+        expect(detail.value.listed).toBe(true);
+        expect(await remote.updateSticker({id: "user.cat", file: "开心.png", name: "开心", change: {name: "一"}})).toMatchObject({ok: false, code: "name-duplicate"});
+        expect(await remote.updateSticker({id: "user.cat", file: "开心.png", name: "开心", change: {name: "1坏"}})).toMatchObject({ok: false, code: "name-invalid"});
+        expect(await remote.updateSticker({id: "user.cat", file: "没有.png", name: "没有", change: {common: false}})).toMatchObject({ok: false, code: "sticker-missing"});
+        expect(await remote.updateSticker({id: "user.cat", file: "开心.png", name: "开心", change: {common: false}})).toEqual({ok: true, value: {}});
+
+        // 有了列表，后放进去的图是没加进来的：加进来一张、删掉另一张的文件。
+        await writeFile(join(user, "cat", "冲.png"), await png(8, 8));
+        await writeFile(join(user, "cat", "删.png"), await png(8, 8));
+        expect(await remote.listFiles({id: "user.cat", files: ["冲.png"]})).toEqual({ok: true, value: {added: 1}});
+        expect(await remote.deleteFile({id: "user.cat", file: "删.png"})).toEqual({ok: true, value: {}});
+        expect(await exists(join(user, "cat", "删.png"))).toBe(false);
+        expect(await remote.deleteFile({id: "user.cat", file: "冲.png"})).toMatchObject({ok: false, code: "sticker-missing"});
+
+        // 删表情：清单里删那一项，文件没别的项用就删文件。
+        expect(await remote.deleteSticker({id: "user.cat", file: "开心.png", name: "开心"})).toEqual({ok: true, value: {}});
+        expect(await exists(join(user, "cat", "开心.png"))).toBe(false);
+        expect((await manifestOf(user, "cat")).stickers?.map((entry) => entry.file)).toEqual(["1.png", "冲.png"]);
+        expect(service.list().find((entry) => entry.id === "user.cat")?.stickers.map((sticker) => sticker.name)).toEqual(["一", "冲"]);
+    });
+
+    test("输出 30：同一个文件写了两项时，删一项不删文件；没有表情列表的包里删表情就删文件", async () => {
+        const {world, user} = await scene(async (user) => {
+            await pack(join(user, "pair"), {stickers: [{name: "甲", file: "a.png"}, {name: "乙", file: "a.png"}]}, {"a.png": await png(8, 8)});
+            await mkdir(join(user, "loose"));
+            await writeFile(join(user, "loose", "开心.png"), await png(8, 8));
+        });
+        const remote = await api(world);
+        expect(await remote.deleteSticker({id: "user.pair", file: "a.png", name: "甲"})).toEqual({ok: true, value: {}});
+        expect(await exists(join(user, "pair", "a.png"))).toBe(true);
+        expect((await manifestOf(user, "pair")).stickers).toEqual([{name: "乙", file: "a.png"}]);
+        expect(await remote.deleteSticker({id: "user.loose", file: "开心.png", name: "开心"})).toEqual({ok: true, value: {}});
+        expect(await exists(join(user, "loose", "开心.png"))).toBe(false);
+        expect(await exists(join(user, "loose", "stickers.json"))).toBe(false);
+    });
+
+    test("输出 33、34：改包名、删除都带打开时的令牌；文件夹被别处换掉的不动；改名后旧 id 没了", async () => {
+        const {world, user, service} = await scene(async (user) => lyra(join(user, "lyra")));
+        const remote = await api(world);
+        const token = async (id: string): Promise<string> => {
+            const detail = await remote.pack({id});
+            if (!detail.ok || detail.value.token === null) throw new Error("没有令牌");
+            return detail.value.token;
+        };
+        expect(await remote.renamePack({id: "user.lyra", folder: "xingli", token: await token("user.lyra")})).toEqual({ok: true, value: {id: "user.xingli"}});
+        expect(service.list().map((entry) => entry.id)).toEqual(["user.xingli"]);
+        const stale = await token("user.xingli");
+        // 别处删掉再放进同名的新文件夹：令牌对不上，改名、删除都不做。
+        await rm(join(user, "xingli"), {recursive: true});
+        await lyra(join(user, "xingli"));
+        expect(await remote.renamePack({id: "user.xingli", folder: "other", token: stale})).toMatchObject({ok: false, code: "pack-changed"});
+        expect(await remote.deletePack({id: "user.xingli", token: stale})).toMatchObject({ok: false, code: "pack-changed"});
+        expect(await exists(join(user, "xingli", "stickers.json"))).toBe(true);
+        expect(await remote.deletePack({id: "user.xingli", token: await token("user.xingli")})).toEqual({ok: true, value: {}});
+        expect(await exists(join(user, "xingli"))).toBe(false);
+        expect(service.list()).toEqual([]);
+    });
+
+    test("改清单：清单满了不写；清单读不懂的不改；同一个包的两次写入排队，两个改动都在", async () => {
+        const {world, user} = await scene(async (user) => {
+            await pack(join(user, "full"), {stickers: Array.from({length: 500}, (_, index) => ({name: `n${String(index)}`, file: "a.png"}))}, {"a.png": await png(8, 8), "b.png": await png(8, 8)});
+            await pack(join(user, "two"), {stickers: [{name: "甲", file: "a.png"}, {name: "乙", file: "b.png"}]}, {"a.png": await png(8, 8), "b.png": await png(8, 8)});
+        });
+        const remote = await api(world);
+        expect(await remote.listFiles({id: "user.full", files: "all"})).toMatchObject({ok: false, code: "manifest-full"});
+        const [first, second] = await Promise.all([
+            remote.updateSticker({id: "user.two", file: "a.png", name: "甲", change: {description: "一"}}),
+            remote.updateSticker({id: "user.two", file: "b.png", name: "乙", change: {description: "二"}}),
+        ]);
+        expect([first.ok, second.ok]).toEqual([true, true]);
+        expect((await manifestOf(user, "two")).stickers?.map((entry) => entry.description)).toEqual(["一", "二"]);
+        await writeFile(join(user, "two", "stickers.json"), "{不是 JSON");
+        expect(await remote.updateSticker({id: "user.two", file: "a.png", name: "甲", change: {common: true}})).toMatchObject({ok: false, code: "write-failed"});
+    });
+
+    test("输出 32：复制插件的包成用户的包（清单与顶层图片），包名被用了加 -2；插件途中换了版本不留半个包；插件的包不能改", async () => {
+        const {user, files} = await scene(async (user) => {
+            await mkdir(join(user, "lyra"), {recursive: true});
+        });
+        counter += 1;
+        const plugin = join(tmp, `c${String(counter)}`);
+        await lyra(join(plugin, "lyra"));
+        await mkdir(join(plugin, "lyra", "sub"));
+        await writeFile(join(plugin, "lyra", "notes.txt"), "说明");
+        const catalog = await StickerCatalog.open({roots: [{key: "user", source: "user", prefix: "user", root: user, watch: false}], clock: {now: () => 0, schedule: () => () => undefined} as never, report: () => undefined});
+        catalogs.push(catalog);
+        await catalog.addRoot({key: "acme.cute.packs", source: "plugin", prefix: "acme.cute", root: plugin, watch: false});
+        const editor = new StickerEditor({files: () => files, catalog});
+        expect(await editor.updatePack("acme.cute.lyra", {title: "改"})).toMatchObject({ok: false, code: "not-user-pack"});
+        expect(await editor.copyPack("acme.cute.lyra")).toEqual({ok: true, value: {id: "user.lyra-2"}});
+        expect(catalog.item("user.lyra-2")?.entry).toMatchObject({title: "星璃", status: "ok"});
+        expect(await exists(join(user, "lyra-2", "notes.txt"))).toBe(false);
+        expect(await exists(join(user, "lyra-2", "sub"))).toBe(false);
+        expect(await exists(join(user, "lyra-2", "happy.png"))).toBe(true);
+
+        // 复制途中插件撤回再登记（换了版本）：丢弃暂存。
+        const slow = new StickerEditor({files: () => files, catalog: {...catalog, item: (id) => catalog.item(id), refresh: (key) => catalog.refresh(key), rootVersion: (key) => {
+            const version = catalog.rootVersion(key);
+            return key === "acme.cute.packs" && copies++ > 0 ? (version ?? 0) + 1 : version;
+        }}});
+        let copies = 0;
+        expect(await slow.copyPack("acme.cute.lyra")).toMatchObject({ok: false, code: "pack-changed"});
+        expect(catalog.list().filter((entry) => entry.id.startsWith("user.lyra-")).map((entry) => entry.id)).toEqual(["user.lyra-2"]);
+        expect((await readdir(user)).filter((name) => name.startsWith(STAGING_PREFIX))).toEqual([]);
     });
 });
 

@@ -82,6 +82,9 @@ export class StickerCatalog {
     readonly #listeners = new Set<() => void>();
     readonly #watchers = new Map<string, FSWatcher>();
     readonly #pending = new Map<string, () => void>();
+    /** 每个根被加进来的次数：插件撤回再登记同一个贡献时变，复制插件的包据此发现途中换了版本。 */
+    readonly #rootVersions = new Map<string, number>();
+    #rootCounter = 0;
     #scanning: Promise<void> = Promise.resolve();
     #closed = false;
 
@@ -94,6 +97,8 @@ export class StickerCatalog {
     static async open(options: StickerCatalogOptions): Promise<StickerCatalog> {
         const catalog = new StickerCatalog(options);
         for (const root of options.roots) {
+            catalog.#rootCounter += 1;
+            catalog.#rootVersions.set(root.key, catalog.#rootCounter);
             if (root.watch) await mkdir(root.root, {recursive: true});
             if (root.source === "user") await catalog.#sweep(root.root);
         }
@@ -138,7 +143,14 @@ export class StickerCatalog {
         return () => this.#listeners.delete(listener);
     }
 
+    /** 根当前的版本；根不在时 undefined。 */
+    rootVersion(key: string): number | undefined {
+        return this.#rootVersions.get(key);
+    }
+
     async addRoot(root: StickerRoot): Promise<void> {
+        this.#rootCounter += 1;
+        this.#rootVersions.set(root.key, this.#rootCounter);
         await this.#queue(async () => {
             this.#roots = [...this.#roots.filter((candidate) => candidate.key !== root.key), root];
             this.#byRoot.set(root.key, await this.#scanRoot(root));
@@ -147,6 +159,7 @@ export class StickerCatalog {
     }
 
     async removeRoot(key: string): Promise<void> {
+        this.#rootVersions.delete(key);
         await this.#queue(async () => {
             this.#roots = this.#roots.filter((candidate) => candidate.key !== key);
             this.#byRoot.delete(key);

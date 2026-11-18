@@ -9,7 +9,7 @@ import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {provideRemote} from "@notnotype/nb-runtime/remote";
+import {fail, ok, provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {SCHEMES_POINT, workspaceFilesKey} from "nbook/plugins/files/shared/contracts";
 import {pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
@@ -21,11 +21,18 @@ import {packsPoint, STICKERS_POINT, STICKERS_SCHEME, stickersCatalogContract, st
 import {browserCatalog, browserSummaries} from "./browser-catalog";
 import {StickerCatalog} from "./catalog";
 import type {StickerPackItem} from "./catalog";
+import {StickerEditor} from "./editor";
+import type {Edited} from "./editor";
 import {packDetail} from "./pack-detail";
 import {revealPath} from "./reveal";
 import {pluginPackRoots} from "./plugin-roots";
 import {createStickerRoutes} from "./routes";
 import {stickersScheme} from "./scheme";
+
+/** 编辑的结果交给远程调用：成功按 `shape` 交值（缺省原样），失败交码与原因（每个码的详情都是 `{detail}`）。 */
+function answer<T, O = T>(result: Edited<T>, shape: (value: T) => O = (value) => value as unknown as O) {
+    return result.ok ? ok(shape(result.value)) : fail(result.code, {detail: result.detail});
+}
 
 export const stickersBackendPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -49,6 +56,7 @@ export const stickersBackendPlugin: PluginDefinition = {
             const packages = await context.services.resolve(pluginPackagesKey);
             context.onStop(() => catalog.close());
             const files = () => context.services.require(workspaceFilesKey);
+            const editor = new StickerEditor({files, catalog});
             /** 用户的包的文件夹身份令牌：表情包页改包名、删除、替换时带回，文件夹被别处换掉了就不做。 */
             const tokenOf = async (item: StickerPackItem): Promise<string | null> => {
                 if (item.entry.source !== "user") return null;
@@ -66,6 +74,15 @@ export const stickersBackendPlugin: PluginDefinition = {
                             const item = catalog.item(id);
                             return item === undefined ? call.fail("pack-missing", {}) : call.ok(packDetail(item, await tokenOf(item)));
                         },
+                        createPack: async ({folder, title}, call) => answer(await editor.createPack(folder, title ?? null)),
+                        updatePack: async ({id, title, description}, call) => answer(await editor.updatePack(id, {title, description}), () => ({})),
+                        renamePack: async ({id, folder, token}, call) => answer(await editor.renamePack(id, folder, token)),
+                        deletePack: async ({id, token}, call) => answer(await editor.deletePack(id, token), () => ({})),
+                        updateSticker: async ({id, file, name, change}, call) => answer(await editor.updateSticker(id, {file, name}, change), () => ({})),
+                        deleteSticker: async ({id, file, name}, call) => answer(await editor.deleteSticker(id, {file, name}), () => ({})),
+                        listFiles: async ({id, files: wanted}, call) => answer(await editor.listFiles(id, wanted)),
+                        deleteFile: async ({id, file}, call) => answer(await editor.deleteFile(id, file), () => ({})),
+                        copyPack: async ({id}, call) => answer(await editor.copyPack(id)),
                         revealPack: async ({id}, call) => {
                             const path = await revealPath(catalog, userRoot, id);
                             if (path === null) return call.fail("pack-missing", {});

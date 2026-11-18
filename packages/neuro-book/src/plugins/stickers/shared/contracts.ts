@@ -4,7 +4,7 @@
  */
 
 import {Type} from "typebox";
-import type {Static} from "typebox";
+import type {Static, TSchema} from "typebox";
 
 import type {StickerResolver} from "@notnotype/nb-markdown";
 import type {ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
@@ -213,6 +213,26 @@ export const PackDetailSchema = Type.Object({
 }, {additionalProperties: false});
 export type StickerPackDetail = Static<typeof PackDetailSchema>;
 
+/**
+ * 表情包页写入的失败码（docs/specs/agent/stickers.md 输出 28 到 34 与失败表）：文件服务的失败映射过来，不透传；`detail` 是给人看的
+ * 原因（不含宿主路径）。
+ */
+export const EDIT_CODES = [
+    "not-user-pack", "pack-missing", "pack-exists", "pack-changed", "folder-invalid", "name-invalid", "name-duplicate",
+    "description-invalid", "sticker-missing", "manifest-full", "too-large", "permission-denied", "write-failed", "refresh-failed",
+] as const;
+export type EditCode = (typeof EDIT_CODES)[number];
+
+const EditDetail = Type.Object({detail: Type.String()}, {additionalProperties: false});
+const editErrors = Object.fromEntries(EDIT_CODES.map((code) => [code, EditDetail])) as {readonly [Code in EditCode]: typeof EditDetail};
+const Empty = Type.Object({}, {additionalProperties: false});
+const Id = Type.String();
+const Created = Type.Object({id: Type.String()}, {additionalProperties: false});
+const Text = Type.Optional(Type.Union([Type.String(), Type.Null()]));
+/** 表情的定位：文件名加名字（清单里写的或推出来的；没写名字的认不出的图为 null）。 */
+const Target = {file: Type.String(), name: Type.Union([Type.String(), Type.Null()])};
+const write = <I extends TSchema, O extends TSchema>(input: I, output: O) => ({input, output, effect: "write" as const, errors: editErrors});
+
 /** 浏览器目录（输出 18）：先订阅 `changed` 再取。 */
 export const stickersCatalogContract = defineRemoteService({
     id: "nbook.stickers/catalog",
@@ -236,6 +256,16 @@ export const stickersCatalogContract = defineRemoteService({
                 "open-failed": Type.Object({path: Type.String(), detail: Type.String()}, {additionalProperties: false}),
             },
         },
+        /** 表情包页的写入（输出 28 到 34）：返回时目录已是写完的样子；建、改名、复制交回结果包的 id。 */
+        createPack: write(Type.Object({folder: Type.String(), title: Text}, {additionalProperties: false}), Created),
+        updatePack: write(Type.Object({id: Id, title: Text, description: Text}, {additionalProperties: false}), Empty),
+        renamePack: write(Type.Object({id: Id, folder: Type.String(), token: Type.String()}, {additionalProperties: false}), Created),
+        deletePack: write(Type.Object({id: Id, token: Type.String()}, {additionalProperties: false}), Empty),
+        updateSticker: write(Type.Object({id: Id, ...Target, change: Type.Object({name: Text, description: Text, common: Type.Optional(Type.Boolean())}, {additionalProperties: false})}, {additionalProperties: false}), Empty),
+        deleteSticker: write(Type.Object({id: Id, ...Target}, {additionalProperties: false}), Empty),
+        listFiles: write(Type.Object({id: Id, files: Type.Union([Type.Array(Type.String(), {maxItems: 1000}), Type.Literal("all")])}, {additionalProperties: false}), Type.Object({added: Type.Integer({minimum: 0})}, {additionalProperties: false})),
+        deleteFile: write(Type.Object({id: Id, file: Type.String()}, {additionalProperties: false}), Empty),
+        copyPack: write(Type.Object({id: Id}, {additionalProperties: false}), Created),
     },
     events: {
         changed: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Object({}, {additionalProperties: false})},
