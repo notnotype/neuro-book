@@ -76,3 +76,17 @@
 - 不做：Skill 的内置目录（同一套找目录的做法以后可以复用，不在这里改）；表情的说明文字（名字够用，以后按模型的表现补）。
 - 风险：仓库多 1.7 MB 的图；以后换图会继续涨，换图时整包替换、不留旧版。
 - 风险：“我的优先”让用户的同名包悄悄盖住内置的；这是开发者定的（决定 8），Spec 写明，表情包页内置那一组的这个包标“被我的同名包盖住”。
+
+## 第 2 稿：设计审查后的修改
+
+依据 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt) 与决定 10。上文与这里冲突时以这里为准。
+
+- **分级只在服务端算**：`shared/writing.ts` 的 `writingSegments` 按来源分级（我的、插件、内置），在全部有效的表情包上算：胜出且这一级唯一的写文件夹名，其余写 id。浏览器的 `findSticker` 带包时先按 id，认不到就找 `writing` 等于包段的那个，不再自己按文件夹名分级；不带包时在有这个名字的包里取最高一级，这一级恰好一个才认得（`stickers/shared/` 一个 `sourceRank`，服务端与浏览器共用）。不另写 `packByFolder`。
+- **被盖住**：`browserSummaries` 给每个包算 `writing` 与 `shadowed`（插件或内置的包，有同文件夹名的我的有效包时为真），表情包页与属性栏的写法读它们，不在前端另判；插件与内置都标。
+- **复制**：复制出的是 `user.<文件夹名>`，主创白名单不跟（决定 10）；`copyPack` 的失败文案按来源写，不写死“插件”。
+- **分组**：`pack-view.ts` 的 `RailGroup` 加 `kind: "mine" | "plugin" | "builtin"`，组头由组件按类别写；选择器 `pickerGroups` 与 Profile 设置的表情包一节都把内置的排最后，组头“内置”（stickers 与 agent 各自的语言包）。
+- **找包根**：抽 `src/backend/package-root.ts` 的 `packageRootOf(from)`，`docs-root.ts` 与 `builtin-root.ts` 都用它。
+- **打包验证**：`pack-app.test.ts` 对解开的包实际定位；`app-package.e2e.ts` 断言装好的应用里有 `builtin.lyra`。
+- **验收 13**：`stickers.e2e.ts` 里单独一个 describe、自己的全新状态根；断言请求里槽的文字（复制前 `:lyra/开心:`，复制后 `:builtin.lyra/开心:`），换图用 `fs` 覆盖一张真 WebP、按 `naturalWidth` 区分；复制与“被盖住”的标注在同一条里经表情包页做。
+- **要改的现有断言**：`stickers-slot.test.ts` 里“用户 `lyra` 加同名插件包得 `:user.lyra/…:`”按新规则变成 `:lyra/…:`、插件那份写 id。
+- **Spec**：输出 7 补不带包的分级（输出 8）、18、33、34、41 同步新规则；输出 1 写明内置目录不监视、改动重启后生效；输出 32 写明复制照抄标题；内置包的文字不随界面语言变；验收 13 不写死表情数。

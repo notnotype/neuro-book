@@ -1,0 +1,139 @@
+### 1. 复制到我的之后，主创的槽改教 `:builtin.lyra/…:`，用户改过的副本永远进不了 Agent 的回复
+
+严重程度：重要（含一项交开发者定的待确认）
+类别：设计 / 与已定决定的读法
+位置：plan.md“按文件夹名认包的优先级”最后一句；Spec 输出 14 的 planned 句；验收 13；`agent/backend/stickers/extension.ts` 的 `stickersSection`（按白名单 id 列、前缀取自 `writingSegments`）
+
+现象：白名单是 `builtin.lyra`（按 id）。用户复制出我的 `lyra` 之后，`writingSegments` 给内置那份写 id，槽变成 `:builtin.lyra/开心:`，列的名字也还是内置包的。模型照槽写，`:builtin.lyra/…:` 先按 id 认，显示的仍是内置图。用户的副本（也就是决定 8、4 说的“复制到我的再改”）不在白名单里，槽里没有它，模型不会写 `:lyra/…:`。
+
+为什么是问题：决定 8 原话是“复制之后旧写法显示我的那一份，提示词里也写 `:lyra/…:`”。计划把后半句读成“指我的那一份”，但我的那份根本不在槽里；字面更自然的读法是提示词仍教 `:lyra/…:`、显示我的。两种读法的结果相反：计划的读法下“复制并改图让星璃用上”这条主路径不通，用户要自己去 Profile 设置里加 `user.lyra`、去掉 `builtin.lyra`（两个都留则槽里各列一份，30 行）。验收 13 的第二步只让桩模型回复 `:lyra/开心:`，测的是显示，测不到真实模型会不会写它，所以会通过。
+
+如何核实：读 `stickersSection` 的 `listed`（只取白名单 id）与 `segments.get(pack.id)`；用 `stickersSection(["builtin.lyra"], [builtinLyra, userLyra])` 看输出。
+
+建议改法（交开发者选）：A 保持计划，复制成功的通知与表情包页写明“要让主创用你的这份，去 Profile 设置里换成它”，验收 13 改成断言槽的文字而不是桩回复；B 白名单展开时我的同文件夹包覆盖内置包（`builtin.lyra` 展开成 `user.lyra`，槽教 `:lyra/…:`，Profile 设置行写明被覆盖），这才是“我的优先”的完整语义，代价是槽的来源与白名单 id 不再一一对应，且我的副本删了表情时回退要另定。计划里应把这一点列为待确认，不要当作已定。
+
+### 2. 分级在服务端与浏览器用的包集合不同：空包、无效包、预算截断会让两边认成不同的包
+
+严重程度：重要
+类别：设计 / 接口一致性
+位置：`stickers/backend/browser-catalog.ts` 的 `browserCatalog`（`pack.status === "ok" && pack.stickers.length > 0`）；`shared/writing.ts` 的 `writingSegments`（`status === "ok"`，包括 0 个表情的包）；`web/resolver.ts` 的 `findSticker`；plan 的“已知限制”只写了预算截断
+
+现象：槽与 `writing` 字段在完整目录的全部有效包上算，浏览器目录却先滤掉 0 个表情的包，再按预算丢整包，`findSticker` 在剩下的上分级。Spec 31：新建表情包时文件夹里只有一份写了 `title` 的清单，状态是 ok、表情数 0。所以用户一点“新建”、包名填 `lyra`：服务端立刻认为我的 `lyra` 盖住内置，主创的槽改教 `:builtin.lyra/…:`（缓存前缀作废）；浏览器目录里却没有这个空包，`findSticker` 把 `:lyra/开心:` 认成内置的，显示成图；而选择器按 `writing` 插入的是 `:builtin.lyra/…:`。同一个写法两端结论不同。
+
+为什么是问题：plan 说 `findSticker` 与 `writingSegments` “共用分级”，但共用的是函数，输入集合不同，Spec 输出 7 也没写“无效的、空的包是否参与分级”。表情包页“被我的同名包盖住”若用概要（含空包与无效包、同样有字节预算）再算一遍，是第三个集合。
+
+如何核实：看 `browserCatalog` 的 `filter`，用 `writingSegments` 与 `findSticker` 各跑一遍“user.lyra 空包 + builtin.lyra”。
+
+建议改法：在 Spec 输出 7 写定参与分级的集合（建议：只算 `status === "ok"` 的包，空包也算，或空包与无效包一律不参与），三处（槽、`writing`、`findSticker`）取同一个；最省事的是浏览器目录对 `writing` 之外的分级不再自己算，改成后端给每个包一个已算好的 `shadowedBy: id | null`，浏览器只按它认，不重算；表情包页的“被盖住”也读这个字段，不在前端另判。
+### 3. “我的优先”让已有的写法静默换成别的图，Spec 输出 33、34、41 还在写旧保证
+
+严重程度：重要
+类别：兼容 / 合同
+位置：stickers.md 输出 33（改包名）、34（删除）、41（插入的写法）；`web/picker.ts` 的 `itemsOf`（用后端给的 `writing`）；`editor.ts` 的 `createPack`、`importZip`
+
+现象：
+1. 内置 `lyra` 没被盖住时，选择器给它插入的是 `:lyra/开心:`（文件夹形式）。之后用户新建、导入（含把导出的内置 `lyra` 原样导回）或复制出我的 `lyra`，稿子里所有已有的 `:lyra/开心:` 立刻变成显示我的那份，没有提示。输出 33 写“用旧包名写下的表情之后认不出来、显示原文”：用户把我的 `lyra` 改名或删掉后，这些写法也不再显示原文，而是回退成内置的图。输出 33 的警示对话框与输出 34 的确认框都没有提到这一点。
+2. 输出 41 的括号“包段同输出 14（……全部有效的表情包里有同名文件夹时写 id）”是旧规则，spec-diff 没改它，改后与输出 14 的 planned 句矛盾。
+3. 输出 17“同名文件夹的情形除外，见输出 14”还成立，但槽是进前缀缓存的稳定槽，每次新建、导入、改名、删除我的 `lyra` 都会让主创的缓存整段重算，Spec 没点明；这些操作在 Spec 31、36 的对话框里也没有任何提示。
+
+为什么是问题：决定 8 接受“我的盖住内置”，没有接受“旧稿子的显示悄悄变掉”。内置包的写法也由此变成不稳定的：只要用户将来用了 `lyra` 这个名字就变。
+
+如何核实：读 Spec 输出 33、41 的原文（stickers.md 第 150、161 行附近）与 `picker.ts` 的 `raw`。
+
+建议改法：内置包的选择器写法固定写 id（`:builtin.lyra/开心:`），这样稿子里的写法不随用户的命名变化；槽里仍写文件夹形式也可以，但那就是失败的一类，要接受。同时改输出 33、34 的对话框文案：包名与内置或插件同名时写明“之后同名的写法会显示内置的那一份”；新建与导入对话框在包名与内置包同名时提示一句“会盖住内置的 lyra”。输出 41 同步改成新规则。
+### 4. 两个内置包共用 7 个表情名，不带包的写法 `:开心:` 对所有用户永远认不出
+
+严重程度：建议（含兼容影响，建议交开发者确认）
+类别：兼容 / 遗漏
+位置：stickers.md 输出 8；`web/resolver.ts` 的 `findSticker`（`ref.pack === null` 分支，恰好一个才认）；plan 只给带包的写法分级
+
+现象：第一批 12 张（开心、害羞、疑问、困、委屈、生气、惊讶 等）与 `lyra` 的 15 张重名，按 README 决定 5、7 的名字至少 7 个名字在两个内置包里都有。输出 8 的规则是“全部有效的表情包里按名字找，恰好一个才是它”，所以只要内置目录在，`:开心:` 一定有两个候选，永远显示原文。更广的影响：此前只有用户自己一个 `cat` 包有 `开心` 时，稿子里手写的 `:开心:` 能显示成图；升级之后，只要内置目录找得到，这些稿子里的 `:开心:` 全部变成原文。Spec 的验收 3 已把不带包的 `:开心:` 当作显示原文的例子，所以这不违反现有验收，但它是对现有用户内容的静默改变。
+
+为什么是问题：分级只用在“带包”的写法上，计划没提不带包的这一条；写法说明、选择器、槽都教带包，实际手写不带包的人不多，所以只定为建议，但改变是确定会发生的，而计划“风险”一节里没有它。
+
+如何核实：对 `findSticker([lyra, lyraChibi, userCat], {pack: null, name: "开心"})` 的结果为 null。
+
+建议改法：二选一并写进 Spec 输出 8：A 不带包的写法对内置来源按同样的分级，即我的、插件里有就只看这一级，内置只在更高级别都认不到时才参与（且内置包之间重名仍是认不出）；B 内置包不参与不带包的写法，等于保持升级前的行为。B 更简单，且不让“新增内置包”改变已有稿子的显示。
+### 5. 计划漏列的按来源判断的位置（搜 `"plugin"` 不够，搜 `.folder` 也不够）
+
+严重程度：重要（不漏改会让内置包整体显示出错）
+类别：遗漏
+位置与现象（都读过实现确认）：
+1. `shared/contracts.ts` 第 148 与第 218 行：`BrowserPackSchema.source` 与 `PackSummarySchema.source` 都是 `Union([Literal("user"), Literal("plugin")])`。计划只写“`StickerSource` 加 `builtin`”，这两处 Schema 不改，TypeBox 的远程输出校验会拒绝 `source: "builtin"`，整份目录与概要都取不到，所有表情包显示失败，不只是内置的。TS 类型是从 Schema 推出的，会报类型错，但计划没列这两处。
+2. `backend/scheme.ts` 第 14 行：`SOURCE_TEXT = {user: "我的", plugin: "插件"}` 按 `pack.source` 索引，没有 `builtin` 键，`stickers://` 根列出时内置那项的 `source` 是 undefined（对象键不是字符串 `"plugin"`，计划说的“逐处搜 `"plugin"`”搜不到）。
+3. `web/pack-view.ts` 的 `RailGroup`：用 `title: string | null` 加 `user: boolean` 表示组，`StickerPackRail.vue` 第 44 行写 `group.title ?? text("rail.mine")`。内置组的头不能用 `title: null`（会写成“我的”），而纯函数里又没有国际化，`RailGroup` 要加一个 `kind` 字段，组件按它写“我的/插件名/内置”。
+4. `web/components/PackFields.vue` 第 45、49 行与 `StickerFields.vue` 第 32 行：属性栏的“写法”用 `folder` 拼 `:folder/…:`，被盖住的内置包（以及两个同名插件包）显示的写法其实认的是别的包；这是“可复制的写法”，要改用后端算好的 `writing`，概要里现在没有这个字段。
+5. `agent/web/profile-view.ts` 的 `stickersField.grouped`：非 `user` 都走 `plugin:` 分组，内置的组头成空字符串（`pack.plugin?.title ?? pack.plugin?.id ?? ""`），且排在其他插件前面。计划已列此处，但组头文案要在 agent 自己的语言包里加 `profiles.stickers.groups.builtin`（Skill 一节有同名先例），不是 stickers 的。
+6. `stickersField` 里整节隐藏的条件 `packs.length === 0 && binding === undefined && 声明为空`：内置主创声明了 `builtin.lyra` 后，内置根找不到时这一节仍会画，`builtin.lyra` 显示在“已删除或不可用”。这是合理的，但 Spec 失败表（根找不到）没写这个现象。
+
+如何核实：grep `source` 于 `stickers/shared`、`stickers/backend`、`stickers/web`、`agent/web/profile-view.ts`；`bun run typecheck` 能抓到 1、2，抓不到 3、4（字符串与 null 的取值都合法）。
+建议改法：把以上位置列进切片 2、3，并在 `packs-page` 层把“组类别”做成一个枚举，页面、选择器、Profile 设置共用，免得三处各写一次分组。
+### 6. 找目录与打包：几种布局的结论，以及计划没覆盖的缺口
+
+严重程度：重要（打包缺口）/ 建议（其余）
+类别：依赖机制 / 验收映射
+位置：`agent/backend/docs-root.ts`、`scripts/pack-app.ts` 第 268–281 行、`scripts/pack-app.test.ts` 第 55 行、`e2e/fixtures.ts` 第 51 行
+
+核实结果（实测：`bun build --splitting --outdir` 打出的 chunk 里 `import.meta.dir` 是运行时 chunk 所在目录，与 docs-root 的假设一致）：
+- 源码运行（`bun src/server/dev/main.ts`）：起点 `src/plugins/stickers/backend`，向上第一个有 `package.json` 的是 `packages/neuro-book`，命中 `src/plugins/stickers/builtin/`。
+- e2e 与 `bun run start`：服务端是 `packages/neuro-book/dist/server/main.js`，向上先经过 `dist/`（无 package.json），到包根命中同一个 `src/...builtin/`。也就是 e2e 与开发走的是同一个候选，永远走不到 `<包>/stickers/`。
+- npm 包与桌面载荷：`<包>/server/main.js`，向上一层是包根，命中 `<包>/stickers/`，前提是 pack-app 复制了、`files` 加了。桌面载荷是解开 tarball 后原样用（`desktop-payload.ts` 第 206 行 rename），会带上。
+- 两个候选只判存在；`stickers/` 存在但是空目录（复制中断、`files` 漏写子目录）时得到“有根、0 个包”，没有诊断，用户只会发现没有默认表情。
+
+缺口：
+1. 打包后的候选 `<包>/stickers/` 在本计划的验证里没有任何一项真的走到：`builtin-root.test.ts` 用起点参数模拟，`pack-app.test.ts` 只“断言包里有它”。docs 那一路有 `pack-app.test.ts` 第 84 行用 `locateDocsRoot(unpacked/package/server)` 实际定位；这里也应该对解开的包用 `locateBuiltinRoot(<解开>/package/server)` 断言返回 `<包>/stickers` 且里面有 `lyra/stickers.json` 与 15 张图。`e2e/app-package.e2e.ts` 是真装 tarball 起服务，应在里面加一条断言 `stickers://` 根或浏览器目录里有 `builtin.lyra`；否则 `files` 漏写也只会在发布后才发现。
+2. `pack-app.test.ts` 第 55 行对包内文件做精确列表比较（“只有白名单里的文件”），加 `stickers/` 后这条必然失败，需要改成与 docs 同样先排除 `package/stickers/` 再比；计划只写“断言包里有它”。
+3. 找不到时只写一条 warn 级诊断（`root-unavailable`），应用照常启动，用户看不到原因；若要“静默缺默认包”可接受，Spec 应明确写这一点。
+### 7. 验收 13 能写成 e2e，但计划的写法（“stickers.e2e.ts 加一条”）测不到它要保证的事
+
+严重程度：建议
+类别：验收映射
+位置：stickers.md 验收 13（planned）；plan.md“验收映射”；`e2e/stickers.e2e.ts` 的 `beforeAll`、`e2e/sticker-packs.e2e.ts`
+
+现象与可行性：
+1. “全新的状态根”做不到“加一条”：`stickers.e2e.ts` 的 `beforeAll` 往共用状态根里放了我的 `lyra` 与 `cat`，并给主创加了 `user.lyra`、`user.cat`。我的 `lyra` 一在，内置的就被盖住，验收 13 第一步（槽列 `:lyra/…:` 15 行）在这个状态根里看不到。要新开一个 describe，自己的状态根与 `startProductServer`；复制、标“被盖住”是表情包页的操作，页面流程的夹具在 `sticker-packs.e2e.ts`，同一条验收要么拆成两个用例（槽与显示在 stickers.e2e，复制与标注在 sticker-packs.e2e，各用自己的全新状态根），要么新建一个文件。
+2. 第二步“模型回复 `:lyra/开心:`”是桩模型脚本写死的回复，只证明显示认得出，不证明槽教了什么（见发现 1）。应改成断言请求里的槽文字：复制前含 `:lyra/开心:` 与 `stickers://builtin.lyra/`，复制后含 `:builtin.lyra/开心:`。
+3. “换掉我的 `开心` 的图”页面没有原位替换图片的入口（添加同名文件会得 `-2`），e2e 只能用 `fs` 直接覆盖状态根里 `user/stickers/lyra/开心.webp`；要换成宽度与 512 不同的图（例如 1×1 PNG 改成 `开心.webp` 会因扩展名与字节不符被隔离，必须是真 WebP），再按 `naturalWidth` 区分新旧，并等目录通知后再读。步骤要写进验收，免得实施时临场想。
+4. 这条 e2e 的服务端跑的是 `dist/server/main.js`，走的是“源码候选”的 `src/plugins/stickers/builtin/`，不是打包后的 `<包>/stickers/`（见发现 6）。它能证明“内置目录经 `stickers://` 的挂载读得出图”（容器是 `dirname(item.directory)`，每次打开用 `lstat` 核对，我读过 `files/backend/mounted.ts` 的 `#openDirectory`，对只读的安装目录没有写入动作，可行）。
+5. 没有“只读”的验收：Spec 输出 13、26、27 写了内置只读，但验收里没有一条断言内置包的写入入口被拒（`not-user-pack`）、`stickers://builtin.lyra/` 写入得 `permission-denied`；plan 的映射写“`stickers.test.ts` 的写入拒绝”，应在 Spec 验收或测试名里指明对应哪一条输出。
+### 8. Spec 的 planned 条目与计划不一致、仍留着旧规则的地方
+
+严重程度：建议
+类别：合同一致性
+位置：spec-diff.patch 对 stickers.md 的改动 vs plan.md“关键设计”“Spec 与文档改动”
+
+不一致与遗漏（逐条对过 diff 与 stickers.md 全文）：
+1. “被我的同名包盖住”：Spec 输出 25 写“被我的同名包盖住的插件或内置的包”都标，plan 写“表情包页内置那一组的这个包标”，只覆盖内置。插件包与我的同名在现状下是两个都认不出、都写 id，新规则下变成插件包被盖住，这一路 Spec 要求标、plan 没有。先定哪个对，再改另一份。
+2. 输出 41（插入的写法）的括号还是旧规则，见发现 3；输出 18（浏览器目录的 `writing` 字段由“完整目录上算”）没有补“与输出 7 同一个分级”；plan 的 Spec 改动清单漏了 18、27、35、39、41 与失败表，而 diff 里却改了 27、35、39，两份清单对不上。
+3. 输出 17 的例外是“同名文件夹的情形除外，见输出 14”。新规则让这个例外的方向变了：以前白名单里的用户 `lyra` 在新增同名插件包时要改写成 id，现在不会（用户的在上一级）；而内置 `lyra` 在用户新增同名包时改写。`stickers-slot.test.ts` 的“输出 14、17”第三条断言（用户 `lyra` + 同名插件包得到 `:user.lyra/开心:`）会反过来，计划的映射只写“我的与内置同名、两个插件同名、插件与内置同名”，没有提这条要改的现有断言。
+4. 输出 13 的 planned 句“内置的表情包同插件的，只能经 `stickers://<表情包 id>/` 读”含义不清：真正新增的约束是 `stickers://` 根列出时 `source` 写“内置”，读取路径与插件相同；建议直接写这件事。
+5. 输出 1 planned 句写“内置来源启动时扫一遍，不监视”。内置目录在安装目录里，用户可以经“在文件夹中显示”打开并改动、删除里面的文件；不监视意味着改动要重启才生效，且 `listed` 之外的图会在重启后变成“没加进来”。Spec 的“只读”是产品层承诺，不是文件系统层的，应写明“不保证安装目录里的文件不被改动，改动不生效直到重启”，免得有人以为这是 bug。
+6. Spec 描述 `builtin.lyra` 的表情“15 个，都常用”，写死了数量与名字；验收 13 写“15 行”。换图时（plan“风险”说整包替换）数字要同步改 Spec，建议验收只写“与 `builtin/lyra/stickers.json` 的项数一致”。
+
+如何核实：对照 `spec-diff.patch` 与 `stickers.md` 第 150、161、126 行。
+建议改法：按以上逐条补齐；plan 的 Spec 改动清单以 diff 为准重列一遍。
+### 9. 找包根的逻辑照抄第二份、内置图的出处与授权未登记、复制出的包与内置同名同标题
+
+严重程度：建议（其中出处一项交开发者确认）
+类别：上游选择 / 待确认项 / 别扭处
+位置：plan.md“找内置目录”；`agent/backend/docs-root.ts`；`scripts/pack-app.ts` 的 `thirdPartyNotices`；`editor.ts` 的 `copyPack`、`#copyInto`
+
+1. 同一件事写第二份：`builtin-root.ts` 与 `docs-root.ts` 都是“从模块位置向上找第一个有 `package.json` 的目录，再在里面试几个候选”，计划自己说“Skill 的内置目录以后可以复用”，那就会有第三份。AGENTS 写的信号“同一件事各写一份”正是这个。建议现在抽一个共用函数（例如 `nbook/backend/package-root` 的 `locatePackageAsset(from, candidates)`），docs-root 改成它的调用方，只多一次小重构；docs-root 现有测试兜底。不抽也可，但应写明理由。
+2. 出处与授权没有登记位置：打包后的是 AGPL 的 npm 包，包内新增 27 张图，来源是 NovelAI 生成的母版、image-gen 的 `gpt-image-2.6-sunburst` 生成与开发者自己跑的图，再经 rembg 抠图。`THIRD-PARTY-NOTICES.md` 只覆盖 bundle 内的包与字体，plan 只在 `brand/mascot/README.md` 加一行出处。这些图随 npm 与桌面版再分发，是否允许、角色形象按什么许可发布（与 AGPL 代码是否同一许可）计划没问。交开发者确认，并决定写在 README、包内 `stickers/README` 还是 NOTICES。
+3. 复制出来的包与内置同名同标题：`copyPack` 逐字复制清单（`title: "星璃"`、`description`），用户的副本在表情包页、Profile 设置、选择器里与内置包标题完全相同，只靠组头区分；复制后的包名又恰好是盖住它的 `lyra`。建议复制内置包时在清单里给标题加“（副本）”之类，或者至少在 Spec 输出 32 写明“标题照抄”是有意的。另外 `copyPack` 的失败文案与通知里写的是“插件”（`#copyInto` 的“插件的表情包列不出来”、“复制途中插件换了版本”），内置时会误导，要按来源改文案。
+4. 内置包的 `title`、`description` 写在清单里，只有中文；英文界面下组头是 English、包名是“星璃”。可接受，但 Spec 应写明内置包的文字不随界面语言变。
+5. `exportPack` 的锁按文件夹名（`this.#locks.with([folder])`）：导出内置 `lyra` 与编辑我的 `lyra` 共用同一把锁，互相排队。无害，但锁键应带来源，免得以后有人以为两个包同锁是故意的。
+### 未发现问题的方面
+
+- 写入入口的只读：`editor.ts` 的 `#userPack` 已按 `source !== "user"` 拒绝改包、改名、删包、改表情、列文件、删文件、加图；`importZip` 的冲突与替换只按 `user://stickers/<包名>` 的令牌判断，不会碰到内置包；`stickers://` 的 `authorize` 对全部来源拒绝 write 与 create。
+- `revealPath`：非用户来源只要求根仍登记着，内置根在 `open` 时登记、不会撤回，可用；导出与复制用 `node:fs` 直接读 `item.directory`，对安装目录里的内置包能工作（我读过 `exportPack`、`#copyInto`，没有往源目录写的动作）。
+- 取图路由与 `stickers://` 的挂载：容器取 `dirname(item.directory)`，`#openDirectory` 只做 `lstat` 与 `realpath`，不要求可写；中间路径是链接（`bun add -g`、`bun link` 的包目录是链接）时 `import.meta.dir` 已是真实路径（实测 `bun bin/link.js`、`bun linkdir/main.js` 都得到真实目录）。
+- 目录合成：`#derive` 只按 id 去重，`builtin.<名>` 不会与 `user.<名>` 或插件 id 撞；文件夹名不含点，所以按 id 认（含点）与按文件夹名认（不含点）不会互相冒充。
+- 服务端没有别的地方按文件夹名认包：除 `writingSegments` 与浏览器的 `findSticker`（含 `knownWriting` 与补全）外，搜 `folder` 的其余命中要么是显示用（发现 5 第 4 条），要么按 id；选择器搜索的 `包/查询` 只做前缀范围，不涉及分级。
+- 打包后的 npm 包与桌面载荷：`<包>/server/main.js` 的向上查找命中包根，`files` 加 `stickers/` 与 pack-app 复制后可用；桌面载荷是原样解开 tarball，`payload-manifest.json` 的文件清单自动含新文件。
+
+### 数量
+
+阻断 0；重要 5（发现 1、2、3、5、6）；建议 4（发现 4、7、8、9）。发现 1 的读法与发现 4 的方案需要交开发者定。
+
+有效发现的编号：1、2、3、4、5、6、7、8、9
