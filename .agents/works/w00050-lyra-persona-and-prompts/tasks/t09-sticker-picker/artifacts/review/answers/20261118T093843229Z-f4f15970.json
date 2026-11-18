@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t09-sticker-picker",
+    "artifactId": "review",
+    "answerId": "20261118T093843229Z-f4f15970",
+    "artifactVersion": 1,
+    "contentHash": "3be3fcf1794377d8c70e8aa1aa3d449c20e0367d65f03445abad5ac717b68270",
+    "submittedAt": "2026-11-18T09:38:39.728Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "picker-layout": "tabs",
+        "completion-row": true,
+        "sticker-only-message": "bare",
+        "entry-places": true
+    },
+    "comments": {
+        "picker-layout": "表情包标签图标。不要下边框和左边框",
+        "sticker-only-message": "表情包带文字的这个气泡这里，我感觉表情包和文字高度没有对齐"
+    },
+    "note": null
+}
