@@ -241,7 +241,8 @@ export function applyBackdrop(hwnd: Pointer | null, kind: "mica" | "acrylic", da
     if (dark !== null) problems.push(...setBackdropDark(hwnd, dark));
     const type = lib.DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ptr(new Int32Array([DWM_BACKDROP_TYPE[kind]])), 4);
     if (type !== 0) problems.push(`DWMWA_SYSTEMBACKDROP_TYPE 0x${(type >>> 0).toString(16)}`);
-    problems.push(...dropSystemMenu(hwnd));
+    // 背景没设成就不拿系统菜单换：它是为遮住磨砂窗口里透出来的系统按钮才去的，没有磨砂就没有这个理由。
+    if (extend === 0 && type === 0) problems.push(...dropSystemMenu(hwnd));
     return problems;
 }
 

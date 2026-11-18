@@ -256,6 +256,7 @@ test("磨砂窗口（<html data-window-backdrop>）：窗体底只罩淡淡的�
         const color = getComputedStyle(element).backgroundColor;
         const slash = /\/\s*([\d.]+)\s*\)/u.exec(color);
         if (slash !== null) return Number(slash[1]);
+        if (color.startsWith("color(")) return 1; // 没有 “/ 透明度” 的 color() 是不透明的
         const parts = /\(([^)]*)\)/u.exec(color)?.[1]?.split(/[\s,]+/u).filter((part) => part !== "") ?? [];
         return parts.length >= 4 ? Number(parts[3]) : 1;
     });
@@ -273,6 +274,14 @@ test("磨砂窗口（<html data-window-backdrop>）：窗体底只罩淡淡的�
     expect(side).toBeLessThan(0.9);
     // 编辑器分组（g0）的卡片仍不透明：字落在不透明的纸上。
     expect(await alphaOf("[data-shell-card='g0']")).toBe(1);
+
+    // “减少透明”：两层罩色盖满，底与面板退回不透明（Playwright 的 emulateMedia 没有这个特性，走 CDP）。
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setEmulatedMedia", {features: [{name: "prefers-reduced-transparency", value: "reduce"}]});
+    expect(await alphaOf("html")).toBe(1);
+    expect(await alphaOf("[data-shell-card^='section:']")).toBe(1);
+    await cdp.send("Emulation.setEmulatedMedia", {features: [{name: "prefers-reduced-transparency", value: "no-preference"}]});
+    expect(await alphaOf("html")).toBeLessThan(0.6);
 });
 
 test("没有能力标记（普通浏览器）：不画外框，`<html>` 不带属性，工作台占满视口", async ({page}) => {
