@@ -12,7 +12,7 @@
 import {createHash, randomUUID} from "node:crypto";
 
 import {defineExtension} from "../../kernel/index.js";
-import type {AnyExtension, CoreSettings, LogEvent, ModelPort, SessionApi} from "../../kernel/contracts.js";
+import type {AnyExtension, CoreSettings, Issuer, LogEvent, ModelPort, SessionApi} from "../../kernel/contracts.js";
 import type {SessionTable} from "./table.js";
 
 export type MetaTrigger = {readonly kind: "turn"} | {readonly kind: "compaction"; readonly summary: string};
@@ -63,6 +63,8 @@ export interface SessionMetaOptions {
     readonly models: ModelPort;
     /** 生成标题的 Profile：在标题会话里跑，交回 `{title, description}`。 */
     readonly titleProfile: string;
+    /** 给标题会话发话的身份（agent/builtin-profiles.md 输出 9）：宿主给它自己的宿主身份；不给时是用户（旧调用方）。 */
+    readonly issuer?: Issuer;
     /**
      * 交给标题会话的那条消息，宿主定写法。`turn` 拿第一条用户的话与第一条有文字的回复（各截到 2000 字）；`compaction` 拿当前标题
      * （没有为 null）与压缩的摘要（截到 4000 字）。
@@ -146,7 +148,7 @@ export class SessionMeta {
     async #ask(session: string, text: string): Promise<{readonly title: string; readonly description: string} | null> {
         const id = titleSessionId(session);
         const created = await this.#step(() => this.options.create({profile: this.options.titleProfile, id, background: true}));
-        const titleSession = this.options.table.view(id);
+        const titleSession = this.options.table.view(id, this.options.issuer);
         if (!created.ok) {
             if (created.code !== "session-exists") {
                 this.#failed(session, `could not create the title session: ${created.code}`);
@@ -159,8 +161,16 @@ export class SessionMeta {
                 return null;
             }
         }
+        // 标题会话有运行在跑时这次不发：发进去的话会被那次运行取走，结果没人等（agent/builtin-profiles.md 输出 9）。
+        const {status} = await this.#step(() => titleSession.snapshot());
+        if (status.state !== "idle") {
+            this.#failed(session, "the title session already has a run");
+            return null;
+        }
         const sent = await this.#step(() => titleSession.send({commandId: randomUUID(), input: {text}}));
         if (!sent.ok || sent.value.runId === null) {
+            // 没开起运行：话留在标题会话的缓冲区里，自己取消，不让它被下一次生成带走。
+            if (sent.ok) await this.#step(() => titleSession.remove({commandId: randomUUID(), inputId: sent.value.inputId}));
             this.#failed(session, sent.ok ? "the title session already has a run" : `could not send to the title session: ${sent.code}`);
             return null;
         }

@@ -33,8 +33,11 @@ export interface JobOutcome {
 }
 
 export interface JobDriver {
-    /** 停掉它；状态由驱动之后照实报回：缺省 `aborted`，插件停止时传 `interrupted`（jobs.md 输出 8）。 */
-    kill(reason?: "interrupted"): Promise<void>;
+    /**
+     * 停掉它；状态由驱动之后照实报回：缺省 `aborted`，插件停止时传 `interrupted`（jobs.md 输出 8）。`byUser`：用户经远程停的
+     * （子代理的运行按用户停的记，jobs.md 输出 11），否则是启动它的会话停的。
+     */
+    kill(reason?: "interrupted", byUser?: boolean): Promise<void>;
     /** 结束后交给模型的结果文字（子代理从日志读、后台命令从文件读）；`wait` 交回它时才读。 */
     result(): Promise<string>;
 }
@@ -219,7 +222,7 @@ export class JobCenter {
         // `owner` 为 null 是用户经远程停（jobs.md 输出 11）：不受“只管自己启动的”限制，仍只认这个会话的任务由调用方查。
         if (job === undefined || job.state === "starting" || (owner !== null && job.owner !== owner)) return "job-unknown";
         if (!isLive(job.state)) return "already-ended";
-        await job.driver?.kill();
+        await job.driver?.kill(undefined, owner === null);
         return "killed";
     }
 

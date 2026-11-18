@@ -12,13 +12,13 @@
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
 
-import type {AnyProfile, Issuer, JsonValue, ModelPort, SessionApi, SessionSnapshot, ToolContext, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {AnyProfile, HeldCause, Issuer, JsonValue, ModelPort, SessionApi, SessionSnapshot, ToolContext, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 import {failed} from "@notnotype/nb-harness/kit/files";
 import {SessionUnavailable, type SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
-import type {AgentService, ProfileEntry} from "../../shared/contracts";
+import type {AgentRuntimeService, ProfileEntry} from "../../shared/contracts";
 import {AGENT_MODES_EXTENSION} from "../../shared/permissions";
 import type {AgentMode} from "../../shared/permissions";
 import {profileAgents} from "../../shared/profile-agents";
@@ -122,7 +122,7 @@ export const SUBAGENT_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<
 
 export interface SubagentToolDeps {
     readonly table: SessionTable;
-    readonly service: AgentService;
+    readonly service: AgentRuntimeService;
     readonly relations: SessionRelations;
     readonly jobs: JobCenter;
     readonly children: ChildRuns;
@@ -165,6 +165,13 @@ function failure(code: string, text: string, sessionId?: string): ToolResult {
 }
 
 /** 内核与存储的失败原样交回（“失败与恢复”的最后一段）。 */
+/** 话为什么留着，写给父 Agent（subagents.md 输出 10）。 */
+function heldText(cause: HeldCause): string {
+    if ("queued" in cause) return "这句话没有被处理，留着（子会话的叶子停在别人开的运行中途，或运行开不起来）。";
+    const why: Readonly<Record<string, string>> = {finished: "子会话已交出结果", completed: "子会话这一轮已结束", error: "子会话这一轮出错了", aborted: "子会话这一轮被停止了", interrupted: "子会话这一轮被中断了"};
+    return `${why[cause.end] ?? "子会话这一轮没有正常结束"}，这句话没有被处理，留着。`;
+}
+
 const passthrough = (result: {readonly code: string; readonly detail?: unknown}, what: string, sessionId?: string): ToolResult => failure(result.code, result.detail === undefined ? what : `${what}（${JSON.stringify(result.detail)}）`, sessionId);
 
 /** `nbook.agent` 正在停止：任务中心关了门。 */
@@ -431,23 +438,66 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
         const message = typeof args.message === "string" ? args.message : undefined;
         const queue = args.queue === true;
         const foreground = !queue && args.async !== true;
+        let inputId: string | null = null;
         const outcome = await runOnChild(parent, child, call, services, foreground, {
             check: async (_view, snapshot) => stoppingChild(snapshot, child, "话没有放进去")
                 ?? (message === undefined && snapshot.status.state !== "idle" ? failure("already-running", `子会话 ${child} 在跑；用 wait 等它，或带 message 插话。`, child) : null),
             issue: async (view) => {
-                if (message === undefined) {
-                    const started = await view.start({commandId: call.invocation});
-                    return started.ok ? {runId: started.value.runId, ownRun: true} : {failure: passthrough(started, `子会话 ${child} 没能继续`, child)};
-                }
+                if (message === undefined) return continueChild(view, child, call);
                 const sent = await view.send({commandId: call.invocation, input: {text: message}, mode: queue ? "followup" : "steer"});
+                if (!sent.ok) return {failure: passthrough(sent, `话没有放进子会话 ${child}`, child)};
+                inputId = sent.value.inputId;
+                // 按去向认任务（subagents.md 输出 10），不按 `currentRunId`：`later` 的话由正在收口的运行之后开的那次取走，
+                // 等它收口再查这条话被哪次运行取走；`held` 的话没有运行会跑它。
+                if (sent.value.placement === "held") return {runId: null, ownRun: false};
+                if (sent.value.placement === "later" && sent.value.currentRunId !== undefined) {
+                    await view.waitRun(sent.value.currentRunId);
+                    const fate = await view.inputFate({inputId: sent.value.inputId});
+                    return fate !== null && "taken" in fate ? {runId: fate.taken, ownRun: true} : {runId: null, ownRun: false};
+                }
                 // 交回的 `runId` 是这次开的或接着跑的（算调用方开的）；插进别人的运行时是 `currentRunId`。
-                return sent.ok ? {runId: sent.value.runId ?? sent.value.currentRunId ?? null, ownRun: sent.value.runId !== null} : {failure: passthrough(sent, `话没有放进子会话 ${child}`, child)};
+                return {runId: sent.value.runId ?? sent.value.currentRunId ?? null, ownRun: sent.value.runId !== null};
             },
         });
         if (isFailure(outcome)) return outcome.failure;
-        if (outcome.job === null) return untracked(child, outcome.runId, call, "话已送达");
-        return settle(outcome.job, call, args, foreground);
+        const view = deps.table.view(child, issuerOf(parent));
+        const result = outcome.job === null ? await untracked(child, outcome.runId, call, "话已送达") : await settle(outcome.job, call, args, foreground);
+        return withNotes(result, await heldNotes(view, parent, inputId, foreground));
     };
+
+    /**
+     * 不带话的 `agent_send`（subagents.md 输出 10）：能接着跑父会话开的那次运行就先 `start`，再 `resume` 放行父会话自己排的；
+     * 只有留着的话时只 `resume`。用户停止的运行与用户留下的话只有用户能动，写明。
+     */
+    const continueChild = async (view: SessionApi, child: string, call: ToolContext): Promise<{readonly runId: string | null; readonly ownRun: boolean} | Failure> => {
+        const started = await view.start({commandId: call.invocation});
+        if (started.ok) {
+            await view.resume({commandId: `${call.invocation}-release`});
+            return {runId: started.value.runId, ownRun: true};
+        }
+        if (started.code !== "nothing-to-continue" && started.code !== "not-allowed") return {failure: passthrough(started, `子会话 ${child} 没能继续`, child)};
+        const resumed = await view.resume({commandId: `${call.invocation}-resume`});
+        if (resumed.ok) return {runId: resumed.value.runId, ownRun: true};
+        if (resumed.code === "held-by-user") return {failure: failure("held-by-user", `子会话 ${child} 里留着的话是用户停止时留下的，只有用户能放行。`, child)};
+        if (started.code === "not-allowed") return {failure: failure("not-allowed", `子会话 ${child} 的上一次运行被用户停止，只有用户能接着跑。`, child)};
+        return {failure: failure("nothing-to-continue", `子会话 ${child} 没有可以继续的运行，也没有留着的话；带 message 发新的话。`, child)};
+    };
+
+    /** 送进去的话没被处理、留着时，以及子会话里有父会话排的话被用户暂停时，写给父 Agent 的说明（subagents.md 输出 10）。 */
+    const heldNotes = async (view: SessionApi, parent: string, inputId: string | null, waited: boolean): Promise<string[]> => {
+        const notes: string[] = [];
+        if (inputId !== null && waited) {
+            const fate = await view.inputFate({inputId}).catch(() => null);
+            if (fate !== null && "held" in fate) notes.push(heldText(fate.held));
+        }
+        const buffer = (await view.snapshot().catch(() => null))?.buffer ?? [];
+        const paused = buffer.filter((item) => item.state === "held" && item.heldBy?.kind === "user" && item.by?.kind === "session" && item.by.id === parent).length;
+        if (paused > 0) notes.push(`子会话里有 ${paused} 条你排的话被用户暂停，未发出。`);
+        return notes;
+    };
+
+    const withNotes = (result: ToolResult, notes: readonly string[]): ToolResult => (notes.length === 0 ? result : {...result, text: [result.text, ...notes].join("\n")});
+
 
     const answer = async (context: ToolSessionContext, services: AgentToolServices, args: Readonly<Record<string, unknown>>, call: ToolContext): Promise<ToolResult> => {
         const parent = context.sessionId;

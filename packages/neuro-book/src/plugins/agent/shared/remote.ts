@@ -141,7 +141,8 @@ export type LogItem = {readonly kind: "event"; readonly event: LogEvent} | {read
 export type PreviewItem = {readonly kind: "inline"; readonly preview: PreviewResult} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
 
 /** `root`：这个会话所在会话树的根（自己就是根时是自己），状态栏按根数“运行中”（sessions.md 输出 19）。 */
-export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting"; readonly root: string};
+/** `held`：空闲、有只有用户能放行的留着的话（sessions.md 输出 15）。 */
+export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting" | "held"; readonly root: string};
 
 /** `list` 的条目：会话头的调用方是会话时带 `parent`（sessions.md 输出 18）。 */
 export type ListedSession = SessionIndexEntry & {readonly parent?: string};

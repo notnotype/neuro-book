@@ -40,7 +40,7 @@ export class ChildRuns {
 
     /**
      * 任务开始跟着 `child` 的 `runId`。`ownRun`：这次运行是调用方自己开的（输出 16 的连带中止只认它）。之后 `kill` 停这次运行；
-     * 子会话缓冲区里的话留着（`keepQueue`），后面的放话照常送达。
+     * 子会话缓冲区里的话留着（`keepQueue`），停的人是父会话，或经远程停时的用户（jobs.md 输出 4、11）。
      */
     start(job: Job, child: string, runId: string, ownRun: boolean, save: SaveFull): void {
         const issuer: Issuer = {kind: "session", id: job.owner};
@@ -49,8 +49,9 @@ export class ChildRuns {
         const report = () => this.#result(job, view, runId, save);
         this.#reports.set(job, report);
         this.options.jobs.start(job, {
-            kill: async () => {
-                const aborted = await view.abort({commandId: crypto.randomUUID(), keepQueue: true});
+            kill: async (_reason, byUser) => {
+                const stopper = byUser === true ? this.options.table.view(child) : view;
+                const aborted = await stopper.abort({commandId: crypto.randomUUID(), keepQueue: true});
                 if (!aborted.ok) this.options.report("subagent-kill-failed", `could not abort the run of sub-agent session ${child}: ${aborted.code}`, {session: child, code: aborted.code});
             },
             result: async () => (await report()).text,

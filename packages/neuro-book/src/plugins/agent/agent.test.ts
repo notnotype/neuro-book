@@ -25,6 +25,17 @@ import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
 import type {AgentWorld} from "./testing/world";
 
+/** 服务停了之后的调用：门面已作废（ServiceRevokedError），或停止门交回 unavailable。 */
+const stoppedService = (error: unknown): boolean => error instanceof Error && (error.name === "ServiceRevokedError" || (error as {code?: unknown}).code === "unavailable");
+function thrownBy(call: () => unknown): unknown {
+    try {
+        call();
+    } catch (error) {
+        return error;
+    }
+    return null;
+}
+
 let root = "";
 let counter = 0;
 let endpoint: FakeEndpoint;
@@ -372,8 +383,10 @@ describe("会话", () => {
         const created = await creating;
         const id = created.ok ? created.value.id : null;
         if (id !== null) expect(await locked(w, id)).toBe(false);
+        // 关掉整个世界时调用方（测试的探针插件）也停了：它拿着的按调用方门面随之作废（runtime/services.md 输出 12），
+        // 门面还在时由 `nbook.agent` 的停止门交回 unavailable。两者都表示服务不能再用。
         for (const call of [() => w.service.list(), () => w.service.profiles(), () => w.service.running(), () => w.service.session("x")]) {
-            expect(() => call()).toThrow(expect.objectContaining({code: "unavailable"}));
+            expect(stoppedService(thrownBy(call))).toBe(true);
         }
     });
 
@@ -388,7 +401,7 @@ describe("会话", () => {
         const closing = w.close();
         hold.release();
         await closing;
-        await expect(w.service.create({profile: WRITER})).rejects.toMatchObject({code: "unavailable"});
+        expect(stoppedService(await (async () => w.service.create({profile: WRITER}))().then(() => null, (error: unknown) => error))).toBe(true);
         const store = createJsonlStore({root: join(w.stateRoot, "agent", "sessions")});
         const opened = await store.open(session.id);
         if (!opened.ok) throw new Error(opened.code);

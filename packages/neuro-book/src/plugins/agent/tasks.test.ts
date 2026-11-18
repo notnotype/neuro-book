@@ -181,3 +181,26 @@ describe("停止与撤回", () => {
         expect((await created.value.snapshot()).extensions.map((item) => item.id)).toContain("test.loop.ext");
     });
 });
+
+describe("按调用方盖章（sessions.md 输出 21）", () => {
+    test("别的插件经 agentKey 取的视图是它的宿主身份，冒充不了别的插件；asUser 时代替用户", async () => {
+        let facade: import("./shared/contracts").AgentService | null = null;
+        const scheduler: PluginDefinition = {id: "test.scheduler", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: agentKey}], activate: (context) => {
+            facade = context.services.require(agentKey);
+            return {};
+        }})]};
+        await world({plugins: [scheduler]});
+        if (facade === null) throw new Error("the scheduler did not get the agent service");
+        const service: import("./shared/contracts").AgentService = facade;
+        const created = await service.create({profile: SOLVER}, {source: {label: "每周简报", ref: "weekly"}});
+        if (!created.ok) throw new Error(created.code);
+        const view = created.value;
+        expect(view.issuer).toEqual({kind: "host", source: {plugin: "test.scheduler", label: "每周简报", ref: "weekly"}});
+        expect(service.session(view.id).issuer).toEqual({kind: "host", source: {plugin: "test.scheduler", label: "test.scheduler"}});
+        expect(service.session(view.id, {asUser: true}).issuer).toEqual({kind: "user"});
+        // 空闲时宿主排的话留着，日志里记的是盖章的插件（harness/runtime.md 输出 3、85）。
+        const queued = await view.enqueue({commandId: randomUUID(), input: {text: "整理这周的简报"}, mode: "followup"});
+        expect(queued).toMatchObject({ok: true, value: {placement: "held"}});
+        expect((await view.snapshot()).buffer.map((item) => [item.state, item.by])).toEqual([["held", {kind: "host", source: {plugin: "test.scheduler", label: "每周简报", ref: "weekly"}}]]);
+    });
+});

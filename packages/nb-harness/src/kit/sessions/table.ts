@@ -52,6 +52,8 @@ interface Entry {
      * （子代理向父 Agent 提问）用户没有要处理的，不算，宿主的 `userOnly` 认出的除外。
      */
     waiting: boolean;
+    /** 空闲、缓冲区里有只有用户能放行的留着的话（用户停止留下的，或用户自己的话留着）：活动里算作等用户（agent/sessions.md 输出 15）。 */
+    held: boolean;
     questions: "caller" | "user";
     /** `userOnly` 认出的提问的 id。 */
     userOnly: Set<string>;
@@ -65,7 +67,9 @@ interface Entry {
 }
 
 const COMMANDS = Object.keys(commandErrors) as (keyof typeof commandErrors)[];
-const QUERIES = ["snapshot", "log", "rewindTargets", "path", "siblings", "treeNodes", "branchPoints", "runResult", "preview", "diagnostics"] as const;
+const QUERIES = ["snapshot", "log", "rewindTargets", "path", "siblings", "treeNodes", "branchPoints", "runResult", "inputFate", "preview", "diagnostics"] as const;
+/** 改变缓冲区条目的事件：活动里“留着的话”要跟着重算。 */
+const BUFFER_EVENTS = new Set(["inputQueued", "inputHeld", "inputReleased", "inputRemoved", "inputConsumed", "inputEdited"]);
 
 export interface SessionTableOptions {
     readonly host: AgentHost;
@@ -118,7 +122,7 @@ export class SessionTable {
         if (!created.ok) return created;
         const session = created.value;
         // 停止在建会话期间开始：照样登记，停止等这次建会话结束后关掉它。
-        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, questions: options.questions ?? "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, held: false, questions: options.questions ?? "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
         this.#entries.set(session.id, entry);
         this.#watch(entry, session);
         this.#maybeIdle(entry);
@@ -145,9 +149,12 @@ export class SessionTable {
         return api as unknown as SessionApi;
     }
 
-    /** 运行中与等用户的前台会话（sessions.md 输出 15）。只看打开着的：同步等待不会被空闲关闭，所以打开着的表就够。 */
-    activity(): {id: string; state: "running" | "waiting"}[] {
-        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.idle && !entry.background).map((entry) => ({id: entry.id, state: entry.waiting ? "waiting" : "running"}));
+    /**
+     * 运行中与等用户的前台会话（sessions.md 输出 15）。只看打开着的：同步等待不会被空闲关闭，所以打开着的表就够；空闲会话里留着的话
+     * 只在会话打开着时算（空闲关闭之后不再列出，已知限制）。
+     */
+    activity(): {id: string; state: "running" | "waiting" | "held"}[] {
+        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.background && (!entry.idle || entry.held)).map((entry) => ({id: entry.id, state: !entry.idle ? (entry.waiting ? "waiting" : "running") : "held"}));
     }
 
     /**
@@ -255,7 +262,7 @@ export class SessionTable {
                 continue;
             }
             if (entry === undefined) {
-                entry = {id, state: "opening", session: null, background: false, waiting: false, questions: "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+                entry = {id, state: "opening", session: null, background: false, waiting: false, held: false, questions: "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
                 entry.ready = this.#open(entry);
                 this.#entries.set(id, entry);
             }
@@ -304,6 +311,7 @@ export class SessionTable {
         entry.stopWatching = session.subscribe((frame) => {
             if (frame.type === "log") {
                 if (frame.event.type === "interactionRequested" && this.options.userOnly?.(frame.event.data) === true) entry.userOnly.add((frame.event.data as {id: string}).id);
+                if (BUFFER_EVENTS.has(frame.event.type)) void this.#refreshHeld(entry, session);
                 for (const listener of this.#logListeners) listener(entry.id, frame);
                 return;
             }
@@ -320,6 +328,16 @@ export class SessionTable {
                 entry.cancelIdle = null;
             }
         });
+    }
+
+    /** 缓冲区变了：按快照重算有没有只有用户能放行的留着的话。读快照失败（会话正在关闭）时不改。 */
+    async #refreshHeld(entry: Entry, session: SessionApi): Promise<void> {
+        const snapshot = await session.snapshot().catch(() => null);
+        if (snapshot === null) return;
+        const held = snapshot.buffer.some((item) => item.state === "held" && (item.heldBy?.kind === "user" || item.by === undefined));
+        if (held === entry.held) return;
+        entry.held = held;
+        this.#activityChanged();
     }
 
     #release(entry: Entry): void {
