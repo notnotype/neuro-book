@@ -116,6 +116,7 @@ type DropdownMenuItemType = "item" | "radio" | "checkbox";
 - 高亮：悬停项与键盘当前项是同一项，底色为中性叠色 `--overlay-item-active`；展开了子菜单的父项保持高亮。
 - 禁用：`disabled` 禁用触发器；条目的 `disabled` 阻止选择并降低不透明度，级联仍由其它可用项控制。
 - 受控展开：`open=false` 时内容不渲染，但会发出打开请求；`open=true` 时按输入显示菜单。
+- 暂时不可用但要保留焦点的触发器（例如停止进行中的“更多停止方式”）：不用 `disabled`（会让焦点掉出去），触发器写 `aria-disabled="true"`，父组件受控 `open`，在 `update:open` 里不接受打开。触发器会随宿主状态消失时（例如运行收口后的停止键），经 `contentProps` 传 `onCloseAutoFocus`，`preventDefault()` 后把焦点交给宿主指定的位置，不还给将要消失的触发器。用法见 nb-agent-ui 的 `AgentConversationComposer`。
 - 空数据：`items=[]` 时仍可打开空菜单，不会产生选择事件。
 - 只读、加载、错误：组件无统一状态；父级用禁用项或外部内容表达业务状态。
 

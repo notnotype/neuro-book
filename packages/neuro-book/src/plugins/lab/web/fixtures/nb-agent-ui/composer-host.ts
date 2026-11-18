@@ -4,7 +4,9 @@
  * - 发送：空闲时追加一条用户消息；运行中的补充说明、排队消息进 `composer.queued`。都记入输入历史，并给出新版本的空草稿。
  * - 附件：先“上传中”，约 0.9 秒后就绪，目标是会话附件地址 `session://attachments/名称`，图片用本地对象地址作缩略图与原图；
  *   打开“下次上传失败”时下一次上传以失败结束，重试后成功。
- * - 模式、模型、思考档位、停止、几个命令（plan、mode、model、clear）直接改 ctx；其余命令只记进事件日志。
+ * - 停止与继续：停止时排队的话留着（原因“你停止了这一轮”），“停止并清空排队”清掉全部；继续或空闲时有留着的话再发送，
+ *   按缺省的恢复方式把留着的话（与新写的字）合成一条发出并开始运行（docs/specs/agent/conversation.md 输出 47、50）。
+ * - 模式、模型、思考档位、几个命令（plan、mode、model、clear）直接改 ctx；其余命令只记进事件日志。
  * - 触发菜单：`@` 与 `$` 用与 PromptEditor 夹具相同的数据，`$` 首次打开时先“正在加载”。
  */
 import {computed, onBeforeUnmount, ref} from "vue";
@@ -18,6 +20,7 @@ import type {
     TriggerMenuContext,
 } from "@notnotype/nb-agent-ui";
 import {acceptSubmission, applyComposerAction, nextMode} from "@notnotype/nb-agent-ui";
+import {concatPromptTexts} from "@notnotype/nb-markdown/prompt-text";
 import {labAttachmentUrls} from "./data";
 import {referenceMenu, skillMenu} from "../prompt-scene/menu";
 
@@ -91,15 +94,28 @@ export function useLabComposerHost(options: HostOptions) {
         });
     }
 
+    /** 空闲时把留着的话与新写的字合成一条发出；有合并时开始一次运行（继续）。 */
+    function sendMerged(current: AgentConversationContext, text: string | null, accepted: ComposerView): void {
+        const held = accepted.queued.filter((item) => item.held !== undefined);
+        const texts = [...held.map((item) => item.text), ...(text === null ? [] : [text])];
+        const next: Partial<AgentConversationContext> = {composer: {...accepted, resume: false, queued: accepted.queued.filter((item) => item.held === undefined)}};
+        if (texts.length > 0) {
+            next.messages = [...current.messages, {
+                kind: "user", id: `lab-user-${current.messages.length}`, timestamp: current.now,
+                intent: "normal", blocks: [{kind: "text", text: concatPromptTexts(texts)}], contentOmitted: false,
+            } satisfies MessageView];
+        }
+        if (held.length > 0 || current.composer.resume === true) {
+            next.run = {status: "running", phase: "正在思考"};
+        }
+        options.write(next);
+    }
+
     function submit(text: string, delivery: "prompt" | "steer" | "followup"): void {
         const current = options.ctx();
         const accepted = acceptSubmission(current.composer, text);
         if (delivery === "prompt") {
-            const message: MessageView = {
-                kind: "user", id: `lab-user-${current.messages.length}`, timestamp: current.now,
-                intent: "normal", blocks: [{kind: "text", text}], contentOmitted: false,
-            };
-            options.write({messages: [...current.messages, message], composer: accepted});
+            sendMerged(current, text, accepted);
             return;
         }
         options.write({composer: {...accepted, queued: [...current.composer.queued, {id: `lab-queued-${Date.now()}`, text, delivery}]}});
@@ -139,8 +155,13 @@ export function useLabComposerHost(options: HostOptions) {
             case "composer.submit":
                 submit(action.text, action.delivery);
                 return true;
-            case "composer.stop":
-                options.write({run: {status: "idle", phase: ""}});
+            case "composer.stop": {
+                const queued = action.clearQueue === true ? [] : composer().queued.map((item) => ({...item, held: item.held ?? {reason: "你停止了这一轮"}}));
+                options.write({run: {status: "idle", phase: ""}, composer: {...composer(), queued}});
+                return true;
+            }
+            case "run.continue":
+                sendMerged(options.ctx(), null, composer());
                 return true;
             case "composer.attachmentAdded":
                 files.set(action.localId, action.file);

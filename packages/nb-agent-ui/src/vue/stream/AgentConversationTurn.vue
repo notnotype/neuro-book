@@ -154,6 +154,10 @@ const renderers = useAgentRenderers();
  * 只有表情的用户消息不画气泡（Spec“消息”）：有附件、正文被省略时照常画（省略时旁边还有“仅显示预览”）；就地编辑时整块换成编辑器，
  * 不走这里。判断由宿主给（`promptBareness`）。
  */
+function pendingLabel(message: UserMessageView): string {
+    return message.ahead === undefined || message.ahead === 0 ? t("user.sending") : t("user.ahead", {count: message.ahead});
+}
+
 function bare(message: UserMessageView): boolean {
     if (message.contentOmitted) return false;
     const texts: string[] = [];
@@ -173,8 +177,9 @@ function bare(message: UserMessageView): boolean {
                 <span class="acv-role">{{ text(userRole.label) }}</span>
                 <time class="acv-meta">{{ formatClock(turn.user.timestamp, locale) }}</time>
                 <template v-if="turn.user.delivery === 'pending'">
-                    <Spinner size="sm" :label="t('user.sending')" />
-                    <span class="acv-meta" aria-hidden="true">{{ t("user.sending") }}</span>
+                    <!-- 合并留着的话发出的那一条：前面别人的话先跑，写还有几条，免得看着像卡住（ui/agent-conversation-view.md）。 -->
+                    <Spinner size="sm" :label="pendingLabel(turn.user)" />
+                    <span class="acv-meta" aria-hidden="true" data-user-pending>{{ pendingLabel(turn.user) }}</span>
                 </template>
                 <AgentMessageActions
                     class="acv-message__actions"

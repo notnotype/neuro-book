@@ -214,15 +214,44 @@ const sendTitle = computed(() => {
     return deliveries.value.followup ? t("composer.sendQueued") : t("composer.sendAfterRun");
 });
 
-/** 上次运行被中断：空着也能发，发出去就是继续（docs/specs/agent/conversation.md 输出 9）。 */
-const resuming = computed(() => composer.value.resume === true && !running.value);
+/** 排队里有留着的话（ui/agent-conversation-view.md 的排队区）。 */
+const hasHeld = computed(() => composer.value.queued.some((item) => item.held !== undefined));
+/** 上次运行被中断，或空闲时有留着的话：空着也能发，发出去就是继续（docs/specs/agent/conversation.md 输出 9、50）。 */
+const resuming = computed(() => (composer.value.resume === true || hasHeld.value) && !running.value);
+/** 排队区头上的“继续”为什么不可用：不可用的原因、不能发送、停止中（ui/agent-conversation-view.md）。 */
+const continueDisabled = computed(() => {
+    if (props.ctx.run.status === "stopping") return t("status.stopping");
+    if (props.ctx.availability.status !== "ready") return props.ctx.availability.title ?? props.ctx.availability.message;
+    return props.ctx.interaction.canSend ? null : t("composer.sendAfterRun");
+});
+/** 停止键旁的下拉：缓冲区里有用户自己的话时给出；停止中不可用（保留焦点，aria-disabled）。 */
+const stopClearing = computed(() => (showStop.value ? props.ctx.interaction.stopClearing ?? null : null));
+const stopMenuOpen = ref(false);
+const stopMenuItems = computed<DropdownMenuItemData[]>(() => (stopClearing.value === null ? [] : [{id: "clear", label: t("composer.stopClearing", {count: stopClearing.value.count}), iconClass: "i-lucide-list-x", tone: "danger"}]));
+watch(stopClearing, (value) => {
+    if (value === null) stopMenuOpen.value = false;
+});
+function onStopMenu(open: boolean): void {
+    stopMenuOpen.value = open && props.ctx.run.status !== "stopping";
+}
+function onStopClearing(): void {
+    stopMenuOpen.value = false;
+    emit("action", {type: "composer.stop", clearQueue: true});
+}
+/** 菜单关上时焦点回到编辑器：停止键随运行收口一起消失，焦点留在触发器上会掉到页面上（nb-ui 规范的“从编辑内容旁打开的菜单”）。 */
+const stopMenuContentProps = {onCloseAutoFocus: (event: Event) => {
+    event.preventDefault();
+    withEditor((editor) => editor.focus("end"));
+}};
 
 /** 不可用的原因优先于别的占位（ui/agent-conversation-view.md 的“输入框与待处理区”）：输入框只读，写打字的提示没有意义。 */
 const placeholder = computed(() => {
     const availability = props.ctx.availability;
     const reason = availability.status === "ready" ? "" : availability.title ?? availability.message;
     if (reason !== "") return reason;
-    if (resuming.value) return t("composer.placeholderResume");
+    if (resuming.value && composer.value.resume === true && hasHeld.value) return t("composer.placeholderResumeHeld");
+    if (resuming.value && composer.value.resume === true) return t("composer.placeholderResume");
+    if (resuming.value) return t("composer.placeholderHeld");
     if (!running.value) return t("composer.placeholder");
     const {steer, followup} = deliveries.value;
     if (steer && followup) return t("composer.placeholderRunning");
@@ -399,7 +428,7 @@ defineExpose({
 
 <template>
     <footer class="acv-composer" :class="{'is-expanded': expanded}" data-agent-composer>
-        <AgentQueuedMessages :queued="composer.queued" @edit="emit('action', {type: 'queued.edit', id: $event})" @remove="emit('action', {type: 'queued.remove', id: $event})" />
+        <AgentQueuedMessages :queued="composer.queued" :continue-disabled="continueDisabled" @edit="emit('action', {type: 'queued.edit', id: $event})" @remove="emit('action', {type: 'queued.remove', id: $event})" @continue="emit('action', {type: 'run.continue'})" />
         <AgentNoticeCard v-if="props.ctx.availability.status === 'profile-unavailable'" :notice="props.ctx.availability" @act="emit('action', {type: 'availability.act', action: $event})" />
         <p v-else-if="props.ctx.availability.message !== ''" class="acv-composer__notice" role="status" data-composer-availability>
             <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
@@ -625,7 +654,7 @@ defineExpose({
                     />
                     <IconButton
                         class="acv-composer__primary"
-                        :class="{'is-stop': showStop}"
+                        :class="{'is-stop': showStop, 'has-split': stopClearing !== null}"
                         :icon-class="showStop ? 'i-lucide-square' : showResume ? 'acv-composer__resume-icon' : 'i-lucide-arrow-up'"
                         size="sm"
                         :disabled="showStop ? false : sendDisabled"
@@ -634,6 +663,21 @@ defineExpose({
                         :data-composer-action="showStop ? 'stop' : showResume ? 'resume' : 'send'"
                         @click="onPrimaryButton"
                     />
+                    <!-- 停止的第二个选项：与停止键拼成一个按钮，随它出现与消失（ui/agent-conversation-view.md）。 -->
+                    <DropdownMenu v-if="stopClearing !== null" :items="stopMenuItems" :open="stopMenuOpen" side="top" align="end" :content-props="stopMenuContentProps" @update:open="onStopMenu" @select="onStopClearing">
+                        <button
+                            type="button"
+                            class="acv-composer__stop-more"
+                            :aria-label="t('composer.stopMore')"
+                            :title="t('composer.stopMore')"
+                            aria-haspopup="menu"
+                            :aria-expanded="stopMenuOpen"
+                            :aria-disabled="props.ctx.run.status === 'stopping'"
+                            data-composer-action="stop-more"
+                        >
+                            <span class="i-lucide-chevron-down" aria-hidden="true" />
+                        </button>
+                    </DropdownMenu>
                 </div>
             </div>
         </div>
@@ -786,6 +830,37 @@ defineExpose({
 
 .acv-composer__primary.is-stop {
     background: var(--status-danger);
+}
+
+.acv-composer__primary.is-stop.has-split {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* 下拉箭头与停止键拼成一个按钮：同样的危险色，中间一条浅分隔线。 */
+.acv-composer__stop-more {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 28px;
+    margin-left: -4px;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid color-mix(in srgb, var(--text-inverse) 35%, transparent);
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
+    background: var(--status-danger);
+    color: var(--text-inverse);
+    cursor: pointer;
+}
+
+.acv-composer__stop-more[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.acv-composer__stop-more > span {
+    width: 12px;
+    height: 12px;
 }
 
 .acv-composer__primary.is-stop:hover {

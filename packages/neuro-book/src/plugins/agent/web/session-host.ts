@@ -15,7 +15,7 @@ import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
 import {findPromptLinks} from "@notnotype/nb-markdown";
-import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, MessageView, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, KernelIssuer, MessageView, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
 
@@ -846,9 +846,13 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         editing = null;
     }
 
-    /** 父 Agent 发来的话的作者：父会话的 Profile 名字与图标；读不到祖先时写“另一个会话”。 */
-    function authorOf(target: Current, by: string): {label: string; icon: string} {
-        const ancestor = target.ancestors.find((item) => item.id === by);
+    /**
+     * 别的发出者的话的作者：宿主（插件）写它给的显示名（ui/agent-conversation-view.md）；父 Agent 写父会话的 Profile 名字与图标，
+     * 读不到祖先时写“另一个会话”。
+     */
+    function authorOf(target: Current, by: KernelIssuer): {label: string; icon: string} {
+        if (by.kind === "host") return {label: by.source.label, icon: "i-lucide-puzzle"};
+        const ancestor = target.ancestors.find((item) => item.id === by.id);
         const profile = ancestor?.profile === null || ancestor?.profile === undefined ? undefined : deps.profiles().find((entry) => entry.key === ancestor.profile);
         return {label: profile?.name ?? deps.text.t(agentText("conversation.author.otherSession")), icon: ancestor?.icon ?? profile?.icon ?? "i-lucide-bot"};
     }
@@ -943,7 +947,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             uploads = new Map();
         }
         // 作者按祖先算：祖先与路径一起取，路径上的话应用之前就到了（`authorOf` 读的是 `target.ancestors`）。
-        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName, authorOf: (by) => authorOf(target, by.id)}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: [], tree: [], jobs: [], ancestors: []};
+        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName, authorOf: (by) => authorOf(target, by)}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: [], tree: [], jobs: [], ancestors: []};
         current = target;
         sessionId.value = id;
         deps.recent.write(id);

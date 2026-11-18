@@ -18,8 +18,8 @@ let commands = 0;
 const id = () => `kt-${String((commands += 1))}`;
 
 /** 宿主打开会话的算法（输出 5）：先订阅并缓存，取快照，取路径，再处理缓存。 */
-async function follow(session: SessionApi): Promise<{transcript: KernelTranscript; frames: Frame[]; stop(): void}> {
-    const transcript = createKernelTranscript({toolName: (tool) => tool.slice(tool.lastIndexOf(".") + 1)});
+async function follow(session: SessionApi, options: {readonly authorOf?: Parameters<typeof createKernelTranscript>[0] extends infer O ? O extends {authorOf?: infer A} ? A : never : never} = {}): Promise<{transcript: KernelTranscript; frames: Frame[]; stop(): void}> {
+    const transcript = createKernelTranscript({toolName: (tool) => tool.slice(tool.lastIndexOf(".") + 1), ...(options.authorOf === undefined ? {} : {authorOf: options.authorOf})});
     const frames: Frame[] = [];
     let buffered: Frame[] | null = [];
     const take = (frame: Frame) => {
@@ -161,7 +161,7 @@ describe("一轮对话", () => {
         expect(message!.toolCalls).toEqual([{id: "c1", name: "write", status: "streaming", args: {path: "project://正文/一.md", partialChars: 44}}]);
     });
 
-    test("乐观消息：显示在最后；内核确认换掉最早的；被拒撤掉；结果未知标出来", async () => {
+    test("乐观消息：显示在最后；内核按受理它的 commandId 确认；被拒撤掉；结果未知标出来", async () => {
         await using session = await createTestSession();
         const {transcript, stop} = await follow(session.raw);
         transcript.addOptimistic({id: "o1", commandId: "x1", text: "我发的", timestamp: 1});
@@ -171,8 +171,14 @@ describe("一轮对话", () => {
         transcript.removeOptimistic("o1");
         expect(transcript.messages()).toEqual([]);
         transcript.addOptimistic({id: "o2", commandId: "x2", text: "我发的", timestamp: 1});
+        transcript.addOptimistic({id: "o3", commandId: "x3", text: "另一条", timestamp: 2});
         session.model.script("好");
-        await session.say("拦截改写过的文字");
+        const sent = await session.raw.send({commandId: "x2", input: {text: "拦截改写过的文字"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send failed");
+        await session.raw.waitRun(sent.value.runId);
+        // 确认的是 x2 那条，不是最早的那条以外的：x3 还在。
+        expect(transcript.messages().filter((message) => message.kind === "user").map((message) => message.id).at(-1)).toBe("o3");
+        transcript.removeOptimistic("o3");
         stop();
         expect(transcript.messages().map((message) => message.kind)).toEqual(["user", "assistant"]);
         expect(transcript.messages()[0]).not.toHaveProperty("delivery");
@@ -423,13 +429,17 @@ describe("回退、队列、会话级", () => {
     test("排队：进队、改、移除、消费；标题、说明、归档、核心设置", async () => {
         await using session = await createTestSession();
         const {transcript, stop} = await follow(session.raw);
-        const queued = await session.raw.enqueue({commandId: id(), input: {text: "排着的"}, mode: "followup"});
+        // 会话身份在空闲时排的话留着（harness/runtime.md 输出 3）；条目带发出者、状态、原因与改过的次数（输出 103）。
+        const parent = session.raw.as({kind: "session", id: "parent"});
+        const commandId = id();
+        const queued = await parent.enqueue({commandId, input: {text: "排着的"}, mode: "followup"});
         if (!queued.ok) throw new Error(queued.code);
         const inputId = queued.value.inputId;
-        expect(transcript.queue()).toEqual([{id: inputId, mode: "followup", text: "排着的"}]);
-        await session.raw.edit({commandId: id(), inputId, input: {text: "改过的"}});
-        expect(transcript.queue()).toEqual([{id: inputId, mode: "followup", text: "改过的"}]);
-        await session.raw.remove({commandId: id(), inputId});
+        const entry = {id: inputId, mode: "followup", by: {kind: "session", id: "parent"}, state: "held", cause: {queued: "idle"}, commandId} as const;
+        expect(transcript.queue()).toEqual([{...entry, text: "排着的", edits: 0}]);
+        await parent.edit({commandId: id(), inputId, input: {text: "改过的"}});
+        expect(transcript.queue()).toEqual([{...entry, text: "改过的", edits: 1}]);
+        await parent.remove({commandId: id(), inputId});
         expect(transcript.queue()).toEqual([]);
         await session.raw.setTitle({commandId: id(), title: "第三章"});
         await session.raw.archive({commandId: id(), archived: true});
@@ -470,7 +480,7 @@ describe("回退、队列、会话级", () => {
         ];
         const seen: string[] = [];
         const transcript = createKernelTranscript({authorOf: (by) => {
-            seen.push(by.id);
+            seen.push(by.kind === "session" ? by.id : by.source.plugin);
             return author;
         }});
         transcript.applyPath(events);
@@ -579,5 +589,38 @@ describe("回复出自哪次请求", () => {
         await session.say("直接回答");
         const replies = assistants((await rebuilt(session.raw)).messages());
         expect(replies.map((reply) => [reply.text, reply.request])).toEqual([["模型的回答", 1], ["拦截层的回答", undefined]]);
+    });
+});
+
+describe("缓冲区的发出者与乐观消息（harness/runtime.md 输出 103、110）", () => {
+    test("宿主放行出来先跑的话还排着时，乐观消息标前面还有几条；宿主的话按 authorOf 画", async () => {
+        let started!: () => void;
+        const running = new Promise<void>((resolve) => (started = resolve));
+        let open!: () => void;
+        const released = new Promise<void>((resolve) => (open = resolve));
+        await using session = await createTestSession({tools: [{id: "lab.block", execute: async () => {
+            started();
+            await released;
+            return "好了";
+        }}]});
+        const host = {kind: "host", source: {plugin: "nbook.schedule", label: "每周简报"}} as const;
+        await session.raw.as(host).enqueue({commandId: id(), input: {text: "日程一"}, mode: "followup"});
+        await session.raw.as(host).enqueue({commandId: id(), input: {text: "日程二"}, mode: "followup"});
+        const authors: string[] = [];
+        const {transcript, stop} = await follow(session.raw, {authorOf: (by) => {
+            authors.push(by.kind === "host" ? by.source.label : by.id);
+            return {label: "日程", icon: "i-calendar"};
+        }});
+        session.model.script({tools: [{tool: "lab.block"}]}, "答日程一", "答日程二", "答我的");
+        transcript.addOptimistic({id: "mine", commandId: "merged", text: "我的话", timestamp: 1});
+        const sent = await session.raw.send({commandId: "merged", input: {text: "我的话"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send failed");
+        await running;
+        expect(transcript.messages().find((message) => message.id === "mine")).toMatchObject({ahead: 1});
+        open();
+        await session.raw.waitRun(sent.value.runId);
+        stop();
+        expect(transcript.messages().some((message) => message.id === "mine")).toBe(false);
+        expect(authors).toContain("每周简报");
     });
 });
