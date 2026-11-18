@@ -137,6 +137,7 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
   - S7 实现审查（2026-11-13）：前端派 Claude Sonnet（11 条：重要 4、建议 7），K-e 派 Claude Opus（6 条：重要 3、建议 3）。到齐后一起归类，修正 `56cecd84a`。要点：读取层的结果带 `stale`，待处理视图只在现在的结果上选第一条（停放回来后 `show-pending` 按旧结果选是第 1 条，已复现）；两个视图“停放时不读”与两个 show 命令补了测试；详情里长链接截断；选中的位置跟着变；强行解除确认时核对持有者。补测试时另发现两个真问题一并改了：内核的 `cannot-apply.root` 是弄坏它的那次修订，不是情节（实现、S7 计划与 Spec 输出 23 都当成了情节，Spec 已改）；行的 `data-row` 用 NUL 分隔，按选择器找行在浏览器里对不上。内核第 6 条（诊断登记变了不发事件，启动时会一直显示“没算出”）是既有问题，并入 K-d。修正后 `test:affected --typecheck` 全过（nb-canon 610 条、bun 2947 条、组件 733 条），真实浏览器重走待处理的路径无误。[前端报告](evidences/impl-review-s7-sonnet.txt)、[内核报告](evidences/impl-review-s7-opus.txt)、[处理](evidences/impl-review-s7-resolution.txt)。
 
 - K-d（2026-11-18 开工）：开发者定用自主推进做完 K-d 与 S8。开工前在 1000 章规模样本上逐段计时，`entry` 的 `changedAt` 慢在引擎倒扫整条时间线，`origins` 慢在每页重放全部步并整份冻结，`changes` 慢在每次对两万条排序；细计划见 `plan.md` 的“K-d 的细计划”，交 omp 做设计审查。
+- S8a 合进 master（2026-11-18，`2b5aba138`）：分支落后 911 个提交；两处冲突（边界表 nb-story 一行取 master 的、nb-canon 一行取分支的；Lab 夹具的导入两边都留），master 加了 `nb-flock` 包，合并后 `bun install`。`test:affected --typecheck --since 56cecd84a`：类型检查与组件测试全过，bun 3428 过、17 败。负载降下来后单独重跑，超时的都过了；剩下 9 条是 master 自己带来的断言失败，分支没改它们涉及的文件：`server.test.ts` 6 条与 `builtin-names.test.ts` 1 条是新内置插件 `nbook.stickers` 没写进期望，`sdk.test.ts` 2 条是 nb-ui 新加的 `DateInput`、`SortableList`、`TagInput` 没列进 SDK。
 
 ## 下一步
 
