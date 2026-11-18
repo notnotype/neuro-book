@@ -28,7 +28,7 @@ owners:
 - **发出者**：指令的身份，三种：用户、会话 `{kind: "session", id}`、宿主 `{kind: "host", source: {plugin, label, ref?, at?}}`（输出 45）。判等按种类与身份：会话按 `id`，宿主按 `source.plugin`。
 - **放行**：把留着的话转回就绪，写 `inputReleased`（输出 105）。
 - **暂停的运行**：回退到运行中途后，那条分支上没有收口、也没有循环在跑的运行（输出 36）；按空闲算。
-- **运行不再取输入**：只压缩的运行、停止已受理的运行、已决定收口的运行；这时到达的指令按空闲处理，开运行推迟到收口的写入批（输出 104）。
+- **运行不再取输入**：只压缩的运行、停止已受理的运行、已决定收口的运行。这时到达的 `send`、`enqueue`、`resume`、`release` 与异步回答按空闲处理放话与放行，开运行推迟到收口的写入批（输出 104）；其余指令照常按有运行在跑判断（`start` 得 `already-running`，`rewind` 等得 `running`）。
 - **运行**：`runStarted` 到 `runEnded` 之间；**轮**：`turnStarted` 到 `turnEnded` 之间，从一条输入开始（没有新输入的“继续”运行除外）。
 - **受理批**：指令受理时写下的写入批。
 - **帧**：向外吐的东西：`log`（日志事件）、`delta`（流式增量）、`status`（运行状态）、`diagnostic`、`reset`。
@@ -43,16 +43,16 @@ owners:
 1. `send` 的输入为空（文字去掉空白后为空且没有附件）时失败 `empty-input`，不写日志。
 2. 会话空闲时 `send` 的受理批依次是放行（输出 105，没有可放行的不写）、`inputQueued`、`runStarted{by}`、取走就绪的第一条开第一轮（`inputConsumed`、`turnStarted`、`input`；放行出来的排在新话前面，所以第一轮可能是放行出来的话）、`commandAccepted`，成功值带新输入与新运行的 id；有运行在取输入时只写放行、`inputQueued` 与 `commandAccepted`，成功值的 `runId` 为 null。成功值都带这条话的去向（输出 110）。叶子上有暂停的运行时见输出 36，运行不再取输入时见输出 104。
 3. `enqueue` 在有运行取输入时写放行、`inputQueued` 与 `commandAccepted`，成功值带它在缓冲区里的位置。会话空闲时（含叶子上有暂停的运行、运行不再取输入时）：用户的 `enqueue` 等同 `send`，模式照传；会话、宿主的 `enqueue` 不放行、不开运行，写 `inputQueued{state: "held", cause: {queued: "idle"}}`。
-4. `start` 接着跑叶子上最后一次没有正常结束的运行（中断、出错、停止或暂停），不取留着的话：有运行在进行时失败 `already-running`；那次运行暂停时照输出 36 接着跑；已收口时开一次没有新输入的“继续”运行（`runStarted{by}`，`turnStarted.inputId` 为 null），就绪的话按取的规则在边界与一轮结束时取走。缓冲区里有就绪的话、而叶子上没有可接着跑的运行时（只有升级前的旧日志会这样），取走就绪的第一条开一轮。都没有时（还没有轮，或最后一次运行正常结束）失败 `nothing-to-continue`，留着的话不算。不是用户的发出者只能接着跑 `runStarted.by` 是它自己的那次运行，否则失败 `not-allowed`。
+4. `start` 接着跑叶子上可接着跑的运行，不取留着的话。可接着跑的运行：暂停的运行（输出 36）；或叶子上最后一次对话运行（只压缩的运行不算）没有正常结束、且它的最后一轮停在当中（中断、出错或停止时这一轮没有以 `completed` 结束）。有运行在进行时失败 `already-running`；暂停的照输出 36 接着跑；已收口的开一次没有新输入的“继续”运行（`runStarted{by}`，`turnStarted.inputId` 为 null），就绪的话按取的规则在边界与一轮结束时取走。缓冲区里有就绪的话、而叶子上没有可接着跑的运行时（只有升级前的旧日志会这样），取走就绪的第一条开一轮。都没有时失败 `nothing-to-continue`，留着的话不算。不是用户的发出者只能接着跑 `runStarted.by` 是它自己的那次运行（`runStarted` 没有 `by` 的旧日志，按那次运行第一条 `input` 的 `by` 认），或会话头 `owner` 归它的会话里的运行（planned，`owner` 随 [bot 提案](../../proposals/neurobot.md) 加入会话头）；否则失败 `not-allowed`。
 5. 会开始运行的指令在开始前就能判定的失败是指令失败、不写日志：会话只读得 `read-only`；模型端口解析失败时得它的码，原样交回（`no-model`、`no-credentials`、`unknown-model`、`role-unbound`，见 [`models.md`](models.md) 输出 16）。解析时带会话当前的 Profile（换 Profile 之后是新的）。
 6. 每次模型请求之前写 `modelStarted{request, purpose: "turn", model, hash, now, invocation, modifiedBy}`；`request` 在一个会话里单调增加，可能有空洞（并发的请求各占一个，被拦下的回复也占一个）。回复写成 `assistant`（内容块、工具调用、停止原因、用量、作答的模型），失败写成 `modelFailed`。
-7. 回复里没有工具调用：写 `turnEnded{completed}`；缓冲区里有就绪的 `followup` 时，同一个写入批里取走最早的一条开下一轮（`inputConsumed`、`turnStarted`、`input`），同一次运行接着请求；没有时同一个写入批里写 `runEnded{completed}`。看缓冲区与写下这一批在同一个队列项里（输出 104）。
+7. 回复里没有工具调用：在单写者队列的同一项里看缓冲区并写下这一批（输出 104）：有就绪的 `steer` 时这一轮不结束，接着请求（同输出 28）；否则写 `turnEnded{completed}`，有就绪的 `followup` 时同一个写入批里取走最早的一条开下一轮（`inputConsumed`、`turnStarted`、`input`），同一次运行接着请求；都没有时同一个写入批里写 `runEnded{completed}`。文字收口（输出 27）的判断也在这一项里。
 8. 模型失败：写 `modelFailed{kind}`（类别见 [`harness/models.md`](models.md) 输出 2），模型端口交回的部分内容与用量记在 `partial`、`usage`；不再重发时（输出 62）之后 `turnEnded{error}`、`runEnded{reason: "error", error: {kind, code?}}`。
 9. `abort` 触发当前运行的中止；模型请求以 `modelFailed{kind: "aborted"}` 收口，之后 `turnEnded{aborted}`、`runEnded{aborted}`。中止之后在注入的时钟上等宽限期 `ABORT_GRACE_MS`（同输出 25）让模型端口交回，交回的半截回复与用量记在 `partial`、`usage`（界面已经推出去的文字刷新后还在）；宽限期过了仍没交回只写 `kind`。没有运行时成功值为 `{aborted: false}`，不写日志。
 10. Profile 的 `prompt`、`system` 或 `turn` 抛错时这次请求算不出来：写 `extensionFailed{entry}`，运行以 `error`、码 `profile-failed` 收口。
 11. 对话事件写入时，内核按当时的轮盖位置章：进行中的轮还没有回复时是这一轮的附带内容，有了回复是最后一步之后，没有进行中的轮是“等下一轮”。回复与工具结果不盖章。
 12. 流式增量以 `delta` 帧推出，带请求序号、请求的用途（`purpose`）与从 1 起递增的编号，不进日志；只有对话请求（`turn`）让运行进入 `streaming` 阶段，压缩与审批模型的请求流式时运行仍在 `compacting`、`tools`。运行状态的变化（阶段、中止中、损坏）以 `status` 帧推出。
-13. `waitRun(runId)` 在运行结束、会话回到空闲之后完成，结果同 `runResult(runId)`：结束原因、停止原因（运行以收尾工具结束时为 `finished`）、最后一条回复的文字、运行结果、错误、用量、这次运行写下的事件的 seq 范围。用量是这次运行全部回复与非对话请求的用量之和，有一条不完整总和就不完整。运行结束后（包括重开之后）`runResult` 照样能取。
+13. `waitRun(runId)` 在运行收口之后完成（收口批按输出 104 开了下一次运行时，完成时会话已在下一次运行里；其余情形会话已经空闲），结果同 `runResult(runId)`：结束原因、停止原因（运行以收尾工具结束时为 `finished`）、最后一条回复的文字、运行结果、错误、用量、这次运行写下的事件的 seq 范围。用量是这次运行全部回复与非对话请求的用量之和，有一条不完整总和就不完整。运行结束后（包括重开之后）`runResult` 照样能取。
 14. 请求的样子由 Profile 定（规则见 [`harness/profile.md`](profile.md)）：不写模板时依次是系统提示词与稳定的槽、开场槽、已提交的轮、进行中的这一轮（附带内容在前、用户的话在最后）、会变的槽。
 
 工具：
@@ -80,8 +80,8 @@ owners:
 缓冲区、设置与恢复：
 
 28. 运行中，每个边界把缓冲区里全部就绪的 `steer` 按入队顺序取走：每条一个 `inputConsumed` 加一条 `steer`，同一个写入批，进当前这一轮（还没有回复时是附带内容，有了是最后一步之后）。模型给出最终回复时缓冲区里还有就绪的 `steer`，这一轮不结束，接着请求；同时有扩展要 `continue` 时先写 `continued`，两者都进下一次请求。
-29. `edit`、`remove` 只对还在缓冲区里的输入（就绪或留着都行，状态不变），按发出者（输出 108）：`edit` 只能改自己排的，经输入拦截链（同输出 24）写 `inputEdited{by: 编辑者}`，条目的发出者不变；`remove` 用户能取消任何一条，会话、宿主只能取消自己排的，写 `inputRemoved{by, reason: "cancelled"}`；不允许时得 `not-allowed`。不在缓冲区里时，入过队的（已取走或已删）得 `input-consumed`，从没入过队的得 `input-not-found`。
-30. `abort` 中止了运行时，范围是停止受理那一刻已在缓冲区里的话（就绪与留着的都算）：缺省清空，每条写 `inputRemoved{by: 停的人, reason: "aborted"}`；`keepQueue: true` 时其中就绪的写 `inputHeld{cause: {end: "aborted"}, heldBy: 停的人}`，已经留着的不改（输出 111）。这些与 `runEnded{aborted}`、`commandAccepted{name: "abort"}` 同一个写入批：重发同一个 `commandId`（中止进行中、运行收口后、重开之后）交回第一次的结果。停止受理之后才到的话不在范围里，按各自的发出者照输出 104 处理。两个发出者先后停同一次运行，以先受理的为准：清空与否、`heldBy` 都按它，后到的 `abort` 不改变它们。发出者能停哪些运行见输出 108。没有运行时缓冲区不动、不写日志。轮以 `error` 或 `aborted` 结束时不取 `followup`。
+29. `edit`、`remove` 只对还在缓冲区里的输入（就绪或留着都行，状态不变），按发出者（输出 108）：`edit` 只能改自己排的，经输入拦截链（同输出 24）写 `inputEdited`，条目的发出者不变；`remove` 用户能取消任何一条，会话、宿主只能取消自己排的，写 `inputRemoved{by, reason: "cancelled"}`；不允许时得 `not-allowed`。不在缓冲区里时，入过队的（已取走或已删）得 `input-consumed`，从没入过队的得 `input-not-found`。
+30. `abort` 只停发出者能停的运行（输出 108）：权限在触发信号之前同步判定，不允许时得 `not-allowed`，运行不受影响。允许时立刻触发信号，并在同一个同步步骤里把受理排进队列，受理绑定这次运行；受理轮到时这次运行已经以别的原因收口的，交回 `{aborted: false}`、不动缓冲区，之后开的运行不受它影响。范围是受理排进队列那一刻已在缓冲区里的话（就绪与留着的都算）：缺省清空其中停的人能取消的（用户能取消全部，会话、宿主只有自己排的，同输出 29），每条写 `inputRemoved{by: 停的人, reason: "aborted"}`；范围里其余就绪的话，以及 `keepQueue: true` 时全部就绪的话，写 `inputHeld{cause: {end: "aborted"}, heldBy: 停的人}`；已经留着的不改（输出 109）。这些与 `runEnded{aborted}`、`commandAccepted{name: "abort"}` 同一个写入批：重发同一个 `commandId`（中止进行中、运行收口后、重开之后）交回第一次的结果。停止受理之后才到的话不在范围里，按各自的发出者照输出 104 处理。两个发出者先后停同一次运行，以先受理的为准：清空与否、`heldBy` 都按它，后到的 `abort` 不改变它们。没有运行时缓冲区不动、不写日志。轮以 `error` 或 `aborted` 结束时不取 `followup`。
 31. `changeSettings` 的补丁按扩展 id 分组（核心设置组是 `core`：`model`、`effort`、`approvalMode`、`readOnly`），整体校验：组不是装配里的扩展得 `unknown-extension`，键不在它的设置 schema 里得 `unknown-key{extension, key}`，值不合 schema 得 `invalid-value{extension, key, message}`，有一项不合法就都不改。受理时给每个值有变化的组写一条 `settingsChanged`（按生效值比：扩展的项先合并 schema 的缺省值，与缺省相同的不算变化；值没变的项不写），运行中受理的同样立刻写，下一次请求前生效（`scheduled: "next-boundary"`，空闲时 `"now"`）。`settingsChanged` 只派发给设置所属的扩展的处理函数。
 32. `setTitle` 去掉首尾空白后为空得 `empty-title`，否则写 `titleChanged{by: "user"}`；`archive` 写 `archived`。快照的 `title`、`archived` 随之变化。
 33. 输出 29–32 的指令与 `send` 一样按 `commandId` 幂等（[`harness/session.md`](session.md) 输出 17）。受理批写失败的那条指令得 `log-broken`（不抛错），之后的指令同样（`session.md` 输出 12）。
@@ -90,7 +90,7 @@ owners:
 会话树与 Profile：
 
 35. `rewindTargets()` 列出当前路径上的回退目标，按路径顺序：`before-turn`（一次运行的第一轮回到 `runStarted` 之前，后面的轮回到上一轮结束处）、`after-step`（这一轮某次模型请求之前，第一次就是用户的话之后）、`after-turn`（这一轮结束处；也是运行的最后一轮时落在 `runEnded` 上）。`rewind(to)` 只接受这些目标：有运行在跑得 `running`，`to` 不是会话里的节点得 `unknown-node`，不是目标（或为 null）得 `invalid-target`；受理时写 `leafChanged`。回退之后路径上的事件、path 片与对话回到目标处，session 片、缓冲区与设置不变。
-36. 回退到运行中途时（`after-step`，或运行中某一轮之前），那条分支上的运行暂停：没有循环在跑，快照的运行状态是 `idle`，按空闲算（暂停期间排进来的话照输出 3 处理）。能接着跑它的发出者（用户；别的发出者只能接着跑自己开的，同输出 4）`start`、`resume`、`send` 时让它接着跑，写 `runResumed{runId, by}`（停在两轮之间时先取就绪的第一条开一轮）；不能接着跑它的发出者 `send` 时，话按空闲时排的留着（`cause: {queued: "idle"}`），去向 `held`，不放行、不开运行。接着跑之后的模型请求（`modelStarted`）与原来那次是兄弟节点，新旧回复各挂在自己那次请求下面，这就是重试与 swipe。重试之后 `runResult`、`waitRun` 取这次运行最后写下的 `runEnded`，只算它所在路径上的回复与用量。叶子由 `leafChanged` 定时重开会话不当作崩溃恢复。`rewind{resend}` 回退后把这条话入队：目标在运行外就开新的运行，在运行中途就让暂停的运行接着跑（先取这条话）。它不放行留着的话：留着的是在别的上下文里排的，继续留着。
+36. 回退到运行中途时（`after-step`，或运行中某一轮之前），那条分支上的运行暂停：没有循环在跑，快照的运行状态是 `idle`，按空闲算（暂停期间排进来的话照输出 3 处理）。能接着跑它的发出者（用户；别的发出者只能接着跑自己开的，同输出 4）`start`、`resume`、`send` 时让它接着跑，写 `runResumed{runId, by}`（停在两轮之间时先取就绪的第一条开一轮）；不能接着跑它的发出者：`send` 的话按空闲时排的留着（`cause: {queued: "idle"}`），去向 `held`，不放行、不开运行；`resume`、`release` 得 `not-allowed`；异步回答留着（`cause: {queued: "idle", code: "not-allowed"}`）。接着跑之后的模型请求（`modelStarted`）与原来那次是兄弟节点，新旧回复各挂在自己那次请求下面，这就是重试与 swipe。重试之后 `runResult`、`waitRun` 取这次运行最后写下的 `runEnded`，只算它所在路径上的回复与用量。叶子由 `leafChanged` 定时重开会话不当作崩溃恢复。`rewind{resend}` 回退后把这条话以发出者的身份入队：目标在运行外就开新的运行，在运行中途就让暂停的运行接着跑（先取这条话，写 `runResumed{by}`；权限同接着跑暂停的运行，输出 108）。它不放行留着的话：留着的是在别的上下文里排的，继续留着。
 37. `switchBranch(node)` 落到 `node` 所在子树里最近写入的末端；`siblings(node)` 给出与它同一个父节点的节点，各带所在分支的末端。`fork({leaf?})` 把到 `leaf`（缺省当前叶子）为止的路径复制成新会话，会话头的 `origin` 记来源、`profile` 是当前的 Profile、`caller` 与 `questions` 照抄（复制过去的待处理提问仍归同一个父会话应答），带上设置，不带缓冲区与标题；原会话不变。新会话的 id 由来源会话与 `commandId` 定：原会话的受理没写下就失败或崩溃时，重发同一个 `commandId` 交回同一个新会话，不多建。三者在有运行在跑时得 `running`。
 38. `changeProfile(profile)` 只在没有运行在跑时（否则 `running`）：解析不到得 `unknown-profile`，装配缺依赖得 `dependency-missing{extension, dependency}`、成环得 `dependency-cycle`，其余装配错误得 `profile-invalid`。新装配的 Profile 哈希与当前相同时 `changed: false`、不写日志；不同时写 `profileChanged{reason: "user"}`；写下之后才摘下旧扩展、按新装配从日志重新归约全部状态（`mount` 失败的标记清空）、装上新扩展，并等装上写的外部事实落盘再返回；写失败时得 `log-broken`，内存里的装配不变。之后交给宿主的上下文（建资源、建工具实现）是新 Profile，已建的工具实现释放后按新上下文重建；已提交的轮按新 Profile 重新渲染（[`harness/profile.md`](profile.md) 输出 11）。重开会话按最后一条 `profileChanged` 解析 Profile。
 
@@ -99,7 +99,7 @@ owners:
 39. 审批钩子判定 `ask` 时，写 `interactionRequested{kind: "approval", callId, request: {tool, args, effect, reason?, remember?}, async: false}`，这次调用停下等应答（这条回复的调用先都问完再执行，见输出 79），运行状态是 `waiting{pending}`。应答 `allow`、`allow-session` 时照常执行，`toolStarted.approval.by` 为 `user`；`allow-session` 同一个写入批里写 `approvalRemembered{tool, scope, rules?, by}`：钩子的 `ask` 结论带 `remember` 时它进请求，这里是 `scope: "rule"`、`rules` 为它（内核不解释）；`remember` 是 `false` 时应答 `allow-session` 得 `invalid-answer`；没有时 `scope: "tool"`，记整个工具。它是 session 事件，回退与重开都不撤销，审批钩子从 `info.remembered`、`info.rememberedRules` 读到。钩子的 `ctx.context` 是工具拿到的同一份会话上下文；拒绝的 `rejection.params.reason` 拼进给模型的结果。应答 `deny` 时调用得 `denied`、码 `user-denied`、`by: "user"`，应答的 `note` 附在给模型的文字里。没有等用户的通道时（例如没有界面的单次请求）判定 `ask` 的调用得 `denied`、码 `approval-unavailable`。
 40. 工具的 `ctx.ask(request, {async?})`：同步提问写 `interactionRequested{kind: "question"}` 并等，应答 `answer` 交回 `{kind: "answer", text, data?, by}`（`by` 是应答者：用户，或 `questions: "caller"` 时的父会话），`deny` 交回 `{kind: "unavailable", code: "declined"}`，运行被中止交回 `code: "aborted"`。异步提问写下事项（`async: true`）就交回 `{kind: "unavailable", code: "async"}`，不进 `waiting`。
 41. `resolve({id, decision, answer?, note?})`：事项不在当前路径的待处理里时，路径上已经结算过的得 `already-answered{by, decision}`，其余（含被回退掉的分支上的）得 `unknown-interaction`。审批只收用户的应答；提问用户都能答，会话头 `questions: "caller"` 时也收 `caller` 那个父会话的；其余得 `not-allowed`。`decision` 不合事项的种类（审批：`allow`、`allow-session`、`deny`；提问：`answer`、`deny`），或 `answer` 缺少、文字为空，得 `invalid-answer`。会话只读时得 `read-only`。受理时写 `interactionResolved{id, decision, by, data?, note?}`，`by` 是发出者。同一事项的几次应答由单写者裁决：先到的生效，后到的得 `already-answered`。
-42. 异步提问的回答：同一个写入批里写 `interactionResolved`、按输出 105 放行应答者能放行的，并把回答的文字作为一条输入放进缓冲区（经输入拦截链，拒绝时得 `input-rejected`、不写日志）；运行中是就绪的 `steer`，空闲时开新的运行（或让应答者能接着跑的暂停的运行接着跑）。空闲而开不起运行时（只读、模型解析失败等），回答照样结算、`resolve` 成功，不放行，这句回答留着，`cause` 是 `{queued: "idle", code: 开不起来的码}`。
+42. 异步提问的回答：同一个写入批里写 `interactionResolved`、按输出 105 放行应答者能放行的，并把回答的文字作为一条输入放进缓冲区（经输入拦截链，拒绝时得 `input-rejected`、不写日志）；运行中是就绪的 `steer`，空闲时开新的运行（或让应答者能接着跑的暂停的运行接着跑；不能接着跑时见输出 36）。空闲而开不起运行时（只读、模型解析失败等），回答照样结算、`resolve` 成功，不放行，这句回答留着，`cause` 是 `{queued: "idle", code: 开不起来的码}`。
 43. 运行被中止时，等待中的同步事项写 `interactionResolved{decision: "aborted", by: {kind: "kernel"}, code: "aborted"}`，等审批的调用得 `denied`、码 `aborted`；中止之后才到的应答得 `already-answered{by: "kernel", decision: "aborted"}`。进程重启后打开会话时，同步事项写 `interrupted`（审批码 `interrupted-before-approval`，提问码 `interrupted`），调用按输出 34 结算。异步提问不随中止、关闭会话、重启结算，重开后照样能应答。
 44. 同一条回复里几个调用的事项可以同时待处理、任意顺序应答；`waiting.pending` 列出全部（`{id, callId, kind}`，请求原文只在经出站过滤的 `interactionRequested` 里），都应答之后运行状态回到 `running`。
 45. 发出者由宿主注入：`session.as(issuer)` 交回带这个发出者的会话视图，指令里没有发出者参数；不经 `as` 的视图是用户。内核相信宿主给的发出者，宿主要按调用方如实盖章（NeuroBook 的规则见 [`agent/sessions.md`](../agent/sessions.md)），权限（输出 108）以此为前提。
@@ -116,11 +116,11 @@ owners:
 
 宿主面：
 
-53. `closeSession(session)` 依次：之后的指令得 `session-closed` → 中止在跑的运行并等收口 → 等队列清空 → 按装配序的逆序调用 `mount` 的清理并等待 → 释放工具实现 → 清空订阅 → 关闭日志与锁。关闭开始时还在受理的指令（例如输入拦截还没返回）得 `session-closed`，不写日志、不开运行；进行中的重新装配先做完，它装上的扩展随后一起摘下。重复与并发的调用等同一次关闭完成。关闭之后（或扩展摘下之后）`mount` 里再写的外部事实不进日志，只诊断 `late-result-dropped`。`closeSession(session, {reason: "interrupted"})` 是进程收尾：在跑的运行按 `interrupted` 收口（轮、运行、发出没回复的模型请求、写过 `toolStarted` 没完成的工具 `unknown{interrupted}`、还没开始的工具与等审批的事项 `denied{interrupted-before-approval}`），与重开时的恢复一致（[`harness/session.md`](session.md) 输出 16）；宿主经 `onProcessInterrupt`、`onProcessTermination` 在退出前调用它。两种关闭时缓冲区都按输出 104 处理：就绪的话随收口转成留着，不清空（不带原因时 `cause` 是 `{end: "aborted", code: "session-closed"}`）。
+53. `closeSession(session)` 依次：之后的指令得 `session-closed` → 中止在跑的运行并等收口 → 等队列清空 → 按装配序的逆序调用 `mount` 的清理并等待 → 释放工具实现 → 清空订阅 → 关闭日志与锁。关闭开始时还在受理的指令（例如输入拦截还没返回）得 `session-closed`，不写日志、不开运行；进行中的重新装配先做完，它装上的扩展随后一起摘下。重复与并发的调用等同一次关闭完成。关闭之后（或扩展摘下之后）`mount` 里再写的外部事实不进日志，只诊断 `late-result-dropped`。`closeSession(session, {reason: "interrupted"})` 是进程收尾：在跑的运行按 `interrupted` 收口（轮、运行、发出没回复的模型请求、写过 `toolStarted` 没完成的工具 `unknown{interrupted}`、还没开始的工具与等审批的事项 `denied{interrupted-before-approval}`），与重开时的恢复一致（[`harness/session.md`](session.md) 输出 16）；宿主经 `onProcessInterrupt`、`onProcessTermination` 在退出前调用它。两种关闭时缓冲区都按输出 104 处理：就绪的话随收口转成留着，不清空（不带原因时 `cause` 是 `{end: "aborted", code: "session-closed"}`）；推迟到收口的指令不开运行。
 54. `SessionEnv.outbound` 在推帧与日志查询之前调用：`log` 帧与 `log()`、`path()` 查询的事件经 `outbound.event(event, reader, context)`，`delta` 帧经 `outbound.delta(frame, reader, context)`，`reader` 是这个会话视图的发出者（`session.as(issuer)`）；返回 null 的不给这个读者。`context` 带会话 id 与 `toolCall(callId)`（这次调用实际执行的参数，从中途读起也查得到）；增量的 `context.before` 是这个订阅者此前收到的同一次请求、同一部分的原文，一个词拆在两块里时拼起来查。`mapEventContent(event, {text, args?, data?})` 按字段走遍内核事件里带内容的地方（用户的话与原文、回复与半截回复、工具参数与结果、收尾结果、提问与回答、压缩摘要、标题），扩展事件整份交给 `data`。过滤可以是异步的（返回 Promise，例如要查书库判断一个词读者读到过没有）：日志查询按日志顺序逐条等，订阅的帧按到达顺序排成一条队列、过滤完再交给订阅者，先后不变；过滤函数抛错或 Promise 失败时不给看，诊断 `outbound-filter-threw`。取消订阅或会话关闭之后，已排进队列的帧不再交出；订阅者抛错（有没有出站过滤都一样）只诊断 `subscriber-threw`，不打断这一批的提交，后面的订阅者与帧照常。被过滤掉的事件在订阅里推 `progress{through}` 帧，界面等指令的 `seq` 时 log 帧的 seq 或它追到就算追上；增量按订阅者重新编号，过滤掉的不占号。`log({afterSeq, limit})` 的 `head`、`more` 按读取开始的那一刻算（过滤期间新写下的事件不算这一页），`through` 是这一页扫描到的最后一条 seq（被过滤掉的也算），下一页从它接着读；整页被过滤时 `events` 为空、`through` 照样前进。`limit` 缺省 500，取整后夹在 1 到 2000 之间。出站过滤只管日志事件与流式增量：运行结果、预览、诊断、快照与 `rewindTargets()`、`siblings()` 不经过它，宿主给不同读者暴露这些时自己投影（运行状态里等用户的事项不带请求原文）。
 55. `preview()` 算下一次请求（`fidelity: "next"`）：跑视图与模型拦截链（`ctx.phase` 为 `preview`），最里层截下请求，不发给模型、不写日志。预览当前叶子时，把下一个边界确定会取走的就绪的输入投影进去（两轮之间取就绪的第一条开新的一轮，一轮进行中取全部就绪的 steer）；留着的不投影；在跑的工具的结果、边界上可能触发的压缩不投影。请求的冻结、拦截返回值的校验与失败策略同真实请求：一层原地改请求按这一层失败、跳过，失败与超时交在结果的 `diagnostics` 里（不写日志）。结果有拦截之前与之后的请求、每一层改了什么（`changes`，按每层交出与收到的比较：系统块、消息的插入与删除（按两边相同的前后缀对齐）、消息的内容块与其余字段、参数、头、工具与顶层字段）、每个槽的贡献有没有摆进请求、没参与的扩展（`mount` 失败、运行中被撤回）、各区（系统、开场、历史、这一轮、工具）的 token 估算（含工具调用的参数）与触发点。`preview({atRequest})`（过去的请求）与算不出请求时抛 `PreviewUnavailable`（带码）。
 56. `complete(env, {profile, input, initial?, signal?})` 不经会话、不读写日志：Profile 声明了工具得 `profile-has-tools`，解析不到得 `unknown-profile`，模型端口解析失败得它的码（同输出 5）；请求只有 Profile 的系统提示词与输入这一条用户消息，`purpose: "background"`；结果同运行结果（没有 `runId` 与条目范围），模型失败按 [`harness/models.md`](models.md) 的类别交回。
-57. 插件宿主 `createAgentHost(env)` 接收 `agent.extensions` 贡献：`prepare` 否决 id 不合规则或前缀与所属插件不符（`bad-extension-id`）、重名（`duplicate-extension-id`）、声明的依赖成环（`dependency-cycle`），抛 `ExtensionRejected` 并记进宿主的诊断；`published` 之后新开的会话装上它，已打开的空闲会话立刻重新装配；重新装配（含装上扩展）做完之前不受理指令，`pendingReassembly` 在做完之前一直列出这次的变化。`revoke` 幂等，只撤回传入的这个句柄的贡献：旧代次的句柄重复撤回不影响同 id 的新代次；交回的 Promise 在各会话摘下它（清理函数跑完，运行中的等这次运行结束）或关闭之后完成，平台在这之后释放插件自己的资源。运行中撤回时，这次运行里跳过它的处理函数、拦截与槽（快照里状态 `revoked`，诊断 `extension-revoked`），已经在链里、还没走到它那一层的拦截也跳过，进行中的处理函数的输出丢掉（诊断 `late-result-dropped`），它在 `mount` 里拿着的 `ctx.signal` 立刻触发，之后的外部写入与回调不再生效；`pendingReassembly` 列出待装配的变化，运行结束后重新装配。重新装配的结果哈希变了写 `profileChanged{reason: "plugin-added" | "plugin-removed" | "plugin-updated"}`；装配失败（例如依赖被撤回）时会话进只读，码 `dependency-missing`；依赖补回、重新装配整个做完（写下 `profileChanged`、装上扩展）后解除，中途写失败不解除（别的原因的只读留到重开）。宿主在重新装配中途失败（建资源、建工具上下文）时会话进只读，码 `reassembly-failed`，诊断同名，重开以日志为准。`profilesChanged(keys)`：用这些 key 的打开着的会话按当前的 key 重新调 `profiles.resolve`、重新装配，时机与等待同上（运行中的等这次运行结束，与扩展变化攒在一起做，`pendingReassembly` 带 `profile: true`）；哈希变了写 `profileChanged`：Profile 自己的 `version` 变了是 `reason: "code-updated"`，否则按扩展的增减；没变也换上新的 Profile 对象、不写日志。解析不到时会话进只读 `unknown-profile`、保留当前装配，这批扩展增减照样处理；之后的每次重新装配（不论是否带 `profile`）都重新解析，解析成功并装配完才解除，回到丢之前的只读原因（例如 `tools-missing` 仍只读）。解析时宿主抛错进只读 `reassembly-failed`。等解析期间用户 `changeProfile` 换了 Profile 时，这次结果作废、按新的 Profile 重来。打开时就解析不到 Profile 的会话（占位装配）不受它影响，要重开。会话还在建或在打开时到达的扩展发布与撤回、`profilesChanged`，在它建好或打开之后补做一次。
+57. 插件宿主 `createAgentHost(env)` 接收 `agent.extensions` 贡献：`prepare` 否决 id 不合规则或前缀与所属插件不符（`bad-extension-id`）、重名（`duplicate-extension-id`）、声明的依赖成环（`dependency-cycle`），抛 `ExtensionRejected` 并记进宿主的诊断；`published` 之后新开的会话装上它，已打开的空闲会话立刻重新装配；重新装配（含装上扩展）做完之前不受理指令，`pendingReassembly` 在做完之前一直列出这次的变化；推迟到收口的指令在有待做的重新装配时不开运行（输出 104）。`revoke` 幂等，只撤回传入的这个句柄的贡献：旧代次的句柄重复撤回不影响同 id 的新代次；交回的 Promise 在各会话摘下它（清理函数跑完，运行中的等这次运行结束）或关闭之后完成，平台在这之后释放插件自己的资源。运行中撤回时，这次运行里跳过它的处理函数、拦截与槽（快照里状态 `revoked`，诊断 `extension-revoked`），已经在链里、还没走到它那一层的拦截也跳过，进行中的处理函数的输出丢掉（诊断 `late-result-dropped`），它在 `mount` 里拿着的 `ctx.signal` 立刻触发，之后的外部写入与回调不再生效；`pendingReassembly` 列出待装配的变化，运行结束后重新装配。重新装配的结果哈希变了写 `profileChanged{reason: "plugin-added" | "plugin-removed" | "plugin-updated"}`；装配失败（例如依赖被撤回）时会话进只读，码 `dependency-missing`；依赖补回、重新装配整个做完（写下 `profileChanged`、装上扩展）后解除，中途写失败不解除（别的原因的只读留到重开）。宿主在重新装配中途失败（建资源、建工具上下文）时会话进只读，码 `reassembly-failed`，诊断同名，重开以日志为准。`profilesChanged(keys)`：用这些 key 的打开着的会话按当前的 key 重新调 `profiles.resolve`、重新装配，时机与等待同上（运行中的等这次运行结束，与扩展变化攒在一起做，`pendingReassembly` 带 `profile: true`）；哈希变了写 `profileChanged`：Profile 自己的 `version` 变了是 `reason: "code-updated"`，否则按扩展的增减；没变也换上新的 Profile 对象、不写日志。解析不到时会话进只读 `unknown-profile`、保留当前装配，这批扩展增减照样处理；之后的每次重新装配（不论是否带 `profile`）都重新解析，解析成功并装配完才解除，回到丢之前的只读原因（例如 `tools-missing` 仍只读）。解析时宿主抛错进只读 `reassembly-failed`。等解析期间用户 `changeProfile` 换了 Profile 时，这次结果作废、按新的 Profile 重来。打开时就解析不到 Profile 的会话（占位装配）不受它影响，要重开。会话还在建或在打开时到达的扩展发布与撤回、`profilesChanged`，在它建好或打开之后补做一次。
 58. 工具结果可以带图片：`ToolResult` 与 `toolResult` 事件有可选的 `images`（`{data: base64, mime, width?, height?}` 的列表），重开与 fork 后一致；组请求时工具消息在文字后附图片块。条目被压缩省略时只发占位、不附图；Profile 的自定义渲染只换文字，图片照附。
 59. 工具拦截与图片：结果标了 `redacted` 时图片不写进日志；判断结果被改写时文字与图片都比（图片按 `data` 的哈希）；改写未脱敏时原图记在 `rawImages`，脱敏时 `rawHash` 把图片算进去，没有图片的结果 `rawHash` 算法不变。出站过滤不改图片的字节，只能整块保留或去掉。
 60. 图片的 token 估算（输出 46 与 `preview()`）：每张按 宽 × 高 / 750、至多 1,600 计，没有尺寸时 1,600，不按 base64 的长度算。
@@ -155,7 +155,7 @@ owners:
 83. 摘要（`replacement` 不是 null 的压缩）之前写下的用户消息，图片换成一行文字（名字、尺寸、地址，要看可以 `read`），当前这一轮的输入也算：不然同一轮的图撑爆窗口时，摘要写好了，重发还是原来那些图。事件没变，回退到压缩之前恢复原样。
 84. 一次请求的图片（`imageRef` 与 `image`）超过 100 张时，从最旧的起换成一行文字。在拦截链的最里面做，拦截层加的图也算，`modelCaller` 的请求也走；`preview` 同样处理。不按服务商分。超过之后每多一张新图，请求从被换掉的那张起变化，那之后的提示词缓存失效（接受）；只聊文字时集合不变，不失效。
 
-85. 输入记下发出者：`send`、`enqueue` 经 `as(issuer)` 以会话或宿主的身份发出时，`inputQueued` 与之后路径上的 `input`、`steer` 都写 `by`（会话 `{kind: "session", id}`，宿主 `{kind: "host", source}`）；用户发的不写 `by`，读作用户（旧日志同样）。异步提问的回答进缓冲区时，`by` 是应答者，用户应答同样不写。`inputQueued`、`input`、`steer` 另记受理它的 `commandId`。`runStarted`、`runResumed` 记开或接着跑这次运行的发出者 `by`（规则同上，用户不写；放行开的运行记放行者）。`by` 不进给模型的请求；给模型的来源说明由宿主的 Profile 渲染。
+85. 输入记下发出者：`send`、`enqueue` 经 `as(issuer)` 以会话或宿主的身份发出时，`inputQueued` 与之后路径上的 `input`、`steer` 都写 `by`（会话 `{kind: "session", id}`，宿主 `{kind: "host", source}`）；用户发的不写 `by`，读作用户（旧日志同样）。异步提问的回答进缓冲区时，`by` 是应答者，用户应答同样不写。`inputQueued`、`input`、`steer` 另记受理它的 `commandId`；`inputConsumed` 记取走它的运行 `runId`。`rewind{resend}` 入队的话同样写发出者。`runStarted`、`runResumed` 记开或接着跑这次运行的发出者 `by`（规则同上，用户不写；放行开的运行记放行者）。`by` 不进给模型的请求；给模型的来源说明由宿主的 Profile 渲染。
 86. （已删除）
 87. 调用的唯一身份：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
 88. 指令交回运行：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。话最后由哪次运行取走以去向（输出 110）与缓冲区事件为准，不按 `currentRunId` 认。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
@@ -177,7 +177,7 @@ owners:
 缓冲区条目的状态与放行（[提案：输入缓冲区](../../proposals/agent-input-buffer-states.md)）：
 
 103. 缓冲区的每条话是就绪或留着，状态只由会话级事件决定：`inputQueued`（缺省就绪，带 `state: "held"` 时留着）、`inputHeld`、`inputReleased`、`inputRemoved` 与取走它的 `inputConsumed`。旧日志没有这些状态，条目都是就绪的，打开时不补算。运行只取就绪的：边界取插话（输出 28）、一轮结束取排队（输出 7）、`start` 与接着跑暂停的运行（输出 4、36）、预览的投影（输出 55）都跳过留着的。快照的 `buffer` 每条带 `id`、`mode`、完整的输入（含附件）、`by`、`edits`、`state`，留着的另带 `cause` 与 `heldBy`。
-104. 回到空闲：一次运行收口时（正常结束、只压缩、交出结果、文字收口、出错、停止、进程内中断、打开会话时的恢复，任何 `runEnded`），缓冲区里还就绪的话在 `runEnded` 的同一个写入批里全部转成留着：`inputHeld{ids, cause: {end: 收口方式, code?}}`，没有就绪的不写。决定收口与写下收口在单写者队列的同一项里：在它之前受理的话由这次运行取走，在它之后受理的按空闲处理，不会有话卡在空闲的会话里还是就绪的。运行不再取输入时到达的指令按空闲处理（输出 2、3），其中会开运行的（`send`、用户的 `enqueue`、`resume`、异步回答）推迟到收口：收口的同一个写入批里依次写 `runEnded`、`inputHeld`（剩下的就绪的话，含这期间到达的）、按这些指令的先后写放行（`inputReleased`）、开下一次运行（`runStarted{by}` 与第一轮）；开不起来时（只读、模型解析失败等）不写放行，话都留着，指令不受影响（它们已经受理成功）。
+104. 回到空闲：一次运行收口时（正常结束、只压缩、交出结果、文字收口、出错、停止、进程内中断、打开会话时的恢复，任何 `runEnded`），缓冲区里还就绪的话在 `runEnded` 的同一个写入批里全部转成留着：`inputHeld{ids, cause: {end: 收口方式, code?}}`，没有就绪的不写。决定收口与写下收口在单写者队列的同一项里：在它之前受理的话由这次运行取走，在它之后受理的按空闲处理，不会有话卡在空闲的会话里还是就绪的。运行不再取输入时（术语）到达的 `send`、用户的 `enqueue`、`resume` 与异步回答，开运行推迟到收口：收口的同一个写入批里依次写 `runEnded`、`inputHeld`（剩下的就绪的话，含这期间到达的），再按这些指令的受理先后写放行（`inputReleased`）并开下一次运行（`runStarted` 与第一轮；`by` 是其中的用户，没有用户时是最先受理的那条的发出者；推迟的 `resume` 不接着跑刚收口的这次运行）。下列情形不写放行、不开运行，这期间到达的话另成一条 `inputHeld{ids, cause: {end: 收口方式, code}}`，并写诊断 `deferred-start-skipped`：开不起运行（只读、模型解析失败等，`code` 是它的码）；会话有待做的重新装配（`code: "reassembly-pending"`，重新装配仍在运行之间先做，输出 57）；会话已开始关闭（`code: "session-closing"`，输出 53）。指令本身已经受理成功，不受影响。
 105. 放行跟着新话走：以某个发出者的身份送进一条新输入（`send`、用户的 `enqueue`、异步提问的回答）时，同一个受理批里先放行这个发出者能放行的留着的话（下表），写 `inputReleased{ids, by, mode}`，再写新输入。`rewind{resend}` 与会话、宿主空闲时的 `enqueue` 不放行。
 
     | 发出者 | 能放行的 |
@@ -185,9 +185,9 @@ owners:
     | 用户 | 全部留着的 |
     | 会话、宿主 | 自己排的，且 `heldBy` 不是用户 |
 
-    放行出来的按入队顺序排在新话前面（留着的先跑）。`mode` 是 `send` 的 `release` 选项（输出 107），缺省 `keep`：`keep` 各保持原模式；`followups` 都转成排队，一条一轮。放行时会话空闲就开运行（输出 2），在跑就转成就绪，按取的规则在之后的边界或一轮结束时取。
-106. `resume({mode?})` 只放行、不送新话，范围同输出 105 的表，`mode` 同 `send` 的 `release`。会话空闲时：叶子上有用户能接着跑的运行（同输出 4）而发出者是用户时，先接着跑它（暂停的写 `runResumed`，已收口的开“继续”运行），放行出来的随后按取的规则取；否则用放行出来的开新运行，第一条开第一轮。会话、宿主的 `resume` 不接着跑别人开的运行。没有能放行的、也没有可接着跑的得 `nothing-to-resume`；有留着的、但都是 `heldBy` 为用户而发出者不是用户时得 `held-by-user`。在跑时只放行。开不起运行时照输出 5 失败，话仍留着。
-107. `release({inputIds})` 按条放行，权限同输出 105 的表：有一条不在缓冲区或不是留着的得 `nothing-to-release`（`detail` 带这些 id），有一条 `heldBy` 是用户而发出者不是用户得 `held-by-user`，有一条不是这个发出者排的而发出者不是用户得 `not-allowed`；有一项不合格就都不放行。空闲时放行后开运行同输出 106。`send` 另有两个选项：`release: "keep" | "followups"` 定放行出来的怎么跑（输出 105）；`replaces: [{id, edits}]` 是条件写入：每项是一条留着的话与它被改过的次数，同一个受理批里先把它们移除（`inputRemoved{by, reason: "replaced", replacedBy: 新输入的 id}`），再放行其余能放行的，再写新输入；任一项已不在缓冲区、`edits` 对不上，或不是这个发出者能移除的（同输出 29），整条以 `input-stale` 失败、什么都不写。拼新输入是宿主的事，内核不看被替换的内容。
+    放行出来的排队在新话之前取（留着的先跑）；新话是插话时，它照输出 28 在下一个边界进当前这一轮，可能早于放行出来的排队。`mode` 是 `send` 的 `release` 选项（输出 107），缺省 `keep`：`keep` 各保持原模式；`followups` 都转成排队，一条一轮。放行时会话空闲就开运行（输出 2），在跑就转成就绪，按取的规则在之后的边界或一轮结束时取。
+106. `resume({mode?})` 只放行、不送新话，范围同输出 105 的表，`mode` 同 `send` 的 `release`。会话空闲时：叶子上有发出者能接着跑的运行（输出 4、108）时，先接着跑它（暂停的写 `runResumed`，已收口的开“继续”运行），放行出来的随后按取的规则取；否则用放行出来的开新运行，第一条开第一轮。会话、宿主的 `resume` 不接着跑别人开的运行；叶子上有它不能接着跑的暂停的运行时得 `not-allowed`（输出 36）。没有能放行的、也没有可接着跑的得 `nothing-to-resume`；有留着的、但都是 `heldBy` 为用户而发出者不是用户时得 `held-by-user`。在跑时只放行。开不起运行时照输出 5 失败，话仍留着。
+107. `release({inputIds})` 按条放行，权限同输出 105 的表：有一条不在缓冲区或不是留着的得 `nothing-to-release`（`detail` 带这些 id），有一条 `heldBy` 是用户而发出者不是用户得 `held-by-user`，有一条不是这个发出者排的而发出者不是用户得 `not-allowed`；有一项不合格就都不放行。空闲时放行后开运行同输出 106。`send` 另有两个选项：`release: "keep" | "followups"` 定放行出来的怎么跑（输出 105）；`replaces: [{id, edits}]` 是条件写入：每项是一条留着的话与它被改过的次数，同一个受理批里先把它们移除（`inputRemoved{by, reason: "replaced", replacedBy: 新输入的 id}`），再放行其余能放行的，再写新输入；任一项已不在缓冲区或 `edits` 对不上时，整条以 `input-stale` 失败、什么都不写；不是这个发出者能移除的（同输出 29）得 `not-allowed`。拼新输入是宿主的事，内核不看被替换的内容。
 108. 指令按发出者的权限，不允许时得 `not-allowed`，不写日志：
 
     | 指令 | 用户 | 会话、宿主 |
@@ -196,11 +196,11 @@ owners:
     | `remove`、`send` 的 `replaces` | 任何一条 | 只能移除自己排的 |
     | `release`、`resume` | 全部 | 输出 105 的表 |
     | `abort` | 能 | 会话只能停会话头 `caller` 是它的会话；宿主只能停 `runStarted.by` 是它的运行 |
-    | `start`、接着跑暂停的运行 | 能 | 只能接着跑 `runStarted.by` 是它的运行 |
+    | `start`、接着跑暂停的运行、落在运行中途的 `rewind{resend}` | 能 | 只能接着跑 `runStarted.by` 是它的运行，或会话头 `owner` 归它的会话里的（planned，同输出 4） |
 
-    应答审批与提问的规则不变（输出 41）。
+    表里没有的指令不按发出者区分。应答审批与提问的规则不变（输出 41）。
 109. 已经留着的话，之后再有运行收口或停止时不改它的 `cause` 与 `heldBy`；放行后再留着时按那一次重新记。
-110. `send` 的成功值带这条话的去向 `placement`：`taken`（交给这次开的、接着跑的或正在取输入的运行）、`later`（运行不再取输入，收口后随放行开的下一次运行跑，输出 104）、`held`（留着：不能接着跑叶子上暂停的运行，输出 36）。交给在跑的运行的话，那次运行以交出结果收口（输出 26、27）而还没取走时，仍按输出 104 转成留着；调用方要知道最后的去向，看这条话之后的 `inputConsumed` 或 `inputHeld`。
+110. `send` 的成功值带这条话的去向 `placement`：`taken`（交给这次开的、接着跑的或正在取输入的运行）、`later`（运行不再取输入，收口后随放行开的下一次运行跑，输出 104）、`held`（留着：不能接着跑叶子上暂停的运行，输出 36）。这是受理时的去向：`taken` 的话在那次运行以任何方式收口而还没取走时，`later` 的话在收口批没开起运行时，都转成留着。调用方要知道最后的去向，看这条话的 `inputConsumed`（带取走它的运行 `runId`）或 `inputHeld`。
 
 ## 状态与转换
 
@@ -216,8 +216,9 @@ owners:
 - 指令的受理（校验与写受理批）在单写者队列的一项里做；两条指令的校验看到的状态不会交错。
 - 运行循环在队列之外：它每次写日志都排进队列并等写完；等模型的时候不占队列，所以运行中的入队不必等运行结束。
 - 中止立刻触发信号；受理在队列里占一项，记下此刻缓冲区里的条目与停的人（输出 30 的范围），收口作为队列里的一项写入，清空或留着与 `runEnded` 同一个写入批。
-- 决定收口与写下收口在同一个队列项里：运行循环看缓冲区“没有可取的了”、写 `runEnded` 与 `inputHeld`、会话变成空闲（`waitRun` 可结算、之后受理的指令按空闲判断）在这一项里一起发生（输出 104）。
-- `waitRun` 完成时会话已经空闲：紧接着发下一条不会得到 `already-running`；收口批里按输出 104 开了下一次运行时，`waitRun` 照样在这一次收口时完成，下一次运行另有自己的 `runId`。
+- 决定收口与写下收口在同一个队列项里：运行循环看缓冲区“没有可取的了”、写 `runEnded` 与 `inputHeld`、会话变成空闲（`waitRun` 可结算、之后受理的指令按空闲判断）在这一项里一起发生（输出 104）。这一项先推这次运行的 `idle` 状态帧，收口批开了下一次运行时再推它的 `running`；这次运行之后不再推它的状态帧。
+- `abort` 的权限判定、触发信号与排进受理在同一个同步步骤里（输出 30）。
+- `waitRun` 完成时这次运行已经收口：没有推迟到收口的指令时会话已经空闲，紧接着 `start` 不会得到 `already-running`；收口批按输出 104 开了下一次运行时，会话已在那次运行里，它另有自己的 `runId`。
 - `invoke` 从父调用开始执行起可用，到父调用的执行交回为止；嵌套调用的结果都写在父调用的 `toolResult` 之前（输出 100）。
 
 ## 副作用与数据
@@ -241,7 +242,7 @@ owners:
 | `nothing-to-resume` | 没有能放行的留着的话，也没有可接着跑的运行 | 发一条新的话 |
 | `held-by-user` | 要放行的是用户停止时留下的，只有用户能放行 | 等用户继续；或告诉用户有话被暂停 |
 | `nothing-to-release` | 指定的条目不在缓冲区或不是留着的；`detail` 带这些 id | 重新读快照 |
-| `input-stale` | `replaces` 里的条目已不在、被改过或不能移除 | 重新读快照、重新拼再发 |
+| `input-stale` | `replaces` 里的条目已不在或被改过 | 重新读快照、重新拼再发 |
 
 运行以 `error` 结束时 `runEnded.error.code` 的内核码见 `runErrorCodes`（`profile-failed`、`tools-missing`、`result-missing`、`no-model`、`empty-reply`、`internal` 等）；内核造的工具结果的码见 `toolResultCodes`。
 
@@ -263,6 +264,9 @@ owners:
 9. 收口窗口：在回复批的反应期间与 `runEnded` 批的反应期间各发一条话，两条都由这次运行取走或在收口批里留着并按发出者放行，没有一条以就绪的状态留在空闲的会话里；只压缩的运行期间用户发的话，压完自动开下一次运行跑它。
 10. 交出结果：子会话调用收尾工具的那一轮里，会话身份插的话 `send` 交回 `taken`，运行以 `finished` 收口后这条话留着（`cause.end` 是 `finished`），不自动开运行；会话身份再 `send` 一条时放行它、开新运行。
 11. 重启：缓冲区里有就绪的话时 `kill -9`，重开后恢复批把它们转成留着；用户 `resume` 先接着跑中断的那次运行，再跑留着的；宿主身份的 `start` 对用户开的运行得 `not-allowed`。
+12. 权限与条件写入：宿主与会话 `edit`、`remove` 别人排的话、宿主 `abort` 用户开的运行，都得 `not-allowed`，日志不变、运行不停；`send{replaces}` 在条目被取走、被改过时得 `input-stale`、什么都不写，替换别人的话得 `not-allowed`；成功时受理批依次是 `inputRemoved{replaced}`、`inputReleased`、新输入。
+13. 停止的范围：宿主停自己开的运行（缺省清空）只删自己排的，用户排的转成留着、`heldBy` 是宿主；用户随后 `abort{keepQueue}` 同一次运行不改变它；之后再收口时已留着的 `cause` 不变；`closeSession` 两种关闭下就绪的话都转成留着。
+14. 推迟的指令：只压缩的运行期间，插件撤回触发重新装配，同时用户 `send` 一条：收口批不开运行，这条话留着、`cause.code` 是 `reassembly-pending`，重新装配做完之后才受理别的指令；只压缩期间 `send` 后立刻 `closeSession{interrupted}`，重开后话留着，没有多出来的运行。
 
 Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:llm`）：一轮对话、重开、再一轮；带工具调用；流式中途中止；回退后重发。
 

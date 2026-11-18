@@ -1,0 +1,267 @@
+# w00043 t14 缓冲区条目带状态 planned Spec 设计审查（内核与 agent 服务端），审查对象 5cb584b1f
+
+### 1. 收口批里开下一次运行，与 waitRun“会话回到空闲之后完成”、状态帧、实现定义 1 自相矛盾
+- 严重程度：重要
+- 类别：正确性与不变量 / 接口与合同
+- 位置：harness/runtime.md 输出 13（未改）、输出 104、“状态与转换”第 4、5 条；t14 README 实现定义 1
+- 现象：输出 104 规定“运行不再取输入时”受理的 send、用户 enqueue、resume、异步回答，在收口的同一个写入批里依次写 runEnded、inputHeld、inputReleased、下一次运行的 runStarted 与第一轮。可输出 13 仍写“waitRun(runId) 在运行结束、会话回到空闲之后完成”，状态与转换第 5 条前半句仍写“waitRun 完成时会话已经空闲：紧接着发下一条不会得到 already-running”，后半句又说“收口批里开了下一次运行时 waitRun 照样在这一次收口时完成”。这种情况下 waitRun 完成时会话正在跑下一次运行，紧接着的 start、rewind、changeProfile、fork 都会得 already-running 或 running。
+- 为什么是问题：同一节两句话互相否定，照字面实现必然违反其中一条。现有调用方依赖“完成即空闲”（control.ts:120-131 的注释写明结算放在 #active 清空之后，就是为了这个保证）。另外实现定义 1 让 control.idle 在收口队列项里翻转，但现在的运行尾部（control.ts:123-131：setStatus idle、onIdle、settle）在 runLoop 的 promise 结束后才跑。下一项指令开了新运行之后，旧运行的 finally 才执行 setStatus({state:"idle"})，会把新运行的 running 状态帧盖成 idle。Spec 没有规定状态帧的先后。
+- 如何核实：读 runtime.md 输出 13 与状态与转换第 5 条；读 packages/nb-harness/src/kernel/run/control.ts:115-131。
+- 建议改法：
+  - 输出 13 与状态与转换改成一句：waitRun 在这次运行收口时完成，完成时会话可能已在下一次运行里（只在输出 104 的情形）。“不会得到 already-running”的保证限定为“没有推迟的指令时”。
+  - 状态与转换补一条：收口那一项先推 idle 状态帧，再推下一次运行的 running；之后不得再推这次运行的 idle。
+  - 实现定义 1 补上：运行尾部（状态帧、onIdle、结算）随 idle 一起搬进收口队列项。
+
+### 2. 收口批直接开下一次运行，越过“运行结束后重新装配、装配完才受理指令”的门
+- 严重程度：重要
+- 类别：依赖的机制 / 正确性与不变量
+- 位置：harness/runtime.md 输出 104、57；harness/extensions.md 输出 19；packages/nb-harness/src/kernel/session/session.ts:629-632、214-217
+- 现象：输出 57 说运行中撤回扩展或 profilesChanged 时“运行结束后重新装配”，重新装配做完之前不受理指令。实现上，onIdle 在运行结束后调 scheduleReassembly，之后的指令在 closedGuard 里等装配完成。输出 104 却在收口的同一个写入批里写 runStarted、开下一次运行，中间没有空闲的时机。后果有四个：
+  - 撤回的扩展在下一次运行里还处于“跳过”状态，新扩展没装上；
+  - revoke 交回的 Promise（“运行中的等这次运行结束”）一直不完成；
+  - Profile 的代码更新（code-updated）推迟到这次运行之后；
+  - 本该由重新装配置上的只读（dependency-missing、reassembly-failed、unknown-profile）还没生效，收口批里的 startProblem 判不出来，运行照样开了。
+- 为什么是问题：
+  - 运行之间“先重新装配、再受理”的不变量被打破；
+  - 周期任务或 bot 在每次只压缩、停止期间各发一条，就能让重新装配无限推迟；
+  - 插件撤回后平台在 revoke 结算后才释放插件资源，revoke 迟迟不结算，资源就一直不释放。
+- 如何核实：读 session.ts:605-662（notifyAssemblyChanged、scheduleReassembly），对照输出 104 的收口批。
+- 建议改法（任选其一）：
+  - 收口批里有待重新装配时，不在这一批开运行：推迟的话按输出 104 转成留着，放行动作与开运行留到重新装配做完后的第一项。这要写清楚是谁的、按什么顺序重放，比较复杂。
+  - 更简单：有 pendingReassembly 时，推迟的指令一律按“开不起来”处理（话留着，cause 带码 reassembly-pending），由下一条指令或用户的继续来放行。
+  - 两种做法都在输出 57 与 104 里互相引用。
+
+### 3. 关闭会话时，推迟到收口的指令仍会在正在关闭的会话里开运行
+- 严重程度：重要
+- 类别：遗漏（失败路径、资源释放）
+- 位置：harness/runtime.md 输出 53、104；agent/sessions.md 输出 14
+- 现象：用户在只压缩的运行期间发了一条话，或停止进行中发了一条话，send 已经交回 placement: later。这时 nbook.agent 停止，或进程收尾调用 closeSession(reason:"interrupted")。输出 53 只排除“关闭开始后才受理的指令”（得 session-closed），没说关闭前已受理、推迟到收口的那些怎么办。照输出 104 的字面，收口批（这时是 runEnded{interrupted}）里要写放行并开下一次运行，而会话正在关闭，或进程正在退出。
+- 为什么是问题：
+  - 关闭流程是“中止并等收口 → 等队列清空 → 摘扩展 → 关日志”，收口批里新开的运行会在“等队列清空”之后、摘扩展与关日志之间跑起来；
+  - sessions.md 输出 14 明确要求停止时“不自动续跑”；
+  - 进程收尾时开出的运行，重开后又被恢复成 interrupted，日志里多出一次空运行。
+- 如何核实：对照 runtime.md 输出 53 的关闭顺序与输出 104 的收口批；读 commands.ts:41-70（accept 只在受理时查 host.closed()）。
+- 建议改法：在输出 104 加一句：会话已开始关闭时，收口批不写放行、不开运行，推迟的话随 inputHeld 留着（cause 取这次收口方式）。输出 53 引用这一句，验收补一条“只压缩期间 send，随即 closeSession(interrupted)，重开后话留着、没有多余的运行”。
+
+### 4. abort“信号立刻触发、受理在队列里”：权限、要停的运行、与自然收口的竞态都没定
+- 严重程度：重要
+- 类别：正确性与不变量 / 接口与合同
+- 位置：harness/runtime.md 输出 30、108 的 abort 行、“状态与转换”第 3 条；t14 README 实现定义 2
+- 现象：状态与转换写“中止立刻触发信号；受理在队列里占一项，记下此刻缓冲区里的条目与停的人”。输出 108 又要求 abort 按发出者校验（宿主只能停 runStarted.by 是它的运行，会话只能停 caller 是它的会话），不允许时 not-allowed、不写日志。有三处没定：
+  1. 权限在哪一步查。如果像其余指令那样在队列项里查，信号已经先触发了：一个没有权限的宿主 abort 会先把用户的运行停掉，再交回 not-allowed。
+  2. 要停的是哪一次运行。信号作用在触发那一刻的运行上。受理项排在队列里时，那次运行可能已经在自己的收口项里以 completed 收口（abort 恰好碰上自然结束）；按输出 104，还可能已在同一批里开了下一次运行。受理项这时看到的“当前运行”是新的那次，它的信号没被触发，Spec 却会把“范围”和“停的人”记到新运行上，或者交回 aborted:false。缺省清空的用户这时发现话没被清掉。
+  3. 触发信号与把受理项排进队列是否同步。不同步时，两者之间别的指令可以先排进队列，“受理那一刻”的范围就包含了用户点停止之后才到的话。
+- 为什么是问题：这是 r3 第 8 条要定死的地方。照现在的写法，实现者有两条路：要么先触发、后查权限，越权的停止能生效；要么先排队、后触发，信号就不再“立刻”。验收 8–11 都测不到这两点。
+- 如何核实：读 commands.ts:159-184 与 control.ts:107-115（现在 abort 不经队列，没有权限检查）；对照输出 108。
+- 建议改法：在状态与转换写明：
+  - abort 在触发信号前同步做权限检查，依据当前运行的 runStarted.by 与会话头 caller，不允许就不触发；
+  - 触发信号与排进受理项在同一个同步步骤，受理项绑定触发时的 runId；
+  - 受理项轮到时，那次运行已经以别的原因收口的，交回 {aborted:false}，不清空、不记 heldBy，即使已经开了新运行也不作用于新运行。
+  - 验收补一条“收口与停止同时到达”。
+
+### 5. abort 的缺省清空绕过 remove 的权限：宿主或会话停掉自己的运行，就能删掉用户的话
+- 严重程度：重要
+- 类别：接口与合同 / 安全
+- 位置：harness/runtime.md 输出 30、29、108；提案第五节“安全”
+- 现象：输出 30 规定清空范围是“停止受理那一刻已在缓冲区里的话（就绪与留着的都算）”，不分发出者，每条写 inputRemoved{by: 停的人, reason: "aborted"}。输出 108 允许宿主停 runStarted.by 是它的运行，允许会话停 caller 是它的会话。内核的 abort 缺省就是清空（t07 决定 1 保留了这一点）。所以一个宿主插件开了一次运行，再不带 keepQueue 地 abort，就把缓冲区里用户排的话、别的宿主的话、用户停止时留下的话（heldBy 是用户）全部删掉。父会话停子会话时同理，用户在子会话里排的话也会被删。
+- 为什么是问题：输出 29 与 108 规定“会话、宿主只能取消自己排的”；提案的安全承诺是“发出者不能再改写或取消别人的话”。abort 的清空是一条不受这条限制的删除通道。用户停止留下的话“只有用户能放行”，却能被别人的 abort 直接删掉，比放行更严重。
+- 如何核实：读 runtime.md 输出 30 的范围句与 108 的表；现在的 commands.ts:171 同样对整个缓冲区写 inputRemoved。
+- 建议改法：清空的范围按停的人能取消的来算，与 remove 的权限一致。用户停止时清空全部；会话、宿主停止时只清它自己排的，其余的就绪的话按 keepQueue 留着（heldBy 是停的人）。要更简单的话，也可以规定非用户的 abort 一律按 keepQueue 处理。在输出 30 写明，并在验收里加一条“宿主 abort 不删用户的话”。
+
+### 6. start、resume 改成按“运行没正常结束”判断，会去接着跑只压缩的运行，或在完整回复后面开“继续”
+- 严重程度：重要
+- 类别：正确性 / 别扭之处
+- 位置：harness/runtime.md 输出 4、106；t14 README 实现定义 4、第 9 项
+- 现象：现在的 start 按最后一轮判断（commands.ts:143-147）：最后一轮是 completed 就得 nothing-to-continue，不会在完整回复后面再请求。新输出 4 改成按运行判断：叶子上最后一次没有正常结束的运行（中断、出错、停止或暂停），已收口的就开一次没有新输入的“继续”运行；只有“最后一次运行正常结束”才得 nothing-to-continue。按这个规则有两类情形会出错：
+  - 最后一轮已完成、运行却不是正常结束：result-missing（loop.ts:388，turnEnded completed、runEnded error）；两轮之间被停止（一轮 completed 后、取 followup 前 abort）；tools-missing 等在第一次请求前就出错的运行。start 会在一条完整回复后面开一轮空输入的请求，结果取决于服务商，可能被当成预填拒绝，也可能重复回答。
+  - 叶子上最后一次运行是只压缩的运行（runStarted{kind:"compact"}，以 compaction-failed 出错或被停止）：“接着跑”它是什么意思没定义，是重做压缩，还是开对话的“继续”？
+- 为什么是问题：
+  - 错误气泡的“重试”与“按回车继续”都走 start，压缩失败后点“继续”会发出一次无意义的模型请求，而不是报 nothing-to-continue；
+  - 用户的 resume 也要“先接着跑它”，压缩失败后用户每次点继续，都会先多一次空请求。
+- 如何核实：读 loop.ts:379-389（result-missing）、188-203（只压缩的运行）、commands.ts:143-147；对照 runtime.md 输出 4、106。
+- 建议改法：
+  - “可接着跑的运行”限定为对话运行（kind 为 chat），并且叶子上最后一轮没有以 completed 结束；暂停的运行不受这一条限制。
+  - 只压缩的运行和最后一轮已完成的运行都不算，start 得 nothing-to-continue，resume 只放行。
+  - 验收加 result-missing 后 start 得 nothing-to-continue、压缩失败后 start 不发请求。
+
+### 7. 收口项只看就绪的 followup，窗口内到达的插话会被转成留着，与“之前受理的由这次运行取走”矛盾
+- 严重程度：重要
+- 类别：正确性与不变量
+- 位置：harness/runtime.md 输出 7、28、104、“状态与转换”第 4 条
+- 现象：输出 104 与状态与转换承诺：在收口那一项之前受理的话由这次运行取走。输出 7 的同队列项判断只说“缓冲区里有就绪的 followup 时取最早一条开下一轮；没有时写 runEnded”。输出 28 的“最终回复时还有就绪的 steer，这一轮不结束”现在在队列项之外读（loop.ts:378），Spec 也没要求把它搬进收口项。在 378 行的检查之后、收口项之前受理的插话，到收口项时就绪，但它不是 followup，于是写 runEnded，这条插话随 inputHeld 转成留着。发出者拿到的 placement 是 taken。
+- 为什么是问题：这正是提案要消除的“回复写下后、运行收口前到达的话卡住”的情形，只是换成了插话。父 Agent 的 agent_send 缺省就是插话（subagents 输出 10），bot 的周期任务也可能设成插话，这条路径会经常走到。输出 110 只为“交出结果收口”留了 taken→留着的例外，这里不在例外里，合同自相矛盾。
+- 如何核实：读 loop.ts:378 与 393-395 的两处读缓冲区；对照 runtime.md 输出 7、28 与 104。
+- 建议改法：输出 7 改成“收口那一项里再看一次缓冲区：有就绪的 steer 时这一轮不结束、接着请求（同输出 28）；有就绪的 followup 时开下一轮；都没有才写 runEnded 与 inputHeld”。文字收口（输出 27）的判断也放进这一项。验收 9 补一条“在最终回复批的反应期间到达的插话进同一轮”。
+
+### 8. “运行不再取输入时到达的指令按空闲处理”没有限定范围，照字面 rewind、changeProfile、start 也能在只压缩的运行期间受理
+- 严重程度：重要
+- 类别：接口与合同 / 歧义
+- 位置：harness/runtime.md 术语“运行不再取输入”、输出 104、输出 3
+- 现象：术语一节写“这时到达的指令按空闲处理，开运行推迟到收口的写入批”。输出 104 也写“运行不再取输入时到达的指令按空闲处理（输出 2、3）”。两处都说“指令”，没有限定为放话进缓冲区的那几条。可是 rewind、switchBranch、fork、changeProfile 只在空闲时受理（tree.ts:59、85；session.ts:272、294），compact 与 changeSettings 的 scheduled 也看空闲，start 在空闲时就接着跑。照字面实现，只压缩的运行或停止宽限期里就能回退、换 Profile，或者 start 去接着跑正在收口的那次运行。另一方面，实现定义 1 让 control.idle 只在收口项里翻转，这几条在这期间看到的是“在跑”。Spec 对同一时段给出两种判断。
+- 为什么是问题：回退或换 Profile 夹在一次没收口的运行中间，会破坏输出 35、38 的前提（有运行在跑得 running）。实现者要么照术语去改 idle 的含义，要么各自猜范围。
+- 如何核实：对照术语与输出 104 的写法，以及 kernel-path-inventory.txt 第 0 节列出的“只看 control.idle 的指令”清单。
+- 建议改法：术语与输出 104 都改成“这时到达的 send、enqueue、resume、release、异步回答按空闲处理放话与放行（开运行推迟到收口批）；其余指令照常按有运行在跑判断（start 得 already-running，rewind 等得 running，compact 得 next-boundary 并在这次运行结束时丢掉）”。
+
+### 9. 非用户的 resume、release、异步回答在“叶子上有暂停的运行”时要“开新运行”；非用户能否接着跑自己的运行，runtime 与 subagents 写法相反
+- 严重程度：重要
+- 类别：接口与合同 / 遗漏
+- 位置：harness/runtime.md 输出 36、42、106、107；agent/subagents.md 输出 10（planned 句）；t14 README 实现定义 4
+- 现象：
+  1. 输出 36 只规定了不能接着跑暂停运行的发出者在 send 时怎么办（留着，去向 held，不开运行）。输出 106 却说非用户的 resume“否则用放行出来的开新运行”，输出 107 说 release 在空闲时“开运行同输出 106”。叶子停在运行中途时，路径上的 run 不为空（control.paused），在这里写 runStarted 会在一次没收口的运行里再开一次运行，Spec 没定义这种状态。输出 42 的异步回答“或让应答者能接着跑的暂停的运行接着跑”，应答者不能接着跑时的去向也没写。
+  2. 输出 106 写“叶子上有用户能接着跑的运行而发出者是用户时，先接着跑它……否则用放行出来的开新运行”，实现定义 4 也写“start、用户的 resume 接着跑它”，所以非用户的 resume 从不接着跑。subagents 输出 10（planned）却写“以父会话身份的 resume……上一次运行是父会话开的且没正常结束时先接着跑”。两份合同对同一个调用的要求相反。
+  3. subagents 输出 10 写“都没有得 nothing-to-continue”，内核的 resume 交回的是 nothing-to-resume。工具是否改码、改成哪个，没写。
+- 为什么是问题：agent_send 不带话是父 Agent 恢复中断的子代理的唯一入口。照 runtime 实现，子代理被中断后，父 Agent 再也接不上原来那一轮，只能开新运行；照 subagents 实现，又违反了实现定义 4。第 1 点照字面实现，会在暂停的叶子上开出嵌套的运行。
+- 如何核实：读 runtime.md 输出 36、106、107 与 subagents.md 输出 10 的 planned 句；读 control.ts:79-82（paused 的定义）。
+- 建议改法：
+  - 在输出 106 明确：非用户的 resume 能接着跑 runStarted.by 是它自己的那次运行，同输出 4、108。（或者反过来改 subagents，二选一，交开发者。）
+  - 在输出 36 加一句：叶子上有发出者不能接着跑的暂停运行时，它的 resume、release、异步回答只放行、不开运行，放行出来的话保持就绪，或直接留着、不放行。去向与码要写定，推荐 resume 得 not-allowed，回答留着并带 cause.code。
+  - subagents 输出 10 写明 nothing-to-resume 映射成工具结果里的哪句话。
+
+### 10. placement 为 later 时调用方拿不到将来那次运行的 runId；“taken 之后可能留着”只列了交出结果一种
+- 严重程度：重要
+- 类别：接口与合同 / 遗漏
+- 位置：harness/runtime.md 输出 88、110、104；agent/subagents.md 输出 10；harness/session.md 输出 24
+- 现象：
+  1. later 的 send 在受理时交回，那时下一次运行还没开，runId 不可能给出；输出 88 交回的 currentRunId 是正在收口的那次（只压缩的运行或被停的运行）。输出 110 与 subagents 输出 10 要求“不按 currentRunId 认，看之后的 inputConsumed 或 inputHeld”。可 inputConsumed 是会话级事件，只有 {id}（events.ts:76），不带 runId；要知道哪次运行取走了它，调用方得自己把同一批里路径级的 runStarted、input 拼起来，Spec 没给这个查询，也没给“这条输入的结局”的帧或等待接口。现在 agent_send 前台等子代理要拿 runId 去 waitRun（tools.ts:444），照新合同它不知道等哪次运行；照旧写法 runId ?? currentRunId，则会把只压缩的运行的结果当成子代理的回答交给父 Agent。
+  2. 输出 110 与 README 第 10 项只说 taken 的话在“以交出结果收口时”会转成留着。实际上，运行以出错、停止（停止受理前到达的）、进程内中断收口时，没取走的 taken 话同样转成留着（输出 104 对任何 runEnded 都成立）。subagents 输出 10 只给“子会话已交出结果”写了提示，出错和中断时 agent_send 告诉父 Agent 什么，没写。
+- 为什么是问题：去向 later 是这次新加的状态，可它的消费方 agent_send 没有可靠的办法跟上那次运行。第 2 点的写法会让实现者只处理 finished 一种。
+- 如何核实：读 events.ts:76（inputConsumed 字段）与 subagents/tools.ts:437-445；对照 runtime.md 输出 110。
+- 建议改法：
+  - 给出一个可依赖的关联：inputConsumed 带取走它的 runId（会话级事件带一个 id，不读路径级事件，不破坏归约分工），或者内核提供 waitInput(inputId)，交回 {taken: runId} 或 {held: cause}。
+  - 输出 110 改成“taken 的话在那次运行以任何方式收口而还没取走时，都按输出 104 转成留着”。
+  - subagents 输出 10 按 cause.end 给出几种提示。
+
+### 11. 收口批里几个发出者的推迟指令：runStarted.by 记谁、开不起来时原因丢了
+- 严重程度：重要
+- 类别：接口与合同 / 遗漏
+- 位置：harness/runtime.md 输出 104、85、108 的 start 与 abort 行
+- 现象：
+  1. 输出 104 写“按这些指令的先后写放行、开下一次运行（runStarted{by} 与第一轮）”，可一批里只开得出一次运行，几个发出者（例如宿主先 send、用户后 send）各推迟了一条时，runStarted.by 记谁没写。输出 85 只说“放行开的运行记放行者”。输出 108 的“宿主只能停、只能接着跑 runStarted.by 是它的运行”依赖这个值：记成宿主，用户的话就跑在一个宿主能停、能接着跑的运行里；记成用户，宿主又停不了自己触发的运行。
+  2. 推迟的用户 resume 若要“先接着跑中断的运行”（输出 106），在停止宽限期里按了继续，收口批会先接着跑刚被停的那次，等于停止没生效。Spec 没排除这种情况。
+  3. 开不起来时“不写放行，话都留着，指令不受影响”。这些话随 inputHeld 留着，cause 是 {end: 这次收口方式}，开不起来的码（read-only、no-model 等）没地方记。输出 42 里同类情形写的是 {queued:"idle", code}。界面上显示“已暂停 · 压缩完成”，用户看不到真正的原因；调用方已经拿到成功的 later，也没有别的通道知道失败。
+- 为什么是问题：第 1 点直接决定权限表的结果；第 3 点让失败没有通道（审查维度 3）。
+- 如何核实：读 runtime.md 输出 104、85、108。
+- 建议改法：
+  - 规定收口批开的运行记最先受理的那条推迟指令的发出者，或者有用户的就记用户（推荐后者：用户的话在里面时，按用户开的算）。
+  - 推迟的 resume 不接着跑刚收口的那次运行，只放行、开新运行。
+  - 开不起来时，这批推迟的话的 inputHeld 带 code（cause: {end, code: 开不起来的码}，或另写一条 cause: {queued:"idle", code}），并在 Spec 写明同时出一条诊断。
+
+### 12. rewind{resend} 的发出者与权限没写：日志里写死成用户，非用户能借它接着跑用户的暂停运行
+- 严重程度：重要
+- 类别：接口与合同 / 与已定设计一致
+- 位置：harness/runtime.md 输出 36（rewind{resend} 句）、85、108；harness/session.md 输出 18、24
+- 现象：现在的 rewind 不收发出者，resend 的 inputQueued 写死 {kind:"user"}（tree.ts:73），开新运行时 takeInputDrafts 也不带 by（tree.ts:78）。新 Spec 的输出 85 只给 send、enqueue 规定 by；输出 108 的权限表没有 rewind。输出 36 规定 resend 落在运行中途时“让暂停的运行接着跑（先取这条话）”，没写 runResumed{by}，也没受“非用户只能接着跑自己开的”限制。宿主（插件经 agentKey）或会话的 rewind{to, resend} 因此可以：
+  - 把自己的话以用户的名义写进日志；
+  - 回退到用户开的运行中途并让它接着跑，绕过输出 4、36、108 对 start 与 send 的限制。
+  权限表也没覆盖 switchBranch、fork、changeProfile、changeSettings、compact、setTitle、archive。宿主身份是这次新加的，这些指令对宿主是否开放，Spec 没说。
+- 为什么是问题：提案的目标写着“发出者在日志里不失真”“系统只能接着跑自己开的运行”（开发者 2026-11-18）。rewind{resend} 是一条没有被堵上的旁路。
+- 如何核实：读 packages/nb-harness/src/kernel/run/tree.ts:56-78；对照 runtime.md 输出 36、85、108。
+- 建议改法：
+  - 输出 85 加上 rewind{resend}：inputQueued、input 的 by 用发出者。
+  - 输出 108 加一行：rewind{resend} 落在运行中途时，与 start 的权限相同；不允许时 not-allowed。或者更简单，规定 rewind、switchBranch、changeProfile、fork 只收用户。
+  - 其余指令对宿主、会话开不开放，在表下写一句明确的缺省规则，例如“表里没有的指令不按发出者区分”，让这成为有意的决定。
+
+### 13. “经远程合同来的只有用户”：任何插件的浏览器入口都被盖成用户，权限表的安全前提不成立
+- 严重程度：重要
+- 类别：上游选择 / 安全
+- 位置：agent/sessions.md 输出 2、21、信任边界；runtime/plugin-channel.md 术语“调用方身份”、services.md 输出 11、13；ADR 0027
+- 现象：输出 21 堵住了同进程插件经 agentKey 自填身份的路，但又写“经远程合同来的只有用户”。远程服务 nbook.agent/sessions 的调用方实例种类是 browser，任何插件（ADR 0027：内置与第三方平等）的浏览器入口都能调用它；按 services.md 输出 13，任何入口还能作代理，替别人发远程调用。这些调用一律以用户身份进内核，于是可以：
+  - 放行全部留着的话，包括用户停止留下的；
+  - 删掉、改写任意一条，接着跑用户的运行。
+  而 plugin-channel 的调用方身份（插件、入口）由内核填写，提供方 provideRemote(合同, (调用方) => 门面) 拿得到。
+- 为什么是问题：提案写明“权限表的安全性以如实盖章为前提”。这个前提只对服务端插件成立；浏览器里的 bot 或第三方插件绕到远程合同上，就重新拿到了用户身份。现有信任边界“浏览器是用户本人”是旧决定，当时内核还没有按发出者划分权限，查不到这条决定在新前提下的理由。
+- 如何核实：读 sessions.md 的远程服务表（调用方 browser）与输出 21；读 plugin-channel.md 第 33–34 行（门面工厂收到调用方身份）。
+- 建议改法（交开发者取舍）：远程合同按调用方插件盖章。调用方是 nbook.agent 自己的浏览器入口（会话界面、任务中心）才是用户；其它插件的浏览器入口按宿主 {plugin: 调用方插件} 盖章。代价是浏览器侧插件不能再冒充用户操作会话。若开发者决定保持“浏览器即用户”，就在输出 21 与信任边界里写明：第三方浏览器插件等同用户，权限表不防它。
+
+### 14. replaces 不是这个发出者能移除的：输出 107 说得 input-stale，输出 108 说得 not-allowed
+- 严重程度：建议
+- 类别：接口与合同
+- 位置：harness/runtime.md 输出 107、108 的表头句与 “remove、send 的 replaces” 行；失败码表
+- 现象：输出 107 写 replaces 的任一项“不是这个发出者能移除的（同输出 29），整条以 input-stale 失败”（与提案第四节第 4 小节一致）。输出 108 写“指令按发出者的权限，不允许时得 not-allowed”，表里却把“send 的 replaces”与 remove 放在同一行。两条对同一情形给出不同的码。失败码表里 input-stale 的说明“已不在、被改过或不能移除”，又与 107 一致。
+- 为什么是问题：实现者照哪一条都违反另一条；宿主拿 input-stale 会重读快照、重拼再发，再发还是失败，这是死循环；拿 not-allowed 则知道不该重试。
+- 如何核实：对照 runtime.md 输出 107 与 108。
+- 建议改法：权限问题用 not-allowed，“已不在、edits 对不上”用 input-stale。改 107 与失败码表（提案的原句是第三轮之前的写法，这里按 108 统一更合理）；或者反过来，把 108 表里的 replaces 移出。
+
+### 15. 输出 30 引用了不存在的“输出 111”；Task README 也写“输出 103–111”
+- 严重程度：建议
+- 类别：文档一致性
+- 位置：harness/runtime.md 输出 30（“已经留着的不改（输出 111）”）；t14 README“当前状态”最后一段
+- 现象：runtime.md 的条目只到 110（grep 只有 103–110），“已经留着的不改 cause 与 heldBy”是输出 109。README 写“输出 103–111 等”，ADR 0035 决策 4 写“输出 103–110”。
+- 如何核实：git show 5cb584b1f:docs/specs/harness/runtime.md | grep -n '^11[01]\.'
+- 建议改法：输出 30 改成“输出 109”，README 改成“103–110”。
+
+### 16. 升级前的 runStarted 没有 by，一律读作用户：父 Agent 接不上旧子会话里自己开的中断运行；heldBy 与 by 两套缺省写法
+- 严重程度：建议
+- 类别：兼容与迁移 / 别扭之处
+- 位置：harness/runtime.md 输出 4、85、108；harness/session.md 输出 24
+- 现象：
+  1. 输出 85 写“用户不写 by，读作用户（旧日志同样）”。升级前所有的 runStarted 都没有 by，子会话里由父会话开的运行（tools.ts:361、children.ts:46 都用父会话身份 send）因此全部读作用户开的。升级后，父 Agent 不带话的 agent_send 想接着跑旧子会话里被中断的那次，会按输出 4、108 得 not-allowed，只能等用户。kernel-path-inventory 3.8、3.9 记录了这类运行的第一条 input 带 by:{kind:"session"}，本来推得出谁开的。
+  2. session.md 输出 24 规定 by 缺省就是用户，heldBy 是用户时却显式写 {kind:"user"}，因为 heldBy 缺省表示“不是停止留下的”。同一组事件里两种缺省含义，读日志的代码（转录、jobs/steer、界面的“等你处理”）容易把缺 heldBy 当成用户。inputEdited 的 by 也多余：输出 29 只允许原发出者编辑，它恒等于条目的 by。
+- 为什么是问题：第 1 点是一次可见的行为回退，提案的“旧日志不补算”只讨论了缓冲区条目，没讨论 runStarted.by。第 2 点是长期的阅读负担。
+- 如何核实：读 events.ts:105（runStarted 只有 runId、kind）与 subagents/tools.ts:361；对照 session.md 输出 24。
+- 建议改法：
+  - 输出 4 加一句：runStarted 没有 by 时，按这次运行第一条 input 的 by 认（读日志即可得到，不必补写）。或者明确接受这次回退，写进提案第五节的行为变化。
+  - 新事件里的 by 与 heldBy 一律显式写 Issuer；只有旧事件缺 by 时读作用户。
+  - 删掉 inputEdited.by，或者在 Spec 里写明它为什么要留。
+
+### 17. 新话是插话时，“放行出来的排在新话前面、留着的先跑”不成立
+- 严重程度：建议
+- 类别：正确性（合同与取的规则不一致）
+- 位置：harness/runtime.md 输出 105（“放行出来的按入队顺序排在新话前面”）、输出 3（用户空闲 enqueue 等同 send，“模式照传”）、输出 28
+- 现象：取的规则是“每个边界取全部就绪的插话，一轮结束才取一条排队”，与在缓冲区里的先后无关。用户在有留着的排队 A、B 时插一句 S（空闲时 Ctrl+Enter 的插话按输出 3 等于 send、mode 为 steer），过程如下：放行 A、B，第一轮取 A，第一个边界把 S 作为插话带进 A 这一轮，B 等到下一轮。S 在 B 之前跑了。运行中放行时同样如此，release:"followups" 也改变不了，因为它只改放行出来的，不改新话。
+- 为什么是问题：输出 105 承诺“留着的先跑”（开发者 2026-11-18 的决定），对插话不成立。验收 8 只测了 send 的 followup，测不出来。
+- 如何核实：读 loop.ts:78-86（takeSteerDrafts 取全部插话）与 393（一轮结束取一条排队）；对照输出 105。
+- 建议改法（二选一）：
+  - 收窄承诺：在输出 105 写明“放行出来的排队在新的排队前面；新话是插话时，它在下一个边界进当前这一轮，可能早于放行出来的排队”；
+  - 规定放行跟着插话走时，新话按排队处理。
+  - 推荐前者，改动最小，交开发者确认。
+
+### 18. 验收 8–11 没覆盖几条新合同里风险最高的
+- 严重程度：建议
+- 类别：验收映射
+- 位置：harness/runtime.md 验收 8–11 对照输出 3、29、30、36、42、53、104、106–109
+- 现象：下面这些输出都写得出真实内核的测试，验收里却没有：
+  - 输出 107 的 replaces 条件写入（edits 对不上、条目已被取走时得 input-stale，什么都不写；受理批的顺序是 inputRemoved{replaced}、inputReleased、新输入）与 release 的三个失败码；
+  - 输出 108 的权限：会话或宿主 edit、remove 别人的话得 not-allowed，宿主 abort 用户开的运行得 not-allowed 且运行不停（见第 4 条）；
+  - 输出 30 的两个发出者先后停（后到的不改 heldBy），以及缺省清空写 inputRemoved{by}；
+  - 输出 3 与 36：宿主空闲时 enqueue 得 inputQueued{state:"held"}，宿主在用户的暂停运行上 send 得 held；
+  - 输出 42：空闲时开不起运行的异步回答，resolve 成功、回答留着、cause.code 是开不起来的码；
+  - 输出 109：留着的话在之后的收口里 cause 不变；
+  - 输出 53：closeSession 两种关闭下，就绪的话转成留着。
+  验收 11 的“宿主身份的 start 得 not-allowed”是唯一一条权限验收。
+- 为什么是问题：README 要求“计划审查用真实内核验证第三轮那 11 条”。r3 第 8 条（两个发出者先后停）与第 11 条（宿主能停自己开的运行）在验收里都没有对应。
+- 建议改法：验收加两条组合场景，每条覆盖多个输出，不用逐条加：
+  - “权限与条件写入”：覆盖 107、108、29；
+  - “停止的范围”：覆盖 30、109、53，包括两个发出者先后停、宿主停。
+
+### 19. 开发者定的“或在自己持有的会话里接着跑”没写进 Spec，也没标出对 t06 的依赖
+- 严重程度：建议
+- 类别：与已定设计一致
+- 位置：harness/runtime.md 输出 4、108 的 start 行；t14 README“依赖”；提案第八节第 5 行（开发者 2026-11-18）
+- 现象：开发者的决定是“系统只能接着跑自己开的运行或在自己持有的会话里接着跑”。输出 4 与 108 只写了前半句（runStarted.by 是它的），owner 那半句完全没提。README 写“随 t06 补”，可 Spec 里没有“（planned，待会话头 owner）”之类的标记，也没有链接。t06 实现 owner 时，照 Spec 的字面会认为宿主不能接着跑 owner 会话里用户开的运行，可能把 owner 会话里的放行与接着跑做成另一套。
+- 为什么是问题：在 t06 之前没有 owner 会话，行为上没有缺口；但 Spec 把已定的决定写窄了，又没留下依赖的记号。r3 第 11 条的处理也要求“依赖写明”。
+- 建议改法：在输出 108 的 start 行补“或会话头的 owner 是它（会话头 owner 随 bot 提案加入，见 docs/proposals/neurobot.md）”，并在输出 4 引用这一句；不必等 t06。
+
+### 20. agentKey 盖章只覆盖 session(id, source)：create 交回的视图、nbook.agent 门面的签名、标题会话的 taken 情形没写
+- 严重程度：建议
+- 类别：接口与合同 / 遗漏
+- 位置：agent/sessions.md 输入一节的 agentKey 签名、输出 21、输出 10；agent/builtin-profiles.md 输出 9；t14 README 实现定义 6
+- 现象：
+  1. agentKey 的 create(options) 交回视图，输出 21 只规定了 session(id, source) 的发出者，create 交回的视图是什么身份没写（现在是用户）。插件可以先 create 再拿这个视图以用户身份发话。
+  2. 输出 21 写“只有 nbook.agent 自己的门面能指定用户或会话的身份”，但签名只给了 session(id, source)；自家门面用什么参数指定 Issuer（保留 session(id, issuer?)？），同一个服务键下两种形状怎么写进 contracts 类型，没写。照字面实现可能把 issuer 参数整个删掉，内置工具（plugin.ts:201 改设置）和子代理就没法用了。
+  3. 标题会话：builtin-profiles 输出 9 写“一次生成没开起运行、话留在缓冲区里时由它自己取消”。按输出 110，标题会话已有运行时，新的 send 交回的是 taken，不是留着。现在的 kit 按 runId === null 判失败（kit/sessions/meta.ts:164）。正在跑的那次若以文字收口、取了这条排队，这次生成的结果没人等；kit 若当场 remove，又可能与取走竞争（得 input-consumed）。什么时候算“没开起”，要按 placement 写定。
+- 建议改法：
+  - 输出 21 补“create 交回的视图同样按调用方盖章”，并写出 nbook.agent 门面的签名（例如 session(id, {issuer})，只在自家门面上有）；
+  - builtin-profiles 输出 9 改成“send 的去向不是 taken 并开了新运行时，立即 remove 这条”，或规定标题会话有运行时不发（先看快照）。
+
+## 未发现问题的方面
+- 提案第三轮处理的 11 条逐条都能在 Spec 里找到落点（第 1 条→输出 110、subagents 10；第 2 条→输出 106、36；第 3 条→jobs 11；第 4 条→sessions 21；第 5、6 条→输出 3、52、104；第 7 条→输出 36、105；第 8 条→输出 30；第 9 条→输出 104；第 10 条→输出 103；第 11 条→输出 108、session.md 24），只是第 2、8、11 条的落法带出了上面第 9、4、19 条的问题。
+- 提案第四节第 1–6 小节里“状态只由会话级事件归约、不读路径级事件”“旧日志不补算”“旧内核读到新事件得 log-corrupt”“inputRemoved 旧原因 user 读作 cancelled”都已写进 runtime.md 输出 103 与 session.md 输出 24，与 ADR 0035 决策 4 一致。
+- 实现定义 3（异步回答开不起运行时回答照样结算、留着、带码）与 kernel-path-inventory 6.3 的现状、NeuroBook agent_answer 的依赖一致，仔细检查后没有发现问题。
+- 实现定义 5（任务中心 killJob 按用户停）在 jobs.md 输出 11 与 subagents.md 输出 16 里写法一致。
+- 输出 34 与 session.md 输出 15 的恢复批同批写 inputHeld，与 recover.ts 的“在一个写入批里结算”机制相容。
+
+## 数量
+阻断 0；重要 13（第 1–13 条）；建议 7（第 14–20 条）。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20

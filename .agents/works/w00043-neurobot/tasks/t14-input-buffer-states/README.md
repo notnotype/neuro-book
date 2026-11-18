@@ -47,8 +47,11 @@ updated: 2026-11-18
 10. `send` 交回去向 `taken`、`later`、`held`；`taken` 的话在那次运行以交出结果收口时仍会转成留着，`agent_send` 等运行结束后按这句话后来的状态告诉父 Agent。
 11. 恢复方式是合并、又有中断的运行时，“继续”先 `start` 接着跑，再在这次运行里 `send{replaces}`。
 
-Spec 已按提案、实现定义与上面五处改好（`planned`）：`harness/runtime.md` 输出 103–111 等、`harness/session.md` 输出 24、`agent/sessions.md` 输出 21–22、`agent/conversation.md` 输出 47–48、`agent/subagents.md`、`agent/jobs.md`、`agent/builtin-profiles.md`、`ui/agent-conversation-view.md`；架构决定另写 [ADR 0055](../../../../../docs/adr/0055-input-buffer-entry-states.md)（补充 ADR 0035 决策 1；ADR 接受后正文不改）。
+Spec 已按提案、实现定义与上面五处改好（`planned`）：`harness/runtime.md` 输出 103–110 等、`harness/session.md` 输出 24、`agent/sessions.md` 输出 21–22、`agent/conversation.md` 输出 47–48、`agent/subagents.md`、`agent/jobs.md`、`agent/builtin-profiles.md`、`ui/agent-conversation-view.md`；架构决定另写 [ADR 0055](../../../../../docs/adr/0055-input-buffer-entry-states.md)（补充 ADR 0035 决策 1；ADR 接受后正文不改）。
+
+12. 插件经 `agentKey` 拿到的会话视图缺省以自己插件的宿主身份发话，可以明说代替用户发（`asUser`）；远程合同保持浏览器即用户（Spec 第一轮审查后端第 13 条，开发者 2026-11-18：“你这里权限没必要做这么死，我允许插件代替用户给 session 发送一条用户消息”）。
+13. 新话是插话（补充说明）时照常在下一步插进当前这一轮，“留着的先跑”只指留着的排队先于新的排队（Spec 第一轮审查后端第 17 条，开发者 2026-11-18“同意按推荐”）。
 
 ## 下一步
 
-Spec 的设计审查（内核与对话视图分开）同时写计划；计划审查用真实内核验证第三轮那 11 条与清单里的探针。
+Spec 第一轮设计审查已处理（[处理](evidences/spec-review-r1-disposition.md)）；[计划](plan.md)写好，交计划审查（内核部分用真实内核验证第三轮那 11 条与清单里的探针，界面部分另审），之后交开发者确认再开工。

@@ -82,7 +82,7 @@ owners:
 18. 列表带父会话：`list` 的条目有 `parent?`，是会话头 `caller` 的会话 id（只在调用方是会话时）（[`harness/session.md`](../harness/session.md) 输出 22）；没有调用方的会话没有这一项。
 19. 子代理与任务的远程：查询 `tree({sessionId})` 与事件 `treeChanged`（[`subagents.md`](subagents.md) 输出 21、22）、`ancestors({sessionId})`（同上输出 25）；`activity` 的条目加 `root`（根会话 id）；查询 `jobs({sessionId})`、`jobTail({sessionId, jobId, lines?})`、`jobStatuses({sessionId, jobIds})`、事件 `jobsChanged`、指令 `killJob({sessionId, jobId})`（[`jobs.md`](jobs.md) 输出 9–11）。都以用户的身份；这几项不为取数打开会话（读关系表、会话索引与任务中心），不存在的会话交回空（`tree`、`ancestors`、`jobs` 是空列表，`jobStatuses` 全是 null，`jobTail`、`killJob` 得 `job-unknown`）。`activity` 的 `waiting` 只算停在等用户的事项上（审批、交给用户的提问、模式切换请求，同 [`subagents.md`](subagents.md) 输出 21 的 `waiting`）；子会话停在交给派它的 Agent 的提问上算 `running`。
 20. （planned）在跑的工作：`nbook.agent` 向宿主的 `runningWorkKey` 登记（[`runtime.server-host`](../runtime/server-host.md) 的“在跑的工作”），报出停止服务会中断的：有运行在跑或在等用户的会话，后台会话（`background: true`）也算，每个根会话一项“Agent 会话「<标题>」正在运行”或“…在等你处理”；任务中心里在跑的任务（[`jobs.md`](jobs.md)，含会话已空闲时还在跑的后台命令与子代理运行），每件一项，写命令或子代理名。
-21. （planned）**按调用方盖章。** `agentKey` 按调用方门面提供（[`runtime/services.md`](../runtime/services.md) 输出 12）：插件拿到的会话视图的发出者是宿主 `{kind: "host", source: {plugin: 调用方插件, label, ref?, at?}}`，`plugin` 由门面填，`label`、`ref`、`at` 由调用方给（`session(id, source)`），调用方不能自填别的身份；只有 `nbook.agent` 自己的门面能指定用户或会话的身份（子代理、内置工具）。经远程合同来的只有用户。内核按发出者定权限（[`harness/runtime.md`](../harness/runtime.md) 输出 108），以这条为前提。
+21. （planned）**按调用方盖章。** `agentKey` 按调用方门面提供（[`runtime/services.md`](../runtime/services.md) 输出 12）：插件拿到的会话视图（`session(id, options?)` 与 `create` 交回的）缺省的发出者是宿主 `{kind: "host", source: {plugin: 调用方插件, label, ref?, at?}}`，`plugin` 由门面填，`label`、`ref`、`at` 由调用方给，调用方冒充不了别的插件；插件可以明说代替用户发（`{asUser: true}`），这时发出者是用户。只有 `nbook.agent` 自己的门面能指定会话的身份（子代理）。经远程合同来的都是用户。内核按发出者定权限（[`harness/runtime.md`](../harness/runtime.md) 输出 108），以这条为前提。
 22. （planned）**缓冲区条目。** 快照与远程合同里缓冲区的每条带 `by`、`state`（`ready`、`held`）、留着的 `cause` 与 `heldBy`、`edits` 与完整的输入（含附件），按 [`harness/runtime.md`](../harness/runtime.md) 输出 103；`send` 的成功值带去向 `placement`（同上输出 110），`send` 的 `replaces` 与 `release` 选项、`resume`、`release` 照内核原样暴露，失败码 `not-allowed`、`nothing-to-resume`、`held-by-user`、`nothing-to-release`、`input-stale` 照输出 3 交回。
 
 ## 状态与转换
@@ -124,7 +124,7 @@ owners:
 
 - 公开接口：远程合同 `nbook.agent/sessions` 版本 1、服务键 `agentKey`、会话目录的位置。
 - 远程合同的输入输出与内核的类型一一对应（大小一节的投影除外），内核类型改了合同跟着改版本。
-- 信任边界：浏览器是用户本人；同进程的插件经 `agentKey` 可以用任何身份（planned：只能以自己插件名的宿主身份，输出 21）。
+- 信任边界：浏览器是用户本人；同进程的插件经 `agentKey` 可以用任何身份（planned：缺省是自己插件名的宿主，可以明说代替用户，不能冒充别的插件或会话，输出 21）。
 
 ## 验收与 Smoke
 
