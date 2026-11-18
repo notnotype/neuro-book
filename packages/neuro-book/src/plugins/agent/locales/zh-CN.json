@@ -375,6 +375,13 @@
             "openOutput": "打开输出文件 {{path}}",
             "outputUnavailable": "输出读不到"
         },
+        "eval": {
+            "label": "运行代码",
+            "code": "代码",
+            "output": "输出",
+            "pending": "正在运行…",
+            "images": "附了 {{count}} 张图：已交给模型，这里不显示"
+        },
         "requests": {
             "open": "查看模型请求",
             "openThis": "查看这次请求"

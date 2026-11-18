@@ -10,6 +10,8 @@
  */
 
 import AgentFormRenderer from "nbook/plugins/agent/web/form-renderer.vue";
+import EvalDetail from "nbook/plugins/agent/web/components/EvalDetail.vue";
+import {evalContribution} from "nbook/plugins/agent/web/eval-renderer";
 import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";
 import type {AgentConversationServices, AgentViewRegistry} from "@notnotype/nb-agent-ui";
 import * as nbAgentUiLab from "@notnotype/nb-agent-ui/lab";
@@ -73,7 +75,7 @@ export function labAgentServices(): AgentConversationServices {
     };
 }
 
-/** 内置登记（四份一次拿全）加 NeuroBook 的领域工具。 */
+/** 内置登记（四份一次拿全）加 NeuroBook 的领域工具，与 `nbook.agent` 登记的 eval 卡片（同产品宿主）。 */
 export function labAgentRegistry(): AgentViewRegistry {
-    return createAgentViewRegistry([...builtinContributions, labDomainToolsContribution, labStatusItemsContribution]);
+    return createAgentViewRegistry([...builtinContributions, labDomainToolsContribution, labStatusItemsContribution, evalContribution({detail: EvalDetail})]);
 }

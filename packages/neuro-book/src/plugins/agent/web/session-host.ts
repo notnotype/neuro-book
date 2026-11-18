@@ -1532,9 +1532,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     }
 
     /** 一个等用户的事项换成视图要的样子；`source` 是后代会话的（停靠区标来源），`async` 是异步提问。 */
-    function pendingView(item: {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: unknown}, extra: {readonly source?: {sessionId: string; name: string; icon: string}; readonly async?: true; readonly approvalMode?: string}): PendingInputView {
-        const common = {...(extra.source === undefined ? {} : {source: extra.source}), ...(extra.async === true ? {async: true as const} : {})};
-        const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest};
+    function pendingView(item: {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: unknown; readonly within?: {readonly tool: string}}, extra: {readonly source?: {sessionId: string; name: string; icon: string}; readonly async?: true; readonly approvalMode?: string}): PendingInputView {
+        const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest; within?: {tool?: unknown}};
+        // 代码里调的工具的事项（eval 里的 `tool.write`）：本会话的从适配器取，后代会话的只有审批原文里带着（会话树的项不带事件上的 `within`）。
+        const withinTool = item.within?.tool ?? (typeof request.within?.tool === "string" ? request.within.tool : undefined);
+        const common = {...(extra.source === undefined ? {} : {source: extra.source}), ...(extra.async === true ? {async: true as const} : {}), ...(withinTool === undefined ? {} : {within: {tool: displayToolName(withinTool)}})};
         if (item.kind === "approval") {
             return {...common, kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: approvalReason(request.reason)}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};
         }

@@ -143,13 +143,14 @@ const messagesText = (request: SeenRequest): string => JSON.stringify(request.me
 const SECTIONS = ["role", "work", "writing", "addresses"];
 
 describe("主创", () => {
-    test("输出 1、2、3：节都在，工具是该有的那些；目录里 Profile 可用", async () => {
+    test("输出 1、2、3、18：节都在，工具是该有的那些；目录里 Profile 可用", async () => {
         const w = await world();
         expect(w.service.profiles().find((profile) => profile.key === MAIN_PROFILE)).toMatchObject({status: "ok", source: "nbook.agent"});
         const request = await turn(await createMain(w), "开始");
         for (const section of SECTIONS) expect(request.system).toContain(`<${section}>`);
         expect(request.system).toContain("<shell>");
-        expect([...request.tools].sort()).toEqual(["agent_answer", "agent_send", "agent_spawn", "ask", "edit", "glob", "grep", "jobs", "kill", "read", "shell", "switch_mode", "wait", "write"]);
+        expect(request.system).toContain("<eval>");
+        expect([...request.tools].sort()).toEqual(["agent_answer", "agent_send", "agent_spawn", "ask", "edit", "eval", "glob", "grep", "jobs", "kill", "read", "shell", "switch_mode", "wait", "write"]);
     });
 
     /** 让模型调一次 `edit`，交回这次调用实际执行的工具 id。 */
@@ -177,11 +178,12 @@ describe("主创", () => {
         expect(await readFile(join(w.stateRoot, "agent", "sessions", session.id, "home", "a.md"), "utf8")).toBe("乙\n");
     });
 
-    test("输出 2、3：绑定能去掉 shell（节也没有了）、换一种 edit；必需的去不掉", async () => {
-        const w = await world({settings: {"nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}, "nbook.agent/toolBindings": {[MAIN_PROFILE]: {added: ["nbook.agent.edit"], removed: ["nbook.agent.shell", "nbook.agent.edit-replace", "nbook.agent.read"]}}}});
+    test("输出 2、3、18：绑定能去掉 shell 与 eval（节也没有了）、换一种 edit；必需的去不掉", async () => {
+        const w = await world({settings: {"nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}, "nbook.agent/toolBindings": {[MAIN_PROFILE]: {added: ["nbook.agent.edit"], removed: ["nbook.agent.shell", "nbook.agent.eval", "nbook.agent.edit-replace", "nbook.agent.read"]}}}});
         const session = await createMain(w);
         const request = await turn(session, "开始");
         expect(request.system).not.toContain("<shell>");
+        expect(request.system).not.toContain("<eval>");
         expect([...request.tools].sort()).toEqual(["agent_answer", "agent_send", "agent_spawn", "ask", "edit", "glob", "grep", "jobs", "kill", "read", "switch_mode", "wait", "write"]);
         expect(await editedBy(w, session, {input: "不是合法的 hashline"})).toBe("nbook.agent.edit");
     });
@@ -223,7 +225,7 @@ describe("临时帮手", () => {
         const request = await turn(created.value, "核对第三章");
         expect(request.system).toContain("你是设定核对员");
         expect(request.system).toContain("<work>");
-        expect([...request.tools].sort()).toEqual(["edit", "glob", "grep", "jobs", "kill", "read", "shell", "wait", "write"]);
+        expect([...request.tools].sort()).toEqual(["edit", "eval", "glob", "grep", "jobs", "kill", "read", "shell", "wait", "write"]);
         expect(await w.service.create({profile: ADHOC_PROFILE})).toMatchObject({ok: false, code: "invalid-initial"});
     });
 

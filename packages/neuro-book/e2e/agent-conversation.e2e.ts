@@ -773,3 +773,38 @@ test("压缩：/compact 带要求，出现带详情的分隔线，点开看到�
     await expect(page.getByText("答一")).toBeVisible();
     await expect(page.getByText("已停止")).toHaveCount(0);
 });
+
+/** 摘要行（整轮、思维链）还没展开就点开；展开状态会被记住，重复点会收起。 */
+async function expand(summary: ReturnType<Page["locator"]>): Promise<void> {
+    if ((await summary.getAttribute("aria-expanded")) !== "true") await summary.click();
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+}
+
+test("eval（eval.md；agent-conversation-view“有子调用的调用”）：代码里调的写工具要批准，向导写明是 eval 里的调用；卡片运行中写已调用几次，结束后写读改了几个文件，改动的那一次露在卡片下", async ({page}) => {
+    await openConversation(page);
+    await newSession(page);
+    const code = "await tool.read({path: 'project://正文/第三章.md'});\nawait tool.edit({path: 'project://正文/第三章.md', old_string: '巷口的灯灭了。', new_string: '巷口的灯还亮着。'});\n'改完了'";
+    await script({tool: "eval", args: {title: "改第三章的结尾", code}}, "代码跑完了");
+    await send(page, "用代码改第三章");
+    const wizard = page.locator("[data-agent-wizard]");
+    const title = wizard.locator(".acv-wizard-frame__title");
+    // eval 自己是执行档：先批准它，再批准代码里调的 edit（读是放行的）。
+    await expect(title).toHaveText("调用工具 eval");
+    await wizard.locator("[data-approval-decision='allow']").click();
+    await expect(title).toHaveText("eval 里的调用：修改文件");
+    await expect(wizard.locator("ins").first()).toContainText("还亮着");
+
+    await expand(page.locator("[data-chain-summary]").last());
+    const card = page.locator(".nb-collapsible-card").filter({hasText: "运行代码"});
+    await expect(card).toContainText("改第三章的结尾 · 已调用 2 次 · 编辑 project://正文/第三章.md");
+    await wizard.locator("[data-approval-decision='allow']").click();
+    await expect(page.getByText("代码跑完了")).toBeVisible();
+    expect(await readFile(join(projectDir, "正文/第三章.md"), "utf8")).toContain("巷口的灯还亮着。");
+
+    // 一轮结束后整轮收起：点开整轮与思维链再看卡片。
+    await expand(page.locator("[data-turn-summary]").last());
+    await expand(page.locator("[data-chain-summary]").last());
+    await expect(card).toContainText("调用了 2 次工具 · 读了 1 个文件，改了 1 个");
+    await expect(page.locator("[data-card-child]")).toHaveCount(1);
+    await expect(page.locator("[data-card-child]")).toContainText("project://正文/第三章.md");
+});

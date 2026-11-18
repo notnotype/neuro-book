@@ -375,6 +375,13 @@
             "openOutput": "Open output file {{path}}",
             "outputUnavailable": "Output is not readable"
         },
+        "eval": {
+            "label": "Run code",
+            "code": "Code",
+            "output": "Output",
+            "pending": "Running…",
+            "images": "Images attached for the model: {{count}} (not shown here)"
+        },
         "requests": {
             "open": "View model requests",
             "openThis": "View this request"

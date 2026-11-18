@@ -14,11 +14,11 @@ import {modesExtensions} from "../../permissions/modes";
 const NAME = "临时帮手";
 const DESCRIPTION = "按派它的 Agent 写的角色做一件事：读、查、写都行，做完把结果交回。";
 
-// 同主创：`edit` 与 `shell` 可选，用户能用工具绑定换另一种 `edit` 或去掉 `shell`。`shell` 能转后台，所以带上任务中心的三个工具：
+// 同主创：`edit`、`shell` 与 `eval` 可选，用户能用工具绑定换另一种 `edit` 或去掉 `shell`、`eval`。`shell` 能转后台，所以带上任务中心的三个工具：
 // 否则它起的后台命令自己取不到结果、停不掉，父 Agent 的 `wait`、`kill` 也只管自己启动的（jobs.md 输出 3、4）。
 const TOOLS = {
     required: ["nbook.agent.read", "nbook.agent.write", "nbook.agent.grep", "nbook.agent.glob"],
-    optional: ["nbook.agent.edit-replace", "nbook.agent.shell", "nbook.agent.wait", "nbook.agent.kill", "nbook.agent.jobs"],
+    optional: ["nbook.agent.edit-replace", "nbook.agent.shell", "nbook.agent.eval", "nbook.agent.wait", "nbook.agent.kill", "nbook.agent.jobs"],
 };
 
 export const ADHOC_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-bot", hidden: true, defaultTools: false};
