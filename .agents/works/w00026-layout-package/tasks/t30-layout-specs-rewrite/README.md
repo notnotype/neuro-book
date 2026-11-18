@@ -38,6 +38,11 @@ updated: 2026-11-18
   | 14 | 失败项没编号、证据有叙述 | 改 |
   | 15 | `PanelRecord` 示例补字段与“内部合同”冲突 | 改：保持内部、标注 |
 
+- 2026-11-18 在后台：
+  - omp（默认模型）按句子核对两份 Spec 的每一处标记，在 detached worktree `.worktree/review-t30-promotion` 里跑，报告逐条追加到主工作区 `.local/agent/works/w00026-layout-package/tasks/t30-layout-specs-rewrite/reports/promotion.txt`，处理后存为 `evidences/promotion.txt`。
+  - Claude Sonnet 起草第 3 片：句子表、符号表、编号表、成熟度建议、新的 nested-grid 与 `NestedGrid.md` 草稿，写在同目录 `reports/draft/`，不动仓库，主会话逐句审过再落进仓库。
+  - 第 1 片（补测试）等 t26 审查修正合入 master 再开 worktree：两边都改 `workbench-containers.e2e.ts`。
+
 ## 下一步
 
-按计划第 2 稿：开 worktree `w00026-t30-specs`，第 1 片补测试。
+t26 审查修正合入后开 worktree `w00026-t30-specs` 做第 1 片；omp 报告与草稿回来后按计划第 2 到 4 片。
