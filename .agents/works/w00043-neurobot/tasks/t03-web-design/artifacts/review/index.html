@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 3 轮：导航的样式（改）</title>
+<title>第 3 轮：导航的样式（照会话面板）</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -35,21 +35,26 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 3 轮：导航的样式（改）</h1>
+<h1>第 3 轮：导航的样式（照会话面板）</h1>
 
-<section data-nbdev-question="nav-restyle" data-nbdev-type="single" data-nbdev-recommend="tree">
-  <h2>导航改成哪种样式？</h2>
-  <p class="rec"><strong>推荐 A：侧栏本身已经是一块面，再给每组套一块浅底就多了一层；分组靠组头的名字与数量就够。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="tree" data-nbdev-label="A 安静的组头加连接线">
-      <h3>A 安静的组头加连接线</h3>
-      <img class="navshot" src="r3/tree.webp" alt="组头写名字与数量，子项用圆角连接线挂在父项下面">
-      <p>组头悬停时出现收起与新建；子项右边是状态：转圈在跑、黄点等你、勾已完成、叉出错。</p>
+<section data-nbdev-question="nav-house" data-nbdev-type="single" data-nbdev-recommend="sections">
+  <h2>bot 与会话两组的标题怎么画？</h2>
+  <p class="rec"><strong>推荐 C：bot、会话是第一层，今天、昨天是会话里的第二层，层次分得开；组能收起，数量在右边。</strong></p>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="house" data-nbdev-label="A 面板的小字">
+      <h3>A 面板的小字</h3>
+      <img class="navshot" src="r3/house.webp" alt="组名与今天、昨天同一种小字">
+      <p>“bot”和“今天”同一层，读不出谁管谁。</p>
     </div>
-    <div class="cand" data-nbdev-option="panels" data-nbdev-label="B 每组一块浅底">
-      <h3>B 每组一块浅底</h3>
-      <img class="navshot" src="r3/panels.webp" alt="每组放进一块浅底的面">
-      <p>组与组分得更开；子项的画法同 A。</p>
+    <div class="cand" data-nbdev-option="pinned" data-nbdev-label="B 置顶">
+      <h3>B 置顶</h3>
+      <img class="navshot" src="r3/pinned.webp" alt="bot 置顶，下面一条线，子项用小标签">
+      <p>bot 的子会话与子 bot 收成行下面的小标签，点开再看。</p>
+    </div>
+    <div class="cand" data-nbdev-option="sections" data-nbdev-label="C 可收起的组">
+      <h3>C 可收起的组</h3>
+      <img class="navshot" src="r3/sections.webp" alt="bot 与会话两组都有可收起的标题行">
+      <p>组的标题行能收起整组；子会话照现在的会话面板。</p>
     </div>
   </div>
 </section>
@@ -60,7 +65,8 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
     <tbody>
       <tr><td>“还有 12 个会话”</td><td>去掉，列表滚到底自动加载更多（第 2 轮）</td></tr>
-      <tr><td>过滤（全部、bot、会话）</td><td>第 2 轮的蓝色分段条太抢眼，收成搜索框右边的过滤按钮</td></tr>
+      <tr><td>过滤（全部、bot、会话）</td><td>第 2 轮的蓝色分段条太抢眼，收进搜索框右边的过滤按钮，和现在会话面板的过滤放在一起</td></tr>
+      <tr><td>会话的行、按日分组、“N 个子代理”、子会话行</td><td>和现在的会话面板一样，子会话直接用现成的子会话行</td></tr>
     </tbody>
   </table>
 </section>
