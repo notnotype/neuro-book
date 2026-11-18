@@ -51,8 +51,9 @@ updated: 2026-11-18
 - 已将 `w00050` 实测沉淀的 10 条提示词工程经验写回 `.local/system_prompt/PROMPT_ENGINEERING_NOTES.md`，并将通用原则入库为仓库标准 [`docs/standards/prompts.md`](../../../../../docs/standards/prompts.md)（同步更新 `docs/standards/README.md` 与 `docs/standards/code/README.md` 入口指针）。
 - 将初版 6 篇自创世界观旧事手记归档至 `.local/system_prompt/lyra/archive/stories-v1/`；经与开发者多轮讨论定案后，完成官方设定升级与整套**纯日记体**记忆重构：
   - 修订 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md)、[`brand/mascot/guide/02-worldview-and-cosmology.md`](../../../../../brand/mascot/guide/02-worldview-and-cosmology.md) 及基础记忆手记 `01`/`03`/`05`/`07`：补入书庭时间体系（与现世 1:1 流速、同步月份、无公元纪年观念、无模拟太阳而以白洞与星海光束明暗潮汐分「静潮时刻」）、补入有限度入世法则与三条行事原则（书无贵贱只看真心 / 护火种不代执笔 / 观因果不乱本源，明确星璃可顺弦化白猫有限度介入现世并融入真实历史，绝非花瓶圣母），并彻底删除“休假 / 度假 / 假日微支线”造词；
-  - 撰写 9 篇单主题原子化日记体记忆（`profile://memory/diary/01`~`09`）：5 篇真实历史趣闻回忆录（15 世纪代芬特尔修道院骂猫拉丁文大冤案、1229 年《阿基米德羊皮书》碰倒酸液罐护书七百年、1930 年牛津蹭雨声拍蛾子拍出霍比特人与中土星团、1905 年东京《我是猫》双猫碰头偷吃羊羹、柳泉茶摊与破庙躲雨被封三十六字道藏尊号），与 4 篇书庭日常与随笔（《哈利·波特》霍格莫德与图书馆一日游、「静潮时刻」纯星璃视角借景抒情与随笔小诗、跨越不同月份的长期灶台与茶点成长记录、停在第八章的小书一日三界行），同步写入种子目录、两套运行时记忆目录并将 `user.lyra` / `user.lyra-dual` 升版至 `version: "19"`。
+  - 撰写 9 篇单主题原子化日记体记忆（`profile://memory/diary/01`~`09`）：5 篇真实历史趣闻回忆录（15 世纪代芬特尔修道院骂猫拉丁文大冤案、1229 年《阿基米德羊皮书》碰倒酸液罐护书七百年、1930 年牛津蹭雨声拍蛾子拍出霍比特人与中土星团、1905 年东京《我是猫》双猫碰头偷吃羊羹、柳泉茶摊与破庙躲雨被封三十六字道藏尊号），与 4 篇书庭日常与随笔（《哈利·波特》霍格莫德与图书馆一日游、「静潮时刻」纯星璃视角借景抒情与随笔小诗、跨越不同月份的长期灶台与茶点成长记录、停在第八章的小书一日三界行）；
+  - 收录星璃漫长岁月感悟的两首自题诗作：七言律诗《书庭自题》收入 [`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md) 与基础手记 `05-starfire-and-starboat.md`；现代诗《致所有被称作“虚构”的事物》单独收录为 [`brand/mascot/writings/to-all-things-called-fiction.md`](../../../../../brand/mascot/writings/to-all-things-called-fiction.md) 及 `profile://memory/diary/10-to-all-things-called-fiction.md`（同步更新 `brand/mascot/README.md`、种子目录与两套运行时目录，Profile 升版至 `version: "20"`）。
 
 ## 下一步
 
-- 在 NeuroBook 中实测 `version: "19"` 面对宽泛提问、历史趣闻、名著串门与书庭日常追问时对 `diary/01`~`09` 的单文件按需检索、自然口语转述（尤其遇到羞耻日记与重读批注时的真实反应）与人设稳定性，按实测反馈继续微调。
+- 在 NeuroBook 中实测 `version: "20"` 面对宽泛提问、历史趣闻、名著串门与书庭日常追问时对 `diary/01`~`10` 的单文件按需检索、自然口语转述（尤其遇到羞耻日记与重读批注时的真实反应）与人设稳定性，按实测反馈继续微调。
