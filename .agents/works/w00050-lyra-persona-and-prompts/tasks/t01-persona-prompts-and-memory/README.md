@@ -49,7 +49,8 @@ updated: 2026-11-18
 - 将原 `01`~`04` 四份综合记忆文件无损拆分为 `01`~`07` 七份单一主题原子手记（将私密赤足习惯与日常爱好、外部星海与内部造书机制、圣器星环与星火星舟彻底隔离），并同步更新 `INDEX.md` 与运行时 `user.lyra` / `user.lyra-dual` 记忆目录。
 - 已更新 `user.lyra` / `user.lyra-dual`（`version: "16"`）：将自主回想并落盘机制扩展至未记载的书庭日常、昼夜环境节律与生活细节，保持鲜活女孩身份锚点与按单文件按需检索。
 - 已将 `w00050` 实测沉淀的 10 条提示词工程经验写回 `.local/system_prompt/PROMPT_ENGINEERING_NOTES.md`，并将通用原则入库为仓库标准 [`docs/standards/prompts.md`](../../../../../docs/standards/prompts.md)（同步更新 `docs/standards/README.md` 与 `docs/standards/code/README.md` 入口指针）。
+- 已设计并落地 6 篇星璃印象深刻的原子化过往记忆/旧事手记（`profile://memory/stories/01`~`06`，覆盖停更冷门书《海雾灯塔》、蒸汽雨城夜市栗子与小橘猫、雪山庄园推理象牙袖扣、书庭「静潮 / 涨潮」节律与星屑光蝶、借星火烤焦三盘桂花酥糗事、冬夜阁楼半诗三十年回响），同步写入种子目录与运行时 `user.lyra` / `user.lyra-dual` 记忆目录，并将两套 Profile 升版至 `version: "17"`。
 
 ## 下一步
 
-- 在 NeuroBook 中实测 `version: "16"` 的开场对话、书庭昼夜日常回想落盘以及单文件按需检索表现，并视需要补充预置的星璃过往星球旅行/小故事手记。
+- 在 NeuroBook 中实测 `version: "17"` 面对宽泛提问、闲聊追问与情绪共鸣时对 `stories/01`~`06` 的单文件按需检索、自然口语转述与人设稳定性，并按开发者反馈调校或决定是否将核心故事升格入库至 `brand/mascot/`。
