@@ -98,7 +98,7 @@ function selectCell(key: string | null): void {
     if (key !== null) void nextTick(() => page.value?.querySelector("[data-sticker-panel]")?.scrollIntoView?.({block: "nearest"}));
 }
 
-const targetOf = (item: GridItem): Target => ({file: item.file, name: item.name});
+const targetOf = (item: GridItem): Target => ({file: item.file, name: item.raw});
 const reasonOrNull = (result: Failure | null): string | null => (result === null ? null : result.reason);
 
 // ---- 新建与改包名 ----

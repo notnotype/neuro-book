@@ -74,6 +74,8 @@ export type StickerPackProblem =
 /** 一个有效的表情。 */
 export interface StickerEntry {
     readonly name: string;
+    /** 清单里这一项写的名字原样；省略名字时没有（页面据此精确定位清单项）。 */
+    readonly raw?: string;
     readonly file: string;
     /** 给模型看的说明。 */
     readonly description?: string;
@@ -180,6 +182,7 @@ export function packSummary(pack: StickerPackEntry, counts: ExtraCounts = {unrec
 
 const DetailStickerSchema = Type.Object({
     name: Type.String(),
+    raw: Type.Optional(Type.String()),
     file: Type.String(),
     description: Type.Optional(Type.String()),
     common: Type.Boolean(),
@@ -219,11 +222,11 @@ export type StickerPackDetail = Static<typeof PackDetailSchema>;
  */
 export const EDIT_CODES = [
     "not-user-pack", "pack-missing", "pack-exists", "pack-changed", "folder-invalid", "name-invalid", "name-duplicate",
-    "description-invalid", "sticker-missing", "manifest-full", "too-large", "permission-denied", "write-failed", "refresh-failed", "busy",
+    "description-invalid", "sticker-missing", "manifest-full", "too-large", "permission-denied", "write-failed", "refresh-failed", "busy", "request-aborted",
 ] as const;
 export type EditCode = (typeof EDIT_CODES)[number];
 /** 加图、导入、导出另有的码（只经 HTTP 路由交回，不在远程方法里）。 */
-export const ARCHIVE_CODES = ["image-rejected", "import-invalid", "import-conflict", "export-too-large", "export-empty", "pack-invalid"] as const;
+export const ARCHIVE_CODES = ["image-rejected", "import-invalid", "import-conflict", "export-too-large", "export-empty", "export-conflict", "pack-invalid"] as const;
 export type ArchiveCode = (typeof ARCHIVE_CODES)[number];
 
 const EditDetail = Type.Object({detail: Type.String()}, {additionalProperties: false});

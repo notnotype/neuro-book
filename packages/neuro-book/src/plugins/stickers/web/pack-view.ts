@@ -50,8 +50,10 @@ export interface GridItem {
     readonly width: number;
     readonly height: number;
     readonly bytes: number;
-    /** 清单里这一项写的名字原样（表情是现在的名字）；extras 没写为 null。给写入定位用。 */
+    /** 名字输入框里的值：表情是现在的名字（省略名字时是文件名推出来的），extras 是清单里写的原样、没写为 null。 */
     readonly name: string | null;
+    /** 清单里这一项写的名字原样，没写为 null：写入按它精确定位清单项（同一个文件写了两项时靠它区分）。 */
+    readonly raw: string | null;
     readonly common: boolean;
     readonly description?: string;
 }
@@ -76,6 +78,7 @@ export function gridGroups(detail: StickerPackDetail): GridGroup[] {
         height: sticker.height,
         bytes: sticker.bytes,
         name: sticker.name,
+        raw: sticker.raw ?? null,
         common: sticker.common,
         ...(sticker.description === undefined ? {} : {description: sticker.description}),
     }));
@@ -89,6 +92,7 @@ export function gridGroups(detail: StickerPackDetail): GridGroup[] {
         height: extra.height,
         bytes: extra.bytes,
         name: extra.raw,
+        raw: extra.raw,
         common: false,
     }));
     const groups: GridGroup[] = [

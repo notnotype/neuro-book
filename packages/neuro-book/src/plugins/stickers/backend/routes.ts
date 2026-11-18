@@ -50,7 +50,7 @@ function crossSiteWrite(request: Request): boolean {
 const STATUS: Readonly<Record<EditCode | ArchiveCode, number>> = {
     "not-user-pack": 403, "permission-denied": 403, "pack-missing": 404, "pack-exists": 409, "pack-changed": 409, "folder-invalid": 422, "name-invalid": 422,
     "name-duplicate": 409, "description-invalid": 422, "sticker-missing": 404, "manifest-full": 409, "too-large": 413, "write-failed": 500, "refresh-failed": 500,
-    "busy": 429, "image-rejected": 422, "import-invalid": 422, "import-conflict": 409, "export-too-large": 413, "export-empty": 422, "pack-invalid": 422,
+    "busy": 429, "request-aborted": 408, "image-rejected": 422, "import-invalid": 422, "import-conflict": 409, "export-too-large": 413, "export-empty": 422, "export-conflict": 409, "pack-invalid": 422,
 };
 
 function problem(result: Extract<Edited<unknown, EditCode | ArchiveCode>, {ok: false}>): Response {
@@ -93,22 +93,31 @@ export class Gate {
     }
 }
 
-/** 读请求体，边收边数：超过 `max` 就停（分块传输没有 `Content-Length`，所以不能只看头）；`idleMs` 没有新字节就断开。 */
-async function readBody(request: Request, max: number, idleMs: number): Promise<Uint8Array | "too-large" | "idle"> {
+/**
+ * 读请求体，边收边数：超过 `max` 就停（分块传输没有 `Content-Length`，所以不能只看头）；`idleMs` 没有新字节就断开；请求被取消
+ * （客户端断开）立即停读、放掉读取器，不等空闲超时。
+ */
+async function readBody(request: Request, max: number, idleMs: number): Promise<Uint8Array | "too-large" | "idle" | "aborted"> {
     const reader = request.body?.getReader();
     if (reader === undefined) return new Uint8Array();
     const chunks: Uint8Array[] = [];
     let total = 0;
+    const {signal} = request;
     for (;;) {
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const idle = new Promise<"idle">((resolve) => {
+        let onAbort: (() => void) | undefined;
+        const idle = new Promise<"idle" | "aborted">((resolve) => {
             timer = setTimeout(() => resolve("idle"), idleMs);
+            onAbort = () => resolve("aborted");
+            if (signal.aborted) resolve("aborted");
+            else signal.addEventListener("abort", onAbort, {once: true});
         });
         const step = await Promise.race([reader.read(), idle]);
         clearTimeout(timer);
-        if (step === "idle") {
+        if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+        if (step === "idle" || step === "aborted") {
             await reader.cancel().catch(() => undefined);
-            return "idle";
+            return step;
         }
         if (step.done) break;
         total += step.value.byteLength;
@@ -156,6 +165,7 @@ export function createStickerRoutes(options: StickerRoutesOptions): Hono<{Bindin
             const body = await readBody(request, max, idleMs);
             if (body === "too-large") return tooLarge("请求体太大");
             if (body === "idle") return Response.json({error: {code: "timeout", message: "很久没收到数据，断开了"}}, {status: 408, headers: SAFE_HEADERS});
+            if (body === "aborted") return problem({ok: false, code: "request-aborted", detail: "请求已取消"});
             return await work(body);
         } finally {
             release();
@@ -166,7 +176,7 @@ export function createStickerRoutes(options: StickerRoutesOptions): Hono<{Bindin
         const {editor} = options;
         if (editor === undefined) return notFound();
         return upload(c.req.raw, UPLOAD_MAX_BYTES, async (bytes) => {
-            const added = await editor.addImage(c.req.param("id"), c.req.param("file"), bytes);
+            const added = await editor.addImage(c.req.param("id"), c.req.param("file"), bytes, c.req.raw.signal);
             return added.ok ? Response.json(added.value, {headers: SAFE_HEADERS}) : problem(added);
         });
     });
@@ -177,7 +187,7 @@ export function createStickerRoutes(options: StickerRoutesOptions): Hono<{Bindin
         const token = c.req.query("token");
         const choice = mode === "copy" ? {mode: "copy" as const} : mode === "replace" && token !== undefined ? {mode: "replace" as const, token} : undefined;
         return upload(c.req.raw, ARCHIVE_LIMITS.archiveBytes, async (bytes) => {
-            const imported = await editor.importZip(bytes, c.req.query("name") ?? "", choice);
+            const imported = await editor.importZip(bytes, c.req.query("name") ?? "", choice, c.req.raw.signal);
             return imported.ok ? Response.json(imported.value, {headers: SAFE_HEADERS}) : problem(imported);
         });
     });

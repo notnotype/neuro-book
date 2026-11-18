@@ -11,14 +11,15 @@ import type {StickerPackItem} from "./catalog";
 const encoder = new TextEncoder();
 const size = (value: unknown): number => encoder.encode(JSON.stringify(value)).length;
 
-export function packDetail(item: StickerPackItem, token: string | null): StickerPackDetail {
+export function packDetail(item: StickerPackItem): StickerPackDetail {
     const {entry} = item;
     const detail: StickerPackDetail = {
         summary: packSummary(entry, item.counts),
         listed: item.listed,
-        token,
+        token: item.token,
         stickers: entry.stickers.map((sticker) => ({
             name: sticker.name,
+            ...(sticker.raw === undefined ? {} : {raw: sticker.raw}),
             file: sticker.file,
             ...(sticker.description === undefined ? {} : {description: sticker.description}),
             common: sticker.common,

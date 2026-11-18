@@ -29,11 +29,12 @@ const PLUGIN = summary("acme.cute.mochi", {source: "plugin", plugin: {id: "acme.
 const LYRA = summary("user.lyra", {title: "星璃", description: "星璃的表情", count: 4, unrecognized: 1, unlisted: 1});
 const CAT = summary("user.cat", {count: 0, thumbnail: null});
 
-const sticker = (name: string, common: boolean, extra: Record<string, unknown> = {}) => ({name, file: `${name}.png`, common, width: 8, height: 8, bytes: 1024, url: `/img/${name}.png`, ...extra});
+/** 清单里写了名字的表情（`raw` 是写的原样）；`raw: undefined` 是清单里省略名字的。 */
+const sticker = (name: string, common: boolean, extra: Record<string, unknown> = {}) => ({name, raw: name, file: `${name}.png`, common, width: 8, height: 8, bytes: 1024, url: `/img/${name}.png`, ...extra});
 const extra = (file: string, reason: "name" | "unlisted", raw: string | null = null) => ({file, reason, raw, width: 8, height: 8, bytes: 1024, url: `/img/${file}`});
 const lyraDetail = (): StickerPackDetail => ({
     summary: LYRA, listed: true, token: "tok",
-    stickers: [sticker("开心", true, {description: "被夸的时候"}), sticker("害羞", true), sticker("困", false)],
+    stickers: [sticker("开心", true, {description: "被夸的时候"}), sticker("害羞", true, {raw: undefined}), sticker("困", false)],
     extras: [extra("1.png", "name"), extra("新.png", "unlisted")],
 });
 const pluginDetail = (): StickerPackDetail => ({summary: PLUGIN, listed: true, token: null, stickers: [sticker("好耶", true)], extras: []});
@@ -255,7 +256,7 @@ describe("删除", () => {
         await waitUntil("确认框", () => alert() !== null);
         buttonIn(alert()!, "删除").click();
         await waitUntil("删了", () => calls.deleteSticker.length === 1);
-        expect(calls.deleteSticker).toEqual([["user.lyra", {file: "害羞.png", name: "害羞"}]]);
+        expect(calls.deleteSticker).toEqual([["user.lyra", {file: "害羞.png", name: null}]]);
         // 焦点与选中落到下一格（这里替身没有真的删，目录里它还在）。
         await waitUntil("选中下一格", () => tile(root, "困").getAttribute("aria-selected") === "true" || null);
         expect(document.activeElement).toBe(tile(root, "困"));

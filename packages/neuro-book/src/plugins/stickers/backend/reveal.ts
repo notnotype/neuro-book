@@ -9,10 +9,11 @@ import {join} from "node:path";
 
 import type {StickerCatalog} from "./catalog";
 
-export async function revealPath(catalog: Pick<StickerCatalog, "item">, userRoot: string, id: string): Promise<string | null> {
+export async function revealPath(catalog: Pick<StickerCatalog, "item" | "rootVersion">, userRoot: string, id: string): Promise<string | null> {
     const item = catalog.item(id);
     if (item === undefined || item.entry.problem?.code === "symlink") return null;
-    if (item.entry.source !== "user") return item.directory;
+    // 撤回先删根的登记，目录项要等排队的重扫才拿掉：这一段窗口里旧项还在，按根是否还登记着判。
+    if (item.entry.source !== "user") return catalog.rootVersion(item.root) === undefined ? null : item.directory;
     const [root, real] = await Promise.all([realpath(userRoot).catch(() => null), realpath(item.directory).catch(() => null)]);
     return root !== null && real === join(root, item.entry.folder) ? real : null;
 }

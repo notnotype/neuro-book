@@ -1308,11 +1308,11 @@ function shelfFixtures(): LabFixture[] {
                 const lyra = detailOf(sampleById("user.lyra")!);
                 const sticker = (name: string): GridItem => {
                     const found = lyra.stickers.find((one) => one.name === name)!;
-                    return {key: found.file, kind: "sticker", file: found.file, label: found.name, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: found.name, common: found.common, ...(found.description === undefined ? {} : {description: found.description})};
+                    return {key: found.file, kind: "sticker", file: found.file, label: found.name, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: found.name, raw: found.raw ?? null, common: found.common, ...(found.description === undefined ? {} : {description: found.description})};
                 };
                 const extra = (file: string, file2 = file): GridItem => {
                     const found = lyra.extras.find((one) => one.file === file)!;
-                    return {key: file2, kind: "extra", file: file2, label: file2, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: null, common: false};
+                    return {key: file2, kind: "extra", file: file2, label: file2, url: found.url, width: found.width, height: found.height, bytes: found.bytes, name: null, raw: null, common: false};
                 };
                 return [
                     {id: "sticker", label: "表情：名字、说明、写法、常用", input: {props: {item: sticker("开心"), folder: "lyra"}}},

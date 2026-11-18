@@ -14,7 +14,7 @@ import {join} from "node:path";
 
 import {isStickerName} from "@notnotype/nb-markdown";
 
-import type {WorkspaceFiles} from "nbook/plugins/files/shared/workspace-files";
+import type {Baseline, WorkspaceFiles} from "nbook/plugins/files/shared/workspace-files";
 
 import type {ArchiveCode, EditCode} from "../shared/contracts";
 import {FOLDER_NAME, MANIFEST_FILE, MANIFEST_MAX_BYTES, packId, REPLACED_PREFIX, STAGING_PREFIX, STICKERS_PER_PACK_MAX, TEXT_MAX} from "../shared/contracts";
@@ -128,13 +128,15 @@ function derivedName(entry: Record<string, unknown>): string | null {
     return named === null ? null : named.normalize("NFC");
 }
 
-/** 找页面指的那一项：文件名相同，名字（写的原样或推出来的）对得上；不止一项或没有都不改。 */
+/**
+ * 找页面指的那一项：文件名相同，名字与清单里写的原样一致（`null` 是没写名字）；不止一项或没有都不改。按原样而不按推出来的名字比：
+ * 同一个文件在清单里写了两项（一项省略名字、一项写了与文件名主干相同的名字）时，两项的定位值不同，才能各改各的。
+ */
 function findEntry(list: readonly unknown[], target: StickerTarget): number {
     const matches = list.flatMap((entry, index) => {
         if (!isObject(entry) || entry.file !== target.file) return [];
-        if (target.name === null) return typeof entry.name === "string" && isStickerName(entry.name) ? [] : [index];
         const raw = typeof entry.name === "string" ? entry.name : null;
-        return raw === target.name || derivedName(entry) === target.name.normalize("NFC") ? [index] : [];
+        return raw === target.name ? [index] : [];
     });
     if (matches.length !== 1) throw new EditAbort("sticker-missing", matches.length === 0 ? `清单里没有 ${target.file}` : `清单里 ${target.file} 不止一项对得上`);
     return matches[0]!;
@@ -334,6 +336,8 @@ export class StickerEditor {
                 });
                 if (stillUsed) return {ok: true, value: null};
             }
+            // 只删包里的图片文件：清单、子目录与别的文件不是表情，页面也不该删它们；清单里指着已不在的文件时，删了这一项就完成。
+            if (!(await this.#images(folder)).includes(target.file)) return raw !== null && Array.isArray(raw.stickers) ? {ok: true, value: null} : failed("sticker-missing", `${target.file} 不是这个包里的图片`);
             return this.#deleteFiles(folder, [target.file]);
         });
     }
@@ -373,7 +377,7 @@ export class StickerEditor {
         return this.#write([folder], async () => {
             const raw = await this.#readManifest(folder);
             const list = raw !== null && Array.isArray(raw.stickers) ? raw.stickers : null;
-            if (list === null || list.some((entry) => isObject(entry) && entry.file === file)) return failed("sticker-missing", `${file} 不是没加进来的图`);
+            if (list === null || list.some((entry) => isObject(entry) && entry.file === file) || !(await this.#images(folder)).includes(file)) return failed("sticker-missing", `${file} 不是没加进来的图`);
             return this.#deleteFiles(folder, [file]);
         });
     }
@@ -468,6 +472,23 @@ export class StickerEditor {
         await this.#files.delete([{address: packAddress(staging)}]);
     }
 
+    /**
+     * 撤回刚写的图片：先取身份令牌，再核对文件内容仍是刚写的那一份，才带令牌删除；令牌取不到、内容不是刚写的都不删（别人替换了它）。
+     * 核对之后到删除之间文件又被换掉时，删除按令牌被拒绝。交回是否确认撤回了（文件已经不在也算）。
+     */
+    async #removeWritten(folder: string, name: string, written: Baseline): Promise<boolean> {
+        const address = fileAddress(folder, name);
+        const token = await this.#tokenOf(`${folder}/${name}`);
+        const read = await this.#files.read(address);
+        if (!read.ok) return read.code === "not-found";
+        if (token === null) return false;
+        if (read.value.baseline.hash !== written.hash) return false;
+        const deleted = await this.#files.delete([{address, expected: token}]);
+        if (!deleted.ok) return false;
+        const item = deleted.value.items[0];
+        return item !== undefined && (item.status === "done" || (item.status === "failed" && item.code === "not-found"));
+    }
+
     /** 一个文件夹的身份令牌（`identify`）；不在为 null。 */
     async #tokenOf(folder: string): Promise<string | null> {
         const found = await this.#files.identify([packAddress(folder)]);
@@ -480,35 +501,39 @@ export class StickerEditor {
      * 失败就把刚写的图删掉（带写完时取的令牌，不删别人刚放进来的同名文件）。没有表情列表、已经有 500 张图的包再加得 `manifest-full`。
      * 图片不合格得 `image-rejected`，`detail` 是稳定的原因码（`RejectReason`）。
      */
-    async addImage(id: string, file: string, bytes: Uint8Array): Promise<Edited<{readonly file: string; readonly resized: boolean}, EditCode | ArchiveCode>> {
+    async addImage(id: string, file: string, bytes: Uint8Array, signal?: AbortSignal): Promise<Edited<{readonly file: string; readonly resized: boolean}, EditCode | ArchiveCode>> {
         const pack = this.#userPack(id);
         if (!pack.ok) return pack;
         const {folder} = pack.value.entry;
         const prepared = await prepareImage(file, bytes);
         if (!prepared.ok) return failed("image-rejected", prepared.reason);
         return this.#write([folder], async () => {
+            // 排队等锁期间客户端断开了：不写。图片一写进去就做完，不在中途停（清单与图片要一致）。
+            if (signal?.aborted === true) return failed("request-aborted", "请求已取消");
             const raw = await this.#readManifest(folder);
             const listed = raw !== null && Array.isArray(raw.stickers);
             if (!listed && (await this.#images(folder)).length >= STICKERS_PER_PACK_MAX) return failed("manifest-full", `文件夹里已经有 ${String(STICKERS_PER_PACK_MAX)} 张图`);
             const dot = prepared.file.lastIndexOf(".");
             let name: string | null = null;
+            let written: Baseline | null = null;
             for (let attempt = 1; attempt <= NAME_TRIES && name === null; attempt += 1) {
                 const candidate = attempt === 1 ? prepared.file : `${prepared.file.slice(0, dot)}-${String(attempt)}${prepared.file.slice(dot)}`;
                 if (!uploadName(candidate)) break;
-                const written = await this.#files.write(fileAddress(folder, candidate), prepared.bytes, {expect: "absent"});
-                if (written.ok) name = candidate;
-                else if (written.code !== "conflict") return failed(filesFailure(written.code), written.detail);
+                const result = await this.#files.write(fileAddress(folder, candidate), prepared.bytes, {expect: "absent"});
+                if (result.ok) {
+                    name = candidate;
+                    written = result.value.baseline;
+                } else if (result.code !== "conflict") return failed(filesFailure(result.code), result.detail);
             }
-            if (name === null) return failed("pack-exists", `${prepared.file} 的名字都被用了`);
+            if (name === null || written === null) return failed("pack-exists", `${prepared.file} 的名字都被用了`);
             if (listed) {
                 try {
                     await this.#editManifest(folder, (current) => {
                         (current.stickers as unknown[]).push({file: name});
                     });
                 } catch (error) {
-                    const token = await this.#tokenOf(`${folder}/${name}`);
-                    const removed = await this.#files.delete([{address: fileAddress(folder, name), ...(token === null ? {} : {expected: token})}]);
-                    if (error instanceof EditAbort) return failed(removed.ok ? error.code : "write-failed", removed.ok ? error.message : `部分完成，以目录为准：${error.message}`);
+                    const removed = await this.#removeWritten(folder, name, written);
+                    if (error instanceof EditAbort) return failed(removed ? error.code : "write-failed", removed ? error.message : `部分完成，图片 ${name} 已写入但没能撤回，以目录为准：${error.message}`);
                     throw error;
                 }
             }
@@ -517,8 +542,8 @@ export class StickerEditor {
     }
 
     /**
-     * 导出（输出 35）：清单与文件夹顶层文件名合格的图片，只存不压；超过 600 项、求和超过 64 MiB、打出来的 zip 超过 64 MiB、没有图片都不导出，
-     * 这样导出的一定能导回来。插件的包也能导出；无效的表情包不能。
+     * 导出（输出 35）：清单与文件夹顶层文件名合格的图片，只存不压；超过 600 项、求和超过 64 MiB、打出来的 zip 超过 64 MiB、没有图片、
+     * 单个文件超过导入的单项上限、有只差大小写的重名都不导出，这样导出的一定能导回来。插件的包也能导出；无效的表情包不能。
      */
     async exportPack(id: string): Promise<Edited<{readonly name: string; readonly bytes: Uint8Array}, EditCode | ArchiveCode>> {
         const item = this.#options.catalog.item(id);
@@ -532,11 +557,19 @@ export class StickerEditor {
             const images = names.filter((name) => name !== MANIFEST_FILE);
             if (images.length === 0) return failed("export-empty", "没有图片，导出的包导不回来");
             if (names.length > ARCHIVE_LIMITS.entries) return failed("export-too-large", `超过 ${String(ARCHIVE_LIMITS.entries)} 个文件`);
+            // 导入端把只差大小写或 NFC 的两个名字当同一个文件拒绝：区分大小写的文件系统上 `Happy.png` 与 `happy.png` 可以并存，导出时就不放行。
+            const seen = new Set<string>();
+            for (const name of names) {
+                const key = name.normalize("NFC").toLowerCase();
+                if (seen.has(key)) return failed("export-conflict", `${name} 与另一个文件只差大小写，导回时会被当成同一个文件`);
+                seen.add(key);
+            }
             const files: Array<{name: string; bytes: Uint8Array}> = [];
             let total = 0;
             for (const name of names) {
                 const bytes = await readFile(join(item.directory, name)).catch(() => null);
                 if (bytes === null) return failed("pack-changed", `读不了 ${name}`);
+                if (bytes.length > ARCHIVE_LIMITS.fileBytes) return failed("export-too-large", `${name} 超过 32 MiB，导回时会被拒绝`);
                 total += bytes.length;
                 if (total > ARCHIVE_LIMITS.archiveBytes) return failed("export-too-large", "超过 64 MiB");
                 files.push({name, bytes: new Uint8Array(bytes)});
@@ -552,7 +585,9 @@ export class StickerEditor {
      * 正式包名。被用了且没给 `choice` 时交回冲突（不写任何东西）：`copy` 另存成下一个空的 `-N`；`replace` 带已有的包的令牌，把旧包挪开、
      * 换上新的、删旧的（第二步失败就把旧包改回来，改回也失败就留着，启动时写诊断）。
      */
-    async importZip(archive: Uint8Array, zipName: string, choice?: {readonly mode: "copy"} | {readonly mode: "replace"; readonly token: string}): Promise<Edited<{readonly id: string}, EditCode | ArchiveCode>> {
+    async importZip(archive: Uint8Array, zipName: string, choice?: {readonly mode: "copy"} | {readonly mode: "replace"; readonly token: string}, signal?: AbortSignal): Promise<Edited<{readonly id: string}, EditCode | ArchiveCode>> {
+        // 函数调用不让 TS 按前一次判断收窄 `signal.aborted`（取消随时会发生）。
+        const cancelled = (): boolean => signal?.aborted === true;
         return this.#archived(async () => {
             const unpacked = unpackZip(archive);
             if (!unpacked.ok) return failed("import-invalid", unpacked.reason);
@@ -576,17 +611,23 @@ export class StickerEditor {
 
             const candidates = [base, ...Array.from({length: 49}, (_, index) => `${base}-${String(index + 2)}`)];
             return this.#write(candidates, async () => {
+                if (cancelled()) return failed("request-aborted", "请求已取消");
                 const exists = await this.#tokenOf(base);
                 if (exists !== null && choice === undefined) return this.#conflict(base, exists, candidates);
                 if (exists !== null && choice?.mode === "replace" && choice.token !== exists) return failed("pack-changed", "已有的表情包被别处改过，重新选择");
                 if (exists === null && choice?.mode === "replace") return failed("pack-missing", "要替换的表情包已经不在了");
                 const staging = `${STAGING_PREFIX}${randomUUID()}`;
                 for (const [name, bytes] of unpacked.files) {
-                    const written = await this.#files.write(fileAddress(staging, name), bytes, {expect: "absent", createParents: true});
-                    if (!written.ok) {
+                    const written = cancelled() ? null : await this.#files.write(fileAddress(staging, name), bytes, {expect: "absent", createParents: true});
+                    if (written === null || !written.ok) {
                         await this.#discard(staging);
-                        return failed(filesFailure(written.code), written.detail);
+                        return written === null ? failed("request-aborted", "请求已取消") : failed(filesFailure(written.code), written.detail);
                     }
+                }
+                // 改名成正式包名之前最后核对一次；改名开始后就做完。
+                if (cancelled()) {
+                    await this.#discard(staging);
+                    return failed("request-aborted", "请求已取消");
                 }
                 if (choice?.mode === "replace") return this.#replace(staging, base, choice.token);
                 return this.#publish(staging, exists === null ? [base] : candidates.slice(1));

@@ -49,12 +49,19 @@ export interface StickerPackItem {
     readonly listed: boolean;
     readonly extras: readonly StickerExtra[];
     readonly counts: ExtraCounts;
+    /**
+     * 用户的包的文件夹身份令牌（表情包页改包名、删除、替换时带回）；插件的包与取不到时为 null。在读这个包的内容之前取：
+     * 取到之后文件夹又被换掉时，令牌比内容旧，带回去的条件操作会被拒绝，不会把旧内容配上新文件夹的令牌。
+     */
+    readonly token: string | null;
 }
 
 export interface StickerCatalogOptions {
     readonly roots: readonly StickerRoot[];
     readonly clock: RuntimeClock;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    /** 按文件夹名取用户的包的身份令牌，与入参同序；某项取不到时是 null。缺省时都是 null（没有 Files 服务的场合）。 */
+    readonly identify?: (folders: readonly string[]) => Promise<ReadonlyArray<string | null>>;
 }
 
 const byCodeUnit = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
@@ -233,7 +240,7 @@ export class StickerCatalog {
         for (const key of [...this.#reported.keys()]) if (!touched.has(key)) this.#reported.delete(key);
         const changed = next.size !== this.#items.size || [...next].some(([id, item]) => {
             const before = this.#items.get(id);
-            return before === undefined || before.directory !== item.directory || before.listed !== item.listed || JSON.stringify(before.entry) !== JSON.stringify(item.entry) || JSON.stringify(before.extras) !== JSON.stringify(item.extras);
+            return before === undefined || before.directory !== item.directory || before.listed !== item.listed || before.token !== item.token || JSON.stringify(before.entry) !== JSON.stringify(item.entry) || JSON.stringify(before.counts) !== JSON.stringify(item.counts) || JSON.stringify(before.extras) !== JSON.stringify(item.extras);
         });
         this.#items = next;
         return changed;
@@ -254,10 +261,8 @@ export class StickerCatalog {
     }
 
     async #scanRoot(root: StickerRoot): Promise<Array<{readonly item: StickerPackItem; readonly findings: PackFindings}>> {
-        const children = await readdir(root.root, {withFileTypes: true}).catch((error: unknown) => {
-            if (errorCode(error) !== "ENOENT") this.#options.report("scan-failed", `读不了表情包文件夹 ${root.root}`, {source: root.source, message: error instanceof Error ? error.message : String(error)});
-            return [];
-        });
+        // 根读不了（不是“不存在”）时让扫描失败：照空目录发布会让页面以为用户的包全没了；失败时保留上一次发布的目录。
+        const children = await readdir(root.root, {withFileTypes: true}).catch((error: unknown) => (errorCode(error) === "ENOENT" ? [] : Promise.reject(error)));
         const packs = [];
         const previous = this.#images.get(root.key) ?? new Map();
         const images = new Map<string, {readonly stamp: string; readonly result: ImageRead}>();
@@ -271,17 +276,18 @@ export class StickerCatalog {
             return result;
         };
         // 按名字排序：readdir 的顺序随文件系统变，诊断的先后要稳定。文件与以点开头的条目不是表情包；链接照样列出，状态是无效。
-        for (const child of children.sort((left, right) => byCodeUnit(left.name, right.name))) {
-            if (child.name.startsWith(".") || !(child.isDirectory() || child.isSymbolicLink())) continue;
-            packs.push(await this.#readPack(root, join(root.root, child.name), child.name, child.isSymbolicLink(), read));
+        const folders = children.sort((left, right) => byCodeUnit(left.name, right.name)).filter((child) => !child.name.startsWith(".") && (child.isDirectory() || child.isSymbolicLink()));
+        const tokens = root.source === "user" && this.#options.identify !== undefined ? await this.#options.identify(folders.map((child) => child.name)).catch(() => []) : [];
+        for (const [index, child] of folders.entries()) {
+            packs.push(await this.#readPack(root, join(root.root, child.name), child.name, child.isSymbolicLink(), read, tokens[index] ?? null));
         }
         this.#images.set(root.key, images);
         return packs;
     }
 
-    async #readPack(root: StickerRoot, directory: string, folder: string, link: boolean, readImage: (path: string, file: string) => Promise<ImageRead>): Promise<{readonly item: StickerPackItem; readonly findings: PackFindings}> {
+    async #readPack(root: StickerRoot, directory: string, folder: string, link: boolean, readImage: (path: string, file: string) => Promise<ImageRead>, token: string | null): Promise<{readonly item: StickerPackItem; readonly findings: PackFindings}> {
         const base = {id: packId(root.prefix, folder), folder, source: root.source, ...(root.plugin === undefined ? {} : {plugin: root.plugin})};
-        const invalid = (problem: StickerPackProblem) => ({item: {directory, root: root.key, entry: {...base, title: folder, status: "invalid" as const, problem, stickers: []}, listed: false, extras: [], counts: {unrecognized: 0, unlisted: 0}}, findings: {invalid: problem, ignored: [], stickers: []}});
+        const invalid = (problem: StickerPackProblem) => ({item: {directory, root: root.key, entry: {...base, title: folder, status: "invalid" as const, problem, stickers: []}, listed: false, extras: [], counts: {unrecognized: 0, unlisted: 0}, token}, findings: {invalid: problem, ignored: [], stickers: []}});
         if (link) return invalid({code: "symlink"});
         if (!FOLDER_NAME.test(folder)) return invalid({code: "folder-name"});
         const manifestPath = join(directory, MANIFEST_FILE);
@@ -341,6 +347,7 @@ export class StickerCatalog {
                 listed: parsed.stickers !== null,
                 extras: [...named, ...unlisted],
                 counts,
+                token,
             },
             findings: {ignored: parsed.ignored, stickers: problems},
         };

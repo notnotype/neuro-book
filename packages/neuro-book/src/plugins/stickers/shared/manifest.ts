@@ -10,6 +10,8 @@ import {IMAGE_TYPES, STICKERS_PER_PACK_MAX, TEXT_MAX} from "./contracts";
 
 export interface ManifestSticker {
     readonly name: string;
+    /** 清单里这一项写的名字原样；省略名字（名字取文件名）时没有。表情包页按它精确定位清单项。 */
+    readonly raw?: string;
     readonly file: string;
     readonly description?: string;
     readonly common: boolean;
@@ -105,7 +107,7 @@ export function parseManifest(value: unknown): ManifestResult {
         if (common !== undefined && typeof common !== "boolean") return fail("common 不是布尔值");
         const claimed = claimName(written, seen);
         if (!claimed.ok) return {ok: false, label, reason: claimed.reason, named};
-        return {ok: true, sticker: {name: claimed.name, file: image.file, ...(text === undefined ? {} : {description: text as string}), common: common === true}};
+        return {ok: true, sticker: {name: claimed.name, ...(typeof name === "string" ? {raw: name} : {}), file: image.file, ...(text === undefined ? {} : {description: text as string}), common: common === true}};
     });
     return {...header, stickers: {items, truncated: value.stickers.length - listed.length, referenced}};
 }
