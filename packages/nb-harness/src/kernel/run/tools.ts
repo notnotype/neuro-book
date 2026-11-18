@@ -292,19 +292,21 @@ class NestedLock {
 
     acquire(kind: "shared" | "exclusive", signal: AbortSignal): Promise<() => void> {
         return new Promise((resolve, reject) => {
-            const entry = {kind, grant: () => resolve(this.#releaser(kind))};
+            if (signal.aborted) return void reject(new RunStoppedError("waiting to run a nested call"));
+            const entry = {kind, grant: () => {
+                signal.removeEventListener("abort", abort);
+                resolve(this.#releaser(kind));
+            }};
             const abort = (): void => {
                 const index = this.#queue.indexOf(entry);
                 if (index < 0) return;
                 this.#queue.splice(index, 1);
                 reject(new RunStoppedError("waiting to run a nested call"));
+                // 摘掉的可能是挡在队首的 exclusive：排在它后面的 shared 现在就能开始。
+                this.#pump();
             };
-            if (signal.aborted) return void reject(new RunStoppedError("waiting to run a nested call"));
             signal.addEventListener("abort", abort, {once: true});
-            this.#queue.push({kind, grant: () => {
-                signal.removeEventListener("abort", abort);
-                entry.grant();
-            }});
+            this.#queue.push(entry);
             this.#pump();
         });
     }
@@ -595,15 +597,21 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                 }
                 const problems = jsonProblem(final.args);
                 if (problems !== null) return {kind: "settled", value: {text: `Invalid arguments for ${final.tool}: ${problems}`, status: "error", code: "invalid-arguments"}, by: null};
-                let judgment = await judge(final, within);
-                if (judgment.kind === "ask") judgment = await askUser(final, judgment.request, callSignal, nested);
-                // 等审批的时候父调用可能已经结束、工具可能被移出：批准之后再核一遍（输出 92）。
-                if (judgment.kind === "allowed" && scope.finished) return {kind: "settled", value: {text: `The call that ran this code has finished; ${final.tool} was not run.`, status: "error", code: "parent-finished"}, by: null};
-                return judgment;
+                // 放行之后才排队拿锁（审批与等用户不占锁）；排队期间只读或审批模式变了，按现在的设置重新判定，要问就再问（输出 92，同顶层的输出 79）。
+                for (;;) {
+                    const settings = judgingSettings();
+                    let judgment = await judge(final, within);
+                    if (judgment.kind === "ask") judgment = await askUser(final, judgment.request, callSignal, nested);
+                    if (judgment.kind !== "allowed") return judgment;
+                    // 等审批的时候父调用可能已经结束、工具可能被移出：批准之后再核一遍（输出 92）。
+                    if (scope.finished) return {kind: "settled", value: {text: `The call that ran this code has finished; ${final.tool} was not run.`, status: "error", code: "parent-finished"}, by: null};
+                    release = await scope.lock.acquire(concurrency, callSignal);
+                    if (settings === judgingSettings()) return judgment;
+                    release();
+                    release = null;
+                }
             },
             start: async (final, approvedBy) => {
-                release = await scope.lock.acquire(concurrency, callSignal);
-                if (callSignal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
                 await host.write([ctrl("nestedToolStarted", {id, within, tool: final.tool, ...loggedArgs(final.args), approval: {by: approvedBy}})]);
                 isStarted = true;
                 return {signal: callSignal, callId: id, invocation: id, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], leafMoves, within, ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, id, callSignal, nested)})};

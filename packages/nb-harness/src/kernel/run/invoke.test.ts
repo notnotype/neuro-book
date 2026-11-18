@@ -203,6 +203,69 @@ describe("嵌套调用", () => {
         expect(dataOf<{text: string}>(events, "toolResult")[0]!.text).toBe("start a start b end b end a write");
     });
 
+    test("输出 98：排队等 exclusive 的调用被代码取消：它不再挡着排在后面的 shared", async () => {
+        const started = {a: gate(), b: gate()};
+        const finishA = gate();
+        // 让已发起的调用走完判定、排进队列：从发起到排队之间只有微任务。
+        const queued = () => new Promise<void>((resolve) => setImmediate(resolve));
+        program = async (ctx) => {
+            const a = ctx.invoke!("lab.read", {path: "a"});
+            await started.a.promise;
+            const stop = new AbortController();
+            const write = ctx.invoke!("lab.write", {path: "c"}, {signal: stop.signal});
+            await queued();
+            const b = ctx.invoke!("lab.read", {path: "b"});
+            await queued();
+            stop.abort();
+            // a 还占着锁：b 能开始，说明取消的 exclusive 已经出队。
+            await started.b.promise;
+            finishA.open();
+            return JSON.stringify([summary(await a), summary(await write), summary(await b)]);
+        };
+        await using session = await createTestSession({tools: [code, reader({execute: async (args) => {
+            const name = String(args.path) as "a" | "b";
+            started[name].open();
+            if (name === "a") await finishA.promise;
+            return name;
+        }}), writer()]});
+        session.model.script({tools: [{tool: "lab.code"}]}, "完成");
+        const {events} = await session.say("取消");
+        expect(dataOf<{text: string}>(events, "toolResult")[0]!.text).toBe(JSON.stringify([["ok", null], ["denied", "aborted"], ["ok", null]]));
+    });
+
+    test("输出 92：批准之后在排队等锁时会话改成只读，写调用不执行", async () => {
+        const ran: string[] = [];
+        const startedA = gate();
+        const finishA = gate();
+        program = async (ctx) => {
+            const a = ctx.invoke!("lab.read", {path: "a"});
+            await startedA.promise;
+            const write = await ctx.invoke!("lab.write", {path: "c"});
+            await a;
+            return JSON.stringify(summary(write));
+        };
+        await using session = await createTestSession({approve: askForWrites, tools: [code, reader({execute: async () => {
+            startedA.open();
+            await finishA.promise;
+            return "a";
+        }}), writer({execute: () => {
+            ran.push("write");
+            return "c";
+        }})]});
+        session.model.script({tools: [{tool: "lab.code"}]}, "完成");
+        const runId = await sendRaw(session, "写");
+        const [pending] = await waitingFor(session, 1);
+        await session.raw.resolve({commandId: id(), id: pending!.id, decision: "allow"});
+        // 批准了，写调用排在还没读完的 a 后面；这时改成只读，再让 a 读完。
+        await session.raw.changeSettings({commandId: id(), patch: {core: {readOnly: true}}});
+        finishA.open();
+        await session.raw.waitRun(runId);
+        expect(ran).toEqual([]);
+        const events = await session.events();
+        expect(dataOf<{text: string}>(events, "toolResult")[0]!.text).toBe(JSON.stringify(["denied", "read-only"]));
+        expect(dataOf(events, "nestedToolStarted").map((data) => data.tool)).toEqual(["lab.read"]);
+    });
+
     test("输出 99：一个父调用至多 2,000 个嵌套调用", async () => {
         program = async (ctx) => {
             for (let index = 0; index < INVOKE_LIMIT; index += 1) await ctx.invoke!("lab.read", {path: `${String(index)}.md`});
