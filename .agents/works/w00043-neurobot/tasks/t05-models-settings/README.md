@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t05-models-settings
-status: planned
-updated: 2026-11-10
+status: shelved
+updated: 2026-11-18
 ---
 
 # 模型与设置页
