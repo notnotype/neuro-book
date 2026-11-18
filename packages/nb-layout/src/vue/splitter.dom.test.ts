@@ -1079,6 +1079,32 @@ describe("静止接缝（常驻的 1px 分界线）", () => {
         expect(Number.parseFloat(line.style.left)).toBeCloseTo(-0.7);
     });
 
+    it("网格在 Shadow DOM 里：文档滚动、包着宿主的元素滚动照样重新对齐", async () => {
+        const outer = attachContainer();
+        const host = document.createElement("div");
+        outer.append(host);
+        const mountPoint = document.createElement("div");
+        host.attachShadow({mode: "open"}).append(mountPoint);
+        const wrapper = mount(Splitter, {attachTo: mountPoint, props: {panels: FREE_PANELS}});
+        wrappers.push(wrapper);
+        await nextTick();
+        const sash = sashElements(wrapper)[1]!;
+        const line = lineElement(sash);
+        Object.defineProperty(window, "devicePixelRatio", {value: 1.25, configurable: true});
+        stubRect(sash, {left: 600.2, top: 0, right: 601.2, bottom: 300});
+        await settleSnap();
+        expect(Number.parseFloat(line.style.left)).toBeCloseTo(-0.9);
+
+        stubRect(sash, {left: 600, top: 0, right: 601, bottom: 300});
+        document.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+        expect(Number.parseFloat(line.style.left)).toBeCloseTo(-0.7);
+        stubRect(sash, {left: 600.2, top: 0, right: 601.2, bottom: 300});
+        outer.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+        expect(Number.parseFloat(line.style.left)).toBeCloseTo(-0.9);
+    });
+
     it("dpr 1.25 上近端边落在设备像素边界上，厚度仍是 CSS px 的 1", async () => {
         const wrapper = mountSplitter(FREE_PANELS);
         await nextTick();

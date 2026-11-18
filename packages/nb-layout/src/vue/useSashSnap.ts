@@ -71,11 +71,12 @@ export function useSashSnap(root: Readonly<Ref<HTMLElement | null>>): SashSnapHo
      * 一次覆盖所有滚动容器；只排一帧几何，不读布局，也不产生滚动副作用。
      * 只有滚动的是文档、或是包着根的元素时，分隔线才跟着挪：网格里面的滚动（资源管理器的树、编辑器的正文）不挪分隔线，
      * 不然页面里任何一处滚动每一帧都要把所有分隔线量一遍、写一遍。嵌套的网格各判自己的根。根还没挂上时照排。
+     * 网格可能在 Shadow DOM 里：`contains` 不跨 Shadow 边界，从根往上走时到了 Shadow 根就跳到它的宿主。
      */
     function onScroll(event: Event): void {
         const element = root.value;
         const target = event.target;
-        if (element === null || !(target instanceof Node) || target.contains(element)) schedule();
+        if (element === null || !(target instanceof Node) || target instanceof Document || encloses(target, element)) schedule();
     }
 
     onMounted(() => {
@@ -104,6 +105,14 @@ export function useSashSnap(root: Readonly<Ref<HTMLElement | null>>): SashSnapHo
     };
     provide(SASH_SNAP_KEY, host);
     return host;
+}
+
+/** `outer` 是 `inner` 自己或它的祖先：往上走，到了 Shadow 根接着走它的宿主。 */
+function encloses(outer: Node, inner: Node): boolean {
+    for (let node: Node | null = inner; node !== null; node = node instanceof ShadowRoot ? node.host : node.parentNode) {
+        if (node === outer) return true;
+    }
+    return false;
 }
 
 /** `SashHandle` 用：取最近一层父组件提供的对齐宿主。没有就是接线错误，直接报错而不是静默不对齐。 */

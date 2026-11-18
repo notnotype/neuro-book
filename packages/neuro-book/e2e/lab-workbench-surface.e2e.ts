@@ -6,12 +6,13 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Locator, Page} from "@playwright/test";
+import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import type {LabDebugState} from "nbook/plugins/lab/shared/debug-api";
 
 import {startDevSession} from "./fixtures";
+import {pressEntry} from "./support/press-entry";
 import type {DevSession} from "./fixtures";
 
 let tmp = "";
@@ -49,15 +50,6 @@ const visibleTabs = async (page: Page) => ((await fixture(page).getAttribute("da
 /** 活动栏入口：一个容器一个（输出 22、41）；这里的视图都没写容器，入口是隐式容器 `view:<视图 id>`。 */
 const entry = (page: Page, viewId: string) => page.locator(`[data-tool-entry="view:${viewId}"]`);
 
-/**
- * 点活动栏的入口，再把指针移到状态栏中间：指针留在入口上，入口的提示框会盖住侧栏顶上的标签，接着点侧栏的那一下就点在提示框上（高负载时偶发）。
- * 场景的状态栏只有一行字，移过去不触发别的悬停。
- */
-async function pressEntry(page: Page, target: Locator): Promise<void> {
-    await target.click();
-    const bar = await page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf='statusbar']").boundingBox();
-    if (bar !== null) await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
-}
 /** 视图的分节：区域里一个视图一个分节（输出 40），id 是 `section:<视图 id>`。 */
 const section = (viewId: string): string => `section:${viewId}`;
 const frameButton = (page: Page, panel: string, action: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-action="${action}"]`);

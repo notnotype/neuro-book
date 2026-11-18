@@ -320,7 +320,12 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         cardShrink: () => options.cardShrink(),
         cardRefresh: () => options.cardRefresh(),
     });
+    /**
+     * 指针一动就叫醒实时布局的帧循环（按住不动时它停着），`wake` 不在拖动中时什么都不做。构造时就挂上：窗口上同一阶段的监听按挂上的先后跑，
+     * 它要排在会话按下时挂的 `pointermove` 前面，帧循环的帧才排在手势发布的帧前面，帧里先由帧循环做判定（读），再写卡片。
+     */
     const wakeLive = (): void => live.wake();
+    view?.addEventListener("pointermove", wakeLive, {capture: true, passive: true});
 
     /**
      * 标签条里排序（输出 38“标签条上”）：被拖的那个标签就是它留着的位置，邻居按预览滑开；它自己显示出来，沿条跟着指针，夹在条的两端之间，不另画拖影。
@@ -1002,8 +1007,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             if (!keyboard && options.feel() === "live" && options.maximized() === null && options.extent() !== null && layoutMotionMs(root) > 0) {
                 options.settleMotion();
                 live.begin(source, at?.point ?? null);
-                // 指针一动就叫醒帧循环（按住不动时它停着）：排在手势自己的那一帧里，卡片和判定同一帧。
-                view?.addEventListener("pointermove", wakeLive, {capture: true, passive: true});
                 // 送到终点要等渲染才落到 DOM（摘掉过渡标记、写终点矩形）。手势紧接着在同一个同步段里做第一次判定，那次量到的是过渡中间的矩形：渲染之后马上重量。
                 // 不能留给下一次判定去量：帧循环这时已经开始摆预览，再量就是预览里的矩形。
                 void nextTick(() => {
@@ -1044,7 +1047,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             if (active) return;
             setRejected(false);
             // 放下、取消、中止都经过这里，并且先于提交：撤预览和提交在同一个同步段，不闪。
-            view?.removeEventListener("pointermove", wakeLive, {capture: true});
             live.end();
             frozen = null;
             beforeCollapse = null;
@@ -1114,5 +1116,15 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         },
     });
 
-    return {session, live, rejected: readonly(rejected), panelRectIn, fileDrop, dispose: () => session.dispose()};
+    return {
+        session,
+        live,
+        rejected: readonly(rejected),
+        panelRectIn,
+        fileDrop,
+        dispose: () => {
+            view?.removeEventListener("pointermove", wakeLive, {capture: true});
+            session.dispose();
+        },
+    };
 }

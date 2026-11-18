@@ -247,13 +247,13 @@ export const viewKey = (viewId: string): string => tabKey({kind: "view", viewId}
 /** 视图 id；不是视图的标签键是 null。 */
 export const viewIdOf = (key: string): string | null => (key.startsWith(VIEW_KEY_PREFIX) ? key.slice(VIEW_KEY_PREFIX.length) : null);
 
+/** 按文档的对象身份记住结构键：文档不可变（操作返回新对象），拖动每帧都问一次，文档一场里不变。 */
+const structureKeys = new WeakMap<LayoutDoc, string>();
+
 /**
  * 拖动的结构键（输出 32）：树的拓扑、标签集合与各区域的当前容器。尺寸、活动标签变了不算。
  * 当前容器在里面：判定的几何是拿起时量的（ADR 0046 决策 5），命令切走容器之后看得见的分节换了，旧几何指着的已经不是屏幕上的东西。
  */
-/** 按文档的对象身份记住结构键：文档不可变（操作返回新对象），拖动每帧都问一次，文档一场里不变。 */
-const structureKeys = new WeakMap<LayoutDoc, string>();
-
 export function layoutStructureKey(doc: LayoutDoc): string {
     const known = structureKeys.get(doc);
     if (known !== undefined) return known;

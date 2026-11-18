@@ -156,6 +156,18 @@ describe("createLiveDrag", () => {
         expect(t.sorted.at(-1)).toBeNull();
     });
 
+    it("在标签条里排序时帧循环不停：标签重渲染时 Vue 可能换掉它的 style，每帧都放一次才补得回来", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 100, y: 10});
+        t.live.offer(strip("home", 1));
+        for (let index = 0; index < 30; index += 1) t.frame();
+        expect(t.idle()).toBe(false);
+        const placed = t.sorted.length;
+        t.frame();
+        expect(t.sorted.length).toBe(placed + 1);
+        expect(t.sorted.at(-1)).toBe("home");
+    });
+
     it("放回自己标签条的原位：没有预览，也不要卡片", () => {
         const t = setup({candidateDoc: () => null});
         t.live.begin(SOURCE, {x: 100, y: 10});
