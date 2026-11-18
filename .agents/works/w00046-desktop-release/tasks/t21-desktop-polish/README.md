@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t21-desktop-polish
-status: planned
+status: active
 updated: 2026-11-18
 ---
 
@@ -9,14 +9,38 @@ updated: 2026-11-18
 
 ## 目标与范围
 
-开发者 2026-11-18 的五条反馈：清理 pc-notype 验证残留；默认窗口大一点；标题栏搜索收窄；标志与项目切换同其它文字对齐；书架的标题栏改成 JetBrains 欢迎页那样不另画白条
+开发者 2026-11-18 试用 t18 之后的五条反馈：
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+1. 清理 pc-notype 上的验证残留；
+2. 桌面窗口的默认尺寸大一点；
+3. 标题栏中间的搜索命令窄一点；
+4. 标题栏的标志与项目切换同旁边的文字对齐；
+5. 书架界面的标题栏是白底、不好看，要像 JetBrains 欢迎页那样（窗口按钮浮在页面上，不另画一条栏）。
+
+合同改动（都是改数值或一处样式约定，不改机制）：[desktop-shell](../../../../docs/specs/runtime/desktop-shell.md) 输出 10（缺省大小）；[ui/workbench-shell](../../../../docs/specs/ui/workbench-shell.md) 输出 30（搜索最宽）；[runtime/browser-host](../../../../docs/specs/runtime/browser-host.md) 输出 12（书架首页自己占窗口顶端那一条）与场景 16；组件说明 `WorkbenchTitleBar.md`、`BookshelfPage.md`。没有写 plan.md：每条改动一两处，做法都在这里。
+
+## 做法与依据
+
+- **默认窗口**：1280×800 改为 1600×1000（逻辑像素，放不下仍取工作区九成）。数值是我定的，记进待确认清单。
+- **搜索**：最宽 560px 改为 360px，判定让位时留的宽度 `SEARCH_COMFORT` 从 480 改为 320（让搜索不为撑满而让两侧过早收起）。
+- **对齐**：先在 pc-notype 的 Edge 里渲染测量（把本机的构建经反向隧道交给 Edge 无头渲染，只截页面自己；没有截屏）。几何上各部件的中线本来就是同一条（17.5px），差别在文字基线：Windows 上字标底在 25px、菜单文字基线约 23px，字标低约 2px；项目名比菜单淡一档、也像没对齐。改了两处：字标的图形往上提 1px（只提图形，悬停面不动），项目名改成与菜单文字同色（图标与下拉箭头仍淡）。提完后字标底 24px。Latin 项目名的基线比 CJK 文字高约 0.5px，是字体本身的度量，没有处理。
+- **书架**：书架页首个子元素是一条 `data-desktop-titlebar="plain"` 的透明行（高度取 `--nb-window-frame-height`，普通浏览器里为 0），宿主因此不再画后备标题栏、`#app` 从窗口顶端开始；窗口按钮浮在页面底纹上，左边那道分隔线（分隔标题栏右端的布局按钮）隐去，滚动时这一行 sticky 留在顶端。“页面不存在”与宿主页仍用后备标题栏。
+- **清理**：见下。
 
 ## 当前状态
 
-2026-11-18 经 nbdev 新建，尚未开工。
+2026-11-18：2、3、4、5 实现在分支 `fix/w00046-t21-desktop-polish`（worktree `.worktree/w00046-t21-desktop-polish`），验证与合入见“验证”。
+
+pc-notype 清理（第 1 条）：
+- 删了测试标识 t03test、t04test、t10test、proto、frame-probe、tauri-spike 的安装目录，以及 proto、t04test、t10test 的 Uninstall 注册表键与 `NeuroBook Proto` 的两个快捷方式；没有跑卸载程序（它会连同名快捷方式一起删）。
+- 桌面与开始菜单里的 `NeuroBook.lnk` 之前被 t18 的测试安装改成指向 t18test，已改回指向开发者的正式安装（`io.github.notnotype.neurobook`，0.12.1）。
+- 临时目录 `nb-w00046` 只留 `hutch`（构建缓存）、`bun` 与 `t18`（验收脚本和 t18test 的构建）；其余约 9.9 GB 已删。同时删掉了根目录的几个旧辅助脚本（`run-in-desktop.ps1` 等），本机 `/tmp` 里有副本，要用时重传。
+- **没动**：t18test 的测试版 2026-11-18 08:38 起在跑（默认状态根 `%LOCALAPPDATA%\NeuroBook`，可能是开发者点了被我改过的快捷方式），所以它的安装目录、Uninstall 键、托盘图标设置项与 `t18` 目录都留着，等开发者关掉后再删。默认状态根的 `settings.json` 里有 `nbook.desktop/zoom: 1.25`，不确定是不是我测试写的（t04 验收时记录过把缩放改成 125%）；没改。
+
+## 验证
+
+待补。
 
 ## 下一步
 
-待补充。
+跑受影响的测试与 e2e、合入 master；开发者关掉 t18test 后删它的安装。
