@@ -533,19 +533,10 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             const touched: Record<string, TouchedBy> = {};
             const timeline = snapshotFor(mode, rank).timelines.get(id);
             if (timeline === undefined) return touched;
-            // 从这个位置往前扫：每个字段第一次遇到的就是最近的一步。
+            // 从这个位置往前扫：每个字段第一次遇到的就是最近的一步。多数字段只由初值给出，常出场的条目每次都要扫到头，所以每个事件
+            // 碰到哪些字段按事件缓存（`touchesOf`），扫的时候不再解路径。
             for (let index = countBefore(timeline, {rank, tie: {version: -Infinity, id: ""}, inclusive: false}) - 1; index >= 0; index -= 1) {
-                const item = timeline.items[index]!;
-                if (item.ev.kind === "anchor") {
-                    const key = fieldPath(item.ev.check.at.path);
-                    if (key !== null) touched[key] ??= {kind: "check", check: item.ev.check.id};
-                    continue;
-                }
-                if (!item.applied) continue;
-                for (const patch of item.ev.change.patches) {
-                    const key = patch.at.entry === id ? fieldPath(patch.at.path) : null;
-                    if (key !== null) touched[key] ??= {kind: "patch", change: item.ev.change.id};
-                }
+                for (const [key, by] of touchesOf(timeline.items[index]!, id)) touched[key] ??= by;
             }
             return touched;
         },
@@ -741,6 +732,30 @@ function foldAtPoint(snapshot: Snapshot, world: EngineInputs["world"], registry:
 }
 
 const NO_EVENTS: ReadonlyMap<string, string[]> = new Map();
+
+/**
+ * 一个时间线事件定下了它所在条目的哪些字段（键见 `fieldPath`）、算谁的：`lastTouched` 的口径，套上了的变更按补丁、语义档的核对点按
+ * 它的地址。按事件对象缓存：每个事件只属于一个条目的时间线；发布时 `recompute` 为改到的条目换新的时间线，但切出来的前缀沿用旧的
+ * 事件对象，所以缓存跨版本有效，只有发布点之后新加的事件要现算。
+ */
+const itemTouches = new WeakMap<Item, readonly (readonly [string, TouchedBy])[]>();
+
+function touchesOf(item: Item, entryId: string): readonly (readonly [string, TouchedBy])[] {
+    const cached = itemTouches.get(item);
+    if (cached !== undefined) return cached;
+    const touches: Array<readonly [string, TouchedBy]> = [];
+    if (item.ev.kind === "anchor") {
+        const key = fieldPath(item.ev.check.at.path);
+        if (key !== null) touches.push([key, Object.freeze({kind: "check", check: item.ev.check.id})]);
+    } else if (item.applied) {
+        for (const patch of item.ev.change.patches) {
+            const key = patch.at.entry === entryId ? fieldPath(patch.at.path) : null;
+            if (key !== null) touches.push([key, Object.freeze({kind: "patch", change: item.ev.change.id})]);
+        }
+    }
+    itemTouches.set(item, touches);
+    return touches;
+}
 
 /**
  * 从 `from` 起重算：`dirty` 里的条目从 `from` 的状态（取自 `base`，没有 base 时从初值）开始，按全序处理碰到脏条目的
