@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t21-desktop-polish
-status: active
+status: done
 updated: 2026-11-18
 ---
 
@@ -29,7 +29,7 @@ updated: 2026-11-18
 
 ## 当前状态
 
-2026-11-18：2、3、4、5 实现在分支 `fix/w00046-t21-desktop-polish`（worktree `.worktree/w00046-t21-desktop-polish`），验证与合入见“验证”。
+2026-11-18：2、3、4、5 实现并合入 master（260677e28，不 push），worktree 与分支已删。
 
 pc-notype 清理（第 1 条）：
 - 删了测试标识 t03test、t04test、t10test、proto、frame-probe、tauri-spike 的安装目录，以及 proto、t04test、t10test 的 Uninstall 注册表键与 `NeuroBook Proto` 的两个快捷方式；没有跑卸载程序（它会连同名快捷方式一起删）。
@@ -39,8 +39,11 @@ pc-notype 清理（第 1 条）：
 
 ## 验证
 
-待补。
+- 类型检查通过；`test:affected`：vitest 731 条全过，bun 有 9 条失败（SDK 导出面 2、真实子进程宿主 6、内置插件清单 1），同样 9 条在 master 上也失败，与本次改动无关。
+- e2e：desktop-frame、workbench-titlebar、welcome、bookshelf 四个文件全过（含新写的书架用例：没有后备标题栏、顶端 36px 透明行是拖动区域、窗口按钮左边的分隔线隐去、工作台里分隔线仍在）。书架用例第一次失败暴露了一处真问题：窗口拖动规则只写在工作台标题栏组件的样式里，书架页没有加载，桌面里书架顶端拖不动窗口；已把这组规则移到总是加载的 `src/web/styles.css`。
+- Windows 渲染（pc-notype 的 Edge 无头渲染，只截页面自己）：标题栏基线对齐、搜索 360px 见上文；书架的新外观只在 Linux 的 Chrome 里截图看过，没有在真实桌面窗口里看（拖动、点窗口按钮、滚动时那一行的表现需要开发者在测试版里试）。
+- 没有做正式的实现审查：改动是数值与一处样式约定，不改机制。
 
 ## 下一步
 
-跑受影响的测试与 e2e、合入 master；开发者关掉 t18test 后删它的安装。
+开发者关掉 t18test 后删它的安装、Uninstall 键、托盘图标设置项与 `t18` 目录；下一个桌面测试版里试书架顶端与标题栏。
