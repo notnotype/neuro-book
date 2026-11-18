@@ -10,7 +10,7 @@ superseded-by: null
 - 日期：2026-10-31
 - 决策者：开发者
 - 关联工作：[w00032 t20](../../.agents/works/w00032-agent-integration/tasks/t20-hooks/README.md)
-- 补充：2026-11-18 加决策 4（输入缓冲区的条目带状态，取与放行只在内核），开发者接受 [提案：输入缓冲区](../proposals/agent-input-buffer-states.md)
+- 补充：[ADR 0055](0055-input-buffer-entry-states.md)（2026-11-18）在决策 1 的“状态都由日志归约”之下补上输入缓冲区条目的状态；本 ADR 的决定不变
 - 相关文档：[提案：Agent harness 的事件模型](../proposals/agent-harness-event-model.md)、[`harness/session.md`](../specs/harness/session.md)、[`harness/extensions.md`](../specs/harness/extensions.md)
 
 ## 背景
@@ -47,13 +47,7 @@ superseded-by: null
 
 代价：插件要写的概念变多（片、作用域、契约与依赖），靠两级文档与 helper 缓解；扩展是受信任代码（ADR 0022），请求可被任意修改，靠修改记录追查。
 
-### 4. 输入缓冲区的每条话带状态，状态由会话级事件决定，取与放行只在内核（2026-11-18 补充）
-
-缓冲区里的话是就绪或留着。会话回到空闲时剩下的就绪的话转成留着，与收口写在同一个写入批；运行只取就绪的；留着的只有用户或排它的发出者能放行，放行跟着新话走。条目的状态只由 `inputQueued`、`inputHeld`、`inputReleased`、`inputRemoved`、`inputConsumed` 这几种会话级事件归约，内核外的代码与界面都读这份状态，不各自推断。行为见 [`harness/runtime.md`](../specs/harness/runtime.md) 输出 103–110。
-
-理由：周期任务与 bot 要往会话里发话之后，“收口后缓冲区里的话归谁取”在三轮审查里每轮都找出新的漏洞（只压缩、交出结果、文字收口、收口前的一瞬间、停止进行中），按收口方式逐个补救收不了口；把规则放在“回到空闲”一处、状态写进日志，新的收口方式不会漏，重启后照样成立，也符合决策 1 的“状态都由日志归约”。
-
-代价：日志多三种事件、几种事件多字段，内核按发出者校验指令；宿主要如实给发出者，权限才有意义（NeuroBook 按调用方门面盖章）。普通会话的行为跟着变：停止、出错、重启后排着的话不再被下一次运行顺手带走，要用户发话或点继续。
+## 后果
 
 - `nb-harness` 里新写 `src/kernel/`，迁移 Task 把 nb-story 与 nb-agent-ui 改到新内核后删旧实现，`nb-session`、`nb-profile` 停更。
 - 日志格式（事件名、会话头、写入批、大块内容）在 [`harness/session.md`](../specs/harness/session.md) 定，格式版本从 1 起。

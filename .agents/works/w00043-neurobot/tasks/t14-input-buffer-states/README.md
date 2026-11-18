@@ -18,7 +18,7 @@ updated: 2026-11-18
 
 提案第三轮审查的 11 条（[处理](../t01-direction/evidences/buffer-proposal-review-r3-disposition.md)）是必须落下的项。
 
-合同：改 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/session.md`](../../../../../docs/specs/harness/session.md)、[`agent/sessions.md`](../../../../../docs/specs/agent/sessions.md)、[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)、[`agent/subagents.md`](../../../../../docs/specs/agent/subagents.md)、[`agent/jobs.md`](../../../../../docs/specs/agent/jobs.md)、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)；给 [ADR 0035](../../../../../docs/adr/0035-harness-log-driven-kernel.md) 补一条。
+合同：改 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/session.md`](../../../../../docs/specs/harness/session.md)、[`agent/sessions.md`](../../../../../docs/specs/agent/sessions.md)、[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)、[`agent/subagents.md`](../../../../../docs/specs/agent/subagents.md)、[`agent/jobs.md`](../../../../../docs/specs/agent/jobs.md)、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)；另写 [ADR 0055](../../../../../docs/adr/0055-input-buffer-entry-states.md)（补充 ADR 0035）。
 
 依赖：无。宿主 `start` 的“在自己持有的会话里”要用 t06 加的会话头 `owner`，那一处随 t06 补。
 
@@ -47,7 +47,7 @@ updated: 2026-11-18
 10. `send` 交回去向 `taken`、`later`、`held`；`taken` 的话在那次运行以交出结果收口时仍会转成留着，`agent_send` 等运行结束后按这句话后来的状态告诉父 Agent。
 11. 恢复方式是合并、又有中断的运行时，“继续”先 `start` 接着跑，再在这次运行里 `send{replaces}`。
 
-Spec 已按提案、实现定义与上面五处改好（`planned`）：`harness/runtime.md` 输出 103–111 等、`harness/session.md` 输出 24、`agent/sessions.md` 输出 21–22、`agent/conversation.md` 输出 47–48、`agent/subagents.md`、`agent/jobs.md`、`agent/builtin-profiles.md`、`ui/agent-conversation-view.md`；ADR 0035 补决策 4。
+Spec 已按提案、实现定义与上面五处改好（`planned`）：`harness/runtime.md` 输出 103–111 等、`harness/session.md` 输出 24、`agent/sessions.md` 输出 21–22、`agent/conversation.md` 输出 47–48、`agent/subagents.md`、`agent/jobs.md`、`agent/builtin-profiles.md`、`ui/agent-conversation-view.md`；架构决定另写 [ADR 0055](../../../../../docs/adr/0055-input-buffer-entry-states.md)（补充 ADR 0035 决策 1；ADR 接受后正文不改）。
 
 ## 下一步
 
