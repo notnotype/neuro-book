@@ -87,6 +87,13 @@ updated: 2026-11-18
   - perf-01：`useSashSnap` 收网格根，捕获阶段的 scroll 只在滚动的是文档或包着根的元素时重新对齐（`NestedGrid`、`Splitter` 两个调用方传各自的根）；`SashHandle` 按装饰元素（`WeakMap`）记下上次写的几何与线芯变量，值一样不写。“线芯宽度一轮读一次”没做：读在一帧量的那一半里，第一次之后样式是干净的，再读不触发重算，不同种类的分隔线主题也可能给不同的宽度。测试：`splitter.dom.test.ts` 加“面板里的滚动不重新对齐、包着网格的元素滚动重新对齐”；去重在 happy-dom 里证不了（它的 `MutationObserver` 不记 `style.left = …` 这种写法），放进 `lab-nested-grid` 的新用例：叶里的滚动不排帧、不写分隔线，文档的滚动重新对齐一次但一条都不写。变异检查：去掉判根，`frames` 不为 0；去掉去重，写了 8 次，都失败。
   - perf-08 实测不成立，不改（[`evidences/perf08-probe.txt`](evidences/perf08-probe.txt)）：Chrome 的过渡按建起来那一刻的时间线时间计时，主线程忙过之后过渡本身就到了终点；原来的计时器从 `update` 起算，不会比它先到。改成等过渡结束只多一套机制，撤回。
 
+- 片 4 提交 `acba66349`（只含 perf-01）。验证：nb-layout `bun test` 593、vitest 255、类型检查；e2e `lab-nested-grid`、`lab-grid-panels`、`lab-grid-swap`、`lab-workbench-surface`、`workbench-shell`、`workbench-float` 88 条全过。
+- 片 5（`9625e49c9`）：perf-09、perf-04、perf-03。
+  - perf-04：`live-drag.ts` 的帧循环按需排，这一帧指针动了、预览换了、卡片的尺寸或追赶没到、候选还没等够稳定，任一成立才排下一帧；停着时 `offer` 与新加的 `wake` 叫醒。`layout-drag.ts` 在实时布局这一场里给窗口挂捕获阶段的 `pointermove`（`wakeLive`），叫醒排在手势自己的发布同一帧，卡片不落后。停过之后第一帧按一帧（1000/60ms）缓动。“排序的标签还要放”没有单列：它只随指针动，已在“指针动了”里。测试：`live-drag.test.ts` 加“按住不动不空转……卡片在那一帧跟上”“停了两秒再动……不一步到终点”；`workbench-drag-cost.e2e.ts` 加“按住不动页面不排动画帧（60 帧里 0 次），再动一步卡片在指针移动后的那一帧就跟上”。变异检查：每帧都排、去掉重启缓动、去掉 `pointermove` 叫醒（e2e 里卡片那一帧没动），都失败。
+  - perf-09：`WorkbenchSurface.vue` 的编辑组头尺寸观察只在高度变了才换对象。perf-03：`layoutStructureKey` 按文档身份记住（`WeakMap`，文档不可变），`tab-drag.ts` 的编辑器那一半改成 `computed`；行为不变，现有 `layout-present.test.ts` 的结构键用例照过，缓存本身看不出来，没加只测缓存的用例。
+  - 片 3 提交的基线脚本在主 tsconfig 的 `scripts` 范围里、没有 DOM 类型，类型检查报 19 处（片 3 提交前没跑类型检查）；照 `browser-runner.ts`、`page-agent.ts` 把它加进 `exclude`，随片 5 提交。
+  - 验证：neuro-book 类型检查；工作台与编辑器单元测试 788；e2e `workbench-drag-cost`、`workbench-live-drag`、`workbench-dnd`、`editor-area` 122 条，120 过。`editor-area:2171`、`2207`（编辑器标签实时布局拖到正文右边缘拆组）在负载 9 到 10 时失败：预览停在 `source-removed`，15 秒没换成拆分。同样负载下分支与基线（`ba3de16c6` 的构建）各把这两条重复跑 6 次，都是 12 次里失败 1 次，分支之前就有，不是这一片带进来的；记在 Work README 的已知问题里，没有排 Task。
+
 ## 下一步
 
-片 4 的 e2e（`lab-nested-grid`、`lab-grid-panels`、`lab-grid-swap`、`lab-workbench-surface`、`workbench-shell`、`workbench-float`）跑完后提交；接着片 5：perf-09、perf-04、perf-03。
+复测（同一脚本交替量基线与修后）、合入 master、Sonnet 实现审查。
