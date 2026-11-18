@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 7 轮：书房的入口</title>
+<title>第 8 轮：日程的表单</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -38,23 +38,15 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>第 7 轮：书房的入口</h1>
+<h1>第 8 轮：日程的表单</h1>
 
-<section data-nbdev-question="shelf-entry" data-nbdev-type="confirm" data-nbdev-label="书房入口按这样画">
-  <h2>案头的入口这样画行不行？</h2>
-  <p class="rec"><strong>推荐同意：案头的看板娘就是星璃的小猫形态，入口就放在她身上。有未读时右上角是计数、下方小气泡写最新一句；等你处理时换成黄色感叹号与“等你批准：……”；没有未读时什么都不加。</strong></p>
-  <div class="cands">
-    <div class="cand"><h3>有未读</h3><img src="r7/entry-unread.webp" alt="看板娘右上角未读 3，下方气泡写最新一句"></div>
-    <div class="cand"><h3>等你处理</h3><img src="r7/entry-waiting.webp" alt="看板娘右上角黄色感叹号，气泡写等你批准"></div>
-  </div>
-</section>
-
-<section data-nbdev-question="shelf-open" data-nbdev-type="single" data-nbdev-recommend="drawer">
-  <h2>点看板娘之后在哪里聊？</h2>
-  <p class="rec"><strong>推荐 A：和打开作品后侧栏里的聊天一样宽、一样的头部，换地方不用重新认；浮窗压在书架中间，还多一个窗口位置要记。</strong></p>
-  <div class="cands" style="grid-template-columns: minmax(0, 1fr);">
-    <div class="cand" data-nbdev-option="drawer" data-nbdev-label="A 右边滑出"><h3>A 右边滑出，书房不压暗</h3><img src="r7/open-drawer.webp" alt="书房右边滑出星璃的聊天"></div>
-    <div class="cand" data-nbdev-option="window" data-nbdev-label="B 看板娘旁的小浮窗"><h3>B 看板娘旁的小浮窗，可拖动</h3><img src="r7/open-window.webp" alt="看板娘左边弹出星璃的聊天小窗"></div>
+<section data-nbdev-question="schedule-form" data-nbdev-type="confirm" data-nbdev-label="日程表单按这样画">
+  <h2>新建与编辑日程的表单这样画行不行？</h2>
+  <p class="rec"><strong>推荐同意：在日程抽屉里就地打开，左上角回列表；一次与重复是同一张表，顶上切换；重复先选每天、每周或自定义（cron），下面一行淡字写算出来的下一次与时区；校验不过时只把出错的框标红，原因写在页脚左边；“她在忙的时候”缺省等这一轮做完。</strong></p>
+  <div class="cands three">
+    <div class="cand"><h3>编辑：每周简报</h3><img src="r8/form-weekly.webp" alt="编辑每周简报：重复、每周一 09:00"></div>
+    <div class="cand"><h3>新建：一次的提醒</h3><img src="r8/form-once.webp" alt="新建提醒：一次、11月26日 20:00"></div>
+    <div class="cand"><h3>自定义 cron 太频繁</h3><img src="r8/form-cron-error.webp" alt="自定义 cron 每分钟一次，框标红，页脚写原因，保存不可用"></div>
   </div>
 </section>
 
@@ -71,6 +63,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>日程面板：每行等高，开关固定在右边，“确认”跟在“待你确认”后面（第 5 轮）</li>
     <li>排队区：别人排的话标来源、只能取消；留着时上面一行写“已暂停”、原因与“继续”（第 6 轮）</li>
     <li>停止键右边接下拉箭头，菜单里是“停止并清空排队”（第 6 轮）</li>
+    <li>书房：案头的看板娘挂未读数与小气泡，点了从右边滑出聊天（第 7 轮）</li>
   </ol>
 </section>
 </main>
