@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t21-eval-codeact
-status: shelved
-updated: 2026-10-30
+status: active
+updated: 2026-11-18
 ---
 
 # eval 工具（CodeAct）
