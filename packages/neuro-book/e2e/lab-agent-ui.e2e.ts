@@ -498,10 +498,13 @@ test.describe("输入框", () => {
         await openScene(page, "AgentConversationComposer", "stop-menu");
         await stage(page).locator("[data-composer-action='stop-more']").click();
         await expect(page.getByRole("menuitem", {name: "停止并清空排队（2 条）"})).toBeVisible();
-        const mode = stage(page).locator("[data-composer-action='mode']");
-        await mode.click();
+        // 点的是输入框之外的按钮（夹具的“下次上传失败”）。
+        const outside = page.locator("[data-lab-action='fail-upload']");
+        await outside.click();
         await expect(page.getByRole("menuitem")).toHaveCount(0);
-        await expect(editor(page)).not.toBeFocused();
+        // 编辑器的聚焦会晚一帧：等两帧再看焦点仍在被点的按钮上。
+        await frames(page);
+        await expect(outside).toBeFocused();
         await stage(page).locator("[data-composer-action='stop']").click();
         await expect.poll(() => lastAction(page)).toEqual({type: "composer.stop"});
     });
