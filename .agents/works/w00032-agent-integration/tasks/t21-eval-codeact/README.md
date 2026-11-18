@@ -111,11 +111,12 @@ omp（19 条：阻断 1、重要 18，[`evidences/design-review-omp.txt`](eviden
 
 2026-11-18 重开，范围已定（决定 1 到 4）；计划第 1 稿已获开发者确认（决定 5），卡片的注意力排序已定（决定 6）。设计审查三份报告都已处理，[计划](plan.md)到第 3 稿。调研：[omp 的 JS 内核](../../research/2026-11-18-omp-eval-js-kernel.md)。
 
-实施（分支 `feat/w00032-t21-eval`，worktree `.worktree/w00032-t21-eval`，未合入）：
+实施（分支 `feat/w00032-t21-eval`，worktree `.worktree/w00032-t21-eval`）：
 
 - 切片 1（Spec，`planned`）已在 master：b2655ce58、f756817c5、230a79020。
 - 切片 3 之一（dd28c3f25、79822481a）：输出窗口与全文挪进套件的 `kit/tools/output-capture.ts` 供 `shell` 与 eval 共用；eval 的内核：子进程与进程组、握手与协议版本、父进程看门狗线程、单元改写（`rewrite.ts`）、按单元归属的输出与调用、没人接的错误、直接写 fd 的输出用结束标记收全、意外退出。`backend/eval/kernel.test.ts` 与 `rewrite.test.ts` 19 条（真实子进程），看门狗与“等在途调用”两处做过变异检查。
+- 切片 2（内核通道，按决定 9 先合入，0e7fb6704）：`ToolContext.invoke` 与 `NestedOutcome`、只走代码的工具（清单、执行端、`tools-changed` 与 `toolsAnnounced` 的 `code` 标记）、嵌套调用的身份与准入、改派后再核、两种新事件与出站过滤、嵌套的审批与提问带来源、`onWaiting`、并发锁、2,000 的上限、收口与宽限期、恢复（与顶层同一批）、`leafMoves`、压缩放回认嵌套调用。`run/invoke.test.ts` 12 条（含两条真 `kill -9` 的恢复）；父调用收口、只走代码的预检、恢复三处做过变异检查（预检那处第一次没抓到：执行前的再核也拦住了，用例改成断言“不进审批阶段”）。nb-harness 全量 853 条过（一条存储用例负载 21 时超时，单独重跑过）；应用 Agent 插件 457 条过；两包类型检查过。
 
 ## 下一步
 
-切片 3 之二：eval 工具本身（每会话的内核、时限、重置判定与提示、结果的拼装、构建入口）。然后切片 2（内核通道，决定 9：不等审批简化提案）。
+切片 3 之二：eval 工具本身（每会话的内核、时限、重置判定与提示、结果的拼装、构建入口、声明的新字段接进应用）。
