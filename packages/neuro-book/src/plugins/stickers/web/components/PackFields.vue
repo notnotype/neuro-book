@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Button, Field, Input, Textarea} from "@notnotype/nb-ui/components";
+import {Button, Field, InfoTip, Input, Switch, Textarea} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 
 import type {StickerPackDetail} from "../../shared/contracts";
@@ -11,10 +11,13 @@ const props = withDefaults(defineProps<{
     detail: StickerPackDetail;
     readonly?: boolean;
     commit: (change: {title?: string | null; description?: string | null}) => Promise<string | null>;
-}>(), {readonly: false});
+    /** 这个包按不按贴纸显示（输出 47）；null 时不画这个开关（没有偏好服务）。 */
+    stickerDisplay?: boolean | null;
+}>(), {readonly: false, stickerDisplay: null});
 
 const emit = defineEmits<{
     (e: "rename"): void;
+    (e: "update:stickerDisplay", on: boolean): void;
 }>();
 
 const text = useStickersPageText();
@@ -49,6 +52,11 @@ const common = computed(() => props.detail.stickers.filter((sticker) => sticker.
             <span>{{ text("panel.syntax") }} <code>:{{ summary.writing ?? summary.folder }}/…:</code></span>
             <span>{{ text("panel.packSummary", {count: String(summary.count), common: String(common)}) }}</span>
         </div>
+        <!-- 偏好，不是包的内容：插件与内置的包也能设。 -->
+        <label v-if="stickerDisplay !== null" class="pack-fields__switch">
+            <span class="pack-fields__switch-label">{{ text("panel.stickerDisplay") }}<InfoTip :text="text('panel.stickerDisplayTip')" /></span>
+            <Switch :model-value="stickerDisplay" size="sm" :aria-label="text('panel.stickerDisplay')" data-pack-sticker-display @update:model-value="emit('update:stickerDisplay', $event)" />
+        </label>
         <p class="pack-fields__status is-error" role="status" data-pack-status>{{ status }}</p>
     </div>
 </template>
@@ -69,6 +77,21 @@ const common = computed(() => props.detail.stickers.filter((sticker) => sticker.
 .pack-fields__muted {
     margin: 0;
     color: var(--text-muted);
+}
+
+/* 同 StickerFields 的“常用”一行：名字带问号说明在左、开关在右。 */
+.pack-fields__switch {
+    display: flex;
+    min-height: var(--control-h-sm);
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+
+.pack-fields__switch-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
 }
 
 .pack-fields__row {

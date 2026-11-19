@@ -24,13 +24,16 @@ function picture(name: string, sticker: LabSticker): string {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+/** Lab 的表情包 id：按贴纸显示（stickers.md 输出 47）按它选中。 */
+export const LAB_STICKER_PACK = "user.lyra";
+
 /** 认 `lyra` 包里的名字，带不带包都行（Lab 里只有这一个包）；`delay` 毫秒后给结果。 */
 export function labStickers(delay = 0): StickerResolver {
     return (ref, signal) => new Promise((resolve) => {
         const answer = (): void => {
             if (signal.aborted) return;
             const sticker = (ref.pack === null || ref.pack === "lyra") ? STICKERS[ref.name] : undefined;
-            resolve(sticker === undefined ? null : {url: picture(ref.name, sticker), width: sticker.width, height: sticker.height, release: () => undefined});
+            resolve(sticker === undefined ? null : {url: picture(ref.name, sticker), width: sticker.width, height: sticker.height, pack: LAB_STICKER_PACK, packTitle: "星璃", release: () => undefined});
         };
         if (delay <= 0) answer();
         else setTimeout(answer, delay);

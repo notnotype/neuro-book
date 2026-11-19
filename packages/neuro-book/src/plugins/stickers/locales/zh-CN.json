@@ -69,6 +69,8 @@
         "displayName": "显示名",
         "packName": "包名",
         "changePackName": "改…",
+        "stickerDisplay": "按贴纸显示",
+        "stickerDisplayTip": "文字里的表情也显示成大图，这一行跟着变高。只影响你自己看到的样子，不改表情包。",
         "packSummary": "{{count}} 个表情，{{common}} 个常用",
         "sizeInfo": "{{width}} × {{height}}，{{size}}",
         "pluginNote": "插件带来的或内置的表情包，只能看。要改就复制到我的。",

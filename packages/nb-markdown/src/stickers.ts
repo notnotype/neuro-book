@@ -79,7 +79,7 @@ export interface ResolvedSticker {
     readonly url: string;
     readonly width: number;
     readonly height: number;
-    /** 认到的表情包 id。给了才能按贴纸显示（`@notnotype/nb-markdown/display` 的 `mountStickerDisplayStyle`）；可选，旧宿主不用改。 */
+    /** 认到的表情包 id。给了才能按贴纸显示（`stickerDisplayCss`）；可选，旧宿主不用改。 */
     readonly pack?: string;
     /** 表情包的显示名，预览的标题用；没有时标题只写名字。 */
     readonly packTitle?: string;

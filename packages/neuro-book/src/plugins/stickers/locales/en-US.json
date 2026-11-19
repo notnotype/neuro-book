@@ -69,6 +69,8 @@
         "displayName": "Display name",
         "packName": "Pack name",
         "changePackName": "Change…",
+        "stickerDisplay": "Show as stickers",
+        "stickerDisplayTip": "Stickers show large even within text, and the line grows taller. Only changes how you see them; the pack is not modified.",
         "packSummary": "{{count}} stickers, {{common}} common",
         "sizeInfo": "{{width}} × {{height}}, {{size}}",
         "pluginNote": "This pack comes from a plugin or is built in, so it is read-only. Copy it to mine to edit it.",

@@ -5,7 +5,7 @@
  * 先显示写法的原文（带 `is-loading`），宿主端口交回表情后换成图（带 `has-image`）；认不出、端口失败或图读不出来时留原文。没有
  * 端口时一直是原文。
  *
- * 查到图时根元素带 `data-sticker-pack`（表情包 id），按贴纸显示的样式按它选中（`display/sticker-display.ts`，输出 47）；回到原文时去掉。
+ * 查到图时根元素带 `data-sticker-pack`（表情包 id），按贴纸显示的样式按它选中（`sticker-display.ts`，输出 47）；回到原文时去掉。
  */
 
 import {parseSticker} from "../../../stickers";
