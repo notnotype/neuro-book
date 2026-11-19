@@ -19,7 +19,7 @@ import {chapterEnd, compareRanks, positionRank} from "../core/position";
 import {sameJson, stableStringify} from "../core/stable-json";
 import {valueAt, type ViewValue} from "../core/view-value";
 import type {Actor, Address, Entry, EntryEdits, EntryOp, FieldDeclaration, NamespaceData, NewEntry, Patch, Placement, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
-import {generateFieldId} from "../components/registry";
+import {LOCAL_ID_PREFIX} from "../core/ids";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
 import {MAIN_LINE} from "../lines/table";
@@ -312,6 +312,18 @@ function usedElementIds(world: World, entry: Entry | undefined, entryId: string,
     return taken;
 }
 
+/** 列表元素与块的新 id：前缀加序号（`LOCAL_ID_PREFIX`），比用过的同前缀 id 里最大的序号大一。 */
+function nextLocalId(prefix: string, taken: ReadonlySet<string>): string {
+    let max = 0;
+    for (const id of taken) {
+        const match = new RegExp(`^${prefix}(\\d+)$`, "u").exec(id);
+        if (match !== null) max = Math.max(max, Number(match[1]));
+    }
+    let next = max + 1;
+    while (taken.has(`${prefix}${String(next)}`)) next += 1;
+    return `${prefix}${String(next)}`;
+}
+
 /** 主文字里用过的块 id：初值与全部变更里加过的。 */
 function usedBlockIds(world: World, entry: Entry | undefined, entryId: string): Set<string> {
     const taken = new Set<string>(entry?.init.text.map((block) => block.id) ?? []);
@@ -437,7 +449,8 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
         if (target !== undefined && draft.created.has(target)) return problem(index, "created-in-batch", "this entry is created in the same batch; give its initial values in the create operation");
         if ("at" in op) {
             const parsed = parsePath(op.at.path);
-            if (parsed?.root === "namespace" && (draft.fresh.has(`${op.at.entry}/${parsed.namespace}`) || (parsed.element !== undefined && draft.fresh.has(`${op.at.entry}/${parsed.namespace}.${parsed.field}[${parsed.element}]`)))) {
+            const freshBlock = parsed?.root === "text" && draft.fresh.has(`${op.at.entry}/text[${parsed.block}]`);
+            if (freshBlock || (parsed?.root === "namespace" && (draft.fresh.has(`${op.at.entry}/${parsed.namespace}`) || (parsed.element !== undefined && draft.fresh.has(`${op.at.entry}/${parsed.namespace}.${parsed.field}[${parsed.element}]`))))) {
                 return problem(index, "created-in-batch", "this component or element is added in the same batch; give its initial values in the operation that adds it");
             }
         }
@@ -514,7 +527,11 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                 const element = {...(op.element as Record<string, unknown>)};
                 if (typeof element.id !== "string") {
                     if (field.keyedBy === "ref") return problem(index, "type-mismatch", "an element of a list keyed by reference needs the id of the referenced entry");
-                    element.id = generateFieldId(typeof element.label === "string" ? element.label : "item", usedElementIds(world, world.data.entries.get(op.at.entry), op.at.entry, op.at.path));
+                    const taken = usedElementIds(world, world.data.entries.get(op.at.entry), op.at.entry, op.at.path);
+                    // 这一批里刚分配给同一个列表的也要避开。
+                    const prefix = `${op.at.entry}/${parsed.namespace}.${parsed.field}[`;
+                    for (const key of draft.fresh) if (key.startsWith(prefix)) taken.add(key.slice(prefix.length, -1));
+                    element.id = nextLocalId(LOCAL_ID_PREFIX.item, taken);
                 }
                 draft.fresh.add(`${op.at.entry}/${parsed.namespace}.${parsed.field}[${element.id as string}]`);
                 if (intent === "story") {
@@ -578,7 +595,10 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
             case "addBlock": {
                 const entry = draft.entry(op.entry);
                 if (entry === undefined) return problem(index, "not-found", "the entry does not exist");
-                const id = generateFieldId("b", usedBlockIds(world, world.data.entries.get(op.entry), op.entry));
+                const taken = usedBlockIds(world, world.data.entries.get(op.entry), op.entry);
+                for (const key of draft.fresh) if (key.startsWith(`${op.entry}/text[`)) taken.add(key.slice(`${op.entry}/text[`.length, -1));
+                const id = nextLocalId(LOCAL_ID_PREFIX.block, taken);
+                draft.fresh.add(`${op.entry}/text[${id}]`);
                 const at: Address = {entry: op.entry, path: `text[${id}]`};
                 if (intent === "story") {
                     // 增块不写 `after` 是插在最前（apply.ts）；不写时放在这个位置上最后一块之后。

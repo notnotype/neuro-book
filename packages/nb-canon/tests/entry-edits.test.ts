@@ -106,6 +106,8 @@ describe("canon.revisions 输出 25：一次改几处", () => {
         expect(change.patches.map((patch) => patch.op)).toEqual(["set", "listAdd", "add"]);
         expect(read(done.world, "character.状态")).toBe("受伤");
         expect(read(done.world, "panel.存款")).toBe(39500);
+        // 元素 id 按 i 加序号生成，避开初值（i1）与变更（i2）里用过的。
+        expect((read(done.world, "panel.物品") as Array<{id: string}>).map((item) => item.id)).toEqual(["i1", "i2", "i3"]);
         expect(read(done.world, "panel.存款", end("ch45"))).toBe(40000);
     });
 
