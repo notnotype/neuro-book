@@ -62,6 +62,17 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
   - 第 4 条（回调抛出是在补“同步通知放在状态机中间”）：同常规第 3 条，改成控制流。
   - 第 5 条（缺谁消费、取舍、数值口径）：Context 补“谁消费”与待定的一处；数值过 `round`。
 
+**实施**（worktree `w00026-t38-grid-diagnostics`，分支 `refactor/w00026-t38-grid-diagnostics`）：
+
+- 第 1 片 `520ab0258`：`GridIssue` 与诊断码、库内的构造（`grid-issue.ts`）、每一处的码与参数；`allocateSashPanels` 去掉两个参数，内部 `allocatePanels` 带回调；195 并进 533；`range-overflow` 由会话给 `id` 与轴；Enter 折叠没有变化时会话状态不动、诊断不被盖掉。L0 测试按码与参数断言，补求解与会话用例、诊断码与失败码不相交与码的写法测试。变异检查：会话里丢掉折叠的诊断、195 照旧单独发，各有用例红。
+- 第 2 片 `d8493c029`：`SashGestureScope.issues` 删掉、`onIssues` 加上，事件发对象，被拒的提交是失败本身；没接回调只发一条；键盘求解后交诊断；收尾先于宿主回调，松手与卸载用 `try`/`finally`；`useGridLayout` 拆成发布与通知、落账后的通知接住。`WorkbenchSurface` 与两个 Lab 夹具的读法一起改。用例：`not-published`、键盘 Enter、三种回调抛出与卸载、落账后抛出两条。变异检查：没有变化时先调回调再收尾、取消时先调回调、Enter 不交通知、落账后不接住，各有用例红。
+- 第 3 片 `119fbe575`：`issueKey` 与闸门；两个出口接上。用例：闸门（Bun）、窄窗口逐像素重算（消失再出现、隐藏再显示、换上下文、换实例）、一场拖动一次与下一场。变异检查：去掉两个闸门、`begin` 不换闸门，各有用例红。落账后抛出那条用例在闸门下会空过（持续的诊断不再通知），改成先换上下文再提交。
+- 第 4 片 `252dc1ef9`：SDK 导出三个类型、变更记录、包文档。
+- 并 master `a9df56ba5`（别的 Work 的表情包改动，没有冲突）。
+- 和计划不同的：第 1 片里 Lab 夹具也先读 `message`（它直接读 `layout.issues`），否则那一片应用的类型检查是红的；`GridLayoutResult.issues` 等列表收窄成 `GridIssue<GridIssueCode>`，省掉一处类型断言。
+- 未验证：`reportError` 那一支（happy-dom 没有，dom 测试走 `console.error`）。
+- 收口验证（并 master 之后）：应用三份类型配置、`docs:check` 都过；`test:affected --since master` 只有 `neuro-book` 的 bun 测试有失败，都不在本分支的改动里：`nbook.stickers` 清单不一致的 7 条（同 t34 记下的）、`sdk.test.ts` 组件子路径漏列 `ImagePreviewDialog`（主工作区 master 上同样失败，来自表情包那次合入）、agent 的 `eval.test.ts` 一条（内核重置后的输出）；nb-layout 与 nb-workbench-layout 的测试全过。e2e：`lab-nested-grid` 17、`workbench-shell` 18 全过；`lab-grid-swap`、`lab-grid-panels`、`lab-workbench-surface` 在负载 17 到 21 时各有 2、3、4 条失败，都是 Lab 15 秒内没就绪，负载 3 到 7 时整份重跑 5、17、17 全过。
+
 第 2 稿的设计审查（第二轮，Claude Sonnet；代码按 master `5ee62b05a`，[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)）：9 条，阻断 0、重要 2、建议 7，都成立，改成第 3 稿。第一轮各条它逐条核过，大多到位，没到位的就是下表的几条。都是给了改法的细化、没有方向问题，第 3 稿不再送审，实现审查兜底：
 
 | 条 | 内容 | 处理 |
@@ -78,5 +89,4 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 
 ## 下一步
 
-1. master 上写 `ui/nested-grid` 输出 139、140（planned）。
-2. 从 master 开 worktree `w00026-t38-grid-diagnostics`，按计划五片实施（第 3 片是只发新增，开发者若按拉远看拿掉就不做）。
+1. 实现审查（前端包，Claude Sonnet，审查 worktree `review-t38-impl` 固定在 `a9df56ba5`）在后台；处理完合入 master，`ui/nested-grid` 输出 139、140 去掉 planned、补实现合同。
