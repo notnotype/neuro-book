@@ -39,4 +39,4 @@ updated: 2026-11-19
 
 ## 下一步
 
-设计审查第一轮（omp，28 条）已处理（[处理](evidences/design-review-disposition.md)），计划第 2 稿与 Spec 修订待开发者看过；之后第 0 片。
+设计审查第一轮（omp，28 条）已处理（[处理](evidences/design-review-disposition.md)）。开发者 2026-11-19 看过第 2 稿：“可以再审一轮。其他都可以先按推荐走”。三个内核原有缺陷的跟进建成 [t16](../t16-kernel-narrow-window-defects/README.md)（不阻塞第一版）。第二轮审查（只审改动处）进行中；之后第 0 片。
