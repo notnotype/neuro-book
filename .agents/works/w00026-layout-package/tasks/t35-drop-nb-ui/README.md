@@ -66,6 +66,19 @@ worktree `w00026-t35-drop-nb-ui`（分支 `w00026/t35-drop-nb-ui`），四个提
 - 变异检查：桥接拼错旧名、层级数字不对、回退与 nb-ui 缺省不同、去掉放下滑回的真假判断，对应的测试都会红。
 - 踩到的坑：happy-dom 不继承自定义属性（根上、父元素上的声明子元素读到空串），dom 测试的公共准备改成注入一条 `*` 规则。
 
+## 实现审查
+
+Claude Sonnet，范围 `7d92146ef..52a97a76a`（[`evidences/impl-review.txt`](evidences/impl-review.txt)）：6 条，阻断 0、重要 1、建议 5。
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 减少动效归零那段没有判据：装了 nb-ui 时有没有都一样；“宿主设的值也压不过”只对根上的声明成立 | 成立。探针加两条：在根上行内设 nb-layout 的时长，减少动效时读到 0ms、不减少时读到设的值（这段删掉就红）；Spec 输出 142、README、`global.css` 注释收窄为“根上设的”，写明子树上的不受约束。浮动窗把手的焦点环不另加探针：三个按钮用同一条规则，探针已证明规则进了产物（接受取舍） |
+| 2 | 清单与 `tokens.css` 一起拼错旧名时单元测试拦不住 | 成立。`theme-bridge.test.ts` 加一条：每个旧名在 `tokens.css`、`theme.css` 或配色合同里有声明；变异（两边都写 `--accent-mian`）会红 |
+| 3 | `useSortable` 的判断为 happy-dom 改了，应用的 dom 测试没有 0ms 规则 | 部分成立。按真假判断在浏览器里与原写法等价，不是测试专用分支，注释改成按语义说（没写过是空串，不支持的实现里是 undefined）；README 写明缺省时长是真的过渡，宿主的组件测试要自己设 0ms、happy-dom 要用命中每个元素的规则。应用的 dom 测试不加这条规则：今天它们只走键盘拿起放下，不经过滑回 |
+| 4 | 回退字面量约 100 处重复；`@property` 注册的初值不是层叠里的声明，不会压过桥接，能省掉每处回退与 JS 的回退表 | 作为“改上游”的候选记进待确认清单，本 Task 不做；`NestedGrid.vue` 等四个文件里过长的 `transition` 拆成一行一项 |
+| 5 | `locales/index.ts` 头注释过时 | 成立，改了 |
+| 6 | `host-text.test.ts` 逐行匹配，漏换行写法 | 成立，改成全文匹配，自检加换行的样例；导入改名的写法不管，注释写明 |
+
 ## 下一步
 
 1. 实现审查（前端，Claude Sonnet）在跑，报告在 `.local/agent/works/w00026-layout-package/tasks/t35-drop-nb-ui/reports/impl-review/`；处理完合入 master。
