@@ -91,6 +91,10 @@ updated: 2026-11-05
 
 第一档剩下 [t14](tasks/t14-splitter-migration/README.md)。
 
+2026-11-19：[t14](tasks/t14-splitter-migration/README.md) 完成：nb-story、开发者面板的分栏改用 nb-layout 的 `Splitter`，nb-ui 冻结的那一套删掉（旧应用一处导入随之失效，与它早已失效的 39 处同类）；开发者面板改 nb-layout 也会重建、提示代码已更新；nb-story 用真操作探针改前改后对照，只有收到 0 的一侧不画接缝；打包安装冒烟通过。合入 master（`dd4b01ea6`）。
+
+第一档（t34、t38、t35、t36、t39 到 t42、t37、t32、t14）全部完成。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。

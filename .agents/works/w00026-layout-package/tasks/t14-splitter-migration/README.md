@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t14-splitter-migration
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -49,6 +49,24 @@ worktree `w00026-t14-splitter`（分支 `w00026/t14-splitter`）。基线（起�
 | 3 | `0f564f866` | 删掉 nb-ui 冻结的那一套（编码子代理，Claude Sonnet，[报告](evidences/slice3-report.txt)）：19 个文件，比清单多一个 `useLayoutExtent.ts`（只被冻结的那一份用、依赖被删的类型）；导出、`splitter` 文案键、playground 的那一页、几处测试与 Lab 源；`migration-0.4.md` 加“0.4 之后：`Splitter` 移到 nb-layout”（我审 diff 时改准了两处：两个只给内嵌网格用的属性没了、接缝不画；nb-layout 还没发布到 npm） | nb-ui 类型检查、559 条测试；nb-agent-ui、nb-form、nb-markdown、开发者面板、nb-story、应用的类型检查；应用 SDK 两份测试 17 过 1 挂，挂的是 master 上原有的 `ImagePreviewDialog` 不在 SDK 组件清单里；文档检查通过 |
 | 4 | `717b1b171` | nb-layout 的 `Splitter.md` 去掉已删的 `sashLineEnds`；nb-layout 的 `AGENTS.md` 写明两个宿主在用、改时怎么验；应用 SDK 测试两句过时的注释 | nb-layout 的 `readme.test.ts`、`exports.test.ts` |
 
-## 下一步
+## 实现审查
 
-实现审查（Claude Sonnet）在跑。处理完把 master 并进分支、合入，提交 `docs/modules/monorepo-boundaries.md` 那一句（主工作区，已改未提交）。合入后要开发者重启面板服务，面板才用上新代码。
+Claude Sonnet（`claude -p`），一轮，5 条，都是建议（阻断 0、重要 0）（[`evidences/impl-review.txt`](evidences/impl-review.txt)）。审查者核过删得干净、`useLayoutExtent.ts` 删得对、发布路径与测试支持包同一条。都成立，修正在合入前的最后一个提交：
+
+| # | 发现 | 处理 |
+|---|---|---|
+| 1 | 依赖方向的清单没加 nb-layout：nb-story 的 `AGENTS.md`、Spec `story/viewer` 的“owner 与依赖方向”、开发者面板的 `AGENTS.md` | 三处都加上（Spec 在主工作区改） |
+| 2 | 迁移说明说“只有两处不同”，漏了读屏文字的来源与 `splitter.*` 键、收起被拒绝、禁用时按键无效 | 改成逐条列出，写明 `LAYOUT_TEXT_KEY` 怎么接 |
+| 3 | 构建输入的清单靠手写，测试只钉住“清单里现在有谁” | 加一条测试：扫网页源码导入的 `@notnotype/*` 包，都要在 `PANEL_SOURCE_PACKAGES` 里。变异（拿掉 nb-layout）时两条测试都红 |
+| 4 | `tokens.css` 的注释指向的文档已不含那句话 | 改指 `NestedGrid.md` |
+| 5 | playground 验收定义的头注释语句不通 | 不写数量 |
+
+修正后：开发者面板的类型检查、`panel-server.test.ts` 25 条，文档检查通过。
+
+## 合入
+
+master 并进分支（`dd4b01ea6`，master 那边只有文档提交），master 快进到它，2026-11-19 合入；主工作区跑过 `bun install`；worktree 与分支已删。`docs/modules/monorepo-boundaries.md` 与 Spec `story/viewer` 的那两句随记录一起提交。
+
+## 结论
+
+完成：nb-story 与开发者面板的分栏都用 nb-layout 的 `Splitter`，nb-ui 里冻结的那一套删掉了（5630 行）。待开发者知悉或追认的，见待确认清单 t14 的四行：删除连带旧应用一处导入失效；收到 0 的一侧不画接缝（开发者面板的收起态没看过图）；已发布的 nb-ui 拿掉公开导出，下次发布升小版本；发布门禁不盯 nb-layout 的目录。合入后要开发者重启面板服务，面板才用上新代码。
