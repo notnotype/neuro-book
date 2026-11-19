@@ -52,7 +52,6 @@ export type DropFeedbackPreview = Readonly<{
  */
 import {computed, onBeforeUnmount, ref, useAttrs, watch} from "vue";
 import DropIndicator from "./DropIndicator.vue";
-import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import DropIndicatorLabel from "./DropIndicatorLabel.vue";
 import {isGridDropRect} from "../grid-drop";
 
@@ -311,7 +310,6 @@ watch(
             v-if="hasVisibleFeedback"
             ref="overlayRef"
             class="nb-layout-drop-feedback"
-            :style="{zIndex: NB_Z_INDEX.dropFeedback}"
             data-drop-feedback
             v-bind="attrs"
         >
@@ -374,6 +372,8 @@ watch(
 .nb-layout-drop-feedback {
     position: fixed;
     inset: 0;
+    /* 整页层级：nb-ui 的桥接给出层级登记表里的值（同名 .md）。 */
+    z-index: var(--nb-layout-z-drop-feedback, 60);
     pointer-events: none;
 }
 
@@ -393,16 +393,16 @@ watch(
 
 .nb-layout-drop-feedback__area,
 .nb-layout-drop-feedback__label--area {
-    animation: nb-drop-feedback-fade-in var(--motion-fast) var(--ease-layout);
+    animation: nb-drop-feedback-fade-in var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .nb-layout-drop-feedback__area {
     opacity: 1;
-    transition: left var(--motion-base) var(--ease-layout),
-        top var(--motion-base) var(--ease-layout),
-        width var(--motion-base) var(--ease-layout),
-        height var(--motion-base) var(--ease-layout),
-        opacity var(--motion-fast) var(--ease-layout);
+    transition: left var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        top var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        width var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        height var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        opacity var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .nb-layout-drop-feedback__area--standby {
@@ -410,7 +410,7 @@ watch(
 }
 
 .nb-layout-drop-feedback__label--area {
-    transition: left var(--motion-base) var(--ease-layout), top var(--motion-base) var(--ease-layout);
+    transition: left var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), top var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 @media (prefers-reduced-motion: reduce) {

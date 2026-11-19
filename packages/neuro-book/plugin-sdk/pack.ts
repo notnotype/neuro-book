@@ -291,11 +291,15 @@ const DESIGN_GROUPS: ReadonlyArray<TokenGroup> = [
     {title: "拖动与落点的反馈", pattern: /^--(?:sash-|drop-area-|layout-)/u},
 ];
 
-/** 一份样式表里声明的自定义属性与它第一次出现时的值（`prefers-reduced-motion` 里的重声明不算）。 */
+/**
+ * 一份样式表里声明的自定义属性与它第一次出现时的值（`prefers-reduced-motion` 里的重声明不算）。`--nb-layout-*` 不算：那是
+ * nb-ui 给布局组件的桥接（docs/specs/theme/system.md 的“布局组件的桥接”），插件照旧用主题的名字。
+ */
 async function cssTokens(file: string): Promise<Map<string, string>> {
     const text = (await readFile(file, "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
     const tokens = new Map<string, string>();
     for (const match of text.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;{}]+);/gu)) {
+        if (match[1]!.startsWith("--nb-layout-")) continue;
         if (!tokens.has(match[1]!)) tokens.set(match[1]!, match[2]!.replace(/\s+/gu, " ").trim());
     }
     return tokens;

@@ -1,0 +1,33 @@
+/*
+ * nb-layout 的全局样式（vue/index.ts 导入）。组件样式都写在各自的 scoped CSS 里，只有这两样要跨组件、作用在根上，放这里
+ * （nb-layout 的 AGENTS.md 写了这个例外）。读的变量见 `../theme-vars.ts`。
+ */
+
+/*
+ * 系统减少动态效果时，nb-layout 读的四个时长归零（docs/specs/ui/nested-grid.md 输出 59、142）。
+ *
+ * 只在这里声明根上的值：平时根上不声明，装了 nb-ui 的宿主由它在 `layer(base)` 里的桥接给值；这里不分层，平时声明的话
+ * 会压过桥接（层叠层先于特异性）。归零时压过桥接正是要的：nb-ui 这时也把旧名归零，两边都是 0ms。
+ * 带 `!important`：不装 nb-ui 的宿主在 `:root[data-theme=…]` 上设的时长，特异性更高，也不能压过系统的无障碍偏好。
+ */
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --nb-layout-motion-fast: 0ms !important;
+        --nb-layout-motion-base: 0ms !important;
+        --nb-layout-motion-move: 0ms !important;
+        --nb-layout-motion-layout: 0ms !important;
+    }
+}
+
+/*
+ * 键盘焦点环（可排序列表的把手、浮动窗的两个把手）：与 nb-ui 的焦点环类同一条规则，读 nb-layout 的变量，装了
+ * nb-ui 时经桥接外观相同。不带 nb-ui 原规则的 `!important`：那是为压过模板上的原子类，这三个按钮没有竞争的声明；
+ * 本文件也不分层，普通声明已经压过分层的样式。
+ */
+.nb-layout-focus-ring:focus-visible {
+    outline: none;
+    border-color: var(--nb-layout-focus-outline, Highlight);
+    box-shadow: var(--nb-layout-focus-ring, 0 0 0 1px color-mix(in srgb, Highlight 35%, transparent), 0 0 0 3.5px color-mix(in srgb, Highlight 18%, transparent));
+    transition: border-color var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+                box-shadow var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
+}

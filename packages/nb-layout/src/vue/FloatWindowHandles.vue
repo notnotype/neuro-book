@@ -117,7 +117,7 @@ function onKeydown(event: KeyboardEvent, kind: "resize" | "move"): void {
         ></div>
         <button
             type="button"
-            class="nb-float-handle nb-float-handle--bottom-right nb-ui-focus-ring"
+            class="nb-float-handle nb-float-handle--bottom-right nb-layout-focus-ring"
             :data-float-handle="CORNER.id"
             :aria-label="text('floatWindow.resize')"
             :style="{cursor: CORNER.cursor}"
@@ -127,7 +127,7 @@ function onKeydown(event: KeyboardEvent, kind: "resize" | "move"): void {
             @lostpointercapture="finish(false)"
             @keydown="onKeydown($event, 'resize')"
         ></button>
-        <button type="button" class="nb-float-move nb-ui-focus-ring" data-float-move-handle :aria-label="text('floatWindow.move')" @keydown="onKeydown($event, 'move')">
+        <button type="button" class="nb-float-move nb-layout-focus-ring" data-float-move-handle :aria-label="text('floatWindow.move')" @keydown="onKeydown($event, 'move')">
             <span v-if="moveIconClass !== ''" :class="moveIconClass" aria-hidden="true"></span>
         </button>
     </div>
@@ -226,9 +226,8 @@ function onKeydown(event: KeyboardEvent, kind: "resize" | "move"): void {
     height: 16px;
     padding: 0;
     border: none;
-    border-radius: var(--radius-sm);
-    background: var(--panel-surface);
-    color: var(--text-secondary);
+    background: var(--nb-layout-panel-surface, Canvas);
+    color: var(--nb-layout-text-secondary, GrayText);
     opacity: 0;
     transform: translateX(-50%);
 }

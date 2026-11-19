@@ -214,6 +214,8 @@ describe("生成的 SDK 包", () => {
         const tokens = await readFile(join(sdk, "docs/tokens.md"), "utf8");
         expect(tokens).toContain("`--space-2`");
         expect(tokens).toContain("`--accent-main`");
+        // nb-ui 给布局组件的桥接不列给插件作者（docs/specs/theme/system.md 的“布局组件的桥接”）。
+        expect(tokens).not.toContain("--nb-layout-");
         // 仓库里的作者文档指向 docs/specs/ 的每一份 Spec，包里都有副本。
         const sourceReadme = fileURLToPath(new URL("./README.md", import.meta.url));
         const specsRoot = fileURLToPath(new URL("../../../docs/specs/", import.meta.url));

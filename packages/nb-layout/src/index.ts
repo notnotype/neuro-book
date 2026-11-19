@@ -6,6 +6,9 @@ export * from "./grid";
 /** 插件 SDK 导出的失败与诊断类型（Spec `ui/nested-grid` 失败 5、6，输出 139）：`./grid` 里也有，`sdk.test.ts` 按入口文件里写出的名字核对 SDK 的导出面，所以在这里写出名字。 */
 export type {GridCommitFailureCode, GridFailure, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridParamValue} from "./grid-types";
 export * from "./live-drop";
+/** Vue 层读的 CSS 变量的清单（Spec `ui/nested-grid` 输出 141）：纯数据，宿主与 nb-ui 的桥接测试从核心入口取，不必经 Vue 层。 */
+export {NB_LAYOUT_THEME_VARS} from "./theme-vars";
+export type {NbLayoutThemeVar, NbLayoutVarName} from "./theme-vars";
 export {clampFloatRect, placeGrid, resizeFloatRect} from "./grid-rects";
 export type {GridContentInput, GridFloatInput, GridLeafShape, GridRect, LayoutFloatResize} from "./grid-rects";
 export type {GridSwap, GridSwapWindow} from "./grid-swap";

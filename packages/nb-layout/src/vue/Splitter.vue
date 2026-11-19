@@ -375,8 +375,8 @@ onBeforeUnmount(() => {
     overflow: hidden;
 }
 
-/* 收起/展开是控件形变，走 --motion-move；拖动中关闭，避免跟手延迟。 */
+/* 收起/展开是控件形变，走 --nb-layout-motion-move；拖动中关闭，避免跟手延迟。 */
 .nb-grid-panel[data-animating] {
-    transition: flex-basis var(--motion-move) var(--ease-layout), width var(--motion-move) var(--ease-layout), height var(--motion-move) var(--ease-layout);
+    transition: flex-basis var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), width var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), height var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 </style>

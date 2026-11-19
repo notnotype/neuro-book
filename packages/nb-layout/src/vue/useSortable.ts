@@ -21,6 +21,7 @@ import {moveInSections, slotOfKey, sortableSlotIn, sortableSlots} from "../sorta
 import type {SortableAxis, SortableLayout, SortableSection, SortableSlot, SortableSpan, SortableSwitch} from "../sortable";
 import {createDragSession} from "./drag-session";
 import type {DragSession} from "./drag-session";
+import {layoutDurationMs} from "./layout-vars";
 import {useLayoutText} from "./text";
 
 export interface SortableMove {
@@ -153,19 +154,18 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
         return value !== undefined && Number.isFinite(value) ? value : 0;
     }
     /**
-     * 一场结束：被拖的那一行从跟手的位置滑回它的位置（`--motion-move`），滑完才算放下了；减少动效时令牌为 0，直接到位。收场后预览
+     * 一场结束：被拖的那一行从跟手的位置滑回它的位置（`--nb-layout-motion-move`），滑完才算放下了；减少动效时令牌为 0，直接到位。收场后预览
      * 可能换成别的次序（取消、放下的位置与最后显示的不同），所以等 Vue 按新次序排好，再按排好后的位置换算起点，从看到的地方滑回。
      */
     function land(root: HTMLElement): void {
         const key = held.value;
         const element = key === null ? null : itemOf(root, key);
-        if (element === null || element.style.translate === "") {
+        // 没写过跟手位移（键盘拿起放下）就没有要滑回的：直接收尾。按真假判断，不认 `translate` 的环境（happy-dom）读到的是 undefined。
+        if (element === null || !element.style.translate) {
             finishLanding();
             return;
         }
-        const token = getComputedStyle(element).getPropertyValue("--motion-move").trim();
-        const parsed = Number.parseFloat(token);
-        const ms = !Number.isFinite(parsed) ? 0 : token.endsWith("ms") ? parsed : parsed * 1000;
+        const ms = layoutDurationMs(element, "--nb-layout-motion-move");
         if (ms <= 0) {
             finishLanding();
             return;
@@ -180,7 +180,7 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
             element.style.transition = "none";
             element.style.translate = vertical ? `0px ${String(start)}px` : `${String(start)}px`;
             void element.offsetHeight;
-            element.style.transition = "translate var(--motion-move) var(--ease-layout)";
+            element.style.transition = "translate var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1))";
             element.style.translate = vertical ? "0px 0px" : "0px";
             landing = setTimeout(finishLanding, ms);
         });

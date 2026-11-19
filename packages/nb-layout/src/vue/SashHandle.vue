@@ -7,6 +7,7 @@
  * 属性、并向它登记元素。几何对齐经 `useSashSnap` 的宿主合并到父组件的一帧里。
  */
 import {computed, inject, onBeforeUnmount, watch} from "vue";
+import {readLayoutVar} from "./layout-vars";
 import {sashBandBox, type SashBandBox} from "./sash-feedback";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {injectSashSnap} from "./useSashSnap";
@@ -26,7 +27,7 @@ const props = defineProps<{
     beforePx: number;
     afterPx: number;
     disabled: boolean;
-    /** 长轴两端挨着的外层分隔线键；null 是自由端。那条线此刻也亮着，这一端就连着它，不按 `--sash-line-inset` 缩进。 */
+    /** 长轴两端挨着的外层分隔线键；null 是自由端。那条线此刻也亮着，这一端就连着它，不按 `--nb-layout-sash-line-inset` 缩进。 */
     ends: {start: string | null; end: string | null};
     ariaLabel: string;
     ariaControls: string | undefined;
@@ -42,7 +43,7 @@ const props = defineProps<{
 }>();
 
 /**
- * 静止接缝的厚度（CSS px）：与 `--border-w` 同口径的 1px。
+ * 静止接缝的厚度（CSS px）：与 nb-ui 的边框宽度同口径的 1px。
  * 它不跟着接缝尺寸变粗（Lab 的 7px 接缝里仍是 1px），也不随 dpr 换算设备像素——
  * 主题里的每一条边框都是 1 CSS px，接缝不该是唯一的例外。
  */
@@ -228,13 +229,13 @@ function snap(dpr: number): (() => void) | null {
     };
 }
 
-/** 主题给的线芯宽度（`--sash-line-size`）；没给时是 NaN。读样式，所以在量的那一半里读。 */
+/** 主题给的线芯宽度（`--nb-layout-sash-line-size`，没给时取清单里的缺省）；写成别的单位时是 NaN。读样式，所以在量的那一半里读。 */
 function readLineSize(target: HTMLElement): number {
-    return Number.parseFloat(getComputedStyle(target).getPropertyValue("--sash-line-size"));
+    return Number.parseFloat(readLayoutVar(target, "--nb-layout-sash-line-size"));
 }
 
 /**
- * 线芯：主题经 `--sash-line-size` 把线画得比装饰带细（例如 1px 加发光）。装饰带按中心对齐设备像素，细线在里面居中
+ * 线芯：主题经 `--nb-layout-sash-line-size` 把线画得比装饰带细（例如 1px 加发光）。装饰带按中心对齐设备像素，细线在里面居中
  * 会摊成两条半透明的线，所以细线芯对齐静止接缝（近端边落在设备像素上，奇数宽都是实的），再夹进装饰带，不越出去
  * 被祖先裁掉。不比装饰带细时清掉变量，线芯铺满装饰带，就是原来的样子。
  */
@@ -244,8 +245,8 @@ function writeLineCore(target: HTMLElement, band: SashBandBox, seamStartPx: numb
             return;
         }
         writtenCore.set(target, "");
-        target.style.removeProperty("--nb-sash-core-start");
-        target.style.removeProperty("--nb-sash-core-size");
+        target.style.removeProperty("--nb-layout-sash-core-start");
+        target.style.removeProperty("--nb-layout-sash-core-size");
         return;
     }
     const wanted = seamStartPx + (SEAM_THICKNESS_PX - size) / 2;
@@ -255,8 +256,8 @@ function writeLineCore(target: HTMLElement, band: SashBandBox, seamStartPx: numb
         return;
     }
     writtenCore.set(target, signature);
-    target.style.setProperty("--nb-sash-core-start", start);
-    target.style.setProperty("--nb-sash-core-size", `${size}px`);
+    target.style.setProperty("--nb-layout-sash-core-start", start);
+    target.style.setProperty("--nb-layout-sash-core-size", `${size}px`);
 }
 
 const unregisterSnap = snapHost.register(snap);
@@ -306,7 +307,7 @@ onBeforeUnmount(() => {
     >
         <!--
             两层装饰，都盖在逻辑接缝上、都不占流内空间、都不接指针：
-            - 静止接缝（`.sash-seam`）：常驻的 1 CSS px `--divider`，位置由 `snap()` 写内联。
+            - 静止接缝（`.sash-seam`）：常驻的 1 CSS px `--nb-layout-divider`，位置由 `snap()` 写内联。
               它回答的是「这条边界在哪」——主题色只管颜色，0 宽边界（不可交互的接缝）不渲染它。
             - 交互装饰带（`.sash-line`）：主轴起点与厚度由 `sashBandBox` 按前后相邻的当前呈现算，
               收起边界（相邻 0px）向内贴边，不会越出分隔盒被祖先的 `overflow-hidden` 裁细；
@@ -370,14 +371,14 @@ onBeforeUnmount(() => {
 }
 
 /**
- * 静止接缝：常驻的 1 CSS px `--divider`。它标记的是**边界**本身，不是交互反馈——
+ * 静止接缝：常驻的 1 CSS px `--nb-layout-divider`。它标记的是**边界**本身，不是交互反馈——
  * 所以没有 hover / 拖动态，也不跟着 `disabled` 消失（不能拖不等于边界不存在）。
  * 位置与厚度由 `snap()` 写内联（和装饰带同一趟），这里只管颜色；0 宽边界不渲染这个元素。
- * 宿主可以经 `--nb-splitter-seam` 换颜色（例如部件之间本来就有缝、不需要线时设成透明），经 `--nb-splitter-seam-inset`
+ * 宿主可以经 `--nb-layout-splitter-seam` 换颜色（例如部件之间本来就有缝、不需要线时设成透明），经 `--nb-layout-splitter-seam-inset`
  * 让它沿长轴两端缩进（开放式分割线）。
  */
 .sash-seam {
-    background: var(--nb-splitter-seam, var(--divider));
+    background: var(--nb-layout-splitter-seam, var(--nb-layout-divider, color-mix(in srgb, CanvasText 15%, transparent)));
 }
 
 /* 一侧为零时不画：元素留着，`snap()` 照旧写几何，展开时不用重新量。 */
@@ -387,27 +388,27 @@ onBeforeUnmount(() => {
 
 /* 长轴两端：竖向的接缝（宽度轴的分隔）缩上下，横向的缩左右；装饰带照旧贴满。主轴由 `snap()` 写内联。 */
 .sash-seam[data-axis="width"] {
-    top: var(--nb-splitter-seam-inset, 0px);
-    bottom: var(--nb-splitter-seam-inset, 0px);
+    top: var(--nb-layout-splitter-seam-inset, 0px);
+    bottom: var(--nb-layout-splitter-seam-inset, 0px);
 }
 
 .sash-seam[data-axis="height"] {
-    left: var(--nb-splitter-seam-inset, 0px);
-    right: var(--nb-splitter-seam-inset, 0px);
+    left: var(--nb-layout-splitter-seam-inset, 0px);
+    right: var(--nb-layout-splitter-seam-inset, 0px);
 }
 
 /*
- * 悬停线的长轴两端：自由端按主题的 `--sash-line-inset` 缩进；连着另一条亮着的线的一端（`data-joined-*`，T 形交汇）
+ * 悬停线的长轴两端：自由端按主题的 `--nb-layout-sash-line-inset` 缩进；连着另一条亮着的线的一端（`data-joined-*`，T 形交汇）
  * 照旧到头，两条线连成一体。
  */
 .sash-line[data-axis="width"] {
-    top: var(--sash-line-inset, 0px);
-    bottom: var(--sash-line-inset, 0px);
+    top: var(--nb-layout-sash-line-inset, 0px);
+    bottom: var(--nb-layout-sash-line-inset, 0px);
 }
 
 .sash-line[data-axis="height"] {
-    left: var(--sash-line-inset, 0px);
-    right: var(--sash-line-inset, 0px);
+    left: var(--nb-layout-sash-line-inset, 0px);
+    right: var(--nb-layout-sash-line-inset, 0px);
 }
 
 .sash-line[data-axis="width"][data-joined-start] {
@@ -429,24 +430,24 @@ onBeforeUnmount(() => {
 /* 线芯：颜色、圆角与发光取主题 token；位置与厚度由 `writeLineCore()` 写成变量，没写时铺满装饰带。 */
 .sash-line::before {
     position: absolute;
-    border-radius: var(--sash-line-radius, 0px);
-    background: var(--sash-line-color, var(--accent-main));
-    box-shadow: var(--sash-line-glow, none);
+    border-radius: var(--nb-layout-sash-line-radius, 0px);
+    background: var(--nb-layout-sash-line-color, Highlight);
+    box-shadow: var(--nb-layout-sash-line-glow, none);
     content: "";
 }
 
 .sash-line[data-axis="width"]::before {
     top: 0;
     bottom: 0;
-    left: var(--nb-sash-core-start, 0px);
-    width: var(--nb-sash-core-size, 100%);
+    left: var(--nb-layout-sash-core-start, 0px);
+    width: var(--nb-layout-sash-core-size, 100%);
 }
 
 .sash-line[data-axis="height"]::before {
     left: 0;
     right: 0;
-    top: var(--nb-sash-core-start, 0px);
-    height: var(--nb-sash-core-size, 100%);
+    top: var(--nb-layout-sash-core-start, 0px);
+    height: var(--nb-layout-sash-core-size, 100%);
 }
 
 /**
@@ -458,8 +459,8 @@ onBeforeUnmount(() => {
 .sash-line {
     opacity: 0;
     transition-property: opacity;
-    transition-duration: var(--motion-fast);
-    transition-timing-function: var(--ease-layout);
+    transition-duration: var(--nb-layout-motion-fast, 120ms);
+    transition-timing-function: var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 /* 悬停满 SASH_HOVER_DELAY_MS 后才由 scope 置 revealed：从 0 渐显到 1，离开立即淡出。 */

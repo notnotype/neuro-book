@@ -1,6 +1,9 @@
 /**
- * Vue 层入口：分隔条、布局树的渲染器、拖放反馈，以及它们的组合式函数。依赖 nb-ui（主题、层级、翻译端口）。
+ * Vue 层入口：分隔条、布局树的渲染器、拖放反馈，以及它们的组合式函数。只依赖 `vue` 与 `tabbable`：主题经本包命名空间下的
+ * CSS 变量取（名字与回退的清单在 `../theme-vars.ts`），文字经 `./text` 的注入点取。
  */
+import "./global.css";
+
 export {default as Splitter} from "./Splitter.vue";
 export type {SplitterPanelConfig} from "./grid-splitter";
 export {default as NestedGrid} from "./NestedGrid.vue";

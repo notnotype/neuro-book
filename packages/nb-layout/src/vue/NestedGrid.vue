@@ -58,7 +58,7 @@ const props = withDefaults(defineProps<{
     dragging?: boolean;
     /** 浮动窗（docs/specs/ui/nested-grid.md 输出 101）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
     floats?: ReadonlyArray<GridFloatInput>;
-    /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
+    /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-layout-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
     sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
     /**
      * 写在分隔线元素上的内联样式（多半是 CSS 变量），宿主据此在线所占的那一条里画东西，例如两张拼起来的卡片之间那一条的底色。
@@ -756,9 +756,9 @@ defineExpose({
     flex-direction: column;
     z-index: 1000;
     overflow: hidden;
-    border-radius: var(--layout-card-radius);
-    background: var(--panel-surface);
-    box-shadow: var(--layout-card-shadow);
+    border-radius: var(--nb-layout-card-radius, 10px);
+    background: var(--nb-layout-panel-surface, Canvas);
+    box-shadow: var(--nb-layout-card-shadow, 0 18px 48px rgb(0 0 0 / 34%), 0 0 0 1px color-mix(in srgb, CanvasText 15%, transparent));
     pointer-events: none;
     will-change: transform;
 }
@@ -772,9 +772,9 @@ defineExpose({
 
 /* 浮动窗：矩形就是卡片，投影与圆角画在外框自身（元素自己的 `overflow: clip` 不裁自己的 `box-shadow`）。 */
 .nb-grid-frame[data-float] {
-    border-radius: var(--layout-card-radius);
-    background: var(--panel-surface);
-    box-shadow: var(--layout-card-shadow);
+    border-radius: var(--nb-layout-card-radius, 10px);
+    background: var(--nb-layout-panel-surface, Canvas);
+    box-shadow: var(--nb-layout-card-shadow, 0 18px 48px rgb(0 0 0 / 34%), 0 0 0 1px color-mix(in srgb, CanvasText 15%, transparent));
 }
 
 .nb-grid-float-chrome {
@@ -812,7 +812,7 @@ defineExpose({
 .nb-grid-float-chrome[data-moving],
 .nb-grid-content[data-moving],
 .nb-grid-sash[data-moving] {
-    transition: left var(--motion-layout) var(--ease-layout), top var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout);
+    transition: left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
     /* 位置不在 `transform` 上（见 `gridRectStyle`）；这里只是让过渡中的项各占一层，挪动时少重画。 */
     will-change: transform;
 }
@@ -824,8 +824,8 @@ defineExpose({
  */
 .nb-grid-frame[data-moving] {
     transition:
-        left var(--motion-layout) var(--ease-layout), top var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout),
-        box-shadow var(--motion-layout) var(--ease-dialog-leave), background-color var(--motion-layout) var(--ease-dialog-leave), border-radius var(--motion-layout) var(--ease-dialog-leave);
+        left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        box-shadow var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5)), background-color var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5)), border-radius var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5));
 }
 
 /* 离开了、在过渡里缩回去或滑出去的叶、它的内容与分隔线：已经不在布局里，不接指针，命中判定看到的是底下。 */
@@ -843,8 +843,8 @@ defineExpose({
 .nb-grid-content[data-moving][data-swap],
 .nb-grid-sash[data-moving][data-swap] {
     transition:
-        left var(--motion-layout) var(--ease-layout), top var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout),
-        clip-path var(--motion-layout) var(--ease-layout);
+        left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        clip-path var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 /* 手势中的窗跟手：别的布局变化正在过渡时也不带拖尾。写在 [data-moving] 后面，同样的特异性后写的赢。 */
@@ -874,7 +874,7 @@ defineExpose({
  */
 .nb-grid-content[data-by-leaf] > .nb-grid-content__body {
     position: relative;
-    top: var(--nb-grid-inset);
+    top: var(--nb-layout-grid-inset);
 }
 
 /*
@@ -889,6 +889,6 @@ defineExpose({
 }
 
 .nb-grid-content[data-by-leaf][data-anchor-right] > .nb-grid-content__body {
-    top: var(--nb-grid-inset);
+    top: var(--nb-layout-grid-inset);
 }
 </style>
