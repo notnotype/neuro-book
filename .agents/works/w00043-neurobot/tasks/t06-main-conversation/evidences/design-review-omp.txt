@@ -1,0 +1,301 @@
+### 1. 验收要求三个事项同时挂起，但初次审批阶段禁止启动嵌套调用
+
+- **严重程度**：阻断；**类别**：测试。
+- **位置**：`copy/spec-diff.patch:58,73`；`copy/plan.md:136`；`packages/nb-harness/src/kernel/run/tools.ts:428–441,668–676,706–725`。
+- **现象**：验收 16 要求同一回复里的两个调用正在等首次审批，同时已有一个嵌套同步提问。输出 79 要求同一回复的所有初次审批先结算，之后才进入任意顶层工具的执行阶段，连免审批的调用也不例外。`ctx.invoke` 到顶层工具写了 `toolStarted` 才交给工具。
+- **为什么是问题**：若用初次审批造两个等待，再等同一回复里的嵌套提问，真实内核不会走到第三个事项。直接向待办表塞三项会绕过正在验收的时序；改内核让第三项出现则破坏输出 79。
+- **如何核实**：源码上 `await Promise.race([approvalPhase(), graceOver])` 在执行循环之前；非中止路径的 `approvalPhase()` 等全部 `askUser` 返回。中止路径根本不启动后续调用。
+- **建议改法**：拆成真实运行时的两例：首次审批阶段一条 `send` 结算两个审批；工具执行阶段由允许执行的父工具发起嵌套提问。若判据必须是同一批同时结算三项，明确用同一个 `shared` 段里的两个改参重审与一个已获许可的父调用，先观察三个真实 `interactionRequested` 再发话，不改初次审批语义。
+
+### 2. `written` 之前可能是“已写下，后续反应写失败”，不能统一以 `aborted` 唤醒
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/plan.md:40–44`；`copy/spec-diff.patch:65`；`packages/nb-harness/src/kernel/run/commands.ts:63–79`；`packages/nb-harness/src/kernel/dispatch/reactions.ts:43–49,70–88`；`packages/nb-harness/src/kernel/dispatch/core.ts:314–326`。
+- **现象**：`accept` 先等 `writeAndReact`，再调 `written`。第一个 `core.write` 成功时，拒绝、输入和 `commandAccepted` 已持久化并推帧；一个 `interactionResolved` 或 `inputQueued` 处理函数产出的第二批却仍可能写失败。此时 `accept` 返回 `log-broken`、不执行 `written`；照 `resolve` 的收尾抄，已认领的等待者收到 `aborted`，重发同一 `commandId` 却从已提交记录得到成功。
+- **为什么是问题**：同一受理结果有三种说法：日志是用户 `deny` 且话已受理，首个 RPC 说失败，工具得到的也不是日志里的 `deny`。这不是同批只写了一半，而是把后续批失败当成受理批没写下。首次 `sync` 失败本身另有“结果不确定、重开以文件为准”的既有合同，也不能写成保证未结算。
+- **如何核实**：按上述调用链区分首批与反应批；用真实会话注册会对结算事件写扩展事件的反应，在 JSONL 存储端仅让该反应批失败，观察原受理批、首次回执、等待者及同键重发。
+- **建议改法**：让公共受理路径分别报告主批是否提交和反应是否失败。成功提交后按已提交状态结算等待者，保持反应先于后续运行边界；只在确定未提交时走未写下的清理，并按存储合同定义结果不确定时的回执。加“主批失败／主批成功而反应批失败”两例，不从 `written` 有没有执行推断持久状态。
+
+### 3. `owner-mismatch` 在有副作用的打开之后判，启动持有还没有归属判定
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`copy/main-conversation.md:36–42,75`；`copy/plan.md:93,96–104`；`packages/nb-harness/src/kit/sessions/table.ts:144–150,244–253,289–305`；`packages/nb-harness/src/kernel/session/session.ts:534–565`。
+- **现象**：另一个插件用门面现有的 `id` 建过 `bot-lyra`，或者状态根里留下了同名的普通会话。`ensureMain` 撞名后经视图读快照；这个查询先打开目标。冷打开在返回快照之前就可写 `profileChanged`、把原运行以 `interrupted` 收口、运行扩展挂载。重启任务则只按“主对话在库里”调用 `hold`，计划没有要求先验证归属再登记持有、发布 `ready`。
+- **为什么是问题**：即使 `ensureMain` 最终返回 `owner-mismatch`，也不满足“不改动那个会话”；若先跑启动任务，还会把正常用户会话常驻持有，给出错误状态。现有验收只预建同 id，若没在重启后核对日志与状态，看不出这两种问题。
+- **如何核实**：`snapshot` 走 `#use → #acquire → host.open`；`openSession` 在交出 `SessionApi` 前执行恢复与挂载。测试用有未收口运行或有打开时会写日志的 Profile 的同名非归属会话，冷启动后分别检查后台任务和 `ensureMain` 的结果及原日志字节。
+- **建议改法**：启动与按需建立共用“按预期归属打开／持有”；在会话存储拿锁、读取并验证权威会话头后、任何恢复写入或挂载前比较 `{plugin,id}`，已开句柄用它缓存的头比较。不把缺失或损坏的索引当成会话不存在，也不把 `session-busy` 当成已经核对了归属。
+
+### 4. `avatar` 的远程返回形状违反通道合同，合规头像也发不出去
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/bots.md:36,59–65`；`copy/plan.md:74,84–86,142`；`docs/specs/runtime/plugin-channel.md:21,117`；`packages/neuro-book/src/plugins/stickers/backend/plugin.ts:113–115`。
+- **现象**：头像预设允许到 1 MiB；`avatar` 经 `nbook.bots/bots` 返回 `{mime, bytes}`。现有合同不经远程服务传二进制；RPC 单消息上限 1 MiB，超限断开。改成 Base64 也不能兑现合同：1 MiB 输入的编码已是 1,398,104 字节，尚未算响应包络。
+- **为什么是问题**：预设验证通过不代表浏览器能拿到头像，超限还会断开同一 RPC 链接。默认 256×256 WebP 小不能证明第三方预设可用。
+- **如何核实**：对照通道的非目标与输出 2；表情包插件已把图片交给 HTTP 路由而不是 `provideRemote` 的业务响应。验收用真实通道取一张接近上限的合法图片，并检查未知 bot、文件在建好后缺失时的返回码。
+- **建议改法**：远程口只交回同源、有期限的资源地址与必要元数据；照既有 HTTP 资源边界处理路径、媒体类型和大小。把失败语义与资源过期时怎么重取写进 Spec。
+
+### 5. `activate` 返回不是发布完成，零延时任务会早于缺省预设
+
+- **严重程度**：重要；**类别**：生命周期不变量。
+- **位置**：`copy/plan.md:84–94`；`copy/bots.md:51,77–78`；`packages/nb-runtime/src/plugins/host.ts:1139–1149,1247–1316`；`packages/neuro-book/src/plugins/stickers/backend/plugin-roots.ts:24–38`。
+- **现象**：插件函数返回后，平台还要核对产出、接通接收方、等 `prepare`、发布并调用 `published`。微任务必能在这条链结束前运行，`clock.schedule(0)` 也可能越过仍在等的 `prepare`；照表情包异步解析包目录的写法，`published` 返回也不等于预设核验结束。后台一次性发现“缺省预设没登记”后，预设稍晚成功时没有触发重试。
+- **为什么是问题**：全新状态根可能只剩 `bots.default-preset-missing`，正常安装也不建 `lyra`；`ensureMain` 所等的初始化又没有明确的终局。把后台逻辑放回 `activate` 则遇上 `beforeOpen` 等 `onAgentSession:open` 的既有等待环；仅仅异步发起且激活不反等后台任务，本身不构成环。
+- **如何核实**：用真实插件宿主的接收方 `prepare` 门闩扣住发布，观察后台是否先跑和默认预设是否可见；用真实应用的首启场景独立核对启动门禁不等待 bot 的 I/O。
+- **建议改法**：首启显式依赖经校验的默认预设完成信号，区分“正在加载”和“确定缺失”，不要靠改微任务为计时器碰时序。若内置默认预设可直接核验，先把其核验与首次初始化从通用接收回调解耦；否则给 `nb-runtime` 加受代次和停止信号约束、非阻塞发布的激活完成钩子，预设接收者还需单独报告核验终局。
+
+### 6. 冷打开遇到缺失 Profile 会跳过中断恢复，`restoreProfile` 可把崩溃当成正常暂停
+
+- **严重程度**：重要；**类别**：恢复正确性。
+- **位置**：`copy/main-conversation.md:53,65,87–89`；`copy/plan.md:105`；`packages/nb-harness/src/kernel/session/session.ts:306–335,548–564`；`packages/nb-harness/src/kernel/run/control.ts:121–124`；`packages/nb-harness/src/kernel/run/commands.ts:153–179`。
+- **现象**：进程在运行等审批时退出；重启时原用户 Profile 解析不到。`openSession` 在只读分支不做 `recoveryDrafts`。`restoreProfile` 只走 `changeProfile`，可清除只读，却不会补 `interactionResolved{interrupted}`、`runEnded{interrupted}` 或把就绪输入转成留着。下次普通 `send` 见「日志里有运行、内存里没有」，当成回退造成的暂停，写 `runResumed` 继续原 run；旧的同步事项只有日志、没有等待者。
+- **为什么是问题**：违背“恢复时按 `interrupted` 收口、之后等用户明确继续”；旧审批可能还在路径上，不能用正常暂停语义和新审批混着处理。现有验收的“删 Profile 后重启”若上一轮已完成，看不见差异。
+- **如何核实**：同一真实日志上组合两个边界：运行已发出 `interactionRequested` 时终止进程、重开时该 Profile 缺失；换回可用 Profile 后核对旧运行、旧事项与缓冲区，再发一句核对 run id。不要用把当前 `run` 字段手填成暂停的替身。
+- **建议改法**：决定在只读打开时提交纯内核恢复批，还是等首次解除只读时、在任何新指令可受理前提交；后者必须保留“崩溃待恢复”与 `leafChanged` 真暂停的区别。两个分支都不用旧 Profile 的反应执行来完成恢复。
+
+### 7. 只有会话头的半成品能被 `ensureMain` 当成已建成
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/main-conversation.md:36–42,87`；`copy/plan.md:96–103,142–143`；`packages/nb-harness/src/kernel/log/jsonl-store.ts:179–203`；`packages/nb-harness/src/kernel/session/session.ts:126–133,498–509,548–556`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:293–303`。
+- **现象**：确定性 id 的 `session.jsonl` 先发布会话头和空索引，再写 `sessionCreated` 与初始 `profileChanged`。在这个窗口被杀，重试 `create` 得 `session-exists`，`open` 只补 `profileChanged{reason: "code-updated"}`。即便归属核对正确，`hold` 也能交回成功；初始输入读成 `null`，没有 `sessionCreated`，Agent 层按 Profile 初始化审批模式的步骤也不再经过。
+- **为什么是问题**：同一个 `ensureMain` 在正常建成和中途退出重试时交回同一个 id，却可能得到不同的会话初始状态；持有成功后不会再走创建。计划的 bot 文件孤儿夹具与错归属夹具都不覆盖这个窗口。
+- **如何核实**：实现 worktree `f5f642cd5` 的 `nb-harness` 中执行 `bun test /tmp/t06-design-review/kernel-probes.test.ts`。真实 JSONL 存储完成原子写头后挡住首个事件批的写入，收到标记即 `kill -9`；文件只有一行，重开成功，日志事件恰为一条 `profileChanged`，没有 `sessionCreated`。实验验证现有内核，`ensureMain` 的结果按草稿推导。
+- **建议改法**：在存储锁下把头与创建初始批作为同一个可发布单元，或定义可判定的“未初始化”状态，让同一建会话请求补齐初始化后才允许 `ready`；别把只有头的普通 `open` 当作创建成功。把初始审批默认值纳入初始化合同，测试在头与首批之间被杀后恰好初始化一次；保留 fork 对未完成复制批的专门恢复。
+
+#### 第 1、2、6 条的运行证据
+
+- 实现 worktree `f5f642cd5`，`nb-harness` 中 `bun test /tmp/t06-design-review/kernel-probes.test.ts`：4 通过、0 失败。使用真内核、JSONL 和文件锁；模型是脚本替身。第 1 条先观察到两个初审且零工具开始；依次放行、改参后观察到两个复审加一个嵌套同步提问，逐条拒绝后嵌套收到 `declined`。证实复审夹具可用，不是对尚未实现的 `settlePending` 测试。
+- 第 2 条用真实 `resolve` 的反应追加批注入 `ENOSPC`：日志已有 `deny` 和 `commandAccepted`，首次调用得 `log-broken`，工具却收到 `aborted`。同 id 原句柄与重开后均 `replayed: true`；原句柄只对已归约的受理记录可重放，不接受新的受理。
+- 第 6 条真实运行等审批并排了一条话后 `kill -9`；缺原 Profile 冷打开，`changeProfile` 后剩话仍 `ready`、旧事项无结算，`send` 写 `runResumed`，沿用旧 run id。严重程度不变，类别归“正确性”。
+
+### 8. 后代过滤把可重建的两个索引当成完整的归属图
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`copy/plan.md:63,139`；`copy/spec-diff.patch:26,93–94`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:200–211,275–289,293–296,346–349`；`packages/nb-harness/src/kernel/log/jsonl-store.ts:244–254,290–303`。
+- **现象**：方案从同一份 `list` 结果取归属根，再按 `relations.rootOf` 过滤后代。若按现有 `background:false` 等条件取索引，后台且有归属的根已被滤掉，前台子会话仍会进列表。即使先取全量，崩溃或索引写失败也可留下“根日志在、索引不在”；列表漏掉根、却列出子会话。中间祖先索引缺失时，启动关系表缺边，之后冷开重建索引也不会补关系表。子会话的 fork 保留 `caller`，而 `forked` 回调现在不等索引读完就交回成功，也有窗口。
+- **为什么是问题**：`list` 的可见性随过滤参数、重启后的索引完好性或 fork 时序改变，用户在正常列表中又看到不应出现的后代；不是读取权限问题，按 id、活动与在跑工作应保留。
+- **如何核实**：用真实派发建前台子会话，根同时有 `owner` 与 `background`；另在临时状态根缺少根或中间祖先的缓存索引后重启、再重开该祖先，检查列表。子会话 fork 返回后立刻 `list`，不等待后台关系登记。
+- **建议改法**：先按完整归属图判断可见性再应用筛选。以会话头的归属和父链为真相，完整索引走快路径；链断时有明确的从头补查或不列该项规则，重建索引时同步补关系，不为此完整打开会话。不要给直接 fork 根会话的新根继承 `owner`。
+
+### 9. 只在读取快照时认主，会把可变视图对象带进归属与发出者判定
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`copy/plan.md:31–37,53–64,98`；`copy/spec-diff.patch:22,24,27`；`packages/nb-harness/src/kernel/session/session.ts:340–346`；`packages/nb-harness/src/kernel/dispatch/core.ts:134–136`；`packages/nb-harness/src/kit/sessions/table.ts:134–150`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:481–497`。
+- **现象**：`snapshot()` 把 `core.header` 原对象交回同进程调用方，而视图的 `issuer` 也是指令闭包使用的同一个对象。草稿加了靠这两者决定是否 `owned-session`、是否允许接续的逻辑，却没有冻结、复制或隔离。JS 调用方可原地修改快照的归属（或已盖章视图的 `issuer.source.plugin`），导致会话头落盘值、索引、运行中权限三者不同；只拦 `as` 与 `create` 参数不够。
+- **为什么是问题**：运行中的归属应只由创建时权威会话头决定；插件门面不能把权限判断正在用的对象当成普通返回值交出。重开又恢复磁盘值，问题只在缓存热的句柄上出现。这里要求维护 API 不变量，不把同进程 JS 插件描述为沙箱隔离。
+- **如何核实**：经真门面取快照与宿主视图，尝试修改 JS 返回对象，再读另一视图与日志。实现后另验证修改失败或仅影响副本，`owner`、指令署名及 `refuse` 结果不变。
+- **建议改法**：运行入口先校验并构造自有的归属值，再固化权威头；查询与 `ToolSessionContext` 只暴露不可变值或副本。盖章时固化发出者及嵌套 `source`，不把可变对象当授权凭据。TS `readonly` 不是运行时保证。
+
+#### 第 1 条（收窄，严重程度改为建议）
+
+验收 16 原文只说“等审批”，没有要求是第一次审批；`f5f642cd5` 的真实内核已证实改参复审能构造同答复、同一时刻的三事项。因此不是验收不可达。保留的建议：在 `plan.md:136` 写明 `shared` 段内两次改参复审加一个嵌套提问的夹具；用独立一例覆盖多项初审。不要用直接灌待办的替身，也不为让验收成立改输出 79。
+
+### 10. 缺省 bot 的复制与记录提交之间没有可重试的发布协议
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/bots.md:23,48–53,67–73,81`；`copy/plan.md:70–82`；`docs/specs/storage/persistence.md:108–113,127,129–138`。
+- **现象**：草稿规定复制到最终 `<bot id>/` 后才提交记录，复制失败下次重试；碰撞时追加短后缀，却没定义“碰撞”是有效记录还是遗留目录。复制到一半被杀、提交未发生，磁盘已有半棵目录；换了预设文件名或删除了一份记忆再重试，原地覆盖会混进旧文件，拒绝覆盖会卡死，按目录碰撞换 id 会留下孤儿目录。保存的 `unknown-outcome` 也不能直接当作没建。
+- **为什么是问题**：首次启动后的 bot 可能不是任何一代预设的完整副本；同一个缺省 bot 的 id 和重试结果取决于崩溃点，且后续“已建不再回填”会锁定错误现场。
+- **如何核实**：逐点注入中断：复制一半、完整目录已交付但记录未写、保存返回 `unknown-outcome`；第二次启动前修改预设，核对恰好一条记录指向一套完整文件，并核对已有记录下用户改过的文件不变。现有仓库有暂存再发布的例子（`packages/neuro-book/src/plugins/stickers/backend/editor.ts:399–416`、`packages/neuro-book/src/plugin-platform/backend/inventory.ts:224–248`），但单做 `rename` 仍不能和 SQLite 记录一起提交。
+- **建议改法**：先给出确定的缺省 id 与唯一创建者，用同根暂存目录复制完整一代；定义改名后未提交时由谁识别、续交或重建，绝不把未知目录当暂存删掉。以条件保存和权威记录重读确认结果；`corrupt`、`unsupported-version`、读取失败不能当记录缺失。
+
+### 11. 认领后、主批写入前开始关闭，日志会留一个永远无人答的同步事项
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/plan.md:40–45,166–169`；`copy/spec-diff.patch:65`；`packages/nb-harness/src/kernel/run/{interaction.ts:65–89,165–184,commands.ts:63–75,loop.ts:121–135}`；`packages/nb-harness/src/kernel/session/session.ts:787–801`。
+- **现象**：拿走等待者后，`accept` 还有 `await decide()` 与 `host.closed()`；关闭可在两者之间触发中止。中止方已找不到等待者，受理方又因 `session-closed` 不写主批。照 `resolve` 的兜底只把工具唤成 `aborted`，不会写 `interactionResolved`；正常收口后再次打开也不补它。和第 2 条不同，这是主批确定没写且日志仍可写。
+- **为什么是问题**：磁盘上有 `interactionRequested` 和 `runEnded{interrupted}`，没有这个事项的结算；重开用新键应答竟得 `already-answered{decision:"aborted"}`。若 `send` 照抄这个所有权转换，用户的话被拒绝时，正常关闭仍留下悬空事项。
+- **如何核实**：在 `f5f642cd5` 用真实内核和 JSONL，工具进同步等待后调用 `resolve`，紧接下一个微任务调用公开的 `closeSession(...,{reason:"interrupted"})`；没有直接调 `claim` 或伪造待办。`bun test /tmp/t06-design-review/interaction-order-probes.test.ts` 的本场景通过。补同序的 `send` 回归，并检查重开后所有等待者和结算事件。
+- **建议改法**：认领后主批未写且日志可写时，把结算权交还中止方（保留实际停止原因），或者让收口批兜底处理当前运行仍未结算的同步事项；已提交时仍按第 2 条处理。不能只用 `finally` 唤醒代替日志收口。
+
+### 12. 等到 `onStop` 才取消任务，停止后仍可重试并留下迟到的持有
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`copy/plan.md:91–94,101–103,166–168`；`copy/main-conversation.md:42,63–65`；`packages/nb-runtime/src/plugins/host.ts:1093–1101`；`packages/nb-runtime/src/lifecycle/scope.ts:829–832`；`packages/nb-runtime/src/services/composition.ts:565–569,603–619`；`packages/neuro-book/src/plugins/agent/backend/plugin.ts:197–199`。
+- **现象**：计划知道迟到的持有要放，但写成用 `onStop` 停任务，且认为消费方先于提供方“停”。依赖图只保证按依赖顺序释放资源，不保证停止信号、无依赖的 `onStop` 和门面释放的顺序。`nbook.agent` 已在自己的停止信号上开始收口。若 `hold` 作废后才取得引用，一次性清空已返回的 token 无法覆盖它；若只停计时器，已开始的重试仍能拿句柄或排下一个计时。
+- **为什么是问题**：仅停 bot 的入口时，Agent 保持运行，漏掉的引用不会因 Agent 整体停止被清掉；整应用重启只测日志锁是否释放，不能捕获这种泄漏。
+- **如何核实**：`f5f642cd5` 真插件宿主的 `lifecycle-probes.test.ts`：发起 `app.stop()` 后信号已触发、`onStop` 尚未运行；推进注入时钟 5 秒，计时仍成功调用原门面。另需在实现里只停持有方（包括激活失败），让冷打开在作废后返回，再推进 30 秒验证释放文件锁；还要验证停止后不排 5 秒重试、不推状态。
+- **建议改法**：当 `context.signal` 触发时同步封住新工作和再次排程；`onStop` 等已接纳工作并收资源。`hold` 门面的异步返回点检查本代次是否已释放，在同一同步段交付登记或直接退还引用；供应方停止也检查，区分业务失败和门面作废。初始化可复用 `Scope.acquire` 对迟到资源的收口，而不是增加一个靠顺序碰巧成立的清空回调。
+
+### 13. 源码能找到星璃资源，不代表发布包里有它
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/bots.md:43,49–51`；`copy/plan.md:73,83–90,106–111,142–154`；`packages/neuro-book/src/plugins/stickers/backend/builtin-root.ts:12–21`；`packages/neuro-book/scripts/pack-app.ts:248–255,268–284`；`packages/neuro-book/scripts/pack-app.test.ts:53–59,82–90`。
+- **现象**：计划把 `persona.md` 与 `avatar.webp` 放源码 `builtin/lyra/`，运行时按包根读文件，却没加入发布包。`pack-app` 只复制 Web 产物、文档和内置表情包等显式资产，不复制 `src/`；模拟安装的测试也只核对文档与表情包。照稿走，源码测试与开发服务通过，安装包在干净状态根找不到缺省预设，不会建星璃。
+- **为什么是问题**：首次安装正是缺省 bot 必须建立的路径；开发 smoke 不能代替安装形态验收。
+- **如何核实**：静态核对发布文件白名单及查找路径；实施时扩展解包测试，从解出的 `server/` 定位两份资源并核对文件可读。此次未打包。
+- **建议改法**：选择一种发布形态：沿用表情包的打包复制、白名单和相对查找，或把这两个固定文件显式嵌入产物；不能仅加 `packageRootOf`。源码和安装形态共用解析合同。
+
+#### 第 5 条补证：贡献可用、入口发布、应用门禁是三个时点
+
+`f5f642cd5` 的 `lifecycle-probes.test.ts` 走真实 `createApplication`：暂缓接收者 `prepare` 时，微任务与零延时计时都读到预设未就绪。放行后入口 `available`、预设已就绪，必需 `check` 仍挂着，`admission` 仍是 `closed`，外部 `admit` 尚未执行业务。平台合同允许初始化先有落盘副作用，不据此判缺省 bot 一定要等接纳；计划应明确这是初始化副作用还是接纳后任务，不能把三个时点当一个。
+
+上游取舍：`agent/contributions.md` 输出 2–3 的限制有现存理由：开会话必须等可用装配，入口只有整批 `prepare` 后才发布（`runtime/plugins.md` 输出 5、16–18）。直接跳过本入口会让第一个会话漏掉它的扩展。若多个入口需要这类工作，可在平台加不参与激活等待的逐代发布后任务，明示停止信号、未开始时取消与在途收口；代价是改 `nb-runtime` 合同和测试。t06 可只等缺省预设的受管结果并从明确的已发布时点调会话，不必改接纳事务。未在这些 Spec与当前平台入口中找到现成的通用入口发布后回调。
+
+### 14. 接续权限拟共用一个判断，但 `start` 与 `resume`／`release` 的合同不同
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`copy/README.md:33`；`copy/plan.md:37,135`；`docs/proposals/agent-input-buffer-states.md:76–84`；`docs/specs/harness/runtime.md` 输出 4、36、42、105–108；`packages/nb-harness/src/kernel/run/{permissions.ts:47–53,commands.ts:153–168,222–231,257–271,275–305,interaction.ts:143–157,tree.ts:70–83}`。
+- **现象**：草稿只说匹配 `header.owner.plugin` 时允许 `canContinue`，只测 `start` 的两格。`resume` 与 `release` 会经同一个 `continueDrafts` 优先接续旧运行；按草稿加条件，有归属宿主先 `resume` 或放行自己的一条输入时，会接续用户先前的中断运行，而不是仅用自己的话开新运行。输出 106 一处引输出 4，另一处说宿主不接续别人开的；缓冲提案明确把 `start` 的归属例外和 `resume` 分开。输出 108 的“或”也不能读成越过用户停止。
+- **为什么是问题**：原定搁置的是自动动作，不是权限；但接续会让模型按原轮内容继续，不能只为复用判断顺带授给其它指令。是否允许按调用指令定，归属不改变放行或中止的权限。
+- **如何核实**：对照真实调用链；实施用用户开的、最后一轮未完成的 `interrupted` 运行区分 `start` 与所有放行方式，另做用户 `abort` 后的 `start`，核对输入的 `runId`、`by`、仍 `heldBy` 用户的条目和日志是否变化；另保留非 owner 与普通会话。`rewind{resend}` 在 NeuroBook 服务层仍应先拒绝。
+- **建议改法**：先统一输出 4、36、106、108 中归属例外在哪些命令生效；按已接受缓冲提案保守地只给明确接续入口，不隐式扩大放行。先判 `stoppedBy.kind === "user"` 再比发出者。可信门面盖章后插件 id 足以作该会话的宿主身份；`owner.id` 是插件对象 id，不与 `label`、`ref` 比较。
+
+### 15. 持有后的只读状态可随重装变化，只在 `hold`／`restoreProfile` 读一次会过期
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/main-conversation.md:43–59,89`；`copy/bots.md:60–63`；`copy/plan.md:101–105,143`；`packages/nb-harness/src/kernel/session/{session.ts:696–752,agent-host.ts:109–114}`；`packages/neuro-book/src/plugins/agent/backend/{profile-bundles.ts:84–90,profiles.ts:48–59}`。
+- **现象**：持有期间删除当前用户 Profile 或撤回扩展，内核可随重装进入只读；补回后又可解除。计划只在持有成功和 `restoreProfile` 后更新状态。仍能经现有会话 API `changeProfile`，也不经过 bot 服务。丢 Profile 和同哈希恢复都可以不写 `profileChanged`，仅监听日志事件或目录变化不能证明重装已结算。冷打开就只读的占位则明确跳过普通重装，不能按热丢失一样推 `ready`。
+- **为什么是问题**：`list()` 和 `botsChanged` 可以仍报 `ready`，但发送得 `read-only`；也会一直报只读而会话已能发。保留引用让这个错误不再靠闲置关开纠正。
+- **如何核实**：从代码核实状态读写和通知时点；未运行 `nbook.bots`。验收加持有中丢失／补回用户 Profile 或依赖、另一个客户端 `changeProfile`：每次以重装最终快照和后续命令为准，`list` 与已订阅客户端收敛；另测冷只读只在规定的恢复路径后变可用。
+- **建议改法**：把可用性和原因的变化在内核真正结算时发出，由持有代次订阅并更新；不要靠推断诊断或目录通知。若此处不打算提供实时可用性，须缩窄 `ready` 与 `botsChanged` 的合同并说明读者怎样得知当前只读，不能两者都承诺。
+
+### 16. 预设的去重与文件校验不等于平台的声明校验
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/bots.md:30–48`；`copy/plan.md:83–86,142`；`docs/specs/runtime/plugins.md` 输出 15、23；`packages/nb-runtime/src/plugins/{host.ts:839–853,892–929,1351–1385,1550–1566,owner-contribution-points.test.ts:202–203}`；`packages/neuro-book/src/plugins/stickers/backend/plugin-roots.ts:24–38`。
+- **现象**：草稿要求重复 id 按平台规则“只留一个”，平台却给重复项全报 `duplicate-contribution`，甚至先查重复，再查插件前缀。`validate` 同步、只看声明；文件存在、大小与逐段查路径属于另一阶段。按表情包的 `published` 异步准备，声明仍是 `accepted`，且文件读完之前就可能查；TypeBox 拒绝的声明也不会到接收者，不能都在那里发 `bots.preset-invalid`。
+- **为什么是问题**：文档里的“登记”没有唯一含义；相同的清单可在平台目录显示接受却没有可用预设。一个来自错误命名空间的重复声明也可使缺省 id 被拒，不能说“缺省 bot 照常建”覆盖此情形。这是故障隔离，不是恶意插件的安全隔离。
+- **如何核实**：对照重复贡献现有断言和宿主校验顺序；验收至少区分结构无效、文件不合、重复缺省 id。不要以先后登记选胜者。
+- **建议改法**：按平台命名及重复规则写合同；用一个规范 id（删声明内重复的 `id`，或验证与外层完全相等）。明示“已接受声明”与“可用预设”两张表及各自诊断，文件只在受管的准备阶段核对，准备失败不进可用表。若要求非法前缀的贡献不能影响别人的合法 id，改上游先筛自身无效声明再判冲突，需评估所有贡献点的诊断语义；不要在 bot 接收者里实现一个悄悄的优先级。
+
+### 17. 门面作废不传到返回的会话视图，旧代次保留宿主接续权
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`copy/plan.md:37,53–65,138`；`copy/spec-diff.patch:22–27`；`docs/specs/runtime/services.md` 输出 12–13；`packages/neuro-book/src/plugins/agent/backend/{agent.ts:480–501,plugin.ts:203–205}`；`packages/nb-harness/src/kit/sessions/table.ts:134–150`。
+- **现象**：平台撤销的是门面和从门面取出的方法；`agentFacade` 返回的 `guarded` 视图是展开后的独立对象，只重盖 `as`，方法直接进仍运行的会话表。计划给归属宿主新权力，旧视图仍可使用原插件 id；只释放 `hold` token 也不撤掉视图自己建立的订阅引用。重新激活同 id 时，旧视图和新视图的日志发出者相同。
+- **为什么是问题**：仅停调用方的操作本应停止该代次的工作；当前逃逸对象还能代表已停入口发命令、重新开会话。这个问题不是允许插件显式 `asUser` 的权限，也不是第 9 条的可变字段问题；不需要篡改对象。归档／回退若在 kit 层集中拦，逃逸视图仍经过 kit，不是绕过 `owned-session`。
+- **如何核实**：`f5f642cd5` 的 `agent-facade-probes.test.ts` 走实际 `agentWorld`。只停消费者后，门面与已取出的 `create` 抛 `ServiceRevokedError`；先前返回的视图再 `as` 仍盖原插件章，`enqueue` 成功，另一门面读到持久的 `held` 条目。真实 JSON 链路拒绝远程 `create` 多传的 `owner`。归属 `start` 尚未实现。
+- **建议改法**：明确视图、`as` 派生物与订阅的寿命；凡带由门面签发的发出者，都用同一代次的门禁，按依赖顺序清理仍可调用，释放后拒绝新调用及派生、关闭订阅并归还引用。无需让通用服务代理深递归处理任意返回值。在验收里只停消费方，并用旧方法和派生视图重试，别只停整个应用。
+
+### 18. 首启 smoke 跳过 `ensureMain`，把尚未创建当成 `ready`
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`copy/plan.md:143,150,153`；`copy/bots.md:51,78`；`copy/main-conversation.md:36–49,55,87`；`copy/README.md:38`。
+- **现象**：干净状态根首启只建 Lyra 记录；后台任务只持有已存在的主对话。在它建立前，`list()` 合法交回空列表；建立 bot 后、不调用 `ensureMain` 时应是 `main: none`，没有 `bots.main-opened`。计划却在首次启动直接期待 `ready` 和打开耗时。用有缓存的开发状态根会掩盖矛盾。
+- **为什么是问题**：验收照字面跑会错判，或反向逼实现把惰性创建变成启动副作用。只量空日志或已持有的重复请求也不能验证 2 秒告警。
+- **如何核实**：对照三份草稿的时序；`SessionSnapshot.head` 是受理后的日志尾 `seq`（`packages/nb-harness/src/kernel/session/session.ts:340–347`），不必读取日志分页。此次没起服务，也没有长日志耗时数据。
+- **建议改法**：分三段验收：用全新状态根等 `list` 出现 Lyra，断言 `none`；经真实远程调用 `ensureMain` 后断言 `ready`、持有与指标；原状态根重启，不再调 `ensureMain`，断言后台重新持有。用确定时钟让冷 `hold` 恰过 2,000 毫秒，核对警告与尾 `seq`；不要把排队、重试间隔、热命中或重装耗时标成冷打开耗时。长日志能力未量就标未验证。
+
+### 19. 复用主创工具表会带进一个没装依赖的必需工具
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/bots.md:50`；`copy/plan.md:88,143`；`packages/neuro-book/src/plugins/agent/backend/builtin/profiles/main.ts:15–27,75–88`；`packages/neuro-book/src/plugins/agent/backend/permissions/modes.ts:23–27,52,75–82`。
+- **现象**：主创把 `nbook.agent.switch-mode` 列作必需，并在 Profile 自己的 `extensions` 里装 `modesExtensions`。只复用工具清单和新写的岗位提示词不装这些扩展，工具调用 `read(modesContract)` 即得不到 mode，返回 `mode-unavailable`；Profile 目录只检查工具声明是否存在，仍可报可用。主创已把 `shell` 列为可选，“加 shell”没有说明是把它变必需还是继续允许用户移除。
+- **为什么是问题**：开会话和发普通消息的验收全绿也无法说明岗位工具可用。把 `shell` 再添进 `required` 还会改变主创的绑定语义。
+- **如何核实**：跟读 `mainProfile` 的装配和工具执行入口；此次岗位 Profile 未实现。用脚本模型在主对话真正调用 `switch-mode`，应进入询问或给出合法的同模式结果，不能把工具声明出现当作通过。
+- **建议改法**：在新岗位 Profile 复用对应的模式扩展和工具表，不复用主创提示词；沿用现有的 `shell` 可选且缺省装入，除非开发者明确要禁止去掉。不要为互不相干的 Profile 强行全局挂载模式扩展。
+
+### 20. `ensureMain` 先建再看 `session-exists`，会因旧预设 Profile 缺失而打不开已有主对话
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/plan.md:96–105`；`copy/main-conversation.md:36–42,49–54`；`packages/nb-harness/src/kernel/session/session.ts:476–498,534–541`；`packages/nb-harness/src/kernel/log/jsonl-store.ts:179–191`。
+- **现象**：`agentKey.create` 先解析传入的 Profile、装配并校验初始参数，之后才查会话 id 是否已存在。记录里的原始 Profile 不再可用时，每次 `ensureMain` 都会先得 `unknown-profile`，到不了 `session-exists`／`hold`；即使该会话已经换到另一个可用 Profile，并已持有，也不例外。原始 Profile 还在但现在装配失败或要求新初始字段，同理。
+- **为什么是问题**：已有会话的打开应按最后一次 `profileChanged`（可能只读），而不是重新验证首次创建条件。计划会让调用方拿不到已有会话 id，也可能把 `list` 的正常状态翻成失败。
+- **如何核实**：对照内核的实际调用次序；验收用原 Profile 被撤回、会话已换到另一个 Profile 的主对话，热的、重启后冷的各一条。另测当前 Profile 也缺失时仍打开为只读，不造新会话。
+- **建议改法**：已有持有直接复用；否则先按期望归属打开（见第 3 条），只有权威存储确实无该会话才用记录里的 Profile 创建；创建遇到竞态的 `session-exists` 再走同一打开路径。不能把索引没找到或打开失败一律当作不存在。
+
+### 21. 预设 id 的后缀直接成目录名，平台前缀规则没约束它是安全、合法的文件名
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`copy/bots.md:33–39,43,48,53–55`；`copy/main-conversation.md:36`；`packages/nb-runtime/src/{plugin-manifest/schema.ts:34–41,plugins/host.ts:839–845}`；`packages/nb-harness/src/kernel/log/validate.ts:12–14`；`packages/neuro-book/src/plugin-platform/backend/{packages.ts:21–25,33–51,plugin-files.ts:36–56}`。
+- **现象**：平台只验非空及命名空间前缀，不验后缀可作目录段。按草稿去掉前缀，`example.pack...` 得 `..`；`bot-` 加 125 字符后缀得 129 字符，又超过会话库的 128，可能先复制并记下一条永不能开主对话的记录。保留发布者的贡献甚至可能没有完整插件前缀可剥。另有契约缺口：`packages.directory` 不能找普通文件或包根，`persona: "persona.md"` 在稿里合规，按所选接口无法逐段解析它。
+- **为什么是问题**：验证源文件不越界不能替代验证目标目录。前缀或路径接受后再在会话库报错，来不及防止已有落盘副作用。
+- **如何核实**：静态核对前缀检查与派生规则。实施用包根文件、含目录边界的 id、过长后缀、大小写冲突和带 `-2` 的边界做测试，失败时无记录及越界写入；复制 `memorySeed` 时也要递归拒绝链接和非普通文件，写明总字节数／文件数边界。
+- **建议改法**：分开定义贡献 id 和 bot id；在落盘前核对后者是跨平台的单段、拼完冲突后缀仍能作 `bot-<id>`。插件包查询复用 `entryInside` 扩一项可按相对路径查文件的合同，不走字符串拼接；允许根级文件但不允许路径越界。第一版只从一个固定 id 创建，不必提前把任意后缀用作落盘路径。
+
+### 22. `restoreProfile` 没有重发键，也没列全 `changeProfile` 的结果
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/main-conversation.md:31,53,71–78`；`copy/plan.md:105,143`；`docs/specs/runtime/plugin-channel.md:85–95`；`packages/nb-harness/src/kernel/{api/codes.ts:26,run/commands.ts:57–59,session/session.ts:306–334}`。
+- **现象**：稿子只有 `restoreProfile({botId})` 与一个 `unknown-profile` 结果。内核切换还会拒绝 `running`、`dependency-missing`、`dependency-cycle`、`profile-invalid` 等。未声明的业务码在通道上变 `provider-error`。此外，切换已提交、回包丢失时得 `unknown-outcome`；若重试生成新键，而另一窗口已改到不同 Profile，重试会再改一次。若给 bot 固定一个键，下一次真正需要恢复又只会重放旧结果。
+- **为什么是问题**：恢复按钮不能把暂时忙、Profile 损坏和未知提交结果都当成“缺预设”；多窗口恢复也不能覆盖另一窗口已完成的切换。
+- **如何核实**：静态核对命令与通道合同。验收在真实 JSON 链路上断开已提交的调用，另一视图改 Profile，再用原键重发：不新增切换事件且不覆盖后来选择；新恢复意图用新键。另测 `running` 与装配失败，旧状态不变。
+- **建议改法**：在远程写方法收 `commandId`（同 Agent 会话方法）并透传；明确前置会话不存在时怎么处理，列全打开与切换的失败码，把 `unknown-outcome` 与确定失败分开。重放返回原操作结果，当前状态仍以现时快照为准。
+
+#### 第 3 条补充：冷会话上的拒绝也不能先走普通打开
+
+`copy/spec-diff.patch:27` 对 `rewind`、`switchBranch`、`archive` 承诺“不进内核、不写日志”。`copy/plan.md:54–65` 的 `refuse` 若放在 `#use` 的成功回调，冷路径已触发 `beforeOpen`、日志尾修复、`profileChanged` 或恢复；带 `owner` 的会话即使没被持有也应拒绝。冷打开与热句柄都要在副作用前核对权威会话头；回归用有旧装配或未收口运行的真实冷日志，断言拒绝前后字节一致，不能只测持有中的热视图。`as` 只派生视图，三个受限命令仍从 `SessionTable.view` 进入；`fork` 走单独的钩子是允许行为，不能误拦。`owned-session` 应进入这三个服务视图方法的结果类型和远程错误表；用 `(command: string) => string` 配强制类型转换会漏掉 TypeScript 门面合同。
+
+### 23. “只收用户”与同键重发的先后需要写清，验证应覆盖重开后换发出者
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`copy/spec-diff.patch:65`；`copy/plan.md:39–44,136`；`docs/specs/harness/session.md` 输出 17；`packages/nb-harness/src/kernel/run/commands.ts:49–65,89–101`。
+- **现象**：计划把权限检查放在 `decide`，但内核在它之前按会话、指令名和参数哈希重放，不比较发出者。同键先由用户成功，换宿主重发，按现状可得到原回执，和“别的发出者得 `not-allowed`”的字面不同；不会重复结算。本段“照输出 17”也应链接 `session.md`，`runtime.md` 的输出 17 是工具切段。
+- **如何核实**：`f5f642cd5` 的 `replay-probe.test.ts` 使用真 JSONL：新宿主拒绝得到 `not-allowed`，用户受理并重开，宿主拿同键同参数得到 `replayed: true`，日志尾不变。测的是现有 `resolve` 和共享的重放入口，不是尚未实现的 `settlePending`。
+- **建议改法**：明确是“用户才能新受理，合法重复按现有会话键重放”，还是“任何非用户的带选项调用先拒绝，连回执也不重放”。前者不改变幂等合同；若选后者，在查重发之前检查，并测试先后两种情况。另补映射里的 `input-rejected` 与 `input-stale`：用真实拦截或缓冲区条件失败后再应答原事项，断言没有部分受理，而不只看失败码。
+
+### 24. 光在日志阅读器校验 `owner`，创建仍可能写出自己打不开的日志
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/plan.md:30–35,60,133,137`；`copy/spec-diff.patch:108–109`；`packages/nb-harness/src/kernel/{session/session.ts:476–499,log/jsonl-store.ts:179–203,log/validate.ts:28–34,93–117}`。
+- **现象**：草稿明确让 `createSession` 照写、`log/validate.ts` 校验两段。后者由日志读取器走，创建只调用 `store.create`，它现只验会话 id，直接序列化会话头。合法 TypeScript 调用能传 `{id: ""}` 或 129 个字符；若只落实阅读端校验，创建和热视图成功，冷打开才判 `log-corrupt`。盖章只验证来源，不会自动限制 `owner.id` 的值。
+- **为什么是问题**：一次已经成功的创建不能留下下次打开报损坏的会话；这不是旧日志兼容问题。
+- **如何核实**：静态核对真 JSONL 的读写路径；至少测空字符串、超长、不合形状、边界 128 与旧头无归属，非法创建后不存在会话日志。明确“字符”的计数单位，使创建和重开一致。
+- **建议改法**：同一 `owner` 校验复用在创建入口及读取端；创建在解析 Profile、写头前返回有类型的输入错误，不落盘；读到无效持久头才报 `log-corrupt`。保留可选字段以兼容旧日志，不让旧索引的默认推导成为权威。
+
+### 25. 第三方预设安装并非尚不能测；直接登记测试件会跳过恰好有风险的那层
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`copy/plan.md:142,154`；`copy/bots.md:43,102`；`docs/specs/runtime/plugin-install.md:37–40`；`packages/neuro-book/src/cli/cli.test.ts:294–302`；`packages/neuro-book/src/server/start.ts:232–243`；`packages/neuro-book/src/plugins/agent/testing/world.ts:56–83`。
+- **现象**：计划说等安装落地；当前已能从本地目录安装、在下次启动加载。仍标 planned 的是网页上传目录，不是本地安装。直接向 `agentWorld` 交一个 `PluginDefinition` 不走 `files` 白名单、安装根、启动集合和 `createPluginPackages`，不能证明第三方在包根声明的文件在产品里能读。
+- **为什么是问题**：只测坏预设被拒，还可能是压根没给 `pluginPackagesKey`；即使所有合法第三方预设都读不到，坏预设的用例也会通过。
+- **如何核实**：静态核对真实 CLI 安装测试与服务端能力装配；本次没有安装插件或起服务。
+- **建议改法**：同一个真实安装场地放一个可用预设和一个非法预设，以“合法已进入可用表、非法有具体诊断、缺省照常建”作为判据。可按现有安装夹具准备临时目录，再用启动集合、本次启动的 `PluginPackages` 和真实宿主，不等网页上传，也不要求 E2E。
+
+### 26. `create` 在文件锁外判断日志不存在，晚到的建会话能覆盖先建好的日志
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：`copy/plan.md:59–62,96–99`；`copy/main-conversation.md:36–42`；`packages/nb-harness/src/kernel/log/{jsonl-store.ts:179–203,files.ts:82–99}`；`packages/nb-harness/src/kit/sessions/table.ts:119–131`。
+- **现象**：目录已存在时先 `openRead` 判 `session-exists`，再取锁；拿锁后不重查，原子 rename 可以替换原日志。`ensureMain` 的一把 bot 锁只挡同一个服务里的 `ensureMain`，挡不住任意指定 id 的其它 `agentKey.create`。晚到方在日志发布前见到不存在，等先建方空闲关闭后拿锁，就会覆盖日志。即便先查 `owner` 再创建，内部这个竞态仍在。
+- **为什么是问题**：这里丢的是已提交用户数据，不是重复显示或可重试的错误；既有普通会话也可能在创建撞 id 时被替换。这是现存存储缺陷，计划将可预测 id 加到新的常用路径，不能把它继续当作幂等基础。
+- **如何核实**：`f5f642cd5` 的 `held-storage-probes.test.ts` 走真实 `SessionTable`、内核和 JSONL；文件端口只暂停两次真实 I/O 的返回，用生产 `ManualClock` 推 30 秒。先建方成功、`setTitle` 已落盘、空闲关闭；再让晚到方取真文件锁。观测到两次 `create` 都成功、标题和原受理记录消失。不需要第二个产品实例、不改磁盘状态造假。
+- **建议改法**：所有路径都在取得目录的锁后核对权威日志存在性；有日志绝不走初始化覆盖，只有确认缺失才发布，半初始化的日志按第 7 条判。用同序回归断言后者 `session-exists`、前一日志的字节不变，再由上层核对预期归属。
+
+### 27. 长期持有会让 `log-broken` 无法经普通重试恢复，状态却能报 `ready`
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`copy/main-conversation.md:39,42–51,78`；`copy/plan.md:100–105,143`；`docs/specs/harness/session.md` 输出 12；`packages/nb-harness/src/kernel/run/control.ts:65–76`；`packages/nb-harness/src/kit/sessions/table.ts:257–286,351–374`。
+- **现象**：打开后写失败，内核快照是 `status.state: "broken"`，不一定有 `readOnly`。稿子的只读检查会把回用的损坏句柄判成 `ready`。`hold` 若照拟复用 `#acquire`，它不会重开已有句柄；持有引用使 30 秒闲置关闭一直不生效。磁盘恢复后反复 `ensureMain` 仍拿坏句柄，`restoreProfile` 也写不了。
+- **为什么是问题**：把进程内可恢复的写失败变成必须重启服务，且与 `list`、重试建议不符。客户端订阅也持引用，只放 bot 的 token 不保证重开。
+- **如何核实**：`f5f642cd5` 的 `held-storage-probes.test.ts` 以真实订阅（与拟议 `hold` 共用的引用路径）保活真 JSONL 句柄。在 `ENOSPC` 后撤掉故障，推进 60 秒仍持锁、指令仍 `log-broken`；放引用并推进 30 秒后重开，写成功。没有声称已经测试新 `hold`。
+- **建议改法**：把损坏事件列入主对话状态与通知，不再报告 `ready`。明确由谁在重试时换掉损坏句柄、如何让订阅重建并让旧 token 只引用旧代次；重开仍以磁盘判定上一写是否提交。若不提供进程内重开，至少把该码的恢复明确写为重启，而不是承诺下一次 `ensureMain` 能试开。
+
+### 28. 审批预览自己拼 `ToolSessionContext`，会遗漏新字段
+
+- **严重程度**：建议；**类别**：代码质量。
+- **位置**：`copy/plan.md:36,134`；`copy/spec-diff.patch:58`；`packages/nb-harness/src/kernel/session/session.ts:119–124,340–349`；`packages/neuro-book/src/plugins/agent/backend/{remote.ts:271–279,plugin.ts:206,resources.ts:25–43}`。
+- **现象**：计划只改内核 `context()`。Agent 的远程 `approvalPreview` 用快照另拼一份 `ToolSessionContext`，再交同一资源适配器，已经没带 `background`，照计划也不会带 `owner`。字段是可选的，类型检查不会发现。
+- **为什么是问题**：t06 还没有 `bot://`，未观察到审批预览错误；若 t09 按 `owner` 改写该地址，真实工具能解析的路径，审批预览可能解析不了，也可能使用不同的归属判定。
+- **如何核实**：追踪 `approvalPreview` 到 `filesFor`，与内核构造的上下文区别明确；当前不需要为尚未支持的方案造行为测试。
+- **建议改法**：统一从权威会话头与当前 Profile 生成工具上下文，或在远程预览明确透传这两项；保持审批预览、执行、扩展读到的是同一归属。t09 用同一地址覆盖预览与执行，不把“工具看见字段”当成两条路径都通过。
+
+#### 第 3、8 条的边界补充
+
+- `restoreProfile` 按 bot id 找会话后也应先验证预期归属，否则既有同 id 普通会话可从恢复入口被换 Profile。`owner-mismatch` 的回归应分别走 `ensureMain`、启动持有和恢复入口。
+- `sessions://` 的虚拟根仍从内部索引列条目（`backend/plugin.ts:169`、`backend/schemes.ts:68–106,125–127`）；它和 `agentKey.list` 是两个合同。`docs/specs/agent/resources.md` 输出 13 还要求显示亲属，不能为了 UI 列表隐身一并删掉；如果要隐藏工具看到的“最近使用”，明确写成数据查询的独立决定。直接按 id、活动、在跑的工作、子代理树和内部清扫继续走各自的契约。
+
+## 实验与验收边界
+
+审查 worktree 固定提交 `f0737a459`；实验只在允许的实现 worktree `f5f642cd5` 执行，Bun `1.4.4 (38afee6c8)`。实际通过的场景：
+
+| 包 | 命令 | 结果 |
+|---|---|---|
+| `nb-harness` | `bun test /tmp/t06-design-review/kernel-probes.test.ts` | 4 通过：复审与嵌套并存、落盘后的反应失败、冷只读跳过恢复、只剩会话头 |
+| `nb-harness` | `bun test /tmp/t06-design-review/interaction-order-probes.test.ts`；修正夹具后用 `--test-name-pattern '在 interactionRequested'` | 第一次 1 通过、1 失败；单跑失败项 1 通过。分别覆盖认领后关闭，以及 `later`、输入被拦截和异步待办不被中止结算 |
+| `nb-runtime` | `bun test /tmp/t06-design-review/lifecycle-probes.test.ts`；修正夹具后用 `--test-name-pattern '微任务及零延时'` | 第一次 1 通过、1 失败；单跑失败项 1 通过。真实宿主验证启动与停止时序 |
+| `neuro-book` | `TMPDIR=/tmp/t06-design-review TMP=/tmp/t06-design-review TEMP=/tmp/t06-design-review bun test /tmp/t06-design-review/agent-facade-probes.test.ts` | 最终 1 通过。真实插件门面、JSONL 和进程内 JSON 通道；前两次分别修正激活结果名、测试 Profile 初始参数 |
+| `nb-harness` | `bun test /tmp/t06-design-review/replay-probe.test.ts` | 1 通过：重开后换发出者重放，日志无增量 |
+| `nb-harness` | `bun test /tmp/t06-design-review/held-storage-probes.test.ts` | 2 通过：同 id 并发创建覆盖、损坏句柄被引用保活 |
+
+合计核实 12 个探针场景。没有运行尚未实现的 `settlePending`、`hold`、`ensureMain`、`restoreProfile`，也没有运行全量测试、真实模型、E2E、开发服务、发布打包或长日志性能测试。探针中的故障注入只控制真实运行时的写入结果或调度时点，未直接改待办、运行或引用表。未修改仓库。
+
+## 未发现问题的方面
+
+- 仔细检查后没有发现草稿把 t15 的界面与路由、t09 的 `bots://` 与提示词、已搁置的自动接续或待办期限带回 t06。宿主手动接续权限仍须按第 14 条写清。
+- 仔细检查后没有发现远程 `create` 的额外 `owner` 能进入服务实现：真实 JSON 通道返回 `invalid-input`。不篡改对象且门面存活时，`as` 换宿主仍按调用方盖章；第 9、17 条是对象可变性与代次寿命，不是远程 schema 漏洞。
+- 仔细检查后没有发现需要改初审屏障来实现验收 16。真实同一回复可有两个改参复审和一个嵌套同步提问同时等待。普通发送在中止期间仍按 `later` 交给随后运行，被拒绝的输入未受理，异步提问没有被同步中止结算；不据此声称新选项已验证。
+- 仔细检查后没有发现需要改变现有根 fork、按 id 直读和活动的权限。草稿允许 fork、不给副本继承 `owner`；不把列表过滤当作访问控制。子会话 fork 的关系登记竞态另见第 8 条。
+- 仔细检查后没有发现两份旧状态字段必须合并：无 `owner` 的旧头照旧有效，`background` 仍决定既有的后台可见性；`session.owner` 是锁持有者提示，不是会话归属。新增字段的写入校验与索引修复见第 8、24 条。
+
+数量：阻断 1（26）；重要 23；建议 4（1、23、25、28）。第 1 条按收窄后计为建议。
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18、19、20、21、22、23、24、25、26、27、28

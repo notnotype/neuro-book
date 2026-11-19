@@ -1,0 +1,146 @@
+import {expect, test} from "bun:test";
+import {mkdtemp, readFile} from "node:fs/promises";
+import {join} from "node:path";
+import {createTestSession, defaultTestProfile, type TestSession, type TestTool} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/test-session.ts";
+import {defineExtension} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/extension/define.ts";
+import {createJsonlStore} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/jsonl-store.ts";
+import {nodeFiles} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/files.ts";
+import type {InteractionSummary, RunStatus} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/api/index.ts";
+
+function waitingFor(session: TestSession, count: number, exclude: ReadonlySet<string> = new Set()) {
+    const wait = Promise.withResolvers<readonly InteractionSummary[]>();
+    const check = (status: RunStatus) => {
+        if (status.state === "waiting" && status.pending.length === count && status.pending.every((item) => !exclude.has(item.id))) wait.resolve(status.pending);
+    };
+    const off = session.raw.subscribe((frame) => {
+        if (frame.type === "status") check(frame.status);
+    });
+    void session.raw.snapshot().then((snapshot) => check(snapshot.status));
+    return wait.promise.finally(off);
+}
+
+const events = (session: TestSession) => session.raw.log({afterSeq: 0}).then((page) => page.events);
+
+const field = (data: unknown, key: string): unknown => data !== null && typeof data === "object" && key in data ? Reflect.get(data, key) : undefined;
+async function crash(mode: string, root: string): Promise<{id: string; runId?: string; phase: string}> {
+    const child = Bun.spawn([process.execPath, "/tmp/t06-design-review/kernel-crash-fixture.ts", root, mode], {stdout: "pipe", stderr: "inherit"});
+    // 只给失去标记的子进程设清理上限；正常路径等真实写入标记，不延时。
+    const deadline = setTimeout(() => child.kill(9), 3_000);
+    const reader = child.stdout.getReader();
+    try {
+        let text = "";
+        const decoder = new TextDecoder();
+        for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) throw new Error(`子进程未到达标记：${text}`);
+            text += decoder.decode(chunk.value, {stream: true});
+            if (text.includes("\n")) return JSON.parse(text.slice(0, text.indexOf("\n")));
+        }
+    } finally {
+        clearTimeout(deadline);
+        child.kill(9);
+        await child.exited;
+    }
+}
+
+test("两条初审挡住嵌套；改参复审与嵌套提问能并存", async () => {
+    const nestedReply = Promise.withResolvers<string>();
+    const writer = (id: string): TestTool => ({id, effect: "write", concurrency: "shared", execute: () => "改好了"});
+    const rewrite = defineExtension({id: "lab.rewrite", intercept: {tool: (call, next) => next(call.tool.startsWith("lab.write") ? {...call, args: {changed: true}} : call)}});
+    await using session = await createTestSession({extensions: [rewrite], tools: [writer("lab.write1"), writer("lab.write2"), {
+        id: "lab.parent", concurrency: "shared", invokes: true, execute: async (_args, ctx) => (await ctx.invoke!("lab.ask", {})).text,
+    }, {
+        id: "lab.ask", execute: async (_args, ctx) => {
+            const reply = await ctx.ask!({question: "还继续吗？"});
+            nestedReply.resolve(reply.kind === "unavailable" ? reply.code : "answer");
+            return "问过了";
+        },
+    }], approve: (_call, info) => info.effect === "write" ? {verdict: "ask", reason: "会改文件"} : {verdict: "allow", by: "lab"}});
+    session.model.script({tools: [{tool: "lab.write1"}, {tool: "lab.write2"}, {tool: "lab.parent"}]}, "已处理");
+    const two = waitingFor(session, 2);
+    const sent = await session.raw.send({commandId: "first", input: {text: "处理"}});
+    if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+    const initial = await two;
+    expect(initial.map(({kind}) => kind)).toEqual(["approval", "approval"]);
+    expect((await events(session)).filter(({type}) => type === "toolStarted" || type === "nestedToolStarted")).toEqual([]);
+    const three = waitingFor(session, 3, new Set(initial.map(({id}) => id)));
+    for (const {id} of initial) expect(await session.raw.resolve({commandId: `allow-${id}`, id, decision: "allow"})).toMatchObject({ok: true});
+    const pending = await three;
+    const requests = (await events(session)).filter(({type, data}) => type === "interactionRequested" && pending.some(({id}) => id === field(data, "id")));
+    const shape = requests.map(({data}) => {
+        const item = data as {kind: string; within?: {tool: string}};
+        return `${item.kind}:${item.within?.tool ?? "top"}`;
+    }).sort();
+    expect(shape).toEqual(["approval:top", "approval:top", "question:lab.parent"]);
+    for (const {id} of pending) expect(await session.raw.resolve({commandId: `deny-${id}`, id, decision: "deny"})).toMatchObject({ok: true});
+    expect(await nestedReply.promise).toBe("declined");
+    await session.raw.waitRun(sent.value.runId);
+    console.log("初审 2 条、开始调用 0 个；改参后 2 条顶层复审 + 1 条嵌套同步提问；嵌套收到 declined");
+});
+
+test("现有 resolve 的主批已提交，反应写失败仍把等待者唤醒成 aborted", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review/reaction-");
+    const handler = defineExtension({id: "lab.failing", on: {interactionResolved: () => { throw new Error("触发真实的反应失败追加批"); }}});
+    const seen = Promise.withResolvers<string>();
+    const store = createJsonlStore({root, files: {...nodeFiles, async openAppend(path) {
+        const file = await nodeFiles.openAppend(path);
+        return {...file, async write(bytes, position) {
+            if (new TextDecoder().decode(bytes).includes('"type":"extensionFailed"')) throw Object.assign(new Error("注入反应批写失败"), {code: "ENOSPC"});
+            await file.write(bytes, position);
+        }};
+    }}});
+    await using session = await createTestSession({store: {root}, wrapStore: () => store, extensions: [handler], tools: [{id: "lab.question", execute: async (_args, ctx) => {
+        const answer = await ctx.ask!({question: "继续吗？"});
+        seen.resolve(answer.kind === "unavailable" ? answer.code : "answer");
+        return "结束";
+    }}]});
+    const pending = waitingFor(session, 1);
+    session.model.script({tools: [{tool: "lab.question"}]});
+    expect(await session.raw.send({commandId: "ask", input: {text: "问一下"}})).toMatchObject({ok: true});
+    const [{id}] = await pending;
+    const args = {commandId: "deny", decision: "deny", id} as const;
+    expect(await session.raw.resolve(args)).toEqual({ok: false, code: "log-broken"});
+    expect(await seen.promise).toBe("aborted");
+    const before = await events(session);
+    const batch = before.filter(({type, data}) => type === "interactionResolved" || (type === "commandAccepted" && field(data, "commandId") === "deny"));
+    expect(batch.map(({type}) => type)).toEqual(["interactionResolved", "commandAccepted"]);
+    expect(field(batch[0]?.data, "decision")).toBe("deny");
+    expect(await session.raw.resolve(args)).toMatchObject({ok: true, replayed: true});
+    expect(await events(session)).toEqual(before);
+    await session.reopen();
+    expect(await session.raw.resolve(args)).toMatchObject({ok: true, replayed: true});
+    console.log("主批有 deny + commandAccepted；RPC log-broken；工具收到 aborted；原句柄与重开后重发都 replayed: true");
+});
+
+test("实际崩溃后冷打开缺 Profile，换回 Profile 仍能把原中断运行续成暂停运行", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review/vanished-");
+    const marker = await crash("waiting", root);
+    expect(marker.phase).toBe("waiting");
+    await using session = await createTestSession({store: {root}, open: marker.id});
+    expect((await session.raw.snapshot()).readOnly).toEqual({code: "unknown-profile"});
+    expect(await session.raw.changeProfile({commandId: "restore", profile: defaultTestProfile.id})).toMatchObject({ok: true});
+    const snapshot = await session.raw.snapshot();
+    expect(snapshot.readOnly).toBe(null);
+    expect(snapshot.buffer).toMatchObject([{state: "ready"}]);
+    expect((await events(session)).map(({type}) => type)).not.toContain("interactionResolved");
+    session.model.script("回来了", "处理完");
+    const sent = await session.raw.send({commandId: "after-crash", input: {text: "重启后说的话"}});
+    expect(sent).toMatchObject({ok: true, value: {runId: marker.runId}});
+    await session.raw.waitRun(marker.runId!);
+    const types = (await events(session)).map(({type}) => type);
+    expect(types).toContain("runResumed");
+    expect(types).not.toContain("interactionResolved");
+    console.log("kill -9，缺 Profile 冷打开、changeProfile 后：旧缓冲仍 ready，旧事项无结算，send 同一个 runId 并写 runResumed");
+});
+
+test("建会话的首个事件批没提交：旧头被当作可打开，初始化事件不会补写", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review/header-");
+    const marker = await crash("header", root);
+    expect(marker.phase).toBe("header-written");
+    expect((await readFile(join(root, marker.id, "session.jsonl"), "utf8")).trim().split("\n")).toHaveLength(1);
+    await using session = await createTestSession({store: {root}, open: marker.id});
+    expect((await session.raw.snapshot()).readOnly).toBe(null);
+    const types = (await events(session)).map(({type}) => type);
+    expect(types).toEqual(["profileChanged"]);
+    console.log("kill -9，磁盘上只有头；open 成功，写了 profileChanged，没有 sessionCreated");
+});

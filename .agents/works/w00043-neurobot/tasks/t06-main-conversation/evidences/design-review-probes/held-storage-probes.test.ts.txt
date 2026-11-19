@@ -1,0 +1,91 @@
+import {expect, test} from "bun:test";
+import {mkdtemp, readFile} from "node:fs/promises";
+import {join} from "node:path";
+import {ManualClock} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/lifecycle/testing/manual-clock.ts";
+import {createAgentHost} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/session/agent-host.ts";
+import {createJsonlStore} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/jsonl-store.ts";
+import {nodeFiles, type FilePort} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/files.ts";
+import {createTestClock} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/clock.ts";
+import {createTestModel} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/model.ts";
+import {defaultTestProfile} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/test-session.ts";
+import {SessionTable, IDLE_CLOSE_MS} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kit/sessions/table.ts";
+
+const options = {id: "bot-test", profile: defaultTestProfile.id};
+function setup(root: string, files: FilePort) {
+    const model = createTestModel();
+    const store = createJsonlStore({root, files});
+    const host = createAgentHost({store, profiles: {resolve: key => key === options.profile ? defaultTestProfile : undefined}, models: model.port, tools: {declarations: () => [], create: () => Promise.reject(new Error("没有工具"))}, resources: () => ({read: async () => undefined, resolve: uri => uri}), sessions: {get: () => Promise.reject(new Error("没有子会话"))}, clock: createTestClock()});
+    const clock = new ManualClock();
+    const closed = Promise.withResolvers<void>();
+    const table = new SessionTable({host, clock, beforeOpen: async () => undefined, report: (code) => {throw new Error(code);}, closed: () => {closed.resolve();}});
+    return {table, store, clock, closed: closed.promise, create: () => table.accept(() => table.create(options))};
+}
+
+test("两个真实创建：后者在锁外见不到日志，前者完整写好并空闲关闭后，后者覆盖日志", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review/create-lock-");
+    const directory = join(root, options.id);
+    const log = join(directory, "session.jsonl");
+    const made = Promise.withResolvers<void>();
+    const publish = Promise.withResolvers<void>();
+    const sawMissing = Promise.withResolvers<void>();
+    const proceed = Promise.withResolvers<void>();
+    const {table, clock, closed, create} = setup(root, {...nodeFiles,
+        async makeDirectory(path) {
+            const madeDirectory = await nodeFiles.makeDirectory(path);
+            if (path === directory && madeDirectory) {made.resolve(); await publish.promise;}
+            return madeDirectory;
+        },
+        async openRead(path) {
+            const result = await nodeFiles.openRead(path);
+            if (path === log && result === null) {sawMissing.resolve(); await proceed.promise;}
+            return result;
+        },
+    });
+    try {
+        const a = create();
+        await made.promise;
+        const b = create();
+        await sawMissing.promise;
+        publish.resolve();
+        expect(await a).toMatchObject({ok: true});
+        expect(await table.view(options.id).setTitle({commandId: "owner-a-title", title: "应当保留"})).toMatchObject({ok: true});
+        expect(await readFile(log, "utf8")).toContain("owner-a-title");
+        clock.advance(IDLE_CLOSE_MS);
+        await closed;
+        proceed.resolve();
+        expect(await b).toMatchObject({ok: true});
+        expect((await table.view(options.id).snapshot()).title).toBeNull();
+        expect(await readFile(log, "utf8")).not.toContain("owner-a-title");
+        console.log("真会话表和 JSONL：两次 create 都成功，第二次取锁后替换了第一份日志");
+    } finally {publish.resolve(); proceed.resolve(); await table.stop();}
+});
+
+test("真的引用可保活已损坏句柄：写失败清除后仍不能写，释放并闲置后才可重开", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review/broken-held-");
+    let failing = false;
+    const {table, store, clock, closed, create} = setup(root, {...nodeFiles, async openAppend(path) {
+        const file = await nodeFiles.openAppend(path);
+        return {...file, async write(bytes, offset) {
+            if (failing) throw Object.assign(new Error("disk full"), {code: "ENOSPC"});
+            await file.write(bytes, offset);
+        }};
+    }});
+    try {
+        expect(await create()).toMatchObject({ok: true});
+        const pin = await table.subscribeOpened(options.id, {kind: "user"}, () => undefined);
+        if (!pin.ok) throw new Error(pin.code);
+        const view = table.view(options.id);
+        failing = true;
+        expect(await view.setTitle({commandId: "broken-title", title: "写失败"})).toEqual({ok: false, code: "log-broken"});
+        expect(await view.snapshot()).toMatchObject({status: {state: "broken"}, readOnly: null});
+        failing = false;
+        clock.advance(IDLE_CLOSE_MS * 2);
+        expect(await store.open(options.id)).toMatchObject({ok: false, code: "session-busy"});
+        expect(await view.setTitle({commandId: "recovered-disk", title: "盘已恢复"})).toEqual({ok: false, code: "log-broken"});
+        pin.release();
+        clock.advance(IDLE_CLOSE_MS);
+        await closed;
+        expect(await view.setTitle({commandId: "recovered-disk", title: "盘已恢复"})).toMatchObject({ok: true});
+        console.log("真会话表和 JSONL：引用不断时锁还在，快照 readOnly=null 但 status=broken；释放并闲置后写恢复");
+    } finally {await table.stop();}
+});

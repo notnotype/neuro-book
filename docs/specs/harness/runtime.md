@@ -20,6 +20,8 @@ owners:
 - 运行中途换模型：模型按每次请求时的核心设置解析。
 - 换模型回退、等额度恢复：可重发的失败只在同一个模型上重发（输出 62–69）。
 - 费用门：内核只累计（输出 70），告警与上限由扩展做（[`agent.run-guards`](../agent/run-guards.md)）。
+- 等用户的事项没有期限：没人应答就一直等，直到应答、`settlePending`（输出 111）、中止或进程退出。
+- 已知限制：应答（`resolve`、`settlePending`）的受理批写下了、它引起的反应批写失败时，指令交回 `log-broken`，等这个事项的调用却被以 `aborted` 叫醒，与日志里的结算不一致；同一个 `commandId` 重发得到成功。
 
 ## 术语与参与者
 
@@ -201,7 +203,7 @@ owners:
     表里没有的指令不按发出者区分。应答审批与提问的规则不变（输出 41）。
 109. 已经留着的话，之后再有运行收口或停止时不改它的 `cause` 与 `heldBy`；放行后再留着时按那一次重新记。
 110. `send` 的成功值带这条话的去向 `placement`：`taken`（交给这次开的、接着跑的或正在取输入的运行）、`later`（运行不再取输入，收口后随放行开的下一次运行跑，输出 104）、`held`（留着：不能接着跑叶子上暂停的运行，输出 36）。这是受理时的去向：`taken` 的话在那次运行以任何方式收口而还没取走时，`later` 的话在收口批没开起运行时，都转成留着。调用方要知道最后的去向，看这条话的 `inputConsumed`（带取走它的运行 `runId`）或 `inputHeld`，或用会话视图的查询 `inputFate(inputId)`：交回 `{taken: runId}`、`{held: cause}`、`{removed: reason}`、`{pending}`（还在缓冲区里、就绪），不是这个会话里入过队的交回 null；不经出站过滤（同 `runResult`）。
-111. `send` 带 `settlePending: "deny"` 时，同一个受理批里先把当前路径上全部待处理的同步事项（审批、同步提问，含嵌套调用里的；不含异步提问）以 `deny` 结算（`interactionResolved{decision: "deny", by: 用户, note: "用户发了新消息"}`，等它们的调用照输出 39、40 得 `denied`、`unavailable{declined}`），再照常受理这条话（运行中按它的模式进缓冲区，空闲时照输出 2）。只收用户发的，别的发出者得 `not-allowed`；没有待处理的同步事项时等于不带这个选项。结算与这条话同批写下，指令失败（例如 `empty-input`、`input-rejected`）时事项都不结算。重发同一个 `commandId` 照输出 17 交回第一次的结果，不再结算。
+111. `send` 带 `settlePending: "deny"` 时，同一个受理批里先把当前路径上全部待处理的同步事项（审批、同步提问，含嵌套调用里的；不含异步提问）以 `deny` 结算（`interactionResolved{decision: "deny", by: 用户, note: "用户发了新消息"}`，等它们的调用照输出 39、40 得 `denied`、`unavailable{declined}`），再照常受理这条话（运行中按它的模式进缓冲区，空闲时照输出 2）。只收用户发的，别的发出者得 `not-allowed`；没有待处理的同步事项时等于不带这个选项。结算与这条话同批写下，指令失败（例如 `empty-input`、`input-rejected`）时事项都不结算。重发同一个 `commandId` 照 [`session.md`](session.md) 输出 17 交回第一次的结果、不再结算（重放不比较发出者：用户受理过的，换了发出者重发也交回原来的结果）。
 
 ## 状态与转换
 

@@ -1,0 +1,89 @@
+import {expect, test} from "bun:test";
+import {createApplication} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/application/application.ts";
+import {defineEntry, provideServicePerConsumer, type PluginDefinition} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/plugins/plugins.ts";
+import {defineServiceKey} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/services/services.ts";
+import {ManualClock} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/lifecycle/testing/manual-clock.ts";
+
+test("真实入口：微任务及零延时在贡献就绪前运行；入口可用仍早于应用接纳", async () => {
+    const entered = Promise.withResolvers<void>();
+    const prepare = Promise.withResolvers<void>();
+    const gateEntered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const clock = new ManualClock();
+    const observations: string[] = [];
+    let presetReady = false;
+    let ran = false;
+    const fixture: PluginDefinition = {
+        id: "lab.owner",
+        contributionPoints: [{id: "lab.presets", implementation: "none"}],
+        contributions: [{capability: "lab.presets", id: "lab.owner.default", declaration: {}}],
+        entries: [defineEntry({id: "server", location: "server", receives: ["lab.presets"], activate: () => {
+            queueMicrotask(() => observations.push(`microtask:${presetReady}`));
+            clock.schedule(() => observations.push(`timer:${presetReady}`), 0);
+            return {receivers: {"lab.presets": {
+                prepare: async () => {entered.resolve(); await prepare.promise;},
+                published: () => {presetReady = true;},
+            }}};
+        }})],
+    };
+    const app = createApplication({identity: {location: "server", instanceId: "readiness"}, stopSignal: new AbortController().signal, emergency: () => undefined}, {
+        plugins: [fixture], requiredPlugins: [fixture.id], gates: [{id: "held-startup", kind: "check", check: async () => {gateEntered.resolve(); await gate.promise;}}],
+    });
+    try {
+        await entered.promise;
+        expect(app.plugins.entryState({plugin: fixture.id, entry: "server"})?.status).toBe("activating");
+        clock.advance(0);
+        expect(observations).toEqual(["microtask:false", "timer:false"]);
+        const admitted = app.admit({label: "业务", run() {ran = true;}});
+        prepare.resolve();
+        await gateEntered.promise;
+        expect(presetReady).toBe(true);
+        expect(app.plugins.entryState({plugin: fixture.id, entry: "server"})?.status).toBe("available");
+        expect(app.status().admission).toBe("closed");
+        expect(ran).toBe(false);
+        gate.resolve();
+        expect(await admitted).toMatchObject({status: "accepted"});
+        expect(ran).toBe(true);
+        console.log("真实平台：microtask/timer 均读到未就绪；入口 available 时，必需的 check 仍挂住，应用 admission=closed");
+    } finally {
+        prepare.resolve(); gate.resolve();
+        await app.stop();
+    }
+});
+
+test("真实入口：stopSignal 同步触发，onStop 迟到；只在 onStop 取消的计时还能调用有效门面", async () => {
+    const clock = new ManualClock();
+    const log: string[] = [];
+    const key = defineServiceKey<{tick(): void}>("lab.resource/api");
+    let signal: AbortSignal | undefined;
+    const provider: PluginDefinition = {id: "lab.resource", entries: [defineEntry({id: "server", location: "server", provides: [key], activate: (context) => {
+        context.signal.addEventListener("abort", () => log.push("provider-signal"), {once: true});
+        context.onStop(() => {log.push("provider-onStop");});
+        return {services: [provideServicePerConsumer(key, () => ({tick: () => {log.push("tick");}}), {release: () => {log.push("facade-release");}})]};
+    }})]};
+    const consumer: PluginDefinition = {id: "lab.consumer", entries: [defineEntry({id: "server", location: "server", dependencies: [{key}], activate: (context) => {
+        signal = context.signal;
+        const service = context.services.require(key);
+        const cancel = clock.schedule(() => service.tick(), 5000);
+        context.onStop(() => {cancel(); log.push("consumer-onStop");});
+        return {};
+    }})]};
+    const app = createApplication({identity: {location: "server", instanceId: "stop"}, stopSignal: new AbortController().signal, emergency: () => undefined}, {
+        plugins: [provider, consumer], requiredPlugins: [provider.id, consumer.id], gates: [],
+    });
+    try {
+        expect(await app.startup).toMatchObject({status: "available"});
+        const stopping = app.stop();
+        expect(signal?.aborted).toBe(true);
+        expect(log).toContain("provider-signal");
+        expect(log).not.toContain("consumer-onStop");
+        clock.advance(5000);
+        expect(log).toContain("tick");
+        expect(await stopping).toEqual({status: "closed"});
+        expect(log).toContain("facade-release");
+        expect(log).toContain("provider-onStop");
+        console.log(`真实平台：${log.join(" → ")}`);
+    } finally {
+        await app.stop();
+    }
+});

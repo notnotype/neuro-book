@@ -1,0 +1,29 @@
+import {createTestSession} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/test-session.ts";
+import {defineProfile} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/extension/profile.ts";
+import {createJsonlStore} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/jsonl-store.ts";
+import {nodeFiles} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/files.ts";
+
+const [root, mode] = process.argv.slice(2);
+setInterval(() => {}, 60_000);
+if (mode === "header") {
+    await createTestSession({store: {root}, wrapStore: () => createJsonlStore({root, files: {...nodeFiles, async openAppend(path) {
+        const file = await nodeFiles.openAppend(path);
+        return {...file, write: async () => {
+            console.log(JSON.stringify({id: "test-1", phase: "header-written"}));
+            await Promise.withResolvers<void>().promise;
+        }};
+    }}})});
+} else {
+    const profile = defineProfile({id: "lab.vanished", version: "1", name: "审查", description: "审查", system: "审查"});
+    const session = await createTestSession({profile, store: {root}, tools: [{id: "lab.write", effect: "write", execute: () => "写完"}], approve: () => ({verdict: "ask", reason: "写入"})});
+    const waiting = Promise.withResolvers<void>();
+    session.raw.subscribe((frame) => {
+        if (frame.type === "status" && frame.status.state === "waiting") waiting.resolve();
+    });
+    session.model.script({tools: [{tool: "lab.write"}]});
+    const sent = await session.raw.send({commandId: "crash-start", input: {text: "开始"}});
+    if (!sent.ok || sent.value.runId === null) throw new Error(`不能开始运行：${JSON.stringify(sent)}`);
+    await waiting.promise;
+    await session.raw.send({commandId: "queued-before-crash", input: {text: "重启前排的话"}});
+    console.log(JSON.stringify({id: session.id, runId: sent.value.runId, phase: "waiting"}));
+}

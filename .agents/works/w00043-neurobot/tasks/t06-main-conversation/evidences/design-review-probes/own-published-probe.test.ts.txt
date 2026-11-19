@@ -1,0 +1,58 @@
+/** 探针：贡献点接收方的 published 收到自己入口的贡献时，自己交出的 Profile 已可解析，从这里调 agentKey.create 不成环。 */
+import {afterAll, expect, test} from "bun:test";
+import {mkdtemp, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+
+const W = "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages";
+const {defineEntry} = await import(`${W}/nb-runtime/src/plugins/plugins.ts`);
+const {defineProfile} = await import(`${W}/nb-harness/src/kernel/index.ts`);
+const {agentWorld} = await import(`${W}/neuro-book/src/plugins/agent/testing/world.ts`);
+const {agentKey} = await import(`${W}/neuro-book/src/plugins/agent/shared/contracts.ts`);
+const {agentProfile} = await import(`${W}/neuro-book/src/plugins/agent/shared/points.ts`);
+const {localModelSettings, fakeEndpoint} = await import(`${W}/neuro-book/src/plugins/agent/testing/endpoint.ts`);
+
+const roots: string[] = [];
+afterAll(async () => { for (const r of roots) await rm(r, {recursive: true, force: true}); });
+
+test("own receiver published: own profile resolvable, create completes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "t06-probe-"));
+    roots.push(root);
+    const endpoint = fakeEndpoint();
+    const PROFILE = "test.botprobe.companion";
+    const profile = agentProfile(PROFILE, {name: "岗位", description: "探针", tools: {required: [], optional: []}});
+    const seen: string[] = [];
+    let created: Promise<unknown> | null = null;
+    let agent: any = null;
+    const plugin = {
+        id: "test.botprobe",
+        contributionPoints: [{id: "test.botprobe.presets", implementation: "none"}],
+        contributions: [{capability: "test.botprobe.presets", id: "test.botprobe.default", declaration: {}}],
+        entries: [defineEntry({
+            id: "server", location: "server", activationEvents: ["onStartup", profile.activationEvent],
+            dependencies: [{key: agentKey}], receives: ["test.botprobe.presets"],
+            contributions: [profile.contribution],
+            activate: (context: any) => {
+                agent = context.services.require(agentKey);
+                queueMicrotask(() => seen.push(`microtask:${agent.profiles().some((p: any) => p.key === PROFILE)}`));
+                return {
+                    contributions: {"agent.profiles": {[PROFILE]: defineProfile({id: PROFILE, version: "1", name: PROFILE, description: "探针", system: "探针。"})}},
+                    receivers: {"test.botprobe.presets": {published: () => {
+                        seen.push(`published:${agent.profiles().some((p: any) => p.key === PROFILE)}`);
+                        created = agent.create({profile: PROFILE, id: "bot-probe"});
+                    }}},
+                };
+            },
+        })],
+    };
+    const w = await agentWorld(join(root, "w"), {plugins: [plugin], userSettings: localModelSettings(endpoint.baseUrl)});
+    try {
+        expect(created).not.toBeNull();
+        const result = await Promise.race([created!, new Promise((r) => setTimeout(() => r("timeout"), 10_000))]);
+        console.log("seen", seen, "create", JSON.stringify((result as any)?.ok ?? result));
+        expect((result as any).ok).toBe(true);
+    } finally {
+        await w.close();
+        endpoint.stop();
+    }
+}, 30_000);
