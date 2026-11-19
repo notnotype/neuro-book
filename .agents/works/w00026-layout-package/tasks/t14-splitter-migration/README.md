@@ -24,6 +24,31 @@ updated: 2026-11-19
 - **文字与样式不用补接**：nb-story 与开发者面板都没给 nb-ui 注入文字，用的是自带的中文；nb-layout 没有注入时同样用自带的中文目录。nb-layout 的 Splitter 用组件自带的样式，不靠宿主的 Tailwind 扫描；它读的 `--nb-layout-*` 由 nb-ui 的 `tokens.css` 接到主题的名字上（nb-layout README 的“主题”）。
 - **两份 Splitter 自 t04 起有约 560 行差异**：逐项比对见 [`evidences/drift.txt`](evidences/drift.txt)（Claude Sonnet，只读）。三处使用方的模板与逻辑不用改，只改导入、依赖声明与注释；看得见的只有收到 0 的一侧不画接缝。
 
+## 设计审查
+
+Claude Sonnet（`claude -p`），一轮，7 条：重要 2、建议 5（[`evidences/design-review.txt`](evidences/design-review.txt)）。都成立，改成计划第 2 稿：
+
+| # | 发现 | 处理 |
+|---|---|---|
+| 1 | 开发者面板的构建哈希与“代码已更新”的判据只认 nb-ui，迁移后改 nb-layout 不会重建、不会提示 | 第 1 片把 `packages/nb-layout` 加进 `computeBuildHash` 与 `CODE_PATHS`，补测试，改 `panel.md` |
+| 2 | 验收挂空：nb-story 的 e2e 与发布冒烟都不拖、不按分隔线，换错了也会过 | 探针加真操作，改前改后对照：拖窄、拖到 0、从 0 拖开（读偏好里的宽度），Home、End、Enter（读读屏属性），减少动效 |
+| 3 | 唯一看得见的变化落在不截图的开发者面板上 | 想起一份只读的面板实例截收起态：面板锁按主工作区取，起不了第二份。如实记为没看过，待确认那一行补上收起态与第一帧的时机 |
+| 4 | 迁移后还写着“只给两个宿主用”的文档没列全 | 第 1、4 片一并改：`panel.md` 两处、`monorepo-boundaries.md`、nb-layout 的 `AGENTS.md`；nb-ui 的 README 与 `Splitter.md` 随第 3 片删改 |
+| 5 | 删除延后的理由站不住：旧应用对 nb-ui 已有 39 个文件导入失效 | 改判：删除放回本 Task（第 3 片）；删 nb-ui 的文件不改旧应用的文件。待确认清单那一行改写 |
+| 6 | 删除清单漏项；nb-ui 是已发布的包 | 清单补全（e2e、playground、文案键、几处测试、Lab 源）；写迁移说明，版本号记进待确认清单 |
+| 7 | 发布门禁不盯 nb-layout 的目录 | 原有缺口（应用包早就如此），不在本 Task 修，记进待确认清单 |
+
+## 实施记录
+
+worktree `w00026-t14-splitter`（分支 `w00026/t14-splitter`）。基线（起点 `caed94657`）：开发者面板类型检查通过、测试 490 条、网页产物 1,489,299 字节；nb-story 类型检查通过、单元测试 669 条、e2e 56 条、网页产物 2,767,354 字节；`release:check` 通过；探针一组。
+
+| 片 | 提交 | 内容 | 验证 |
+|---|---|---|---|
+| 1 | `a423e8cc8` | 开发者面板改用 nb-layout 的 `Splitter`；编进网页的工作区包收成 `build.ts` 的 `PANEL_SOURCE_PACKAGES`（nb-ui、nb-layout），构建哈希与“代码已更新”的 `CODE_PATHS` 都从它生成；补测试；`panel.md` 四处 | 类型检查；测试 491 条；构建通过，产物 1,503,144 字节（多 0.9%） |
+| 2 | `e978d88e8` | nb-story 改用 nb-layout 的 `Splitter`，nb-layout 是 devDependency（`workspace:*`） | 类型检查；单元测试 669 条；e2e 56 条；网页产物 2,785,455 字节（多 0.7%）；`release:check` 通过；探针改前改后对照（[`evidences/probe.txt`](evidences/probe.txt)）：只有收到 0 的一侧不画接缝；打包安装冒烟通过（提交之后跑：冒烟要求工作树干净，第一次在提交前跑被门禁拒了），nb-story 装出来不带 nb-ui、vue、typescript |
+| 3 | `0f564f866` | 删掉 nb-ui 冻结的那一套（编码子代理，Claude Sonnet，[报告](evidences/slice3-report.txt)）：19 个文件，比清单多一个 `useLayoutExtent.ts`（只被冻结的那一份用、依赖被删的类型）；导出、`splitter` 文案键、playground 的那一页、几处测试与 Lab 源；`migration-0.4.md` 加“0.4 之后：`Splitter` 移到 nb-layout”（我审 diff 时改准了两处：两个只给内嵌网格用的属性没了、接缝不画；nb-layout 还没发布到 npm） | nb-ui 类型检查、559 条测试；nb-agent-ui、nb-form、nb-markdown、开发者面板、nb-story、应用的类型检查；应用 SDK 两份测试 17 过 1 挂，挂的是 master 上原有的 `ImagePreviewDialog` 不在 SDK 组件清单里；文档检查通过 |
+| 4 | `717b1b171` | nb-layout 的 `Splitter.md` 去掉已删的 `sashLineEnds`；nb-layout 的 `AGENTS.md` 写明两个宿主在用、改时怎么验；应用 SDK 测试两句过时的注释 | nb-layout 的 `readme.test.ts`、`exports.test.ts` |
+
 ## 下一步
 
-计划第 1 稿（[`plan.md`](plan.md)），设计审查（Claude Sonnet，阻塞）。审查处理完先跑基线，再按切片实施。
+实现审查（Claude Sonnet）在跑。处理完把 master 并进分支、合入，提交 `docs/modules/monorepo-boundaries.md` 那一句（主工作区，已改未提交）。合入后要开发者重启面板服务，面板才用上新代码。
