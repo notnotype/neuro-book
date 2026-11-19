@@ -19,7 +19,22 @@ updated: 2026-11-19
 
 - 带进来的事：t33 实现审查第 7 条，nb-layout 的分界规则（导出名、数据属性、类型名里不出现工作台概念，见 `packages/nb-layout/AGENTS.md`）只写在文档里、没有机检。导出名测试随本 Task 做时，加一份禁用词表一起拦（活动栏、状态栏、区域、容器、编辑组、具名面板一类），数据属性的字面量也扫；t33 README 列了有意留下的几个名字（`entryRect`、`data-drop-feedback-entry`、`FloatWindowHandles`、`LayoutFloatResize`），定表时一并判断。
 
+第 1 稿的设计审查（Claude Sonnet，[`evidences/design-review.txt`](evidences/design-review.txt)）：10 条，阻断 0、重要 3、建议 7，都成立，改成第 2 稿：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | SDK 的 `@deprecated` 别名照计划写，`pack.test.ts`、`sdk.test.ts` 按 `export {…}` 取名单，认不出 | 声明式别名；两处测试改成读语法树、弃用别名列表 |
+| 2 | `./text` 子路径没清点，`useLayoutText` 没人用却公开 | `useLayoutText` 挪内部；测试覆盖 `package.json` 的全部入口 |
+| 3 | “文档”判据按词边界，`not-finite` 让 `finite` 误判；脚本没存 | 脚本存进 `evidences/`；判据收紧；t35 合入后重跑 |
+| 4 | 改名用 `Grid` 前缀，独立 Splitter 的载荷也带上 `Grid` | 改用 `Sash` 前缀（`sash-gesture.ts` 的约定），记决策记录 |
+| 5 | `useSashGesture` 留下，但键与分隔线渲染都不公开，搭不出来 | 降为内部，Spec 实现合同里删掉 |
+| 6 | 禁用词与规则的对应、成员名不扫、一行一个名字 | 都写进计划 |
+| 7 | Spec 改动有两处落点不存在 | 删掉空条目，载荷类型名作为新内容写 |
+| 8 | 留下的比提案的基线多 57 个，没记偏离 | 记为偏离：签名里的类型要写得出名字 |
+| 9 | 验收只覆盖“有人用”的名字 | 测试加文档导入名检查 |
+| 10 | 与 `sdk.test.ts` 重复读入口 | 抽到 test-support 的 `./module-exports` |
+
 ## 下一步
 
-1. 设计审查（Claude Sonnet），阻塞。
-2. 处理完、t35 合入后开 worktree 实施三片。
+1. 写 Spec（master）与提案决策记录、待确认清单。
+2. t35 合入后开 worktree 实施三片。
