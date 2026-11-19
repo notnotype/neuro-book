@@ -1,0 +1,68 @@
+# t14 第 3 片编码子代理的交付报告（Claude Sonnet 5.5，claude -p，2026-11-19）
+# 说明：.local/agent/works/w00026-layout-package/tasks/t14-splitter-migration/reports/slice3/brief.md（本地）；报告即子代理的最终回复，原样保存。主会话审 diff 后改过迁移说明两处，见 Task README。
+
+冻结的 `Splitter` 与分隔线核心已从 nb-ui 删掉，nb-ui 的类型检查和单测都通过，依赖 nb-ui 的六个包类型检查也都通过。有一个 SDK 测试失败，我判断是 master 上就有的失败，下面写了依据。没有 commit，所有删除都用 `git rm`。
+
+## 删除的 19 个文件
+
+删前用 `git ls-files` 确认都被跟踪，并 grep 确认 `Collapsible*`、`OverlayScrollbar`、`ScrollArea`、`Separator` 和 `collapse-animation.ts` 都不依赖它们。nb-ui 之外除旧应用外没有导入方。
+
+- `src/components/layout/` 下 15 个：`Splitter.vue`、`Splitter.md`、`splitter-gesture.ts`、`splitter-session.ts`、`splitter.test.ts`、`grid-splitter.ts`、`grid-geometry.ts`、`grid-geometry.test.ts`、`grid-types.ts`、`sash-drag.ts`、`sash-feedback.ts`、`sash-gesture.ts`、`sash-scope.ts`、`sash-hit-area.ts`、`sash-hit-area.test.ts`。
+- `src/composables/useSashGesture.ts`。
+- **清单外加删一个**：`src/composables/useLayoutExtent.ts`。它只被 `Splitter.vue` 用，还依赖 `grid-types.ts`，不删会留下孤儿并编不过。neuro-book 里的同名导入来自 nb-layout，不受影响。
+- `e2e/splitter.spec.ts`。
+- `playground/app/acceptance/SplitterFixture.vue`。
+
+## 修改的文件
+
+- `src/components/index.ts`：去掉 `Splitter`、“冻结”注释、`SplitterPanelConfig` 和 `splitter-gesture` 那组类型。`composables/index.ts` 本来就没导出 `useSashGesture`。
+- `playground/app/pages/acceptance/[name].vue`：删掉对 `SplitterFixture` 的导入和映射，并更新注释。这个文件不在清单里，但不改就编不过。
+- `playground/app/acceptance/definitions.ts`：删 `splitter` 一项，改了注释里的数量说法。
+- `playground/app/assets/css/main.css`：只改了一句注释里的 “Splitter 跟着重新求解”。
+- `src/components/components.test.ts`、`default-text.test.ts`：删掉只测 Splitter 的用例和导入，别的用例没动。
+- `src/locales/locales.test.ts`：删 4 条 `splitter.*` 文案。
+- `src/components/token-consumption.test.ts`：删 `--nb-splitter-seam*` 两条白名单。
+- `src/locales/zh-CN.ts`、`en-US.ts`：删 `splitter` 一组键。locale 类型从这两个文件推出，没有单独的类型要改；nb-layout 用自己的文案目录，不读 nb-ui 的这组键。
+- `src/lab/sources.ts`：去掉对 Splitter 的排除，glob 恢复成单个字符串，并删掉那句注释。
+- `src/tokens.css`：`tokens.css` 里本来就没有 `--nb-splitter-seam*`，那两个名字只出现在 `token-consumption.test.ts` 的白名单里。我只改了一句注释，把 “Splitter.md” 改成指向 nb-layout 的 `src/vue/Splitter.md`。`--sash-line-*`、`--divider`、`--motion-*` 和 `--nb-layout-*` 桥接都没动。
+- `README.md`：把 Splitter 那一行换成指向 nb-layout 和迁移说明的一行。
+- `src/components/form/Checkbox.md`：“Splitter 一格里的滚动列表” 改成 “nb-layout 的 `Splitter` 一格里的滚动列表”。
+- `docs/migration-0.4.md`：在 “发版时一起改” 前加一节 “0.4 之后：`Splitter` 移到 nb-layout”，有新旧导入对照表和改导入的例子，没有写死新版本号。
+
+## 验证（命令都在 `packages/` 下用 `bun run --cwd <包>` 跑）
+
+| 命令 | 结果 |
+|---|---|
+| `nb-ui typecheck` | 通过 |
+| `nb-ui test`（即 `nuxt prepare playground && vitest run`） | 43 个文件、559 条测试全过 |
+| `nb-agent-ui`、`nb-form`、`nb-markdown`、`dev-panel`、`nb-story` 各 `typecheck` | 全部通过 |
+| `neuro-book typecheck` | 通过 |
+
+- **退出码**：成功时 harness 不显示退出码，失败才会；这些命令都没有报错。
+- **`bun test`**：你写的是 `bun test`，我用了 nb-ui 的 `test` 脚本，也就是 vitest，因为 nb-ui 的测试是 vitest 写的。
+- **README 与 tokens.css 的修改**：我在类型检查之后又改了 README 的锚点和 `tokens.css` 的注释，都是纯文字，没有重跑。
+
+## 额外跑了一个 SDK 测试
+
+我顺手跑了 `neuro-book/src/sdk/sdk.test.ts` 和 `plugin-sdk/pack.test.ts`，17 条通过、1 条失败：“组件子路径逐个列名……”。差异是 nb-ui 入口有 `ImagePreviewDialog`，SDK 的 `components.ts` 没列。我判断这与本片无关：我没碰 `ImagePreviewDialog`，`index.ts` 的 diff 里只有 Splitter 那几行，记忆里也记过 master 上这条 “SDK 组件清单” 失败。我没有在起点上实测对照，所以这一条是推断。
+
+## grep 残留
+
+对 `packages` 排除 `node_modules`、`neuro-book-legacy`、`.nuxt`、`dist` 搜这些名字，nb-ui 里剩下的都是文档或注释：
+
+- `README.md` 和 `migration-0.4.md` 里的迁移说明，其中 `migration-0.4.md` 第 68 行是 0.4 当时的历史记录，没改。
+- `e2e/checkbox.spec.ts` 和 `CheckboxFocusFixture.vue` 注释里描述 dev-panel 遇到过的 Splitter 格子结构，这是历史成因，我没改。
+
+nb-ui 之外还剩这些，都在你这个任务范围外：
+
+- nb-layout 自己。
+- dev-panel、nb-story 已指向 nb-layout 的导入。
+- neuro-book 的 `sdk/components.ts`、`sdk.test.ts`，其中 `sdk.test.ts` 的注释还写着 “nb-ui 里冻结的 Splitter”，已过时。
+- neuro-book 的 `WorkbenchSurface.vue` 里 `.nb-splitter__sash--*` 选择器，是 nb-layout 的类名。
+- `CHANGELOG.md`、`CollapsibleSidePanel.md`。
+
+## 拿不准的地方
+
+- 旧应用 `neuro-book-legacy` 里对 nb-ui `Splitter` 的那一处导入按你说的没碰，现在随之失效。
+- 迁移说明表里第三行 `SplitterGestureSource` 和 `SplitterGestureCancelReason`，我写成 nb-layout 里的新名 `SashGestureSource` 和 `SashGestureCancelReason`，依据是 nb-layout 的 `index.ts` 导出了这两个名字。nb-layout 没有导出旧名，只有 neuro-book 的 SDK 留了弃用别名。
+- 迁移说明的锚点 `#04-之后splitter-移到-nb-layout` 是我按 GitHub 规则推算的，没有用链接检查工具验证。
