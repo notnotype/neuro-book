@@ -13,9 +13,10 @@ import {authorExperience} from "../core/author/experience";
 import {authorGoals, personGoals} from "../core/author/goals";
 import type {AuthorHolder} from "../core/author/goals";
 import {authorLedger} from "../core/author/ledger";
+import {plotLines} from "../core/author/lines";
 import type {AuthorLedgerRow} from "../core/author/ledger";
 import type {AuthorExperienceItem} from "../core/author/experience";
-import {secretsTable} from "../core/author/secrets";
+import {defaultPeople, secretsTable} from "../core/author/secrets";
 import type {SecretRow} from "../core/author/secrets";
 import type {plotAuthorContract} from "../shared/author";
 import {ENTRY_TYPES} from "../shared/declarations";
@@ -121,13 +122,14 @@ export function remoteAuthor(canon: CanonProject): RemoteImplementation<typeof p
                 return {...detail, people, peopleTotal: detail.people.length};
             }),
             secrets: (input) => paged(input, ({view, position, mode}) => {
-                const people = input.people ?? [];
                 const segment = input.segment ?? "all";
+                // 没点名时按缺省选（输出 10）：要先知道主要角色与候选，算两遍表（第一遍不点名，只取候选），只在第一次打开时发生。
+                const people = input.people ?? defaultPeople(view, position, mode, secretsTable(view, mode, position, [], segment));
                 const table = secretsTable(view, mode, position, people, segment);
                 return {
                     items: table.rows,
-                    params: {method: "author.secrets", people, segment},
-                    extra: {counts: table.counts, candidates: table.candidates, main: table.main},
+                    params: {method: "author.secrets", people: input.people ?? null, segment},
+                    extra: {counts: table.counts, candidates: table.candidates, main: table.main, people},
                     // 名字表只给这一页用到的条目、候选的人与主要角色：整张表的名字可能上千个。
                     name: (names: NameTable, rows: readonly SecretRow[]) => {
                         for (const id of [...people, ...table.candidates, ...table.main]) names.add(id);
@@ -138,6 +140,11 @@ export function remoteAuthor(canon: CanonProject): RemoteImplementation<typeof p
                         }
                     },
                 };
+            }),
+            plotLines: (input) => read(input, ({view, position, mode}, names) => {
+                const lines = plotLines(view, position, mode);
+                for (const id of lines) names.add(id);
+                return {items: lines};
             }),
             goals: (input) => paged(input, ({view, position, mode}) => ({
                 items: authorGoals(view, mode, position, {...(input.holder === undefined ? {} : {holder: input.holder}), ...(input.finished === undefined ? {} : {finished: input.finished})}),

@@ -1,0 +1,115 @@
+{
+    "commands": {
+        "category": "剧情",
+        "open-secrets": {
+            "title": "打开谁知道什么"
+        },
+        "open-ledger": {
+            "title": "打开伏笔账本"
+        },
+        "open-goals": {
+            "title": "打开目标表"
+        },
+        "show-sidebar": {
+            "title": "显示剧情"
+        }
+    },
+    "views": {
+        "sidebar": {
+            "title": "剧情"
+        }
+    },
+    "editorPages": {
+        "secrets": {
+            "title": "谁知道什么"
+        },
+        "ledger": {
+            "title": "伏笔账本"
+        },
+        "goals": {
+            "title": "目标表"
+        }
+    },
+    "componentViews": {
+        "knowing": {
+            "title": "知道什么"
+        },
+        "attitude": {
+            "title": "目标与态度"
+        },
+        "point": {
+            "title": "谁知道"
+        }
+    },
+    "entryTabs": {
+        "experience": {
+            "title": "经历"
+        }
+    },
+    "sidebar": {
+        "tables": "表",
+        "lines": "剧情线",
+        "noLines": "还没有剧情线"
+    },
+    "page": {
+        "unbound": "打开作品后可用",
+        "loading": "读取中…",
+        "failed": "剧情的数据读不出来：{{reason}}",
+        "retry": "重试",
+        "lineMissing": "这条线读不到",
+        "plot": "剧情",
+        "more": "再显示（还有 {{count}} 项）",
+        "moreUnknown": "再显示"
+    },
+    "degree": {
+        "knows": "知道",
+        "misbelieves": "信错了",
+        "suspects": "怀疑",
+        "forgot": "忘了",
+        "unaware": "不知道",
+        "noRecord": "没有记录"
+    },
+    "secrecy": {
+        "common": "常识",
+        "trade": "行内",
+        "secret": "保密",
+        "topSecret": "绝密"
+    },
+    "chapter": {
+        "of": "第 {{index}} 章",
+        "paragraph": "第 {{index}} 章第 {{paragraph}} 段",
+        "prehistory": "前史",
+        "unscheduled": "还没排章"
+    },
+    "secrets": {
+        "segments": {
+            "label": "筛选",
+            "all": "全部",
+            "readerOnly": "只有读者知道",
+            "readerUnaware": "读者还不知道",
+            "noPlan": "没打算怎么揭"
+        },
+        "columns": {
+            "secret": "秘密",
+            "others": "别的人",
+            "reader": "读者",
+            "plan": "打算怎么揭"
+        },
+        "about": "关于{{name}}",
+        "other": "别的",
+        "noOne": "没有人知道",
+        "andMore": "等 {{count}} 人",
+        "readerFrom": "{{place}}起",
+        "revealExplicit": "{{chapter}}明说",
+        "revealHint": "{{chapter}}暗示",
+        "written": "已写",
+        "undecided": "还没定",
+        "due": "{{chapter}}到期",
+        "noPlan": "没有打算",
+        "pick": "选要看的人（{{chosen}} / {{total}}）",
+        "pickTitle": "要看的人",
+        "pickLimit": "最多选 {{count}} 个",
+        "empty": "还没有秘密",
+        "tableLabel": "谁知道什么"
+    }
+}

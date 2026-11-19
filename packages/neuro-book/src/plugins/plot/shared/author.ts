@@ -44,6 +44,8 @@ const methods = {
         effect: "read",
         errors,
     },
+    /** 侧栏的剧情线（plot/author-ui.md 输出 1）：种类为“剧情线”的条目，按条目树的顺序。 */
+    plotLines: {input: Type.Object({...At}), output: Out, effect: "read", errors},
     /** 作者用的经历（plot/knowledge.md 输出 17）：从新到旧分页。 */
     experience: {input: Type.Object({person: Type.String(), ...At, ...Page}), output: Out, effect: "read", errors},
 } as const;

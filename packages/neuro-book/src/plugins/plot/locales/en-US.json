@@ -1,0 +1,115 @@
+{
+    "commands": {
+        "category": "Plot",
+        "open-secrets": {
+            "title": "Open Who Knows What"
+        },
+        "open-ledger": {
+            "title": "Open Foreshadowing Ledger"
+        },
+        "open-goals": {
+            "title": "Open Goals"
+        },
+        "show-sidebar": {
+            "title": "Show Plot"
+        }
+    },
+    "views": {
+        "sidebar": {
+            "title": "Plot"
+        }
+    },
+    "editorPages": {
+        "secrets": {
+            "title": "Who Knows What"
+        },
+        "ledger": {
+            "title": "Foreshadowing Ledger"
+        },
+        "goals": {
+            "title": "Goals"
+        }
+    },
+    "componentViews": {
+        "knowing": {
+            "title": "Knows"
+        },
+        "attitude": {
+            "title": "Goals and Attitudes"
+        },
+        "point": {
+            "title": "Who Knows"
+        }
+    },
+    "entryTabs": {
+        "experience": {
+            "title": "Experience"
+        }
+    },
+    "sidebar": {
+        "tables": "Tables",
+        "lines": "Plot lines",
+        "noLines": "No plot lines yet"
+    },
+    "page": {
+        "unbound": "Available after opening a work",
+        "loading": "Loading…",
+        "failed": "The plot data could not be read: {{reason}}",
+        "retry": "Retry",
+        "lineMissing": "This line cannot be read",
+        "plot": "Plot",
+        "more": "Show more ({{count}} left)",
+        "moreUnknown": "Show more"
+    },
+    "degree": {
+        "knows": "Knows",
+        "misbelieves": "Believes wrongly",
+        "suspects": "Suspects",
+        "forgot": "Forgot",
+        "unaware": "Doesn't know",
+        "noRecord": "No record"
+    },
+    "secrecy": {
+        "common": "Common",
+        "trade": "Trade",
+        "secret": "Secret",
+        "topSecret": "Top secret"
+    },
+    "chapter": {
+        "of": "Chapter {{index}}",
+        "paragraph": "Chapter {{index}}, paragraph {{paragraph}}",
+        "prehistory": "Backstory",
+        "unscheduled": "Not scheduled"
+    },
+    "secrets": {
+        "segments": {
+            "label": "Filter",
+            "all": "All",
+            "readerOnly": "Only the reader knows",
+            "readerUnaware": "Reader doesn't know yet",
+            "noPlan": "No reveal planned"
+        },
+        "columns": {
+            "secret": "Secret",
+            "others": "Others",
+            "reader": "Reader",
+            "plan": "How it is revealed"
+        },
+        "about": "About {{name}}",
+        "other": "Other",
+        "noOne": "Nobody knows",
+        "andMore": "and {{count}} more",
+        "readerFrom": "since {{place}}",
+        "revealExplicit": "{{chapter}}: stated",
+        "revealHint": "{{chapter}}: hinted",
+        "written": "written",
+        "undecided": "Undecided",
+        "due": "due {{chapter}}",
+        "noPlan": "No plan",
+        "pick": "People to show ({{chosen}} / {{total}})",
+        "pickTitle": "People to show",
+        "pickLimit": "At most {{count}}",
+        "empty": "No secrets yet",
+        "tableLabel": "Who knows what"
+    }
+}

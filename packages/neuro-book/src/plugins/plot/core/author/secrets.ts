@@ -50,10 +50,29 @@ export interface SecretsTable {
     /** 候选的人：任何一行里知道、信错了、怀疑、忘了的人加主要角色，按 id 排。 */
     readonly candidates: readonly string[];
     readonly main: readonly string[];
+    /** 每个人在多少行里知道、信错了、怀疑或忘了（缺省点名用）。 */
+    readonly appearances: ReadonlyMap<string, number>;
 }
 
 const KNOWING_DEGREES: ReadonlySet<AuthorDegree> = new Set(["knows", "misbelieves", "suspects", "forgot"]);
 const AWARE_DEGREES: ReadonlySet<AuthorDegree> = new Set(["knows", "misbelieves", "suspects"]);
+
+/** “谁知道什么”缺省选几个人（plot/author-ui.md 输出 10）。 */
+export const DEFAULT_PEOPLE = 3;
+
+/**
+ * 缺省点名的人（plot/author-ui.md 输出 10）：主要角色里按名字的前 3 个；没有主要角色时，候选里出现在行里最多的前 3 个（一样多按名字）。
+ * 名字按同一份视图读。
+ */
+export function defaultPeople(view: CanonReadView, position: ReadPosition, mode: Mode, table: Pick<SecretsTable, "main" | "candidates" | "appearances">): string[] {
+    const nameOf = (id: string): string => {
+        const read = view.entry(id, position, mode);
+        return read === null || read === "chapter-not-found" ? id : read.name;
+    };
+    const byName = (a: string, b: string) => (nameOf(a) < nameOf(b) ? -1 : nameOf(a) > nameOf(b) ? 1 : a < b ? -1 : 1);
+    if (table.main.length > 0) return [...table.main].sort(byName).slice(0, DEFAULT_PEOPLE);
+    return [...table.candidates].sort((a, b) => (table.appearances.get(b) ?? 0) - (table.appearances.get(a) ?? 0) || byName(a, b)).slice(0, DEFAULT_PEOPLE);
+}
 
 /** 主要角色（goals.md 输出 6）：读取位置上持有进行或受挫目标的人或组织（本体），按 id 排。 */
 export function mainCharacters(view: CanonReadView, position: ReadPosition, mode: Mode): string[] {
@@ -69,7 +88,7 @@ export function mainCharacters(view: CanonReadView, position: ReadPosition, mode
 }
 
 /** 条目在条目树里的排序键：从根到它，每一层的（顺序，id）。 */
-function treeKey(view: CanonReadView, id: string | null): readonly (string | number)[] {
+export function treeKey(view: CanonReadView, id: string | null): readonly (string | number)[] {
     const chain: (string | number)[] = [];
     const seen = new Set<string>();
     let current = id;
@@ -83,7 +102,7 @@ function treeKey(view: CanonReadView, id: string | null): readonly (string | num
     return chain;
 }
 
-function compareKeys(a: readonly (string | number)[], b: readonly (string | number)[]): number {
+export function compareKeys(a: readonly (string | number)[], b: readonly (string | number)[]): number {
     for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
         const x = a[index]!;
         const y = b[index]!;
@@ -123,6 +142,7 @@ export function secretsTable(view: CanonReadView, mode: Mode, position: ReadPosi
     const reveals = revealsByPoint(view, position);
     const live = view.decisions().filter((decision) => decision.status === "pending" || decision.status === "decided");
     const candidates = new Set(main);
+    const appearances = new Map<string, number>();
     const hangs = (decision: (typeof live)[number], point: string): boolean => decision.about.some((about) => (about.kind === "entry" && about.id === point) || (about.kind === "address" && about.at.entry === point));
     const guards = (decision: (typeof live)[number], point: string): boolean => !hangs(decision, point) && (decision.marks ?? []).some((mark) => mark.kind === MARK_IDS.guardReader && (mark as {point?: unknown}).point === point);
     /** 排序与分段要的几样，不进结果：名字、主体在树里的键、是不是有人知道、信错了或怀疑。 */
@@ -136,7 +156,10 @@ export function secretsTable(view: CanonReadView, mode: Mode, position: ReadPosi
         for (const person of everyone) {
             const row = index.effective(person, point.id);
             const degree: AuthorDegree = row?.程度 ?? "none";
-            if (KNOWING_DEGREES.has(degree)) candidates.add(person);
+            if (KNOWING_DEGREES.has(degree)) {
+                candidates.add(person);
+                appearances.set(person, (appearances.get(person) ?? 0) + 1);
+            }
             if (AWARE_DEGREES.has(degree)) aware = true;
             if (named.has(person)) columns[person] = {degree, belief: row?.他以为的 ?? null};
             else if (KNOWING_DEGREES.has(degree)) others.push({person, degree});
@@ -171,5 +194,5 @@ export function secretsTable(view: CanonReadView, mode: Mode, position: ReadPosi
         return true;
     };
     const counts = Object.fromEntries(SECRET_SEGMENTS.map((which) => [which, built.filter((item) => inSegment(item, which)).length])) as Record<SecretSegment, number>;
-    return {rows: built.filter((item) => inSegment(item, segment)).map((item) => item.row), counts, candidates: [...candidates].sort(), main};
+    return {rows: built.filter((item) => inSegment(item, segment)).map((item) => item.row), counts, candidates: [...candidates].sort(), main, appearances};
 }
