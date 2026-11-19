@@ -15,6 +15,7 @@ import {BotsStopping} from "./main";
 import type {EnsureResult, MainConversations} from "./main";
 import type {PresetTable} from "./presets";
 import type {BotRecord, BotStore, ReadBots} from "./store";
+import type {SeenResult, UnreadTracker} from "./unread";
 
 export interface BotServiceOptions {
     /** 插件存储打不开时为 null：没有 bot，`ensureMain` 得 `unknown-bot`。 */
@@ -23,6 +24,7 @@ export interface BotServiceOptions {
     readonly root: string;
     readonly presets: PresetTable;
     readonly main: MainConversations;
+    readonly unread: UnreadTracker;
     readonly clock: RuntimeClock;
     readonly signal: AbortSignal;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
@@ -49,7 +51,19 @@ export class BotService {
     }
 
     list(): BotItem[] {
-        return this.#bots.map((bot) => ({id: bot.id, name: bot.name, main: this.options.main.state(bot.id)}));
+        return this.#bots.map((bot) => ({id: bot.id, name: bot.name, main: this.options.main.state(bot.id), ...this.options.unread.item(bot.id)}));
+    }
+
+    /** bot 记录里有这个 bot（头像路由按它判断）。 */
+    has(botId: string): boolean {
+        return this.#bots.some((bot) => bot.id === botId);
+    }
+
+    /** 记“看到”（main-conversation.md 的未读）。 */
+    async markSeen(botId: string, through: number): Promise<SeenResult | {readonly ok: false; readonly code: "unknown-bot"}> {
+        await this.#loaded;
+        if (!this.has(botId)) return {ok: false, code: "unknown-bot"};
+        return this.options.unread.markSeen(botId, through);
     }
 
     /** 主对话（main-conversation.md 输出 1）：后台任务读完记录、建完 bot 之前到的等它。 */
