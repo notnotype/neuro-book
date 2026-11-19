@@ -5,11 +5,11 @@ status: planned
 updated: 2026-11-18
 ---
 
-# 显式入口清单、导出名测试与 useDragSession、useGridHost
+# 显式入口清单与导出名测试
 
 ## 目标与范围
 
-按提案第一档第 4、5 项：两个入口改显式清单加导出名测试，求解器内部件不导出；补 useDragSession、useGridHost 与起步材料（README 起步、收起与展开入口、拖不动时报错）
+按提案第一档第 4 项（“公开入口”）：两个入口改显式清单加导出名测试，求解器内部件不导出；`Splitter*` 手势类型改名 `GridGesture*`、`gesture-start` 的载荷起名并导出；子路径清单。第 5 项（`useDragSession`、`useGridHost`、收起与展开入口、拖不动时报错、起步材料）2026-11-19 拆到 [t39](../t39-layout-helpers-and-starter/README.md)：那一半是要先写 Spec 定形状的新 API，这一半是不改行为的整理，分开审、分开合。
 
 合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
 

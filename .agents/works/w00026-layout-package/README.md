@@ -40,7 +40,7 @@ updated: 2026-11-05
 
 2026-11-18：[t33](tasks/t33-workbench-layer-split/README.md) 完成：工作台层拆进新包 nb-workbench-layout，合入 master（`f0f1a3bdd`），实现审查 7 条处理完（修正 `246ac1cb8`）。[t34](tasks/t34-unified-errors/README.md) 停下等开发者：计划三轮设计审查后仍有 6 条重要问题，推荐拆成“失败的形状”与“诊断”两个 Task、L2 拆码延后；开发者定之前不推进 t35 及以后。
 
-2026-11-19：开发者同意 t34 的推荐：t34 只做失败的形状，诊断拆到 [t38 诊断的形状、码与只发新增](tasks/t38-grid-diagnostics/README.md)，L2 拆码延后（[待确认清单](pending-confirmations.md)）。第一档的顺序改为 t34 → t38 → t35 → t36 → t37 → t32 → t14。
+2026-11-19：开发者同意 t34 的推荐：t34 只做失败的形状，诊断拆到 [t38 诊断的形状、码与只发新增](tasks/t38-grid-diagnostics/README.md)，L2 拆码延后（[待确认清单](pending-confirmations.md)）。第一档的顺序改为 t34 → t38 → t35 → t36 → t37 → t32 → t14。2026-11-19：t36 拆成 t36（显式入口与导出名测试）与 [t39](tasks/t39-layout-helpers-and-starter/README.md)（小组合函数与起步材料），顺序 t35 → t36 → t39 → t37 → t32 → t14（[待确认清单](pending-confirmations.md)）。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
