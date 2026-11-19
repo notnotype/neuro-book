@@ -102,12 +102,6 @@ export default {
     spinner: {
         loading: "Loading",
     },
-    splitter: {
-        resizeWidth: "Resize width between {{before}} and {{after}}",
-        resizeHeight: "Resize height between {{before}} and {{after}}",
-        collapsed: "Collapsed",
-        pixels: "{{size}} pixels",
-    },
     table: {
         empty: "No data",
     },

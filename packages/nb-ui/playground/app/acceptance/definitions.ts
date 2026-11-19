@@ -1,6 +1,6 @@
 /**
  * 手势验收页的组件定义：场景、场景属性控件与事件日志收录的事件。原来在 playground 的组件 Lab 注册表里；组件实验
- * 改到新应用的 Component Lab 登记之后，只有需要真实指针与布局引擎的验收留在 playground：两个手势验收、一个
+ * 改到新应用的 Component Lab 登记之后，只有需要真实指针与布局引擎的验收留在 playground：一个
  * 勾选框聚焦滚动验收与弹出列表的尺寸与高亮验收（见 e2e/ 下同名的 spec）。
  */
 
@@ -27,20 +27,6 @@ export type LabComponentDefinition = {
 };
 
 export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
-    "splitter": {
-        id: "splitter",
-        label: "Splitter",
-        scenes: [{id: "default", label: "默认"}],
-        controls: [
-            {id: "direction", label: "方向", type: "select", defaultValue: "horizontal", options: [
-                {label: "水平", value: "horizontal"},
-                {label: "垂直", value: "vertical"},
-            ]},
-            {id: "disabled", label: "禁用", type: "boolean"},
-            {id: "zeroSecondSash", label: "第二条分隔条零宽", type: "boolean"},
-        ],
-        events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel"],
-    },
     "popup-lists": {
         id: "popup-lists",
         label: "弹出列表",

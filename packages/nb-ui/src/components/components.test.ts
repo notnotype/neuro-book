@@ -36,8 +36,6 @@ import CollapsibleCard from "./layout/CollapsibleCard.vue";
 import CollapsibleRow from "./layout/CollapsibleRow.vue";
 import ScrollArea from "./layout/ScrollArea.vue";
 import Separator from "./layout/Separator.vue";
-import Splitter from "./layout/Splitter.vue";
-import type {SplitterGestureState} from "./layout/splitter-gesture";
 import Breadcrumb from "./navigation/Breadcrumb.vue";
 import Menubar from "./popup/Menubar.vue";
 import CheckboxGroup from "./form/CheckboxGroup.vue";
@@ -1763,55 +1761,6 @@ describe("nb-ui dialog anatomy", () => {
         expect(wrapper.text()).toContain("第一卷");
         expect(wrapper.text()).toContain("第3章");
         expect(wrapper.find("[aria-current='page']").text()).toBe("第3章");
-        wrapper.unmount();
-    });
-
-    it("renders splitter panels in px with separator semantics", async () => {
-        const wrapper = mount(Splitter, {
-            props: {
-                direction: "horizontal",
-                panels: [
-                    {id: "sidebar", defaultSizePx: 240},
-                    {id: "editor", defaultSizePx: 760},
-                ],
-            },
-            slots: {
-                "panel-sidebar": "<div>侧边栏内容</div>",
-                "panel-editor": "<div>正文内容</div>",
-            },
-        });
-        await nextTick();
-
-        expect(wrapper.text()).toContain("侧边栏内容");
-        expect(wrapper.text()).toContain("正文内容");
-
-        // 容器测不到尺寸（happy-dom 没有布局引擎）：按声明的 px 分配，1px sash 之外的面板空间是 999px
-        const panels = wrapper.findAll("[data-panel-id]");
-        expect(wrapper.attributes("data-splitter")).toBe("panels");
-        expect(panels.map((panel) => panel.attributes("data-panel-id"))).toEqual(["sidebar", "editor"]);
-        expect(panels.map((panel) => panel.attributes("data-state"))).toEqual(["expanded", "expanded"]);
-        const widths = panels.map((panel) => Number.parseFloat((panel.element as HTMLElement).style.width));
-        expect(widths[0]!).toBeCloseTo(239.76, 2);
-        expect(widths[1]!).toBeCloseTo(759.24, 2);
-
-        // 分隔线用 px 发布可访问范围，且 aria-controls 指向前侧面板
-        const sash = wrapper.get("[data-sash='panels:0']");
-        expect(sash.attributes("role")).toBe("separator");
-        expect(sash.attributes("aria-orientation")).toBe("vertical");
-        expect(sash.attributes("aria-controls")).toBe(panels[0]!.attributes("id"));
-        expect(sash.attributes("aria-valuenow")).toBe("240");
-        expect(sash.attributes("aria-valuemax")).toBe("1000");
-        expect(sash.attributes("aria-valuetext")).toBe("240 像素");
-
-        // 键盘调整走同一 px 口径：一次 ArrowRight 提交 10px
-        await sash.trigger("keydown", {key: "ArrowRight"});
-        await sash.trigger("keyup", {key: "ArrowRight"});
-        await nextTick();
-        const gesture = wrapper.emitted("gesture-end")?.at(-1)?.[0] as SplitterGestureState;
-        expect(gesture.source).toBe("keyboard");
-        expect(gesture.active).toEqual(["sidebar", "editor"]);
-        expect(gesture.sizesPx[0]! - 239.76).toBeCloseTo(10, 5);
-        expect(Number.parseFloat((panels[0]!.element as HTMLElement).style.width)).toBeCloseTo(249.76, 2);
         wrapper.unmount();
     });
 

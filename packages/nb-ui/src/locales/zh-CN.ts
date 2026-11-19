@@ -106,12 +106,6 @@ export default {
     spinner: {
         loading: "加载中",
     },
-    splitter: {
-        resizeWidth: "调整 {{before}} 与 {{after}} 的宽度",
-        resizeHeight: "调整 {{before}} 与 {{after}} 的高度",
-        collapsed: "已收起",
-        pixels: "{{size}} 像素",
-    },
     table: {
         empty: "暂无数据",
     },

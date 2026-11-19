@@ -44,8 +44,6 @@ export {default as CollapsibleRow} from "./layout/CollapsibleRow.vue";
 export {default as OverlayScrollbar} from "./layout/OverlayScrollbar.vue";
 export {default as ScrollArea} from "./layout/ScrollArea.vue";
 export {default as Separator} from "./layout/Separator.vue";
-// 冻结：只给 nb-story、dev-panel 用，新代码用 `@notnotype/nb-layout/vue`，w00026 t14 迁移后删除。
-export {default as Splitter} from "./layout/Splitter.vue";
 export {default as Breadcrumb} from "./navigation/Breadcrumb.vue";
 export {default as Tree} from "./navigation/Tree.vue";
 export {default as CheckboxGroup} from "./form/CheckboxGroup.vue";
@@ -96,13 +94,6 @@ export type {NotificationPosition} from "./feedback/NotificationStack.vue";
 export type {CollapsibleCardStatus} from "./layout/CollapsibleCard.vue";
 export type {CollapsibleRowStatus} from "./layout/CollapsibleRow.vue";
 export type {ScrollAreaOrientation, ScrollAreaType} from "./layout/ScrollArea.vue";
-export type {SplitterPanelConfig} from "./layout/Splitter.vue";
-export type {
-    SplitterGestureCancellation,
-    SplitterGestureCancelReason,
-    SplitterGestureSource,
-    SplitterGestureState,
-} from "./layout/splitter-gesture";
 export type {BreadcrumbItemData} from "./navigation/Breadcrumb.vue";
 export type {GenericTreeNode} from "./navigation/Tree.vue";
 export type {CheckboxOption} from "./form/CheckboxGroup.vue";
