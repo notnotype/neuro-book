@@ -333,7 +333,8 @@
             "declined": "不同意"
         },
         "author": {
-            "otherSession": "另一个会话"
+            "otherSession": "另一个会话",
+            "notice": "提醒 · {{name}}"
         },
         "subagents": {
             "title": "子代理",
@@ -414,6 +415,7 @@
             "stoppedByYou": "你停止了这一轮",
             "stoppedByAgent": "派它的 Agent 停止了",
             "stoppedByHost": "{{name}}停止了",
+            "notice": "你继续时一起送出",
             "interrupted": "上次运行被中断",
             "idle": "空闲时排的",
             "notStarted": "运行没开起来：{{reason}}",

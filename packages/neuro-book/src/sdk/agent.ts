@@ -7,7 +7,7 @@
 // 运行时的值逐个列出：内核契约里还有日志格式、码表这类宿主用的东西，不进插件的公开面。类型全部转出。
 export {conv, coreHistory, defineContract, defineExtension, defineProfile, ext, implement, optional, shape, slice} from "@notnotype/nb-harness/kernel/contracts";
 export type * from "@notnotype/nb-harness/kernel/contracts";
-export {finalOnly, mapEventContent, opening, reminder, standardLayout, withoutEvents} from "@notnotype/nb-harness/kernel/helpers";
+export {finalOnly, mapEventContent, mergeSteers, opening, reminder, standardLayout, withoutEvents} from "@notnotype/nb-harness/kernel/helpers";
 export type {ContentMap, ContentWhere} from "@notnotype/nb-harness/kernel/helpers";
 export {Assistant, Fragment, History, If, P, Slot, System, Tag, ToolName, Turn, User} from "@notnotype/nb-harness/prompt";
 export type {PromptChild, PromptComponent, PromptNode} from "@notnotype/nb-harness/prompt";

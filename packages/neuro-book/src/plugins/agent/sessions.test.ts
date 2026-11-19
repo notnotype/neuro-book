@@ -9,6 +9,7 @@ import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createJsonlStore, defineExtension, defineProfile} from "@notnotype/nb-harness/kernel";
@@ -20,7 +21,7 @@ import {DELTA_WINDOW_MS, DIAGNOSTIC_TEXT_BYTES, EVENT_INLINE_BYTES, PAGE_BYTES} 
 import {agentKey, MAIN_PROFILE} from "./shared/contracts";
 import type {AgentService} from "./shared/contracts";
 import {agentExtension, agentProfile, agentTool} from "./shared/points";
-import {agentSessionsContract} from "./shared/remote";
+import {agentSessionsContract, NOTICE_SUMMARY_CHARS} from "./shared/remote";
 import type {LogItem, RemoteFrame} from "./shared/remote";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
@@ -208,6 +209,45 @@ describe("远程合同", () => {
         expect(Object.keys(agentSessionsContract.methods)).not.toContain("setGeneratedMeta");
         expect(await client.create({profile: "test.profiles.missing"})).toMatchObject({ok: false, code: "unknown-profile"});
         expect(ok(await client.profiles({})).map((profile) => profile.key)).toContain(WRITER);
+    });
+
+    test("输出 29：合同是版本 2；快照的待发提醒只带开头与字节数、带着门；removeNotice 以用户的身份取消；notice 不在合同里；按版本 1 调用得 version-changed", async () => {
+        const w = await world();
+        const {client, remote} = await w.window("a");
+        const sessionId = ok(await client.create({profile: WRITER})).sessionId;
+        const host = w.service.session(sessionId, {asUser: false, source: {label: "日程", ref: "r-1"}});
+        expect(NOTICE_SUMMARY_CHARS).toBe(200);
+        // 超过摘要长度、含代理对：摘要按字符截，不切开它。
+        const text = `${"提".repeat(NOTICE_SUMMARY_CHARS - 1)}😀${"醒".repeat(50)}`;
+        const queued = await host.notice({commandId: cid(), text, key: "daily"});
+        if (!queued.ok) throw new Error(`notice failed: ${JSON.stringify(queued)}`);
+        const snapshot = ok(await client.snapshot({sessionId}));
+        expect(snapshot.notices).toEqual([{
+            id: queued.value.noticeId,
+            by: expect.objectContaining({kind: "host", source: expect.objectContaining({label: "日程", ref: "r-1"})}),
+            key: "daily",
+            wake: false,
+            queuedAt: expect.any(Number),
+            summary: `${"提".repeat(NOTICE_SUMMARY_CHARS - 1)}😀`,
+            bytes: Buffer.byteLength(text),
+        }]);
+        expect(snapshot.wakeGate).toEqual({open: true, cause: "created"});
+
+        ok(await client.removeNotice({sessionId, commandId: cid(), noticeId: queued.value.noticeId}));
+        expect(ok(await client.snapshot({sessionId})).notices).toEqual([]);
+        const removed = (await w.service.session(sessionId).log({afterSeq: 0})).events.find((event) => event.type === "noticeRemoved");
+        expect(removed?.data).toMatchObject({ids: [queued.value.noticeId], reason: "cancelled"});
+        expect(await client.removeNotice({sessionId, commandId: cid(), noticeId: queued.value.noticeId})).toMatchObject({ok: false, code: "notice-not-found"});
+        // 插件经 agentKey 拿到的视图能撤回自己发的。
+        const own = await host.notice({commandId: cid(), text: "过时了"});
+        if (!own.ok) throw new Error(`notice failed: ${JSON.stringify(own)}`);
+        expect((await host.removeNotice({commandId: cid(), noticeId: own.value.noticeId})).ok).toBe(true);
+        const withdrawn = (await w.service.session(sessionId).log({afterSeq: 0})).events.filter((event) => event.type === "noticeRemoved").at(-1);
+        expect(withdrawn?.data).toMatchObject({ids: [own.value.noticeId], reason: "withdrawn"});
+
+        expect(Object.keys(agentSessionsContract.methods)).not.toContain("notice");
+        const v1 = defineRemoteService({...agentSessionsContract, version: 1});
+        expect(await remote.use(v1).snapshot({sessionId})).toMatchObject({ok: false, code: "version-changed"});
     });
 
     test("输出 22、15：缓冲区条目经远程带发出者、状态、原因与输入；send 交回去向；resume、release 照内核暴露，失败码照原样；用户停止留下的话让活动列为 held", async () => {

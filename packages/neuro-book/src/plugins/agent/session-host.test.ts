@@ -19,6 +19,7 @@ import {testTextPort} from "nbook/shared/testing/text-port";
 import type {AgentConversationContext, AssistantMessageView, ComposerModelView, MessageView, PendingApprovalView, PendingInputView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
 
 import {EVENT_INLINE_BYTES} from "./backend/frames";
+import {noticeSummary} from "./shared/remote";
 import {MAIN_PROFILE} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION} from "./shared/permissions";
 import type {Rule} from "./shared/permissions";
@@ -785,6 +786,205 @@ describe("留着的话与继续（conversation.md 输出 47–50）", () => {
         await idle(h);
         expect(userTexts(h).at(-1)).toBe("排一\n\n排二");
         expect((await w.service.session(h.host.sessionId.value!).path()).filter((event) => event.type === "runStarted").at(-1)!.data).toMatchObject({runId: sent.value.runId});
+    });
+});
+
+describe("提醒（conversation.md 输出 51）", () => {
+    /** 文案带上参数：断言标签里的来源名。 */
+    const withParams = {text: {t: (value: unknown) => (typeof value === "string" ? value : [(value as {key: string}).key, ...Object.values((value as {params?: Record<string, unknown>}).params ?? {})].join(" · ")), variants: () => []} as never};
+    const textOf = (message: MessageView): string => (message as {blocks: {text?: string}[]}).blocks.map((block) => block.text ?? "").join("");
+
+    test("门开着时是普通的就绪行、排在话的后面：标签是提醒加来源名、只能取消；取消提醒走 removeNotice、取消话照旧；停止清空的条数不算提醒", async () => {
+        const w = await world();
+        const h = await started(w, withParams);
+        const id = h.host.sessionId.value!;
+        const hosted = w.service.session(id, {asUser: false, source: {label: "日程"}});
+        // 新会话门开着、空闲：不带唤起的提醒不开运行，也不算留着。
+        const idleNotice = await hosted.notice({commandId: crypto.randomUUID(), text: "空闲时的提醒"});
+        if (!idleNotice.ok) throw new Error(`notice failed: ${JSON.stringify(idleNotice)}`);
+        await until("提醒排上", () => h.ctx().composer.queued.length === 1);
+        expect(h.ctx().composer.queued[0]).toEqual({id: idleNotice.value.noticeId, text: "空闲时的提醒", delivery: "steer", author: {label: "conversation.author.notice · 日程", icon: "i-lucide-bell"}, editable: false});
+        expect(h.ctx().run.status).toBe("idle");
+
+        // 发话开一轮：空闲时的提醒随第一次请求带上。
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复", "排的那条处理了");
+        h.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        await until("运行中、提醒取走", () => h.ctx().run.status === "running" && h.ctx().composer.queued.length === 0);
+        expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("空闲时的提醒");
+        for (const text of ["排一", "排二"]) h.host.act({type: "composer.submit", text, delivery: "followup"});
+        await until("话排上", () => h.ctx().composer.queued.length === 2);
+        const queued = await hosted.notice({commandId: crypto.randomUUID(), text: "内核重置了"});
+        if (!queued.ok) throw new Error(`notice failed: ${JSON.stringify(queued)}`);
+        await until("提醒排上", () => h.ctx().composer.queued.length === 3);
+        expect(h.ctx().composer.queued.map((item) => [item.text, item.author?.label ?? null, item.held ?? null])).toEqual([
+            ["排一", null, null],
+            ["排二", null, null],
+            ["内核重置了", "conversation.author.notice · 日程", null],
+        ]);
+        expect(h.ctx().interaction.stopClearing).toEqual({count: 2});
+
+        h.host.act({type: "queued.remove", id: h.ctx().composer.queued[1]!.id});
+        await until("话取消了", () => h.ctx().composer.queued.length === 2);
+        const afterWords = await w.service.session(id).snapshot();
+        expect([afterWords.buffer.map((item) => item.input.text), afterWords.notices.map((item) => item.text)]).toEqual([["排一"], ["内核重置了"]]);
+        h.host.act({type: "queued.remove", id: queued.value.noticeId});
+        await until("提醒取消了", () => h.ctx().composer.queued.length === 1);
+        expect((await w.service.session(id).snapshot()).notices).toEqual([]);
+        hold.release();
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "排的那条处理了");
+        await idle(h);
+        expect(JSON.stringify(endpoint.requests.map((request) => request.messages))).not.toContain("内核重置了");
+        const reminder = h.ctx().messages.find((message) => message.kind === "system" && message.source === "reminder");
+        expect(reminder).toMatchObject({label: {key: "kernel.hostNotice", params: {name: "日程"}}, text: "空闲时的提醒"});
+    });
+
+    test("门关着又没有运行时按留着画、宿主开的运行里不算留着；重开的窗口显示同样的开头；空着继续开一次运行把提醒送出去，消息流里是全文", async () => {
+        const w = await world();
+        const h = await started(w);
+        const id = h.host.sessionId.value!;
+        const hosted = w.service.session(id, {asUser: false, source: {label: "日程"}});
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复");
+        h.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        await until("运行中", () => h.ctx().run.status === "running");
+        h.host.act({type: "composer.stop"});
+        hold.release();
+        await idle(h);
+
+        // 用户的停止关了门；宿主开的运行不开门，但运行里排的提醒下一次请求就会带上，不算留着。
+        const second = endpoint.hold();
+        endpoint.script("日程的回复");
+        expect((await hosted.send({commandId: crypto.randomUUID(), input: {text: "日程的话"}})).ok).toBe(true);
+        await second.arrived;
+        await until("宿主的运行在跑", () => h.ctx().run.status === "running");
+        const first = await hosted.notice({commandId: crypto.randomUUID(), text: "第一条提醒"});
+        if (!first.ok) throw new Error(`notice failed: ${JSON.stringify(first)}`);
+        await until("提醒排上", () => h.ctx().composer.queued.length === 1);
+        expect(h.ctx().composer.queued[0]!.held).toBeUndefined();
+        second.release();
+        await idle(h);
+        await until("运行收口后按留着", () => h.ctx().composer.queued[0]?.held?.reason === "conversation.held.notice");
+
+        // 带唤起的也不开运行；排队区只显示开头，从快照重开的窗口一样。
+        const text = `内核重置了${"。".repeat(300)}`;
+        const woken = await hosted.notice({commandId: crypto.randomUUID(), text, wake: true});
+        if (!woken.ok) throw new Error(`notice failed: ${JSON.stringify(woken)}`);
+        await until("两条都留着", () => h.ctx().composer.queued.length === 2 && h.ctx().composer.queued.every((item) => item.held !== undefined));
+        expect(h.ctx().composer.queued[1]!.text).toBe(noticeSummary(text));
+        expect((await w.service.session(id).snapshot()).status.state).toBe("idle");
+        const reopened = await harness(w);
+        await reopened.host.open(id);
+        await until("重开的窗口有两条", () => reopened.ctx().composer.queued.length === 2);
+        expect(reopened.ctx().composer.queued).toEqual(h.ctx().composer.queued);
+
+        endpoint.script("知道了");
+        h.host.act({type: "run.continue"});
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "知道了");
+        await idle(h);
+        expect(h.ctx().composer.queued).toEqual([]);
+        const sent = JSON.stringify(endpoint.requests.at(-1)!.messages);
+        expect([sent.includes("第一条提醒"), sent.includes("内核重置了")]).toEqual([true, true]);
+        const reminders = h.ctx().messages.filter((message) => message.kind === "system" && message.source === "reminder");
+        expect(reminders.map((message) => (message as {text: string}).text)).toEqual(expect.arrayContaining(["第一条提醒", text]));
+    });
+
+    test("只有提醒时的继续是一个操作：进行中标出在继续；被拒时说明原因，提醒留着", async () => {
+        const w = await world();
+        const base = await started(w);
+        const id = base.host.sessionId.value!;
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复");
+        base.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        base.host.act({type: "composer.stop"});
+        hold.release();
+        await idle(base);
+        expect((await w.service.session(id, {asUser: false, source: {label: "日程"}}).notice({commandId: crypto.randomUUID(), text: "提醒"})).ok).toBe(true);
+
+        // 远程的 resume 先挂着、再交回被拒（开不起运行的码由内核给，这里只看宿主怎样接）。
+        let answer = () => undefined as void;
+        const answered = new Promise<void>((resolve) => {
+            answer = resolve;
+        });
+        const resumes: unknown[] = [];
+        const watched = new Proxy(base.client, {get(target, key, receiver) {
+            if (key !== "resume") return Reflect.get(target, key, receiver);
+            return async (input: unknown) => {
+                resumes.push(input);
+                await answered;
+                return {ok: false, code: "not-allowed"};
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: watched});
+        await h.host.open(id);
+        await until("留着", () => h.ctx().composer.queued[0]?.held !== undefined);
+        h.host.act({type: "run.continue"});
+        await until("在继续", () => h.ctx().interaction.continuing);
+        h.host.act({type: "run.continue"});
+        answer();
+        await until("说明原因", () => (h.ctx().composer.notice as {key?: string} | undefined)?.key === "conversation.continue.failed");
+        expect(resumes).toEqual([expect.objectContaining({sessionId: id, mode: "keep"})]);
+        expect(h.ctx().interaction.continuing).toBe(false);
+        expect(h.ctx().composer.queued).toHaveLength(1);
+    });
+
+    test("留着的话与提醒一起：合并时用户留着的两条合成一条发出，提醒随这次运行的第一次请求带上", async () => {
+        const w = await world();
+        const h = await started(w);
+        const id = h.host.sessionId.value!;
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复");
+        h.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        await until("运行中", () => h.ctx().run.status === "running");
+        for (const text of ["排一", "排二"]) h.host.act({type: "composer.submit", text, delivery: "followup"});
+        await until("都排上", () => h.ctx().composer.queued.length === 2);
+        h.host.act({type: "composer.stop"});
+        hold.release();
+        await idle(h);
+        expect((await w.service.session(id, {asUser: false, source: {label: "日程"}}).notice({commandId: crypto.randomUUID(), text: "合并时的提醒"})).ok).toBe(true);
+        await until("三条都留着", () => h.ctx().composer.queued.length === 3 && h.ctx().composer.queued.every((item) => item.held !== undefined));
+        endpoint.script("合成的处理了");
+        h.host.act({type: "run.continue"});
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "合成的处理了");
+        await idle(h);
+        expect(h.ctx().messages.filter((message) => message.kind === "user").map(textOf).at(-1)).toBe("排一\n\n排二");
+        expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("合并时的提醒");
+        expect(h.ctx().composer.queued).toEqual([]);
+    });
+
+    test("中断的运行加提醒：继续接着跑那一轮，提醒随它的第一次请求带上，不另开一轮", async () => {
+        counter += 1;
+        const dir = join(root, `notice-restart-${String(counter)}`);
+        const first = await world({}, dir);
+        const a = await started(first);
+        const hold = endpoint.hold();
+        endpoint.script("不会交回的回复");
+        a.host.act({type: "composer.submit", text: "中断前", delivery: "prompt"});
+        await hold.arrived;
+        const id = a.host.sessionId.value!;
+        worlds.splice(worlds.indexOf(first), 1);
+        await first.close();
+        hold.release();
+        endpoint.reset();
+
+        const w = await world({}, dir);
+        expect((await w.service.session(id, {asUser: false, source: {label: "日程"}}).notice({commandId: crypto.randomUUID(), text: "重启后的提醒"})).ok).toBe(true);
+        const h = await harness(w);
+        await h.host.open(id);
+        await until("中断、提醒留着", () => h.ctx().composer.resume && h.ctx().composer.queued[0]?.held !== undefined);
+        const users = h.ctx().messages.filter((message) => message.kind === "user").length;
+        endpoint.script("接着写完了");
+        h.host.act({type: "run.continue"});
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "接着写完了");
+        await idle(h);
+        expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("重启后的提醒");
+        expect(h.ctx().messages.filter((message) => message.kind === "user")).toHaveLength(users);
+        expect(h.ctx().composer.queued).toEqual([]);
+        expect(h.ctx().composer.resume).toBe(false);
     });
 });
 

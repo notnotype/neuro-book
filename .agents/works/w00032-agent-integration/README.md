@@ -131,7 +131,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |
 | [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），完成：`eval.md` 已晋升 | t04、t12 |
 | [t22](tasks/t22-background-work/README.md) | Agent 的结果送达、`shell` 自动转后台、eval 的提示、工具登记任务（统一后台任务提案的第三块） | t41 |
-| [t41](tasks/t41-session-notices-and-wake/README.md) | 内核缓冲区的提示与会话级唤起门 | — |
+| [t41](tasks/t41-session-notices-and-wake/README.md) | 内核缓冲区的提示与会话级唤起门，完成：合入 master，Spec 按逐句核对晋升 | — |
 | [t42](tasks/t42-task-list-providers/README.md) | 后台任务清单的提供方与分组视图 | — |
 | [t23](tasks/t23-session-history/README.md) | Agent 查询会话历史：分页、搜索、视角，搁置 | t14 |
 | [t24](tasks/t24-workflow-integration/README.md) | Workflow 与 Agent 的对接，搁置 | t14 |

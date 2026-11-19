@@ -34,9 +34,21 @@ updated: 2026-11-19
 
 - F2（`e95c7a346`）：远程合同只加方法（`editEntries`、`previewEntries`、`findEntries`，版本不升）；批量编辑的输入只留一份 TypeBox 结构（`nb-canon` 的 `core/schema.ts`），内核与合同共用；浏览器的新建与删除改走 `editEntries`（去掉 `lastOrder` 与拼整份条目）；读取层加 `onRevision`，在“版本不新就不重读”之前按修订 id 去重交出每次发布。测试：`canon.test.ts` 经链路一条（预览与写入相同、读取戳过期、findEntries、视图令牌拒、老方法照常），`world.dom.test.ts` 一条（事件晚于本窗口写入的结果也交出，做了变异检查）；canon 插件 bun 40 条、vitest 141 条都过。Spec `canon/project.md` 的方法表与“只加方法不升版本”写在主工作区，合入时提交。
 
+- F1 补（`edf0a5983`）：新加的元素与块按 `i`、`b` 加序号生成 id（内核的 `LOCAL_ID_PREFIX`），避开同一批里刚分配的。
+- F3（`51e48bd71`）：canon 的服务端入口（`backend/agent-tools.ts`、文字在 `agent-text.ts`）贡献 `canon_lookup`、`canon_tree`、`canon_read`、`canon_write`，都给所有会话；每次调用按会话的作品取项目租约、经 `{project}` 目标调世界；名字、`$代号`、“设定组.字段[元素].子字段”在工具层解析成 id；读取结果第一行的“版本 12·摘要前 12 位”带回写入当读取戳；写入者 `{agent, session}`、请求 id 用 `invocation`。测试 `canon/agent-tools.test.ts` 6 条（真实服务端与项目子进程：建查读改、作者中间改了被拒、写错参数的回话、两条回复同一个 callId、看树与还原、会话不属于作品），请求 id 与读取戳两处做了变异检查；插件表、贡献前缀、Agent 的工具表与 Profile 测试都过。Spec `canon/agent-tools.md`（planned）与注册表写在主工作区，合入时提交。
+- 计划里 F3 的那条真实模型测试没做：现有的真实模型场地 `agentWorld` 只有服务端、没有项目子进程，canon 的工具要调项目里的世界，得先把两套场地拼起来；挪到人物闭环，那时的验收本来就要跑真实对话。
+
+- F5 进行中：空状态（`4b9e21203`：条目树空着、可以新建时是 `EmptyState`，“新建人物”预填人物与人物设定组，“新建条目”打开对话框，不能写时禁用并写原因）；Agent 提示（`3685fb256`：提示服务另开 `agent` 一格，窗口在 `onRevision` 里收写入者是 Agent 的修订，三种页面顶上另画 `AgentNotice`，“看改动记录”经提示服务的路由打开改动记录视图）。
+
+- F5 页头（`7414c0572`）：确认条移到 `EntryPage` 的 `bar` 插槽（页头之下、各分页共用）；宿主的 `field()` 把 `entry.name`、`entry.summary` 当文字字段，确认条照字段的写法改它们；别名一行（`aliases`）；“更多”里“添加一组设定……”（对话框列出没有的类型，去掉过的标“恢复”）与“去掉这组设定”（当前是数据分页时）；已删除页有“恢复”；页头写入失败的原因写在页头下面。`entry-page.dom.test.ts` 加两条（真实世界）。
+
+- F5 移动（`2d39ccd7b`）：`MoveDialog`（上级与另一个身份用 `EntryPicker`，分组、种类、放在最前、出场），只带改了的几项发 `place`。顺序只有“保持原位”“放在这一层最前”（“放在某项之后”要先读新的一层，没做）；树的右键菜单没加“移动到……”。
+- F6 引用与图片（`71051290c`）：确认条的输入按种类分，引用用 `EntryPicker`（按声明的 `targets` 筛，当前值的名字按 id 读一次条目），图片用 `ImageInput`；字段表这两种也有“改”；语义档改起点时用起点（`unreduced.anchor`）预填，不用归纳文字。宿主测试用一个内联插件登记带引用与图片字段的类型。
+- 没做（F5）：新建对话框的种类快捷按钮与 `EntryPicker` 候选（现在的下拉能用，只列树里读到的条目）。
+
 ## 下一步
 
-1. F3：canon 的服务端入口与四个 Agent 工具；Spec `canon/agent-tools.md`。
-2. 之后 F5 到 F7（F4 已做）。
+1. F6 剩下的：列表（每个元素一行带“改”“去掉”，列表末尾“添加”，元素对话框用 nb-form；带语义档的子字段只读，另有“改起点”“记一句”；以引用为键的先选条目）；主文字的块（“文字”分页总出、“改这一段”“加一段”“删掉这一段”）；每个数据分页都能“记一句”；`ComponentViewContext` 的新方法。
+3. F7：e2e 与截图；之后实现审查（前端 Sonnet、后端 omp）、合入，Spec 改动随合入提交。
 2. 第二轮处理完后照切片 F1 到 F7 实施。
 3. 底座合入后，和开发者定人物 Component 闭环的范围。

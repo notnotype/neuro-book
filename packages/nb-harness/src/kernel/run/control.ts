@@ -185,7 +185,7 @@ export class RunControl {
      * 收口那一项（输出 104）：只在单写者队列的一项里调用。组批、写下，然后在同一项里把会话翻成空闲（或换成收口批开的下一次运行）、
      * 推状态帧、结算 `waitRun`。写批或反应失败时照样翻转（句柄损坏时状态保持 `broken`），错误再交给调用方。
      */
-    async settleIn(runId: string, input: Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode">): Promise<void> {
+    async settleIn(runId: string, input: Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode" | "kind" | "closing" | "wakeBlocked">): Promise<void> {
         const host = this.#host;
         if (host === null) throw new Error("run control is not attached");
         this.#settling = runId;
@@ -194,7 +194,10 @@ export class RunControl {
         let next: string | null = null;
         try {
             const skip = deferred.length === 0 ? null : this.#deferredSkip(host);
-            const batch = settleBatch(this.#core, {...input, runId, stop, deferred, skip, closingCode: input.reason === "aborted" ? this.#closingCode : null});
+            // 唤起不论有没有推迟的指令都要查开不开得起（runtime.md 输出 116）；没有带唤起的待发提醒时不必查。
+            const wakeBlocked = this.#core.session.kernel.notices.some((notice) => notice.wake) ? (skip ?? this.#deferredSkip(host)) : "no-wake";
+            const kind = this.#active?.runId === runId && this.#active.compact !== undefined ? "compact" : "chat";
+            const batch = settleBatch(this.#core, {...input, runId, stop, deferred, skip, closingCode: input.reason === "aborted" ? this.#closingCode : null, kind, closing: host.checks.closed(), wakeBlocked});
             await writeAndReact(this.#core, batch.drafts, host.react);
             next = batch.next;
         } finally {

@@ -18,7 +18,7 @@ updated: 2026-11-19
 
 ## 当前状态
 
-计划第 3 稿（[`plan.md`](plan.md)），不再送审，实现审查兜底。待确认记进 [待确认清单](../../pending-confirmations.md)。
+计划第 3 稿（[`plan.md`](plan.md)），不再送审，实现审查兜底。待确认记进 [待确认清单](../../pending-confirmations.md)。Spec 已写（planned，`7fcb45bd6`）。实施中：worktree `w00026-t40-collapse`（分支 `w00026/t40-collapse`）。
 
 ## 设计审查
 
@@ -51,6 +51,29 @@ updated: 2026-11-19
 | 7 | 两处容差被说成同一条规则 | 第 1 条拿掉后只剩 L2 的 0.5px，照原值，注释如实写来由没有记录 |
 | 8 | 新 e2e 可能空过；`host.setCollapsed` 没有真实浏览器验证 | e2e 先断言已被压缩；`GridStructureScene` 加按钮与一条 e2e |
 
+## 实施记录
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1 | `ad94cb1a3` | `Grid.setCollapsed`、`GridCollapseResult`；收起时记 `restoreSize`；Enter 另一侧吸收不了时不收；`grid.md` |
+| 2 | `70a5c25c0` | `host.setCollapsed`；`onApplied` 的 `before`；`NestedGrid.md`；Lab 结构场景的收起按钮与 e2e |
+| 3 | 待提交 | `intent-writeback.ts`（两个入口，`rebaseIntents`、`fixedNodesOf` 不再导出）；工作台 Surface、Shell、store；三个 Lab 夹具 |
+
+验证：
+
+- 第 1 片：
+  - nb-layout 370 与 244 条、类型检查通过；
+  - 新用例 6 条，四个变异（不记 `restoreSize`、保留像素的也记基线、`changed` 恒真、去掉 Enter 的守恒判定）都会红；
+  - `grid.test.ts:1184` 改成记录后的行为，另加一条从收起状态建树、恢复读 `restoreSize`。
+- 第 2 片：
+  - nb-layout 247 条、应用类型检查通过；
+  - 三个变异（`before` 取成落账后的布局、没变化也重发、变了也不重发）都会红；
+  - `lab-grid-structure` 14 条：新加的收起入口那条过，1 条在负载 20 时等 Lab 就绪超时，单独重跑通过。
+- 第 3 片：
+  - `lab-grid-panels.e2e.ts` 新加的意图回写用例，迁移前跑是红的（放宽后侧栏停在 209，回不到 280）；
+  - 开始时把视口放大不管用（Lab 盒子的宽由地址的 `vp` 定），改用 `vp=1400x800` 打开、键盘调盒子的宽；
+  - L2 新测试 6 条，两个变异（手势路径不冻结、结构操作路径不冻结）都会红；L2 267 条、store 49 条、应用类型检查通过；e2e 六个文件在跑。
+
 ## 下一步
 
-1. 写 Spec（planned），开 worktree 按三片实施。
+1. 第 3 片的 e2e 跑完后提交；收口验证（`test:affected`）；实现审查（Claude Sonnet，不阻塞）；合入；晋升。

@@ -11,6 +11,7 @@ import {reduceSessionKernel, type SessionKernelState} from "../state/kernel-stat
 import {byField} from "./input.js";
 import {canRemove, releasable} from "./permissions.js";
 import {ctrl} from "./writes.js";
+import {firstWake, gateDraft, wakeRunDrafts} from "./wake.js";
 
 /** 一次停止的受理（输出 30）：同步记下，收口批按它处理。 */
 export interface StopRecord {
@@ -46,6 +47,12 @@ export interface SettleInput {
     readonly deferred: readonly Deferred[];
     /** 推迟的指令为什么不能开运行（待做的重新装配、正在关闭、开不起运行）；能开时为 null。 */
     readonly skip: string | null;
+    /** 收口的运行：只压缩的运行不改门（runtime.md 输出 117）。 */
+    readonly kind: "chat" | "compact";
+    /** 会话正在关闭或进程正在收尾：这时的收口都关门，`finished` 也算（输出 117）。 */
+    readonly closing: boolean;
+    /** 唤起为什么开不起运行（同 `skip` 的查法，不论有没有推迟的指令都查）；能开时为 null（输出 116）。 */
+    readonly wakeBlocked: string | null;
 }
 
 export interface SettleBatch {
@@ -128,24 +135,53 @@ export function settleBatch(core: SessionCore, input: SettleInput): SettleBatch 
         drafts.push({type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId: command.commandId, name: "abort", value: {aborted: true}, argsHash: command.argsHash}});
     }
 
-    if (input.deferred.length === 0) return {drafts, next: null};
+    // 门（输出 117）：对话运行有停止的受理、不是正常结束、或会话正在关闭时关。之后的唤起按关过之后的门判。
+    let open = core.session.kernel.wakeGate?.open === true;
+    if (input.kind === "chat" && open && (stop !== null || reason === "aborted" || reason === "error" || reason === "interrupted" || input.closing)) {
+        drafts.push(gateDraft(false, stop !== null ? "stopped" : input.closing ? "closing" : reason));
+        open = false;
+    }
+
+    const next = input.deferred.length === 0 ? null : deferredRun(core, input, drafts, buffer, arrived, reason);
+    if (next !== null) {
+        // 推迟的指令开了运行：待发的提醒随它的第一次请求带上，不另开（输出 116）；它是用户开的就开门。
+        if (next.byUser && !open) drafts.push(gateDraft(true, "user"));
+        return {drafts, next: next.runId};
+    }
+    // 唤起（输出 116）：门开着、开得起运行、有带唤起的待发提醒时开一次运行。收口批里叶子上不会有暂停的运行。
+    const wake = firstWake(core.session.kernel.notices);
+    if (wake === undefined || !open || input.wakeBlocked !== null) return {drafts, next: null};
+    const woken = wakeRunDrafts(core, wake.by);
+    drafts.push(...woken.drafts);
+    return {drafts, next: woken.runId};
+}
+
+/** 推迟到收口的指令开下一次运行（输出 104）；开不起或没有可取的话时为 null，草稿照样写进 `drafts`。 */
+function deferredRun(core: SessionCore, input: SettleInput, drafts: EventDraft[], buffer: readonly BufferedInput[], arrived: ReadonlySet<string>, reason: RunEndReason): {runId: string; byUser: boolean} | null {
     if (input.skip !== null) {
         const late = buffer.filter((item) => item.state === "ready" && arrived.has(item.id)).map((item) => item.id);
         drafts.push(...held(late, {end: reason, code: input.skip}));
         core.diagnostics.add({code: "deferred-start-skipped", entry: "host", subject: input.skip, params: {code: input.skip}, message: `inputs that arrived while the run was no longer taking input stay held (${input.skip})`}, core.head);
-        return {drafts, next: null};
+        return null;
     }
     // 放行要看留着之后的缓冲区：把这一批叠上去再算。
     let projected = projectSession(core.session.kernel, drafts, core.head);
+    const effective: Issuer[] = [];
     for (const item of input.deferred) {
+        // 送进来的话都被取消了的指令整条不生效：不放行别的话，也不算谁开的（输出 104）。不带话的（`resume`、`release`）照常。
+        const arrivedHere = item.inputIds.filter((id) => projected.buffer.some((entry) => entry.id === id));
+        if (item.inputIds.length > 0 && arrivedHere.length === 0) continue;
         const released = releaseDrafts(projected.buffer, item.issuer, item.mode, item.only);
         drafts.push(...released.drafts);
         projected = projectSession(projected, released.drafts, core.head + drafts.length);
+        // 真正起作用的指令：送进来的话还在，或真的放行了条目；放行落空的不算。
+        if (released.ids.length > 0 || arrivedHere.length > 0) effective.push(item.issuer);
     }
-    // 下一次运行记谁开的：有用户就是用户，否则最先受理的那条（输出 104）。
-    const by = input.deferred.find((item) => item.issuer.kind === "user")?.issuer ?? input.deferred[0]!.issuer;
+    // 下一次运行记谁开的：起作用的指令里有用户就是用户，否则最先受理的那条。
+    const by = effective.find((issuer) => issuer.kind === "user") ?? effective[0];
+    if (by === undefined) return null;
     const opened = openRunDrafts(core, projected.buffer, by);
-    if (opened === null) return {drafts, next: null};
+    if (opened === null) return null;
     drafts.push(...opened.drafts);
-    return {drafts, next: opened.runId};
+    return {runId: opened.runId, byUser: by.kind === "user"};
 }
