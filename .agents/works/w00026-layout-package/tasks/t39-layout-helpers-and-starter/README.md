@@ -62,10 +62,21 @@ worktree `w00026-t39-host-wiring`（分支 `w00026/t39-host-wiring`），基于 
 验证：
 
 - 第 1 片：nb-layout 363 与 235 条、应用类型检查通过；`useGridHost` 4 条用例，变异（去掉卸载前发 null、去掉整包里接 `issues` 的处理）都会红。e2e 10 个文件 249 条：238 条过，11 条在负载 18 到 24 时失败（Lab 就绪超时 4、等元素超时 5、实时布局块数 1、动画帧数值 1），单独重跑 11 条全过。
-- 第 2 片：nb-layout 363 与 237 条、应用类型检查、Explorer 的 dom 测试 23 条通过；`useDragSession` 2 条用例，变异（去掉销毁）会红。
+- 第 2 片：nb-layout 363 与 237 条、应用类型检查、Explorer 的 dom 测试 23 条通过；`useDragSession` 2 条用例，变异（去掉销毁）会红。拖动相关 e2e 51 条：48 条过；`lab-drag-session` 83、95 是 Lab 就绪超时（负载 14 到 16），单独重跑通过；`files-explorer` 634 是原有失败（菜单项被盖住 2 个），t39 分支起点与 t35 开工前的 `7d92146ef` 上同样失败。
+
+收口（2026-11-19）：
+
+- 把 master（`afb78ff51`）并进分支，合并提交 `261c29729`，没有冲突；带进来的 Lab 剧情夹具改用 `provideHostText`，与本 Task 的改动不相交。合并后应用类型检查（后端、web、浏览器测试三份）通过。
+- `test:affected --since master`（合并前，负载 43 到 50）：vitest 942 条里 2 条失败、1 个文件的钩子超时，bun 3703 条里 38 条失败。逐条归类：
+  - 负载：服务端与 Agent 的真实子进程用例 33 条（13 个文件，5 秒超时或子进程在启动中被结束）、`architecture`、`layout-constraints`、SDK 的 `pack` 一条与 `third-party-text`（构建超时）。负载降到 4 后单独重跑：和 nb-layout 有关的四个文件、SDK 两个文件通过，子进程那批 13 个文件 300 条全过。
+  - 原有失败：SDK 组件清单缺 `ImagePreviewDialog`、内置插件清单缺 `nbook.stickers`（master 上同样失败，别的 Work 引入）。
+  - 分支起点的问题：markdown 的两条 dom 测试（`PromptEditor` 挂上、小块）在分支上单独重跑仍失败，同一时刻 master 上通过；并入 master 后在分支上通过，所以不是本 Task 引起的。
+
+## 实现审查
+
+待处理：Claude Sonnet，审查 worktree `review-t39-impl` 固定在 `261c29729`，diff 是相对 master `afb78ff51` 的净改动（20 个文件）。报告回来后按 reviewing 的“处理结果”处理，修正单独提交，然后合入 master、晋升 Spec。
 
 ## 下一步
 
-计划见 [`plan.md`](plan.md)（第 3 稿）。Spec 已写（planned）。
-
-1. 在 worktree `w00026-t39-host-wiring` 按三片实施；基线已跑（构建与三个 e2e 文件通过）。
+1. 处理实现审查；合入 master；删 worktree。
+2. Spec：`ui/nested-grid` 输出 139 的“出口有两个”、失败 6 与实现合同里的 `useGridLayout` 改成 `useGridHost`；输出 144 到 146、`ui/layout-drag` 输出 18、19 晋升，按句子换模型核对断言。
