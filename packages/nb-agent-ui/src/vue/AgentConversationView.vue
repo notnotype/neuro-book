@@ -337,11 +337,14 @@ function onAction(action: ViewAction) {
 
 // ─── 原图预览 ───────────────────────────────────────────────────────────
 
+/** 表情另带复制的写法与放大到的尺寸（docs/specs/agent/stickers.md 输出 46）。 */
+type PreviewShown = {src: string; name: string; release: () => void; copyText?: string; minSize?: number};
+
 /**
  * 正在预览的图片。对话框关掉时归还 Markdown 图片的地址（`release`），但保留 `src`：已经画出来的图不受归还影响，
  * 关闭动画期间不会消失。换图、卸载时同样归还；每个地址只归还一次。
  */
-const preview = ref<{src: string; name: string; release: () => void} | null>(null);
+const preview = ref<PreviewShown | null>(null);
 const previewOpen = ref(false);
 /** 正在换算的 Markdown 图片地址；又点了别的图片或视图卸载时取消，晚到的结果直接归还。 */
 let pendingAsset: AbortController | null = null;
@@ -353,7 +356,7 @@ function releasePreview(): void {
     preview.value = {...current, release: () => {}};
 }
 
-function showPreview(next: {src: string; name: string; release: () => void}) {
+function showPreview(next: PreviewShown) {
     releasePreview();
     preview.value = next;
     previewOpen.value = true;
@@ -366,6 +369,10 @@ watch(previewOpen, (open) => {
 function openPreview(image: PreviewImageRequest) {
     pendingAsset?.abort();
     pendingAsset = null;
+    if ("url" in image) {
+        showPreview({src: image.url, name: image.name, release: () => {}, copyText: image.copyText, minSize: image.minSize});
+        return;
+    }
     if ("locator" in image) {
         const src = props.services.resolveAttachmentUrl?.(image.locator, "original") ?? null;
         if (src !== null) showPreview({src, name: image.name, release: () => {}});
@@ -579,6 +586,9 @@ defineExpose({focusComposer, scrollToLatest});
             v-model:open="previewOpen"
             :src="preview.src"
             :alt="preview.name"
+            :copy-text="preview.copyText"
+            :copy-label="preview.copyText === undefined ? undefined : t('stickerPreview.copy')"
+            :min-size="preview.minSize ?? 0"
             :teleport-target="props.teleportTarget"
         />
     </section>

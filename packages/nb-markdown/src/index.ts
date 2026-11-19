@@ -10,6 +10,6 @@ export type {SyntaxNameSource} from "./names";
 export {say} from "./locale";
 export type {MarkdownLocale, MarkdownText} from "./locale";
 export {isStickerName, isStickerPack, parseSticker, STICKER_NAME_MAX, STICKER_PACK_MAX, stickerAt, stickerColonEscapes, stickerEndingAt} from "./stickers";
-export type {ResolvedSticker, StickerRef, StickerResolver} from "./stickers";
+export type {ResolvedSticker, StickerPreview, StickerRef, StickerResolver} from "./stickers";
 export {classifyScheme, decodeTarget, lastSegment, pathPart, relativeAddress, relativeTarget, schemeOf, schemeTargets, showsAsChip} from "./targets";
 export type {MarkdownTargets, Target, TargetKind} from "./targets";

@@ -9,14 +9,21 @@ import {Extension} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
-import type {NodeView} from "@tiptap/pm/view";
+import type {EditorView, NodeView} from "@tiptap/pm/view";
 
 import {isLargeStickerBlock, LARGE_STICKER_CLASS, rawOf, STICKER_NODE, stickerGapClasses} from "../language/syntax/sticker";
 import {buildSticker} from "../language/syntax/sticker/view";
 import type {MarkdownViewHost} from "./view-host";
 
-function stickerView(node: PMNode, host: MarkdownViewHost | null, document: Document): NodeView {
-    const element = buildSticker(document, rawOf(node), host?.stickers ?? undefined, (error) => host?.report?.("编辑器查不到表情，显示原文", error));
+function stickerView(node: PMNode, view: EditorView, host: MarkdownViewHost | null): NodeView {
+    const element = buildSticker(view.dom.ownerDocument, rawOf(node), host?.stickers ?? undefined, {
+        report: (error) => host?.report?.("编辑器查不到表情，显示原文", error),
+        // 单击打开大图（输出 46），点击时才读宿主的端口：换挂载不重建扩展。不拦按下，光标照旧落在点击处；输入法组字时不打开。
+        onActivate: (sticker) => {
+            if (view.composing) return;
+            host?.previewSticker?.(sticker);
+        },
+    });
     element.dom.contentEditable = "false";
     return {
         dom: element.dom,
@@ -58,7 +65,7 @@ export const MarkdownStickerViews = Extension.create<{host: MarkdownViewHost | n
     addProseMirrorPlugins() {
         const host = this.options.host;
         return [
-            new Plugin({props: {nodeViews: {[STICKER_NODE]: (node, view) => stickerView(node, host, view.dom.ownerDocument)}}}),
+            new Plugin({props: {nodeViews: {[STICKER_NODE]: (node, view) => stickerView(node, view, host)}}}),
             new Plugin<DecorationSet>({
                 key: blocksKey,
                 state: {

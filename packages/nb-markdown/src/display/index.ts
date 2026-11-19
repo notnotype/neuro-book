@@ -4,3 +4,4 @@ export {default as MarkdownDisplay} from "./MarkdownDisplay.vue";
 export {default as MarkdownImage} from "./MarkdownImage.vue";
 export type {ResolveAsset} from "./MarkdownImage.vue";
 export type {DisplayActivation} from "./static-views";
+export {mountStickerDisplayStyle, stickerDisplayCss} from "./sticker-display";

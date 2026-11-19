@@ -294,6 +294,10 @@ export default {
         fork: "以同一个 Profile 另开一条会话",
         clear: "清空当前会话视图，回到空历史",
     },
+    stickerPreview: {
+        title: "{{name}} · {{pack}}",
+        copy: "复制写法",
+    },
     imagePreview: {
         image: "图片 #{{number}}",
     },

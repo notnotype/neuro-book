@@ -79,8 +79,24 @@ export interface ResolvedSticker {
     readonly url: string;
     readonly width: number;
     readonly height: number;
+    /** 认到的表情包 id。给了才能按贴纸显示（`@notnotype/nb-markdown/display` 的 `mountStickerDisplayStyle`）；可选，旧宿主不用改。 */
+    readonly pack?: string;
+    /** 表情包的显示名，预览的标题用；没有时标题只写名字。 */
+    readonly packTitle?: string;
     /** 显示它的块被替换、卸载时调用一次。 */
     release(): void;
+}
+
+/** 点开大图预览时交给宿主的（docs/specs/agent/stickers.md 输出 46）。 */
+export interface StickerPreview {
+    /** 写法的原文，“复制写法”复制它。 */
+    readonly raw: string;
+    readonly url: string;
+    /** NFC 规范化后的表情名。 */
+    readonly name: string;
+    readonly packTitle?: string;
+    readonly width: number;
+    readonly height: number;
 }
 
 /**

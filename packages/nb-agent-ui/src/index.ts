@@ -20,7 +20,7 @@ export type {
 export type {
     MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, MarkdownPreviewPort, PromptAttachment, PromptBarenessPort, PromptAttachmentKind, PromptDraft,
     PromptEditorPortExpose, PromptEditorPortProps, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy,
-    PromptTextViewPortProps, PromptToken,
+    PromptTextViewPortProps, PromptToken, StickerPreviewRequest,
 } from "./ports";
 export {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER} from "./registry";
 export type {

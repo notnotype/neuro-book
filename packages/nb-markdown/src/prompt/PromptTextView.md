@@ -21,7 +21,7 @@
 
 ## 交互
 
-- 小块与卡片都是可聚焦的按钮。点击或用回车、空格触发小块或附件条里的卡片，发出 `token-activate`，携带的内容与 `PromptEditor` 的同名事件相同，由宿主决定打开引用、预览图片或文件。
+- 小块与卡片都是可聚焦的按钮。点击或用回车、空格触发小块或附件条里的卡片，发出 `token-activate`，携带的内容与 `PromptEditor` 的同名事件相同，由宿主决定打开引用、预览图片或文件。点表情的图、或聚焦表情后按回车、空格，发出 `sticker-activate`（[`agent/stickers.md`](../../../../docs/specs/agent/stickers.md) 输出 46），由宿主打开大图。
 - 悬停卡片时同号的小块高亮，反过来也一样；悬停位置标记时同号的粘贴块高亮。
 - 可以用鼠标选中正文文字复制，得到的是显示出来的文字；小块不可选中。
 
@@ -43,6 +43,7 @@ interface PromptTextViewProps {
 
 interface PromptTextViewEmits {
     (e: "token-activate", token: PromptEditorToken): void;
+    (e: "sticker-activate", sticker: StickerPreview): void;
 }
 ```
 

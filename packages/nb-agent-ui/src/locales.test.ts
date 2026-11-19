@@ -199,6 +199,8 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "command.summarize": {"zh-CN": "把标题交还给自动摘要，并立即重新生成", "en-US": "Hand the title back to auto summary and regenerate now"},
     "command.fork": {"zh-CN": "以同一个 Profile 另开一条会话", "en-US": "Start another session with the same Profile"},
     "command.clear": {"zh-CN": "清空当前会话视图，回到空历史", "en-US": "Clear the session view and return to empty history"},
+    "stickerPreview.title": {"zh-CN": "{name} · {pack}", "en-US": "{name} · {pack}"},
+    "stickerPreview.copy": {"zh-CN": "复制写法", "en-US": "Copy code"},
     "imagePreview.image": {"zh-CN": "图片 #{number}", "en-US": "Image #{number}"},
     "harness.error.network": {"zh-CN": "网络连接出错，请稍后重试。", "en-US": "Network error. Try again later."},
     "harness.error.rateLimit": {"zh-CN": "模型服务请求太频繁，请稍后重试。", "en-US": "Too many requests to the model service. Try again later."},

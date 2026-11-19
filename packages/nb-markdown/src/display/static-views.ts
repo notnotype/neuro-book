@@ -1,7 +1,7 @@
 /**
  * 展示器里需要专门样子的节点（docs/specs/ui/markdown-display.md 输出 2、5、8）：提示块、可渲染 HTML、图片与表情。外观与编辑器的节点
  * 视图由同一套函数画（`buildCallout`、`renderHtmlEmbedElement`、`MarkdownImage`、`buildSticker`），交互接到展示器自己：折叠只记在这次显示里，
- * 点图片经 `activate` 交给宿主。别的节点（包括外来方言的）按 schema 的 `renderHTML` 显示。
+ * 点图片、表情经 `activate` 交给宿主。别的节点（包括外来方言的）按 schema 的 `renderHTML` 显示。
  */
 
 import type {Node as PMNode} from "@tiptap/pm/model";
@@ -15,14 +15,16 @@ import {rawOf, STICKER_NODE} from "../language/syntax/sticker";
 import {buildSticker} from "../language/syntax/sticker/view";
 import type {MarkdownTextApi} from "../host/text";
 import type {MarkdownText} from "../locale";
-import type {StickerResolver} from "../stickers";
+import type {StickerPreview, StickerResolver} from "../stickers";
 import MarkdownImage from "./MarkdownImage.vue";
 import type {ResolveAsset} from "./MarkdownImage.vue";
 
 export type DisplayActivation =
     | {readonly kind: "reference"; readonly target: string}
     | {readonly kind: "link"; readonly href: string}
-    | {readonly kind: "image"; readonly address: string};
+    | {readonly kind: "image"; readonly address: string}
+    /** 点了表情的图（docs/specs/agent/stickers.md 输出 46）；表情在链接里时只发 `link`。 */
+    | {readonly kind: "sticker"; readonly sticker: StickerPreview};
 
 export interface StaticViewHost {
     readonly document: Document;
@@ -87,5 +89,9 @@ export const STATIC_VIEWS: Readonly<Record<string, StaticViewFactory>> = {
         render(image, dom);
         return {dom, destroy: () => render(null, dom)};
     },
-    [STICKER_NODE]: (node, host) => buildSticker(host.document, rawOf(node), host.resolveSticker, (error) => host.report("展示器查不到表情，显示原文", error)),
+    [STICKER_NODE]: (node, host) => buildSticker(host.document, rawOf(node), host.resolveSticker, {
+        report: (error) => host.report("展示器查不到表情，显示原文", error),
+        onActivate: (sticker) => host.activate({kind: "sticker", sticker}),
+        focusLabel: (name) => host.text.t("sticker.preview", {name}),
+    }),
 };

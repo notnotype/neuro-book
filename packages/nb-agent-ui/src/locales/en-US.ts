@@ -303,6 +303,10 @@ export default {
         fork: "Start another session with the same Profile",
         clear: "Clear the session view and return to empty history",
     },
+    stickerPreview: {
+        title: "{{name}} · {{pack}}",
+        copy: "Copy code",
+    },
     imagePreview: {
         image: "Image #{{number}}",
     },

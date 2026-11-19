@@ -10,6 +10,7 @@ import {provideMarkdownText} from "../host/text";
 import type {MarkdownLocale} from "../locale";
 
 import type {PromptAttachmentCard, PromptEditorToken} from "./prompt-editor.types";
+import type {StickerPreview} from "../stickers";
 import {
     largeStickerLines,
     numberKey,
@@ -41,6 +42,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (e: "token-activate", token: PromptEditorToken): void;
+    /** 点开表情的大图（docs/specs/agent/stickers.md 输出 46）。 */
+    (e: "sticker-activate", sticker: StickerPreview): void;
 }>();
 
 // 附件条、粘贴块与小块经 inject 拿到同一个端口。
@@ -171,7 +174,7 @@ function activateCard(id: string): void {
             <div v-else class="prompt-text__line" :class="{[LARGE_STICKER_CLASS]: block.large}">
                 <template v-for="(piece, pieceIndex) in block.pieces" :key="pieceIndex">
                     <template v-if="piece.kind === 'text'">{{ piece.text }}</template>
-                    <PromptSticker v-else-if="piece.kind === 'sticker'" :raw="piece.raw" :gap="piece.gap" />
+                    <PromptSticker v-else-if="piece.kind === 'sticker'" :raw="piece.raw" :gap="piece.gap" @activate="emit('sticker-activate', $event)" />
                     <InlineChip
                         :env="host.chips"
                         v-else
