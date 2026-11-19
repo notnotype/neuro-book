@@ -4,7 +4,7 @@
  * （最后一条 path 事件或 `leafChanged` 指向的节点）。
  */
 
-import type {BufferedInput, CoreSettings, HeldCause, Issuer, JsonValue, LogEvent, RunEndReason, UserInput} from "../api/index.js";
+import type {BufferedInput, CoreSettings, HeldCause, Issuer, JsonValue, LogEvent, PendingNotice, RunEndReason, UserInput} from "../api/index.js";
 import {initialHistory, reduceHistory, type HistoryState} from "./history.js";
 
 export interface PathKernelState {
@@ -120,6 +120,8 @@ export function reducePathKernel(state: PathKernelState, event: LogEvent): PathK
 
 export interface SessionKernelState {
     readonly buffer: readonly BufferedInput[];
+    /** 待发的提醒（runtime.md 输出 112）：只由 `noticeQueued`、`noticeRemoved`、`noticeTaken` 归约，回退不改。 */
+    readonly notices: readonly PendingNotice[];
     readonly core: CoreSettings;
     /** 扩展 id → 用户改过的设置项。 */
     readonly settings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
@@ -138,7 +140,7 @@ export interface SessionKernelState {
 export const DEFAULT_CORE_SETTINGS: CoreSettings = {model: null, effort: null, approvalMode: "ask", readOnly: false};
 
 export function initialSessionKernel(core: CoreSettings = DEFAULT_CORE_SETTINGS): SessionKernelState {
-    return {buffer: [], core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null, leafMoves: 0};
+    return {buffer: [], notices: [], core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null, leafMoves: 0};
 }
 
 export function reduceSessionKernel(state: SessionKernelState, event: LogEvent): SessionKernelState {
@@ -182,6 +184,23 @@ export function reduceSessionKernel(state: SessionKernelState, event: LogEvent):
         case "inputRemoved":
         case "inputConsumed":
             return {...state, buffer: state.buffer.filter((item) => item.id !== data.id)};
+        case "noticeQueued": {
+            const notice: PendingNotice = {
+                id: data.id as string,
+                by: data.by as Issuer,
+                text: data.text as string,
+                wake: data.wake === true,
+                queuedAt: event.seq,
+                ...(data.key === undefined ? {} : {key: data.key as string}),
+                ...(data.commandId === undefined ? {} : {commandId: data.commandId as string}),
+            };
+            return {...state, notices: [...state.notices, notice]};
+        }
+        case "noticeRemoved":
+        case "noticeTaken": {
+            const ids = new Set(data.ids as string[]);
+            return {...state, notices: state.notices.filter((item) => !ids.has(item.id))};
+        }
         case "settingsChanged": {
             const extension = data.extension as string;
             const patch = data.patch as Record<string, JsonValue>;

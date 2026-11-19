@@ -92,6 +92,17 @@ export interface KernelEvents {
     /** 留着的话放行，转回就绪（输出 105–107）；`mode: "followups"` 时都转成排队。`by` 用户不写。 */
     inputReleased: K<"session", "ctrl", {ids: readonly string[]; by?: Issuer; mode: "keep" | "followups"}>;
 
+    // ---- 提醒（session）----
+    /**
+     * 会话或宿主交给会话、下一次对话请求带上的一段文字（runtime.md 输出 112）。不进输入的就绪与留着：取走之前一直待发。
+     * `by` 总是写：用户发不了提醒。
+     */
+    noticeQueued: K<"session", "ctrl", {id: string; by: Issuer; key?: string; text: string; wake: boolean; commandId?: string}>;
+    /** 替换（同一发出者的同一个 `key`）、发出者撤回或用户取消。`by` 用户不写。 */
+    noticeRemoved: K<"session", "ctrl", {ids: readonly string[]; by?: Issuer; reason: "replaced" | "withdrawn" | "cancelled"}>;
+    /** 与写进路径的 `hostNotice` 同一个写入批（输出 113）；`runId` 是取走它们的运行。 */
+    noticeTaken: K<"session", "ctrl", {ids: readonly string[]; runId: string}>;
+
     // ---- 会话级（session）----
     /** 被受理的指令；重发同一个 `commandId` 查它，返回第一次的 `value`。`value` 引用的 id 都在同一批里写出。 */
     /** `argsHash`：指令参数（去掉 `commandId`）按键排序后的 SHA-256，重发时核对是不是同一条指令。 */
@@ -140,7 +151,12 @@ export interface KernelEvents {
     /** 开新一轮的用户的话；`queued` 是缓冲区里的 id，原文字段在 `inputQueued`、`inputEdited`。 */
     input: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer; commandId?: string}>;
     /** 运行中途插进当前这一轮的用户的话。`commandId` 是受理它的指令，界面按它确认乐观消息。 */
-    steer: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer; commandId?: string}>;
+    steer: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer; commandId?: string; boundary?: string}>;
+    /**
+     * 取走的提醒（runtime.md 输出 113）。`boundary` 与同一个边界一起取走的插话相同；`queued` 是 `noticeQueued` 的 id。缺省
+     * 渲染成带来源行的 `<system-reminder>`（输出 115）。
+     */
+    hostNotice: K<"path", "conv", {queued: string; by: Issuer; text: string; boundary: string}>;
     /** `request` 与 `modelStarted`、流式增量的 `request` 对得上。 */
     assistant: K<"path", "conv", {
         request: number;

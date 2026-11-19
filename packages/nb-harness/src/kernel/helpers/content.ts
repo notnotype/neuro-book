@@ -35,6 +35,9 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     inputConsumed: null,
     inputHeld: null,
     inputReleased: null,
+    noticeQueued: async (data, map, type) => ({...data, text: await map.text(data.text as string, {type, field: "text"})}),
+    noticeRemoved: null,
+    noticeTaken: null,
     commandAccepted: null,
     settingsChanged: null,
     leafChanged: null,
@@ -57,6 +60,7 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     turnEnded: null,
     input: async (data, map, type) => said(data, map, type),
     steer: async (data, map, type) => said(data, map, type),
+    hostNotice: async (data, map, type) => ({...data, text: await map.text(data.text as string, {type, field: "text"})}),
     assistant: async (data, map, type) => ({
         ...data,
         content: await blocks(data.content as readonly Record<string, unknown>[], map, type, "content"),

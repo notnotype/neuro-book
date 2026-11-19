@@ -94,6 +94,8 @@ const commandArgs = {
     enqueue: {input: Input, mode: Mode},
     edit: {inputId: Type.String(), input: Input},
     remove: {inputId: Type.String()},
+    /** 用户取消一条还没取走的提醒（harness/runtime.md 输出 112）；发提醒的 `notice` 只给宿主，不在这里。 */
+    removeNotice: {noticeId: Type.String()},
     resolve: {
         id: Type.String(),
         decision: Type.Union([Type.Literal("allow"), Type.Literal("allow-session"), Type.Literal("deny"), Type.Literal("answer")]),
@@ -347,7 +349,7 @@ export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessi
 type ArgsOf<K extends RemoteCommandName> = Static<ReturnType<typeof Type.Object<(typeof commandArgs)[K]>>>;
 type Matches<K extends RemoteCommandName> = [keyof ArgsOf<K>] extends [keyof CommandMap[K]["args"]] ? ([keyof CommandMap[K]["args"]] extends [keyof ArgsOf<K>] ? (ArgsOf<K> extends CommandMap[K]["args"] ? true : false) : false) : false;
 const argsMatchKernel: {readonly [K in RemoteCommandName]: Matches<K>} = {
-    send: true, enqueue: true, edit: true, remove: true, resolve: true, start: true, resume: true, release: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
+    send: true, enqueue: true, edit: true, remove: true, removeNotice: true, resolve: true, start: true, resume: true, release: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
 };
 const detailsMatchKernel: {readonly [C in DetailCode]: CommandErrorDetails[C] extends Static<(typeof COMMAND_DETAILS)[C]> ? true : false} = {
     "input-rejected": true, "already-answered": true, "invalid-value": true, "unknown-key": true, "already-running": true, running: true, "dependency-missing": true, "nothing-to-release": true,

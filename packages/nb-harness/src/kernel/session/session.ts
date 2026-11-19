@@ -19,7 +19,7 @@ import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
-import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, releaseCommand, removeCommand, resumeCommand, sendCommand, setGeneratedMetaCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, noticeCommand, releaseCommand, removeCommand, removeNoticeCommand, resumeCommand, sendCommand, setGeneratedMetaCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {compact, compactionCuts, estimateContext, triggerPoint} from "../compaction/compact.js";
 import {resolveCommand} from "../run/interaction.js";
 import {previewRequest} from "./preview.js";
@@ -285,6 +285,8 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         abort: (args) => closedGuard(() => abortCommand(host, issuer, args)),
         edit: (args) => closedGuard(() => editCommand(host, issuer, args)),
         remove: (args) => closedGuard(() => removeCommand(host, issuer, args)),
+        notice: (args) => closedGuard(() => noticeCommand(host, issuer, args)),
+        removeNotice: (args) => closedGuard(() => removeNoticeCommand(host, issuer, args)),
         // 应答会改变对话（结算事项、回答进缓冲区）：只读会话不受理（session.md 失败表的 unknown-profile）。
         resolve: (args) => closedGuard(async () => (state.readOnly !== null ? {ok: false, code: "read-only"} as const : resolveCommand({...host, interactions: control.interactions}, issuer, args))),
         rewind: (args) => closedGuard(() => rewindCommand(host, issuer, args)),
@@ -363,6 +365,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                     return {ok: false as const, code: resolution.code, ...(resolution.role === undefined ? {} : {role: resolution.role}), ...(resolution.provider === undefined ? {} : {provider: resolution.provider})};
                 })(),
                 buffer: [...kernel.buffer],
+                notices: [...kernel.notices],
                 settings: kernel.core,
                 extensionSettings: kernel.settings,
                 title: kernel.title,

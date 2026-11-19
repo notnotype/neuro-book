@@ -1,8 +1,9 @@
 /**
  * 运行循环（提案第 1 节的运行图）。循环在队列之外：每次写日志都把写入交给队列并等它完成；等模型、等工具的时候不占队列。
  *
- * 边界（每次模型请求之前）按这个顺序：外部事实 → 工具集比对（必需工具、`toolsAnnounced`）→ steer 全部取走 →
- * 估算与压缩（运行中受理的 `compact`、超过阈值）→ 交结果的提醒 → 视图、模型拦截链、`modelStarted`。
+ * 边界（每次模型请求之前）按这个顺序：外部事实 → 工具集比对（必需工具、`toolsAnnounced`）→ 解析模型 →
+ * 估算与压缩（运行中受理的 `compact`、超过阈值）→ 待发的提醒与 steer 全部取走 → 交结果的提醒 → 视图、模型拦截链、`modelStarted`。
+ * 取走放在压缩之后：边界上的压缩不会把这一次刚取的提醒与插话压进摘要（runtime.md 输出 28、113）。
  * 服务商报溢出时压缩后把同一请求再发一次，每次请求最多一次。压缩本身由 `session/` 注入（`RunHost.compaction`）。
  *
  * 收口：任何一步出错或被中止，都写 `turnEnded`、`runEnded`。决定收口之后，还在跑的模型链与工具链再写日志都得
@@ -70,15 +71,35 @@ export interface RunCompaction {
     run(args: {reason: "threshold" | "overflow" | "manual"; require: readonly string[]; environment: ViewEnvironment; tools: readonly ToolDeclaration[]; model: string; signal: AbortSignal; write: (drafts: EventDraft[]) => Promise<unknown>; caller: ModelCaller; modelInfo: ModelInfoLookup; contextWindow: number}): Promise<CompactOutcome>;
 }
 
-/** 取走缓冲区里全部就绪的 steer：按入队顺序，每条 `inputConsumed` 加一条 `steer`，同一个写入批（runtime.md 输出 28）。 */
-export function takeSteerDrafts(core: SessionCore, runId: string): EventDraft[] {
-    return readyEntries(core.session.kernel.buffer).filter((item) => item.mode === "steer").flatMap((item): EventDraft[] => {
+/** 取走缓冲区里全部就绪的 steer：按入队顺序，每条 `inputConsumed` 加一条 `steer`（runtime.md 输出 28）。 */
+function takeSteerDrafts(core: SessionCore, runId: string, boundary: string, taken: ReadonlySet<string>): EventDraft[] {
+    return readyEntries(core.session.kernel.buffer).filter((item) => item.mode === "steer" && !taken.has(item.id)).flatMap((item): EventDraft[] => {
         const {text, payload, attachments} = item.input;
         return [
             {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: item.id, runId}},
-            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id, ...byField(item.by), ...(item.commandId === undefined ? {} : {commandId: item.commandId})} as JsonValue},
+            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id, ...byField(item.by), ...(item.commandId === undefined ? {} : {commandId: item.commandId}), boundary} as JsonValue},
         ];
     });
+}
+
+/** 取走全部待发的提醒：按发出的先后，一条 `noticeTaken` 加每条一个 `hostNotice`（runtime.md 输出 113）。 */
+function takeNoticeDrafts(core: SessionCore, runId: string, boundary: string): EventDraft[] {
+    const notices = core.session.kernel.notices;
+    if (notices.length === 0) return [];
+    return [
+        {type: "noticeTaken", kind: "ctrl", scope: "session", data: {ids: notices.map((notice) => notice.id), runId}},
+        ...notices.map((notice): EventDraft => ({type: "hostNotice", kind: "conv", scope: "path", data: {queued: notice.id, by: notice.by as unknown as JsonValue, text: notice.text, boundary}})),
+    ];
+}
+
+/**
+ * 一个边界取走的东西：待发的提醒与就绪的插话，同一个写入批、带同一个 `boundary`，提醒在前（runtime.md 输出 113）。
+ * 写入的先后就是请求里的先后：位置章让一轮还没回复时它们排在新话前面，之后排在最后一步之后；已写下的块不再重排。
+ * `taken`：同一批里已经取走、开了这一轮的话（预览两轮之间时的第一条），不再当插话取。
+ */
+export function takeBoundaryDrafts(core: SessionCore, runId: string, taken: ReadonlySet<string> = new Set()): EventDraft[] {
+    const boundary = core.newId();
+    return [...takeNoticeDrafts(core, runId, boundary), ...takeSteerDrafts(core, runId, boundary, taken)];
 }
 
 /** 这一轮里这个扩展已经写过几条 continued（按路径事实计数，压缩切掉早先的步也不变）。 */
@@ -242,21 +263,12 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 await write(JSON.stringify(before) === JSON.stringify(after) ? [ctrl("toolsAnnounced", {tools: announced})] : [ctrl("toolsAnnounced", {tools: announced}), conv("notice", {code: "tools-changed", text: toolsChangedText(before, after)})]);
             }
 
-            // 边界第 3 步：运行中到达的 steer 全部取走，进当前这一轮。
-            // 在队列项里读缓冲区、看中止：停止受理之后到达这一项的不再取（输出 30）。
-            await core.queue.run(async () => {
-                if (signal.aborted) return;
-                const steers = takeSteerDrafts(core, run.runId);
-                if (steers.length > 0) await writeAndReact(core, steers, host.react, signal);
-            });
-            if (signal.aborted) return await end("aborted", {reason: "aborted"});
-
             host.phase("requesting", null);
             const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const environment = host.environment(resolution.info, offered.map(toolInfo));
 
-            // 边界第 4 步：运行中受理的 compact，或估算超过触发点，先压缩再算请求。失败只留诊断，请求照发。
+            // 边界第 3 步：解析模型。第 4 步：运行中受理的 compact，或估算超过触发点，先压缩再算请求。失败只留诊断，请求照发。
             const requested = host.takeCompactRequests();
             const trigger = host.compaction.trigger(resolution.info);
             if (requested.length > 0 || (trigger !== Number.POSITIVE_INFINITY && host.compaction.estimate() > trigger)) {
@@ -267,7 +279,16 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 host.phase("requesting", null);
             }
 
-            // 边界第 5 步：会话要求交回结果时，第一轮开头告诉模型调用 yield。
+            // 边界第 5 步：待发的提醒与运行中到达的 steer 全部取走，进当前这一轮。放在压缩之后：这一次刚取的不会被边界上的
+            // 压缩压进摘要（runtime.md 输出 28、113）。在队列项里读、看中止：停止受理之后到这一项的不再取（输出 30）。
+            await core.queue.run(async () => {
+                if (signal.aborted) return;
+                const taken = takeBoundaryDrafts(core, run.runId);
+                if (taken.length > 0) await writeAndReact(core, taken, host.react, signal);
+            });
+            if (signal.aborted) return await end("aborted", {reason: "aborted"});
+
+            // 边界第 6 步：会话要求交回结果时，第一轮开头告诉模型调用 yield。
             if (core.header.result !== undefined && !core.leafState.kernel.resultRequested) await write([conv("notice", {code: "result-requested", text: RESULT_REQUESTED})]);
             const computed = computeRequest({
                 assembly: core.assembly,

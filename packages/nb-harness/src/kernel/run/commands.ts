@@ -394,6 +394,50 @@ export function removeCommand(host: CommandHost, issuer: Issuer, args: CommandMa
     });
 }
 
+/**
+ * 提醒的上限（runtime.md 输出 112）。合计按编码后的整条记录算（含发出者），快照与远程的大小因此有界：会话待发的提醒不会
+ * 撑到窗口取不到快照、也就没处取消。
+ */
+export const NOTICE_TEXT_MAX_BYTES = 32 * 1024;
+export const NOTICE_KEY_MAX_CHARS = 200;
+export const NOTICE_MAX_PENDING = 64;
+export const NOTICE_TOTAL_MAX_BYTES = 128 * 1024;
+
+const noticeBytes = (notice: {readonly id: string; readonly by: Issuer; readonly key?: string; readonly text: string; readonly wake: boolean}): number =>
+    Buffer.byteLength(JSON.stringify({id: notice.id, by: notice.by, key: notice.key, text: notice.text, wake: notice.wake}), "utf8");
+
+export function noticeCommand(host: CommandHost, issuer: Issuer, args: CommandMap["notice"]["args"] & {commandId: string}): Promise<CommandResult<"notice">> {
+    return accept(host, "notice", args, () => {
+        if (issuer.kind === "user") return {fail: "not-allowed"};
+        if (args.text.trim() === "") return {fail: "empty-input"};
+        if (Buffer.byteLength(args.text, "utf8") > NOTICE_TEXT_MAX_BYTES || (args.key !== undefined && args.key.length > NOTICE_KEY_MAX_CHARS)) return {fail: "notice-too-large"};
+        const pending = host.core.session.kernel.notices;
+        // 同一个发出者的同一个 `key` 替换还没取走的那条；上限按扣掉它之后算。
+        const replaced = args.key === undefined ? undefined : pending.find((item) => item.key === args.key && sameIssuer(item.by, issuer));
+        const rest = replaced === undefined ? pending : pending.filter((item) => item !== replaced);
+        const record = {id: host.core.newId(), by: issuer, ...(args.key === undefined ? {} : {key: args.key}), text: args.text, wake: args.wake === true};
+        const total = rest.reduce((sum, item) => sum + noticeBytes(item), noticeBytes(record));
+        if (rest.length + 1 > NOTICE_MAX_PENDING || total > NOTICE_TOTAL_MAX_BYTES) return {fail: "notice-budget"};
+        const drafts: EventDraft[] = [];
+        if (replaced !== undefined) drafts.push({type: "noticeRemoved", kind: "ctrl", scope: "session", data: {ids: [replaced.id], ...byField(issuer), reason: "replaced"} as JsonValue});
+        drafts.push({type: "noticeQueued", kind: "ctrl", scope: "session", data: {...record, commandId: args.commandId} as unknown as JsonValue});
+        return {value: {noticeId: record.id, ...(replaced === undefined ? {} : {replaced: replaced.id})}, drafts};
+    });
+}
+
+/** 这条提醒有没有被取走过：取走的与从没发过的给不同的码（runtime.md 输出 112）。 */
+const noticeTaken = (core: SessionCore, id: string): boolean => core.events.some((event) => event.type === "noticeTaken" && (event.data as {ids: readonly string[]}).ids.includes(id));
+
+export function removeNoticeCommand(host: CommandHost, issuer: Issuer, args: CommandMap["removeNotice"]["args"] & {commandId: string}): Promise<CommandResult<"removeNotice">> {
+    return accept(host, "removeNotice", args, () => {
+        const item = host.core.session.kernel.notices.find((notice) => notice.id === args.noticeId);
+        if (item === undefined) return {fail: noticeTaken(host.core, args.noticeId) ? "notice-taken" : "notice-not-found"};
+        // 用户能取消任何一条；会话与宿主只能撤回自己发的。
+        if (issuer.kind !== "user" && !sameIssuer(item.by, issuer)) return {fail: "not-allowed"};
+        return {value: {}, drafts: [{type: "noticeRemoved", kind: "ctrl", scope: "session", data: {ids: [item.id], ...byField(issuer), reason: issuer.kind === "user" ? "cancelled" : "withdrawn"} as JsonValue}]};
+    });
+}
+
 export function setTitleCommand(host: CommandHost, args: CommandMap["setTitle"]["args"] & {commandId: string}): Promise<CommandResult<"setTitle">> {
     return accept(host, "setTitle", args, () => {
         const title = args.title.trim();
