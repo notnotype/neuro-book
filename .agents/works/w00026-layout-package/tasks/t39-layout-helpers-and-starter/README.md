@@ -69,8 +69,8 @@ worktree `w00026-t39-host-wiring`（分支 `w00026/t39-host-wiring`），基于 
 - 把 master（`afb78ff51`）并进分支，合并提交 `261c29729`，没有冲突；带进来的 Lab 剧情夹具改用 `provideHostText`，与本 Task 的改动不相交。合并后应用类型检查（后端、web、浏览器测试三份）通过。
 - `test:affected --since master`（合并前，负载 43 到 50）：vitest 942 条里 2 条失败、1 个文件的钩子超时，bun 3703 条里 38 条失败。逐条归类：
   - 负载：服务端与 Agent 的真实子进程用例 33 条（13 个文件，5 秒超时或子进程在启动中被结束）、`architecture`、`layout-constraints`、SDK 的 `pack` 一条与 `third-party-text`（构建超时）。负载降到 4 后单独重跑：和 nb-layout 有关的四个文件、SDK 两个文件通过，子进程那批 13 个文件 300 条全过。
-  - 原有失败：SDK 组件清单缺 `ImagePreviewDialog`、内置插件清单缺 `nbook.stickers`（master 上同样失败，别的 Work 引入）。
-  - 分支起点的问题：markdown 的两条 dom 测试（`PromptEditor` 挂上、小块）在分支上单独重跑仍失败，同一时刻 master 上通过；并入 master 后在分支上通过，所以不是本 Task 引起的。
+  - 原有失败：SDK 组件清单缺 `ImagePreviewDialog`（master `e5397b32e` 上同样失败，别的 Work 引入）。
+  - 分支起点的问题：markdown 的两条 dom 测试（`PromptEditor` 挂上、小块）与内置插件清单缺 `nbook.stickers`，在分支上单独重跑仍失败，同一时刻 master 上通过；并入 master 后在分支上通过，所以不是本 Task 引起的。
 
 ## 实现审查
 
