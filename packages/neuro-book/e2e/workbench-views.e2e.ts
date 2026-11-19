@@ -699,10 +699,13 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await toolEntry(page, A).click({button: "right"});
         await page.getByRole("menuitem", {name: "移到右栏", exact: true}).click();
         await expect.poll(() => instanceOf(page, A)).toMatchObject({location: "auxiliarybar"});
+        // 选完焦点去这个容器在新区域里的入口（输出 16、47）。
+        await expect(page.locator(`[data-region-strip="auxiliarybar"] [data-region-entry="view:${A}"]`)).toBeFocused();
         await page.locator(`[data-region-strip="auxiliarybar"] [data-region-entry="view:${D}"]`).click({button: "right"});
         await page.getByRole("menuitem", {name: "移到侧栏", exact: true}).click();
         await expect.poll(() => instanceOf(page, D)).toMatchObject({location: "sidebar"});
         await expect(toolEntry(page, D)).toHaveAttribute("aria-pressed", "true");
+        await expect(toolEntry(page, D)).toBeFocused();
 
         // 菜单键：“移到”两项之后是“重置”。Escape 关闭，焦点回到入口。
         await toolEntry(page, D).focus();
@@ -727,14 +730,15 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator(`[data-region-strip="auxiliarybar"] [data-region-entry="view:${D}"]`)).toBeFocused();
     });
 
-    test("入口菜单的“移到”：整个容器搬过去，入口排在目标区域入口条的最后，目标区域切到它；目标隐藏着时同一次显示出来（输出 44）", async ({page}) => {
+    test("入口菜单的“移到”：整个容器搬过去，入口排在目标区域入口条的最后，目标区域切到它；目标隐藏着时同一次显示出来；底部面板并成一行的入口也有（输出 44、47）", async ({page}) => {
         await open(page);
+        const panelEntry = (viewId: string) => page.locator(`[data-region-strip="panel"] [data-region-entry="view:${viewId}"]`);
         // 底部面板先隐藏。
         const toggle = page.locator('[data-titlebar-layout="panel"]');
         if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
 
-        // 侧栏的入口：另外两个区域各一项。
+        // 侧栏的入口：另外两个区域各一项。选“移到底部面板”：分节过去，底部面板显示出来、切到它，活动栏上没有这个入口了，焦点去它在入口条上的入口。
         await toolEntry(page, A).click({button: "right"});
         await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["移到右栏", "移到底部面板"]);
         await page.getByRole("menuitem", {name: "移到底部面板", exact: true}).click();
@@ -743,14 +747,35 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, A)).toBeVisible();
         await expect(toggle).toHaveAttribute("aria-pressed", "true");
         await expect(toolEntry(page, A)).toHaveCount(0);
-        await expect(page.locator(`[data-region-strip="panel"] [data-region-entry="view:${A}"]`)).toHaveCount(1);
+        await expect(panelEntry(A)).toBeFocused();
         await expect.poll(async () => (await saved(page))?.doc.panels.panel?.activeContainer).toBe(`view:${A}`);
-        const after = (await saved(page))?.doc.panels.panel;
-        expect(after?.hidden).toBeUndefined();
-        // 排在原有入口（样例戊）之后，只有一个。
-        expect(after?.entries?.at(-1)).toBe(`view:${A}`);
-        expect(after?.entries?.indexOf(`view:${E}`)).toBeGreaterThanOrEqual(0);
-        expect(after?.entries?.filter((id) => id === `view:${A}`)).toHaveLength(1);
+        expect((await saved(page))?.doc.panels.panel?.hidden).toBeUndefined();
+
+        // 它只有一节，并进了入口条：右键入口开视图的“移动到”，末尾接上容器的“移到”。
+        await panelEntry(A).click({button: "right"});
+        await expect(page.getByRole("menuitem", {name: "新容器（侧栏）", exact: true})).toBeVisible();
+        await expect(page.getByRole("menuitem", {name: "移到侧栏", exact: true})).toBeVisible();
+        await expect(page.getByRole("menuitem", {name: "移到右栏", exact: true})).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("menu")).toHaveCount(0);
+
+        // 再搬进一个（乙），它排在甲后面、成了当前；甲不是当前了，右键它开容器的菜单。甲回侧栏再来一次：这回入口顺序里已经有它，要挪到乙后面。
+        await toolEntry(page, B).click({button: "right"});
+        await page.getByRole("menuitem", {name: "移到底部面板", exact: true}).click();
+        await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "panel"});
+        await expect(panelEntry(B)).toBeFocused();
+        await panelEntry(A).click({button: "right"});
+        await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["移到侧栏", "移到右栏", "重置"]);
+        await page.getByRole("menuitem", {name: "移到侧栏", exact: true}).click();
+        await expect.poll(() => instanceOf(page, A)).toMatchObject({location: "sidebar"});
+        await expect(toolEntry(page, A)).toBeFocused();
+        await toolEntry(page, A).click({button: "right"});
+        await page.getByRole("menuitem", {name: "移到底部面板", exact: true}).click();
+        await expect.poll(() => instanceOf(page, A)).toMatchObject({location: "panel"});
+        await expect.poll(async () => {
+            const entries = (await saved(page))?.doc.panels.panel?.entries ?? [];
+            return {last: entries.at(-1), bBeforeA: entries.indexOf(`view:${B}`) < entries.indexOf(`view:${A}`), once: entries.filter((id) => id === `view:${A}`).length};
+        }).toEqual({last: `view:${A}`, bBeforeA: true, once: 1});
 
         // 右栏入口条上的入口：另外两个区域是侧栏与底部面板。
         await page.locator(`[data-region-strip="auxiliarybar"] [data-region-entry="view:${D}"]`).click({button: "right"});
