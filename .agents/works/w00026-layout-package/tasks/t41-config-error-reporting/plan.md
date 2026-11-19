@@ -77,7 +77,6 @@ export function setLayoutDevChecks(enabled: boolean): void;
 - [`ui/nested-grid`](../../../../../docs/specs/ui/nested-grid.md)：
   - 新输出 151“开发模式的配置检查”（planned）：开关缺省关；四种情形的判据；每个网格（或宿主）每种只报一次；不改变失败与 `issues` 事件。
   - “边界与兼容”的公开入口加 `setLayoutDevChecks`。
-  - 顺带改 t40 写的输出 149（审查第 1 条发现）：版本递增时，进行中的那场手势取消（原因 `context-changed`），不是提交时以 `stale-revision` 被拒。
 - `grid.md`“建树”：`sashSize` 缺省 0 那句后面加“接了提交处理又没停用时，开发模式下会警告”。
 - `NestedGrid.md`“接入”：加一句开关怎么开，以及“提交处理是属性不是事件”。
 

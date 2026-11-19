@@ -48,6 +48,19 @@ updated: 2026-11-05
 
 2026-11-19：[t39](tasks/t39-layout-helpers-and-starter/README.md) 完成：`NestedGrid` 发 `extent`，宿主用 `useGridHost` 整包绑上去（`useGridLayout` 降为内部），`useDragSession` 管组件里的拖动会话；工作台与 Lab 的五个网格宿主、三个拖动会话改用它们。合入 master（`a5de33888`，审查修正 `640226453`，晋升补测 `ff277aec6`），两轮设计审查与一次实现审查处理完，Spec 晋升前换模型逐句核过。下一个是 [t40](tasks/t40-collapse-and-intent-writeback/README.md)。
 
+2026-11-19：[t40](tasks/t40-collapse-and-intent-writeback/README.md) 完成：
+- 库里加了收起与展开的入口：`Grid.setCollapsed` 只翻收起标记、按分配重排，`useGridHost` 的 `setCollapsed` 会重发布局。
+- `restoreSize` 谁收起谁记。
+- 分隔条上按 Enter、另一侧吸收不了时不再收起。
+- `onApplied` 交出提交之前的布局。
+- nb-workbench-layout 的意图回写只留 `applyGestureCommit`、`rebaseForOperation` 两个入口，工作台与三个 Lab 夹具改用它们；Lab 夹具不再写坏被压缩的保留像素节点。
+- 合入 master（`4fd43c057`，审查修正 `69debb464`，晋升补测 `169618e8c`）。两轮设计审查（第二轮有 1 条阻断，范围收窄后解决）与一次实现审查都处理完，Spec 晋升前换模型逐句核过。
+- 发现了两个别处的问题：
+  - 分支之前就有：L1 落账会把被压缩的保留像素节点写坏，修法要改 Enter 的语义，交开发者（[待确认清单](pending-confirmations.md)）；
+  - 别的 Work 带进来的：排除 `nbook.agent` 的四个工作台 e2e 因为 `nbook.bots` 起不来，已在本分支修。
+
+下一个是 [t41](tasks/t41-config-error-reporting/README.md)。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。

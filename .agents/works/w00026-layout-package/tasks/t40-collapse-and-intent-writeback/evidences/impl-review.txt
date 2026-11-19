@@ -1,0 +1,67 @@
+实现审查 w00026 t40（最终稿，同最终回复）
+
+阻断 0、重要 0、建议 7。
+
+### 1. 交汇处 Enter：第一根轴被新判定拦下后，改道收起另一根轴上的面板，no-room-to-collapse 丢失
+严重程度：建议；类别：行为。
+位置：packages/nb-layout/src/sash-drag.ts:196（新判定）与 grid-gesture.ts:407-416（toggleCollapsed 逐轴 applyOn、solve 重写 owner.issues）。
+现象（exp/exp1.test.ts 实测）：root 水平 [col(可收起，max 300), r(fixed，max 200)]，col 内竖向 [top(可收起), bottom]，容器 504x404，手势同时命中 root 的 width 轴与 col 的 height 轴。toggleCollapsed() 返回非 null 预览，finish().changes 是 [root: 无收起, col: top 收起]，session.issues 为空。
+为什么是问题：width 轴那一根本该报 no-room-to-collapse 并保持展开；现在这条诊断被第二根轴的那次 solve 覆盖，用户按 Enter 看到的是另一块面板收起、没有任何原因。基线上这一轴“收起”会生成不守恒预览、落账被拒，不会改道。恢复方向的 no-room-to-restore 本来就有同样的改道，所以这是已有模式，不是新机制，但诊断丢失是这次新判定带来的可见结果。
+如何核实：跑 exp/exp1.test.ts。
+建议改法：交汇处只在“某一轴收起成功”时返回；全部轴都没动时保留各轴的诊断（owner.issues 不要被后一次 solve 清掉）。窄场景，也可以只在 Spec 输出 20 记为已知限制。
+
+### 2. WorkbenchSurface.vue 同一个事件留着两段 JSDoc，旧的一段已不准
+严重程度：建议；类别：代码质量。
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:57-58。
+现象：旧注释“手势落账：呈现尺寸，以及这次手势改了收起状态的面板。”没删，新注释紧跟其后。
+为什么是问题：旧句说的是单份“呈现尺寸”，现在是 before 与 after 两份，两段注释并列会让读的人以为是两个事件。
+如何核实：读文件。
+建议改法：删掉旧的一行，把“这次手势改了收起状态的面板”并进新注释。
+
+### 3. NestedGrid.md 里有一条与本 Task 无关的文字改动
+严重程度：建议；类别：范围。
+位置：packages/nb-layout/src/vue/NestedGrid.md:85（diff 第 379-380 行）。
+现象：“尺寸来自组件自己量的根盒（布局盒、不含边框与内边距）…（null、零或非有限）”被改成“读 clientWidth、clientHeight，不随祖先的变换缩放…（null，或宽、高为 0）”。计划、README 的实施记录都没提这条；主工作区的同一行还是旧文。
+为什么是问题：删改任务外的文档。新文还丢了“非有限”（usableExtent 在 grid-geometry.ts:93 同样要求有限），“宽、高为 0”也读不出“任一为 0 就算不可用”。
+如何核实：对照 diff.patch 与主工作区该文件第 85 行；usableExtent 的条件。
+建议改法：还原这一行；要改的话另起提交并说明来由。（我没有 git 权限，不能确认是哪个提交带进来的，也不排除是合并带来的，结论只依据 diff.patch。）
+
+### 4. 测试缺口：两处断言没有区分力
+严重程度：建议；类别：测试。
+位置：packages/nb-layout/src/grid.test.ts（“收起与展开的入口”各用例）；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.test.ts:709-801。
+现象：
+- 返回的 collapse 是副本（grid.ts:324、328）没有用例核对：现有断言全是 toMatchObject 读返回值，没有“改返回值再回读树”。按读代码判断，把 `{...node.collapse}` 改成 `node.collapse` 现有用例都过（我没有实际变异）。
+- store 的 7 处 commitGesture 都用 store.state.presented 当 before。产品路径 Surface（WorkbenchSurface.vue:130）→ Shell → store 的 before 传没传对，这些测试看不出：Surface 把 before、after 传成同一份，store 用例仍然全过。能看到的只有 Lab 的 lab-workbench-surface e2e，我没跑，也不确定它断言固定节点被写回。
+为什么是问题：计划把这两条都列为合同（Spec 输出 147“collapse 是调用之后的收起策略”，输出 150 before）。
+建议改法：补一条改返回值再回读的用例；store 加一条 before 与 presented 不同的用例（模拟实时预览期间 presented 滞后）。
+
+### 5. nb-workbench-layout README 把 before 说成“布局”，实际要的是 sizes
+严重程度：建议；类别：文档。
+位置：packages/nb-workbench-layout/README.md:12。
+现象：“`before` 是手势开始时呈现的布局（nb-layout useGridHost 的 onApplied 第三个参数）”。onApplied 的第三个参数是 GridLayoutResult；applyGestureCommit 要的 before 是 Record<string, GridExtent>，也就是它的 `.sizes`（WorkbenchSurface.vue:130 就是这样传的）。
+为什么是问题：照字面把第三个参数整个传进去，类型检查会拦，但读文档的人要多猜一步。
+建议改法：改成“`before.sizes`”或写明“其 `sizes`”。
+
+### 6. store 丢弃 rejected，理由写成“不会有”，没有测试支撑
+严重程度：建议；类别：代码质量。
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:423-424；三个 Lab 夹具同样不看 rejected。
+现象：注释说“投影只给文档收得起的节点配收起策略，所以不另报”。setPanelCollapsed 的拒绝条件有三类：编辑组、浮动窗、sectionCollapseBlock（layout-doc.ts:1147-1150）。assignByParent 与它们是否逐条对齐，没有测试断言。
+为什么是问题：新入口专门交回 rejected，产品宿主把它整个丢掉，对齐一旦被别的改动破坏，就回到改动前“静默跳过”的状态，没有任何信号。
+建议改法：收益小。至少在开发构建里对非空 rejected 记一条诊断；或在 intent-writeback 的测试里加“投影出的收起策略节点，setPanelCollapsed 都接受”的一致性用例。
+
+### 7. intent-writeback.ts 另写了一份 axisOf
+严重程度：建议；类别：代码质量。
+位置：packages/nb-workbench-layout/src/intent-writeback.ts:23（layout-doc.ts:152、layout-project.ts:90 已各有一份）。
+现象：同一行 `orientation === "horizontal" ? "width" : "height"` 第三份。
+建议改法：从 layout-doc 导出一份共用；收益很小，可以不改。
+
+## 未发现问题的方面
+- setCollapsed 与 restoreSize（grid.ts:493-520）：只翻标记、不动意图在活树、候选树、restore() 之后都成立（restore 的收起策略取当前树，grid-snapshot.ts:159）；resizeBranches 里先写尺寸、后改收起，但被收起节点在 planBranchResize 里是刚性范围，意图保持不变（grid.ts:372-375），所以读到的是收起之前的值；轴由 change.axis（已校验等于分支主轴，grid.ts:286）或 axisOf(父分支) 给出，嵌套可收起分支的轴对；返回的是副本；基线已被核对过不过期（grid.ts:329），所以 presented 可信。
+- Enter 的守恒判定：在标题行（collapsedSize 22）、非整数总量（333.3333333、1000/3、777.77）下不误拦，落账都成功（exp/exp2.test.ts）；两块都可收起且另一块到上限时拦、没有提交。Splitter 的会话与 GridGesture 的会话对“没有真实变化”都按原路径处理（splitter-session.ts:126、grid-gesture.ts:292），不受影响。
+- host.setCollapsed 与 before：before 在 onGestureCommit 入口取（useGridLayout.ts:130），被拒的路径都在 onApplied 之前 return；revision 核对通过就说明 layout.value 正是手势开始时的那份（publish 每次都 +1）；host.setCollapsed 每次现读 options.grid，与 useGridLayout 用的 computed 同源。
+- L2 与原工作台 commitGesture 逐项对照：锚、隐藏的清除条件、0.5 容差、rebaseIntents 的四个参数都一致；收起被拒时仍继续清隐藏，与原来一致。store 里 presented 赋值挪到了文档更新之后，唯一的 effect 与它无关，Vue 的渲染是批量的，看不到中间态。
+- 迁移：rebaseIntents、fixedNodesOf 在仓库里已没有别的导入方（只有 intent-writeback 自己与测试），Lab、e2e、文档里的提及只是注释或说明；index.ts 只导出两个函数加一个类型；WorkbenchSurface、Shell 的事件参数与监听一致；三个 Lab 夹具的 import 都还在用。EditorAreaFixture 的行为变化只对有保留像素的工具面板有影响，它的目录是 NO_VIEWS，没有。
+- 运行：nb-layout bun test 370 条通过，nb-workbench-layout bun test 267 条通过（在实现 worktree 上）。没有跑 e2e、tsc。
+- 变异记录里列的四个、三个、两个变异，按读测试逐个对照，都能区分。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7

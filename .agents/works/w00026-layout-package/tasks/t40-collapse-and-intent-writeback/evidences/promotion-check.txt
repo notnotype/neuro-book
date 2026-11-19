@@ -1,0 +1,98 @@
+核对完成，报告已写到 `.local/agent/works/w00026-layout-package/tasks/t40-collapse-and-intent-writeback/reports/promotion/report-draft.txt`。
+
+已跑的测试全过：`bun test` 的 `grid.test.ts` 与 `sash-drag.test.ts`（124 条）、vitest 的 `useGridHost` 与 `useGridLayout` dom 测试（19 条）、`bun test` 的 `intent-writeback.test.ts` 与 `entry.test.ts`（6 条）。e2e 没跑，只读了代码。“违反它的实现举例”是从代码推演的，没有逐个做变异。
+
+## nested-grid 输出 20 最后一句
+
+| 句子 | 结论 | 测试与断言 | 违反它的实现举例 |
+|---|---|---|---|
+| 显式收起时另一侧吸收不了（兄弟都到上限），保持展开 | 有 | `grid.test.ts:1360-1370`：a 上限 300，b 保留像素、上限 200，容器 504，两块都在上限。Enter 后 `finish()` 为 null，`grid.find("a").collapse.collapsed` 为 false。拖动路径另有 `sash-drag.test.ts:193-203` | 删掉 `sash-drag.ts:196` 的守恒检查：返回 `collapsed:{a:true}`，会话 `changed` 为真，`finish()` 非 null，1368 红 |
+| （兄弟）都已收起时吸收不了 | 没有 | 全仓没有“兄弟已收起、再显式收起另一块”的手势用例。`grid.test.ts:1246-1260` 的“全部收起”走 `grid.setCollapsed`，不经手势会话 | 去掉 `grid-gesture.ts:283` 的 `withCollapseOverrides`：已收起兄弟被当成能吸收，不报诊断，提交不守恒的预览，没有测试红 |
+| 给 `no-room-to-collapse` | 有（Enter 路径只断言码） | `grid.test.ts:1367` 断言诊断码；`sash-drag.test.ts:202` 带 `params {id:"a"}`（拖动路径） | 不报或改码：红。Enter 路径把 `params.id` 写错不会红 |
+| 这场手势没有提交 | 有 | `grid.test.ts:1368` `expect(enter.finish()).toBeNull()` | 不拦就会提交：红 |
+
+## nested-grid 输出 147
+
+| 句子 | 结论 | 测试与断言 | 违反它的实现举例 |
+|---|---|---|---|
+| `setCollapsed` 只翻标记，尺寸意图不动 | 只有部分 | 只有 `grid.test.ts:1243`：展开后回到 [200,200,400]。`changed:true` 之后没有对 `serialize()` 或 `find().size` 的直接断言。1254 的 serialize 对比只在 `changed:false` 上 | 收起时把兄弟 c 的意图改成 600、展开时不还：1239、1243 仍过，因为 c 是唯一按比例分的，余量本来就归它 |
+| 之后的 `layout()` 与翻标记再建的树相同 | 有 | `grid.test.ts:1240`：`widths(grid)` 对 `widths(createGrid(tree(true)))`。只覆盖“保留像素可收起 + 按比例分”这一种形状 | `setCollapsed` 改了别的几何：红 |
+| 按比例分的兄弟吸收差额 | 有 | `grid.test.ts:1239` c 由 400 变 600 | 兄弟不吸收：红 |
+| 保留像素的兄弟不变 | 有 | `grid.test.ts:1239` b 仍为 200 | b 去吸收：红 |
+| 展开回到它的意图 | 有 | `grid.test.ts:1243` [200,200,400]；按比例分的面板 1289 [375,625] | 展开用别的值：红 |
+| 不读布局，不要容器尺寸 | 有（间接） | 1329-1330、1338-1358 在没调过 `layout()` 的树上调 `setCollapsed`；1330 断言按比例分的 `restoreSize` 保持 123 | 内部读布局记呈现尺寸：1330 红 |
+| `toggleable: false` 不影响它 | 没有 | 全仓用 `toggleable:false` 的用例只测 Enter 和拖动（`splitter.dom.test.ts:1282`、`NestedGrid.dom.test.ts:975/999/1014`），没有对这类节点调 `setCollapsed` | `setCollapsed` 对它返回 `not-collapsible`：没有测试红 |
+| 和分隔条上的 Enter 是两种结果 | 有 | `grid.test.ts:1287-1295`：同一棵树，`setCollapsed` 展开 [375,625]，Enter 展开 [600,400] | 两者合一：红 |
+| `changed` 是标记有没有变 | 只有部分 | `changed:true` 有多处断言；`changed:false` 只测了“已展开再展开”（1253）。“已收起再收起”只取了结果、没看 `changed`（1347） | 已收起再收起返回 `changed:true`：没有测试红 |
+| 已经是那个状态时树不变 | 只有部分 | `grid.test.ts:1254` serialize 相等，但 serialize 不含收起策略，策略是否被改写没覆盖 | 去掉 `grid.ts:514` 的提前返回：对已展开再展开无影响，对已收起再收起只是重记成同值，红不了 |
+| `collapse` 是调用之后的收起策略 | 有 | `grid.test.ts:1238`、1242、1329-1330、1338-1351（副本） | 返回调用前的策略：红 |
+| 失败：`not-found`、根节点 `invalid-argument`（`field:"root"`）、`not-collapsible` | 有 | `grid.test.ts:1355-1357`，断言码与 params | 红 |
+
+## nested-grid 输出 148
+
+| 句子 | 结论 | 测试与断言 | 违反它的实现举例 |
+|---|---|---|---|
+| 展开翻成收起时记下 `restoreSize` | 有 | `grid.test.ts:1310`（Enter）、1321（拖到零）、1329-1330（`setCollapsed`） | 不记：红 |
+| 不小于 `collapsedSize` | 没有 | 所有记录用例的 `collapsedSize` 都是 0。`sash-drag` 与 `NestedGrid` 里 `collapsedSize` 为 32 的用例只作输入，不断言收起后的 `restoreSize` | 去掉 `grid.ts:499` 的 `Math.max`：没有测试红 |
+| 保留像素的面板记主轴上的意图（被压缩时也是意图） | 只有部分 | 窄窗口被压缩 200、意图 300，Enter 收起后记 300：`grid.test.ts:1300-1310`；`setCollapsed` 路径 250：1325-1329。都是水平分支，竖直分支（height 轴）没有记 `restoreSize` 的断言 | `collapsedRemembering` 的 axis 写死 `"width"`：没有测试红；记呈现值：1310 红 |
+| 按比例分的面板在 `resizeBranches` 里记这次变化的基线 | 有 | 拖动：`grid.test.ts:1321`（原 123 变 500）；Enter：1184-1191 连按三轮不漂 | 不记基线：红 |
+| 经 `setCollapsed` 时不改 | 有 | `grid.test.ts:1330` 保持 123；1335 | 红 |
+| 之后的显式恢复回到记下的值 | 有 | 按比例分：1184-1191，恢复 400 而非初始 200；读宿主给的值：1193-1201。保留像素“记下再恢复”靠 1310 与 1193 拼起来，没有端到端用例 | 恢复读别的值：红 |
+| 收起策略不写快照 | 没有 | `grid.test.ts:891` 断言快照键集不含 `collapse`，但夹具 `fixture()`（47 行）没有收起策略。1333 的 restore 在“序列化器多写 collapse”下同样过 | `grid-snapshot.ts:37/43` 在节点有 collapse 时多写：没有测试红 |
+| `restore()` 没给 `collapse` 时沿用当前树的，记下的值保留 | 有 | `grid.test.ts:1333-1335` | restore 用默认策略覆盖：红 |
+| 宿主从 `setCollapsed` 结果或 `find(id)` 读 | 有 | 1329-1330（结果）、1310、1321、1335（find） | 结果不带 `restoreSize`：红 |
+
+## nested-grid 输出 149
+
+| 句子 | 结论 | 测试与断言 | 违反它的实现举例 |
+|---|---|---|---|
+| 调 `grid.setCollapsed` | 有（间接） | `useGridHost.dom.test.ts:258` 结果含 `changed:true`、`collapse.collapsed:true`；:260 左列宽 0 | 不调、返回假结果：红 |
+| 标记变了版本递增、布局重发 | 有 | `useGridHost.dom.test.ts:259` revision+1；:260 宽度 0 | 不 invalidate：红 |
+| 诊断经 `onIssues` | 有 | `useGridHost.dom.test.ts:261` 含 `unabsorbed-space`（右列上限 800，诊断只会来自这次重发） | 不经 `onIssues`：红 |
+| 没变时版本不变 | 有 | `useGridHost.dom.test.ts:263-264` | 无条件 invalidate：红 |
+| 没有网格返回 `not-ready`（`missing:"grid"`） | 有 | `useGridHost.dom.test.ts:272` | 红 |
+| 没有网格时不改树 | 只有部分（空过） | `useGridHost.dom.test.ts:268-273` 宿主的 grid 选项为 null，harness 里的树没交给宿主，没有可违反的实现。只有 revision 不变（:273）可观察 | 无 |
+| （顺带）不触发 `onApplied` | 有 | `useGridHost.dom.test.ts:265` | 触发：红 |
+
+## nested-grid 输出 150
+
+| 句子 | 结论 | 测试与断言 | 违反它的实现举例 |
+|---|---|---|---|
+| `before` 是提交之前发布的布局 | 有 | `useGridLayout.dom.test.ts:221-230`：`befores[0]` `toBe(published)`（同一对象），`host.layout.value` 不是它，宽度差 10 | 把发布之后的 layout 当 `before`：红 |
+| 也就是手势开始时呈现的那份 | 有（间接） | 同上。`frozen()` 用当前发布几何拼提交，不经真实手势；真实手势用例（196-219）不检查 `befores` | 提交时重算一份新布局当 `before`：同一性断言红 |
+| `onApplied` 被调时宿主的 `layout` 已是提交之后的 | 没有 | `useGridLayout.dom.test.ts:228-229` 在 `onGestureCommit` 返回之后才读 `host.layout.value`，不是在回调里读 | 把 `useGridLayout.ts:160-167` 的 `onApplied` 调用挪到 `publish()`（159 行）之前：回调读到提交前布局，228-229 仍过 |
+
+## workbench-layout 输出 49
+
+| 句子 | 结论 | 测试与断言 | 违反它的实现举例 |
+|---|---|---|---|
+| 只导出两个写回意图的函数 | 只有部分 | `entry.test.ts:7-12`：两个是 function，`rebaseIntents`、`fixedNodesOf` 不在导出里。没有“导出清单恰好如此”的断言 | 入口多导出第三个写回函数：没有测试红 |
+| `rebaseIntents`、`fixedNodesOf` 不导出 | 有 | `entry.test.ts:10-11` | 加回导出：红 |
+| `applyGestureCommit(...)` 在手势落账后用 | 用法约定，非行为断言 | 包内无法断言；`layout-doc-store.test.ts` 的 `commitGesture` 用例间接用到 | — |
+| 收起与展开记到区域的锚上 | 只有部分 | 收起：`intent-writeback.test.ts:108-110`、`layout-doc-store.test.ts:709-714`。展开：没有“锚原本 collapsed:true、手势展开后被清掉”的用例。`intent-writeback.test.ts:114-117` 与 `layout-doc-store.test.ts:734-738` 展开前锚上本来就没有 `collapsed`，断言 undefined 在“记在 s1 上”“根本没写”下都成立；`layout-doc-store.test.ts:779-781` 展开的是普通分节，不经锚 | `value=false` 时 target 改用节点 id：没有测试红 |
+| 从边界拉开隐藏的区域时清掉隐藏 | 有 | `intent-writeback.test.ts:112-117`；`layout-doc-store.test.ts:732-738` | 不清隐藏：红 |
+| 没动的保留像素节点不写 | 有 | `intent-writeback.test.ts:62-75`；`layout-doc-store.test.ts:785-798`；e2e `lab-grid-panels.e2e.ts:81-112`（未跑） | 全写：`layout-doc-store.test.ts:798` 与 `intent-writeback.test.ts:73` 红 |
+| 其余按输出 8 写回 | 有 | `intent-writeback.test.ts:77-82`（动了的保留像素放宽后 320）；`layout-doc-store.test.ts:705/712/801-802/810-811`。输出 8 的细节（零轴、收起、条、工具面板比例）在 `layout-doc.test.ts`、`layout-project.test.ts` 对 `rebaseIntents` 的用例里 | 不写：红 |
+| 收起或显隐被文档拒绝的项跳过，照常写回尺寸 | 只有部分 | 收起：`intent-writeback.test.ts:84-92`。显隐被拒（`intent-writeback.ts:53-55`）没有用例 | 显隐失败时丢掉尺寸写回：没有测试红 |
+| 逐项交回 `rejected` | 只有部分 | `intent-writeback.test.ts:89` 只有一项被拒；多项被拒、被拒后继续处理下一项没有断言 | 第一项被拒就 break：没有测试红 |
+| `rebaseForOperation` 在结构操作之前按输出 8 写回 | 有（跨文件） | 单测 `intent-writeback.test.ts:122-129` 没有“非保留像素被写”的正面断言，什么都不写也过。正面断言在 `layout-doc-store.test.ts:703-705`（g0 呈现 611，`setPartHidden` 之后文档里是 611） | 不写：单测仍过，`layout-doc-store.test.ts:705` 红 |
+| 保留像素的节点不写 | 有 | `intent-writeback.test.ts:122-129`；`layout-doc-store.test.ts:785-794` | `fixedNodesOf` 换成空集合：红 |
+
+## 没有与只有部分的句子，缺什么断言
+
+没有：
+1. **输出 20，兄弟都已收起**：缺兄弟已收起时，Enter 或按钮显式收起另一块，断言 `no-room-to-collapse` 且 `finish()` 为 null。
+2. **输出 147，`toggleable: false`**：缺对 `toggleable:false` 的节点调 `grid.setCollapsed`，断言 `ok:true`、`changed:true`、布局变化。
+3. **输出 148，不小于 `collapsedSize`**：缺 `collapsedSize` 大于收起前尺寸（如 32 对 20）时收起，断言 `restoreSize` 为 `collapsedSize`。
+4. **输出 148，收起策略不写快照**：缺在带收起策略的树上 `serialize()`，断言快照里没有 `collapse`、`restoreSize`。
+5. **输出 150，`onApplied` 被调时 layout 已更新**：缺在 `onApplied` 回调内读 `host.layout.value`，断言它是提交之后的几何。
+
+只有部分：
+6. **输出 147，尺寸意图不动**：缺 `changed:true` 之后 `serialize()` 或 `find().size` 与之前相同，且让按比例分的兄弟不止一个。
+7. **输出 147，`changed` 与树不变**：缺已收起再收起时 `changed:false`，且收起策略（含 `restoreSize`）不变。
+8. **输出 148，主轴意图**：缺竖直分支（height 轴）里保留像素面板收起后 `restoreSize` 为 height 意图。
+9. **输出 149，没有网格时不改树**：缺宿主有树但 grid 选项为 null 时树不变（目前空过）。
+10. **输出 49，只导出两个函数**：缺对导出清单的整体断言（`Object.keys(entry)` 里没有其它意图回写函数）。
+11. **输出 49，展开记到锚上**：缺锚原本 `collapsed:true`，手势 `{区域节点: false}` 后锚上的 `collapsed` 被清掉、分节自己不变。
+12. **输出 49，显隐被拒跳过**：缺让 `setPanelHidden` 对锚失败的用例，断言 `rejected` 里有该项且尺寸照写。
+13. **输出 49，逐项交回 `rejected`**：缺两项以上同时被拒的用例。

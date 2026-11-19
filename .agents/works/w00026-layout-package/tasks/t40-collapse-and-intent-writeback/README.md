@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t40-collapse-and-intent-writeback
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -85,8 +85,49 @@ updated: 2026-11-19
 
 ## 实现审查
 
-待处理：Claude Sonnet，审查 worktree `review-t40-impl` 固定在 `5e25c2819`，diff 是相对 master `f56d70939` 的净改动（36 个文件）。
+Claude Sonnet（[`evidences/impl-review.txt`](evidences/impl-review.txt)），审查 worktree 固定在 `5e25c2819`：7 条，全是建议，修正提交 `69debb464`：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 两根轴交汇处按 Enter：一根被新的守恒判定拦下后改去收另一根，前一根的诊断丢了 | 窄场景，记为已知限制（Spec“目标与非目标”）；恢复方向本来也这样改道 |
+| 2 | Surface 的事件留着两段注释 | 合成一段 |
+| 3 | `NestedGrid.md` 里不可用尺寸的说法改了没记 | 那是跟 t39 晋升后的 Spec 措辞对齐；改成“宽、高任一为 0” |
+| 4 | 结果是副本、store 按 `before` 判定，两处没有区分力 | 各补一条用例，变异（不复制、改用 `presented`）都会红 |
+| 5 | README 把 `before` 说成布局 | 写明取 `sizes` |
+| 6 | store 丢掉 `rejected`、只靠注释 | 不改：从投影出发不可达，两轮设计审查已核对；库照样交回，第三方拿得到 |
+| 7 | `intent-writeback.ts` 另写一份 `axisOf` | 不改：共用要从 `layout-doc.ts` 导出，经 `export *` 进了入口，为一行函数扩大公开面不值得 |
+
+## 合入
+
+2026-11-19：再把 master 并进分支（只带进文档），快进合入 master `4fd43c057`，删掉 worktree `w00026-t40-collapse`、`review-t40-impl` 与分支。
+
+## Spec 晋升
+
+2026-11-19：`ui/nested-grid` 输出 20 的补充、147 到 150，`ui/workbench-layout` 输出 49 晋升 implemented。
+
+- 输出 149 删掉两句：
+  - “版本递增时进行中的手势提交被拒”与实现不符（t41 设计审查发现：手势是被取消）；
+  - “直接调的宿主要自己 `invalidate()`”是用法约定，`grid.md` 里有。
+- 已知限制加一条：两根轴交汇处按 Enter 时，前一根轴的诊断会丢（实现审查第 1 条）。
+
+逐句核对（Claude Sonnet，[`evidences/promotion-check.txt`](evidences/promotion-check.txt)）共 13 处缺口，处理如下：
+
+- 补断言 9 处（`169618e8c`，锚的规则做了变异）：
+  - 兄弟已收起时 Enter 不收；
+  - `toggleable: false` 照样收；
+  - 收起后意图不变（按比例分的兄弟不止一个）；
+  - 已收起再收起时 `changed` 为假、策略不变；
+  - 竖直分支记高度的意图；
+  - 收起策略不写快照；
+  - `onApplied` 被调时布局已更新；
+  - 展开时清掉锚上的收起；
+  - 多项被拒时逐项交回。
+- 改写 Spec 4 处：
+  - “不小于 `collapsedSize`”删掉：收起前的意图与呈现都不小于展开下限，下限又大于 `collapsedSize`，走不到；
+  - “没有网格时不改树”改成“版本不变”；
+  - “只导出两个”改成列出导出与不导出的名字；
+  - “显隐被拒”删掉：拉开时清隐藏写在锚上，锚总在文档里，走不到。
 
 ## 下一步
 
-1. 处理实现审查；合入；删 worktree；晋升（换模型逐句核对）。
+无。
