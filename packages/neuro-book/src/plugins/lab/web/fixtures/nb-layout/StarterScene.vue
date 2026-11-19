@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {shallowRef} from "vue";
+import {computed, shallowRef} from "vue";
 import {createGrid} from "@notnotype/nb-layout";
 import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
@@ -22,37 +22,42 @@ const grid = shallowRef(createGrid<string>({
     ],
 }, {sashSize: 4}));
 
-// 2 到 4. 量容器、算布局、接纳手势提交：都在 useGridHost 里，整包绑到 NestedGrid 上。拖完落账之后存快照。
+// 快照只存结构与尺寸；保留像素、最小尺寸、收起策略不在里面，恢复时由解析函数按 ref 再给（见“约定”）。
 const saved = shallowRef(grid.value.serialize());
-const host = useGridHost({
-    grid,
-    contextKey: "starter",
-    onApplied: () => {
-        saved.value = grid.value.serialize();
-    },
-});
+function save(): void {
+    saved.value = grid.value.serialize();
+}
+
+// 2 到 4. 量容器、算布局、接纳手势提交：都在 useGridHost 里，整包绑到 NestedGrid 上。
+// contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。
+const host = useGridHost({grid, contextKey: "starter", onApplied: save});
 
 // 5. 结构变了要通知：原地改了树之后调 invalidate()。收起与展开用 host.setCollapsed，它自己重发布局。
 function split(): void {
     const result = grid.value.splitLeaf("editor", {branchId: "editor-split", orientation: "vertical", side: "after", ratio: 0.5, leaf: {kind: "leaf", id: "preview", ref: "preview"}});
-    if (result.ok) host.invalidate();
+    if (!result.ok) return;
+    host.invalidate();
+    save();
 }
 
-const filesCollapsed = shallowRef(false);
+// 收起状态从网格读：拖过最小尺寸也会收起，按钮要跟着它。每次重发布局版本都会变，读它就会跟着重算。
+const filesCollapsed = computed(() => {
+    void host.revision.value;
+    return grid.value.find("files")?.collapse?.collapsed === true;
+});
 function toggleFiles(): void {
-    const result = host.setCollapsed("files", !filesCollapsed.value);
-    if (result.ok) filesCollapsed.value = result.collapse.collapsed;
+    host.setCollapsed("files", !filesCollapsed.value);
 }
 </script>
 
 <template>
-    <div style="display: flex; flex-direction: column; gap: 8px; height: 100%">
+    <!-- 承载盒要有确定的高度：NestedGrid 的根铺满它，尺寸由它自己量。这里直接给外层一个高度。 -->
+    <div style="display: flex; flex-direction: column; gap: 8px; height: 480px">
         <div style="display: flex; gap: 8px">
             <button type="button" data-starter-action="split" @click="split()">拆分编辑区</button>
             <button type="button" data-starter-action="toggle" @click="toggleFiles()">{{ filesCollapsed ? "展开左栏" : "收起左栏" }}</button>
         </div>
-        <!-- 承载盒要有确定的高度：NestedGrid 的根铺满它，尺寸由它自己量。 -->
-        <div style="flex: 1; min-height: 240px">
+        <div style="flex: 1; min-height: 0">
             <NestedGrid v-bind="host.bindings.value">
                 <template #leaf="{node}">{{ node.id }}</template>
             </NestedGrid>

@@ -5,7 +5,7 @@
 ```ts
 const {state} = useDragSession(rootEl, (root) => ({
     sourceAt: (target) => target.closest<HTMLElement>("[data-row]")?.dataset.row ?? null, // 按下处的来源；null 不起拖
-    resolve: ({top}) => (top === null ? null : rowAt(top)),   // 这一刻的落点；不改布局，可能被调多次
+    resolve: ({top}) => (top === null ? null : rowAt(top)),   // 这一刻的落点；不改布局，可能被调多次（rowAt、move 是宿主自己的函数）
     actionKey: (drop) => drop.key,                            // 落点要做的动作的比较键；只显示不提交的为 null
     commit: (drop, source) => move(source, drop),             // 放下，且与最后显示过的动作相同
 }));
@@ -18,13 +18,15 @@ const {state} = useDragSession(rootEl, (root) => ({
 | `sourceAt(target)` | 按下处的来源。要自己排除可交互的元素（按钮、输入框），不然点按钮也会起拖 |
 | `activate?(source, keyboard, at)` | 过了门槛时调：宿主冻结它要的东西；返回 `false` 不起拖 |
 | `resolve(query)` | 同步判定这一刻的落点。放下时、自动滚动时也会调，不能假定一次移动只调一次 |
-| `actionKey(drop)` | 落点动作的比较键；放下时与最后显示过的相同才提交 |
+| `actionKey(drop)` | 落点动作的比较键；放下时与最后显示过的相同才提交（`commitsUnderPointer` 为真时例外） |
 | `commit(drop, source, keyboard)` | 提交 |
+| `commitsUnderPointer?(keyboard)` | 为真时放下提交此刻判定的落点，不要求与最后显示过的相同。别的东西跟着指针即时让位（实时布局、`useSortable`）时用：显示的总比指针慢一拍。缺省假 |
+| `onActiveChange?(active)` | 一场开始与结束：宿主在这里写光标、禁选这类标记 |
 | `onEnd?(end, last)` | 一场结束时调：`committed`（提交了）、`no-action`（放下了但没有要做的动作）、`cancelled`（带原因：Escape、失焦、根没了等） |
 | `structure?()` | 此刻的结构键；一场里它变了整场取消 |
-| `scroll?` | 滚动时重新判定（缺省）或撤下落点直到指针再动 |
-| `autoScroll?` | 边缘滚动的元素；缺省不滚 |
-| `keyboard?` | 键盘拖动；缺省只有指针 |
+| `scroll?` | `"reevaluate"`（缺省）滚动时重新判定；`"withdraw"` 滚动时撤下落点，直到指针再动 |
+| `autoScroll?` | `{element, edgePx?, maxStepPx?}`：指针靠近这个元素的边时自动滚动；缺省不滚 |
+| `keyboard?` | 键盘拖动；缺省只有指针。要给 `sourceAt`（焦点处的来源）、`regions`（Tab 依次走过的区域）、`stops`（区域里方向键停的点）、`start`（拿起时在哪个区域、哪一点）、`refocus`（结束后焦点还给谁） |
 | `config?` | 起拖门槛等 |
 
 自己画的拖动反馈（拖影、插入线）要带 `data-drag-feedback`：会话判定落点时跳过它们，不然它们会挡住指针下的目标。菜单、对话框挡在落点上时，落点不接收。

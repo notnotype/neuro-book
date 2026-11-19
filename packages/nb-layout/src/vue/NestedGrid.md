@@ -26,7 +26,7 @@
 - 外框只有右边在动时，外框与内容外层带 `data-anchor-right`，过渡结束就摘掉。纵向不贴：贴下边要让面板头那一条里也画内容，那一条现在被裁掉。
 - 这些叶的内容外层在过渡中按叶的矩形摆、带 `data-by-leaf`：内容体往下挪一个面板头，面板头那一条用 `clip-path` 裁掉（不挡面板头的指针），外层的上边就是外框的上边；过渡结束换回内容自己的矩形，位置相同、不跳。宿主在过渡中量内容外层，量到的是叶的矩形，要量内容的位置量内容体。
 - 不给 `leafShape` 时，这些叶按外框的矩形裁，卡片在不动的那边被直着切掉；给了形状时，外框与内容外层都按它裁，露出来的一截始终是一张完整的卡片，卡片的投影到结束才出现，浮动窗不按形状裁。形状可以伸出外框时，`fill` 画伸出去的部分。
-- 离开的叶留着缩回去（一整棵子树离开、前后的兄弟相接、下面还有挂着的内容、又不在拖动中）时带 `data-leaving`、`inert`、不接指针；宿主用 `dragging` 属性告诉网格拖动在进行（不论内容拿没拿起），这时离开的叶不留着。还在树里、这一轮降到零的叶不带 `data-leaving`。
+- 离开的叶留着缩回去（一整棵子树离开；前后的兄弟这一帧相接，或它在分支一头而挨着的兄弟伸到了它原来的那一头；下面还有挂着的内容；又不在拖动中）时带 `data-leaving`、`inert`、不接指针；宿主用 `dragging` 属性告诉网格拖动在进行（不论内容拿没拿起），这时离开的叶不留着。还在树里、这一轮降到零的叶不带 `data-leaving`。
 
 ## 交换
 
@@ -48,11 +48,11 @@
 
 与主轴同向的方向键每次调整 10px，Shift 调整 1px；Home / End 跳到可行范围端点，Enter 切换相邻可收起面板。键盘按键抬起时结束该手势。取消的情形：Escape、pointercancel、窗口失焦、上下文变化和卸载都不结算旧基线；分隔线失去焦点时结束键盘会话。禁用时不启动手势。沿自己长度方向为零的分隔线按不可交互处理。数据、约束、上下文或 revision 变化会使现有手势失效。点击非分隔区域不由渲染器处理；焦点不被组件搬移。
 
-`dragging` 为真时宿主的拖动在进行（不论内容拿没拿起），离开的叶不留着缩回去。`lifted`（`{key}`）拿起一个内容项（实时布局）：不接指针，外层是一列（`lifted-head` 加内层）。落进已有的叶时，那块叶上一帧显示着的内容留在卡片下面（`inert`、不接指针），过渡结束才停放，卡片长的一路叶不空；落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框和窗的手柄也从卡片的矩形一起长到终点。矩形（相对网格根）由 expose 的 `placeLifted(rect)` 直接写在元素上，不走属性：跟手的东西每帧都变，走属性的话这个组件和每块叶的插槽都要跟着重跑。整窗拖动同样：expose 的 `placeFloat(id, offset)` 把窗的外框、内容、手柄一起挪（写 `translate`），`null` 回到原处，`floats` 属性整场不变。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针）。暴露 `settleMotion()`：进行中的过渡直接到终点，宿主马上要量矩形时用。卡片的圆角与投影走 `--nb-layout-card-radius`、`--nb-layout-card-shadow`。
+`dragging` 为真时宿主的拖动在进行（不论内容拿没拿起），离开的叶不留着缩回去。`lifted`（`{key}`）拿起一个内容项（实时布局：拖动时别的面板按预览即时让位，拿起的内容做成卡片跟着指针）：不接指针，外层是一列（`lifted-head` 加内层）。落进已有的叶时，那块叶上一帧显示着的内容留在卡片下面（`inert`、不接指针），过渡结束才停放，卡片长的一路叶不空；落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框和窗的手柄也从卡片的矩形一起长到终点。矩形（相对网格根）由 expose 的 `placeLifted(rect)` 直接写在元素上，不走属性：跟手的东西每帧都变，走属性的话这个组件和每块叶的插槽都要跟着重跑。整窗拖动同样：expose 的 `placeFloat(id, offset)` 把窗的外框、内容、手柄一起挪（写 `translate`），`null` 回到原处，`floats` 属性整场不变。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针）。暴露 `settleMotion()`：进行中的过渡直接到终点，宿主马上要量矩形时用。卡片的圆角与投影走 `--nb-layout-card-radius`、`--nb-layout-card-shadow`。
 
 `floats`（`{id, rect, gesture?}`）是浮动窗。窗回到树里时叶的 id 不变，外框就从窗的位置过渡回去；摘掉 `data-float` 的那一刻外框还带着 `data-moving`，窗的投影、底色与圆角跟着过渡掉。插槽 `float-chrome` 放手柄（[`FloatWindowHandles`](FloatWindowHandles.md)）。
 
-焦点：DOM 序与树序不一致（叶换了位置）时，根上有 `aria-owns`，Tab 走出一块时由组件按树序接管，内容自己处理了 Tab（`preventDefault`）或输入法正在组字时不接管，走出最后一项时离开这个 grid。`moveGridFocus(from, direction)` 在叶之间按树的先后移动，回到这块上次的焦点，没有就是第一个可聚焦的元素；没有可聚焦元素的叶跳过，嵌套时内层先走、走到头交给外层，最外层绕回。完整规则见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“Tab”“移动焦点”“读屏顺序”几条。
+焦点：DOM 序与树序不一致（叶换了位置）时，根上有 `aria-owns`，Tab 走出一块时由组件按树序接管，内容自己处理了 Tab（`preventDefault`）或输入法正在组字时不接管，走出最后一项时离开这个 grid。`moveGridFocus(container, direction)` 在叶之间按树的先后移动，回到这块上次的焦点，没有就是第一个可聚焦的元素；没有可聚焦元素的叶跳过，嵌套时内层先走、走到头交给外层，最外层绕回。完整规则见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“Tab”“移动焦点”“读屏顺序”几条。
 
 ## 接入
 
@@ -61,6 +61,7 @@
 不经 `useGridHost`、自己接组件时，要知道组件这一侧的几条：
 
 - 组件自己量根盒（读 `clientWidth`、`clientHeight`，不随祖先的变换缩放），挂载后量到就发 `extent` 事件，两轴变了才再发，同步发；卸载前发 `null`。承载盒要有确定的高度，组件的根铺满它。
+- 宿主拿这个尺寸算布局；没量到可用尺寸（`null`，或宽、高任一为 0）时给空布局、停用手势。尺寸只来自组件，不要把它挂在“有了尺寸才渲染”的条件后面，那样永远等不到尺寸。
 - 提交处理 `onGestureCommit` 是属性，要返回 `{ok: true}` 或失败对象。写成 `@gesture-commit` 时处理函数会被当作这个属性调用，返回 void 就回滚；整包绑定之后再写它，会和包里的合成数组，提交时出错。
 - `contextKey` 与 `revision` 要和宿主核对提交用的值一致：手势开始时组件把它们冻结进这场手势，提交时宿主拿此刻的值比，对不上就拒绝（拖不动）。
 
@@ -109,7 +110,7 @@ type NestedGridProps = {
     contextKey?: string;
     /** 树、约束或容器尺寸变化时由宿主递增的版本；默认 0。 */
     revision?: number;
-    /** 同步接纳一次完整提交；未提供或返回失败都会回滚预览。失败是 `{ok: false, code, message, params?}`（Spec `ui/nested-grid` 失败 6）：`code` 给程序分支（宿主自己拒绝可以用自己的码），`message` 是英文、只给日志看。 */
+    /** 同步接纳一次完整提交；未提供或返回失败都会回滚预览。失败是 `{ok: false, code, message, params?}`：`code` 给程序分支（宿主自己拒绝可以用自己的码），`message` 是英文、只给日志看。 */
     onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | GridFailure;
     /** 内容层：和叶外框同一父元素的内容，换叶不重建；默认无，内容放在 leaf 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
