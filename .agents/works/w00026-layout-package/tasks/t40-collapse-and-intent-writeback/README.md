@@ -18,7 +18,7 @@ updated: 2026-11-19
 
 ## 当前状态
 
-计划第 2 稿（[`plan.md`](plan.md)），送第二轮设计审查。待确认三条记进 [待确认清单](../../pending-confirmations.md)。
+计划第 3 稿（[`plan.md`](plan.md)），不再送审，实现审查兜底。待确认记进 [待确认清单](../../pending-confirmations.md)。
 
 ## 设计审查
 
@@ -38,7 +38,19 @@ updated: 2026-11-19
 | 10 | store 的 `presented` 在实时预览期间不更新，和 `before` 会分叉 | 工作台也用 `before`：Surface 发出、store 的 `commitGesture` 加参数 |
 | 11 | 参照：VS Code 按优先级吸收、有读取入口、有双击重置 | 读取经结果的 `collapse` 与 `find`；双击重置不在范围 |
 
+第 2 稿（第二轮，[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)，实验在真实源码上跑）：8 条，阻断 1、重要 1、建议 6，都成立，改成第 3 稿：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 第 2 稿的“落账时没动的保留像素节点保留意图”和 Enter 的邻居吸收预览冲突，窄窗口里收侧栏以 `not-finite` 整批拒绝 | 这条规则拿掉，记为已知问题；根治要把 Enter 与按钮改成翻标记重排，改已实现的输出 20，交开发者（待确认清单） |
+| 2 | 按比例分的面板经 `setCollapsed` 与 Enter 往返不一致 | 写进 Spec 输出 147，带数字，加验收 |
+| 3 | 全部收起时整行留白、没有诊断 | 允许，写进“不承诺”，加验收 |
+| 4 | `before` 要在 `resizeBranches` 之前取 | 写明在 `onGestureCommit` 入口快照；验收断言与之后的布局不同 |
+| 5 | 迁移漏了 `WorkbenchShell.vue`、`.md`；store 测试是 7 处；`presented` 的分工写错 | 补全；分工改成“手势落账用 `before`，结构操作与可见标签用 `presented`” |
+| 6 | `boundary.test.ts` 不断言导出面；`GridCollapseResult` 要进显式清单 | 新开 `entry.test.ts`；类型进 `index.ts`；SDK 不受影响（插件建不出网格），不写变更记录 |
+| 7 | 两处容差被说成同一条规则 | 第 1 条拿掉后只剩 L2 的 0.5px，照原值，注释如实写来由没有记录 |
+| 8 | 新 e2e 可能空过；`host.setCollapsed` 没有真实浏览器验证 | e2e 先断言已被压缩；`GridStructureScene` 加按钮与一条 e2e |
+
 ## 下一步
 
-1. 第二轮设计审查，阻塞等结论。
-2. 写 Spec（planned），开 worktree 按三片实施。
+1. 写 Spec（planned），开 worktree 按三片实施。
