@@ -64,6 +64,11 @@ function person(id: string, name: string, attitudes: readonly Record<string, unk
     }}};
 }
 
+/** 一行的几格（程度、名字、那句话、来处；没有的是空串）。 */
+const cellsOf = (row: ReturnType<ReturnType<typeof mount>["find"]>, names: readonly string[]): string[] => names.map((name) => {
+    const cell = row.find(`[data-cell="${name}"]`);
+    return cell.exists() ? cell.text() : "";
+});
 const tabNames = (wrapper: ReturnType<typeof mount>): string[] => wrapper.findAll('[role="tab"]').map((tab) => tab.text().replace(/\s+/gu, " ").trim());
 const pick = async (wrapper: ReturnType<typeof mount>, name: string): Promise<void> => {
     await wrapper.findAll('[role="tab"]').find((tab) => tab.text().trim() === name)!.trigger("click");
@@ -113,7 +118,7 @@ describe("人物页", () => {
         await pick(wrapper, "知道什么");
         await waitUntil("知情出来", () => wrapper.findAll("[data-knowing-row]").length === 2, {timeoutMs: 10_000});
         // 一行依次是程度、秘密、怎么知道、来处。保密的事列出所有秘密：没有行的写“不知道”。
-        const cells = wrapper.findAll("[data-knowing-row]").map((row) => row.findAll(":scope > *").map((cell) => cell.text()));
+        const cells = wrapper.findAll("[data-knowing-row]").map((row) => cellsOf(row, ["degree", "name", "detail", "origin"]));
         expect(cells).toEqual(expect.arrayContaining([["知道", "哥哥就是星瑕", "当时在场", "第 1 章"], ["不知道", "父母没有死", "", ""]]));
         expect(wrapper.find("[data-knowing-view]").text()).toContain("字段");
         expect(wrapper.find("[data-knowing-view]").text()).toContain("听过的说法");
@@ -150,7 +155,7 @@ describe("秘密页", () => {
         await waitUntil("谁知道出来", () => wrapper.findAll("[data-point-row]").length === 2, {timeoutMs: 10_000});
         const view = wrapper.find("[data-point-view]");
         expect(view.text()).toContain("保密");
-        const cells = wrapper.findAll("[data-point-row]").map((row) => row.findAll(":scope > *").map((cell) => cell.text()));
+        const cells = wrapper.findAll("[data-point-row]").map((row) => cellsOf(row, ["name", "degree", "detail", "origin"]));
         expect(cells).toEqual(expect.arrayContaining([["星瑾", "信错了", "哥哥在外地", "第 1 章"], ["星瑕", "知道", "当时在场", "第 1 章"]]));
         // 彗没有行；保密的秘密写“都不知道”。
         expect(wrapper.find("[data-point-rest]").text()).toBe("别的 1 个人都不知道");

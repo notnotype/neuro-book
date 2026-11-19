@@ -54,11 +54,12 @@ const groups = computed(() => [
             <section v-for="group in groups" :key="group.key">
                 <h3 class="mb-1 font-semibold">{{ group.title }}</h3>
                 <ul class="divide-y divide-[var(--divider)]">
-                    <li v-for="row in group.rows" :key="row.point" class="flex flex-wrap items-baseline gap-x-3 py-1.5" data-knowing-row>
-                        <span class="w-14 shrink-0 text-[var(--text-secondary)]">{{ degreeLabel(row.degree, group.secret, text) }}</span>
-                        <button type="button" class="text-[var(--accent-main)] hover:underline" @click="props.context.open({kind: 'entry', id: row.point})">{{ nameOf(row.point) }}</button>
-                        <span class="min-w-0 flex-1 text-[var(--text-secondary)]">{{ detail(row) }}</span>
-                        <span class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ origin(row) }}</span>
+                    <!-- 放不下时那句话换到下一行占满（basis-48），不挤成一列字；空的格不画（不占间距）。 -->
+                    <li v-for="row in group.rows" :key="row.point" class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5" data-knowing-row>
+                        <span class="w-14 shrink-0 text-[var(--text-secondary)]" data-cell="degree">{{ degreeLabel(row.degree, group.secret, text) }}</span>
+                        <button type="button" class="min-w-0 text-left text-[var(--accent-main)] hover:underline" data-cell="name" @click="props.context.open({kind: 'entry', id: row.point})">{{ nameOf(row.point) }}</button>
+                        <span v-if="detail(row) !== ''" class="min-w-0 grow basis-48 text-[var(--text-secondary)]" data-cell="detail">{{ detail(row) }}</span>
+                        <span v-if="origin(row) !== ''" class="ml-auto text-[length:var(--text-xs)] text-[var(--text-muted)]" data-cell="origin">{{ origin(row) }}</span>
                     </li>
                 </ul>
             </section>

@@ -66,11 +66,12 @@ const decision = (item: {readonly text: string; readonly status: "pending" | "de
             <section>
                 <h3 class="mb-1 font-semibold">{{ text("point.roles") }}</h3>
                 <ul class="divide-y divide-[var(--divider)]">
-                    <li v-for="row in data.people" :key="row.person" class="flex flex-wrap items-baseline gap-x-3 py-1.5" data-point-row>
-                        <button type="button" class="w-24 shrink-0 truncate text-left text-[var(--accent-main)] hover:underline" @click="props.context.open({kind: 'entry', id: row.person})">{{ nameOf(row.person) }}</button>
-                        <span class="w-14 shrink-0 text-[var(--text-secondary)]">{{ degreeLabel(row.degree, secret, text) }}</span>
-                        <span class="min-w-0 flex-1 text-[var(--text-secondary)]">{{ detail(row) }}</span>
-                        <span class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ origin(row) }}</span>
+                    <!-- 同 KnowingView 的行：放不下时那句话换到下一行，空的格不画。 -->
+                    <li v-for="row in data.people" :key="row.person" class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5" data-point-row>
+                        <button type="button" class="w-24 min-w-0 truncate text-left text-[var(--accent-main)] hover:underline" data-cell="name" @click="props.context.open({kind: 'entry', id: row.person})">{{ nameOf(row.person) }}</button>
+                        <span class="w-14 shrink-0 text-[var(--text-secondary)]" data-cell="degree">{{ degreeLabel(row.degree, secret, text) }}</span>
+                        <span v-if="detail(row) !== ''" class="min-w-0 grow basis-48 text-[var(--text-secondary)]" data-cell="detail">{{ detail(row) }}</span>
+                        <span v-if="origin(row) !== ''" class="ml-auto text-[length:var(--text-xs)] text-[var(--text-muted)]" data-cell="origin">{{ origin(row) }}</span>
                     </li>
                 </ul>
                 <p v-if="data.peopleTotal > data.people.length" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ text("point.moreRows", {count: data.peopleTotal - data.people.length}) }}</p>

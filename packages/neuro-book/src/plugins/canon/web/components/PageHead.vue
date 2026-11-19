@@ -62,9 +62,9 @@ const readOnly = computed(() => readOnlyBanner(props.world));
                 <h1 class="text-[length:var(--text-xl)] font-semibold text-[var(--text-main)]">{{ props.title }}</h1>
                 <slot />
             </div>
-            <div class="flex flex-wrap items-center gap-3">
+            <div class="flex min-w-0 max-w-full flex-wrap items-center gap-3">
                 <LineSelect :options="props.windowLine.options.value" :line="props.windowLine.line.value" :resolved="resolved" @update:line="(value: string) => props.windowLine.set(value)" />
-                <Select class="w-52" size="sm" :aria-label="text('entry.position')" :options="[...options]" :model-value="positionValue(chosen)" @update:model-value="(value: string) => emit('update:position', value)" />
+                <Select class="w-52 max-w-full" size="sm" :aria-label="text('entry.position')" :options="[...options]" :model-value="positionValue(chosen)" @update:model-value="(value: string) => emit('update:position', value)" />
                 <label class="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
                     <Switch size="sm" :model-value="props.planned" :aria-label="text('entry.planned')" @update:model-value="(value: boolean) => emit('update:planned', value)" />{{ text("entry.planned") }}
                 </label>
