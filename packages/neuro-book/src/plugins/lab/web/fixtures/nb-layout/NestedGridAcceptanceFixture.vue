@@ -15,6 +15,8 @@ import {
     type GridBranchChange,
     type GridBranchInput,
     type GridDroppedRef,
+    type GridFailure,
+    type GridIssue,
     type GridLayoutResult,
     type GridRestoreResult,
     type GridSashRef,
@@ -84,15 +86,23 @@ const lastCompensated = ref<string[]>([]);
 const lastGesturePayload = ref("");
 const lastGestureText = ref("尚无用户调整提交");
 /** Renderer 的手势诊断（容量不足、提交被拒绝）：与布局诊断一起显示，不冒充布局降级。 */
-const gestureIssues = ref<readonly string[]>([]);
+const gestureIssues = ref<readonly (GridIssue | GridFailure)[]>([]);
+/** 夹具自己的去重键，同库里通知用的键：码、`cause`、轴与所在的节点。 */
+function issueKeyOf(issue: GridIssue): string {
+    const params = issue.params ?? {};
+    return [issue.code, params.cause ?? "", params.axis ?? "", params.id ?? ""].join("\u0000");
+}
 const visibleIssues = computed(() => {
-    const merged = layout.value.issues.map((issue) => issue.message);
-    for (const issue of gestureIssues.value) {
-        if (!merged.includes(issue)) {
-            merged.push(issue);
+    const seen = new Set<string>();
+    const messages: string[] = [];
+    for (const issue of [...layout.value.issues, ...gestureIssues.value]) {
+        const key = issueKeyOf(issue);
+        if (!seen.has(key)) {
+            seen.add(key);
+            messages.push(issue.message);
         }
     }
-    return merged;
+    return messages;
 });
 
 // 恢复场景事实：原件记录在内存、过滤情况与拒绝原因
@@ -138,14 +148,15 @@ const layoutTree = host.node;
 const layout = host.layout;
 
 /** 诊断去重：布局降级与手势诊断来自两处，展示成一份列表。 */
-function pushIssues(issues: readonly string[]): void {
-    const merged = [...gestureIssues.value];
-    for (const issue of issues) {
-        if (!merged.includes(issue)) {
-            merged.push(issue);
-        }
-    }
-    gestureIssues.value = merged;
+function pushIssues(issues: readonly (GridIssue | GridFailure)[]): void {
+    const keys = new Set(gestureIssues.value.map(issueKeyOf));
+    const fresh = issues.filter((issue) => {
+        const key = issueKeyOf(issue);
+        if (keys.has(key)) return false;
+        keys.add(key);
+        return true;
+    });
+    if (fresh.length > 0) gestureIssues.value = [...gestureIssues.value, ...fresh];
 }
 
 /** 手势的副作用上下文：场景与布局代次都变了就不再接受旧基线的提交。 */
@@ -357,7 +368,7 @@ function onGestureCancel(info: {reason: SplitterGestureCancelReason; sashes: rea
 }
 
 /** Renderer 的手势诊断出口：容量不足、提交被拒绝都会在这里出现。 */
-function onIssues(issues: readonly string[]): void {
+function onIssues(issues: readonly (GridIssue | GridFailure)[]): void {
     pushIssues(issues);
 }
 

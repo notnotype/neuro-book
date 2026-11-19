@@ -7,7 +7,7 @@
  */
 import type {SashPanel} from "./grid-geometry";
 import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragResult, type SashDragSnapState} from "./sash-drag";
-import type {GridAxis, GridExtent, GridIssue} from "./grid-types";
+import type {GridAxis, GridExtent, GridIssue, GridIssueCode} from "./grid-types";
 import type {SplitterGestureCancelReason, SplitterGestureSource, SplitterGestureState} from "./splitter-gesture";
 import type {SashGestureSessionCore} from "./sash-gesture";
 
@@ -52,7 +52,7 @@ export function createSplitterSession(input: SplitterSessionInput): SplitterGest
     let collapsed: Readonly<Record<string, boolean>> = {};
     let active: readonly string[] = [];
     let compensated: readonly string[] = [];
-    let issues: readonly GridIssue[] = [];
+    let issues: readonly GridIssue<GridIssueCode>[] = [];
     let state: SplitterGestureState | null = null;
     let cancelReason: SplitterGestureCancelReason | null = null;
 

@@ -4,8 +4,11 @@
  */
 import {createGrid} from "@notnotype/nb-layout";
 import {hiddenRegionsAtZero, isContainerAnchor, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, regionOfStripLeaf, treeLeaves} from "@notnotype/nb-workbench-layout";
-import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, GridSwap} from "@notnotype/nb-layout";
+import type {Grid, GridBranchInput, GridExtent, GridFailure, GridFloatInput, GridGesturePreview, GridHostIssueCode, GridIssue, GridIssueCode, GridLeafShape, GridNodeInput, GridRect, GridSwap} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-workbench-layout";
+
+/** 网格两路诊断的并集：带 `ok` 的是被拒的提交。 */
+type SurfaceIssue = GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure;
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
@@ -56,7 +59,8 @@ const emit = defineEmits<{
     (event: "preview", sizes: Readonly<Record<string, GridExtent>> | null): void;
     /** 手势落账：呈现尺寸，以及这次手势改了收起状态的面板。 */
     (event: "gesture-commit", sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
-    (event: "issues", issues: readonly string[]): void;
+    /** 网格的诊断与被拒的提交（`ui/nested-grid` 输出 139）：`NestedGrid` 的 `issues` 与 `useGridLayout` 的 `onIssues` 两路合在这里。 */
+    (event: "issues", issues: readonly SurfaceIssue[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：焦点去哪由宿主定（输出 16）。 */
     (event: "content-parked", key: string): void;
     /** 焦点现在在哪块面板；离开所有面板时是 null。宿主据此记当前面板（输出 36）。 */
@@ -574,7 +578,7 @@ defineExpose({
             @gesture-update="onGesturePreview"
             @gesture-end="onGestureSettled"
             @gesture-cancel="onGestureSettled"
-            @issues="(issues: readonly string[]) => emit('issues', issues)"
+            @issues="(issues: readonly SurfaceIssue[]) => emit('issues', issues)"
             @content-parked="(key: string) => emit('content-parked', key)"
         >
             <template #leaf="{node}">

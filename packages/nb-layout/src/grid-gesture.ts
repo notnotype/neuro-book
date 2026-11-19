@@ -11,7 +11,7 @@
 import {axisOf, branchSashPanels, layoutOf, type GridSashResolver, type SashPanel} from "./grid-geometry";
 import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragSnapState} from "./sash-drag";
 import type {GridSashRef, SashGestureSessionCore} from "./sash-gesture";
-import type {GridAxis, GridBranch, GridBranchResize, GridExtent, GridIssue, GridLayoutResult, GridNode} from "./grid-types";
+import type {GridAxis, GridBranch, GridBranchResize, GridExtent, GridIssue, GridIssueCode, GridLayoutResult, GridNode} from "./grid-types";
 import type {SplitterGestureCancelReason} from "./splitter-gesture";
 
 /** 手势开始时冻结的外部事实：整场手势只对它求解，不重读活动树或产品策略。 */
@@ -57,7 +57,7 @@ export type GridGesturePreview<T> = {
     readonly tree: GridNode<T> | null;
     readonly changes: readonly GridBranchChange[];
     /** 这一帧拖动求解的全部诊断（快照，Spec `ui/nested-grid` 输出 140）；预览布局自己的诊断在 `layout.issues`。 */
-    readonly issues: readonly GridIssue[];
+    readonly issues: readonly GridIssue<GridIssueCode>[];
 };
 
 export interface GridGestureSession<T = unknown> extends SashGestureSessionCore<GridGesturePreview<T>, GridBranchChange> {
@@ -89,7 +89,7 @@ type Owner = {
     /** 主动 / 补偿字段（相对按下基线）。 */
     active: readonly string[];
     compensated: readonly string[];
-    issues: readonly GridIssue[];
+    issues: readonly GridIssue<GridIssueCode>[];
     snapState: SashDragSnapState | null;
     /** 键盘 Home / End 这类非指针输入给出的绝对位移；null 表示跟随指针位移。 */
     deltaOverride: number | null;
@@ -195,13 +195,13 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
     /** 求解本帧：要么推进拖动位移，要么执行一次显式折叠，然后把全部轴一起投影。 */
     function solve(): {preview: GridGesturePreview<T> | null} {
         const solves: {branchId: string; axis: GridAxis; sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>}[] = [];
-        const issues: GridIssue[] = [];
+        const issues: GridIssue<GridIssueCode>[] = [];
         let anyChange = false;
         const collapseAction = pending;
         pending = null;
         for (const owner of owners) {
             const current = owner.sizes ?? owner.baseline;
-            let collapseIssues: readonly GridIssue[] = [];
+            let collapseIssues: readonly GridIssue<GridIssueCode>[] = [];
             if (collapseAction !== null) {
                 const collapse = applyCollapse(owner, current, collapseAction);
                 issues.push(...collapse.issues);
@@ -256,7 +256,7 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
      * 键盘/命令式折叠：在指定轴的两个相邻面板里找一个可折叠的。有真实变化才改会话状态并返回 `applied: true`；
      * 没有变化时会话状态不动（前面的位移照常提交），只交回折叠的诊断。
      */
-    function applyCollapse(owner: Owner, current: readonly number[], action: {index: number; collapsed: boolean}): {applied: boolean; issues: readonly GridIssue[]} {
+    function applyCollapse(owner: Owner, current: readonly number[], action: {index: number; collapsed: boolean}): {applied: boolean; issues: readonly GridIssue<GridIssueCode>[]} {
         if (action.index < 0 || action.index >= owner.panels.length) {
             return {applied: false, issues: []};
         }

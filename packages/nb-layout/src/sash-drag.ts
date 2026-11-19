@@ -18,7 +18,7 @@
  */
 import {EPSILON, allocateSashPanels, clampAxis, finite, round, sashPanelBounds, type SashPanel} from "./grid-geometry";
 import {gridIssue} from "./grid-issue";
-import type {GridAxis, GridIssue} from "./grid-types";
+import type {GridAxis, GridIssue, GridIssueCode} from "./grid-types";
 
 /** 主轴位移的正方向 = 分隔条向右（水平分支）或向下（竖直分支）移动。 */
 
@@ -56,7 +56,7 @@ export type SashDragResult = {
     readonly active: readonly string[];
     /** 相对按下基线真正改变的其它面板（被推着让出空间）。 */
     readonly compensated: readonly string[];
-    readonly issues: readonly GridIssue[];
+    readonly issues: readonly GridIssue<GridIssueCode>[];
     /** 下一次求解要带上它的状态（同一场手势内串起来）。 */
     readonly snapState: SashDragSnapState;
 };
@@ -166,7 +166,7 @@ export function solveSashCollapse(input: {
     sashIndex: number;
     index: number;
     collapsed: boolean;
-}): {sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>; issues: readonly GridIssue[]} | null {
+}): {sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>; issues: readonly GridIssue<GridIssueCode>[]} | null {
     const panels = input.panels;
     const count = panels.length;
     const sizes = input.sizesPx;
@@ -177,7 +177,7 @@ export function solveSashCollapse(input: {
         return null;
     }
     const panel = panels[input.index]!;
-    const issues: GridIssue[] = [];
+    const issues: GridIssue<GridIssueCode>[] = [];
     if (!panel.collapse) {
         issues.push(gridIssue("no-collapse-policy", `Panel ${panel.id} has no collapse policy and cannot collapse`, {id: panel.id}));
         return {sizesPx: [...sizes], collapsed: {}, issues};
@@ -224,7 +224,7 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
     if (!Number.isFinite(input.deltaPx)) {
         return null;
     }
-    const issues: GridIssue[] = [];
+    const issues: GridIssue<GridIssueCode>[] = [];
     const total = baseline.reduce((sum, size) => sum + size, 0);
     const sashIndex = input.sashIndex;
     const overrides: Record<string, boolean> = {...(input.snapState?.collapsed ?? {})};

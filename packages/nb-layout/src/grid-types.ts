@@ -280,7 +280,7 @@ export type GridLayoutResult = {
     constraints: Record<string, GridConstraint>;
     /** 每个分支各条 sash 的实际尺寸，顺序对应相邻 children；窄容器可能按比例压缩。 */
     sashSizes: Record<string, number[]>;
-    issues: GridIssue[];
+    issues: GridIssue<GridIssueCode>[];
 };
 
 export type GridOptions<T> = {

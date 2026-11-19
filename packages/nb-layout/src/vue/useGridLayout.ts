@@ -14,8 +14,9 @@
 import {computed, ref, shallowRef, watch, type ComputedRef, type Ref} from "vue";
 import type {Grid} from "../grid";
 import {commitFailure} from "../grid-failure";
+import {gridIssue} from "../grid-issue";
 import type {GridGestureCommit} from "../grid-gesture";
-import type {GridBranchesResizeResult, GridExtent, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
+import type {GridBranchesResizeResult, GridExtent, GridIssue, GridIssueCode, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
 
 /** 没有可发布几何（未挂载 / 无尺寸 / 无网格）时的空布局。 */
 export const EMPTY_GRID_LAYOUT: GridLayoutResult = {sizes: {}, constraints: {}, sashSizes: {}, issues: []};
@@ -45,8 +46,11 @@ export function useGridLayout<T>(options: {
     contextKey: () => string;
     /** 已落账后的通知；抛错只报 issues。 */
     onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {ok: true}>) => void;
-    /** 诊断出口：布局降级、宿主合同错误与通知异常都在这里收口。 */
-    onIssues?: (issues: readonly string[]) => void;
+    /**
+     * 诊断出口（Spec `ui/nested-grid` 输出 139、140）：布局重算的诊断与 `notify-failed`。它抛出时异常照常冒出去，
+     * 只有提交落账之后的那几次通知例外（见 `notifyAfterCommit`）。
+     */
+    onIssues?: (issues: readonly GridIssue<GridIssueCode | "notify-failed">[]) => void;
 }): GridLayoutHost<T> {
     const revision = ref(0);
     const layout = shallowRef<GridLayoutResult>(EMPTY_GRID_LAYOUT);
@@ -59,7 +63,8 @@ export function useGridLayout<T>(options: {
         return options.grid.value?.root() ?? null;
     });
 
-    function recompute(): void {
+    /** 算布局并发布，交回这次要通知宿主的诊断；通知由调用方做（提交路径要接住宿主回调的异常，别处不接）。 */
+    function publish(): readonly GridIssue<GridIssueCode | "notify-failed">[] {
         const grid = options.grid.value;
         const extent = options.extent.value;
         if (grid === null || extent === null
@@ -68,15 +73,39 @@ export function useGridLayout<T>(options: {
             layout.value = EMPTY_GRID_LAYOUT;
             publishedExtent = null;
             revision.value += 1;
-            return;
+            return [];
         }
         const frozen = {width: extent.width, height: extent.height};
         const next = grid.layout(frozen);
         layout.value = next;
         publishedExtent = frozen;
         revision.value += 1;
-        if (next.issues.length > 0) {
-            options.onIssues?.(next.issues.map((issue) => issue.message));
+        return next.issues;
+    }
+
+    function notify(batch: readonly GridIssue<GridIssueCode | "notify-failed">[]): void {
+        if (batch.length > 0) {
+            options.onIssues?.(batch);
+        }
+    }
+
+    function recompute(): void {
+        notify(publish());
+    }
+
+    /**
+     * 提交已经落账之后的通知：宿主的回调抛出时不能冒到 `useSashGesture`，那边会把它当成提交处理器抛出、报成没落账。
+     * 接住后交 `reportError`（浏览器标准，全局错误处理看得到），没有时 `console.error`。
+     */
+    function notifyAfterCommit(batch: readonly GridIssue<GridIssueCode | "notify-failed">[]): void {
+        try {
+            notify(batch);
+        } catch (error) {
+            if (typeof globalThis.reportError === "function") {
+                globalThis.reportError(error);
+            } else {
+                console.error(error);
+            }
         }
     }
 
@@ -109,13 +138,13 @@ export function useGridLayout<T>(options: {
         if (!result.ok) {
             return result;
         }
-        recompute();
+        notifyAfterCommit(publish());
         if (options.onApplied !== undefined) {
             try {
                 options.onApplied(commit, result);
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
-                options.onIssues?.([`调整已落账，但宿主通知失败：${reason}`]);
+                notifyAfterCommit([gridIssue("notify-failed", `The resize was applied, but the host's onApplied threw: ${reason}`)]);
             }
         }
         return {ok: true};

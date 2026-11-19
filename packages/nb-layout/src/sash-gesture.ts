@@ -5,7 +5,7 @@
  * 「这次手势到底在改什么」交给会话实现——`GridGestureSession`（整棵树）与独立 `Splitter` 的单分支会话
  * 都实现同一个 `SashGestureSessionCore`，因此输入层只有一份。
  */
-import type {GridAxis, GridBranchResize, GridExtent, GridFailure, GridIssue} from "./grid-types";
+import type {GridAxis, GridBranchResize, GridExtent, GridFailure, GridIssue, GridIssueCode} from "./grid-types";
 import type {SplitterGestureCancelReason} from "./splitter-gesture";
 
 /** 一条分隔线的身份：所属分支、边界序号与其被调整的主轴。 */
@@ -41,7 +41,7 @@ export type SashGestureSessionCore<S, C = GridBranchResize> = {
     /** 当前是否已有真实变化。 */
     readonly changed: boolean;
     /** 最近一次求解的诊断（恢复空间不足、容量压缩等）。 */
-    readonly issues: readonly GridIssue[];
+    readonly issues: readonly GridIssue<GridIssueCode>[];
     /** 指针位移（px；正 = 分隔条向右/向下移动）。返回 null 表示本帧没有变化。 */
     update(delta: {x: number; y: number}): S | null;
     /** 键盘 Home / End：把分隔条移到可行两端。 */

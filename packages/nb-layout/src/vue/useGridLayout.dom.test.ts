@@ -4,7 +4,7 @@ import {defineComponent, effectScope, h, nextTick, ref, shallowRef, type Ref, ty
 import NestedGrid from "./NestedGrid.vue";
 import {createGrid, type Grid, type GridLayoutResult} from "../grid";
 import type {GridGestureCommit} from "../grid-gesture";
-import type {GridExtent} from "../grid-types";
+import type {GridExtent, GridIssue} from "../grid-types";
 import {EMPTY_GRID_LAYOUT, useGridLayout, type GridLayoutCommitResult, type GridLayoutHost} from "./useGridLayout";
 
 /**
@@ -60,13 +60,13 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-function twoColumns(): Grid<string> {
+function twoColumns(options: {leftMinHeight?: number} = {}): Grid<string> {
     return createGrid<string>({
         kind: "branch",
         id: "root",
         orientation: "horizontal",
         children: [
-            {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}},
+            {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, ...(options.leftMinHeight === undefined ? {} : {minimumSize: {width: 0, height: options.leftMinHeight}})},
             {kind: "leaf", id: "right", ref: "right", size: {width: 500, height: 0}},
         ],
     }, {sashSize: SASH});
@@ -94,22 +94,22 @@ type Harness = {
     readonly context: Ref<string>;
     readonly applied: GridGestureCommit[];
     readonly commits: GridGestureCommit[];
-    readonly issues: string[];
+    readonly issues: GridIssue[];
     readonly host: GridLayoutHost<string>;
     /** 用当前发布几何拼一份「会话结束时给出的冻结事实」。 */
     frozen(): GridGestureCommit;
 };
 
 /** 与真实宿主同构：`useGridLayout` 提供几何，渲染层独占会话，宿主只接一次提交。 */
-function mountHost(): Harness {
+function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean} = {}): Harness {
     const scope = effectScope();
     scopes.push(scope);
-    const grid = ref<Grid<string> | null>(twoColumns());
+    const grid = ref<Grid<string> | null>(options.grid ?? twoColumns());
     const extent = shallowRef<GridExtent | null>({...CONTAINER});
     const context = ref("workbench-a");
     const applied: GridGestureCommit[] = [];
     const commits: GridGestureCommit[] = [];
-    const issues: string[] = [];
+    const issues: GridIssue[] = [];
 
     const host = scope.run(() => useGridLayout<string>({
         grid,
@@ -120,6 +120,9 @@ function mountHost(): Harness {
         },
         onIssues: (list) => {
             issues.push(...list);
+            if (options.throwOnIssues?.() === true) {
+                throw new Error("host onIssues threw");
+            }
         },
     }));
     if (host === undefined) {
@@ -205,7 +208,6 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         expect(after.sizes.left!.width - before.sizes.left!.width).toBeCloseTo(40, 6);
         expect(after.sizes.right!.width - before.sizes.right!.width).toBeCloseTo(-40, 6);
         expect(harness.host.revision.value).toBeGreaterThan(revisionBefore);
-        expect(harness.issues.filter((issue) => issue.includes("没有发布匹配布局"))).toEqual([]);
     });
 
     it("上下文已切换的提交整次拒绝，几何与版本不动", async () => {
@@ -244,6 +246,22 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         expect(harness.host.onGestureCommit({...frozen, changes: [{...change, baseline: {left: 1, right: change.baseline.right! + change.baseline.left! - 1}}]}))
             .toMatchObject({ok: false, code: "stale-baseline", params: {id: "root"}});
         expect(harness.applied).toEqual([]);
+    });
+
+    it("提交落账之后通知宿主时它抛出：提交仍算落账、新布局已发布，异常不冒到手势那边（Spec 输出 140）", async () => {
+        // 左叶的最小高度大于容器：每次重算都有一条 leaf-min，落账后的那次重算也会通知。
+        let throwing = false;
+        const harness = mountHost({grid: twoColumns({leftMinHeight: 700}), throwOnIssues: () => throwing});
+        await nextTick();
+        expect(harness.issues.some((issue) => issue.code === "over-constrained")).toBe(true);
+        const before = harness.host.layout.value;
+        const revisionBefore = harness.host.revision.value;
+
+        throwing = true;
+        expect(harness.host.onGestureCommit(harness.frozen())).toEqual({ok: true});
+        expect(harness.host.layout.value).not.toBe(before);
+        expect(harness.host.revision.value).toBeGreaterThan(revisionBefore);
+        expect(harness.applied).toHaveLength(1);
     });
 
     it("缺网格或缺承载盒时发布空布局并拒绝提交", async () => {

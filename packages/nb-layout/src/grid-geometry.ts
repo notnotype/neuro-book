@@ -13,6 +13,7 @@ import type {
     GridConstraint,
     GridExtent,
     GridIssue,
+    GridIssueCode,
     GridLayoutResult,
     GridNode,
     GridOrientation,
@@ -259,7 +260,7 @@ export function constraintsOf<T>(
     node: GridNode<T>,
     axis: GridAxis,
     sashSize: number | GridSashResolver,
-    issues?: GridIssue[],
+    issues?: GridIssue<GridIssueCode>[],
     reported?: Set<string>,
 ): {low: number; high: number} {
     return collapsedRigid(node.collapse) ?? constraintOnAxis(node, axis, sashSize, issues, reported);
@@ -305,7 +306,7 @@ function constraintOnAxis<T>(
     node: GridNode<T>,
     axis: GridAxis,
     sashSize: number | GridSashResolver,
-    issues?: GridIssue[],
+    issues?: GridIssue<GridIssueCode>[],
     reported?: Set<string>,
 ): {low: number; high: number} {
     const declaredLow = Math.max(0, finite(node.minimumSize[axis], 0));
@@ -356,7 +357,7 @@ function reportConstraintConflict(
     axis: GridAxis,
     low: number,
     high: number,
-    issues?: GridIssue[],
+    issues?: GridIssue<GridIssueCode>[],
     reported?: Set<string>,
 ): void {
     const key = `${id}\u0000${axis}`;
@@ -423,7 +424,7 @@ export function shareAxis<T>(children: GridNode<T>[], axis: GridAxis, available:
  * 布局分配：与独立 Splitter 共用 `allocateSashPanels`（`fixed` 像素目标、`weight` 余量、
  * 收起刚性、最小尺寸不可满足时按比例降级），诊断带分支与轴上下文。
  */
-export function allocateAxis<T>(branch: GridBranch<T>, axis: GridAxis, available: number, sashSize: number | GridSashResolver, issues: GridIssue[]): number[] {
+export function allocateAxis<T>(branch: GridBranch<T>, axis: GridAxis, available: number, sashSize: number | GridSashResolver, issues: GridIssue<GridIssueCode>[]): number[] {
     const children = branch.children;
     if (children.length === 0) {
         return [];
@@ -458,7 +459,7 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
     const sizes: Record<string, GridExtent> = Object.create(null) as Record<string, GridExtent>;
     const constraints: Record<string, GridConstraint> = Object.create(null) as Record<string, GridConstraint>;
     const sashSizes: Record<string, number[]> = Object.create(null) as Record<string, number[]>;
-    const issues: GridIssue[] = [];
+    const issues: GridIssue<GridIssueCode>[] = [];
     const reportedConstraints = new Set<string>();
     if (!root) {
         return {sizes, constraints, sashSizes, issues};
