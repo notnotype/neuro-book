@@ -39,7 +39,7 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 
 ## 当前状态
 
-2026-11-19 经 nbdev 新建、开工。计划见 [`plan.md`](plan.md)（第 2 稿）。
+2026-11-19 经 nbdev 新建、开工。计划见 [`plan.md`](plan.md)（第 3 稿）。
 
 第 1 稿把 t34 第 3 稿的“同键合成”整个拿掉：每条诊断带它所在的节点 `id`，键是码、`cause`、轴与 `id`，参数只有标量；结果是快照，两个通知出口只发新出现的键。
 
@@ -62,9 +62,21 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
   - 第 4 条（回调抛出是在补“同步通知放在状态机中间”）：同常规第 3 条，改成控制流。
   - 第 5 条（缺谁消费、取舍、数值口径）：Context 补“谁消费”与待定的一处；数值过 `round`。
 
-第 2 稿送第二轮设计审查（常规，Claude Sonnet；代码按 master，t34 已合入）。
+第 2 稿的设计审查（第二轮，Claude Sonnet；代码按 master `5ee62b05a`，[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)）：9 条，阻断 0、重要 2、建议 7，都成立，改成第 3 稿。第一轮各条它逐条核过，大多到位，没到位的就是下表的几条。都是给了改法的细化、没有方向问题，第 3 稿不再送审，实现审查兜底：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 落账之后的通知有两处（重算那一批、`notify-failed`）；接住的范围若是整个 `recompute`，`grid.layout()` 自己抛出也被吞、提交却报成功 | `recompute` 拆成发布与通知两步；两处都经 `notifyAfterCommit`，只包通知 |
+| 2 | 533 的 `cause` 判据在 `measure` 里没有来源，和 195 的 `weighted.length === 0` 不是同一个集合；收紧到 `quiet` 是没列的行为变化 | 判据由 `allocatePanels` 交回，与 195 相同；补刚性按比例叶、祖先收起两条用例 |
+| 3 | 第 4 片的 Lab 夹具依赖第 3 片的 `issueKey`；第 2、3 片应用的类型检查是红的 | 夹具自己写键；`WorkbenchSurface` 的类型与夹具读法放第 2 片，第 2 片加应用的类型检查 |
+| 4 | `fixed-overflow` 的 `required` 在 185 行已被改写；`range-overflow` 的合计要改 `boundsFit` | 表里写明取值时机与“按此刻的收起覆盖算” |
+| 5 | 悬停与光标的处理还在回调之后；`invalidate`、`dispose`、卸载先 `cancel` 后拆，回调抛出时监听与光标令牌留着 | 悬停与光标也放到回调之前；三处写成 `try`/`finally`；补卸载时抛出的用例 |
+| 6 | “不再落到 `solveSashDrag`”有一种读法会清掉会话状态 | 改写状态的几句挪到“有没有变化”之后，照旧落下去、合并两处诊断；补“先拖再折叠失败、位移照常提交”的用例 |
+| 7 | happy-dom 没有 `reportError`，真实派发测不到 | dom 测试只断言提交仍成功（走 `console.error`），不桩；`reportError` 那一支记为未验证 |
+| 8 | 空发布清空会让隐藏再显示时全量重发；键集更新与通知的先后、`begin` 里清空的位置没定；键盘每按一次是一场手势 | 空发布不经闸门；键集在通知前更新；`begin` 成功后才清；键盘的行为写进 Spec；三个操作缩成 `take`、`replace` |
+| 9 | `GridIssue` 与 `GridFailure` 的联合上不能直接读 `ok` | 合同写 `"ok" in issue`，按码收窄只对诊断那一支成立 |
 
 ## 下一步
 
-1. 第二轮设计审查，阻塞；处理完在 master 上写 `ui/nested-grid` 输出 139、140（planned）。
-2. 开 worktree，按计划五片实施。
+1. master 上写 `ui/nested-grid` 输出 139、140（planned）。
+2. 从 master 开 worktree `w00026-t38-grid-diagnostics`，按计划五片实施（第 3 片是只发新增，开发者若按拉远看拿掉就不做）。

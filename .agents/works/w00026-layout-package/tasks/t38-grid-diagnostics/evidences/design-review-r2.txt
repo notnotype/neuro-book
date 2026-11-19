@@ -1,0 +1,199 @@
+# t38 计划第 2 稿 设计审查（第二轮；只读；代码按 5ee62b05a）
+
+探针 `exp/probe.test.ts` 已在主工作区 `packages/nb-layout` 里用 `bun test` 跑通（Bun 1.4.4）。happy-dom 与 Node 没有跑过（`node -e` 被拒绝），相关说法标“未验证”或“从代码推断”。
+
+### 1. `onGestureCommit` 落账之后抛出被当成没落账的路径有两处，接住的范围又不能是整个 `recompute()`
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“宿主回调抛出时的收尾”第二条；`useGridLayout.ts:62-81`、`:108-121`
+- **现象**：
+  - 落账（`grid.resizeBranches` 成功）之后，`onGestureCommit` 里调宿主 `options.onIssues` 的地方有两处：`recompute()` 内的 78 到 79 行，和 `onApplied` 抛出后 catch 里的 `notify-failed`（118 行）。计划只写“落账之后重算的通知”。
+  - 118 行在 catch 里，`onIssues` 在这里抛出会直接冒出 `onGestureCommit`。`useSashGesture.finish` 的 try/catch 会把它记成 `handler-threw`，宿主看到一条“没落账”，几何其实已经变了。这一处要 `onApplied` 与 `onIssues` 都抛才走到，概率低，但它和第一处是同一个边界。
+  - 更要紧的是接住的范围。`recompute()` 把“算布局并发布”（`grid.layout(frozen)`、`layout.value =`、`revision += 1`）和“通知宿主”放在一个函数里。照字面写成 `try { recompute() } catch → reportError`，`grid.layout()` 自己抛出（库内缺陷）也会被接住，提交返回 `{ok: true}`。而此时 `layout.value` 没发布、`revision` 没递增：宿主以为落账成功，渲染层拿不到新布局。
+- **如何核实**：读上面三段。给 `onIssues` 一个抛错函数、`onApplied` 也抛错，调 `host.onGestureCommit`，现状得到 `handler-threw` 的失败（从代码推断，没跑）。
+- **建议改法**：
+  - 把“落账之后通知宿主”收成一个内部函数，`recompute` 的批、`notify-failed` 和之后可能再加的通知都走它，`try/catch` 只包它。
+  - `recompute` 拆成“算并发布”和“通知”两步，`grid.layout()` 抛出照常冒出。
+
+### 2. 533 的 `cause` 判据在 `measure` 里没有来源，计划的文字与 195 原来的判据不是同一个集合；收紧到 `quiet` 的行为变化没有测试
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划表 533 行与“195 不再单独发”；`grid-geometry.ts:191-198`（195）、`:510`、`:532-534`
+- **现象**：
+  - 195 的判据是分配器内部的 `weighted.length === 0`。`weighted` 是“有范围（上限减下限大于 EPSILON）且 `sizing` 不是 `fixed`”的面板。刚性的（下限等于上限，含收起的）进 `rigid`，不算。
+  - 计划的说法是“没有展开的按比例分的子节点”，含义是 `sizing === "weight"` 且没收起，它把“展开但下限等于上限的按比例叶”算作有。`measure` 里没有这份分类，实现者要么在 `measure` 里再写一遍“什么算刚性”，要么让 `allocatePanels` 回传。
+  - 探针结果（水平分支，已跑）：
+
+    | 输入 | 结果 |
+    |---|---|
+    | 固定叶 200 加按比例叶（下限等于上限等于 100），容器 600 | 两条：`没有按比例分配的节点，剩余 300` 与 `有 300 未被任何子节点吸收`。195 判 `no-weight`，照计划的文字 `cause` 会是 `capped` |
+    | 两个固定叶 100，容器 600 | 同样两条，剩余 400 |
+    | 两个按比例叶上限 300，容器 1000 | 只有 533，这是 `capped` 的由来，已有测试 `grid.test.ts:299` |
+  - 195 通过 `allocateAxis(…, quiet.has(main) ? [] : issues)`（510 行）受 `quiet` 约束，533 不受。并进 533 并加 `quiet` 后，祖先沿这根轴收起时，533 以前会报的现在不报。
+  - 收起的祖先把 `collapsedSize` 原样交给里面，留空是有意的，所以不是漏报应报的。但这是计划没列的行为变化，也没有用例（从代码推断，我没构造出能触发的树）。
+- **建议改法**：
+  - 让 `allocatePanels` 的 `report` 回调或返回值带 `weighted.length`，`measure` 用它判 `cause`，`no-weight` 与 195 同一个判据。
+  - 写明“下限等于上限的按比例叶算 `no-weight` 还是 `capped`”并加一条用例。
+  - 加一条“祖先收起时两种 `unabsorbed-space` 都不报”的用例，`quiet` 判的是 `quiet.has(main)`，不是 `quiet.size`。
+
+### 3. 切片 3 可以整片不做，但切片 4 的 Lab 夹具依赖它的 `issueKey`；切片 2、3 之间应用包类型检查是红的
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：计划“切片”第 2 到 4 片、“应用与 Lab”第二条、“公开面变更清单”
+- **现象**：
+  - 计划说“开发者要拿掉时整片不做，其余不受影响”。但第 4 片里 Lab 的 `NestedGridAcceptanceFixture.vue`（在 `neuro-book` 包）要用 `issueKey` 去重，而 `issueKey` 属于第 3 片。
+  - 夹具在另一个包，只能经 `nb-layout` 的公开入口拿。计划只说“闸门不从入口导出”，没说 `issueKey` 导不导出，公开面清单里也没有它。导出就多了一个没登记的公开函数，不导出夹具就写不出来。第 3 片不做时，第 4 片这一条必须改。
+  - 第 1 片的验证只有 `nb-layout`、`nb-workbench-layout` 的类型检查，第 4 片才有“应用三份类型配置”。第 2 片起 `NestedGrid` 的 `issues` 事件元素变成对象，而 `WorkbenchSurface.vue:59`、`:577` 与 Lab 夹具 `:89` 一带按 `readonly string[]` 写。应用包的 `vue-tsc` 在第 2、3 片是红的，按片提交的话，中间提交过不了应用的类型检查（从代码推断）。
+- **建议改法**：
+  - 夹具自己写去重键（几行），不依赖 `issueKey`；或把 `issueKey` 明说导出并列进公开面清单。
+  - 第 2 片的验证加上应用的类型检查，`WorkbenchSurface` 的事件类型随第 2 片一起改，不放第 4 片。
+
+### 4. 度量的两处实现陷阱：`fixed-overflow` 的 `required` 在 185 行已被改写，`range-overflow` 的 `min`、`max` 要改 `boundsFit`
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划表 185、`sash-drag.ts:247` 两行；`grid-geometry.ts:174-186`、`sash-drag.ts:233-248`
+- **现象**：
+  - `required` 写“压缩前固定尺寸合计”。代码里 `fixedTotal` 在 175 行的判断之后、184 行被重新赋值为压缩后的合计，诊断在 185 行才推。实现者在 185 行写 `required: fixedTotal`，得到的是压缩后的数，不是计划表里的定义。
+  - `range-overflow` 要 `min`（下限合计）、`max`（上限合计）。`boundsFit` 只返回布尔，两个合计是函数里的局部变量，要改它的返回值。
+  - 合计用的是此刻的 `overrides`（本场已收起的覆盖），同一个分支在手势前后的 `min`、`max` 会因收起覆盖而变。键里没有度量，所以不影响去重，只影响宿主读到的数。计划没写“按当前收起覆盖算”。
+- **其余各 `cause` 的 `available`、`required` 与代码对上**：
+  - 149：`space` 已扣分隔条，对 `lowTotal`。
+  - 185 的 `available`：`budgetForFixed`。
+  - 486：`space[axis]` 与 `nodeBounds.minimumSize[axis]`。
+  - 502：`target` 与 `configuredGap`。
+  - 507：`space[cross]` 与 `crossBounds.low`。
+  - 361：`low` 与 `requestedHigh`，叶是 `declaredLow`、`declaredHigh`。
+  - 194 与 316：`capacity` 与 `targetBounds.low`、`expandedBounds.low`。
+- **`scope` 的来源也对上**：`grid-gesture.ts` 有 `owner.sash.branchId`、`owner.sash.axis`，`splitter-session.ts` 有 `input.branchId`、`axis`。
+- **建议改法**：表里 185 一行加一句“在压缩之前取值”；`range-overflow` 一行加一句“合计按当前收起覆盖算，`boundsFit` 改成返回两个合计”。
+
+### 5. 收尾顺序只改了 `finish`、`cancel` 内部：`invalidate`、`dispose`、`onBeforeUnmount` 先 `cancel` 后拆，悬停与光标释放没写顺序
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划“宿主回调抛出时的收尾”第一条与测试“三种回调各自抛出时手势都结束”；`useSashGesture.ts:301-321`、`:603-610`、`:646-659`；`sash-feedback.ts:44-67`
+- **现象**：
+  - 计划列的“先清”是 `binding`、`dragging`、`active`、键盘状态。`cancel` 里的 `resetHover()` 或 `refreshHoverAfterGesture()`、`finish` 里的 `refreshHoverAfterGesture()` 还在回调之后，回调抛出时跳过。
+  - `invalidate()`（650 行）、`dispose()`（656 行）和 `onBeforeUnmount`（603 行）都是先 `cancel(…)`，再 `resetHover()`、`detach()`、`disposed = true`。`@gesture-cancel` 抛出时，这三个调用方的后半段跳过。后果分两种：
+    - `invalidate` 路径：光标属性留到下一次指针移动，`onPointerMove` 的无按键分支会 `resetHover`，是暂时的。
+    - 卸载路径：`disposed` 保持假，`window` 的 `blur` 与 `document` 的 `keydown` 监听没摘。`acquireSashCursor` 的 `owners.get(doc)` 里还留着这个 scope 的令牌，别的 scope 在同一文档上 `set` 光标时在 `current !== token` 处直接返回。之后整页的分隔线光标反馈失效，到刷新才恢复（从代码推断，没跑）。
+  - 触发面：Vue 生产构建里 `emit` 不抛（只 `console.error`），开发构建与测试里抛。所以这只发生在开发构建，或直接用 `useSashGesture` 的第三方回调。t34 第三轮第 2 条已经确认这一点。
+- **为什么是问题**：计划的验收是“`dragging` 为假、高亮清掉”，对应 `active`。悬停、光标与卸载的拆除没覆盖，而“异常冒出去”的合同让第三方宿主会遇到它。
+- **建议改法**：
+  - `cancel`、`finish` 里把悬停与光标的处理也放到回调之前。
+  - `invalidate`、`dispose`、`onBeforeUnmount` 写成 `try { cancel(…) } finally { 拆除 }`。
+
+### 6. “applyCollapse 没有真实变化时保留它的诊断，不再落到 solveSashDrag”有两种读法，其中一种会清掉会话状态
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划“会话里的诊断不被覆盖”；`grid-gesture.ts:201-226`、`:250-276`
+- **现象**：
+  - `applyCollapse` 在 270 行判“没有真实变化”之前，已经改写了 `owner.sizes`、`owner.collapsed`、`owner.active = []`、`owner.compensated = []`、`owner.issues`（265 到 269 行）。现状靠落到 `solveSashDrag` 重新解一遍把前几项还原，副作用是把 `issues` 也覆盖成空。
+  - 读法一：保留落下去，两处诊断合并，行为不变。
+  - 读法二：照字面 `continue`，不再求解。`active`、`compensated`、`sizes` 保持被清空的状态；同一会话里先 `update` 再 `setCollapsed` 失败时，`changed` 变成 false，`finish()` 返回 null，前面的位移不提交。
+  - 产品里只有键盘 Enter 调 `toggleCollapsed`，Enter 会话是新开的，两种读法行为一样，所以计划里的用例（Enter 恢复失败）两种都绿。但 `setCollapsed` 是 `GridGestureSession` 的公开方法，库发到 npm 后第三方可以混着用。
+- **建议改法**：
+  - 把 265 到 269 行的赋值挪到 270 行的判断之后，无变化时只写 `owner.issues`。
+  - 保留落到 `solveSashDrag` 并合并两处诊断。`solveSashDrag` 在这个输入上不产生同键诊断：基线上收起面板的理想尺寸等于 `collapsedSize`，低于恢复阈值，316 行不触发。
+  - 计划里写明是哪一种。
+
+### 7. `reportError` 在测试环境的情况与触发面：dom 测试只能桩，真实派发测不到；它覆盖的路径只在开发构建或第三方原始回调下出现
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：计划“宿主回调抛出时的收尾”第三条、“风险”第二条；`vitest.config.ts`
+- **现象**：
+  - Bun 里有：探针 `typeof reportError` 是 `function`（已跑）。
+  - `*.dom.test.ts` 由 vitest 在 happy-dom 里跑（Node 之上）。在 `node_modules/happy-dom` 里搜不到 `reportError`（已搜，没有匹配）；Node 有没有这个全局没有验证。
+  - 所以 dom 测试里要自己 `vi.stubGlobal("reportError", …)` 才有这一支，退回 `console.error` 的那一支用 spy 测。真实的 `error` 事件派发在这两个环境里都测不到，只能靠 Playwright。计划已经写“实施时核对”，这里补上结果。
+  - 触发面：落账之后重算的通知抛出，只发生在宿主给的是会抛的原始回调，或 Vue 开发构建（`WorkbenchSurface` 的 `onIssues` 是 `emit` 包装，生产构建不抛）。新增一个平台全局依赖加一条退回分支，换来的只是这一种路径。
+- **建议改法**：
+  - 保留，但把这一支的测试写成“桩的 `reportError` 被以该异常调用一次、`onGestureCommit` 仍返回 `{ok: true}`”，退回分支单独一条。
+  - 或者像 `onApplied` 那样把它转成 `notify-failed` 一类的诊断（已有模式，不依赖平台）。不改也成立。
+
+### 8. 闸门的作用域有三处没定：空发布清空、`onIssues` 抛出时键集的更新次序、`begin` 里清空的位置；键盘每敲一次就是一场手势
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：计划“结果是快照，通知只发边沿”的“布局重算”“手势”两条；`useGridLayout.ts:62-71`、`useSashGesture.ts:247-259`、`:532-541`
+- **现象**：
+  - **布局这一路，空发布**：`recompute` 的空发布分支（`extent` 为 null、零或非有限）清空键集。承载盒被隐藏时 `clientWidth` 为 0，显示时恢复，每一次都清空再全量重发，持续存在的诊断也算。这是“消失再出现再发”的字面效果，从代码推断，没构造。
+  - **布局这一路，更新次序**：`replace(batch)` 在 `onIssues` 之前还是之后更新键集没定。之前，通知抛出时这一批永远丢；之后，下次重算同一批再发。另外 `recompute` 现在有 `if (next.issues.length > 0)` 的保护，`replace([])` 必须在空批时也调，否则“消失再出现”不成立（计划的用例会抓到）。
+  - **手势这一路**：“`begin` 清空”要放在 `begin` 成功之后。`begin`（247 行）开头有 `binding !== null` 就返回 false 的分支，放在最前面的话，键盘会话进行中按下指针（被拒绝）也会清掉进行中那场的键集，之后同一批重发。
+  - **键盘**：`keyup` 调 `finish()`（532 行），所以每敲一次方向键或 Enter 就是一场手势，闸门清空一次。在放不下的窄容器里敲 5 次方向键，同一个 `range-overflow` 通知 5 次；按住不放（自动重复）只通知 1 次。这与布局那一路“持续的诊断只通知一次”不一致，Context 里“同一条诊断一场拖动里发几十次”这个动机，在键盘上只解决了按住的情形。
+  - **作用域覆盖**：`take`、`replace`、`reset` 的作用域覆盖了“结果是快照、通知只发边沿”写的每一条。
+    - 手势中途布局重算不是漏洞：宿主布局的 `revision` 变会让 `NestedGrid` 取消手势，两路闸门各管各的。
+    - 提交被拒后没有“那次重算”：`onGestureCommit` 在 108 行返回，没走到 112 的 `recompute()`。
+    - `reset()` 等于 `replace([])` 不返回值，三个操作可以缩成两个。
+- **建议改法**：
+  - 空发布不清空（只在 `contextKey` 变化时清，宿主的快照读 `layout.issues`），或明写“隐藏再显示会重发”。
+  - 写明 `replace` 在通知之前更新。
+  - `begin` 里清空放在成功之后。
+  - Spec 输出 140 写明“按键与 Enter 每次是一场手势”。
+
+### 9. 事件元素 `GridIssue | GridFailure` 里 `ok` 不能直接读：`GridIssue` 没有这个属性
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：计划“共同形状”“出口”两节
+- **现象**：
+  - 计划让“`ok === false` 成为判别”。`GridFailure` 是 `GridIssue` 加 `ok: false`，两者的联合上写 `issue.ok` 会得到 TS2339（联合里有成员没有这个属性），`"ok" in issue` 才能收窄。
+  - 联合里 `GridFailure` 的 `code` 是 `string`（宿主自己的提交回调可以返回自己的码，这是对的），所以 `switch (issue.code)` 也收不窄 `params`。
+- **建议改法**：`GridIssue` 加 `readonly ok?: undefined`，或在 Spec 的示例里写 `"ok" in issue`；输出 139 里说明按码收窄只对 `ok` 缺省的那一支成立。
+
+## 六个重点的结论
+
+1. **会话不覆盖诊断**：计划的修法成立。按代码核对，Enter 恢复空间不足的诊断能进会话的 `issues`。键盘通知不会漏发，同一会话内也不重复：Enter 自动重复在 472 行就返回，不重复求解；方向键自动重复由闸门去重。有一处歧义要定（第 6 条），每敲一次一场手势（第 8 条）。
+2. **195 并进 533**：不完全一致（第 2 条）。刚性的按比例叶，195 判 `no-weight`，计划的文字判 `capped`。`quiet` 收紧不漏报应报的，但有没列出的行为变化。
+3. **收尾顺序**：对照 `finish`、`cancel`、`onPointerUp`、键盘 `keyup`、`blur`，早清 `active` 本身不改变既有可观察行为。
+   - 读 `scope.active` 的地方只有渲染与 `NestedGrid` 的 `watch(active.size > 0)`（预刷新，只看最终值）。
+   - `scope.dragging` 在 `finish` 里本来就先于 `onCommit` 清。
+   - 悬停刷新读的是 DOM 登记，与回调先后无关。
+   - 真正改变的只有回调抛出的路径（第 5 条）。
+4. **`reportError`**：边界画窄了（第 1 条）；测试环境见第 7 条。
+5. **闸门**：见第 8 条。
+6. **度量与码表**：见第 4 条，其余 `cause` 与代码对上。
+
+## 未发现问题的方面
+
+- 码表的位置、`cause` 划分、“同一次求解同一个键最多一条”的论证与代码一致：
+  - `measure` 每个节点一次，`allocateAxis` 每个分支一次，149 提前返回。
+  - 361 有 `reportedConstraints`，`leaf-min` 按轴各一条。
+  - `no-room-*` 的面板 id 唯一，交叉处两根轴各一个分支。
+- 删 `NestedGrid.vue:526`、一个失败一条：成立。
+- 公开面清单对 `GridLayoutResult.issues`、`allocateSashPanels`、`SashGestureScope.issues` 的归类，与 SDK 现有导出（`sdk/components.ts`）对得上。`nb-ui` 里的 Splitter 副本是冻结的（提案写 t14 删），不在本 Task 范围。
+- Spec 编号：`ui/nested-grid` 输出现到 138，139、140 接得上。`ui/i18n` 的 `TextRef.params` 是 `string | number`，与 `GridParamValue` 一致，数组已拿掉。
+- 预览布局的诊断不经通知、取消的手势没有通知：设计自洽。
+- 与 VS Code 的 `SplitView`、react-resizable-panels（凭记忆，未核实）比：
+  - 它们约束冲突时夹取，或开发模式 `console.warn`，没有结构化诊断出口，没有现成做法可对照。
+  - react-resizable-panels 的 `onCollapse`、`onExpand` 是按状态转换发的边沿事件，和本计划“收起这类状态变化发事件、求解类诊断读快照”的方向一致，与“求解类诊断也发边沿”不是一回事（拉远看第 1、3 条，不重报）。
+
+## 第一轮各条的核对
+
+| 条 | 结论 |
+|---|---|
+| 常规 1 会话覆盖 | 到位，有一处歧义（本轮第 6 条） |
+| 常规 2 195、533 重复与 `range-overflow` 的 `id` | 部分到位：`range-overflow` 的 `scope` 到位；195 并进 533 的 `cause` 判据没定（第 2 条） |
+| 常规 3 回调抛出 | 部分到位：`finish`、`cancel`、`onPointerUp` 到位；落账后的接住边界太窄（第 1 条），拆除路径没写（第 5 条） |
+| 常规 4 度量 | 到位，两处实现陷阱（第 4 条） |
+| 常规 5 闸门放 L0 | 到位 |
+| 常规 6 公开面、判别、判据 | 大体到位；`ok` 判别的类型细节（第 9 条） |
+| 拉远看 2 保留参数名、默认分支、上界 | 到位 |
+| 拉远看 4 回调抛出 | 同常规 3 |
+| 拉远看 5 谁消费、数值口径 | 到位 |
+| t34 第三轮 1 合成对不上 | 到位（不合成） |
+| 第三轮 2 `flush` 里抛出手势卡住 | 部分到位（同常规 3） |
+| 第三轮 4 数组与 i18n | 到位 |
+| 第三轮 8 `ids` 定义、`allocateSashPanels` 的范围参数 | 到位（`allocatePanels` 另写） |
+| 第三轮 9 死码 | 到位（会话修、`no-collapse-policy` 写明只在直接求解的结果里） |
+| 第三轮 10 边沿不是状态 | 到位 |
+| 第三轮 11 清空条件 | 到位，空发布清空要再议（第 8 条） |
+| 第三轮 12 命名联合与类型级测试 | 到位 |
+
+## 对“和第 3 稿、提案不同的地方”三条的判断
+
+1. **不合成**：同意，比合成简单，参数也对得上。代价（O(节点数) 条、每键一次）已写明，但“每键一次”在键盘上是“每敲一次一次”（第 8 条）。
+2. **参数只有标量**：同意，与 `ui/i18n` 的 `TextRef.params` 对上。
+3. **回调抛出走控制流、只接一处用 `reportError`**：方向对。边界还差 `notify-failed` 与接住范围（第 1 条）、拆除路径（第 5 条）。`reportError` 这一支可用已有的 `notify-failed` 模式代替（第 7 条）。
+
+## 各级数量
+
+阻断 0；重要 2（1、2）；建议 7（3 到 9）。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9
