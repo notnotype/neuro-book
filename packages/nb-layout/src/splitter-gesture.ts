@@ -4,12 +4,11 @@
  * 数值一律是**主轴 CSS px**：`sizesPx` 与 `panels` 同序、合计等于面板空间（不含 sash）。
  * 百分比往返与面板 id → 百分比换算在本次改造中全部退役——几何只有一份 px 口径。
  */
-export type SplitterGestureSource = "pointer" | "keyboard";
-export type SplitterGestureCancelReason = "no-change" | "escape" | "pointercancel" | "blur" | "unmount" | "context-changed";
+import type {SashGestureCancelReason, SashGestureSource} from "./sash-gesture";
 
 /** 一次用户调整手势的可观察状态。 */
 export interface SplitterGestureState {
-    source: SplitterGestureSource;
+    source: SashGestureSource;
     /** 主动操作的 sash 稳定 id，形如 `outline~editor`；面板 id 由宿主声明或按序号派生。 */
     sash: string;
     /** sash 两侧相对基线真正改变尺寸的面板；触界未变化的候选不会冒充用户意图。 */
@@ -23,7 +22,7 @@ export interface SplitterGestureState {
 }
 
 export interface SplitterGestureCancellation {
-    source: SplitterGestureSource;
+    source: SashGestureSource;
     sash: string;
-    reason: SplitterGestureCancelReason;
+    reason: SashGestureCancelReason;
 }

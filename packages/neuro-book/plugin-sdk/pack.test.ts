@@ -327,11 +327,18 @@ export const noProvides = plugin.entry({location: "server", activate: async () =
         const actual = Object.fromEntries(await Promise.all(Object.keys(DECLARED).map(async (file) => [file, declaredExports(await readFile(join(installed, `${file}.d.ts`), "utf8"))] as const)));
         expect(actual).toEqual(Object.fromEntries(Object.entries(DECLARED).map(([file, names]) => [file, [...names].sort()])));
         // 组件子路径的声明与源码里逐个列出的名单一致：nb-ui 入口里别的导出不会混进来。
-        const listed = [...(await readFile(fileURLToPath(new URL("../src/sdk/components.ts", import.meta.url)), "utf8")).matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== ""));
+        const componentsSource = await readFile(fileURLToPath(new URL("../src/sdk/components.ts", import.meta.url)), "utf8");
+        // 再导出的名字，加上就地声明的弃用别名（`export type 旧名 = 新名`，见 components.ts）。
+        const listed = [
+            ...[...componentsSource.matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== "")),
+            ...[...componentsSource.matchAll(/^export type (\w+)\s*=/gmu)].map((match) => match[1]!),
+        ];
         expect(declaredExports(await readFile(join(installed, "components.d.ts"), "utf8"))).toEqual([...listed].sort());
         // nb-ui 的模板类型补充（任何组件都接受 ARIA 属性与 role）随组件声明一起交给作者，打开模板严格检查的作者才不会被误报。
         const components = await readFile(join(installed, "components.d.ts"), "utf8");
         expect(components).toContain('declare module "vue"');
+        // 弃用别名带着 @deprecated 进了声明文件，作者的编辑器才会划线。
+        expect(components).toMatch(/@deprecated 改用 `SashGestureSource`[\s\S]*?SplitterGestureSource/u);
         expect(components).toContain('"aria-description"?: string;');
     });
 

@@ -55,7 +55,9 @@ describe("SDK 的导出面", () => {
     });
 
     it("组件子路径的类型与 nb-ui 组件入口的公共类型逐个对上：nb-ui 新增或改名的类型漏列时这里失败", () => {
-        const sdk = exportedTypes(readFileSync(join(import.meta.dir, "components.ts"), "utf8")).sort();
+        const source = readFileSync(join(import.meta.dir, "components.ts"), "utf8");
+        // 就地声明的弃用别名（`export type 旧名 = 新名`）也是 SDK 导出的类型。
+        const sdk = [...exportedTypes(source), ...[...source.matchAll(/^export type (\w+)\s*=/gmu)].map((match) => match[1]!)].sort();
         const nbUi = exportedTypes(readFileSync(fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components")), "utf8")).sort();
         // 布局的类型由 nb-layout 与 nb-workbench-layout 提供，SDK 只挑给插件用的那些，不要求逐个对上。
         const layout = new Set(["@notnotype/nb-layout", "@notnotype/nb-layout/vue", "@notnotype/nb-workbench-layout", "@notnotype/nb-workbench-layout/vue"].flatMap((name) => exportedTypes(readFileSync(fileURLToPath(import.meta.resolve(name)), "utf8"))));

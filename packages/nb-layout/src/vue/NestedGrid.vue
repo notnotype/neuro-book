@@ -11,7 +11,7 @@
  * - 这里没有百分比往返、不读存储、不写意图：几何算法全在 `grid-geometry` / `sash-drag` / `grid-rects`。
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
-import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
+import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
 import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect, type GridSashPlacement} from "../grid-rects";
 import {settleFloatMoves} from "../grid-motion";
 import {swapSides, swapWindowClip, type GridSwap} from "../grid-swap";
@@ -32,7 +32,6 @@ import {commitFailure} from "../grid-failure";
 import {gridIssue} from "../grid-issue";
 import type {GridExtent, GridFailure, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
 import type {GridSashRef, SashGestureBinding, SashGestureHost} from "../sash-gesture";
-import type {SplitterGestureCancelReason, SplitterGestureSource} from "../splitter-gesture";
 
 defineOptions({name: "NestedGrid"});
 
@@ -98,10 +97,10 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "gesture-start", info: {sessionId: string; contextKey: string; source: SplitterGestureSource; revision: number; sashes: readonly GridSashRef[]}): void;
+    (e: "gesture-start", info: GridGestureStart): void;
     (e: "gesture-update", preview: GridGesturePreview<unknown>): void;
     (e: "gesture-end", commit: GridGestureCommit): void;
-    (e: "gesture-cancel", info: {reason: SplitterGestureCancelReason; sashes: readonly GridSashRef[]}): void;
+    (e: "gesture-cancel", info: GridGestureCancellation): void;
     /** 诊断与被拒的提交（Spec 输出 139、140）：带 `ok` 的（`"ok" in issue`）是被拒的提交，已经回滚。 */
     (e: "issues", issues: readonly (GridIssue<GridIssueCode | "not-published"> | GridFailure)[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：宿主决定焦点去哪。 */

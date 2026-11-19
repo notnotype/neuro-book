@@ -8,8 +8,8 @@
 import type {SashPanel} from "./grid-geometry";
 import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragResult, type SashDragSnapState} from "./sash-drag";
 import type {GridAxis, GridExtent, GridIssue, GridIssueCode} from "./grid-types";
-import type {SplitterGestureCancelReason, SplitterGestureSource, SplitterGestureState} from "./splitter-gesture";
-import type {SashGestureSessionCore} from "./sash-gesture";
+import type {SplitterGestureState} from "./splitter-gesture";
+import type {SashGestureCancelReason, SashGestureSessionCore, SashGestureSource} from "./sash-gesture";
 
 export type SplitterGestureChange = {
     readonly branchId: string;
@@ -22,7 +22,7 @@ export type SplitterGestureChange = {
 export type SplitterSessionInput = {
     readonly sessionId: string;
     readonly contextKey: string;
-    readonly source: SplitterGestureSource;
+    readonly source: SashGestureSource;
     readonly revision: number;
     /** 面板身份：`panels[i]` 属于 `ids[i]`；`sashes[0].branchId` 同值。 */
     readonly branchId: string;
@@ -54,7 +54,7 @@ export function createSplitterSession(input: SplitterSessionInput): SplitterGest
     let compensated: readonly string[] = [];
     let issues: readonly GridIssue<GridIssueCode>[] = [];
     let state: SplitterGestureState | null = null;
-    let cancelReason: SplitterGestureCancelReason | null = null;
+    let cancelReason: SashGestureCancelReason | null = null;
 
     /** 主动操作的 sash 稳定 id，形如 `outline~editor`。 */
     function sashId(): string {

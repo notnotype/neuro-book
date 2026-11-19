@@ -118,7 +118,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 ## 数据
 
 ```ts
-import type {GridFailure, GridGestureCommit, GridGesturePreview, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode, GridSashRef, SplitterGestureCancelReason, SplitterGestureSource} from "@notnotype/nb-layout";
+import type {GridFailure, GridGestureCommit, GridGesturePreview, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode, GridGestureCancellation, GridGestureStart} from "@notnotype/nb-layout";
 
 type NestedGridProps = {
     /** 当前树；null 时呈现 empty 插槽。必填。 */
@@ -170,13 +170,13 @@ type GridLeafShape = {inset: [string, string, string, string]; radius: [string, 
 
 type NestedGridEmits = {
     /** 手势建立并冻结上下文时发出。 */
-    (event: "gesture-start", info: {sessionId: string; contextKey: string; source: SplitterGestureSource; revision: number; sashes: readonly GridSashRef[]}): void;
+    (event: "gesture-start", info: GridGestureStart): void;
     /** 每次产生新几何预览时发出；预览撤回、画面回到已发布的布局时（拖回基线、无变化松手、取消、提交被拒）也发一次，`changes` 为空、`layout` 是已发布的布局。 */
     (event: "gesture-update", preview: GridGesturePreview<unknown>): void;
     /** 手势正常结束时发出最终提交；无变化时没有提交。 */
     (event: "gesture-end", commit: GridGestureCommit): void;
     /** 手势被取消时发出原因和参与分隔线。 */
-    (event: "gesture-cancel", info: {reason: SplitterGestureCancelReason; sashes: readonly GridSashRef[]}): void;
+    (event: "gesture-cancel", info: GridGestureCancellation): void;
     /**
      * 诊断与被拒的提交（Spec 输出 139、140）：带 `ok` 的（`"ok" in issue`）是被拒的提交，已经回滚；其余是诊断。
      * 只发新出现的：一场手势里同一个诊断只发一次；要知道现在有哪些问题，读 `layout.issues` 与 `gesture-update` 载荷的 `issues`。

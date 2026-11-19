@@ -71,21 +71,21 @@ export {
     type SashPanel,
 } from "./grid-geometry";
 export {createSplitterSession, type SplitterGestureChange, type SplitterGestureSession} from "./splitter-session";
-export type {GridSashRef, SashGestureBinding, SashGestureCommit, SashGestureHost, SashGestureSessionCore} from "./sash-gesture";
+export type {GridSashRef, SashGestureBinding, SashGestureCancelReason, SashGestureCommit, SashGestureHost, SashGestureSessionCore, SashGestureSource} from "./sash-gesture";
 export {
     createGridGestureSession,
     projectGridGesture,
     type GridBranchChange,
     type GridGestureBaseline,
+    type GridGestureCancellation,
     type GridGestureCommit,
     type GridGesturePreview,
     type GridGestureSession,
     type GridGestureSessionInput,
+    type GridGestureStart,
 } from "./grid-gesture";
 export {
     type SplitterGestureCancellation,
-    type SplitterGestureCancelReason,
-    type SplitterGestureSource,
     type SplitterGestureState,
 } from "./splitter-gesture";
 export {moveInSections, slotOfKey, SORTABLE_STICKY_PX, sortableSlotIn, sortableSlots} from "./sortable";
