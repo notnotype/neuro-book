@@ -18,7 +18,7 @@ updated: 2026-11-18
 2026-11-10 开发者定“按你的建议分两批开始”，本 Task 恢复：剧情侧（t32 到 t35）已做完，11-04 搁置的理由不再成立。
 
 - **第一批（设定侧）**：2026-11-18 完成，合进 master（`4c242d226`），`canon/author-ui.md` 晋升 `implemented`。范围照下面“第一版拟定的范围”，实施计划见 [`plan.md`](plan.md)；过程记录在下文，收尾见最后几条。
-- **第二批（剧情侧）**：剧情容器、剧情表、时间线、知情、伏笔账本、目标表、决策、检查、简报预览。静态稿在 [t16](../t16-plot-workbench-ui/README.md) 第 4 到 6 轮，开发者 11-10、11-11 答完。2026-11-19 起自主推进：分四期（[`plan-b2.md`](plan-b2.md) 的“第二批的分期”），第一期 B2-1（读的几张表与人物页）的计划与 Spec 草稿已写，设计审查中。
+- **第二批（剧情侧）**：剧情容器、时间线、知情、伏笔账本、目标表、决策、检查、简报预览（剧情表不在本批，见待确认清单 11-19）。静态稿在 [t16](../t16-plot-workbench-ui/README.md) 第 4 到 6 轮，开发者 11-10、11-11 答完。2026-11-19 起自主推进：分四期（[`plan-b2.md`](plan-b2.md) 的“第二批的分期”），第一期 B2-1（读的几张表与人物页）的计划第一版经设计审查两路 44 条（都成立，[处理](evidences/b2-design-review-resolution.txt)），改成第二版：剧情读取另开作者用的 `nbook.plot/author`、先在低负载下量剧情读取的规模再定索引（omp 实测现有读取在 1000 章上输入一变第一次读要 33 到 76 秒）、专门界面带一节通用字段、加组件测试的场地。
 - 前置的缺陷已修：内核来历的初值一步被后面的补丁改到（1a0080305）。
 
 2026-11-04 经 nbdev 新建。同日开发者看过范围后收回提前：时间线还没做好，先不做界面（Work README 决定表）。
@@ -166,5 +166,5 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 
 ## 下一步
 
-1. 第二批 B2-1：设计审查（计划与剧情读取的补口、canon 的三处扩展派 omp；界面与 Spec 草稿派 Claude Sonnet），处理后开工。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
+1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：低负载时量剧情读取的规模（M），写索引的细设计并派 omp 审；同时做组件测试的场地（F）与 Spec 第二版（S0）。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
 2. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。

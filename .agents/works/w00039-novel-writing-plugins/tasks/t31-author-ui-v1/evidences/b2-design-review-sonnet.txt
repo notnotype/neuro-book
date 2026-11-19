@@ -1,0 +1,242 @@
+w00039 t31 第二批第一期（B2-1）前端设计审查报告
+审查对象：docs/specs/plot/author-ui.md、docs/specs/canon/author-ui.md 输出 34 到 36 与四行 planned、plan-b2.md；提交 7bab86ea5（审查 worktree）。
+说明：每条发现核实后追加；报告末尾有按影响排序的编号表。文件:行都是审查 worktree 里的。
+
+### 1. 外部读取一旦失败（reject）或不返回，整个窗口的读取层停摆，canon 自己的读取也跟着冻住
+严重程度：重要
+类别：正确性
+位置：packages/neuro-book/src/plugins/canon/web/world.ts:188-208（run）、:233-262（readSlot/load）；plan-b2.md 关键设计 二第 1 条；canon/author-ui.md 输出 35
+现象：`run()` 把一轮里所有到期的读取放进 `Promise.all(due.map((slot) => slot.load()))`，然后才一起换上。`load()` 里的 `fetch()` 现在是 `client.call`，它总是 resolve 成 `CanonResult`（client.ts:35-43，失败也是值）。计划的 `external(key, fetch)` 收的是调用方的任意异步函数，没有规定它必须总是 resolve。
+为什么是问题：
+ 1) 外部 fetch 只要 reject 一次（剧情插件自己的 remote 门面 `access().use()` 在断线、`denied`、项目停止时可以抛，或剧情的读取代码本身抛），`Promise.all` reject，`run` 里那个 async 函数以异常结束；`running` 只在 `due.length === 0` 分支清成 null（:193-196），所以它永远停在一个已 reject 的 promise 上。此后所有 `run()` 都返回同一个 reject 的 promise（`running ??=`），再也不发新一轮；本轮 `busy = true` 的 slot 永远 busy。结果是 canon 自己的条目页、设定树、待处理计数全部不再更新，没有任何提示（`void run()` 是未处理的 reject）。第一批没有这个问题，是因为 `client.call` 是全函数；外部读取把这个不变量拆掉了。
+ 2) 同样原因，一个永不 settle 的外部读取（远程调用没有超时就卡住）会卡住同一轮里 canon 的所有读取：“同一轮一起换上”意味着最慢的读取决定整个窗口多久刷新一次。P1（secretLedger 一页 200 行，对每个人遍历 `index.all`）在大作品上的耗时计划只说“规模：各量一次”，没有给预算，也没有给“慢读取不拖住别的”的办法。
+如何核实：读 world.ts:188-208；写一个测试，`world.external("k", () => Promise.reject(new Error("x")))` 之后发布一次，再看 `read("chapters")` 是否还会按新版本重读（从代码推断会停；我没有运行）。
+建议改法：规定 `external` 的 fetch 必须返回 `CanonResult`（或在读取层里包一层 try/catch，把抛出转成 `{ok:false, failure:{code:"external-failed", detail}}`）；`run` 的一轮用 `try/finally` 保证 `running = null` 与 `busy = false`。对外部读取单独给超时，或把外部读取分到自己的一轮（同一代、但不阻塞 canon 的换上，只在两边都到了再清 `stale`）。Spec 输出 35 要写“外部读取的失败怎么报”：失败类型现在是 `CanonFailure`（code 字符串），剧情的 `{code:"plot", detail:{code}}` 要定怎么映射。
+
+### 2. 读取服务的接口缺了剧情页面必须要的东西：窗口的线（读与改）、章表、线的列表；公开状态既不能是 null、也不能被别的插件写
+严重程度：重要
+类别：合同
+位置：plan-b2.md 关键设计 二第 1、2 条；canon/author-ui.md 输出 34、35；packages/neuro-book/src/plugins/state/shared/contracts.ts:20-36；packages/neuro-book/src/shared/store/public.ts:23-35；packages/neuro-book/src/plugins/workbench/shared/items.ts:35-47、:92（只有 `command` 与 `when.requires`）
+现象与依据：
+ 1) 计划给读取服务的接口只有 `read`、`list`、`external`、`connection`、`retry`。但输出 34 要求剧情的页面“读取位置都带上窗口的线”，页头的线选择“改的是窗口的那一个”，选项与状态栏列表相同。服务里没有：当前线的读（响应式）、设置线的入口、线的列表（`lines`，可以用 `read("lines")`，但“选项里要排除不可建的线、按树缩进”的整理逻辑在 canon 的 web 里）、章表（位置选项要）。公开状态 `nbook.canon/line` 只能读，不能写（`ReadableValue`，store/public.ts:23），所以剧情页头不能靠它改线。
+ 2) 公开状态的类型是 boolean、string、number 三种（state/shared/contracts.ts:20-36），没有 null。“线 id 或 null（跟着章）”要么编码成空字符串（Spec 没写，`unready` 也要选一个值），要么 Spec 的类型写错。
+ 3) 状态栏条目的显示条件只有 `when.requires`，要求是布尔公开键（items.ts:35-47；docs/specs/workbench/menus.md:40 写明“布尔公开键，全部为真才显示”）。输出 34 要“窗口没有绑定项目、世界还没读到时不显示”，需要再加一个布尔键（类似 `hasPending`），Spec 的公开状态表里没有；`when` 也不能直接引用字符串键 `nbook.canon/line`。
+ 4) 状态栏条目只有 `command`（items.ts:44），“点了弹出线的列表”要靠一条命令加 `quickPickKey`（workbench/shared/contracts.ts:74-99 的 QuickPick，项目里有先例：projects 与 agent 插件），但 canon 的命令表（author-ui.md 输入一节）没有这条命令，入口的依赖里也没有 `quickPickKey`（plugin.ts:dependencies 现在是 windowProjectKey、commandServiceKey、notificationsKey、filesKey）。QuickPickRequest 没有缩进与分组，“按线的树缩进”“顶上写原来看的线已经不在了”得靠 label 前缀与 title，要在 Spec 里定下来。
+为什么是问题：按字面实现，C 片做完以后，W1 开工时会发现剧情页面没有线可读、没有办法改线，被迫返工 `contracts.ts`。
+建议改法：服务接口加 `line: Readonly<Ref<string|null>>`、`setLine(id|null)`、`lines`（已整理好的选项，含“不可建的排除”）、`chapters`（章表的响应式读取，或直接给 `position`/`positionOptions`）；公开状态写成两个键（字符串 `line`，空串是跟着章；布尔 `lineVisible`）；命令表加 `nbook.canon.pick-line`，写明走 quickPick。
+
+### 3. 输出 34 对“某章在新线上读不到”的描述与 canon.worldlines 输出 12 不一致：按线读一个章位置不会失败，`line-not-found` 说的是线本身
+严重程度：重要
+类别：正确性
+位置：docs/specs/canon/author-ui.md 输出 34 最后一条（“那个位置在新线上读不到时按 `line-not-found` 写‘这条线在这个位置读不到’”）；docs/specs/plot/author-ui.md 输出 4；docs/specs/canon/worldlines.md:78（输出 12）、:92-94、:113
+现象：worldlines 输出 12 写明“在某条线上读某一章时，这一章不在这条线的视图范围里也照常按全序读（例如在子线上读切口之前的章，读到的就是共同的过去）”，`line-not-found` 只在线不存在、不可建（输出 18）、计划线在实际模式下出现。所以换线以后，条目页保留原来的章位置不会得到错误，只会读到那条线在那个位置的值（可能是共同的过去，可能是子线上排在更早章的记录）。Spec 里这条失败路径写的是一件不会发生的事，真正会发生的事没写：作者把窗口换到子线，页面位置还是“第 30 章末尾”，页面显示的是“子线在第 30 章的状态”，其中第 30 章可能是主线的章，作者容易把它当成“子线的第 30 章”。
+另外：`lines` 方法给出 `unbuildable`（canon/shared/contracts.ts `lines` 输出里有 `unbuildable: string | null`、`exists.actual`）。输出 34 写的“实际模式下存在的线”没有排除不可建的线，选了它会立刻得到 `line-not-found`。
+为什么是问题：写出来的验收与实现会围绕一个不存在的错误路径（测试也造不出来），真正的语义风险（章与线的对应）没有任何界面表达。
+建议改法：输出 34 改写成“换线不改位置；页面在页头写出读的是哪条线、该位置在这条线上是共同的过去还是线上自己的”（至少写线名）；线的列表按 `exists.actual && unbuildable === null` 过滤；`line-not-found` 只用于“窗口选着的线刚被撤销、回到 null 之前的那一轮重读”（见发现 4）。
+如何核实：读 worldlines.md 输出 12、18 与 `lines` 的输出类型。
+
+### 4. “跟着章”时状态栏写一个线名、页头又在一条线时不画线：多线作品里会误导，“每一屏都要表达读的是哪条线”只满足了一半
+严重程度：重要
+类别：体验
+位置：canon/author-ui.md 输出 34 第一、二、三条；plan-b2.md 关键设计 二第 2 条；静态稿 r5/r06-who、r13-who-branch（页头线选择与状态栏“在看：主线”/“在看：回溯以后”）
+现象：
+ 1) null（跟着章）时，读取位置不写线，每个页面按它自己的位置所在那一章讲的线读（worldlines 输出 12；章可以分段讲几条线，ChapterItem.lines 是 `{from, line}[]`，nb-canon/src/service/views.ts:46-51；开头取第一段、末尾取最后一段）。状态栏写的是“缺省位置那一章讲的线的名字”，只代表“最新一章末尾”这一个位置。作者把某个标签的位置选到“第 8 章开头”（回溯章，讲子线）时，这个标签读的是子线，状态栏仍写“在看：主线”。这是同一个窗口里两处互相矛盾的“看的是哪条线”。
+ 2) 页头的线选择只在世界有两条以上线时显示、选项里“跟着章”是选中的——它只说“跟着章”，不说这个页面此刻实际读的是哪一条。开发者在第 7 版定的是“每一屏都要表达读的是哪条线”（Work 决定表；plan-b2.md 开头引用）；静态稿 r06 与 r13 的页头都直接写线名（“主线”“回溯以后（第 8 章分出）”）。计划改成“只在两条线以上才显示”本身可以接受（一条线时没有可说的），但两条线以上且“跟着章”时，页面什么也没说实际读了哪条线，不满足那条决定。
+ 3) 与输出 7 的缺省位置、输出 34 本身的一致性：窗口选了线 L（非 null）以后，页面“缺省位置”仍是“最新一章末尾”，这是 L 在全序最末的状态，不是 L 的最后一章；用户容易把它当成“L 的结局”。同时条目页的标签标题（输出 6：“缺省位置、实际模式下的名字”，entry-page.ts 的 `onHead` 只在 `state.position === null` 时报）会随窗口的线变：线上改过名的条目，标签标题在换线时跟着变，而 Spec 没写标题读不读线。
+为什么是问题：误导发生在多线作品里最需要看清的地方，而且 B2-1 的验收 5（换线）只验证“值换了”，不验证“页面说清了读的是哪条线”。
+建议改法：(a) null 时状态栏不写线名，写“跟着章”（或“在看：跟着章”），线名只在页头、按页面自己的位置算出来（`chapters` 里的 `lines` 已有，不需要新读取）；(b) 两条线以上时页头线选择在“跟着章”后面追加一句“（此刻是：某线）”；(c) 输出 34 写明标签标题固定读缺省位置、不带窗口的线；(d) 输出 34 写明“缺省位置在窗口选了线以后仍是最新一章末尾”，或改成取那条线上最后一个有记录的章（要先看 canon 有没有这个读取，没有就不做，写成已知限制）。
+
+### 5. 剧情表格里的人名、主体名、目标名全靠“每个对象一次完整 entry 读、一页最多 50 个”，真实规模下大量名字会退成“一个条目”
+严重程度：重要
+类别：正确性
+位置：plan-b2.md 关键设计 一末尾（“不另给名字：界面按第一批的做法读条目的名字（`object-heads` 那一套，一页最多 50 个对象）”）；packages/neuro-book/src/plugins/canon/web/entry-heads.ts:16（`NAMED_ENTRIES_MAX = 50`）、:48-68（`useEntryHeads`，每个 id 一个 `entry` 读取）；plugins/plot/core/checks/ledgers.ts:19-27（SecretRow 只给 id：`knows: string[]`、`misbelieves[{person}]`、`suspects: string[]`）；evidences/b2-plot-read-shapes.txt（GoalRead 的 `holder`、`基于`、`冲突`、`隐秘`，attitudes 的 `object`、`起因` 都是 id）
+现象：谁知道什么的一页 200 行里要显示的名字：每行的主体（P1 加的 `subject` 是 id）、选中的人与“别的人”列里的每个人、决策等；目标表里：每个持有者、每条态度的对象与起因、冲突目标的持有者与目标名、“因为”的知识点；人物页“知道什么”：每行的知识点（SecretRow 自带 name，但 `knowing` 的 KnowingRow 只给 `point` id，`谁告诉的` 也是 id）、经历里的“同时在场的人”。`useEntryHeads` 对前 50 个 id 各读一次完整的 `entry`（含各命名空间的字段），超出的 `break`，调用方显示“一个条目”（entry-heads.ts 的注释：“更多的写‘一个条目’这类”）。
+为什么是问题：
+ 1) 第一批这样做是因为回执页、变更详情页里需要名字的对象很少，超出的是少数、行内只写种类；剧情的三张表里名字就是主要内容。“知识点上百、人物几十”（brief 要核的规模）时，仅人物列（几十）加主体（上百个知识点分在几十个主体下）就超过 50，余下的全显示“一个条目”，而它们又都是链接，点进去才知道是谁。
+ 2) 每个名字一个 `entry` 读取槽（`slot`），在 `world.ts` 里每个槽每轮都重读（只要有人用），50 个槽加页面自己的读取放进同一个 `Promise.all`；换位置会换一批槽（键里有位置），旧槽留到被 `KEEP_UNUSED = 64` 丢掉。每次换位置 50 个新槽、旧的 50 个留着 ≥ 64 上限，立即发生 LRU 抖动。
+ 3) “名字按所选位置读”（plot/author-ui.md 输出 5）与 `useEntryHeads` 实际读的 `mode: "actual"` 不一样：按计划模式下，计划里才出现的人物或改了名的条目，名字读不到或读成实际模式的。
+建议改法：把名字并进读取结果：P1 到 P4 与 `knowing`、`experience` 的行里直接带 `name`（或每页附一张 `{id → name}` 表，名字按请求的位置与模式、窗口的线算，服务端一次取完，上限不再是 50）；这比在界面里补一个“批量名字”读取更便宜。如果坚持不动后端，至少要在 Spec 里把“一页最多 50 个名字，超出写‘一个条目’”写成已知限制并量出规模，同时要有一个批量读名字的方法（`lookup` 是名字到 id，反方向没有）。
+
+### 6. `secretLedger` 给的数据撑不起“谁知道什么”的几个设计：没有“忘了”、分页与分组冲突、筛选条数与候选只按已读的页算
+严重程度：重要
+类别：正确性
+位置：plot/core/checks/ledgers.ts:30-61；plot/author-ui.md 输出 6 到 9、术语“程度的写法”、不承诺第四条；plan-b2.md 关键设计 三第一条与“不做与风险”
+现象与依据：
+ 1) 术语与输出 7 都写格子里有“忘了”（`forgot`）。`secretLedger` 只把 `knows`、`misbelieves`、`suspects` 三种放进行里（ledgers.ts:49-54），`unaware`、`forgot` 的行都被丢掉，界面无法区分“不知道”和“忘了”；P1 的改动（加 `subject`、`reveal`）没有补这一项。同样 `SecretRow.reader` 取 `firstReveal`，读者的“不知道”与“没读过”一样。
+ 2) 行按 `point` id 排序（ledgers.ts:61），不按主体、不按名字；分页是在这个顺序上切 200 行。界面却要“按主体分组、组按主体在条目树里的顺序、组内按名字”（输出 6）。一页 200 行里，同一主体的行可能在两页上，页内分组会得到两个“关于星瑕”，组序只在这一页的行里排；“再显示”之后的行插进已显示的组之间，已显示的内容被重排。计划没有给 P1 加排序键或要求服务端按主体分页。
+ 3) 分段筛选条数“按已读到的行算”（输出 8）、候选“只按已读的页算”（不做与风险）：超过 200 行以后“只有读者知道 0”可能是假的 0（只是没读到），这个数是作者做决定的依据，Spec 只在“不承诺”里写了候选一项，条数的误导没写。建议让服务端分段计数（`counts`）作为 P1 输出的一部分，筛选交给服务端（`filter` 参数），这样分页与条数都对。
+ 4) “选要看的人”的缺省是“主要角色里按名字的前 3 个”，主要角色来自 `goals` 读取；这是谁知道什么页对 `goals` 的第二个读取依赖（P4 的另一个读取、同一轮换上），Spec 输入一节与输出 9 没有写这个依赖失败时（剧情读取失败只影响目标表）该怎么缺省。
+为什么是问题：1) 直接让 Spec 的一个输出（“忘了”）实现不出来；2)、3) 在“知识点上百”的规模下页面行为自相矛盾。
+如何核实：读 ledgers.ts:30-61；对一个知识点造一个 `forgot` 的知情行，看 `secretLedger` 的输出里没有这个人。
+建议改法：P1 给行带每个人的 `degree`（所有有行的人，含 unaware、forgot），按主体与名字排序再分页，或整页读全集（知识点上百、行几百可以一页装下，`secretLedger` 的列表本来按 limit 1..200 封顶，P1 可以把 `reveal` 与 `subject` 做成按需）；条数由服务端返回。
+
+### 7. `canon.component-views` 给 `nbook.plot.knowing`、`nbook.plot.attitude`、`nbook.plot.point` 交界面，会把这三个类型的通用字段表整个换掉：保密档、规则、揭穿、听过的说法、态度表都不能再在条目页里看到与改
+严重程度：阻断
+类别：不变量
+位置：plot/author-ui.md 输出 15、16、18 与“不承诺”第三条（“改知情、伏笔、目标从剧情变更的详情页与条目页走”）；canon/web/components/EntryPageHost.vue:314（`dataView`，专门界面存在就用它，否则才是通用字段表）；plot/shared/declarations.ts:27-110（三个类型的字段）
+现象：条目页的数据分页每个命名空间一个，“这个类型在 `canon.component-views` 有交付的界面就用它；没有、……才用通用字段表”（canon/author-ui.md 输出 12）。剧情的三个界面是只读展示：
+ - `nbook.plot.point`（namespace `point`）有字段 保密、规则、表现、揭穿、读者问题。“谁知道”分页只有角色、读者、和它有关的三节，没有这些字段。保密档是整个“谁知道什么”页的基础，作者到哪里改它？
+ - `nbook.plot.knowing`（namespace `know`）有 知情 与 听过的说法（语义档文字）。“知道什么”只列 `secretLedger` 的知情行，没有“听过的说法”，也没有“改”按钮。
+ - `nbook.plot.attitude`（namespace `att`）的 态度 列表，“目标与态度”分页只读。
+ 第一批里人物与面板的界面是自己带“改”与来历的（`ComponentViewContext` 有 `edit`、`record`、`origins`）。Spec 与计划都没有说这三个新界面也提供它们。而“不承诺”写的出路“条目页”恰恰是被换掉的那一页；剧情变更详情页只能改已有变更里的值（canon/author-ui.md 不承诺第四条：“只能改已有变更里的值、把待定的改成生效、记一笔”），不能改初值里的保密档。
+为什么是问题：B2-1 合入后，作者在条目页里失去了对这几个字段的查看与就地改，是对已晋升 implemented 的第一批行为的回退（输出 12、16）；回退发生在刚好最需要它的地方（保密档、揭穿的马甲）。
+如何核实：读 EntryPageHost.vue:314-322 的 `dataView`；读 Spec 输出 15、16、18 没有一处提到字段表、`edit`、`origins`。
+建议改法：这三个界面不用 `canon.component-views`，改用输出 36 的 `canon.entry-tabs`（附加分页，数据分页之外多出来的），数据分页保持通用字段表；这样“知道什么/目标与态度/谁知道”是多出的分页，同时发现 9 里的“新贡献点是否必要”也有了答案：三个界面本来就应该是附加分页。要求这三个类型的附加分页的 `requires` 写成对应类型，没启用就不出。
+
+### 8. 剧情页面要用的读取 hooks、断线横幅、失败文字都在 canon/web 里，跨插件只能引 `shared/contracts.ts`：计划只把“位置选择”挪出来，剩下的会被各抄一份或临时再挪
+严重程度：重要
+类别：代码质量
+位置：plan-b2.md 技术选型表第 4 行与关键设计 二末句；packages/neuro-book/src/architecture.test.ts:3、:141（跨插件运行时只引对方 `shared/contracts.ts`；`src/ui/` 只引 `ui/` 与 `shared/`）；canon/web/use-reads.ts（`useWorldRead`、`useWorldList`、`useKeptRead`、`useWorldReads`）、components/WorldBanners.vue、failures.ts、writable.ts
+现象：服务只交 `read/list/external`（返回 `ReadHandle`）。“换位置时旧的接着显示、新的读到才释放旧的，页面不闪成加载占位”（输出 26，验收 5“没有出现加载占位”）这件事不在 `world.ts`，在 `use-reads.ts` 的 `useSwitching`（:24-63）。剧情页面要同样的行为，只有三种办法：重写一份、把 `use-reads.ts` 挪到共用位置、或让服务把它也交出来。同理“世界已断开 + 重试”的横幅（输出 4 引用第一批输出 26、27）在 `WorldBanners.vue`，“剧情读不出来”与服务给的说明要有失败呈现（`failures.ts`）。计划的技术选型表只列了位置选择与选择控件（`src/ui/`），没有列这些。
+为什么是问题：按计划字面做，W1 就会遇到“剧情页的读取 hooks 没地方拿”，最省事的办法是抄一份 `use-reads.ts`（约 140 行，含最难的 `useSwitching`），之后两份各自演进；这正是计划自己说要避免的（“另写一层要重写失效、合并与断线”）。另外 `ReadState`、`ReadHandle`、`CanonWorld` 的类型也在 `world.ts`，服务接口放进 `shared/contracts.ts` 时这些类型也要一起搬到 shared（`shared/contracts.ts` 只放类型与键，没有问题，但要写进切片 C 的工作量）。
+建议改法：C 片明确：把 `ReadState`、`ListState`、`CanonWorld`（接口）搬到 `shared/` 的类型；把 `use-reads.ts` 的四个 hook、WorldBanners、失败文字挪到 `src/ui/`（它们只依赖 `vue` 与那些类型），canon 与 plot 都从那里引；工作量与第一批组件测试的搬迁一起算进 C。
+
+### 9. `canon.entry-tabs` 的设计：需要这个出口，但应该当作“附加分页”的统一出口（承接发现 7 的三个界面），`requires` 的判据、状态位置与注册表复用没写清
+严重程度：重要
+类别：合同
+位置：canon/author-ui.md 输出 36；plan-b2.md 关键设计 二第 3 条；canon/web/component-views.ts:293-333（`ComponentViewRegistry`：以类型 id 为键的一张表，一个 `receiver()`）；nb-canon/src/engine/types.ts:90-101（`EntryView.components`、`upcoming`）
+现象与判断：
+ 1) 是否需要新贡献点：对“经历”，现有机制放不下：`canon.component-views` 的贡献 id 是类型 id，canon 自己已经给 `nbook.canon.person` 交了界面，同一个类型后交的被拒（canon/author-ui.md 输入一节“内置插件之间靠约定，同一个类型后交的被拒”），所以剧情不能再给人物加分页；放进“知道什么”会让没有启用 `nbook.plot.knowing` 的人物看不到经历。选项：(a) 经历由 canon 自己出：canon 本来就有 `presence`（同样返回在场的变更与 `uncast`，service.ts:836、:1064，远程方法表 `presence`），经历与第一批“情节”分页几乎是同一件事，r4 的审查已经指出过“经历”与“情节”两个页签名字太像（t16 evidences/design-review-r4-4-ui-standards.txt 第 5 条第 7 点），处理记录没有回答；(b) 新贡献点。我的判断：(b) 可以，但理由要换：发现 7 里“知道什么/目标与态度/谁知道”也该用它，这样这个点有四个使用方、不是为一个分页开的口。
+ 2) `requires` 判据：条目有没有这个类型用 `EntryView.components`（读取位置上启用的类型）判断；`upcoming` 里是之后才启用的。所以分页的出现与位置有关：换到启用之前的位置，选着它的标签会回到第一个分页（EntryPageHost 的 `tab` 计算）。Spec 要写明按所选位置判断，与数据分页一致；现在没有写。
+ 3) 标签状态：`EntryTabContext.state` “同 `ComponentViewContext`”，但 `EntryPageState.views` 是按命名空间存的（entry-page.ts 的 `views: Record<namespace, …>`），附加分页没有命名空间，键要用贡献 id；EntryPageHost 的 `watch(namespaces)` 里 `state.views[namespace] ??= {}` 也要为附加分页另写。Spec 没写。
+ 4) 注册表：“同一个注册表多一种”会让两个贡献点共用 `#published` 一张表，键是贡献 id（一边是类型 id，一边是分页 id），两边 id 相撞时后者盖前者（`published` 是 `new Map(...).set(handle.id, handle)`）；贡献点只有一个 `receiver()`，plugin.ts 的 `receivers`、`receives` 都要再加一个点。建议两个点各自一个注册表实例，共用类。
+ 5) 顺序：“数据分页之后、情节之前，按 `order` 再按贡献 id”，第一批输出 9 的顺序是“文字、数据分页、情节”；Spec 没写输出 9 要同步改，否则两处对不上。
+ 6) 第三方：`idPrefix: "plugin"` 对附加分页意味着第三方只能用自己前缀的分页 id，但 `requires` 能指向任何插件的类型（这里指向 `nbook.canon.person`）；没有问题，写明即可。
+建议改法：按 1)、2) 改写输出 36，把三个剧情界面改为附加分页（见发现 7）；写明 3) 4) 5)。
+
+### 10. 表格与控件：计划把“固定首列与分组行”当小缺口，实际 nb-ui 的 `Table` 缺的更多，“选要看的人”（多选）没有对应组件，节点带是新组件
+严重程度：重要
+类别：代码质量
+位置：plan-b2.md 技术选型表第 2、3 行；packages/nb-ui/src/components/display/Table.vue:11-44（列配置 `key: keyof Row`、没有行头、没有 sticky、没有分组行、只有 `row-click`）；popup/Select.vue、form/SearchSelect.vue（单选）；.agents/works/w00039-novel-writing-plugins/tasks/t16-plot-workbench-ui/evidences/design-review-r4-4-ui-standards.txt 第 9、11 条
+现象：
+ 1) 第 4 轮审查（实施清单）说明了矩阵表要补：`th scope="row"`、选中行、表头与首列 sticky、单元格里多个可点元素的键盘模型，要么补到 Table（`rowHeader`、`selectedKey`、`stickyFirstColumn`），要么在插件里写矩阵组件并带同名 `.md` 与 Lab 场景（evidences 第 11 条）。计划只写了“若缺固定首列与分组行，按需补”，没有 `scope="row"`、没有表级名字（aria-label）、没有“选中的人各一列”的动态列怎么给 `columns`（`key` 是行类型的键，动态列要先把每行铺成对象）、没有“组名一行”（`<tr>` 跨列）。W1 开工才发现要动 nb-ui，就是“先补的组件”被后置。
+ 2) “选要看的人（3 / 12）”要多选的弹层；nb-ui 里 `Select`、`SearchSelect` 是单选（SearchSelect.vue:32 的 `modelValue?: string`），多选只有 `CheckboxGroup`（不是弹层）；计划技术选型表没有这一项。
+ 3) 伏笔账本的“节点带”（只画有节点的章、省略格、实心与虚线框、图例、390 宽时换行）是一个新组件，计划没有把它列为新组件，也没有 `.md` 与 Lab 场景的安排（components.md 要求同名 `.md`；切片表里 Lab 场景只在 D 片）。
+ 4) 窄屏：谁知道什么在窄屏改成“一行一条的列表”是另一套标记。同一内容两套 DOM 要避免读屏重复（只渲染一套，按容器宽度切换，或用 CSS 隐藏的话两套都在可达树里）。计划只写了版式，没写怎么切，也没写是不是同一个组件的两种模式。
+ 5) 第 4 轮的实施清单里的其余几条：界面文字走目录（计划与 Spec 输出 21 写了）、取值走 token（写了）、`Banner`/`EmptyState`/`Spinner` 复用（没写）。
+建议改法：技术选型表里列出 nb-ui 要补的三样（矩阵表的行头与 sticky 与表名、多选弹层、节点带）与各自的 Lab 场景，放在 W1 之前一片（或并入 W1 并写明工作量）；窄屏版式写成“按容器宽度切换同一份数据的两种渲染”，只渲染一份。
+
+### 11. 对照静态稿与第 4 轮处理记录：Spec 与稿子不一致的几处（目标表的折叠与“没有目标不出分页”、“位置”的叫法、秘密表“按主体的组序”）
+严重程度：建议
+类别：体验
+位置：plot/author-ui.md 输出 13、14、16；canon/web/locales/zh-CN.json:83-84（`entry.position` “位置”、`entry.planned` “按计划”）；design-review-r4-resolution.txt 丁段（“目标表按人筛、可折叠，没有目标的人不出这个分页（2-16、2-19、1-16）”）
+现象：
+ 1) 处理记录写“目标表按人筛、可折叠，没有目标的人不出这个分页”。Spec 输出 14 只有按人筛，没有折叠；输出 16“没有目标也没有态度时写‘还没有目标与态度’”，等于“没有目标的人也出这个分页”，与处理记录相反（它依赖的是分页出现条件：只看 `nbook.plot.attitude` 是否启用，启用与否和有没有目标无关）。
+ 2) 同一个控件在第一批叫“按计划”（zh-CN.json:84），在剧情 Spec 叫“把计划也算上”（plot/author-ui.md 术语、静态稿 r06 都是这个叫法）。因为位置选择与开关一起挪到 `src/ui/`（技术选型），文字只能有一份：要定一个，第一批里 entry-page.dom.test.ts、EntryPage.dom.test.ts 等组件测试按文字“按计划”找开关（canon-author.e2e.ts 没有），改叫法要同步改这些断言。
+ 3) 静态稿 r06 的位置选择前有标签“写到的地方（第 2 章末尾）”，canon 的位置选择没有可见标签（`aria-label`“位置”）；第 4 轮处理“九屏只用一种控件”要的是同一份，Spec 没写要不要带可见的文字。
+ 4) 位置选项是“初值 + 每章两项”，1000 章就是 2001 项的 `Select`，r4 的处理记录（丁段，“位置选择不列 120 项，缺省‘写到哪了’”）只处理了缺省值，没有处理列表长度；第一批的已知规模是 1000 章（K-d），剧情页复用同一个控件，规模问题没有新增，也没有解决。
+ 5) 时间线、剧情表、“这几章”、状态栏“动笔前 N 件事”在静态稿侧栏与状态栏里都有，B2-1 的侧栏没有，开发者看稿子时会看到少了几项；Spec 的“不承诺”写了后续各期，这一项没问题，只提醒界面里不要留空位。
+建议改法：1) 在输出 13、14 补折叠，或在待确认里写明“不折叠”；输出 16 改成“没有目标也没有态度的人不出分页”需要在分页声明里能表达（`requires` 只管类型），这点要先问开发者；2) 定一个叫法；3)、4) 记为已知限制。
+
+### 12. 把位置选择挪到 `src/ui/`：可行，但计划没写它依赖 canon 的什么、文字放哪里；“行为不变”的兜底只靠组件测试
+严重程度：建议
+类别：代码质量
+位置：plan-b2.md 技术选型表第 4 行与关键设计 二末句；canon/web/positions.ts:148-154（`CanonBoundText = BoundText<typeof zhCN>`，引 canon 的目录类型）、:164-216；canon/web/components/EntryPage.vue:7（页头的 `Select`、`Switch` 在条目页骨架里）；architecture.test.ts:141
+现象：`positions.ts` 里“位置选项”相关的部分（`positionOptions`、`positionValue`、`positionFromValue`、`defaultPosition`、`positionExists`、`ChapterRef`）只依赖 `@notnotype/nb-canon` 的类型（类型导入，浏览器代码允许）和 `CanonBoundText`；后者是 canon 目录的键类型，`src/ui/` 不能引 `plugins/canon/locales/`（只能引 `ui/` 与 `shared/`，architecture.test.ts:141）。位置选项的文字键 `position.initial/start/end/startTitled/endTitled`、页头的 `entry.position`（“位置”）、`entry.planned`（“按计划”）都在 canon 的目录里（locales/zh-CN.json:83-84、:98-104）。挪到 `src/ui/` 以后文字放哪个命名空间没有说：(a) 在 `src/ui/` 新建一个命名空间的目录（现有 `src/ui/` 里没有目录的先例，其余的文字都来自插件或 nb-ui）；(b) 让组件收 `labels` 属性，两个插件各自传，目录里各有一份同样的键（zh-CN 与 en-US 的键集合由 locales 测试对齐）。
+同时，挪的只是“选项与控件”；“页头”（标题、位置、把计划也算上、线选择、横幅）三个剧情页与条目页是同一个页头，应作为一个 `PageHead`（含线选择，见发现 2）一起挪，否则剧情页还要各画一遍页头。
+关于“不改变第一批条目页的行为”：条目页的 `position` 计算（EntryPageHost.vue:95）与章删除时的回退（:78-85）仍在宿主里，位置选项挪走不会改变它们；兜底是第一批的 entry-page.dom.test.ts 与 EntryPage.dom.test.ts（含“按计划”文字断言，见发现 11）。可行。
+建议改法：C 片先单独做这一步（不含线），挪完跑第一批全部组件测试，再做线；文字用 (b)。
+
+### 13. 验收与测试：Node 侧场地装不上剧情的项目入口（它依赖只能在 Bun 里加载的 Storage），“组件测试接真实的世界服务与剧情项目入口”按计划写不出来
+严重程度：重要
+类别：测试
+位置：plan-b2.md 切片 W1（“Node 侧场地加剧情插件的项目入口与浏览器入口”）与验收映射；packages/neuro-book/src/plugins/canon/testing/node-world.ts（项目实例的插件只有诊断与 `canonProjectPlugin`，`window(id, extra)` 只给窗口加插件，项目实例没有加插件的参数）；plugins/plot/backend/plugin.ts:224、:232（依赖 `storageKey`，启动时 `new PlotStore(storage)`）；plugins/storage/backend/partition.ts:12（`import {Database} from "bun:sqlite"`）；packages/neuro-book/vitest.config.ts:19-27（组件测试在 Node 的 happy-dom 里跑）
+现象：第一批的组件测试（`*.dom.test.ts`）靠 `canonNodeWorld` 接真实的世界服务，这个场地能在 Vitest（Node）里跑，是因为 canon 项目入口不依赖 Storage。剧情的项目入口 `dependencies: [canonProjectKey, storageKey, diagnosticsKey]`，激活时就建 `PlotStore`（用 Storage）。`storageKey` 的提供方 `nbook.storage` 的后端用 `bun:sqlite`，Node 里装不上，所以：
+ 1) 只在 `canonNodeWorld` 的项目实例里加剧情项目入口不够，还要有 Storage：真实的不能在 Node 里用，只能换一个内存的 `StorageService` 替身，它要对过合同（AGENTS.md 测试一节“替身要与真实实现对过契约”），计划没有这一项。
+ 2) 剧情的项目入口还用 `context.remote.use(plotModelContract)`（调服务端的模型），node-world 的服务端只有路由与诊断；读取方法不走模型，但装配要通过。
+ 3) 另一条路：把剧情页面的组件测试放到 bun 的真实项目子进程场地（`canon/testing/harness.ts`），但那是 `bun:test`，没有 happy-dom 与 Vue 挂载，组件测试挂不了。
+为什么是问题：W1 到 W3 的“同上”（组件测试接真实世界服务与剧情项目入口）是整个验收映射的底座；按计划到了 W1 才会发现装不上，影响 W1 到 W3 三片的工作量。
+如何核实：读 node-world.ts 的项目实例装配；读 plot/backend/plugin.ts:224；读 storage/backend/partition.ts:12。
+建议改法：切片表里 W1 之前加一片“场地”：给 node-world 加项目实例的 `extra` 与一个合同测试过的内存 Storage，或者把 PlotStore 改成按需创建（读取方法不触发它，只有写作指示与检查记录才需要；这也让只读的剧情读取不依赖 Storage）。
+
+### 14. 验收的样本数据与判据对不上：没有第二条世界线、没有已回收的伏笔、没有“忘了”，验收 2 的数字区分不出筛选
+严重程度：重要
+类别：测试
+位置：plan-b2.md 关键设计 四（样本）；plot/author-ui.md 验收 2、5 与 Smoke；packages/neuro-book/scripts/canon-sample.ts（我在其中没搜到 fork、回溯、line 相关的内容；样本脚本 t16 evidences/r5-xingxia-brief-script.ts.txt 同样没有）
+现象：
+ 1) 验收 5“Given 有回溯分出的第二条线”，计划的样本列表里“三条剧情线”是 `剧情线` 种类的条目，不是世界线（分叉）；没有哪里写要在样本里加一个回溯分叉（写分叉要有切口、触发处、带过去的字段，canon/worldlines.md 输出 14）。Smoke 又把验收 5 排除在 e2e 之外（“走验收 1 到 4 与 6”），而计划验收映射写 e2e 要“换一条线”，两处不一致。
+ 2) 验收 2：“还没收有 4 条”。样本的四个伏笔是“已埋、呼应中、未埋带计划、未埋带回收计划”，没有一个是已回收的，所以“还没收”与“全部”都是 4，筛选“还没收”（缺省）与“全部”在样本上看不出区别；“很久没提”（`dropped`）没有对应的伏笔，“没打算怎么收”也要有一条（至少一条已埋、没有计划）。
+ 3) 样本没有 `forgot` 的知情行（输出 7 的“忘了”，也是发现 6 的缺口）、没有达成或放弃的目标（“也列达成与放弃的”开关）、没有停滞的目标（“N 章没动过”用警告色）。
+ 4) 以上都靠样本，验收却写成 e2e 的一部分；组件测试按计划用真实世界服务（见发现 13），数据在各测试里自己造，可以覆盖，但 e2e 的样本要补齐。
+ 5) 没有测试覆盖状态栏线选择与 QuickPick（发现 2），它们涉及状态栏、命令、公开状态与命令面板浮层的集成；`canon` 的组件测试在没有工作台的窗口里跑（plugin.ts 注释：命令服务可选），QuickPick 与状态栏条目不会被挂上。需要至少一条 e2e 走“状态栏点线、选一条、页面换值”。
+建议改法：样本加一个回溯分叉、一个已回收、一个 `dropped`、一个 `forgot`、一个达成的与一个停滞的目标；验收 5 进 Smoke（e2e），并把状态栏线选择放进 e2e；验收 2 的数字按补完的样本重写。
+
+### 15. 页面宽度与窄屏版式的切换阈值没写：矩阵表在两个“内容列封顶”之间会同时失败（输出 19）
+严重程度：建议
+类别：体验
+位置：plot/author-ui.md 输出 7、19、plan-b2.md 关键设计 三“390 宽时……”；canon/web/components/EntryPage.vue（条目页 `max-w-[760px]`）；静态稿 r06（表格用满宽）
+现象：输出 19 写“内容列封顶”，没写数；第一批条目页是 760px。谁知道什么表在静态稿里是满宽，选中 3 个人加别的人、读者、打算怎么揭 7 列，候选最多 12 人时更宽；封顶 760 会让 7 列在 1440 宽下就要横向滚动（输出 7 的“秘密一列固定”说明预期有横向滚动），而“390 才是列表”之间的宽度（侧栏打开的 700 到 900 宽）没有版式规定。“390 宽没有横向滚动”只在一个宽度上被验收，480 到 760 之间的宽度会既不是矩阵也不是列表。
+建议改法：表格页封顶改用更宽的值（静态稿 980），并按容器宽度（不是视口，侧栏占去一部分）给出切到列表的阈值，验收里测两个宽度（390 与 600）。
+
+### 16. `external(key, fetch)` 的细节没定：键空间、第一个调用方的 `fetch` 被固定、分页没有对应物、写入要等外部读取、没有项目时怎么提供
+严重程度：重要
+类别：合同
+位置：plan-b2.md 关键设计 二第 1 条；canon/author-ui.md 输出 35；canon/web/world.ts:107（`keyOf`）、:233-236（`readSlot`：同键已有槽就直接复用，不看新传的 `fetch`）、:276-330（`list`：重读条数取已读条数）、:332-350（`write`）、plugin.ts 的 `worldOf()`（没绑定项目时为 null）
+现象与后果：
+ 1) 键空间：世界读取的键是 `method:稳定化的输入`（world.ts:107），外部读取“按一个键合并”，键由调用方给。没有规定前缀，外部键与方法名相撞（调用方写 `"tree:{}"`）时会拿到别人的槽。要在服务里强制加前缀（例如 `external:<插件 id>:`），并且 `external` 的键应当是“结构化输入”，不是自由字符串，否则“同一输入同一键”的合并要靠每个调用方自己稳定序列化。
+ 2) `readSlot` 在槽已存在时返回旧槽，新传的 `fetch` 被丢掉。两个剧情组件用同一个键、`fetch` 闭包里捕获了各自的（会变的）局部变量时，后来的组件读到的是前一个组件闭包里的值。第一批的 `read(method, input)` 没有这个问题，因为请求完全由 `(method, input)` 决定，闭包不会进槽；`external` 把请求交给闭包，破坏了这个性质。要求 `fetch` 只由键决定（Spec 写明），或改成 `external(key, input, fetch)` 其中 `fetch(input, version)` 是纯函数、槽记住第一次传入的 `input`。
+ 3) 分页没有对应物：谁知道什么（一页 200 行再多“再显示”）、经历（一页 50 条“再显示更早的”）、伏笔账本与目标表（`ledger`、`goals` 都分页）都是分页读取。世界读取层有 `list`（`fromStart` 按已读条数重读，保持翻到哪里还在哪里；`cursor-stale` 时从头重读，world.ts:287-330），`external` 只有一次性的读取。剧情要么把每一页当一个键（翻页就是换槽：新槽 `loading: true`，页面出现加载占位或要自己拼接前几页；前几页是各自独立的槽，世界变了时它们各自重读，游标过期要自己处理），要么在 `external` 之上重写 `list`。计划只给了 `read`、`list`（世界的方法）与 `external`，没有“外部的列表”。验收 5 的“没有出现加载占位”与“再显示”也会冲突。
+ 4) 写入要等外部读取：`write` 成功后 `await run()`，`run` 等一轮里所有到期槽，包括剧情的 `secretLedger`（最重的一个）；作者的一次保存的返回被剧情页面的重读拖慢，且发现 1 的失败路径同样卡住保存的返回。第一批的“写入成功时界面已按它的版本重读”（输出 26）因此会被外部读取放大。
+ 5) 没有项目的窗口：`worldOf()` 为 null 时服务怎么提供没有写；剧情页面依赖 `canonReadsKey`，在没有绑定项目、canon 入口没有启动或停止时，页面写什么（输出 4 只写了剧情没启动与读取失败）。`provideServicePerConsumer` 是第一批给 `canonClientKey` 的做法（plugin.ts 末尾，按调用方给），`canonReadsKey` 是同一个世界实例，按调用方给没有必要，写明是整窗口一份。
+ 6) `fetch` 收到的“当前代的世界版本”：剧情的几个读取方法没有版本输入（plot/shared/contracts.ts 的 `knowing`、`ledger`、`goals` 等输入里都没有 `version`），所以这个参数没有用处。能做的是用返回值里的 `version`（`pagedList` 的结果带 `version`、`inputDigest`，backend/plugin.ts:62-72）与 canon 读取的版本比较：不一致时把槽标为 `stale`、在下一轮重读，才真能保证“不会一新一旧”。现在只保证了换上的时刻相同，不保证读的版本相同（canon 与剧情是两次远程调用，之间可以插进一次发布）。
+建议改法：把 `external` 收窄成“`(key: string[], fetch: (version) => Promise<CanonResult<T> & {version?: number}>)`”，服务加前缀与记住第一个 `fetch`，同时提供 `externalList`（同 `list` 的重读条数与游标过期语义）；`write` 只等 canon 自己的槽，外部槽在后一轮换上；Spec 输出 35 写明键空间、失败的类型（canon 失败对象的形状）、版本比较。
+
+### 17. 伏笔账本的“很久没提”被写成 `dropped`，但 `dropped` 是作者标的“放弃”，不是“太久没提”；这一列没有数据来源
+严重程度：重要
+类别：正确性
+位置：plot/author-ui.md 输出 10、12；plan-b2.md 关键设计 三“伏笔账本”（“很久没提（`dropped`）”）；plot/core/foreshadowing.ts:255-258、:557（`dropped: entry?.intent === "dropped"`）；docs/specs/plot/foreshadowing.md:33、:44、:66（`意图` 的 `dropped` 是“放弃”；“太久没提”是诊断 `nbook.plot.fs.longSilence`，阈值是 `参考间隔`，没设时按重要程度 30、20、10 章）
+现象：Spec 12 的筛选“很久没提”、输出 10 的“很久没提的另写‘N 章没提’用警告色”，计划写明数据来自 LedgerItem 的 `dropped`。但 `dropped` 只表示伏笔的意图被作者标成“放弃”，与“多久没提”无关；账本行里有 `lastMentioned`（章），没有“太久”的判定。静态稿 r08 里“上次提到：第 1 章，1 章没提”与筛选“很久没提 0”是两个意思的数据。
+为什么是问题：按字面实现，被作者放弃的伏笔会被归入“很久没提”，真正很久没提的伏笔（`longSilence` 的诊断阈值）不会被标出来。要么界面自己重算阈值（把“参考间隔、30/20/10 缺省值”的规则复制到前端，而 Spec 说那是“用样本书量过以后再定”的缺省值），要么服务给。
+建议改法：P 片给 LedgerItem 加 `silence: {chapters: number, long: boolean}`（同诊断的算法与阈值）和 `noPayoffPlanned: boolean`（对应 `noPayoffPlanned` 诊断）；分段筛选“已放弃”若要有，用 `dropped`，名字叫“已放弃”。Spec 12 与输出 10 改写。
+
+### 18. 与静态稿对照，Spec 少了或改了的几处（头部徽标、重要程度、接下来的措辞、行内位置的精度）
+严重程度：建议
+类别：体验
+位置：静态稿 r5/r08-ledger、r5/r10-person、r6/s08-secret；plot/author-ui.md 输出 10、15、18；plan-b2.md P2
+现象（逐项对照稿子与 Spec）：
+ 1) 秘密条目页（s08）页头在一句话简介下面有“保密”徽标与“关于 星瑕”（主体链接）；Spec 输出 18 只写了“谁知道”分页的三节，页头是 canon 的 `EntryPage`（骨架没有给插件放内容的口），`EntryTabContext` 也没有页头插槽，实现不出来。要么 Spec 去掉这一项并告诉开发者稿子的这一处不做，要么给页头一个贡献的口。
+ 2) 伏笔账本（r08）每个伏笔名后有“主线/支线”（`重要程度`），Spec 输出 10 没有这一项；LedgerItem 有 `importance`。
+ 3) “接下来”：稿子是“第 3 章呼应”“第 3 章埋下”“第 4 章埋下”，按计划节点的角色换词；Spec 输出 10 与计划只写“第 N 章呼应”。五种角色（埋、应、误、部、收）每种一个词，要在 Spec 里列。
+ 4) 人物页“知道什么”（r10）每行右侧是“第 2 章第 14 段”“前史”，P2 的 `at` 只给章 id（让这一行成为现在这样的那条变更的安放），Spec 输出 15 写“第 N 章”；精度从“章与段”降成“章”，没有说明。
+ 5) 目标表稿子（r09）的持有者可以是组织（“对策委员会”）；Spec 术语里“主要角色”是“持有进行或受挫目标的人”。持有者类型写成“人或组织”。
+ 6) 条目页分页顺序：稿子 r10 是“文字、人物、知道什么、目标与态度、经历”；真实页里数据分页顺序取“条目读取结果里命名空间的顺序”（canon/author-ui.md 输出 9），附加分页在后，“知道什么”与“目标与态度”的相对顺序取决于条目里两个组件的启用顺序，Spec 没有保证。
+建议改法：1) 到 6) 在 Spec 里各补一句，或与开发者确认可以不做（稿子是开发者看过、答过的，这些不能悄悄改）。
+
+### 19. 线消失的回退、剧情入口的登记清单
+严重程度：建议
+类别：遗漏
+位置：canon/author-ui.md 输出 34 倒数第二条；plot/author-ui.md 输出 4；plugins/canon/web/components/EntryPageHost.vue:105-110（`status`：读取失败且已有旧数据时不显示失败）；web/plugins.ts:81、:107；plugins/lab/web/fixtures/canon-text.ts:14
+现象：
+ 1) “选着的线不在了：回到 null，下一次打开线的列表时顶上写‘原来看的那条线已经不在了’”：回退要有一个一直挂着的 `lines` 读取（现在没有谁常驻读 `lines`；`pendingCount` 是第一批唯一常驻的读取，plugin.ts 里启动时建）。没有它，窗口里没有条目页也没有状态栏时不会回退；另外在回退发生之前的那一轮重读里，页面带着已不存在的线读，得到 `line-not-found`：条目页在已有旧数据时静默保留旧内容（EntryPageHost 的 `status` 只在没有数据时才是 failed），看不出来；新开的页面则整页是“读不出来”。回退应在 `lines` 读取到达、与页面的读取同一轮换上时才一次完成，Spec 写成“在同一轮里先判断线还在不在再读”或承认有一轮的错误。
+ 2) 剧情入口还有第一批一样的登记，计划与 Spec 都没有列：`web/plugins.ts` 的浏览器插件表与 `builtinPluginCatalogs`（canon 在 :81、:107）、Lab 的文字夹具（`lab/web/fixtures/canon-text.ts`）、剧情描述符的 `locations` 加 `browser`（plugin.ts 注释“还没有界面”要同步改）、每个组件同名 `.md`（components.md）。W1 要写进工作量。
+建议改法：1) 在 Spec 里写时序；2) 在切片 W1 写登记清单。
+
+### 20. 侧栏“表”里选中项跟前台页面走：第一批的机制只在挂载时选中，没有“关掉以后取消”，输出 1 的说法比机制强
+严重程度：建议
+类别：体验
+位置：plot/author-ui.md 输出 1 最后一句；canon/web/entry-page.ts 的 `shown` 注释（“编辑器的公开状态只给文件标签的地址、没有活动页面，按挂上判断不用改编辑器”）；canon/author-ui.md 输出 5
+现象：第一批设定树选中条目靠“条目页挂上时通知视图”，页面卸载不取消，几组并排时是“最后挂上的那一页”。剧情 Spec 写“当前前台是这三页之一时，‘表’里对应的一项是选中的样子”，隐含前台是别的页面（文件、条目页）时不选中；按第一批机制，切到文件标签以后“谁知道什么”仍是选中，直到别的剧情页挂上。
+建议改法：Spec 改成与第一批一致的说法（“最后显示出来的那一页”），或者给编辑器加“活动页面”的公开状态再两边一起改（影响面大，不建议在这一期做）。
+
+---
+未发现问题的方面（仔细检查后）：
+- 位置选择挪到 `src/ui/` 本身可行（发现 12 只是补充文字与页头）；不会改变第一批条目页的位置回退逻辑（留在 EntryPageHost 里）。
+- 跨插件交响应式对象：公开状态服务本来就是在 `@vue/reactivity` 的 computed 里同步读（state/shared/contracts.ts 的注释），宿主模块表共享同一个 `vue`，我没有找到“两份 Vue 导致不响应”的证据；窗口的线用 `ShallowRef` 交出去没有额外问题。
+- “换线以后前台可见的内容保留旧内容重读”：`useSwitching` 已经做了（use-reads.ts:24-63），输入键里带线就够（`JSON.stringify` 的键序：展开 `{...position, line}` 时 line 位置固定，没有隐患）。
+- 第 4 轮“实施时要守的”里界面文字机制、取值走 token：Spec 输出 21、19 与计划都写了，没有发现遗漏；窄屏版式与表头语义见发现 10、15（落实不完整）。
+- 情节分页在带线的位置上读：`changes` 的 `before` 筛选取 `positionLine(before.position)`（nb-canon/src/service/reads.ts:484-488），按线算，不需要另传 `worldline`。
+- 状态栏条目用 `quickPick` 做线的列表有先例（projects、agent 插件），没有机制缺口（缺的是命令与 Spec 的登记，见发现 2）。
+
+对待确认项的判断（plan-b2.md 末尾“待确认”，各一句）：
+1. 拆成四期、“交给写手”与文风前情只留位置：同意，属推进顺序；但 B2-1 里本来能做的“按线读 reader 一类”留给 B2-3 没问题（reader 按活页夹算，不随线变，worldlines 输出 13）。
+2. 窗口的线缺省“跟着章”、不存盘；页头只在两条线以上时显示：缺省与不存盘可以；“只在两条线以上显示”会让单线作品页面没有线的表达，且两条线以上“跟着章”时页头不说实际读哪条，不满足第 11 版“每一屏都要表达读的是哪条线”（发现 4）。
+3. “谁知道什么”缺省选持有目标的前 3 个人：产品取舍可以；但它要读 `goals`、候选又要全集，在知识点多于 200 行时候选不全（发现 6），且“前 3 个按名字”与静态稿 r06 里选中的星瑕、星瑾、彗（目标持有者）一致，没有问题。
+4. 剧情表不在本批：同意，侧栏稿里有这一项，开发者看到会少一项，交付说明里写明。
+另有未列入待确认、应该列入的：(a) 把 `canon.component-views` 换成 `canon.entry-tabs` 承载三个界面（发现 7、9）；(b) 位置选择挪到共用目录会带走“按计划/把计划也算上”的叫法统一（发现 11）；(c) 样本加回溯分叉（发现 14）。
+
+各级数量：阻断 1（发现 7）；重要 13（发现 1、2、3、4、5、6、8、9、10、13、14、16、17）；建议 6（发现 11、12、15、18、19、20）。
+
+最重要的三条：7（三个剧情界面替换通用字段表，条目页上保密档、规则、听过的说法、态度表不再能看与改）；13（Node 侧场地装不上依赖 bun:sqlite 的剧情项目入口，W1 到 W3 的组件测试底座不成立）；1 与 16 并列（`external` 一旦失败或不返回，整窗口读取层停摆，且外部读取没有分页、键空间与闭包固定的约定）。
+
+按影响排序的编号：7、13、1、16、2、17、5、6、3、4、10、14、8、9、11、12、18、15、19、20
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18、19、20
