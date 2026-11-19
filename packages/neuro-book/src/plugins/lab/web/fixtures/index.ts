@@ -85,6 +85,8 @@ import type ProfileSettingsPage from "nbook/plugins/agent/web/components/Profile
 import type ProfileToolsSection from "nbook/plugins/agent/web/components/ProfileToolsSection.vue";
 import type AddToolsDialog from "nbook/plugins/agent/web/components/AddToolsDialog.vue";
 import type ProvidersPage from "nbook/plugins/models/web/components/ProvidersPage.vue";
+import type ApiKeyField from "nbook/plugins/web-tools/web/components/ApiKeyField.vue";
+import type SearchSettingsPage from "nbook/plugins/web-tools/web/components/SearchSettingsPage.vue";
 import type RolesPage from "nbook/plugins/models/web/components/RolesPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
 import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
@@ -138,6 +140,7 @@ import {withStickersPageText} from "./stickers-scene/stickers-text";
 import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./agent-scene/profile-samples";
 import {CARD_SAMPLES, COMMAND_SAMPLES, ENTRY_PROFILES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
+import {withWebText} from "./web-tools-scene/web-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
 import {withWorkbenchText} from "./workbench-scene/workbench-text";
@@ -1541,6 +1544,35 @@ function shelfFixtures(): LabFixture[] {
                 {id: "roles-focus", label: "从对话的“去绑定”打开：滚到“润色”、焦点在它的模型下拉", input: {props: {writable: true}}},
             ],
             load: async () => withModelsText((await import("./ModelsPageFixture.vue")).default),
+        }),
+        defineLabFixture<typeof SearchSettingsPage>({
+            component: "SearchSettingsPage",
+            scenes: [
+                {id: "unset", label: "还没有密钥（检测停用）", input: {props: {writable: true}}},
+                {id: "set", label: "已设置", input: {props: {writable: true}}},
+                {id: "loading", label: "读取中", input: {props: {writable: true}}},
+                {id: "checking", label: "检测中", input: {props: {writable: true}}},
+                {id: "passed", label: "检测通过", input: {props: {writable: true}}},
+                {id: "failed", label: "检测没通过（密钥不对）", input: {props: {writable: true}}},
+                {id: "not-run", label: "没检成（结果未知）", input: {props: {writable: true}}},
+                {id: "readonly", label: "网页工具没有运行（只读）", input: {props: {writable: true}}},
+                {id: "unreadable", label: "密钥文件读不了", input: {props: {writable: true}}},
+                {id: "write-failed", label: "写不进去（窗口通知记进事件）", input: {props: {writable: true}}},
+                {id: "failed-english", label: "英文界面：检测没通过", input: {props: {writable: true}}},
+                {id: "failed-narrow", label: "390px 宽：检测没通过", input: {props: {writable: true}}},
+            ],
+            load: async () => withWebText((await import("./SearchSettingsPageFixture.vue")).default),
+        }),
+        defineLabFixture<typeof ApiKeyField>({
+            component: "ApiKeyField",
+            scenes: [
+                {id: "unset", label: "还没有填写", input: {props: {state: "unset"}}},
+                {id: "set", label: "已设置（有“清除”）", input: {props: {state: "set"}}},
+                {id: "loading", label: "读取中（停用）", input: {props: {state: "loading"}}},
+                {id: "disabled", label: "停用", input: {props: {state: "set", disabled: true}}},
+                {id: "english", label: "英文界面", input: {props: {state: "set"}}},
+            ],
+            load: async () => withWebText(createSubjectFixture<typeof ApiKeyField>((await import("nbook/plugins/web-tools/web/components/ApiKeyField.vue")).default)),
         }),
         defineLabFixture<typeof CapabilityIcons>({
             component: "CapabilityIcons",

@@ -4,5 +4,63 @@
             "title": "DeepSeek API Address",
             "description": "Address prefix of the DeepSeek API used to search and read web pages. Usually left as is."
         }
+    },
+    "settingsPages": {
+        "search": {
+            "title": "Search and Web",
+            "description": "Let agents search and read web pages"
+        }
+    },
+    "keywords": {
+        "online": "Online",
+        "web": "Web pages",
+        "search": "Search",
+        "deepseek": "DeepSeek"
+    },
+    "readOnly": "Web tools are not running, so this page can't be changed right now.",
+    "keysUnreadable": "The key file can't be read. Entering a key below replaces it.",
+    "deepseek": {
+        "title": "DeepSeek",
+        "note": "This key is only used to search and read web pages, and is stored apart from the DeepSeek key in model settings. You can enter the same key here again."
+    },
+    "key": {
+        "label": "API key",
+        "loading": "Loading",
+        "stored": "Saved",
+        "empty": "Not entered yet",
+        "clear": "Clear",
+        "envUnsupported": "Environment variable references aren't supported here. Enter the key itself."
+    },
+    "check": {
+        "action": "Check",
+        "actionFor": "Check the {{provider}} key",
+        "running": "Checking",
+        "cost": "Sends one search, billed per request.",
+        "passed": "Check passed ({{time}})",
+        "failed": "Check failed: {{reason}}",
+        "notRun": "Couldn't check: {{reason}}"
+    },
+    "subject": {
+        "key": "{{provider}} API key"
+    },
+    "failure": {
+        "no-key": "No key yet",
+        "credentials-unavailable": "The key file couldn't be read or written",
+        "invalid-value": "The value isn't valid: {{detail}}",
+        "invalid-request": "The request isn't valid",
+        "auth": "DeepSeek rejected this key",
+        "quota": "The DeepSeek account is out of balance",
+        "rate-limited": "DeepSeek is rate limiting, try again later",
+        "rejected": "DeepSeek refused this request",
+        "not-found": "No results",
+        "unreachable": "Can't reach DeepSeek",
+        "timeout": "Timed out",
+        "too-large": "The response is too large",
+        "bad-response": "DeepSeek's response couldn't be read",
+        "failed": "DeepSeek returned an error",
+        "unavailable": "Web tools are not running",
+        "unknown-outcome": "May not have been saved; the page shows the actual state",
+        "retry": "Please enter it again",
+        "other": "Failed ({{code}})"
     }
 }

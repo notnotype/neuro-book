@@ -1,0 +1,82 @@
+/**
+ * “搜索与网页”页在 Lab 与 DOM 测试里用的远程合同替身：密钥状态在内存里，写方法照服务端的语义改状态（docs/specs/web/tools.md
+ * 输出 16 到 19 里页面看得到的部分）。页面与服务端的真实来回由 `web-tools/search-store.test.ts` 与 `e2e/web-settings.e2e.ts` 验。
+ * 检测不发请求：按 `check` 给的结果作答，`"hang"` 一直挂着（看“检测中”），`"unknown"` 以结果未知结束（看“没检成”）。
+ */
+
+import type {WebCheckResult, WebKeyStatus} from "nbook/plugins/web-tools/shared/contracts";
+import type {WebSettingsRemote} from "nbook/plugins/web-tools/web/search-store";
+
+export interface FakeWebRemoteOptions {
+    readonly hasKey?: boolean;
+    /** 服务端入口没有运行：所有方法得 `unavailable`。 */
+    readonly unavailable?: boolean;
+    /** 密钥文件读不了：`status` 得 `credentials-unavailable`。 */
+    readonly unreadable?: boolean;
+    /** `status` 一直不答（看“读取中”）。 */
+    readonly neverLoads?: boolean;
+    readonly check?: WebCheckResult | "hang" | "unknown";
+}
+
+export interface FakeWebRemote {
+    readonly remote: WebSettingsRemote;
+    /** 写方法都以 `credentials-unavailable` 失败（看窗口通知）。 */
+    failWrites(on: boolean): void;
+    /** 各方法被调用的次数与写入的密钥（只给测试断言先后与次数）。 */
+    readonly calls: Array<{readonly method: string; readonly key?: string}>;
+}
+
+const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
+
+export function createFakeWebRemote(options: FakeWebRemoteOptions = {}): FakeWebRemote {
+    let key: string | null = options.hasKey === true ? "sk-lab-not-real" : null;
+    let failing = false;
+    const calls: Array<{readonly method: string; readonly key?: string}> = [];
+    const status = (): WebKeyStatus => ({providers: {deepseek: {hasKey: key !== null}}});
+    const unavailable = {ok: false as const, code: "unavailable" as const, detail: "Lab 场景：网页工具没有运行"};
+    const writeFailure = {ok: false as const, code: "credentials-unavailable" as const, detail: {detail: "Lab 场景：写不进去"}};
+    const invalid = (detail: string) => ({ok: false as const, code: "invalid-value" as const, detail: {detail}});
+
+    const remote = {
+        status: async () => {
+            calls.push({method: "status"});
+            if (options.neverLoads === true) return never();
+            if (options.unavailable === true) return unavailable;
+            if (options.unreadable === true) return {ok: false as const, code: "credentials-unavailable" as const, detail: {detail: "Lab 场景：密钥文件坏了"}};
+            return {ok: true as const, value: status()};
+        },
+        setKey: async (input: {readonly provider: string; readonly key: string}) => {
+            calls.push({method: "setKey", key: input.key});
+            if (options.unavailable === true) return unavailable;
+            if (failing) return writeFailure;
+            const value = input.key.trim();
+            if (value === "" || value.startsWith("env:")) return invalid("the key is empty or an environment variable reference");
+            key = value;
+            return {ok: true as const, value: status()};
+        },
+        clearKey: async () => {
+            calls.push({method: "clearKey"});
+            if (options.unavailable === true) return unavailable;
+            if (failing) return writeFailure;
+            key = null;
+            return {ok: true as const, value: status()};
+        },
+        check: async () => {
+            calls.push({method: "check", ...(key === null ? {} : {key})});
+            if (options.unavailable === true) return unavailable;
+            if (options.check === "hang") return never();
+            if (options.check === "unknown") return {ok: false as const, code: "unknown-outcome" as const, detail: "Lab 场景：连接断了"};
+            if (key === null) return {ok: true as const, value: {ok: false, code: "no-key"} satisfies WebCheckResult};
+            return {ok: true as const, value: options.check ?? ({ok: true} satisfies WebCheckResult)};
+        },
+        events: {},
+    };
+    return {
+        // 方法的形状照合同写，结果按合同的码表给；运行时码（unavailable 等）在合同的结果类型里，类型推不到这么细。
+        remote: remote as unknown as WebSettingsRemote,
+        failWrites: (on) => {
+            failing = on;
+        },
+        calls,
+    };
+}

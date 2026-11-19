@@ -4,5 +4,63 @@
             "title": "DeepSeek 接口地址",
             "description": "搜索与读取网页时调用的 DeepSeek 接口的地址前缀。一般不用改。"
         }
+    },
+    "settingsPages": {
+        "search": {
+            "title": "搜索与网页",
+            "description": "让 Agent 搜索与读取网页"
+        }
+    },
+    "keywords": {
+        "online": "联网",
+        "web": "网页",
+        "search": "搜索",
+        "deepseek": "DeepSeek"
+    },
+    "readOnly": "网页工具没有运行，这一页暂时不能修改。",
+    "keysUnreadable": "密钥文件读不了。在下面重新填写密钥会覆盖它。",
+    "deepseek": {
+        "title": "DeepSeek",
+        "note": "这把密钥只给搜索与读网页用，与模型设置里的 DeepSeek 密钥分开存放；同一把密钥可以在这里再填一次。"
+    },
+    "key": {
+        "label": "API 密钥",
+        "loading": "读取中",
+        "stored": "已设置",
+        "empty": "还没有填写",
+        "clear": "清除",
+        "envUnsupported": "这里不支持环境变量引用，请直接填写密钥。"
+    },
+    "check": {
+        "action": "检测",
+        "actionFor": "检测 {{provider}} 的密钥",
+        "running": "检测中",
+        "cost": "会发一次搜索，按次计费。",
+        "passed": "检测通过（{{time}}）",
+        "failed": "检测没通过：{{reason}}",
+        "notRun": "没检成：{{reason}}"
+    },
+    "subject": {
+        "key": "{{provider}} 的 API 密钥"
+    },
+    "failure": {
+        "no-key": "还没有密钥",
+        "credentials-unavailable": "密钥文件读写失败",
+        "invalid-value": "填写的值不合要求：{{detail}}",
+        "invalid-request": "请求不合要求",
+        "auth": "DeepSeek 不认这把密钥",
+        "quota": "DeepSeek 账户余额不足",
+        "rate-limited": "DeepSeek 限流了，稍后再试",
+        "rejected": "DeepSeek 拒绝了这个请求",
+        "not-found": "没有结果",
+        "unreachable": "连不上 DeepSeek",
+        "timeout": "超时了",
+        "too-large": "响应太大",
+        "bad-response": "DeepSeek 的响应解析不了",
+        "failed": "DeepSeek 出错了",
+        "unavailable": "网页工具没有运行",
+        "unknown-outcome": "可能没有保存，以页面上显示的为准",
+        "retry": "请重新输入",
+        "other": "失败了（{{code}}）"
     }
 }

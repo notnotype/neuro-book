@@ -24,6 +24,8 @@ import {imageViewerCatalogs} from "nbook/plugins/image-viewer/web/text";
 import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import {modelsBrowserPlugin} from "nbook/plugins/models/web/plugin";
+import {webBrowserPlugin} from "nbook/plugins/web-tools/web/plugin";
+import {webCatalogs} from "nbook/plugins/web-tools/web/text";
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
 import {tasksBrowserPlugin} from "nbook/plugins/tasks/web/plugin";
 import {tasksCatalogs} from "nbook/plugins/tasks/web/text";
@@ -80,6 +82,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.html-preview": htmlPreviewBrowserPlugin,
     "nbook.canon": canonBrowserPlugin,
     "nbook.models": modelsBrowserPlugin,
+    "nbook.web-tools": webBrowserPlugin,
     "nbook.tasks": tasksBrowserPlugin,
     "nbook.agent": agentBrowserPlugin,
     "nbook.stickers": stickersBrowserPlugin,
@@ -112,6 +115,7 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.image-viewer": imageViewerCatalogs,
     "nbook.markdown": markdownCatalogs,
     "nbook.models": modelsCatalogs,
+    "nbook.web-tools": webCatalogs,
     "nbook.tasks": tasksCatalogs,
     "nbook.plugins": pluginsCatalogs,
     "nbook.projects": projectsCatalogs,
