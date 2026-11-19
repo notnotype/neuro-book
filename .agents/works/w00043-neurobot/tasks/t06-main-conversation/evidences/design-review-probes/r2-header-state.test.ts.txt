@@ -1,0 +1,62 @@
+import {expect, test} from "bun:test";
+import {mkdtemp} from "node:fs/promises";
+import {createAgentHost} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/session/agent-host.ts";
+import {createJsonlStore} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/jsonl-store.ts";
+import {createTestClock} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/clock.ts";
+import {createTestModel} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/model.ts";
+import {createTestSession, defaultTestProfile} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/test-session.ts";
+import type {Frame} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/api/index.ts";
+
+test("热会话丢失与恢复同哈希的 Profile，快照变了但没有状态帧，恢复没有任何帧", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review-r2/read-only-state-");
+    const model = createTestModel();
+    const profile = defaultTestProfile;
+    let present = true;
+    const host = createAgentHost({
+        store: createJsonlStore({root}),
+        profiles: {resolve: (id) => present && id === profile.id ? profile : undefined},
+        models: model.port,
+        tools: {declarations: () => [], create: async () => {throw new Error("未声明工具");}},
+        resources: () => ({read: async () => undefined, resolve: (uri) => uri}),
+        sessions: {get: async () => {throw new Error("未建子会话");}},
+        clock: createTestClock(),
+    });
+    const created = await host.create({profile: profile.id});
+    if (!created.ok) throw new Error(created.code);
+    const session = created.value;
+    const frames: Frame["type"][] = [];
+    const stop = session.subscribe((frame) => frames.push(frame.type));
+    try {
+        const before = await session.snapshot();
+        present = false;
+        await host.profilesChanged([profile.id]);
+        expect(await session.snapshot()).toMatchObject({head: before.head, status: {state: "idle"}, readOnly: {code: "unknown-profile"}});
+        expect(frames).not.toContain("status");
+        const lost = [...frames];
+        frames.length = 0;
+        present = true;
+        await host.profilesChanged([profile.id]);
+        expect(await session.snapshot()).toMatchObject({head: before.head, status: {state: "idle"}, readOnly: null});
+        expect(frames).toEqual([]);
+        console.log(`真实热会话：只读时帧 ${JSON.stringify(lost)}；解除时帧 ${JSON.stringify(frames)}，head=${before.head}`);
+    } finally {
+        stop();
+        await host.close(session.id);
+    }
+});
+
+test("热快照暴露了供 yield 使用的嵌套结果 schema，重开从日志读回原值", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review-r2/header-schema-");
+    const schema = {type: "object", properties: {name: {type: "string"}}};
+    await using session = await createTestSession({store: {root}, result: {mode: "optional", schema}});
+    const snap = await session.raw.snapshot();
+    const next = snap.header.result?.schema as typeof schema;
+    next.properties.name.type = "number";
+    session.model.script("未交结构化结果");
+    const run = await session.say("开始");
+    const request = run.requests[0]?.raw;
+    expect(request?.tools.find((tool) => tool.id.endsWith("yield"))?.parameters).toMatchObject({properties: {name: {type: "number"}}});
+    await session.reopen();
+    expect((await session.raw.snapshot()).header.result?.schema).toMatchObject({properties: {name: {type: "string"}}});
+    console.log("真实模型请求的 yield.name 被热快照从 string 改成 number；重开仍是 string");
+});

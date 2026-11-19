@@ -19,7 +19,7 @@ owners:
 - 等用户的事项没有期限，到点不会自己结算。
 - 主对话不绑作品，`project://` 不可用。
 - 第一版只量打开耗时，不做检查点快照与按窗口取历史；重新装配的耗时不量。
-- 主对话能不能写（只读、日志损坏）以会话自己的快照与状态帧为准，bot 服务不另报。持有中日志写失败（`log-broken`）后，要重启服务端才能恢复。
+- 主对话能不能写（只读、日志损坏）以会话自己的快照为准，bot 服务不另报；只读解除时没有推送，要重取快照才知道。持有中日志写失败（`log-broken`）后，要重启服务端才能恢复。
 - 界面（bot 视图、头像、未读与最后看到的位置）不在这里。
 
 ## 术语与参与者
@@ -53,7 +53,7 @@ owners:
    `held` 只说明会话开着、被持有；会话是不是只读（例如 Profile 解析不到）、日志有没有损坏，看会话的快照与状态帧（[`agent/sessions.md`](../agent/sessions.md)）。
 4. Profile 解析不到：主对话照会话的规则以只读打开（[`harness/session.md`](../harness/session.md) 的 `unknown-profile`），持有照样成功。用户经会话的 `changeProfile`（远程合同带 `commandId`）换成能用的 Profile。
 5. 归属的后果按 [`agent/sessions.md`](../agent/sessions.md)：主对话不进会话列表，它派的子代理也不进（输出 25）；`rewind`、`switchBranch`、`archive` 得 `owned-session`（输出 26）；子代理与 fork 出来的会话没有归属。用户在主对话里发话照常走 `send`，可以带 `settlePending: "deny"`（输出 27）。
-6. 长会话的指标：每次冷打开持有成功后写一条诊断 `bots.main-opened`（info），带事件数（快照的 `head`）与打开耗时（从调 `hold` 到它交回，毫秒）；打开耗时超过 2,000 毫秒时另写 `bots.main-open-slow`（warning）。重试的等待不算进耗时。
+6. 长会话的指标：`hold` 实际打开了会话（不是复用已开的）时写一条诊断 `bots.main-opened`（info），带事件数（快照的 `head`）与打开耗时（会话表执行这次打开的时长，毫秒）；超过 2,000 毫秒时另写 `bots.main-open-slow`（warning）。重试的等待不算进耗时；刚由 `ensureMain` 建出来的会话已经开着，不记。
 
 ## 状态与转换
 
@@ -84,10 +84,10 @@ owners:
 
 ## 验收与 Smoke
 
-1. 全新的状态根启动：`list()` 里 `lyra` 的主对话是 `none`，没有 `bots.main-opened`。经远程调 `ensureMain`：建出 `bot-lyra`，会话头 `owner` 是 `{plugin: "nbook.bots", id: "lyra"}`，Profile 是 `nbook.bots.companion`，状态 `held`，有一条 `bots.main-opened`；并发两次交回同一个 id；不在会话列表里。同一个状态根重启、不调 `ensureMain`：后台任务重新持有它，状态 `held`。
+1. 全新的状态根启动：`list()` 里 `lyra` 的主对话是 `none`，没有 `bots.main-opened`。经远程调 `ensureMain`：建出 `bot-lyra`，会话头 `owner` 是 `{plugin: "nbook.bots", id: "lyra"}`，Profile 是 `nbook.bots.companion`，状态 `held`；并发两次交回同一个 id；不在会话列表里。同一个状态根重启、不调 `ensureMain`：后台任务重新持有它，状态 `held`，有一条 `bots.main-opened`。
 2. 会话库里预先有一个 id 为 `bot-lyra`、不归它的会话（带没收口的运行）：后台任务与 `ensureMain` 都得 `owner-mismatch`，那个会话的日志字节不变。
 3. 用户在主对话里等审批时带 `settlePending: "deny"` 发一句：审批以 `deny` 结算，bot 接着处理这句话；远程 `rewind` 得 `owned-session`。
-4. 冷打开耗时（注入时钟）恰好超过 2,000 毫秒：有 `bots.main-open-slow`，事件数是快照的 `head`。
+4. 重启后冷打开的耗时（注入时钟）恰好超过 2,000 毫秒：有 `bots.main-open-slow`，事件数是快照的 `head`；另一个调用方先打开、`hold` 复用时不记。
 
 Smoke：`packages/neuro-book/src/plugins/bots/` 的插件测试（真实内核、真实 `nbook.agent`、本机假端点）。
 

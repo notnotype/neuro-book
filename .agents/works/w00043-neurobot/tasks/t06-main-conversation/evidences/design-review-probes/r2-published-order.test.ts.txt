@@ -1,0 +1,55 @@
+import {expect, test} from "bun:test";
+import {createApplication} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/application/application.ts";
+import {defineEntry, type PluginDefinition} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/plugins/plugins.ts";
+
+const point = "lab.presets";
+const owner = "lab.bots";
+const preset = `${owner}.default`;
+const ref = {plugin: owner, entry: "server"} as const;
+
+test("顶层缺省预设的 published 先于接收入口发布", async () => {
+    const observations: unknown[] = [];
+    const plugin: PluginDefinition = {
+        id: owner,
+        contributionPoints: [{id: point, implementation: "none", idPrefix: "plugin"}],
+        contributions: [{capability: point, id: preset, declaration: {}}],
+        entries: [defineEntry({id: "server", location: "server", receives: [point], activate: () => ({receivers: {[point]: {
+            published: (handle) => observations.push({kind: handle.kind, status: app.plugins.entryState(ref)?.status}),
+        }}})})],
+    };
+    const app = createApplication({identity: {location: "server", instanceId: "published-order"}, stopSignal: new AbortController().signal, emergency: () => undefined}, {plugins: [plugin], requiredPlugins: [owner], gates: []});
+    try {
+        expect(await app.startup).toMatchObject({status: "available", failures: []});
+        expect(app.plugins.entryState(ref)?.status).toBe("available");
+        expect(observations).toEqual([{kind: "plugin", status: "activating"}]);
+        console.log("顶层预设 published 时入口：", JSON.stringify(observations));
+    } finally {
+        await app.stop();
+    }
+});
+
+test("重复 id 拒绝两份声明，接收入口正常激活但无发布回调", async () => {
+    let published = 0;
+    const plugin: PluginDefinition = {
+        id: owner,
+        contributionPoints: [{id: point, implementation: "none", idPrefix: "plugin"}],
+        contributions: [{capability: point, id: preset, declaration: {}}],
+        entries: [defineEntry({id: "server", location: "server", receives: [point], activate: () => ({receivers: {[point]: {
+            published: () => {published += 1;},
+        }}})})],
+    };
+    const duplicate: PluginDefinition = {id: "lab.extra", contributions: [{capability: point, id: preset, declaration: {}}], entries: []};
+    const app = createApplication({identity: {location: "server", instanceId: "published-missing"}, stopSignal: new AbortController().signal, emergency: () => undefined}, {plugins: [plugin, duplicate], requiredPlugins: [owner], gates: []});
+    try {
+        expect(await app.startup).toMatchObject({status: "available", failures: []});
+        const reasons = app.plugins.contribution(point, preset).map((item) => item.validation);
+        expect(reasons).toEqual([
+            {status: "rejected", reason: "duplicate-contribution", detail: null},
+            {status: "rejected", reason: "duplicate-contribution", detail: null},
+        ]);
+        expect(published).toBe(0);
+        console.log(`重复声明 ${reasons.length} 条；published ${published} 次`);
+    } finally {
+        await app.stop();
+    }
+});
