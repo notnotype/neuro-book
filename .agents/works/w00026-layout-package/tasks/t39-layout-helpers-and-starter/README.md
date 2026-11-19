@@ -50,6 +50,20 @@ updated: 2026-11-19
 | 6 | 输入三种形状、`contextKey` 必填、诊断两个出口；“组合式函数加整包绑定”而不是包装组件的上游选择没记理由 | 输入都收值、ref 或 getter；`contextKey` 可省；诊断合成一个出口；上游选择写明理由，交开发者（待确认清单） |
 | 7 | 文档清单漏项；可用尺寸判据有三份 | 补全清单；`usableExtent` 一处，三处共用 |
 
+## 实施记录
+
+worktree `w00026-t39-host-wiring`（分支 `w00026/t39-host-wiring`），基于 master `adf6779dd` 之后：
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1（含原第 2 片） | `c78f38591` | `usableExtent` 判据；`NestedGrid` 的 `extent` 事件（同步发、卸载前发 null）；`useGridHost`（整包绑定、诊断一个出口），`useGridLayout` 从入口拿掉；Lab 四个网格夹具与工作台 `WorkbenchSurface` 改用它；`NestedGrid.md` 的“接入”重写 |
+| 2 | `cd53bd58c` | `useDragSession`；`useSortable`、Lab `DragSessionScene`、`ExplorerTree` 改用它 |
+
+验证：
+
+- 第 1 片：nb-layout 363 与 235 条、应用类型检查通过；`useGridHost` 4 条用例，变异（去掉卸载前发 null、去掉整包里接 `issues` 的处理）都会红。e2e 10 个文件 249 条：238 条过，11 条在负载 18 到 24 时失败（Lab 就绪超时 4、等元素超时 5、实时布局块数 1、动画帧数值 1），单独重跑 11 条全过。
+- 第 2 片：nb-layout 363 与 237 条、应用类型检查、Explorer 的 dom 测试 23 条通过；`useDragSession` 2 条用例，变异（去掉销毁）会红。
+
 ## 下一步
 
 计划见 [`plan.md`](plan.md)（第 3 稿）。Spec 已写（planned）。
