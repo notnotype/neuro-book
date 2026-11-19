@@ -32,9 +32,11 @@ updated: 2026-11-19
 - F1（`9f6d68917`）：nb-canon 的 `editEntries`、`previewEntries`（`src/world/entry-edits.ts`）与世界服务的 `findEntries`；就地改、记一笔、语义档的记一笔改成一项操作的批（请求摘要、缺省标题、失败码照旧），顺带修了章首剧情变化读回必然失败与显式主线被改成按章选线；条目读取加 `removedComponents`。测试：`entry-edits.test.ts` 12 条、`entry-edits-service.test.ts` 3 条（真实服务与日志：读取戳两种过期、findEntries）、`edits-differential.test.ts` 23 条（单项入口与 t37 之前逐字相同，有意不同的三处另写断言）、`worldlines.test.ts` 加显式主线一条；关键的五处做了变异检查。nb-canon 全量 652 条、应用 canon 插件 bun 17 条与 vitest 139 条都过，两边类型检查通过。`findEntries` 在 520 条目、1000 章上中位数 6.06 毫秒（[证据](evidences/f1-find-entries-perf.txt)）。
 - Spec 改动（`canon/revisions.md` 输出 25 与输出 8、10、22 的补充、失败码；`canon/components.md` 输出 3、7）已写在主工作区，链接指向分支上的新文件，合入时与代码一起提交。
 
+- F2（`e95c7a346`）：远程合同只加方法（`editEntries`、`previewEntries`、`findEntries`，版本不升）；批量编辑的输入只留一份 TypeBox 结构（`nb-canon` 的 `core/schema.ts`），内核与合同共用；浏览器的新建与删除改走 `editEntries`（去掉 `lastOrder` 与拼整份条目）；读取层加 `onRevision`，在“版本不新就不重读”之前按修订 id 去重交出每次发布。测试：`canon.test.ts` 经链路一条（预览与写入相同、读取戳过期、findEntries、视图令牌拒、老方法照常），`world.dom.test.ts` 一条（事件晚于本窗口写入的结果也交出，做了变异检查）；canon 插件 bun 40 条、vitest 141 条都过。Spec `canon/project.md` 的方法表与“只加方法不升版本”写在主工作区，合入时提交。
+
 ## 下一步
 
-1. F2：远程方法 `editEntries`、`previewEntries`、`findEntries`（合同版本不升）；浏览器的新建与删除改走内核；`CanonWorld` 的事件出口；Spec `canon/project.md`。
-2. 之后 F3 到 F7。
+1. F3：canon 的服务端入口与四个 Agent 工具；Spec `canon/agent-tools.md`。
+2. 之后 F5 到 F7（F4 已做）。
 2. 第二轮处理完后照切片 F1 到 F7 实施。
 3. 底座合入后，和开发者定人物 Component 闭环的范围。
