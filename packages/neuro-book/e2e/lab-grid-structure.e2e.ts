@@ -111,6 +111,33 @@ test.describe("收起与展开的入口（Spec ui/nested-grid 输出 147、149�
     });
 });
 
+test.describe("起步例子（nb-layout 的 README）", () => {
+    test("拖左栏的分隔条变宽，拆分出 preview，收起左栏为零、再展开回来", async ({page}) => {
+        await page.setViewportSize({width: 1440, height: 800});
+        await page.goto(`${dev.pageUrl}lab?c=NestedGrid&s=starter&theme=nbook&cw=light`);
+        await expect.poll(async () => (await labState(page))?.ready).toBe(true);
+        await expect(frame(page, "files")).toBeVisible();
+        const files0 = await widthOf(page, "files");
+
+        const sash = await page.locator("[data-sash='root:0']").boundingBox();
+        if (sash === null) throw new Error("没有分隔条");
+        await page.mouse.move(sash.x + sash.width / 2, sash.y + sash.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(sash.x + sash.width / 2 + 60, sash.y + sash.height / 2, {steps: 4});
+        await page.mouse.up();
+        await expect.poll(() => widthOf(page, "files")).toBeGreaterThan(files0 + 30);
+        const widened = await widthOf(page, "files");
+
+        await page.locator("[data-starter-action='split']").click();
+        await expect(frame(page, "preview")).toBeVisible();
+
+        await page.locator("[data-starter-action='toggle']").click();
+        await expect.poll(() => widthOf(page, "files")).toBeLessThanOrEqual(0);
+        await page.locator("[data-starter-action='toggle']").click();
+        await expect.poll(() => widthOf(page, "files")).toBeCloseTo(widened, 0);
+    });
+});
+
 test.describe("过渡（输出“过渡”、验收 9）", () => {
     test("程序调整尺寸：外框过渡到新矩形，内容跟着外框逐帧变化，结束时等于新矩形并撤掉标记", async ({page}) => {
         await open(page, true);
