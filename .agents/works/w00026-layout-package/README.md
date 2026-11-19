@@ -42,6 +42,8 @@ updated: 2026-11-05
 
 2026-11-19：开发者同意 t34 的推荐：t34 只做失败的形状，诊断拆到 [t38 诊断的形状、码与只发新增](tasks/t38-grid-diagnostics/README.md)，L2 拆码延后（[待确认清单](pending-confirmations.md)）。第一档的顺序改为 t34 → t38 → t35 → t36 → t37 → t32 → t14。2026-11-19：t36 拆成 t36（显式入口与导出名测试）与 [t39](tasks/t39-layout-helpers-and-starter/README.md)（小组合函数与起步材料），顺序 t35 → t36 → t39 → t37 → t32 → t14（[待确认清单](pending-confirmations.md)）。
 
+2026-11-19：[t35](tasks/t35-drop-nb-ui/README.md) 完成：nb-layout 不再依赖 nb-ui，读 `--nb-layout-*` 变量（nb-ui 的 `tokens.css` 桥接主题旧名）、文字经自己的注入点 `@notnotype/nb-layout/text`；合入 master（`fa44828b3`），两轮设计审查与一次实现审查处理完，Spec 晋升前换模型逐句核过。开发服务要重启才读得到新子路径。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。

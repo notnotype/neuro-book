@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t35-drop-nb-ui
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -79,7 +79,12 @@ Claude Sonnet，范围 `7d92146ef..52a97a76a`（[`evidences/impl-review.txt`](ev
 | 5 | `locales/index.ts` 头注释过时 | 成立，改了 |
 | 6 | `host-text.test.ts` 逐行匹配，漏换行写法 | 成立，改成全文匹配，自检加换行的样例；导入改名的写法不管，注释写明 |
 
+## 合入与晋升
+
+2026-11-19 合入 master（`fa44828b3`，先并 master 进分支，再快进），worktree 与分支已删。审查修正 `e46a32cf4` 之后重跑：nb-layout 357 条 bun 与 231 条 dom 测试、三个包的类型检查通过；探针与两个 Lab 网格 e2e 25 条里 24 条过，`lab-grid-structure:98` 在负载 14 到 16 时等 Lab 就绪超时，单独重跑通过。
+
+Spec 晋升：`ui/nested-grid` 输出 141 到 143、“边界与兼容”的 CSS 变量一句、实现合同的依赖方向，`theme/system` 的“布局组件的桥接”，`ui/i18n` 输出 8 的例外，去掉 planned 后由 Claude Sonnet 逐句核对（[`evidences/promotion-check.txt`](evidences/promotion-check.txt)）。没有断言的三句改写成写明的已知限制或删去实现细节（子树上的时长不在保证之内；桥接只保证根上；“同在 `layer(base)`”“一行一个”删掉），区分不了的四句改写到断言能区分（行内几何没有回退、宿主旋钮的例子换成真的宿主旋钮、“取清单里的同一个值”、投影色用 `#000`）。分隔条的文字注入只经可排序列表的用例验证（三处共用同一个取文字的函数），接受。
+
 ## 下一步
 
-1. 实现审查（前端，Claude Sonnet）在跑，报告在 `.local/agent/works/w00026-layout-package/tasks/t35-drop-nb-ui/reports/impl-review/`；处理完合入 master。
-2. 合入后：Spec 的 planned 条目换模型逐句核对再晋升；`ui/nested-grid` 实现合同里“Vue 层依赖核心入口与 nb-ui”改掉；根 `AGENTS.md` 的结构行（主工作区有别人未提交的改动，暂欠）。
+1. 欠着：根 `AGENTS.md` 的结构行（nb-layout 不再写“Vue 层用 nb-ui”，主工作区有别人未提交的改动，暂不动）；4217 开发服务要重启才读得到新的 nb-layout 子路径（开发者的步骤）。
