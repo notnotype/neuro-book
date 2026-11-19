@@ -1,0 +1,510 @@
+# w00039 t37 独立设计：作者与 Agent 都能改设定的写入底座
+
+（只读审查，未改仓库；事实带 文件:行，推断与未验证的标明。路径相对 /home/notnotype/CodeRepository/neuro-book。）
+
+## 0. 结论先行
+
+1. 内核的写入通道已经够“发布”：`publish` 收整份对象（`packages/neuro-book/src/plugins/canon/shared/contracts.ts:188`），`editInPlace`、`recordDelta`、`recordNote`、`writeBack`、`revert` 都在远程合同里。缺的不是通道，是“结构性改动”的写法：条目名字以外的列表增删、加或去 Component、移动、建与删条目、一次改几处。今天这些只能由调用方自己拼整份 `Entry` 再 `publish`，界面里新建条目与删除条目各拼了一份（`web/new-entry.ts:49`、`web/components/EntryPageHost.vue:295`），Agent 没有任何一份。
+2. Agent 一个工具都没有：canon 的项目入口注释写明“第一版不建服务端入口：Agent 工具与后台任务还不做”（`backend/plugin.ts:7`），plot 插件同样没有 `agentTool`（grep `agentTool(` 在 `packages/neuro-book/src` 里只有 agent 自己的 `shared/points.ts` 定义处命中）。
+3. 作者界面只能就地改数、文字、选项、是否四种字段（`web/rows.ts:140` 的 `EDITABLE_KINDS`），列表、引用、图片、条目名字、简介、别名、位置、Component 的加去都没有入口；设定视图空着时只有一行灰字“还没有条目”（`web/components/EntryTree.vue:130`，文案 `locales/zh-CN.json:54`），新建入口只在标题栏按钮与右键菜单。
+4. 我的方案一句话：在 nb-canon 里补一个“按条目的结构化改法”（暂名 `editEntries`：一次修订、多条目、多种操作，按当前世界计算整份 `puts`，与 `editInPlace` 共用同一个路由器），远程合同加 `editEntries`、`previewEntries`（只算不发）与 `findEntries`（按名字子串找条目）三个方法；canon 插件新建服务端入口，贡献四个 Agent 工具（`canon_lookup`、`canon_read`、`canon_tree`、`canon_write`），经 `{project}` 目标调用项目实例里的世界；作者界面用现有确认条管标量，用 nb-form 管“列表元素表单”和“一个 Component 一次改多项”的表单，条目页头补名字、简介、别名与“更多”菜单（加或去 Component、移动、删除）。
+5. 先做什么：第一片不动内核（Agent 四个工具用现有 `lookup`、`entry`、`render`、`tree`、`editInPlace`、`recordDelta`、`publish`；界面补空状态与页头改名），能让开发者看到“Agent 建条目、改字段、作者在页上接着改、改动记录里分得清谁改的”；第二片补 `editEntries` 与列表、Component、移动；第三片做人物 Component 的闭环。
+
+## 1. 现状核对（后面的判断都建立在这些上）
+
+### 1.1 内核现有的写入入口各能做什么
+
+| 入口 | 能做 | 不能做 | 依据 |
+|---|---|---|---|
+| `World.publish(request)` | 一组 `puts`（整份条目、变更、核对点、决策、建议）；新建、修改、删除（条目只能加墓碑）；`baseVersion` 按对象判冲突；临时 id | 没有“只改一个字段”的写法，调用方要自己读整份对象、改、写回；同一对象在一次请求里只能写一次 | `docs/specs/canon/revisions.md:39-61`；`packages/nb-canon/src/world/world.ts:488`（`id-taken`） |
+| `editInPlace` | 把某个位置上看到的值改成新值，按来历路由：改初值、改某条变更里的某个补丁、或（剧情意图）在位置上新记一条单补丁的变更；发布后读回核对（`result-mismatch`）；请求 id 重发安全 | 一次只能改一个地址；列表元素只能“整块赋值或改子字段”，不能增删（`writeInit` 的元素分支只 `Object.assign` 或改子字段）；元素来自 `listAdd` 补丁时得 `accumulated-value`（`edits.ts:177`）；改的是列表本身（增删元素）没有入口 | `packages/nb-canon/src/world/edits.ts:144-200`、`298-331` |
+| `recordDelta` / `recordNote` | 剧情意图的加减与语义档一句话 | 只管数与语义档 | `edits.ts:206-288` |
+| `writeBack` | 交回渲染出来的一块主 MDX（作者或 Agent） | 只管主文字的块 | `docs/specs/canon/rendering.md:88-95` |
+| `revert` | 还原一次修订，可连同依赖 | — | `revisions.md:100-101` |
+
+`editInPlace` 的路由器已经覆盖 `entry.name`、`entry.summary`、`entry.aliases`、`text[块]`、`命名空间.字段`、`命名空间.字段[元素].子字段` 这几类地址（`edits.ts:298-331`），所以“改名、改简介、整体替换别名”不缺内核，缺的是界面入口（`web/entry-heads.ts:60-62` 只在回执里认这几个路径的显示名）。
+
+### 1.2 加或去 Component、移动、改名在规格里是什么
+
+- 加 Component：“写入请求写的是条目的整份初值”，已去掉的“写回时去掉 `removed` 标记即恢复”（`docs/specs/canon/components.md` 输出 3、7）。内核没有为它写函数。
+- 移动：条目的 `parent`、`folder`、`order` 是条目上的字段（`docs/specs/canon/model.md:89`），校验在写入时（`invalid-tree`，`model.md:198`）；没有“移到某项之后”的写法，`order` 是数，新建时界面读完一整层找最后一项（`web/new-entry.ts:32-47`）再加 1。
+- 列表元素的 id：调用方给；以引用为键的列表用条目 id（`components.md:19` 条）；字段 id 有 `generateFieldId`（`packages/nb-canon/src/components/registry.ts:164`），元素 id 没有对应的生成函数。
+- 实例字段声明的新增、改显示名、删除“都是创作修改”，实例字段 id “写入时由内核生成（planned）”（`components.md` 输入表 `id` 行，输出 4）。
+
+### 1.3 Agent 平台怎么接工具
+
+- 贡献点 `agent.tools`：声明（说明、参数、`effect`、`group`、`defaultForAll` 等）写在清单里，实现是 `{create(context, services)}`，每会话每工具建一次，`effect(args)` 可按参数改等级（`packages/neuro-book/src/plugins/agent/shared/points.ts:47-140`；`docs/specs/agent/contributions.md:44-48` 输入表）。
+- 工具在服务端入口里：示例 `plugin-sdk/examples/plugins/word-stats/backend/plugin.ts` 用 `agentTool(...)` 写声明，`activate` 返回 `rawContributions: {[TOOLS_POINT]: {...}}`，`location: "server"`。
+- `ToolSessionContext` 带 `sessionId`、`profile`、`project?`、`background?`（`packages/nb-harness/src/kernel/api/host.ts:400-407`）：会话属于哪个作品是现成的。`project` 就是 `projects://<引用>` 里的引用（`plugins/agent/backend/resources.ts:32-34`）。
+- 服务端插件调项目实例里的远程服务：写法 `remote.use(合同).at({project})`，`{project}` 目标对运行中的项目不需要租约，`idle-grace` 中会 `denied`（`docs/specs/runtime/plugin-channel.md` 输出 1 与 `docs/specs/runtime/projects.md:82-86`）；先例是 `projects://` 文件方案，每次调用先 `acquire` 租约、调用、释放（`plugins/files/backend/projects-scheme.ts:1-9`、`46`）。世界合同是 `provider: "project"`、`callers: ["browser","tui","server"]`（`shared/contracts.ts:259`），所以服务端调用在合同上已允许。
+- 世界的远程实现是“每个调用方一份”，独占令牌与视图令牌随调用方实例释放（`backend/plugin.ts:156-170`、`backend/remote.ts:68-95`）：服务端入口作为调用方时，它停止就会释放它名下的令牌，和浏览器一样。
+
+### 1.4 已经定下的、会约束设计的几条
+
+- 所有写入走同一条发布通道、带版本、留记录、可逐条还原；Agent 可以改作者的东西（Work 决定表 2026-11-02，`.agents/works/w00039-novel-writing-plugins/README.md:39`）。
+- 就地改默认算改设定、写回给出这个值的记录（同表 2026-11-02 一条）。几笔累出来的数不直接改（同表 2026-11-02 第二条）。
+- 提案第 9 节：六个工具、返回有条数与字数上限与游标、位置参数有缺省、Component 用法以提醒方式给（`docs/proposals/world-engine-kernel.md:447-485`）。
+- 作者界面第一批“不承诺”里明写：作者编辑条目主文字、Component 类型的专门界面、新建剧情变更等（`docs/specs/canon/author-ui.md:16-26`），所以下面的界面项需要改这份 Spec。
+
+（修正：上面第 1.4 节“所有写入走同一条发布通道”一条在 Work README 决定表第 39 行，“几笔累出来的数不直接改”在第 45 行。）
+
+## 2. 先提质疑（六个视角）
+
+### 2.1 反对与精简：哪些要做，哪些可以不做或推后
+
+**要做（底座的最小闭包）**
+
+- Agent 的读：`lookup`、`read`、`tree`。没有读，Agent 写不对（引用要 id、枚举要选项、数要知道现状）。
+- Agent 的写：一个 `write`，内含建条目、改字段、列表增删、加去 Component、改名、移动、删除与恢复、记剧情变化（加减与语义档一句话）、主文字局部替换。
+- 作者的写：条目页头改名与简介与别名、每种字段能改（含列表与引用与图片）、加去 Component、移动、空状态的新建入口。
+
+**可以推后或不做**
+
+| 项 | 为什么不放进底座 |
+|---|---|
+| 提案第 9 节的 `changes`、`search` 两个工具 | 它们读剧情变更与全文检索，改设定本身用不到；`search` 要建索引，提案自己把“全文检索实验”排在 t19 之后（Work 决定表 2026-11-02 末尾“检索实验”）。`read` 里给“最近改动”一块就够 Agent 自查。 |
+| 自动预查与 Component 用法提醒（提案第 9 节） | 属于写手上下文（t20、t36）。底座只保证 `read` 的结果里每个字段带声明（种类、选项、可指向的条目种类），Agent 不靠提醒也写得对。 |
+| 实例字段声明（面板的“加一个字段”） | 人物闭环不用；面板闭环再做。内核已有规则（`components.md` 输出 4），UI 与工具各加一个操作即可，等需要时补。 |
+| 作者编辑主 MDX | 已单列 t28，且 Work 决定“作者在界面里怎么编辑以后另找办法”。底座只让 Agent 能局部替换（`replaceOnce` 已有）。 |
+| 拖动排序、图片上传与选择器 | 属于 UI 打磨，开发者要求最后修。移动用“移动到……”对话框，图片先填路径加文字说明。 |
+| 条目页专门界面（面板的值卡等） | 不碰；通用字段表加编辑入口就够。 |
+| 经文件改设定 | ADR 0039 已决定不做（`revisions.md:18`）。Agent 用工具，不用 `write` 文件。 |
+| 独占写入（`acquireExclusive`）在 Agent 工具里 | 一次 `write` 本来就是一次原子发布，不需要独占。独占留给记账这种多步任务。 |
+
+**能用现成的**
+
+- 表单：`@notnotype/nb-form` 按 schema 画表单，值受控、校验与问题显示、对象列表增删排序、可搜索下拉、自定义控件登记都有（`docs/specs/ui/forms.md` 输出 19、22；`packages/nb-form/src/vue/controls/ListControl.vue`、`MasterDetailControl.vue`）。适合“列表元素表单”和“一个 Component 一次改多项”。**不适合**替换现有的就地改确认条：确认条的每一步（读到的值、版本、意图、预览带来的变化）是围绕一个地址做的，表单是整值提交。
+- 条目名字下拉：`lookup` 只做精确名字（`docs/specs/canon/project.md` 方法表 `lookup` 行）；引用选择器与 Agent 的“半个名字”都要子串匹配，这个读取要补（`findEntries`），不要在客户端把整棵树读下来过滤（新建对话框的候选现在就是这样受限的，`author-ui.md` 输出 4）。
+- 请求 id 去重、预览与发布一致、改动记录与还原：都已有，新的写法必须产出普通的 `puts`，不另开持久化格式。
+
+### 2.2 成本
+
+- **开发量**：见第 6 节分期。内核补 `editEntries` 与 `findEntries` 约等于把 `edits.ts` 的路由器抽成可批量的版本再加七八种操作；Agent 工具与界面是主要工作量。
+- **运行开销**：改一个常出场条目的初值，参考机上 5 次中位数要在 1 秒以内（`docs/specs/canon/project.md` 输出 14），每个有受影响线的世界线另算。Agent 若逐字段发十次 `editInPlace` 就是十次重算与十条修订；批量的 `editEntries` 一次重算、一条修订。这是批量写入的运行理由，也是改动记录可读的理由（见 2.5）。
+- **模型额度**：四个工具的说明加参数 schema 估计在 2 千到 3 千 token（`write` 的操作种类多是大头），每个会话都带不划算，所以不设 `defaultForAll`（见 3.5）；每次返回要有硬上限（3.3）。一次 `read` 默认只给字段表，不给来历与主文字。
+- **耦合成本**：服务端工具每次调用要租约加一次远程往返；项目没在运行时 `acquire` 会启动项目子进程（空项目约 323 ms，大书的世界打开约 2.3 s，`projects.md:91`）。可接受，但工具要有超时与明确的失败文字。
+
+### 2.3 使用者体验
+
+**作者**（不懂数据结构）
+
+- 现状的断点：看不见的行为多。一个新建的条目所有字段都是“未知”（`web/new-entry.ts:49-70`），列表字段在字段表里只是几行文字不能点，引用和图片字段整行没有“改”。作者看到的是“能看不能改”。
+- 要避免的：给作者看“意图”两个选项的概念负担。现有确认条的“改设定 / 剧情里变了”在位置是初值时只剩一项，在章里有两项；表单式的一次改多项应只做“改设定”（初值与出处），“剧情里变了”留给确认条与单项操作，否则表单每个字段旁都要有意图选择。
+- 一次填一个人物 8 个字段，逐字段确认条会写 8 条修订，改动记录与撤销都变成噪音。需要“表单一次保存、一条修订”（第 5 节）。
+
+**Agent**（会不会写错参数、能不能一次改好几处）
+
+- 最容易错的是 id：条目 id（`e7`）、字段 id（与显示名不同）、元素 id、引用值。规格里写显示名自动解析是 planned（`components.md` 输出 8 `ambiguous-field`）。底座的工具应接受名字、由工具层解析成 id，歧义时列出候选，不让模型猜 id。
+- 第二类错：枚举值、数的范围、引用的种类。声明里有 `options`、`min`、`max`、`targets`，`read` 把它们和值一起给出，写失败时把“允许的取值”写进错误里。
+- 第三类错：几笔累出来的数。`editInPlace` 会得 `accumulated-value`。工具要把它翻译成两条可行的路：“记一笔”或“在这条剧情里改”。
+- 一次改几处：必须有。批量里任一处失败整次拒收（内核已保证原子），错误要指到第几处。
+
+### 2.4 迁移与兼容
+
+- 世界日志：新操作都落成普通的 `puts`，修订形状不变，旧日志与旧读者不受影响；新的只是 `what` 取值的使用习惯（Agent 的创作修改用 `creative`，作者用 `edit`；今天 `editInPlace` 一律写 `edit`，`edits.ts:167,184,196,216`）。`RevisionWhatSchema` 已有 `creative`（`packages/nb-canon/src/core/schema.ts:312`），不用改 schema。
+- 已发布接口：`canonWorldContract` 版本 1（`shared/contracts.ts:259`）。加方法是增量；按“远程合同第一版整数精确匹配”（`plugin-channel.md` 输入与前置条件），同一次构建的浏览器与项目实例不受影响，第三方调用方没有（现有调用方：canon 浏览器入口、plot 插件，均在本仓库）。**我没有验证老浏览器页签连新项目实例遇到未知方法的行为**，从代码推断是调用时失败而非握手失败，需要实施时核对。
+- 条目页现有写入（新建、删除）的客户端拼装代码要在第二片迁到 `editEntries`，同时删掉 `lastOrder` 这种“读完一整层找最后一项”的客户端逻辑，否则两条路径并存。
+- `editInPlace` 的外部行为不变（Spec 输出 8、22、24 与现有测试都在引用它），内部改成走新的路由器；用差分测试兜住（仓库已有 `differential.test.ts` 的做法）。
+
+### 2.5 可观测与排障
+
+- 谁改的：修订的 `by` 是 `author` / `agent`（带会话 id）/ `task` / `system`，改动记录能按它筛（`shared/contracts.ts:168`；`author-ui.md` 输出 24）。Agent 通过服务端入口调用，`by` 必须由工具层从 `context.sessionId` 填，工具参数里不放 `by`。
+- 看不见的缺口：(1) 作者不在改动记录视图里时不知道 Agent 刚改了东西；现有“保存后的提示”只对本窗口的写入出（`author-ui.md` 输出 18）。`changed` 事件带 `by` 与 `title`（`project.md` 事件段），窗口可以对“别处发布且 `by` 是 agent”的修订给一条同样的提示，带“看回执”“撤销”。(2) 回执页与改动记录里的 Agent 修订没有“这是哪次对话”的链接，`by.session` 是现成的。
+- Agent 自己怎么还原：提案第 9 节 `write` 里含“还原一次修订”。底座提供，但建议工具层只允许还原 `by` 是本会话的修订（读 `revision` 方法核对），还原别人的让作者在界面里做。这是我的建议，不是已有规则。
+- 排障要有的信息：写失败的原因必须是结构化的给模型看（码加中文一句加出错的第几处），日志里 `outcome(requestId)` 可查结局（`project.md` 输出 16）；工具的请求 id 由工具层生成，格式带会话与调用序号，便于从改动记录反查对话。
+
+### 2.6 长期维护与技术债
+
+- 最大的债：两个路由器。`editInPlace` 里的“按来历写回哪里”已经是复杂逻辑（初值、补丁、累出来的数、语义档、从别的线带来的值）。若新操作各写各的，就会出现“列表增删落初值、改元素落补丁、记剧情落新变更”三套互不知道的路径。必须把路由器抽成“在工作副本上应用一个操作”的单元，`editInPlace` 与 `editEntries` 共用。
+- 第二个债：界面与工具各有一份“字段声明到输入控件”的映射。确认条按 kind 选控件（`web/in-place-edit.ts:89` 的 `kindOf`），nb-form 表单要另一份。应只保留一份“声明转 schema”的纯函数，两个界面共用（放在 canon 插件的 shared 里，纯 TS），Agent 的参数校验也可复用它做“允许的取值”文字。
+- 第三个债：Spec。新操作要进 `revisions.md`（输出 25 起）、`project.md` 方法表、`author-ui.md` 的不承诺与输出、新建 `canon.agent-tools`；`governance:check` 有机检，要同时改。
+- 提醒一个与既有决定的张力：“就地改写回给出这个值的记录”对标量成立，对“列表增删”不自然。一行元素可能来自初值、某章的 `listAdd`、再被后面的 `listRemove` 去掉；“改设定”下增删要落哪里？我的建议见 4.3：创作意图下的结构性改动只写初值，元素由变更给出时拒收并指路（“这一行是第 N 章加的，请在那条变更里改，或用‘剧情里变了’”）。这是对既有决定的一处具体化，请开发者确认。
+
+## 3. 方案一：Agent 工具
+
+### 3.1 放在哪个插件、哪个进程，怎样找到会话所在项目的世界
+
+- **插件**：放进 `nbook.canon`，不另开插件。理由：工具是世界服务的“另一种调用方”，合同、请求 id、读取位置、失败码都在 canon 里；另开插件要再导出一批类型。剧情侧工具以后由 `nbook.plot` 自己贡献，走同一条路。
+- **进程**：Agent 会话与 `agent.tools` 的实现都在服务端（`plugins/agent/backend/plugin.ts:79` 的 `location: "server"`；示例 word-stats 同），世界在项目实例里。所以 canon 要新建一个**服务端入口**，同时把描述里的位置改成 `["project","browser","server"]`（现在是 `["project","browser"]`，`plugins/canon/plugin.ts:14`），并删掉 `backend/plugin.ts:7` 那句“第一版不建服务端入口”的注释。
+- **找项目**：工具工厂 `create(context, services)` 里 `context.project` 就是会话的作品引用（`host.ts:400-407`；`plugins/agent/backend/resources.ts:32-34`）。每次执行：
+  1. `context.project` 为空：返回失败 `no-project`（“这个会话不属于任何作品”），与 `project://` 同口径。
+  2. `projects.acquire(context.project)` 取租约（入口依赖 `projectsKey`，`packages/neuro-book/src/shared/projects.ts:147,162`），拒绝时返回 `project-unavailable`。
+  3. `remote.use(canonWorldContract).at({project: context.project})` 调用，结束时释放租约。做法同 `projects://` 文件方案（`plugins/files/backend/projects-scheme.ts:1-9`），它说明租约的目的是“项目不会在调用期间停止或换代”。
+  4. 不用无租约的 `{project}` 访问：项目在 `idle-grace` 时会 `denied`（`projects.md:85`），Agent 在作者关了窗口之后继续跑时就会随机失败。
+- **身份**：写入的 `by` 由工具层填 `{kind: "agent", session: context.sessionId}`，参数里不开放 `by`。世界合同的“调用方”是服务端入口，它停止时它名下的令牌被释放（`backend/plugin.ts:156-170`）；工具不申请独占与视图令牌，所以没有残留。
+- **激活**：每个工具用 `agentTool(id, 声明)` 写声明与激活事件 `onAgentTool:<id>`，第一次调用才激活入口（同 word-stats）。
+
+### 3.2 工具清单
+
+名字写 `canon_` 前缀（t20 已定“工具名加前缀，不和 harness 自带的撞名”，`tasks/t20-agent-tools/README.md`“重切后要定的”第 2 条；占位名 `world_lookup` 不沿用，因为 canon 才是插件名）。工具 id 为 `nbook.canon.lookup` 这类（`providerName` 写 `canon_lookup`）。四个都带 `group: "设定"`。
+
+| 工具 | 等级 | 并发 | 做什么 |
+|---|---|---|---|
+| `canon_lookup` | read | shared | 按名字或别名找条目 |
+| `canon_read` | read | shared | 读一个条目：字段表（缺省）、主文字、来历、最近改动 |
+| `canon_tree` | read | shared | 列条目树的一层 |
+| `canon_write` | write（`preview: true` 时 read） | exclusive | 一次修订，多处改动 |
+
+提案第 9 节的 `changes` 与 `search` 本片不做（见 2.1）。
+
+**公共参数 `at`（读取位置）**：`"initial"`，或 `{chapter: 序号或章 id, edge: "start" | "end"}`；缺省是世界的缺省位置（有章时最新一章末尾，没有章时初值；`model.md` 输出 21）。提案说的“审查第 N 章取开头、记账取末尾”由写作流程的提示词给，底座只提供参数。每个返回的第一行写明位置（“位置：第 12 章末尾”）与世界版本。
+
+**`canon_lookup`**
+
+- 参数：`names: string[]`（1 到 20 个），`at?`。
+- 返回：每个名字一行，最多 5 个匹配，每行不超过 160 字：`星瑕 → e12 人物「星瑕」（别名：小瑕）｜设定：人物、面板｜简介…`。没找到按提案分开说明；本片只能说“没有这个名字的条目”，加上 `findEntries` 以后附上最相近的 3 个（名字子串匹配）。总字数不超过 3,000，超过的名字写“其余 N 个未列出”。
+- 实现：一次远程 `lookup`（`names` 上限 200，`shared/contracts.ts:94`），按名字取到的 id 再取每个条目的简介与启用的类型（并行 `entry`，每个条目一次，≤ 20 次）。
+
+**`canon_tree`**
+
+- 参数：`parent?: 条目 id 或名字（缺省根）`，`limit?`（缺省 30，最大 50），`cursor?`，`at?`。
+- 返回：每行 `e12 星瑕 [人物] 未出场/已删除`，总数与续读游标。≤ 3,000 字。
+- 实现：远程 `tree`（带 `position` 时每项带当时的名字与出场，`project.md` 方法表 `tree` 行）。
+
+**`canon_read`**
+
+- 参数：`entry`（id 或名字），`at?`，`show?`（数组，缺省 `["fields"]`，可选 `"text"`、`"origins"`、`"history"`），`field?`（`origins` 要读哪个字段），`cursor?`（分页），`mode?`（`"actual"` 缺省或 `"planned"`）。
+- `fields`：头部（名字、别名、简介、种类、分组、上级、本体、出场、是否已删除、**世界版本**），然后每个启用的 Component 一节，每个字段一行：`显示名（id）= 值 单位｜种类｜选项或范围｜可指向的条目种类`。列表字段每个元素一行 `[元素 id] 标签｜子字段=值…`，最多 20 行，超过写“还有 N 行”，用 `field` 单独读完整。语义档字段在值后列最近 3 句事件。值超过 300 字截断并标出。整体缺省 ≤ 6,000 字。
+- `text`：给 Agent 的渲染（带值写法，`render` 的 `audience: "agent"`，`rendering.md` 输出 9），一次 ≤ 4,000 字，用 `cursor` 续读。
+- `origins`：`field` 指定地址（`人物.外观` 或 `面板.存款`），最近 15 步（远程 `origins`，`project.md` 方法表 `origins` 行），说明“累出来的数”与“可改的那一笔”。
+- `history`：涉及这个条目的最近 10 次修订：版本、谁、标题、时间（远程 `revisions`，筛 `entry`）。
+- 实现：`entry`（`withOrigins` 否）加 `render` 加 `revisions`，按 `show` 取需要的。
+- 为什么字段行里写 id 与种类：Agent 下次 `canon_write` 就用同样的名字，写失败时有“允许的取值”可查。
+
+**`canon_write`**
+
+- 参数（形状给模型看的是一个扁平对象，操作的必填项由工具层逐项校验并用中文报；这样 schema 小，不用 `anyOf`，也避开严格模式对联合类型的限制，声明里写 `strict: false`）：
+
+```ts
+{
+  version: number;        // canon_read 返回的世界版本；只建新条目时可不写
+  title: string;          // ≤ 60 字，作者在改动记录里看到的标题
+  why?: string;
+  intent?: "setting" | "story";   // 缺省 setting：改设定；story：在 at 记一条剧情变化
+  at?: Position;          // story 时是落点；setting 时是“从哪个位置看到当前值”（决定写回哪条记录），缺省同读
+  preview?: boolean;      // 只算不发布
+  edits: Array<{          // 1 到 30 项，按顺序在同一份工作副本上应用
+    op: "create" | "set" | "rename" | "summary" | "aliases" | "listAdd" | "listRemove"
+      | "addComponent" | "removeComponent" | "move" | "delete" | "restore" | "replace"
+      | "add" | "note" | "revert";
+    key?: string;         // create 时给这个新条目取的代号，后面的操作用 "$代号" 引用它
+    entry?: string;       // 条目 id、名字或 "$代号"
+    field?: string;       // "人物.外观"、"知情.知情[k12].程度"；命名空间与字段写 id 或显示名都行
+    value?: unknown;      // set 的新值；ref 字段写条目名或 id
+    // 其余按操作：name、text、add、remove、element、component、parent、after、folder、type、find、with、delta、reason、revision…
+  }>;
+}
+```
+
+- 操作与内核的对应与限制见 4.2。每个操作的参数写在工具说明里不超过一行一个，总说明 ≤ 1,200 字。
+- `revert` 只允许单独一项，且只允许还原 `by` 是本会话的修订（工具层先读 `revision` 核对），还原别人的告诉 Agent 请作者在界面上做（我的建议，非既有规则）。
+- 一次最多 30 项；超过得到 `too-large` 样的文字提示“分成几次写”。链路预算本身是 1 MiB 减 64 KiB（`CANON_BUDGET_BYTES`，`shared/contracts.ts:34`），不是瓶颈，30 是为了让失败的错误列表读得完。
+
+**名字到 id 的解析（降低写错参数）**
+
+- `entry`、`ref` 的值、`move.parent`、`after`：工具层先收齐所有名字，一次 `lookup`，按 `at` 位置解析；0 个匹配返回“没有叫‘X’的条目，最相近：…”，多于 1 个返回候选的 id 与种类让模型选，不替它选。
+- `field` 的命名空间与字段：按这个条目的 `declarations`（`components.md` 输出 21）解析，显示名在命名空间里不唯一时报歧义；写显示名与写 id 同样接受（规格里这是 planned 的 `ambiguous-field`，这里由工具层先做，内核不改）。
+- `value` 的类型：按声明预检。枚举不在 `options` 里时返回允许的取值；数超出 `min`、`max` 或超过 4 位小数时返回范围；`ref` 的 `targets` 与目标条目的 `type` 不符时返回允许的种类；`image` 路径不合规则时返回规则（`components.md` 输出 15）。预检只为让错误更好懂，内核校验仍是最终的。
+
+### 3.3 返回大小与字数上限（给模型的文字）
+
+| 工具 | 缺省 | 硬上限 | 超出时 |
+|---|---|---|---|
+| `canon_lookup` | 20 名字，每名 5 匹配，≤ 3,000 字 | 同 | 末行“其余 N 个未列出” |
+| `canon_tree` | 30 行 | 50 行，≤ 3,000 字 | 续读游标 |
+| `canon_read` fields | ≤ 6,000 字，列表 20 行，值 300 字 | `limit` 加大到列表 100 行，≤ 12,000 字 | “已截断”加怎么读全 |
+| `canon_read` text | 4,000 字 | 同 | 游标 |
+| `canon_read` origins | 15 步，≤ 3,000 字 | 30 步 | 游标 |
+| `canon_write` 成功 | ≤ 1,500 字 | 同 | 变更行只列前 20 条，写“另有 N 处” |
+| `canon_write` 失败 | ≤ 2,000 字 | 同 | 问题列前 5 条；冲突的当前值每个对象 ≤ 600 字、最多 3 个对象 |
+
+所有返回在末尾写“共 N 条，显示 M 条”。给模型的文字是中文；机器可读的部分放 `details`（码、修订 id、世界版本、`ids` 对照、出错的第几项），不要让程序按文字判断。
+
+### 3.4 写入怎样表达，失败与冲突怎么回给模型
+
+- **一次修订里改几处**：`edits` 里的每一项依次作用在同一份工作副本上，最后按对象合并成一份 `puts`，**整次原子**：任何一项不通过就整次拒收，世界不动。这一点内核已有（`revisions.md` 输出 1）；新的是“批量里的先后依赖”：同一个条目的两个字段、`create` 后马上 `set`，都能写在一次里。
+- **读取版本**：`version` 对应请求的 `baseVersion`；冲突按对象判（`revisions.md` 输出 7），没动过的对象不冲突。只建新条目时不需要 `version`（新对象没有旧值，工具层用当前版本）。
+- **请求 id**：工具层生成，格式 `agent-<会话 id 前 8 位>-<单调序号>`；工具超时或链路断开后，工具层按 `outcome(requestId)` 先查再决定重发，同请求同输入返回第一次的结果（`revisions.md` 输出 16、24）。模型不见请求 id。
+- **失败回给模型**的对照（码来自 `revisions.md` 失败表与 `edits.ts:35-44`）：
+
+| 内核码 | 回给模型 | 下一步 |
+|---|---|---|
+| `version-conflict` | 哪些条目在你读完后被改过，各自当前的字段（≤ 600 字）与新版本 | “用 canon_read 重读再写” |
+| `value-conflict` | 不会出现（工具不传期望值）；若 `expect` 以后加上，同上 | — |
+| `accumulated-value` | “‘存款’是几笔累出来的数。选一：`intent:"story"` 加 `op:"add"` 记一笔；或 `canon_read show:["origins"] field:"面板.存款"` 找到那一笔，在那条剧情里改” | 二选一 |
+| `incomplete-field` / `field-unavailable` | “这个字段此刻不完整/没启用”，附原因 | 先 `addComponent` 或改 `at` |
+| `validation-failed` | 前 5 条 `{第几项, 码, 说明}`；`unknown-field` 附该命名空间的字段清单 | 改参数 |
+| `intent-not-allowed` | “初值上不能记剧情变化；给 `at` 一个章” | 改参数 |
+| `busy`（独占写入中） | 持有者的说明与已持续的时间 | “稍后再试，不要重复发” |
+| `world-read-only`、`write-unknown` | 原因；`write-unknown` 附请求 id 供查 | 告诉作者 |
+| `author-source-required`、`author-source-invalid` | “这项要作者在界面上确认，Agent 不能做” | 告诉作者；底座不暴露决策的写法 |
+| `too-large` | “分成几次，每次不超过 30 项” | 拆 |
+
+- **预览**：`preview: true` 走 `previewEntries`（4.2），返回“会写回哪里、带来的变化、让后面哪些套不上”，不占请求 id。建议主流程是：Agent 对一次多处的写入先预览，作者的审批在写入时问；这是提示词层的事，不是强制。
+
+### 3.5 审批怎么走
+
+- 声明 `effect: "write"`（没激活时用最保守的），实现里 `effect(args)` 在 `preview === true` 时返回 `"read"`（`points.ts:131-135` 的按参数求等级）。读工具 `read`。
+- 经 `agent.permissions` 现有规则：`ask` 模式每次问；`allow-writes` 直接放；规则里 `tool: "nbook.canon.write"` 可按 `arg` 路径加关键词（例如 `edits` 里出现 `delete` 就问），不需要新的匹配器（`permissions.md` 输出 3、10）。
+- **已知摩擦**：`auto` 模式下，“写路径全部在作品里”才放行（`permissions.md` 输出 19），canon_write 没有路径，所以每次都问审批模型，等于 `ask` 的变体。要让它像文件写一样免问，需要权限规格加“作品内数据写入”这一类，**不在本次做**，只记为待办；理由是撤销是整条链的安全网（所有写入可逐条还原、改动记录里分得清谁改），不必在审批上更紧。
+- 审批卡片看到的是 `edits` 的参数 JSON（从代码推断，未在界面上验证），已经是读得懂的操作（“rename 星瑕→…”）；更好的“写前预览”需要审批预览钩子支持插件工具（现在只有 `edit`、`edit-replace`、`write` 三个有，`builtin-tools.md` 输出 26），列在第三片。
+
+### 3.6 谁拿到这些工具
+
+- 不设 `defaultForAll`：每个会话多 2 千到 3 千 token 不划算，`nbook.agent.session-title` 这类也不该有（它本来 `defaultTools:false`）。
+- 本片给一个 Profile `nbook.canon.keeper`（“设定助手”）：`required` 是四个 canon 工具加 `nbook.agent.read`、`nbook.agent.ask-form`，`optional` 是 `grep`、`glob`；提示词只写“怎么用这几个工具”和“先读后写、写前给作者看改什么”。Profile 的 key 前缀是插件 id，所以声明在 canon 里合规（`contributions.md` 输入表）。写作流程的 Profile（t19）以后吸收它。
+- 现有 `nbook.agent.main` 的用户可以在设置里的“工具绑定”（`nbook.agent.toolBindings`）里自己加这四个。
+
+## 4. 方案二：内核补什么
+
+### 4.1 够不够：逐项对照
+
+| 要能做的 | 现有 | 缺什么 |
+|---|---|---|
+| 改数、文字、选项、是否 | `editInPlace` 按来历路由（`edits.ts:144-200`） | 够；缺的是一次改几处（同一对象的两处会撞 `id-taken`，`world.ts:488`，所以不能把 `editInPlace` 连调几次拼成一次修订） |
+| 改引用字段（`{ref: 条目 id}`） | 同上，值照 `ref-invalid` 校验（`components.md` 输出 18） | 内核不缺；界面没有控件、Agent 要把名字解析成 id |
+| 改图片字段（`{图片, 说明}` 整值） | 同上 | 内核不缺；界面没有控件 |
+| 改列表元素的子字段 | `writeInit` 的元素分支，只在“元素在初值里”时成立（`edits.ts:322-329`） | 元素由某章的 `listAdd` 补丁给出时得 `accumulated-value`（`revisions.md` 输出 8 表第三行，“改那个补丁带的值”是 planned） |
+| 列表增删元素 | 只有剧情变更里的 `listAdd`、`listRemove` 补丁（`schema.ts:134`），改设定的路径没有 | **缺**：创作意图下的增删；元素 id 的生成函数 |
+| 别名增删 | 整体替换 `entry.aliases`（`edits.ts:305-309`）；补丁有 `aliasAdd`、`aliasRemove` | 够用，增删的写法（加一个、去一个）在批量里更自然，随新操作补 |
+| 加或去 Component | 规格说“写入请求写的是条目的整份初值”（`components.md` 输出 3、7） | **缺**：没有函数。要新建 `data[命名空间]` 且各字段为 `null`（未知）、去掉时标 `removed`、恢复时去标记；只做查询的类型写进 `init.components` |
+| 改名 | `entry.name` 路由，初值或某条变更的 `set` 补丁 | 够 |
+| 移动（上级、分组、种类、同级顺序） | 条目上的字段，只能 `publish` 整份条目；`invalid-tree` 校验在写入时（`model.md:198`） | **缺**：同级顺序的计算（“移到某项之后”）；新建时的“最后一项的 order”现由界面读完整层得出（`web/new-entry.ts:32-47`） |
+| 新建、删除、恢复条目 | `publish` 整份条目、加墓碑、去墓碑 | 缺内核一份的写法（界面两处各拼一份） |
+| 主文字局部替换 | `replaceOnce` 已导出（`edits.ts:291`），没有接到写入 | 接上：把 A 换成 B，按所在块的来历路由 |
+| 一次修订里多处、多条目 | 手写 `puts` | **缺**：同一对象的多处合并成一份；先后依赖（先建后改） |
+| 按名字子串找条目 | `lookup` 精确名字与别名 | **缺**：引用选择器、Agent 的“相近的名字”、新建对话框的候选（现在只来自树里已展开的层） |
+
+### 4.2 要补的接口形状
+
+**一、`editEntries`（写）与 `previewEntries`（读）。** 放在 `packages/nb-canon/src/world/edits.ts` 旁新文件 `entry-edits.ts`，公开入口导出；`WorldService`（`packages/nb-canon/src/service/service.ts:1147` 一带）与远程合同（`shared/contracts.ts`）各加同名方法，写方法带可选独占令牌、读方法带视图令牌的口径同 `previewEdit`（带令牌一律 `view-denied`）。
+
+```ts
+export interface EntryEdits {
+    readonly requestId: string;
+    readonly by: Actor;
+    readonly baseVersion?: number;         // 读到的世界版本；缺省等于当前版本，只允许在所有操作都是 create 时缺省
+    readonly title: string;
+    readonly why?: string;
+    /** creative（缺省）：改设定；story：在 position 记一条剧情变更（带 position，不能是初值）。 */
+    readonly intent?: "creative" | "story";
+    /** creative：从哪个位置看当前值（决定写回哪条记录）；story：落点。缺省取世界缺省位置。 */
+    readonly position?: ReadPosition;
+    readonly ops: readonly EntryOp[];
+}
+
+export type EntryOp =
+    | {readonly op: "create"; readonly id: string /* tmp: 开头 */; readonly entry: NewEntry}
+    | {readonly op: "set"; readonly at: Address; readonly value: unknown; readonly expect?: {readonly value: unknown}}
+    | {readonly op: "replace"; readonly at: Address; readonly find: string; readonly with: string}
+    | {readonly op: "listAdd"; readonly at: Address; readonly element: ListElementDraft}
+    | {readonly op: "listRemove"; readonly at: Address; readonly id: string}
+    | {readonly op: "aliases"; readonly entry: string; readonly add?: readonly string[]; readonly remove?: readonly string[]}
+    | {readonly op: "component"; readonly entry: string; readonly type: string; readonly action: "add" | "remove"}
+    | {readonly op: "place"; readonly entry: string; readonly parent?: string | null; readonly folder?: string; readonly type?: string; readonly after?: string | null}
+    | {readonly op: "delete" | "restore"; readonly entry: string}
+    | {readonly op: "add"; readonly at: Address; readonly delta: number; readonly basis: Basis}   // 仅 story
+    | {readonly op: "note"; readonly at: Address; readonly text: string};                        // 仅 story
+
+export type EntryEditResult =
+    | (Extract<WriteResult, {ok: true}> & {readonly routes: readonly EditRoute[]; readonly laterRecords: readonly string[]})
+    | {readonly ok: false; readonly failure: EditFailure | {readonly code: "op-failed"; readonly index: number; readonly failure: EditFailure}};
+```
+
+要点：
+
+1. **一个路由器**：把 `planEdit` 里的“读当前值、取来历、按最后一步决定写回初值或补丁”拆成 `routeSet(world, draft, op)`，`editInPlace` 变成 `editEntries({ops: [set]})` 的薄包装（公开签名与失败码不变）。差分测试：同一批输入先用旧实现（保留在测试里）再用新实现，修订的 `ops` 与 `impact` 逐字相同。
+2. **工作副本**：`Draft` 持有按对象克隆的条目与变更，按顺序应用；结束时每个被改的对象一份 `put`（避开 `id-taken`）。创建的条目或本次新加了命名空间的条目，后面的操作直接在副本的初值上做，不去读世界（世界里还没有）。
+3. **同一地址写两次拒收**（`validation-failed`，细项 `duplicate-address`）：批量里的先后不用解决“最后一个赢”的语义。
+4. **story 意图**：所有 `set`、`listAdd`、`listRemove`、`aliases`、`add`、`note` 合成**一条**新变更（一个落点、多个补丁，`involves` 是涉及的条目），而不是每个操作一条；精确档数 `set` 仍按 `editInPlace` 的做法转成差额加减（`edits.ts:160-163`）。
+5. **creative 意图的结构性操作只写初值**：`listAdd`、`listRemove`、`aliases`、`component`、`place`、`delete`、`restore`、`create`。理由与取舍见 4.3。
+6. **`what`**：`by.kind === "agent"` 的创作修改写 `creative`，作者写 `edit`（现在 `edits.ts` 里一律 `edit`）；不改 schema。
+7. **预览一致**：`previewEntries` 与写入走同一份方案，修订的 `ops` 与“带来的变化”逐字相同（沿用 `revisions.md` 输出 22 的口径），返回每个操作的 `routes`（`init`、`patch`、`change`，再加 `listAdd` 这类时的“写进初值的哪一行”）供界面写“会写回哪里”。
+8. **`expect`**：界面确认条要“读到的值”那一层保护（输出 19），所以 `set` 带可选的 `expect`，不带时不核对值，仍受 `baseVersion` 的对象冲突保护。Agent 不带。
+9. **`order`**：`create` 缺省排在同层最后（内核算 `max(同层 order) + 1`，删掉界面读整层的 `lastOrder`）；`place.after` 取与下一个同层兄弟的中数，中数不严格落在两者之间时拒收 `order-exhausted`，沿用前史排序键用尽时拒收 `invalid-time` 的做法（`revisions.md` 输出 18），不做整层重编号。
+
+**新的校验问题码**（都放在 `validation-failed` 的 `problems` 里，`path` 写 `ops[2]`）：`duplicate-address`、`element-from-change`（要去的元素由某章变更给出）、`element-exists`（创作意图加一个已有 id；复用现有 `id-taken` 也可，二选一，我倾向复用）、`op-not-in-intent`（story 里 `create` 之类）、`order-exhausted`、`component-already-enabled`。现有的 `element-missing`、`unknown-field`、`component-unknown`、`component-version-unsupported`、`invalid-tree`、`ref-invalid` 照常。
+
+**二、`findEntries`（读）。** `{query: string, type?: string | string[], at?: ReadPosition, includeDeleted?: boolean, cursor?, limit?}` 返回 `{items: [{id, name, matchedAlias?, type, folder, parent, deleted?, appears?}], total, cursor?}`；名字取这个位置上有效的名字（同 `lookup`），名字或别名包含 `query`（不分大小写）；排序：全等，前缀，包含，同级按树序；`type` 取 `targets` 的并集（引用选择器直接把字段的 `targets` 传进来）。**成本**：世界里的条目都在内存，约 520 个条目的三百万字书（`project.md` 输出 14 的规模）一次扫描是毫秒级（推断，未量；实现时按“50 次中位数 20 毫秒以内”的口径加一条测试）。带视图令牌时拒（防剧透的视图下不让枚举名字）。
+
+**三、`generateElementId(label, taken)`。** 复用 `generateFieldId` 的算法（`registry.ts:164`），元素 id 由内核生成的缺省；以引用为键的列表元素 id 必须是条目 id（`components.md` 输出 19），`listAdd` 在这种列表上要求 `element.id` 是条目 id（工具层把名字解析成 id）。
+
+**四、不加的**：不改修订、写入请求与日志格式（`revisions.md` 的存下来的修订形状）；不加新的 `what`；不加“按显示名写字段”的内核解析（规格里 planned 的 `ambiguous-field`，由工具层与界面做）。
+
+### 4.3 要请开发者确认的一处具体化
+
+既有决定：就地改“默认算改设定、写回给出这个值的记录”。对标量成立；对列表增删，我提议：
+
+- **创作意图下的结构性改动只写初值**，且被去掉的元素只能是初值里的。元素由某章变更给出时拒收（`element-from-change`），提示“这一行是第 N 章‘某某’加的：要么在那条变更里改，要么选‘剧情里变了’”。这样不需要“把变更里的 `listAdd` 补丁删掉后变更是否合法”这类没查过的边角（空补丁的已写变更是否合法，我没查，所以不碰）。
+- 剧情意图下增删就是普通的 `listAdd`、`listRemove` 补丁，没有歧义。
+- 不选的备选：创作意图下也按“写回给出它的记录”路由，增元素落最近一条触及这个列表的变更。放弃理由：作者看到的“设定里加一行”会跑到不相干的章里，还原与改动记录里的标题读不懂，且触及同一个列表的变更可能有几条，没有唯一答案。
+
+## 5. 方案三：作者界面
+
+### 5.1 三种改法，一条通道
+
+| 改法 | 用在 | 控件 | 保存 |
+|---|---|---|---|
+| **就地改**（现有确认条，加两种输入） | 一个字段、一个值，要看“会写回哪里” | 数、文字、选项、是否（已有）；新增“条目选择”“图片” | `editInPlace`，第二片起改走 `editEntries` 的单个 `set`，行为不变 |
+| **元素对话框** | 列表里加一行、改一行、去一行 | nb-form 按 `item` 声明生成的表单（见 5.3） | 一条修订：`listAdd`，或若干 `set`，或 `listRemove` |
+| **设定表单** | 一个设定组（例如“人物”）一次填多项，这是人物闭环用的 | nb-form 按这个组的声明生成的表单（见 5.4） | 一条修订：只含改过的字段的 `set`；只做“改设定”，不带“剧情里变了” |
+
+三者保存后都出现同样的“保存后的提示”（标题、看回执、撤销，`author-ui.md` 输出 18），都经 `previewEntries` 在保存前显示“会写回哪里”和“带来的变化”。
+
+### 5.2 每种字段怎么改
+
+| 字段种类 | 显示（现状） | 改（新） |
+|---|---|---|
+| 数 | 值加单位；`editable` | 已有：确认条，数按十进制最多 4 位（`web/numbers.ts`）；声明了 `min`、`max` 时输入框给范围提示（现在没给） |
+| 文字（精确档） | 已有 | 已有；文字已经是两行的多行输入（`ConfirmBar.vue:74`） |
+| 文字或数的语义档 | 起点加事件列表 | “改起点”走确认条（路由到初值或给起点的那一笔，`revisions.md` 输出 8 表第四行）；“记一笔”已有；有事件时拒收（`accumulated-value`），界面写“这个值有 N 句记录，请改起点那一笔或记一句” |
+| 选项、是否 | 已有 | 已有 |
+| 引用（单个） | 现在显示一段文字，没有“改”（`rows.ts:140` 把 ref 排除在可编辑之外） | 确认条里一个条目选择器：nb-ui `SearchSelect`（`packages/nb-ui/src/components/form/SearchSelect.vue`）按输入调 `findEntries({query, type: 字段的 targets})`；可清空（清空即“未知”，值 `null`）；选中显示条目名与种类，保存的值是 `{ref: 条目 id}` |
+| 图片 | 显示一段文字 | 确认条里两个输入：作品内路径、说明；预览框显示图（“图片找不到”按规格 `components.md` 输出 15 的占位）；路径不合规则时显示服务给的原因。选文件与上传放到第三片，不阻塞 |
+| 列表（元素不带引用） | 每个元素一行文字，不能点 | 每行末尾“改”“去掉”，列表末尾“添加”；见 5.3 |
+| 列表（以引用为键，如知情） | 同上 | “添加”先选条目（`findEntries`，`targets` 过滤；已在列表里的灰掉，对应 `components.md` 输出 19 的“一个条目最多一行”），再填子字段；一行的标题是被引用条目的名字 |
+
+未知值的“改”按钮标签写“填写”，不写“改”；整行常显，不依赖悬停（`FieldTable.vue` 已是常显）。这一条是对第一批规格的小改：新建的条目满屏“未知”，作者最先要做的是填。
+
+### 5.3 列表元素对话框（nb-form）
+
+- 由一个纯函数 `fieldsToSchema(声明列表)` 生成描述：`number` 给 `number` 与 `minimum`、`maximum`、`x-form.unit`；`text` 给 `string`，`retold` 的写 `rows: 3`；`enum` 给 `enum`；`boolean` 给 `boolean`；`ref` 与 `image` 给 `string` 与对象，并用 `widget: "canon-entry"`、`"canon-image"` 指向登记的两个自定义控件（nb-form 的自定义控件接口：`docs/specs/ui/forms.md` 输出 22）；语义档的子字段在表单里只读（“用记一笔改”）。选项源不能做远程搜索（`forms.md` 输出 11：源是 `ready/loading/unavailable` 的静态清单），所以条目选择必须是自定义控件，不用 `options`。
+- 这个函数与确认条的 `kindOf`（`web/in-place-edit.ts:89`）是同一份“声明到输入”的知识，放进 canon 插件 `shared/` 里，两处共用，避免第二个技术债（2.6）。
+- 保存：新增是一个 `listAdd`（元素 id 缺省由内核生成，引用为键的列表由所选条目 id 给）；改一行是对改过的子字段各一个 `set`（带 `expect` 保护）；一次对话框一条修订。
+- 意图：对话框底部沿用“改设定 / 剧情里变了”。选“剧情里变了”时多一个“发生在哪一章”（默认当前页位置，初值时不可选，沿用确认条的规则 `in-place-edit.ts:120-124`）。**第二片只做“改设定”**，剧情意图的列表增删放第三片（内核 `story` 的 `listAdd` 已在 4.2 设计里，界面晚点接）。
+- 去掉一行：行尾“去掉”打开同一种预览确认（带“会让后面 N 条套不上”这类影响，来自 `previewEntries` 的 `impact`）；元素由某章变更给出时（`element-from-change`），确认条写明“这一行是第 N 章‘某某’加的”，给“打开那条变更”和“剧情里变了”两个出路，不给“强行去掉”。
+
+### 5.4 设定表单（人物闭环的编辑形式）
+
+- 每个设定组分页顶上加“编辑这一组”：打开一个面板（不是对话框，长表单要占列宽），内容是 nb-form 按这组的声明生成的表单（`fieldsToSchema`），值是此位置上读到的当前值。语义档字段与累出来的数显示只读加“去字段表里改”的链接，不在表单里出现输入。
+- 保存只发改过的字段（表单是受控的、整值提交：`forms.md` 输出 3，所以改过的字段由调用方对比读到的值得出）：一条 `editEntries`，每个改过的字段一个 `set`，不带“剧情里变了”。成功后提示标题自动写“改了星瑕的 3 项设定（外观、身体、性格）”。
+- 它不取代确认条：确认条仍是“一个值、看清楚写回哪里、可选剧情意图”的入口；表单是“一次填完一组”的入口。两者同走 `previewEntries` 与 `editEntries`。
+- 不选“整个条目一张大表单”：条目页是分页的，名字与简介在页头，主文字是 MDX（t28），Component 各有自己的页，表单跨这些会把意图与来历的区别糊掉。
+
+### 5.5 条目自己的名字、简介、别名、种类、位置
+
+- **页头**：名字与简介各有“改”（走确认条，地址 `entry.name`、`entry.summary`，内核已路由）；别名是页头下一行的小标签，每个标签带“×”，末尾“＋”（走 `aliases` 操作）。条目已删除或按计划开着时没有这些入口，沿用现有规则。
+- **“更多”菜单**（现在只有“删除条目”，`author-ui.md` 输出 19）：增加“移动到……”“改种类与分组”（同一个对话框）、“添加一组设定”“恢复”（已删除条目的页上，对应 `restore`，现在只能去改动记录里还原）。
+- **移动对话框**：上级（条目选择器，可选“最上层”）、分组（文字，缺省同种类）、顺序（“放在最后”或“放在某项后面”，候选是新上级下已读到的子项；`after` 缺省不动顺序）。校验在内核（`invalid-tree`，不成环、不指向自己），失败原因直接给作者。拖动排序不做（`EntryTree.md` 已写“不做拖动排序”，且 UI 打磨排在最后）。
+- **树的右键菜单**：在“在它下面新建”之外加“移动到……”，作者不进条目页也能整理；这是同一个对话框。
+
+### 5.6 加或去一组设定（Component）
+
+- 条目页分页条末尾一个“＋ 添加设定”：菜单列出已登记且这个条目还没有的类型（`components` 读取，`author-ui.md` 输入段已在用）；已被去掉过的类型标“恢复”。选中后立即发一条 `component add`，页上出现新分页，所有字段“未知、可填写”；提示带“撤销”。只做“从一开始就有”（创作意图）；“从第 N 章起有”（剧情意图的 `启用`，`components.md` 输出 5）放第三片。
+- 去掉：每个数据分页的标题处“更多”里“去掉这组设定”，确认对话框写“数据会保留，可以再加回来”（`components.md` 输出 7 的原话意思）。内核对被去掉的组的读、渲染、补丁的行为按规格，不在界面里另说。
+- 界面文字不出现“Component”“命名空间”，说“设定”“一组设定”（`author-ui.md` 术语段）。
+
+### 5.7 新建与空状态
+
+- **空状态**（设定视图一个条目都没有，开发者原话“白板”）：把 `EntryTree.vue:130` 那一行灰字换成 nb-ui 的 `EmptyState`（`packages/nb-ui/src/components/display/EmptyState.vue`）：标题“还没有设定”，一句说明“人物、地点、物品、规矩，都可以建成设定”，主按钮“新建人物”（预设：种类“人物”、启用“人物”设定组），次按钮“新建条目”（现有对话框），文字链接“让 Agent 起草”（执行 `nbook.agent.new-session`，`conversation.md:178`；能不能带 Profile 与首句我**没核对**，不能时只打开新会话）。标题栏的“新建条目”按钮保持。
+- **新建对话框**：名字必填不变；顶部加“种类”快捷按钮（人物、地点、物品、其它，选了同时填种类、分组、勾上对应的设定组，作者之后还能改）；候选条目（上级、另一个身份）改用 `findEntries`，去掉“只来自树里已展开的层”的限制（`author-ui.md` 输出 4）；创建后打开条目页，并**直接进入第一个设定组的“编辑这一组”**（5.4），让“建了以后不知道要干什么”这一步消失。
+- 保存走 `editEntries` 的 `create`（顺序、墓碑、临时 id 都由内核处理），删掉 `web/new-entry.ts` 里的 `buildNewEntry` 与 `lastOrder`；删除同理走 `delete`，删掉 `EntryPageHost.vue:295` 那一段客户端拼装。
+
+### 5.8 Agent 改了东西，作者怎么知道
+
+- 窗口收到 `changed` 事件，其中 `by` 是 `agent`、且不是本窗口发起的：给一条提示“Agent 改了 3 处：星瑕的外观……”带“看回执”“撤销”。事件已带 `{version, revision, by, what, title}`（`project.md` 事件段）；这与现有“保存后的提示”同一个组件（`web/notices.ts`），差别只是触发源。
+- 回执页与改动记录里，`by` 是 Agent 的修订标“Agent”，并带“打开这次对话”的链接（`by.session`）。现在改动记录能按写入者筛（`author-ui.md` 输出 24），不用改。
+- 作者正在编辑时 Agent 写入：现有机制已处理，`version-conflict` 会让确认条写“这个对象刚被改过”，值变了写“这个值刚刚变了”（`author-ui.md` 输出 29、`in-place-edit.ts:206-226`）；元素对话框与设定表单同样处理：保存失败时留着作者填的内容、重取读到的值并提示，不丢输入。
+
+## 6. 分期：先让开发者看到“作者改、Agent 改都行”
+
+相对大小用 S、M、L（S 约一个会话能做完并审完，L 要拆），不估时间。
+
+### 第一片（最快可见，不动内核）　S 加 M
+
+目标：开发者在应用里一次看到三件事：设定视图空着时有大按钮；Agent 能读和写设定；作者在页上接着改，并看到 Agent 改了什么。
+
+1. **Agent（canon 服务端入口，M）**：四个工具的最终形状（参数、返回、字数上限）一次定下，实现里先只接已有的远程方法：`canon_lookup`（`lookup`、`entry`）、`canon_tree`（`tree`）、`canon_read`（`entry`、`render`、`origins`、`revisions`）、`canon_write` 先支持 `create`（`publish`，工具层自己接上顺序，是第二片要删的那一小段）、`set`（`editInPlace`，逐项各发一次，每项一条修订）、`rename`、`summary`、`aliases`（整体替换，`editInPlace`）、`delete`（`publish` 加墓碑）、`add`、`note`（`recordDelta`、`recordNote`）、`preview`（`previewEdit`）；其余操作返回“这个操作还没有”并列出已有的。四个工具的声明、`canon.agent-tools` Spec、Profile“设定助手”在这一片出。
+2. **界面（S）**：空状态（5.7）；新建对话框的种类快捷按钮；页头名字、简介的“改”（确认条，`entry.name`、`entry.summary` 已被内核路由）；未知值的按钮写“填写”；Agent 改了东西的提示（5.8）。别名的“×”“＋”也在这一片，因为 `entry.aliases` 整体替换已能用。
+3. **取舍**：这一片里 Agent 逐项发 `editInPlace`，一次多处的写入会变成多条修订，改动记录里更碎，重算也多几次；这是为“最快可见”付的代价，第二片换成批量后消失。工具的对外形状不变，所以模型提示词与 Profile 不用重写。
+
+开发者能看到：新建一个空作品，设定视图里是“新建人物”大按钮；对“设定助手”说“建一个人物星瑕，外观银白长发”，树里出现条目，页上的“外观”有值；作者把名字改成“星瑾”，改动记录里两条修订，一条标 Agent、一条标作者，各有“撤销”。
+
+### 第二片（内核批量与结构性操作）　L，拆三份
+
+1. **内核（M）**：路由器抽出（`editInPlace` 的差分测试）→ `editEntries`、`previewEntries` 与 create、set、aliases、delete、restore → `listAdd`、`listRemove`、`component`、`place`、`replace` → `findEntries`、`generateElementId`；远程合同与服务方法；Spec（`revisions.md` 新输出、`project.md` 方法表、`components.md` 输出 3 与 7 补函数名）。
+2. **工具换底（S）**：`canon_write` 改走 `editEntries`，一次一条修订；开放其余操作。
+3. **界面（M）**：引用与图片控件（确认条）；列表元素对话框（nb-form 加两个自定义控件）；加或去设定组；移动对话框；新建与删除改走内核，删客户端拼装。
+
+开发者能看到：Agent 一次写入“建条目、加设定组、填七个字段、加两行技能”在改动记录里是一条修订；作者能改引用、图片、列表。
+
+### 第三片（人物闭环与收尾）　M
+
+1. **设定表单（5.4）**：“编辑这一组”面板，一次保存一条修订。
+2. **剧情意图的结构性操作**：`story` 下 `listAdd`、`listRemove`、`aliases`、`component`（`启用`），界面的“剧情里变了”接上列表与设定组。
+3. **审批预览钩子**（`builtin-tools.md` 输出 26 只对三个文件工具），让审批卡片显示“会改星瑕的外观、新建雾崎”这类预览；这是 agent 平台的改动，需要单独评估，不硬塞进本 Task。
+4. **`changes`、`search` 两个读工具**，`read` 的来历分页再细一点。
+5. **闭环的验收脚本**（候选闭环是人物设定）：见 6.1。
+
+### 6.1 闭环验收场景（第三片的完成标准草案）
+
+1. 新建空作品，设定视图是空状态；点“新建人物”，填名字“星瑕”，保存后直接进“编辑这一组”；填外观、性格、身体三项，保存：改动记录多一条“改了星瑕的 3 项设定”。
+2. 对“设定助手”说“给星瑕加别名小瑕、加技能回溯与读心、把性格改成沉默”：一条 Agent 修订，三处变化；窗口出现“Agent 改了 3 处”的提示；撤销后三处都回到改前。
+3. 作者在“编辑这一组”里改性格，同时 Agent 写星瑕的外观：保存得到“这个对象刚被改过”，作者的输入保留，再保存成功；反过来 Agent 得到 `version-conflict`，工具结果里有星瑕现在的字段，Agent 重读后写成功。
+4. 把星瑕移到“主角团”下面，把“人物”设定组去掉再加回：数据没丢；改动记录里每一步都能还原。
+5. Agent 用错参数（枚举值不存在、引用写了不存在的名字、重名）：工具结果里给出允许的取值或候选，不报内核码。
+
+### 6.2 测试与证据（只列思路，细节写进 Task 计划）
+
+- 内核：`editInPlace` 旧新实现差分；每个新操作的失败路径（重复地址、元素来自变更、顺序用尽、引用种类不符）；预览与写入逐字一致；日志重放后一致（沿用 `revisions.test.ts` 的写法）。
+- 工具：用真实 `World` 与真实登记（`plugins/canon/testing/world-fixtures.ts`、`two-process.test.ts` 现有的两进程场景）跑 `execute`，断言给模型的文字的关键信息（候选、允许的取值、当前值）与 `details` 的码，不断言整句措辞。
+- 界面：`*.dom.test.ts` 加元素对话框与条目选择；e2e 走闭环场景的 1、3、4；记得 e2e 前改的是共用的定位点（`hasText` 撞名、标题按钮）要先搜辅助函数（开发记忆里记过两次因定位点撞名白跑一轮）。
+- Agent 真实模型：`*.llm.test.ts` 放一个“建条目加字段”的用例，只显式运行；不进默认验证。
+
+## 7. 备选与不选的理由
+
+| 取舍 | 我的选择 | 备选 | 不选备选的理由 |
+|---|---|---|---|
+| 结构性写入的形状 | 内核 `editEntries`：类型化的操作加共用路由器 | (a) 保持现状，调用方拼整份 `Entry` 再 `publish` | 三处各拼一份（界面新建、界面删除、将来的 Agent）；Agent 手写整份条目的 JSON 极易出错；没有“改设定写回给出它的记录”的路由。只在第一片里 `create`、`delete` 暂用 |
+| | | (b) 对 `Entry` 的 JSON Patch（路径写 `/init/data/人物/fields/外观`） | 把 `init`、`declared`、`removed` 这些内部字段暴露给 Agent；永远写初值，违背“写回给出这个值的记录”；校验与路由仍要另写 |
+| | | (c) 给 `editInPlace` 加一个 `op` 字段，一次一个地址 | 不能原子地改几处，也就没有“一次修订一条改动记录”；同一对象两次写撞 `id-taken` |
+| 工具的数量 | 一个 `canon_write` 带多种操作 | 每种操作一个工具（建条目、改字段、加列表元素……） | 每个工具的声明多占几百 token；跨操作的原子性没了，一次“建人物加设定”变成多条修订；失败后的半成品状态要模型自己收拾 |
+| | | 做成 `eval` 全局对象（代码里 `canon.write(...)`，`contributions.md` 输出 24、25） | 需要模型写代码，且读写混在一段代码里更难审批；以后可以把同一实现再登记成 `global` 方法，不冲突 |
+| 工具放哪 | `nbook.canon` 的服务端入口 | 新开 `nbook.canon-agent` 插件 | 要重复导出合同与类型；剧情侧工具仍要找一个家。canon 本来就依赖 SDK 即可，没有反向依赖 |
+| | | 放进 agent 插件 | agent 依赖 canon 反了（插件平等，ADR 0027） |
+| 名字到 id | 工具层解析（`lookup` 加声明） | 内核解析显示名（规格里 planned 的 `ambiguous-field`） | 内核要保持按 id、可重放、不依赖当时的名字；工具层解析不影响日志。界面本来用 id |
+| 一次多处的冲突粒度 | 沿用按对象判冲突 | 细到叶子路径（见 8.2） | 触及 Spec 的验收 1，是内核级改动；先用新提示与错误信息观察冲突多不多再定 |
+| 表单 | nb-form 加两个自定义控件，只用于元素对话框与设定表单 | 手写 Vue 表单 | 列表增删排序与焦点、问题显示、受控提交 nb-form 已做（`forms.md` 输出 19、14、3）；手写会再做一遍。代价：nb-form 的 Spec 还是 `planned`（`forms.md:4`），且是整值受控，保存时要对比得出改过的字段 |
+| | | nb-form 取代确认条 | 确认条的价值在“一个值、读到的值、意图、预览写回哪里”，表单是整值提交，丢这些 |
+| 创作意图下的列表增删 | 只写初值，元素来自变更时拒收并指路（4.3） | 按“写回给出它的记录”路由 | 没有唯一答案，改动记录里读不懂 |
+| 审批 | 声明 `write`，按现有模式走 | (a) 声明 `read` 免审 | 在 `ask` 模式下 Agent 无声改作者的设定，违背“所有写入留痕可还原”的初衷里“作者能管住”的一面 |
+| | | (b) 先扩展权限规格加“作品内数据”类 | 平台改动，不阻塞底座；记待办 |
+| Profile | 给一个“设定助手”，不设 `defaultForAll` | `defaultForAll: true` | 每个会话多 2 千到 3 千 token，标题会话等也受影响 |
+| 第一片 | 先接工具与空状态，写入逐项走旧方法 | 先做内核再做工具 | 更干净，但开发者要等内核加批量加审查之后才看到 Agent 动手；第一片的一次性代码只有工具层的 `create` 与顺序那一小段，工具的对外形状不变 |
+
+## 8. 风险、待确认与没验证的
+
+### 8.1 请开发者确认
+
+1. **4.3**：创作意图下列表增删只写初值，元素来自某章变更时拒收并指路。
+2. **第一片的取舍**：接受“Agent 一次多处会是多条修订”这个过渡期代价，换更早看到；还是等内核批量。
+3. **“设定助手”Profile** 与“不设 `defaultForAll`”。
+4. **`auto` 审批模式下 `canon_write` 每次问审批模型**这个已知摩擦，先不修。
+5. 把“作者编辑条目的主文字”“Component 类型的专门界面”这两条“不承诺”改成一部分承诺（页头名字与简介、通用字段表的编辑、设定表单），`author-ui.md` 要跟着改。
+
+### 8.2 值得质疑的上游选择（按“质疑上游选择”的做法追到底）
+
+- **按对象判冲突。** 现在 `puts` 的对象在 `baseVersion` 之后被改过就整次拒收（`revisions.md` 输出 7，验收 1：作者改星瑕的存款、Agent 先改了星瑕的外观，作者得到 `version-conflict`）。但修订本来就存到叶子（`fields: [{path, before, after}]`，`revisions.md` 输入段），冲突可以细到“同一个叶子或前缀关系的路径被改过”。这个选择的现有理由我查到的是“按对象判，没被改过的对象不算冲突”（输出 7），**没有记录说明为什么不细到叶子**。后果：一个作者在页上填人物设定的同时 Agent 在补同一个人物的别的字段，会反复冲突；工具层与界面都要写“重读再写”的补丁。**改上游的代价**：已有 `touched` 索引要按路径、前缀关系判（依赖规则输出 12 已有同样的前缀判法）、整份对象的 `puts` 要先算叶子差；验收与 Spec 要改。我的建议：本任务不改，先做批量与新的失败提示，把冲突次数记进诊断，第一批真实使用之后再决定。
+- **“就地改写回给出这个值的记录”** 对列表增删不成立（4.3），已经按“只写初值”具体化，作为一条规则请确认。
+- **提案第 9 节的六个工具** 我只做了四个：`changes`、`search` 排后。如果开发者认为“Agent 能看到改动历史”是底座的一部分，`read` 的 `history` 已经给了最近改动，`changes` 是按章列剧情变更，和设定的写入关系不大。
+
+### 8.3 没验证、要在实施时核对的
+
+- 老的浏览器页签对新项目实例调不存在的方法时的表现（2.4）。
+- 命令 `nbook.agent.new-session` 能不能带 Profile 与首句（5.7）。
+- `findEntries` 的实际耗时（4.2）；沿用 `lookup` 的名字索引能不能直接复用。
+- 创作意图删掉某条变更的唯一补丁后，这条变更是否合法（所以 4.3 选择了不碰）。
+- `projects.acquire(context.project)` 的参数是引用还是 id（`context.project` 在 `projects://` 里当引用用，`resources.ts:34`，推断一致）。
+- 严格模式（`strict`）下提供商对大型 `anyOf` 的限制：我选了扁平对象加工具层校验，避开了这个问题，没有在真实模型上试。
+- 提示词与 Profile 的写法没有做实验；`canon_write` 的 schema 大小我估 2 千到 3 千 token，没量。
+- 审批卡片里 `edits` 参数的显示效果（3.5）。
+
+### 8.4 Spec 与文档要改的清单
+
+- `docs/specs/canon/revisions.md`：新输出（`editEntries` 与 `previewEntries`、工作副本规则、story 合成一条变更、`what` 取值习惯、新失败细项）；实现合同的公开入口列表。
+- `docs/specs/canon/project.md`：方法表加 `editEntries`、`previewEntries`、`findEntries`。
+- `docs/specs/canon/components.md`：输出 3、7 指明用哪个操作；元素 id 生成。
+- `docs/specs/canon/author-ui.md`：“不承诺”两条、输出 4（候选来源）、输出 12 到 17（列表、引用、图片、设定表单）、输出 19（删除与恢复）、新增页头改名与“更多”、空状态；输出 18 加“别处 Agent 的修订的提示”。
+- 新建 `docs/specs/canon/agent-tools.md`（`canon.agent-tools`）：工具清单、参数、返回、字数上限、失败对照、审批、`no-project` 等。
+- `docs/specs/agent/contributions.md`：不改（用现有贡献点）；若以后加审批预览钩子再改。
+- `.agents/works/w00039-novel-writing-plugins/tasks/t20-agent-tools`：本 Task 的结果回填，六个工具里只做四个的取舍写进去。
