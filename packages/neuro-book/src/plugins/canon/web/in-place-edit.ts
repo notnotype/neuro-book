@@ -89,13 +89,13 @@ export interface InPlaceEdit {
 
 const PREVIEW_DELAY_MS = 300;
 
-const kindOf = (declaration: FieldDeclaration | undefined): ConfirmBarKind => {
+export const kindOf = (declaration: FieldDeclaration | undefined): ConfirmBarKind => {
     const kind = declaration?.kind;
     return kind === "number" || kind === "enum" || kind === "boolean" || kind === "ref" || kind === "image" ? kind : "text";
 };
 
 /** 填的值换成字段的值；填得不成形（数里有字母）时为 undefined，不预览。引用写成 `{ref: id}`，清空是未知（null）。 */
-function parsed(value: unknown, kind: ConfirmBarKind): unknown {
+export function parsed(value: unknown, kind: ConfirmBarKind): unknown {
     if (kind === "boolean") return value === true;
     if (kind === "ref") return typeof value === "string" && value !== "" ? {ref: value} : null;
     if (kind === "image") return value ?? null;
@@ -104,7 +104,7 @@ function parsed(value: unknown, kind: ConfirmBarKind): unknown {
 }
 
 /** 字段的值换成填的值；语义档用起点（`unreduced.anchor`），不用显示的归纳文字：照着显示的改会把“起点；之后：……”写成新起点。 */
-const draftText = (state: FieldState | undefined, kind: ConfirmBarKind): unknown => {
+export const draftText = (state: Pick<FieldState, "value" | "unreduced"> | undefined, kind: ConfirmBarKind): unknown => {
     const value = state?.unreduced?.anchor ?? state?.value;
     if (kind === "boolean") return value === true;
     if (kind === "ref") return typeof value === "object" && value !== null && typeof (value as {ref?: unknown}).ref === "string" ? (value as {ref: string}).ref : null;

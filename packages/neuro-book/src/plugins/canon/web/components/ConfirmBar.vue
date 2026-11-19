@@ -6,14 +6,12 @@
  */
 import {computed, nextTick, onMounted, ref} from "vue";
 
-import {Button, NumberInput, SegmentedControl, Select, Switch, Textarea} from "@notnotype/nb-ui/components";
+import {Button, SegmentedControl} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
 import type {ConfirmBarKind, EditIntent} from "./confirm-bar";
-import EntryPicker from "./EntryPicker.vue";
 import type {EntryResults} from "./entry-picker";
-import ImageInput from "./ImageInput.vue";
-import type {ImageValue} from "./image-input";
+import FieldInput from "./FieldInput.vue";
 
 const props = withDefaults(defineProps<{
     label: string;
@@ -76,15 +74,7 @@ const onKeydown = (event: KeyboardEvent): void => {
         @keydown="onKeydown"
     >
         <h3 class="mb-2 font-semibold text-[var(--text-main)]">{{ text("edit.heading", {label: props.label}) }}</h3>
-        <div class="flex flex-wrap items-center gap-2">
-            <NumberInput v-if="props.kind === 'number'" class="w-40" size="sm" :aria-label="props.label" :model-value="String(props.value)" @update:model-value="(value: string) => emit('update:value', value)" />
-            <Select v-else-if="props.kind === 'enum'" class="w-48" size="sm" :aria-label="props.label" :options="props.options.map((option) => ({value: option, label: option}))" :model-value="String(props.value)" @update:model-value="(value: string) => emit('update:value', value)" />
-            <Switch v-else-if="props.kind === 'boolean'" size="sm" :aria-label="props.label" :model-value="props.value === true" @update:model-value="(value: boolean) => emit('update:value', value)" />
-            <EntryPicker v-else-if="props.kind === 'ref'" class="w-72 max-w-full" :aria-label="props.label" :model-value="typeof props.value === 'string' ? props.value : null" :selected-name="props.refName" :results="props.refResults" @search="(query: string) => emit('search-ref', query)" @update:model-value="(value: string | null) => emit('update:value', value)" />
-            <ImageInput v-else-if="props.kind === 'image'" class="w-full" :model-value="(props.value as ImageValue | null) ?? null" @update:model-value="(value: ImageValue | null) => emit('update:value', value)" />
-            <Textarea v-else class="w-full" :rows="2" :aria-label="props.label" :model-value="String(props.value)" @update:model-value="(value: string) => emit('update:value', value)" />
-            <span v-if="props.unit !== '' && props.kind === 'number'" class="text-[var(--text-muted)]">{{ props.unit }}</span>
-        </div>
+        <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
         <div v-if="props.intents.length > 1" class="mt-2 flex items-center gap-2">
             <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
             <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="props.intent" :options="props.intents.map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
