@@ -1,0 +1,100 @@
+# t34 实现审查报告
+
+审查范围 `c7952a33e..f3d105aef`，审查者 Sonnet 5.5，只读。
+
+**未跑完的验证：** 应用包 `bun run typecheck`（tsc、vue-tsc web、vue-tsc browser-test）交报告时还在后台运行，没有结果。Lab 夹具和应用侧读者的类型正确性，我只做了代码阅读，没有类型检查佐证。
+
+### 1. 提交结果的码是闭联合，第三方宿主没法用自己的码拒绝一次提交
+**严重程度**：重要　**类别**：正确性（合同）
+**位置**：`packages/nb-layout/src/grid-types.ts:216`（`GridLayoutCommitResult`、`GridCommitFailureCode`），`NestedGrid.vue:49`
+
+**现象**：`onGestureCommit` 的返回类型是 `{ok: true} | GridFailure<GridCommitFailureCode>`，`code` 只能是库定义的 17 个码之一。
+**为什么是问题**：
+- `NestedGrid` 已经通过插件 SDK 公开。以前宿主可以用任意 `reason` 文字拒绝，比如“布局被锁定”。现在只能挑一个不相干的库码，或者强转类型。
+- 这和 Spec 的“码集合开放”说法相矛盾：开放只对读的一方成立，写的一方是闭的。
+- 库自己的 `useGridLayout` 不受影响，只有自己实现 `onGestureCommit` 的宿主受影响。
+
+**如何核实**：`exp/check2.ts`，在实现 worktree 里用 `bunx tsc -p` 跑：
+- `{ok: false, code: "layout-locked", message}` 报 TS2322（`'"layout-locked"' is not assignable to type 'GridCommitFailureCode'`）。
+- `{ok: false, reason}` 报 TS2353（`'reason' does not exist in type 'GridFailure<GridCommitFailureCode>'`）。
+
+**建议改法**：
+- 方案 A：宿主返回的类型放宽成 `{ok: true} | GridFailure`（`code: string`），库产出的仍用窄类型。
+- 方案 B：明确规定宿主拒绝只能用库码，并在 Spec 失败 6 里写出来。
+
+这属于要开发者拍板的合同取舍。
+
+### 2. `recordProblem` 把 L2 的 message 拼进 `problem.code`，会显示在状态栏，文字从中文变成英文
+**严重程度**：重要（触发路径窄：记录能解析但文档校验失败）　**类别**：正确性
+**位置**：`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:88`、`:133`，`WorkbenchStatusBar.vue:54-63`
+
+**现象**：
+- `recordProblem` 现在是 `${checked.code}: ${checked.message}`，进入 `problems[].code`。
+- `WorkbenchShell.vue:629` 把它交给状态栏。
+- 状态栏的 `reason()` 只认几个固定码，不认识的原样显示。结果是 `invalid: The tree version is wrong` 这类英文原文直接出现在界面上。
+
+**为什么是问题**：计划写的是“`structureFailure` 只进诊断日志，日志文字从中文变英文”。`recordProblem` 这条没有被盘点，它既进日志又进界面。`message` 的合同是“只给日志看”，这里把它当成了界面主文案。
+
+**如何核实**：沿 `recordProblem` → `problems` → `statusProblems` → `StatusBar.problemText` 读代码；测试没有覆盖这条显示。我没跑 UI。
+
+**建议改法**：`recordProblem` 只用 `checked.code`，message 单独写诊断日志。
+
+### 3. 变更记录那句“已经构建的照常运行，只是被拒时的诊断里没有原因”不准
+**严重程度**：建议　**类别**：文档
+**位置**：`packages/neuro-book/CHANGELOG.md` `[Unreleased]` 第一条
+
+两处不准：
+1. 旧插件如果运行时仍返回 `{ok: false, reason}`：
+   - `NestedGrid.vue:529-531` 原样转交。
+   - `useSashGesture.ts:293` 拼出的是“本次调整没有落账：undefined: undefined”，不是“没有原因”。
+2. 发版时按 `releasing.md` 第 2 步和 `plugin-api.md` 的“兼容”提高兼容起点后，旧插件的 `engines.neurobook` 范围与兼容区间不再相交，会被判为不兼容，不是“照常运行”。
+
+**建议改法**：改写成事实陈述（旧写法需要重新构建、返回 `code` 与 `message`），去掉“照常运行”的承诺。
+
+### 4. `invalid-snapshot` 的 `id?: string` 允许 `params` 里出现值为 `undefined` 的键
+**严重程度**：建议　**类别**：代码质量
+**位置**：`packages/nb-layout/src/grid-failure.ts:44`
+
+**现象**：`exp/check.ts` 第 8 条，`restoreFailure("invalid-snapshot", "m", {field: "ref", id: undefined})` 编译通过。
+**为什么是问题**：
+- 类型挡不住漏传 `id`，也挡不住显式 `undefined`；而 `GridParamValue` 与 `ui/i18n` 的 `TextRef.params` 只要字符串和数字。
+- 今天所有调用点都传了字符串，没有运行期问题。
+
+**建议改法**：拆成 `{field: "envelope"} | {field: "node" | "id"} | {field: "ref" | "size" | "orientation" | "children" | "kind"; id: string}`。
+
+### 5. 注释与入口的小问题
+**严重程度**：建议　**类别**：代码质量
+- `grid-failure.ts:3-5` 写了“把映射导出成判别联合等有宿主要按码收窄时再做”，这是推测的后续计划，违反注释规范。
+- `index.ts:6-7` 显式再列了 6 个类型名，但 `export * from "./grid"` 已经带出，只列一部分（`GridDroppedRef` 等没列），注释里“给 SDK 的导出面核对”没有对应的检查。
+- 建议删掉这一行，或者列全。
+
+### 未发现问题的方面
+- **码与 `params` 对照**：`grid.ts` 34 处全部对上计划两张表和 Spec 失败 5。
+  - 非测试源码里 `ok: false` 只剩 `grid-failure.ts`。
+  - 280、298、401、452、518 拆成先后两个条件后，失败与否与 base 逐条等价。
+  - 280 是“基线先于目标、每侧先非有限后负数”，符合 Spec；测试覆盖“两侧都坏报基线”。
+  - 617、632 确实不可达：`collapse()` 只做替换不做拍平，同分支移动走另一条路。
+- **类型检查的有效性**：`exp/check.ts` 16 条，拼错字段、漏字段、给无参数码传参、有参数码不传、`field` 判别混搭、多余字段、跨层码、数组值都在编译期被拦。运行期上 `params[0] as …` 由“长度为 0 等价于映射值为 `undefined`”支撑。
+- **快照恢复判别联合**：`unresolved-root` 只在根是叶且引用解析不了时可达，其余失败都先设了 `failure`，与 Spec 失败 7 一致。失败时 `clamped: []`，`dropped` 照旧带着。`exp/check2.ts` 确认未按 `ok` 收窄就读 `code` 会报错；Lab 夹具按 `res.ok` 收窄。
+- **L1 提交**：五种拒绝、转交的 L0 码、`handler-missing`、`handler-threw` 都对。回滚预览、清高亮、发诊断的先后与 base 相同。`stale-context`、`stale-revision` 的 `expected` 是宿主此刻的值、`actual` 是提交带来的值，与 Spec 一致。
+- **L2 与应用的英文改写**：逐条读过，没有译错或漏中文；`layout-doc.ts` 与 `nb-workbench-layout/src` 里不再有 `detail`。没有按 message 文字做分支（`structureFailure` 只在 `code === "limit-exceeded"` 时记录，分支依据是码）。
+- **测试**：新增用例都能区分对错；`handler-missing` 用例靠诊断里有码而基线文案里没有码来区分。我实际跑过的结果：
+  - `bun test src/grid.test.ts` 78 过。
+  - vitest `NestedGrid.dom` 加 `useGridLayout.dom` 54 过。
+  - nb-layout `bun run typecheck`（tsc 加 vue-tsc）过。
+  - 旧用例迁到 `toMatchObject` 时，多出来的 `params` 字段会空过，新增的一组用 `toEqual` 补上了，影响小。
+- **未验证**：没有跑 e2e（Lab `data-lab-restore-code`、`data-lab-restore-version` 属性只对照代码读过），也没有变异检查。
+
+各级数量：阻断 0，重要 2，建议 3。
+
+有效发现：1、2、3、4、5
+
+应用包 `bun run typecheck` 已跑完，退出码 0（tsc、vue-tsc web、vue-tsc browser-test 全过）。这补上了报告里“未跑完的验证”那一项：Lab 夹具 `NestedGridAcceptanceFixture.vue` 与应用侧读者（`layout-doc-store.ts`、`containers.ts`、`entry-drop.ts`、`editor-panels.ts`、`WorkbenchSurfaceFixture.vue`）的类型都对得上，所以上面没有再新增发现。
+
+没变的部分：e2e 没跑，变异检查没做；第 1 到 5 条发现和各级数量（阻断 0、重要 2、建议 3）不变。
+
+有效发现：1、2、3、4、5
+
+这条监控超时通知不需要处理。应用包 typecheck 已经由后台任务 `b7b0js1dx` 确认退出码 0，监控没等到事件只是它的匹配条件没命中，不影响结论。
+
+报告不变，有效发现仍是 1、2、3、4、5。

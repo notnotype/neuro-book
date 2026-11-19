@@ -37,6 +37,16 @@ updated: 2026-11-19
 - 验证：三个包的类型检查（应用三份配置：`tsc`、`vue-tsc` 的 web 与 browser-test）、nb-layout（bun 339、vitest 216）与 nb-workbench-layout（bun 261、vitest 48）的测试、`sdk.test`、`docs:check` 都过。`test:affected`（在第 2 片提交前）有 9 条失败，都不在本分支的改动里：7 条是同一个原因，`nbook.stickers` 在内置插件清单与产品清单里对不上（`server.test.ts` 后端宿主的 6 条，断言插件激活与关闭顺序的 152、176、204 等行；`builtin-names.test.ts:45` 一条），来自 master 上别的 Work，本分支没改这两个目录；另外 `architecture.test.ts` 一条超时、示例插件 `SnippetsPage.dom.test.ts` 一条，单独重跑都过。
 - e2e（负载 8 到 14）：`lab-nested-grid` 17、`lab-grid-panels` 17、`lab-workbench-surface` 17、`workbench-views` 34、`workbench-dnd` 38 全过；`workbench-shell` 16 过 2 失败（547 等不到外框过渡、792 等不到 Lab 场景，跑到它时负载 14 以上），负载 6 到 8 时两条各单独重跑 2 次都过，归为负载（547 是主线程忙时过渡直接到终点，792 是 Lab 冷启动）。`build:sdk` 的产物里四个类型都在导出清单上，`onGestureCommit` 的类型是 `GridLayoutCommitResult`；没有另建基点 worktree 做前后整份比对，SDK 源码只改了 `components.ts` 一行类型导出。
 
+**实现审查**（Claude Sonnet，审查 worktree 固定在 `45350dd1c`，[`evidences/impl-review.txt`](evidences/impl-review.txt)）：5 条，重要 2、建议 3，都成立，修正单独提交：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 宿主自己写 `onGestureCommit` 时只能用库的码拒绝（返回类型的码是闭联合），和“码集合开放”矛盾 | 宿主返回的类型放宽成 `{ok: true} \| GridFailure`（任意码），`useGridLayout` 的结果仍是窄的 `GridLayoutCommitResult`、可以赋过去；补一条宿主用自己的码拒绝的用例；Spec 失败 6 补一句 |
+| 2 | 校验不过的布局记录把 `code: message` 当原因显示在状态栏，现在是英文句子（改动前是中文原文，同样是把诊断文字当界面文案） | 状态栏的问题码改成已有本地化文字的 `corrupt` 或 `unsupported-version`，校验的码与 message 放进 `detail`，只进诊断日志；用例断言码与 `detail` |
+| 3 | 变更记录“已经构建的照常运行，只是诊断里没有原因”不准：原因是 `undefined`，提兼容起点后旧插件也装不上 | 改成事实陈述：要改成新形状、重新构建 |
+| 4 | `invalid-snapshot` 的 `id?` 让 `params` 可以有值为 `undefined` 的键 | 拆成两支：外壳、非对象节点、缺 id 不带 `id`，其余必须带 |
+| 5 | 注释写了推测的后续计划；根入口只列了一部分类型名 | 删掉那句；根入口只列 SDK 导出的四个，注释写明 `sdk.test.ts` 按入口里写出的名字核对 |
+
 下面是第 1 到 3 稿三轮设计审查的历程；表里说的诊断、L2 拆码与切片，在第 4 稿里已转 t38 或延后，以计划第 4 稿为准。
 
 - 第 1 稿的设计审查（Claude Sonnet，[`evidences/design-review.txt`](evidences/design-review.txt)）：15 条，重要 7、建议 8，都成立（第 6 条的 `PLUGIN_API_SINCE` 一项除外，见表），改成第 2 稿；几条改了设计（只发新增的判据、切片边界、公开面清单），第 2 稿再送一轮：
@@ -91,4 +101,4 @@ updated: 2026-11-19
 
 ## 下一步
 
-1. 实现审查（前端包，Claude Sonnet，审查 worktree `review-t34-impl` 固定在 `45350dd1c`）在后台；处理完合入 master，两份 Spec 的 planned 去掉、补实现合同。
+无。t34 完成：合入 master（并 master `6faf07664`，实现审查修正 `063828e6d`，守护测试 `8a8407189`）；`ui/nested-grid` 失败 5 到 7 与“码集合开放”、`ui/workbench-layout` 失败形状去掉 planned（每句都有断言：逐码用例、提交码用例、宿主用自己的码拒绝、码的写法列全并按开放错误域核对、`message` 是可打印 ASCII），实现合同补“失败的构造”与合同测试。下次发版按 Work README“发版前”一行提兼容起点。

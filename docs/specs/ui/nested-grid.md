@@ -232,7 +232,7 @@ owners:
 2. 未知高版本拒绝恢复并保留原布局或安全默认；宿主禁止普通保存覆盖原件。
 3. 暂时缺少引用时可过滤当前呈现，但宿主保留原始记录，后续调整已知节点不能抹掉未知部分。
 4. 部分引用过滤与整体格式非法分别报告；重复身份无法可靠定位时整体拒绝，不任意覆盖同名节点。
-5. **结构操作的失败形状**（planned）：建树、改尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
+5. **结构操作的失败形状**：建树、改尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
 
     | 码 | 什么时候 | `params` |
     |---|---|---|
@@ -249,7 +249,7 @@ owners:
     | `not-collapsible` | 要收起的面板没有收起策略 | `id`、`branch` |
 
     同一个子节点基线与目标都不合法时报基线那一侧。传进来的非法值在 `value` 里写成字符串（`NaN` 写作 `"NaN"`）。
-6. **提交的返回**（planned）：`onGestureCommit` 返回 `{ok: true}` 或失败 5 的形状；拒绝时回滚预览并给诊断（“状态与转换”）。落账时结构操作的失败原样转交失败 5 的码，提交自己的码是：
+6. **提交的返回**：`onGestureCommit` 返回 `{ok: true}` 或失败 5 的形状；拒绝时回滚预览并给诊断（“状态与转换”）。宿主自己写这个回调时可以用自己的码拒绝（写法见“边界与兼容”）。`useGridLayout` 接提交时，落账时结构操作的失败原样转交失败 5 的码，提交自己的码是：
 
     | 码 | 什么时候 | `params` |
     |---|---|---|
@@ -259,7 +259,7 @@ owners:
     | `stale-size` | 容器尺寸在手势里变了 | 无 |
     | `handler-missing` | 宿主没有接 `onGestureCommit` | 无 |
     | `handler-threw` | 宿主的提交回调抛出 | 无（`message` 带异常的文字） |
-7. **恢复的结果**（planned）：快照恢复返回 `{ok: true, dropped, clamped}`，或失败 5 的形状加 `dropped`、`clamped`。`dropped` 每项是 `{ref, code: "unknown-ref"}`（失败 3）。恢复的码：
+7. **恢复的结果**：快照恢复返回 `{ok: true, dropped, clamped}`，或失败 5 的形状加 `dropped`、`clamped`。`dropped` 每项是 `{ref, code: "unknown-ref"}`（失败 3）。恢复的码：
 
     | 码 | 什么时候 | `params` |
     |---|---|---|
@@ -280,7 +280,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用与插�
 外框、内容与浮动窗手柄是里面 `position: fixed` 元素的包含块（输出 28）：要盖住整个窗口的东西（对话框、拖影、菜单）宿主要 Teleport 到 `body`。
 公开的标记：`data-swap`（输出 75）、`data-leaf`、`data-grid-scope` 等的取值与含义见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 的“公开的标记与变量”。
 工作台的用法：用分支的收起表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）；把 `moveGridFocus` 登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
-失败的码集合开放（planned）：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。
+失败的码集合开放：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。
 
 ## 验收与 Smoke
 
@@ -302,6 +302,7 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 - 公开入口：`@notnotype/nb-layout` 的 `createGrid` 与结构操作（含 `splitLeaf`）、快照与 `resizeBranches`；`@notnotype/nb-layout/vue` 的 `NestedGrid`、`useLayoutExtent`、`useGridLayout`、`useSashGesture`、`moveGridFocus`。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)。
 - owner 与依赖方向：owner 是 `ui`；`nb-layout` 的核心入口（含落点几何）不依赖 Vue、DOM 与 dnd-kit，Vue 层依赖核心入口与 nb-ui；工作台与插件只经包入口消费，不跨包深导入；工作台的布局文档、落点规则与标签条在 `nb-workbench-layout`，它同样只经这两个入口用本包，本包不依赖它（[ADR 0054](../../adr/0054-nb-layout-general-library.md)）。
+- 失败的构造：每层一张“码 → `params` 形状”的映射（[`grid-failure.ts`](../../../packages/nb-layout/src/grid-failure.ts)，不从入口导出），构造时按映射检查参数，导出的类型只有通用的 `GridFailure`（失败 5 到 7）。
 - 不变量：
   - 几何只有 CSS px 一种口径，矩形由布局结果一处算出，渲染层不再换算（输出 27、33）。
   - 手势只提交一次完整的原子意图，由宿主用 `resizeBranches` 一次落账；拒绝时回滚预览并给诊断（输出 7，“时序与寿命”的同步接纳）。
@@ -313,5 +314,5 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 - 批准依据：2026-09-16 开发者同意纳入最小嵌套验证及必要原语修复；2026-09-20 开发者批准共享测量、宿主与落点几何、scope 仲裁与无重锚 pointer 路径；2026-11-10 开发者接受[视图容器提案](../../proposals/workbench-view-containers.md)第 1 节（分支的收起）；2026-11-15 开发者决定拖动中兄弟之间的分配接着上一帧（输出 21）；2026-11-16 开发者选定过渡里形状伸出外框（输出 53）与交换（输出 61 到 77）的做法；2026-11-17 开发者定静止的底（输出 77）与分隔线的宿主样式（输出 78）。[ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - 实现入口：[`nb-layout/src/grid.ts`](../../../packages/nb-layout/src/grid.ts)、[`nb-layout/src/grid-rects.ts`](../../../packages/nb-layout/src/grid-rects.ts)、[`nb-layout/src/grid-motion.ts`](../../../packages/nb-layout/src/grid-motion.ts)、[`nb-layout/src/grid-swap.ts`](../../../packages/nb-layout/src/grid-swap.ts)、[`nb-layout/src/vue/NestedGrid.vue`](../../../packages/nb-layout/src/vue/NestedGrid.vue)
-- 合同测试：[`grid.test.ts`](../../../packages/nb-layout/src/grid.test.ts)、[`sash-drag.test.ts`](../../../packages/nb-layout/src/sash-drag.test.ts)、[`grid-rects.test.ts`](../../../packages/nb-layout/src/grid-rects.test.ts)、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts)、[`grid-swap.test.ts`](../../../packages/nb-layout/src/grid-swap.test.ts)、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts)、[`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)、[`vue/useLeafParking.dom.test.ts`](../../../packages/nb-layout/src/vue/useLeafParking.dom.test.ts)、[`vue/useRenderOrder.dom.test.ts`](../../../packages/nb-layout/src/vue/useRenderOrder.dom.test.ts)、[`vue/grid-focus.dom.test.ts`](../../../packages/nb-layout/src/vue/grid-focus.dom.test.ts)
+- 合同测试：[`grid.test.ts`](../../../packages/nb-layout/src/grid.test.ts)（失败 5、7 与码的写法逐码）、[`vue/useGridLayout.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridLayout.dom.test.ts)（失败 6 的提交码）、[`sash-drag.test.ts`](../../../packages/nb-layout/src/sash-drag.test.ts)、[`grid-rects.test.ts`](../../../packages/nb-layout/src/grid-rects.test.ts)、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts)、[`grid-swap.test.ts`](../../../packages/nb-layout/src/grid-swap.test.ts)、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts)、[`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)、[`vue/useLeafParking.dom.test.ts`](../../../packages/nb-layout/src/vue/useLeafParking.dom.test.ts)、[`vue/useRenderOrder.dom.test.ts`](../../../packages/nb-layout/src/vue/useRenderOrder.dom.test.ts)、[`vue/grid-focus.dom.test.ts`](../../../packages/nb-layout/src/vue/grid-focus.dom.test.ts)
 - Smoke：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/lab-nested-grid.e2e.ts)、[`e2e/lab-grid-structure.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-structure.e2e.ts)、[`e2e/lab-grid-panels.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-panels.e2e.ts)、[`e2e/lab-grid-swap.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-swap.e2e.ts)
