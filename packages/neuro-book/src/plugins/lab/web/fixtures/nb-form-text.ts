@@ -5,11 +5,11 @@
  * `nb-agent-ui/agent-text.ts`。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {defineComponent, h, provide, watch} from "vue";
+import {defineComponent, h, watch} from "vue";
 import type {Component} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 /** 场景输入里的 `locale`：`en-US` 用英文，其余（包括没写）用中文。 */
@@ -25,7 +25,7 @@ export function withFormSceneText(inner: Component): Component {
         props: {locale: {type: String, default: undefined}},
         setup(props, {attrs, slots}) {
             const engine = createHostTextEngine({locale: formSceneLocale(props.locale)});
-            provide(TEXT_PORT_KEY, engine.port);
+            provideHostText(engine.port);
             watch(() => formSceneLocale(props.locale), (next) => engine.setLocale(next));
             return () => h(inner, {...attrs, locale: props.locale}, slots);
         },

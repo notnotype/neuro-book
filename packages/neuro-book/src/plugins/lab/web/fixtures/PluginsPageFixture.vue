@@ -8,13 +8,13 @@
  * 页面的文字来自注入的翻译端口，而 Lab 窗口的端口跟着窗口的界面语言：这里另建一个宿主引擎、登记本插件的目录，语言跟着场景的
  * `locale` 属性（属性只管列表的连接，两者要一致），只注入给场景里的页面。
  */
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {computed, provide, watch} from "vue";
+import {computed, watch} from "vue";
 
 import type {InstallPreview, PluginListEntry, PluginProblem, PluginsRegistry} from "nbook/plugins/plugins/shared/contracts";
 import PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
 import type {FolderUploadClient} from "nbook/plugins/plugins/web/folder-upload";
 import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {useLabEventSink} from "../lab-event-sink";
@@ -156,7 +156,7 @@ const bindings = computed(() => subject.bindings.value);
 const sceneLocale = (): string => (typeof bindings.value.locale === "string" ? bindings.value.locale : "zh-CN");
 const text = createHostTextEngine({locale: sceneLocale()});
 text.register("nbook.plugins", pluginsCatalogs.catalogs, pluginsCatalogs.source);
-provide(TEXT_PORT_KEY, text.port);
+provideHostText(text.port);
 // 数据面板改了 `locale` 时端口跟着换。
 watch(sceneLocale, (locale) => text.setLocale(locale));
 </script>

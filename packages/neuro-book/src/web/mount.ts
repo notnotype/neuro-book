@@ -7,11 +7,10 @@ import {createApp} from "vue";
 import type {App} from "vue";
 import type {RouterHistory} from "vue-router";
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-
 import FailurePage from "./FailurePage.vue";
 import HostPage from "./HostPage.vue";
 import PageOutlet from "./PageOutlet.vue";
+import {provideAppHostText} from "./host/host-text";
 import type {BrowserWindow, ReadyWindowState} from "./host/window";
 import {createPageRouter} from "./router";
 
@@ -29,7 +28,7 @@ export interface WindowUiOptions {
 
 /** 三个独立的 Vue 根（宿主页、页面、启动失败页）各自注入窗口的翻译端口（docs/specs/ui/i18n.md）。 */
 function withText<T>(app: App<T>, options: WindowUiOptions): App<T> {
-    return app.provide(TEXT_PORT_KEY, options.browserWindow.text.port);
+    return provideAppHostText(app, options.browserWindow.text.port);
 }
 
 export async function mountWindowUi(options: WindowUiOptions): Promise<void> {

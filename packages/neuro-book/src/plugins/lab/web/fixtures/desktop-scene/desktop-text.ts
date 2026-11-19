@@ -3,12 +3,12 @@
  * 零件（做法同 `projects-scene/projects-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面，其余用中文。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {defineComponent, h, provide} from "vue";
+import {defineComponent, h} from "vue";
 import type {Component, PropType} from "vue";
 
 import {desktopCatalogs} from "nbook/plugins/desktop/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {LabSceneInput} from "../../lab-subject";
@@ -26,7 +26,7 @@ export function withDesktopText(fixture: Component): Component {
         setup(props) {
             const engine = createHostTextEngine({locale: sceneLocale(props.scene)});
             engine.register("nbook.desktop", desktopCatalogs.catalogs, desktopCatalogs.source);
-            provide(TEXT_PORT_KEY, engine.port);
+            provideHostText(engine.port);
             return () => h(fixture, {scene: props.scene, input: props.input});
         },
     });

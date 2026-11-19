@@ -91,7 +91,7 @@ type SplitterSlots = {
 
 - `state:local`：当前分配、拖动预览、折叠过渡与手势 scope 属于本实例；卸载即丢弃。
 - `env:global`：手势 composable 在窗口和文档监听 blur、scroll、resize 与 Escape，并在手势根监听指针捕获事件；窗口尺寸/滚动还会触发设备像素对齐重算。手势结束或组件卸载时均解除监听，不留下常驻监听。
-- `state:inject`（翻译端口）：读宿主注入的翻译端口（`useLayoutText()`，`TEXT_PORT_KEY`）取分隔线的可访问名称与取值文字（“已收起”“N 像素”），语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。这两项没有对应的属性，固定走端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。
+- `state:inject`（文字）：读宿主经 `LAYOUT_TEXT_KEY` 注入的翻译函数（`useLayoutText()`）取分隔线的可访问名称与取值文字（“已收起”“N 像素”），语言跟着宿主走，换语言不重新挂载；没有注入时用自带的源语言目录（`zh-CN`，`@notnotype/nb-layout/locales`）。这两项没有对应的属性，固定走注入。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。
 
 ## 上游边界
 

@@ -17,6 +17,7 @@
         ".": "./src/index.ts",
         "./vue": "./src/vue/index.ts",
         "./locales": "./src/locales/index.ts",
+        "./text": "./src/vue/text.ts",
         "./lab-sources": "./src/vue/lab-sources.ts"
     },
     "scripts": {

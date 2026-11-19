@@ -4,10 +4,10 @@
  */
 
 import type {TextPort} from "@notnotype/nb-ui/text-port";
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import type {PluginCatalogs} from "nbook/shared/convention-keys";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {hostTextProvides} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 /** `plugins` 按命名空间（插件 id）给目录，例如 `{"nbook.plugins": pluginsCatalogs}`。 */
@@ -17,7 +17,7 @@ export function testTextPort(locale: DisplayLocale, plugins: Readonly<Record<str
     return engine.port;
 }
 
-/** `mount(…, {global: {provide: provideText(port)}})` 用的注入表。 */
-export function provideText(port: TextPort): Record<symbol, TextPort> {
-    return {[TEXT_PORT_KEY as symbol]: port};
+/** `mount(…, {global: {provide: provideText(port)}})` 用的注入表：nb-ui 的端口与 nb-layout 的翻译函数一起（`web/host/host-text.ts`）。 */
+export function provideText(port: TextPort): Record<symbol, unknown> {
+    return hostTextProvides(port);
 }

@@ -65,5 +65,5 @@ type SortableListSlots = {
 
 ## 隐藏通道理由
 
-- `state:inject`：nb-layout 的翻译端口（把手的可访问名、提示、占位、播报）。
+- `state:inject`：经 `LAYOUT_TEXT_KEY` 注入的翻译函数（把手的可访问名、提示、占位、播报）；没有注入时用自带的源语言目录，同 [Splitter](Splitter.md) 的“文字”。
 - `env:global`：拖动会话在拿起后到放下前在窗口上监听指针、按键、失焦与尺寸变化，放下即拆；闲时只有列表根上的按下、点击与按键监听。

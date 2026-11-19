@@ -5,10 +5,10 @@
  * Lab 按“组件:场景”重挂本 fixture，换场景就是换一个宿主。
  */
 import {Button} from "@notnotype/nb-ui/components";
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {computed, onBeforeUnmount, provide, ref} from "vue";
+import {computed, onBeforeUnmount, ref} from "vue";
 
 import SettingsWindow from "nbook/plugins/settings/web/components/SettingsWindow.vue";
+import {provideHostText} from "nbook/web/host/host-text";
 
 import {useLabEventSink} from "../lab-event-sink";
 import type {LabFixtureProps} from "../lab-subject";
@@ -22,7 +22,7 @@ const record = useLabEventSink();
 const scene = createSettingsScene(props.scene as SettingsWindowSceneId, (input) => record("notify", input), (message) => record("report", message));
 const host = scene.host;
 // 窗口里的零件（行、页面列表、保存栏）经注入拿翻译端口，要与窗口模型用同一个。
-provide(TEXT_PORT_KEY, host.text);
+provideHostText(host.text);
 scene.open();
 onBeforeUnmount(() => host.dispose());
 

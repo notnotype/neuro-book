@@ -4,13 +4,13 @@
  * 这些零件没有 `locale` 属性，语言只由场景决定。设置窗口的场景不用这里：它的端口由局部宿主给（`settings-host.ts` 的 `text`）。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
-import {defineComponent, h, provide} from "vue";
+import {defineComponent, h} from "vue";
 import type {Component, PropType} from "vue";
 
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {LabSceneInput} from "../../lab-subject";
@@ -21,7 +21,7 @@ export const settingsSceneLocale = (scene: string): DisplayLocale => (/(?:^|-)en
 export function provideSettingsText(scene: string): TextPort {
     const engine = createHostTextEngine({locale: settingsSceneLocale(scene)});
     engine.register("nbook.settings", settingsCatalogs.catalogs, settingsCatalogs.source);
-    provide(TEXT_PORT_KEY, engine.port);
+    provideHostText(engine.port);
     return engine.port;
 }
 

@@ -5,13 +5,13 @@
  * 语言只由场景决定。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
-import {defineComponent, h, provide} from "vue";
+import {defineComponent, h} from "vue";
 import type {Component, PropType} from "vue";
 
 import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {LabSceneInput} from "../../lab-subject";
@@ -25,7 +25,7 @@ export function workbenchSceneLocale(scene: string, englishScenes: ReadonlyArray
 export function provideWorkbenchText(locale: DisplayLocale): TextPort {
     const engine = createHostTextEngine({locale});
     engine.register("nbook.workbench", workbenchCatalogs.catalogs, workbenchCatalogs.source);
-    provide(TEXT_PORT_KEY, engine.port);
+    provideHostText(engine.port);
     return engine.port;
 }
 
