@@ -6,10 +6,13 @@ import {
     createGrid,
     type GridAxis,
     type GridBranchInput,
+    type GridCommitFailureCode,
     type GridExtent,
+    type GridFailureCode,
     type GridLeafInput,
     type GridNodeInput,
     type GridOrientation,
+    type GridRestoreFailureCode,
     type GridSnapshot,
 } from "./grid";
 import {createGridGestureSession, type GridGestureSession} from "./grid-gesture";
@@ -1087,10 +1090,28 @@ describe("拆分树原语：手势会话里按比例分的叶的显式恢复", (
     });
 });
 
-/** 失败只比码与参数：`message` 是给日志看的英文，不断言文字。 */
-function codeOf(result: {ok: boolean; code?: string; params?: unknown}): {code: string | undefined; params: unknown} | null {
+/** 失败只比码与参数；`message` 是给日志看的英文（Spec 失败 5），只核对它是可打印的 ASCII，不断言文字。 */
+function codeOf(result: {ok: boolean; code?: string; message?: string; params?: unknown}): {code: string | undefined; params: unknown} | null {
+    if (!result.ok) expect(result.message).toMatch(/^[\x20-\x7e]+$/u);
     return result.ok ? null : {code: result.code, params: result.params};
 }
+
+/** 三层失败码的全集：新增码不列进来时下面的类型检查不过。 */
+const FAILURE_CODES = [
+    "not-found", "wrong-node-kind", "wrong-axis", "not-finite", "invalid-argument", "limit-exceeded", "duplicate-id", "into-own-subtree", "not-conserved", "stale-baseline", "not-collapsible",
+    "invalid-snapshot", "unsupported-version", "unresolved-root",
+    "not-ready", "stale-context", "stale-revision", "stale-size", "handler-missing", "handler-threw",
+] as const satisfies readonly (GridFailureCode | GridRestoreFailureCode | GridCommitFailureCode)[];
+type UnlistedCode = Exclude<GridFailureCode | GridRestoreFailureCode | GridCommitFailureCode, (typeof FAILURE_CODES)[number]>;
+const everyCodeListed: [UnlistedCode] extends [never] ? true : UnlistedCode = true;
+
+describe("失败码的写法（Spec ui/nested-grid 边界与兼容）", () => {
+    it("同 ui/i18n 的开放错误域：小写短横线，不含冒号、点与空白，不超过 64 个字符", () => {
+        expect(everyCodeListed).toBe(true);
+        for (const code of FAILURE_CODES) expect(code).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
+        for (const code of FAILURE_CODES) expect(code.length).toBeLessThanOrEqual(64);
+    });
+});
 
 describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）", () => {
     const split = (over: Record<string, unknown> = {}) => ({branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}, ...over}) as Parameters<ReturnType<typeof createGrid<string>>["splitLeaf"]>[1];

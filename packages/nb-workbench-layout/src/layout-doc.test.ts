@@ -443,8 +443,11 @@ describe("标签", () => {
         expect(inserted.panels.eb?.active).toBe("tab:z");
         expect(inserted.currentEditor).toBe("eb");
         expect(okDoc(activateTab(inserted, "tab:ea")).currentEditor).toBe("ea");
-        expect(insertTab(doc, {panel: "eb", tab: tab("ea")})).toMatchObject({ok: false, code: "rejected"});
-        expect(insertTab(doc, {panel: "nope", tab: tab("z")})).toMatchObject({ok: false, code: "not-found"});
+        // 失败与 nb-layout 同形（Spec ui/workbench-layout 失败与恢复）：`message` 是英文，只给日志看。
+        const ascii = expect.stringMatching(/^[\x20-\x7e]+$/u);
+        expect(insertTab(doc, {panel: "eb", tab: tab("ea")})).toEqual({ok: false, code: "rejected", message: ascii});
+        expect(insertTab(doc, {panel: "nope", tab: tab("z")})).toEqual({ok: false, code: "not-found", message: ascii});
+        expect(validateLayoutDoc({version: 99})).toEqual({ok: false, code: "unsupported-version", message: ascii});
     });
 
     it("活动编辑组：只能是编辑组；已经是它时返回原文档", () => {
