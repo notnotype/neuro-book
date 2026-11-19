@@ -13,7 +13,8 @@ import {bodyOf} from "./knowing";
 import {mainCharacters} from "./secrets";
 
 export interface AuthorGoal extends GoalRead {
-    readonly conflicts: readonly GoalConflict[];
+    /** 冲突的目标，另带它的持有者（本体）。 */
+    readonly conflicts: readonly (GoalConflict & {readonly holder: string | null})[];
     /** 最近一次动过的章（前史为 null）；从没动过为 null。 */
     readonly last: {readonly chapter: string | null} | null;
     /** 没动过的章数（从最近一次，没有时从出场，到读取位置所在的章）。 */
@@ -54,7 +55,11 @@ function goalsOfHolder(view: CanonReadView, holder: string, position: ReadPositi
 
 function authorGoal(view: CanonReadView, goal: GoalRead, position: ReadPosition, mode: Mode): AuthorGoal {
     const {last, quiet} = goalQuiet(view, goal.id, mode, position);
-    return {...goal, conflicts: conflictsOf(view, goal.id, position, mode) ?? [], last, quiet, stalled: goal.状态 === "active" && quiet > STALLED_AFTER_CHAPTERS};
+    const conflicts = (conflictsOf(view, goal.id, position, mode) ?? []).map((conflict) => {
+        const parent = (view.object({kind: "entry", id: conflict.id}) as {readonly parent?: string | null} | undefined)?.parent;
+        return {...conflict, holder: typeof parent === "string" ? bodyOf(view, parent) : null};
+    });
+    return {...goal, conflicts, last, quiet, stalled: goal.状态 === "active" && quiet > STALLED_AFTER_CHAPTERS};
 }
 
 /** 一个人的态度表（他身上 `att.态度` 的每一行）。 */

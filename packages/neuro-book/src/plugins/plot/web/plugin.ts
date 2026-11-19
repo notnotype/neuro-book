@@ -25,11 +25,15 @@ import {plotText} from "../shared/text";
 import {Type} from "typebox";
 import {createPlotAuthorClient} from "./author";
 import {tableTitle} from "./pages";
-import type {PlotTable, SecretsPageState} from "./pages";
+import type {GoalsPageState, LedgerPageState, PlotTable, SecretsPageState} from "./pages";
 
 export const SIDEBAR_VIEW = "nbook.plot.sidebar";
 export const SECRETS_PAGE = "nbook.plot.secrets";
+export const LEDGER_PAGE = "nbook.plot.ledger";
+export const GOALS_PAGE = "nbook.plot.goals";
 export const OPEN_SECRETS_COMMAND = "nbook.plot.open-secrets";
+export const OPEN_LEDGER_COMMAND = "nbook.plot.open-ledger";
+export const OPEN_GOALS_COMMAND = "nbook.plot.open-goals";
 export const SHOW_SIDEBAR_COMMAND = "nbook.plot.show-sidebar";
 /** 打开条目页：canon 的命令（canon/author-ui.md 的命令表）。 */
 const OPEN_ENTRY_COMMAND = "nbook.canon.open-entry";
@@ -43,6 +47,8 @@ const NO_ARGS = Type.Object({}, {additionalProperties: false});
 /** 都只改这个窗口的布局（打开页面、显示视图），不改作品；Agent 读剧情走 `nbook.plot/world`。 */
 const COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommandDeclaration>> = {
     [OPEN_SECRETS_COMMAND]: {category: plotText("commands.category"), description: "Open the Who Knows What table: each secret, who knows it, what the reader knows, and how it will be revealed.", args: NO_ARGS, effect: "write", expose: {agent: "never"}},
+    [OPEN_LEDGER_COMMAND]: {category: plotText("commands.category"), description: "Open the foreshadowing ledger: each foreshadowing thread, its stage, when it was last mentioned and what is planned next.", args: NO_ARGS, effect: "write", expose: {agent: "never"}},
+    [OPEN_GOALS_COMMAND]: {category: plotText("commands.category"), description: "Open the goals table: each main character's goals, conflicts, progress and attitudes.", args: NO_ARGS, effect: "write", expose: {agent: "never"}},
     [SHOW_SIDEBAR_COMMAND]: {category: plotText("commands.category"), description: "Show the Plot view in the sidebar.", args: NO_ARGS, effect: "write", expose: {agent: "never"}},
 };
 
@@ -76,6 +82,8 @@ export const plotBrowserPlugin: PluginDefinition = {
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: SIDEBAR_VIEW, declaration: SIDEBAR_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: SECRETS_PAGE, declaration: TABLE_PAGE},
+            {capability: EDITOR_PAGES_POINT, id: LEDGER_PAGE, declaration: TABLE_PAGE},
+            {capability: EDITOR_PAGES_POINT, id: GOALS_PAGE, declaration: TABLE_PAGE},
             ...Object.entries(COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
         ],
         activate: async (context) => {
@@ -89,7 +97,7 @@ export const plotBrowserPlugin: PluginDefinition = {
             const shown = (table: PlotTable): void => {
                 active.value = table;
             };
-            const pageOf: Record<PlotTable, string> = {secrets: SECRETS_PAGE, ledger: "nbook.plot.ledger", goals: "nbook.plot.goals"};
+            const pageOf: Record<PlotTable, string> = {secrets: SECRETS_PAGE, ledger: LEDGER_PAGE, goals: GOALS_PAGE};
             const sidebar: ViewImplementation = {
                 load: async () => {
                     const Sidebar = (await import("./components/PlotSidebar.vue")).default;
@@ -113,6 +121,8 @@ export const plotBrowserPlugin: PluginDefinition = {
             const missing: CommandResult<unknown> = {ok: false, code: "unavailable", reason: "no command service in this window"};
             const commandImplementations: Record<string, CommandImplementation> = {
                 [OPEN_SECRETS_COMMAND]: {run: async () => (commands === null ? missing : commands.execute(OPEN_PAGE_COMMAND, {id: SECRETS_PAGE}))},
+                [OPEN_LEDGER_COMMAND]: {run: async () => (commands === null ? missing : commands.execute(OPEN_PAGE_COMMAND, {id: LEDGER_PAGE}))},
+                [OPEN_GOALS_COMMAND]: {run: async () => (commands === null ? missing : commands.execute(OPEN_PAGE_COMMAND, {id: GOALS_PAGE}))},
                 [SHOW_SIDEBAR_COMMAND]: {run: async () => (commands === null ? missing : commands.execute(OPEN_VIEW_COMMAND, {viewId: SIDEBAR_VIEW}))},
             };
             return {
@@ -120,6 +130,8 @@ export const plotBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_VIEWS_POINT]: {[SIDEBAR_VIEW]: sidebar},
                     [EDITOR_PAGES_POINT]: {
                         [SECRETS_PAGE]: tablePage<SecretsPageState>("secrets", () => import("./components/SecretsPage.vue"), () => ({position: "", planned: false, segment: "all", people: null}), {reads, client, open}, shown),
+                        [LEDGER_PAGE]: tablePage<LedgerPageState>("ledger", () => import("./components/LedgerPage.vue"), () => ({position: "", planned: false, segment: "unpaid"}), {reads, client, open}, shown),
+                        [GOALS_PAGE]: tablePage<GoalsPageState>("goals", () => import("./components/GoalsPage.vue"), () => ({position: "", planned: false, holder: null, finished: false, collapsed: []}), {reads, client, open}, shown),
                     },
                     [COMMANDS_POINT]: commandImplementations,
                 },

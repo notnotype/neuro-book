@@ -4,7 +4,7 @@
  * 数据来自一次 `secrets` 外部列表（同一份读取输入给行、条数、候选、名字表），挂在窗口的读取层里，世界变了与 canon 的读取同一轮换上。
  * 页面状态（位置、按计划、分段、选的人）在标签上，切走再回来不变。
  */
-import {computed, onBeforeUnmount, onMounted, shallowRef} from "vue";
+import {computed, shallowRef} from "vue";
 
 import {Banner, Button, SegmentedControl} from "@notnotype/nb-ui/components";
 
@@ -13,6 +13,7 @@ import type {CanonReads} from "nbook/plugins/canon/shared/reads";
 import type {SecretSegment} from "../../core/author/secrets";
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
 import {chapterIndex} from "../labels";
+import {failureText, NARROW_WIDTH, useContainerWidth} from "../page-shell";
 import type {SecretsPageState} from "../pages";
 import {usePlotText} from "../text";
 import PeoplePicker from "./PeoplePicker.vue";
@@ -56,18 +57,8 @@ const remaining = computed(() => {
     return total === undefined ? null : Math.max(0, total - (list.state.value?.items.length ?? 0));
 });
 
-// 容器宽度不足 640 像素时换成列表（输出 6）：按容器量，侧栏开着时编辑区比视口窄。
 const root = shallowRef<HTMLElement | null>(null);
-const width = shallowRef(Number.POSITIVE_INFINITY);
-let observer: ResizeObserver | null = null;
-onMounted(() => {
-    if (root.value === null || typeof ResizeObserver === "undefined") return;
-    observer = new ResizeObserver((entries) => {
-        width.value = entries[0]?.contentRect.width ?? width.value;
-    });
-    observer.observe(root.value);
-});
-onBeforeUnmount(() => observer?.disconnect());
+const width = useContainerWidth(root);
 </script>
 
 <template>
@@ -75,7 +66,7 @@ onBeforeUnmount(() => observer?.disconnect());
         <PageHead :title="text('editorPages.secrets.title')" :position="state.position" :planned="state.planned" wide @update:position="(value: string) => (state.position = value)" @update:planned="(value: boolean) => (state.planned = value)" />
         <div class="mx-auto max-w-[1100px] px-8 py-5 max-[480px]:px-4">
             <p v-if="props.reads.connection.value === 'no-project'" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.unbound") }}</p>
-            <Banner v-else-if="failure !== null" tone="danger" role="alert" :message="failure.code === 'line-not-found' ? text('page.lineMissing') : text('page.failed', {reason: String((failure.detail as {code?: string} | undefined)?.code ?? failure.code)})">
+            <Banner v-else-if="failure !== null" tone="danger" role="alert" :message="failureText(failure, text)">
                 <template #actions><Button size="sm" @click="props.reads.retry()">{{ text("page.retry") }}</Button></template>
             </Banner>
             <p v-else-if="list.state.value === null || list.state.value.loading" role="status" aria-busy="true" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.loading") }}</p>
@@ -85,7 +76,7 @@ onBeforeUnmount(() => observer?.disconnect());
                     <PeoplePicker :candidates="candidates" :model-value="people" @update:model-value="(value: string[]) => (state.people = value)" />
                 </div>
                 <p v-if="list.state.value.items.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("secrets.empty") }}</p>
-                <SecretsMatrix v-else :rows="list.state.value.items" :people="people" :names="names" :chapters="chapters" :now="now" :compact="width < 640" @open="props.open" />
+                <SecretsMatrix v-else :rows="list.state.value.items" :people="people" :names="names" :chapters="chapters" :now="now" :compact="width < NARROW_WIDTH" @open="props.open" />
                 <Button v-if="list.state.value.more" class="mt-3" size="sm" variant="ghost" @click="list.more()">{{ remaining === null ? text("page.moreUnknown") : text("page.more", {count: remaining}) }}</Button>
             </template>
         </div>

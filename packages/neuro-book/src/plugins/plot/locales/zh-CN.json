@@ -111,5 +111,82 @@
         "pickLimit": "最多选 {{count}} 个",
         "empty": "还没有秘密",
         "tableLabel": "谁知道什么"
+    },
+    "ledger": {
+        "segments": {
+            "label": "筛选",
+            "unpaid": "还没收",
+            "silent": "很久没提",
+            "unplanned": "没打算怎么收",
+            "dropped": "已放弃",
+            "all": "全部"
+        },
+        "columns": {
+            "name": "伏笔",
+            "stage": "到哪一步",
+            "last": "上次提到",
+            "next": "接下来",
+            "band": "节点"
+        },
+        "stage": {
+            "unplanted": "还没埋",
+            "planted": "埋了",
+            "echoing": "呼应中",
+            "partial": "收了一部分",
+            "paidOff": "收了",
+            "dropped": "已放弃"
+        },
+        "importance": {
+            "main": "主线",
+            "side": "支线",
+            "minor": "次要"
+        },
+        "role": {
+            "plant": "埋下",
+            "echo": "呼应",
+            "mislead": "误导",
+            "partial": "收一部分",
+            "payoff": "收"
+        },
+        "roleShort": {
+            "plant": "埋",
+            "echo": "应",
+            "mislead": "误",
+            "partial": "部",
+            "payoff": "收"
+        },
+        "silent": "{{count}} 章没提",
+        "next": "{{chapter}}{{role}}",
+        "none": "没有打算",
+        "unplannedNote": "还没打算怎么收",
+        "legendWritten": "写了",
+        "legendPlanned": "打算写",
+        "legendRoles": "埋下、呼应、误导、收一部分、收",
+        "here": "所选位置",
+        "empty": "没有伏笔",
+        "tableLabel": "伏笔账本"
+    },
+    "goals": {
+        "all": "所有主要角色",
+        "holderLabel": "看谁",
+        "finished": "也列达成与放弃的",
+        "status": {
+            "active": "进行",
+            "blocked": "受挫",
+            "achieved": "达成",
+            "abandoned": "放弃"
+        },
+        "attitude": "对{{object}}：{{attitude}}",
+        "notReduced": "还没归纳",
+        "hidden": "瞒着别人",
+        "conflicts": "和这些打架：",
+        "basedOn": "因为：",
+        "moved": "{{chapter}}动过",
+        "neverMoved": "出场以后没动过",
+        "quiet": "{{count}} 章没动过",
+        "collapse": "收起{{name}}",
+        "expand": "展开{{name}}",
+        "empty": "还没有主要角色",
+        "noGoals": "还没有目标与态度"
     }
 }

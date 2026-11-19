@@ -111,5 +111,82 @@
         "pickLimit": "At most {{count}}",
         "empty": "No secrets yet",
         "tableLabel": "Who knows what"
+    },
+    "ledger": {
+        "segments": {
+            "label": "Filter",
+            "unpaid": "Not paid off",
+            "silent": "Silent too long",
+            "unplanned": "No payoff planned",
+            "dropped": "Dropped",
+            "all": "All"
+        },
+        "columns": {
+            "name": "Foreshadowing",
+            "stage": "Stage",
+            "last": "Last mentioned",
+            "next": "Next",
+            "band": "Nodes"
+        },
+        "stage": {
+            "unplanted": "Not planted",
+            "planted": "Planted",
+            "echoing": "Echoing",
+            "partial": "Partly paid off",
+            "paidOff": "Paid off",
+            "dropped": "Dropped"
+        },
+        "importance": {
+            "main": "Main",
+            "side": "Side",
+            "minor": "Minor"
+        },
+        "role": {
+            "plant": " plant",
+            "echo": " echo",
+            "mislead": " mislead",
+            "partial": " partial payoff",
+            "payoff": " payoff"
+        },
+        "roleShort": {
+            "plant": "P",
+            "echo": "E",
+            "mislead": "M",
+            "partial": "R",
+            "payoff": "O"
+        },
+        "silent": "silent for {{count}} chapters",
+        "next": "{{chapter}}{{role}}",
+        "none": "No plan",
+        "unplannedNote": "No payoff planned yet",
+        "legendWritten": "written",
+        "legendPlanned": "planned",
+        "legendRoles": "plant, echo, mislead, partial payoff, payoff",
+        "here": "Selected position",
+        "empty": "No foreshadowing",
+        "tableLabel": "Foreshadowing ledger"
+    },
+    "goals": {
+        "all": "All main characters",
+        "holderLabel": "Whose",
+        "finished": "Also show achieved and abandoned",
+        "status": {
+            "active": "Active",
+            "blocked": "Blocked",
+            "achieved": "Achieved",
+            "abandoned": "Abandoned"
+        },
+        "attitude": "Toward {{object}}: {{attitude}}",
+        "notReduced": "not summarized yet",
+        "hidden": "Hidden from others",
+        "conflicts": "Conflicts with: ",
+        "basedOn": "Because: ",
+        "moved": "moved in {{chapter}}",
+        "neverMoved": "not moved since appearing",
+        "quiet": "{{count}} chapters without progress",
+        "collapse": "Collapse {{name}}",
+        "expand": "Expand {{name}}",
+        "empty": "No main characters yet",
+        "noGoals": "No goals or attitudes yet"
     }
 }

@@ -3,6 +3,7 @@
  * 普通的类型检查看不到）。
  */
 
+import type {LedgerSegment} from "../core/author/ledger";
 import type {SecretSegment} from "../core/author/secrets";
 import {plotText} from "../shared/text";
 
@@ -20,4 +21,23 @@ export interface SecretsPageState {
     segment: SecretSegment;
     /** 选的人；null 是还没选过（服务按缺省选）。 */
     people: string[] | null;
+}
+
+/** 伏笔账本标签的状态。 */
+export interface LedgerPageState {
+    position: string;
+    planned: boolean;
+    segment: LedgerSegment;
+}
+
+/** 目标表标签的状态。 */
+export interface GoalsPageState {
+    position: string;
+    planned: boolean;
+    /** 只看这个人；null 是所有主要角色。 */
+    holder: string | null;
+    /** 也列达成与放弃的。 */
+    finished: boolean;
+    /** 收起的组（持有者 id）。 */
+    collapsed: string[];
 }

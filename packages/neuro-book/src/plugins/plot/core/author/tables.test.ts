@@ -33,7 +33,7 @@ describe("作者用的目标表（goals.md 输出 6）", () => {
         expect(Object.fromEntries(groups.map((group) => [group.holder, group.goals.map((goal) => goal.id)]))).toEqual({[xia]: [hide], [jin]: [find]});
         const xiaGoals = authorGoals(w.view(), "actual", end("ch2"), {holder: xia, finished: true})[0]!;
         expect(xiaGoals.goals.map((goal) => goal.id)).toEqual([hide, cake]);
-        expect(xiaGoals.goals[0]!.conflicts).toEqual([{id: find, writtenOn: "other"}]);
+        expect(xiaGoals.goals[0]!.conflicts).toEqual([{id: find, writtenOn: "other", holder: jin}]);
     });
 
     test("动过只算改到 goal 命名空间、套上了的变更；没动过的章数从最近一次（没有时从出场）算；停滞同一个算法（30 章与 31 章的边界）", () => {

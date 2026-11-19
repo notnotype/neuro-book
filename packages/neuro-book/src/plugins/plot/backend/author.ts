@@ -40,8 +40,7 @@ function nameGoals(names: NameTable, group: Pick<AuthorHolder, "holder" | "goals
         for (const point of goal.基于) names.add(point);
         for (const conflict of goal.conflicts) {
             names.add(conflict.id);
-            const holder = (names.view.object({kind: "entry", id: conflict.id}) as {readonly parent?: string | null} | undefined)?.parent;
-            names.add(holder);
+            names.add(conflict.holder);
         }
     }
     for (const attitude of group.attitudes) {
