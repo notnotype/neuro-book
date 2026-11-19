@@ -7,10 +7,14 @@ import {readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
-import {createTestClock} from "@notnotype/nb-harness/kernel/testing";
+import {createAgentHost, createMemoryStore} from "@notnotype/nb-harness/kernel";
+import {createTestClock, createTestModel, defaultTestProfile} from "@notnotype/nb-harness/kernel/testing";
+import {SessionTable} from "@notnotype/nb-harness/kit/sessions";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {JobCenter, KEPT_PER_OWNER, type Job} from "./backend/jobs/center";
+import {watchSteer} from "./backend/jobs/steer";
 import {MAIN_PROFILE} from "./shared/contracts";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint, Scripted} from "./testing/endpoint";
@@ -109,6 +113,61 @@ describe("wait", () => {
         stop.abort();
         expect(await aborted).toMatchObject({kind: "aborted"});
         expect(job.state).toBe("running");
+    });
+});
+
+describe("插话的到达（输出 3）", () => {
+    test("只认就绪的插话：留着的不算；放行出来、仍是插话的算到达", async () => {
+        const model = createTestModel();
+        const host = createAgentHost({
+            store: createMemoryStore(),
+            profiles: {resolve: (key) => (key === defaultTestProfile.id ? defaultTestProfile : undefined)},
+            models: model.port,
+            tools: {declarations: () => [], create: (id) => Promise.reject(new Error(`no tool ${id}`))},
+            resources: () => ({read: async () => undefined, resolve: (uri) => uri}),
+            sessions: {get: (id) => Promise.reject(new Error(`no session ${id}`))},
+            clock: createTestClock(),
+            approve: async () => ({verdict: "allow", by: "test-policy"}),
+        });
+        const table = new SessionTable({host, clock: {schedule: () => () => undefined}, beforeOpen: async () => undefined, report: (code, message) => {
+            throw new Error(`${code}: ${message}`);
+        }});
+        const created = await table.create({profile: defaultTestProfile.id, id: "p"});
+        if (!created.ok) throw new Error(created.code);
+        const other = table.view("p", {kind: "host", source: {plugin: "test.other", label: "别的"}});
+        const starter = table.view("p", {kind: "host", source: {plugin: "test.starter", label: "开的"}});
+        // 空闲时别的宿主排的插话留着；开运行的宿主放行不了它（harness/runtime.md 输出 105）。
+        const steer = await other.enqueue({commandId: "c-1", input: {text: "别的插话"}, mode: "steer"});
+        if (!steer.ok) throw new Error(steer.code);
+        model.script({text: "半句", hold: true});
+        expect((await starter.send({commandId: "c-2", input: {text: "开始"}})).ok).toBe(true);
+        await waitUntil("在跑", async () => (await table.view("p").snapshot()).status.state === "running");
+
+        let arrived = false;
+        const watch = await watchSteer(table, "p", (error) => {
+            throw error;
+        });
+        void watch.arrived.then(() => {
+            arrived = true;
+        });
+        // 走同一条订阅、看得见的一步：开运行的宿主排一条排队，后接上的监听收到它时，前面的监听也已经收到过。
+        const seen: string[] = [];
+        const after = await table.subscribeOpened("p", {kind: "user"}, (frame) => {
+            if (frame.type === "log") seen.push(frame.event.type);
+        });
+        if (!after.ok) throw new Error(after.code);
+        expect((await starter.enqueue({commandId: "c-3", input: {text: "排队的"}, mode: "followup"})).ok).toBe(true);
+        await waitUntil("排队的到了", () => seen.includes("inputQueued"));
+        await Promise.resolve();
+        expect(arrived).toBe(false);
+
+        // 别的宿主放行自己的插话：仍是插话，算到达。
+        expect((await other.release({commandId: "c-4", inputIds: [steer.value.inputId]})).ok).toBe(true);
+        await watch.arrived;
+        watch.release();
+        after.release();
+        await table.view("p").abort({commandId: "c-5"});
+        await table.stop();
     });
 });
 

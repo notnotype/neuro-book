@@ -687,12 +687,49 @@ describe("话的去向（t14：harness/runtime.md 输出 103–110）", () => {
 
         await turn(parent, "继续", [{tool: "agent_send", args: {id: child}}, "好"]);
         expect((await toolResults(parent, "nbook.agent.send")).at(-1)).toMatchObject({code: "held-by-user"});
+        expect((await toolResults(parent, "nbook.agent.send")).at(-1)!.text).toContain("只有用户能放行");
 
         await turn(parent, "再说一句", [{tool: "agent_send", args: {id: child, message: "新的一句"}}, "好"]);
         // 被停的运行已经收口（不是回退出来的暂停），新话照常开新的一轮；用户留下的那句不动。
         const sent = (await toolResults(parent, "nbook.agent.send")).at(-1)!;
         expect(sent.details).toMatchObject({status: "completed"});
         expect(sent.text).toContain("子会话里有 1 条你排的话被用户暂停，未发出。");
+    });
+
+    test("输出 16：父会话中止时以父会话的身份连带停前台的子代理：runEnded.stoppedBy 与排着的话的 heldBy 都是父会话", async () => {
+        const {w, parent} = await open();
+        const prompt = "核对第七章的称谓";
+        endpoint.scriptFor(prompt, "作废的回复", "排着的那句也做了。", "新的一句也做了。");
+        const held = endpoint.holdFor(prompt);
+        endpoint.script(adhoc(prompt));
+        const sent = await parent.send({commandId: cid(), input: {text: "派"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await held.arrived;
+        const listed = await w.service.list();
+        if (!listed.ok) throw new Error(listed.code);
+        const child = listed.value.find((entry) => entry.caller?.kind === "session" && entry.caller.id === parent.id)!.id;
+        // 用户在子会话里排的一句：停的是父会话，留着的话 heldBy 记停它的父会话（harness/runtime.md 输出 105）。
+        expect((await childOf(w, child).enqueue({commandId: cid(), input: {text: "排着的那句"}, mode: "followup"})).ok).toBe(true);
+        expect((await parent.abort({commandId: cid()})).ok).toBe(true);
+        await parent.waitRun(sent.value.runId);
+        held.release();
+        expect(await settledReason(childOf(w, child))).toBe("aborted");
+        const ended = (await childOf(w, child).path()).filter((event) => event.type === "runEnded").at(-1)!.data as {stoppedBy?: unknown};
+        expect(ended.stoppedBy).toEqual({kind: "session", id: parent.id});
+        expect((await childOf(w, child).snapshot()).buffer.map((item) => [item.state, item.heldBy])).toEqual([["held", {kind: "session", id: parent.id}]]);
+    });
+
+    test("输出 16：父 Agent 停的子代理，再带话 agent_send 时先放行父会话自己排的、留着的话，再跑新话", async () => {
+        const {w, parent} = await open();
+        const {child, jobId, held} = await busyChildWithQueued(parent, "核对第八章的称谓");
+        await turn(parent, "停", [{tool: "kill", args: {job: jobId}}, "好"]);
+        held.release();
+        await waitUntil("排着的话留着", async () => (await childOf(w, child).snapshot()).buffer.some((item) => item.state === "held"));
+        endpoint.scriptFor("核对第八章的称谓", "新的一句也做了。");
+        await turn(parent, "再说一句", [{tool: "agent_send", args: {id: child, message: "新的一句"}}, "好"]);
+        await waitUntil("都取走", async () => (await childOf(w, child).snapshot()).buffer.length === 0);
+        const inputs = (await childOf(w, child).path()).filter((event) => event.type === "input" || event.type === "steer").map((event) => (event.data as {text: string}).text);
+        expect(inputs.slice(-2)).toEqual(["排着的那句", "新的一句"]);
     });
 
     test("输出 16、jobs.md 输出 4：父 Agent 用 kill 停的子代理，排着的话 heldBy 父会话；父 Agent 不带话继续接着跑并放行它们", async () => {

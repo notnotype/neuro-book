@@ -138,6 +138,17 @@ describe("一轮对话", () => {
         expect(transcript.messages().map((message) => [message.id, (message as {delivery?: string}).delivery])).toEqual([["a", undefined], ["o", "unknown"]]);
     });
 
+    test("路径重建时路径上已经有这条话：按受理它的 commandId 清掉对应的乐观消息，不多出一份；别的乐观消息不动", () => {
+        const transcript = createKernelTranscript();
+        transcript.addOptimistic({id: "o-x", commandId: "x", text: "合并的", timestamp: 2});
+        transcript.addOptimistic({id: "o-z", commandId: "z", text: "还没到的", timestamp: 4});
+        transcript.applyPath([
+            {id: "a", type: "input", at: 1, data: {text: "别的", queued: "q1", commandId: "y"}},
+            {id: "b", type: "input", at: 3, data: {text: "合并的", queued: "q2", commandId: "x"}},
+        ]);
+        expect(transcript.messages().map((message) => message.id)).toEqual(["a", "b", "o-z"]);
+    });
+
     test("回复已经写下了，晚到的增量不再画一条“正在生成”", () => {
         const transcript = createKernelTranscript();
         transcript.applyPath([{id: "a", type: "assistant", at: 1, data: {request: 7, content: [{kind: "text", text: "回复"}], toolCalls: []}}]);
