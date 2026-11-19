@@ -85,8 +85,8 @@ nb-harness 内核里现成的（[`harness/runtime.md`](../../../../../docs/specs
 
 ## 当前状态
 
-[提案“统一后台任务”](../../../../../docs/proposals/unified-background-tasks.md)（`reviewing`）交 omp 设计审查中；计划第 2 稿暂停，提案定了再按它重写计划。
+提案第一轮设计审查（omp，到点截停后续跑补汇总）：28 条，阻断 2（1、2）、重要 26，报告存为 [`evidences/proposal-review-r1.txt`](evidences/proposal-review-r1.txt)。问题集中在三处：内核提示的唤起与取走规则；Agent 的任务状态搬进 `nbook.tasks` 之后两套生命周期互相打架（占一半）；送达与自动转后台里上一稿处理过、本稿漏写的几条。主 Agent 提出 6 条改法（清单只汇总、状态各归其主；Agent 的运行按会话一行；唤起的门挂在会话上；回退不重送结果；eval 的重置说两遍；拆成内核提示、t22、清单提供方三个 Task），等开发者定。
 
 ## 下一步
 
-处理提案审查，开发者接受提案后写计划第 3 稿。
+开发者定了 6 条后改提案第 2 稿，交第二轮审查。
