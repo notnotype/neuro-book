@@ -117,3 +117,17 @@ test("验收 2：她等你批准时切到别的视图，状态栏活动条目点
     await chat(page).locator("[data-approval-decision='deny']").click();
     await expect(chat(page).getByText("好了。")).toBeVisible();
 });
+
+test("验收 2：窗口没有焦点时到的回复记为未读，面板头的标题后写计数；窗口拿回焦点后计数清零", async ({page}) => {
+    await openBot(page);
+    const title = page.locator("[data-panel-tab$='nbook.bots.chat']");
+    await expect(title).toHaveText("bot");
+    // 窗口失焦：视图仍可见，但不算看到（bots/view.md 输出 4）。
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await script("你还在吗？");
+    await send(page, "在吗");
+    await expect(chat(page).getByText("你还在吗？")).toBeVisible();
+    await expect(title).toHaveText("bot 1");
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(title).toHaveText("bot");
+});
