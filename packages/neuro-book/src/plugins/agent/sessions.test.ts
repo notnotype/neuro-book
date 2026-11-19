@@ -237,6 +237,12 @@ describe("远程合同", () => {
         const removed = (await w.service.session(sessionId).log({afterSeq: 0})).events.find((event) => event.type === "noticeRemoved");
         expect(removed?.data).toMatchObject({ids: [queued.value.noticeId], reason: "cancelled"});
         expect(await client.removeNotice({sessionId, commandId: cid(), noticeId: queued.value.noticeId})).toMatchObject({ok: false, code: "notice-not-found"});
+        // 插件经 agentKey 拿到的视图能撤回自己发的。
+        const own = await host.notice({commandId: cid(), text: "过时了"});
+        if (!own.ok) throw new Error(`notice failed: ${JSON.stringify(own)}`);
+        expect((await host.removeNotice({commandId: cid(), noticeId: own.value.noticeId})).ok).toBe(true);
+        const withdrawn = (await w.service.session(sessionId).log({afterSeq: 0})).events.filter((event) => event.type === "noticeRemoved").at(-1);
+        expect(withdrawn?.data).toMatchObject({ids: [own.value.noticeId], reason: "withdrawn"});
 
         expect(Object.keys(agentSessionsContract.methods)).not.toContain("notice");
         const v1 = defineRemoteService({...agentSessionsContract, version: 1});
