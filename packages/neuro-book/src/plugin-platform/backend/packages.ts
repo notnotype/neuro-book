@@ -23,6 +23,8 @@ export interface PluginPackages {
      * 启动的第三方插件（含内置插件）、写法不对、不存在或读不了时交回 null。
      */
     directory(plugin: string, path: string): Promise<string | null>;
+    /** 插件包里的普通文件，规则同 `directory`：是普通文件、在版本目录里、各段都不是链接时交回真实路径，否则 null。 */
+    file(plugin: string, path: string): Promise<string | null>;
     /** 清单的 `displayName`；没写或不是本次启动的第三方插件时为 null。 */
     title(plugin: string): string | null;
 }
@@ -39,17 +41,19 @@ function segmentsOf(path: string): readonly string[] | null {
 
 export function createPluginPackages(installed: ReadonlyArray<InstalledPlugin>, format: ManifestFormat): PluginPackages {
     const byId = new Map(installed.map((plugin) => [plugin.id, plugin]));
+    const find = async (plugin: string, path: string, kind: "file" | "directory"): Promise<string | null> => {
+        const current = byId.get(plugin);
+        const segments = segmentsOf(path);
+        if (current === undefined || segments === null) return null;
+        // 版本目录本身取一次真实路径（状态根可以经过链接，装载器也这样取）；它下面的各段不许是链接，拼出来的就是真实路径。
+        const root = await realpath(current.root).catch(() => null);
+        if (root === null) return null;
+        const found = await entryInside(root, segments, kind);
+        return typeof found === "object" && "path" in found ? found.path : null;
+    };
     return {
-        directory: async (plugin, path) => {
-            const current = byId.get(plugin);
-            const segments = segmentsOf(path);
-            if (current === undefined || segments === null) return null;
-            // 版本目录本身取一次真实路径（状态根可以经过链接，装载器也这样取）；它下面的各段不许是链接，拼出来的就是真实路径。
-            const root = await realpath(current.root).catch(() => null);
-            if (root === null) return null;
-            const found = await entryInside(root, segments, "directory");
-            return typeof found === "object" && "path" in found ? found.path : null;
-        },
+        directory: (plugin, path) => find(plugin, path, "directory"),
+        file: (plugin, path) => find(plugin, path, "file"),
         title: (plugin) => {
             const current = byId.get(plugin);
             if (current === undefined) return null;

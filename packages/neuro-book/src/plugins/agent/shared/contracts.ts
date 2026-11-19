@@ -5,10 +5,14 @@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import type {CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionHeader, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
+import type {AnyExtension, CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionHeader, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
 import type {SessionHold} from "@notnotype/nb-harness/kit/sessions";
 
 import type {AgentProfileDeclaration, AgentToolDeclaration} from "./points";
+
+/** 别的内置插件贡献 Profile 用（跨插件的运行时导入只能指向合同，contributions.md 输出 7）：声明的助手与贡献点 id。 */
+export {agentProfile, PROFILES_POINT} from "./points";
+export type {AgentProfileImplementation} from "./points";
 
 export type ProfileStatus = "ok" | "unavailable" | "error";
 
@@ -19,6 +23,16 @@ export const MAIN_PROFILE = "nbook.agent.main";
 export const SESSION_TITLE_PROFILE = "nbook.agent.session-title";
 /** 临时帮手：别的 Agent 派出来做一件事的子代理（builtin-profiles.md 输出 14）。 */
 export const ADHOC_PROFILE = "nbook.agent.adhoc";
+
+/**
+ * 主创的工具要求（builtin-profiles.md 输出 1、15）。别的插件的岗位 Profile 要与主创同一套工具时照它声明（bots.md 输出 3）：声明在入口
+ * 定义里、激活之前就要有，所以是合同里的数据。都可选的那些用户能用工具绑定换掉或去掉；`edit` 用 replace：中文一段就是一行，hashline
+ * 要整段重写，输出 token 约是 replace 的三倍（w00032 t18 的实验）。
+ */
+export const MAIN_PROFILE_TOOLS: NonNullable<AgentProfileDeclaration["tools"]> = {
+    required: ["nbook.agent.read", "nbook.agent.write", "nbook.agent.grep", "nbook.agent.glob", "nbook.agent.switch-mode"],
+    optional: ["nbook.agent.edit-replace", "nbook.agent.shell", "nbook.agent.eval", "nbook.agent.ask-form", "nbook.agent.spawn", "nbook.agent.send", "nbook.agent.answer", "nbook.agent.wait", "nbook.agent.kill", "nbook.agent.jobs"],
+};
 
 /** 不可用或有错误的原因（contributions.md 输出 15）：界面按码翻译，不带本机的绝对路径。 */
 export type ProfileProblem =
@@ -158,6 +172,15 @@ export interface AgentRuntimeService {
 }
 
 export const agentKey: ServiceKey<AgentService> = defineServiceKey<AgentService>("nbook.agent/agent");
+
+/**
+ * 主创的 Profile 里装的、别的插件的岗位 Profile 也可以装的扩展（bots.md 输出 3）。扩展的实现是运行时的值，跨插件只能经服务取，不进合同。
+ * `modes`：Agent 模式与它的提示（modes.md），工具 `nbook.agent.switch-mode` 要它。
+ */
+export interface AgentProfileParts {
+    readonly modes: readonly AnyExtension[];
+}
+export const agentProfilePartsKey: ServiceKey<AgentProfileParts> = defineServiceKey<AgentProfileParts>("nbook.agent/profile-parts");
 
 /**
  * 表情包页改包名时问 Agent：哪些 Profile 明确选了这个表情包（声明的白名单写了它的 id，或用户在 Profile 设置里加了它），改名之后它们要重新

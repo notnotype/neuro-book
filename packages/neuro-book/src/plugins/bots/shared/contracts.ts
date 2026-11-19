@@ -1,0 +1,109 @@
+/**
+ * bot 的合同（docs/specs/bots/bots.md、main-conversation.md）：贡献点 `bots.presets`、远程服务 `nbook.bots/bots` 与主对话的持有状态。
+ * 前后端共用，不引 Node。
+ */
+
+import {Type} from "typebox";
+import type {Static} from "typebox";
+
+import type {ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineRemoteService} from "@notnotype/nb-runtime/remote";
+
+export const BOTS_PLUGIN = "nbook.bots";
+export const PRESETS_POINT = "bots.presets";
+/** 岗位 Profile（bots.md 输出 3）。 */
+export const COMPANION_PROFILE = "nbook.bots.companion";
+/** 缺省预设与缺省 bot（bots.md 输出 2、4）：第一版只有一个 bot，id 固定。 */
+export const DEFAULT_PRESET = "nbook.bots.lyra";
+export const DEFAULT_BOT = "lyra";
+
+/** bot id（bots.md 输出 5）。 */
+export const BOT_ID = /^[a-z0-9-]{1,40}$/u;
+/** 主对话的 id 由 bot id 定（main-conversation.md 输出 1）。 */
+export const mainSessionId = (botId: string): string => `bot-${botId}`;
+
+/** 预设文件的上限（bots.md“输入与前置条件”）。 */
+export const PERSONA_MAX_BYTES = 256 * 1024;
+export const AVATAR_MAX_BYTES = 1024 * 1024;
+export const AVATAR_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const;
+export const SEED_MAX_FILES = 200;
+export const SEED_MAX_BYTES = 4 * 1024 * 1024;
+
+/** `bots.presets` 的声明；贡献 id 就是预设 id。名字单行，1–40 个字符。 */
+export const PresetDeclarationSchema = Type.Object({
+    name: Type.String({minLength: 1, maxLength: 40, pattern: "^[^\\r\\n]*$"}),
+    avatar: Type.String({minLength: 1}),
+    profile: Type.String({minLength: 1}),
+    persona: Type.String({minLength: 1}),
+    memorySeed: Type.Optional(Type.String({minLength: 1})),
+}, {additionalProperties: false});
+export type BotPresetDeclaration = Static<typeof PresetDeclarationSchema>;
+
+/** 插件包里的相对路径：用 `/` 分段，没有空段、`.`、`..`，不以 `/` 开头，没有反斜杠与冒号（协议、盘符）。 */
+export function presetPathProblem(field: string, path: string): string | null {
+    if (path.startsWith("/") || path.includes("\\") || path.includes(":")) return `${field} 要写成插件包里的相对路径（用 / 分段，不带协议或盘符）：${path}`;
+    if (path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) return `${field} 不能有空段、. 或 ..：${path}`;
+    return null;
+}
+
+export const presetsPoint: ContributionPointDefinition<BotPresetDeclaration> = {
+    id: PRESETS_POINT,
+    implementation: "none",
+    idPrefix: "plugin",
+    schema: PresetDeclarationSchema,
+    validate: ({declaration}) => {
+        const paths: [string, string | undefined][] = [["avatar", declaration.avatar], ["persona", declaration.persona], ["memorySeed", declaration.memorySeed]];
+        for (const [field, path] of paths) {
+            const problem = path === undefined ? null : presetPathProblem(field, path);
+            if (problem !== null) return problem;
+        }
+        return null;
+    },
+};
+
+/** 主对话的持有状态（main-conversation.md 输出 3）。 */
+export type MainState =
+    | {readonly state: "none"}
+    | {readonly state: "opening"}
+    | {readonly state: "held"}
+    | {readonly state: "failed"; readonly code: string};
+
+const MainStateSchema = Type.Union([
+    Type.Object({state: Type.Literal("none")}, {additionalProperties: false}),
+    Type.Object({state: Type.Literal("opening")}, {additionalProperties: false}),
+    Type.Object({state: Type.Literal("held")}, {additionalProperties: false}),
+    Type.Object({state: Type.Literal("failed"), code: Type.String()}, {additionalProperties: false}),
+]);
+
+const BotItemSchema = Type.Object({id: Type.String(), name: Type.String(), main: MainStateSchema}, {additionalProperties: false});
+export type BotItem = Static<typeof BotItemSchema>;
+
+const NoDetail = Type.Object({}, {additionalProperties: false});
+/** `ensureMain` 的失败：`header`、`create`、`hold` 交回的码带可选的详情（main-conversation.md“失败与恢复”）。 */
+const AnyDetail = Type.Optional(Type.Record(Type.String(), Type.Unknown()));
+const OpenDetail = Type.Object({detail: AnyDetail}, {additionalProperties: false});
+const MAIN_CODES = ["session-busy", "log-corrupt", "log-broken", "needs-migration", "storage-failed", "session-not-found", "session-exists", "invalid-session-id", "unknown-profile", "open-failed", "profile-invalid", "invalid-initial", "invalid-owner", "extension-missing", "dependency-missing", "dependency-cycle"] as const;
+
+/** 远程服务（bots.md 输出 7）：先订阅 `botsChanged` 再取 `list`，`onResync` 时重取。 */
+export const botsContract = defineRemoteService({
+    id: "nbook.bots/bots",
+    version: 1,
+    provider: "server",
+    callers: ["browser"],
+    methods: {
+        list: {input: Type.Object({}, {additionalProperties: false}), output: Type.Array(BotItemSchema), effect: "read"},
+        ensureMain: {
+            input: Type.Object({botId: Type.String()}, {additionalProperties: false}),
+            output: Type.Object({sessionId: Type.String()}, {additionalProperties: false}),
+            effect: "write",
+            errors: {
+                "unknown-bot": NoDetail,
+                "owner-mismatch": NoDetail,
+                ...(Object.fromEntries(MAIN_CODES.map((code) => [code, OpenDetail])) as {readonly [Code in (typeof MAIN_CODES)[number]]: typeof OpenDetail}),
+            },
+        },
+    },
+    events: {
+        botsChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Array(BotItemSchema)},
+    },
+});

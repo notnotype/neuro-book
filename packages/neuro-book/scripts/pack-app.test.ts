@@ -14,6 +14,7 @@ import {BUN_ENGINE, PRODUCT_VERSION} from "../src/shared/product";
 
 import {locateDocsRoot} from "../src/plugins/agent/backend/docs-root";
 import {locateBuiltinStickers} from "../src/plugins/stickers/backend/builtin-root";
+import {locateBuiltinBots} from "../src/plugins/bots/backend/builtin-root";
 import {queryNeuroBook} from "../src/server/instance";
 import {APP_NAME, bundleProblems, checkManagedEntry, packApp} from "./pack-app";
 
@@ -56,7 +57,10 @@ describe("应用包", () => {
         // 内置表情包（docs/specs/agent/stickers.md 的内置来源）：两个包的清单与图片。
         const stickers = entries.filter((name) => name.startsWith("package/stickers/"));
         expect(stickers).toEqual(expect.arrayContaining(["package/stickers/lyra/stickers.json", "package/stickers/lyra/开心.webp", "package/stickers/lyra-chibi/stickers.json"]));
-        expect(entries.filter((name) => !chunks.includes(name) && !docs.includes(name) && !stickers.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/eval-kernel.js", "server/main.js", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
+        // 缺省 bot 的预设文件（docs/specs/bots/bots.md 输出 2、验收 1 的安装包形态）。
+        const bots = entries.filter((name) => name.startsWith("package/bots/"));
+        expect(bots.sort()).toEqual(["package/bots/lyra/avatar.webp", "package/bots/lyra/persona.md"]);
+        expect(entries.filter((name) => !chunks.includes(name) && !docs.includes(name) && !stickers.includes(name) && !bots.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/eval-kernel.js", "server/main.js", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
 
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: APP_NAME, version: PRODUCT_VERSION, bin: {nbook: "./server/nbook.js"}, engines: {bun: BUN_ENGINE}, license: "AGPL-3.0-only", publishConfig: {access: "public"}});
@@ -88,6 +92,10 @@ describe("应用包", () => {
         expect(located).toBe(join(unpacked, "package", "docs"));
         expect(await readFile(join(located as string, "builtin", "sdk", "README.md"), "utf8")).toContain("docs/exports.md");
         expect(locateBuiltinStickers(join(unpacked, "package", "server"))).toBe(join(unpacked, "package", "stickers"));
+        const botsRoot = locateBuiltinBots(join(unpacked, "package", "server"));
+        expect(botsRoot).toBe(join(unpacked, "package", "bots"));
+        expect(await readFile(join(botsRoot as string, "lyra", "persona.md"), "utf8")).toContain("星璃");
+        expect((await stat(join(botsRoot as string, "lyra", "avatar.webp"))).size).toBeGreaterThan(0);
 
         // 再打一次：上次生成的目录清掉重建。
         expect((await packApp({webRoot: web, outDir: out})).tarball).toBe(tarball);
