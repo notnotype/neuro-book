@@ -93,6 +93,8 @@ type Harness = {
     readonly extent: ShallowRef<GridExtent | null>;
     readonly context: Ref<string>;
     readonly applied: GridGestureCommit[];
+    /** `onApplied` 每次收到的第三个参数：提交之前发布的布局。 */
+    readonly befores: GridLayoutResult[];
     readonly commits: GridGestureCommit[];
     readonly issues: GridIssue[];
     readonly host: GridLayoutHost<string>;
@@ -108,6 +110,7 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean;
     const extent = shallowRef<GridExtent | null>({...CONTAINER});
     const context = ref("workbench-a");
     const applied: GridGestureCommit[] = [];
+    const befores: GridLayoutResult[] = [];
     const commits: GridGestureCommit[] = [];
     const issues: GridIssue[] = [];
 
@@ -115,8 +118,9 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean;
         grid,
         extent,
         contextKey: () => context.value,
-        onApplied: (commit) => {
+        onApplied: (commit, _result, before) => {
             applied.push(commit);
+            befores.push(before);
             if (options.throwOnApplied === true) {
                 throw new Error("host onApplied threw");
             }
@@ -159,6 +163,7 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean;
         extent,
         context,
         applied,
+        befores,
         commits,
         issues,
         host,
@@ -211,6 +216,17 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         expect(after.sizes.left!.width - before.sizes.left!.width).toBeCloseTo(40, 6);
         expect(after.sizes.right!.width - before.sizes.right!.width).toBeCloseTo(-40, 6);
         expect(harness.host.revision.value).toBeGreaterThan(revisionBefore);
+    });
+
+    it("`onApplied` 的 `before` 是提交之前发布的布局，不是之后的（Spec 输出 150）", async () => {
+        const harness = mountHost();
+        await nextTick();
+        const published = harness.host.layout.value;
+        expect(harness.host.onGestureCommit(harness.frozen())).toEqual({ok: true});
+        expect(harness.befores).toHaveLength(1);
+        expect(harness.befores[0]).toBe(published);
+        expect(harness.host.layout.value).not.toBe(published);
+        expect(harness.host.layout.value.sizes.left!.width - harness.befores[0]!.sizes.left!.width).toBeCloseTo(10, 6);
     });
 
     it("上下文已切换的提交整次拒绝，几何与版本不动", async () => {

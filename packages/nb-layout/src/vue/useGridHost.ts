@@ -15,9 +15,10 @@ import {computed, shallowRef, toValue} from "vue";
 import type {ComputedRef, MaybeRefOrGetter, Ref} from "vue";
 
 import type {Grid} from "../grid";
+import {commitFailure} from "../grid-failure";
 import {usableExtent} from "../grid-geometry";
 import type {GridGestureCommit} from "../grid-gesture";
-import type {GridBranchesResizeResult, GridExtent, GridFailure, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
+import type {GridBranchesResizeResult, GridCollapseResult, GridExtent, GridFailure, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
 import {useGridLayout} from "./useGridLayout";
 
 /** 交给宿主的诊断：布局重算的、手势的、被拒的提交（带 `ok`）。 */
@@ -46,6 +47,11 @@ export type GridHost<T> = {
     readonly extent: Readonly<Ref<GridExtent | null>>;
     /** 宿主改了树的结构后调用：重算布局并递增版本。 */
     invalidate(): void;
+    /**
+     * 收起或展开一块面板（Spec 输出 149）：调 `grid.setCollapsed`，标记变了就重发布局（版本递增，进行中的手势提交因此被拒），
+     * 没变不打断。不触发 `onApplied`：结果直接交回，`collapse` 里有宿主要存的值。没有网格时 `not-ready`。
+     */
+    setCollapsed(id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready">;
     /** 整包绑到 `NestedGrid` 上。 */
     readonly bindings: ComputedRef<GridHostBindings<T>>;
 };
@@ -57,8 +63,8 @@ export type GridHostOptions<T> = {
     readonly contextKey?: MaybeRefOrGetter<string>;
     /** 宿主自己的停用条件；没量到可用尺寸时总是停用。 */
     readonly disabled?: MaybeRefOrGetter<boolean>;
-    /** 提交已经落账之后的通知；它抛错只报诊断，不反悔已提交的几何。 */
-    readonly onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {ok: true}>) => void;
+    /** 提交已经落账之后的通知；它抛错只报诊断，不反悔已提交的几何。`before` 是提交之前发布的布局（Spec 输出 150）。 */
+    readonly onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {ok: true}>, before: GridLayoutResult) => void;
     /** 诊断的唯一出口（Spec 输出 139、140）。 */
     readonly onIssues?: (issues: readonly GridHostIssue[]) => void;
 };
@@ -87,5 +93,12 @@ export function useGridHost<T>(options: GridHostOptions<T>): GridHost<T> {
         onExtent,
         onIssues,
     }));
-    return {node: layoutHost.node, layout: layoutHost.layout, revision: layoutHost.revision, extent, invalidate: layoutHost.invalidate, bindings};
+    const setCollapsed = (id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready"> => {
+        const grid = toValue(options.grid);
+        if (grid === null) return commitFailure("not-ready", "The grid is not ready; nothing was collapsed", {missing: "grid"});
+        const result = grid.setCollapsed(id, collapsed);
+        if (result.ok && result.changed) layoutHost.invalidate();
+        return result;
+    };
+    return {node: layoutHost.node, layout: layoutHost.layout, revision: layoutHost.revision, extent, invalidate: layoutHost.invalidate, setCollapsed, bindings};
 }

@@ -46,8 +46,11 @@ export function useGridLayout<T>(options: {
     extent: Readonly<Ref<GridExtent | null>>;
     /** 副作用上下文（工作面 / 布局键）：提交时核对，避免把旧工作面的手势写进新工作面。 */
     contextKey: () => string;
-    /** 已落账后的通知；抛错只报 issues。 */
-    onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {ok: true}>) => void;
+    /**
+     * 已落账后的通知；抛错只报 issues。`before` 是这次提交之前发布的布局，也就是手势开始时呈现的那份（Spec 输出 150）：
+     * 宿主要比较提交前后（例如挑出没动的保留像素节点）时用它；此时 `layout` 已经是提交之后的。
+     */
+    onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {ok: true}>, before: GridLayoutResult) => void;
     /**
      * 诊断出口（Spec `ui/nested-grid` 输出 139、140）：布局重算的诊断与 `notify-failed`。它抛出时异常照常冒出去，
      * 只有提交落账之后的那几次通知例外（见 `notifyAfterCommit`）。
@@ -122,6 +125,9 @@ export function useGridLayout<T>(options: {
     }
 
     function onGestureCommit(commit: GridGestureCommit): GridLayoutCommitResult {
+        // 落账后 `publish()` 会换掉 `layout`，先留住提交前的那份交给 `onApplied`。下面核对了版本：手势期间任何一次发布都会递增版本，
+        // 核对通过就说明这份正是手势开始时呈现的布局。
+        const before = layout.value;
         const grid = options.grid.value;
         if (grid === null) {
             return commitFailure("not-ready", "The grid is not ready; the resize was not applied", {missing: "grid"});
@@ -153,7 +159,7 @@ export function useGridLayout<T>(options: {
         notifyAfterCommit(publish());
         if (options.onApplied !== undefined) {
             try {
-                options.onApplied(commit, result);
+                options.onApplied(commit, result, before);
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
                 notifyAfterCommit([gridIssue("notify-failed", `The resize was applied, but the host's onApplied threw: ${reason}`)]);

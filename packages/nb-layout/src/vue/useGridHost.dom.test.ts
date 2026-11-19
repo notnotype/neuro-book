@@ -75,7 +75,7 @@ type Harness = {
 
 /** 宿主的选项里测试要换掉的几样；没给的同真实宿主最常见的写法（固定的网格与上下文键）。 */
 type HostOverrides = {
-    readonly grid?: MaybeRefOrGetter<Grid<string>>;
+    readonly grid?: MaybeRefOrGetter<Grid<string> | null>;
     readonly contextKey?: MaybeRefOrGetter<string>;
     readonly disabled?: MaybeRefOrGetter<boolean>;
     readonly onApplied?: () => void;
@@ -238,5 +238,38 @@ describe("useGridHost", () => {
         expect(harness.applied).toHaveLength(1);
         expect(harness.host.layout.value.sizes.left!.width - before).toBeCloseTo(40, 6);
         expect(harness.issues.map((issue) => issue.code)).toContain("notify-failed");
+    });
+
+    it("`host.setCollapsed`：标记变了才重发布局（版本递增、诊断经 `onIssues`），没变时版本不变；不触发 `onApplied`（输出 149）", async () => {
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, collapse: {collapsed: false, collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24}},
+                // 右列最宽 800：左列收起后它吸收不完，布局给 `unabsorbed-space`，用来看诊断走的是哪个出口。
+                {kind: "leaf", id: "right", ref: "right", size: {width: 500, height: 0}, maximumSize: {width: 800, height: 100_000}},
+            ],
+        }, {sashSize: SASH});
+        const harness = mountHost(grid);
+        await nextTick();
+        const revision = harness.host.revision.value;
+
+        expect(harness.host.setCollapsed("left", true)).toMatchObject({ok: true, changed: true, collapse: {collapsed: true}});
+        expect(harness.host.revision.value).toBe(revision + 1);
+        expect(harness.host.layout.value.sizes.left!.width).toBe(0);
+        expect(harness.issues.map((issue) => issue.code)).toContain("unabsorbed-space");
+
+        expect(harness.host.setCollapsed("left", true)).toMatchObject({ok: true, changed: false});
+        expect(harness.host.revision.value).toBe(revision + 1);
+        expect(harness.applied).toEqual([]);
+    });
+
+    it("`host.setCollapsed` 没有网格时 `not-ready`，版本不变（输出 149）", async () => {
+        const harness = mountHost(twoColumns(), {grid: () => null});
+        await nextTick();
+        const revision = harness.host.revision.value;
+        expect(harness.host.setCollapsed("left", true)).toMatchObject({ok: false, code: "not-ready", params: {missing: "grid"}});
+        expect(harness.host.revision.value).toBe(revision);
     });
 });
