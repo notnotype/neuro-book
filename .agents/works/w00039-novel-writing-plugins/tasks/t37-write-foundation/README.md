@@ -29,8 +29,12 @@ updated: 2026-11-19
 
 - 后端第二轮设计审查（omp，[`evidences/design-review-backend-omp-r2.txt`](evidences/design-review-backend-omp-r2.txt)）：2 条重要，第一轮的处理逐条认可。照建议改出第 3 稿：Agent 的读前提从“世界版本没变”改为读取戳（版本加读取输入摘要）；远程合同不升版本、只加方法（升了老页签没有刷新的出路）。不再开第三轮。
 
+- F1（`9f6d68917`）：nb-canon 的 `editEntries`、`previewEntries`（`src/world/entry-edits.ts`）与世界服务的 `findEntries`；就地改、记一笔、语义档的记一笔改成一项操作的批（请求摘要、缺省标题、失败码照旧），顺带修了章首剧情变化读回必然失败与显式主线被改成按章选线；条目读取加 `removedComponents`。测试：`entry-edits.test.ts` 12 条、`entry-edits-service.test.ts` 3 条（真实服务与日志：读取戳两种过期、findEntries）、`edits-differential.test.ts` 23 条（单项入口与 t37 之前逐字相同，有意不同的三处另写断言）、`worldlines.test.ts` 加显式主线一条；关键的五处做了变异检查。nb-canon 全量 652 条、应用 canon 插件 bun 17 条与 vitest 139 条都过，两边类型检查通过。`findEntries` 在 520 条目、1000 章上中位数 6.06 毫秒（[证据](evidences/f1-find-entries-perf.txt)）。
+- Spec 改动（`canon/revisions.md` 输出 25 与输出 8、10、22 的补充、失败码；`canon/components.md` 输出 3、7）已写在主工作区，链接指向分支上的新文件，合入时与代码一起提交。
+
 ## 下一步
 
-1. 照切片 F1 到 F7 实施，F1（内核）开始。
+1. F2：远程方法 `editEntries`、`previewEntries`、`findEntries`（合同版本不升）；浏览器的新建与删除改走内核；`CanonWorld` 的事件出口；Spec `canon/project.md`。
+2. 之后 F3 到 F7。
 2. 第二轮处理完后照切片 F1 到 F7 实施。
 3. 底座合入后，和开发者定人物 Component 闭环的范围。
