@@ -1,0 +1,88 @@
+# t37 实现审查（Claude Sonnet 5.5，claude -p，2026-11-19）：b28277e7b..7a7a4b071
+# 说明：.local/agent/works/w00026-layout-package/tasks/t37-drag-controller-tidy/reports/impl-review/brief.md（本地）；报告即审查者的最终回复，原样保存。审查者的变异检查请求没获批，报告里“删掉后仍通过”是读代码推断的。
+
+# w00026 t37 实现审查报告
+
+重点 1 到 4 没有发现行为回归：`DragRun`、`Judgement`、第 3 片的搬移和第 4 片的库，逐帧、逐返回点对照 `b28277e7b` 都等价。下面是找到的问题，都是测试缺口、文档示例和小的结构问题，没有阻断项和重要项。我没有跑 e2e。
+
+本次审查没有跑变异检查：运行变异脚本的 Bash 请求没有获批，worktree 里没有改过任何文件。下面写“删掉后仍通过”的地方，都是读代码和用例推断的。
+
+### 1. 示例缺 `flush`，与它自己的文字要求矛盾
+- **严重程度**：建议　**类别**：文档
+- **位置**：`packages/nb-layout/src/drag-card.md:23-45、64-66`
+- **现象**：“和拖动会话一起用”一节要求“在你的 `frame` 里先调 `session.flush()`”，但开头的示例里没有 `session`，也没有 `flush`。示例里 `sourceRect()` 是在 `frame` 里读 DOM，同样没放在 `flush` 之前。`pointer` 初值是 `{x: 0, y: 0}`。
+- **为什么是问题**：
+  - 照抄示例、按下文挂好监听，卡片能跟手。但帧里先写卡片，会话发布的那一帧排在后面，它在判定里读 DOM，读在写后面，就是下文自己说的“每帧多一次强制的样式重算”。
+  - 我确认过这一节的次序说法本身是对的：会话先排的话，它在判定里写 `data-drop-rejected`、拖影，帧循环的帧再读 `getBoundingClientRect`，同样强制重算。
+  - 示例的 `start()` 排出第一帧时，如果还没有任何 `pointermove`，就用 `{0,0}` 拿起。
+- **如何核实**：读文档，比对示例与下文。
+- **建议改法**：示例里加一个 `session` 并在 `frame` 开头 `session.flush()`，`sourceRect()` 的读放在它之前。`start()` 前用按下点给 `pointer` 赋值，或写一句“拿起时先把 `pointer` 设成按下点”。
+
+### 2. `start()` 撤掉已排帧的路径没有用例
+- **严重程度**：建议　**类别**：测试
+- **位置**：`packages/nb-layout/src/frame-loop.test.ts`
+- **现象**：Spec 输出 21 写“`start()` 撤掉排着的帧并排第一帧”。实现里是 `frame-loop.ts:477` 的 `if (pending !== null) options.cancelFrame(pending)`。`frame-loop.test.ts` 里每一次 `start()` 发生时 `pending` 都是 null：首次启动、`stop` 之后、帧里 `stop` 之后。这行删掉，现有 7 条用例应当照样通过。
+- **为什么是问题**：`live-drag.begin` 在上一场没收场时再 `start`，靠的就是这条。旧实现没有这条，是新增的行为，却没被测到。
+- **如何核实**：读 7 条用例，找 `start` 调用时 `pending` 的值。
+- **建议改法**：补一条“`start` 两次，只剩一个排着的帧，且被撤掉的那个不再跑”。
+
+### 3. `drag-geometry.test.ts` 的几处判据没被断言
+- **严重程度**：建议　**类别**：测试
+- **位置**：`drag-geometry.test.ts`，对应 `drag-geometry.ts:119-129`（`bandsAfterCollapse` 的横向入口条）、`:160-170`（`windowRect`、`keepVisible`、`wholeInTree`）、`:187-203`（`sortedOffset`）
+- **现象**：
+  - **横向入口条**：`bandsAfterCollapse` 里 `groupEnd + move.left - shift` 与入口的 `start/end + move.left` 没有非零用例。右栏那条用例里容器还在，`shift` 为 0，入口条叶的 `move.left` 也为 0。底部面板那条用例里整条入口条消失。你问的“入口条组末端的平移”确实没测到。
+  - **`windowRect`**：只测了 x 方向的夹取，y 夹取没测。`extent` 为 null 时不夹也没测。
+  - **`keepVisible`、`wholeInTree`**：本身没有用例；`wholeInTree` 是新开窗在状态栏上松手时整个夹回的那一步。
+  - **`sortedOffset`**：条比标签短时的 `Math.max(start, end - size)` 没测。抓点夹到 0 与 1、`size` 为 0 时取 0.5 也没测。
+  - **布局一致性用例**：“测试用的布局和计算一致”这条只比较叶的 id，不比较矩形，名字说过头了。默认布局或约束常量变了，硬编码的 `LEAVES` 与投影不一致，失败会落在各条几何期望上，错误信息指向的是几何，不是常量。
+- **为什么是问题**：这几处是第 3 片“只搬不改”要守住的内容。现在搬动时改坏它们，测试不会失败。
+- **如何核实**：读测试，找每个分支的输入。变异检查没跑，上面“没有断言”是读出来的。
+- **建议改法**：补横向入口条（比如右栏容器唯一视图被摘，`shift` 与 `move.left` 都非零）、`windowRect` 的 y 夹取与 `extent` 为 null、`sortedOffset` 的两个夹取。一致性用例改成比较每块叶的矩形，或者改名。
+
+### 4. `drag-card.test.ts` 的覆盖与期望的独立性
+- **严重程度**：建议　**类别**：测试
+- **位置**：`packages/nb-layout/src/drag-card.test.ts:109-123`
+- **现象**：
+  - **期望不独立**：“逐帧缩向目标”的期望是 `380 + 220·e^(−n·dt/90)`，和实现是同一个指数式，只比较头 4 帧，之后只看终态。这一条不是手算常数，与 `drag-geometry.test.ts` 的期望做法不同。
+  - **没覆盖的路径**：
+    - `options`（`tauMs`、`stillPx`、`refreshSlackMs`）。
+    - `from` 的宽高为 `NaN` 或 `Infinity`：Spec 写“不是正的有限数”，只测了 0 和 null。
+    - 缩放中 `target` 变化：指针进出来源面板时目标在放大与缩小之间切换，是 `live-drag` 实际会发生的。
+- **为什么是问题**：卡片的核心就是逼近与追赶，而用例里的期望和实现用同一个式子，实现改错常数时测试跟着一起错不出来。
+- **如何核实**：读测试。
+- **建议改法**：补一条 `target` 中途变化的用例，期望按“拿起时的尺寸、目标、三个帧之后的值”手算成常数。补 `Infinity` 宽度的用例。
+
+### 5. 小的结构点
+- **严重程度**：建议　**类别**：代码质量
+- **位置**：`drag-geometry.ts:187-203` 的 `sortedOffset`，`layout-drag.ts` 的 `idleRun(NOT_JUDGED)`
+- **现象**：
+  - `sortedOffset` 是标签条里排序的位移计算，放在头注释写着“判定用的几何”的 `drag-geometry.ts` 里，职责和文件头对不上。
+  - `activate` 里写 `{...idleRun(NOT_JUDGED), pressedAt, newContainer}`，用“空闲”构造一场活动的状态，读者要停一下才反应过来。
+- **建议改法**：不必改逻辑。把文件头改成“判定用的几何与标签条位移”，或者把 `idleRun` 重命名成 `freshRun`。
+
+## 未发现问题的方面
+
+- **`DragRun` 与旧代码逐帧等价**：
+  - **收场顺序**：对照 `drag-gesture.ts` 的 `finish`（`released`、`publish(null)`、`activeChanged(false)`、`ended`、`commit`），`onEnd` 读到的是 `drop()` 里最后一次 `resolve` 写进 `judged` 的值，和旧的 `editorRefusal` 一致。
+  - **`live.end()`**：它经 `measureSorted` 放回标签，在换掉 `run` 之前调用，`measureSorted` 在量的时候就取了 `sort`，两个 `nextTick` 都有 `live.active.value` 守卫。
+  - **`commitsUnderPointer`**：在 `finish` 之前读，`run` 还是进行中的那一份。
+  - **`fileDrop`、`panelRect`**：`fileDrop` 的预览不进缓存（`source.kind === "new"` 时 `key` 为 null），`newContainer` 在收场后被清成 `""`，但 `fileDrop` 的输入里本来没有 `newContainer`，没有读者读到。`panelRect` 读 `run.frozen`，与旧的 `frozen` 一样在收场后为 null。
+  - **键盘与 `abort`**：键盘拿起时 `activate` 先于 `keyboard.regions`，新一份 `run` 已就位。
+  - **`activate` 新增清除**：`previewsOf` 随新建清零，旧版 `activate` 清了 `previews` 但不清 `previewsOf`；新的先清一次空表，行为一样。
+  - **`sourceCollapsed`**：旧版的布尔与 `beforeCollapse !== null` 等价；旧版收场时没清 `sourceCollapsed`，之后只有实时布局会读，不影响。
+- **`Judgement` 逐返回点**：`dropAt` 的十来个返回点和 `resolveDrop` 的三个分支，对照旧的两个 `let`：被编辑器拒绝时 `rejected` 为真、`drop` 为 null、`refusal` 带上；`held` 的恢复三项齐全。
+- **第 3 片搬移**：`collapsedGeometry`、`bandsAfterCollapse`、`heldTabIn`、`stripIndex`、`pointOfCandidate`、`barStops` 与原文逐行一致；`sortedOffset`、`windowRect`、`keepVisible`、`wholeInTree` 的算式一致，只是改成参数传入。唯一的求值差别：`collapsedGeometry` 现在在 `extent` 为 null 时也会求一次 `options.projection()` 和 `dpr()`，并且每次收起只求一次投影（旧版三次）。投影选项是纯计算，没有可观察的差别。
+- **第 4 片的库**：`createDragCard` 与原 `updateCard` 逐式一致；`createFrameLoop` 与原 `wake`/`tick` 在 `elapsed`、`resumed`、`ticking`、帧里抛错、`end` 上等价。`start` 在已开始时先撤旧帧，旧版会漏掉旧帧，只是更稳。
+- **监听次序**：`drag-session.ts:116` 的 `pointermove` 在窗口捕获阶段，与 `wakeLive` 同阶段，按挂上的先后跑，文档说的次序与实际一致。
+- **库的公开面**：形状与 Spec 输出 20、21 的签名一致，`live.origin()` 的移除没有其他使用者。
+- **注释引 Spec**：新文件里是引小节名（“拖动卡片”“帧循环”），不是输出编号；`nb-layout` 的其他源文件已经大量这样引（约 113 处），沿用现有做法。
+- **`7a7a4b071` 的 e2e 等待**：`data-live-preview` 由 `WorkbenchShell.vue:942` 渲染，属性值与用例等待的对得上。
+- **单元测试**：`bun test` 跑 `drag-card`、`frame-loop` 共 15 条通过；`drag-geometry`、`drag-keyboard`、`live-drag` 共 45 条通过。
+- **依赖**：`drag-geometry`、`drag-keyboard`、`layout-drag` 之间没有循环导入。
+- **`frame-loop.test.ts` 的排帧器**：快照、清空、逐个跑的做法与 `requestAnimationFrame` 的合同一致，只是没有模拟同一批里“后一个回调被前一个撤掉”的情况，现有用例没用到。
+
+## 各级数量
+
+阻断 0，重要 0，建议 5。
+
+有效发现的编号：1、2、3、4、5。

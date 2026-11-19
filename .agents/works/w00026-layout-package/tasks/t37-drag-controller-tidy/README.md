@@ -66,6 +66,24 @@ master（`ac4d9f6ee`）已并进分支（`e4571be6d`，没有冲突；master 的
 - 工作台插件的单元测试 563 条过、3 条挂：活动栏底部条目、页面浮层、条目注册表的“同 id 的两条一起被拒”，是 master 上已知的原有失败（别的 Work 带进来的），与本 Task 无关。
 - e2e 8 个文件 194 条全过（13.8 分钟，负载 3.1）：`workbench-live-drag`、`workbench-dnd`、`workbench-float`、`workbench-drag-cost`、`editor-area`、`workbench-containers`、`lab-drag-session`、`files-explorer.e2e.ts:550`、`:876`。
 
+## 实现审查
+
+Claude Sonnet（`claude -p`），一轮，5 条，都是建议（阻断 0、重要 0）（[`evidences/impl-review.txt`](evidences/impl-review.txt)）。审查者逐帧、逐返回点对照 `b28277e7b`，没有发现行为回归；它的变异检查请求没获批，“删掉后仍通过”是读代码推断的。都成立，修正在 `2c40fcc9b`：
+
+| # | 发现 | 处理 |
+|---|---|---|
+| 1 | `drag-card.md` 的例子没有 `session.flush()`，与下文的次序要求矛盾；没设指针初值 | 例子在 `frame` 开头 `flush`，写明拿起时先把指针设成按下的点 |
+| 2 | `start()` 撤掉已排帧没有用例 | 补“排着帧时再 `start`，只剩新排的一帧” |
+| 3 | 几何测试有几处没断言：横向入口条的平移与补位、整窗的 y 夹取与不夹、`wholeInTree`、排序位移的几个夹取；“布局一致”只比了 id | 补这几条（横向入口条用一份新的布局：侧栏收走时整条左移 340、最后一个入口没了时组末端补 32，都按投影的矩形手算）；一致性用例改成比每块叶的矩形 |
+| 4 | 卡片测试的期望和实现用同一个式子；没测选项、`Infinity` 宽、目标中途变化 | 期望改成手算的常数（600、563、532、506 等）；补目标中途变、宽为 `Infinity`、`tauMs` 三条。手算时发现 `stillPx` 按逼近之前的值判，`tauMs` 很小时也要第二帧才取终点，和原来一致，用例照此写 |
+| 5 | 用 `idleRun` 构造进行中的一场读起来别扭；`sortedOffset` 与文件头不符 | 加 `freshRun`；`drag-geometry.ts` 文件头写上排序的位移 |
+
+修正后：两个包的类型检查、相关单元测试（nb-layout 28 条、应用 50 条）、`workbench-live-drag.e2e.ts` 23 条通过。
+
+## 合入
+
+master 并进分支（`6cc707752`），master 快进到它，2026-11-19 合入；worktree 与分支已删。
+
 ## 下一步
 
-实现审查待处理（Claude Sonnet，2026-11-19 启动，不阻塞）。处理完合入 master，再晋升 `ui/layout-drag` 输出 20、21。
+晋升 `ui/layout-drag` 输出 20、21：去掉 planned、补实现入口与合同测试，晋升前换模型逐句核对。
