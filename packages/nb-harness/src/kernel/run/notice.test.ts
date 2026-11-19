@@ -292,14 +292,16 @@ describe("Profile 的 queue 与 mergeSteers（profile.md 输入表、输出 21�
         expect(last.content.flatMap((item) => (item.kind === "text" ? [item.text] : []))).toEqual(["插话一\n\n插话二"]);
     });
 
-    test("mergeSteers：不同边界与没有 boundary 的旧插话不合；后一条附件的位置随文字后移", () => {
-        const steer = (id: string, text: string, boundary?: string, attachments?: unknown[]): LogEvent => ({id, seq: 1, at: 0, parent: null, scope: "path", kind: "conv", type: "steer", version: 1, source: "kernel", data: {text, queued: id, ...(boundary === undefined ? {} : {boundary}), ...(attachments === undefined ? {} : {attachments})}});
+    test("mergeSteers：不同边界、没有 boundary 的旧插话与带 payload 的插话不合；后一条附件的位置随文字后移", () => {
+        const steer = (id: string, text: string, boundary?: string, attachments?: unknown[], payload?: unknown): LogEvent => ({id, seq: 1, at: 0, parent: null, scope: "path", kind: "conv", type: "steer", version: 1, source: "kernel", data: {text, queued: id, ...(boundary === undefined ? {} : {boundary}), ...(attachments === undefined ? {} : {attachments}), ...(payload === undefined ? {} : {payload})}});
         const image = {kind: "image", uri: "user://a.png", from: 0, to: 12};
         const turn = {id: "t", input: null, status: "running", attachments: [], steps: [{reply: {} as never, results: [], after: [
             steer("a", "甲", "b1"), steer("b", "user://a.png", "b1", [image]), steer("c", "丙", "b2"), steer("d", "旧一"), steer("e", "旧二"),
+            steer("f", "选区一", "b3", undefined, {selection: "A"}), steer("g", "选区二", "b3", undefined, {selection: "B"}), steer("h", "普通", "b3"),
         ]}]} as unknown as ConversationTurn<unknown>;
         const after = mergeSteers(turn).steps[0]!.after;
-        expect(after.map((event) => event.id)).toEqual(["a", "c", "d", "e"]);
+        expect(after.map((event) => event.id)).toEqual(["a", "c", "d", "e", "f", "g", "h"]);
+        expect(after.slice(4).map((event) => (event.data as {payload?: unknown}).payload ?? null)).toEqual([{selection: "A"}, {selection: "B"}, null]);
         expect(after[0]!.data).toMatchObject({text: "甲\n\nuser://a.png", attachments: [{...image, from: 3, to: 15}]});
     });
 });

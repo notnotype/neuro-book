@@ -20,7 +20,9 @@ export const withoutEvents: WithoutEventsHelper = (turn, dependency, ...names) =
     return {...turn, attachments: keep(turn.attachments), steps: turn.steps.map((step) => ({...step, after: keep(step.after)}))};
 };
 
-type SteerData = {text: string; attachments?: readonly UserAttachment[]; boundary?: string};
+type SteerData = {text: string; attachments?: readonly UserAttachment[]; boundary?: string; payload?: unknown};
+
+const plain = (event: LogEvent): boolean => (event.data as SteerData).payload === undefined;
 
 /** 把 `next` 接到 `into` 后面：文字之间空一行，后一条附件的位置随前面的文字往后挪。 */
 function joinSteer(into: LogEvent, next: LogEvent): LogEvent {
@@ -32,14 +34,17 @@ function joinSteer(into: LogEvent, next: LogEvent): LogEvent {
     return {...into, data: {...first, text: `${first.text}\n\n${second.text}`, ...(attachments.length === 0 ? {} : {attachments})}};
 }
 
-/** 附带内容与每一步之后的事件里，同一个 `boundary` 的相邻插话合成一条（来源是第一条的）；没有 `boundary` 的旧事件各自成一条。 */
+/**
+ * 附带内容与每一步之后的事件里，同一个 `boundary` 的相邻插话合成一条（来源是第一条的）；没有 `boundary` 的旧事件各自成一条。
+ * 带 `payload` 的插话不合：结构化的数据没有通用的合并办法，合了会丢掉后一条的（Profile 的 `render.steer` 读得到它）。
+ */
 export const mergeSteers: MergeSteersHelper = <P>(turn: ConversationTurn<P>): ConversationTurn<P> => {
     const merge = (events: readonly LogEvent[]): LogEvent[] => {
         const out: LogEvent[] = [];
         for (const event of events) {
             const last = out.at(-1);
             const boundary = (event.data as SteerData).boundary;
-            if (event.type === "steer" && last?.type === "steer" && boundary !== undefined && (last.data as SteerData).boundary === boundary) out[out.length - 1] = joinSteer(last, event);
+            if (event.type === "steer" && last?.type === "steer" && boundary !== undefined && (last.data as SteerData).boundary === boundary && plain(last) && plain(event)) out[out.length - 1] = joinSteer(last, event);
             else out.push(event);
         }
         return out;
