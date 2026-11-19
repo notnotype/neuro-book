@@ -4,14 +4,14 @@
 
 ## Relative documents refs
 
-- [AgentUserInputPrompt.vue](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/agent/AgentUserInputPrompt.vue) — 审批/用户输入提示面板
-- [AgentWorkflowBubble.vue](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/agent/AgentWorkflowBubble.vue) — Workflow 气泡组件
-- [workflow-bubble.ts](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/agent/workflow-bubble.ts) — Workflow 气泡状态归约逻辑
-- [workflow-run-vm.ts](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/workflow/workflow-run-vm.ts) — 后端 Run VM 构建（LiveCardVm、PhaseVm、TimelineLaneVm 等）
-- [WorkflowAgentCards.vue](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/workflow-preview/WorkflowAgentCards.vue) — 已有的 Agent 直播卡片组件
-- [WorkflowTimeline.vue](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/workflow-preview/WorkflowTimeline.vue) — 已有的泳道时间线组件
-- [WorkflowRunPanel.vue](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/workflow-preview/WorkflowRunPanel.vue) — 开发预览面板（所有可视化的参考实现）
-- [agent-pending-resolution.ts](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/agent/agent-pending-resolution.ts) — 待处理决议逻辑
+- [AgentUserInputPrompt.vue](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/agent/AgentUserInputPrompt.vue) — 审批/用户输入提示面板
+- [AgentWorkflowBubble.vue](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/agent/AgentWorkflowBubble.vue) — Workflow 气泡组件
+- [workflow-bubble.ts](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/agent/workflow-bubble.ts) — Workflow 气泡状态归约逻辑
+- [workflow-run-vm.ts](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/workflow/workflow-run-vm.ts) — 后端 Run VM 构建（LiveCardVm、PhaseVm、TimelineLaneVm 等）
+- [WorkflowAgentCards.vue](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/workflow-preview/WorkflowAgentCards.vue) — 已有的 Agent 直播卡片组件
+- [WorkflowTimeline.vue](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/workflow-preview/WorkflowTimeline.vue) — 已有的泳道时间线组件
+- [WorkflowRunPanel.vue](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/workflow-preview/WorkflowRunPanel.vue) — 开发预览面板（所有可视化的参考实现）
+- [agent-pending-resolution.ts](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/agent/agent-pending-resolution.ts) — 待处理决议逻辑
 
 ## User Request / Topic
 

@@ -1,5 +1,5 @@
 w00039 t02 第三轮只读设计审查 A3b（接续 omp 的 A3，编号从 3 开始）
-对象：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-A3/docs/proposals/world-engine-kernel.md（提交 a95e7930c，第三版）。
+对象：/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-A3/docs/proposals/world-engine-kernel.md（提交 a95e7930c，第三版）。
 前一位审查者已报：1“启用”字段被未启用禁写锁住；2 部分兑现后撤销兑现，原计划与拆出计划同时生效。以下不重报。
 方法：逐字核对第三版条文，构造最小输入手工推演；MDX 解析行为用 /tmp/mdx-probe 的 @mdx-js/mdx 3 实测（脚本在 /tmp/review-w00039-t02-design-r3/tmp/probe.mjs、probe2.mjs）。行号指上述文件。没有标“实测”的推演都是按条文静态推出，不是产品运行结果。
 

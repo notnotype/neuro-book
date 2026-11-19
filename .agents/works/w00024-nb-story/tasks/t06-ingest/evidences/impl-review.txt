@@ -41,7 +41,7 @@
 - **位置**：`packages/nb-story/src/ingest/model.ts:97`、`:164`、`:207`；依赖 `openai/src/client.ts:809-814`。
 - **现象**：`timeout:600_000` 被当成请求超时，但 SDK 在 fetch 返回 Response（收到响应头）后立即 `clearTimeout`；后面的 `for await` 没有计时器。服务发出一小段非空内容后不再发送，也不结束连接时，任务永远停在这一步，不重试。用真实 SDK 将同一 timeout 选项缩短为 50 ms，端点发 1 个 SSE chunk 后挂住，305 ms 时仍 `ended:false, chunks:1`；随后主动 abort 才结束。
 - **为什么是问题**：输出 9 的超时恢复在流读取阶段不存在；跑飞检测也挡不住停止输出或慢到不产生 2000 个空白的连接。把 timeout 从 50 ms 改为产品里的 600000 ms 不改变其生命周期。实际产品请求没有独立的总时限或流空闲时限。
-- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/model-cases.ts sdk-timeout`；真实本机 HTTP 与未改 SDK。额外读取 `/home/notnotype/CodeRepository/neuro-book/node_modules/openai/src/client.ts:781-815`，确认计时器确实只包住 fetch；未等待产品的 10 分钟阈值，产品永久等待结论来自同一 SDK 控制流。实验的 300 ms 是观察超时是否生效的截止时间，不是仓库测试的固定等待。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/model-cases.ts sdk-timeout`；真实本机 HTTP 与未改 SDK。额外读取 `/home/<user>/CodeRepository/neuro-book/node_modules/openai/src/client.ts:781-815`，确认计时器确实只包住 fetch；未等待产品的 10 分钟阈值，产品永久等待结论来自同一 SDK 控制流。实验的 300 ms 是观察超时是否生效的截止时间，不是仓库测试的固定等待。
 - **建议改法**：抽取传输层持有覆盖整个 SSE 消费过程的超时控制器，完成、失败、停止都清计时器；计时器触发须归 `network` 并进入同一重试预算。用真实 SSE 挂起端点验证，不只测响应头迟到。
 
 ### 6. SDK 在解析坏 SSE 时直接打印原始数据，绕过密钥遮盖

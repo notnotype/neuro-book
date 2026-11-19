@@ -1,6 +1,6 @@
 # w00028 t03 实施计划第二轮后端设计审查
 
-审查对象：主工作区 `.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md`（第二版，提交 `896787494`）。本轮只读；源码依据为 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00028-t03-r2`，Work、Task、提案与 ADR 依据为主工作区。
+审查对象：主工作区 `.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md`（第二版，提交 `896787494`）。本轮只读；源码依据为 `/home/<user>/CodeRepository/neuro-book/.worktree/review-w00028-t03-r2`，Work、Task、提案与 ADR 依据为主工作区。
 
 第一轮后端 10 条逐项核对结果：第 1 条已处理（远程 `title` 与版本 2 明确放入第 6 片）；第 2 条已部分处理（第 1 片拆纯数据层与浏览器端口，并写服务端不翻译 `TextRef`），但仍缺中间切片的调用方边界，见第 1 条；第 3、4、5、6、7、8、9、10 条已在计划正文中分别补入第 5、6、交付片或验收映射，本轮不重复已处理内容。第 10 条所需的 `release:check`、`release:smoke` 与 nb-story `dist/web` 验收已在第 8 片写出，且现有仓库脚本已有相应入口。
 

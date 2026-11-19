@@ -28,7 +28,7 @@ Work：[w00003](../../README.md)；被审实现：[t40](../t40-workbench-storage
 ## 执行规则
 
 只使用当前worktree绝对cwd：
-C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration
+C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration
 聚焦测试的cwd也必须是其下 packages/neuro-book 的绝对路径，先核Get-Location/pwd。
 可将临时探针短暂放入测试include运行，结束用单文件移动回本Task/evidences；不改被审实现/测试，不提交、不联网、不启动产品服务、不访问3001、不动真实用户数据。
 临时根遵守docs/testing；禁止在仓库创建.tmp，也禁止递归删除任何目录。只清理自己确切创建的单文件。

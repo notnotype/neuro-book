@@ -7,7 +7,7 @@
 - **建议改法**：先定义统一的失败事件和收口事务：模型流错误、工具抛错、反应超时分别写可重放的结果；`finally` 无论异常都写 `run_ended`，写失败本身失败时要有恢复扫描。为每个已开始的工具保存开始/完成事实，重启按 t07 的“结果未知/已中断”规则结算，不能把异常只留在进程内。
 ### 2. 流式回复只在结束时入日志，崩溃与中止无法恢复
 - **严重程度**：阻断；**类别**：正确性 / 灵活性
-- **位置**：`docs/proposals/agent-harness-event-model.md` 事件与日志表、一次运行的数据流第 6-8 步、方案 5；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/README.md:3`；OMP `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/types.ts:1390-1413`
+- **位置**：`docs/proposals/agent-harness-event-model.md` 事件与日志表、一次运行的数据流第 6-8 步、方案 5；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/README.md:3`；OMP `/home/<user>/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/types.ts:1390-1413`
 - **现象**：提案明确“流式输出的增量从不写；只推给界面”，完整助手回复在流结束时才写事件；spike README 明确不做流式、中止。OMP 的 `streamSimple()` 返回 `text_delta`、`toolcall_delta`、`done` 或 `error` 事件，`error` 还带可能已经产生的部分助手消息。
 - **为什么是问题**：模型可能已经输出了文本或完整/部分工具调用，进程在 `done` 前崩溃、用户中止或网络断开。日志没有任何“模型已开始/部分输出/结果未知”事实，重启只能重发用户输入，可能重复模型请求并重复工具副作用；若部分工具调用被识别却没有配对结果，历史又不满足校验。t07 明确要求进程中断后标记未完成工具调用并显示“上次运行被中断”，本稿没有事件形状和落盘时序承载它。
 - **如何核实**：读 OMP 类型可见 `AssistantMessageEvent` 的终态分成 `done` 与 `error`，不是提案的单一 `ModelResponse`。spike 运行证据只报告假模型和内存日志，没有任何流式或中止场景。
@@ -17,7 +17,7 @@
 - **位置**：`docs/proposals/agent-harness-event-model.md` 基本循环第 4 步；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:572-580`
 - **现象**：提案写“每个调用经工具拦截链执行”，spike 用 `for (const call of response.toolCalls)` 逐个等待 `toolChain`，每个结果写入日志并触发完整反应后才执行下一个。没有定义同一助手回复中多个工具调用的并行策略、结果落盘顺序、反应看到的状态快照或工具之间的冲突/并发声明。
 - **为什么是问题**：OMP 的真实 `executeToolCalls` 明确把同批调用按工具的 `concurrency` 分成 shared/exclusive，实际任务并发运行，结果按调用槽位稳定发出，并在批次边界处理插话。NeuroBook 的 t04 工具声明也已经预留并发字段。当前写法会把独立的 `read`/检索等调用的延迟相加；更危险的是第一个结果的反应可以在第二个工具开始前修改状态，导致同一模型回复的调用看到不同的世界，重放顺序与真实执行不再等价。
-- **如何核实**：读 OMP `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:3276-3369` 可见同批工具经 `Promise.allSettled` 并按 `concurrency` 排程；spike 的 `bun bench.ts 1200` 使用两个工具调用，但基准只测串行路径，不能证明并发合同。
+- **如何核实**：读 OMP `/home/<user>/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:3276-3369` 可见同批工具经 `Promise.allSettled` 并按 `concurrency` 排程；spike 的 `bun bench.ts 1200` 使用两个工具调用，但基准只测串行路径，不能证明并发合同。
 - **建议改法**：把“助手回复产生的工具批次”作为不可分割的调度单元：先对全部调用做输入拦截/审批快照，再按工具声明并行执行；结果以模型调用顺序写日志，反应在批次级或明确的每结果级运行，并固定其快照语义。定义共享资源冲突、同一工具重复调用、一个调用失败时其它调用是否继续，以及插话到达时未开始/进行中调用如何结算。
 ### 4. 历史预览的拦截器读取当前叶子，不是预览叶子
 - **严重程度**：阻断；**类别**：不变量
@@ -80,14 +80,14 @@
 - **位置**：`docs/proposals/agent-harness-event-model.md` 方案 1、方案 5、一次运行第 5-8 步；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:57-69,92-104`
 - **现象**：提案示例把 `streamSimple(model, {systemPrompt, messages, tools}, {apiKey, signal, maxTokens, temperature, headers, reasoning})` 当作调用形状，但真正的 OMP API 是 `streamSimple(model, context, options)`，返回 `AssistantMessageEventStream`，事件包含 thinking、image、tool-call 增量以及 `done/error` 终态。spike/提案内部却把它抽象成同步/Promise 的 `{text, toolCalls}` `ModelResponse`，没有 stop reason、usage、thinking、图片、provider metadata 或 abort 结果。
 - **为什么是问题**：真正接入时必须自行消费事件流、在正确的终态落日志、把原始增量推给 UI、处理 `error/aborted` 和部分工具调用；当前合同没有定义这些转换。只按文字和 `toolCalls` 实现会丢视觉输入/输出、思考档和用量，或在流错误时把失败误当成无回复。OMP 的 auth retry、thinking-loop、provider session state 也发生在 `streamSimple` 内部，提案“每次真实模型调用都可见”无法由现有 `ModelResponse` 记录保证。
-- **如何核实**：已读 `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/stream.ts:1491-1512,1534-1555` 与 `src/types.ts:411-462,628-637,1384-1413`；类型和实现均确认上述签名/事件。运行 spike 的 typecheck 通过，只说明 spike 自己的假模型接口，不说明 OMP 接口可接。
+- **如何核实**：已读 `/home/<user>/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/stream.ts:1491-1512,1534-1555` 与 `src/types.ts:411-462,628-637,1384-1413`；类型和实现均确认上述签名/事件。运行 spike 的 typecheck 通过，只说明 spike 自己的假模型接口，不说明 OMP 接口可接。
 - **建议改法**：定义 `nbook.models` 的适配器合同：明确 `Model`、`Context`、`SimpleStreamOptions` 的映射，保存 signal/providerSessionState/usage/responseId/retry 信息；模型拦截器要包住 canonical request 还是 OMP wire context 必须定死。把每一种终态和内容块映射为日志/界面事件，并为 OMP 的内部重试决定“单次逻辑请求”与“每次 provider attempt”如何审计。
 ### 13. `ModelRequest` 不能表达 t05 的视觉能力和 t04 的工具声明
 - **严重程度**：重要；**类别**：API / 灵活性
 - **位置**：`docs/proposals/agent-harness-event-model.md` 方案 4 的 `ModelRequest`；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:48-64`
 - **现象**：提案和 spike 把消息内容固定为 `string`、工具固定为 `string[]`，参数只有 `temperature/topP/maxTokens/stop`。但 t05 已定 Profile 可要求看图/工具调用能力，t04 的最终工具集包含参数 schema、服务商名覆盖、并发和严格校验；OMP `Context.tools` 是完整 `Tool[]`，消息 content 可以是文本、图片、thinking、tool call/result 等块。
 - **为什么是问题**：之后实现 vision Profile、图片输入、结构化工具参数、工具名换算、不同 provider 的 reasoning/stop/cache 选项时，扩展要么深度绕过 `ModelRequest`，要么重新定义第二套请求形状。更改 `messages` 的拦截器也无法保留 provider 要求的工具调用元数据，协议校验只检查字符串和 callId 不足以保护真实请求。
-- **如何核实**：对照 OMP `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/types.ts:1346-1387` 的 `Tool`/`Context` 和 `types.ts:1390-1413` 的内容事件；spike 类型定义没有对应字段。`bun check.ts` 的 15 个场景全是纯文本/字符串工具，未覆盖已定能力。
+- **如何核实**：对照 OMP `/home/<user>/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/types.ts:1346-1387` 的 `Tool`/`Context` 和 `types.ts:1390-1413` 的内容事件；spike 类型定义没有对应字段。`bun check.ts` 的 15 个场景全是纯文本/字符串工具，未覆盖已定能力。
 - **建议改法**：把内部请求定义成 provider-neutral 但不丢信息的 canonical `Context`：内容块、工具定义/schema、tool choice、reasoning、stop、usage/response metadata 分离；模型拦截器改 canonical 层，适配器负责 OMP/provider 变换，扩展不能靠 `any` 填隐藏字段。
 ### 14. “改前与改后都进日志”没有落在日志，且模型回复/工具结果没有变更审计
 - **严重程度**：阻断；**类别**：正确性 / 文档
@@ -136,7 +136,7 @@
 - **位置**：`docs/proposals/agent-harness-event-model.md` 状态第 123-125 行、影响第 452-456 行、待定项 3；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:241-247,256-274,426-471,517-535`; `.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/core.ts:12-21,35-49`
 - **现象**：每条事件的 `reduceInto` 都浅复制整个 `Snap` 并遍历所有扩展，即 O(扩展数)；默认每条 path 事件在 `snaps` 保存一份快照。每次 `buildRequest` 又把历史链转数组、渲染全部消息、合并 user 消息并重算 token；`record` 再次遍历并比较整个前缀。`select` 每次按扩展线性 `find`，`modelChain` 对每个字段 `JSON.stringify`。
 - **为什么是问题**：证据的 1200 轮已经有 10,806 条日志、最后请求约 375,807 token/7,200 条消息；本机测得打开 13.6 ms、算请求 3.30 ms、长会话每新增事件 9.52 ms、默认快照堆增约 2.9 MB。按当前算法，历史和请求长度线性增长，事件归约还乘扩展数；百万级事件会累积数百 MB 以上的快照/日志对象，分支回退在 `snapshots: "none"` 时按祖先距离乘扩展数重放。真实 provider 请求的 token 成本还会远高于这段假模型基准。
-- **如何核实**：原样运行 `bun bench.ts 1200` 得到上述 10,806/375,807/13.6/3.30/9.52 数字；`/home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.json` 通过。复杂度直接由 `reduceInto`、`renderTemplate`、`record` 的循环可见，基准没有测 10 倍/100 倍历史、扩展数增长或多分支回退。
+- **如何核实**：原样运行 `bun bench.ts 1200` 得到上述 10,806/375,807/13.6/3.30/9.52 数字；`/home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.json` 通过。复杂度直接由 `reduceInto`、`renderTemplate`、`record` 的循环可见，基准没有测 10 倍/100 倍历史、扩展数增长或多分支回退。
 - **建议改法**：设计层至少规定：事件归约的增量索引与扩展注册表 O(1) 查找；快照只在压缩点/稀疏 checkpoint 持久化并有淘汰策略；History/模板按事件或节点记忆，稳定 prefix 与工具 fingerprint 复用；请求诊断使用增量 hash/tokenizer，不对全部消息重复 `JSON.stringify`。实现前给出目标上限和 10 万/100 万事件的预算，不能把 spike 的 12 ms 打开时间当长会话合同。
 ### 21. 槽位声明与模板条件的边界会静默丢数据或重复诊断
 - **严重程度**：重要；**类别**：API / 灵活性

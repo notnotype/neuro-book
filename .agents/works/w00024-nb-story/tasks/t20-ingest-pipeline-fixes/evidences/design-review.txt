@@ -1,7 +1,7 @@
 # w00024 t20 只读设计审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t20-ingest-pipeline-fixes/plan.md`。
-代码根：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t20`。下文代码路径均相对这个 worktree；Spec 与任务记录相对主工作区。仅审查设计，未修改仓库。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t20-ingest-pipeline-fixes/plan.md`。
+代码根：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t20`。下文代码路径均相对这个 worktree；Spec 与任务记录相对主工作区。仅审查设计，未修改仓库。
 
 ## 发现（按影响排序）
 
@@ -58,7 +58,7 @@
 - **位置**：主工作区 `plan.md:47-50,64,74`。
 - **现象（已用真实 CLI 核实）**：5 条 consolidation merges 没有一条涉及法明 `e9-8` 或玄奘 `e9-9`；两者在草稿里也各自存在。真正连接它们的是第 9 章 `s9-16`：文本是“法明和尚为江流剃发取法名”，却标 `family: identity`、`about: [e9-9,e9-8]`。编译默认得到确定事实，查询核心按身份连接把两人合成一个点。计划只列 merges、mergedFrom、称呼、label，没有把 statements 的 identity、确定性与查询分组列入调查合同。
 - **为什么是问题**：法明是玄奘的师父，不是他的正当别名。`core/book-index.ts:149-155` 与 `identity.ts:217-225` 把确定 identity 当等价关系并传递闭包，显示名只是最终代表对象主名的结果（`identity.ts:89-98`）。改显示名会让错误更难看见，不会分开人物、知情、关系与情节。数据里还有同类错误，例如 `s9-38` 明说“没有明确说明”但未标 uncertain，及把玄奘与唐王连接的 `s14-10`、把“女妖捆玄奘”两端标 identity 的 `s72-5`，不能只围绕 5 条整理合并作修补。
-- **如何核实**：只读解析主工作区 `.local/agent/works/w00024-nb-story/tasks/t19-journey-west-example/library/xiyouji/extraction-100.json` 的 `.consolidations[].merges`、第 9 章实体和 identity 说法。运行（cwd 为实现 worktree）`bun --no-env-file packages/nb-story/src/cli.ts card e9-9 --book xiyouji --at 9.17 --library /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t19-journey-west-example/library --json`：返回 `id: e9-8`、`entities: [e9-8,e9-9]`、identity 出处 `9.17`。原文 `9.16-9.21` 明确写救养、师徒与取名。
+- **如何核实**：只读解析主工作区 `.local/agent/works/w00024-nb-story/tasks/t19-journey-west-example/library/xiyouji/extraction-100.json` 的 `.consolidations[].merges`、第 9 章实体和 identity 说法。运行（cwd 为实现 worktree）`bun --no-env-file packages/nb-story/src/cli.ts card e9-9 --book xiyouji --at 9.17 --library /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t19-journey-west-example/library --json`：返回 `id: e9-8`、`entities: [e9-8,e9-9]`、identity 出处 `9.17`。原文 `9.16-9.21` 明确写救养、师徒与取名。
 - **建议改法**：把两条不同的合并链（整理物理去重、查询 identity 分组）都列为调查输入，沿首条错误身份说法追到 draft/review/checklist 与默认确定性的产生处，再确定修复范围。验收至少包含“给人取名不表示二人相同”“不确定叙述不产生确定合并”“真实身份揭晓仍按阅读位置合并”。如果改抽取请求文字，仍遵守已定真实模型审批；不应以离线改显示名替代质量修复。
 
 ### 8. 重要｜接口与合同：多轮自动续跑没有定义 thisRun、等待状态和一次命令的最终输出

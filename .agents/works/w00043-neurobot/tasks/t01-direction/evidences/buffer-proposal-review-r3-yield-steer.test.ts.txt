@@ -1,6 +1,6 @@
 // 子会话以 yield 交出结果的那一轮里到达的插话：send 交回 currentRunId（这次运行），运行以 finished 收口，话没被取走、留在缓冲区
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 const {defineExtension} = await import(`${K}/extension/define.ts`);
 let n = 0;

@@ -1,6 +1,6 @@
 # 任务：只读设计审查 w00039 t02：作者视角的世界引擎内核（第一版）提案
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-A`（detached，提交 cee1e1915）。审查对象：`docs/proposals/world-engine-kernel.md`（状态 reviewing）。
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-A`（detached，提交 cee1e1915）。审查对象：`docs/proposals/world-engine-kernel.md`（状态 reviewing）。
 
 找出它的问题。假定作者过于自信：找没写出来的假设、没处理的边界、隐含的耦合与共享状态、模型里自相矛盾的地方、照字面实现会返工的地方、被破坏的既有约定。不要复述、不要给总体评价；找不到问题时明确写“仔细检查后没有发现”。
 

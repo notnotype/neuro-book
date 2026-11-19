@@ -80,7 +80,7 @@
   export function useLayoutText(): LayoutTranslate;
   ```
   缺省实现把目录里的 `{{名字}}` 换成参数，不处理复数。键、目录、`./locales` 子路径都不变；`text.ts` 不再在导入时 `registerDefaultCatalog`（应用的窗口引擎已在 `text-engine.ts:166` 自己登记）。
-- `LAYOUT_TEXT_KEY`、`LayoutTranslate`、`LayoutTextParams`、`useLayoutText` 从 `vue/index.ts` 导出（应用不能深导入），写进 README 的公开面。
+- `LAYOUT_TEXT_KEY`、`LayoutTranslate`、`LayoutTextParams`、`LayoutTextKey` 从新子路径 `@notnotype/nb-layout/text`（`src/vue/text.ts`）导出，写进 README 的公开面（实施中改：原写从 `vue/index.ts` 导出，但 `shared/testing/text-port.ts` 在后端类型检查范围里，经帮手读进整个 Vue 入口就缺 DOM 类型；同 nb-ui 把 `TEXT_PORT_KEY` 放在 `./text-port`）。帮手三种形式：`provideHostText(port)`（setup 里）、`provideAppHostText(app, port)`（Vue 根）、`hostTextProvides(port)`（测试挂载的注入表）。
 - 应用侧一个帮手（放 `packages/neuro-book/src/web/host/`），两种形式：`provideHostText(provide, port)` 与返回记录的 `hostTextProvides(port)`，同时提供 `TEXT_PORT_KEY` 与 `LAYOUT_TEXT_KEY`（把 nb-layout 的键交给 nb-ui 端口，命名空间 `nb-layout`，每次调用都读端口的当前语言）。改用它的地方：`mount.ts`（三个根共用一处）、`boot.ts` 两个根、Lab 夹具里 `provide(TEXT_PORT_KEY` 的 18 个文件、`shared/testing/text-port.ts` 返回的记录。
 - 端口来源（开工前核过）：`packages/neuro-book/src` 里提供 `TEXT_PORT_KEY` 的 21 处（`mount.ts`、`boot.ts`、Lab 夹具、`shared/testing/text-port.ts`）都来自 `createHostTextEngine`，它登记了 `nb-layout` 的目录（`text-engine.ts:166`），所以帮手把键交给这些端口不会退化成键名。帮手的测试断言经帮手拿到的是文字、不是键。
 - 检查（第二轮第 3 条）：限定 `packages/neuro-book/src` 的非测试源码，认三种写法（`provide(TEXT_PORT_KEY`、`.provide(TEXT_PORT_KEY`、`[TEXT_PORT_KEY`），豁免帮手本身与 `shared/testing`；别的包（nb-ui、nb-form、nb-markdown、nb-agent-ui）的直接提供是合法的，不查。测试文件里直接提供的不改：它们多数不挂 nb-layout 组件，挂了的拿到 zh-CN 缺省目录，和今天的源语言一样。
@@ -133,6 +133,16 @@
 - e2e：`workbench-dnd`、`workbench-live-drag`、`workbench-containers`、`editor-area`、`lab-grid-swap`、`lab-grid-panels`、`lab-grid-structure`、`lab-drop-sectors`、`workbench-views`，加新写的探针，共 10 个文件；超过 8 个，`NB_E2E_WIDE` 写明“改了 nb-layout 读的全部变量名，按旧名调样式的文件都要证明经桥接还生效”。开跑前看负载。
 - Lab 截图对照：`NestedGrid` 的交换与落点、`Splitter`、`SortableList`、落点浮层、浮动窗把手的键盘焦点，亮色。
 - 未验证：不装 nb-ui 时减少动效归零（应用与 Lab 都装着 nb-ui，没有不装的真实浏览器宿主）；happy-dom 不认媒体查询。
+
+## 实施中的调整
+
+- 第 1 片：注入键走新子路径 `@notnotype/nb-layout/text`（见“文案”一节）。
+- 第 3 片：
+  - 新名去掉旧名里重复的 `layout-`：`--layout-card-radius` → `--nb-layout-card-radius`，`--layout-sector-*` → `--nb-layout-sector-*`；宿主旋钮 `--nb-splitter-seam*` → `--nb-layout-splitter-seam*`，`--sortable-*` → `--nb-layout-sortable-*`。
+  - 层级等于登记表的检查放在 nb-ui 的 `theme/z-index.test.ts`（它同时有 `tokens.css` 与登记表）；应用的 `theme-bridge.test.ts` 核对清单回退等于桥接的值。原写全放应用，但后端类型检查范围含 `src/**/*.test.ts`，导入 `@notnotype/nb-ui/theme` 会读进 DOM 代码。
+  - dom 测试的公共准备不在根上设 0ms，而是注入一条 `*` 规则：happy-dom 不继承自定义属性（实测根上、父元素上的声明子元素读到空串）。
+  - 探针的第一版没有单独对改名前的现状跑：静态核对已覆盖 `tokens.css`、`theme.css` 的旧名，探针断言旧名与新名都非空且相等，配色变量为空时同样会红。
+  - `--nb-layout-sash-line-size` 读到空串时取缺省 3px（原来是 NaN、线芯铺满装饰带），与“JS 读空串取清单缺省值”一致；只影响不装 nb-ui 的宿主。
 
 ## 不做与风险
 

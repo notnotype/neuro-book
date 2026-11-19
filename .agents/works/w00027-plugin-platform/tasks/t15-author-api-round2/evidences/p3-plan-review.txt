@@ -156,7 +156,7 @@
 - **现象**：`bundle()` 把 Bun metafile 的输入路径按 `repoRoot` 解析，但 Bun 的 metafile 路径是相对**当前工作目录**的。实测同一入口：在 `packages/neuro-book` 下运行得到 `../../node_modules/commander/esm.mjs`，在仓库根运行得到 `node_modules/commander/index.js`，在 `/tmp` 运行得到 `../home/.../node_modules/...`。`bun run build:app-package`、`bun test`、e2e 都以 `packages/neuro-book` 为工作目录，于是 `resolve(repoRoot, "../../node_modules/<包>")` 落到仓库根往上两层。
   - 干净克隆（`0f627a12f`）`packages/neuro-book` 下 `bun run build:app-package`：`build`（server、web、`check:dist`）通过，`pack-app.ts` 以 `ENOENT ... plan-p3-review/node_modules/@nodable/entities/package.json` 失败，退出码 1。
   - 同一克隆在仓库根运行 `bun packages/neuro-book/scripts/pack-app.ts <新目录>`：成功，打出 tarball。
-  - 主工作区（master `ad424bc76`）`packages/neuro-book` 下 `bun test scripts/pack-app.test.ts`：5 例 3 败，同样是 `ENOENT '/home/notnotype/node_modules/@nodable/entities/package.json'`；干净克隆里跑 `bun run test` 同样这 3 例失败。
+  - 主工作区（master `ad424bc76`）`packages/neuro-book` 下 `bun test scripts/pack-app.test.ts`：5 例 3 败，同样是 `ENOENT '/home/<user>/node_modules/@nodable/entities/package.json'`；干净克隆里跑 `bun run test` 同样这 3 例失败。
   - 第二期在 `.worktree/w00027-plugin-platform` 里验证：那里 `repoRoot/../../node_modules` 正好是主工作区的 `node_modules`（存在，含 `@nodable/entities`），所以测试与 e2e 都绿。也就是说当时生成的 THIRD-PARTY-NOTICES 读的是**另一个 checkout** 的包目录，版本不一定对。
   - 附带：失败后 `dist/app-package` 里留下 `server/`、`web/` 而没有标记文件 `.nbook-app-package`，再跑一次被 `clearPreviousApp` 拒绝（“不是空的，也不是上次生成的……不清理”），必须手工删目录才能重跑。
 - **为什么是问题**：计划第 3.2 节的发布链、第 3.4 节的 `app-package` job、`check` job 里 `neuro-book` 的 `test`（`pack-app.test.ts` 3 例）都建立在 `build:app-package` 能用的前提上。照计划实施，CI 两个 job 第一次推送就红，`release:publish` 在“先跑两条生成命令”这一步停住；而在 Work 的 worktree 里实施与自测时一切照常通过，问题只会在主工作区、CI 或开发者本人执行发布时出现。重跑还要人工清目录，和计划第 8 节“失败就停”配合得不好。

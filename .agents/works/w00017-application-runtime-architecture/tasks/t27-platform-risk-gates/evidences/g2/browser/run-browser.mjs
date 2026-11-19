@@ -1,7 +1,7 @@
 // 用仓库 node_modules 中的 playwright-core 驱动本机 Chrome，测浏览器端 worker 池。
 import {spawn} from "node:child_process";
 import {createRequire} from "node:module";
-const require = createRequire("/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/package.json");
+const require = createRequire("/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/package.json");
 const {chromium} = require("playwright-core");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

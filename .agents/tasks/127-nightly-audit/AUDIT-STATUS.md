@@ -29,7 +29,7 @@
 
 ## 项目速览
 
-- 仓库根: `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book`
+- 仓库根: `C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book`
 - 技术栈: Nuxt 4 + Nitro + Vue 3 + TypeScript + Prisma/SQLite + Bun；测试 vitest；文档站 VitePress；部署管理器在 `packages/neuro-book-manager`
 - 语言: 中文为默认交互语言，代码注释用中文
 - 单轮预算: 15 分钟

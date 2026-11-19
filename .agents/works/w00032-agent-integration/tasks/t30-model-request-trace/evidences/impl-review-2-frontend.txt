@@ -3,7 +3,7 @@ w00032 t30 实现审查第 2 路（前端，Claude Sonnet，2026-11-15，提交�
 
 # w00032 t30 前端实现审查（第 2 路）
 
-范围：`cbbbb8944..19f135c00` 的前端部分。路径相对 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t30-review-2`，缩写：`RP` = `packages/neuro-book/src/plugins/agent/web/requests-page.ts`，`TR` / `LI` / `DE` = `packages/nb-agent-ui/src/vue/requests/` 下的 `AgentRequestTrace.vue` / `AgentRequestList.vue` / `AgentRequestDetail.vue`。
+范围：`cbbbb8944..19f135c00` 的前端部分。路径相对 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00032-t30-review-2`，缩写：`RP` = `packages/neuro-book/src/plugins/agent/web/requests-page.ts`，`TR` / `LI` / `DE` = `packages/nb-agent-ui/src/vue/requests/` 下的 `AgentRequestTrace.vue` / `AgentRequestList.vue` / `AgentRequestDetail.vue`。
 已跑：`bun test src/request-trace.test.ts`（8 过）、`bunx vitest run src/vue/requests`（15 过）。没跑 e2e 与开发服务。第 1 条用无头 Chrome 渲染一份只含该条 CSS 的静态页核实（实验文件在 `/tmp/nb-t30-review-2-fe/`），其余为读代码与推演，已在各条写明依据。
 任务 README 已记为“没做、待开发者定”的项（页面新开从全部开始、`#N`、查找条回车、窄时迟滞与滚动位置保留、消息页按角色与“有命中”筛选等）不在下面。
 

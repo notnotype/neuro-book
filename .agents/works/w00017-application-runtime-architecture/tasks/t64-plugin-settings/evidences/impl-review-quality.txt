@@ -1,6 +1,6 @@
 # t64 实现审查：代码质量、Spec、界面与文档
 
-审查范围：`1d68afea..325bbe33`，8 个提交、82 个文件、4,474 行新增、185 行删除；worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality`，固定在 `325bbe33`。只读审查；编号按发现时分配，正文按影响排序。以下只记录已核实的发现，运行证据与静态推断逐条注明。
+审查范围：`1d68afea..325bbe33`，8 个提交、82 个文件、4,474 行新增、185 行删除；worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality`，固定在 `325bbe33`。只读审查；编号按发现时分配，正文按影响排序。以下只记录已核实的发现，运行证据与静态推断逐条注明。
 
 ## Q7：锁被接管后旧写入者仍提交成功，失锁错误只在收尾时报告
 
@@ -17,7 +17,7 @@
 - **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-text.ts:74`；合同 `docs/specs/settings/configuration.md:124`。
 - **现象**：在 `{"unrelated"  :  1 /* 行尾 */}` 中新增 `x.review/theme`，原键变成 `"unrelated": 1,`，其块注释被移到新键 `"x.review/theme": "macos" /* 行尾 */` 后。多行文件同样发生；单行文件还被整体展开成多行。
 - **原因与影响**：新增也直接使用带 `formattingOptions` 的 `jsonc-parser.modify`，该库会格式化相邻文本，并在既有行尾块注释前插入新属性。Spec 输出 13 承诺新增键按原文缩进追加，其余内容按原文保留。注释从原配置项转移到另一项，改变了用户配置文件表达的含义；现有测试覆盖普通新增、BOM／CRLF、制表符与两空格缩进，但没有覆盖新增时保留不规则空白与已有行尾块注释。
-- **核实**：真实内核实例中的插件经 `settingsKey` 调用 `SettingsService.update`，真实文件读回。运行 `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/settings-probe.ts`，工作目录为报告所在目录。`APPEND_COMPACT`、`APPEND_MULTILINE` 输出均确认上述改写，写入返回 `{ok:true}`。该脚本之后在释放门面的实验处抛错，不影响已完成的文件实验。
+- **核实**：真实内核实例中的插件经 `settingsKey` 调用 `SettingsService.update`，真实文件读回。运行 `bun --tsconfig-override /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/settings-probe.ts`，工作目录为报告所在目录。`APPEND_COMPACT`、`APPEND_MULTILINE` 输出均确认上述改写，写入返回 `{ok:true}`。该脚本之后在释放门面的实验处抛错，不影响已完成的文件实验。
 - **建议改法**：新增分支根据现有语法树和 scanner 定位插入点，只插入必要的逗号、换行和新属性；不要格式化已有属性区段。保留统一的编辑后重新解析与目标值核对。在现有文件保留行为测试里补行尾块注释与不规则空白的新增场景。
 
 ## Q2：删除不存在的键仍创建或替换文件，测试反而固定了副作用
@@ -44,7 +44,7 @@
 - **位置**：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:86`、`:105`；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts:272`。
 - **现象**：打开主题选择，输入“当前”过滤出并选中 NeuroBook，显示语言切到英文后，输入仍为“当前”，候选与选中项都消失，显示 `No matching items`。命令模式同样复现：输入 `>切换主题` 已选中主题命令，切英文后选中项变成 `null`，显示 `No matching commands`。与 quick-open Spec 的“输入与选中项保留”及组件同名文档不符。
 - **原因与影响**：语言变化时 `items` 用新语言的标签与说明重新匹配旧输入；“当前”变成 `current`、“切换主题”变成 `Change Theme` 后不再命中。`watch(items)` 只保留仍在新结果里的 id，所以选中项变为 null。现有语言切换测试只用两种语言相同的 `NeuroBook`／`macOS` 标签和查询 `o`，没覆盖按会翻译的文字过滤的路径。
-- **核实**：仓库外 `palette-probe.dom.test.ts` 挂载真实 `WorkbenchCommandPalette`、nb-ui `QuickInput` 和真实面板宿主。首次运行的 `PICK_LOCALE_SELECTION` 输出 `before:"nb-quick-input-v-0-listbox-option-nbook",after:null,query:"当前",text:"Change ThemeNo matching items"`，保留选中项断言失败；命令模式的实验 args schema 当时漏写 `additionalProperties`，该部分未进入交互。纠正实验 schema 后以 `-t '命令模式：'` 单独运行，`COMMAND_LOCALE_SELECTION` 输出 `before:"nb-quick-input-v-0-listbox-option-nbook.settings.switch-theme",after:null,query:">切换主题",text:"Command PaletteNo matching commands"`，同一断言失败（1 failed、1 skipped）。命令：`node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs`，第二次追加上述 `-t`，工作目录均为报告所在目录。实验直接改变响应式 locale，核实组件语言更新路径；跨窗口传播由已通过的配置合同测试覆盖，此处没有运行跨窗口浏览器 e2e。
+- **核实**：仓库外 `palette-probe.dom.test.ts` 挂载真实 `WorkbenchCommandPalette`、nb-ui `QuickInput` 和真实面板宿主。首次运行的 `PICK_LOCALE_SELECTION` 输出 `before:"nb-quick-input-v-0-listbox-option-nbook",after:null,query:"当前",text:"Change ThemeNo matching items"`，保留选中项断言失败；命令模式的实验 args schema 当时漏写 `additionalProperties`，该部分未进入交互。纠正实验 schema 后以 `-t '命令模式：'` 单独运行，`COMMAND_LOCALE_SELECTION` 输出 `before:"nb-quick-input-v-0-listbox-option-nbook.settings.switch-theme",after:null,query:">切换主题",text:"Command PaletteNo matching commands"`，同一断言失败（1 failed、1 skipped）。命令：`node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs`，第二次追加上述 `-t`，工作目录均为报告所在目录。实验直接改变响应式 locale，核实组件语言更新路径；跨窗口传播由已通过的配置合同测试覆盖，此处没有运行跨窗口浏览器 e2e。
 - **建议改法**：让过滤匹配独立于显示语言：用候选的两份可搜索文字匹配，显示时仍按当前语言取文字；选择 id 与输入不变。命令标题、候选标签与候选说明采用同一规则。在现有语言切换行为测试里补中文标题和“当前”说明的过滤场景。
 
 ## Q5：公开 update 的前置判断绕过了 Spec 规定的失败优先级
@@ -85,7 +85,7 @@
 
 ## 本审查的验证
 
-以下四条命令的工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/packages/neuro-book`，结果来自本审查实际执行，未采用作者自报结果替代。
+以下四条命令的工作目录均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/packages/neuro-book`，结果来自本审查实际执行，未采用作者自报结果替代。
 
 | 实际命令 | 结果 |
 |---|---|
@@ -94,15 +94,15 @@
 | `bun run typecheck` | `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json` 通过，30.34 s |
 | `bun test examples src/plugins/projects src/plugins/commands src/plugins/workbench/web/commands/command-query.test.ts src/architecture.test.ts` | 78 pass、0 fail，466 expect，12 files，966 ms |
 
-补充实验工作目录均为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality`，脚本与输入／输出文件留在此处供交叉核对：
+补充实验工作目录均为 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality`，脚本与输入／输出文件留在此处供交叉核对：
 
 | 实际命令 | 结果与边界 |
 |---|---|
-| `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/settings-probe.ts` | Q1、Q2 的真实文件实验完成；Q3 访问已撤销门面抛 `ServiceRevokedError` 后脚本退出非零，随后分支未执行 |
-| `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/boundary-probe.ts` | 退出 0，真实公开服务核实 Q4、Q5，两个 world 正常关闭 |
-| `node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs` | 退出 1：选择模式进入交互后断言失败，核实 Q6；当时命令实验 schema 不合声明合同，未进入交互 |
-| `node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs -t '命令模式：'` | 纠正实验 schema 后退出 1，1 failed、1 skipped；命令模式进入交互后选中项丢失，核实 Q6 第二条路径 |
-| `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/lock-probe.ts` | 退出 0，13.28 s，真实进程停顿／接管核实 Q7；最终未丢键，两个进程退出 0、world 正常关闭 |
+| `bun --tsconfig-override /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/settings-probe.ts` | Q1、Q2 的真实文件实验完成；Q3 访问已撤销门面抛 `ServiceRevokedError` 后脚本退出非零，随后分支未执行 |
+| `bun --tsconfig-override /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/boundary-probe.ts` | 退出 0，真实公开服务核实 Q4、Q5，两个 world 正常关闭 |
+| `node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs` | 退出 1：选择模式进入交互后断言失败，核实 Q6；当时命令实验 schema 不合声明合同，未进入交互 |
+| `node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-impl-quality/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/vitest.config.mjs -t '命令模式：'` | 纠正实验 schema 后退出 1，1 failed、1 skipped；命令模式进入交互后选中项丢失，核实 Q6 第二条路径 |
+| `bun --tsconfig-override /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64-impl/quality/lock-probe.ts` | 退出 0，13.28 s，真实进程停顿／接管核实 Q7；最终未丢键，两个进程退出 0、world 正常关闭 |
 
 `settings-probe.ts` 的缺文件场景已经留下文件，重跑必须换新的外部子目录；直接重跑不能再作为“初始文件不存在”的证据。首次仓库外模块解析与 Vitest 配置失败已纠正，不作为产品发现。Bun 在外部 tsconfig 路径偶尔打印 `Internal error: directory mismatch`；成功退出的边界／锁实验和产品结果均已逐项区分，未把该运行器消息归因于配置插件。
 

@@ -31,7 +31,7 @@ taskId: t01-baseline-startup
 
 - worktree `.worktree/w00018-pre-nb-ui-baseline` @ `67f809e9`，分支 `chore/w00018-pre-nb-ui-baseline`；`bun install --frozen-lockfile` 成功（1561 包 / 35.3s）。
 - 独立 State/Cache Root：`~/.local/share/NeuroBook-w00018/data`、`~/.cache/NeuroBook-w00018`；`migrate:deploy` 应用 4 个 App SQLite migration，`migrate:application-state -- --apply` 完成初始化。
-- Source Dev 启动成功，监听 `0.0.0.0:3010`；局域网入口 `http://192.168.1.18:3010/`，`curl` 返回 200 / 5,121 字节 HTML，内置 Chromium 实测渲染出「我的书架」空态页面（`body` 15,342 字节 DOM，无 console 错误）。
+- Source Dev 启动成功，监听 `0.0.0.0:3010`；局域网入口 `http://<局域网 IP>:3010/`，`curl` 返回 200 / 5,121 字节 HTML，内置 Chromium 实测渲染出「我的书架」空态页面（`body` 15,342 字节 DOM，无 console 错误）。
 - 启动参数：`PORT=3010 HOST=0.0.0.0 NITRO_HOST=0.0.0.0 NUXT_HOST=0.0.0.0`。基线 `source-dev` 只在未显式给出 host 时强制 `127.0.0.1`，因此必须显式设置才可局域网访问。
 - 该基线在开发环境默认关闭鉴权，局域网内无需登录即可访问；仅限受信网络使用。
 

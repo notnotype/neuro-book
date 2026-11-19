@@ -1,6 +1,6 @@
 # brief-17 审查处理 交付报告
 
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（feat/w00028-i18n），未 commit、未暂存（git diff --cached 为空）。
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n（feat/w00028-i18n），未 commit、未暂存（git diff --cached 为空）。
 主工作区只改了 .agents/works/w00028-i18n/tasks/t03-shared-packages-migration/README.md 一个文件，未提交。
 
 ## 1 审查第 1 条 宿主引擎参数进 replace

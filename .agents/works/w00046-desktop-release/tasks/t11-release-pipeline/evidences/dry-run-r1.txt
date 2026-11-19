@@ -24,7 +24,7 @@
 - WebView2 Runtime 150 起，提升运行（High integrity）的宿主忽略 WEBVIEW2_* 环境变量与 HKCU 的策略覆盖，只认 HKLM 的
   Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments，上游说明“by design”：
   https://github.com/MicrosoftEdge/WebView2Feedback/issues/5640 ；同类做法 https://github.com/tossbaws/gospel-getter/pull/88 。
-- GitHub 的 Windows runner 上作业是提升运行的，WebView2 156；pc-notype 上不提升（WebView2 157），所以本机一直能用。
+- GitHub 的 Windows runner 上作业是提升运行的，WebView2 156；Windows 开发机上不提升（WebView2 157），所以本机一直能用。
 - 修正 a6e44fe2b：CI（NBOOK_SMOKE_WEBVIEW2_POLICY=1）把 --remote-debugging-port 写进 HKLM 的这条策略，值名 bun.exe；开发机不写。
   壳的启动日志加 webview2Args=set|none。
 

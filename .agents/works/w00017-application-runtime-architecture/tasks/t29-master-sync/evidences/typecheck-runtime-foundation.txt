@@ -77,11 +77,11 @@ app/utils/workbench/storage-migration-legacy-bucket.ts(501,20): error TS2304: Ca
 app/utils/workbench/storage-migration-legacy-bucket.ts(505,18): error TS2304: Cannot find name 'IDBOpenDBRequest'.
 app/utils/workbench/storage-migration-legacy-bucket.ts(534,26): error TS2304: Cannot find name 'IDBTransaction'.
 app/utils/workbench/view-factories.ts(15,32): error TS2307: Cannot find module 'nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue' or its corresponding type declarations.
-server/agent/tools/web-tools.ts(370,16): error TS7016: Could not find a declaration file for module 'jsdom'. '/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/jsdom/lib/api.js' implicitly has an 'any' type.
+server/agent/tools/web-tools.ts(370,16): error TS7016: Could not find a declaration file for module 'jsdom'. '/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/jsdom/lib/api.js' implicitly has an 'any' type.
   Try `npm i --save-dev @types/jsdom` if it exists or add a new declaration (.d.ts) file containing `declare module 'jsdom';`
-server/agent/tools/web-tools.ts(371,16): error TS7016: Could not find a declaration file for module 'turndown'. '/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/turndown/lib/turndown.cjs.js' implicitly has an 'any' type.
+server/agent/tools/web-tools.ts(371,16): error TS7016: Could not find a declaration file for module 'turndown'. '/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/turndown/lib/turndown.cjs.js' implicitly has an 'any' type.
   Try `npm i --save-dev @types/turndown` if it exists or add a new declaration (.d.ts) file containing `declare module 'turndown';`
-server/agent/tools/web-tools.ts(372,16): error TS7016: Could not find a declaration file for module 'turndown-plugin-gfm'. '/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/turndown-plugin-gfm/lib/turndown-plugin-gfm.cjs.js' implicitly has an 'any' type.
+server/agent/tools/web-tools.ts(372,16): error TS7016: Could not find a declaration file for module 'turndown-plugin-gfm'. '/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/turndown-plugin-gfm/lib/turndown-plugin-gfm.cjs.js' implicitly has an 'any' type.
   Try `npm i --save-dev @types/turndown-plugin-gfm` if it exists or add a new declaration (.d.ts) file containing `declare module 'turndown-plugin-gfm';`
 server/agent/tools/web-tools.ts(392,100): error TS2304: Cannot find name 'Document'.
 server/agent/tools/web-tools.ts(395,101): error TS7006: Parameter 'element' implicitly has an 'any' type.

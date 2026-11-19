@@ -1,6 +1,6 @@
 # t71 编辑器区实现边界正确性审查
 
-审查范围：`5152002b..e3ea21c7`（S0–S8）。工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-correctness`。
+审查范围：`5152002b..e3ea21c7`（S0–S8）。工作区：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-impl-correctness`。
 
 依据：t71 `plan.md`、`README.md`，编辑器及关联 Files、资源管理器、工作台、浏览器宿主 Spec，2026-10-09 已接受的 t71 取舍。只读审查；实验及产物位于本报告目录。
 
@@ -172,7 +172,7 @@
 - 仓库源文件、配置、测试、Spec 与 Work 文件未修改；实验脚本和数据仅在本报告目录。未 commit、push、stash 或切换分支，未删除仓库文件。
 - 本次服务 `t71-correctness-browser` 使用 HTTP 40523、RPC 36643，经 `stop\n` 标准输入正常停止，退出码 0；没有使用 3000、3917。
 - `t71-review` 浏览器标签已释放，`browser.tabs()` 返回 `[]`。工具未按 `kill:true` 停止本次启动的应用，随后通过受管进程接口停止 `omp.browser.headless`；停止结果为 exited。两位独立审查者已交付且未启动服务。
-- 在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-correctness` 执行 `git status --short`，退出码 0、输出为空，工作区干净。
+- 在 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-impl-correctness` 执行 `git status --short`，退出码 0、输出为空，工作区干净。
 
 ## 数量
 

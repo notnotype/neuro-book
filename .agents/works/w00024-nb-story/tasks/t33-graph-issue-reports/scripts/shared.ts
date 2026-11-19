@@ -1,7 +1,7 @@
 /**
  * t33 各脚本共用的东西：数据与输出目录、模型端点、单价、请求的提示词片段与逐次记录（plan.md 的“检测”“修复”）。
  *
- * 端点与密钥只从环境变量读（JIJI_LUNA_BASE_URL、JIJI_LUNA_API_KEY），用 `bun --env-file=<仓库根>/.env` 运行；不读任何配置文件。
+ * 端点与密钥只从环境变量读（NBOOK_LLM_BASE_URL、NBOOK_LLM_API_KEY），用 `bun --env-file=<仓库根>/.env` 运行；不读任何配置文件。
  */
 
 import {createHash} from "node:crypto";
@@ -21,7 +21,7 @@ export const RULES = join(REPO, "packages/nb-story/src/ingest/rules.md");
 export const loadGraph = async (): Promise<Dataset> => (await Bun.file(GRAPH).json()) as Dataset;
 
 export function endpoint(): ModelEndpoint {
-    return {baseUrl: process.env.JIJI_LUNA_BASE_URL ?? "", model: "gpt-6-luna", apiKey: process.env.JIJI_LUNA_API_KEY ?? "", maxTokens: DEFAULT_INGEST_MAX_TOKENS, apiKeyEnv: "JIJI_LUNA_API_KEY"};
+    return {baseUrl: process.env.NBOOK_LLM_BASE_URL ?? "", model: "gpt-6-luna", apiKey: process.env.NBOOK_LLM_API_KEY ?? "", maxTokens: DEFAULT_INGEST_MAX_TOKENS, apiKeyEnv: "NBOOK_LLM_API_KEY"};
 }
 
 /** 单价（元 / 百万 token）：仓库抽取费用的统一口径，deepseek-flash 低谷价（与 t32 的小抽取相同）。 */

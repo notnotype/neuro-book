@@ -121,7 +121,7 @@
 
 ## 实验命令与结果
 
-以下命令均在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book` 执行；脚本只放指定 lab，直接绝对引用 worktree 依赖，没有安装依赖。
+以下命令均在 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book` 执行；脚本只放指定 lab，直接绝对引用 worktree 依赖，没有安装依赖。
 
 1. `bun /tmp/neuro-book/review-w00027-t07-design/lab/typebox-smoke.ts`：退出码 0。覆盖 TypeBox 生成结构、联合/必填/数组/多错误/路径冲突、optional、readOnly/default 注解、条件缺值、非法正则、未解析引用、未知关键字、真实远程合同和有界正则耗时。非法正则被实验脚本捕获并输出其原异常，不是把它当作校验通过。
 2. `bun /tmp/neuro-book/review-w00027-t07-design/lab/nbdev-smoke.ts`：退出码 0。对照真实 `validateAnswerValue`，空多选、空白文字、10001 字文字、含 U+0000 文字这 **4** 个输入均被计划中的简单 schema 接受、被 nbdev 拒绝；确认值 false 两者都接受。此为第 6 条的追加运行证据。

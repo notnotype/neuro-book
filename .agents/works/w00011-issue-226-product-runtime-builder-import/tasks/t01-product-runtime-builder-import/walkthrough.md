@@ -8,7 +8,7 @@
 
 ## 验证
 
-- `bun run product:stage`，注入 `NEURO_BOOK_OUTPUT_DIR=C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.output` 与 `NBOOK_AGENT_TEMP_ROOT=C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-226-final-stage`，成功输出 staged acceptance 实例：`C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-226-final-stage/acceptance/product-runtime/acceptance-20260908004817990-2a823b7f-2731-476e-a6c9-630d302f467c`。
+- `bun run product:stage`，注入 `NEURO_BOOK_OUTPUT_DIR=C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.output` 与 `NBOOK_AGENT_TEMP_ROOT=C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-226-final-stage`，成功输出 staged acceptance 实例：`C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-226-final-stage/acceptance/product-runtime/acceptance-20260908004817990-2a823b7f-2731-476e-a6c9-630d302f467c`。
 - 使用该 acceptance 根运行 `bun run product:start -- --help`：已进入 staged Product command bundle，返回预期的 `Product Runtime command start 不接受额外参数。`，不再出现 `ProductRuntimeImageBuilder is not defined` 或 `PRODUCT_BUN_RUNTIME_ARGS is not defined`。
 - 尝试真实 HTTP Product start：进程进入既有 migration/application-state 启动门禁后按合同失败，因为受控 State Root 尚未迁移；日志明确要求 `bun run migrate:application-state -- --apply`。未绕过该门禁。
 - `bun x vitest run --config scripts/vitest.config.ts scripts/build/product-runtime-contract.test.ts scripts/deploy/product-runtime-cleanup.test.ts`：2 个文件、7 个测试通过。

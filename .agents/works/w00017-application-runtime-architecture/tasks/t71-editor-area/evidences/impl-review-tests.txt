@@ -1,6 +1,6 @@
 # t71 实现审查：测试与验收覆盖
 
-审查范围：`5152002b..e3ea21c7`；worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests`，初始 `git status --short` 无输出，HEAD 为 `e3ea21c76fcf09ce60340b35d002ef9b9f2f4e68`。
+审查范围：`5152002b..e3ea21c7`；worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests`，初始 `git status --short` 无输出，HEAD 为 `e3ea21c76fcf09ce60340b35d002ef9b9f2f4e68`。
 
 依据：t71 `plan.md`、`README.md`；`docs/specs/workbench/editor.md` 的输出 1–25、验收 1–11；`files-explorer.md` 验收 9；2026-10-09 t71 已接受取舍；`docs/testing/README.md`。计划不做范围、命令面板行号模式与已接受取舍本身不计缺陷。
 
@@ -14,7 +14,7 @@
 - **位置：** `packages/neuro-book/src/plugins/editor/web/markdown/source-merge.ts:176`（稳定点要求 base 的行同时精确出现在 ours 与 theirs；183–184 两侧有差异就整片取 theirs）；测试 `source-merge.test.ts:35`、`:54`；`e2e/editor-area.e2e.ts:209`。
 - **现象：** 原文 `* 甲\r\n* 乙\r\n* 丙\r\n`，真实产品页打开 `list.md`，只在第二项末尾输入“改”并 Ctrl+S，磁盘变为 `- 甲\r\n- 乙改\r\n- 丙\r\n`。第一、三项并未编辑，列表标记也被改写。连续标准 ruby 同样会把未编辑行改成属性式。
 - **为什么是问题 / 依据：** `docs/specs/workbench/editor.md:110` 输出 19、`:171` 验收 5 要求未编辑的行字节不变。已接受的行级取舍仅允许编辑过的行规范化，不能放宽到整片。当前三方合并在连续序列化差异中没有稳定点，把序列化规范化与真正编辑合并成一个区域。
-- **如何核实：** `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/tests/markdown-probe.ts`（真实编辑器扩展工厂 + MarkdownManager）；另在 `http://127.0.0.1:46371/?project=review` 走真实 Files 与浏览器，双击列表文件、点击第二项、End、输入“改”、Ctrl+S；磁盘前后字节见 `list-saved.json`。
+- **如何核实：** `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/tests/markdown-probe.ts`（真实编辑器扩展工厂 + MarkdownManager）；另在 `http://127.0.0.1:46371/?project=review` 走真实 Files 与浏览器，双击列表文件、点击第二项、End、输入“改”、Ctrl+S；磁盘前后字节见 `list-saved.json`。
 - **为什么测试验不出：** 7 个 `source-merge.test.ts` 与现有 18 个方言往返用例全部通过。前者只编辑与规范化列表隔着空行的普通段落；e2e 同样只改最后一个普通段落。方言测试只验证 canonical 序列化，没有检查编辑某个规范化行后的邻行字节。
 - **建议改法：** 将 base→theirs 的实际编辑 hunk 与 base→ours 的序列化对应关系分开，逐行映射可保留的原文；缺少完全相等稳定行时也不能把整个规范化片段当成用户编辑。补真实编辑器的连续列表、连续 ruby 中项编辑，以及删除/插入其中一项的字节断言。
 
@@ -71,7 +71,7 @@
 - **位置：** `packages/neuro-book/src/plugins/lab/web/fixtures/explorer-scene/memory-files.ts:425`；契约测试 `src/plugins/lab/memory-files.test.ts:167`。
 - **现象：** 同一个旧 baseline 并发提交两个不同正文：真实 Files **一个成功、一个 conflict**；内存适配器 **两个都成功**，且两个回执的 `identity.before` 都是同一个旧令牌。实际磁盘/内存正文只有最后一次。日志 `memory-save-probe.log`。
 - **为什么是问题 / 依据：** `workspace/files.md:60` 明定“比较基线、替换、确认”是一次原子提交，同一基线的两次并发保存恰好一次成功；`docs/testing/README.md:16` 要求 fake 与真实依赖契约一致。内存实现先抓住 node，再异步算 `hashOf(node.text)`，两个调用跨 await 持有同一旧节点；之后没有重验/串行边界，均通过条件。Lab 依赖此适配器验证编辑器保存与身份链，会掩盖错误的并发与回执语义。
-- **如何核实：** `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests/packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/tests/memory-save-probe.ts`；两端执行完全相同公开 Files 调用，真实内核与真目录，不伪造私有状态。
+- **如何核实：** `bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests/packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/tests/memory-save-probe.ts`；两端执行完全相同公开 Files 调用，真实内核与真目录，不伪造私有状态。
 - **为什么测试验不出：** memory-files 的正文用例串行 read/write/read，再用全零哈希构造冲突；没有同 baseline 并发写，也没核对保存事件与回执在异步时序下的身份链连续性。
 - **建议改法：** 按地址串行化“当前节点→基线校验→替换→回执”，或预计算哈希后在无 await 区间重验实际节点/版本并落账；同一契约用例在真实与内存端都并发写，断言恰一成功、一冲突，前后身份可跟到实际结果。
 
@@ -174,7 +174,7 @@
 
 ## 实际验证记录
 
-以下均在本次审查运行，非复用实现者旧证据。工作目录为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests/packages/neuro-book`；报告目录内 `baseline-run-results.log` 归档本会话基线通知原文，变异/探针的同名 `.log` 含命令与退出码。
+以下均在本次审查运行，非复用实现者旧证据。工作目录为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-impl-tests/packages/neuro-book`；报告目录内 `baseline-run-results.log` 归档本会话基线通知原文，变异/探针的同名 `.log` 含命令与退出码。
 
 | 命令或场景 | 实际结果 |
 |---|---|

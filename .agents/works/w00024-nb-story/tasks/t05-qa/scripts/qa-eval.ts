@@ -28,7 +28,7 @@ import {existsSync} from "node:fs";
 import {appendFile, mkdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-const REPO = "/home/notnotype/CodeRepository/neuro-book";
+const REPO = "/home/<user>/CodeRepository/neuro-book";
 const TASK = join(REPO, ".agents/works/w00024-nb-story/tasks/t05-qa");
 // 作答用的代码：t05 的 worktree（合入前）。报告里记下它的提交。
 const WT = process.env.EVAL_WORKTREE ?? join(REPO, ".worktree/w00024-t05-qa");
@@ -90,9 +90,9 @@ async function inputsOf(batch: Batch): Promise<Record<string, string>> {
 /** 本地书库与配置：第一次运行时建好。配置里只写密钥的环境变量名。 */
 async function prepare(): Promise<void> {
     await mkdir(LOCAL, {recursive: true});
-    const base = process.env.JIJI_LUNA_BASE_URL;
-    if (!base || !process.env.JIJI_LUNA_API_KEY) throw new Error("JIJI_LUNA_BASE_URL 或 JIJI_LUNA_API_KEY 没有设置：用 bun --env-file=.env 运行");
-    await writeFile(CONFIG, JSON.stringify({model: {baseUrl: base, id: MODEL.id, apiKeyEnv: "JIJI_LUNA_API_KEY", maxTokens: MODEL.maxTokens, thinking: MODEL.thinking}}, null, 2));
+    const base = process.env.NBOOK_LLM_BASE_URL;
+    if (!base || !process.env.NBOOK_LLM_API_KEY) throw new Error("NBOOK_LLM_BASE_URL 或 NBOOK_LLM_API_KEY 没有设置：用 bun --env-file=.env 运行");
+    await writeFile(CONFIG, JSON.stringify({model: {baseUrl: base, id: MODEL.id, apiKeyEnv: "NBOOK_LLM_API_KEY", maxTokens: MODEL.maxTokens, thinking: MODEL.thinking}}, null, 2));
     if (existsSync(join(LIBRARY, "fox", "book.json"))) return;
     const json = join(LOCAL, "sample-100ch.json");
     await writeFile(json, Bun.gunzipSync(await readFile(SAMPLE)));

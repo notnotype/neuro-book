@@ -24,7 +24,7 @@ NeuroBook 已有 PM、Leader、Tasker、Reviewer、Proposal、Spec、Task、walk
 
 现有治理检查已验证通过：`bun run governance:check` 返回 `failures: []`、`warnings: []`；`bun run docs:check` 返回 `failures: []`。这些检查证明目录、链接、Task owner 和文档结构约束有效，但不判断任务是否选择了合适的执行 Skill。
 
-通用 `using-agent-skills` 的完成门槛指向 `../../references/definition-of-done.md`。当前 `C:/Users/notnotype/.claude/references/` 与仓库内均不存在该文件，因此它不是可执行的项目完成定义。本项目不得把该缺失路径当作依据，也不得由本提案创建第二份独立 DoD；完成门槛必须映射到上述现有规则、测试规范、Task 合同、角色合同和治理命令。
+通用 `using-agent-skills` 的完成门槛指向 `../../references/definition-of-done.md`。当前 `C:/Users/<user>/.claude/references/` 与仓库内均不存在该文件，因此它不是可执行的项目完成定义。本项目不得把该缺失路径当作依据，也不得由本提案创建第二份独立 DoD；完成门槛必须映射到上述现有规则、测试规范、Task 合同、角色合同和治理命令。
 
 本提案不授权远端写入、发布、部署、数据库迁移、真实 Provider/Model、浏览器人工验收或数据删除。产品运行时的 `assets/workspace/.nbook/agent/skills/` 与开发治理 `.agents/skills/` 继续是两个不同边界。
 

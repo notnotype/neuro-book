@@ -13,7 +13,7 @@
 
 ## 0. 仓库现状：哪些是约束，哪些是历史写法
 
-读到的事实（路径均在 `/home/notnotype/CodeRepository/neuro-book/packages`）：
+读到的事实（路径均在 `/home/<user>/CodeRepository/neuro-book/packages`）：
 
 | 事实 | 位置 | 判断 |
 |---|---|---|

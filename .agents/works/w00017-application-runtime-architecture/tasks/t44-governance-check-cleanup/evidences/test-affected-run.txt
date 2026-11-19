@@ -8,7 +8,7 @@ $ bun scripts/cli/test-affected.ts --typecheck
 
 ==> scripts：bun x vitest run --config scripts/vitest.config.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
 
 
  Test Files  6 passed (6)

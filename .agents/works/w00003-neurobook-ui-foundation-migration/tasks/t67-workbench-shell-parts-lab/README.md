@@ -159,7 +159,7 @@ app/stores/novel-ide-legacy-writer.test.ts shared/storage` → **78 文件 / 896
 - `--suite workbench-shell`：**passed**（1m24.995s，尾行 `Component Lab workbench shell smoke passed: http://localhost:3001/`）。
 - `--suite core`：**passed**（11.155s）。
 - 新增/重写：`scripts/smoke/workbench-lab.ts`（共享定位与真实指针工具）、`scripts/smoke/workbench-containers.ts`（71 断言）、重写 `workbench-shell.ts`（48 断言）；证据目录
-  `C:/Users/notnotype/AppData/Local/Temp/neuro-book/acceptance/workbench-container-grid-sash-r1/evidence`。
+  `C:/Users/<user>/AppData/Local/Temp/neuro-book/acceptance/workbench-container-grid-sash-r1/evidence`。
 - 覆盖：主侧栏两容器单选与重复点击语义、Panel 两容器切换且容器内两 View 同屏、右栏容器、整容器 left→panel→right（实例不重挂）、单 View 换序与跨容器移动、来源搬空与空容器/空 Part 接收、
   T/十字两格（线中心与 fine 边缘 +4px 落在拖动源上）、只动一轴、Escape 双轴取消、拖到零与拉回（左栏与 Panel 横向）。
 - 临时探针已清理（含计划模式前的 `scripts/smoke/tmp-shell-feedback.ts`）。

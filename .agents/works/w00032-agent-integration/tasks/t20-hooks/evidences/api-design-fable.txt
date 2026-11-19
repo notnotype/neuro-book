@@ -183,7 +183,7 @@ v4 做对了、应当保留的：`input`/`steer` 拆分；按事件名挂处理�
 命令（在仓库根的 node_modules 里的 tsc，配置为任务给的 tsconfig.json）：
 
 ```sh
-/home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/fable/tsconfig.json; echo "exit=$?"
+/home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/fable/tsconfig.json; echo "exit=$?"
 ```
 
 输出：

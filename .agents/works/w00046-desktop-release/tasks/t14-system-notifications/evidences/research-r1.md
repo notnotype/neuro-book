@@ -10,7 +10,7 @@
 4. **来源**：桌面壳的服务端用固定的端口（重新启动复用上一次的两个端口），来源跨启动不变，不会遇到 qwen-code 那种“每次启动一个新来源，拒绝一次就永远拒绝”的问题（[QwenLM/qwen-code#15109](https://github.com/QwenLM/qwen-code/issues/15109)：WebView2 首选项里每个端口一条 BLOCK）。浏览器里照常经 `Notification.requestPermission`，应在用户手势里请求。
 5. 服务工作线程推送的通知在 WebView2 里不可用的报告：[MicrosoftEdge/WebView2Feedback#5051](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5051)；本产品只需要非持久通知。
 
-## 探针（等 pc-notype 能构建）
+## 探针（等 Windows 开发机 能构建）
 
 在 t18 的构建上加一个调试入口（或在开发者工具里）执行 `new Notification("NeuroBook", {body: "…", icon: …})`，分别看：
 

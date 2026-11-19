@@ -1,8 +1,8 @@
 # 任务：只读计划审查 w00039 t29：世界引擎内核（nb-canon 与 canon 插件）的实施计划，兼看 Spec 第二版
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t27-review`（detached，提交 2f0b6ed7e）。审查对象有两样：
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t27-review`（detached，提交 2f0b6ed7e）。审查对象有两样：
 
-1. **实施计划**：主工作区 `/home/notnotype/CodeRepository/neuro-book/.agents/works/w00039-novel-writing-plugins/tasks/t29-kernel-impl/plan.md`（它在主工作区的 master 上，不在你的 worktree 里）。
+1. **实施计划**：主工作区 `/home/<user>/CodeRepository/neuro-book/.agents/works/w00039-novel-writing-plugins/tasks/t29-kernel-impl/plan.md`（它在主工作区的 master 上，不在你的 worktree 里）。
 2. **Spec 第二版**：你 worktree 里的 `docs/specs/canon/` 五份（components、model、revisions、rendering、project）。第一版的审查报告与逐条处理在主工作区 `.agents/works/w00039-novel-writing-plugins/tasks/t27-kernel-spec/evidences/design-review.txt` 与 `design-review-resolution.txt`。
 
 计划接下来会被照字面实施。找出它的问题。假定作者过于自信：找没写出来的假设、与现有代码不符的事实、照计划做会返工的地方、测试测不到判据的地方、切片顺序的问题。不要复述、不要给总体评价；找不到问题时明确写“仔细检查后没有发现”。
@@ -16,7 +16,7 @@
   - 锁：`packages/neuro-book/src/backend/locked-replace.ts` 的 `holdLock`；
   - 远程服务与项目实例：`docs/specs/runtime/plugin-channel.md`、`runtime/services.md`、`runtime/projects.md`；控制目录：`docs/specs/workspace/files.md`；活页夹清单：`docs/specs/workspace/folder-kinds.md`；
   - 包的规矩：`packages/AGENTS.md`、`docs/modules/monorepo-boundaries.md`、`docs/testing/README.md`（测行为、依赖用真的、不用 mock 与假计时器、子进程在失败时也收口）；
-  - 原型（行为参照，不是合同）：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t16-drafts/packages/neuro-book/src/plugins/drafts/web/components/world-engine/` 的 `model.ts`、`engine.ts`、`story.ts`；
+  - 原型（行为参照，不是合同）：`/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t16-drafts/packages/neuro-book/src/plugins/drafts/web/components/world-engine/` 的 `model.ts`、`engine.ts`、`story.ts`；
   - 规模测量：主工作区 `.agents/works/w00039-novel-writing-plugins/tasks/t09-storage/scripts/` 与 `evidences/`。
 - 开发者已确认的决定（主工作区 `.agents/works/w00039-novel-writing-plugins/README.md` 决定表 2026-11-02）：内核放新的工作区包 `nb-canon`，纯 TS、前后端共用，运行时只依赖 TypeBox 与 MDX 解析库；插件在 `packages/neuro-book` 里接存储、服务与界面；第一版分四段（模型与计算、分段日志存储、渲染与带值写法、接进应用）；不做 schema 升级函数、截到上限、Agent 工具与记账管线、正式作者界面、内置 Component 的完整字段清单；在单独分支上做、不合并；按 autonomous-delivery 推进。上面没列的是作者自己的写法，可以质疑。
 
@@ -35,7 +35,7 @@
 
 ## 规则
 
-- 只读：不修改任何仓库文件，不 commit、push、stash、切换分支，不删除文件。实验文件只放在 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t29-kernel-impl/reports/plan-review/tmp/`。
+- 只读：不修改任何仓库文件，不 commit、push、stash、切换分支，不删除文件。实验文件只放在 `/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t29-kernel-impl/reports/plan-review/tmp/`。
 - 不 `bun install`；要跑脚本时用主工作区已有的 node_modules。不跑开发服务与 e2e。
 - **不开子审查、不派子代理**：自己按顺序读。
 - **每核实一条就追加写入报告文件，不要等到最后**；报告文件只追加，不整份重写、不覆盖已写的条目。运行可能到时间上限被直接截停。
@@ -44,7 +44,7 @@
 
 ## 报告
 
-报告文件：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t29-kernel-impl/reports/plan-review/report.txt`（只追加）。
+报告文件：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t29-kernel-impl/reports/plan-review/report.txt`（只追加）。
 
 每条发现用 `### N. 标题` 开头，编号连续、不重复，写：
 

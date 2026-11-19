@@ -24,7 +24,7 @@
 严重程度：重要；类别：接口与合同／跨端集成。
 位置：plan-r1.md:33、39（与 54、59、62 的消费合同相接）；packages/neuro-book/src/web/host/window.ts:249–268、478–495；web/host/text-engine.ts:161–169；主工作区 browser-host.md:73。
 现象：GET /work 返回插件命名空间的文字引用、页面按窗口语言显示，依赖一个尚未在所有关闭状态成立的前提。内置与第三方目录都在 RPC 首连成功之后的 loadCatalogs 才登记；项目绑定失败、仍等项目启动、引导版本不合时，常驻宿主翻译端口只有宿主与共享包目录。此时 HTTP 服务仍可用，取工作可成功，但 nbook.agent 与任务标题的 TextRef 显示成 work.xxx 之类键名，用户看不到哪项工作会被中断。withText 只注入同一个端口，不会补齐目录。
-如何核实：创建 scratch/omp-text-boundary.ts，以 startClaimedServer 真实认领状态根，再用真实 createConnection/createBrowserWindow。运行 `bun --tsconfig-override tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/design-r1/scratch/omp-text-boundary.ts`（实现 worktree/packages/neuro-book）：JSON 往返得到 {kind:"text",key:"commands.show.title",ns:"nbook.tasks"}；project-unavailable 窗口显示 commands.show.title；同一服务端的 ready 窗口显示“显示后台任务”；服务端退出码 0。实验未挂 UI，没有运行 e2e／开发服务。
+如何核实：创建 scratch/omp-text-boundary.ts，以 startClaimedServer 真实认领状态根，再用真实 createConnection/createBrowserWindow。运行 `bun --tsconfig-override tsconfig.json /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/design-r1/scratch/omp-text-boundary.ts`（实现 worktree/packages/neuro-book）：JSON 往返得到 {kind:"text",key:"commands.show.title",ns:"nbook.tasks"}；project-unavailable 窗口显示 commands.show.title；同一服务端的 ready 窗口显示“显示后台任务”；服务端退出码 0。实验未挂 UI，没有运行 e2e／开发服务。
 建议改法：工作汇总的文字合同需包含目录可用性的保证。内置目录先于握手登记；第三方目录加载与项目绑定分离，关闭检查按引用 ns 等待所需目录（取不到要给可读的失败提示）。沿用 TextSchema（包含 LocaleMap），由 pluginText 带 ns；加“HTTP 可取、RPC 项目绑定失败／启动中”和只有后端入口的第三方插件目录验收。
 
 ### 5. 新 IPC 查询没有定义发送失败的逐项目收口，单个项目可使整份 HTTP 汇总失败
@@ -38,7 +38,7 @@
 严重程度：重要；类别：正确性／已定覆盖范围。
 位置：plan-r1.md:35、108；主工作区 server-host.md:111–113、browser-host.md:73；runtime/projects.md:76；packages/nb-runtime/src/application/children.ts:268–278。
 现象：项目窗口关掉、书架窗口还在时，项目进入缺省 300000ms 的 idle-grace；这一步只设置计时，不停止插件、不终止其已发起的长任务。计划却把这些进程完全排除，且不报 failed。随后关最后一个书架窗口时，会在明确还有项目工作时得到“没有工作”，不出现中断确认。项目入口长任务属于 t06 已定汇总范围；没有任何合同规定长任务必须另持服务端租约。
-如何核实：scratch/omp-project-entry.ts 注入 onStartup 项目入口，scratch/omp-grace-boundary.ts 用真实认领的服务端、真实项目子进程、ManualClock，取得后释放最后一个租约，再用 SIGUSR2 触发入口报告。执行 `bun --tsconfig-override tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/design-r1/scratch/omp-grace-boundary.ts`（实现 worktree/packages/neuro-book），输出 state=idle-grace、review-work active=true、planWouldQuery=false、serverExit=0；没有固定等待。这证明租约状态不等于插件停止，不声称未实现的汇总已执行。
+如何核实：scratch/omp-project-entry.ts 注入 onStartup 项目入口，scratch/omp-grace-boundary.ts 用真实认领的服务端、真实项目子进程、ManualClock，取得后释放最后一个租约，再用 SIGUSR2 触发入口报告。执行 `bun --tsconfig-override tsconfig.json /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/design-r1/scratch/omp-grace-boundary.ts`（实现 worktree/packages/neuro-book），输出 state=idle-grace、review-work active=true、planWouldQuery=false、serverExit=0；没有固定等待。这证明租约状态不等于插件停止，不声称未实现的汇总已执行。
 建议改法：“不唤醒”的约束保留，但经已经存在的宿主 IPC 向 idle-grace 子进程读取同步快照，不 acquire、不续宽限计时；若此时已退出／开始停止，按查不到处理。若产品确实接受宽限期的工作不提示，须明确变更覆盖合同并记取舍，不能只以不唤醒推导为空。验收应同时断言“任务仍被列出”和“代次、租约数、原宽限截止不变”；108 行目前只验证“不唤醒”，抓不住此漏报。
 
 核实补注（第 2 条）：fault-plugin.ts 的 start-on-signal 是现成的可控启动停点；manager.test.ts:158–166 用的是普通启动期间的就绪输出停点，并没有启用 start-on-signal。第 2 条的状态机推断与建议不变。实际执行 `bun test src/server/projects/manager.test.ts --test-name-pattern '最后一个租约释放后进入宽限期|关闭接纳后打开被拒|先打开：启动中的项目移出被拒'`，3 pass、13 filtered、0 fail。

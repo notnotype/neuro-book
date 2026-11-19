@@ -1,6 +1,6 @@
 w00027 t04 第一轮实现审查修正：插件构建预设与生成的 SDK 包 —— 交付报告
 
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t04-fix-build（分支 w00027/t04-fix-build，基于 0475d0370）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t04-fix-build（分支 w00027/t04-fix-build，基于 0475d0370）
 提交：0c96891fe
 改动文件（都在 packages/neuro-book/scripts/plugin-sdk/ 下）：
   build-plugin.ts、build-plugin.test.ts、build-sdk.ts、build-sdk.test.ts、build-examples.ts

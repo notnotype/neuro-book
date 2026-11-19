@@ -1,5 +1,5 @@
 交付报告：nb-history 开发诊断改英文（brief-a-haiku）
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/exp-a-haiku（HEAD 770da03fe，未 commit）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/exp-a-haiku（HEAD 770da03fe，未 commit）
 
 一、改动文件（9 个，全部在 packages/nb-history/ 内）
 src：

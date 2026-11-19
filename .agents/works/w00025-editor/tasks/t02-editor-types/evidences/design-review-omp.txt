@@ -1,6 +1,6 @@
 # w00025 t02 只读设计审查
 
-审查对象：`.agents/works/w00025-editor/tasks/t02-editor-types/plan.md`，审查基线为 `f631ca1c7` 的 detached worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t02-review`。开发者决定 1–6、两个独立内置插件与不出界面评审稿均作为既定约束。
+审查对象：`.agents/works/w00025-editor/tasks/t02-editor-types/plan.md`，审查基线为 `f631ca1c7` 的 detached worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t02-review`。开发者决定 1–6、两个独立内置插件与不出界面评审稿均作为既定约束。
 
 以下发现按核实顺序追加；正确性与安全不变量优先。代码位置均相对于上述 worktree。报告只追加，未修改仓库。
 
@@ -240,30 +240,30 @@
 
 ## 本次实际验证与未运行项
 
-以下命令从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t02-review/packages/neuro-book` 执行：
+以下命令从 `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t02-review/packages/neuro-book` 执行：
 
 ```text
 bun test src/plugins/editor/web/groups/groups.test.ts
 结果：13 pass，0 fail，64 expect() calls，118ms。
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp bun test src/plugins/files/project-child.test.ts --test-name-pattern '项目代次结束'
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp bun test src/plugins/files/project-child.test.ts --test-name-pattern '项目代次结束'
 结果：1 pass，4 filtered out，0 fail，11 expect() calls，752ms；真实项目子进程崩溃、旧代请求/订阅结束、新代读正文。
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp bun test src/server/server.test.ts --test-name-pattern '允许的来源'
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp bun test src/server/server.test.ts --test-name-pattern '允许的来源'
 结果：1 pass，22 filtered out，0 fail，10 expect() calls，277ms；真实监听端口，含 null Origin 得 403。
 ```
 
 从 worktree 根执行：
 
 ```text
-bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp/self-contribution.ts
+bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp/self-contribution.ts
 结果：startup available、无 failures；prepare:false、published:true，code-is-callable；stop closed、revoke:false，不再可调用。
 ```
 
 浏览器机制探针使用 omp 内置 Chromium，临时 Bun.serve 只提供各探针资产，均在 finally 关闭 tab 与监听；未启动产品开发服务、未跑 e2e。可复现的 Eval 入口：
 
 ```js
-const p = '/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp';
+const p = '/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp';
 await import(`${p}/sandbox-probe.js`).then(m => m.run(browser));
 await import(`${p}/run-monaco-probe.js`).then(m => m.run(browser));
 await import(`${p}/raw-cache-probe.js`).then(m => m.run(browser));
@@ -285,7 +285,7 @@ await import(`${p}/raw-cache-probe.js`).then(m => m.run(browser));
 ## 最终核对
 
 - 报告发现标题数为 19，逐级从发现自身的严重程度字段统计：**阻断 1、重要 15、建议 3**；前文数量段中“重要 14”作废，以本段与其紧随的校正为准。
-- 源码位置中简写的 `src/…` 均应展开为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t02-review/packages/neuro-book/src/…`；未写 worktree 前缀的 `docs/…` 与 `.agents/…` 均在同一审查 worktree，第三方 Monaco/Vite 路径另按文中给出的主仓库 node_modules 绝对路径读取，只读且版本与审查 bun.lock 一致。
+- 源码位置中简写的 `src/…` 均应展开为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t02-review/packages/neuro-book/src/…`；未写 worktree 前缀的 `docs/…` 与 `.agents/…` 均在同一审查 worktree，第三方 Monaco/Vite 路径另按文中给出的主仓库 node_modules 绝对路径读取，只读且版本与审查 bun.lock 一致。
 - 第 18 条特殊文件名说明：单段可含 `#`、`?`、`%`；`/` 是分段符，不能作为单段的一部分。URL 编码需要逐段处理，不把 `#` 当 fragment、`?` 当 query，也不二次解码 `%`。
 - 第 12 条生成表测试若读取磁盘中的 contribution JS，不应放成 `web/code/*.test.ts` 并引入 Node/Bun：本包的浏览器测试类型配置没有 Bun/Node 库。纯选择算法可留 web，磁盘生成/一致性测试放插件根；Monaco/FreeMarker2 真实加载和 tokenize 的消费验证放真实浏览器，不能给 Bun 伪造 window 以后宣称合同通过。
 - 最后一次 `grep -c '^### ' <报告绝对路径>` 得 19；按严重程度字段独立统计亦得 1/15/3；本次所有管理的浏览器标签已关闭（`browser.tabs()` 为 `[]`）。不修改仓库、不提交、不操作分支与远端。

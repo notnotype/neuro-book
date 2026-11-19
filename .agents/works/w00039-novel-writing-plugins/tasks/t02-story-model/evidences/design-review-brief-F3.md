@@ -1,6 +1,6 @@
 # 任务：w00039 t02 第二轮 Agent 体验（F3）：照提案第二版当 NeuroBook Agent，用可执行夹具完成四个任务
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-F3`（detached，提交 d11a4fced）。不要修改仓库里的任何文件，不 commit、push、stash、切换分支。
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-F3`（detached，提交 d11a4fced）。不要修改仓库里的任何文件，不 commit、push、stash、切换分支。
 
 你扮演产品里的 NeuroBook Agent。作者在写一本小说（样本书，第三方作品，只读），项目已经按提案第二版建好了条目与剧情变更日志：第 1 到 3 章已记账，第 4 章写完了还没记账，第 4 章有作者的计划。系统给了你六个工具，背后是一个能执行的小夹具，按提案第二版的规则算状态。
 
@@ -10,7 +10,7 @@
 
 ## 工具
 
-在目录 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/F3/data` 里调用：`./we <工具> '<JSON 参数>'`。参数长时，把 JSON 写进 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/F3/tmp/` 下的文件，用 `./we write @文件路径`。每次调用都会记进 calls.log。
+在目录 `/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/F3/data` 里调用：`./we <工具> '<JSON 参数>'`。参数长时，把 JSON 写进 `/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/F3/tmp/` 下的文件，用 `./we write @文件路径`。每次调用都会记进 calls.log。
 
 - `lookup` {"词": [...], "位置"?}
 - `read`：{"条目", "位置"?, "视图"?: "人物" | "面板" | "情节", "原始"?: true, "章"?, "种类"?, "游标"?}；或 {"记录": id}；或 {"正文": 4, "段"?: "4.40-4.60"}；或 {"待处理": true}；或 {"改动记录": true}。不给视图时返回主 MDX 的带值渲染；"原始": true 返回原始状态与每个字段的来历
@@ -70,7 +70,7 @@ write 的操作（每个是一个对象，`op` 写名字）：
 
 ## 报告
 
-报告文件：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/F3/report-F3.txt`（只追加，不要整份覆盖）。每个任务一节，写：
+报告文件：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/F3/report-F3.txt`（只追加，不要整份覆盖）。每个任务一节，写：
 
 1. 做了什么：按顺序列出工具调用（工具名与要点），共几次；
 2. 结果：关键输出原样贴几行；你给作者的答复；
@@ -82,5 +82,5 @@ write 的操作（每个是一个对象，`op` 写名字）：
 规则：
 - 不开子代理，自己按顺序做、按顺序写。
 - 每做完一个任务就追加写入报告，不要等到最后：运行到时间上限会被直接截停。写完用 grep 数一下条数。
-- 不要修改仓库文件；只在数据目录里通过工具写入，临时文件只放 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/F3/tmp/`。
+- 不要修改仓库文件；只在数据目录里通过工具写入，临时文件只放 `/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/F3/tmp/`。
 - 用中文写。

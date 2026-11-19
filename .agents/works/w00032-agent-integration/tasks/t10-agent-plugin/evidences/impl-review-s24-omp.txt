@@ -1,6 +1,6 @@
 # w00032 t10 第 2–4 片只读实现审查
 
-审查对象：`61358c890`、`f21519330`、`68eb38df8`；排除 `e4e30485b` 的第 0 片修正。位置均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t10-impl/`。依据为主工作区的计划、README 决定 9–15、设计审查处置和 Spec。
+审查对象：`61358c890`、`f21519330`、`68eb38df8`；排除 `e4e30485b` 的第 0 片修正。位置均相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/review-t10-impl/`。依据为主工作区的计划、README 决定 9–15、设计审查处置和 Spec。
 
 ### 1. 运行已中止后，异步工具创建的迟到成功仍启动实际执行
 
@@ -241,7 +241,7 @@
 
 ## 验证与范围
 
-命令均在 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t10-impl/packages/neuro-book` 执行；各实验入口、生成的状态根、缓存、作者项目都在 `/tmp/review-t10-impl/`。没有修改仓库源文件，没有变异检查，没有 commit、push、stash、切换分支或删除仓库文件。SDK 构建器按自身流程整理的文件仅在上述实验目录中。
+命令均在 `/home/<user>/CodeRepository/neuro-book/.worktree/review-t10-impl/packages/neuro-book` 执行；各实验入口、生成的状态根、缓存、作者项目都在 `/tmp/review-t10-impl/`。没有修改仓库源文件，没有变异检查，没有 commit、push、stash、切换分支或删除仓库文件。SDK 构建器按自身流程整理的文件仅在上述实验目录中。
 
 | 实际命令 | 结果 |
 |---|---|

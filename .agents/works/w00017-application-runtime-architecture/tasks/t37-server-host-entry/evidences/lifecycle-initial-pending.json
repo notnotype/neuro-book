@@ -17,7 +17,7 @@
       "result": "pending",
       "durationMs": 0,
       "evidence": "检查未执行：依赖步骤失败。",
-      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L1.log",
+      "logPath": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L1.log",
       "observations": []
     },
     {
@@ -25,7 +25,7 @@
       "result": "pending",
       "durationMs": 0,
       "evidence": "检查未执行：依赖步骤失败。",
-      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L2.log",
+      "logPath": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L2.log",
       "observations": []
     },
     {
@@ -33,7 +33,7 @@
       "result": "pending",
       "durationMs": 0,
       "evidence": "检查未执行：依赖步骤失败。",
-      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L3.log",
+      "logPath": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L3.log",
       "observations": []
     },
     {
@@ -41,7 +41,7 @@
       "result": "pending",
       "durationMs": 0,
       "evidence": "检查未执行：依赖步骤失败。",
-      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L4.log",
+      "logPath": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L4.log",
       "observations": []
     },
     {
@@ -49,7 +49,7 @@
       "result": "pending",
       "durationMs": 0,
       "evidence": "检查未执行：依赖步骤失败。",
-      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L5.log",
+      "logPath": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L5.log",
       "observations": []
     },
     {
@@ -57,7 +57,7 @@
       "result": "pending",
       "durationMs": 0,
       "evidence": "检查未执行：依赖步骤失败。",
-      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L6.log",
+      "logPath": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/L6.log",
       "observations": []
     }
   ]

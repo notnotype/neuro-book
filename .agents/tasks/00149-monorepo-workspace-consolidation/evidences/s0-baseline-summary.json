@@ -2,7 +2,7 @@
   "schema": "nbook.s0-summary/v1",
   "taskId": "00149-monorepo-workspace-consolidation",
   "capturedAt": "2026-08-16T15:17:39.329Z",
-  "repositoryRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book",
+  "repositoryRoot": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\neuro-book",
   "head": "306e563ad7a4d4a58354fa8d582ad9aa9b886e8c",
   "originMaster": "5e55c54e13cd67f6e19c5361931fca1fe9ae4241",
   "statusEntryCount": 1787,
@@ -13,7 +13,7 @@
   "stagedDiffSha256": "sha256:1204f5099edf107eafe60532679fb39fd0ea12a9c8af8af9153b7c81c84d017b",
   "unstagedDiffSha256": "sha256:9e952565b7100bb6491b3fdaaad445f5a0905743483561c32f4f12d268abe955",
   "fullEvidence": {
-    "path": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/runs/00149-s0-20260816T150322Z/s0-worktree-evidence.json",
+    "path": "C:/Users/<user>/AppData/Local/Temp/neuro-book/runs/00149-s0-20260816T150322Z/s0-worktree-evidence.json",
     "sha256": "sha256:350a003408aeb18493950b08d689cacc6d609468632fc9deba49014056d06f49",
     "bytes": 357247,
     "contains": "status, staged/unstaged diff hashes, rename-aware paths, and bytes/SHA-256 for every untracked file"

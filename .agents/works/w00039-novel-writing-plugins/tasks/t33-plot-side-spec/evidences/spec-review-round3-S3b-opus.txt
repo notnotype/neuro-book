@@ -1,6 +1,6 @@
 # w00039 t33 剧情插件 Spec 第三轮审查（S3b，Claude Opus 子代理）
 
-审查对象：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-specs-review2 的提交 2a8a2a99d，docs/specs/plot/ 六份；第二轮之后的改动按 `git diff 5b2d368a0..2a8a2a99d -- docs/specs/plot` 确定（brief、checks、decisions、goals、knowledge 五份有改动，foreshadowing 没改）。下文路径相对此 worktree。只读审查，没有改仓库文件，没有跑测试与模型；结论都是对 planned 合同的推演，不是对实现的复现。
+审查对象：/home/<user>/CodeRepository/neuro-book/.worktree/w00039-specs-review2 的提交 2a8a2a99d，docs/specs/plot/ 六份；第二轮之后的改动按 `git diff 5b2d368a0..2a8a2a99d -- docs/specs/plot` 确定（brief、checks、decisions、goals、knowledge 五份有改动，foreshadowing 没改）。下文路径相对此 worktree。只读审查，没有改仓库文件，没有跑测试与模型；结论都是对 planned 合同的推演，不是对实现的复现。
 
 ## 第二轮各条的处理核对
 

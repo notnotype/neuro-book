@@ -2,7 +2,7 @@
 
 审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t61-kernel-catalog-failure-codes/plan.md` 与同目录 `README.md`。
 
-依据工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t61-plan-review`，计划提交 `3cd7b386`。本报告审查计划与该提交现有机制，不评价另一个 worktree 中的实施结果。
+依据工作区：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t61-plan-review`，计划提交 `3cd7b386`。本报告审查计划与该提交现有机制，不评价另一个 worktree 中的实施结果。
 
 ## 已核实发现
 
@@ -14,7 +14,7 @@
 - **位置**：`plan.md:26`、`plan.md:28`；`packages/nb-runtime/src/remote/node.ts:584–597`、`node.ts:650–666`、`node.ts:800–810`。
 - **现象**：`handleRequest` 先检查终止信号，再同步调用提供方门面工厂，然后 ACK、执行方法。门面工厂是插件代码，可以同步引发正常运行实例停止；停止信号会重入 `#localRequest.interrupt`，以未 ACK 阶段先结算 `cancelled`。门面工厂返回后没有再检查信号，仍 ACK 并执行写方法。
 - **为什么是问题**：计划断言“中断时还没 ACK 的请求确定没有执行”，但这里调用方已得到确定的 `cancelled`，方法随后仍产生副作用。保留同实例两值可以成立，前提是终止信号触发后绝不开始执行；现有代码缺少保证。此问题是现有机制缺陷，也直接否定本计划将该路径排除在阶段修正之外的理由。
-- **依据**：在未修改的真实内核里，提供方 `provideRemote` 工厂同步调用公共 `Application.stop()`，方法记录执行次数并忽略已触发的 signal。执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/local-reentrant-stop.ts`（退出 0）输出：`outcome={ok:false,code:"cancelled",cause:"cancelled"}`、`executions=1`、`runSignalAborted=true`、`callerSignalAborted=true`。实验通过公开激活上下文发出同实例请求，没有伪造私有状态或同步链路回调。
+- **依据**：在未修改的真实内核里，提供方 `provideRemote` 工厂同步调用公共 `Application.stop()`，方法记录执行次数并忽略已触发的 signal。执行 `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/local-reentrant-stop.ts`（退出 0）输出：`outcome={ok:false,code:"cancelled",cause:"cancelled"}`、`executions=1`、`runSignalAborted=true`、`callerSignalAborted=true`。实验通过公开激活上下文发出同实例请求，没有伪造私有状态或同步链路回调。
 - **建议改法**：在门面工厂返回之后、ACK 和方法执行之前再次检查 `signal.aborted` 与 `found.stopSignal.aborted`；已停止则不执行方法，保持确定失败。本地不必增加 `sent` 状态。把这条真实重入场景纳入 S1 的同实例验收；它比为本地增加第三个阶段更少部件。
 
 ### 2. 重要：不提升 wire 版本依赖的“新旧两端总来自同一次构建”并不覆盖浏览器
@@ -23,7 +23,7 @@
 - **位置**：`plan.md:13`；`docs/specs/runtime/projects.md:133`；`packages/nb-runtime/src/remote/node.ts:531–544`；`packages/neuro-book/src/web/host/window.ts:270–280`、`packages/neuro-book/src/web/host/remote-session.ts:143–154`。
 - **现象**：引用的同构建保证只约束项目子进程与服务端。浏览器初次引导只比引导协议版本、插件 id 与插件版本；这些内置插件目前版本为 `0.1.0`，没有构建标识。引导后才建立 RPC 连接，首次 hello 的 `boot` 为 null。旧外壳可以在新版后端提供相同插件版本时通过引导与 wire 3 握手；引导和 RPC 握手之间重启服务端也是该时序。`boot` 只保护已经握过手的节点，不能证明首次两端同构建。
 - **为什么是问题**：wire 字段形状相同不等于结果码兼容。旧节点的 `#checkOutcome` 会把新 `not-provided` 判成未声明码并改为 `provider-error`。旧内核还按 ACK 计算取消／超时，即使连接新服务端，ACK 在途时仍会把写请求报成确定的 `cancelled`／`timeout`；本次要消除的重试风险因此不会被握手挡住。
-- **依据**：真实调用与握手实验使用仓库原节点作旧调用方、仓库外临时模型仅改 `sent` 阶段及 `missing` 结果码作新版目标，双方保持 wire 3。执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/wire-mismatch-same-version.ts`（退出 0）：`connected={ok:true}`，调用结果为 `provider-error`，诊断 `undeclared-error/not-provided`。模型只用于证明互操作，不是对尚未实现 t61 的通过验证。浏览器可放行不同构建由 `window.ts`、`remote-session.ts` 和插件版本声明静态核实。
+- **依据**：真实调用与握手实验使用仓库原节点作旧调用方、仓库外临时模型仅改 `sent` 阶段及 `missing` 结果码作新版目标，双方保持 wire 3。执行 `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/wire-mismatch-same-version.ts`（退出 0）：`connected={ok:true}`，调用结果为 `provider-error`，诊断 `undeclared-error/not-provided`。模型只用于证明互操作，不是对尚未实现 t61 的通过验证。浏览器可放行不同构建由 `window.ts`、`remote-session.ts` 和插件版本声明静态核实。
 - **建议改法**：直接提升 `WIRE_PROTOCOL_VERSION`，让旧外壳在握手被拒并按现有宿主页流程提示刷新；新增码、阶段语义和保留合同一起在版本边界切换。它复用已有门禁，比新增构建指纹及多处比对更少部件。若坚持不升版本，须明确只支持本次共同构建且首次握手真实校验这一限制，不能引用仅覆盖 IPC 的保证。
 
 ### 3. 重要：计划漏掉 `openProject`，它会把结果未知的写请求折为确定的 `unavailable`
@@ -41,7 +41,7 @@
 - **位置**：`plan.md:33–34`、`plan.md:56`、`plan.md:66`、`plan.md:76`；`packages/nb-runtime/src/plugins/host.ts:77`、`host.ts:638–652`、`host.ts:1598–1626`。
 - **现象**：计划用现有 `ProviderLookup.status === "missing"` 直接判定 `not-provided`，同时承诺“正在停止”仍为 `unavailable`，查询可以返回 `state: "stopping"`。实际候选集先按 `isAlive(plugin.scope)` 过滤；`isAlive` 只含 `creating`、`available`，插件登记作用域一进入 `stopping` 就被排除，尚未释放完的远程入口也变成 `missing`。
 - **为什么是问题**：常规插件禁用／作用域收口路径下，调用和订阅都会被新规则改报 `not-provided`。查询若复用候选集也无法报告这个提供方的 `stopping`；若另写不同候选集，则查询与调用对“是否提供”的判定分裂。功能显示与“稍后再试”会按错误分类分支，正好破坏本 Task 要建立的区分。别的运行位置与已关闭登记排除是合理的，问题是把停止中也一起排除了。
-- **依据**：运行真实 `createRuntimeInstance`、`createPluginHost`、`createRemoteNode` 和路由，通过公共 `pluginScope.close()` 开始停止，资源释放用 Promise 闸门保持在途；未直接调用私有函数。执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/stopping-provider.ts`（退出 0）输出：`pluginScope: stopping`、`entryState: stopping`、宿主实际接入节点的 source 返回 `{status:"missing"}`，读调用与订阅现均为 `unavailable`，说明为“本实例没有提供 review.provider/value”。最后两项现有结果来自 `missing` 分支，按计划换码后会成为 `not-provided`（从代码推断）。
+- **依据**：运行真实 `createRuntimeInstance`、`createPluginHost`、`createRemoteNode` 和路由，通过公共 `pluginScope.close()` 开始停止，资源释放用 Promise 闸门保持在途；未直接调用私有函数。执行 `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/stopping-provider.ts`（退出 0）输出：`pluginScope: stopping`、`entryState: stopping`、宿主实际接入节点的 source 返回 `{status:"missing"}`，读调用与订阅现均为 `unavailable`，说明为“本实例没有提供 review.provider/value”。最后两项现有结果来自 `missing` 分支，按计划换码后会成为 `not-provided`（从代码推断）。
 - **建议改法**：让激活查找与纯查询共用一个静态候选选择：本运行位置、声明合同、登记作用域尚未 `closed`；唯一候选处于 `stopping` 时，调用／订阅直接 `unavailable`，查询返回 `provided/stopping`；登记关闭后才是 `not-provided`。补一个真实作用域停止、释放未完成的用例，同时核对调用、订阅和查询，避免三处各写候选规则。
 
 ### 5. 重要：查询绕过被查询合同的调用方种类校验，`describe` 也没有提供校验所需信息
@@ -113,14 +113,14 @@
 |---|---|---|
 | `bun install --frozen-lockfile --ignore-scripts` | 审查 worktree 根 | 退出 0；Bun 1.4.2；安装 1559 packages。跳过会触发构建的 postinstall，只安装依赖 |
 | `bun run --cwd packages/nb-runtime typecheck` | 审查 worktree 根 | 退出 0；执行 `tsc --noEmit && tsc --noEmit -p tsconfig.browser.json`。这是原始内核的类型基线 |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/stopping-provider.ts` | 审查 worktree 根 | 退出 0；真实停止中入口被 source 归为 missing；读调用与订阅均经过真实节点／路由 |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/local-reentrant-stop.ts` | 审查 worktree 根 | 退出 0；真实门面工厂同步触发 Application.stop，调用先 cancelled 后方法仍执行 1 次 |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/phase-scenarios.ts` | 审查 worktree 根 | 退出 0；6 个时序 × read/write × 原实现/模型 = 24 次。最新版本只用公开观察器与 cut／时钟／取消，不替换 send；模型写中断为 unknown-outcome，读结果与原实现相同 |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/phase-boundaries.ts` | 审查 worktree 根 | 退出 0；发送前取消、编码失败、目标明确拒绝仍确定；close 送完排队帧、cut 丢弃排队帧 |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/wire-mismatch-same-version.ts` | 审查 worktree 根 | 退出 0；原节点与模型保持 wire 3 仍连接成功，但 not-provided 被旧端改成 provider-error |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/stopping-provider.ts` | 审查 worktree 根 | 退出 0；真实停止中入口被 source 归为 missing；读调用与订阅均经过真实节点／路由 |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/local-reentrant-stop.ts` | 审查 worktree 根 | 退出 0；真实门面工厂同步触发 Application.stop，调用先 cancelled 后方法仍执行 1 次 |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/phase-scenarios.ts` | 审查 worktree 根 | 退出 0；6 个时序 × read/write × 原实现/模型 = 24 次。最新版本只用公开观察器与 cut／时钟／取消，不替换 send；模型写中断为 unknown-outcome，读结果与原实现相同 |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/phase-boundaries.ts` | 审查 worktree 根 | 退出 0；发送前取消、编码失败、目标明确拒绝仍确定；close 送完排队帧、cut 丢弃排队帧 |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/wire-mismatch-same-version.ts` | 审查 worktree 根 | 退出 0；原节点与模型保持 wire 3 仍连接成功，但 not-provided 被旧端改成 provider-error |
 | `bun project-command-outcome.ts` | 指定 scratch 根 | 退出 0；真实项目登记成功，结果丢失返回 unknown-outcome，openProject 与命令 registry 都折成 unavailable |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/static-provider-version.ts` | 审查 worktree 根 | 退出 0；静态 v1、产出 v2 仍成功激活；v1 调用 version-changed，v2 调用成功 |
-| `node_modules/.bin/tsc --noEmit --strict --skipLibCheck --allowImportingTsExtensions --target ESNext --module ESNext --moduleResolution bundler --types bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/static-provider-version.ts` | 审查 worktree 根 | 退出 0；不同版本产出的实验也通过类型检查 |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/static-provider-version.ts` | 审查 worktree 根 | 退出 0；静态 v1、产出 v2 仍成功激活；v1 调用 version-changed，v2 调用成功 |
+| `node_modules/.bin/tsc --noEmit --strict --skipLibCheck --allowImportingTsExtensions --target ESNext --module ESNext --moduleResolution bundler --types bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t61-plan/static-provider-version.ts` | 审查 worktree 根 | 退出 0；不同版本产出的实验也通过类型检查 |
 | `git status --short --branch`；`git rev-parse --short=8 HEAD` | 审查 worktree 根 | 分别仅输出 `## HEAD (no branch)` 与 `3cd7b386`，无仓库文件改动 |
 
 运行绕路已区分：初次实验类型检查缺少 `--allowImportingTsExtensions`，报 TS5097，补全后通过；项目命令实验初次使用 `--tsconfig-override` 时 Bun 在断言成功后报 `Internal error: directory mismatch ... tsconfig.json`，改从 scratch 根自动读取同一 tsconfig 后干净退出。未将这两个中间结果当作通过证据。

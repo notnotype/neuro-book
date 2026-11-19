@@ -1,0 +1,187 @@
+### 1. 减少动效归零这段没有任何用例能拦下
+
+**严重程度**：重要
+**类别**：test-coverage
+**位置**：`packages/nb-layout/src/vue/global.css:1478-1485`（diff 行号）；`packages/neuro-book/e2e/lab-layout-theme-bridge.e2e.ts:2018-2023`、`:2025-2038`
+
+**现象**
+- `global.css` 里的 `@media (prefers-reduced-motion: reduce)` 块对不装 nb-ui 的宿主有用：它把四个 `--nb-layout-motion-*` 归零，带 `!important`。
+- 装了 nb-ui 时，nb-ui 的 `tokens.css` 已经把旧名归零，桥接再把 0ms 传过来。所以这一段删掉或去掉 `!important`，结果都一样。
+- e2e 文件头自己写了“有没有都一样，只有焦点环看得出来”。减少动效那条用例的判据是“新名等于旧名等于 0ms”，删掉这一段后仍然成立。
+- dom 测试里没有媒体查询，`theme-vars.test.ts` 只扫 `var()` 用法，也不看这一段。
+
+**为什么是问题**
+- 通用库的无障碍承诺（Spec 输出 142 末句、README 第 64 行的“宿主设的值也压不过”）只剩这一段在兑现，却没有判据。
+- 承诺本身也说过头了：`!important` 只加在 `:root` 上。README 同时鼓励“子树要改就直接设 `--nb-layout-*`”，`lab-grid-structure.e2e.ts` 就在 `[data-grid-scope]` 上行内设了 600ms。
+- 这类子树声明在减少动效下照样生效，`layoutMotionMs` 读到 600，`layout-drag.ts:1011` 的 `layoutMotionMs(root) > 0` 因此会开实时布局。
+- “压不过”只对根上的声明成立。nb-ui 旧体系也是这样，不算回归，但文字写过头了。
+
+浮动窗的两个把手也没有焦点环判据。探针只 Tab 到 SortableList 的把手，三个按钮共用一条规则，所以只覆盖三分之一。
+
+**如何核实**
+1. 把 `global.css` 的 `@media` 块整段删掉。
+2. 跑 `bun test src/theme-vars.test.ts`、`bunx vitest run` 和 e2e 探针。
+3. 预期全部通过（我没有改文件，是按代码路径推断；e2e 我没跑）。
+
+**建议改法**
+- 加一条单元测试，读 `global.css`，断言四个名字都在 `prefers-reduced-motion` 块里且带 `!important`。
+- 或者在探针里加一页不装 nb-ui 的页面，在 `reduce` 下读这四个变量。
+- 把 Spec 和 README 的“宿主设的值也压不过”改成“根上设的值”，或者承认子树覆盖不受限。
+- 焦点环探针补一条 FloatWindowHandles 的把手。
+
+---
+
+### 2. 桥接测试抓不到清单与 `tokens.css` 一致地拼错旧名
+
+**严重程度**：建议
+**类别**：test-coverage
+**位置**：`packages/neuro-book/src/web/theme-bridge.test.ts:2866-2872`、`:2880-2891`
+
+**现象**
+- 第一条断言只核对 `tokens.css` 里的 `var(旧名)` 与清单的 `from` 相同。
+- 第三条标量比较只在 `defaults` 里查得到旧名、且值是标量时才比。
+- 颜色类（`--accent-main`、`--text-main`、`--bg-panel`、`--panel-surface`、`--divider`……）定义在配色合同里，不在 `tokens.css`，拼错也不会被比到。
+
+**为什么是问题**
+- 作者做的变异是“桥接拼错旧名”，只改了 `tokens.css` 一侧。
+- 清单和 `tokens.css` 同时写成 `--accent-mian` 时，单元测试全过。该变量计算为空，组件静默落到系统色回退。
+- 只有 e2e 探针（`value === ""`）能拦下，而 e2e 不在默认受影响范围里。
+
+**如何核实**
+1. 把 `theme-vars.ts` 的 `--nb-layout-accent-main` 的 `from` 改成 `--accent-mian`。
+2. 把 `tokens.css` 对应行也改成 `var(--accent-mian)`。
+3. 跑 `bun test src/web/theme-bridge.test.ts`，预期通过（推断，未跑）。
+
+**建议改法**
+- 加一条断言：每个非空 `from` 必须是 `tokens.css`、`theme.css` 或 `@notnotype/nb-ui/colorway` 的 `nbColorwayVarKeys` 声明过的名字。
+- 这些名单都能在 Bun 里读到。
+
+---
+
+### 3. 产品代码为 happy-dom 改了判断，下游测试环境没有对应的 0ms 规则
+
+**严重程度**：建议
+**类别**：code-quality
+**位置**：`packages/nb-layout/src/vue/useSortable.ts:1753-1755`（diff 行号）；`packages/nb-layout/vitest.setup.ts`；`packages/neuro-book/vitest.config.ts`（未改）
+
+**现象**
+- `element.style.translate === ""` 改成 `!element.style.translate`，注释写的理由是“不认 `translate` 的环境（happy-dom）读到的是 undefined”。
+- 浏览器里两种写法等价，所以这是为测试环境放宽的产品判断。
+- 根因在时长回退变了：`layoutMotionMs` 和 `layoutDurationMs` 过去读不到变量就是 0，现在是 470 和 280。
+- nb-layout 自己的 dom 测试用 `vitest.setup.ts` 的 `*` 规则解决。
+- neuro-book 的 happy-dom 测试挂的是真实的 `NestedGrid` 和 `SortableList`（`editor-area`、`status-line`、`ExplorerTree`），没有这条规则，也没有它的文档。我推断它们现在靠这个 happy-dom 特例才没走真实的 280ms 滑回。
+
+**为什么是问题**
+- 把测试环境的怪癖写进产品判断，属于“产品代码里的测试专用分支”那一类。
+- 将来 happy-dom 补上 `translate`，下游测试会突然拿到真实计时器，且没有任何提示。
+- README 没告诉宿主：“缺省时长是真的，你的 dom 测试要自己置 0ms”。
+
+**如何核实**
+1. 把 `useSortable.ts` 还原成 `element.style.translate === ""`。
+2. 跑 `bunx vitest run src/plugins/agent/web/status-line.dom.test.ts`。
+3. 预期放下后的收尾要等 280ms（推断，未跑）。
+4. 对照：我在原样的实现 worktree 里跑 neuro-book 的五个 dom 测试文件，29 条都过。
+
+**建议改法**
+- 恢复原判断，把 `vitest.setup.ts` 的那条规则做成测试支持包里的公共 setup，让 neuro-book 的 vitest 也用。
+- 或者在 README“主题”一节写明宿主测试要给时长。
+
+---
+
+### 4. 回退字面量重复约 100 处，可以质疑“根上不声明缺省值”这个写法
+
+**严重程度**：建议
+**类别**：simplification
+**位置**：`NestedGrid.vue`（过渡几行，单行 300 多字符）、`DropFeedbackOverlay.vue`、`SortableList.vue`、`Splitter.vue`、`theme-vars.ts` 与 `layout-vars.ts` 的回退表
+
+**现象**
+- 同一个 `cubic-bezier(0.23, 1, 0.32, 1)` 和 `120ms`、`180ms`、`470ms` 抄在几十处。
+- JS 又要靠 `nbLayoutVarFallback` 再抄一份。
+- 回退一致靠 `theme-vars.test.ts` 逐处字符串比对守着，改一个缺省要动几十个位置。
+
+**为什么是问题**
+- 计划选“根上不声明缺省”，理由是不分层的声明会压过 nb-ui 在 `layer(base)` 里的桥接。这一点我核对是对的。
+- 但这不等于只能内联回退。`@property --nb-layout-motion-layout { syntax: "*"; inherits: true; initial-value: 470ms }` 这类注册不是 cascade 里的声明，不会压过桥接。
+- 它只在变量没设或无效时当初值，`getComputedStyle` 也会读到它。这样 CSS 的每处 `var()` 回退和 JS 回退表都可以删。
+
+**如何核实（未验证）**
+- 在 Chromium 里注册一个 `*` 语法的属性，在 `:root` 上用 `var(--不存在)` 设它。
+- 看 `getComputedStyle` 读到的是不是 `initial-value`。
+- 需要先查：`*` 语法能不能带系统色或 `color-mix` 做 `initial-value`；类型化语法（`<time>`）会把 `calc()` 变成合法。
+
+**建议改法**
+- 作为“改上游”的候选交给开发者，不要在本任务里直接做。
+- 至少把 `NestedGrid.vue` 过渡里重复的长字面量收成少数几个 scoped 变量。
+
+---
+
+### 5. `locales/index.ts` 头注释已过时
+
+**严重程度**：建议
+**类别**：documentation
+**位置**：`packages/nb-layout/src/locales/index.ts:3-4`
+
+**现象**
+- 注释写“没有宿主注入时，Vue 层用它建缺省端口（`src/vue/text.ts`）”和“注入翻译端口的宿主……登记这份目录”。
+- 这次改动后 `text.ts` 不再建端口，也不再 `registerDefaultCatalog`，缺省走自带的 `sourceTranslate`；宿主是经 `LAYOUT_TEXT_KEY` 注入翻译函数。
+- 该文件不在 diff 里，注释没跟着改。
+
+**如何核实**：读 `packages/nb-layout/src/locales/index.ts` 前几行，对照 `vue/text.ts`。
+
+**建议改法**：改成“宿主按命名空间登记这份目录并把翻译函数交给 `LAYOUT_TEXT_KEY`；没有注入时 `text.ts` 直接读源语言目录”。
+
+---
+
+### 6. `host-text.test.ts` 的源码扫描逐行匹配，漏多行写法
+
+**严重程度**：建议
+**类别**：test-coverage
+**位置**：`packages/neuro-book/src/web/host/host-text.test.ts:2718-2719`、`:2738`
+
+**现象**
+- `DIRECT_PROVIDE` 对每一行单独 `test`。
+- `app\n    .provide(\n        TEXT_PORT_KEY, port)` 这类换行写法、`import {TEXT_PORT_KEY as K}` 的别名写法都拦不到。
+- 作者的三种样例都是单行。
+
+**为什么是问题**
+- 漏掉一处，那棵树里 nb-layout 的文字就停在中文，英文窗口里读屏名称对不上。
+- 这是低概率情形，扫描也只覆盖 `neuro-book/src`。
+
+**建议改法**
+- 对全文用 `/provide\(\s*TEXT_PORT_KEY/u` 的多行匹配即可。
+- 别名写法可以不管，在注释里写明。
+
+---
+
+## 未发现问题的方面
+
+- **旧名到新名的桥接**：逐个对照 base 的 `var()`，46 个名字在 `tokens.css` 的 `:root` 里一一对应。`--sash-line-color` 在 `tokens.css:244` 有定义，所以旧回退 `var(--accent-main)` 在 nb-ui 里不会触发，回退到 `Highlight` 只发生在不装 nb-ui 时。
+- **`--radius-sm` 去掉**：计划和两轮设计审查已记录，原来就是无效值。
+- **宿主旋钮**：`WorkbenchSurface.vue` 和 `WorkbenchDragFeedback.vue` 都改设了 `--nb-layout-*`，应用里没有遗留的旧名或旧类名。`nb-ui` 自己冻结的 Splitter 另当。
+- **e2e 在 `:root` 上设旧名**：`--motion-layout: …!important`、`--sash-line-size`、`--layout-sector-line` 这些在根上设旧名，经桥接仍然生效。
+- **焦点环去掉 `!important`**：三个按钮的 scoped 样式没有 `box-shadow`、`transition`、`outline` 的竞争声明，计划的判断成立。
+- **层级**：`z-index` 数值与登记表相同（nb-ui 的 `z-index.test.ts` 通过），Teleport 到 `body` 能继承根上的变量。
+- **JS 读变量**：三处调用（`layoutMotionMs`、`useSortable` 的滑回、`SashHandle` 的线芯宽度）在装了 nb-ui 时与原先一致；线芯宽度读到 3px 时会走“不比装饰带细就清掉变量”的老路径。
+- **文字**：`provideHostText`、`provideAppHostText`、`hostTextProvides` 三种形式把端口与翻译函数一起提供；换语言时翻译函数每次调用都读端口当前语言。
+- **边界与依赖**：`bun.lock`、`package.json`、`boundary.test.ts` 一致，nb-layout 里没有残留的 `@notnotype/nb-ui` 导入。
+- **测试**：dom 测试靠 `*` 规则取 0ms，设了行内时长的用例读的就是设置它的那个元素，没有空过。
+
+## 我跑过的验证
+
+| 范围 | 结果 |
+|---|---|
+| nb-layout `bun test`（`theme-vars`、`boundary`） | 6 条通过 |
+| nb-layout `vitest` 全量 | 231 条通过 |
+| nb-layout `typecheck`（tsc 与 vue-tsc） | 通过 |
+| nb-ui `z-index`、`token-consumption`、`tokens` | 通过 |
+| nb-ui 其余主题加载测试 | 4 条失败，是 Bun 里没有 DOMParser，与本次改动无关 |
+| 应用 `theme-bridge`、`host-text`、`pack.test`（其余 12 条） | 18 条通过 |
+| 应用 dom 测试（`editor-area`、`status-line`、`ExplorerTree`、`EditorGroup`、`DesktopFrame`） | 29 条通过 |
+| `nb-workbench-layout` dom 测试 | 48 条通过 |
+| `plugin-sdk/pack.test.ts` 中“仓库外的作者项目用普通 tsconfig 类型检查” | 内部 60 秒超时，单独重跑仍超时；负载 14 到 20，没有在 base 上对照，**无法判断是否与本次改动有关** |
+
+没有跑 e2e、没有构建。
+
+阻断 0，重要 1，建议 5。
+有效发现的编号：1、2、3、4、5、6。
+t35-impl-review exit=0

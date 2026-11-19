@@ -5,7 +5,7 @@
 
 $ vitest run --config vitest.runtime-foundation.config.ts
 
-[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90mC:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book[39m
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90mC:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book[39m
 
  [32m✓[39m runtime/services/services.test.ts [2m([22m[2m20 tests[22m[2m)[22m[32m 63[2mms[22m[39m
  [32m✓[39m runtime/lifecycle/lifecycle.test.ts [2m([22m[2m28 tests[22m[2m)[22m[32m 109[2mms[22m[39m

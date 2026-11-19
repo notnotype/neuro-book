@@ -1,5 +1,5 @@
 t13 实现审查（浏览器一侧与前端包代码，sonnet）
-审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t13-review（4834058bb）
+审查 worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t13-review（4834058bb）
 范围：src/plugin-platform/web、testing/fake-page.ts、src/web/host、各插件 web/ 的 idPrefix 改动、PluginsPage.vue、src/sdk/components.ts 与 entries.ts、nb-ui package.json、plugin-sdk/testing/browser-artifact.ts 及其用法
 已跑：bun test src/plugin-platform/web/plugin-code.test.ts src/web/host/window.test.ts（41 通过）；浏览器宿主模块表的变异实验（scratch/artifact-mut.ts）。未跑 e2e。
 

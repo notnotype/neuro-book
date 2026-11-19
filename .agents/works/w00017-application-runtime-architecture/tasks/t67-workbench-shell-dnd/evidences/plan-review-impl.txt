@@ -1,6 +1,6 @@
 # w00017 t67 实施计划对抗审查：可实现性、交互与测试
 
-审查对象：[t67 plan.md](/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-plan-impl/.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md)，固定基线 `55716953`。仓库路径均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-plan-impl`。源码、计划、分支与 Git 历史未修改；执行了获准的 frozen 依赖安装。实验与报告均在指定实验目录。已接受的设计与已确认的拖放规则按既定合同检查，不重新讨论；`@dnd-kit/vue` 的选型按推荐先做、待开发者追认，不据此判阻断。
+审查对象：[t67 plan.md](/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t67-plan-impl/.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md)，固定基线 `55716953`。仓库路径均相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t67-plan-impl`。源码、计划、分支与 Git 历史未修改；执行了获准的 frozen 依赖安装。实验与报告均在指定实验目录。已接受的设计与已确认的拖放规则按既定合同检查，不重新讨论；`@dnd-kit/vue` 的选型按推荐先做、待开发者追认，不据此判阻断。
 
 结论：**阻断 0、重要 3、建议 2**。优先补键盘适配与所有权、常驻空标签带/整区正文、可运行的验收场地。依赖选型可以继续按推荐推进；完整替换 Tabs 尚没有必要性证据。下列按影响排序，编号保留发现时顺序；源码推断与真实浏览器实测分别标明。
 
@@ -75,16 +75,16 @@
 
 ## 本次命令与证据
 
-实验根为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl/`，下表的相对产物路径均在此根内。所有启动均设置 `NBOOK_AGENT_TEMP_ROOT` 为该根；服务只使用 5197、5198、5199。
+实验根为 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl/`，下表的相对产物路径均在此根内。所有启动均设置 `NBOOK_AGENT_TEMP_ROOT` 为该根；服务只使用 5197、5198、5199。
 
 | 实际命令或操作 | 结果与覆盖边界 |
 |---|---|
-| worktree 根：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl prox bun install --frozen-lockfile --ignore-scripts` | 退出 0，1560 packages installed；不代表产品拖放已通过。 |
+| worktree 根：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl prox bun install --frozen-lockfile --ignore-scripts` | 退出 0，1560 packages installed；不代表产品拖放已通过。 |
 | `bun --version`；`node --version` | `1.4.2`；`v26.10.0`。 |
 | `dependency/` 内 `bun run dev` | Bun 启动 Vite `8.1.4`，5197；默认 noDiscovery 探针实际完成指针与键盘路径。 |
 | `dependency/` 内 `bun run build` | 退出 0，27 modules；JS 165.60 kB / gzip 58.47 kB。这是包含 Vue 与探针页的独立产物，不是产品增量。后续仅修改观测坐标与新增独立 Lab 页，未重新构建；生产结果对应这次已构建版本。 |
 | `dependency/` 内 `bunx --bun vite preview --host 127.0.0.1 --port 5199 --strictPort` | 已构建产物 Space 拿起、Arrow 当前 x +10、Escape 取消，errors=[]；`dependency-production.json`。 |
-| worktree 根：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl/playwright-smoke.mjs` | 退出 0，Chrome `151.0.7922.71`，三轮 pointer/Enter 各结束 1 次、Escape 零提交；`playwright-three-runs.json`。 |
+| worktree 根：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl node /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-plan/impl/playwright-smoke.mjs` | 退出 0，Chrome `151.0.7922.71`，三轮 pointer/Enter 各结束 1 次、Escape 零提交；`playwright-three-runs.json`。 |
 | `dependency/` 内 `bunx --bun vite --config vite.actual.config.js --host 127.0.0.1 --port 5198 --strictPort` | 读取真实产品 Vite/UnoCSS、组件与 Lab fixture，所有 cache/output 改到实验目录；三层实例停放、菜单搬空和真实网格比例实测见 `actual-shell-structure.json`、`actual-empty-auxiliarybar.json`、`actual-empty-panel.json`、`actual-ratio.json`。实验没有启动内核/Storage，不算产品 e2e 或主题验收。 |
 | 内置浏览器：`/?real=1` 的真实 Tabs 登记探针 | 原始状态 `real-tabs-keyboard.json`、`real-tabs-arrow-current.json`、`real-tabs-pointer.json`；视觉 `real-tabs-pointer.png`。|
 

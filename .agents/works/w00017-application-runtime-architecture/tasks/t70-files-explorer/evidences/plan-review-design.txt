@@ -1,6 +1,6 @@
 # w00017 t70 实施计划审查：Spec、提案与旧行为
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t70-files-explorer/plan.md`，审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t70-plan-design`。依据固定快照中的计划、Spec、已接受提案与现有实现进行只读审查；t70 尚未实现，运行验证与代码推断分别标明。报告随发现核实逐条追加，最终按影响排序。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t70-files-explorer/plan.md`，审查 worktree：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t70-plan-design`。依据固定快照中的计划、Spec、已接受提案与现有实现进行只读审查；t70 尚未实现，运行验证与代码推断分别标明。报告随发现核实逐条追加，最终按影响排序。
 
 ## 发现 3：结果未知后只去掉重试按钮，仍允许重新粘贴同一旧意图
 

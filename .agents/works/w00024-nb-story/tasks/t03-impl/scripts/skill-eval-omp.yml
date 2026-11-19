@@ -1,8 +1,9 @@
-# skill-eval.sh 专用的 omp 配置覆盖：newapi-luna 没有 gpt-6-luna 的渠道（503），jiji-luna 偶尔一次上游错误就会被回退过去
-# 卡住；本次评测把 jiji-luna 与同样可用的 jiji-gpt-sol 互为回退。不改全局配置。
+# 渠道名已中性化；运行时按本机 omp 配置替换 relay-a / relay-b。
+# skill-eval.sh 专用的 omp 配置覆盖：relay-c 没有 gpt-6-luna 的渠道（503），relay-a 偶尔一次上游错误就会被回退过去
+# 卡住；本次评测把 relay-a 与同样可用的 relay-b 互为回退。不改全局配置。
 retry:
   fallbackChains:
-    jiji-luna/gpt-6-luna:
-      - jiji-gpt-sol/gpt-6-luna:max
-    jiji-gpt-sol/gpt-6-luna:
-      - jiji-luna/gpt-6-luna:max
+    relay-a/gpt-6-luna:
+      - relay-b/gpt-6-luna:max
+    relay-b/gpt-6-luna:
+      - relay-a/gpt-6-luna:max

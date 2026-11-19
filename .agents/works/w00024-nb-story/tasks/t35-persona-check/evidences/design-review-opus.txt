@@ -1,6 +1,6 @@
 # w00024/t35 马甲核对：剩余重点的只读设计审查（Opus）
 
-审查对象：主工作区 `.agents/works/w00024-nb-story/tasks/t35-persona-check/plan.md`。代码在实现 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t35-persona-check/packages/nb-story/`（与 master 相同）。不重复 `/tmp/review-t35-design/report.md` 已报的 7 条。未调用真实模型；实验脚本在 `/tmp/review-t35-design/exp-opus/`，只读。
+审查对象：主工作区 `.agents/works/w00024-nb-story/tasks/t35-persona-check/plan.md`。代码在实现 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t35-persona-check/packages/nb-story/`（与 master 相同）。不重复 `/tmp/review-t35-design/report.md` 已报的 7 条。未调用真实模型；实验脚本在 `/tmp/review-t35-design/exp-opus/`，只读。
 
 ## 已核实的发现
 

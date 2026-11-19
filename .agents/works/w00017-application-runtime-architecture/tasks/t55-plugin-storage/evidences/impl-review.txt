@@ -13,7 +13,7 @@
 - 位置：`packages/neuro-book/src/plugins/storage/server/partition.ts:248`（`#notify`，尤其第 249–251 行）；公开调用链为 `shared/facade.ts:71` → `server/owner.ts:55` → `partition.write`。
 - 现象：同一记录建立两个本地订阅，第一位监听收到 `one/revision 1` 时立即调用公开句柄 `save(two, {expect: "1"})`。两次保存都成功，但第二位监听收到的序列是 `missing → two/revision 2 → one/revision 1`；重读磁盘却是 `two/revision 2`。
 - 为什么是问题：审查起点的 `storage/persistence.md` 输出第 7 条（当前精简稿第 6 条）要求同一订阅按写入顺序送达。公开 `save()` 虽返回 Promise，本地路线在返回 Promise 前同步执行 SQLite 写入和通知；通知可重入，内层写入先通知全部监听，再恢复外层通知。正常的订阅投影会把较新的状态覆盖成旧状态；无需调用私有函数或伪造时序。
-- 如何核实：在 scratchpad 的 `storage-runtime-probe.ts` 中启动真实 `createApplication`、真实 `nbook.storage` 服务端插件、真实临时 SQLite，经消费插件解析 `storageKey`，只调用公开 `open/save/subscribe/read`。命令：从 worktree 根运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/storage-runtime-probe.ts`。输出 `reentrantLocalWrite`：两次写入 revision 分别为 `"1"`、`"2"`，第二位监听的 revision 为 `[null,"2","1"]`，当前读取 revision 为 `"2"`。
+- 如何核实：在 scratchpad 的 `storage-runtime-probe.ts` 中启动真实 `createApplication`、真实 `nbook.storage` 服务端插件、真实临时 SQLite，经消费插件解析 `storageKey`，只调用公开 `open/save/subscribe/read`。命令：从 worktree 根运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/storage-runtime-probe.ts`。输出 `reentrantLocalWrite`：两次写入 revision 分别为 `"1"`、`"2"`，第二位监听的 revision 为 `[null,"2","1"]`，当前读取 revision 为 `"2"`。
 - 建议改法：分区拥有者为已提交写入的通知维护 FIFO 与派发标志；通知中的重入写入仅追加队列，完成当前快照的全体派发后再派发下一份。补真实内核场景，断言每个订阅的顺序及最终状态与重读一致。
 
 ### 2. [重要][Spec] `open` 不尝试打开分区库，坏库仍返回成功句柄，缺少约定的分区失败通道
@@ -38,7 +38,7 @@
 - 位置：`packages/nb-runtime/src/plugins/host.ts:562`，委托远程访问的信号合并了代理激活作用域的 `stopSignal`。
 - 现象：真实浏览器应用里，消费插件经代理服务调用与订阅远程合同均成功；执行公开 `Application.stop()` 后，代理服务的 `providePerConsumer.release` 内再次经 `context.remote.on(consumer)` 调用同一远程只读方法，结果却为 `{ok:false,code:"cancelled",cause:"cancelled"}`。该时刻远程订阅仍未 abort，之后才发 release、结束订阅；停止本身返回 `closed`。
 - 为什么是问题：`runtime/plugin-channel.md` 输出第 10 条第 2 小点明确包括“原调用方入口停止、代理入口停止”，且要求代理门面的释放函数运行期间经代理调用仍可用；计划第 93 行同样要求。运行实例停止会同步触发全部子作用域的 `stopSignal`，早于按依赖顺序释放门面；把这个停止信号并入请求信号，破坏了 `runtime.services` 输出第 12 条强调的“父作用域停止不能据此作废门面”不变量。代理释放时需要远程收口的插件无法完成操作；目前测试只覆盖原调用方单独停止、代理仍在，漏掉了整个实例停止。
-- 如何核实：scratchpad `delegation-stop-probe.ts` 创建真实服务端应用、远程路由、浏览器应用、远程服务与允许代理插件；通过真实 `providePerConsumer`、插件依赖、`context.remote.on`、JSON 进程内链路与公开 `Application.stop()` 复现，无私有方法直调或伪造先后。命令从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegation-stop-probe.ts`。输出 `seen[0]` 为 `proxy-release/cancelled/subscriptionAborted:false`，`seen[1]` 为 `remote-release`；停止后订阅 signal 才变为 `true`。
+- 如何核实：scratchpad `delegation-stop-probe.ts` 创建真实服务端应用、远程路由、浏览器应用、远程服务与允许代理插件；通过真实 `providePerConsumer`、插件依赖、`context.remote.on`、JSON 进程内链路与公开 `Application.stop()` 复现，无私有方法直调或伪造先后。命令从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegation-stop-probe.ts`。输出 `seen[0]` 为 `proxy-release/cancelled/subscriptionAborted:false`，`seen[1]` 为 `remote-release`；停止后订阅 signal 才变为 `true`。
 - 建议改法：经代理访问使用签发记录在门面自己的 release 完成后才关闭的寿命信号；代理停止路径也按服务依赖顺序完成门面 release，再关闭挂在签发记录上的远程访问。不要让激活作用域开始停止直接取消 release 内的经代理调用。补代理入口单独停止与整个应用停止场景，保留原消费方单独停止测试。
 
 ### 5. [重要][生命周期] 一条订阅的 `onEnd` 抛错会中断同一服务对象其余订阅的收口
@@ -78,7 +78,7 @@
 - 位置：`packages/nb-runtime/src/plugins/host.ts:543`（第 543–546 行的缓存提前返回）。
 - 现象：真实消费插件单独停止、代理仍在时，其门面 release 内的远程调用正常，订阅随后结束；再由仍存活的代理对同一旧身份调用 `remote.on(identity)`，返回 `{ok:false,code:"cancelled",cause:"cancelled"}`。如果身份此前未缓存，`issuedTo` 的关闭状态核对会返回 `denied`。
 - 为什么是问题：`runtime/plugin-channel.md:85` 要求签发门面已经释放的身份调用与订阅为 `denied`。缓存命中跳过了 `issuedTo`，只能依靠已 abort 的信号取消请求，导致同一种已释放身份因是否用过而返回不同失败种类。实验没有发现越权派发或旧门面复活，故定为建议，不当作身份隔离突破。
-- 如何核实：`delegation-stop-probe.ts caller-only`，真实应用、代理服务与公开消费入口激活作用域 `close()`。输出 release 内调用 `ok:true`、结束后订阅信号 `true`、`cachedAfterRelease.code:"cancelled"`。命令从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegation-stop-probe.ts caller-only`。
+- 如何核实：`delegation-stop-probe.ts caller-only`，真实应用、代理服务与公开消费入口激活作用域 `close()`。输出 release 内调用 `ok:true`、结束后订阅信号 `true`、`cachedAfterRelease.code:"cancelled"`。命令从 worktree 根执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t55-impl/delegation-stop-probe.ts caller-only`。
 - 建议改法：缓存返回前仍核对签发记录是否有效；缓存只复用访问对象，不省略寿命与准入核对。补已使用身份与从未使用身份在签发门面释放后均为 `denied` 的行为断言。
 
 ## 未发现问题的方面

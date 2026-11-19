@@ -26,7 +26,7 @@ eye-sepia-dark     #c3b8a3 #e7b791 #aacf9d #e5c079 #9dc3db #eda699 #a4c9bc #e9b4
 
 == 脚本
 // 语法色缺省推导的候选：对每套自带与护眼配色，量各变量在 --bg-main 上的对比度与两两色差（CIE76）。
-const R = "/home/notnotype/CodeRepository/neuro-book/packages";
+const R = "/home/<user>/CodeRepository/neuro-book/packages";
 const {nbookColorways} = await import(`${R}/nb-ui/themes/nbook/colorways.ts`);
 const {macosColorways} = await import(`${R}/nb-ui/themes/macos/colorways.ts`);
 const eye = await import(`${R}/neuro-book/src/plugins/workbench/shared/eye-care-themes.ts`);

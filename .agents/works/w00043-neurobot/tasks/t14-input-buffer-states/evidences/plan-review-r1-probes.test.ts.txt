@@ -1,6 +1,6 @@
 // t14 计划审查：第三轮 11 条与计划依赖的时序，按现有内核跑一次（只读仓库）
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 const {defineExtension} = await import(`${K}/extension/define.ts`);
 const {notifyAssemblyChanged, closeSession} = await import(`${K}/session/session.ts`);

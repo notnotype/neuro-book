@@ -2,7 +2,7 @@
 
 范围：`git diff 2d4ce992c..b7825184a`，提交 `b68fda7ad`、`b7825184a`。依据为主工作区 master 的 `docs/specs/ui/forms.md`、t07 `plan.md`、Task 的 S3a/S3b 已确认决定与两份核心审查报告。不重新讨论已经确认的产品决定；外观、可访问性与组件文档不作全面审查。
 
-源码位置相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验仅放 `/tmp/neuro-book/review-w00027-t07-s3/lab/`；运行时问题通过真实挂载组件核实，不将直接调用内部函数的推测作为运行证据。问题核实后逐条追加，不重写已有条目。
+源码位置相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验仅放 `/tmp/neuro-book/review-w00027-t07-s3/lab/`；运行时问题通过真实挂载组件核实，不将直接调用内部函数的推测作为运行证据。问题核实后逐条追加，不重写已有条目。
 
 ### 1. JSON 覆盖只检查容器自身的 readOnly，可以改掉其中的只读成员
 
@@ -215,7 +215,7 @@
 
 ## 实际验证
 
-以下命令的 cwd 均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form`，依赖全部使用现有安装；实验测试从绝对路径导入产品组件与真实 nb-ui。
+以下命令的 cwd 均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form`，依赖全部使用现有安装；实验测试从绝对路径导入产品组件与真实 nb-ui。
 
 | 实际命令 | 结果 |
 |---|---|

@@ -1,4 +1,4 @@
-w00046 t11 切片 1：CDP 与 WM_CLOSE 探针（2026-11-14，pc-notype，t10 的测试包 0.90.2，应用标识 io.github.notnotype.neurobook.t10test）
+w00046 t11 切片 1：CDP 与 WM_CLOSE 探针（2026-11-14，Windows 开发机，t10 的测试包 0.90.2，应用标识 io.github.notnotype.neurobook.t10test）
 
 做法
 - 在桌面会话里起应用：NBOOK_STATE_ROOT=%USERPROFILE%\nb-w00046\t11\state-cdp（绝对路径，不碰缺省状态根），
@@ -15,4 +15,4 @@ w00046 t11 切片 1：CDP 与 WM_CLOSE 探针（2026-11-14，pc-notype，t10 的
    shell.log 末尾 “exit 0”。GitHub 的 Windows runner 上作业本就在登录会话里（t01 探针在那里起过窗口、做过 WM_CLOSE）。
 
 结论：计划的选型成立，Playwright connectOverCDP 用的是同一个端点（这里用原始 CDP 验证，Playwright 的连接留到切片 4）。
-冒烟脚本的窗口枚举要在桌面会话里跑；在 pc-notype 上经 t08-desk.ps1 进桌面会话。
+冒烟脚本的窗口枚举要在桌面会话里跑；在 Windows 开发机上经 t08-desk.ps1 进桌面会话。

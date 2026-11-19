@@ -20,7 +20,7 @@ createdAt: 2026-09-03T00:00:00Z
 ## 验证
 
 - `bun run typecheck`（目录 `packages/neuro-book`）：通过。
-- `bun run smoke:component-lab -- --url http://127.0.0.1:3001 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`：通过。
+- `bun run smoke:component-lab -- --url http://127.0.0.1:3001 --browser-executable C:/Users/<user>/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`：通过。
   - 实际覆盖 Lab 路由、四个检查 tab、场景切换、数据重置、主题恢复、运行中窗口缩放、手机 `390×844` 画布与页面级横向溢出。
   - smoke 的 console/pageerror 监听未报告错误或警告。
   - reduced-motion 下 `.nb-lab-panel` 的计算 `transitionDuration` 为 `0s`。

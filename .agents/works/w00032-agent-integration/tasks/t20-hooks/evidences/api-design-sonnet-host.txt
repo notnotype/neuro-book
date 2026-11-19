@@ -1,7 +1,7 @@
 ## 先说明三件事
 
 1. **report.md 没能按要求写成完整文件。** 我用 Write 写 `/tmp/t20-api-design/sonnet-host/report.md` 时被工具拒绝（提示子代理不得写报告类 .md，要把发现放在最终回复里）。我没有改用 Bash 绕过。`/tmp/t20-api-design/sonnet-host/report.md` 里只有一个开头的占位（早先用 Bash 建的）。完整报告在本回复的第 1 到 6 节，按任务要求的结构写，需要的话由主 Agent 另存。
-2. **tsc 通过**，退出码 0，没有任何输出。命令是 `/home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-host/tsconfig.json`。tsconfig 在你给的基础上加了一项 `paths`，把 `typebox` 指到仓库的 node_modules，否则 `/tmp` 下解析不到。`typetest.ts` 有 26 处 `@ts-expect-error`，全部成立。
+2. **tsc 通过**，退出码 0，没有任何输出。命令是 `/home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-host/tsconfig.json`。tsconfig 在你给的基础上加了一项 `paths`，把 `typebox` 指到仓库的 node_modules，否则 `/tmp` 下解析不到。`typetest.ts` 有 26 处 `@ts-expect-error`，全部成立。
 3. **哪些东西没有运行过。** `api.ts`、`host.ts`、`testing.ts` 只有类型与声明，没有实现，所以 `example-tests.test.ts` 的六个测试只过了类型检查，没有执行。唯一运行过的是 `diag-demo.ts`（诊断的格式化、拼写建议、装配期检查三个小函数），输出在 `evidence-diag-demo.txt`。凡是对内核行为的论断，我都标了“读代码”或“推断”。
 
 文件（都在 `/tmp/t20-api-design/sonnet-host/`）：`api.ts`（扩展与 Profile，从 v4 复制再改，改动处标 `[改]`）、`host.ts`（宿主接口）、`testing.ts`（测试工具）、`example-extensions.ts`、`example-plugin.ts`、`example-ui.ts`、`example-tests.test.ts`、`typetest.ts`、`diag-demo.ts`、`evidence-diag-demo.txt`、`v4-baseline.ts`（用 v4 接口写同样的扩展，引用仓库里的 v4/api.ts，也过 tsc，数行数用）。
@@ -266,7 +266,7 @@ error  unknown-event-handler  lab.typo · assembly
 ## 6. tsc 的结果
 
 ```text
-$ /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-host/tsconfig.json
+$ /home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-host/tsconfig.json
 $ echo $?
 0
 ```

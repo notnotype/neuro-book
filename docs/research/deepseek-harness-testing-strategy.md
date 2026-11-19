@@ -1,7 +1,7 @@
 # deepseek-harness 测试策略与基础设施调研
 
 - 调研日期：2026-08-18
-- 目标仓库：`C:\Users\notnotype\Documents\CodeRepository\GithubProjects\deepseek-harness`
+- 目标仓库：`C:\Users\<user>\Documents\CodeRepository\GithubProjects\deepseek-harness`
 - 文档状态：已完成；非规范调研资料
 - 置信度：高。结论来自目标仓库的测试策略、Vitest 配置、测试支持包 README、Agent Note、代表性测试源码与实际运行结果。
 

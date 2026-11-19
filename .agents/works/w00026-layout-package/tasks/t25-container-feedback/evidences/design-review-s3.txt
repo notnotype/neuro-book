@@ -26,7 +26,7 @@
   2) 实时布局：candidateDoc 返回的预览里右栏整列消失，邻居（编辑区）反而占满，和“放下就在那里”正相反；松手后提交过 settleContainers 才出现。
   3) 键盘拖动同 1)。
 - 为什么是问题：输出 38“预览摆真实结果”、输出 28 的指示画真实结果，在这个新落点上都不成立。同一个问题 entry-drop.ts 已经遇到过并自己处理（文件头注释“预览不过 settleContainers，所以入口顺序在这里自己排好”，:170 的 setPanelHidden + setActiveContainer），计划没给外缘这条路径同样的处理。
-- 如何核实：bun test /home/notnotype/.claude/jobs/03f32b6c/tmp/review-t25-s3/exp/empty-region.test.ts（在 worktree 的 packages/neuro-book 下跑），看“raw (preview) section … shown? false”一行。
+- 如何核实：bun test /home/<user>/.claude/jobs/03f32b6c/tmp/review-t25-s3/exp/empty-region.test.ts（在 worktree 的 packages/neuro-book 下跑），看“raw (preview) section … shown? false”一行。
 - 建议改法：二选一，并写进计划：
   a) 库里让带 container 的外缘落点在锚上把容器排进入口顺序并设为当前容器（放进锚的后边、锚又显示着时，这一步属于“放下就在那里”的语义，不是工作台的归整）。这样 applyLayoutDrop、previewEdgeDrop、candidateDoc 三处自动一致。
   b) 预览与指示都过工作台的同一个“提交前收尾”（settleContainers + hideEmptiedRegions），即 previewEdgeDrop 接一个宿主给的收尾钩子。只在 setLivePreview 一处接不够，previewEdgeDrop 在库内。

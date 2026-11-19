@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-正在执行 Phase 4 客户端确认。DNS、证书和 Nginx stream 443 已接入，站点与 Xray 服务端探测通过；80 根路径仍保持 404，等待用户确认全部既有 Xray 客户端后再启用 HTTPS 跳转。
+正在执行 Phase 4 客户端确认。DNS、证书和 Nginx stream 443 已接入，站点与现有 TLS 代理服务端探测通过；80 根路径仍保持 404，等待用户确认全部既有 TLS 代理客户端后再启用 HTTPS 跳转。
 
 ## 批次 1：合同、改名与依赖基线
 
@@ -40,38 +40,38 @@
 - 无密码学合同降级。
 - 前端行为验证沿仓库既有 Node-only Vitest 方式使用源码合同测试；真实浏览器交互仍留在用户授权后的验收阶段。
 
-## 批次 4：公开仓库、GHCR 与 DMIT loopback
+## 批次 4：公开仓库、GHCR 与生产主机上的 loopback
 
 - sibling 仓已硬切为 `neuro-book-site`，公开仓库为 `https://github.com/notnotype/neuro-book-site`，无 LICENSE；GHCR 匿名拉取 SHA tag 成功。
-- Run `30248630556`（提交 `57711d2`）和 Run `30253386014`（提交 `7966bf1`）的 verify/container 均成功；DMIT 匿名拉取两个 digest 均成功。
-- DMIT 已安装 Docker Engine `29.6.2`、Compose `v5.3.1`；`/srv/neuro-book-site` 使用 UID/GID `10001` 数据目录 `0700`、root-only `.env` `0600`，Compose 只发布 `127.0.0.1:3100`。
+- Run `30248630556`（提交 `57711d2`）和 Run `30253386014`（提交 `7966bf1`）的 verify/container 均成功；生产主机匿名拉取两个 digest 均成功。
+- 生产主机已安装 Docker 与 Compose；`/srv/neuro-book-site` 使用 UID/GID `10001` 数据目录 `0700`、root-only `.env` `0600`，Compose 只发布 `127.0.0.1:3100`。
 - 空卷 migration/ready、stdin 管理员初始化、Secure Cookie、owner-only 注册/OAuth 门禁、Workshop ZIP、`.nbbackup` 上传下载、容器强制重建和主机重启后的摘要持久性均通过。
-- DMIT 主机重启后 Docker、Nginx、Xray 均 active；同盘冷快照满足“数据体积 + 4 GiB”门禁，整体恢复后数据库摘要、文件数和 readiness 一致。
-- 实际演练新 digest → 旧 digest → 新 digest，三次均 readiness 通过且数据库/文件摘要一致；最终保持新 digest。DMIT 整盘损坏仍会同时丢失站点数据和同盘快照，这是已锁定的私有内测风险。
+- 生产主机主机重启后 Docker、Nginx、现有 TLS 代理均 active；同盘冷快照满足“数据体积 + 4 GiB”门禁，整体恢复后数据库摘要、文件数和 readiness 一致。
+- 实际演练新 digest → 旧 digest → 新 digest，三次均 readiness 通过且数据库/文件摘要一致；最终保持新 digest。生产主机整盘损坏仍会同时丢失站点数据和同盘快照，这是已锁定的私有内测风险。
 
 ## 批次 5：DNS 前置与 443 runbook
 
-- 已备份 `/etc/nginx`、`/etc/v2ray-agent` 和 Xray systemd unit 到 `/srv/neuro-book-site/ops/backups/task128-20260727T092738Z/`，并保存 root-only `.env` 镜像回滚副本。
-- Nginx 80 端口已添加 ACME webroot vhost；challenge 回读通过，根路径保持 404。现有 dmit 443 用本机 TLS 1.3 握手验证通过，Xray 配置和 443 归属未改。
-- sibling 仓新增 `docs/https-443-runbook.md`，记录 DNS、ACME、非 443 SNI/PROXY protocol 预演、上传限制、443 dry run、配置备份和原 Xray 443 回滚命令。
-- DNSPod 当前没有登录态，浏览器停在登录页；本机没有 DNSPod/Tencent CLI 或现成 API 授权。因此 `nbook.notnotype.com A 64.186.225.48 TTL 300`、证书签发、非 443 TLS 预演和 443 切换保持 pending，未绕过登录门禁。
+- 已备份 `/etc/nginx`、`现有 TLS 代理配置目录` 和现有 TLS 代理 systemd unit 到 `/srv/neuro-book-site/ops/backups/task128-20260727T092738Z/`，并保存 root-only `.env` 镜像回滚副本。
+- Nginx 80 端口已添加 ACME webroot vhost；challenge 回读通过，根路径保持 404。现有生产主机 443 用本机 TLS 1.3 握手验证通过，现有 TLS 代理配置和 443 归属未改。
+- sibling 仓新增 `docs/https-443-runbook.md`，记录 DNS、ACME、非 443 SNI/PROXY protocol 预演、上传限制、443 dry run、配置备份和原 TLS 代理 443 回滚命令。
+- DNS 服务商 当前没有登录态，浏览器停在登录页；本机没有 DNS 服务商/Tencent CLI 或现成 API 授权。因此 `nbook.notnotype.com A <公网 IP> TTL 300`、证书签发、非 443 TLS 预演和 443 切换保持 pending，未绕过登录门禁。
 
 ## 当前验证结论
 
-- 代码与容器生产化、DMIT 内部部署和本机回滚证据已完成；`DEFAULT_PASSPORT_SITE_URL` 尚未改，NeuroBook canary 尚未发布。
+- 代码与容器生产化、生产主机内部部署和本机回滚证据已完成；`DEFAULT_PASSPORT_SITE_URL` 尚未改，NeuroBook canary 尚未发布。
 - 按项目约束未自动执行浏览器产品验收；真实设备码关联、Bearer Workshop、首次恢复码保存、密文恢复和 staging 恢复仍等 HTTPS 稳定后并经用户授权执行。
 
 ## 批次 6：DNS、证书、443 与管理员密码恢复工具
 
-- `nbook.notnotype.com` 已解析到 `64.186.225.48`；Let's Encrypt 证书已签发并安装，证书续期 timer 已启用。
-- 非 443 预演验证了站点 SNI、Xray 默认 SNI、PROXY protocol、Secure Cookie、可信代理、上传边界与私有模式门禁。
-- 443 维护窗口备份位于 `/srv/neuro-book-site/ops/backups/task128-cutover-20260727T105410Z/`。首次切换因 Xray 重启后的监听检查过早触发自动回滚；确认是启动时序竞态后改为有界等待，第二次切换成功。
-- 当前公网 443 由 Nginx stream 独占：`nbook.notnotype.com` 转发到 `127.0.0.1:31444`，默认 SNI 转发到 Xray `127.0.0.1:31443`。公网 live/ready、两个域名 TLS、未知 SNI、真实客户端 IP、注册 403 与 OAuth 404 均通过。
-- 切换后 Xray 日志已观察到 REALITY 与 VLESS TCP 流量经新入口成功，但按维护合同仍等待用户逐一确认既有客户端；确认前不启用 80 → HTTPS 跳转。
+- `nbook.notnotype.com` 已解析到 `<公网 IP>`；Let's Encrypt 证书已签发并安装，证书续期 timer 已启用。
+- 非 443 预演验证了站点 SNI、现有 TLS 代理默认 SNI、PROXY protocol、Secure Cookie、可信代理、上传边界与私有模式门禁。
+- 443 维护窗口备份位于 `/srv/neuro-book-site/ops/backups/task128-cutover-20260727T105410Z/`。首次切换因现有 TLS 代理重启后的监听检查过早触发自动回滚；确认是启动时序竞态后改为有界等待，第二次切换成功。
+- 当前公网 443 由 Nginx stream 独占：`nbook.notnotype.com` 转发到 `127.0.0.1:<站点端口>`，默认 SNI 转发到现有 TLS 代理 `127.0.0.1:<代理端口>`。公网 live/ready、两个域名 TLS、未知 SNI、真实客户端 IP、注册 403 与 OAuth 404 均通过。
+- 切换后现有 TLS 代理日志已观察到TLS 代理入口与 VLESS TCP 流量经新入口成功，但按维护合同仍等待用户逐一确认既有客户端；确认前不启用 80 → HTTPS 跳转。
 - 新增 `bun run db:admin -- create|reset`：显式区分新建与重置，密码只从 stdin 读取。reset 仅接受现有 admin，递增 `sessionVersion` 注销旧会话，不会隐式覆盖、提升或启用账号。
-- 生产构建新增 `/app/dist/admin-password.mjs`，DMIT 可通过 `docker compose exec -T site node /app/dist/admin-password.mjs reset` 执行，无需在宿主安装 Bun。
-- 站点提交 `402dc08` 的 Actions Run `30261576764` 完成 typecheck、全量 build/test 和 `linux/amd64` 容器发布；DMIT 匿名拉取固定 digest `sha256:8f4dcd22aba78185636f0902c6cdd0bd28080729a50ef5712a2e5ba88fbb7214`。
-- 升级前冷快照为 `/srv/neuro-book-site/snapshot-task128-admin-cli-20260727T112640Z.tar`，旧配置为 `/srv/neuro-book-site/.env.task128-before-admin-cli-20260727T112640Z`。新容器 healthy，内部/公网 readiness、工具存在性、443 监听和 Xray TLS 均通过；管理员密码尚未重置，等待用户明确执行。
+- 生产构建新增 `/app/dist/admin-password.mjs`，生产主机可通过 `docker compose exec -T site node /app/dist/admin-password.mjs reset` 执行，无需在宿主安装 Bun。
+- 站点提交 `402dc08` 的 Actions Run `30261576764` 完成 typecheck、全量 build/test 和 `linux/amd64` 容器发布；生产主机匿名拉取固定 digest `sha256:8f4dcd22aba78185636f0902c6cdd0bd28080729a50ef5712a2e5ba88fbb7214`。
+- 升级前冷快照为 `/srv/neuro-book-site/snapshot-task128-admin-cli-20260727T112640Z.tar`，旧配置为 `/srv/neuro-book-site/.env.task128-before-admin-cli-20260727T112640Z`。新容器 healthy，内部/公网 readiness、工具存在性、443 监听和现有 TLS 代理 TLS 均通过；管理员密码尚未重置，等待用户明确执行。
 
 ### 验证
 
@@ -100,11 +100,11 @@
 
 ### 生产部署
 
-- 站点提交 `bed9eac` 的 Actions Run `30265489713` 中 verify/container 均成功；DMIT 匿名拉取 SHA tag 后取得固定 digest `sha256:77f922014080e810e9852dc49ef0e71c40ed755eb8b817a934b76e6c2d394c19`。
+- 站点提交 `bed9eac` 的 Actions Run `30265489713` 中 verify/container 均成功；生产主机匿名拉取 SHA tag 后取得固定 digest `sha256:77f922014080e810e9852dc49ef0e71c40ed755eb8b817a934b76e6c2d394c19`。
 - 升级前数据 196937 字节、可用空间 10219343872 字节，通过“数据 + 4 GiB”门禁。冷快照为 `/srv/neuro-book-site/snapshot-task128-access-codes-20260727T122751Z.tar`，SHA-256 `8080a836e5da0765edbd5a9ceb3a76fe9699edf23c4ad655c1547162385d351e`，权限 `0600`；旧配置备份为同目录 `.env.task128-before-access-codes-20260727T122751Z`。
 - 生产旧库有 100 个未使用管理员邀请码。migration 后为 100 个不限次数注册码、总使用次数 0；新邀请码表为空，用户归属为空，`PRAGMA foreign_key_check` 无错误。
-- 新容器 healthy；loopback/公网 readiness 全部 ok，公网注册 403、OAuth 404，Nginx/Xray/Docker active，`nbook.notnotype.com` 与 `dmit.notnotype.com` TLS 1.3 验证通过；HTTP 80 根路径继续保持 404。
-- 验收时一条 `docker inspect --format` 引号错误导致容器环境被写入执行日志，其中包含 Session secret。随即在 DMIT 重新生成 48 字节随机 secret，并同步更新当前与回滚配置后强制重建容器；旧会话因此全部失效，管理员密码未改变。后续验证不再读取容器环境。
+- 新容器 healthy；loopback/公网 readiness 全部 ok，公网注册 403、OAuth 404，Nginx/现有 TLS 代理/Docker active，`nbook.notnotype.com` 与 `<生产主机域名>` TLS 1.3 验证通过；HTTP 80 根路径继续保持 404。
+- 验收时一条 `docker inspect --format` 引号错误导致容器环境被写入执行日志，其中包含 Session secret。随即在生产主机重新生成 48 字节随机 secret，并同步更新当前与回滚配置后强制重建容器；旧会话因此全部失效，管理员密码未改变。后续验证不再读取容器环境。
 
 ## 批次 8：Pino 日志与 Passport 网络错误治理
 
@@ -129,7 +129,7 @@
 - 真实 Nitro 生产集成测试通过，覆盖 requestId、stdout/持久 JSONL、404、请求解析异常、query/header/body 敏感信息、私有模式和 fail-closed。Pino destination 接入 Nitro close 后测试进程由约 40 秒降到 4.43 秒退出。
 - NeuroBook 聚焦测试为 4 个文件、25 项通过，覆盖 ENOTFOUND、ECONNREFUSED、TLS、超时、上游 5xx、业务 4xx、unlink best-effort、流式下载和全部调用点统一 transport。
 - NeuroBook 全仓 typecheck 被当前工作区其他任务的 `workspaceKey/workspaceRoot` 与 llmlint 类型迁移错误阻断，本轮 Passport/Backup 文件未出现在错误列表；未修改这些无关在途改动。
-- 本机没有 Docker CLI，未在 Windows 本机重复执行 `linux/amd64` 构建；该门禁由 GitHub Actions 和 DMIT 实机承接。按项目约束未自动执行浏览器验证。
+- 本机没有 Docker CLI，未在 Windows 本机重复执行 `linux/amd64` 构建；该门禁由 GitHub Actions 和生产主机实机承接。按项目约束未自动执行浏览器验证。
 
 ### 与计划的出入
 
@@ -138,13 +138,13 @@
 
 ### 生产发布与验收
 
-- Actions Run `30284828626` 完成 frozen install、typecheck、build、131 项测试和 `linux/amd64` 容器发布。DMIT 匿名拉取 SHA tag，固定 digest 为 `sha256:6ec29b03a086920e9259f18a4ed8403b7c188002c8d57d1f037a7fbad118c726`。
+- Actions Run `30284828626` 完成 frozen install、typecheck、build、131 项测试和 `linux/amd64` 容器发布。生产主机匿名拉取 SHA tag，固定 digest 为 `sha256:6ec29b03a086920e9259f18a4ed8403b7c188002c8d57d1f037a7fbad118c726`。
 - 升级前数据 237897 字节、可用空间 10201931776 字节，通过“数据 + 4 GiB”门禁。冷快照 `/srv/neuro-book-site/snapshot-task128-pino-20260727T163249Z.tar` 权限 `0600`，SHA-256 为 `d12907d211a6ab3bf16acd55bc0c7916f185a57a0692ad107ad7dda8128dfc6f`。
 - `/srv/neuro-book-site/logs` 为 `0700`、UID/GID `10001`；`site.jsonl` 为 `0600`。logrotate dry run 通过，小时级 timer active；两次强制轮转后 `site.jsonl.2.gz` 通过 `gzip --test` 并可检索旧 requestId。
 - 公网 `POST /api/v1/passport/device/code` 返回 200，requestId `adfb880a-ca14-4b5a-b5a5-d4a170a1f554` 同时出现在 `docker compose logs` 与持久 JSONL。合成 query、Authorization 和 Cookie 敏感值扫描为 CLEAN；成功 ready 健康检查记录数为 0。
 - 本机 Node `v24.13.0` 未启用环境代理时请求官网复现 `UND_ERR_CONNECT_TIMEOUT`；只在子进程设置 `NODE_USE_ENV_PROXY=1` 与本地 `NO_PROXY` 后，health 和设备码 POST 均返回 200。设备码 requestId `a079b651-aad9-4687-a115-cb62ada2a3f6` 再次完成 stdout/文件对账，证明最初关联故障需要重启 NeuroBook 并让 Node 使用现有代理环境。
 - 强制重建容器后旧 requestId 仍在日志卷。随后实际执行新 digest → 旧 digest `77f922...` → 新 digest，三次均 healthy，日志卷和压缩文件未删除；最终保持新 digest。
-- 最终 loopback/公网 readiness 正常，注册仍为 403、OAuth 仍为 404，容器 UID/GID `10001`、只读根和 768 MiB 上限未变；Docker、Nginx、Xray 与 logrotate timer 均 active。本轮没有修改 DNS、443、Nginx SNI 或 Xray。
+- 最终 loopback/公网 readiness 正常，注册仍为 403、OAuth 仍为 404，容器 UID/GID `10001`、只读根和 768 MiB 上限未变；Docker、Nginx、现有 TLS 代理与 logrotate timer 均 active。本轮没有修改 DNS、443、Nginx SNI 或现有 TLS 代理。
 
 ## 批次 9：Passport 凭据提交补偿与统一迁移门禁（2026-07-28）
 
@@ -182,16 +182,16 @@
 
 - 原计划是等待 Task 118 runner interface 落地后接线；实施时统一 Module 已由在途改动建立，本轮直接扩充其 catalog 和 Product interface，没有产生第二套 runner、journal 或恢复顺序。
 - 为覆盖用户直接运行 `.output/server/index.mjs` 的路径，启动门禁比 package script 前置检查多了一层 Nitro 复核。这是同一只读检查的重复防线，不是另一套迁移实现。
-- 真实新设备码批准、凭据落库、一次 access-token 使用和浏览器状态机验收尚未执行；补强代码也尚未发布或部署到 DMIT。
+- 真实新设备码批准、凭据落库、一次 access-token 使用和浏览器状态机验收尚未执行；补强代码也尚未发布或部署到生产主机。
 
-## 批次 10：官网 push 与 DMIT 升级脚本（2026-07-28）
+## 批次 10：官网 push 与生产主机升级脚本（2026-07-28）
 
-- sibling 仓新增本地 Bun 编排 `scripts/deploy/push-and-upgrade.ts` 与远端 Bash 执行器 `scripts/deploy/upgrade-dmit.sh`，package 入口为 `bun run deploy:dmit`。
+- sibling 仓新增本地 Bun 编排 `scripts/deploy/push-and-upgrade.ts` 与远端 Bash 执行器 `scripts/deploy/upgrade-server.sh`，package 入口为 `bun run deploy:server`。
 - 本地门禁要求干净 `master`、正确 origin、GitHub CLI 登录和可解析的 SSH alias；push 固定为 `HEAD:master` 且不允许 force。随后按 commit 查找/等待 `container.yml`，只在 verify/container 成功后解析公开 GHCR digest。
 - 远端执行 root-only 互斥、镜像预拉取、空间门禁、冷快照、`.env` 原子切换、loopback/public readiness 和运行镜像身份校验。migration 后失败会保留失败数据并整份恢复快照，不能只换回镜像继续使用新 schema。
 - 运维产物统一进入 `/srv/neuro-book-site/ops/deployments/<UTC timestamp>/`，不会触碰 443 共存配置。`--dry-run` 不 push、不 SSH；`--yes` 只跳过人工输入，不跳过任何验证或回滚门禁。
-- 第一次真实运行将 `fe0f241` 推到 master 并成功触发 Actions，但本机 GitHub CLI 不支持 `gh run list --commit`。脚本在 Actions 查询阶段失败，DMIT 尚未写入；随后改为按 master/workflow/push event 列出近期 run，再用完整 `headSha` 精确匹配，兼容修复提交为 `311bfd0`。
+- 第一次真实运行将 `fe0f241` 推到 master 并成功触发 Actions，但本机 GitHub CLI 不支持 `gh run list --commit`。脚本在 Actions 查询阶段失败，生产主机尚未写入；随后改为按 master/workflow/push event 列出近期 run，再用完整 `headSha` 精确匹配，兼容修复提交为 `311bfd0`。
 - `311bfd0` 对应 Actions Run `30323712154` 全绿，解析 digest `sha256:8261351c2e26e2f62d3fea386a5301cccf79bd62acb1d161a62558b371f24ea0`，从 `sha256:6ec29b03...` 完成冷快照升级。回执目录为 `/srv/neuro-book-site/ops/deployments/20260728T024146Z/`；同命令立即重跑正确报告“已经运行目标镜像”，没有停容器或创建新目录。
 - 为让仓库状态不继续写“尚未执行”，提交 `17dc3ba` 后再次使用同一脚本。Actions Run `30324053579` 全绿，当前线上 digest 为 `sha256:154a6bf450be8bc0528073526a33f7e9d1644293a6ba38b9682d3448be24665d`，上一 digest 为 `sha256:8261351c...`，最终冷快照与回执在 `/srv/neuro-book-site/ops/deployments/20260728T024935Z/`。
-- 最终独立验证确认：容器 `running healthy`、只读根 `true`、内存 `805306368`；loopback 与公网 readiness 全部检查 `ok`；Docker/Nginx/Xray 全部 active；最终 `env.before`、`data.before.tar`、`deployment.txt` 都是 `0600 root:root`，tar 可读取完整 data 目录。站点 typecheck、Bash 语法、dry-run、真实升级与同 digest 幂等路径均有证据。
+- 最终独立验证确认：容器 `running healthy`、只读根 `true`、内存 `805306368`；loopback 与公网 readiness 全部检查 `ok`；Docker/Nginx/现有 TLS 代理全部 active；最终 `env.before`、`data.before.tar`、`deployment.txt` 都是 `0600 root:root`，tar 可读取完整 data 目录。站点 typecheck、Bash 语法、dry-run、真实升级与同 digest 幂等路径均有证据。
 - 与计划的出入：没有故障注入自动回滚分支。该测试会主动让生产在 migration 后失败并移动 data，风险高于本轮“快速推送与升级”所需证据；现有回滚实现经过语法/代码审查，整站冷快照恢复此前也独立演练过，但脚本 trap 的真实失败路径仍需未来维护窗口专门验证。

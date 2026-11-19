@@ -2,7 +2,7 @@
 
 审查对象：`53047e3ff` 及 `packages/nb-form/src/` 的全部非 Vue 核心；对照 `53047e3ff^`。依据：`docs/specs/ui/forms.md`、主工作区 t07 `plan.md` 与上一轮 17 条审查；不重复上一轮已经处理的问题。
 
-源码位置相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验工作目录为该 worktree 的 `packages/nb-form`，实验文件仅位于 `/tmp/neuro-book/review-w00027-r2/lab/t07/`。旧版由 `git archive 53047e3ff^ packages/nb-form/src` 导出，使用同一 worktree 的 TypeBox 依赖。问题逐条追加；区分本次回归与整理前已存在但上一轮未报告的问题。
+源码位置相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验工作目录为该 worktree 的 `packages/nb-form`，实验文件仅位于 `/tmp/neuro-book/review-w00027-r2/lab/t07/`。旧版由 `git archive 53047e3ff^ packages/nb-form/src` 导出，使用同一 worktree 的 TypeBox 依赖。问题逐条追加；区分本次回归与整理前已存在但上一轮未报告的问题。
 
 ### 1. 整值校验无条件丢弃 required 与额外属性，引用字段里的非法值能通过
 
@@ -98,7 +98,7 @@
 
 ## 实际验证与边界
 
-以下命令除另行说明外，工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form`：
+以下命令除另行说明外，工作目录均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form`：
 
 | 命令 | 实际结果 |
 |---|---|

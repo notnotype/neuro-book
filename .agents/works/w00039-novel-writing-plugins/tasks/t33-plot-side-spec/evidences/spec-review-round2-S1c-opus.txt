@@ -25,7 +25,7 @@
 - 活页夹的一段讲一条计划线（先在计划里开出 IF 线，再动笔写这一章），按输出 13，“章讲的线指向不存在的线”时这一段按主线算，并写诊断 binder-line-unknown。计划线算不算不存在没写，于是不写线读这一章（输出 12）时读主线还是计划线也定不下来。
 - components 输出 18 写入时要求“世界线还要存在（worldlines 输出 1）”。如果按实际模式判存在，在计划线上写计划也会被拒，与“上面只能记计划”矛盾；如果按计划模式判，又要另说明已写记录先过这一关、再报 line-planned。
 **为什么是问题**：同一个世界、同一个读取位置，不同实现会给出不同的待处理与读取线，“读取结果总等于在这份输入上从头计算的结果”（model 输出 36）也无从验收。已实现的内核里 `pending(position)` 就只有位置，按实际模式算（engine/types.ts:119、reference.ts:311 起只遍历 actualEvents），照现在的 Spec 接上计划线时，计划线上的所有计划都会成为 line-missing 待处理。
-**如何核实**：读上列行号。内核里看 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/engine/types.ts:119` 与 `src/engine/reference.ts:311-335`。
+**如何核实**：读上列行号。内核里看 `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/engine/types.ts:119` 与 `src/engine/reference.ts:311-335`。
 **建议改法**：明确无模式读取的规则，例如“待处理、提示、诊断、线树、活页夹与写入校验都把计划线当作存在；只有带模式的读取（entry、render、time、presence）在实际模式下对计划线报 line-not-found”。或者给 `pending` 与诊断的计算加上模式参数，并写清缺省模式。`lines` 的结果把“存在与否”拆成“实际模式存在”“计划模式存在”两项。验收补一条：计划线上记计划，然后按两种模式分别读待处理与活页夹。
 
 ### 23. 删掉了“兑现以后由哪条分叉定义这条线”，计划分叉与兑现它的已写分叉参数不同时，线的切口、父线与带过去的值没有来源
@@ -33,7 +33,7 @@
 **位置**：docs/specs/canon/worldlines.md:61（输出 1）；对照 5b2d368a0 之前的同一处
 **现象**：旧文有一句“有生效的已写分叉时由它定义这条线，否则由生效的计划分叉定义”。新文改成“兑现这条计划分叉的已写分叉必须用同一个 line，从此这条线在两种模式里都存在”，把这句删了。两条分叉共用一个 line，但各自带着 parent、cut、trigger、back、carry、end、endAt，作者兑现时改了切口或回溯的长度是正常情况。另外，model 输出 5 判断计划“尚未兑现”是按位置判的：兑现的已写分叉安放在计划分叉之后时，两者之间的读取位置上，计划分叉仍是“尚未兑现的计划”。
 **为什么是问题**：同一条线在实际模式下只能由已写分叉定义；到了计划模式，在“计划分叉已安放、已写分叉还没到”的那段位置上，用哪条分叉的切口建线视图、带过去哪些地址，现在没有规则。worldlines 输出 2 的线视图与输出 6 的带过去的值都依赖切口与触发处，两种实现会建出不同的线。
-**如何核实**：`git -C /home/notnotype/CodeRepository/neuro-book/.worktree/w00039-specs-review1 show 5b2d368a0 -- docs/specs/canon/worldlines.md`，看输出 1 的删除行。
+**如何核实**：`git -C /home/<user>/CodeRepository/neuro-book/.worktree/w00039-specs-review1 show 5b2d368a0 -- docs/specs/canon/worldlines.md`，看输出 1 的删除行。
 **建议改法**：把那句加回去，并写清是“任何位置、任何模式”下都由已写分叉定义，计划分叉一经兑现，参数就不再参与；或者要求已写分叉的 parent、cut、trigger 与计划分叉相同，不同时拒收（例如 `invalid-fork`）。验收补一条：计划分叉切口在 c1，兑现时把切口改到 c2，再按计划模式读两者之间的章。
 
 ### 24. 回溯点 R 约束在子线网络里，但它引用的触发处不在子线视图里；没有触发处的回溯会恒报 fork-time-mismatch
@@ -103,7 +103,7 @@
 - 安放在已删除章上的记录（章已删除）与未排章的计划，章不在章序里，算不算“没有位置的项”，没写（已实现的内核把章已删除当作没有位置，见 reference.ts:331-333，Spec 里没有这条）。
 - 同一位置、同一种类的几条按根因合并的“套不上”，“按 id”指根因修订的 id 还是哪条变更的 id，没写。
 **为什么是问题**：第一轮第 2 条修好了分页，分页正确的前提是顺序全序且确定。顺序不唯一时，两页之间同位置的项可能重复或漏掉；model 输出 36 要求结果逐字相同，也要求顺序唯一。
-**如何核实**：读上列行号；内核的做法见 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/engine/reference.ts:311-340`。
+**如何核实**：读上列行号；内核的做法见 `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/engine/reference.ts:311-340`。
 **建议改法**：给每一类项定义“排序位置”与“排序 id”。例如：多件事的项取其中最早的安放；没有 id 的项用涉及对象 id 的有序列表的规范 JSON；章不在章序里与未排章的项算“没有位置”。最后加一条兜底：按项的规范 JSON 比较，保证全序。
 
 ### 31. 新的“间隔”形状有三处没定：比历法最小单位更细的间隔、模糊词表本身的合法性（含词套词）、分叉 back 里用了表里没有的词

@@ -8,7 +8,7 @@
 
 - 位置：`packages/neuro-book/src/plugins/lab/web/lab-preferences-store.ts:100-102,114-117`；底层队列语义为 `packages/neuro-book/src/shared/store/persisted.ts:449-460`。
 - 现象：`resetDefaults()` 只清空 `held`，随后直接向已有暂停队列追加 `preferences.reset({})`。保存队首处于 `failed`/`unknown` 时，重置 Promise 不会结算；随后 UI 的 `discard()` 调用 `discardAll()`，会把队首旧修改和排在其后的重置意图一起删除，记录仍保持旧值。用户点击“恢复 Lab 默认配置”后可以看到界面暂时回到默认，但丢弃失败修改后刷新又恢复旧偏好。
-- 核实：运行仓库外实验 `tmp-reset-failure.test.ts`：`bun test /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/tmp-reset-failure.test.ts`，结果 `1 pass / 0 fail`。实验使用真实 `storageWorld`、真实 SQLite 与断线后的 `unknown` 保存结果，确认重置队列为 2、Promise 未结算，`store.actions.discard()` 后队列为 0，重新连接读取到的记录仍为旧值 `{themeId: "paper"}`。
+- 核实：运行仓库外实验 `tmp-reset-failure.test.ts`：`bun test /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/tmp-reset-failure.test.ts`，结果 `1 pass / 0 fail`。实验使用真实 `storageWorld`、真实 SQLite 与断线后的 `unknown` 保存结果，确认重置队列为 2、Promise 未结算，`store.actions.discard()` 后队列为 0，重新连接读取到的记录仍为旧值 `{themeId: "paper"}`。
 - 建议：`resetDefaults()` 在暂停状态下先明确丢弃既有暂停队列，再追加一个新的 reset 意图；或为“恢复默认”提供原子“清除旧意图并重置”操作。必须保留受保护记录覆盖和正常成功路径。
 
 ### C2 重要｜正确性｜主题与配色的地址状态只在首次挂载读取，浏览器路由切换后不会跟随
@@ -29,7 +29,7 @@
 
 - 位置：`packages/neuro-book/src/plugins/lab/web/inspect-checks.ts:117-132`。
 - 现象：`aria-expanded="true"` 且没有 `aria-controls` 时，`popupExists` 退化为 `document.querySelector("[role='listbox']") !== null`。页面上只要存在任意其它列表框，当前 combobox 即被报告为“弹出列表存在”，即使它自己的弹层缺失或尚未挂载，结构检查也会给出错误的通过结果。
-- 核实：运行仓库外 DOM 实验 `tmp-inspect-combobox.ts`：`bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/tmp-inspect-combobox.ts`，使用 `happy-dom` 构造一个没有 `aria-controls` 的展开 combobox 和一个无关 listbox，实际输出 `{"label":"combobox 展开关系","pass":true,"detail":"弹出列表存在"}`。现有 DOM 测试只覆盖有 `aria-controls` 的路径。
+- 核实：运行仓库外 DOM 实验 `tmp-inspect-combobox.ts`：`bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/tmp-inspect-combobox.ts`，使用 `happy-dom` 构造一个没有 `aria-controls` 的展开 combobox 和一个无关 listbox，实际输出 `{"label":"combobox 展开关系","pass":true,"detail":"弹出列表存在"}`。现有 DOM 测试只覆盖有 `aria-controls` 的路径。
 - 建议：没有明确关联时只检查 combobox 的受控后代或 `aria-controls` 目标；无法建立关联就报告“未声明关联”或不通过，不要扫描整个 document。
 
 ### C5 重要｜测试｜全场景 e2e 用 History API 绕过了被审查的 Router 写路径

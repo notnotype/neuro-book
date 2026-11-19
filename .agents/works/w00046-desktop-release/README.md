@@ -69,10 +69,10 @@ updated: 2026-11-15
 | [t13](tasks/t13-tray/README.md) | 托盘与关窗去向。切片 1 到 5 合入 master（82d15e3cc），实现审查已处理；Windows 验收两轮完成（主流程、退出对话框、后台 30 分钟）；自启、缩放图标、资源管理器重启未做，Spec 输出 28 到 31 已晋升 implemented（2026-11-18 开发者批准） |
 | [t14](tasks/t14-system-notifications/README.md) | 系统通知（先实测 WebView2 的网页通知）。调研完，等 Windows 探针 |
 | [t15](tasks/t15-drag-import/README.md) | 从系统拖入文件、图片与文件夹（文件树、编辑器插图、书架导入）。未开工 |
-| [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。实现与两路审查完成并合入 master；切片 6（Windows 拖放手测）等 pc-notype |
+| [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。实现与两路审查完成并合入 master；切片 6（Windows 拖放手测）等 Windows 开发机 |
 | [t20](tasks/t20-background-tasks-from-browser/README.md) | 浏览器入口登记后台任务与可续传上传（t15 批量拖入的前置，2026-11-17 开发者同意分两步）。未开工 |
 | [t17](tasks/t17-window-backdrop/README.md) | 磨砂透明的窗口背景（实验）。已合入 master（f92d24efd），设置缺省关 |
-| [t21](tasks/t21-desktop-polish/README.md) | 开发者 2026-11-18 的第二轮反馈：清理 pc-notype 残留、默认窗口 1600×1000、搜索收窄、标志与项目名对齐、书架顶端像 JetBrains 欢迎页。已完成，合入 master；真实桌面里试书架顶端待开发者 |
+| [t21](tasks/t21-desktop-polish/README.md) | 开发者 2026-11-18 的第二轮反馈：清理 Windows 开发机 残留、默认窗口 1600×1000、搜索收窄、标志与项目名对齐、书架顶端像 JetBrains 欢迎页。已完成，合入 master；真实桌面里试书架顶端待开发者 |
 | [t22](tasks/t22-desktop-user-select/README.md) | 桌面壳里界面框架默认不可选中文字，内容区显式可选（2026-11-18 开发者提出）。完成，合入 master（4d07ba077） |
 | [t23](tasks/t23-macos-desktop/README.md) | macOS 桌面版（Apple Silicon，未签名）：GitHub Actions 构建并补传到 Release（2026-11-18 开发者提出，尽力而为）。v0.14.1 的 Release 上已有 DMG，等真机反馈 |
 | [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、CHANGELOG 与由它生成的中文 Release 说明、发版脚本 `release:prepare`、发布手册、安装包改名。已完成，合入 master；推送后演练待开发者授权 |

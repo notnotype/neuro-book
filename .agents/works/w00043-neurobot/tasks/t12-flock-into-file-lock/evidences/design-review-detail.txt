@@ -22,7 +22,7 @@
 - 建议改法（二选一，写进计划）：
   a) 以 nb-story 那份为底，只把三处报错文字换成英文，保留内联的 `released`，Windows 段字节与实测过的一致；`releaseOnce` 提取不做（省一个特殊写法，也没有收益）。
   b) 保留 `releaseOnce`，但在计划与 ADR 里如实写“Windows 段有改写”，并列入“交开发者在 Windows 机器上跑 nbstory serve 双开、ingest 抢锁”的验收。
-  同时注释以 nb-story 的为底：它保留了“访问权限要按无符号数传、在 pc-notype 上实测报 ERROR_ACCESS_DENIED”这条证据，nb-harness 版删掉了。
+  同时注释以 nb-story 的为底：它保留了“访问权限要按无符号数传、在 Windows 开发机上实测报 ERROR_ACCESS_DENIED”这条证据，nb-harness 版删掉了。
 
 ## 3. 加进 `RELEASE_PACKAGES` 会让 `scripts/release/packages.test.ts` 的现有用例失败，计划没列也没验证
 

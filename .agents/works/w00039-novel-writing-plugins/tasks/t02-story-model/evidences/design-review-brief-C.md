@@ -1,6 +1,6 @@
 # 任务：只读拉远看审查 w00039 t02
 
-审查对象：`docs/proposals/world-engine-kernel.md`。仓库：`/home/notnotype/CodeRepository/neuro-book`（只读）。读审查对象和它链接的文件，需要时自己读代码。
+审查对象：`docs/proposals/world-engine-kernel.md`。仓库：`/home/<user>/CodeRepository/neuro-book`（只读）。读审查对象和它链接的文件，需要时自己读代码。
 
 你是刚加入项目、没参与讨论的架构师。只回答下面几个问题，每个问题给结论与依据（文件:行或外部出处），没有问题的写“没有发现”：
 

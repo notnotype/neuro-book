@@ -1,4 +1,4 @@
-// Minimal client for the jiji-luna channel. Credentials come only from the environment (.env), never from arguments.
+// Minimal client for the relay-a channel. Credentials come only from the environment (.env), never from arguments.
 /** Retries only transport failures (connection reset, timeout). A retried request may already have been billed; the count is logged as an outcome-unknown attempt. */
 // The limit covers reading a streamed body too. A max-effort second review over many long answers can stream past
 // 10 minutes (t31 B04), so LUNA_TIMEOUT_MS may raise it for such runs; the default is unchanged.
@@ -26,8 +26,8 @@ export async function postWithRetry(url: string, init: RequestInit): Promise<Res
 export interface LunaResult { status: number; content: string | null; usage: unknown; ms: number; error: string | null }
 
 export async function callLuna(messages: {role: "system" | "user"; content: string}[], options: {maxTokens: number; json?: boolean}): Promise<LunaResult> {
-    const base = process.env.JIJI_LUNA_BASE_URL, key = process.env.JIJI_LUNA_API_KEY, model = process.env.JIJI_LUNA_MODEL;
-    if (!base || !key || !model) throw new Error("JIJI_LUNA_BASE_URL / JIJI_LUNA_API_KEY / JIJI_LUNA_MODEL are not set");
+    const base = process.env.NBOOK_LLM_BASE_URL, key = process.env.NBOOK_LLM_API_KEY, model = process.env.NBOOK_LLM_MODEL;
+    if (!base || !key || !model) throw new Error("NBOOK_LLM_BASE_URL / NBOOK_LLM_API_KEY / NBOOK_LLM_MODEL are not set");
     const started = Date.now();
     const response = await postWithRetry(`${base}/chat/completions`, {
         method: "POST",
@@ -49,8 +49,8 @@ export interface LunaChat { status: number; message: any; usage: any; ms: number
 
 /** Raw chat call for tool use; the caller owns the message list and tool schema. */
 export async function chatLuna(body: Record<string, unknown>): Promise<LunaChat> {
-    const base = process.env.JIJI_LUNA_BASE_URL, key = process.env.JIJI_LUNA_API_KEY, model = process.env.JIJI_LUNA_MODEL;
-    if (!base || !key || !model) throw new Error("JIJI_LUNA_BASE_URL / JIJI_LUNA_API_KEY / JIJI_LUNA_MODEL are not set");
+    const base = process.env.NBOOK_LLM_BASE_URL, key = process.env.NBOOK_LLM_API_KEY, model = process.env.NBOOK_LLM_MODEL;
+    if (!base || !key || !model) throw new Error("NBOOK_LLM_BASE_URL / NBOOK_LLM_API_KEY / NBOOK_LLM_MODEL are not set");
     const started = Date.now();
     const response = await postWithRetry(`${base}/chat/completions`, {
         method: "POST",
@@ -71,8 +71,8 @@ export interface LunaStream { status: number; content: string; finishReason: str
  * consecutive whitespace characters arrive the stream is cancelled and the result carries finishReason "runaway"; the
  * usage field is then missing because the gateway sends it only with the final chunk. */
 export async function streamLuna(messages: {role: "system" | "user"; content: string}[], options: {maxTokens: number; effort?: string; json?: boolean; runawayWhitespace?: number}): Promise<LunaStream & {resends: number}> {
-    const base = process.env.JIJI_LUNA_BASE_URL, key = process.env.JIJI_LUNA_API_KEY, model = process.env.JIJI_LUNA_MODEL;
-    if (!base || !key || !model) throw new Error("JIJI_LUNA_BASE_URL / JIJI_LUNA_API_KEY / JIJI_LUNA_MODEL are not set");
+    const base = process.env.NBOOK_LLM_BASE_URL, key = process.env.NBOOK_LLM_API_KEY, model = process.env.NBOOK_LLM_MODEL;
+    if (!base || !key || !model) throw new Error("NBOOK_LLM_BASE_URL / NBOOK_LLM_API_KEY / NBOOK_LLM_MODEL are not set");
     const runawayLimit = options.runawayWhitespace ?? 2000;
     for (let resends = 0; ; resends++) {
         const started = Date.now();

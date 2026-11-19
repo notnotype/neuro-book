@@ -97,6 +97,7 @@ The external AIGC detector and LLM Agent channels are optional. They read `evals
 cp evals/eval.config.example.json evals/eval.config.json
 ```
 
+- `datasetsRoot`, `proxy`, and CLI relay addresses are placeholders; replace them for your environment.
 - `detector` configures the external AIGC detector. Set `proxy` where required, or remove it for direct access.
 - `repair.model` and `classifier.model` select the LLM channels.
 - `modelsConfig` points to a NeuroBook-compatible model configuration containing API keys. Never commit API keys.

@@ -1,4 +1,4 @@
-# Windows 上跑 smoke:server（2026-11-13，pc-notype：Windows 11 26200 x64，Bun 1.4.4 独立版，代码为 master 0ac934e53 打出的 dist/server）
+# Windows 上跑 smoke:server（2026-11-13，Windows 开发机：Windows 11 26200 x64，Bun 1.4.4 独立版，代码为 master 0ac934e53 打出的 dist/server）
 # smoke-server.ts 用 bun build 打成单文件，build:server 换成空操作；依赖 @oh-my-pi/* 在 Windows 上 bun install。
 # S2 失败是预期：Windows 没有 SIGTERM，child.kill("SIGTERM") 直接结束进程，exit=null。
 skip-build

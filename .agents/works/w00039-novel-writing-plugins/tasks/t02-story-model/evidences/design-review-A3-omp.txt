@@ -1,5 +1,5 @@
 w00039 t02 第三轮只读设计审查 A3：第三版新增数据合同
-对象：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-A3/docs/proposals/world-engine-kernel.md（提交 a95e7930c，status: reviewing）。
+对象：/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-A3/docs/proposals/world-engine-kernel.md（提交 a95e7930c，status: reviewing）。
 范围：任务指定的九组第三版数据合同；只审领域模型与后端，作者界面仅在影响模型时涉及；最后逐项判断第七部分四个待定项。
 依据：主工作区 Work / Task 快照、开发者决定、第一轮逐条处理、第二轮 R1—R35 处理及 A2 报告；不重报已闭合的问题。
 方法：逐字合同核对、构造最小输入并手工重放；需要时只在指定 A3/tmp 目录作语法探针。不运行测试、e2e、开发服务或第二版夹具，不修改仓库。

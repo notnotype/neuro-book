@@ -1,7 +1,7 @@
 // 临时诊断：拖动时每帧几次样式重算，谁触发的。开发服务是未压缩的，函数名和行号可读。不提交事务：Escape 取消。
 import {createRequire} from "node:module";
 import {writeFileSync} from "node:fs";
-const require = createRequire("/home/notnotype/CodeRepository/neuro-book/package.json");
+const require = createRequire("/home/<user>/CodeRepository/neuro-book/package.json");
 const {chromium} = require("playwright");
 
 const URL_ = process.env.DIAG_URL ?? "http://127.0.0.1:4217/?project=sample";

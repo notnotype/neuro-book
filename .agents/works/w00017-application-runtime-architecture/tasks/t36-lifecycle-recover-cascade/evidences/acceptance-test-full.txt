@@ -1,6 +1,6 @@
 $ vitest run
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
  ❯ server/agent/profiles/rp-profiles.test.ts (9 tests | 2 failed) 2662ms
      × rp.leader 作为 RP 用户交流层，读取 manual 并调用 simulator.leader 13ms
@@ -46,19 +46,19 @@ $ vitest run
 [warn] { path: 'copies/source/a.md',
   error:
    Error: history unavailable
-       at Object.waitForWarmup (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.test.ts:215:86)
-       at recordSafely (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:490:22)
-       at recordProjectWrite (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:447:11)
-       at batchWorkspacePathsTracked (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.ts:327:46)
-       at SnapshotCache.runMutation (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/file-snapshot-cache/src/snapshot-cache.ts:437:20) } workspace-history 记账失败（fail-open 降级，历史由对账自愈）
+       at Object.waitForWarmup (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.test.ts:215:86)
+       at recordSafely (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:490:22)
+       at recordProjectWrite (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:447:11)
+       at batchWorkspacePathsTracked (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.ts:327:46)
+       at SnapshotCache.runMutation (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/file-snapshot-cache/src/snapshot-cache.ts:437:20) } workspace-history 记账失败（fail-open 降级，历史由对账自愈）
 [warn] { path: 'copies/other.md',
   error:
    Error: history unavailable
-       at Object.waitForWarmup (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.test.ts:215:86)
-       at recordSafely (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:490:22)
-       at recordProjectWrite (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:447:11)
-       at batchWorkspacePathsTracked (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.ts:310:46)
-       at SnapshotCache.runMutation (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/file-snapshot-cache/src/snapshot-cache.ts:437:20) } workspace-history 记账失败（fail-open 降级，历史由对账自愈）
+       at Object.waitForWarmup (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.test.ts:215:86)
+       at recordSafely (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:490:22)
+       at recordProjectWrite (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:447:11)
+       at batchWorkspacePathsTracked (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.ts:310:46)
+       at SnapshotCache.runMutation (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/file-snapshot-cache/src/snapshot-cache.ts:437:20) } workspace-history 记账失败（fail-open 降级，历史由对账自愈）
 (node:3307512) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 (Use `node --trace-warnings ...` to show where the warning was created)
  ❯ server/storage/storage-service.test.ts (36 tests | 1 failed) 1026ms
@@ -71,8 +71,8 @@ $ vitest run
   phase: 'maintenance',
   error:
    Error: injected maintenance failure
-       at /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history-module.test.ts:155:36
-       at file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20 } workspace-history warm-up失败
+       at /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history-module.test.ts:155:36
+       at file:///home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20 } workspace-history warm-up失败
 (node:3307648) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 (Use `node --trace-warnings ...` to show where the warning was created)
 (node:3307661) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
@@ -84,11 +84,11 @@ $ vitest run
 [warn] { path: 'manuscript/ch1.md',
   error:
    { LibsqlError: CLIENT_CLOSED: The client is closed
-       at Sqlite3Client.#checkNotClosed (file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@libsql/client/lib-esm/sqlite3.js:201:19)
-       at Sqlite3Client.execute (file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@libsql/client/lib-esm/sqlite3.js:82:29)
-       at nameEndState (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/views.ts:183:29)
-       at WorkspaceHistory.implicitReconcile (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/workspace-history.ts:830:41)
-       at /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/workspace-history.ts:165:41
+       at Sqlite3Client.#checkNotClosed (file:///home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@libsql/client/lib-esm/sqlite3.js:201:19)
+       at Sqlite3Client.execute (file:///home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@libsql/client/lib-esm/sqlite3.js:82:29)
+       at nameEndState (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/views.ts:183:29)
+       at WorkspaceHistory.implicitReconcile (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/workspace-history.ts:830:41)
+       at /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/workspace-history.ts:165:41
        at processTicksAndRejections (node:internal/process/task_queues:104:5)
      code: 'CLIENT_CLOSED',
      extendedCode: undefined,
@@ -113,15 +113,15 @@ $ vitest run
    '/tmp/neuro-book/test-paths/nbook-world-engine-cleanup-retry-ih1qJe/world-engine/.runtime-artifact-import-cache',
   error:
    Error: simulated EBUSY
-       at Object.<anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.test.ts:48:23)
-       at Object.rm (file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/spy/dist/index.js:332:34)
-       at removeOldRuntimeCache (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:287:14)
-       at importHashedTypeScript (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:269:19)
+       at Object.<anonymous> (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.test.ts:48:23)
+       at Object.rm (file:///home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/spy/dist/index.js:332:34)
+       at removeOldRuntimeCache (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:287:14)
+       at importHashedTypeScript (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:269:19)
        at processTicksAndRejections (node:internal/process/task_queues:104:5)
-       at importValidatedHashedTypeScript (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:241:12)
-       at importSingleFileTypeScriptConfig (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:60:16)
-       at /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.test.ts:62:9
-       at file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20 } World Engine 旧 runtime artifact cache 清理失败，将在后续加载重试
+       at importValidatedHashedTypeScript (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:241:12)
+       at importSingleFileTypeScriptConfig (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:60:16)
+       at /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.test.ts:62:9
+       at file:///home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20 } World Engine 旧 runtime artifact cache 清理失败，将在后续加载重试
 
 ⎯⎯⎯⎯⎯⎯ Failed Tests 23 ⎯⎯⎯⎯⎯⎯⎯
 

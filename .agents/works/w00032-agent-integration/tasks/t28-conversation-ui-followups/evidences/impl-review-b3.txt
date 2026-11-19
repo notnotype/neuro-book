@@ -55,7 +55,7 @@
 - **位置**：`packages/nb-harness/src/kernel/session/session.ts:80-91,370-383`；`packages/neuro-book/src/plugins/agent/backend/remote.ts:84-88,128`；`packages/neuro-book/src/plugins/agent/shared/remote.ts:152-154`。
 - **现象**：分页只按节点个数限制为 2,000，未按 UTF-8 编码大小分页。实际构造 2,000 个常规 12 字节 id、80 个中文字符标签的节点，查询结果是 **652,922 字节**，超过 **524,288 字节**的 `PAGE_BYTES`。远程 `whole` 必然返回 `result-too-large`，宿主显示树不可用，拿不到 through 也不能继续。
 - **为什么是问题**：“节点约 200 字节，所以一定放得下”的假设不成立；80 个中文字符仅标签就有 240 字节。远程输入又不提供 limit，宿主连缩小页的补救入口都没有。该查询本来就是为大消息不破坏整棵树而新增，合法的标签密度反而使它断树。
-- **如何核实**：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/algorithm-smoke.ts`。实验抽取原查询与标签函数，`chinese-tree-page-size` 输出 `nodes:2000, bytes:652922, maximum:524288`；未运行真实远程端点。现有结构查询测试只用几条短文字，没有覆盖页大小。结果见同目录 `algorithm-results.jsonl`。
+- **如何核实**：已运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/algorithm-smoke.ts`。实验抽取原查询与标签函数，`chinese-tree-page-size` 输出 `nodes:2000, bytes:652922, maximum:524288`；未运行真实远程端点。现有结构查询测试只用几条短文字，没有覆盖页大小。结果见同目录 `algorithm-results.jsonl`。
 - **建议改法**：远程层沿用已有 `pageOf` 的按字节裁切，修正 `more` 和 `through` 到实际交付的最后一个节点，保留协议余量；或让内核直接维护字节预算。不能仅把中文标签截得更短来掩盖合法结构页超限。
 
 ### 7. 第一条用户消息被编辑后产生的根分叉，在默认树里没有分叉数、缩进或收起入口
@@ -171,7 +171,7 @@
 
 ## 补充验证与更正
 
-- 第 6 条新增可达形状验证：工具等待期间排队 1,992 条 steer，下一个边界依次消费；页包含少量正常前缀和这些 steer，共 2,000 节点、**643,485 字节**，仍超过 524,288。与早先 2,000 条全 assistant 的容量压力形状区分：这个样本的节点类型密度可由真实内核产生。命令 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/edge-smoke.ts`，已成功退出。
+- 第 6 条新增可达形状验证：工具等待期间排队 1,992 条 steer，下一个边界依次消费；页包含少量正常前缀和这些 steer，共 2,000 节点、**643,485 字节**，仍超过 524,288。与早先 2,000 条全 assistant 的容量压力形状区分：这个样本的节点类型密度可由真实内核产生。命令 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/edge-smoke.ts`，已成功退出。
 - 第 8 条抽取算法实测：steer 在第 8 个路径节点，选中的分支目标为 `input`，位于 steer 之前；`steer-branch-selected` 的 `selectedBeforeSteer:true`。
 - 第 12 条位置更正：`branchPointsOf` 是 `packages/nb-harness/src/kernel/run/tree.ts:101-107`，不是先前误写的 `session/session.ts:101-107`；后者只负责在 369 行提供查询。4,000 个点的 **572,001 字节**结果已实际追加到 `algorithm-results.jsonl`，不再仅是命令输出。12,000 是紧凑二叉分叉形状的节点量级示例，不是实际会话事件计数；有轮次/模型/工具事件时实际源事件更多。
 - 第 13 条补到 **2,001 个** path 事件验证：limit 为 -1、1.5、NaN 时都返回 nodes=2001、more=false，实际突破 2,000 上限。早先 2,000 项样本只证明 limit 被忽略，不能单凭该样本声称已经突破 2,000。
@@ -184,7 +184,7 @@
 
 ## 无计数对照与既有测试
 
-- **无计数性能对照已运行**：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/performance-plain.ts`。同一 100,000 事件、1,000 个嵌套分叉样本，直接调用抽取的原算法与索引方法，不挂计数代理，`branchPointsOf` **17,600.486 ms**；线性 100,000 事件读完 50 页，`pathEventsAfter` **50.604 ms**。第 9 条 24,407.067 ms 包含计数开销，性能结论以本次无计数对照为主；两者复杂度计数一致。仍不是完整服务基准。
+- **无计数性能对照已运行**：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/performance-plain.ts`。同一 100,000 事件、1,000 个嵌套分叉样本，直接调用抽取的原算法与索引方法，不挂计数代理，`branchPointsOf` **17,600.486 ms**；线性 100,000 事件读完 50 页，`pathEventsAfter` **50.604 ms**。第 9 条 24,407.067 ms 包含计数开销，性能结论以本次无计数对照为主；两者复杂度计数一致。仍不是完整服务基准。
 - **既有纯 TS 测试已运行**：`bun test ./packages/nb-agent-ui/src/session-tree.test.ts`，**7 pass、0 fail、27 expect() calls**，Bun **1367.00 ms**。该文件无外部运行依赖，可以在无 node_modules 的 worktree 直接执行；没有因此安装依赖或转用主工作区依赖。
 - **未运行**：真实内核 `tree.test.ts`、`kernel-transcript.test.ts`、宿主 `session-host.test.ts`、远程 `sessions.test.ts`，原因是无 worktree 依赖，且按审查规则不安装；typecheck、变异检查、e2e、开发服务也未运行。
 
@@ -194,7 +194,7 @@
 - 第 7 条收窄到**节点级分叉关系、缩进线、折叠与图分叉导航**丢失；树面板的总分叉数另行按未过滤的节点统计（`AgentSessionTree.vue:55-60`），不会显示成 0。原文“界面算法报告没有分叉”只指 `sessionTreeRows[].forks` 和图的 `node.fork`，不指面板顶栏总数。
 - 第 15 条是从宿主代码推断的响应乱序风险，未在真实远程传输运行时复现；最终降为**建议**，不列已实测失败。
 - 第 10 条提到的出站过滤成本是内核可选合同下的问题；当前 `nbook.agent` 后端代码没有配置 outbound 的命中。不能写成当前普通用户对话打开树必然花 614 MB 正文过滤。输出 80 的“不读全文”仍与该合法内核配置不符，最终保留为**建议**，由内核维护者决定专用投影接口。
-- 本报告中的源码相对路径全部以被审 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/t28-impl-review/` 为根；规范与 Task 依据以主工作区 `/home/notnotype/CodeRepository/neuro-book/` 为根。
+- 本报告中的源码相对路径全部以被审 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/t28-impl-review/` 为根；规范与 Task 依据以主工作区 `/home/<user>/CodeRepository/neuro-book/` 为根。
 
 ## 最终问题索引（按影响排序，以本节级别和上文更正为准）
 

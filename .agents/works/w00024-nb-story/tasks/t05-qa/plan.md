@@ -164,7 +164,7 @@ Skill 不改（决定：Skill 不变）。
 ## 验证
 
 - S1 到 S4：`bun run --cwd packages/nb-story typecheck`、`bun run --cwd packages/nb-story test`、`bun run --cwd packages/nb-harness test`；`bun run docs:check`。
-- S5 Smoke：本机配置指向 luna 渠道（`baseUrl` 取 `JIJI_LUNA_BASE_URL`，`id` 为 `gpt-6-luna`，`apiKeyEnv: JIJI_LUNA_API_KEY`，`maxTokens` 16000，`thinking` 不写，与 w00005 t34 作答一致），在样例书上 `nbstory ask` 一问，再 `nbstory qa` 列出与显示。
+- S5 Smoke：本机配置指向 luna 渠道（`baseUrl` 取 `NBOOK_LLM_BASE_URL`，`id` 为 `gpt-6-luna`，`apiKeyEnv: NBOOK_LLM_API_KEY`，`maxTokens` 16000，`thinking` 不写，与 w00005 t34 作答一致），在样例书上 `nbstory ask` 一问，再 `nbstory qa` 列出与显示。
 - S5 回归：Task 目录下新写 `scripts/qa-eval.ts`（不沿用 t03 的 `skill-eval-check.ts`：它固定 16 题三遍、缺答时仍以 0 退出）。
   - **输入清单**（写进脚本头并在报告里列出）：题集 t34 `questions-ch21-100-fixed.json`（56 题）与 `questions-knowledge16.json`；原文 t23 `evidences/source-ch001-100.json`；判分器 t22 `scripts/judge-v2.ts`（判分模型参数沿用它的 xhigh、16000 输出上限）；样例书 `packages/nb-story/tests/fixtures/sample-100ch.json.gz`；Profile 版本、作答模型与请求参数。
   - **三批**：图当目录 56 题 × 3（168 份，门槛错 33 份以内）、图当目录 16 题 × 3（48 份，门槛 11 份以内）、全读 16 题 × 1（16 份，只记录）。每批声明题 id、遍数与应有份数。

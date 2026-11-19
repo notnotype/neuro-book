@@ -1,6 +1,6 @@
 # 任务：只读实现审查 w00017 t84（菜单贡献点）
 
-你在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-impl/wt`（detached，提交 `734e3a5cb`）。这是 NeuroBook v2 新应用（`packages/neuro-book`：前端 Vue，后端 Bun，插件化工作台，内核在 `packages/nb-runtime`）与共享组件库（`packages/nb-ui`）；旧应用 `packages/neuro-book-legacy` 只作参照。各级 `node_modules` 是指向另一个 worktree 的符号链接，可以在 `packages/neuro-book` 下运行 `bun test ./<文件>`（路径带 `./`）、`bun x vitest run <文件>` 与 `bun run typecheck`，在 `packages/nb-ui` 下运行 `bun x vitest run <文件>`。
+你在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-impl/wt`（detached，提交 `734e3a5cb`）。这是 NeuroBook v2 新应用（`packages/neuro-book`：前端 Vue，后端 Bun，插件化工作台，内核在 `packages/nb-runtime`）与共享组件库（`packages/nb-ui`）；旧应用 `packages/neuro-book-legacy` 只作参照。各级 `node_modules` 是指向另一个 worktree 的符号链接，可以在 `packages/neuro-book` 下运行 `bun test ./<文件>`（路径带 `./`）、`bun x vitest run <文件>` 与 `bun run typecheck`，在 `packages/nb-ui` 下运行 `bun x vitest run <文件>`。
 
 审查对象：`01722510f..HEAD` 的提交（`git log --oneline 01722510f..HEAD`：S0 Spec、S1 共同合同、按计划审查修订 Spec、S2 标题栏菜单、S3 视图标题、S4 资源管理器右键、S5 编辑区标题；其中 `0e4728679` 只含组件改名，它的其余改动在下一个提交 `734e3a5cb`）。**先读完整的 diff**（`git diff 01722510f..HEAD -- <路径>`），再做系统性审查。
 
@@ -26,13 +26,13 @@
 
 ## 规则
 
-- 只读：不修改检出里任何被跟踪的文件，不 commit、push、stash、切换分支，不删除文件。实验文件只放在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-impl/`。
+- 只读：不修改检出里任何被跟踪的文件，不 commit、push、stash、切换分支，不删除文件。实验文件只放在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-impl/`。
 - 可以跑 `bun test ./<文件>`、`bun x vitest run <文件>`、`bun run typecheck`；要跑 vitest 时如需配置，写到上面的目录，`cacheDir` 指向那里。不要跑 e2e、开发服务、构建与 `bun install`。需要真实浏览器才能确认的，写清楚如何核实，标“未在浏览器中复现”。
 - 报告文件**只追加**：每核实一条就用追加方式写入（例如 `cat >> report.md <<'EOF'`），不要整文件重写，不要等到最后。结束前用 `grep -c '^### C' report.md` 自查条数与正文一致。
 - 用中文写。
 
 ## 报告
 
-写到 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-impl/report.md`。
+写到 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-impl/report.md`。
 
 每条问题用三级标题 `### C<编号> <一句话>`，按发现顺序编号。每条写：**严重程度**（阻断、重要、建议）、**类别**、**位置**（文件:行）、**现象**、**为什么是问题**、**如何核实**（命令或实验，以及你是否已经跑过、结果）、**建议改法**。最后追加一节“各级数量”。

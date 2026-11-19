@@ -1,6 +1,6 @@
 $ vitest run "app/utils/workbench/t42-leader-probe-verbatim.test.ts"
 
- RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+ RUN  v4.1.10 C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
 
  ❯ app/utils/workbench/t42-leader-probe-verbatim.test.ts (1 test | 1 failed) 5013ms
    × 离开到用户资产后，旧enterProject等待释放完成不能重新安装Project 5009ms

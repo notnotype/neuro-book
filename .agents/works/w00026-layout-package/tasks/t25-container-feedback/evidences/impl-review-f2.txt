@@ -1,7 +1,7 @@
 # w00026 t25 第 2 条实现审查（Claude Sonnet 5.5，claude -p，只读；审查对象 94af03bd8..f19a0a0e8）
-# 说明：/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t25-f2/brief-cli.md（审查者没写成报告文件，以下是它的最终回复）
+# 说明：/home/<user>/.claude/jobs/03f32b6c/tmp/review-t25-f2/brief-cli.md（审查者没写成报告文件，以下是它的最终回复）
 
-报告文件写不进去（`/home/notnotype/.claude/jobs/...` 被拦为敏感路径，`cat >>` 和 Write 都被拒），所以整份报告放在下面。
+报告文件写不进去（`/home/<user>/.claude/jobs/...` 被拦为敏感路径，`cat >>` 和 Write 都被拒），所以整份报告放在下面。
 
 已跑：`bun test src/plugins/workbench/web src/plugins/editor/area.test.ts src/plugins/workbench/locales.test.ts`，387 通过 0 失败。`bun run typecheck` 只有已知的 MarkdownToolbar 一处错误，tsc 在那里停下，两份 vue-tsc 没跑到。没跑 e2e 与 nb-layout 测试。
 

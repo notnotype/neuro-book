@@ -15,7 +15,7 @@
 ### 2. 切片 4 审查第 12 条只修了一半：收成标题行的分节，键盘剩下的“前”停靠点仍换算到正文外面，解析成下一节的前面
 - **严重程度**：建议；**类别**：正确性
 - **位置**：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:701-711（`pointOfCandidate` 的 `edge === "top"` → `{x: center.x, y: body.top + 2}`）；nb-layout/src/layout-drop.ts:476（候选已改成只列前一个）
-- **现象**：候选表现在对收起的分节只列 `split(s1, top)`，和指针一致；但键盘停靠点由 `pointOfCandidate` 换成点再交给指针规则（`dropAt`），正文零高时 `body.top + 2` 在分节下沿往下 2px，落进下一节的标题行。实验 `/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/collapsed-keyboard-stop.test.ts`（直接调 nb-layout 的 `enumerateDropCandidates` 与 `resolveLayoutDrop`，几何是手写的：s1 标题行 0-30、正文 30-30，s2 标题行 31-61；绕过了 DOM 与真实量出的几何）在 packages/nb-layout 下 `bun test` 通过，打印：候选 `[split s1 top]`，这个停靠点解析成 `split s2 top`。也就是键盘在 s1 上停下，提示与放下都是“s2 前面”（和 s2 自己的前停靠点重复），“s1 前面”这个位置键盘到不了。第 12 条原文已经指出“‘前’的停靠点落到缝或下一节”，修正只删了“后”。
+- **现象**：候选表现在对收起的分节只列 `split(s1, top)`，和指针一致；但键盘停靠点由 `pointOfCandidate` 换成点再交给指针规则（`dropAt`），正文零高时 `body.top + 2` 在分节下沿往下 2px，落进下一节的标题行。实验 `/home/<user>/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/collapsed-keyboard-stop.test.ts`（直接调 nb-layout 的 `enumerateDropCandidates` 与 `resolveLayoutDrop`，几何是手写的：s1 标题行 0-30、正文 30-30，s2 标题行 31-61；绕过了 DOM 与真实量出的几何）在 packages/nb-layout 下 `bun test` 通过，打印：候选 `[split s1 top]`，这个停靠点解析成 `split s2 top`。也就是键盘在 s1 上停下，提示与放下都是“s2 前面”（和 s2 自己的前停靠点重复），“s1 前面”这个位置键盘到不了。第 12 条原文已经指出“‘前’的停靠点落到缝或下一节”，修正只删了“后”。
 - **为什么是问题**：重点 4 要的“指针、分区、键盘三处同一个判定”在候选这一层成立了，在停靠点这一层仍不成立；收起的分节是区域第一节时，键盘没有任何方式插到它前面。
 - **如何核实**：上面的实验。真实运行时：dnd 场地里把侧栏第一节收成标题行，键盘拿起底部面板的视图，Tab 进侧栏那一列，停在收起那一节上，读提示与 `data-drop-kind`、放下后看新分节排在收起那节之前还是之后（按推断是之后）。
 - **建议改法**：分节的停靠点不借正文外缘的点：沿区域方向的前半取标题行中心（`geometry.strip` 的中心，`sectionHalf` 对上下分的区域把标题行算前半），后半取正文后半的中心。这样收起与否用同一套点，也不依赖 2px 的内缩。
@@ -23,7 +23,7 @@
 ### 3. `{container: "view:X"}` 在 X 声明了别的容器时也算“有声明”：凭空建出一个不属于任何视图的隐式容器，落在 X 的 `location` 而不是 X 的容器所在的区域
 - **严重程度**：建议；**类别**：正确性
 - **位置**：packages/neuro-book/src/plugins/workbench/web/state/containers.ts:144-148（`containerHomeRegion` 的隐式分支）；layout-doc-store.ts:495（`moveView` 用它判“有没有声明”）
-- **现象**：`containerHomeRegion("view:x")` 只看 `views.get("x").location`，不看 x 是否写了 `container`。实验 `/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/implicit-target.test.ts`（packages/neuro-book 下 `bun test` 通过；纯函数，不涉及运行时）：x 声明 `container: "acme.group"`（侧栏）、`location: "auxiliarybar"`，`viewHome(x)` 是 `acme.group/sidebar`，`containerHomeRegion("view:x")` 却给 `auxiliarybar`。于是 `move-view {viewId: y, container: "view:x"}` 不报 `stale-target`，而是在右栏建出 id 为 `view:x`、成员只有 y 的容器，标题取 y 的；它不是 `custom:`，空了以后 id 也一直留在锚的 `entries` 里（`settleContainers` 只删 `custom:`）。
+- **现象**：`containerHomeRegion("view:x")` 只看 `views.get("x").location`，不看 x 是否写了 `container`。实验 `/home/<user>/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/implicit-target.test.ts`（packages/neuro-book 下 `bun test` 通过；纯函数，不涉及运行时）：x 声明 `container: "acme.group"`（侧栏）、`location: "auxiliarybar"`，`viewHome(x)` 是 `acme.group/sidebar`，`containerHomeRegion("view:x")` 却给 `auxiliarybar`。于是 `move-view {viewId: y, container: "view:x"}` 不报 `stale-target`，而是在右栏建出 id 为 `view:x`、成员只有 y 的容器，标题取 y 的；它不是 `custom:`，空了以后 id 也一直留在锚的 `entries` 里（`settleContainers` 只删 `custom:`）。
 - **为什么是问题**：输出 41 说三类 id 互不重叠，隐式容器只属于“没写 `container` 的视图”；x 写了容器，`view:x` 就既没有成员也没有声明，按 commands.md 应是 `stale-target`。之后若 x 的插件去掉 `container`，x 的“重置位置”会并进 y 所在的这个容器。只有直接带参数调用才走得到（菜单与命令面板不列没有成员的容器），所以记建议。
 - **如何核实**：上面的实验；或在 view-commands.test.ts 的场地里给某个视图声明一个容器，再以 `{viewId: 别的视图, container: "view:<它>"}` 执行，看到 `ok: true` 与新建的 `view:<它>` 容器。
 - **建议改法**：`containerHomeRegion` 的隐式分支加一个条件：`viewHome(那个视图).container === container` 才返回 `location`，否则 null。它也给入口菜单的“重置”（`canResetContainer`）用，同样该这样判，改一处两边都对。
@@ -45,7 +45,7 @@
 - **建议改法**：第 496 行改成断言隐藏的右栏没有停靠点（例如走遍时记下 `data-drop-panel` 或落点所在的叶，断言不含右栏的分节），第 1251 行从列表里删掉 `"reveal"`。`showPanelAndInsert` 连同它的测试删掉；若想留，至少在 JSDoc 写明“只对没有锚的文档成立，工作台不用”。
 
 ### 1 补充（第 1 条的实验、严重程度与 e2e 写法更正）
-- **实验**（绕过 DOM 与真实运行时：直接驱动 `createLiveDrag`，候选与时序手写，宿主照 HEAD 的 layout-drag.ts 写：`isHomeStrip` 认 BAR_STRIP，`candidateDoc` 对 `join-container` 返回已提交文档、对 `center` 返回摘掉来源的文档）：`/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/live-join-after-collapse.test.ts`，packages/neuro-book 下 `bun test` 通过。先给 `center(g0)` 等 200ms：`collapseSource` 调 1 次，`show` 收到摘掉来源的文档；再给 `join-container(view:b)` 等 200ms：不再收起，`show` 收到的是已提交的文档。也核对了 HEAD 的 layout-drag.ts:373-389（`entryDrop`）与 :519-529（`barAfterCollapse`）本次没动：收起后判定用的入口几何已上移，指针在 B 上给出 `join-container(B)`、`inPlace` 为假。
+- **实验**（绕过 DOM 与真实运行时：直接驱动 `createLiveDrag`，候选与时序手写，宿主照 HEAD 的 layout-drag.ts 写：`isHomeStrip` 认 BAR_STRIP，`candidateDoc` 对 `join-container` 返回已提交文档、对 `center` 返回摘掉来源的文档）：`/home/<user>/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/live-join-after-collapse.test.ts`，packages/neuro-book 下 `bun test` 通过。先给 `center(g0)` 等 200ms：`collapseSource` 调 1 次，`show` 收到摘掉来源的文档；再给 `join-container(view:b)` 等 200ms：不再收起，`show` 收到的是已提交的文档。也核对了 HEAD 的 layout-drag.ts:373-389（`entryDrop`）与 :519-529（`barAfterCollapse`）本次没动：收起后判定用的入口几何已上移，指针在 B 上给出 `join-container(B)`、`inPlace` 为假。
 - **严重程度**：按代码与上面的状态机实验是“重要”；实验绕过了真实运行时，按规则降一级，记为“建议”，待主 Agent 用下面的 e2e 复现后按“重要”处理。
 - **e2e 写法更正**：拖动中甲的内容在卡片上，“甲那一节看不见”不能按内容判，要按分节的叶判：断言 `[data-leaf="<甲的分节 id>"]` 不可见（或不在侧栏的矩形里），以及活动栏 `[data-tool-band] [data-tool-entry]` 的数目比拿起前少 1。最有区分力的一句是：带并入高亮的入口（`[data-tool-merge]`）的矩形包含指针。
 

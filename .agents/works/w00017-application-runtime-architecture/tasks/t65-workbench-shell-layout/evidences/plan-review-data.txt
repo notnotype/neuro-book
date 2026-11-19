@@ -84,9 +84,9 @@
 | 实际命令 | 运行目录 | 结果 |
 |---|---|---|
 | `prox bun install --frozen-lockfile` | 本审查 worktree 根 | 成功，`1560 packages installed [2.12s]`；根 postinstall 同时成功执行了 harness build，额外生成被忽略的 dist，见下面的环境偏差 |
-| `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/data/review-smoke.ts` | 本审查 worktree 根 | 首轮退出 1：断链立即写入实际返回 unknown，而初版断言预期 failed；纠正实验时序认识后，第二轮完整退出 0。两轮均关闭所有已启动实例。Bun 另输出目录 mismatch 内部诊断，后续在 scratch 自有 tsconfig 下运行没有该诊断 |
+| `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/data/review-smoke.ts` | 本审查 worktree 根 | 首轮退出 1：断链立即写入实际返回 unknown，而初版断言预期 failed；纠正实验时序认识后，第二轮完整退出 0。两轮均关闭所有已启动实例。Bun 另输出目录 mismatch 内部诊断，后续在 scratch 自有 tsconfig 下运行没有该诊断 |
 | `bun review-smoke.ts` | 本报告目录 | 最终扩展 smoke 退出 0；base/display、组替换丢写与窄改保留、同值 revision、unknown 重试、读取失败 reopen/retry、坏记录与未来版本保护、project/user 选择、提供方停止、项目代次拒绝、store 停止和严格命令入口全部断言通过；Storage 场地 9 个实例、命令场地 2 个实例全部 closed |
-| `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-plan-data/node_modules/.bin/tsc -p tsconfig.json --noEmit` | 本报告目录 | 首轮退出 2：临时接口缺 store 的 Record 约束，临时配置未包含仓库既有 proper-lockfile 声明；修正临时类型并包含该声明后退出 0。只检查临时 smoke 及其导入，不等于应用全量 typecheck |
+| `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t65-plan-data/node_modules/.bin/tsc -p tsconfig.json --noEmit` | 本报告目录 | 首轮退出 2：临时接口缺 store 的 Record 约束，临时配置未包含仓库既有 proper-lockfile 声明；修正临时类型并包含该声明后退出 0。只检查临时 smoke 及其导入，不等于应用全量 typecheck |
 | `git status --short --untracked-files=normal` | 本审查 worktree 根 | 退出 0，无输出：受跟踪文件和非忽略未跟踪文件没有变化 |
 
 最终运行原始 stdout 已保存到 `runtime-smoke.log`；脚本为 `review-smoke.ts`，配置为 `tsconfig.json`，最终运行数据目录为 `run-eb96598a-370c-4000-8863-7816390d4a17/`。没有运行仓库合同测试套件、产品全量 typecheck、开发服务、e2e、截图或变异检查；t65 尚未实现，F04 的产品后果仅是代码推断。

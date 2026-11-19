@@ -64,7 +64,7 @@
 - **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:70-71,77-82`。
 - **现象**：第 81 行把“不用 `ns:key`、命名空间经选项传”作为拦住分隔符默认行为的办法，但 i18next 26.5.11 即使收到 `{ns:"own"}`，仍先从键解析命名空间。实测 `t("other:title", {ns:"own"})` 返回的是 `other` 的文字；加 `nsSeparator:false` 才不切换。
 - **为什么是问题**：目录检查只保证目录自己的键不含 `:`，不检查运行时传来的 `TextRef.key`；第三方键又不在宿主编译期键联合中。`ctx.text` 只绑定 `ns` 而不限制 key，不能兑现“命名空间由插件身份绑定，不能伪造”的承诺。插件完全受信，这不是沙箱漏洞，但会误取别的拥有者文案，正是本节说要消除的错文案问题；错误码白名单只护住失败码，护不住一般 TextRef。
-- **如何核实**：运行 `bun /tmp/w00028-review/t01-impl/lab/probe-i18next.cjs`，实际输出 `viaNsOption:"别的插件"`、`viaNsOptionNoSeparator:"other:title"`，退出 0；使用已有 Bun 缓存的 i18next 26.5.11，未安装依赖。源码 `/home/notnotype/.bun/install/cache/i18next@26.5.11@@@1/i18next.js:523-545`：`opt.ns` 初始化后仍由键中的冒号覆盖。
+- **如何核实**：运行 `bun /tmp/w00028-review/t01-impl/lab/probe-i18next.cjs`，实际输出 `viaNsOption:"别的插件"`、`viaNsOptionNoSeparator:"other:title"`，退出 0；使用已有 Bun 缓存的 i18next 26.5.11，未安装依赖。源码 `/home/<user>/.bun/install/cache/i18next@26.5.11@@@1/i18next.js:523-545`：`opt.ns` 初始化后仍由键中的冒号覆盖。
 - **建议改法**：固定 `nsSeparator:false`（仍保留 `keySeparator:"."`），同时明确 `TextRef.key` 的运行期校验边界；不要把 `ns` 选项误当成隔离开关。不需要为受信插件增设权限系统。
 
 ### 8. Spec 改动清单仍漏掉提案直接改变的 SDK、公开状态与通知合同
@@ -116,7 +116,7 @@
 
 ## 实际验证与边界
 
-1. `git show f1a060865:docs/proposals/i18n-message-catalogs.md | sha256sum && sha256sum /home/notnotype/CodeRepository/neuro-book/docs/proposals/i18n-message-catalogs.md`：两份均为 `74ff0d382d868359f3a094434ffd767441b0b1512c0a83276f956c8b6b2acbfa`，审查的主工作区提案与指定提交一致。
+1. `git show f1a060865:docs/proposals/i18n-message-catalogs.md | sha256sum && sha256sum /home/<user>/CodeRepository/neuro-book/docs/proposals/i18n-message-catalogs.md`：两份均为 `74ff0d382d868359f3a094434ffd767441b0b1512c0a83276f956c8b6b2acbfa`，审查的主工作区提案与指定提交一致。
 2. 在审查 worktree 运行 `bun test packages/nb-runtime/src/remote/routing.test.ts --test-name-pattern '回复阶段'`：1 pass，60 filtered out，0 fail，19 个断言，132.00ms；真实内核和进程内链路证明声明业务码按合同返回、未声明码或错误 detail 变成 provider-error，不是尚未实现的目录投影验收。
 3. `bun /tmp/w00028-review/t01-impl/lab/probe-backend.ts`：文字值子实验完成，旧 FormText 接受 `{ns,key}` 并显示 namespace；随后我误把 17 个码写成 18 个，计数断言失败。未把这次脚本退出 1 记为产品失败；报告第 4 条已只追加更正。
 4. 为只重跑上一步失败后尚未完成的部分，执行 `bun -e 'import {STORY_ERROR_CODES} from "./packages/nb-story/src/core/errors.ts"; const rejected = STORY_ERROR_CODES.filter(code => !/^[a-z0-9-]{1,64}$/u.test(code)); console.log(JSON.stringify({storyCodes: STORY_ERROR_CODES.length, rejectedByProposedCharacterSet: rejected.length, rejected})); for (const tag of ["zh-cn", "ZH-CN", "en-us", "en-US", "iw", "he"]) console.log(JSON.stringify({input: tag, canonical: Intl.getCanonicalLocales(tag)[0]}));'`：退出 0，17 个 Story 码中 16 个被拒；语言规范化得到 `zh-CN`、`en-US`、`he`。

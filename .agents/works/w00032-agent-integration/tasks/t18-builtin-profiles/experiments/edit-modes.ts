@@ -101,8 +101,8 @@ function spec(name: string): ModelSpec {
     }
     if (name === "luna") {
         const reference = "luna/gpt-6-luna";
-        return {name, reference, env: {JIJI_LUNA_API_KEY: env.JIJI_LUNA_API_KEY!}, settings: {
-            "nbook.models/providers": [{id: "luna", kind: "custom", name: "luna", baseUrl: env.JIJI_LUNA_BASE_URL, api: "openai-responses", apiKeyEnv: "JIJI_LUNA_API_KEY", auth: "bearer", models: [{id: "gpt-6-luna", enabled: true, contextWindow: 200_000}]}],
+        return {name, reference, env: {NBOOK_LLM_API_KEY: env.NBOOK_LLM_API_KEY!}, settings: {
+            "nbook.models/providers": [{id: "luna", kind: "custom", name: "luna", baseUrl: env.NBOOK_LLM_BASE_URL, api: "openai-responses", apiKeyEnv: "NBOOK_LLM_API_KEY", auth: "bearer", models: [{id: "gpt-6-luna", enabled: true, contextWindow: 200_000}]}],
             "nbook.models/roles": roles(reference),
         }};
     }

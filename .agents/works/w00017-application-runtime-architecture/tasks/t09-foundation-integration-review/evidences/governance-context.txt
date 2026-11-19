@@ -4,21 +4,21 @@ $ bun run governance:context -- --work w00017-application-runtime-architecture -
 
 {
   "schema": "nbook.governance-context/v2",
-  "repoRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\w00017-application-runtime-architecture",
+  "repoRoot": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\w00017-application-runtime-architecture",
   "revision": "b53753b90b8acf76a176e3185af8a3dfa04db50c",
   "branch": "refactor/w00017-runtime-foundation",
-  "worktree": "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture",
+  "worktree": "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture",
   "work": "w00017-application-runtime-architecture",
-  "workReadme": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\w00017-application-runtime-architecture\\.agents\\works\\w00017-application-runtime-architecture\\README.md",
+  "workReadme": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\w00017-application-runtime-architecture\\.agents\\works\\w00017-application-runtime-architecture\\README.md",
   "task": "t09-foundation-integration-review",
-  "taskReadme": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\w00017-application-runtime-architecture\\.agents\\works\\w00017-application-runtime-architecture\\tasks\\t09-foundation-integration-review\\README.md",
+  "taskReadme": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\w00017-application-runtime-architecture\\.agents\\works\\w00017-application-runtime-architecture\\tasks\\t09-foundation-integration-review\\README.md",
   "status": "NeuroBook 当前处于快速开发阶段，产品主线已收敛到 Novel 写作模式 v1；核心数据与运行时合同基本落地，主要缺口是 stable 发布、真实 Provider、完整浏览器流程和持续作者试用。",
   "roots": {
-    "agentRoot": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book",
-    "testRoot": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\vitest\\00000000",
-    "acceptanceRoot": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\acceptance\\product-runtime",
-    "cacheRoot": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\cache\\source-dev",
-    "worktreeRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree"
+    "agentRoot": "C:\\Users\\USER~1\\AppData\\Local\\Temp\\neuro-book",
+    "testRoot": "C:\\Users\\USER~1\\AppData\\Local\\Temp\\neuro-book\\vitest\\00000000",
+    "acceptanceRoot": "C:\\Users\\USER~1\\AppData\\Local\\Temp\\neuro-book\\acceptance\\product-runtime",
+    "cacheRoot": "C:\\Users\\USER~1\\AppData\\Local\\Temp\\neuro-book\\cache\\source-dev",
+    "worktreeRoot": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree"
   },
   "trackedChanges": " M .agents/works/w00017-application-runtime-architecture/README.md\n M .agents/works/w00017-application-runtime-architecture/implementation-plan.md\n M .agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md\n M docs/specs/README.md\n M docs/specs/runtime/application.md\n M docs/specs/runtime/lifecycle.md\n M docs/specs/runtime/plugins.md\n M docs/specs/runtime/services.md\n M packages/neuro-book/docs/proposals/application-runtime-and-plugins.md\n?? .agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/",
   "failures": []

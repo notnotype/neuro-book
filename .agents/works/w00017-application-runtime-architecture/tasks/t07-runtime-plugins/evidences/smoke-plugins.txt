@@ -10,7 +10,7 @@
 #       第一次运行即全部 PASS；本文是修正一处标签文字后的第二次运行原始输出，检查项与结果相同。
 
 ## stdout
-[+   2ms] scratch=C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\w00017-t07-smoke\run-43308
+[+   2ms] scratch=C:\Users\USER~1\AppData\Local\Temp\neuro-book\w00017-t07-smoke\run-43308
 [+   3ms] PASS 登记 clock -> accepted
 [+   3ms] PASS 登记 logger -> accepted
 [+   3ms] PASS 登记 broken -> accepted
@@ -51,12 +51,12 @@
 import {appendFileSync, existsSync, mkdirSync, readFileSync, rmSync} from "node:fs";
 import {join} from "node:path";
 
-import {resolveAgentScratchPath} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book-test-support/src/paths.ts";
+import {resolveAgentScratchPath} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book-test-support/src/paths.ts";
 
-import {createRuntimeInstance} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/lifecycle/lifecycle.ts";
-import {createServiceAssembly, defineServiceKey} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/services/services.ts";
-import {createPluginHost, PluginStateError, provide} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/plugins/plugins.ts";
-import type {ContributionHandle, ContributionReceiver, PluginDefinition, RevokeReason} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/plugins/plugins.ts";
+import {createRuntimeInstance} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/lifecycle/lifecycle.ts";
+import {createServiceAssembly, defineServiceKey} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/services/services.ts";
+import {createPluginHost, PluginStateError, provide} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/plugins/plugins.ts";
+import type {ContributionHandle, ContributionReceiver, PluginDefinition, RevokeReason} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/plugins/plugins.ts";
 
 const started = Date.now();
 let failures = 0;

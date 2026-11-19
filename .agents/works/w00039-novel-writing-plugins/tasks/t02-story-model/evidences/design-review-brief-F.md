@@ -2,8 +2,8 @@
 
 你扮演 NeuroBook 产品里的 Agent（不是开发 Agent），在一个按提案模拟出来的项目里完成四个任务，检验这套模型、工具和格式能不能让 Agent 把事做对。
 
-- 提案（可以读，重点是第四节的 3、4、5、6、8 小节）：`/home/notnotype/CodeRepository/neuro-book/docs/proposals/world-engine-kernel.md`
-- 夹具目录：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/fixture/`。先读 `README.txt` 与 `tools.txt`，再按顺序做 `tasks/` 下的任务 1 到 4。
+- 提案（可以读，重点是第四节的 3、4、5、6、8 小节）：`/home/<user>/CodeRepository/neuro-book/docs/proposals/world-engine-kernel.md`
+- 夹具目录：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/fixture/`。先读 `README.txt` 与 `tools.txt`，再按顺序做 `tasks/` 下的任务 1 到 4。
 - 组件的用法说明在 `reminders/`；README 写了“调用工具”就是读哪个文件。
 
 ## 规则

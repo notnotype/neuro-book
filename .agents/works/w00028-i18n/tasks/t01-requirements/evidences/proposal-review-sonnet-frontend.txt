@@ -117,7 +117,7 @@
   2. **参数名拼错**。目录检查只比各语言占位符集合一致，测试只覆盖被执行到的调用。`ctx.text("greeting", {nam: x})` 在生产里显示 `你好，{{name}}`（原型第 3 项：缺参数时原样留占位符），没有任何一层拦它。提案承认参数名推导不出来，但没有给出“谁查调用点的参数名”的答案。原型报告第 4 项给了两条路：目录改成 `as const` 的 TS 对象让类型抽占位符，或检查脚本扫描源码里字面键的调用；提案没选也没说放弃。
   3. **措辞**。“`resolveJsonModule` 加 `keyof typeof`”不足以得到点号路径键：`keyof typeof catalog` 只有顶层键，复数键还是 `files_one`/`files_other`；原型实际用的是 `keys.ts` 里递归路径类型并折叠复数后缀（约 40 行）。另外 `packages/neuro-book/tsconfig.json` 没有显式 `resolveJsonModule`，我用 tsc 5.9.3 在 `moduleResolution: "bundler"` 下试了 JSON 导入是可以的（`lab/tj/`），所以不需要改配置，但提案这句话会让实现者以为要改。
 - **为什么是问题**：第 8 节是“写错键、漏翻译、占位符不一致在检查或测试里就能发现”这个目标的承载，三处各留一个洞，目标写得比实际保证强。
-- **如何核实**：对读提案第 8 节与 `prototype-report.txt` 第 3、4 项；`cd /tmp/w00028-review/t01-impl/lab/tj && /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.json`（退出码 0）。
+- **如何核实**：对读提案第 8 节与 `prototype-report.txt` 第 3、4 项；`cd /tmp/w00028-review/t01-impl/lab/tj && /home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.json`（退出码 0）。
 - **建议改法**：目标 4 的措辞限定为“键和跨语言的占位符”，参数名写成“由测试覆盖，未覆盖的路径不保证”；装载测试同时枚举显式 `{key}`；第 8 节“编译期”一条改为“用原型的 `keys.ts` 类型（递归路径、折叠复数后缀）”。如果开发者想要参数名也保证，把“目录改成 TS 对象”列为待定项。
 
 ### 11. 事实陈述与影响面：Spec 预期改动清单漏了六份、nb-agent-ui 的视图合同变更没列、两处计数与现状对不上
@@ -157,7 +157,7 @@
 - **位置**：提案第 6 节“每个共享包自带 `locales/`，加进包的 `files`”；`docs/adr/0029-workspace-packages-publish-source-to-npm.md:39`（“TypeScript 消费者用自己的 tsconfig 检查这些源码，严格度不同时可能报错；`skipLibCheck` 管不到 `.ts`”）。
 - **现象**：`files` 补上之后包里确实有目录文件，但包的 `.ts` 源码要 `import … from "../locales/zh-CN.json"`，消费者的 tsconfig 在 `moduleResolution` 为 `node16` 或 `node10` 且没开 `resolveJsonModule` 时报 TS2732。实测（tsc 5.9.3，`lab/tj/tsconfig.node16.json`、`tsconfig.node10.json`）：这两种配置报 `TS2732: Cannot find module './c.json'`，`bundler`（本仓库）与 `nodenext` 不报。nb-form、nb-agent-ui、nb-markdown 已发布 0.1.0，nb-ui 0.2.0，这是它们第一次在源码里带 JSON。
 - **为什么是问题**：ADR 0029 已把这类“严格度不同”列为已接受的代价，但新增的一类应当在提案里被看到，而不是发布后才发现。
-- **如何核实**：`cd /tmp/w00028-review/t01-impl/lab/tj && /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.node16.json`。
+- **如何核实**：`cd /tmp/w00028-review/t01-impl/lab/tj && /home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.node16.json`。
 - **建议改法**：二选一并写进提案：(a) 共享包的目录在源码里是 `.ts`（`export default {…} as const`），`locales/*.json` 由构建/脚本从它导出供翻译平台用——这也顺带解决第 10 条的参数名推导（`as const` 字面量能用模板字面量类型抽占位符）；(b) 保持 JSON，把 `resolveJsonModule` 的要求写进各包 README 与 ADR 0029 的代价一节。
 
 ### 行号更正（只追加，核对后统一写在这里）

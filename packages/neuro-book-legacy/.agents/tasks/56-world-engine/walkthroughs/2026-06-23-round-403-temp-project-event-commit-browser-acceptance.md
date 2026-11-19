@@ -113,7 +113,7 @@ DELETE /api/projects/item?projectPath=workspace%2Fworld-engine-round-403-accepta
 随后停止本轮启动的 dev server，确认 `port 3001 free`，并在解析绝对路径后只删除精确临时目录：
 
 ```text
-C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\workspace\world-engine-round-403-acceptance
+C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book\workspace\world-engine-round-403-acceptance
 ```
 
 最终：

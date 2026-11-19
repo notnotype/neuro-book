@@ -1,10 +1,10 @@
-w00046 t08 Windows 实测第 1 轮（2026-11-13，pc-notype，Windows 11，WebView2 已装）
-构建：Work 分支 c705d0e03 的主进程预打包 + t07 的 Windows 载荷，Hutch 0.29.0 / Electrobun 2.0.6 在 pc-notype 上 `hutch electrobun build --env=stable`，
+w00046 t08 Windows 实测第 1 轮（2026-11-13，Windows 开发机，Windows 11，WebView2 已装）
+构建：Work 分支 c705d0e03 的主进程预打包 + t07 的 Windows 载荷，Hutch 0.29.0 / Electrobun 2.0.6 在 Windows 开发机上 `hutch electrobun build --env=stable`，
 安装到 %LOCALAPPDATA%\io.github.notnotype.neurobook\stable\app。启动用 .cmd 设 NBOOK_STATE_ROOT=%USERPROFILE%\nb-w00046\t08-state，经 schtasks /it 进桌面会话。
 取证：UI Automation 读窗口里的文字与按钮名（t08-uia.ps1）、进程列表、两个认领管道的 hello（t08-claims.js）、shell.log 与 server-output.log。不截屏。
 
 1. 启动与认领（输出 1、2、5）
-shell.log: start version=0.12.1 bun=1.4.4 programRoot=...\stable\app root={"ok":true,"stateRoot":"C:\\Users\\notnotype\\nb-w00046\\t08-state","portable":false,"source":"env"}
+shell.log: start version=0.12.1 bun=1.4.4 programRoot=...\stable\app root={"ok":true,"stateRoot":"C:\\Users\\<user>\\nb-w00046\\t08-state","portable":false,"source":"env"}
 server-output.log: RPC listening on ws://127.0.0.1:4518/ ; Listening on http://127.0.0.1:4517/
 processes: bun:13720 bun:39836 bun:51032 launcher:43780
 nbook-desktop {"schema":1,"pid":39836,"version":"0.12.1","kind":"product","status":"ready","url":null,"rpcUrl":null}
@@ -27,4 +27,4 @@ UIA WindowPattern.Close 关第 1 个产品窗口：窗口没关，3 秒后出现
 最初的安装脚本在无桌面会话里等 Setup 卡住，随后结束了应用进程；shell.log 记 desktop.server.completion-failed OwnedProcessError: Windows 监督进程未报告目标终态 code=255。
 重新在桌面会话里安装、启动后不再出现。
 
-未完成（pc-notype 17:05 后离线，待续）：强制关闭、关掉最后一个窗口后的 quit（停服、放锁、进程全退、无 unclean-stop 记录）、服务端意外退出的对话框、外链交系统浏览器、便携 zip、Alt+F4 与任务栏关闭。
+未完成（Windows 开发机 17:05 后离线，待续）：强制关闭、关掉最后一个窗口后的 quit（停服、放锁、进程全退、无 unclean-stop 记录）、服务端意外退出的对话框、外链交系统浏览器、便携 zip、Alt+F4 与任务栏关闭。

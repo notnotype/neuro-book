@@ -320,4 +320,4 @@
 - [审查发现详情](REVIEW-FINDINGS.md)
 - [黑盒合同](../18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md)
 - [SSE 恢复设计](../24-agent-sse-reload-recovery/README.md)
-- [审查工作流输出](C:\Users\NOTNOT~1\AppData\Local\Temp\claude\C--Users-notnotype-Documents-CodeRepository-GithubProjects-neuro-book\8a3d0608-25a1-49f6-9413-268f73664a29\tasks\wi62wa4mc.output)
+- [审查工作流输出](C:\Users\USER~1\AppData\Local\Temp\claude\C--Users-notnotype-Documents-CodeRepository-GithubProjects-neuro-book\8a3d0608-25a1-49f6-9413-268f73664a29\tasks\wi62wa4mc.output)

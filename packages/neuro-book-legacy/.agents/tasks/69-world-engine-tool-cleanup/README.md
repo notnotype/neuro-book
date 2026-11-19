@@ -120,9 +120,9 @@
 - 为旧 Project SQLite 增加幂等补列：缺少 `WorldSlice.summary` 时自动执行 `ALTER TABLE "WorldSlice" ADD COLUMN "summary" TEXT NOT NULL DEFAULT ''`。
 - profile 测试同步当前契约：`leader.default` settings 缺省值不再因空 settings 崩溃；默认 persona 使用 `personas/caihui-lite.md`；writer payload 继续只注入目标文件、`lorebookEntries` 和 `readablePaths`，不注入旧 Plot IDs。
 - 验证结果：
-  - `bun test C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/tools/world-engine-tools.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/tools/builtin-tools-smoke.test.ts`：13 pass。
-  - `bun test C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/world-engine/world-engine.facade.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/api/projects/world-engine/[...segments].test.ts`：15 pass。
-  - `bun test C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/world-engine-profile.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/leader-assets-profile.test.ts`：16 pass。
+  - `bun test C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/tools/world-engine-tools.test.ts C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/tools/builtin-tools-smoke.test.ts`：13 pass。
+  - `bun test C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/world-engine/world-engine.facade.test.ts C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/api/projects/world-engine/[...segments].test.ts`：15 pass。
+  - `bun test C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/world-engine-profile.test.ts C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/leader-assets-profile.test.ts`：16 pass。
   - `bun run typecheck`：通过。
 
 ## TODO / Follow-ups

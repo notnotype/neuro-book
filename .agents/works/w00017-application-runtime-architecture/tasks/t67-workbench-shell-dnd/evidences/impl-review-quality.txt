@@ -1,6 +1,6 @@
 # w00017 t67 外壳三实现审查：代码质量与 Spec 一致
 
-审查范围：`b6322cd5..7d74a100`，固定 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-impl-quality`。
+审查范围：`b6322cd5..7d74a100`，固定 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t67-impl-quality`。
 
 本报告只记录核实后的具体问题；运行时未复现的结论标为“推断”。审查中逐条追加发现，最终按影响排序。
 

@@ -39,7 +39,7 @@ Task 146 现有四份历史 walkthrough 覆盖阶段 1、设计语言实验室�
 
 ## 代码门禁
 
-在 `C:/Users/notnotype/Documents/CodeRepository/GithubProjects/nb-ui` 串行执行：
+在 `C:/Users/<user>/Documents/CodeRepository/GithubProjects/nb-ui` 串行执行：
 
 | 命令 | 结果 |
 | --- | --- |
@@ -52,10 +52,10 @@ Task 146 现有四份历史 walkthrough 覆盖阶段 1、设计语言实验室�
 
 3000 端口已有服务，本轮使用 hub 启动的 `nbui-dev-3001`，实际 HTTP 页面为 `http://localhost:3001/`。探针副本和截图均保存在系统临时根，不进入仓库：
 
-- `C:/Users/notnotype/AppData/Local/Temp/neuro-book/nbui-select-probe-9f3c/round13-verify-3001.js`
-- `C:/Users/notnotype/AppData/Local/Temp/neuro-book/nbui-select-probe-9f3c/round13-menus-3001.js`
-- `C:/Users/notnotype/AppData/Local/Temp/neuro-book/nbui-select-probe-9f3c/round13-colorways-3001.js`
-- `C:/Users/notnotype/AppData/Local/Temp/neuro-book/nbui-select-probe-9f3c/seg-check-3001.js`
+- `C:/Users/<user>/AppData/Local/Temp/neuro-book/nbui-select-probe-9f3c/round13-verify-3001.js`
+- `C:/Users/<user>/AppData/Local/Temp/neuro-book/nbui-select-probe-9f3c/round13-menus-3001.js`
+- `C:/Users/<user>/AppData/Local/Temp/neuro-book/nbui-select-probe-9f3c/round13-colorways-3001.js`
+- `C:/Users/<user>/AppData/Local/Temp/neuro-book/nbui-select-probe-9f3c/seg-check-3001.js`
 
 实际结果：
 

@@ -1,8 +1,8 @@
 # w00017 t64 `nbook.settings` 实施计划只读审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review/.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md`；源码基线按审查说明为 `854121f8`。VS Code 对照源码为审查说明指定的 `38d9885c`。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review/.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md`；源码基线按审查说明为 `854121f8`。VS Code 对照源码为审查说明指定的 `38d9885c`。
 
-本文仓库路径相对 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review/`；VS Code 路径相对 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/vscode/src/vs/`；实验脚本与结果路径相对本报告目录。
+本文仓库路径相对 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review/`；VS Code 路径相对 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/vscode/src/vs/`；实验脚本与结果路径相对本报告目录。
 
 计划尚未实施；下述结果区分现有代码与 Spec 核实、临时目录实验，以及从计划推导的后果。Context 中六条已定产品决定作为约束接受。
 
@@ -174,7 +174,7 @@
 
 ## 实际验证与限制
 
-所有实验命令的工作目录都是本报告所在的 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp/`。
+所有实验命令的工作目录都是本报告所在的 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp/`。
 
 | 已执行命令 | 结果与保留产物 |
 |---|---|

@@ -157,9 +157,9 @@ world.deleteSlice(sliceId)                                  // -> {issues}
 
 **验证记录**
 
-- 已通过：`bun test C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/world-engine`，119 pass。
-- 已通过：`bunx vitest run C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/tools`，111 pass。
-- 已通过：`bunx vitest run C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/world-engine-profile.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/leader-assets-profile.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/assets/workspace/.nbook/agent/profiles/builtin/writer.profile.test.ts`，16 pass。
+- 已通过：`bun test C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/world-engine`，119 pass。
+- 已通过：`bunx vitest run C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/tools`，111 pass。
+- 已通过：`bunx vitest run C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/world-engine-profile.test.ts C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/leader-assets-profile.test.ts C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/assets/workspace/.nbook/agent/profiles/builtin/writer.profile.test.ts`，16 pass。
 - 已通过：`bun scripts/seed-world-engine-demo.ts`，11 个切面写入成功，`/HP -> /hp` 修正成功，E issues=0，全部断言通过。
 - 已通过：`bun run typecheck`。
 - D14 竞争测试证明：`execute_world` 超时后事务关闭，后台定时器再尝试写入不会落库。

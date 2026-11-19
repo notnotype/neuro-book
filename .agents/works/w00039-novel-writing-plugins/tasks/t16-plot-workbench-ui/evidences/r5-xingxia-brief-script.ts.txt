@@ -1,7 +1,7 @@
 /** 用真实的剧情世界与 composeBrief 拼出星瑕第 3 章的写手上下文（t16 第 5 轮静态稿的样本来源）。 */
-import {COMPONENT_IDS, MARK_IDS} from "/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/shared/declarations";
-import {addRow, chapter, drafts, PlotWorld, present} from "/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/testing/world";
-import {composeBrief} from "/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/core/brief/index";
+import {COMPONENT_IDS, MARK_IDS} from "/home/<user>/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/shared/declarations";
+import {addRow, chapter, drafts, PlotWorld, present} from "/home/<user>/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/testing/world";
+import {composeBrief} from "/home/<user>/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/core/brief/index";
 
 const w = new PlotWorld(["ch1", "ch2", "ch3", "ch4"]);
 w.texts.set("ch1", "锅里的蛋煎得有点焦。……“我说过不吃煎蛋。”……反锁上门，松开了维持一早上的认知滤镜。银白的长发垂到腰际。……“那只魔偶你还留着吗？”");

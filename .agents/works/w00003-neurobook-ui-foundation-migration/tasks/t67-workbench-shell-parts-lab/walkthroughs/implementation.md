@@ -1,7 +1,7 @@
 # t67 实施记录：工作台部件布局、标题操作与无业务骨架 Lab
 
 计划：[`local://workbench-shell-parts-lab-plan.md`](../../../../../../../../local/workbench-shell-parts-lab-plan.md)（批准版，权威合同）。
-工作树：`C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration`，分支 `refactor/w00003-nb-ui-adoption`，基线 HEAD `26479d48`。
+工作树：`C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration`，分支 `refactor/w00003-nb-ui-adoption`，基线 HEAD `26479d48`。
 本记录按切片追加；**没有 commit / push / PR / 合并 / 发布**。
 
 ## 切片 1：几何与稳定槽位（已完成）

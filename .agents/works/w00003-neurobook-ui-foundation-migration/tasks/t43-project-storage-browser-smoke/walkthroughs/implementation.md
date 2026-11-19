@@ -19,7 +19,7 @@
 
 ## 实际验证
 
-工作目录：`C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`
+工作目录：`C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`
 
 命令：
 
@@ -46,7 +46,7 @@ bunx tsc --noEmit --pretty false -p scripts/tsconfig.json
 
 退出码：`2`。本次新增 `storage-project-adapter.ts` 零报错；唯一错误来自未修改的 `scripts/deploy/product-agent-state-root-smoke.ts:318`，其 theme fixture 缺少 `colorwayId`、`userColorways`。未将该命令记录为通过。
 
-最终运行隔离根：`C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\storage-project-adapter\89ee4fa2`；HTTP：`http://storage.test:33460/`（绑定 `127.0.0.1`）。脚本结束时关闭三个页面所属浏览器上下文、Chrome、随机端口 HTTP 服务、全部 Project Session 与 Storage Host，然后只删除本次隔离根。HTTP 使用 `listen(0, "127.0.0.1")`，未占用、访问、重启或关闭 3001。隔离根清理完成；未操作旧临时根 `storage-browser-MxfyHy`。
+最终运行隔离根：`C:\Users\USER~1\AppData\Local\Temp\neuro-book\storage-project-adapter\89ee4fa2`；HTTP：`http://storage.test:33460/`（绑定 `127.0.0.1`）。脚本结束时关闭三个页面所属浏览器上下文、Chrome、随机端口 HTTP 服务、全部 Project Session 与 Storage Host，然后只删除本次隔离根。HTTP 使用 `listen(0, "127.0.0.1")`，未占用、访问、重启或关闭 3001。隔离根清理完成；未操作旧临时根 `storage-browser-MxfyHy`。
 
 ## 边界
 

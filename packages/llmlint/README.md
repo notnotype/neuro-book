@@ -104,6 +104,7 @@ cp evals/eval.config.example.json evals/eval.config.json   # 在仓库根
 
 编辑 `evals/eval.config.json`：
 
+- `datasetsRoot`、`proxy` 与 CLI 中转地址是占位，按实际环境替换。
 - `detector` 节 → 外部 AIGC 检测（HF 公共 Space，无需 key）；国内访问填 `proxy`，直连则删除该字段。
 - `repair.model` / `classifier.model` → LLM Agent 用的 `provider/model`。
 - `modelsConfig` → 指向含 `apiKey` 的模型配置文件（NeuroBook `config.json` 格式）；**API key 只写在此文件，绝不进任何入 git 的文件**。

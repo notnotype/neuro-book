@@ -1,5 +1,5 @@
 
- RUN  v4.1.10 /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/base-master/packages/neuro-book
+ RUN  v4.1.10 /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/base-master/packages/neuro-book
 
  ❯ app/components/workbench/WorkbenchPartHost.test.ts (21 tests | 1 failed) 1274ms
      × 容器移动菜单：列出生效落位之外的落点，选中后回传 move-container 52ms

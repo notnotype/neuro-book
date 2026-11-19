@@ -1,6 +1,6 @@
 # t67 外壳三（拖放）：测试与验收映射审查
 
-审查范围：`b6322cd5..7d74a100`；固定 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-impl-tests`。
+审查范围：`b6322cd5..7d74a100`；固定 worktree：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t67-impl-tests`。
 
 以下6条按影响排序。编号保留逐条追加时的标识；T05（Lab缺少不可移动成员入口）已合并进T07，不重复计数。仓库源码只读；变异副本和实验输出仅写入本报告所在实验目录。
 
@@ -125,8 +125,8 @@
 为便于原样重跑，下面先定义与本次工具调用相同的绝对路径；每组注明工作目录。`verification-log.json`保存已提取的命令与输出，浏览器配置为`playwright.config.ts`（Chrome、headless、workers=1、retries=0，仅匹配拖放文件）。失败变异的运行结果与原样基线分开列出。
 
 ```sh
-TEST_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/tests
-WORKTREE=/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-impl-tests
+TEST_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t67-impl/tests
+WORKTREE=/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t67-impl-tests
 ```
 
 1. 依赖安装，工作目录`$WORKTREE`：

@@ -4,7 +4,7 @@
 ## 1. 同一代提交新章节后，续问没有恢复原来的抽取版本
 
 - **严重程度**：重要；**类别**：正确性 / 不变量
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:59-63,74-75`；`docs/specs/story/qa.md:153,167,186`；现有机制 `packages/nb-story/src/core/library.ts:51-71,315-350,153-159`、`packages/nb-story/src/core/api.ts:224-238`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:59-63,74-75`；`docs/specs/story/qa.md:153,167,186`；现有机制 `packages/nb-story/src/core/library.ts:51-71,315-350,153-159`、`packages/nb-story/src/core/api.ts:224-238`
 - **现象**：计划的新记录只保存 `generation`，没有保存 `revision` 或抽取进度；续问按记录的书 id 重新 `openBook`，而 `openBook` 固定的是当前 `book.json` 指向的版本。书库的 `commitExtraction` 保持同一个 `generation`、只递增 `revision`。
 - **为什么是问题**：第一轮会话、工具结果和 `read` 账本来自旧 revision；第一轮结束后同一本书提交新章节时，续问的图、段数、分页游标和出处校验却来自新 revision。`writableBook` 只核对 generation，既不会发现这个混用，也不会阻止把混用后的日志保存。这样违反既有“固定开始时的抽取进度”合同，且模型看到的历史与当前工具不是同一份书。
 - **如何核实**：先用样例书完成一轮；在同一书 id 上调用 `Library.commitExtraction` 提交下一章（代码中 generation 不变、revision 加一）；再用 `--continue`，在工具实现或脚本化请求中读取 `book.info`/图查询并对比第一轮与第二轮使用的 revision。静态核对命令：`git show 96cef9e1b -- docs/specs/story/qa.md`，再读 `packages/nb-story/src/core/library.ts:315-350` 与 `packages/nb-story/src/core/api.ts:224-238`。
@@ -13,7 +13,7 @@
 ## 2. `expectTurns` 不是 compare-and-swap，现有固定临时文件还会交叉覆盖两个文件
 
 - **严重程度**：阻断；**类别**：正确性 / 不变量 / 安全与性能
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:51-76`；`docs/specs/story/qa.md:25,166,244`；现有 `packages/nb-story/src/core/qa-records.ts:129-165`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:51-76`；`docs/specs/story/qa.md:25,166,244`；现有 `packages/nb-story/src/core/qa-records.ts:129-165`
 - **现象**：计划只是在改名之前读取一次磁盘轮数；检查和两次 `rename` 之间没有原子条件写。现有实现还把所有并发保存者的临时文件固定为 `<id>.json.tmp` 与 `<id>.session.jsonl.tmp`，随后先改名 session、再改名 record。
 - **为什么是问题**：两个进程都从同一轮数开始时，二者都能通过 `expectTurns`，后写者会无条件覆盖先写者；这已经超出计划承认的“核对与写入之间极短窗口”。更糟的是共享 `.tmp` 文件会让 A 写入 B 的临时内容，或让其中一个 `rename` 得到 `ENOENT`。session 先改名、record 后改名还会产生旧 record + 新 session 的窗口；若第二次改名失败，续问会从旧记录读到不匹配的历史。于是“冲突时磁盘上的记录不变”和“记录与会话日志一起重写”都不成立，可能不是丢一轮而是把对话记录与历史配错。
 - **如何核实**：从同一份一轮记录并发启动两个 `save`，在两次 `expectTurns` 读取后用 gate 同时放行；检查两个 `save` 的返回值、`<id>.json` 与 `<id>.session.jsonl` 的轮数和最后一条用户消息是否匹配。也可直接按现有代码运行：`bun test packages/nb-story/src/core/qa-records.test.ts`，再在 `/tmp/review-w00024-t08-design/scratch/` 写两个并发 `save` 调用复现共享 `.tmp`。静态核对 `qa-records.ts:141-150` 已能证明临时文件名不是每次保存唯一的。
@@ -22,7 +22,7 @@
 ## 3. 取消中的 `read` 可能在本轮保存后继续改账本
 
 - **严重程度**：重要；**类别**：正确性 / 不变量
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:42-50,146-152`；`docs/specs/story/qa.md:142,153,167,228,242`；现有 `packages/nb-story/src/qa/tools.ts:97-118`、`packages/nb-harness/src/tools/bridge.ts:50-79`、`packages/nb-harness/src/harness.ts:388-409`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:42-50,146-152`；`docs/specs/story/qa.md:142,153,167,228,242`；现有 `packages/nb-story/src/qa/tools.ts:97-118`、`packages/nb-harness/src/tools/bridge.ts:50-79`、`packages/nb-harness/src/harness.ts:388-409`
 - **现象**：harness 的 bridge 在取消时用 `Promise.race` 先把工具调用结算为中断，底层 `impl.execute` 继续运行；harness 的 `close` 等的是 Agent 运行和日志写队列，不等底层工具 Promise。nb-story 的查询工具没有使用执行上下文的 `signal`，`book.call` 返回后仍会执行 `state.ledger.record(...)`。
 - **为什么是问题**：第二轮或取消轮保存 `read` 快照时，底层读取可能尚未完成，账本可能在保存前后任一时刻被改动。结果会出现两种不一致：记录写入了模型从未收到的段/章，或这次实际完成的读取没有进入记录。下一轮恢复的是保存下来的快照，而会话日志只有被中断的工具结果；章数和出处许可因此取决于时序，不能满足“读过的段随记录保存”以及“中断后还能继续”的不变量。harness 保证日志中的调用结果成对，不等于宿主状态更新已停止。
 - **如何核实**：给 `read` 对应的 `book.call` 加一个只在收到取消后才放行的 gate，模型发出 `read` 后取消；观察 `harness.turn` 返回 `aborted`、日志写入中断结果，再让 gate 放行并在引擎保存前后读取 `ledger.chapters()`/记录 `read`。静态证据是 `bridge.ts:71-75` 的 `running.catch` 与 `Promise.race`，以及 `tools.ts:108-117` 在未检查 signal 的异步调用后登记段落。
@@ -31,7 +31,7 @@
 ## 4. `length` 分支无条件算“文字回复”，但 harness 可以返回空文字
 
 - **严重程度**：重要；**类别**：正确性
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:26-38`；`docs/specs/story/qa.md:133-142,241`；`packages/nb-harness/src/harness.ts:337-350`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:26-38`；`docs/specs/story/qa.md:133-142,241`；`packages/nb-harness/src/harness.ts:337-350`
 - **现象**：计划的结束表只给 `stop` 做“最后一段助手文字不为空”的判断，`length` 无条件写成“已答，带文字回复”。harness 的 `text` 只拼最后一个 assistant message 的 `text` block，不包含 thinking；输出被截断时它可以是空字符串。
 - **为什么是问题**：模型可能在输出上限前只产生 thinking、空内容或工具调用，没有可展示的回答。此时记录会是 `status: answered`、`reply.text: ""`、`truncated: true`，CLI 退出 0，却没有用户可见答案，违反 `文字回复` 定义，也绕过 `no_answer`。同样，只有空白文字时若按“非空字符串”判断也会误算已答。
 - **如何核实**：已在真实 harness + 脚本化 `streamFn` 上运行 `/tmp/review-w00024-t08-design/scratch/length-empty.ts`：`content: []`、`stopReason: "length"` 的 `turn()` 返回 `{"stopReason":"length","text":""}`。也可用 `bun /tmp/review-w00024-t08-design/scratch/length-empty.ts` 重跑。
@@ -40,7 +40,7 @@
 ## 5. planned 条目没有真正替换旧合同，Spec 同时规定“提醒”和“不提醒”
 
 - **严重程度**：重要；**类别**：文档 / 测试
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/docs/specs/story/qa.md:14,22-25,131-142,153-154,169-180,184-196,223-244`；计划 `plan.md:106-119`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/docs/specs/story/qa.md:14,22-25,131-142,153-154,169-180,184-196,223-244`；计划 `plan.md:106-119`
 - **现象**：输出 10 的旧规范仍写“停下后提醒两次”，下面才追加“取代上一段”；验收 4 仍保留“三次不调 answer、提醒两次”的旧场景，只在正文里写“本场景由场景 13 取代”。输出 15、时序与寿命、副作用落点仍使用“一问结束时写一次记录/日志”的旧表述，而 planned 条目改成“每轮重写”。状态表中 planned 说明插在表格中间，`中断` 行已经脱离 Markdown 表。
 - **为什么是问题**：这些是同一份 Spec 中的规范性文字，不是历史注释。按旧条目实现会继续发提醒、只保存一轮；按 planned 条目实现又会违反旧验收和字段说明。测试作者、t13 实作者和文档工具无法确定哪个是黑盒合同；“取代”只是一句说明，不能消除重复判据。
 - **如何核实**：`git show 96cef9e1b -- docs/specs/story/qa.md` 可看到 planned diff 是追加段落而非替换；执行 Markdown 结构检查并人工逐项查找 `提醒`、`一问结束`、`一问一条记录`，会同时命中旧条目和新条目。
@@ -49,7 +49,7 @@
 ## 6. 新旧记录与 `--json` 的兼容投影未定义，现有回归脚本会在文字回复上崩溃
 
 - **严重程度**：重要；**类别**：正确性 / 测试 / 接口合同
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:51-76,95-104,131-144`；`docs/specs/story/qa.md:147,153-154,215`；`.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts:126-143`；`packages/nb-story/src/cli/qa.ts:39-45`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:51-76,95-104,131-144`；`docs/specs/story/qa.md:147,153-154,215`；`.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts:126-143`；`packages/nb-story/src/cli/qa.ts:39-45`
 - **现象**：计划要求记录读入后统一成 `QaConversation`，并说 `--json` 保留原字段名；但新记录把 `question`、`status`、`answer`、`chaptersRead`、`rejections`、`usage` 等从顶层移进 `turns`，没有定义 `qa --json` 的旧记录投影，也没有定义文字回复时旧 `answer` 字段应为 `null` 还是缺省。现有 `qa-eval.ts` 对每个成功结果直接执行 `record.answer.evidence`，并直接读取顶层 `chaptersRead`、`rejections`、`usage`。
 - **为什么是问题**：如果 `ask --json` 返回规范化对话对象，现有回归脚本在第一份结果就会因 `answer` 不存在而失败；即使保留顶层兼容字段，模型在剧情题上直接文字回复时 `answer` 必然为 `null`，脚本仍会解引用并把结果混入结构化答案评测。`qa` 列表/显示的旧记录若直接返回 normalized conversation，也会改变既有 `--json` 消费者看见的形状。回归不重跑不等于可以让脚本不可执行或悄悄评错。
 - **如何核实**：用现有脚本的真实解析代码给一个 `{"ok":true,"data":{"id":"x","turn":1,"reply":{"text":"你好"},"answer":null}}`，执行 `qa-eval.ts` 同一段逻辑会在 `answer.evidence` 处抛异常；对旧记录运行 `nbstory qa <id> --json`，比较当前 QaRecord 顶层字段与计划的 QaConversation `turns` 形状。
@@ -58,7 +58,7 @@
 ## 7. F8 对工具变化的定义与 harness 的可选工具恢复语义不一致
 
 - **严重程度**：重要；**类别**：接口合同 / 正确性
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:24-25,39,74,84-93`；`docs/specs/story/qa.md:99,167,209`；`packages/nb-harness/src/harness.ts:105-116`、`packages/nb-harness/src/tools/effective.ts:111-137`、`packages/nb-story/src/qa/tools.ts:56-64,147-154`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:24-25,39,74,84-93`；`docs/specs/story/qa.md:99,167,209`；`packages/nb-harness/src/harness.ts:105-116`、`packages/nb-harness/src/tools/effective.ts:111-137`、`packages/nb-story/src/qa/tools.ts:56-64,147-154`
 - **现象**：计划把 Profile 版本或工具声明变化、以及恢复失败都归为 `qa_not_continuable`，但实际 `restoreEffectiveTools` 对快照里的可选工具在当前登记表缺失时不会抛 `session_incompatible`，而是创建一个始终返回 `plugin-unavailable` 的句柄；只有必需工具缺失才拒绝。`knows`、`ledger`、`track` 正是按书特性选择登记的可选工具。
 - **为什么是问题**：续问恢复时如果登记表按当前书特性建立，快照中曾有的可选工具可能没有当前句柄；harness 会成功恢复，模型下一轮才收到工具错误，而不是计划和 F8 所说的“模型请求前不能续问”。反过来，如果恢复代码无条件登记全部工具，又没有明确按快照重建，就可能把禁用功能错误暴露给 Profile 上下文或使测试误判。计划没有定义“登记表如何按当前/记录特性生成”与“可选工具缺失是 F8 还是可继续”。
 - **如何核实**：用 `storyQaPlugin` 建一份含 `knows` 的快照，再用不登记 `story.knows` 的 registry 调 `createHarness` 恢复；按 `effective.ts:129-132` 可直接得到恢复成功、调用时 `plugin-unavailable`。再分别用 `--no-secrets`、`--no-ledger` 的书执行同一流程，检查快照工具 id、恢复结果和首个模型请求。
@@ -67,7 +67,7 @@
 ## 8. 账本快照的区间规范不完整，按章合并容易把未读段保存成已读
 
 - **严重程度**：重要；**类别**：不变量 / 正确性
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:42-50,58-63,123-125,135-139`；`docs/specs/story/qa.md:39,103,165,242`；现有 `packages/nb-story/src/qa/read-ledger.ts:86-128`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:42-50,58-63,123-125,135-139`；`docs/specs/story/qa.md:39,103,165,242`；现有 `packages/nb-story/src/qa/read-ledger.ts:86-128`
 - **现象**：计划只说 snapshot 是“按章合并的区间 `[章, 起段, 止段][]`”，没有说明同一章允许多个 tuple、端点是否闭区间、是否必须排序，或只合并相邻段还是把同章最小到最大段包成一个区间。现有账本实际按段集合记录，`checkRef` 会逐段检查。
 - **为什么是问题**：若一轮分别读 38.1 和 38.3，按章取最小/最大会保存成 `[38,1,3]`；恢复后 38.2 被当作已读，模型可以在没有收到该段的情况下引用它，直接破坏出处信任边界。跨轮章数计数也需要从“上一轮读过的章集合”而不是区间端点推导。这个形状本身可以无损，但前提是同章的非相邻区间保留为多个 tuple；计划没有把这个前提写成合同。
 - **如何核实**：构造稀疏读取 `read 38.1`、`read 38.3`，保存并恢复；再提交 `answer` 或文字回复引用 38.2。恢复后的 `checkRef("38.2")` 必须仍拒绝。对 `[38,1,3]` 与 `[[38,1,1],[38,3,3]]` 两种快照分别跑同一场景即可暴露差异。
@@ -76,7 +76,7 @@
 ## 9. 新记录的外部输入校验没有覆盖对话、轮次和账本嵌套形状
 
 - **严重程度**：建议；**类别**：正确性 / 安全与性能
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:58-76`；`docs/specs/story/qa.md:153-167`；现有 `packages/nb-story/src/core/qa-records.ts:240-251`
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:58-76`；`docs/specs/story/qa.md:153-167`；现有 `packages/nb-story/src/core/qa-records.ts:240-251`
 - **现象**：计划只说 `recordProblem`“按两种形状核对”，没有给新形状的 discriminator、`turns` 非空规则、每轮 payload/usage/status 的校验，或 `[chapter,start,end]` 的整数与范围校验。现有校验只检查少数顶层字段，甚至不验证旧 `answer`、`chaptersRead` 的元素。
 - **为什么是问题**：`qa --json`、列表格式化和 `--continue` 都把磁盘 JSON 当可信的 `QaRecord` 使用。一个带 `turns: []`、`reply: null` 与 `status: answered` 不一致、负数区间或缺字段的文件可能被列为正常记录；显示时抛异常，续问时恢复出错误账本，或者把损坏数据当成已读。这样违反“损坏记录列最后且不影响其余记录”，也让 F6 不能覆盖实际损坏。
 - **如何核实**：在书的 `qa/<id>.json` 写入多个近似合法但缺 nested 字段的对话 JSON，执行 `nbstory qa --json`、`nbstory qa <id> --json` 和 `ask --continue <id>`，观察是否仍被 `recordProblem` 接受。现有基线 `qa-records.ts:240-251` 已显示校验是浅层的，计划没有列出要补齐的字段。
@@ -99,7 +99,7 @@
 ## 有效发现 A：覆盖式双文件提交会把未保存的轮次带进下一轮上下文
 
 - **严重程度**：阻断；**类别**：不变量。
-- **位置**：主工作区 `plan.md:54-55,75`；主工作区 `docs/specs/story/qa.md:153,166-167,184,187`；worktree `packages/nb-story/src/core/qa-records.ts:142-163`。这里的 plan.md 全路径为 `/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md`，worktree 根为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story`。
+- **位置**：主工作区 `plan.md:54-55,75`；主工作区 `docs/specs/story/qa.md:153,166-167,184,187`；worktree `packages/nb-story/src/core/qa-records.ts:142-163`。这里的 plan.md 全路径为 `/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md`，worktree 根为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story`。
 - **现象**：计划沿用“先替换 session 日志、再替换 record”的保存顺序，但同一个 id 已经有旧 record；session 改名后到 record 改名前，旧 record + 新 session 已经可被续问读到。第二次 rename 失败后该状态永久留下，catch 只删除两个临时文件，不撤回已替换的 session。
 - **为什么是问题**：没有并发也能发生。第二轮报告“没有保存”，磁盘 record 仍是第一轮，但会话日志已经有第二轮问题与回答。下一次 `--continue` 会把第二轮当历史喂给模型，账本却来自第一轮、编号仍从第 2 轮开始。`expectTurns` 查到的仍是旧轮数，检测不到这个错配；t13 进程内串行也挡不住它。这是数据配对破坏，与开发者接受的“预读到改名之间允许丢一轮”窗口不同。并发保存还共用 `<id>.json.tmp` 和 `<id>.session.jsonl.tmp`，预读失败方的临时内容/清理可以影响成功方，需一起消除。
 - **如何核实**：已执行 `bun /tmp/review-w00024-t08-design/scratch/save-pair.ts`（退出 0）。脚本用真实 `Library`、`QaRecords` 和脚本化真实 harness 生成两轮日志，经 strace 只给 `rename(<id>.json.tmp, <id>.json)` 注入 EIO；输出 `recordQuestion: 第一问`、`logHasSecond: true`，child 返回 EIO。对应 trace 是 `/tmp/review-w00024-t08-design/scratch/save-pair-652086/save.trace`。前面未命中的注入尝试不计验证通过。
@@ -201,7 +201,7 @@ A 到 F 的依赖机制已在真实运行时或消费端代码中核实；G 是�
 
 ## 验证命令与范围
 
-以下在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story` 下执行；脚本与产生的数据都在指定 scratch。
+以下在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story` 下执行；脚本与产生的数据都在指定 scratch。
 
 | 命令 | 实测结果 |
 |---|---|

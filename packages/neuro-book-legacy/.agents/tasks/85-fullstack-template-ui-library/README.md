@@ -5,7 +5,7 @@
 - [../../README.md](../../README.md)：NeuroBook 文档入口。
 - [../../../PROJECT-STATUS.md](../../../PROJECT-STATUS.md)：仓库当前状态。
 - [../84-llmlint-standalone-repo/README.md](../84-llmlint-standalone-repo/README.md)：llmlint sibling 仓与 vendored snapshot 的参考模式。
-- `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\llmlint`：衍生项目现状参考，尤其是 `skill/` runtime package 与 `web/` Nuxt 子应用。
+- `C:\Users\<user>\Documents\CodeRepository\GithubProjects\llmlint`：衍生项目现状参考，尤其是 `skill/` runtime package 与 `web/` Nuxt 子应用。
 
 ## User Request / Topic
 
@@ -42,8 +42,8 @@
 ## Decisions / Discussion
 
 - 仓库形态：采用 sibling 仓，而不是 monorepo。
-  - `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-ui`
-  - `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-fullstack-template`
+  - `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-ui`
+  - `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-fullstack-template`
   - NeuroBook / llmlint / 后续产品仓通过 `bun link` 连接本地开发版本。
 - 模板范围：第一版只做基础全栈。
   - 包含 Nuxt / Nitro API / auth / Prisma-libSQL / 主题 / 通知 / Dialog / 文档任务规范 / 基础脚本。
@@ -263,14 +263,14 @@ llmlint 保留：
 
 已完成：
 
-- 新建 sibling `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-ui`。
+- 新建 sibling `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-ui`。
 - `nb-ui` 已实现 Nuxt module、公共导出、基础 theme contract、API error util、`useNotification`、`useResizablePanel`、Dialog / Notification / Dropdown / IconButton / SegmentedControl / SwitchField / 基础 Form 组件。
 - UI 取舍：
   - `Dialog` 以 NeuroBook 更完整的关闭拦截、busy、尺寸预设、teleport、request-close 语义为底座。
   - `SegmentedControl` / `Dropdown` / `SwitchField` / `NotificationViewport` 更偏向 llmlint web 的新版轻量 UI，同时吸收 NeuroBook 的 count / icon / tone / size 等可配置能力。
   - 组件只消费基础 CSS 变量，不绑定 `nbook` 或 `llmlint` 路径别名。
 - `nb-ui/playground` 已可构建，用于后续视觉和交互验证。
-- 新建 sibling `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-fullstack-template`。
+- 新建 sibling `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-fullstack-template`。
 - `nb-fullstack-template` 已实现 Nuxt 4 SPA、`@notnotype/nb-ui` 接入、注册/登录/退出/me API、Prisma/libSQL SQLite、scrypt 密码、zod DTO、默认页面、任务文档模板、`PROJECT-STATUS.md` / `RELEASE.md` / `AGENTS.md`。
 - 未移动 `neuro-book` 或 `llmlint` 目录；本轮也没有迁移两个现有项目的源码 import。
 
@@ -380,7 +380,7 @@ llmlint 保留：
 
 - 未发现本轮计划遗漏或阻塞问题；`nb-ui` 公共导出、Nuxt 自动注册、模板 linked 依赖、模板页面/API、数据库初始化和 README 契约能互相对上。
 - `file:../nb-ui` 只保留在任务历史说明中；`link:../nb-ui` 只保留为明确错误反例。模板实际依赖与 lockfile 均为 `link:@notnotype/nb-ui`。
-- `node_modules/@notnotype/nb-ui` 再次确认为指向 sibling `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-ui` 的 symlink。
+- `node_modules/@notnotype/nb-ui` 再次确认为指向 sibling `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-ui` 的 symlink。
 - 模板生产构建输出包含 `routes/api/protected.get.mjs`，受保护 API 示例进入 Nitro 产物。
 
 复跑验证：
@@ -440,7 +440,7 @@ llmlint 保留：
 - `nb-fullstack-template`
   - `cd ../nb-ui && bun link`：通过，注册包名 `@notnotype/nb-ui`。
   - `bun install --frozen-lockfile`：通过，安装 `@notnotype/nb-ui@link:@notnotype/nb-ui`。
-  - `node_modules/@notnotype/nb-ui`：确认为指向 sibling `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-ui` 的 symlink。
+  - `node_modules/@notnotype/nb-ui`：确认为指向 sibling `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-ui` 的 symlink。
   - `bun run typecheck`：通过。
   - `bun run test`：2 files / 3 tests passed。
   - `bun run build`：通过；Nitro 输出包含 `/api/protected` route chunk。并行构建时 Nitro 收尾较慢，但最终退出码为 0。
@@ -488,7 +488,7 @@ llmlint 保留：
   - `bun run test`：2 files / 3 tests passed。
   - `cd ../nb-ui && bun link`：通过，注册包名 `@notnotype/nb-ui`。
   - `bun install --frozen-lockfile`：顺序执行时通过，安装 `@notnotype/nb-ui@link:@notnotype/nb-ui`。
-  - `node_modules/@notnotype/nb-ui`：确认为指向 sibling `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-ui` 的 symlink。
+  - `node_modules/@notnotype/nb-ui`：确认为指向 sibling `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-ui` 的 symlink。
   - `bun run build`：通过；Nitro 输出包含 `/api/protected` route chunk。
   - `$env:DATABASE_URL='file:./.agent/smoke-template-v08.db'; bun run db:setup`：通过，迁移与默认 `admin` 初始化均非交互完成。
 
@@ -626,7 +626,7 @@ llmlint 保留：
   - `bun run build`：通过。
 - `nb-fullstack-template`
   - `bun install`：通过。
-  - `node_modules/@notnotype/nb-ui`：确认为指向 `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-ui` 的 symlink。
+  - `node_modules/@notnotype/nb-ui`：确认为指向 `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-ui` 的 symlink。
   - `bun.lock`：确认为 `@notnotype/nb-ui@link:@notnotype/nb-ui`。
   - `bun run typecheck`：通过。
   - `bun run test`：通过，1 file / 1 test passed。

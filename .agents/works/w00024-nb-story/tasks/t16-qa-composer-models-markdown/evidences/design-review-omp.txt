@@ -25,7 +25,7 @@
 - **建议改法**：在 nb-agent-ui 的公开转录合同中增加可渲染的 meta/过程事件，或在 nb-story 的 `turn-transcripts` 适配层把 `nb-story.reply-check` 映射为独立的过程视图；同时明确复查清单只放在第二次用户 `turn` 的文本中，不能靠 meta 给模型传递。为这条映射补跨轮日志测试。
 ### 4. 四分类规则对 69 家目录既有重叠，也漏掉 muse-code 与免鉴权路径
 - **严重程度**：重要；**类别**：正确性
-- **位置**：`plan.md:36-46`、`/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-catalog/compat/{auth,providers}.ts`
+- **位置**：`plan.md:36-46`、`/home/<user>/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-catalog/compat/{auth,providers}.ts`
 - **现象**：按计划字面跑完仓库 OMP 18.2.5 的全部 69 个 `getBundledProviders()` 后：`anthropic` 同时满足 refresh login、env hook chain、envVars key；`bedrock-mantle` 同时满足 env hook/native chain 与 envVars key；`cursor`、`github-copilot`、`gitlab-duo`、`gitlab-duo-agent`、`openai-codex`、`xai-oauth` 同时满足会过期 login 与 envVars key。`muse-code` 有 `login.kind=device-code`、`refresh.kind=none`，但没有 envVars、`result:"api-key"` 或计划定义的 chain 信号，因此四类没有落点。另有 `commandcode`、`google-vertex`、`zenmux` 的目录元数据允许缺少 key，计划的“有 envVars 才 key / chain、none 灰掉”却没有表达这种可用性。
 - **为什么是问题**：没有优先级和“可登录但也可用环境令牌”“可免 key”的正交字段，同一个服务商会依实现顺序被不同页面标成不同类；`muse-code` 会落入未定义分支；Google Vertex 的 `GOOGLE_CLOUD_API_KEY` 路径与 3 家免鉴权服务会被错误置灰，直接违反“没验证过的接口照常可选”之外的实际 OMP 可用性。计划第 39-43 行把认证类型、密钥来源和是否能选混成一个枚举，无法覆盖这组数据。
 - **如何核实**：在主工作区执行 `bun -e 'import {getBundledProviders} from "@oh-my-pi/pi-catalog"; import {authPolicyFor} from "@oh-my-pi/pi-catalog/compat/auth"; import {providerEntry} from "@oh-my-pi/pi-catalog/compat/providers"; ...'`，输出 `count:69`、上述重叠项和 `muse-code`；同一实验显示 `allowUnauthenticated` 为 `commandcode`、`google-vertex`、`zenmux`。`getEnvApiKey("google-vertex")` 在设置 `GOOGLE_CLOUD_API_KEY=x` 时返回非空。

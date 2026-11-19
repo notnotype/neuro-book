@@ -242,7 +242,7 @@
 
 ## 定稿：第一轮各条的处理核对
 
-本节是最终判定，覆盖上面逐条追加的暂记与更正；有效发现只取同编号最后的版本。审查对象为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-specs-review2/docs/specs/plot/` 的提交 `5b2d368a0`，本文 Spec 相对路径均相对此 worktree。
+本节是最终判定，覆盖上面逐条追加的暂记与更正；有效发现只取同编号最后的版本。审查对象为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-specs-review2/docs/specs/plot/` 的提交 `5b2d368a0`，本文 Spec 相对路径均相对此 worktree。
 
 1. 部分解决：版本、名称、级别与多数键已补；守卫的互斥键、正文物件分支的变更身份和段级身份仍未闭合（第 23、25、22 条）。
 2. 已解决：插件项目数据与它的数据版本进入同步诊断合同，检查记录变更报告新版本；这是 planned 合同已补齐，不是宣称当前代码已经实现。

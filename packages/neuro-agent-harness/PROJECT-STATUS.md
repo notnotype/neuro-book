@@ -3,7 +3,7 @@
 ## 当前快照
 
 - **身份**：`@notnotype/neuro-agent-harness`，版本 `0.1.0`，宿主无关的 TypeScript Agent Harness。
-- **来源**：`C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-agent-harness`，S0 快照 HEAD `1e4774f299eae78dc304ca750d105ce2584e5cff`，分支 `master`，upstream `origin/master`。
+- **来源**：`C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-agent-harness`，S0 快照 HEAD `1e4774f299eae78dc304ca750d105ce2584e5cff`，分支 `master`，upstream `origin/master`。
 - **状态**：已按 S0 import manifest 收编到 monorepo `packages/neuro-agent-harness`；源 checkout 保持不变且不作为本包开发路径。
 - **范围**：保留 Core、Memory/JSONL Store、Workflow、事件/Session 合同、`scripts/pack-smoke.ts`、全部源码、测试、设计文档、历史 Task 和包消费合同；本次收编不声明替换 NeuroBook 自有 Harness。
 - **包治理**：monorepo 包设为 `private: true`，删除源 `publishConfig` 和自动发布入口；保留原 name、版本、exports、scripts、build/pack smoke 行为和依赖语义。Registry 已有版本不在此处修改。

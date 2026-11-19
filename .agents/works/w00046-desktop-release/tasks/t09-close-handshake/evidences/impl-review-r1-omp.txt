@@ -3,7 +3,7 @@
 位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/server/running-work.ts:82-95。
 现象：try 只包 reporter()；Value.Check 与读取 item.text 都在外面。报告方交回 [{get text(){throw new Error(...)}}] 时，getter 在校验阶段抛错，GET /api/runtime/work 回 500；同次查询里另一个正常插件的工作也全部丢失，且没有把坏插件记进 failed。该返回值在 TypeScript 中可以合法实现 RunningWorkItem，并非必须绕过类型系统才能产生。
 为什么是问题：server-host 的“在跑的工作”要求一个登记方失败只影响它自己，其他项继续列出。页面此时只知道整体取不到，用户无法看到本来能明确列出的工作。base 没有此登记表，是本次新增边界。
-如何核实：实现 HEAD=a04be981ebc8cd227a74f7bf737d087ea92e3deb。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/reporter-isolation.ts；真实认领、真实服务端、两个真实激活的测试插件，经实际 HTTP 路由请求。getter 场景 status=500，body 为 internal-error；另两个对照场景 status=200；三个服务端均以 0 停止。现有测试只验直接 throw 和普通 {text:42}，未覆盖返回值在读取时失败。
+如何核实：实现 HEAD=a04be981ebc8cd227a74f7bf737d087ea92e3deb。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/reporter-isolation.ts；真实认领、真实服务端、两个真实激活的测试插件，经实际 HTTP 路由请求。getter 场景 status=500，body 为 internal-error；另两个对照场景 status=200；三个服务端均以 0 停止。现有测试只验直接 throw 和普通 {text:42}，未覆盖返回值在读取时失败。
 建议改法：把报告方调用、返回值校验和将合法文字转为独立工作项的整段放进同一隔离边界；整段出错统一写诊断、将这个插件放进 failed，再继续下一登记方。
 
 ### 2. 起标题发生 id 冲突后，把用户仍在运行的会话永久排除出关闭提醒
@@ -11,7 +11,7 @@
 位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/plugins/agent/backend/agent.ts:320-323（撤下仅在 :249-252）；backend/running-work.ts:62-64。
 现象：调用 createSession 之前无条件 internal.add(metaOptions.id)。该 id 已被普通用户会话占用时，创建回 session-exists，SessionMeta 核对 Profile 后正确报 session-meta-conflict，但 internal 标记没撤下。只要这个普通会话仍打开，它运行中的工作就从汇总消失，failed 也为空。
 为什么是问题：sessions 输出 20 要报全部在跑的用户会话；内部标题会话的排除应取决于真实归属，不能把“试图创建”当成“已经是内部会话”。已有 builtin-profiles.test.ts:585-596 明确支持这个冲突且要求不碰占用方。本次 75c33a1d4 新增的标记破坏了该边界；base 没有 internal 排除。关最后一个窗口可因此无工作提示直接中断它。
-如何核实：HEAD=a04be981e。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/agent-work-edges.ts；真实 Agent 插件、内核、磁盘与本机假模型端点，经公开 service.create/send 造与既有冲突测试相同的场景。冲突前汇总包含标题“用户在写的另一会话”；等真实 session-meta-conflict 后 snapshot.status.state 仍为 running，汇总却为 {items:[],failed:[]}。
+如何核实：HEAD=a04be981e。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/agent-work-edges.ts；真实 Agent 插件、内核、磁盘与本机假模型端点，经公开 service.create/send 造与既有冲突测试相同的场景。冲突前汇总包含标题“用户在写的另一会话”；等真实 session-meta-conflict 后 snapshot.status.state 仍为 running，汇总却为 {items:[],failed:[]}。
 建议改法：创建成功后才确认内部身份；复用 session-exists 时，先核对后台标记及当前 Profile 确为程序标题会话再登记。失败或冲突不得留下排除标记。把运行中的占用方加入原有冲突场景，断言它仍被汇总。
 
 ### 3. 标题缓存只信启动索引，打开会话修复索引后仍显示“未命名”或旧标题
@@ -27,7 +27,7 @@
 位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/desktop/shell.ts:128-143。
 现象：waiting-close 的 exit 按钮设置 exitWhileClosing，但 await acquireDesktopLock 返回后只在 claimed.ok 分支检查该标记；若返回 unresponsive/failed，直接 leaveClosing 清掉按钮处理器，再进 #fail 等下一次点击。用户已经点过退出，窗口却转成“没有应答”，不退出。第 5 条旧审查只修好了轮询 sleep 和 askRunningShell 在途，漏了 acquire 在途的错误出口。
 为什么是问题：desktop-shell 输出 3、场景 5 要求等待确认关闭时点退出就不留窗口；代码注释还承诺“每次 await 之后都看它”。这条是本次修正未覆盖的分支；base 的原问题仍可达，非另报旧问题。
-如何核实：实际加载 HEAD=5383766676e54fecf476930ed6e063f7c92f1036；git diff a04be981e..HEAD 仅为前端修正，本文所用 src/desktop 与 nb-host/nb-file-lock 没有变化。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/waiting-exit-race.ts。真实子进程持桌面锁、第一次 open-window 回 closing 后 SIGSTOP；新壳显示 waiting-close，推进注入时钟开始下一轮认领，观察真实 desktop.claim.lock 已取到后经公开 startupAction('exit') 点击。3000ms 真套接字超时后 exits=[]，views=[waiting-close,error(shell-unresponsive)]；再点一次才退出。finally 恢复并停止锁持有方。
+如何核实：实际加载 HEAD=5383766676e54fecf476930ed6e063f7c92f1036；git diff a04be981e..HEAD 仅为前端修正，本文所用 src/desktop 与 nb-host/nb-file-lock 没有变化。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/waiting-exit-race.ts。真实子进程持桌面锁、第一次 open-window 回 closing 后 SIGSTOP；新壳显示 waiting-close，推进注入时钟开始下一轮认领，观察真实 desktop.claim.lock 已取到后经公开 startupAction('exit') 点击。3000ms 真套接字超时后 exits=[]，views=[waiting-close,error(shell-unresponsive)]；再点一次才退出。finally 恢复并停止锁持有方。
 建议改法：acquireDesktopLock 的 await 之后先统一处理 finishing/exitWhileClosing；若成功就先放刚拿的锁，其余结果直接退出，不再进入新的错误询问。把此交错补进等待关闭的原有行为测试。
 
 ### 5. 监督失败的 Windows 兜底仍只证明根 pid 消失，没有证明 Job 已结束

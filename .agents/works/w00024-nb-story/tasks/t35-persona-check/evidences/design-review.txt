@@ -1,6 +1,6 @@
 # w00024/t35 马甲核对：只读设计审查
 
-审查对象：`6bf7fbc61` 的 `.agents/works/w00024-nb-story/tasks/t35-persona-check/plan.md`；已核对主工作区计划内容相同。代码只读；验证在实现 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t35-persona-check` 执行。未调用真实模型；未运行 e2e、开发服务。
+审查对象：`6bf7fbc61` 的 `.agents/works/w00024-nb-story/tasks/t35-persona-check/plan.md`；已核对主工作区计划内容相同。代码只读；验证在实现 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t35-persona-check` 执行。未调用真实模型；未运行 e2e、开发服务。
 
 发现按核实顺序追加；严重程度汇总及最终影响排序见报告末尾。
 

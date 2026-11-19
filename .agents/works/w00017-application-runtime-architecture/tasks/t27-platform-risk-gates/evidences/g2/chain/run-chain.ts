@@ -1,7 +1,7 @@
 // 用仓库真实的 owned-process 与 Manager 退出判定（只读导入），观察产品服务端以不同方式结束时 Manager 看到什么。
 import {readFileSync, mkdirSync} from "node:fs";
-import {spawnOwnedProcess} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/owned-process/src/index.ts";
-import {assertProductExit, productExitErrorMessage} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book-manager/src/app-commands.ts";
+import {spawnOwnedProcess} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/owned-process/src/index.ts";
+import {assertProductExit, productExitErrorMessage} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book-manager/src/app-commands.ts";
 const out = `${import.meta.dir}/out`;
 mkdirSync(out, {recursive: true});
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

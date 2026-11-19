@@ -219,7 +219,7 @@ owners:
     - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行（planned）。只有落账之后的通知抛出时库接住它（交 `reportError`（planned），没有时 `console.error`），提交照样算落账。
 
 141. **主题变量**（planned）：Vue 层读的 CSS 变量都是 `--nb-layout-*`，每处带回退；装了 nb-ui 的宿主经它的桥接取主题的值（[`theme/system`](../theme/system.md) 的“变量体系”），外观与过渡同今天；不装时用回退。输出 35、112 与组件文档里写的 `--motion-layout`、`--layout-card-*` 这类名字是主题写的旧名，库读的是对应的 `--nb-layout-*`。宿主旋钮（`--nb-layout-sash-line-inset` 这类主题不写的）直接设新名，可以设在子树上。
-142. **过渡：缺省时长**（planned）：宿主没给 `--nb-layout-motion-layout` 时（不装 nb-ui、也没自己设），布局过渡按缺省时长走，CSS 过渡与库里等过渡收尾的计时用同一个值；时长要写成 `ms` 或 `s` 的字面值；写成别的（`none`、`calc()`）时库的计时当 0，`none` 不过渡。系统减少动态效果时 nb-layout 读的时长全部归零，宿主在根上设的时长也压不过（输出 59）。
+142. **过渡：缺省时长**（planned）：宿主没给 `--nb-layout-motion-layout` 时（不装 nb-ui、也没自己设），布局过渡按缺省时长走，CSS 过渡与库里等过渡收尾的计时用同一个值；时长要写成 `ms` 或 `s` 的字面值；写成别的（`none`、`calc()`）时库的计时当 0，`none` 不过渡。系统减少动态效果时 nb-layout 读的时长在根上全部归零，宿主在根上设的时长也压不过；宿主设在子树元素上的时长不受这条约束（输出 59）。
 143. **文案**（planned）：组件的读屏名称与提示（分隔条、可排序列表）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取；没有注入时用库自带的 `zh-CN` 目录，参数照旧代入（[`ui/i18n`](i18n.md) 输出 8 的例外）。
 ## 状态与转换
 
@@ -307,6 +307,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用与插�
 嵌套 sash 的旧限制由本能力覆盖的场景逐项解除；其它未覆盖结构操作继续保留已有限制，不能据一个样例宣称任意布局均已支持。
 外框、内容与浮动窗手柄是里面 `position: fixed` 元素的包含块（输出 28）：要盖住整个窗口的东西（对话框、拖影、菜单）宿主要 Teleport 到 `body`。
 公开的标记：`data-swap`（输出 75）、`data-leaf`、`data-grid-scope` 等的取值与含义见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 的“公开的标记与变量”。
+公开面（planned）：每个子路径的入口是一行一个名字的显式清单，入口里的名字就是公开面；文件里别的导出是内部的，随时可以改。`gesture-start`、`gesture-cancel` 的载荷类型是 `GridGestureStart`（`sessionId`、`contextKey`、`source`、`revision`、`sashes`）与 `GridGestureCancellation`（`reason`、`sashes`），手势来源与取消原因是 `SashGestureSource`、`SashGestureCancelReason`（独立 `Splitter` 也用这两个）。
 CSS 变量（planned）：`NB_LAYOUT_THEME_VARS`（根入口）列出库读的全部 `--nb-layout-*` 与各自的回退；README 的变量表只承诺其中主题级的一小批（颜色、圆角、阴影、时长、焦点），其余是内部名字，可以改名（输出 141）。
 工作台的用法：用分支的收起表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）；把 `moveGridFocus` 登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
 失败的码集合开放：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。

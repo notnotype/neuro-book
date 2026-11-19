@@ -1,5 +1,5 @@
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
  ❯ server/workspace-files/project-session.test.ts (13 tests | 1 failed) 7457ms
      × 外部替换根时封住旧代open，收口Scope后才允许新代ready 5153ms

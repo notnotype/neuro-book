@@ -1,6 +1,6 @@
 # w00032 t28 批 5 只读设计审查
 
-审查对象：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:70-85`（与被审 worktree 同内容）。代码证据均来自 `/home/notnotype/CodeRepository/neuro-book/.worktree/t28-b5-review/`；Spec 与 Task 依据读取主工作区。不开子代理，不修改仓库文件，不安装依赖，不运行开发服务、e2e 或真实模型。以下发现按核实进度追加。
+审查对象：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:70-85`（与被审 worktree 同内容）。代码证据均来自 `/home/<user>/CodeRepository/neuro-book/.worktree/t28-b5-review/`；Spec 与 Task 依据读取主工作区。不开子代理，不修改仓库文件，不安装依赖，不运行开发服务、e2e 或真实模型。以下发现按核实进度追加。
 
 ### 1. 阻断：附件读取响应缺少原始文件路由已有的沙箱，会把上传的 SVG、HTML 放进应用源执行
 
@@ -26,7 +26,7 @@
 - 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:75-76`；被审 worktree `packages/nb-harness/src/kernel/session/preview.ts:101-120`、`session/session.ts:389`、`run/input.ts:35-67`、`run/loop.ts:224-257`。
 - 现象：计划在三个调用点之前解析“路径上”附件。实际 `preview` 会先把缓冲区中确定要消费的输入投影到临时状态：没有运行时也投影第一条 followup，运行中投影全部 steer；这些输入还没有 `input`、`steer` 路径事件。输入拦截还允许改文字及附件，必须取改写后的输入。预览本身不经过写队列，可以与真实运行并发。
 - 为什么是问题：扫描 `core.pathTo()` 或依赖真实运行暖缓存，无法解析预览才出现的图片，违反 `fidelity: "next"`。插入异步读取后，如果扫描所用状态与传给 `computeRequest` 的状态不是同一份，读取等待期间运行推进或切分支，还会拼出“旧附件 Map、新对话”的请求。不是所有新 steer 都必须挤入正在准备的请求：已取走的属于本次，之后到达的应留下一边界；计划没有固定这个快照边界。
-- 如何核实：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/contracts-smoke.ts`，经真实内核 `enqueue → preview`，输入拦截添加图片并改写文字；输出 `status=idle`、buffer 含改写后的附件、`pathAttachments=[]`、预览文字为改写后输入，日志 head 前后都是 4。该实验验证输入集合差异，不把尚未实现的附件解析称为已运行。
+- 如何核实：已运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/contracts-smoke.ts`，经真实内核 `enqueue → preview`，输入拦截添加图片并改写文字；输出 `status=idle`、buffer 含改写后的附件、`pathAttachments=[]`、预览文字为改写后输入，日志 head 前后都是 4。该实验验证输入集合差异，不把尚未实现的附件解析称为已运行。
 - 建议改法：共用一个异步请求准备入口，显式接收一次捕获的装配、模型与 `StateAt`（预览用投影后的状态），先同步渲染附件引用，再解析本次请求实际需要的引用；不要三处各自扫描实时路径。覆盖无运行的排队预览、运行中 steer、输入拦截改附件、读取等待期间预览与运行并发。
 
 ### 4. 重要：按固定标签切文字与真实提示词语法不等价，会把代码变图片、把合法图片留成文字
@@ -98,7 +98,7 @@
 - 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:74,78,84`；主工作区 `docs/specs/harness/runtime.md:114,119`；被审 worktree `packages/nb-harness/src/kernel/helpers/content.ts:95-105`、`packages/nb-agent-ui/src/kernel-transcript.ts:344-346`。
 - 现象：一份附件地址同时存在于 `text` 与 `attachments[].uri`。现有 `mapEventContent` 只过滤 input/steer 的文字与 payload，保留 attachments；转录器随后照列表生成附件块。计划中的“文字已有地址就不重复显示”无法处理过滤后的这份分叉：文字地址消失，反而触发列表附件块显示，读取路由再按该 URI 给原件。
 - 为什么是问题：这不是重新质疑已定的跨会话可读权限，而是同一事件的出站投影绕过过滤结果。宿主通过标准 helper 隐去附件地址，读者仍能从结构化字段得到原 URI、预览及下载原图。用户图片不能只继承工具图片的模型转换规则，忽略其出站整块保留或去掉的合同。fork 复制含这个 URI 的日志不会修复投影不一致。
-- 如何核实：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/outbound-smoke.ts`，经真实 `send → waitRun → session.as(reader).path` 与真实 KernelTranscript；过滤后 `text` 是 `![image #1]([hidden])`，`attachments[].uri` 仍是原全局地址，转录结果仍含原 URI 的 attachment 块。没有运行新 GET 路由，也不声称已经实测下载。
+- 如何核实：已运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/outbound-smoke.ts`，经真实 `send → waitRun → session.as(reader).path` 与真实 KernelTranscript；过滤后 `text` 是 `![image #1]([hidden])`，`attachments[].uri` 仍是原全局地址，转录结果仍含原 URI 的 attachment 块。没有运行新 GET 路由，也不声称已经实测下载。
 - 建议改法：为用户附件定义结构化的出站保留/去掉策略，与事件文字一并投影；标准 helper 必须明确处理附件字段，不能留下可重新显示原件的第二份地址。整条事件返回 null 的既有过滤继续有效。若读者需要受过滤的图片版本，不要从被过滤的文字推导访问权限，也不扩大为跨会话隔离新需求。
 
 ### 12. 建议：原文件名放 HTTP 头尚未定义编码，常见中文附件名不能原样发送
@@ -116,7 +116,7 @@
 - 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:80-81`；主工作区 `docs/specs/harness/runtime.md:103-108`；被审 worktree `packages/nb-harness/src/kernel/state/history.ts:91-121`、`compaction/compact.ts:95-100`、`packages/neuro-book/src/plugins/agent/backend/compaction/summary.ts:86-109`、`compaction/cuts.ts:13-20,35-37`。
 - 现象：计划只规定摘要输入里的图片写尺寸占位，`shake` 不动用户图片。实际内核压缩到当前轮、甚至 `firstKeptEntryId:null` 时，保留当前轮的 input 与附带事件，只删 steps；摘要方法交回 `omitted:[]`。下一次重新格式化 input 会再次附上全部用户图片，摘要输入变文字不等于压缩后的对话去图。20 张每张 1,600 token 的图已达 32,000 token；100 张可达 160,000 token，张数预算仍允许它们。
 - 为什么是问题：首次请求或一轮中累积的附件可以单独超过模型窗口。没有工具可供 shake 省略时，摘要能成功写下，重试却仍带同样 20/100 张图，最终按“每次溢出最多重试一次”结束；压缩记录还可能写出过低的 tokensAfter。当前 `pickCut` 只有一个轮切点时取 null、`summaryResult` 不加当前 input 的保留量，这与即将进入请求的图片尤其不一致。旧的文本大输入已有同类边界；本批把图片加进这种永久保留输入，必须定义其实际压缩/降级出口，不能声称已有 summary 占位解决了。
-- 如何核实：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/compaction-smoke.ts`。使用受支持的 Profile.turn 渲染 20 张带 input 来源的图片、真实内核溢出压缩、合格的摘要结果；两次真实 ModelPort 调用均是 `images:20, hasInput:true`，路径确有 compaction 事件，运行最终仍为 context_overflow。此探针使用脚本化端口而非真实服务商，验证的是压缩后保留输入的不变量；当前用户附件端口尚不存在，未冒充新附件端到端验证。
+- 如何核实：已运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/compaction-smoke.ts`。使用受支持的 Profile.turn 渲染 20 张带 input 来源的图片、真实内核溢出压缩、合格的摘要结果；两次真实 ModelPort 调用均是 `images:20, hasInput:true`，路径确有 compaction 事件，运行最终仍为 context_overflow。此探针使用脚本化端口而非真实服务商，验证的是压缩后保留输入的不变量；当前用户附件端口尚不存在，未冒充新附件端到端验证。
 - 建议改法：明确进行中 input/steer 的图片如何在压缩后降为可恢复的 URI/尺寸占位，并保证被省略的事件不被 `format.user` 重新附图；或定义超过当前模型可容纳量的确定降级策略。保持原图和日志不变，回退到压缩前仍能恢复。`tokensAfter` 与合法切点的保留量必须包含实际保留的用户图及张数预算后的占位；验收增加“同一轮用户图已超过窗口”的溢出恢复，不只做多轮历史压缩。
 
 ## 已有发现的补充验证
@@ -156,18 +156,18 @@
 已执行，均未修改仓库文件：
 
 ```sh
-bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/contracts-smoke.ts
-bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/budget-smoke.ts
-bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/image-smoke.ts
-bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/outbound-smoke.ts
-bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/compaction-smoke.ts
+bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/contracts-smoke.ts
+bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/budget-smoke.ts
+bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/image-smoke.ts
+bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/outbound-smoke.ts
+bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/compaction-smoke.ts
 ```
 
 - 以上 5 个探针命令均退出 0。`compaction-smoke.ts` 输出的 context_overflow 是它要观察的真实内核行为，不是服务商调用失败。
 - 编码目标扫描实际命令：
 
 ```sh
-bun -e 'const p="/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/noise.png"; const bytes=await Bun.file(p).bytes(); console.log(JSON.stringify({input:bytes.length,meta:await new Bun.Image(bytes).metadata()})); for(const quality of [80,70,60,50,40]) {const output=await new Bun.Image(bytes).jpeg({quality}).bytes(); console.log(JSON.stringify({quality,bytes:output.length,over500KiB:output.length>500*1024}));}'
+bun -e 'const p="/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/noise.png"; const bytes=await Bun.file(p).bytes(); console.log(JSON.stringify({input:bytes.length,meta:await new Bun.Image(bytes).metadata()})); for(const quality of [80,70,60,50,40]) {const output=await new Bun.Image(bytes).jpeg({quality}).bytes(); console.log(JSON.stringify({quality,bytes:output.length,over500KiB:output.length>500*1024}));}'
 ```
 
 - 图片样本由本机 magick 生成，写入指定实验目录；帧数、CMYK/sRGB 用 `identify` 核实。没有安装依赖；源码通过绝对路径导入被审 worktree，依赖沿现有 node_modules 解析，未把主工作区业务源码的运行结果当作被审提交证据。

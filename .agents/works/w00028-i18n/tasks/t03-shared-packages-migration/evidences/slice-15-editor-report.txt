@@ -10,7 +10,7 @@
 - 没有 commit。验证结果见“验证”。
 
 == 改动文件 ==
-路径都在 /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n 下：修改 26 个，新增 2 个。
+路径都在 /home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n 下：修改 26 个，新增 2 个。
 
 Spec 与组件说明：
 - docs/specs/runtime/browser-host.md：windowRescueKey 的提供者返回 {path, text, note?}，note 是文字值，按窗口当前语言显示；每项列出提供者的说明。

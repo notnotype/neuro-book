@@ -1,10 +1,10 @@
 # w00017 t69 实现审查：测试与验收覆盖
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-impl-tests`，`06d78a55`。本报告仅审查测试与验收覆盖；仓库保持只读，变异在本报告目录下的源码副本执行。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-impl-tests`，`06d78a55`。本报告仅审查测试与验收覆盖；仓库保持只读，变异在本报告目录下的源码副本执行。
 
 依据：Task `plan.md` 的验收映射与 S1–S4 自跑判据；`docs/specs/workspace/files.md`、`folder-kinds.md`、`resources.md`、`platform/files.md`；`runtime/plugin-channel.md`、`lifecycle.md`；`docs/testing/README.md`。已定 t68/t69 取舍作为前提。
 
-依赖安装：在审查 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/tests prox bun install --frozen-lockfile --ignore-scripts`，退出 0；Bun `1.4.2 (744846f84)`，1568 packages installed。
+依赖安装：在审查 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/tests prox bun install --frozen-lockfile --ignore-scripts`，退出 0；Bun `1.4.2 (744846f84)`，1568 packages installed。
 
 本次核实 4 条发现：重要 3、建议 1、阻断 0。重要项包括一个真实 WebSocket 可复现的实现缺陷、两个验收覆盖缺口；下文按影响排序，编号保留核实顺序。
 

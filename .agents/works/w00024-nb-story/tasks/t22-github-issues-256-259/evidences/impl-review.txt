@@ -55,7 +55,7 @@ bun -e 'import {createFinishWatch} from "./packages/nb-harness/src/finish-watch.
 **如何核实**：在审查 worktree 执行：
 
 ```sh
-NODE_PATH=/home/notnotype/CodeRepository/neuro-book/node_modules bun -e 'const {parseCommandLine}=await import("/tmp/t22-review-wt/packages/nb-story/src/cli/program.ts"); const out=[]; const result=parseCommandLine(["config","--config","init","--help"],{stdout:s=>out.push(s),stderr:()=>{}}); console.log(JSON.stringify({result,usage:out[0]?.split("\\n")[0]}));'
+NODE_PATH=/home/<user>/CodeRepository/neuro-book/node_modules bun -e 'const {parseCommandLine}=await import("/tmp/t22-review-wt/packages/nb-story/src/cli/program.ts"); const out=[]; const result=parseCommandLine(["config","--config","init","--help"],{stdout:s=>out.push(s),stderr:()=>{}}); console.log(JSON.stringify({result,usage:out[0]?.split("\\n")[0]}));'
 ```
 
 输出 `{"result":{"exit":0},"usage":"用法：nbstory config init [选项]"}`，但输入没有 `init` 动作。

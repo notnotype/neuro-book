@@ -60,7 +60,7 @@
           "pid": 3695695,
           "parent": 3695694,
           "group": 3695642,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt prepare"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt prepare"
         },
         {
           "pid": 3695772,
@@ -78,43 +78,43 @@
           "pid": 3695781,
           "parent": 3695773,
           "group": 3695642,
-          "command": "/usr/bin/bun x prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
+          "command": "/usr/bin/bun x prisma generate --config /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
         },
         {
           "pid": 3695782,
           "parent": 3695781,
           "group": 3695642,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
         },
         {
           "pid": 3695823,
           "parent": 3695773,
           "group": 3695642,
-          "command": "/usr/bin/bun x prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
+          "command": "/usr/bin/bun x prisma generate --config /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
         },
         {
           "pid": 3695824,
           "parent": 3695823,
           "group": 3695642,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
         },
         {
           "pid": 3695866,
           "parent": 3695824,
           "group": 3695866,
-          "command": "/usr/bin/node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child {\"product\":\"prisma\",\"version\":\"7.8.0\",\"cli_install_type\":\"local\",\"information\":\"\",\"local_timestamp\":\"2026-10-02T06:53:16+01:00\",\"project_hash\":\"2da23d16\",\"cli_path\":\"/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma\",\"cli_path_hash\":\"4382895c\",\"endpoint\":\"https://checkpoint.prisma.io\",\"disable\":false,\"arch\":\"x64\",\"os\":\"linux\",\"node_version\":\"v26.10.0\",\"ci\":false,\"ci_name\":\"\",\"command\":\"generate --config [redacted] --schema [redacted]\",\"schema_providers\":[\"sqlite\"],\"schema_preview_features\":[],\"schema_generators_providers\":[\"prisma-client\"],\"cache_file\":\"/home/notnotype/.cache/checkpoint-nodejs/prisma-4382895c\",\"cache_duration\":43200000,\"remind_duration\":172800000,\"force\":false,\"timeout\":5000,\"unref\":true,\"child_path\":\"/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child\",\"client_event_id\":\"\",\"previous_client_event_id\":\"\",\"check_if_update_available\":false}"
+          "command": "/usr/bin/node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child {\"product\":\"prisma\",\"version\":\"7.8.0\",\"cli_install_type\":\"local\",\"information\":\"\",\"local_timestamp\":\"2026-10-02T06:53:16+01:00\",\"project_hash\":\"2da23d16\",\"cli_path\":\"/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma\",\"cli_path_hash\":\"4382895c\",\"endpoint\":\"https://checkpoint.prisma.io\",\"disable\":false,\"arch\":\"x64\",\"os\":\"linux\",\"node_version\":\"v26.10.0\",\"ci\":false,\"ci_name\":\"\",\"command\":\"generate --config [redacted] --schema [redacted]\",\"schema_providers\":[\"sqlite\"],\"schema_preview_features\":[],\"schema_generators_providers\":[\"prisma-client\"],\"cache_file\":\"/home/<user>/.cache/checkpoint-nodejs/prisma-4382895c\",\"cache_duration\":43200000,\"remind_duration\":172800000,\"force\":false,\"timeout\":5000,\"unref\":true,\"child_path\":\"/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child\",\"client_event_id\":\"\",\"previous_client_event_id\":\"\",\"check_if_update_available\":false}"
         },
         {
           "pid": 3695882,
           "parent": 3695643,
           "group": 3695642,
-          "command": "/usr/bin/bun --no-install /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets"
+          "command": "/usr/bin/bun --no-install /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets"
         },
         {
           "pid": 3695911,
           "parent": 3695882,
           "group": 3695642,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.7 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.7 --ping"
         },
         {
           "pid": 3695931,
@@ -126,19 +126,19 @@
           "pid": 3695932,
           "parent": 3695931,
           "group": 3695642,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
         },
         {
           "pid": 3696028,
           "parent": 3695932,
           "group": 3695642,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
         },
         {
           "pid": 3696051,
           "parent": 3695932,
           "group": 3695642,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
         }
       ]
     },
@@ -201,7 +201,7 @@
           "pid": 3696634,
           "parent": 3696633,
           "group": 3696591,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt prepare"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt prepare"
         },
         {
           "pid": 3696712,
@@ -219,43 +219,43 @@
           "pid": 3696722,
           "parent": 3696713,
           "group": 3696591,
-          "command": "/usr/bin/bun x prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
+          "command": "/usr/bin/bun x prisma generate --config /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
         },
         {
           "pid": 3696723,
           "parent": 3696722,
           "group": 3696591,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
         },
         {
           "pid": 3696765,
           "parent": 3696713,
           "group": 3696591,
-          "command": "/usr/bin/bun x prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
+          "command": "/usr/bin/bun x prisma generate --config /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
         },
         {
           "pid": 3696766,
           "parent": 3696765,
           "group": 3696591,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
         },
         {
           "pid": 3696800,
           "parent": 3696766,
           "group": 3696800,
-          "command": "/usr/bin/node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child {\"product\":\"prisma\",\"version\":\"7.8.0\",\"cli_install_type\":\"local\",\"information\":\"\",\"local_timestamp\":\"2026-10-02T06:54:30+01:00\",\"project_hash\":\"2da23d16\",\"cli_path\":\"/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma\",\"cli_path_hash\":\"4382895c\",\"endpoint\":\"https://checkpoint.prisma.io\",\"disable\":false,\"arch\":\"x64\",\"os\":\"linux\",\"node_version\":\"v26.10.0\",\"ci\":false,\"ci_name\":\"\",\"command\":\"generate --config [redacted] --schema [redacted]\",\"schema_providers\":[\"sqlite\"],\"schema_preview_features\":[],\"schema_generators_providers\":[\"prisma-client\"],\"cache_file\":\"/home/notnotype/.cache/checkpoint-nodejs/prisma-4382895c\",\"cache_duration\":43200000,\"remind_duration\":172800000,\"force\":false,\"timeout\":5000,\"unref\":true,\"child_path\":\"/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child\",\"client_event_id\":\"\",\"previous_client_event_id\":\"\",\"check_if_update_available\":false}"
+          "command": "/usr/bin/node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child {\"product\":\"prisma\",\"version\":\"7.8.0\",\"cli_install_type\":\"local\",\"information\":\"\",\"local_timestamp\":\"2026-10-02T06:54:30+01:00\",\"project_hash\":\"2da23d16\",\"cli_path\":\"/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma\",\"cli_path_hash\":\"4382895c\",\"endpoint\":\"https://checkpoint.prisma.io\",\"disable\":false,\"arch\":\"x64\",\"os\":\"linux\",\"node_version\":\"v26.10.0\",\"ci\":false,\"ci_name\":\"\",\"command\":\"generate --config [redacted] --schema [redacted]\",\"schema_providers\":[\"sqlite\"],\"schema_preview_features\":[],\"schema_generators_providers\":[\"prisma-client\"],\"cache_file\":\"/home/<user>/.cache/checkpoint-nodejs/prisma-4382895c\",\"cache_duration\":43200000,\"remind_duration\":172800000,\"force\":false,\"timeout\":5000,\"unref\":true,\"child_path\":\"/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child\",\"client_event_id\":\"\",\"previous_client_event_id\":\"\",\"check_if_update_available\":false}"
         },
         {
           "pid": 3696824,
           "parent": 3696592,
           "group": 3696591,
-          "command": "/usr/bin/bun --no-install /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets"
+          "command": "/usr/bin/bun --no-install /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets"
         },
         {
           "pid": 3696847,
           "parent": 3696824,
           "group": 3696591,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.7 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.7 --ping"
         },
         {
           "pid": 3696863,
@@ -267,19 +267,19 @@
           "pid": 3696864,
           "parent": 3696863,
           "group": 3696591,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
         },
         {
           "pid": 3696998,
           "parent": 3696864,
           "group": 3696591,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
         },
         {
           "pid": 3697021,
           "parent": 3696864,
           "group": 3696591,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
         }
       ]
     }

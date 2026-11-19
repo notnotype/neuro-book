@@ -174,10 +174,10 @@ done
 | --- | --- | --- |
 | elysiver-gemini/gemini-3.1-pro | 0.969 | 10.76 |
 | deepseek/deepseek-v4-flash | 0.945 | 7.64 |
-| anyrouter-codex/gpt-5.5 | 0.941 | 6.11 |
+| relay-codex/gpt-5.5 | 0.941 | 6.11 |
 | xiaomi-token-plan-cn/mimo-v2.5-pro | 0.923 | 11.27 |
-| anyrouter-claude/claude-opus-4-8 | **0.130** | 7.25 |
-| anyrouter-claude/claude-fable-5 | **0.071** | 6.42 |
+| relay-claude/claude-opus-4-8 | **0.130** | 7.25 |
+| relay-claude/claude-fable-5 | **0.071** | 6.42 |
 | **人类 reference** | **0.285** | **2.47** |
 
 两件事从这张表读出来：

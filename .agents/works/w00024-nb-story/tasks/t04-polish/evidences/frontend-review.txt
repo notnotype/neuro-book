@@ -1,5 +1,5 @@
 nb-story 查看器 t04 打磨（提交 2a719bd46）前端审查
-审查人：Sonnet 子代理；只读；截图在 /home/notnotype/.claude/jobs/568d0811/tmp/（生产构建，真实服务 44705）
+审查人：Sonnet 子代理；只读；截图在 /home/<user>/.claude/jobs/568d0811/tmp/（生产构建，真实服务 44705）
 说明：每核实一条追加一条；级别 阻断 / 重要 / 建议；“从代码推断”表示没有复现。
 
 ====
@@ -34,7 +34,7 @@ JS 里 else 属于最近的 if，也就是 for 循环体里的 `if (graph.hasNod
 ====
 F03 重要 packages/nb-story/src/web/shell/BookFrame.vue:177-193（平板档顶栏右侧一组）
 问题：平板档（宽度 720 到 1100）顶栏右侧一组是 搜索图标、“阅读位置没存上”（whitespace-nowrap 的整句文字）、明暗、抽屉开关；左组和阅读位置控件都不让步，这一组也不能收缩。保存失败时 760 宽的窗口里顶栏 scrollWidth 787 大于 clientWidth 750，明暗按钮被切掉一半，抽屉开关整个被挤出屏外，开关在出问题的时候反而用不了。没有保存失败时 760、1099、1100 都放得下。同一档里书名也被挤成“转生反派萝莉，…”只剩六七个字。
-依据：Playwright 把 reading.set 回 500、翻一章触发失败后量顶栏。截图 /home/notnotype/.claude/jobs/568d0811/tmp/hdr-760.png；量出的数字见 t17.mjs（w=760 时 sw=787、cw=750）。
+依据：Playwright 把 reading.set 回 500、翻一章触发失败后量顶栏。截图 /home/<user>/.claude/jobs/568d0811/tmp/hdr-760.png；量出的数字见 t17.mjs（w=760 时 sw=787、cw=750）。
 建议改法：平板档的失败提示只留警告图标（aria-label 与 title 写“阅读位置没存上”，role=status 保留），宽屏再写全文；或把提示放到阅读位置控件旁（左侧可收缩的一组）。同时让阅读位置控件在平板档可收缩（slider 的 is-short 再窄一点），给书名多留一点地方。e2e 的“外壳”用例补一条 760 宽加保存失败时开关仍可点。
 
 ====

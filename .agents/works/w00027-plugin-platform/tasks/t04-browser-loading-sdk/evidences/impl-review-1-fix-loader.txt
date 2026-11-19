@@ -1,6 +1,6 @@
 w00027 t04 第一轮实现审查的修正：浏览器入口代码装载器 —— 交付报告
 
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t04-fix-loader（分支 w00027/t04-fix-loader，基于 0475d0370）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t04-fix-loader（分支 w00027/t04-fix-loader，基于 0475d0370）
 提交：
   eef633400 fix(w00027): t04 实现审查 浏览器装载器：等待表放进全局登记对象、宿主模块表失败不缓存、停止信号立刻结算；补装载器与窗口样式的测试
   1ed026ab2 fix(w00027): t04 实现审查 registeredFactory 的假脚本执行改为单行 setTimeout(execute, 0)，过 fixed-wait 机检

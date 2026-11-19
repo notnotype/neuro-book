@@ -168,7 +168,7 @@
 本轮使用隔离根：
 
 ```text
-C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.agent\tmp\t142-final-browser-c179997cd42e47a68f354006862d2412
+C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book\.agent\tmp\t142-final-browser-c179997cd42e47a68f354006862d2412
 ```
 
 应用状态迁移以 `bun run migrate:application-state -- --apply` 完成；隔离 Source Dev 在 `http://127.0.0.1:3002/?project=t142-browser-acceptance` 启动，并创建了临时 Project `T142 Browser Acceptance`。没有对真实 Project `ming-ding-zhi-shi-2` 发起写入请求。

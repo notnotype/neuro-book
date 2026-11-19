@@ -194,5 +194,5 @@
 
 - 发现总数：**16 条**；阻断 **1** 条（第 1 条）、重要 **13** 条（第 2–12、14、16 条）、建议 **2** 条（第 13、15 条）。
 - 证据类型：计划、开发者决定、Spec、实现及既有测试的静态交叉核对；拟议改动的后果为从代码推断，未声称已运行复现。
-- 恢复时执行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t03-tabs-and-split/reports/design-review/omp-report.md` 得到 **13**；随后每次追加发现均检查，结果依次为 **14、15、16**。
+- 恢复时执行 `grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t03-tabs-and-split/reports/design-review/omp-report.md` 得到 **13**；随后每次追加发现均检查，结果依次为 **14、15、16**。
 - 按本次授权没有安装依赖，没有运行测试、typecheck、构建、e2e 或服务，没有执行 Git 操作，没有启动子代理，没有创建实验文件。仓库源码、计划与 Task 未修改；写入仅为本报告追加内容。

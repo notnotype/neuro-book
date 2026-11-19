@@ -1,6 +1,6 @@
 # 验收 11：真实模型回归（2026-10-20）
 
-gpt-6-luna（`.env` 的 `JIJI_LUNA_*`），Work 分支 `feat/w00024-nb-story` 在 6087d56de 的 `nbstory ingest`，样例书前 20 章独立抽三次（`scripts/regress-20.sh run-1..3`，三次同时跑）；尺子是从 w00005 t33 迁来的 53 条关键记录（`scripts/ruler/`）。费用按 deepseek-flash 低谷价（输入 ¥1、命中 ¥0.02、输出 ¥4 每百万 token）由 nbstory 的进度记账算出；中止、跑飞的请求用量拿不到，所以三次的合计都标“不完整”（数值是下界）。
+gpt-6-luna（`.env` 的 `NBOOK_LLM_*`），Work 分支 `feat/w00024-nb-story` 在 6087d56de 的 `nbstory ingest`，样例书前 20 章独立抽三次（`scripts/regress-20.sh run-1..3`，三次同时跑）；尺子是从 w00005 t33 迁来的 53 条关键记录（`scripts/ruler/`）。费用按 deepseek-flash 低谷价（输入 ¥1、命中 ¥0.02、输出 ¥4 每百万 token）由 nbstory 的进度记账算出；中止、跑飞的请求用量拿不到，所以三次的合计都标“不完整”（数值是下界）。
 
 | 次 | 用时 | 费用 | 丢弃记录（章：条） | 对 | 部分 | 错 | 缺 | 得分 | 判分费用 |
 | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |

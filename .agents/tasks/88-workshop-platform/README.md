@@ -166,7 +166,7 @@ admin：
 > 2026-07-05 定稿。范围 = 后端（数据层 + DTO + API v1），不做 web 页面。可直接作为 /goal 交给执行者。
 
 ```text
-/goal 在 C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-workshop 建成 NeuroBook Workshop 第一版后端（只做数据层 + DTO + API v1，不做 web 页面 UI），主体流程端到端跑通：admin 签发邀请码 → 邀请码注册 → 登录 → 创建条目 → 上传 skill / profile zip 版本 → 公开列表 / 详情 / 版本列表可见 → 下载且字节与上传一致 → 点赞 / 收藏 / 评论 / 举报 → 作者 unlisted 与 admin removed 后公开面不可达。
+/goal 在 C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-workshop 建成 NeuroBook Workshop 第一版后端（只做数据层 + DTO + API v1，不做 web 页面 UI），主体流程端到端跑通：admin 签发邀请码 → 邀请码注册 → 登录 → 创建条目 → 上传 skill / profile zip 版本 → 公开列表 / 详情 / 版本列表可见 → 下载且字节与上传一致 → 点赞 / 收藏 / 评论 / 举报 → 作者 unlisted 与 admin removed 后公开面不可达。
 
 设计真相源是 neuro-book 仓 docs/tasks/88-workshop-platform/README.md（数据模型、manifest 约定、API v1 清单、安全债边界）。实现与文档冲突或发现设计缺口时，停下报告，不要自行改设计、不要用 hack 绕过。
 
@@ -258,14 +258,14 @@ admin：
 - [x] Workshop Web 页面 UI（列表 / 详情 / 上传 / `/me` / admin 面板，见 Design 的 Web 页面节）：2026-07-06 完成，全量页面一次做完，已补后端 `GET /api/v1/me/items`（见 Implementation Walkthrough / Verification 与 nb-workshop `docs/tasks/web-ui/README.md`）。
 - [x] 友好上传改造（在线编辑 / 单文件 / 目录压缩包，平台生成 manifest + 自增 version，保留完整包高级模式）：2026-07-06 完成，后端零改动，测试 41→50（见 Implementation Walkthrough）。
 - [ ] 对外发放邀请码前完成 ToS 文案：上传即授权平台分发、下架权、内容免责，以及**下载内容的使用许可口径**（下载者能拿这些内容做什么，第一版在 ToS 统一约定，不做逐条目 license 字段）。Task 128 的 owner-only 私有内测不自动开放此 Gate。
-- [ ] 对外发放邀请码前完成官方站异地备份：数据库与文件必须来自同一停写窗口或可证明一致的快照，并完成异机恢复。Task 128 按用户决策暂不做 DMIT → arch 站点备份，只接受 owner-only 内测；DMIT 整盘丢失风险不能带入公开邀请。
+- [ ] 对外发放邀请码前完成官方站异地备份：数据库与文件必须来自同一停写窗口或可证明一致的快照，并完成异机恢复。Task 128 按用户决策暂不做生产主机 → 测试主机站点备份，只接受 owner-only 内测；生产主机整盘丢失风险不能带入公开邀请。
 - [ ] 实现时：分页返回结构对齐 NeuroBook 的 `Page` 惯例（Task 73），降低 Phase 2 客户端接入的心智成本。
 - [ ] Phase 2：NeuroBook 客户端安装闭环（另立任务，含 installed.json、代码档警示、安装路径约定、同名冲突语义、user-assets sync 第三来源、manifest `requires` 依赖字段评估）。
 - [ ] Phase 2+：PAT / API token、更新检查接口（如 `batch-latest`）、更多资产类型（lorebook / 角色卡 / project 模板 / World Engine schema）按需评估。
 
 ### 安全债清单（第一版明确不做；按两个门分批回补）
 
-**门 A：对外发放邀请码前全部回补**。Task 128 的真实 DMIT 私有内测会提前完成其中会威胁主机可用性的上传大小、zip bomb、解析库与上传/评论限频；其余项仍留在 Public Invite Gate。checkbox 保持未完成，直到代码与拒绝用例落地：
+**门 A：对外发放邀请码前全部回补**。Task 128 的生产主机私有内测会提前完成其中会威胁主机可用性的上传大小、zip bomb、解析库与上传/评论限频；其余项仍留在 Public Invite Gate。checkbox 保持未完成，直到代码与拒绝用例落地：
 
 - [ ] 上传大小上限（multipart 层，默认建议 20MB）——否则任意大文件直接打满磁盘。
 - [ ] zip bomb 解压防护：解压后总大小上限（建议 100MB）+ 条目数上限（建议 500）——服务端解析 manifest 必须解包，缺这层平台自己先被炸。

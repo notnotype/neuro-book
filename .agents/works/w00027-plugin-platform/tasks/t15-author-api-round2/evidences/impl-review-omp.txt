@@ -1,6 +1,6 @@
 ### 重要｜正确性｜未声明依赖的检查按服务值形状比较，不能按服务键识别
 
-- **位置**：`packages/neuro-book/src/sdk/plugin.ts:80-82,98-101`（本报告源码路径均相对 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t15-impl-review`）。
+- **位置**：`packages/neuro-book/src/sdk/plugin.ts:80-82,98-101`（本报告源码路径均相对 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t15-impl-review`）。
 - **现象**：声明 `a = defineServiceKey<{now(): number}>("acme.test/a")` 后，未声明的同形状键 `b = defineServiceKey<{now(): number}>("acme.test/b")` 仍能直接传给 `context.services.require(b)` 与 `resolve(b)`，类型检查无诊断；声明 `ServiceKey<{}>` 时，连不同接口的键也能通过。
 - **为什么是问题**：S5 与计划 3.7 承诺未声明键在编辑器就报错，但 `ServiceKey<T>.name` 是普通 `string`，`Declared` 只比较值类型的结构可赋值性。两个实际不同的服务恰好同接口时，检查完全失效；真实激活会因未解析的必需依赖抛 `TypeError`，入口失败。现有反例用 `now()` 与 `other()` 两种不同形状，漏掉了最基本的同形状不同 id。
 - **如何核实**：仓库外 `/tmp/review-t15-impl-omp/types.ts`；执行 `node node_modules/typescript/bin/tsc -p /tmp/review-t15-impl-omp/tsconfig.json --pretty false`，TypeScript 5.9.3 退出 0，无诊断。执行 `bun /tmp/review-t15-impl-omp/dependency-runtime.ts`，真实 `createApplication` 启动返回激活失败，原文 `acme.test/b 不是入口 acme.test/server 已解析的必需依赖`，最后正常关闭。基线无此编译期检查；这是本次新增判据未实现，不是把原有运行时限制当回归。
@@ -51,4 +51,4 @@
 
 阻断：0；重要：2；建议：1；共 3 条。
 
-自查命令：`grep -c "^### " /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00027-plugin-platform/tasks/t15-author-api-round2/reports/impl-review-omp.md`，输出 `3`。
+自查命令：`grep -c "^### " /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00027-plugin-platform/tasks/t15-author-api-round2/reports/impl-review-omp.md`，输出 `3`。

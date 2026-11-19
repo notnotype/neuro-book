@@ -12,7 +12,7 @@ const draft = JSON.stringify({statements: sample.statements.slice(0, 260)});
 const text = sample.sources.slice(0, 12).map(source => source.paragraphs.join("\n")).join("\n\n");
 const user = `【材料】\n${text}\n\n【草稿】\n${draft}\n\n【任务】不用读上面的材料，只输出 {"ok":true}。`;
 console.log(`用户消息 ${Buffer.byteLength(user)} 字节`);
-const endpoint = {baseUrl: process.env.JIJI_LUNA_BASE_URL!, model: "gpt-6-luna", apiKey: process.env.JIJI_LUNA_API_KEY!, maxTokens: 200, apiKeyEnv: "JIJI_LUNA_API_KEY"};
+const endpoint = {baseUrl: process.env.NBOOK_LLM_BASE_URL!, model: "gpt-6-luna", apiKey: process.env.NBOOK_LLM_API_KEY!, maxTokens: 200, apiKeyEnv: "NBOOK_LLM_API_KEY"};
 for (const round of [1, 2]) {
     const attempts: Attempt[] = [];
     const started = Date.now();

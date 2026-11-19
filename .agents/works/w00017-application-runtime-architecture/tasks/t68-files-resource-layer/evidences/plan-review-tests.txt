@@ -1,6 +1,6 @@
 # w00017 t68 实施计划对抗审查：可实现性、切片与测试
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t68-files-resource-layer/plan.md`，审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t68-plan-tests`。已核对 detached HEAD 为 `ab0a3e91b82726b82c2bf555200a01d06c8e5169`，`git status --short --branch` 仅输出 `## HEAD (no branch)`。Files 代码尚未实施；本报告区分已核实的计划缺口与从方案推断的实现风险。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t68-files-resource-layer/plan.md`，审查 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t68-plan-tests`。已核对 detached HEAD 为 `ab0a3e91b82726b82c2bf555200a01d06c8e5169`，`git status --short --branch` 仅输出 `## HEAD (no branch)`。Files 代码尚未实施；本报告区分已核实的计划缺口与从方案推断的实现风险。
 
 开发者已经确认的项目文件底座、Files 推进方向和 VS Code 式体验目标作为前提。仅审查切片、实现机制与验收是否能落地。仓库只读；实验与本报告均放在用户指定的仓库外目录。
 

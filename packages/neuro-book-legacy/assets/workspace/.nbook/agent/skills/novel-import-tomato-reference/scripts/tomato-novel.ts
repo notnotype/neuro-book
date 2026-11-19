@@ -57,7 +57,7 @@ type BookMetadata = {
 };
 
 const DEFAULT_OUT = "reference/tomato";
-const DEFAULT_EXE = "C:\\Users\\notnotype\\Downloads\\TomatoNovelDownloader-Win64-v2.4.9.exe";
+const DEFAULT_EXE = "C:\\Users\\Public\\Downloads\\TomatoNovelDownloader-Win64-v2.4.9.exe";
 
 const program = new Command();
 

@@ -1,6 +1,6 @@
 # w00017 t66 实施计划对抗审查：可实现性、界面与测试
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t66-workbench-shell-views/plan.md`，worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-plan-impl`，固定快照 `bacae9fd`。本报告只读审查计划与现有合同、代码；实验与报告均位于指定的仓库外目录。开发者已经接受外壳设计与参照旧应用的决定；视图合同提前的推荐不作为阻断理由。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t66-workbench-shell-views/plan.md`，worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-plan-impl`，固定快照 `bacae9fd`。本报告只读审查计划与现有合同、代码；实验与报告均位于指定的仓库外目录。开发者已经接受外壳设计与参照旧应用的决定；视图合同提前的推荐不作为阻断理由。
 
 以下发现按影响排序；依据为仓库相对路径与行号。没有运行证据的行为结论明确标为“推断”。
 
@@ -90,7 +90,7 @@
 
 ## 本次验证与边界
 
-实验根：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/impl/`。下表中的脚本均在该目录；测试与脚本执行均设置 `NBOOK_AGENT_TEMP_ROOT` 为此根。除明确包前缀外，发现中的 `src/...` 与 `e2e/...` 都相对 `packages/neuro-book/`，组件简称相对该包的 `src/plugins/workbench/web/components/`。
+实验根：`/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/impl/`。下表中的脚本均在该目录；测试与脚本执行均设置 `NBOOK_AGENT_TEMP_ROOT` 为此根。除明确包前缀外，发现中的 `src/...` 与 `e2e/...` 都相对 `packages/neuro-book/`，组件简称相对该包的 `src/plugins/workbench/web/components/`。
 
 | 实际命令 | 执行位置 | 结果及证据 |
 |---|---|---|

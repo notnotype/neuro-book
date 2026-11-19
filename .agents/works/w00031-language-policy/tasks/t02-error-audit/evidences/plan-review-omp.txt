@@ -24,7 +24,7 @@
 ### 3. 重要：两份简报实际指定了不同源码快照，合并无法复现同一条链路
 
 - **严重程度**：重要；**类别**：不变量；**位置**：`/tmp/w00031-review/t02-audit/brief-backend.md:3`、`/tmp/w00031-review/t02-audit/brief-frontend.md:3`、`.agents/works/w00031-language-policy/tasks/t02-error-audit/plan.md:33`
-- **现象**：后端简报指定 detached worktree，前端简报指定仍在推进的主工作区，均未要求记录源码提交、工作区变更或文件摘要。实际只读执行 `git rev-parse HEAD && git -C /home/notnotype/CodeRepository/neuro-book rev-parse HEAD`，两处分支头分别为 `346d1c336eddede9ac99e4fa24c16a8f9c18545b` 与 `977dbd8a6ca2ea8589c04beac9660db7904d298b`，不是同一提交；不能继续用“等同 master 当前提交”证明一致。
+- **现象**：后端简报指定 detached worktree，前端简报指定仍在推进的主工作区，均未要求记录源码提交、工作区变更或文件摘要。实际只读执行 `git rev-parse HEAD && git -C /home/<user>/CodeRepository/neuro-book rev-parse HEAD`，两处分支头分别为 `346d1c336eddede9ac99e4fa24c16a8f9c18545b` 与 `977dbd8a6ca2ea8589c04beac9660db7904d298b`，不是同一提交；不能继续用“等同 master 当前提交”证明一致。
 - **为什么是问题**：报告靠文件:行互相拼接生产者与消费者，计数也取决于源码集合。只读限制审查者不写，不会阻止主工作区被其它任务更新；两个半链路可以各自正确但从未在同一版本共存，行号、字段与计数随之无法核对。当前不同 HEAD 本身不证明相关源码已有差异，但足以证明简报没有固定可复现的共同基线。
 - **如何核实**：上述两个 `rev-parse` 的实际输出；对照两份简报第 3 行。没有执行 checkout、reset、stash 或任何仓库写入。
 - **建议改法**：两名盘点者都读取同一个固定只读源码 worktree，在报告头记录相同的完整提交 ID；治理用的 Work/Task 继续明确读取主工作区真相源，并分别记录读取时间/摘要。若确实必须读不同 checkout，先证明受审源码集合内容一致并记录差异清单，不只比较分支名称。计数与合并验收使用同一基线。
@@ -68,11 +68,11 @@
 
 ## 实际验证与边界
 
-路径基准：本报告源码、Spec 与 ADR 相对路径指 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00031/`；current Work/Task 指 `/home/notnotype/CodeRepository/neuro-book/.agents/works/`。盘点说明是本次指定的 `/tmp/w00031-review/t02-audit/` 三份草稿。当前只有说明草稿，没有前后端实际盘点报告或合并矩阵；本报告审的是执行计划，不声称盘点已经发生。
+路径基准：本报告源码、Spec 与 ADR 相对路径指 `/home/<user>/CodeRepository/neuro-book/.worktree/review-w00031/`；current Work/Task 指 `/home/<user>/CodeRepository/neuro-book/.agents/works/`。盘点说明是本次指定的 `/tmp/w00031-review/t02-audit/` 三份草稿。当前只有说明草稿，没有前后端实际盘点报告或合并矩阵；本报告审的是执行计划，不声称盘点已经发生。
 
 | 实际命令或检查 | 结果与证明范围 |
 |---|---|
-| `git rev-parse HEAD && git -C /home/notnotype/CodeRepository/neuro-book rev-parse HEAD` | 分别是 `346d1c336eddede9ac99e4fa24c16a8f9c18545b`、`977dbd8a6ca2ea8589c04beac9660db7904d298b`。证明草稿指定的 checkout 头不同，未证明具体受审源码一定不同。 |
+| `git rev-parse HEAD && git -C /home/<user>/CodeRepository/neuro-book rev-parse HEAD` | 分别是 `346d1c336eddede9ac99e4fa24c16a8f9c18545b`、`977dbd8a6ca2ea8589c04beac9660db7904d298b`。证明草稿指定的 checkout 头不同，未证明具体受审源码一定不同。 |
 | `bun /tmp/w00031-review/combined/lab/channel-shape-smoke.ts` | 退出码 0。调用 worktree 真实 `webEventOf`、`createHarnessTranscript`、`messagesFromRecord`、`createOutput`：实时工具结果文字为 501 字且 details 缺失；日志还原 605 字原文及 `{code:"not_found",id:"example"}`；QA 降级显示旧 message；CLI JSON 保留 `{ok:false,code,message}`；适配器 `problems: []`。只证明纯数据转换，未启动 Provider、模型、HTTP/SSE 或浏览器，不声称覆盖真实事件时序。 |
 | `bun packages/neuro-book/src/cli/main.ts --json start --port invalid --no-open --state-root /tmp/w00031-review/combined/lab/cli-state` | 预期的退出码 2；stdout 为 `{"ok":false,"code":"usage","message":"端口必须是 0 到 65535 的整数，收到 invalid"}`。运行了真实 CLI 失败路径，未启动应用服务。 |
 | 源码/Spec 静态核对 | 包括本报告各发现所列合同、设置/Storage、项目子进程、插件管理、HTTP dispatcher、Workflow 与 History；没有把 planned 热插拔 Spec 当作现成实现。 |

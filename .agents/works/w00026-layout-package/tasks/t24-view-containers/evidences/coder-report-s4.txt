@@ -1,5 +1,5 @@
 w00026 t24 切片 4：拖动接上容器 —— 交付报告（边做边追加）
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 b9e276420，未提交）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 b9e276420，未提交）
 
 进度 0（开始）：已读 brief、计划、Task README、ADR 0046、Spec workbench-layout、layout-drag、s1fix/s2/s3 报告。下一步读拖动管线代码。
 

@@ -1,6 +1,6 @@
 w00028 t03「SDK 与通知」片 交付报告（编码 Agent，未 commit）
 
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n）。没有 commit、push、stash、切分支。
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n）。没有 commit、push、stash、切分支。
 
 == 改了哪些文件 ==
 

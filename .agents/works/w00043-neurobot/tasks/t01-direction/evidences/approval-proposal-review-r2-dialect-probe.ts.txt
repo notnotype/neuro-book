@@ -1,4 +1,4 @@
-const {createBashDialect} = await import("/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kit/commands/bash-dialect.ts");
+const {createBashDialect} = await import("/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kit/commands/bash-dialect.ts");
 const d = createBashDialect({extraReadOnly: []});
 for (const t of ["grep -r foo . > session://out.txt 2>&1", "ls > tmp://a 2>/dev/null", "cd /x && echo y > f", "tee session://a < b", "sort -o session://a b", "echo x >| tmp://a", "echo x &> tmp://a"]) {
   const r: any = d.parse(t);

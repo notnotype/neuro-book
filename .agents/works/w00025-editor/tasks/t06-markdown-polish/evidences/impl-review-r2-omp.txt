@@ -1,6 +1,6 @@
 # w00025 t06 第 2 轮实现审查（OMP）
 
-对象：`cdad39eac` 的转换核心 S1–S3。所有实验从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book` 执行；不审 S4–S6、编辑器接入与待删除的旧转换器。以下发现按核实顺序追加；正确性与不变量在前。
+对象：`cdad39eac` 的转换核心 S1–S3。所有实验从 `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book` 执行；不审 S4–S6、编辑器接入与待删除的旧转换器。以下发现按核实顺序追加；正确性与不变量在前。
 
 ### 1. 来源硬截为八代，真实撤销回打开状态后不能恢复原文字节
 

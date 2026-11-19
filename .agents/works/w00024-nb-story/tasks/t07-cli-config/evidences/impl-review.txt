@@ -83,7 +83,7 @@
 
 ## 审查范围与验证
 
-- 审查范围：`653a4839b..HEAD`；位置字段的相对路径基准为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t07-cli-config/`。按要求先读 `src/cli/config.test.ts`、`src/qa/config.test.ts`、`src/cli/cli.test.ts`、`src/cli/ask.test.ts`，再读实现、相邻调用链和 base 解析器。未开启子审查。
+- 审查范围：`653a4839b..HEAD`；位置字段的相对路径基准为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t07-cli-config/`。按要求先读 `src/cli/config.test.ts`、`src/qa/config.test.ts`、`src/cli/cli.test.ts`、`src/cli/ask.test.ts`，再读实现、相邻调用链和 base 解析器。未开启子审查。
 - `bun test src/cli src/qa`（工作目录为该 worktree 的 `packages/nb-story`）：退出 1，80 pass、1 fail，81 个测试、5 个文件；失败详见第 3 条。没有运行 server 测试，不涉及已知 SIGTERM/143 偶发失败。
 - `bun run typecheck`（同上）：退出 0；实际执行 `tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p e2e/tsconfig.json`，无诊断，49.21 秒。
 - `bun /tmp/review-w00024-t07-impl/scratch/compat.ts`：25 组参数各跑基线入口和当前真实 CLI；核实前置选项、等号、负整数值、重复选项、分隔符、短选项、未知命令/选项、缺参数。除第 1、2 条外，额外观察到 `books --` 从旧版用法错误 2 变为成功 0，缺值文案从中文变为中英混合（仍含“用法：nbstory”）；这两项作为同一兼容迁移的补充证据，不另计发现。原始输出 `artifact://7`。

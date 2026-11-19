@@ -31,7 +31,7 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 
 切片 1 `4bc20008f`：nb-flock 的共享锁。本包测试 6 条、类型检查，使用方的锁测试（nb-harness 日志 32 条、nb-story 669 条、Skill 安装 8 条）通过；Windows 上用真实子进程核对了四种关系（两个共享共存、共享挡独占、独占挡共享、持有者退出后可拿）。随 t08、t09 一起合入 master（`fe4560370`）。
 
-2026-11-14：开发者定 Windows 验收直接用 pc-notype 上已有的 `%LOCALAPPDATA%\NeuroBook`（里面没有要保护的真实数据），计划“验证”一节已改。
+2026-11-14：开发者定 Windows 验收直接用 Windows 开发机上已有的 `%LOCALAPPDATA%\NeuroBook`（里面没有要保护的真实数据），计划“验证”一节已改。
 
 切片 2 `0d28ccb62`：
 - 核心分两个文件：`src/desktop/update.ts` 是运行中的控制器（检查、只升不降、下载绑定目标、页面选择的判定）；`src/desktop/update-install.ts` 是安装级的状态文件、安装锁、启动时换上与对账。
@@ -54,7 +54,7 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 
 切片 2 的 omp 实现审查 5 条（阻断 1、重要 4），均成立、已改（[报告](evidences/impl-review-s2-omp.txt)、[处理](evidences/impl-review-s2-omp-disposition.txt)），修正 `2e0fae272`。
 
-切片 5（2026-11-14）：pc-notype 上的 Windows 验收，第 1 轮 [windows-update-r1.txt](evidences/windows-update-r1.txt)。本地更新源，A、B、C 三个版本，desktop-update 场景 1 到 7 都通过。
+切片 5（2026-11-14）：Windows 开发机上的 Windows 验收，第 1 轮 [windows-update-r1.txt](evidences/windows-update-r1.txt)。本地更新源，A、B、C 三个版本，desktop-update 场景 1 到 7 都通过。
 - Spec 按实测改了四处写法：
   - 选“下载”时先重新检查（场景 3）；
   - 换上程序遇到文件占用会等约 5 分钟，期间旧程序关掉就照常换上；占用 420 秒时约 290 秒失败、还原，旧版本通知“更新没有完成”（场景 4）；
@@ -71,7 +71,7 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
   - 已知作废就不写 attempt。
 - 验证：`bun test src/desktop` 90 条、`desktop-updates` 单测 8 条、类型检查（tsc 与 web 的 vue-tsc），e2e `desktop-update`、`desktop-close` 7 条通过。
 
-2026-11-14 合入 master（`18b494dc7`），合入后 `governance:check` 通过。构建用的 worktree `w00046-t10-build` 与审查 worktree 已删，pc-notype 上的本地更新源已停。测试包（应用标识 `io.github.notnotype.neurobook.t10test`）还装在 pc-notype 上，留给 t11 的 Windows 冒烟用。
+2026-11-14 合入 master（`18b494dc7`），合入后 `governance:check` 通过。构建用的 worktree `w00046-t10-build` 与审查 worktree 已删，Windows 开发机上的本地更新源已停。测试包（应用标识 `io.github.notnotype.neurobook.t10test`）还装在 Windows 开发机上，留给 t11 的 Windows 冒烟用。
 
 ## 下一步
 

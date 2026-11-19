@@ -14,4 +14,4 @@ t08 实现审查第 1 轮（omp，提交范围 692c4c1c3..ac236021a）的处理�
 [8] new-window-open 未接：订阅并与 open-window 同一分流入口；预加载不再处理 Ctrl/Meta 点击与无 target 的外链点击（后者由导航规则拦下交系统浏览器）。改。
 [9] 启动中强杀不记异常停止：两条停止路径合成 #stopOwnedServer，按 StopOutcome 记录，删掉 #ready。改。
 
-未在 Windows 上验证：第 1、4、6、8 条的主进程与预加载一侧（第 6、8 条在 Linux 的 Chrome 上用 addInitScript 复现过）；第 2 条在 Windows 上 completion 失败时 Job Object 里的子孙是否残留。待 pc-notype 恢复后随 Windows 实测第 2 轮验。
+未在 Windows 上验证：第 1、4、6、8 条的主进程与预加载一侧（第 6、8 条在 Linux 的 Chrome 上用 addInitScript 复现过）；第 2 条在 Windows 上 completion 失败时 Job Object 里的子孙是否残留。待 Windows 开发机 恢复后随 Windows 实测第 2 轮验。

@@ -1,5 +1,5 @@
 审查对象：3b4c72a38（仅后端），接续 impl-backend/report.txt 已有的两条，不重复（检查到提交之间换目录的竞态；同内容快速返回跳过根身份核对）。
-位置相对 /home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t19-background-image/packages/neuro-book/src/。
+位置相对 /home/<user>/CodeRepository/neuro-book/.worktree/w00025-t19-background-image/packages/neuro-book/src/。
 实验在 /tmp/t19/opus-exp/（wire.test.ts、concur.test.ts、probe.test.ts、world.ts），在 packages/neuro-book 下执行：bun test --tsconfig-override /tmp/t19/opus-exp/tsconfig.json /tmp/t19/opus-exp/<文件>。实验用真实 Bun.serve、真实 createDispatcher、files 插件真实贡献的路由、真实 WorkspaceFiles 与记账槽，客户端是原始 TCP 或 fetch；浏览器未验证。
 
 ### 1. 合同测试没有经过 plugin.ts 的接线，Spec 明写的归属、不记账、挂载路径都没有被测到

@@ -1,5 +1,5 @@
 审查对象：3b4c72a3830178c0083362330fa402574c978a8e；仅后端。当前 HEAD 7c4298165e4fc82b386042a3d0056cd87d900297 的目标文件与该提交相同。依据均读取主工作区文件。未改仓库源码，未启动开发服务或 e2e。
-位置均相对 /home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t19-background-image/。
+位置均相对 /home/<user>/CodeRepository/neuro-book/.worktree/w00025-t19-background-image/。
 
 ### 1. backgrounds 的链接禁令只在暂存前检查，提交时仍可写入根内链接的目标
 严重程度：重要

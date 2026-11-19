@@ -1,6 +1,6 @@
 # w00017 t70 实施计划审查：界面、交互与无障碍
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t70-plan-ui/.agents/works/w00017-application-runtime-architecture/tasks/t70-files-explorer/plan.md`。已用 `/usr/bin/git rev-parse --verify HEAD` 核实版本为 `93ca7453c24bf3337c51c47c758cadb954ca904e`；`/usr/bin/git status --short --branch` 输出 `## HEAD (no branch)`，无未提交改动。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t70-plan-ui/.agents/works/w00017-application-runtime-architecture/tasks/t70-files-explorer/plan.md`。已用 `/usr/bin/git rev-parse --verify HEAD` 核实版本为 `93ca7453c24bf3337c51c47c758cadb954ca904e`；`/usr/bin/git status --short --branch` 输出 `## HEAD (no branch)`，无未提交改动。
 
 范围：交互可执行性、键盘与焦点、虚拟树无障碍、nb-ui 复用与界面规范、窄屏主题、大目录及展开恢复。仓库保持只读；每条发现核实后立即追加，现按影响排序并保留发现编号。证据来自计划、Spec、公共组件与既有实现的静态核对；未来 t70 表现均注明推断。未安装依赖、运行产品或测试，未启动服务、生成截图或创建实验产物；未把历史验收当作本次运行证据。t64–t69 已采用的底座与取舍保持审查前提。
 

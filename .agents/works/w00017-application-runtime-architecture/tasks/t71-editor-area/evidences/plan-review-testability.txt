@@ -2,7 +2,7 @@
 
 - 审查对象：`.worktree/w00017-t71-plan-testability/.agents/works/w00017-application-runtime-architecture/tasks/t71-editor-area/plan.md`。只读命令 `/usr/bin/git rev-parse HEAD` 返回 `04317a824b8124179637823ac1e87c901752f3e5`，与指定提交一致。
 - 只读审查：仓库不写入；实验与输出只放在本报告目录。
-- 下文仓库路径均相对 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-plan-testability/`。
+- 下文仓库路径均相对 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-plan-testability/`。
 - “从代码推断”表示没有执行相应产品路径；实验结果单独注明命令、运行器与边界。
 
 ## 已核实发现
@@ -76,7 +76,7 @@
 - **位置**：计划 `plan.md:52-57,105,116,130`；旧方言实现 `packages/neuro-book-legacy/app/components/markdown-studio/tiptap/markdown-dialect-extensions.ts:21-30,30-56`；旧测试 `packages/neuro-book-legacy/app/components/markdown-studio/tiptap/markdown-editor-extensions.test.ts:56-239`。
 - **现象**：计划 `plan.md:54` 把迁入方言扩展与旧测试称为“编辑只改动到的部分”的保证；但旧测试 `markdown-editor-extensions.test.ts:69-73,95-101` 明确允许旧 comment/ruby 写成 canonical 形式。实际 manager 实验还把 CRLF 转 LF、删除末尾换行，把 `*` 列表改成 `-`，标准 `<ruby>…<rt>…` 改成属性式。计划 `plan.md:56,116` 的“未编辑切走”刻意不序列化，无法抓到正文编辑后全文 serialize 改动其它段落的情况。
 - **为什么是问题**：按计划字面迁入、全部旧测试通过，仍不能满足“只改动到的部分”；字节改写并不一定被“发现丢内容就降级源码”的条件捕获。纯 manager 测试也不经过真实组件的 frontmatter 拼回（该具体风险另见发现 11）。
-- **如何核实**：`bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-tiptap-build.ts` 的 canonical comment/ruby 单样本 109 字节相同；随后实际 Vitest 的序列化实验记录 4 个样本：canonical comment 相同，CRLF、标准 ruby、`*` 列表均改变，具体输入/输出见 `native-editor-results.json`。Vitest 同次共 3 例、2 通过、1 Monaco 环境失败，未把失败写成整体通过。
+- **如何核实**：`bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-tiptap-build.ts` 的 canonical comment/ruby 单样本 109 字节相同；随后实际 Vitest 的序列化实验记录 4 个样本：canonical comment 相同，CRLF、标准 ruby、`*` 列表均改变，具体输入/输出见 `native-editor-results.json`。Vitest 同次共 3 例、2 通过、1 Monaco 环境失败，未把失败写成整体通过。
 - **建议改法**：S0/S6 明确既定字节承诺怎样成立：按原始来源保留未触碰片段并回写，或在进入富文本前比较真实解析/序列化结果、不能无损的文件按计划的源码降级路径处理。降低字节承诺需作为新的产品取舍明确批准，不能由旧测试默认接受。保留 no-write 场景，另用“编辑另一段并保存”观察未触碰段、方言与前缀的原始字节；输入后撤销回基线还须直接观察真实序列化结果，不能因 dirty 恢复为 false 而绕开序列化。
 
 ### 10. 建议：首屏分块应核对静态依赖闭包，不能只看动态 chunk 名称与体积表
@@ -85,14 +85,14 @@
 - **位置**：计划 `plan.md:48-50,99-105,121-132`，具体 `50,131`；`packages/neuro-book/vite.config.ts:16-49`；`packages/neuro-book/scripts/check-dist.ts:1-56`；`packages/neuro-book/package.json:18-23`。
 - **现象**：Vite 正常 build 会输出各 chunk 原始/gzip 体积表，早期“没有输出报告”的表述不准确；但现有配置没有 manifest/模块归属报告，`check:dist` 只查 Lab 与本机路径。计划 `plan.md:131` 没有写清“首屏不含它”怎样从产物表判定。实际实验里动态 `editor.api` 入口仅 452 字节，真正主体在它依赖的另一个 2,557,259 字节 chunk，说明只看入口 chunk 会漏算。
 - **为什么是问题**：若后续静态运行时 import 或预加载把 Monaco 依赖拉进入口，有独立动态入口仍不足以证明懒加载。缺少静态闭包/真实请求观察，首屏判据可能被错误验为通过；本 Task 没承诺总性能或体积门槛，不把 t72 的性能范围算缺陷。
-- **如何核实**：命令 `node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/build-browser-probe.mjs` 使用 Vite `8.1.4` 构建真实旧 Monaco loader，输出全部在报告目录。`generateBundle` 捕获 chunk 模块归属与 imports，静态闭包未含 Monaco；浏览器点击前只请求主入口，点击后才请求 Monaco。详细数据见 `browser-chunk-summary.json`，不是新应用实际构建数据。
+- **如何核实**：命令 `node /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/build-browser-probe.mjs` 使用 Vite `8.1.4` 构建真实旧 Monaco loader，输出全部在报告目录。`generateBundle` 捕获 chunk 模块归属与 imports，静态闭包未含 Monaco；浏览器点击前只请求主入口，点击后才请求 Monaco。详细数据见 `browser-chunk-summary.json`，不是新应用实际构建数据。
 - **建议改法**：S5 的“构建报告核对”明确记录 HTML 初始 module 的静态闭包、相关模块归属与原始/gzip 字节，再用首次打开源码前后的请求核对无提前加载。manifest + `generateBundle` 可实现，或采用等价产物分析；不要新增未经批准的性能阈值，也不要求首版只有一个 Monaco chunk。
 
 ### 11. 重要：指定沿用的 frontmatter 拆分函数已违反“原样保留”，CRLF 和结尾换行会被改写
 
 - **类别**：正确性 / 测试；**核实状态**：已运行实际旧函数实验；新实现尚不存在。
 - **位置**：计划 `plan.md:54-56,116,130`；`packages/neuro-book-legacy/shared/editor-workbench.ts:118-140,148-149`；合同 `docs/specs/workspace/files.md:57`；待确认清单 `pending-confirmations.md:57`。
-- **现象**：计划明确沿 `splitMarkdownFrontmatter` 拆分并原样保留前缀，但该函数先对全文件做 `content.replace(/\r\n/g, "\n")`，并在关闭分隔符位于 EOF 时人为补 `\n`。报告目录 `frontmatter-probe.ts` 直接调用实际函数，再用实际 `composeMarkdownFrontmatter` 拼回，命令 `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/frontmatter-probe.ts` 退出码 0：LF 样本相同；`---\r\ntitle: 第一章\r\n---\r\n\r\n正文` 全变 LF；`---\ntitle: 第一章\n---` 被补末尾换行。原始与输出写在 `frontmatter-results.json`。
+- **现象**：计划明确沿 `splitMarkdownFrontmatter` 拆分并原样保留前缀，但该函数先对全文件做 `content.replace(/\r\n/g, "\n")`，并在关闭分隔符位于 EOF 时人为补 `\n`。报告目录 `frontmatter-probe.ts` 直接调用实际函数，再用实际 `composeMarkdownFrontmatter` 拼回，命令 `bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/frontmatter-probe.ts` 退出码 0：LF 样本相同；`---\r\ntitle: 第一章\r\n---\r\n\r\n正文` 全变 LF；`---\ntitle: 第一章\n---` 被补末尾换行。原始与输出写在 `frontmatter-results.json`。
 - **为什么是问题**：即使 S6 去掉 YAML 面板，只要沿用该函数并在正文编辑后拼回，未编辑的 frontmatter 也会被改字节。S8 的“不编辑切走”场景绕开写回，抓不到这个已证实的迁移风险；纯方言测试没有这条前缀路径。
 - **建议改法**：S6 的迁移边界明确改成按原始字符串偏移识别分隔符、直接切出原始前缀，保留 CRLF/LF、BOM 与 EOF 状态，不全文件归一化、不补换行；补“只编辑正文后保存，frontmatter 原始字节不变”的用例，含 CRLF、BOM 与末尾分隔符样本。它是既定原样保留合同的实现修正，不需要改变待确认产品取舍。
 
@@ -180,13 +180,13 @@
 
 以下命令均从审查 worktree 执行，输出都在本报告目录；初始失败配置和最终成功配置均保留。没有在仓库运行安装、Nuxt prepare、dist 构建或文件修改。
 
-1. `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-tiptap-build.ts`：退出 0；canonical comment/ruby 单样本 `{"ok":true,"bytes":109}`，不能外推所有 Markdown。
-2. `node /home/notnotype/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/vitest-editors.config.mjs --reporter=json --outputFile=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/native-editor-vitest.json`：退出 1；3 例，Tiptap 状态恢复与序列化观察 2 例通过、Monaco Canvas 环境失败 1 例。仓库外配置用 esbuild 转译旧 TS，happy-dom 无额外 Canvas shim；没有运行新应用完整 suite。
-3. `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/frontmatter-probe.ts`：退出 0；实际旧 helper 的 LF 一例相同，CRLF 与分隔符 EOF 两例变字节，见 `frontmatter-results.json`。
-4. `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-files-timing-probe.ts`：退出 0；读回复跨手动 799/800 ms 仍被扣住、释放后为 A；保存回复未到时磁盘/另一消费者为 A1，自己的事件已到；真实 external 事件、过期基线 conflict/current、不覆盖磁盘，真实 read 重载与带 current 写入都成立。四个内核实例全部 `closed`，真实临时目录在 finally 删除。`files-timing-results.json` 保留结果。该脚本不伪造文档模型，因此没有验证新输入的 dirty 或两种 UI 按钮。
-5. `node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/build-browser-probe.mjs`：退出 0；Vite `8.1.4` 转换 1111 个模块，旧真实 loader 与 workers 构建成功，500 kB chunk 警告未抑制；产物在 `browser-dist`。旧包没有 Nuxt 生成 tsconfig，实验用仓库外 transform 和 Rolldown `tsconfig: false`，没有改旧包。
-6. `node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/audit-browser-artifacts.mjs`：退出 0；读取最终磁盘文件而非 generateBundle 中间文本。初始 JS 493,698 字节，gzip 151,089 字节；静态闭包无 Monaco。两个 Monaco 主体 chunk 分别为 2,557,259 / 1,077,054 字节，默认 gzip 为 652,977 / 267,944 字节。此数值是实验页面，不是新产品体积，也没有与产品基线比较或设预算。
-7. `bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/serve-browser-probe.ts` 加内置 `browser.open`：真实 Chromium `151.0.7922.71` 从 Vite 产物加载，原生键盘输入/撤销/重做两种编辑器均有明确断言通过；截图 `browser-editors.png`。实际 `EditorState`/Monaco model 切换保留 A/B 历史；不经过新插件、文档 store、标签 UI 或真实 Files。点击 Monaco 前只请求入口，点击后才请求 Monaco 及 editor worker。收到 3 条 `Canceled: Canceled` 页面错误（栈涉及 Monaco 模型切换取消），原文保留在 `browser-editor-results.json`；本实验不宣称零错误或完整 worker 生命周期通过，也不把尚未定位的引擎错误算计划缺陷。JSON 语言 worker 已构建但没有触发 JSON 编辑验收。
+1. `bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-tiptap-build.ts`：退出 0；canonical comment/ruby 单样本 `{"ok":true,"bytes":109}`，不能外推所有 Markdown。
+2. `node /home/<user>/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/vitest-editors.config.mjs --reporter=json --outputFile=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/native-editor-vitest.json`：退出 1；3 例，Tiptap 状态恢复与序列化观察 2 例通过、Monaco Canvas 环境失败 1 例。仓库外配置用 esbuild 转译旧 TS，happy-dom 无额外 Canvas shim；没有运行新应用完整 suite。
+3. `bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/frontmatter-probe.ts`：退出 0；实际旧 helper 的 LF 一例相同，CRLF 与分隔符 EOF 两例变字节，见 `frontmatter-results.json`。
+4. `bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/run-files-timing-probe.ts`：退出 0；读回复跨手动 799/800 ms 仍被扣住、释放后为 A；保存回复未到时磁盘/另一消费者为 A1，自己的事件已到；真实 external 事件、过期基线 conflict/current、不覆盖磁盘，真实 read 重载与带 current 写入都成立。四个内核实例全部 `closed`，真实临时目录在 finally 删除。`files-timing-results.json` 保留结果。该脚本不伪造文档模型，因此没有验证新输入的 dirty 或两种 UI 按钮。
+5. `node /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/build-browser-probe.mjs`：退出 0；Vite `8.1.4` 转换 1111 个模块，旧真实 loader 与 workers 构建成功，500 kB chunk 警告未抑制；产物在 `browser-dist`。旧包没有 Nuxt 生成 tsconfig，实验用仓库外 transform 和 Rolldown `tsconfig: false`，没有改旧包。
+6. `node /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/audit-browser-artifacts.mjs`：退出 0；读取最终磁盘文件而非 generateBundle 中间文本。初始 JS 493,698 字节，gzip 151,089 字节；静态闭包无 Monaco。两个 Monaco 主体 chunk 分别为 2,557,259 / 1,077,054 字节，默认 gzip 为 652,977 / 267,944 字节。此数值是实验页面，不是新产品体积，也没有与产品基线比较或设预算。
+7. `bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/testability/serve-browser-probe.ts` 加内置 `browser.open`：真实 Chromium `151.0.7922.71` 从 Vite 产物加载，原生键盘输入/撤销/重做两种编辑器均有明确断言通过；截图 `browser-editors.png`。实际 `EditorState`/Monaco model 切换保留 A/B 历史；不经过新插件、文档 store、标签 UI 或真实 Files。点击 Monaco 前只请求入口，点击后才请求 Monaco 及 editor worker。收到 3 条 `Canceled: Canceled` 页面错误（栈涉及 Monaco 模型切换取消），原文保留在 `browser-editor-results.json`；本实验不宣称零错误或完整 worker 生命周期通过，也不把尚未定位的引擎错误算计划缺陷。JSON 语言 worker 已构建但没有触发 JSON 编辑验收。
 
 环境绕路：最初旧 TS 的 Vitest/Vite 转换因 `.nuxt/tsconfig.json` 缺失失败；手工 Bun + DOM globals 实验的 CSS 错误不是实际 Vitest 证据。Files 临时脚本最初别名/依赖不可解析，随后 Bun 打包 typebox 相对动态路径失败；最终 resolver 只重定向到指定 checkout 的源码与已安装真实依赖，第三方包保持 external 原入口。该 checkout 没有安装对应 node_modules，实验只读复用 `w00017-runtime-foundation/node_modules`，没有安装/修改它。
 

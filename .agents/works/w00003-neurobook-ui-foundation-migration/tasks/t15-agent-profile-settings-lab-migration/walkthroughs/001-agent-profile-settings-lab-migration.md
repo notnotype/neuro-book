@@ -31,9 +31,9 @@
 | `bun run --cwd packages/nb-ui test` | 15 个文件 / 260 个测试通过 |
 | `bun run --cwd packages/nb-ui typecheck` | 通过 |
 | `bun run --cwd packages/nb-ui build:css` | 通过；`dist/nb-ui.css` 无工作树差异 |
-| `bun run --cwd packages/neuro-book smoke:component-lab -- --url http://127.0.0.1:3001 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe` | 历史整套 smoke 记录曾失败于既有 `CollapsibleSidePanel` 文案；本轮修正分层后重新执行并通过，见下方三条最新命令 |
-| `bun run --cwd packages/neuro-book smoke:component-lab:core -- --url http://127.0.0.1:3001 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe` | 核心 Lab 分层 smoke 通过 |
-| `bun run --cwd packages/neuro-book smoke:component-lab:agent-profile -- --url http://127.0.0.1:3001 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe` | Agent Profile 分层 smoke 通过；Dialog geometry、FormSelect 下拉层级、resize、关闭/重开与导航交互通过 |
+| `bun run --cwd packages/neuro-book smoke:component-lab -- --url http://127.0.0.1:3001 --browser-executable C:/Users/<user>/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe` | 历史整套 smoke 记录曾失败于既有 `CollapsibleSidePanel` 文案；本轮修正分层后重新执行并通过，见下方三条最新命令 |
+| `bun run --cwd packages/neuro-book smoke:component-lab:core -- --url http://127.0.0.1:3001 --browser-executable C:/Users/<user>/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe` | 核心 Lab 分层 smoke 通过 |
+| `bun run --cwd packages/neuro-book smoke:component-lab:agent-profile -- --url http://127.0.0.1:3001 --browser-executable C:/Users/<user>/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe` | Agent Profile 分层 smoke 通过；Dialog geometry、FormSelect 下拉层级、resize、关闭/重开与导航交互通过 |
 | `bun run docs:check` | 5413 个文件，0 failures |
 | `bun run governance:check` | 0 failures，0 warnings |
 | `git diff --check` | 通过；仅 Git 报告工作树 LF→CRLF 提示 |

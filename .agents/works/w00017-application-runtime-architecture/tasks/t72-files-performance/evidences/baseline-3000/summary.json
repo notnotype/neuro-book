@@ -1,7 +1,7 @@
 {
   "date": "2026-10-09T23:40:03.237Z",
   "revision": "a4674aec",
-  "command": "bun run perf:files -- --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/baseline-3000",
+  "command": "bun run perf:files -- --out /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/baseline-3000",
   "options": {
     "count": 3000,
     "seed": 42017,
@@ -13,7 +13,7 @@
     "serverProfile": false,
     "skipBuild": false,
     "keepTemp": false,
-    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/baseline-3000"
+    "out": "/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/baseline-3000"
   },
   "machine": {
     "loadBefore": [

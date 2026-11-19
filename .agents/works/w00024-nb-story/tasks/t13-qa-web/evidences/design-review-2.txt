@@ -371,7 +371,7 @@ w00024 t13 第 2 轮设计审查（2026-10-23）
 
 # t13 第2轮只读设计审查：引擎、服务端与配置
 
-审查基准：主工作区 `plan.md` 第2版（2026-10-23，186行）与 Task 已确认决定；产品代码读取 detached worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t13-design2`。运行探针仅在报告目录新建，在主工作区 `packages/nb-story` 执行；未改产品代码、Spec、计划或 Task。
+审查基准：主工作区 `plan.md` 第2版（2026-10-23，186行）与 Task 已确认决定；产品代码读取 detached worktree `/home/<user>/CodeRepository/neuro-book/.worktree/review-t13-design2`。运行探针仅在报告目录新建，在主工作区 `packages/nb-story` 执行；未改产品代码、Spec、计划或 Task。
 
 报告写入纠正：前段误用只支持覆盖的 `write` 作为追加，每次标题计数一直为1，汇总后变为0；因此早期草稿未形成有效累计报告。现改用文件末尾插入，重新核实后只登记实质发现；早期未经充分核实的候选不计发现。此为审查者操作错误，不是产品问题。
 
@@ -381,7 +381,7 @@ w00024 t13 第 2 轮设计审查（2026-10-23）
 - **位置**：计划“服务端运行”第48、54行、切片3第138行；审查 worktree `packages/nb-story/src/server/serve.ts:97-119`、`packages/nb-harness/src/interrupt.ts:1-14`、`packages/nb-story/src/cli/ask.ts:42-57`。
 - **现象**：计划把问答放进服务主进程，并要求照抽取服务的方式在信号停服时等保存完，但没有迁移进程级退出协议。问答会加载 nb-harness/OMP；OMP 的 postmortem 在导入时就安装 `SIGINT`、`SIGTERM` 监听器，等待自己登记的清理后直接退出。现有 `serve` 只另装 `process.once` 的异步监听，OMP 不会等这个监听返回的 Promise。命令行 `ask` 已专门经 `onProcessInterrupt` 登记，因此这里不能只照搬 `ingest.close()` 的装配。该公开帮助目前还只覆盖 SIGINT，不覆盖 SIGTERM。
 - **为什么是问题**：正常 Ctrl-C/SIGTERM 也会变成丢失本轮的强退，违背第2版“正常停服记为中断并保存”。同时可能抢在抽取放锁、撤销 `.serve.json` 之前退出；仅测试不加载问答的既有 serve，或只直接调用 `QaService.close()`，都看不到这个回归。
-- **如何核实**：本轮执行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design2/signal-probe.ts`（cwd 主工作区 `packages/nb-story`），退出0。子进程用真实 `askQuestion`、OMP provider、本机 stall HTTP 端点和真实书库；待模型请求到达后发信号。普通异步监听里 abort 并 await 问答：SIGINT 退出130、SIGTERM 退出143，两次磁盘记录均为0、监听末尾完成标记均未写入。此实验验证信号依赖机制，不冒充尚不存在的 QaService 实现测试；源代码也明确记载普通监听拦不住 OMP 退出。
+- **如何核实**：本轮执行 `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design2/signal-probe.ts`（cwd 主工作区 `packages/nb-story`），退出0。子进程用真实 `askQuestion`、OMP provider、本机 stall HTTP 端点和真实书库；待模型请求到达后发信号。普通异步监听里 abort 并 await 问答：SIGINT 退出130、SIGTERM 退出143，两次磁盘记录均为0、监听末尾完成标记均未写入。此实验验证信号依赖机制，不冒充尚不存在的 QaService 实现测试；源代码也明确记载普通监听拦不住 OMP 退出。
 - **建议改法**：在计划明确统一的宿主退出入口，并让 OMP 的两种正常停止信号都等待同一个幂等 stop Promise；范围至少包含 QA/抽取关门与取消、保存等待、撤销登记和停止监听。可在 nb-harness 扩展公开进程清理能力覆盖 SIGTERM，serve 经它登记，不深导入 OMP、不简单移除其全局监听。测试必须在真实 `nbstory serve` 已经加载过问答后分别发送 SIGINT、SIGTERM，并检查中断记录、登记撤销与抽取收口。
 
 ### 2. 保留的 `ended` 会让“重取后有运行就订阅”永远不能收口

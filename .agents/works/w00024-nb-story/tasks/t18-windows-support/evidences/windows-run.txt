@@ -1,4 +1,4 @@
-2026-10-24 在 pc-notype（Windows x64，Bun 1.3.14，经 ssh）上实测。tarball 由 t18 worktree 打包（nb-story、nb-harness、nb-profile、nb-runtime、nb-session），脚本见 win-smoke.ts。
+2026-10-24 在 Windows 开发机（Windows x64，Bun 1.3.14，经 ssh）上实测。tarball 由 t18 worktree 打包（nb-story、nb-harness、nb-profile、nb-runtime、nb-session），脚本见 win-smoke.ts。
 
 锁原型（kernel32 CreateFileW + LockFileEx）：
 - 访问权限按有符号数传（0x80000000 | 0x40000000）时，LockFileEx 一律失败，Win32 错误 5；改成无符号后：

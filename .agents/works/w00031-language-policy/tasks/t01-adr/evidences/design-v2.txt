@@ -1,6 +1,6 @@
 # 设计稿第二版：语言与 i18n 治理（尚未落盘，未建 Work）
 
-仓库：`/home/notnotype/CodeRepository/neuro-book`（主工作区，`master`）。第一版：`/tmp/review-lang-governance/design.md`；第一轮审查报告：`report-frontend.md`（10 条）、`report-backend.md`（10 条），20 条全部成立，处理见文末。
+仓库：`/home/<user>/CodeRepository/neuro-book`（主工作区，`master`）。第一版：`/tmp/review-lang-governance/design.md`；第一轮审查报告：`report-frontend.md`（10 条）、`report-backend.md`（10 条），20 条全部成立，处理见文末。
 
 ## 开发者已确认的决定（不必再议）
 

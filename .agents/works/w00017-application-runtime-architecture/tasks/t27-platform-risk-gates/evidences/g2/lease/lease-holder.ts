@@ -5,7 +5,7 @@ import {rmSync, statSync, appendFileSync} from "node:fs";
 import {
     acquireAgentSessionStoreRuntimeLease,
     agentSessionStoreLeasePath,
-} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/agent/session/agent-session-store-lease.ts";
+} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/agent/session/agent-session-store-lease.ts";
 
 const env = process.env;
 const root = env.ROOT!;

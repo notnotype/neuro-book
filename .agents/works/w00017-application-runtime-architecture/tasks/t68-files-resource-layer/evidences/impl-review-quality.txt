@@ -1,6 +1,6 @@
 # w00017 t68 实现审查：代码质量与架构
 
-- **审查对象**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t68-impl-quality`
+- **审查对象**：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t68-impl-quality`
 - **固定版本**：`5b07cb0e`，对比范围 `ab0a3e91..5b07cb0e`
 - **范围**：T68 S0–S4 的 `nbook.files` 后端、远程合同、浏览器门面、变更监视、锁定替换抽取，以及必要的宿主接线和测试。
 - **结论**：发现 4 项重要问题；未发现阻断问题。
@@ -13,7 +13,7 @@
 - **位置**：`packages/neuro-book/src/plugins/files/backend/folder-kinds.ts:56-65`、`packages/neuro-book/src/plugins/files/backend/files-service.ts:85-88`。
 - **现象**：`parseManifest()` 只捕获 `ManifestError`，没有捕获 XML 解析器本身抛出的异常。解析包含 20,000 字符实体的 `content.xml` 时，`fast-xml-parser` 抛出 `Error: Entity "a" size (20000) exceeds maximum allowed size (10000)`；该异常从 `list()` 冒出，被远程层归类为 `provider-error`，而不是返回普通目录列出结果并标记清单不可用。
 - **为什么是问题**：`docs/specs/workspace/folder-kinds.md:70,98` 要求清单缺失、非法、不可读时按普通文件夹显示并报告状态，不让整次列出失败。外部清单是用户文件，解析器的异常必须在边界内转换成受控清单失败状态；当前输入可使一个目录的基础列出失败，调用方只看到泛化的提供方错误。
-- **依据/核实**：真实 `filesScene` 实验 `contracts-smoke.ts` 写入实体超限 XML，调用真实 `files(window).list(...)` 得到 `{ok:false,code:"provider-error",detail:"提供方执行失败"}`；直接调用同一解析器得到上述异常原文。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/contracts-smoke.ts`。
+- **依据/核实**：真实 `filesScene` 实验 `contracts-smoke.ts` 写入实体超限 XML，调用真实 `files(window).list(...)` 得到 `{ok:false,code:"provider-error",detail:"提供方执行失败"}`；直接调用同一解析器得到上述异常原文。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/contracts-smoke.ts`。
 - **建议改法**：在 `parseManifest()` 的解析边界捕获解析器异常，转换为受控的清单失败状态；不要按错误文案分支，可用错误类型/解析阶段统一映射。增加实体超限、截断 XML、解析器抛异常时“list 成功、manifest 失败、普通排序仍正确”的真实文件测试。
 
 ### 2. 重要｜正确性、文件提交：加锁替换不保持原文件权限位
@@ -29,7 +29,7 @@
 - **位置**：`packages/neuro-book/src/plugins/files/backend/changes.ts:67-71,84-92,120-152`。
 - **现象**：`flush()` 通过共享的 `flushing` Promise 异步执行；最后一个监听者释放时 `stopWatcher()` 只关闭 watcher、清空 `pending`，没有使已经开始的 `flush` 失效。若在该 flush 完成前重新订阅，旧 flush 的末尾条件只检查 `closed` 与当前 `watcher !== null`；新 watcher 已非空后，旧批次会广播给新订阅者。
 - **为什么是问题**：新订阅先收到 `ready`，随后却收到旧监视轮次积压的事件；关停未隔离在途批次。`docs/specs/workspace/resources.md:78,95` 定义就绪、结束与按订阅持有监视器的生命周期，`docs/specs/runtime/plugin-channel.md:95` 要求取消订阅后丢弃迟到事件。快速释放再订阅时，旧批次借新 watcher 存在而恢复投递；文件事实没有被改错，但监视轮次已混淆。
-- **依据/核实**：真实 `filesScene`、真实 Bun `fs.watch` 和手动时钟实验 `watch-round-race.ts`：写入 500 个 `race-*.md` 后推进 75 ms，立即释放旧监听并建立新监听；输出 `oldBatchCount:0`、`staleCount:500`，新监听依次收到 `ready` 与包含旧积压路径的 `batch`。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/watch-round-race.ts`。
+- **依据/核实**：真实 `filesScene`、真实 Bun `fs.watch` 和手动时钟实验 `watch-round-race.ts`：写入 500 个 `race-*.md` 后推进 75 ms，立即释放旧监听并建立新监听；输出 `oldBatchCount:0`、`staleCount:500`，新监听依次收到 `ready` 与包含旧积压路径的 `batch`。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/watch-round-race.ts`。
 - **建议改法**：给 watcher/订阅轮次增加单调代际 token；`stopWatcher()` 递增 token，`flush()` 捕获启动时 token，并在分类完成后只有 token 仍相等才广播。旧 flush 可自然结束，但不得投递给新轮次；补“批次在关停时在途、立即重订阅”的真实测试。
 
 ### 4. 重要｜合同一致性：文件门面丢弃远程失败的 `cause`
@@ -37,7 +37,7 @@
 - **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:200-208`、`packages/neuro-book/src/plugins/files/shared/contracts.ts:151-154`。
 - **现象**：`fromRemote()` 对非业务失败只把 `failure.code`、字符串 `detail` 或拼接后的文字放进 `FilesResult.detail`，没有返回 `RemoteFailure.cause`。例如 `unknown-outcome` 的 `target-gone`、`timeout`、`cancelled`、`disconnected` 被压成不可结构化的中文字符串；`FilesResult` 类型也没有 `cause` 字段。
 - **为什么是问题**：`docs/specs/workspace/resources.md:118` 要求路由层失败原样交回，远程合同保留可结构化判定的 `cause`。当前门面仍保留 `unknown-outcome`，因此调用方仍能判断结果未知、不可自动重试；但断开、超时、取消的原因只剩展示文案，调用方无法依据类型与字段区分原因。这是跨层合同信息丢失。
-- **依据/核实**：真实多实例 `filesScene` 新建窗口，在文件写请求发出后关闭窗口链路；直接远程合同返回 `{ok:false,code:"unknown-outcome",cause:"disconnected"}`，同一窗口的 Files 门面返回 `{ok:false,code:"unknown-outcome",detail:"unknown-outcome（disconnected）"}`，`Object.hasOwn(result,"cause")` 为 `false`。四个应用关闭结果均为 `{status:"closed"}`。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/remote-cause-smoke.ts`，exit 0。`docs/specs/workspace/resources.md:118` 要求路由层失败原样交回，`docs/specs/runtime/plugin-channel.md:92` 明确保留写请求的 `cause`；超时与取消经过同一转换路径，其原因丢失为代码推断，本轮未单独运行。
+- **依据/核实**：真实多实例 `filesScene` 新建窗口，在文件写请求发出后关闭窗口链路；直接远程合同返回 `{ok:false,code:"unknown-outcome",cause:"disconnected"}`，同一窗口的 Files 门面返回 `{ok:false,code:"unknown-outcome",detail:"unknown-outcome（disconnected）"}`，`Object.hasOwn(result,"cause")` 为 `false`。四个应用关闭结果均为 `{status:"closed"}`。命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/quality/remote-cause-smoke.ts`，exit 0。`docs/specs/workspace/resources.md:118` 要求路由层失败原样交回，`docs/specs/runtime/plugin-channel.md:92` 明确保留写请求的 `cause`；超时与取消经过同一转换路径，其原因丢失为代码推断，本轮未单独运行。
 - **建议改法**：给 `FilesResult` 增加与远程合同兼容的可选 `cause`，非业务失败保留原始失败字段；业务失败继续解包 `detail/current`。补浏览器文件客户端经真实路由断开/超时的断言，确保 `code` 与 `cause` 同时保留，而不是只比较拼接后的文案。
 
 ## 未发现问题的方面

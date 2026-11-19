@@ -8,7 +8,7 @@
 
 ### 2. 增量引擎的状态键和结果键都不是按世界线索引
 **严重程度**：阻断；**类别**：正确性
-**位置**：`docs/proposals/world-engine-plot-side.md` 第 3 节；`/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/engine/incremental.ts:34-36,116-245,529-650`
+**位置**：`docs/proposals/world-engine-plot-side.md` 第 3 节；`/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/engine/incremental.ts:34-36,116-245,529-650`
 **现象**：现有引擎的 `Snapshot` 只有一张全序事件表、按条目的一条时间线和 `outcomes: Map<changeId, ChangeResult>`。`actualEvents()` 每条已写变更只生成一个事件，`positionRank()` 只有初值/章开头/章末尾，`snapshotFor()` 的按计划覆盖层只按计划 id 集合缓存。
 **为什么是问题**：同一条父线变更在子线可能已被切口排除，也可能被继承；同一个 `changeId` 的套用结果、地址不完整范围、核对点结果和计划兑现进展因此可以随读取线不同而不同，现有单值 `outcomes` 无法表示。切口取父线快照还要求父线的历史折叠结果能作为子线前缀，而当前增量更新只按条目和一个 `Point` 传播脏区；它没有线的祖先链、切口快照、分叉层级或线内计划覆盖键。按计划模式、`origins`、嫌疑区间、`pending`、`chapterEntries` 也都直接消费这套单线时间线。只在读取位置上加 `line` 参数会得到“能传参但算错”的实现。
 **如何核实**：读 `Snapshot`、`actualEvents`、`recompute` 和 `snapshotFor` 可见所有缓存键分别是条目、变更 id 或计划 id，没有 line path；`Engine` 接口的 `entry/origins/progress/pending` 的 `ReadPosition` 也没有线。
@@ -102,7 +102,7 @@
 
 ### 14. “绝密不进写手上下文”没有服务端角色隔离作为保证
 **严重程度**：重要；**类别**：安全与性能
-**位置**：`docs/proposals/world-engine-plot-side.md` 第 8、10 节；`/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/service/service.ts:177-292`
+**位置**：`docs/proposals/world-engine-plot-side.md` 第 8、10 节；`/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/src/service/service.ts:177-292`
 **现象**：提案要求主 Agent 能读作者真相，写手只能得到按视角过滤的简报，且写手自由发挥时可调用只读 `lookup`、`read`。现有 `WorldService.entry`、`object`、`lookup`、`render` 只接受普通 id、位置、模式和 `audience: author|agent`，没有 writer/bookkeeping/role 身份、能力令牌或绝密过滤参数；`agent` 渲染不是按角色视角过滤。
 **为什么是问题**：把过滤留在“程序拼上下文”而让写手继续调用通用只读工具，就不能保证绝密不泄露：调用方可以请求另一个人物或知识点的完整条目，或把 `actual`/作者视角结果作为查询输入。模型提示词不是信任边界。即使当前所有 Agent 受信，错误的上下文拼接也会把绝密写入正文，且没有可审计的拒绝结果。
 **如何核实**：服务入口的 `entry` 直接调用引擎并返回条目，`render` 仅按作者或 agent 选择渲染格式；`Engine` 也没有 `audience`/视角参数。提案第 10 节没有新的远程合同或权限失败码。

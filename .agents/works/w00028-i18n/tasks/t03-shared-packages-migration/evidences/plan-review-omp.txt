@@ -1,6 +1,6 @@
 # w00028 t03 实施计划后端审查
 
-审查对象：主工作区 `.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md`；范围为第 2 片的服务端边界、第 4、5 片、SDK 收尾片及切片顺序与依赖。源码路径均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00028-t03/`；Work、Task 与 ADR 路径相对于主工作区 `/home/notnotype/CodeRepository/neuro-book/`。已接受提案的决定不重新讨论。
+审查对象：主工作区 `.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md`；范围为第 2 片的服务端边界、第 4、5 片、SDK 收尾片及切片顺序与依赖。源码路径均相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/review-w00028-t03/`；Work、Task 与 ADR 路径相对于主工作区 `/home/<user>/CodeRepository/neuro-book/`。已接受提案的决定不重新讨论。
 
 ### 1. 第 3 片先改远程输出 schema，第 5 片才升版本，破坏按片提交的兼容边界
 
@@ -109,7 +109,7 @@
 2. `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/w00028-review/t03-plan/lab/probe-locale-setting.ts`：string schema 配静态 choices 被拒、没有目录约束的 string schema 接受任意语言，两项断言完成。
 3. `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/w00028-review/t03-plan/lab/probe-remote-version.ts`：真实插件运行实例与 JSON 链路上的同版本不同 schema / 异版本两个场景完成，结果分别为 `provider-error` / `version-changed`，实例与路由收口。探针首次运行后将平台档案字段修正为现有的 `reservedPublishers: ["nbook"]`，只重跑了这一项，结果相同；报告补证以修正后的脚本为准。
 
-每次 Bun 探针完成后，Bun 还打印了同一条内部诊断：`Internal error: directory mismatch for directory "/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00028-t03/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.`。未把它归为产品缺陷或忽略为不存在；上述业务观察来自此前已经完成的探针输出与断言。
+每次 Bun 探针完成后，Bun 还打印了同一条内部诊断：`Internal error: directory mismatch for directory "/home/<user>/CodeRepository/neuro-book/.worktree/review-w00028-t03/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.`。未把它归为产品缺陷或忽略为不存在；上述业务观察来自此前已经完成的探针输出与断言。
 
 没有运行产品测试套件、typecheck、构建、开发服务、浏览器/e2e、release:smoke、联网安装或真实模型。未将静态计划缺口写成已复现的迁移后回归，也未把原型历史结果当作本次正式实现验收。未执行 commit、push、stash、分支切换或文件删除；仓库只读，报告始终用 `cat >>` 追加。
 

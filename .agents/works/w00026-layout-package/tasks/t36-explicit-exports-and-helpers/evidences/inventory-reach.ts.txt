@@ -1,0 +1,61 @@
+// 对没人经包名导入的导出：(b) 是否在 nb-layout 文档或相关 Spec 里出现；(c) 是否出现在“有人用或有文档”的导出的签名里（类型可达）。
+import ts from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t35-drop-nb-ui/node_modules/typescript/lib/typescript.js";
+import {readFileSync, readdirSync} from "node:fs";
+import {join} from "node:path";
+
+const ROOT = process.argv[2]!;
+const inv = readFileSync(process.argv[3]!, "utf8");
+type Row = {mod: string; name: string; users: boolean};
+const rows: Row[] = [];
+let mod = "";
+for (const line of inv.split("\n")) {
+    const h = /^## (\S+?)（/.exec(line);
+    if (h) { mod = h[1]!; continue; }
+    const parts = line.split("\t");
+    if (parts.length === 3) rows.push({mod, name: parts[0]!, users: parts[2] !== "—"});
+}
+const docs: string[] = [];
+const walk = (d: string): void => { for (const e of readdirSync(d, {withFileTypes: true})) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name.endsWith(".md")) docs.push(readFileSync(p, "utf8")); } };
+walk(join(ROOT, "packages/nb-layout"));
+for (const s of ["docs/specs/ui/nested-grid.md", "docs/specs/ui/layout-drag.md", "docs/specs/ui/sortable-list.md"]) { try { docs.push(readFileSync(join(ROOT, s), "utf8")); } catch {} }
+const docText = docs.join("\n");
+const documented = (n: string): boolean => new RegExp(`\`[^\`]*\\b${n}\\b[^\`]*\``).test(docText);
+
+const entries = {"@notnotype/nb-layout": join(ROOT, "packages/nb-layout/src/index.ts"), "@notnotype/nb-layout/vue": join(ROOT, "packages/nb-layout/src/vue/index.ts")};
+const program = ts.createProgram(Object.values(entries), {module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ES2022, skipLibCheck: true});
+const checker = program.getTypeChecker();
+const symbolOf = new Map<string, ts.Symbol>();
+for (const [m, file] of Object.entries(entries)) {
+    const sym = checker.getSymbolAtLocation(program.getSourceFile(file)!)!;
+    for (const e of checker.getExportsOfModule(sym)) symbolOf.set(`${m} ${e.name}`, e.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(e) : e);
+}
+const exportedBySymbol = new Map<ts.Symbol, string>();
+for (const [k, s] of symbolOf) exportedBySymbol.set(s, k);
+// 从种子出发，收集声明里引用到的类型名（只看导出过的符号）
+const kept = new Set(rows.filter((r) => r.users || documented(r.name)).map((r) => `${r.mod} ${r.name}`));
+const queue = [...kept];
+const reachedBy = new Map<string, string>();
+while (queue.length) {
+    const key = queue.pop()!;
+    const sym = symbolOf.get(key);
+    if (!sym) continue;
+    for (const decl of sym.declarations ?? []) {
+        const visit = (node: ts.Node): void => {
+            if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node) || ts.isTypeQueryNode(node)) {
+                const target = checker.getSymbolAtLocation(ts.isTypeReferenceNode(node) ? node.typeName : ts.isTypeQueryNode(node) ? node.exprName : node.expression);
+                const resolved = target && target.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(target) : target;
+                const k = resolved && exportedBySymbol.get(resolved);
+                if (k && !kept.has(k)) { kept.add(k); reachedBy.set(k, key); queue.push(k); }
+            }
+            // 函数体不算公开签名
+            if (ts.isBlock(node)) return;
+            ts.forEachChild(node, visit);
+        };
+        visit(decl);
+    }
+}
+for (const r of rows.filter((x) => !x.users)) {
+    const k = `${r.mod} ${r.name}`;
+    const why = documented(r.name) ? "文档" : reachedBy.has(k) ? `签名可达（${reachedBy.get(k)!.split(" ")[1]}）` : "内部";
+    console.log(`${r.mod === "@notnotype/nb-layout" ? "." : "./vue"}\t${r.name}\t${why}`);
+}

@@ -1,5 +1,5 @@
 
- RUN  v4.1.10 /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/base-w00017/packages/neuro-book
+ RUN  v4.1.10 /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/base-w00017/packages/neuro-book
 
  ❯ server/agent/harness/neuro-agent-harness.test.ts (195 tests | 195 failed) 314ms
      × dispose 会关闭 EventHub 订阅并阻止旧实例继续发布 40ms

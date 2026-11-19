@@ -1,6 +1,6 @@
 # t67 外壳三拖放实施计划对抗审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t67-plan-design/.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md`，固定版本 `55716953`。审查只读；本报告和实验材料均在指定仓库外目录。开发者已确认的行为表、命中规则、半区公式、拖影与键盘按键作为合同，不重议。`@dnd-kit/vue` 按推荐先做、待追认，不因此判阻断。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t67-plan-design/.agents/works/w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md`，固定版本 `55716953`。审查只读；本报告和实验材料均在指定仓库外目录。开发者已确认的行为表、命中规则、半区公式、拖影与键盘按键作为合同，不重议。`@dnd-kit/vue` 按推荐先做、待追认，不因此判阻断。
 
 以下依据路径除实验文件外均相对上述 worktree。计划未实现：发现是计划缺口或明确的合同偏离，不能当作已复现的新产品 bug。
 

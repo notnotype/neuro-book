@@ -1,7 +1,7 @@
 {
   "date": "2026-10-10T01:45:47.624Z",
   "revision": "bd222423",
-  "command": "bun run perf:files -- --skip-build --count 3000 --iterations 10 --only A1+A2,B1,C1-md --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-3000",
+  "command": "bun run perf:files -- --skip-build --count 3000 --iterations 10 --only A1+A2,B1,C1-md --out /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-3000",
   "options": {
     "count": 3000,
     "seed": 42017,
@@ -17,7 +17,7 @@
     "serverProfile": false,
     "skipBuild": true,
     "keepTemp": false,
-    "out": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-3000"
+    "out": "/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/scale3-3000"
   },
   "machine": {
     "loadBefore": [

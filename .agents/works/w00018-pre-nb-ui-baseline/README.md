@@ -24,7 +24,7 @@ issueId: null
 
 ## 进展
 
-- 2026-09-28：worktree 与分支已创建，依赖安装、App SQLite 与 Application State 迁移完成；Source Dev 以 `0.0.0.0:3010` 启动，局域网 `http://192.168.1.18:3010/` 可访问，界面实测渲染正常。详见 [t01 快照](tasks/t01-baseline-startup/README.md)。
+- 2026-09-28：worktree 与分支已创建，依赖安装、App SQLite 与 Application State 迁移完成；Source Dev 以 `0.0.0.0:3010` 启动，局域网 `http://<局域网 IP>:3010/` 可访问，界面实测渲染正常。详见 [t01 快照](tasks/t01-baseline-startup/README.md)。
 - 2026-09-28：按用户要求接上原有作品——默认 State Root 复制为基线专属副本（651 M / 10 个 workspace），书架显示 7 部作品；原 root 未被改动。
 - 2026-09-28：经用户授权清理 3000–3004 上 5 个无父进程的遗留 dev 实例（4 个在 w00017 worktree、1 个在主工作区），load 由 4.09 降至 1.25。
 

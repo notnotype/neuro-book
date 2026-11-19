@@ -42,7 +42,7 @@
 - `bun scripts/build/profile.ts compile --all --system`：通过，刷新 13 个系统 profile artifact。
 - `bun scripts/build/profile.ts status --all --system`：全部系统 profile 为 `loaded`。
 - `bun scripts/build/prepare-system-assets.ts`：通过，系统变量 definition 1 个、系统 profile 13 个，compiled stale 数量为 0。
-- `bun test C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/leader-assets-profile.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/rp-profiles.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/simulation-director-profiles.test.ts`：通过，22 tests passed。
+- `bun test C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/leader-assets-profile.test.ts C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/rp-profiles.test.ts C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/simulation-director-profiles.test.ts`：通过，22 tests passed。
 - `rg -n "profile-routing|当前任务与自身职责" assets/workspace/.nbook/agent/profiles reference docs PROJECT-STATUS.md`：通过，确认 profile 源码、reference、docs、walkthrough 和 PROJECT-STATUS 均已同步。
 - `rg -n "profile-routing" assets/workspace/.nbook/agent/profiles/.compiled -uuu`：通过，确认四个入口 profile 的 compiled artifact 均包含新 Import 路径。
 

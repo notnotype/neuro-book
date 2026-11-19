@@ -5,7 +5,7 @@
     "supersededReason": "本文件记录审查整改前的 11 tests 与旧证据；最终状态见 remediation evidence。",
     "workId": "w00009-issue-123-proper-lockfile",
     "taskId": "t01-proper-lockfile-exfat",
-    "worktree": "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00009-issue-123-proper-lockfile",
+    "worktree": "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00009-issue-123-proper-lockfile",
     "branch": "fix/w00009-issue-123-proper-lockfile",
     "head": "64efeb914f1b1929152797ec0379fa037556ec4a",
     "verdict": "未完成验证",

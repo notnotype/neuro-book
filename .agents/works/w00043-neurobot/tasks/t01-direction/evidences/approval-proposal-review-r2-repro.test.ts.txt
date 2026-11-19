@@ -3,7 +3,7 @@ import {rm, readFile, mkdtemp} from "node:fs/promises";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 
-const A = "/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/agent";
+const A = "/home/<user>/CodeRepository/neuro-book/packages/neuro-book/src/plugins/agent";
 const {MAIN_PROFILE} = await import(`${A}/shared/contracts`);
 const {AGENT_MODES_EXTENSION} = await import(`${A}/shared/permissions`);
 const {fakeEndpoint, localModelSettings} = await import(`${A}/testing/endpoint`);

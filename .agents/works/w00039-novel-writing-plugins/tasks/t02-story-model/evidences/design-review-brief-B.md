@@ -1,6 +1,6 @@
 # 任务：只读设计审查 w00039 t02（前端部分）：作者视角的世界引擎内核提案
 
-仓库：`/home/notnotype/CodeRepository/neuro-book`（只读，看 master 上的文件）。审查对象：`docs/proposals/world-engine-kernel.md`。
+仓库：`/home/<user>/CodeRepository/neuro-book`（只读，看 master 上的文件）。审查对象：`docs/proposals/world-engine-kernel.md`。
 
 你只审作者界面与前端相关的部分：第四节的 2（条目）、5（Component 的 Vue Tab 与三种内置类型）、6（渲染里“作者看到的”）、7（作者怎么用），以及它们对前端包的要求。领域模型由另一位审查者负责，你只在它让界面做不出来或很别扭时提。
 

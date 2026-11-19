@@ -1,6 +1,6 @@
 # w00028 t03 第 5 片交付报告（目录交付、清单 l10n、引导协议 v5、registry v5）
 
-工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（未提交）
+工作区：/home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n（未提交）
 
 ## 进度（每块做完追加）
 

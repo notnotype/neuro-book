@@ -16,7 +16,7 @@
         "data-graph-grain": "arc"
     },
     "comments": {
-        "relation-graph-default": "1. sigma 是否提供 3d 图，如果提供可以做一个出来看看\n2. sigma 的节点是否能做成让用户拖拽的？\n3. 选中某个一节点后需要降暗其他节点的颜色。\n4. 点击某个节点后打开的右侧栏，然后收起右侧栏会导致 canvas 没有重绘\n6. 关于图，应该还能再优化，可以参考一下 /home/notnotype/CodeRepository/neuro-book/.worktree/w00005-novel-understanding-spike/.agents/works/w00005-novel-understanding-spike/tasks/t08-v7-memory-viewer/viewer-v7.html"
+        "relation-graph-default": "1. sigma 是否提供 3d 图，如果提供可以做一个出来看看\n2. sigma 的节点是否能做成让用户拖拽的？\n3. 选中某个一节点后需要降暗其他节点的颜色。\n4. 点击某个节点后打开的右侧栏，然后收起右侧栏会导致 canvas 没有重绘\n6. 关于图，应该还能再优化，可以参考一下 /home/<user>/CodeRepository/neuro-book/.worktree/w00005-novel-understanding-spike/.agents/works/w00005-novel-understanding-spike/tasks/t08-v7-memory-viewer/viewer-v7.html"
     },
     "note": null
 }

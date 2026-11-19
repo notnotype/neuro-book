@@ -29,7 +29,7 @@ createdAt: 2026-09-03T00:00:00Z
 
 ## 真实浏览器验证
 
-- 命令：`bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`。
+- 命令：`bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable C:/Users/<user>/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`。
 - 结果：`Component Lab smoke passed: http://127.0.0.1:3000/`。
 - 真实流程修改为 macOS 主题与手机 `390 × 844` 画布，刷新后两项均恢复；离开 Lab 后根主题属性被清理，再次进入仍恢复偏好；点击“恢复 Lab 默认配置”后主题回到 `nbook` 且 `localStorage.getItem("nb-lab:preferences:v1") === null`。
 - 首次超时根因不是偏好存储，而是公共 `Tree` 把 string id 直接传给需要节点对象的 Reka `TreeRoot`，初始行缺少 `data-selected`。修正公共 string-id 适配后，同一 smoke 完整通过，没有放宽选择器。

@@ -35,7 +35,7 @@ bun assets/workspace/.nbook/agent/skills/novel-import-tomato-reference/scripts/t
 - `--out reference/tomato`：写入 workspace 内的外部参考资料目录。
 - `--force`：允许覆盖已有同名导入目录；默认拒绝覆盖。
 - `--keep-raw`：额外复制原始 epub、`status.json` 或 `downloaded_chapters.jsonl` 到 `raw/`。
-- `--exe`：覆盖 Tomato Novel Downloader exe 路径。默认使用 `C:\Users\notnotype\Downloads\TomatoNovelDownloader-Win64-v2.4.9.exe`。
+- `--exe`：覆盖 Tomato Novel Downloader exe 路径。默认使用 `C:\Users\<user>\Downloads\TomatoNovelDownloader-Win64-v2.4.9.exe`。
 
 ## 工作流
 

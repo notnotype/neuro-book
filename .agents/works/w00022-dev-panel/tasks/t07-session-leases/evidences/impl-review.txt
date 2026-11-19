@@ -1,6 +1,6 @@
 # w00022/t07 实施审查（只读）
 
-审查对象：`7db92c996..3e086d8e1`，在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00022-t07-review` 里审查。结束时 `git status --short` 为空，HEAD 仍是 3e086d8e1。实验脚本放在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t07-impl/scripts/`。对默认 herdr 只用了 `pane list`、`pane process-info`、`session list` 和只读的 `nbdev status`。
+审查对象：`7db92c996..3e086d8e1`，在 `/home/<user>/CodeRepository/neuro-book/.worktree/w00022-t07-review` 里审查。结束时 `git status --short` 为空，HEAD 仍是 3e086d8e1。实验脚本放在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t07-impl/scripts/`。对默认 herdr 只用了 `pane list`、`pane process-info`、`session list` 和只读的 `nbdev status`。
 
 **结论**：没有阻断问题。重要 7 条，建议 13 条。重要的 7 条里有 6 条已复现，1 条（第 7 条）由变异检查确认。
 
@@ -65,7 +65,7 @@
 ### 6. `RunView.checkout` 对 worktree 里的进程一律报成主工作区
 - **类别**：正确性（JSON 合同字段的值错）。
 - **位置**：`src/core/runs.ts:57-59`。用 `find` 取第一个前缀匹配，而主工作区排在第一位，`.worktree/x/...` 也以它为前缀。
-- **现象**：本机真实 `status --json` 里只有两个运行：1993174（cwd 在 `.worktree/w00005-…`）和 2118675（cwd 在 `.worktree/w00017-…`）。两者的 `checkout` 都是 `/home/notnotype/CodeRepository/neuro-book`。合成测试里有 501（cwd 在 w00017 下），但没有断言 `checkout`。
+- **现象**：本机真实 `status --json` 里只有两个运行：1993174（cwd 在 `.worktree/w00005-…`）和 2118675（cwd 在 `.worktree/w00017-…`）。两者的 `checkout` 都是 `/home/<user>/CodeRepository/neuro-book`。合成测试里有 501（cwd 在 w00017 下），但没有断言 `checkout`。
 - **建议改法**：取最长的匹配根；合成用例补上对 `checkout` 的断言。
 
 ### 7. 两条明文合同没有测试，变异后测试仍全过
