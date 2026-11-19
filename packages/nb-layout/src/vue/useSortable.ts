@@ -15,12 +15,11 @@
 import {computed, nextTick, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, Ref} from "vue";
 
-import type {DragState} from "../drag-gesture";
 import type {GridDropPoint} from "../grid-drop";
 import {moveInSections, slotOfKey, sortableSlotIn, sortableSlots} from "../sortable";
 import type {SortableAxis, SortableLayout, SortableSection, SortableSlot, SortableSpan, SortableSwitch} from "../sortable";
-import {createDragSession} from "./drag-session";
-import type {DragSession} from "./drag-session";
+import type {DragSessionOptions} from "./drag-session";
+import {useDragSession} from "./useDragSession";
 import {layoutDurationMs} from "./layout-vars";
 import {useLayoutText} from "./layout-text";
 
@@ -61,12 +60,12 @@ const isThenable = (value: unknown): value is PromiseLike<unknown> => typeof (va
 export function useSortable(options: UseSortableOptions): SortableHandle {
     const t = useLayoutText();
     const vertical = (options.axis ?? "vertical") === "vertical";
-    const session = shallowRef<DragSession<string, SortableSlot> | null>(null);
     const pending = shallowRef<readonly SortableSection[] | null>(null);
     const held = ref<string | null>(null);
     const announcement = ref("");
 
-    const state = computed<DragState<string, SortableSlot> | null>(() => session.value?.state.value ?? null);
+    // 会话的选项在下面“会话”一节（`sessionOptions`，函数声明会提升）：根是模板 ref，这里还是 null，挂载后才建。
+    const {session, state} = useDragSession<string, SortableSlot, "list">(options.root, sessionOptions);
     const preview = computed(() => {
         const current = state.value;
         if (current !== null && current.drop !== null) return moveInSections(options.sections(), current.source, current.drop);
@@ -211,15 +210,22 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
 
     // ─── 会话 ───
 
+    // 根上的捕获监听与收尾跟着根：捕获监听一定先于会话在根上的冒泡按下监听（`sourceAt` 在那里读它），按事件阶段，与注册先后无关。
     watch(options.root, (root, _previous, onCleanup) => {
         if (root === null) return;
         const notePointer = (event: PointerEvent): void => {
             pointerType = event.pointerType;
         };
-        // 根上的捕获监听，一定先于会话在根上的冒泡按下监听（`sourceAt` 在那里读它）。
         root.addEventListener("pointerdown", notePointer, true);
-        const created = createDragSession<string, SortableSlot, "list">({
-            root,
+        onCleanup(() => {
+            root.removeEventListener("pointerdown", notePointer, true);
+            finishLanding();
+        });
+    }, {immediate: true});
+
+    /** 每在一个根上建会话时调一次（`useDragSession`），会话建好后不再读。 */
+    function sessionOptions(root: HTMLElement): Omit<DragSessionOptions<string, SortableSlot, "list">, "root"> {
+        return {
             sourceAt: (target) => {
                 if (blocked()) return null;
                 const row = target.closest<HTMLElement>("[data-sortable-key]");
@@ -312,15 +318,8 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
                 },
                 refocus: (source) => itemOf(root, source)?.querySelector<HTMLElement>("[data-sortable-handle]") ?? null,
             },
-        });
-        session.value = created;
-        onCleanup(() => {
-            created.dispose();
-            root.removeEventListener("pointerdown", notePointer, true);
-            if (session.value === created) session.value = null;
-            finishLanding();
-        });
-    }, {immediate: true});
+        };
+    }
 
     // 一场进行中变成不可用（例如设置层变得写不了）：整场中止，零提交。
     watch(() => options.disabled?.() === true, (disabled) => {

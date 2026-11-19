@@ -61,6 +61,12 @@ export type {
 export {
     createDragSession,
 } from "./drag-session";
+export {
+    useDragSession,
+} from "./useDragSession";
+export type {
+    DragSessionHandle,
+} from "./useDragSession";
 export type {
     DragKeyboardOptions,
     DragQuery,
