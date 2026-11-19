@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t39-layout-helpers-and-starter
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -74,9 +74,40 @@ worktree `w00026-t39-host-wiring`（分支 `w00026/t39-host-wiring`），基于 
 
 ## 实现审查
 
-待处理：Claude Sonnet，审查 worktree `review-t39-impl` 固定在 `261c29729`，diff 是相对 master `afb78ff51` 的净改动（20 个文件）。报告回来后按 reviewing 的“处理结果”处理，修正单独提交，然后合入 master、晋升 Spec。
+Claude Sonnet（[`evidences/impl-review.txt`](evidences/impl-review.txt)），审查 worktree 固定在 `261c29729`，diff 是相对 master `afb78ff51` 的净改动（20 个文件）：7 条，阻断 0、重要 1、建议 6，都成立，修正单独提交：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 输出 144 的“同步发”“两轴变了才再发”没有测试，改回异步不会红 | `NestedGrid.dom.test.ts` 加一条：观察器回调返回时监听已拿到新值，两轴不变不再发；把 `flush: "sync"` 去掉会红 |
+| 2 | 卸载时先发 null 再收尾手势，宿主的监听抛出会跳过收尾 | 先 `scope.dispose()` 再发 null |
+| 3 | `useGridHost` 的选项透传与 getter 没有用例 | 加三条：`disabled` 与 `contextKey` 用 getter（换键后旧提交 `stale-context`）、`grid` 换实例重算、`onApplied` 抛出给 `notify-failed`；审查者列的三个变异都会红 |
+| 4 | “选项只读一次”用例空过，输出 19 的抛错没有用例 | 加两条：选项读的 ref 变了不重建（改成 `watchEffect` 会红）、`createOptions` 抛出交给应用的错误处理、没有会话 |
+| 5 | `usableExtent` 的类型谓词把零尺寸收窄成 null | 改返回 `boolean`，调用处自己判 null |
+| 6 | `usableExtent` 插在 `readExtent` 与它的注释之间 | 挪到 `readExtent` 之后 |
+| 7 | 文档与注释残留 | 夹具头注释、Lab 登记注释改成 `useGridHost`；`NestedGrid.md` 的“量到 0 高”注释改成同输出 146；补回 `useLayoutExtent` 一句；`WorkbenchSurface` 用 `GridHostIssue`、删多余空行；`DragSessionScene` 读不到滚动容器时报错，不建没有边缘滚动的会话。Spec 里 `useGridLayout` 的三处说法在合入后晋升时改 |
+
+## 合入
+
+2026-11-19：修正提交 `640226453`（单元测试、类型检查通过；Lab e2e `lab-drag-session`、`lab-grid-structure` 33 条：19 条在负载 16 到 21 时等 Lab 就绪超时，单独重跑全过）。再把 master 并进分支两次（只带进别的 Work 的插件与文档，与本 Task 不相交；合并后 SDK、内置插件清单、Explorer 的 dom 测试、nb-layout 243 条、应用类型检查通过），快进合入 master `a5de33888`，删掉 worktree `w00026-t39-host-wiring`、`review-t39-impl` 与分支。
+
+## Spec 晋升
+
+2026-11-19：`ui/nested-grid` 输出 144 到 146、`ui/layout-drag` 输出 18、19 晋升 implemented；`useGridLayout` 的三处说法（输出 139 的出口、失败 6、实现合同）改成 `useGridHost`。
+
+逐句核对（Claude Sonnet，[`evidences/promotion-check.txt`](evidences/promotion-check.txt)）：28 句，16 句有断言、9 句只有部分、3 句没有。处理：
+
+- 补断言（`ff277aec6`，每条做了变异）：
+  - 宿主整个卸载时宿主作用域里的侦听看不到 null；
+  - 宽或高为 0 时叶照常挂着、分隔条停用；
+  - 只改高也再发；
+  - 换根先销毁再建；
+  - 根没了与作用域结束时，进行中的一场按 disposed 收尾。
+- 改写 Spec 的句子：
+  - “布局盒，不含边框与内边距”改成“布局尺寸，不随祖先的变换缩放”（读 `clientWidth`，测试能区分读的是不是变换后的矩形）；
+  - “非有限”删掉：量布局尺寸量不到非有限值；
+  - “模板里再写一遍会覆盖”删掉：那是 Vue 合并属性的行为，库里没有能违反它的实现，留在 `NestedGrid.md` 的用法约定里；
+  - 输出 19 的四个字段的枚举删掉，只留“建好后不再读”（已有断言）。
 
 ## 下一步
 
-1. 处理实现审查；合入 master；删 worktree。
-2. Spec：`ui/nested-grid` 输出 139 的“出口有两个”、失败 6 与实现合同里的 `useGridLayout` 改成 `useGridHost`；输出 144 到 146、`ui/layout-drag` 输出 18、19 晋升，按句子换模型核对断言。
+无。

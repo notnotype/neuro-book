@@ -1,0 +1,103 @@
+## t39 实现审查报告
+
+没有阻断问题。重要 1 条，建议 6 条。
+
+我跑了这些测试，全部通过：
+
+- `useGridHost`、`useDragSession`、`useGridLayout` 三个测试文件，共 14 条
+- `NestedGrid.dom.test.ts`，58 条
+- `SortableList` 与 `drag-session` 两个测试文件，共 27 条
+- `ExplorerTree.dom.test.ts`，6 条
+- `exports.test.ts`，6 条
+
+类型检查没跑：`vue-tsc`、`tsc` 这类命令在本会话里被拦了。e2e 按规则没跑。
+
+### 1. Spec 输出 144 的“同步发”和“两轴变了才再发”没有测试
+- **严重程度**：重要
+- **类别**：测试
+- **位置**：`packages/nb-layout/src/vue/NestedGrid.vue:139`、`useGridHost.dom.test.ts:490-526`、`NestedGrid.dom.test.ts`（没有 `extent` 用例）
+- **现象**：`watch(measuredExtent, …, {flush: "sync"})` 是工作台同步链的第一跳。新测试都在 `await nextTick()` 之后才读 `host.extent`，看不出同步与否。
+  - 我没改仓库，按 Vue 的刷新顺序推演：把 `flush` 改回默认的 pre，用例照样会过。挂载那次量到的值在同一轮 pre 刷新里就送到了。
+  - 尺寸变化也没有用例：两轴没变不重发、变了才发。
+- **为什么是问题**：这个事件的意义就是监听在同一个调用栈里拿到值。`WorkbenchSurface` 的注释写了原因：晚一拍会用旧树算新尺寸的布局。退回异步后没有单元测试会变红。工作台也没有 Surface、Shell 的 dom 测试，这条链只靠 e2e。
+- **和计划的出入**：`plan.md` 的验收映射写了两样东西。一是在 `NestedGrid.dom.test.ts` 里验输出 144、146；这个文件没改。二是 e2e 改视口后读“容器几何”；仓库里搜不到读它的 e2e。
+- **建议改法**：在 `NestedGrid.dom.test.ts` 加三条。
+  - 监听拿到值时，发布已经在同一个调用栈里发生。
+  - 两轴不变不重发。
+  - 改一轴后再发一次。
+
+### 2. 卸载时先 `emit("extent", null)` 再 `scope.dispose()`，监听抛错会跳过手势收尾
+- **严重程度**：建议
+- **类别**：不变量（销毁与收尾）
+- **位置**：`NestedGrid.vue:589-593`
+- **现象**：Vue 开发构建里监听的异常会重新抛出（`@vue/runtime-core` 的 `logError`，`throwInDev` 默认 true）。宿主的 `extent` 监听抛错时，`scope.dispose()` 没跑，进行中的手势在窗口上留着监听。
+- **为什么是问题**：`NestedGrid.md:223` 的口径是“卸载时宿主的监听抛出，手势已经收尾”。新加的这一发顺序反了，改前这里只有 `scope.dispose()`。概率低：整包里的 `onExtent` 只写一个 ref，但宿主可以自己再接 `@extent`。
+- **建议改法**：先 `scope.dispose()` 再 `emit`，或用 `try/finally`。
+
+### 3. `useGridHost` 的测试没覆盖选项透传和 `MaybeRefOrGetter` 的响应
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`useGridHost.ts:622-647`、`useGridHost.dom.test.ts:465-487`
+- **现象**：测试里 `contextKey` 是字符串、`grid` 是固定的 `shallowRef`，没传 `disabled`，也没让 `onApplied` 抛错。下面任一改动，现有用例全绿：
+  - 删掉 `toValue(options.disabled) === true ||`
+  - 把 `contextKey` 改成只读一次
+  - 让 `grid` 换实例后不重算
+- **为什么是问题**：任务要点 3 问的“`toValue` 与 `computed` 包装后时机不变”，只有对内部模块的 `useGridLayout.dom.test.ts` 在测，没有穿过 `useGridHost`。宿主常用 getter，例如 Surface 的 `() => props.contextKey`，这条路径没有断言。
+- **建议改法**：补四条：
+  - `disabled` 用 getter 切换。
+  - `contextKey` 换值后旧手势以 `stale-context` 拒绝。
+  - `grid` 换实例后布局重算。
+  - `onApplied` 抛错时 `onIssues` 收到 `notify-failed`。
+
+### 4. `useDragSession` 的“选项每个根只读一次”用例空过，Spec 输出 19 的抛错一句没有测试
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`useDragSession.dom.test.ts:309-334`、`useDragSession.ts:373-381`
+- **现象**：第二条用例用 `$forceUpdate()` 后断言 `built` 仍是 1。但测试里的 `createOptions` 不读任何响应式状态，也没换根。把实现改成 `watchEffect` 去追踪它，这条用例照样过。
+- **缺口**：Spec `ui/layout-drag` 输出 19 最后一句没有用例：`createOptions` 抛错时这个根上没有会话，错误交给应用的错误处理。
+- **建议改法**：
+  - `createOptions` 里读一个 ref，之后改它，断言不重建。
+  - 加一条 `createOptions` 抛错的用例，装 `app.config.errorHandler`。
+
+### 5. `usableExtent` 的类型谓词在“否”分支把 `GridExtent` 窄成 `null`
+- **严重程度**：建议
+- **类别**：代码质量
+- **位置**：`packages/nb-layout/src/grid-geometry.ts:78`
+- **现象**：`extent is GridExtent` 的否分支类型是 `null`，但 `{width: 0, height: 0}` 就是否分支里的 `GridExtent`。现在的调用点只用“是”分支，没出问题；以后写 `if (!usableExtent(e)) log(e.width)` 会得到莫名其妙的编译错误。
+- **建议改法**：返回普通 `boolean`，调用点自己带 `extent !== null` 收窄。
+
+### 6. `grid-geometry.ts` 的 JSDoc 错位
+- **严重程度**：建议
+- **类别**：代码质量
+- **位置**：`grid-geometry.ts:73-82`
+- **现象**：新函数插在 `readExtent` 和它的注释“只接受有限、非负的宽高…”之间。原注释现在连着第二个 JSDoc 块，挂在 `usableExtent` 上；`readExtent` 没有说明了。
+- **建议改法**：把 `usableExtent` 挪到 `readExtent` 之后。
+
+### 7. 文档与注释残留
+- **严重程度**：建议
+- **类别**：文档
+- **位置与现象**：
+  - `docs/specs/ui/nested-grid.md:214` 仍写“出口有两个……`useGridLayout` 的 `onIssues`”，和同一份 Spec 输出 145 的“一个出口”矛盾。284、340 行对 `useGridLayout` 的说法晋升时要一起改。
+  - `NestedGridAcceptanceFixture.vue:5` 的头注释和 `fixtures/nb-layout/index.ts:21` 仍写 `useGridLayout`。
+  - `NestedGrid.md:76` 的注释“量到 0 高时……什么都不画”，与 Spec 输出 146 和 plan 的“实施中的调整”不一致，后两者说叶照常挂着、只是没有尺寸。
+  - `useLayoutExtent` 仍从 `./vue` 公开，但 `NestedGrid.md` 里讲 `null`、真实零、有尺寸三态的那一句被删了，包内文档不再提它，只剩源码注释。
+  - `WorkbenchSurface.vue:19` 的 `SurfaceIssue` 与新导出的 `GridHostIssue` 完全相同，可直接用后者。同一文件删掉 watch 后还留下连续两个空行。
+  - `DragSessionScene.vue` 里 `...(scroller === null ? {} : {autoScroll…})` 是新加的、走不到的分支，因为根和滚动容器在同一次挂载里设上。行为从“没有会话”变成“没有边缘滚动的会话”，且不报诊断。
+
+### 未发现问题的方面
+我核对过这些点，没发现问题：
+
+- **工作台同步链**：`NestedGrid` 的同步侦听 → `onExtent` 写 `host.extent` → Surface 的 `immediate` 加 `sync` 侦听 → Shell 的 `onExtent` → `store.acceptExtent`，每一跳都同步。先发 null 的 `immediate` 行为与 base 一致。
+- **`disabled` 判据变化**：承载盒隐藏（0×0）时，`disabled` 从 false 变 true，影响仅限手势。布局本来就是空的，`NestedGrid` 里 `disabled` 只用于 `gesturesDisabled`，所以没有可见变化。最大化、浮动窗不受影响。
+- **诊断出口**：Surface 与验收夹具改走 `onIssues` 一个出口后，`issues` 不重复也不丢。`GridSwapScene` 现在也会收到布局重算的诊断，行为略多，但对应 e2e 只断言空串，不受影响。
+- **卸载时的 null**：Vue 的 `unmountComponent` 顺序是 `bum` 钩子、`scope.stop()`、再卸载子树。`useLayoutExtent` 的侦听在 ref 置空前已停，所以显式发的 null 与 `useLayoutExtent` 自己的发布不会重复。宿主整个卸载时 Surface 的侦听已停，store 不会被清空，与 base 一致。
+- **`measured` 改用 `usableExtent`**：只差“有限”这一条，尺寸来自 `clientWidth`、`clientHeight`，不会是非有限值，行为不变。
+- **`bindings`**：每次重算是新对象，但 `onGestureCommit`、`onExtent`、`onIssues` 的引用稳定，`disabled` 是布尔值，`NestedGrid` 不会因换处理函数而多余更新。
+- **`useSortable` 的 TDZ**：根已有值时立即建会话，`sessionOptions` 只创建闭包，`createDragSession` 创建时不调用任何选项回调，不会读到未初始化的变量。两个侦听的先后与 base 等价：先销毁会话，再移除捕获监听并 `finishLanding`，`finishLanding` 读的仍是已换的新根。
+- **`ExplorerTree`**：同步侦听改为侦听 `computed` 后，状态一变回调仍在同一个调用栈里跑，Vue 3.5 的批处理保证这点。我没跑实验验证，`ExplorerTree.dom.test.ts` 通过，e2e 15 号验收未跑。卸载时的销毁顺序和 `drag-cancel` 的发出时机与 base 等价。
+- **`DragSessionScene`**：根和滚动容器的模板 ref 在同一次挂载里设上，建会话时读得到。
+- **测试与文档**：`useGridHost` 测试里“去掉卸载前发 null”“去掉整包里接 `issues` 的处理”两个变异都能被现有用例抓到；`clientWidth`、`getBoundingClientRect` 的桩没有让它们空过。`NestedGrid.md` 的“接入”例子能照抄跑通，`exports.test.ts` 通过，说明文档里导入的名字都在入口里。
+
+有效发现：1、2、3、4、5、6、7
+
+草稿已写入 `reports/impl-review/report-draft.txt`，试验脚本留在 `exp/`（没能运行，未使用）。
