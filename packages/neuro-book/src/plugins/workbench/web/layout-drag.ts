@@ -208,6 +208,7 @@ interface DragRun {
     shown: {readonly drop: LayoutDragDrop | null; readonly key: string};
 }
 
+/** 空闲的一份：还没拿起过，或这一场收场了（带着最后一次判定）。 */
 const idleRun = (judged: Judgement): DragRun => ({
     previews: new Map(),
     previewsOf: null,
@@ -221,6 +222,9 @@ const idleRun = (judged: Judgement): DragRun => ({
     sort: {element: null, grab: null},
     shown: {drop: null, key: ""},
 });
+
+/** 拿起时新建的一份：只有按下的点与新建容器的 id 是拿起时定的，别的都从空开始。 */
+const freshRun = (pressedAt: GridDropPoint | null, newContainer: string): DragRun => ({...idleRun(NOT_JUDGED), pressedAt, newContainer});
 
 export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const {root} = options;
@@ -807,11 +811,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         root,
         sourceAt,
         activate: (source, keyboard, at) => {
-            run = {
-                ...idleRun(NOT_JUDGED),
-                pressedAt: source.kind === "tab" && !keyboard ? (at?.pressed ?? null) : null,
-                newContainer: `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`,
-            };
+            run = freshRun(source.kind === "tab" && !keyboard ? (at?.pressed ?? null) : null, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
             // 拖含几个视图的入口是落点指示，不走实时布局（输出 38、46）。
             if (source.kind === "container") return true;
             if (source.kind === "panel") {

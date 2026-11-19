@@ -35,8 +35,8 @@ describe("createDragCard", () => {
     it("之后逐帧缩向目标，缩放中抓住的点一直在指针下；到了终点不再要帧，指针不动就不用写", () => {
         const results = run(createDragCard(FROM, PRESS, COMPACT), 120);
         const widths = results.flatMap((result) => (result.rect === null ? [] : [result.rect.width]));
-        // 逐帧逼近的闭式：第 n 帧离目标还差 220·e^(−n·dt/90)。
-        expect(widths.slice(0, 4)).toEqual([0, 1, 2, 3].map((frame) => Math.round(380 + 220 * Math.exp((-frame * (1000 / 60)) / 90))));
+        // 每帧走 1 − e^(−16.67/90) ≈ 0.169：600 → 562.8 → 531.9 → 506.2（手算）。
+        expect(widths.slice(0, 4)).toEqual([600, 563, 532, 506]);
         for (const result of results) {
             if (result.rect === null) continue;
             const grabbed = grabbedAt(result.rect, {x: 0.5, y: 0.05});
@@ -56,9 +56,8 @@ describe("createDragCard", () => {
     it("尺寸按 `refreshMs` 隔着写，位置每帧跟手", () => {
         const results = run(createDragCard(FROM, PRESS, COMPACT), 8, {refreshMs: 1000 / 30, pointerAt: (index) => ({x: PRESS.x + index, y: PRESS.y})});
         expect(results.every((result) => result.rect !== null)).toBe(true);
-        // 60Hz 的帧、每秒 30 次：尺寸在偶数帧写，写的是那一帧逼近到的值；奇数帧还是上一次的。
-        const sized = (frame: number): number => Math.round(380 + 220 * Math.exp((-frame * (1000 / 60)) / 90));
-        expect(results.map((result) => result.rect?.width)).toEqual([0, 0, 2, 2, 4, 4, 6, 6].map(sized));
+        // 60Hz 的帧、每秒 30 次：尺寸在偶数帧写，写的是那一帧逼近到的值（600、531.9、484.9、452.4，手算）；奇数帧还是上一次的。
+        expect(results.map((result) => result.rect?.width)).toEqual([600, 600, 532, 532, 485, 485, 452, 452]);
         // 抓住的点（正中）每帧都跟着指针。
         expect(results.map((result) => (result.rect === null ? null : result.rect.x + ORIGIN.x + 0.5 * result.rect.width))).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((index) => PRESS.x + index));
     });
@@ -90,6 +89,28 @@ describe("createDragCard", () => {
             const [first] = run(createDragCard(from, PRESS, COMPACT), 1);
             expect(first).toEqual({rect: {x: PRESS.x - ORIGIN.x - 190, y: PRESS.y - ORIGIN.y, width: 380, height: 260}, settling: false});
         }
+    });
+
+    it("缩放中目标变了（指针回到来源面板里）：从此刻的尺寸转向新目标", () => {
+        const card = createDragCard(FROM, PRESS, COMPACT);
+        run(card, 4);
+        // 三帧之后是 506.2×340.3（手算）；再一帧按 600×400 走：506.2 + 93.8×0.169 ≈ 522.1，340.3 + 59.7×0.169 ≈ 350.4。
+        const [next] = run(card, 1, {start: 4 * (1000 / 60), target: {width: 600, height: 400}});
+        expect(next?.rect).toMatchObject({width: 522, height: 350});
+        expect(next?.settling).toBe(true);
+    });
+
+    it("宽不是有限数的矩形也当量不到", () => {
+        const [first] = run(createDragCard({left: 0, top: 0, right: Number.POSITIVE_INFINITY, bottom: 500}, PRESS, COMPACT), 1);
+        expect(first).toEqual({rect: {x: PRESS.x - ORIGIN.x - 190, y: PRESS.y - ORIGIN.y, width: 380, height: 260}, settling: false});
+    });
+
+    it("`tauMs`：时间常数越小缩得越快", () => {
+        const fast = createDragCard(FROM, PRESS, COMPACT, {tauMs: 1});
+        // 一帧 16.7ms 是 16.7 个时间常数：第一帧之后离目标只剩 220·e^(−16.7)，画出来已经是 380；`stillPx` 按逼近之前的值判，下一帧取终点、不再要帧。
+        const [, first, second] = run(fast, 3);
+        expect(first).toMatchObject({rect: {width: 380, height: 260}, settling: true});
+        expect(second).toEqual({rect: null, settling: false});
     });
 
     it("`elapsed` 为负或不是有限数：这一帧不逼近", () => {

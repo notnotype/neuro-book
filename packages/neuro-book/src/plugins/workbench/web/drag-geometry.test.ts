@@ -7,15 +7,15 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {removeTab, treeLeaves} from "@notnotype/nb-workbench-layout";
+import {previewPanelRects, removeTab, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {GridDropRect, GridExtent} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutDropPanelGeometry, LayoutResult} from "@notnotype/nb-workbench-layout";
 
-import {collapsedGeometry, heldTabIn, sortedOffset, stripIndex, windowRect} from "./drag-geometry";
+import {collapsedGeometry, heldTabIn, keepVisible, sortedOffset, stripIndex, wholeInTree, windowRect} from "./drag-geometry";
 import type {EntryBand, FrozenGeometry} from "./drag-geometry";
 import type {ContainerCatalog} from "./state/containers";
 import {defaultLayoutDoc} from "./state/default-tree";
-import {FLOAT_KEEP_WIDTH, layoutProjectionOptions} from "./state/layout-constraints";
+import {FLOAT_KEEP_WIDTH, layoutProjectionOptions, PANEL_HEAD_HEIGHT} from "./state/layout-constraints";
 import type {ViewCatalog} from "./views/registry";
 
 const VIEW = (location: "sidebar" | "auxiliarybar" | "panel", over: {readonly container?: string; readonly order?: number} = {}) => ({title: {"zh-CN": location, "en-US": location}, icon: "i", location, layout: "scroll" as const, ...over});
@@ -81,8 +81,10 @@ const collapse = (tab: string): FrozenGeometry => collapsedGeometry(KEPT, DOC, m
 const panelOf = (geometry: FrozenGeometry, id: string): LayoutDropPanelGeometry | undefined => geometry.geometry.panels.find((item) => item.id === id);
 
 describe("来源收起后的判定几何", () => {
-    it("测试用的布局和计算一致：叶就是这几块", () => {
-        expect(treeLeaves(DOC.tree.root).map((leaf) => leaf.id).filter((id) => id in LEAVES).toSorted()).toEqual(Object.keys(LEAVES).toSorted());
+    it("测试用的叶矩形就是这份布局投影出来的：常数过时了在这里先红", () => {
+        const ids = treeLeaves(DOC.tree.root).map((leaf) => leaf.id).filter((id) => id in LEAVES);
+        expect(ids.toSorted()).toEqual(Object.keys(LEAVES).toSorted());
+        expect(previewPanelRects(DOC, ids, LAYOUT.projection, EXTENT, 1)).toEqual(LEAVES);
     });
 
     it("侧栏一个容器两节，摘掉上面那节：下面那节上移 440，头高不变、正文长满；摘掉的那节不再是落点", () => {
@@ -131,6 +133,38 @@ describe("来源收起后的判定几何", () => {
         expect(after.geometry.bands.find((band) => band.region === "sidebar")?.entries).toEqual([{container: PROJECT, start: 8, end: 40}, {container: "view:marks", start: 48, end: 80}]);
     });
 
+    describe("横向的入口条（底部面板）", () => {
+        /** 侧栏一节（文件）；底部面板两个各只有一个视图的容器：终端（当前，并进入口条）、输出。 */
+        const catalog: ViewCatalog = new Map([["files", VIEW("sidebar")], ["chat", VIEW("auxiliarybar")], ["terminal", VIEW("panel", {order: 0})], ["output", VIEW("panel", {order: 1})]]);
+        const doc = defaultLayoutDoc(catalog);
+        const layout = {extent: EXTENT, projection: layoutProjectionOptions({doc, catalog, viewportWidth: EXTENT.width}), dpr: 1};
+        const band: EntryBand = {
+            region: "panel",
+            axis: "x",
+            row: {left: 389, top: 678, right: 1039, bottom: 710},
+            groupEnd: 470,
+            merged: "section:terminal",
+            rect: {left: 389, top: 678, right: 470, bottom: 710},
+            entries: [{container: "view:terminal", start: 393, end: 425}, {container: "view:output", start: 433, end: 465}],
+        };
+        const kept: FrozenGeometry = {geometry: {panels: [], floats: [], excluded: [], bands: [band], origin: {x: 0, y: 0}}, strips: new Map(), heldTab: null};
+        const bandAfter = (tab: string): EntryBand | undefined => collapsedGeometry(kept, doc, must(removeTab(doc, tab)), layout).geometry.bands[0];
+
+        it("侧栏收走了：入口条整条跟着它的叶左移 340，入口与组末端一起移，落点那一段只到入口这一组", () => {
+            expect(bandAfter("view:files")).toEqual({
+                ...band,
+                row: {left: 49, top: 678, right: 1039, bottom: 710},
+                groupEnd: 130,
+                rect: {left: 49, top: 678, right: 130, bottom: 710},
+                entries: [{container: "view:terminal", start: 53, end: 85}, {container: "view:output", start: 93, end: 125}],
+            });
+        });
+
+        it("最后一个入口的容器只有来源：入口没了，组末端往回补它自己的长度，入口条不动", () => {
+            expect(bandAfter("view:output")).toEqual({...band, groupEnd: 438, rect: {left: 389, top: 678, right: 438, bottom: 710}, entries: [{container: "view:terminal", start: 393, end: 425}]});
+        });
+    });
+
     it("容器还没量到：照旧用拿起时的", () => {
         expect(collapsedGeometry(KEPT, DOC, must(removeTab(DOC, "view:files")), {...LAYOUT, extent: null})).toBe(KEPT);
     });
@@ -157,6 +191,15 @@ describe("标签条里跟手的标签", () => {
     it("位移：元素上已经写着位移时按它算静止的位置，写出来的和元素上的一样就不用重写", () => {
         const shifted = {rect: {left: 170, top: 0, width: 80, height: 30}, translate: "70px", bounds: {left: 50, top: 0, right: 400, bottom: 30}, vertical: false};
         expect(sortedOffset({...shifted, point: {x: 200, y: 10}, grab: 0.375})).toEqual({grab: 0.375, translate: "70px"});
+    });
+
+    it("位移：条比标签还短时贴着条的起点；抓点夹在 0 到 1 之间，标签没有宽度时抓在正中", () => {
+        const bounds = {left: 50, top: 0, right: 100, bottom: 30};
+        expect(sortedOffset({rect: {left: 100, top: 0, width: 80, height: 30}, translate: "", bounds, vertical: false, point: {x: 300, y: 10}, grab: 0.5}).translate).toBe("-50px");
+        const wide = {left: 0, top: 0, right: 1000, bottom: 30};
+        expect(sortedOffset({rect: {left: 100, top: 0, width: 80, height: 30}, translate: "", bounds: wide, vertical: false, point: {x: 40, y: 10}, grab: null}).grab).toBe(0);
+        expect(sortedOffset({rect: {left: 100, top: 0, width: 80, height: 30}, translate: "", bounds: wide, vertical: false, point: {x: 400, y: 10}, grab: null}).grab).toBe(1);
+        expect(sortedOffset({rect: {left: 100, top: 0, width: 0, height: 30}, translate: "", bounds: wide, vertical: false, point: {x: 100, y: 10}, grab: null}).grab).toBe(0.5);
     });
 
     it("位移：活动栏是竖着的，写成浏览器读回来的 `0px Npx`", () => {
@@ -187,7 +230,19 @@ describe("整窗此刻的矩形", () => {
         expect(windowRect(drag, {x: 150, y: 60}, {width: 1000, height: 800})).toEqual({x: 40, y: 5, width: 320, height: 240});
     });
 
-    it("拖到树区域外：按呈现的大小夹，留一段头抓得到", () => {
+    it("拖到树区域外：按呈现的大小夹，留一段头抓得到；往下拖出去时头留在里面", () => {
         expect(windowRect(drag, {x: 2000, y: 60}, {width: 1000, height: 800})).toEqual({x: 1000 - FLOAT_KEEP_WIDTH, y: 5, width: 320, height: 240});
+        expect(windowRect(drag, {x: 150, y: 5000}, {width: 1000, height: 800})).toEqual({x: 40, y: 800 - PANEL_HEAD_HEIGHT, width: 320, height: 240});
+    });
+
+    it("容器还没量到：不夹", () => {
+        expect(windowRect(drag, {x: 2000, y: 5000}, null)).toEqual({x: 1890, y: 4945, width: 320, height: 240});
+    });
+
+    it("新开的窗整个夹回树区域，拖窗只保证留一段头", () => {
+        const rect = {x: 900, y: 700, width: 300, height: 200};
+        expect(wholeInTree(rect, {width: 1000, height: 800})).toEqual({x: 700, y: 600, width: 300, height: 200});
+        expect(keepVisible(rect, {width: 1000, height: 800})).toEqual({x: 900, y: 700, width: 300, height: 200});
+        expect(wholeInTree(rect, null)).toBe(rect);
     });
 });

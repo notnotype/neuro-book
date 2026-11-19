@@ -109,6 +109,20 @@ describe("createFrameLoop", () => {
         expect(clock.pending()).toBe(0);
     });
 
+    it("已经排着帧时再 `start`：撤掉旧的，只剩新排的那一帧", () => {
+        const clock = frames();
+        const seen: number[] = [];
+        const loop = createFrameLoop({...clock, frame: (now) => {
+            seen.push(now);
+            return false;
+        }});
+        loop.start();
+        loop.start();
+        expect(clock.pending()).toBe(1);
+        clock.run(0);
+        expect(seen).toEqual([0]);
+    });
+
     it("帧里 `stop`：返回真也不再排；`stop` 之后又 `start`，只排一帧", () => {
         const clock = frames();
         let mode: "stop" | "restart" = "stop";

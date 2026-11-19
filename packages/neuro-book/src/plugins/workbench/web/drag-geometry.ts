@@ -1,5 +1,5 @@
 /**
- * 一棵树的拖放里判定用的几何（docs/specs/ui/workbench-layout.md 输出 25、38）：类型与纯计算，不读 DOM。
+ * 一棵树的拖放里判定用的几何与标签条里排序的位移（docs/specs/ui/workbench-layout.md 输出 25、38）：类型与纯计算，不读 DOM。
  * 量 DOM 的在 `layout-drag`：它把量到的矩形交给这里，这里按文档与投影换算。坐标都是视口坐标，除了浮动窗的矩形（相对树区域）。
  */
 

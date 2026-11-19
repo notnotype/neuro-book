@@ -12,6 +12,8 @@ const loop = createFrameLoop({
     requestFrame: (run) => requestAnimationFrame(run),
     cancelFrame: (frame) => cancelAnimationFrame(frame),
     frame: (now, elapsed) => {
+        // 先让会话做完这一帧的判定（读 DOM），再读、写卡片。
+        session.flush();
         card ??= createDragCard(sourceRect(), pointer, {width: 320, height: 240});
         const {rect, settling} = card.step({now, elapsed, pointer, origin: gridOrigin(), target: {width: 320, height: 240}});
         if (rect !== null) placeCard(rect);
@@ -23,10 +25,12 @@ window.addEventListener("pointermove", (event) => {
     pointer = {x: event.clientX, y: event.clientY};
     loop.wake();
 }, {capture: true, passive: true});
-// 拿起时 loop.start()；放下或取消时 loop.stop()，card = null。
+
+// 拿起时：pointer = 按下的点; card = null; loop.start();
+// 放下或取消时：loop.stop(); card = null;
 ```
 
-`sourceRect()`、`gridOrigin()`、`placeCard()` 是你的：内容此刻所在的矩形、网格根左上角（都是视口坐标），和把矩形写到卡片元素上。
+`session` 是你的拖动会话（[`createDragSession`](vue/drag-session.md)）；`sourceRect()`、`gridOrigin()`、`placeCard()` 也是你的：内容此刻所在的矩形、网格根左上角（都是视口坐标），和把矩形写到卡片元素上。拿起时先把 `pointer` 设成按下的点，不然第一帧会从 `{x: 0, y: 0}` 拿起。
 
 ## 卡片
 
