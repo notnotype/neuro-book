@@ -5,13 +5,13 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {lstat, readFile, rm} from "node:fs/promises";
+import {chmod, lstat, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {holdLock, lockHeld} from "./index";
+import {holdLock, lockHeld, replaceLocked} from "./index";
 
 const CHILD = join(import.meta.dir, "testing", "lock-child.ts");
 
@@ -121,4 +121,27 @@ describe("replaceLocked", () => {
         expect(await Promise.all(workers.map((worker) => worker.process.exited))).toEqual([0, 0]);
         expect(await readFile(file, "utf8")).toBe("40");
     }, 60_000);
+
+    it("给了 mode：新建与覆盖后都是这个权限位；不给时覆盖沿用原文件的权限位", async () => {
+        const report = (): void => undefined;
+        const replace = (file: string, text: string, mode?: number) => replaceLocked<never, string>(file, {lockPath: `${file}.lock`, report, decide: () => ({write: text}), ...(mode === undefined ? {} : {mode})});
+        const modeOf = async (file: string): Promise<number> => (await stat(file)).mode & 0o777;
+
+        const created = join(tmp, "created-secret.json");
+        expect((await replace(created, "a", 0o600)).ok).toBe(true);
+        expect(await modeOf(created)).toBe(0o600);
+
+        const loose = join(tmp, "loose-secret.json");
+        await writeFile(loose, "old");
+        await chmod(loose, 0o644);
+        expect((await replace(loose, "b", 0o600)).ok).toBe(true);
+        expect(await modeOf(loose)).toBe(0o600);
+        expect(await readFile(loose, "utf8")).toBe("b");
+
+        const kept = join(tmp, "kept.txt");
+        await writeFile(kept, "old");
+        await chmod(kept, 0o640);
+        expect((await replace(kept, "c")).ok).toBe(true);
+        expect(await modeOf(kept)).toBe(0o640);
+    });
 });

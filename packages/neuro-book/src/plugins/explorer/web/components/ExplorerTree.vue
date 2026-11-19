@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /** 资源管理器的虚拟树（同名 .md）。 */
 import {OverlayScrollbar} from "@notnotype/nb-ui/components";
-import {createDragSession, useLayoutExtent} from "@notnotype/nb-layout/vue";
-import type {DragSession, DropFeedbackPreview} from "@notnotype/nb-layout/vue";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
+import {useDragSession, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
+import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
 
 import {dropKey} from "../actions/drop";
 import type {WorkbenchFileDropHost} from "nbook/plugins/workbench/shared/contracts";
@@ -253,9 +253,25 @@ interface Hovered {
     readonly tree: DOMRect;
     readonly scrollTop: number;
 }
-const gesture = shallowRef<DragSession<string, Hovered> | null>(null);
-const hovered = computed(() => gesture.value?.state.value?.drop ?? null);
-const pointer = computed(() => gesture.value?.state.value?.point ?? null);
+// 会话跟着树的根：挂载后的那次刷新里建、卸载时销毁（`useDragSession`）；选项在建时读一次，回调里现读状态。
+const {session: gesture, state: gestureState} = useDragSession<string, Hovered>(root, (element) => ({
+    // 用户自己滚动或行变了而指针没动：指针下已经不是显示的那一行，撤下落点（files-explorer 验收 15）。
+    scroll: "withdraw",
+    autoScroll: {element},
+    sourceAt: (target) => treeSourceAt(element, target),
+    activate: (id) => props.startDrag?.(id) ?? false,
+    resolve: ({top, point}) => overOf(resolveTreeTarget(element, top, point)),
+    actionKey: (drop) => dropKey(drop.action),
+    commit: (drop) => emit("drag-drop", drop.over),
+    onEnd: (end, last) => {
+        if (end.kind === "committed") return;
+        if (end.kind === "no-action" || end.reason !== "disposed") flyBack(last.point);
+        emit("drag-cancel");
+    },
+    onActiveChange: (active) => element.toggleAttribute("data-explorer-dragging", active),
+}));
+const hovered = computed(() => gestureState.value?.drop ?? null);
+const pointer = computed(() => gestureState.value?.point ?? null);
 const overOf = (target: TreeDragTarget | null): Hovered | null => {
     if (target === null || root.value === null) return null;
     const tree = root.value.getBoundingClientRect();
@@ -298,33 +314,12 @@ watch([hovered, () => props.drag?.action], ([next, action]) => {
 });
 onBeforeUnmount(clearExpand);
 
-onMounted(() => {
-    const element = root.value;
-    if (element === null) return;
-    gesture.value = createDragSession<string, Hovered>({
-        root: element,
-        // 用户自己滚动或行变了而指针没动：指针下已经不是显示的那一行，撤下落点（files-explorer 验收 15）。
-        scroll: "withdraw",
-        autoScroll: {element},
-        sourceAt: (target) => treeSourceAt(element, target),
-        activate: (id) => props.startDrag?.(id) ?? false,
-        resolve: ({top, point}) => overOf(resolveTreeTarget(element, top, point)),
-        actionKey: (drop) => dropKey(drop.action),
-        commit: (drop) => emit("drag-drop", drop.over),
-        onEnd: (end, last) => {
-            if (end.kind === "committed") return;
-            if (end.kind === "no-action" || end.reason !== "disposed") flyBack(last.point);
-            emit("drag-cancel");
-        },
-        onActiveChange: (active) => element.toggleAttribute("data-explorer-dragging", active),
-    });
-    // 同步：边缘滚动中松手时，“发布”和“放下”在同一个调用栈里，控制器比较的“最后显示的动作”要在放下之前写好。
-    watch(gesture.value.state, (next) => {
-        if (next === null) clearExpand();
-        else emit("drag-hover", next.drop?.over ?? null);
-    }, {flush: "sync"});
-});
-onBeforeUnmount(() => gesture.value?.dispose());
+// 同步：边缘滚动中松手时，“发布”和“放下”在同一个调用栈里，控制器比较的“最后显示的动作”要在放下之前写好。
+// `gestureState` 是会话状态的 computed，同步侦听它，状态一变回调就在同一个调用栈里跑。
+watch(gestureState, (next) => {
+    if (next === null) clearExpand();
+    else emit("drag-hover", next.drop?.over ?? null);
+}, {flush: "sync"});
 
 /** 主题的动画时长（毫秒）；系统减少动态效果时为 0，没有布局的环境也当 0。 */
 function motionMs(name: "--motion-base" | "--motion-fast" | "--motion-move"): number {

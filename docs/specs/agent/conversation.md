@@ -128,7 +128,14 @@ owners:
 48. 排队区（[ui.agent-conversation-view](../ui/agent-conversation-view.md) 的“输入框与待处理区”）的数据来自快照与日志的缓冲区条目（[`agent/sessions.md`](sessions.md) 输出 22）：每条带发出者，会话、宿主排的只能取消（`remove`），用户自己的能编辑（取出到输入框，`remove` 之后放进草稿，重发是新话）；留着的显示“已暂停”与原因，原因按 `cause` 与 `heldBy` 取文案：`end` 是 `completed` 写“上一轮已结束”，`finished` 写“交出结果之后”，`error` 写“上一轮出错”，`aborted` 按停的人写“你停止了这一轮”“派它的 Agent 停止了”“<来源名>停止了”，`interrupted` 写“上次运行被中断”；`queued` 写“空闲时排的”，带码时写“运行没开起来：<码的说明>”；认不出的写“上一轮没有正常结束”。状态栏的活动只把只有用户能放行的留着的话算作等你处理（`heldBy` 是用户，或用户自己的话留着），会话列表的行在这时也标出来；只看打开着的会话，服务端重启后没打开过的会话里留着的话要打开它才看到（已知限制）。
 49. 停止的第二个选项：缓冲区里有用户自己的话（就绪或留着）时，停止键右边接一段下拉箭头，菜单里“停止并清空排队（N 条）”走不带 `keepQueue` 的 `abort`，N 是缓冲区里的全部条数（用户的停止清空全部）；停止进行中这一项不可用。空闲时 Ctrl/⌘ 加回车排的话等于发送。乐观消息按受理它的 `commandId` 确认，不按先后。
 50. 有留着的话时的继续。占位文字与发送键见 [ui.agent-conversation-view](../ui/agent-conversation-view.md) 的“输入框与待处理区”；排队区头上的“继续”与空着按回车是同一个动作。宿主按恢复方式（输出 47）调用内核：
-51. （planned）提醒。排队区（输出 48）在缓冲区的话之后列出待发的提醒：标签“提醒”加来源名（宿主写它的 `label`，会话写会话标题），正文是摘要；只能取消（走 `removeNotice`）。门开着时这几行是普通的就绪行；门关着时它们按留着画，原因写“你继续时一起送出”，计进头行的“已暂停 N 条”，“继续”与空着回车走 `resume`（只有提醒时也开一次运行，[`harness/runtime.md`](../harness/runtime.md) 输出 114）。提醒取走之后在消息流里是一条系统消息（`source: "reminder"`），标签“提醒 · <来源名>”，正文折叠、点开看全文。
+51. （planned）提醒。排队区（输出 48）在缓冲区的话之后列出待发的提醒：标签“提醒”加来源名（宿主写它的 `label`，会话写那个会话的 Profile 名，同输出 35 里会话发的话），正文是摘要；只能取消（走 `removeNotice`）。门开着、或有运行（下一次请求就带上它们）时这几行是普通的就绪行；门关着又没有运行时它们按留着画，原因写“你继续时一起送出”，计进头行的“已暂停 N 条”，“继续”与空着回车走 `resume`（只有提醒时也开一次运行，[`harness/runtime.md`](../harness/runtime.md) 输出 114）。提醒取走之后在消息流里是一条系统消息（`source: "reminder"`），标签“提醒 · <来源名>”，正文折叠、点开看全文。
+52. （planned）**固定会话的对话。** 浏览器入口提供服务 `agentConversationKey`（`agent/shared/contracts.ts`），交出组件 `FixedConversation`，属性 `sessionId`、`identity: {name, avatar?}`、`active`，事件 `seen(seq)`；给有自己会话的插件用（[`bots/view.md`](../bots/view.md)）。组件按 [ui.agent-conversation-view](../ui/agent-conversation-view.md) 的 bot 档画，宿主是固定模式：
+    - 只开 `sessionId`，不读写“最近的会话”；不建会话（第一次发送、加附件都不隐式建）；要打开别的会话（子会话卡片、子代理浮层）时交给通用视图（`nbook.agent.focus-session`），自己不换；
+    - 顶栏写 `identity` 的名字与头像；没有会话列表与新建；不能改写历史（编辑、重试、从此处分支、分支树、归档）；命令只有 `compact`、`plan`、`mode`，别的 `command.run` 不受理；
+    - 发送一律走 `send`：运行中带投递方式（回车插话、Ctrl/⌘+回车排队）；有挂着的同步事项（这个会话自己的，不含异步提问与后代会话的）时带 `settlePending: "deny"`，输入框上方提示“发出会拒绝 N 项”；结果未知后的重发带上同样的两项；
+    - `active` 为真时把已经应用到界面的日志 seq（快照的 `head` 与之后的日志帧）交给 `seen`；
+    - Agent 模式的选择器看会话的 Profile 的工具里有没有 `nbook.agent.switch-mode`（通用视图同样按这条，不再只认主创）。
+53. （planned）**有归属的会话转交给归属插件。** 浏览器入口的贡献点 `agent.sessionOwners`（只收浏览器入口的贡献，贡献 id 以贡献方插件 id 开头，声明是空对象，实现 `{open(sessionId, owner)}`）。通用的对话宿主打开会话之前经远程方法 `header`（[`sessions.md`](sessions.md) 输出 28）读会话头：有 `owner`、而且 `owner.plugin` 这个插件有贡献时，交给它的 `open`，不在通用视图里开、不写“最近的会话”；读不到会话头或没有贡献时照常打开。`nbook.agent.focus-session`（状态栏的活动条目、请求页）先做这一步再揭示对话视图。读会话头期间又打开了别的会话时，这次作废。恢复“最近的会话”时记录里是有归属的会话：不打开、不转交，清掉记录。
 
     | 情形 | 合并 | 保留原插话与排队、按排队顺序 |
     |---|---|---|

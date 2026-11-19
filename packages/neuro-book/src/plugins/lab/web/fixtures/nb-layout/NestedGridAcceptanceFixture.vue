@@ -2,7 +2,7 @@
 /**
  * NestedGrid 的手势与两轴几何验收场景（docs/specs/ui/nested-grid.md，断言在 e2e/lab-nested-grid.e2e.ts）。
  *
- * 夹具自己扮演宿主：建一棵 外层左右 + 内层上下 的树，用 `useGridLayout` 求布局、接纳手势提交，并把提交次数、提交载荷、
+ * 夹具自己扮演宿主：建一棵 外层左右 + 内层上下 的树，用 `useGridHost` 求布局、接纳手势提交，并把提交次数、提交载荷、
  * 诊断与恢复结果写成 `data-lab-*` 属性，真实浏览器测试据此断言。所以树和布局不来自场景输入，场景 id 只决定用哪份快照恢复。
  * 事件日志（`.acc-events__*`）同样画在舞台里：e2e 按提交次数断言事件个数，不能依赖 Lab 的事件页签是否展开。
  */
@@ -24,7 +24,7 @@ import {
     type GridSashRef,
     type GridSnapshot,
 } from "@notnotype/nb-layout";
-import {NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 import {Checkbox} from "@notnotype/nb-ui/components";
 
 import GridPanelsScene from "./GridPanelsScene.vue";
@@ -70,10 +70,6 @@ const innerSashPx = computed(() => (zeroInnerSash.value ? 0 : 7));
 const outerSashSizes = computed(() => [outerSashPx.value] as const);
 const innerSashSizes = computed(() => [innerSashPx.value] as const);
 
-const containerRef = ref<HTMLElement | null>(null);
-/** 承载盒与 Renderer 用同一份布局盒测量：变换后的 rect 会把 Lab 舞台淡入的缩放算进来。 */
-const containerExtent = useLayoutExtent(containerRef);
-const containerSize = computed(() => containerExtent.value ?? {width: 0, height: 0});
 const layoutEpoch = ref(0);
 
 // 手势提交记录：只有实际产生尺寸改变的 gesture-end 才递增；挂载、视口变化、测量与程序布局均为 0
@@ -120,11 +116,11 @@ let activeSashes: readonly GridSashRef[] = [];
 /** 当前网格实例：换场景会整棵替换，宿主据此重新发布几何。 */
 const gridRef = shallowRef<Grid<string> | null>(null);
 
-/** 网格宿主：布局、失效版本与一次手势的原子落账都由它提供，本夹具只接通知。 */
-const host = useGridLayout<string>({
+/** 网格宿主：尺寸取自 `NestedGrid` 量的根盒，布局、失效版本与一次手势的原子落账都由它提供，本夹具只接通知。 */
+const host = useGridHost<string>({
     grid: gridRef,
-    extent: containerExtent,
-    contextKey: () => gestureContextKey(),
+    contextKey: gestureContextKey,
+    disabled,
     onApplied: (commit) => {
         for (const change of commit.changes) {
             syncRawRecordIntent(change.branchId, change.axis);
@@ -143,9 +139,10 @@ const host = useGridLayout<string>({
     onIssues: pushIssues,
 });
 
-/** 呈现树与几何：宿主按当前树与承载盒发布，夹具不再自己测量或重算。 */
-const layoutTree = host.node;
+/** 呈现的几何：宿主按当前树与承载盒发布，夹具不再自己测量或重算。 */
 const layout = host.layout;
+/** 承载盒的读数：`NestedGrid` 量到的根盒（布局盒，不受 Lab 舞台淡入时的缩放影响）。 */
+const containerSize = computed(() => host.extent.value ?? {width: 0, height: 0});
 
 /** 诊断去重：布局降级与手势诊断来自两处，展示成一份列表。 */
 function pushIssues(issues: readonly (GridIssue | GridFailure)[]): void {
@@ -367,11 +364,6 @@ function onGestureCancel(info: GridGestureCancellation): void {
     lastGestureText.value = `未提交 · ${info.reason} · ${label}`;
 }
 
-/** Renderer 的手势诊断出口：容量不足、提交被拒绝都会在这里出现。 */
-function onIssues(issues: readonly (GridIssue | GridFailure)[]): void {
-    pushIssues(issues);
-}
-
 /** 程序布局重排：直接改意图并重算呈现，不产生任何用户手势提交 */
 function triggerProgrammaticLayout(): void {
     if (!gridRef.value) return;
@@ -506,20 +498,14 @@ function formatPx(val?: number): string {
             </div>
 
             <!-- 分割工作区：#nb-lab-target 是测试注入与观测的容器 -->
-            <div id="nb-lab-target" ref="containerRef" class="flex-1 min-h-0 w-full relative overflow-hidden">
+            <div id="nb-lab-target" class="flex-1 min-h-0 w-full relative overflow-hidden">
                 <NestedGrid
                     data-lab-subject
-                    :node="layoutTree"
-                    :layout="layout"
-                    :disabled="disabled"
-                    :context-key="gestureContextKey()"
-                    :revision="host.revision.value"
-                    :on-gesture-commit="host.onGestureCommit"
+                    v-bind="host.bindings.value"
                     @gesture-start="onGestureStart"
                     @gesture-update="onGestureUpdate"
                     @gesture-end="emitLabEvent('gesture-end', $event)"
                     @gesture-cancel="onGestureCancel"
-                    @issues="onIssues"
                 >
                     <template #leaf="{node}">
                         <div v-if="node.id === 'left'" class="p-3.5 h-full overflow-y-auto bg-[color-mix(in_srgb,var(--bg-sidebar,var(--bg-panel))_70%,transparent)] flex flex-col gap-2.5">

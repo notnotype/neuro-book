@@ -1,0 +1,139 @@
+## 第二轮设计审查：t40 计划第 2 稿
+
+实验都在 `reports/design-review-r2/exp/` 下（`r2.test.ts`、`r2b.test.ts`、`r2c.test.ts`），是 `bun test` 在真实 nb-layout 源码上跑的。没改仓库，没跑 e2e，没起服务。
+
+### 1. 落账时“没动的保留像素节点保留意图”，会让 Enter 和拖动收起的提交以 `not-finite` 失败
+**严重程度**：阻断；**类别**：正确性、验收
+**位置**：计划“落账不写坏保留像素节点”；`grid.ts:359-382`（`assigned` 之后的 `checked` 复核）；验收输出 151
+**现象**：
+- 我用工作台的形状跑了一遍：左栏 fixed 340 可收起、编辑区 weight、右栏 fixed 340 可收起。
+- 窗口 700：基线 `[286,120,286]`，Enter 收起左栏，预览 `[0,406,286]`，`target = {left:0, editor:406, right:286}`。
+- 现行代码落账成功，但右栏意图被写成 286，这就是计划要修的问题。
+- 按计划让右栏保留意图 340，在候选树上复现 `checked`，得到 `[0,352,340]`，和 target 不等，`grid.ts:379-380` 返回 `not-finite`（“cannot be turned into finite size intents”）。
+- 窗口 760 同样失败（`[0,412,340]` 对 `[0,436,316]`）。
+- 窗口 820 不压缩，才通过。
+- 计划自己的回归例子也一样：`[a fixed300 可收起, b weight, c fixed300]`，窗口 508，`checked = [0,200,300]`，target `[0,300,200]`。
+
+**为什么是问题**：
+- 收起释放了预算，保留 340 的右栏按分配规则要长回去。但邻居吸收式求解器给的 target 让编辑区吸收、右栏原地不动。目标和意图的投影对不上，复核必然失败。
+- 验收 151 要“窄窗口里收起 a，c 的意图仍是 300，放宽后回到 300”。走 Enter 或拖动路径，红的原因是 `not-finite`，不是 c 的值。走 `setCollapsed` 只翻标记，不经 `resizeBranches`，“去掉规则会红”也就不成立。
+- 就算放宽复核，松手后的布局 `[0,352,340]` 也和预览 `[0,406,286]` 不同：编辑区缩、右栏弹回，预览和落账不一致。
+- 受影响的是工作台自己的形状（两侧栏都是 fixed 且可收起），不只是第三方。窄窗口里收侧栏的手势会被整批拒绝、预览回滚。
+- 计划说“和 L2 的 `frozen` 是同一条规则”不对。`frozen` 在落账之后改文档，不经 `checked`；L1 这条在 `checked` 之前，会拒绝提交。
+
+**如何核实**：`bun test exp/r2b.test.ts`（三行：700、760 失败，820 通过）；`exp/r2.test.ts` 第一个用例。
+**建议改法**（上游选择，交开发者定）：
+- 根因是显式收起（Enter、按钮）和拖动收起共用“邻居吸收”求解，预览不是分配规则的结果。
+- 提案原话只说收起入口“形状在 Spec 里定”。计划里“Enter 发生在一条具体的分隔条上，用户看着那条边界”只是作者的推断，没有记录的理由。
+- 候选：Enter 和按钮收起也做成“翻标记后按分配规则重排”，预览取翻标记后的 `layout()`，target 由它得出。这样守恒、无人吸收、保留像素邻居被撑大三个问题一起消失，规则 2 对收起路径也不再需要。
+- 拖动收起（指针拖到零）保持邻居吸收。拖动路径下这条规则只在 `checked` 能通过时生效，不能通过就写 target，并把这一条写进 Spec 的已知限制。
+- 退一步：规则改成“保留意图，除非保留后复核不等于 target”，验收 151 的场景限定在复核能通过的情形，明确 Enter 在压缩态下仍会写压缩值。
+
+### 2. 按比例分的面板：`setCollapsed` 与 Enter 往返不一致，`restoreSize` 对 `setCollapsed` 是死值
+**严重程度**：重要；**类别**：合同、别扭之处
+**位置**：计划“展开回到它的意图”“`restoreSize` 谁维护”；待确认 1、2
+**现象**（`exp/r2.test.ts`）：
+- 两块 weight，a 可收起、restoreSize 500，容器 1004。先把 a 拖到 600，a 的 restoreSize 记 600。
+- Enter 收起后，意图是 a 600、b 1000（b 的权重吸收了 a 的空间）。
+- `setCollapsed(a, false)` 得到 `[375, 625]`。按计划，Enter 展开读 restoreSize，得到 600。
+- 三块 weight，c 可收起（同 `grid.test.ts:1184` 的树）：Enter 收起后意图 `[300,600,300]`，`setCollapsed(c,false)` 得到 c = 300；Enter 展开按计划是 400。
+
+**为什么是问题**：
+- 计划说“拖动收起时意图本来就留在展开值”，这句话对被收起的那块成立，但同一次落账里吸收的兄弟权重涨了，所以意图并没有回到收起前的比例。
+- 同一块面板，经 Enter 和经 `setCollapsed` 展开，差 100 到 225px。
+- 按比例分的面板记下的 `restoreSize`，`setCollapsed` 从不读，只有 Enter 读。反过来，经 `setCollapsed` 收起的按比例分的面板不记，之后 Enter 展开回到建树时的旧值。混着用，两边的“记忆”互相对不上。
+- 计划的“Spec 分开写”只写了入口差异，没写这个后果。`restoreToShare` 的面板反而一致。
+
+**建议改法**：
+- 若采纳第 1 条的统一方案，Grid 里的 Enter 恢复与 `setCollapsed` 展开同语义，按比例分的面板在 Grid 里不必再记 `restoreSize`（独立 Splitter 没有意图，仍需要它）。
+- 不统一的话：Spec 的“不承诺”里写明往返有损，数字用上面的例子；验收 148 加一条“经 `setCollapsed` 展开与经 Enter 展开的差异”的用例，别让它悄悄成立。
+
+### 3. 翻标记后全部兄弟都收起时整行留白、没有任何诊断
+**严重程度**：建议；**类别**：遗漏
+**位置**：计划“总量天然守恒，所以没有‘没人能吸收’的失败”；`grid-geometry.ts:582`（全部收起时不报 `unabsorbed-space`）
+**现象**（`exp/r2c.test.ts`）：
+- 两块都可收起的 weight：收起 a 后 `[0,600]`。
+- 再 `setCollapsed(b, true)`：`[0,0]`，root 宽 4，`issues` 为空。
+- 兄弟是到上限的 fixed 时，会有 `unabsorbed-space`（`no-weight`），经 `onIssues` 发出。
+
+**为什么是问题**：
+- 守恒是目标和基线之间的事。布局层并不守恒，只是留白。
+- 全部收起这一种连诊断都没有，调用方收到 `ok: true, changed: true`，页面是一片空白。
+- Enter 在同样的情形保持展开并给 `no-room-to-collapse`。
+
+**建议改法**：Spec 写明“允许全部收起、整行留白、无诊断”，或让 `setCollapsed` 在会让整个分支全收起时返回 `changed: false` 加 `no-room-to-collapse`。我倾向前者（窄场景选简单改法），但要写出来，并加一条验收。
+
+### 4. `onApplied` 的 `before` 必须在 `publish()` 之前取，计划没写
+**严重程度**：建议；**类别**：遗漏
+**位置**：`useGridLayout.ts:149-156`；计划“`onApplied` 加第三个参数 `before`”
+**现象**：
+- `onGestureCommit` 先 `resizeBranches`，再 `notifyAfterCommit(publish())`，最后才调 `onApplied`。
+- 到 `onApplied` 时 `layout.value` 已是提交之后的布局。现在 `WorkbenchSurface.vue:129` 发的 `host.layout.value.sizes` 就是提交后的。
+- 版本核对保证“提交前的 `layout.value` 就是手势开始时那份”，所以 `before` 是对的，但要在 `resizeBranches` 之前读 `layout.value`。
+
+**为什么是问题**：照计划原文实现，容易写成 `onApplied(commit, result, layout.value)`，拿到的是提交后的布局，`untouchedFixed` 前后比较恒等，保留像素节点全部判成“没动”，回写等于全冻结。
+**建议改法**：计划写明在函数入口快照 `const before = layout.value`；验收 150 的断言要同时核对 `before` 与之后发布的布局“不同”。
+
+### 5. 迁移清单与测试数量的几处遗漏
+**严重程度**：建议；**类别**：遗漏
+**位置**：计划“迁移”“关键设计”
+**现象**：
+- `gesture-commit` 的监听方有三处：`WorkbenchShell.vue:953`、`WorkbenchSurfaceFixture.vue:283`、`EditorAreaFixture.vue:375`。计划没列 `WorkbenchShell.vue`。`vue-tsc` 会拦住，但清单要写全。
+- `layout-doc-store.test.ts` 里 `commitGesture` 调用是 7 处（709、727、734、772、779、797、801），计划写五处。
+- 这些用例靠 store 里已记的 `presented` 隐含地决定谁冻结，补 `before` 时要和当时的 `presented` 一致，“原样通过”不是白送的。
+- `WorkbenchShell.md:24` 写着“布局发布的尺寸交给 `acceptPresented`”，也要跟着改。
+- “`presented` 只留给可见标签的计算”不准确：`rebaseForOperation(doc, projection, presented)` 与 `commitGesture` 里的 `presented.value = sizes` 仍在用它。分工应写成：手势落账用 `before`，结构操作之前用 `presented`。
+
+**建议改法**：清单补全，分工句改写，测试数量改成 7。
+
+### 6. 验收和公开面的几处对不上
+**严重程度**：建议；**类别**：验收映射
+**位置**：验收映射“`boundary.test.ts`”一行；计划“Spec 与文档改动”
+**现象**：
+- `nb-workbench-layout/src/boundary.test.ts` 只扫 import 边界，没有导出面断言。
+- nb-layout 的 `index.ts`、`vue/index.ts` 是显式清单，`exports.test.ts` 机检。新类型 `GridCollapseResult` 要进这两处，计划没列。
+- 插件 SDK 的 `CHANGELOG.md` 会出现用户可见的变化：Enter 恢复的尺寸、`onApplied` 的第三个参数、没人能吸收时 Enter 保持展开。计划没写。
+
+**建议改法**：
+- 导出面断言放进 `layout-doc.test.ts` 或新开 `entry.test.ts`，用 `import * as entry from "./index"`。
+- 补上两处 `index.ts` 的类型导出。
+- 加一条 CHANGELOG。
+
+### 7. 两条“没动”的容差被说成同一条规则
+**严重程度**：建议；**类别**：别扭之处
+**位置**：计划“和 L2 的 `frozen` 是同一条规则”
+**现象**：L1 用 `EPSILON`（1e-6），L2 用 0.5px。`before`、`after` 都是 nb-layout 的 `layout()` 输出，没有 DOM 取整，0.5px 没有记录的理由。
+**建议改法**：L2 的容差改成同一个 `EPSILON`，或在代码注释里写清为什么 0.5。由第 1 条的结论决定是否还需要两处。
+
+### 8. 新 e2e 与 `host.setCollapsed` 缺真实浏览器验证
+**严重程度**：建议；**类别**：验收映射
+**位置**：验收映射最后一行；切片 3
+**现象**：
+- `lab-grid-panels.e2e.ts` 的 `open()` 固定 1440 宽。新用例要把视口缩窄，到场景容器约 700 才会压缩两侧 fixed 栏。Lab 页面还有自己的外框，容器宽不等于视口宽。
+- 不先断言“窄视口里 left 已被压缩（小于 280）”，放宽后再断言回到 280 可能空过。
+- `host.setCollapsed` 只有 happy-dom 的单测，没有任何 Lab 场景走真实浏览器，可 Lab 夹具规则要求新 API 有场景。
+
+**建议改法**：
+- 新 e2e 先断言窄视口下 left 宽度小于 280，再放宽，迁移前确认红。
+- 在 `GridStructureScene`（那里有一块带收起策略的面板）加一个按钮调 `host.setCollapsed`，e2e 点它。
+
+### 未发现问题的方面
+- `before` 的来源：提交前的版本核对保证它是手势开始时的布局，只差取值时机（第 4 条）。
+- Enter 没人能吸收：`relocate` 的结果守恒与否，等价于 `sum(next) == total`，等价于 `solveSashDrag` 里 `boundsFit({index, collapsed: true})` 的判据。拖动路径的 `no-room-to-collapse` 语义可以一致，用 `EPSILON` 比较即可。
+- Splitter：`splitter-session.ts` 的 `collapseOn` 对“`collapsed` 为空”本来就返回 null 并只记诊断，改 `solveSashCollapse` 不破坏它。`nb-ui` 里冻结的旧 Splitter 是另一份副本（t14 删），不受影响。
+- 保留意图规则对没被压缩的节点无副作用：宽窗口里 Enter 收起 a，c 的意图仍是 300（`exp/r2.test.ts` 末例）。顺带的变化是，意图超出 max 或低于 min 的 fixed 节点，今天会被写成夹取后的值，规则落地后保留原意图。
+- 规则 2 与 `weight` 节点的反解不冲突：`weighted` 只含非 fixed 节点，水位单位与 fixed 的意图无关。
+- 现有 `grid.test.ts` 里 fixed 相关用例（`shellRow` 系列、328-346）都不依赖“未动节点被写成目标”，我读下来没有会因规则 2 而红的，没打补丁实跑。
+- L2 依赖面：`rebaseIntents` 用到的 `barOfRef`、`isSectionCollapsed`、`treeLeaves`、`GridSnapshotNode` 都已从 `layout-doc.ts` 导出；`rebaseIntents` 在 `layout-doc.ts` 内部没有别的调用；仓库里还用到 `rebaseIntents` 和 `fixedNodesOf` 的只有 `layout-doc.test.ts`（7 处）、`layout-project.test.ts`（约 16 处）、`layout-doc-store.ts` 与三个 Lab 夹具，没有 e2e、SDK、文档站在用，也没有循环导入。
+- 失败码沿用、不新增，符合现有表。
+- 计划引用的 `layout-project.ts:111`、`layout-doc-store.ts:408-412`、`sash-drag.ts:285、330` 都对得上。
+
+### 各级数量
+阻断 1（第 1 条），重要 1（第 2 条），建议 6（第 3 到 8 条）。
+
+### 对计划末尾三条待确认的判断
+1. **`setCollapsed` 只翻标记**：方向同意，语义和宿主改记录一致。但“和 Enter 分开写”不该是终局，Enter 与按钮建议统一成同一语义，拖动才保持邻居吸收（第 1、2 条）。至少先补上全收起留白（第 3 条）。
+2. **`restoreSize` 的记录规则**：保留像素记意图同意。按比例分的记基线，只在 Enter 与拖动路径记，而 `setCollapsed` 不读它，Grid 里它成了单向的值。若统一 Enter，Grid 里按比例分的面板可以不记（第 2 条）。
+3. **`rebaseIntents`、`fixedNodesOf` 不再导出**：同意。但要补导出面断言（`boundary.test.ts` 不是做这个的），且 `WorkbenchShell.vue` 的监听也要列进迁移（第 5、6 条）。
+
+有效发现编号：1、2、3、4、5、6、7、8

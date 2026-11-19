@@ -6,12 +6,11 @@
  * 来源：两个按钮、滚动区里的行。落点：滚动区里的行、两个登记的落点、一块只显示不提交的区域。提交、结束、来源收到的 click
  * 与按键都写进日志（`data-session-log`），e2e 按它断言。
  */
-import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef} from "vue";
+import {computed, ref, useTemplateRef} from "vue";
 
 import {defineDropKind} from "@notnotype/nb-layout";
 import type {DragEnd, GridDropRect} from "@notnotype/nb-layout";
-import {DropFeedbackOverlay, createDragSession, dropTargetAt, useDropTarget} from "@notnotype/nb-layout/vue";
-import type {DragSession} from "@notnotype/nb-layout/vue";
+import {DropFeedbackOverlay, dropTargetAt, useDragSession, useDropTarget} from "@notnotype/nb-layout/vue";
 
 type Drop =
     | {readonly kind: "row"; readonly id: string; readonly rect: GridDropRect}
@@ -42,13 +41,11 @@ function endLine(end: DragEnd): string {
     return end.kind === "cancelled" ? `end:cancelled:${end.reason}` : `end:${end.kind}`;
 }
 
-const session = shallowRef<DragSession<string, Drop> | null>(null);
-onMounted(() => {
-    const root = rootEl.value;
+const {state} = useDragSession<string, Drop, HTMLElement>(rootEl, () => {
+    // 滚动容器在根里面，和根在同一次挂载里设上，建会话时一定读得到；读不到说明模板改了，直接报错，不建一个没有边缘滚动的会话。
     const scroller = scrollerEl.value;
-    if (root === null || scroller === null) return;
-    session.value = createDragSession<string, Drop, HTMLElement>({
-        root,
+    if (scroller === null) throw new Error("DragSessionScene：滚动容器没有挂上");
+    return {
         scroll: "withdraw",
         autoScroll: {element: scroller},
         sourceAt: (target) => target.closest<HTMLElement>("[data-source]")?.dataset.source ?? target.closest<HTMLElement>("[data-row]")?.dataset.row ?? null,
@@ -78,11 +75,8 @@ onMounted(() => {
             },
             refocus: (source) => rootEl.value?.querySelector<HTMLElement>(`[data-source="${CSS.escape(source)}"]`) ?? null,
         },
-    });
+    };
 });
-onBeforeUnmount(() => session.value?.dispose());
-
-const state = computed(() => session.value?.state.value ?? null);
 const over = computed(() => {
     const drop = state.value?.drop ?? null;
     return drop === null ? "none" : drop.kind === "row" ? drop.id : drop.kind === "target" ? drop.name : "keep";
