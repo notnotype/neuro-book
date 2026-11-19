@@ -2,20 +2,30 @@
 schema: nbook.task/v2
 taskId: t34-unified-errors
 status: active
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # 统一失败形状与错误码
 
 ## 目标与范围
 
-按提案第一档第 2 项：{ok:false, code, message, params?}，L0 的 35 处中文 reason 与 L2 的 rejected 归并成码，码集合开放；issues 只发新增；改两份 Spec 的失败与恢复
+按提案第一档第 2 项的失败一半：nb-layout 的结构操作、快照恢复与 L1 的提交回调，失败改成 `{ok: false, code, message, params?}`，L0 的 34 处中文 `reason` 归并成码，码集合开放；L2（nb-workbench-layout）只把 `detail` 改名 `message`、改英文，码不变。诊断归 [t38](../t38-grid-diagnostics/README.md)。
 
-合同：布局行为不变，失败与诊断的形状、码与文字改变：[`ui/nested-grid`](../../../../../docs/specs/ui/nested-grid.md) 失败与恢复、输出 68 与新增的诊断条目，[`ui/workbench-layout`](../../../../../docs/specs/ui/workbench-layout.md) 失败与恢复的码表。依据：[提案](../../../../../docs/proposals/nb-layout-general-library.md)的“错误与诊断一种形状”、[ADR 0054](../../../../../docs/adr/0054-nb-layout-general-library.md)。
+合同：布局行为不变，失败的形状、码与文字改变：[`ui/nested-grid`](../../../../../docs/specs/ui/nested-grid.md) 失败与恢复（新增失败 5 到 7），[`ui/workbench-layout`](../../../../../docs/specs/ui/workbench-layout.md) 失败与恢复的表头。依据：[提案](../../../../../docs/proposals/nb-layout-general-library.md)的“错误与诊断一种形状”与决策记录、[ADR 0054](../../../../../docs/adr/0054-nb-layout-general-library.md)。
 
 ## 当前状态
 
-2026-11-18 经 nbdev 新建。计划见 [`plan.md`](plan.md)（第 3 稿）。**停下等开发者**，见下面第三轮审查一条。
+2026-11-18 经 nbdev 新建。计划见 [`plan.md`](plan.md)（第 4 稿）。
+
+**开发者 2026-11-19 的决定**：第三轮审查后停下时推荐的三件，开发者答“同意”：
+
+1. 拆成两个 Task：本 Task 只做失败的形状（L0 结构操作、快照恢复、L1 提交码），设计已收敛，不再送设计审查、直接实施；诊断（码、两个出口、只发新增与合成、删 `SashGestureScope.issues`）另建 [t38](../t38-grid-diagnostics/README.md) 重新设计，排在本 Task 之后、t35 之前。
+2. L2 的 `rejected` 拆成四个码延后到有使用方：这一档 L2 只把 `detail` 改名 `message`、改英文。
+3. 待确认清单里 t34 的两行与 t33 的一行按推荐追认（第二行的合成规则转 t38，见清单）。
+
+第 4 稿按这个范围收窄，并吸收第三轮里属于失败形状的几条：第 3 条（401、452 拆成 `not-found` 与 `wrong-node-kind`）、第 4 条（失败的 `params` 值只用字符串与数字，对齐 `ui/i18n`；数组归 t38）、第 6 条（`validateLayoutDoc` 的 32 条问题文字一起改英文）、第 7 条（`invalid-argument` 的映射按 `field` 判别；导出判别联合不采纳，理由见计划）、第 10 条（第 1 片跑 `lab-nested-grid` 的 e2e）、第 11 条（280 的 baseline 先于 target）。第三轮其余各条归 t38。
+
+下面是第 1 到 3 稿三轮设计审查的历程；表里说的诊断、L2 拆码与切片，在第 4 稿里已转 t38 或延后，以计划第 4 稿为准。
 
 - 第 1 稿的设计审查（Claude Sonnet，[`evidences/design-review.txt`](evidences/design-review.txt)）：15 条，重要 7、建议 8，都成立（第 6 条的 `PLUGIN_API_SINCE` 一项除外，见表），改成第 2 稿；几条改了设计（只发新增的判据、切片边界、公开面清单），第 2 稿再送一轮：
 
@@ -63,16 +73,11 @@ updated: 2026-11-18
   5. L2 几处 `not-found`、`duplicate-id`、`limit-exceeded` 的 `params` 取不到 id（`freshId` 吞了撞车的 id、落点只有目标），L2 的逐行表还没写；
   6. `validateLayoutDoc` 的 32 条中文问题文字仍进 `message`，与“`message` 是英文”不一致。
 
-  **停下等开发者**（满三轮仍有实质问题，reviewing 与 autonomous-delivery 的停止条件）。三轮下来，失败的形状（L0 结构操作、快照恢复、L1 提交码）已经收敛，第三轮只剩 401、452 一处；反复出边界问题的是诊断的“合成与只发新增”与 L2 拆码。推荐：
-  - **拆成两个 Task**：t34 只做失败的形状（计划第 1 片，加 401、452 拆开，`GridParamValue` 按第 4 条定），设计已收敛，可以直接做；诊断（码、两个出口、只发新增与合成、删 `SashGestureScope.issues`）另建 Task，重新出设计，先定“结果是状态快照、通知只发边沿”的合同再写计划。
-  - **L2 拆码延后**：把 `rejected` 拆成四个码今天没有使用方（应用只看 `not-found`、`limit-exceeded`，第一轮第 13 条），nb-workbench-layout 也不发布；本档只把 `detail` 改名 `message`、改英文，拆码等有使用方时再做。
-  - 备选：照第三轮的建议改成第 4 稿，不再送审直接实施，实现审查兜底。
+  第三轮之后按上面开发者的决定拆分（第 4 稿），不再送审。
 
-- 盘点时发现提案“错误与诊断”有一句与代码不符：L1 的提交回调已有上下文已切换、版本已变、处理器抛出等失败，提案说不预设这些码。本 Task 给它们定码，提案追加决策记录，记入[待确认清单](../../pending-confirmations.md)。
-- 代码在 t33 合入 master 之后开 worktree。
+- 盘点时发现提案“错误与诊断”有一句与代码不符：L1 的提交回调已有上下文已切换、版本已变、处理器抛出等失败，提案说不预设这些码。本 Task 给它们定码，提案追加决策记录，记入[待确认清单](../../pending-confirmations.md)，开发者 2026-11-19 追认。
 
 ## 下一步
 
-1. 等开发者定：拆成“失败的形状”与“诊断”两个 Task、L2 拆码延后（推荐），或改成第 4 稿直接实施。
-2. master 上写两份 Spec 的 planned 条目。
-3. t33 合入后开 worktree，按计划四片实施。
+1. master 上写两份 Spec 的 planned 条目，提交第 4 稿与记录。
+2. 从 master 开 worktree `w00026-t34-unified-errors`，按计划三片实施。

@@ -226,12 +226,50 @@ owners:
 
 ## 失败与恢复
 
-失败项编号为失败 1 到 4，只在末尾追加。
+失败项编号为失败 1 到 7，只在末尾追加。
 
 1. 畸形 children、重复节点身份、非法方向与非有限尺寸必须返回诊断，不抛出未处理异常或污染已发布布局。
 2. 未知高版本拒绝恢复并保留原布局或安全默认；宿主禁止普通保存覆盖原件。
 3. 暂时缺少引用时可过滤当前呈现，但宿主保留原始记录，后续调整已知节点不能抹掉未知部分。
 4. 部分引用过滤与整体格式非法分别报告；重复身份无法可靠定位时整体拒绝，不任意覆盖同名节点。
+5. **结构操作的失败形状**（planned）：建树、改尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
+
+    | 码 | 什么时候 | `params` |
+    |---|---|---|
+    | `not-found` | 节点、分支或父节点不在 | `id` |
+    | `wrong-node-kind` | 要叶给了分支，或要分支给了叶 | `id`、`expected`（`leaf` 或 `branch`） |
+    | `wrong-axis` | 不沿主轴调整 | `id`、`orientation`；调整的是节点时加父分支 `parent` |
+    | `not-finite` | 调整量、尺寸、比例或尺寸意图不是有限数 | `field`，加 `value` 或 `id`（尺寸另加 `side`：`baseline` 或 `target`） |
+    | `invalid-argument` | 根节点没有可调整的父分支、手势尺寸没有覆盖全部直接子节点、尺寸为负、方向或插入侧不认识、比例不在 0 与 1 之间 | `field`（`root`、`sizes-cover`、`size-negative`、`orientation`、`side`、`ratio-range`），加 `id`、`side` 或 `value` |
+    | `limit-exceeded` | 超过 256 个节点或 16 层 | `limit`（`nodes` 或 `depth`）、`max` |
+    | `duplicate-id` | id 已被占用 | `id`、`with`（`existing`：树里已有；`new-leaf`：新分支与新叶同 id） |
+    | `into-own-subtree` | 把节点移进它自己的子树 | `id`、`parent` |
+    | `not-conserved` | 手势目标的总量与基线不等 | `id`、`target`、`baseline` |
+    | `stale-baseline` | 手势的基线已经失效 | `id` |
+    | `not-collapsible` | 要收起的面板没有收起策略 | `id`、`branch` |
+
+    同一个子节点基线与目标都不合法时报基线那一侧。传进来的非法值在 `value` 里写成字符串（`NaN` 写作 `"NaN"`）。
+6. **提交的返回**（planned）：`onGestureCommit` 返回 `{ok: true}` 或失败 5 的形状；拒绝时回滚预览并给诊断（“状态与转换”）。落账时结构操作的失败原样转交失败 5 的码，提交自己的码是：
+
+    | 码 | 什么时候 | `params` |
+    |---|---|---|
+    | `not-ready` | 网格或承载盒尺寸还没有 | `missing`（`grid` 或 `host-size`） |
+    | `stale-context` | 提交带来的工作面与宿主此刻的不同 | `expected`（宿主此刻的）、`actual`（提交带来的） |
+    | `stale-revision` | 提交带来的版本与宿主此刻的不同 | `expected`、`actual` |
+    | `stale-size` | 容器尺寸在手势里变了 | 无 |
+    | `handler-missing` | 宿主没有接 `onGestureCommit` | 无 |
+    | `handler-threw` | 宿主的提交回调抛出 | 无（`message` 带异常的文字） |
+7. **恢复的结果**（planned）：快照恢复返回 `{ok: true, dropped, clamped}`，或失败 5 的形状加 `dropped`、`clamped`。`dropped` 每项是 `{ref, code: "unknown-ref"}`（失败 3）。恢复的码：
+
+    | 码 | 什么时候 | `params` |
+    |---|---|---|
+    | `invalid-snapshot` | 格式不对（失败 1、4） | `field`；某个节点的问题加 `id` |
+    | `unsupported-version` | 版本不支持（失败 2） | `version` |
+    | `unresolved-root` | 格式没问题，但根的引用解析不了，整体恢复不出来；`dropped` 里有那条引用 | 无 |
+    | `duplicate-id` | 节点身份重复（失败 4） | `id`、`with: "existing"` |
+    | `limit-exceeded` | 超过 256 个节点或 16 层 | `limit`、`max` |
+
+    `unresolved-root` 与 `invalid-snapshot` 分开：前者是引用暂时缺（宿主保留原件，等引用回来），后者是原件坏了。
 
 ## 边界与兼容
 
@@ -242,6 +280,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用与插�
 外框、内容与浮动窗手柄是里面 `position: fixed` 元素的包含块（输出 28）：要盖住整个窗口的东西（对话框、拖影、菜单）宿主要 Teleport 到 `body`。
 公开的标记：`data-swap`（输出 75）、`data-leaf`、`data-grid-scope` 等的取值与含义见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 的“公开的标记与变量”。
 工作台的用法：用分支的收起表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）；把 `moveGridFocus` 登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
+失败的码集合开放（planned）：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。
 
 ## 验收与 Smoke
 
