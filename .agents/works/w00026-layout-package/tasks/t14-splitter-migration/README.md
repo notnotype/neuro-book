@@ -45,8 +45,10 @@ worktree `w00026-t14-splitter`（分支 `w00026/t14-splitter`）。基线（起�
 | 片 | 提交 | 内容 | 验证 |
 |---|---|---|---|
 | 1 | `a423e8cc8` | 开发者面板改用 nb-layout 的 `Splitter`；编进网页的工作区包收成 `build.ts` 的 `PANEL_SOURCE_PACKAGES`（nb-ui、nb-layout），构建哈希与“代码已更新”的 `CODE_PATHS` 都从它生成；补测试；`panel.md` 四处 | 类型检查；测试 491 条；构建通过，产物 1,503,144 字节（多 0.9%） |
-| 2 | 见 git log | nb-story 改用 nb-layout 的 `Splitter`，nb-layout 是 devDependency（`workspace:*`） | 类型检查；单元测试 669 条；e2e 56 条；网页产物 2,785,455 字节（多 0.7%）；`release:check` 通过；探针改前改后对照（[`evidences/probe.txt`](evidences/probe.txt)）：只有收到 0 的一侧不画接缝；打包安装冒烟在跑 |
+| 2 | `e978d88e8` | nb-story 改用 nb-layout 的 `Splitter`，nb-layout 是 devDependency（`workspace:*`） | 类型检查；单元测试 669 条；e2e 56 条；网页产物 2,785,455 字节（多 0.7%）；`release:check` 通过；探针改前改后对照（[`evidences/probe.txt`](evidences/probe.txt)）：只有收到 0 的一侧不画接缝；打包安装冒烟通过（提交之后跑：冒烟要求工作树干净，第一次在提交前跑被门禁拒了），nb-story 装出来不带 nb-ui、vue、typescript |
+| 3 | `0f564f866` | 删掉 nb-ui 冻结的那一套（编码子代理，Claude Sonnet，[报告](../../../../../.local/agent/works/w00026-layout-package/tasks/t14-splitter-migration/reports/slice3/report.txt) 在本地）：19 个文件，比清单多一个 `useLayoutExtent.ts`（只被冻结的那一份用、依赖被删的类型）；导出、`splitter` 文案键、playground 的那一页、几处测试与 Lab 源；`migration-0.4.md` 加“0.4 之后：`Splitter` 移到 nb-layout”（我审 diff 时改准了两处：两个只给内嵌网格用的属性没了、接缝不画；nb-layout 还没发布到 npm） | nb-ui 类型检查、559 条测试；nb-agent-ui、nb-form、nb-markdown、开发者面板、nb-story、应用的类型检查；应用 SDK 两份测试 17 过 1 挂，挂的是 master 上原有的 `ImagePreviewDialog` 不在 SDK 组件清单里；文档检查通过 |
+| 4 | `717b1b171` | nb-layout 的 `Splitter.md` 去掉已删的 `sashLineEnds`；nb-layout 的 `AGENTS.md` 写明两个宿主在用、改时怎么验；应用 SDK 测试两句过时的注释 | nb-layout 的 `readme.test.ts`、`exports.test.ts` |
 
 ## 下一步
 
-基线在跑（第 1 稿时启动，审查不改基线的内容）；跑完先单独跑一遍探针的基线，再按第 2 稿的切片实施。
+实现审查（Claude Sonnet）在跑。处理完把 master 并进分支、合入，提交 `docs/modules/monorepo-boundaries.md` 那一句（主工作区，已改未提交）。合入后要开发者重启面板服务，面板才用上新代码。
