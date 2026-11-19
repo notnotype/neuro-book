@@ -399,6 +399,10 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "viewContainers.reset": {"zh-CN": "重置", "en-US": "Reset"},
     "viewContainers.entryTooltip": {"zh-CN": "{name}：{views}", "en-US": "{name}: {views}"},
     "viewContainers.viewSeparator": {"zh-CN": "、", "en-US": ", "},
+    // w00026 t32：入口菜单的“移到”（docs/specs/ui/workbench-layout.md 输出 44）。
+    "viewContainers.moveTo.sidebar": {"zh-CN": "移到侧栏", "en-US": "Move to Sidebar"},
+    "viewContainers.moveTo.auxiliarybar": {"zh-CN": "移到右栏", "en-US": "Move to Secondary Side Bar"},
+    "viewContainers.moveTo.panel": {"zh-CN": "移到底部面板", "en-US": "Move to Panel"},
     // w00026 t24：收不成标题行的分节（docs/specs/ui/workbench-layout.md 输出 11、20）。
     "panelCommands.rowSectionCollapse": {"zh-CN": "底部面板里的视图不能收起", "en-US": "A view in the bottom panel cannot be collapsed"},
     "panelCommands.loneSectionCollapse": {"zh-CN": "这里只显示这一个视图，不能收起", "en-US": "The only view shown here cannot be collapsed"},

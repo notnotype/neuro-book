@@ -30,7 +30,7 @@ import type {WorkbenchTextKey} from "../../shared/text";
 import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import {canResetContainer, containerHomeRegion, containerRegion, regionContainers, viewSection} from "../state/containers";
+import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
 import {focusLandings, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
@@ -560,11 +560,15 @@ const stripEntriesOf = (region: PanelName): RegionStripEntry[] => (region === "s
 
 const containerMenu = shallowRef<{readonly container: string; readonly x: number; readonly y: number} | null>(null);
 
-/** 容器的菜单（输出 44）。现在只有“重置”：容器有声明的区域、此刻不在那里时才有这一项。 */
+/** 容器的菜单（输出 44）：“移到”另外两个区域，然后是“重置”（容器有声明的区域、此刻不在那里时才有）。搬法都是整个容器搬过去（`moveContainer`）。 */
 function containerMenuItemsOf(container: string): ContextMenuItem[] {
+    const moves = containerMoveTargets(doc.value, container).map((region): ContextMenuItem => ({
+        label: message(`viewContainers.moveTo.${region}`),
+        action: () => props.layout.actions.moveContainer(container, region),
+    }));
     const home = containerHomeRegion(container, catalog.value, state.value.containers);
-    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers)) return [];
-    return [{label: message("viewContainers.reset"), action: () => props.layout.actions.moveContainer(container, home)}];
+    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers)) return moves;
+    return [...moves, {label: message("viewContainers.reset"), action: () => props.layout.actions.moveContainer(container, home)}];
 }
 
 const containerMenuItems = computed(() => (containerMenu.value === null ? [] : containerMenuItemsOf(containerMenu.value.container)));

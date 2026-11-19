@@ -147,6 +147,15 @@ export function containerHomeRegion(container: string, views: ViewCatalog, conta
     return container.startsWith(IMPLICIT_CONTAINER_PREFIX) ? (views.get(container.slice(IMPLICIT_CONTAINER_PREFIX.length))?.location ?? null) : null;
 }
 
+/** 区域在菜单里的先后。 */
+const MENU_REGIONS: ReadonlyArray<PanelName> = ["sidebar", "auxiliarybar", "panel"];
+
+/** 入口的右键菜单里“移到”哪几个区域（输出 44）：容器此刻所在区域之外的两个，按侧栏、右栏、底部面板的先后；容器没有成员时没有。 */
+export function containerMoveTargets(doc: LayoutDoc, container: string): ReadonlyArray<PanelName> {
+    const here = containerRegion(doc, container);
+    return here === null ? [] : MENU_REGIONS.filter((region) => region !== here);
+}
+
 /** 入口的右键菜单里有没有“重置”（输出 44）：容器有声明的区域，此刻不在那里。 */
 export function canResetContainer(doc: LayoutDoc, container: string, views: ViewCatalog, containers: ContainerCatalog): boolean {
     const home = containerHomeRegion(container, views, containers);
