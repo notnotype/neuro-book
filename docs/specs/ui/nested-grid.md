@@ -307,6 +307,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用与插�
 嵌套 sash 的旧限制由本能力覆盖的场景逐项解除；其它未覆盖结构操作继续保留已有限制，不能据一个样例宣称任意布局均已支持。
 外框、内容与浮动窗手柄是里面 `position: fixed` 元素的包含块（输出 28）：要盖住整个窗口的东西（对话框、拖影、菜单）宿主要 Teleport 到 `body`。
 公开的标记：`data-swap`（输出 75）、`data-leaf`、`data-grid-scope` 等的取值与含义见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 的“公开的标记与变量”。
+公开面（planned）：每个子路径的入口是一行一个名字的显式清单，入口里的名字就是公开面；文件里别的导出是内部的，随时可以改。`gesture-start`、`gesture-cancel` 的载荷类型是 `GridGestureStart`（`sessionId`、`contextKey`、`source`、`revision`、`sashes`）与 `GridGestureCancellation`（`reason`、`sashes`），手势来源与取消原因是 `SashGestureSource`、`SashGestureCancelReason`（独立 `Splitter` 也用这两个）。
 CSS 变量（planned）：`NB_LAYOUT_THEME_VARS`（根入口）列出库读的全部 `--nb-layout-*` 与各自的回退；README 的变量表只承诺其中主题级的一小批（颜色、圆角、阴影、时长、焦点），其余是内部名字，可以改名（输出 141）。
 工作台的用法：用分支的收起表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）；把 `moveGridFocus` 登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
 失败的码集合开放：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。
