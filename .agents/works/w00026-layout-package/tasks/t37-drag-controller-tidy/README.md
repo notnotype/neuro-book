@@ -55,9 +55,10 @@ worktree `w00026-t37-drag-tidy`（分支 `w00026/t37-drag-tidy`）：
 | 1 | `1b0abef4b` | 删 `sourceCollapsed`（改读 `beforeCollapse`）与没有调用方的 `LiveDrag.origin`；`collapseSource` 的早退写明为什么可以不管 | 类型检查、`live-drag.test.ts` 24 条；e2e 与第 2 片一起跑 |
 | 2 | `b9bdb2d05` | 每场一个 `DragRun`：拿起时新建，收场换成空闲的一份；`dropAt` 与 `resolveDrop` 带回 `Judgement`（落点、是否被拒绝、编辑器的拒绝），`overRejected`、`editorRefusal` 两个 `let` 去掉；14 个 `let` 剩 1 个 `run` | e2e：`workbench-live-drag`、`workbench-dnd`、`workbench-float`、`files-explorer.e2e.ts:550`、`:876`，78 条全过（4.5 分钟，负载 4.6） |
 | 3 | `8109e92ab` | `drag-geometry.ts`（收起后的几何、入口条补位、抓点、标签下标、整窗矩形、排序位移）与 `drag-keyboard.ts`（键盘停靠点）拆成纯函数；`layout-drag.ts` 从 1134 行到 953 行；`drag-geometry.test.ts` 14 条、`drag-keyboard.test.ts` 7 条 | 同上一组 e2e 78 条全过；变异：头高跟着下沿走时 2 条变红 |
-| 4 | `1f51d1904` | nb-layout 加 `createDragCard`、`createFrameLoop` 与短文档 `src/drag-card.md`，入口与 README 的对照表各加一行；`live-drag.ts` 改用它们，闭包里的 `let` 从 20 个到 12 个 | `drag-card.test.ts` 8 条、`frame-loop.test.ts` 7 条、`exports.test.ts`、`readme.test.ts` 通过；变异 4 处（拿起那帧也逼近、不按间隔写尺寸、帧循环不 `finally`、零尺寸当可用）都变红；`live-drag.test.ts` 不改断言 24 条通过；e2e 与性能对照在跑 |
+| 4 | `1f51d1904` | nb-layout 加 `createDragCard`、`createFrameLoop` 与短文档 `src/drag-card.md`，入口与 README 的对照表各加一行；`live-drag.ts` 改用它们，闭包里的 `let` 从 20 个到 12 个 | `drag-card.test.ts` 8 条、`frame-loop.test.ts` 7 条、`exports.test.ts`、`readme.test.ts` 通过；变异 4 处（拿起那帧也逼近、不按间隔写尺寸、帧循环不 `finally`、零尺寸当可用）都变红；`live-drag.test.ts` 不改断言 24 条通过；e2e（实时布局、拖放、每帧开销）67 条里 66 条过，挂的那条见下一行；性能对照与基线一致（[`evidences/perf.txt`](evidences/perf.txt)） |
+| 测试修正 | `7a7a4b071` | `workbench-drag-cost.e2e.ts:157`（按住不动不排动画帧）先等预览换成来源收起，再等过渡结束 | 这条在分支起点 `b28277e7b` 上 3 次挂 2 次、第 3 片上 3 次挂 2 次，不是本 Task 引入的。探针抓到多出来的那一帧是布局过渡收尾时分隔线对齐排的（`useGridMotion` 的 `onSettled`）：原来的等待在候选还没稳定时就过了，预览后来才换、布局才动。改后 5 次全过 |
 
 ## 下一步
 
-- 第 4 片的 e2e（`workbench-live-drag`、`workbench-dnd`、`workbench-drag-cost`）与性能对照（基线是第 3 片的 `8109e92ab`，`scripts/perf/layout-frames.ts` 交替 3 轮）。
-- 把 master 并进分支（master 的 27 个提交没碰本 Task 的代码），跑收口的 e2e，再启动实现审查（Claude Sonnet）。
+- master（`ac4d9f6ee`）已并进分支（`e4571be6d`，没有冲突；master 的 27 个提交没碰本 Task 的代码与依赖）。收口验证在跑：两个包的类型检查、nb-layout 全部单元测试、工作台插件的单元测试、8 个 e2e 文件（实时布局、拖放、浮动窗、每帧开销、编辑区、容器、Lab 的拖动会话、资源树拖文件两条）。
+- 收口通过后启动实现审查（Claude Sonnet），不等它，开始 t32 的计划；审查回来处理完再合入 master，再晋升 `ui/layout-drag` 输出 20、21。
