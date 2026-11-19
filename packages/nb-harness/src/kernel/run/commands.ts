@@ -407,16 +407,16 @@ export function removeCommand(host: CommandHost, issuer: Issuer, args: CommandMa
 }
 
 /**
- * 提醒的上限（runtime.md 输出 112）。合计按编码后的整条记录算（含发出者），快照与远程的大小因此有界：会话待发的提醒不会
- * 撑到窗口取不到快照、也就没处取消。
+ * 提醒的上限（runtime.md 输出 112）。合计按编码后的整条记录算（含发出者与留在待发记录里的 `commandId`），快照与远程的大小因此
+ * 有界：会话待发的提醒不会撑到窗口取不到快照、也就没处取消。
  */
 export const NOTICE_TEXT_MAX_BYTES = 32 * 1024;
 export const NOTICE_KEY_MAX_CHARS = 200;
 export const NOTICE_MAX_PENDING = 64;
 export const NOTICE_TOTAL_MAX_BYTES = 128 * 1024;
 
-const noticeBytes = (notice: {readonly id: string; readonly by: Issuer; readonly key?: string; readonly text: string; readonly wake: boolean}): number =>
-    Buffer.byteLength(JSON.stringify({id: notice.id, by: notice.by, key: notice.key, text: notice.text, wake: notice.wake}), "utf8");
+const noticeBytes = (notice: {readonly id: string; readonly by: Issuer; readonly key?: string; readonly text: string; readonly wake: boolean; readonly commandId?: string}): number =>
+    Buffer.byteLength(JSON.stringify({id: notice.id, by: notice.by, key: notice.key, text: notice.text, wake: notice.wake, commandId: notice.commandId}), "utf8");
 
 export function noticeCommand(host: CommandHost, issuer: Issuer, args: CommandMap["notice"]["args"] & {commandId: string}): Promise<CommandResult<"notice">> {
     return accept(host, "notice", args, () => {
@@ -427,12 +427,12 @@ export function noticeCommand(host: CommandHost, issuer: Issuer, args: CommandMa
         // 同一个发出者的同一个 `key` 替换还没取走的那条；上限按扣掉它之后算。
         const replaced = args.key === undefined ? undefined : pending.find((item) => item.key === args.key && sameIssuer(item.by, issuer));
         const rest = replaced === undefined ? pending : pending.filter((item) => item !== replaced);
-        const record = {id: host.core.newId(), by: issuer, ...(args.key === undefined ? {} : {key: args.key}), text: args.text, wake: args.wake === true};
+        const record = {id: host.core.newId(), by: issuer, ...(args.key === undefined ? {} : {key: args.key}), text: args.text, wake: args.wake === true, commandId: args.commandId};
         const total = rest.reduce((sum, item) => sum + noticeBytes(item), noticeBytes(record));
         if (rest.length + 1 > NOTICE_MAX_PENDING || total > NOTICE_TOTAL_MAX_BYTES) return {fail: "notice-budget"};
         const drafts: EventDraft[] = [];
         if (replaced !== undefined) drafts.push({type: "noticeRemoved", kind: "ctrl", scope: "session", data: {ids: [replaced.id], ...byField(issuer), reason: "replaced"} as JsonValue});
-        drafts.push({type: "noticeQueued", kind: "ctrl", scope: "session", data: {...record, commandId: args.commandId} as unknown as JsonValue});
+        drafts.push({type: "noticeQueued", kind: "ctrl", scope: "session", data: record as unknown as JsonValue});
         const value = {noticeId: record.id, ...(replaced === undefined ? {} : {replaced: replaced.id})};
         // 唤起（输出 116）：空闲、门开着、叶子上没有暂停的运行、开得起运行时同一批开运行。运行不再取输入的窗口里不判，留给收口批。
         if (!record.wake || !host.control.idle || !gateOpen(host.core) || pausedRun(host) !== null || startProblem(host) !== null) return {value, drafts};

@@ -94,8 +94,14 @@ describe("输出 112：发提醒、撤回与取消", () => {
         }
         expect(refused).toBe("notice-budget");
         const kept = (await fresh.raw.snapshot()).notices;
-        const encoded = kept.reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify({id: item.id, by: item.by, key: item.key, text: item.text, wake: item.wake}), "utf8"), 0);
+        const encoded = kept.reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify({id: item.id, by: item.by, key: item.key, text: item.text, wake: item.wake, commandId: item.commandId}), "utf8"), 0);
         expect(encoded).toBeLessThanOrEqual(NOTICE_TOTAL_MAX_BYTES);
+
+        // 指令 id 留在待发的记录里，也算进合计：正文很短、指令 id 很长的照样超出。
+        await using third = await createTestSession();
+        const longId = await host(third).notice({commandId: "c".repeat(NOTICE_TOTAL_MAX_BYTES), text: "短"});
+        expect(longId.ok ? null : longId.code).toBe("notice-budget");
+        expect((await third.raw.snapshot()).notices).toEqual([]);
     });
 
     test("同一个发出者的同一个 key 替换还没取走的那条，上限按扣掉旧的算；别的发出者同一个 key 不替换", async () => {
