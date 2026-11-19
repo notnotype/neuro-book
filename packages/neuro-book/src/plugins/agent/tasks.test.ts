@@ -198,6 +198,8 @@ describe("按调用方盖章（sessions.md 输出 21）", () => {
         expect(view.issuer).toEqual({kind: "host", source: {plugin: "test.scheduler", label: "每周简报", ref: "weekly"}});
         expect(service.session(view.id).issuer).toEqual({kind: "host", source: {plugin: "test.scheduler", label: "test.scheduler"}});
         expect(service.session(view.id, {asUser: true}).issuer).toEqual({kind: "user"});
+        // `at`（来源里的时刻）由调用方给，原样记下。
+        expect(service.session(view.id, {source: {label: "提醒", ref: "r", at: 1_700_000_000_000}}).issuer).toEqual({kind: "host", source: {plugin: "test.scheduler", label: "提醒", ref: "r", at: 1_700_000_000_000}});
         // 空闲时宿主排的话留着，日志里记的是盖章的插件（harness/runtime.md 输出 3、85）。
         const queued = await view.enqueue({commandId: randomUUID(), input: {text: "整理这周的简报"}, mode: "followup"});
         expect(queued).toMatchObject({ok: true, value: {placement: "held"}});

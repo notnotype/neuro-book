@@ -35,6 +35,13 @@ describe("AgentQueuedMessages", () => {
         expect(view.emitted("remove")).toEqual([["a"], ["b"]]);
     });
 
+    it("标签：自己的插话写“补充说明”、排队写“排队”，别人排的写它的名字与图标", () => {
+        const {view} = mountQueued({queued: [{id: "s", text: "插的", delivery: "steer"}, ready("f"), {id: "o", text: "别人排的", delivery: "followup", author: {label: "日程", icon: "i-lucide-clock"}, editable: false}]});
+        const rows = view.findAll("li[data-queued]");
+        expect(rows.map((row) => row.get(".acv-queued__tag-label").text())).toEqual(["补充说明", "排队", "日程"]);
+        expect(rows[2]!.find(".i-lucide-clock").exists()).toBe(true);
+    });
+
     it("留着的条目：头行写条数与第一条的原因（不止一种加“等”），留着的行不受 3 条限制；继续发出 continue", async () => {
         const {view} = mountQueued({queued: [held("h1", "运行出错"), ready("r1"), ready("r2"), ready("r3"), ready("r4"), held("h2", "你停止了运行")]});
         const head = view.get("[data-queued-head]");

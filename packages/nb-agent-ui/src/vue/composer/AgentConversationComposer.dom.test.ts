@@ -15,7 +15,7 @@ import AgentConversationComposer from "./AgentConversationComposer.vue";
 import AgentModelPicker from "./AgentModelPicker.vue";
 import AgentRoleModelPicker from "./AgentRoleModelPicker.vue";
 import PlainPromptEditor from "../fallback/PlainPromptEditor.vue";
-import {defineComponent, h, nextTick} from "vue";
+import {defineComponent, h, nextTick, shallowRef} from "vue";
 import type {PropType} from "vue";
 
 const plus: AgentViewContribution = {source: "test-plus", toolbarButtons: [{id: "insert-ref", icon: "i-lucide-plus", label: "插入引用", placement: "leading", trigger: "@"}]};
@@ -372,11 +372,16 @@ describe("AgentConversationComposer 留着的话与停止的两个选项", () =>
         view.unmount();
     });
 
-    it("运行中有留着的按运行中的规则；停止中、不可用时头行的继续不可用", () => {
-        const running = mountComposer({ctx: ctx({run: {status: "running"}, interaction: {canStop: true}, composer: {queued: [heldItem]}})});
+    it("运行中有留着的按运行中的规则；停止中、不可用、不允许发送时头行的继续不可用", () => {
+        const running = mountComposer({ctx: ctx({run: {status: "running"}, interaction: {canStop: true, canSteer: true, canQueue: true}, composer: {queued: [heldItem]}})});
         expect(running.get(".acv-composer__primary").attributes("data-composer-action")).toBe("stop");
         expect(running.get("[data-queued-continue]").attributes("aria-disabled")).toBe("false");
+        expect(placeholderOf(running)).toBe("回车补充说明，Ctrl+回车排队");
         running.unmount();
+
+        const cannotSend = mountComposer({ctx: ctx({interaction: {canSend: false}, composer: {queued: [heldItem]}})});
+        expect(cannotSend.get("[data-queued-continue]").attributes("aria-disabled")).toBe("true");
+        cannotSend.unmount();
 
         const stopping = mountComposer({ctx: ctx({run: {status: "stopping"}, composer: {queued: [heldItem]}})});
         expect(stopping.get("[data-queued-continue]").attributes("aria-disabled")).toBe("true");
@@ -424,5 +429,32 @@ describe("AgentConversationComposer 留着的话与停止的两个选项", () =>
         const none = mountComposer({ctx: ctx({...base, interaction: {canStop: true, stopClearing: null}})});
         expect(none.find("[data-composer-action='stop-more']").exists()).toBe(false);
         none.unmount();
+    });
+
+    it("菜单开着时 stopClearing 变空：菜单关上、箭头消失；之后箭头再出现时菜单不自己打开", async () => {
+        const running = ctx({run: {status: "running"}, interaction: {canStop: true, canQueue: true, stopClearing: {count: 2}}});
+        const current = shallowRef(running);
+        const Host = defineComponent({
+            setup() {
+                provideAgentView({locale: () => "zh-CN", renderers: () => ({})});
+                return () => h(AgentConversationComposer, {ctx: current.value, services: {}, registry});
+            },
+        });
+        const view = mount(Host, {attachTo: document.body});
+        await openStopMenu(view as ReturnType<typeof mountComposer>);
+        expect(menuItems()).toHaveLength(1);
+        // 用户的话都被取走了，运行还在跑。
+        current.value = ctx({run: {status: "running"}, interaction: {canStop: true, canQueue: true, stopClearing: null}});
+        for (let round = 0; round < 5; round += 1) await nextTick();
+        await flushPromises();
+        expect(menuItems()).toEqual([]);
+        expect(view.find("[data-composer-action='stop-more']").exists()).toBe(false);
+        // 又排了一条：箭头回来，菜单是关着的。
+        current.value = running;
+        for (let round = 0; round < 5; round += 1) await nextTick();
+        await flushPromises();
+        expect(view.find("[data-composer-action='stop-more']").attributes("aria-expanded")).toBe("false");
+        expect(menuItems()).toEqual([]);
+        view.unmount();
     });
 });
