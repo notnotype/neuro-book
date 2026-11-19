@@ -134,6 +134,16 @@
 - Lab 截图对照：`NestedGrid` 的交换与落点、`Splitter`、`SortableList`、落点浮层、浮动窗把手的键盘焦点，亮色。
 - 未验证：不装 nb-ui 时减少动效归零（应用与 Lab 都装着 nb-ui，没有不装的真实浏览器宿主）；happy-dom 不认媒体查询。
 
+## 实施中的调整
+
+- 第 1 片：注入键走新子路径 `@notnotype/nb-layout/text`（见“文案”一节）。
+- 第 3 片：
+  - 新名去掉旧名里重复的 `layout-`：`--layout-card-radius` → `--nb-layout-card-radius`，`--layout-sector-*` → `--nb-layout-sector-*`；宿主旋钮 `--nb-splitter-seam*` → `--nb-layout-splitter-seam*`，`--sortable-*` → `--nb-layout-sortable-*`。
+  - 层级等于登记表的检查放在 nb-ui 的 `theme/z-index.test.ts`（它同时有 `tokens.css` 与登记表）；应用的 `theme-bridge.test.ts` 核对清单回退等于桥接的值。原写全放应用，但后端类型检查范围含 `src/**/*.test.ts`，导入 `@notnotype/nb-ui/theme` 会读进 DOM 代码。
+  - dom 测试的公共准备不在根上设 0ms，而是注入一条 `*` 规则：happy-dom 不继承自定义属性（实测根上、父元素上的声明子元素读到空串）。
+  - 探针的第一版没有单独对改名前的现状跑：静态核对已覆盖 `tokens.css`、`theme.css` 的旧名，探针断言旧名与新名都非空且相等，配色变量为空时同样会红。
+  - `--nb-layout-sash-line-size` 读到空串时取缺省 3px（原来是 NaN、线芯铺满装饰带），与“JS 读空串取清单缺省值”一致；只影响不装 nb-ui 的宿主。
+
 ## 不做与风险
 
 - 不做：默认英文与中文目录随 L2 走（第二档）；编译产物与发布（第二档）；nb-ui 里冻结的 Splitter（t14 删）；主题合同的变量名本身。
