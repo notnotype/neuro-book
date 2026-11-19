@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t22-background-work
-status: shelved
-updated: 2026-10-28
+status: active
+updated: 2026-11-19
 ---
 
 # 后台任务与协作：shell 后台、Agent 后台调用、Monitor、活动面板
