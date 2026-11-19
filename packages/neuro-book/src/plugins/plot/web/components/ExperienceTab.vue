@@ -13,6 +13,7 @@ import type {EntryTabContext} from "nbook/plugins/canon/web/component-views";
 import type {AuthorExperienceItem} from "../../core/author/experience";
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
 import {chapterIndex, chapterLabel, listOf} from "../labels";
+import {pagedNames} from "../page-shell";
 import {usePlotText} from "../text";
 import ReadFailure from "./ReadFailure.vue";
 
@@ -33,7 +34,8 @@ const list = props.reads.useExternalList<{readonly person: string; readonly posi
 const chaptersRead = props.reads.useRead("chapters", () => ({}));
 const chapters = computed(() => chapterIndex(chaptersRead.value?.data?.items));
 const data = computed(() => list.state.value?.data);
-const nameOf = (id: string): string => data.value?.names[id]?.name ?? id;
+const names = computed(() => pagedNames(list.state.value));
+const nameOf = (id: string): string => names.value[id]?.name ?? id;
 /** 同一章挨着的几条是一段（服务已经从新到旧排好）。 */
 const sections = computed(() => {
     const result: {chapter: string | null; items: AuthorExperienceItem[]}[] = [];

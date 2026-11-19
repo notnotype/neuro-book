@@ -295,7 +295,7 @@ describe("外部读取", () => {
         lagging.release();
     });
 
-    it("外部列表翻过页以后世界变了：按真实页长从头翻到已读的条数，翻到的位置还在", async () => {
+    it("外部列表翻过页以后世界变了：按真实页长从头翻到已读的条数，翻到的位置还在；已读的各页都留着（每页随带的东西要合起来用）", async () => {
         const {world, other, client} = await setup();
         for (const name of ["甲", "乙", "丙", "丁"]) await create(other, name);
         const asked: (string | undefined)[] = [];
@@ -307,6 +307,7 @@ describe("外部读取", () => {
         await tree.more();
         await tree.more();
         expect(tree.state.value.items).toHaveLength(3);
+        expect(tree.state.value.pages?.map((page) => page.items.length)).toEqual([1, 1, 1]);
 
         asked.length = 0;
         await create(other, "戊");
@@ -316,6 +317,7 @@ describe("外部读取", () => {
         expect(asked).toHaveLength(3);
         expect(asked[0]).toBeUndefined();
         expect(tree.state.value.items).toHaveLength(3);
+        expect(tree.state.value.pages?.flatMap((page) => page.items)).toEqual(tree.state.value.items);
         expect(tree.state.value.more).toBe(true);
         tree.release();
     });

@@ -7,6 +7,8 @@ import type {Ref, ShallowRef} from "vue";
 
 import type {CanonFailure} from "nbook/plugins/canon/shared/contracts";
 
+import type {AuthorName} from "../core/author/knowing";
+
 import type {usePlotText} from "./text";
 
 /** 容器宽度不足这么多像素时换成列表（输出 6）。按容器量：侧栏开着时编辑区比视口窄。 */
@@ -37,4 +39,11 @@ export function failureText(failure: CanonFailure, text: ReturnType<typeof usePl
     if (failure.code === "line-not-found") return text("page.lineMissing");
     const reason = failure.code === "not-found" ? text("page.notFound") : typeof failure.detail === "string" && failure.detail !== "" ? failure.detail : failure.code;
     return text("page.failed", {reason});
+}
+
+/**
+ * 分页读取已读到的各页的名字表合起来（输出 5、7、18）：服务每页只给这一页用到的名字，翻过页以后前几页独有的名字只在前几页里。
+ */
+export function pagedNames(state: {readonly pages?: readonly {readonly names: Readonly<Record<string, AuthorName>>}[]} | null | undefined): Readonly<Record<string, AuthorName>> {
+    return Object.assign({}, ...(state?.pages ?? []).map((page) => page.names)) as Record<string, AuthorName>;
 }

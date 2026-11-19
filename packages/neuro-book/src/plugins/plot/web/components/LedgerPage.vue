@@ -12,7 +12,7 @@ import type {CanonReads} from "nbook/plugins/canon/shared/reads";
 import type {AuthorLedgerRow, LedgerSegment} from "../../core/author/ledger";
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
 import {chapterIndex, chapterLabel, stageLabel} from "../labels";
-import {NARROW_WIDTH, useContainerWidth} from "../page-shell";
+import {NARROW_WIDTH, pagedNames, useContainerWidth} from "../page-shell";
 import type {LedgerPageState} from "../pages";
 import {usePlotText} from "../text";
 import NodeBand from "./NodeBand.vue";
@@ -54,7 +54,8 @@ const next = (row: AuthorLedgerRow): {readonly text: string; readonly warning: b
     if (row.next !== null) return {text: text("ledger.next", {chapter: chapterLabel(row.next.chapter, chapters.value, text), role: text(ROLES[row.next.role])}), warning: false};
     return row.stage === "paidOff" || row.dropped ? {text: text("fmt.none"), warning: false} : {text: text("ledger.none"), warning: true};
 };
-const nameOf = (id: string): string => data.value?.names[id]?.name ?? id;
+const names = computed(() => pagedNames(list.state.value));
+const nameOf = (id: string): string => names.value[id]?.name ?? id;
 const failure = computed(() => list.state.value?.error ?? null);
 const remaining = computed(() => {
     const total = data.value?.counts[state.segment];

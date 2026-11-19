@@ -31,9 +31,12 @@ export const POINT_RELATED_MAX = 50;
 /** 保密表一行“打算怎么揭”的揭示计划与决策各至多这么多，多出的只给条数：一行装得下，换页长才有用。 */
 export const ROW_PLANS_MAX = 10;
 
-/** 保密表一行截过的样子：计划、决策、守卫各截到上限，`plansMore` 是截掉的条数（全表的条数与分段按截之前算）。 */
+/**
+ * 保密表一行截过的样子：计划、决策、守卫各截到上限；`plansMore` 是“打算怎么揭”一格截掉的条数（只算计划与决策，守卫不在这一格），
+ * 全表的条数与分段按截之前算。
+ */
 function cappedRow(row: SecretRow): SecretRow & {readonly plansMore: number} {
-    const more = Math.max(0, row.reveals.length - ROW_PLANS_MAX) + Math.max(0, row.decisions.length - ROW_PLANS_MAX) + Math.max(0, row.guards.length - ROW_PLANS_MAX);
+    const more = Math.max(0, row.reveals.length - ROW_PLANS_MAX) + Math.max(0, row.decisions.length - ROW_PLANS_MAX);
     return {...row, reveals: row.reveals.slice(0, ROW_PLANS_MAX), decisions: row.decisions.slice(0, ROW_PLANS_MAX), guards: row.guards.slice(0, ROW_PLANS_MAX), plansMore: more};
 }
 
@@ -98,12 +101,16 @@ export function remoteAuthor(canon: Pick<CanonProject, "snapshot">): RemoteImple
         if (view.positionKey(position) === null) return fail("chapter-not-found");
         const built = run({view, position, mode});
         if ("ok" in built) return built;
-        const page = pagedList(view, built.items, input, query, {line: view.line, ...built.extra});
-        if (!page.ok) return page;
-        const value = page.value as {readonly items: readonly T[]};
-        const names = new NameTable(view, position, mode);
-        built.name(names, value.items);
-        return fitted({...value, names: names.build()});
+        // 名字表在分好页以后才算：加上它超了单次预算，把页长减半重取（`pagedList` 自己的减半只看不带名字的那一页），单条也装不下才是 too-large。
+        for (let limit = input.limit ?? 50; ; limit = Math.max(1, Math.floor(limit / 2))) {
+            const page = pagedList(view, built.items, {...input, limit}, query, {line: view.line, ...built.extra});
+            if (!page.ok) return page;
+            const value = page.value as {readonly items: readonly T[]};
+            const names = new NameTable(view, position, mode);
+            built.name(names, value.items);
+            const result = fitted({...value, names: names.build()});
+            if (result.ok || value.items.length <= 1) return result;
+        }
     };
     const isEntry = (view: CanonReadView, id: string, types: readonly string[]): boolean => {
         const stored = view.object({kind: "entry", id}) as {readonly type?: string; readonly deleted?: boolean} | undefined;

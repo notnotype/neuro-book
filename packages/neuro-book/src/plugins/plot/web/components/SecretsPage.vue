@@ -13,7 +13,7 @@ import type {CanonReads} from "nbook/plugins/canon/shared/reads";
 import type {SecretSegment} from "../../core/author/secrets";
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
 import {chapterIndex} from "../labels";
-import {NARROW_WIDTH, useContainerWidth} from "../page-shell";
+import {NARROW_WIDTH, pagedNames, useContainerWidth} from "../page-shell";
 import type {SecretsPageState} from "../pages";
 import {usePlotText} from "../text";
 import PeoplePicker from "./PeoplePicker.vue";
@@ -44,7 +44,7 @@ const list = props.reads.useExternalList<{readonly position: NonNullable<typeof 
 );
 const data = computed(() => list.state.value?.data);
 const people = computed(() => state.people ?? [...(data.value?.people ?? [])]);
-const names = computed(() => data.value?.names ?? {});
+const names = computed(() => pagedNames(list.state.value));
 const candidates = computed(() => (data.value?.candidates ?? []).map((id) => ({id, name: names.value[id]?.name ?? id})).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)));
 const SEGMENT_LABELS = {all: "secrets.segments.all", readerOnly: "secrets.segments.readerOnly", readerUnaware: "secrets.segments.readerUnaware", noPlan: "secrets.segments.noPlan"} as const;
 const segments = computed(() => (["all", "readerOnly", "readerUnaware", "noPlan"] as const).map((value) => ({value, label: text(SEGMENT_LABELS[value]), count: data.value?.counts[value] ?? 0})));

@@ -30,6 +30,11 @@ export interface PagedState<T, Item> extends ReadState<T> {
     readonly items: readonly Item[];
     /** 后面还有页。 */
     readonly more: boolean;
+    /**
+     * 外部列表：已读到的各页（按先后，`data` 是最后一页）。每页随带、只管这一页的东西（例如名字表）要合起来用，不能只看最后
+     * 一页；世界的列表没有这一项。
+     */
+    readonly pages?: readonly T[];
 }
 
 /** 写入方法：输入都带请求 id（`publish` 的在 `request` 里）。 */

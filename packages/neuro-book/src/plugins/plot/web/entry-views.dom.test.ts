@@ -151,6 +151,26 @@ describe("人物页", () => {
     });
 });
 
+describe("经历翻页", () => {
+    it("一页 50 条，再显示更早的接着读；翻过页以后前一页里同时在场的人仍写名字（各页的名字表合起来）", async () => {
+        const {ids, open} = await setup();
+        const other = await venue!.window("more");
+        // 51 条星瑕在场的变更：最早一条另有星瑾在场，其余是彗。第一页（最新的 50 条）只用到彗的名字；第二页是那一条与第 1 章的早餐，
+        // 只用到星瑾的。
+        const puts = Array.from({length: 51}, (_, index) => ({ref: {kind: "change" as const, id: `tmp:e${String(index)}`}, after: drafts.change(`tmp:e${String(index)}`, {kind: "chapter", chapter: "2", key: 100 + index}, {text: `第 ${String(index + 1)} 件事`, cast: [present(ids["tmp:xia"]!), present(index === 0 ? ids["tmp:jin"]! : ids["tmp:hui"]!)]})}));
+        await publish(other.canon, puts);
+        const wrapper = open(ids["tmp:xia"]!);
+        await waitUntil("分页出来", () => tabNames(wrapper).includes("经历"), {timeoutMs: 10_000});
+        await pick(wrapper, "经历");
+        await waitUntil("第一页", () => wrapper.findAll("[data-experience-item]").length === 50, {timeoutMs: 10_000});
+        expect(wrapper.find("[data-experience-item]").text()).toContain("同时在场：彗");
+        await wrapper.findAll("button").find((button) => button.text() === "再显示更早的")!.trigger("click");
+        await waitUntil("第二页", () => wrapper.findAll("[data-experience-item]").length === 52);
+        expect(wrapper.find("[data-experience-item]").text()).toContain("同时在场：彗");
+        expect(wrapper.findAll("[data-experience-item]").at(-1)!.text()).toContain("同时在场：星瑾");
+    });
+});
+
 describe("秘密页", () => {
     it("谁知道：保密档、有行的人、其余人数、读者、和它有关的态度；下面一节是通用字段", async () => {
         const {ids, open} = await setup();

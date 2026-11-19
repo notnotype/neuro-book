@@ -90,7 +90,7 @@ const cell = (row: SecretRow, person: string): {readonly degree: string; readonl
                     <Badge size="sm">{{ secrecyLabel(row.secrecy, text) }}</Badge>
                 </div>
                 <p class="mt-1 text-[var(--text-secondary)]">
-                    <span v-for="person in props.people" :key="person" class="mr-3">{{ text("fmt.labeled", {label: nameOf(person), value: cell(row, person).degree}) }}</span>
+                    <span v-for="person in props.people" :key="person" class="mr-3">{{ text("fmt.labeled", {label: nameOf(person), value: cell(row, person).belief === null ? cell(row, person).degree : text("fmt.withNote", {text: cell(row, person).degree, note: cell(row, person).belief ?? ""})}) }}</span>
                 </p>
                 <p class="text-[var(--text-secondary)]">{{ text("fmt.labeled", {label: text("secrets.columns.others"), value: others(row)}) }}</p>
                 <p class="text-[var(--text-secondary)]">{{ text("fmt.labeled", {label: text("secrets.columns.reader"), value: reader(row)}) }}</p>

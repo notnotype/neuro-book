@@ -399,16 +399,18 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
         }
         const state = shallowRef<PagedState<P, Item>>({data: undefined, error: null, loading: true, stale: true, items: [], more: false});
         const page = (cursor: string | undefined) => settled(() => fetchPage(cursor, limit));
-        const walk = async (want: number): Promise<CanonResult<{last: P; items: Item[]}>> => {
+        const walk = async (want: number): Promise<CanonResult<{last: P; items: Item[]; pages: P[]}>> => {
             let last: P | null = null;
             const items: Item[] = [];
+            const pages: P[] = [];
             for (;;) {
                 const result = await page(last?.cursor);
                 if (!result.ok) return result;
                 if (last !== null && last.inputDigest !== result.value.inputDigest) return {ok: false, failure: {code: "cursor-stale"}};
                 last = result.value;
+                pages.push(result.value);
                 items.push(...(result.value.items as readonly Item[]));
-                if (result.value.cursor === undefined || items.length >= want) return {ok: true, value: {last, items}};
+                if (result.value.cursor === undefined || items.length >= want) return {ok: true, value: {last, items, pages}};
             }
         };
         const fromStart = async (): Promise<() => void> => {
@@ -417,7 +419,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             if (!result.ok && result.failure.code === "cursor-stale") result = await walk(want);
             return () => {
                 if (result.ok) {
-                    state.value = {data: result.value.last, error: null, loading: false, stale: slot.generation < generation, items: result.value.items, more: result.value.last.cursor !== undefined};
+                    state.value = {data: result.value.last, error: null, loading: false, stale: slot.generation < generation, items: result.value.items, more: result.value.last.cursor !== undefined, pages: result.value.pages};
                     behind(slot, result.value.last);
                 } else {
                     state.value = {...state.value, error: result.failure, loading: false};
@@ -443,7 +445,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
                 try {
                     const result = await page(cursor);
                     if (result.ok && result.value.inputDigest === state.value.data?.inputDigest) {
-                        state.value = {...state.value, data: result.value, error: null, loading: false, items: [...state.value.items, ...(result.value.items as readonly Item[])], more: result.value.cursor !== undefined};
+                        state.value = {...state.value, data: result.value, error: null, loading: false, items: [...state.value.items, ...(result.value.items as readonly Item[])], more: result.value.cursor !== undefined, pages: [...(state.value.pages ?? []), result.value]};
                     } else if (result.ok || result.failure.code === "cursor-stale") {
                         const commit = await fromStart();
                         slot.generation = generation;

@@ -12,6 +12,7 @@ import type {CanonReads} from "nbook/plugins/canon/shared/reads";
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
 import {chapterIndex} from "../labels";
 import type {GoalsPageState} from "../pages";
+import {pagedNames} from "../page-shell";
 import {usePlotText} from "../text";
 import GoalGroup from "./GoalGroup.vue";
 import ReadFailure from "./ReadFailure.vue";
@@ -37,7 +38,7 @@ const list = props.reads.useExternalList<{readonly position: NonNullable<typeof 
     50,
 );
 const data = computed(() => list.state.value?.data);
-const names = computed(() => data.value?.names ?? {});
+const names = computed(() => pagedNames(list.state.value));
 const nameOf = (id: string): string => names.value[id]?.name ?? id;
 const ALL = "all";
 const holders = computed(() => [{value: ALL, label: text("goals.all")}, ...(list.state.value?.items ?? []).map((group) => ({value: group.holder, label: nameOf(group.holder)}))]);
