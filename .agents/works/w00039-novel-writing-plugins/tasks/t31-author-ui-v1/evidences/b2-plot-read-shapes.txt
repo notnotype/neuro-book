@@ -1,0 +1,36 @@
+t31 第二批：剧情插件读取方法的实际返回形状（2026-11-19）
+
+整理：Explore 子代理（Claude Haiku）按 master 的代码追到 core/ 与 backend/ 的实现；主会话抽查了 plotInstructionsContract（只有 put、current）、BeforeWritingLine（core/before-writing.ts:14）与 SecretRow（core/checks/ledgers.ts:19），与下文一致。文件:行以 2026-11-19 的 master 为准。
+
+通用
+- 分页（world）：输入 cursor?、limit?（1..500，缺省 50）；输出 {version, inputDigest, ...额外, items, cursor?}，没有 cursor 是最后一页；编码超预算时服务端条数减半重取，单条装不下回 too-large（backend/plugin.ts:62-72 pagedList）。checks 的分页 limit 1..200。
+- 失败：{ok:false, code:"plot", detail:{code}}；常见 chapter-not-found、line-not-found、not-found、view-denied、too-large、cursor-stale、storage-unavailable。
+- 缺省位置（plugin.ts:75-78）：最后一章末尾（actual），没有章时 initial。没有位置参数的读取读快照的主线。
+
+world 合同（shared/contracts.ts，实现 backend/plugin.ts）
+- knowing（124-133）：输入 person、point?、position?（可带 line）、mode?、分页。items 是 KnowingRow：point；程度 knows|misbelieves|suspects|unaware|forgot|null；他以为的?；怎么知道?；谁告诉的?；备注?；source explicit|present|secretGoal；change?（让这一行成为现在这样的变更 id）。core/knowledge.ts:23-34。
+- experience（134-142）：输入 person、position?（可带 line）、mode?、分页。输出 {uncast（没记 cast 的已写变更条数）, items: StoryChange[]（整条）}。
+- conflicts（143-152）：输入 goal、position?、mode?；输出 {conflicts: [{id, writtenOn: this|other|both}]}；目标不在该位置回 not-found。
+- reader（153）：输入 point、at（讲述位置，不带线）；输出 {degree, first: {suspects?, knows?: {telling, chapter, paragraph}}}。读主线。
+- ledger（154-160）：输入 position?（可带 line）、mode?、filter?{stage, importance, intent, from, to}、分页。LedgerItem（core/foreshadowing.ts:530）：{id, name, kind, importance, intent, stage, dropped, nodes: [{role: plant|echo|mislead|partial|payoff, chapter, paragraph, telling, source: node|reveal|inherited, note?}], planned: [{role, chapter, plan, note?}], lastMentioned, objects: [{id, lastChange?}]}。
+- goals（161-168）：输入 position?（可带 line）、mode?、filter?{holder?, status?}、分页。GoalTableRow（core/goals.ts:100）：{holder, goals: [GoalRead & {conflicts}], attitudes: [{object, 态度, 起因, 称呼}]}；GoalRead：{id, holder, name, 状态, 轻重, 层次, 为什么, 基于[], 冲突[], 后继, 隐秘}。没有“最近一次动过”。
+- decisionsFor（169-179）：输入 chapter、mode?、分页；按这一章讲的每条线（计划模式）。items：DecisionRead & {line}，DecisionRead（core/decisions.ts:13）：{id, text, status, conclusion, reason, constraints[], due, about, guards: [{mark, unchecked?}]}；已定的在前。
+- beforeWriting（180-183；core/before-writing.ts）：输入 chapter；对这一章讲的每条线各一份 {line, overdue: 决策 id[], premiseChanged: Finding[], guards: Finding[]}。不含故事时间的对不上。
+- brief（184-187；core/brief/index.ts）：输入 chapter、outline、targetWords、limits?；读主线。输出 {version, text, common, parts, hints, record: {inputDigest, instructionVersion, outlineDigest, targetWords, previousDigest, pluginVersion, omitted}}。
+- openViewpoint 一族：until 可带 line，另有字符串 line 优先；viewpointExperience 的 ExperienceItem（core/viewpoint.ts:34）：{id, at, text, cast, knowing, remembered?}。
+
+checks 合同（shared/checks.ts，实现 backend/plugin.ts:293-349）
+- putSelfReport（写）：输出 {dataVersion}。没有读自陈的方法。
+- run（写）：输出 {chapter, calls, unasked, incomplete, usage}；失败 detail {code, kind?, resolution?, usage}。cancel（写）。status（读，只在内存）：{running, lastFailure}。
+- record（读，读主线）：{status: none|valid|stale, record: CheckRecord|null}。
+- secretLedger（读，分页，position 可带 line）：SecretRow：{point, name, secrecy, knows[], misbelieves: [{person, thinks}], suspects[], reader: firstReveal 的结果}。没有主体、没有揭示计划与决策。
+- readerKnown（读，分页，最新章末尾、主线）：[{point, name, degree}]。
+- revealDependencies（读，最新章末尾、主线）：{plans: [{plan, chapter, mode}], foreshadows: [{foreshadow, name, nodes}], decisions: string[], instructions: 章 id[]}。
+- CheckRecord（shared/checks.ts:110）：chapter、worldVersion、textDigest、pluginVersion、segments[{id, line, from, to}]、followUps、calls[CallRecord]、rules[{item, text, segment?, decision?}]、trials[{point, truth, materialKind, material}]、newFacts[{kind: knowing|invention, text, name?, quotes, segment, line}]、unasked、unlisted、uncast、incomplete、noSuspense、noReaderQuestion、usage。CallRecord：{id, layer, role, question, digest, answer（形状按层）, usage, reused?, segment?, point?, person?, personName?, object?, foreshadows?, contradicts?, badQuotes?}。试读的答案在 layer=reader 的 call（{guess, confidence, quotes}），判一致在 layer=judge 的 call。记录里不存自陈与写作指示快照。
+
+instructions 合同（shared/instructions.ts）：只有 put（按章替换，带 base 防覆盖）与 current（只回数据版本）；没有按章读快照的方法。
+
+没找到的
+- 按章读写作指示快照；读写手自陈。
+- 故事时间对不上的诊断进开写前的视图（beforeWriting 不含）。
+- reader、record、readerKnown、revealDependencies、brief 都只读主线或章讲的线，不收线参数。

@@ -79,7 +79,7 @@ owners:
    - 决策的两项（`nbook.plot.decision.constraintViolated`、`nbook.plot.decision.decidedInText`）在 [`plot.decisions`](decisions.md) 里，读同一份记录。
    同一个键的几条合成一条，合并项进 `params`。只提示的：`nbook.plot.check.unasked`（未问、未列、没记 `cast` 的条数）、`nbook.plot.check.noSuspense`、`nbook.plot.check.badQuote`、`nbook.plot.check.stale`。作者对这些诊断的处理按内核的规则落成决策、绑定诊断的版本（[`canon.model`](../canon/model.md) 输出 35）。
 9. **账本视图。** 读取：
-   - 保密账本：每个保密以上的知识点，在给定的线与位置上谁知道、谁误信、谁怀疑，读者从哪一段起怀疑、知道；
+   - 保密账本：每个保密以上的知识点，在给定的线与位置上谁知道、谁误信、谁怀疑，读者从哪一段起怀疑、知道。每行另带主体（知识点在条目树里的父条目，根下为空）与打算怎么揭：这条线上指向它的揭示计划（计划、章、明说或暗示、兑现了没有）、挂在它上面的决策（状态、结论、到期章）（planned）；
    - 读者现在知道什么：最新一章末尾读者的程度不是 `unaware` 的知识点；
    - 改揭晓章的依赖：对知识点 K，哪些计划带指向 K 的揭示、哪些悬念以 K 为答案（连同它们的节点）、哪些决策挂在 K 上（含读者守卫）、哪些章的写作指示快照的文字里出现了 K 的名字。
 10. **费用的记录。** 一次检查记下模型调用的次数（窄问题、固定的一次、试读、判一致）与用量，回执读这一份。
