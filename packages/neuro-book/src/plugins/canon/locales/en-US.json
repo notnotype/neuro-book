@@ -514,5 +514,19 @@
         "main": "Main line",
         "followNow": "Follow each chapter (now: {{line}})",
         "label": "World line"
+    },
+    "entryPicker": {
+        "placeholder": "Find an entry",
+        "searching": "Searching…",
+        "empty": "No matching entries",
+        "failed": "Search failed: {{reason}}",
+        "create": "New “{{name}}”",
+        "excluded": "Not available"
+    },
+    "imageInput": {
+        "path": "Image path",
+        "pathPlaceholder": "Path inside the project, e.g. images/star.png",
+        "caption": "Caption",
+        "badPath": "Use a path relative to the project: no scheme, no leading /, no .., not under .nbook"
     }
 }

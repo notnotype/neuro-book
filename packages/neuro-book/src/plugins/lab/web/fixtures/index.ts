@@ -14,6 +14,8 @@ import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
 import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
 import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
 import type LineSelect from "nbook/plugins/canon/web/components/LineSelect.vue";
+import type EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue";
+import type ImageInput from "nbook/plugins/canon/web/components/ImageInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
@@ -1815,6 +1817,8 @@ function canonEntryPageFixtures() {
     const positions = [{value: "initial", label: "初值"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}, {value: "2:start", label: "第 2 章开头"}, {value: "2:end", label: "第 2 章末尾"}];
     const tabs = [{value: "text", label: "文字"}, {value: "data:character", label: "人物"}, {value: "data:panel", label: "面板"}, {value: "plot", label: "情节", count: 4}];
     const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, positions, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
+    /** 条目选择器的场景只给占位的查找状态：夹具自己当宿主，按真实的去抖查找换掉它（`EntryPickerFixture.vue`）。 */
+    const IDLE = {kind: "idle"} as const;
     const lineOptions = [{id: "main", name: null, depth: 0}, {id: "l1", name: "重来的那个晚上", depth: 1}, {id: "l2", name: "梦里的那一天", depth: 2}];
     return [
         defineLabFixture<typeof LineSelect>({
@@ -1825,6 +1829,29 @@ function canonEntryPageFixtures() {
                 {id: "follow-english", label: "英文界面", input: {props: {options: lineOptions, resolved: "l2"}, model: {line: ""}}},
             ],
             load: async () => (await import("./LineSelectFixture.vue")).default,
+        }),
+        defineLabFixture<typeof EntryPicker>({
+            component: "EntryPicker",
+            scenes: [
+                {id: "empty", label: "没选：点开列出条目，打“小瑕”按别名找到星瑕", input: {props: {results: IDLE}, model: {modelValue: null}}},
+                {id: "picked", label: "选了一个（当前值不在这一批结果里时显示给的名字）", input: {props: {results: IDLE, selectedName: "星瑕"}, model: {modelValue: "e1"}}},
+                {id: "exclude", label: "已在列表里的灰掉", input: {props: {results: IDLE, exclude: ["e1", "e2"], excludeReason: "已在列表里"}, model: {modelValue: null}}},
+                {id: "create", label: "可以就地新建知识点：打一个没有的名字", input: {props: {results: IDLE, createKind: "知识点"}, model: {modelValue: null}}},
+                {id: "failed", label: "查找失败", input: {props: {results: IDLE}, model: {modelValue: null}}},
+                {id: "picked-english", label: "英文界面", input: {props: {results: IDLE, selectedName: "星瑕", createKind: "知识点"}, model: {modelValue: "e1"}}},
+            ],
+            load: async () => (await import("./EntryPickerFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ImageInput>({
+            component: "ImageInput",
+            scenes: [
+                {id: "empty", label: "未知", input: {props: {}, model: {modelValue: null}}},
+                {id: "filled", label: "填了路径与说明", input: {props: {}, model: {modelValue: {图片: "图片/星瑕.png", 说明: "银白长发"}}}},
+                {id: "bad-path", label: "路径不合规则", input: {props: {}, model: {modelValue: {图片: "../外面/星瑕.png", 说明: ""}}}},
+                {id: "problem", label: "服务退回的原因", input: {props: {problem: "这个作品里没有这个文件"}, model: {modelValue: {图片: "图片/没有.png", 说明: ""}}}},
+                {id: "bad-path-english", label: "英文界面", input: {props: {}, model: {modelValue: {图片: "/abs/star.png", 说明: "silver hair"}}}},
+            ],
+            load: async () => (await import("./ImageInputFixture.vue")).default,
         }),
         defineLabFixture<typeof OriginList>({
             component: "OriginList",
