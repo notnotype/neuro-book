@@ -1,0 +1,136 @@
+# w00026 t41 实现审查
+
+审查对象是 a3f22d7b2，对照 BASE af2fc9b85。实验文件在 `exp/`：`vitest.exp.config.ts` 把根指向实现 worktree 的 `nb-layout`，`probe*.exp.test.ts` 是探针，`probe*.out` 是输出。
+
+自跑结果：
+- `dev-checks.dom.test.ts` 7 条通过，`exports.test.ts` 6 条通过。
+- `architecture` 的那一条失败是 `plot/labels` 跨插件导入，base 上就有，与本 Task 无关。
+
+## 发现
+
+### 1. 提交处理“接错”只认返回 `undefined`，其余形态都没有警告
+**严重程度**：重要　**类别**：漏报　**位置**：`packages/nb-layout/src/vue/NestedGrid.vue:533-538`（`outcome === undefined` 才调 `warnMissingHandler`）
+
+**现象**：
+- 提交处理是 `async` 函数（返回 Promise）、返回 `true` 或返回 `{}` 时，拖完照样回滚，`console.warn` 零条。
+- 实验 E7：这三种返回值 warnings 都是 0。
+  - `issues` 里分别是 `[object Promise]`、`true`、`[object Object]`，非 GridFailure 的东西被原样交给 `onIssues`。
+  - 返回 `null` 时报 `handler-threw`。
+- 宿主整包绑定 `v-bind="host.bindings.value"` 后又写 `@gesture-commit="x"`：
+  - 模板编译成 `mergeProps({onGestureCommit: x}, bindings)`（E1 的编译产物），`onGestureCommit` 这个 prop 变成数组。
+  - E13：`issues` 是 `handler-threw: props.onGestureCommit is not a function`，nb-layout 的警告零条，只有 Vue 自己的 prop 类型警告。
+
+**为什么是问题**：Spec 输出 151 要抓的是“没接对提交处理，拖完静默回滚”。把事件写法接进来最常见的两种形态是 `@gesture-commit="async (c) => …"`，以及按事件写个返回 void 的函数后又顺手加了 bindings。前者返回 Promise，后者是数组。现在只覆盖了“返回值恰好是 undefined”。
+
+**如何核实**：`exp/probe2.exp.test.ts` 的 E7、`exp/probe4.exp.test.ts` 的 E13，输出在 `probe2.out`、`probe4.out`。
+
+**建议改法**：
+- 判据从 `=== undefined` 放宽到“不是 `{ok: boolean}` 形状”：`typeof outcome !== "object" || outcome === null || typeof outcome.ok !== "boolean"` 就警告，消息写出返回值的类型。
+- 在 `onCommit` 开头对 `typeof props.onGestureCommit !== "function"` 的非空情形（数组）警告一次，别等它在 `props.onGestureCommit?.(commit)` 抛出。
+- 两种仍用各自的 `kind`。
+
+### 2. `NestedGrid.md` 与警告文案对 `@gesture-commit` 的描述与实际不符
+**严重程度**：重要　**类别**：文档误导　**位置**：`packages/nb-layout/src/vue/NestedGrid.md:91`；`packages/nb-layout/src/vue/NestedGrid.vue:607`
+
+**现象**：
+- 文档写“写成 `@gesture-commit` 不会被调用，拖完照样回滚”，警告文案写“(@gesture-commit does not work)”。
+- `onGestureCommit` 是已声明的 prop、不在 `emits` 里，`@gesture-commit="f"` 编译成 `onGestureCommit: f`，`f` 会被调用。
+- E2：裸 `NestedGrid` 上把返回 void 的函数当 `@gesture-commit` 用，处理函数被调用 1 次，随后因返回 undefined 回滚。
+- 整包绑定时见第 1 条：数组，抛 TypeError，`f` 根本没被调到。
+
+**为什么是问题**：照文档排查的人会以为处理函数没跑到。实际上里面存盘、改状态的副作用已经执行，只是网格回滚，文档反而指错方向。
+
+**如何核实**：`probe.out` 的 E1（编译产物 `onGestureCommit: _ctx.save`）与 E2（`handler calls: 1`）。
+
+**建议改法**：
+- 文档改成“提交处理是属性，要返回 `{ok: true}` 或失败对象；写成 `@gesture-commit` 时处理函数会被当作这个属性调用，返回 void 就回滚；整包绑定时还会与 `bindings` 里的那个合成数组而失败”。
+- 警告文案去掉 “does not work”，改成“returned undefined; it must return {ok: true} or a failure (an event-style handler that returns nothing causes this)”。
+
+### 3. 开关晚于挂载打开时，已挂上的网格漏报，直到下一次布局变化
+**严重程度**：建议　**类别**：边界与寿命　**位置**：`NestedGrid.vue:596-601`；`dev-checks.ts:29-32`
+
+**现象**：E3：关着开关挂载一个零分隔条、接了提交处理的网格，之后 `setLayoutDevChecks(true)`，`nextTick` 后警告 0 条；再换一次 `layout` 才出 1 条。侦听的来源是 `node/layout/disabled/onGestureCommit`，开关不是响应式依赖。
+
+**为什么是问题**：产品里 `main.ts` 在 `bootWindowUi` 之前打开，不触发。但 `setLayoutDevChecks` 是公开 API，在 mount 之后打开（异步初始化、HMR 重执行入口、Lab 里按钮切换）会静默漏掉最常见的一条，文档也没写“要在挂载前调”。
+
+**如何核实**：`probe.out` 的 E3。
+
+**建议改法**：倾向简单的一种：在 `setLayoutDevChecks` 的注释与 `NestedGrid.md` 里写明“在网格挂载之前调”。不想加限制，就让开关是响应式状态、侦听读它。不要为此再加机制。
+
+### 4. 公开的 `bindings` 多了 `onGestureStart`：展开顺序现在决定结果，Spec 输出 145 没同步
+**严重程度**：建议　**类别**：契约与兼容　**位置**：`useGridHost.ts:39、112`；`docs/specs/ui/nested-grid.md` 输出 145
+
+**现象**：
+- `GridHostBindings` 是 `vue/index.ts` 导出的公开类型。类型注释写“宿主另写 `@gesture-start` 不受影响”，这只对模板成立。
+  - E5：用 `mergeProps` 模拟模板，宿主与 bindings 两个处理函数都被调。键盘手势也发 `gesture-start`，各 1 次，零警告。
+  - 渲染函数或 JSX 宿主写 `{...bindings, onGestureStart: mine}` 时，`mine` 盖住包里的，开发检查对这个宿主静默失效。
+  - 写成 `{onGestureStart: mine, ...bindings}` 时，`mine` 被丢掉。以前 bundle 里没有这个键，两种写法无差别。
+- Spec 输出 145 逐项列出 bindings 的内容，没有补这一项。
+
+**为什么是问题**：这是为开发检查给公开 bundle 增加的成员。仓库内的宿主都是模板 `v-bind`，没问题，但对库的使用者是一处新的“展开顺序决定结果”。
+
+**如何核实**：`probe.out` 的 E5。E6 显示 `onGestureStart` 与 `onGestureCommit` 的引用在 `bindings` 重算后稳定，没有性能问题。
+
+**建议改法**：Spec 输出 145 的列表补上这一项。类型注释改成“模板里另写 `@gesture-start` 会合成数组；渲染函数里展开 bindings 时别用同名键覆盖或被覆盖”。设计不必改。
+
+### 5. 测试没有钉住第 2 稿最关键的设计，也没覆盖会让单侧判据变异存活的树
+**严重程度**：建议　**类别**：测试　**位置**：`dev-checks.dom.test.ts:304-329、371-394`
+
+**现象**：
+- 第 2 稿最大的改动，是把上下文与版本的检查从提交处挪到手势开始处。理由是手势期间换上下文或重发布局，`NestedGrid` 自己取消手势，到不了提交。没有用例覆盖它。
+  - “不误报”那条只在两次手势之间换上下文。
+  - E11：手势进行中换上下文再松手，警告 0 条，实现是对的。
+  - 但把检查改回提交处的变异，不会让现有 7 条中任何一条变红，“另写 context-key”用例在提交处同样能报出那条警告。
+- “挨着固定尺寸节点不算”只用了两叶 `[bar | editor]`。两叶里一个刚性、另一个必然也刚性，所以只检 `child` 或只检 `next` 的变异都不会红。
+  - 三叶的树才能区分：E12 的 `[A | bar | B]` 全零分隔条，实现返回 false，只检单侧的变异会返回 true。
+- 没有收起成标题行的面板的用例。E4 确认 `constraints` 对它给刚性范围（a: 28 到 28），实现是对的，只是没人钉住。
+- `sashSize` 为 0 只用裸 `NestedGrid` 测过。`useGridHost` 起步时 `disabled` 为真、布局为空，量到尺寸后才翻转，这条真实路径没有用例。E8 确认它工作：警告 1 条，换网格实例不再报。
+
+**为什么是问题**：README“实施记录”写“八个变异都会红”，但以上几类变异存活，下次有人改这几处时没有测试兜底。
+
+**如何核实**：`probe.out`（E4）、`probe2.out`（E8）、`probe3.out`（E11、E12）。
+
+**建议改法**：补四条：
+- 手势中换上下文无警告；
+- `[A | bar | B]` 与 `[A | B | bar]` 两棵树；
+- 收起成标题行的面板；
+- `useGridHost` 加缺省 `sashSize` 的真实路径。
+
+### 6. 小项
+**严重程度**：建议　**类别**：代码质量　**位置**：`NestedGrid.vue:596-609`；`dev-checks.ts:5-6、11-12`
+
+**现象**：
+- 已报过的网格每次布局变化（窗口拖动时每帧一次）仍会遍历整棵树，再被 `layoutDevWarning` 去重。只在开发模式、树小，影响很小。
+- `warnMissingHandler(absent: boolean)` 用布尔参数在两种消息里选，调用点只有一处，在调用点直接分两支更直白。
+- 缺省 `contextKey` 为空串时，消息变成 `grid ""`（E2、E8 的输出）。Spec 要求“警告里带 contextKey”，对不传 `contextKey` 的宿主认不出是哪个网格。
+- `dev-checks.ts` 头注释里的两条理由：
+  - “库模式构建会把它静态替换”，提案标着“凭记忆”，注释也标了。
+  - “发布产物里根入口与 ./vue 入口各带一份本模块”，对应今天不存在的发布产物（`package.json` 的 `exports` 直接指 `src`），这条没标推断。
+
+**为什么是问题**：都不影响正确性。
+
+**如何核实**：读代码；E2、E8 的输出看文案。
+
+**建议改法**：逐条处理，或按“窄场景选简单改法”不改。
+
+## 未发现问题的方面
+
+- **键盘手势**：`gesture-start` 在首个方向键按下时发，版本与上下文和指针一致，零警告（E5）。
+- **判据覆盖的树形**：
+  - 嵌套、收起成标题行、`sizing: "fixed"`（拖得动，判为可调，正确）、`[A|bar|B]`、`[A|B|bar]`，判据都符合预期。`layout.constraints` 在父分支循环里被改写成有效范围，收起成标题行的面板是 low 等于 high（E4、E12）。
+  - 浮动窗不在树里；最大化时手势本来就停用。
+- **监听合成**：宿主模板另写 `@gesture-start` 时两者都调；`bindings` 重算后处理函数引用稳定（E5、E6）。
+- **手势中换上下文**：警告 0 条（E11）。合成场景里“同一同步段先改上下文再按下”会误报（E11b）。真实浏览器里每个监听回调之后微任务会清空、Vue 已刷新，到不了，不算问题。
+- **“只报一次”的寿命**：
+  - `devOwner` 每个实例一个对象。`v-if` 摘掉再挂回会重报（E9，计划已接受），换网格实例不重报（E8）。
+  - 全局符号上的 `reported` 是 `WeakMap`，键是每个实例的对象，测试之间与热更新之间不残留。`enabled` 在 `afterEach` 复位，HMR 重执行 `dev-checks.ts` 时状态保留。
+- **`console.warn` 桩**：会接住 Vue 的警告，所以“不误报”那条 `toEqual([])` 对 Vue 警告也敏感。带 `filter` 的用例不会因无关警告变红，可以接受。
+- **应用打开的位置**：
+  - `bootWindowUi` 在 `packages` 里只出现在 `web/main.ts`、`web/testing/e2e-main.ts`、`web/boot.ts`。
+  - `main.ts` 只在 `import.meta.env.DEV` 的分支里动态加载 `development-plugins.ts`，architecture 测试限定了它的加载点。
+  - e2e 外壳是生产构建，不打开。`dev-panel` 与 `nb-story` 不用 nb-layout 的网格。
+- **只读网格加缺省 `sashSize`**：没传提交处理、分隔条全 0 时没有任何警告（E10）。这是计划写明的取舍（只读网格 `sashSize` 为 0 合法），不当作问题。
+
+数量：阻断 0，重要 2，建议 4。
+
+有效发现：1, 2, 3, 4, 5, 6

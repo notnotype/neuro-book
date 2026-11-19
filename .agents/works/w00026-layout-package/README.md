@@ -61,6 +61,14 @@ updated: 2026-11-05
 
 下一个是 [t41](tasks/t41-config-error-reporting/README.md)。
 
+2026-11-19：[t41](tasks/t41-config-error-reporting/README.md) 完成：
+- nb-layout 加了开发模式开关 `setLayoutDevChecks`（缺省关），应用在只于开发模式加载的模块里打开。
+- 打开后检查这些接线错误，每个网格每种警告一次：能拖的边界全是 0 宽；没接或接错提交处理；整包绑定后模板里另写了 `context-key` 或 `:revision`（在手势开始时核对）。
+- 合入 master（`5bb0dca27`，审查修正 `e3f183d36`，晋升补测 `3f52c9923`）。设计审查一轮（第 2 稿把检查挪到手势开始处）与实现审查都处理完，Spec 晋升前换模型逐句核过。
+- 开发服务里用临时探针走了工作台与 Lab 的网格，零警告。
+
+下一个是 [t42](tasks/t42-readme-starter/README.md)。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。

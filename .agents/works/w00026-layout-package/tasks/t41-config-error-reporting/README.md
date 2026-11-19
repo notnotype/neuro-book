@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t41-config-error-reporting
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -66,8 +66,34 @@ updated: 2026-11-19
 
 ## 实现审查
 
-待处理：Claude Sonnet，审查 worktree `review-t41-impl` 固定在 `a3f22d7b2`。
+Claude Sonnet（[`evidences/impl-review.txt`](evidences/impl-review.txt)，用探针在真实组件上验证）：6 条，阻断 0、重要 2、建议 4，都成立，修正提交 `e3f183d36`：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 提交处理接错只认返回 `undefined`：返回 Promise、`true`、`{}`，或整包绑定后又写 `@gesture-commit`（合成数组）都不警告 | 返回值不是 `{ok: …}` 形状、属性不是函数，各一条警告；Spec 输出 151 写明三种 |
+| 2 | 文档与警告说“`@gesture-commit` 不会被调用”，实际会被当作属性调用 | 改成实际行为：返回 void 就回滚，整包绑定时合成数组出错 |
+| 3 | 开关在挂载之后才开，已挂着的网格要到下一次布局变化才查 | 写明要在挂载之前开（开关注释与 `NestedGrid.md`），不加机制 |
+| 4 | `bindings` 多了 `onGestureStart`，Spec 输出 145 没同步；渲染函数里展开顺序会决定结果 | Spec 输出 145 补上；类型注释写明模板与渲染函数里各怎样 |
+| 5 | 几类变异会存活：检查挪回提交处、只看边界一侧、标题行、经 `useGridHost` 的真实路径 | 补四条：按下即松手（没有提交）也警告；固定节点在中间与末尾两棵树；标题行；经 `useGridHost` 的缺省 `sashSize`。新加的三个变异都会红 |
+| 6 | 小项：没给 `contextKey` 时消息认不出；头注释里“两份模块”是推断没标；布尔参数 | 消息写明没有 `contextKey`；注释标为推断；改成一个 `warnDev` 加三处直接调用；布局变化时的遍历只在开发模式、树小，不改 |
+
+## 合入
+
+2026-11-19：并入 master（只带进文档）后快进合入 master `5bb0dca27`，删掉 worktree `w00026-t41-dev-checks`、`review-t41-impl` 与分支。
+
+## Spec 晋升
+
+2026-11-19：`ui/nested-grid` 输出 151 晋升 implemented；输出 145 的整包内容补上接 `gesture-start` 的处理；输出 151 的提交处理一条按实现审查第 1 条写成三种。
+
+逐句核对（Claude Sonnet，[`evidences/promotion-check.txt`](evidences/promotion-check.txt)）：一句没有断言（缺省关），六句只有部分。都补了用例（`3f52c9923`，两处变异会红），Spec 不改：
+
+- 缺省关；
+- 每种第二次不再报；
+- 警告带 `contextKey` 的值与没给时的说法；
+- 开关开与关时 `issues` 完全相同；
+- 能拖的边界里有一条不是 0 宽时不报；
+- 每个场景只出自己那一种。
 
 ## 下一步
 
-1. 处理实现审查；合入；晋升。
+无。
