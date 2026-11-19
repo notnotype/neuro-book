@@ -441,11 +441,23 @@ watch(() => (moveMenu.value === null ? null : viewIdentity(moveMenu.value.viewId
     if (moveMenu.value !== null && identity !== moveMenu.value.identity) moveMenu.value = null;
 });
 
-/** 键盘关掉或选完之后，焦点回到打开它的标签（选完时标签可能已经在别的面板）；标签不在界面上时回活动栏里它那个容器的入口。点到外面时焦点归点到的地方。 */
+/** 视图的“移动到”里选的是容器的“移到”时记下那个容器：菜单先跑选中项的动作、再请求关闭，关闭时焦点按容器的规则走（`focusContainer`）。 */
+let movedContainer: string | null = null;
+
+/**
+ * 键盘关掉或选完之后，焦点回到打开它的标签（选完时标签可能已经在别的面板）；标签不在界面上时回活动栏里它那个容器的入口。
+ * 选的是容器的“移到”时去这个容器在新区域里的入口（输出 44）。点到外面时焦点归点到的地方。
+ */
 function closeMoveMenu(reason: ContextMenuCloseReason): void {
     const opened = moveMenu.value;
+    const moved = movedContainer;
     moveMenu.value = null;
+    movedContainer = null;
     if (opened === null || reason === "outside") return;
+    if (moved !== null) {
+        focusContainer(moved);
+        return;
+    }
     void nextTick(() => {
         const root = hostEl.value;
         (root?.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(opened.viewId))}"]`) ?? root?.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(viewSection(doc.value, opened.viewId)?.container ?? "")}"]`))?.focus({preventScroll: true});
@@ -467,7 +479,14 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     const alone = home !== null && isFloating(doc.value, home) && doc.value.panels[home]?.tabs.length === 1;
     const float: ContextMenuItem[] = catalog.value.get(opened.viewId)?.floatable === false || alone ? [] : [{label: message("commands.nbook.view.float.title"), action: () => run(FLOAT_COMMAND, {tab: viewKey(opened.viewId)})}];
     // 入口代表的容器只有这一节（并成一行，输出 47）：它的“重置”就是视图的“重置位置”，只接“移到”。
-    const container = opened.container === null ? [] : containerMoveItemsOf(opened.container);
+    const {container: owner} = opened;
+    const container = owner === null ? [] : containerMoveItemsOf(owner).map((item): ContextMenuItem => ({
+        ...item,
+        action: () => {
+            movedContainer = owner;
+            item.action?.();
+        },
+    }));
     const sections = [into, fresh, float, reset, container].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{separator: true}, ...section]));
 });
@@ -608,17 +627,22 @@ watch(() => containerMenu.value !== null && containerMenuItems.value.length === 
     if (stale) containerMenu.value = null;
 });
 
-/** 键盘关掉或选完之后，焦点回到这个容器的入口（搬走了就是新区域里的那一个）；入口够不着（例如活动栏隐藏）时去它第一个分节的标题。点到外面时焦点归点到的地方。 */
+/** 键盘关掉或选完之后，焦点回到这个容器的入口。点到外面时焦点归点到的地方。 */
 function closeContainerMenu(reason: ContextMenuCloseReason): void {
     const opened = containerMenu.value;
     containerMenu.value = null;
     if (opened === null || reason === "outside") return;
+    focusContainer(opened.container);
+}
+
+/** 焦点去这个容器的入口（搬走了就是新区域里的那一个）；入口够不着（例如活动栏隐藏）时去它第一个分节的标题。等这一轮渲染做完：搬走的入口这时才在新区域里。 */
+function focusContainer(container: string): void {
     void nextTick(() => {
         const root = hostEl.value;
         if (root === null) return;
-        const region = containerRegion(doc.value, opened.container);
-        const first = region === null ? undefined : regionContainers(doc.value, region).find((container) => container.id === opened.container)?.sections[0];
-        const candidates = [landingElement(root, {kind: "entry", container: opened.container}), first === undefined ? null : landingElement(root, {kind: "tab", panel: first})];
+        const region = containerRegion(doc.value, container);
+        const first = region === null ? undefined : regionContainers(doc.value, region).find((item) => item.id === container)?.sections[0];
+        const candidates = [landingElement(root, {kind: "entry", container}), first === undefined ? null : landingElement(root, {kind: "tab", panel: first})];
         candidates.find(reachable)?.focus({preventScroll: true});
     });
 }

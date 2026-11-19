@@ -751,27 +751,27 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect.poll(async () => (await saved(page))?.doc.panels.panel?.activeContainer).toBe(`view:${A}`);
         expect((await saved(page))?.doc.panels.panel?.hidden).toBeUndefined();
 
-        // 它只有一节，并进了入口条：右键入口开视图的“移动到”，末尾接上容器的“移到”。
+        // 它只有一节，并进了入口条：右键入口开视图的“移动到”，末尾接上容器的“移到”。选“移到右栏”：整个容器过去，焦点去它在右栏入口条上的入口。
+        const auxEntry = (viewId: string) => page.locator(`[data-region-strip="auxiliarybar"] [data-region-entry="view:${viewId}"]`);
         await panelEntry(A).click({button: "right"});
         await expect(page.getByRole("menuitem", {name: "新容器（侧栏）", exact: true})).toBeVisible();
         await expect(page.getByRole("menuitem", {name: "移到侧栏", exact: true})).toBeVisible();
-        await expect(page.getByRole("menuitem", {name: "移到右栏", exact: true})).toBeVisible();
-        await page.keyboard.press("Escape");
+        await page.getByRole("menuitem", {name: "移到右栏", exact: true}).click();
         await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect.poll(() => instanceOf(page, A)).toMatchObject({location: "auxiliarybar"});
+        await expect(auxEntry(A)).toBeFocused();
+        await expect.poll(async () => (await saved(page))?.doc.panels[await panelOfTab(page, A)]?.container).toBe(`view:${A}`);
 
-        // 再搬进一个（乙），它排在甲后面、成了当前；甲不是当前了，右键它开容器的菜单。甲回侧栏再来一次：这回入口顺序里已经有它，要挪到乙后面。
+        // 再搬进一个（乙），成了当前。甲从右栏回底部面板：入口顺序里已经有它（上一回留下的、在乙前面），要挪到乙后面。
         await toolEntry(page, B).click({button: "right"});
         await page.getByRole("menuitem", {name: "移到底部面板", exact: true}).click();
         await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "panel"});
         await expect(panelEntry(B)).toBeFocused();
-        await panelEntry(A).click({button: "right"});
-        await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["移到侧栏", "移到右栏", "重置"]);
-        await page.getByRole("menuitem", {name: "移到侧栏", exact: true}).click();
-        await expect.poll(() => instanceOf(page, A)).toMatchObject({location: "sidebar"});
-        await expect(toolEntry(page, A)).toBeFocused();
-        await toolEntry(page, A).click({button: "right"});
+        await auxEntry(A).click({button: "right"});
+        await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["移到侧栏", "移到底部面板", "重置"]);
         await page.getByRole("menuitem", {name: "移到底部面板", exact: true}).click();
         await expect.poll(() => instanceOf(page, A)).toMatchObject({location: "panel"});
+        await expect(panelEntry(A)).toBeFocused();
         await expect.poll(async () => {
             const entries = (await saved(page))?.doc.panels.panel?.entries ?? [];
             return {last: entries.at(-1), bBeforeA: entries.indexOf(`view:${B}`) < entries.indexOf(`view:${A}`), once: entries.filter((id) => id === `view:${A}`).length};
