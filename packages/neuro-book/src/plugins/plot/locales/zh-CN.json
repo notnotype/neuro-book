@@ -188,5 +188,53 @@
         "expand": "展开{{name}}",
         "empty": "还没有主要角色",
         "noGoals": "还没有目标与态度"
+    },
+    "attitudes": {
+        "title": "态度",
+        "object": "对象",
+        "attitude": "态度",
+        "cause": "起因",
+        "address": "称呼"
+    },
+    "knowing": {
+        "secrets": "保密的事",
+        "others": "别的事",
+        "fields": "字段",
+        "how": {
+            "witnessed": "当时在场",
+            "read": "读到的",
+            "inferred": "推断的",
+            "other": "别的途径"
+        },
+        "toldBy": "听{{name}}说",
+        "origin": {
+            "initial": "初值",
+            "goal": "目标出场时",
+            "carried": "从{{line}}带过来"
+        },
+        "mainLine": "主线",
+        "empty": "还没有知情"
+    },
+    "point": {
+        "roles": "角色",
+        "reader": "读者",
+        "related": "和它有关的",
+        "restUnaware": "别的 {{count}} 个人都不知道",
+        "restNoRecord": "别的 {{count}} 个人没有记录",
+        "moreRows": "还有 {{count}} 项",
+        "readerFrom": "从{{place}}起：{{excerpt}}",
+        "decision": "决定",
+        "guard": "读者守卫",
+        "foreshadow": "伏笔",
+        "attitude": "态度",
+        "goal": "目标",
+        "attitudeFrom": "{{holder}}对{{object}}的态度是从它来的"
+    },
+    "experience": {
+        "remembered": "记得原线上的",
+        "uncast": "还有 {{count}} 条没记谁在场",
+        "with": "同时在场：{{names}}",
+        "earlier": "再显示更早的",
+        "empty": "还没有经历"
     }
 }

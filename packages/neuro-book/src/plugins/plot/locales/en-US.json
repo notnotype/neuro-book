@@ -188,5 +188,53 @@
         "expand": "Expand {{name}}",
         "empty": "No main characters yet",
         "noGoals": "No goals or attitudes yet"
+    },
+    "attitudes": {
+        "title": "Attitudes",
+        "object": "Toward",
+        "attitude": "Attitude",
+        "cause": "Because of",
+        "address": "Calls them"
+    },
+    "knowing": {
+        "secrets": "Secrets",
+        "others": "Other things",
+        "fields": "Fields",
+        "how": {
+            "witnessed": "Was there",
+            "read": "Read it",
+            "inferred": "Inferred",
+            "other": "Other means"
+        },
+        "toldBy": "Told by {{name}}",
+        "origin": {
+            "initial": "Initial value",
+            "goal": "When the goal appeared",
+            "carried": "Carried over from {{line}}"
+        },
+        "mainLine": "the main line",
+        "empty": "Knows nothing recorded yet"
+    },
+    "point": {
+        "roles": "Characters",
+        "reader": "Reader",
+        "related": "Related",
+        "restUnaware": "The other {{count}} people don't know",
+        "restNoRecord": "No record for the other {{count}} people",
+        "moreRows": "{{count}} more",
+        "readerFrom": "Since {{place}}: {{excerpt}}",
+        "decision": "Decision",
+        "guard": "Reader guard",
+        "foreshadow": "Foreshadowing",
+        "attitude": "Attitude",
+        "goal": "Goal",
+        "attitudeFrom": "{{holder}}'s attitude toward {{object}} comes from it"
+    },
+    "experience": {
+        "remembered": "Remembered from the original line",
+        "uncast": "{{count}} more without a recorded cast",
+        "with": "Also present: {{names}}",
+        "earlier": "Show earlier",
+        "empty": "No experience yet"
     }
 }
