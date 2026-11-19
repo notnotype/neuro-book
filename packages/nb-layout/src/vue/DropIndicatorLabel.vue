@@ -3,14 +3,14 @@ defineProps<{label: string; iconClass?: string}>();
 </script>
 
 <template>
-    <span v-if="label.trim().length > 0" class="nb-ui-drop-indicator-label" data-drop-indicator-label aria-hidden="true">
-        <slot name="icon"><span v-if="iconClass" class="nb-ui-drop-indicator-label__icon" :class="iconClass" aria-hidden="true" /></slot>
-        <span class="nb-ui-drop-indicator-label__text">{{ label }}</span>
+    <span v-if="label.trim().length > 0" class="nb-layout-drop-indicator-label" data-drop-indicator-label aria-hidden="true">
+        <slot name="icon"><span v-if="iconClass" class="nb-layout-drop-indicator-label__icon" :class="iconClass" aria-hidden="true" /></slot>
+        <span class="nb-layout-drop-indicator-label__text">{{ label }}</span>
     </span>
 </template>
 
 <style>
-.nb-ui-drop-indicator-label {
+.nb-layout-drop-indicator-label {
     box-sizing: border-box;
     display: inline-flex;
     align-items: center;
@@ -33,13 +33,13 @@ defineProps<{label: string; iconClass?: string}>();
     backdrop-filter: var(--overlay-blur);
 }
 
-.nb-ui-drop-indicator-label__icon {
+.nb-layout-drop-indicator-label__icon {
     flex: none;
     width: 14px;
     height: 14px;
 }
 
-.nb-ui-drop-indicator-label__text {
+.nb-layout-drop-indicator-label__text {
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -48,7 +48,7 @@ defineProps<{label: string; iconClass?: string}>();
 }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-    .nb-ui-drop-indicator-label {
+    .nb-layout-drop-indicator-label {
         background: var(--panel-surface);
         -webkit-backdrop-filter: none;
         backdrop-filter: none;

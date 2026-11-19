@@ -905,7 +905,7 @@ test("键盘拖标签：关掉多行、标签滚出视口时，停靠点都在�
         for (let step = 0; step < 14; step += 1) {
             // 第一下回到第一个位置，之后往后走。
             await page.keyboard.press(step === 0 ? "ArrowLeft" : "ArrowRight");
-            const line = page.locator("[data-drop-kind='strip'] .nb-ui-drop-feedback__line");
+            const line = page.locator("[data-drop-kind='strip'] .nb-layout-drop-feedback__line");
             if (await line.count() === 0) continue;
             lines += 1;
             const box = (await line.first().boundingBox())!;
