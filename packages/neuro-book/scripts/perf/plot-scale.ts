@@ -28,6 +28,9 @@ import {composeBrief} from "nbook/plugins/plot/core/brief";
 import {decisionDiagnostics} from "nbook/plugins/plot/core/decisions";
 import {foreshadowDiagnostics, ledger} from "nbook/plugins/plot/core/foreshadowing";
 import {goalDiagnostics} from "nbook/plugins/plot/core/goal-checks";
+import {goalTable} from "nbook/plugins/plot/core/goals";
+import {experienceChanges, knowingIndex} from "nbook/plugins/plot/core/knowledge";
+import {secretLedger} from "nbook/plugins/plot/core/checks/ledgers";
 import {guardDiagnostics} from "nbook/plugins/plot/core/guards";
 import {instructionDiagnostics} from "nbook/plugins/plot/core/instruction-checks";
 import {knowingDiagnostics} from "nbook/plugins/plot/core/knowledge-checks";
@@ -186,6 +189,37 @@ for (let round = 0; round < 10; round += 1) {
     coldReads.push(cold.elapsed);
     if (typeof cold.read === "object" && cold.read.kind === "entry") children = cold.read.children.length;
     for (let again = 0; again < 5; again += 1) warmReads.push(viewpointCall().elapsed);
+}
+
+// ---------- 作者界面要用的现有读取（t31 B2-1 的基线，plan-b2.md“二”） ----------
+// 冷：先发布一条小变更（读取输入变了，视图与剧情的索引都要重建），引擎追上新版本的那一下不算，再读一次；热：同一份输入上再读。
+// 量的是项目进程里的计算，不含远程编码；结果字节按 JSON 算，用来看一页会不会大过远程单次预算。
+const authorReads: Record<string, () => unknown> = {
+    secretLedger: () => secretLedger(service.snapshot().view, until, "actual"),
+    knowing: () => knowingIndex(service.snapshot().view, "actual", until).all(person(1)),
+    goalTable: () => goalTable(service.snapshot().view, until, "actual"),
+    ledger: () => ledger(service.snapshot().view, until, "actual"),
+    experience: () => experienceChanges(service.snapshot().view, "actual", until, person(1)).changes,
+};
+let authorKey = 3_000;
+for (const [name, read] of Object.entries(authorReads)) {
+    const cold: number[] = [];
+    const warm: number[] = [];
+    let bytes = 0;
+    for (let round = 0; round < 3; round += 1) {
+        const written = await plot.change({kind: "chapter", chapter: last, key: authorKey++}, {text: "作者读取"});
+        service.snapshot().view.outcome(written);
+        let begin = performance.now();
+        bytes = JSON.stringify(read()).length;
+        cold.push(performance.now() - begin);
+        for (let again = 0; again < 3; again += 1) {
+            begin = performance.now();
+            read();
+            warm.push(performance.now() - begin);
+        }
+    }
+    // 立刻打印：一项慢到被打断时，前面量到的不丢。
+    console.log(`作者读取 ${name}：输入变了以后第一次中位 ${ms(median(cold))} 毫秒、最大 ${ms(Math.max(...cold))}；同一份输入再读中位 ${ms(median(warm))}、最大 ${ms(Math.max(...warm))}；结果 ${ms(bytes / 1024)} KiB`);
 }
 
 // ---------- 别的读取（只记录，不设预算） ----------
