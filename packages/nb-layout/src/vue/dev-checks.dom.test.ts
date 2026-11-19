@@ -182,39 +182,65 @@ describe("开发模式的配置检查（Spec 输出 151）", () => {
         expect(warnings.filter((message) => message.includes("sashSize defaults to 0"))).toHaveLength(1);
     });
 
-    it("没接提交处理：拖一次警告一次，提交照旧以 handler-missing 交出；提交处理返回 undefined 是另一条警告", async () => {
-        const grid = twoColumns(1);
-        const bare = mountBare({node: grid.root(), layout: grid.layout(box), contextKey: "bare"});
-        await nextTick();
-        await drag(bare);
-        await drag(bare);
-        expect(warnings.filter((message) => message.includes("has no onGestureCommit"))).toHaveLength(1);
+    it("提交处理三种接错各是一条警告：拖两次只报一次，警告带 contextKey、只出自己那一种；提交照旧以 handler-missing 等交出", async () => {
+        // 一个网格只配错一种，按 contextKey 认出这个网格的警告，断言它只有一条、是自己那一种。
+        const onlyWarning = (key: string): string[] => warnings.filter((message) => message.includes(`"${key}"`));
+        const scenario = async (key: string, onGestureCommit: CommitHandler | undefined): Promise<VueWrapper> => {
+            const grid = twoColumns(1);
+            const wrapper = mountBare({node: grid.root(), layout: grid.layout(box), contextKey: key, ...(onGestureCommit === undefined ? {} : {onGestureCommit})});
+            await nextTick();
+            await drag(wrapper);
+            await drag(wrapper);
+            return wrapper;
+        };
+
+        const bare = await scenario("bare", undefined);
+        expect(onlyWarning("bare")).toHaveLength(1);
+        expect(onlyWarning("bare")[0]).toContain("has no onGestureCommit");
         const issues = (bare.emitted("issues") ?? []).flatMap((args) => args[0] as GridHostIssue[]);
         expect(issues.map((issue) => issue.code)).toContain("handler-missing");
 
-        const other = twoColumns(1);
-        // 类型不对的调用方（例如 JS 里写成了事件）：处理函数什么也不返回。
-        const returnsNothing = (() => undefined) as unknown as CommitHandler;
-        const wrong = mountBare({node: other.root(), layout: other.layout(box), onGestureCommit: returnsNothing});
-        await nextTick();
-        await drag(wrong);
-        expect(warnings.filter((message) => message.includes("got undefined from onGestureCommit"))).toHaveLength(1);
-
-        // 返回值不是 {ok: …}：异步的处理函数（返回 Promise）、返回 true。
-        for (const [label, result] of [["a Promise", Promise.resolve({ok: true})], ["boolean", true]] as const) {
-            const grid = twoColumns(1);
-            const odd = mountBare({node: grid.root(), layout: grid.layout(box), onGestureCommit: (() => result) as unknown as CommitHandler});
-            await nextTick();
-            await drag(odd);
-            expect(warnings.filter((message) => message.includes(`got ${label} from onGestureCommit`))).toHaveLength(1);
+        // 类型不对的调用方（例如 JS 里写成了事件）：处理函数什么也不返回、返回 Promise、返回 true。
+        for (const [key, label, result] of [["none", "undefined", undefined], ["async", "a Promise", Promise.resolve({ok: true})], ["flag", "boolean", true]] as const) {
+            await scenario(key, (() => result) as unknown as CommitHandler);
+            expect(onlyWarning(key)).toHaveLength(1);
+            expect(onlyWarning(key)[0]).toContain(`got ${label} from onGestureCommit`);
         }
 
         // 整包绑定后又写 @gesture-commit：提交处理被合成数组，不是函数。
-        const merged = twoColumns(1);
-        const both = mountBare({node: merged.root(), layout: merged.layout(box), onGestureCommit: [ACCEPT, ACCEPT] as unknown as CommitHandler});
+        await scenario("merged", [ACCEPT, ACCEPT] as unknown as CommitHandler);
+        expect(onlyWarning("merged")).toHaveLength(1);
+        expect(onlyWarning("merged")[0]).toContain("not a function (an array)");
+    });
+
+    it("没给 contextKey 的网格与宿主：警告里写明没有 contextKey", async () => {
+        const grid = twoColumns();
+        mountBare({node: grid.root(), layout: grid.layout(box), onGestureCommit: ACCEPT});
+        const host = mountHost(twoColumns(1), {revision: 0});
+        host.context.value = "";
         await nextTick();
-        await drag(both);
-        expect(warnings.filter((message) => message.includes("not a function (an array)"))).toHaveLength(1);
+        await drag(host.wrapper);
+        expect(warnings.some((message) => message.includes("A NestedGrid without a contextKey"))).toBe(true);
+        expect(warnings.some((message) => message.includes("the grid without a contextKey"))).toBe(true);
+    });
+
+    it("开关开与关时，失败与 issues 事件完全一样：警告不往 issues 里加东西", async () => {
+        const run = async (enabled: boolean): Promise<unknown[]> => {
+            setLayoutDevChecks(enabled);
+            const grid = twoColumns(1);
+            const bare = mountBare({node: grid.root(), layout: grid.layout(box)});
+            const host = mountHost(twoColumns(1), {contextKey: "other"});
+            await nextTick();
+            await drag(bare);
+            await drag(host.wrapper);
+            const strip = (issue: GridHostIssue) => ({code: issue.code, ...("ok" in issue ? {ok: issue.ok} : {})});
+            return [(bare.emitted("issues") ?? []).flatMap((args) => (args[0] as GridHostIssue[]).map(strip)), host.issues.map(strip)];
+        };
+        const off = await run(false);
+        const on = await run(true);
+        expect(on).toEqual(off);
+        expect(JSON.stringify(off)).toContain("handler-missing");
+        expect(JSON.stringify(off)).toContain("stale-context");
     });
 
     it("整包绑定后模板里另写了 context-key：按下时警告一次", async () => {
@@ -222,7 +248,10 @@ describe("开发模式的配置检查（Spec 输出 151）", () => {
         await nextTick();
         await drag(harness.wrapper);
         await drag(harness.wrapper);
-        expect(warnings.filter((message) => message.includes("[nb-layout/useGridHost]") && message.includes("contextKey"))).toHaveLength(1);
+        const mine = warnings.filter((message) => message.includes("[nb-layout/useGridHost]"));
+        expect(mine).toHaveLength(1);
+        expect(mine[0]).toContain('contextKey "other"');
+        expect(mine[0]).toContain('the host\'s is "main"');
     });
 
     it("在手势开始时核对、不等提交：按下就松手（没有提交）也警告", async () => {
@@ -239,7 +268,9 @@ describe("开发模式的配置检查（Spec 输出 151）", () => {
         const zero = mountHost(twoColumns(1), {revision: 0});
         await nextTick();
         await drag(zero.wrapper);
+        await drag(zero.wrapper);
         expect(warnings.filter((message) => message.includes("revision 0"))).toHaveLength(1);
+        expect(warnings.find((message) => message.includes("revision 0"))).toContain('grid "main"');
 
         // 过期的版本：大于 0、比宿主此刻的小（宿主挂载、量到尺寸后已经发布过两次以上）。
         const stale = mountHost(twoColumns(1), {revision: 1});
@@ -271,6 +302,28 @@ describe("开发模式的配置检查（Spec 输出 151）", () => {
 
         expect(warnings).toEqual([]);
         expect(harness.issues.filter((issue) => "ok" in issue)).toEqual([]);
+    });
+
+    it("缺省关：从来没调过开关时不警告", async () => {
+        // 模拟一个从没调过开关的页面：清掉全局符号上的状态（各测试之间共用的那一份）。
+        delete (globalThis as unknown as Record<symbol, unknown>)[Symbol.for("nb-layout.devChecks")];
+        const grid = twoColumns();
+        mountBare({node: grid.root(), layout: grid.layout(box), onGestureCommit: ACCEPT});
+        const host = mountHost(twoColumns(1), {contextKey: "other"});
+        await nextTick();
+        await drag(host.wrapper);
+        expect(warnings).toEqual([]);
+    });
+
+    it("能拖的边界里有一条不是 0 宽：不警告（要全是 0 才报）", async () => {
+        const grid = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 300, height: 0}},
+            {kind: "leaf", id: "c", ref: "c", size: {width: 300, height: 0}},
+        ]}, {sashSize: (_branch, index) => (index === 0 ? 0 : 4)});
+        mountBare({node: grid.root(), layout: grid.layout(box), onGestureCommit: ACCEPT});
+        await nextTick();
+        expect(warnings).toEqual([]);
     });
 
     it("每个网格各报各的：两个都配错的网格各警告一次", async () => {
