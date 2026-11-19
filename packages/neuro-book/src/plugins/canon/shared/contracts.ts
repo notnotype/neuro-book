@@ -33,6 +33,16 @@ export type {ComponentContribution} from "./components";
 /** 请求与读取结果经 JSON 编码后的上限：远程消息上限减 64 KiB，留给帧包络（输出 18）。 */
 export const CANON_BUDGET_BYTES = RPC_MAX_MESSAGE_BYTES - 64 * 1024;
 
+/** 远程调用原样的结果：业务失败的码是 `canon`、详情是 nb-canon 的失败对象；别的码是路由层的失败。 */
+export type RemoteRaw = {readonly ok: true; readonly value: unknown} | {readonly ok: false; readonly code: string; readonly detail?: unknown; readonly cause?: unknown};
+
+/** 远程结果换回 `CanonResult`：业务失败换回 nb-canon 的失败对象，路由层的失败给出原码、说明与原因。浏览器与服务端的调用方共用。 */
+export function fromRemote<T>(result: RemoteRaw): CanonResult<T> {
+    if (result.ok) return {ok: true, value: result.value as T};
+    if (result.code === "canon") return {ok: false, failure: result.detail as CanonFailure};
+    return {ok: false, failure: {code: result.code, ...(result.detail === undefined ? {} : {detail: result.detail}), ...(result.cause === undefined ? {} : {cause: result.cause})}};
+}
+
 /** 经 JSON 编码后的 UTF-8 字节数；浏览器发出前、世界服务回结果前用同一个算法。 */
 export function encodedBytes(value: unknown): number {
     return new TextEncoder().encode(JSON.stringify(value)).length;
