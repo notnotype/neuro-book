@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t39-layout-helpers-and-starter
-status: planned
+status: active
 updated: 2026-11-19
 ---
 
@@ -13,7 +13,7 @@ updated: 2026-11-19
 
 2026-11-19 拆分：收起与展开入口、L2 的意图回写拆到 [t40](../t40-collapse-and-intent-writeback/README.md)，拖不动时报错拆到 [t41](../t41-config-error-reporting/README.md)，README 起步与三份短文档拆到 [t42](../t42-readme-starter/README.md)：几块的形状互相独立，合在一份计划里送审会一轮轮互相牵扯（t34 的教训）。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：`NestedGrid` 新增 `extent` 事件，新增 `useGridHost`、`useDragSession`；已有行为不变。改 [`ui/nested-grid`](../../../../../docs/specs/ui/nested-grid.md)、[`ui/layout-drag`](../../../../../docs/specs/ui/layout-drag.md)。
 
 ## 当前状态
 
@@ -21,4 +21,7 @@ updated: 2026-11-19
 
 ## 下一步
 
-待补充。
+计划见 [`plan.md`](plan.md)（第 1 稿）。
+
+1. 设计审查（Claude Sonnet，含站在使用方位置写接入草稿的 API 形状审查），阻塞。
+2. 处理完写 Spec（planned），在 worktree `w00026-t39-host-wiring` 按三片实施。
