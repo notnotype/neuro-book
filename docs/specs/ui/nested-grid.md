@@ -223,7 +223,7 @@ owners:
 143. **文案**：组件的读屏名称与提示（分隔条、可排序列表）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取；没有注入时用库自带的 `zh-CN` 目录，参数照旧代入（[`ui/i18n`](i18n.md) 输出 8 的例外）。
 144. **承载盒的尺寸**（planned）：`NestedGrid` 量自己的根盒（布局盒，不含边框与内边距），挂载后量到就发 `extent` 事件，两轴变了才再发；同步发，监听在同一个调用栈里拿到。卸载前发 `null`，`NestedGrid` 被条件渲染摘掉时父组件的监听收得到；宿主自己整个卸载时，宿主里的侦听已经停了，收不到。
 145. **宿主接线**（planned）：`useGridHost` 交回一包 `bindings`（树、布局、版本、上下文键、停用、提交处理、接 `extent` 与接 `issues` 的处理），整包绑到 `NestedGrid` 上就能接手势；尺寸取自 `NestedGrid` 发的 `extent`，没量到可用尺寸（null、零或非有限）时布局为空、`disabled` 为真。布局重算的诊断与 `NestedGrid` 的 `issues` 事件都交给 `useGridHost` 的 `onIssues` 一个出口。`disabled`、`contextKey` 在模板里再写一遍会覆盖包里的值，提交处理再传一次会出错，这几样只经 `useGridHost` 的选项给。
-146. **承载盒为零**（planned）：量到的宽或高为 0 时布局为空，不画叶。
+146. **承载盒为零**（planned）：量到的宽或高为 0 时布局为空、手势停用（叶照常挂着，只是没有尺寸）。
 
 ## 状态与转换
 
