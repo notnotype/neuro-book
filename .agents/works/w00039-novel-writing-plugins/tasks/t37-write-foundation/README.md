@@ -22,10 +22,11 @@ updated: 2026-11-19
 
 ## 当前状态
 
-- 2026-11-19 新建。主会话核实现状：Agent 一侧什么都没有；作者只能就地改四种标量字段。计划写成，独立设计（Sonnet）在跑，之后做设计审查（后端 omp、前端 Sonnet）。
+- 2026-11-19 新建。主会话核实现状：Agent 一侧什么都没有；作者只能就地改四种标量字段。
+- 计划第 1 稿与独立设计（Sonnet，[`evidences/independent-design.txt`](evidences/independent-design.txt)）对照后定稿，交设计审查：后端 omp 11 条（阻断 5），前端 Sonnet 15 条（重要 11），全部成立，[处理](evidences/design-review-resolution.txt)后改成第 2 稿。后端的五条阻断改动了内核的核心规则，第 2 稿的后端部分再交 omp 审一轮；前端的处理照审查建议落地，不再开设计审查。
 
 ## 下一步
 
-1. 对照独立设计改计划，开设计审查。
-2. 照计划的切片 F1 到 F6 实施。
+1. 后端第二轮设计审查期间先做 F4（nb-ui `SearchSelect` 的远程模式、`EntryPicker`、`ImageInput`），它只依赖现有接口。
+2. 第二轮处理完后照切片 F1 到 F7 实施。
 3. 底座合入后，和开发者定人物 Component 闭环的范围。
