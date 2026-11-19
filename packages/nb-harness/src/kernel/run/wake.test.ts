@@ -228,6 +228,24 @@ describe("输出 117：门", () => {
         expect((await session.raw.snapshot()).wakeGate).toEqual({open: true, cause: "user"});
     });
 
+    test("停止已受理、还没收口时到达的带唤起的提醒：收口批先关门，不开运行", async () => {
+        const block = blockingTool();
+        await using session = await createTestSession({tools: [block.tool]});
+        session.model.script({tools: [{tool: "lab.block"}]}, "不该发出的请求");
+        const sent = await session.raw.send({commandId: id(), input: {text: "开始"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        await block.started;
+        const stopped = session.raw.abort({commandId: id(), keepQueue: true});
+        const late = session.raw.as(HOST).notice({commandId: id(), text: "停止期间结束的后台任务", wake: true});
+        block.release();
+        expect((await stopped).ok).toBe(true);
+        expect((await late).ok).toBe(true);
+        await settled(session);
+        expect(await runsStarted(session)).toHaveLength(1);
+        expect(session.model.requests).toHaveLength(1);
+        expect((await session.raw.snapshot()).notices.map((item) => item.text)).toEqual(["停止期间结束的后台任务"]);
+    });
+
     test("出错收口关门；只回退、换分支不开门", async () => {
         await using session = await createTestSession();
         session.model.script("答一", {fail: "provider"});
