@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
-import {defineComponent, h, nextTick, shallowRef, type MaybeRefOrGetter, type ShallowRef} from "vue";
+import {defineComponent, h, nextTick, shallowRef, watch, type MaybeRefOrGetter, type ShallowRef} from "vue";
 
 import NestedGrid from "./NestedGrid.vue";
 import {createGrid, type Grid} from "../grid";
@@ -69,6 +69,8 @@ type Harness = {
     readonly swap: ShallowRef<GridSwap | null>;
     readonly applied: GridGestureCommit[];
     readonly issues: GridHostIssue[];
+    /** 宿主作用域里一个同步侦听 `host.extent` 看到的值：真实宿主（工作台）就是这样把尺寸转给 store 的。 */
+    readonly watched: Array<GridExtent | null>;
 };
 
 /** 宿主的选项里测试要换掉的几样；没给的同真实宿主最常见的写法（固定的网格与上下文键）。 */
@@ -85,6 +87,7 @@ function mountHost(grid: Grid<string> = twoColumns(), overrides: HostOverrides =
     const swap = shallowRef<GridSwap | null>(null);
     const applied: GridGestureCommit[] = [];
     const issues: GridHostIssue[] = [];
+    const watched: Array<GridExtent | null> = [];
     let host: GridHost<string> | null = null;
     const Host = defineComponent({
         setup() {
@@ -99,13 +102,14 @@ function mountHost(grid: Grid<string> = twoColumns(), overrides: HostOverrides =
                 onIssues: (list) => void issues.push(...list),
             });
             host = current;
+            watch(current.extent, (extent) => void watched.push(extent), {flush: "sync"});
             return () => h("div", {style: "height: 100%"}, shown.value ? [h(NestedGrid, {...current.bindings.value, swap: swap.value}, {leaf: (scope: {node: {id: string}}) => h("div", {class: "leaf-body"}, scope.node.id)})] : []);
         },
     });
     const wrapper = mount(Host, {attachTo: document.body});
     wrappers.push(wrapper);
     if (host === null) throw new Error("宿主没有建立");
-    return {wrapper, host, grid, shown, swap, applied, issues};
+    return {wrapper, host, grid, shown, swap, applied, issues, watched};
 }
 
 /** 在左右两列之间的分隔条上往右拖 40px 并松手，等提交落账。 */
@@ -134,7 +138,7 @@ describe("useGridHost", () => {
         expect(harness.host.layout.value.sizes.left!.width - before).toBeCloseTo(40, 6);
     });
 
-    it("NestedGrid 被条件渲染摘掉：宿主的尺寸回到 null，布局为空、停用；再挂回来又有尺寸（输出 144）", async () => {
+    it("NestedGrid 被条件渲染摘掉：宿主的尺寸回到 null，布局为空、停用；再挂回来又有尺寸；宿主整个卸载时尺寸不变（输出 144）", async () => {
         const harness = mountHost();
         await nextTick();
         expect(harness.host.extent.value).not.toBeNull();
@@ -150,15 +154,29 @@ describe("useGridHost", () => {
         await nextTick();
         expect(harness.host.extent.value).toEqual({width: 1000, height: 600});
         expect(harness.host.bindings.value.disabled).toBe(false);
+
+        // 宿主自己整个卸载：宿主作用域里的侦听先停，`NestedGrid` 卸载前发的 null 到不了它（模板上的监听照样收到）。
+        const seenBefore = harness.watched.length;
+        harness.wrapper.unmount();
+        expect(harness.watched).toHaveLength(seenBefore);
+        expect(harness.watched.at(-1)).toEqual({width: 1000, height: 600});
     });
 
-    it("量到高为 0：布局为空、停用（输出 145、146）", async () => {
-        box = {width: 1000, height: 0};
+    it.each([
+        ["高为 0", {width: 1000, height: 0}],
+        ["宽为 0", {width: 0, height: 600}],
+    ])("量到%s：布局为空、手势停用，叶照常挂着（输出 145、146）", async (_label, zero) => {
+        box = zero;
         const harness = mountHost();
         await nextTick();
-        expect(harness.host.extent.value).toEqual({width: 1000, height: 0});
+        expect(harness.host.extent.value).toEqual(zero);
         expect(harness.host.layout.value.sizes).toEqual({});
         expect(harness.host.bindings.value.disabled).toBe(true);
+        expect(harness.wrapper.findAll(".leaf-body").map((leaf) => leaf.text())).toEqual(["left", "right"]);
+        // 分隔条还画着，但停用：手势起不来，键盘也不停在它上面。
+        const sash = harness.wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        expect(sash.getAttribute("aria-disabled")).toBe("true");
+        expect(sash.getAttribute("tabindex")).toBe("-1");
     });
 
     it("诊断一个出口：布局重算的诊断与 NestedGrid 的 issues 事件都到 onIssues（输出 145）", async () => {

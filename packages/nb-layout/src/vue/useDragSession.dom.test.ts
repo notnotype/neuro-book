@@ -15,14 +15,17 @@ type Drop = {readonly key: string};
 
 let ends: DragEnd[];
 let built: HTMLElement[];
+/** 建会话与会话收尾按发生的先后记在一起，验“先销毁旧的再建新的”。 */
+let log: string[];
 
 function pointer(type: string, init: PointerEventInit = {}): PointerEvent {
     return new PointerEvent(type, {bubbles: true, cancelable: true, composed: true, pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, ...init});
 }
 
 /** 一个带来源的根；`grab` 在它上面按下并移过门槛。 */
-function makeRoot(): HTMLElement {
+function makeRoot(name = ""): HTMLElement {
     const root = document.createElement("div");
+    root.dataset.name = name;
     root.innerHTML = `<button data-source>来源</button>`;
     document.body.append(root);
     return root;
@@ -36,18 +39,23 @@ function grab(root: HTMLElement): void {
 
 const createOptions = (root: HTMLElement): Omit<DragSessionOptions<string, Drop, never>, "root"> => {
     built.push(root);
+    log.push(`build:${root.dataset.name ?? ""}`);
     return {
         sourceAt: (target) => (target.closest("[data-source]") === null ? null : "row"),
         resolve: () => ({key: "a"}),
         actionKey: (drop) => drop.key,
         commit: () => undefined,
-        onEnd: (end) => void ends.push(end),
+        onEnd: (end) => {
+            ends.push(end);
+            log.push(`end:${end.kind === "cancelled" ? end.reason : end.kind}`);
+        },
     };
 };
 
 beforeEach(() => {
     ends = [];
     built = [];
+    log = [];
     // happy-dom 没有这个方法；会话判定时找指针处最上层的元素，这里用不到结果。
     Object.assign(document, {elementsFromPoint: () => []});
 });
@@ -57,39 +65,46 @@ afterEach(() => {
 });
 
 describe("useDragSession", () => {
-    it("根已有值：调用时立即建；换根先销毁旧的（进行中的一场按 disposed 收尾）再建新的；根没了与作用域结束时销毁（输出 18）", async () => {
-        const first = makeRoot();
-        const second = makeRoot();
+    it("根已有值：调用时立即建；换根先销毁旧的（进行中的一场按 disposed 收尾）再建新的；根没了与作用域结束时销毁，进行中的一场同样收尾（输出 18）", async () => {
+        const first = makeRoot("first");
+        const second = makeRoot("second");
         const root = shallowRef<HTMLElement | null>(first);
         const scope = effectScope();
         const drag = scope.run(() => useDragSession<string, Drop>(root, createOptions))!;
         expect(drag.session.value).not.toBeNull();
-        expect(built).toEqual([first]);
+        expect(log).toEqual(["build:first"]);
 
         grab(first);
         expect(drag.state.value?.source).toBe("row");
 
         root.value = second;
         await nextTick();
-        expect(ends).toEqual([{kind: "cancelled", reason: "disposed"}]);
-        expect(built).toEqual([first, second]);
+        expect(log).toEqual(["build:first", "end:disposed", "build:second"]);
         expect(drag.state.value).toBeNull();
+
+        // 根没了：会话销毁，进行中的一场按 disposed 收尾；旧会话不再接旧根上的按下。
         grab(second);
         expect(drag.state.value?.source).toBe("row");
-
+        const onSecond = drag.session.value!;
         root.value = null;
         await nextTick();
+        expect(log).toEqual(["build:first", "end:disposed", "build:second", "end:disposed"]);
         expect(drag.session.value).toBeNull();
         expect(drag.state.value).toBeNull();
+        grab(second);
+        expect(onSecond.state.value).toBeNull();
 
+        // 作用域结束：同样销毁并收尾。
         root.value = first;
         await nextTick();
-        const last = drag.session.value;
-        expect(last).not.toBeNull();
+        grab(first);
+        const last = drag.session.value!;
+        expect(last.state.value?.source).toBe("row");
         scope.stop();
+        expect(log.at(-1)).toBe("end:disposed");
         expect(drag.session.value).toBeNull();
         grab(first);
-        expect(last!.state.value).toBeNull();
+        expect(last.state.value).toBeNull();
     });
 
     it("模板 ref 的根：挂载回调里还是 null，挂载后的那次刷新里建好；选项只在建时读一次（输出 18、19）", async () => {

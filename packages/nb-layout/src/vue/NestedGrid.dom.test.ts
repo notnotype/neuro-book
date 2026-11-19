@@ -1581,5 +1581,9 @@ describe("NestedGrid 发出承载盒的尺寸（Spec 输出 144）", () => {
         box.width = 800;
         fire();
         expect(seen).toEqual([{width: 1000, height: 600}, {width: 800, height: 600}]);
+
+        box.height = 500;
+        fire();
+        expect(seen).toEqual([{width: 1000, height: 600}, {width: 800, height: 600}, {width: 800, height: 500}]);
     });
 });
