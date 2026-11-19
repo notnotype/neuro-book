@@ -50,4 +50,6 @@ updated: 2026-11-19
 
 Spec 已写（planned）：[`theme/system`](../../../../../docs/specs/theme/system.md) 的“布局组件的桥接”、[`ui/i18n`](../../../../../docs/specs/ui/i18n.md) 输出 8 的例外、[`ui/nested-grid`](../../../../../docs/specs/ui/nested-grid.md) 输出 141 到 143 与“边界与兼容”的变量清单；提案追加决策记录，待确认清单加三行。
 
-1. 开 worktree `w00026-t35-drop-nb-ui`，按计划四片实施；收口跑受影响的测试与 e2e，启动实现审查（前端，Claude Sonnet）。
+进展（worktree `w00026-t35-drop-nb-ui`）：第 1 片文案 `d387d5148`、第 2 片类名 `1526647be`。第 1 片的 `test:affected` 10 条失败：`nbook.stickers` 清单 7 条与 SDK 导出面 `ImagePreviewDialog` 1 条是 master 上原有的；`pack.test` 生成 SDK 包的 2 条是负载 26 到 30 时 vue-tsc 超时，负载 10 时单独重跑 13 条全过。
+
+1. 第 3 片变量与焦点环、第 4 片依赖与机检；收口跑受影响的测试与 e2e，启动实现审查（前端，Claude Sonnet）。

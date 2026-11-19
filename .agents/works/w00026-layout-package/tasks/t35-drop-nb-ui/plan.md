@@ -80,7 +80,7 @@
   export function useLayoutText(): LayoutTranslate;
   ```
   缺省实现把目录里的 `{{名字}}` 换成参数，不处理复数。键、目录、`./locales` 子路径都不变；`text.ts` 不再在导入时 `registerDefaultCatalog`（应用的窗口引擎已在 `text-engine.ts:166` 自己登记）。
-- `LAYOUT_TEXT_KEY`、`LayoutTranslate`、`LayoutTextParams`、`useLayoutText` 从 `vue/index.ts` 导出（应用不能深导入），写进 README 的公开面。
+- `LAYOUT_TEXT_KEY`、`LayoutTranslate`、`LayoutTextParams`、`LayoutTextKey` 从新子路径 `@notnotype/nb-layout/text`（`src/vue/text.ts`）导出，写进 README 的公开面（实施中改：原写从 `vue/index.ts` 导出，但 `shared/testing/text-port.ts` 在后端类型检查范围里，经帮手读进整个 Vue 入口就缺 DOM 类型；同 nb-ui 把 `TEXT_PORT_KEY` 放在 `./text-port`）。帮手三种形式：`provideHostText(port)`（setup 里）、`provideAppHostText(app, port)`（Vue 根）、`hostTextProvides(port)`（测试挂载的注入表）。
 - 应用侧一个帮手（放 `packages/neuro-book/src/web/host/`），两种形式：`provideHostText(provide, port)` 与返回记录的 `hostTextProvides(port)`，同时提供 `TEXT_PORT_KEY` 与 `LAYOUT_TEXT_KEY`（把 nb-layout 的键交给 nb-ui 端口，命名空间 `nb-layout`，每次调用都读端口的当前语言）。改用它的地方：`mount.ts`（三个根共用一处）、`boot.ts` 两个根、Lab 夹具里 `provide(TEXT_PORT_KEY` 的 18 个文件、`shared/testing/text-port.ts` 返回的记录。
 - 端口来源（开工前核过）：`packages/neuro-book/src` 里提供 `TEXT_PORT_KEY` 的 21 处（`mount.ts`、`boot.ts`、Lab 夹具、`shared/testing/text-port.ts`）都来自 `createHostTextEngine`，它登记了 `nb-layout` 的目录（`text-engine.ts:166`），所以帮手把键交给这些端口不会退化成键名。帮手的测试断言经帮手拿到的是文字、不是键。
 - 检查（第二轮第 3 条）：限定 `packages/neuro-book/src` 的非测试源码，认三种写法（`provide(TEXT_PORT_KEY`、`.provide(TEXT_PORT_KEY`、`[TEXT_PORT_KEY`），豁免帮手本身与 `shared/testing`；别的包（nb-ui、nb-form、nb-markdown、nb-agent-ui）的直接提供是合法的，不查。测试文件里直接提供的不改：它们多数不挂 nb-layout 组件，挂了的拿到 zh-CN 缺省目录，和今天的源语言一样。
