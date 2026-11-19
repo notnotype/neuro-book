@@ -118,7 +118,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 ## 数据
 
 ```ts
-import type {GridFailure, GridGestureCommit, GridGesturePreview, GridLayoutResult, GridLeaf, GridNode, GridSashRef, SplitterGestureCancelReason, SplitterGestureSource} from "@notnotype/nb-layout";
+import type {GridFailure, GridGestureCommit, GridGesturePreview, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode, GridSashRef, SplitterGestureCancelReason, SplitterGestureSource} from "@notnotype/nb-layout";
 
 type NestedGridProps = {
     /** 当前树；null 时呈现 empty 插槽。必填。 */
@@ -177,8 +177,11 @@ type NestedGridEmits = {
     (event: "gesture-end", commit: GridGestureCommit): void;
     /** 手势被取消时发出原因和参与分隔线。 */
     (event: "gesture-cancel", info: {reason: SplitterGestureCancelReason; sashes: readonly GridSashRef[]}): void;
-    /** 会话诊断，包括容量不足、提交拒绝或宿主发布不匹配。 */
-    (event: "issues", issues: readonly string[]): void;
+    /**
+     * 诊断与被拒的提交（Spec 输出 139、140）：带 `ok` 的（`"ok" in issue`）是被拒的提交，已经回滚；其余是诊断。
+     * 只发新出现的：一场手势里同一个诊断只发一次；要知道现在有哪些问题，读 `layout.issues` 与 `gesture-update` 载荷的 `issues`。
+     */
+    (event: "issues", issues: readonly (GridIssue<GridIssueCode | "not-published"> | GridFailure)[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：焦点去哪由宿主定。 */
     (event: "content-parked", key: string): void;
 };
@@ -215,7 +218,7 @@ expose 的读数：
 
 - 默认允许分隔线交互；受控事实始终来自 `node` 与 `layout`，拖动中的临时预览才由组件持有。
 - 宿主应在树、约束或承载盒尺寸变化时递增 `revision`；`node`、`contextKey`、`revision` 或 `disabled` 改变会取消活动手势。新 `layout` 发布会释放预览，宿主须保持它与树及容器尺寸同源。
-- 容量不足、被宿主拒绝、宿主未发布匹配几何等问题通过 `issues` 事件报告。
+- 容量不足、被宿主拒绝、宿主未发布匹配几何等问题通过 `issues` 事件报告，元素是 `{code, message, params?}`，按 `code` 与 `params` 分支，`message` 是英文、只给日志看；只发新出现的（Spec 输出 140）。宿主的监听抛出时手势已经结束，异常照常冒出去。
 - 空树由 `empty` 插槽处理；组件不为叶内容定义加载、错误或空数据视觉。
 - 回滚只恢复到宿主最近发布的树与 layout；本组件不会自行修改树或写入快照。
 
