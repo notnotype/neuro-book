@@ -4,9 +4,10 @@
  * 明暗、抽屉开关）、左侧导航、主区、右侧抽屉。宽度三档按外壳自己的宽度算：宽屏三栏可拖；平板导航收成图标条、
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
-import {DropdownMenu, IconButton, Splitter} from "@notnotype/nb-ui/components";
+import {Splitter} from "@notnotype/nb-layout/vue";
+import type {SplitterPanelConfig} from "@notnotype/nb-layout/vue";
+import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-import type {SplitterPanelConfig} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, readonly, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 
@@ -108,7 +109,7 @@ const panels = computed<SplitterPanelConfig[]>(() => [
 ]);
 
 // ---- 收起、展开的过渡（输出 1） ----
-// Splitter 在过渡（--motion-move）里逐帧改面板宽度。主区里的页面跟着逐帧重排，文字与表格的重排不贵，平滑跟随更顺眼
+// Splitter 在过渡（--nb-layout-motion-move，nb-ui 的主题把它接到 --motion-move）里逐帧改面板宽度。主区里的页面跟着逐帧重排，文字与表格的重排不贵，平滑跟随更顺眼
 // （之前把主区宽度冻住、结束时一次重排，内容会在动画末尾跳一下）；贵的是图的画布：Sigma 换尺寸要整张重画，所以
 // 过渡期间经 LAYOUT_MOTION 告诉图先不换尺寸，结束后换一次。抽屉内容固定在抽屉宽度、贴右边，看起来从右边滑进
 // 滑出，不随宽度重排；关闭时继续显示原来的内容，直到滑出去。
