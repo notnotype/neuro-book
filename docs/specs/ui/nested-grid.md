@@ -206,18 +206,18 @@ owners:
     | `conflicting-bounds` | | 节点的下限高于上限，以下限优先 | `min`、`max` |
     | `no-room-to-collapse` | | 拖到阈值以下但收起后没有边界吸收这块空间，保持展开 | |
     | `no-room-to-restore` | | 恢复空间不够，保持收起 | `available`、`required` |
-    | `no-collapse-policy` | | 要折叠的面板没有收起策略；只出现在直接求解收起的结果里，手势不会发 | |
-    | `swap-skipped` | `no-leaving`、`no-entering`、`busy` | 交换不成立（输出 68） | |
+    | `no-collapse-policy` | | 要折叠的面板没有收起策略；只出现在直接求解收起的结果里（planned），手势不会发 | |
+    | `swap-skipped` | `no-leaving`、`no-entering`（planned）、`busy` | 交换不成立（输出 68） | |
     | `not-published` | | 宿主接纳了提交但没有发布匹配的布局 | |
     | `notify-failed` | | 已经落账，通知宿主时它抛出 | |
 
     出口有两个：`NestedGrid` 的 `issues` 事件（手势的诊断、被拒的提交、`not-published`、`swap-skipped`）与 `useGridLayout` 的 `onIssues`（布局重算的诊断、`notify-failed`）。事件里带 `ok` 的元素（`"ok" in issue`）是被拒的提交，就是失败 6 的那个失败，已经回滚；它的码可能是宿主自己的。
 140. **诊断：结果是快照，通知只发新出现的**：
     - 求解与预览的结果（`layout().issues`、`gesture-update` 载荷的 `issues` 与 `layout.issues`）是这一次求解的全部诊断，逐条、参数完整。要知道现在有哪些问题、数是多少，读它们；通知不说诊断什么时候消失。
-    - 两个出口只发新出现的：键是码、`cause`、`axis`、`id`，同一次求解里同一个键最多一条。布局重算这一路，这次有、上一次重算没有的才发，消失再出现会再发；`contextKey` 变了算重新开始；发布空布局（承载盒隐藏、没有网格）不算消失，再显示时持续的诊断不重发；`grid` 换实例不算重新开始。手势这一路，一场手势里同一个键只发一次，下一场重新算；键盘每按一次键是一场手势，按住不放算一场。预览布局自己的诊断不经通知，松手落账后的布局重算照常发（planned）。
+    - 两个出口只发新出现的：键是码、`cause`、`axis`、`id`，同一次求解里同一个键最多一条。布局重算这一路，这次有、上一次重算没有的才发，消失再出现会再发；`contextKey` 变了算重新开始；发布空布局（承载盒隐藏、没有网格）不算消失，再显示时持续的诊断不重发；`grid` 换实例不算重新开始。手势这一路，一场手势里同一个键只发一次，下一场重新算；键盘每按一次键是一场手势，按住不放算一场（planned）。预览布局自己的诊断不经通知，松手落账后的布局重算照常发（planned）。
     - 被拒的提交、`not-published`、`swap-skipped`、`notify-failed` 每发生一次发一条。一个失败只发一条。
     - 窄窗口下一次通知最多是节点数那么多条，之后每个键只发一次。
-    - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行，这一批诊断的键已经记下、这一场不再发。只有落账之后的通知抛出时库接住它（交 `reportError`，没有时 `console.error`），提交照样算落账。
+    - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行，这一批诊断的键已经记下、这一场不再发。只有落账之后的通知抛出时库接住它（交 `reportError`（planned），没有时 `console.error`），提交照样算落账。
 
 ## 状态与转换
 
