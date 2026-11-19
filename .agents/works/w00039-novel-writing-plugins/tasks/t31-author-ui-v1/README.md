@@ -178,8 +178,11 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 - A3（`51510c4ee`）：`goals`、`ledger`、`experience`，`person` 加目标与态度；目标动过与停滞共用 `goalQuiet`（只算改到 `goal` 命名空间、套上的变更），久没提与没打算怎么收由诊断与账本共用。
 - A 片的包测试 16 条（真实 `World`），每片做了四处变异检查都抓到；剧情插件 341 条全过；远程用例经进程内场地调了六个方法。
 - M 第二轮（`050eb5c45`，规模脚本加六个作者读取）：30 章、负载 16 到 24 的冒烟里，`secrets` 同一份输入再读 156 毫秒、`goals` 80 毫秒，作者读取没有缓存、每次整张重算；1000 章的数等低负载时量，细设计按“同一份视图与位置缓存整张表，请求只做投影”写，再派 omp 审。
+- W1（`bbb66bb8a`）：剧情的浏览器入口、侧栏“剧情”（三张表与剧情线）、“谁知道什么”一页；组件测试接场地上的真实世界服务与剧情项目入口，变异检查抓到缺省点名。U 并进 W（三样组件写在剧情插件里，见计划的技术选型）。
+- W2（`ecd596299`）：伏笔账本与目标表两页。
+- W3（`05c82ae39`）：条目页的“知道什么”“目标与态度”“谁知道”三个专门界面（各带一节这一页的通用字段）与人物的附加分页“经历”。“目标与态度”的态度另成一张表（对象、态度、起因、称呼）：目标表那一组的“对某某：态度”一行写不下 Spec 输出 17 要的起因与称呼。组件测试 3 条接 canon 的真实条目页。
 
 ## 下一步
 
-1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：S0、F、C、A、W1（`bbb66bb8a`：浏览器入口、侧栏、“谁知道什么”，组件测试接真实服务，变异检查抓到缺省点名；U 并进 W，见计划的技术选型）已做；下一步 M（负载低于 3 时在 1000 章上量六个作者读取与高密度的读待处理，写缓存与索引的细设计并派 omp 审），同时做 U（nb-ui 的矩阵表、多选弹层与节点带），再 W1 到 W3、D。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
+1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：S0、F、C、A、W1 到 W3 已做；下一步 M（负载低于 3 时在 1000 章上量六个作者读取与高密度的读待处理，写缓存与索引的细设计并派 omp 审），再 D（样本、e2e、截图）与收口。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
 2. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
