@@ -5,7 +5,8 @@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import type {CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
+import type {CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionHeader, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
+import type {SessionHold} from "@notnotype/nb-harness/kit/sessions";
 
 import type {AgentProfileDeclaration, AgentToolDeclaration} from "./points";
 
@@ -87,6 +88,15 @@ export interface ProfileAdmin {
 
 export type CreateResult = {readonly ok: true; readonly value: SessionApi} | {readonly ok: false; readonly code: string; readonly detail?: unknown};
 
+/**
+ * 插件经 `agentKey` 建会话的选项（sessions.md 输出 23）：`owner` 只给 `id`，`plugin` 由门面按调用方盖章，所以一个插件建不出归属别的
+ * 插件的会话。
+ */
+export type AgentCreateOptions = Omit<CreateSessionOptions, "owner"> & {readonly owner?: {readonly id: string}};
+
+/** `hold` 的结果（sessions.md 输出 24）：失败时是打开会话的码，或服务正在停止的 `unavailable`。 */
+export type HoldResult = {readonly ok: true; readonly value: SessionHold} | {readonly ok: false; readonly code: string; readonly detail?: unknown};
+
 /** 发起一次任务（sessions.md 输出 10、11）。`taskId` 是调用方生成的 UUID：重发同一个得到同一个结果。 */
 export interface StartTaskOptions {
     readonly taskId: string;
@@ -115,11 +125,15 @@ export interface SessionViewOptions {
 
 /** 别的插件经 `agentKey` 拿到的门面：按调用方生成，视图的发出者见 `SessionViewOptions`。 */
 export interface AgentService {
-    /** 建会话；交回的是视图（sessions.md 输出 6）。 */
-    create(options: CreateSessionOptions, view?: SessionViewOptions): Promise<CreateResult>;
+    /** 建会话；交回的是视图（sessions.md 输出 6）。`owner` 见 `AgentCreateOptions`。 */
+    create(options: AgentCreateOptions, view?: SessionViewOptions): Promise<CreateResult>;
     /** 某个会话的视图：本身不持引用，每次调用时打开。 */
     session(id: string, view?: SessionViewOptions): SessionApi;
-    /** 缺省不列归档的与后台的（sessions.md 输出 1）。 */
+    /** 打开会话并持有一份引用，持有期间不空闲关闭（sessions.md 输出 24）。调用方停止时它的持有一并放掉。 */
+    hold(sessionId: string): Promise<HoldResult>;
+    /** 只读会话头，不打开会话（sessions.md 输出 28）。 */
+    header(sessionId: string): Promise<StorageResult<SessionHeader>>;
+    /** 缺省不列归档的与后台的（sessions.md 输出 1），不列有归属的会话与它们的后代（输出 25）。 */
     list(filter?: {readonly project?: string; readonly archived?: boolean; readonly background?: boolean}): Promise<StorageResult<readonly SessionIndexEntry[]>>;
     profiles(): readonly ProfileEntry[];
     /** 打开着、正在运行的会话。 */
@@ -135,6 +149,8 @@ export interface AgentService {
 export interface AgentRuntimeService {
     create(options: CreateSessionOptions, issuer?: Issuer): Promise<CreateResult>;
     session(id: string, issuer?: Issuer): SessionApi;
+    hold: AgentService["hold"];
+    header: AgentService["header"];
     list: AgentService["list"];
     profiles: AgentService["profiles"];
     running: AgentService["running"];

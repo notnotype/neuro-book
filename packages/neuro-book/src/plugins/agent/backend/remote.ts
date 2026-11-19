@@ -274,7 +274,9 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 const requested = (await session.path()).find((event) => event.type === "interactionRequested" && (event.data as {id: string}).id === interactionId)?.data as {kind: string; request: {tool: string; args: Readonly<Record<string, unknown>>}} | undefined;
                 if (requested?.kind !== "approval") return context.fail("unknown-interaction");
                 const snapshot = await session.snapshot();
-                const preview = await options.previewApproval({sessionId, profile: snapshot.profile.id, ...(snapshot.header.project === undefined ? {} : {project: snapshot.header.project})}, requested.request.tool, requested.request.args, context.signal);
+                const {header} = snapshot;
+                // 与内核交给工具的会话上下文同形（harness/runtime.md 输出 78）：预览按它找文件与会话的归属。
+                const preview = await options.previewApproval({sessionId, profile: snapshot.profile.id, ...(header.project === undefined ? {} : {project: header.project}), ...(header.background === true ? {background: true} : {}), ...(header.owner === undefined ? {} : {owner: header.owner})}, requested.request.tool, requested.request.args, context.signal);
                 const text = JSON.stringify(preview);
                 const bytes = Buffer.byteLength(text);
                 return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview} : {kind: "oversized", token: previews.put(text), bytes});

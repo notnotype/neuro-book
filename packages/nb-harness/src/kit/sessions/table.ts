@@ -9,7 +9,7 @@
  */
 
 import {commandErrors} from "../../kernel/contracts.js";
-import type {AgentHost, CreateSessionOptions, Frame, Issuer, SessionApi, SessionSnapshot, StorageResult} from "../../kernel/contracts.js";
+import type {AgentHost, CreateSessionOptions, Frame, Issuer, SessionApi, SessionHeader, SessionSnapshot, StorageResult} from "../../kernel/contracts.js";
 
 /**
  * 计时口：登记一次到点回调，交回的函数同步取消（取消之后回调不会再跑）。与宿主运行时的时钟同形（例如 nb-runtime 的
@@ -17,6 +17,8 @@ import type {AgentHost, CreateSessionOptions, Frame, Issuer, SessionApi, Session
  */
 export interface SessionTableClock {
     schedule(callback: () => void, ms: number): () => void;
+    /** 毫秒：量打开耗时（`hold` 的 `opened`）。 */
+    now(): number;
 }
 
 /** 空闲多久关闭（sessions.md 输出 6）。 */
@@ -41,6 +43,19 @@ export class SessionTableStopping extends Error {
 
 type OpenFailure = {readonly ok: false; readonly code: string; readonly detail?: unknown};
 
+/** `hold` 交回的持有（sessions.md 输出 24）。 */
+export interface SessionHold {
+    /** 放掉这份引用；重复调只生效一次，表停止之后调什么都不做。 */
+    release(): void;
+    /** 这次实际打开会话的耗时（毫秒）；复用已开的会话（含刚建出来的）为 null。 */
+    readonly opened: number | null;
+}
+
+/** 改写历史的指令：宿主可以按会话头拒绝它们（`refuse`，sessions.md 输出 26）。 */
+export const HISTORY_COMMANDS = ["rewind", "switchBranch", "archive"] as const;
+export type HistoryCommand = (typeof HISTORY_COMMANDS)[number];
+const HISTORY = new Set<string>(HISTORY_COMMANDS);
+
 interface Entry {
     readonly id: string;
     state: "opening" | "open" | "closing";
@@ -57,8 +72,8 @@ interface Entry {
     questions: "caller" | "user";
     /** `userOnly` 认出的提问的 id。 */
     userOnly: Set<string>;
-    /** 打开的结果：同时到达的请求等同一个。 */
-    ready: Promise<{readonly ok: true} | OpenFailure>;
+    /** 打开的结果：同时到达的请求等同一个。`openMs` 只在实际执行了打开的表项上有（建会话登记的没有）。 */
+    ready: Promise<{readonly ok: true; readonly openMs?: number} | OpenFailure>;
     refs: number;
     idle: boolean;
     cancelIdle: (() => void) | null;
@@ -87,6 +102,11 @@ export interface SessionTableOptions {
      * 不给时只有审批与 `questions: "user"` 会话的提问算等用户。
      */
     readonly userOnly?: (request: unknown) => boolean;
+    /**
+     * 按会话头拒绝改写历史的指令（sessions.md 输出 26）：交回码时视图不进内核、不打开会话，交回 `{ok: false, code}`。kit 不认识码的
+     * 含义，规则由宿主给。不给时不预读会话头。
+     */
+    readonly refuse?: (header: SessionHeader, command: HistoryCommand) => string | null;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -141,7 +161,10 @@ export class SessionTable {
             subscribe: (listener: (frame: Frame) => void) => table.#subscribe(id, issuer, listener),
             waitRun: (runId: string) => table.#use(id, (session) => session.waitRun(runId), "query"),
         };
-        for (const name of COMMANDS) api[name] = (args: unknown) => table.#use(id, (session) => (session.as(issuer)[name] as (args: unknown) => Promise<unknown>)(args), "command");
+        for (const name of COMMANDS) {
+            const run = (args: unknown) => table.#use(id, (session) => (session.as(issuer)[name] as (args: unknown) => Promise<unknown>)(args), "command");
+            api[name] = HISTORY.has(name) && table.options.refuse !== undefined ? async (args: unknown) => (await table.#refusal(id, name as HistoryCommand)) ?? run(args) : run;
+        }
         api.fork = async (args: unknown) => {
             const result = await table.#use(id, (session) => session.as(issuer).fork(args as Parameters<SessionApi["fork"]>[0]), "command");
             if (result.ok) table.options.forked?.(result.value.sessionId);
@@ -221,6 +244,39 @@ export class SessionTable {
     }
 
     /**
+     * 持有一份引用直到 `release`（sessions.md 输出 24）：持有期间会话不空闲关闭。打开失败交回打开的码；表停止期间到的、打开在停止
+     * 之后才交回的得 `unavailable`（后者先放掉引用）。
+     */
+    async hold(id: string): Promise<{readonly ok: true; readonly value: SessionHold} | OpenFailure> {
+        if (this.#stopping) return {ok: false, code: "unavailable"};
+        let acquired;
+        try {
+            acquired = await this.#acquire(id);
+        } catch (error) {
+            if (error instanceof SessionTableStopping) return {ok: false, code: "unavailable"};
+            throw error;
+        }
+        if (!acquired.ok) return acquired;
+        if (this.#stopping) {
+            this.#release(acquired.entry);
+            return {ok: false, code: "unavailable"};
+        }
+        const {entry} = acquired;
+        let released = false;
+        return {ok: true, value: {opened: acquired.opened, release: () => {
+            if (released) return;
+            released = true;
+            this.#release(entry);
+        }}};
+    }
+
+    /** 只读会话头，不打开会话（sessions.md 输出 28）：会话头写下后不变，开着与否读到的都一样。 */
+    header(id: string): Promise<StorageResult<SessionHeader>> {
+        this.#gate();
+        return this.options.host.header(id);
+    }
+
+    /**
      * 远程订阅用：等会话真的打开、内核订阅接上再交回；打不开时交回失败码，调用方据此让订阅失败，不会“订阅成功却永远没有帧”。
      * 交回的 `release` 取消内核订阅、放掉引用。
      */
@@ -241,6 +297,17 @@ export class SessionTable {
         if (this.#stopping) throw new SessionTableStopping();
     }
 
+    /**
+     * 改写历史的指令先按会话头过 `refuse`：拒绝或读会话头失败都交回失败、不打开会话；只有读到会话头、没被拒绝才交回 null 放行。会话头
+     * 写下后不变、会话不能删，所以读到之后放行的判断不会过时。
+     */
+    async #refusal(id: string, command: HistoryCommand): Promise<OpenFailure | null> {
+        const header = await this.header(id);
+        if (!header.ok) return {ok: false, code: header.code, ...(header.detail === undefined ? {} : {detail: header.detail})};
+        const code = this.options.refuse!(header.value, command);
+        return code === null ? null : {ok: false, code};
+    }
+
     async #use<T>(id: string, run: (session: SessionApi) => Promise<T>, kind: "command" | "query"): Promise<T> {
         const acquired = await this.#acquire(id);
         if (!acquired.ok) {
@@ -255,7 +322,8 @@ export class SessionTable {
     }
 
     /** 取会话并持一个引用；会话正在关闭时等它关完再重新打开。 */
-    async #acquire(id: string): Promise<{readonly ok: true; readonly entry: Entry; readonly session: SessionApi} | OpenFailure> {
+    /** `opened` 是这次调用实际执行打开的耗时；等别人的打开或复用已开的为 null（共享的打开只报一次）。 */
+    async #acquire(id: string): Promise<{readonly ok: true; readonly entry: Entry; readonly session: SessionApi; readonly opened: number | null} | OpenFailure> {
         for (;;) {
             this.#gate();
             let entry = this.#entries.get(id);
@@ -263,6 +331,7 @@ export class SessionTable {
                 await entry.closed;
                 continue;
             }
+            const opening = entry === undefined;
             if (entry === undefined) {
                 entry = {id, state: "opening", session: null, background: false, waiting: false, held: false, questions: "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
                 entry.ready = this.#open(entry);
@@ -282,16 +351,21 @@ export class SessionTable {
                 this.#gate();
                 continue;
             }
-            return {ok: true, entry, session: entry.session};
+            return {ok: true, entry, session: entry.session, opened: opening && ready.openMs !== undefined ? ready.openMs : null};
         }
     }
 
-    async #open(entry: Entry): Promise<{readonly ok: true} | OpenFailure> {
+    /**
+     * 失败时只摘自己这个表项：打开期间建会话可能已经登记了同 id 的新表项（它持着锁），按 id 删会把它丢掉。耗时只量宿主的打开与读快照
+     * （回放日志的部分），不含 `beforeOpen` 的扩展激活。
+     */
+    async #open(entry: Entry): Promise<{readonly ok: true; readonly openMs: number} | OpenFailure> {
         try {
             await this.options.beforeOpen();
+            const started = this.options.clock.now();
             const opened: StorageResult<SessionApi> = await this.options.host.open(entry.id);
             if (!opened.ok) {
-                this.#entries.delete(entry.id);
+                this.#forget(entry);
                 return {ok: false, code: opened.code, ...(opened.detail === undefined ? {} : {detail: opened.detail})};
             }
             const {header, buffer} = await opened.value.snapshot();
@@ -303,12 +377,16 @@ export class SessionTable {
             entry.held = heldForUser(buffer);
             this.#watch(entry, opened.value);
             if (entry.held && !entry.background) this.#activityChanged();
-            return {ok: true};
+            return {ok: true, openMs: this.options.clock.now() - started};
         } catch (error) {
-            this.#entries.delete(entry.id);
+            this.#forget(entry);
             this.options.report("session-open-failed", `opening session ${entry.id} threw`, {session: entry.id, message: error instanceof Error ? error.message : String(error)});
             return {ok: false, code: "open-failed"};
         }
+    }
+
+    #forget(entry: Entry): void {
+        if (this.#entries.get(entry.id) === entry) this.#entries.delete(entry.id);
     }
 
     /** 跟着运行状态：运行结束（回到空闲）时看能不能开始空闲计时。 */
@@ -376,7 +454,7 @@ export class SessionTable {
                 this.options.report("session-close-failed", `closing session ${entry.id} threw`, {session: entry.id, message: error instanceof Error ? error.message : String(error)});
             } finally {
                 this.options.closed?.(entry.id);
-                if (this.#entries.get(entry.id) === entry) this.#entries.delete(entry.id);
+                this.#forget(entry);
                 entry.session = null;
                 this.#activityChanged();
             }

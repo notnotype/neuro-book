@@ -5,17 +5,20 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {randomBytes} from "node:crypto";
-import {rm} from "node:fs/promises";
+import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {defineExtension, defineProfile} from "@notnotype/nb-harness/kernel";
+import {createJsonlStore, defineExtension, defineProfile} from "@notnotype/nb-harness/kernel";
+import {IDLE_CLOSE_MS} from "@notnotype/nb-harness/kit/sessions";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {DELTA_WINDOW_MS, DIAGNOSTIC_TEXT_BYTES, EVENT_INLINE_BYTES, PAGE_BYTES} from "./backend/frames";
+import {agentKey, MAIN_PROFILE} from "./shared/contracts";
+import type {AgentService} from "./shared/contracts";
 import {agentExtension, agentProfile, agentTool} from "./shared/points";
 import {agentSessionsContract} from "./shared/remote";
 import type {LogItem, RemoteFrame} from "./shared/remote";
@@ -333,5 +336,134 @@ describe("远程合同", () => {
         }});
         if (subscribed.ok) await waitUntil("订阅结束", () => ended);
         else expect(subscribed.code).toBe("provider-error");
+    });
+});
+
+describe("有归属的会话（输出 23–27）", () => {
+    const logOf = (w: AgentWorld, id: string): string => join(w.stateRoot, "agent", "sessions", id, "session.jsonl");
+    async function locked(w: AgentWorld, id: string): Promise<boolean> {
+        const store = createJsonlStore({root: join(w.stateRoot, "agent", "sessions")});
+        const opened = await store.open(id);
+        if (!opened.ok) return opened.code === "session-busy";
+        await store.close(opened.value);
+        return false;
+    }
+    const revoked = (error: unknown): boolean => error instanceof Error && error.name === "ServiceRevokedError";
+
+    test("验收 6：插件建有归属的会话并持有：列表不列它，空闲 30 秒后仍开着；远程的 rewind、archive 与归属插件自己视图上的 switchBranch 得 owned-session、日志不变；插件停止后会话照常空闲关闭；远程 create 带 owner 得 invalid-input", async () => {
+        const w = await world();
+        let captured: AgentService | null = null;
+        const keeper = await w.register({id: "test.keeper", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: agentKey}], activate: (context) => {
+            captured = context.services.require(agentKey);
+            return {};
+        }})]});
+        await w.settings.hub.plugins.activate({plugin: "test.keeper", entry: "server"});
+        if (captured === null) throw new Error("the keeper did not get the agent service");
+        const facade: AgentService = captured;
+        const created = await facade.create({profile: WRITER, owner: {id: "main"}});
+        if (!created.ok) throw new Error(created.code);
+        const view = created.value;
+        const held = await facade.hold(view.id);
+        expect(held).toMatchObject({ok: true, value: {opened: null}});
+        w.settings.clock.advance(IDLE_CLOSE_MS * 2);
+        expect(await locked(w, view.id)).toBe(true);
+
+        const {client} = await w.window("a");
+        expect(ok(await client.list({})).map((entry) => entry.id)).not.toContain(view.id);
+        expect(ok(await client.snapshot({sessionId: view.id})).header.owner).toEqual({plugin: "test.keeper", id: "main"});
+        const before = await readFile(logOf(w, view.id));
+        expect(await client.rewind({sessionId: view.id, commandId: cid(), to: null})).toMatchObject({ok: false, code: "owned-session"});
+        expect(await client.archive({sessionId: view.id, commandId: cid(), archived: true})).toMatchObject({ok: false, code: "owned-session"});
+        expect(await view.switchBranch({commandId: cid(), node: "n"})).toMatchObject({ok: false, code: "owned-session"});
+        expect(await readFile(logOf(w, view.id))).toEqual(before);
+        expect(await client.create({profile: WRITER, owner: {id: "x"}} as never)).toMatchObject({ok: false, code: "invalid-input"});
+
+        await keeper.stop();
+        expect(revoked((() => {
+            try {
+                view.snapshot();
+            } catch (error) {
+                return error;
+            }
+            return null;
+        })())).toBe(true);
+        w.settings.clock.advance(IDLE_CLOSE_MS);
+        await waitUntil("插件停止后空闲关闭", async () => !(await locked(w, view.id)));
+    });
+
+    test("输出 26：没打开的有归属会话（日志里有没收口的运行）被拒时不打开：日志字节不变，之后照常能打开并收口", async () => {
+        const path = join(root, `cold-${String((counter += 1))}`);
+        const first = await agentWorld(path, {plugins: [contributor], userSettings: localModelSettings(endpoint.baseUrl)});
+        const created = await first.service.create({profile: WRITER, owner: {id: "cold"}});
+        if (!created.ok) throw new Error(created.code);
+        const id = created.value.id;
+        const hold = endpoint.hold();
+        const sent = await created.value.send({commandId: cid(), input: {text: "长一点"}});
+        if (!sent.ok) throw new Error(sent.code);
+        await hold.arrived;
+        // 运行还没收口时的日志：留到下一个世界里，就是进程中途退出的现场。
+        const crashed = await readFile(logOf(first, id));
+        hold.release();
+        await first.close();
+        await writeFile(logOf(first, id), crashed);
+
+        const w = await agentWorld(path, {plugins: [contributor], userSettings: localModelSettings(endpoint.baseUrl)});
+        worlds.push(w);
+        const {client} = await w.window("a");
+        expect(await client.rewind({sessionId: id, commandId: cid(), to: null})).toMatchObject({ok: false, code: "owned-session"});
+        expect(await client.archive({sessionId: id, commandId: cid(), archived: false})).toMatchObject({ok: false, code: "owned-session"});
+        expect(await w.service.session(id).switchBranch({commandId: cid(), node: "n"})).toMatchObject({ok: false, code: "owned-session"});
+        expect(await locked(w, id)).toBe(false);
+        expect(await readFile(logOf(w, id))).toEqual(crashed);
+        // 对照：打开会写下收口，说明上面确实没有打开过。
+        expect(ok(await client.snapshot({sessionId: id})).status.state).toBe("idle");
+        expect((await readFile(logOf(w, id))).length).toBeGreaterThan(crashed.length);
+    });
+
+    test("输出 25：有归属的后台根与它派出的子会话都不进列表，按 id 仍读得到；fork 出来的会话没有归属，照常列出", async () => {
+        const w = await world();
+        const created = await w.service.create({profile: MAIN_PROFILE, background: true, owner: {id: "lyra"}});
+        if (!created.ok) throw new Error(created.code);
+        const owned = created.value;
+        endpoint.scriptFor("先读一遍", "读完了");
+        endpoint.script({tool: "agent_spawn", args: {profile: "nbook.agent.adhoc", prompt: "先读一遍", initial: {role: "设定核对员"}}}, "好");
+        const sent = await owned.send({commandId: cid(), input: {text: "派"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await owned.waitRun(sent.value.runId);
+        const spawned = (await owned.path()).find((event) => event.type === "toolResult")?.data as {details?: {sessionId?: string}} | undefined;
+        const child = spawned?.details?.sessionId;
+        if (child === undefined) throw new Error("no child session");
+        const forked = await owned.fork({commandId: cid()});
+        if (!forked.ok) throw new Error(forked.code);
+
+        const {client} = await w.window("a");
+        for (const filter of [{}, {background: true}, {archived: false, background: false}]) {
+            const ids = ok(await client.list(filter)).map((entry) => entry.id);
+            expect(ids).not.toContain(owned.id);
+            expect(ids).not.toContain(child);
+        }
+        const all = await w.service.list({background: undefined, archived: undefined});
+        if (!all.ok) throw new Error(all.code);
+        expect(all.value.map((entry) => entry.id)).toContain(forked.value.sessionId);
+        expect(all.value.find((entry) => entry.id === forked.value.sessionId)?.owner).toBeUndefined();
+        expect(ok(await client.snapshot({sessionId: child})).header.caller).toMatchObject({kind: "session", id: owned.id});
+    });
+
+    test("输出 27：远程 send 带 settlePending: \"deny\"：挂着的审批以 deny 结算（用户发了新消息），这句话照常受理", async () => {
+        const w = await world();
+        const {client} = await w.window("a");
+        const sessionId = ok(await client.create({profile: MAIN_PROFILE})).sessionId;
+        ok(await client.changeSettings({sessionId, commandId: cid(), patch: {core: {approvalMode: "ask"}}}));
+        endpoint.script({tool: "shell", args: {command: "touch a.txt"}}, "好", "收到");
+        const first = ok(await client.send({sessionId, commandId: cid(), input: {text: "建个文件"}}));
+        const asked = async () => ok(await client.snapshot({sessionId})).status;
+        await waitUntil("停在审批上", async () => (await asked()).state === "waiting");
+        const settled = ok(await client.send({sessionId, commandId: cid(), input: {text: "算了，别建了"}, settlePending: "deny"}));
+        // 结算放开了审批，这句话由同一次运行接着取走。
+        expect(settled.value).toMatchObject({placement: "taken", currentRunId: first.value.runId});
+        await w.service.session(sessionId).waitRun(first.value.runId!);
+        const events = (await w.service.session(sessionId).path()).map((event) => [event.type, event.data] as const);
+        expect(events.find(([type]) => type === "interactionResolved")?.[1]).toMatchObject({decision: "deny", note: "用户发了新消息", by: {kind: "user"}});
+        expect(JSON.stringify(events.filter(([type]) => type === "input"))).toContain("算了，别建了");
     });
 });

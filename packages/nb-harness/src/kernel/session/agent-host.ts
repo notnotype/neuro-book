@@ -10,6 +10,7 @@ import type {AgentHost, ContributedExtension, CreateSessionOptions, Diagnostic, 
 import {diagnosticCodes} from "../api/index.js";
 import {contributedIdProblem} from "../extension/assemble.js";
 import {closeSession, createSession, currentProfileOf, notifyAssemblyChanged, openSession} from "./session.js";
+import {deepFreeze} from "../state/freeze.js";
 
 export class ExtensionRejected extends Error {
     constructor(readonly code: "bad-extension-id" | "duplicate-extension-id" | "dependency-cycle", message: string) {
@@ -123,8 +124,11 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
             if (existing !== undefined) return {ok: true, value: existing};
             return register(() => openSession(env, sessionId), (opened) => (opened.ok ? opened.value : null));
         },
-        // 会话头建后不变，所以开着的会话也按存储里的读：不必经过打开的句柄（session.md 输出 26）。
-        header: (sessionId: string) => env.store.header(sessionId),
+        // 会话头建后不变，所以开着的会话也按存储里的读：不必经过打开的句柄（session.md 输出 26）。交出前深冻结，与快照里的一样改不动。
+        async header(sessionId: string) {
+            const read = await env.store.header(sessionId);
+            return read.ok ? {ok: true, value: deepFreeze(read.value)} : read;
+        },
         async close(sessionId, options) {
             const session = sessions.get(sessionId);
             if (session === undefined) return;

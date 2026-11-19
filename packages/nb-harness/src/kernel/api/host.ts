@@ -588,7 +588,7 @@ export interface AgentHost {
     list(): ExtensionInfo[];
     create(options: CreateSessionOptions): Promise<StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial" | "invalid-owner"}>;
     open(sessionId: string): Promise<StorageResult<SessionApi>>;
-    /** 只读会话头（session.md 输出 26）：不打开会话、不取锁；会话开着时用它的会话头。 */
+    /** 只读会话头（session.md 输出 26）：不打开会话、不取锁；交回的会话头深冻结。 */
     header(sessionId: string): Promise<StorageResult<SessionHeader>>;
     /** `reason: "interrupted"`：进程或插件停止时的收口，运行写 `interrupted`（runtime.md 输出 53）。 */
     close(sessionId: string, options?: {readonly reason?: "interrupted"}): Promise<void>;

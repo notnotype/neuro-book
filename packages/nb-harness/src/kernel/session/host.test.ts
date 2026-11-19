@@ -1350,7 +1350,9 @@ describe("插件宿主", () => {
         expect(Object.fromEntries(listed.value.map((entry) => [entry.id, entry.owner ?? null]))).toEqual({"bot-lyra": {plugin: "nbook.bots", id: "x".repeat(128)}, [forked.value.sessionId]: null});
         await host.close(created.value.id);
         // header 不打开会话：读完之后照样能打开（没人拿着锁），读到的与打开后的会话头相同。
-        expect(await host.header("bot-lyra")).toEqual({ok: true, value: header});
+        const read = await host.header("bot-lyra");
+        expect(read).toEqual({ok: true, value: header});
+        expect(() => Object.assign((read as {value: typeof header}).value.owner!, {id: "forged"})).toThrow(TypeError);
         const reopened = await host.open("bot-lyra");
         if (!reopened.ok) throw new Error(reopened.code);
         expect((await reopened.value.snapshot()).header).toEqual(header);
