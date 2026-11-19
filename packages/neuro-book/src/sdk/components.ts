@@ -53,7 +53,7 @@ export type {
 /**
  * 改名前的两个名字，留作弃用别名（w00026 t36）：它们描述的是 `NestedGrid` 与独立 `Splitter` 共用的手势来源与取消原因，不只属于
  * `Splitter`。写成就地的类型声明而不是改名再导出，`@deprecated` 才挂得上、作者的编辑器才会划线。弃用期多长在下一档发布前定。
- * nb-ui 里冻结的旧 Splitter（w00026 t14 迁移前）自己还导出这两个名字，`sdk.test.ts` 的类型比对因此也认这两条声明。
+ * `sdk.test.ts` 的 `DEPRECATED_ALIASES` 表登记这两个别名；去掉别名时两处一起改。
  */
 /** @deprecated 改用 `SashGestureSource`。 */
 export type SplitterGestureSource = Source;

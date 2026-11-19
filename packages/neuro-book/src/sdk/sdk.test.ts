@@ -55,14 +55,29 @@ describe("SDK 的导出面", () => {
     });
 
     it("组件子路径的类型与 nb-ui 组件入口的公共类型逐个对上：nb-ui 新增或改名的类型漏列时这里失败", () => {
-        // 就地声明的弃用别名（`export type 旧名 = 新名`）也算 SDK 导出的类型。
-        const sdk = exportedTypes(readFileSync(join(import.meta.dir, "components.ts"), "utf8")).sort();
-        const nbUi = exportedTypes(readFileSync(fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components")), "utf8")).sort();
+        // 弃用别名两边都剔除：它们是 SDK 自己的兼容承诺，与 nb-ui 入口无关（nb-ui 里冻结的旧 Splitter 碰巧也导出同名的，t14 后就没了）。
+        const sdk = exportedTypes(readFileSync(join(import.meta.dir, "components.ts"), "utf8")).filter((name) => !Object.hasOwn(DEPRECATED_ALIASES, name)).sort();
+        const nbUi = exportedTypes(readFileSync(fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components")), "utf8")).filter((name) => !Object.hasOwn(DEPRECATED_ALIASES, name)).sort();
         // 布局的类型由 nb-layout 与 nb-workbench-layout 提供，SDK 只挑给插件用的那些，不要求逐个对上。
         const layout = new Set(["@notnotype/nb-layout", "@notnotype/nb-layout/vue", "@notnotype/nb-workbench-layout", "@notnotype/nb-workbench-layout/vue"].flatMap((name) => exportedTypes(readFileSync(fileURLToPath(import.meta.resolve(name)), "utf8"))));
         expect(sdk.filter((name) => !layout.has(name))).toEqual(nbUi.filter((name) => !layout.has(name)));
     });
+
+    it("弃用别名都在 components.ts 里声明，指向表里写的新名，新名也导出", () => {
+        const source = readFileSync(join(import.meta.dir, "components.ts"), "utf8");
+        const types = new Set(exportedTypes(source));
+        for (const [alias, {replacement}] of Object.entries(DEPRECATED_ALIASES)) {
+            expect({alias, declared: types.has(alias), replacement: types.has(replacement)}).toEqual({alias, declared: true, replacement: true});
+            expect(source).toMatch(new RegExp(`@deprecated 改用 \`${replacement}\`。 \\*/\\nexport type ${alias} = `, "u"));
+        }
+    });
 });
+
+/** SDK 留给插件的弃用别名：旧名、新名与理由。去掉别名时从这里删掉对应一行。 */
+const DEPRECATED_ALIASES: Readonly<Record<string, {readonly replacement: string; readonly reason: string}>> = {
+    SplitterGestureSource: {replacement: "SashGestureSource", reason: "w00026 t36：NestedGrid 与 Splitter 共用的手势来源，改名后保留旧名一个弃用期"},
+    SplitterGestureCancelReason: {replacement: "SashGestureCancelReason", reason: "同上，取消原因"},
+};
 
 /** nb-ui 组件入口里不给插件用的单文件组件，与理由。现在没有。 */
 const NOT_FOR_PLUGINS: Readonly<Record<string, string>> = {};

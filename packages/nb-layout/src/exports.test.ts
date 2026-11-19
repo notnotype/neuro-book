@@ -29,13 +29,20 @@ const entryText = (file: string): string => readFileSync(file, "utf8");
 
 const BANNED = ["workbench", "activity", "statusbar", "region", "container", "editor", "sidebar", "explorer", "terminal"];
 
-/** 把名字切成小写的词（驼峰、连字符、下划线、点），`status` 后接 `bar` 合成 `statusbar`。 */
+/** 把名字切成小写的词（驼峰、连字符、下划线、点）。 */
 function words(name: string): string[] {
-    const parts = name.replace(/([a-z0-9])([A-Z])/gu, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/gu, "$1 $2").split(/[\s\-_.]+/u).map((part) => part.toLowerCase()).filter((part) => part !== "");
-    return parts.flatMap((part, index) => (part === "status" && parts[index + 1] === "bar" ? ["statusbar"] : [part]));
+    return name.replace(/([a-z0-9])([A-Z])/gu, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/gu, "$1 $2").split(/[\s\-_.]+/u).map((part) => part.toLowerCase()).filter((part) => part !== "");
 }
 
-const banned = (name: string): string[] => words(name).filter((word) => BANNED.includes(word));
+/** 去掉复数的词尾：`regions` 按 `region` 比。 */
+const singular = (word: string): string => (word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word);
+
+/** 名字里命中的禁用词：单个词与相邻两个词拼起来（`SideBar`、`StatusBar`）都查，复数按单数比。 */
+function banned(name: string): string[] {
+    const parts = words(name);
+    const candidates = [...parts, ...parts.slice(1).map((part, index) => `${parts[index]!}${part}`)];
+    return [...new Set(candidates.map(singular).filter((word) => BANNED.includes(word)))];
+}
 
 function sourceFiles(directory: string): string[] {
     return readdirSync(directory, {withFileTypes: true}).flatMap((entry) => {
@@ -52,12 +59,19 @@ function dataAttributes(text: string): string[] {
     return [...attributes, ...datasets];
 }
 
-/** 文档代码块里从本包导入的名字：`{specifier, name}`。 */
+/** 文档代码块里从本包导入（或再导出）的名字：`{specifier, name}`。认单双引号、`import 默认, {…}`、`export {…} from`。 */
 function documentedImports(text: string): Array<{readonly specifier: string; readonly name: string}> {
-    return [...text.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+"(@notnotype\/nb-layout(?:\/[a-z-]+)?)"/gsu)].flatMap((match) => match[1]!.split(",").map((raw) => ({
+    return [...text.matchAll(/(?:import|export)\s+(?:type\s+)?(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s+from\s+["'](@notnotype\/nb-layout(?:\/[a-z-]+)?)["']/gsu)].flatMap((match) => match[1]!.split(",").map((raw) => ({
         specifier: match[2]!,
         name: raw.trim().replace(/^type\s+/u, "").split(/\s+as\s+/u)[0]!.trim(),
     })).filter((item) => item.name !== ""));
+}
+
+/** 同一行里有两个以上导出名的行号（按语法树取每个名字的行，多行的 `export {` 也查得到）。 */
+function crowdedLines(text: string): number[] {
+    const counts = new Map<number, number>();
+    for (const item of moduleExports(text)) counts.set(item.line, (counts.get(item.line) ?? 0) + 1);
+    return [...counts].filter(([, count]) => count > 1).map(([line]) => line);
 }
 
 function markdownFiles(directory: string): string[] {
@@ -77,14 +91,13 @@ describe("nb-layout 的公开面", () => {
         }
     });
 
-    it("具名再导出一行一个名字：加一个导出在评审里是单独的一行", () => {
-        const crowded = ENTRIES.flatMap((entry) => entryText(entry.file).split("\n").flatMap((line, index) => (/^export (?:type )?\{[^}]*,[^}]*\}/u.test(line) ? [`${relative(PACKAGE_ROOT, entry.file)}:${String(index + 1)}`] : [])));
-        expect(crowded).toEqual([]);
+    it("一行一个名字：加一个导出在评审里是单独的一行", () => {
+        expect(ENTRIES.flatMap((entry) => crowdedLines(entryText(entry.file)).map((line) => `${relative(PACKAGE_ROOT, entry.file)}:${String(line)}`))).toEqual([]);
     });
 
-    it("包内文档与三份 Spec 的代码块里从本包导入的名字，都在对应入口里", () => {
+    it("包内文档、nb-workbench-layout 的文档与三份 Spec 的代码块里从本包导入的名字，都在对应入口里", () => {
         const exported = new Map(ENTRIES.map((entry) => [entry.specifier, new Set(moduleExports(entryText(entry.file)).map((item) => item.name))]));
-        const documents = [...markdownFiles(PACKAGE_ROOT), ...["ui/nested-grid.md", "ui/layout-drag.md", "ui/sortable-list.md"].map((name) => join(REPO_ROOT, "docs/specs", name))];
+        const documents = [...markdownFiles(PACKAGE_ROOT), ...markdownFiles(join(PACKAGE_ROOT, "../nb-workbench-layout")), ...["ui/nested-grid.md", "ui/layout-drag.md", "ui/sortable-list.md"].map((name) => join(REPO_ROOT, "docs/specs", name))];
         const missing = documents.flatMap((file) => documentedImports(readFileSync(file, "utf8")).filter((item) => exported.get(item.specifier)?.has(item.name) !== true).map((item) => `${relative(REPO_ROOT, file)}: ${item.name} from ${item.specifier}`));
         expect(missing).toEqual([]);
     });
@@ -101,13 +114,19 @@ describe("nb-layout 的公开面", () => {
 
     it("这几条检查拦得下违规的写法", () => {
         expect(hasStarExport(`export * from "./grid";`)).toBe(true);
-        expect(hasDefaultExport(`export default 1;`)).toBe(true);
+        for (const text of ["export default 1;", "export default function foo() {}", "export default function () {}", "export default class Foo {}", "const x = 1; export {x as default};"]) expect(hasDefaultExport(text)).toBe(true);
+        expect(crowdedLines(`export {\n    a, b,\n    c,\n} from "./x";`)).toEqual([2]);
+        expect(crowdedLines(`export {a} from "./x"; export {b} from "./y";`)).toEqual([1]);
         expect(banned("ActivityBarStrip")).toEqual(["activity"]);
         expect(banned("statusBarHeight")).toEqual(["statusbar"]);
         expect(banned("EditorGroupDrop")).toEqual(["editor"]);
         expect(banned("entryRect")).toEqual([]);
         expect(banned("FloatWindowHandles")).toEqual([]);
+        expect(banned("SideBarWidth")).toEqual(["sidebar"]);
+        expect(banned("DropRegions")).toEqual(["region"]);
+        expect(banned("GridSashRef")).toEqual([]);
         expect(dataAttributes(`<div data-region-drop :x="el.dataset.containerId" />`).flatMap(banned)).toEqual(["region", "container"]);
         expect(documentedImports(`import {createGrid, type GridNode} from "@notnotype/nb-layout";`)).toEqual([{specifier: "@notnotype/nb-layout", name: "createGrid"}, {specifier: "@notnotype/nb-layout", name: "GridNode"}]);
+        expect(documentedImports(`import X, {NestedGrid} from '@notnotype/nb-layout/vue';\nexport {LAYOUT_TEXT_KEY} from "@notnotype/nb-layout/text";`).map((item) => item.name)).toEqual(["NestedGrid", "LAYOUT_TEXT_KEY"]);
     });
 });
