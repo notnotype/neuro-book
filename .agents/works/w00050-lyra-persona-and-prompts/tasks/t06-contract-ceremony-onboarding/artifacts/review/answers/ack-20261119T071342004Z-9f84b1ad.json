@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00050-lyra-persona-and-prompts",
+    "taskId": "t06-contract-ceremony-onboarding",
+    "artifactId": "review",
+    "ackId": "20261119T071342004Z-9f84b1ad",
+    "answers": [
+        "20261119T071140899Z-f032d0b2"
+    ],
+    "through": "20261119T071140899Z-f032d0b2",
+    "included": [
+        ".agents/works/w00050-lyra-persona-and-prompts/tasks/t06-contract-ceremony-onboarding/README.md"
+    ],
+    "ackedAt": "2026-11-19T07:13:42.004Z"
+}
