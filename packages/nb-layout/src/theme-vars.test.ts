@@ -76,6 +76,13 @@ describe("Vue 层的 CSS 变量", () => {
         }
     });
 
+    it("README 的变量表正好列出主题级的那一批：承诺不随意改名的就是表里这些", () => {
+        const readme = readFileSync(join(import.meta.dir, "../README.md"), "utf8");
+        const listed = [...readme.matchAll(/^\| `(--nb-layout-[a-z0-9-]+)` \|/gmu)].map((match) => match[1]).sort();
+        const themed = NB_LAYOUT_THEME_VARS.filter((entry) => entry.kind === "bridged" && entry.themed).map((entry) => entry.name as string).sort();
+        expect(listed).toEqual(themed);
+    });
+
     it("这条检查拦得下旧名、漏写的回退、对不上的回退与 nb-ui 的类", () => {
         expect(violations("x.vue", "a { color: var(--accent-main); }")).toEqual(["x.vue:1 --accent-main 不在清单里"]);
         expect(violations("x.vue", "a { color: var(--nb-layout-text-main); }")).toEqual(["x.vue:1 --nb-layout-text-main 没写回退"]);

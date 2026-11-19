@@ -35,4 +35,4 @@ type Emits = {
 
 ## 外观
 
-手柄透明，只有光标（`ns-resize`、`nwse-resize` 这些）。焦点环走 `nb-ui-focus-ring`。层级由 `float-chrome` 的外层给。
+手柄透明，只有光标（`ns-resize`、`nwse-resize` 这些）。焦点环是本包全局样式里的 `nb-layout-focus-ring`（读 `--nb-layout-focus-ring`、`--nb-layout-focus-outline`，装了 nb-ui 时与它的焦点环一样）。层级由 `float-chrome` 的外层给。
