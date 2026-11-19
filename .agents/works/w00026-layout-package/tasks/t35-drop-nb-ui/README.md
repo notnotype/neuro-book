@@ -46,10 +46,27 @@ updated: 2026-11-19
 | 8 | 焦点环放哪里、`!important` 保不保留没写 | 与减少动效同放 `vue/global.css`（nb-layout `AGENTS.md` 写例外）；不带 `!important`，写明理由 |
 | 9 | 层级缺省与 `NB_Z_INDEX` 之间没有机检；变更记录漏“在自己容器上设旧名”这一类 | 一致性测试核对桥接与回退等于 `NB_Z_INDEX`；变更记录补上 |
 
+## 实施记录
+
+worktree `w00026-t35-drop-nb-ui`（分支 `w00026/t35-drop-nb-ui`），四个提交，基于 master `7d92146ef`：
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1 文案 | `d387d5148` | nb-layout 自己的注入点 `LAYOUT_TEXT_KEY`（新子路径 `@notnotype/nb-layout/text`），缺省用自带 `zh-CN` 目录；应用 `web/host/host-text.ts` 三种形式，`mount.ts`、`boot.ts`、Lab 夹具 18 个、`shared/testing/text-port.ts` 改用；源码扫描拦直接提供 `TEXT_PORT_KEY` |
+| 2 类名 | `1526647be` | `nb-ui-drop-indicator*`、`nb-ui-drop-feedback*` 改名 `nb-layout-drop-*` |
+| 3 变量与焦点环 | `8fd3df19e` | 变量清单 `theme-vars.ts`（52 项）与扫描测试；Vue 层改读 `--nb-layout-*` 带回退；`layout-vars.ts` 给 JS 读变量补缺省；`vue/global.css`（减少动效、焦点环）；层级改变量；nb-ui `tokens.css` 桥接、`z-index.test.ts` 核对层级；`pack.ts` 跳过新名；应用宿主旋钮改新名；`theme-bridge.test.ts`；探针 e2e |
+| 4 依赖与文档 | `52a97a76a` | 去掉 nb-ui 依赖、收紧 `boundary.test.ts`；README 变量表（有测试核对）与文字注入；组件 `.md`、`AGENTS.md`、`monorepo-boundaries.md`、nb-ui 规范 2.1 的例外、变更记录 |
+
+验证：
+
+- 三个包的类型检查通过；nb-layout 356 条 bun 与 231 条 dom 测试通过；nb-ui 令牌与层级测试通过。
+- `test:affected`（第 3 片，11 个包）：bun 10 条失败、vitest 1 个未处理异常。逐条看过：`nbook.stickers` 清单 7 条、SDK 导出面 `ImagePreviewDialog` 1 条、eval 1 条是 master 上原有的；canon 双进程 1 条是负载下 5 秒超时，单独重跑 3 条全过。未处理异常是本片引起的：应用的 dom 测试里时长读到空串后按缺省 280ms 走进可排序列表的放下滑回，happy-dom 不认 `style.translate`（读到 undefined），“没写过位移”的判断 `=== ""` 不成立，接着 `.split` 抛错；改成按真假判断，单独重跑无异常。
+- e2e 11 个文件 234 条：232 条过；`lab-grid-swap:110`（Lab 冷启动等就绪超时）与 `workbench-dnd:573`（整条 60 秒超时）在负载 11 到 19 时失败，单独重跑都过。新探针 5 条全过：三套主题下 40 个经桥接的新名在根上都非空且等于旧名，减少动效时四个时长都是 0ms，键盘聚焦可排序列表的把手有焦点环（全局样式进了产物）。
+- 计划里的“Lab 截图对照改前改后”改成两项更直接的核对：探针逐个比计算值；扫描主题、nb-ui 与应用里声明这 40 个旧名的地方，57 处都在 `:root` 选择器下，配色只写在 `html` 与 `body` 上、两处相同，所以桥接在根上算不改变任何元素读到的值。
+- 变异检查：桥接拼错旧名、层级数字不对、回退与 nb-ui 缺省不同、去掉放下滑回的真假判断，对应的测试都会红。
+- 踩到的坑：happy-dom 不继承自定义属性（根上、父元素上的声明子元素读到空串），dom 测试的公共准备改成注入一条 `*` 规则。
+
 ## 下一步
 
-Spec 已写（planned）：[`theme/system`](../../../../../docs/specs/theme/system.md) 的“布局组件的桥接”、[`ui/i18n`](../../../../../docs/specs/ui/i18n.md) 输出 8 的例外、[`ui/nested-grid`](../../../../../docs/specs/ui/nested-grid.md) 输出 141 到 143 与“边界与兼容”的变量清单；提案追加决策记录，待确认清单加三行。
-
-进展（worktree `w00026-t35-drop-nb-ui`）：第 1 片文案 `d387d5148`、第 2 片类名 `1526647be`。第 1 片的 `test:affected` 10 条失败：`nbook.stickers` 清单 7 条与 SDK 导出面 `ImagePreviewDialog` 1 条是 master 上原有的；`pack.test` 生成 SDK 包的 2 条是负载 26 到 30 时 vue-tsc 超时，负载 10 时单独重跑 13 条全过。
-
-1. 第 3 片变量与焦点环、第 4 片依赖与机检；收口跑受影响的测试与 e2e，启动实现审查（前端，Claude Sonnet）。
+1. 实现审查（前端，Claude Sonnet）在跑，报告在 `.local/agent/works/w00026-layout-package/tasks/t35-drop-nb-ui/reports/impl-review/`；处理完合入 master。
+2. 合入后：Spec 的 planned 条目换模型逐句核对再晋升；`ui/nested-grid` 实现合同里“Vue 层依赖核心入口与 nb-ui”改掉；根 `AGENTS.md` 的结构行（主工作区有别人未提交的改动，暂欠）。
