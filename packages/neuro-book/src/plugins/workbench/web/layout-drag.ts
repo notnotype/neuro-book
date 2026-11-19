@@ -226,9 +226,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (container === undefined) return newContainer;
         return Object.values(doc.panels).filter((panel) => panel.container === container).length === 1 ? container : newContainer;
     };
-    /** 来源此刻收起着（`collapseSource`）：判定用的是收起后的几何，预览不能把来源摆回来。展开（`expandSource`）、拿起时清掉。 */
-    let sourceCollapsed = false;
-    /** 收起前的判定几何：回到原处展开时换回它（输出 38）。 */
+    /** 收起前的判定几何：回到原处展开时换回它（输出 38）。不为 null 就是来源此刻收起着（`collapseSource`），判定用的是收起后的几何。 */
     let beforeCollapse: FrozenGeometry | null = null;
     /** 这一场按下的点（视口坐标）：键盘拿起是 null。 */
     let pressedAt: GridDropPoint | null = null;
@@ -262,7 +260,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             }
             // 入口上的并入，来源是这个区域里一个容器唯一的视图：这条入口条是它自己的，来源不收起（`homeStripOf`），预览也不拿掉它，入口都不动，只高亮目标。
             // 已经在别处收起过就不行：判定的入口已经上移，已提交的文档会把来源的入口和分节画回来，高亮的入口就不在指针下了。
-            if (action.kind === "join-container" && !sourceCollapsed && soleRegionContainer(doc, source, action.region) !== null) return doc;
+            if (action.kind === "join-container" && beforeCollapse === null && soleRegionContainer(doc, source, action.region) !== null) return doc;
             // 预览不摆真实结果的落点（输出 38）。浮动：窗此刻就是跟手的卡片。中央：目标不动，只盖一层；放下才换标签。这两种都是来源收起，内容靠拿起留着。
             if (action.kind === "float" || action.kind === "center" || action.kind === "join-container") {
                 const result = removeTab(doc, source.tab);
@@ -277,10 +275,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         },
         collapseSource: (source, drop) => {
             const result = removeTab(options.doc(), source.tab);
+            // 这时 `live-drag` 已经当来源收起了，这里不收，两边就差这一回，可以不管：
+            // 还没冻结走不到（拿起后的 `nextTick` 就冻结，帧在它之后才跑）；来源不在文档里是拖动中被命令关掉了，下一次判定看到结构变了，整场取消。
             if (!result.ok || frozen === null) return;
             beforeCollapse = frozen;
             frozen = collapsed(frozen, options.doc(), result.doc, source);
-            sourceCollapsed = true;
             // 预览缓存里并入的矩形是按旧几何算的。
             previews.clear();
             // 照 Trellis：指针再动才按收起后的布局重判。收起时指针下的判定留着，松手（按指针下重判）还是屏幕上这个；被拒绝也留着：松手那次重判命中它，编辑器不让放的要交给编辑器写提示。
@@ -290,7 +289,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             if (beforeCollapse === null) return;
             frozen = beforeCollapse;
             beforeCollapse = null;
-            sourceCollapsed = false;
             previews.clear();
             // 同收起：指针再动才按拿起时的布局重判，这之前松手还是屏幕上的原位。
             held = {point: session.state.value?.point ?? null, drop, rejected: overRejected, refusal: editorRefusal};
@@ -990,7 +988,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             shownDropKey = "";
             frozen = null;
             beforeCollapse = null;
-            sourceCollapsed = false;
             windowDrag = null;
             newContainer = `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`;
             // 拖含几个视图的入口是落点指示，不走实时布局（输出 38、46）。

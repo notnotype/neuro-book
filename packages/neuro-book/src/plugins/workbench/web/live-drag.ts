@@ -95,8 +95,6 @@ export interface LiveDrag {
     readonly slot: Readonly<Ref<GridRect | null>>;
     /** 已显示的落点动作；预览的是别的（来源收起、没有、摆不出来）时为 null。 */
     readonly shownAction: Readonly<Ref<WorkbenchDropAction | null>>;
-    /** 网格根的左上角（视口坐标），这一场拿起时读的。 */
-    origin(): {readonly x: number; readonly y: number};
     begin(source: LayoutTabSource, point: GridDropPoint | null): void;
     /** 这一刻判定的落点。帧循环停着时排一帧。 */
     offer(drop: LayoutDragDrop | null): void;
@@ -334,7 +332,6 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         card,
         slot,
         shownAction,
-        origin: () => origin,
         begin: (from, point) => {
             source = from;
             pointer = point;
