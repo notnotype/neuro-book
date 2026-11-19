@@ -17,6 +17,29 @@ updated: 2026-11-19
 
 2026-11-19 写计划第 1 稿（[`plan.md`](plan.md)）。只改文档：按“按任务大小降级”不做设计审查，实现审查（Claude Sonnet，按文档审）兜底。
 
+## 实施记录
+
+worktree `w00026-t42-readme`（分支 `w00026/t42-readme`）：
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1 | `34df7c4e0` | README：定位、起步例子（与 Lab 的 `starter` 场景同一份，`readme.test.ts` 核对）、导出对照表、约定；`lab-grid-structure.e2e.ts` 加“起步例子” |
+| 2 | `c6800919e` | `useGridHost.md`、`useLayoutExtent.md`、`drag-session.md`；`NestedGrid.md` 的“接入”改成链接，只留组件这一侧的几条 |
+| 3 | 进行中 | `NestedGrid.md`、`grid.md` 去掉“输出 N”（派 Claude Sonnet 做文案迁移，我审 diff） |
+
+验证：
+
+- `readme.test.ts` 通过；把 README 例子改一个字会红。
+- 应用类型检查通过（场景能编译）；“起步例子”e2e 通过（拖宽、拆分、收起与展开）。
+- `docs:check` 没有本 Task 的失败。
+
+约定逐条对照过源码：
+
+- 恢复时解析函数返回 `{ref}` 或 `null`：`grid-types.ts` 的 `GridRefResolution`、`GridRefResolver`；
+- 层数与节点数的上限：`grid.ts:211、214`；
+- 焦点只停在叶里能聚焦的元素上：`vue/grid-focus.ts` 的 `focusablesIn`；
+- 拖动会话跳过反馈元素：`vue/drag-session.ts:79` 的 `FEEDBACK_SELECTOR`。
+
 ## 下一步
 
 1. 开 worktree，按三片实施。
