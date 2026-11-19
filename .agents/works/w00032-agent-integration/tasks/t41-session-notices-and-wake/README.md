@@ -88,10 +88,19 @@ updated: 2026-11-19
 | 18 | 成立，要改 | `fork` 不带提醒、门开 |
 | 19 | 成立，要改 | 恢复的路径改成 `run/recover.ts`，验收分开写 |
 
+## 进展
+
+| 片 | 提交 | 验证 |
+|---|---|---|
+| 1 Spec（planned） | master 68a4ef233；字段名对齐 `queued` 另一提交 | `docs:check` 无新问题 |
+| 2 提醒的发与取 | 分支 b503994e9 | nb-harness 新增 `run/notice.test.ts` 11 条过；内核全部测试除 `log/store.test.ts` 的“截在任何一个字节处”（master 上同样在负载下 5 秒超时）都过；neuro-book `src/plugins/agent` 530 过、5 失败：`builtin-tools-project.test.ts` 3 条 master 上同样失败（负载），`compaction.test.ts`、`builtin-profiles.test.ts` 各 1 条单独重跑都过；变异 4 处（取走挪回压缩之前、插话排在提醒前、来源行不清洗、用户能发）各有用例失败；三个包 typecheck 过 |
+
+负载记录：跑测试时 1 分钟负载 25–108（别的会话的 typecheck 与 e2e、一个 t21 测试留下的孤儿 eval 内核，后者开发者已手动结束）。
+
 ## 当前状态
 
-计划第 2 稿开发者确认（决定 6）；开始切片 1：在 master 写 planned 的 Spec。
+切片 2 完成；开始切片 3（门与唤起）。
 
 ## 下一步
 
-切片 1 Spec → 2 提醒的发与取 → 3 门与唤起 → 4 `queue.order` 与 `mergeSteers` → 5 NeuroBook。
+切片 3 → 4 → 5；第 2–4 片做完交 omp 实现审查。
