@@ -2,14 +2,15 @@
  * 星瑕样本的剧情数据（`canon-sample.ts --plot`，w00039 t31 第二批，docs/specs/plot/author-ui.md 的验收用）：在设定样本的十一次写入
  * 之后，用产品的剧情声明再发布几次作者写入。揭示与伏笔节点挂在现有正文的真实段落上，所以读者的程度与“从哪一段起”是正文算出来的：
  *
- * - 四个秘密：“哥哥就是星瑕”（第 1 章第 8 段明说）、“星瑕做过魔法少女”（第 1 章第 13 段明说）、“那几年是被软禁”（第 2 章第 10 段
- *   暗示）三个保密，“父母没有死”绝密、第 3 章有揭示计划；
+ * - 五个秘密：“哥哥就是星瑕”（第 1 章第 8 段明说）、“星瑕做过魔法少女”（第 1 章第 13 段明说）、“那几年哥哥是被软禁”（第 2 章
+ *   第 10 段暗示，挂着一条第 3 章到期的决策）、“软禁处留着的是魔偶”（读者不知道、没打算怎么揭）四个保密，“父母没有死”绝密、第 3 章
+ *   有揭示计划；
  * - 知情行：初值里知道、忘了（星瑾六岁时见过变身）、怀疑；第 2 章星瑾信错了；彗在前史的逃脱里在场推出；
  * - 伏笔六个：很久没提（参考间隔 1 章）、呼应中、已回收、未埋带计划、已放弃、刚埋下；
  * - 三个人的目标与态度：含隐秘、冲突、达成，第 2 章星瑾的目标受挫（动过）；
  * - 两条待定决策，一条第 3 章到期；
  * - 一条已写的回溯分叉：星瑕把第 2 章那个晚上倒回去（切口是变回哥哥的样子，触发处是星瑾那句话），子线的第 3 章她先说了那几年的事，
- *   所以子线上星瑾知道“那几年是被软禁”，主线上她信错了。
+ *   所以子线上星瑾知道“那几年哥哥是被软禁”，主线上她信错了。
  *
  * 样本自带的剧情线条目（“做个好哥哥”等四条）原样留着。已有的几条剧情变更补记谁在场（经历要它），工资那条不补，留一条没记谁在场的。
  */
@@ -79,10 +80,11 @@ export async function writePlotSample(service: WorldService, idOf: NameIndex, ch
     const points = await publish(service, "秘密", [
         point("tmp:k1", "哥哥就是星瑕", xia, {表现: "在星瑾面前一直是哥哥的样子", 读者问题: "哥哥到底是谁"}),
         point("tmp:k2", "星瑕做过魔法少女", xia, {规则: "官方明面上还维持着她的魔法少女身份"}),
-        point("tmp:k3", "那几年是被软禁", xia, {读者问题: "哥哥走的那几年去了哪"}),
+        point("tmp:k3", "那几年哥哥是被软禁", xia, {读者问题: "哥哥走的那几年去了哪"}),
         point("tmp:k4", "父母没有死", parents, {保密: "topSecret"}),
+        point("tmp:k5", "软禁处留着的是魔偶", xia, {规则: "官方以为她还被关着"}),
     ]);
-    const [k1, k2, k3, k4] = ["tmp:k1", "tmp:k2", "tmp:k3", "tmp:k4"].map((id) => points[id]!) as [string, string, string, string];
+    const [k1, k2, k3, k4, k5] = ["tmp:k1", "tmp:k2", "tmp:k3", "tmp:k4", "tmp:k5"].map((id) => points[id]!) as [string, string, string, string, string];
 
     // 人物启用知情与态度：初值里谁知道什么、对谁什么态度。
     type StoredEntry = {init: {data: Record<string, unknown>}} & Record<string, unknown>;
@@ -95,9 +97,9 @@ export async function writePlotSample(service: WorldService, idOf: NameIndex, ch
         }}}} as Puts[number];
     };
     await publish(service, "知情与态度", [
-        withPlot(xia, [{id: k1, 程度: "knows"}, {id: k2, 程度: "knows"}, {id: k3, 程度: "knows"}], [{id: jin, 态度: "想补偿她，又不知道怎么开口", 起因: null, 称呼: "星瑾"}]),
+        withPlot(xia, [{id: k1, 程度: "knows"}, {id: k2, 程度: "knows"}, {id: k3, 程度: "knows"}, {id: k5, 程度: "knows"}], [{id: jin, 态度: "想补偿她，又不知道怎么开口", 起因: null, 称呼: "星瑾"}]),
         withPlot(jin, [{id: k2, 程度: "forgot", 备注: "六岁那年见过哥哥变身，后来忘了"}], [{id: xia, 态度: "还在生气，不肯领情", 起因: {ref: k3}, 称呼: "哥哥"}]),
-        withPlot(hui, [{id: k1, 程度: "knows", 怎么知道: "witnessed"}, {id: k2, 程度: "knows"}], [{id: xia, 态度: "嘴上看热闹，真有事第一个到", 起因: null, 称呼: "瑕"}]),
+        withPlot(hui, [{id: k1, 程度: "knows", 怎么知道: "witnessed"}, {id: k2, 程度: "knows"}, {id: k5, 程度: "knows"}], [{id: xia, 态度: "嘴上看热闹，真有事第一个到", 起因: null, 称呼: "瑕"}]),
         withPlot(parents, [{id: k4, 程度: "knows"}], []),
         withPlot(sprite, [{id: k2, 程度: "knows"}, {id: k4, 程度: "suspects"}], []),
         withPlot(relatives, [], []),
@@ -139,7 +141,7 @@ export async function writePlotSample(service: WorldService, idOf: NameIndex, ch
         foreshadow("tmp:f1", "星瑾不吃煎蛋", {重要程度: "minor", 参考间隔: 1}),
         foreshadow("tmp:f2", "那张卡", {重要程度: "main"}),
         foreshadow("tmp:f3", "彗的五条建议", {}),
-        foreshadow("tmp:f4", "彗做的魔偶", {重要程度: "main", 物件: [{id: idOf("魔偶")}]}),
+        foreshadow("tmp:f4", "彗做的魔偶", {重要程度: "main", 答案: {ref: k5}, 物件: [{id: idOf("魔偶")}]}),
         foreshadow("tmp:f5", "被划掉的第五条", {意图: "dropped"}),
         foreshadow("tmp:f6", "淡金色的头发", {种类: "mystery"}),
     ]);

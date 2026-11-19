@@ -120,14 +120,16 @@ describe("带剧情数据的星瑕样本（--plot）", () => {
             type Named = {readonly names: Readonly<Record<string, {readonly name: string}>>};
             const idOf = (value: Named, name: string): string => Object.entries(value.names).find(([, named]) => named.name === name)![0];
 
-            // 保密表：主体按条目树的顺序（星瑕的三个、父母的一个）；缺省点名三个主要角色；读者从哪一段起是正文算的。
+            // 保密表：主体按条目树的顺序（星瑕的四个、父母的一个）；缺省点名三个主要角色；读者从哪一段起是正文算的；“没打算怎么揭”
+            // 只有读者还不知道、没有计划与决策的那一个。
             type Secrets = Named & {readonly people: readonly string[]; readonly counts: Record<string, number>; readonly items: readonly {readonly point: string; readonly secrecy: string; readonly people: Readonly<Record<string, {readonly degree: string; readonly belief: string | null}>>; readonly reader: {readonly degree: string; readonly suspects: {readonly chapter: string; readonly paragraph: number} | null; readonly knows: {readonly chapter: string; readonly paragraph: number} | null}}[]};
             const secrets = ok<Secrets>(await author.secrets({}));
             const name = (id: string): string => secrets.names[id]!.name;
-            expect(secrets.items.map((row) => name(row.point))).toEqual(["哥哥就是星瑕", "星瑕做过魔法少女", "那几年是被软禁", "父母没有死"]);
+            expect(secrets.items.map((row) => name(row.point))).toEqual(["哥哥就是星瑕", "星瑕做过魔法少女", "软禁处留着的是魔偶", "那几年哥哥是被软禁", "父母没有死"]);
+            expect(secrets.counts).toEqual({all: 5, readerOnly: 0, readerUnaware: 2, noPlan: 1});
             expect(secrets.people.map(name).sort()).toEqual(["彗", "星瑕", "星瑾"].sort());
             const jin = idOf(secrets, "星瑾");
-            const [brother, magical, prisoned, parents] = secrets.items;
+            const [brother, magical, , prisoned, parents] = secrets.items;
             expect(brother).toMatchObject({secrecy: "secret", people: {[jin]: {degree: "none"}}, reader: {degree: "knows", knows: {chapter: "1", paragraph: 8}}});
             expect(magical).toMatchObject({people: {[jin]: {degree: "forgot"}}, reader: {degree: "knows", knows: {chapter: "1", paragraph: 13}}});
             expect(prisoned).toMatchObject({people: {[jin]: {degree: "misbelieves", belief: "哥哥那几年不想回家，也不想管她"}}, reader: {degree: "suspects", suspects: {chapter: "2", paragraph: 10}, knows: null}});
