@@ -35,7 +35,7 @@ updated: 2026-11-19
   - `sdk.test.ts` 按入口文件里写出的名字核对 SDK 的类型，nb-layout 根入口靠 `export *` 带出的类型它读不到：根入口显式写出失败的几个类型名。
   - 第 1 片之后没有单独跑 `lab-nested-grid`，并进收口那一轮（构建三份产物要十几分钟，两片之间没有别的改动会动到夹具的属性）。
 - 验证：三个包的类型检查（应用三份配置：`tsc`、`vue-tsc` 的 web 与 browser-test）、nb-layout（bun 339、vitest 216）与 nb-workbench-layout（bun 261、vitest 48）的测试、`sdk.test`、`docs:check` 都过。`test:affected`（在第 2 片提交前）有 4 处失败，都不在本分支的改动里：`nbook.stickers` 两条（`server.test.ts:152`、`builtin-names.test.ts:45`，内置插件清单与产品清单不一致，来自 master 上别的 Work，本分支没改这两个目录）；`architecture.test.ts` 超时与示例插件 `SnippetsPage.dom.test.ts` 一条，单独重跑都过。
-- e2e（负载 8 到 14）：`lab-nested-grid` 17、`lab-grid-panels` 17、`lab-workbench-surface` 17、`workbench-views` 34、`workbench-dnd` 38 全过；`workbench-shell` 16 过 2 失败（547 等不到外框过渡、792 等不到 Lab 场景，跑到它时负载 14 以上），重跑见下。
+- e2e（负载 8 到 14）：`lab-nested-grid` 17、`lab-grid-panels` 17、`lab-workbench-surface` 17、`workbench-views` 34、`workbench-dnd` 38 全过；`workbench-shell` 16 过 2 失败（547 等不到外框过渡、792 等不到 Lab 场景，跑到它时负载 14 以上），负载 6 到 8 时两条各单独重跑 2 次都过，归为负载（547 是主线程忙时过渡直接到终点，792 是 Lab 冷启动）。`build:sdk` 的产物里四个类型都在导出清单上，`onGestureCommit` 的类型是 `GridLayoutCommitResult`；没有另建基点 worktree 做前后整份比对，SDK 源码只改了 `components.ts` 一行类型导出。
 
 下面是第 1 到 3 稿三轮设计审查的历程；表里说的诊断、L2 拆码与切片，在第 4 稿里已转 t38 或延后，以计划第 4 稿为准。
 
@@ -91,5 +91,4 @@ updated: 2026-11-19
 
 ## 下一步
 
-1. `workbench-shell` 547、792 在低负载下单独重跑。
-2. 实现审查（前端包，Claude Sonnet），不阻塞；处理完合入 master，两份 Spec 的 planned 去掉、补实现合同。
+1. 实现审查（前端包，Claude Sonnet，审查 worktree `review-t34-impl` 固定在 `45350dd1c`）在后台；处理完合入 master，两份 Spec 的 planned 去掉、补实现合同。
