@@ -8,9 +8,11 @@ import {computed, shallowRef} from "vue";
 
 import type {CanonReads} from "../shared/reads";
 import {useExternalList, useExternalRead, useWorldList, useWorldRead} from "./use-reads";
+import type {WindowLine} from "./window-line";
 import type {CanonWorld} from "./world";
 
-export function createCanonReads(world: CanonWorld | null, plugin: string): CanonReads {
+export function createCanonReads(world: CanonWorld | null, plugin: string, line: WindowLine): CanonReads {
+    const lines = {line: line.line, setLine: (next: string) => line.set(next), lineOptions: line.options};
     if (world === null) {
         const none = computed(() => null);
         return {
@@ -20,9 +22,11 @@ export function createCanonReads(world: CanonWorld | null, plugin: string): Cano
             useList: () => ({state: none, more: () => undefined}),
             useExternal: () => none,
             useExternalList: () => ({state: none, more: () => undefined}),
+            ...lines,
         };
     }
     return {
+        ...lines,
         connection: world.connection,
         retry: () => world.retry(),
         useRead: (method, input) => useWorldRead(world, method, input),

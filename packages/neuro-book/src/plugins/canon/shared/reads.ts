@@ -52,6 +52,15 @@ export interface ExternalPage<Item> {
 }
 export type ExternalPageFetch<I, P extends ExternalPage<unknown>> = (input: I, cursor: string | undefined, limit: number) => Promise<CanonResult<P>>;
 
+/** 一条可选的线（输出 34）。 */
+export interface LineOption {
+    readonly id: string;
+    /** 线的名字；主线为 null（界面写“主线”）。 */
+    readonly name: string | null;
+    /** 在线的树里的深度：主线 0。 */
+    readonly depth: number;
+}
+
 /**
  * 组合函数只在组件的 `setup` 或别的效果作用域里调：输入（一个返回输入的函数）变了换一个读取，旧的在新的读到（或读失败）之前
  * 接着显示；输入为 null 时不读；作用域结束时释放。窗口没有绑定项目时 `connection` 是 `no-project`，组合函数都给 null。
@@ -66,4 +75,9 @@ export interface CanonReads {
     useExternal<I, T>(method: string, input: () => I | null, fetch: ExternalFetch<I, T>): ComputedRef<ReadState<T> | null>;
     /** 外部的分页读取：一页至多 200 条；世界变了以后按已读的条数从头翻回来，各页齐了才换上。 */
     useExternalList<I, P extends ExternalPage<unknown>>(method: string, input: () => I | null, fetch: ExternalPageFetch<I, P>, pageSize?: number): {readonly state: ComputedRef<PagedState<P, P["items"][number]> | null>; more(): void};
+    /** 窗口在看的线（输出 34）：线的 id，空串是跟着章。读取位置在它非空时带上它。 */
+    readonly line: Readonly<Ref<string>>;
+    setLine(line: string): void;
+    /** 可选的线：主线在最前，其余按线的树先序。 */
+    readonly lineOptions: ComputedRef<readonly LineOption[]>;
 }

@@ -70,6 +70,8 @@ export interface EntryPageOptions {
     readonly execute: (id: string, args: unknown) => void;
     /** 设定视图的 id：面包屑的“设定”显示它。 */
     readonly entriesView: string;
+    /** 窗口在看的线（输出 34）：空串是跟着章；不给时总是跟着章。 */
+    readonly line?: () => string;
     /**
      * 一个条目页挂上了：设定视图据此选中它的条目。页面标签只在所在组的活动标签时挂载，挂上说明它刚显示出来：切到这个标签、把它拖到
      * 别的组、刷新后恢复都会挂一次，所以拆成几组时选中的是最后挂上的那一页，不一定是焦点所在的；在组之间换焦点不会再挂。编辑器的
@@ -99,7 +101,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, views: options.views, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, line: options.line ?? (() => ""), views: options.views, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
                     };
                 },
             });

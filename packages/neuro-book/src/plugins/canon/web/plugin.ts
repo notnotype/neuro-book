@@ -16,11 +16,12 @@ import {computed, defineComponent, h, shallowRef, watch} from "vue";
 import type {PropType} from "vue";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
 import {filesKey, formatResource} from "nbook/plugins/files/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
-import {notificationsKey, WORKBENCH_OVERLAYS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, WORKBENCH_OVERLAYS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration, OverlayDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -38,7 +39,7 @@ import {canonText} from "../shared/text";
 import {createCanonClient} from "./client";
 import {BINDER_DIR, chapterFileName} from "../shared/binder-files";
 import {createChangePage} from "./change-page";
-import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, PENDING_VIEW, RECEIPT_PAGE, REVISIONS_VIEW, SHOW_PENDING_COMMAND} from "./commands";
+import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, PENDING_VIEW, PICK_LINE_COMMAND, RECEIPT_PAGE, REVISIONS_VIEW, SHOW_PENDING_COMMAND} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
@@ -50,6 +51,8 @@ import {createReceiptPage} from "./receipt-page";
 import {createCanonReads} from "./reads-service";
 import {createRevertRequests} from "./revert";
 import {createRevisionsView, revisionsViewState} from "./revisions-view";
+import {createWindowLine} from "./window-line";
+import type {WindowLine} from "./window-line";
 import {createCanonWorld} from "./world";
 import type {CanonWorld} from "./world";
 
@@ -59,6 +62,10 @@ export const PENDING_VIEW_ID = PENDING_VIEW;
 export const REVISIONS_VIEW_ID = REVISIONS_VIEW;
 /** 状态栏的“待处理 N”（输出 25）。 */
 export const PENDING_COUNT_ITEM = "nbook.canon.pending-count";
+/** 状态栏的“在看：……”（输出 34）。 */
+export const LINE_ITEM = "nbook.canon.line";
+/** 选线时“跟着章”那一项的 id；线的项是 `line:<线 id>`，不会与它撞。 */
+const FOLLOW_ITEM = "follow";
 /** 挂还原对话框的页面浮层。 */
 const REVERT_OVERLAY = "nbook.canon.revert";
 const REVERT_OVERLAY_DECLARATION: OverlayDeclaration = {};
@@ -76,9 +83,23 @@ const REVISIONS_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-hist
 /** 公开状态 `nbook.canon/hasPending`：状态栏条目的 `when`（输出 25）。 */
 export const canonState = definePublicState("nbook.canon", {
     hasPending: {type: "boolean", unready: false, reason: canonText("state.hasPending.reason")},
+    /** 窗口在看的线（输出 34）：空串是跟着章。 */
+    line: {type: "string", unready: ""},
+    lineReady: {type: "boolean", unready: false, reason: canonText("state.lineReady.reason")},
 });
 /** 状态栏左侧；标题由约定键补（`statusItems.pending-count.title`）。 */
 const PENDING_COUNT_DECLARATION: Written<ItemDeclaration, "title"> = {alignment: "left", order: 10, priority: 40, command: {id: SHOW_PENDING_COMMAND}, when: {requires: [canonState.key("hasPending")]}};
+/** 状态栏右侧；标题由约定键补（`statusItems.line.title`）。线表读到以后才显示。 */
+const LINE_DECLARATION: Written<ItemDeclaration, "title"> = {alignment: "right", order: 50, priority: 30, command: {id: PICK_LINE_COMMAND}, when: {requires: [canonState.key("lineReady")]}};
+
+/** 状态栏上的“在看：……”（输出 34）：只有主线时说主线；有几条线时跟着章说跟着章，选了线说线名。 */
+function lineItemText(line: WindowLine) {
+    const options = line.options.value;
+    const chosen = options.find((option) => option.id === line.line.value);
+    if (options.length <= 1 || chosen?.name === null) return canonText("statusItems.line.main");
+    if (chosen === undefined) return canonText("statusItems.line.follow");
+    return canonText("statusItems.line.named", {name: chosen.name});
+}
 
 /** 条目页：每个条目一个标签，刷新后恢复（author-ui.md 的“输入与前置条件”）。标题由约定键补（`editorPages.entry.title`）。 */
 const ENTRY_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", instances: true, restore: true};
@@ -116,7 +137,8 @@ export const canonBrowserPlugin: PluginDefinition = {
         // 命令服务可选：只装世界客户端的窗口（测试场地、别的插件的测试）没有工作台，也没有命令。
         // 通知可选：没有工作台的窗口里保存后的提示只留在页面顶上那一份。
         // 文件服务可选：变更详情页的“打开这一章”要列活页夹目录找章节文件，没有时找不到。
-        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}],
+        // 选线可选：没有工作台的窗口里没有快速选择，选线命令得到 `unavailable`。
+        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}],
         provides: [canonClientKey, canonReadsKey],
         receives: [CANON_COMPONENT_VIEWS_POINT],
         remoteDelegates: [canonWorldContract],
@@ -125,6 +147,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: WORKBENCH_VIEWS_POINT, id: PENDING_VIEW_ID, declaration: PENDING_VIEW_DECLARATION},
             {capability: WORKBENCH_VIEWS_POINT, id: REVISIONS_VIEW_ID, declaration: REVISIONS_VIEW_DECLARATION},
             {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: PENDING_COUNT_ITEM, declaration: PENDING_COUNT_DECLARATION},
+            {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: LINE_ITEM, declaration: LINE_DECLARATION},
             ...canonState.contributions,
             {capability: EDITOR_PAGES_POINT, id: ENTRY_PAGE, declaration: ENTRY_PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: RECEIPT_PAGE, declaration: RECEIPT_PAGE_DECLARATION},
@@ -148,11 +171,33 @@ export const canonBrowserPlugin: PluginDefinition = {
                 return world;
             };
             const pendingCount = createPendingCount(worldOf());
+            const windowLine = createWindowLine(worldOf());
             context.signal.addEventListener("abort", () => {
                 pendingCount.release();
+                windowLine.release();
                 world?.dispose();
             }, {once: true});
-            const publicState = bindingsOf(canonState, {hasPending: computed(() => (pendingCount.count.value ?? 0) > 0)});
+            const publicState = bindingsOf(canonState, {hasPending: computed(() => (pendingCount.count.value ?? 0) > 0), line: computed(() => windowLine.line.value), lineReady: windowLine.ready});
+            const lineItem: ItemImplementation = {
+                text: () => lineItemText(windowLine),
+                icon: () => ({name: "i-lucide-git-branch"}),
+            };
+            const quickPick = await context.services.resolve(quickPickKey);
+            const pickLine = async (): Promise<CommandResult<unknown>> => {
+                if (quickPick.status !== "resolved") return {ok: false, code: "unavailable", reason: "no quick pick in this window"};
+                const lost = windowLine.lost.value;
+                windowLine.acknowledge();
+                const result = await quickPick.instance.pick({
+                    title: canonText(lost ? "line.lostTitle" : "line.pickTitle"),
+                    placeholder: canonText("line.placeholder"),
+                    items: [
+                        {id: FOLLOW_ITEM, label: canonText("line.follow")},
+                        ...windowLine.options.value.map((option) => ({id: `line:${option.id}`, label: `${"\u3000".repeat(option.depth)}${option.name ?? ""}` || canonText("line.main")})),
+                    ],
+                });
+                if (result.kind === "item") windowLine.set(result.id === FOLLOW_ITEM ? "" : result.id.slice("line:".length));
+                return {ok: true, value: null};
+            };
             const pendingItem: ItemImplementation = {
                 text: () => canonText("statusItems.pending-count.text", {count: pendingCount.count.value ?? 0}),
                 icon: () => ({name: "i-lucide-circle-alert"}),
@@ -177,6 +222,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 revert,
                 execute,
                 entriesView: ENTRIES_VIEW_ID,
+                line: () => windowLine.line.value,
                 shown: (entry) => {
                     state.selected.value = entry;
                 },
@@ -239,12 +285,12 @@ export const canonBrowserPlugin: PluginDefinition = {
                 services: [
                     provideServicePerConsumer(canonClientKey, (consumer) => createCanonClient(bound ? () => context.remote.on(consumer) : null)),
                     // 读取层整个窗口一份（用本入口自己的身份读世界）；门面按调用方给，只为把它的插件 id 放进外部读取的键里。
-                    provideServicePerConsumer(canonReadsKey, (consumer) => createCanonReads(worldOf(), consumer.plugin ?? "unknown")),
+                    provideServicePerConsumer(canonReadsKey, (consumer) => createCanonReads(worldOf(), consumer.plugin ?? "unknown", windowLine)),
                 ],
                 receivers: {[CANON_COMPONENT_VIEWS_POINT]: views.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view, [PENDING_VIEW_ID]: pendingView, [REVISIONS_VIEW_ID]: revisionsView},
-                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[PENDING_COUNT_ITEM]: pendingItem},
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[PENDING_COUNT_ITEM]: pendingItem, [LINE_ITEM]: lineItem},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                     [EDITOR_PAGES_POINT]: {[ENTRY_PAGE]: page, [RECEIPT_PAGE]: receiptPage, [CHANGE_PAGE]: changePage},
                     [WORKBENCH_OVERLAYS_POINT]: {[REVERT_OVERLAY]: overlay},
@@ -252,7 +298,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                         [PERSON_TYPE]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),
                         [PANEL_TYPE]: componentView(() => import("./components/PanelDataView.vue")),
                     },
-                    [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent), pendingShown: () => pickFirstPending(pendingState)}),
+                    [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent), pendingShown: () => pickFirstPending(pendingState), pickLine}),
                 },
             };
         },

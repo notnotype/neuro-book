@@ -17,6 +17,8 @@ export const OPEN_CHANGE_COMMAND = "nbook.canon.open-change";
 export const NEW_ENTRY_COMMAND = "nbook.canon.new-entry";
 export const SHOW_PENDING_COMMAND = "nbook.canon.show-pending";
 export const SHOW_REVISIONS_COMMAND = "nbook.canon.show-revisions";
+/** 选窗口在看的线（author-ui.md 输出 34）。 */
+export const PICK_LINE_COMMAND = "nbook.canon.pick-line";
 /** 编辑器打开一个文件的命令（workbench/editor.md 的命令表）：变更详情页的“打开这一章”。 */
 export const EDITOR_OPEN_COMMAND = "nbook.editor.open";
 /** 设定视图（命令打开对话框前先显示它）。与 `plugin.ts` 的 `ENTRIES_VIEW_ID` 是同一个，这里写字面量免得成环。 */
@@ -43,13 +45,15 @@ export const CANON_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommandD
     // 两个视图是给人看的，改的是布局（同后台任务的 `nbook.tasks.show`）；Agent 读待处理与修订走世界服务。
     [SHOW_PENDING_COMMAND]: {category: canonText("commands.category"), description: "Show the Pending view in the bottom panel and select the first pending item.", args: NO_ARGS, effect: "write", expose: {agent: "never"}},
     [SHOW_REVISIONS_COMMAND]: {category: canonText("commands.category"), description: "Show the Change History view in the bottom panel.", args: NO_ARGS, effect: "write", expose: {agent: "never"}},
+    // 改的是这个窗口怎么看（同显示视图），不改世界；Agent 读别的线在读取位置里写线。
+    [PICK_LINE_COMMAND]: {category: canonText("commands.category"), description: "Pick which world line this window reads: follow each chapter's own line, or one line for every page.", args: NO_ARGS, effect: "write", expose: {agent: "never"}},
 };
 
 /**
  * `commands` 为 null 时（窗口里没有命令服务，只在只装世界客户端的测试窗口里）命令照样登记，执行得到 `unavailable`：声明了的
  * 贡献必须交实现。
  */
-export function canonCommands(commands: Pick<CommandService, "execute"> | null, actions: {readonly newEntry: (parent: string | null) => void; readonly pendingShown: () => void}): Record<string, CommandImplementation> {
+export function canonCommands(commands: Pick<CommandService, "execute"> | null, actions: {readonly newEntry: (parent: string | null) => void; readonly pendingShown: () => void; readonly pickLine: () => Promise<CommandResult<unknown>>}): Record<string, CommandImplementation> {
     const missing: CommandResult<unknown> = {ok: false, code: "unavailable", reason: "no command service in this window"};
     return {
         [OPEN_ENTRY_COMMAND]: {
@@ -77,6 +81,9 @@ export function canonCommands(commands: Pick<CommandService, "execute"> | null, 
         },
         [SHOW_REVISIONS_COMMAND]: {
             run: async (): Promise<CommandResult<unknown>> => (commands === null ? missing : commands.execute(OPEN_VIEW_COMMAND, {viewId: REVISIONS_VIEW})),
+        },
+        [PICK_LINE_COMMAND]: {
+            run: () => actions.pickLine(),
         },
     };
 }

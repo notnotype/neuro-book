@@ -52,6 +52,8 @@ const props = defineProps<{
      * 推成了 Promise。
      */
     client: Pick<CanonClient, "call">;
+    /** 窗口在看的线（输出 34）：空串是跟着章，读取位置不写线。 */
+    line: () => string;
     views: ComponentViewRegistry;
     /** 本窗口的保存后的提示。 */
     notices: CanonNotices;
@@ -92,7 +94,12 @@ watch(() => state.position, (now) => {
     if (now !== null) state.positionGone = false;
 });
 
-const position = computed<ReadPosition>(() => (state.position === null ? null : positionFromValue(state.position)) ?? defaultPosition(chapters.value));
+const windowLine = computed(() => props.line());
+// 窗口选了线时读取位置都带上它（输出 34）；换线不改这一页自己的位置。
+const position = computed<ReadPosition>(() => {
+    const base = (state.position === null ? null : positionFromValue(state.position)) ?? defaultPosition(chapters.value);
+    return windowLine.value === "" ? base : {...base, line: windowLine.value};
+});
 const mode = computed(() => (state.planned ? "planned" as const : "actual" as const));
 const place = (at: Placement): string => placementLabel(at, chapters.value, text);
 
@@ -109,10 +116,16 @@ const status = computed<EntryPageStatus>(() => {
     return view.value.deleted ? "deleted" : "normal";
 });
 
-// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），所以只有读的正是那里时才报；换到别的位置或按计划时不报。
-watch(entry, (read) => {
+// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：跟着章时就是这一页正在读的那份，只有读的
+// 正是那里时才报；窗口选了线时另读一份缺省位置的。
+const headRead = useWorldRead(world, "entry", () => (windowLine.value !== "" && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
+const headSource = computed(() => {
+    if (windowLine.value !== "") return headRead.value?.data;
+    return state.position === null && !state.planned ? entry.value : undefined;
+});
+watch(headSource, (read) => {
     const shown = read?.view;
-    if (shown === undefined || shown === null || state.position !== null || state.planned) return;
+    if (shown === undefined || shown === null) return;
     props.onHead({name: shown.name, folder: read!.folder ?? "", ancestors: read!.ancestors ?? []});
 }, {immediate: true});
 
