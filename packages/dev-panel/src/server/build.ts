@@ -7,13 +7,17 @@ import {NbdevError, systemErrorCode} from "../core/errors.js";
 
 /**
  * 前端构建：产物不入库，`panel serve` 发现输入变了就先构建。
- * - 输入（`.build-hash` 的内容）：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，nb-ui 整个包目录
- *   （面板直接用 nb-ui 的源码与主题，样式由面板自己的 Tailwind 编译 nb-ui 源码，不依赖 nb-ui 的任何产物），以及根 `bun.lock`。与“代码已更新”提示比较的三个路径一致（见 state.ts 的 `CODE_PATHS`）。
+ * - 输入（`.build-hash` 的内容）：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，编进网页的工作区包的整个包目录
+ *   （`PANEL_SOURCE_PACKAGES`：面板直接用它们的源码与主题，样式由面板自己的 Tailwind 编译，不依赖它们的任何产物），以及根 `bun.lock`。
+ *   与“代码已更新”提示比较的路径一致（见 state.ts 的 `CODE_PATHS`，由同一份清单生成）。
  * - 输出到临时目录，成功后改名替换 `dist/web`：正在跑的面板的 `index.html` 不会指向已被删掉的资源。
  * - 失败时有旧产物就用旧的（`/api/meta` 标出），没有就报 `build_failed`。
  */
 
 export const BUILD_HASH_FILE = ".build-hash";
+
+/** 面板网页编进去的工作区包（`packages/` 下的目录名）。面板的网页新依赖一个工作区包时加在这里，改它就会重建、会提示代码已更新。 */
+export const PANEL_SOURCE_PACKAGES = ["nb-ui", "nb-layout"] as const;
 
 async function walk(dir: string, files: string[], skip: ReadonlySet<string>): Promise<void> {
     let entries;
@@ -34,9 +38,9 @@ async function walk(dir: string, files: string[], skip: ReadonlySet<string>): Pr
 export async function computeBuildHash(packageRoot: string, repoRoot: string): Promise<string> {
     const files: string[] = [];
     await walk(join(packageRoot, "src", "web"), files, new Set(["node_modules"]));
-    // 整个 nb-ui 包目录都算：与 state.ts 的 CODE_PATHS 按整棵树比较保持一致，面板自己不读 dist/ 里的产物。
-    // Nuxt 的生成目录与 playground 不进面板。
-    await walk(join(repoRoot, "packages", "nb-ui"), files, new Set(["node_modules", ".nuxt", ".output", "playground"]));
+    // 整个包目录都算：与 state.ts 的 CODE_PATHS 按整棵树比较保持一致，面板自己不读 dist/ 里的产物。
+    // nb-ui 的 Nuxt 生成目录与 playground 不进面板。
+    for (const name of PANEL_SOURCE_PACKAGES) await walk(join(repoRoot, "packages", name), files, new Set(["node_modules", ".nuxt", ".output", "playground"]));
     files.push(join(packageRoot, "vite.config.ts"), join(packageRoot, "tsconfig.web.json"), join(packageRoot, "package.json"), join(repoRoot, "bun.lock"));
     const hash = createHash("sha256");
     for (const file of files.sort()) {

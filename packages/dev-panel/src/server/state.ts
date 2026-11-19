@@ -10,6 +10,7 @@ import {LEASES_DIR} from "../core/leases.js";
 import {listProcRuns, type RunView as ProcRunView} from "../core/procs.js";
 import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import {MASTER_REF, WORKS_ROOT, type CheckoutInfo, type RepoContext} from "../core/repo.js";
+import {PANEL_SOURCE_PACKAGES} from "./build.js";
 import {createBranchChangesCache} from "../core/sources.js";
 import {readProjectRecords, readTransitionState, type ProjectRecords, type TransitionState} from "../core/status.js";
 import {HerdrMonitor} from "./herdr-monitor.js";
@@ -47,7 +48,7 @@ const CHECK_MS = 5_000;
 const FALLBACK_MS = 30_000;
 
 /** 面板代码所在的树（与 `.build-hash` 的输入一致）：master 上只改记录时它不变，所以“代码已更新”不会每次答复都冒出来。 */
-export const CODE_PATHS = ["packages/dev-panel", "packages/nb-ui", "bun.lock"];
+export const CODE_PATHS = ["packages/dev-panel", ...PANEL_SOURCE_PACKAGES.map((name) => `packages/${name}`), "bun.lock"];
 
 export async function readCodeKey(mainRoot: string): Promise<string> {
     const results = await Promise.all(CODE_PATHS.map((path) => runGit(mainRoot, ["rev-parse", `HEAD:${path}`], {readOnly: true})));

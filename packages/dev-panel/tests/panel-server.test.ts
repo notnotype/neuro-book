@@ -10,6 +10,7 @@ import {locateRepository} from "../src/core/repo.js";
 import {createHerdrClient, HERDR_PANEL_READ_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
 import {computeBuildHash, ensureWebBuild} from "../src/server/build.js";
+import {readCodeKey} from "../src/server/state.js";
 import {backoffDelay, HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
@@ -755,6 +756,26 @@ describe("前端构建", () => {
         expect(await Bun.file(join(distDir, "index.html")).text()).toBe("<html></html>\n");
         await writeFile(join(distDir, ".build-hash"), `${await computeBuildHash(packageRoot, fixture.root)}\n`);
         expect(await ensureWebBuild(options)).toEqual({built: false, failed: null});
+    });
+
+    test("编进网页的工作区包（nb-ui、nb-layout）改了：构建要重做，“代码已更新”比较的代码键也变", async () => {
+        const fixture = await createFixture("panel-build-inputs");
+        const packageRoot = join(fixture.root, "pkg");
+        await mkdir(join(packageRoot, "src", "web"), {recursive: true});
+        await writeFile(join(packageRoot, "package.json"), "{}\n");
+        for (const name of ["nb-ui", "nb-layout"]) {
+            const before = await computeBuildHash(packageRoot, fixture.root);
+            await mkdir(join(fixture.root, "packages", name, "src"), {recursive: true});
+            await writeFile(join(fixture.root, "packages", name, "src", "changed.ts"), "export {};\n");
+            expect({name, changed: (await computeBuildHash(packageRoot, fixture.root)) !== before}).toEqual({name, changed: true});
+
+            const key = await readCodeKey(fixture.main);
+            await mkdir(join(fixture.main, "packages", name), {recursive: true});
+            await writeFile(join(fixture.main, "packages", name, "changed.ts"), "export {};\n");
+            await git(fixture.main, "add", join("packages", name, "changed.ts"));
+            await git(fixture.main, "commit", "-q", "-m", `change ${name}`);
+            expect({name, changed: (await readCodeKey(fixture.main)) !== key}).toEqual({name, changed: true});
+        }
     });
 });
 
