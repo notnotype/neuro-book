@@ -14,7 +14,8 @@ import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {chainLayers, runChain, type ChainFailure} from "../run/chain.js";
-import {takeSteerDrafts} from "../run/loop.js";
+import {takeBoundaryDrafts} from "../run/loop.js";
+import {ctrl} from "../run/writes.js";
 import {readyEntries, takeInputDrafts} from "../run/settle.js";
 import {freezeRequest, isResponse} from "../run/model-call.js";
 import {toolInfo, type ToolBox} from "../run/tools.js";
@@ -110,14 +111,18 @@ export async function previewRequest(host: PreviewHost, args: PreviewArgs = {}):
     const tools: readonly ToolDeclaration[] = host.box.current();
     const environment = host.environment(resolution.info, tools.map(toolInfo));
 
-    // 预览当前叶子时，把下一个边界确定会取走的就绪的输入投影进去（不写日志）：两轮之间取就绪的第一条开新的一轮，
-    // 一轮进行中取全部就绪的 steer；留着的不投影（runtime.md 输出 55）。投影不到的：在跑的工具的结果、边界上可能触发的压缩。
+    // 预览当前叶子时，把下一个边界确定会取走的投影进去（不写日志）：两轮之间取就绪的第一条开新的一轮，再按边界取待发的
+    // 提醒与就绪的 steer；留着的话不投影（runtime.md 输出 55、118）。投影不到的：在跑的工具的结果、边界上可能触发的压缩。
     let projected: EventDraft[] = [];
     if (leaf === core.leaf) {
         const next = readyEntries(core.session.kernel.buffer)[0];
         const runId = core.leafState.kernel.run?.runId ?? "preview";
-        if (core.leafState.kernel.history.current === null) projected = next === undefined ? [] : takeInputDrafts(next, core.newId(), runId);
-        else projected = takeSteerDrafts(core, runId);
+        // 两轮之间没有就绪的话、只有待发的提醒时，投影成一轮没有输入的（runtime.md 输出 114、118）。
+        const between = core.leafState.kernel.history.current === null;
+        const noInput = between && next === undefined && core.session.kernel.notices.length > 0;
+        const opening = !between ? [] : next !== undefined ? takeInputDrafts(next, core.newId(), runId) : noInput ? [ctrl("turnStarted", {turnId: core.newId(), inputId: null})] : [];
+        const inTurn = !between || opening.length > 0;
+        projected = inTurn ? [...opening, ...takeBoundaryDrafts(core, runId, new Set(opening.length > 0 && next !== undefined ? [next.id] : []))] : [];
     }
     const state = projected.length > 0 ? core.project(projected) : core.stateAt(leaf);
     const computed = computeRequest({assembly: core.assembly, state, environment, purpose: "turn", model: resolution.info.id, ...(core.session.kernel.core.effort === null ? {} : {effort: core.session.kernel.core.effort}), tools, cache: core.view, checks: false, inactive: (id) => core.revoked.has(id)});

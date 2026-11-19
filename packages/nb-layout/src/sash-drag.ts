@@ -191,6 +191,12 @@ export function solveSashCollapse(input: {
     }
     if (input.collapsed) {
         const next = relocate({sizes, total, sashIndex: input.sashIndex, index: input.index, target: targetBounds.low, boundsOf});
+        // 另一侧吸收不了让出的空间（兄弟都到上限或都已收起）时，算出的尺寸和不等于总量：不收，和拖动路径同一个诊断（Spec 输出 20）。
+        // 不拦的话手势会发布一个不守恒的预览，落账时 `resizeBranches` 以 `not-conserved` 拒绝。
+        if (Math.abs(next.reduce((sum, size) => sum + size, 0) - total) > EPSILON) {
+            issues.push(gridIssue("no-room-to-collapse", `Panel ${panel.id} has no boundary to absorb its space once collapsed; it stays expanded`, {id: panel.id}));
+            return {sizesPx: [...sizes], collapsed: {}, issues};
+        }
         return {sizesPx: next, collapsed: {[panel.id]: true}, issues};
     }
     const capacity = capacityFor(sizes, total, input.index, boundsOf);

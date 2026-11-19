@@ -1,0 +1,63 @@
+# w00032 t41 切片 2–4 实现审查
+
+## 1. `hostNotice` 的公开事件字段与 Spec 不一致
+- **严重程度：重要；类别：正确性。**
+- **位置：** `packages/nb-harness/src/kernel/api/events.ts:165`；`packages/nb-harness/src/kernel/run/loop.ts:91`。
+- **现象：** `hostNotice` 定义、写入字段为 `queued`，但 runtime.md 输出 113、session.md 输出 27 和计划第 2 稿都规定字段名为 `id`。内容映射和渲染不读取该标识，现有测试也没有检查事件数据的键。
+- **为什么是问题：** 这是公开日志合同。调用方按 Spec 读取 `event.data.id` 会得到 `undefined`，无法把路径事件关联回 `noticeQueued.id`；而日志格式不支持降级，落盘后不能靠改归约修复旧事件。
+- **如何核实：** 对照 `git diff 68a4ef233..e15c52f18 -- packages/nb-harness/src/kernel/api/events.ts packages/nb-harness/src/kernel/run/loop.ts` 与 `docs/specs/harness/runtime.md` 输出 113、`docs/specs/harness/session.md` 输出 27；当前新增测试只按 `type === "hostNotice"` 查事件，没有断言 `data.id`。
+- **建议改法：** 统一事件类型、写入、下游消费和测试为 Spec 的 `id`；若要保留 `queued`，先修改 planned Spec 与计划并明确日志字段合同，不能让实现静默改名。
+
+## 2. `notice` 的预算没有计入快照保留的 `commandId`
+- **严重程度：重要；类别：正确性 / 资源上限。**
+- **位置：** `packages/nb-harness/src/kernel/run/commands.ts:418-419`、`:430-432`；快照归约在 `packages/nb-harness/src/kernel/state/kernel-state.ts:190-199`。
+- **现象：** `noticeBytes` 与总预算只编码 `{id, by, key, text, wake}`，但 `noticeQueued` 会持久化 `commandId`，`PendingNotice` 也把它保留在快照中。公开 `commandId` 没有长度限制，代码通过大于 128 KiB 的 id 后仍接受小提醒。
+- **影响：** 128 KiB 合计上限并未约束实际待发状态快照；单条可经 `commandId` 任意膨胀，违背输出 112 所述“按编码后的整条记录”限制，也破坏该限制用于给远程快照提供上界的目的。
+- **核实方法：** 真实 `createTestSession` 内核调用 `notice`，将 `commandId` 设为 `NOTICE_TOTAL_MAX_BYTES + 1` 个字符。结果 `accepted: true`、`pendingCount: 1`、预算所算记录 119 字节，但 `PendingNotice` 序列化为 131220 字节，超过 `cap: 131072`。只读探针，未改仓库文件。
+- **建议改法：** 预算按真正保留并交给快照的待发提醒记录编码；若合同有意排除 `commandId`，则须在进入状态/快照前去掉它，而不能保留一个无限长字段却不计入总量。
+
+## 3. 无当前轮时，唤起提醒未按 Spec 优先于就绪输入
+- **严重程度：重要；类别：行为合同 / 优先级。**
+- **位置：** `packages/nb-harness/src/kernel/run/loop.ts:233-240`。
+- **现象：** 循环先取 `readyEntries(...)[0]` 并以它作为新轮输入；仅在没有就绪输入时才检查带 `wake` 的提醒并创建 `inputId: null` 的轮。runtime.md 输出 114 明文规定相反的先后：有带唤起提醒时先开没有输入的一轮；否则才取就绪话。
+- **影响：** 本应由唤起提醒触发的空输入轮实际绑定到用户输入（`turnStarted.inputId` 非 null），违反输出 114 的开轮合同；即使当前格式化仍把提醒渲染在新话之前，这轮也不再是由提醒独立开启，后续按输入归属的轮次行为会不同。
+- **核实方法：** 对真实内核做时序探针：回退到运行外目标，扩展在 `runStarted` 反应里暂停；队列中先受理带唤起的 `notice`，再受理用户 `send`，之后放行。日志实际先写 `turnStarted{inputId: 用户输入}` 与 `input`，再写 `hostNotice`；唯一请求的末尾为 `user: event:hostNotice | event:input`。对照输出 114 和计划第 2 稿第 36 行。探针未改仓库文件。
+- **建议改法：** 按输出 114 的顺序先检查带唤起提醒并开空输入轮；无带唤起提醒时再取第一条就绪输入。增加上述真实队列时序的回归断言。
+
+## 发现 4：远程合同未按 planned Spec 升版本
+
+**级别：重要；正确性与兼容性。**
+
+`docs/specs/agent/sessions.md` 输出 29（planned）要求提醒与门加入 `nbook.agent/sessions` 时把远程合同从版本 1 升到版本 2，以使旧窗口收到 `version-changed`。本次实现已把 `removeNotice` 加入 `packages/neuro-book/src/plugins/agent/shared/remote.ts` 的 `commandArgs`，且内核快照新增 `notices`、`wakeGate`，但 `agentSessionsContract` 仍声明 `version: 1`。远程路由按合同版本拒绝不匹配的调用（`packages/nb-runtime/src/remote/node.ts`），因此旧窗口不会在协议边界被拒绝，可能继续以旧结构解释新增快照字段；这违反已写明的版本兼容合同。
+
+**建议：**将远程合同版本升为 2，并更新合同测试，确认使用版本 1 的客户端得到 `version-changed`。
+
+## 发现 5：远程快照暴露完整提醒正文且缺少摘要投影
+
+**级别：重要；远程合同 / 消息大小界限。**
+
+`docs/specs/agent/sessions.md` 输出 29（planned）要求远程快照只给提醒的摘要（正文前 200 字符与 UTF-8 字节数），全文在取走之后从日志读取；这也用于避免快照超出通道单条消息上限。本次 `packages/neuro-book/src/plugins/agent/shared/remote.ts` 的 `snapshot` 输出仍是整个内核 `SessionSnapshot`，而 `packages/nb-harness/src/kernel/api/host.ts` 中 `PendingNotice` 含完整 `text`，因此远程读取快照可以直接取得待发的完整正文。总预算遗漏无长度限制的 `commandId`，它被保留在快照；64 条提醒的合计限制无法约束实际快照大小。远程 `whole()` 一旦超过 512 KiB 会返回 `result-too-large`，此时窗口无法通过快照读取或取消提醒。
+
+**核实：** 对照远程合同 schema、快照实现与 Spec 输出 29；`backend/remote.ts:153–160` 的 `whole()` 对不分页快照超过 `PAGE_BYTES` 返回 `result-too-large`。提醒记录上限及未计 `commandId` 已由前述真实内核探针核实。
+
+**建议：** 远程快照单独投影提醒为 Spec 定义的摘要形状，并依 Spec 将合同升至版本 2；修正待发记录总预算，使它约束真实快照投影的编码大小。
+
+## 发现 6：`mergeSteers` 合并文本时丢弃后续插话的结构化 payload
+
+**级别：重要；正确性。**
+
+`mergeSteers` 在 `packages/nb-harness/src/kernel/helpers/turns.ts:26–32` 只从第一条事件展开 `data`，随后合并 `text` 与附件；同一 `boundary` 的第二条及后续 steer 的 `payload` 不在返回事件里。Profile 的 `payload` 是为结构化输入数据提供的公开合同，Profile 自定义 `render.steer` 可以读取它，见 `packages/nb-harness/src/kernel/api/profile.ts`、`packages/nb-harness/src/kernel/view/format.ts`。
+
+**核实：** 用真实内核创建带 `payload.selection` 的 Profile、登记读取 payload 的 `render.steer`，在阻塞工具期间排入 payload 为 A 与 B 的两条同边界插话。日志仍保留两条原事件及 payload A/B；启用 `turn: mergeSteers` 后下一请求只得到 `A:one\n\ntwo`，第二条 payload B 丢失。实现计划第 51 行已把 `followups: "all"` 暂缓的原因明确列为结构化 payload 暂无合并规则；当前辅助函数对同类结构数据同样缺规则，但仍合并 steer。
+
+**建议：** 为合并后的结构化 payload 定义可消费的表示与合并语义；若无法无损表示，则不要合并带 payload 的相邻插话，并补一个真实请求层的回归测试。
+
+## 未发现问题的范围与验证
+
+- **发现计数：** 阻断 0，重要 6，建议 0。重要项为编号 1–6；原“远程合同版本”条目编号更正为 4。
+- **已审查范围：** 29 个改动文件（nb-harness 内核 API、事件归约、提醒命令、边界取走、唤起与门、恢复、预览、Profile queue/helper 及新增测试；NeuroBook 远程合同与 SDK 导出）、完整提交差异、相关计划、Spec、ADR 与提案。按测试和实现先后比对过基线与调用链。
+- **未发现问题：** 在本次覆盖范围内，提醒发出者权限、`key` 替换、撤回与取消、容量条数、内容渲染转义、队列写入顺序、门初始化与关闭原因、重新装配后的唤起判定等实现未发现额外高把握偏差。唤起预览时序的探针因真实队列等待超时，未据其追加发现；定向预览测试未覆盖该并发窗口。
+- **通过：** `git diff --check 68a4ef233..e15c52f18`；`bun test packages/nb-harness/src/kernel/run/notice.test.ts packages/nb-harness/src/kernel/run/wake.test.ts packages/nb-harness/src/kernel/session/session.test.ts`（50 pass、0 fail、169 expect calls）。`packages/nb-harness` 的 `bun run typecheck`（`tsc --noEmit`）退出 0。
+- **未通过 / 环境限制：** 从 `packages/neuro-book` 执行 `bun run test:bun src/plugins/agent/sessions.test.ts`，测试模块加载失败：包名导入 `@notnotype/nb-harness/kernel/contracts` 解析到主工作区的旧版码表，`commandErrors.removeNotice` 为 `undefined`；直接核对 `import.meta.resolve` 确认其指向主检出，而相对导入指向本 worktree。SDK 测试 `src/sdk/sdk.test.ts` 为 3 pass、2 fail：1 项清单期待 `ImagePreviewDialog`，另 1 项 SDK 运行时导出检查失败（背景进程原始结果见 `local://62.log`）；这两项来自本次未修改的既有测试入口，未据此列为本次发现。`packages/neuro-book` 类型检查退出 2，报 `shared/remote.ts(352,58)` 的 `removeNotice` 不存在于解析到的旧版 `CommandMap`，及 `sdk/agent.ts(10,37)` 的旧版 helpers 无 `mergeSteers`；后两者与包别名解析混用旧主检出一致，不能验证为提交本身的类型错误。
+- **未运行：** e2e、开发服务与真实模型；按审查约束不在本轮范围内。
+- **只读状态：** 当前 worktree 为 detached `e15c52f18`。收尾 `git status --short --untracked-files=all && git diff --quiet && git diff --cached --quiet` 无输出、退出 0；本轮只追加本报告，没有更改 worktree 文件。

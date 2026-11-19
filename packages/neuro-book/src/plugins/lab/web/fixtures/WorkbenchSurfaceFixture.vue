@@ -7,6 +7,7 @@
  */
 import {
     activateTab,
+    applyGestureCommit,
     edgeTargetOf,
     findTreeNode,
     isSectionCollapsed,
@@ -14,7 +15,7 @@ import {
     openPanelAtEdge,
     presentationCollapse,
     projectLayoutDoc,
-    rebaseIntents,
+    rebaseForOperation,
     sectionCollapseBlock,
     setActiveContainer,
     setPanelCollapsed,
@@ -85,9 +86,9 @@ const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOp
 const titleOnly = computed(() => titleOnlyPanels(doc.value));
 const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value, fillers: projection.value.fillers}));
 
-/** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8），之后把锚归整到和分节一致（输出 41、43），和产品的 store 同一个次序。库拒绝时文档不变。 */
+/** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8、49），之后把锚归整到和分节一致（输出 41、43），和产品的 store 同一个次序。库拒绝时文档不变。 */
 function commit(operation: (current: LayoutDoc) => LayoutResult): void {
-    const base = rebaseIntents(doc.value, presented.value, projection.value.collapsedTo);
+    const base = rebaseForOperation(doc.value, projection.value, presented.value);
     const result = operation(base);
     if (result.ok) doc.value = settleContainers(result.doc);
 }
@@ -98,16 +99,9 @@ function showContainer(current: LayoutDoc, region: PanelName, container: string)
     return shown.ok ? setActiveContainer(shown.doc, region, container) : shown;
 }
 
-function onGestureCommit(sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void {
-    // 先改收起状态再写回意图，和产品的 store 同一个次序：收起的面板呈现尺寸不是意图。区域拖到零报的是代表区域的那个节点，状态记在锚上（输出 11）。
-    let next = doc.value;
-    // 隐藏的区域按拖到零画：从边界拉开同时清掉隐藏，也和产品的 store 一样。
-    for (const [id, value] of Object.entries(collapsed)) {
-        const anchor = projection.value.regionAnchors.get(id);
-        next = unwrap(setPanelCollapsed(next, anchor ?? id, value), next);
-        if (anchor !== undefined && !value && next.panels[anchor]?.hidden === true) next = unwrap(setPanelHidden(next, anchor, false), next);
-    }
-    doc.value = rebaseIntents(next, sizes, projection.value.collapsedTo);
+/** 手势落账：和产品的 store 一样经库的入口写回（收起记在锚上、拉开隐藏的区域清掉隐藏、没动的保留像素节点不写，输出 11、49）。 */
+function onGestureCommit(before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void {
+    doc.value = applyGestureCommit(doc.value, projection.value, {before, after, collapsed}).doc;
 }
 
 /** 把视图放成 `region` 里 `container` 的最后一个分节，区域显示并切到这个容器（输出 23 的“移进一个容器”）。 */

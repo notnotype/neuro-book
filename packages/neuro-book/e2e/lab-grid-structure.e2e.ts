@@ -94,6 +94,23 @@ test.describe("结构变化（验收 8）", () => {
     });
 });
 
+test.describe("收起与展开的入口（Spec ui/nested-grid 输出 147、149）", () => {
+    test("宿主的 setCollapsed：收起后 c 不占宽、a 与 b 吸收；展开回到原来的宽度", async ({page}) => {
+        await open(page);
+        const [a0, b0, c0] = [await widthOf(page, "a"), await widthOf(page, "b"), await widthOf(page, "c")];
+        expect(c0).toBeGreaterThan(0);
+
+        await act(page, "collapse-c");
+        await expect.poll(() => widthOf(page, "a")).toBeGreaterThan(a0);
+        expect(await widthOf(page, "c")).toBeLessThanOrEqual(0);
+        expect(await widthOf(page, "b")).toBeGreaterThan(b0);
+
+        await act(page, "expand-c");
+        await expect.poll(() => widthOf(page, "c")).toBeCloseTo(c0, 0);
+        expect(await widthOf(page, "a")).toBeCloseTo(a0, 0);
+    });
+});
+
 test.describe("过渡（输出“过渡”、验收 9）", () => {
     test("程序调整尺寸：外框过渡到新矩形，内容跟着外框逐帧变化，结束时等于新矩形并撤掉标记", async ({page}) => {
         await open(page, true);

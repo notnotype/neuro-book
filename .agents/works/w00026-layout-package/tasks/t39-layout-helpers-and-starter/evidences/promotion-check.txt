@@ -1,0 +1,76 @@
+Spec 晋升核对：每一句有没有能区分对错的断言（只读，读到断言本身；没跑测试，也没改仓库文件）
+
+简称：
+  UGH = packages/nb-layout/src/vue/useGridHost.dom.test.ts
+  NG  = packages/nb-layout/src/vue/NestedGrid.dom.test.ts
+  UDS = packages/nb-layout/src/vue/useDragSession.dom.test.ts
+  UGL = packages/nb-layout/src/vue/useGridLayout.dom.test.ts
+Lab e2e（lab-nested-grid、lab-grid-structure、lab-workbench-surface、lab-drag-session）里搜过 extent、承载盒、useGridHost、bindings、零尺寸，没有对应这几条的断言，下面不再提。
+
+格式：句子 | 有断言 / 没有 / 只有部分 | 测试文件:行 与断言 | 违反它的实现举例
+
+================================================================
+nested-grid.md 输出 144 承载盒的尺寸
+================================================================
+144-a 量自己的根盒（布局盒，不含边框与内边距） | 只有部分 | NG:1561-1573：只桩 HTMLElement.prototype 的 clientWidth、clientHeight，getBoundingClientRect 与 offsetWidth 没桩，断言 seen 等于 [{1000,600}] | 改读 getBoundingClientRect 或 offsetWidth：happy-dom 返回 0，seen 变成 [{0,0}]，会红。但“不含边框与内边距”“不受祖先 transform 影响”本身没有断言（happy-dom 没有布局引擎，e2e 也没有）。例：改成 clientWidth 加上边框宽度，测试仍绿
+144-b 挂载后量到就发 `extent` 事件 | 有 | NG:1572-1573：mount 后 await nextTick，`expect(seen).toEqual([{width:1000,height:600}])`（恰好一次） | 挂载后不发，seen 为 []，红；发两次也红
+144-c 两轴变了才再发 | 只有部分 | NG:1578-1583：观察器回调但尺寸没变，`seen` 长度仍为 1；只把宽改成 800，`seen` 变成两项 | 每次回调都发新对象：第 1579 行红。但只有“宽变”一种；“只有高变”没断言。例：`publish` 只比较宽度，高度单独变化时不发，仍然全绿
+144-d 同步发；监听在同一个调用栈里拿到 | 有 | NG:1581-1583：`fire()` 之后没有 await，立刻断言 seen 已含 {800,600} | `emit` 的 watch 改成默认 flush（pre）或 post：回调返回时 seen 还是一项，红
+144-e 卸载前发 `null`，`NestedGrid` 被条件渲染摘掉时父组件的监听收得到 | 有 | UGH:137-146：`shown=false` 后 `host.extent.value` 为 null、布局 sizes 为 {}、bindings.disabled 为 true；再挂回来又有尺寸 | 删掉 NestedGrid.vue `onBeforeUnmount` 里的 `emit("extent", null)`：extent 停在 {1000,600}，144 行红。“卸载前”的先后（元素还在时发）没有单独断言，只断言了父组件收到 null
+144-f 宿主自己整个卸载时，宿主里的侦听已经停了，收不到 | 没有 | UGH 与 NG 里没有任何断言：宿主整个 `wrapper.unmount()` 只出现在 afterEach 的清理里，之后没有检查 host.extent | 例：卸载宿主时让 extent 回到 null（或让监听在卸载后还被调用），所有测试仍绿。缺的是“宿主卸载后 `host.extent.value` 仍是卸载前的值”的断言（句子是限制的陈述，不是行为）
+
+================================================================
+nested-grid.md 输出 145 宿主接线
+================================================================
+145-a `useGridHost` 交回一包 `bindings`（树、布局、版本、上下文键、停用、提交处理、接 extent 与接 issues 的处理），整包绑到 `NestedGrid` 上就能接手势 | 有 | UGH:123-135 整包 `{...bindings.value}` 绑上去，拖一次分隔条：applied 长度 1、`applied[0].contextKey === "host-test"`、左列宽度增加约 40。各项逐一：node 或 layout 缺失则没有分隔条、拖不动；revision 缺失或常数 0 则提交按 stale-revision 被拒、applied 为空；onGestureCommit 缺失则不落账；contextKey 另有 UGH:191；disabled 另有 UGH:146、161、183-186；onExtent 见 UGH:126；onIssues 见 UGH:175 | 任一项从 bindings 里删掉或写成常数，上面对应的断言红
+145-b 尺寸取自 `NestedGrid` 发的 `extent` | 有 | UGH:126 `host.extent.value` 等于 {1000,600}；UGH:144-151 摘掉再挂回随之变 null 再回来 | 宿主另量自己的盒：摘掉后 extent 不会变 null，144-e 那一段红
+145-c 没量到可用尺寸（null、零或非有限）时布局为空、`disabled` 为真 | 只有部分 | null：UGH:144-146（sizes 为 {}、disabled 为 true）；高为 0：UGH:159-161；UGL:333-337 只验 `extent=null` 时布局是 EMPTY_GRID_LAYOUT、提交被拒（不经 useGridHost，不验 disabled） | 缺：宽为 0；Infinity、NaN（全仓库没有 usableExtent 的直接测试，grid-geometry.test.ts 里也没有）。例：`usableExtent` 去掉 `Number.isFinite` 或把 `width > 0` 改成 `>= 0`，所有测试仍绿
+145-d 布局重算的诊断与 `NestedGrid` 的 `issues` 事件都交给 `onIssues` 一个出口 | 有 | UGH:164-176：左列最小高 700 超过 600，重算那一路的 `over-constrained` 到 onIssues；给一个对不上呈现的 swap，`swap-skipped` 只由 NestedGrid 的 issues 事件交出、也到 onIssues（`toContain`） | bindings 里不带 onIssues：swap-skipped 缺，红；useGridLayout 的 onIssues 没接：over-constrained 缺，红
+145-e `disabled`、`contextKey` 在模板里再写一遍会覆盖包里的值；提交处理再传一次会出错；这几样只经 `useGridHost` 的选项给 | 没有 | 全仓库没有任何测试在模板里重复写这几个属性（搜“mergeProps”“再写一遍”“再传一次”无命中） | 这是 Vue 的属性合并行为，仓库代码里没有控制它的地方，没有哪种实现改动能让它“违反”；若要保留这一句，只能加一条在 `v-bind` 之后再写 `:disabled` 的用例钉住覆盖行为，或把这句改成使用约定而不算输出
+
+================================================================
+nested-grid.md 输出 146 承载盒为零
+================================================================
+146-a 量到的宽或高为 0 时布局为空 | 只有部分 | UGH:155-162：高为 0（box = {1000,0}）时 extent 为 {1000,0}、`layout.sizes` 等于 {}、disabled 为 true | 缺：宽为 0（含宽高都为 0）。例：判定里只看高度，宽为 0 时布局仍算出来，测试仍绿
+146-b 手势停用 | 只有部分（分段有） | UGH:161 断言 `bindings.disabled` 为 true；NestedGrid 吃 `disabled` 的效果在 NG:313-322（aria-disabled、tabindex=-1、无 hover 标记） | 两段各有断言，但没有“承载盒为零时分隔条真的不可拖（或带 aria-disabled）”的一条连起来的断言。例：useGridHost 的 disabled 算对了、NestedGrid 因别的原因没吃，只有拼起来才看得到；各段单独测不出
+146-c 叶照常挂着，只是没有尺寸 | 没有 | UGH:155-162 没有查任何叶的 DOM；NG 里没有空布局（或零承载盒）下叶仍在的用例（NG:334 的零叶是另一回事） | 例：布局为空时 NestedGrid 不渲染叶（`v-if` 布局非空），所有测试仍绿。缺的是零承载盒下 `[data-leaf]` 仍存在的断言
+
+================================================================
+layout-drag.md 输出 18 组件里的会话
+================================================================
+18-a 在有根时建会话 | 有 | UDS:60-70（`session` 不为 null 且 state 在 grab 后有 source）；UDS:95-111 | 根在不为 null 时不建：session 为 null，红
+18-b 调用时根已有值就立即建 | 有 | UDS:65-67：`scope.run` 返回后立刻 `session.value` 不为 null、built 为 [first]（没有 await） | 侦听去掉 `immediate`：调用后 session 为 null，红
+18-c 模板 ref 的根在组件挂载后的那次刷新里建（挂载回调里还是 null） | 有 | UDS:95-111：onMounted 里记到的 session 为 null（`seenInMounted` 等于 [null]），nextTick 之后不为 null | 侦听改成 `flush: "sync"` 或在 onMounted 里建：挂载回调里就有会话，记录变成 [session]，红；整个挂载后一直不建也红
+18-d 根换了先销毁旧的再建新的 | 只有部分 | UDS:72-78：换根后 ends 等于 [{cancelled, disposed}]、built 等于 [first, second]、state 为 null、新根上 grab 有 state | “销毁”和“新建”都有，但先后没有断言：ends 与 built 是两个数组，没有交错顺序；两个根不同，互不干扰。例：先建新的再销毁旧的（销毁时 `if (session.value === created)` 守卫仍保住新的），全绿。缺的是同一时刻按顺序记 dispose 与 createOptions 的断言
+18-e 根没了时销毁 | 只有部分 | UDS:80-83：root 设为 null 后 `session.value`、`state.value` 为 null | 只断言了句柄变 null，没断言会话真的被销毁（根没了的那一刻 second 上的拖动还在进行，之后没检查 ends、也没检查 second 上的监听摘掉）。例：根没了的路径只写 `session.value = null` 不调 `dispose()`，全绿（换根的 UDS:74 只管换根这条路径）
+18-f 所在的作用域结束时销毁 | 有 | UDS:89-92：`scope.stop()` 后 session 为 null，且在旧会话的根上 grab 之后旧会话 `state.value` 仍为 null；另 UDS:118-119 组件卸载后 session 为 null | 作用域结束不销毁：旧会话还在监听，grab 后 state 非 null，红
+18-g 换根与销毁时进行中的拖动按销毁收尾 | 只有部分 | 换根：UDS:72-74 `ends` 等于 [{cancelled, disposed}]；根没了、作用域结束：没有对应断言（scope.stop 时没有进行中的拖动；根设为 null 时进行中的拖动没检查 ends） | 缺：根没了与作用域结束这两种销毁，“进行中的拖动以 disposed 收尾”的断言。例：这两条路径销毁时不发 cancelled，全绿
+18-h 返回会话与它的 `state`，没有根时两者都是 null | 有 | UDS:80-83：root 设为 null 后 session 与 state 都为 null；UDS:155-156（根在但 createOptions 抛错）也是 null | 没有根时返回上一个会话或空对象：红
+
+================================================================
+layout-drag.md 输出 19 组件里的会话：选项
+================================================================
+19-a `createOptions(root)` 每在一个根上建会话时调一次 | 有 | UDS:67、75 的 built 等于 [first]、[first, second]；UDS:111、116 `built` 长度为 1（挂载后与 $forceUpdate 之后） | 每个根调两次或每次刷新都调：built 长度超出，红
+19-b 交回这个会话的选项，会话建好后不再读 | 有 | UDS:122-137：建时读了 `flag`，`flag.value = 2` 后 built 长度仍为 1、会话与原来是同一个；UDS:113-116 组件重渲染不再读 | 把 createOptions 放进被追踪的响应式（watchEffect 或 computed）：`flag` 变了就重建或再读，built 变 2，红
+19-c `autoScroll`、`keyboard`、`scroll`、`config` 在建时定死 | 只有部分 | 没有测试用到这四个选项（createOptions 只给了 sourceAt、resolve、actionKey、commit、onEnd）；“不再读”由 19-b 间接覆盖 | 缺：这四个选项按建时的值传给会话并生效的断言。例：`useDragSession` 把返回对象里的 `keyboard` 或 `autoScroll` 丢掉再传给 `createDragSession`，全绿
+19-d `createOptions` 抛错时这个根上没有会话（`session` 为 null） | 有 | UDS:139-156：`handle.session.value`、`state.value` 都为 null | 捕获后用默认选项仍建会话：session 不为 null，红
+19-e 错误交给应用的错误处理 | 有 | UDS:151-154：`errorHandler` 收到恰好一次，消息为“选项坏了” | 自己 try/catch 吞掉或只 console.error：errors 为空，红
+
+================================================================
+没有、只有部分的句子（缺的断言种类）
+================================================================
+没有：
+- 144-f 宿主整个卸载时收不到：缺“宿主卸载之后 `host.extent.value` 仍是卸载前的值”的断言（限制性陈述）。
+- 145-e 模板里再写 `disabled`、`contextKey` 会覆盖、再传提交处理会出错：缺在 `v-bind` 之后再写这些属性的用例；它只钉 Vue 的合并行为，仓库代码里没有可被违反的实现。
+- 146-c 叶照常挂着：缺零承载盒下叶的 DOM 仍在的断言。
+
+只有部分：
+- 144-a 布局盒不含边框、内边距：只区分了读 clientWidth 还是读 getBoundingClientRect、offsetWidth；缺边框、内边距、变换下的尺寸断言（happy-dom 做不了，要 e2e）。
+- 144-c 两轴变了才再发：缺“只有高变”这一种。
+- 145-c 没量到可用尺寸：缺宽为 0、Infinity、NaN 的布局为空与 disabled 为真。
+- 146-a 宽或高为 0：缺宽为 0。
+- 146-b 手势停用：缺零承载盒下分隔条真的拖不动（或 aria-disabled）的连起来的断言。
+- 18-d 先销毁旧的再建新的：缺两者先后顺序的断言。
+- 18-e 根没了时销毁：缺会话真的 dispose 的断言（只验了句柄为 null）。
+- 18-g 进行中的拖动按销毁收尾：缺根没了与作用域结束两条路径的 ends 断言（只有换根有）。
+- 19-c 四个选项在建时定死：缺这四个选项传给会话并生效的断言。

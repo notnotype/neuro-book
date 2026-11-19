@@ -48,12 +48,17 @@ owners:
    | `{state: "none"}` | 还没建 |
    | `{state: "opening"}` | 正在建或打开 |
    | `{state: "held"}` | 已持有 |
-   | `{state: "failed", code}` | 没能持有，码同 `hold`，或 `owner-mismatch` |
+   | `{state: "failed", code}` | 没能持有：`header`、`create`、`hold` 交回的码，或 `owner-mismatch` |
 
    `held` 只说明会话开着、被持有；会话是不是只读（例如 Profile 解析不到）、日志有没有损坏，看会话的快照与状态帧（[`agent/sessions.md`](../agent/sessions.md)）。
 4. Profile 解析不到：主对话照会话的规则以只读打开（[`harness/session.md`](../harness/session.md) 的 `unknown-profile`），持有照样成功。用户经会话的 `changeProfile`（远程合同带 `commandId`）换成能用的 Profile。
 5. 归属的后果按 [`agent/sessions.md`](../agent/sessions.md)：主对话不进会话列表，它派的子代理也不进（输出 25）；`rewind`、`switchBranch`、`archive` 得 `owned-session`（输出 26）；子代理与 fork 出来的会话没有归属。用户在主对话里发话照常走 `send`，可以带 `settlePending: "deny"`（输出 27）。
 6. 长会话的指标：`hold` 实际打开了会话（不是复用已开的）时写一条诊断 `bots.main-opened`（info），带事件数（快照的 `head`）与打开耗时（会话表执行这次打开的时长，毫秒）；超过 2,000 毫秒时另写 `bots.main-open-slow`（warning）。重试的等待不算进耗时；刚由 `ensureMain` 建出来的会话已经开着，不记。
+7. （planned）**未读与看到。** 计数消息是主对话里一次模型回复的最终那一条（`assistant` 事件里不带工具调用的；中间调工具的几条不算）。“看到”是一个日志 seq，每个 bot 一份，存在 `nbook.bots` 的插件存储（`bots-seen`，应用级），几个窗口共用，只进不退：
+   - `list()` 的项带 `unread`（“看到”之后的计数消息数）、`latestSeq`（最新一条计数消息的 seq，没有未读时等于 `seenSeq`）、`seenSeq`；持有主对话、数完之前 `unread` 为 null；
+   - 持有之后先订阅日志帧、再从“看到”之后读日志补数，按 seq 去重；之后每来一条计数消息推一次 `botsChanged`；补数失败写诊断 `bots.unread-failed`，`unread` 留在 null；
+   - 远程方法 `markSeen({botId, through})` → `{seenSeq}`：`through` 截到 `latestSeq`，比已存的小时不动；`unknown-bot`；存储写不了得 `storage-failed`，记录读不懂时重写它；
+   - 按 seq 算：有归属的会话不改写历史（[`agent/sessions.md`](../agent/sessions.md) 输出 26），seq 在当前路径上只增不减。
 
 ## 状态与转换
 

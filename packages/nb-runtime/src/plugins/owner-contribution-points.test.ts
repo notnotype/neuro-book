@@ -140,6 +140,12 @@ describe("拥有者贡献点合同", () => {
                 {plugin: "squatter", validation: {status: "rejected", reason: "invalid-declaration"}},
             ]);
         }
+        // 前缀合格的两条彼此重复时都按重复拒；占用者照旧只因前缀被拒。
+        const {host, root} = fixture();
+        register(host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), root);
+        for (const id of ["rightful", "rightful.sub", "squatter"]) register(host, source(id, [declaration("rightful.sub.run")]), root);
+        const reasons = Object.fromEntries(host.contribution("commands", "rightful.sub.run").map((item) => [item.plugin, item.validation.status === "rejected" ? item.validation.reason : item.validation.status]));
+        expect(reasons).toEqual({"rightful": "duplicate-contribution", "rightful.sub": "duplicate-contribution", "squatter": "invalid-declaration"});
     });
 
     it("idPrefix 为 plugin 时，平台保留发布者的插件也可以只以发布者加“.”开头；内核的 runtime 总是保留；不给平台档案时按严格前缀", async () => {

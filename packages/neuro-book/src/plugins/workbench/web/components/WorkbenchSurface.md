@@ -26,7 +26,7 @@
 ## 交互
 
 - 边界的手势、Tab 与 F6 的顺序、位移过渡都来自 `NestedGrid`。F6 的命令由宿主绑，调 `moveFocus`。
-- 手势落账发 `gesture-commit`，宿主写回文档；组件不写文档。
+- 手势落账发 `gesture-commit`（手势开始时与落账之后的尺寸、这次的收起变化），宿主经 `applyGestureCommit` 写回文档；组件不写文档。
 - 视图动作随鼠标显示的范围是整块面板：指针或焦点在这块面板的外框或内容上时，给卡片写 `data-hover-actions-active`。不能悬停的设备一直显示。头并在入口条里的分节，范围跨入口条叶与它自己的叶（入口条叶代表并进来的那一节）。
 - 焦点换了面板发 `focus-panel`。指针与焦点按叶记，面板按此刻的投影现算：在入口条里点入口切了容器，焦点没动，并进来的那一节一换就再发一次。内容被停放时焦点还在里面，发 `content-parked`，焦点去哪由宿主定。
 - 工具面板的内容：头只写标题的（分节、只有一个标签的浮动窗，`titleOnlyPanels`）是以标题命名的 `region`（`aria-labelledby` 指向头里隐藏的标题元素）；有标签带的（几个标签的浮动窗）是 `tabpanel`，和头里的标签互相引用（`idPrefix`）。
@@ -60,7 +60,7 @@ type Props = {
 };
 
 type Emits = {
-    /** 根的布局尺寸；同步发，还没量出来时是 null。 */
+    /** 网格根（铺满本组件）的布局尺寸，由 `NestedGrid` 量、经 `useGridHost` 转出；同步发，还没量出来时是 null。 */
     (event: "extent", extent: GridExtent | null): void;
     /** 主题的 `--shell-gap`，换主题时重发：活动栏的叶宽要算上它。 */
     (event: "card-gap", gap: number): void;
@@ -69,7 +69,7 @@ type Emits = {
     /** 手势的预览尺寸；手势结束或预览撤回时是 null。 */
     (event: "preview", sizes: Readonly<Record<string, GridExtent>> | null): void;
     /** 手势落账。`collapsed` 只含这次手势改了收起状态的面板。 */
-    (event: "gesture-commit", sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
+    (event: "gesture-commit", before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
     /** 网格两路诊断的并集（`ui/nested-grid` 输出 139、140）：带 `ok` 的是被拒的提交。只发新出现的。 */
     (event: "issues", issues: readonly (GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure)[]): void;
     (event: "content-parked", key: string): void;

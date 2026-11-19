@@ -950,7 +950,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 @card-gap="(gap) => layout.actions.acceptCardGap(gap)"
                 @presented="(sizes) => layout.actions.acceptPresented(sizes)"
                 @preview="(sizes) => layout.actions.acceptPreview(sizes)"
-                @gesture-commit="(sizes, collapsed) => layout.actions.commitGesture(sizes, collapsed)"
+                @gesture-commit="(before, after, collapsed) => layout.actions.commitGesture(before, after, collapsed)"
                 @focus-panel="(panel) => layout.actions.focusPanel(panel)"
                 @raise-float="(panel) => layout.actions.raiseFloat(panel)"
                 @content-parked="onContentParked"

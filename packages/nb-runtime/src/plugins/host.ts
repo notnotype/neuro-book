@@ -895,9 +895,10 @@ export class PluginHostImpl implements PluginHost {
         if (point === null) {
             return {status: "pending", reason: "unknown-point"};
         }
-        // 前缀不合的一条无权用这个 id：它不算重复者（挤不掉合法的那一条），自己照下面的顺序被拒（plugins.md 输出 15）。
+        // 前缀不合的一条无权用这个 id：它不算重复者（挤不掉合法的那一条），也不因别人重复而改报重复，照下面的顺序以前缀被拒
+        // （plugins.md 输出 15）。
         const prefixProblem = (record: ContributionRecord): string | null => (point.idPrefix === "plugin" ? this.#idPrefixProblem(record.plugin.id, record.definition.id) : null);
-        if (this.#liveContributions(contribution.definition.capability, contribution.definition.id).filter((record) => prefixProblem(record) === null).length > 1) {
+        if (prefixProblem(contribution) === null && this.#liveContributions(contribution.definition.capability, contribution.definition.id).filter((record) => prefixProblem(record) === null).length > 1) {
             return {status: "rejected", reason: "duplicate-contribution", detail: null};
         }
         if (point.implementation === "required" && contribution.kind === "plugin") {

@@ -40,14 +40,24 @@ function manualClock(): RuntimeClock & {advance(ms: number): void; pending(): nu
     };
 }
 
-/** 门面的替身：主对话已在、归属对；`hold` 每次按 `holds` 里排好的结果交回（可以是挂着的 Promise）。 */
-function agent(holds: Array<HoldResult | Promise<HoldResult>>): {readonly service: AgentService; readonly calls: string[]} {
+type Header = {readonly ok: true; readonly value: {readonly owner?: {readonly plugin: string; readonly id: string}}} | {readonly ok: false; readonly code: string};
+const OWNED: Header = {ok: true, value: {owner: {plugin: "nbook.bots", id: "lyra"}}};
+
+/**
+ * 门面的替身：`header` 按 `headers` 里排好的结果依次交回（排完了交回归属对的会话头），`create` 交回 `created`，`hold` 每次按 `holds`
+ * 里排好的结果交回（可以是挂着的 Promise）。`calls` 记下调用的先后。
+ */
+function agent(holds: Array<HoldResult | Promise<HoldResult>>, options: {readonly headers?: Header[]; readonly created?: {readonly ok: boolean; readonly code?: string}} = {}): {readonly service: AgentService; readonly calls: string[]} {
     const calls: string[] = [];
+    const headers = [...(options.headers ?? [])];
     const service = {
-        header: async () => ({ok: true, value: {owner: {plugin: "nbook.bots", id: "lyra"}}}),
+        header: async () => {
+            calls.push("header");
+            return headers.shift() ?? OWNED;
+        },
         create: async () => {
             calls.push("create");
-            return {ok: false, code: "session-exists"};
+            return options.created ?? {ok: false, code: "session-exists"};
         },
         hold: async (id: string) => {
             calls.push(`hold:${id}`);
@@ -55,8 +65,13 @@ function agent(holds: Array<HoldResult | Promise<HoldResult>>): {readonly servic
         },
         session: () => ({snapshot: async () => ({head: 42})}),
     } as unknown as AgentService;
-
     return {service, calls};
+}
+
+/** 等重试那一轮走完（替身的调用都是立即完成的 Promise）。 */
+async function waitUntilHeld(main: MainConversations): Promise<void> {
+    for (let round = 0; round < 50 && main.state("lyra").state !== "held"; round += 1) await new Promise((resolve) => setImmediate(resolve));
+    expect(main.state("lyra")).toEqual({state: "held"});
 }
 
 const held = (opened: number | null, released: string[]): HoldResult => ({ok: true, value: {opened, release: () => released.push("released")}});
@@ -125,6 +140,49 @@ describe("主对话的持有", () => {
         const main = new MainConversations({agent: service, clock: manualClock(), changed: () => undefined, report: () => undefined});
         const same = {ok: true, sessionId: "bot-lyra"} as const;
         expect(await Promise.all([main.ensure(BOT), main.ensure(BOT), main.ensure(BOT)])).toEqual([same, same, same]);
-        expect(calls).toEqual(["hold:bot-lyra"]);
+        expect(calls).toEqual(["header", "hold:bot-lyra"]);
+    });
+    test("输出 1：会话不在就建；建时得 session-exists（别处刚建了）就回去读会话头，归属对再持有", async () => {
+        const released: string[] = [];
+        const {service, calls} = agent([held(null, released)], {headers: [{ok: false, code: "session-not-found"}], created: {ok: false, code: "session-exists"}});
+        const main = new MainConversations({agent: service, clock: manualClock(), changed: () => undefined, report: () => undefined});
+        expect(await main.ensure(BOT)).toEqual({ok: true, sessionId: "bot-lyra"});
+        expect(calls).toEqual(["header", "create", "header", "hold:bot-lyra"]);
+    });
+
+    test("输出 1、3：会话头读不懂时交回那个码、记进状态，不当成会话不在去建", async () => {
+        const {service, calls} = agent([], {headers: [{ok: false, code: "log-corrupt"}]});
+        const main = new MainConversations({agent: service, clock: manualClock(), changed: () => undefined, report: () => undefined});
+        expect(await main.ensure(BOT)).toMatchObject({ok: false, code: "log-corrupt"});
+        expect(main.state("lyra")).toEqual({state: "failed", code: "log-corrupt"});
+        expect(calls).toEqual(["header"]);
+    });
+
+    test("输出 2、3：hold 得别的码只记进状态、不排重试；下一次 ensure 经 opening 再持有", async () => {
+        const clock = manualClock();
+        const released: string[] = [];
+        const states: string[] = [];
+        const {service} = agent([{ok: false, code: "log-broken"}, held(null, released)]);
+        const main = new MainConversations({agent: service, clock, changed: () => states.push(main.state("lyra").state), report: () => undefined});
+        expect(await main.ensure(BOT)).toMatchObject({ok: false, code: "log-broken"});
+        expect(main.state("lyra")).toEqual({state: "failed", code: "log-broken"});
+        expect(clock.pending()).toBe(0);
+        states.length = 0;
+        expect(await main.ensure(BOT)).toEqual({ok: true, sessionId: "bot-lyra"});
+        expect(states).toEqual(["opening", "held"]);
+    });
+
+    test("输出 6：先得 session-busy、重试后打开：打开耗时只算成功那一次，重试的等待不算进去", async () => {
+        const clock = manualClock();
+        const released: string[] = [];
+        const data: unknown[] = [];
+        const {service} = agent([{ok: false, code: "session-busy"}, held(120, released)]);
+        const main = new MainConversations({agent: service, clock, changed: () => undefined, report: (_level, code, _message, detail) => {
+            if (code === "main-opened") data.push(detail);
+        }});
+        expect(await main.ensure(BOT, {create: false})).toMatchObject({ok: false, code: "session-busy"});
+        clock.advance(BUSY_RETRY_MS);
+        await waitUntilHeld(main);
+        expect(data).toEqual([{bot: "lyra", session: "bot-lyra", events: 42, ms: 120}]);
     });
 });

@@ -542,6 +542,7 @@ export default {
         },
         continued: "Asked the model to continue",
         resultRequested: "Reminded the model to submit the result",
+        hostNotice: "Notice · {name}",
     },
     render: {
         failed: "This content can't be shown",

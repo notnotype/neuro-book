@@ -7,7 +7,7 @@
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {fixedNodesOf, projectLayoutDoc, rebaseIntents, setFloatRect} from "@notnotype/nb-workbench-layout";
+import {applyGestureCommit, projectLayoutDoc, setFloatRect} from "@notnotype/nb-workbench-layout";
 import type {GridExtent} from "@notnotype/nb-layout";
 import type {LayoutFloatRect} from "@notnotype/nb-workbench-layout";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, shallowRef, useTemplateRef, watch} from "vue";
@@ -292,8 +292,9 @@ const doc = computed(() => panels.document());
 const extent = shallowRef<GridExtent | null>(null);
 const projectionOptions = computed(() => layoutProjectionOptions({doc: doc.value, catalog: NO_VIEWS, viewportWidth: extent.value?.width ?? 0}));
 const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
-const commitSizes = (sizes: Readonly<Record<string, GridExtent>>): void => {
-    panels.apply((current) => ({ok: true, doc: rebaseIntents(current, sizes, projection.value.collapsedTo, fixedNodesOf(projection.value.input))}));
+/** 手势落账：和产品的 store 一样经库的入口写回（workbench-layout 输出 49）。 */
+const commitGesture = (before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void => {
+    panels.apply((current) => ({ok: true, doc: applyGestureCommit(current, projection.value, {before, after, collapsed}).doc}));
 };
 
 const host = ref<HTMLElement | null>(null);
@@ -372,7 +373,7 @@ onBeforeUnmount(() => {
             :disabled="false"
             context-key="lab-editor"
             @extent="(next) => (extent = next)"
-            @gesture-commit="(sizes) => commitSizes(sizes)"
+            @gesture-commit="commitGesture"
         >
             <template #head="{panelId}">
                 <EditorGroupHead :area="area" :group-id="panelId" :wrap-tabs="props.input?.props?.wrapTabs !== false" @intent="onIntent" />

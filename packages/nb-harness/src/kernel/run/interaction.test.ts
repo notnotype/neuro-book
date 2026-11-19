@@ -553,6 +553,23 @@ describe("发话一并结算（runtime.md 输出 111）", () => {
         expect(resolved).toHaveLength(requested.length);
     });
 
+    test("输出 111：只结算同步的事项：同时挂着的异步提问不动，之后照常能应答", async () => {
+        const later: TestTool = {id: "lab.later", execute: async (_args, context) => {
+            await context.ask!({question: "要几章？"}, {async: true});
+            return "先接着做";
+        }};
+        await using session = await createTestSession({approve: askForWrites, tools: [later, writer("lab.write")]});
+        session.model.script({tools: [{tool: "lab.later"}]}, {tools: [{tool: "lab.write"}]}, "知道了", "收到");
+        const runId = await sendRaw(session, "先问后写");
+        const [approval] = await waitingFor(session, 1);
+        const asynchronous = dataOf<{id: string; async?: boolean}>(await session.events(), "interactionRequested").find((data) => data.async === true)!;
+        expect(await session.raw.send({commandId: id(), input: {text: "别写了"}, settlePending: "deny"})).toMatchObject({ok: true});
+        await session.raw.waitRun(runId);
+        expect(dataOf<{id: string}>(await session.events(), "interactionResolved").map((data) => data.id)).toEqual([approval!.id]);
+        expect(await session.raw.resolve({commandId: id(), id: asynchronous.id, decision: "answer", answer: {text: "三章"}})).toMatchObject({ok: true});
+        expect(dataOf<{id: string; decision: string}>(await session.events(), "interactionResolved").map((data) => [data.id, data.decision])).toEqual([[approval!.id, "deny"], [asynchronous.id, "answer"]]);
+    });
+
     test("受理批写下了、同步到盘失败（结果不确定）：发话得 log-broken，等着的提问以 aborted 收到、不再往坏了的句柄上写，重开只有一条结算", async () => {
         const dir = join(root, "settle-sync-fault");
         let failSync = false;
@@ -590,9 +607,12 @@ describe("发话一并结算（runtime.md 输出 111）", () => {
         // 句柄坏了的运行自己收不了口：等它交回 log-broken 再关，关之后它不再写。
         expect(await session.raw.waitRun(runId)).toMatchObject({reason: "error"});
         await session.close();
-        const reopened = await createJsonlStore({root: dir}).open(session.id);
+        const store = createJsonlStore({root: dir});
+        const reopened = await store.open(session.id);
         if (!reopened.ok) throw new Error(reopened.code);
-        expect(dataOf<{decision: string}>(reopened.value.events, "interactionResolved").map((data) => data.decision)).toEqual(["deny"]);
+        const decisions = dataOf<{decision: string}>(reopened.value.events, "interactionResolved").map((data) => data.decision);
+        await store.close(reopened.value);
+        expect(decisions).toEqual(["deny"]);
     });
 });
 

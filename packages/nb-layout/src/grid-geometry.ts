@@ -85,6 +85,15 @@ export function readExtent(value: unknown): GridExtent | null {
     return {width: candidate.width, height: candidate.height};
 }
 
+/**
+ * 承载盒的尺寸能不能用来算布局（Spec `ui/nested-grid` 输出 145、146）：量到了、两轴有限且都大于 0。宿主发布空布局、`useGridHost`
+ * 停用手势、`NestedGrid` 判定“量好了”都用这一个判据，免得一处把 `{0, 0}` 当可用、另一处当没有。
+ * 返回普通的布尔值而不是类型谓词：“否”里也有 `GridExtent`（零尺寸），谓词会把它收窄成 `null`。
+ */
+export function usableExtent(extent: GridExtent | null): boolean {
+    return extent !== null && Number.isFinite(extent.width) && Number.isFinite(extent.height) && extent.width > 0 && extent.height > 0;
+}
+
 /** 用两根轴各自的数值装出一个 extent（`main` 与 `cross` 互补，避免到处写 if orientation）。 */
 export function extentOf(axis: GridAxis, along: number, cross: number): GridExtent {
     return axis === "width" ? {width: along, height: cross} : {width: cross, height: along};

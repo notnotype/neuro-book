@@ -69,7 +69,8 @@ function unsettledNested(core: SessionCore): EventDraft[] {
 
 export function recoveryDrafts(core: SessionCore): EventDraft[] {
     const state = core.leafState.kernel;
-    // 叶子是回退或切分支定的：运行是暂停的，不是崩溃留下的，留给 `start` 接着跑（runtime.md 输出 35）。
+    // 叶子是回退或切分支定的：运行是暂停的，不是崩溃留下的，留给 `start` 接着跑（runtime.md 输出 35）。之后受理过接着跑它
+    // （`runResumed`）的不算暂停（`SessionCore` 把标记改回路径，session.md 输出 27）。
     if (state.run === null || core.leafSetBy === "leafChanged") return [];
     // 让运行停下的同步事项结算为中断（审批的码表明调用还没执行）；异步提问不属于运行，留着（runtime.md 输出 43）。
     const interrupted = state.pending.filter((item) => !item.async).map((item): EventDraft => ({
@@ -84,6 +85,9 @@ export function recoveryDrafts(core: SessionCore): EventDraft[] {
     const turn = state.history.current;
     if (turn !== null) drafts.push({type: "turnEnded", kind: "ctrl", scope: "path", data: {turnId: turn.id, reason: "interrupted"}});
     drafts.push({type: "runEnded", kind: "ctrl", scope: "path", data: {runId: state.run.runId, reason: "interrupted"}});
+    // 中断收口关门（runtime.md 输出 117）：重开之后后台的提醒不唤起，等用户自己继续。只压缩的运行不改门。
+    const compactOnly = core.leafState.kernel.lastChat?.runId !== state.run.runId;
+    if (!compactOnly && core.session.kernel.wakeGate?.open === true) drafts.push({type: "wakeGate", kind: "ctrl", scope: "session", data: {open: false, cause: "interrupted"}});
     // 回到空闲：还就绪的话与收口同批转成留着，不自动发出（runtime.md 输出 34、104）。
     const ready = core.session.kernel.buffer.filter((item) => item.state === "ready").map((item) => item.id);
     if (ready.length > 0) drafts.push({type: "inputHeld", kind: "ctrl", scope: "session", data: {ids: ready, cause: {end: "interrupted"}}});

@@ -5,7 +5,7 @@
  * 操作都是纯函数：失败返回问题码，文档不变；结果和现状一样（结构、顺序、标签、活动标签都相同）时返回原对象，调用方据此不提交。
  * 结构操作的出口统一过一次规范形（`normalizeTree`）。`createGrid` 的结构操作语义不动：现有宿主和测试依赖它只塌陷单子分支。
  *
- * 尺寸意图统一是 CSS px，只有一条写入路径：`rebaseIntents` 把呈现尺寸写回。手势落账后和结构操作之前都走它，不读 `grid.serialize()`：那里的 `weight` 是反解出来的比例，
+ * 尺寸意图统一是 CSS px，只从呈现尺寸写回（`intent-writeback.ts` 的两个入口：手势落账后、结构操作之前），不读 `grid.serialize()`：那里的 `weight` 是反解出来的比例，
  * 不是 px。所以展平不用换算单位，`fixed` 与 `weight` 之间切换也不用。收起的面板和呈现为零的轴不写，那就是它展开时的尺寸。
  * 例外只有 `setSiblingShares`：结构操作把一组面板搬到别处之后，按搬之前的比例重分它们在新位置合占的那一份，不引入新的单位。
  *
@@ -485,37 +485,6 @@ function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
     if (scale.nodes > GRID_MAX_NODES || scale.depth > GRID_MAX_DEPTH) return failure("limit-exceeded", `${String(scale.nodes)} nodes, ${String(scale.depth)} levels deep`);
     const doc = asDoc(next);
     return {ok: true, doc: sameLayoutShape(original, doc) ? original : doc};
-}
-
-/**
- * 把呈现尺寸写回意图：手势落账后、结构操作之前调。`collapsedTo` 是呈现里塌陷掉的分支由谁代表（`projectLayoutDoc` 给），它们的尺寸就是幸存者的。
- * 不写的：呈现为零的轴；收起的面板（`isSectionCollapsed`；纵向收成标题行时呈现高度是面板头，不是展开尺寸）；条（厚度不是意图）。
- *
- * 全是工具面板的分支按比例分（`projectLayoutDoc`）：里面有收起或隐藏的兄弟时，其余的呈现尺寸是占了它们的空间之后的，直接写进去，兄弟回来时比例就错了，展开只回到一部分。
- * 所以这些子节点只更新彼此的比例，总量保持原来的份额。含编辑组的分支不用：工具面板保留像素，余量归编辑组。
- */
-export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, GridExtent>>, collapsedTo: ReadonlyMap<string, string> = new Map(), frozen: ReadonlySet<string> = new Set()): LayoutDoc {
-    const sizeOfNode = (node: GridSnapshotNode): GridExtent | undefined => sizes[node.id] ?? sizes[collapsedTo.get(node.id) ?? ""];
-    // `frozen`：呈现尺寸不是意图的节点。保留像素的节点只会被压缩，不会自己变（输出 8）；由调用方给，因为谁保留像素是呈现树决定的。
-    const isFrozen = (node: GridSnapshotNode): boolean => frozen.has(node.id) || frozen.has(collapsedTo.get(node.id) ?? "");
-    const isSkipped = (node: GridSnapshotNode): boolean => isFrozen(node) || (node.kind === "leaf" && (barOfRef(node.ref) !== null || isSectionCollapsed(doc, node.id)));
-    const holdsEditor = (node: GridSnapshotNode): boolean => treeLeaves(node).some((leaf) => doc.panels[leaf.id]?.role === "editor");
-
-    const write = (node: GridSnapshotNode): GridSnapshotNode => {
-        const size = isSkipped(node) ? undefined : sizeOfNode(node);
-        const nextSize = size === undefined ? node.size : {width: size.width > 0 ? size.width : node.size.width, height: size.height > 0 ? size.height : node.size.height};
-        if (node.kind === "leaf") return {...node, size: nextSize};
-        const children = node.children.map(write);
-        const main = axisOf(node.orientation);
-        const away = (child: GridSnapshotNode): boolean => isSkipped(child) || sizeOfNode(child) === undefined;
-        if (!node.children.some(away) || holdsEditor(node)) return {...node, size: nextSize, children};
-        const present = node.children.filter((child) => !away(child));
-        const before = present.reduce((sum, child) => sum + child.size[main], 0);
-        const after = children.filter((_, index) => !away(node.children[index] as GridSnapshotNode)).reduce((sum, child) => sum + child.size[main], 0);
-        const scale = before > 0 && after > 0 ? before / after : 1;
-        return {...node, size: nextSize, children: children.map((child, index) => (away(node.children[index] as GridSnapshotNode) ? child : {...child, size: {...child.size, [main]: child.size[main] * scale}}))};
-    };
-    return {...doc, tree: {...doc.tree, root: write(doc.tree.root)}};
 }
 
 /**

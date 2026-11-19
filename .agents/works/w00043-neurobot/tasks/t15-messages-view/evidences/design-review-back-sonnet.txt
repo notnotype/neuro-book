@@ -1,0 +1,123 @@
+### 1. “助手消息”没有定义，按 assistant 事件数会多计，也与界面的“一条回复”对不上
+
+- 严重程度：重要
+- 类别：与已定设计一致、接口与合同
+- 位置：计划“bots 服务端”第二条“数助手消息”；`packages/nb-harness/src/kernel/api/events.ts:145`（assistant 事件）；`packages/nb-agent-ui/src/conversation-turns.ts:15-16`
+- 现象：计划只写“数助手消息”，没说哪类日志事件算一条。日志里的 `assistant` 事件是每个模型请求写一条（内容可以只有 toolCalls、只有 thinking、或正文为空），一轮里调 N 次工具就写 N+1 条 `assistant`。而界面的分轮规则是：中间的 content 在运行结束后并入折叠的思维链，常显层只留“最终回复”（本轮最后一条正文非空、自身不调用工具的 assistant）。
+- 为什么是问题：用户看到的是一个气泡，徽章却可能显示 5。t03 决定 13、22 把未读数画在联系人与书房入口上，“好友头上的气泡”必须与聊天里看得见的新话对得上。在线计数与重启后补数若各写一遍判断，也会出现两边口径不同。
+- 如何核实：读 `events.ts:145` 的 assistant 声明（`content`、`toolCalls` 都是数组，没有“非空”约束）与 `conversation-turns.ts` 头注释；在 bots 测试里用脚本模型跑一轮“调工具再回复”，数 `assistant` 事件，应为 2 条而界面只有 1 个回复。
+- 建议改法：在 main-conversation.md 写死一条规则并只实现一份纯函数 `countsAsMessage(event)`，在线帧与补数共用。推荐：`type === "assistant"`、`toolCalls` 为空、`content` 里有 `kind: "text"` 且去空白后非空。这与“最终回复”的判据一致（“其后再无工具调用”那半句无法按单条事件判，接受极少数偏差，写进 Spec）。要不要把出错的运行（`runEnded` 的 `error`）算一条未读，也在这里定下（界面会画 error 消息）。
+
+### 2. 只存“个数”无法在 `through` 落后于最新时给出正确的 unread
+
+- 严重程度：重要
+- 类别：接口与合同、别扭之处
+- 位置：计划“bots 服务端”：`list()` 加 `unread` 与 `latestSeq`、`markSeen({botId, through})`
+- 现象：计划的写法暗示服务端维护一个计数器，`markSeen` 之后“unread 变了”。但 `through` 是客户端给的 seq，可以小于已数到的最新一条（例如视图在新消息帧到达之前调用，或浏览器上次取的 `list` 已落后）。此时 `unread` 应该是“seq 大于 through 的计数消息数”，计数器没有这个信息，只能清零（错：把没看到的也清了）或不动（错：已看到的没清）。
+- 为什么是问题：与“只进不退”“看到只在可见且有焦点时前进”的提案规则直接相关，几个窗口各按各的 `latestSeq` 标记时最容易出现。
+- 如何核实：构造“服务端已数到 seq 30、34、40 三条，`markSeen(through=34)`”，期望 unread=1；计数器实现得 0 或 3。
+- 建议改法：服务端为每个 bot 存一个升序数组 `unreadSeqs`（只含 seq 大于已看到位置的计数消息），`unread = unreadSeqs.length`，`markSeen` 去掉 seq 不大于 through 的项；`latestSeq` 取数组末项（空时取已看到的值）。内存按未读条数线性增长，界面可以显示“99+”但服务端不必封顶。补数与在线计数都只往这个数组追加，用 seq 去重（见第 3 条）。
+
+### 3. 订阅与补数的先后没有规定；现有订阅接口是异步附着的，没有“已接上”的信号
+
+- 严重程度：重要
+- 类别：依赖的机制、遗漏（并发）
+- 位置：计划“bots 服务端”第二条“持有期间订阅它的日志帧……持有时从看到之后补数一次”；`packages/nb-harness/src/kit/sessions/table.ts:475-499`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:551-558`
+- 现象：门面交给 bots 的 `session(id).subscribe(listener)` 是同步接口，实际是 `#acquire(id).then(...)` 才附着（table.ts:478-490），附着前写下的帧不补（table.ts:474 的注释“会话打开之前写下的帧不补，调用方用 `log` 补”），同进程订阅没有失败通道，只写诊断 `session-subscribe-failed`。计划没写“先订阅、攒帧、再补数、按 seq 去重”还是反过来。
+- 为什么是问题：先补数后订阅，中间写下的助手消息既不在补数结果里也不在帧里，丢一条未读；先订阅后补数而不去重，同一条被帧与补数各数一次。现在碰巧不出错：已开的会话上 `subscribe` 与随后的 `log` 都走 `#acquire`，微任务顺序上订阅先附着。但这是实现细节，不是合同；`snapshot` 的注释（host.ts:173-176）写的正是“先订阅、攒帧、用 log 补到 through、丢掉攒着的 seq 不大于 through 的”。
+- 如何核实：读上面两处；用真实会话写一个测试：在 `hold` 成功之后、补数的 `log` 返回之前，让脚本模型写一条助手消息，看计数是 1 不是 0 或 2。
+- 建议改法：监听器先把计数事件按 seq 放进一个游标：`counted = max(counted, seq)`，补数从 `max(seen, counted)` 之后读、页内每条同样走 `countsAsMessage` 与 seq 去重；补数期间到的帧直接进同一个数组（第 2 条的数据结构天然去重：已有的 seq 不重复加）。订阅失败没有信号，所以补数结束后再用 `snapshot().head` 对一次，head 大于已扫描位置就再补一页，作为兜底。
+
+### 4. `markSeen` 的 `through` 没有上界，`latestSeq` 的含义也没定：一次越界值会让之后的新消息永久“已读”
+
+- 严重程度：重要
+- 类别：遗漏（失败路径、并发）、接口与合同
+- 位置：计划“bots 服务端”：`markSeen({botId, through})`，`through` 小于已存的值时不动；`list()` 的 `latestSeq`
+- 现象：只进不退对 `through` 不设上界。以下三种来源会写出大于日志 head 的值：客户端的值本身有误（比如把别的 bot 的 seq 传来）、状态根回滚后记录比会话日志新（记录在 `nbook.storage`，会话在 `nbook.agent` 的会话库，两处是分开存的）、会话换成了更短的同 id 会话。写进去之后只进不退，之后新消息的 seq 都不大于它，未读数一直是 0，直到日志追上那个值。
+- 另一半：`latestSeq` 若取日志 head，每个日志事件（modelStarted、toolStarted 等）都会改变它，每次都要推一次 `botsChanged`（整表载荷）。计划写的是“变了推”，所以必须定为“最新一条计数消息的 seq”，不是 head。
+- 如何核实：写 `markSeen({botId, through: 9999})` 后让 bot 回复一句，unread 应为 1；按计划字面实现会得 0。
+- 建议改法：合同里 `through` 为非负整数（`Type.Integer({minimum: 0})`）；服务端把它夹在“该 bot 已知的 head”以内（持有中用订阅到的最大 seq 与 `snapshot().head`，不持有时拒绝并交回失败码）；读记录时发现已看到值大于当前 head，视为记录过期，重置为 head 并写一条诊断。Spec 里写明 `latestSeq` 是最新计数消息的 seq。
+
+### 5. 头像路由只写了“读 avatar.*，没有就 404”，安全与缓存要求全缺
+
+- 严重程度：重要
+- 类别：遗漏（安全）、别扭之处
+- 位置：计划“bots 服务端”最后一条；参照 `packages/neuro-book/src/plugins/stickers/backend/routes.ts` 的 `/image/:pack/:file`；`packages/neuro-book/src/plugins/bots/backend/presets.ts:86-93、105-110`
+- 现象与问题（逐项）：
+  1. 文件名：`avatar.*` 是通配。创建时写的是 `avatar.<原扩展名小写>`（create.ts:49），扩展名只限 png、jpg、jpeg、webp（presets.ts:88-89）。路由应只探这四个固定名字（固定顺序），否则 `avatar.html`、`avatar.svg`、`avatar.png.bak` 都会被匹配。
+  2. 目录不受文件服务保护：stickers 取图经 `files().read("stickers://…")`，根身份、链接与越界规则都在文件服务里；`bots://` 方案没有实现（bots.md 第 19 行明确不在这里）。bot 目录在 `<状态根>/user/bots/<id>/`，提案里 `bots://<id>/` 是 bot 自己可写的真实目录（按提案推断，写授权在后续切片），所以 `avatar.png` 可以被替换成指向任意文件的符号链接。要逐段 `lstat`、不跟随链接，现成的 `entryInside`（`plugin-platform/backend/plugin-files.ts:40`）就是这个用途，bots 的预设定位已经在用它（backend/plugin.ts）。
+  3. 字节不核对：预设文件的核对只看扩展名与大小（presets.ts:105-110），没有嗅探字节。路由必须按字节判类型并以此给 `Content-Type`，不按扩展名；类型与扩展名不符、超过 1 MiB（AVATAR_MAX_BYTES）、不是 png/jpeg/webp 的（包括 SVG）按 404。`sniffImageType`/`checkImage` 现在在 stickers 的 catalog.ts 里（带 2 MiB 与边长限制），不能跨插件深导入，要么抽成共用小函数，要么 bots 自写一份窄的。
+  4. 响应头：同 stickers 的 `SAFE_HEADERS`（`Content-Security-Policy: sandbox`、`X-Content-Type-Options: nosniff`）；跨站读取按 `Sec-Fetch-Site` 拒绝（`crossSite`）；HEAD 一并支持。
+  5. 缓存：头像地址没有版本参数（`SessionView.avatar` 是固定地址），不能照 stickers 给 `immutable`；用 `Cache-Control: no-cache` 加 ETag（大小、mtime、inode，同 stickers catalog.ts:457）。404 带 `no-store`，免得换头像前的 404 被缓存。
+  6. “没有这个 bot”要以 bot 记录为准，不以目录是否存在为准：`recoverBots` 对不认识的目录只写 `bots.directory-unknown`、不登记（create.ts:86），这种目录里的文件不能被取走。取到记录之后用记录里的 id 拼路径，不用 URL 里的字符串。
+  7. 登记：入口要在 `contributions` 里声明 `{capability: HTTP_ROUTES_POINT, id: descriptor.id}` 并在激活里交出路由（stickers/backend/plugin.ts:51、115），计划的“登记”一条没提。
+- 如何核实：读上面几处；在 `bots.test.ts` 里放：符号链接头像、内容是 SVG 的 `avatar.png`、`avatar.html`、两个扩展名并存、目录在记录不在，逐项期望 404；头像正常时检查 `Content-Type` 来自字节。
+- 建议改法：新建 `backend/avatar-route.ts`，固定四个候选名、`entryInside` 逐段核对、读后嗅探、给上述头；把缓存与跨站规则写进 bots.md。
+
+### 6. 已看到记录的读不懂、存储打不开、尚未补数三种状态没有定义，`unread` 的类型会骗人
+
+- 严重程度：重要
+- 类别：遗漏（失败路径）、接口与合同
+- 位置：计划“bots 服务端”第一、三条；`packages/neuro-book/src/plugins/bots/backend/store.ts:36-62`（bot 记录的同类处理）；`bots.ts:49-53`
+- 现象：`bots-seen` 是新记录。bot 记录有完整的读不懂规则（不改写、写 `bots.record-unreadable`、不当成没有 bot），seen 记录没有。三种状态：(a) 记录读不懂：当 0 处理，则每条历史消息都算未读，且 `markSeen` 因 `corrupt` 写不进去（`update` 遇到坏记录直接失败，storage.ts:208），徽章永久不消；(b) 存储打不开（`BotStore.open` 失败时 `store` 是 null，bots.ts:22）；(c) 持有失败或补数还没做完，`list()` 里的 `unread` 是 0 还是旧值。
+- 为什么是问题：`unread: number` 把“0”与“不知道”混在一起，视图会在启动几百毫秒内显示“没有未读”再跳成 3；`markSeen` 的失败码也没在合同里（现在 `botsContract` 的 `ensureMain` 才有 `errors`，bots 合同 version 1 的 `list` 输出 schema 是 `additionalProperties: false`）。
+- 如何核实：写坏 `bots-seen` 记录后启动，按计划实现能观察到徽章不消。
+- 建议改法：`unread` 取 `number | null`（`null`＝还没算出来或算不了，视图不画徽章）；`markSeen` 加 `errors: {"unknown-bot": …, "not-held": …, "storage-failed": …}`；记录读不懂时用存储的 `reset`（会把原件存进原件区，storage.ts:189）重写成新值——已看到位置丢了成本很低，不必像 bot 记录那样保护；打不开时只在内存里记，写诊断，`markSeen` 仍交回成功但标明没落盘。把这几条与“读完 seen 记录再开始补数”的顺序写进 main-conversation.md。
+
+### 7. 补数放哪里没写：放进每个 bot 的 `ensure` 链会拖住 `ensureMain`，失败也没有出口
+
+- 严重程度：建议
+- 类别：遗漏（失败路径、资源）、别扭之处
+- 位置：计划“持有时从‘看到’之后补数一次”；`packages/neuro-book/src/plugins/bots/backend/main.ts:108-130`（`#hold`）、`:133-141`（`#measured` 已经在链内读快照）
+- 现象：`ensure` 把同一个 bot 的调用串成一条 Promise 链（main.ts:62-67），`#hold` 在 `holds.set` 之后还 `await this.#measured(...)`。把补数也加在这里，`ensureMain` 要等一串 `log` 分页读完才交回会话 id，聊天视图的打开被未读计数挡住；补数读失败（会话正在关闭、`log-broken`）时只能让 `ensureMain` 失败或吞掉，两种都不对。
+- 为什么是问题：未读数是旁路信息，不该影响“能不能聊”（阶段 ① 的目标）。
+- 如何核实：读 main.ts 链与 #hold；在 main.test.ts 的替身里让 `log` 挂住，看 `ensureMain` 是否被卡。
+- 建议改法：`holds.set` 之后只启动补数（`void this.#catchUp(bot).catch(report)`），不进链；补数失败写诊断 `bots.unread-failed` 并让 `unread` 留 `null`（第 6 条），下一次 `ensureMain` 或视图重新可见时重试。同时 `#measured` 已经读过 `snapshot().head`，可以复用这个值作兜底对照（第 3 条）。
+
+### 8. 订阅的取消路径：持有只在停止时放掉，订阅自己还占一份引用
+
+- 严重程度：建议
+- 类别：遗漏（资源释放）
+- 位置：计划“持有期间订阅……放掉持有时取消”；`main.ts:74-79`（`stop`）、`table.ts:475-499`（`#subscribe` 通过 `#acquire` 持一份引用）、`agent.ts:587-593`（作废时统一收口）
+- 现象：现有代码只在 `stop()` 里放持有（main.ts:77），没有别的放持有的路径，所以“放掉持有时取消订阅”其实只发生在停止。门面作废（插件停止）时订阅会被 `revokers` 一并取消，这点我读代码确认成立。但订阅自己通过 `#acquire` 持了一份引用（table.ts:489 附近），取消前会话仍不可空闲关闭；如果以后 `release` 先于门面作废（例如以后加“bot 停用”），订阅会让会话继续开着。
+- 为什么是问题：不是现在的缺陷，是计划的措辞要求在持有对象上同时挂订阅，将来改持有生命周期时容易漏。
+- 如何核实：读上面几处；测试里 `stop()` 之后断言订阅方的引用数归零（真实门面可查 `running()`/`activity`）。
+- 建议改法：把订阅的取消函数与持有放在同一个对象里（`#holds` 的值改为 `{hold, unsubscribe}`），`stop()` 先取消订阅再放持有；`#hold` 里订阅只在 `holds.set` 之后建一次。不需要为“会话被关掉重开”另写逻辑：持有期间不会空闲关闭，关闭只发生在 `nbook.agent` 停止，之后整个插件也在停。
+
+### 9. `list()` 的新字段到阶段 ④ 与 ② 还要再改合同：缺“最后看到的位置”与最后一句话
+
+- 严重程度：建议
+- 类别：接口与合同（后续切片返工）
+- 位置：计划“`list()` 的项加 `unread` 与 `latestSeq`”；提案第四节“未读分隔线：打开 bot 视图那一刻的‘最后看到’固定为这次的基线”；t03 决定 13（联系人第二行是最后一句话）；`packages/neuro-book/src/plugins/bots/shared/contracts.ts` 的 `BotItemSchema`
+- 现象：未读分隔线（阶段 ④）要的是“打开那一刻的已看到位置”，而 `list()` 只给 `unread` 与 `latestSeq`，客户端无法知道已看到位置，只能自己在打开时记 `latestSeq - 未读` 之类（不成立，seq 里有非消息事件）。联系人行的“最后一句话”（阶段 ②）同样没有字段。服务端此时已经订阅了每一帧，顺手记下最后一条计数消息的文字与时间几乎没有成本。
+- 为什么是问题：`BotItemSchema` 是 `additionalProperties: false` 的 version 1 合同，每加一次字段都要改 Spec、合同与测试；一次定全比三次追加便宜。
+- 如何核实：对照 t03 决定 13、提案“未读分隔线”一段与计划的字段表。
+- 建议改法：现在就加 `seenSeq`；阶段 ② 需要时再加 `last: {at, text}`（只记前 N 个字符），不要等到那时才发现服务端没存。
+- 另：提案第 260 行写的是“由 `nbook.bots` 另订会话的最新消息时间算”，计划改成按 seq 算。这是更好的选择（时间会重复、可回拨），但属于改变已定项，应在 main-conversation.md 的决定记录里写一句，免得后来的人按提案找“时间”。
+
+### 10. 视图用 `list` 里的 `latestSeq` 去标记已看到，会越过还没画出来的消息
+
+- 严重程度：建议
+- 类别：接口与合同、遗漏（断线重连）
+- 位置：计划“bots 浏览器入口：看到：视图可见、窗口有焦点时，按 `latestSeq` 调 `markSeen`”
+- 现象：`botsChanged` 与会话帧是两条独立的推送。`latestSeq` 变大时，聊天视图可能还没收到对应的 log 帧（断线重连后在补日志、帧在排队），此时按 `latestSeq` 标记，用户并没有看到那条消息。
+- 为什么是问题：与“看到只在可见且有焦点时前进”的本意不符，重连后第一条回复容易被直接标成已读。
+- 如何核实：从代码推断，未验证；在 e2e 里让聊天帧延后一拍再看徽章。
+- 建议改法：`through` 取视图自己已应用的最后一条计数消息的 seq（适配器 `kernel-transcript.ts` 按 `lastSeq` 只进不退地应用日志，可以暴露出来），不取 `list` 的值；`latestSeq` 只用来判断“有没有新的可标”。
+
+## 未发现问题的方面
+
+- 以 seq 为准的 `through`：有归属的会话对 `rewind`（含重试与 swipe）、`switchBranch`、`archive` 一律得 `owned-session`（`table.ts:55-56、169`，`agent.ts:290` 的 `refuse`，sessions.md 输出 26），主对话只有一条路径，seq 不会落到分支之外；`fork` 出来的是新会话。前提是这条规则不被放宽，计划没有依赖别的东西。压缩与放回内容只追加事件，不改 seq。
+- 门面作废时订阅的取消：`agent.ts:538-560、587-593` 确认订阅登记在 `subscriptions`，作废时统一取消，作废之后才建的订阅 `check()` 抛 `ServiceRevokedError`；取消不过作废的门。
+- 多窗口并发 `markSeen`：`RecordHandle.update` 是读、算、条件保存，冲突时重读重算，最多 5 次（`storage.ts:201-216`）；`change` 取 `max(当前, through)` 就是幂等且与到达顺序无关的。`unknown-outcome` 不重试（同文件 213 行），处理方式沿用 `BotStore.add` 的重读确认即可。seen 单独一条记录而不并进 bot 记录是对的（避免与建 bot 的整表写入争用）。
+- bot 不在了与 bot id 校验：seen 里多出的 bot 条目无害，读时按 bot 记录过滤即可；bot 记录的 id 已有 `BOT_ID_PATTERN` 校验（store.ts:21），头像路由按记录查找就不存在路径越界（前提见第 5 条第 6 点）。
+- 补数的开销：打开的会话把整个日志放在内存里（`session.ts:383-388`，`core.events`），`log` 每页最多 2000 条，页内 `findIndex` 是 O(n)；5 万条事件、从 0 补数约 25 页、合计约 60 万次比较，没有外部读盘。真正的大头是会话打开时回放日志，那部分由 `bots.main-opened` 已经在量（main-conversation.md 输出 6）。补数只读“看到”之后的部分，常态下接近 0 页。这是从代码推断，没有跑基准。
+- 帧的量：订阅会收到每一个 `delta` 帧，监听器应先判 `frame.type === "log"` 再判事件类型；没有出站过滤（产品插件里没有设置 `outbound`），所以 bots 看到的与用户看到的事件一致。
+
+## 数量
+
+- 阻断：0
+- 重要：6（第 1 至 6 条）
+- 建议：4（第 7 至 10 条）
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10

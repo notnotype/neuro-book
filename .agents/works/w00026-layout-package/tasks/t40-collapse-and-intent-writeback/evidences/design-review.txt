@@ -1,0 +1,139 @@
+我审了计划，找到 11 条问题。没有阻断项，重要 5 条，建议 6 条。实验文件都在 `exp/` 下，是 `bun test` 在真实 `nb-layout` 和 `nb-workbench-layout` 源码上跑的；我没跑 e2e，也没改仓库文件。
+
+### 1. 没人能吸收时 `setCollapsed` 以 `not-conserved` 失败，失败表里没有这一项
+**严重程度**：重要；**类别**：正确性
+**位置**：计划“L1 收起与展开的入口”的结果与失败表；`sash-drag.ts:163-211`（`solveSashCollapse` 的收起分支不判容量）
+**现象**：我按计划的三步在 `exp/setcollapsed.test.ts` 里做了原型，三种情形都失败：
+- `[a 可收起 max300, b fixed max200]`，容器 504：基线 `{a:300,b:200}`，目标 `{a:0,b:200}`，`resizeBranches` 返回 `not-conserved`（200 != 500），求解器没给诊断。
+- 两侧兄弟都已收起，收起中间的 b：基线 `{0,596,0}`，目标 `{0,0,0}`，`not-conserved`（0 != 596）。
+- 嵌套且布局本来就留白（列 max250 加编辑 max400，容器 1000）：目标 `{col:0,e:400}`，`not-conserved`（400 != 650）。
+
+同样的情形，今天的真实手势会话按 Enter 也一样：预览能出，`finish()` 给出提交，落账时 `not-conserved`。计划继承了这个缺口，还把它做成按 id 调用的公开入口。
+**为什么是问题**：拖动路径对“没人让位”有 `no-room-to-collapse` 诊断（`sash-drag.ts:285、330`）。按 id 调用的人提了合法请求，收到的却是看着像内部错误的失败。计划写了“恢复空间不够不算失败”，对称的“收起时没人让位”没写。
+**如何核实**：`bun test exp/setcollapsed.test.ts`，看 `noabsorb`、`nested`、`both-collapsed` 三行。
+**建议改法**：
+- 在调 `resizeBranches` 之前先判目标是否守恒，不守恒就返回 `ok`、不改树，`issues` 带 `no-room-to-collapse`。
+- 同时修 Enter 路径（`applyCollapse`），别发布不守恒的预览。
+- 验收映射补“没人吸收”“所有兄弟都收起”两条。
+
+### 2. `setCollapsed` 的结果和“翻标记后按意图重新布局”不同，邻近兄弟吸收时不看 `fixed`
+**严重程度**：重要；**类别**：正确性（语义）
+**位置**：计划“哪一侧让位”一条；`sash-drag.ts:139-154`（`relocate` 只看范围，不看 `sizing`）
+**现象**：`exp/semantics.test.ts` 里 `[a 可收起 fixed200, b fixed200, c weight400]`，容器 808：
+- 计划的 `setCollapsed` 之后是 `[0,400,400]`：fixed 的 b 因为紧邻被当吸收者，从 200 长到 400，意图也写成 400。
+- 同一棵树把 a 翻成收起后直接 `layout` 是 `[0,200,600]`：c 吸收，因为 `fixed` 不随空间变大（`grid-geometry.ts:145` 的约定）。
+
+展开回来两边都是 `[200,200,400]`，所以“收起再展开”的往返用例发现不了。
+**为什么是问题**：t24 修过一次“按钮走改文档重排、Enter 走 `restoreSize` 像素，两条路结果不同”（`coder-report-s1fix.txt` 第 9 条）。计划的入口是第三种语义，而且“后面的兄弟由近到远让位”这条要写进 Spec，和 `sizing` 的约定相矛盾。VS Code 的 `SplitView.setViewVisible` 用 `LayoutPriority` 决定谁吸收，不是邻近（我凭记忆写的，没联网核对）。
+**建议改法**（上游选择，交开发者定）：
+- 把 `setCollapsed` 做成“翻标记，用候选树的 `allocateAxis` 重算目标”。基线取当前布局，目标取翻标记后的布局，总量不变所以天然守恒，问题 1 也随之消失，与宿主改记录后重排同一结果。
+- 代价是和分隔条 Enter 的吸收规则不再一致，要在 Spec 里分开写。
+- 若坚持沿用 `solveSashCollapse`，至少在 Spec 写明“fixed 的邻居会变大”，并列进“不承诺”。
+
+### 3. 压缩时 `resizeBranches` 把没动的 `fixed` 兄弟的意图写成压缩值，`restoreSize` 的“已知限制”是同一个根因
+**严重程度**：重要；**类别**：正确性 / 不变量
+**位置**：`grid.ts:368-370`（`fixed` 子节点一律 `clampAxis(target)` 当意图）；计划 `restoreSize` 一节的已知限制与“为什么不废掉”
+**现象**：`exp/compress.test.ts` 里 `[a fixed300 可收起, b weight, c fixed300]`，容器 508，布局 a=200、b=100、c=200，a 和 c 的意图是 300。
+- 收起 a 之后，c 的意图从 300 变成 200，c 没被碰过。
+- 窄窗口里再展开 a，c 变成 100。
+- 放宽到 1008：`a=300,b=600,c=100`，c 永久少了 200px。
+
+这是 api-03 在 L1 的版本：计划只在 L2 用 `frozen` 兜住工作台，L1 自己仍写压缩值，第三方调一次 `setCollapsed` 就撞上。`restoreSize` 被压缩时记 200（意图 300）是同一件事的症状。对 `fixed` 节点，意图本来就是像素记忆，计划那句“意图是权重”只对 `weight` 成立。
+**如何核实**：`bun test exp/compress.test.ts`，看 `c intent` 与 `wide after` 两行。
+**建议改法**：
+- `planBranchResize` 对 `fixed` 节点：target 与 baseline 相差不超过 EPSILON 时保留原意图，不写压缩值。
+- `restoreSize` 的记录规则改为：`fixed` 取意图，`weight` 才取基线像素（`weight` 的正路本来是 `restoreToShare`）。已知限制就只剩 `weight` 且不带 `restoreToShare` 的面板。
+
+### 4. 迁移清单漏了两处手写副本，`rebaseIntents` 仍可不带 `frozen` 调用，陷阱没拿掉
+**严重程度**：重要；**类别**：不变量
+**位置**：计划“迁移”一节；`WorkbenchSurfaceFixture.vue:90、110`；`editor-scene/EditorAreaFixture.vue:296`；`layout-doc.ts:497`（`collapsedTo`、`frozen` 可省参数）
+**现象**：
+- `WorkbenchSurfaceFixture.vue` 是第三份手写副本，两处 `rebaseIntents` 都没传 `frozen`，漏洞和 `GridPanelsScene` 一样。
+- `EditorAreaFixture.vue` 的 `commitSizes` 手写了一份，把所有 `fixed` 节点都冻结，不比较前后。
+- 计划只迁工作台 store 和 `GridPanelsScene`，旧零件仍可漏参调用。
+- `exp/api03.test.ts` 在真实 `projectLayoutDoc` 上复现：窗口 700 拖编辑区边界再放宽到 1400，Lab 的写法让 left 280 变成 160 不回，store 的写法 left 回到 280。
+
+**为什么是问题**：api-03 的原话是“漏一个输入不报错，只是静默写坏”。计划再加两个函数，仓库里现成就有三处漏参的证据。
+**如何核实**：`bun test exp/api03.test.ts`；在 `lab/web/fixtures` 里 Grep `rebaseIntents`。
+**建议改法**：
+- 迁移清单加上这两个夹具。
+- `rebaseIntents` 的 `collapsedTo`、`frozen` 改成必填，或改成接 `projection`，让漏参在类型上报错。
+- `rebaseForOperation` 这个一行包装也就可以不要了。
+
+### 5. Lab 的 e2e 证明不了 Lab 修正，验收映射最后一行是空的
+**严重程度**：重要；**类别**：测试
+**位置**：计划验收映射最后一行、“迁移”里的“行为修正”；`e2e/lab-grid-panels.e2e.ts:217-227`
+**现象**：该文件里唯一经过 `onApplied` 的手势是把 d 往零拖，断言只看内容可见性，不看文档意图。没有“窄窗口、拖别的边界、放宽”的断言。问题 4 的实验里今天 Lab 的写法会写坏 left，这个 e2e 修前修后都过。
+**为什么是问题**：计划说“行为修正”，但没有一条测试修前红、修后绿。L2 的单元测试只测库函数，不测 Lab 接线是否真传了 `before`。
+**建议改法**：在该 e2e 加一条：窄视口拖 ea|eb，放宽，断言 a 栏回到原宽（先确认修前红）；或把场景的写回抽成可测函数。
+
+### 6. `host.setCollapsed` 的“有变化”判据写错，子节点不足 2 个与诊断出口也没定
+**严重程度**：建议；**类别**：正确性 / 文档
+**位置**：计划“L1 Vue”的“intents 非空或 collapsed 非空时 invalidate()”与“已经是那个状态：intents、collapsed 为空”
+**现象**：
+- `resizeBranches` 对 no-op 也返回全部子节点的 `intents`（`exp/absorb.test.ts` 的 `noroom` 一行，`collapsed` 为空但 `intents` 非空）。按计划的判据，no-op 也会 `invalidate()`，版本递增，进行中的手势白白按 `stale-revision` 被拒。
+- `solveSashCollapse` 在父分支子节点少于 2、尺寸非有限时返回 null（`sash-drag.ts:173-178`），计划的失败表没有对应项。
+- `host.setCollapsed` 的 `issues` 只在返回值里，没走 `onIssues`。Spec 输出 145 写的是诊断交给 `onIssues` 一个出口，这成了第三个来源。
+
+**建议改法**：
+- 判据只看 `collapsed`；“已是那个状态”和“恢复不够”在调 `resizeBranches` 之前短路。
+- 为 null 补一种失败。
+- host 版把 `issues` 也交给 `onIssues`，返回值里保留。
+
+### 7. `setCollapsed` 不触发 `onApplied`，宿主有两条写路径，结果也不带记下的 `restoreSize`
+**严重程度**：建议；**类别**：不变量
+**位置**：计划“onApplied 不为 setCollapsed 触发”与“从 find(id) 读”
+**现象**：在 `onApplied` 里存盘的宿主，程序收起不会到那里，要另写一条存盘，正是 api-03 批评的“同一件事两处各写一份”。`restoreSize` 记下后只能从 `find(id)` 读；`collapsed` 里有变了哪些 id，但没有值。
+**建议改法**：
+- 结果的成功分支加 `restoreSizes`（只含这次记下的）。
+- 或让 `useGridHost` 加统一的 `onChanged`，手势落账与程序收起都发。
+- 若开发者不加，就在 Spec 把“程序性变更不通知”写进“不承诺”。
+
+### 8. `grid.test.ts:1184` 改期望后，Grid 层没有“显式恢复读 `restoreSize`”的覆盖
+**严重程度**：建议；**类别**：测试
+**位置**：计划切片 1
+**现象**：该用例从 `restoreSize:200` 建树、先收起再恢复。改成“回到收起前的 400”后，它测的是新记录，不是“恢复读 `restoreSize`”。`sash-drag.test.ts` 在求解器层有覆盖，Grid 层没有。这处改动本身没有掩盖别的回归，`restoreToShare` 那条用例（1193）不受影响。
+**建议改法**：保留一条从 `collapsed:true` 且 `restoreSize:200` 建树的 Enter 恢复用例（期望 200），再把 1184 改写成记录后的行为。
+
+### 9. `rejected` 的设计：函数返回是免费的，store 状态加 plugin 侦听不值得
+**严重程度**：建议；**类别**：代码质量
+**位置**：计划“被拒的收起与显隐写入……逐项交回 rejected”与 store 的 `writebackRejected`
+**现象**：`setPanelCollapsed` 的拒绝分支有四个：编辑组、浮动窗、`sectionCollapseBlock`、`not-found`。`assignByParent` 只给 tool 角色、不在底部、不是区域唯一分节的节点配收起策略（`layout-project.ts:103-155`），区域节点已被 `regionAnchors` 换成锚，`setPanelHidden(锚, false)` 只会 `not-found`。所以工作台里从投影出发这条路不可达。这是从代码推断，我没在真实运行时构造出反例。
+**为什么是问题**：为一条几乎不可达的路径加 state 字段、plugin 侦听和新诊断码，收益与成本不对等。
+**建议改法**：
+- `applyGestureCommit` 仍返回 `rejected`（对第三方有用）。
+- store 不加字段，直接用已有的诊断出口记一条，或在注释里写明不可达。
+- 顺带：`structureFailure` 是“最近一次的字符串”，同样的消息连发时 `watch` 不再触发，`writebackRejected` 照搬会漏报重复发生。
+
+### 10. 工作台继续用 `presented`、host 交出 `before`，两个来源在预览期间会分叉
+**严重程度**：建议；**类别**：不变量
+**位置**：计划“L1 Vue”末条；`layout-doc-store.ts:408-412`（`acceptPresented` 在 `livePreview` 非空时丢弃更新）
+**现象**：`before` 确实是手势开始时的布局：`onGestureCommit` 先核对 `commit.revision === revision.value`，期间任何 `publish` 都会递增版本，所以提交时 `layout.value` 就是开始时那份。但 store 的 `presented` 在 `livePreview` 非空时不更新，这时它与 host 的 `before` 不同。计划说“同一个值”，工作台就继续靠“预览期间不会发生手势”碰巧成立，而这是计划要给第三方消掉的假设。
+**建议改法**：工作台也用 `before`（`Surface` 的 `onApplied` 把 `before.sizes` 带出来，`commitGesture` 加一个参数），`presented` 只留给可见标签。改签名要动 store 测试，“换不来什么”的判断低估了这条。
+
+### 11. 参照实现里有、计划里没有的
+**严重程度**：建议；**类别**：文档
+- VS Code `SplitView` 用 `LayoutPriority` 决定显隐时谁吸收，不是邻近（见问题 2）。
+- `SplitView` 有 `isViewVisible`、`getViewCachedVisibleSize` 这类读取入口。计划靠 `find(id).collapse` 读，可以接受，但 Spec 要写明这是读取方式。
+- Sash 双击重置：`useSashGesture` 里没有双击处理（grep 无命中）。不在 t40 范围，只说明“恢复”入口今天只有 Enter 和按钮。
+
+## 未发现问题的方面
+- **基线能过 `stale-baseline`**：用 `layout(container)` 取的基线，在嵌套分支、有未吸收空间、被压缩三种情形下都过了核对（`exp/` 里的原型都走到了后面的守恒检查）。
+- **与手势 Enter 的基线一致**：公式和 `grid-gesture.ts:199` 相同。
+- **前面兄弟让位**：后面的兄弟吸收不了时，前面的会让位（`exp/absorb.test.ts`）；面板是最后一个时用前面的分隔条也成立。
+- **工作台不受 `restoreSize` 记录影响**：`WorkbenchSurface.vue:123` 每次从投影 `createGrid`。
+- **`restore()` 保留记下的值**：`grid-snapshot.ts:159、208` 在解析结果没给 `collapse` 时沿用当前树的。
+- **`before` 的来源**：`onGestureCommit` 的版本核对保证它就是手势开始时的布局。
+- **`applyGestureCommit` 与今天 `commitGesture` 逐项对照**：锚替换、隐藏清除、`frozen`、`rebaseIntents` 输入一致。
+- **`toggleable: false` 不过滤**：与 `grid-types.ts` 的注释一致。
+- **Spec 编号**：workbench-layout 末号 48、nested-grid 末号 146，新号不撞；但工作区里 nested-grid.md 有未提交改动，落笔前再看一遍。
+
+## 数量
+阻断 0，重要 5（1、2、3、4、5），建议 6（6 到 11）。
+
+## 对末尾三条待确认的判断
+1. **`setCollapsed` 放 `Grid`，`useGridHost` 再给一个版本**：同意放两处，但先解决问题 1、2（失败面与吸收语义），host 版的诊断要走 `onIssues`、no-op 不 `invalidate`（问题 6）。
+2. **`restoreSize` 记呈现像素**：只对 `weight` 成立。`fixed` 应记意图，压缩的已知限制只留给 `weight` 且不带 `restoreToShare` 的面板（问题 3）。
+3. **`onApplied` 加 `before`**：同意，`before` 是真的；但工作台应改用它，别再留两个来源（问题 10）。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11

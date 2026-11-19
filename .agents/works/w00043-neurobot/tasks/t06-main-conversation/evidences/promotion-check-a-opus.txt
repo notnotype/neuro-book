@@ -1,0 +1,247 @@
+# 晋升前核对 A：bots.md 与 main-conversation.md（worktree HEAD 4e1ddaab7）
+代码与测试的路径都相对 /home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/neuro-book/ ；bots/ 指 src/plugins/bots/。
+已跑：bun test src/plugins/bots/backend/（main.test 4 条、presets.test 2 条全过）；负载 26，没跑 bots.test.ts 全文件。
+
+### bots.md 输出 1
+- 句：预设声明照平台贡献点规则校验，结构不合平台不接受 → 代码 bots/shared/contracts.ts:34-63（schema 与 validate，idPrefix plugin）→ 测试 平台层 nb-runtime/src/plugins/owner-contribution-points.test.ts:105（invalid-declaration）；bots 自己的 schema（name 单行 1–40、additionalProperties）与 validate（presetPathProblem：绝对路径、反斜杠、冒号、空段、.、..）没有任何测试碰到（grep 只有定义处）→ 缺断言（平台机制守住，但 bots 这份声明规则本身没被断言）
+- 句：同一预设 id 两份声明两份都不接受 → 代码 平台 → 测试 owner-contribution-points.test.ts:202（场景 4，两种顺序都拒全部重复者）、:133（前缀不合的不算重复者）→ 守住（分层）
+- 句：被接受的声明在接收时核对文件；不在、越出插件包、不是普通文件、超出大小或数量的不可用 → 代码 bots/backend/presets.ts:59-133、bots/backend/plugin.ts:77-85 → 测试 bots/backend/presets.test.ts:197-219，断言 settled 只有 good.ok、其余 6 条各一条诊断：链接越界、不在、人设 300000 字节、扩展名不对、种子 201 个文件、插件不存在 → 部分缺断言：头像超 1 MiB、种子合计超 4 MiB、种子里有链接三种没有用例（测试名写了“记忆种子含链接”但 cases 里没有这一条）；“不是普通文件”（路径是目录）由 plugins.test.ts:207-212 对 packages.file 断言，算分层守住
+- 句：写诊断 bots.preset-invalid（带插件、预设 id 与原因）→ 代码 presets.ts:66、72 → 测试 presets.test.ts:218 只断言 preset 字段；bots.test.ts:220 断言 plugin 与 preset → 缺断言（reason 字段没断言，轻）
+- 句：别的预设不受影响 → 测试 presets.test.ts:216（good.ok 照常可用）→ 守住
+- 附：头像扩展名实现收 png、jpg、jpeg、webp（contracts.ts:29），Spec 写 png、jpg、webp → 字面不符（实现宽：多收 jpeg；轻）。人设“Markdown 文件”实现按扩展名 .md 判（presets.ts:87），.markdown 不收 → 字面不符（实现窄，轻；建议 Spec 写明“.md 文件”）
+
+### bots.md 输出 2
+- 句：自带缺省预设 nbook.bots.lyra：名字星璃、岗位 Profile nbook.bots.companion、人设是星璃的人设文件、没有记忆种子 → 代码 bots/plugin.ts:17、bots/builtin/lyra/persona.md → 测试 bots.test.ts:106（list 名字“星璃”）、:107（目录只有 .created.json、avatar.webp、persona.md，没有 memory/）、:113（会话头 profile 是 COMPANION_PROFILE）、scripts/pack-app.test.ts:97（人设含“星璃”）→ 守住
+
+### bots.md 输出 3
+- 句：经 agent.profiles 交出 nbook.bots.companion → 代码 bots/backend/plugin.ts:65、102，bots/backend/profile.ts:175 → 测试 bots.test.ts:284（profiles() 里 status ok）→ 守住
+- 句：工具与 Agent 模式同主创（含模式扩展）→ 代码 profile.ts:175、191-192 用 agent/shared/contracts.ts:32 的 MAIN_PROFILE_TOOLS 与 agentProfilePartsKey 的 modes（agent/backend/plugin.ts:206）→ 测试 bots.test.ts:278-283 在主对话里真调 switch_mode 得“已经是 normal 模式。”、:290-296 真调 agent_spawn 得 ok → 守住（模式与派发两样真调过；工具清单与主创是同一个常量）
+- 句：shell 照主创是可选、缺省装上 → 代码 agent/shared/contracts.ts:34（optional 含 nbook.agent.shell）→ 测试 没有在 companion 上断言 shell 装上 → 缺断言（结构上共用常量，风险低）
+- 句：系统提示词只写岗位，不写人设 → 代码 profile.ts:177-193 → 测试 bots.test.ts:285-287 只断言含 projects://<短名>/ 与不含旧的 project:// 句子 → 缺断言（没有断言系统提示词不含人设文本，例如不含“忆星书庭”或“星璃”）
+- 句：标 hidden，只给主对话用，新建会话时不列出 → 代码 profile.ts:175 → 测试 bots.test.ts:284 断言 hidden: true；“界面不列出”是 contributions.md 输出 7 的通用规则（agent/builtin-profiles.test.ts:229 同法断言）→ 守住（分层）
+
+### bots.md 输出 4
+- 句：自己的缺省预设声明交到接收方之后开始后台任务 → 代码 bots/backend/plugin.ts:90-92（received 回调里 service.start()）、bots/backend/presets.ts:76 → 测试 bots.test.ts 各用例的首启都靠它建出 lyra（:105）→ 守住
+- 句：这时交出的岗位 Profile 已交给 nbook.agent → 代码 plugin.ts:102（同一份激活产出里交 Profile 与接收方，先后靠平台）→ 测试 重启后台重新持有只断言 held 与 main-opened（bots.test.ts:128-134），没有断言重新打开的主对话不是只读（Profile 解析得到）→ 缺断言（若 Profile 那时还解析不到，会话以只读打开、持有照样 held，现有断言区分不出）
+- 句：读 bot 记录、持有已有主对话，不看缺省预设文件是否可用 → 代码 bots/backend/bots.ts:78-97（只有 bots 为空的分支 await presets.settled）→ 测试 bots.test.ts:211-220，头像删掉的内置副本重启后 held，且有 preset-invalid → 守住
+- 句：一个 bot 都没有时等文件核对：可用就建 lyra，不可用写 bots.default-preset-missing、不建 → 代码 bots.ts:85-90 → 测试 bots.test.ts:105-107（建出）、:222-227（头像缺失与内置目录不在两种都有诊断、list 为空）→ 守住
+- 句：缺省预设声明平台不接受是发版缺陷 → 不是运行时行为；平台不接受时后台任务不会开始、ensureMain 一直等（bots.ts:57），由“首启建出 lyra”的用例间接守着 → 守住（间接）
+- 句：建 bot 不需要模型 → 代码 bots.ts、create.ts 不调模型 → 测试 bots.test.ts 的世界配了本机假端点（:58 localModelSettings），没有断言建 bot 期间 endpoint.requests 为空，也没有不配模型的世界 → 缺断言
+
+### bots.md 输出 5
+- 句：在 <状态根>/user/bots/ 下建 .staging-<随机>/，人设复制成 persona.md、头像复制成 avatar.<原扩展名>、种子复制进 memory/ → 代码 bots/backend/create.ts:178-183、bots/backend/plugin.ts:93（root）→ 测试 bots.test.ts:107（lyra/ 下有 persona.md、avatar.webp）→ persona 与头像守住；memory/ 的复制没有用例（缺省预设没有种子，也没有带种子建 bot 的测试）→ 缺断言。另：实现把扩展名转小写（create.ts:182 toLowerCase），Avatar.PNG 会成 avatar.png，与“原扩展名”字面不符（实现改写了大小写，轻）
+- 句：最后写创建凭据 .created.json（格式版本、bot id、这次要写的记录）→ 代码 create.ts:184 → 测试 bots.test.ts:137-157 用真实 createBot 留现场，重启照凭据补出 name“星璃”的记录 → 凭据内容守住；“最后写”的先后没有断言（例如复制中途失败时目录里没有凭据）→ 缺断言（轻）
+- 句：暂存目录改名成 <bot id>/ → 代码 create.ts:186-188 → 测试 bots.test.ts:146（只剩 lyra）→ 守住
+- 句：照凭据写记录，再读回确认 → 代码 create.ts:193、bots/backend/store.ts:165-171 → 测试 只覆盖成功路径；“写下后读不回来”的分支没有用例 → 缺断言
+- 句：启动时 <bot id>/ 在、记录不在、凭据读得懂且 id 对得上：补写记录、不再复制 → 代码 create.ts:200-225 → 测试 bots.test.ts:137-157，内置换回原版后 persona.md 仍是“第一版人设”、list 只有 lyra、没有 directory-unknown → 守住
+- 句：没有凭据或读不懂的目录不登记、不覆盖、写 bots.directory-unknown → 代码 create.ts:217-221 → 测试 bots.test.ts:161-171（没有凭据：诊断一条、list 空、persona 未变）→ “没有凭据”守住；凭据损坏、凭据 botId 与目录名对不上两种没有用例 → 缺断言
+- 句：.staging-* 有凭据或是空的删掉，别的不动 → 代码 create.ts:211-215 → 测试 bots.test.ts:147-157（.staging-receipt、.staging-empty 删掉，.staging-other 留下）→ 守住
+- 句：记录写下之后不再复制，目录文件归 bot 演进 → 测试 bots.test.ts:125-130（改过的人设重启后不变）→ 守住
+- 句：bot id 是 [a-z0-9-]、1–40 个字符 → 代码 contracts.ts:21、store.ts:126 → 测试 bots.test.ts:188-209（LYRA 按读不懂）→ 守住
+- 附：目标已在时 createBot 直接交回失败（create.ts:187），暂存目录连同凭据留到下次启动再删，符合 Spec 的收拾规则，不算问题
+
+### bots.md 输出 6
+- 句：bot 记录 {id, name, preset, profile, createdAt}，profile 是建时预设的岗位 Profile → 代码 bots/backend/store.ts:125-131（additionalProperties false）、create.ts:177 → 测试 没有断言记录的完整形状（bots.test.ts:195-196 只读出原值做字符串替换）→ 缺断言
+- 句：主对话 id 由 bot id 定、不另存；模型、推理档、审批模式不在记录里另存 → 代码 store.ts:125-131 没有这些字段 → 测试 同上，没有断言记录只有这五个字段 → 缺断言（结构上由 schema 保证，风险低）
+- 句：记录读不懂（损坏、版本不认识）时不建新的，写 bots.record-unreadable → 代码 store.ts:147-158、bots/backend/bots.ts:84、101-105 → 测试 bots.test.ts:173-186（版本 2：诊断一条、list 空、ensureMain unknown-bot、目录只有原 lyra）、:188-209（id 不合规则即 corrupt：同上且原值不改写）→ 守住
+
+### bots.md 输出 7
+- 句：远程服务 nbook.bots/bots，版本 1，服务端提供，调用方 browser → 代码 bots/shared/contracts.ts:89-93 → 测试 bots.test.ts:57-68 从 browser 位置的页面经真实远程链路调用 → 守住
+- 句：list() → [{id, name, main}]，main 是持有状态 → 代码 bots/backend/bots.ts:51-53 → 测试 bots.test.ts:106（toEqual [{id:"lyra", name:"星璃", main:{state:"none"}}]）、:112（held）→ 守住
+- 句：ensureMain({botId}) 见 main-conversation 输出 1 → 见那一节
+- 句：事件 botsChanged：list() 的结果变了时推一份新的 → 代码 bots.ts:63-70、107-108，bots/backend/main.ts:257-262，plugin.ts:117-122 → 测试 bots.test.ts:299-309（ensureMain 后推到 held，最后一份等于完整 list）→ 持有状态的变化守住；bot 记录变化（首启建出 lyra、补写记录）时的推送没有用例，测试是在建出之后才订阅 → 缺断言。另：#accept 每次都推（bots.ts:108），记录没变也推，比“变了时推”宽，无害
+- 句：先订阅后取 list()，onResync 重取 → 调用方的用法，不是服务端行为，不找测试
+- 句：不认识的 botId 得 unknown-bot → 代码 bots.ts:59、plugin.ts:110 → 测试 bots.test.ts:123（ensureMain nope 得 unknown-bot）→ 守住
+
+### bots.md 输出 8
+- 句：内置插件显示名表登记 nbook.bots（“bot”）→ 代码 src/plugins/plugins/shared/builtin-names.ts:11、两份 locales → 测试 src/plugins/plugins/shared/builtin-names.test.ts:15（zh-CN name “bot”，与目录对照）→ 守住
+
+### bots.md 状态与转换（bot 的状态表）
+- 句：不存在 →（记录写下）→ 已建；第一版没有删除 → 代码 bots.ts:101-109（list 只来自记录）→ 测试 bots.test.ts:137-157（目录在、记录补写后才进 list）、:161-171（目录在、没有记录时 list 空）→ 守住
+
+### bots.md 时序与寿命
+- 句：激活里不读写会话 → 代码 plugin.ts:66-126 激活里只取门面、不调 header/create/hold → 测试 违反时按 contributions.md 输出 3 平台判等待环、激活失败，bots.test.ts 全部用例都会失败 → 守住（间接）
+- 句：后台任务从自己的预设接收方收到缺省预设声明时开始，Profile 已交给 nbook.agent、能解析，调 agentKey 不等自己的激活 → 代码 plugin.ts:90-92 → 测试 同输出 4：首启与重启都跑通（不卡住）；“能解析”没有断言（重开的主对话非只读）→ 缺断言（同输出 4 第 2 句）
+- 句：文件核对异步：撤回之后才查完的作废，不把撤回的记成可用，不盖掉同 id 后来发布的那份 → 代码 presets.ts:51-82 → 测试 presets.test.ts:221-247（卡住查询先撤回再放行：settled 为 null、get 为 undefined；旧代后放行不盖新代的“新的”）→ 守住
+- 句：停止信号一到，不再开始新工作、不再排重试 → 代码 plugin.ts:95-100、main.ts:177-182、195、210、221、bots.ts:80-93 → 测试 main.test.ts:80-97（seal 后排着的重试取消、推 15 秒不再 hold、ensure 拒绝）→ 持有一侧守住；建 bot 一侧（bots.ts 在 signal.aborted 时不进 createBot、不进持有循环）没有用例 → 缺断言（轻）
+- 句：在途的建 bot 与持有做完一步后停下，迟到交回的持有立即放掉 → 代码 main.ts:184-190、233-236 → 测试 main.test.ts:99-120（停止后才交回的 hold 被 release、ensure 拒以 BotsStopping；stop 等在途再放掉已有）→ 持有守住；在途的建 bot 做完一步后停下没有用例 → 缺断言（轻）
+- 句：服务端停止时 nbook.agent 同时停止、照它的规则关会话，不等 nbook.bots 放掉持有 → nbook.agent 的行为 → 测试 agent/agent.test.ts:368、397（停止时按 interrupted 关闭、之后门面抛 ServiceRevokedError）→ 守住（分层）
+- 句：后台任务跑完之前调远程：list() 交回已有的记录 → 代码 bots.ts:32、51-53：#bots 在读完记录、收拾完凭据（:82-84）之前是空数组 → 字面不符（实现窄：后台任务读到记录之前 list() 交回 []，不是“已有的记录”；建议 Spec 改成“读到记录之前交回空表、读到后推 botsChanged”，或实现先读记录再开放）；也没有用例
+- 句：ensureMain 等这个 bot 建好再做 → 代码 bots.ts:56-61（await #loaded，#loaded 在建完或失败后 resolve）→ 测试 bots.test.ts 所有 ensureMain 都在 waitUntil list 长度 1 之后才调，没有“首启立刻调 ensureMain”的用例 → 缺断言
+
+### bots.md 副作用与数据
+- 句：bot 记录在 nbook.bots 的插件存储（应用级，不按作品），格式版本 1 → 代码 store.ts:134（scope user、version 1）→ 测试 bots.test.ts:178-179、194-195 直接在 state/storage/user.sqlite 的 owner nbook.bots、key bots 行上改 → 守住
+- 句：不认识的版本不改写 → 代码 store.ts:146-158（读不懂不写）、bots.ts:84 → 测试 bots.test.ts:173-186 只断言不建新的，没有断言那一行的 version 仍是 2、value 不变（corrupt 的情形 :205-208 断言了原值不变）→ 缺断言（轻）
+- 句：bot 目录 <状态根>/user/bots/<bot id>/：persona.md、avatar.<扩展名>、memory/；暂存目录 .staging-<随机>/ → 代码 plugin.ts:93、create.ts:157-184 → 测试 bots.test.ts:107、:139-157 → persona 与头像、暂存目录守住；memory/ 缺断言（同输出 5）
+- 句：主对话存在 nbook.agent 的会话库 → 测试 bots.test.ts:85-91、120（agent/sessions 下的 bot-lyra 被锁着）→ 守住
+
+### bots.md 失败表 unknown-bot
+- 含义：没有这个 bot → 代码 bots.ts:59 → 测试 bots.test.ts:123、184、203 → 守住
+
+### bots.md 失败表 bots.preset-invalid
+- 含义：预设的文件不合，不可用 → 代码 presets.ts:66、72 → 测试 presets.test.ts:218、bots.test.ts:220 → 守住
+
+### bots.md 失败表 bots.default-preset-missing
+- 含义：缺省预设不可用，没有建 bot → 代码 bots.ts:88 → 测试 bots.test.ts:223-227 → 守住
+
+### bots.md 失败表 bots.record-unreadable
+- 含义：bot 记录读不懂 → 代码 bots.ts:103 → 测试 bots.test.ts:182、201 → 守住
+
+### bots.md 失败表 bots.directory-unknown
+- 含义：目录在、记录不在、没有读得懂的凭据 → 代码 create.ts:219 → 测试 bots.test.ts:167 → 没有凭据守住；凭据读不懂、id 对不上缺断言（同输出 5）
+
+### bots.md 失败表 bots.create-failed
+- 含义：<bot id>/ 已经在了（不覆盖）→ 代码 create.ts:187、bots.ts:89 → 测试 bots.test.ts:168（诊断一条）、:170（persona 未变）→ 守住
+- 含义：记录没写下 → 代码 store.ts:167-169 → bots.ts:89 → 测试 没有用例 → 缺断言。另：store.add 得 corrupt/unsupported-version 时报的是 record-unreadable 而不是 create-failed（bots.ts:103）；复制文件出错时抛出，被 bots.ts:46-47 收成 bots.start-failed——这个码与 bots.builtin-missing（plugin.ts:76）都不在 Spec 的失败表里 → 字面不符（实现宽：多两个 Spec 没写的诊断码；计划“第 3 片实施中的调整”说只把前两条写进 Spec，是有意的，但晋升时建议补进失败表或注明）
+
+### bots.md 失败表 bots.record-failed
+- 含义：插件存储读写失败（区别于读不懂）→ 代码 plugin.ts:87（打不开）、store.ts:154-155、bots.ts:101-105 → 测试 没有用例（没有模拟存储出错）→ 缺断言
+
+### bots.md 验收 1
+- 步：全新状态根启动建出 lyra，目录有 persona.md 与头像，list() 里主对话 none → 测试 bots.test.ts:102-108 → 守住
+- 步：再启动不再建、不覆盖 persona.md 的改动 → 测试 bots.test.ts:125-130（list 仍只有 lyra、人设是改过的）→ 守住
+- 步：改名之后、写记录之前进程被杀：照凭据补写、不再复制、没有第二个 bot → 测试 bots.test.ts:137-157（用真实 createBot 加一个 add 抛错的 store 留现场）→ 守住
+- 步：同一处放没有凭据的 lyra/ 时不登记、有诊断 → 测试 bots.test.ts:161-171 → 守住
+- 步：缺省预设头像不在了，已有 bot 照常持有 → 测试 bots.test.ts:211-220 → 守住
+- 步：安装包形态（解出的应用包）里同样建得出来 → 测试 scripts/pack-app.test.ts:60-62（包里只有 bots/lyra/ 两个文件）、:95-98（解出后 locateBuiltinBots 从 server/ 找到 package/bots，人设含“星璃”、头像非空）→ 守住（分层：定位与内容在解出的包上断言，建 bot 在源码布局上用同一个定位函数跑；没有在解出的包上真建一次）
+
+### bots.md 验收 2
+- 步：经真实的插件安装装一个第三方插件，带一个合法预设与一个人设越界的预设 → 测试 没有走真实安装的用例（计划“第 3 片实施中的调整”的“没覆盖的验收”已写明）；替代是 presets.test.ts:197-219 用真实文件与 entryInside、plugins.test.ts:207-213 在真实安装上测 packages.file → 缺断言（验收场景本身没跑；plugin.ts:83-84 第三方插件经 pluginPackagesKey 找文件这一支没有任何用例走过）
+- 步：合法的可用、越界的有诊断 → 分层见上（presets.test.ts:216-218）→ 缺断言（同上，未经入口）
+- 步：缺省 bot 照常建 → 没有同时装第三方预设的用例 → 缺断言
+
+### main-conversation.md 输出 1
+- 句：主对话 id 是 bot-<bot id> → 代码 bots/shared/contracts.ts:24 → 测试 bots.test.ts:111、113 → 守住
+- 句：ensureMain 幂等；1. 已持有就直接交回 → 代码 bots/backend/main.ts:194 → 测试 main.test.ts:122-129（三次并发只 hold 一次、结果相同）→ 守住
+- 句：2. 读会话头（不打开）：在且 owner 是这个 bot 去持有 → 代码 main.ts:201-206 → 测试 bots.test.ts:128-134（重启后经会话头持有）；“不打开”分层在 agent/agent.test.ts:427（header 读冷会话不打开）→ 守住
+- 句：在但 owner 不是这个 bot：owner-mismatch，不打开、不改动 → 代码 main.ts:204 → 测试 bots.test.ts:249-251（ensureMain 得 owner-mismatch、日志字节不变、锁没被拿）→ 守住
+- 句：3. 不在时建：Profile 是记录里的 profile → 代码 main.ts:211（profile: bot.profile）→ 测试 bots.test.ts:113 断言 profile 是 COMPANION_PROFILE，但记录、预设与常量是同一个值，区分不出“取自记录”还是写死 → 缺断言（建议改 SQLite 里记录的 profile 为另一个可用 Profile，断言建出的会话头用它）
+- 句：owner 的 id 是 bot id → 代码 main.ts:211 → 测试 bots.test.ts:113 → 守住
+- 句：没有主项目 → 代码 main.ts:211 不传项目 → 测试 没有断言会话头或快照里没有主项目；bots.test.ts:285-287 只看提示词 → 缺断言（轻）
+- 句：建时得 session-exists 就回到第 2 步 → 代码 main.ts:213 → 测试 main.test.ts 的替身 header 永远交回存在，create 分支从未走到；没有用例 → 缺断言
+- 句：交回 {sessionId} 时已经持有 → 测试 bots.test.ts:111-120（交回后 list 为 held、推过 60 秒锁还在）→ 守住
+- 句：同一 bot 并发 ensureMain 串行，后到的交回同一个结果 → 代码 main.ts:169-175 → 测试 main.test.ts:122-129、bots.test.ts:110-111 → 守住
+- 句：会话头读不懂（log-corrupt 等）时交回那个码，不当成会话不在 → 代码 main.ts:208 → 测试 没有用例 → 缺断言
+- 附：交回远程时只有 contracts.ts:86 MAIN_CODES 里的码原样交回，别的码（例如会话表关闭中的 unavailable、内核的 session-closed、extension-revoked）在 plugin.ts:112 抛错、调用方得 provider-error，而持有状态仍记那个码 → 与失败表“header、create、hold 的码”相比实现窄（未逐个验证哪些码真能到达，停止期间的 unavailable 与时序节“在途的得 provider-error”一致）
+
+### main-conversation.md 输出 2
+- 句：后台任务对每个已建 bot 先读会话头，主对话在、归属对时调 hold → 代码 bots/backend/bots.ts:92-97、main.ts:201-206 → 测试 bots.test.ts:127-134（重启不调 ensureMain 即 held、锁在）→ 守住
+- 句：还没有主对话的等 ensureMain → 代码 main.ts:209（create:false 时不建、不改状态）→ 测试 bots.test.ts:106、108（首启 none、没有 main-opened）→ 守住（首启那一刻后台任务有没有跑完不确定，但两种时刻都应是 none，断言成立）
+- 句：归属不对的记 failed{code:"owner-mismatch"} → 测试 bots.test.ts:247-248 → 守住
+- 句：持有到 nbook.bots 停止 → 代码 main.ts:184-190 → 测试 main.test.ts:114-119（stop 前未放、stop 后放）、bots.test.ts:119-120 → 守住
+- 句：hold 得 session-busy 每 5 秒重试 → 代码 main.ts:224-229 → 测试 bots.test.ts:254-271（推 4999 毫秒仍 failed，再推 1 毫秒后 held）、main.test.ts:80-90 → 守住
+- 句：别的码记进状态，下一次 ensureMain 再试 → 代码 main.ts:231、#fail；ensure 不看 failed 照常重跑 → 测试 没有“非 busy 码记进状态、不排重试、下一次 ensureMain 再试成功”的用例 → 缺断言
+
+### main-conversation.md 输出 3
+- 句：持有状态随 list() 交回、变了推 botsChanged → 同 bots.md 输出 7 → 守住
+- 句：none 还没建 → 测试 bots.test.ts:106 → 守住
+- 句：opening 正在建或打开 → 代码 main.ts:199、205 → 测试 没有任何断言观察到 opening → 缺断言
+- 句：held 已持有 → 测试 bots.test.ts:112 → 守住
+- 句：failed{code}，码同 hold 或 owner-mismatch → 代码 main.ts:204、208、214、231 → 测试 bots.test.ts:248（owner-mismatch）、:265（session-busy）→ 守住；但实现把 header 与 create 的失败码也记进 failed（main.ts:208、214），比“码同 hold”宽 → 字面不符（轻：Spec 的失败表已写“header、create、hold 的码”，这一句应改成同样的说法）
+- 句：held 只说明会话开着、被持有；只读与日志损坏看快照与状态帧 → 说明性，见输出 4
+
+### main-conversation.md 输出 4
+- 句：Profile 解析不到时主对话照会话的规则以只读打开，持有照样成功 → 代码 main.ts 不看 Profile 状态，hold 成功即 held → 测试 没有用例（计划“第 3 片实施中的调整”已写明）→ 缺断言
+- 句：用户经 changeProfile（远程合同带 commandId）换成能用的 Profile → 会话服务的通用能力，bots 不参与 → 未在主对话上验证；属 agent/sessions 的分层合同，本次没核它的测试 → 缺断言（轻）
+- 补：changeProfile 在 agent 的 builtin-profiles.test.ts、eval.test.ts、resources.test.ts 有用例（通用会话能力），按分层算；只读主对话上换 Profile 的组合没有用例，归入上面的缺断言
+
+### main-conversation.md 输出 5
+- 句：主对话不进会话列表 → 测试 bots.test.ts:114-115 → 守住
+- 句：它派的子代理也不进 → 测试 agent/sessions.test.ts:423-443（有归属的后台根派出的子会话在三种过滤下都不列）→ 守住（分层）
+- 句：rewind、switchBranch、archive 得 owned-session → 测试 bots.test.ts:122（主对话的远程 rewind）、agent/sessions.test.ts:375-377、413-415（三个指令）→ 守住（分层）
+- 句：子代理与 fork 出来的会话没有归属 → 测试 agent/sessions.test.ts:447-448 断言 fork 的 owner 为 undefined；子代理那一份没有断言 owner（:433-442 只断言不列）→ fork 守住，子代理缺断言（轻，可在 sessions.test.ts:442 后加 header(child) 的 owner 为 undefined）
+- 句：用户在主对话里发话照常走 send，可带 settlePending:"deny" → 测试 bots.test.ts:279、291（主对话 send 照常受理）、agent/sessions.test.ts:452-461（远程 send 带 deny 结算）→ 守住（分层）
+
+### main-conversation.md 输出 6
+- 句：hold 实际打开了会话时写 bots.main-opened（info），带事件数（快照 head）与打开耗时 → 代码 main.ts:239、244-250 → 测试 main.test.ts:65-77（opened 非空记 info:main-opened，data 等于 {bot, session, events:42, ms:opened}）、bots.test.ts:131-133（真实重启后恰好一条）→ 守住
+- 句：耗时是会话表执行这次打开的时长 → 代码 nb-harness/src/kit/sessions/table.ts:329、369（openMs）→ 测试 nb-harness/src/kit/sessions/table.test.ts:210（注入时钟，共享打开只报一次 2500 与 null）→ 守住（分层）
+- 句：超过 2,000 毫秒另写 bots.main-open-slow（warning）→ 测试 main.test.ts:66（2001 记、2000 不记）→ 守住（级别实现写 warn，是诊断层的级别名，非不符）
+- 句：重试的等待不算进耗时 → 代码 ms 只取成功那次 hold 的 opened（main.ts:239）→ 测试 没有“先 busy 再成功、断言 ms 等于成功那次 opened”的用例 → 缺断言（轻）
+- 句：刚由 ensureMain 建出来的会话已经开着，不记 → 测试 bots.test.ts:116-117 → 守住
+
+### main-conversation.md 状态与转换
+- 句：none →（ensureMain）→ opening → held | failed → 代码 main.ts:199、206、231/204 → 测试 bots.test.ts:106→112（none→held，opening 没被观察到）、:247-249 → 终态守住，opening 这一步缺断言（同输出 3）
+- 句：failed →（下一次 ensureMain）→ opening → 代码 main.ts:199 → 测试 bots.test.ts:264-270 走的是 busy 的自动重试（create:false），不是 ensureMain；没有 failed 之后 ensureMain 重来的用例 → 缺断言
+- 句：启动时后台任务把已有主对话的 bot 从 none 带到 opening → 代码 main.ts:198-205（读到会话头后才进 opening）→ 测试 bots.test.ts:128 只看到终态 held → 缺断言（轻）
+
+### main-conversation.md 时序与寿命
+- 句：ensureMain 交回时主对话已持有；之后订阅帧与发指令走 nbook.agent/sessions → 测试 bots.test.ts:111-122（交回后 held、锁在；rewind 经 sessions 窗口）→ 守住
+- 句：nbook.bots 停止时放掉全部持有 → 代码 plugin.ts:96-100、main.ts:184-190 → 测试 main.test.ts:99-120 → 守住
+- 句：服务端停止时 nbook.agent 同时停、按 interrupted 关闭、持有不推迟关闭、之后 release() 什么都不做 → 测试 agent/agent.test.ts:368、397、418-452（sessions.md 输出 14、24）→ 守住（分层；release 为空操作那一点本次没逐条读断言）
+- 句：停止期间到的 ensureMain 得通道的 unavailable → 平台远程通道的行为 → 测试 没有 bots 侧用例 → 缺断言（轻，平台合同）
+- 句：已经在途的，封住之后得 provider-error → 代码 main.ts:195、210、221、235 抛 BotsStopping，plugin.ts:108 未接住，远程层转成 provider-error → 测试 main.test.ts:96、110 只断言 MainConversations 拒以 BotsStopping，没有经远程断言调用方拿到 provider-error → 缺断言
+- 句：服务端重启后被中断的运行在打开主对话时以 interrupted 收口，不自动接着跑 → 内核会话恢复的通用行为，bots 不参与 → 测试 bots.test.ts 没有主对话带没收口运行重启的用例；内核恢复的用例本次没逐条核 → 缺断言（轻，建议在 bots.test.ts 验收 1 的重启段前让主对话挂一轮，重启后断言 runEnded 为 interrupted、没有新的模型请求）
+
+### main-conversation.md 副作用与数据
+- 句：主对话存在 <状态根>/agent/sessions/bot-<bot id>/，会话头带 owner → 测试 bots.test.ts:85-91、120（该目录被锁）、:113（owner）、:240（验收 2 用同一路径的 session.jsonl）→ 守住
+- 句：nbook.bots 不另存主对话的数据 → 代码 store.ts:125-131 记录里没有会话字段 → 结构保证；没有断言 → 缺断言（轻，同 bots.md 输出 6）
+
+### main-conversation.md 失败表 owner-mismatch
+- 含义：会话库里已有同 id 会话但不归这个 bot → 代码 main.ts:204、plugin.ts:111 → 测试 bots.test.ts:248-249 → 守住
+
+### main-conversation.md 失败表 unknown-bot
+- 含义：没有这个 bot → 测试 bots.test.ts:123 → 守住
+
+### main-conversation.md 失败表 session-busy、log-corrupt、log-broken 等
+- 含义：header、create、hold 的码 → 代码 main.ts:208、214、231，plugin.ts:112-113（MAIN_CODES 里的带 detail 交回）→ 测试 session-busy 经状态守住（bots.test.ts:265），但没有经远程 ensureMain 拿到 session-busy 的断言；log-corrupt、log-broken 等没有用例 → 缺断言。不在 MAIN_CODES 里的码变成 provider-error（见输出 1 的附注）
+
+### main-conversation.md 验收 1
+- 步：全新状态根启动 list 里 lyra 主对话 none，没有 bots.main-opened → 测试 bots.test.ts:106、108 → 守住
+- 步：经远程调 ensureMain 建出 bot-lyra，owner {plugin:"nbook.bots", id:"lyra"}，Profile nbook.bots.companion，状态 held → 测试 bots.test.ts:110-113 → 守住
+- 步：并发两次交回同一个 id → 测试 bots.test.ts:110-111 → 守住
+- 步：不在会话列表里 → 测试 bots.test.ts:114-115 → 守住
+- 步：同状态根重启、不调 ensureMain：后台重新持有，状态 held，有一条 bots.main-opened → 测试 bots.test.ts:126-134 → 守住
+
+### main-conversation.md 验收 2
+- 步：预先有 id 为 bot-lyra、不归它、带没收口运行的会话 → 测试 bots.test.ts:234-244（真实建会话、挂住模型请求时抓日志、关后写回）→ 守住
+- 步：后台任务与 ensureMain 都得 owner-mismatch，日志字节不变 → 测试 bots.test.ts:247-251 → 守住
+
+### main-conversation.md 验收 3
+- 步：主对话里等审批时带 settlePending:"deny" 发一句，审批以 deny 结算、bot 接着处理 → 测试 bots.test.ts 没有；agent/sessions.test.ts:452-461 在普通会话上测同一条远程路径 → 守住（分层；计划已写明这一半由 sessions.test 覆盖，主对话的 send 没有额外限制）
+- 步：远程 rewind 得 owned-session → 测试 bots.test.ts:122 → 守住
+
+### main-conversation.md 验收 4
+- 步：重启后冷打开耗时（注入时钟）恰好超过 2,000 毫秒：有 bots.main-open-slow，事件数是快照 head → 测试 main.test.ts:65-77 用门面替身给 opened=2001，断言两条诊断与 events:42（替身快照的 head）；真实会话表的计时在 table.test.ts:210 注入时钟测 → 守住（分层：替身测阈值，真实会话表另测耗时；没有一条用例在真实重启上造出超 2 秒）
+- 步：另一个调用方先打开、hold 复用时不记 → 测试 main.test.ts:66（opened null 不记）、table.test.ts:186、210、212、289（复用时 opened 为 null）→ 守住（分层）
+
+## 总结
+句数（只数“句、步、含义”三类，共 123；“见那一节”“调用方用法”“说明性”3 条不计结论）：
+- 守住 78（含分层守住；其中 1 条同时字面不符：main 输出 3 的 failed 码）
+- 缺断言 39（其中 2 条另带字面不符：bots 输出 5 头像扩展名、失败表 create-failed 的码）
+- 部分守住、部分缺断言 5（bots 输出 1 文件核对、bots 副作用 memory/、失败表 directory-unknown、main 输出 5 子代理归属、main 状态转换的 opening）
+- 字面不符（为主）1：bots 时序“list() 交回已有的记录”
+- 没实现 0
+
+没实现：无。
+
+字面不符逐条（含“附”里的）：
+1. bots 时序与寿命：后台任务读到记录之前 list() 交回 []（bots/backend/bots.ts:32、51-53），Spec 写“交回已有的记录”。实现窄。建议 Spec 改成“读到记录之前交回空表，读到后推 botsChanged”。
+2. main 输出 3：failed 的码实际还有 header 与 create 的码（main.ts:208、214），Spec 写“码同 hold，或 owner-mismatch”。实现宽，Spec 应与失败表一致写“header、create、hold 的码”。
+3. bots 失败表：实现另有 bots.start-failed（复制文件出错等，bots.ts:46-47）与 bots.builtin-missing（plugin.ts:76）两个诊断码，Spec 失败表没有；store.add 得 corrupt 时报 record-unreadable 而不是 create-failed。实现宽，建议补进失败表。
+4. bots 输入：头像扩展名多收 jpeg（contracts.ts:29）。实现宽，轻。
+5. bots 输入：人设按扩展名 .md 判（presets.ts:87），.markdown 不收。实现窄，轻，建议 Spec 写“.md 文件”。
+6. bots 输出 5：头像复制成 avatar.<小写扩展名>（create.ts:182），Spec 写“原扩展名”。轻。
+7. main 输出 1 附注：ensureMain 只把 MAIN_CODES（contracts.ts:86）里的码交回，别的码（例如会话表关闭中的 unavailable）在 plugin.ts:112 抛错、调用方得 provider-error。与失败表比实现窄；未逐个验证哪些码真能到达。
+
+建议补的用例（按影响排序）：
+1. bots.test.ts 新用例：经真实的插件安装（照计划写的 cli.test.ts 夹具）装一个第三方插件，带一个合法预设、一个人设越界（../ 或链接）的预设。断言：合法的那份 settled 可用；越界的有一条 bots.preset-invalid，plugin 是第三方 id；缺省 bot lyra 照常建出。这是 bots 验收 2，现在整条没跑，plugin.ts:83-84 第三方一支也没有用例。
+2. bots.test.ts：开世界后不等 list，立刻 ensureMain({botId:"lyra"})，断言交回 bot-lyra 且 held（守“ensureMain 等 bot 建好”）。同一用例在首启订阅 botsChanged，断言建出 lyra 时推了一份含 lyra 的列表。
+3. bots.test.ts 重启段（:127 之后）：断言重新持有的 bot-lyra 快照不是只读（readOnly 为 null）。守“Profile 已交给 nbook.agent、能解析”。另加一条 Profile 解析不到的用例：改 SQLite 记录里的 profile 为不存在的 key，重启后断言状态 held、快照 readOnly.code 是 unknown-profile（main 输出 4）。
+4. bots.test.ts：改记录里的 profile 为另一个可用 Profile（如 nbook.agent.main），删掉 bot-lyra 会话后 ensureMain，断言会话头 profile 取自记录（main 输出 1 第 3 步）。
+5. backend/main.test.ts：
+   - 替身 header 先交回 session-not-found、create 交回 session-exists、再读 header 交回归属对：断言最后持有成功，且 header 读了两次（session-exists 回到第 2 步）。
+   - header 交回 log-corrupt：断言 ensure 交回 log-corrupt、状态 failed{log-corrupt}、没调 create。
+   - hold 交回非 busy 码（如 log-broken）：断言状态 failed、clock.pending() 为 0（不排重试）；再 ensure 一次能成功，过程中观察到 opening。
+   - 先 busy 再成功且 opened=X：断言 main-opened 的 ms 等于 X（重试等待不计）。
+6. bots.test.ts 用例 1：断言 SQLite 里 nbook.bots/bots 记录恰好是 {bots:[{id, name, preset, profile, createdAt}]}（输出 6 的形状、不另存会话设置）。同时断言建 bot 期间 endpoint.requests 为空（建 bot 不需要模型）。
+7. backend/presets.test.ts 的 cases 补三条：头像超过 1 MiB、种子合计超过 4 MiB、种子里有链接（测试名已写了这一条，cases 里没有）。另加 presetsPoint 的声明规则用例：用 Value.Check 与 validate 断言 name 含换行或 41 个字符、路径 ../a.md、/a.md、a//b.md、C:a.md 都被拒。
+8. bots.test.ts 输出 5：
+   - 凭据损坏的 lyra/、凭据 botId 与目录名对不上的 lyra/，各断言一条 directory-unknown、不登记。
+   - 带 memorySeed 的预设经 createBot 建出，断言 memory/ 内容一致。
+9. bots.test.ts：记录写不下（store.add 交回 storage 错误）断言 bots.create-failed；存储读失败断言 bots.record-failed。可用 createBot 加替身 store 分层测前者。
+10. bots.test.ts 输出 3：断言系统提示词不含人设文本（例如“忆星书庭”）。
+11. 轻：
+   - 版本 2 用例补“那一行 version 仍是 2、value 未改”；
+   - 经远程断言在途 ensureMain 被封住后得 provider-error；
+   - 主对话带没收口运行重启，断言以 interrupted 收口、没有新的模型请求；
+   - agent/sessions.test.ts:442 后断言子会话的 owner 为 undefined。

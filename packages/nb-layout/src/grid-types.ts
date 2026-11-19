@@ -34,7 +34,10 @@ export type GridSizing = "weight" | "fixed";
 export type SashCollapsePolicy = {
     /** 收起后的主轴占用（CSS px，允许 0）；必须小于展开最小尺寸。 */
     collapsedSize: number;
-    /** 记忆的展开主轴尺寸（CSS px）；恢复时以它为目标，再按当前容量夹取。 */
+    /**
+     * 记忆的展开主轴尺寸（CSS px）；显式恢复时以它为目标，再按当前容量夹取。宿主给初值，之后由网格在收起的那一刻记下
+     * （Spec `ui/nested-grid` 输出 148：保留像素的面板记意图，按比例分的面板在 `resizeBranches` 里记收起前呈现的像素）。
+     */
     restoreSize: number;
     /** 从展开最小尺寸继续向内的收起阈值（CSS px）。 */
     collapseThreshold: number;
@@ -230,7 +233,7 @@ export type GridCommitFailureCode =
     | "handler-threw";
 
 /**
- * `useGridLayout` 接一次提交的结果：码是库定义的这几种。宿主自己写 `onGestureCommit` 时返回 `{ok: true} | GridFailure`，
+ * `useGridHost` 接一次提交的结果：码是库定义的这几种。宿主自己写 `onGestureCommit` 时返回 `{ok: true} | GridFailure`，
  * 可以用自己的码拒绝（码集合开放，Spec 失败 6），这个类型可以赋给它。
  */
 export type GridLayoutCommitResult = {readonly ok: true} | GridFailure<GridCommitFailureCode>;
@@ -256,6 +259,14 @@ export type GridBranchResizeResult = {ok: true; sizes: Record<string, number>} |
 /** 一次手势的批量原子结果：新尺寸意图按节点 id 发布，收起变化按节点 id 发布。 */
 export type GridBranchesResizeResult =
     | {readonly ok: true; readonly intents: Record<string, GridExtent>; readonly collapsed: Record<string, boolean>}
+    | GridFailure<GridFailureCode>;
+
+/**
+ * `Grid.setCollapsed` 的结果（Spec `ui/nested-grid` 输出 147、148）：`changed` 是收起标记有没有变；`collapse` 是调用之后这个节点的
+ * 收起策略（含记下的 `restoreSize`），宿主要跨会话保存时从这里取，策略本身不写快照。
+ */
+export type GridCollapseResult =
+    | {readonly ok: true; readonly changed: boolean; readonly collapse: SashCollapseState}
     | GridFailure<GridFailureCode>;
 
 /** 快照里没解析出的一条引用；今天只有一种原因。 */

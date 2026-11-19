@@ -70,6 +70,48 @@ const focusedPlace = (page: Page) => page.evaluate(() => {
     return active?.closest<HTMLElement>("[data-panel-tab]")?.dataset.panelTab ?? active?.closest<HTMLElement>("[data-sash]")?.dataset.sash ?? active?.closest<HTMLElement>("[data-content]")?.dataset.content ?? null;
 });
 
+test.describe("意图回写（docs/specs/ui/workbench-layout.md 输出 8、49）", () => {
+    /** 用键盘调 Lab 盒子的宽：方向键每按一次 10 像素，不受盒子的缩放倍率影响。盒子的宽就是组件量到的宽，和浏览器视口无关。 */
+    async function resizeCanvas(page: Page, steps: number): Promise<void> {
+        const handle = page.locator('.lab-main [aria-label="调整宽度"]');
+        await handle.focus();
+        for (let step = 0; step < Math.abs(steps); step += 1) await page.keyboard.press(steps < 0 ? "ArrowLeft" : "ArrowRight");
+    }
+
+    test("窄盒子里侧栏被压缩；拖别的边界、再放宽，侧栏回到原宽：压缩的宽度不写成意图", async ({page}) => {
+        await page.setViewportSize({width: 2560, height: 1000});
+        await page.goto(`${dev.pageUrl}lab?c=NestedGrid&s=panels&theme=nbook&cw=light&vp=1400x800`);
+        await expect.poll(async () => (await labState(page))?.ready).toBe(true);
+        await expect(page.locator("[data-content='view:a']")).toBeVisible();
+        // 盒子 1400 宽：意图之和放得下，侧栏是它的意图 280。
+        await expect.poll(async () => (await frameBox(page, "a")).width).toBeGreaterThan(270);
+        const wide = (await frameBox(page, "a")).width;
+
+        // 800 宽：两个编辑器先缩到最小，再压两侧保留像素的栏。
+        await resizeCanvas(page, -60);
+        await expect.poll(async () => (await labState(page))?.canvas.width).toBe(800);
+        await expect.poll(async () => (await frameBox(page, "a")).width).toBeLessThan(wide - 20);
+        const squeezed = (await frameBox(page, "a")).width;
+        expect(squeezed).toBeGreaterThan(120);
+
+        // eb 与右栏之间的分隔条（body 的第 3 条：活动栏、侧栏、ea、eb、右栏）往右拖：右栏让位，侧栏这次没动，它的意图不该被写成压缩后的宽度。
+        // （落账后右栏的意图变小，窄盒子里侧栏分到的会多一点，所以这里不断言侧栏的宽度不变。）
+        const right0 = (await frameBox(page, "c")).width;
+        const sash = await box(page, "[data-sash='body:3']");
+        const y = sash.y + sash.height / 2;
+        await page.mouse.move(sash.x + sash.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(sash.x + sash.width / 2 + 20, y, {steps: 4});
+        await page.mouse.up();
+        await expect.poll(async () => (await frameBox(page, "c")).width).toBeLessThan(right0 - 10);
+
+        await resizeCanvas(page, 60);
+        await expect.poll(async () => (await labState(page))?.canvas.width).toBe(1400);
+        await expect.poll(async () => (await frameBox(page, "a")).width).toBeGreaterThan(wide - 1);
+        expect(Math.abs((await frameBox(page, "a")).width - wide)).toBeLessThan(1);
+    });
+});
+
 test.describe("跨面板的位移", () => {
     test("视图 A 移到右栏 C、D 之间：内容走在新旧之间，和外框同步，压在别的面板上；实例、输入与滚动都在，来源那一列只剩 B 并占满", async ({page}) => {
         await open(page, true);

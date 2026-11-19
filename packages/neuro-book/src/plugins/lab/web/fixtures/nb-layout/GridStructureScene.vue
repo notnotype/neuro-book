@@ -7,7 +7,7 @@ import {shallowRef, useTemplateRef} from "vue";
 
 import {createGrid} from "@notnotype/nb-layout";
 import type {Grid} from "@notnotype/nb-layout";
-import {NestedGrid, moveGridFocus, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {NestedGrid, moveGridFocus, useGridHost} from "@notnotype/nb-layout/vue";
 
 import GridStructureLeaf from "./GridStructureLeaf.vue";
 
@@ -35,10 +35,10 @@ const createInstance = (): number => {
     return instances;
 };
 
+/** F6 移动焦点的范围；尺寸由 `NestedGrid` 自己量。 */
 const containerEl = useTemplateRef<HTMLElement>("containerEl");
-const extent = useLayoutExtent(containerEl);
 const grid = shallowRef<Grid<string>>(createInitial());
-const host = useGridLayout<string>({grid, extent, contextKey: () => "structure"});
+const host = useGridHost<string>({grid, contextKey: "structure"});
 
 const ACTIONS: Readonly<Record<string, () => void>> = {
     "split-before": () => grid.value.splitLeaf("a", {branchId: "a-split", orientation: "horizontal", side: "before", ratio: 0.5, leaf: {kind: "leaf", id: "n", ref: "n", minimumSize: {width: 40, height: 0}}}),
@@ -47,6 +47,12 @@ const ACTIONS: Readonly<Record<string, () => void>> = {
     "move-to-end": () => grid.value.moveLeaf("a", "root", 3),
     "widen": () => grid.value.resize("a", "width", 120),
     "narrow": () => grid.value.resize("a", "width", -60),
+};
+
+/** 收起与展开走宿主的入口（Spec `ui/nested-grid` 输出 149）：它自己重发布局，不再 `invalidate()`。 */
+const COLLAPSE_ACTIONS: Readonly<Record<string, () => void>> = {
+    "collapse-c": () => void host.setCollapsed("c", true),
+    "expand-c": () => void host.setCollapsed("c", false),
 };
 
 /** 产品里是工作台的两条命令；这里不接命令系统，直接调。 */
@@ -64,10 +70,11 @@ function run(name: string): void {
     <div class="grid-structure-scene" @keydown="onKeydown">
         <div class="grid-structure-scene__actions">
             <button v-for="(_, name) in ACTIONS" :key="name" type="button" :data-structure-action="name" @click="run(name)">{{ name }}</button>
+            <button v-for="(action, name) in COLLAPSE_ACTIONS" :key="name" type="button" :data-structure-action="name" @click="action()">{{ name }}</button>
             <input data-structure-outside aria-label="grid 外面的输入框" />
         </div>
         <div ref="containerEl" class="grid-structure-scene__grid" data-structure-host>
-            <NestedGrid data-lab-subject :node="host.node.value" :layout="host.layout.value" context-key="structure" :revision="host.revision.value" :on-gesture-commit="host.onGestureCommit">
+            <NestedGrid data-lab-subject v-bind="host.bindings.value">
                 <template #leaf="{node}">
                     <GridStructureLeaf :id="node.id" :create-instance="createInstance" />
                 </template>

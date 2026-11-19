@@ -22,7 +22,6 @@ import {
     openFloatPanel,
     openPanelAtEdge,
     raiseFloat,
-    rebaseIntents,
     regionOf,
     removeTab,
     replaceTab,
@@ -47,6 +46,7 @@ import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutResult} from "./layo
 import type {GridSnapshotBranch, GridSnapshotNode} from "@notnotype/nb-layout";
 import {enumerateDropCandidates} from "./layout-drop";
 import {projectLayoutDoc} from "./layout-project";
+import {rebaseIntents} from "./intent-writeback";
 import type {LayoutProjectionOptions} from "./layout-project";
 
 /** 布局文档（docs/specs/ui/workbench-layout.md 输出 1 到 4、8、25 到 28）。 */

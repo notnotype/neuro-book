@@ -7,7 +7,8 @@
 
 import {replyText} from "../api/index.js";
 import type {UserAttachment} from "../api/basics.js";
-import type {ConversationTurn, Format, LogEvent, Message, Origin, RenderTable, ReplyEvent, RequestBlock, Step, ToolResultEvent} from "../api/index.js";
+import type {ConversationTurn, Format, Issuer, LogEvent, Message, Origin, RenderTable, ReplyEvent, RequestBlock, Step, ToolResultEvent} from "../api/index.js";
+import {hostNoticeText} from "./source-line.js";
 
 export type RenderFn = (event: LogEvent<string, any>) => string | null;
 
@@ -39,6 +40,7 @@ function originOf(event: LogEvent): Origin {
 
 function defaultText(event: LogEvent): string {
     if (event.type === "assistant") return replyText((event as ReplyEvent).data.content);
+    if (event.type === "hostNotice") return hostNoticeText(event.data as {by: Issuer; text: string});
     const data = event.data as {text?: unknown};
     if (typeof data?.text === "string") return data.text;
     return `<system-reminder>\n${JSON.stringify(event.data)}\n</system-reminder>`;

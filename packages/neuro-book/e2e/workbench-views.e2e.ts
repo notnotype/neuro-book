@@ -185,7 +185,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-views");
         await mkdir(join(tmp, "state"), {recursive: true});
         // 产品的资源管理器视图会占住侧栏：这里只看测试插件的视图。
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent,nbook.canon,nbook.plot"}});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent,nbook.bots,nbook.canon,nbook.plot"}});
     });
 
     test.afterAll(async () => {
@@ -1346,7 +1346,7 @@ test.describe("产品页：别的插件给视图贡献的标题动作（docs/spe
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-view-title");
         await mkdir(join(tmp, "state"), {recursive: true});
         // `test.menus` 往样例视图丙贡献按钮与“⋯”里的项；菜单项 id 归它，视图 id 归 `test.sample-views`。
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views,test.menus", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent,nbook.canon,nbook.plot"}});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views,test.menus", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent,nbook.bots,nbook.canon,nbook.plot"}});
     });
 
     test.afterAll(async () => {

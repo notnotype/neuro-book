@@ -1537,3 +1537,53 @@ describe("NestedGrid 交换", () => {
         expect(wrapper.find("[data-leaf='a1']").exists()).toBe(false);
     });
 });
+
+describe("NestedGrid 发出承载盒的尺寸（Spec 输出 144）", () => {
+    /** 观察器的替身：happy-dom 的 `ResizeObserver` 不会回调。`trigger` 模拟浏览器在尺寸变了之后回调。 */
+    class ResizeObserverProbe {
+        static instances: ResizeObserverProbe[] = [];
+        constructor(private readonly callback: ResizeObserverCallback) {
+            ResizeObserverProbe.instances.push(this);
+        }
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+        trigger(): void {
+            this.callback([], this as unknown as ResizeObserver);
+        }
+    }
+
+    it("挂载后量到就发；尺寸变了，观察器的回调返回时监听已经拿到新值（同步发）；两轴不变不再发", async () => {
+        const box = {...CONTAINER};
+        ResizeObserverProbe.instances = [];
+        vi.stubGlobal("ResizeObserver", ResizeObserverProbe);
+        // test-lint-allow spy: 只桩布局盒给出承载盒尺寸，不断言调用；happy-dom 没有布局引擎
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => box.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => box.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+            vi.unstubAllGlobals();
+        });
+        const seen: Array<{width: number; height: number} | null> = [];
+        const grid = nestedGrid();
+        mountRenderer(grid.root(), grid.layout(CONTAINER), {listeners: {onExtent: (extent: {width: number; height: number} | null) => void seen.push(extent)}});
+        await nextTick();
+        expect(seen).toEqual([{width: 1000, height: 600}]);
+
+        const fire = (): void => {
+            for (const probe of ResizeObserverProbe.instances) probe.trigger();
+        };
+        fire();
+        expect(seen).toHaveLength(1);
+
+        box.width = 800;
+        fire();
+        expect(seen).toEqual([{width: 1000, height: 600}, {width: 800, height: 600}]);
+
+        box.height = 500;
+        fire();
+        expect(seen).toEqual([{width: 1000, height: 600}, {width: 800, height: 600}, {width: 800, height: 500}]);
+    });
+});

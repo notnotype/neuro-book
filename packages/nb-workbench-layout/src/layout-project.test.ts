@@ -2,10 +2,11 @@ import {describe, expect, it} from "bun:test";
 
 import {createGrid, createGridGestureSession} from "@notnotype/nb-layout";
 import {docOf, H, sizeOf, testPolicy, V} from "./layout-doc-fixtures";
-import {fixedNodesOf, projectLayoutDoc, presentationCollapse, regionOfStripLeaf, regionStripLeafId} from "./layout-project";
+import {projectLayoutDoc, presentationCollapse, regionOfStripLeaf, regionStripLeafId} from "./layout-project";
+import {fixedNodesOf, rebaseIntents} from "./intent-writeback";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridAxis, GridExtent, GridNodeInput} from "@notnotype/nb-layout";
-import {moveTabToEdge, rebaseIntents, setActiveContainer, setPanelCollapsed} from "./layout-doc";
+import {moveTabToEdge, setActiveContainer, setPanelCollapsed} from "./layout-doc";
 import type {LayoutDoc} from "./layout-doc";
 
 /** 呈现树（docs/specs/ui/workbench-layout.md 输出 5 到 7、10、11、13）。 */
