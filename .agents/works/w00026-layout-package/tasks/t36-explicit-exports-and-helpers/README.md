@@ -34,7 +34,25 @@ updated: 2026-11-19
 | 9 | 验收只覆盖“有人用”的名字 | 测试加文档导入名检查 |
 | 10 | 与 `sdk.test.ts` 重复读入口 | 抽到 test-support 的 `./module-exports` |
 
+## 实施记录
+
+worktree `w00026-t36-explicit-exports`（分支 `w00026/t36-explicit-exports`），基于 t35 合入后的 master `1e96e855c`：
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1 改名 | `66244895e` | `SashGestureSource`、`SashGestureCancelReason` 挪进 `sash-gesture.ts`；`GridGestureStart`、`GridGestureCancellation`；Lab 夹具与 SDK 跟着改，SDK 留两个弃用别名，两处 SDK 测试认就地声明的别名 |
+| 2 显式入口 | `adfea4b2f` | 四个入口一行一个名字（根 111、`./vue` 28、`./text` 4、`./locales` 3），`useSashGesture`、`useLayoutText` 等成内部；`exports.test.ts`；test-support 的 `./module-exports`，SDK 测试改用它 |
+| 3 文档 | `d42059e6e` | `AGENTS.md` 写明公开面与禁用词；变更记录 |
+
+验证：
+
+- nb-layout 363 条 bun 与 231 条 dom 测试、nb-workbench-layout 261 与 48 条、test-support 28 条通过；四个包的类型检查通过；`docs:check` 通过。
+- 应用 vitest 942 条通过；bun 3678 条过、10 条失败：`nbook.stickers` 清单 7 条、SDK 导出面 `ImagePreviewDialog` 1 条、eval 1 条是 master 上原有的；文件插件的“组里的写入与文件操作带同一个组”1 条单独重跑 3 次都过（时序偶发，与本 Task 无关）。
+- `bun.lock` 的改动只是 test-support 的 `typescript` 挪到依赖、版本不变，没有按 `test:affected` 跑全部 28 个包，见计划“实施中的调整”。
+- 变异：入口加 `export *`、删掉文档里导入的名字，`exports.test.ts` 都会红。
+- 不改运行时行为，没跑 e2e。
+
 ## 下一步
 
-1. 写 Spec（master）与提案决策记录、待确认清单。
-2. t35 合入后开 worktree 实施三片。
+1. 实现审查（前端，Claude Sonnet）在跑，报告在 `.local/agent/works/w00026-layout-package/tasks/t36-explicit-exports-and-helpers/reports/impl-review/`；处理完合入 master。
+2. 合入后：`ui/nested-grid` 实现合同的公开入口删掉 `useSashGesture`，“公开面”一句换模型核对后晋升。

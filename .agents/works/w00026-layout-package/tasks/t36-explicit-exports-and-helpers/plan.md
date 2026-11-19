@@ -89,6 +89,15 @@
 - 每片：nb-layout、nb-workbench-layout、应用的类型检查与受影响的测试；收口跑 `test:affected`。
 - 不改行为，不跑 e2e；改名只动类型，运行时没有变化（第 1 片的 diff 里没有值的改动，审查时核对）。
 
+## 实施中的调整
+
+- 第 1 片：`sash-gesture.ts` 里 `onCancel` 的入参照旧写内联对象，不改用 `GridGestureCancellation`：后者在 `grid-gesture.ts`，`sash-gesture.ts` 是两种分隔条共用的核心，反过来导入会让核心依赖 `NestedGrid` 的会话。两处 SDK 测试改成认就地声明的弃用别名；nb-ui 里冻结的旧 Splitter 自己也导出这两个旧名，SDK 的类型比对因此要认它们。
+- 第 2 片：在 t35 合入后的代码上重跑盘点（[`evidences/exports-inventory-2.txt`](evidences/exports-inventory-2.txt)）：判据收紧为名字是行内代码的开头、代码块里从包名导入的名字或代码块里 `export function`/`type` 声明的名字（第一次重跑漏了 `ui/layout-drag` 代码块里声明的 `registerDropTarget`）。最终公开面：根入口 111、`./vue` 28、`./text` 4、`./locales` 3。和计划的差别：
+  - `SashGestureBinding`、`SashGestureHost` 随 `useSashGesture` 一起成了内部（它们只出现在 `useSashGesture` 的选项里）；`SashGestureCommit`、`SashGestureSessionCore` 仍是公开的（`GridGestureSession` 的签名里有）。
+  - `NB_LAYOUT_SOURCE_LOCALE` 没人导入，留着：宿主把目录登记进自己的翻译引擎时要源语言，与 `NB_LAYOUT_CATALOGS` 成对。
+  - test-support 的 `typescript` 从开发依赖挪到依赖（`./module-exports` 运行时要它），版本不变。
+- 收口：`bun.lock` 改了，`test:affected` 选中全部 28 个包；锁文件的变化只是上面那一处、版本没变，所以只跑代码真受影响的 nb-layout、nb-workbench-layout、test-support 与应用。
+
 ## 不做与风险
 
 - 不做：稳定性标注（见上）；API 报告与“签名里用到但没导出的类型”的机检（第二档，api-extractor 的 forgotten-export 一类）；`./style.css`。

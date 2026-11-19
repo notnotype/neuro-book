@@ -1,0 +1,92 @@
+# w00052 t01 设计审查（前端：设置页「搜索与网页」）报告
+审查者：Sonnet（只读）。依据：plan.md 的“关键设计”中 web/plugin.ts 与 SearchSettingsPage.vue 一条、切片第 3 片、验证；对照 models/web 实现与 settings-pages.md、settings-window.md。
+
+### 1. 计划没有数据模块，检测与密钥状态没有归属（与竞态一起会丢掉“刚填的密钥”）
+严重程度：重要　类别：正确性/交互　位置：计划“关键设计”最后一条；参照 models/web/models-store.ts:1-225、ProvidersPage.vue:43-45
+现象：计划只写“照 nbook.models 的做法（web/plugin.ts、pages.ts 的包装）”，没有说数据模块。远程合同只有 status/setKey/clearKey/check，没有 changed 事件。页面该怎么取状态、写入后怎么刷新“已设置”、检测进行中与结果放哪里，计划都没写。
+为什么是问题：
+ a) 模型页的写入、检测、取消、结果保留（换页、关开窗口都在，spec 输出 8）全由 models-store 承担，组件只是消费者（settings-pages.md“边界与兼容”）。新页若把它们写进组件，页面卸载（离开分区、搜索、切标签都会卸载）时检测结果和进行中的请求就丢；“检测”最长 20 秒，用户切走再回来看到的是空白。
+ b) 竞态：密钥框是失焦才写（commitKey 在 focusout）。用户填完密钥直接点“检测”时，mousedown 先让输入框失焦触发 setKey，click 紧接着发 check；两个远程调用并发，服务端“串行写”只串行写、检测读的是写之前的库，结果是 no-key。若“检测”按钮在 hasKey 为假时停用（计划没写），点击会被吞掉。这是第一次使用时必走的路径。
+ c) 没有 changed 事件，setKey 之后“已设置”靠什么出现不明（要么 setKey 返回新状态，要么再调 status）。别的浏览器页面、设置文件视图改了凭据库，这页也不会跟着变（模型页有 spec 输出 16）。
+建议：计划里补一节 web/search-store.ts：持有 status、available、检测状态（running/done + 时间）、AbortController；setKey/clearKey 返回后用响应或重取更新 status；check 发起前等本 provider 未完成的写入（store 内串行），或让 check 带上刚写的状态；寿命同 models（入口停用时 dispose）。组件只吃 store、writable、reportWriteFailure。
+
+### 2. 检测结果不随密钥变化失效；检测的错误文字由服务端出，违反“服务端不翻译”
+严重程度：重要　类别：正确性/文档　位置：计划“远程合同 nbook.web/settings”一条（“返回通过或失败的分类与一句话”）；参照 models-store.ts 文件头注释、settings-pages.md“失败与恢复”
+现象：
+ a) check 返回“失败的分类与一句话”。模型服务的约定是服务端只交码与详情，由浏览器按当前语言写原因（models-store.ts 头注释“这里不翻译文字，失败交回码与详情”；settings-pages.md 输出 15、“失败与恢复”）。计划让服务端出“一句话”，中英文界面都会显示服务端的一种语言；而计划的失败码有 9 个加 no-key，每个都要界面文字，却没有说 locales 里放这些码的对照。
+ b) 检测结果（通过/失败）与“有密钥”是两份状态，计划没写互相的失效：填了新密钥、清除密钥之后，旧的“通过”还挂在页面上；清除后显示“检测通过”是错的。模型页的检测也有类似缺口（只在模型离开快照时清结果），不应照抄。
+ c) 检测发的是一次真实的计费搜索（计划自己写“按次计费”）。每点一次花一次钱，却没有进行中禁用重复点击、没有取消、没有说明检测会产生一次调用。
+建议：check 返回 {ok:true} 或 {ok:false, code, detail}（code 同工具的 ProviderFailureCode 加 no-key），浏览器用 locales 的 `check.fail.<code>` 写原因；setKey/clearKey 成功后清掉这家的检测结果；检测进行中按钮换成“检测中”并停用（或换成“取消”），说明里写“会发一次搜索”。
+
+### 3. 页面声明没有写 layout 与 order；单家服务该用单列，且“以后加 Exa、Tavily”的扩展方式要写死
+严重程度：重要　类别：交互/代码质量　位置：计划“关键设计”最后一条（“字段与布局照 ProviderDetail.vue 的连接一节”）；参照 models/web/plugin.ts:23-24、settings-window.md 输出 3
+现象：计划没写 layout。WrittenSettingsPageDeclaration 的 layout 缺省 column（外壳封顶宽度约 720px、内容列滚动），模型两页都显式写 fill、自己分栏。“照 ProviderDetail 的连接一节”是 fill 页右栏里的一节，直接搬到 column 页里没有问题，但搬到 fill 页就会占满整块区域且没有滚动容器。order 只写“排在模型两页之后”，实际 ai 分类现有：模型 10、20，Profile 25，Skills 30，贴纸 32，状态栏 35，权限 40。写“之后”不是一个值；同值按 id 排，取 30 会与 Skills 并列。
+为什么是问题：只有一家服务时左右分栏是空壳（左栏一项）；计划说以后各加一节，column 单列加“每家一节”正好，不必推翻。但这条决定计划没写，实现者可能为“照模型页”选 fill。
+建议：写明 layout: "column"，每个服务商一个带标题的 section（DeepSeek 一节），以后加服务就是加一个 section 组件；写明 order（例如 22，落在模型两页与 Profile 之间，同分组的搜索类放一起），layers: ["user"]，icon（如 i-lucide-globe）。若以后服务多到需要分栏再改 fill，代价只在这个页面，不动数据模块与合同。
+
+### 4. 两个“DeepSeek 密钥”同在 AI 分类、同关键词：分不清、搜索会命中两页，第一次用的人没有指引
+严重程度：重要　类别：交互/文档　位置：计划“关键设计”最后一条（“一句说明”）；参照 models/web/plugin.ts:20-24、models/locales/zh-CN.json settingsPages 与 keywords
+现象：模型页 keywords 是“API 密钥”“大模型”“服务商”；新页计划没写标题文字、说明、keywords。设置窗口搜索按标题、说明、keywords 比对，结果里每页一行、右端“打开 ›”（settings-window.md 输出 21；行内是否显示说明未核实，按标题区分）。用户搜“密钥”或“DeepSeek”会同时看到“服务商与模型”和“搜索与网页”，只有一行说明区分。DeepSeek 对话与搜索用的是同一种 Bearer 密钥（Context 里写了），计划却要求用户把同一串字符在两处各填一次，页面上唯一的解释是“一句说明”。
+更具体的路径：
+ - 已在模型页填过 DeepSeek 的用户，第一次让 Agent 搜索，得到 no-key 文字“到设置窗口的‘搜索与网页’页填 DeepSeek 的 API 密钥”，打开后看到空框，容易以为设置丢了或坏了；页面没有任何一句“模型设置里的密钥不会用于搜索”之外的路径（例如“和模型里填的是同一种密钥，可以再粘贴一次”）。计划的“一句说明”写“与模型设置里的分开”，这是开发者的决定，但没有给用户“为什么要再填一次、填什么”。
+ - 密钥框在隔壁页支持 `env:变量名`（ProviderDetail.vue:keyDraft、spec 输出 4），这页计划“不做 env:”。用户在隔壁页养成的写法 env:DEEPSEEK_API_KEY 粘到这页，会被当原文密钥存进库，之后检测返回 401（auth），而原因文案是“密钥错”，看不出是写法问题。
+ - 工具文字提示里的页名“搜索与网页”是写死的中文，英文界面下页标题是另一个字符串，两处没有绑定。
+建议：页面标题“搜索与网页”，说明写“让 Agent 搜索与读取网页”；keywords 不放“API 密钥”“大模型”（避免和模型页同时命中；放“联网”“网页”“搜索”“DeepSeek”）；密钥字段下的提示写明“与模型设置里的 DeepSeek 密钥是分开存的，同一把密钥可以在这里再填一次”；输入以 env: 开头时原位提示“这里不支持环境变量引用”并不写入；no-key 的工具文字从同一份目录取页名。
+
+### 5. 把 ProviderDetail 的密钥草稿逻辑再抄一份：三处重复，而 SecretInput 本来就排在“第一个密钥使用者”
+严重程度：建议　类别：代码质量　位置：计划“字段与布局照 ProviderDetail.vue 的连接一节”；参照 ProviderDetail.vue:54-120（draftField、commitKey、keyField）、docs/specs/ui/forms.md 输出 31 与 settings-window.md“不承诺”一行（密钥项的界面随第一个密钥使用者）
+现象：ProviderDetail 里密钥框的行为（失焦或回车写、与实际值相同不写、回车后紧接失焦不重复写、写后清空、正在编辑时别处变化不打断、写失败重置草稿）有约 60 行，且 draftField 是文件内私有函数。“照抄”就是复制这 60 行，仓库里会有第二份几乎一样的实现，将来 Exa、Tavily 各一节还要再复制。spec 已经说：密钥项的界面随第一个密钥使用者做，SecretInput 的状态是 set/unset/unreadable、modelValue 是新输入的值、“清除”发 clear 事件、从不显示已有值、autocomplete 关闭——与两处需求完全对得上。
+为什么是问题：重复后两个页面的行为会各自漂移（例如将来改成写失败保留草稿，只改一处）；也违反 AGENTS 的“同一件事各写一份”的信号。
+建议：二选一并写进计划：1）本任务把 draftField + 密码框 + “已设置/清除”抽成一个小组件（SecretField，放 neuro-book/src/ui 或 nb-ui），ProviderDetail 一并改用，这样不增加行为差异，需要同名 .md 与 Lab；2）若不愿动 ProviderDetail，计划里明确写“第一版复制、记入 followups 待合并”，不要写成“照抄”。无论哪种，新增的是 forms.md 输出 31 的实现，需要同步更新那条 planned 状态。
+
+### 6. 计划漏了新页必需的登记与多语言文件：locales、文字构造、分区 id、Lab 替身
+严重程度：重要　类别：文档/测试　位置：计划“关键设计”的 shared/contracts.ts 一条与最后一条；参照 models/shared/text.ts、models/locales/{zh-CN,en-US}.json、lab/web/fixtures/ModelsPageFixture.vue、models-scene/fake-remote.ts、lab/web/fixtures/index.ts
+现象：计划只列了 plugin.ts、shared/contracts.ts、backend、web/plugin.ts、SearchSettingsPage.vue。参照实现里一个有设置页的插件还必须有：
+ - shared/text.ts 的 pluginText 命名空间与 locales/zh-CN.json、en-US.json（页标题走约定键 settingsPages.<本地 id>.title，由登记处补；convention-keys.test.ts 逐条对照），含页面全部文字、9 个失败码的原因、keywords；
+ - shared/settings.ts 里的分区 id 常量（计划把它放在 shared/contracts.ts，与 models 的分法不同，要说明理由或照 models 分开）；
+ - web 侧的 text.ts（useXxxText 与 catalogs，DOM 测试用 testTextPort 提供）；
+ - Lab：页面是页面不是宿主，Lab 里靠假的远程合同替身（fake-remote.ts）建数据模块；还要在 fixtures/index.ts 登记场景，并在 lab-scenes.e2e.ts 的逐场景检查（溢出、焦点环）里被跑到。
+ - 计划“同名 .md 与 Lab 场景”只一句，但场景要覆盖的状态（读取中、未设置、已设置、检测中、通过、各类失败、只读、写失败）与替身怎么做都没写。
+为什么是问题：这些文件缺一个，要么 docs:check/convention-keys 失败，要么页面在英文界面显示键名，要么 Lab 里摆不出来；而替身需要数据模块先有 createXxxStore(remote)，见第 1 条。
+建议：计划的文件清单补上上述每一项，Lab 场景 id 照 models 的后缀约定（-readonly、-write-failed、-checking、-check-failed）。
+
+### 7. 对照模型页，计划没有写的行为（逐条）与 pages.ts 不能直接复用
+严重程度：重要　类别：交互　位置：计划“页面内容”一句；参照 settings-pages.md 输出 4、15、17、18，ProvidersPage.vue:43-45、75、379-380，pages.ts
+计划只写了：密码框、已设置不回显、“已设置”与“清除”、失焦或回车写入、检测按钮与结果、一句说明。对照缺这些：
+ 1) “读取中”：第一次拿到密钥状态之前显示“读取中”，不显示“未设置”（输出 4）。status 是异步远程调用，先显示“未设置”会让已有密钥的用户误以为丢了，并且框可用时用户可能覆盖。
+ 2) 只读：远程合同不可用（服务端入口没激活、已停止、onEnd）时写控件停用并在页面上写原因（输出 17；ProvidersPage:379 的 readOnly 提示）。计划无 available 概念；断线后下次显示页面要重新取状态。
+ 3) 本作品标签下停用：layers: ["user"] 由窗口处理，页面还要按 context.writable（层 invalid/unavailable 时为假）停用控件；DOM 测试要有 writable=false 一条。
+ 4) 写失败的通知：setKey/clearKey 失败经 reportWriteFailure(subject, {reason, uncertain}) 交窗口，unknown-outcome 为“可能没有保存”并重取状态（输出 15；models-store.call）。检测失败不走通知，走页面内文字。计划完全没写，且新合同的失败码（例如凭据库写失败）也没有对应的文字。
+ 5) 写失败后输入框的草稿处理：models 的 commitKey 在发出时就清空草稿，写失败后用户要重输；resetToken 只用于把草稿换回实际值。这次要明确：失败时是清空还是保留（保留明文在浏览器状态里，与“密钥不进浏览器状态”冲突，所以应清空，但要在通知里说“请重新输入”）。
+ 6) 清除：模型页点“清除”直接写，没有确认。这里不必加确认（密钥可再填），但要写进计划，免得实现者自己加。
+ 7) 检测的显示：进行中、通过（带时间）、失败（原因 + 重试）、没检成（远程调用本身失败）与检测失败的区分，计划只写了“结果”。
+ 8) 窗口搜索与 focus：page 的 focus 由页面解释，认不出就忽略。计划没有 focus，没问题；但 no-key 时若想从对话直接定位到密钥框（模型页的“对话提示卡”做法），需要设计 focus 值（例如 provider id）。不做的话在计划里写“不做”。
+ 9) 无障碍：密码框 label、说明用 aria-describedby、结果 role=status 或 role=alert、按钮可访问名称带服务名（模型页：检测按钮可访问名称带模型名）。未提。
+pages.ts 的包装不能直接用：modelsPage(component, store: ModelsStore) 的类型与组件名都绑定模型数据模块（name "ModelsSettingsPage"），nbook.web 需要自己的 webPage 包装（同样把 context 拆成 writable、reportWriteFailure、focus、takeFocus 再交给组件）。计划说“照 pages.ts 的包装”而不是“复用”，意思对，但要写明是新写一个。
+建议：把以上 1 到 7 写进页面的“交互”小节，再写进 Spec 的设置页编号输出（计划“Spec 与文档改动”里只一句“设置页”）。
+
+### 8. 验收映射：“写入、清除、检测”与“不回显”没有一条验证真能走通
+严重程度：重要　类别：测试　位置：计划切片第 3 片、“验证”“验收映射”；参照 models-store.test.ts、models/web/components/*.dom.test.ts、e2e/models.e2e.ts:104-126
+现象：
+ a) 第 3 片写“经真实远程合同写入、清除、检测”，“验证”却只列“设置页的 DOM 测试与 Lab 截图（亮色）；e2e 只跑覆盖设置窗口的那一个文件”。Lab 场景用的是假的远程合同替身，不算真实合同；“覆盖设置窗口的那一个文件”指哪个也没写：settings.e2e.ts 里没有这个新页，models.e2e.ts 只覆盖模型页。所以按计划验证，真实合同下的写入、清除、检测没有任何一条在跑。
+ b) 检测的成功路径无法在本机验证：计划写“地址固定 https://api.deepseek.com，不随模型设置里的服务商地址变”。假端点要靠后端注入基址（构造参数，不是环境变量开关或测试专用分支）；否则 e2e 与 store 测试里的 check 只能打真网或只测失败路径。这决定了设置页检测的验证方式，要在计划里定：后端 createWebCore({endpoint}) 之类的注入点，测试用本机假端点，产品入口写死 DeepSeek 地址。
+ c) “密钥不回显”要断言三处：输入框写入后 value 为空；DOM 里没有密钥原文（textContent、属性）；store 的状态与远程响应里没有密钥（status 只有 hasKey）。模型页的 e2e 只断言 key 输入框 toHaveValue("")。计划验收映射只写“密钥不进任何响应与诊断”，没写页面一侧。
+ d) 失败与边界没有对应测试：写失败的通知（含 unknown-outcome）、读取中、只读、writable=false、写与检测的先后（第 1 条）、检测结果在密钥变化后失效（第 2 条）、检测进行中卸载页面再回来、env: 开头输入（第 4 条）。
+ e) 新增 Lab 场景要进 lab-scenes.e2e.ts 的逐场景检查（溢出、焦点环），该文件有已知的原有失败（lab-scenes 的 ThemeEditor 404），要先确认哪些是原有失败，才能说新场景通过。
+建议：验证节写成：store 的合同测试（真实服务端实例 + 本机假端点，覆盖 setKey/clearKey/check 与先后、unknown-outcome）；DOM 测试（组件 props 驱动：读取中、只读、writable=false、写后清空、不回显、检测各状态）；e2e 新增或扩展一个文件（建议 models.e2e.ts 同类的 web-settings.e2e.ts，一条主线：打开页→填密钥→出现“已设置”且框空→检测（假端点）→清除）；Lab 截图亮色，场景覆盖第 6 条所列状态；lab-scenes.e2e.ts 只跑新场景相关的项并对照基线。
+
+### 9. 设置页的合同写进“工具 Spec”一个文件里；密钥输入的边界值没写
+严重程度：建议　类别：文档　位置：计划“Spec 与文档改动”（web.tools 含“设置页”）；参照 docs/specs/models/ 下 service.md 与 settings-pages.md 分开
+现象：模型服务把后端合同（service.md）与设置页行为（settings-pages.md）分成两个 Spec，设置页的输出编号才能被 DOM 测试与 e2e 逐条引用。计划把工具、密钥存放、远程合同、设置页塞进同一个 web.tools，验收映射里“设置页的写入清除检测”是一条，粒度远粗于模型页（18 条输出）。另外密钥输入的边界没写：首尾空白与换行（模型页 commitKey 做 trim 并忽略空串，空串不等于清除）、超长、粘贴多行。
+建议：新建 docs/specs/web/settings-page.md（能力 web.settings，planned）按第 7 条的清单编号；工具 Spec 只留“密钥存放与远程合同”并链接过去；密钥输入写“trim；空串不写；不以 env: 引用”。
+
+---
+## 未发现问题的方面
+- 贡献点与分类：settings.pages、category: "ai"、layers: ["user"] 是已有机制，本作品标签下由窗口按 layers 停用（settings-window.md 输出 8），计划写法成立。
+- 入口激活：远程合同首次调用会按 onRemote 激活服务端入口（nb-runtime plugins/contracts.ts:145、registration.ts:11），所以“用户先开设置页、还没有任何工具调用”时不会因后端没激活而只读；这条不是问题。
+- 清除不要确认：模型页也没有，计划不加是对的（只需写明，见第 7 条第 6 点）。
+- 密码框 autocomplete 关闭、type=password：ProviderDetail 已有做法，抄这点没问题（但见第 5 条）。
+
+## 数量
+阻断 0；重要 7（1、2、3、4、6、7、8）；建议 2（5、9）；共 9 条。
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9

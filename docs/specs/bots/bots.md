@@ -47,7 +47,7 @@ owners:
 
 1. 预设的声明照平台的贡献点规则校验（[`runtime/plugins.md`](../runtime/plugins.md)）：结构不合的平台不接受；同一个预设 id 有两份声明时两份都不接受。被接受的声明，`nbook.bots` 在接收时核对文件：不在、越出插件包、不是普通文件、超出大小或数量的，这个预设不可用，写诊断 `bots.preset-invalid`（带插件、预设 id 与原因）；别的预设不受影响。
 2. `nbook.bots` 自带缺省预设 `nbook.bots.lyra`：名字“星璃”，岗位 Profile 是 `nbook.bots.companion`，人设是星璃的人设文件，没有记忆种子。
-3. `nbook.bots` 经 `agent.profiles` 交出内置岗位 Profile `nbook.bots.companion`：工具与 Agent 模式同主创（`nbook.agent.main`，含它的模式扩展；`shell` 照主创是可选、缺省装上），系统提示词只写岗位（用户身边常驻的助手），不写人设。
+3. `nbook.bots` 经 `agent.profiles` 交出内置岗位 Profile `nbook.bots.companion`：工具与 Agent 模式同主创（`nbook.agent.main`，含它的模式扩展；`shell` 照主创是可选、缺省装上），系统提示词只写岗位（用户身边常驻的助手），不写人设。它标 `hidden`：只给 bot 的主对话用，新建会话时不列出。
 4. 启动：`nbook.bots` 自己的缺省预设声明交到接收方之后（这时它交出的岗位 Profile 已交给 `nbook.agent`），在后台读 bot 记录、持有已有的主对话（[`main-conversation.md`](main-conversation.md) 输出 2），这一步不看缺省预设的文件是否可用。一个 bot 都没有时，等缺省预设的文件核对有了结果：可用就建 bot `lyra`，不可用就写诊断 `bots.default-preset-missing`、不建。缺省预设的声明由 `nbook.bots` 自己交出，平台不接受它是发版缺陷。建 bot 不需要模型。
 5. 建 bot：
    1. 在 `<状态根>/user/bots/` 下建暂存目录 `.staging-<随机>/`，把人设复制成 `persona.md`、头像复制成 `avatar.<原扩展名>`、记忆种子复制进 `memory/`，最后写创建凭据 `.created.json`（格式版本、bot id 与这次要写的 bot 记录）；
@@ -93,6 +93,8 @@ owners:
 | `bots.default-preset-missing`（诊断） | 缺省预设不可用，没有建 bot | 查 `nbook.bots` 的安装 |
 | `bots.record-unreadable`（诊断） | bot 记录读不懂 | 查状态根；不自动重建 |
 | `bots.directory-unknown`（诊断） | bot 目录在、记录不在，又没有读得懂的创建凭据 | 查状态根；不自动登记 |
+| `bots.create-failed`（诊断） | 建 bot 没做成：`<bot id>/` 已经在了（不覆盖），或记录没写下 | 查状态根；下次启动再试 |
+| `bots.record-failed`（诊断） | 插件存储读写失败（区别于读不懂） | 查存储；下次启动再试 |
 
 ## 边界与兼容
 
