@@ -222,6 +222,15 @@ describe("拆分树原语：不可满足与窄容器", () => {
         }
     });
 
+    it("度量取两位小数，和 message 里的数一致（Spec 输出 139）", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("a", "width", 300, 300),
+            leaf("b", "width", 300, 300),
+        ]), {sashSize: SASH});
+        const result = grid.layout({width: 500.3333, height: 600});
+        expect(facts(result.issues)).toContainEqual({code: "over-constrained", cause: "min-total", id: "root", axis: "width", available: 499.33, required: 600});
+    });
+
     it("容器比 sash 总量还小：压缩分隔条与子节点，几何不超容器", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [
             leaf("a", "width", 100, 50),

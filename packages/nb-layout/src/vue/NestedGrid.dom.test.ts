@@ -637,6 +637,70 @@ describe("手势的诊断只发新增（Spec 输出 140）", () => {
         await drag();
         expect(ranges()).toBe(2);
     });
+
+    it("被拒的提交每次都发；键盘每按一次键是一场手势", async () => {
+        const wide = {width: 600, height: 0};
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}},
+                {
+                    kind: "branch",
+                    id: "right",
+                    orientation: "vertical",
+                    size: {width: 699, height: 0},
+                    children: [
+                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 100}},
+                        {kind: "leaf", id: "bottom", ref: "bottom", size: {width: 0, height: 100}},
+                    ],
+                },
+            ],
+        }, {sashSize: SASH});
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        for (let round = 0; round < 2; round += 1) {
+            rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+            rootSash.dispatchEvent(pointerEvent("pointermove", 340, 80));
+            await settleFrame();
+            rootSash.dispatchEvent(pointerEvent("pointerup", 340, 80));
+            await nextTick();
+        }
+        expect(emittedIssues(wrapper).filter((issue) => issue.code === "handler-missing")).toHaveLength(2);
+
+        // 两侧的最小宽度合计超过容器：每按一次方向键都是一场新手势，range-overflow 各发一次。
+        const degraded = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, minimumSize: wide},
+                {
+                    kind: "branch",
+                    id: "right",
+                    orientation: "vertical",
+                    size: {width: 699, height: 0},
+                    children: [
+                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 100}, minimumSize: wide},
+                        {kind: "leaf", id: "bottom", ref: "bottom", size: {width: 0, height: 100}, minimumSize: wide},
+                    ],
+                },
+            ],
+        }, {sashSize: SASH});
+        const keyboard = mountRenderer(degraded.root(), degraded.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        stubLayout(keyboard);
+        await nextTick();
+        const sash = keyboard.get<HTMLElement>('[data-sash="root:0"]').element;
+        for (let press = 0; press < 2; press += 1) {
+            sash.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+            sash.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowRight", bubbles: true, cancelable: true}));
+            await nextTick();
+        }
+        expect(emittedIssues(keyboard).filter((issue) => issue.cause === "range-overflow")).toHaveLength(2);
+    });
 });
 
 describe("键盘的诊断（Spec 输出 139）", () => {
