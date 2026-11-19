@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t36-explicit-exports-and-helpers
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -52,7 +52,25 @@ worktree `w00026-t36-explicit-exports`（分支 `w00026/t36-explicit-exports`）
 - 变异：入口加 `export *`、删掉文档里导入的名字，`exports.test.ts` 都会红。
 - 不改运行时行为，没跑 e2e。
 
+## 实现审查
+
+Claude Sonnet，范围 `1e96e855c..d42059e6e`（[`evidences/impl-review.txt`](evidences/impl-review.txt)）：6 条，阻断 0、重要 2、建议 4，都成立，修正 `28f92c1b8`：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | “一行一个名字”按正则逐行查，多行 `export {` 里两个名字同一行查不出 | 按语法树取每个名字的行，同一行两个以上就报；自检加多行与一行两条语句 |
+| 2 | `hasDefaultExport` 认不出 `export default function/class` | 补认带 `export`、`default` 两个修饰符的声明；自检加三种写法 |
+| 3 | `moduleExports` 对解构、命名空间、`export import` 静默漏报，重载重复计数 | 认不出的写法抛错；按名字去重 |
+| 4 | 禁用词认不出 `SideBar` 与复数 | 相邻两词拼起来也查，去掉复数的 s 再比；自检补上 |
+| 5 | 文档导入检查只认一种写法 | 认单双引号、`import 默认, {…}`、`export {…} from`；范围加 nb-workbench-layout 的文档 |
+| 6 | SDK 弃用别名的测试靠 nb-ui 冻结的旧 Splitter 碰巧同名 | `sdk.test.ts` 单列一张带理由的弃用别名表，比对时两边剔除，另查别名声明带 `@deprecated` |
+
+## 合入与晋升
+
+2026-11-19 合入 master（`adf6779dd`），worktree 与分支已删。修正后重跑：nb-layout 363 与 231 条、SDK 的 `sdk.test.ts`（只剩原有的 `ImagePreviewDialog`）与 `pack.test.ts` 13 条、四个包的类型检查通过。
+
+Spec 晋升（`ui/nested-grid` 的“公开面”一句与实现合同的公开入口）由 Claude Sonnet 逐句核过（[`evidences/promotion-check.txt`](evidences/promotion-check.txt)）：“别的导出随时可以改”改成“不是公开面，不承诺”；“`useSashGesture` 是内部的”“独立 Splitter 也用”两处没有断言，删掉；载荷类型只写类型名，字段由组件文档给；补“`./lab-sources` 不算”。入口里具体有哪些名字靠评审看清单守（测试只守形式），这是设计如此。
+
 ## 下一步
 
-1. 实现审查（前端，Claude Sonnet）在跑，报告在 `.local/agent/works/w00026-layout-package/tasks/t36-explicit-exports-and-helpers/reports/impl-review/`；处理完合入 master。
-2. 合入后：`ui/nested-grid` 实现合同的公开入口删掉 `useSashGesture`，“公开面”一句换模型核对后晋升。
+1. 欠着：本 Task 改了入口、没构建、没跑 e2e（不改运行时行为，计划里定的）；t39 开 worktree 后先构建并跑探针与一个 Lab 网格 e2e，作为 t36 的补验与 t39 的基线。

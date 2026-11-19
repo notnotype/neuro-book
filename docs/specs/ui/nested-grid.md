@@ -307,7 +307,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用与插�
 嵌套 sash 的旧限制由本能力覆盖的场景逐项解除；其它未覆盖结构操作继续保留已有限制，不能据一个样例宣称任意布局均已支持。
 外框、内容与浮动窗手柄是里面 `position: fixed` 元素的包含块（输出 28）：要盖住整个窗口的东西（对话框、拖影、菜单）宿主要 Teleport 到 `body`。
 公开的标记：`data-swap`（输出 75）、`data-leaf`、`data-grid-scope` 等的取值与含义见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 的“公开的标记与变量”。
-公开面（planned）：每个子路径的入口是一行一个名字的显式清单，入口里的名字就是公开面；文件里别的导出是内部的，随时可以改。`gesture-start`、`gesture-cancel` 的载荷类型是 `GridGestureStart`（`sessionId`、`contextKey`、`source`、`revision`、`sashes`）与 `GridGestureCancellation`（`reason`、`sashes`），手势来源与取消原因是 `SashGestureSource`、`SashGestureCancelReason`（独立 `Splitter` 也用这两个）。
+公开面：`package.json` 里每个子路径的入口（`./lab-sources` 只给应用的 Component Lab，不算）是一行一个名字的显式清单，入口里的名字就是公开面；文件里别的导出不是公开面，不承诺。`gesture-start`、`gesture-cancel` 的载荷类型是 `GridGestureStart` 与 `GridGestureCancellation`，字段见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md)；手势来源与取消原因的类型是 `SashGestureSource`、`SashGestureCancelReason`。
 CSS 变量：`NB_LAYOUT_THEME_VARS`（根入口）列出库读的全部 `--nb-layout-*` 与各自的回退；README 的变量表只承诺其中主题级的一小批（颜色、圆角、阴影、时长、焦点），其余是内部名字，可以改名（输出 141）。
 工作台的用法：用分支的收起表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）；把 `moveGridFocus` 登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
 失败的码集合开放：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。
@@ -330,7 +330,7 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-layout` 的 `createGrid` 与结构操作（含 `splitLeaf`）、快照与 `resizeBranches`；`@notnotype/nb-layout/vue` 的 `NestedGrid`、`useLayoutExtent`、`useGridLayout`、`useSashGesture`、`moveGridFocus`。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)。
+- 公开入口：`@notnotype/nb-layout`、`./vue`、`./text`、`./locales` 四个入口里写出的名字（一行一个名字的显式清单，[`exports.test.ts`](../../../packages/nb-layout/src/exports.test.ts) 守着）。网格这一面常用的是 `createGrid` 与结构操作（含 `splitLeaf`）、快照与 `resizeBranches`，`./vue` 的 `NestedGrid`、`useLayoutExtent`、`useGridLayout`、`moveGridFocus`。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)。
 - owner 与依赖方向：owner 是 `ui`；`nb-layout` 的核心入口（含落点几何）不依赖 Vue、DOM 与 dnd-kit，Vue 层只依赖核心入口、`vue` 与 `tabbable`，不依赖 nb-ui（主题经 `--nb-layout-*` 变量、由 nb-ui 的 `tokens.css` 桥接，文字经 `./text` 的注入点；ADR 0054 第 3 条）；工作台与插件只经包入口消费，不跨包深导入；工作台的布局文档、落点规则与标签条在 `nb-workbench-layout`，它同样只经这两个入口用本包，本包不依赖它（[ADR 0054](../../adr/0054-nb-layout-general-library.md)）。
 - 失败与诊断的构造：每层一张“码 → `params` 形状”的映射（[`grid-failure.ts`](../../../packages/nb-layout/src/grid-failure.ts)、[`grid-issue.ts`](../../../packages/nb-layout/src/grid-issue.ts)，不从入口导出），构造时按映射检查参数，导出的类型只有通用的 `GridFailure`、`GridIssue`（失败 5 到 7、输出 139）。
 - 只发新增：键与闸门在 [`issue-gate.ts`](../../../packages/nb-layout/src/issue-gate.ts)（不从入口导出），`useGridLayout` 按重算、`useSashGesture` 按手势各用一个（输出 140）。
