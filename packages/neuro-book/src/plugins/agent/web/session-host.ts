@@ -1105,9 +1105,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         afterChange(target);
     }
 
-    async function create(profile = MAIN_PROFILE): Promise<string | null> {
+    async function createSession(profile: string): Promise<string | null> {
         // 固定会话不建会话（隐式的也不：第一次发送、加附件都经这里）。
         if (deps.fixed !== undefined) return null;
+        // 新建是用户的动作：还在读会话头的恢复让给它（`routing`），不在建好之后把“最近的会话”盖上来。
+        routing += 1;
         // 建好之前用户去了别的会话：不抢界面。建好的空会话留在列表里。
         const started = generation;
         const created = await remote.create({profile, ...(deps.project === null ? {} : {project: deps.project})});
@@ -1124,13 +1126,21 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         return created.value.sessionId;
     }
 
-    /** 几个附件一起加时只建一个会话。`create` 没有幂等键：失败或结果未知不重试，免得多建，附件标失败，用户再加。 */
+    /**
+     * 正在建的会话，不论是新建命令、第一次发送还是加附件发起的。隐式的新建（`createOnce`）遇到它就等它、用它建出的会话：用户点了新建
+     * 紧接着加附件或发话时不再建第二个（后建好的那个作废，附件跟着丢）；几个附件一起加也只建一个。`create` 没有幂等键：失败或结果未知
+     * 不重试，免得多建，附件标失败，用户再加。
+     */
     let creating: Promise<string | null> | null = null;
-    function createOnce(): Promise<string | null> {
-        creating ??= create().finally(() => {
-            creating = null;
+    function create(profile = MAIN_PROFILE): Promise<string | null> {
+        const started: Promise<string | null> = createSession(profile).finally(() => {
+            if (creating === started) creating = null;
         });
-        return creating;
+        creating = started;
+        return started;
+    }
+    function createOnce(): Promise<string | null> {
+        return creating ?? create();
     }
 
     const failedToOpen = (id: string): boolean => current?.id === id && current.failed !== null;
@@ -1211,7 +1221,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         notice = null;
         setDraft("");
         bump();
-        if (current === null && (await create()) === null) {
+        if (current === null && (await createOnce()) === null) {
             setDraft(text);
             bump();
             return;

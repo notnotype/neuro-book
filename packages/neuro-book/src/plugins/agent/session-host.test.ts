@@ -1094,6 +1094,39 @@ describe("附件（输出 31）", () => {
     const FILE = new File(["x"], "图.png", {type: "image/png"});
     const uploaded = (name: string) => ({uri: `sessions://s/home/attachments/${name}.png`, kind: "image" as const, name: `${name}.png`, mime: "image/png", width: 800, height: 600});
 
+    test("新建还没建好就加附件：等这次新建、传到它建出的会话里，不另建一个", async () => {
+        const w = await world();
+        const base = await harness(w);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let creates = 0;
+        const slow = new Proxy(base.client, {get(target, key, receiver) {
+            if (key !== "create") return Reflect.get(target, key, receiver);
+            return async (input: unknown) => {
+                creates += 1;
+                await gate;
+                return target.create(input as never);
+            };
+        }}) as SessionsClient;
+        const sessions: string[] = [];
+        const h = await harness(w, {remote: slow, attachments: {upload: async (session, file) => {
+            sessions.push(session);
+            return {ok: true, value: uploaded(file.name)};
+        }}});
+        const created = h.host.create(PROFILE);
+        h.host.act({type: "composer.attachmentAdded", localId: "l1", kind: "image", file: FILE});
+        await until("新建已发出", () => creates === 1);
+        release();
+        const id = await created;
+        if (id === null) throw new Error("新建失败");
+        await until("附件就绪", () => h.ctx().composer.attachments.find((item) => item.localId === "l1")?.state === "ready");
+        expect(creates).toBe(1);
+        expect(sessions).toEqual([id]);
+        expect(h.host.sessionId.value).toBe(id);
+    });
+
     test("第一次加附件就建会话，几个一起加只建一个；就绪后发送带上范围；迟到的结果不算；移除的不带", async () => {
         const w = await world();
         const gates: (() => void)[] = [];
