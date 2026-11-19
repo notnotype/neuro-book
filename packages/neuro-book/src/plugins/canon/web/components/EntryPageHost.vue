@@ -4,8 +4,8 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, nextTick, shallowRef, watch} from "vue";
-import type {Component} from "vue";
+import {computed, defineComponent, h, nextTick, shallowRef, watch} from "vue";
+import type {Component, PropType} from "vue";
 
 import type {Entry, FieldDeclaration, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {Dialog} from "@notnotype/nb-ui/components";
@@ -14,14 +14,15 @@ import {useText} from "@notnotype/nb-ui/text-port";
 
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonOutputs} from "../../shared/contracts";
-import type {ComponentViewContext, ComponentViewRegistry} from "../component-views";
-import type {EntryHead, EntryPageState} from "../entry-page";
+import type {EntryTabDeclaration} from "../../shared/entry-tabs";
+import type {ComponentViewContext, ComponentViewRegistry, EntryTabContext} from "../component-views";
+import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
 import {useInPlaceEdit} from "../in-place-edit";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionLabel, positionOptions, positionValue} from "../positions";
+import {chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionLabel, positionOptions, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -52,7 +53,11 @@ const props = defineProps<{
      * 推成了 Promise。
      */
     client: Pick<CanonClient, "call">;
+    /** 窗口在看的线（输出 34）：空串是跟着章，读取位置不写线。 */
+    windowLine: PageLine;
     views: ComponentViewRegistry;
+    /** 附加分页（输出 36）。 */
+    entryTabs: ComponentViewRegistry<EntryTabDeclaration>;
     /** 本窗口的保存后的提示。 */
     notices: CanonNotices;
     /** 本窗口的还原对话框（提示里的“撤销”）。 */
@@ -92,7 +97,12 @@ watch(() => state.position, (now) => {
     if (now !== null) state.positionGone = false;
 });
 
-const position = computed<ReadPosition>(() => (state.position === null ? null : positionFromValue(state.position)) ?? defaultPosition(chapters.value));
+const windowLine = computed(() => props.windowLine.line.value);
+// 窗口选了线时读取位置都带上它（输出 34）；换线不改这一页自己的位置。
+const position = computed<ReadPosition>(() => {
+    const base = (state.position === null ? null : positionFromValue(state.position)) ?? defaultPosition(chapters.value);
+    return windowLine.value === "" ? base : {...base, line: windowLine.value};
+});
 const mode = computed(() => (state.planned ? "planned" as const : "actual" as const));
 const place = (at: Placement): string => placementLabel(at, chapters.value, text);
 
@@ -109,10 +119,16 @@ const status = computed<EntryPageStatus>(() => {
     return view.value.deleted ? "deleted" : "normal";
 });
 
-// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），所以只有读的正是那里时才报；换到别的位置或按计划时不报。
-watch(entry, (read) => {
+// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：跟着章时就是这一页正在读的那份，只有读的
+// 正是那里时才报；窗口选了线时另读一份缺省位置的。
+const headRead = useWorldRead(world, "entry", () => (windowLine.value !== "" && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
+const headSource = computed(() => {
+    if (windowLine.value !== "") return headRead.value?.data;
+    return state.position === null && !state.planned ? entry.value : undefined;
+});
+watch(headSource, (read) => {
     const shown = read?.view;
-    if (shown === undefined || shown === null || state.position !== null || state.planned) return;
+    if (shown === undefined || shown === null) return;
     props.onHead({name: shown.name, folder: read!.folder ?? "", ancestors: read!.ancestors ?? []});
 }, {immediate: true});
 
@@ -134,6 +150,14 @@ const plotState = computed(() => plot.state.value);
 /* ---------- 分页 ---------- */
 
 const DATA = "data:";
+const EXTRA = "extra:";
+/** 这个条目在所选位置上启用的附加分页（输出 36）：`requires` 的类型启用了才出，按 `order` 再按贡献 id。 */
+const extraTabs = computed(() => {
+    const enabled = new Set(Object.values(view.value?.namespaces ?? {}).map((namespace) => namespace.type));
+    return props.entryTabs.entries()
+        .filter((item) => enabled.has(item.declaration.requires))
+        .sort((a, b) => (a.declaration.order ?? 0) - (b.declaration.order ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+});
 const tabs = computed(() => {
     const items: {value: string; label: string; count?: number}[] = [];
     if ((view.value?.text.length ?? 0) > 0) items.push({value: "text", label: text("entry.tabs.text")});
@@ -142,12 +166,15 @@ const tabs = computed(() => {
         const slot = props.views.view(type);
         items.push({value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title)});
     }
+    // 声明经约定键补全过，`title` 总在。
+    for (const item of extraTabs.value) items.push({value: `${EXTRA}${item.id}`, label: port.t(item.declaration.title!)});
     const total = plot.state.value?.data?.total;
     items.push({value: "plot", label: text("entry.tabs.plot"), ...(total === undefined ? {} : {count: total})});
     return items;
 });
 const tab = computed(() => (tabs.value.some((item) => item.value === state.tab) ? state.tab! : tabs.value[0]!.value));
 const dataNamespace = computed(() => (tab.value.startsWith(DATA) ? tab.value.slice(DATA.length) : null));
+const extraTab = computed(() => (tab.value.startsWith(EXTRA) ? tab.value.slice(EXTRA.length) : null));
 
 /* ---------- 文字分页 ---------- */
 
@@ -287,10 +314,25 @@ const contexts = new Map<string, ComponentViewContext>();
 watch(namespaces, (list) => {
     for (const namespace of list) state.views[namespace] ??= {};
 }, {immediate: true});
+/** 专门界面嵌的通用字段表（`context.FieldTable`），每个命名空间一个，绑在那一页的 context 上。 */
+const fieldTables = new Map<string, Component<{readonly fields?: readonly string[]}>>();
+const fieldTableOf = (namespace: string): Component<{readonly fields?: readonly string[]}> => {
+    let found = fieldTables.get(namespace);
+    if (found === undefined) {
+        found = defineComponent({
+            name: "CanonFieldTable",
+            props: {fields: {type: Array as PropType<readonly string[]>, default: undefined}},
+            setup: (inner) => () => h(FieldsDataView, {context: contextFor(namespace), only: inner.fields}),
+        });
+        fieldTables.set(namespace, found);
+    }
+    return found;
+};
 const contextFor = (namespace: string): ComponentViewContext => {
     let found = contexts.get(namespace);
     if (found === undefined) {
         found = {
+            get FieldTable() { return fieldTableOf(namespace); },
             entry: props.id,
             namespace,
             get position() { return position.value; },
@@ -310,6 +352,33 @@ const contextFor = (namespace: string): ComponentViewContext => {
     }
     return found;
 };
+// 附加分页（输出 36）：每个贡献一份 context，状态按贡献 id 存在标签上。
+const tabContexts = new Map<string, EntryTabContext>();
+const tabContextFor = (id: string): EntryTabContext => {
+    let found = tabContexts.get(id);
+    if (found === undefined) {
+        state.extras ??= {};
+        state.extras[id] ??= {};
+        found = {
+            entry: props.id,
+            get position() { return position.value; },
+            get mode() { return mode.value; },
+            get version() { return version(); },
+            state: state.extras[id],
+            place,
+            open: props.open,
+        };
+        tabContexts.set(id, found);
+    }
+    return found;
+};
+const extraView = computed<{readonly component: Component | null; readonly loading: boolean; readonly failed: string | null}>(() => {
+    if (extraTab.value === null) return {component: null, loading: false, failed: null};
+    const slot = props.entryTabs.view(extraTab.value);
+    if (slot.status === "ready") return {component: slot.component, loading: false, failed: null};
+    return {component: null, loading: slot.status === "loading", failed: slot.status === "failed" ? slot.reason : null};
+});
+
 /** 数据分页用哪个界面：交付了的专门界面；还在加载时先写“读取中”，不先画通用字段表再整块换掉；没有或失败时用通用字段表。 */
 const dataView = computed<{readonly component: Component | null; readonly loading: boolean; readonly failed: string | null}>(() => {
     const namespace = dataNamespace.value;
@@ -346,6 +415,10 @@ const setPosition = (value: string): void => {
             :tabs="tabs"
             :tab="tab"
             :deletable="blocked === null"
+            :line-options="props.windowLine.options.value"
+            :line="windowLine"
+            :resolved-line="chapterLine(position, chapters)"
+            @update:line="(value: string) => props.windowLine.set(value)"
             @update:position="setPosition"
             @update:planned="(value: boolean) => (state.planned = value)"
             @update:tab="(value: string) => (state.tab = value)"
@@ -400,6 +473,11 @@ const setPosition = (value: string): void => {
                 <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
                 <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
                 <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
+            </template>
+            <template v-else-if="extraTab !== null">
+                <p v-if="extraView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: extraView.failed}) }}</p>
+                <p v-else-if="extraView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
+                <component :is="extraView.component" v-else-if="extraView.component !== null" :key="extraTab" :context="tabContextFor(extraTab)" />
             </template>
         </EntryPage>
         <Dialog

@@ -25,7 +25,7 @@ describe("显示底部视图的命令", () => {
         state.pickFirst.value = false;
         state.selected.value = {group: "hints", key: "x", index: 0};
         const {executed, commands} = recording();
-        const implementations = canonCommands(commands, {newEntry: () => undefined, pendingShown: () => pickFirstPending(state)});
+        const implementations = canonCommands(commands, {newEntry: () => undefined, pendingShown: () => pickFirstPending(state), pickLine: async () => ({ok: true, value: null})});
         expect(await implementations[SHOW_PENDING_COMMAND]!.run({})).toEqual({ok: true, value: null});
         expect(state.expanded.value).toEqual(["pending", "hints"]);
         expect(state.pickFirst.value).toBe(true);
@@ -34,11 +34,11 @@ describe("显示底部视图的命令", () => {
 
     it("show-revisions 显示改动记录视图；窗口里没有命令服务时两条都得到 unavailable", async () => {
         const {executed, commands} = recording();
-        const implementations = canonCommands(commands, {newEntry: () => undefined, pendingShown: () => undefined});
+        const implementations = canonCommands(commands, {newEntry: () => undefined, pendingShown: () => undefined, pickLine: async () => ({ok: true, value: null})});
         await implementations[SHOW_REVISIONS_COMMAND]!.run({});
         expect(executed).toEqual([{id: OPEN_VIEW_COMMAND, args: {viewId: REVISIONS_VIEW}}]);
 
-        const bare = canonCommands(null, {newEntry: () => undefined, pendingShown: () => undefined});
+        const bare = canonCommands(null, {newEntry: () => undefined, pendingShown: () => undefined, pickLine: async () => ({ok: true, value: null})});
         expect(await bare[SHOW_PENDING_COMMAND]!.run({})).toMatchObject({ok: false, code: "unavailable"});
         expect(await bare[SHOW_REVISIONS_COMMAND]!.run({})).toMatchObject({ok: false, code: "unavailable"});
     });
