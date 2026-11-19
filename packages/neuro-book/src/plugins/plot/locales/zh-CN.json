@@ -1,0 +1,258 @@
+{
+    "commands": {
+        "category": "剧情",
+        "open-secrets": {
+            "title": "打开谁知道什么"
+        },
+        "open-ledger": {
+            "title": "打开伏笔账本"
+        },
+        "open-goals": {
+            "title": "打开目标表"
+        },
+        "show-sidebar": {
+            "title": "显示剧情"
+        }
+    },
+    "views": {
+        "sidebar": {
+            "title": "剧情"
+        }
+    },
+    "editorPages": {
+        "secrets": {
+            "title": "谁知道什么"
+        },
+        "ledger": {
+            "title": "伏笔账本"
+        },
+        "goals": {
+            "title": "目标表"
+        }
+    },
+    "componentViews": {
+        "knowing": {
+            "title": "知道什么"
+        },
+        "attitude": {
+            "title": "目标与态度"
+        },
+        "point": {
+            "title": "谁知道"
+        }
+    },
+    "entryTabs": {
+        "experience": {
+            "title": "经历"
+        }
+    },
+    "sidebar": {
+        "tables": "表",
+        "lines": "剧情线",
+        "noLines": "还没有剧情线"
+    },
+    "page": {
+        "unbound": "打开作品后可用",
+        "loading": "读取中…",
+        "failed": "剧情的数据读不出来：{{reason}}",
+        "retry": "重试",
+        "lineMissing": "这条线读不到",
+        "plot": "剧情",
+        "more": "再显示（还有 {{count}} 项）",
+        "moreUnknown": "再显示",
+        "notFound": "找不到这个条目",
+        "deletedEntry": "已删除的条目"
+    },
+    "fmt": {
+        "list": "、",
+        "listSemi": "；",
+        "labeled": "{{label}}：{{value}}",
+        "labelPrefix": "{{label}}：",
+        "note": "（{{text}}）",
+        "withNote": "{{text}}（{{note}}）",
+        "dot": " · ",
+        "none": "—"
+    },
+    "degree": {
+        "knows": "知道",
+        "misbelieves": "信错了",
+        "suspects": "怀疑",
+        "forgot": "忘了",
+        "unaware": "不知道",
+        "noRecord": "没有记录",
+        "unset": "没填程度"
+    },
+    "secrecy": {
+        "common": "常识",
+        "trade": "行内",
+        "secret": "保密",
+        "topSecret": "绝密"
+    },
+    "chapter": {
+        "of": "第 {{index}} 章",
+        "paragraph": "第 {{index}} 章第 {{paragraph}} 段",
+        "prehistory": "前史",
+        "unscheduled": "还没排章"
+    },
+    "secrets": {
+        "segments": {
+            "label": "筛选",
+            "all": "全部",
+            "readerOnly": "只有读者知道",
+            "readerUnaware": "读者还不知道",
+            "noPlan": "没打算怎么揭"
+        },
+        "columns": {
+            "secret": "秘密",
+            "others": "别的人",
+            "reader": "读者",
+            "plan": "打算怎么揭"
+        },
+        "about": "关于{{name}}",
+        "other": "别的",
+        "noOne": "没有人知道",
+        "andMore": "{{list}} 等 {{count}} 人",
+        "readerFrom": "{{degree}}，{{place}}起",
+        "revealExplicit": "{{chapter}}明说",
+        "revealHint": "{{chapter}}暗示",
+        "written": "已写",
+        "noPlan": "没有打算",
+        "pick": "选要看的人（{{chosen}} / {{total}}）",
+        "pickTitle": "要看的人",
+        "pickLimit": "最多选 {{count}} 个",
+        "empty": "还没有秘密",
+        "tableLabel": "谁知道什么",
+        "decision": {
+            "decided": "{{text}}：{{conclusion}}",
+            "pending": "{{text}}：还没定",
+            "pendingDue": "{{text}}：还没定，{{chapter}}到期"
+        }
+    },
+    "ledger": {
+        "segments": {
+            "label": "筛选",
+            "unpaid": "还没收",
+            "silent": "很久没提",
+            "unplanned": "没打算怎么收",
+            "dropped": "已放弃",
+            "all": "全部"
+        },
+        "columns": {
+            "name": "伏笔",
+            "stage": "到哪一步",
+            "last": "上次提到",
+            "next": "接下来",
+            "band": "节点"
+        },
+        "stage": {
+            "unplanted": "还没埋",
+            "planted": "埋了",
+            "echoing": "呼应中",
+            "partial": "收了一部分",
+            "paidOff": "收了",
+            "dropped": "已放弃"
+        },
+        "importance": {
+            "main": "主线",
+            "side": "支线",
+            "minor": "次要"
+        },
+        "role": {
+            "plant": "埋下",
+            "echo": "呼应",
+            "mislead": "误导",
+            "partial": "收一部分",
+            "payoff": "收"
+        },
+        "roleShort": {
+            "plant": "埋",
+            "echo": "应",
+            "mislead": "误",
+            "partial": "部",
+            "payoff": "收"
+        },
+        "silent": "{{count}} 章没提",
+        "next": "{{chapter}}{{role}}",
+        "none": "没有打算",
+        "unplannedNote": "还没打算怎么收",
+        "legendWritten": "写了",
+        "legendPlanned": "打算写",
+        "legendRoles": "埋下、呼应、误导、收一部分、收",
+        "here": "所选位置",
+        "empty": "没有伏笔",
+        "tableLabel": "伏笔账本",
+        "legend": "{{written}}：■　{{planned}}：□　{{roles}}",
+        "nodeLabel": "{{chapter}}{{role}}，{{state}}"
+    },
+    "goals": {
+        "all": "所有主要角色",
+        "holderLabel": "看谁",
+        "finished": "也列达成与放弃的",
+        "status": {
+            "active": "进行",
+            "blocked": "受挫",
+            "achieved": "达成",
+            "abandoned": "放弃"
+        },
+        "attitude": "对{{object}}：{{attitude}}",
+        "notReduced": "还没归纳",
+        "hidden": "瞒着别人",
+        "conflicts": "和这些打架：",
+        "basedOn": "因为：",
+        "moved": "{{chapter}}动过",
+        "neverMoved": "出场以后没动过",
+        "quiet": "{{count}} 章没动过",
+        "collapse": "收起{{name}}",
+        "expand": "展开{{name}}",
+        "empty": "还没有主要角色",
+        "noGoals": "还没有目标与态度"
+    },
+    "attitudes": {
+        "title": "态度",
+        "object": "对象",
+        "attitude": "态度",
+        "cause": "起因",
+        "address": "称呼"
+    },
+    "knowing": {
+        "secrets": "保密的事",
+        "others": "别的事",
+        "fields": "字段",
+        "how": {
+            "witnessed": "当时在场",
+            "read": "读到的",
+            "inferred": "推断的",
+            "other": "别的途径"
+        },
+        "toldBy": "听{{name}}说",
+        "origin": {
+            "initial": "初值",
+            "goal": "目标出场时",
+            "carried": "从{{line}}带过来"
+        },
+        "mainLine": "主线",
+        "empty": "还没有知情"
+    },
+    "point": {
+        "roles": "角色",
+        "reader": "读者",
+        "related": "和它有关的",
+        "restUnaware": "别的 {{count}} 个人都不知道",
+        "restNoRecord": "别的 {{count}} 个人没有记录",
+        "moreRows": "还有 {{count}} 项",
+        "readerFrom": "{{degree}}，从{{place}}起：{{excerpt}}",
+        "decision": "决定",
+        "guard": "读者守卫",
+        "foreshadow": "伏笔",
+        "attitude": "态度",
+        "goal": "目标",
+        "attitudeFrom": "{{holder}}对{{object}}的态度是从它来的"
+    },
+    "experience": {
+        "remembered": "记得原线上的",
+        "uncast": "还有 {{count}} 条没记谁在场",
+        "with": "同时在场：{{names}}",
+        "earlier": "再显示更早的",
+        "empty": "还没有经历"
+    }
+}

@@ -7,7 +7,7 @@ import {defineProfile} from "@notnotype/nb-harness/kernel";
 import {If, Tag, ToolName} from "@notnotype/nb-harness/prompt";
 import type {AgentExtensionImplementation, AgentProfileDeclaration, AgentProfileImplementation} from "../../../shared/points";
 
-import {ADHOC_PROFILE, MAIN_PROFILE} from "../../../shared/contracts";
+import {ADHOC_PROFILE, MAIN_PROFILE, MAIN_PROFILE_TOOLS} from "../../../shared/contracts";
 import {modesExtensions} from "../../permissions/modes";
 
 const NAME = "写作助手";
@@ -17,15 +17,8 @@ const EVAL = "nbook.agent.eval";
 const ASK = "nbook.agent.ask-form";
 const ASK_FIXED = "nbook.agent.ask";
 const SPAWN = "nbook.agent.spawn";
-/** 子代理与任务中心的工具（builtin-profiles.md 输出 15）：都可选，用户能用工具绑定去掉。 */
-const DELEGATION = [SPAWN, "nbook.agent.send", "nbook.agent.answer", "nbook.agent.wait", "nbook.agent.kill", "nbook.agent.jobs"];
 
-const TOOLS = {
-    required: ["nbook.agent.read", "nbook.agent.write", "nbook.agent.grep", "nbook.agent.glob", "nbook.agent.switch-mode"],
-    // 都可选：用户能用工具绑定换另一种 `edit`，或者去掉 `shell`、`eval`。用 replace：中文一段就是一行，hashline 要整段重写，输出 token
-    // 约是 replace 的三倍（w00032 t18 的实验）。
-    optional: ["nbook.agent.edit-replace", SHELL, EVAL, ASK, ...DELEGATION],
-};
+const TOOLS = MAIN_PROFILE_TOOLS;
 
 /** 对话第一屏的开场指令（builtin-profiles.md 输出 17）：沿用旧应用的三条，润色、细纲、一致性体检。 */
 const STARTERS = [

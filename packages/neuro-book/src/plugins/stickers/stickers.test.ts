@@ -279,7 +279,7 @@ describe("表情目录", () => {
         const reports: string[] = [];
         const catalog = await StickerCatalog.open({roots: [], clock: {now: () => 0, schedule: () => () => undefined} as never, report: (code) => reports.push(code)});
         catalogs.push(catalog);
-        const receiver = pluginPackRoots({catalog, packages: {directory: async (_plugin, path) => (path === "nowhere" ? null : join(root, path)), title: () => "示例插件"}, report: (code) => reports.push(code)});
+        const receiver = pluginPackRoots({catalog, packages: {directory: async (_plugin, path) => (path === "nowhere" ? null : join(root, path)), file: async () => null, title: () => "示例插件"}, report: (code) => reports.push(code)});
         const handle = (id: string, directory: string) => ({id, plugin: "acme.cute", declaration: {directory}}) as unknown as ContributionHandle<StickerPacksDeclaration>;
         const publish = (contribution: ContributionHandle<StickerPacksDeclaration>) => receiver.published?.(contribution, undefined);
         publish(handle("acme.cute.b", "b"));

@@ -1,0 +1,136 @@
+### 1. 上游回显的密钥进入工具结果和持久诊断
+- 严重程度：阻断；类别：安全与性能。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/providers/deepseek.ts:53–63,76–88`；`backend/providers/http.ts:81–94`；`backend/tools.ts:172–174,204–208,238–274`。
+- 现象：成功响应只整理字段，不遮盖密钥；搜索的标题、摘要等直接进入模型结果和 eval 返回值，读取正文也能原样进入存档。错误响应虽然遮了 `detail`，但 `request_id` 在遮盖前抽取，同一串密钥能作为请求 id 进诊断。
+- 为什么：违反 Spec 输出 14、计划切片 2 及设计审查第 11 条；配置的上游只要意外回显 Authorization，就能把付费凭据留在会话和日志里，下一个模型请求也可能带上结果。仅测试 `error.message` 的通常位置没保护这两条路径。
+- 如何核实：`bash /tmp/review-w00052-impl/omp-scratch/run-local.sh /tmp/review-w00052-impl/omp-scratch/credentials-response.ts`。实际经远程合同写假密钥、经 Agent 和 eval 调用本机 HTTP 替身：顶层结果和 eval 标题均含完整假密钥；同一次 401 的工具和 `check` 详情不含密钥，但 `web.provider-failed` 诊断含它。
+- 建议改法：在 provider 出口统一处理不可信字段，再交文字、结构值与存档；成功响应发现回显时可拒绝为 `bad-response`，避免把已变形的网址当作正常结果。疑似含密钥的请求 id 丢掉，不把它当成可信元数据。
+
+### 2. 先建 0600 占位并不能保证首次成功写入是 0600
+- 严重程度：重要；类别：安全与性能。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/keys.ts:73–103`；`packages/nb-file-lock/src/index.ts:178–211`（base 已有的通用缺省）。
+- 现象：`open("wx", 0600)` 与空 JSON 写入都在锁外；锁内目标若已被移走，`replaceLocked` 按「新建」用 0644。已有的宽权限文件（包括恢复的坏文件）也原样保留权限，`mkdir(mode:0700)` 不会收紧已有目录。占位写失败又跳过 `handle.close()`，并可能留下空文件，使读者看到 `credentials-unavailable` 而不是「还没设密钥」。
+- 为什么：保密权限须覆盖真正写入密钥的临时文件和最终文件，不能依赖一次锁外占位；首次写入还会在提交之前暴露一个非原子初始化。现有并发测试只检查最后留下某一值，保护不了这些时序。
+- 如何核实：`bash /tmp/review-w00052-impl/omp-scratch/run-local.sh /tmp/review-w00052-impl/omp-scratch/key-file.ts`。在预先存在的 0755 `web/` 中用真锁推迟远程 `setKey`，观察到 0600 占位后移走、再释放锁；RPC 成功，最终文件实为 0644（umask 022）。不读文件内容。
+- 建议改法：去掉锁外占位；给加锁替换能力添加明确的目标模式，由密钥调用方要求临时文件打开起就是 0600，并在改名前确保最终模式。测试并发读写、目标消失及已有文件权限，不只断言顺利路径。
+
+### 3. 损坏文件的版本值既能原样外露，也能令设置页无法修复
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/keys.ts:35–47,64–70,94–101`；`backend/settings-remote.ts:21–31`。
+- 现象：诊断和 `status` 将 `String(version)` 原样交出，坏文件任意内容能从版本字段进入响应与诊断。合法 JSON 中的非标量如 `version:{"toString":null}` 还会令 `String` 抛错，同一个解析器也在写锁内调用，读和写一起变成 `provider-error`，无法从设置页覆盖恢复。
+- 为什么：违反 Spec 输出 13、14、15。坏文件内容不应成为诊断；JSON 能否解析不是唯一的损坏判据，所有格式错误都应能走统一恢复路径。`keys.test.ts:66–72` 只读数值旧版本，没有验证它或异常形状能被覆盖。
+- 如何核实：执行临时目录下的 `run-local.sh` 与 `key-file.ts`（第 2 条命令）。经真实远程合同，版本与密钥字段放入同一假值时，`status` 响应和诊断均含该值；换为上述对象后，`status`、`setKey` 都得 `provider-error`。
+- 建议改法：解析器对所有 JSON 值总是交回分类结果，版本错误只写静态原因，不转换或交出文件内容。用同一场景验证读报错、写能覆盖和诊断不含原文。
+
+### 4. 错误脱敏能把服务端线程卡过 20 秒截止
+- 严重程度：重要；类别：安全与性能。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/providers/http.ts:62–79,142`；`backend/settings-remote.ts:25–30,43–53`；`shared/contracts.ts:52`。
+- 现象：密钥没有长度上限；脱敏同步枚举它的每段子串并扫描错误文字，即使一处也没有命中。4,096 字符就有 8,362,005 次片段检查；截止计时器在这段同步工作中不能运行。短密钥也有替换冲突：接受 `**`，替成 `***` 后响应仍含完整的 `**`。
+- 为什么：16 KiB 响应上限没限制实际计算。用户误粘长串后，一个小于上限的 401 就能阻塞服务端其它会话与 RPC；检测还会在 20 秒之后交回 `auth`，不报 `timeout`。
+- 如何核实：`bash /tmp/review-w00052-impl/omp-scratch/run-local.sh /tmp/review-w00052-impl/omp-scratch/redact-cost.ts`。真实设置合同写入并检测，15,807 字节错误文字对 32 / 1,024 / 2,048 / 4,096 字符假密钥的耗时分别为 10 / 1,646 / 5,999 / 26,196 ms，均报 `auth`；短值的 `check` 响应也仍含原值。
+- 建议改法：匹配任意至少 8 字符的片段，不需要枚举所有长度：索引密钥的 8 字符窗口，合并命中区间后一次遮盖；统一限制可落盘、可用作请求头的密钥大小，短值不能保证不回显时不交详情。对超时后的结局另作核对，不能靠计时器抢占同步计算。
+
+### 5. 默认跟随重定向，`check` 也能发送第二个带密钥的 POST
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/providers/http.ts:110–142`；`backend/settings-remote.ts:43–50`。
+- 现象：`retry: false` 只管手写的 429 循环，没关掉 `fetch` 默认的重定向。真实 HTTP 的同源 307 会在新路径再发一次同样的 POST、请求体和 Authorization；最终 200 被当成检测成功。
+- 为什么：Spec 输出 1、10、19 约束目标接口与请求次数；检测只发一次，非 429 不重发（可能计费）。`fetch` 自己发出的第二次不经过此处的重试门禁，3xx 也没有按失败表归类。
+- 如何核实：`bash /tmp/review-w00052-impl/omp-scratch/run-local.sh /tmp/review-w00052-impl/omp-scratch/http-behavior.ts`。走真实 `check` 合同，假端点记到 2 次请求而不是 1 次，两次都带同一假密钥及 `{query:"DeepSeek",count:1}`。
+- 建议改法：使用 `redirect: "manual"`，3xx 按既定错误映射返回，不静默换地址。需要允许重定向时应先定明合同、计费与凭据转发边界。
+
+### 6. `Retry-After` 的 HTTP 日期被当成缺省 1 秒
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/providers/http.ts:98–102,135–141`；`deepseek.test.ts:115–140`。
+- 现象：`Number(header)` 不接受合法的 HTTP 日期，却接受空串、十六进制、小数、指数写法。服务用 HTTP 日期要求 60 秒后重试时，搜索在约 1 秒后又请求一次，最终成功；按 20 秒总截止，应不重试并返回 `rate-limited`。
+- 为什么：`Retry-After` 有非负整数秒和 HTTP-date 两种合法写法（RFC 9110 10.2.3）。现有用例只覆盖缺省和十进制整数，无法判定实际是否遵守上游限流。跳过超预算的重试与真正到时的 `timeout` 应分开。
+- 如何核实：第 5 条的 `http-behavior.ts` 第二段经真实 Agent 工具发请求，假端点回 429 和将来 60 秒的合法日期：记录 2 个请求，工具结果为 `ok`。
+- 建议改法：只接受全十进制的秒值或有效 HTTP 日期；日期减墙钟换算等待量、非正值归零，截止用单调时钟；缺失或非法值按约定回退。补日期、空值及「正好到截止」三类断言。
+
+### 7. 总截止不包含读密钥，取消检测后还能开始计费请求
+- 严重程度：重要；类别：不变量。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/keys.ts:55–65`；`backend/tools.ts:150–162,195–205,232–248`；`backend/settings-remote.ts:38–54`。
+- 现象：三个入口都先 `await keys.read` 才计时，读本身不限长度、不接受中止，连普通文件都不核对。两个工具至少会在读完后检查父信号；`check` 则只新挂监听，不处理读期间已经触发的 abort。另一个时点问题：`postJson` 的循环入口只看 signal，等待重试回来不复核绝对截止；计时器的迟到不能代替这个检查。
+- 为什么：违反 Spec 输出 9、19 的总截止；在启动计费请求前就因取消结束时，不应等本机读盘完成后再开始一次请求。RPC 的 `unknown-outcome` 本身是正确的（已 ACK），不代表后端必须把尚未开始的 HTTP 发出去。
+- 如何核实：`bash /tmp/review-w00052-impl/omp-scratch/run-local.sh /tmp/review-w00052-impl/omp-scratch/cancel-during-key-read.ts rpc`（以及参数 `tool`）。在真实 RPC/Agent 会话用 Linux FIFO 控制真实 `readFile` 完成时点：取消时上游请求数为 0，RPC 已报 `unknown-outcome` 后释放读端，才收到 1 次搜索；工具探针让读超过 21 秒后再完成，收到 1 次搜索并返回 `ok`。无内部函数替身。
+- 建议改法：从入口开始设一个 scope，先合并已取消状态，再有界读普通密钥文件；每次发请求及准备存档前检查父信号与剩余预算，把取消与实际超时分开结算。复用这一段计时和监听收尾，不再分别写两套。
+
+### 8. 在断行或预览边界截开代理对，全文存档丢字
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/tools.ts:102–122,184–186,248–274`；`web.test.ts:157–181`。
+- 现象：硬断行与三个文字截断都按 UTF-16 索引 `slice`。非 BMP 字符正跨边界时，断行把一对代理拆开；编码为 UTF-8 时被写成两个 U+FFFD。20,000 的预览边界实测还把高代理半个带进会话结果。断行的标点扫描也跳过索引 0，分隔符只在一段首位时会硬断而不是按 Spec 选它。
+- 为什么：存档不是可恢复的全文，即使 `read` 报没有截行；Spec 输出 6、7 的保真要求不能由 BMP 全是同一个字的验收证明。
+- 如何核实：`bash /tmp/review-w00052-impl/omp-scratch/run-local.sh /tmp/review-w00052-impl/omp-scratch/archive.ts`。真实 eval 调 `web_fetch`、用返回地址经真实 `read` 读档：`clipped:[]`，但原文对不上，且恰有 2 个替换字符。另测预览含一个孤立高代理。
+- 建议改法：先核定公开的「字」口径，用不会拆开码点的扫描实现截断；存档还要按 `read` 的 UTF-16 行预算断行。覆盖边界前一位的非 BMP 字符、仅有首位分隔符及标点选择，独立断言 `read` 回来的内容。
+
+### 9. 搜索网址另有一条未经转义的文字出口
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/providers/deepseek.ts:31–38,51–58`；`backend/tools.ts:97–100,180–189,214–238,248–250`。
+- 现象：通过 `new URL` 校验后返回的是原字符串；搜索又在标记外用 `网址：${hit.url}` 直接拼一遍。同一个结果的标题、摘要、站点、日期里的结束标记均被正确转义，但网址里的原样结束标记仍进入模型结果。读取则按解析后的 hostname 判定，却把原 URL 交上游和存档来源行；含制表或换行的 URL 不能作为一条可靠的来源行。
+- 为什么：违反输出 8 对网址的转义约定，也不应让审批、发送和展示各自解释同一原始输入。这里不是主张内容标记能隔离提示注入。
+- 如何核实：第 8 条 `archive.ts` 的搜索段经真实会话：4 个网页文字字段的结束标记均转义；1 条搜索结果却有 2 个未转义的 `</web-content>`，多出的来自原始网址行。读取方向的 URL 流向由列出代码可追到。
+- 建议改法：统一解析和规范化 URL；判定主机、发请求、来源和显示共用已验证的地址。不要在标记外重复拼接原始外部字符串。
+
+### 10. 保存后不能用作请求头的密钥，误报网络不可达
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/web-tools/shared/contracts.ts:28,51–54`；`backend/settings-remote.ts:25–36,38–39`；`backend/providers/http.ts:115–123`。
+- 现象：`setKey` 只去掉首尾空白并拒绝空串与 `env:`。把含中间换行的文本粘进设置，会覆盖已有密钥并返回「已设置」；构造 Authorization 失败时被归为 `unreachable`，不是判参失败。另有一处错误码分歧：空 `provider` 先在 RPC schema 处被拒为 `invalid-input`，不是 Spec 输出 17 的 `invalid-value`。
+- 为什么：设置保存了无法用于该服务的值，检测提示用户检查网络，但实际一次 HTTP 都没发。换成从前的有效密钥无需改网络。
+- 如何核实：第 5 条 `http-behavior.ts` 的末段，真实 RPC 测得 `blankProvider.code=invalid-input`、`malformedKeySet=true`、`check.code=unreachable`、请求数为 0。
+- 建议改法：在写文件之前检验去空白后可作 Bearer 值，至少拒绝内嵌换行等非法头字段字符；供应商字符串交由同一个受控 `invalid-value` 分支处理，不回显原值。覆盖「拒绝时保留原密钥」。
+
+### 11. 密钥写失败把服务端的绝对路径交给浏览器
+- 严重程度：建议；类别：安全与性能。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/keys.ts:91–101`；`backend/settings-remote.ts:25–36`；`packages/nb-file-lock/src/index.ts:124–131,176,184,224`；`packages/neuro-book/src/shared/host.ts:22–23`。
+- 现象：`setKey`、`clearKey` 把锁和写盘的 `result.detail` 拼进业务失败。下层库的说明包含底层异常或真实路径，越过 RPC 边界；读失败分支已能只交稳定原因，写失败没有同样的边界。
+- 为什么：浏览器要知道的是密钥文件不能写、怎样恢复，不需要服务端用户名、状态根路径或系统报错。完整的本机诊断与面向调用方的详情应分开。
+- 如何核实：第 2 条 `key-file.ts` 在临时状态根把 `web/` 变为 0555 后走真实 `setKey`，得 `credentials-unavailable` 且 `detailHasStatePath:true`。
+- 建议改法：远程合同仅交固定的失败原因或稳定的子码，真实路径和受控的 `errno` 只留服务端诊断；补真实只读目录的不外露断言。
+
+### 12. 新的计时没有经过宿主时钟，现有单测也没有测产品截止
+- 严重程度：建议；类别：代码质量。
+- 位置：`packages/neuro-book/src/plugins/web-tools/backend/plugin.ts:15–17,41–56`；`backend/tools.ts:150–162`；`backend/settings-remote.ts:43–54`；`backend/providers/http.ts:25–35`；`deepseek.test.ts:17–27,130–160`；`packages/neuro-book/src/shared/host.ts:66–70`。
+- 现象：宿主提供的 `clockKey` 已约定插件用它计时与算截止；这里直接把 `Date.now`、`setTimeout` 与 `realSleep` 分别接到两个调用入口。客户端测试只推进自造的 `clock`，真实入口的超时计时、等待时中止、读盘纳入总截止均不受这个时钟控制。
+- 为什么：违反 ADR 0026 决定 3；测试能证明 provider 的预算分支，不能证明产品在 20/45 秒收口。为了测第 7 条真实入口只能实等一次 21 秒。
+- 如何核实：对照 `src/server/start.ts:205–210` 的宿主能力、Agent 后端取 `clockKey` 的方式，以及第 7 条探针；产品和临时 `HttpOptions` 走两套时间来源。
+- 建议改法：从插件依赖取得 `RuntimeClock`，用它调度一个调用 scope 和可中止等待；测试在真实运行时推进同一个时钟，通过观测到的 HTTP/归档结果断言截止，不给产品另加测试分支。
+
+### 13. 「不重复检测」用例在断言前清空了请求证据
+- 严重程度：建议；类别：测试。
+- 位置：`packages/neuro-book/src/plugins/web-tools/search-store.test.ts:84–103`；`testing/fake-deepseek.ts:69–79`。
+- 现象：前一次 401 留下一条记录；两次 `check` 发出后只等总数 `>= 2`，随后调用 `reset()` 放开挂起的请求。`reset()` 同时把请求数清零，最后断言的是清零后的 `0`，不是本轮实际计费的次数。如果重复请求在 `reset` 前已经到达，它会和正常请求一起被清掉。
+- 为什么：这条通过不能证明设置页输出 8 的「进行中不重复发」。真实 RPC 与真实 HTTP 都接好了，断言却丢了行为证据。
+- 如何核实：沿第 94–102 行和 `reset` 的实现核对记录的时点；`run-local.sh test src/plugins/web-tools/search-store.test.ts` 的 6 条均通过，未改源做变异，也不据此声称产品一定重发。
+- 建议改法：提供只放开当前响应、不清记录的闸门；记本轮请求数基线，等两次 `check` 都结算后断言总量恰好增加 1。
+
+### 14. 真实模型烟测没有验证「同一次 eval 得到三个结构值」
+- 严重程度：建议；类别：测试。
+- 位置：`packages/neuro-book/src/plugins/web-tools/agent.llm.test.ts:49–51,78–89`；`web.llm.test.ts:42–48`；`backend/providers/deepseek.ts:81–88`；`backend/tools.ts:232–238`。
+- 现象：会话烟测在整条历史中数 `nestedToolResult`，不看 run、父调用 `within`、参数或 eval 的结局；三个同网址的调用、分散在多个 eval、至少两个 HTTP 成功但代码收到 `returns-mismatch`，都不被现有判据排除。直接接口烟测的 FTP 断言测的是上游碰巧回 400：客户端直接发了请求，产品的本地 URL 拒绝发生在工具层。
+- 为什么：日志中的子调用 `ok` 发生在代码收到结构值之前（`packages/nb-harness/src/kernel/run/tools.ts:558–569`，`packages/neuro-book/src/plugins/agent/backend/eval/tool.ts:399–407`）；接口烟测不能替代「不是 http(s) 时不发请求」的本机判据。Task 中已有真服务通过记录，不代表断言保护了以上行为。
+- 如何核实：静态对照上述调用链；本轮未运行 `*.llm.test.ts` 或联系真服务。`web.test.ts:148–155,157–174` 的本机 Agent 测试已验证本地拒绝和批量成功路径。
+- 建议改法：按这次 run 与同一个成功的 eval 分组，核对三个不同指定的网址、各自结局及代码输出里的结构字段。真实接口夹具对照只测真实接口的形状与归类；无请求的 FTP 断言留在已有工具验收。
+
+### 15. 应用变更记录未写新增用户行为
+- 严重程度：建议；类别：文档。
+- 位置：`packages/neuro-book/CHANGELOG.md:5,15–22`；`docs/standards/releasing.md:16–19`。
+- 现象：应用第一次装配这两个工具与独立的密钥设置，`## [Unreleased]` 下没有条目。
+- 为什么：发布规范要求用户看得到的新行为在同批提交入应用变更记录；Task 计划和 Spec 不进入面向用户的版本说明。
+- 如何核实：`git diff f8c34a417 22ab88196 -- packages/neuro-book/CHANGELOG.md` 无改动，目标提交的 `[Unreleased]` 未列这项。
+- 建议改法：在 `### 新增` 补一条用户能做什么，不写内部类名和实现过程。
+
+## 未发现问题的方面
+
+- 产品服务端用 `PluginDefinition` 常量登记；参数化密钥来源只供测试变体调用，状态根走宿主服务。Agent 的工具助手、贡献点 id 与类型从同一合同转出。产品清单、服务端定义表、新增内置名称和 CI 消息目录登记对得上；真实 WebSocket 的 `status` 装配测试通过。时钟问题另见第 12 条。
+- 正常文件路径的读不建文件、写后立即可见、并发成功后 JSON 仍合法、清除不保留旧值、通常的坏 JSON 可恢复均有实测；第 2、3、7、11 条列出例外。未观察到第 2 条竞争结束后残留锁目录。
+- 经真实会话验证了默认 `count: 8`、带站点和日期过滤时 128/129 码点的请求边界、顶层无 `details`、非 HTTP(S) 拒绝、按 hostname 拒绝及 eval 结构值。`tool-contracts.ts` 用同名普通文件让真实存档失败：顶层仍给预览并写「全文没存下」，结构值不带地址，200,001 字截到 200,000 且有 `truncated: true`。其他全文与标记边界见第 8、9 条。
+- 本机 HTTP 验证 4 MiB/16 KiB 超量分类、通常状态码、仅对 429 的显式重试上限，以及实际请求在途 abort。未把 `too-large` 断言当作连接已经关闭的证据。RPC 发出后的中断由既有运行时按写请求结算，本次未发现它重放；读密钥后迟发请求见第 7 条。
+
+## 实际验证与基线
+
+- 审查 `f8c34a417158f086a6127f8bc7b2f6e3297f170d..22ab8819633644e7b45a44bbbf22f979e87660f5`；测试均在实现 worktree 加载目标 HEAD，由 `R=/tmp/review-w00052-impl/omp-scratch/run-local.sh` 校验。Bun `1.4.4 (38afee6c8)`；按 `bash "$R" test src/plugins/web-tools/<文件>` 单跑：`deepseek.test.ts` 24、`keys.test.ts` 5、`web.test.ts` 8、`assembly.test.ts` 1、`search-store.test.ts` 6，共 44 条通过、0 失败。对两处登记的 `locales` 用 `catalogFailures` 校验，均无问题。审查范围的 `git diff --check` 无输出。
+- `bash "$R" test src/plugins/plugins/shared/builtin-names.test.ts` 为 1 通过、1 失败。`src/server/server.test.ts` 只选本次触及的启动与停止断言，6 失败、20 未选。7 个失败均只差 `nbook.stickers`：base 已在产品清单和服务端定义表登记，但旧名称表没登记、旧服务端断言没列它；Task 也有 base 同样失败的记录。不是本次回归。此前记录的 Agent 同名工具选择与模型密钥清除竞争也未计入。
+- `bash "$R" run tsc --noEmit --incremental false` 150 秒超时。临时定向配置初次漏带项目的 `vue-sfc.d.ts`，三个 `.vue` 的 TS2307 不计为产品问题；带回声明后的 `bash "$R" run tsc --project /tmp/review-w00052-impl/omp-scratch/tsconfig.server-review.json --pretty false` 110 秒超时。类型检查未完成，不记为通过。
+- 未运行真实 DeepSeek、真实模型测试、全量、e2e 或开发服务；浏览器实现、Lab 不在审查范围内。运行数据用合成凭据，未读取 `.env` 或真实密钥；未修改源码或 Git 状态。
+
+分级计数：阻断 1，重要 9，建议 5；合计 15。基线失败另记。
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15。

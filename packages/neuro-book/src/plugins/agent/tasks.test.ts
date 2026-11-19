@@ -226,4 +226,38 @@ describe("按调用方盖章（sessions.md 输出 21）", () => {
         const started = (await service.session(task.sessionId).log({afterSeq: 0})).events.find((event) => event.type === "runStarted");
         expect((started?.data as {by?: unknown}).by).toEqual({kind: "host", source: {plugin: "test.scheduler", label: "定时任务"}});
     });
+
+    test("输出 23：owner 只给 id，plugin 由门面盖成调用方；不合得 invalid-owner、不建会话；盖章的发出者与会话头都改不动", async () => {
+        let facade: import("./shared/contracts").AgentService | null = null;
+        const keeper: PluginDefinition = {id: "test.keeper", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: agentKey}], activate: (context) => {
+            facade = context.services.require(agentKey);
+            return {};
+        }})]};
+        await world({plugins: [keeper]});
+        if (facade === null) throw new Error("the keeper did not get the agent service");
+        const service: import("./shared/contracts").AgentService = facade;
+        // 调用方自填的 plugin 不算数（类型上也没有这个字段）。
+        const created = await service.create({profile: SOLVER, id: "bot-lyra", owner: {id: "lyra", plugin: "nbook.other"} as {id: string}});
+        if (!created.ok) throw new Error(created.code);
+        const header = await service.header("bot-lyra");
+        if (!header.ok) throw new Error(header.code);
+        expect(header.value.owner).toEqual({plugin: "test.keeper", id: "lyra"});
+        expect(Object.isFrozen(header.value) && Object.isFrozen(header.value.owner)).toBe(true);
+
+        for (const id of ["", "坏 id", "x".repeat(129)]) {
+            expect(await service.create({profile: SOLVER, id: `bad-${String(id.length)}`, owner: {id}})).toMatchObject({ok: false, code: "invalid-owner"});
+            expect(await service.header(`bad-${String(id.length)}`)).toMatchObject({ok: false, code: "session-not-found"});
+        }
+
+        const view = created.value;
+        const issuer = view.issuer as {kind: string; source: {plugin: string}};
+        expect(() => {
+            issuer.kind = "user";
+        }).toThrow(TypeError);
+        expect(() => {
+            issuer.source.plugin = "nbook.other";
+        }).toThrow(TypeError);
+        await view.enqueue({commandId: randomUUID(), input: {text: "排一句"}, mode: "followup"});
+        expect((await view.snapshot()).buffer.map((item) => item.by)).toEqual([{kind: "host", source: {plugin: "test.keeper", label: "test.keeper"}}]);
+    });
 });

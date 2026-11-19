@@ -1,0 +1,34 @@
+---
+schema: nbook.task/v2
+taskId: t37-write-foundation
+status: active
+updated: 2026-11-19
+---
+
+# 写入底座：作者与 Agent 都能改设定
+
+## 目标与范围
+
+作者在界面里、Agent 用工具都能读写设定的全部数据：各种字段、列表与元素、引用、图片、语义档、主文字的块、Component 的加与去、条目的名字与位置。都走同一条发布通道、留改动记录、可还原。设定视图空着时有明显的新建入口。
+
+来由：开发者 2026-11-19 看过 t31 第二批第一期后定的方向（[Work README](../../README.md) 决定表同日）：作者与 Agent 都能改数据最重要；先把底座做好，再做通一个闭环（候选是人物 Component 的设定）；UI 打磨排到最后。人物的闭环不在本 Task，底座做完再定。
+
+合同：
+
+- 改 [`canon/revisions.md`](../../../../../docs/specs/canon/revisions.md)（一次改几处）、[`canon/project.md`](../../../../../docs/specs/canon/project.md)（远程方法）、[`canon/author-ui.md`](../../../../../docs/specs/canon/author-ui.md)（各种字段的改法、空状态）；
+- 新建 `canon/agent-tools.md`。
+
+计划：[`plan.md`](plan.md)。
+
+## 当前状态
+
+- 2026-11-19 新建。主会话核实现状：Agent 一侧什么都没有；作者只能就地改四种标量字段。
+- 计划第 1 稿与独立设计（Sonnet，[`evidences/independent-design.txt`](evidences/independent-design.txt)）对照后定稿，交设计审查：后端 omp 11 条（阻断 5），前端 Sonnet 15 条（重要 11），全部成立，[处理](evidences/design-review-resolution.txt)后改成第 2 稿。后端的五条阻断改动了内核的核心规则，第 2 稿的后端部分再交 omp 审一轮；前端的处理照审查建议落地，不再开设计审查。
+
+- F4（分支 `feat/w00039-t37-write-foundation`）：nb-ui `SearchSelect` 加远程模式（`search` 事件、不在本地筛、`selectedLabel`）与清空按钮（`b12b9cad8`）；canon 的条目选择器 `EntryPicker` 与图片输入 `ImageInput`（`86d6a91c3`）。`EntryPicker` 原先自己发查找、标 `io:read`，Lab 挂不了（带 `io:` 的组件只能在真实界面验证），改成受控零件，去抖与晚到结果作废挪进组合式函数 `useEntryFind`，各宿主共用。dom 测试与变异检查都过，网页与浏览器测试的类型检查通过。
+
+## 下一步
+
+1. 等后端第二轮设计审查的结论，处理后开始 F1。
+2. 第二轮处理完后照切片 F1 到 F7 实施。
+3. 底座合入后，和开发者定人物 Component 闭环的范围。

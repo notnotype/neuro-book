@@ -33,9 +33,9 @@ owners:
   ```ts
   interface BotPresetDeclaration {
       name: string;        // 单行，1–40 个字符
-      avatar: string;      // 插件包里的图片文件（png、jpg、webp），不大于 1 MiB
+      avatar: string;      // 插件包里的图片文件（png、jpg、jpeg、webp），不大于 1 MiB
       profile: string;     // Profile 的 key
-      persona: string;     // 插件包里的一个 Markdown 文件，不大于 256 KiB
+      persona: string;     // 插件包里的一个 Markdown 文件（.md），不大于 256 KiB
       memorySeed?: string; // 插件包里的一个目录：至多 200 个普通文件、合计不大于 4 MiB，不含链接
   }
   ```
@@ -50,7 +50,7 @@ owners:
 3. `nbook.bots` 经 `agent.profiles` 交出内置岗位 Profile `nbook.bots.companion`：工具与 Agent 模式同主创（`nbook.agent.main`，含它的模式扩展；`shell` 照主创是可选、缺省装上），系统提示词只写岗位（用户身边常驻的助手），不写人设。它标 `hidden`：只给 bot 的主对话用，新建会话时不列出。
 4. 启动：`nbook.bots` 自己的缺省预设声明交到接收方之后（这时它交出的岗位 Profile 已交给 `nbook.agent`），在后台读 bot 记录、持有已有的主对话（[`main-conversation.md`](main-conversation.md) 输出 2），这一步不看缺省预设的文件是否可用。一个 bot 都没有时，等缺省预设的文件核对有了结果：可用就建 bot `lyra`，不可用就写诊断 `bots.default-preset-missing`、不建。缺省预设的声明由 `nbook.bots` 自己交出，平台不接受它是发版缺陷。建 bot 不需要模型。
 5. 建 bot：
-   1. 在 `<状态根>/user/bots/` 下建暂存目录 `.staging-<随机>/`，把人设复制成 `persona.md`、头像复制成 `avatar.<原扩展名>`、记忆种子复制进 `memory/`，最后写创建凭据 `.created.json`（格式版本、bot id 与这次要写的 bot 记录）；
+   1. 在 `<状态根>/user/bots/` 下建暂存目录 `.staging-<随机>/`，把人设复制成 `persona.md`、头像复制成 `avatar.<原扩展名，小写>`、记忆种子复制进 `memory/`，最后写创建凭据 `.created.json`（格式版本、bot id 与这次要写的 bot 记录）；
    2. 把暂存目录改名成 `<bot id>/`；
    3. 照凭据写 bot 记录，再读回确认。
 
@@ -75,8 +75,8 @@ owners:
 
 - 激活里不读写会话（[`agent/contributions.md`](../agent/contributions.md) 输出 3）。后台任务从 `nbook.bots` 自己的预设接收方收到缺省预设的声明时开始：这时它交出的岗位 Profile 已交给 `nbook.agent`、能解析，调 `agentKey` 不等自己的激活。
 - 预设的文件核对是异步的：撤回之后才查完的结果作废，不把撤回了的预设记成可用，也不盖掉同一个 id 后来发布的那份。
-- `nbook.bots` 的停止信号一到，后台任务不再开始新的工作、不再排重试；在途的建 bot 与持有做完一步后停下，迟到交回的持有立即放掉。这些都先于 `nbook.agent` 停止。
-- 后台任务跑完之前调远程方法：`list()` 交回已有的记录；`ensureMain` 等这个 bot 建好再做。
+- `nbook.bots` 的停止信号一到，后台任务不再开始新的工作、不再排重试；在途的建 bot 与持有做完一步后停下，迟到交回的持有立即放掉。服务端停止时 `nbook.agent` 同时开始停止、照它的规则关闭会话，不等 `nbook.bots` 放掉持有（[`agent/sessions.md`](../agent/sessions.md) 输出 14、24）。
+- 后台任务读到记录之前，`list()` 交回空表，读到、建好之后推 `botsChanged`；这之前到的 `ensureMain` 等它，读完、建完再查 bot。
 
 ## 副作用与数据
 
@@ -91,10 +91,12 @@ owners:
 | `unknown-bot` | 没有这个 bot | 重新 `list()` |
 | `bots.preset-invalid`（诊断） | 预设的文件不合，不可用 | 插件作者按原因改 |
 | `bots.default-preset-missing`（诊断） | 缺省预设不可用，没有建 bot | 查 `nbook.bots` 的安装 |
-| `bots.record-unreadable`（诊断） | bot 记录读不懂 | 查状态根；不自动重建 |
+| `bots.record-unreadable`（诊断） | bot 记录读不懂（读到的、或建 bot 写记录时碰到的） | 查状态根；不自动重建 |
 | `bots.directory-unknown`（诊断） | bot 目录在、记录不在，又没有读得懂的创建凭据 | 查状态根；不自动登记 |
 | `bots.create-failed`（诊断） | 建 bot 没做成：`<bot id>/` 已经在了（不覆盖），或记录没写下 | 查状态根；下次启动再试 |
 | `bots.record-failed`（诊断） | 插件存储读写失败（区别于读不懂） | 查存储；下次启动再试 |
+| `bots.start-failed`（诊断） | 后台任务出了意外的错（例如复制预设文件时读写出错） | 按诊断里的原因查；下次启动再试 |
+| `bots.builtin-missing`（诊断） | 应用的安装里没有 `nbook.bots` 的内置资源目录，缺省预设随之不可用 | 查安装 |
 
 ## 边界与兼容
 

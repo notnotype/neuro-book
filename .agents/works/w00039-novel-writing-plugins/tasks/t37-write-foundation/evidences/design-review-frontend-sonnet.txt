@@ -1,0 +1,142 @@
+w00039 t37 前端设计审查（作者界面部分）报告；审查对象 plan.md 三.4、二、四、五、六；基线 46a224460
+
+[1] 重要（F5 照字面实现会返工）| 依赖的机制不存在 | 计划“二、技术选型”条目选择器行、“三.4 引用”
+现象：计划写“nb-ui 的 SearchSelect，按输入调新的 findEntries”，理由是“仓库已有；否决把全部条目一次读进下拉”。
+核实：packages/nb-ui/src/components/form/SearchSelect.vue 的 emits 只有 update:modelValue（选中时）与 focus（第 61-64 行）；
+输入的文字是组件内部的 query，不对外发出；候选列表是 `props.options.filter(option.label 包含 query)`（约第 90 行，本地过滤）；
+SearchSelect.md“不支持”一节明写“多选、自由输入、异步加载选项、分组标题；按拼音或说明搜索：只按名称包含”。
+为什么是问题：
+ a. 宿主拿不到搜索词，没法“按输入调 find”；组件只能一次拿全量 options，正是计划否决的做法。
+ b. 就算宿主把 findEntries 的结果塞进 options，组件还会再按 label 做一遍“包含”过滤：findEntries 靠别名命中的条目（label 是名字，不含搜索词）会被本地过滤掉，作者搜别名搜不到。
+ c. 已选项的显示靠 options 里有同值的项（selected = options.find）：选中后 options 随搜索词换成别的结果，输入框会变空；引用字段的当前值（不在这次搜索结果里）也显示为空，除非宿主另外把它塞进 options。
+ d. 同一个坑会出现在元素对话框里 nb-form 的自定义条目控件、新建对话框“上级与另一个身份的候选改用 findEntries”（现在是已读到的条目传给 Select，Select 同样是静态 options）。
+建议改法：计划里补一项 nb-ui 改动（或在 nb-ui 里加 `filter: false` 加 `search` 事件的远程模式，同步改 SearchSelect.md 与 forms.md 输出 30），写成 F4/F5 的前置；或者用 SuggestionMenu 自己搭一个“远程搜索选择”组件放进 canon/web 并写进 Lab 场景。两种做法都要说清：已选项的显示名由谁给（建议值旁带 {id,name}，不靠 options 反查）、搜索请求的去抖与晚到作废、搜索失败与无结果的行。
+
+[2] 阻断（F3 之外 F4 的头一个输入就走不通）| 依赖的机制 / 合同 | 计划“三.4 页头：名字、简介各有‘改’，走确认条，地址 entry.name、entry.summary”
+现象：现在的确认条是按“<命名空间>.<字段>”写死的，页头的名字与简介不是这种字段，直接复用会出三处错：
+ a. in-place-edit.ts 的 open() 取 `read: {value: state?.value ?? null}`，state 来自 fieldAt(path) 在 view.namespaces["entry"] 里找，找不到，读到值为 null；保存时 editInPlace 带 read=null，与真实名字对不上，服务回 value-conflict（“这个值刚刚变了”）。另外 `watch(options.version)` 比较 `options.field(path).state?.value`（undefined）与 draft.read.value（null），JSON.stringify 一个是 undefined 一个是 "null"，每次世界版本变都会写“这个值刚刚变了”。
+ b. EntryPageHost.vue 里 ConfirmBar 只在 `<template v-else-if="dataNamespace !== null">` 这一支里渲染，并要求 `editHere`（draft.path 以当前命名空间加点开头）。页头在文字、情节、附加分页上同样显示，点“改”以后确认条没有地方出现；在数据分页上 entry.name 又不以命名空间开头，editHere 为假，确认条也不出现。
+ c. labelOf/kindOf/intentsOf 都靠 declaration 与 state，entry.* 没有声明：标题会写成路径的后半段“name”，输入控件落到文字（对），简介需要多行（缺省两行 Textarea，勉强），意图（intentsOf）读不到 incomplete，倒还对。
+计划只写“走确认条”，没有写 EditDraft 要怎么扩（path 的取值域、read 的来源 = 条目读取的 name、summary、aliases）、确认条挂在哪（页头下面、各分页之上，而不是数据分页内部）、与分页内容的 sticky 叠放（页头自己在宽屏上就是 sticky top-0 z-1，确认条也是 sticky top-0 z-[1]，现在在数据分页里已经会盖住页头的下缘，页头再变高会更明显）。
+如何核实：读 in-place-edit.ts 第 252 行 open、第 215 行版本 watch，EntryPageHost.vue 模板里 ConfirmBar 的位置，EntryPage.vue 页头 class。
+建议改法：计划里补一小节“确认条的位置与地址”：EditDraft 加 `kind`（字段 / 条目头），条目头的 label、read、intent 规则单列（读 entry 读取的 name、summary；意图沿用，按计划与初值规则同字段）；确认条上移到 EntryPageHost 的页头之下、分页之上，数据分页里不再各挂一份；Spec 输出 16 同步。
+
+[3] 重要 | 接口与合同（宿主与组件的分工）| 计划“三.4 字段表：每种字段都能改”“引用/图片/语义档/列表”，F5
+现象：现有链路对非标量输入没有位置。
+ a. EditDraft.value 与 ConfirmBar 的 value/update:value 都是 `string | boolean`；引用要存 `{ref: id}` 或 null、图片要存 `{图片, 说明}` 两个输入。计划写“确认条里一个条目选择器”“两个输入”，没写 draft 的形状、预览用的输入怎样从 draft 生成（inputOf 里 parsed() 对非数值一律 String(value)）、清空怎样落成 null（现在文字清空是空串，数清空是不能预览）。
+ b. 计划二的“所有新的写入都经 editEntries”与三.2 的“现有的就地改、记一笔照旧调原方法”互相冲突：引用与图片是对一个字段 set 一个值，走 editInPlace（预览走 previewEdit）完全够，走 editEntries 就得在 useInPlaceEdit 里再养一条并行的预览与失败处理链（版本冲突、value-conflict、结局不明再查）。计划没说哪些输入走哪条；两条链的“会写回哪里”文字（edit.routeInit/routePatch/routeChange）也得共用。
+ c. 页内同时存在确认条（state.edit，输出 7 规定填一半的输入在标签状态里切走再回来还在）与元素对话框、块文本框、移动对话框、别名输入：计划没写它们的草稿存在哪（Dialog 随页面卸载，切标签就丢；Spec 输出 7 写了“填了一半的就地改与记一笔”是标签状态），也没写它们之间是否互斥（确认条“同一时间只有一条”）。
+ d. ComponentViewContext 只有 `edit(path)` 与 `record(path, …)`，专门界面（剧情的三个分页嵌 `context.FieldTable`）和 FieldsDataView 都只能通过它们改。列表的增、改、去、加或去一组设定、“记一句”都要新的上下文方法；这是公开的贡献点（canon.component-views，plot 插件已在用，Spec author-ui 输入一节有接口代码块），计划四“Spec 与文档改动”没有列这块。
+如何核实：in-place-edit.ts（EditDraft、inputOf、parsed、draftText），ConfirmBar.vue 的 props，component-views.ts 的 ComponentViewContext，author-ui.md 输出 7、16。
+建议改法：在计划“三.4”前加一段“新输入怎样套进确认条”，写定：EditDraft.value 改为 unknown（或按 kind 的判别联合），ConfirmBar 的输入区做成按 kind 的槽（引用与图片作两个新的子组件，受控、有 dom 测试与 .md），引用与图片仍走 editInPlace/previewEdit（单字段 set），只有元素对话框、页头别名、块、移动、加去设定走 editEntries；草稿都放 EntryPageState（edit 改成可区分种类的一份，同一时间一份）；ComponentViewContext 的新方法一次列出并写进 author-ui.md 输入一节。
+
+[4] 重要 | 依赖的机制 / 遗漏 | 计划“三.4 Agent 改了东西”
+现象：计划写“窗口收到 changed 事件，by 是 Agent 时给一条提示”。读 canon/web/world.ts：
+ a. onEvent 里 `changed` 只在 `event.version > known` 时处理，且只是 invalidate；事件根本没有交给任何订阅者（CanonWorld 接口没有事件出口）。
+ b. `known` 在每次读取回来时被抬高（第 315 行 status 读取、第 477 行本窗口写入）：作者保存的写入返回 v7 之后，Agent 的 v6 事件才到（两次写入的返回与事件的先后链路上没有保证），事件被丢弃，作者永远看不到 Agent 的那次修改；重连后的 resync 期间漏的事件同理不会补提示。
+ c. `by.kind === "agent"` 区分 Agent 与作者足够；“本窗口发起”不用区分（本窗口的写入 by 是 author）。但另一个窗口里作者的写入在这个窗口里也是 changed，by 为 author，不提示——合理，只是 Spec 要写。
+ d. 提示是“同一时间只有一条，新的顶掉旧的”（notices.ts、author-ui 输出 18）。Agent 一轮对话常常连着写几次：每次顶掉上一条；更糟的是它会顶掉作者自己刚保存的那条（作者的“撤销”不见了），也会在作者点了“撤销”、还原对话框开着时把提示换掉（输出 18 专门规定点撤销时提示先留着，为的是焦点有地方回）。计划只写“和保存后的提示是同一个组件，只是触发源不同”，没有写叠放规则。“Agent 改了 3 处”里的 3 是编辑项数，而 notice 只带一个 revision，撤销只能还原最后那一次。
+ e. 没有页面挂着时，每次 Agent 写入都会成为一条工作台通知（notices.show 的分支），连着写就连着弹。
+ f. 回执页与改动记录里把 Agent 标成“Agent”：receipt.ts 第 232 行、revisions.ts 的 actorText 与写入者筛选（REVISION_WRITERS 含 agent）已经做了，计划把它当新工作，不要重复做。
+如何核实：world.ts 约第 160-172、315、470-480 行；notices.ts；receipt.ts、revisions.ts。
+建议改法：CanonWorld 增加事件出口，在 `known` 比较之前、按 revision id 去重地发给“Agent 提示”这一个消费者（不依赖是否 invalidate）；提示规则写进 Spec：Agent 提示单列一条（或并入同一条但带计数“Agent 又改了 N 次”），不顶掉作者自己的提示、不在还原对话框开着时替换；撤销指向最近一次，或点开“看改动记录并按写入者 Agent 筛选”；没有页面挂着时按时间窗合并成一条通知。
+
+[5] 重要 | 遗漏（会写坏数据）| 计划“三.4 语义档”“列表（nb-form 元素对话框）”
+现象：人物闭环最重要的两个列表（知情的“他以为的”、态度的“态度”）带语义档子字段（plot/shared/declarations.ts 第 48-54、97-101 行；components.md 输出 20），计划把语义档只当顶层字段（改起点、记一句）讲，元素对话框把子字段当普通文字输入。读 canon 引擎：buildEntryView 交给界面的是 fieldValue 的结果，语义档有事件时是归纳后的文字，没归纳是“起点；之后：事件1；事件2”（engine/views.ts semanticValue/listValue）；以引用为键的列表还会把每个元素加上 `label`（labelKeyedElements），而 listItemProblem 对 keyedBy:ref 的元素带 `label` 直接判 type-mismatch。
+为什么是问题：
+ a. 对话框拿读到的值预填，作者哪怕只动别的子字段，“只发改过的”若把预填值当原值就不会发出这个子字段，但作者一动它，发出去的就是“起点；之后：…”的派生文字，覆盖起点，之后的事件还在，下次又拼一遍，越改越长。顶层语义档的现有确认条也有同一个预填（draftText(state.value)），但计划让这个问题在元素里放大。
+ b. 元素子字段的“记一句”（地址 `态度[元素].态度`）在计划里没有入口：RecordForm 只在面板分页，人物页的行没有它。
+ c. 元素的 `label`：非引用列表的元素 `label` 是必填字符串（listItemProblem），“从 item 声明生成表单”不会有它，`listAdd` 会 type-mismatch；引用列表相反，元素带 label 就拒。计划四与三.4 都没写 `id`、`label` 这两个不在 item 声明里的键怎么处理（独立设计 5.3 也没写）。
+建议改法：fieldsToSchema 对语义档子字段给只读展示加“记一句 / 改起点”两个小按钮（起点用 unreduced.anchor 预填，不用显示值），元素对话框加一个“名字”输入（仅非引用列表），引用列表不带 label；把这三条写进计划与 author-ui.md；“只发改过的”按声明的原始值（对象的 `object` 读取）比，不按显示值比。
+
+[6] 重要 | 遗漏（边界规则没写）| 计划“三.4 页头与更多菜单、加去一组设定、移动”
+现象：计划新增十几个写入入口，只对确认条说“沿用现在的写法”，没有给出各入口在下列状态下是否可用、怎样说明：已删除（现行 Spec 输出 8：已删除的条目页只显示名字与“这个条目已删除”，没有写入入口；计划要在这页加“恢复”，但 EntryPage.vue 的 deleted 支路连页头与“更多”菜单都没有）、按计划（现在 deletable 只看 blocked，不看 planned；而 editBlocked 看 planned。新入口按哪一个？）、位置是初值/某一章（改设定对初值写，位置无关，但预览写回哪里的文字要不要给）、世界只读、他人独占（writeBlocked）、断开。独立设计 5.5 写了“条目已删除或按计划开着时没有这些入口，沿用现有规则”，计划里丢了。
+另：
+ a. 已删除条目的入口：树只列“还有未删除子孙”的已删条目（输出 2），条目页的“恢复”只能从面包屑、引用的“已删除的条目”或回执进入；全部条目都删光时树出空状态“还没有设定”，没有任何入口通向被删的条目。改动记录里还原仍可用，所以不阻断，但“作者能自己恢复”的说法要写限定。
+ b. 别名的“×”：创作意图下 `aliases.remove` 对某章变更加的别名（view.aliases 是所选位置上的有效值）怎么办？计划只对 listRemove、removeBlock 写了 element-from-change，没提 aliases，界面会得到一个没写的失败码或悄悄只去掉初值里的而界面上别名还在。
+ c. “移动到…”对话框：上级候选来自 findEntries，对话框没法排除自己与子孙（树不一定读过），成环只能靠提交后的 invalid-tree；“顺序”要的“某项之后”的候选是新上级下的子项，需要一次按上级读树（现有 tree 读取可用，计划没写）；“种类”改了以后，别处按 targets 引用它的字段是否仍合规，没说（引用校验只在写入时查）。“分组缺省同种类”（新建对话框的 folderTouched 逻辑）在移动对话框里怎么算，没说。
+ d. 移动与删除都只在条目页里，树的右键菜单没有，作者整理一批条目必须逐个打开。
+建议改法：计划加一张“入口 × 状态”表（已删除、按计划、只读、独占、断开、初值），每格写可用或不可用加原因；已删除页补页头最简版（名字、恢复、更多）；aliases 的 remove 与 listRemove 同规则；移动对话框的候选与排除写清，树右键菜单加“移动到…”（同一对话框）。
+
+[7] 重要 | 依赖的机制 / 遗漏 | 计划“三.4 加或去一组设定”
+现象：计划让“添加设定”菜单“列出登记了且这个条目还没有的类型，去掉过的标‘恢复’”。条目读取（engine/views.ts buildEntryView）对 `data.removed === true` 的命名空间直接 continue，视图里没有它；components 读取是全局登记表，也没有“这个条目上被去掉过”的信息。界面只有再读一次原始条目对象（object 读取）才知道哪些被去掉过，计划没写数据来源。同时：
+ a. 只做查询的类型没有命名空间（components.md 输出 3、13），加上去没有分页，也没有地方去掉；菜单里是否列出它要定。
+ b. 带实例声明的类型（instanceFields）要 `declared: []`，由内核补还是调用方给，计划二写“字段声明到输入…新分页的字段都是未知”，没说。
+ c. 去掉当前正显示的分页后，state.tab 的回退（现有 tab 计算会落到第一个）、state.views[命名空间] 里留下的展开状态与记一笔草稿、plot 的三个专门分页（它们被去掉时还有 knowing/attitude 的“谁知道”等外部读取）都要说。
+ d. 菜单的“恢复”在读条目对象失败（版本错位）时的表现。
+建议改法：写明“被去掉的类型”的来源（给 `entry` 读取加 removedTypes，或 object 读取），并在 Spec 输出 3、7 的界面一侧补；只做查询的类型不列入菜单（或单列“只记标记的类型”）。
+
+[8] 重要 | 遗漏（基本 UX 的死路）| 计划“三.4 引用 / 以引用为键的列表先选条目”
+现象：知情与基于这类列表要先选条目，targets 是“知识点”；这种条目在现有界面里只有“新建条目”对话框能建，且“种类”是自由文字（要手打“知识点”才对得上 targets，剧情插件没有任何建知识点的入口：docs/specs/plot/author-ui.md 里没有“新建”）。新建作品里没有知识点时，选择器给“没有匹配”，作者没有路走：不知道要先建一个种类为“知识点”的条目，更不知道要勾“知识点”设定组。计划新建对话框的快捷按钮只有人物、地点、物品、其它，没有知识点；地点、物品在已登记的类型里（canon 只登记了 person 与 panel，plot 登记 point/knowing/foreshadow/goal/attitude）没有对应的设定组，“勾对应的设定组”只对人物有意义。
+建议改法：选择器的空结果行给“新建一个‘知识点’条目：<搜索词>”（种类取 targets 的第一项，设定组按种类的映射：声明里 `requires` 或默认组由贡献方给），在对话框里就地建，建完自动选上；同一入口也让新建对话框的种类按钮来自“已登记类型的 targets”与已有种类，而不是写死四个中文词。
+
+[9] 建议 | 别扭之处 | 计划“三.4 空状态与新建对话框”
+ a. “新建人物”预设写死 种类“人物”与“人物设定组”，而 canon 的通用代码里写死中文种类词；新建对话框已有“已有条目用过的种类”按钮（props.kinds），新加的固定四个会与已有的重复（树里已有“人物”条目时出现两个“人物”），计划没写去重与顺序。
+ b. EmptyState 放进窄侧栏：组件自带 px-6 py-10、max-w-sm，两个按钮靠 action 插槽放在一个 div 里，计划没说排版；侧栏窄时要不要用纵排；Lab 场景与 390 像素验收（输出 14 只覆盖了页面，没有覆盖设定视图空状态）。
+ c. EmptyState 的“新建人物”“新建条目”在世界只读、他人独占、断开时应当不可用并写原因（writeBlocked 已有），现在的新建对话框入口（右键、标题栏）不查 writeBlocked，对话框打开、填完才在提交时失败；空状态是最显眼的入口，这个洞更该补。
+ d. “让 Agent 起草”之类入口计划里没做，（独立设计提了），是合理取舍，不记问题。
+建议改法：快捷按钮 = 去重后的（预设四个 ∪ 已用种类），新建入口统一查 writeBlocked，Spec 输出 4 同步。
+
+[10] 重要 | 遗漏（入口找不到）| 计划“三.4 主文字：文末‘加一段’（addBlock）”
+现象：EntryPageHost.vue 的 tabs 计算只在 `view.text.length > 0` 时才出“文字”分页（author-ui 输出 9：条目没有主文字时不出“文字”分页）。新建的条目没有主文字，于是“文末加一段”所在的分页根本不存在，作者没有办法给任何条目写第一段主文字。主文字是作者写设定最自然的地方（开发者原话“要用户和 agent 都能改”），这一条会让 Agent 能写、作者不能写。
+另：
+ a. “改这一段”要的 MDX 源文字，在条目读取的 `view.text`（Block，带 source）里有，不在 render 的结果里（render 是语法树，只有出错块带 text）；EntryPageHost 现在不用 view.text 的内容，计划要说明改用它，并且是“所选位置上有效的源文字”（块可能被某章的 replaceBlock 换过），不是 init.text。
+ b. 写错的 MDX 内核照存，渲染成“出错的块”；确认条里的预览只有“写回哪里与带来的变化”，作者保存之前看不到这一块会出错。计划“三.4”没有要求预览显示渲染错误。
+ c. 文字分页现在没有确认条挂载点（见 [2]），块旁的“改这一段”也是文本框而不是确认条，意图（改设定、剧情里变了）与预览的位置要明确。
+如何核实：EntryPageHost.vue tabs 计算（`entry.tabs.text` 的条件），nb-canon engine/types.ts 的 EntryView.text。
+建议改法：文字分页对有写权限的作者总出（空时写“还没有主文字”加“加一段”），Spec 输出 9 同步；预览返回渲染诊断时显示。
+
+[11] 重要 | 对照需求（仍改不了的数据）| 计划“一、Context：作者……都能改设定的全部数据”
+对照开发者原话与计划列出的范围，核对条目与 Component 的字段后，仍无入口的数据：
+ a. 条目的“从哪里出场”（appears）与“它是谁的另一个身份”（sameAs）：新建对话框能填，之后没有任何地方能改；EntryOp 的 `place` 只有上级、分组、种类、顺序，没有这两项。写错了只能删了重建（引用它的地方要重指）。
+ b. 带实例声明的类型（现在登记的“面板”就是 instanceFields: true，没有任何内置字段，字段全靠条目上自己声明）：没有“声明一个字段”“删掉一个声明”的操作，EntryOp 没有，Agent 的 canon_write 也没有，作者与 Agent 都无法给面板加第一个字段，面板分页永远写着“这个面板还没有内容”。
+ c. 图片字段只有“路径加说明”两个文本框，没有选文件、没有预览缩略图；作者要凭记忆手打作品内相对路径（components.md 输出 15 文件不存在照存），独立设计提了预览框，计划丢了。
+ d. “从第 N 章起有”（剧情里的 `启用`）计划已写明不做，不记问题。
+这些不一定都要在 t37 里做，但计划一的“全部数据”与“都能改”要改成带限定的说法并列出不做的清单（现在“八、不做与风险”没有这几条），否则验收时开发者会按原话认为缺了。
+建议改法：a 给 place 加 appears、sameAs（内核小改，界面在移动对话框里）；b 要么加 `declare` 操作要么写进“不做”并说明面板暂不可用；c 至少显示“路径所指文件存在与否”的一行。
+
+[12] 重要 | 接口与合同 / 遗漏 | 计划“三.4 列表元素对话框（nb-form）”与计划二“选用 nb-form”
+核实了 nb-form 的自定义控件接口：确实存在（forms.md 输出 22，packages/nb-form/src/vue/widgets.ts 的 FormWidget：name、component、score、fallback；组件收到 modelValue、node、readonly、disabled、invalid、id、labelledby、locale、issues、options、meta；发出 update:modelValue 与 commit，暴露 focus），“条目选择要远程搜”靠自定义控件可以做，这一点计划是对的。但以下没写，F5 动手前要定：
+ a. 控件需要的 `targets` 怎么传：hints.ts 的 HintsSchema 只认 label、help、placeholder、unit、widget、options、itemLabel、searchable、rows、choices、recommend、visibleWhen，其它 `x-form` 键 checkDescription 报 `unknown-hint`、readHints 直接丢。所以不能写 `x-form.targets`；要么放在 schema 顶层自定义关键字（要核对 checkDescription 对未知关键字的态度），要么用闭包按字段路径查表。
+ b. 条目控件要调 findEntries（世界客户端），是闭包注入；每个字段一个控件实例，去抖、晚到作废、已选项的显示名（选中后不在搜索结果里）都要自己管，见 [1]。
+ c. 值的映射：表单里一个引用字段的值是什么？世界里是 `{ref: id}`，nb-form 的字符串/对象控件是通用的；清空在 nb-form 里“删去键”（输出 4），世界里“未知”是 null；字段声明转描述时要写成 `T | null` 的联合，清除才会写 null。计划只写“字段声明经一个纯函数转成它的描述”。
+ d. “只发改过的”：表单整值受控（输出 3），改一行 = 对每个改过的子字段一个 `set`（各自 `read`，各自按来历路由，可能一次修订同时改初值与几条不同的变更）；对话框里“剧情里变了”一项会让这些 set 合成一条变更。预览与保存之间原值变了，要按子字段重算“改过的”，不是整个元素。计划没写。
+ e. 保存前的校验：文字与数字草稿在失焦或回车才提交（输出 15），对话框的“保存”按钮要先 `commit()`，并考虑 draft-state（unparseable）；计划没提 SchemaForm 暴露的 commit 与 draft-state。
+ f. 服务端失败回到表单字段：计划新增的问题细项 path 是 `ops[2]` 这样的操作序号，不是表单的 JSON Pointer，element 内的某个子字段不合规（选项不在范围内、数超范围）没法标到对应的控件上，只能写在对话框顶部，要定。
+ g. 超过 50 项的列表、没有元素的列表（现在 FieldRow.items 是字符串数组，丢了元素 id）：FieldTable 的行模型要带元素 id、是否来自变更，见 [3]d。
+建议改法：计划二加一行“自定义控件登记两个：canon-entry（远程）、canon-image”，写明 targets 的传递（建议用 schema 顶层关键字 x-canon-*，并在 canon 的描述生成函数的测试里固定）、null 的写法、diff 的来源（对象读取的原始值）。
+
+[13] 建议 | 别扭与反常 | 计划“三.4 列表元素的‘去掉’出路”
+ a. “去掉时元素来自某章变更，就写明是哪一章加的，给‘打开那条变更’与‘剧情里变了’”：作者要在点了“去掉”以后才被告知（element-from-change 来自预览的失败）。每个元素行事先并不知道来历。要么行上一直标“第 N 章加”（来历读取是按页读的，列表每行都读要 N 次），要么点“去掉”才预览，计划需要写成后者并给“去掉”的确认对话框一个固定形状（预览中、失败的两条出路、成功的“带来的变化”）。
+ b. “剧情里变了”在这里意味着落一条新的剧情变更到所选位置（初值上不可用）；对话框要显示“发生在第 N 章末尾”并提示作者可以在页头换位置，确认条里已有同样的措辞，直接复用。
+ c. 出路“打开那条变更”打开变更详情页，那里的“改”只支持数（author-ui 输出 21：数的改动旁有“改”），元素增删的补丁没有入口；所以“打开那条变更”其实仍然去不掉这个元素。要么变更详情页同时给出“去掉这一笔”（内核有 `deleteChange`？未核实），要么把出路改成只有“剧情里变了”一个。
+建议改法：写明 c 的现状，二选一。
+
+[14] 建议 | 验收映射 / 可维护性 | 计划“六 界面与 e2e”“五 切片”
+ a. e2e 1“空作品点‘新建人物’”需要一个空世界的测试环境，canon-author.e2e.ts 现在全用星瑕样本；计划没写空环境的生成方式（项目目录、租约、状态根）。
+ b. 没有对应测试的行为：Agent 提示的叠放与不顶掉作者的提示、change 事件在 known 之后到达也提示（见 [4]）；元素对话框的版本冲突与值刚变了；element-from-change 的两个出路；已删除页的“恢复”；入口在只读、独占、按计划下的不可用与原因；别名 ×、加或去设定的失败；390 像素下页头（别名一行、“更多”新菜单、分页末尾“＋添加设定”）与设定视图空状态没有横向滚动（输出 14 现在只覆盖旧的页）；键盘（输出 11 只覆盖“改”按钮到确认条这一条链，新对话框、别名标签、元素行的 Tab 顺序与焦点回位没写）。
+ c. 切片顺序：F4 的“新建对话框上级候选改用 findEntries”与“移动对话框”需要远程选择器，而选择器在 F5 的引用里才第一次出现；应单独成一片先做（组件加 .md、dom 测试、Lab 场景），F4、F5 依赖它。
+ d. 每个新组件按仓库规则要有同名 .md、dom 测试与 Lab 登记（canon/web/components/*.md、src/plugins/lab/web/fixtures/index.ts）；计划只写“组件 dom 测试、Lab 场景”，没有列新组件清单（元素对话框、条目选择器、图片输入、别名行、设定加或去菜单、移动对话框、块编辑框、Agent 提示），实现时容易漏登记。
+ e. 页头的 sticky：EntryPage 页头在 ≥481px 时 sticky，页头加别名一行后更高，与确认条 sticky top-0 叠放（见 [2]）；窄屏已有“不吸顶”的规避，宽屏没有对策。
+
+[15] 建议 | 别扭与反常（可避免的两套输入栈）| 计划“三.4 共享的‘字段声明到输入’”
+计划把“字段声明到输入”的知识放进 shared/ 供确认条与元素对话框共用，思路对，但实际是两套渲染：确认条用手写的 NumberInput/Select/Switch/Textarea（ConfirmBar.vue），对话框用 nb-form 的控件；数的解析也是两份（numbers.ts 的 parseDecimal 接受千位逗号与“−”，nb-form 的 numberCodec 自己一套）。引用与图片又要各写两遍（确认条版、nb-form 控件版）。
+为什么要提：同一个字段在两个入口里行为会不一致（例如“1,500”在确认条里能存，在对话框里不能），新输入每加一种要写两份。
+建议改法：确认条的输入区改用 nb-form 的 SchemaField（bare 模式，forms.md 接口已有）画单个字段，canon 的自定义控件只写一份；parseDecimal 并进 nb-form 的数字控件或两处共用同一函数。若觉得动确认条风险大，至少在计划里写明“确认条的引用、图片输入直接用同一个自定义控件”，不要各写一份。
+
+更正与说明（追加）：
+ - [2] 的严重程度按“重要”计，不是“阻断”（实现者第一次点“改”就会发现，但计划没写会让 F4 返工）。
+ - [4]b 的丢事件场景是读代码推断（known 被别的读取或本窗口写入先抬高，事件版本不大于 known 即被丢），没有实际复现；事件与调用回复的先后在链路上没有保证是推断。
+ - [13]c 里变更详情页是否有“去掉一笔”的内核操作我没核实。
+ - 没跑 e2e、没起开发服务，全部结论来自读代码与 Spec。
+
+未发现问题的方面（仔细检查后）：
+ - nb-form 自定义控件接口：存在且形状够用（widgets.ts 的 FormWidget 与 CustomWidgetProps，forms.md 输出 22）；SchemaForm 的 widgets 属性、受控整值、列表增删与焦点规则都在，元素对话框用它是对的，问题只在 [12] 列的几处接线。
+ - “字段声明到输入”的纯函数放进 canon 的 shared/ 可行：nb-form 核心不依赖 Vue，neuro-book 已依赖 nb-form，不会引起后端 tsc 找不到 DOM 类型（前提是函数只产出 JSON 描述，不 import nb-form/vue 与 nb-ui）。
+ - 剧情插件的专门分页：KnowingView、AttitudeView、PointView 都以 `<component :is="props.context.FieldTable" />` 嵌入，没传 fields，所以那一节含该命名空间的全部字段（知情、听过的说法、态度、保密、规则、揭穿等）；知情与态度两个列表都在其中。只要 F5 的列表编辑做在 FieldTable/FieldsDataView 里（并按 [3]d 扩 context），“用户能改人物的知情与态度”在人物页上就满足，专门表格里不加就地操作是合理取舍。
+ - nb-ui 的 EmptyState 存在，有 icon、title、description 与 action 插槽，放进树里没有技术障碍（排版见 [9]b）。
+ - 浏览器新建、删除改走 editEntries 并删掉 lastOrder 与拼装代码：方向对，没有发现问题；回执页、改动记录里的“Agent”标注已经有了（见 [4]f），不用重做。
+ - 独立设计里的“设定表单（一次填一组）”计划明确推给人物闭环，不记问题。
+
+各级数量：阻断 0；重要 11（[1][2][3][4][5][6][7][8][10][11][12]）；建议 4（[9][13][14][15]）；共 15 条。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15

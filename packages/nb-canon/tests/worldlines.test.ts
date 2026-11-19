@@ -1235,6 +1235,8 @@ describe("canon.worldlines 输出 6（补）：语义档与列表的带过去、
         expect(read(world, line, xia, "ch3").character!.fields.态度).toMatchObject({value: "冷淡；之后：软了一点；子线自己的事", notReduced: true});
         // 切口 c1 处列表里还没有这一行，子线上有它是带过去的：行里的看法同样带起点与起点之后的事件。
         expect(read(world, line, xia, "ch3").know!.fields.认得!.value).toMatchObject([{id: jin, 看法: "陌生；之后：起疑"}]);
+        // 列表标“未归纳”时另列出是哪几个元素（components.md 输出 20）。
+        expect(read(world, "main", xia, "ch3").know!.fields.认得).toMatchObject({notReduced: true, notReducedElements: [jin]});
         expect(world.line(line)!.synthetic.size).toBe(1);
     });
 

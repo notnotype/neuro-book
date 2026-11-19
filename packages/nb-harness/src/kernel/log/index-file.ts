@@ -15,6 +15,7 @@ export function emptyIndex(header: SessionHeader): SessionIndexEntry {
         archived: false,
         background: header.background === true,
         ...(header.caller === undefined ? {} : {caller: header.caller}),
+        ...(header.owner === undefined ? {} : {owner: header.owner}),
         ...(header.origin === undefined ? {} : {origin: header.origin.session}),
         spend: {cost: 0, unpriced: 0},
         runs: [],

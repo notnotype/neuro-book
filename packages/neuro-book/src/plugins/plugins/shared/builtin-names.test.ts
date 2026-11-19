@@ -10,8 +10,10 @@ import {BUILTIN_PLUGIN_IDS, builtinPluginTextKey} from "./builtin-names";
 
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
-/** 迁到目录之前（`BUILTIN_PLUGIN_NAMES` 表）的中英文字，原样抄下；之后新加的内置插件（`nbook.desktop`）也在这里写一份，与目录对照。 */
+/** 迁到目录之前（`BUILTIN_PLUGIN_NAMES` 表）的中英文字，原样抄下；之后新加的内置插件（`nbook.desktop`、`nbook.bots`、`nbook.stickers`）也在这里写一份，与目录对照。 */
 const LEGACY: Readonly<Record<string, {readonly name: Record<string, string>; readonly description: Record<string, string>}>> = {
+    "nbook.bots": {name: {"zh-CN": "bot", "en-US": "Bots"}, description: {"zh-CN": "常驻的 bot：按插件交出的预设建出来，有自己的目录与一条长期的主对话。", "en-US": "Resident bots: created from presets that plugins provide, each with its own folder and one long-running main conversation."}},
+    "nbook.stickers": {name: {"zh-CN": "表情包", "en-US": "Stickers"}, description: {"zh-CN": "表情包的目录与管理：你自己的、插件带来的与内置的表情包；Agent 回复里的表情按它找图。", "en-US": "Sticker packs: your own, those from plugins and the built-in ones; stickers in Agent replies are looked up here."}},
     "nbook.commands": {name: {"zh-CN": "命令", "en-US": "Commands"}, description: {"zh-CN": "登记与执行命令；命令面板与快捷键执行的都是这里登记的命令。", "en-US": "Registers and runs commands; the command palette and keybindings run the commands registered here."}},
     "nbook.desktop": {name: {"zh-CN": "桌面", "en-US": "Desktop"}, description: {"zh-CN": "桌面版的窗口设置：界面缩放（含快捷键与命令）、登录 Windows 时打开 NeuroBook、关掉最后一个窗口时退出还是留在系统托盘；设置分区只在桌面版的窗口里出现。", "en-US": "Window settings of the desktop app: zoom (with its shortcuts and commands), opening NeuroBook when you sign in to Windows, and whether closing the last window quits NeuroBook or keeps it in the system tray. The settings section appears only in desktop app windows."}},
     "nbook.editor": {name: {"zh-CN": "编辑器", "en-US": "Editor"}, description: {"zh-CN": "编辑区的标签与分组、文档的打开与保存。", "en-US": "Editor tabs and groups; opening and saving documents."}},

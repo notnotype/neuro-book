@@ -8,6 +8,7 @@
 /** 有名称与说明的内置插件 id；新加的内置插件在这里登记，并在两份目录里补键（`builtin-names.test.ts` 对照产品清单检查）。 */
 export const BUILTIN_PLUGIN_IDS = [
     "nbook.agent",
+    "nbook.bots",
     "nbook.canon",
     "nbook.commands",
     "nbook.desktop",
@@ -24,6 +25,7 @@ export const BUILTIN_PLUGIN_IDS = [
     "nbook.projects",
     "nbook.settings",
     "nbook.state",
+    "nbook.stickers",
     "nbook.storage",
     "nbook.tasks",
     "nbook.theme-study",

@@ -86,6 +86,7 @@ describe("agent.skills 的接收者", () => {
         let answered: Promise<unknown> = Promise.resolve();
         const {catalog, receiver} = await open("race", (inner) => ({
             title: (plugin) => inner.title(plugin),
+            file: (plugin, path) => inner.file(plugin, path),
             // 第一次查询挂住，直到撤回之后才交回。
             directory: (plugin, path) => {
                 calls += 1;

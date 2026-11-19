@@ -129,7 +129,7 @@ describe("插话的到达（输出 3）", () => {
             clock: createTestClock(),
             approve: async () => ({verdict: "allow", by: "test-policy"}),
         });
-        const table = new SessionTable({host, clock: {schedule: () => () => undefined}, beforeOpen: async () => undefined, report: (code, message) => {
+        const table = new SessionTable({host, clock: {schedule: () => () => undefined, now: () => 0}, beforeOpen: async () => undefined, report: (code, message) => {
             throw new Error(`${code}: ${message}`);
         }});
         const created = await table.create({profile: defaultTestProfile.id, id: "p"});

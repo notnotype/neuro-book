@@ -38,6 +38,8 @@ import {canonCatalogs} from "nbook/plugins/canon/web/text";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {canonBrowserPlugin} from "nbook/plugins/canon/web/plugin";
+import {plotBrowserPlugin} from "nbook/plugins/plot/web/plugin";
+import {plotCatalogs} from "nbook/plugins/plot/web/text";
 import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
 import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
@@ -81,6 +83,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.image-viewer": imageViewerBrowserPlugin,
     "nbook.html-preview": htmlPreviewBrowserPlugin,
     "nbook.canon": canonBrowserPlugin,
+    "nbook.plot": plotBrowserPlugin,
     "nbook.models": modelsBrowserPlugin,
     "nbook.web-tools": webBrowserPlugin,
     "nbook.tasks": tasksBrowserPlugin,
@@ -108,6 +111,7 @@ export interface BuiltinCatalogs {
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
     "nbook.agent": agentCatalogs,
     "nbook.canon": canonCatalogs,
+    "nbook.plot": plotCatalogs,
     "nbook.desktop": desktopCatalogs,
     "nbook.editor": editorCatalogs,
     "nbook.explorer": explorerCatalogs,

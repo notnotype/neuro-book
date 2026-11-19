@@ -48,7 +48,7 @@ owners:
    | `{state: "none"}` | 还没建 |
    | `{state: "opening"}` | 正在建或打开 |
    | `{state: "held"}` | 已持有 |
-   | `{state: "failed", code}` | 没能持有，码同 `hold`，或 `owner-mismatch` |
+   | `{state: "failed", code}` | 没能持有：`header`、`create`、`hold` 交回的码，或 `owner-mismatch` |
 
    `held` 只说明会话开着、被持有；会话是不是只读（例如 Profile 解析不到）、日志有没有损坏，看会话的快照与状态帧（[`agent/sessions.md`](../agent/sessions.md)）。
 4. Profile 解析不到：主对话照会话的规则以只读打开（[`harness/session.md`](../harness/session.md) 的 `unknown-profile`），持有照样成功。用户经会话的 `changeProfile`（远程合同带 `commandId`）换成能用的 Profile。
@@ -62,7 +62,7 @@ owners:
 时序与寿命：
 
 - `ensureMain` 交回时主对话已持有；之后浏览器订阅它的帧与发指令走 `nbook.agent/sessions`。
-- `nbook.bots` 停止时先放掉全部持有（[`bots.md`](bots.md) 的“时序与寿命”），再由 `nbook.agent` 的停止关闭会话（[`agent/sessions.md`](../agent/sessions.md) 输出 14）；停止期间到的 `ensureMain` 得通道的 `unavailable`。
+- `nbook.bots` 停止时放掉全部持有（[`bots.md`](bots.md) 的“时序与寿命”）。服务端停止时 `nbook.agent` 同时在停，照 [`agent/sessions.md`](../agent/sessions.md) 输出 14 按 `interrupted` 关闭会话，持有不推迟关闭，之后的 `release()` 什么都不做（输出 24）。停止期间到的 `ensureMain` 得通道的 `unavailable`；已经在途的，封住之后得 `provider-error`。
 - 服务端重启后，被中断的运行在打开主对话时照会话的恢复以 `interrupted` 收口，不自动接着跑。
 
 ## 副作用与数据

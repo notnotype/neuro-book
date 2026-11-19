@@ -44,7 +44,7 @@ export interface HomelessNode {
     readonly written: string;
 }
 
-interface ForeshadowEntry {
+export interface ForeshadowEntry {
     readonly id: string;
     readonly name: string;
     readonly kind: string | null;
@@ -384,15 +384,30 @@ function plantedNotPaid(index: ForeshadowIndex, foreshadow: string, until: Telli
     return stage !== "unplanted" && stage !== "paidOff";
 }
 
+/** 没打算怎么收（输出 7 的 `noPayoffPlanned`，作者的账本同一个判断）：这条线上已埋、没回收，也没有带回收节点的计划。 */
+export function payoffUnplanned(index: ForeshadowIndex, foreshadow: string, until: TellingPosition | null): boolean {
+    const stage = index.lineStage(foreshadow, until);
+    return stage !== "unplanted" && stage !== "paidOff" && !index.planned.some((node) => node.foreshadow === foreshadow && node.role === "payoff");
+}
+
+/**
+ * 多久没提（输出 7 的 `longSilence`，作者的账本同一个算法）：已埋、没回收时，从最后一个节点到读取位置所在章的章数与是否超过参考间隔
+ * （没设时按重要程度的缺省）；还没埋、已回收、读取位置是初值时为 null。
+ */
+export function silenceOf(view: CanonReadView, index: ForeshadowIndex, foreshadow: ForeshadowEntry, until: TellingPosition | null): {readonly chapters: number; readonly interval: number; readonly long: boolean} | null {
+    if (until === null || !plantedNotPaid(index, foreshadow.id, until)) return null;
+    const last = index.nodesRead(foreshadow.id, until).at(-1);
+    if (last === undefined) return null;
+    const interval = foreshadow.interval ?? DEFAULT_INTERVAL[foreshadow.importance ?? "side"] ?? DEFAULT_INTERVAL.side!;
+    const chapters = chapterIndex(view, until.chapter) - chapterIndex(view, last.occurrence.chapter);
+    return {chapters, interval, long: chapters > interval};
+}
+
 /** 没排回收（输出 7）：已埋、没回收，也没有带回收节点的计划。 */
 const noPayoffPlanned: DiagnosticCompute = (view, at, mode) => {
     const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
-    const planted = (foreshadow: string) => {
-        const stage = index.lineStage(foreshadow, until);
-        return stage !== "unplanted" && stage !== "paidOff";
-    };
-    return index.foreshadows.filter((foreshadow) => planted(foreshadow.id) && !index.planned.some((node) => node.foreshadow === foreshadow.id && node.role === "payoff"))
+    return index.foreshadows.filter((foreshadow) => payoffUnplanned(index, foreshadow.id, until))
         .map((foreshadow) => ({key: {objects: [ref("entry", foreshadow.id)], line: view.line}, objects: [ref("entry", foreshadow.id)], params: {}}));
 };
 
@@ -400,16 +415,10 @@ const noPayoffPlanned: DiagnosticCompute = (view, at, mode) => {
 const longSilence: DiagnosticCompute = (view, at, mode) => {
     const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
-    if (until === null) return [];
-    const now = chapterIndex(view, until.chapter);
     const findings: Finding[] = [];
     for (const foreshadow of index.foreshadows) {
-        if (!plantedNotPaid(index, foreshadow.id, until)) continue;
-        const last = index.nodesRead(foreshadow.id, until).at(-1);
-        if (last === undefined) continue;
-        const interval = foreshadow.interval ?? DEFAULT_INTERVAL[foreshadow.importance ?? "side"] ?? DEFAULT_INTERVAL.side!;
-        const silent = now - chapterIndex(view, last.occurrence.chapter);
-        if (silent > interval) findings.push({key: {objects: [ref("entry", foreshadow.id)]}, objects: [ref("entry", foreshadow.id)], params: {chapters: silent, interval}});
+        const silence = silenceOf(view, index, foreshadow, until);
+        if (silence?.long === true) findings.push({key: {objects: [ref("entry", foreshadow.id)]}, objects: [ref("entry", foreshadow.id)], params: {chapters: silence.chapters, interval: silence.interval}});
     }
     return findings;
 };

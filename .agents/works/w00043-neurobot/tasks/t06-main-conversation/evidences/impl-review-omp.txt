@@ -1,0 +1,77 @@
+### 1. 建会话在校验之后才读取归属，能写出自己打不开的日志
+- 严重程度：重要；类别：正确性；范围：本次内核新增。
+- 位置：`packages/nb-harness/src/kernel/session/session.ts:484–510`。
+- `createSession` 先校验 `options.owner`，等异步解析 Profile 后再读 `options.owner` 写会话头。等待期间修改传入对象，实际写入的值没有经过校验，违反 `harness/session.md` 输出 25 的参数隔离与 `invalid-owner` 不落盘合同。用 `probes/kernel-owner-and-claims.ts` 的第一段经真实 `AgentHost` 与 JSONL 验证：以 `id: "good"` 开始建会话，在 Profile 返回前把它改成 `with/slash`，建会话返回成功；只读会话头和关闭后重开都得 `log-corrupt`。base 没有 `owner`；新版的门面预先拷贝它，挡不住内核的其他调用方。
+- 改法：在第一次 `await` 前取一次归属副本，校验并只写此副本；同样在入口快照调用方提供的 `caller`、`result` 等头字段。补一个由 Profile 解析控制时序的合同测试。
+
+### 2. 发话结算的反应批写失败后，快照会把 `log-broken` 报成 `idle`
+- 严重程度：重要；类别：正确性；范围：新增 `send` 复用了 base 的 `resolve` 已有问题。
+- 位置：`packages/nb-harness/src/kernel/run/commands.ts:210–216`、`run/interaction.ts:105–109,129–134`、`run/control.ts:58–75,163–175`（均在 `packages/nb-harness/src/kernel/` 下）。
+- `probes/kernel-faults.ts` 用真实内核、JSONL 和一个同步提问，只让第二次文件写入（反应批）失败。`send` 得 `log-broken`，状态帧依次出现 `broken → running → idle`，末态快照也为 `idle`。重开只见一条 `deny`，同 `commandId` 重放成功。已接受的限制是日志记 `deny`、这次调用的等待者收到 `aborted`；没接受的是损坏状态被覆盖。`releaseClaims` 叫醒之后，`#reportFrom` 无视 `broken`；运行结束再把它置为 `idle`。base 的单条 `resolve` 也在反应写失败后以 `aborted` 叫醒，不能把该回调缺陷说成本次首创。
+- `harness/session.md` 输出 12 与“状态与转换”要求句柄保持损坏；不只是某次命令报了错。
+- 改法：事项状态更新在 `core.broken` 后不得改为运行态；收口也从 `core.broken` 决定是否保留 `broken`，而不是看上一次推帧。两种应答路径共用一条文件端口故障的状态合同测试。
+
+### 3. 同 id 的建会话和持有重叠，持有成功却仍在 30 秒后释放会话锁
+- 严重程度：重要；类别：不变量；范围：base 有同一会话登记两代表项的竞态，本次新增长寿命持有使它成为公开合同违背。
+- 位置：`packages/nb-harness/src/kit/sessions/table.ts:139–150,324–380,429–439`，`packages/nb-harness/src/kernel/session/agent-host.ts:122–125`。
+- `create` 在内核建完后用新表项覆盖同 id 的 `opening` 表项。旧表项的 `#open` 若晚到内核，`host.open` 成功复用已经打开的句柄，而不是失败；`hold` 把引用记在已脱离表的旧表项。新表项的 `refs` 仍为 0，照样按 id 关闭句柄。此前修的“失败只摘自己”没有覆盖成功分支。
+- `probes/hold-create.ts` 经真实插件激活、Agent 门面、内核与 JSONL：建会话停在 Profile `mount`，`hold` 停在新登记的扩展提供方激活；先让建会话完成，再放行 `hold`。`hold` 成功、错误地报 `opened: 0` 而非 `null`；没调用 `release`，推 30,000 毫秒后同一个 JSONL 已能被另一存储打开，下一次快照又重开了会话。违反 `agent/sessions.md` 输出 24。
+- 改法：同 id 只保留一项；以表项身份为准完成打开，建会话登记已打开的句柄后，等待旧表项的调用接管到现行表项并记 `opened: null`。同一时序补真实门面测试，断言锁在最后一个 `release` 之后才释放。
+
+### 4. 停服务器时 Agent 会先关掉 bot 仍持有的主对话
+- 严重程度：重要；类别：不变量；范围：本次新增的跨插件停止顺序；Agent 在停止信号上启动关闭是 base 已有行为。
+- 位置：`packages/neuro-book/src/plugins/agent/backend/plugin.ts:197–200`、`backend/agent.ts:452–465`（同插件），`packages/neuro-book/src/plugins/bots/backend/plugin.ts:77–82`、`backend/main.ts:73–78`（同插件）。
+- `agentKey` 的依赖保护的是服务释放，不会推迟提供方的停止信号。根作用域同步停止各插件；Agent 的信号监听立即运行 `runtime.stop()`，而 bots 的停止回调还在等在途步骤、尚未放掉已有引用。`SessionTable.stop()` 会关闭已打开的会话，不等引用归零，违反 `bots.md` 时序与 `main-conversation.md` 的“先放掉全部持有，再由 Agent 关闭会话”。
+- `probes/bots-contracts.ts stop-order` 用真实启动、凭据恢复、Agent、JSONL 与插件作用域：一个 bot 已 `held`，另一个停在恢复的 Profile `mount`。启动服务端停止、不放行 `mount`，前一个会话的锁已可从另一个存储打开，此时 bots 无法走到 `main.stop()` 中的释放步骤。放行后服务端正常停止；不是关不掉，而是关错了先后。
+- 改法：分开 Agent 的同步接纳门与实际关闭会话。把后者挂到会等待 bot 消费方收口的释放阶段，或给宿主两个显式的、有依赖顺序的停止步骤。只把监听器挪到并行执行的 `onStop` 不保证顺序。用真实冷打开的 `mount` 门控测试这条顺序，不用门面替身。
+
+### 5. 非法 bot id 被持久层接受，重启后还会开出另一条主对话
+- 严重程度：重要；类别：正确性；范围：本次新增的 bot 存储与恢复。
+- 位置：`packages/neuro-book/src/plugins/bots/backend/store.ts:12–21,34–44`、`backend/create.ts:27–31,66–91`；id 合同在 `shared/contracts.ts:21`（同插件）。
+- `bots.md` 输出 5、6 要求 id 为 1–40 个 `[a-z0-9-]`，读不懂的记录要有诊断、不能当空库重建。SQLite 记录的 schema 却只查 `id` 是字符串；凭据也另写了一份宽松的记录 schema。
+- `probes/bots-contracts.ts bad-record` 通过真实存储首启建出星璃，关闭后仅把 SQLite 里 `lyra` 的 id 改成 `LYRA`（目录、凭据和其他字段不改），再通过真实服务启动与 RPC 查询：`list()` 得到 `LYRA` 和从原凭据恢复的 `lyra` 两个同名 bot；`ensureMain({botId:"LYRA"})` 成功建出 `bot-LYRA`；`bots.record-unreadable` 为 0。这不是恢复整个不可读记录的约定行为。
+- 改法：存储、创建凭据和恢复共用一份 bot id 与记录 schema；先判整份记录可读再进入目录补登记。加一例结构为合法 JSON、id 域不合法的启动验收，确认不登记、不创建会话，原数据不改写。
+
+### 6. 受理批已写、同步结果不确定时，没有按约定用 `aborted` 结算等待者
+- 严重程度：重要；类别：正确性；范围：本次新增的 `settlePending` 路径及其与 `resolve` 共用的失败收口。
+- 位置：`packages/nb-harness/src/kernel/log/jsonl-store.ts:309–325`、`run/interaction.ts:62–67,105–119,129–134`（同包内核）。
+- 计划“第二轮的修订”将写入结果不确定与反应批失败一起规定为以 `aborted` 叫醒。JSONL 在 `write` 成功、`sync` 失败时返回 `log-broken`、不提交内存归约；`releaseClaims` 仅看归约后的 `pending`，把这一支误当作确定没写下而 `giveBack`。原等待者随后试写中止结算，遇到已损坏句柄，直接抛 `LogBrokenError`，没有收到结构化的 `aborted`。
+- `probes/kernel-faults.ts` 的 `sync` 场景在真实 JSONL 的 `write` 完成后只注入一次同步错误：`send` 交回 `log-broken`，正在等的工具从 `ctx.ask` 捕获 `LogBrokenError`；关闭重开有且仅有一条 `deny`，同 `commandId` 重放成功。对照：反应批失败时工具确实收到 `aborted`（第 2 条另报状态问题）。
+- 基线的 `resolve` 在未执行 `written` 时直接以 `aborted` 唤醒（旧 `run/interaction.ts:175–184`）；共享的 `releaseClaims` 改变了这个收口。
+- 改法：让存储到受理收口保留“确定未写”和“可能已写”的区别，不用当前内存 `pending` 推断磁盘是否变化；结果不确定时只结算等待者，不尝试向已损坏的句柄再写一批。
+
+### 9. 缺省声明未交付时，`ensureMain` 一直等，已有 bot 也不恢复
+- 严重程度：重要；类别：正确性；范围：本次新增的启动门；平台的重复全拒规则不变。
+- 位置：`packages/neuro-book/src/plugins/bots/backend/plugin.ts:68–75,86–95`、`backend/bots.ts:38–49,55–61,72–76`（同插件）；`packages/nb-runtime/src/plugins/host.ts:893–909`。
+- `BotService` 的加载承诺只在收到缺省声明后由 `start()` 完成，或等到整个插件停止。计划假定别的插件不能挡住这份声明；但平台先判同 id 重复，再查贡献方前缀，非法前缀的登记也会让内置声明一并被拒。前两轮已定重复全拒，这里不是要求二选一，而是它触发的运行时后果：只要接收者没收到缺省声明，就不读存量、也不结束已经接纳的写请求。
+- `probes/bots-integration.ts duplicate` 先经真实 RPC 建好 `bot-lyra`，再带真实安装的重复声明重启。会话头仍可读，两份贡献均为 `duplicate-contribution`、均未交付，`list()` 为空，无 `bots.*` 启动诊断。链路收到 `ensureMain` 的 ACK，随后仍无业务结果；调用方取消后为 `unknown-outcome`（`cause: cancelled`）。不是包文件不合；接收方根本没启动记录加载。
+- 改法：给“启动结束但缺省声明没交付”显式状态与诊断，确保等待者能得到有合同的结果，并仍读取存量、恢复能打开的主对话；只把首建绑定到缺省预设可用。保留原有重复拒绝与发布顺序，不靠超时或注册先后挑赢家。
+
+### 7. 岗位提示把不绑定作品的主对话引向不可用的 `project://`
+- 严重程度：建议；类别：正确性；范围：本次新增的岗位提示，资源解析本身符合既有合同。
+- 位置：`packages/neuro-book/src/plugins/bots/backend/profile.ts:20–22`；`packages/neuro-book/src/plugins/agent/backend/resources.ts:25–34`、`packages/neuro-book/src/plugins/agent/docs/addresses.md:20`。
+- `ensureMain` 按合同建一个没有主项目的会话，却在岗位提示中告诉模型“书的文件在 project:// 下”。`probes/bots-integration.ts profile` 经真实项目登记、RPC、主对话和读工具，截获模型请求中的这句提示，快照也确认 `project: null`。按提示读 `project://chapter.md` 得 `no-project`；同一会话读 `projects://book/chapter.md` 成功返回已登记作品正文。base 没有该岗位提示。
+- 改法：岗位提示指向 `projects://<短名>/…`，明确这条会话不能用 `project://`；保留 `session://` 用于中间产物。不为这条提示给会话增绑主项目，也不改地址解析。
+
+### 8. 缺省岗位公布 `agent_spawn`，但没有任何可派的 Profile
+- 严重程度：建议；类别：正确性；范围：本次新增的岗位 Profile；白名单规则本身未回归。
+- 位置：`packages/neuro-book/src/plugins/bots/backend/profile.ts:17–18,28–36`、`packages/neuro-book/src/plugins/agent/backend/builtin/profiles/main.ts:36`、`packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:319–322`。
+- `MAIN_PROFILE_TOOLS` 让岗位向模型公布 `agent_spawn`；岗位声明却未给 `agents`，所以全新状态根上的白名单为空。主创默认允许并推荐 `nbook.agent.adhoc`。`probes/bots-integration.ts profile` 在同一真实宿主上向两个会话调用同一个工具、用同一份合法实参：`nbook.bots.companion` 得 `profile-not-allowed`；`nbook.agent.main` 派出的子会话运行完成。当前默认配置无法走通 `main-conversation.md` 输出 5 所述的子会话路径，需用户手工配置。提案第四节第 6 小节的定时任务不属 t06；这里报的是普通对话已经公布、缺省却不可用的工具。
+- 改法：给岗位声明一个可派的默认 Profile（若与主创相同，共用那份允许／推荐声明），继续照常执行用户覆盖与白名单检查。若要刻意缺省禁止，应撤掉空白名单时公布的派发工具，并明定开启派发的步骤；不需要在 t06 实现周期任务。
+
+## 未发现问题的方面
+
+- 正常受理路径：用户发话结算可认领的同步事项；异步事项、被拦截或过期的输入不被结算。重开按 `commandId` 重放，不重复写入；未把两轮设计已接受的反应批失败结果差异、只读恢复、仅有会话头与父链断开当新问题。
+- 只读会话头、`owned-session` 的冷拒绝与失败原码、正常持有及幂等释放、门面作废时的晚到持有和订阅、正常父链的列表过滤。只读重启探针中 `held` 与快照 `readOnly: {code: "unknown-profile"}` 并存，符合两份合同。第 3、4 条是这里另列的并发例外。
+- 缺省资源不可用时，已有记录的正常启动不等文件核对；预设撤回后的异步核对按代次作废。真实安装中，合法声明被接收并能定位两份文件，`../outside.md` 在声明阶段被拒为 `invalid-declaration`，未交给包文件查询；文件缺失的另一条由 bots 记录 `bots.preset-invalid`，不影响 `lyra`。第 9 条是声明未交付时的启动例外，不是文件核对问题。
+- 跨插件依赖经 `shared/contracts.ts` 与 `agentProfilePartsKey`；实际 `switch_mode` 合同通过，包边界和内置显示名检查通过。`probes/packed-bots.ts` 解开 tarball、启动包内托管进程，经 WebSocket RPC 验证首建人设和 14,050 字节头像、`ensureMain` 由 `none` 到 `held`、会话头归属和岗位 Profile，重启重新持有；该次打开记录 2 个事件、29 毫秒，不是长日志容量或性能验收。
+
+## 结算边界与验证记录
+
+- 只停 bots 提供方时，新请求是 `unavailable`，停完是 `not-provided`。在途的 `ensureMain` 若在建会话后因封门抛 `BotsStopping`，链路仍在线，通道将其作为提供方执行异常返回 `provider-error`；探针中会话已写下，空闲期后未留锁。这不等于 ACK 前的 `unavailable`，也不等于断链或调用方取消产生的 `unknown-outcome`；不计为本次新的通道回归。整个宿主的 RPC 排空与第 4 条的插件间实际关闭顺序是不同阶段。
+- 在 `14e0554ff` 上，`bun test` 定向应用合同 100/0、打包 8/0、包边界 10/0、后端真实进程合同 26/0。内核和 kit 合跑 134/2：一个 JSONL 逐字节截断用例超过 5,000 毫秒，一个 fork 用例收到了 `FileHandle` GC 错误；隔离后这两条各 1/0，截断用例传 `--timeout 60000`、用时 5.36 秒。未把隔离通过写作整组通过，未确认 `FileHandle` 错误与超时的因果关系。混合探针另见 `SessionClosedError`，未隔离，不定级。
+- `nb-harness` 的 `bun run typecheck` 和应用服务端的 `bun run tsc --noEmit` 均退出 0；应用组合类型检查 180 秒被 SIGTERM，Web、浏览器测试类型未验证。未跑全量、e2e、开发服务或真实模型。
+
+阻断 0，重要 7，建议 2。已报编号均有效；同一条中注明哪些是 base 已有机制、哪些是新入口或合同扩大后的影响。
+
+有效编号：1、2、3、4、5、6、7、8、9

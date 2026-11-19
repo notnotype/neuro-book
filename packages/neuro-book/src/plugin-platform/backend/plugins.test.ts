@@ -204,6 +204,13 @@ describe("插件包里的目录（plugin-code-loading 的插件包查询）", ()
         await symlink(join(version, "skills"), join(version, "linked"));
         expect(await packages.directory("example.hello", "linked/pdf")).toBeNull();
         expect(await packages.directory("example.other", "skills")).toBeNull();
+        // 按相对路径找普通文件：同样的写法规则，目录与链接都不算。
+        expect(await packages.file("example.hello", "skills/readme.txt")).toBe(join(version, "skills", "readme.txt"));
+        for (const path of ["skills", "skills/pdf", "missing.txt", "/skills/readme.txt", "skills/../skills/readme.txt", "linked/SKILL.md"]) {
+            expect([path, await packages.file("example.hello", path)]).toEqual([path, null]);
+        }
+        await symlink(join(version, "skills", "readme.txt"), join(version, "readme-link.txt"));
+        expect(await packages.file("example.hello", "readme-link.txt")).toBeNull();
         expect([packages.title("example.hello"), packages.title("example.other")]).toEqual(["Hello", null]);
     });
 });

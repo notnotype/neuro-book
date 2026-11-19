@@ -5,7 +5,7 @@
 
 # FieldsDataView
 
-数据分页的字段表界面（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 12、13）：没有专门界面的类型用它（通用字段表），canon 给人物（`nbook.canon.person`）交的界面也是它（`semanticNotes`）。经条目页给的 `context`（`ComponentViewContext`）读字段与来历，交给 `FieldTable` 与 `OriginList` 画；展开着哪个字段记在 `context.state.open`。
+数据分页的字段表界面（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 12、13）：没有专门界面的类型用它（通用字段表），canon 给人物（`nbook.canon.person`）交的界面也是它（`semanticNotes`）。别的插件的专门界面经 `context.FieldTable` 嵌的一节通用字段也是它（`only` 只列其中几个字段）。经条目页给的 `context`（`ComponentViewContext`）读字段与来历，交给 `FieldTable` 与 `OriginList` 画；展开着哪个字段记在 `context.state.open`。
 
 ## 布局与交互
 
@@ -18,6 +18,8 @@ type FieldsDataViewProps = {
     context: ComponentViewContext;
     /** 语义档的字段在值下面列出起点与之后记下的每一句；默认 false。 */
     semanticNotes?: boolean;
+    /** 只列这几个字段（字段名）；默认列全部。 */
+    only?: readonly string[];
 };
 ```
 

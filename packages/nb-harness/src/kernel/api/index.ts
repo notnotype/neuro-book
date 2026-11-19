@@ -11,7 +11,7 @@ export type {AssistantCtx, InterceptCtx, MountCtx, ReactCtx, Resources, ViewCtx,
 export {LOG_FORMAT} from "./events.js";
 export type {
     AnyEventSpec, BatchMark, BlobRef, EntryPoint, EventData, EventKind, EventsDecl, EventSpec, FailureCode, HeldCause, InteractionDecision, KernelEvent, KernelEventName, KernelEvents, LogEvent, LogRecord,
-    Position, RunEndReason, RunResultValue, SessionHeader,
+    Position, RunEndReason, RunResultValue, SessionHeader, SessionOwner,
 } from "./events.js";
 export type {
     AnyExtension, CompactionCut, CompactionJob, CompactionMethod, CompactionMethodImpl, CompactionResult, ContributedExtension, DefineExtension, Extension, ExtensionFields, Implement, Interceptors, SettingsSchema, StateOfExtension,
