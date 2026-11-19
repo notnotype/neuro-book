@@ -25,8 +25,12 @@ updated: 2026-11-19
 - 2026-11-19 新建。主会话核实现状：Agent 一侧什么都没有；作者只能就地改四种标量字段。
 - 计划第 1 稿与独立设计（Sonnet，[`evidences/independent-design.txt`](evidences/independent-design.txt)）对照后定稿，交设计审查：后端 omp 11 条（阻断 5），前端 Sonnet 15 条（重要 11），全部成立，[处理](evidences/design-review-resolution.txt)后改成第 2 稿。后端的五条阻断改动了内核的核心规则，第 2 稿的后端部分再交 omp 审一轮；前端的处理照审查建议落地，不再开设计审查。
 
+- F4（分支 `feat/w00039-t37-write-foundation`）：nb-ui `SearchSelect` 加远程模式（`search` 事件、不在本地筛、`selectedLabel`）与清空按钮（`b12b9cad8`）；canon 的条目选择器 `EntryPicker` 与图片输入 `ImageInput`（`86d6a91c3`）。`EntryPicker` 原先自己发查找、标 `io:read`，Lab 挂不了（带 `io:` 的组件只能在真实界面验证），改成受控零件，去抖与晚到结果作废挪进组合式函数 `useEntryFind`，各宿主共用。dom 测试与变异检查都过，网页与浏览器测试的类型检查通过。
+
+- 后端第二轮设计审查（omp，[`evidences/design-review-backend-omp-r2.txt`](evidences/design-review-backend-omp-r2.txt)）：2 条重要，第一轮的处理逐条认可。照建议改出第 3 稿：Agent 的读前提从“世界版本没变”改为读取戳（版本加读取输入摘要）；远程合同不升版本、只加方法（升了老页签没有刷新的出路）。不再开第三轮。
+
 ## 下一步
 
-1. 后端第二轮设计审查期间先做 F4（nb-ui `SearchSelect` 的远程模式、`EntryPicker`、`ImageInput`），它只依赖现有接口。
+1. 照切片 F1 到 F7 实施，F1（内核）开始。
 2. 第二轮处理完后照切片 F1 到 F7 实施。
 3. 底座合入后，和开发者定人物 Component 闭环的范围。

@@ -1,0 +1,120 @@
+# w00052 t01 实现审查（前端部分，Sonnet）审查提交 22ab88196
+
+### 1. “没检成”在结果未知时写成“可能没有保存”，与检测无关
+严重程度：重要　类别：正确性、文字
+位置：web/text.ts failureReason（行 28-29）、locales/zh-CN.json `failure.unknown-outcome`（en-US 同键）、web/components/SearchSettingsPage.vue checkLine（行 38-40）
+现象：`failure.unknown-outcome` 的文案是“可能没有保存，以页面上显示的为准”，写入失败通知（输出 6）用它是对的。但 `check` 的远程调用链路中断时同样得 `unknown-outcome`，页面按 `failureReason` 写成“没检成：可能没有保存，以页面上显示的为准”。Lab 场景 `not-run` 的截图（shots/20261119T115547Z/SearchSettingsPage__not-run__free__light.png）就是这句，英文是 “Couldn't check: May not have been saved; the page shows the actual state”。
+为什么是问题：检测不保存任何东西，也没有“页面上显示的”可对照；用户读到会以为密钥没存上，去重填。Spec 输出 8 要求“没检成（远程调用本身失败或结果未知）”，只是要显示“没检成”，不是借写入的原因。DOM 测试 `notRun` 只断言 `startsWith("没检成")`，所以这句错话没被发现。
+如何核实：Lab 的 `not-run` 场景或 DOM 测试里 `check: "unknown"` 后读 `[data-search-check-result]` 的全文；上面的截图已有。
+建议改法：检测的原因与写入的原因分开取：`failureReason` 带一个上下文（`"write" | "check"`），或给 `unknown-outcome` 加 `failure.checkUnknown`（“连接断了，不知道检测有没有发出去；可能已经按了一次计费”，计费这一点对 `effect: write` 的 `check` 是实情）。DOM 测试改成断言全文。
+
+### 2. 已发出的检测在密钥改写之后才回来，旧密钥的结果被当成新密钥的结果显示
+严重程度：重要　类别：不变量（先后、并发）
+位置：web/search-store.ts write() 行 90-92（`if (checks.get(provider)?.status !== "running") checks.delete(provider)`）与 check() 行 119-125
+现象：写入成功时，只要这家的检测是 `running` 就不清。作者的意图是保住“排在这次写入后面、还在排队的检测”（注释：排在它后面的检测已经标成进行中），但“在这次写入之前就已发出、正在服务端用旧密钥跑的检测”同样是 `running`，同样被保住；它回来后写成 `done`，页面显示“检测通过（时间）”，而这时密钥已经是新的。
+为什么是问题：Spec 输出 8“写入或清除成功后，这一家的检测结果清掉”，计划与数据模块注释的目的就是“密钥变了旧结果不失效”（设计审查 Sonnet 第 2 条）。页面上检测进行中输入框并不停用，用户点了检测再改密钥是很自然的操作；结果是对新密钥的错误“通过”或“不认密钥”。
+如何核实（已做，仓库外的脚本，直接 import search-store.ts，远程替身的 check 挂住、由脚本放行）：check("deepseek") 发出（替身记到 “check sent with OLD”）→ setKey("deepseek","NEW") 成功 → 此时 `checks.get` 为 `{"status":"running"}` → 放行旧检测 → `checks.get` 变成 `{"status":"done","result":{"ok":true},"at":1}`，没有任何标记说明它是旧密钥的结果。现有测试没有这个次序（`search-store.test.ts` 的“填完直接检测”只有写在前、检测排队的情形）。
+建议改法：给每家的检测记一个代次（或在 check() 里区分“排队中”与“已发出”）：写入成功时让已发出的检测作废（丢弃它回来的结果并把状态删掉，页面回到空闲），排队中的不动。补一条数据模块测试：检测已发出、写入成功、放行旧检测，断言最终没有 done。
+
+### 3. 检测排队等写入时入口被停用，写入结束后仍会发出（计费的）检测
+严重程度：建议　类别：不变量（释放）
+位置：web/search-store.ts check() 行 119-124、dispose() 行 131-136
+现象：check() 先 `await pendingWrites.get(provider)`，之后才建 AbortController、登记进 `controllers` 并发请求；`disposed` 只在请求结束后查。如果写入在途时调用 dispose()（abort 遍历的是当时还空的集合），写入一结束，检测照样发出，没有人能取消它。
+为什么是问题：数据模块注释与 Spec 都说入口停用时释放它；`check` 是 `effect: write`、会发一次按次计费的搜索。窗口卸载与停用入口通常很快，但这是一条漏掉的收口路径：停用之后还有网络请求在外面。
+如何核实（已做）：脚本里让 setKey 挂住，随后 `store.check()`、`store.dispose()`，再放行 setKey；日志为 `["setKey done NEW", "check sent with OLD"]`，即 dispose 之后检测仍然发出。
+建议改法：await 之后 `if (disposed) { checks.delete(provider); return; }`，其余不变。补测试（现有 6 条里没有任何一条碰 dispose，见第 6 条的变异结果）。
+
+### 4. 写失败的提示把中文全角分号写死在组件里，英文界面成了“……；Please enter it again”
+严重程度：重要　类别：文字、i18n
+位置：web/components/SearchSettingsPage.vue 行 59（`const reason = \`${failureReason(text, outcome.failure)}；${text("failure.retry")}\``）
+现象：连接词 `；` 是源码里的字面量，不在两份目录里。英文界面的窗口通知会是 “The key file couldn't be read or written；Please enter it again”（全角分号，句子之间也没有空格）。`unknown-outcome` 时是 “May not have been saved; the page shows the actual state；Please enter it again”，一句话里半角全角各一个。
+为什么是问题：项目的 i18n 约定是句子整体进目录（同文件里其它句子都走 `text(...)`）；这是唯一一处在代码里拼标点的地方，英文界面直接可见。DOM 测试只在 zh-CN 下断言 “密钥文件读写失败；请重新输入”，所以没发现。
+如何核实：看行 59；Lab 的 `write-failed` 场景只有中文，没有英文版；用英文端口挂载后 `reportWriteFailure` 的 reason 即上面这句。
+建议改法：目录里加一条带占位的键，如 `failure.withRetry`: “{{reason}}；请重新输入” / “{{reason}}. Please enter it again.”，组件只调一次 `text`。同时给 Lab 加一个 `write-failed-english` 场景或在 DOM 测试里加英文断言。
+
+### 5. 数据模块测试没有覆盖“dispose”“unavailable 之后 start 重试”“start 去重”（变异检查全部存活）
+严重程度：重要　类别：测试
+位置：web-tools/search-store.test.ts（全文件 6 条）；被漏的代码在 web/search-store.ts 行 107-111（start）、行 131-136（dispose）、行 119-124
+现象：我在仓库外的副本（/tmp/sonnet-review-probe/w，复制 packages/neuro-book，其余包与 node_modules 软链）里对 search-store.ts 做了变异，再跑 `bun test src/plugins/web-tools/search-store.test.ts`：
+- 去掉检测的“进行中不重复发”：失败（被抓到）。
+- 写入成功时连进行中的检测也清掉 / 不清掉任何检测 / 去掉 `await pendingWrites`：各失败一条（被抓到）。
+- `start()` 改成每次都重取（去掉 `loaded && available` 判断）：6 条全过，存活。
+- `start()` 改成 `loaded` 为真就不再取（即 `unavailable` 之后不重试）：6 条全过，存活。Spec 状态表“只读，下一次显示这页且合同可用，读取中”这一行没有任何测试。
+- 去掉 `dispose` 里的 `controller.abort()`：全过，存活。
+- 去掉检测回来后的 `disposed || aborted` 判断（dispose 之后的迟到结果仍写进状态）：全过，存活。
+- 去掉 `unavailable` 置 `available = false`：失败（被抓到）。
+为什么是问题：重点 1 列出的“dispose 之后的迟到结果”“unavailable 之后 start 重试”“检测进行中卸载页面再回来”三条，正是没人测的几条；第 3 条的泄漏就在这里面。也没有“页面卸载再挂载后检测结果与进行中状态还在”的测试（Spec 输出 8 最后一句）：数据模块测试不挂页面，DOM 测试没有 remount。
+建议改法：数据模块测试补三条（用真实服务端 + 假端点，hang 脚本已有）：(a) dispose 后放行检测，断言 `checks` 不变且假端点收到的请求被中断；(b) 第一次 `start()` 得 `unavailable`，再 `start()` 取到状态，断言 `available` 回真；(c) 同一 store 上 mount、检测中卸载、再 mount，页面仍显示“检测中”。
+
+### 6. DOM 测试对输出 3、10 的几条字面要求区分不出对错（变异存活）
+严重程度：建议　类别：测试
+位置：web/components/SearchSettingsPage.dom.test.ts
+现象：在仓库外副本里改 ApiKeyField.vue / SearchSettingsPage.vue 后跑 `bunx vitest run SearchSettingsPage.dom.test.ts`：
+- 密码框 `type="password"` 改成 `text`：9 条全过（Spec 输出 3“密码框”）。
+- 去掉 `autocomplete="new-password"`：全过。
+- 去掉 `<label for>`：全过（输出 10“密码框有标签”；测试只验了 aria-describedby）。
+- 去掉 section 的 `aria-labelledby`：全过。
+- 去掉 `@focusout="commit"`：全过。输出 3 的第一种提交方式“失焦写入”只由 e2e 的“点检测”间接覆盖，DOM 测试里 focusout 只用来验“不重复写”，没有单独的“只失焦就写”。
+- `uncertain: outcome.failure.code === "unknown-outcome"` 改成 `false`：全过。输出 6 的“结果未知写‘可能没有保存’”在页面层没有任何用例（失败测试只造了 `credentials-unavailable`）。
+- `commit()` 里去掉 `off.value` 判断：全过（停用时有草稿也不交的边界没人测）。
+- 抓到的：去掉按钮 aria-label、去掉 clear 后清空草稿、去掉 trim、`credentials-unavailable` 画成读取中、`writable` 不停用控件、去掉检测结果的 `role="status"`。
+还有：“密钥文件读不了”的用例只断言了框没停用，没有断言占位是“还没有填写”（输出 2 的后半句：按未设置画）。
+建议改法：补断言即可，都不需要新机制：`input.attributes("type")`、`autocomplete`、`label[for]` 与 `input.id` 相符；单独一条“只 focusout 就写一次”；fake 加一个让写入以 `unknown-outcome` 结束的开关，断言 `uncertain: true`；unreadable 用例加占位断言。
+
+### 7. 取状态因“目标已没了”等原因失败时，页面永远停在“读取中”，没有任何文字
+严重程度：建议　类别：边界、正确性
+位置：web/search-store.ts failed()/refresh() 行 62-80；web/components/SearchSettingsPage.vue keyState/keysUnreadable
+现象：`failed()` 只把 `unavailable` 当“不可用”。读请求在服务端已回 ACK 后连接断了，运行时给的是 `target-gone`（nb-runtime/src/remote/protocol.ts failureFor）；`timeout`、`cancelled` 同理。这几种码到了 refresh()：`statusFailure` 被设置，`available` 仍为真，`status` 为 null，于是 keyState 是“读取中”、控件停用，顶上没有只读提示（只有 `unavailable` 与 `credentials-unavailable` 两种失败有文字）。`statusFailure` 对其它码根本不显示。
+为什么是问题：Spec 输出 2 允许“一直没拿到”时显示读取中，但输出 7 要求“远程合同不可用（服务端入口已停止）时在页面上写原因”；入口在请求进行中停止正是 `target-gone`，用户看到的是一个永远转不出来的“读取中”，也不知道要离开页面再回来。检测与写入的同类失败都有文字（“没检成”“窗口通知”），只有取状态没有。
+如何核实：fake-remote 的 `status` 返回 `{ok:false, code:"target-gone"}`，挂载页面：`[data-search-readonly]` 与 `[data-search-keys-unreadable]` 都不存在，框是“读取中”。
+建议改法：把 `target-gone` 并入“合同不可用”（`failed()` 里与 `unavailable` 同处理），或让 `statusFailure` 非 `credentials-unavailable` 时在顶上写 `failureReason`；这是窄的边角，选前者最简单。
+
+### 8. 越界测量与截图是在最后一次改页面之前拍的，且只有亮色；“只读”场景的截图与现在的代码不符
+严重程度：建议　类别：UI 取证
+位置：.local/.../shots/20261119T115547Z/（文件时间 11:58 UTC）；提交 54cb84a11（12:58 UTC）
+现象：`SearchSettingsPage__readonly__free__light.png` 里密钥框的占位是“还没有填写”；按提交里的代码，`unavailable` 时 status 为 null、`statusFailure.code` 是 `unavailable`，keyState 为 `loading`，占位应是“读取中”（DOM 测试的“只读”用例就断言“读取中”，且通过）。说明截图早于切片 3 的最后一次改动，`report.json` 里 24 条的 `overflowX: 0`、`offenders: []` 也是改动前的页面量的。另外所有截图只有 light：ui-development 的“三、UI 专属检查”第 1 条要求明暗两态，计划写“亮色”是给开发者看的做法，不是验收。
+为什么是问题：交付说明引用这批截图作 390 宽与英文的证据；证据对应的不是 22ab88196 的页面。当前页面的版式变化很小（我看了 not-run、failed-narrow、failed-english、checking-phone、unreadable、readonly 六张：无溢出、说明在窄屏换到按钮下面），所以风险低，但“证据失效”应该重拍。
+建议改法：在最终提交上重跑 Lab 截图，加一遍 dark；`not-run` 与 write-failed 要在改完第 1、4 条文字后重拍。
+
+### 9. 无障碍：检测进行中与“已设置”两个状态读屏用户听不到
+严重程度：建议　类别：无障碍
+位置：web/components/SearchSettingsPage.vue 行 99-115（检测按钮与结果）、ApiKeyField.vue placeholder
+现象：(a) 检测按钮 `aria-label` 固定为“检测 DeepSeek 的密钥”，进行中文字变成“检测中”但可访问名称不变；同时 `role="status"` 的结果段在 `running` 时是空串（checkLine 对 running 返回 ""）。读屏用户点了检测以后没有任何播报，直到结果出来。(b) “已设置”只存在于输入框的 placeholder；有 `<label>` 时 placeholder 通常不被读出，“清除”按钮的名字也没说是哪一把密钥（输出 10 要求按钮名称带服务名，检测按钮带了，清除没有）。
+为什么是问题：输出 10 的三条（标签、说明关联、按钮名称带服务名）实现了前两条，第三条只做了检测按钮；模型设置页的密钥框有同样的限制，但这页是新写的，可以不照搬。
+如何核实：DOM 里读 `[data-key-clear]` 的名称是“清除”；`checking` 时 `[data-search-check-result]` 的文字为空，按钮 `aria-label` 没变。
+建议改法：running 时让结果段写“检测中”（视觉上按钮已经有，可以用视觉隐藏的文字）或给按钮加 `aria-busy`；“清除”加 `aria-label`（“清除 DeepSeek 的密钥”，ApiKeyField 需要一个服务名属性）；已设置状态可经 `aria-describedby` 指到一段视觉隐藏的“已设置”。
+
+### 10. e2e 只走了“已有密钥后再换一把”，没有走“第一次填密钥直接点检测”
+严重程度：建议　类别：测试、验收覆盖
+位置：e2e/web-settings.e2e.ts 行 98-103；SearchSettingsPage.vue 行 100（`:disabled="disabled || keyState !== 'set' || checking"`）
+现象：验收 2“填完密钥直接点检测：检测用到刚填的密钥”，e2e 里这一步发生在 FIRST 已设置之后，按钮本来就是可点的。第一次填密钥时按钮是停用的（没有密钥时“检测”停用，输出 8）：用户在框里填完、直接点停用的按钮，那一下点击只会让输入框失焦、触发写入，按钮在写入返回后才变可点，点击事件本身落在停用的按钮上。这条路径在不同浏览器里行为不同（鼠标按下与抬起之间按钮从停用变可用，Chrome 是否还发 click 我没有验证，未运行浏览器）。
+为什么是问题：设计审查第 1 条描述的正是首次填写的场景；e2e 把“换密钥”当作“填完直接点检测”，没有覆盖首次。数据模块的排队保证了“按钮可点时”正确，但没有人验证用户第一次点能不能点到。
+建议改法：e2e 里先在空状态下 `key.fill(FIRST)`、不按回车，直接 `check.click()`，断言最终收到的 Authorization 是 FIRST（并且若点击被吞掉，要有明确的预期：再点一次、或页面有提示）。这一条可能暴露“首次要点两次”，到时再决定要不要让按钮在草稿非空时可点（那样点击会先写入再检测，同输出 8 的排队）。
+
+### 11. ApiKeyField 的计算属性与属性同名
+严重程度：建议　类别：代码质量
+位置：web/components/ApiKeyField.vue 行 9-10（prop `describedBy`）与行 28（`const describedBy = computed(...)`）
+现象：`<script setup>` 里的 `describedBy` 绑定遮住了同名的 prop，模板里的 `describedBy` 取到的是计算值（含 prop 与 `-problem` id）。能工作（DOM 测试验证了关联），但读者要靠“setup 绑定优先于 props”这条规则才看得懂；改成 `props.describedBy` 以外的名字更直白。
+建议改法：计算值改名 `describedIds`。
+
+### 行号更正（以 22ab88196 为准，覆盖上面各条里写的行号）
+- 第 2 条：search-store.ts 行 91（写入时清结果）、行 117-119（check 的去重与 await）。
+- 第 3 条：行 119（await pendingWrites）、行 127（dispose）。
+- 第 4 条：SearchSettingsPage.vue 行 52。
+- 第 5 条：start 在行 110。
+- 第 9 条：检测按钮在 SearchSettingsPage.vue 行 70-80 附近；第 10 条：停用条件在行 75，e2e 的“验收 2”注释在 e2e/web-settings.e2e.ts 行 95。
+- 第 11 条：ApiKeyField.vue 行 11（prop）与行 32（computed）。
+
+## 未发现问题的方面
+- 密钥不留存：回车后清空、`trim`、`env:` 拒收、DOM 里（innerHTML 与全部属性）与输入框值都没有原文，数据模块只持有 `hasKey`；失败通知只含原因文字。
+- 写入与检测的排队本身（检测等在途写入）、写入成功后清掉已结束的旧结果、`unknown-outcome` 重取状态、`unavailable` 置只读：变异检查均被现有测试抓到（见第 5 条列出的存活项除外）。
+- 文字目录：zh-CN 与 en-US 键集完全一致、占位符一致；Spec 输出 1、2、3、4、5、7、9 的文字与行为与实现相符；页面声明（分类、order 22、column、layers、图标、关键词）与 Spec 输出一致；`web/plugins.ts` 两处登记齐全。
+- 组件文档：能力标签（ApiKeyField 为 state:local、state:inject；SearchSettingsPage 为 state:inject）与实现一致，Props 与事件类型声明与 .vue 一致，同名 .md 都在。
+- 固定等待：DOM 测试与 e2e 都用条件等待（waitUntil、expect.poll）。没有 mock、spy、假计时器。Lab 的 fake-remote 与服务端 settings-remote.ts 的码、形状（`no-key` 作为值、`invalid-value` 带 `{detail}`、`credentials-unavailable`）一致。
+- 实测：DOM 测试 9 条、search-store.test.ts 6 条在实现 worktree（HEAD 22ab88196）上全部通过。变异检查都在 /tmp/sonnet-review-probe 的副本里做，没有改任何仓库文件。
+- 390 宽与英文版式（按 6 张截图）没有溢出与裁切。
+
+## 数量
+阻断 0；重要 4（第 1、2、4、5）；建议 7（第 3、6、7、8、9、10、11）。合计 11 条。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11

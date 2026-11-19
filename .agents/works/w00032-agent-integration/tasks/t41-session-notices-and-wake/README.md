@@ -88,10 +88,23 @@ updated: 2026-11-19
 | 18 | 成立，要改 | `fork` 不带提醒、门开 |
 | 19 | 成立，要改 | 恢复的路径改成 `run/recover.ts`，验收分开写 |
 
+## 进展
+
+| 片 | 提交 | 验证 |
+|---|---|---|
+| 1 Spec（planned） | master 68a4ef233；字段名对齐 `queued` 另一提交 | `docs:check` 无新问题 |
+| 2 提醒的发与取 | 分支 b503994e9 | nb-harness 新增 `run/notice.test.ts` 11 条过；内核全部测试除 `log/store.test.ts` 的“截在任何一个字节处”（master 上同样在负载下 5 秒超时）都过；neuro-book `src/plugins/agent` 530 过、5 失败：`builtin-tools-project.test.ts` 3 条 master 上同样失败（负载），`compaction.test.ts`、`builtin-profiles.test.ts` 各 1 条单独重跑都过；变异 4 处（取走挪回压缩之前、插话排在提醒前、来源行不清洗、用户能发）各有用例失败；三个包 typecheck 过 |
+| 3 门与唤起 | 分支 d0e93e0b1、f9b297986 | 新增 `run/wake.test.ts` 15 条过；`session/session.test.ts` 一条断言改成只看路径事件（出错收口批多了一条关门事件）；nb-harness 内核 450 条全过（负载 4）；neuro-book `src/plugins/agent` 535 条全过；变异 6 处（停止与出错不关门、用户不开门、收口唤起不看门、`runResumed` 不改恢复标记、取消的推迟指令照样放行、最终回复不看唤起）各有用例失败，其中“收口唤起不看门”起初没有用例抓到，补了 f9b297986 |
+| 4 `queue.order` 与 `mergeSteers` | 分支 e15c52f18 | `run/notice.test.ts` 增至 14 条过；插件 SDK 导出 `mergeSteers`，`sdk/sdk.test.ts` 的导出清单随之加一项（同文件“组件子路径”一条 master 上同样失败）；变异 2 处各有用例失败 |
+
+负载记录：跑测试时 1 分钟负载 25–108（别的会话的 typecheck 与 e2e、一个 t21 测试留下的孤儿 eval 内核，后者开发者已手动结束）。
+
+实施中定下、已写进 Spec 的两处：推迟到收口的指令送进来的话都被取消时整条不生效（不放行别的话、不算谁开的；runtime.md 输出 104）；没有进行中的一轮时先取就绪的话，再看提醒（输出 114）。最终回复时有带唤起的待发提醒，这一轮接着请求（输出 28）。
+
 ## 当前状态
 
-计划第 2 稿开发者确认（决定 6）；开始切片 1：在 master 写 planned 的 Spec。
+切片 2–4 完成，交 omp 实现审查（后台）；开始切片 5（NeuroBook：远程版本 2、转录、对话视图）。
 
 ## 下一步
 
-切片 1 Spec → 2 提醒的发与取 → 3 门与唤起 → 4 `queue.order` 与 `mergeSteers` → 5 NeuroBook。
+切片 5 → 前端 Sonnet 审查；处理两份实现审查。
