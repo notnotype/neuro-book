@@ -1,0 +1,230 @@
+# t35 设计审查（第二轮，计划第 2 稿）
+
+共 9 条：阻断 0、重要 5、建议 4。我没跑 e2e、没构建、没开浏览器，层叠结论来自读 CSS 与规范，不是浏览器实测。我跑过的只有 nb-layout 的 dom 测试（第 2 条）。
+
+草稿文件 `report-draft.txt` 里多一条第 10 条，它与第 5 条重复。我没法再编辑这份草稿，以本回复为准。
+
+### 1. 桥接写进 tokens.css，会被 SDK 的 docs/tokens.md 当成主题变量列给插件作者
+**严重程度**：重要　**类别**：被破坏的既有约定
+**位置**：计划“桥接：nb-ui 的 src/tokens.css”；`packages/neuro-book/plugin-sdk/pack.ts:311-323`、`:294-302`（cssTokens）、`:282-292`（DESIGN_GROUPS）
+
+**现象**：
+- SDK 构建的 `docs/tokens.md` 是“主题变量”清单，对插件作者说“用 var(--名字) 取这些变量”“主题可以覆盖”。
+- 它由 `cssTokens` 读 nb-ui 的 `tokens.css` 与 `theme.css` 里所有 `--x: 值;` 生成。
+- 桥接约 40 行进了 `tokens.css`，就全进这份清单。
+  - `--nb-layout-panel-surface`、`--nb-layout-focus-outline` 这类落进“面与线的角色”。
+  - 其余落进“其它”，缺省值栏写 `var(--sash-line-color)` 之类。
+
+**为什么是问题**：
+- 公开的作者文档被内部桥接名污染。
+- 插件作者会照文档依赖 `--nb-layout-*`，而计划把它们定位成“一小批以外都标内部”。
+- `pack.test.ts:214` 只断言 `--space-2`、`--accent-main`，不会报。
+- 计划与 Task README 都没提这条通道。
+
+**如何核实**：读 `pack.ts` 上面几处；桥接加完后跑 plugin-sdk 的构建，看生成的 `tokens.md`。
+
+**建议改法**：
+- 桥接放 nb-ui 里单独的样式文件（例如 `src/layout-bridge.css`），在 `tailwind.css` 里同样 `layer(base)` 引入。
+  - `./tokens.css` 也是单独的导出子路径，要决定直接 `@import` 它的宿主要不要也拿到桥接。
+- 或者让 `cssTokens` 跳过 `--nb-layout-`。
+- 无论哪种，在 `pack.test.ts` 加一条“tokens.md 里没有 `--nb-layout-`”。
+- “桥接放 `tokens.css`”写在已接受的提案与 ADR 0054 里，改位置要回写那两处。
+
+### 2. 空串改当 470ms 后，nb-layout 现有 dom 测试会失败，计划只迁了 6 处设旧名的用例
+**严重程度**：重要　**类别**：遗漏、迁移
+**位置**：计划“JS 读变量的三处”“切片 3”；`packages/nb-layout/src/vue/layout-motion.ts`；`NestedGrid.dom.test.ts:1206`
+
+**现象**：
+- `layoutMotionMs` 今天把空串与解析不出的值都当 0。
+- nb-layout 的 happy-dom 测试没有 nb-ui 样式。58+26 条里只有 6 处设了 `--motion-layout`，其余全靠“空串=0”走无过渡路径。
+
+**为什么是问题**：计划改成“空串当缺省时长”，这些测试悄悄换了路径。
+
+**如何核实**：
+- 我在实验目录用 `vi.mock` 把 `layoutMotionMs` 换成“空串当 470ms”（`exp/setup-motion.ts`、`exp/vitest.exp.config.ts`），跑 NestedGrid、useGridLayout、useGridMotion 三个 dom 文件。
+  - 基线 92 条全过。
+  - 改后 1 条失败：`NestedGrid.dom.test.ts:1206`（“拿起的内容项……放下回到叶的矩形”），left/top 期望 0px，实得 15px、25px。
+- neuro-book 的 `src/plugins/workbench` 14 个 dom 文件在同样的 mock 下 95 条全过。我换成会抛错的 mock（`exp/setup-throw.ts`）也全过，说明那 14 个文件没有走到 `layoutMotionMs`。这既不是受影响的证据，也不是没受影响的证据。
+
+**另两处计划没写**：
+- 非空但解析不出的值（`none`、`initial`、`calc()`）今天当 0，计划只说“空串当缺省”。
+- `nested-grid.md` 输出 35、59 没有“宿主没给令牌时用缺省时长”的条目。今天这句只写在 `layout-motion.ts` 的注释里，计划的 Spec 清单没有它。
+
+**建议改法**：
+- 切片 3 写明：测试环境给 `--nb-layout-motion-layout: 0ms`（共用 setup，或这 1 条用例自己设），并把这条失败列入。
+- 解析不出的值明说当 0 还是当缺省。
+- `nested-grid.md` 补一条。
+
+### 3. provideHostText：调用点清单、检查写法、公开导出都不全
+**严重程度**：重要　**类别**：接口与合同、遗漏
+**位置**：计划“文案：库自己的注入点”第二条；`packages/neuro-book/src/web/boot.ts:127,140`、`mount.ts:32`、`shared/testing/text-port.ts:22`；`packages/nb-layout/src/vue/index.ts`
+
+**现象**：我 grep 了 `packages` 下所有 `.ts`、`.vue`、`.tsx` 里的 `TEXT_PORT_KEY`。
+- setup 里的 `provide(TEXT_PORT_KEY, …)`：Lab 夹具 18 个文件（计划写“约 17”）。
+- `app.provide(TEXT_PORT_KEY, …)`：`boot.ts` 两处、`mount.ts` 一处，三个根共用这一处。
+- 记录写法 `global: {provide: {[TEXT_PORT_KEY as symbol]: port}}`：
+  - neuro-book 里 7 个测试文件：DesktopFrame、FailurePage、router、plugin-modules、MarkdownControl、EditorGroup、EditorGroupHead。
+  - 另有 `shared/testing/text-port.ts:22` 返回的记录。
+- 别的包里的写法都是合法的直接提供，不该被改：
+  - nb-ui（3 个测试与 `provideDefaultText`）。
+  - nb-form。
+  - nb-markdown（`text.ts:87` 写 `provides[TEXT_PORT_KEY]`）。
+  - nb-agent-ui。
+- 插件 SDK 示例：在 `packages/**/*.{ts,vue,tsx}`（去掉 node_modules）里没搜到提供点。
+
+**为什么是问题**：
+1. “源码里除帮手外没有直接 `provide(TEXT_PORT_KEY`”的字面匹配只抓到前两种。记录写法抓不到，帮手也没有返回记录的形式，测试那一类要么改不了，要么检查是空的。
+2. 不限范围的检查会把别的包的合法写法报成误报。
+3. `LAYOUT_TEXT_KEY`、`LayoutTranslate` 现在不在 `vue/index.ts` 的导出里，`useLayoutText` 也没导出。应用不能深导入（AGENTS.md），帮手没法写。
+
+**建议改法**：
+- 检查限定 `packages/neuro-book/src`，认三种写法（`provide(`、`.provide(`、`[TEXT_PORT_KEY`），豁免帮手本身与 `shared/testing`。
+- 帮手给两个形式：`provideHostText(provide, port)` 和返回记录的 `hostTextProvides(port)`。
+- `LAYOUT_TEXT_KEY` 与类型进 `vue/index.ts`，并写进 README 公开面与导出名测试（第一档第 4 项）。
+- 多数 dom 测试不挂 nb-layout 组件，不必逐个改，清单只列要挂的。
+
+### 4. ADR 0054、提案、Task README 仍写旧做法，计划改了它们，清单没列
+**严重程度**：重要　**类别**：与已定设计一致
+**位置**：`docs/adr/0054-nb-layout-general-library.md` 第 3 条与第 55 行；`docs/proposals/nb-layout-general-library.md`“去掉 nb-ui 依赖”首条与“`:root` 默认值样式”；Task README“目标与范围”
+
+**现象**：
+- ADR 第 3 条写“层级常数改变量”。
+- 提案写“层级常数改成 CSS 变量，在 `:root` 上声明默认值”“库带一份在 `:root` 上声明默认值的样式”“有 6 个 e2e”。
+- Task README 目标行还写“`:root` 默认值（含减少动效）、层级变量”。
+- 计划第 2 稿已改成：层级用 `zIndex` 属性，根上不声明缺省值（只留减少动效），e2e 是 18 个文件。
+
+**为什么是问题**：
+- ADR 是长期决定，实现落地后代码与它矛盾。
+- 提案还会被 Agent 当入口读。
+- 第一轮第 9 条的处理只写在计划里。
+
+**建议改法**：
+- “Spec 与文档改动”清单加：ADR 0054 第 3 条与第 55 行；提案两处与“受影响的文件”；Task README 的目标与范围。
+- ADR 补一句层级为什么不进变量（nb-ui 规范 2.1）。
+
+### 5. 一致性与回退测试按字面写不出来，范围也没定
+**严重程度**：重要　**类别**：验收映射
+**位置**：计划“桥接”一致性测试、“变量改名”回退比对、“机检”；`packages/neuro-book-test-support/src/style-tokens.ts`；`nb-ui/src/components/token-consumption.test.ts`
+
+**现象**：
+- **枚举来源**：“枚举 nb-layout 读的每个 `--nb-layout-*`”放在 neuro-book。
+  - 我没搜到 neuro-book 的测试有按路径读别的包源码的先例，仓库规则也不许跨包深导入。
+  - nb-layout 没有可读的变量清单。`pack.ts` 的先例是 `import.meta.resolve("@notnotype/nb-ui/tokens.css")`，那是 nb-ui 导出的子路径。
+- **回退比对**：
+  - `findUndeclaredVars` 只抽 `var(` 后面的名字，没有抽回退值的解析。
+  - 回退里有嵌套 `var`、`color-mix`、逗号（`--layout-card-shadow`）。
+  - tokens.css 的缺省是链（`--layout-card-radius: var(--radius-panel)`）。
+  - 比较需要解析器与链解析，计划没限定哪些名字算“非颜色”。
+- **反向检查**：“桥接每一行引用的旧名在 nb-ui 里有定义”不用另写。
+  - `token-consumption.test.ts` 的“用到的 CSS 变量都有声明”把 tokens.css 当受检文件，桥接里写错旧名会报。
+  - 前提是桥接留在 tokens.css 里；按第 1 条移出去，要把新文件加进它的 stylesheets 列表。
+- **真实浏览器探针**：
+  - 比较 `:root` 上旧名与新名，保证不了子树。桥接是 `var(--旧名)`，两者按构造相等，探针真正查的是“有没有别的声明盖过新名”，要写明并加“新名非空”的断言。
+  - e2e 默认 `reducedMotion: reduce`（`browser-host.e2e.ts:154` 的注释写了），探针里“不减少动效”那组要显式 `emulateMedia("no-preference")`。
+
+**建议改法**：
+- nb-layout 经公开子路径（例如 `./theme-vars`）导出一份清单：名字、类别（桥接、宿主旋钮、内部）、回退值。
+- 它自己的扫描测试保证清单与源码一致。
+- neuro-book 的测试 import 这份清单，用 `import.meta.resolve` 读 nb-ui 的样式表。
+- 回退比对限定标量类（时长、圆角、尺寸），颜色与阴影不比。
+- 这份清单也是 README 变量表与 `theme/system.md` 对照表的源，四份手写名单（对照表、README 表、桥接、扫描白名单）才不会各写各的。
+
+### 6. reduced-motion.css 不带 !important：第一轮第 8 条只处理了一半
+**严重程度**：建议　**类别**：边界
+**位置**：计划“减少动效”；`packages/nb-ui/src/tokens.css:262-289` 的注释
+
+**现象**：
+- 装了 nb-ui 时，桥接经旧名的归零（`!important`，在 `layer(base)`）已经让 `--nb-layout-motion-*` 为 0ms。`reduced-motion.css` 对这类宿主多余，只对不装 nb-ui 的宿主起作用。
+- 那里宿主按 README 的变量表，在 `:root[data-theme=…]`（0,2,0）上声明 `--nb-layout-motion-layout`，就压过 `:root`（0,1,0）的归零，减少动效的人仍然看到 470ms。
+- nb-ui 的注释明说“系统级无障碍偏好压过任意主题”，所以带 `!important`。
+
+**建议改法**：
+- 四个声明加 `!important`。不分层的重要声明只输给分层的重要声明，装 nb-ui 时两边同为 0ms。
+- 与 e2e 里子树行内设值不冲突，因为重要性只在同一元素上比。
+
+### 7. 类名清单漏了 nb-ui-drop-feedback*；变量扫描照字面会误报
+**严重程度**：建议　**类别**：遗漏
+**位置**：计划“自己的样式类”“变量扫描”；`DropFeedbackOverlay.vue:313-362,374-431`；`e2e/editor-area.e2e.ts:908`；`DropFeedbackOverlay.dom.test.ts:66`
+
+**现象**：
+- **类名**：计划只写改名 `nb-ui-drop-indicator*`。DropFeedbackOverlay 的根与子元素还有 12 处 `nb-ui-drop-feedback*`。样式类扫描要到第 4 片才发现，e2e 选择器 `.nb-ui-drop-feedback__line`（`editor-area.e2e.ts:908`）要同改。
+- **BEM 误报**：变量扫描写“所有 `--[a-z]` 开头的名字”。
+  - BEM 的 `nb-float-handle--bottom-right`、`nb-ui-drop-feedback__area--standby` 里的 `--bottom-right` 会命中。
+  - nb-layout 的 5 个 `.vue` 里有 36 行含“字符--小写”的写法。
+  - 要写成前一个字符不是标识符字符，如 `(?<![A-Za-z0-9_-])--`。
+- **`--sash-line-size`**：它只有 JS 读、没有 CSS 的 `var(`，“常量与 CSS 回退同值”对它是空检查，只能与 `tokens.css` 的 3px 比。计划写的是“JS 读的三处的常量与 CSS 回退同值”，要把它单列。
+- **内部前缀**：`--nb-grid-inset`、`--nb-sash-core-*` 是 JS 行内写、自己读的内部变量，改前缀没有外部影响。“白名单为空最好”会逼出这些改名；可以允许 `--nb-` 内部前缀并写进扫描规则，省一轮改动。
+
+### 8. 焦点环：外观与今天一样；放哪里、!important 保不保留没写
+**严重程度**：建议　**类别**：别扭与反常之处
+**位置**：计划“焦点环”；`SortableList.vue:89`、`FloatWindowHandles.vue:120,130`
+
+**结论**：装了 nb-ui 时照抄后外观一样，我没发现差异。
+- 三个按钮（`.nb-sortable-list__handle`、`.nb-float-handle`、`.nb-float-move`）的 scoped 样式都没有 `transition`、`box-shadow`、`outline` 声明，只有 `border: 0/none`。
+- themes、应用 `src`、e2e 里没有规则按 `.nb-ui-focus-ring` 选择器改它。出现的都是 class 属性用法，dev-panel 的 `app.css` 只在注释里提。
+- 分层的重要声明与不分层的普通声明的比较，在这三个按钮上没有竞争对象。
+
+**计划没写的**：
+- 放哪里：`nb-layout-focus-ring` 两个 SFC 共用，要一份全局样式，而 `nb-layout/AGENTS.md` 第 12 行要求样式写在组件 scoped CSS 里。计划只有 `reduced-motion.css` 一个全局文件的先例。
+- `!important` 保不保留：这三个按钮没有竞争声明，带不带外观一样。但分层到不分层后，重要声明的比较方向反了（不分层的重要声明输给分层的重要声明），要写明保留与否的理由。
+
+**建议改法**：把焦点环与减少动效放进同一个全局样式文件，`AGENTS.md` 那条加例外与理由。
+
+### 9. 层级缺省 59、60 与 NB_Z_INDEX 之间没有机检；变更记录漏了一类
+**严重程度**：建议　**类别**：验收映射
+**位置**：计划“层级”“验收映射”；`packages/nb-ui/src/theme/z-index.ts`；`packages/neuro-book/src/sdk/components.ts:42`
+
+**调用点**（我核过）：
+- 应用只有 `WorkbenchDragFeedback.vue:70-71` 一个文件。
+- Lab 里 `DropFeedbackOverlayFixture.vue:18`（`v-bind` 场景输入）与 `DragSessionScene.vue:124` 直接写模板。
+- 所以“应用与 Lab 调用点显式传”实际是 3 个文件 4 处模板。
+- Lab 的 DropSectorsOverlay 是 subject 夹具（`fixtures/nb-layout/index.ts:59-89`），场景输入是纯数据，不用也不该传 `NB_Z_INDEX`（缺省就是 59）。
+- `layout-drag.ts` 里没有自己画浮层的地方（只有 `frame.style.zIndex = "1"`，是别的事）。
+
+**问题**：
+- 缺省 59、60 在 nb-layout 里是字面量。SDK 没导出 `NB_Z_INDEX`（`src/sdk` 里没搜到），插件不传时拿库里的数。
+- 验收“层级与 nb-ui 一致”靠“dom 测试读 `zIndex`”，只是同一个数字写了两遍。登记表改了，插件那边不会跟。
+- 变更记录除宿主旋钮改名外，漏了一类：
+  - 插件在自己的容器上设旧名（`--layout-card-radius`、`--sash-line-*`，SDK 的 `tokens.md` 就把它们列给插件），今天经继承能到 nb-layout。
+  - 改后桥接只在根上算，不再生效。
+  - 计划把它写成“将来有人在子树覆盖”的风险，应当也进“不兼容的改动”。
+
+**建议改法**：
+- 在 neuro-book 加一条测试，比较两个组件的 `zIndex` 缺省与 `NB_Z_INDEX`。
+- 变更记录补“子树上设旧名不再到达 nb-layout”。
+- `zIndex` 归类为“新增”没问题。
+
+## 未发现问题的方面
+
+- **层叠（重点 1）**：
+  - 核对了 nb-ui `tailwind.css` 的层序（theme、base、components、utilities）、桥接所在的 `layer(base)`，以及 nb-ui 减少动效的 `!important` 归零（`tokens.css:280-289`，也在 `layer(base)`）。
+  - 减少动效下新旧名一致：旧名被分层的重要声明归零，桥接得 0ms，`reduced-motion.css` 的 0ms 与之一致。
+  - 不减少动效时桥接是唯一的声明：仓库里 `--nb-layout-*` 除桥接外只有 `reduced-motion.css` 一份，且只在减少动效的媒体查询里。
+  - 别的不分层声明：
+    - 四个主题 `vars.css` 的选择器全是 `:root[data-nb-theme=…]`（加 appearance 属性与 `@media`），都在根元素上。
+    - 主题皮肤与配色在 html 与 body 上写行内（`document-theme.ts:89-103`、`colorway-store.ts:88-89`），桥接在根上读行内值。
+    - Lab 覆盖写 `:root[data-nb-lab-active], … body`，两处都写，根上那条被桥接读到。
+    - 应用与 nb-layout 源码里，没有在非根选择器上声明被桥接的通用令牌。我搜了 `--panel-surface`、`--text-*`、`--bg-*`、`--radius-*`、`--motion-*` 等的声明形式，只有计划已列的 `WorkbenchSurface.vue:649-672` 与 `WorkbenchDragFeedback.vue:82`。
+- **根上行内设值**：`layoutMotionMs` 在 documentElement 行内 `setProperty`、`--sash-line-size` 行内设在根上（`workbench-views.e2e.ts:1106`），桥接在同一元素取行内值，能传到。e2e 里 `addStyleTag(":root{--motion-layout:… !important}")` 也被桥接读到。
+- **SortableList**：dom 测试只走键盘，`land()` 里 `translate === ""` 直接收场，不受“空串当 470ms”影响。
+- **`state:inject` 机检**：`scripts/ci/component-inject-tags.ts` 的 `use[A-Za-z]*Text(` 对 `useLayoutText(` 照样命中，`.md` 声明改成注入 `LAYOUT_TEXT_KEY` 不影响机检。
+- **减少动效归零的四个时长**：fast、base、move、layout 与 nb-layout 读的 motion 变量一致；`--ease-*` 不归零，与 nb-ui 一致。
+- **`--radius-sm`**：无定义，`border-radius: var(--radius-sm)` 无效值退回 0，改成不写这一句外观不变。
+- **CSS 副作用导入**：`nb-markdown/src/chip/chip.ts` 有 `import "./chip.css"` 的先例，按计划第一步先验证即可。
+- **nb-ui 自己的测试**：`tokens.test.ts` 与桥接不冲突。时长顺序的正则按 `--motion-fast:` 匹配，`--nb-layout-motion-fast:` 里没有这个子串。
+
+## 第一轮 10 条的核对
+
+1. **层叠阻断**：已处理，根上不声明缺省值，层叠结论成立。
+2. **桥接一致性**：部分处理。写了两条测试，但按字面写不出来（本轮第 5 条）。
+3. **子树设旧名**：已处理（`lab-grid-structure`、6 处 dom 测试）。还漏了“空串默认值”让现有 dom 测试变化（第 2 条）。
+4. **文案**：部分处理。帮手、`Symbol.for`、`i18n.md` 例外都有，调用点、检查写法、导出没落实（第 3 条）。
+5. **焦点环类**：已处理，自有类、外观一致。放哪里没写（第 8 条），类名改名清单不全（第 7 条）。
+6. **机检**：已处理，收紧 `boundary`、扫描含字符串、删临时项目。扫描照字面有误报（第 7 条）。
+7. **回退值**：部分处理，链在新名里重写。比对测试的范围没定（第 5 条）。
+8. **减少动效**：部分处理，写明四个时长、JS 读 0ms 当 0。`!important` 没处理（第 6 条）。
+9. **层级**：已处理，改成 `zIndex` 属性。文档没跟（第 4 条），缺省值无机检（第 9 条）。
+10. **文档清单与数字**：已处理，`--radius-sm` 的说明正确。Lab 夹具实际 18 个文件，计划写“约 17”。
+
+数量：阻断 0，重要 5，建议 4。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9
