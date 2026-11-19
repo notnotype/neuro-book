@@ -83,6 +83,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-18 | t21 切片 3、4 合入：eval 工具接进应用（每会话的内核、重置提示、累计时限、嵌套写入成组，还没进内置 Profile）；插件给 eval 代码登记全局对象（`agent.evalObjects`、`docs://eval/`、eval 的说明按会话列出对象），示例插件 `word-stats`。换 Profile 会重置内核，记进待确认清单（[t21](tasks/t21-eval-codeact/README.md)） |
 | 2026-11-18 | t21 完成：界面、内置 Profile 与真实模型切片合入；代码里调 `read` 交回对象（决定 10）；两份实现审查与 Spec 晋升核对都处理完，`eval.md` 晋升为 `implemented`，留 4 句 planned（[t21](tasks/t21-eval-codeact/README.md)） |
 | 2026-11-19 | t40：eval 不做内存转储（开发者定）；会话关闭不再结束内核，再打开、叶子与 Profile 没变时接着用，内核照样按空闲与上限回收、服务端停止时结束；重置提示的原因写准（关闭期间的空闲与回收、换了 Profile、两次调用之间被外部结束）；实现审查（omp）4 条重要都改了：换走又换回 Profile、空闲期先退出、项目换目录（新原因“工作目录变了”）、起内核期间被登记表丢掉；t40 完成（[t40](tasks/t40-eval-kernel-survives-session-close/README.md)） |
+| 2026-11-19 | t22 重开（开发者：也为 t24 做准备），6 条按推荐：后台任务结束时把结果送回启动它的会话（在跑时作插话，空闲时以宿主身份开运行；上一次是用户停的不唤起）；`shell` 前台过 60 秒自动转后台；不做 Monitor 与 stdin；Agent 的后台任务与后台会话进工作台的“后台任务”清单；任务中心对别的服务端插件开放登记；任务表照旧不存盘（[t22](tasks/t22-background-work/README.md)） |
 
 ## 待确认
 
