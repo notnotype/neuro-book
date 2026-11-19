@@ -144,7 +144,9 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             const read = await options.call("object", {ref: {kind: "change", id: route.change}});
             const change = read.ok ? (read.value.object as {readonly text?: string; readonly at?: Placement} | null) : null;
             routeText = text("edit.routePatch", {place: change?.at === undefined ? "" : options.place(change.at), text: change?.text ?? ""});
-        } else routeText = text("edit.routeChange", {position: options.place(route.at)});
+        } else if (route.kind === "change") routeText = text("edit.routeChange", {position: options.place(route.at)});
+        // 就地改不会给出这一种（它改的是一个字段）；路由是会再加种类的联合，不认识的也要有一句话。
+        else routeText = text("edit.routeEntry");
         const draft = options.draft();
         const impact = impactLines(result.revision.impact, {
             values: "follows",

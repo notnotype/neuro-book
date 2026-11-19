@@ -933,6 +933,21 @@ describe("canon.worldlines 实现审查 I4 之后：子线上的写入校验与�
         expect(main !== null && main !== "chapter-not-found" && main.namespaces.panel!.fields.存款!.value).toBe(15000);
     });
 
+    test("活页夹讲子线、位置显式写主线：就地改读、核对与安放都在主线上（t37 之前会改按章讲的子线去读，revisions.md 输出 25）", () => {
+        const {world, c1, xia} = base();
+        const created = ok(world.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c1, type: "branch"}})}], world.version), "t"));
+        const line = created.ids["tmp:l"]!;
+        const told = created.world.withOptions({...created.world.options, chapterLines: new Map([["ch3", [{line, from: 1}]]])});
+        const result = editInPlace(told, {requestId: `ed-${String(++sequence)}`, by: {kind: "author"}, position: end("ch3", "main"), at: {entry: xia, path: "panel.存款"}, value: 14000, read: {value: 15000, version: told.version}, intent: "story"}, "t");
+        if (!result.ok) throw new Error(JSON.stringify(result.failure));
+        const record = [...result.world.data.changes.values()].find((change) => change.text === "就地改")!;
+        expect(record.at).toEqual({kind: "chapter", chapter: "ch3", key: expect.any(Number)});
+        const main = result.world.line().engine.entry(xia, end("ch3"), "actual");
+        expect(main !== null && main !== "chapter-not-found" && main.namespaces.panel!.fields.存款!.value).toBe(14000);
+        const child = result.world.lineAt(end("ch3"))!.engine.entry(xia, end("ch3"), "actual");
+        expect(child !== null && child !== "chapter-not-found" && child.namespaces.panel!.fields.存款!.value).toBe(20000);
+    });
+
     test("渲染与回写按读取位置的线：子线渲染子线的值，读不到的线得 line-not-found", () => {
         const {world, c1, xia} = base();
         const entry = structuredClone(world.data.entries.get(xia)!);

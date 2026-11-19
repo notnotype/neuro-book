@@ -196,6 +196,7 @@
         "routeInit": "改初值",
         "routePatch": "改{{place}}“{{text}}”那一笔",
         "routeChange": "在{{position}}记一条变更",
+        "routeEntry": "改条目本身",
         "pendingAdded": "多了 {{count}} 条待处理",
         "pendingResolved": "少了 {{count}} 条待处理",
         "valueFollows": "{{label}}跟着变成 {{value}}",

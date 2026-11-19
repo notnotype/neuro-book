@@ -28,6 +28,7 @@ import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor, type RenderOptions} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, previewEdit, recordDelta, recordNote, type DeltaRecord, type EditPreview, type EditPreviewInput, type EditResult, type InPlaceEdit, type NoteRecord} from "../world/edits";
+import {editEntries, previewEntries, type EntryEditResult, type EntryEdits} from "../world/entry-edits";
 import {marksIn} from "../world/references";
 import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
@@ -1155,6 +1156,63 @@ export class WorldService {
     /** 语义档的记一笔（revisions.md 输出 23）。 */
     recordNote(input: NoteRecord, token?: string): Promise<EditResult | {readonly ok: false; readonly failure: ServiceFailure}> {
         return this.#write(token, (world) => recordNote(world, input, this.#ports.now()));
+    }
+
+    /**
+     * 一次改几处（revisions.md 输出 25）。在写队列里依次：请求 id 已发布过就返回第一次的结果、比读取戳（只比版本与读取输入摘要，
+     * 正文摘要不比）、定方案、算候选并读回核对；核对都通过的候选才追加日志。
+     */
+    editEntries(input: EntryEdits, token?: string): Promise<EntryEditResult | {readonly ok: false; readonly failure: ServiceFailure}> {
+        return this.#write(token, (world) => editEntries(world, input, this.#ports.now(), {
+            stamp: () => ({now: this.#stampOf(world), revisions: world.revisions.map((revision) => ({id: revision.id, version: revision.version, title: revision.title, by: revision.by}))}),
+        }));
+    }
+
+    /** 一次改几处的预览（revisions.md 输出 25）：与写入同一份方案，只算不发布；不比读取戳。 */
+    previewEntries(input: EntryEdits): EntryEditResult {
+        return previewEntries(this.#world, input, this.#ports.now());
+    }
+
+    /**
+     * 按名字或别名的片段找条目（project.md 的 `findEntries`）：名字与别名按读取位置取，不分大小写地包含搜索词；不列删除的；这个位置上
+     * 还没出场的也列，标出来。排序：全等、前缀、包含（名字先于别名），同档按同层的顺序与 id。可以按种类（条目的 `type`）与类型筛。
+     */
+    findEntries(query: {readonly query: string; readonly kinds?: readonly string[]; readonly types?: readonly string[]; readonly position?: ReadPosition}, cursor?: string, limit = 50) {
+        const world = this.#world;
+        const last = world.options.order.ids.at(-1);
+        const position: ReadPosition = query.position ?? (last === undefined ? {kind: "initial"} : {kind: "chapter", chapter: last, edge: "end"});
+        const engine = world.lineAt(position)?.engine;
+        if (engine === undefined) return "line-not-found" as const;
+        const needle = query.query.trim().toLocaleLowerCase();
+        const scored: {rank: number; entry: Entry; name: string; alias?: string; appeared: boolean}[] = [];
+        for (const entry of world.data.entries.values()) {
+            if (entry.deleted === true) continue;
+            if (query.kinds !== undefined && query.kinds.length > 0 && !query.kinds.includes(entry.type)) continue;
+            if (query.types !== undefined && query.types.length > 0 && !query.types.some((type) => Object.values(entry.init.data).some((data) => data.type === type && data.removed !== true) || (entry.init.components ?? []).includes(type))) continue;
+            const view = engine.entry(entry.id, position, "actual");
+            if (view === "chapter-not-found") return view;
+            if (view === null || view.deleted) continue;
+            const rankOf = (text: string): number | null => {
+                const lower = text.toLocaleLowerCase();
+                if (needle === "" || lower === needle) return 0;
+                if (lower.startsWith(needle)) return 1;
+                return lower.includes(needle) ? 2 : null;
+            };
+            const byName = rankOf(view.name);
+            const aliasRanks = view.aliases.map((alias) => ({alias, rank: rankOf(alias)})).filter((item): item is {alias: string; rank: number} => item.rank !== null).sort((a, b) => a.rank - b.rank);
+            if (byName !== null) scored.push({rank: byName * 2, entry, name: view.name, appeared: view.appeared});
+            else if (aliasRanks.length > 0) scored.push({rank: aliasRanks[0]!.rank * 2 + 1, entry, name: view.name, alias: aliasRanks[0]!.alias, appeared: view.appeared});
+        }
+        scored.sort((a, b) => a.rank - b.rank || a.entry.order - b.entry.order || (a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0));
+        const stamp = this.#stampOf(world);
+        const page = this.#page(stamp, scored, cursor, limit, {method: "findEntries", query: query.query, kinds: query.kinds ?? [], types: query.types ?? [], position});
+        if (page === "cursor-stale") return page;
+        return {
+            ...stamp,
+            items: page.items.map((item) => ({id: item.entry.id, name: item.name, kind: item.entry.type, parent: item.entry.parent, appeared: item.appeared, ...(item.alias === undefined ? {} : {matchedAlias: item.alias})})),
+            total: scored.length,
+            ...(page.next === undefined ? {} : {cursor: page.next}),
+        };
     }
 
     /**

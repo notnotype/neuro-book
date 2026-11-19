@@ -196,6 +196,7 @@
         "routeInit": "Changes the initial value",
         "routePatch": "Changes the step “{{text}}” in {{place}}",
         "routeChange": "Records a new change at {{position}}",
+        "routeEntry": "Changes the entry itself",
         "pendingAdded": "{{count}} more pending",
         "pendingResolved": "{{count}} fewer pending",
         "valueFollows": "{{label}} becomes {{value}}",
