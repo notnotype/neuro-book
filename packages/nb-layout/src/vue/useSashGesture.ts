@@ -16,6 +16,7 @@ import {onBeforeUnmount, ref, shallowRef, watch, type Ref} from "vue";
 import {collectSashHits, type SashHitTarget, type SashPoint, type SashPointerKind} from "../sash-hit-area";
 import {acquireSashCursor, sashCursorFor, SASH_HOVER_DELAY_MS, sashHitKey, type SashCursorOwner} from "./sash-feedback";
 import {commitFailure} from "../grid-failure";
+import {createIssueGate} from "../issue-gate";
 import type {GridFailure, GridIssue, GridIssueCode} from "../grid-types";
 import {sashKey, type GridSashRef, type SashGestureBinding, type SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancelReason} from "../splitter-gesture";
@@ -239,10 +240,14 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         applyHover(hits);
     }
 
-    /** 手势里求解的诊断：交给宿主。 */
+    /** 一场手势里同一个键只发一次（Spec 输出 140）；新手势在 `begin` 成功之后换一个。 */
+    let gate = createIssueGate();
+
+    /** 手势里求解的诊断：会话每帧给的是全部（快照），这里只交这一场没发过的。 */
     function notifyGesture(batch: readonly GridIssue<GridIssueCode>[]): void {
-        if (batch.length > 0) {
-            options.onIssues?.(batch);
+        const fresh = gate.take(batch);
+        if (fresh.length > 0) {
+            options.onIssues?.(fresh);
         }
     }
 
@@ -255,6 +260,8 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             return false;
         }
         binding = started;
+        // 在开始成功之后换：键盘会话进行中按下指针被拒时，不清掉进行中那场已经发过的键。
+        gate = createIssueGate();
         active.value = new Set(started.session.sashes.map((sash) => sashKey(sash)));
         dragging.value = true;
         return true;

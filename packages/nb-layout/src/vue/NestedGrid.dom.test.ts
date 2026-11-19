@@ -595,6 +595,50 @@ describe("提交被拒的码（Spec ui/nested-grid 失败 6、输出 139）", ()
     });
 });
 
+describe("手势的诊断只发新增（Spec 输出 140）", () => {
+    it("一场拖动里同一条诊断只发一次，下一场再发", async () => {
+        // 两侧的最小宽度合计超过容器：窄容器已降级，拖外层竖线时每一帧都是 range-overflow。
+        const wide = {width: 600, height: 0};
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, minimumSize: wide},
+                {
+                    kind: "branch",
+                    id: "right",
+                    orientation: "vertical",
+                    size: {width: 699, height: 0},
+                    children: [
+                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 100}, minimumSize: wide},
+                        {kind: "leaf", id: "bottom", ref: "bottom", size: {width: 0, height: 100}, minimumSize: wide},
+                    ],
+                },
+            ],
+        }, {sashSize: SASH});
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        const ranges = (): number => emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow").length;
+        const drag = async (): Promise<void> => {
+            rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+            for (const x of [320, 340, 360]) {
+                rootSash.dispatchEvent(pointerEvent("pointermove", x, 80));
+                await settleFrame();
+            }
+            rootSash.dispatchEvent(pointerEvent("pointerup", 360, 80));
+            await nextTick();
+        };
+
+        await drag();
+        expect(emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow")).toEqual([{code: "over-constrained", cause: "range-overflow", id: "root", axis: "width", total: 999, min: 1200, max: expect.any(Number)}]);
+        await drag();
+        expect(ranges()).toBe(2);
+    });
+});
+
 describe("键盘的诊断（Spec 输出 139）", () => {
     it("Enter 恢复空间不够：没有预览，照样发 no-room-to-restore", async () => {
         const grid = createGrid<string>({

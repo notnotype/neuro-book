@@ -101,7 +101,7 @@ type Harness = {
 };
 
 /** 与真实宿主同构：`useGridLayout` 提供几何，渲染层独占会话，宿主只接一次提交。 */
-function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean} = {}): Harness {
+function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean; throwOnApplied?: boolean} = {}): Harness {
     const scope = effectScope();
     scopes.push(scope);
     const grid = ref<Grid<string> | null>(options.grid ?? twoColumns());
@@ -117,6 +117,9 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean}
         contextKey: () => context.value,
         onApplied: (commit) => {
             applied.push(commit);
+            if (options.throwOnApplied === true) {
+                throw new Error("host onApplied threw");
+            }
         },
         onIssues: (list) => {
             issues.push(...list);
@@ -248,6 +251,50 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         expect(harness.applied).toEqual([]);
     });
 
+    it("窄窗口逐像素重算：持续的诊断只通知一次；消失再出现再通知；隐藏再显示不重发；换上下文再通知；换 grid 实例不再通知（Spec 输出 140）", async () => {
+        const make = (): Grid<string> => createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, minimumSize: {width: 600, height: 0}},
+                {kind: "leaf", id: "right", ref: "right", size: {width: 500, height: 0}, minimumSize: {width: 300, height: 0}},
+            ],
+        }, {sashSize: SASH});
+        const harness = mountHost({grid: make()});
+        await nextTick();
+        expect(harness.issues).toEqual([]);
+        const resize = async (extent: GridExtent | null): Promise<void> => {
+            harness.extent.value = extent;
+            await nextTick();
+        };
+
+        await resize({width: 800, height: 600});
+        const first = harness.issues.length;
+        // 先确认真的发了：最小值合计超出与两片叶各自的 leaf-min。
+        expect(harness.issues.map((issue) => [issue.params?.cause, issue.params?.id])).toEqual([["min-total", "root"], ["leaf-min", "left"], ["leaf-min", "right"]]);
+        for (const width of [799, 798, 790, 750]) await resize({width, height: 600});
+        expect(harness.issues).toHaveLength(first);
+        expect(harness.host.layout.value.issues).toHaveLength(first);
+
+        await resize({...CONTAINER});
+        expect(harness.issues).toHaveLength(first);
+        await resize({width: 800, height: 600});
+        expect(harness.issues).toHaveLength(first * 2);
+
+        await resize(null);
+        await resize({width: 800, height: 600});
+        expect(harness.issues).toHaveLength(first * 2);
+
+        harness.context.value = "workbench-b";
+        await nextTick();
+        expect(harness.issues).toHaveLength(first * 3);
+
+        harness.grid.value = make();
+        await nextTick();
+        expect(harness.issues).toHaveLength(first * 3);
+    });
+
     it("提交落账之后通知宿主时它抛出：提交仍算落账、新布局已发布，异常不冒到手势那边（Spec 输出 140）", async () => {
         // 左叶的最小高度大于容器：每次重算都有一条 leaf-min，落账后的那次重算也会通知。
         let throwing = false;
@@ -257,11 +304,24 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         const before = harness.host.layout.value;
         const revisionBefore = harness.host.revision.value;
 
+        // 只发新增：持续的 leaf-min 不会再通知。换上下文（`watch` 还没跑）再提交，落账后的那次重算按新上下文清空键集，交出这条。
+        harness.context.value = "workbench-b";
         throwing = true;
+        const issuesBefore = harness.issues.length;
         expect(harness.host.onGestureCommit(harness.frozen())).toEqual({ok: true});
+        expect(harness.issues.length).toBeGreaterThan(issuesBefore);
         expect(harness.host.layout.value).not.toBe(before);
         expect(harness.host.revision.value).toBeGreaterThan(revisionBefore);
         expect(harness.applied).toHaveLength(1);
+    });
+
+    it("onApplied 抛出、通知 notify-failed 时宿主的 onIssues 也抛出：提交仍算落账", async () => {
+        let throwing = false;
+        const harness = mountHost({throwOnIssues: () => throwing, throwOnApplied: true});
+        await nextTick();
+        throwing = true;
+        expect(harness.host.onGestureCommit(harness.frozen())).toEqual({ok: true});
+        expect(harness.issues.map((issue) => issue.code)).toEqual(["notify-failed"]);
     });
 
     it("缺网格或缺承载盒时发布空布局并拒绝提交", async () => {

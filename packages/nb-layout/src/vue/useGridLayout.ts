@@ -15,6 +15,7 @@ import {computed, ref, shallowRef, watch, type ComputedRef, type Ref} from "vue"
 import type {Grid} from "../grid";
 import {commitFailure} from "../grid-failure";
 import {gridIssue} from "../grid-issue";
+import {createIssueGate} from "../issue-gate";
 import type {GridGestureCommit} from "../grid-gesture";
 import type {GridBranchesResizeResult, GridExtent, GridIssue, GridIssueCode, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
 
@@ -56,6 +57,12 @@ export function useGridLayout<T>(options: {
     const layout = shallowRef<GridLayoutResult>(EMPTY_GRID_LAYOUT);
     /** 上次发布布局所用的容器尺寸：提交时核对，尺寸变了就不接旧手势。 */
     let publishedExtent: GridExtent | null = null;
+    /**
+     * 布局重算的“只发新增”（Spec 输出 140）：和上一次重算比。发布空布局（承载盒隐藏、没有网格）不经它、不清空；
+     * `contextKey` 变了先清空（换了工作面算重新开始）；`grid` 换实例不清空（宿主每次投影都可能换实例）。
+     */
+    const gate = createIssueGate();
+    let gatedContext: string | null = null;
 
     const node = computed<GridNode<T> | null>(() => {
         // 读 revision：同一 Grid 实例原地改树时引用不变，只有版本能触发重算。
@@ -80,7 +87,13 @@ export function useGridLayout<T>(options: {
         layout.value = next;
         publishedExtent = frozen;
         revision.value += 1;
-        return next.issues;
+        const context = options.contextKey();
+        if (gatedContext !== null && gatedContext !== context) {
+            gate.replace([]);
+        }
+        gatedContext = context;
+        // 键集在交给宿主之前更新：宿主的回调抛出时，这一批不再重发。
+        return gate.replace(next.issues);
     }
 
     function notify(batch: readonly GridIssue<GridIssueCode | "notify-failed">[]): void {
