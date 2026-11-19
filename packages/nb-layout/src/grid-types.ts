@@ -212,7 +212,10 @@ export type GridCommitFailureCode =
     | "handler-missing"
     | "handler-threw";
 
-/** 提交手势的结果：`SashGestureBinding.onCommit` 与 `NestedGrid` 的 `onGestureCommit` 都返回它。 */
+/**
+ * `useGridLayout` 接一次提交的结果：码是库定义的这几种。宿主自己写 `onGestureCommit` 时返回 `{ok: true} | GridFailure`，
+ * 可以用自己的码拒绝（码集合开放，Spec 失败 6），这个类型可以赋给它。
+ */
 export type GridLayoutCommitResult = {readonly ok: true} | GridFailure<GridCommitFailureCode>;
 
 export type GridResult = {ok: true} | GridFailure<GridFailureCode>;

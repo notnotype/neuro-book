@@ -6,7 +6,7 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ### 不兼容的改动
 
-- 插件 SDK 的 `NestedGrid`：`onGestureCommit` 拒绝一次调整时返回 `{ok: false, code, message, params?}`，原来的 `reason` 去掉了。`code` 给程序判断（网格没就绪是 `not-ready`，工作面、版本、容器尺寸过期是 `stale-context`、`stale-revision`、`stale-size`，落账时结构操作拒绝就是它的码），`message` 是英文、只给日志看。按旧写法返回 `{ok: false, reason}` 的插件重新编译会报类型错误，要改成新形状；已经构建的照常运行，只是被拒时的诊断里没有原因。
+- 插件 SDK 的 `NestedGrid`：`onGestureCommit` 拒绝一次调整时返回 `{ok: false, code, message, params?}`，原来的 `reason` 去掉了。`code` 给程序判断（网格没就绪是 `not-ready`，工作面、版本、容器尺寸过期是 `stale-context`、`stale-revision`、`stale-size`，落账时结构操作拒绝就是它的码），`message` 是英文、只给日志看；插件自己拒绝时可以用自己的码。按旧写法返回 `{ok: false, reason}` 的插件要改成新形状、重新构建：重新编译时类型检查会报错，没重新构建的插件被拒时诊断里的原因是 `undefined`。
 
 ### 新增
 

@@ -16,7 +16,7 @@ import {onBeforeUnmount, ref, shallowRef, watch, type Ref} from "vue";
 import {collectSashHits, type SashHitTarget, type SashPoint, type SashPointerKind} from "../sash-hit-area";
 import {acquireSashCursor, sashCursorFor, SASH_HOVER_DELAY_MS, sashHitKey, type SashCursorOwner} from "./sash-feedback";
 import {commitFailure} from "../grid-failure";
-import type {GridLayoutCommitResult} from "../grid-types";
+import type {GridFailure} from "../grid-types";
 import {sashKey, type GridSashRef, type SashGestureBinding, type SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancelReason} from "../splitter-gesture";
 
@@ -282,7 +282,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             }
             return;
         }
-        let accepted: GridLayoutCommitResult;
+        let accepted: {readonly ok: true} | GridFailure;
         try {
             accepted = current.onCommit(commit);
         } catch (error) {

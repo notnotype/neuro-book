@@ -2,7 +2,7 @@ import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
 import NestedGrid from "./NestedGrid.vue";
-import {createGrid, type Grid, type GridLayoutCommitResult, type GridLayoutResult, type GridNode} from "../grid";
+import {createGrid, type Grid, type GridFailure, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
 
 /**
@@ -112,7 +112,7 @@ function frameRect(wrapper: VueWrapper, id: string): {x: number; y: number; widt
 
 type RendererOptions = {
     disabled?: boolean;
-    onGestureCommit?: (commit: GridGestureCommit) => GridLayoutCommitResult;
+    onGestureCommit?: (commit: GridGestureCommit) => {readonly ok: true} | GridFailure;
 };
 
 function mountRenderer(node: GridNode<string> | null, layout: GridLayoutResult, options: RendererOptions = {}): VueWrapper {
@@ -555,6 +555,16 @@ describe("提交被拒的码（Spec ui/nested-grid 失败 6）", () => {
         const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
         const issues = await dragOnce(wrapper);
         expect(issues.some((issue) => issue.includes("handler-missing"))).toBe(true);
+        expect(frameRect(wrapper, "left").width).toBe(300);
+    });
+
+    it("宿主用自己的码拒绝：码集合开放，码原样进诊断，预览回到已发布的布局", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            onGestureCommit: () => ({ok: false, code: "layout-locked", message: "The layout is locked"}),
+        });
+        const issues = await dragOnce(wrapper);
+        expect(issues.some((issue) => issue.includes("layout-locked"))).toBe(true);
         expect(frameRect(wrapper, "left").width).toBe(300);
     });
 

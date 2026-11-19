@@ -217,7 +217,8 @@ describe("损坏与失败", () => {
         if (!opened.ok) throw new Error(opened.detail);
         await opened.handle.save({doc: {version: 1, tree: "坏的"}}, {expect: null});
         const second = await openLayoutDoc(w, "b", "c");
-        expect(second.store.state.problems[0]?.kind).toBe("unread");
+        // 状态栏按码显示本地化的“损坏”，校验的码只在 detail 里（进诊断日志）。
+        expect(second.store.state.problems).toEqual([{kind: "unread", code: "corrupt", detail: expect.stringMatching(/^invalid: /u)}]);
         expect(validateLayoutDoc(second.store.state.doc).ok).toBe(true);
         second.store.actions.setPartHidden("panel", true);
         await second.store.actions.save();

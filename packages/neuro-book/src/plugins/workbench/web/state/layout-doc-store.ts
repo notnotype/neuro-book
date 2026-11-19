@@ -36,7 +36,8 @@ import type {LayoutDocRecord} from "./records";
 export const LAYOUT_SAVE_COALESCE_MS = 150;
 
 export type LayoutDocProblem =
-    | {readonly kind: "unread"; readonly code: string}
+    /** `detail` 只进诊断日志：状态栏按 `code` 显示本地化的原因。 */
+    | {readonly kind: "unread"; readonly code: string; readonly detail?: string}
     | {readonly kind: "unsaved"; readonly code: string};
 
 export type LayoutPart = "sidebar" | "auxiliarybar" | "panel" | LayoutBar;
@@ -80,12 +81,13 @@ function defineLayoutDocStore(bound: boolean) {
         let saveGate: LayoutSaveGate | null = null;
         let timer: ReturnType<typeof setTimeout> | null = null;
 
-        /** 记录里的文档通不过校验：和损坏一样，回落默认树，原件不覆盖。 */
-        const recordProblem = computed<string | null>(() => {
+        /** 记录里的文档通不过校验：和损坏一样，回落默认树，原件不覆盖；校验的码与英文 message 放进 `detail`。 */
+        const recordProblem = computed<LayoutDocProblem | null>(() => {
             const base = field.base;
             if (base === null || base.status !== "ok") return null;
             const checked = validateLayoutDoc(base.value.doc);
-            return checked.ok ? null : `${checked.code}: ${checked.message}`;
+            if (checked.ok) return null;
+            return {kind: "unread", code: checked.code === "unsupported-version" ? "unsupported-version" : "corrupt", detail: `${checked.code}: ${checked.message}`};
         });
         const guarded = computed(() => recordProblem.value !== null || field.base?.status === "corrupt" || field.base?.status === "unsupported-version");
 
@@ -130,7 +132,7 @@ function defineLayoutDocStore(bound: boolean) {
             if (field.save.state === "failed" || field.save.state === "unknown") return [{kind: "unsaved", code: field.save.code}];
             if (saveBlocked.value) return [{kind: "unsaved", code: "save-gate"}];
             if (field.failure !== null) return [{kind: "unread", code: field.failure}];
-            if (recordProblem.value !== null) return [{kind: "unread", code: recordProblem.value}];
+            if (recordProblem.value !== null) return [recordProblem.value];
             const status = field.base?.status;
             return status === "corrupt" || status === "unsupported-version" ? [{kind: "unread", code: status}] : [];
         });

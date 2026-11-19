@@ -1,7 +1,7 @@
 /**
  * 失败的构造（库内用，不从入口导出）。每层一张“码 → `params` 形状”的映射，构造时按映射检查：
  * 拼错字段名、漏字段、给了没有 `params` 的码传参，都在编译期报错。导出的类型仍是通用的 `GridFailure`
- * （Spec `ui/nested-grid` 失败 5 到 7）；把映射导出成判别联合等有宿主要按码收窄时再做，对读结果的宿主是兼容的变化。
+ * （Spec `ui/nested-grid` 失败 5 到 7），映射不进公开类型。
  *
  * 一个码有几种形状的写成按 `field` 判别的联合：同一个码下靠 `field` 区分“哪一项不合法”，测试按它断言。
  */
@@ -35,7 +35,8 @@ export type GridFailureParams = {
 
 /** 快照恢复（Spec 失败 7）。 */
 export type GridRestoreFailureParams = {
-    "invalid-snapshot": {field: "envelope"} | {field: "node" | "id" | "ref" | "size" | "orientation" | "children" | "kind"; id?: string};
+    // 外壳、非对象节点、缺 id 的节点拿不到 id；其余几项都是某个节点的问题，必须带它的 id。
+    "invalid-snapshot": {field: "envelope" | "node" | "id"} | {field: "ref" | "size" | "orientation" | "children" | "kind"; id: string};
     "unsupported-version": {version: string};
     "unresolved-root": undefined;
     "duplicate-id": {id: string; with: "existing"};
