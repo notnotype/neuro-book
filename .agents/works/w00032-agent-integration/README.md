@@ -128,7 +128,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t18](tasks/t18-builtin-profiles/README.md) | 内置 Profile、提示词规范与评测 | t05、t12、t15 |
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |
 | [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），完成：`eval.md` 已晋升 | t04、t12 |
-| [t22](tasks/t22-background-work/README.md) | 后台任务与协作：shell 后台、Agent 后台调用、Monitor、活动面板，搁置 | t07、t12、t14 |
+| [t22](tasks/t22-background-work/README.md) | 后台任务与协作：结束通知、自动转后台、活动视图、任务种类开放（为 t24），2026-11-19 重开 | t07、t12、t14 |
 | [t23](tasks/t23-session-history/README.md) | Agent 查询会话历史：分页、搜索、视角，搁置 | t14 |
 | [t24](tasks/t24-workflow-integration/README.md) | Workflow 与 Agent 的对接，搁置 | t14 |
 | [t13](tasks/t13-history/README.md) | nb-history 接入与文件变更感知（优先级不高，排到末尾） | t08、t12 |
