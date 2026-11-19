@@ -192,6 +192,16 @@
   - 同一个 `commandId` 先由用户受理，重开会话后换成非用户重发：交回原结果，不写新的结算；
   - 用真实的拦截触发 `input-rejected`、用过期的 `replaces` 触发 `input-stale`：两种情况事项都还在，原等待者之后正常收到一次结算。
 
+### 第 2 片实施中的调整（优先于上面各节）
+
+- **`header(id)` 一律读存储**：会话表与内核宿主都不经打开的句柄，读到的会话头由宿主深冻结后交出。会话头建后不变，开着与否读到的一样；省掉“开着时用句柄”的分支。第 1 片的 `AgentHost.header` 交出的是没冻结的对象，这一片补上。
+- **`refuse` 的签名**：`(header, command: HistoryCommand) => string | null`，`HistoryCommand` 是会话表导出的 `rewind | switchBranch | archive`，只对这三个指令预读会话头；码由宿主给，kit 不认识它。
+- **`owned-session` 不进内核的码表**：内核从不产生它。视图的结果类型沿用打开失败码的做法（会话表交回的失败码本来就不全在内核的结果类型里）；远程合同给这三个指令的失败码表补上 `owned-session`。“码的类型写进结果类型、不强转”不做。
+- **远程不加 `invalid-owner`**：远程 `create` 不收 `owner`，到不了这个码。
+- **计时口加 `now()`**：`SessionTableClock` 加 `now()`，量打开耗时；运行时的 `RuntimeClock` 本来就有。
+- **门面作废之后才交回的 `hold`**：先放掉，再抛 `ServiceRevokedError`（与访问已作废门面的其它方法一致）。
+- **审批预览的上下文**：补 `background`、`owner`，与内核交给工具的上下文同形；预览目前不读这两项，没有专门的测试。
+
 ## Spec 与文档改动
 
 - 已写（planned）：见 Context 的列表、注册表两行、提案的决策记录一行。第 2 稿的修订与本计划同一个提交。

@@ -43,13 +43,15 @@ updated: 2026-11-19
 |---|---|---|
 | 0 把 master 并进分支 | 快进到 a36f27c01 | `bun install` |
 | 1 内核：会话头 `owner` 与只读会话头、`settlePending` 与共用的认领 | 34c941664 | nb-harness 全包 901 条通过，nb-harness、nb-agent-ui、neuro-book 类型检查通过。变异检查 3 处：建会话的重查、`releaseClaims` 交还、嵌套事项的结算，都抓到 |
+| 2 会话表的 `hold`、`header`、`refuse`；`nbook.agent` 的门面（盖章、冻结、作废收掉持有与订阅）、列表过滤、`owned-session`、远程 `send` 的 `settlePending`、审批预览的上下文 | 476add8dc | `nbook.agent` 全部 534 条通过；nb-harness 全包 904 条通过、4 条失败，单独重跑时传输与 OMP 的 3 条通过，“最后一批截在任何一个字节处”在负载 20 以上照旧超时（第 1 片已记，master 上同样）；nb-harness、neuro-book 类型检查通过。变异检查 13 处（会话表 5、门面与列表 8），都抓到 |
 
 实施中发现：
 
 - `waitRun` 的原有竞态：日志写坏时 `onBroken` 只结算当时已在等的调用方，落在它之后、运行循环收尾之前的 `waitRun` 永远不结算。第 1 片的 `sendCommand` 多一个微任务后，“写失败”的现有用例稳定落进这个窗口。改成句柄已坏时直接交回 `log-broken` 的结果。
 - `ctx.ask` 把 `interrupted` 交成 `unavailable{declined}`（原有行为），关闭时交还的回归因此断言日志里的结算，不断言工具拿到的码。
 - `send` 带 `settlePending` 时，受理路径里有输入拦截这一步 await，测试里的关闭落不进“认领之后、写下之前”的窗口。交还的逻辑由 `resolve` 的回归守住（变异抓到），`send` 那条只作“关闭后没有悬空事项”的行为检查。
+- 第 2 片：第 1 片的 `AgentHost.header` 交出的会话头没冻结，这片在宿主里补上深冻结。实施中对计划的调整（`header` 一律读存储、`owned-session` 不进内核码表、远程不加 `invalid-owner`、计时口加 `now()` 等）写在 [plan.md](plan.md) 的“第 2 片实施中的调整”。
 
 ## 下一步
 
-第 2 片：kit 的 `hold`、`header`、`refuse`，`nbook.agent` 的门面、列表、`owned-session`。
+第 3 片：新插件 `nbook.bots`（贡献点与接收方、按相对路径查文件、打包、缺省预设与岗位 Profile、记录、建 bot、后台任务与停止、`ensureMain`、持有状态与指标、封闭名单），之后收口验证与后端实现审查（omp）。
