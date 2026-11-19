@@ -174,6 +174,9 @@ test.describe("拖动的每帧开销", () => {
         const at = {x: body.x + body.width * 0.5, y: body.y + body.height * 0.5};
         await page.mouse.move(at.x, at.y, {steps: 8});
         await expect(page.locator("[data-lifted]")).toHaveCount(1);
+        // 工具视图放不进编辑组：这里被拒绝，预览最后是来源收起。先等它换上（布局开始过渡），再等过渡结束：只等过渡的话，
+        // 候选还在等稳定时就过了，之后预览才换、布局才动，过渡结束时分隔线对齐排的那一帧落进下面数的 60 帧里。
+        await expect(page.locator("[data-workbench-surface]")).toHaveAttribute("data-live-preview", "source-removed");
         await settle(page);
         const held = await page.evaluate(() => new Promise<number>((done) => {
             const host = window as unknown as {__raf: {calls: number; raw: typeof requestAnimationFrame}};

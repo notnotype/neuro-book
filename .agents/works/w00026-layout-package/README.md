@@ -81,6 +81,12 @@ updated: 2026-11-05
 
 2026-11-19：t37 四片与一处开销用例的等待修正都提交了，收口通过（8 个 e2e 文件 194 条），实现审查（Claude Sonnet）在跑、不阻塞。开始 [t32](tasks/t32-entry-menu-move-to/README.md)：入口菜单的“移到”，照“重置”加两项，底层已有，不做设计审查。
 
+2026-11-19：[t37](tasks/t37-drag-controller-tidy/README.md) 完成：
+- 应用里拖动控制器每场一个对象（14 个 `let` 剩 1 个），判定几何与键盘停靠点拆成纯函数、有单元测试；
+- nb-layout 加 `createDragCard`、`createFrameLoop` 与短文档，实时布局改用它们，性能对照与基线一致；
+- 合入 master（`6cc707752`，审查修正 `2c40fcc9b`，晋升补测 `11ce9d96c`），`ui/layout-drag` 输出 20、21 晋升。
+- 顺带修了 `workbench-drag-cost.e2e.ts` 按住不动那条的等待：分支起点上就 3 次挂 2 次（过渡收尾的分隔线对齐那一帧落进了计数）。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。

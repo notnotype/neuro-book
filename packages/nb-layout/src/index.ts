@@ -173,6 +173,26 @@ export type {
     LivePreview,
 } from "./live-drop";
 
+/* 拖动时跟手的卡片：逐帧缩放与追赶 */
+export {
+    createDragCard,
+} from "./drag-card";
+export type {
+    DragCard,
+    DragCardFrame,
+    DragCardOptions,
+    DragCardSize,
+} from "./drag-card";
+
+/* 按需排帧的帧循环 */
+export {
+    createFrameLoop,
+} from "./frame-loop";
+export type {
+    FrameLoop,
+    FrameLoopOptions,
+} from "./frame-loop";
+
 /* 可排序列表的几何 */
 export {
     moveInSections,
