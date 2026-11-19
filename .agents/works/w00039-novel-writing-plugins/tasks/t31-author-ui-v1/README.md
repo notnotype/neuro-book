@@ -18,7 +18,7 @@ updated: 2026-11-18
 2026-11-10 开发者定“按你的建议分两批开始”，本 Task 恢复：剧情侧（t32 到 t35）已做完，11-04 搁置的理由不再成立。
 
 - **第一批（设定侧）**：2026-11-18 完成，合进 master（`4c242d226`），`canon/author-ui.md` 晋升 `implemented`。范围照下面“第一版拟定的范围”，实施计划见 [`plan.md`](plan.md)；过程记录在下文，收尾见最后几条。
-- **第二批（剧情侧）**：剧情容器、剧情表、时间线、知情、伏笔账本、目标表、决策、检查、简报预览。先在 [t16](../t16-plot-workbench-ui/README.md) 出静态稿，开发者定了以后在本 Task 补第二批的计划。
+- **第二批（剧情侧）**：剧情容器、剧情表、时间线、知情、伏笔账本、目标表、决策、检查、简报预览。静态稿在 [t16](../t16-plot-workbench-ui/README.md) 第 4 到 6 轮，开发者 11-10、11-11 答完；第二批的计划在本 Task 补。
 - 前置的缺陷已修：内核来历的初值一步被后面的补丁改到（1a0080305）。
 
 2026-11-04 经 nbdev 新建。同日开发者看过范围后收回提前：时间线还没做好，先不做界面（Work README 决定表）。
@@ -161,10 +161,10 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
   - `test:affected --typecheck --since 8eb0e10a1`：类型检查全过；bun 测试第一轮失败 77 条，大多是 5 秒超时。单独重跑后剩下的都在合入前的 master 上同样失败（在 `8eb0e10a1` 的对照 worktree 上跑过）：`server.test.ts` 6 条与 `builtin-names.test.ts` 1 条（`nbook.stickers` 没写进期望）、`architecture.test.ts` 1 条（stickers 的跨插件导入）、`server-projects.test.ts` 场景 14、15 三条、`workspace-files.test.ts` 的分组一条、dev-panel `leases-cli.test.ts` 的 herdr 一条。nb-story 的超时单独跑全过。
   - 编辑器的修正晚于上面那轮 e2e，覆盖它的 `welcome`、`canon-author` 与 `editor-area:1284`（面包屑）合入后在 master 上重跑，12 条都过（负载 19）。
   - 1000 章规模（K-d5）：负载 12 到 22，整体比负载 1.3 时慢约 3 倍。条目页那一组里 `entry` 带 `changedAt` 中位 5.26 毫秒、来历 16、按条目的 `changes` 14（K-d 之前负载 13 下是 15、81、20）；来历的第三页与稀疏地址不比第一页慢。“中位 10 毫秒以内”与“打开到可以读”（这次 5746 毫秒，负载 1.3 时 1728）要在低负载下整程重跑才算有证据。[测量](evidences/scale-kd.txt)。
+  - 低负载重跑（2026-11-19，负载 1.4 到 3.6）：两项预算都达到。条目页那一组 `entry` 带 `changedAt` 中位 1.92 毫秒、按条目的 `changes` 8.11、来历 7.26；打开到可以读 1832 毫秒（预算 2000）。上次来历发布后重读的 80 毫秒这次是 7.77，按负载解释成立。“发布一次记账”中位 181 毫秒仍超预算 100，是 t34 C7 已记的，K-d 没碰发布路径。K-d 收口。同一份[测量](evidences/scale-kd.txt)的第二节。
 - 清理：Spec 核对的审查 worktree、两个 master 对照 worktree 与 K-d 的临时探针都已删除；实现 worktree 与分支留着给第二批。
 
 ## 下一步
 
-1. 低负载（1 到 3）下整程重跑 `bun scripts/perf/canon-scale.ts 1000`，补齐 K-d 的两项预算证据（`evidences/scale-kd.txt` 追加一节）。
-2. 第二批（剧情侧）：等 [t16](../t16-plot-workbench-ui/README.md) 的剧情侧静态稿定下来，在本 Task 补第二批的计划。
-3. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
+1. 第二批（剧情侧）：[t16](../t16-plot-workbench-ui/README.md) 的剧情侧静态稿 11-10、11-11 已经答完（t16 记录写着可以开始写第二批的 Spec 与计划；11-18 的汇报误写成“等静态稿定下来”）。先写第二批的分期与第一期的计划。
+2. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
