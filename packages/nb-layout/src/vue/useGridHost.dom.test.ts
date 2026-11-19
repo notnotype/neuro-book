@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
-import {defineComponent, h, nextTick, shallowRef, type ShallowRef} from "vue";
+import {defineComponent, h, nextTick, shallowRef, type MaybeRefOrGetter, type ShallowRef} from "vue";
 
 import NestedGrid from "./NestedGrid.vue";
 import {createGrid, type Grid} from "../grid";
@@ -71,8 +71,16 @@ type Harness = {
     readonly issues: GridHostIssue[];
 };
 
+/** 宿主的选项里测试要换掉的几样；没给的同真实宿主最常见的写法（固定的网格与上下文键）。 */
+type HostOverrides = {
+    readonly grid?: MaybeRefOrGetter<Grid<string>>;
+    readonly contextKey?: MaybeRefOrGetter<string>;
+    readonly disabled?: MaybeRefOrGetter<boolean>;
+    readonly onApplied?: () => void;
+};
+
 /** 和真实宿主同构：宿主组件里调 `useGridHost`，`NestedGrid` 整包绑上去；`shown` 控制 `NestedGrid` 的条件渲染，宿主自己不卸载。 */
-function mountHost(grid: Grid<string> = twoColumns()): Harness {
+function mountHost(grid: Grid<string> = twoColumns(), overrides: HostOverrides = {}): Harness {
     const shown = shallowRef(true);
     const swap = shallowRef<GridSwap | null>(null);
     const applied: GridGestureCommit[] = [];
@@ -81,9 +89,13 @@ function mountHost(grid: Grid<string> = twoColumns()): Harness {
     const Host = defineComponent({
         setup() {
             const current = useGridHost<string>({
-                grid: shallowRef(grid),
-                contextKey: "host-test",
-                onApplied: (commit) => void applied.push(commit),
+                grid: overrides.grid ?? shallowRef(grid),
+                contextKey: overrides.contextKey ?? "host-test",
+                ...(overrides.disabled === undefined ? {} : {disabled: overrides.disabled}),
+                onApplied: (commit) => {
+                    applied.push(commit);
+                    overrides.onApplied?.();
+                },
                 onIssues: (list) => void issues.push(...list),
             });
             host = current;
@@ -96,6 +108,17 @@ function mountHost(grid: Grid<string> = twoColumns()): Harness {
     return {wrapper, host, grid, shown, swap, applied, issues};
 }
 
+/** 在左右两列之间的分隔条上往右拖 40px 并松手，等提交落账。 */
+async function dragSash(harness: Harness): Promise<void> {
+    const sash = harness.wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+    sash.dispatchEvent(pointerEvent("pointerdown", 500.5, 300));
+    sash.dispatchEvent(pointerEvent("pointermove", 540.5, 300));
+    await settleFrame();
+    sash.dispatchEvent(pointerEvent("pointerup", 540.5, 300));
+    await nextTick();
+    await nextTick();
+}
+
 describe("useGridHost", () => {
     it("尺寸来自 NestedGrid 量的根盒：挂载后有尺寸、布局与启用；整包绑上去一次拖动就落账（输出 144、145）", async () => {
         const harness = mountHost();
@@ -104,13 +127,7 @@ describe("useGridHost", () => {
         expect(harness.host.bindings.value.disabled).toBe(false);
         const before = harness.host.layout.value.sizes.left!.width;
 
-        const sash = harness.wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
-        sash.dispatchEvent(pointerEvent("pointerdown", 500.5, 300));
-        sash.dispatchEvent(pointerEvent("pointermove", 540.5, 300));
-        await settleFrame();
-        sash.dispatchEvent(pointerEvent("pointerup", 540.5, 300));
-        await nextTick();
-        await nextTick();
+        await dragSash(harness);
 
         expect(harness.applied).toHaveLength(1);
         expect(harness.applied[0]!.contextKey).toBe("host-test");
@@ -156,5 +173,52 @@ describe("useGridHost", () => {
         harness.host.invalidate();
         await nextTick();
         expect(harness.issues.map((issue) => issue.code)).toContain("swap-skipped");
+    });
+
+    it("选项收 getter：`disabled` 跟着变；`contextKey` 换了，旧上下文的提交按 `stale-context` 拒绝（输出 145）", async () => {
+        const off = shallowRef(false);
+        const key = shallowRef("first");
+        const harness = mountHost(twoColumns(), {disabled: () => off.value, contextKey: () => key.value});
+        await nextTick();
+        expect(harness.host.bindings.value.disabled).toBe(false);
+        off.value = true;
+        expect(harness.host.bindings.value.disabled).toBe(true);
+        off.value = false;
+
+        const stale = {sessionId: "old", contextKey: "first", source: "pointer", revision: harness.host.revision.value, extent: {width: 1000, height: 600}, changes: []} as const;
+        key.value = "second";
+        await nextTick();
+        expect(harness.host.bindings.value.contextKey).toBe("second");
+        expect(harness.host.bindings.value.onGestureCommit(stale)).toMatchObject({ok: false, code: "stale-context"});
+    });
+
+    it("`grid` 换了实例：布局按新网格重算（输出 145）", async () => {
+        const grid = shallowRef(twoColumns());
+        const harness = mountHost(grid.value, {grid});
+        await nextTick();
+        const before = harness.host.layout.value.sizes.left!.width;
+        grid.value = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 100, height: 0}},
+                {kind: "leaf", id: "right", ref: "right", size: {width: 700, height: 0}},
+            ],
+        }, {sashSize: SASH});
+        await nextTick();
+        expect(harness.host.layout.value.sizes.left!.width).toBeLessThan(before);
+    });
+
+    it("`onApplied` 抛出：提交照样落账，`onIssues` 收到 `notify-failed`（输出 145）", async () => {
+        const harness = mountHost(twoColumns(), {onApplied: () => {
+            throw new Error("宿主存盘失败");
+        }});
+        await nextTick();
+        const before = harness.host.layout.value.sizes.left!.width;
+        await dragSash(harness);
+        expect(harness.applied).toHaveLength(1);
+        expect(harness.host.layout.value.sizes.left!.width - before).toBeCloseTo(40, 6);
+        expect(harness.issues.map((issue) => issue.code)).toContain("notify-failed");
     });
 });

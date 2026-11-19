@@ -41,12 +41,13 @@ function endLine(end: DragEnd): string {
     return end.kind === "cancelled" ? `end:cancelled:${end.reason}` : `end:${end.kind}`;
 }
 
-// 滚动容器与根在同一次挂载里设上，建会话时读得到。
 const {state} = useDragSession<string, Drop, HTMLElement>(rootEl, () => {
+    // 滚动容器在根里面，和根在同一次挂载里设上，建会话时一定读得到；读不到说明模板改了，直接报错，不建一个没有边缘滚动的会话。
     const scroller = scrollerEl.value;
+    if (scroller === null) throw new Error("DragSessionScene：滚动容器没有挂上");
     return {
         scroll: "withdraw",
-        ...(scroller === null ? {} : {autoScroll: {element: scroller}}),
+        autoScroll: {element: scroller},
         sourceAt: (target) => target.closest<HTMLElement>("[data-source]")?.dataset.source ?? target.closest<HTMLElement>("[data-row]")?.dataset.row ?? null,
         resolve: ({top}) => {
             if (top === null) return null;

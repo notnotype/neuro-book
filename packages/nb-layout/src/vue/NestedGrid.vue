@@ -587,11 +587,11 @@ watch(() => scope.active.size > 0, (active) => {
 });
 
 onBeforeUnmount(() => {
+    // 先收尾手势再通知：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。
+    scope.dispose();
     // 卸载时侦听先停、模板 ref 后置空，`useLayoutExtent` 来不及发 null：这里显式告诉宿主尺寸没了（Spec 输出 144）。
     emit("extent", null);
-    scope.dispose();
 });
-
 
 /** 写拿起元素的矩形（相对网格根）。刚拿起时元素还没带标记，写不到，这次渲染从 `liftedRect` 取。只写变了的键：尺寸没变就不引起布局。 */
 function placeLifted(rect: GridRect): void {

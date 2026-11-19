@@ -118,4 +118,42 @@ describe("useDragSession", () => {
         wrapper.unmount();
         expect(handle!.session.value).toBeNull();
     });
+
+    it("选项不随响应式重建：建时读到的 ref 之后变了，会话不重建（输出 19）", async () => {
+        const flag = shallowRef(1);
+        const root = shallowRef<HTMLElement | null>(makeRoot());
+        const scope = effectScope();
+        const drag = scope.run(() => useDragSession<string, Drop>(root, (current) => {
+            void flag.value;
+            return createOptions(current);
+        }))!;
+        const first = drag.session.value;
+        expect(built).toHaveLength(1);
+        flag.value = 2;
+        await nextTick();
+        expect(built).toHaveLength(1);
+        expect(drag.session.value).toBe(first);
+        scope.stop();
+    });
+
+    it("`createOptions` 抛出：这个根上没有会话，错误交给应用的错误处理（输出 19）", async () => {
+        const errors: unknown[] = [];
+        let handle: ReturnType<typeof useDragSession<string, Drop>> | null = null;
+        const Host = defineComponent({
+            setup() {
+                const rootEl = shallowRef<HTMLElement | null>(null);
+                handle = useDragSession<string, Drop>(rootEl, () => {
+                    throw new Error("选项坏了");
+                });
+                return () => h("div", {ref: rootEl});
+            },
+        });
+        const wrapper = mount(Host, {attachTo: document.body, global: {config: {errorHandler: (error) => void errors.push(error)}}});
+        await nextTick();
+        expect(errors).toHaveLength(1);
+        expect((errors[0] as Error).message).toBe("选项坏了");
+        expect(handle!.session.value).toBeNull();
+        expect(handle!.state.value).toBeNull();
+        wrapper.unmount();
+    });
 });

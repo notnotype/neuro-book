@@ -73,7 +73,7 @@ const host = useGridHost({grid, onIssues: (issues) => console.warn(issues)});
 </script>
 
 <template>
-    <!-- 承载盒要有确定的高度：组件的根铺满它，量到 0 高时布局为空、什么都不画。 -->
+    <!-- 承载盒要有确定的高度：组件的根铺满它，量到 0 高时布局为空、手势停用（叶照常挂着，只是没有尺寸）。 -->
     <div style="height: 100%">
         <NestedGrid v-bind="host.bindings.value">
             <template #leaf="{node}">{{ node.id }}</template>
@@ -87,6 +87,7 @@ const host = useGridHost({grid, onIssues: (issues) => console.warn(issues)});
 - 诊断只有一个出口：选项里的 `onIssues` 收布局重算的诊断、`notify-failed`，也收组件的 `issues` 事件（包里带着接它的处理）。
 - 提交：同步核对上下文、版本与尺寸，一次 `resizeBranches` 成功之后才调选项里的 `onApplied(commit, result)`。`onApplied` 是“已经落账”的通知，不是第二道拒绝门：它抛错报成 `notify-failed`，不反悔已提交的几何；自身提交不造成预览自取消。
 - 组件卸载前发 `extent` 为 null：组件被条件渲染摘掉时宿主的 `host.extent` 回到 null；宿主自己整个卸载时，宿主的侦听已经停了。
+- 不经 `NestedGrid` 量尺寸的地方（例如量别的盒子做别的事）用 `useLayoutExtent(ref)`：它共享 `clientWidth`、`clientHeight` 与 `ResizeObserver`，`null` 表示还没挂载，0 是真实的零。
 
 ## 公开的标记与变量
 

@@ -75,7 +75,7 @@ export function useGridLayout<T>(options: {
     function publish(): readonly GridIssue<GridIssueCode | "notify-failed">[] {
         const grid = options.grid.value;
         const extent = options.extent.value;
-        if (grid === null || !usableExtent(extent)) {
+        if (grid === null || extent === null || !usableExtent(extent)) {
             layout.value = EMPTY_GRID_LAYOUT;
             publishedExtent = null;
             revision.value += 1;
