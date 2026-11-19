@@ -1,0 +1,116 @@
+### B1 agent/sessions.md:43
+- 远程 `resume` 是带 `sessionId`、`commandId` 的写指令 → 实现 `packages/neuro-book/src/plugins/agent/shared/remote.ts:102,127-132`、`backend/remote.ts:171-181` → 测试 `packages/neuro-book/src/plugins/agent/session-host.test.ts:94-103,426-434` 经真实客户端，调用见 `web/session-host.ts:1205-1208`，断言继续后用户消息末两条是「排一」「排二」；路由缺失或没放行会失败，不单测缺字段 → 去标记。
+- 远程 `release` 是带 `sessionId`、`commandId` 的写指令 → 实现 `packages/neuro-book/src/plugins/agent/shared/remote.ts:103,127-132`、`backend/remote.ts:175-181` → 测试 `packages/neuro-book/src/plugins/agent/sessions.test.ts:197-217` 未调用 `release`；删掉该远程方法这些断言仍会通过 → 留（没有测试断言）：该文件直接调用 `client.release` 放行指定条目，断言指定条目就绪、未选择的仍留着。
+
+### B2 agent/sessions.md:52
+- `session(id, issuer?)` 改为按调用方盖章 → 实现 `packages/neuro-book/src/plugins/agent/shared/contracts.ts:111-121`、`backend/plugin.ts:205-206`、`backend/agent.ts:480-497` → 测试 `packages/neuro-book/src/plugins/agent/tasks.test.ts:186-200` 真实插件取得门面；断言缺省身份为 `test.scheduler` 的宿主、`{asUser:true}` 为 `{kind:"user"}`，身份仍由任意发出者参数决定或放错缺省身份时会失败 → 改写：`session(id, options?)` 返回按调用方盖章的会话视图（见输出 21）。
+
+### B3 agent/sessions.md:71
+- `startTask` 经 `agentKey` 时的发出者 → 实现 `packages/neuro-book/src/plugins/agent/backend/agent.ts:312-324,480-484,498`，远程 `backend/remote.ts:338-341` 不传身份，`packages/nb-harness/src/kit/sessions/table.ts:135` 缺省用户 → 测试 `packages/neuro-book/src/plugins/agent/tasks.test.ts:219-225` 断言 `runStarted.by` 等于 `{kind:"host",source:{plugin:"test.scheduler",label:"定时任务"}}`，缺省改成用户或丢盖章就会失败；同文件 `68-77` 的远程用例只断言结果，不单测身份 → 改写：`startTask` 发出的 `send` 经远程时以用户身份发出，经 `agentKey` 时按输出 21 盖章。
+
+### B4 agent/sessions.md:77
+- 远程 `activity` 列出空闲前台、有只能由用户放行的留话的会话为 `held` → 实现 `packages/nb-harness/src/kit/sessions/table.ts:73-74,158-160,297-305,314-348`、`packages/neuro-book/src/plugins/agent/backend/remote.ts:172,337` → 测试 `packages/nb-harness/src/kit/sessions/table.test.ts:128-143` 断言关闭后 `[]`、重开后 `[{id:"s-1",state:"held"}]`；会抓住句柄表不报 `held`，但该条同时是用户自己的话、也是用户停止留下的，且删掉远程的 `held` 不会失败；应用用例 `packages/neuro-book/src/plugins/agent/subagents.test.ts:261-262,555-556` 只断言 `running/waiting` → 留（没有测试断言）：在 `sessions.test.ts` 断言 `client.activity` 分别列出「别人排、用户留」与「用户排、未由用户留」，排除仅父会话可放行的和后台条目。
+- `activityChanged` 也交回这类 `held` → 实现 `packages/nb-harness/src/kit/sessions/table.ts:170-173,345-348`、`packages/neuro-book/src/plugins/agent/backend/remote.ts:362-367` → 测试 `packages/neuro-book/src/plugins/agent/session-host.test.ts:1614-1625` 只从等待审批验证活动目标，不检验 `held`；远程事件漏掉 `held` 仍会过 → 留（没有测试断言）：在 `sessions.test.ts` 先订阅，再用停止留话和继续放行触发，断言收到 `held` 行、放行后该行不再是 `held`。
+
+### B5 agent/sessions.md:85
+A=`packages/neuro-book/src/plugins/agent/`；R=`packages/nb-runtime/src/services/`；K=`packages/nb-harness/src/`；TS=`A/tasks.test.ts`；AT=`A/agent.test.ts`；PT=`R/per-consumer.test.ts`；U=`A/session-host.test.ts`。
+- `agentKey` 缺省盖插件章 → `A/backend/plugin.ts:206`,`agent.ts:480-497` → TS:186-204 守 `issuer/by=test.scheduler` → 去标记。
+- `label/ref` → `agent.ts:482-483` → TS:195-204 守原值 → 去标记。
+- `at` → 同上 → TS:195-204 未传，漏传仍过 → 留（无断言）：传值并守快照。
+- `asUser` → `agent.ts:484,494-498` → TS:200 守 `{kind:"user"}` → 去标记。
+- 调用方停止作废 → `plugin.ts:206`,`R/composition.ts:608-612` → AT:390-391,406 守 `ServiceRevokedError` → 去标记。
+- 实例释放作废 → `R/composition.ts:709-714`,`PT:52-74` → PT:146-155 守 revoked/provider-stopped → 去标记。
+- 未撤门面遇停止得 `unavailable` → `A/backend/agent.ts:335-357,442-452` → AT:390-406 只测 revoked，table.test.ts:148-156 只测表，拆门禁仍过 → 留（无断言）：补错误码。
+- 仅 Agent 内指定 session 身份 → `A/backend/subagents/tools.ts:221,350-360,402` → `A/subagents.test.ts:542` 只守父 id → 留（字面不符）：改为内部取句柄、不经 `agentKey`。
+- `as(user)` → `agent.ts:485-490` → TS:212-214 守用户身份 → 去标记。
+- `as(host)` → 同上 → TS:207-214 请求 `nbook.other` 仍记本插件 → 去标记。
+- `as(session)` 抛错 → 同上 → TS:210-211 守 `TypeError` → 去标记。
+- 伪造 session caller → `agent.ts:492-495` → TS:216-217 守 `not-allowed` → 去标记。
+- 不能冒充插件 → `agent.ts:490`,`K/kit/sessions/table.ts:135-144` 身份与方法共享可变对象；TS:207-214 只测门面 → 留（字面不符）：限定门面拒绝自报，不承诺隔离。
+- 远程以用户身份 → `A/backend/remote.ts:171-177,400` → U:381-393 守用户留话可继续 → 去标记。
+- 内核按发出者定权限 → 内核合同，无新增行为 → 说明性，去标记。
+
+### B6 agent/sessions.md:86
+A=agent 包，K=harness 包；下列代码别名从对应 src 起算。快照 `packages/nb-harness/src/kernel/session/session.ts:357→packages/neuro-book/src/plugins/agent/backend/remote.ts:154-160,226`；补测 sessions.test.ts。
+- `by` → api:149-150 → T:204 守宿主 → 留（字面不符）：用户不带；补两例。
+- `held` → 快照 → e2e `agent-conversation.e2e.ts:310-315` 重载守暂停数 → 去标记。
+- `ready` → api:153-154 → H:335-336 守文字/模式；UI `kernel-transcript.ts:312` 缺值仍就绪 → 留（无测试断言）：快照守状态。
+- `cause` → st:165-166 → e2e:310-315 占位可由运行推出 → 留（无测试断言）：快照守 cause。
+- `heldBy` → api:155-158 → S:686,704 测同进程 → 留（字面不符）：仅停时有；补远程两例。
+- `edits` → st:180-181 → H:450-466 守重试、不守计数 → 去标记。
+- 附件/payload → api:142-148 → H:465-466,866 非快照测 → 留（无测试断言）：守完整 input。
+- `placement` → cmd:167-182,Q:175-177 → H:421-423 不守字段 → 留（无测试断言）：守远程 taken/later。
+- `send.replaces` → A/shared/remote.ts:85-91,Q:175-177 → H:413-423,450-466 守重试 → 去标记。
+- `send.release` → A/shared/remote.ts:82,89,Q:175-177 → H:480-505 只守客户端 keep → 留（无测试断言）：测 followups 放行。
+- `resume` → A/shared/remote.ts:102,118-132,Q:175-177 → H:426-434 未守选项/结果 → 留（无测试断言）：守 followups/released/runId。
+- 远程 `release` → A/shared/remote.ts:103,118-132,Q:175-177 → buf:592-596 测内核 → 留（无测试断言）：远程守 id/结果。
+- 错误码透传 → A/shared/remote.ts:43,55-60,127-132,Q:175-177 → H:450-466 重试认 input-stale → 去标记。
+- `nothing-to-resume/release` → cmd:275-305 → buf:321,589-590 测内核 → 留（无测试断言）：远程守码/details.ids。
+- `not-allowed/held-by-user` → cmd:125-131,258-300 → S:689 测工具，buf:329,558,591,610 测内核 → 留（无测试断言）：注明身份范围，补非用户测试。
+
+### B7 agent/sessions.md:127
+- 同进程插件经 `agentKey` 的默认与可选身份 → 实现 `packages/neuro-book/src/plugins/agent/backend/agent.ts:480-498` → 测试 `packages/neuro-book/src/plugins/agent/tasks.test.ts:198-200,207-217` 断言缺省 `test.scheduler`、显式用户为 `{kind:"user"}`、`as(host)` 保留本插件、`as(session)` 抛错、会话 `caller` 得 `not-allowed`；这些入口若放过自报身份便会失败，不证明任意同进程代码都无法越界（见 B5） → 改写：远程会话指令按用户身份执行；同进程插件经 `agentKey` 缺省以本插件的宿主身份调用，可显式代用户，门面不接受自报的插件或会话身份（输出 21）。
+
+### B8 agent/subagents.md:84
+A=`packages/neuro-book/src/plugins/agent/`；T=`backend/subagents/tools.ts`，F=`backend/subagents/fate.ts`，S=`subagents.test.ts`。
+- 先 `start` 再 `resume`：T:402,565-570；S:708-711 未守认领 → 留（缺测）：守续轮 `inputId:null`。
+- 仅留话只调 `resume`：T:565-574 总先 `start`；S:708-711 不区分 → 留（实现与字面不一致）：改成 start 不能续才 resume。
+- 无话无运行：T:584；S:544 守 `nothing-to-continue` → 去标记。
+- 用户停仅用户能续：T:577-582；S:689 只守留话码 → 留（缺测）：无留话停，守拒绝码/说明。
+- 按 `inputConsumed.runId` 认领：F:33-43,T:456-458,540；`taken` 用 `currentRunId`；S:608-611 不比 id → 留（实现与字面不一致）：按实际取话认领。
+- 留话不登记：T:424,456-473,536；`taken` 已登记；S:611 两话都取走 → 留（实现与字面不一致）：限于认领前留着。
+- 结果/错/停/中断分别说明：T:171-175,594-596；S:695 只查条数 → 留（缺测）：分守文案。
+- 用户暂停父话计数：T:601-603；S:695 守“有1条你排的话被用户暂停，未发出” → 去标记。
+- `held-by-user` 说明：T:575；S:689 只守码 → 留（缺测）：守说明。
+- `later` 立即返：T:451-465；S:595-601 压缩挂起时已有 `running` → 去标记。
+- `queue` 先返且不登记：T:482-488；S:595-611 守无 `jobId`、排队文案、后取走 → 去标记。
+- `async` 同合同：T:443-444,488；S:590 只测 queue → 留（缺测）：测 async 先返/无任务/后取走。
+- 前台按去向等待、认领后继续：F:24-43,T:494-512,540-544；S:608-611 守完成、任务、两话取走 → 去标记。
+- 插话或超时不登记：T:500-512,533-535；S:287,524 仅测派发 → 留（缺测）：插话/超时守无任务。
+- 总限时仍是 `timeout`：T:510,543-544 分段取整；S:524 仅测派发 → 留（实现与字面不一致）：按同一截止时刻扣时。
+- 用户开的不随父停：T:269-270,540,554-557；S:659-665 子仍完成 → 去标记。
+- 推迟后留着写原因：T:173,536；S:611 只测取走 → 留（缺测）：守 `idle`/原因码。
+- 父停撤回未取话：T:489,514-520；S:635-641 守 `aborted`、撤回文案、空缓冲、运行数不变 → 去标记。
+- 同刻取话先登记再中止：T:522-529 名额不足不登记；S:635-641 未测 → 留（实现与字面不一致）：补名额例外测试。
+- 受理即留、前后台说明：T:466-469,640-646；S:694-695 新话完成 → 留（缺测）：两模式守 `idle`/无任务/原因。
+
+
+### B9 agent/subagents.md:96
+A=`packages/neuro-book/src/plugins/agent/`；T=`backend/subagents/tools.ts`，C=`backend/subagents/children.ts`，S=`subagents.test.ts`。
+- 父连带中止盖父身份、留话记父 `heldBy`：T:221,266-274；S:302-309 无排话，只守子 `aborted`，身份错仍过 → 留（无断言）：排话后停父，守 `runEnded.stoppedBy/heldBy`。
+- 父 `kill` 留话记 `heldBy`：jobs/tools.ts:120-124,C:45-58；S:701-704 守 `[["held",{kind:"session",id:parent.id}]]`，错盖/清队即败 → 去标记。
+- 父发新话放行父停留话：T:402,451；K `kernel/run/commands.ts:164-182`；S:311-314 只守 completed，未守旧话 → 留（无断言）：按路径守旧话先于新话取。
+- 父无新话也放行：T:450,565-574；S:704-711 无消息调用后守有 job、排话进路径，未放行即败 → 去标记。
+- 插话附着用户运行则不停：T:458,269-270；S:659-665 守用户 `by` 缺省、子 completed，未核同 runId，错误分支仍过 → 留（无断言）：用户运行挂起时插话并守 runId。
+- `async` 不随父停且可单独 kill：T:328,253-259,C:51-58；S:306-309 守父停后后台 completed，S:669-676,701-704 守单停及父留话 → 去标记。
+- 前台转后台后不随父停：T:277-282；S:508-525 只守 timeout 后 `running`、`wait` 得结果，未停父 → 留（无断言）：转后台后停父，守仍可单独 kill/正常完成。
+- 停止逐层生效：T:253-274,350-360,376-377；S:308 只守一层 aborted → 留（无断言）：根停后守子、孙及直接停者。
+- 插件停时不 abort 前台子、关闭为 interrupted：T:269,`backend/agent.ts:442-452`，K `kit/sessions/table.ts:202-208`；`agent.test.ts:395-412` 仅守普通会话 ended interrupted → 留（无断言）：读子日志守 interrupted、无 stoppedBy。
+
+### B10 agent/jobs.md:50
+以下路径相对 `packages/neuro-book/src/plugins/agent/`。W=`backend/jobs/steer.ts`，J=`backend/jobs/tools.ts`，T=`backend/subagents/tools.ts`。
+- 前台等子代理时新到的就绪插话结束等待 → 实现 W:21-25、T:258-259,277-282 → 测试 `subagents.test.ts:281-290` 子未放开时插话，断言 `running`、文案含「插话」、父路径有该 `steer`，后来 `wait` 取到「查完了，没问题。」；忽略新插话则失败 → 去标记。
+- `wait` 认实际到达的就绪插话 → 实现 W:21-25,35-37、J:109-118 → 测试 `jobs.test.ts:97-111` 人工 resolve 信号，断言 `interrupted`、任务仍 `running`，断开真实监听也过 → 留（没有测试断言）：在 `jobs.test.ts` 让任务挂着，实发 `steer`，查 `wait` 结果含「用户插话了」且任务仍在跑。
+- 留着的插话不算，`wait` 与前台都一样 → 实现 W:21-25,35-37、J:112-114、T:258-259,500-512 → 测试 `subagents.test.ts:281-288` 只有新就绪插话，`jobs.test.ts:106` 只查信号结果；误认 `held` 仍过 → 留（没有测试断言）：在 `subagents.test.ts` 用不同宿主分别排留着的插话、启动父运行，分别跑 `wait` 和前台等待，断言等到任务正常完成且留话未取。
+- 放行后仍是插话才算到达 → 实现 W:27-30、J:112-114、T:258-259 → 测试 `subagents.test.ts:281-288` 只走新入队，删 `inputReleased` 监听仍过 → 留（没有测试断言）：在 `subagents.test.ts` 等待中释放留着的 `steer`，断言提前返回插话结果；改用 `followups` 时断言不提前返回。
+
+### B11 agent/jobs.md:51
+以下路径相对 `packages/neuro-book/src/plugins/agent/`。
+- 父 `kill` 停 `agent` 任务，本次新留下的话 `heldBy` 是调用会话 → 实现 `backend/jobs/tools.ts:120-124`、`backend/jobs/center.ts:220-226`、`backend/subagents/children.ts:45-58` → 测试 `subagents.test.ts:701-704` 断言缓冲区只有 `[["held",{kind:"session",id:parent.id}]]`；删队、署用户或署错父 id 都会失败 → 去标记。
+- 调用 `kill` 的会话之后能放行 → 实现 `backend/subagents/tools.ts:402,450,564-574` → 测试 `subagents.test.ts:706-711` 用同一父会话执行无消息 `agent_send`，断言无错误码、`jobId` 为字符串、子会话路径中出现「排着的那句」。该句原先只在缓冲区，未获放行则路径断言失败 → 去标记。
+
+### B12 agent/jobs.md:58
+A=`packages/neuro-book/src/plugins/agent/`，K=`packages/nb-harness/src/kernel/`。
+- 用户停 `agent` 任务，当次留话记用户 `heldBy` → 实现 `A/backend/remote.ts:216-220`、`A/backend/jobs/center.ts:220-226`、`A/backend/subagents/children.ts:45-58` → 测试 `A/subagents.test.ts:683-686` 远程返回 `{outcome:"killed"}`，子缓冲区仅 `[["held",{kind:"user"}]]`。换用父身份或清队都会失败 → 去标记。
+- `runEnded.stoppedBy` 记用户 → 实现同一 `abort` 路径，`K/run/commands.ts:325-326` 与 `K/run/settle.ts:103-107,121-122` 用同一个 `stop.by` 写日志和留话 → 测试 `A/subagents.test.ts:686` 守应用传给内核的身份，`K/run/buffer.test.ts:221-223` 守持久化日志 `{reason:"aborted",stoppedBy:{kind:"user"}}`。应用换身份或内核漏记该字段，分别会使一层失败 → 去标记。
+- 当次留下的话只能由用户放行 → 实现 `A/backend/subagents/tools.ts:565-575`、`A/backend/remote.ts:171-177`、`K/run/permissions.ts:21-31` → 测试 `A/subagents.test.ts:688-695` 父不带话得 `held-by-user`、发新话后仍报告 1 条未发，误放行会失败。`A/session-host.test.ts:381-393` 用户走远程继续后队列为 `[]`、末条「排一条」；`K/run/buffer.test.ts:556-562` 同一用户停留话，父 `release` 被拒、用户 `resume` 后取走「父会话排的」；撤掉用户可放行任一层会失败 → 去标记。
+
+### B13 agent/builtin-profiles.md:59
+A=`packages/neuro-book/src/plugins/agent/`，M=`packages/nb-harness/src/kit/sessions/meta.ts`，P=`A/builtin-profiles.test.ts`。
+- 标题会话按 `nbook.agent` 宿主身份发话 → `A/backend/agent.ts:360-365`、M:149-151,170 → P:442-443 断言 `runStarted.by={kind:"host",source:{plugin:"nbook.agent",label:"标题生成"}}`，错盖即败 → 去标记。
+- 标题会话已有运行时读快照并跳过 → M:165-169 非 `idle` 均跳过 → P:324-338 断言请求恰 2 次且无 `agent.session-meta-failed`；每源会话本有串行队列，删守卫仍过 → 留（缺测）：预建正确后台标题会话并挂住外部运行，触发生成，守诊断、`head` 不变且无新输入。
+- 已受理但未开运行的输入立即取消 → M:170-178 仅 `runId:null` 时调用 `remove`；`kernel/run/commands.ts:165-182` 中 `runId:null` 覆盖 `held/later`，不含 `taken`；取消失败仅记诊断 → P:336-338 只测串行发送，删取消仍过 → 留（实现与字面不一致）：改成“未开运行时立即尝试取消，失败记诊断”；用回退中途运行令标题发送得到 `held`，守同 id 的 `inputRemoved.reason:"cancelled"` 及空缓冲。
+- 取消分支不提示用户 → M:108-110,171-178、`A/backend/plugin.ts:87-90` 仅记诊断，M:132-134 不写用户元数据 → P:497-508 的 `[null,null]` 属模型失败，不能区分取消分支 → 留（缺测）：取消场景收集通知，断言无新增通知、前台标题不变。
+
+### 汇总
+逐句共 79 句：去标记 33 句（含说明性去标记 1 句），留 43 句，其中没有测试断言 33 句、实现与字面不符 10 句，改写 3 句。仍保留标记：B1、B4、B5、B6、B8、B9、B10、B13。改写：B2、B3、B7。

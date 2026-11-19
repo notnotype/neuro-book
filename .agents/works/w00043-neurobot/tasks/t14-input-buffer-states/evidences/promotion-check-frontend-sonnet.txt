@@ -1,0 +1,149 @@
+# 前端对话与对话视图 Spec 的（planned）逐句核对报告
+说明：路径相对 worktree packages/；session-host.ts 全名 neuro-book/src/plugins/agent/web/session-host.ts（下写 SH），session-host.test.ts 在 neuro-book/src/plugins/agent/（下写 SHT）。单文件测试已在 worktree 跑过：resume-merge、held-reason、SHT 的“留着的话与继续”组 7 例、kernel-transcript.test.ts 34 例、两份 dom 测试 24 例，全部通过。
+
+### F1 agent/conversation.md:56（输出 6 末句）
+- “（planned）停止的第二个选项与乐观消息见输出 49。”→ 纯指路句，内容就是输出 49 → 判定：去标记。输出 49 里仍留标记的那一句（见 F5 第 3 句）自带标记，不靠这句。
+
+### F2 agent/conversation.md:59（输出 9 末句）
+- “（planned）有留着的话时的继续见输出 50。”→ 纯指路句，内容是输出 50 → 判定：去标记。输出 50 里没有断言的几句（F6）各自带标记。
+
+### F3 agent/conversation.md:127 输出 47 整条
+- 3a 用户设置 `nbook.agent/resumeMode`（用户层，三选一，缺省 merge）→ 实现 neuro-book/src/plugins/agent/shared/settings.ts:138-148（Union 三个字面量、default "merge"、layers ["user"]）→ 测试：没有。SHT 与 conversation.llm.test.ts:53 都是手传 `resumeMode: () => ...`，没有一处读设置的定义 → 判定：留（没有测试断言）。
+- 3b 在设置的“运行可靠性”分区 → settings.ts:143 `section: RUN_GUARDS_SECTION`（"nbook.agent.reliability"，locales/zh-CN.json:183 标题“运行可靠性”）→ 测试：没有 → 留（没有测试断言）。
+- 3c 点继续时现读 → SH:1202 `deps.resumeMode()` 在 continueRun 里调，web/plugin.ts:371 是 `settings.get` 的闭包 → 测试：SHT 每例都是固定函数，没有一例在两次继续之间改值；把读取挪到创建宿主时也全过 → 留（没有测试断言）。
+- 3d 三项写作“合并一起发”“保留原插话与排队”“按排队顺序” → locales/zh-CN.json:113-127 文字对得上 → 测试：没有（目录检查只管键与占位符一致）→ 留（没有测试断言）。
+- 建议（3a-3d 一处补）：新建 neuro-book/src/plugins/agent/shared/settings.test.ts，断言 resumeMode 的 default 为 "merge"、只接受三个值、layers 为 ["user"]、section 为 "nbook.agent.reliability" 且 zh-CN 三项标题逐字；“现读”在 SHT 的 resumeMode 用可变变量，先合并再改 keep 各继续一次，断言两次走法不同。
+- 3e 合并时各条按入队顺序、之间空一行，附件随各自的文字保留 → 实现 web/resume-merge.ts:31-40 → 测试 web/resume-merge.test.ts:12-23（text 为 `A\n\nB\n\n写的`、attachments 同一地址只一份并随文字；空着继续时 toEqual）；SHT:413（userTexts 末条 "排一\n\n排二\n\n新的话"）→ 判定：去标记。
+- 3f 合并出的一条是普通的新消息，显示在消息流末尾 → SH:1249-1280 → 测试 SHT:413（合成的一条是末尾用户消息，且没有任何消息带 delivery 标记，队列清空）→ 判定：去标记。
+- 3g 前面有宿主的话先跑时标“前面还有 N 条” → 适配器算 `ahead`：nb-agent-ui/src/kernel-transcript.ts:373-377，测试 kernel-transcript.test.ts:612-641（两条宿主话先放行，运行中 `mine` 带 ahead:1，结束后没有）；视图写字：vue/stream/AgentConversationTurn.vue:155、locales/zh-CN.ts:154 → 没有 dom 或 e2e 读这句字（Lab 有 `ahead` 场景但没有用例）→ 判定：留（视图写字没有断言；适配器一半已守住）。建议：AgentConversationTurn 的 dom 测试（新文件 AgentConversationTurn.dom.test.ts）给一条 `delivery:"pending", ahead:2` 的 user 消息，断言文字“前面还有 2 条”，ahead 为 0 或缺省时是“发送中”。
+
+### F4 agent/conversation.md:128 输出 48 整条
+- 4a 排队区数据来自快照与日志的缓冲区条目，每条带发出者、状态与原因 → kernel-transcript.ts:289-316、:701-717、:876 → 测试 kernel-transcript.test.ts:445（会话身份排的条目 toEqual 含 by、state:"held"、cause、commandId、edits；改、删后跟着变）与 :643（applySnapshot 读到留着的）→ 去标记。
+- 4b 用户自己的能编辑（取出到输入框，remove 之后放进草稿，重发是新话）→ SH 的 queued.edit 分支 → SHT:326（草稿“正在写的\n排一条”、队列拿掉、再发是新的一条排上）→ 去标记。
+- 4c 会话、宿主排的只能取消（remove）→ 视图一半 AgentQueuedMessages.dom.test.ts:26（editable:false 没有 `[data-queued-edit]`，仍有删除）；宿主一半 SH:1104 `item.by === undefined ? {} : {author: authorOf(...), editable: false}` → 没有测试：SHT:386 只断言用户自己的话没有 author，没有一例看会话或宿主排的条目 → 留（宿主一半没有断言）。建议：SHT“留着的话与继续”组加一例，用 `w.service.session(id, {asUser:false, source:{label:"日程"}})` 在空闲时 enqueue（留着，cause.queued idle），断言 `ctx().composer.queued[0]` 的 author.label 为“日程”、editable 为 false、held.reason 为 conversation.held.idle（同一例也能守 F6 的“宿主的话不合并”与 F17 的 source.label，见 F6、F17）。
+- 4d 留着的显示“已暂停”与原因 → 头行“已暂停 N 条”dom:38-53；条目 `held.reason` 由 SH:1105 取 heldReason → 去标记。
+- 4e 原因按 cause 与 heldBy 取文案（end 五种、aborted 三种停的人、queued、带码、认不出）→ web/held-reason.ts:32-47 → 测试 web/held-reason.test.ts:15-34 逐例用真实 zh-CN.json 断言全部文案，含“日程停止了”“运行没开起来：没有可用的模型”“上一轮没有正常结束”；这条断言在文案或分支写错时会失败 → 去标记。
+- 4f 状态栏的活动只把只有用户能放行的留着的话算作等你处理，会话列表的行在这时也标出来 → 后端 nb-harness/src/kit/sessions/table.ts:74、:158（heldForUser：heldBy 是用户或 by 缺省）与 table.test.ts:130-144（用户停止后 activity 为 held，空闲关闭后清空、重新打开又算出）已守住（后端审查那份另核）；前端一端 web/activity.ts:36-41（waiting 含 held、target 先 waiting 再 held）、web/session-list.ts:205-207（held 画成 waiting）→ 测试：没有。SHT:1609 的活动例只有 running 与 waiting；全仓没有 web 一端的 held 例 → 留（前端一端没有断言）。建议：SHT“活动条目”组加一例，停止后留着话的会话，activity.waiting 为 1、target 指向它；会话列表那一例（SHT:1776 所在组）断言这一行 status 为 waiting。
+- 4g 只看打开着的会话，重启后没打开过的会话要打开才看到（已知限制）→ 说明性（已知限制，table.test.ts:140-143 也演示了），去标记。
+
+### F5 agent/conversation.md:129 输出 49 整条
+- 5a 缓冲区里有用户自己的话（就绪或留着）时，停止键右边接一段下拉箭头 → SH:1110-1115 `stopClearingOf`（运行中且 queue.some(by===undefined) 才给 {count}）；Composer.vue:231、:691 → 测试 SHT:374（运行中排上就绪的用户话，stopClearing 为 {count:n}）、:387（空闲留着时为 null）；dom AgentConversationComposer.dom.test.ts:399（stopClearing 非空才有 `[data-composer-action='stop-more']`，null 与有字时没有）→ 去标记。附注：运行中留着的用户话（验收 9 的场景）没有断言 stopClearing，括号里的“或留着”只靠代码，可顺手在 SHT:508 那一例运行中加一句 `expect(h.ctx().interaction.stopClearing).toEqual({count:2})`。
+- 5b 菜单里“停止并清空排队（N 条）”走不带 keepQueue 的 abort → SH:1526-1532（clearQueue 为真时不传 keepQueue）→ 测试 SHT:396（点后缓冲区 `snapshot().buffer` 为 []，传 keepQueue 就会是留着的一条，会失败）；dom :399（发出 {type:"composer.stop", clearQueue:true}）；e2e agent-conversation.e2e.ts:332-410（菜单项“停止并清空排队（1 条）”点后队列 0）→ 去标记。
+- 5c N 是缓冲区里的全部条数（用户的停止清空全部）→ SH:1112-1114 `count: queue.length` → 测试：SHT:374 只有用户自己的话，条数等于用户的条数，断言区分不了“全部”与“用户自己的”（改成只数用户的话也全过）；没有宿主或会话的话混在里面的例 → 留（没有测试断言）。建议：SHT 加一例缓冲区里有宿主排的一条（见 F4 4c 的做法）加用户的两条，运行中断言 stopClearing 为 {count:3}，点“停止并清空排队”后 buffer 为 []。或者把标记只挪到这一句。
+- 5d 停止进行中这一项不可用 → Composer.vue:237-239、:699（aria-disabled、onStopMenu 在 stopping 时不开）→ dom :399（stopping 时箭头 aria-disabled 为 true，按键后没有菜单项，aria-expanded 为 false）→ 去标记。
+- 5e 空闲时 Ctrl/⌘ 加回车排的话等于发送 → nb-agent-ui/src/composer-actions.ts:37-39（!running 一律 prompt）→ 测试 composer-actions.test.ts:11-12（running:false, mod:true 得 delivery "prompt"）→ 去标记。
+- 5f 乐观消息按受理它的 commandId 确认，不按先后 → kernel-transcript.ts:360-372、:909 → 测试 kernel-transcript.test.ts:612-641（宿主的两条话先放行，它们的 input 事件先到，`mine` 仍在且 ahead:1；按先后确认会在这时把它换掉）；:173 那例里确认的恰好也是最早的一条，区分不了，以 :612 为准 → 去标记。
+
+### F6a agent/conversation.md:130-140 输出 50 表格（逐行；“保留/按排队顺序”两种方式共用一个 mode 变量，测试只用了 keep，下面不再每行重复）
+- 行1 空闲、只有留着的话、空着继续：合并时用户留着的不少于两条合成一条走 send{replaces}，少于两条走 resume{keep}；非合并走 resume{mode} → SH:1249-1262（userHeld<2 且 typed 为 null 走 resume keep，否则 mergeHeld 后 send{replaces}）、SH:1203-1208（非合并 resume{mode}）→ 测试 SHT:437（两条留着空着继续，发出的文字“排一\n\n排二”，被改后第二次“排一（改过）\n\n排二”）；SHT:381（一条留着，空着继续后放行、末条用户话“排一条”）；SHT:426（keep：两条各自一条按序）。合成与分别放行在这些断言里能区分 → 去标记。
+- 行2 空闲、留着的话加中断的运行（被停止与出错的不算），空着继续：合并先 start 再合并发出；非合并 resume{mode}（内核先接着跑）→ SH:1221-1240、SH:1203 → 测试 agent-conversation.e2e.ts:296-330（真重启后“已暂停 1 条”，回车，第一次请求挂住时排着的话已放行不再暂停，放开后两条回复都出现、队列清空）；“被停止与出错的不算”靠 kernel-transcript.test.ts:419（只有最后一次运行 interrupted 才算）与 SHT:381（停止后留着不先 start）→ 只有一条留着的路径被守住；中断加两条以上留着（start 之后再 send{replaces}）没有一例；SHT 里没有造“中断”的会话 → 留（没有测试断言，限于不少于两条的那支）。建议：把 e2e 验收 5 改排两条（再 queue 一次），断言 `requests()` 末条请求含“<一>\n\n<二>”。
+- 行3a 空闲、写了字：用户留着的话与这句合成一条走 send{replaces}；非合并走 send{release: mode} → SH:1160-1163、SH:1210-1219、SH:1249-1270 → 测试 SHT:413（两条留着加“新的话”合成一条，末条文字对）、SHT:437 后半（再留两条后写字被拒，草稿只有“写的字”）、SHT:476（keep：send 带 release:"keep"，重发同一 commandId）→ 去标记。
+- 行3b （没有用户留着的话时走 send）→ SH:1260-1265（userHeld 为空，replaces 为空数组则不带）→ 测试：没有一例留着的只有宿主或会话的话再写字 → 留（没有测试断言）；与“宿主的话不合并”同一例补（见 F6b 第 9 条）。
+- 行3c 附：实现在中断且写了字的合并方式里也先 start（SH:1221 不看 typed），Spec 行3 没写；非合并方式直接 send{release}。这是 Spec 与实现的差异（实现更合理：先接着跑再并入），建议行3 加一句“中断时合并方式同样先 start”，不影响去标记，但需有测试时与行2 同例。
+- 行4 运行中点头行“继续”：同第一行（send 进在跑的运行）；非合并 resume{mode} → SH:1534-1538（run.continue 有留着就 continueRun）→ 测试 SHT:508（宿主开的运行里两条留着，继续后合成“排一\n\n排二”排进去，runStarted 末条 runId 仍是宿主那次）→ 去标记。
+- 行5 运行中写字回车（插话）或 Ctrl/⌘ 加回车（排队）：不合并，enqueue 照常发，内核放行用户留着的话、保持原模式 → SH:1146-1172（只有 delivery 为 prompt 才走 continueRun，否则 enqueue）→ 测试：SHT:326 运行中 enqueue 的例子里没有留着的话，改成“有留着也合并”测试照过；运行中有留着再写字的没有例 → 留（没有测试断言）。建议：SHT:508 那一例运行中再 act `composer.submit {delivery:"steer"}`，断言排队里出现这句插话、两条留着的话各自仍是一条（不并成一条），放行后按各自文字跑。
+
+### F6b agent/conversation.md:140 输出 50 表格后一段（逐句）
+- 1 继续是一个操作：进行中（含两步之间）头行的“继续”与发送键不可用 → 视图一半 Composer.vue:203-204、224-228 → dom AgentConversationComposer.dom.test.ts:360（continuing:true 时主按钮 disabled、头行继续 title“正在继续”，编辑器不只读）；宿主一半 SH:1182-1192、:1810（`continuing` 进 ctx）、重入保护 → SHT:476（submit 之后紧接 run.continue，只发出一次 send，没有 resume）守住重入；但没有一处断言宿主 ctx 的 `interaction.continuing` 在继续进行中为 true、结束后为 false（e2e:351 的注释提到它，断言的只是输入框有焦点）→ 留（宿主发布 continuing 没有断言）。建议：SHT:476 那一例里 submit 之后 `until(() => h.ctx().interaction.continuing === true)`，结束后断言为 false。
+- 2 两步各用按这次操作固定的 commandId → 实现不一致：continueRun 里 start、resume、第一次 send 各取新的 `commandId()`（SH:1206、1222、1261），只有合并的 send 被 PendingSend 记住、结果未知时重发沿用（SH:1562）；plan.md:88 写的 `commandIdOf(key)` 固定 id 没有用在继续上；start 结果未知按失败处理（SH:1226-1228）。input-stale 后的再发也换新 id（合理，内容已变）→ 留（实现与字面不一致）。建议 Spec 改成：“合并的那一条 send 结果未知时，重新发送沿用同一个 commandId 与参数；start 结果未知按失败处理，说明原因；input-stale 后重合成的那条换新的 commandId”。
+- 3 start 失败时停下、说明原因，不再发 → SH:1221-1229（fail(code)，notice conversation.continue.failed，return）→ 测试：没有（全仓没有用例读 continue.failed）→ 留（没有测试断言）。
+- 4 第二步之前这次运行已被停止或已收口时不再发 send{replaces}，说明原因 → SH:1230-1240（runResult 非 null 或转录器是 stopping 就撤、写 conversation.continue.stopped）→ 测试：没有 → 留（没有测试断言）。
+- 5 send{replaces} 得 input-stale 时只重读快照、重新合成、再发一次 send → SH:1266-1277 → 测试 SHT:437（代理在合成之后、发出之前真的 edit 了第一条；先后发出的两次文字为“排一\n\n排二”“排一（改过）\n\n排二”，末条用户话是后者）→ 去标记。
+- 6 ……不重做 start → sendMerged 里没有 start（start 在 continueRun 里、只一次）→ 测试：SHT:437 的会话不是中断的，start 根本不出现，这句断言不了 → 留（没有测试断言），与第 3、4 句同一类，一起补：造一个中断会话（e2e 验收 5 的重启办法，或 SHT 里重开世界），用代理客户端让 start 失败、让 runResult 非 null、让第一次 send 得 input-stale，分别断言：不再发、说明原因、start 只调一次。
+- 7 再失败时说明原因 → 第二次 input-stale 或被拒都落到 settleSend（SH:1117-1136，conversation.reject.other 带码）→ 测试 SHT:437 后半（input-rejected 被拒后 `composer.notice` 有值）；第二次仍 input-stale 与被拒走同一函数 → 去标记。
+- 8 被拒或失败时只把用户这次写的字放回输入框 → SH:1129-1131（typed）→ 测试 SHT:437 后半（草稿恰为“写的字”，不含合成文字，队列仍两条）→ 去标记。
+- 9 空着继续时不放回合成的文字 → SH:1130（typed 为 null 时不写草稿）→ 测试：没有（被拒的那例带了写的字）→ 留（没有测试断言）。同第 6 句的代理做法，空着 run.continue 时让 send 得 input-rejected，断言 `composer.draft.text` 仍为 ""、notice 有值。
+- 10 停止进行中“继续”不可用 → dom :375（stopping 时头行继续 aria-disabled 为 true）→ 去标记。
+- 11 合成：用户留着的条目按入队顺序、空一行，附件与粘贴块的 #N 整体重新编号 → resume-merge.ts、nb-markdown/src/prompt/prompt-text.ts:374 → 测试 resume-merge.test.ts:12（#1、#1 变 #1、#2，同一地址只带一次）、nb-markdown/src/prompt/prompt-text.test.ts:311-318（图片与 [paste #N] 一起重新编号）→ 去标记。
+- 12 宿主、会话的话不合并，由内核在合成的那一条前面放行，乐观消息的“前面还有 N 条”就是它们的条数 → SH:1251（过滤 by===undefined）、kernel-transcript.ts:373-377 → 测试 kernel-transcript.test.ts:612（宿主两条先放行，ahead:1）；宿主一端“不并进去”没有断言（去掉 SH:1251 的过滤，现有例子照过；SHT 没有留着的话里混宿主的话的例）→ 留（没有测试断言）。同 F4 4c 的一例补：用户留着两条加宿主留着一条，空闲写字回车，断言合成文字不含宿主的话、宿主的话先跑、乐观消息 ahead 为 1。
+
+### F7 agent/conversation.md:186 验收 5 括号里的（planned）
+- “排着的话显示已暂停，回车先接着跑中断的那一轮，再发出排着的话” → 实现 SH:1221-1262、web/held-reason.ts；视图头行 → 测试 neuro-book/e2e/agent-conversation.e2e.ts:296-330：真重启服务后 `queuedHead` 含“已暂停 1 条”，占位文字匹配“上次运行已中断，排队的话已暂停”，回车后接着跑的那次挂在 /hold/arrived，此刻头行消失、`li[data-queued][data-held='true']` 为 0（已放行等这一轮取走），放开后“接着写完了”“这一段也加好了”都出现、队列为 0、继续键消失。断言能区分“只放行不先接着跑”（那样不会有挂住的接着跑的那一次）→ 判定：去标记。（e2e 未重跑，按文件读到的断言算。）
+
+### F8 agent/conversation.md:189 验收 8
+- “运行中排两条话，点停止：两条显示已暂停” → e2e agent-conversation.e2e.ts:339-346（queue 两条，点 `stop`，头行含“已暂停 2 条”“你停止了这一轮”，两条 `data-held='true'`）→ 去标记。
+- “写一句回车（恢复方式为合并）：消息流末尾出现合成的一条，先跑它” → e2e:348-355（写“新的一句”，回复“三句一起处理了”出现，`requests().at(-1).messages` 含“排一\n\n排二\n\n新的一句”，队列清空，输入框仍有焦点）；SHT:413（末条用户话是合成的）→ 去标记。
+- “用停止键旁的箭头选‘停止并清空排队’时排着的话都消失” → e2e:357-369（再排一条，点 `stop-more`，点菜单项“停止并清空排队（1 条）”，队列 0、停止键消失）；SHT:396（buffer 为 []）→ 去标记。
+
+### F9 agent/conversation.md:190 验收 9
+- “后台的宿主消息开的运行里，用户停止时留下的两条话一直显示已暂停；点头行的‘继续’后它们进在跑的这次运行” → SHT:508-529：先停止留下两条，再用 `asUser:false, source:{label:"日程"}` 的宿主 send 开运行（挂住），运行中两条的 `held.reason` 都是 conversation.held.stoppedByYou；`run.continue` 后队列只剩一条就绪的合成件（不再留着），放开后末条用户话“排一\n\n排二”，最后一次 runStarted 的 runId 仍是宿主那次。断言能区分“进在跑的这次运行”与“另开一次运行” → 判定：去标记。说明：测试里的宿主运行不是真正的后台会话（background），Spec 的“后台”指不是用户发起的运行，口径一致。
+
+### F10 ui/agent-conversation-view.md:110 `interaction` 一行的两处（planned）
+- 10a 停止并清空排队（`stopClearing: {count} | null`，count 是会被清掉的条数）→ 类型 nb-agent-ui/src/types.ts:223；宿主 SH:1110-1115；视图 Composer.vue:231 → 测试 SHT:374、:387（宿主给 {count:n} 与 null）、dom :399（count 3 时菜单项“停止并清空排队（3 条）”，null 时没有箭头）→ 去标记。“count 是会被清掉的条数”这半句的区分力与 F5 5c 相同：全是用户的话时数目一致，宿主的话混入的例没有。同 5c 一并补，或接受为已足够。
+- 10b 宿主正在执行一次继续（`continuing`，发送键与排队区的“继续”不可用，编辑器照常可写）→ 类型 types.ts:228；视图 Composer.vue:203-204、224-228 → 测试 dom AgentConversationComposer.dom.test.ts:360（`interaction.continuing:true`：编辑器无 readonly、主按钮 disabled、头行继续 title“正在继续”）；宿主一端：SH:1810 把 `continuing` 放进 ctx，没有断言（见 F6b 第 1 句）→ 判定：留（视图数据形状已守住，宿主发布没有断言）。补法同 F6b 第 1 句（SHT:476 加两句 `ctx().interaction.continuing`）。
+
+### F11 ui/agent-conversation-view.md:121 `composer` 一行的（planned）
+- “排队中的消息（条目形状见‘输入框与待处理区’的排队区）” → 纯指路句，指向排队区条目形状，判定随 F12：形状本身（types.ts:440 与 dom 测试里的数据）已守住 → 去标记；形状里各字段的行为断言缺口分别在 F12 各句。
+
+### F12 ui/agent-conversation-view.md:328 排队区条目形状
+- 12a 条目是 `{id, text, delivery, author?: {label, icon}, editable?, held?: {reason}}` → nb-agent-ui/src/types.ts:440（类型）、vue/composer/AgentQueuedMessages.vue:8 → 测试 AgentQueuedMessages.dom.test.ts:20-24 的夹具按这个形状传，整仓类型检查把关 → 去标记。
+- 12b 没有 `author` 的是用户自己的话 → SH:1104 → SHT:386（用户自己留着的条目 author 为 undefined）；dom :26（有 author 时标签是显示名）→ 去标记。
+- 12c `editable` 缺省为真，决定有没有编辑（取消总有）→ dom :26（缺省的那行有 `[data-queued-edit]`，editable:false 的那行没有、仍有 `[data-queued-remove]`）→ 去标记。
+- 12d `held` 表示留着，原因文案由宿主按留着的原因写好 → SH:1105、held-reason.ts → SHT:385（held.reason 为 conversation.held.stoppedByYou）、held-reason.test.ts → 去标记。
+- 12e 每条一行，按缓冲区的顺序 → AgentQueuedMessages.vue:34-37 `shown` 按 props 顺序 → dom :38-53（留着、就绪、就绪、就绪、留着的顺序原样）→ 去标记。
+- 12f 用户自己的标签是“补充说明”“排队”（强调色），别的发出者的标签是显示名与图标（次要色，最宽 12em，超出截断）→ 实现 AgentQueuedMessages.vue:53-54（tagOf、iconOf）、:160-190（颜色、max-width:12em、ellipsis）→ 测试：别人的标签写显示名 dom :26 已断言；用户的“补充说明”“排队”没有一处渲染后读文字（locales.test.ts:183-184 只钉键值），图标没有断言，强调色、次要色、12em、截断都是样式，没有断言 → 留（没有测试断言）。建议：dom :26 追加 steer 与 followup 各一行，断言 `.acv-queued__tag-label` 为“补充说明”“排队”、作者行的图标类为 author.icon；颜色、12em、截断要么在 Lab e2e 里量计算样式（如 `.acv-queued__tag` 的 max-width），要么把“（强调色）”“（次要色，最宽 12em，超出截断）”从 Spec 里拿掉，改写成实现注释。
+
+### F13 ui/agent-conversation-view.md:329 头行与留着的行
+- 13a 有留着的条目时多一行头行：暂停图标（提醒色）、“已暂停 N 条”、第一条留着的原因（不止一种后面加“等”），右端“继续”（发出 run.continue）→ AgentQueuedMessages.vue:38-46、:62-67 → 测试 dom :38-53（头行含“已暂停 2 条”，原因“运行出错等”，点继续发出 continue）、:55-69（只有一种原因不加“等”，没有留着的没有头行）、Composer dom :345（头行继续经视图发出 {type:"run.continue"}）→ 去标记（图标的类与提醒色没有断言，属样式，见 13c）。
+- 13b 头行只管留着的条目，原因文字先截断、“继续”保留 → vue:98-118 → dom :38（2 条留着、4 条就绪时数字是 2）；e2e neuro-book/e2e/lab-agent-ui.e2e.ts:512-526（390 宽英文：原因 scrollWidth 大于 clientWidth，继续按钮在头行内且不被裁）→ 去标记。
+- 13c 留着的行改成虚线框、标签变淡 → vue 样式 `.acv-queued__item[data-held="true"]`（border-style dashed）、`.acv-queued__tag` → 测试：dom 只断言 `data-held` 属性，没有断言边框样式与颜色；Lab e2e 也没量 → 留（没有测试断言，样式）。建议：lab-agent-ui.e2e.ts:512 那例（held-english，3 条留着）加 `toHaveCSS("border-top-style","dashed")`；或把样式话从 Spec 拿掉。
+- 13d 读屏读作“已暂停：<正文>” → vue:70 aria-label → dom :38（aria-label 为“已暂停：留着 h1”，取正文首行）→ 去标记。
+- 13e 头行出现与条数变化经视图的 `role="status"` 区播报 → vue:66-67 → dom :38（status 区含“已暂停 2 条”）、:71-84（没有排队时区已在页面上，出现留着的话时是同一个节点改字）→ 去标记。
+- 13f 留着的行不受“最多 3 条”限制，就绪的行超出收成“还有 N 条”，点开后全部列出（限高、区内滚动）→ vue:28-42 → dom :38（就绪第 4 条收起，“还有 1 条”，点开 6 行）、:86（降到 3 条以内自动收起）→ 去标记；其中“限高、区内滚动”（`.is-expanded` 的 max-height:240px、overflow-y:auto）是样式，没有断言，与 13c 同批处理。
+- 13g `availability` 不是 ready、不允许发送、运行在停止中或宿主正在继续时，“继续”不可用（aria-disabled，仍可聚焦），悬停说明原因 → Composer.vue:224-229 → dom Composer :360（continuing：title“正在继续”）、:375（stopping 时 aria-disabled 为 true；archived 时 title 为“此会话已归档。”；运行中为 false）、Queued dom :55（aria-disabled 为 true、无 disabled 属性、title“正在停止”、点了不发）→ 四个条件里“不允许发送”（`canSend:false`，Composer.vue:229）没有断言 → 留（没有测试断言，一支）。建议：dom :375 加一例 `interaction:{canSend:false}`，断言头行继续 aria-disabled 为 true。
+- 13h 点“继续”后焦点回编辑器 → Composer.vue:264-268 → dom :360（点后 `document.activeElement` 是 textarea）→ 去标记。
+- 13i 运行中也可能有留着的条目，这时头行照样有“继续”，发送键与占位文字按运行中的规则 → Composer.vue:222、:272-284 → dom :375（运行中：主按钮是 stop，头行继续 aria-disabled 为 false）；占位文字按运行中的规则没有断言（该例没读 placeholder）→ 留（没有测试断言，仅占位文字这半句）。建议：:375 的运行中一支加 `expect(placeholderOf(running)).toBe("回车补充说明，Ctrl+回车排队")` 之类（取当前夹具里 canSteer/canQueue 对应的那句）。
+
+### F14 ui/agent-conversation-view.md:330 占位文字与发送键
+- 14a 空闲、有中断的运行又有留着的条目时占位文字“上次运行已中断，排队的话已暂停。按回车继续” → Composer.vue:276 → dom AgentConversationComposer.dom.test.ts:345（queued 加 resume:true 时 placeholder 逐字相等）→ 去标记。
+- 14b 只有留着的条目时占位文字“按回车继续排队的话，或输入新消息一起发” → Composer.vue:278 → dom :345（逐字相等）→ 去标记。
+- 14c 两种情况发送按钮都是继续，标题与读屏文字同占位文字的动作 → Composer.vue:205-214（showResume 时标题为“继续”）、:681-688（data-composer-action 为 resume）→ dom :345（只留着时主按钮 data-composer-action 为 resume）；中断加留着那一支没读按钮，标题与 aria-label 没有断言，但代码里两支共用同一个 `showResume` → 去标记（附注：可在 :345 的两支各加一句 `aria-label` 为“继续”）。
+- 14d 空着发送发出 run.continue，写了字照常发送（宿主据此放行）→ dom :345（主按钮点击得 {type:"run.continue"}）；写了字发出 composer.submit 由 e2e agent-conversation.e2e.ts:348-355（有留着的话时输入“新的一句”回车，请求含合成文字）与 lab-agent-ui.e2e.ts:651-669（写了字变回发送键）合起来守住；宿主放行见 SHT:413 → 去标记。
+
+### F15 ui/agent-conversation-view.md:331 停止的第二个选项
+- 15a `stopClearing` 不为空且停止按钮出现时，停止按钮右边接一段同色（危险色）的下拉箭头，与停止按钮拼在一起，随停止按钮出现与消失 → Composer.vue:231、:691-703、:855-895 → dom :399（有 `[data-composer-action='stop-more']`；stopClearing 为 null、输入框有字（停止按钮消失）时没有）→ 去标记；“同色（危险色）拼在一起”是样式，没有断言，随 F12 12f 的处理方式办。
+- 15b 箭头是独立按钮（读屏名“更多停止方式”，aria-haspopup="menu"、aria-expanded，Tab 可到达）→ dom :399（aria-label、aria-haspopup 逐值断言，stopping 时 aria-expanded 为 false）；lab-agent-ui.e2e.ts:485-495（真键盘：Tab 从停止键到箭头，回车后 aria-expanded 为 true）→ 去标记。
+- 15c 打开 nb-ui 的 DropdownMenu，只有一项危险色的“停止并清空排队（N 条）”，选中发出 `composer.stop {clearQueue: true}`，焦点回到编辑器 → dom :399（用真实 ArrowDown 打开，菜单项文本恰为一项“停止并清空排队（3 条）”，选中后 emitted 为 {composer.stop, clearQueue:true}）；e2e:485-496（回车选后 lastAction 相等，编辑器聚焦）→ 去标记；“危险色”（tone:"danger"）没有断言，样式，随 12f。
+- 15d 点停止按钮本身仍发出 `composer.stop` → dom :399（emitted 里第二项为不带 clearQueue 的 {type:"composer.stop"}）；e2e:506-509 → 去标记。
+- 15e 停止进行中箭头用 aria-disabled 不可用、保留焦点 → dom :399（stopping 时 aria-disabled 为 true，打不开菜单）；“保留焦点”靠不用 disabled 属性，测试没断言它缺席，但 aria-disabled 的写法就是规范做法 → 去标记。
+- 15f 运行收口或 `stopClearing` 变空时菜单自己关上 → Composer.vue:234-236（watch stopClearing 为 null 时关）→ 测试：没有；dom 的 null 一支是新挂载，e2e 是点外面关上，都不是“菜单开着时变空” → 留（没有测试断言）。建议：dom :399 追加：挂载 stopClearing {count:2}，打开菜单，`setProps` 把 ctx 的 stopClearing 换成 null（同时 run.status 为 idle），断言 `menuItems()` 为空、箭头不在。
+
+### F16 ui/agent-conversation-view.md:334 占位文字顺序里的两处（planned）
+- 16a `composer.resume` 为真时写中断后回车继续（同时有留着的条目时写两者合起来的那句）→ Composer.vue:276-277 → dom :345（resume 加留着：合起来的那句）；dom :230（有不可用说明时原因优先于中断后继续）→ 去标记。
+- 16b 空闲且有留着的条目时写继续排队的话 → Composer.vue:278 → dom :345 → 去标记。顺序整体（原因，中断，留着，运行中，普通）：原因优先 dom :230、其余两两互斥的分支各有一例 → 去标记。
+
+### F17 ui/agent-conversation-view.md:338 适配器的乐观消息、`ahead`、`author`
+- 17a 乐观消息按受理它的 `commandId` 确认（`input`、`steer` 事件带 commandId），不按先后 → kernel-transcript.ts:360-372、:909 → 测试 kernel-transcript.test.ts:612-641（别的话的 input 事件先到时 `mine` 仍在，按先后会被换掉）→ 去标记。（:173 那例区分不了先后，见 F5 5f。）
+- 17b 排队消息从快照与缓冲区事件读，每条带发出者、状态与原因 → 同 F4 4a（kernel-transcript.test.ts:445、:643）→ 去标记。
+- 17c 宿主合并留着的话发出的那一条，乐观显示在消息流末尾 → kernel-transcript.ts:960（`[...settled, ...optimistic, ...streaming]`）、SH:1261-1264 → 测试 kernel-transcript.test.ts:173（确认 x2 后最后一条用户消息是乐观的 o3）、SHT:413 → 去标记。
+- 17d `user` 消息可带 `ahead?: number`，由适配器按“这条消息受理时放行出来、还没被取走的条数”现算，取走一条少一条 → kernel-transcript.ts:373-377 → 测试 kernel-transcript.test.ts:612-641（宿主两条放行、取走一条后 ahead 为 1；结束后消息被确认换掉）；类型 types.ts:91 → 去标记。
+- 17e 视图写“前面还有 N 条” → AgentConversationTurn.vue:155、locales/zh-CN.ts:154 → 测试：没有（见 F3 3g）→ 留（没有测试断言）。
+- 17f 乐观消息在实时事件与按路径重建时都按 `commandId` 清掉 → 实时：kernel-transcript.ts:909，测试 kernel-transcript.test.ts:173、:612；路径重建：kernel-transcript.ts:889 → 测试：没有一例路径事件带 commandId（:131 的路径事件没有 commandId，只证明重建不碰无关的乐观消息；:643 的重建是快照）。我在 /tmp/t14-promotion/exp-frontend.test.ts 里实验：乐观消息 commandId 为 x，applyPath 里带 commandId x 的 input 事件，messages 为 ["a","b"]，实现是对的，只是没人守 → 留（没有测试断言）。建议：kernel-transcript.test.ts:131 那一例补一支：路径里 input 事件带 commandId，断言乐观消息被清、没有重复。
+- 17g 合并的那一条结果未知时，“重新发送”沿用原来的 `commandId` 与参数（含 `replaces`）→ SH:1562-1566（resend 传 sent.replaces、sent.release）、SH:1261-1265 → 测试 SHT:476（keep 方式写了字，结果未知：重发的 commandId 与 release 都沿用）；合并方式带 replaces 的重发没有断言 → 留（没有测试断言，replaces 一支）。建议：SHT:476 照写一支 resumeMode 为合并、两条留着加写字，代理让第一次 send 得 timeout，断言第二次 send 的 commandId 相同且 replaces 与第一次深相等。
+- 17h 空着按继续发出的合并被明确拒绝时，不把合并的文字放回输入框，只说明原因 → SH:1129-1131（typed 为 null）→ 测试：没有（SHT:437 的被拒那例有写的字）→ 留（没有测试断言），同 F6b 第 9 句的补法。
+- 17i 路径上宿主发出的 `input`、`steer` 同样经 `authorOf(by)` 换成 `author`（宿主取 `source.label`）→ 适配器一半 kernel-transcript.test.ts:490（session 的 by）、:612（authorOf 收到宿主的 by，label 为“每周简报”）已守住；宿主一半 SH:880-883（host 取 `by.source.label`，图标 puzzle）→ 测试：没有一例看 ctx 里宿主话的 author.label（SHT:1771 只覆盖会话）→ 留（宿主一半没有断言）。建议：SHT:508 那一例里宿主的“日程提醒”消息，断言 ctx().messages 里它的 author 为 {label:"日程", icon:"i-lucide-puzzle"}。
+
+### F18 ui/agent-conversation-view.md:403 事件表 `composer.stop` 的 `clearQueue`
+- “`composer.stop`（planned：可带 `clearQueue: true`）”→ 类型 types.ts:622（`{type:"composer.stop"; clearQueue?: boolean}`）；发出 Composer.vue:240-243；宿主 SH:1526-1532（带 clearQueue 不传 keepQueue）→ 测试 dom AgentConversationComposer.dom.test.ts:399（emitted 为 {composer.stop, clearQueue:true} 与不带的两种）、SHT:396（带 clearQueue 后 buffer 为 []）、SHT:326（不带时排队的留着，buffer 里还有“改过的”）→ 去标记。
+
+### F19 ui/agent-conversation-view.md:498 验收 38
+- 19a 两条留着、一条就绪（原因不同）：头行写“已暂停 2 条”与第一条的原因加“等”，留着的两行不受 3 条限制 → dom AgentQueuedMessages.dom.test.ts:38-53（2 条留着加 4 条就绪，原因“运行出错”“你停止了运行”不同；头行“已暂停 2 条”，原因“运行出错等”，就绪收成“还有 1 条”）→ 去标记。
+- 19b 留着的两行是虚线框 → 样式，没有断言（见 F13 13c）→ 留（没有测试断言，样式）。
+- 19c 点头行的“继续”与空着回车都发出 `run.continue` → dom Composer :345（头行继续与主按钮点击都得 {type:"run.continue"}）；空着回车键：e2e agent-conversation.e2e.ts:296-330（真键盘回车触发继续）→ 去标记。
+- 19d 写了字回车发出 `composer.submit` → e2e agent-conversation.e2e.ts:348-355（有留着的话时写字回车，请求含合成文字，说明发出的是 submit 而非 run.continue）；视图层的 submit 发出在 dom 里没有留着加写字的例，但上面的 e2e 加 lab-agent-ui.e2e.ts:651-669 合起来守住 → 去标记。
+- 19e `availability` 不是 ready 时“继续”不可用 → dom :375（archived 时 title 为“此会话已归档。”）→ 去标记。
+- 19f 中断与留着同时成立时占位文字是合起来的那句 → dom :345 → 去标记。
+- 19g 390 宽英文场景里原因先截断、“继续”完整 → lab-agent-ui.e2e.ts:512-526 → 去标记。
+
+### F20 ui/agent-conversation-view.md:499 验收 39
+- 运行中、`stopClearing` 为 {count:3}，Tab 到箭头、回车、选“停止并清空排队（3 条）”→ 发出 `composer.stop {clearQueue:true}`、焦点回到编辑器 → lab-agent-ui.e2e.ts:485-496（Lab 场景 stop-menu 是 2 条，真键盘 Tab、回车、回车，lastAction 为 {composer.stop, clearQueue:true}，编辑器聚焦；点外面的按钮关菜单时不抢焦点）；dom :399（count 3 的文案）→ 去标记。
+- 点停止按钮本身发出不带 clearQueue 的 composer.stop → e2e:506-509、dom :399 → 去标记。
+- 停止进行中箭头 aria-disabled → dom :399 → 去标记。
+- 输入框里有字时箭头与停止按钮一起不出现 → dom :399（有字时没有 stop-more）；停止键换成发送键见 lab-agent-ui.e2e.ts:470-472（运行中写了字，`send` 有一个）→ 去标记。
+
+### 汇总
+- 统计按句计：去标记 66 句，留 30 句，改写 0 句（清单里没有行内的“（planned：……）”提示）。
+- 留的按类：没实现 0 句；实现与字面不一致 1 句（F6b 第 2 句，“两步各用按这次操作固定的 commandId”，实现里 start、resume、第一次 send 都取新 id，只有合并那条 send 的重发沿用；另 F6a 行3c 是 Spec 漏写：中断且写了字时合并方式也先 start）；没有测试断言 29 句（其中纯样式 3 处：F12 12f、F13 13c、F19 19b，F13 13f 与 F15 15a、15c 的样式半句随它们处理）。
+- 留的编号：F3（3a 到 3d 设置项的定义、分区、现读、三项文案，一个 settings 测试补齐；3g 视图“前面还有 N 条”的字）、F4（4c 宿主排的话的 author 与 editable:false；4f 前端活动与会话列表的 held）、F5（5c 条数是全部条数）、F6（表格：行2 不少于两条的中断继续，行3b 没有用户留着的话时走 send，行5 运行中写字不合并；后段：第 1 句宿主发布 continuing，第 2 句 commandId，第 3、4、6 句 start 失败、已收口不再发、不重做 start，第 9 句空着继续被拒不放回，第 12 句宿主的话不合并）、F10（continuing 的宿主发布）、F12（12f 标签文字与样式）、F13（13c 虚线框，13g canSend 为假，13i 运行中占位文字）、F15（15f 菜单开着时 stopClearing 变空自动关上）、F17（17e 视图写“前面还有 N 条”，17f 路径重建清乐观消息，17g 合并重发带 replaces，17h 空着继续被拒不放回，17i 宿主话的 author.label）、F19（19b 虚线框）。
+- 全部去标记的编号：F1、F2、F7、F8、F9、F11、F14、F16、F18、F20。
+- 补测可合并成六处小改动：1 新 settings.test.ts（F3）；2 SHT“留着的话与继续”组加一例“宿主排的话混在里面”（F4 4c、F5 5c、F6a 行3b、F6b 12、F17 17i）；3 SHT 用代理客户端造中断会话的一组（F6a 行2、F6b 3、4、6、9，F17 17h，F10 与 F6b 1 的 continuing 也在这里顺手断言）；4 SHT:508 加运行中写插话（F6a 行5）与合并方式重发带 replaces（F17 17g）；5 kernel-transcript.test.ts:131 补路径事件带 commandId，AgentConversationTurn 的 dom 测试补“前面还有 N 条”（F17 17f，F3 3g、F17 17e）；6 AgentConversationComposer.dom.test.ts 补 canSend 为假、运行中占位文字、菜单开着时 stopClearing 变空（F13 13g、13i，F15 15f），Lab e2e 补虚线框的计算样式或从 Spec 删样式话（F12 12f、F13 13c、F19 19b）。F4 4f（前端 held 计数）在 SHT“活动条目”组补一例。

@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t14-input-buffer-states
-status: active
-updated: 2026-11-18
+status: done
+updated: 2026-11-19
 ---
 
 # Agent 内核的输入缓冲区：每条带状态
@@ -81,8 +81,16 @@ master 在实施期间改过转录器与内核的同一批文件，合并提交 
 - 合入后在 master 上跑 `bun run test:affected --since 32a0d7268 --typecheck --with-consumers`（选中 11 个包，类型检查全过）：失败 2 项都是 master 原有的，`32a0d7268..HEAD` 对相关文件没有差异——dev-panel 的 `web-build.test.ts`（构建日志混进断言）、neuro-book 的 `server.test.ts` 六条与 `builtin-names.test.ts` 一条（都缺或多了 `nbook.stickers`）。
 - 最后一轮样式修改（a867ae719）之后重拍 8 个场景（排队区 `many`、`held`、`held-disabled`，输入框 `stop-menu`、`stopping`、`held`，对话视图 `held-english`、`ahead`），越界、焦点环与光晕被裁都是 0。焦点的两条 e2e 改成肯定式断言后通过（f5f642cd5）。
 
+晋升（2026-11-19，开发者“可以晋升”）：
+- 逐句核对：本 Task 在 6 份已实现的 Spec 里加的标记，后端交给 omp、前端交给 Claude Sonnet 核对。
+- 补测：缺断言的句子补了 19 条用例与 2 句断言（提交 8d457d74b，合并 5f91e2f7c），变异检查 8 处都抓到。
+- 改 Spec：与实现字面不符的句子改成贴实现，画法挪进组件说明。
+- 结果：去掉标记，补上证据；还剩 9 句留标记（[处理](evidences/promotion-check-disposition.md)）。
+- 补测时发现原先打算写的“父会话再发话时放行它停下的用户的话”不成立：按 runtime 输出 105，父会话只能放行自己排的；用例按这一点拆开写。
+- `harness/runtime.md`、`harness/session.md` 整份 `planned`，按计划不改成熟度。
+
 待开发者追认的决定见 Work 的[待确认清单](../../pending-confirmations.md)。
 
 ## 下一步
 
-各 Spec 里本 Task 加的“（planned）”句子还没有逐句核对过实现与测试；晋升（去掉标记、`harness/runtime.md` 改 `implemented`、补实现合同与证据）按规则等开发者批准，批准后逐句核对再改。最后两个修正提交（6239af5d9、a867ae719）没有再审。已知缺口：`agent.ts` 各入口接停止门的接线没有测试（测试世界从外面碰不到）；子代理“受理时就留着”“插话只认就绪”与 `afterLater` 的超时、插话、留着、取消几支按代码核对。
+无。后续按 Work 的推进顺序开 t06（依赖的 t14、t03 都已完成）；t13、t07 也可以开工。Spec 里还留着的 9 句“（planned）”（实现在，缺能区分的断言）见[晋升核对处理](evidences/promotion-check-disposition.md)的最后一节，造这些时序的代价高，等有人改到那几支时再补测试与晋升。
