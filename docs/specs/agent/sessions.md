@@ -90,6 +90,7 @@ owners:
 26. （planned）**有归属的会话不改写历史。** 对有归属的会话，`rewind`（含编辑重发、重试与 swipe）、`switchBranch`、`archive` 得 `owned-session`，不进内核、不写日志，没打开的会话也不先打开（按会话头判断）；读会话头失败时交回那个码，不打开、不执行；远程与 `agentKey` 的视图（含归属插件自己的）都一样。子会话不受这条限制。
 27. （planned）**发话一并结算。** 远程与 `agentKey` 视图的 `send` 收 `settlePending: "deny"`，照内核原样（[`harness/runtime.md`](../harness/runtime.md) 输出 111）。
 28. （planned）**读会话头。** `agentKey` 的 `header(sessionId)` 只读会话头、不打开会话（[`harness/session.md`](../harness/session.md) 输出 26）：会话不在得 `session-not-found`，读不懂得 `log-corrupt` 或 `needs-migration`。
+29. （planned）**提醒与门。** 远程合同 `nbook.agent/sessions` 升到版本 2（旧版本的窗口连上得 `version-changed`）：快照带待发提醒的摘要 `notices: [{id, by, key?, wake, queuedAt, summary, bytes}]`（`summary` 是正文的开头、至多 200 个字符，`bytes` 是正文的 UTF-8 字节数；全文在取走之后经日志读）与门 `wakeGate`；写方法 `removeNotice({sessionId, noticeId})` 以用户的身份取消一条；发提醒的 `notice` 不在远程合同里。插件经 `agentKey` 拿到的会话视图有 `notice` 与 `removeNotice`，发出者照输出 21 按调用方盖章（行为见 [`harness/runtime.md`](../harness/runtime.md) 输出 112–118）。
 
 ## 状态与转换
 
