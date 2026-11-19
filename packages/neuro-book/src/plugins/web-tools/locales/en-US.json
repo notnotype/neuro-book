@@ -1,0 +1,8 @@
+{
+    "settings": {
+        "deepseekBaseUrl": {
+            "title": "DeepSeek API Address",
+            "description": "Address prefix of the DeepSeek API used to search and read web pages. Usually left as is."
+        }
+    }
+}

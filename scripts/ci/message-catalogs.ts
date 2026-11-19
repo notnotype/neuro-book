@@ -67,6 +67,7 @@ export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
     {path: "packages/neuro-book/src/plugins/projects/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/settings/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/workbench/locales", source: "zh-CN"},
+    {path: "packages/neuro-book/src/plugins/web-tools/locales", source: "zh-CN"},
 ];
 
 // 只读的旧应用与历史记录不检查（同 test-conventions.ts）。

@@ -1,0 +1,8 @@
+{
+    "settings": {
+        "deepseekBaseUrl": {
+            "title": "DeepSeek 接口地址",
+            "description": "搜索与读取网页时调用的 DeepSeek 接口的地址前缀。一般不用改。"
+        }
+    }
+}
