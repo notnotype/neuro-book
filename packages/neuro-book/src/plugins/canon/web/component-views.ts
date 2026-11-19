@@ -47,9 +47,33 @@ export interface ComponentViewContext {
     record(path: string, input: {readonly text: string; readonly delta?: number}): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: Text}>;
     /** 打开一个条目、一条剧情变更的页面。 */
     open(ref: {readonly kind: "entry" | "change"; readonly id: string}): void;
+    /**
+     * 这一页的通用字段表（输出 12），专门界面嵌进自己的内容里：值、来历与“改”同通用字段表；`fields` 只列其中几个字段（字段名），
+     * 不传列全部。它展开着哪个字段记在 `state.open`，专门界面自己的状态别用这个键。
+     */
+    readonly FieldTable: Component<{readonly fields?: readonly string[]}>;
 }
 
-type Handle = ContributionHandle<ComponentViewDeclaration, ComponentViewImplementation>;
+/**
+ * 附加分页（`canon.entry-tabs`，输出 36）的组件收到的 `context`：同 `ComponentViewContext` 去掉命名空间、字段与写入入口。
+ * 都是响应式读取：条目页换位置、世界发布新修订以后，同一个 context 给出新的值。
+ */
+export interface EntryTabContext {
+    readonly entry: string;
+    /** 所选位置；窗口选了线时带着线（输出 34）。 */
+    readonly position: ReadPosition;
+    readonly mode: "actual" | "planned";
+    readonly version: number;
+    /** 这个分页在标签上的状态（按贡献 id），寿命同输出 7。 */
+    readonly state: Record<string, unknown>;
+    place(at: Placement): string;
+    open(ref: {readonly kind: "entry" | "change"; readonly id: string}): void;
+}
+
+/** 附加分页的实现：同数据分页，组件收到 `{context: EntryTabContext}`。 */
+export type EntryTabImplementation = ComponentViewImplementation;
+
+type Handle<D> = ContributionHandle<D, ComponentViewImplementation>;
 
 /** 一个类型的界面此刻的情况。 */
 export type ComponentViewSlot =
@@ -58,11 +82,20 @@ export type ComponentViewSlot =
     | {readonly status: "ready"; readonly title: Text; readonly component: Component}
     | {readonly status: "failed"; readonly title: Text; readonly reason: string};
 
-export class ComponentViewRegistry {
-    readonly #published = shallowRef<ReadonlyMap<string, Handle>>(new Map());
-    readonly #loads = new WeakMap<Handle, ShallowRef<ComponentViewSlot>>();
+/**
+ * 一个贡献点交来的界面（数据分页 `canon.component-views` 与附加分页 `canon.entry-tabs` 各一个实例）：按贡献 id 查，第一次查到一个
+ * 句柄时加载它的组件，同一次交付只加载一次；贡献方停了以后查不到。
+ */
+export class ComponentViewRegistry<D extends {readonly title?: Text} = ComponentViewDeclaration> {
+    readonly #published = shallowRef<ReadonlyMap<string, Handle<D>>>(new Map());
+    readonly #loads = new WeakMap<Handle<D>, ShallowRef<ComponentViewSlot>>();
 
-    receiver(): ContributionReceiver<ComponentViewDeclaration, ComponentViewImplementation> {
+    /** 交来的全部（贡献 id 与补全过的声明）；响应式。 */
+    entries(): readonly {readonly id: string; readonly declaration: D}[] {
+        return [...this.#published.value.values()].map((handle) => ({id: handle.id, declaration: handle.declaration}));
+    }
+
+    receiver(): ContributionReceiver<D, ComponentViewImplementation> {
         return {
             published: (handle) => {
                 this.#published.value = new Map(this.#published.value).set(handle.id, handle);

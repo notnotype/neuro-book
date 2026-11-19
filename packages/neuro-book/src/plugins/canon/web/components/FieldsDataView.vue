@@ -18,7 +18,9 @@ const props = withDefaults(defineProps<{
     context: ComponentViewContext;
     /** 语义档的字段在值下面列出起点与之后记下的每一句（人物的界面）。 */
     semanticNotes?: boolean;
-}>(), {semanticNotes: false});
+    /** 只列这几个字段（字段名）；不给时列全部（专门界面经 `context.FieldTable` 嵌一节时用）。 */
+    only?: readonly string[];
+}>(), {semanticNotes: false, only: undefined});
 
 const text = useCanonText();
 const context = props.context;
@@ -33,13 +35,14 @@ const open = computed<string | null>({
     },
 });
 
-const semanticPaths = computed(() => (props.semanticNotes ? context.declarations.filter(isSemantic).map((declaration) => `${prefix}${declaration.id}`).filter((path) => fieldOf(path) in context.fields) : []));
+const shown = (path: string): boolean => props.only === undefined || props.only.includes(fieldOf(path));
+const semanticPaths = computed(() => (props.semanticNotes ? context.declarations.filter(isSemantic).map((declaration) => `${prefix}${declaration.id}`).filter((path) => fieldOf(path) in context.fields && shown(path)) : []));
 const keys = computed(() => [...new Set([...(open.value === null ? [] : [open.value]), ...semanticPaths.value])]);
 // 版本、位置、模式任一变了都重读（来历按位置算）。
 const stamp = (): string => `${String(context.version)}|${JSON.stringify(context.position)}|${context.mode}`;
 const pages = useOriginPagesMap(() => keys.value, (path) => (cursor) => context.origins(fieldOf(path), cursor), stamp);
 
-const rows = computed(() => fieldRows(context.namespace, context.fields, context.declarations, context.place, text).map((row) => {
+const rows = computed(() => fieldRows(context.namespace, context.fields, context.declarations, context.place, text).filter((row) => shown(row.path)).map((row) => {
     const notes = semanticPaths.value.includes(row.path) ? pages.value.get(row.path)?.state.value : undefined;
     // 只列最近的一页；更早的写一句还有几步（第一批不给语义档的各句分页）。
     return notes === undefined ? row : {...row, notes: semanticNotes(notes, context.place, text), ...(notes.remaining > 0 ? {notesEarlier: notes.remaining} : {})};

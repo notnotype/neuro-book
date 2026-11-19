@@ -31,6 +31,8 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import {CANON_COMPONENT_VIEWS_POINT, componentViewsPoint} from "../shared/component-views";
+import {CANON_ENTRY_TABS_POINT, entryTabsPoint} from "../shared/entry-tabs";
+import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import type {ComponentViewDeclaration} from "../shared/component-views";
 import {componentsPoint} from "../shared/components";
 import {canonClientKey, canonReadsKey, canonWorldContract} from "../shared/contracts";
@@ -129,7 +131,7 @@ function componentView(load: () => Promise<{default: unknown}>, extra: Record<st
 export const canonBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     // 贡献点在每个有本插件的实例里都定义：内置类型是顶层声明，各实例都登记它们（plugin-manifest.md 输出 11）。
-    contributionPoints: [componentsPoint, componentViewsPoint],
+    contributionPoints: [componentsPoint, componentViewsPoint, entryTabsPoint],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
@@ -140,7 +142,7 @@ export const canonBrowserPlugin: PluginDefinition = {
         // 选线可选：没有工作台的窗口里没有快速选择，选线命令得到 `unavailable`。
         dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}, {key: quickPickKey, required: false}],
         provides: [canonClientKey, canonReadsKey],
-        receives: [CANON_COMPONENT_VIEWS_POINT],
+        receives: [CANON_COMPONENT_VIEWS_POINT, CANON_ENTRY_TABS_POINT],
         remoteDelegates: [canonWorldContract],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: ENTRIES_VIEW_ID, declaration: ENTRIES_VIEW},
@@ -207,6 +209,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             const execute = (id: string, args: unknown): void => void commands?.execute(id, args);
             const call: CanonClient["call"] = (method, input) => clientOf().call(method, input);
             const views = new ComponentViewRegistry();
+            const entryTabs = new ComponentViewRegistry<EntryTabDeclaration>();
             const notices = createNotices({
                 workbench: notifications.status === "resolved" ? notifications.instance : null,
                 receipt: (revision) => execute(OPEN_RECEIPT_COMMAND, {revision}),
@@ -218,6 +221,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 fetchOrigins: originsFetcher((input) => clientOf().call("origins", input)),
                 call,
                 views,
+                entryTabs,
                 notices,
                 revert,
                 execute,
@@ -287,7 +291,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                     // 读取层整个窗口一份（用本入口自己的身份读世界）；门面按调用方给，只为把它的插件 id 放进外部读取的键里。
                     provideServicePerConsumer(canonReadsKey, (consumer) => createCanonReads(worldOf(), consumer.plugin ?? "unknown", windowLine)),
                 ],
-                receivers: {[CANON_COMPONENT_VIEWS_POINT]: views.receiver()},
+                receivers: {[CANON_COMPONENT_VIEWS_POINT]: views.receiver(), [CANON_ENTRY_TABS_POINT]: entryTabs.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view, [PENDING_VIEW_ID]: pendingView, [REVISIONS_VIEW_ID]: revisionsView},
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[PENDING_COUNT_ITEM]: pendingItem, [LINE_ITEM]: lineItem},
