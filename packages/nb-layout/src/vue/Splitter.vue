@@ -377,6 +377,9 @@ onBeforeUnmount(() => {
 
 /* 收起/展开是控件形变，走 --nb-layout-motion-move；拖动中关闭，避免跟手延迟。 */
 .nb-grid-panel[data-animating] {
-    transition: flex-basis var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), width var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), height var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
+    transition:
+        flex-basis var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        width var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        height var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 </style>

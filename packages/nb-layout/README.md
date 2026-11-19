@@ -14,7 +14,8 @@ import {LAYOUT_TEXT_KEY} from "@notnotype/nb-layout/text";              // 宿�
 
 - 装了 nb-ui 的宿主不用做什么：nb-ui 的 `tokens.css` 在根元素上把主题的名字接过来（`--nb-layout-sash-line-color: var(--sash-line-color)`），主题照旧写旧名（[主题系统](../../docs/specs/theme/system.md)的“布局组件的桥接”）。旧名只在根元素上改才传得过来；子树要改 nb-layout 的外观，直接设 `--nb-layout-*`。
 - 不装 nb-ui 时用回退：尺寸、时长、圆角与 nb-ui 的缺省相同，颜色是系统色（`Canvas`、`CanvasText`、`Highlight` 一类）。要自己的配色，在根上设下表的变量。
-- 系统减少动态效果时，四个时长（`--nb-layout-motion-*`）归零，宿主设的值也压不过。
+- 系统减少动态效果时，四个时长（`--nb-layout-motion-*`）在根上归零，宿主在根上设的值也压不过；设在子树上的不受这条约束，宿主自己在子树上给时长时要顾及减少动效。
+- 缺省时长是真的过渡：在没有过渡的测试环境里（happy-dom），宿主的组件测试要自己把时长设成 0ms。happy-dom 不继承自定义属性，根上设的值子元素读不到，要用命中每个元素的规则（本包的 `vitest.setup.ts` 用一条 `*` 规则）。
 - 时长写成 `ms` 或 `s` 的字面值：组件的 JS 也按它计时（过渡收尾、放下的滑回），`calc()` 这类写法 JS 读不出、当 0。
 
 主题级的变量（承诺不随意改名）：

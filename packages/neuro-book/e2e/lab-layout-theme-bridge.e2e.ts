@@ -2,7 +2,8 @@
  * nb-ui 给布局组件的桥接在真实浏览器里生效（docs/specs/theme/system.md 的“布局组件的桥接”，docs/specs/ui/nested-grid.md
  * 输出 141、142）。桥接与清单一一对应由 `src/web/theme-bridge.test.ts` 核对；这里查的是层叠：主题、配色与减少动效之下，
  * nb-layout 读的新名在根上取到的就是主题的旧名，没有别的声明盖过桥接，也没有落到回退。另查 nb-layout 的全局样式进了构建
- * 产物：装了 nb-ui 时减少动效那一段有没有都一样，只有焦点环看得出来。
+ * 产物：焦点环看得出来；减少动效那一段装了 nb-ui 时与它的归零结果相同，所以另在根上行内设一个时长，看 nb-layout 自己的
+ * 归零压不压得过（不减少动效时同一个设法生效，作对照）。
  */
 
 import {rm} from "node:fs/promises";
@@ -66,6 +67,18 @@ test.describe("nb-layout 的主题变量经 nb-ui 桥接", () => {
         expect(motion.map((item) => item.name).sort()).toEqual(["--nb-layout-motion-base", "--nb-layout-motion-fast", "--nb-layout-motion-layout", "--nb-layout-motion-move"]);
         for (const item of motion) expect(item).toEqual({name: item.name, value: "0ms", theme: "0ms"});
     });
+
+    for (const [motion, expected] of [["reduce", "0ms"], ["no-preference", "999ms"]] as const) {
+        test(`宿主在根上行内设 nb-layout 的时长（${motion}）：减少动效时 nb-layout 自己的归零压过它，不减少时它生效`, async ({page}) => {
+            await open(page, "c=NestedGrid&s=swap&theme=nbook&cw=light", motion);
+            const values = await page.evaluate(() => {
+                const names = ["--nb-layout-motion-fast", "--nb-layout-motion-base", "--nb-layout-motion-move", "--nb-layout-motion-layout"];
+                for (const name of names) document.documentElement.style.setProperty(name, "999ms");
+                return names.map((name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim());
+            });
+            expect(values).toEqual([expected, expected, expected, expected]);
+        });
+    }
 
     test("nb-layout 的全局样式进了产物：键盘聚焦可排序列表的把手时有焦点环", async ({page}) => {
         await open(page, "c=SortableList&s=default&theme=nbook&cw=light", "reduce");

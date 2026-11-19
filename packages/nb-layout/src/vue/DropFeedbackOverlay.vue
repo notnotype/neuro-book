@@ -410,7 +410,9 @@ watch(
 }
 
 .nb-layout-drop-feedback__label--area {
-    transition: left var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), top var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
+    transition:
+        left var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        top var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -160,7 +160,7 @@ export function useSortable(options: UseSortableOptions): SortableHandle {
     function land(root: HTMLElement): void {
         const key = held.value;
         const element = key === null ? null : itemOf(root, key);
-        // 没写过跟手位移（键盘拿起放下）就没有要滑回的：直接收尾。按真假判断，不认 `translate` 的环境（happy-dom）读到的是 undefined。
+        // 没写过跟手位移（键盘拿起放下）就没有要滑回的：直接收尾。没写过时 `translate` 是空串，不支持这个属性的 DOM 实现里是 undefined。
         if (element === null || !element.style.translate) {
             finishLanding();
             return;

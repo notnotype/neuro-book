@@ -100,7 +100,9 @@ const shapes = computed(() => {
     stroke: var(--nb-layout-sector-line, color-mix(in srgb, Highlight 65%, transparent));
     stroke-width: 1px;
     vector-effect: non-scaling-stroke;
-    transition: fill var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), stroke var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
+    transition:
+        fill var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        stroke var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .nb-drop-sectors__sector--active {

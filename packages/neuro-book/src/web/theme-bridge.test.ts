@@ -8,6 +8,7 @@ import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 
 import {NB_LAYOUT_THEME_VARS} from "@notnotype/nb-layout";
+import {nbColorwayVarKeys} from "@notnotype/nb-ui/colorway-contract";
 
 const stylesheet = (name: string): string => readFileSync(fileURLToPath(import.meta.resolve(`@notnotype/nb-ui/${name}`)), "utf8").replace(/\/\*[\s\S]*?\*\//gu, "");
 
@@ -46,6 +47,11 @@ describe("nb-ui 给 nb-layout 的桥接", () => {
         }
         const declared = [...tokens.keys()].filter((name) => name.startsWith("--nb-layout-")).sort();
         expect(declared).toEqual(bridged.map((entry) => entry.name as string).sort());
+    });
+
+    it("桥接接的每个旧名在 nb-ui 里有声明（tokens.css、theme.css 或配色合同）：清单与桥接一起拼错时，这里拦下", () => {
+        const declared = new Set<string>([...defaults.keys(), ...nbColorwayVarKeys]);
+        expect(bridged.flatMap((entry) => (entry.from !== null && !declared.has(entry.from) ? [entry.from] : []))).toEqual([]);
     });
 
     it("nb-ui 直接写数值的几项（两个落点浮层的层级）：nb-layout 的回退等于桥接的值；桥接等于层级登记表由 nb-ui 的 z-index.test.ts 核对", () => {

@@ -812,7 +812,11 @@ defineExpose({
 .nb-grid-float-chrome[data-moving],
 .nb-grid-content[data-moving],
 .nb-grid-sash[data-moving] {
-    transition: left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
+    transition:
+        left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
     /* 位置不在 `transform` 上（见 `gridRectStyle`）；这里只是让过渡中的项各占一层，挪动时少重画。 */
     will-change: transform;
 }
@@ -824,8 +828,13 @@ defineExpose({
  */
 .nb-grid-frame[data-moving] {
     transition:
-        left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
-        box-shadow var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5)), background-color var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5)), border-radius var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5));
+        left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        box-shadow var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5)),
+        background-color var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5)),
+        border-radius var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-dialog-leave, cubic-bezier(0.4, 0, 0.8, 0.5));
 }
 
 /* 离开了、在过渡里缩回去或滑出去的叶、它的内容与分隔线：已经不在布局里，不接指针，命中判定看到的是底下。 */
@@ -843,7 +852,10 @@ defineExpose({
 .nb-grid-content[data-moving][data-swap],
 .nb-grid-sash[data-moving][data-swap] {
     transition:
-        left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)), height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        left var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        top var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        width var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        height var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
         clip-path var(--nb-layout-motion-layout, 470ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
