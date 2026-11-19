@@ -32,7 +32,7 @@ import {descriptor} from "../plugin";
 import {CANON_COMPONENT_VIEWS_POINT, componentViewsPoint} from "../shared/component-views";
 import type {ComponentViewDeclaration} from "../shared/component-views";
 import {componentsPoint} from "../shared/components";
-import {canonClientKey, canonWorldContract} from "../shared/contracts";
+import {canonClientKey, canonReadsKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import {canonText} from "../shared/text";
 import {createCanonClient} from "./client";
@@ -47,6 +47,7 @@ import {createNotices} from "./notices";
 import {createPendingCount} from "./pending-count";
 import {createPendingView, pendingViewState, pickFirstPending} from "./pending-view";
 import {createReceiptPage} from "./receipt-page";
+import {createCanonReads} from "./reads-service";
 import {createRevertRequests} from "./revert";
 import {createRevisionsView, revisionsViewState} from "./revisions-view";
 import {createCanonWorld} from "./world";
@@ -116,7 +117,7 @@ export const canonBrowserPlugin: PluginDefinition = {
         // 通知可选：没有工作台的窗口里保存后的提示只留在页面顶上那一份。
         // 文件服务可选：变更详情页的“打开这一章”要列活页夹目录找章节文件，没有时找不到。
         dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}],
-        provides: [canonClientKey],
+        provides: [canonClientKey, canonReadsKey],
         receives: [CANON_COMPONENT_VIEWS_POINT],
         remoteDelegates: [canonWorldContract],
         contributions: [
@@ -235,7 +236,11 @@ export const canonBrowserPlugin: PluginDefinition = {
                 }),
             };
             return {
-                services: [provideServicePerConsumer(canonClientKey, (consumer) => createCanonClient(bound ? () => context.remote.on(consumer) : null))],
+                services: [
+                    provideServicePerConsumer(canonClientKey, (consumer) => createCanonClient(bound ? () => context.remote.on(consumer) : null)),
+                    // 读取层整个窗口一份（用本入口自己的身份读世界）；门面按调用方给，只为把它的插件 id 放进外部读取的键里。
+                    provideServicePerConsumer(canonReadsKey, (consumer) => createCanonReads(worldOf(), consumer.plugin ?? "unknown")),
+                ],
                 receivers: {[CANON_COMPONENT_VIEWS_POINT]: views.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view, [PENDING_VIEW_ID]: pendingView, [REVISIONS_VIEW_ID]: revisionsView},
