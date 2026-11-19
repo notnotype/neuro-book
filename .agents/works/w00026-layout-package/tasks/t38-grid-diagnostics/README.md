@@ -71,6 +71,7 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 - 并 master `a9df56ba5`（别的 Work 的表情包改动，没有冲突）。
 - 和计划不同的：第 1 片里 Lab 夹具也先读 `message`（它直接读 `layout.issues`），否则那一片应用的类型检查是红的；`GridLayoutResult.issues` 等列表收窄成 `GridIssue<GridIssueCode>`，省掉一处类型断言。
 - 未验证：`reportError` 那一支（happy-dom 没有，dom 测试走 `console.error`）。
+- 收口验证（并 master 之后）：应用三份类型配置、`docs:check` 都过；`test:affected --since master` 只有 `neuro-book` 的 bun 测试有失败，都不在本分支的改动里：`nbook.stickers` 清单不一致的 7 条（同 t34 记下的）、`sdk.test.ts` 组件子路径漏列 `ImagePreviewDialog`（主工作区 master 上同样失败，来自表情包那次合入）、agent 的 `eval.test.ts` 一条（内核重置后的输出）；nb-layout 与 nb-workbench-layout 的测试全过。e2e：`lab-nested-grid` 17、`workbench-shell` 18 全过；`lab-grid-swap`、`lab-grid-panels`、`lab-workbench-surface` 在负载 17 到 21 时各有 2、3、4 条失败，都是 Lab 15 秒内没就绪，负载 3 到 7 时整份重跑 5、17、17 全过。
 
 第 2 稿的设计审查（第二轮，Claude Sonnet；代码按 master `5ee62b05a`，[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)）：9 条，阻断 0、重要 2、建议 7，都成立，改成第 3 稿。第一轮各条它逐条核过，大多到位，没到位的就是下表的几条。都是给了改法的细化、没有方向问题，第 3 稿不再送审，实现审查兜底：
 
@@ -88,5 +89,4 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 
 ## 下一步
 
-1. 收口验证（应用类型检查、`test:affected --since master`、`docs:check`、5 个 e2e 文件）在后台。
-2. 实现审查（前端包，Claude Sonnet），处理完合入 master，`ui/nested-grid` 输出 139、140 去掉 planned、补实现合同。
+1. 实现审查（前端包，Claude Sonnet，审查 worktree `review-t38-impl` 固定在 `a9df56ba5`）在后台；处理完合入 master，`ui/nested-grid` 输出 139、140 去掉 planned、补实现合同。
