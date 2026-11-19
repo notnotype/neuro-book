@@ -64,6 +64,26 @@ interface Candidate {
     readonly change?: string;
     /** 回溯带过去的那一步：父线上的触发处（没有时切口）。它在这条线的事件序里没有排序键，只给稳定键用，先后一律按 `key` 比。 */
     readonly via?: string;
+    /** 隐秘目标推出的：那个目标。 */
+    readonly goal?: string;
+    /** 回溯带过去的那一步：定义这条线的分叉与父线。 */
+    readonly fork?: {readonly id: string; readonly parent: string};
+}
+
+/** 一行有效知情是哪个候选给的（作者读取写来处，knowledge.md 输出 11）。 */
+export interface KnowingWinner {
+    readonly row: KnowingRow;
+    readonly key: EventKey;
+    /** 显式的变化或在场推出的那条变更。 */
+    readonly change?: string;
+    /** 回溯带过去的那一步：父线上的触发处（没有时切口）。 */
+    readonly via?: string;
+    /** 回溯带过去的那一步：定义这条线的分叉与父线。 */
+    readonly fork?: {readonly id: string; readonly parent: string};
+    /** 隐秘目标推出的那个目标。 */
+    readonly goal?: string;
+    /** 初值里就有的显式行。 */
+    readonly initial: boolean;
 }
 
 /** 一个人对一个知识点的有效知情在某一刻起的变化（目标的“前提变了”用，goals.md 输出 3）；`change` 与 `via` 都没有的是隐秘目标推出的。 */
@@ -97,6 +117,17 @@ export class KnowingIndex {
 
     /** 某人在这个位置（或某条变更之前）对一个知识点的有效知情；没有行时为 null。 */
     effective(person: string, point: string, at: KnowingAt = this.#position): KnowingRow | null {
+        return this.#pick(person, point, at)?.row ?? null;
+    }
+
+    /** 胜出的那个候选（`effective` 的同一个选法）：没有行、或胜出的是“去掉这一行”时为 null。 */
+    winner(person: string, point: string): KnowingWinner | null {
+        const best = this.#pick(person, point, this.#position);
+        if (best === null || best.row === null) return null;
+        return {row: best.row, key: best.key, initial: best.key === INITIAL_KEY, ...(best.change === undefined ? {} : {change: best.change}), ...(best.via === undefined ? {} : {via: best.via}), ...(best.goal === undefined ? {} : {goal: best.goal}), ...(best.fork === undefined ? {} : {fork: best.fork})};
+    }
+
+    #pick(person: string, point: string, at: KnowingAt): Candidate | null {
         const inclusive = "after" in at;
         const limit = "before" in at ? this.view.eventKey(at.before, this.mode) : "after" in at ? this.view.eventKey(at.after, this.mode) : at === this.#position ? this.#positionKey : this.view.positionKey(at);
         if (limit === null) return null;
@@ -112,7 +143,7 @@ export class KnowingIndex {
             // 同一条变更：显式的优先。
             if (against > 0 || (against === 0 && candidate.change !== undefined && candidate.change === best.change && candidate.explicit && !best.explicit)) best = candidate;
         }
-        return best?.row ?? null;
+        return best;
     }
 
     /** 某人在这个位置（缺省是索引的位置）上全部有效的行（显式的与推出的涉及过的知识点）。 */
@@ -227,7 +258,7 @@ export class KnowingIndex {
                     const history = rows.get(point) ?? [];
                     if (step.kind === "carried") {
                         // 父线上有行就取它；没有行就是这一行不带过去，回到“没有行”。
-                        history.push({key, explicit: true, row: carried!.get(point) ?? null, via: step.change});
+                        history.push({key, explicit: true, row: carried!.get(point) ?? null, via: step.change, fork: {id: step.fork, parent: step.line}});
                     } else history.push({key, explicit: true, row: after === undefined ? null : explicitRow(point, after, step.kind === "patch" ? step.change : undefined), ...(step.kind === "patch" ? {change: step.change} : {})});
                     rows.set(point, history);
                 }
@@ -275,7 +306,7 @@ export class KnowingIndex {
             const secret = (read.namespaces.goal?.fields.隐秘?.value as {ref?: unknown} | null | undefined)?.ref;
             if (typeof secret !== "string") continue;
             const key = goal.appears === undefined ? INITIAL_KEY : (this.view.placementKey(goal.appears) ?? INITIAL_KEY);
-            add(goal.parent, secret, {key, explicit: false, row: {point: secret, 程度: "knows", 怎么知道: "other", source: "secretGoal"}});
+            add(goal.parent, secret, {key, explicit: false, goal: goal.id, row: {point: secret, 程度: "knows", 怎么知道: "other", source: "secretGoal"}});
         }
         this.#derived = derived;
         return derived;

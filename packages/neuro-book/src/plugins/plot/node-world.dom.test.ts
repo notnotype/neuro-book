@@ -20,8 +20,10 @@ import {descriptor as storageDescriptor} from "nbook/plugins/storage/plugin";
 
 import {plotProjectPlugin} from "./backend/plugin";
 import {descriptor} from "./plugin";
+import {plotAuthorContract} from "./shared/author";
 import {plotWorldContract} from "./shared/contracts";
 import {plotInstructionsContract} from "./shared/instructions";
+import {drafts} from "./testing/world";
 
 let tmp: string;
 let world: CanonNodeWorld | null = null;
@@ -57,6 +59,21 @@ describe("剧情插件在进程内的世界场地上", () => {
         if (!put.ok) throw new Error(JSON.stringify(put));
         expect(put.value.dataVersion).not.toBe(before.value.dataVersion);
         expect(await instructions.current({})).toEqual({ok: true, value: {dataVersion: put.value.dataVersion}});
+
+        // 作者用的读取：人物的知情与秘密的“谁知道”，结果带线与名字表。
+        const author = remote!.use(plotAuthorContract);
+        const status = await window.canon.call("status", {});
+        if (!status.ok) throw new Error(JSON.stringify(status.failure));
+        const published = await window.canon.publish({requestId: "author-1", by: {kind: "author"}, what: "edit", title: "人物与秘密", baseVersion: status.value.version, puts: [
+            {ref: {kind: "entry", id: "tmp:xia"}, after: drafts.person("tmp:xia", "星瑕")},
+            {ref: {kind: "entry", id: "tmp:k"}, after: drafts.point("tmp:k", "哥哥就是星瑕", "tmp:xia")},
+        ]});
+        if (!published.ok) throw new Error(JSON.stringify(published.failure));
+        const xia = published.value.ids["tmp:xia"]!;
+        const k = published.value.ids["tmp:k"]!;
+        expect(await author.person({person: xia})).toMatchObject({ok: true, value: {line: "main", secrets: [{point: k, degree: "none"}], others: [], names: {[k]: {name: "哥哥就是星瑕"}, [xia]: {name: "星瑕"}}}});
+        expect(await author.point({point: k})).toMatchObject({ok: true, value: {secrecy: "secret", people: [], peopleTotal: 0, rest: {count: 1, unaware: true}, reader: {degree: "unaware"}}});
+        expect(await author.point({point: xia})).toEqual({ok: false, code: "plot", detail: {code: "not-found"}});
         await window.close();
     });
 });
