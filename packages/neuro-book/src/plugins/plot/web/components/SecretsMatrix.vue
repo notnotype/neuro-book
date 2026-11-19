@@ -121,7 +121,8 @@ const cell = (row: SecretRow, person: string): {readonly degree: string; readonl
                         <Badge class="ml-2" size="sm">{{ secrecyLabel(row) }}</Badge>
                     </th>
                     <td v-for="person in props.people" :key="person" class="py-2 pr-4" :data-cell="person">
-                        {{ cell(row, person).degree }}
+                        <!-- 程度至多三个字，不断开：列宽因此至少放得下它，表头的名字也不竖着排。 -->
+                        <span class="whitespace-nowrap">{{ cell(row, person).degree }}</span>
                         <span v-if="cell(row, person).belief !== null" class="block text-[length:var(--text-xs)] text-[var(--text-secondary)]">{{ cell(row, person).belief }}</span>
                     </td>
                     <td class="py-2 pr-4 text-[var(--text-secondary)]">{{ others(row) }}</td>

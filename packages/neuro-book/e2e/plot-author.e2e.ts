@@ -234,6 +234,16 @@ async function horizontalScrolls(root: Locator): Promise<string[]> {
     });
 }
 
+/** 分段筛选的标签都完整显示（没被截断），选中的那一段有实底（换行的分段没有滑动指示块，选中项自己画底色）。 */
+async function segmentsReadable(root: Locator): Promise<void> {
+    const result = await root.getByRole("radiogroup").first().evaluate((group) => ({
+        truncated: [...group.querySelectorAll("[role=\"radio\"] .truncate")].filter((label) => label.scrollWidth > label.clientWidth + 1).map((label) => label.textContent),
+        checked: getComputedStyle(group.querySelector("[role=\"radio\"][aria-checked=\"true\"]")!).backgroundColor,
+    }));
+    expect(result.truncated).toEqual([]);
+    expect(result.checked).not.toBe("rgba(0, 0, 0, 0)");
+}
+
 // 侧栏不在这里量：390 宽时工作台把侧栏让给编辑区。
 test("验收 6：390 与 600 像素宽时三张表与四个分页都没有横向滚动，谁知道什么是一行一个秘密的列表", async ({page}) => {
     await open(page);
@@ -250,9 +260,10 @@ test("验收 6：390 与 600 像素宽时三张表与四个分页都没有横向
     await narrow(plotPage(page, "secrets"), async () => {
         await expect(plotPage(page, "secrets").locator("[data-secrets-list]")).toBeVisible();
         await expect(plotPage(page, "secrets").locator("[data-secrets-table]")).toHaveCount(0);
+        await segmentsReadable(plotPage(page, "secrets"));
     });
     await openTable(page, "伏笔账本");
-    await narrow(plotPage(page, "ledger"));
+    await narrow(plotPage(page, "ledger"), () => segmentsReadable(plotPage(page, "ledger")));
     await openTable(page, "目标表");
     await narrow(plotPage(page, "goals"));
     // 分页量分页的内容（连同它外面的滚动容器，页头宽了也量得到）；分页的标签条本来就是横着滚的（nb-ui 的 Tabs），不算。
