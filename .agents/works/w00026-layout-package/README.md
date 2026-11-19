@@ -87,6 +87,10 @@ updated: 2026-11-05
 - 合入 master（`6cc707752`，审查修正 `2c40fcc9b`，晋升补测 `11ce9d96c`），`ui/layout-drag` 输出 20、21 晋升。
 - 顺带修了 `workbench-drag-cost.e2e.ts` 按住不动那条的等待：分支起点上就 3 次挂 2 次（过渡收尾的分隔线对齐那一帧落进了计数）。
 
+2026-11-19：[t32](tasks/t32-entry-menu-move-to/README.md) 完成：入口右键菜单加“移到”另外两个区域（整个容器搬过去），底部面板并成一行的入口在视图菜单末尾接上容器的“移到”（实现审查第 1 条，记进待确认清单）；合入 master（`390b50d35`），Spec 输出 44、47 更新。
+
+第一档剩下 [t14](tasks/t14-splitter-migration/README.md)。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。
