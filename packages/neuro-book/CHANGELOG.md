@@ -15,10 +15,15 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 ### 新增
 
 - 插件 SDK 导出 `GridIssue`、`GridIssueCode`、`GridHostIssueCode`，给 `@issues` 与 `gesture-update` 写类型用。
+- 插件 SDK 导出 `GridGestureStart`、`GridGestureCancellation`（`NestedGrid` 的 `gesture-start`、`gesture-cancel` 的载荷）与 `SashGestureSource`、`SashGestureCancelReason`（手势来源与取消原因，`NestedGrid` 与 `Splitter` 共用）。
 - 插件 SDK 导出 `GridLayoutCommitResult`、`GridFailure`、`GridCommitFailureCode`、`GridParamValue` 几个类型，给 `onGestureCommit` 写类型用。
 - 应用自带两套星璃表情包：“星璃”（15 个）与“星璃 · 半身”（12 个），只读，在表情包页里可以“复制到我的”再改；内置的主创默认能用“星璃”，在对话里发 `:lyra/开心:` 这样的表情。我的表情包与内置的同名时，按包名写的表情显示我的那一份，内置的那份要写 `:builtin.lyra/…:`。
 - 点表情看大图：对话里的回复与自己发的消息、Markdown 编辑器里单击表情，表情选择器底部点“查看大图”，打开和原图预览一样的对话框，能复制写法、下载原图，小图放大到 320 像素。
 - 表情包可以设成“按贴纸显示”（表情包页的属性栏里，内置与插件的包也能设）：这个包的表情夹在文字里也显示成大图，切换立刻生效，各个窗口与客户端里都一样。
+
+### 改动
+
+- 插件 SDK 的 `SplitterGestureSource`、`SplitterGestureCancelReason` 改名为 `SashGestureSource`、`SashGestureCancelReason`，旧名留作弃用别名（编辑器里划线），以后的版本会去掉；已经构建的插件不受影响，重新编译也照常通过。
 
 ## [0.14.1] - 2026-11-18
 

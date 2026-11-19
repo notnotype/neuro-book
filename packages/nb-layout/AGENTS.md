@@ -6,7 +6,8 @@
 
 ## 边界
 
-- 导出的标识符、数据属性与类型名里不出现工作台概念（活动栏、状态栏、区域、容器、编辑组、具名面板）；有这些概念的放 [`nb-workbench-layout`](../nb-workbench-layout/AGENTS.md)，它只经本包的公开入口用本包，本包不依赖它。
+- 导出名与数据属性里不出现工作台概念（活动栏、状态栏、区域、容器、编辑组、具名面板）；有这些概念的放 [`nb-workbench-layout`](../nb-workbench-layout/AGENTS.md)，它只经本包的公开入口用本包，本包不依赖它。`src/exports.test.ts` 按禁用词扫导出名与 `data-*`，成员名不扫。
+- 公开面就是 `package.json` 里四个子路径（`.`、`./vue`、`./text`、`./locales`）的入口：一行一个名字的显式清单，不用 `export *`；文件里别的导出是内部的，库内用相对路径导入。加导出就是改入口清单（评审时看得见），文档里教人导入的名字要在入口里（同一个测试核对）。`./lab-sources` 只给应用的 Component Lab，不算公开面。
 
 - 核心（`.` 入口，`src/` 下除 `vue/` 以外的文件）不依赖任何包，不依赖 Vue 与 DOM：插件激活时就要建模型，Bun 里也要能测。`src/boundary.test.ts` 读源码核对导入，新增文件同样受约束。
 - Vue 层（`./vue` 入口，`src/vue/`）只依赖 `vue`、`tabbable` 与核心，不依赖 nb-ui（ADR 0054 第 3 条）。文字经 `./text` 的注入点（`src/vue/text.ts`）取。
