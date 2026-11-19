@@ -38,9 +38,20 @@ updated: 2026-11-19
 | 11 | `useSortable` 的迁移描述自相矛盾 | 留一个 `watch(root)` 管捕获监听与收尾 |
 | 12 | 验收映射缺 Spec 编号 | 先写 Spec（`ui/nested-grid` 输出 144 到 146、`ui/layout-drag` 输出 18、19，planned）再映射 |
 
+第 2 稿（第二轮，[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)）：7 条，阻断 0、重要 1、建议 6，第一轮的处理都到位；改成第 3 稿，不再送审，实现审查兜底：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 验收有三处用真实运行时写不出来（布局事实、改尺寸、没有的 Surface dom 测试） | 输出 146 只写可判定的一半；尺寸变化经 Lab 读数在真实浏览器验；工作台同步链靠 `lab-workbench-surface`、`workbench-shell` 等 e2e |
+| 2 | “同名属性覆盖”与实测不符：提交处理会合成数组出错 | Spec 输出 145 改写 |
+| 3 | `useDragSession` 的“挂载回调里还是 null”只对模板 ref 成立；选项一句不可判定 | 输出 18、19 改写，列出建时定死的字段与抛错时的结果 |
+| 4 | 输出 144 与 143 写在同一行 | 补换行 |
+| 5 | 卸载时谁收得到 null 没写 | 写进输出 144 与计划 |
+| 6 | 输入三种形状、`contextKey` 必填、诊断两个出口；“组合式函数加整包绑定”而不是包装组件的上游选择没记理由 | 输入都收值、ref 或 getter；`contextKey` 可省；诊断合成一个出口；上游选择写明理由，交开发者（待确认清单） |
+| 7 | 文档清单漏项；可用尺寸判据有三份 | 补全清单；`usableExtent` 一处，三处共用 |
+
 ## 下一步
 
-计划见 [`plan.md`](plan.md)（第 2 稿）。Spec 已写（planned）。
+计划见 [`plan.md`](plan.md)（第 3 稿）。Spec 已写（planned）。
 
-1. 第二轮设计审查（Claude Sonnet），阻塞。
-2. 在 worktree `w00026-t39-host-wiring` 按三片实施；基线已跑（构建与三个 e2e 文件通过）。
+1. 在 worktree `w00026-t39-host-wiring` 按三片实施；基线已跑（构建与三个 e2e 文件通过）。
