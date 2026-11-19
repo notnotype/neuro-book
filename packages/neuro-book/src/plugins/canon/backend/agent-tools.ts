@@ -563,8 +563,8 @@ export function canonAgentTools(services: AgentToolServices): Readonly<Record<st
 export const CANON_AGENT_TOOL_CONTRIBUTIONS = [lookup.contribution, tree.contribution, read.contribution, write.contribution] as const;
 
 /**
- * canon 的服务端入口：只贡献 Agent 工具，第一次调到才激活。依赖项目登记（可选）：只装了 canon 的测试场地里没有它，工具回“这个
- * 实例没有项目登记”。
+ * canon 的服务端入口：只贡献 Agent 工具。服务端把内置插件都列为必需（server/start.ts），入口随启动激活；激活事件给不必需它的
+ * 场地用，第一次调到工具才激活。依赖项目登记（可选）：只装了 canon 的测试场地里没有它，工具回“这个实例没有项目登记”。
  */
 export const canonServerPlugin: PluginDefinition = {
     id: descriptor.id,

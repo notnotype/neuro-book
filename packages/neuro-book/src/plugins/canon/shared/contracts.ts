@@ -29,6 +29,9 @@ export {CANON_ENTRY_TABS_POINT} from "./entry-tabs";
 export const OPEN_ENTRY_COMMAND = "nbook.canon.open-entry";
 export type {EntryTabDeclaration} from "./entry-tabs";
 export type {ComponentContribution} from "./components";
+// 主线的 id 与剧情线选项：剧情插件的页面按它们写“在哪条线”。
+export {MAIN_LINE} from "./reads";
+export type {LineOption} from "./reads";
 
 /** 请求与读取结果经 JSON 编码后的上限：远程消息上限减 64 KiB，留给帧包络（输出 18）。 */
 export const CANON_BUDGET_BYTES = RPC_MAX_MESSAGE_BYTES - 64 * 1024;
