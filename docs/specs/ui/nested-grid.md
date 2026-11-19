@@ -234,7 +234,7 @@ owners:
 149. **宿主的收起入口**：`useGridHost` 的 `setCollapsed(id, collapsed)` 调 `grid.setCollapsed`，标记变了时版本递增、布局重发（诊断照常经 `onIssues`），没变时版本不变；没有网格时返回 `not-ready`（`missing: "grid"`）、版本不变。
 150. **提交前的布局**：`onApplied(commit, result, before)` 的 `before` 是这次提交之前发布的布局，也就是手势开始时呈现的那份；`onApplied` 被调时宿主的 `layout` 已经是提交之后的。
 151. **开发模式的配置检查**（planned）：`setLayoutDevChecks(true)` 打开之后（缺省关），下面几种接线错误在浏览器控制台警告；同一个 `NestedGrid`（或同一个 `useGridHost` 宿主）的同一种只警告一次，警告里带 `contextKey`。开关关着时都不警告。警告不改变失败与 `issues` 事件。
-    - `NestedGrid` 接了提交处理、没有停用，布局里至少有一条分隔条，而所有分隔条的占用都是 0（`createGrid` 的 `sashSize` 缺省 0）；
+    - `NestedGrid` 接了提交处理、没有停用，有两侧都能调（主轴上最小与最大尺寸不同）的边界，而这些边界的分隔条全是 0 宽（`createGrid` 的 `sashSize` 缺省 0）；挨着固定尺寸节点的缝不算；
     - 要提交时没有提交处理；提交处理返回了 `undefined`（两种警告）；
     - 整包绑定的宿主：手势开始时 `NestedGrid` 用的 `contextKey` 与宿主此刻的不同（模板里另写了 `context-key`）；`revision` 与宿主此刻的不同（模板里另写了 `:revision`）。
 
