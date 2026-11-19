@@ -49,7 +49,7 @@ updated: 2026-11-19
 - F6 共用输入（`25cd1e1a9`）：确认条按种类画输入的那段抽成 `FieldInput`，确认条与元素对话框共用。元素对话框因此不用计划里的 nb-form（理由写在计划的技术选型）。
 - F6 列表（`131e672d2`）：字段表的列表每个元素一行带“改”“去掉”，末尾“＋ 添加一项”；`ComponentViewContext` 加可选的 `listAdd`、`listEdit`、`listRemove`。元素对话框 `ElementDialog`：以条目为键的先用 `EntryPicker` 选条目（改一项时不能换），别的填名字；子字段用 `FieldInput`，语义档在改一项时只读；有两个意图时可选。加一项发 `listAdd`，改一项只发改过的子字段（`set` 到 `列表[元素].子字段`），去掉先确认、可选意图再发 `listRemove`。宿主测试一条（内联插件的普通列表与以条目为键的列表：加、改、去、选条目），组件测试两条，Lab 加 `FieldInput`、`ElementDialog` 的场景；改一项的地址做了变异检查。
 - F6 主文字与记一句（`f69a4c783`）：没删除的条目总有“文字”分页，没有主文字时写“还没有主文字”，缺省仍先看第一组设定；每一块旁边“改这一段”（源文字取条目读取里所选位置上的那一块）、“删掉这一段”，文末“＋ 加一段”，都可选意图。通用字段表展开着的数或语义档字段，来历下面一行“记一笔”（语义档只填一句），所以每个数据分页都能记。宿主测试两条，改一段的地址做了变异检查。
-- F6 比计划简化的（功能都在，交互从简，按开发者“先功能和基本 UX”）：去掉一项不先预览、不写“第几章加的”，来自剧情变更的一项按“改设定”去掉时内核拒收（`element-from-change`），原因写在对话框里，改选“剧情里变了”再去；字段表没标出来自变更的元素；以条目为键的选择器没把已在列表里的灰掉（重复时内核拒收）；改一项时引用子字段的当前值显示 id（没读名字）；对话框里的语义档子字段没有“改起点”“记一句”（展开那个列表字段的来历也记不了，记一句只对整字段）；`EntryPicker` 选不到时没有“新建‘词’”；块的“删掉这一段”是按钮，不是菜单。
+- F6 比计划简化的（功能都在，交互从简，按开发者“先功能和基本 UX”）：去掉一项不先预览、不写“第几章加的”，来自剧情变更的一项按“改设定”去掉时内核拒收（`element-from-change`），原因写在对话框里，改选“剧情里变了”再去；字段表没标出来自变更的元素；以条目为键的选择器没把已在列表里的灰掉（重复时内核拒收）；对话框里的语义档子字段没有“改起点”“记一句”（展开那个列表字段的来历也记不了，记一句只对整字段）；`EntryPicker` 选不到时没有“新建‘词’”；块的“删掉这一段”是按钮，不是菜单。
 
 - F7（`b6822955c`、`30ff7d03d`）：新 e2e `canon-write.e2e.ts`（空作品、脚本化的本机模型端点）两条：作者从空状态新建人物、改外观、加一段主文字、加别名；Agent 经 `canon_write` 建组织与挂在下面的人物（`$代号`、外观初值、主文字），批准后树里有、条目页读得到，条目页开着时 Agent 再写一次出 Agent 提示，从提示撤销后那个条目消失。计划里写的是在 `canon-author.e2e.ts` 补作者的用例、另起 `canon-agent-write.e2e.ts`；星瑕样本作品不是空的，空状态与 Agent 都要空作品，所以合成一个新文件。跑 e2e 时发现并修了两处：`ImageInput` 从 nb-canon 根入口取路径规则，Lab 的开发服务里把 CommonJS 的 `debug` 原样交给浏览器，ChangePage、ConfirmBar、ElementDialog、FieldInput、ImageInput 的场景加载失败（改从 `./schema` 子路径取，Spec 的实现合同本来就这样要求）；列表元素的 8rem 缩进按视口判断，嵌在剧情专门分页的窄格子里时“添加一项”溢出（`plot-author` 验收 6 在 600 宽失败），改成小缩进。
 - F7 验证：`canon-write` 2 条、`canon-author` 与 `plot-author` 全部通过；`lab-scenes` 只剩分支起点上就有的 ThemeEditor 四条 404，挡在版面检查之前，所以新增与改过场景的 11 个组件用 `nbdev shot` 量（亮色，手机与自由画布），没有越界、裁切与页面错误；nb-ui `SearchSelect` 量了 nbook、macos 两个主题乘亮暗两种配色、手机与自由画布，都干净。
@@ -57,9 +57,12 @@ updated: 2026-11-19
 
 - 收口（2026-11-19）：master 无冲突并入（`d7649c4ea`）。nb-ui、nb-canon、nb-form、neuro-book 的快速测试与类型检查：vitest 与类型检查全过，`bun test` 11 条失败。其中 6 条是本 Task 的：F3 加了 `nbook.canon` 服务端插件，宿主测试 `server.test.ts` 的插件表没跟着改；它只依赖宿主能力（项目登记），会比诊断先发布，“诊断最先发布”的断言改成不算它。另有 1 条是 t31 留下的：剧情的线标签从 canon 的 `shared/reads` 运行时导入 `MAIN_LINE`，跨插件只能经 `shared/contracts.ts`，改经 contracts 转出（都在 `9b88b4232`，两份测试重跑通过、类型检查通过）。其余 4 条在 master 上同样失败、与 w00039 无关：SDK 组件清单少列 nb-ui 新的 `ImagePreviewDialog`（w00050）；活动栏、页面浮层、条目注册表三条“同 id 的两条一起被拒”。
 - 顺带改正：服务端把内置插件都列为必需（`server/start.ts`），canon 的工具入口随启动激活，`agent-tools.md` 原写的“第一次调用才激活”只对不必需它的场地成立，Spec 与代码注释已改。
-- 实现审查已开（审在 `9b88b4232`）：后端 omp、前端 Sonnet，后台运行。
+- 实现审查（审在 `9b88b4232`，[处理](evidences/impl-review-resolution.txt)）：后端 omp 6 条（[报告](evidences/impl-review-backend-omp.txt)），全部成立、都改；前端 Sonnet 12 条（[报告](evidences/impl-review-frontend-sonnet.txt)），9 条改，第 5 条（几个引用子字段共用一份查找结果）记为已知限制，第 6 条的拆分推后，第 10 条（Agent 提示没有时间界限地累计）进待确认清单。修正在 `ee9fc3f5e`（内核：同一批重复的临时 id 与设定组拒收，`findEntries` 按树序）、`c1bcc09dd`（Agent 工具：重发先按请求 id 查结局，重复的代号与设定组拒收，名字重名时列候选，解析挪进 `agent-names.ts`）、`33cb3e2e8`（界面：对话框带打开时的版本、错误跟着对话框走，条目选择器记住选中的名字，撤销 Agent 那次后写“已撤销”，等等）；每条改动都补了用例，关键的做了变异检查。修正后 `canon-write`、`canon-author`、`plot-author` 15 条 e2e 都过。Spec 随之补了 `revisions.md` 输出 25、`project.md` 的 `findEntries`、`agent-tools.md` 输出 7 与 10、`author-ui.md` 输出 40、41、42 与新的输出 43。
+- 推后到人物闭环：`EntryPageHost.vue`（九百多行）按写入种类拆成组合式函数与对话框模板，意图选择器抽成组件；移动各字段“只发改了的”、剧情意图下的元素与块补专门用例；元素有几个引用子字段时各用一份查找。
+- 合入（2026-11-19）：master 又并进分支一次（`8b5e76f54`，带进 Agent 对话视图与审批向导的改动），类型检查与 `canon-write`、`canon-author` 9 条 e2e 都过，合入 master（`8858e946e`）。Spec 随合入提交（`3612d8fc5`）：`canon/agent-tools.md` 新登记为 planned；`revisions.md` 输出 25、`author-ui.md` 输出 37 到 43、`project.md` 的 `findEntries` 等都是 planned，晋升等开发者看过底座再定。
 
 ## 下一步
 
-1. 等两份实现审查回来，逐条处理（修正单独提交），合入 master，Spec 改动随合入提交。
-2. 底座合入后，和开发者定人物 Component 闭环的范围。
+1. 开发者审查底座（作者在界面上改、Agent 用工具改，同一条通道）。
+2. 和开发者定人物 Component 闭环的范围；推后的几项（`EntryPageHost.vue` 的拆分、意图选择器抽组件、补的几条用例）并进那个 Task。
+3. 开发者同意后做 Spec 晋升前核对（opus 子代理）：`canon/agent-tools.md`，`revisions.md` 输出 25，`author-ui.md` 输出 37 到 43。

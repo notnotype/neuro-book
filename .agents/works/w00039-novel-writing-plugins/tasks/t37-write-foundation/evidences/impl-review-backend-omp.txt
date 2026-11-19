@@ -1,0 +1,69 @@
+# w00039 t37 后端与领域实现审查
+
+审查提交：`46a224460..9b88b4232`（审查检出 HEAD `9b88b42324cdb64f2f0d83ff883e56867b1e6f9e`）。
+### 1. Agent 写入重试在名称翻译阶段失效
+严重程度：P1
+类别：正确性 / 幂等
+文件：`packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:526-544`
+现象：同一 `invocation` 的成功写入重试不保证返回第一次结果。若首次操作改名或删除了被引用的条目，重试会在 `translate` 的 `resolveEntry` 阶段失败，内核的 requestId 去重逻辑根本不会执行。违反 Agent Tools Spec 输出 10 对同次重发返回第一次结果的合同，也可能让调用方把已成功写入误判为失败。
+核实：在测试实际使用的真实项目子进程、真实 canon 浏览器远程节点和 `canonAgentTools` 工具调用路径中，先创建 `Old`，读取版本，再以 invocation `rename-1` 将其改为 `New`；对同一 invocation 原样重发同一参数。首次返回 `r3` 成功，重试返回 `bad-edit`，正文为“第 1 项（set）：没有叫“Old”的条目。”代码在 `agent-tools.ts:528-530` 先重新翻译参数，在 `:544` 才调用有幂等记录的 `editEntries`。
+改法：让 invocation 的幂等判定先于依赖当前世界的名字/地址翻译，并能对重复请求重放首次工具结果；至少持久化该 invocation 的输入摘要与结果，拒绝同 invocation 不同输入，确保首次结果文字与 details 可重放。覆盖改名、删除等令原输入地址失效的同次重试。
+### 2. 同批重复新建代号会静默丢掉一项
+严重程度：P1
+类别：原子性 / 数据丢失
+文件：`packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:380-383`；`packages/nb-canon/src/world/entry-edits.ts:467-471`
+现象：同一批两项 `create` 使用相同 `key` 时，Agent 工具把两项映射到同一个临时 id，内核草稿的 `Map` 后写覆盖前写；批次仍发布成功，只有后一条目落盘，返回只包含一条 id 映射。调用方误以为两项都创建成功，破坏“一批全生效或全拒收”的写入合同。
+核实：在真实项目子进程与 canon 远程调用上提交 `create(key:"dup", name:"Alpha")` 和 `create(key:"dup", name:"Beta")`。工具返回成功、修订 `r4`、映射 `tmp:dup → e2`；远程 `tree` 只有 `Beta`，`Alpha` 不存在。独立内核候选实验亦得版本加一、两条 `entry` 路由、一个 `idMap`、唯一条目 `Second`，与 Agent 运行时行为一致。Spec `revisions.md` 输出 25 要求批量全生效或全拒收，并以 `id-taken` 拒绝同一请求重复写一个对象；该新建入口没有拒绝相同临时 id。
+改法：翻译时拒绝批内重复 `key`，并在 `planEntries` 对已存在于 `draft.created` 或本世界的临时 id 拒绝重复 create；不要让后写覆盖先写。测试同批重复显式 key、重复默认 key、以及底层 `EntryOp` 重复临时 id，断言拒收且版本、日志、世界均不变。
+### 3. create.fields 的重复 Component 标签会静默写入错误类型
+严重程度：P1
+类别：正确性 / 数据完整性
+文件：`packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:395-407`
+现象：初值字段用 Component 显示名找类型时调用 `find`，重复标签不报歧义，而是取登记顺序中的第一个类型；接着若该类型未列在 `components` 中，代码还会自动把它加入新条目。模型指定的类型与字段值因此可能被写入另一命名空间，成功回话掩盖了错误目标。
+核实：真实 canon 项目运行时登记 `alpha`、`beta` 两个类型，二者标签都为“ 双名 ”，各自都有标签为“字段”的字段。调用 `canon_write` 新建条目，`components` 指定 beta 类型，`fields` 写 `{"双名.字段":"value"}`。工具返回成功；远程 `entry` 显示 beta 的 `betaField` 仍为 null，额外的 alpha 命名空间里 `alphaField` 被写成 `value`。原因是 `agent-tools.ts:397-398` 对重复组标签用 `.find`，并对重复字段标签再次用 `.find`。
+改法：显示名必须唯一解析；组标签、字段标签重复时返回候选 id 并要求调用方消歧。不要因解析出的字段命名空间未在 `components` 中而静默扩展目标集合，除非合同明确授权自动加组且无歧义。为重复组标签与重复字段标签增加真实工具调用覆盖，断言失败且没有创建条目。
+### 4. findEntries 按全局 order 排序，不是树序
+严重程度：P2
+类别：行为合同 / 搜索排序
+文件：`packages/nb-canon/src/service/service.ts:1201-1208`
+现象：同档候选按每个条目的全局 `order` 排序；合同与计划要求同档按树序。条目的 `order` 只在同一 parent 下定义兄弟顺序，跨父级比较会让其它分支的根条目与子树成员交错，候选先后及分页边界不再是树的前序顺序。
+核实：真实项目远程调用先建根 `ZParent`、根 `ZOther`，再建 `ZParent` 下的 `ZChildB`、`ZChildA`，之后将 `ZChildA` 移到 `ZChildB` 之后。`tree(parent:null)` 给 `ZParent, ZOther`，其子树给 `ZChildB, ZChildA`；`findEntries(query:"")` 返回 `ZParent, ZChildB, ZOther, ZChildA`。最后一个子节点被根条目穿插，结果不等于树序。实现排序为 `entry.order`，与父级无关。
+改法：按稳定树前序生成全树 rank，排序键用匹配 rank，而不是跨父级比较 sibling `order`；测试跨层级、移动 sibling 和分页连接，期望结果等于逐层 tree 的前序展开。
+### 5. 列表元素显示名重复时写入第一个元素
+
+严重程度：P1
+类别：正确性 / 数据完整性
+文件：`packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:231-237`
+现象：字段地址允许用列表元素显示名代替 id，但重复显示名时通过 `.find` 取第一个元素，不提示歧义。Agent 以第二个同名元素为目标的修改会成功写到第一个元素。
+核实：在真实 `nb-canon` 世界服务与 Agent 工具路径中创建 `库存.物品` 列表，包含 `{id:"i1",label:"Twin",count:1}` 与 `{id:"i2",label:"Twin",count:2}`。提交 `set`，地址为 `库存.物品[Twin].数量`、值为 `9`。工具返回修订 `r2` 成功；读取结果为 `i1.count=9`、`i2.count=2`。实现 `agent-tools.ts:232` 用 `.find` 匹配 `id` 或 `label`，未检查是否多项命中；计划第 3 稿“名字与地址的解析”要求显示名歧义时列候选。
+改法：元素按 id 优先；按显示名解析时收集所有匹配项，仅唯一命中才接受，否则列出元素 id 并要求消歧。覆盖两个元素同名时拒收歧义地址，且不发布修订。
+### 6. 同一新建条目重复列出 Component 会覆盖其初值
+
+严重程度：P1
+类别：数据完整性 / 输入校验
+文件：`packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:389-407`；`packages/nb-canon/src/world/entry-edits.ts:383-394`
+现象：Agent `create.components` 接受重复的同一类型。字段初值合并到第一个类型副本，但内核建条目时按相同命名空间逐个写入 `data`，后一个副本覆盖前一个副本，导致初值退回未知；整批仍成功发布。
+核实：真实 canon 项目子进程与远程世界中调用 Agent 写入：创建 `Person`，`components: ["人物", "人物"]`，`fields: {"人物.外观":"gold hair"}`。工具返回修订 `r1` 成功；读回 `character.外观` 为 `null`，而非 `gold hair`。`agent-tools.ts:389-394` 分别压入两个相同类型，`:402-407` 只把字段写给第一个副本；`entry-edits.ts:386-394` 将两份数据写入以命名空间为键的对象，第二份覆盖第一份。
+改法：解析 Component 后按类型 id/命名空间拒绝重复项；内核构建也拒绝或归一化重复命名空间，避免远程合同调用绕过 Agent 校验。测试直接重复 id 与用 id/label/namespace 的不同写法重复指向同一类型，断言拒收且版本、世界、日志均不变。
+
+## 未发现问题的方面
+
+- 内核批量规划、候选读回、落盘与事件的顺序符合计划要求；读取戳核对位于请求去重之后，短摘要前缀按输入摘要比较。
+- 单项入口与旧实现的差分覆盖及章首剧情读回、显式主线等有意差异有专门测试；本轮未发现 t37 新增的旧入口兼容回归。
+- 远程视图令牌拒绝、审计路径和调用方持有令牌收口实现与 Spec 一致；`onRevision` 在版本过滤之前按修订 id 去重，窗口事件路径有相应测试。
+- Agent 写入声明为 `write` / `exclusive`，真实审批合同由 harness 处理；Agent 项目租约在 `finally` 释放。审查未发现新引入的授权或释放遗漏。
+- 未发现现有测试覆盖到的基础字段校验、原子失败、旧方法调用或远程视图限制回归。
+
+## 验证
+
+- `bun test tests/edits-differential.test.ts tests/entry-edits.test.ts`（`packages/nb-canon`）：35 pass，0 fail。
+- `bun test src/plugins/canon/agent-tools.test.ts src/plugins/canon/canon.test.ts src/server/server.test.ts`（`packages/neuro-book`）：49 pass，0 fail。
+- `bun run typecheck`（`packages/nb-canon`）：通过。
+- `bun run typecheck`（`packages/neuro-book`）：`tsc --noEmit`、`vue-tsc --noEmit -p tsconfig.web.json`、`vue-tsc --noEmit -p tsconfig.browser-test.json` 均通过。
+- 未运行 e2e、开发服务与真实模型验收，符合本次审查约束。
+
+## 发现统计
+
+- P1：5 项（编号 1、2、3、5、6）。
+- P2：1 项（编号 4）。
+- 有效发现编号：1、2、3、4、5、6。
