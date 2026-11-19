@@ -61,8 +61,13 @@ updated: 2026-11-19
 - 开发服务里的真实浏览器，用临时探针（不提交）走了八处：Lab 的四个网格场景、`WorkbenchSurface` 宽窄两种、产品工作台宽窄两种。
   - 每处拖一次分隔条，`[nb-layout` 警告零条；
   - 核对过页面上开关确实是开着的。
-- 把 master 并进分支（合并提交 `a3f22d7b2`），`test:affected` 在跑。
+- 把 master 并进分支（合并提交 `a3f22d7b2`）。
+- `test:affected --since master`：bun 一项失败、五条，都是 t40 时在 master 上核对过的原有失败：SDK 组件清单、`architecture`、三处“同 id 的两条一起被拒”。其余全过。
+
+## 实现审查
+
+待处理：Claude Sonnet，审查 worktree `review-t41-impl` 固定在 `a3f22d7b2`。
 
 ## 下一步
 
-1. 收口验证；实现审查（Claude Sonnet，不阻塞）；合入；晋升。
+1. 处理实现审查；合入；晋升。
