@@ -51,6 +51,8 @@ updated: 2026-11-02
 
 2026-11-02 按已接受的[内核提案](../../../../../docs/proposals/world-engine-kernel.md)重切（Work README 决定表同日）：范围改成上面的样子。
 
+2026-11-19 t37（[写入底座](../t37-write-foundation/README.md)）先做了六个工具里的四个：`canon_lookup`（查条目）、`canon_tree`（看条目树）、`canon_read`（读，含字段、主文字、来历与最近的修订）、`canon_write`（一次写几处，含还原），参数、上限、名字解析与失败对照见 [`canon.agent-tools`](../../../../../docs/specs/canon/agent-tools.md)（planned）。没做的两个：`changes`（按章列变更）用 `canon_read` 的 `history` 能看到最近改动，人物闭环用不到；`search`（检索正文与变更）要先建索引。自动预查与 Component 用法提醒也没做。本 Task 剩下的是这两个工具、自动预查、用法提醒与写手的上下文。
+
 ## 下一步
 
 按 Work README 的顺序轮到时讨论；讨论定的事写进本 README 的“当前状态”。
