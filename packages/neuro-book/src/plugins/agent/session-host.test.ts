@@ -19,6 +19,7 @@ import {testTextPort} from "nbook/shared/testing/text-port";
 import type {AgentConversationContext, AssistantMessageView, ComposerModelView, MessageView, PendingApprovalView, PendingInputView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
 
 import {EVENT_INLINE_BYTES} from "./backend/frames";
+import {noticeSummary} from "./shared/remote";
 import {MAIN_PROFILE} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION} from "./shared/permissions";
 import type {Rule} from "./shared/permissions";
@@ -785,6 +786,68 @@ describe("留着的话与继续（conversation.md 输出 47–50）", () => {
         await idle(h);
         expect(userTexts(h).at(-1)).toBe("排一\n\n排二");
         expect((await w.service.session(h.host.sessionId.value!).path()).filter((event) => event.type === "runStarted").at(-1)!.data).toMatchObject({runId: sent.value.runId});
+    });
+});
+
+describe("提醒（conversation.md 输出 51）", () => {
+    test("有运行时提醒排在话的后面：标签是提醒加来源名、只能取消，不算留着；取消走 removeNotice", async () => {
+        const w = await world();
+        const h = await started(w);
+        const id = h.host.sessionId.value!;
+        const hosted = w.service.session(id, {asUser: false, source: {label: "日程"}});
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复", "排的那条处理了");
+        h.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        await until("运行中", () => h.ctx().run.status === "running");
+        h.host.act({type: "composer.submit", text: "排一", delivery: "followup"});
+        await until("话排上", () => h.ctx().composer.queued.length === 1);
+        const queued = await hosted.notice({commandId: crypto.randomUUID(), text: "内核重置了"});
+        if (!queued.ok) throw new Error(`notice failed: ${JSON.stringify(queued)}`);
+        await until("提醒排上", () => h.ctx().composer.queued.length === 2);
+        expect(h.ctx().composer.queued[0]).toMatchObject({text: "排一"});
+        expect(h.ctx().composer.queued[0]!.author).toBeUndefined();
+        expect(h.ctx().composer.queued[1]).toEqual({id: queued.value.noticeId, text: "内核重置了", delivery: "steer", author: {label: "conversation.author.notice", icon: "i-lucide-bell"}, editable: false});
+
+        h.host.act({type: "queued.remove", id: queued.value.noticeId});
+        await until("提醒取消了", () => h.ctx().composer.queued.length === 1);
+        expect((await w.service.session(id).snapshot()).notices).toEqual([]);
+        hold.release();
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "排的那条处理了");
+        await idle(h);
+        expect(JSON.stringify(endpoint.requests.map((request) => request.messages))).not.toContain("内核重置了");
+    });
+
+    test("门关着又没有运行时按留着画；空着继续开一次运行把提醒送出去，消息流里是一条提醒、正文是全文", async () => {
+        const w = await world();
+        const h = await started(w);
+        const id = h.host.sessionId.value!;
+        const hosted = w.service.session(id, {asUser: false, source: {label: "日程"}});
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复");
+        h.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        await until("运行中", () => h.ctx().run.status === "running");
+        h.host.act({type: "composer.stop"});
+        hold.release();
+        await idle(h);
+        // 用户的停止关了门：带唤起的提醒也不开运行，排队区按留着画，只显示开头。
+        const text = `内核重置了${"。".repeat(300)}`;
+        const queued = await hosted.notice({commandId: crypto.randomUUID(), text, wake: true});
+        if (!queued.ok) throw new Error(`notice failed: ${JSON.stringify(queued)}`);
+        await until("留着", () => h.ctx().composer.queued[0]?.held?.reason === "conversation.held.notice");
+        expect(h.ctx().composer.queued[0]!.text).toBe(noticeSummary(text));
+        expect(h.ctx().run.status).toBe("idle");
+        expect((await w.service.session(id).snapshot()).status.state).toBe("idle");
+
+        endpoint.script("知道了");
+        h.host.act({type: "run.continue"});
+        await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "知道了");
+        await idle(h);
+        expect(h.ctx().composer.queued).toEqual([]);
+        expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("内核重置了");
+        const reminders = h.ctx().messages.filter((message) => message.kind === "system" && message.source === "reminder");
+        expect(reminders.map((message) => (message as {text: string}).text)).toContain(text);
     });
 });
 

@@ -691,3 +691,43 @@ describe("缓冲区的发出者与乐观消息（harness/runtime.md 输出 103�
         }
     });
 });
+
+describe("提醒与门（harness/runtime.md 输出 112–117，agent/conversation.md 输出 51）", () => {
+    const HOST = {kind: "host" as const, source: {plugin: "lab.jobs", label: "后台任务"}};
+
+    test("跟着日志帧：待发的提醒、取走后成为一条系统消息、门的开关；与重建的一致", async () => {
+        await using session = await createTestSession();
+        const {transcript, stop} = await follow(session.raw);
+        try {
+            expect(transcript.wakeGateOpen()).toBe(true);
+            const sent = await session.raw.as(HOST).notice({commandId: id(), text: "后台任务结束了\n第二行"});
+            if (!sent.ok) throw new Error(sent.code);
+            await session.raw.as(HOST).notice({commandId: id(), text: "会被撤回的"});
+            const withdrawn = transcript.notices().find((item) => item.text === "会被撤回的")!;
+            expect((await session.raw.as(HOST).removeNotice({commandId: id(), noticeId: withdrawn.id})).ok).toBe(true);
+            expect(transcript.notices()).toEqual([{id: sent.value.noticeId, by: HOST, text: "后台任务结束了\n第二行", wake: false}]);
+
+            session.model.script({fail: "provider"});
+            await session.say("问");
+            expect(transcript.notices()).toEqual([]);
+            expect(transcript.wakeGateOpen()).toBe(false);
+            const reminder = transcript.messages().find((message) => message.kind === "system" && typeof message.label !== "string" && message.label.key === "kernel.hostNotice");
+            expect(reminder).toMatchObject({kind: "system", source: "reminder", label: {key: "kernel.hostNotice", params: {name: "后台任务"}}, text: "后台任务结束了\n第二行"});
+            const fresh = await rebuilt(session.raw);
+            expect(fresh.notices()).toEqual(transcript.notices());
+            expect(fresh.wakeGateOpen()).toBe(false);
+            expect(fresh.messages()).toEqual(transcript.messages());
+            expect(transcript.problems()).toEqual([]);
+            expect(fresh.problems()).toEqual([]);
+        } finally {
+            stop();
+        }
+    });
+
+    test("快照里的提醒是摘要：按 summary 建待发列表", () => {
+        const transcript = createKernelTranscript({toolName: (tool) => tool});
+        transcript.applySnapshot({head: 3, notices: [{id: "n1", by: HOST, wake: true, queuedAt: 2, summary: "开头", bytes: 9000}], wakeGate: {open: false, cause: "stopped"}});
+        expect(transcript.notices()).toEqual([{id: "n1", by: HOST, text: "开头", wake: true}]);
+        expect(transcript.wakeGateOpen()).toBe(false);
+    });
+});

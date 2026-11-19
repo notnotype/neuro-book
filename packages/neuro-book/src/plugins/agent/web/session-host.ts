@@ -15,7 +15,7 @@ import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
 import {findPromptLinks} from "@notnotype/nb-markdown";
-import type {KernelQueued} from "@notnotype/nb-agent-ui";
+import type {KernelNotice, KernelQueued} from "@notnotype/nb-agent-ui";
 import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, KernelIssuer, MessageView, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
@@ -35,6 +35,7 @@ import {modelNeedsText} from "./profile-view";
 import {MODEL_KEYS, modelNotice} from "./model-notice";
 import type {ModelFailure, ModelNoticeInput} from "./model-notice";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
+import {noticeSummary} from "../shared/remote";
 import type {AncestorItem, JobItem, TreeItem} from "../shared/subagents";
 import {agentText} from "../shared/text";
 import {heldReason} from "./held-reason";
@@ -1106,6 +1107,23 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         };
     }
 
+    /**
+     * 待发的提醒排在话的后面（conversation.md 输出 51）：标签“提醒 · 来源”，只能取消。门关着、又没有运行时按留着画，计进“已暂停 N 条”，
+     * “继续”与空着回车把它们送出去；有运行时下一次请求就会带上它们，不算留着。
+     */
+    function noticeView(target: Current, notice: KernelNotice) {
+        const name = authorOf(target, notice.by).label;
+        return {
+            id: notice.id,
+            // 从日志帧来的是全文：排队区与从快照来的一样只显示摘要。
+            text: noticeSummary(notice.text),
+            delivery: "steer" as const,
+            author: {label: deps.text.t(agentText("conversation.author.notice", {name})), icon: "i-lucide-bell"},
+            editable: false,
+            ...(target.transcript.wakeGateOpen() || target.transcript.run().status !== "idle" ? {} : {held: {reason: deps.text.t(agentText("conversation.held.notice"))}}),
+        };
+    }
+
     /** 停止的第二个选项（输出 49）：在跑、缓冲区里有用户自己的话时给出，条数是全部条数（用户的停止清空全部）。 */
     function stopClearingOf(target: Current | null): {readonly count: number} | null {
         if (target === null || target.transcript.run().status === "idle") return null;
@@ -1533,8 +1551,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 return;
             case "run.continue":
                 if (target === null) return;
+                // 只有待发的提醒、没有留着的话：`resume` 接着跑中断的那一轮，或开一次运行把提醒送出去（harness/runtime.md 输出 114）。
+                if (!target.transcript.queue().some((item) => item.state === "held") && target.transcript.notices().length > 0) await remote.resume({sessionId: target.id, commandId: commandId(), mode: "keep"});
                 // 只有中断的运行、没有留着的话：照旧接着跑（输出 9）。
-                if (!target.transcript.queue().some((item) => item.state === "held")) await remote.start({sessionId: target.id, commandId: commandId()});
+                else if (!target.transcript.queue().some((item) => item.state === "held")) await remote.start({sessionId: target.id, commandId: commandId()});
                 else await continueRun(target, null);
                 return;
             case "input.submit":
@@ -1547,7 +1567,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 dockState = action.state;
                 return;
             case "queued.remove":
-                if (target !== null) await remote.remove({sessionId: target.id, commandId: commandId(), inputId: action.id});
+                if (target === null) return;
+                // 提醒与话在同一个排队区里，按 id 分开取消（conversation.md 输出 51）。
+                if (target.transcript.notices().some((item) => item.id === action.id)) await remote.removeNotice({sessionId: target.id, commandId: commandId(), noticeId: action.id});
+                else await remote.remove({sessionId: target.id, commandId: commandId(), inputId: action.id});
                 return;
             case "queued.edit": {
                 // 取出来就是取出来：从队列删掉、放进输入框，改了再发是一条新消息。输入框里已有的不丢，接在后面。
@@ -1840,7 +1863,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 modes: meta !== null && meta !== undefined && meta.profile !== MAIN_PROFILE ? [] : MODE_OPTIONS.map((option) => ({...option, label: modeLabel(option.key)})),
                 mode: modeOfCurrent(target ?? null),
                 resume: target?.transcript.interrupted() === true,
-                queued: target === null || target === undefined ? [] : target.transcript.queue().map((item) => queuedView(target, item)),
+                queued: target === null || target === undefined ? [] : [...target.transcript.queue().map((item) => queuedView(target, item)), ...target.transcript.notices().map((item) => noticeView(target, item))],
                 draft,
                 recall: target === null || target === undefined ? [] : recallOf(target.transcript.messages()),
                 attachments: [...uploads].map(([localId, entry]) => (entry.state === "ready"

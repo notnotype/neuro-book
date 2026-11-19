@@ -53,6 +53,17 @@ export type KernelQueued = {
     readonly commandId?: string;
 };
 
+/**
+ * 待发的提醒（docs/specs/harness/runtime.md 输出 112）：会话或宿主交给会话、下一次对话请求带上。从快照来的 `text` 是摘要
+ * （agent/sessions.md 输出 29），从日志帧来的是全文。
+ */
+export type KernelNotice = {
+    readonly id: string;
+    readonly by: KernelIssuer;
+    readonly text: string;
+    readonly wake: boolean;
+};
+
 /** 话为什么留着：运行的收口方式（加码），或空闲时排的（开不起运行时带码）。 */
 export type KernelHeldCause = {readonly end: string; readonly code?: string} | {readonly queued: "idle"; readonly code?: string};
 
@@ -126,6 +137,10 @@ export type KernelTranscript = {
     pathIds(): readonly string[];
     usage(): KernelUsage;
     queue(): readonly KernelQueued[];
+    /** 待发的提醒，按发出的先后（runtime.md 输出 112）。 */
+    notices(): readonly KernelNotice[];
+    /** 唤起的门开着（runtime.md 输出 117）；没有门事件的旧会话按关着。 */
+    wakeGateOpen(): boolean;
     meta(): KernelMeta;
     /** 当前路径最后一次运行以 `interrupted` 结束，之后还没有新一轮。用户停止不算。 */
     interrupted(): boolean;
@@ -286,6 +301,15 @@ function issuerOf(value: unknown): KernelIssuer | {readonly kind: "user"} | null
     return null;
 }
 
+/** 日志帧的 `noticeQueued` 或快照的 `notices` 里的一项（快照给 `summary`，帧给 `text`）。 */
+function noticeOf(value: unknown): KernelNotice | null {
+    if (!isRecord(value) || typeof value.id !== "string") return null;
+    const by = issuerOf(value.by);
+    const text = typeof value.text === "string" ? value.text : typeof value.summary === "string" ? value.summary : null;
+    if (by === null || by.kind === "user" || text === null) return null;
+    return {id: value.id, by, text, wake: value.wake === true};
+}
+
 function heldCauseOf(value: unknown): KernelHeldCause | undefined {
     if (!isRecord(value)) return undefined;
     const code = typeof value.code === "string" ? {code: value.code} : {};
@@ -355,6 +379,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     let usage = NO_USAGE;
     let meta = NO_META;
     let queue: KernelQueued[] = [];
+    let notices: KernelNotice[] = [];
+    let wakeGate = false;
     let run = IDLE_RUN;
     let optimistic: Optimistic[] = [];
     const confirmOptimistic = (commandId: string) => {
@@ -638,6 +664,13 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 // `text` 是写给模型的，界面用自己的文案。
                 logged.push({kind: "system", id, timestamp: at, source: "reminder", label: agentRef("kernel.continued"), text: ""});
                 return;
+            case "hostNotice": {
+                // 取走的提醒：过程里的一行，标签写来源，正文折叠（agent/conversation.md 输出 51）。
+                const by = issuerOf(data.by);
+                const name = by === null || by.kind === "user" ? "" : by.kind === "host" ? by.source.label : by.id;
+                logged.push({kind: "system", id, timestamp: at, source: "reminder", label: agentRef("kernel.hostNotice", {name}), text: stringField(data, "text") ?? ""});
+                return;
+            }
             case "notice":
                 // `tools-changed`、`restored` 只和模型有关。
                 if (data.code === "result-requested") logged.push({kind: "system", id, timestamp: at, source: "reminder", label: agentRef("kernel.resultRequested"), text: ""});
@@ -719,6 +752,20 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 return true;
             case "inputConsumed":
                 queue = queue.filter((item) => item.id !== data.id);
+                return true;
+            case "noticeQueued": {
+                const notice = noticeOf(data);
+                if (notice !== null) notices = [...notices, notice];
+                return true;
+            }
+            case "noticeRemoved":
+            case "noticeTaken": {
+                const ids = new Set(Array.isArray(data.ids) ? data.ids.filter((item): item is string => typeof item === "string") : []);
+                notices = notices.filter((item) => !ids.has(item.id));
+                return true;
+            }
+            case "wakeGate":
+                wakeGate = data.open === true;
                 return true;
             case "commandAccepted": {
                 // `send` 的话没成为新开那次运行的输入时（插进在跑的运行、推迟、留着）排队区会显示它，乐观消息撤掉；
@@ -874,6 +921,11 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 return queued === null ? [] : [queued];
             }) : [];
             dropOptimisticFor(queue.filter((item) => item.state === "held"));
+            notices = Array.isArray(snapshot.notices) ? snapshot.notices.flatMap((item) => {
+                const notice = noticeOf(item);
+                return notice === null ? [] : [notice];
+            }) : [];
+            wakeGate = isRecord(snapshot.wakeGate) && snapshot.wakeGate.open === true;
             if (isRecord(snapshot.status)) applyStatus(snapshot.status);
             touched();
         },
@@ -969,6 +1021,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         usage: () => ({...usage, context, lastCacheHitRate}),
         // 有乐观消息代表的那条不在排队区重复显示（合并发出的那一条）。
         queue: () => (optimistic.length === 0 ? queue : queue.filter((item) => item.commandId === undefined || !optimistic.some((pending) => pending.commandId === item.commandId))),
+        notices: () => notices,
+        wakeGateOpen: () => wakeGate,
         meta: () => meta,
         interrupted: () => interrupted,
         problems: () => problems,

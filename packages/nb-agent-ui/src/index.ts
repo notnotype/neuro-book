@@ -42,7 +42,7 @@ export type {ResolvedStatusItem, StatusLineItem, StatusLineSetting, StatusLineSi
 export type {AgentContextPatch} from "./context";
 export {createHarnessTranscript, logSeqOf, modelErrorText} from "./harness";
 export {createKernelTranscript} from "./kernel-transcript";
-export type {KernelAnchor, KernelIssuer, KernelMeta, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
+export type {KernelAnchor, KernelIssuer, KernelMeta, KernelNotice, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
 export type {HarnessTranscript, TranscriptProblem} from "./harness";
 export {catalogRef, providerSelectable} from "./model-catalog";
 export type {CatalogAccess, CatalogModelView, CatalogProviderView} from "./model-catalog";
