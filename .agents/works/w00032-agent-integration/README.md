@@ -82,6 +82,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-18 | t21 重开并推进：范围、计划（三份设计审查与 omp 对照，3.1 稿）与 Spec（planned）已定；切片 2 内核的嵌套调用通道先合入（不等审批简化提案，开发者定），eval 内核的子进程部分随之合入、还没接进应用（[t21](tasks/t21-eval-codeact/README.md)） |
 | 2026-11-18 | t21 切片 3、4 合入：eval 工具接进应用（每会话的内核、重置提示、累计时限、嵌套写入成组，还没进内置 Profile）；插件给 eval 代码登记全局对象（`agent.evalObjects`、`docs://eval/`、eval 的说明按会话列出对象），示例插件 `word-stats`。换 Profile 会重置内核，记进待确认清单（[t21](tasks/t21-eval-codeact/README.md)） |
 | 2026-11-18 | t21 完成：界面、内置 Profile 与真实模型切片合入；代码里调 `read` 交回对象（决定 10）；两份实现审查与 Spec 晋升核对都处理完，`eval.md` 晋升为 `implemented`，留 4 句 planned（[t21](tasks/t21-eval-codeact/README.md)） |
+| 2026-11-19 | t40：eval 不做内存转储（开发者定）；会话关闭不再结束内核，再打开、叶子与 Profile 没变时接着用，内核照样按空闲与上限回收、服务端停止时结束；重置提示的原因写准（关闭期间的空闲与回收、换了 Profile、两次调用之间被外部结束）（[t40](tasks/t40-eval-kernel-survives-session-close/README.md)） |
 
 ## 待确认
 

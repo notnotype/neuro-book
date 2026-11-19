@@ -1,0 +1,158 @@
+### 1. 选择器面板自己的“焦点离开就收起”必然关掉面板，对话框随面板一起卸载
+严重程度：重要
+类别：接口与合同 / 依赖机制
+位置：packages/neuro-book/src/plugins/stickers/web/components/StickerPickerPanel.vue:138-142（onFocusout）；MarkdownStickerCard.vue:31-36；agent/web/sticker-composer.ts:49-52；计划“选择器 StickerPickerPanel”与“风险”
+现象：面板根上 `@focusout` 的判断是 relatedTarget 不在 root 里就 `emit("close","blur")`。ImagePreviewDialog 是 reka 模态，焦点陷阱把焦点移进传送出去的对话框（DOM 上在 root 之外，relatedTarget 为对话框内元素或 null），所以一打开对话框面板就发 close("blur")。两个宿主（MarkdownMenus.closeSticker、composer 的 closePopover）收到后都把弹层置空，AnchoredPopover 不再渲染面板；对话框若是面板的子组件就一起卸载，表现是“预览一闪就没了”。AnchoredPopover 自身不处理点外面与焦点外（.md“不处理 Escape 与点外面”），所以唯一的收起路径就是面板这条 focusout。
+为什么是问题：计划把它写成“要核对不会被触发”，但按代码它一定被触发，不是待核对项；决定 4 与计划都承诺“面板不关”，没有给机制。
+如何核实：读 StickerPickerPanel.vue 的 onFocusout 与两个宿主的 close 处理；happy-dom 里没有真实的焦点陷阱，我没有在真实浏览器里复现（未实验），按代码判断。
+建议改法：面板持有 previewOpen 状态，打开期间 onFocusout 直接 return，对话框 closed 之后焦点回到底部按钮（reka 自己会还给打开前的元素）；对话框放在面板里而不是宿主里，这样两个宿主都不用改。并且要在真实浏览器里验（见第 12 条），不能只靠 happy-dom。
+
+### 2. 编辑器的 previewSticker 要加进 indirectHost，计划没写，漏了则功能静默失效
+严重程度：重要
+类别：遗漏 / 隐含耦合
+位置：packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:112-160（viewHost 与 indirectHost）；packages/nb-markdown/src/editor/sticker-views.ts:18-31
+现象：编辑器扩展里放的不是 viewHost，而是 indirectHost(hostTarget)：一组逐字段 getter，转发到“当前这次挂载”的 viewHost（因为编辑器实例存在标签槽里，控件卸载重挂时复用）。新增 `previewSticker` 字段只加进 viewHost 不加 getter，扩展里读到的永远是 undefined，节点视图的点击回调什么也不做，类型检查不报（字段可选）。
+为什么是问题：计划只写“MarkdownViewHost 加可选 previewSticker，点击时才读（同 openLink）”，而同 openLink 就意味着要照 `get openLink()` 的样子在 indirectHost 里加一份。拆分、移动标签后重挂的编辑器还要靠这个间接层才指到新的对话框状态。
+如何核实：grep indirectHost，看 openLink、images、stickers、report 都各有 getter。
+建议改法：计划写明三处同改（接口、viewHost、indirectHost），并让 MarkdownControl.dom.test.ts 的用例走“标签重挂后再点表情仍能打开”。
+
+### 3. nb-agent-ui 自己声明的 MarkdownActivation 与 PromptTextViewPortProps 也要改，计划没列
+严重程度：重要
+类别：接口与合同 / 兼容
+位置：packages/nb-agent-ui/src/ports.ts:129-156、packages/nb-agent-ui/src/index.ts:21-23；vue/parts/AgentMarkdown.vue:27-38；vue/stream/AgentUserContent.vue:66-73
+现象：nb-agent-ui 不依赖 nb-markdown，宿主注入的 Markdown 组件与 PromptTextView 的形状由核心 ports.ts 自己声明：`MarkdownActivation = reference | link | image`，`PromptTextViewPortProps` 只有 `onTokenActivate`。计划只写了 nb-markdown 的 `MarkdownDisplayActivation` 加 sticker，以及 AgentMarkdown/AgentUserContent 的接线，没有提 ports.ts 与它的公开导出。AgentMarkdown.onActivate 是不带 default 的 switch，新 kind 不改 ports 的话类型上进不来、运行时静默丢掉。
+为什么是问题：这是对外公开的端口类型（index.ts 导出、nb-agent-ui 已发布过 0.3.0）；sticker 载荷的形状要在 ports.ts 里按结构重写一份（不能 import nb-markdown 的 StickerPreview），后续切片照计划字面做会在 3 号切片才发现类型对不上。Spec 里 agent-conversation-view.md 对这个端口的描述也要同步。
+如何核实：grep MarkdownActivation、PromptTextViewPortProps 的全部引用（ports.ts、AgentMarkdown.dom.test.ts、AgentConversationView.dom.test.ts、Lab 的 labAgentRenderers）。
+建议改法：切片 3 或单列一片：ports.ts 加 `{kind:"sticker"; sticker:{raw,url,name,packTitle,width,height}}` 与 `onStickerActivate`，并改 AgentMarkdown.dom.test.ts 的 ACTIVATIONS；计划的 Spec 改动清单补 agent-conversation-view.md 的端口小节。
+
+### 4. 单击即预览没有区分手势：夹在链接里的表情会同时触发两个动作，修饰键与选区手势也会误开
+严重程度：重要
+类别：遗漏 / 对照参照
+位置：计划“buildSticker ... 在 <img> 上监听 click”；packages/nb-markdown/src/display/MarkdownDisplay.vue:131-136（根上的 onClick）；packages/nb-markdown/src/editor/link-open.ts:50-70；neuro-book/.../comments/MarkdownCommentLayer.vue:370-382
+现象：
+(a) 表情可以在链接里：core 的 link 读法是 `context.inline(link.tokens)`，表情是内联 token，所以 `[:lyra/开心: 点这里](url)` 读出带 link 标记的 sticker 节点（从代码推断，未跑）。展示器里点其中的 `<img>`：img 上的监听先发 `sticker`，事件冒泡到根的 onClick，`closest("a[href]")` 命中，再发 `link`；AgentMarkdown 先开预览再 emit `link.open` 给宿主。编辑器里 Ctrl 点同理：MarkdownLinkOpener 开链接，img 监听又开预览。
+(b) 编辑器里同类交互都有手势约束：链接要 Ctrl/⌘ 点才打开，普通点击放光标；批注是 Ctrl 点“看”。计划里表情是无条件单击预览，Shift 点扩选区、Ctrl 点看批注或开链接、双击选词都会弹模态；双击还会因第二次按下落在遮罩上（Dialog 的 onOverlayPointerUp 判为点外面）把刚开的对话框关掉。
+(c) 输入法组字中点表情、只读文档同样走这个监听。
+为什么是问题：开发者定的是“编辑器里单击表情直接预览”（决定 2），但没有定修饰键与链接里的情形，这是实现必须补的合同；不补会在 4 号切片之后才出现重复动作。
+如何核实：读上面三处；Spec markdown-display 输出 5 写“点击外部链接发出 link”，表情在链接内时没有规定。
+建议改法：监听里 `event.button !== 0 || shift/ctrl/meta/alt || event.detail > 1` 时不处理；`closest("a[href]")` 命中时只发 link（表情在链接内不预览）；编辑器侧在 `view.composing` 时不处理。写进 Spec 输出 46，并各补一条 dom 测试。
+
+### 5. 样式挂载：入口归属会逼出 storage 依赖、首帧闪动、Lab 与单独使用无路径、选择器特异性与类名含糊
+严重程度：重要
+类别：遗漏 / 隐含耦合 / 前端规范
+位置：计划“浏览器入口激活时，在 document.head 挂 <style>”“.nb-sticker.has-image.is-sticker-display”；packages/neuro-book/src/plugins/stickers/web/plugin.ts:35-70；packages/nb-markdown/src/stickers.css:35-58
+现象与分析：
+(a) 机制本身不违反规范：已有先例（ui/theme/document-theme.ts 的图标 style、nb-ui theme-loader 的 fallback style），没有 CSP 限制 style（grep 只在文件与预览路由上有 CSP），样式只含尺寸、没有颜色，不涉及主题；stickers.css 与它同样是不分层的，所以不会输给原子类。多窗口：设置窗口、桌面版各是独立 document，各自激活入口、各挂一份，没有共享一个 document 的前提；仓库里没有弹出窗口（没搜到 documentPictureInPicture、popout）。用属性或变量替代不能少掉“按包选中”的选择器，所以我认为这条路本身可取。
+(b) “浏览器入口”有三个：browser 入口只依赖 diagnostics，注释明说 Markdown 激活要等它提供的 stickerResolverKey，所以 picker 入口才单独拆出来拿 storage。读偏好要 storage，写在 browser 入口里会让 Markdown 与 Agent 的激活排在 storage 之后。应放 picker 入口（已有 storage）或新开一个入口。page 入口也没有 storageKey，开关要它，没有 storage 时的行为（隐藏？只在本次生效？）计划没写。
+(c) 偏好读到之前先按小图画一遍，读到后整个对话重排；对话里是长文，建议至少在 Spec 写一句。
+(d) 选择器写“按 [data-sticker-pack] 选中”：单独的属性选择器特异性是 (0,1,0)，压不过 `.nb-sticker.has-image`(0,2,0) 的 margin 与 `.nb-sticker-block .nb-sticker__image`(0,2,0)；高度写在子元素 `<img>` 上，不是 `.nb-sticker`。计划同时又提一个类 `.is-sticker-display`，但没有谁给元素加这个类，stickerDisplayStyle 也是另一份声明副本，写两份。图读失败的 showText 要把 data-sticker-pack 一并清掉。
+(e) Lab 与单用 nb-markdown 的宿主没有挂载路径，Lab 的“夹着贴纸的段落”场景要自己插 style，计划没写。
+建议改法：nb-markdown 导出 `mountStickerDisplayStyle(doc, packIds): () => void`（内部生成 `.nb-sticker.has-image[data-sticker-pack="x"]` 与 `... .nb-sticker__image` 两类规则，只写一份声明，不要 is-sticker-display 类），宿主与 Lab 都调它；neuro-book 放在 picker 入口或单开 display 入口，并写明无 storage 时的行为。
+
+### 6. 预览“原尺寸不放大”对贴纸来说看不大：小图预览可能不比贴纸显示的 120 像素更大
+严重程度：重要（需要开发者定）
+类别：上游选择 / 与已定设计一致
+位置：packages/nb-agent-ui/src/vue/parts/OriginalImagePreviewDialog.vue:73（`Math.min(1, availableWidth / size.width, availableHeight / size.height)`）；计划“行为原样保留：原尺寸不放大”与 Spec 输出 46；Task README 目标“点表情能看大图”
+现象：预览按 natural 尺寸显示、只缩不放。表情包常见的图是 64 到 512 像素（Lab 的占位图 128 乘 128；规则只限上限 1024，没有下限，Spec 输出 29）。一个 128 像素的表情预览出来还是 128：比行内小图（约 27 像素）大，但与“按贴纸显示”的 120 像素高几乎一样，对贴纸显示开着的用户，点图什么也没放大。开发者要的是“看大图”，决定 3 说“复用现有对话框”，但没有明确说连“不放大”也沿用，这是计划把原图预览的规则原样带过来的副作用。
+为什么是问题：对话里有的是 AI 生成的 SVG/小 PNG，预览的价值恰在放大；沿用“原尺寸不放大”会让这条功能对小图形同虚设，而且 Spec 还把“预览不能缩放”写进了不承诺，后续难改。
+如何核实：看 measure() 的 scale 上限；在 Lab 里用 labStickers 的 128 像素图点预览（计划已有场景）。
+建议改法：给 ImagePreviewDialog 加一个可选 prop，例如 `fit: "natural" | "fill"`（缺省 natural，原图预览不变；表情用 fill，按可用空间放大到不超过某个上限，比如宽高中较大边至多 480 像素，并带 `image-rendering` 的取舍），在 Spec 输出 46 写清“表情预览放大到约 N 像素”。把它交开发者确认，不要悄悄沿用。
+
+### 7. 输入框里每个贴纸 120 像素：光标、单行版式、最大高度都没有量，验收里也没有输入框的用例
+严重程度：重要
+类别：遗漏 / 验收映射
+位置：packages/nb-markdown/src/prompt/PromptEditor.vue:1036（maxHeight 缺省 200）、1165（line-height 1.6）、1138-1160（`img.ProseMirror-separator` 隐藏）；packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:949-965（单行版式：控件与正文最后一行的中线对齐、贴底）；计划“待确认 3”与验收映射
+现象：
+(a) 输入框 body 的 maxHeight 缺省 200，一个 120 像素的贴纸占 60%，两个换行就出滚动条，且内容在内部滚动，贴纸可能被滚出视野；
+(b) 单行版式里控件“与正文最后一行的中线对齐、正文长高时留在底边”，最后一行是 120 像素高的贴纸时这个对齐的前提（一行的高度）不成立；
+(c) 光标挨着一个 120 像素高的 contenteditable=false 行内块时，Chrome/ProseMirror 的光标高度常随相邻的行内块变高（stickers.css 现有的 `vertical-align:-0.16em; line-height:0` 是为 1.6em 小图调的，大图用 bottom 对齐后行内基线的位置会变）；这一点我没有在浏览器里量，是风险推断。
+为什么是问题：待确认 3 开发者已同意，代价写成“输入框会被撑高”，但没有说约束（最大高度内滚动？滚到光标？）也没有一条验证。验收映射里 dom 测试只覆盖对话；e2e 只写“同一条回复里夹在文字中的表情”，没有输入框。
+如何核实：这几项必须在真实 Chrome 的 e2e 里量：在输入框里打开某个包的开关后插入一个表情，断言输入框高度不超过 maxHeight、光标矩形高度在合理范围（不等于 120）、单行版式下控件仍贴底。
+建议改法：在 e2e 加输入框这一条（高度、滚动、光标）；若量出光标变高，输入框里让贴纸显示改回缩放到不超过行高 2 倍，或在计划里把输入框排除出输出 47，改成“对话与编辑器生效”（这需要重回待确认 3）。
+
+### 8. 验收映射：焦点与对话框相关的判据只靠 happy-dom，编辑器、选择器、输入框没有真实浏览器用例
+严重程度：重要
+类别：验收映射
+位置：计划“验收映射”“验证”“风险”；vitest.config.ts:19（environment: "happy-dom"）；packages/neuro-book/src/plugins/stickers/web/sticker-picker.dom.test.ts:49-60（只挂面板本身，无宿主弹层）
+现象：计划把“面板不关”“焦点回到按钮”“关掉后焦点回到正文”都记在 dom 测试上，并说“用真实的 nb-ui Dialog”。happy-dom 里 reka 的 FocusScope 焦点陷阱、focusout 的 relatedTarget、body 的 pointer-events 锁都与真浏览器不同（我没在 happy-dom 里实测，按两者差异判断，这类用例容易“空过”）；而且现有选择器测试只挂面板，不挂 AnchoredPopover 与宿主的 close 处理，第 1 条的问题（宿主收到 close 后卸载）在这样的测试里不会出现。e2e 只列了：对话里点表情看到预览，以及开关切换后图高变化。编辑器单击、选择器底部按钮、用户消息、输入框都没有 e2e。
+为什么是问题：这几条的失败方式恰是“测试通过、真实使用不行”，与项目的测试原则（依赖用真的）相悖。
+建议改法：e2e 里加：编辑器单击表情打开、关掉后继续打字落在原光标；选择器底部按钮打开后面板仍在、关掉后焦点在按钮、再按 Esc 才关面板；输入框的高度与光标（见第 7 条）。dom 测试保留给类名、属性与事件的形状。计划的“共约 4 个文件”相应改。否定类断言（面板没被收起）要按 e2e-negative-assertions 的做法先做变异。
+
+### 9. 复制按钮放进卡片头部：失败文案很长，且三处宿主各写一份，与“三处要一模一样”的理由矛盾
+严重程度：建议
+类别：别扭与反常 / 遗漏
+位置：packages/nb-ui/src/components/controls/CopyButton.vue（失败时文字是“复制失败，请手动选择文字”）；OriginalImagePreviewDialog.vue:12-15 与 .md（卡片最窄 240 像素、标题与两个图标按钮要放下）；计划“新增插槽 actions ... 表情用它放复制写法”
+现象：
+(a) 卡片贴着图片，最小宽 240 像素，头部是“标题 + 下载 + 关闭”。加一个带文字的 ghost 按钮（“复制写法”约 90 到 110 像素，英文 “Copy writing” 更长），失败态还会变成整句“复制失败，请手动选择文字”；小图（64 像素）时标题只剩几个像素，失败态可能把头部撑出卡片。计划只有“带 actions 的长英文标题”一张 Lab 场景，没有失败态。
+(b) 对话框抽到 nb-ui 的理由是三处要一模一样，但计划把复制按钮留给 actions 插槽：AgentConversationView、MarkdownControl、StickerPickerPanel 各写一份按钮、各接一个文案键（agent、markdown、stickers 三个目录），复制写法这件事反而三处各做。
+建议改法：ImagePreviewDialog 直接加可选 prop `copyText?: string` 与 `copyLabel?: string`，内部放 CopyButton，文案用 nb-ui 目录一条；失败与已复制态用图标加短文字，或头部按钮用 IconButton 加 title，保证卡片最窄宽度放得下。actions 插槽可以不要。
+
+### 10. 底部“指着的表情”按钮：外层 footer 是 aria-hidden，触屏没有入口
+严重程度：建议
+类别：遗漏 / 对照参照
+位置：packages/neuro-book/src/plugins/stickers/web/components/StickerPickerPanel.vue:228-232（`<footer ... aria-hidden="true">`）；同文件 pointed 只由 pointerenter 与 focus 更新（:219-221）
+现象：
+(a) footer 现在整块 aria-hidden（因为它重复格子的名字）。计划把里面的小图改成按钮，但没说怎么处理 aria-hidden：留着则是可聚焦元素在 aria-hidden 里（读屏与 axe 都报），去掉则读屏会把名字念两遍；而决定 4 说“预览从底部一行指着的表情的图打开”，按钮的名字是“查看大图”，名字里该带表情名。
+(b) “指着的表情”靠鼠标悬停或键盘焦点，触屏点格子就是插入并关面板，所以手机或平板上没有任何办法打开预览。决定 4 已认可“先这么做”，但应在 Spec 输出 39 与不承诺里写明，而不是留成隐含。
+(c) 对照参照：同面板的标签页按钮用 `@mousedown.prevent` 避免点击抢焦点，计划的新按钮没提。Chromium 里点按钮焦点仍在 root 内不会触发收起，Safari 与 Firefox 不聚焦按钮（relatedTarget 为 null）会触发第 1 条那条路径。
+建议改法：把按钮从 aria-hidden 的 footer 里拿出，footer 只留文字，按钮单独放；`aria-label` 写“查看大图：名字”；mousedown 阻止默认；Spec 补触屏说明。
+
+### 11. ResolvedSticker 加字段与 buildSticker 加位置参数的兼容写法没定
+严重程度：建议
+类别：接口与合同 / 兼容
+位置：packages/nb-markdown/src/stickers.ts:77-89、src/language/syntax/sticker/view.ts:18、src/index.ts:12-13；packages/nb-markdown/package.json（public、0.3.0）；实现处：neuro-book/.../lab/web/fixtures/lab-stickers.ts:36、stickers/web/resolver.ts:46、sticker.dom.test.ts:30
+现象：
+(a) nb-markdown 是公开发布的包，`StickerResolver` 是宿主实现的端口；计划写“加三个只读字段 pack、name、packTitle”，没写必填还是可选。必填会让已有的实现（仓库里 3 处，外部宿主未知）编译不过；其中 name 与 ref.name 重复（ref 已带 NFC 后的名字）。
+(b) buildSticker 的 report 已是可选的第 4 位，新增的 onActivate 排第 5 位，调用者只想传点击回调时得写 `undefined`；现有调用点实际有 4 处，不是计划说的“三处”：static-views.ts:90、editor/sticker-views.ts:19、PromptSticker.vue:17、prompt-editor-extensions.ts:208（最后一处不传）。
+建议改法：新字段全部可选（缺 pack 则不写 data-sticker-pack、不能用贴纸显示；缺 packTitle 标题只写名字），name 去掉用 ref.name；buildSticker 的后两个参数改成一个选项对象 `{report?, onActivate?}`；同时在包的变更说明里记一笔。
+
+### 12. stickers.display 记录：locality、失效的包 id、记录读不到、改包名后的行为没有定
+严重程度：建议
+类别：遗漏 / 上游选择
+位置：计划“显示偏好：新记录 stickers.display，scope user、locality shared，{stickerPacks: string[]}，至多 256 项”；stickers/web/recent.ts:18（同包的 recent 用 local）；docs/specs/storage/persistence.md 术语
+现象：
+(a) 同一插件里“最近用过”选 local（这个客户端一份），显示偏好选 shared（跨客户端同步）。没有记录的理由；它决定了在手机浏览器里打开同一个用户时会继承桌面上设的“每个贴纸 120 像素”。按 AGENTS 的规矩这算“没有记录的理由”，应交开发者定，不要默认。
+(b) 记录按包 id 存。包 id 随文件夹名变：改包名、复制到我的、删了重建，id 都变（Spec 输出 33），原来的偏好静默丢失；已删的包留下失效的 id，累计到 256 项后再打开开关保存失败，计划没有清理或报错的说法。
+(c) “读不了时当作空的，保存失败时通知”是照 recent 抄的；但 recent 注释写的是“不重试也不提示”，计划写“保存失败时通知”与它的参照不同，需要明确是有意的。page 入口与 browser 入口都没有 storageKey（见第 5 条），无 storage 时开关隐藏还是只在本次生效没有说。
+建议改法：locality 交开发者定并写一句理由；加载后按目录里存在的包过滤再写回（剪掉失效 id），开关关掉时从数组里移除；写明无 storage 时开关禁用。
+
+### 13. 表情的点击没有可见与可达的提示：没有指针样式、没有键盘路径，tooltip 仍只写原文
+严重程度：建议
+类别：对照参照
+位置：packages/nb-markdown/src/display/MarkdownImage.vue:76,92-98（img 有 cursor:pointer、alt 与 title）；packages/nb-markdown/src/prompt/PromptTextView.vue:171-186 与 Spec ui/prompt-editor.md 输出 14（小块“可聚焦，回车或空格发出 token-activate”）；view.ts:24-26（title = raw）
+现象：同应用里同类交互的参照：图片有 pointer 光标；PromptTextView 里的小块可聚焦、回车与空格触发。计划里的表情只是在 `<img>` 上挂 click：没有光标样式（尤其输入框里不预览的表情与已预览的表情外观相同，用户分不出哪个能点）、不可聚焦、读屏读不到“可预览”。title 仍是写法原文。
+为什么是问题：不是阻断，但“能点”完全靠发现；Spec 输出 46 写了“占位与原文点了没反应”，应对应有区别的外观。
+建议改法：只在装了 onActivate 的元素上加 `is-previewable`（cursor: zoom-in）；PromptTextView 与展示器里让元素带 role="button"、tabindex="0"、aria-label “查看大图：名字”，回车与空格触发（编辑器里节点不可聚焦，维持鼠标）；输入框里不接则不加。
+
+### 14. 新增界面文字没有逐个列出：四个目录两种语言
+严重程度：建议
+类别：遗漏（英文文案）
+位置：计划“文案从 useAgentText 改成 nb-ui 的翻译端口”“PackFields 一行 Switch”“aria-label 写查看大图”“标题名字 · 包显示名”
+现象：要新增或移动的文字至少有：nb-ui 目录里的 imagePreview.*（关闭、下载原图、加载中、加载失败、重试，6 条里 5 条搬走，nb-agent-ui 的 imagePreview.image 留下，因为 tokenAction 还在用；locales.test.ts:202-207 现在逐条核对这六条，要拆）、复制写法、查看大图、按贴纸显示与那句小字、预览标题的分隔符。分别落在 nb-ui、nb-agent-ui（复制按钮若不按第 9 条改）、nbook.markdown、nbook.stickers 四个目录，各要 zh-CN 与 en-US。计划只说 locales.test.ts 与 default-text.test.ts 兜底。
+建议改法：在计划里把键表列出来；英文按“Show as sticker / Emoji in text also show large”一类的长度在 390 宽下截图（计划只有开关一张英文窄屏场景，预览对话框的英文长标题已有）。
+
+### 15. 计划里的名字与代码对不上，照字面做会找不到
+严重程度：建议
+类别：别扭与反常
+位置：计划“展示器：MarkdownDisplayActivation 加 {kind: sticker}，块后处理把 host.activate 接给 onActivate”
+现象：
+(a) 代码里的类型叫 `DisplayActivation`（display/static-views.ts:22，从 display/index.ts:6 导出），`MarkdownDisplayActivation` 只是 Spec markdown-display.md 里的写法。Spec 改动与代码改动要的不是同一个名字。
+(b) 接线不在“块后处理”：块后处理（renderer.ts 的 decorateStickers）只加类名。点击要接在 STATIC_VIEWS 的表情工厂（static-views.ts:90）里，`host.activate` 是 StaticViewHost 上现成的方法。
+(c) 计划写“三处调用方都经这个参数接入”，实际是四处（见第 11 条）。
+建议改法：计划按真实名字与位置改写，避免切片 2 的实现者去找不存在的东西。
+
+### 未发现问题的方面
+- 把对话框搬进 nb-ui：必要性成立（nbook.markdown 与 nbook.stickers 不该为一个 Agent 对话框依赖 nb-agent-ui）。它依赖的 useAgentText 其实就是 nb-ui 的文字端口（AgentConversationView 用 provideDefaultText 建同一个端口），文案搬过去不会有“取不到语言”；Dialog 本身已按注入读传送目标与 contained，ResizeObserver 读 panel 的父元素是 Dialog 内部结构，搬家不变。更小的做法（nb-agent-ui 导出再给 neuro-book 用）会让两个插件反向依赖 Agent 包，不比搬家好。需要核对的只有第 6、9、14 条。
+- findSticker 加 pack、packTitle：只有 resolver.ts:46 与 picker.ts:69 两处调用方，picker 只判 null；ResolvedSticker.release 在目录里是空操作，所以预览用的 url 不会在表情卸载后失效。
+- 多窗口与桌面版：每个窗口自己的 document 各激活入口、各挂一份 style，没有共用；仓库里没有弹出到别的 document 的窗口。跨窗口的偏好变化走 storage 订阅（persistence.md 输出 7）。
+- Esc 的先后：对话框传送在面板 DOM 之外，Esc 键事件不会冒到面板根的 onKeydown；reka 只让最上层收 Escape，所以先关对话框、再按才关面板，这一点没问题。AnchoredPopover 不处理点外面，宿主不会因对话框里的点击收起面板。
+- 决定 1 到 6 与待确认 1 到 4：逐条覆盖，没有悄悄改变已定项；计划新增的只有预览放大规则（第 6 条）等实现细节。
+
+### 统计
+阻断 0，重要 7（第 1 到 8 条里的 1、2、3、4、5、6、7、8），建议 7（9 到 15）。（第 1、2、3、4、5、6、7、8 条共 8 条重要，修正：重要 8、建议 7，合计 15。）
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+
+### 统计（更正，以此为准）
+阻断 0，重要 8（第 1 到 8 条），建议 7（第 9 到 15 条），共 15 条；上面那行“重要 7”写错了。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
