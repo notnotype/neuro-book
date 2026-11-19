@@ -74,11 +74,20 @@ const emptyText = computed(() => {
     return text("entryPicker.searching");
 });
 
+/**
+ * 在这里选中的那一项的名字。远程模式下输入框的名字只来自这一批结果或 `selectedName`：选中以后再打开（结果换成新的一次查找、
+ * 查找中没有结果）或搜不到词后离开，结果里都没有它；宿主只在打开时知道当前值的名字，所以选中的名字由这里记着。
+ */
+const picked = ref<{readonly id: string; readonly name: string} | null>(null);
+const shownName = computed(() => (picked.value !== null && picked.value.id === props.modelValue ? picked.value.name : props.selectedName));
+
 function onUpdate(value: string): void {
     if (value === CREATE) {
         emit("create", createName.value);
         return;
     }
+    const item = items.value.find((candidate) => candidate.id === value);
+    picked.value = item === undefined ? null : {id: item.id, name: item.name};
     emit("update:modelValue", value === "" ? null : value);
 }
 </script>
@@ -89,7 +98,7 @@ function onUpdate(value: string): void {
         :model-value="props.modelValue ?? ''"
         :options="options"
         :filter="false"
-        :selected-label="props.selectedName"
+        :selected-label="shownName"
         :clearable="props.clearable"
         :placeholder="props.placeholder ?? text('entryPicker.placeholder')"
         :empty-text="emptyText"

@@ -56,7 +56,7 @@ const editReason = computed(() => (context.blocked === null ? "" : port.t(contex
 
 const toggle = (path: string): void => {
     open.value = open.value === path ? null : path;
-    recordError.value = "";
+    recordErrors.value = {};
 };
 
 /*
@@ -75,21 +75,22 @@ const drafts = computed(() => (context.state.records ?? {}) as Readonly<Record<s
 const draftOf = (path: string): RecordDraft => drafts.value[path] ?? {delta: "", text: ""};
 const setDraft = (path: string, patch: Partial<RecordDraft>): void => {
     context.state.records = {...drafts.value, [path]: {...draftOf(path), ...patch}};
+    if (recordErrors.value[path] !== undefined) recordErrors.value = {...recordErrors.value, [path]: ""};
 };
 const recordReason = computed(() => (editReason.value !== "" ? editReason.value : context.position.kind === "initial" ? text("blocked.initial") : ""));
-const recordError = shallowRef("");
-const saving = shallowRef(false);
+/** 失败的原因按字段记：保存中作者展开了别的字段，回来的原因仍写在记的那个字段下面。改了输入就清掉那个字段的。 */
+const recordErrors = shallowRef<Readonly<Record<string, string>>>({});
+/** 正在保存的字段。一次只记一笔：保存中展开别的字段，它的表单也是保存中。 */
+const savingPath = shallowRef<string | null>(null);
 const submit = async (path: string): Promise<void> => {
-    if (saving.value) return;
-    saving.value = true;
+    if (savingPath.value !== null) return;
+    savingPath.value = path;
     const draft = draftOf(path);
     const delta = Number(draft.delta.trim().replace(/,/gu, ""));
     const result = await context.record(fieldOf(path), {text: draft.text.trim(), ...(isSemantic(declarationOf(path)) ? {} : {delta})});
-    saving.value = false;
-    if (result.ok) {
-        setDraft(path, {delta: "", text: ""});
-        recordError.value = "";
-    } else recordError.value = port.t(result.reason);
+    savingPath.value = null;
+    if (result.ok) setDraft(path, {delta: "", text: ""});
+    recordErrors.value = {...recordErrors.value, [path]: result.ok ? "" : port.t(result.reason)};
 };
 </script>
 
@@ -125,8 +126,8 @@ const submit = async (path: string): Promise<void> => {
                 :delta="draftOf(path).delta"
                 :text="draftOf(path).text"
                 :blocked-reason="recordReason"
-                :error="recordError"
-                :saving="saving"
+                :error="recordErrors[path] ?? ''"
+                :saving="savingPath !== null"
                 @update:delta="(value: string) => setDraft(path, {delta: value})"
                 @update:text="(value: string) => setDraft(path, {text: value})"
                 @submit="submit(path)"

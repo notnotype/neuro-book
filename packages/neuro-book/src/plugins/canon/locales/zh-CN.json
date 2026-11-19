@@ -220,6 +220,7 @@
         "story": "剧情里变了",
         "save": "保存",
         "cancel": "取消",
+        "changedElsewhere": "这个条目在对话框打开以后被别处改过。关掉再打开能看到改过的内容；再保存一次就以这里填的为准。",
         "previewing": "正在预览…",
         "routeInit": "改初值",
         "routePatch": "改{{place}}“{{text}}”那一笔",
@@ -245,6 +246,7 @@
         "close": "关闭",
         "label": "刚保存的改动",
         "undo": "撤销",
+        "undone": "已撤销",
         "agentLabel": "Agent 改了设定",
         "agentChanged": "Agent 改了设定：{{title}}",
         "agentEarlier": "（之前还改了 {{count}} 次）",
@@ -561,7 +563,8 @@
         "path": "图片的路径",
         "pathPlaceholder": "作品里的路径，例如 图片/星瑕.png",
         "caption": "说明",
-        "badPath": "路径要写作品里的相对路径：不带协议、不以 / 开头、没有 ..、不在 .nbook 下"
+        "badPath": "路径要写作品里的相对路径：不带协议、不以 / 开头、没有 ..、不在 .nbook 下",
+        "needPath": "填了说明还要填图片的路径"
     },
     "move": {
         "title": "移动“{{name}}”",

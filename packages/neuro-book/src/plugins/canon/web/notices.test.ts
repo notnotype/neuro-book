@@ -89,5 +89,12 @@ describe("Agent 改了设定的提示（author-ui.md 的 Agent 提示）", () =>
         expect(notices.agent.value).toEqual({revision: "r5", title: "Agent 再改", earlier: 0});
         notices.openRevisions();
         expect(revisions).toBe(1);
+        // 还原的是提示里那一次时标成已撤销（别的修订不算）；Agent 再写一次就是新的一条。
+        notices.reverted("r4");
+        expect(notices.agent.value?.undone).toBeUndefined();
+        notices.reverted("r5");
+        expect(notices.agent.value).toEqual({revision: "r5", title: "Agent 再改", earlier: 0, undone: true});
+        notices.agentRevised({revision: "r6", title: "Agent 又写"});
+        expect(notices.agent.value).toEqual({revision: "r6", title: "Agent 又写", earlier: 1});
     });
 });

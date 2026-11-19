@@ -36,12 +36,14 @@ describe("ImageInput", () => {
         expect(wrapper.emitted("update:modelValue")!.at(-1)).toEqual([null]);
     });
 
-    it("路径不合规则时写原因；服务退回的原因优先；合规时不写", async () => {
+    it("路径不合规则、只填了说明没填路径时写原因；服务退回的原因优先；合规时不写", async () => {
         const wrapper = image({modelValue: {图片: "../外面.png", 说明: ""}});
         expect(wrapper.get("[data-image-problem]").text()).toContain("相对路径");
         await wrapper.setProps({problem: "这个作品里没有这个文件"});
         expect(wrapper.get("[data-image-problem]").text()).toBe("这个作品里没有这个文件");
-        await wrapper.setProps({problem: undefined, modelValue: {图片: "图片/星瑕.png", 说明: ""}});
+        await wrapper.setProps({problem: undefined, modelValue: {图片: "", 说明: "星瑕的画像"}});
+        expect(wrapper.get("[data-image-problem]").text()).toContain("还要填图片的路径");
+        await wrapper.setProps({modelValue: {图片: "图片/星瑕.png", 说明: ""}});
         expect(wrapper.find("[data-image-problem]").exists()).toBe(false);
     });
 });

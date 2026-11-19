@@ -680,6 +680,42 @@ describe("写入", () => {
         await waitUntil("又是空的", () => wrapper.find("[data-text-empty]").exists());
     });
 
+    it("对话框开着时别处改了这个条目：保存不盖掉别人的改动，原因写在对话框里、页头没有；再保存一次以对话框里填的为准", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const storedText = async () => {
+            const read = await other.canon.call("object", {ref: {kind: "entry", id}});
+            if (!read.ok) throw new Error(JSON.stringify(read.failure));
+            return (read.value.object as Entry).init.text.map((block) => block.source).join("|");
+        };
+        const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === label)!;
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await waitUntil("有一段", () => wrapper.find("[aria-label='改第 1 段']").exists());
+        await wrapper.get("[aria-label='改第 1 段']").trigger("click");
+        await waitUntil("对话框", () => document.body.querySelector("[data-block-dialog] textarea") !== null);
+        const area = document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")!;
+        area.value = "作者的改法";
+        area.dispatchEvent(new Event("input", {bubbles: true}));
+
+        const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
+        const status = await other.canon.call("status", {});
+        if (!stored.ok || !status.ok) throw new Error("读不到");
+        const block = (stored.value.object as Entry).init.text[0]!.id;
+        const elsewhere = await other.canon.call("editEntries", {input: {requestId: "elsewhere", by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "别处改", ops: [{op: "set", at: {entry: id, path: `text[${block}]`}, value: "别处改过的内容"}]}});
+        expect(elsewhere.ok).toBe(true);
+        await waitUntil("页上读到别处的改动", () => wrapper.find("[data-entry-text]").text().includes("别处改过的内容"));
+
+        dialogButton("保存").click();
+        await waitUntil("对话框里写明", () => document.body.querySelector("[role='dialog'] [role='alert']")?.textContent?.includes("被别处改过") === true);
+        expect(await storedText()).toBe("别处改过的内容");
+        expect(wrapper.find("[data-entry-action-error]").exists()).toBe(false);
+
+        dialogButton("保存").click();
+        await waitUntil("以对话框里的为准", async () => (await storedText()) === "作者的改法");
+    });
+
     it("人物分页展开语义档的字段：来历下面能记一句，落在所选位置，值后面多一句", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

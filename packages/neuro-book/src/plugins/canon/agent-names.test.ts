@@ -9,7 +9,7 @@ import type {ComponentType, EntryView, FieldDeclaration} from "@notnotype/nb-can
 
 import {componentNamed, resolveField} from "./backend/agent-names";
 
-const type = (id: string, label: string, namespace: string, fields: FieldDeclaration[]): ComponentType => ({id, label, namespace, version: 1, fields} as ComponentType);
+const type = (id: string, label: string, namespace: string, fields: FieldDeclaration[]): ComponentType => ({id, label, namespace, version: 1, fields, instanceFields: false});
 const items: FieldDeclaration = {id: "物品", label: "物品", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}, {id: "备注", label: "数量", kind: "text"}, {id: "甲", label: "重", kind: "text"}, {id: "乙", label: "重", kind: "text"}]} as FieldDeclaration;
 const store = type("test.store", "库存", "store", [items, {id: "a", label: "b", kind: "text"} as FieldDeclaration, {id: "b", label: "c", kind: "text"} as FieldDeclaration]);
 const other = type("test.other", "库存", "other", [{id: "x", label: "x", kind: "text"} as FieldDeclaration]);

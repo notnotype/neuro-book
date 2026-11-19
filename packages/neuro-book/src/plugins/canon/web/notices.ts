@@ -27,6 +27,8 @@ export interface CanonNotice {
 /** Agent 的提示：最近一次修订，与它之前、这条提示还没关时 Agent 又改了几次（不算最近这次）。 */
 export interface AgentNotice extends CanonNotice {
     readonly earlier: number;
+    /** 这次修订已经被还原：“撤销”不再能点（再点会进“连同依赖一起还原”，等于把 Agent 的改动重做回来）。 */
+    readonly undone?: true;
 }
 
 export interface CanonNotices {
@@ -36,6 +38,8 @@ export interface CanonNotices {
     /** 记一次 Agent 的修订（读取层的 `onRevision` 里调用）。 */
     agentRevised(notice: CanonNotice): void;
     dismissAgent(): void;
+    /** 一次修订被还原了（还原对话框成功时调用）：它是 Agent 提示的那一次时，提示标成已撤销。 */
+    reverted(revision: string): void;
     /** 打开改动记录视图（Agent 提示的“看改动记录”）。 */
     openRevisions(): void;
     /** `page`：调用方随即打开一个条目页（新建条目），提示留给那一页，不看现在有没有页面挂着。 */
@@ -66,6 +70,9 @@ export function createNotices(routes: NoticeRoutes = {workbench: null, receipt: 
         },
         dismissAgent: () => {
             agent.value = null;
+        },
+        reverted: (revision) => {
+            if (agent.value !== null && agent.value.revision === revision) agent.value = {...agent.value, undone: true};
         },
         openRevisions: () => routes.revisions?.(),
         show: (notice, options) => {

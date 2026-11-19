@@ -220,6 +220,7 @@
         "story": "a story change",
         "save": "Save",
         "cancel": "Cancel",
+        "changedElsewhere": "This entry was changed elsewhere after the dialog opened. Close and reopen it to see the change, or save again to keep what you entered here.",
         "previewing": "Previewing…",
         "routeInit": "Changes the initial value",
         "routePatch": "Changes the step “{{text}}” in {{place}}",
@@ -245,6 +246,7 @@
         "close": "Close",
         "label": "Change just saved",
         "undo": "Undo",
+        "undone": "Undone",
         "agentLabel": "The agent changed settings",
         "agentChanged": "The agent changed settings: {{title}}",
         "agentEarlier": " ({{count}} earlier changes)",
@@ -561,7 +563,8 @@
         "path": "Image path",
         "pathPlaceholder": "Path inside the project, e.g. images/star.png",
         "caption": "Caption",
-        "badPath": "Use a path relative to the project: no scheme, no leading /, no .., not under .nbook"
+        "badPath": "Use a path relative to the project: no scheme, no leading /, no .., not under .nbook",
+        "needPath": "A caption needs an image path too"
     },
     "move": {
         "title": "Move “{{name}}”",

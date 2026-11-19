@@ -184,4 +184,9 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await expect(page.locator("[data-revert-dialog]")).toHaveCount(0);
     await expect(row(page, "校长")).toHaveCount(0);
     await expect(row(page, "雾崎")).toBeVisible();
+    // 撤销过的那一次不能再撤销（再点会进“连同依赖一起还原”，等于把 Agent 的改动重做回来）；焦点回到同一个按钮上。
+    const undo = notice.locator("[data-agent-undo]");
+    await expect(undo).toHaveText("已撤销");
+    await expect(undo).toHaveAttribute("aria-disabled", "true");
+    await expect(undo).toBeFocused();
 });

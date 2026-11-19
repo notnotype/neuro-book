@@ -4,7 +4,7 @@
  */
 
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
-import {defineComponent, h, type PropType} from "vue";
+import {defineComponent, h, ref, type PropType} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -137,6 +137,34 @@ describe("EntryPicker", () => {
         await input(wrapper).trigger("click");
         await type(wrapper, "星瑕");
         await waitUntil("按“星瑕”查过", () => optionTexts().length === 1 && optionTexts()[0] === "星瑕人物");
+    });
+
+    it("选中以后再打开、搜不到词后离开：宿主没给名字，输入框仍写选中的那一项", async () => {
+        const calls: string[] = [];
+        const Controlled = defineComponent({
+            setup() {
+                const finder = useEntryFind(() => memoryFind(calls));
+                const value = ref<string | null>(null);
+                return () => h(EntryPicker, {modelValue: value.value, selectedName: "", results: finder.results.value, onSearch: finder.search, "onUpdate:modelValue": (next: string | null) => (value.value = next)});
+            },
+        });
+        const host = mount(Controlled, {global: {provide: provideText(port)}, attachTo: document.body});
+        mounted.push(host);
+        const wrapper = host.findComponent(EntryPicker) as unknown as VueWrapper;
+        const shown = () => (input(wrapper).element as HTMLInputElement).value;
+        await input(wrapper).trigger("click");
+        await type(wrapper, "星辰");
+        await waitUntil("只列“星辰议会”", () => calls.includes("星辰") && options().length === 1);
+        await input(wrapper).trigger("keydown", {key: "Enter"});
+        await flushPromises();
+        expect(shown()).toBe("星辰议会");
+        await input(wrapper).trigger("blur");
+        await input(wrapper).trigger("click");
+        await type(wrapper, "不存在的词");
+        await waitUntil("按这个词查过", () => calls.includes("不存在的词") && listText().includes("没有"));
+        await input(wrapper).trigger("blur");
+        await flushPromises();
+        expect(shown()).toBe("星辰议会");
     });
 
     it("显示 selectedName；清空发出 null", async () => {

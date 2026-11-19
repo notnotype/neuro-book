@@ -14,7 +14,7 @@ import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {canonText} from "../../shared/text";
-import type {CanonClient, CanonOutputs} from "../../shared/contracts";
+import type {CanonClient, CanonOutputs, FoundEntry} from "../../shared/contracts";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentViewContext, ComponentViewRegistry, EntryTabContext} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
@@ -329,17 +329,36 @@ const editHere = computed(() => {
 
 /* ---------- 页头的写入：别名、设定组的加去、移动、恢复（canon.revisions 输出 25 的一次改几处） ---------- */
 
+/** 页头的写入（别名、恢复）与打开对话框前的读取失败的原因，写在页头下面；切到别的分页时清掉。 */
 const actionError = shallowRef("");
 const acting = shallowRef(false);
-/** 发一批操作；成功给保存后的提示，失败把原因写在页头下面（对话框开着时也写在对话框里）。 */
-const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "creative"): Promise<boolean> => {
+/** 对话框里的写入失败的原因，写在对话框里。同一时刻只开一个对话框，打开时清掉。 */
+const dialogError = shallowRef("");
+watch(tab, () => {
+    actionError.value = "";
+});
+/**
+ * 对话框打开时条目的版本：保存时带它，对话框开着的时候别处改了这个条目就得到冲突，不把别人的改动无声盖掉（canon.revisions
+ * 验收 1）。冲突以后清成 null：再保存一次带那时的版本，以对话框里填的为准。
+ */
+let dialogBase: number | null = null;
+const openDialog = (): void => {
+    dialogError.value = "";
+    dialogBase = version();
+};
+/** 发一批操作；成功给保存后的提示。对话框里的写入带打开时的版本，失败写在对话框里；页头的写入（`head`）失败写在页头下面。 */
+const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "creative", from: "dialog" | "head" = "dialog"): Promise<boolean> => {
     if (acting.value) return false;
     acting.value = true;
-    actionError.value = "";
-    const result = await world.write("editEntries", {input: {requestId: `entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion: version(), title, intent, position: position.value, ops}});
+    const error = from === "dialog" ? dialogError : actionError;
+    error.value = "";
+    const baseVersion = from === "dialog" && dialogBase !== null ? dialogBase : version();
+    const result = await world.write("editEntries", {input: {requestId: `entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion, title, intent, position: position.value, ops}});
     acting.value = false;
     if (!result.ok) {
-        actionError.value = port.t(failureText(result.failure).text);
+        const changed = from === "dialog" && result.failure.code === "version-conflict";
+        if (changed) dialogBase = null;
+        error.value = port.t(changed ? text("edit.changedElsewhere") : failureText(result.failure).text);
         return false;
     }
     props.notices.show({revision: result.value.revision, title});
@@ -348,9 +367,9 @@ const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "c
 const changeAliases = (change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}): void => {
     const name = view.value?.name ?? "";
     const title = change.add !== undefined ? text("entry.aliasAdded", {name, alias: change.add.join("、")}) : text("entry.aliasRemoved", {name, alias: (change.remove ?? []).join("、")});
-    void runEntries([{op: "aliases", entry: props.id, ...(change.add === undefined ? {} : {add: [...change.add]}), ...(change.remove === undefined ? {} : {remove: [...change.remove]})}], port.t(title));
+    void runEntries([{op: "aliases", entry: props.id, ...(change.add === undefined ? {} : {add: [...change.add]}), ...(change.remove === undefined ? {} : {remove: [...change.remove]})}], port.t(title), "creative", "head");
 };
-const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})));
+const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})), "creative", "head");
 
 // 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。
 const addOpen = shallowRef(false);
@@ -370,7 +389,12 @@ const confirmAdd = async (): Promise<void> => {
 };
 // 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
 /** 条目选择器的查找（`findEntries`）；`kinds` 是引用字段声明的 `targets`，空的不筛。 */
-const finderFor = (kinds: readonly string[]) => (query: string) => props.client.call("findEntries", {query, position: position.value, limit: 20, ...(kinds.length === 0 ? {} : {kinds: [...kinds]})}).then((found) => (found.ok ? {ok: true as const, items: found.value.items.map((item) => ({id: item.id, name: item.name, kind: item.kind, ...(item.appeared ? {} : {note: port.t(text("entries.unappeared"))}), ...(item.matchedAlias === undefined ? {} : {note: port.t(text("entryPicker.alias", {alias: item.matchedAlias}))})}))} : {ok: false as const, reason: port.t(failureText(found.failure).text)}));
+/** 查到的一项换成选择器的候选：按别名命中的、还没出场的各有一句说明，两句都在时并排写。 */
+const candidateOf = (item: FoundEntry) => {
+    const notes = [...(item.matchedAlias === undefined ? [] : [port.t(text("entryPicker.alias", {alias: item.matchedAlias}))]), ...(item.appeared ? [] : [port.t(text("entries.unappeared"))])];
+    return {id: item.id, name: item.name, kind: item.kind, ...(notes.length === 0 ? {} : {note: notes.join(" · ")})};
+};
+const finderFor = (kinds: readonly string[]) => (query: string) => props.client.call("findEntries", {query, position: position.value, limit: 20, ...(kinds.length === 0 ? {} : {kinds: [...kinds]})}).then((found) => (found.ok ? {ok: true as const, items: found.value.items.map(candidateOf)} : {ok: false as const, reason: port.t(failureText(found.failure).text)}));
 const finder = finderFor([]);
 const parentFind = useEntryFind(() => finder);
 const sameAsFind = useEntryFind(() => finder);
@@ -390,6 +414,7 @@ const openMove = async (): Promise<void> => {
         actionError.value = port.t(failureText(stored.ok ? {code: "version-conflict"} : stored.failure).text);
         return;
     }
+    openDialog();
     moveFrom = {parent: raw.parent, parentName: entry.value?.ancestors?.at(-1)?.name ?? "", folder: raw.folder, kind: raw.type, order: "keep", appears: raw.appears?.kind === "chapter" ? raw.appears.chapter : null, sameAs: raw.sameAs ?? null, sameAsName: entry.value?.sameAs?.name ?? ""};
     moveDraft.value = moveFrom;
     moveOpen.value = true;
@@ -428,10 +453,15 @@ interface ElementDraft {
     readonly label: string;
     readonly values: Readonly<Record<string, unknown>>;
     readonly original: Readonly<Record<string, unknown>>;
+    /** 作者动过的子字段。加一项时没动过的写未知：布尔的输入画不出“未知”，缺省画成“否”，不能当成填了“否”。 */
+    readonly touched: readonly string[];
     readonly originalLabel: string;
     readonly intent: EditIntent;
 }
 const elementDraft = shallowRef<ElementDraft | null>(null);
+/** 改一项时引用子字段当前值的名字（子字段 id 到名字），打开时按 id 读。 */
+const elementRefNames = shallowRef<Readonly<Record<string, string>>>({});
+let elementOpens = 0;
 const elementOpen = shallowRef(false);
 const listDeclaration = (namespace: string, field: string): FieldDeclaration | undefined => entry.value?.declarations?.[namespace]?.find((item) => item.id === field);
 const intentsHere = (): EditIntent[] => (position.value.kind === "initial" ? ["creative"] : ["creative", "story"]);
@@ -455,10 +485,20 @@ const openElement = (namespace: string, field: string, element?: string): void =
     const item = element === undefined ? undefined : items.find((candidate) => String(candidate.id) === element);
     const values = Object.fromEntries((declaration.item ?? []).map((sub) => [sub.id, draftText(item === undefined ? undefined : {value: item[sub.id] ?? null}, kindOf(sub))]));
     const label = typeof item?.label === "string" ? item.label : "";
-    actionError.value = "";
+    openDialog();
     // 以条目为键的一项没有 label，选择器里显示与列表行同样的文字。
-    elementDraft.value = {mode: element === undefined ? "add" : "edit", namespace, field, ...(element === undefined ? {} : {element}), keyed: declaration.keyedBy === "ref", key: element ?? null, keyName: item === undefined ? "" : displayText([item]), label, values, original: values, originalLabel: label, intent: intentsHere()[0]!};
+    elementDraft.value = {mode: element === undefined ? "add" : "edit", namespace, field, ...(element === undefined ? {} : {element}), keyed: declaration.keyedBy === "ref", key: element ?? null, keyName: item === undefined ? "" : displayText([item]), label, values, original: values, touched: [], originalLabel: label, intent: intentsHere()[0]!};
     elementOpen.value = true;
+    // 引用子字段的当前值只有 id：按 id 各读一次条目取名字，输入框里显示名字。读回来时对话框已经换了一次打开的，丢掉。
+    const opened = ++elementOpens;
+    elementRefNames.value = {};
+    const refs = (declaration.item ?? []).flatMap((sub) => (kindOf(sub) === "ref" && typeof values[sub.id] === "string" && values[sub.id] !== "" ? [[sub.id, values[sub.id] as string] as const] : []));
+    void Promise.all(refs.map(async ([sub, id]) => {
+        const read = await props.client.call("entry", {id, position: position.value, mode: "actual"});
+        return [sub, read.ok ? read.value.view?.name : undefined] as const;
+    })).then((names) => {
+        if (opened === elementOpens) elementRefNames.value = Object.fromEntries(names.filter((pair): pair is readonly [string, string] => pair[1] !== undefined));
+    });
 };
 /** 填的值换成字段的值：空的是未知（null）；数填得不成形时为 undefined。 */
 const elementValue = (value: unknown, kind: ElementField["kind"]): unknown => (value === "" || value === null ? null : parsed(value, kind));
@@ -472,22 +512,22 @@ const confirmElement = async (): Promise<void> => {
     if (draft.mode === "add") {
         const element: Record<string, unknown> = {};
         for (const field of elementFields.value) {
-            const value = elementValue(draft.values[field.id], field.kind);
+            const value = draft.touched.includes(field.id) ? elementValue(draft.values[field.id], field.kind) : null;
             if (value === undefined) {
-                actionError.value = port.t(text("list.badValue", {field: field.label}));
+                dialogError.value = port.t(text("list.badValue", {field: field.label}));
                 return;
             }
             element[field.id] = value;
         }
         if (draft.keyed) {
             if (draft.key === null) {
-                actionError.value = port.t(text("list.needKey"));
+                dialogError.value = port.t(text("list.needKey"));
                 return;
             }
             element.id = draft.key;
         } else {
             if (draft.label.trim() === "") {
-                actionError.value = port.t(text("list.needLabel"));
+                dialogError.value = port.t(text("list.needLabel"));
                 return;
             }
             element.label = draft.label.trim();
@@ -499,7 +539,7 @@ const confirmElement = async (): Promise<void> => {
             if (field.semantic || JSON.stringify(draft.values[field.id]) === JSON.stringify(draft.original[field.id])) continue;
             const value = elementValue(draft.values[field.id], field.kind);
             if (value === undefined) {
-                actionError.value = port.t(text("list.badValue", {field: field.label}));
+                dialogError.value = port.t(text("list.badValue", {field: field.label}));
                 return;
             }
             ops.push({op: "set", at: {entry: props.id, path: `${list}[${draft.element!}].${field.id}`}, value});
@@ -518,7 +558,7 @@ const removeElementDraft = shallowRef<{readonly namespace: string; readonly fiel
 const openRemoveElement = (namespace: string, field: string, element: string): void => {
     const items = (view.value?.namespaces[namespace]?.fields[field]?.value ?? []) as Array<Record<string, unknown>>;
     const item = items.find((candidate) => String(candidate.id) === element);
-    actionError.value = "";
+    openDialog();
     removeElementDraft.value = {namespace, field, element, item: item === undefined ? element : displayText([item]), intent: intentsHere()[0]!};
 };
 const confirmRemoveElement = async (): Promise<void> => {
@@ -536,7 +576,7 @@ const blockDraft = shallowRef<{readonly block: string | null; readonly source: s
 const blockOpen = shallowRef(false);
 const openBlock = (block: string | null): void => {
     const source = block === null ? "" : view.value?.text.find((candidate) => candidate.id === block)?.source ?? "";
-    actionError.value = "";
+    openDialog();
     blockDraft.value = {block, source, original: source, intent: intentsHere()[0]!};
     blockOpen.value = true;
 };
@@ -544,7 +584,7 @@ const confirmBlock = async (): Promise<void> => {
     const draft = blockDraft.value;
     if (draft === null) return;
     if (draft.source.trim() === "") {
-        actionError.value = port.t(text("block.emptySource"));
+        dialogError.value = port.t(text("block.emptySource"));
         return;
     }
     if (draft.block !== null && draft.source === draft.original) {
@@ -672,7 +712,7 @@ const setPosition = (value: string): void => {
 <template>
     <div class="min-h-full">
         <NoticeBar v-if="props.notices.current.value !== null" :title="props.notices.current.value.title" @receipt="props.receipt(props.notices.current.value.revision)" @undo="pageNotice.undo(props.notices.current.value)" @close="pageNotice.close()" />
-        <AgentNotice v-if="props.notices.agent.value !== null" :title="props.notices.agent.value.title" :earlier="props.notices.agent.value.earlier" @receipt="props.receipt(props.notices.agent.value.revision)" @undo="pageNotice.undo(props.notices.agent.value)" @revisions="props.notices.openRevisions()" @close="props.notices.dismissAgent()" />
+        <AgentNotice v-if="props.notices.agent.value !== null" :title="props.notices.agent.value.title" :earlier="props.notices.agent.value.earlier" :undone="props.notices.agent.value.undone === true" @receipt="props.receipt(props.notices.agent.value.revision)" @undo="pageNotice.undo(props.notices.agent.value)" @revisions="props.notices.openRevisions()" @close="props.notices.dismissAgent()" />
         <EntryPage
             :status="status"
             :name="view?.name ?? ''"
@@ -700,8 +740,8 @@ const setPosition = (value: string): void => {
             @edit-summary="edit.open('entry.summary')"
             @aliases="changeAliases"
             @restore="restore()"
-            @add-component="addType = addableTypes[0]?.value ?? ''; addOpen = true; actionError = ''"
-            @remove-component="removeOpen = true; actionError = ''"
+            @add-component="addType = addableTypes[0]?.value ?? ''; openDialog(); addOpen = true"
+            @remove-component="openDialog(); removeOpen = true"
             @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"
             @update:position="setPosition"
@@ -736,7 +776,7 @@ const setPosition = (value: string): void => {
                 @value="toggleValue"
                 @entry="(id: string) => props.open({kind: 'entry', id})"
                 @edit-block="(id: string) => openBlock(id)"
-                @remove-block="(id: string) => { actionError = ''; removeBlockDraft = {block: id, intent: intentsHere()[0]!}; }"
+                @remove-block="(id: string) => { openDialog(); removeBlockDraft = {block: id, intent: intentsHere()[0]!}; }"
                 @add-block="openBlock(null)"
             >
                 <template #origin="{address}">
@@ -788,7 +828,7 @@ const setPosition = (value: string): void => {
         >
             <p v-if="addableTypes.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.noMoreGroups") }}</p>
             <Select v-else :aria-label="text('entry.addComponentTitle')" :options="addableTypes" :model-value="addType" @update:model-value="(value: string) => (addType = value)" />
-            <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
         </Dialog>
         <ElementDialog
             v-if="elementDraft !== null"
@@ -803,15 +843,16 @@ const setPosition = (value: string): void => {
             :fields="elementFields"
             :values="elementDraft.values"
             :ref-results="elementRefFind.results.value"
+            :ref-names="elementRefNames"
             :intents="intentsHere()"
             :intent="elementDraft.intent"
             :saving="acting"
-            :error="actionError"
+            :error="dialogError"
             @update:open="(value: boolean) => (elementOpen = value)"
             @update:key-value="(value: string | null) => (elementDraft = {...elementDraft!, key: value, keyName: ''})"
             @search-key="keyFind.search"
             @update:label="(value: string) => (elementDraft = {...elementDraft!, label: value})"
-            @update:value="(field: string, value: unknown) => (elementDraft = {...elementDraft!, values: {...elementDraft!.values, [field]: value}})"
+            @update:value="(field: string, value: unknown) => (elementDraft = {...elementDraft!, values: {...elementDraft!.values, [field]: value}, touched: [...elementDraft!.touched, field]})"
             @search-ref="(field: string, query: string) => { elementRefField = field; elementRefFind.search(query); }"
             @update:intent="(value: EditIntent) => (elementDraft = {...elementDraft!, intent: value})"
             @confirm="confirmElement()"
@@ -831,7 +872,7 @@ const setPosition = (value: string): void => {
                 <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
                 <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="removeElementDraft?.intent ?? 'creative'" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (removeElementDraft = removeElementDraft === null ? null : {...removeElementDraft, intent: value as EditIntent})" />
             </div>
-            <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
         </Dialog>
         <Dialog
             v-if="blockDraft !== null"
@@ -850,7 +891,7 @@ const setPosition = (value: string): void => {
                     <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
                     <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="blockDraft.intent" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (blockDraft = {...blockDraft!, intent: value as EditIntent})" />
                 </div>
-                <p v-if="actionError !== ''" role="alert" class="text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+                <p v-if="dialogError !== ''" role="alert" class="text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
             </div>
         </Dialog>
         <Dialog
@@ -868,7 +909,7 @@ const setPosition = (value: string): void => {
                 <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
                 <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="removeBlockDraft?.intent ?? 'creative'" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (removeBlockDraft = removeBlockDraft === null ? null : {...removeBlockDraft, intent: value as EditIntent})" />
             </div>
-            <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
         </Dialog>
         <MoveDialog
             v-if="moveDraft !== null"
@@ -879,7 +920,7 @@ const setPosition = (value: string): void => {
             :same-as-results="sameAsFind.results.value"
             :chapters="chapters"
             :saving="acting"
-            :error="actionError"
+            :error="dialogError"
             @update:open="(value: boolean) => (moveOpen = value)"
             @update:draft="(value: MoveDraft) => (moveDraft = value)"
             @search-parent="parentFind.search"
@@ -898,7 +939,7 @@ const setPosition = (value: string): void => {
             @confirm="confirmRemove()"
         >
             <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.removeComponentDescription") }}</p>
-            <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
         </Dialog>
         <Dialog
             :open="deleteOpen"

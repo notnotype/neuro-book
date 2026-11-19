@@ -263,14 +263,17 @@ const controlSizeClass = computed(() => isSmall.value
             @keydown="onKeydown"
             @blur="closeMenu"
         >
+        <!-- 图标放在按钮里面：图标是遮罩画的，焦点光晕画在按钮自己身上会被遮罩一起裁掉。 -->
         <button
             v-if="showClear"
             ref="clearButton"
             type="button"
-            class="i-lucide-x h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
+            class="nb-ui-focus-ring inline-flex shrink-0 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
             :aria-label="clearText"
             @click="clear"
-        />
+        >
+            <span class="i-lucide-x h-3.5 w-3.5" aria-hidden="true"></span>
+        </button>
         <span
             class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)]"
             :class="[isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4', open ? 'rotate-180' : '']"

@@ -23,7 +23,12 @@ const emit = defineEmits<{(e: "update:modelValue", value: ImageValue | null): vo
 const text = useCanonText();
 const path = computed(() => props.modelValue?.["图片"] ?? "");
 const caption = computed(() => props.modelValue?.["说明"] ?? "");
-const reason = computed(() => props.problem ?? (path.value !== "" && assetPathProblem(path.value) !== null ? text("imageInput.badPath") : undefined));
+/** 写在输入下面的原因：服务退回的优先；只填了说明、没填路径的图片存不进去，先说一声。 */
+const reason = computed(() => {
+    if (props.problem !== undefined) return props.problem;
+    if (path.value === "") return caption.value === "" ? undefined : text("imageInput.needPath");
+    return assetPathProblem(path.value) !== null ? text("imageInput.badPath") : undefined;
+});
 
 function update(next: {readonly 图片: string; readonly 说明: string}): void {
     emit("update:modelValue", next["图片"] === "" && next["说明"] === "" ? null : next);
