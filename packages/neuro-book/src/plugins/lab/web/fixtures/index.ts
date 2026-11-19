@@ -1800,7 +1800,7 @@ function canonEntryPageFixtures() {
         row("character.外观", "外观", "黑发，左眼下有颗痣", {mark: "前史改过"}),
         row("character.状态", "状态", "未知", {unknown: true}),
         row("character.态度", "现在的态度", "对学院长提防，对白灵信任", {mark: "第 2 章改过", notes: [{where: "第 1 章", text: "起点：谁也不信"}, {where: "第 2 章", text: "白灵替她挡了一次"}], notReduced: true}),
-        row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本", "半块面包"]}),
+        row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本", "半块面包"], elementIds: ["i1", "i2", "i3"]}),
     ];
     const t = (value: string) => ({type: "text", value});
     const value = (path: string, label: string, display: string, extra: Record<string, unknown> = {}) => ({type: "canonValue", path, entry: null, label, display, ...extra});
@@ -1909,6 +1909,7 @@ function canonEntryPageFixtures() {
             scenes: [
                 {id: "sample", label: "人物：改过、未知、语义档的各句、列表", input: {props: {rows: fields}}},
                 {id: "open", label: "展开着一个字段", input: {props: {rows: fields, open: "character.外观"}}},
+                {id: "editing", label: "能改：可改的行有“改”，列表的各项有改、去掉与添加", input: {props: {rows: fields, editing: true}}},
                 {id: "empty", label: "没有字段", input: {props: {rows: []}}},
                 {id: "sample-english", label: "英文界面", input: {props: {rows: fields}}},
             ],

@@ -69,7 +69,8 @@ const text = useCanonText();
                 >{{ text("edit.button") }}</Button>
                 <span v-if="row.mark !== null" class="shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ row.mark }}</span>
             </div>
-            <ul v-if="props.editing && row.elementIds !== undefined" class="m-0 mt-1 list-none pl-32 max-[480px]:pl-0" :aria-label="text('list.elements', {label: row.label})" data-list-elements>
+            <!-- 小缩进、不跟值那一列对齐：专门分页把字段表嵌在很窄的格子里，按视口算的 8rem 缩进会把“添加一项”挤出格子。 -->
+            <ul v-if="props.editing && row.elementIds !== undefined" class="m-0 mt-1 list-none pl-4" :aria-label="text('list.elements', {label: row.label})" data-list-elements>
                 <li v-for="(element, index) in row.elementIds" :key="element" class="flex flex-wrap items-center gap-1" :data-element="element">
                     <span class="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{{ row.items?.[index] ?? "" }}</span>
                     <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" :aria-label="text('list.editElement', {item: row.items?.[index] ?? ''})" @click="emit('edit-element', row.path, element)">{{ text("edit.button") }}</Button>

@@ -5,7 +5,8 @@
  */
 import {computed} from "vue";
 
-import {assetPathProblem} from "@notnotype/nb-canon";
+// 走不带引擎的子路径：根入口带着 MDX 解析链，Lab 的开发服务里会把 CommonJS 的依赖原样交给浏览器。
+import {assetPathProblem} from "@notnotype/nb-canon/schema";
 import {Input} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
