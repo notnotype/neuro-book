@@ -14,7 +14,9 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {entryInside} from "nbook/plugin-platform/backend/plugin-files";
 
-import {SEED_MAX_FILES} from "../shared/contracts";
+import {Value} from "typebox/value";
+
+import {AVATAR_MAX_BYTES, PresetDeclarationSchema, presetsPoint, SEED_MAX_BYTES, SEED_MAX_FILES} from "../shared/contracts";
 import type {BotPresetDeclaration} from "../shared/contracts";
 import {PresetTable} from "./presets";
 import type {PresetLocator} from "./presets";
@@ -71,7 +73,11 @@ describe("预设的文件核对", () => {
         await symlink(join(outside, "secret.md"), join(linked, "a", "persona.md"));
         const big = await pack("big", {"a/persona.md": "字".repeat(100_000), "a/avatar.png": "图"});
         const crowded = await pack("crowded", {"a/persona.md": "人设", "a/avatar.png": "图", ...Object.fromEntries(Array.from({length: SEED_MAX_FILES + 1}, (_, index) => [`seed/${String(index)}.md`, "x"]))});
-        const {presets, reports} = table(locator({good, linked, big, crowded}));
+        const heavy = await pack("heavy", {"a/persona.md": "人设", "a/avatar.png": "图".repeat(Math.ceil(AVATAR_MAX_BYTES / 3) + 1)});
+        const seedHeavy = await pack("seedheavy", {"a/persona.md": "人设", "a/avatar.png": "图", "seed/a.md": "x".repeat(SEED_MAX_BYTES / 2), "seed/b.md": "x".repeat(SEED_MAX_BYTES / 2 + 1)});
+        const seedLink = await pack("seedlink", {"a/persona.md": "人设", "a/avatar.png": "图", "seed/ok.md": "x"});
+        await symlink(join(outside, "secret.md"), join(seedLink, "seed", "linked.md"));
+        const {presets, reports} = table(locator({good, linked, big, crowded, heavy, seedheavy: seedHeavy, seedlink: seedLink}));
         const cases: Array<[string, string, BotPresetDeclaration]> = [
             ["good.ok", "good", {...DECLARATION, memorySeed: "seed"}],
             ["linked.bad", "linked", DECLARATION],
@@ -79,13 +85,30 @@ describe("预设的文件核对", () => {
             ["big.bad", "big", DECLARATION],
             ["good.extension", "good", {...DECLARATION, avatar: "a/persona.md"}],
             ["crowded.bad", "crowded", {...DECLARATION, memorySeed: "seed"}],
+            ["heavy.avatar", "heavy", DECLARATION],
+            ["seedheavy.bad", "seedheavy", {...DECLARATION, memorySeed: "seed"}],
+            ["seedlink.bad", "seedlink", {...DECLARATION, memorySeed: "seed"}],
             ["nobody.bad", "nobody", DECLARATION],
         ];
         for (const [id, plugin, declaration] of cases) presets.receiver.published!(handle(id, plugin, declaration), undefined);
         const settled = await Promise.all(cases.map(([id]) => presets.settled(id)));
-        expect(settled.map((preset) => preset?.id ?? null)).toEqual(["good.ok", null, null, null, null, null, null]);
+        expect(settled.map((preset) => preset?.id ?? null)).toEqual(["good.ok", ...cases.slice(1).map(() => null)]);
         expect(presets.get("good.ok")).toMatchObject({persona: join(good, "a", "persona.md"), avatar: join(good, "a", "avatar.png"), memorySeed: join(good, "seed")});
-        expect(reports.map((report) => report.preset).sort()).toEqual(cases.slice(1).map(([id]) => id).sort());
+        // 每个不可用的各有一条诊断，原因说的是它自己那处毛病。
+        const reasons = new Map(reports.map((report) => [report.preset as string, report.reason as string]));
+        expect([...reasons.keys()].sort()).toEqual(cases.slice(1).map(([id]) => id).sort());
+        expect(Object.fromEntries([...reasons].map(([id, reason]) => [id, reason.split("：")[0]]))).toEqual({
+            "linked.bad": "a/persona.md 不是插件包里的普通文件",
+            "good.missing": "a/nope.md 不是插件包里的普通文件",
+            "big.bad": expect.stringContaining("a/persona.md 有"),
+            "good.extension": "头像要是 png、jpg、jpeg、webp 图片",
+            "crowded.bad": "记忆种子 seed",
+            "heavy.avatar": expect.stringContaining("a/avatar.png 有"),
+            "seedheavy.bad": "记忆种子 seed",
+            "seedlink.bad": "记忆种子 seed",
+            "nobody.bad": "a/persona.md 不是插件包里的普通文件",
+        });
+        expect([reasons.get("crowded.bad"), reasons.get("seedheavy.bad"), reasons.get("seedlink.bad")]).toEqual([expect.stringContaining("多于"), expect.stringContaining("合计超过"), expect.stringContaining("linked.md 不是普通文件或目录")]);
     });
 
     test("时序与寿命：撤回之后才查完的结果作废，不复活；同一个 id 再发布时旧结果不盖掉新的", async () => {
@@ -114,5 +137,17 @@ describe("预设的文件核对", () => {
         releaseOld();
         await new Promise((resolve) => setImmediate(resolve));
         expect(presets.get("p.two")?.declaration.name).toBe("新的");
+    });
+
+    test("输出 1、输入与前置条件：声明的结构与路径规则由贡献点交给平台校验：名字单行 1–40 个字符，路径是插件包里 / 分段的相对路径", () => {
+        const accepted = (declaration: Record<string, unknown>): boolean => Value.Check(PresetDeclarationSchema, declaration) && presetsPoint.validate!({declaration} as never) === null;
+        expect(accepted({...DECLARATION})).toBe(true);
+        expect(accepted({...DECLARATION, memorySeed: "seed/notes"})).toBe(true);
+        for (const name of ["", "两行\n名字", "字".repeat(41)]) expect([name, accepted({...DECLARATION, name})]).toEqual([name, false]);
+        for (const path of ["../a.md", "/a.md", "a//b.md", "C:a.md", "a\\b.md", "./a.md"]) {
+            expect([path, accepted({...DECLARATION, persona: path})]).toEqual([path, false]);
+            expect([path, accepted({...DECLARATION, memorySeed: path})]).toEqual([path, false]);
+        }
+        expect(accepted({...DECLARATION, extra: true})).toBe(false);
     });
 });

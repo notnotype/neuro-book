@@ -297,6 +297,23 @@ describe("持有、会话头与按会话拒绝", () => {
         await table.stop();
     });
 
+    test("输出 24：宿主打开时抛错得 open-failed；表停止之后再放掉持有什么都不做", async () => {
+        const context = await setup({wrapHost: (host) => ({...host, open: async (id) => {
+            if (id === "s-throws") throw new Error("磁盘出错");
+            return host.open(id);
+        }})});
+        const {table, closed, reports} = context;
+        expect(await table.hold("s-throws")).toMatchObject({ok: false, code: "open-failed"});
+        expect(reports).toContain("session-open-failed");
+        const held = await table.hold("s-1");
+        if (!held.ok) throw new Error(held.code);
+        await table.stop();
+        expect(closed).toEqual(["s-1"]);
+        expect(() => held.value.release()).not.toThrow();
+        expect(closed).toEqual(["s-1"]);
+        expect(table.isOpen("s-1")).toBe(false);
+    });
+
     test("输出 28：header 只读会话头，不打开会话；不在得 session-not-found", async () => {
         const context = await setup();
         await closeIdle(context);

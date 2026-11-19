@@ -446,7 +446,26 @@ describe("有归属的会话（输出 23–27）", () => {
         if (!all.ok) throw new Error(all.code);
         expect(all.value.map((entry) => entry.id)).toContain(forked.value.sessionId);
         expect(all.value.find((entry) => entry.id === forked.value.sessionId)?.owner).toBeUndefined();
-        expect(ok(await client.snapshot({sessionId: child})).header.caller).toMatchObject({kind: "session", id: owned.id});
+        const childHeader = ok(await client.snapshot({sessionId: child})).header;
+        expect(childHeader.caller).toMatchObject({kind: "session", id: owned.id});
+        // 子会话没有归属（sessions.md 输出 23、26）：会话头不带 owner，改写历史不被拒。
+        expect(childHeader.owner).toBeUndefined();
+        expect(await client.archive({sessionId: child, commandId: cid(), archived: true})).toMatchObject({ok: true});
+    });
+
+    test("输出 25：有归属的前台会话在跑时 running() 照样算它；列表不列它", async () => {
+        const w = await world();
+        const created = await w.service.create({profile: WRITER, owner: {id: "front"}});
+        if (!created.ok) throw new Error(created.code);
+        const hold = endpoint.hold();
+        const sent = await created.value.send({commandId: cid(), input: {text: "长一点"}});
+        if (!sent.ok) throw new Error(sent.code);
+        await hold.arrived;
+        expect(w.service.running()).toContain(created.value.id);
+        const listed = await w.service.list();
+        expect(listed.ok && listed.value.map((entry) => entry.id)).not.toContain(created.value.id);
+        hold.release();
+        await created.value.waitRun(sent.value.runId!);
     });
 
     test("输出 27：远程 send 带 settlePending: \"deny\"：挂着的审批以 deny 结算（用户发了新消息），这句话照常受理", async () => {

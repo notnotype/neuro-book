@@ -5,13 +5,14 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {Database} from "bun:sqlite";
-import {cp, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {cp, mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {HostCapability} from "nbook/plugins/settings/testing/world";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {createJsonlStore} from "@notnotype/nb-harness/kernel";
+import {createJsonlStore, defineProfile} from "@notnotype/nb-harness/kernel";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -21,6 +22,9 @@ import type {FakeEndpoint} from "nbook/plugins/agent/testing/endpoint";
 import {agentWorld} from "nbook/plugins/agent/testing/world";
 import type {AgentWorld} from "nbook/plugins/agent/testing/world";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
+import {agentProfile} from "nbook/plugins/agent/shared/points";
+import {createPluginPackages, pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
 import {createBot} from "./backend/create";
 import {locateBuiltinBots} from "./backend/builtin-root";
@@ -54,8 +58,9 @@ const useBots = (context: ActivationContext) => context.remote.use(botsContract)
 type BotsClient = ReturnType<typeof useBots>;
 
 /** 起一个世界，交回它与一个窗口里的 `nbook.bots/bots` 客户端。`path` 相同就是同一个状态根（重启）。 */
-async function open(path: string, locate: () => string | null = () => BUILTIN): Promise<{readonly w: AgentWorld; readonly client: BotsClient; readonly bots: string}> {
-    const w = await agentWorld(path, {plugins: [storageBackendPlugin, definitionAt("server", descriptor, createBotsBackendPlugin(locate))], userSettings: localModelSettings(endpoint.baseUrl)});
+/** `extra`：另装的插件；`capabilities`：另给的宿主能力（例如插件包查询）。 */
+async function open(path: string, locate: () => string | null = () => BUILTIN, extra: {readonly plugins?: PluginDefinition[]; readonly capabilities?: HostCapability[]} = {}): Promise<{readonly w: AgentWorld; readonly client: BotsClient; readonly bots: string}> {
+    const w = await agentWorld(path, {plugins: [storageBackendPlugin, definitionAt("server", descriptor, createBotsBackendPlugin(locate)), ...(extra.plugins ?? [])], userSettings: localModelSettings(endpoint.baseUrl), ...(extra.capabilities === undefined ? {} : {capabilities: extra.capabilities})});
     worlds.push(w);
     let captured: ActivationContext | null = null;
     counter += 1;
@@ -106,6 +111,13 @@ describe("bot 与主对话", () => {
         expect(ok(await first.client.list({}))).toEqual([{id: "lyra", name: "星璃", main: {state: "none"}}]);
         expect((await readdir(join(first.bots, "lyra"))).sort()).toEqual([".created.json", "avatar.webp", "persona.md"]);
         expect(events(first.w, "bots.main-opened")).toEqual([]);
+        // 建 bot 不需要模型；记录只有这五个字段（模型、推理档、审批模式不另存）。
+        expect(endpoint.requests).toEqual([]);
+        const database = new Database(join(path, "state", "storage", "user.sqlite"), {readonly: true});
+        const row = database.query("SELECT version, value FROM records WHERE owner = 'nbook.bots' AND key = 'bots'").get() as {version: number; value: string};
+        database.close();
+        expect(row.version).toBe(1);
+        expect(JSON.parse(row.value)).toEqual({bots: [{id: "lyra", name: "星璃", preset: DEFAULT_PRESET, profile: COMPANION_PROFILE, createdAt: expect.any(Number)}]});
 
         const [a, b] = await Promise.all([first.client.ensureMain({botId: "lyra"}), first.client.ensureMain({botId: "lyra"})]);
         expect([ok(a), ok(b)]).toEqual([{sessionId: "bot-lyra"}, {sessionId: "bot-lyra"}]);
@@ -132,6 +144,32 @@ describe("bot 与主对话", () => {
         expect(opened).toHaveLength(1);
         expect(opened[0]?.data).toMatchObject({bot: "lyra", session: "bot-lyra", events: expect.any(Number), ms: expect.any(Number)});
         expect(await locked(second.w, "bot-lyra")).toBe(true);
+        // 后台任务开始时岗位 Profile 已能解析：重新持有的主对话不是只读。
+        expect((await second.w.service.session("bot-lyra").snapshot()).readOnly).toBeNull();
+    });
+
+    test("主对话输出 1、4：主对话的 Profile 取自 bot 记录；之后那个 Profile 解析不到时，后台照样持有，会话以只读打开", async () => {
+        const PROFILE = "test.botprofile.writer";
+        const declared = agentProfile(PROFILE, {name: "写手", description: "测试用", tools: {required: [], optional: []}});
+        const profiles: PluginDefinition = {id: "test.botprofile", entries: [defineEntry({id: "server", location: "server", activationEvents: [declared.activationEvent], contributions: [declared.contribution], activate: () => ({contributions: {"agent.profiles": {[PROFILE]: defineProfile({id: PROFILE, version: "1", name: "写手", description: "测试用", system: "你是写手。"})}}})})]};
+        const path = fresh();
+        const first = await open(path, () => BUILTIN, {plugins: [profiles]});
+        await waitUntil("建出 lyra", async () => ok(await first.client.list({})).length === 1);
+        await close(first.w);
+        const database = new Database(join(path, "state", "storage", "user.sqlite"));
+        const row = database.query("SELECT value FROM records WHERE owner = 'nbook.bots' AND key = 'bots'").get() as {value: string};
+        database.query("UPDATE records SET value = ?1 WHERE owner = 'nbook.bots' AND key = 'bots'").run(row.value.replace(`"profile":"${COMPANION_PROFILE}"`, `"profile":"${PROFILE}"`));
+        database.close();
+
+        const second = await open(path, () => BUILTIN, {plugins: [profiles]});
+        await waitUntil("读到记录", async () => ok(await second.client.list({})).length === 1);
+        ok(await second.client.ensureMain({botId: "lyra"}));
+        expect(await second.w.service.header("bot-lyra")).toMatchObject({ok: true, value: {profile: PROFILE}});
+        await close(second.w);
+
+        const third = await open(path);
+        await waitUntil("照样持有", async () => ok(await third.client.list({}))[0]?.main.state === "held");
+        expect((await third.w.service.session("bot-lyra").snapshot()).readOnly).toEqual({code: "unknown-profile"});
     });
 
     test("bot 输出 5：改名之后、写记录之前退出的现场补写记录、不再复制；暂存目录有凭据或空的删掉，别的不动", async () => {
@@ -158,16 +196,57 @@ describe("bot 与主对话", () => {
         expect(events(w, "bots.directory-unknown")).toEqual([]);
     });
 
-    test("bot 输出 5：bot 目录在、记录不在、又没有凭据：不登记、不覆盖、写 bots.directory-unknown", async () => {
+    test("bot 输出 5：bot 目录在、记录不在、又没有读得懂且对得上的凭据：不登记、不覆盖、写 bots.directory-unknown", async () => {
         const path = fresh();
         const bots = join(path, "state", "user", "bots");
         await mkdir(join(bots, "lyra"), {recursive: true});
         await writeFile(join(bots, "lyra", "persona.md"), "别人的东西");
+        // 凭据读不懂、凭据里的 bot id 对不上目录名：同样不登记。
+        await mkdir(join(bots, "nova"));
+        await writeFile(join(bots, "nova", ".created.json"), "{不是 JSON");
+        await mkdir(join(bots, "vega"));
+        await writeFile(join(bots, "vega", ".created.json"), JSON.stringify({format: 1, botId: "other", record: {id: "other", name: "别的", preset: DEFAULT_PRESET, profile: COMPANION_PROFILE, createdAt: 1}}));
         const {w, client} = await open(path);
-        await waitUntil("有诊断", () => events(w, "bots.directory-unknown").length === 1);
+        await waitUntil("有诊断", () => events(w, "bots.directory-unknown").length === 3);
+        expect(events(w, "bots.directory-unknown").map((record) => (record.data as {bot: string}).bot).sort()).toEqual(["lyra", "nova", "vega"]);
         await waitUntil("建 bot 也不覆盖", () => events(w, "bots.create-failed").length === 1);
         expect(ok(await client.list({}))).toEqual([]);
         expect(await readFile(join(bots, "lyra", "persona.md"), "utf8")).toBe("别人的东西");
+    });
+
+    test("bot 输出 5：预设带记忆种子时，建出的 bot 目录里 memory/ 是种子的副本", async () => {
+        const seeded = await builtinCopy(async (directory) => {
+            await mkdir(join(directory, "seed", "notes"), {recursive: true});
+            await writeFile(join(directory, "seed", "notes", "first.md"), "第一条记忆");
+        });
+        const bots = join(fresh(), "bots");
+        let added: unknown = null;
+        const store = {add: async (bot: unknown) => {
+            added = bot;
+            return {ok: true, bots: [bot]};
+        }} as unknown as BotStore;
+        const preset = {id: "test.seed", plugin: "test", declaration: {name: "种子", avatar: "lyra/avatar.webp", profile: COMPANION_PROFILE, persona: "lyra/persona.md", memorySeed: "seed"}, persona: join(seeded, "lyra", "persona.md"), avatar: join(seeded, "lyra", "avatar.webp"), memorySeed: join(seeded, "seed")};
+        expect(await createBot({root: bots, store, report: () => undefined}, preset, "seed-bot", 3)).toMatchObject({ok: true});
+        expect(await readFile(join(bots, "seed-bot", "memory", "notes", "first.md"), "utf8")).toBe("第一条记忆");
+        expect(added).toEqual({id: "seed-bot", name: "种子", preset: "test.seed", profile: COMPANION_PROFILE, createdAt: 3});
+    });
+
+    test("bot 输出 1、验收 2：第三方插件的预设经插件包查询找文件：合法的可用，人设是越出插件包的链接的不可用、写诊断，缺省 bot 照常建", async () => {
+        const root = join(fresh(), "example.botpack", "1.0.0");
+        await mkdir(join(root, "presets"), {recursive: true});
+        await cp(join(BUILTIN!, "lyra", "avatar.webp"), join(root, "presets", "avatar.webp"));
+        await writeFile(join(root, "presets", "persona.md"), "第三方的人设");
+        await writeFile(join(root, "..", "outside.md"), "包外的文件");
+        await symlink(join(root, "..", "outside.md"), join(root, "presets", "escape.md"));
+        const packages = createPluginPackages([{id: "example.botpack", version: "1.0.0", root, digest: "test", manifest: {}}], NEUROBOOK_PROFILE.format);
+        const third: PluginDefinition = {id: "example.botpack", entries: [], contributions: [
+            {capability: "bots.presets", id: "example.botpack.good", declaration: {name: "合法", avatar: "presets/avatar.webp", profile: COMPANION_PROFILE, persona: "presets/persona.md"}},
+            {capability: "bots.presets", id: "example.botpack.escape", declaration: {name: "越界", avatar: "presets/avatar.webp", profile: COMPANION_PROFILE, persona: "presets/escape.md"}},
+        ]};
+        const {w, client} = await open(fresh(), () => BUILTIN, {plugins: [third], capabilities: [{id: "host.plugin-packages", key: pluginPackagesKey, create: () => packages}]});
+        await waitUntil("建出 lyra", async () => ok(await client.list({})).length === 1);
+        await waitUntil("越界的有诊断", () => events(w, "bots.preset-invalid").length === 1);
+        expect(events(w, "bots.preset-invalid")[0]?.data).toMatchObject({plugin: "example.botpack", preset: "example.botpack.escape"});
     });
 
     test("bot 输出 6：记录读不懂（版本不认识）时不当成没有 bot：不建新的、写 bots.record-unreadable", async () => {
@@ -284,6 +363,8 @@ describe("bot 与主对话", () => {
         expect(w.service.profiles().find((profile) => profile.key === COMPANION_PROFILE)).toMatchObject({status: "ok", hidden: true});
         const system = endpoint.requests.at(-1)?.system ?? "";
         expect(system).toContain("projects://<短名>/");
+        // 人设不进岗位 Profile 的提示词（人设怎样进提示词归 t09）。
+        expect(system).not.toContain("忆星书庭");
         expect(system).not.toContain("书的文件在 project://");
 
         endpoint.scriptFor("先读一遍", "读完了");
