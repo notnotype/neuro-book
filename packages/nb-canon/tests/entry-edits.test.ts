@@ -183,6 +183,14 @@ describe("canon.revisions 输出 25：一次改几处", () => {
             {op: "listRemove", at: {entry: "e1", path: "panel.物品[i1]"}},
             {op: "set", at: {entry: "e1", path: "panel.物品[i1].数量"}, value: 2},
         ]), "t"))).toBe("duplicate-address");
+        // 同一个临时 id 建两次、新建时同一类型列两次：不让后一份盖掉前一份，整批拒收。
+        expect(problemCode(editEntries(base, batch([
+            {op: "create", id: "tmp:dup", entry: {name: "甲", kind: "人物"}},
+            {op: "create", id: "tmp:dup", entry: {name: "乙", kind: "人物"}},
+        ]), "t"))).toBe("id-taken");
+        expect(problemCode(editEntries(base, batch([
+            {op: "create", id: "tmp:twice", entry: {name: "丙", kind: "人物", components: [{type: PERSON.id, fields: {外观: "金发"}}, {type: PERSON.id}]}},
+        ]), "t"))).toBe("duplicate-address");
         // 同一个列表加两项不算同一处。
         ok(editEntries(base, batch([
             {op: "listAdd", at: {entry: "e1", path: "panel.物品"}, element: {label: "铃", 数量: 1}},

@@ -464,6 +464,12 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
         switch (op.op) {
             case "create": {
                 if (!op.id.startsWith("tmp:")) return problem(index, "type-mismatch", "a new entry needs a tmp: id");
+                // 同一个临时 id 建两次时，后一项会盖掉前一项、整批照样发布（只落下一个条目）：拒收。
+                if (draft.created.has(op.id)) return problem(index, "id-taken", `an earlier operation in this batch already creates ${op.id}`);
+                const types = (op.entry.components ?? []).map((component) => component.type);
+                const repeated = types.find((type, at) => types.indexOf(type) !== at);
+                // 同一类型列两次写的是同一个命名空间，后一份的初值盖掉前一份。
+                if (repeated !== undefined) return problem(index, "duplicate-address", `component type "${repeated}" is listed twice`);
                 const built = buildEntry(world, draft, op.id, op.entry);
                 if (typeof built === "string") return problem(index, "component-unknown", `component type "${built}" is not registered`);
                 draft.entries.set(op.id, built);

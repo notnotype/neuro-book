@@ -224,6 +224,31 @@ function revertableOf(world: World, revision: string): {readonly ok: true} | {re
     return set.length > 1 ? {ok: false, reason: "has-dependents", dependents: set.slice(1)} : {ok: true};
 }
 
+/**
+ * 条目在树里从上到下展开的位次（先序：上级在前，同一层按 `order`、再按 id）。上级成环或指向不存在的条目的（坏数据）
+ * 从根走不到，排在最后、按 id。
+ */
+function treeRanks(entries: Iterable<Entry>): Map<string, number> {
+    const below = new Map<string | null, Entry[]>();
+    const all: Entry[] = [];
+    for (const entry of entries) {
+        all.push(entry);
+        const siblings = below.get(entry.parent);
+        if (siblings === undefined) below.set(entry.parent, [entry]);
+        else siblings.push(entry);
+    }
+    const ranks = new Map<string, number>();
+    const stack = [...(below.get(null) ?? [])].sort((a, b) => b.order - a.order || compareIds(b.id, a.id));
+    while (stack.length > 0) {
+        const entry = stack.pop()!;
+        if (ranks.has(entry.id)) continue;
+        ranks.set(entry.id, ranks.size);
+        stack.push(...[...(below.get(entry.id) ?? [])].sort((a, b) => b.order - a.order || compareIds(b.id, a.id)));
+    }
+    for (const entry of [...all].sort((a, b) => compareIds(a.id, b.id))) if (!ranks.has(entry.id)) ranks.set(entry.id, ranks.size);
+    return ranks;
+}
+
 export class WorldService {
     #world: World;
     #tail: Tail;
@@ -1203,7 +1228,9 @@ export class WorldService {
             if (byName !== null) scored.push({rank: byName * 2, entry, name: view.name, appeared: view.appeared});
             else if (aliasRanks.length > 0) scored.push({rank: aliasRanks[0]!.rank * 2 + 1, entry, name: view.name, alias: aliasRanks[0]!.alias, appeared: view.appeared});
         }
-        scored.sort((a, b) => a.rank - b.rank || a.entry.order - b.entry.order || (a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0));
+        // 同档按树序：`order` 只在同一个上级下有意义，跨上级比它会让别处的条目插进一棵子树中间。
+        const ranks = treeRanks(world.data.entries.values());
+        scored.sort((a, b) => a.rank - b.rank || ranks.get(a.entry.id)! - ranks.get(b.entry.id)!);
         const stamp = this.#stampOf(world);
         const page = this.#page(stamp, scored, cursor, limit, {method: "findEntries", query: query.query, kinds: query.kinds ?? [], types: query.types ?? [], position});
         if (page === "cursor-stale") return page;

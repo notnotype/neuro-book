@@ -118,4 +118,21 @@ describe("按名字找条目（project.md 的 findEntries）", () => {
             await world.stop();
         }
     });
+
+    test("同档按树序：上级在前、它的子条目紧跟着，再到下一个上级；同层的 order 不跨上级比", async () => {
+        const world = await service("find-tree");
+        try {
+            await publish(world, [
+                {ref: {kind: "entry", id: "tmp:p"}, after: person("tmp:p", "门甲", {order: 0})},
+                {ref: {kind: "entry", id: "tmp:q"}, after: person("tmp:q", "门丙", {order: 1})},
+                {ref: {kind: "entry", id: "tmp:c2"}, after: person("tmp:c2", "门子丁", {parent: "tmp:p", order: 6})},
+                {ref: {kind: "entry", id: "tmp:c1"}, after: person("tmp:c1", "门子乙", {parent: "tmp:p", order: 5})},
+            ]);
+            const found = world.findEntries({query: "门", position: end("ch3")});
+            if (typeof found === "string") throw new Error(found);
+            expect(found.items.map((item) => item.name)).toEqual(["门甲", "门子乙", "门子丁", "门丙"]);
+        } finally {
+            await world.stop();
+        }
+    });
 });
