@@ -2088,3 +2088,104 @@ describe("Skill（skills.md 输出 26–28）", () => {
         expect(h.ctx().composer.notice).toMatchObject({key: "skills.open.missing", params: {name: "gone"}});
     });
 });
+
+describe("固定会话与转交（conversation.md 的固定会话、转交）", () => {
+    test("固定会话：只开给定的会话、不读写最近的会话；不新建；别的会话交给通用视图；不能改写历史，命令只有白名单", async () => {
+        const w = await world();
+        const fixedId = (await started(w)).host.sessionId.value!;
+        const otherId = (await started(w)).host.sessionId.value!;
+        const elsewhere: string[] = [];
+        const h = await harness(w, {fixed: {sessionId: fixedId, openElsewhere: (id) => void elsewhere.push(id)}});
+        h.recent.value = otherId;
+        await h.host.restore();
+        await until("打开固定的会话", () => h.ctx().session?.id === fixedId);
+        expect(h.recent.value).toBe(otherId);
+        expect(h.ctx().interaction).toMatchObject({canMutateHistory: false, canOpenTree: false, canArchive: false, commands: ["compact", "plan", "mode"]});
+        expect(await h.host.create(PROFILE)).toBeNull();
+        h.host.act({type: "session.select", sessionId: otherId});
+        h.host.act({type: "command.run", name: "new", argsText: ""});
+        await until("交给通用视图", () => elsewhere.length === 1);
+        expect(elsewhere).toEqual([otherId]);
+        expect(h.host.sessionId.value).toBe(fixedId);
+        expect(h.host.shownSeq.value).toBeGreaterThan(0);
+    });
+
+    test("固定会话：等审批时输入框上方写会拒绝几项；这时发话一并以拒绝结算，运行接着处理这句话", async () => {
+        const w = await world();
+        const fixedId = (await started(w)).host.sessionId.value!;
+        const h = await harness(w, {fixed: {sessionId: fixedId, openElsewhere: () => undefined}});
+        await h.host.restore();
+        await until("打开", () => h.ctx().session?.id === fixedId && h.ctx().availability.status === "ready");
+        endpoint.script({tool: "write", args: {path: "session://一.md", content: "内容"}}, "好的，不写了", "收到");
+        h.host.act({type: "composer.submit", text: "写个文件", delivery: "prompt"});
+        await until("等审批", () => approvals(h.ctx()).length === 1);
+        expect(h.ctx().composer.notice).toMatchObject({key: expect.stringContaining("conversation.settleNotice"), params: {count: 1}});
+        h.host.act({type: "composer.submit", text: "算了，别写了", delivery: "prompt"});
+        await until("审批结算", () => h.ctx().pendingInputs.length === 0);
+        await idle(h);
+        const page = await h.client.log({sessionId: fixedId, afterSeq: 0});
+        if (!page.ok) throw new Error(page.code);
+        const resolved = page.value.items.flatMap((item) => (item.kind === "event" && item.event.type === "interactionResolved" ? [item.event.data] : []));
+        expect(resolved).toEqual([expect.objectContaining({decision: "deny", note: "用户发了新消息"})]);
+        expect(h.ctx().composer.notice).toBeUndefined();
+    });
+
+    test("转交：有归属、归属插件接手了就不在通用视图里开、不写最近的会话；没有归属照常开；读会话头期间又开了别的，晚到的转交作废；最近的会话有归属时不恢复", async () => {
+        const w = await world();
+        const owned = await w.service.create({profile: PROFILE, owner: {id: "lyra"}});
+        if (!owned.ok) throw new Error(owned.code);
+        const plainId = (await started(w)).host.sessionId.value!;
+        const handed: string[] = [];
+        let hold: Promise<void> | null = null;
+        const {client} = await w.window("owners");
+        const owners: NonNullable<SessionHostDeps["owners"]> = {
+            ownerOf: async (id) => {
+                await hold;
+                const read = await client.header({sessionId: id});
+                return read.ok ? read.value.owner ?? null : null;
+            },
+            open: (id, owner) => {
+                handed.push(`${id}:${owner.plugin}/${owner.id}`);
+                return true;
+            },
+        };
+        const h = await harness(w, {owners});
+        await h.host.open(owned.value.id);
+        expect(handed).toEqual([`${owned.value.id}:test.agent-probe/lyra`]);
+        expect(h.host.sessionId.value).toBeNull();
+        expect(h.recent.value).toBeNull();
+
+        await h.host.open(plainId);
+        expect(h.host.sessionId.value).toBe(plainId);
+
+        let release!: () => void;
+        hold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const late = h.host.open(owned.value.id);
+        hold = null;
+        await h.host.open(plainId);
+        release();
+        await late;
+        expect(handed).toHaveLength(1);
+        expect(h.host.sessionId.value).toBe(plainId);
+
+        const fresh = await harness(w, {owners});
+        fresh.recent.value = owned.value.id;
+        await fresh.host.restore();
+        expect(fresh.host.sessionId.value).toBeNull();
+        expect(fresh.recent.value).toBeNull();
+        expect(handed).toHaveLength(1);
+    });
+
+    test("模式选择器看 Profile 的工具里有没有切换模式：有就显示，没有就不显示", async () => {
+        const w = await world();
+        const entry = {key: PROFILE, name: "测试", description: "", source: "test", status: "ok" as const, icon: "i-lucide-feather"};
+        const without = await started(w, {profiles: () => [{...entry, tools: {required: TOOLS, optional: []}}]});
+        await until("打开", () => without.ctx().session !== null && without.ctx().availability.status === "ready");
+        expect(without.ctx().composer.modes).toEqual([]);
+        const withModes = await started(w, {profiles: () => [{...entry, tools: {required: [...TOOLS, "nbook.agent.switch-mode"], optional: []}}]});
+        await until("打开", () => withModes.ctx().session !== null && withModes.ctx().availability.status === "ready");
+        expect(withModes.ctx().composer.modes.length).toBeGreaterThan(0);
+    });
+});

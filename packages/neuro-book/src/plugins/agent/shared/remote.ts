@@ -14,7 +14,7 @@ import type {Static, TSchema} from "typebox";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputFate, InputMode, LogEvent, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
+import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputFate, InputMode, LogEvent, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionHeader, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
 import type {FilePreview} from "@notnotype/nb-harness/kit/shapes";
 
 import {TASK_ID} from "./contracts";
@@ -211,6 +211,8 @@ const methods = {
         errors: errorsOf([...storageErrors, "profile-invalid", "invalid-initial", "open-failed"] as const),
     },
     snapshot: {input: Type.Object(BySession, {additionalProperties: false}), output: object<SessionSnapshot>(), effect: "read", errors: wholeErrors},
+    /** 只读会话头、不打开会话（sessions.md 输出 28）：浏览器打开会话之前据此看归属（conversation.md 的转交）。 */
+    header: {input: Type.Object(BySession, {additionalProperties: false}), output: object<SessionHeader>(), effect: "read", errors: queryErrors},
     log: {
         input: Type.Object({...BySession, afterSeq: Type.Integer({minimum: 0}), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 2000}))}, {additionalProperties: false}),
         output: object<{items: LogItem[]; head: number; more: boolean; through: number}>(),

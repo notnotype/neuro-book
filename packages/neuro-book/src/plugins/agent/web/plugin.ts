@@ -3,12 +3,12 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
-import {computed, markRaw, defineComponent, h, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
-import type {Component} from "vue";
+import {computed, markRaw, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
+import type {Component, ShallowRef} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ContributionReceiver, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import {stickerPickerKey, stickersCatalogContract} from "nbook/plugins/stickers/shared/contracts";
@@ -43,8 +43,8 @@ import {Type} from "typebox";
 import type {AgentConversationServices, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
-import {MAIN_PROFILE, stickerAllowlistUsageKey} from "../shared/contracts";
-import type {ProfileEntry} from "../shared/contracts";
+import {agentConversationKey, MAIN_PROFILE, SESSION_OWNERS_POINT, sessionOwnersPoint, stickerAllowlistUsageKey} from "../shared/contracts";
+import type {ProfileEntry, SessionOwnerOpener} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
 import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, REQUESTS_SECTION, SKILLS_SECTION, STATUS_LINE_SECTION} from "../shared/settings";
 import {STATUS_ITEMS_POINT, statusItemsPoint} from "../shared/status-item-point";
@@ -69,7 +69,7 @@ import {createStickerPacksClient} from "./sticker-packs";
 import {profilesUsingSticker} from "./sticker-usage";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
-import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
+import type {RoleOption, SessionHost, SessionHostDeps, UploadedAttachment} from "./session-host";
 import {createRecentSessions, createSessionList} from "./session-list";
 import {createRunResults, createSeenErrors} from "./subagents-panel";
 import {RequestsPage, useRequests} from "./requests-page";
@@ -165,13 +165,13 @@ const SKILLS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-sparkles", 
 
 export const agentBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [statusItemsPoint],
+    contributionPoints: [statusItemsPoint, sessionOwnersPoint],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        receives: [STATUS_ITEMS_POINT],
-        provides: [stickerAllowlistUsageKey],
+        receives: [STATUS_ITEMS_POINT, SESSION_OWNERS_POINT],
+        provides: [agentConversationKey, stickerAllowlistUsageKey],
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: notificationsKey}, {key: markdownKey}, {key: windowTextKey, required: false}, {key: stickerPickerKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: CONVERSATION_VIEW, declaration: CONVERSATION_DECLARATION},
@@ -315,10 +315,33 @@ export const agentBrowserPlugin: PluginDefinition = {
             const hosts = new Map<string, SessionHost>();
             /** 最近用过的位置：命令优先用它。 */
             let lastPosition = "view";
-            const hostAt = (position: "view" | "page"): SessionHost => {
-                let host = hosts.get(position);
-                if (host !== undefined) return host;
-                host = createSessionHost({
+            /**
+             * 有归属的会话交给归属插件（conversation.md 的转交）：贡献按插件记，会话头的 `owner.plugin` 找到谁就交给谁；读不到会话头或没有那个
+             * 插件的贡献时照常在通用视图里打开。
+             */
+            const openers = new Map<string, SessionOwnerOpener>();
+            const ownersReceiver: ContributionReceiver<unknown, SessionOwnerOpener> = {
+                published: (handle) => {
+                    openers.set(handle.plugin, handle.implementation());
+                },
+                revoke: (handle) => {
+                    openers.delete(handle.plugin);
+                },
+            };
+            const sessionOwners: NonNullable<SessionHostDeps["owners"]> = {
+                ownerOf: async (id) => {
+                    const read = await remote.header({sessionId: id});
+                    return read.ok ? read.value.owner ?? null : null;
+                },
+                open: (id, owner) => {
+                    const opener = openers.get(owner.plugin);
+                    if (opener === undefined) return false;
+                    opener.open(id, {plugin: owner.plugin, id: owner.id});
+                    return true;
+                },
+            };
+            /** 两个通用位置（右栏、编辑区页面）与固定会话共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
+            const hostDeps = (position: string): SessionHostDeps => ({
                     remote,
                     project,
                     now: () => clock.now(),
@@ -400,12 +423,19 @@ export const agentBrowserPlugin: PluginDefinition = {
                         address: (name, profile) => skillAddress(name, skills.entries.value ?? [], allowedSkills(profile)),
                     },
                     report,
-                });
-                hosts.set(position, host);
+            });
+            const watchSeen = (host: SessionHost): void => {
                 const stopSeen = watch(host.sessionId, (id) => {
                     if (id !== null) seenErrors.markSession(id, clock.now());
                 }, {immediate: true});
                 context.signal.addEventListener("abort", stopSeen, {once: true});
+            };
+            const hostAt = (position: "view" | "page"): SessionHost => {
+                let host = hosts.get(position);
+                if (host !== undefined) return host;
+                host = createSessionHost({...hostDeps(position), owners: sessionOwners});
+                hosts.set(position, host);
+                watchSeen(host);
                 return host;
             };
             context.signal.addEventListener("abort", () => {
@@ -461,10 +491,11 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             // 组件与渲染组件用到时才加载（nb-agent-ui 的 Vue 层不小）。
             const loadVue = async () => {
-                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}, {default: SubagentCard}, {default: BackgroundCommandCard}, {subagentContribution}, {default: EvalDetail}, {evalContribution}] = await Promise.all([
+                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: FixedConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}, {default: SubagentCard}, {default: BackgroundCommandCard}, {subagentContribution}, {default: EvalDetail}, {evalContribution}] = await Promise.all([
                     import("@notnotype/nb-agent-ui/vue"),
                     import("@notnotype/nb-agent-ui"),
                     import("./ConversationHost.vue"),
+                    import("./FixedConversationHost.vue"),
                     import("./SessionPanelHost.vue"),
                     import("./form-renderer.vue"),
                     import("./components/SubagentCard.vue"),
@@ -473,14 +504,18 @@ export const agentBrowserPlugin: PluginDefinition = {
                     import("./components/EvalDetail.vue"),
                     import("./eval-renderer"),
                 ]);
-                return {builtinContributions, createAgentViewRegistry, ConversationHost, SessionPanelHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution};
+                return {builtinContributions, createAgentViewRegistry, ConversationHost, FixedConversationHost, SessionPanelHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution};
             };
             let vue: ReturnType<typeof loadVue> | null = null;
             const vueOnce = () => (vue ??= loadVue());
 
-            const conversationComponent = async (position: "view" | "page"): Promise<Component> => {
+            /**
+             * 对话位置共用的部分：注册表的登记项、渲染组件，与按会话的 Profile 取白名单的菜单服务（`servicesFor` 每个对话一份，交回取消
+             * 监听的函数）。通用的两个位置与固定会话的组件都用它。
+             */
+            const conversationParts = async () => {
                 ensureStarted();
-                const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution} = await vueOnce();
+                const {builtinContributions, createAgentViewRegistry, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution, EvalDetail, evalContribution} = await vueOnce();
                 const markdown = await context.services.resolve(markdownKey);
                 const components = markdown.status === "resolved" ? markdown.instance.components : null;
                 const stickers = picker === null ? null : await stickersContribution(picker, (message, error) => report("sticker-picker-failed", `${message}: ${String(error)}`));
@@ -491,45 +526,55 @@ export const agentBrowserPlugin: PluginDefinition = {
                     ...(components === null ? {} : {markdown: markRaw(components.MarkdownDisplay), promptEditor: markRaw(components.PromptEditor), promptTextView: markRaw(components.PromptTextView)}),
                     ...(stickers === null ? {} : {promptBareness: stickers.bareness}),
                 };
-                const labels = panelLabels();
-                // 编辑器按函数身份重取菜单：查到新结果时换一个新函数（nb-agent-ui 的 `resolveTriggerMenu` 约定）。
-                const services = shallowRef<AgentConversationServices>({});
-                const projectFiles = project === null ? null : context.remote.use(projectFilesContract);
-                const mentions = createFileMentions({
-                    find: projectFiles === null ? null : (query, limit) => projectFiles.find({query, limit}) as never,
-                    texts: () => ({
-                        title: text.t(agentText("conversation.mentions.title")),
-                        empty: text.t(agentText("conversation.mentions.empty")),
-                        noProject: text.t(agentText("conversation.mentions.noProject")),
-                        failed: text.t(agentText("conversation.mentions.failed")),
-                    }),
-                    onChange: () => refreshServices(),
-                });
-                const skillTexts = () => ({
-                    title: text.t(agentText("skills.menu.title")),
-                    recentGroup: text.t(agentText("skills.menu.recent")),
-                    allGroup: text.t(agentText("skills.menu.all")),
-                    noMatch: text.t(agentText("skills.menu.noMatch")),
-                    openSettings: text.t(agentText("skills.menu.openSettings")),
-                    noSkills: text.t(agentText("skills.menu.noSkills")),
-                    needsInit: text.t(agentText("skills.menu.needsInit")),
-                    initializing: text.t(agentText("skills.menu.initializing")),
-                });
-                /** `$` 菜单按这个位置当前会话的 Profile 取白名单（skills.md 输出 26）。 */
-                const refreshServices = (): void => {
-                    services.value = {
-                        resolveAttachmentUrl: attachmentUrl,
-                        resolveTriggerMenu: (context) => (context.trigger === ":" && picker !== null
-                            ? stickerMenu(picker, context.query)
-                            : context.trigger === "$"
-                            ? skillMenu(context.query, {entries: skills.entries.value, allowed: allowedSkills(hostAt(position).profileKey()), recent: skills.recent.value, texts: skillTexts()})
-                            : mentions.resolve(context)),
+                const servicesFor = (profileOf: () => string): {readonly services: ShallowRef<AgentConversationServices>; stop(): void} => {
+                    // 编辑器按函数身份重取菜单：查到新结果时换一个新函数（nb-agent-ui 的 `resolveTriggerMenu` 约定）。
+                    const services = shallowRef<AgentConversationServices>({});
+                    const projectFiles = project === null ? null : context.remote.use(projectFilesContract);
+                    const mentions = createFileMentions({
+                        find: projectFiles === null ? null : (query, limit) => projectFiles.find({query, limit}) as never,
+                        texts: () => ({
+                            title: text.t(agentText("conversation.mentions.title")),
+                            empty: text.t(agentText("conversation.mentions.empty")),
+                            noProject: text.t(agentText("conversation.mentions.noProject")),
+                            failed: text.t(agentText("conversation.mentions.failed")),
+                        }),
+                        onChange: () => refreshServices(),
+                    });
+                    const skillTexts = () => ({
+                        title: text.t(agentText("skills.menu.title")),
+                        recentGroup: text.t(agentText("skills.menu.recent")),
+                        allGroup: text.t(agentText("skills.menu.all")),
+                        noMatch: text.t(agentText("skills.menu.noMatch")),
+                        openSettings: text.t(agentText("skills.menu.openSettings")),
+                        noSkills: text.t(agentText("skills.menu.noSkills")),
+                        needsInit: text.t(agentText("skills.menu.needsInit")),
+                        initializing: text.t(agentText("skills.menu.initializing")),
+                    });
+                    /** `$` 菜单按这个位置当前会话的 Profile 取白名单（skills.md 输出 26）。 */
+                    const refreshServices = (): void => {
+                        services.value = {
+                            resolveAttachmentUrl: attachmentUrl,
+                            resolveTriggerMenu: (context) => (context.trigger === ":" && picker !== null
+                                ? stickerMenu(picker, context.query)
+                                : context.trigger === "$"
+                                ? skillMenu(context.query, {entries: skills.entries.value, allowed: allowedSkills(profileOf()), recent: skills.recent.value, texts: skillTexts()})
+                                : mentions.resolve(context)),
+                        };
                     };
+                    refreshServices();
+                    // 目录、最近用过的或 Profile（白名单由它求出，启动时可能比目录晚到）变了：换一个新函数，开着的菜单按当前查询重取。
+                    const stopWatching = watch([skills.entries, skills.recent, profiles], refreshServices);
+                    context.signal.addEventListener("abort", stopWatching, {once: true});
+                    return {services, stop: stopWatching};
                 };
-                refreshServices();
-                // 目录、最近用过的或 Profile（白名单由它求出，启动时可能比目录晚到）变了：换一个新函数，开着的菜单按当前查询重取。
-                const stopWatching = watch([skills.entries, skills.recent, profiles], refreshServices);
-                context.signal.addEventListener("abort", stopWatching, {once: true});
+                return {createAgentViewRegistry, baseContributions, renderers, servicesFor};
+            };
+
+            const conversationComponent = async (position: "view" | "page"): Promise<Component> => {
+                const {createAgentViewRegistry, baseContributions, renderers, servicesFor} = await conversationParts();
+                const {ConversationHost} = await vueOnce();
+                const labels = panelLabels();
+                const {services} = servicesFor(() => hostAt(position).profileKey());
                 return defineComponent({
                     name: "AgentConversationPosition",
                     inheritAttrs: false,
@@ -551,6 +596,36 @@ export const agentBrowserPlugin: PluginDefinition = {
                     },
                 });
             };
+
+            /**
+             * 固定会话的对话组件（conversation.md 的固定会话）：给别的插件经 `agentConversationKey` 用。每个挂载的实例有自己的宿主，只开属性
+             * 里的那个会话；`sessionId` 换了要调用方按它换 `key` 重挂。别的会话（子会话卡片、子代理浮层）交给通用视图打开。
+             */
+            const fixedConversation = defineAsyncComponent(async () => {
+                const {createAgentViewRegistry, baseContributions, renderers, servicesFor} = await conversationParts();
+                const {FixedConversationHost} = await vueOnce();
+                return defineComponent({
+                    name: "AgentFixedConversation",
+                    inheritAttrs: false,
+                    props: {
+                        sessionId: {type: String, required: true},
+                        identity: {type: Object as () => {readonly name: string; readonly avatar?: string}, required: true},
+                        active: {type: Boolean, default: false},
+                    },
+                    emits: {seen: (seq: number) => typeof seq === "number"},
+                    setup(props, {emit}) {
+                        const host = createSessionHost({...hostDeps(`fixed:${props.sessionId}`), fixed: {sessionId: props.sessionId, openElsewhere: (id) => void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: id})}});
+                        watchSeen(host);
+                        const {services, stop} = servicesFor(() => host.profileKey());
+                        const registry = computed(() => createAgentViewRegistry([...baseContributions, {source: "agent.statusItems", statusItems: statusItems.entries.value}]));
+                        onBeforeUnmount(() => {
+                            stop();
+                            host.dispose();
+                        });
+                        return () => h(FixedConversationHost, {host, identity: props.identity, active: props.active, registry: registry.value, renderers, services: services.value, skillInit: initAt(`fixed:${props.sessionId}`), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, statusLine: {setting: settings.get(agentSettings.settings.statusLine), toggle: (id: string) => void statusLineWriter.toggle(id).then(reportStatusLineFailure), openSettings: () => openSettings({section: STATUS_LINE_SECTION, layer: "user"})}, onSeen: (seq: number) => emit("seen", seq)});
+                    },
+                });
+            });
 
             /** 对话视图接管面板头的标题区：头写会话，按标题开会话列表（conversation.md 输出 44）。 */
             const view: ViewImplementation & ViewHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true};
@@ -694,6 +769,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                 }},
                 [FOCUS_SESSION_COMMAND]: {run: async (args) => {
                     const sessionId = (args as {sessionId?: string} | undefined)?.sessionId ?? activity.target.value;
+                    // 有归属的会话交给归属插件，不揭示通用的对话视图、不写它的“最近的会话”（conversation.md 的转交）。
+                    if (sessionId !== null) {
+                        const owner = await sessionOwners.ownerOf(sessionId);
+                        if (owner !== null && sessionOwners.open(sessionId, owner)) return done;
+                    }
                     const host = await reveal();
                     if (sessionId !== null) await host.open(sessionId);
                     return done;
@@ -711,13 +791,13 @@ export const agentBrowserPlugin: PluginDefinition = {
             };
             const published = bindingsOf(agentState, {active: activity.active});
             return {
-                services: [provideService(stickerAllowlistUsageKey, {
+                services: [provideService(agentConversationKey, {FixedConversation: markRaw(fixedConversation)}), provideService(stickerAllowlistUsageKey, {
                     profilesUsing: async (packId) => {
                         const listed = await remote.profiles({});
                         return listed.ok ? profilesUsingSticker(listed.value, settings.get(agentSettings.settings.profileSettings), packId) : null;
                     },
                 })],
-                receivers: {[STATUS_ITEMS_POINT]: statusItems.receiver()},
+                receivers: {[STATUS_ITEMS_POINT]: statusItems.receiver(), [SESSION_OWNERS_POINT]: ownersReceiver},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[CONVERSATION_VIEW]: view, [SESSIONS_VIEW]: sessionsView},
                     [EDITOR_PAGES_POINT]: {[CONVERSATION_PAGE]: page, [REQUESTS_PAGE]: requestsPage},

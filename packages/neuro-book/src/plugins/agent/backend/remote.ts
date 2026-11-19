@@ -224,6 +224,10 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             return created.ok ? context.ok({sessionId: created.value.id}) : context.fail(created.code as "open-failed", created.detail as undefined);
         },
         snapshot: ({sessionId}, context) => whole(() => view(sessionId).snapshot(), context) as never,
+        header: async ({sessionId}, context) => {
+            const read = await service.header(sessionId);
+            return read.ok ? context.ok(read.value) : context.fail(read.code as "open-failed", read.detail as undefined);
+        },
         log: ({sessionId, afterSeq, limit}, context) => query(async () => {
             const page = await view(sessionId).log({afterSeq, ...(limit === undefined ? {} : {limit})});
             const {items, cut} = pageOfItems(page.events);
