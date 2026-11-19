@@ -16,12 +16,12 @@ export type {
 export type {
     AnyExtension, CompactionCut, CompactionJob, CompactionMethod, CompactionMethodImpl, CompactionResult, ContributedExtension, DefineExtension, Extension, ExtensionFields, Implement, Interceptors, SettingsSchema, StateOfExtension,
 } from "./extension.js";
-export type {FinalOnlyHelper, OpeningHelper, ReminderHelper, ReminderOptions, StandardLayoutHelper, StandardLayoutOptions, WithoutEventsHelper} from "./helpers.js";
+export type {FinalOnlyHelper, MergeSteersHelper, OpeningHelper, ReminderHelper, ReminderOptions, StandardLayoutHelper, StandardLayoutOptions, WithoutEventsHelper} from "./helpers.js";
 export type {CompactionRestored, CompactionRestoreArgs} from "./host.js";
 export type {
     AgentHost, ApprovalCtx, ApprovalInfo, ApproveHook, BufferedInput, CommandErrorCode, CommandErrorDetails, CommandFailure, CommandMap, CommandName, CommandOk, CommandResult, Complete,
     CreateSession, CreateSessionOptions, DeltaFrame, Diagnostic, ExtensionDeclaration, ExtensionHandle, ExtensionInfo, ExtensionReceiver, Frame, InputFate, InputMode, InteractionSummary, OpenSession, Placement, ReleaseMode,
-    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, AttachmentPort, AttachmentRead, BranchPoint, TreeNode, RunResult, RunStatus, RetryPolicy, RetryWait, SessionApi, SessionCommands, SessionEnv, SessionQueries,
+    OutboundContext, DeltaContext, OutboundFilter, PendingNotice, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, AttachmentPort, AttachmentRead, BranchPoint, TreeNode, RunResult, RunStatus, RetryPolicy, RetryWait, SessionApi, SessionCommands, SessionEnv, SessionQueries,
     SessionSnapshot, SlotReport, ToolSessionContext,
 } from "./host.js";
 export type {

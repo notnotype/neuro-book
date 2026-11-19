@@ -1,8 +1,9 @@
 /**
  * 运行循环（提案第 1 节的运行图）。循环在队列之外：每次写日志都把写入交给队列并等它完成；等模型、等工具的时候不占队列。
  *
- * 边界（每次模型请求之前）按这个顺序：外部事实 → 工具集比对（必需工具、`toolsAnnounced`）→ steer 全部取走 →
- * 估算与压缩（运行中受理的 `compact`、超过阈值）→ 交结果的提醒 → 视图、模型拦截链、`modelStarted`。
+ * 边界（每次模型请求之前）按这个顺序：外部事实 → 工具集比对（必需工具、`toolsAnnounced`）→ 解析模型 →
+ * 估算与压缩（运行中受理的 `compact`、超过阈值）→ 待发的提醒与 steer 全部取走 → 交结果的提醒 → 视图、模型拦截链、`modelStarted`。
+ * 取走放在压缩之后：边界上的压缩不会把这一次刚取的提醒与插话压进摘要（runtime.md 输出 28、113）。
  * 服务商报溢出时压缩后把同一请求再发一次，每次请求最多一次。压缩本身由 `session/` 注入（`RunHost.compaction`）。
  *
  * 收口：任何一步出错或被中止，都写 `turnEnded`、`runEnded`。决定收口之后，还在跑的模型链与工具链再写日志都得
@@ -47,7 +48,7 @@ export interface RunHost {
     /** 在等重发（推状态帧用）。 */
     retrying(wait: RetryWait | null): void;
     /** 收口那一项（只在队列项里调用）：组收口批、写下、翻转空闲（`RunControl.settleIn`）。 */
-    settle(input: Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode">): Promise<void>;
+    settle(input: Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode" | "kind" | "closing" | "wakeBlocked">): Promise<void>;
     /** 推迟的指令开运行之前要查的（runtime.md 输出 104）。 */
     readonly checks: {closed(): boolean; reassemblyPending(): boolean; startProblem(): string | null};
 }
@@ -70,15 +71,39 @@ export interface RunCompaction {
     run(args: {reason: "threshold" | "overflow" | "manual"; require: readonly string[]; environment: ViewEnvironment; tools: readonly ToolDeclaration[]; model: string; signal: AbortSignal; write: (drafts: EventDraft[]) => Promise<unknown>; caller: ModelCaller; modelInfo: ModelInfoLookup; contextWindow: number}): Promise<CompactOutcome>;
 }
 
-/** 取走缓冲区里全部就绪的 steer：按入队顺序，每条 `inputConsumed` 加一条 `steer`，同一个写入批（runtime.md 输出 28）。 */
-export function takeSteerDrafts(core: SessionCore, runId: string): EventDraft[] {
-    return readyEntries(core.session.kernel.buffer).filter((item) => item.mode === "steer").flatMap((item): EventDraft[] => {
+/** 取走缓冲区里全部就绪的 steer：按入队顺序，每条 `inputConsumed` 加一条 `steer`（runtime.md 输出 28）。 */
+function takeSteerDrafts(core: SessionCore, runId: string, boundary: string, taken: ReadonlySet<string>): EventDraft[] {
+    return readyEntries(core.session.kernel.buffer).filter((item) => item.mode === "steer" && !taken.has(item.id)).flatMap((item): EventDraft[] => {
         const {text, payload, attachments} = item.input;
         return [
             {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: item.id, runId}},
-            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id, ...byField(item.by), ...(item.commandId === undefined ? {} : {commandId: item.commandId})} as JsonValue},
+            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id, ...byField(item.by), ...(item.commandId === undefined ? {} : {commandId: item.commandId}), boundary} as JsonValue},
         ];
     });
+}
+
+/** 取走全部待发的提醒：按发出的先后，一条 `noticeTaken` 加每条一个 `hostNotice`（runtime.md 输出 113）。 */
+function takeNoticeDrafts(core: SessionCore, runId: string, boundary: string): EventDraft[] {
+    const notices = core.session.kernel.notices;
+    if (notices.length === 0) return [];
+    return [
+        {type: "noticeTaken", kind: "ctrl", scope: "session", data: {ids: notices.map((notice) => notice.id), runId}},
+        ...notices.map((notice): EventDraft => ({type: "hostNotice", kind: "conv", scope: "path", data: {queued: notice.id, by: notice.by as unknown as JsonValue, text: notice.text, boundary}})),
+    ];
+}
+
+/**
+ * 一个边界取走的东西：待发的提醒与就绪的插话，同一个写入批、带同一个 `boundary`（runtime.md 输出 113）。
+ * 写入的先后就是请求里的先后：位置章让一轮还没回复时它们排在新话前面，之后排在最后一步之后；已写下的块不再重排。
+ * `taken`：同一批里已经取走、开了这一轮的话（预览两轮之间时的第一条），不再当插话取。
+ */
+export function takeBoundaryDrafts(core: SessionCore, runId: string, taken: ReadonlySet<string> = new Set()): EventDraft[] {
+    const boundary = core.newId();
+    const notices = takeNoticeDrafts(core, runId, boundary);
+    const steers = takeSteerDrafts(core, runId, boundary, taken);
+    // Profile 的 `queue.order` 定两者的先后（输出 113），缺省提醒在前；只定写入的先后，渲染按路径先后，不重排。
+    const order = (core.assembly.profile as {queue?: {order?: readonly string[]}}).queue?.order;
+    return order?.[0] === "steer" ? [...steers, ...notices] : [...notices, ...steers];
 }
 
 /** 这一轮里这个扩展已经写过几条 continued（按路径事实计数，压缩切掉早先的步也不变）。 */
@@ -198,19 +223,26 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
             return await end("error", {reason: "error", error: {kind: "local", code: outcome.code === "nothing-to-compact" ? "compaction-failed" : outcome.code === "disabled" ? "compaction-failed" : outcome.code}});
         }
-        // 接着跑一个停在两轮之间的运行（回退到某一轮之前再发）：先取就绪的第一条开一轮，没有就收口。取与收口在同一个队列项里
-        // （runtime.md 输出 104），停止受理之后不再取（输出 30）。
+        // 运行进来时没有进行中的一轮（唤起开的运行、在两轮之间接着跑的运行，runtime.md 输出 114）：在一个队列项里依次看——有就绪
+        // 的话，取第一条开一轮（待发的提醒在第一个边界随它带上、排在它前面）；否则有带唤起的待发提醒，或这次运行是用户开的、又有
+        // 待发的提醒，开一轮没有输入的；都没有就收口、不发请求。唤起的提醒在这之前被撤回或取消、只剩不带唤起的，这次唤起就不发
+        // 请求。取与收口在同一个队列项里（输出 104），停止受理之后不再取（输出 30）。
         if (core.leafState.kernel.history.current === null) {
             const opened = await core.queue.run(async (): Promise<"taken" | "ended" | "aborted"> => {
                 if (signal.aborted) return "aborted";
                 const next = readyEntries(core.session.kernel.buffer)[0];
-                if (next === undefined) {
-                    stopped = true;
-                    await host.settle({reason: "completed", data: {}, before: []});
-                    return "ended";
+                if (next !== undefined) {
+                    await writeAndReact(core, takeInputDrafts(next, core.newId(), run.runId), host.react, signal);
+                    return "taken";
                 }
-                await writeAndReact(core, takeInputDrafts(next, core.newId(), run.runId), host.react, signal);
-                return "taken";
+                const notices = core.session.kernel.notices;
+                if (notices.some((notice) => notice.wake) || (notices.length > 0 && core.leafState.kernel.runBy?.kind === "user")) {
+                    await writeAndReact(core, [ctrl("turnStarted", {turnId: core.newId(), inputId: null})], host.react, signal);
+                    return "taken";
+                }
+                stopped = true;
+                await host.settle({reason: "completed", data: {}, before: []});
+                return "ended";
             });
             if (opened === "ended") return;
             if (opened === "aborted") return await end("aborted", {reason: "aborted"});
@@ -242,21 +274,12 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 await write(JSON.stringify(before) === JSON.stringify(after) ? [ctrl("toolsAnnounced", {tools: announced})] : [ctrl("toolsAnnounced", {tools: announced}), conv("notice", {code: "tools-changed", text: toolsChangedText(before, after)})]);
             }
 
-            // 边界第 3 步：运行中到达的 steer 全部取走，进当前这一轮。
-            // 在队列项里读缓冲区、看中止：停止受理之后到达这一项的不再取（输出 30）。
-            await core.queue.run(async () => {
-                if (signal.aborted) return;
-                const steers = takeSteerDrafts(core, run.runId);
-                if (steers.length > 0) await writeAndReact(core, steers, host.react, signal);
-            });
-            if (signal.aborted) return await end("aborted", {reason: "aborted"});
-
             host.phase("requesting", null);
             const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const environment = host.environment(resolution.info, offered.map(toolInfo));
 
-            // 边界第 4 步：运行中受理的 compact，或估算超过触发点，先压缩再算请求。失败只留诊断，请求照发。
+            // 边界第 3 步：解析模型。第 4 步：运行中受理的 compact，或估算超过触发点，先压缩再算请求。失败只留诊断，请求照发。
             const requested = host.takeCompactRequests();
             const trigger = host.compaction.trigger(resolution.info);
             if (requested.length > 0 || (trigger !== Number.POSITIVE_INFINITY && host.compaction.estimate() > trigger)) {
@@ -267,7 +290,16 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 host.phase("requesting", null);
             }
 
-            // 边界第 5 步：会话要求交回结果时，第一轮开头告诉模型调用 yield。
+            // 边界第 5 步：待发的提醒与运行中到达的 steer 全部取走，进当前这一轮。放在压缩之后：这一次刚取的不会被边界上的
+            // 压缩压进摘要（runtime.md 输出 28、113）。在队列项里读、看中止：停止受理之后到这一项的不再取（输出 30）。
+            await core.queue.run(async () => {
+                if (signal.aborted) return;
+                const taken = takeBoundaryDrafts(core, run.runId);
+                if (taken.length > 0) await writeAndReact(core, taken, host.react, signal);
+            });
+            if (signal.aborted) return await end("aborted", {reason: "aborted"});
+
+            // 边界第 6 步：会话要求交回结果时，第一轮开头告诉模型调用 yield。
             if (core.header.result !== undefined && !core.leafState.kernel.resultRequested) await write([conv("notice", {code: "result-requested", text: RESULT_REQUESTED})]);
             const computed = computeRequest({
                 assembly: core.assembly,
@@ -395,8 +427,9 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 // 停止受理之后不再取话、不再开下一轮（输出 30）：交给中止的收口。
                 if (signal.aborted) return "aborted";
                 const ready = readyEntries(core.session.kernel.buffer);
-                // 最终回复时还有就绪的 steer：这一轮接着请求，下一个边界取走它们。
-                if (ready.some((item) => item.mode === "steer")) return "continue";
+                // 最终回复时还有就绪的 steer 或带唤起的待发提醒：这一轮接着请求，下一个边界取走它们（输出 28）。不带唤起的提醒
+                // 不延长这一轮。
+                if (ready.some((item) => item.mode === "steer") || core.session.kernel.notices.some((notice) => notice.wake)) return "continue";
                 const result = core.header.result;
                 if (result !== undefined) {
                     // 会话要交回结果而模型没调用 yield（runtime.md 输出 27）：必需的先催一次。

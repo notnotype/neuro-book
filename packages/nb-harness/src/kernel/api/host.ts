@@ -46,6 +46,10 @@ export interface CommandMap {
     release: {args: {inputIds: string[]}; value: {runId: string | null; released: string[]}};
     edit: {args: {inputId: string; input: UserInput}; value: {}};
     remove: {args: {inputId: string}; value: {}};
+    /** 交给会话一条提醒，下一次对话请求带上（runtime.md 输出 112）；只给会话与宿主。`replaced` 是被它替换掉的那条。 */
+    notice: {args: {text: string; key?: string; wake?: boolean}; value: {noticeId: string; replaced?: string}};
+    /** 撤回或取消一条还没取走的提醒：用户能取消任何一条，会话与宿主只能撤回自己发的。 */
+    removeNotice: {args: {noticeId: string}; value: {}};
     /** 应答等用户的事项。`answer` 只给提问；`note` 是拒绝时附给模型的话。 */
     /** `runId`：受理后接着跑的运行（被叫醒的、开的或续的）；没有运行时不给（runtime.md 输出 88）。 */
     resolve: {args: {id: string; decision: "allow" | "allow-session" | "deny" | "answer"; answer?: {text: string; data?: JsonValue}; note?: string}; value: {runId?: string}};
@@ -159,6 +163,18 @@ export interface BufferedInput {
     heldBy?: Issuer;
 }
 
+/** 待发的提醒（runtime.md 输出 112）：取走之前一直在快照里。 */
+export interface PendingNotice {
+    id: string;
+    by: Issuer;
+    key?: string;
+    text: string;
+    wake: boolean;
+    /** 发出时的 seq，按它排。 */
+    queuedAt: number;
+    commandId?: string;
+}
+
 export interface ExtensionInfo {
     id: string;
     plugin: string | null;
@@ -184,6 +200,10 @@ export interface SessionSnapshot {
     /** 现在这个会话发对话请求会用哪个模型（runtime.md 输出 77）。 */
     model: {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | ({ok: false; code: ModelResolutionCode} & ModelResolutionChoice);
     buffer: BufferedInput[];
+    /** 待发的提醒，含正文；同缓冲区的输入，不经出站过滤（runtime.md 输出 118）。 */
+    notices: PendingNotice[];
+    /** 唤起的门（runtime.md 输出 117）；没有门事件的旧日志 `open: false`、`cause: null`。 */
+    wakeGate: {open: boolean; cause: string | null};
     settings: CoreSettings;
     /** 扩展的设置，按扩展 id（Agent 模式这类）。 */
     extensionSettings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;

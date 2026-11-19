@@ -530,6 +530,7 @@ export default {
         },
         continued: "已请模型继续",
         resultRequested: "已提醒模型提交结果",
+        hostNotice: "提醒 · {name}",
     },
     render: {
         failed: "此内容无法显示",

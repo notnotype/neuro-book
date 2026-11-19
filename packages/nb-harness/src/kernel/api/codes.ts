@@ -13,6 +13,8 @@ export const commandErrors = {
     enqueue: ["empty-input", "input-too-large", "input-rejected", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     edit: ["empty-input", "input-too-large", "input-rejected", "not-allowed", "input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
     remove: ["not-allowed", "input-not-found", "input-consumed", "command-id-conflict", "session-closed", "log-broken"],
+    notice: ["empty-input", "not-allowed", "notice-too-large", "notice-budget", "command-id-conflict", "session-closed", "log-broken"],
+    removeNotice: ["not-allowed", "notice-not-found", "notice-taken", "command-id-conflict", "session-closed", "log-broken"],
     resolve: ["unknown-interaction", "already-answered", "not-allowed", "invalid-answer", "input-rejected", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     start: ["already-running", "nothing-to-continue", "not-allowed", "no-model", "no-credentials", "unknown-model", "role-unbound", "profile-invalid", "read-only", "command-id-conflict", "session-closed", "log-broken"],
     abort: ["not-allowed", "command-id-conflict", "session-closed"],
@@ -30,7 +32,8 @@ export const commandErrors = {
 } as const;
 
 /** 只给宿主的指令（docs/specs/harness/runtime.md 输出 72）：把 `SessionApi` 逐个方法暴露成远程服务的层要排除它们。 */
-export const hostOnlyCommands = ["setGeneratedMeta"] as const;
+/** `notice`：用户的话本来就是新话，提醒只给会话与宿主（runtime.md 输出 112）。 */
+export const hostOnlyCommands = ["setGeneratedMeta", "notice"] as const;
 export type HostOnlyCommand = (typeof hostOnlyCommands)[number];
 
 /** 存储与打开会话的失败码（`createSession`、`openSession`、`LogStore`）。 */

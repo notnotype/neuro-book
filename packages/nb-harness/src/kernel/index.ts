@@ -14,4 +14,4 @@ export {createAgentHost, ExtensionRejected} from "./session/agent-host.js";
 export {PreviewUnavailable} from "./session/preview.js";
 export {ompCall, ompModelInfo, type OmpTarget, type OmpTransport} from "./model/omp.js";
 export {onProcessInterrupt, onProcessTermination, type TerminationSignal} from "./model/process.js";
-export {finalOnly, mapEventContent, opening, reminder, standardLayout, withoutEvents, type ContentMap, type ContentWhere} from "./helpers/index.js";
+export {finalOnly, mapEventContent, mergeSteers, opening, reminder, standardLayout, withoutEvents, type ContentMap, type ContentWhere} from "./helpers/index.js";

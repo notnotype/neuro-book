@@ -20,6 +20,7 @@ import {defaultSettings, type ViewEnvironment} from "../extension/ctx.js";
 import {byField, interceptInput, queuedData} from "./input.js";
 import {settingsProblem} from "./settings.js";
 import {releaseClaims, type Claim} from "./interaction.js";
+import {firstWake, gateDraft, gateOpen, userRunsChat, wakeRunDrafts} from "./wake.js";
 
 export interface CommandHost {
     readonly core: SessionCore;
@@ -65,10 +66,12 @@ export async function accept<K extends CommandName>(host: CommandHost, name: K, 
         if (host.closed()) return {ok: false, code: "session-closed"} as unknown as CommandResult<K>;
         if ("fail" in outcome) return {ok: false, code: outcome.fail, ...(outcome.detail === undefined ? {} : {detail: outcome.detail})} as unknown as CommandResult<K>;
         const accepted: EventDraft = {type: "commandAccepted", kind: "ctrl", scope: "session", data: {commandId, name, value: outcome.value as JsonValue, argsHash}};
+        // 用户开起或接着跑了一次对话运行：同一批里开门（runtime.md 输出 117）。被拒、开不起、只进缓冲区的走不到这里或不开运行。
+        const gate = outcome.launch !== undefined && userRunsChat(outcome.drafts) && !gateOpen(core) ? [gateDraft(true, "user")] : [];
         // commandAccepted 排在批的最后：它的 seq 就是受理批最后一条的 seq，重发时原样交回。
         let written: readonly LogEvent[];
         try {
-            ({events: written} = await writeAndReact(core, [...outcome.drafts, accepted], host.react));
+            ({events: written} = await writeAndReact(core, [...outcome.drafts, ...gate, accepted], host.react));
         } catch (error) {
             if (error instanceof LogBrokenError) return {ok: false, code: "log-broken"} as unknown as CommandResult<K>;
             throw error;
@@ -292,7 +295,16 @@ function releaseWhileIdle<K extends "resume" | "release">(host: CommandHost, iss
         if (problem !== null) return {fail: problem};
         return {value: {runId: continued.runId, released: released.ids}, drafts: [...released.drafts, ...continued.drafts], launch: continued.launch};
     }
-    if (released.ids.length === 0) return {fail: blockedByUser(core.session.kernel.buffer, issuer) ? "held-by-user" : nothing};
+    if (released.ids.length === 0) {
+        // 用户的“继续”在只有待发的提醒时也开一次运行，带上它们（runtime.md 输出 114）：门关着时这是用户让提醒送出去的办法。
+        if (nothing === "nothing-to-resume" && issuer.kind === "user" && core.session.kernel.notices.length > 0 && pausedRun(host) === null) {
+            const problem = startProblem(host);
+            if (problem !== null) return {fail: problem};
+            const runId = core.newId();
+            return {value: {runId, released: []}, drafts: [ctrl("runStarted", {runId, kind: "chat"})], launch: runId};
+        }
+        return {fail: blockedByUser(core.session.kernel.buffer, issuer) ? "held-by-user" : nothing};
+    }
     const problem = startProblem(host);
     if (problem !== null) return {fail: problem};
     const opened = openRunDrafts(core, projectSession(core.session.kernel, released.drafts, core.head).buffer, issuer);
@@ -391,6 +403,75 @@ export function removeCommand(host: CommandHost, issuer: Issuer, args: CommandMa
         const item = host.core.session.kernel.buffer.find((entry) => entry.id === args.inputId)!;
         if (!canRemove(item, issuer)) return {fail: "not-allowed"};
         return {value: {}, drafts: [{type: "inputRemoved", kind: "ctrl", scope: "session", data: {id: args.inputId, reason: "cancelled", ...byField(issuer)} as JsonValue}]};
+    });
+}
+
+/**
+ * 提醒的上限（runtime.md 输出 112）。合计按编码后的整条记录算（含发出者与留在待发记录里的 `commandId`），快照与远程的大小因此
+ * 有界：会话待发的提醒不会撑到窗口取不到快照、也就没处取消。
+ */
+export const NOTICE_TEXT_MAX_BYTES = 32 * 1024;
+export const NOTICE_KEY_MAX_CHARS = 200;
+export const NOTICE_MAX_PENDING = 64;
+export const NOTICE_TOTAL_MAX_BYTES = 128 * 1024;
+
+const noticeBytes = (notice: {readonly id: string; readonly by: Issuer; readonly key?: string; readonly text: string; readonly wake: boolean; readonly commandId?: string}): number =>
+    Buffer.byteLength(JSON.stringify({id: notice.id, by: notice.by, key: notice.key, text: notice.text, wake: notice.wake, commandId: notice.commandId}), "utf8");
+
+export function noticeCommand(host: CommandHost, issuer: Issuer, args: CommandMap["notice"]["args"] & {commandId: string}): Promise<CommandResult<"notice">> {
+    return accept(host, "notice", args, () => {
+        if (issuer.kind === "user") return {fail: "not-allowed"};
+        if (args.text.trim() === "") return {fail: "empty-input"};
+        if (Buffer.byteLength(args.text, "utf8") > NOTICE_TEXT_MAX_BYTES || (args.key !== undefined && args.key.length > NOTICE_KEY_MAX_CHARS)) return {fail: "notice-too-large"};
+        const pending = host.core.session.kernel.notices;
+        // 同一个发出者的同一个 `key` 替换还没取走的那条；上限按扣掉它之后算。
+        const replaced = args.key === undefined ? undefined : pending.find((item) => item.key === args.key && sameIssuer(item.by, issuer));
+        const rest = replaced === undefined ? pending : pending.filter((item) => item !== replaced);
+        const record = {id: host.core.newId(), by: issuer, ...(args.key === undefined ? {} : {key: args.key}), text: args.text, wake: args.wake === true, commandId: args.commandId};
+        const total = rest.reduce((sum, item) => sum + noticeBytes(item), noticeBytes(record));
+        if (rest.length + 1 > NOTICE_MAX_PENDING || total > NOTICE_TOTAL_MAX_BYTES) return {fail: "notice-budget"};
+        const drafts: EventDraft[] = [];
+        if (replaced !== undefined) drafts.push({type: "noticeRemoved", kind: "ctrl", scope: "session", data: {ids: [replaced.id], ...byField(issuer), reason: "replaced"} as JsonValue});
+        drafts.push({type: "noticeQueued", kind: "ctrl", scope: "session", data: record as unknown as JsonValue});
+        const value = {noticeId: record.id, ...(replaced === undefined ? {} : {replaced: replaced.id})};
+        // 唤起（输出 116）：空闲、门开着、叶子上没有暂停的运行、开得起运行时同一批开运行。运行不再取输入的窗口里不判，留给收口批。
+        if (!record.wake || !host.control.idle || !gateOpen(host.core) || pausedRun(host) !== null || startProblem(host) !== null) return {value, drafts};
+        const wake = wakeRunDrafts(host.core, firstWake(rest)?.by ?? issuer);
+        return {value, drafts: [...drafts, ...wake.drafts], launch: wake.runId};
+    });
+}
+
+/**
+ * 唤起的判定点之一：重新装配做完、会话回到能开运行时（runtime.md 输出 116）。另两处在 `notice` 的受理与收口批里。判与写在单写者
+ * 队列的同一项里；写失败时句柄进损坏状态，不再开运行。
+ */
+export async function wakeIfDue(host: CommandHost): Promise<void> {
+    const {core} = host;
+    await core.queue.run(async () => {
+        if (host.closed() || core.broken || !host.control.idle) return;
+        const wake = firstWake(core.session.kernel.notices);
+        if (wake === undefined || !gateOpen(core) || pausedRun(host) !== null || startProblem(host) !== null) return;
+        const woken = wakeRunDrafts(core, wake.by);
+        try {
+            await writeAndReact(core, woken.drafts, host.react);
+        } catch (error) {
+            if (error instanceof LogBrokenError) return;
+            throw error;
+        }
+        if (!host.closed()) host.control.launch(woken.runId);
+    });
+}
+
+/** 这条提醒有没有被取走过：取走的与从没发过的给不同的码（runtime.md 输出 112）。 */
+const noticeTaken = (core: SessionCore, id: string): boolean => core.events.some((event) => event.type === "noticeTaken" && (event.data as {ids: readonly string[]}).ids.includes(id));
+
+export function removeNoticeCommand(host: CommandHost, issuer: Issuer, args: CommandMap["removeNotice"]["args"] & {commandId: string}): Promise<CommandResult<"removeNotice">> {
+    return accept(host, "removeNotice", args, () => {
+        const item = host.core.session.kernel.notices.find((notice) => notice.id === args.noticeId);
+        if (item === undefined) return {fail: noticeTaken(host.core, args.noticeId) ? "notice-taken" : "notice-not-found"};
+        // 用户能取消任何一条；会话与宿主只能撤回自己发的。
+        if (issuer.kind !== "user" && !sameIssuer(item.by, issuer)) return {fail: "not-allowed"};
+        return {value: {}, drafts: [{type: "noticeRemoved", kind: "ctrl", scope: "session", data: {ids: [item.id], ...byField(issuer), reason: issuer.kind === "user" ? "cancelled" : "withdrawn"} as JsonValue}]};
     });
 }
 

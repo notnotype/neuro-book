@@ -125,7 +125,8 @@ describe("指令与失败", () => {
         await using session = await createTestSession();
         session.model.script({fail: "rate_limit"});
         const report = await session.say("你好");
-        expect(types(report.events).slice(-3)).toEqual(["modelFailed", "turnEnded", "runEnded"]);
+        // 路径上以失败、收口结束；收口批里的会话级事件（关门，runtime.md 输出 117）不在路径上。
+        expect(types(report.events.filter((event) => event.scope === "path")).slice(-3)).toEqual(["modelFailed", "turnEnded", "runEnded"]);
         expect(report.result).toMatchObject({reason: "error", stopReason: "error", error: {kind: "rate_limit"}});
     });
 

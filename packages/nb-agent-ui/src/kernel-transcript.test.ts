@@ -10,7 +10,7 @@ import type {ApproveHook, Frame, SessionApi, ToolContext} from "@notnotype/nb-ha
 import {createTestSession} from "@notnotype/nb-harness/kernel/testing";
 import type {TestSession, TestTool} from "@notnotype/nb-harness/kernel/testing";
 
-import {createKernelTranscript} from "./kernel-transcript";
+import {createKernelTranscript, NOTICE_SUMMARY_CHARS} from "./kernel-transcript";
 import type {KernelTranscript} from "./kernel-transcript";
 import type {AssistantMessageView, MessageView} from "./types";
 
@@ -689,5 +689,60 @@ describe("缓冲区的发出者与乐观消息（harness/runtime.md 输出 103�
                 expect(again.messages().some((message) => message.id === "mine")).toBe(false);
             }
         }
+    });
+});
+
+describe("提醒与门（harness/runtime.md 输出 112–117，agent/conversation.md 输出 51）", () => {
+    const HOST = {kind: "host" as const, source: {plugin: "lab.jobs", label: "后台任务"}};
+
+    test("跟着日志帧：待发的提醒只留开头、取走后成为一条全文的系统消息、门的开关；待发时与取走后都与重建的一致", async () => {
+        await using session = await createTestSession();
+        const {transcript, stop} = await follow(session.raw);
+        try {
+            expect(transcript.wakeGateOpen()).toBe(true);
+            const long = `后台任务结束了\n${"长".repeat(NOTICE_SUMMARY_CHARS)}`;
+            const sent = await session.raw.as(HOST).notice({commandId: id(), text: long});
+            if (!sent.ok) throw new Error(sent.code);
+            await session.raw.as(HOST).notice({commandId: id(), text: "会被撤回的"});
+            const withdrawn = transcript.notices().find((item) => item.summary === "会被撤回的")!;
+            expect((await session.raw.as(HOST).removeNotice({commandId: id(), noticeId: withdrawn.id})).ok).toBe(true);
+            expect(transcript.notices()).toEqual([{id: sent.value.noticeId, by: HOST, summary: [...long].slice(0, NOTICE_SUMMARY_CHARS).join(""), wake: false}]);
+            // 快照（内核的给全文）重建的与跟着帧的一样。
+            expect((await rebuilt(session.raw)).notices()).toEqual(transcript.notices());
+
+            session.model.script({fail: "provider"});
+            await session.say("问");
+            expect(transcript.notices()).toEqual([]);
+            expect(transcript.wakeGateOpen()).toBe(false);
+            const reminder = transcript.messages().find((message) => message.kind === "system" && typeof message.label !== "string" && message.label.key === "kernel.hostNotice");
+            expect(reminder).toMatchObject({kind: "system", source: "reminder", label: {key: "kernel.hostNotice", params: {name: "后台任务"}}, text: long});
+            const fresh = await rebuilt(session.raw);
+            expect(fresh.notices()).toEqual(transcript.notices());
+            expect(fresh.wakeGateOpen()).toBe(false);
+            expect(fresh.messages()).toEqual(transcript.messages());
+            expect(transcript.problems()).toEqual([]);
+            expect(fresh.problems()).toEqual([]);
+        } finally {
+            stop();
+        }
+    });
+
+    test("快照里的提醒是摘要：按 summary 建待发列表", () => {
+        const transcript = createKernelTranscript({toolName: (tool) => tool});
+        transcript.applySnapshot({head: 3, notices: [{id: "n1", by: HOST, wake: true, queuedAt: 2, summary: "开头", bytes: 9000}], wakeGate: {open: false, cause: "stopped"}});
+        expect(transcript.notices()).toEqual([{id: "n1", by: HOST, summary: "开头", wake: true}]);
+        expect(transcript.wakeGateOpen()).toBe(false);
+    });
+
+    test("取走的提醒的来源名与这个发出者发的话的作者相同（宿主给的 authorOf）", () => {
+        const transcript = createKernelTranscript({toolName: (tool) => tool, authorOf: (by) => ({label: by.kind === "session" ? "父代理" : "插件", icon: "i-lucide-bot"})});
+        const by = {kind: "session", id: "s-parent"};
+        transcript.applyPath([
+            {id: "e1", seq: 1, at: 0, parent: null, scope: "path", kind: "conv", type: "steer", version: 1, source: "kernel", data: {text: "父代理说的", queued: "q1", by}},
+            {id: "e2", seq: 2, at: 0, parent: "e1", scope: "path", kind: "conv", type: "hostNotice", version: 1, source: "kernel", data: {queued: "n1", by, text: "父代理的提醒", boundary: "b1"}},
+        ]);
+        const messages = transcript.messages();
+        expect(messages.find((message) => message.kind === "user")).toMatchObject({author: {label: "父代理"}});
+        expect(messages.find((message) => message.kind === "system")).toMatchObject({label: {key: "kernel.hostNotice", params: {name: "父代理"}}, text: "父代理的提醒"});
     });
 });
