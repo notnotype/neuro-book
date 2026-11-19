@@ -1,0 +1,142 @@
+## t41 设计审查报告
+
+我读了计划、提案、Spec、`useGridLayout.ts`、`useGridHost.ts`、`NestedGrid.vue`、`grid-geometry.ts`、`main.ts` 和工作台、Lab 的宿主。我还用真实的 `NestedGrid` 加 `useGridHost` 跑了实验，文件在 `.local/…/design-review/exp/`，结果在 `results.txt` 和 `results3.txt`。没有改仓库文件，没有开子代理。
+
+### 1. 判据 3 在合法的 stale-context 上误报，合法的 stale-* 在真实运行时也到不了宿主
+**严重程度**：重要　**类别**：correctness　**位置**：plan.md 第 47 到 49 行、第 99 行；`useGridLayout.ts:134`、`NestedGrid.vue:573`
+**现象**：
+- 计划说正常的 `stale-context` 发生时“宿主已经重算、版本递增了”，所以“版本相同而上下文不同”只可能是配置错误。实验不支持这个前提。
+- 手势中途改 `contextKey` 或调 `invalidate()`，`await nextTick()` 之后再松手：`NestedGrid` 自己对 `props.contextKey`、`props.revision` 的 `watch` 调 `scope.invalidate()`，手势以 `cancel:context-changed` 结束，根本没有提交，也没有 `stale-*`。
+- 刷新之前同步松手：这是 `stale-context` 能到达宿主的唯一窗口，得到 `stale-context{expected:"b", actual:"a"}`。此时 `commit.revision=2`，`host.revision=2`，因为 `watch([…, contextKey()])` 还没跑，版本没递增。计划的判据 3 命中，会把这条合法拒绝报成“两处写的值不一样”。
+
+**为什么是问题**：
+- 判据 3 的区分线画在了一个不存在的状态上。
+- 浏览器里 pointerup 是独立任务，微任务刷新必在其前，所以真实使用中“正常 stale”几乎不发生，只有同步 `dispatchEvent` 的测试和探针能造出来。
+- 验收映射第 86、87 行的“不警告”用例只能伪造提交（如现有 `useGridLayout.dom.test.ts:228`，在 `await nextTick` 之后伪造 `frozen`）。这样的用例通过了，也没证明真实运行时不误报。
+- Spec 输出 149 写“版本递增时进行中的那场手势提交按 `stale-revision` 被拒”，运行时实际是手势被取消。这是 Spec 与实现的出入，值得顺带记一笔。
+
+**如何核实**：跑 `exp/stale2.exp.test.ts` 和 `exp/stale3.exp.test.ts`，结果见 `results.txt` 的 mid-* 四行和 `results3.txt`。
+**建议改法**：
+- 在手势开始处核对，不在提交处。`gesture-start` 在 pointerdown 同步发，载荷带 `contextKey` 和 `revision`，此时刷新已经发生，不一致就是接线错误。
+- `useGridHost` 的 `bindings` 加一个 `onGestureStart`。它把 `start.contextKey`、`start.revision` 与 `contextKey()`、`revision.value` 比，不等就报一次。Vue 的 `mergeProps` 会把 `on*` 合成数组，`emit` 能处理数组，宿主自己写 `@gesture-start` 不受影响。
+- 提交处的区分逻辑（版本相同、大于、小于 1）整段删掉。这一条同时修掉第 2 条。
+- 消息不要断言原因。非响应式的 `contextKey` getter（`watch` 不触发、版本不变）也会得到同样的现象。
+
+### 2. 判据 4 在 [1, 此刻版本] 区间不报
+**严重程度**：重要　**类别**：漏报　**位置**：plan.md 第 50 到 52 行
+**现象**：实验里模板写 `:revision="1"`，宿主版本是 2，得到 `stale-revision{expected:2, actual:1}`。计划的判据只报“大于此刻”或“小于 1”，这一次不报。`:revision="0"` 和 `99` 才报。
+**为什么是问题**：
+- 宿主版本每次重发都递增（拖一次、改尺寸、`invalidate`），写死的常数或过期的拷贝很快落进“更早发布过的版本”区间。从值上区分不了它和合法 stale。
+- 计划只覆盖了“缺省 0”这一种最典型的写法（体验审查第 11 条）。
+- 另外 `>` 分支没有任何验收用例，把它改成 `>=` 或删掉，计划里的测试都不会失败。
+
+**建议改法**：同第 1 条，用手势开始处的核对一次覆盖。若坚持留在提交处，至少给 `>` 分支补用例。
+
+### 3. 检查点放在 `useGridLayout`，覆盖不到计划自己列的“不经 `useGridHost`”的宿主
+**严重程度**：重要　**类别**：遗漏、接口　**位置**：plan.md 第 12 到 14 行、第 38 到 52 行；`vue/index.ts`
+**现象**：
+- `vue/index.ts` 只导出 `useGridHost`，`useGridLayout` 是内部模块，第三方拿不到。
+- 计划在 Context 里说“不用 `useGridHost`、自己接 `NestedGrid`”是会撞上的一条路。检查点 1、3、4 都在 `useGridLayout`，这条路只有检查点 2（在 `NestedGrid` 里）能覆盖。
+- 自己接线的宿主会写自己的 `onGestureCommit`、自己的 `layout`（`createGrid(...).layout(extent)`），检查点 1 根本不会跑。
+- 验收映射第 87 行的“自己接 `useGridLayout` 式的宿主但不传 `revision`”，第三方写不出来，只有包内测试能写。
+
+**建议改法**：
+- `sashSize` 为 0 的检查挪到 `NestedGrid`。它拿得到 `props.layout.sashSizes`、`disabled` 和 `onGestureCommit`，所有宿主都经过它。
+- 接线类的检查（上下文、版本）放在 `useGridHost`，见第 1 条。
+- Context 一节改成准确的说法：后两类检查只服务整包绑定的宿主；手写宿主的提交处理自己负责。
+
+### 4. `sashSize` 为 0 的判据把合法的只读网格报成错误，也不看 `disabled`
+**严重程度**：重要　**类别**：误报　**位置**：plan.md 第 40 到 43 行、第 97 到 98 行
+**现象**：
+- `grid.md`、`NestedGrid.md` 都把缺省 0 写成合法状态：“分隔线没有宽度、不可交互”。
+- 计划自己因为“只读网格合法”而不在挂载时报“没接 `onGestureCommit`”，却在挂载（`publish`）时对同一类只读网格报“`sashSize` 为 0”。两条判据对“只读”的态度相反。
+- 判据也不看宿主是不是停用了手势。`useGridHost` 的 `disabled` 选项为真的网格同样会报。
+
+**我核实过不会误报的部分**：
+- 全部分隔条为 0 的判据在工作台上不会触发。`grid-geometry.ts:532-537` 的 `effectiveSashes` 只在 `configuredGap > target` 时缩放，缩到 0 只发生在 `target` 为 0 的分支，而根主轴在 `usableExtent` 为真时总是正的。
+- `v-if` 摘掉时 `publish` 发空布局，没有分隔条，不触发。
+- 工作台的缝有 0 也有非 0，只要有一条非零就不报。Lab 夹具里 `outerSashPx` 固定为 7。
+
+**建议改法**：判据加两个前置：宿主传了 `onGestureCommit`，且 `disabled` 不为真。纯静态展示用 `disabled` 或不接提交处理来表达，不再报。
+
+### 5. 验收映射：真实宿主零覆盖，“不误报”只靠合成场景
+**严重程度**：重要　**类别**：验收映射　**位置**：plan.md 第 79 到 93 行
+**现象**：
+- 计划明确“不跑 e2e：开关在 e2e 外壳里不打开”。工作台和 Lab 七个场景从来没有在开关打开的情况下跑过，四个判据对它们是否误报没有任何自动证据。第一个发现误报的会是开发者的开发服务。
+- 计划里标为风险的情形没有对应用例：宿主重算、尺寸变化、`v-if` 摘掉再挂回、同一宿主换网格实例。
+- 我对这几种的静态判断：`revision` 单调递增，换网格实例或 `v-if` 都只会让它增大，所以“大于此刻”不会因它们误报；`useGridHost` 整包绑定时 `commit.revision >= 1` 恒成立。
+- “手势期间换上下文不警告”见第 1 条，只能伪造提交。
+
+**建议改法**：
+- 加一个 dom 用例：打开开关，挂 `useGridHost` 加 `NestedGrid`，依次做拖动、改尺寸、`v-if` 摘挂、换网格实例、换 `contextKey`（等刷新），断言 `console.warn` 零次。
+- 对 `WorkbenchSurface` 现有的 dom 测试，在开关打开时同样断言零警告。
+- 变异：每条判据的分支（含 `>`）都要有用例会因变异而失败。
+
+### 6. “只报一次”的键是整页的 `kind`，第二个宿主的同类错误被吞，消息里没有标识
+**严重程度**：重要　**类别**：设计　**位置**：plan.md 第 30 到 36 行
+**现象**：
+- 键只有 `kind`，寿命是整个页面。工作台、Lab 七个场景、将来 nb-story 同页时，第一个出错的宿主之后，别的宿主同类错误都不报。
+- 消息只写“错在哪、怎么改”，不带 `contextKey`、分支 id 或 grid 实例标识，开发者不知道是哪一个。
+- 修好一个、刷新、才看到下一个，一次只暴露一个宿主。
+- 提案原文是“各报一次”，没限定“整页”。“整页”是计划自己加的。
+- `resetLayoutDevChecks` 只给测试用，HMR 重新求值 `dev-checks.ts` 会清空记录，其它情形没有清理点。
+
+**建议改法**：键用 `kind` 加实例，用 `WeakSet` 记 `NestedGrid` 或宿主实例，生命周期跟着实例；消息带 `contextKey` 与分支 id。`v-if` 反复摘挂的网格会重复报，可接受。
+
+### 7. 开关在根入口，检查在 Vue 入口，发布产物里两份模块实例时静默失效
+**严重程度**：建议　**类别**：发布　**位置**：plan.md 第 22 到 31 行；提案“已知的坑”
+**现象**：
+- `setLayoutDevChecks` 从根入口导出，检查在 `vue` 入口里。
+- 仓库内源码路径下 Vite 只有一份模块，没问题。
+- 提案“已知的坑”本身就列了多入口共享 chunk 划分的风险。若打包后两个入口各内联一份 `dev-checks.ts`，宿主通过根入口打开的开关到不了 Vue 入口那一份，所有警告静默不出，没人会发现。
+
+**建议改法**：开关状态存在 `globalThis[Symbol.for("nb-layout.devChecks")]` 上，或把 `setLayoutDevChecks` 同时从 `vue` 入口导出。再在发布冒烟里加一条“打开开关后拖错配的宿主确有一条警告”。
+
+### 8. `handler-missing` 的判据应是 `props.onGestureCommit === undefined`
+**严重程度**：建议　**类别**：判据　**位置**：plan.md 第 44 到 46 行；`NestedGrid.vue:532-536`
+**现象**（从代码推断，未跑）：
+- 今天 `handler-missing` 的条件是 `outcome === undefined`，即没传处理函数，或传了但返回 `undefined`。
+- `onGestureCommit` 在 `NestedGrid` 里声明为 prop，不是 emit，所以模板里写 `@gesture-commit="…"`（工作台的 `WorkbenchSurface` 恰好有同名 emit，很容易照抄）会编译成 `onGestureCommit` prop。处理函数存在、返回 `undefined`，就得到 `handler-missing`。
+- 这时警告“没接 `onGestureCommit`”会说错话。
+
+**建议改法**：警告的条件用 `props.onGestureCommit === undefined`；处理函数返回 `undefined` 单独给一条文字（“返回了 undefined，要返回 `{ok:true}` 或失败对象”）。
+
+### 9. `Splitter.vue` 已有无开关的 `console.warn`，计划没提这个先例
+**严重程度**：建议　**类别**：既有约定　**位置**：`Splitter.vue:61-73`
+**现象**：
+- `Splitter.vue` 对 `sashSizes` 配置错误直接 `console.warn`，前缀是 `[nb-layout/Splitter]`，写在 `computed` 里、每次重算都报、没有开关、不去重。
+- 计划给同一个包再引入一套：默认关、按 kind 一次、前缀 `[nb-layout]`。
+- 提案说“nb-layout 现在没有任何开发与生产的判断”，与此不符。
+
+**建议改法**：计划里写明两套的关系：要么 Splitter 的警告也走 `layoutDevWarning`（行为变化：未打开开关的宿主不再看到），要么保留并说明理由。前缀统一成 `[nb-layout/NestedGrid]`、`[nb-layout/useGridHost]` 这种带位置的写法。
+
+### 10. 上游选择：默认关的开关，和一条“凭记忆”的理由被写成了事实
+**严重程度**：建议　**类别**：上游选择　**位置**：plan.md 第 29 行、第 103 行；提案“已知的坑”
+**现象**：
+- 计划把“库模式构建会把 `import.meta.env.DEV` 静态替换”当作事实写出。提案标的是“凭记忆，第二档发产物时核实”，没在这里核实。
+- 默认关意味着第三方使用者（体验审查第 11 条要帮的人）不读文档就永远看不到警告。
+- Vue、React 的惯例是库里留着 `process.env.NODE_ENV !== "production"`，交给使用者的打包器替换（凭记忆，未核对），提案“已知的坑”也写了 `process.env.NODE_ENV` 在库模式下不被替换。
+- 代价：包要有 `process` 的类型或 `typeof process` 保护；Vite 开发服务对工作区源码是否替换它，我没核实。
+
+开发者已经“都按推荐”定了模块级开关，这条只作候选；至少把计划里的断言改成“凭记忆”。
+
+### 11. `main.ts` 的落点
+**严重程度**：建议　**类别**：落点　**位置**：plan.md 第 56 到 58 行；`web/main.ts:9`
+**现象**：`main.ts` 现在是 `import.meta.env.DEV ? await import("./development-plugins") : null`。计划另加一个静态导入 `@notnotype/nb-layout` 再接一行 `if (import.meta.env.DEV)`，会让入口 chunk 多一个静态依赖。我没核实应用入口 chunk 里原本是否已经含 nb-layout 核心。
+**建议改法**：把这一行放进 `development-plugins` 模块，随它一起只在开发模式动态加载，生产构建里就没有引用。
+
+### 未发现问题的方面
+- Spec 编号：最后一条输出是 150，新增 151 不冲突。
+- 依赖边界：`dev-checks.ts` 是纯 TS，核心不依赖 Vue，`boundary.test.ts` 与 `exports.test.ts`（禁用词、显式清单）不受影响。
+- `watch([grid, extent, contextKey()], recompute, {immediate: true})` 确实存在，首次发布后 `revision >= 1`，`revision` 单调递增，换网格实例、`v-if` 摘挂都只增不减。
+- `layout.sashSizes` 在发空布局时没有分支，全部为 0 的判据不会在空布局上触发。
+- 这个包里没有现成的 `import.meta.env.DEV` 判断可以复用或冲突。
+
+### 各级数量
+阻断 0，重要 6，建议 5。
+
+### 对计划末尾两条待确认的判断
+1. **模块级 `setLayoutDevChecks`**：同意，与开发者已定的决定一致。要补三处：状态用全局符号或同入口导出避开两份模块（第 7 条）；`sashSize` 的检查别放在宿主选项里，改放 `NestedGrid`（第 3 条）；默认关对第三方的覆盖面不足，至少在计划里把 `import.meta.env.DEV` 的理由标成“凭记忆”（第 10 条）。
+2. **`console.warn`、整页每种只报一次**：`console.warn` 没问题。“整页每种一次”太粗，改成每个实例一次，并让消息带上 `contextKey` 与分支 id（第 6 条）。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11

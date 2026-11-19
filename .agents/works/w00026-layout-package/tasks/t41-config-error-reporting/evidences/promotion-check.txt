@@ -1,0 +1,50 @@
+## 核对报告：输出 151 与输出 145 新增部分
+
+测试用 `bun run --cwd packages/nb-layout vitest run src/vue/dev-checks.dom.test.ts src/vue/useGridHost.dom.test.ts` 跑过，19 条全过。`exports.test.ts` 用的是 `bun:test`，我没单独跑；它只核对各入口是显式清单，没有一处引用 `setLayoutDevChecks`，所以不支持 151 的任何一句。
+
+“违反它的实现”一列是我按代码与断言推演出来的，没有在副本上真跑变异。下面 T 指 `packages/nb-layout/src/vue/dev-checks.dom.test.ts`。
+
+### 输出 145 新增：接 `gesture-start` 的处理
+
+| 句子 | 结论 | 测试与断言 | 违反它的实现举例 |
+|---|---|---|---|
+| bindings 里有接 `gesture-start` 的处理 | 有断言 | T:220-226 整包绑定、模板另写 `context-key`，拖两次，useGridHost 的警告恰 1 条。T:228-236 按下就松手也警告。bindings 用 `{...host.bindings.value, ...overrides}` 绑上，警告只能来自 `bindings.onGestureStart`。`useGridHost.dom.test.ts` 没有直接断言该键，全靠 T 的真实路径。 | 删掉 `bindings.onGestureStart` 或改键名：不再有警告，两条用例变红。 |
+
+### 输出 151
+
+| # | 句子 | 结论 | 测试与断言 | 违反它的实现举例 |
+|---|---|---|---|---|
+| 1 | `setLayoutDevChecks(true)` 打开之后，接线错误在浏览器控制台警告 | 有断言 | T:59 用 spy 接 `console.warn`；T:127-249 各用例断言 `warnings` 的内容与条数。 | 打开后不走 `console.warn`：`warnings` 为空，用例变红。 |
+| 2 | （缺省关） | 没有 | 没有用例在没调 `setLayoutDevChecks` 时断言不警告。T:70 的 `beforeEach` 先开，T:118 先显式关。别的 dom 测试没开开关，`vitest.setup.ts` 也没有 failOnConsole。 | `dev-checks.ts:20` 把 `enabled: false` 改成 `true`：全部用例照过。 |
+| 3 | 同一个 `NestedGrid` 的同一种只警告一次 | 只有部分 | sash-size-zero：T:134-135 重发布局后仍 1 条。commit-handler-missing：T:189-191 拖两次仍 1 条。commit-handler-not-function 与 commit-handler-bad-return 各只拖一次（T:200、208、216），没有“第二次不重报”的断言。 | not-function 或 bad-return 每次换新 owner（每次都报）：测试照过。 |
+| 4 | 同一个 `useGridHost` 宿主的同一种只警告一次 | 只有部分 | context-mismatch：T:221-225 拖两次仍 1 条。revision-mismatch：T:238-248 每个宿主只拖一次，没有“第二次不重报”的断言。宿主之间互不影响有间接断言：T:239-248 两个宿主先后各报一次 revision，若 `devOwner` 提到模块级，第二个会被吞，T:248 变红。 | revision-mismatch 每次用新 owner（`layoutDevWarning({}, …)`）：测试照过。 |
+| 5 | 警告里带 `contextKey`（没给时写明没有） | 只有部分 | NestedGrid 的 sash-size-zero：T:133 断言含 `"zero"`，T:172 含 `"tail"`。其余全无：commit-handler-missing、not-function、bad-return 三种有没有带值，没有断言。useGridHost 的警告也没断言值；T:225、235 的 `includes("contextKey")` 命中的是消息里固定的单词，不是值。“没给时写明没有”的两处（`A NestedGrid without a contextKey`、`the grid without a contextKey`）没有任何测试引用。 | `warnDev` 里 `props.contextKey === ""` 的分支改成输出空串：测试照过。useGridHost 的警告去掉值：测试照过。 |
+| 6 | 开关关着时都不警告 | 有断言 | T:117-125 开关关，挂 sashSize 0 且有提交处理的网格，再挂 `contextKey` 与 `revision` 被模板盖住的宿主并拖一次，断言 `warnings` 为 `[]`。覆盖 sash-size-zero、context-mismatch、revision-mismatch。commit-handler-* 三种在关着时没跑过，但与另外三种共用 `layoutDevWarning` 的闸门。 | 去掉 `if (!current.enabled) return`：变红。只有“某个检查点绕过闸门直接 `console.warn`”（commit-handler-* 三种）抓不到，情形很窄。 |
+| 7 | 警告不改变失败与 `issues` 事件 | 只有部分 | T:192-193 开着开关、没接提交处理时，`issues` 里仍有 `handler-missing`，用的是 `toContain`，不是整体相等。T:273 正确接线时没有被拒的提交。没有断言：其余接线错误在警告开着时的失败码（context-mismatch 仍应是 stale-context 被拒，undefined、Promise、布尔值、数组各自的失败码）；警告不往 `issues` 里额外加一条；开与关 `issues` 相同。 | 警告同时往 `emit("issues")` 多发一条：T:193 的 `toContain` 仍过。bad-return 分支警告后改返回别的失败码：无断言。 |
+| 8 | 子条 A：`NestedGrid` 接了提交处理、没有停用，有两侧都能调（主轴最小≠最大）的边界，而这些边界的分隔条全是 0 宽（`sashSize` 缺省 0） | 只有部分 | 警告：T:129-133 零宽两列警告 1 条，T:175-179 经 `useGridHost` 真实路径警告 1 条，T:166-172 末尾刚性、前两块可调的缝警告。不警告：T:137-162、164 总数仍为 1，涵盖没接提交处理、停用、有非零宽、只有一片叶。“两侧都能调”：T:142-146 刚性节点夹中间，T:148-153 收起成标题行的面板夹中间（竖直轴），T:155-159 条与编辑区，只看一侧的判据会变红。缺的是“全是 0 宽”与“有一条 0 宽”没区分：T:127 用例名写“有一条非零分隔条的不警告”，实际 T:139-140 的 `sized` 只有一条边界且非零，没有“多条可调边界、一条 0 宽一条非零宽”的用例。 | `onlyZeroWidthBoundaries` 里 `visible === 0` 改成 `visible < adjustable`（任一条 0 宽就报）：测试照过。另记一笔：树都是单层，去掉 `visit(child)` 的递归也照过（句子没提嵌套）。 |
+| 9 | 子条 A：挨着固定尺寸节点的缝不算 | 有断言 | T:155-159 条与编辑区，唯一边界挨着固定节点，不警告。T:142-146、148-153 同理。T:166-172 同一棵树里挨着固定节点的缝不算、两块可调的缝算。 | 把挨着固定节点的缝也计入 `adjustable`：T:142 等变红。 |
+| 10 | 子条 B：要提交时没有提交处理 | 有断言 | T:185-191 没接 `onGestureCommit`，拖两次，`has no onGestureCommit` 恰 1 条。T:137 只读网格挂载时不警告（T:164 总数 1），说明警告发生在要提交时，不在挂载时。 | 去掉 `NestedGrid.vue:534` 的警告：变红。改成挂载时报：T:164 变红。 |
+| 11 | 子条 B：提交处理不是函数（例如整包绑定后又写 `@gesture-commit`，两者合成数组） | 有断言（例子没走真实路径） | T:212-217 直接把数组传给 `onGestureCommit`，断言 `not a function (an array)` 恰 1 条。“`@gesture-commit` 与 bindings 合成数组”这条来路没在真实模板路径里复现，只传了数组 prop。 | 删掉 `NestedGrid.vue:535` 的分支：无警告，变红。`describe` 不再输出 `an array`：变红。 |
+| 12 | 子条 B：返回值不是 `{ok: …}` 的形状（例如 `undefined`、Promise、布尔值） | 有断言 | T:197-201 `undefined`；T:203-210 Promise 与 `true`，各断言 `got <label> from onGestureCommit` 恰 1 条。句子举的三个例子都覆盖。 | `isCommitResult` 只判 `typeof value === "object"` 或只判非 `undefined`：Promise、布尔用例变红。未覆盖 `null`、`{}`、`{ok: "yes"}`、`{ok: 1}`：`typeof ok === "boolean"` 改成 `"ok" in value`，测试照过。 |
+| 13 | 子条 B：三种是三条警告 | 只有部分 | 三种消息文字各不相同，各被单独断言。但每个场景只数自己那一种，没有断言同一场景不会多报别的种类，也没有同一个网格依次触发两种仍各报一次。 | 让 `undefined` 返回值同时报 `has no onGestureCommit` 与 `got undefined …`：测试照过。三种合成同一个去重键 kind：测试照过（每个场景都是独立网格）。 |
+| 14 | 子条 C：整包绑定的宿主，手势开始时 `NestedGrid` 用的 `contextKey` 与宿主此刻的不同（模板里另写了 `context-key`） | 有断言 | T:220-226 宿主 `"main"`、模板盖成 `"other"`，拖两次，警告恰 1 条。T:228-236 按下松手没有提交也警告，证明在手势开始时判。T:251-274 换上下文 `"second"` 后再拖无警告，证明比的是宿主此刻的值，不是创建时的快照。 | 核对挪到提交时：T:236 变红。创建宿主时记下 `contextKey` 比较：T:268-272 变红。不比较：T:225 变红。 |
+| 15 | 子条 C：`revision` 与宿主此刻的不同（模板里另写了 `:revision`） | 有断言 | T:238-248 覆盖成 0（`revision 0`）与过期的 1（`revision 1,`）各警告 1 条。T:251-274 正确接线（重新量尺寸、换网格实例、摘掉再挂回、换上下文）不误报。 | 不比较 `revision`：变红。比较写反：过期值用例变红。用挂载时快照比较：T:251 变红。 |
+
+### 没有 / 只有部分的句子，缺的断言
+
+- **没有**
+  - 第 2 句“缺省关”：缺“没调 `setLayoutDevChecks` 时，几种错误接线都不警告”的断言，例如在没调开关的新模块状态下挂零宽网格、拖一次，断言 `warnings` 为空。
+- **只有部分**
+  - 第 3 句：缺 commit-handler-not-function、commit-handler-bad-return 各拖两次仍只 1 条的“不重报”断言。
+  - 第 4 句：缺 revision-mismatch 同一宿主拖两次仍只 1 条的“不重报”断言。
+  - 第 5 句：缺三类断言。
+    - `contextKey` 的值出现在 commit-handler-* 三种警告里；
+    - useGridHost 警告里宿主 `contextKey` 与 `start.contextKey` 的值；
+    - 没给 `contextKey` 时出现 `A NestedGrid without a contextKey` 和 `the grid without a contextKey`。
+  - 第 7 句：缺“警告打开时，失败码与 `issues` 内容不变、没有多出一条”的断言（对 context-mismatch 的 stale-context，以及 undefined、Promise、布尔值、数组各自的失败码）。现有的 `toContain("handler-missing")` 抓不到多发的 issue。
+  - 第 8 句：缺“多条可调边界里一条 0 宽、一条非零宽时不警告”的断言（区分“全是 0 宽”与“有一条 0 宽”）。
+  - 第 13 句：缺“同一场景只出自己那一种警告”的断言（总数或互斥）。
+
+第 6 句（commit-handler-* 三种在关着时没跑过）、第 11 句（合成数组没走模板路径）、第 12 句（`null`、`{}`、`{ok: 非布尔}`）我判为有断言，上表已记下各自没覆盖的边角，没有列入“缺”。
+
+完整结果也写在 `.local/agent/works/w00026-layout-package/tasks/t41-config-error-reporting/reports/promotion/report-draft.txt`。

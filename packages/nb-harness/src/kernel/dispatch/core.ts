@@ -228,6 +228,9 @@ export class SessionCore {
         } else if (event.type === "leafChanged") {
             this.leaf = (event.data as {leaf: string | null}).leaf;
             this.leafSetBy = "leafChanged";
+        } else if (event.type === "runResumed") {
+            // 回退出来的暂停运行被接着跑了：在它写下第一条路径事件之前中断的，重开时要按中断恢复，不再当成只移动了叶子。
+            this.leafSetBy = "path";
         }
         this.#session = session;
         if (event.type === "commandAccepted") {

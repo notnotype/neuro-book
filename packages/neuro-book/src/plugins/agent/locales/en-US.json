@@ -334,7 +334,8 @@
             "declined": "Declined"
         },
         "author": {
-            "otherSession": "Another conversation"
+            "otherSession": "Another conversation",
+            "notice": "Notice · {{name}}"
         },
         "subagents": {
             "title": "Subagents",
@@ -415,6 +416,7 @@
             "stoppedByYou": "You stopped this turn",
             "stoppedByAgent": "The agent that started it stopped it",
             "stoppedByHost": "{{name}} stopped it",
+            "notice": "Sent when you continue",
             "interrupted": "The last run was interrupted",
             "idle": "Queued while idle",
             "notStarted": "The run couldn't start: {{reason}}",

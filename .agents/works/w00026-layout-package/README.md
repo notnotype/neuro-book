@@ -48,6 +48,27 @@ updated: 2026-11-05
 
 2026-11-19：[t39](tasks/t39-layout-helpers-and-starter/README.md) 完成：`NestedGrid` 发 `extent`，宿主用 `useGridHost` 整包绑上去（`useGridLayout` 降为内部），`useDragSession` 管组件里的拖动会话；工作台与 Lab 的五个网格宿主、三个拖动会话改用它们。合入 master（`a5de33888`，审查修正 `640226453`，晋升补测 `ff277aec6`），两轮设计审查与一次实现审查处理完，Spec 晋升前换模型逐句核过。下一个是 [t40](tasks/t40-collapse-and-intent-writeback/README.md)。
 
+2026-11-19：[t40](tasks/t40-collapse-and-intent-writeback/README.md) 完成：
+- 库里加了收起与展开的入口：`Grid.setCollapsed` 只翻收起标记、按分配重排，`useGridHost` 的 `setCollapsed` 会重发布局。
+- `restoreSize` 谁收起谁记。
+- 分隔条上按 Enter、另一侧吸收不了时不再收起。
+- `onApplied` 交出提交之前的布局。
+- nb-workbench-layout 的意图回写只留 `applyGestureCommit`、`rebaseForOperation` 两个入口，工作台与三个 Lab 夹具改用它们；Lab 夹具不再写坏被压缩的保留像素节点。
+- 合入 master（`4fd43c057`，审查修正 `69debb464`，晋升补测 `169618e8c`）。两轮设计审查（第二轮有 1 条阻断，范围收窄后解决）与一次实现审查都处理完，Spec 晋升前换模型逐句核过。
+- 发现了两个别处的问题：
+  - 分支之前就有：L1 落账会把被压缩的保留像素节点写坏，修法要改 Enter 的语义，交开发者（[待确认清单](pending-confirmations.md)）；
+  - 别的 Work 带进来的：排除 `nbook.agent` 的四个工作台 e2e 因为 `nbook.bots` 起不来，已在本分支修。
+
+下一个是 [t41](tasks/t41-config-error-reporting/README.md)。
+
+2026-11-19：[t41](tasks/t41-config-error-reporting/README.md) 完成：
+- nb-layout 加了开发模式开关 `setLayoutDevChecks`（缺省关），应用在只于开发模式加载的模块里打开。
+- 打开后检查这些接线错误，每个网格每种警告一次：能拖的边界全是 0 宽；没接或接错提交处理；整包绑定后模板里另写了 `context-key` 或 `:revision`（在手势开始时核对）。
+- 合入 master（`5bb0dca27`，审查修正 `e3f183d36`，晋升补测 `3f52c9923`）。设计审查一轮（第 2 稿把检查挪到手势开始处）与实现审查都处理完，Spec 晋升前换模型逐句核过。
+- 开发服务里用临时探针走了工作台与 Lab 的网格，零警告。
+
+下一个是 [t42](tasks/t42-readme-starter/README.md)。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。
@@ -57,6 +78,7 @@ updated: 2026-11-05
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06；t14 于 2026-11-16 排到 t26 之后）。
 - 已知问题（2026-11-18，t26 片 5 验证时发现，master 的 `ba3de16c6` 上同样有）：负载 9 到 10 时，编辑器标签实时布局快速拖到正文右边缘停下，预览有时停在“来源收起”，不换成拆分，松手也没拆（`editor-area.e2e.ts:2171`、`2207`，各重复 6 次约失败 1 次）。从代码推断与“来源收起后指针再动才重判”有关：指针在收起之前就停了。没有排 Task，要修时另建。
+- 已知问题（2026-11-19，t40 设计审查发现，分支之前就有）：nb-layout 的 `resizeBranches` 落账时，把被压缩、这次没动的保留像素节点的意图写成压缩值，窄窗口里经分隔条 Enter 收起一块面板，放宽后旁边那块永久少一截。工作台不受影响（回写经 L2 的 `frozen`）。修法要改 Enter 的语义，交开发者定（[待确认清单](pending-confirmations.md)），没有排 Task。
 - 已知问题（2026-11-18，t30 实现审查第 10 条，分支之前就有）：nb-layout 的结构操作与快照恢复对 16 层深度的计法差一层：结构操作把根算第 1 层，恢复从 0 数起，17 层的快照能恢复、恢复后连拆分都被拒，18 层才被恢复拒绝。改恢复的阈值前要先定已能读到的 17 层快照怎么办。没有排 Task。
 
 ## 后续

@@ -46,5 +46,7 @@ export type StandardLayoutHelper = (options?: StandardLayoutOptions) => (view: V
 
 /** 只留最终回复：去掉工具记录与中间的步，最后一步的回复去掉工具调用。 */
 export type FinalOnlyHelper = <P>(turn: ConversationTurn<P>) => ConversationTurn<P>;
+/** 同一个边界一起取走的相邻插话合成一条（docs/specs/harness/profile.md 输出 21）；不同边界的不合，已发出的块因此不变。 */
+export type MergeSteersHelper = <P>(turn: ConversationTurn<P>) => ConversationTurn<P>;
 /** 去掉某个依赖的几种对话事件：`withoutEvents(turn, memory, "retrieved")`；名字拼错是编译错误。 */
 export type WithoutEventsHelper = <P, D extends Dependency, N extends ConvNamesOfDependency<D>>(turn: ConversationTurn<P>, dependency: D, ...names: N[]) => ConversationTurn<P>;

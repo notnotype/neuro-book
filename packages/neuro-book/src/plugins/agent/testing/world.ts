@@ -42,8 +42,8 @@ export interface AgentWorld {
     readonly work: RunningWorkRegistry;
     /** 起一个窗口，交回它的远程客户端与窗口（断线、重连用）。 */
     /** `wrapLink`：包住窗口这一端的链路，测试据此在帧上做手脚（例如丢掉一次结果再断线）。 */
-    /** `requests` 是同一个窗口的 `nbook.agent/requests` 客户端。 */
-    window(id: string, options?: {readonly wrapLink?: (link: RemoteLink) => RemoteLink}): Promise<{readonly client: SessionsClient; readonly requests: RequestsClient; readonly window: WorldWindow}>;
+    /** `requests` 是同一个窗口的 `nbook.agent/requests` 客户端；`remote` 是窗口的远程入口，测试用它按旧版本的合同调用。 */
+    window(id: string, options?: {readonly wrapLink?: (link: RemoteLink) => RemoteLink}): Promise<{readonly client: SessionsClient; readonly requests: RequestsClient; readonly remote: ActivationContext["remote"]; readonly window: WorldWindow}>;
     /** 运行中登记一个插件；交回的函数停掉它（关它的登记作用域，贡献随之撤回）。 */
     register(plugin: PluginDefinition): Promise<{readonly result: RegisterPluginResult; stop(): Promise<void>}>;
     close(): Promise<void>;
@@ -95,7 +95,7 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
             }})]};
             const window = await settings.window(id, [page], {bound: false, ...(windowOptions.wrapLink === undefined ? {} : {wrapLink: windowOptions.wrapLink})});
             if (captured === null) throw new Error("the test page did not activate");
-            return {client: useSessions(captured), requests: useRequests(captured), window};
+            return {client: useSessions(captured), requests: useRequests(captured), remote: (captured as ActivationContext).remote, window};
         },
         register: async (plugin) => {
             const scope = settings.hub.root.createChild(`test:${plugin.id}`);

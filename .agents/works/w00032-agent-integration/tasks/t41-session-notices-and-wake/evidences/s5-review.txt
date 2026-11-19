@@ -1,0 +1,83 @@
+# t41 切片 5 实现审查（e15c52f18..e2b73d996）
+
+## F1 重要 / 正确性（违反 Spec）：会话发的提醒，标签里的来源名不是会话标题
+
+位置：`packages/nb-agent-ui/src/kernel-transcript.ts:670`（消息流）、`packages/neuro-book/src/plugins/agent/web/session-host.ts:1111-1118`（排队区，经 `authorOf`，同文件 881-886）。
+
+现象：conversation.md 输出 51 写“来源名（宿主写它的 `label`，会话写会话标题）”。两处都没做到：
+- 消息流里取走的提醒，标签是 `by.kind === "session"` 时直接用 `by.id`，用户看到的是“提醒 · <一串会话 id>”。
+- 排队区走 `authorOf`：只在 `target.ancestors` 里找得到才有 profile 名（不是标题），否则写“另一个会话”。会话发的提醒来源正是后代、兄弟这类不在祖先里的会话，所以这类提醒多半显示“提醒 · 另一个会话”。`AncestorItem` 本来就有 `title`，没有用。
+- 两处写出的名字互不相同（同一条提醒排队时叫“另一个会话”、取走后叫 id），用户对不上号。
+
+核实：读上面两处代码即可；两条新测试都只用 host 来源，没有会话来源的用例，`session-host.test.ts` 的 `testTextPort` 又把 `conversation.author.notice` 渲染成键名，所以连 host 的 `name` 有没有进标签也没被断言（见 F6）。
+
+建议：转录器的 `hostNotice` 标签只做不带名字的版本，或把名字解析交给宿主（转录器拿不到标题）；排队区对会话来源用标题（读不到时才退到“另一个会话”）；消息流同样由宿主在显示时按同一函数取名。
+
+## F2 重要 / 正确性：只有提醒时的“继续”丢了错误提示，也绕过 `continuing`
+
+位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:1552-1559`（`run.continue` 新分支，1555）。
+
+现象：新分支 `await remote.resume({... mode: "keep"})` 直接丢掉结果。
+1. 失败静默：开不起运行（无模型、无凭据、会话只读、关闭中，runtime.md 输出 5、114）时用户点“继续”什么都不发生。同一件事在有留着的话时走 `continueRun`，失败会写 `conversation.continue.failed` 并说明码。门关着的提醒最常见的场景正是“用户停止之后点继续”，这时模型没配好是现实可能。base 的 `start` 分支同样丢结果，但那是 base 的缺口；本片把“只有提醒”这条新路径也做成了同样的缺口，而 Spec 输出 50 要求“失败时停下、说明原因”。
+2. 绕过 `continuing`：Spec 输出 50 写“继续是一个操作：进行中头行的‘继续’与发送键不可用”，而 `continuing` 只在 `continueRun` 里置位。新分支不置位，两次快速回车/点击会发两次 `resume`；第二次落在已开的运行里，得 `nothing-to-resume` 被吞掉，所以现在无害，但“进行中不可用”这条合同对这条路径不成立；`continueDisabled` 在这条路径上也不会变灰。
+3. 三处重复 `!queue().some(held)` 判断，分支写成 `if / else if / else` 且第一个条件里还夹着 `notices().length`，读起来要推演。
+
+核实：读 1552-1559；测试里 `run.continue` 只在成功路径上走过（`session-host.test.ts` 提醒第二条）。
+
+建议：把“只有提醒”并进 `continueRun`（`typed === null` 且没有留着的话时，keep 模式和合并模式都走 `resume{mode: "keep"}`，复用它的 `continuing`、失败提示与 `nothing-to-resume` 判断）；或最少对返回值走同一个 `fail` 路径。顺手把 `held` 算一次。
+
+## F3 重要 / 不变量：`KernelNotice.text` 在两条来路上含义不同，重建与增量不一致；一致性测试用的是内核快照，不是浏览器收到的远程快照
+
+位置：`packages/nb-agent-ui/src/kernel-transcript.ts:304-311`（`noticeOf` 读 `text` 或回退到 `summary`）、`:924-928`；`packages/nb-agent-ui/src/kernel-transcript.test.ts` 新 describe 第一条（`rebuilt` 是同文件第 47-52 行）；`session-host.ts:1119`。
+
+现象：
+- 日志帧给全文（最多 32 KiB），快照（浏览器经远程合同拿到的）只给 200 个字符的摘要。转录器把两者都放进同一个字段 `text`。同一条提醒，一直开着的转录器里 `notices()[i].text` 是全文，重连后重取快照重建的是摘要；转录器的单一来源/重建一致的不变量（文件头注释“会话级状态以快照为基线，之后增量”）对这个字段不成立。
+- 宿主为了补这个洞，在 `noticeView` 里再把 `text` 按 `noticeSummary` 截一次（1119）。也就是 UI 的显示规则靠“谁来调用都再截一遍”维持，转录器类型 `KernelNotice` 的注释只写“摘要或全文”，调用方必须知道两种都可能。`bytes`（摘要是否被截过）被转录器丢掉，排队区看不出这条文字被截了（没有省略号）。
+- 测试的“与重建的一致”只在取走之后比：那时 `notices()` 两边都是空数组（`expect(fresh.notices()).toEqual(transcript.notices())` 是 `[] === []`），根本没有比非空情形。且 `rebuilt()` 用 `session.raw.snapshot()`，是内核的快照（带全文 `text`），不是 `remoteNotice()` 之后的形状，所以“摘要与全文混用”恰好测不出来。摘要路径只有单独的第二条手写对象测试。
+
+如何核实：构造一条超过 200 字符的提醒，一个转录器跟帧、一个用 `applySnapshot({notices: [remoteNotice(...)]})`，比较 `notices()[0].text`，长度会是 N 对 200。
+
+建议：二选一并让转录器自己保证一致：(a) 转录器的 `KernelNotice` 只存摘要，帧来的也在 `noticeOf` 里截（把 200 这个数放在 nb-agent-ui，由 neuro-book 的 `remote.ts` 引用，免得两处各写一份），同时保留 `bytes`；(b) 或类型上分成 `text` 与 `summary`。再在一致性测试里把非空的提醒（超过 200 字符）放进比较，并让一个转录器吃 `remoteNotice` 形状的快照。
+
+## F4 重要 / 测试：宿主测试没有覆盖 Spec 输出 51 的几个判据，两个断言会空过
+
+位置：`packages/neuro-book/src/plugins/agent/session-host.test.ts` 新 describe“提醒（conversation.md 输出 51）”（约 792-867 行）。
+
+逐条对照 Spec 输出 51 与计划切片 5 要点：
+1. “门开着、没有运行时是普通就绪行”没有用例。`noticeView` 的条件是 `wakeGateOpen() || status !== "idle"`；第一条测试里运行在跑（`status !== "idle"` 就够了），第二条测试里门是关的。把 `wakeGateOpen()` 这半个条件删掉，两条测试都照样通过（变异后应失败的断言不存在）。需要补：新建会话（门是开的）空闲时发一条不带唤起的提醒，断言它不带 `held`、`composer.queued` 里有它。
+2. “继续”各条路没有测：只有提醒（第二条测试，有）、**中断的运行加提醒**、**留着的话加提醒**、**合并模式下用户留着两条以上再加提醒**（走 `send{replaces}`，提醒是否仍随这次运行取走）都没有。第二条里的“只有提醒”还是在 `resumeMode` 缺省（merge）下，没有对 `keep`/`followups` 各走一遍。任何一条路径把提醒漏掉或得 `nothing-to-resume`，现有测试都发现不了。
+3. 标签里的来源名没有被断言：`testTextPort` 把 `agentText("conversation.author.notice", {name})` 渲染成键名 `"conversation.author.notice"`，`toEqual` 里 `label: "conversation.author.notice"` 不含 `name`，所以“提醒 · 日程”的来源名有没有传对（F1 的问题）测不出。至少应让文本口把参数带出来，或直接断言传给 `deps.text.t` 的 ref 的 `params`。
+4. `queued.remove` 的分流只测了“取消提醒”；没有“有提醒存在时取消用户的话仍走 `remove`”。同一个 `act` 分支两个出口，只测一个。
+5. “已暂停 N 条”头行的条数、`stopClearing` 的条数是否计提醒：测试只看 `composer.queued[].held`，没有看头行（组件 `AgentQueuedMessages` 的 dom 测试没有新增提醒行的用例），也没有 `interaction.stopClearing` 在有提醒时的断言。实现上两处目前正确（`stopClearingOf` 只数 `queue()`，头行按 `held` 数），但没有测试保护。
+6. 第一条测试里有运行时点取消，之后 `await idle(h)` 并断言请求里没有提醒文字：这条断言有效（提醒被取消没有进请求）。✓ 无需改。
+
+建议：补 1、2 两项（它们是 Spec 判据本身），3 把参数带出来；4、5 各补一两行。
+
+## F5 建议 / 文案：只有提醒时占位文字与头行说成“排队的话”
+
+位置：`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:220-222, 276-278`（`hasHeld` 现在把提醒行也算进去，本片没有改这个文件）。
+
+现象：`hasHeld` 只看 `queued[].held`，提醒行（门关着、空闲）带 `held`，所以只有提醒时占位文字是“按回车继续排队的话，或输入新消息一起发”；中断的运行加提醒时是“上次运行已中断，排队的话已暂停”。实际并没有“话”。Spec 的 ui 一节写的是“留着的条目”，字面上没问题，但读者会找不到被暂停的“话”。属于可接受的取舍，不影响行为；若开发者要求精确，需要宿主在 `composer` 里区分，或改占位文案为“排队的内容”。我没有把它当缺陷，只记一笔。
+
+## F6 建议 / 代码质量：几处可简化或不够自洽的地方
+
+1. `session-host.ts:1571-1573`（`queued.remove`）：按“id 是否在 `notices()` 里”分流。点击与处理之间提醒恰好被取走时，id 已不在 `notices()`，请求落到 `remote.remove({inputId: <提醒 id>})`，得到的是输入的失败码（而不是 `notice-taken`），两个结果都被丢掉；用户看到的是行消失，没有错误，行为上无害。更直接的做法是行本身带种类（`noticeView` 返回的对象加一个宿主内部的标记，或由宿主维护 `id -> kind`），不靠“当前转录里有没有”推断。id 撞名没有现实可能（都是内核发的 UUID）。
+2. `session-host.ts:1119`：宿主用 `noticeSummary` 再截一次，是 F3 的补丁；转录器内部统一后可删，同时去掉宿主对 `shared/remote.ts` 的值导入（现在 `import type {...} from "../shared/remote"` 下面又单独一行 `import {noticeSummary}`）。
+3. `shared/remote.ts:138-140`：`bytes` 用 `new TextEncoder().encode(text).length` 复制整段正文只为数字；同包 `backend/frames.ts` 有 `byteLength`（但那是 Node 的 Buffer，shared 不能用）。保持现状可以，但上限 64 条 × 32 KiB 每次快照都分配一遍，若要省可用 `Buffer`/按码点算；属性能小事，窄场景不必改。
+4. `RemoteNotice` 上 `summary` 字段名与 `KernelNotice.text` 同一内容两个名字，见 F3。
+5. `kernel-transcript.ts` 文件头注释（第 8 行“会话级的状态（标题、设置、缓冲区、累计用量）”）没有加上提醒与门；新增的两项也是会话级状态、以快照为基线。
+
+## 未发现问题的方面
+
+- 快照与帧的先后：`applySnapshot` 把 `notices` 与 `wakeGate` 整份替换并以 `head` 设 `lastSeq`，`applyEvent` 用 `seq <= lastSeq` 丢旧帧，与缓冲区同一套机制；`noticeRemoved{replaced}` 在 `noticeQueued` 之前写、转录按到达顺序先删后加，不会重复或丢失。快照之后、路径之前到的会话级帧，路径重建（`applyPath` 只 `resetPath`）不会重置 `notices`、`wakeGate`，没有问题。`noticeTaken` 与 `noticeRemoved` 共用一套按 id 过滤的归约，正确。
+- 远程合同：版本 2、`removeNotice` 参数与错误码（`argsMatchKernel` 在 base 就有 `removeNotice: true`，这次没有改它也无需改）、`snapshot` 的 `RemoteSessionSnapshot` 类型与 `whole()` 的泛型约束一致；摘要按码点截并有代理对用例；快照有界：内核限 64 条、整条记录合计 128 KiB，摘要最多 200 码点，`whole()` 另有 512 KiB 的兜底，成立。单条 `noticeQueued` 帧最大约 32 KiB，远低于 `EVENT_INLINE_BYTES`（256 KiB），不会被换成占位。
+- `stopClearingOf`、头行的“已暂停 N 条”：前者只数 `queue()`，与 Spec 输出 49“缓冲区里的全部条数”一致（提醒不属于缓冲区，用户停止也不清提醒）；后者数 `held` 行，门关着时提醒计入，与输出 51 一致。
+- `composer.queued` 的顺序（话在前、提醒在后）、提醒行不可编辑、有运行时不按留着画：符合输出 51。`queued.edit` 对提醒行不可达（`editable: false`）。
+- 本地化：中英文键一一对应，`{name}` 在两个包里分别用各自的占位语法（单花括号与双花括号），与同文件已有写法一致；“你继续时一起送出”“提醒 · 来源”与 Spec 文字一致。
+- 备注：base 上就有的问题没有计入（`start` 分支丢返回值是 base 既有，见 F2 第 1 点的说明）。
+
+## 数量
+
+- 阻断：0
+- 重要：4（F1 来源名、F2 只有提醒时的继续、F3 `text` 两种含义与一致性测试、F4 宿主测试缺判据）
+- 建议：2（F5 占位文字措辞、F6 若干简化点）

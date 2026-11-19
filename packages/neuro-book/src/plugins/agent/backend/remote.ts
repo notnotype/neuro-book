@@ -21,6 +21,7 @@ import {PushThrottle} from "nbook/shared/push-throttle";
 import type {AgentRuntimeService, ProfileAdmin} from "../shared/contracts";
 import type {Rule} from "../shared/permissions";
 import type {agentSessionsContract, ApprovalPreview, JobTail, RemoteCommandName} from "../shared/remote";
+import {remoteNotice} from "../shared/remote";
 import type {AncestorItem, JobItem} from "../shared/subagents";
 
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
@@ -223,7 +224,10 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             const created = await service.create({profile, ...(initial === undefined ? {} : {initial: initial as never}), ...(project === undefined ? {} : {project})});
             return created.ok ? context.ok({sessionId: created.value.id}) : context.fail(created.code as "open-failed", created.detail as undefined);
         },
-        snapshot: ({sessionId}, context) => whole(() => view(sessionId).snapshot(), context) as never,
+        snapshot: ({sessionId}, context) => whole(async () => {
+            const snapshot = await view(sessionId).snapshot();
+            return {...snapshot, notices: snapshot.notices.map(remoteNotice)};
+        }, context) as never,
         header: async ({sessionId}, context) => {
             const read = await service.header(sessionId);
             return read.ok ? context.ok(read.value) : context.fail(read.code as "open-failed", read.detail as undefined);

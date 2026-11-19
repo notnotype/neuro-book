@@ -14,7 +14,7 @@ import type {Static, TSchema} from "typebox";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputFate, InputMode, LogEvent, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionHeader, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
+import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputFate, InputMode, LogEvent, PendingNotice, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionHeader, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
 import type {FilePreview} from "@notnotype/nb-harness/kit/shapes";
 
 import {TASK_ID} from "./contracts";
@@ -94,6 +94,8 @@ const commandArgs = {
     enqueue: {input: Input, mode: Mode},
     edit: {inputId: Type.String(), input: Input},
     remove: {inputId: Type.String()},
+    /** 用户取消一条还没取走的提醒（harness/runtime.md 输出 112）；发提醒的 `notice` 只给宿主，不在这里。 */
+    removeNotice: {noticeId: Type.String()},
     resolve: {
         id: Type.String(),
         decision: Type.Union([Type.Literal("allow"), Type.Literal("allow-session"), Type.Literal("deny"), Type.Literal("answer")]),
@@ -113,6 +115,29 @@ const commandArgs = {
     setTitle: {title: Type.String()},
     archive: {archived: Type.Boolean()},
 } as const;
+
+/** 远程快照里的一条待发提醒：正文只给开头（sessions.md 输出 29），全文在取走之后经日志读；快照的大小因此有界。 */
+export interface RemoteNotice {
+    readonly id: string;
+    readonly by: PendingNotice["by"];
+    readonly key?: string;
+    readonly wake: boolean;
+    readonly queuedAt: number;
+    readonly summary: string;
+    /** 正文的 UTF-8 字节数。 */
+    readonly bytes: number;
+}
+export type RemoteSessionSnapshot = Omit<SessionSnapshot, "notices"> & {readonly notices: readonly RemoteNotice[]};
+
+/** 摘要至多多少个字符。 */
+export const NOTICE_SUMMARY_CHARS = 200;
+
+/** 提醒正文的开头，按字符（码点）截，不切开代理对。 */
+export const noticeSummary = (text: string): string => [...text].slice(0, NOTICE_SUMMARY_CHARS).join("");
+
+export function remoteNotice(notice: PendingNotice): RemoteNotice {
+    return {id: notice.id, by: notice.by, ...(notice.key === undefined ? {} : {key: notice.key}), wake: notice.wake, queuedAt: notice.queuedAt, summary: noticeSummary(notice.text), bytes: new TextEncoder().encode(notice.text).length};
+}
 
 /** 暴露给远程的指令：只给宿主的不进合同（harness/runtime.md 输出 72）。 */
 export type RemoteCommandName = Exclude<CommandName, HostOnlyCommand>;
@@ -210,7 +235,7 @@ const methods = {
         effect: "write",
         errors: errorsOf([...storageErrors, "profile-invalid", "invalid-initial", "open-failed"] as const),
     },
-    snapshot: {input: Type.Object(BySession, {additionalProperties: false}), output: object<SessionSnapshot>(), effect: "read", errors: wholeErrors},
+    snapshot: {input: Type.Object(BySession, {additionalProperties: false}), output: object<RemoteSessionSnapshot>(), effect: "read", errors: wholeErrors},
     /** 只读会话头、不打开会话（sessions.md 输出 28）：浏览器打开会话之前据此看归属（conversation.md 的转交）。 */
     header: {input: Type.Object(BySession, {additionalProperties: false}), output: object<SessionHeader>(), effect: "read", errors: queryErrors},
     log: {
@@ -340,7 +365,8 @@ const events = {
     skillsChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Object({}, {additionalProperties: false})},
 } as const;
 
-export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessions", version: 1, provider: "server", callers: ["browser"], methods, events});
+/** 版本 2：快照的待发提醒只带摘要，加了 `removeNotice`（sessions.md 输出 29）。 */
+export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessions", version: 2, provider: "server", callers: ["browser"], methods, events});
 
 /**
  * 远程合同与内核的对照，内核改了这里编译不过：每条指令的参数字段相同、校验过的输入能交给内核（输入方向）；内核交出的
@@ -349,7 +375,7 @@ export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessi
 type ArgsOf<K extends RemoteCommandName> = Static<ReturnType<typeof Type.Object<(typeof commandArgs)[K]>>>;
 type Matches<K extends RemoteCommandName> = [keyof ArgsOf<K>] extends [keyof CommandMap[K]["args"]] ? ([keyof CommandMap[K]["args"]] extends [keyof ArgsOf<K>] ? (ArgsOf<K> extends CommandMap[K]["args"] ? true : false) : false) : false;
 const argsMatchKernel: {readonly [K in RemoteCommandName]: Matches<K>} = {
-    send: true, enqueue: true, edit: true, remove: true, resolve: true, start: true, resume: true, release: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
+    send: true, enqueue: true, edit: true, remove: true, removeNotice: true, resolve: true, start: true, resume: true, release: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
 };
 const detailsMatchKernel: {readonly [C in DetailCode]: CommandErrorDetails[C] extends Static<(typeof COMMAND_DETAILS)[C]> ? true : false} = {
     "input-rejected": true, "already-answered": true, "invalid-value": true, "unknown-key": true, "already-running": true, running: true, "dependency-missing": true, "nothing-to-release": true,

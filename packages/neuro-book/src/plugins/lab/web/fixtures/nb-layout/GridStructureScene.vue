@@ -49,6 +49,12 @@ const ACTIONS: Readonly<Record<string, () => void>> = {
     "narrow": () => grid.value.resize("a", "width", -60),
 };
 
+/** 收起与展开走宿主的入口（Spec `ui/nested-grid` 输出 149）：它自己重发布局，不再 `invalidate()`。 */
+const COLLAPSE_ACTIONS: Readonly<Record<string, () => void>> = {
+    "collapse-c": () => void host.setCollapsed("c", true),
+    "expand-c": () => void host.setCollapsed("c", false),
+};
+
 /** 产品里是工作台的两条命令；这里不接命令系统，直接调。 */
 function onKeydown(event: KeyboardEvent): void {
     if (event.key === "F6" && moveGridFocus(containerEl.value, event.shiftKey ? "previous" : "next")) event.preventDefault();
@@ -64,6 +70,7 @@ function run(name: string): void {
     <div class="grid-structure-scene" @keydown="onKeydown">
         <div class="grid-structure-scene__actions">
             <button v-for="(_, name) in ACTIONS" :key="name" type="button" :data-structure-action="name" @click="run(name)">{{ name }}</button>
+            <button v-for="(action, name) in COLLAPSE_ACTIONS" :key="name" type="button" :data-structure-action="name" @click="action()">{{ name }}</button>
             <input data-structure-outside aria-label="grid 外面的输入框" />
         </div>
         <div ref="containerEl" class="grid-structure-scene__grid" data-structure-host>

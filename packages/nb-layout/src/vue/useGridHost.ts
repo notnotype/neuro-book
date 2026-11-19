@@ -15,9 +15,11 @@ import {computed, shallowRef, toValue} from "vue";
 import type {ComputedRef, MaybeRefOrGetter, Ref} from "vue";
 
 import type {Grid} from "../grid";
+import {commitFailure} from "../grid-failure";
 import {usableExtent} from "../grid-geometry";
-import type {GridGestureCommit} from "../grid-gesture";
-import type {GridBranchesResizeResult, GridExtent, GridFailure, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
+import type {GridGestureCommit, GridGestureStart} from "../grid-gesture";
+import {layoutDevWarning} from "../dev-checks";
+import type {GridBranchesResizeResult, GridCollapseResult, GridExtent, GridFailure, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
 import {useGridLayout} from "./useGridLayout";
 
 /** 交给宿主的诊断：布局重算的、手势的、被拒的提交（带 `ok`）。 */
@@ -33,6 +35,11 @@ export type GridHostBindings<T> = {
     readonly onGestureCommit: (commit: GridGestureCommit) => GridLayoutCommitResult;
     readonly onExtent: (extent: GridExtent | null) => void;
     readonly onIssues: (issues: readonly GridHostIssue[]) => void;
+    /**
+     * 开发模式的接线检查（Spec 输出 151）：手势开始时核对 `NestedGrid` 用的上下文与版本是不是包里的。模板里另写 `@gesture-start`
+     * 会和它合成数组、两个都调；渲染函数里展开 `bindings` 时不要用同名的键覆盖它，也不要放在它前面被它覆盖。
+     */
+    readonly onGestureStart: (start: GridGestureStart) => void;
 };
 
 export type GridHost<T> = {
@@ -46,6 +53,11 @@ export type GridHost<T> = {
     readonly extent: Readonly<Ref<GridExtent | null>>;
     /** 宿主改了树的结构后调用：重算布局并递增版本。 */
     invalidate(): void;
+    /**
+     * 收起或展开一块面板（Spec 输出 149）：调 `grid.setCollapsed`，标记变了就重发布局（版本递增，进行中的手势提交因此被拒），
+     * 没变不打断。不触发 `onApplied`：结果直接交回，`collapse` 里有宿主要存的值。没有网格时 `not-ready`。
+     */
+    setCollapsed(id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready">;
     /** 整包绑到 `NestedGrid` 上。 */
     readonly bindings: ComputedRef<GridHostBindings<T>>;
 };
@@ -57,8 +69,8 @@ export type GridHostOptions<T> = {
     readonly contextKey?: MaybeRefOrGetter<string>;
     /** 宿主自己的停用条件；没量到可用尺寸时总是停用。 */
     readonly disabled?: MaybeRefOrGetter<boolean>;
-    /** 提交已经落账之后的通知；它抛错只报诊断，不反悔已提交的几何。 */
-    readonly onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {ok: true}>) => void;
+    /** 提交已经落账之后的通知；它抛错只报诊断，不反悔已提交的几何。`before` 是提交之前发布的布局（Spec 输出 150）。 */
+    readonly onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {ok: true}>, before: GridLayoutResult) => void;
     /** 诊断的唯一出口（Spec 输出 139、140）。 */
     readonly onIssues?: (issues: readonly GridHostIssue[]) => void;
 };
@@ -77,6 +89,21 @@ export function useGridHost<T>(options: GridHostOptions<T>): GridHost<T> {
         extent.value = next;
     };
     const onIssues = (issues: readonly GridHostIssue[]): void => options.onIssues?.(issues);
+    /**
+     * `gesture-start` 在按下时同步发出，那时宿主已经刷新：上下文或版本不等，只能是模板里另写的值盖住了包里的。
+     * 不在提交处判：手势期间换了上下文或重发布局时，`NestedGrid` 自己把手势取消，到不了提交（t41 设计审查第 1 条）。
+     */
+    const devOwner = {};
+    const onGestureStart = (start: GridGestureStart): void => {
+        const context = contextKey();
+        const grid = context === "" ? "the grid without a contextKey" : `grid "${context}"`;
+        if (start.contextKey !== context) {
+            layoutDevWarning(devOwner, "context-mismatch", `[nb-layout/useGridHost] NestedGrid started a gesture with contextKey "${start.contextKey}", but the host's is "${context}", so the resize will be rejected. Do not override context-key in the template; pass contextKey to useGridHost.`);
+        }
+        if (start.revision !== layoutHost.revision.value) {
+            layoutDevWarning(devOwner, "revision-mismatch", `[nb-layout/useGridHost] NestedGrid of ${grid} started a gesture at revision ${String(start.revision)}, but the host is at ${String(layoutHost.revision.value)}, so the resize will be rejected. Do not override revision in the template; bind host.bindings.value.`);
+        }
+    };
     const bindings = computed<GridHostBindings<T>>(() => ({
         node: layoutHost.node.value,
         layout: layoutHost.layout.value,
@@ -86,6 +113,14 @@ export function useGridHost<T>(options: GridHostOptions<T>): GridHost<T> {
         onGestureCommit: layoutHost.onGestureCommit,
         onExtent,
         onIssues,
+        onGestureStart,
     }));
-    return {node: layoutHost.node, layout: layoutHost.layout, revision: layoutHost.revision, extent, invalidate: layoutHost.invalidate, bindings};
+    const setCollapsed = (id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready"> => {
+        const grid = toValue(options.grid);
+        if (grid === null) return commitFailure("not-ready", "The grid is not ready; nothing was collapsed", {missing: "grid"});
+        const result = grid.setCollapsed(id, collapsed);
+        if (result.ok && result.changed) layoutHost.invalidate();
+        return result;
+    };
+    return {node: layoutHost.node, layout: layoutHost.layout, revision: layoutHost.revision, extent, invalidate: layoutHost.invalidate, setCollapsed, bindings};
 }
