@@ -1,0 +1,120 @@
+## 重要
+
+### 1. 失效拆出计划仍显示为揭示与伏笔回收计划
+严重程度：重要；类别：正确性；位置：`packages/neuro-book/src/plugins/plot/core/author/secrets.ts:122`、`packages/neuro-book/src/plugins/plot/core/author/ledger.ts:54`
+现象：作者读取只筛 `status: active`，并以 `progress` 排除取消、被取代；未检查 `splitFrom.by` 是否仍是有效兑现。真实项目里将拆出计划所依赖的已写变更改为 `undone` 后，保密表仍返回该计划的揭示，伏笔账本仍把它列为下一步。
+为什么是问题：Spec `plot/knowledge.md` 输出 14 明确要求失效拆出的计划不列；`author-ui.md` 输出 11 要求下一步为生效、未兑现计划。canon 的 `includedPlans`（`packages/nb-canon/src/engine/incremental.ts:277-281`）会因 `splitFrom.by` 不 active 或补丁未套上而排除计划，作者表却把它当作可执行计划展示。
+如何核实。实施应用包运行 `bun test /tmp/w31-review-b2/omp-scratch/author-runtime.test.ts`，经真实项目子进程发布拆出计划后撤销 `by` 变更。`PROBE invalidated-split` 中保密表前后仍返回 `c9` 的第 4 章明说揭示，撤销后的 `ledger.next` 也仍返回 `c9` 的第 4 章回收。
+账本的「没打算怎么收」还会读未经进展筛选的 `index.planned`（`ledger.ts:66`、`foreshadowing.ts:388-390`）。从代码可知，失效、被取代或已兑现的回收计划都可能压掉这个标记。`plot/foreshadowing.md` 输出 9 要求仅考虑生效、未兑现的回收，输出 7 的旧诊断另有口径。
+建议改法。作者读取复用 canon 对拆出计划的有效性规则，保留未来未兑现的计划。让作者账本的回收标记与下一步采用同一份有效未兑现计划，保持旧诊断的口径。补兑现依赖撤销后的两个读取用例。
+
+### 2. 经历把仅被提及的人列为同时在场者
+严重程度：重要；类别：正确性；位置：`packages/neuro-book/src/plugins/plot/core/author/experience.ts:36`
+现象：映射每个 `cast` 成员时既未限制 `role === "present"`，也未保留 `as` 马甲字段。真实项目中存入两名 `mentioned` 参与者，作者经历把两人都显示为同时在场者；还把 `{who:"e2",as:"e3"}` 简化成 `{who:"e2"}`。
+为什么是问题：`plot/knowledge.md` 输出 8 定义经历为在场的剧情变更；既有 `core/knowledge.ts:413-419` 及 `core/viewpoint.ts:204-210` 都按 `role === "present"` 筛选。非在场者被呈现为场景参与者会改写作者看到的事实；忽略 `as` 会丢掉这场景实际使用的马甲信息。
+如何核实：`bun test /tmp/w31-review-b2/omp-scratch/author-runtime.test.ts`，真实子进程输出 `PROBE cast`：存储含 `mentioned` 的 `e4` 与 `Off-screen`，`shown` 仍列 `e4` 与 `Off-screen`，并将 `as:"e3"` 显示为本体 `e2`。
+建议改法：与现有经历口径一致，只输出 `present` 成员；作者条目应保留场景中使用的马甲引用，按作者界面的字段合同呈现本体与马甲。
+
+### 3. 回溯知情的来处丢失父线原证据的段号
+严重程度：重要。类别：正确性。位置：`packages/neuro-book/src/plugins/plot/core/author/knowing.ts:130`、`:153-157`。
+现象：`carried` 回包正确给出父线，却在子线视图查原事件讲述。回溯抹掉原事件时，仍可返回事件 id 和章，但段号变成 `null`。
+依据：`plot/knowledge.md` 输出 11 要同时给出原证据的位置与线。子线视图只列它可见的讲述（`packages/nb-canon/src/service/reads.ts:223-227`）。
+核实：实施应用包运行 `bun test /tmp/w31-review-b2/omp-scratch/author-runtime.test.ts`。真实项目 `PROBE rollback` 中，主线 `c4` 的原证据是第 `2` 章第 `2` 段。`l1` 经 `c6` 带过来的结果仍指向 `main/c4`，段号却为 `null`。现有 `knowing.test.ts:76` 的回溯用例没有正文讲述，无法发现这个差异。
+改法：在同一读取快照中按原证据所在的线查讲述，按线与章隔离定位缓存。用一条真实定位的父线讲述断言子线给出同一个段号。
+
+### 4. 作者分页在建整表后才判旧游标，删章或删线后改报找不到
+严重程度为重要。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/backend/author.ts:75-82`、`packages/neuro-book/src/plugins/plot/backend/results.ts:27`。
+`paged` 先解析线和位置，再调用 `run` 建整表，`pagedList` 才经 `pageOf` 校验游标。正文或插件数据变化后的旧续页会在新输入上白算一遍。删掉游标对应的章或线后，方法提前返回 `chapter-not-found` 或 `line-not-found`。
+依据。`plot/author-ui.md:72` 与 B2 计划第一节要求读取输入变了就回 `cursor-stale`，而且要在建全表之前拒绝。位置仍存在时错误码正确，初次遇到新输入时却走完了冷读的计算路径。
+核实。实施应用包运行 `bun test /tmp/w31-review-b2/omp-scratch/author-runtime.test.ts`。`PROBE cursor-deleted-chapter` 先拿第 3 章的有效游标，再改 Binder 等删章生效，续页实收 `chapter-not-found`。整表与校验的先后由 `run` 和 `pagedList` 的同步调用顺序确认。
+`author-folding.test.ts` 的 `PROBE cursor-limit-and-line` 还确认，首取 1 条后用同一游标可续 2 条，三条记录无重漏，换模式报 `cursor-stale`。撤销提供该线的分叉后，持原游标续读实收 `line-not-found`。
+改法。用快照戳先拒过期输入，再按方法、规范化位置和筛选参数通过 `cursorPaging` 校验游标。校验应在调用整表读取之前，并保留可用游标换 `limit` 续页的行为。
+
+### 5. 目标表回包缺少隐秘引用的名字
+严重程度为重要。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/backend/author.ts:36-45`，字段来自 `packages/neuro-book/src/plugins/plot/core/goals.ts:53-62`。
+现象。`nameGoals` 收集分组持有者、目标、基于与算出的冲突，漏掉目标的 `隐秘`、`后继` 及原始引用等字段。人物页还会合并知情行，恰好能替 `隐秘` 补名字，掩盖同一收集器的缺项。
+依据。`plot/author-ui.md:61` 要求 `names` 覆盖回包里的每个条目引用，并按本次读取位置、线、模式取名。
+核实。实施应用包运行 `bun test /tmp/w31-review-b2/omp-scratch/author-runtime.test.ts`。`PROBE goal-page-names` 经真实项目调用 `goals`，目标 `e7.隐秘` 为 `e6`，而 `names` 只有 `e1`、`e7`。原始冲突、后继、马甲父条目的缺项由字段与收集器对读定位。
+改法。用同一份目标投影收集它实际输出的条目引用，覆盖 `holder`、`冲突`、`后继`、`隐秘`，或从回包删掉界面无需消费的字段。回归测试用 `goals` 独立读，避免知情行顺带填上引用。
+
+### 6. 同序号条目跨过 e9 后，侧栏与保密表不沿用 canon 条目树顺序
+严重程度为重要。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/core/author/lines.ts:17-19`、`packages/neuro-book/src/plugins/plot/core/author/secrets.ts:94-116,194-198`。
+现象。树路径的每层先比较 `order`，再按字符串比较 id。`order` 相同的时候 `e10` 排在 `e9` 前，子树也随之换序。保密表主体分组用同一个比较器。
+依据。`plot/author-ui.md` 输出 1、7 要求沿条目树顺序。canon 在 `packages/nb-canon/src/service/service.ts:996` 用 `compareIds` 打破同序号的平局，同前缀的编号按数值比较。
+核实。实施应用包运行 `bun test /tmp/w31-review-b2/omp-scratch/author-runtime.test.ts`。`PROBE tree` 用同一份世界读到 canon `tree` 顺序 `e9,e10,e11,e12,e13,e14`，`author.plotLines` 则为 `e10,e11,e12,e13,e14,e9`。保密表受影响的路径由共用 `treeKey`、`compareKeys` 确认。
+改法。共享 canon 的条目树比较规则，每层先比 `order` 再按 canon id 比较。补同序号、跨十进制位数及带父节点的例子。
+
+### 7. 一个秘密的决策列表就能让整行超预算
+严重程度为重要。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/core/author/knowing.ts:242-272`、`packages/neuro-book/src/plugins/plot/core/author/secrets.ts:186-191`、`packages/neuro-book/src/plugins/plot/backend/author.ts:107-122`。
+现象。知识点详情截了 `people`，但没有截 `related` 的五个列表，也没有给总数。保密表单行的 `reveals`、`decisions`、`guards` 同样直接返回全量。命中大项时减页长没有用，其他秘密也无法翻过该行继续读。
+按源码核对，`person` 的知情、目标和态度，以及 `goals` 单组内的目标和态度、`ledger` 单行的 `nodes` 也没有子列表上限。实测覆盖知识点详情和保密表。
+`plot/knowledge.md` 输出 15 要求各列表有上限和总数。`plot/author-ui.md:72` 要求子列表截断后单行能装进远程预算。`b2-design-review-resolution.txt:54` 明确把计划与决策列为受限的子列表。
+核实。实施应用包运行 `bun test /tmp/w31-review-b2/omp-scratch/author-boundaries.test.ts`。真实子进程中，150 条约 5.1 KB 的待定决策让同一秘密的保密表单行达 777870 字节，两种读取都返回 150 条且无总数。到 200 条时，`point` 与 `secrets({limit:1})` 均回 `plot/too-large`。此时实施分支为 `ae9b24183`，相关投影与预算代码同被审版本。另见 `PROBE names-budget`，单纯因一页名字过大时，200 行失败后用 100 行可重取和续页。
+改法。先按全量记录算分段、筛选与总数，再为回包截断子列表和长文本预览。把名字表计入每页最终预算，给超出预览的项独立的续读入口。补一行过预算与换页长续读的合同测试。
+
+### 8. 目标「最近动过」取错折叠结果，停滞既可漏报也可误报
+严重程度为重要。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/core/goal-checks.ts:44-52,92-104`、`packages/neuro-book/src/plugins/plot/core/author/goals.ts:60-66`。
+现象。`touchesOf` 认计划的时间键，`goalQuiet` 又把 `outcome` 为 `undefined` 当作通过。`eventKey` 不判断计划有没有计入，`outcome` 只查实际折叠，因此到后续章还能把已经退出计划折叠的计划当作一次改动。
+依据。`plot/goals.md` 输出 6 排除已兑现、被取代与失效计划，只算在请求位置和模式下计入且套上的补丁。基线的旧 `stalled` 已用 `touchesOf`，漏判计划是否计入是既有问题。作者 `last`、`quiet` 是本批新增的错误读数。
+核实。实施应用包运行 `bun test /tmp/w31-review-b2/omp-scratch/author-boundaries.test.ts` 的 `PROBE goal-fulfilled`。目标第 1 章出场，第 10 章计划改轻重，兑现者不碰目标。第 35 章按计划读时，轻重已从 `minor` 回到 `major`，`last` 仍是第 10 章，`quiet:25`，没有停滞提示。同位置实际模式为 `last:null`、`quiet:34`，诊断报 34 章停滞。此探针运行于 `ae9b24183`，目标读取、诊断与引擎实现同被审版本。第 10 章末单读因该章已有已写变更、计划安放键后移，不能暴露此例。
+`author-folding.test.ts` 的 `PROBE goal-mode-outcome` 在第 37 章确认，已被取代的计划仍让 `last` 为第 11 章。另一条计划 `c2` 在按计划的待处理中明确为 `cannot-apply`，目标仍被记作第 10 章动过。反方向同样出错：先成功发布已写变更 `c4`，再改初值使它在实际模式套不上，由第 5 章的计划补回前提。此时按计划读已得到 `c4` 在第 10 章写入的 `为什么`，`last` 却为第 5 章，`quiet:32`，报停滞。这次多报由本批新增的实际模式 `outcome` 过滤造成，基线的 `stalled` 会取第 10 章。
+改法。让共享的「动过」使用同位置同模式下实际套上的目标补丁，区分计划计入与计划折叠的套用结果。补跨章读取已兑现、被取代与计入后套不上的计划用例。
+
+### 12. 一条未归纳的态度会让同表其他态度也标为未归纳
+严重程度为重要。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/core/author/goals.ts:70-75`。
+`attitudesOf` 对每行复制整个字段的 `notReduced`。canon 在任一子字段未归纳时给整个列表打标，其他行的折叠值照常可用（`packages/nb-canon/src/engine/views.ts:126-145`）。作者接口把列表级状态当成了行级状态，使目标与态度页按 `plot/author-ui.md` 输出 14、17 提示本已可用的态度「还没归纳」。
+在实施应用包运行 `bun test /tmp/w31-review-b2/omp-scratch/author-rows.test.ts`。真实子进程 `PROBE attitude-rows` 中两行初始的 `notReduced` 均为 `false`。第 2 章只给 `e2` 的态度加 `note`，`e3` 仍为 `Trusts B`，标志却也改成 `true`。同一个投影供 `person` 和 `goals` 使用。
+让内核读取提供元素子字段的归纳状态，按对象投影到对应行。用一条有未归纳事件的态度和一条已可用的态度验证。不要靠匹配正文里的「；之后：」推断状态。
+
+### 13. 未出场或已删除的持有者进入主要角色
+严重程度为重要。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/core/author/secrets.ts:82-91,148-154`、`packages/neuro-book/src/plugins/plot/core/author/goals.ts:99-106`。
+`mainCharacters` 检查目标出场与状态后，直接收录目标父条目的本体。它没有检查持有者是否属于读取位置上的人群。缺省保密表会选中这些人，目标表也会为他们分组。条目可以先有目标再出场，删除父条目也不会删除目标。
+`plot/knowledge.md` 输出 13 把作者读取的人群限定为该位置已出场、未删除的人物与组织。`plot/goals.md` 输出 6 在这个人群中取持有进行或受挫目标的主要角色。在真实子进程中发布第 4 章才出场的 `e4`、另一个已出场的 `e3` 和它们的目标，再删除 `e3`。`author-rows.test.ts` 的 `PROBE nonappeared-holders` 在第 2 章末读到 `candidates`、`main`、缺省 `people` 和目标分组持有者全为 `["e3","e4"]`。
+用共享的作者人物判据筛持有者，再按本体分组。补目标早于持有者出场、父条目删除后目标仍存、马甲名下的目标三种用例。
+
+### 14. 人物知情页漏掉仍指向已删除知识点的行
+严重程度为重要。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/core/author/knowing.ts:119-124,195-207`。
+`personKnowing` 只遍历 `pointsAt`，后者先剔除所有已删除知识点，因而无法投影仍然有效的知情行。`plot/knowledge.md` 输出 1 要求删除知识点后照常保留引用并显示「已删除的条目」，输出 16 要列有有效知情行的别的知识点。保密表仍可按已出场、未删除的知识点选行。
+实施应用包 `bun test /tmp/w31-review-b2/omp-scratch/author-rows.test.ts` 的 `PROBE knowledge-tombstone` 先经真实项目发布对 `e6` 的 `forgot` 行，再删除 `e6`。同位置的 `nbook.plot/world.knowing` 仍返回原行。`nbook.plot/author.person` 的对应行和名字都消失。
+在人物投影中用已出场秘密与该人物有效知情行的知识点并集。对仍被引用的墓碑保留行和来处，按已删除引用的口径提供显示信息。
+
+## 建议
+
+### 9. `person` 接受知识点作为人物
+严重程度为建议。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/backend/author.ts:89-99,169-171`。
+现象。`isEntry` 可校验类型，`person` 和 `experience` 只用它检查存储条目存在且未删除。传入一个知识点，人物页接口返回成功，经历也返回成功的空列表。
+依据。`plot/author-ui.md:138` 要求 `person` 的条目种类不符时回 `not-found`。`plot/knowledge.md` 输出 13 定义作者读取的人为人物与组织。
+核实。真实子进程 `author-boundaries.test.ts` 的 `PROBE wrong-kind` 中 `e2` 是知识点，`person({person:"e2"})` 仍回 `ok:true`，`experience` 也回 `ok:true,items:[]`。调用点在被审版本与探针运行版本相同。
+改法。用共享的作者人物种类判据检查人物入参，遇到类别不符时返回 `not-found`。用同一条知识点兼测两个读取。
+
+### 10. 星瑕样本测试用强杀代替项目正常关闭
+严重程度为建议。类别为测试。位置在 `packages/neuro-book/scripts/canon-sample.test.ts:90-104,109-110,177-181`。
+现象。成功路径只关窗口和释放租约。场地使用 `ManualClock`，测试没有推进宽限期或停 `h.parent`，随后由 `afterEach` 向子进程发 `SIGKILL`。启动等待和窗口创建在 `try` 之前，且 `window.close()` 抛错会跳过 `keep.release()`。
+依据。`docs/testing/README.md` 的「测试起的资源要收口」要求成功与失败路径都停止并核对正常关闭。强杀兜底无法发现项目停止时的错误。
+核实。单文件 `bun test scripts/canon-sample.test.ts` 通过 2 项。使用同一场地的真实子进程探针在关窗口、释放租约后实测 `state:"idle-grace"`，随后调用 `h.parent.stop()`。`packages/neuro-book/src/server/testing/projects.ts:35-47,145,186-189` 确认可控时钟和强杀路径。
+改法。从获取租约开始纳入清理范围。分开保证关闭窗口、释放租约、停止父实例并检查正常退出，最后留 `killSpawnedProjects()` 兜底。
+
+### 11. 规模脚本漏测 `plotLines`，并在作者冷读计时前预热读取快照
+严重程度为建议。类别为测试。位置在 `packages/neuro-book/scripts/perf/plot-scale.ts:61,240-274,296-305`。
+现象。规模循环手列六个方法，缺 `plotLines`。保密表总是点名三个人，跳过缺省选人时的两遍表计算。每轮发布后先调用 `service.snapshot().view.outcome(written)`，析出引擎追赶的同时也提前建了视图与读取戳。热读未查 `ok`，续页只在恰好有游标时测。作者方法计时结束后，阶段 F 才补 10 个悬念。
+依据。`plot/author-ui.md` 输出 20 要在 1000 章、30 个伏笔及指定负载下量每个作者方法的首次、再读与适用的下一页。`b2-plot-scale-1000.txt:30-35` 的六项最大值为首次 234 毫秒、再读和下一页各 12 毫秒，支持已量的输入，未覆盖缺省保密表和第七个方法。记录的负载为 2.11 到 4.11，`canon/project.md` 输出 14 的参考负载低于 1。
+核实。对照脚本的方法表、计时起点与阶段顺序，以及 `packages/nb-canon/src/service/service.ts:697-725` 的快照构造；本次没有重跑 1000 章规模测量。
+改法。让测量用例覆盖合同的方法集及缺省保密表。全部 30 个伏笔准备好后再量；保留发布计时的边界，把作者首次取快照算进冷读。检查每次回包成功并断言有分页的方法确实拿到下一页。
+
+### 15. 有显式知情行但未填程度的人被计入「没有行」
+严重程度为建议。类别为正确性。位置在 `packages/neuro-book/src/plugins/plot/core/author/knowing.ts:163-167,287-299`。
+`authorRow` 把没有候选与候选缺 `程度` 都编码成 `none`，`point` 再据此剔除行。`plot/knowledge.md` 输出 13、15 要按有效知情行是否存在来分组。有行但还没填程度时，保密点的详情会把此人计入「别的人都不知道」，并丢掉已记的信念和来处。
+真实项目 `author-rows.test.ts` 的 `PROBE degree-unset` 发布了一行只有「他以为的」的知情。`nbook.plot/world.knowing` 确认显式行存在且 `程度:null`。`person` 返回信念和来源，`point` 却返回 `people:[], peopleTotal:0, rest:{count:3,unaware:true}`。
+按胜出的行是否存在决定 `people` 与 `rest`。程度没有填写时保留行，另给未填写的状态，避免与缺行共用一个值。
+
+## 未发现问题的方面
+
+- 视图缓存按世界对象与读取输入代次复用。同一线的视图及缓存对象可复用，逐个调用点未见写回共用结果。真实项目修改正文或写作指示后旧游标作废，Binder 换缺省线后即使世界版本未变，续页也按输入变化处理。
+- 输入上限、有效游标换页长、不同查询的游标隔离，以及无游标时的缺线和缺章失败码，实测符合合同。普通整页因名字表超预算时，页长从 200 改为 100 可继续取页。
+- 除第 8 条的共享停滞判断，源码对照未发现 `nbook.plot/world`、`nbook.plot/checks`、写手视角和 `revealDependencies` 的读取口径因作者合同而变化。伏笔「久没提」保留旧诊断的截止与阈值判断。
+- 星瑕样本数据和 Node SQLite 场地的正常读取未发现问题。实施应用包的 `bun test scripts/canon-sample.test.ts` 为 2 过、0 失败。`node ../../node_modules/vitest/vitest.mjs run --configLoader runner --no-cache src/plugins/plot/node-world.dom.test.ts` 为 1 过、0 失败。规模部分核对现有输出与脚本，1000 章测量未重跑。
+
+以上计数按 `41e798b57` 到 `626b256d4` 的差异。第 1、2 条对应路径在实施分支 `ae9b24183` 已有修正，按该分支源码差异核对。后续真实项目探针只用于补证两版本相同的相关路径。
+
+阻断 0 项，重要 11 项，建议 4 项。有效发现共 15 项。
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15。
