@@ -98,8 +98,11 @@ const cell = (row: SecretRow, person: string): {readonly degree: string; readonl
             </article>
         </section>
     </div>
-    <!-- 表格自己不做滚动容器：外面的编辑区滚动，表头（纵向）与秘密一列（横向）才都固定得住（overflow 会把 sticky 关在它里面）。 -->
-    <div v-else data-secrets-table>
+    <!--
+        表格自己的滚动区（两个方向）：表头与秘密一列都对着它固定（sticky 只对最近的滚动容器起作用）；高度封顶在视口的七成，
+        几百行时在表里滚，表宽于容器时在表里横着滚，不把整页撑宽。
+    -->
+    <div v-else class="max-h-[70vh] overflow-auto" data-secrets-table>
         <table class="w-full border-collapse text-left text-[length:var(--text-sm)]" :aria-label="text('secrets.tableLabel')">
             <thead>
                 <tr class="border-b border-[var(--divider)] text-[length:var(--text-xs)] text-[var(--text-muted)]">
