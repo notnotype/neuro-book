@@ -89,7 +89,8 @@ owners:
 25. （planned）**列表不列有归属的。** `list` 的结果不含有归属的会话，也不含它们的后代（按会话索引里的 `caller` 链，子会话、孙会话都算），远程与 `agentKey` 一样；有归属的根与父链取自同一次读到的全部会话索引（含后台与归档的），不受这次列表的筛选条件影响。中间的祖先没有索引时，断开处以下的会话照常列出（已知限制）。在跑的工作（输出 20）、活动（输出 15）与 `running()` 照样算它们。按 id 仍然读得到。
 26. （planned）**有归属的会话不改写历史。** 对有归属的会话，`rewind`（含编辑重发、重试与 swipe）、`switchBranch`、`archive` 得 `owned-session`，不进内核、不写日志，没打开的会话也不先打开（按会话头判断）；读会话头失败时交回那个码，不打开、不执行；远程与 `agentKey` 的视图（含归属插件自己的）都一样。子会话不受这条限制。
 27. （planned）**发话一并结算。** 远程与 `agentKey` 视图的 `send` 收 `settlePending: "deny"`，照内核原样（[`harness/runtime.md`](../harness/runtime.md) 输出 111）。
-28. （planned）**读会话头。** `agentKey` 的 `header(sessionId)` 只读会话头、不打开会话（[`harness/session.md`](../harness/session.md) 输出 26）：会话不在得 `session-not-found`，读不懂得 `log-corrupt` 或 `needs-migration`。
+28. （planned）**读会话头。** `agentKey` 的 `header(sessionId)` 只读会话头、不打开会话（[`harness/session.md`](../harness/session.md) 输出 26）：会话不在得 `session-not-found`，读不懂得 `log-corrupt` 或 `needs-migration`。远程合同同样有只读方法 `header({sessionId})`，码相同（浏览器打开会话之前据此看归属，[`conversation.md`](conversation.md) 输出 53）。
+29. （planned）**提醒与门。** 远程合同 `nbook.agent/sessions` 升到版本 2（旧版本的窗口连上得 `version-changed`）：快照带待发提醒的摘要 `notices: [{id, by, key?, wake, queuedAt, summary, bytes}]`（`summary` 是正文的开头、至多 200 个字符，`bytes` 是正文的 UTF-8 字节数；全文在取走之后经日志读）与门 `wakeGate`；写方法 `removeNotice({sessionId, noticeId})` 以用户的身份取消一条；发提醒的 `notice` 不在远程合同里。插件经 `agentKey` 拿到的会话视图有 `notice` 与 `removeNotice`，发出者照输出 21 按调用方盖章（行为见 [`harness/runtime.md`](../harness/runtime.md) 输出 112–118）。
 
 ## 状态与转换
 

@@ -26,7 +26,7 @@ import {
 } from "@notnotype/nb-workbench-layout";
 import type {Grid} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutProjectionOptions, LayoutResult, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
-import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {moveGridFocus, NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
 import GridStructureLeaf from "./GridStructureLeaf.vue";
 
@@ -84,12 +84,11 @@ const projectionOptions = computed<LayoutProjectionOptions>(() => ({
 const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
 const grid = computed<Grid<string>>(() => createGrid<string>(projection.value.input, {sashSize: projection.value.sashSize}));
 
+/** F6 移动焦点的范围；尺寸由 `NestedGrid` 自己量。 */
 const containerEl = useTemplateRef<HTMLElement>("containerEl");
-const extent = useLayoutExtent(containerEl);
-const host = useGridLayout({
+const host = useGridHost({
     grid,
-    extent,
-    contextKey: () => "panels",
+    contextKey: "panels",
     onApplied: (_commit, result) => {
         // 意图只从呈现尺寸写回（workbench-layout 输出 8）；收起状态来自这次手势，先改它：收起的面板呈现尺寸不是意图。
         let next = doc.value;
@@ -158,7 +157,7 @@ function onKeydown(event: KeyboardEvent): void {
             <button v-for="(_, name) in ACTIONS" :key="name" type="button" :data-panels-action="name" @click="run(name)">{{ name }}</button>
         </div>
         <div ref="containerEl" class="grid-panels-scene__grid" data-panels-host>
-            <NestedGrid data-lab-subject :node="host.node.value" :layout="host.layout.value" context-key="panels" :revision="host.revision.value" :on-gesture-commit="host.onGestureCommit" :contents="contents" :maximized="maximized === null ? null : {leaf: maximized, exclude: BARS}">
+            <NestedGrid data-lab-subject v-bind="host.bindings.value" :contents="contents" :maximized="maximized === null ? null : {leaf: maximized, exclude: BARS}">
                 <template #leaf="{node}">
                     <div v-if="doc.panels[node.id] !== undefined" class="grid-panels-scene__head" :data-panel-head="node.id">
                         <button

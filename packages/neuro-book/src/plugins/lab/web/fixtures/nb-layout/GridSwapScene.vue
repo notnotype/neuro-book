@@ -5,11 +5,11 @@
  * 列的上下各有一块叶，滑出列的部分要是没被裁掉，会画在它们上面。每块组里的叶一个内容项，颜色按组分。
  * 右边另有一列（X、Y 各一块），按横向交换，像右栏、底部面板切换容器：网格同时只有一条带，左列滚到一半点右列时左列先到终点。
  */
-import {computed, shallowRef, useTemplateRef} from "vue";
+import {computed, shallowRef} from "vue";
 
 import {createGrid} from "@notnotype/nb-layout";
-import type {Grid, GridContentInput, GridIssue, GridNodeInput, GridSwap} from "@notnotype/nb-layout";
-import {NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import type {Grid, GridContentInput, GridNodeInput, GridSwap} from "@notnotype/nb-layout";
+import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
 const GROUPS = {A: ["a1", "a2"], B: ["b1"], C: ["c1", "c2"], X: ["x1"], Y: ["y1"]} as const;
 type GroupName = keyof typeof GROUPS;
@@ -30,20 +30,18 @@ function treeOf(group: GroupName, right: GroupName): Grid<string> {
     ]}, {sashSize: 4});
 }
 
-const containerEl = useTemplateRef<HTMLElement>("containerEl");
-const extent = useLayoutExtent(containerEl);
 const current = shallowRef<GroupName>("A");
 const currentRight = shallowRef<GroupName>("X");
 const grid = shallowRef<Grid<string>>(treeOf("A", "X"));
-const host = useGridLayout<string>({grid, extent, contextKey: () => "swap"});
 const swap = shallowRef<GridSwap | null>(null);
-/** 交换不成立时的诊断（`swap-skipped`）：每次不成立发一条，夹具自己积累。 */
+/** 诊断（交换不成立的 `swap-skipped` 每次不成立发一条）：夹具自己积累。 */
 const issues = shallowRef<readonly string[]>([]);
+const host = useGridHost<string>({grid, contextKey: "swap", onIssues: (list) => (issues.value = [...issues.value, ...list.map((issue) => issue.message)])});
 
 const contents = computed<GridContentInput[]>(() => [...ORDER, ...RIGHT].flatMap((name) => GROUPS[name].map((id) => ({key: `view-${id}`, leaf: id, insetTop: 0, active: true}))));
 const groupOf = (id: string): GroupName | undefined => [...ORDER, ...RIGHT].find((name) => (GROUPS[name] as readonly string[]).includes(id));
 
-/** 换组：交换和新树在同一个同步段里给，`useGridLayout` 在同一轮刷新里按新树发布布局。 */
+/** 换组：交换和新树在同一个同步段里给，`useGridHost` 在同一轮刷新里按新树发布布局。 */
 function switchTo(name: GroupName): void {
     const right = RIGHT.includes(name);
     const order = right ? RIGHT : ORDER;
@@ -70,17 +68,12 @@ function switchTo(name: GroupName): void {
             <button v-for="name in RIGHT" :key="name" type="button" :data-swap-action="name" :aria-pressed="currentRight === name" @click="switchTo(name)">{{ name }}</button>
             <span data-swap-issues>{{ issues.join("；") }}</span>
         </div>
-        <div ref="containerEl" class="grid-swap-scene__grid">
+        <div class="grid-swap-scene__grid">
             <NestedGrid
                 data-lab-subject
-                :node="host.node.value"
-                :layout="host.layout.value"
-                context-key="swap"
-                :revision="host.revision.value"
-                :on-gesture-commit="host.onGestureCommit"
+                v-bind="host.bindings.value"
                 :contents="contents"
                 :swap="swap"
-                @issues="(list: readonly GridIssue[]) => (issues = [...issues, ...list.map((issue) => issue.message)])"
             >
                 <template #leaf="{node}">
                     <div v-if="groupOf(node.id) === undefined" class="grid-swap-scene__fixed" :data-swap-fixed="node.id">{{ node.id }}</div>

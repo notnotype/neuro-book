@@ -1,0 +1,57 @@
+/**
+ * 搜索与读取服务的接口（docs/specs/web/tools.md 输出 1 到 12）。第一版只有 DeepSeek 一个实现；以后加服务时各加一个文件，
+ * 工具与设置页不改。客户端从不抛错：失败都在结果里，按分类给码，详情已经遮盖过密钥。
+ */
+
+import type {ProviderFailureCode, WebProviderId} from "../../shared/contracts";
+
+export interface SearchRequest {
+    readonly query: string;
+    readonly count: number;
+    readonly sites?: readonly string[];
+    readonly after?: string;
+    readonly before?: string;
+}
+
+export interface SearchHit {
+    readonly title: string;
+    readonly url: string;
+    readonly summary: string;
+    readonly date?: string;
+    readonly site?: string;
+    readonly score?: number;
+}
+
+export interface Page {
+    readonly url: string;
+    readonly title: string;
+    readonly markdown: string;
+}
+
+export interface ProviderFailure {
+    readonly ok: false;
+    readonly code: ProviderFailureCode;
+    /** 服务错误响应里的 `error.message`，遮盖过密钥、截到 500 字；没有就不给。 */
+    readonly detail?: string;
+    readonly status?: number;
+    /** 服务给的请求 id，只进诊断。 */
+    readonly requestId?: string;
+}
+
+export type Outcome<T> = {readonly ok: true; readonly value: T} | ProviderFailure;
+
+/** 一次工具调用交给客户端的范围：`signal` 在调用被中止或到总截止时触发，`deadline` 是总截止的时刻（毫秒）。 */
+export interface CallScope {
+    readonly signal: AbortSignal;
+    readonly deadline: number;
+    /** `false`：429 也不重试（设置页的检测，输出 19）。 */
+    readonly retry?: false;
+}
+
+export interface WebProvider {
+    readonly id: WebProviderId;
+    /** 写在文字结果第一行，例如“DeepSeek”。 */
+    readonly label: string;
+    search(request: SearchRequest, key: string, scope: CallScope): Promise<Outcome<readonly SearchHit[]>>;
+    fetch(url: string, key: string, scope: CallScope): Promise<Outcome<Page>>;
+}

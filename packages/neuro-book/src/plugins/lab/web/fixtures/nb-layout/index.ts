@@ -18,7 +18,7 @@ function nbLayoutSubject(name: "DropIndicatorLabel" | "DropSectorsOverlay" | "Fl
 const block = (label: string) => () => h("div", {class: "flex h-full w-full items-center justify-center text-sm text-[var(--text-secondary)]"}, label);
 
 export const nbLayoutFixtures: LabFixture[] = [
-    // 树与布局由夹具里的宿主（`useGridLayout`）算出并接纳手势提交，不是 JSON 输入；输入只是占位（类型要求登记必填的
+    // 树与布局由夹具里的宿主（`useGridHost`）算出并接纳手势提交，不是 JSON 输入；输入只是占位（类型要求登记必填的
     // node、layout），夹具不读它，场景 id 只决定用哪份快照恢复。手势与两轴几何的真实浏览器验收见 e2e/lab-nested-grid.e2e.ts。
     defineLabFixture<typeof NestedGrid>({
         component: "NestedGrid",

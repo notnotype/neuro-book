@@ -60,7 +60,7 @@ type Props = {
 };
 
 type Emits = {
-    /** 根的布局尺寸；同步发，还没量出来时是 null。 */
+    /** 网格根（铺满本组件）的布局尺寸，由 `NestedGrid` 量、经 `useGridHost` 转出；同步发，还没量出来时是 null。 */
     (event: "extent", extent: GridExtent | null): void;
     /** 主题的 `--shell-gap`，换主题时重发：活动栏的叶宽要算上它。 */
     (event: "card-gap", gap: number): void;

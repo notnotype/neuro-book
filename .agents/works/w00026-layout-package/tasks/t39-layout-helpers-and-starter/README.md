@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t39-layout-helpers-and-starter
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -50,8 +50,64 @@ updated: 2026-11-19
 | 6 | 输入三种形状、`contextKey` 必填、诊断两个出口；“组合式函数加整包绑定”而不是包装组件的上游选择没记理由 | 输入都收值、ref 或 getter；`contextKey` 可省；诊断合成一个出口；上游选择写明理由，交开发者（待确认清单） |
 | 7 | 文档清单漏项；可用尺寸判据有三份 | 补全清单；`usableExtent` 一处，三处共用 |
 
+## 实施记录
+
+worktree `w00026-t39-host-wiring`（分支 `w00026/t39-host-wiring`），基于 master `adf6779dd` 之后：
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1（含原第 2 片） | `c78f38591` | `usableExtent` 判据；`NestedGrid` 的 `extent` 事件（同步发、卸载前发 null）；`useGridHost`（整包绑定、诊断一个出口），`useGridLayout` 从入口拿掉；Lab 四个网格夹具与工作台 `WorkbenchSurface` 改用它；`NestedGrid.md` 的“接入”重写 |
+| 2 | `cd53bd58c` | `useDragSession`；`useSortable`、Lab `DragSessionScene`、`ExplorerTree` 改用它 |
+
+验证：
+
+- 第 1 片：nb-layout 363 与 235 条、应用类型检查通过；`useGridHost` 4 条用例，变异（去掉卸载前发 null、去掉整包里接 `issues` 的处理）都会红。e2e 10 个文件 249 条：238 条过，11 条在负载 18 到 24 时失败（Lab 就绪超时 4、等元素超时 5、实时布局块数 1、动画帧数值 1），单独重跑 11 条全过。
+- 第 2 片：nb-layout 363 与 237 条、应用类型检查、Explorer 的 dom 测试 23 条通过；`useDragSession` 2 条用例，变异（去掉销毁）会红。拖动相关 e2e 51 条：48 条过；`lab-drag-session` 83、95 是 Lab 就绪超时（负载 14 到 16），单独重跑通过；`files-explorer` 634 是原有失败（菜单项被盖住 2 个），t39 分支起点与 t35 开工前的 `7d92146ef` 上同样失败。
+
+收口（2026-11-19）：
+
+- 把 master（`afb78ff51`）并进分支，合并提交 `261c29729`，没有冲突；带进来的 Lab 剧情夹具改用 `provideHostText`，与本 Task 的改动不相交。合并后应用类型检查（后端、web、浏览器测试三份）通过。
+- `test:affected --since master`（合并前，负载 43 到 50）：vitest 942 条里 2 条失败、1 个文件的钩子超时，bun 3703 条里 38 条失败。逐条归类：
+  - 负载：服务端与 Agent 的真实子进程用例 33 条（13 个文件，5 秒超时或子进程在启动中被结束）、`architecture`、`layout-constraints`、SDK 的 `pack` 一条与 `third-party-text`（构建超时）。负载降到 4 后单独重跑：和 nb-layout 有关的四个文件、SDK 两个文件通过，子进程那批 13 个文件 300 条全过。
+  - 原有失败：SDK 组件清单缺 `ImagePreviewDialog`（master `e5397b32e` 上同样失败，别的 Work 引入）。
+  - 分支起点的问题：markdown 的两条 dom 测试（`PromptEditor` 挂上、小块）与内置插件清单缺 `nbook.stickers`，在分支上单独重跑仍失败，同一时刻 master 上通过；并入 master 后在分支上通过，所以不是本 Task 引起的。
+
+## 实现审查
+
+Claude Sonnet（[`evidences/impl-review.txt`](evidences/impl-review.txt)），审查 worktree 固定在 `261c29729`，diff 是相对 master `afb78ff51` 的净改动（20 个文件）：7 条，阻断 0、重要 1、建议 6，都成立，修正单独提交：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 输出 144 的“同步发”“两轴变了才再发”没有测试，改回异步不会红 | `NestedGrid.dom.test.ts` 加一条：观察器回调返回时监听已拿到新值，两轴不变不再发；把 `flush: "sync"` 去掉会红 |
+| 2 | 卸载时先发 null 再收尾手势，宿主的监听抛出会跳过收尾 | 先 `scope.dispose()` 再发 null |
+| 3 | `useGridHost` 的选项透传与 getter 没有用例 | 加三条：`disabled` 与 `contextKey` 用 getter（换键后旧提交 `stale-context`）、`grid` 换实例重算、`onApplied` 抛出给 `notify-failed`；审查者列的三个变异都会红 |
+| 4 | “选项只读一次”用例空过，输出 19 的抛错没有用例 | 加两条：选项读的 ref 变了不重建（改成 `watchEffect` 会红）、`createOptions` 抛出交给应用的错误处理、没有会话 |
+| 5 | `usableExtent` 的类型谓词把零尺寸收窄成 null | 改返回 `boolean`，调用处自己判 null |
+| 6 | `usableExtent` 插在 `readExtent` 与它的注释之间 | 挪到 `readExtent` 之后 |
+| 7 | 文档与注释残留 | 夹具头注释、Lab 登记注释改成 `useGridHost`；`NestedGrid.md` 的“量到 0 高”注释改成同输出 146；补回 `useLayoutExtent` 一句；`WorkbenchSurface` 用 `GridHostIssue`、删多余空行；`DragSessionScene` 读不到滚动容器时报错，不建没有边缘滚动的会话。Spec 里 `useGridLayout` 的三处说法在合入后晋升时改 |
+
+## 合入
+
+2026-11-19：修正提交 `640226453`（单元测试、类型检查通过；Lab e2e `lab-drag-session`、`lab-grid-structure` 33 条：19 条在负载 16 到 21 时等 Lab 就绪超时，单独重跑全过）。再把 master 并进分支两次（只带进别的 Work 的插件与文档，与本 Task 不相交；合并后 SDK、内置插件清单、Explorer 的 dom 测试、nb-layout 243 条、应用类型检查通过），快进合入 master `a5de33888`，删掉 worktree `w00026-t39-host-wiring`、`review-t39-impl` 与分支。
+
+## Spec 晋升
+
+2026-11-19：`ui/nested-grid` 输出 144 到 146、`ui/layout-drag` 输出 18、19 晋升 implemented；`useGridLayout` 的三处说法（输出 139 的出口、失败 6、实现合同）改成 `useGridHost`。
+
+逐句核对（Claude Sonnet，[`evidences/promotion-check.txt`](evidences/promotion-check.txt)）：28 句，16 句有断言、9 句只有部分、3 句没有。处理：
+
+- 补断言（`ff277aec6`，每条做了变异）：
+  - 宿主整个卸载时宿主作用域里的侦听看不到 null；
+  - 宽或高为 0 时叶照常挂着、分隔条停用；
+  - 只改高也再发；
+  - 换根先销毁再建；
+  - 根没了与作用域结束时，进行中的一场按 disposed 收尾。
+- 改写 Spec 的句子：
+  - “布局盒，不含边框与内边距”改成“布局尺寸，不随祖先的变换缩放”（读 `clientWidth`，测试能区分读的是不是变换后的矩形）；
+  - “非有限”删掉：量布局尺寸量不到非有限值；
+  - “模板里再写一遍会覆盖”删掉：那是 Vue 合并属性的行为，库里没有能违反它的实现，留在 `NestedGrid.md` 的用法约定里；
+  - 输出 19 的四个字段的枚举删掉，只留“建好后不再读”（已有断言）。
+
 ## 下一步
 
-计划见 [`plan.md`](plan.md)（第 3 稿）。Spec 已写（planned）。
-
-1. 在 worktree `w00026-t39-host-wiring` 按三片实施；基线已跑（构建与三个 e2e 文件通过）。
+无。

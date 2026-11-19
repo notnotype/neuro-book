@@ -43,6 +43,7 @@ Profile 上与视图有关的字段（类型以 `/kernel/contracts` 导出的定
 | `turn` | `(turn, format) => 消息[]`；不写就是 `format.turn(turn)`；会变的内容用槽或 `reminder()` | 否 |
 | `commit` | `(turn, format) => 消息[]`；不写与 `turn` 相同 | 否 |
 | `render` | 事件名 → `(event) => 文字 \| null` | 否 |
+| `queue` | （planned）`{order?: ["notice", "steer"] \| ["steer", "notice"]}`，缺省提醒在前：同一个边界里提醒与插话写进日志的先后（[`runtime.md`](runtime.md) 输出 113） | 否 |
 
 扩展的 `contribute`：槽名 → `{value: (view) => 文字 | null | undefined, volatile?, shared?}`。`value` 是纯函数。
 
@@ -100,6 +101,7 @@ Profile 上与视图有关的字段（类型以 `/kernel/contracts` 导出的定
 18. 每一块都带来源：模板与 `format.user` 里的固定文字是 `{kind: "fixed", by: "profile"}`；事件是 `{kind: "event", eventId, type, extension}`（内核事件的 `extension` 为 `kernel`）；槽是 `{kind: "slot", name, extension}`。
 19. 开发模式（`NODE_ENV` 不是 `production`，与冻结状态的开关相同）下的检查：同一轮相邻两次请求里进行中这一轮的消息，前一次按块（角色、来源与内容哈希，工具调用按全文）必须是后一次的前缀，否则诊断 `prefix-unstable`；没写 `commit` 时，提交的消息同样必须以这一轮最后一次请求里的样子开头，否则诊断 `commit-differs`。
 20. 测试工具的 `requests[n].outline()` 一行一条消息：`<角色>: <来源> | <来源>`，来源写作 `fixed:<by>`、`event:<类型>`、`slot:<槽名>@<扩展>`、`summary:<压缩 id>`、`intercept:<扩展>`，工具调用写作 `call:<工具 id>`；有系统块时第一行是 `system: …`。
+21. （planned）`mergeSteers(turn)` 把附带内容与每一步之后的事件里、同一个 `boundary`（[`runtime.md`](runtime.md) 输出 113）的相邻 `steer` 合成一条：文字按先后、之间空一行，附件依次保留，来源是第一条的；不同边界的不合，已发出的块因此不变。没有 `boundary` 的旧事件各自成一条。给 `turn`、`commit` 用。`queue.order` 只决定写入的先后，缺省的 `format` 按路径先后渲染、不重排。
 
 ## 状态与转换
 

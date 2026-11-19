@@ -14,6 +14,7 @@
 import {computed, ref, shallowRef, watch, type ComputedRef, type Ref} from "vue";
 import type {Grid} from "../grid";
 import {commitFailure} from "../grid-failure";
+import {usableExtent} from "../grid-geometry";
 import {gridIssue} from "../grid-issue";
 import {createIssueGate} from "../issue-gate";
 import type {GridGestureCommit} from "../grid-gesture";
@@ -74,9 +75,7 @@ export function useGridLayout<T>(options: {
     function publish(): readonly GridIssue<GridIssueCode | "notify-failed">[] {
         const grid = options.grid.value;
         const extent = options.extent.value;
-        if (grid === null || extent === null
-            || !Number.isFinite(extent.width) || !Number.isFinite(extent.height)
-            || extent.width <= 0 || extent.height <= 0) {
+        if (grid === null || extent === null || !usableExtent(extent)) {
             layout.value = EMPTY_GRID_LAYOUT;
             publishedExtent = null;
             revision.value += 1;

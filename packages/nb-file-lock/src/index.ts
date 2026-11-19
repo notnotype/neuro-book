@@ -66,6 +66,11 @@ export interface ReplaceOptions<T, W extends Uint8Array | string> {
     readonly decide: (current: CurrentFile) => ReplaceDecision<T, W>;
     /** 同目录临时文件的路径；缺省为 `.<文件名>.<随机>.tmp`。 */
     readonly temporaryPath?: (file: string) => string;
+    /**
+     * 替换后文件的权限位。给了就总用它，新建与覆盖都一样，临时文件从建出来起就是它（例如只给本用户读写的密钥文件，写到一半
+     * 也不让别人读到）；不给时新建为 0o644（再经 umask），覆盖沿用原文件的权限位。
+     */
+    readonly mode?: number;
     /** 收尾时的次要错误（`lock.release-failed`、`temporary.cleanup-failed`）不改变结果，交给它记诊断；事件名由调用方加上自己的前缀。 */
     readonly report: (event: string, error: unknown) => void;
     /**
@@ -186,13 +191,14 @@ async function replaceOnce<T, W extends Uint8Array | string>(file: string, optio
     }
     const temporary = options.temporaryPath?.(file) ?? join(dirname(file), `.${basename(file)}.${randomUUID()}.tmp`);
     try {
-        const handle = await open(temporary, "wx", before === null ? 0o644 : before.mode & 0o7777);
+        const mode = options.mode ?? (before === null ? 0o644 : before.mode & 0o7777);
+        const handle = await open(temporary, "wx", mode);
         let after: Stats;
         try {
             await handle.writeFile(decision.write);
-            // 建文件时的权限位会被进程的 umask 削掉：按原文件的权限位（含 setuid、setgid、sticky）精确设一次。要在写入之后：
-            // 写入会清掉 setuid 与 setgid。
-            if (before !== null) await handle.chmod(before.mode & 0o7777);
+            // 建文件时的权限位会被进程的 umask 削掉：按要的权限位（覆盖时是原文件的，含 setuid、setgid、sticky）精确设一次。
+            // 要在写入之后：写入会清掉 setuid 与 setgid。
+            if (options.mode !== undefined || before !== null) await handle.chmod(mode);
             await handle.sync();
             // 改名不换 inode 与创建时间：临时文件此刻的状态就是替换后目录项的状态。
             after = await handle.stat();

@@ -46,6 +46,8 @@ updated: 2026-11-05
 
 2026-11-19：[t36](tasks/t36-explicit-exports-and-helpers/README.md) 完成：nb-layout 四个入口改成一行一个名字的显式清单（根 111、`./vue` 28、`./text` 4、`./locales` 3），内部件不再导出；共用的手势类型改名 `SashGesture*`，SDK 留两个弃用别名；合入 master（`adf6779dd`），设计审查与实现审查处理完，Spec 晋升前换模型核过。
 
+2026-11-19：[t39](tasks/t39-layout-helpers-and-starter/README.md) 完成：`NestedGrid` 发 `extent`，宿主用 `useGridHost` 整包绑上去（`useGridLayout` 降为内部），`useDragSession` 管组件里的拖动会话；工作台与 Lab 的五个网格宿主、三个拖动会话改用它们。合入 master（`a5de33888`，审查修正 `640226453`，晋升补测 `ff277aec6`），两轮设计审查与一次实现审查处理完，Spec 晋升前换模型逐句核过。下一个是 [t40](tasks/t40-collapse-and-intent-writeback/README.md)。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。
