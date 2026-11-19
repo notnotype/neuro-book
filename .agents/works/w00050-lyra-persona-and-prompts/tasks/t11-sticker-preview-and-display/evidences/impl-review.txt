@@ -1,0 +1,98 @@
+审查对象：feat/w00050-t11-sticker-preview，HEAD 7718c048a（范围 7ae7b8551..HEAD）。除特别写明外为从代码推断；nb-markdown 的 sticker.dom.test.ts 20 条在 HEAD 上通过。
+
+### 1. 键盘打开不检查“表情在链接里”，与输出 46 不符，还造出链接里的嵌套可聚焦元素
+- 严重程度：重要　类别：正确性（违反 Spec）
+- 位置：packages/nb-markdown/src/language/syntax/sticker/view.ts 的 keydown 监听（约 83-90 行）；对照 isPlainClick（约 33-36 行）
+- 现象：鼠标路径用 isPlainClick 排除 `a[href]` 里的表情，键盘路径没有同样的判断。展示器里 `[:lyra/开心: 点这里](https://x)` 的表情有 `tabindex=0 role=button`，Tab 会在链接之外再停一次，回车或空格触发 onActivate 并 preventDefault，打开大图，不走链接。
+- 为什么是问题：Spec 输出 46 写“表情在链接里时只走链接”，对鼠标和键盘应一致。MarkdownDisplay.md 也写了“链接里的表情只发链接”。另外 `<a>` 里放 role=button 的可聚焦子元素是嵌套交互控件，读屏与 Tab 序都会重复。
+- 如何核实：sticker.dom.test.ts 里“链接里的表情只发出 link”只点了图，没有对链接里的表情发 keydown；在该用例里补一次 `a .nb-sticker` 的 Enter 即可复现（预期无 sticker 激活，实际会激活）。
+- 建议：在 `resolve` 之后判断 `dom.closest("a[href]")`（此时 dom 已挂入文档时才有效，所以要在事件里判，不在建立时判）：链接里不加 tabindex 与 role，键盘监听里同样 return；或把 isPlainClick 的链接判断提成 `insideLink(dom)` 两处共用。注意建立时 dom 尚未挂入父节点，不能在 buildSticker 里一次性判断，要在 keydown 里判，tabindex 则需要在链接里的表情上不加（可在静态视图 StaticViewFactory 里按上下文传 focusLabel: undefined 不现实时，退而在 keydown 与 focus 里判）。
+
+### 2. 按贴纸显示的寿命与存储路径几乎没有被测到
+- 严重程度：重要　类别：测试
+- 位置：packages/neuro-book/src/plugins/stickers/web/display.test.ts、display-style.dom.test.ts；被测对象 display.ts（displayService、stickerDisplayStore）与 plugin.ts 的 effectScope/watch/abort 收口
+- 现象：display.test.ts 只测纯函数 nextDisplayPacks 与 memoryDisplay；displayService 与 stickerDisplayStore（真实存储路径）、`save.state === failed/unknown` 时走 `show()` 的分支、plugin.ts 里“偏好变化 -> 样式表换内容”“入口 abort 时 scope.stop 与样式移除”“Storage 缺失时回落 memoryDisplay”都没有测试。display-style.dom.test.ts 只有一个用例，“没有 document 时什么也不做”（Bun 宿主的主要理由）也没测。
+- 为什么是问题：Spec 输出 47 的三条承诺里，“别的窗口里改了这个窗口跟着变”“窗口刚打开记录没读到时先按行内小图”“读不到、坏了时当作空的”以及 Spec 副作用一节的“每次写入按当前目录剪掉”，都落在这条未测路径上。e2e 只测了“开关切换后图高变 120 再变回”，没有测跨窗口通知与记录损坏。作者注释里把复杂寿命交给 scope/abort 收口，这类代码最容易在后续改动里悄悄坏掉。
+- 如何核实：删掉 plugin.ts 里 `scope.stop(); unmount();`，现有全部测试仍通过（可跑 display.test.ts、display-style.dom.test.ts、sticker-page.dom.test.ts 对照）。
+- 建议：用真实 defineStore 加内存 Storage（同 recent 的测试写法）补三条：读到旧记录时 packs() 变化、记录坏了时为空、剪 id 用目录；再用 window 合同测试（或把 scope+watch 抽成可单测的小函数 `followDisplay(display, signal)`）覆盖“abort 后样式移除、不再响应”。
+
+### 3. e2e 只覆盖编辑器宿主里的选择器，Agent 输入框的选择器弹层没有测“预览开着面板不收起”
+- 严重程度：建议　类别：测试
+- 位置：packages/neuro-book/e2e/sticker-preview.e2e.ts 第三个用例（只走 MarkdownStickerCard 的 AnchoredPopover）
+- 现象：Spec 输出 46 与 StickerPickerPanel.md 把“面板不收起、焦点归还、Esc 先后”写成对两个宿主都成立。输入框走的是 AgentConversationComposer 的 AnchoredPopover，宿主处理 Esc 与 close 的代码不同（sticker-composer.ts 的 onClose 用 restoreFocus: reason === "escape"），没有被测。AnchoredPopover 对 dismiss 事件一律 prevent，所以两边今天大概率一致，但那是靠阅读推断，不是靠测试。
+- 如何核实：在 Agent 输入框的 `+`、表情按钮里重复第三个用例；预期 Esc 先关预览，再按 Esc 关面板且焦点回输入框。
+- 建议：补一个输入框宿主的用例，或在 Task 记录里写明没测的理由。
+
+### 4. 没有宿主响应时，表情仍显示放大镜指针并带 is-previewable
+- 严重程度：建议　类别：正确性（UX 说谎）
+- 位置：packages/nb-markdown/src/editor/sticker-views.ts（onActivate 总是传，内部才判断 host?.previewSticker）、view.ts 的 `is-previewable`；packages/nb-agent-ui/src/vue/wizard/AgentModeSwitchWizard.vue:65 的 `<AgentMarkdown :text="item.plan">` 没接 `@action`
+- 现象：编辑器节点视图无条件传 onActivate，buildSticker 因此给每个有图的表情加 `is-previewable`（放大镜）；而 host.previewSticker 缺省（Lab、indirectHost 当前挂载为空的时候、任何别的 MarkdownViewHost 使用者）时点了什么也不发生。模式切换向导里的计划文本也一样：展示器发了 sticker，AgentMarkdown 往上 emit，没有人接。
+- 为什么是问题：输出 46 写“能点的表情指针是放大镜”。指针与实际可点性不一致。MarkdownDisplay 没有监听 `activate` 的宿主（例如 Lab 场景之外的使用方）也是同样。
+- 建议：编辑器里 `previewSticker` 读不到时不传 onActivate（但它是点击时才读的，建立时不知道；折中是由 buildSticker 的 options 带一个 `enabled?: () => boolean`，或把 `is-previewable` 的类名交给宿主侧按需加）。或在 Spec/文档里写明这是有意的“不查宿主、统一显示放大镜”。至少 AgentModeSwitchWizard 的计划文本应补接 `@action` 或不开预览。
+
+### 5. “查看大图”按钮在触屏上照常显示，与 Spec“触屏没有这个入口”不符
+- 严重程度：建议　类别：不变量/与 Spec 一致
+- 位置：packages/neuro-book/src/plugins/stickers/web/components/StickerPickerPanel.vue 的 footer 模板与样式（没有 `@media (hover: hover)` 或 `(pointer: fine)`）；StickerPickerPanel.md 与 stickers.md“不承诺”写了触屏没有入口
+- 现象：按钮无条件画出。触屏点格子会插入并关面板（pointerenter 紧接着 click），底部指着的永远是第一个表情，按钮预览的就是第一个表情，用户看不出它与自己点的是不是同一个。
+- 建议：按钮用 `@media (hover: none) { display: none }` 隐藏，或把文档改成“触屏上预览的是第一个表情”。前者与 Spec 一致。
+
+### 6. 开关写入的结果被丢掉：用户明确的设置失败时没有任何反馈，之后的切换只改显示不再保存
+- 严重程度：建议　类别：错误路径
+- 位置：packages/neuro-book/src/plugins/stickers/web/display.ts 的 `set` action（`void display.commit(next)`；失败或未知时走 `display.show(...)`）与文件头注释“不重试也不提示（同 recent.ts）”
+- 现象：recent.ts 是后台记录，丢了无所谓；按贴纸显示是用户在设置页明确点的开关。commit 返回 "failed" / "unknown" / "protected"（记录没读完、读坏时的保护）时没有人看结果，开关按显示值翻转，但没有写进去。一次失败后，`save.state` 为 failed，之后的切换全走 `show()`，只在本次运行里有效，重启后丢。用户没有任何提示。
+- 为什么是问题：AGENTS.md 与 Spec 里“写入失败要如实告诉用户”的做法在同包的 PackFields 保存（“保存失败回到原来的值并通知”）已经有；同一个属性栏里这一个开关是例外。注释把理由挪用了 recent.ts，那一条的理由（只是偏好、后台）对用户点的开关不成立。
+- 如何核实：用会写失败的 Storage 替身调 `store.actions.set`，看开关与记录；或看 `CommitResult` 里 "protected" 的出处（记录坏了或还没读到时的保护），在窗口刚打开、记录还在读的几十毫秒里点开关会得到 protected，开关不变且无提示。
+- 建议：set 返回 CommitResult，页面在非 saved/unchanged 时用通知报一次原因（复用 StickerPacksPage 现有的通知通道）；或保持现状但在 Spec“不承诺”里写明失败时静默。
+
+### 7. 双击表情时第二下可能落在刚打开的对话框遮罩上，把预览立刻关掉（未验证）
+- 严重程度：建议　类别：交互边界
+- 位置：view.ts 的 `event.detail > 1` 判断；ImagePreviewDialog（modal Dialog，点遮罩关闭）
+- 现象：作者只处理了“第二下不再打开”。第一下 click 同步挂载模态对话框，遮罩立即接管指针；双击的第二下 pointerdown 落在遮罩（或对话框之外），Reka 的 DismissableLayer 把它当“点外面”关掉。用户看到的是对话框闪一下就没了。窄的小图预览卡片（320 像素）居中，聊天里被点的表情多半在卡片之外。
+- 为什么是问题：双击是点图片时很常见的手势（尤其是想“放大”的人）。第二下“不重新打开”只是不再触发 onActivate，并不阻止它关掉第一下刚开的对话框。
+- 如何核实：未在真实浏览器里复现（brief 禁止跑 e2e）。用 Playwright 对一个表情做 `dblclick`，看 `getByRole('dialog')` 是否可见即可。
+- 建议：先复现；如成立，对话框打开的前 300–500ms 忽略遮罩点击，或把 onActivate 延迟到 `dblclick` 判定窗口之后（代价是每次单击多一个延迟，不推荐）。
+
+### 8. MarkdownControl.vue 里原有的注释被新增代码挤离了它的对象
+- 严重程度：建议　类别：代码质量
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue 约 111-122 行
+- 现象：原本紧贴 `const viewHost` 的注释（“方言外观……要的宿主信息：地址按函数取……”）现在后面跟的是 `stickerPreview` 的另一块注释与三行表情预览状态，`viewHost` 前面没有注释了；读者会以为第一块注释在讲 stickerPreview。
+- 建议：把新增的 `stickerPreview` 一段挪到 viewHost 的整块注释之前（或之后），保证原注释仍紧贴 `viewHost`。
+
+### 9. 同一份常量与文案在三个包里各存一份
+- 严重程度：建议　类别：可维护性
+- 位置：STICKER_PREVIEW_MIN_SIZE 在 packages/nb-markdown/src/stickers.ts:92 与 packages/nb-agent-ui/src/vue/view-action.ts:23 各一份（320）；预览标题“{{name}} · {{pack}}”与“复制写法”在 nb-markdown（sticker.previewTitle、sticker.copy）、nb-agent-ui（stickerPreview.title、stickerPreview.copy）、neuro-book stickers（picker.previewTitle、picker.copy）各写一遍（中英各一套）
+- 现象：计划写的是 neuro-book 的 nbook.markdown 文案键，实际变成三处。320 与标题格式要改的话得找三个地方；nb-agent-ui 因不依赖 nb-markdown 只好复制，但 nb-ui 的 ImagePreviewDialog 已经是三处共用的落点（minSize、copyLabel 都在它的属性里）。
+- 为什么是问题：输出 46 的数值（320）与标题格式是产品合同，三份会各自漂移；没有测试让它们保持相同（nb-agent-ui 的 AgentMarkdown.dom.test.ts 与 nb-markdown 常量没有互相对过）。
+- 建议：至少在 nb-ui 里导出常量（例如 `STICKER_PREVIEW_MIN_SIZE` 或更通用的 `SMALL_IMAGE_ENLARGE_TO`）；标题格式让宿主给 `alt` 的方式保留，但再加一个跨包契约测试对三处的文案（可在 neuro-book 里已有的 locales 测试里加一条）。
+
+### 10. 样式表以全局单例挂在 `head`，Lab 场景进入与离开会覆盖、再移除应用真实的那份
+- 严重程度：建议　类别：隐含的共享状态
+- 位置：packages/neuro-book/src/plugins/stickers/web/display-style.ts（按固定属性名查找已有 style，复用）；packages/neuro-book/src/plugins/lab/web/fixtures/MarkdownDisplayFixture.vue 的 `stickers-display` 场景
+- 现象：Lab 与真实的 stickers 入口在同一个页面里时，Lab 场景调用 mountStickerDisplayStyle 会改写用户真实偏好生成的那份 style 的内容，场景卸载时 `remove()` 把整份样式表删掉；之后在设置页之外没有人再触发 watch，用户的“按贴纸显示”设置在这次运行里就不再生效，直到下一次改偏好。
+- 为什么是问题：只发生在开发者用 Lab 的时候，影响小；但“按固定属性名复用同一元素”本身就是一个全局共享，两个调用方互相覆盖，注释里没写这个约束。
+- 建议：给 mountStickerDisplayStyle 一个 `owner` 参数（不同属性值，Lab 用自己的），或让 Lab 的场景直接放一个自己的 `<style>`。
+
+### 9 的更正（收窄，见第 9 条）
+- 常量 STICKER_PREVIEW_MIN_SIZE 的行号是 nb-markdown/src/stickers.ts:91 与 nb-agent-ui/src/vue/view-action.ts:20，只有这两份（neuro-book 的 StickerPickerPanel 与 MarkdownControl 是从 nb-markdown 导入）；文案是三份。第 9 条其余结论不变。
+
+### 11. 表情的可访问名称在建立时取一次，换界面语言不更新
+- 严重程度：建议　类别：状态不一致
+- 位置：view.ts 的 `options.focusLabel(ref.name)`（解析完成时调用一次）；调用点 display/static-views.ts、prompt/PromptSticker.vue
+- 现象：aria-label 在图查到那一刻按当时语言写死。MarkdownControl 与 MarkdownDisplay 都特意支持“换语言不重建”（MarkdownControl.md 写了图片跟着端口重画），表情的 aria-label 与 title 不跟。读屏用户切语言后，已显示的表情仍念旧语言。
+- 为什么是问题：影响很窄（只有读屏、只有切语言之后、只有已显示的表情），按“窄场景选简单改法”可以只在文档“已知限制”里写一句；列出是因为实现注释和 .md 都没提这个限制。
+- 建议：在 buildSticker 的注释或 MarkdownDisplay.md 写一句已知限制，不加机制。
+
+### 未发现问题的方面（仔细检查后）
+- buildSticker 回到原文后的收口：showText 去掉 is-previewable、data-sticker-pack、role、tabindex、aria-label，图上的 click 监听随 img 一起丢，keydown 监听虽然留着但被 is-previewable 判断拦住，sticker.dom.test.ts 有测。destroy 在目录晚到时也会 release；无泄漏。
+- 点击判定：isPlainClick 对修饰键、右键、detail>1、链接里（鼠标）都处理且有测；编辑器里组字时不开（view.composing）有测；编辑器单击把光标放到表情后面用 TextSelection.create 并用 doc.content.size 夹住，sticker 节点 selectable:false 与注释一致，update 在 raw 不变时才复用节点视图，所以闭包里的 node.nodeSize 不会过期。
+- 选择器面板：onFocusout 在预览开着时 return；预览关上后焦点回到 Dialog 打开前的元素（按钮 mousedown.prevent，焦点一直在搜索框），AnchoredPopover 对 escape/pointer-down-outside/focus-outside/interact-outside 都 prevent，所以宿主侧没有第二条收起路径；面板根的 keydown 监听收不到传送到别处的对话框里的按键，Esc 先后顺序成立。e2e 的“面板没收起”用 `[data-state='open']` 限定面板，面板若在退场动画中会找不到，所以不会空过。
+- 按贴纸显示的样式选择器：`.nb-sticker.has-image[data-sticker-pack="id"]` 是 (0,3,0)，压过 `.nb-sticker.has-image`（0,2,0）与 `.nb-sticker__image`（0,1,0）；对 `.nb-sticker-block .nb-sticker.has-image`（0,3,0）是平手，但两条规则的三个声明值相同，所以不影响结果；图片规则 (0,4,0) 压过 `.nb-sticker-block .nb-sticker__image`（0,2,0）。id 用字符集 `[a-z0-9._-]{1,200}` 过滤，不能逃出属性选择器。
+- 目录里表情包 id 的字符集：包 id 是 `user.<文件夹名>` 或 `<插件 id>.<文件夹名>`，文件夹名受 `isStickerPack` 的 `[a-z0-9._-]` 约束；插件 id 的字符集未逐一核实（若含大写或别的字符，该包的显示设置会被 PACK_ID 静默丢掉）。
+- ImagePreviewDialog 搬家：nb-agent-ui 里没有遗留引用，旧文案键已删、新键进了 nb-ui 的 locales 与 legacy 对照表；minSize 的尺寸计算（缩小优先于放大）有单测；CopyButton iconOnly 有 aria-label=title=状态文字、sr-only 回执仍在；nb-ui README、CopyButton.md、ImagePreviewDialog.md、Lab 场景（4 个）都已同步；agent-ports.typecheck.ts 里 MarkdownActivation 与 DisplayActivation 的方向正确（端口处理函数接受组件发出的类型）；PreviewImageRequest 的 `"url" in image` 判断顺序没有误吞 locator/markdownSrc。
+- MarkdownControl 的 previewSticker 三处（接口、viewHost、indirectHost）一致，indirectHost 在点击时才读 target.current，换挂载后用的是新挂载的对话框。
+
+数量：阻断 0；重要 2（第 1、2 条）；建议 8（第 3、4、5、6、7、8、10、11 条；第 9 条与其更正并为一条建议，计入 9 条建议中的一条，合计建议 9）。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7（未验证）, 8, 9, 10, 11
+
+计数更正：阻断 0，重要 2（第 1、2 条），建议 9（第 3 至 11 条，其中第 9 条另有一段更正，第 7 条未验证）。有效发现编号：1 至 11。

@@ -132,13 +132,29 @@ export type PromptTextViewPortProps = {
     commands?: readonly string[];
     resolveThumbnail?: (target: string) => string | null;
     onTokenActivate?: (token: PromptToken) => void;
+    /** 点开表情的大图（docs/specs/agent/stickers.md 输出 46）。 */
+    onStickerActivate?: (sticker: StickerPreviewRequest) => void;
+};
+
+/**
+ * 被点开大图的表情：写法原文、图的地址、名字、包的显示名与宽高。形状与 nb-markdown 的 `StickerPreview` 相同，本包不依赖
+ * nb-markdown，所以在这里按结构再写一份；两边对不上时 nb-markdown 的 `agent-ports.typecheck.ts` 报错。
+ */
+export type StickerPreviewRequest = {
+    readonly raw: string;
+    readonly url: string;
+    readonly name: string;
+    readonly packTitle?: string;
+    readonly width: number;
+    readonly height: number;
 };
 
 /** Markdown 里被点击的东西。 */
 export type MarkdownActivation =
     | {kind: "reference"; target: string}
     | {kind: "link"; href: string}
-    | {kind: "image"; address: string};
+    | {kind: "image"; address: string}
+    | {kind: "sticker"; sticker: StickerPreviewRequest};
 
 /** 图片地址到可显示地址的换算；返回的 `release` 在不再显示时调用。 */
 export type MarkdownAssetResolver = (src: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;

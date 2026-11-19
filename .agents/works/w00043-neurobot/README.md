@@ -77,6 +77,7 @@ updated: 2026-11-18
 | 2026-11-18 | 第三轮审查（[处理](tasks/t01-direction/evidences/bot-proposal-review-r3-disposition.md)）后，“缓冲区归谁取”三轮都找出新路径。主 Agent 给了两条路：周期任务只在会话空闲时发，或者把缓冲区做成内核的状态机。开发者问“直接改内核的缓冲区逻辑呢，架构上会不会更好？”，看过比较后选内核这一条（原话“选内盒这一条”，“内盒”应是“内核”）；恢复时“留着的先跑”；“有几种配置用户自己可以选：合并一起发（默认）、保留原 steer、followup 顺序”。缓冲区的状态机另写一份内核的小提案，bot 提案引用它 |
 | 2026-11-18 | 缓冲区小提案第一轮审查（[处理](tasks/t01-direction/evidences/buffer-proposal-review-r1-disposition.md)）后，主 Agent 改成只在“会话回到空闲”一处定留着，并列了三项。开发者答“可以，都按推荐”：(1) 你发消息或点继续放行全部，排话的人能放行自己排的，用户选“停止、排队的留着”留下的只有用户能放行；(2) 停止的缺省沿用 2026-11-05 的“留着”，只在输入框的停止按钮上多给“停止并清空排队”；(3) 用户自己发起的压缩，压完由 NeuroBook 自动放行，系统发起的压缩压完留着。主 Agent 说明的“子代理交出结果后排着的话留着”（偏离 t07 决定 1 的“completed 后按序取”）开发者没有提异议 |
 | 2026-11-18 | 缓冲区小提案第二轮审查（[处理](tasks/t01-direction/evidences/buffer-proposal-review-r2-disposition.md)）后的两项，开发者答“同意”：(1) 用户停止子代理后，父 Agent 排给它的话也只有用户能放行，父 Agent 再发话时工具结果告诉它有几条被用户暂停；(2) 系统只能接着跑它自己开的运行，或在它持有的会话里接着跑（例如 bot 插件重启后的主对话），用户自己开的普通会话被中断后只有用户能点继续 |
+| 2026-11-19 | t06 范围太大（插件骨架、主对话、等用户、对话宿主、未读，加上 t03 定的“消息”视图与书房入口不在任何 Task 里），开发者选“拆成两个”：t06 只做内核与服务端（主对话与等用户），界面另建 [t15](tasks/t15-messages-view/README.md) 并入 t07 |
 
 autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在 [待确认清单](pending-confirmations.md)。
 
@@ -101,20 +102,21 @@ autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在
 | [t01](tasks/t01-direction/README.md) | 方向与提案（已完成） | 无 |
 | [t02](tasks/t02-host-base/README.md) | 抽 `nb-file-lock`、`nb-host`、`nb-models` | 见该 Task |
 | [t04](tasks/t04-app-skeleton/README.md)、[t05](tasks/t05-models-settings/README.md)、[t08](tasks/t08-cost-saving-compaction/README.md) | 独立应用的骨架、模型设置页、省钱压缩（搁置） | 无 |
+| [t07](tasks/t07-agent-ui-for-bot/README.md) | nb-agent-ui 的 bot 档（2026-11-19 并入 t15） | — |
 | **准备** | | |
 | [t03](tasks/t03-web-design/README.md) | NeuroBook 里 bot 的界面设计评审 | 无 |
 | [t13](tasks/t13-approval-simplification/README.md) | Agent 审批：自有目录、去掉地址表、询问写明来源 | 无 |
 | [t14](tasks/t14-input-buffer-states/README.md) | 内核的输入缓冲区：每条带状态（对所有会话生效） | 无 |
 | **第一步：能聊** | | |
-| [t06](tasks/t06-main-conversation/README.md) | `nbook.bots` 与主对话、等用户、bot 视图 | t14、t03 |
-| [t07](tasks/t07-agent-ui-for-bot/README.md) | nb-agent-ui 的 bot 档 | t03 |
+| [t06](tasks/t06-main-conversation/README.md) | `nbook.bots` 与主对话、等用户（内核与服务端） | t14 |
+| [t15](tasks/t15-messages-view/README.md) | “消息”视图、固定会话的对话宿主、未读与书房入口（含原 t07） | t06、t03 |
 | **第二步：有记忆** | | |
 | [t09](tasks/t09-bot-memory/README.md) | bot 的记忆 | t06、t13 |
 | **第三步：能办事** | | |
-| [t10](tasks/t10-schedule/README.md) | `nbook.schedule` 与宿主消息的含义 | t14、t06、t07 |
+| [t10](tasks/t10-schedule/README.md) | `nbook.schedule` 与宿主消息的含义 | t14、t06、t15 |
 | [t11](tasks/t11-dogfood/README.md) | 第一版自用与调参 | t10 |
 
-最长的依赖链是 t14 → t06 → t10 → t11。t03、t13、t14 可以同时开工。每个 Task 开工时先按提案改 `planned` Spec，再写计划。
+最长的依赖链是 t14 → t06 → t15 → t10 → t11（2026-11-19 开发者把 t06 拆成两个，界面成 t15 并入 t07）。t03、t13、t14 可以同时开工。每个 Task 开工时先按提案改 `planned` Spec，再写计划。
 
 第一版之后的路线（独立应用与外部渠道、记忆评测与 nb-memory、多 bot、触达、省钱压缩、联网、按天费用）不建 Task：提案写明每一步开工前另行讨论。
 
@@ -134,3 +136,4 @@ autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在
 - [t12 不判旧的文件锁单独成包 nb-flock 并随 nb-story 发布](tasks/t12-flock-into-file-lock/README.md)
 - [t13 Agent 审批：自有目录、去掉地址表、询问写明来源](tasks/t13-approval-simplification/README.md)
 - [t14 Agent 内核的输入缓冲区：每条带状态](tasks/t14-input-buffer-states/README.md)
+- [t15 “消息”视图：bot 与会话两个标签、固定会话的对话宿主、未读与书房入口](tasks/t15-messages-view/README.md)

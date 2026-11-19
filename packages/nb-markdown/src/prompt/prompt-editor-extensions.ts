@@ -205,7 +205,7 @@ const PromptSticker = Node.create<{stickers: () => StickerResolver | undefined; 
     addNodeView() {
         const {stickers, report} = this.options;
         return ({node}) => {
-            const element = buildSticker(document, String(node.attrs.raw), stickers(), report);
+            const element = buildSticker(document, String(node.attrs.raw), stickers(), {report});
             element.dom.dataset.promptSticker = "";
             return {dom: element.dom, destroy: () => element.destroy(), ignoreMutation: () => true};
         };

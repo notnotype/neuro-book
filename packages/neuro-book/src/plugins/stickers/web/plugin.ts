@@ -19,8 +19,10 @@ import {settingsPage} from "nbook/ui/settings/settings-page";
 
 import type zhCN from "../locales/zh-CN.json";
 import {descriptor} from "../plugin";
-import {stickerDirectoryKey, stickerPickerKey, stickerResolverKey, stickersCatalogContract} from "../shared/contracts";
+import {stickerDirectoryKey, stickerDisplayKey, stickerPickerKey, stickerResolverKey, stickersCatalogContract} from "../shared/contracts";
 import {STICKERS_TEXT_NAMESPACE, stickersText} from "../shared/text";
+import {displayService, memoryDisplay, stickerDisplayStore} from "./display";
+import {followStickerDisplay} from "./display-style";
 import {createStickersHttp} from "./http";
 import {createStickerPicker} from "./picker-service";
 import {memoryRecent, recentPort, recentStickersStore} from "./recent";
@@ -71,7 +73,7 @@ export const stickersBrowserPlugin: PluginDefinition = {
         location: "browser",
         activationEvents: ["onStartup"],
         dependencies: [{key: diagnosticsKey}, {key: stickerDirectoryKey}, {key: storageKey, required: false}, {key: commandServiceKey, required: false}],
-        provides: [stickerPickerKey],
+        provides: [stickerPickerKey, stickerDisplayKey],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const storage = await context.services.resolve(storageKey);
@@ -80,8 +82,16 @@ export const stickersBrowserPlugin: PluginDefinition = {
                 diagnostics.record({level: "warn", event: "stickers.picker", message, ...(error === undefined ? {} : {error}), source: {plugin: descriptor.id}});
             };
             const recent = storage.status === "resolved" ? recentPort(recentStickersStore.create(context, {storage: storage.instance, diagnostics})) : memoryRecent();
+            const directory = context.services.require(stickerDirectoryKey);
+            const known = (): ReadonlySet<string> | null => {
+                const packs = directory.current();
+                return packs === null ? null : new Set(packs.map((pack) => pack.id));
+            };
+            const display = storage.status === "resolved" ? displayService(stickerDisplayStore.create(context, {storage: storage.instance, diagnostics}), known) : memoryDisplay(known);
+            // 按贴纸显示（输出 47）：这个窗口里一份样式表，随偏好换内容；已经画出来的表情不用重画。入口停下时移除。
+            followStickerDisplay(display, context.signal);
             const picker = createStickerPicker({
-                directory: context.services.require(stickerDirectoryKey),
+                directory,
                 recent,
                 openPacksPage: () => {
                     if (commands.status !== "resolved") return;
@@ -92,7 +102,7 @@ export const stickersBrowserPlugin: PluginDefinition = {
                 report,
                 signal: context.signal,
             });
-            return {services: [provideService(stickerPickerKey, picker)]};
+            return {services: [provideService(stickerPickerKey, picker), provideService(stickerDisplayKey, display)]};
         },
     }), defineEntry({
         // 只给设置页用的入口：对 Agent 提供的服务键做可选依赖。服务依赖按入口算，所以它不会与上面入口提供给 Markdown 的 `stickerResolverKey`
@@ -100,7 +110,7 @@ export const stickersBrowserPlugin: PluginDefinition = {
         id: "page",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: notificationsKey}, {key: windowTextKey, required: false}, {key: stickerAllowlistUsageKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: notificationsKey}, {key: windowTextKey, required: false}, {key: stickerAllowlistUsageKey, required: false}, {key: stickerDisplayKey, required: false}],
         contributions: [{capability: SETTINGS_PAGES_POINT, id: PACKS_SECTION, declaration: PACKS_PAGE}],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -110,6 +120,8 @@ export const stickersBrowserPlugin: PluginDefinition = {
             const remote = context.remote.use(stickersCatalogContract);
             const http = createStickersHttp();
             const t = boundText<typeof zhCN>(port, STICKERS_TEXT_NAMESPACE);
+            // 按贴纸显示的开关（输出 47）：上面 `picker` 入口交出的偏好；解析不到时属性栏不画这一行。
+            const display = await context.services.resolve(stickerDisplayKey);
             return {
                 contributions: {
                     [SETTINGS_PAGES_POINT]: {[PACKS_SECTION]: settingsPage(async () => {
@@ -126,7 +138,7 @@ export const stickersBrowserPlugin: PluginDefinition = {
                                 return usage.status === "resolved" ? usage.instance.profilesUsing(id) : null;
                             },
                             report: (code, message) => diagnostics.record({level: "warn", event: `stickers.${code}`, message, source: {plugin: descriptor.id}}),
-                        });
+                        }, display.status === "resolved" ? display.instance : null);
                     })},
                 },
             };

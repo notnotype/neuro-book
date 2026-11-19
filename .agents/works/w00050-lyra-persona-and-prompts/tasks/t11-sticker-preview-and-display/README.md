@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t11-sticker-preview-and-display
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -33,20 +33,11 @@ updated: 2026-11-19
 
 ## 当前状态
 
-2026-11-19 计划经设计审查（Sonnet，15 条：重要 8、建议 7，[`evidences/design-review.txt`](evidences/design-review.txt)）改过一版，处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)。
+2026-11-19 完成，已合入 master（747845c93、cd5ce99f7、10711a79c、bffee5b0b、32d386dc3、aa84177c1）；worktree 与分支已删。
 
-实施在 worktree `.worktree/w00050-t11-sticker-preview`（分支 `feat/w00050-t11-sticker-preview`），5 段都已提交（a482e40c3、1dac30ab6、571607b2c、209dcd18d、7718c048a）。Spec 改动在 master（2b5e59581、3ff67bd43）：stickers 输出 46、47 标 planned，`ui/agent-conversation-view.md` 的表情预览一句等合入时补（另一个会话正在改这份文件）。
-
-与计划的偏差：
-- 挂样式表不在 nb-markdown：浏览器入口在后端类型检查范围里、也会在没有 `document` 的 Bun 宿主里激活，nb-markdown 只出纯函数 `stickerDisplayCss`，挂载在 `stickers/web/display-style.ts`。
-- 复制按钮用 `CopyButton` 新加的 `iconOnly`，没有另写；对话框卡片从 `width="auto"`（撑满整宽）改成 `fit-content`，贴着图片。
-- e2e 量出来改的：编辑器里点图浏览器不移光标，改成先把光标放到表情后面再开预览；选择器的“查看大图”按下不抢焦点，预览关上后焦点回到打开前的位置（通常是搜索框），Spec 同步改了。
-
-验证：
-- 各包 typecheck；nb-ui、nb-markdown、nb-agent-ui 全部测试；neuro-book 的 stickers、markdown 插件测试与窗口合同测试；变异检查 5 处（修饰键、链接里、组字、indirectHost 的 getter、面板预览开着时的 focusout）都被测试抓到。
-- e2e：sticker-preview（新）、sticker-picker、builtin-stickers、lab-agent-ui 共 56 条。第一轮 8 条失败：sticker-preview 2 条是上面两处真问题；lab-agent-ui 6 条是 Lab 场景 15 秒内没就绪（当时负载 10 以上），修正后连同这 6 条单独重跑 10 条全过。
-- 没有量输入框里光标挨着 120 像素贴纸时的高度（DOM 量不到光标的画法），只量了图高 120 与输入框不超过最大高度。
-
-## 下一步
-
-实现审查（Sonnet）进行中，处理后合入。
+- 计划经设计审查（Sonnet，15 条：重要 8、建议 7，[`evidences/design-review.txt`](evidences/design-review.txt)，处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)）。
+- 实现审查（Sonnet，11 条：重要 2、建议 9，[`evidences/impl-review.txt`](evidences/impl-review.txt)，处理见 [`evidences/impl-review-disposition.txt`](evidences/impl-review-disposition.txt)）：修了 6 条，接受取舍 4 条，第 7 条（双击第二下可能落在遮罩上关掉预览）没复现、要改得改 nb-ui Dialog，记为风险。
+- 与计划的偏差：挂样式表不在 nb-markdown（浏览器入口在后端类型检查范围、也在没有 `document` 的 Bun 宿主里激活），nb-markdown 只出 `stickerDisplayCss`，挂载在 `stickers/web/display-style.ts`，按 owner 各一份；复制按钮用 `CopyButton` 的 `iconOnly`；对话框卡片改成 `fit-content`；e2e 量出来后改为编辑器单击先把光标放到表情后面、选择器预览关上后焦点回到打开前的位置。
+- 验证：四个包的 typecheck 与相关单元、dom 测试（变基到最新 master 后重跑）；变异检查 7 处都被抓到；e2e sticker-preview、sticker-picker、builtin-stickers、lab-agent-ui 共 56 条，第一轮 8 条失败（2 条真问题已修，6 条是负载下 Lab 冷启动超时，单独重跑通过），审查修正后 sticker-preview 再跑 4 条全过。变基之后没有再跑 e2e（变基带进来的是别的 Task 的 nb-agent-ui 测试与文档）。
+- Spec 晋升：逐句对照测试，换模型复核（Sonnet，[`evidences/spec-check-verify.txt`](evidences/spec-check-verify.txt)）：没有兜底的 7 条里 3 条是“不承诺”的已知限制，其余挪成（planned）或从实现合同删掉；留（planned）的是选择器没指着时对着第一个、放大镜指针、记录是 user/shared 跟着用户、展示器里按贴纸显示、底边对齐与缩到块宽、别的窗口跟着变与记录未读到时先小图、“副作用”里记录的形状与剪枝接线。
+- 未验证：输入框里光标挨着 120 像素贴纸时的高度（DOM 量不到）；桌面版（同一份网页，从结构推断无差别）。

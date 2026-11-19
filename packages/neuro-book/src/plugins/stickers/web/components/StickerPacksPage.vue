@@ -6,7 +6,7 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {dragHasFiles, readDrop} from "nbook/ui/dropped-folder";
 
 import {stickerImageUrl} from "../../shared/contracts";
-import type {StickerPackDetail, StickerPackSummary} from "../../shared/contracts";
+import type {StickerDisplayService, StickerPackDetail, StickerPackSummary} from "../../shared/contracts";
 import {folderOf, gridGroups, railGroups} from "../pack-view";
 import type {GridItem} from "../pack-view";
 import type {ImportChoice, ImportConflictInfo} from "../packs-page";
@@ -43,6 +43,8 @@ const props = withDefaults(defineProps<{
     listFiles?: (id: string, files: readonly string[] | "all") => Promise<Failure | null>;
     allowlistUsage?: (id: string) => Promise<readonly string[] | null>;
     previewZip?: (file: File) => Promise<Preview>;
+    /** 按贴纸显示的偏好（输出 47）；没有时属性栏不画这个开关。 */
+    display?: StickerDisplayService | null;
     /** 一开始选中的格子（`stickerKey`、`extraKey`）；Lab 场景摆出选中的样子用。 */
     initialSticker?: string | null;
 }>(), {
@@ -60,6 +62,7 @@ const props = withDefaults(defineProps<{
     listFiles: async () => null,
     allowlistUsage: async () => null,
     previewZip: async () => ({title: null, count: null, items: []}),
+    display: null,
 });
 
 const emit = defineEmits<{
@@ -423,7 +426,11 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
                                         @list="void props.listFiles(current!.id, [selectedItem.file])"
                                         @back="selectedKey = null"
                                     />
-                                    <PackFields v-else :key="detail.summary.id" :detail="detail" :readonly="readonlyPack" :commit="async (change) => reasonOrNull(await props.updatePack(current!.id, change))" @rename="openRename" />
+                                    <PackFields
+                                        v-else :key="detail.summary.id" :detail="detail" :readonly="readonlyPack" :commit="async (change) => reasonOrNull(await props.updatePack(current!.id, change))"
+                                        :sticker-display="props.display === null ? null : props.display.packs().includes(detail.summary.id)"
+                                        @rename="openRename" @update:sticker-display="props.display?.set(detail!.summary.id, $event)"
+                                    />
                                 </template>
                             </aside>
                         </div>

@@ -164,7 +164,17 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
   - 低负载重跑（2026-11-19，负载 1.4 到 3.6）：两项预算都达到。条目页那一组 `entry` 带 `changedAt` 中位 1.92 毫秒、按条目的 `changes` 8.11、来历 7.26；打开到可以读 1832 毫秒（预算 2000）。上次来历发布后重读的 80 毫秒这次是 7.77，按负载解释成立。“发布一次记账”中位 181 毫秒仍超预算 100，是 t34 C7 已记的，K-d 没碰发布路径。K-d 收口。同一份[测量](evidences/scale-kd.txt)的第二节。
 - 清理：Spec 核对的审查 worktree、两个 master 对照 worktree 与 K-d 的临时探针都已删除；实现 worktree 与分支留着给第二批。
 
+第二批 B2-1 的进展（实现 worktree，分支 `feat/w00039-t31-author-ui` 先快进到 master）：
+
+- F（`9508eb570`）：组件测试的场地装得上剧情插件：Vitest 里把 `bun:sqlite` 换成 Node 26 自带的 `node:sqlite` 上的同一组调用（`@notnotype/neuro-book-test-support/bun-sqlite`），进程内的世界场地可加项目插件；冒烟用例经远程读剧情、把写作指示写进存储。变异检查：去掉别名就加载不了。
+- M 第一轮（`88befa1ff` 加作者读取的基线，[证据](evidences/b2-plot-scale-m1.txt)）：进程内五个现有读取输入一变后第一次 23 到 178 毫秒；omp 经远程量的 33 到 76 秒在进程内复现不出来。omp 的远程探针在负载 8 到 18 下连造样本都超时（跑完留下一个孤儿项目进程，已结束）；推断慢在每次发布后重算全部剧情诊断，待低负载时按高密度形状量。
+- C1（`3ccb2e31e`）：读取服务 `canonReadsKey`：外部读取与外部列表同一代失效、同一轮换上，取数抛错只让它自己失败（`external-failed`），结果版本落后时这一代补读一次；外部列表重读时按真实页长翻回已读的条数。读取层一轮的收尾不再可能卡住。四条新用例，三处变异检查都抓到。
+- C2（`0d50f6e02`）：窗口在看的线：公开状态 `nbook.canon/line`（字符串）与 `lineReady`、状态栏“在看：……”、`nbook.canon.pick-line` 走快速选择、条目页读取带上窗口的线（标签标题不带），分叉撤销后回到跟着章。三处变异检查都抓到。
+- C3（`7f515f357`）：页头的线选择（跟着章时写“此刻：线名”，只有主线时不画）；读取服务交出页头组件 `PageHead` 与 `usePosition`。
+- C4（`68b95e0e8`）：附加分页 `canon.entry-tabs`；`ComponentViewContext.FieldTable`（专门界面嵌一节通用字段，W3 用剧情的界面测）。变异检查抓到 `requires` 的过滤。
+- canon 组件测试 132 条全过、类型检查与 `architecture.test.ts` 过。
+
 ## 下一步
 
-1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：低负载时量剧情读取的规模（M），写索引的细设计并派 omp 审；同时做组件测试的场地（F）与 Spec 第二版（S0）。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
+1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：S0、F、C 已做；下一步 A（`nbook.plot/author` 的六个作者读取）与 M（低负载时按高密度形状量剧情诊断与作者读取，写索引的细设计并派 omp 审），再 U、W1 到 W3、D。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
 2. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。

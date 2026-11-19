@@ -53,6 +53,17 @@
     object-fit: contain;
 }
 
+/* 点得开大图的表情（输出 46）：放大镜指针；可聚焦的（展示器、已发送的消息）键盘聚焦时画 nb-ui 的焦点环（`--focus-ring`）。 */
+.nb-sticker.is-previewable .nb-sticker__image {
+    cursor: zoom-in;
+}
+
+.nb-sticker.is-previewable:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: var(--focus-ring);
+}
+
 .nb-sticker.ProseMirror-selectednode {
     outline: 2px solid var(--accent, currentColor);
     outline-offset: 1px;

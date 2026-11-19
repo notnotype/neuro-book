@@ -168,6 +168,18 @@ export interface StickerDirectoryService {
 
 export const stickerDirectoryKey: ServiceKey<StickerDirectoryService> = defineServiceKey<StickerDirectoryService>("nbook.stickers/directory");
 
+/**
+ * 按贴纸显示的偏好（docs/specs/agent/stickers.md 输出 47，`picker` 入口交出）：表情包页的开关经它读写，入口自己按它在窗口里挂样式。
+ * `packs()` 背后是响应式状态：在 computed、watch 或渲染里读会跟着变。
+ */
+export interface StickerDisplayService {
+    /** 按贴纸显示的表情包 id。 */
+    packs(): readonly string[];
+    set(id: string, on: boolean): void;
+}
+
+export const stickerDisplayKey: ServiceKey<StickerDisplayService> = defineServiceKey<StickerDisplayService>("nbook.stickers/display");
+
 /** 选择器与补全里的一个表情（docs/specs/agent/stickers.md 输出 39 到 43）。 */
 export interface StickerPickerItem {
     /** 表情包 id。 */

@@ -154,3 +154,34 @@ describe("键盘与关闭", () => {
         expect(cell(root, ":lyra/困:").getAttribute("aria-label")).toBe("困");
     });
 });
+
+describe("大图预览（stickers.md 输出 46）", () => {
+    it("底部有“查看大图：名字”按钮，按的是指着的表情；点了在面板之上打开预览：标题“名字 · 包名”、复制写法", async () => {
+        const {root} = await show([LYRA, DOG]);
+        cell(root, ":dog/握手:").dispatchEvent(new PointerEvent("pointerenter"));
+        await flushPromises();
+        const button = root.querySelector<HTMLButtonElement>("[data-sticker-picker-preview]")!;
+        expect(button.getAttribute("aria-label")).toBe("查看大图：握手");
+        // 按钮不在读屏隐藏的那一块里。
+        expect(button.closest("[aria-hidden='true']")).toBeNull();
+        button.click();
+        await flushPromises();
+        const dialog = document.body.querySelector<HTMLElement>("[role=dialog]:not([data-sticker-picker-panel])");
+        expect(dialog?.textContent).toContain("握手 · 小狗");
+        expect(dialog?.querySelector("img")?.getAttribute("src")).toBe("/img/握手.png");
+        expect(dialog?.querySelector("[data-image-preview-copy] button")?.getAttribute("aria-label")).toBe("复制写法");
+    });
+
+    it("预览开着时焦点离开面板不发 close；关上之后照常", async () => {
+        const {root, events, outside} = await show([LYRA]);
+        root.querySelector<HTMLButtonElement>("[data-sticker-picker-preview]")!.click();
+        await flushPromises();
+        outside.focus();
+        expect(events).toEqual([]);
+        document.body.querySelector<HTMLButtonElement>("[role=dialog]:not([data-sticker-picker-panel]) button[aria-label='关闭']")!.click();
+        await flushPromises();
+        search(root).focus();
+        outside.focus();
+        expect(events).toEqual([{kind: "close", reason: "blur"}]);
+    });
+});

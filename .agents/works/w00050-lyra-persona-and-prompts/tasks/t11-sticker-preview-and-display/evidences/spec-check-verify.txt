@@ -1,0 +1,101 @@
+# w00050 t11 Spec 晋升核对（只读；按断言本身判，不按测试名）
+简写：SD=nb-markdown/src/language/syntax/sticker/sticker.dom.test.ts；PTV=nb-markdown/src/prompt/PromptTextView.dom.test.ts；AM=nb-agent-ui AgentMarkdown.dom.test.ts；MC=neuro-book MarkdownControl.dom.test.ts；SP=stickers/web/sticker-picker.dom.test.ts；PG=stickers/web/sticker-page.dom.test.ts；E2E=neuro-book/e2e/sticker-preview.e2e.ts
+
+## A. agent/stickers.md 输出 46 大图预览
+- 能打开：对话 Agent 回复里单击表情 → 有兜底（AM:把 sticker 激活映射成 image.preview，标题“开心 · 星璃”、copyText、minSize 320；E2E:第 103 行用例点回复里的图开预览）
+- 能打开：已发送的用户消息 → 有兜底，但只在 E2E（第 103 行用例后半，点 [data-user-bare] 里的图，断言标题“困 · lyra”）；AgentUserContent.dom.test.ts 没有任何表情用例；用户消息路径的“复制写法”无直接断言（共用 stickerPreviewAction，只在回复路径被 AM/E2E 断言）
+- 能打开：编辑器正文单击 → 有兜底（SD:“编辑器：单击表情的图…”；MC:“表情的大图预览”断言标题“开心 · 星璃”、图地址、复制写法按钮；E2E:第 131 行用例）
+- 能打开：选择器底部“查看大图”打开底部那一行指着的表情 → 有兜底（SP:“底部有查看大图：名字按钮，按的是指着的表情…”断言悬停后 aria-label、对话框标题“握手 · 小狗”、img src、复制写法）
+- 宿主不接预览时表情不能点、没有放大镜指针 → 有兜底但偏弱（SD:“编辑器：没有 previewSticker 时点了不做什么”只断言不抛错与不带 is-previewable 类；“放大镜指针”本身是 planned，类名只是代理）
+- 手势：只认不带修饰键左键、双击第二下不开 → 有兜底（SD:“展示器：带修饰键、右键、双击的第二下不打开”，shift/ctrl/meta/alt/右键/detail:2 都断言无激活；只在展示器层测，编辑器、PromptSticker 靠共用 buildSticker）
+- 手势：表情在链接里只走链接（点击与键盘都是）→ 有兜底（SD:“展示器：链接里的表情只发出 link…”断言只有 link 激活、role/tabindex 为空、回车不发 sticker）
+- 手势：编辑器里输入法组字时不打开 → 有兜底（SD:“编辑器：单击…输入法组字时不打开”，compositionstart 后 view.composing 为真、再点 previews 仍为 1）
+- 手势：占位（目录还没到）点了没反应 → 有兜底（SD 第一个用例：answerAll 之前 click，activations 为空）
+- 手势：原文（认不出、图读不出来）点了没反应 → 有兜底但偏弱（SD:“…图读不出来回到原文时不再能打开”只断言 error 后回车不再发；点击没有断言；“认不出”（解析器回 null）没有任何点击或按键断言）
+- 手势：对话里的表情可键盘聚焦，名称“查看大图：名字”，回车或空格打开 → 有兜底（SD:“展示器：表情可以用键盘打开…”断言 role=button、aria-label、回车与空格各发一次；PTV:“点表情的图或聚焦后回车发出 sticker-activate”断言 aria-label，但只试了回车）
+- 对话框：标题“名字 · 表情包的显示名”→ 有兜底（AM、MC、SP、E2E 各断言过）
+- 对话框：头部有复制写法、复制的是写法原文 → 有兜底（nb-ui ImagePreviewDialog.test:“复制按钮只有图标…复制给定的文字”读剪贴板；E2E 第 103 行用例读剪贴板为 :lyra/开心:）
+- 对话框：下载原图 → 有兜底（ImagePreviewDialog.test:“打开：标题是 alt…下载链接指向原始 src”；E2E 用“下载原图”链接定位对话框）
+- 对话框：长边不到 320 放大到 320，大的原尺寸，放不下等比缩小 → 有兜底（ImagePreviewDialog.test:previewImageSize 三个用例；E2E 第 103 行用例：对话里 64 像素的图量得 320）。偏弱处：编辑器控件与选择器面板传 STICKER_PREVIEW_MIN_SIZE 没有任何测试断言（MC、SP 都不量图宽，E2E 只在对话里量）
+- 编辑器单击后光标落在表情后面 → 有兜底（SD:断言 selection.from 为 3）
+- 关掉预览后焦点回正文、接着打字落在表情后面 → 有兜底（E2E 第 131 行用例：Esc 后 prose 聚焦、打“呀”、保存后读文件为 前:lyra/开心:呀后）
+- 选择器里打开时面板不关 → 有兜底（SP:“预览开着时焦点离开面板不发 close；关上之后照常”；E2E 第 145 行用例）
+- “查看大图”按下时不抢焦点、关掉预览后焦点回到打开前所在地方（搜索框或格子）→ 有兜底但只覆盖搜索框（E2E 第 145 行用例断言 panel input 聚焦；“格子”的情形没有断言）
+- Esc 先关预览、再按才关面板 → 有兜底（E2E 第 145 行用例）
+
+## B. 输出 47 按贴纸显示
+- 没选表情时属性栏有开关“按贴纸显示”，所有来源都能设（含只读的插件与内置）→ 有兜底，偏弱（PG:“按贴纸显示（输出 47）…”只用 builtin 包断言开关存在、aria-label、点击翻转；插件来源的包没有单独用例；没有偏好服务时不画有断言）
+- 记在用户自己的记录里、不改表情包的文件 → 没有兜底（PG 用的是 memoryDisplay；真实存储路径 stickerDisplayStore / STICKERS_DISPLAY_RECORD / displayService 全仓库没有任何测试引用；“不改表情包的文件”也没有断言，PG 没断言过 remote 写调用为空；E2E 同窗口切换，不重载）
+- 打开后表情在文字中间显示成大图，高同输出 11（120 像素）→ 有兜底（E2E 第 168 行用例：编辑器正文与输入框里夹在文字中的表情量得高 120；nb-markdown sticker-display.test:CSS 含 height: var(--nb-sticker-large-size, 120px)）
+- “这一行跟着变高”→ 弱（E2E 只量图高与输入框 ≤220，没量行高）
+- Markdown 编辑器与输入框都这样显示 → 有兜底（E2E 第 168 行用例，两处都量）
+- 按写法认到的那个包算（输出 7）→ 有兜底（neuro-book web/resolver.test:“输出 7…”断言 :lyra/开心: 认到 pack:"user.lyra"，有同名文件夹的插件包竞争；“目录的时序”断言 pack、packTitle；SD 断言 data-sticker-pack）
+- 切换立刻生效、已显示的表情跟着变、不用重开 → 有兜底（E2E 第 168 行用例：开关后 inline 同一元素高变 120、再关变回；display-style.dom.test:“样式表随偏好变…”）
+- 别的窗口里改了，这个窗口随记录的通知跟着变 → 没有兜底（没有任何测试写记录或发通知再看样式表；followStickerDisplay 的用例只用 memoryDisplay 本地 set）
+
+## C. stickers.md 输出 27 末尾、输出 39
+- 输出 27 没选表情时属性栏有“按贴纸显示”开关 → 有兜底（PG 同上）
+- 输出 39 底部一行行尾“查看大图”按钮 → 有兜底（SP 第一个大图用例；E2E）
+
+## D. “不承诺”两条（第 27、28 行附近）
+- 输入框里点表情不打开大图 → 没有兜底（PromptEditor.dom.test 的表情用例只测显示、补全、插入，没有点击用例；prompt-editor-extensions.ts 调 buildSticker 不传 onActivate，是靠省略实现，无断言）
+- 大图预览不能缩放、不能左右切换 → 没有兜底（否定性限制，无断言；价值低）
+- 触屏没有悬停，选择器底部一行与“查看大图”对着的是第一个表情 → 间接有兜底（SP“布局与分组”断言未悬停时底部写 :lyra/开心:；按钮在未悬停时的 aria-label 没单独断言；第二个大图用例未悬停就点按钮，但不看对话框内容）
+- 按贴纸显示按表情包 id 记、改包名与删掉重建的包不保留 → 间接有兜底（display.test:“目录取到了就剪掉已经不在的包”）
+- 没有全局开关、清单不能声明缺省按贴纸显示 → 没有兜底（否定性，无断言；价值低）
+- 记录写不进去（或窗口刚打开记录还没读到时点了开关）时不提示、开关只在这次运行里生效 → 没有兜底（display.ts 的 failed/unknown 分支 display.show 无任何测试；display.test:“没有 Storage 时只在这次运行里记”测的是 memoryDisplay，是另一条路径；“记录还没读到时点开关”无断言）
+
+## E. “副作用与数据”里 stickers.display 那一条（非 planned 部分）
+- 存在 nbook.stickers 的 user/shared 记录 stickers.display、形状 {stickerPacks: string[]}、至多 256 个 → 没有兜底（schema 与 STICKERS_DISPLAY_RECORD 无测试；display.test 用常量 DISPLAY_PACKS_MAX，没有断言它等于 256）。注意 user/shared 在输出 47 里标了 planned，这里没标
+- 每次写入时按当前目录剪掉不在的 id，目录未取到时不剪 → 纯函数有兜底（display.test:“目录取到了就剪掉…；目录还没取到时不剪”）；真实服务把 known() 接进去（plugin.ts 的 displayService(…, known)）没有测试
+- 超过上限丢最早的 → 有兜底（display.test:“超过上限时丢最早的”，用常量）
+
+## F. “实现合同”最后两条不变量
+- 点击与键盘只在 buildSticker 一处判断（修饰键、双击第二下、链接里、占位与原文）→ 有兜底（SD 展示器各用例；单一位置是代码结构，靠 PTV 与 SD 编辑器用例走同一函数间接证明）
+- 四个调用方只决定接不接与交给谁：展示器 → 有（SD）；编辑器节点视图 → 有（SD、MC）；PromptSticker → 有（PTV）；提示词编辑器（不接）→ 没有兜底（同 D 第一条）
+- 编辑器节点视图在宿主给了 previewSticker 时才接 → 有兜底（SD:“编辑器：没有 previewSticker 时点了不做什么”）
+- 点击时先把光标放到表情后面 → 有兜底（SD 断言 from=3；E2E 断言接着打字位置）
+- 预览对话框是 nb-ui 的 ImagePreviewDialog，对话、编辑器控件、选择器面板各挂一份 → 有兜底（AM+E2E 对话；MC 编辑器控件；SP 选择器面板，各自断言 [role=dialog] 出现）
+- 选择器面板在预览开着时不因焦点离开收起 → 有兜底（SP:“预览开着时焦点离开面板不发 close；关上之后照常”；E2E 否定断言）
+- 按贴纸显示不给表情元素加类 → 没有兜底（否定性；SD 只断言有 data-sticker-pack，没有断言“元素类集合不变”）
+- 查到图时元素带 data-sticker-pack → 有兜底（SD 两处：查到后有，图读不出来回原文后去掉）
+- picker 入口按偏好在窗口里放一份样式表、规则文本是 stickerDisplayCss → 有兜底（sticker-display.test 三用例；display-style.dom.test:“放一份；再调用换内容、不另加；…移除”；E2E 第 168 行端到端）
+- 偏好变了只换样式表内容、入口停下时移除 → 有兜底（display-style.dom.test:“样式表随偏好变；入口停下（signal 结束）后移除，之后再改偏好也不再放回”）
+- 没有 document 的宿主里不放 → 没有兜底（mountStickerDisplayStyle 的 page===undefined 分支无用例；display-style.dom.test 是 DOM 环境，没有无 document 的测试）
+- 所以已显示的表情跟着变 → 有兜底（E2E）
+
+## G. ui/markdown-display.md 输出 5 与 MarkdownDisplayActivation 的 sticker
+- 点击表情的图（不在链接里、不带修饰键左键单击）发出 {kind:"sticker"}，带写法、地址、名字、表情包的显示名与宽高 → 有兜底（SD:“展示器：单击表情的图发出 sticker…”toEqual {kind:"sticker", sticker: HAPPY}，HAPPY 含 raw、url、name、packTitle、width、height）
+- 聚焦后回车、空格发出 → 有兜底（SD:“展示器：表情可以用键盘打开…”两次激活；只断言次数，不断言载荷）
+- 不在链接里 → 有兜底（SD 链接用例）
+- MarkdownDisplayActivation 的 sticker 变体（static-views.ts） → 有兜底（类型由 SD 使用并经类型检查；运行时由上面用例断言）
+
+## H. ui/prompt-editor.md 输出 14 sticker-activate
+- 点表情的图或聚焦后按回车发出 sticker-activate，带写法、地址、名字、宽高 → 有兜底（PTV:“点表情的图或聚焦后回车发出 sticker-activate…”toEqual [[preview],[preview]]，preview 含 raw、url、name、width、height）
+- 按空格 → 没有兜底（PTV 只试回车；空格路径在 SD 展示器层被测，共用 buildSticker，间接）
+- 带“表情包的显示名” → 弱（PTV 宿主的 stickers 没给 packTitle，preview 里没有该字段，这一点没被断言；SD 展示器层断言过 packTitle，共用 buildSticker，间接）
+- 由宿主打开大图（用户消息里）→ 有兜底，只在 E2E（AgentUserContent 的 activateSticker 接线无单元断言）
+
+## I. ui/agent-conversation-view.md 两处“表情的图打开原图预览”
+- 回复与思考里的 Markdown：点击表情的图打开原图预览 → 有兜底（AM:“…表情分别成为…预览请求”断言映射；E2E 第 103 行用例点回复里的图，对话框打开）。“思考里”没有单独断言（共用 AgentMarkdown，间接）
+- 用户消息：点击文字里表情的图打开同一个预览，标题写表情名与表情包的显示名，带复制写法 → 部分有兜底（E2E:点用户消息里的表情，对话框含“困 · lyra”；复制写法按钮与剪贴板内容在用户消息路径上没有断言，只在回复路径断言；AgentUserContent.dom.test.ts 无表情用例）
+
+## 汇总
+- 没有兜底（句子无 planned 标记、却没有任何断言）：
+  1. 输入框（提示词编辑器）里点表情不打开大图（stickers.md 不承诺 + 实现合同“四个调用方”里提示词编辑器那一格）
+  2. 输出 47 第一条“记在用户自己的记录里、不改表情包的文件”（真实存储路径零测试；“不改表情包的文件”零断言）
+  3. 输出 47 第三条“别的窗口里改了随记录的通知跟着变”
+  4. 不承诺：“记录写不进去（或记录还没读到时点了开关）不提示，开关只在这次运行里生效”
+  5. “副作用与数据”stickers.display：记录键、user/shared、形状、至多 256（常量未断言字面值）；真实服务接 known() 的剪枝接线
+  6. 实现合同第二条：“没有 document 的宿主里不放”；“不给表情元素加类”
+  7. 否定性限制（低价值，可考虑不要求）：大图不能缩放、不能左右切换；没有全局开关、清单不能声明缺省按贴纸显示
+- 测试与句子字面不符：0 条（没有发现测试断言与句子相反或对不上的情形）。
+- 偏弱、可补一行断言即可（有兜底但不充分）：
+  a. 原文点了没反应：只测键盘、不测点击，“认不出”无断言
+  b. 320 放大：编辑器控件与选择器面板的 minSize 无断言（只有对话里 E2E 量宽）
+  c. 焦点回到打开前所在地方：只测搜索框，没测格子
+  d. “这一行跟着变高”：只量图高，没量行高
+  e. 所有来源都能设：只测 builtin，插件包无用例
+  f. PromptTextView：空格与 packTitle 无断言
+  g. 用户消息里点表情：复制写法无断言；AgentUserContent 无单元用例，仅 E2E
+  h. 宿主不接预览：断言的是 is-previewable 类而非指针

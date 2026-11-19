@@ -35,7 +35,7 @@ describe("找表情", () => {
         expect(findSticker(PACKS, ref(":builtin.lyra/困:"))?.url).toBe("/builtin/sleepy");
         expect(findSticker(PACKS, ref(":cat/喵:"))?.url).toBe("/喵");
         // 我的优先：lyra 是我的那个，插件的“挥手”经 lyra 认不到。
-        expect(findSticker(PACKS, ref(":lyra/开心:"))?.url).toBe("/lyra/happy");
+        expect(findSticker(PACKS, ref(":lyra/开心:"))).toMatchObject({url: "/lyra/happy", pack: "user.lyra"});
         expect(findSticker(PACKS, ref(":lyra/挥手:"))).toBeNull();
         expect(findSticker(PACKS, ref(":dog/汪:"))).toBeNull();
         expect(findSticker(PACKS, ref(":fox/狐:"))).toBeNull();
@@ -60,7 +60,8 @@ describe("目录的时序", () => {
         const signal = new AbortController().signal;
         const pending = directory.resolve(ref(":喵:"), signal);
         directory.set(PACKS);
-        expect(await pending).toMatchObject({url: "/喵", width: 8, height: 8});
+        // 带上认到的表情包 id 与显示名：按贴纸显示按 id 选中、预览的标题写显示名（输出 46、47）。
+        expect(await pending).toMatchObject({url: "/喵", width: 8, height: 8, pack: "user.cat", packTitle: "cat"});
         directory.set([]);
         expect(await directory.resolve(ref(":喵:"), signal)).toBeNull();
     });

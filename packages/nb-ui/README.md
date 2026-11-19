@@ -100,6 +100,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - [`Dialog`](src/components/feedback/Dialog.md)：模态对话框。
 - [`FloatingWindow`](src/components/feedback/FloatingWindow.md)：非模态浮动窗口，可拖动、可缩放。
 - [`AlertDialog`](src/components/feedback/AlertDialog.md)：二次确认。
+- [`ImagePreviewDialog`](src/components/feedback/ImagePreviewDialog.md)：看一张图的大图：贴着图片的卡片，可下载原图、可带复制按钮。
 - [`Drawer`](src/components/feedback/Drawer.md)：四向滑出的抽屉。
 
 ### 反馈

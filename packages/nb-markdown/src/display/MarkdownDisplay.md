@@ -18,7 +18,7 @@
 ## 交互
 
 - 文字可以选中复制。
-- 点引用小块、外部链接、图片发出 `activate`，不自己跳转。提示块的标题点了折叠或展开；可渲染 HTML 点“渲染”后在沙箱里显示。
+- 点引用小块、外部链接、图片、表情的图发出 `activate`，不自己跳转；链接里的表情只发链接。表情还能聚焦后用回车、空格打开。提示块的标题点了折叠或展开；可渲染 HTML 点“渲染”后在沙箱里显示。
 
 文字选择：正文可选，宿主在根上默认不可选时也成立；后备渲染同样可选（见 nb-ui 开发规范的“文字能否选中”）。
 
@@ -39,7 +39,8 @@ interface MarkdownDisplayProps {
 type MarkdownDisplayActivation =
     | {kind: "reference"; target: string}
     | {kind: "link"; href: string}
-    | {kind: "image"; address: string};
+    | {kind: "image"; address: string}
+    | {kind: "sticker"; sticker: StickerPreview};
 
 interface MarkdownDisplayEmits {
     (e: "activate", activation: MarkdownDisplayActivation): void;

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type {MarkdownActivation, MarkdownAssetResolver} from "../../ports";
 import {useAgentRenderers, useAgentText} from "../host";
+import {stickerPreviewAction} from "../view-action";
 import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
@@ -14,7 +15,7 @@ const emit = defineEmits<{
     (e: "action", action: ViewAction): void;
 }>();
 
-const {locale} = useAgentText();
+const {locale, t} = useAgentText();
 const renderers = useAgentRenderers();
 
 /**
@@ -34,6 +35,9 @@ function onActivate(activation: MarkdownActivation) {
             return;
         case "image":
             emit("action", {type: "image.preview", image: {markdownSrc: activation.address, name: activation.address}});
+            return;
+        case "sticker":
+            emit("action", stickerPreviewAction(activation.sticker, (name, pack) => t("stickerPreview.title", {name, pack})));
             return;
     }
 }

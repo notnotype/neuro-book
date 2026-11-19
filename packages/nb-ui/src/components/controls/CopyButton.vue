@@ -3,6 +3,7 @@ import {computed, onBeforeUnmount, ref} from "vue";
 
 import {useUiText} from "../../text-port";
 import Button from "./Button.vue";
+import IconButton from "./IconButton.vue";
 
 export type CopyButtonState = "idle" | "copied" | "failed";
 
@@ -10,15 +11,18 @@ const props = withDefaults(defineProps<{
     text: string;
     resetAfter?: number;
     label?: string;
+    /** 只画图标（头部、工具条里放不下文字时）：文字改作悬停提示与可访问名称。 */
+    iconOnly?: boolean;
 }>(), {
     resetAfter: 1500,
     label: undefined,
+    iconOnly: false,
 });
 
 const uiText = useUiText();
 const state = ref<CopyButtonState>("idle");
 const root = ref<HTMLElement | null>(null);
-const button = ref<InstanceType<typeof Button> | null>(null);
+const button = ref<InstanceType<typeof Button> | InstanceType<typeof IconButton> | null>(null);
 
 /** 每次点击加一：较早的一次复制在较晚的一次之后才 settle 时，不覆盖较晚那次的结果。 */
 let attempt = 0;
@@ -99,7 +103,17 @@ onBeforeUnmount(() => {
 
 <template>
     <span ref="root" class="nb-copy-button" :data-copy-state="state">
+        <IconButton
+            v-if="props.iconOnly"
+            ref="button"
+            :icon-class="iconClass"
+            :title="buttonText"
+            :aria-label="buttonText"
+            :class="state === 'copied' ? '!text-[var(--status-success)]' : state === 'failed' ? '!text-[var(--status-danger)]' : ''"
+            @click="copy"
+        />
         <Button
+            v-else
             ref="button"
             variant="ghost"
             size="sm"

@@ -61,8 +61,16 @@ interface SessionHeader {
     questions: "caller" | "user";   // 提问交给谁
     result?: {mode: "optional" | "required"; schema: JsonValue};          // 运行结果的 schema
     background?: true;              // 后台会话：列表缺省不列；fork 不继承
+    owner?: {plugin: string; id: string};  // 归属：哪个插件的哪个对象常驻持有这个会话（输出 25）；fork 不继承
 }
 ```
+
+`owner` 与 `background` 并存，各管一件事（会话头的 `owner` 与会话目录里记锁持有者的 `session.owner` 文件无关）：
+
+| 字段 | 谁给 | 管什么 |
+|---|---|---|
+| `background` | 建会话的调用方 | 会话不进缺省列表、`running()` 与活动（后台跑的任务） |
+| `owner` | 宿主按调用方盖章（NeuroBook 见 [`agent/sessions.md`](../agent/sessions.md) 输出 23） | 会话归某个插件的对象（例如 bot 的主对话）：工具与扩展拿得到它，宿主据此决定列表、能不能改写历史与打开到哪里 |
 
 ### 事件
 
@@ -139,6 +147,7 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 22. 索引带调用方、来源、花费与运行：`index.json` 与 `list` 的条目另有：`caller`（会话头有时照抄，含 `callId` 与 `invocation`）；`origin`（fork 出来的会话的来源会话 id）；`spend: {cost, unpriced}`，与快照的累计花费同一口径（`assistant`、`modelEnded`、`modelFailed`，[`runtime.md`](runtime.md) 输出 70）；`runs`，最近 20 次收口的运行 `{runId, reason, endedAt}`。没有这些的旧索引读作没有、花费 0，不算读不懂；打开会话时按日志补上。
 23. 按会话读索引：`entry(id)` 只读这个会话目录的 `index.json`，条目同 `list` 的；没有这个会话、索引读不懂时得 `session-not-found`（读不懂的索引要打开会话才重建），读文件出错得 `storage-failed`。给只关心少数几个会话的调用方用（子代理的进度，[`agent/subagents.md`](../agent/subagents.md) 输出 21），不用扫全部会话。
 24. 输入缓冲区的事件（行为见 [`runtime.md`](runtime.md) 输出 103–110）：会话级的 `inputHeld{ids, cause, heldBy?}`、`inputReleased{ids, by, mode}` 与 `runResumed{runId, by}` 是新增的事件（`runResumed` 不进路径：接着跑之后的请求仍与原来那次是兄弟，[`runtime.md`](runtime.md) 输出 36）；`inputQueued` 加 `commandId`，空闲时排的另带 `state: "held"` 与 `cause`；`input`、`steer` 加 `commandId`；`inputConsumed` 加取走它的运行 `runId`；`inputRemoved` 加 `by`，原因是 `cancelled`、`aborted`、`replaced`（`replaced` 带 `replacedBy`），旧日志的 `user` 读作 `cancelled`；`runStarted` 加 `by`；`runEnded` 在中止时加停的人 `stoppedBy`。`cause` 是 `{end: 收口方式, code?}` 或 `{queued: "idle", code?}`（`code` 写开不起运行的码，或 `reassembly-pending`、`session-closing`、`session-closed`、`not-allowed`）；`heldBy` 与各处的 `by` 是发出者（会话或宿主；用户不写 `by`，`heldBy` 是用户时写 `{kind: "user"}`）。缓冲区条目的状态只由会话级事件归约，不读路径级事件；没有这些事件的旧日志，条目都是就绪的。读到这些事件的旧内核得 `log-corrupt`（不支持降级，见“边界与兼容”）。
+25. 会话头的 `owner`：只由建会话的选项给（`{plugin, id}`，各 1–128 个字符），内核照写、不解释；索引条目照抄。fork 出来的会话没有 `owner`，子会话也不从调用方继承。没有这一项的旧会话头读作没有归属。
 
 ## 状态与转换
 
