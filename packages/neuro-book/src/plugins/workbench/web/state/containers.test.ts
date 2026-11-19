@@ -31,7 +31,7 @@ const VIEWS: ViewCatalog = new Map([
 
 const doc = (): LayoutDoc => defaultLayoutDoc(VIEWS, CONTAINERS);
 function must(result: LayoutResult): LayoutDoc {
-    if (!result.ok) throw new Error(`${result.code}: ${result.detail}`);
+    if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
     return result.doc;
 }
 const idsIn = (current: LayoutDoc, region: PanelName): ReadonlyArray<string> => regionContainers(current, region).map((container) => container.id);

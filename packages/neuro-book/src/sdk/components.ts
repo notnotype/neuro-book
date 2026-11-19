@@ -44,6 +44,6 @@ export {TabStrip} from "@notnotype/nb-workbench-layout/vue";
 export type {DropFeedbackPreview, SplitterPanelConfig} from "@notnotype/nb-layout/vue";
 export type {TabStripItem, TabStripPartition} from "@notnotype/nb-workbench-layout/vue";
 export type {
-    GridBranchChange, GridGestureCommit, GridGesturePreview,
+    GridBranchChange, GridCommitFailureCode, GridFailure, GridGestureCommit, GridGesturePreview, GridLayoutCommitResult, GridParamValue,
     SplitterGestureCancelReason, SplitterGestureCancellation, SplitterGestureSource, SplitterGestureState,
 } from "@notnotype/nb-layout";

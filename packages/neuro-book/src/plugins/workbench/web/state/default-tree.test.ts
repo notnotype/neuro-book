@@ -129,7 +129,7 @@ const CONTAINERS: ContainerCatalog = new Map([[GROUP, {title: {"zh-CN": "组", "
 const CATALOG: ViewCatalog = new Map([["a", VIEW("sidebar", 1, GROUP)], ["b", VIEW("sidebar", 2, GROUP)], ["c", VIEW("sidebar", 3)], ["d", VIEW("auxiliarybar", 1)], ["f", VIEW("auxiliarybar", 2)], ["g", VIEW("panel", 1)]]);
 
 function must(result: LayoutResult): LayoutDoc {
-    if (!result.ok) throw new Error(`${result.code}: ${result.detail}`);
+    if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
     return result.doc;
 }
 const sizeOf = (doc: LayoutDoc, id: string): {readonly width: number; readonly height: number} => {

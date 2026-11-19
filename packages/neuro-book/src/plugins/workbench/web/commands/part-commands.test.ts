@@ -76,7 +76,7 @@ async function savedLayout(store: LayoutDocStore, storage: StorageService): Prom
     const snapshot = await opened.handle.read();
     if (snapshot.status !== "ok") throw new Error(`记录是 ${snapshot.status}`);
     const checked = validateLayoutDoc(snapshot.value.doc);
-    if (!checked.ok) throw new Error(checked.detail);
+    if (!checked.ok) throw new Error(checked.message);
     return checked.doc;
 }
 

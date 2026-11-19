@@ -141,7 +141,7 @@ export function entryDropAt(doc: LayoutDoc, source: WorkbenchDragSource, spot: B
     return {kind: sole.region === region ? "move-entry" : "move-container", region, container: sole.container, before: spot.before};
 }
 
-const failure = (detail: string): LayoutResult => ({ok: false, code: "rejected", detail});
+const failure = (message: string): LayoutResult => ({ok: false, code: "rejected", message});
 
 /** 入口顺序里把 `container` 放到 `before` 前面（`before` 不在里面、或是 null 时放最后）。`before` 是它自己时不动。 */
 function placeEntry(entries: ReadonlyArray<string>, container: string, before: string | null): ReadonlyArray<string> {
@@ -158,7 +158,7 @@ function placeEntry(entries: ReadonlyArray<string>, container: string, before: s
 export function applyEntryDrop(doc: LayoutDoc, source: WorkbenchDragSource, action: EntryDropAction, policy: LayoutPolicy, options: {readonly commit: boolean}): LayoutResult {
     const {region} = action;
     const anchor = regionAnchor(doc, region);
-    if (anchor === null) return failure("区域不用容器");
+    if (anchor === null) return failure("The region does not use containers");
     let next = doc;
     const run = (step: (current: LayoutDoc) => LayoutResult): LayoutResult | null => {
         const result = step(next);
@@ -181,15 +181,15 @@ export function applyEntryDrop(doc: LayoutDoc, source: WorkbenchDragSource, acti
         const failed = options.commit
             ? (run((current) => moveContainerTo(current, action.container, region, policy)) ?? place(action.container, action.before))
             : source.kind !== "tab"
-                ? failure("含几个视图的入口没有预览")
+                ? failure("An entry with several views has no preview")
                 : (run((current) => {
                     const target = sectionLanding(current, region, action.container);
-                    return target === null ? failure("区域不用容器") : moveTabToEdge(current, {tab: source.tab, target, container: action.container}, policy);
+                    return target === null ? failure("The region does not use containers") : moveTabToEdge(current, {tab: source.tab, target, container: action.container}, policy);
                 }) ?? place(action.container, action.before));
         if (failed !== null) return failed;
         return {ok: true, doc: sameLayoutShape(doc, next) ? doc : next};
     }
-    if (source.kind !== "tab") return failure("入口上只收视图");
+    if (source.kind !== "tab") return failure("An entry only takes views");
     const own = soleRegionContainer(doc, source, region);
     // 落在它自己唯一视图所在的入口上：原处（输出 45），不切也不展开。
     if (action.kind === "join-container" && own === action.container) return {ok: true, doc};
@@ -197,7 +197,7 @@ export function applyEntryDrop(doc: LayoutDoc, source: WorkbenchDragSource, acti
     const alreadyLast = action.kind === "join-container" && members.at(-1)?.panel === findTab(doc, source.tab)?.panel;
     if (!alreadyLast) {
         const target = sectionLanding(next, region, action.container);
-        if (target === null) return failure("区域不用容器");
+        if (target === null) return failure("The region does not use containers");
         const failed = run((current) => moveTabToEdge(current, {tab: source.tab, target, container: action.container}, policy));
         if (failed !== null) return failed;
     }

@@ -52,7 +52,7 @@ import type {LayoutProjectionOptions} from "./layout-project";
 /** 布局文档（docs/specs/ui/workbench-layout.md 输出 1 到 4、8、25 到 28）。 */
 
 function okDoc(result: LayoutResult): LayoutDoc {
-    if (!result.ok) throw new Error(`操作失败：${result.code} ${result.detail}`);
+    if (!result.ok) throw new Error(`操作失败：${result.code} ${result.message}`);
     return result.doc;
 }
 

@@ -75,7 +75,7 @@ async function read<T>(storage: StorageService, record: RecordDefinition<T>): Pr
 async function savedDoc(storage: StorageService, record: RecordDefinition<{doc: unknown}>): Promise<LayoutDoc> {
     const value = await read(storage, record) as {doc: unknown};
     const checked = validateLayoutDoc(value.doc);
-    if (!checked.ok) throw new Error(checked.detail);
+    if (!checked.ok) throw new Error(checked.message);
     return checked.doc;
 }
 
@@ -227,7 +227,7 @@ describe("损坏与失败", () => {
     /** 合法但不合骨架的文档：面板跑到了编辑组旁边（片 7c 之前能拖出来）。 */
     function outsideSkeleton(doc: LayoutDoc): LayoutDoc {
         const moved = moveTabToEdge(doc, {tab: "view:test.panel", target: {kind: "split", panel: "g0", edge: "right"}}, {...POLICY, accepts: () => true});
-        if (!moved.ok) throw new Error(moved.detail);
+        if (!moved.ok) throw new Error(moved.message);
         return moved.doc;
     }
 
@@ -858,7 +858,7 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
     /** 三个分节的主轴意图调成 1：2：3。 */
     const shareOut = (store: LayoutDocStore, sections: ReadonlyArray<string>) => {
         const result = store.actions.apply((doc) => setSiblingShares(doc, sections.map((node, index) => ({node, share: index + 1}))));
-        if (!result.ok) throw new Error(result.detail);
+        if (!result.ok) throw new Error(result.message);
     };
 
     it("默认：侧栏两个容器，声明的容器装着它的三个视图，是当前容器", async () => {

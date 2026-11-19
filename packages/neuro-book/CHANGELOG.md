@@ -4,8 +4,13 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ## [Unreleased]
 
+### 不兼容的改动
+
+- 插件 SDK 的 `NestedGrid`：`onGestureCommit` 拒绝一次调整时返回 `{ok: false, code, message, params?}`，原来的 `reason` 去掉了。`code` 给程序判断（网格没就绪是 `not-ready`，工作面、版本、容器尺寸过期是 `stale-context`、`stale-revision`、`stale-size`，落账时结构操作拒绝就是它的码），`message` 是英文、只给日志看。按旧写法返回 `{ok: false, reason}` 的插件重新编译会报类型错误，要改成新形状；已经构建的照常运行，只是被拒时的诊断里没有原因。
+
 ### 新增
 
+- 插件 SDK 导出 `GridLayoutCommitResult`、`GridFailure`、`GridCommitFailureCode`、`GridParamValue` 几个类型，给 `onGestureCommit` 写类型用。
 - 应用自带两套星璃表情包：“星璃”（15 个）与“星璃 · 半身”（12 个），只读，在表情包页里可以“复制到我的”再改；内置的主创默认能用“星璃”，在对话里发 `:lyra/开心:` 这样的表情。我的表情包与内置的同名时，按包名写的表情显示我的那一份，内置的那份要写 `:builtin.lyra/…:`。
 
 ## [0.14.1] - 2026-11-18

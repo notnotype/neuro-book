@@ -37,7 +37,7 @@ const NOTES = "view:notes";
 
 const doc = (): LayoutDoc => defaultLayoutDoc(VIEWS, CONTAINERS);
 function must(result: LayoutResult): LayoutDoc {
-    if (!result.ok) throw new Error(`${result.code}: ${result.detail}`);
+    if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
     return result.doc;
 }
 const tab = (viewId: string): WorkbenchDragSource => ({kind: "tab", tab: `view:${viewId}`});
