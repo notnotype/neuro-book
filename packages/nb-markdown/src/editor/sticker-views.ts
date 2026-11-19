@@ -21,7 +21,8 @@ function stickerView(node: PMNode, view: EditorView, getPos: () => number | unde
         // 单击打开大图（输出 46），点击时才读宿主的端口：换挂载不重建扩展。输入法组字时不打开。
         // 节点不可选、图在不可编辑的元素里，点它浏览器不移动光标：先把光标放到这个表情后面、聚焦正文，预览关上时焦点（由对话框
         // 还给打开前的元素）回到这里，接着打字落在表情后面。
-        onActivate: (sticker) => {
+        // 宿主没给预览时不接点击：图上没有放大镜指针。
+        onActivate: host?.previewSticker === undefined ? undefined : (sticker) => {
             if (view.composing) return;
             const preview = host?.previewSticker;
             if (preview === undefined) return;

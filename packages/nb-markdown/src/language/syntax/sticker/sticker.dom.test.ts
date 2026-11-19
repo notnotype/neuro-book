@@ -143,7 +143,8 @@ describe("展示器", () => {
 describe("编辑器", () => {
     it("元素结构与类名同展示器", async () => {
         const stickers = catalog([":a:"]);
-        const instance = editor("x :a:\n", stickers.resolver);
+        // 编辑器的宿主也给预览（展示器总能发 activate）：两边的表情都能点开，都带 `is-previewable`。
+        const instance = editor("x :a:\n", stickers.resolver, () => undefined);
         const {root} = display("x :a:\n", stickers.resolver);
         await settledDisplay(root);
         stickers.answerAll();
@@ -261,7 +262,7 @@ describe("大图预览（stickers.md 输出 46）", () => {
         expect(activations).toEqual([]);
     });
 
-    it("展示器：链接里的表情只发出 link，不打开大图", async () => {
+    it("展示器：链接里的表情只发出 link，点击与键盘都不打开大图", async () => {
         const stickers = catalog([":lyra/开心:"]);
         const activations: DisplayActivation[] = [];
         const {root} = display("[:lyra/开心: 点这里](https://example.com)\n", stickers.resolver, (activation) => activations.push(activation));
@@ -270,6 +271,12 @@ describe("大图预览（stickers.md 输出 46）", () => {
         const image = await waitUntil("换成图", () => root.querySelector<HTMLImageElement>("a .nb-sticker img"));
         click(image);
         expect(activations).toEqual([{kind: "link", href: "https://example.com"}]);
+        // 键盘也不打开：链接里的表情不是按钮、不在 Tab 序里，回车不发 sticker。
+        const element = root.querySelector<HTMLElement>("a .nb-sticker")!;
+        expect(element.getAttribute("role")).toBeNull();
+        expect(element.getAttribute("tabindex")).toBeNull();
+        element.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        expect(activations.filter((activation) => activation.kind === "sticker")).toEqual([]);
     });
 
     it("展示器：表情可以用键盘打开，名字是“查看大图：名字”；图读不出来回到原文时不再能打开，也不带表情包 id", async () => {
@@ -315,5 +322,7 @@ describe("大图预览（stickers.md 输出 46）", () => {
         stickers.answerAll();
         const image = await waitUntil("换成图", () => instance.view.dom.querySelector<HTMLImageElement>(".nb-sticker img"));
         expect(() => click(image)).not.toThrow();
+        // 没有预览就没有放大镜指针。
+        expect(instance.view.dom.querySelector(".nb-sticker")?.classList.contains("is-previewable")).toBe(false);
     });
 });

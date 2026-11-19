@@ -30,7 +30,8 @@ provideMarkdownHost(nbookMarkdownHost({stickers: labStickers(props.scene === "st
 // `stickers-display` 场景：Lab 的表情包按贴纸显示（stickers.md 输出 47），夹在文字里的也是大图。换场景、卸载时撤掉样式。
 watch(() => props.scene, (scene, _previous, onCleanup) => {
     if (scene !== "stickers-display") return;
-    onCleanup(mountStickerDisplayStyle([LAB_STICKER_PACK]));
+    // 自己的一份（owner `lab`）：不覆盖、不删掉 `nbook.stickers` 入口按真实偏好挂的那份。
+    onCleanup(mountStickerDisplayStyle([LAB_STICKER_PACK], "lab"));
 }, {immediate: true});
 
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#7287fd"/><text x="320" y="132" font-size="32" text-anchor="middle" fill="white">示意图</text></svg>')}`;

@@ -109,10 +109,6 @@ function openLink(href: string): void {
 }
 
 /**
- * 方言外观（引用小块、图片）要的宿主信息：地址按函数取，换文档不重建扩展；`context` 带着注入的翻译端口，节点视图挂的图片
- * 跟着端口换语言。引用小块的悬停提示是算装饰时取的字符串，不跟着端口，换语言时由下面的 `watch` 重算。
- */
-/**
  * 单击正文里表情的图打开的大图（docs/specs/agent/stickers.md 输出 46）。对话框关上时保留 `stickerPreview`，关闭动画期间图不消失；
  * 焦点由 Dialog 还给打开前的正文。
  */
@@ -123,6 +119,10 @@ function previewSticker(sticker: StickerPreview): void {
     stickerPreviewOpen.value = true;
 }
 
+/**
+ * 方言外观（引用小块、图片）要的宿主信息：地址按函数取，换文档不重建扩展；`context` 带着注入的翻译端口，节点视图挂的图片
+ * 跟着端口换语言。引用小块的悬停提示是算装饰时取的字符串，不跟着端口，换语言时由下面的 `watch` 重算。
+ */
 const viewHost: MarkdownViewHost = {
     base: () => bound?.address.value ?? null,
     context: markdownViewContext(text),

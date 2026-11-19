@@ -84,13 +84,15 @@ export function buildSticker(document: Document, raw: string, resolve: StickerRe
                 if (!isPlainClick(event, dom)) return;
                 onActivate(preview);
             });
-            if (options.focusLabel !== undefined) {
+            // 链接里的表情只走链接（输出 46）：不给它按钮语义与 Tab 序，免得 `<a>` 里嵌一个可聚焦的控件。查到图时元素已经在块里，
+            // 这时看得到外层有没有链接；之后表情不会被挪进挪出链接（块变了整块重建）。
+            if (options.focusLabel !== undefined && dom.closest("a[href]") === null) {
                 dom.setAttribute("role", "button");
                 dom.tabIndex = 0;
                 dom.setAttribute("aria-label", options.focusLabel(ref.name));
                 dom.addEventListener("keydown", (event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
-                    if (!dom.classList.contains("is-previewable")) return;
+                    if (!dom.classList.contains("is-previewable") || dom.closest("a[href]") !== null) return;
                     event.preventDefault();
                     onActivate(preview);
                 });

@@ -3,9 +3,11 @@
  * 样式真的压过行内小图、图高变成 120 像素，在真实浏览器里由 `e2e/sticker-preview.e2e.ts` 量。
  */
 
+import {nextTick} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {mountStickerDisplayStyle} from "./display-style";
+import {memoryDisplay} from "./display";
+import {followStickerDisplay, mountStickerDisplayStyle} from "./display-style";
 
 const styles = (): HTMLStyleElement[] => [...document.head.querySelectorAll<HTMLStyleElement>("style[data-nbook-sticker-display]")];
 
@@ -24,4 +26,29 @@ describe("mountStickerDisplayStyle", () => {
         expect(styles()).toHaveLength(0);
     });
 
+
+    it("不同 owner 各一份：Lab 的那份移除时不动入口的那份", () => {
+        mountStickerDisplayStyle(["builtin.lyra"]);
+        const removeLab = mountStickerDisplayStyle(["user.lyra"], "lab");
+        expect(styles()).toHaveLength(2);
+        removeLab();
+        expect(styles().map((style) => style.getAttribute("data-nbook-sticker-display"))).toEqual(["app"]);
+    });
+});
+
+describe("followStickerDisplay", () => {
+    it("样式表随偏好变；入口停下（signal 结束）后移除，之后再改偏好也不再放回", async () => {
+        const display = memoryDisplay(() => null);
+        const controller = new AbortController();
+        followStickerDisplay(display, controller.signal);
+        expect(styles()[0]?.textContent).toBe("");
+        display.set("builtin.lyra", true);
+        await nextTick();
+        expect(styles()[0]?.textContent).toContain(`[data-sticker-pack="builtin.lyra"]`);
+        controller.abort();
+        expect(styles()).toHaveLength(0);
+        display.set("user.cat", true);
+        await nextTick();
+        expect(styles()).toHaveLength(0);
+    });
 });

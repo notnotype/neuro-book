@@ -3,8 +3,6 @@
  * `nbook.markdown` 把它作为 nb-markdown 的宿主端口交给展示器与编辑器。
  */
 
-import {effectScope, watch} from "vue";
-
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -24,7 +22,7 @@ import {descriptor} from "../plugin";
 import {stickerDirectoryKey, stickerDisplayKey, stickerPickerKey, stickerResolverKey, stickersCatalogContract} from "../shared/contracts";
 import {STICKERS_TEXT_NAMESPACE, stickersText} from "../shared/text";
 import {displayService, memoryDisplay, stickerDisplayStore} from "./display";
-import {mountStickerDisplayStyle} from "./display-style";
+import {followStickerDisplay} from "./display-style";
 import {createStickersHttp} from "./http";
 import {createStickerPicker} from "./picker-service";
 import {memoryRecent, recentPort, recentStickersStore} from "./recent";
@@ -91,15 +89,7 @@ export const stickersBrowserPlugin: PluginDefinition = {
             };
             const display = storage.status === "resolved" ? displayService(stickerDisplayStore.create(context, {storage: storage.instance, diagnostics}), known) : memoryDisplay(known);
             // 按贴纸显示（输出 47）：这个窗口里一份样式表，随偏好换内容；已经画出来的表情不用重画。入口停下时移除。
-            const scope = effectScope(true);
-            let unmount = (): void => undefined;
-            scope.run(() => watch(() => display.packs(), (packs) => {
-                unmount = mountStickerDisplayStyle(packs);
-            }, {immediate: true}));
-            context.signal.addEventListener("abort", () => {
-                scope.stop();
-                unmount();
-            }, {once: true});
+            followStickerDisplay(display, context.signal);
             const picker = createStickerPicker({
                 directory,
                 recent,
