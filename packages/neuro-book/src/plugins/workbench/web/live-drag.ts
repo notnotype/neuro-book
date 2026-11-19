@@ -3,9 +3,10 @@
  *
  * 一帧的顺序固定：先让手势判定（读 DOM），再换预览，最后写卡片。写在读前面的话，判定里的 `elementsFromPoint` 每帧要强制重算一次样式。卡片的矩形每帧变，直接写在元素上，不进响应式；响应式的东西一场只变几次到几十次。
  *
- * 帧循环按需排：这一帧指针动了、候选还没等够稳定、卡片的尺寸或追赶还没到、被拖的标签在标签条里排序，任一成立就排下一帧，都不成立就停（按住不动时不空转）。
+ * 帧循环（nb-layout 的 `createFrameLoop`）按需排：这一帧指针动了、候选还没等够稳定、卡片的尺寸或追赶还没到、被拖的标签在标签条里排序，任一成立就排下一帧，都不成立就停（按住不动时不空转）。
  * 排序要一直排：标签重渲染时 Vue 可能整个换掉它的 style，靠每帧对一次补回（`placeSorted`）。
  * 停着时来了新的落点（`offer`）或新的指针样本（`wake`，宿主在指针移动时调，监听要挂在手势的监听前面）就排一帧，卡片和判定同一帧，不落后。
+ * 卡片的缩放与追赶是 nb-layout 的 `createDragCard`：这里只定要不要卡片、从哪块面板拿起、缩到多大。
  *
  * 判定的几何：拿起时量一份；第一次落到别处时来源收起，之后按收起后的布局判（`collapseSource`），预览怎么摆判定都不跟着变。回到原处（放下去是原样）时来源展开，
  * 判定换回拿起时的那份（`expandSource`）；再落到别处又收起（输出 38）。来源那块面板摘掉它还在时，拿起卡片就收起（撕下标签），不等落点。
@@ -13,8 +14,8 @@
  * 预览只是一份给渲染用的文档（store 的 `setLivePreview`），不写记录，不改可见性。撤预览由 `end` 做：手势的收场顺序里它先于提交，同一个同步段不渲染，不闪。
  */
 
-import {initialLiveDrop, insideShownSlot, stepLiveDrop} from "@notnotype/nb-layout";
-import type {GridDropPoint, GridDropRect, GridRect, LiveDropCandidate, LiveDropState} from "@notnotype/nb-layout";
+import {createDragCard, createFrameLoop, initialLiveDrop, insideShownSlot, stepLiveDrop} from "@notnotype/nb-layout";
+import type {DragCard, GridDropPoint, GridDropRect, GridRect, LiveDropCandidate, LiveDropState} from "@notnotype/nb-layout";
 import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 import {readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
@@ -25,17 +26,8 @@ import type {LayoutDragDrop, LayoutTabSource} from "./layout-drag";
 
 /** 卡片缩到这么大（和原大小取较小者）。 */
 const CARD_COMPACT = {width: 380, height: 260};
-/** 缩放的时间常数：每帧按它指数逼近。 */
-const CARD_TAU_MS = 90;
-/** 卡片尺寸离目标这么近就算到了：指数逼近永远到不了，不截断的话宽高每帧都在变，每帧都要布局。 */
-const CARD_STILL_PX = 0.1;
 /** 刷新率设置（`nbook.workbench/dragCardRefresh`）对应的写尺寸的间隔：卡片里的内容按卡片大小排版，尺寸每写一次就重排一次。 */
 const CARD_REFRESH_MS: Readonly<Record<LiveCardRefresh, number>> = {"display": 0, "60": 1000 / 60, "30": 1000 / 30};
-/** 帧的时间戳有抖动：离该写的时刻差这么多也算到了，不然 60Hz 的屏上选 30 有时要隔三帧才写一次。 */
-const CARD_REFRESH_SLACK_MS = 2;
-
-/** 停了之后重新开始的第一帧按这么长缓动：真实的间隔可能是好几秒，按它算缩放一步就到终点。 */
-const NOMINAL_FRAME_MS = 1000 / 60;
 
 /** 卡片的尺寸多久写一次：跟随屏幕每帧写，或每秒至多 60、30 次。 */
 export type LiveCardRefresh = "display" | "60" | "30";
@@ -105,7 +97,6 @@ export interface LiveDrag {
     end(): void;
 }
 
-const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
 /** 落在哪条标签条上（活动栏的入口之间也是一条）；不是标签条为 null。 */
 const stripOf = dropStripOf;
 /** 原位的落点结果都一样，键也一样；只有标签条里的原位分开：来源收起之后它是排序（已提交的样子），别的原位是来源收起的样子。 */
@@ -120,15 +111,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let source: LayoutTabSource | null = null;
     let pointer: GridDropPoint | null = null;
     let origin: {readonly x: number; readonly y: number} = {x: 0, y: 0};
-    /** 上一次写出去的矩形：指针没动、缩放结束之后不写。它的宽高就是卡片此刻画出来的大小。 */
-    let written: GridRect | null = null;
-    /** 尺寸下一次该写的时刻：写过之后按间隔往后排，落后一个间隔以上就从现在算。 */
-    let sizeDue = 0;
-    /** 卡片此刻的尺寸与抓住的那一点（占卡片的比例）：缩放时抓住的点一直在指针下。 */
-    let cardSize: {width: number; height: number} | null = null;
-    let grab = {x: 0.5, y: 0};
-    /** 卡片离跟手的位置还差多少：拿起时指针在那块面板外面，抓住的点夹在卡片边上，卡片从面板的位置追到指针下，和尺寸同一个时间常数。 */
-    let chase = {x: 0, y: 0};
+    /** 拿着的卡片；没拿（被标签条吸收、还没开始）时为 null，下一次要卡片时重新拿起。 */
+    let dragCard: DragCard | null = null;
     /** 来源面板的矩形：这一场第一次要卡片时量，之后不变（吸收之后“来源面板”还是它）。undefined 是还没量。 */
     let homeRect: GridDropRect | null | undefined;
     /** 已经吸收来源的标签条是哪块面板的：预览摆着它（或它本来就在那里）。 */
@@ -137,16 +121,12 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let collapsed = false;
     /** 来源那块面板摘掉它还在不在（`homeStays`）：已提交的文档一场里不变（结构变了整场取消），第一次要时问一次。undefined 是还没问。 */
     let stays: boolean | undefined;
-    let lastFrame = 0;
     let state: LiveDropState = initialLiveDrop(0);
     let started = false;
     let offered: LayoutDragDrop | null = null;
     let shown: LayoutDragDrop | null = null;
-    let frame: number | null = null;
-    /** 正在跑这一帧：这期间判定发出的 `offer` 就在这一帧里处理，不另排。 */
-    let ticking = false;
-    /** 帧循环停过：重新开始的第一帧按 `NOMINAL_FRAME_MS` 缓动。 */
-    let resumed = false;
+    /** 跑一帧的过程中判定发出的 `offer` 就在这一帧里处理，不另排（`createFrameLoop` 的 `wake`）。 */
+    const loop = createFrameLoop({requestFrame: (run) => host.requestFrame(run), cancelFrame: (frame) => host.cancelFrame(frame), frame: (now, elapsed) => tick(now, elapsed)});
     function candidateOf(drop: LayoutDragDrop, from: LayoutTabSource): LiveDropCandidate {
         const {action} = drop;
         // 自己的标签条、已经吸收它的那条要跟手。第一次进别的标签条和别的落点一样等稳定：路过不闪，也不会路过活动栏就把隐藏的侧栏弹出来。
@@ -168,51 +148,29 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     }
 
     /** 写这一帧的卡片；返回卡片的尺寸或追赶还没到终点（还要下一帧）。 */
-    function updateCard(now: number): boolean {
+    function updateCard(now: number, elapsed: number): boolean {
         if (source === null || pointer === null || !wantsCard()) {
             card.value = null;
-            cardSize = null;
-            written = null;
+            dragCard = null;
             return false;
         }
         const homePanel = host.homeOf(source);
         if (homeRect === undefined) homeRect = homePanel === null ? null : host.panelRect(homePanel);
         const home = homeRect;
-        // 拿起的那一帧不算时间：卡片就在那块面板上，从它的矩形开始缩、开始追。
-        const lifting = cardSize === null;
-        if (cardSize === null) {
-            // 撕下来：从此刻显示着它的那块面板开始缩。
-            const showing = absorbedIn ?? homePanel;
-            const rect = showing === null ? null : host.panelRect(showing);
-            const width = rect === null ? Math.min(CARD_COMPACT.width, home === null ? CARD_COMPACT.width : home.right - home.left) : rect.right - rect.left;
-            const height = rect === null ? Math.min(CARD_COMPACT.height, home === null ? CARD_COMPACT.height : home.bottom - home.top) : rect.bottom - rect.top;
-            cardSize = {width, height};
-            grab = rect === null ? {x: 0.5, y: 0} : {x: clampUnit((pointer.x - rect.left) / width), y: clampUnit((pointer.y - rect.top) / height)};
-            chase = rect === null ? {x: 0, y: 0} : {x: rect.left - (pointer.x - grab.x * width), y: rect.top - (pointer.y - grab.y * height)};
-        }
-        const inHome = host.cardShrink() === "panel" && home !== null && pointer.x >= home.left && pointer.x < home.right && pointer.y >= home.top && pointer.y < home.bottom;
-        const target = inHome ? {width: home.right - home.left, height: home.bottom - home.top} : {
+        const compact = {
             width: Math.min(CARD_COMPACT.width, home === null ? CARD_COMPACT.width : home.right - home.left),
             height: Math.min(CARD_COMPACT.height, home === null ? CARD_COMPACT.height : home.bottom - home.top),
         };
-        const blend = lifting ? 0 : 1 - Math.exp(-Math.max(0, now - lastFrame) / CARD_TAU_MS);
-        const approach = (from: number, to: number): number => (Math.abs(to - from) < CARD_STILL_PX ? to : from + (to - from) * blend);
-        cardSize = {width: approach(cardSize.width, target.width), height: approach(cardSize.height, target.height)};
-        chase = {x: approach(chase.x, 0), y: approach(chase.y, 0)};
-        // 尺寸按刷新率写、取整到像素（指数逼近的尾巴里不到一像素的变化不再每次重排）；缩放到了终点马上写。位置按画出来的大小算，抓住的点才一直在指针下。
-        const rounded = {width: Math.round(cardSize.width), height: Math.round(cardSize.height)};
-        const arrived = cardSize.width === target.width && cardSize.height === target.height;
-        const interval = CARD_REFRESH_MS[host.cardRefresh()];
-        const drawn = written === null ? null : {width: written.width, height: written.height};
-        let size = drawn ?? rounded;
-        if (drawn !== null && (arrived || now >= sizeDue - CARD_REFRESH_SLACK_MS) && (rounded.width !== drawn.width || rounded.height !== drawn.height)) size = rounded;
-        if (size !== drawn) sizeDue = drawn === null || now - sizeDue >= interval ? now + interval : sizeDue + interval;
-        const rect = {x: pointer.x - origin.x - grab.x * size.width + chase.x, y: pointer.y - origin.y - grab.y * size.height + chase.y, width: size.width, height: size.height};
+        // 撕下来：从此刻显示着它的那块面板开始缩；量不到就是缩好的大小。拿起的那一帧不算时间：卡片就在那块面板上。
+        if (dragCard === null) {
+            const showing = absorbedIn ?? homePanel;
+            dragCard = createDragCard(showing === null ? null : host.panelRect(showing), pointer, compact);
+        }
+        const inHome = host.cardShrink() === "panel" && home !== null && pointer.x >= home.left && pointer.x < home.right && pointer.y >= home.top && pointer.y < home.bottom;
+        const target = inHome ? {width: home.right - home.left, height: home.bottom - home.top} : compact;
+        const {rect, settling} = dragCard.step({now, elapsed, pointer, origin, target, refreshMs: CARD_REFRESH_MS[host.cardRefresh()]});
         if (card.value?.key !== source.tab) card.value = {key: source.tab};
-        const settling = !arrived || chase.x !== 0 || chase.y !== 0;
-        if (written !== null && written.x === rect.x && written.y === rect.y && written.width === rect.width && written.height === rect.height) return settling;
-        written = rect;
-        host.placeCard(rect);
+        if (rect !== null) host.placeCard(rect);
         return settling;
     }
 
@@ -293,37 +251,23 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         return state.candidate === shownKey;
     }
 
-    function wake(): void {
-        if (!active.value || ticking || frame !== null) return;
-        resumed = true;
-        frame = host.requestFrame(tick);
-    }
-
-    function tick(now: number): void {
-        frame = null;
-        if (source === null) return;
-        ticking = true;
-        try {
-            // 读在判定之前、写在判定之后：两次读之间没有写，这一帧不强制重算。用上一帧的状态；状态一变，渲染之后再放一次（`placeSortedAfterRender`）。
-            const placeSorted = host.placeSorted(sortingAt());
-            host.settleDrop();
-            // 判定时结构变了会结束这一场。
-            if (source === null) return;
-            placeSorted();
-            const sample = host.pointer();
-            const moved = sample !== null && (pointer === null || sample.x !== pointer.x || sample.y !== pointer.y);
-            pointer = sample ?? pointer;
-            if (resumed) lastFrame = now - NOMINAL_FRAME_MS;
-            resumed = false;
-            const lifted = card.value !== null;
-            const changed = stepPreview(source, now);
-            const settling = updateCard(now);
-            lastFrame = now;
-            if (changed || lifted !== (card.value !== null)) host.placeSortedAfterRender(sortingAt());
-            if (moved || changed || settling || !settled() || sortingAt() !== null) frame = host.requestFrame(tick);
-        } finally {
-            ticking = false;
-        }
+    /** 跑一帧；返回要不要下一帧。 */
+    function tick(now: number, elapsed: number): boolean {
+        if (source === null) return false;
+        // 读在判定之前、写在判定之后：两次读之间没有写，这一帧不强制重算。用上一帧的状态；状态一变，渲染之后再放一次（`placeSortedAfterRender`）。
+        const placeSorted = host.placeSorted(sortingAt());
+        host.settleDrop();
+        // 判定时结构变了会结束这一场。
+        if (source === null) return false;
+        placeSorted();
+        const sample = host.pointer();
+        const moved = sample !== null && (pointer === null || sample.x !== pointer.x || sample.y !== pointer.y);
+        pointer = sample ?? pointer;
+        const lifted = card.value !== null;
+        const changed = stepPreview(source, now);
+        const settling = updateCard(now, elapsed);
+        if (changed || lifted !== (card.value !== null)) host.placeSortedAfterRender(sortingAt());
+        return moved || changed || settling || !settled() || sortingAt() !== null;
     }
 
     return {
@@ -336,32 +280,28 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             source = from;
             pointer = point;
             origin = host.gridOrigin();
-            cardSize = null;
+            dragCard = null;
             homeRect = undefined;
             absorbedIn = null;
             collapsed = false;
             stays = undefined;
-            written = null;
-            lastFrame = 0;
             state = initialLiveDrop(0);
             started = false;
             offered = null;
             shown = null;
-            resumed = false;
             previewKey.value = "none";
             active.value = true;
-            frame = host.requestFrame(tick);
+            loop.start();
         },
         offer: (drop) => {
             offered = drop;
-            wake();
+            loop.wake();
         },
-        wake,
+        wake: () => loop.wake(),
         stickyDrop: (point) => (active.value && insideShownSlot(state, point) ? shown : null),
         end: () => {
             if (!active.value) return;
-            if (frame !== null) host.cancelFrame(frame);
-            frame = null;
+            loop.stop();
             source = null;
             offered = null;
             shown = null;
@@ -371,7 +311,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             shownAction.value = null;
             slot.value = null;
             card.value = null;
-            cardSize = null;
+            dragCard = null;
             host.placeSorted(null)();
             host.show(null);
         },
