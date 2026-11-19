@@ -15,6 +15,7 @@ export const kernelEventSpecs = {
     noticeQueued: {scope: "session", kind: "ctrl"},
     noticeRemoved: {scope: "session", kind: "ctrl"},
     noticeTaken: {scope: "session", kind: "ctrl"},
+    wakeGate: {scope: "session", kind: "ctrl"},
     commandAccepted: {scope: "session", kind: "ctrl"},
     settingsChanged: {scope: "session", kind: "ctrl"},
     leafChanged: {scope: "session", kind: "ctrl"},

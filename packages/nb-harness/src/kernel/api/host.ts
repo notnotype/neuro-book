@@ -202,6 +202,8 @@ export interface SessionSnapshot {
     buffer: BufferedInput[];
     /** 待发的提醒，含正文；同缓冲区的输入，不经出站过滤（runtime.md 输出 118）。 */
     notices: PendingNotice[];
+    /** 唤起的门（runtime.md 输出 117）；没有门事件的旧日志 `open: false`、`cause: null`。 */
+    wakeGate: {open: boolean; cause: string | null};
     settings: CoreSettings;
     /** 扩展的设置，按扩展 id（Agent 模式这类）。 */
     extensionSettings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;

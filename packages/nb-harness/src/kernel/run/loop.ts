@@ -48,7 +48,7 @@ export interface RunHost {
     /** 在等重发（推状态帧用）。 */
     retrying(wait: RetryWait | null): void;
     /** 收口那一项（只在队列项里调用）：组收口批、写下、翻转空闲（`RunControl.settleIn`）。 */
-    settle(input: Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode">): Promise<void>;
+    settle(input: Omit<SettleInput, "runId" | "stop" | "deferred" | "skip" | "closingCode" | "kind" | "closing" | "wakeBlocked">): Promise<void>;
     /** 推迟的指令开运行之前要查的（runtime.md 输出 104）。 */
     readonly checks: {closed(): boolean; reassemblyPending(): boolean; startProblem(): string | null};
 }
@@ -219,19 +219,26 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
             return await end("error", {reason: "error", error: {kind: "local", code: outcome.code === "nothing-to-compact" ? "compaction-failed" : outcome.code === "disabled" ? "compaction-failed" : outcome.code}});
         }
-        // 接着跑一个停在两轮之间的运行（回退到某一轮之前再发）：先取就绪的第一条开一轮，没有就收口。取与收口在同一个队列项里
-        // （runtime.md 输出 104），停止受理之后不再取（输出 30）。
+        // 运行进来时没有进行中的一轮（唤起开的运行、在两轮之间接着跑的运行，runtime.md 输出 114）：在一个队列项里依次看——有就绪
+        // 的话，取第一条开一轮（待发的提醒在第一个边界随它带上、排在它前面）；否则有带唤起的待发提醒，或这次运行是用户开的、又有
+        // 待发的提醒，开一轮没有输入的；都没有就收口、不发请求。唤起的提醒在这之前被撤回或取消、只剩不带唤起的，这次唤起就不发
+        // 请求。取与收口在同一个队列项里（输出 104），停止受理之后不再取（输出 30）。
         if (core.leafState.kernel.history.current === null) {
             const opened = await core.queue.run(async (): Promise<"taken" | "ended" | "aborted"> => {
                 if (signal.aborted) return "aborted";
                 const next = readyEntries(core.session.kernel.buffer)[0];
-                if (next === undefined) {
-                    stopped = true;
-                    await host.settle({reason: "completed", data: {}, before: []});
-                    return "ended";
+                if (next !== undefined) {
+                    await writeAndReact(core, takeInputDrafts(next, core.newId(), run.runId), host.react, signal);
+                    return "taken";
                 }
-                await writeAndReact(core, takeInputDrafts(next, core.newId(), run.runId), host.react, signal);
-                return "taken";
+                const notices = core.session.kernel.notices;
+                if (notices.some((notice) => notice.wake) || (notices.length > 0 && core.leafState.kernel.runBy?.kind === "user")) {
+                    await writeAndReact(core, [ctrl("turnStarted", {turnId: core.newId(), inputId: null})], host.react, signal);
+                    return "taken";
+                }
+                stopped = true;
+                await host.settle({reason: "completed", data: {}, before: []});
+                return "ended";
             });
             if (opened === "ended") return;
             if (opened === "aborted") return await end("aborted", {reason: "aborted"});
@@ -416,8 +423,9 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                 // 停止受理之后不再取话、不再开下一轮（输出 30）：交给中止的收口。
                 if (signal.aborted) return "aborted";
                 const ready = readyEntries(core.session.kernel.buffer);
-                // 最终回复时还有就绪的 steer：这一轮接着请求，下一个边界取走它们。
-                if (ready.some((item) => item.mode === "steer")) return "continue";
+                // 最终回复时还有就绪的 steer 或带唤起的待发提醒：这一轮接着请求，下一个边界取走它们（输出 28）。不带唤起的提醒
+                // 不延长这一轮。
+                if (ready.some((item) => item.mode === "steer") || core.session.kernel.notices.some((notice) => notice.wake)) return "continue";
                 const result = core.header.result;
                 if (result !== undefined) {
                     // 会话要交回结果而模型没调用 yield（runtime.md 输出 27）：必需的先催一次。

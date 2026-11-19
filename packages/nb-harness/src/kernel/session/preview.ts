@@ -15,6 +15,7 @@ import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {chainLayers, runChain, type ChainFailure} from "../run/chain.js";
 import {takeBoundaryDrafts} from "../run/loop.js";
+import {ctrl} from "../run/writes.js";
 import {readyEntries, takeInputDrafts} from "../run/settle.js";
 import {freezeRequest, isResponse} from "../run/model-call.js";
 import {toolInfo, type ToolBox} from "../run/tools.js";
@@ -116,8 +117,11 @@ export async function previewRequest(host: PreviewHost, args: PreviewArgs = {}):
     if (leaf === core.leaf) {
         const next = readyEntries(core.session.kernel.buffer)[0];
         const runId = core.leafState.kernel.run?.runId ?? "preview";
-        const opening = core.leafState.kernel.history.current === null ? (next === undefined ? [] : takeInputDrafts(next, core.newId(), runId)) : [];
-        const inTurn = core.leafState.kernel.history.current !== null || opening.length > 0;
+        // 两轮之间没有就绪的话、只有待发的提醒时，投影成一轮没有输入的（runtime.md 输出 114、118）。
+        const between = core.leafState.kernel.history.current === null;
+        const noInput = between && next === undefined && core.session.kernel.notices.length > 0;
+        const opening = !between ? [] : next !== undefined ? takeInputDrafts(next, core.newId(), runId) : noInput ? [ctrl("turnStarted", {turnId: core.newId(), inputId: null})] : [];
+        const inTurn = !between || opening.length > 0;
         projected = inTurn ? [...opening, ...takeBoundaryDrafts(core, runId, new Set(opening.length > 0 && next !== undefined ? [next.id] : []))] : [];
     }
     const state = projected.length > 0 ? core.project(projected) : core.stateAt(leaf);

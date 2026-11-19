@@ -38,6 +38,7 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     noticeQueued: async (data, map, type) => ({...data, text: await map.text(data.text as string, {type, field: "text"})}),
     noticeRemoved: null,
     noticeTaken: null,
+    wakeGate: null,
     commandAccepted: null,
     settingsChanged: null,
     leafChanged: null,

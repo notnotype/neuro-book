@@ -102,6 +102,11 @@ export interface KernelEvents {
     noticeRemoved: K<"session", "ctrl", {ids: readonly string[]; by?: Issuer; reason: "replaced" | "withdrawn" | "cancelled"}>;
     /** 与写进路径的 `hostNotice` 同一个写入批（输出 113）；`runId` 是取走它们的运行。 */
     noticeTaken: K<"session", "ctrl", {ids: readonly string[]; runId: string}>;
+    /**
+     * 唤起的门（runtime.md 输出 117）：会话级，回退、换分支、压缩都不改它。`cause` 是关或开的原因：`created`（建会话）、`user`
+     * （用户开起或接着跑了对话运行）、`stopped`、`aborted`、`error`、`interrupted`、`closing`。没有这个事件的旧日志读作关着。
+     */
+    wakeGate: K<"session", "ctrl", {open: boolean; cause: string}>;
 
     // ---- 会话级（session）----
     /** 被受理的指令；重发同一个 `commandId` 查它，返回第一次的 `value`。`value` 引用的 id 都在同一批里写出。 */
@@ -131,7 +136,8 @@ export interface KernelEvents {
 
     // ---- 运行与轮（path）----
     /** `by` 是开这次运行的发出者，用户与旧日志不写（runtime.md 输出 85）。 */
-    runStarted: K<"path", "ctrl", {runId: string; kind: "chat" | "compact"; by?: Issuer}>;
+    /** `wake`：提醒唤起开的运行（runtime.md 输出 116），受理时只写这一条、不先写 `turnStarted`（输出 114）。 */
+    runStarted: K<"path", "ctrl", {runId: string; kind: "chat" | "compact"; by?: Issuer; wake?: true}>;
     runEnded: K<"path", "ctrl", {
         runId: string;
         reason: RunEndReason;

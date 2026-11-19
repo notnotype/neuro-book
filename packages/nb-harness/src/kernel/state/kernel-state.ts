@@ -122,6 +122,8 @@ export interface SessionKernelState {
     readonly buffer: readonly BufferedInput[];
     /** 待发的提醒（runtime.md 输出 112）：只由 `noticeQueued`、`noticeRemoved`、`noticeTaken` 归约，回退不改。 */
     readonly notices: readonly PendingNotice[];
+    /** 唤起的门（runtime.md 输出 117）；没有门事件的旧日志为 null，按关着算。 */
+    readonly wakeGate: {readonly open: boolean; readonly cause: string} | null;
     readonly core: CoreSettings;
     /** 扩展 id → 用户改过的设置项。 */
     readonly settings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
@@ -140,7 +142,7 @@ export interface SessionKernelState {
 export const DEFAULT_CORE_SETTINGS: CoreSettings = {model: null, effort: null, approvalMode: "ask", readOnly: false};
 
 export function initialSessionKernel(core: CoreSettings = DEFAULT_CORE_SETTINGS): SessionKernelState {
-    return {buffer: [], notices: [], core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null, leafMoves: 0};
+    return {buffer: [], notices: [], wakeGate: null, core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null, leafMoves: 0};
 }
 
 export function reduceSessionKernel(state: SessionKernelState, event: LogEvent): SessionKernelState {
@@ -196,6 +198,8 @@ export function reduceSessionKernel(state: SessionKernelState, event: LogEvent):
             };
             return {...state, notices: [...state.notices, notice]};
         }
+        case "wakeGate":
+            return {...state, wakeGate: {open: data.open === true, cause: data.cause as string}};
         case "noticeRemoved":
         case "noticeTaken": {
             const ids = new Set(data.ids as string[]);
