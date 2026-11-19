@@ -59,7 +59,17 @@ const toggle = (path: string): void => {
 </script>
 
 <template>
-    <FieldTable :rows="rows" :open="open ?? undefined" editing :edit-reason="editReason" @value="toggle" @edit="(path: string) => context.edit(fieldOf(path))">
+    <FieldTable
+        :rows="rows"
+        :open="open ?? undefined"
+        editing
+        :edit-reason="editReason"
+        @value="toggle"
+        @edit="(path: string) => context.edit(fieldOf(path))"
+        @add-element="(path: string) => context.listAdd?.(fieldOf(path))"
+        @edit-element="(path: string, element: string) => context.listEdit?.(fieldOf(path), element)"
+        @remove-element="(path: string, element: string) => context.listRemove?.(fieldOf(path), element)"
+    >
         <template #origin="{path}">
             <OriginList
                 v-if="openPages !== undefined"

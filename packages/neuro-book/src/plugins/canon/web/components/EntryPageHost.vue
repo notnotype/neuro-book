@@ -8,7 +8,8 @@ import {computed, defineComponent, h, nextTick, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
-import {Dialog, Select} from "@notnotype/nb-ui/components";
+import {displayText} from "@notnotype/nb-canon/schema";
+import {Dialog, SegmentedControl, Select} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -17,7 +18,7 @@ import type {CanonClient, CanonOutputs} from "../../shared/contracts";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentViewContext, ComponentViewRegistry, EntryTabContext} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
-import {useInPlaceEdit} from "../in-place-edit";
+import {draftText, kindOf, parsed, useInPlaceEdit} from "../in-place-edit";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
@@ -41,6 +42,9 @@ import FieldsDataView from "./FieldsDataView.vue";
 import AgentNotice from "./AgentNotice.vue";
 import NoticeBar from "./NoticeBar.vue";
 import MoveDialog from "./MoveDialog.vue";
+import ElementDialog from "./ElementDialog.vue";
+import type {ElementField} from "./element-dialog";
+import type {EditIntent} from "./confirm-bar";
 import type {MoveDraft} from "./move-dialog";
 import {useEntryFind} from "./entry-picker";
 import OriginList from "./OriginList.vue";
@@ -324,12 +328,12 @@ const editHere = computed(() => {
 
 const actionError = shallowRef("");
 const acting = shallowRef(false);
-/** 发一批操作；成功给保存后的提示，失败把原因写在页头下面。 */
-const runEntries = async (ops: EntryOp[], title: string): Promise<boolean> => {
+/** 发一批操作；成功给保存后的提示，失败把原因写在页头下面（对话框开着时也写在对话框里）。 */
+const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "creative"): Promise<boolean> => {
     if (acting.value) return false;
     acting.value = true;
     actionError.value = "";
-    const result = await world.write("editEntries", {input: {requestId: `entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion: version(), title, position: position.value, ops}});
+    const result = await world.write("editEntries", {input: {requestId: `entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion: version(), title, intent, position: position.value, ops}});
     acting.value = false;
     if (!result.ok) {
         actionError.value = port.t(failureText(result.failure).text);
@@ -408,6 +412,119 @@ const confirmMove = async (): Promise<void> => {
     if (await runEntries([op], port.t(text("move.saved", {name: view.value?.name ?? ""})))) moveOpen.value = false;
 };
 
+/* ---------- 列表的元素（canon.revisions 输出 25 的 listAdd、listRemove 与元素子字段的 set） ---------- */
+
+interface ElementDraft {
+    readonly mode: "add" | "edit";
+    readonly namespace: string;
+    readonly field: string;
+    readonly element?: string;
+    readonly keyed: boolean;
+    readonly key: string | null;
+    readonly keyName: string;
+    readonly label: string;
+    readonly values: Readonly<Record<string, unknown>>;
+    readonly original: Readonly<Record<string, unknown>>;
+    readonly originalLabel: string;
+    readonly intent: EditIntent;
+}
+const elementDraft = shallowRef<ElementDraft | null>(null);
+const elementOpen = shallowRef(false);
+const listDeclaration = (namespace: string, field: string): FieldDeclaration | undefined => entry.value?.declarations?.[namespace]?.find((item) => item.id === field);
+const intentsHere = (): EditIntent[] => (position.value.kind === "initial" ? ["creative"] : ["creative", "story"]);
+const elementFields = computed<ElementField[]>(() => {
+    const draft = elementDraft.value;
+    const declaration = draft === null ? undefined : listDeclaration(draft.namespace, draft.field);
+    return (declaration?.item ?? []).map((sub) => ({id: sub.id, label: sub.label, kind: kindOf(sub), ...(sub.options === undefined ? {} : {options: sub.options}), ...(sub.unit === undefined ? {} : {unit: sub.unit}), ...(sub.precision === "semantic" ? {semantic: true} : {})}));
+});
+// 以条目为键的列表选“指向的条目”、引用子字段选条目：各按自己的 `targets` 查。
+const keyFind = useEntryFind(() => finderFor(elementDraft.value === null ? [] : listDeclaration(elementDraft.value.namespace, elementDraft.value.field)?.targets ?? []));
+const elementRefField = shallowRef<string | null>(null);
+const elementRefFind = useEntryFind(() => {
+    const draft = elementDraft.value;
+    const sub = draft === null ? undefined : listDeclaration(draft.namespace, draft.field)?.item?.find((item) => item.id === elementRefField.value);
+    return finderFor(sub?.targets ?? []);
+});
+const openElement = (namespace: string, field: string, element?: string): void => {
+    const declaration = listDeclaration(namespace, field);
+    if (declaration?.kind !== "list") return;
+    const items = (view.value?.namespaces[namespace]?.fields[field]?.value ?? []) as Array<Record<string, unknown>>;
+    const item = element === undefined ? undefined : items.find((candidate) => String(candidate.id) === element);
+    const values = Object.fromEntries((declaration.item ?? []).map((sub) => [sub.id, draftText(item === undefined ? undefined : {value: item[sub.id] ?? null}, kindOf(sub))]));
+    const label = typeof item?.label === "string" ? item.label : "";
+    actionError.value = "";
+    // 以条目为键的一项没有 label，选择器里显示与列表行同样的文字。
+    elementDraft.value = {mode: element === undefined ? "add" : "edit", namespace, field, ...(element === undefined ? {} : {element}), keyed: declaration.keyedBy === "ref", key: element ?? null, keyName: item === undefined ? "" : displayText([item]), label, values, original: values, originalLabel: label, intent: intentsHere()[0]!};
+    elementOpen.value = true;
+};
+/** 填的值换成字段的值：空的是未知（null）；数填得不成形时为 undefined。 */
+const elementValue = (value: unknown, kind: ElementField["kind"]): unknown => (value === "" || value === null ? null : parsed(value, kind));
+const confirmElement = async (): Promise<void> => {
+    const draft = elementDraft.value;
+    if (draft === null) return;
+    const list = `${draft.namespace}.${draft.field}`;
+    const fieldLabel = listDeclaration(draft.namespace, draft.field)?.label ?? draft.field;
+    const name = view.value?.name ?? "";
+    let ops: EntryOp[];
+    if (draft.mode === "add") {
+        const element: Record<string, unknown> = {};
+        for (const field of elementFields.value) {
+            const value = elementValue(draft.values[field.id], field.kind);
+            if (value === undefined) {
+                actionError.value = port.t(text("list.badValue", {field: field.label}));
+                return;
+            }
+            element[field.id] = value;
+        }
+        if (draft.keyed) {
+            if (draft.key === null) {
+                actionError.value = port.t(text("list.needKey"));
+                return;
+            }
+            element.id = draft.key;
+        } else {
+            if (draft.label.trim() === "") {
+                actionError.value = port.t(text("list.needLabel"));
+                return;
+            }
+            element.label = draft.label.trim();
+        }
+        ops = [{op: "listAdd", at: {entry: props.id, path: list}, element}];
+    } else {
+        ops = [];
+        for (const field of elementFields.value) {
+            if (field.semantic || JSON.stringify(draft.values[field.id]) === JSON.stringify(draft.original[field.id])) continue;
+            const value = elementValue(draft.values[field.id], field.kind);
+            if (value === undefined) {
+                actionError.value = port.t(text("list.badValue", {field: field.label}));
+                return;
+            }
+            ops.push({op: "set", at: {entry: props.id, path: `${list}[${draft.element!}].${field.id}`}, value});
+        }
+        if (!draft.keyed && draft.label.trim() !== draft.originalLabel) ops.push({op: "set", at: {entry: props.id, path: `${list}[${draft.element!}].label`}, value: draft.label.trim()});
+        if (ops.length === 0) {
+            elementOpen.value = false;
+            return;
+        }
+    }
+    const title = port.t(text(draft.mode === "add" ? "list.added" : "list.edited", {name, field: fieldLabel}));
+    if (await runEntries(ops, title, draft.intent)) elementOpen.value = false;
+};
+// 去掉一项：先确认，可选意图。来自某章变更的一项按“改设定”去不掉（element-from-change），原因写在对话框里，改选“剧情里变了”再去。
+const removeElementDraft = shallowRef<{readonly namespace: string; readonly field: string; readonly element: string; readonly item: string; readonly intent: EditIntent} | null>(null);
+const openRemoveElement = (namespace: string, field: string, element: string): void => {
+    const items = (view.value?.namespaces[namespace]?.fields[field]?.value ?? []) as Array<Record<string, unknown>>;
+    const item = items.find((candidate) => String(candidate.id) === element);
+    actionError.value = "";
+    removeElementDraft.value = {namespace, field, element, item: item === undefined ? element : displayText([item]), intent: intentsHere()[0]!};
+};
+const confirmRemoveElement = async (): Promise<void> => {
+    const draft = removeElementDraft.value;
+    if (draft === null) return;
+    const title = port.t(text("list.removed", {name: view.value?.name ?? "", field: listDeclaration(draft.namespace, draft.field)?.label ?? draft.field, item: draft.item}));
+    if (await runEntries([{op: "listRemove", at: {entry: props.id, path: `${draft.namespace}.${draft.field}[${draft.element}]`}}], title, draft.intent)) removeElementDraft.value = null;
+};
+
 // 去掉当前数据分页这组设定：先确认，数据留着。
 const removeOpen = shallowRef(false);
 const removableGroup = computed(() => (dataNamespace.value === null ? "" : typeLabel(view.value?.namespaces[dataNamespace.value]?.type ?? "")));
@@ -461,6 +578,9 @@ const contextFor = (namespace: string): ComponentViewContext => {
             origins: (path, cursor) => props.fetchOrigins({entry: props.id, path: `${namespace}.${path}`}, position.value, mode.value, cursor),
             edit: (path) => edit.open(`${namespace}.${path}`),
             record: (path, input) => record(`${namespace}.${path}`, input),
+            listAdd: (path) => openElement(namespace, path),
+            listEdit: (path, element) => openElement(namespace, path, element),
+            listRemove: (path, element) => openRemoveElement(namespace, path, element),
             open: props.open,
         };
         contexts.set(namespace, found);
@@ -626,6 +746,49 @@ const setPosition = (value: string): void => {
         >
             <p v-if="addableTypes.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.noMoreGroups") }}</p>
             <Select v-else :aria-label="text('entry.addComponentTitle')" :options="addableTypes" :model-value="addType" @update:model-value="(value: string) => (addType = value)" />
+            <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
+        </Dialog>
+        <ElementDialog
+            v-if="elementDraft !== null"
+            :open="elementOpen"
+            :title="text(elementDraft.mode === 'add' ? 'list.addTitle' : 'list.editTitle', {field: listDeclaration(elementDraft.namespace, elementDraft.field)?.label ?? elementDraft.field})"
+            :keyed="elementDraft.keyed"
+            :editing="elementDraft.mode === 'edit'"
+            :key-value="elementDraft.key"
+            :key-name="elementDraft.keyName"
+            :key-results="keyFind.results.value"
+            :label="elementDraft.label"
+            :fields="elementFields"
+            :values="elementDraft.values"
+            :ref-results="elementRefFind.results.value"
+            :intents="intentsHere()"
+            :intent="elementDraft.intent"
+            :saving="acting"
+            :error="actionError"
+            @update:open="(value: boolean) => (elementOpen = value)"
+            @update:key-value="(value: string | null) => (elementDraft = {...elementDraft!, key: value, keyName: ''})"
+            @search-key="keyFind.search"
+            @update:label="(value: string) => (elementDraft = {...elementDraft!, label: value})"
+            @update:value="(field: string, value: unknown) => (elementDraft = {...elementDraft!, values: {...elementDraft!.values, [field]: value}})"
+            @search-ref="(field: string, query: string) => { elementRefField = field; elementRefFind.search(query); }"
+            @update:intent="(value: EditIntent) => (elementDraft = {...elementDraft!, intent: value})"
+            @confirm="confirmElement()"
+        />
+        <Dialog
+            :open="removeElementDraft !== null"
+            size="sm"
+            :title="text('list.removeTitle', {item: removeElementDraft?.item ?? ''})"
+            show-cancel
+            :confirm-label="text('list.removeConfirm')"
+            :busy="acting"
+            :close-on-request="!acting"
+            @update:open="(value: boolean) => { if (!value) removeElementDraft = null; }"
+            @confirm="confirmRemoveElement()"
+        >
+            <div v-if="intentsHere().length > 1" class="flex items-center gap-2 text-[length:var(--text-sm)]">
+                <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
+                <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="removeElementDraft?.intent ?? 'creative'" :options="intentsHere().map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => (removeElementDraft = removeElementDraft === null ? null : {...removeElementDraft, intent: value as EditIntent})" />
+            </div>
             <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
         </Dialog>
         <MoveDialog

@@ -576,5 +576,25 @@
         "first": "放在这一层最前",
         "notSameAs": "不是",
         "saved": "移动{{name}}"
+    },
+    "list": {
+        "elements": "{{label}}的各项",
+        "editElement": "改 {{item}}",
+        "removeElement": "去掉 {{item}}",
+        "remove": "去掉",
+        "add": "＋ 添加一项",
+        "key": "指向的条目",
+        "label": "名字",
+        "semanticReadOnly": "（语义档：在剧情里记一句来改）",
+        "addTitle": "给“{{field}}”加一项",
+        "editTitle": "改“{{field}}”的一项",
+        "removeTitle": "去掉“{{item}}”",
+        "removeConfirm": "去掉",
+        "added": "给{{name}}的{{field}}加一项",
+        "edited": "改{{name}}的{{field}}",
+        "removed": "去掉{{name}}的{{field}}里的{{item}}",
+        "badValue": "“{{field}}”填得不对",
+        "needKey": "先选这一行指向的条目",
+        "needLabel": "给这一项起个名字"
     }
 }

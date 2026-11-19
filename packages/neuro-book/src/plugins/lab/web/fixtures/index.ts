@@ -17,6 +17,8 @@ import type LineSelect from "nbook/plugins/canon/web/components/LineSelect.vue";
 import type EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue";
 import type ImageInput from "nbook/plugins/canon/web/components/ImageInput.vue";
 import type MoveDialog from "nbook/plugins/canon/web/components/MoveDialog.vue";
+import type ElementDialog from "nbook/plugins/canon/web/components/ElementDialog.vue";
+import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
 import type AgentNotice from "nbook/plugins/canon/web/components/AgentNotice.vue";
@@ -1866,6 +1868,30 @@ function canonEntryPageFixtures() {
                 {id: "sample-english", label: "英文界面", input: {props: {entry: {id: "e1", name: "Xia"}, parentResults: IDLE, sameAsResults: IDLE}, model: {open: true, draft: {parent: null, parentName: "", folder: "People", kind: "Person", order: "keep" as const, appears: null, sameAs: null, sameAsName: ""}}}},
             ],
             load: async () => (await import("./MoveDialogFixture.vue")).default,
+        }),
+        defineLabFixture<typeof FieldInput>({
+            component: "FieldInput",
+            scenes: [
+                {id: "number", label: "数，带单位", input: {props: {kind: "number" as const, label: "存款", unit: "元"}, model: {value: "1200"}}},
+                {id: "enum", label: "选项", input: {props: {kind: "enum" as const, label: "态度", options: ["友好", "敌对", "中立"]}, model: {value: "敌对"}}},
+                {id: "boolean", label: "是否", input: {props: {kind: "boolean" as const, label: "在场"}, model: {value: true}}},
+                {id: "ref", label: "引用（条目选择器）", input: {props: {kind: "ref" as const, label: "对头", refName: "雾崎"}, model: {value: "e2"}}},
+                {id: "image", label: "图片", input: {props: {kind: "image" as const, label: "画像"}, model: {value: {图片: "图片/星瑕.png", 说明: "入学那天"}}}},
+                {id: "text", label: "文字", input: {props: {kind: "text" as const, label: "外观", rows: 3}, model: {value: "黑发，左眼下有一颗痣"}}},
+                {id: "text-english", label: "英文界面", input: {props: {kind: "text" as const, label: "Looks"}, model: {value: "Black hair"}}},
+            ],
+            load: async () => (await import("./FieldInputFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ElementDialog>({
+            component: "ElementDialog",
+            scenes: [
+                {id: "add", label: "加一项：名字与数量", input: {props: {title: "给“物品”加一项", keyed: false, editing: false, keyResults: IDLE, fields: [{id: "数量", label: "数量", kind: "number" as const, unit: "把"}, {id: "来历", label: "来历", kind: "text" as const}], values: {数量: "", 来历: ""}, refResults: IDLE, intents: ["creative" as const, "story" as const]}, model: {open: true, label: "", keyValue: null, intent: "creative" as const}}},
+                {id: "keyed", label: "以条目为键：选指向的知识点", input: {props: {title: "给“知情”加一项", keyed: true, editing: false, keyResults: IDLE, fields: [{id: "程度", label: "程度", kind: "enum" as const, options: ["知道", "怀疑", "不知道"]}], values: {程度: "怀疑"}, refResults: IDLE, intents: ["creative" as const]}, model: {open: true, label: "", keyValue: null, intent: "creative" as const}}},
+                {id: "edit-semantic", label: "改一项：语义档只读，键不能换", input: {props: {title: "改“知情”的一项", keyed: true, editing: true, keyName: "学院的秘密", keyResults: IDLE, fields: [{id: "程度", label: "程度", kind: "enum" as const, options: ["知道", "怀疑", "不知道"]}, {id: "想法", label: "想法", kind: "text" as const, semantic: true}], values: {程度: "知道", 想法: "觉得校长在隐瞒什么"}, refResults: IDLE, intents: ["creative" as const, "story" as const]}, model: {open: true, label: "", keyValue: "k1", intent: "story" as const}}},
+                {id: "failed", label: "内核拒收", input: {props: {title: "给“物品”加一项", keyed: false, editing: false, keyResults: IDLE, fields: [{id: "数量", label: "数量", kind: "number" as const}], values: {数量: "abc"}, refResults: IDLE, intents: ["creative" as const], error: "“数量”填得不对"}, model: {open: true, label: "盾", keyValue: null, intent: "creative" as const}}},
+                {id: "add-english", label: "英文界面", input: {props: {title: "Add an item to “Items”", keyed: false, editing: false, keyResults: IDLE, fields: [{id: "count", label: "Count", kind: "number" as const}], values: {count: "2"}, refResults: IDLE, intents: ["creative" as const, "story" as const]}, model: {open: true, label: "Shield", keyValue: null, intent: "creative" as const}}},
+            ],
+            load: async () => (await import("./ElementDialogFixture.vue")).default,
         }),
         defineLabFixture<typeof OriginList>({
             component: "OriginList",

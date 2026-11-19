@@ -19,6 +19,10 @@ const emit = defineEmits<{
     (event: "value", path: string): void;
     /** 点了“改”。 */
     (event: "edit", path: string): void;
+    /** 列表：一个元素的“改”“去掉”，列表末尾的“添加”。 */
+    (event: "edit-element", path: string, element: string): void;
+    (event: "remove-element", path: string, element: string): void;
+    (event: "add-element", path: string): void;
 }>();
 
 defineSlots<{
@@ -65,6 +69,14 @@ const text = useCanonText();
                 >{{ text("edit.button") }}</Button>
                 <span v-if="row.mark !== null" class="shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ row.mark }}</span>
             </div>
+            <ul v-if="props.editing && row.elementIds !== undefined" class="m-0 mt-1 list-none pl-32 max-[480px]:pl-0" :aria-label="text('list.elements', {label: row.label})" data-list-elements>
+                <li v-for="(element, index) in row.elementIds" :key="element" class="flex flex-wrap items-center gap-1" :data-element="element">
+                    <span class="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{{ row.items?.[index] ?? "" }}</span>
+                    <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" :aria-label="text('list.editElement', {item: row.items?.[index] ?? ''})" @click="emit('edit-element', row.path, element)">{{ text("edit.button") }}</Button>
+                    <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" :aria-label="text('list.removeElement', {item: row.items?.[index] ?? ''})" @click="emit('remove-element', row.path, element)">{{ text("list.remove") }}</Button>
+                </li>
+                <li><Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" :data-add-element="row.path" @click="emit('add-element', row.path)">{{ text("list.add") }}</Button></li>
+            </ul>
             <ol v-if="(row.notes?.length ?? 0) > 0 || (row.notesEarlier ?? 0) > 0 || row.notReduced" class="m-0 mt-1 list-none pl-32 text-[length:var(--text-xs)] text-[var(--text-secondary)] max-[480px]:pl-0">
                 <li v-if="(row.notesEarlier ?? 0) > 0" class="text-[var(--text-muted)]">{{ text("fields.notesMore", {count: row.notesEarlier ?? 0}) }}</li>
                 <li v-for="(note, index) in row.notes" :key="index"><span class="mr-2 text-[var(--text-muted)]">{{ note.where }}</span>{{ note.text }}</li>

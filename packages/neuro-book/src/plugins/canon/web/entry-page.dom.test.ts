@@ -568,6 +568,73 @@ describe("写入", () => {
         });
     });
 
+    it("列表的元素：加一项（名字与子字段）、改一项的子字段、去掉一项；以条目为键的列表加一项时选指向的条目", async () => {
+        // 项目里另装一个插件：一个普通列表（元素要有名字）、一个以条目为键的列表（键只能指向人物）。
+        const bag: PluginDefinition = {id: "test.bag", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "test.bag.card", declaration: {label: "随身", namespace: "bag", version: 1, fields: [
+            {id: "物品", label: "物品", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}]},
+            {id: "关系", label: "关系", kind: "list", keyedBy: "ref", targets: ["人物"], item: [{id: "态度", label: "态度", kind: "enum", options: ["友好", "敌对"]}]},
+        ]}}]};
+        const {other, open} = await setup([bag]);
+        const star = {...person("星瑕"), type: "人物"};
+        star.init.data.bag = {type: "test.bag.card", version: 1, enabled: true, fields: {物品: [{id: "i1", label: "长剑", 数量: 1}], 关系: []}};
+        const enemy = {...person("雾崎"), type: "人物"};
+        const ids = await publish(other.canon, [star, enemy]);
+        const stored = async () => {
+            const read = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
+            if (!read.ok) throw new Error(JSON.stringify(read.failure));
+            return (read.value.object as Entry).init.data.bag!.fields as Record<string, Array<Record<string, unknown>>>;
+        };
+        const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === label)!;
+        const typeInto = (input: HTMLInputElement, value: string) => {
+            input.value = value;
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+        const {wrapper, state} = await open(ids[star.id]!);
+        await waitUntil("页头", () => wrapper.find("h1").exists());
+        state.tab = "data:bag";
+        await waitUntil("物品的“添加”", () => wrapper.find("[data-add-element='bag.物品']").exists());
+
+        await wrapper.get("[data-add-element='bag.物品']").trigger("click");
+        await waitUntil("元素对话框", () => document.body.querySelector("[data-element-dialog]") !== null);
+        // 先不起名字就保存：对话框里写原因，不关。
+        dialogButton("保存").click();
+        await waitUntil("要名字", () => document.body.querySelector("[data-element-dialog] [role='alert']")?.textContent?.includes("给这一项起个名字") === true);
+        const [name, count] = [...document.body.querySelectorAll<HTMLInputElement>("[data-element-dialog] input")];
+        typeInto(name!, "盾");
+        typeInto(count!, "2");
+        await waitUntil("填进去了", () => count!.value === "2");
+        dialogButton("保存").click();
+        await waitUntil("加上了", async () => (await stored()).物品!.some((item) => item.label === "盾" && item.数量 === 2));
+        await waitUntil("对话框关了", () => document.body.querySelector("[data-element-dialog]") === null || document.body.querySelector("[role='dialog']") === null);
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("给星瑕的物品加一项");
+
+        await waitUntil("长剑的“改”", () => wrapper.find("[aria-label='改 长剑']").exists());
+        await wrapper.get("[aria-label='改 长剑']").trigger("click");
+        await waitUntil("对话框带着原值", () => document.body.querySelectorAll<HTMLInputElement>("[data-element-dialog] input")[1]?.value === "1");
+        typeInto(document.body.querySelectorAll<HTMLInputElement>("[data-element-dialog] input")[1]!, "3");
+        dialogButton("保存").click();
+        await waitUntil("改了数量", async () => (await stored()).物品!.find((item) => item.id === "i1")?.数量 === 3);
+
+        await waitUntil("盾的“去掉”", () => wrapper.find("[aria-label='去掉 盾']").exists());
+        await wrapper.get("[aria-label='去掉 盾']").trigger("click");
+        await waitUntil("去掉的确认", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("去掉“盾”") === true);
+        dialogButton("去掉").click();
+        await waitUntil("去掉了", async () => !(await stored()).物品!.some((item) => item.label === "盾"));
+
+        // 以条目为键：选指向的条目（只列人物），再给态度。
+        await wrapper.get("[data-add-element='bag.关系']").trigger("click");
+        await waitUntil("元素对话框", () => document.body.querySelector("[data-element-dialog] input[role='combobox']") !== null);
+        const picker = document.body.querySelector<HTMLInputElement>("[data-element-dialog] input[role='combobox']")!;
+        picker.focus();
+        picker.click();
+        typeInto(picker, "雾崎");
+        await waitUntil("高亮雾崎", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("雾崎") === true);
+        picker.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("选上了", () => picker.value === "雾崎");
+        dialogButton("保存").click();
+        await waitUntil("关系加上了", async () => (await stored()).关系!.some((item) => item.id === ids[enemy.id]));
+    });
+
     it("累出来的数：写“这个数是几笔累出来的”、保存不可用；记一笔精确档以后值卡少了、流水多了一行", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

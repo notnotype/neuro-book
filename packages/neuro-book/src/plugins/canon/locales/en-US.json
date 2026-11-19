@@ -576,5 +576,25 @@
         "first": "First in this level",
         "notSameAs": "None",
         "saved": "Move {{name}}"
+    },
+    "list": {
+        "elements": "Items of {{label}}",
+        "editElement": "Edit {{item}}",
+        "removeElement": "Remove {{item}}",
+        "remove": "Remove",
+        "add": "+ Add item",
+        "key": "Points to",
+        "label": "Name",
+        "semanticReadOnly": " (semantic: record a story note to change it)",
+        "addTitle": "Add an item to “{{field}}”",
+        "editTitle": "Edit an item of “{{field}}”",
+        "removeTitle": "Remove “{{item}}”",
+        "removeConfirm": "Remove",
+        "added": "Add an item to {{field}} of {{name}}",
+        "edited": "Edit {{field}} of {{name}}",
+        "removed": "Remove {{item}} from {{field}} of {{name}}",
+        "badValue": "“{{field}}” is not valid",
+        "needKey": "Pick the entry this row points to first",
+        "needLabel": "Give this item a name"
     }
 }
