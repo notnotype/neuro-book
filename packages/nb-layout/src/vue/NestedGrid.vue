@@ -28,7 +28,8 @@ import {useLayoutExtent} from "./useLayoutExtent";
 import {useRenderOrder} from "./useRenderOrder";
 import {useSashGesture} from "./useSashGesture";
 import {useSashSnap} from "./useSashSnap";
-import type {GridExtent, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
+import {commitFailure} from "../grid-failure";
+import type {GridExtent, GridLayoutCommitResult, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
 import type {GridSashRef, SashGestureBinding, SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancelReason, SplitterGestureSource} from "../splitter-gesture";
 
@@ -44,8 +45,8 @@ const props = withDefaults(defineProps<{
     contextKey?: string;
     /** 外部版本：树、约束或容器尺寸变化时递增；进行中的手势据此失效。 */
     revision?: number;
-    /** 同步接纳一次手势提交：`{ok:false}` 时本组件回滚预览并给出诊断。 */
-    onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
+    /** 同步接纳一次手势提交：失败（Spec 失败 6）时本组件回滚预览并给出诊断。 */
+    onGestureCommit?: (commit: GridGestureCommit) => GridLayoutCommitResult;
     /** 内容层（docs/specs/ui/nested-grid.md 输出 80）：和叶外框同一父元素的内容，换叶不重建。不传时内容放在 `leaf` 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
     /** 最大化（docs/specs/ui/nested-grid.md 输出 97）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
@@ -523,7 +524,7 @@ const host: SashGestureHost<GridGesturePreview<unknown>, GridBranchChange> = {
                 if (outcome === undefined) {
                     releasePreview();
                     emit("issues", ["宿主没有提供 onGestureCommit，本次调整没有落账"]);
-                    return {ok: false, reason: "宿主没有提供 onGestureCommit"};
+                    return commitFailure("handler-missing", "The host did not provide onGestureCommit; the resize was not applied");
                 }
                 if (!outcome.ok) {
                     releasePreview();

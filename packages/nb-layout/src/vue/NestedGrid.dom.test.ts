@@ -2,7 +2,7 @@ import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
 import NestedGrid from "./NestedGrid.vue";
-import {createGrid, type Grid, type GridLayoutResult, type GridNode} from "../grid";
+import {createGrid, type Grid, type GridLayoutCommitResult, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
 
 /**
@@ -112,7 +112,7 @@ function frameRect(wrapper: VueWrapper, id: string): {x: number; y: number; widt
 
 type RendererOptions = {
     disabled?: boolean;
-    onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
+    onGestureCommit?: (commit: GridGestureCommit) => GridLayoutCommitResult;
 };
 
 function mountRenderer(node: GridNode<string> | null, layout: GridLayoutResult, options: RendererOptions = {}): VueWrapper {
@@ -494,7 +494,7 @@ describe("拖动期间的预览布局", () => {
                 commits.push(commit);
                 const applied = grid.resizeBranches(commit.changes);
                 if (!applied.ok) {
-                    return {ok: false, reason: applied.reason};
+                    return applied;
                 }
                 // 宿主接纳后按当前容器重新求值再发布
                 published = grid.layout(PUBLISH_CONTAINER);
@@ -532,6 +532,42 @@ describe("拖动期间的预览布局", () => {
         expect(frameRect(wrapper, "left").width).toBe(Math.round(published.sizes.left!.width));
         expect(frameRect(wrapper, "top").width).toBe(Math.round(published.sizes.top!.width));
         expect(wrapper.emitted("gesture-cancel")).toBeUndefined();
+    });
+});
+
+describe("提交被拒的码（Spec ui/nested-grid 失败 6）", () => {
+    /** 拖一下外层竖线再松手；返回这次发出的诊断。 */
+    async function dragOnce(wrapper: VueWrapper): Promise<string[]> {
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+        rootSash.dispatchEvent(pointerEvent("pointermove", 420, 80));
+        await settleFrame();
+        rootSash.dispatchEvent(pointerEvent("pointerup", 420, 80));
+        await nextTick();
+        return (wrapper.emitted("issues") ?? []).flat().map(String);
+    }
+
+    // 诊断今天还是字符串，里面带着失败的码；断言码，不断言文字。
+    it("宿主没接 onGestureCommit：handler-missing，预览回到已发布的布局", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        const issues = await dragOnce(wrapper);
+        expect(issues.some((issue) => issue.includes("handler-missing"))).toBe(true);
+        expect(frameRect(wrapper, "left").width).toBe(300);
+    });
+
+    it("宿主的提交回调抛出：handler-threw，预览回到已发布的布局", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            onGestureCommit: () => {
+                throw new Error("boom");
+            },
+        });
+        const issues = await dragOnce(wrapper);
+        expect(issues.some((issue) => issue.includes("handler-threw"))).toBe(true);
+        expect(frameRect(wrapper, "left").width).toBe(300);
     });
 });
 

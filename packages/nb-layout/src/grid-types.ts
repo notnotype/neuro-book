@@ -171,10 +171,54 @@ export type GridRefResolver<T> = (ref: string) => GridRefResolution<T> | null;
 /** 把宿主引用编码成快照里的稳定字符串；非字符串引用必须显式提供。 */
 export type GridRefEncoder<T> = (ref: T) => string;
 
-export type GridResult = {ok: true} | {ok: false; reason: string};
+/** 失败里的参数值：只用字符串与数字，和 `ui/i18n` 的 `TextRef.params` 同型，宿主可以直接交给翻译端口。 */
+export type GridParamValue = string | number;
+
+/**
+ * 失败（Spec `ui/nested-grid` 失败 5 到 7）。`code` 给程序分支；`message` 是库内的英文，只给日志看，
+ * 调用方不按它分支；`params` 给宿主拼自己的界面文字。码集合开放：新增码不算破坏，按码分支要有默认分支。
+ */
+export interface GridFailure<C extends string = string> {
+    readonly ok: false;
+    readonly code: C;
+    readonly message: string;
+    readonly params?: Readonly<Record<string, GridParamValue>>;
+}
+
+/** 结构操作的失败码（Spec `ui/nested-grid` 失败 5）。 */
+export type GridFailureCode =
+    | "not-found"
+    | "wrong-node-kind"
+    | "wrong-axis"
+    | "not-finite"
+    | "invalid-argument"
+    | "limit-exceeded"
+    | "duplicate-id"
+    | "into-own-subtree"
+    | "not-conserved"
+    | "stale-baseline"
+    | "not-collapsible";
+
+/** 快照恢复的失败码（Spec `ui/nested-grid` 失败 7）。 */
+export type GridRestoreFailureCode = "invalid-snapshot" | "unsupported-version" | "unresolved-root" | "duplicate-id" | "limit-exceeded";
+
+/** 提交手势的失败码（Spec `ui/nested-grid` 失败 6）：落账时结构操作的失败原样转交，另加提交自己的几种拒绝。 */
+export type GridCommitFailureCode =
+    | GridFailureCode
+    | "not-ready"
+    | "stale-context"
+    | "stale-revision"
+    | "stale-size"
+    | "handler-missing"
+    | "handler-threw";
+
+/** 提交手势的结果：`SashGestureBinding.onCommit` 与 `NestedGrid` 的 `onGestureCommit` 都返回它。 */
+export type GridLayoutCommitResult = {readonly ok: true} | GridFailure<GridCommitFailureCode>;
+
+export type GridResult = {ok: true} | GridFailure<GridFailureCode>;
 
 /** 单节点调整的实际增量。 */
-export type GridResizeResult = {ok: true; applied: number} | {ok: false; reason: string};
+export type GridResizeResult = {ok: true; applied: number} | GridFailure<GridFailureCode>;
 
 /** 一次分支调整：同一容器内该分支全部直接子节点的完整呈现基线与目标（px，各自守恒）。 */
 export type GridBranchResize = {
@@ -187,21 +231,25 @@ export type GridBranchResize = {
 };
 
 /** 原子分支调整发布的完整意图；键为该分支的直接子节点 id。 */
-export type GridBranchResizeResult = {ok: true; sizes: Record<string, number>} | {ok: false; reason: string};
+export type GridBranchResizeResult = {ok: true; sizes: Record<string, number>} | GridFailure<GridFailureCode>;
 
 /** 一次手势的批量原子结果：新尺寸意图按节点 id 发布，收起变化按节点 id 发布。 */
 export type GridBranchesResizeResult =
     | {readonly ok: true; readonly intents: Record<string, GridExtent>; readonly collapsed: Record<string, boolean>}
-    | {readonly ok: false; readonly reason: string};
+    | GridFailure<GridFailureCode>;
 
-export type GridRestoreResult = {
-    ok: boolean;
+/** 快照里没解析出的一条引用；今天只有一种原因。 */
+export type GridDroppedRef = {ref: string; code: "unknown-ref"};
+
+/** 恢复成功与失败都带的两项。 */
+type GridRestoreReport = {
     /** 未解析出的引用：只过滤当前呈现，宿主必须保留原始记录（见 Spec「失败与恢复」）。 */
-    dropped: {ref: string; reason: string}[];
+    dropped: GridDroppedRef[];
     /** 意图超出当前宿主约束的节点：呈现层会夹取，意图本身不改写。 */
     clamped: string[];
-    reason?: string;
 };
+
+export type GridRestoreResult = ({ok: true} & GridRestoreReport) | (GridFailure<GridRestoreFailureCode> & GridRestoreReport);
 
 export type GridConstraint = {minimumSize: GridExtent; maximumSize: GridExtent};
 

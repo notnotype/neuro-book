@@ -310,7 +310,7 @@ describe("带容器的区域", () => {
         const {projection, grid, layout} = solve(doc, EXTENT);
         const base = {activitybar: layout.sizes.activitybar?.width ?? 0, side: layout.sizes.side?.width ?? 0, center: layout.sizes.center?.width ?? 0, auxiliarybar: 0};
         const result = grid.resizeBranches([{branchId: "body", axis: "width", baseline: base, target: {...base, side: 0, center: base.center + base.side}, collapsed: {side: true}}]);
-        if (!result.ok) throw new Error(result.reason);
+        if (!result.ok) throw new Error(result.message);
         expect(result.collapsed).toEqual({side: true});
         expect(projection.regionAnchors.get("side")).toBe("sidebar");
 
@@ -417,7 +417,7 @@ describe("带容器的区域", () => {
             const commit = session.finish();
             if (commit === null) throw new Error("Enter 没有产生提交");
             const applied = grid.resizeBranches(commit.changes);
-            if (!applied.ok) throw new Error(applied.reason);
+            if (!applied.ok) throw new Error(applied.message);
             let next = doc;
             for (const [id, collapsed] of Object.entries(applied.collapsed)) next = okDoc(setPanelCollapsed(next, projection.regionAnchors.get(id) ?? id, collapsed));
             return rebaseIntents(next, grid.layout(EXTENT).sizes, projection.collapsedTo, fixedNodesOf(projection.input));

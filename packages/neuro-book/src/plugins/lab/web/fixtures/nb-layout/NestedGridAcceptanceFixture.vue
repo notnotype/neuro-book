@@ -14,7 +14,9 @@ import {
     type GridAxis,
     type GridBranchChange,
     type GridBranchInput,
+    type GridDroppedRef,
     type GridLayoutResult,
+    type GridRestoreResult,
     type GridSashRef,
     type GridSnapshot,
     type SplitterGestureCancelReason,
@@ -96,7 +98,10 @@ const visibleIssues = computed(() => {
 // 恢复场景事实：原件记录在内存、过滤情况与拒绝原因
 const restoreStatus = ref<"success" | "dropped-unknown" | "rejected">("success");
 const restoreReason = ref("");
-const droppedRefs = ref<{ref: string; reason: string}[]>([]);
+/** 恢复失败的码与版本：e2e 按码判，不按文字。 */
+const restoreCode = ref("");
+const restoreVersion = ref("");
+const droppedRefs = ref<GridDroppedRef[]>([]);
 const rawRecordRef = ref<unknown>(null);
 
 /** 进行中的手势：只用于把取消回执翻成可读标识；尺寸与收起事实一律来自提交载荷。 */
@@ -220,6 +225,8 @@ function initScene(sceneId: string): void {
     if (sceneId === "default") {
         restoreStatus.value = "success";
         restoreReason.value = "";
+        restoreCode.value = "";
+        restoreVersion.value = "";
         droppedRefs.value = [];
         rawRecordRef.value = gridRef.value.serialize();
     } else if (sceneId === "unknown-ref") {
@@ -253,6 +260,8 @@ function initScene(sceneId: string): void {
         );
         restoreStatus.value = "dropped-unknown";
         restoreReason.value = "过滤未解析引用：unknown-plugin-view（原件在内存完整保留）";
+        restoreCode.value = "";
+        restoreVersion.value = "";
         droppedRefs.value = res.dropped;
         emitLabEvent("restore", res);
     } else if (sceneId === "malformed") {
@@ -272,9 +281,7 @@ function initScene(sceneId: string): void {
         };
         rawRecordRef.value = JSON.parse(JSON.stringify(malformedSnapshot));
         const res = gridRef.value.restore(malformedSnapshot, (ref) => ({ref}));
-        restoreStatus.value = "rejected";
-        restoreReason.value = res.reason ?? "布局快照存在重复节点 id：left";
-        droppedRefs.value = [];
+        showRestoreFailure(res);
         emitLabEvent("restore", res);
     } else if (sceneId === "high-version") {
         // (c) 不兼容版本：version 99（更高版本）拒绝恢复并保留原件
@@ -293,9 +300,7 @@ function initScene(sceneId: string): void {
         };
         rawRecordRef.value = JSON.parse(JSON.stringify(highVersionSnapshot));
         const res = gridRef.value.restore(highVersionSnapshot, (ref) => ({ref}));
-        restoreStatus.value = "rejected";
-        restoreReason.value = res.reason ?? "布局快照版本 99 不受支持";
-        droppedRefs.value = [];
+        showRestoreFailure(res);
         emitLabEvent("restore", res);
     }
 
@@ -371,6 +376,16 @@ function triggerProgrammaticLayout(): void {
         host.invalidate();
         layoutEpoch.value++;
     }
+}
+
+/** 恢复被拒：显示失败的英文 message，码与版本写进属性。 */
+function showRestoreFailure(res: GridRestoreResult): void {
+    restoreStatus.value = "rejected";
+    restoreReason.value = res.ok ? "" : res.message;
+    restoreCode.value = res.ok ? "" : res.code;
+    const version = res.ok ? undefined : res.params?.version;
+    restoreVersion.value = version === undefined ? "" : String(version);
+    droppedRefs.value = [];
 }
 
 /** 重置状态 */
@@ -592,6 +607,8 @@ function formatPx(val?: number): string {
                     data-lab-recovery
                     :data-lab-restore-status="restoreStatus"
                     :data-lab-restore-reason="restoreReason"
+                    :data-lab-restore-code="restoreCode"
+                    :data-lab-restore-version="restoreVersion"
                     :data-lab-dropped-count="droppedRefs.length"
                     :data-lab-raw-record="JSON.stringify(rawRecordRef)"
                     class="flex min-w-0 items-center gap-2 text-[10px] text-[var(--text-muted)] font-mono border-t border-[color-mix(in_srgb,var(--border-color)_20%,transparent)] pt-1"

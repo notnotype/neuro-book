@@ -13,13 +13,15 @@
  */
 import {computed, ref, shallowRef, watch, type ComputedRef, type Ref} from "vue";
 import type {Grid} from "../grid";
+import {commitFailure} from "../grid-failure";
 import type {GridGestureCommit} from "../grid-gesture";
-import type {GridBranchesResizeResult, GridExtent, GridLayoutResult, GridNode} from "../grid-types";
+import type {GridBranchesResizeResult, GridExtent, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
 
 /** 没有可发布几何（未挂载 / 无尺寸 / 无网格）时的空布局。 */
 export const EMPTY_GRID_LAYOUT: GridLayoutResult = {sizes: {}, constraints: {}, sashSizes: {}, issues: []};
 
-export type GridLayoutCommitResult = {ok: true} | {ok: false; reason: string};
+/** 提交的结果（Spec `ui/nested-grid` 失败 6）；类型在根入口定义，`SashGestureBinding.onCommit` 也用它。 */
+export type {GridLayoutCommitResult};
 
 export type GridLayoutHost<T> = {
     /** 当前树；结构变更后调用 `invalidate()` 重新读取。 */
@@ -81,25 +83,31 @@ export function useGridLayout<T>(options: {
     function onGestureCommit(commit: GridGestureCommit): GridLayoutCommitResult {
         const grid = options.grid.value;
         if (grid === null) {
-            return {ok: false, reason: "网格尚未就绪，本次调整没有落账"};
+            return commitFailure("not-ready", "The grid is not ready; the resize was not applied", {missing: "grid"});
         }
         const context = options.contextKey();
         const frozen = publishedExtent;
         if (frozen === null) {
-            return {ok: false, reason: "承载盒尺寸不可用，本次调整没有落账"};
+            return commitFailure("not-ready", "The host size is unavailable; the resize was not applied", {missing: "host-size"});
         }
         if (commit.contextKey !== context) {
-            return {ok: false, reason: `工作面已切换（${commit.contextKey || "空"} ≠ ${context || "空"}），本次调整没有落账`};
+            return commitFailure("stale-context", `The context changed (${commit.contextKey || "empty"} -> ${context || "empty"}); the resize was not applied`, {
+                expected: context,
+                actual: commit.contextKey,
+            });
         }
         if (commit.revision !== revision.value) {
-            return {ok: false, reason: `布局已变化（版本 ${commit.revision} ≠ ${revision.value}），本次调整没有落账`};
+            return commitFailure("stale-revision", `The layout changed (revision ${commit.revision} -> ${revision.value}); the resize was not applied`, {
+                expected: revision.value,
+                actual: commit.revision,
+            });
         }
         if (frozen.width !== commit.extent.width || frozen.height !== commit.extent.height) {
-            return {ok: false, reason: "容器尺寸已变化，本次调整没有落账"};
+            return commitFailure("stale-size", "The container size changed; the resize was not applied");
         }
         const result = grid.resizeBranches(commit.changes);
         if (!result.ok) {
-            return {ok: false, reason: result.reason};
+            return result;
         }
         recompute();
         if (options.onApplied !== undefined) {

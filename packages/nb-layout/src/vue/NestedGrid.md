@@ -118,7 +118,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 ## 数据
 
 ```ts
-import type {GridGestureCommit, GridGesturePreview, GridLayoutResult, GridLeaf, GridNode, GridSashRef, SplitterGestureCancelReason, SplitterGestureSource} from "@notnotype/nb-layout";
+import type {GridGestureCommit, GridGesturePreview, GridLayoutCommitResult, GridLayoutResult, GridLeaf, GridNode, GridSashRef, SplitterGestureCancelReason, SplitterGestureSource} from "@notnotype/nb-layout";
 
 type NestedGridProps = {
     /** 当前树；null 时呈现 empty 插槽。必填。 */
@@ -131,8 +131,8 @@ type NestedGridProps = {
     contextKey?: string;
     /** 树、约束或容器尺寸变化时由宿主递增的版本；默认 0。 */
     revision?: number;
-    /** 同步接纳一次完整提交；未提供或返回失败都会回滚预览。 */
-    onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
+    /** 同步接纳一次完整提交；未提供或返回失败都会回滚预览。失败是 `{ok: false, code, message, params?}`（Spec `ui/nested-grid` 失败 6）：`code` 给程序分支，`message` 是英文、只给日志看。 */
+    onGestureCommit?: (commit: GridGestureCommit) => GridLayoutCommitResult;
     /** 内容层：和叶外框同一父元素的内容，换叶不重建；默认无，内容放在 leaf 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
     /** 这块叶盖住除 exclude 以外的全部区域，别的叶不动；默认 null。只在内存，宿主决定。 */

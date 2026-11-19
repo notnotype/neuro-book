@@ -222,7 +222,7 @@ describe("useGridLayout 与渲染层的真实提交", () => {
 
         const outcome = harness.host.onGestureCommit({...frozen, contextKey: "workbench-a"});
 
-        expect(outcome).toEqual({ok: false, reason: expect.stringContaining("工作面已切换")});
+        expect(outcome).toMatchObject({ok: false, code: "stale-context", params: {expected: "workbench-b", actual: "workbench-a"}});
         expect(harness.host.layout.value).toBe(settledLayout);
         expect(harness.host.revision.value).toBe(settledRevision);
         expect(harness.host.layout.value.sizes.left!.width).toBeCloseTo(before.sizes.left!.width, 6);
@@ -233,10 +233,16 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         const harness = mountHost();
         await nextTick();
 
-        expect(harness.host.onGestureCommit({...harness.frozen(), revision: harness.host.revision.value - 1}))
-            .toEqual({ok: false, reason: expect.stringContaining("布局已变化")});
-        expect(harness.host.onGestureCommit({...harness.frozen(), extent: {width: 999, height: 600}}))
-            .toEqual({ok: false, reason: expect.stringContaining("容器尺寸已变化")});
+        const current = harness.host.revision.value;
+        expect(harness.host.onGestureCommit({...harness.frozen(), revision: current - 1}))
+            .toMatchObject({ok: false, code: "stale-revision", params: {expected: current, actual: current - 1}});
+        const stale = harness.host.onGestureCommit({...harness.frozen(), extent: {width: 999, height: 600}});
+        expect(stale.ok === false ? [stale.code, stale.params] : null).toEqual(["stale-size", undefined]);
+        // 冻结的事实都对上、落账时结构操作拒绝：原样转交它的码。
+        const frozen = harness.frozen();
+        const change = frozen.changes[0]!;
+        expect(harness.host.onGestureCommit({...frozen, changes: [{...change, baseline: {left: 1, right: change.baseline.right! + change.baseline.left! - 1}}]}))
+            .toMatchObject({ok: false, code: "stale-baseline", params: {id: "root"}});
         expect(harness.applied).toEqual([]);
     });
 
@@ -250,7 +256,7 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         await nextTick();
         expect(harness.host.layout.value).toBe(EMPTY_GRID_LAYOUT);
         const rejected: GridLayoutCommitResult = harness.host.onGestureCommit(frozen);
-        expect(rejected).toEqual({ok: false, reason: expect.stringContaining("承载盒尺寸不可用")});
+        expect(rejected).toMatchObject({ok: false, code: "not-ready", params: {missing: "host-size"}});
 
         harness.extent.value = {...CONTAINER};
         await nextTick();
@@ -260,7 +266,7 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         await nextTick();
         expect(harness.host.layout.value).toBe(EMPTY_GRID_LAYOUT);
         expect(harness.host.revision.value).toBeGreaterThan(revisionBefore);
-        expect(harness.host.onGestureCommit(frozen)).toEqual({ok: false, reason: expect.stringContaining("网格尚未就绪")});
+        expect(harness.host.onGestureCommit(frozen)).toMatchObject({ok: false, code: "not-ready", params: {missing: "grid"}});
     });
 
     it("结构变更后 invalidate 才重新读取同一实例的树", async () => {

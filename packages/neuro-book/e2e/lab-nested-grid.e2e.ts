@@ -378,8 +378,7 @@ test("恢复场景：畸形重复身份整体拒绝且无异常", async ({page})
 
     const {leftLeaf, topLeaf, bottomLeaf, recovery} = nestedGridLocators(page);
     await expect(recovery).toHaveAttribute("data-lab-restore-status", "rejected");
-    const reason = await recovery.getAttribute("data-lab-restore-reason");
-    expect(reason).toContain("重复节点 id");
+    await expect(recovery).toHaveAttribute("data-lab-restore-code", "duplicate-id");
 
     // 安全回退默认布局，页面不抛未捕获异常
     await expect(leftLeaf).toBeVisible();
@@ -392,8 +391,8 @@ test("恢复场景：高版本快照整体拒绝且保留原件", async ({page})
 
     const {leftLeaf, topLeaf, bottomLeaf, recovery} = nestedGridLocators(page);
     await expect(recovery).toHaveAttribute("data-lab-restore-status", "rejected");
-    const reason = await recovery.getAttribute("data-lab-restore-reason");
-    expect(reason).toContain("99");
+    await expect(recovery).toHaveAttribute("data-lab-restore-code", "unsupported-version");
+    await expect(recovery).toHaveAttribute("data-lab-restore-version", "99");
 
     // 保留原件
     const raw = JSON.parse((await recovery.getAttribute("data-lab-raw-record"))!);

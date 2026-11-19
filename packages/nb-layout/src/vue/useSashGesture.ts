@@ -15,6 +15,8 @@
 import {onBeforeUnmount, ref, shallowRef, watch, type Ref} from "vue";
 import {collectSashHits, type SashHitTarget, type SashPoint, type SashPointerKind} from "../sash-hit-area";
 import {acquireSashCursor, sashCursorFor, SASH_HOVER_DELAY_MS, sashHitKey, type SashCursorOwner} from "./sash-feedback";
+import {commitFailure} from "../grid-failure";
+import type {GridLayoutCommitResult} from "../grid-types";
 import {sashKey, type GridSashRef, type SashGestureBinding, type SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancelReason} from "../splitter-gesture";
 
@@ -280,15 +282,15 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             }
             return;
         }
-        let accepted: {ok: true} | {ok: false; reason: string};
+        let accepted: GridLayoutCommitResult;
         try {
             accepted = current.onCommit(commit);
         } catch (error) {
-            accepted = {ok: false, reason: `提交处理器抛出异常：${String(error)}`};
+            accepted = commitFailure("handler-threw", `The commit handler threw: ${String(error)}`);
         }
         if (!accepted.ok) {
             current.onPreview(null);
-            pushIssues([`本次调整没有落账：${accepted.reason}`]);
+            pushIssues([`本次调整没有落账：${accepted.code}: ${accepted.message}`]);
         }
         active.value = new Set();
         if (source === "pointer") {
