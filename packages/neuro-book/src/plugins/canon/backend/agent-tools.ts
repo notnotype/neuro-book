@@ -22,6 +22,7 @@ import type {ProjectsService} from "nbook/shared/projects";
 import {descriptor} from "../plugin";
 import {canonWorldContract, fromRemote} from "../shared/contracts";
 import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult, FoundEntry, RemoteRaw} from "../shared/contracts";
+import {componentNamed, resolveField, uniqueNamed} from "./agent-names";
 import {clip, failureText, fieldsText, impactText, parseStamp, positionText, stampText} from "./agent-text";
 
 export const AGENT_TOOL_IDS = {lookup: "nbook.canon.lookup", tree: "nbook.canon.tree", read: "nbook.canon.read", write: "nbook.canon.write"} as const;
@@ -212,31 +213,6 @@ async function entryOf(context: Context, id: string): Promise<{readonly view: En
     return {view: read.value.view, declarations: read.value.declarations ?? {}};
 }
 
-/** “设定组.字段[元素].子字段”换成内核的地址：设定组写命名空间或类型名，字段、元素、子字段写 id 或名字。 */
-function resolveField(given: string, view: EntryView, declarations: Readonly<Record<string, readonly FieldDeclaration[]>>, components: readonly ComponentType[]): {readonly path: string; readonly field?: FieldDeclaration; readonly item?: FieldDeclaration} | {readonly problem: string} {
-    if (given === "名字" || given === "entry.name") return {path: "entry.name"};
-    if (given === "简介" || given === "entry.summary") return {path: "entry.summary"};
-    if (given === "别名" || given === "entry.aliases") return {path: "entry.aliases"};
-    if (/^text\[[^\]]+\]$/u.test(given)) return {path: given};
-    const match = /^([^.[\]]+)\.([^.[\]]+)(?:\[([^\]]+)\](?:\.([^.[\]]+))?)?$/u.exec(given.trim());
-    if (match === null) return {problem: `field 写“设定组.字段”或“设定组.字段[元素].子字段”，不是“${given}”。`};
-    const [, group, name, element, sub] = match as unknown as [string, string, string, string | undefined, string | undefined];
-    const namespace = declarations[group] !== undefined ? group : components.find((type) => type.label === group && declarations[type.namespace] !== undefined)?.namespace;
-    if (namespace === undefined) return {problem: `条目上没有设定组“${group}”；有：${Object.keys(declarations).map((key) => `${components.find((type) => type.namespace === key)?.label ?? key}（${key}）`).join("、") || "无"}。先 addComponent。`};
-    const fields = declarations[namespace]!;
-    const byName = fields.filter((field) => field.id === name || field.label === name);
-    if (byName.length !== 1) return {problem: byName.length === 0 ? `设定组 ${namespace} 里没有字段“${name}”；有：${fields.map((field) => field.label).join("、")}。` : `“${name}”对应几个字段：${byName.map((field) => field.id).join("、")}。写字段 id。`};
-    const field = byName[0]!;
-    if (element === undefined) return {path: `${namespace}.${field.id}`, field};
-    const items = (view.namespaces[namespace]?.fields[field.id]?.value ?? []) as Array<{id?: unknown; label?: unknown}>;
-    const item = Array.isArray(items) ? items.find((candidate) => candidate.id === element || candidate.label === element) : undefined;
-    if (item === undefined) return {problem: `列表 ${namespace}.${field.id} 里没有元素“${element}”。`};
-    if (sub === undefined) return {path: `${namespace}.${field.id}[${String(item.id)}]`, field};
-    const subField = (field.item ?? []).find((candidate) => candidate.id === sub || candidate.label === sub);
-    if (subField === undefined) return {problem: `元素没有字段“${sub}”；有：${(field.item ?? []).map((candidate) => candidate.label).join("、")}。`};
-    return {path: `${namespace}.${field.id}[${String(item.id)}].${subField.id}`, field, item: subField};
-}
-
 /** 值按声明预检，并把引用的名字换成 `{ref: id}`；只为回话好懂，内核的校验才是最终的。 */
 async function resolveValue(context: Context, declaration: FieldDeclaration | undefined, value: unknown, keys: ReadonlyMap<string, string>): Promise<{readonly value: unknown} | {readonly problem: string}> {
     if (declaration === undefined || value === null) return {value};
@@ -377,7 +353,9 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
     const at = (problem: string) => ({problem: `第 ${String(index + 1)} 项（${edit.op}）：${problem}`});
     if (edit.op === "create") {
         if (typeof edit.name !== "string" || typeof edit.kind !== "string") return at("create 要写 name 与 kind。");
-        const key = typeof edit.key === "string" ? edit.key : `new${String(index + 1)}`;
+        // 没写代号的用“#第几项”：模型写的代号里不会有，不会撞上。
+        const key = typeof edit.key === "string" ? edit.key : `#${String(index + 1)}`;
+        if (keys.has(key)) return at(`代号“${key}”在这一批里前面已经用过；每个新条目的 key 各不相同。`);
         const tmp = `tmp:${key}`;
         keys.set(key, tmp);
         let parent: string | null = null;
@@ -388,15 +366,18 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
         }
         const components: {type: string; fields?: Record<string, unknown>}[] = [];
         for (const name of (Array.isArray(edit.components) ? edit.components : []) as string[]) {
-            const type = context.components.find((candidate) => candidate.id === name || candidate.label === name || candidate.namespace === name);
-            if (type === undefined) return at(`没有设定组“${name}”；有：${context.components.map((candidate) => candidate.label).join("、")}。`);
+            const type = componentNamed(context.components, String(name));
+            if ("problem" in type) return at(type.problem);
+            if (components.some((component) => component.type === type.id)) return at(`设定组“${name}”列了两次。`);
             components.push({type: type.id});
         }
+        // `fields` 写到的设定组没列在 `components` 里时一并启用（agent-tools.md 输出 6）。
         for (const [path, value] of Object.entries((edit.fields ?? {}) as Record<string, unknown>)) {
-            const [group, name] = path.split(".");
-            const type = context.components.find((candidate) => candidate.namespace === group || candidate.label === group);
-            const field = type?.fields.find((candidate) => candidate.id === name || candidate.label === name);
-            if (type === undefined || field === undefined) return at(`初值的字段“${path}”不在 components 里的设定组上。`);
+            const [group = "", name = ""] = path.split(".");
+            const type = componentNamed(context.components, group);
+            if ("problem" in type) return at(`初值的字段“${path}”：${type.problem}`);
+            const field = uniqueNamed(type.fields, name, (candidate) => candidate.id, (candidate) => candidate.label);
+            if ("problem" in field) return at(`初值的字段“${path}”：${field.problem === "none" ? `设定组 ${type.namespace} 里没有字段“${name}”；有：${type.fields.map((candidate) => candidate.label).join("、")}。` : `“${name}”对应几个字段：${field.candidates.join("、")}，写字段 id。`}`);
             const checked = await resolveValue(context, field, value, keys);
             if ("problem" in checked) return at(checked.problem);
             let target = components.find((component) => component.type === type.id);
@@ -502,6 +483,28 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
     }
 }
 
+/**
+ * 写入成功的回话（输出 11）。新建条目的代号到 id 取自修订的 `idMap`：临时 id 是“tmp:代号”，没写代号的是“#第几项”。
+ * 重发同一次调用时没有“后面还有几条记录”（那是写入那一刻算的）。
+ */
+async function writtenReply(call: Call, written: {readonly revision: string; readonly version: number; readonly repeated: boolean; readonly laterRecords?: number}): Promise<ToolResult> {
+    const read = await call("revision", {id: written.revision});
+    const revision = read.ok ? read.value.revision : null;
+    const ids = revision?.idMap ?? {};
+    const created = Object.entries(ids).map(([tmp, id]) => {
+        const key = tmp.startsWith("tmp:") ? tmp.slice("tmp:".length) : tmp;
+        return `${key.startsWith("#") ? `第 ${key.slice(1)} 项` : key} → ${id}`;
+    });
+    const impact = revision === null ? "" : impactText(revision.impact, (entry) => entry);
+    const text = [
+        `已写入：修订 ${written.revision}，版本 ${String(written.version)}${written.repeated ? "（同一次调用重发，返回第一次的结果）" : ""}。`,
+        created.length === 0 ? "" : `新建：${created.join("；")}`,
+        impact === "" ? "" : `带来的变化：\n${impact}`,
+        written.laterRecords !== undefined && written.laterRecords > 0 ? `后面还有 ${String(written.laterRecords)} 条记录改过同一处，看一眼是否也要改。` : "",
+    ].filter((line) => line !== "").join("\n");
+    return {text: clip(text, 1500, "看改动记录"), details: {revision: written.revision, version: written.version, ids: {...ids}}};
+}
+
 function writeTool(services: Services): AgentToolImplementation {
     return {
         create: (session) => ({
@@ -517,6 +520,10 @@ function writeTool(services: Services): AgentToolImplementation {
                     if (!reverted.ok) return worldFailed(reverted.failure);
                     return {text: `已还原：修订 ${reverted.value.revision}，版本 ${String(reverted.value.version)}。`, details: {revision: reverted.value.revision, version: reverted.value.version}};
                 }
+                // 同一次调用重发（输出 10）：先按请求 id 查结局，写过就按那次修订回话。名字与地址要等这一步之后再解析：
+                // 第一次可能改了名字或删了条目，重发的参数照当前世界解析不出来，走不到内核的请求去重。
+                const prior = await call("outcome", {requestId});
+                if (prior.ok && prior.value.published) return writtenReply(call, {revision: prior.value.revision, version: prior.value.version, repeated: true});
                 const edits = Array.isArray(args.edits) ? (args.edits as Edit[]) : [];
                 if (edits.length === 0) return failed("no-edits", "edits 至少一项，或写 revert。");
                 if (edits.length > 30) return failed("too-large", "一次最多 30 项，分成几次写。");
@@ -543,12 +550,7 @@ function writeTool(services: Services): AgentToolImplementation {
                 };
                 const written = await call("editEntries", {input});
                 if (!written.ok) return worldFailed(written.failure);
-                const created = Object.entries(written.value.ids).map(([tmp, id]) => `${[...keys].find(([, value]) => value === tmp)?.[0] ?? tmp} → ${id}`);
-                const revision = await call("revision", {id: written.value.revision});
-                const names = new Map<string, string>();
-                const impact = revision.ok && revision.value.revision !== null && revision.value.revision !== undefined ? impactText(revision.value.revision.impact, (entry) => names.get(entry) ?? entry) : "";
-                const text = [`已写入：修订 ${written.value.revision}，版本 ${String(written.value.version)}${written.value.repeated ? "（同一次调用重发，返回第一次的结果）" : ""}。`, created.length === 0 ? "" : `新建：${created.join("；")}`, impact === "" ? "" : `带来的变化：\n${impact}`, written.value.laterRecords !== undefined && written.value.laterRecords.length > 0 ? `后面还有 ${String(written.value.laterRecords.length)} 条记录改过同一处，看一眼是否也要改。` : ""].filter((line) => line !== "").join("\n");
-                return {text: clip(text, 1500, "看改动记录"), details: {revision: written.value.revision, version: written.value.version, ids: {...written.value.ids}}};
+                return writtenReply(call, {revision: written.value.revision, version: written.value.version, repeated: written.value.repeated === true, ...(written.value.laterRecords === undefined ? {} : {laterRecords: written.value.laterRecords.length})});
             }),
         }),
     };

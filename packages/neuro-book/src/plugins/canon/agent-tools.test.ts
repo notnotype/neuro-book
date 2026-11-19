@@ -159,6 +159,14 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         const storyOnly = await run(AGENT_TOOL_IDS.write, {title: "x", version, edits: [{op: "add", entry: "星瑕", field: "人物.外观", delta: 1}]});
         expect(storyOnly.status).toBe("error");
         expect(storyOnly.text).toContain("story");
+        // 同一批两个新条目用同一个代号、同一个设定组列两次：整批拒收，一个也不建。
+        const sameKey = await run(AGENT_TOOL_IDS.write, {title: "x", edits: [{op: "create", key: "k", name: "雾崎", kind: "人物"}, {op: "create", key: "k", name: "雾岛", kind: "人物"}]});
+        expect(sameKey).toMatchObject({status: "error", code: "bad-edit"});
+        expect(sameKey.text).toContain("代号“k”在这一批里前面已经用过");
+        const twice = await run(AGENT_TOOL_IDS.write, {title: "x", edits: [{op: "create", name: "雾崎", kind: "人物", components: ["人物", "character"], fields: {"人物.外观": "金发"}}]});
+        expect(twice).toMatchObject({status: "error", code: "bad-edit"});
+        expect(twice.text).toContain("列了两次");
+        expect((await run(AGENT_TOOL_IDS.lookup, {names: ["雾崎", "雾岛"]})).text).toContain("“雾崎”：没有这个名字的条目");
         await close();
     }, 60_000);
 
@@ -172,6 +180,14 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         expect(again.text).toContain("同一次调用重发");
         const tree = await author.canon.call("tree", {parent: null});
         expect(tree.ok && tree.value.items.map((item) => item.name).sort()).toEqual(["乙", "甲"]);
+        // 第一次把“甲”改了名：重发的参数里的“甲”照现在的世界找不到了，仍要拿回第一次的结果，不报“没有叫甲的条目”。
+        const version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: "甲"}));
+        const renamed = await run(AGENT_TOOL_IDS.write, {title: "改名", version, edits: [{op: "set", entry: "甲", field: "名字", value: "丙"}]}, {invocation: "inv-rename"});
+        expect(renamed.status).not.toBe("error");
+        const replayed = await run(AGENT_TOOL_IDS.write, {title: "改名", version, edits: [{op: "set", entry: "甲", field: "名字", value: "丙"}]}, {invocation: "inv-rename"});
+        expect(replayed.status).not.toBe("error");
+        expect(replayed.text).toContain("同一次调用重发");
+        expect((replayed.details as {revision: string}).revision).toBe((renamed.details as {revision: string}).revision);
         await close();
     }, 60_000);
 
