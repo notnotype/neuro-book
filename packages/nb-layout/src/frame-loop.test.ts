@@ -65,6 +65,14 @@ describe("createFrameLoop", () => {
         loop.wake();
         clock.run(5000);
         expect(elapsed).toEqual([10, 16, 0, 18, 10]);
+        // 用过的循环停了再开始（第二场拖动）：第一帧也是 `nominalMs`，不是离上一场最后一帧的间隔。
+        more = true;
+        loop.start();
+        clock.run(5016);
+        loop.stop();
+        loop.start();
+        clock.run(9000);
+        expect(elapsed.slice(5)).toEqual([10, 10]);
     });
 
     it("缺省的 `nominalMs` 是一帧 60Hz", () => {

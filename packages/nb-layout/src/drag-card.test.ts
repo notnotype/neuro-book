@@ -62,6 +62,24 @@ describe("createDragCard", () => {
         expect(results.map((result) => (result.rect === null ? null : result.rect.x + ORIGIN.x + 0.5 * result.rect.width))).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((index) => PRESS.x + index));
     });
 
+    it("帧的时间戳有抖动：离该写尺寸的时刻差 `refreshSlackMs` 以内也写；设成 0 就等到时刻", () => {
+        const steps = (slack?: number) => {
+            const card = createDragCard(FROM, PRESS, COMPACT, slack === undefined ? {} : {refreshSlackMs: slack});
+            // 每秒 30 次：拿起之后下一次该写在 33.3ms；帧落在 16ms、31.5ms（间隔 16、15.5）。
+            return [[0, 16], [16, 16], [31.5, 15.5]].map(([now, elapsed]) => card.step({now: now as number, elapsed: elapsed as number, pointer: PRESS, origin: ORIGIN, target: COMPACT, refreshMs: 1000 / 30}));
+        };
+        // 缺省差 2ms 以内算到了：31.5 离 33.3 差 1.8，写；尺寸是两帧逼近到的 535.0（手算）。
+        expect(steps().map((result) => result.rect?.width ?? null)).toEqual([600, null, 535]);
+        expect(steps(0).map((result) => result.rect?.width ?? null)).toEqual([600, null, null]);
+    });
+
+    it("尺寸已经是目标、只剩追赶：还要帧，追完才停", () => {
+        const results = run(createDragCard({left: 100, top: 100, right: 480, bottom: 360}, {x: 600, y: 120}, COMPACT), 200, {pointerAt: () => ({x: 600, y: 120})});
+        expect(results[0]).toMatchObject({rect: {width: 380, height: 260}, settling: true});
+        expect(results.every((result) => result.rect === null || result.rect.width === 380)).toBe(true);
+        expect(results.at(-1)).toEqual({rect: null, settling: false});
+    });
+
     it("尺寸到了终点那一帧马上写，不等间隔", () => {
         const dt = 1000 / 60;
         const results = run(createDragCard(FROM, PRESS, COMPACT), 120, {refreshMs: 1000, dt});
@@ -77,6 +95,9 @@ describe("createDragCard", () => {
         const results = run(createDragCard(FROM, pointer, COMPACT), 200, {pointerAt: () => pointer});
         // 抓点夹在右边：拿起那一帧卡片还在矩形上。
         expect(results[0]?.rect).toMatchObject({x: FROM.left - ORIGIN.x, y: FROM.top - ORIGIN.y});
+        // 追赶和尺寸一起逼近：第一帧追赶量 −100 走到 −100×0.831 ≈ −83.1，宽 562.8 画成 563，x = 800 − 40 − 563 − 83.1 ≈ 113.9（手算）。
+        expect(results[1]?.rect?.width).toBe(563);
+        expect(results[1]?.rect?.x).toBeCloseTo(113.9, 1);
         const last = results.findLast((result) => result.rect !== null)?.rect;
         if (last === undefined || last === null) throw new Error("应当写过矩形");
         // 追完了：卡片的右沿在指针下。
@@ -85,7 +106,7 @@ describe("createDragCard", () => {
     });
 
     it("量不到的矩形（宽为 0、null）：按 `fallback` 拿起，抓在上沿中点，不追赶", () => {
-        for (const from of [{left: 100, top: 100, right: 100, bottom: 500}, null]) {
+        for (const from of [{left: 100, top: 100, right: 100, bottom: 500}, {left: 100, top: 100, right: 700, bottom: 100}, {left: 100, top: 100, right: 700, bottom: Number.POSITIVE_INFINITY}, {left: 700, top: 100, right: 100, bottom: 500}, null]) {
             const [first] = run(createDragCard(from, PRESS, COMPACT), 1);
             expect(first).toEqual({rect: {x: PRESS.x - ORIGIN.x - 190, y: PRESS.y - ORIGIN.y, width: 380, height: 260}, settling: false});
         }
