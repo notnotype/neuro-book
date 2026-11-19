@@ -75,6 +75,7 @@ Claude Sonnet（[`evidences/impl-review.txt`](evidences/impl-review.txt)，按�
 - 不改，记下：
   - 随包源码的注释里还有约 84 处“输出 N”，IDE 悬停时可见。本 Task 只管随包的 `.md`，测试里已写明；要清理另起一个 Task。
   - 链接扫描不看引用式链接与 HTML 的 `href`，包里没有这两种写法。
+  - “约定”里恢复快照的那段示例没有测试编译或运行它（`readme.test.ts` 只钉住起步例子）。合入后按 advisor 复核改过一次（`9593a26e9`：解析函数按表给每个引用的策略，拆分出来的 `preview` 也认得），之后改它要自己核对。
 
 ## 合入
 
