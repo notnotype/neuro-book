@@ -2,6 +2,7 @@
  * `nbook.agent` 交给同进程服务端插件的服务（docs/specs/agent/sessions.md“输入与前置条件”）。远程合同在第 4 片加。
  */
 
+import type {ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
@@ -177,6 +178,43 @@ export interface AgentRuntimeService {
 }
 
 export const agentKey: ServiceKey<AgentService> = defineServiceKey<AgentService>("nbook.agent/agent");
+
+/**
+ * 有归属的会话交给归属插件打开（agent/conversation.md 的转交）：贡献点 `agent.sessionOwners`，只收浏览器入口的贡献，贡献 id 以贡献方插件
+ * id 开头。`nbook.agent` 按会话头 `owner.plugin` 找那个插件的贡献：只有归属插件自己接得到它的会话。声明是空对象。
+ */
+export const SESSION_OWNERS_POINT = "agent.sessionOwners";
+export interface SessionOwnerOpener {
+    /**
+     * 打开（揭示）这个会话；`owner` 是会话头的归属，多个对象（例如几个 bot）时据此找。交回 true 表示用户看到了它；揭示不成（例如视图
+     * 被禁用）交回 false，`nbook.agent` 照常在通用视图里打开，免得用户点了没反应。
+     */
+    open(sessionId: string, owner: {readonly plugin: string; readonly id: string}): Promise<boolean>;
+}
+export const sessionOwnersPoint: ContributionPointDefinition<Record<string, never>> = {
+    id: SESSION_OWNERS_POINT,
+    implementation: "required",
+    idPrefix: "plugin",
+    validate: (descriptor) => (descriptor.location === "browser" ? null : `${SESSION_OWNERS_POINT} only accepts contributions from browser entries`),
+};
+
+/**
+ * 固定会话的对话组件（agent/conversation.md 的固定会话，ui/agent-conversation-view.md 的 bot 档）：`nbook.agent` 的浏览器入口提供，
+ * 给有自己会话的插件（bot 视图）用。组件只画已经取到 id 的会话；取会话、失败与重试由调用方做。shared 里不带 Vue 类型，组件写成
+ * `unknown`，调用方在浏览器一侧当组件用。
+ *
+ * 属性：`sessionId`、`identity: {name, avatar?}`（顶栏的名字与头像，可变）、`active`（视图可见且窗口有焦点）。事件 `seen(seq)`：`active`
+ * 时交出已经画出来的日志 seq，调用方据此记“看到”。
+ */
+export interface FixedConversationProps {
+    readonly sessionId: string;
+    readonly identity: {readonly name: string; readonly avatar?: string};
+    readonly active: boolean;
+}
+export interface AgentConversationComponents {
+    readonly FixedConversation: unknown;
+}
+export const agentConversationKey: ServiceKey<AgentConversationComponents> = defineServiceKey<AgentConversationComponents>("nbook.agent/conversation");
 
 /**
  * 主创的 Profile 里装的、别的插件的岗位 Profile 也可以装的扩展（bots.md 输出 3）。扩展的实现是运行时的值，跨插件只能经服务取，不进合同。

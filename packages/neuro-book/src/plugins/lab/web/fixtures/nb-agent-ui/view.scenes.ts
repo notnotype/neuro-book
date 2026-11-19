@@ -67,6 +67,23 @@ function hostScene(id: string, label: string, patch: Omit<Partial<AgentConversat
 }
 
 const WAITING: Partial<AgentConversationContext> = {run: {status: "waiting", phase: ""}};
+
+/** Lab 不连服务端，bot 的头像用一张内联的图代替（产品里是 `nbook.bots` 的头像地址）。 */
+const BOT_AVATAR = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><circle cx='10' cy='10' r='10' fill='#c9a7e8'/><circle cx='7' cy='9' r='1.5' fill='#5b3a7a'/><circle cx='13' cy='9' r='1.5' fill='#5b3a7a'/></svg>")}`;
+
+/**
+ * bot 档（ui/agent-conversation-view.md 的“用法档”）：顶栏是 bot 的名字与头像，没有新建与会话列表；审批在停靠区、输入框照常可用；
+ * 不能改写历史，命令只有白名单里的几个。
+ */
+function botScene(): Scene {
+    const base = hostScene("bot", "bot 档：头像、停靠区里的审批、没有新建与会话列表", {
+        ...WAITING,
+        session: {...conversationContext().session!, title: "星璃", avatar: BOT_AVATAR},
+        interaction: {...conversationContext().interaction, canMutateHistory: false, canArchive: false, canRestore: false, canOpenTree: false, commands: ["compact", "plan", "mode"]},
+        pendingInputs: [editApproval("bot-a"), editApproval("bot-b", "project://正文/第四章.md")],
+    });
+    return {...base, input: {...base.input, props: {...base.input.props, newSession: false, pendingPlacement: "dock"}}};
+}
 type Queued = AgentConversationContext["composer"]["queued"];
 const HELD_ZH: Queued = [
     {id: "h1", text: "保留雨夜那段对话，别删。", delivery: "steer", held: {reason: "上一轮出错"}},
@@ -145,6 +162,7 @@ export const agentConversationViewScenes: Scene[] = [
     hostScene("approval-edit", "审批：改一个文件，一句话的改动", {...WAITING, pendingInputs: [editApproval("one")]}),
     hostScene("approval-long", "审批：长 diff，向导内部滚动", {...WAITING, pendingInputs: [editApproval("long", CHAPTER, LONG_BEFORE, LONG_AFTER)]}),
     hostScene("approval-batch", "审批：一条回复三个调用，一步一个", {...WAITING, pendingInputs: [editApproval("a"), shellApproval, editApproval("c", "project://正文/第四章.md")]}),
+    botScene(),
     hostScene("modes-normal", "两个控件并排：普通模式", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
     hostScene("modes-plan-allow-writes", "两个控件并排：计划模式加放行写入，审批控件变淡", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
     hostScene("modes-with-role", "选了模型角色：角色名、实际用的模型、思考档位", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}, roles: [{key: "role:main", name: "主力", axis: "gradient", modelLabel: "Claude Sonnet"}], modelKey: "role:main", effectiveModel: "Claude Sonnet", thinkingLevels: ["low", "medium", "high"], thinking: "medium"}}),

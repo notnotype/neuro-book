@@ -15,6 +15,7 @@
 ## 交互
 
 - 左列：子会话（`ctx.session.path` 不空）是返回，只有图标，发 `select`，带父会话的 id（`path` 的最后一项）；顶层会话且 `newSession` 为真是新建，发 `create`；没选会话时空着。
+- 中列的图标：会话给了头像（`ctx.session.avatar`）时画成圆形头像图片（`data-header-avatar`），否则是 Profile 图标。
 - 中列：有 `sessions` 时是会话列表的入口。画在原处时中列是一个按钮，点了切换 `sessionsOpen`；送进标题区时中列只有文字与图标，按下由宿主转来（宿主改 `sessionsOpen`）。会话列表是 nb-ui 的 `Popover`，锚在中列的按钮上，送进标题区时锚在 `targets.anchor` 上；Escape 关掉后焦点回到锚点。悬停标题显示会话摘要。
 - 右列：`trailing` 插槽、常驻的顶栏动作（发 `header-action`）、“⋯”（选了发 `overflow`，值是菜单项 id）。没选会话时没有“⋯”。
 

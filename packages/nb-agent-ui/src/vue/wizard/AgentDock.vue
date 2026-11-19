@@ -3,7 +3,7 @@
  * 停靠区（见同名 `.md`）：不阻塞的等用户事项一次一个，借三种向导画内容，外框经注入换成停靠的标题行（`dock-frame.ts`）。
  *
  * 界面状态（展开与否、看到第几个、填了一半的答案）在这里，每次变化经 `dock.state` 交给宿主、宿主经 `ctx.dockState` 放回，同同步向导。
- * 不移动焦点：它不替换输入框，用户可能正在打字。
+ * 出现与事项变化时不移动焦点：它不替换输入框，用户可能正在打字。停靠档里答完一个时由视图调 `focusRoot` 放回来（同向导的容器）。
  */
 import {computed, nextTick, provide, ref, watch} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
@@ -61,6 +61,12 @@ function setState(next: DockState): void {
  * 焦点在停靠区里时，操作之后放回对应的按钮（向导按事项重建、收起换成小条，原来的按钮没了）：按顺序取第一个找得到的。
  * 焦点不在停靠区里时不动，免得抢输入框的焦点。
  */
+/** 焦点放到停靠区的容器上（不落到某个决定按钮上，免得接着按回车替用户作答）。 */
+function focusRoot(): void {
+    rootRef.value?.focus({preventScroll: true});
+}
+defineExpose({focusRoot});
+
 function keepFocus(...selectors: string[]): void {
     if (!rootRef.value?.contains(document.activeElement)) return;
     void nextTick(() => {
@@ -131,7 +137,7 @@ const summary = computed(() => {
 </script>
 
 <template>
-    <div v-if="item !== undefined" ref="rootRef" class="acv-dock" role="group" :aria-label="t('dock.label', {count: props.items.length})" data-agent-dock data-stream-scroll-ignore>
+    <div v-if="item !== undefined" ref="rootRef" class="acv-dock" role="group" tabindex="-1" :aria-label="t('dock.label', {count: props.items.length})" data-agent-dock data-stream-scroll-ignore>
         <div v-if="collapsed" class="acv-dock__bar nb-ui-popover-surface" data-dock-collapsed>
             <span class="acv-dock__dot" aria-hidden="true" />
             <b>{{ t("dock.pending", {count: props.items.length}) }}</b>
@@ -178,6 +184,7 @@ const summary = computed(() => {
     flex-direction: column;
     max-height: 40cqh;
     margin: 0 12px 6px;
+    outline: none;
 }
 
 .acv-dock > :deep(.acv-wizard-frame) {

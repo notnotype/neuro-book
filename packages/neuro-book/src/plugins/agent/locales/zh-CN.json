@@ -274,6 +274,7 @@
                 "autoEscalated": "审批模型转给你：{{reason}}"
             }
         },
+        "settleNotice": "发出会拒绝 {{count}} 项等你处理的事。",
         "createFailed": "新建会话失败（{{code}}）。",
         "openFailed": "无法打开此会话（{{code}}）。",
         "retry": "重试",

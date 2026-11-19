@@ -23,6 +23,9 @@ export const BOT_ID = new RegExp(BOT_ID_PATTERN, "u");
 /** 主对话的 id 由 bot id 定（main-conversation.md 输出 1）。 */
 export const mainSessionId = (botId: string): string => `bot-${botId}`;
 
+/** 头像的地址（bots.md 的头像路由）：浏览器拿它当 `<img>` 的 `src`。 */
+export const avatarUrl = (botId: string): string => `/api/${BOTS_PLUGIN}/avatar/${encodeURIComponent(botId)}`;
+
 /** 预设文件的上限（bots.md“输入与前置条件”）。 */
 export const PERSONA_MAX_BYTES = 256 * 1024;
 export const AVATAR_MAX_BYTES = 1024 * 1024;
@@ -76,7 +79,18 @@ const MainStateSchema = Type.Union([
     Type.Object({state: Type.Literal("failed"), code: Type.String()}, {additionalProperties: false}),
 ]);
 
-const BotItemSchema = Type.Object({id: Type.String(), name: Type.String(), main: MainStateSchema}, {additionalProperties: false});
+/**
+ * `unread`：“看到”之后的计数消息数，还没数完（持有之后补数之前、没有持有）为 null；`latestSeq` 是最新一条计数消息的 seq，没有未读时
+ * 等于 `seenSeq`；`seenSeq` 是“看到”的位置（main-conversation.md 的未读）。
+ */
+const BotItemSchema = Type.Object({
+    id: Type.String(),
+    name: Type.String(),
+    main: MainStateSchema,
+    unread: Type.Union([Type.Integer({minimum: 0}), Type.Null()]),
+    latestSeq: Type.Integer({minimum: 0}),
+    seenSeq: Type.Integer({minimum: 0}),
+}, {additionalProperties: false});
 export type BotItem = Static<typeof BotItemSchema>;
 
 const NoDetail = Type.Object({}, {additionalProperties: false});
@@ -102,6 +116,13 @@ export const botsContract = defineRemoteService({
                 "owner-mismatch": NoDetail,
                 ...(Object.fromEntries(MAIN_CODES.map((code) => [code, OpenDetail])) as {readonly [Code in (typeof MAIN_CODES)[number]]: typeof OpenDetail}),
             },
+        },
+        /** 记“看到”（main-conversation.md 的未读）：`through` 截到最新的计数消息，小于已存的不动。 */
+        markSeen: {
+            input: Type.Object({botId: Type.String(), through: Type.Integer({minimum: 0})}, {additionalProperties: false}),
+            output: Type.Object({seenSeq: Type.Integer({minimum: 0})}, {additionalProperties: false}),
+            effect: "write",
+            errors: {"unknown-bot": NoDetail, "storage-failed": Type.Object({detail: Type.String()}, {additionalProperties: false})},
         },
     },
     events: {

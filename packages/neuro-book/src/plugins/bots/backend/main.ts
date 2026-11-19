@@ -28,6 +28,8 @@ export interface MainConversationsOptions {
     readonly report: (level: "info" | "warn", code: string, message: string, data: Readonly<Record<string, unknown>>) => void;
     /** 某个 bot 的持有状态变了。 */
     readonly changed: () => void;
+    /** 持有了某个 bot 的主对话（之后开始数未读）。 */
+    readonly held?: (bot: BotRecord) => void;
 }
 
 /** 封住之后到的 `ensure`：`nbook.bots` 正在停止。 */
@@ -125,6 +127,7 @@ export class MainConversations {
         }
         this.#holds.set(bot.id, held.value);
         this.#set(bot.id, {state: "held"});
+        this.options.held?.(bot);
         if (held.value.opened !== null) await this.#measured(bot, held.value.opened);
         return {ok: true, sessionId};
     }

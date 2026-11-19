@@ -12,6 +12,7 @@ import type {
     AgentLocale,
     AgentViewMode,
     AgentWelcomeView,
+    PendingInputView,
 } from "../types";
 import {visibleEntries} from "../registry";
 import type {AgentViewRegistry, HeaderActionEntry} from "../registry";
@@ -28,7 +29,7 @@ import AgentContextInspector from "./panels/AgentContextInspector.vue";
 import AgentSessionTree from "./panels/AgentSessionTree.vue";
 import AgentWizard from "./wizard/AgentWizard.vue";
 import AgentDock from "./wizard/AgentDock.vue";
-import {isDocked, isApproval, isModeSwitch} from "../wizard";
+import {isDocked, isApproval, isModeSwitch, rememberKey} from "../wizard";
 import {provideAgentView} from "./host";
 import type {AgentViewRenderers} from "./host";
 import type {PreviewImageRequest, ViewAction} from "./view-action";
@@ -62,6 +63,10 @@ const props = withDefaults(defineProps<{
     welcome?: AgentWelcomeView | null;
     /** 用户的状态栏设置（显隐与次序，见 `status-line.ts`）；给了才有右键菜单，宿主处理 `statusLine.toggle`、`statusLine.openSettings`。 */
     statusLine?: StatusLineSetting;
+    /**
+     * 阻塞的待处理事项放在哪：缺省 `wizard`（替换输入框）；`dock` 时也进停靠区，输入框不隐藏（同名 .md 的“用法档”，bot 的主对话用）。
+     */
+    pendingPlacement?: "wizard" | "dock";
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
@@ -76,6 +81,7 @@ const props = withDefaults(defineProps<{
     sessionsOpen: undefined,
     draftProfile: null,
     welcome: null,
+    pendingPlacement: "wizard",
 });
 
 const slots = defineSlots<{
@@ -302,8 +308,25 @@ function focusComposer() {
  * 等用户时向导替换输入框的位置。输入框隐藏但不卸载：草稿和撤销栈都在。只有阻塞的事项替换输入框；异步提问与子代理的事项进停靠区，
  * 输入框照常可用。
  */
-const blockingInputs = computed(() => props.ctx.pendingInputs.filter((item) => !isDocked(item)));
-const dockedInputs = computed(() => props.ctx.pendingInputs.filter(isDocked));
+const docked = (item: PendingInputView): boolean => props.pendingPlacement === "dock" || isDocked(item);
+const blockingInputs = computed(() => props.ctx.pendingInputs.filter((item) => !docked(item)));
+const dockedInputs = computed(() => props.ctx.pendingInputs.filter(docked));
+const dockRef = ref<InstanceType<typeof AgentDock> | null>(null);
+
+/**
+ * 停靠档里停靠区是唯一的应答处，答完一个时照向导的规则放焦点（docs/specs/agent/conversation.md 输出 11）：宿主去掉答过的事项、
+ * 它的按钮随之卸载，这时焦点原本在停靠区里的，放到停靠区的容器上（不落到某个按钮上，免得接着按回车收起或替用户作答），都答完了回
+ * 输入框。`flush: "pre"` 在界面更新之前看焦点还在不在里面。
+ */
+watch(() => dockedInputs.value.map((item) => item.id), (now, before) => {
+    if (props.pendingPlacement !== "dock" || !before.some((id) => !now.includes(id))) return;
+    const root = dockRef.value?.$el as HTMLElement | undefined;
+    if (root?.contains(document.activeElement) !== true) return;
+    void nextTick(() => {
+        if (dockRef.value !== null && dockedInputs.value.length > 0) dockRef.value.focusRoot();
+        else focusComposer();
+    });
+}, {flush: "pre"});
 const waitingForUser = computed(() => blockingInputs.value.length > 0);
 
 /**
@@ -333,6 +356,24 @@ function onAction(action: ViewAction) {
     }
     if (action.type === "composer.submit" || action.type === "command.run") scrollToLatest();
     emit("action", action);
+    if (props.pendingPlacement === "dock" && action.type === "input.submit") rememberAlongside(action);
+}
+
+/**
+ * 停靠档一次只显示一个事项、各自提交，向导里“本会话都批准”顺带选上同类的那一步没有了（`wizard.ts` 的 `choose`）。这里补上：同一会话
+ * 里同一记住范围的其余审批照同一个决定一并提交。
+ */
+function rememberAlongside(action: Extract<ViewAction, {type: "input.submit"}>): void {
+    const {resolutions} = action;
+    if (resolutions.kind !== "approval" || (resolutions.decision !== "allow-session" && resolutions.decision !== "allow-always")) return;
+    const chosen = dockedInputs.value.find((item) => item.id === action.batchKey);
+    if (chosen === undefined || !isApproval(chosen)) return;
+    const key = rememberKey(chosen);
+    if (key === null) return;
+    for (const item of dockedInputs.value) {
+        if (item.id === chosen.id || !isApproval(item) || item.source?.sessionId !== chosen.source?.sessionId || rememberKey(item) !== key) continue;
+        emit("action", {type: "input.submit", batchKey: item.id, resolutions: {kind: "approval", decision: resolutions.decision}, ...(item.source === undefined ? {} : {sessionId: item.source.sessionId})});
+    }
 }
 
 // ─── 原图预览 ───────────────────────────────────────────────────────────
@@ -522,7 +563,7 @@ defineExpose({focusComposer, scrollToLatest});
 
         <!-- 停靠区在排队消息与可用性提示（输入框里）的上面；同步向导在时收成一条，排在它下面。 -->
         <!-- 按会话重建：换了会话，组件里的展开与看到第几个不带过去（状态由宿主按会话放回）。 -->
-        <AgentDock v-if="dockedInputs.length > 0" :key="props.ctx.session?.id ?? ''" :items="dockedInputs" :state="props.ctx.dockState" :held="waitingForUser" @action="onAction" />
+        <AgentDock v-if="dockedInputs.length > 0" ref="dockRef" :key="props.ctx.session?.id ?? ''" :items="dockedInputs" :state="props.ctx.dockState" :held="waitingForUser" @action="onAction" />
         <span class="sr-only" role="status">{{ dockAnnouncement }}</span>
         <AgentConversationComposer
             v-show="!waitingForUser"

@@ -8,6 +8,7 @@
 
 import {join} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -26,8 +27,10 @@ import {locateBuiltinBots} from "./builtin-root";
 import {MainConversations} from "./main";
 import {PresetTable} from "./presets";
 import type {PresetLocator} from "./presets";
+import {createAvatarRoutes} from "./avatar";
 import {COMPANION, companionProfile} from "./profile";
 import {BotStore} from "./store";
+import {UnreadTracker} from "./unread";
 
 /** `ensureMain` 失败时带详情的码（合同里这些码的详情是 `{detail?}`）。 */
 const DETAILED = new Set(Object.keys(botsContract.methods.ensureMain.errors).filter((code) => code !== "unknown-bot" && code !== "owner-mismatch"));
@@ -44,7 +47,7 @@ export function createBotsBackendPlugin(locateBuiltin: () => string | null = loc
             dependencies: [{key: diagnosticsKey}, {key: stateRootKey}, {key: clockKey}, {key: storageKey}, {key: agentKey}, {key: agentProfilePartsKey}, {key: pluginPackagesKey, required: false}],
             remoteProvides: [botsContract],
             receives: [PRESETS_POINT],
-            contributions: [COMPANION.contribution],
+            contributions: [COMPANION.contribution, {capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
             activate: async (context) => {
                 const diagnostics = context.services.require(diagnosticsKey);
                 const record = (level: "info" | "warn", code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
@@ -65,27 +68,40 @@ export function createBotsBackendPlugin(locateBuiltin: () => string | null = loc
                     if (packages.status !== "resolved") return null;
                     return kind === "file" ? packages.instance.file(plugin, path) : packages.instance.directory(plugin, path);
                 };
-                const opened = await BotStore.open(context.services.require(storageKey));
+                const storage = context.services.require(storageKey);
+                const opened = await BotStore.open(storage);
                 if (!("read" in opened)) report("record-failed", `打不开 bot 记录：${opened.detail}`, {detail: opened.detail});
                 let service: BotService | null = null;
-                const main = new MainConversations({agent, clock, report: record, changed: () => service?.changed()});
+                const unread = new UnreadTracker({agent, storage, report, changed: () => service?.changed()});
+                await unread.load();
+                const main = new MainConversations({agent, clock, report: record, changed: () => service?.changed(), held: (bot) => unread.track(bot.id)});
                 const presets = new PresetTable({locate, report, received: (handle) => {
                     if (handle.plugin === BOTS_PLUGIN && handle.id === DEFAULT_PRESET) service?.start();
                 }});
-                service = new BotService({store: "read" in opened ? opened : null, root: join(context.services.require(stateRootKey).path, "user", "bots"), presets, main, clock, signal: context.signal, report});
+                const root = join(context.services.require(stateRootKey).path, "user", "bots");
+                service = new BotService({store: "read" in opened ? opened : null, root, presets, main, unread, clock, signal: context.signal, report});
                 const bots = service;
                 context.signal.addEventListener("abort", () => main.seal(), {once: true});
                 context.onStop(async () => {
                     main.seal();
                     await bots.stop();
+                    unread.stop();
                     await main.stop();
                 });
                 return {
-                    contributions: {[PROFILES_POINT]: {[COMPANION.contribution.id]: companionProfile(context.services.require(agentProfilePartsKey))}},
+                    contributions: {
+                        [PROFILES_POINT]: {[COMPANION.contribution.id]: companionProfile(context.services.require(agentProfilePartsKey))},
+                        [HTTP_ROUTES_POINT]: {[descriptor.id]: createAvatarRoutes({root, known: (botId) => bots.has(botId)})},
+                    },
                     receivers: {[PRESETS_POINT]: presets.receiver},
                     remote: [provideRemote(botsContract, () => ({
                         methods: {
                             list: (_input, call) => call.ok(bots.list()),
+                            markSeen: async ({botId, through}, call) => {
+                                const seen = await bots.markSeen(botId, through);
+                                if (seen.ok) return call.ok({seenSeq: seen.seenSeq});
+                                return seen.code === "unknown-bot" ? call.fail("unknown-bot", {}) : call.fail("storage-failed", {detail: seen.detail});
+                            },
                             ensureMain: async ({botId}, call) => {
                                 const ensured = await bots.ensureMain(botId);
                                 if (ensured.ok) return call.ok({sessionId: ensured.sessionId});
