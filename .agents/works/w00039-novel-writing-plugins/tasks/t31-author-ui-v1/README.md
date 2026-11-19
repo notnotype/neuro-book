@@ -181,5 +181,5 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 
 ## 下一步
 
-1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：S0、F、C、A 已做；下一步 M（负载低于 3 时在 1000 章上量六个作者读取与高密度的读待处理，写缓存与索引的细设计并派 omp 审），同时做 U（nb-ui 的矩阵表、多选弹层与节点带），再 W1 到 W3、D。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
+1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：S0、F、C、A、W1（`bbb66bb8a`：浏览器入口、侧栏、“谁知道什么”，组件测试接真实服务，变异检查抓到缺省点名；U 并进 W，见计划的技术选型）已做；下一步 M（负载低于 3 时在 1000 章上量六个作者读取与高密度的读待处理，写缓存与索引的细设计并派 omp 审），同时做 U（nb-ui 的矩阵表、多选弹层与节点带），再 W1 到 W3、D。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
 2. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
