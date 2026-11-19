@@ -84,15 +84,25 @@ function chapterIndexOf(view: CanonReadView, position: ReadPosition): number {
     return position.kind === "chapter" ? Math.max(0, view.chapters.indexOf(position.chapter)) : 0;
 }
 
-/** 停滞（输出 4）：状态为进行的目标，最后一次被改（从没改过是出场）到读取位置所在章超过 `STALLED_AFTER_CHAPTERS` 章。 */
+/**
+ * 目标最近一次动过与没动过的章数（goals.md 输出 6，停滞与作者的目标表共用）：动过只算改到 `goal` 命名空间、在这个位置与模式下计入、
+ * 补丁套上的剧情变更（按计划模式计入的计划没有套没套上的结论，算动过）；`last` 是最近一次那条变更安放的章（前史为 null），从没动过
+ * 为 null；没动过的章数从最近一次（没有时从出场）算到读取位置所在的章。
+ */
+export function goalQuiet(view: CanonReadView, goal: string, mode: Mode, at: ReadPosition): {readonly last: {readonly chapter: string | null} | null; readonly quiet: number} {
+    const moved = touchesOf(view, goal, mode, at).filter((touch) => view.outcome(touch.change.id)?.applied !== false).at(-1)?.change;
+    const since = moved?.at ?? (view.object({kind: "entry", id: goal}) as {appears?: StoryChange["at"]} | undefined)?.appears;
+    const from = since === undefined || since.kind !== "chapter" ? 0 : Math.max(0, view.chapters.indexOf(since.chapter));
+    return {last: moved === undefined ? null : {chapter: moved.at.kind === "chapter" ? moved.at.chapter : null}, quiet: chapterIndexOf(view, at) - from};
+}
+
+/** 停滞（输出 4）：状态为进行的目标，最后一次动过（从没动过是出场）到读取位置所在章超过 `STALLED_AFTER_CHAPTERS` 章。 */
 const stalled: DiagnosticCompute = (view, at, mode) => {
     const findings: Finding[] = [];
-    const now = chapterIndexOf(view, at);
     for (const goal of liveGoals(view, at, mode)) {
         if (goal.状态 !== "active") continue;
-        const last = touchesOf(view, goal.id, mode, at).at(-1)?.change.at ?? (view.object({kind: "entry", id: goal.id}) as {appears?: StoryChange["at"]} | undefined)?.appears;
-        const since = last === undefined || last.kind !== "chapter" ? 0 : Math.max(0, view.chapters.indexOf(last.chapter));
-        if (now - since > STALLED_AFTER_CHAPTERS) findings.push({key: {objects: [{kind: "entry", id: goal.id}], line: view.line}, objects: [{kind: "entry", id: goal.id}], params: {chapters: now - since}});
+        const {quiet} = goalQuiet(view, goal.id, mode, at);
+        if (quiet > STALLED_AFTER_CHAPTERS) findings.push({key: {objects: [{kind: "entry", id: goal.id}], line: view.line}, objects: [{kind: "entry", id: goal.id}], params: {chapters: quiet}});
     }
     return findings;
 };

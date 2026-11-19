@@ -19,7 +19,7 @@ const At = {position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mod
 const Page = {cursor: Type.Optional(Type.String()), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 200}))};
 
 const methods = {
-    /** 人物页：他的知情（plot/knowledge.md 输出 16）。 */
+    /** 人物页：他的知情（plot/knowledge.md 输出 16）、目标与态度（plot/goals.md 输出 6）。 */
     person: {input: Type.Object({person: Type.String(), ...At}), output: Out, effect: "read", errors},
     /** 秘密的“谁知道”（plot/knowledge.md 输出 15）。 */
     point: {input: Type.Object({point: Type.String(), ...At}), output: Out, effect: "read", errors},
@@ -35,6 +35,17 @@ const methods = {
         effect: "read",
         errors,
     },
+    /** 作者用的目标表（plot/goals.md 输出 6）：主要角色一组一组；`finished` 时另列达成与放弃的。 */
+    goals: {input: Type.Object({...At, holder: Type.Optional(Type.String()), finished: Type.Optional(Type.Boolean()), ...Page}), output: Out, effect: "read", errors},
+    /** 作者用的伏笔账本（plot/foreshadowing.md 输出 9）：一页、全表的分段条数。 */
+    ledger: {
+        input: Type.Object({...At, segment: Type.Optional(Type.Union([Type.Literal("unpaid"), Type.Literal("silent"), Type.Literal("unplanned"), Type.Literal("dropped"), Type.Literal("all")])), ...Page}),
+        output: Out,
+        effect: "read",
+        errors,
+    },
+    /** 作者用的经历（plot/knowledge.md 输出 17）：从新到旧分页。 */
+    experience: {input: Type.Object({person: Type.String(), ...At, ...Page}), output: Out, effect: "read", errors},
 } as const;
 
 export const plotAuthorContract = defineRemoteService({id: "nbook.plot/author", version: 1, provider: "project", callers: ["browser"], methods, events: {}});

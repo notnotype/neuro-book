@@ -75,6 +75,10 @@ describe("剧情插件在进程内的世界场地上", () => {
         expect(await author.point({point: k})).toMatchObject({ok: true, value: {secrecy: "secret", people: [], peopleTotal: 0, rest: {count: 1, unaware: true}, reader: {degree: "unaware"}}});
         expect(await author.point({point: xia})).toEqual({ok: false, code: "plot", detail: {code: "not-found"}});
         expect(await author.secrets({people: [xia], limit: 10})).toMatchObject({ok: true, value: {line: "main", counts: {all: 1, readerOnly: 0, readerUnaware: 1, noPlan: 1}, candidates: [], main: [], items: [{point: k, subject: xia, people: {[xia]: {degree: "none"}}}], names: {[k]: {name: "哥哥就是星瑕"}, [xia]: {name: "星瑕"}}}});
+        expect(await author.goals({})).toMatchObject({ok: true, value: {line: "main", items: [], names: {}}});
+        expect(await author.ledger({segment: "all"})).toMatchObject({ok: true, value: {counts: {unpaid: 0, silent: 0, unplanned: 0, dropped: 0, all: 0}, items: []}});
+        expect(await author.experience({person: xia})).toMatchObject({ok: true, value: {uncast: 0, items: []}});
+        expect(await author.experience({person: "no-such"})).toEqual({ok: false, code: "plot", detail: {code: "not-found"}});
         await window.close();
     });
 });
