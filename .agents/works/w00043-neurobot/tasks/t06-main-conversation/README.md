@@ -45,6 +45,7 @@ updated: 2026-11-19
 | 1 内核：会话头 `owner` 与只读会话头、`settlePending` 与共用的认领 | 34c941664 | nb-harness 全包 901 条通过，nb-harness、nb-agent-ui、neuro-book 类型检查通过。变异检查 3 处：建会话的重查、`releaseClaims` 交还、嵌套事项的结算，都抓到 |
 | 2 会话表的 `hold`、`header`、`refuse`；`nbook.agent` 的门面（盖章、冻结、作废收掉持有与订阅）、列表过滤、`owned-session`、远程 `send` 的 `settlePending`、审批预览的上下文 | 476add8dc | `nbook.agent` 全部 534 条通过；nb-harness 全包 904 条通过、4 条失败，单独重跑时传输与 OMP 的 3 条通过，“最后一批截在任何一个字节处”在负载 20 以上照旧超时（第 1 片已记，master 上同样）；nb-harness、neuro-book 类型检查通过。变异检查 13 处（会话表 5、门面与列表 8），都抓到 |
 | 3 新插件 `nbook.bots`：预设贡献点与文件核对（按代次）、建 bot 与创建凭据、启动时收拾、岗位 Profile、主对话的持有、重试与指标、远程服务；平台的 `packages.file()`；打包；显示名表（补上漏登记的 `nbook.stickers`） | 14e0554ff | `bots` 15 条通过；类型检查通过；`test:affected --since master --typecheck` 六个包：nb-agent-ui、nb-harness、nb-markdown、nb-models 全过，nb-story 1 条超时（单独重跑通过），neuro-book 9 条失败：`server.test.ts` 的固定插件名单 6 条（补上 `nbook.bots` 与原本就漏的 `nbook.stickers` 后通过）、explorer 与 package-io 各 1 条（单独重跑通过）、SDK 导出面 1 条（master 的 747845c93 带来，本分支没碰）。变异检查 6 处，第一轮有 2 处活下来（撤回之后的核对等得不够久、取消重试看不出），补强用例后都抓到。真实进程：全新状态根起开发服务，建出 `user/bots/lyra/`（人设、头像、凭据），没有警告诊断 |
+| 实现审查（omp，9 条：重要 7、建议 2）的修正 | 1ce1c1837 | [处理](evidences/impl-review-disposition.md)：改 7 条（其中第 9 条按开发者的选择改了平台的单条校验），第 2 条推迟到 t16，第 4 条改 Spec 的措辞。nb-runtime 408 条、平台相关 111 条通过；nb-harness 910 条通过、1 条是已知在负载下超时的截断用例；`bots`、`agent`、`plugin-platform`、`server.test.ts` 657 条通过；三个包类型检查通过。每处修正都做了变异检查 |
 
 实施中发现：
 
@@ -56,4 +57,4 @@ updated: 2026-11-19
 
 ## 下一步
 
-后端实现审查（omp，审 a36f27c01..14e0554ff）在跑，报告回来后逐条处理；之后合入 master、晋升前逐条核对 Spec。
+合入 master；之后按 Spec 逐条核对（实现、测试、字面），交开发者批准晋升 `bots/bots.md`、`bots/main-conversation.md` 与几份 Spec 里 t06 的 planned 条目。

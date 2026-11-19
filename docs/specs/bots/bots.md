@@ -75,7 +75,7 @@ owners:
 
 - 激活里不读写会话（[`agent/contributions.md`](../agent/contributions.md) 输出 3）。后台任务从 `nbook.bots` 自己的预设接收方收到缺省预设的声明时开始：这时它交出的岗位 Profile 已交给 `nbook.agent`、能解析，调 `agentKey` 不等自己的激活。
 - 预设的文件核对是异步的：撤回之后才查完的结果作废，不把撤回了的预设记成可用，也不盖掉同一个 id 后来发布的那份。
-- `nbook.bots` 的停止信号一到，后台任务不再开始新的工作、不再排重试；在途的建 bot 与持有做完一步后停下，迟到交回的持有立即放掉。这些都先于 `nbook.agent` 停止。
+- `nbook.bots` 的停止信号一到，后台任务不再开始新的工作、不再排重试；在途的建 bot 与持有做完一步后停下，迟到交回的持有立即放掉。服务端停止时 `nbook.agent` 同时开始停止、照它的规则关闭会话，不等 `nbook.bots` 放掉持有（[`agent/sessions.md`](../agent/sessions.md) 输出 14、24）。
 - 后台任务跑完之前调远程方法：`list()` 交回已有的记录；`ensureMain` 等这个 bot 建好再做。
 
 ## 副作用与数据
