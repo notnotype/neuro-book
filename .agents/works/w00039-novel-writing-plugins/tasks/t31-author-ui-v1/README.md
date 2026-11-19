@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t31-author-ui-v1
 status: active
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # 作者界面第一版
@@ -194,6 +194,6 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 
 ## 下一步
 
-1. 第二批第一期（B2-1）已合入。下一期 B2-2（时间线与决策，[`plan-b2.md`](plan-b2.md) 的“第二批的分期”）先写计划；`plot/author-ui.md` 的晋升要先按核对结论补测试（缺的句子逐条列在 [`b2-spec-promotion-omp.tsv`](evidences/b2-spec-promotion-omp.tsv)）。
+1. 第二批第一期（B2-1）已合入。后面三期（B2-2 工作单与决定、B2-3 时间线与多条线、B2-4 改设定以后的牵连，见 [`plan-b2.md`](plan-b2.md) 的“第二批的分期”）按开发者 11-19 的决定暂停：先做“作者与 Agent 都能改设定”的底座与人物设定的闭环（Work README 决定表 11-19），之后再排。恢复时 `plot/author-ui.md` 的晋升先按核对结论补测试（缺的句子逐条列在 [`b2-spec-promotion-omp.tsv`](evidences/b2-spec-promotion-omp.tsv)）。
 2. 低负载（低于 3）时用修正后的 `plot-scale.ts` 重量 1000 章的八个作者读取。
 3. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
