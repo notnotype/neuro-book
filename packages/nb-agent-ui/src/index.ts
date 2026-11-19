@@ -41,7 +41,7 @@ export {BUILTIN_STATUS_ITEMS, collapsedItems, moveStatusItem, resolveStatusLine,
 export type {ResolvedStatusItem, StatusLineItem, StatusLineSetting, StatusLineSide, StatusLineSlot, StatusLineWidth} from "./status-line";
 export type {AgentContextPatch} from "./context";
 export {createHarnessTranscript, logSeqOf, modelErrorText} from "./harness";
-export {createKernelTranscript} from "./kernel-transcript";
+export {createKernelTranscript, NOTICE_SUMMARY_CHARS} from "./kernel-transcript";
 export type {KernelAnchor, KernelIssuer, KernelMeta, KernelNotice, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
 export type {HarnessTranscript, TranscriptProblem} from "./harness";
 export {catalogRef, providerSelectable} from "./model-catalog";

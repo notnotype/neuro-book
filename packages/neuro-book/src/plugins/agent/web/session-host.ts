@@ -35,7 +35,6 @@ import {modelNeedsText} from "./profile-view";
 import {MODEL_KEYS, modelNotice} from "./model-notice";
 import type {ModelFailure, ModelNoticeInput} from "./model-notice";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
-import {noticeSummary} from "../shared/remote";
 import type {AncestorItem, JobItem, TreeItem} from "../shared/subagents";
 import {agentText} from "../shared/text";
 import {heldReason} from "./held-reason";
@@ -1115,8 +1114,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const name = authorOf(target, notice.by).label;
         return {
             id: notice.id,
-            // 从日志帧来的是全文：排队区与从快照来的一样只显示摘要。
-            text: noticeSummary(notice.text),
+            text: notice.summary,
             delivery: "steer" as const,
             author: {label: deps.text.t(agentText("conversation.author.notice", {name})), icon: "i-lucide-bell"},
             editable: false,
@@ -1220,8 +1218,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             const mode = deps.resumeMode();
             const idle = target.transcript.run().status === "idle";
             const input = typed === null ? null : typed.attachments.length === 0 ? {text: typed.text} : {text: typed.text, attachments: [...typed.attachments]};
-            if (mode !== "merge" && input === null) {
-                const done = await remote.resume({sessionId: target.id, commandId: commandId(), mode});
+            // 空着继续、没有留着的话（只有待发的提醒，也许还有中断的运行）：没有要合并的，`resume` 接着跑中断的那一轮或开一次运行，
+            // 提醒随第一次请求带上（harness/runtime.md 输出 114）。
+            const onlyNotices = input === null && !target.transcript.queue().some((item) => item.state === "held");
+            if ((mode !== "merge" || onlyNotices) && input === null) {
+                const done = await remote.resume({sessionId: target.id, commandId: commandId(), mode: onlyNotices ? "keep" : mode});
                 if (!done.ok && done.code !== "nothing-to-resume") fail(done.code);
                 return;
             }
@@ -1551,11 +1552,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 return;
             case "run.continue":
                 if (target === null) return;
-                // 只有待发的提醒、没有留着的话：`resume` 接着跑中断的那一轮，或开一次运行把提醒送出去（harness/runtime.md 输出 114）。
-                if (!target.transcript.queue().some((item) => item.state === "held") && target.transcript.notices().length > 0) await remote.resume({sessionId: target.id, commandId: commandId(), mode: "keep"});
-                // 只有中断的运行、没有留着的话：照旧接着跑（输出 9）。
-                else if (!target.transcript.queue().some((item) => item.state === "held")) await remote.start({sessionId: target.id, commandId: commandId()});
-                else await continueRun(target, null);
+                // 有留着的话或待发的提醒：按恢复方式继续（输出 50、51）。只有中断的运行：照旧接着跑（输出 9）。
+                if (target.transcript.queue().some((item) => item.state === "held") || target.transcript.notices().length > 0) await continueRun(target, null);
+                else await remote.start({sessionId: target.id, commandId: commandId()});
                 return;
             case "input.submit":
                 await resolveInput(action.batchKey, action.resolutions as never, action.sessionId);
