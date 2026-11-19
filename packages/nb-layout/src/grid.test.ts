@@ -1335,6 +1335,21 @@ describe("拆分树原语：收起与展开的入口", () => {
         expect(entry.find("a")?.collapse).toMatchObject({collapsed: true, restoreSize: 250});
     });
 
+    it("结果里的 `collapse` 是副本：改它不改树（输出 147）", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 250, 100), ...fixed, ...collapsible(100)},
+            leaf("b", "width", 500, 100),
+        ]), {sashSize: 4});
+        const result = grid.setCollapsed("a", true);
+        if (!result.ok) throw new Error(result.message);
+        (result.collapse as {restoreSize: number}).restoreSize = 999;
+        expect(grid.find("a")?.collapse?.restoreSize).toBe(250);
+        const unchanged = grid.setCollapsed("a", true);
+        if (!unchanged.ok) throw new Error(unchanged.message);
+        (unchanged.collapse as {collapsed: boolean}).collapsed = false;
+        expect(grid.find("a")?.collapse?.collapsed).toBe(true);
+    });
+
     it("失败：`id` 不存在、是根、没有收起策略（输出 147）", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 500), leaf("b", "width", 499)]), {sashSize: SASH});
         expect(codeOf(grid.setCollapsed("missing", true))).toEqual({code: "not-found", params: {id: "missing"}});

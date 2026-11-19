@@ -82,7 +82,7 @@ const host = useGridHost({grid, onIssues: (issues) => console.warn(issues)});
 </template>
 ```
 
-- 尺寸来自组件自己量的根盒（`extent` 事件，读 `clientWidth`、`clientHeight`，不随祖先的变换缩放），宿主不另量；没量到可用尺寸（null，或宽、高为 0）时布局为空、`disabled` 为真。尺寸只来自组件，不要把它挂在“有了尺寸才渲染”的条件后面，那样永远等不到尺寸。
+- 尺寸来自组件自己量的根盒（`extent` 事件，读 `clientWidth`、`clientHeight`，不随祖先的变换缩放），宿主不另量；没量到可用尺寸（null，或宽、高任一为 0）时布局为空、`disabled` 为真。尺寸只来自组件，不要把它挂在“有了尺寸才渲染”的条件后面，那样永远等不到尺寸。
 - `disabled`、`contextKey`、提交处理只经 `useGridHost` 的选项给，模板里不要再写同名属性：`disabled`、`contextKey` 后写的会静默覆盖包里的值，提交处理会被换掉或合成数组。
 - 诊断只有一个出口：选项里的 `onIssues` 收布局重算的诊断、`notify-failed`，也收组件的 `issues` 事件（包里带着接它的处理）。
 - 提交：同步核对上下文、版本与尺寸，一次 `resizeBranches` 成功之后才调选项里的 `onApplied(commit, result, before)`。`before` 是提交之前发布的布局（手势开始时呈现的那份），此时 `host.layout` 已经是之后的；要比较提交前后时用它。`onApplied` 是“已经落账”的通知，不是第二道拒绝门：它抛错报成 `notify-failed`，不反悔已提交的几何；自身提交不造成预览自取消。

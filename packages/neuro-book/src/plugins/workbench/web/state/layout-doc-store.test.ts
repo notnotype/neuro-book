@@ -800,6 +800,15 @@ describe("呈现事实", () => {
         // 拖侧栏的边界：写。
         store.actions.commitGesture(store.state.presented, {...squeezed, [side]: {width: 200, height: 700}, g0: {width: 260, height: 400}, [lower]: {width: 260, height: 268}, [panelRegion]: {width: 260, height: 300}}, {});
         expect(regionSize(store.actions.document(), "sidebar").width).toBe(200);
+
+        // “这次动没动”看手势开始时的尺寸（`before`），不看 store 记的 `presented`：实时预览期间 `presented` 不更新，可能和手势开始时的不同（输出 49）。
+        // 这里 `presented` 与落账后的右栏都是 160，`before` 里是 150：右栏这次动了，要写。右栏顶上有入口条，代表区域的是包装分支（输出 47）。
+        expect(before[1]).not.toBe(160);
+        const auxRegion = regionNodeOf(store.actions.document(), "auxiliarybar")!.node.id;
+        const shown = {...squeezed, [auxRegion]: {width: 160, height: 700}};
+        store.actions.acceptPresented(shown);
+        store.actions.commitGesture({...shown, [auxRegion]: {width: 150, height: 700}}, {...shown, [side]: {width: 200, height: 700}}, {});
+        expect(regionSize(store.actions.document(), "auxiliarybar").width).toBe(160);
     });
 
     it("最大化的分节被搬走、或要显示被它盖住的区域：退出最大化，不把工作台留在全都看不见的样子（输出 13）", async () => {

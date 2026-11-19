@@ -54,8 +54,7 @@ const emit = defineEmits<{
     (event: "presented", sizes: Readonly<Record<string, GridExtent>>): void;
     /** 手势进行中的预览尺寸；手势结束或预览撤回时是 null。 */
     (event: "preview", sizes: Readonly<Record<string, GridExtent>> | null): void;
-    /** 手势落账：呈现尺寸，以及这次手势改了收起状态的面板。 */
-    /** 手势落账：`before` 是手势开始时呈现的尺寸，`after` 是落账之后的；宿主经 `applyGestureCommit` 写回文档（workbench-layout 输出 49）。 */
+    /** 手势落账：`before` 是手势开始时呈现的尺寸，`after` 是落账之后的，`collapsed` 是这次手势改了收起状态的面板；宿主经 `applyGestureCommit` 写回文档（workbench-layout 输出 49）。 */
     (event: "gesture-commit", before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
     /** 网格的诊断与被拒的提交（`ui/nested-grid` 输出 139）：`NestedGrid` 的 `issues` 与 `useGridLayout` 的 `onIssues` 两路合在这里。 */
     (event: "issues", issues: readonly GridHostIssue[]): void;
