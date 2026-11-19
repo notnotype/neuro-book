@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t38-grid-diagnostics
-status: active
+status: done
 updated: 2026-11-19
 ---
 
