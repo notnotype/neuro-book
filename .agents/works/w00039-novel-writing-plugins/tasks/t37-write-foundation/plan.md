@@ -1,6 +1,6 @@
 # t37 计划：写入底座
 
-第 2 稿（第一轮设计审查后，处理见 [`evidences/design-review-resolution.txt`](evidences/design-review-resolution.txt)）。
+第 3 稿（两轮设计审查后，处理见 [`evidences/design-review-resolution.txt`](evidences/design-review-resolution.txt)）。
 
 ## 一、Context
 
@@ -80,7 +80,7 @@ interface EntryEdits {
     readonly by: Actor;
     readonly what: "edit" | "creative";       // 作者保存或 Agent 的创作修改（revisions.md 的 `what`）
     readonly baseVersion?: number;            // 读到的世界版本；只在全部是 create 时可以不给
-    readonly sameVersion?: boolean;           // true：世界版本不等于 baseVersion 就整批拒收（stale-read）
+    readonly readStamp?: {readonly version: number; readonly input: string}; // 给了就要求世界版本与读取输入摘要（前缀）都没变，否则 stale-read
     readonly title: string;
     readonly why?: string;
     readonly intent?: "creative" | "story";   // 缺省 creative
@@ -116,8 +116,10 @@ type EntryOp =
 
 - **一次修订**：受影响的条目与变更按对象克隆成工作副本，结束时每个改过的对象出一份 `put`，发布一个写入请求。成功时全部生效，失败时世界不变（输出 1）。
 - **读前提**：
-  - `sameVersion: true` 时，世界版本不等于 `baseVersion` 就整批拒收，码为 `stale-read`，详情列出之间的修订（标题、写入者）。
-  - 按对象判冲突（输出 7）兜不住“作者另加了一条剧情变更、Agent 按旧设定写剧情变化”，所以 Agent 工具一律带它。
+  - 给了 `readStamp` 时，世界版本不等于它的 `version`、或读取输入摘要（`ReadStamp.inputDigest`）不以它的 `input` 开头，就整批拒收，码为 `stale-read`，详情列出之间的修订（标题、写入者）；版本没变而输入变了（例如活页夹改了一章讲哪条线）时写“读取的输入变了”。
+  - 在服务的写队列里、判过请求重发之后、算候选之前比较，不在排队之前先查。
+  - 正文摘要不比：正文改了不挡改设定。
+  - 按对象判冲突（输出 7）兜不住“作者另加了一条剧情变更、Agent 按旧设定写剧情变化”，版本相同也不能说明读取输入没变（第二轮审查 R2-01），所以 Agent 工具一律带读取戳。
   - 作者界面的 `set` 照旧带读到的值（输出 19）。
 - **线**：
   - 读取位置的线 id 一路明确传下去（解析、来历、副本、核对、后面改过的记录），只在构造存下来的安放时省略主线；
@@ -170,7 +172,7 @@ type EntryOp =
   - `previewEntries`：read；
   - `findEntries`：read。
 - **WorldService**：加同名方法，并照第 1 节“候选、核对与发布”只追加通过核对的候选。
-- **合同版本**从 1 升到 2，照 `nbook.projects/projects` 加方法时升版本的先例。老页签得到 `version-changed`，照现有提示刷新。
+- **合同版本不升**：只加方法、不改已有方法。老页签只调老方法，照常能用；新页面与服务端出自同一份构建。升版本的话老页签在 canon 里只显示“世界已断开”，没有刷新的出路（第二轮审查 R2-02）。
 - **浏览器端**：新建、删除改走 `editEntries` 的 `create`、`delete`，删掉 `web/new-entry.ts` 的 `lastOrder` 与拼整份条目的代码，删掉 `EntryPageHost.vue` 删除时的拼装。
 - **事件**：浏览器的 `CanonWorld` 加事件出口，在“版本不大于已知版本就丢”的比较之前，按修订 id 去重交出 `changed` 的 `{version, revision, by, what, title}`，给 Agent 的提示用（第 4 节）。
 
@@ -186,7 +188,7 @@ type EntryOp =
 - **请求 id**：`agent:<会话 id>:<ctx.invocation>`，`invocation` 是全局唯一的调用身份，`callId` 只在一条回复里唯一（harness/runtime.md）。
   - 同一次调用的重发复用已经解析好的整份请求；
   - 链路断了先按请求 id 查结局（`outcome`），再决定要不要重发。
-- **读前提**：`canon_write` 一律带 `sameVersion: true`。世界在它读过之后有新修订就拒收，回话列出之间的修订，请它重读再写。
+- **读前提**：每个读取结果的第一行写“版本 12·a1b2c3d4e5f6”（世界版本加读取输入摘要的前 12 位）；`canon_write` 的 `version` 原样带回它，工具解析成 `readStamp`。世界在它读过之后有新修订、或读取输入变了，就拒收，回话列出之间的修订或写明输入变了，请它重读再写。
 - **谁拿到**：四个工具都是 `defaultForAll: true`、`group: "设定"`。写作助手、临时帮手默认都带，`defaultTools: false` 的 Profile 不带（记进待确认）。
 
 | 工具（模型看到的名字） | 参数 | 返回与上限 |
@@ -194,7 +196,7 @@ type EntryOp =
 | `canon_lookup` | `names`（1 到 20 个）、`at?` | 每个名字最多 5 个匹配，每行一个：id、名字、别名、种类、启用的设定组、简介。没有这个名字时写“没有叫 X 的条目”，附 `findEntries` 最相近的 3 个。总长不超过 3000 字 |
 | `canon_tree` | `parent?`（id 或名字，缺省最上层）、`limit?`（缺省 30，最多 50）、`cursor?`、`at?` | 一层的条目：id、名字、种类、有没有子条目、未出场或已删除；共几条、续读游标 |
 | `canon_read` | `entry`（id 或名字）、`at?`、`mode?`、`show?`（`fields` 缺省；`text`、`origins`、`history`）、`field?`、`cursor?` | 第一行写位置与世界版本。<br>`fields`：每个启用的设定组一节，每个字段一行，写显示名、id、值、种类、选项或范围、可指向的种类；列表每个元素一行，最多 20 行；超过 6000 字截断并写明怎么读全。<br>`text`：给 Agent 的渲染（`render` 的 `audience: "agent"`），4000 字一页。<br>`origins`：一个字段的来历，最近 15 步。<br>`history`：涉及它的最近 10 次修订 |
-| `canon_write` | `version`、`title`、`why?`、`intent?`（`setting` 缺省或 `story`）、`at?`、`edits`（1 到 30 项，扁平对象：`op`、`key?`、`entry?`、`field?`、`value?` 等，同第 1 节的操作）；或单独一项 `revert: {revision, withDependents?}` | 成功：修订、新版本、新建条目的 id、带来的变化的前 20 条（1500 字以内）。<br>失败：码、第几项、为什么、该怎么改（2000 字以内）；冲突时附被改过的对象的当前字段或之间的修订 |
+| `canon_write` | `version`（读取结果第一行的那一串）、`title`、`why?`、`intent?`（`setting` 缺省或 `story`）、`at?`、`edits`（1 到 30 项，扁平对象：`op`、`key?`、`entry?`、`field?`、`value?` 等，同第 1 节的操作）；或单独一项 `revert: {revision, withDependents?}` | 成功：修订、新版本、新建条目的 id、带来的变化的前 20 条（1500 字以内）。<br>失败：码、第几项、为什么、该怎么改（2000 字以内）；冲突时附被改过的对象的当前字段或之间的修订 |
 
 - **名字与地址的解析**：在工具层做，内核只认 id。
   - `entry`、引用的值、`parent`、`after`、`sameAs` 可以写名字。工具层先收齐，一次 `lookup` 按 `at` 位置解析：没有匹配时回最相近的几个，多于一个时列候选让模型选，不替它选。
@@ -311,7 +313,7 @@ type EntryOp =
   - 输出 8 补列表元素与增删的规则；剧情变化读回核对的位置；显式主线；
   - 输出 10 的“写入请求里直接写成把 A 换成 B”接上 `replace`，去掉 planned；
   - 失败码表加 `stale-read`；实现合同的公开入口加上新函数。
-- `docs/specs/canon/project.md`：方法表加 `editEntries`、`previewEntries`、`findEntries`，写合同版本 2；事件那一段不变。
+- `docs/specs/canon/project.md`：方法表加 `editEntries`、`previewEntries`、`findEntries`；合同版本不升，写明只加方法；事件那一段不变。
 - `docs/specs/canon/components.md`：输出 3、7 写明加、去、恢复用哪种操作；补元素 id 的生成与 `label` 的规则；条目读取的 `removedComponents`。
 - `docs/specs/canon/author-ui.md`：
   - “不承诺”里“作者编辑条目的主文字”改成只不承诺所见即所得；
@@ -329,7 +331,7 @@ type EntryOp =
 | 片 | 内容 | 对应设计 | 自跑验证 |
 |---|---|---|---|
 | F1 | 内核 `editEntries`、`previewEntries`、`findEntries`、`removedComponents`；单项入口改成共用路由并修章首与显式主线；Spec revisions、components | 1 | nb-canon 全部测试、新的差分测试、findEntries 的测量 |
-| F2 | 远程方法、服务方法，合同版本 2；浏览器的新建与删除改走 `create`、`delete`；事件出口；Spec project | 2 | canon 插件测试、`two-process.test.ts` |
+| F2 | 远程方法、服务方法（合同版本不升）；浏览器的新建与删除改走 `create`、`delete`；事件出口；Spec project | 2 | canon 插件测试、`two-process.test.ts` |
 | F3 | Agent 工具的服务端入口与四个工具；Spec agent-tools | 3 | 新的 `agent-tools.test.ts`（真实服务端加项目子进程、真实 Agent 会话加脚本化模型）；一条 `*.llm.test.ts` |
 | F4 | nb-ui `SearchSelect` 远程模式；canon `EntryPicker`、`ImageInput` | 4 | nb-ui 与 canon 的 dom 测试、Lab 场景 |
 | F5 | 界面：草稿与确认条上移；空状态；新建对话框；页头（名字、简介、别名、更多）；移动对话框；加或去一组设定；已删除页头与恢复；Agent 提示 | 4 | 组件 dom 测试、Lab 场景 |
@@ -346,14 +348,14 @@ Spec 条目编号在写 Spec 时定，这里按行为列。
   - 原子性；
   - 候选核对失败时日志、版本、请求 id、事件都不动；
   - 两种意图；
-  - `stale-read`，含“作者另加剧情变更、Agent 按旧值写剧情变化”的跨对象例子；
+  - `stale-read`，含“作者另加剧情变更、Agent 按旧值写剧情变化”的跨对象例子，与版本不变、活页夹改了章讲的线的例子；
   - 章首写剧情变化能读回；显式主线与缺省子线；计划线不能写；
   - 列表元素的来历：只改初值里的一行、另一行增删、同 id 删后重加、整表赋值、子线带过去的 → 只有第一种按初值改，其余 `element-from-change`；
   - `created-in-batch`；`duplicate-address`；`tmp:` 引用；`order-exhausted`；
   - 预览与写入逐字相同；请求 id；日志重放后一致。
 - 单项入口的差分：现有输入经新旧实现，修订的 `ops`、带来的变化、`what`、章、标题、失败码与 `route` 相同；旧日志里的请求重发得到原结果。章首与显式主线两处另写断言。
 - `findEntries`：缺省不列删除的；还没出场的标出；位置上改过的名字与别名；视图令牌拒绝并审计；性能证据。
-- 远程：`canon.test.ts` 加 `editEntries` 的版本冲突与 `stale-read`、视图令牌拒绝。
+- 远程：`canon.test.ts` 加 `editEntries` 的版本冲突与 `stale-read`、视图令牌拒绝；老客户端（只认老方法）照常调用。
 - Agent 工具（`agent-tools.test.ts`）：
   - 四个工具各一条；
   - 名字解析的三种结局；选项写错时回允许的取值；
@@ -406,7 +408,7 @@ Spec 条目编号在写 Spec 时定，这里按行为列。
 - 单项入口改成共用路由，可能改变现有结果。由差分测试和现有的就地改、记一笔、预览测试（都用真实世界）兜底；有意的两处修正另写断言。
 - **按对象判冲突**：
   - 作者在页上填人物的同时 Agent 在补同一人物的别的字段，后到的一方得到冲突；
-  - Agent 一侧更严，带 `sameVersion`，只要有新修订就重读；
+  - Agent 一侧更严，带读取戳，只要有新修订或读取输入变了就重读；
   - 修订本来存到叶子，没有找到“不细到叶子”的记录理由。本次不改，冲突时回话写清楚，真实使用后再看要不要改上游（独立设计 8.2，记进待确认）。
 - 模型写错参数：说明里写清写法，工具层解析与预检，回话给出能照着改的信息。LLM 测试兜底一条，更多场景留到闭环。
 - nb-ui 的 `SearchSelect` 是共用组件：远程模式是新增的可选模式，现有用法不变，由现有 dom 测试兜底。
