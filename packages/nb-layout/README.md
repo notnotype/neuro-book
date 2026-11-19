@@ -135,13 +135,16 @@ function toggleFiles(): void {
 - **快照只存结构、引用与两轴的尺寸意图**：保留像素（`sizing`）、最小与最大尺寸、收起策略（含收起没收起）都不在里面。恢复时解析函数要按引用把它们再给回去，只返回 `{ref}` 的话，左栏会变成按比例分、也收不起来，而且没有任何诊断：
 
   ```ts
+  // 宿主按引用记着的运行期策略；没列在这里的（例如拆分出来的 preview）按比例分、没有收起策略。
+  const policies: Record<string, Omit<GridRefResolution<string>, "ref">> = {
+      files: {sizing: "fixed", minimumSize: {width: 160, height: 0}, collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24}},
+  };
+  const known = new Set(["files", "editor", "preview"]); // 宿主此刻还有的内容
   const grid = createGrid<string>(null, {sashSize: 4}); // 恢复也要给 sashSize：它不在快照里
-  const result = grid.restore(saved, (ref) => (ref === "files"
-      ? {ref, sizing: "fixed", minimumSize: {width: 160, height: 0}, collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24}}
-      : ref === "editor" ? {ref} : null)); // 不认识的引用返回 null
+  const result = grid.restore(saved, (ref) => (known.has(ref) ? {ref, ...policies[ref]} : null)); // 宿主已经没有的内容返回 null
   ```
 
-  收起状态要跨会话保存的，宿主自己另存（`setCollapsed` 的结果、`grid.find(id).collapse`）。引用不是字符串时，建网格要给 `encodeRef`（见 [`grid`](src/grid.md)）。
+  `GridRefResolution` 从根入口导出。收起状态要跨会话保存的，宿主自己另存（`setCollapsed` 的结果、`grid.find(id).collapse`），恢复时放进 `policies` 里对应的 `collapse`。引用不是字符串时，建网格要给 `encodeRef`（见 [`grid`](src/grid.md)）。
 - **读失败时保留原件**：`restore` 失败（版本不认识、结构坏了）时树不变；成功但 `dropped` 非空，说明有引用没解析出来。推荐的做法是两种情况都把存档原件留着，不要拿缺省布局覆盖它，等宿主修好了还能再读。
 - **层数与节点数的上限**：拆分与插入在超过 16 层或 256 个节点（`GRID_MAX_DEPTH`、`GRID_MAX_NODES`）时被拒，返回 `limit-exceeded`、树不变；建树与恢复不按它拒绝。拖标签到边缘拆分这类交互要预料到它会被拒。
 - **窗口太窄不报错**：放不下时库按约束压缩，并在 `layout().issues` 里给诊断（例如 `over-constrained`）。想知道放不放得下，读布局结果里根节点的 `constraints`（最小尺寸）。
