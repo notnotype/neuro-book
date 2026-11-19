@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00034-browser-use
 issueId: null
 status: active
-updated: 2026-10-30
+updated: 2026-11-19
 ---
 
 # 浏览器插件：Agent 操作外部网站
@@ -29,14 +29,15 @@ updated: 2026-10-30
 
 ## 调研
 
-- [Agent 操作宿主应用与网页界面](../w00032-agent-integration/research/2026-10-30-host-control-survey.md)：网页界面的感知与操作（第 2 节）、omp 的浏览器（第 5 节）、CodeAct 的文档形式（第 6 节）。
+- [浏览器 Agent 调研与实测](research/2026-11-19-browser-agents-survey.md)（2026-11-19）：browser-use 1.0、browser-harness、omp、opencli、bilibili-cli、Agent-Reach、jina reader、page-agent 与厂商的 computer use；假作家后台、B 站、起点三个任务的实测；外部网站上的注入与快照探针。
+- [Agent 操作宿主应用与网页界面](../w00032-agent-integration/research/2026-10-30-host-control-survey.md)：网页界面的感知与操作（第 2 节）、omp 的浏览器（第 5 节）、CodeAct 的文档形式（第 6 节）；其中 browser-use 的几行是 0.x 的做法。
 
 ## Task
 
 | Task | 内容 | 状态 |
 |---|---|---|
-| [t01](tasks/t01-design/README.md) | 设计：引擎、浏览器配置与登录态、对外操作的确认、域名范围 | 未开工 |
+| [t01](tasks/t01-design/README.md) | 设计：引擎、浏览器配置与登录态、对外操作的确认、域名范围 | 调研与实测完成，待开发者定 |
 
 ## 前置
 
-[w00032 t21](../w00032-agent-integration/tasks/t21-eval-codeact/README.md)；[w00033](../w00033-page-agent/README.md) 的核心包。
+[w00032 t21](../w00032-agent-integration/tasks/t21-eval-codeact/README.md)（2026-11-18 完成，贡献点 `agent.evalObjects` 已可用）；[w00033](../w00033-page-agent/README.md) 的核心包。
