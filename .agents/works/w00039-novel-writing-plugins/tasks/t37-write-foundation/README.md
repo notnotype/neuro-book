@@ -55,7 +55,11 @@ updated: 2026-11-19
 - F7 验证：`canon-write` 2 条、`canon-author` 与 `plot-author` 全部通过；`lab-scenes` 只剩分支起点上就有的 ThemeEditor 四条 404，挡在版面检查之前，所以新增与改过场景的 11 个组件用 `nbdev shot` 量（亮色，手机与自由画布），没有越界、裁切与页面错误；nb-ui `SearchSelect` 量了 nbook、macos 两个主题乘亮暗两种配色、手机与自由画布，都干净。
 - Spec `canon/author-ui.md`：新行为按条目标 planned（输出 9、10、12、16、17、8 的改动，新增输出 37 到 42，验收 15，`ComponentViewContext` 的列表方法），写在主工作区，合入时提交。
 
+- 收口（2026-11-19）：master 无冲突并入（`d7649c4ea`）。nb-ui、nb-canon、nb-form、neuro-book 的快速测试与类型检查：vitest 与类型检查全过，`bun test` 11 条失败。其中 6 条是本 Task 的：F3 加了 `nbook.canon` 服务端插件，宿主测试 `server.test.ts` 的插件表没跟着改；它只依赖宿主能力（项目登记），会比诊断先发布，“诊断最先发布”的断言改成不算它。另有 1 条是 t31 留下的：剧情的线标签从 canon 的 `shared/reads` 运行时导入 `MAIN_LINE`，跨插件只能经 `shared/contracts.ts`，改经 contracts 转出（都在 `9b88b4232`，两份测试重跑通过、类型检查通过）。其余 4 条在 master 上同样失败、与 w00039 无关：SDK 组件清单少列 nb-ui 新的 `ImagePreviewDialog`（w00050）；活动栏、页面浮层、条目注册表三条“同 id 的两条一起被拒”。
+- 顺带改正：服务端把内置插件都列为必需（`server/start.ts`），canon 的工具入口随启动激活，`agent-tools.md` 原写的“第一次调用才激活”只对不必需它的场地成立，Spec 与代码注释已改。
+- 实现审查已开（审在 `9b88b4232`）：后端 omp、前端 Sonnet，后台运行。
+
 ## 下一步
 
-1. 合入 master 后的收口验证（nb-ui、nb-canon、nb-form、neuro-book 的快速测试与类型检查），再开实现审查（前端 Sonnet、后端 omp），处理后合入，Spec 改动随合入提交。
+1. 等两份实现审查回来，逐条处理（修正单独提交），合入 master，Spec 改动随合入提交。
 2. 底座合入后，和开发者定人物 Component 闭环的范围。
