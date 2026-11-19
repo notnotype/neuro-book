@@ -65,8 +65,11 @@ omp（16 条：阻断 2、重要 14，[`evidences/design-review-omp.txt`](eviden
 
 ## 当前状态
 
-2026-11-19 开工：读了三家的接口文档，实测 DeepSeek 的搜索与读取（延迟、错误码、结果形状，见 Work README“已知情况”），写了[计划](plan.md)；第 1 稿的五个待定项开发者答了三项（决定 3 到 5），第 2 稿按答复改写，开发者确认（决定 6）。设计审查两份都已处理（计划第 4 稿，见“设计审查”），之前后端与计划整体派的是 omp（会话与报告在本地 `.local/agent/works/w00052-web-tools/tasks/t01-design/reports/`），设置页派 Claude Sonnet；审查 worktree `.worktree/review-w00052-t01` 固定在 `7e88e7717`。
+计划第 4 稿已获确认、两份设计审查已处理（见上）。实施在 worktree `.worktree/w00052-web-tools`，分支 `feat/w00052-web-tools`。
+
+- 切片 1（Spec，planned，master）：[`web/tools.md`](../../../../../docs/specs/web/tools.md)、[`web/settings-page.md`](../../../../../docs/specs/web/settings-page.md)，`f8c34a417`；实施中插件 id 由 `nbook.web` 改为 `nbook.web-tools`（目录名 `web` 撞上“`web/` 是浏览器一侧”的约定，`architecture.test.ts` 把整个插件当前端），并加输出 22（`web_fetch` 交出主机作判定对象），计划开头记了这处改动。
+- 切片 2（服务端，分支 `a70387d4e`）：`src/plugins/web-tools/` 的描述、合同、设置项、密钥文件、DeepSeek 客户端、两个工具、远程合同；登记进产品清单、服务端定义表、内置插件名称目录与消息目录的检查表；Agent 的 `shared/contracts.ts` 转出 `agentTool`、`TOOLS_POINT`（别的内置插件贡献工具的入口）。测试 39 条过、3 条真实接口默认跳过：客户端 24（本机假接口）、密钥文件 5（真文件与锁）、会话与 eval 8（真实服务端、会话、eval 子进程、远程合同）、产品装配 1（真实服务端加真实 WebSocket）。`NBOOK_LLM_TESTS=1` 跑真实 DeepSeek 3 条过（搜索、读取、三种错误的归类）。六处做过变异检查都被抓到：顶层带结构值、转义失效、429 重试两次、不遮盖密钥、按会话缓存密钥、产品表不登记。`tsc`、`architecture.test.ts` 过；`builtin-names.test.ts` 有一条在 master 上就失败（`nbook.stickers` 没登记进名称目录），与本 Task 无关。
 
 ## 下一步
 
-按[计划](plan.md)第 4 稿的切片实施（实现在 worktree `.worktree/w00052-web-tools`，分支 `feat/w00052-web-tools`）。方向由开发者定、没有技术选型的取舍（没有新依赖），不另开独立设计。
+切片 3（设置页）、切片 4（真实模型冒烟与 Spec 晋升）。方向由开发者定、没有技术选型的取舍（没有新依赖），不另开独立设计。
