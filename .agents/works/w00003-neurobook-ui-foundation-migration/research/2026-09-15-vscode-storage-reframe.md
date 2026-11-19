@@ -8,7 +8,7 @@
 > **取证元信息**
 > - VS Code 源码：`microsoft/vscode` `main`，commit `7774b174c378a9d406a6a248ffed33f5e6eb22f5`（GitHub API 实测时间 2026-09-15T13:40:20Z）。下文所有「源码 Lxxxx」均指该 commit；链接格式为 `https://github.com/microsoft/vscode/blob/7774b174c378a9d406a6a248ffed33f5e6eb22f5/<path>#Lx-Ly`。
 > - 官方文档：`microsoft/vscode-docs` `main` 的 Markdown 源（settings / settings-sync / profiles / custom-layout / when-clause-contexts / extension capabilities），链接为 `https://github.com/microsoft/vscode-docs/blob/main/<path>`。
-> - NeuroBook 本地核查：主树 `C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book`；另有 worktree `.worktree/w00003-neurobook-ui-foundation-migration`（简称 **w00003**）。prompt 点名的 `workbench-view-host.md`、`WorkbenchShell.vue`、`app/utils/workbench/layout.ts` **不在主树**，只在 w00003 分支；下文对这两处分别标注。
+> - NeuroBook 本地核查：主树 `C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book`；另有 worktree `.worktree/w00003-neurobook-ui-foundation-migration`（简称 **w00003**）。prompt 点名的 `workbench-view-host.md`、`WorkbenchShell.vue`、`app/utils/workbench/layout.ts` **不在主树**，只在 w00003 分支；下文对这两处分别标注。
 > - 读不到的条目明确写「未核实」；没有凭记忆补全的条目。
 
 ---

@@ -1,6 +1,6 @@
 # t37 验证记录
 
-工作目录：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`。以下第 1–9 节记录首次交付验证；返工 1 的当前有效证据见 `delivery.md` 第 10 节。构建、smoke、开发服务、类型检查均按各自阶段串行执行，构建期间未编辑源码。证据覆盖未提交 diff，不对应新的独立 revision。
+工作目录：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`。以下第 1–9 节记录首次交付验证；返工 1 的当前有效证据见 `delivery.md` 第 10 节。构建、smoke、开发服务、类型检查均按各自阶段串行执行，构建期间未编辑源码。证据覆盖未提交 diff，不对应新的独立 revision。
 
 ## 首次交付验证记录（返工前）
 
@@ -12,7 +12,7 @@
 | `bun run --cwd packages/neuro-book scripts:typecheck` | code 0；0 错误 | `scripts-typecheck-signal-fix.log` |
 | `bun run --cwd packages/neuro-book typecheck` | code 0；0 错误 | `typecheck-signal-fix.log` |
 | `bun run --cwd packages/neuro-book smoke:runtime-foundation -- --host server` | code 0；`failures=0`；来源为 `signal:SIGTERM` | `runtime-foundation-smoke-signal-fix.log` |
-| `bun run --cwd packages/neuro-book smoke:product-lifecycle -- --only L1,L2,L3,L4,L5,L6 --browser-executable /usr/bin/google-chrome-stable --report /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/lifecycle-report.json` | 首次交付 code 0；最终源码真实生产构建；`skipBuild=false`；6 项 / 18 子断言全部 pass | `lifecycle-L1-L6-signal-fix.log`、`product-lifecycle-build.log`、`lifecycle-report.json`、`L1.log` 至 `L6.log` |
+| `bun run --cwd packages/neuro-book smoke:product-lifecycle -- --only L1,L2,L3,L4,L5,L6 --browser-executable /usr/bin/google-chrome-stable --report /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/lifecycle-report.json` | 首次交付 code 0；最终源码真实生产构建；`skipBuild=false`；6 项 / 18 子断言全部 pass | `lifecycle-L1-L6-signal-fix.log`、`product-lifecycle-build.log`、`lifecycle-report.json`、`L1.log` 至 `L6.log` |
 
 最终 Product imageId：`sha256:aaa41be756879ff2be4cd743084706e856d202c9cb0687e2540887567a455be9`；入口 `.output/server/index.mjs` 不变。
 
@@ -21,7 +21,7 @@
 - 实际命令：`bun run --cwd packages/neuro-book dev:runtime`，日志 `development-service-final.log`；显式临时 State Root 为 `/tmp/neuro-book/runs/t37-server-host-entry/e08bdc9c-46cf-492a-a859-d9ff0d1a6b04`，端口 `44527`。
 - `/api/app/version` 返回 200；隔离浏览器加载首页并显示“我的书架”，无浏览器错误。证据 `development-browser.json`、`development-home.webp`。
 - 停止后端口不可连接、进程树无残留，State Root 已删除。证据 `development-service-final.log`、`process-cleanup-final.json`。
-- 实际命令：`bun run --cwd packages/neuro-book smoke:product-lifecycle -- --only L7,L8 --report /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/development-lifecycle-report.json`。code 1；L7 pass，L8 fail；完整输出 `lifecycle-L7-L8.log`、`L7.log`、`L8.log` 与 JSON。
+- 实际命令：`bun run --cwd packages/neuro-book smoke:product-lifecycle -- --only L7,L8 --report /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/evidences/development-lifecycle-report.json`。code 1；L7 pass，L8 fail；完整输出 `lifecycle-L7-L8.log`、`L7.log`、`L8.log` 与 JSON。
 - L7：Node ready、热重载、leaseId 变化、health 200 全部 pass。L8：SIGTERM 在窗口内 code 0，但 runtime lease lock/owner 未释放，fail 原文为 `SIGTERM后runtime lease锁未释放`；这是 #244 范围外问题，未掩盖。
 
 ## 其他审计

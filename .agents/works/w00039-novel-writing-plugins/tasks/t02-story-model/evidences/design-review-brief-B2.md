@@ -1,6 +1,6 @@
 # 任务：只读设计审查 w00039 t02 第二轮（B2）：世界引擎内核提案第二版的作者界面部分
 
-仓库：`/home/notnotype/CodeRepository/neuro-book`（主工作区，只读）。审查对象：`docs/proposals/world-engine-kernel.md`（第二版）里作者会看到、会操作的部分：第四部分第 8 节“作者怎么用”全节，第 6 节里面板的“记一笔”和情节 Tab，第 7 节的“作者看到的”与主 MDX 的编辑，第 2、3 节里作者能感知的规则（存在区间、马甲、计划的进展），第五部分“平台与共享包要先做的”。
+仓库：`/home/<user>/CodeRepository/neuro-book`（主工作区，只读）。审查对象：`docs/proposals/world-engine-kernel.md`（第二版）里作者会看到、会操作的部分：第四部分第 8 节“作者怎么用”全节，第 6 节里面板的“记一笔”和情节 Tab，第 7 节的“作者看到的”与主 MDX 的编辑，第 2、3 节里作者能感知的规则（存在区间、马甲、计划的进展），第五部分“平台与共享包要先做的”。
 
 这是第二轮。你第一轮的报告是 `.agents/works/w00039-novel-writing-plugins/tasks/t02-story-model/evidences/design-review-B.txt`；第一轮全部报告的归并在同目录的 `design-review-consolidated.txt`，作者的逐条处理在 `design-review-round1-resolution.txt`。不要重报已经处理好的问题。只看两件事：第一轮的处理在第二版里是否真的改到位；第二版新写的作者部分有没有新问题。
 

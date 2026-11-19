@@ -1,6 +1,6 @@
 # 任务：只读设计审查 w00039 t02 第三轮（A3）：作者视角的世界引擎内核提案第三版的数据合同
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-A3`（detached，提交 a95e7930c）。审查对象：`docs/proposals/world-engine-kernel.md`（第三版，状态 reviewing）。
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-A3`（detached，提交 a95e7930c）。审查对象：`docs/proposals/world-engine-kernel.md`（第三版，状态 reviewing）。
 
 这是同一份提案的第三轮，也是最后一轮。前两轮的处理：第一轮 `.agents/works/w00039-novel-writing-plugins/tasks/t02-story-model/evidences/design-review-round1-resolution.txt`，第二轮同目录的 `design-review-r2-resolution.txt`（R1 到 R35）；第二轮领域审查的报告是 `evidences/design-review-A2.txt`。不要重报已经处理好的问题。
 
@@ -46,7 +46,7 @@
 | 2026-11-02 | 开发者：提案第三版可以，开第三轮审查（只派一个 omp 默认模型，审新定的数据合同） |
 
   “主会话提出，开发者未反对”的几条视为追认。主文字用 MDX、不复用 Markdown 方言、作者编辑界面先不考虑，是开发者第二轮之后再次确认的，不要再质疑这个选型本身；可以审 MDX 下合同的具体缺口。提案里没有标“开发者”的规则是作者自己的，可以质疑。
-- 相关模块（读源码或 README 核实，不按名字推断）：nb-history（`packages/nb-history/README.md`）、工作区资源与外部变化（`docs/specs/workspace/resources.md`）、活页夹（`docs/specs/workspace/folder-kinds.md`）、MDX 实测（`evidences/mdx-probe-2026-11-02.txt`）。需要编译 MDX 样例时，可以用 `/tmp/mdx-probe` 里已装好的 @mdx-js/mdx 3，脚本放 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/A3/tmp/`。
+- 相关模块（读源码或 README 核实，不按名字推断）：nb-history（`packages/nb-history/README.md`）、工作区资源与外部变化（`docs/specs/workspace/resources.md`）、活页夹（`docs/specs/workspace/folder-kinds.md`）、MDX 实测（`evidences/mdx-probe-2026-11-02.txt`）。需要编译 MDX 样例时，可以用 `/tmp/mdx-probe` 里已装好的 @mdx-js/mdx 3，脚本放 `/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/A3/tmp/`。
 - 第二轮的可执行夹具按第二版的规则写，和第三版不一致，这一轮不用它。
 
 ## 审查维度
@@ -72,4 +72,4 @@
 
 撤回或收窄的条目，在原标题后追加“（撤回）”或“（收窄，见第 N 条）”；报告最后一行列出有效发现的编号。最后写“未发现问题的方面”与各级数量，并对提案“七、待定项”的每一项各给一句判断。
 
-报告文件：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/A3/report-A3.txt`（只追加）。
+报告文件：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/A3/report-A3.txt`（只追加）。

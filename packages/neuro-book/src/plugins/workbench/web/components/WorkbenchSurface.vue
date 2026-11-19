@@ -646,7 +646,7 @@ defineExpose({
  * 卡片画在外框里；内容层是外框的兄弟，所以它自己也按同样的内边距缩进、按同样的圆角裁切，两层才拼成一张卡片。
  */
 .workbench-surface {
-    --nb-splitter-seam: var(--shell-seam, var(--divider));
+    --nb-layout-splitter-seam: var(--shell-seam, var(--divider));
     position: relative;
     width: 100%;
     height: 100%;
@@ -667,9 +667,9 @@ defineExpose({
  * `--shell-seam`、贯通整个高度：一组一张卡片，卡片主题里缝就是分界，不画线（开发者 2026-11-16）。
  */
 .workbench-surface :deep(.nb-grid-sash[data-sash-kind="panes"]) {
-    --nb-splitter-seam: var(--shell-pane-divider, var(--divider));
-    --nb-splitter-seam-inset: var(--shell-pane-divider-inset, 0px);
-    --sash-line-inset: var(--shell-pane-divider-inset, 0px);
+    --nb-layout-splitter-seam: var(--shell-pane-divider, var(--divider));
+    --nb-layout-splitter-seam-inset: var(--shell-pane-divider-inset, 0px);
+    --nb-layout-sash-line-inset: var(--shell-pane-divider-inset, 0px);
 }
 
 /*

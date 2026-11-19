@@ -57,19 +57,19 @@
           "pid": 3636888,
           "parent": 3636887,
           "group": 3636622,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
         },
         {
           "pid": 3637001,
           "parent": 3636888,
           "group": 3636622,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
         },
         {
           "pid": 3637015,
           "parent": 3636888,
           "group": 3636622,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
         }
       ]
     },
@@ -129,19 +129,19 @@
           "pid": 3637569,
           "parent": 3637568,
           "group": 3637305,
-          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
+          "command": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
         },
         {
           "pid": 3637669,
           "parent": 3637569,
           "group": 3637305,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
         },
         {
           "pid": 3637685,
           "parent": 3637569,
           "group": 3637305,
-          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+          "command": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
         }
       ]
     }

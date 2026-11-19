@@ -84,7 +84,7 @@
 
 ## 按影响排序的发现索引
 
-为保留逐条核实后只追加的记录，上文编号不重排；处理顺序按下表。所有源码位置相对于 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story`。
+为保留逐条核实后只追加的记录，上文编号不重排；处理顺序按下表。所有源码位置相对于 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story`。
 
 | 优先顺序 | 条目 | 严重程度 | 影响 |
 |---|---|---|---|
@@ -101,7 +101,7 @@
 
 ## 已执行的验证与限制
 
-命令未另写工作目录的，均从本次 worktree 根执行。下表包内命令的工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story`。
+命令未另写工作目录的，均从本次 worktree 根执行。下表包内命令的工作目录均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story`。
 
 | 实际命令 | 结果 |
 |---|---|

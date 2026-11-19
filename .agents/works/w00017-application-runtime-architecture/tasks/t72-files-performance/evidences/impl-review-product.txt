@@ -34,8 +34,8 @@
 | `bun run build` | 退出 0；生产前后端构建与 `check:dist` 通过 |
 | `bun test src/plugins/editor/area.test.ts src/plugins/explorer/session.test.ts src/plugins/commands/shared/registry.test.ts` | 50 pass、0 fail、354 断言 |
 | `node ../../node_modules/vitest/vitest.mjs run src/plugins/editor/web/components/EditorTabBar.dom.test.ts` | 1 文件、3 用例通过 |
-| `bun --tsconfig-override tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/product/registry-probe.ts` | 459 个输入：80 接受、379 拒绝，接受结果与完整错误文案差异 0；见 `registry-probe-result.json` |
-| `bun --tsconfig-override tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/product/session-probe.ts` | 预读失败、挂载可浏览、同控制器重挂、一次重试保存与真实内核停止通过；见 `session-probe-result.json` |
+| `bun --tsconfig-override tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/product/registry-probe.ts` | 459 个输入：80 接受、379 拒绝，接受结果与完整错误文案差异 0；见 `registry-probe-result.json` |
+| `bun --tsconfig-override tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/product/session-probe.ts` | 预读失败、挂载可浏览、同控制器重挂、一次重试保存与真实内核停止通过；见 `session-probe-result.json` |
 | 内置浏览器运行生产产物，独立客户端身份，14 文件隔离项目 | 正常双组与三组拆分/关闭、Markdown 与 Monaco 混合组、活动标签滚动、dirty 文档跨保留上限的撤销历史通过；发现 1、2 由真实点击/键盘与网络层扣住/失败复现 |
 | 仓库外 `registry-browser.ts` 编译后，在真实 Chromium 加 `Content-Security-Policy: default-src 'self'; script-src 'self'` | 页面自己的动态执行被拒；TypeBox `accelerated=false`、合法声明通过、非法声明拒绝且错误与原实现一致、真实命令执行成功，见 `registry-csp-result.json` |
 

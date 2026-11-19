@@ -1,4 +1,4 @@
-# Electrobun 桌面壳原型在 Windows 上的实测（2026-11-13，pc-notype：Windows 11 26200 x64、32 GB、WebView2 157.0.4341.46）
+# Electrobun 桌面壳原型在 Windows 上的实测（2026-11-13，Windows 开发机：Windows 11 26200 x64、32 GB、WebView2 157.0.4341.46）
 # 工具：Hutch 0.29.0、Electrobun 2.0.6（hutch.config.ts 固定版本）、Bun 1.4.4（Hutch 打进应用）；NeuroBook 产物来自 master 0ac934e53。
 # 原型主进程见同目录 windows-electrobun-proto-main.ts.txt；应用里 Resources/app/nbook 是 dist/server、dist/web 与 Windows 上装的 node_modules/@oh-my-pi。
 

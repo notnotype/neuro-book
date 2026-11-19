@@ -1,6 +1,6 @@
 $ vitest run "app/utils/workbench/t41-final-probe.test.ts" "--reporter=dot"
 
- RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+ RUN  v4.1.10 C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
 
 stdout | app/utils/workbench/t41-final-probe.test.ts > t41 追加复核 > P1 shareAxis：确定反例与随机不变量
 EVIDENCE P1.leader-overflow {"values":[17.142857142857142,80,2.857142857142857],"root":100,"issues":[]}

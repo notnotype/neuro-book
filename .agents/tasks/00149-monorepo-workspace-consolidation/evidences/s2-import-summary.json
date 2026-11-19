@@ -3,7 +3,7 @@
   "taskId": "00149-monorepo-workspace-consolidation",
   "capturedAt": "2026-08-16T18:37:33.393Z",
   "sourceManifestIndex": {
-    "path": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/runs/00149-s0-import-manifests/index.json",
+    "path": "C:/Users/<user>/AppData/Local/Temp/neuro-book/runs/00149-s0-import-manifests/index.json",
     "sha256": "sha256:f8ae3f8f0e72cda652c17d8a997f18c692608ced3202a2b4b9f6faa897519d66"
   },
   "policy": {
@@ -65,7 +65,7 @@
   "packages": [
     {
       "name": "nb-history",
-      "sourcePath": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\nb-history",
+      "sourcePath": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\nb-history",
       "targetPath": "packages/nb-history",
       "head": "68c54caed73c4499eac44e92931895aa130672b3",
       "candidateCount": 30,
@@ -88,7 +88,7 @@
     },
     {
       "name": "nb-workflow",
-      "sourcePath": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\nb-workflow",
+      "sourcePath": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\nb-workflow",
       "targetPath": "packages/nb-workflow",
       "head": "cf34d1567181f77b49f12721648f8f73c3385120",
       "candidateCount": 24,
@@ -111,7 +111,7 @@
     },
     {
       "name": "nb-memory",
-      "sourcePath": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\nb-memory",
+      "sourcePath": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\nb-memory",
       "targetPath": "packages/nb-memory",
       "head": "0676cd446b55f212885625468c4498007afd97a1",
       "candidateCount": 37,
@@ -135,7 +135,7 @@
     },
     {
       "name": "nb-ui",
-      "sourcePath": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\nb-ui",
+      "sourcePath": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\nb-ui",
       "targetPath": "packages/nb-ui",
       "head": "6296c693e21751c984f3ac8bdefbb899d0244cf9",
       "candidateCount": 131,
@@ -158,7 +158,7 @@
     },
     {
       "name": "neuro-agent-harness",
-      "sourcePath": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-agent-harness",
+      "sourcePath": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\neuro-agent-harness",
       "targetPath": "packages/neuro-agent-harness",
       "head": "1e4774f299eae78dc304ca750d105ce2584e5cff",
       "candidateCount": 299,
@@ -183,7 +183,7 @@
     },
     {
       "name": "llmlint",
-      "sourcePath": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\llmlint",
+      "sourcePath": "C:\\Users\\<user>\\Documents\\CodeRepository\\GithubProjects\\llmlint",
       "targetPath": "packages/llmlint",
       "head": "7d23292694039df2c0572611aff93b97165ba0f9",
       "candidateCount": 814,

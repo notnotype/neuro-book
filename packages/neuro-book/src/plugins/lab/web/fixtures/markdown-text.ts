@@ -8,12 +8,12 @@
  * 设端口的语言，场景与数据 tab 里写的语言照旧生效。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {defineComponent, h, provide, watch} from "vue";
+import {defineComponent, h, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {LabSceneInput} from "../lab-subject";
@@ -27,7 +27,7 @@ export function markdownSceneLocale(scene: string, input: LabSceneInput | undefi
 export function provideMarkdownSceneText(locale: () => DisplayLocale): void {
     const engine = createHostTextEngine({locale: locale()});
     engine.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
-    provide(TEXT_PORT_KEY, engine.port);
+    provideHostText(engine.port);
     watch(locale, (next) => engine.setLocale(next));
 }
 

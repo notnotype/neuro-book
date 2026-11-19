@@ -1,14 +1,14 @@
 {
   "root": "/tmp/neuro-book/agent/t40-rework-1-product-logs-Iwc38E",
   "stateRoot": "/tmp/neuro-book/agent/t40-rework-1-product-logs-Iwc38E/state",
-  "imageRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output",
+  "imageRoot": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output",
   "marker": "t40-rework-1-console-error-68fbf559-3d0e-4247-b36a-e62226cd3303",
   "steps": [
     {
       "args": [
         "--no-install",
         "--no-env-file",
-        "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/commands/product-command.mjs",
+        "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/commands/product-command.mjs",
         "command",
         "migrate-database"
       ],
@@ -22,7 +22,7 @@
       "args": [
         "--no-install",
         "--no-env-file",
-        "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/commands/product-command.mjs",
+        "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/commands/product-command.mjs",
         "command",
         "migrate-application-state",
         "--apply"
@@ -37,7 +37,7 @@
       "args": [
         "--no-install",
         "--no-env-file",
-        "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/commands/prepare-system-assets.mjs",
+        "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/commands/prepare-system-assets.mjs",
         "--sync-user-assets"
       ],
       "result": {

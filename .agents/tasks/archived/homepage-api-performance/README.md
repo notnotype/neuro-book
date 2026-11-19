@@ -2,7 +2,7 @@
 
 ## User Request
 
-- 基于 `.agent/workspace/localhost.har` 与 `.agent/workspace/8.148.4.22.har` 分析首页加载性能问题。
+- 基于 `.agent/workspace/localhost.har` 与 `.agent/workspace/<主机>.har` 分析首页加载性能问题。
 - 不只从前端减少重复请求入手，也要检查 API 设计和后端实现是否有优化空间。
 - 特别关注：
   - `/api/auth/me` 在本地与生产环境下的耗时来源。

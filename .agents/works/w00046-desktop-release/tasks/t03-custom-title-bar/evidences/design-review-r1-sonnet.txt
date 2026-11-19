@@ -1,4 +1,4 @@
-t03 设计审查 r1：页面一侧（Sonnet）。只读，依据主工作区 master 的现有代码；标“未验证”的是从代码与 Chromium 行为推断，没在 pc-notype 上跑过。
+t03 设计审查 r1：页面一侧（Sonnet）。只读，依据主工作区 master 的现有代码；标“未验证”的是从代码与 Chromium 行为推断，没在 Windows 开发机上跑过。
 
 [1] 重要 | 机制不存在 | plan-r1.md 第 48 行；packages/neuro-book/src/web/host/close-ui.ts:50-60、136-146；packages/neuro-book/src/web/boot.ts:90-106
 关闭层一出现，窗口按钮就点不动、按不了，与计划写的“询问期间窗口照样能最小化、移动”相反。三处叠加：
@@ -15,7 +15,7 @@ t03 设计审查 r1：页面一侧（Sonnet）。只读，依据主工作区 mas
  - 模态 `Dialog` 的遮罩 `fixed inset-0`（Dialog.vue:200）盖过标题栏，遮罩顶部 36px 里点击不会触发“点遮罩关闭”，而是拖窗口。
  - `QuickPick` 面板 `top: clamp(16px, 8cqh, 72px)`：窗口高度低于约 450px 时，输入框落进顶部 36px。
  - 右键菜单、提示框落在顶部 36px 时同理。
-核实：计划引用的 frame-probe-r1 只测了页面最上面一块 drag 与它里面的 no-drag，没测“上面再盖一层元素”。在 pc-notype 上用同一个探针，在拖动区域上盖一个 `position: fixed; z-index: 9999` 的无 `app-region` 元素，查 `WM_NCHITTEST`：预计仍是 `HTCAPTION`（未验证，以此条为准）。
+核实：计划引用的 frame-probe-r1 只测了页面最上面一块 drag 与它里面的 no-drag，没测“上面再盖一层元素”。在 Windows 开发机上用同一个探针，在拖动区域上盖一个 `position: fixed; z-index: 9999` 的无 `app-region` 元素，查 `WM_NCHITTEST`：预计仍是 `HTCAPTION`（未验证，以此条为准）。
 建议：先按上面的探针确认。成立的话：(1) nb-ui 的浮层外框类（`.nb-ui-overlay`、`.nb-ui-popover-surface`、`.nb-ui-dialog-surface`）与 `FloatingWindow` 加 `-webkit-app-region: no-drag`（浏览器里不生效，没有副作用），树序在标题栏之后，会在差集里扣掉；(2) `useFloatingWindow` 的 `minY` 在桌面窗口外框下取 36（或经 CSS 变量 `--nb-window-frame-offset`）；(3) 这是 nb-ui 的改动，计划要写进切片 2 的范围，并按 nb-ui 的规则补测试；(4) e2e 加“开着对话框、浮动窗口时顶部 36px 的计算 `app-region`”。
 
 [3] 重要 | 机制 / 别扭 | plan-r1.md 第 55 行；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.vue:384（`<style scoped>`）；packages/nb-ui/src/components/popup/Menubar.vue:111-135
@@ -91,7 +91,7 @@ t03 设计审查 r1：页面一侧（Sonnet）。只读，依据主工作区 mas
 计划的 CSS 只写“`app-region: drag`”。探针页同时写了 `app-region` 与 `-webkit-app-region`，WebView2 157 两个都认，所以证据说明不了只写无前缀名时在较老的 WebView2 上行不行。无前缀的 `app-region` 比带前缀的晚出（Chrome 约 130 之后才有，具体版本我没核，需要查 Chrome Platform Status），而计划把“WebView2 123 之前没有非客户区支持”当作下限，123 到无前缀名出现之间的版本只认 `-webkit-app-region`。风险记里只提了 123，没有这一段。建议两个名字都写（`-webkit-app-region` 在前或后都行，不论顺序），e2e 按带前缀名断言（本机 Chrome 两个都读得出）；并在壳里按 WebView2 版本决定是否声明 `__nbookDesktopFrame`（见 [17]）。
 
 [15] 建议 | 别扭 / 未验证 | plan-r1.md 第 24 行
-窗口按钮的图形用内联 SVG“10px 见方、1px 线”。探针只在 pc-notype 的 100% 缩放下测过。125%、150% 下 10 个 CSS 像素是 12.5、15 个设备像素，1px 线落在半像素上会糊；Windows 自己的按钮用 Segoe Fluent Icons（Win10 是 Segoe MDL2 Assets）的字形，是按像素对齐的。参照物：VS Code 用自带的 codicon 字体（`chrome-minimize` 等），PWA 窗口控件覆盖层则直接是系统画的。建议要么给 SVG 加 `shape-rendering: crispEdges` 并让图形盒按设备像素取整（用 `image-rendering` 与 `vector-effect: non-scaling-stroke` 的组合要实测），要么用 `font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets"` 的 E921/E922/E923/E8BB 字形、字体不存在时再回退到 SVG；验收里加 125% 与 150% 缩放各看一次（pc-notype 能改缩放，但“未验证边界”里现在只有 100%）。
+窗口按钮的图形用内联 SVG“10px 见方、1px 线”。探针只在 Windows 开发机 的 100% 缩放下测过。125%、150% 下 10 个 CSS 像素是 12.5、15 个设备像素，1px 线落在半像素上会糊；Windows 自己的按钮用 Segoe Fluent Icons（Win10 是 Segoe MDL2 Assets）的字形，是按像素对齐的。参照物：VS Code 用自带的 codicon 字体（`chrome-minimize` 等），PWA 窗口控件覆盖层则直接是系统画的。建议要么给 SVG 加 `shape-rendering: crispEdges` 并让图形盒按设备像素取整（用 `image-rendering` 与 `vector-effect: non-scaling-stroke` 的组合要实测），要么用 `font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets"` 的 E921/E922/E923/E8BB 字形、字体不存在时再回退到 SVG；验收里加 125% 与 150% 缩放各看一次（Windows 开发机 能改缩放，但“未验证边界”里现在只有 100%）。
 
 [16] 建议 | 别扭与反常 | plan-r1.md 第 43-47 行；packages/neuro-book/src/web/host/window.ts、PageOutlet.vue:30
 命名与职责：
@@ -101,7 +101,7 @@ t03 设计审查 r1：页面一侧（Sonnet）。只读，依据主工作区 mas
 
 [17] 建议 | 参照项（VS Code、Electron titleBarOverlay、PWA 窗口控件覆盖层有而计划没有） | plan-r1.md 第 31、100-101 行
  a. 回退到系统标题栏：VS Code 有 `window.titleBarStyle: native` 的退路；这里在 WebView2 低于 123 时拖动区域不生效，计划把风险记为“已知限制，窗口只能用键盘移动”。页面一侧只认 `__nbookDesktopFrame`，所以决定权在壳：壳启动时读 WebView2 版本，不够就用有系统标题栏的样式开窗并不定义标记，页面零改动就退回到现在的两条标题栏（输出 28 现状）。建议把它从“已知限制”升级为设计的一部分，至少写进 desktop-shell 的验收（“旧 WebView2：有系统标题栏，没有窗口按钮”），这样页面一侧的“没标记什么也不画”的 e2e 恰好覆盖它。
- b. 点标题栏空白处时已打开的菜单不关：点击落在非客户区，页面收不到 `pointerdown`，reka 的“点外面关闭”不触发，菜单在窗口被拖动时一直开着（Windows 原生菜单是关的）。建议先在 pc-notype 上实测：按下标题栏空白处时页面会不会收到 `blur`（未验证）；会的话在 `WorkbenchTitleBar` 里据此关掉菜单，不会的话记为已知限制。
+ b. 点标题栏空白处时已打开的菜单不关：点击落在非客户区，页面收不到 `pointerdown`，reka 的“点外面关闭”不触发，菜单在窗口被拖动时一直开着（Windows 原生菜单是关的）。建议先在 Windows 开发机上实测：按下标题栏空白处时页面会不会收到 `blur`（未验证）；会的话在 `WorkbenchTitleBar` 里据此关掉菜单，不会的话记为已知限制。
  c. 无命令的条目（`<span role="status">`，WorkbenchItemStrip.vue:136-146）在标题栏条目区里没有 `button`/`tabindex`，落在拖动区域里：它们带 `title` 或 `hover` 的悬停提示（输出 43），非客户区收不到鼠标移动，原生 `title` 提示与 nb-ui `Tooltip` 都不会出现。要么给这类条目 `[data-workbench-item]` 加 no-drag（代价：它们不再能拖动，但它们本来就是一小块文字），要么在 `WorkbenchTitleBar.md` 写明桌面里不显示这些提示。no-drag 清单应以“有悬停或点击行为的一切”为准而不是“可聚焦的一切”。
  d. 页面缩放：WebView2 默认可用 Ctrl+滚轮、Ctrl+加减缩放页面，窗口按钮与标题栏一起按 CSS 像素放大，保持一致，没有问题；VS Code 会反向补偿让标题栏不随缩放变化。这里不补偿也能自洽，只需在 WindowFrame.md 写一句“按页面缩放同比变化”，免得后人当缺陷。
 

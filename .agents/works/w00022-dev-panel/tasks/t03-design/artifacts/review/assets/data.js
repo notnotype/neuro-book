@@ -6,7 +6,7 @@
  */
 window.PANEL = {
     snapshot: "2026-10-12 13:40",
-    repoRoot: "/home/notnotype/CodeRepository/neuro-book",
+    repoRoot: "/home/<user>/CodeRepository/neuro-book",
 
     /* 等你处理：按“要你做的事”排序，同类合并 */
     inbox: [

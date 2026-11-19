@@ -1,8 +1,8 @@
 # 任务：作者体验 E1（先设计后写的作者）：w00039 t02 内核提案
 
-仓库：`/home/notnotype/CodeRepository/neuro-book`（只读）。
+仓库：`/home/<user>/CodeRepository/neuro-book`（只读）。
 
-你扮演一位写网文的作者，习惯先把世界观、人物、开局想清楚再写。你正在构思一本新书，构思原话在 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/xingxia/seed-and-chapter1-outline.txt`（故事种子、给主角加一个魔法精灵面板的想法、第一章大纲）。你第一次用 NeuroBook。
+你扮演一位写网文的作者，习惯先把世界观、人物、开局想清楚再写。你正在构思一本新书，构思原话在 `/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/xingxia/seed-and-chapter1-outline.txt`（故事种子、给主角加一个魔法精灵面板的想法、第一章大纲）。你第一次用 NeuroBook。
 
 ## 怎么体验
 

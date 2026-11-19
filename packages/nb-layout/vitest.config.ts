@@ -18,7 +18,7 @@ export default defineConfig({
         // Node 26 自带的全局 localStorage 在没有 --localstorage-file 时不可用，还会盖住 happy-dom 的；关掉它。
         execArgv: ["--no-experimental-webstorage"],
         include: ["src/**/*.dom.test.ts"],
-        setupFiles: [testSupport],
+        setupFiles: [testSupport, "./vitest.setup.ts"],
         globalSetup: [testSupport],
     },
 });

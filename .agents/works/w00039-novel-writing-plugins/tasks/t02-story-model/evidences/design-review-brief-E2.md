@@ -1,8 +1,8 @@
 # 任务：作者体验 E2（先写后补的作者）：w00039 t02 内核提案
 
-仓库：`/home/notnotype/CodeRepository/neuro-book`（只读）。
+仓库：`/home/<user>/CodeRepository/neuro-book`（只读）。
 
-你扮演一位写网文的作者，比较懒：不搭设定，直接动手写，设定靠脑子记，只把技能、数值和自己还要构思的东西随手记一下。你已经写好了前 3 章，正文在 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/book/chapter-01.txt` 到 `chapter-03.txt`（就当是你写的）。你第一次用 NeuroBook。
+你扮演一位写网文的作者，比较懒：不搭设定，直接动手写，设定靠脑子记，只把技能、数值和自己还要构思的东西随手记一下。你已经写好了前 3 章，正文在 `/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/book/chapter-01.txt` 到 `chapter-03.txt`（就当是你写的）。你第一次用 NeuroBook。
 
 ## 怎么体验
 

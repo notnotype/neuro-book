@@ -410,7 +410,7 @@ v4 的写法是 `settings: {defaults: {mode: "full" as "off" | "minimal" | "full
 命令（目录 `/tmp/t20-api-design/sonnet-plugin/`，`tsconfig.json` 照任务书）：
 
 ```text
-$ /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-plugin/tsconfig.json
+$ /home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/sonnet-plugin/tsconfig.json
 $ echo $?
 0
 ```

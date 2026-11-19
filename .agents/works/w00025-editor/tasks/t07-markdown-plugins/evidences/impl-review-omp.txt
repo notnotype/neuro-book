@@ -1,6 +1,6 @@
 # w00025 t07 后端与领域实现审查
 
-审查范围：`ee9cee973..5fbf30ca4`。代码路径相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t07-review`；实验命令均在该 worktree 的 `packages/neuro-book` 下执行。按核实顺序追加；未修改产品源码、Spec 或 Task 记录。
+审查范围：`ee9cee973..5fbf30ca4`。代码路径相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t07-review`；实验命令均在该 worktree 的 `packages/neuro-book` 下执行。按核实顺序追加；未修改产品源码、Spec 或 Task 记录。
 
 ### 1. 撞名检查遗漏原样语法与组合扩展，外来方言能让整份语言创建失败
 
@@ -67,7 +67,7 @@
 
 ## 实际命令与结果
 
-所有命令的工作目录为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t07-review/packages/neuro-book`：
+所有命令的工作目录为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t07-review/packages/neuro-book`：
 
 | 命令 | 结果 |
 |---|---|
@@ -85,7 +85,7 @@
 
 本小节不是发现，不计入数量：
 
-- 原命令 `bunx vitest run src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts src/plugins/markdown/web/components/MarkdownImage.dom.test.ts src/plugins/markdown/web/components/late-dialect.dom.test.ts src/plugins/markdown/web/components/prompt/PromptEditor.dom.test.ts src/plugins/markdown/web/components/prompt/PromptTextView.dom.test.ts src/plugins/markdown/web/components/prompt/prompt-editor-extensions.dom.test.ts` 在 setup 阶段失败，**0 条测试执行**。错误原文为 `Cannot find module '/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t07-markdown-plugins/packages/neuro-book-test-support/src/vitest.ts'`。
+- 原命令 `bunx vitest run src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts src/plugins/markdown/web/components/MarkdownImage.dom.test.ts src/plugins/markdown/web/components/late-dialect.dom.test.ts src/plugins/markdown/web/components/prompt/PromptEditor.dom.test.ts src/plugins/markdown/web/components/prompt/PromptTextView.dom.test.ts src/plugins/markdown/web/components/prompt/prompt-editor-extensions.dom.test.ts` 在 setup 阶段失败，**0 条测试执行**。错误原文为 `Cannot find module '/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t07-markdown-plugins/packages/neuro-book-test-support/src/vitest.ts'`。
 - 最初的实验配置使用 mergeConfig 合并 include，数组被拼接，意外选中了 60 份测试；它们全部在同一 setup 错误处失败，**也没有执行测试**。没有把这些失败当作产品回归。
 - 后续仅修改获准实验目录中的配置：显式指定当前审查副本的测试支持文件、允许现有 workspace 链接的路径，并直接赋值 include 防止拼接。没有改动产品的 Vite／Vitest 配置、依赖链接或安装包；随后取得上表的有效组件结果。
 - 未运行开发服务、e2e、真实 Chrome 性能／视觉检查、真实模型、真实 dist 构建；未做永久源码变异。没有调用子代理，没有 commit、push、stash、切分支或删除仓库文件。实验保留在指定目录，供实现者重跑。

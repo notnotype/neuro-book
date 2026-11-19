@@ -1,6 +1,6 @@
 # t66 实现审查：测试与验收映射
 
-审查范围：`cc4b39e3..ed0f12be`；审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-tests`。仓库源码只读；变异、构建与浏览器实验在本报告旁的 `snapshot/` 中进行。编号保留核实顺序，正文按影响排序。当前产品行为、变异揭示的覆盖缺口、静态核实与未验证边界分别注明。
+审查范围：`cc4b39e3..ed0f12be`；审查 worktree：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-impl-tests`。仓库源码只读；变异、构建与浏览器实验在本报告旁的 `snapshot/` 中进行。编号保留核实顺序，正文按影响排序。当前产品行为、变异揭示的覆盖缺口、静态核实与未验证边界分别注明。
 
 ## 已核实的发现
 
@@ -158,7 +158,7 @@
 
 ## 实际验证
 
-实验根 `EXP` 为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/tests`；隔离包根 `PKG` 为 `$EXP/snapshot/packages/neuro-book`；原审查仓库根 `ROOT` 为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-tests`。以下每次仓库测试显式设置 `NBOOK_AGENT_TEMP_ROOT=$EXP`；命令中的变量只是缩短路径的记法。
+实验根 `EXP` 为 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/tests`；隔离包根 `PKG` 为 `$EXP/snapshot/packages/neuro-book`；原审查仓库根 `ROOT` 为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-impl-tests`。以下每次仓库测试显式设置 `NBOOK_AGENT_TEMP_ROOT=$EXP`；命令中的变量只是缩短路径的记法。
 
 | 工作目录与实际命令／操作 | 本次结果 |
 |---|---|

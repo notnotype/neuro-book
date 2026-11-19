@@ -19,7 +19,7 @@ WorkbenchBranch 根容器去掉 h-full/w-full，宽高直接使用 layout.sizes[
 
 四例均验证原语的未吸收诊断、Splitter 两叶 default/min/max=50%、实际 sash 配置；父容器主轴缩小为 150px 后，根样式更新为 150×150px。
 
-验证 cwd 为绝对路径 `C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`：
+验证 cwd 为绝对路径 `C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`：
 
 - 修复前：`bun run test app/components/workbench/workbench-grid-consumers.test.ts`，exit 1，4 failed / 3 passed；失败为根元素缺少 200px/201px/150px 的宽高样式。
 - 修复后：`bun run test app/components/workbench/workbench-grid-consumers.test.ts app/components/workbench/workbench-branch-layout.test.ts`，exit 0，2 文件 9 passed。
@@ -73,7 +73,7 @@ grid-types.ts、grid-snapshot.ts、已有 workbench-branch-layout.test.ts 和 ba
 
 ## 实际验证
 
-所有命令使用绝对 worktree cwd：C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration，下表 cwd 为其子目录。
+所有命令使用绝对 worktree cwd：C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration，下表 cwd 为其子目录。
 
 | cwd | 命令 | 退出码与结果 |
 |---|---|---|

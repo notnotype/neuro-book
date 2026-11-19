@@ -4,8 +4,7 @@
  * 重试、移除只把调用记进事件 tab），翻译端口另建、登记 `nbook.tasks` 的目录（Lab 窗口的端口没有它）。
  * 场景 id 以 `hover` 开头的画悬停内容；带 `empty` 的清单为空；带 `narrow` 的按默认布局的宽度摆；以 `english` 结尾的用英文界面。
  */
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {computed, provide, ref, shallowRef} from "vue";
+import {computed, ref, shallowRef} from "vue";
 
 import TasksHover from "nbook/plugins/tasks/web/components/TasksHover.vue";
 import TasksView from "nbook/plugins/tasks/web/components/TasksView.vue";
@@ -13,6 +12,7 @@ import type {TaskItem} from "nbook/plugins/tasks/shared/contracts";
 import type {TasksStore} from "nbook/plugins/tasks/web/store";
 import {tasksCatalogs} from "nbook/plugins/tasks/web/text";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {useLabEventSink} from "../../lab-event-sink";
@@ -23,7 +23,7 @@ const record = useLabEventSink();
 
 const engine = createHostTextEngine({locale: props.scene.endsWith("english") ? "en-US" : "zh-CN"});
 engine.register("nbook.tasks", tasksCatalogs.catalogs, tasksCatalogs.source);
-provide(TEXT_PORT_KEY, engine.port);
+provideHostText(engine.port);
 
 const today = new Date();
 const at = (daysAgo: number, hour: number, minute: number): string => new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysAgo, hour, minute).toISOString();

@@ -14,7 +14,6 @@ import {createWebHistory} from "vue-router";
 import {readClientIdentity} from "@notnotype/nb-host/web";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import {createDesktopBridge} from "nbook/shared/desktop-bridge";
@@ -30,6 +29,7 @@ import {createCloseQuery} from "./host/close-query";
 import {createCloseUi, installCloseKeyGuard} from "./host/close-ui";
 import {createConnection} from "./host/connection";
 import {createDesktopFrame} from "./host/desktop-frame";
+import {provideAppHostText} from "./host/host-text";
 import {watchWindowAppearance} from "./host/window-appearance";
 import {createDesktopUpdates} from "./host/desktop-updates";
 import {readLocaleHint, writeLocaleHint} from "./host/locale-hint";
@@ -124,7 +124,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     document.body.append(closeRoot, frameRoot);
     const closeUi = createCloseUi({document, exemptRoots: () => [closeRoot, frameRoot]});
     const desktopFrame = createDesktopFrame({global: window, bridge, document, report: (input) => browserWindow.record(input)});
-    createApp(DesktopFrame, {frame: desktopFrame}).provide(TEXT_PORT_KEY, text.port).mount(frameRoot);
+    provideAppHostText(createApp(DesktopFrame, {frame: desktopFrame}), text.port).mount(frameRoot);
     watchWindowAppearance({document, bridge, report: (event, error) => browserWindow.record({level: "warn", event, message: "Reporting the window appearance to the desktop shell failed", ...(error === undefined ? {} : {error})})});
     const closeQuery = createCloseQuery({
         bridge,
@@ -137,7 +137,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     });
     browserWindow.setCloseAgreed(() => closeQuery.agreed);
     installCloseKeyGuard(window, () => closeQuery.active);
-    createApp(CloseLayer, {ui: closeUi}).provide(TEXT_PORT_KEY, text.port).mount(closeRoot);
+    provideAppHostText(createApp(CloseLayer, {ui: closeUi}), text.port).mount(closeRoot);
     // 更新提示（docs/specs/runtime/browser-host.md 输出 11）：与关闭前询问同时建立，启动中壳交来的提示先存着，页面挂好后再显示。
     const desktopUpdates = createDesktopUpdates({bridge, window: browserWindow, page: window, report: (input) => browserWindow.record(input)});
     // 启动期间屏幕上只有 index.html 的静态加载页（界面在 start 之后才挂载）：引导给出书名后写进它预留的位置。

@@ -15,11 +15,11 @@ r2，2026-11-15（r1 经设计审查第 1 轮修订：omp 14 条、Sonnet 17 条
 工作方式：
 - autonomous-delivery。
 - 代码在 worktree `.worktree/w00046-t03-title-bar`（分支 `feat/w00046-t03-title-bar`）。应用图标已在这个分支上提交（`be074783f`、`39276fe1e`），见下文“应用图标”。
-- Windows 验收在 pc-notype 上做：只用 UI 自动化与 Win32 查询读状态，不截屏、不动鼠标。
+- Windows 验收在 Windows 开发机上做：只用 UI 自动化与 Win32 查询读状态，不截屏、不动鼠标。
 
 ### 已实测的事实
 
-来源：pc-notype，Electrobun 2.0.6，WebView2 157（[frame-probe-r1.txt](evidences/frame-probe-r1.txt)，第 7 条是设计审查后补测的）。
+来源：Windows 开发机，Electrobun 2.0.6，WebView2 157（[frame-probe-r1.txt](evidences/frame-probe-r1.txt)，第 7 条是设计审查后补测的）。
 
 - **沙箱页面的 `app-region` 走系统命中。** 用 `titleBarStyle: "hiddenInset"`、`sandbox: true`、加载 `http://127.0.0.1` 的页面时：
   - 写 `app-region: drag` 的区域，`WM_NCHITTEST` 回 `HTCAPTION`；
@@ -197,14 +197,14 @@ r2，2026-11-15（r1 经设计审查第 1 轮修订：omp 14 条、Sonnet 17 条
 2. **页面宿主与工作台标题栏**：
    - 内容：`desktop-frame.ts` 与测试；`DesktopFrame.vue` 与 DOM 测试；`boot.ts` 挂载与关闭层的例外；`styles.css`、`host-loading.css`、`index.html`、`LabPage.vue`；nb-ui `z-index.ts` 登记与顺序断言；宿主目录新键；`WorkbenchTitleBar` 的区域、留位与测量。e2e 新文件 `desktop-frame.e2e.ts`。
    - 提交。
-3. **Spec 与 Windows 验收**：三份 Spec 与组件文档；pc-notype 上用本分支的载荷重建安装包，按“验证”的 Windows 一节跑，证据写进 `evidences/`。提交。
+3. **Spec 与 Windows 验收**：三份 Spec 与组件文档；Windows 开发机上用本分支的载荷重建安装包，按“验证”的 Windows 一节跑，证据写进 `evidences/`。提交。
 
 ## 验收映射
 
 | Spec | 覆盖 |
 |---|---|
 | desktop-shell 输出 10、13 | `desktop-bridge.test.ts`（消息形状）、`window-state.test.ts`（去重与清理）；Windows 验收（样式、图标、命中、退路） |
-| desktop-shell 场景 15 | pc-notype：Win32 查询与 UI 自动化；真实拖动由开发者操作 |
+| desktop-shell 场景 15 | Windows 开发机：Win32 查询与 UI 自动化；真实拖动由开发者操作 |
 | browser-host 输出 10 的例外 | `desktop-frame.e2e.ts`（关闭层开着时按钮可用、消息交壳）、`close-ui` 的单测 |
 | browser-host 新输出“窗口外框” | `desktop-frame.test.ts`、`DesktopFrame.dom.test.ts`、`desktop-frame.e2e.ts` |
 | workbench-shell 输出 28 | `desktop-frame.e2e.ts`（拖动区域的计算样式、留位、居中）；DOM 测试只守属性与结构。计算样式只证明样式写对，真正的命中只有 Windows 验收能证明 |
@@ -229,7 +229,7 @@ r2，2026-11-15（r1 经设计审查第 1 轮修订：omp 14 条、Sonnet 17 条
     - 首页到工作台切换：`.nb-workbench-page` 的高度序列里不出现先短后长。
     - 不定义标记时：不画任何东西，`body`、`.nb-workbench-page` 的尺寸与现在相同。
   - 受影响的现有 e2e 一并跑：`bookshelf.e2e.ts`、`browser-host.e2e.ts`、`desktop-close.e2e.ts`、`rpc.e2e.ts`（离线横幅）。共 5 个文件。改动后只重跑覆盖改动的文件与失败项。
-- **Windows（pc-notype）**：用本分支的载荷重建安装包，装进测试标识（`NBOOK_DESKTOP_IDENTIFIER`），用独立的状态根。
+- **Windows（Windows 开发机）**：用本分支的载荷重建安装包，装进测试标识（`NBOOK_DESKTOP_IDENTIFIER`），用独立的状态根。
   - **Win32 查询**：
     - 命中测试：工作台标题栏空白处、书架后备标题栏、加载页是 `HTCAPTION`；按钮、菜单触发器、搜索、开着的对话框是 `HTCLIENT`。
     - 窗口：样式含三位；`WM_GETICON` 非 0；最大化后客户区等于工作区。
@@ -240,9 +240,9 @@ r2，2026-11-15（r1 经设计审查第 1 轮修订：omp 14 条、Sonnet 17 条
     - 最大化与还原：按钮名与 `IsZoomed` 一起变；
     - 关闭：有未保存的修改时出编辑器的询问；询问期间最小化可用；
     - 启动页的按钮。
-  - **真实操作**：拖动、双击标题栏、拖到屏幕边缘贴边、Alt+Space、点标题栏空白处时开着的菜单。合成输入不可靠，也会动开发者的鼠标，所以请开发者在 pc-notype 上试一次，结果记进证据；在那之前写“未验证”。
+  - **真实操作**：拖动、双击标题栏、拖到屏幕边缘贴边、Alt+Space、点标题栏空白处时开着的菜单。合成输入不可靠，也会动开发者的鼠标，所以请开发者在 Windows 开发机上试一次，结果记进证据；在那之前写“未验证”。
 - **未验证边界**：
-  - 多显示器与不同缩放比例下的最大化与按钮字形：只在 pc-notype 的单屏 100% 上测；
+  - 多显示器与不同缩放比例下的最大化与按钮字形：只在 Windows 开发机 的单屏 100% 上测；
   - Windows 10：只测 Windows 11；
   - WebView2 低于 123 的退路：只按版本分支的单测与代码审查，没有旧版本的机器。
 

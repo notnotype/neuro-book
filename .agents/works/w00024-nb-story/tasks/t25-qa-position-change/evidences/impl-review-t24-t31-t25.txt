@@ -204,7 +204,7 @@
 
 ### 发现 9：新旧 Spec 的续问 at 条款互相否定（建议）
 
-- **类别与位置**：文档；主工作区 `/home/notnotype/CodeRepository/neuro-book/docs/specs/story/qa.md:185,196,307,336`；审查 worktree `packages/nb-story/src/qa/engine.ts:407`。
+- **类别与位置**：文档；主工作区 `/home/<user>/CodeRepository/neuro-book/docs/specs/story/qa.md:185,196,307,336`；审查 worktree `packages/nb-story/src/qa/engine.ts:407`。
 - **现象与影响**：输出 41 和实现允许续问带 at，但输出 26、29、验收 15 仍禁止；“放弃的一轮不写记录”和恢复失败注释也与已发布位置相反。后续调用方和测试会得到互斥判据。
 - **核实**：逐句对照当前主工作区 Spec、t25 修订计划和 CLI 的新增成功用例；不是归档文本差异。
 - **建议改法**：移除旧 at 禁令、更新验收；与发现 1 一起统一“准备成功再发布”的失败合同，不保留两套有效条款。

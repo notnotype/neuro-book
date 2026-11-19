@@ -1,7 +1,7 @@
 w00039 t34 阶段 D 世界线计划只读设计审查（omp）
 日期：2026-11-05
-审查对象：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00039-novel-writing-plugins/tasks/t34-plot-side-impl/plan.md，阶段 D 第二版，402–672 行；第一版的问题只在第二版尚未消除时列为有效发现。
-实现依据：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel，读取时 HEAD 为 97c59f592a1d，未提交代码同时在推进 D0/D1。下列运行结果只证明注明的底层机制，不宣称已验收尚未实现的完整世界线。未改计划、源码与测试，未提交、切分支、跑 e2e、开发服务或规模脚本。临时实验仅放 /tmp/w00039-t34-plan-review-d-lab/。
+审查对象：/home/<user>/CodeRepository/neuro-book/.agents/works/w00039-novel-writing-plugins/tasks/t34-plot-side-impl/plan.md，阶段 D 第二版，402–672 行；第一版的问题只在第二版尚未消除时列为有效发现。
+实现依据：/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel，读取时 HEAD 为 97c59f592a1d，未提交代码同时在推进 D0/D1。下列运行结果只证明注明的底层机制，不宣称已验收尚未实现的完整世界线。未改计划、源码与测试，未提交、切分支、跑 e2e、开发服务或规模脚本。临时实验仅放 /tmp/w00039-t34-plan-review-d-lab/。
 
 ### 1. 非 init 的条目改动与新增条目仍须推进每条已建线的读取输入，不能沿用旧对象
 - 严重程度：重要；类别：正确性 / 不变量。

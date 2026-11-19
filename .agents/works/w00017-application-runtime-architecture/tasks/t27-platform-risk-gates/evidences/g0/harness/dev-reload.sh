@@ -2,7 +2,7 @@
 # 用法：dev-reload.sh <新修订号> <被修改的文件: route|deep>
 # 修改一个服务端文件触发 Nitro 热重载，轮询直到路由返回新修订，然后打印事件时间线与 lease 状态。
 set -u
-SCR=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad
+SCR=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad
 APP=$SCR/g0-wt/packages/neuro-book
 REV=$1
 KIND=${2:-route}

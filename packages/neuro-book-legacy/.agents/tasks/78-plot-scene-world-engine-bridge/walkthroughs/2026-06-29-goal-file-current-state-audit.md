@@ -2,7 +2,7 @@
 
 ## Trigger
 
-- 本轮开始前读取了 Codex goal objective 附件：`C:\Users\notnotype\.codex\attachments\5582535b-b098-424e-b0a1-f47e03aaabfb\goal-objective.md`。
+- 本轮开始前读取了 Codex goal objective 附件：`C:\Users\<user>\.codex\attachments\5582535b-b098-424e-b0a1-f47e03aaabfb\goal-objective.md`。
 - 附件目标是继续实现 Task 78：Plot Scene / World Engine Bridge。
 - 当前仓库状态显示 Task 78 已标记为 Implemented，因此本轮先做当前状态审计，不直接改业务代码。
 

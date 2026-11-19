@@ -12,8 +12,8 @@ const {values} = parseArgs({options: {pkg: {type: "string"}, old: {type: "string
 if (!values.pkg || !values.old || !values.new || !values["budget-dir"] || !values.out) throw new Error("用法见文件头");
 const pkg = resolve(values.pkg);
 const PRICE = {input: 1, output: 4, cacheRead: 0.02};
-const baseUrl = process.env.JIJI_LUNA_BASE_URL, apiKey = process.env.JIJI_LUNA_API_KEY;
-if (!baseUrl || !apiKey) throw new Error("没有 JIJI_LUNA_BASE_URL 或 JIJI_LUNA_API_KEY（用 bun --env-file=.env 运行）");
+const baseUrl = process.env.NBOOK_LLM_BASE_URL, apiKey = process.env.NBOOK_LLM_API_KEY;
+if (!baseUrl || !apiKey) throw new Error("没有 NBOOK_LLM_BASE_URL 或 NBOOK_LLM_API_KEY（用 bun --env-file=.env 运行）");
 
 const {compile} = await import(join(pkg, "src/ingest/compile.ts"));
 const {sampleDataset} = await import(join(pkg, "testing/sample.ts"));

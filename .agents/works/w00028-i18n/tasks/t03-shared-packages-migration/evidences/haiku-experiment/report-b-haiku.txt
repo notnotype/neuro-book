@@ -1,6 +1,6 @@
 交付报告：补齐工作台状态栏的存储原因码表（brief-b-haiku）
 
-工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/exp-b-haiku（分支开在 770da03fe）
+工作区：/home/<user>/CodeRepository/neuro-book/.worktree/exp-b-haiku（分支开在 770da03fe）
 
 一、改动文件（范围内，未 commit）
 1. packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.vue

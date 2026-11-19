@@ -5,7 +5,7 @@
 ## 发现 F1：不可读的会话日志逃出 F8，`ask --json` 没有 JSON 且退出码错误
 
 - **严重程度**：重要；**类别**：正确性 / 接口合同。
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/src/core/qa-records.ts:275`、`packages/nb-story/src/qa/engine.ts:150`。
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/src/core/qa-records.ts:275`、`packages/nb-story/src/qa/engine.ts:150`。
 - **现象**：把一条真实对话引用的日志权限设成 `000` 后续问，`sessionLog()` 只处理 `ENOENT`，其余读取异常原样抛出。真实 `ask --continue <id> --json` 退出码为 **1**，stdout 为 **空串**，stderr 是 `[Uncaught Exception] Error: EACCES` 与堆栈。
 - **为什么是问题**：计划的“恢复不了”、Spec 输出 26 与 F8 明确包含日志“读不成”：应在请求前给 `qa_not_continuable`、退出码 **4**、保持记录不变。当前既绕过失败码合同，又破坏 JSON 消费端的单个 JSON 输出合同。权限不足、I/O 错误、日志路径变成目录都能走这个分支；不是模型失败。
 - **如何核实**：运行 `bun /tmp/review-w00024-t08-impl/scratch/log-permission.ts`，退出 0。脚本经真实 `createStoryApi`、`askQuestion`/脚本模型建立对话，仅对 scratch 内的日志执行 chmod，再同时调用引擎和真实 CLI。输出：`engine {"name":"Error","code":"EACCES"...}`；`cli {"exit":1,"stdout":"","stderr":"...Uncaught Exception..."}`；`recordUnchanged true`。脚本使用的模型地址为本机关闭端口，没有真实模型调用。
@@ -14,7 +14,7 @@
 ## 发现 F2：立即删除上一份日志会让跨发布边界读取的正常续问误报“不能续问”
 
 - **严重程度**：重要；**类别**：不变量 / 并发。
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/src/qa/engine.ts:148`、`packages/nb-story/src/core/qa-records.ts:232`、`packages/nb-story/src/core/qa-records.ts:275`。
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/src/qa/engine.ts:148`、`packages/nb-story/src/core/qa-records.ts:232`、`packages/nb-story/src/core/qa-records.ts:275`。
 - **现象**：续问甲在 `records.get()` 已读到第 1 轮记录、尚未打开其日志时暂停；续问乙正常完成第 2 轮保存并删除第 1 轮日志；甲接着读旧记录指向的文件，得到 `qa_not_continuable`，请求数 **0**，提示“会话日志不在了。请开新对话”。磁盘上的最新对话和最新日志都是完整可续问的。
 - **为什么是问题**：单次 rename 发布记录只能保证指向的新日志已存在，不能保证读者手上旧版本的日志还存在。输出 15 的“读者看到的记录与它指向的日志总是成对的”没有实现；输出 25 约定重叠追问照常输出本轮结果、保存时再报 conflict。这个失败发生在读取阶段，完全不涉及已接受的“轮数核对与写入之间极短窗口”，即使双方保存完全串行也会触发。用户被错误地要求丢弃一个健康对话。
 - **如何核实**：运行 `bun /tmp/review-w00024-t08-impl/scratch/read-publish-race.ts`，退出 0。脚本使用真实书库、真实 `QaRecords` 与真实 harness/脚本模型，仅在甲的公开 `get()` 返回边界设置 Promise 栅栏；乙从真实 `askQuestion` 完成整个发布流程后才释放甲。输出 `continuedError {"name":"QaError","code":"qa_not_continuable",...,"modelRequests":0}`，随后从磁盘读到问题 `["第一问","先保存的追问"]`，最新日志摘要校验 `ok:true`。没有伪造日志缺失或改写产品实现。
@@ -23,7 +23,7 @@
 ## 发现 F3：两轮历史验收即使丢掉上一轮完整答案仍然通过
 
 - **严重程度**：建议；**类别**：测试。
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/src/qa/engine.test.ts:353`。
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/src/qa/engine.test.ts:353`。
 - **现象**：测试标题声称第二轮请求含第一轮问答，实际只在整份历史的 JSON 字符串里查“第一问”和“26.1”。后者已出现在 `read` 请求、原文结果和 `answer` 的 evidence，不能证明上一轮的答案或 answer 工具结果被恢复。
 - **为什么是问题**：Spec 验收 14 明确要求第二轮首个请求包含第一轮问题、工具调用与答案，输出 26 依赖 harness 的历史保真。把恢复中的上一轮 `answer` 助手消息和对应工具结果一并移除，仍保留原始 seq（改成合法 meta 条目），这条测试的 **5 个断言全部通过**。脚本模型无视历史继续给固定答案，因此不能用本轮 answered 或账本引用通过代替历史断言。
 - **如何核实**：运行 `bun test --preload /tmp/review-w00024-t08-impl/scratch/drop-answer-history.ts packages/nb-story/src/qa/engine.test.ts --test-name-pattern '第二轮不读原文，直接引用第一轮读过的段交卷'`，结果 **1 pass、0 fail、5 expect**。变异只通过 Bun loader 在进程内改写，不修改仓库。再运行 `bun /tmp/review-w00024-t08-impl/scratch/history-probe.ts` 与 `bun --preload /tmp/review-w00024-t08-impl/scratch/drop-answer-history.ts /tmp/review-w00024-t08-impl/scratch/history-probe.ts`：正常历史 **6** 条消息、`answerPresent:true`；变异历史 **4** 条、`answerPresent:false`、`answerToolPresent:false`，第一问和 read 仍在。确认变异确实生效，非 loader 没命中。
@@ -32,7 +32,7 @@
 ## 发现 F4：回归报告没有标明文字回复，新增的 kind 只写进中间 JSON
 
 - **严重程度**：建议；**类别**：正确性 / 文档。
-- **位置**：主工作区 `/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts:138`、同文件 `:227`、`:290`、`:297`。
+- **位置**：主工作区 `/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts:138`、同文件 `:227`、`:290`、`:297`。
 - **现象**：`answerOne` 已把文字回复的正文和出处正常写入中间结果，并记录 `run.kind: "reply"`；`check()` 构造 Row 和报告时完全不读取 kind。3 份文字回复在最终报告里显示成普通“答对，0 章”，既无逐份标记，也无文字回复计数。
 - **为什么是问题**：计划的命令行小节明确要求“在报告里标明这一份是文字回复”，因为它没有经结构化答案校验；设计审查 D 的适配要求也包含这个信号。只把 kind 留在外层 JSON，读正式 report.md 无法区分本次回归使用了哪条结束与校验路径。这里只要求补报告标记，不要求重跑回归或禁止合法文字回复。
 - **如何核实**：运行 `bun /tmp/review-w00024-t08-impl/scratch/eval-consumer.ts`，退出 0。脚本从主工作区原文件提取实际成功解析和写入分支，用 `answer:null`、`reply.text` 输入执行；随后仅把原脚本的输出目录和题库路径改指 scratch，运行原 `check()` 入口，使用 scratch 内事先写好的确定性判分文件，没有运行模型或判分器。中间结果为 `conclusionType:"文字回复"`、`run.kind:"reply"`，报告为“份数 3”“答对 3”“没有交卷 0”，逐份 3 格均为“答对，0 章”，没有任何“文字回复”标记。
@@ -41,7 +41,7 @@
 ## 发现 F5：`qa rm` 扫掉尚在发布的新日志后，save 仍返回已保存并发布缺日志的记录
 
 - **严重程度**：重要；**类别**：不变量 / 并发。
-- **位置**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/src/core/qa-records.ts:203`、`:214`、`:299`。
+- **位置**：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/src/core/qa-records.ts:203`、`:214`、`:299`。
 - **现象**：第二轮先写好新日志并通过 expectTurns 核对，在记录 rename 前暂停；此时执行真实 `QaRecords.remove()`，它先删记录，再按前缀把旧日志和第二轮尚未发布的日志都删掉。恢复 save 后，记录 rename 成功，generation 复查通过，返回 **saved:true**；目录里只剩 **1 个记录 JSON、0 个日志**。再次读取这条记录的 sessionLog 为 `{ok:false, problem:"会话日志不在了"}`。
 - **为什么是问题**：这是删除把发布者正在使用的日志误当成孤儿清理，破坏输出 15 的配对不变量；结果声称保存成功，实际对话永久不能恢复。这与允许并发追问在轮数核对后覆盖一轮不同：已接受的是可能丢一轮，没有允许发布引用不存在文件的记录。把保存前再核对轮数当成唯一保护，无法协调 remove 的跨文件清理。
 - **如何核实**：运行 `bun /tmp/review-w00024-t08-impl/scratch/remove-save-race.ts`，退出 0。脚本创建真实一轮对话，子进程调用真实 `QaRecords.save`；`pause-record-publish.ts` 仅经 Bun loader 在原 `await rename(temps[1], recordPath)` 前插入 SIGUSR2 栅栏，不改保存、删除逻辑或日志内容。父进程等明确的 `REVIEW_READY_PUBLISH` 后执行真实 remove，再发信号继续。输出 save 的 `saved:true`、files 仅 `<id>.json`，随后输出 `log.ok:false`。这个顺序对应产品真实 await 窗口；早先 strace 路径过滤没命中的尝试不计证据。
@@ -76,7 +76,7 @@ F2 有现成同类模式可参照：`packages/nb-story/src/core/library.ts:196` 
 
 ## 验证命令与结果
 
-均从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story` 运行。所有新增实验源码与数据均位于 `/tmp/review-w00024-t08-impl/scratch/`，报告仅 append。没有修改仓库文件，没有 commit、push、stash、切分支或删除文件。
+均从 `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story` 运行。所有新增实验源码与数据均位于 `/tmp/review-w00024-t08-impl/scratch/`，报告仅 append。没有修改仓库文件，没有 commit、push、stash、切分支或删除文件。
 
 - `bun test packages/nb-story/src/core/qa-records.test.ts packages/nb-story/src/qa/engine.test.ts packages/nb-story/src/cli/ask.test.ts packages/nb-session/tests/session-log.test.ts`：**72 pass，0 fail，244 expect，4 files，24.78 秒**。这是针对性测试结果，不声称全包回归通过。
 - `bun run --cwd packages/nb-story typecheck`：退出 **0**，执行 `tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p e2e/tsconfig.json`，70.10 秒。只做类型检查，没有运行 e2e。

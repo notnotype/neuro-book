@@ -3,7 +3,7 @@ $ bunx vitest run server/runtime/foundation/server-host.test.ts
 # exit: 0  wall: 3.5s
 
 
- RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
+ RUN  v4.1.10 C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
 
  ✓ server/runtime/foundation/server-host.test.ts (5 tests) 153ms
 

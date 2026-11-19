@@ -1,0 +1,97 @@
+## t39 计划第 1 稿设计审查
+
+阻断 0 条，重要 6 条，建议 6 条。时序和拖动会话用 vitest 加 happy-dom 的真实运行时测过。VueUse 的约定来自记忆，网络请求被拒，没有核实。
+
+### 1. “卸载发 null”照计划写的 sync watch 做不到　[重要]
+- **位置**：plan.md「NestedGrid 发出量到的尺寸」第 1 条，以及验收映射第 1 行。
+- **现象**：`exp/timing.exp.test.ts` 用真实 `useLayoutExtent` 加 sync watch 加 emit。`v-if` 摘掉和整体 unmount 都没有发出 null。重新挂回来才收到一个值相同的新对象。
+- **原因**：卸载时先 `scope.stop()` 停掉 watcher，再摘 DOM、把 template ref 置 null。`useLayoutExtent` 里“ref 变 null 就 `publish(null)`”那一支永远来不及跑。
+- **后果**：`host.extent` 停在旧值，`disabled` 仍为 false，layout 仍是旧布局。验收里“卸载发 null”的用例按计划实现必失败。remount 时值相同的新对象还会让 `useGridLayout` 按引用白重算一次，revision 加 1。
+- **改法**：在 `NestedGrid` 的 `onBeforeUnmount` 里显式 `emit("extent", null)`。按 Vue 的 emit 实现推断此时可用，我没有跑。或者删掉这条合同。
+
+### 2. `useDragSession` 的选项函数没有 root 参数，只读一次且不被追踪　[重要]
+- **位置**：plan.md「useDragSession」签名和“options 写成函数”那条。
+- **实测**：`exp/dragsession.exp.test.ts` 里，根不变时 `mode` 和 `scroller` 变了，`options()` 没有再被读，日志只有一次。换根后才重读。
+- **与 Vue 约定相反**：Vue 生态里传 getter 的意思是被追踪的响应式输入（来自记忆）。这里 getter 只读一次，光靠注释挡不住。
+- **没有 root 参数**：`useSortable` 的 `sourceAt`、`measure`、`itemOf`、`keyboard.*` 共 8 处用闭包里的 `root`。新签名里函数没参数，只能写 `root.value!`。
+- **建会话时定死**：`autoScroll.element`、`keyboard` 是否存在、`scroll`、`config` 都在建会话时定死。`DragSessionScene` 的 `autoScroll` 取自第二个模板 ref（`scroller`）。根出现时它若还是 null，这个会话永远没有边缘滚动。`keyboard` 也不能随 props 开关。
+- **改法**：
+  - 签名改成 `options: (root: HTMLElement) => …`，或者直接收一个对象。
+  - 名字和类型上写明“建时一次性”。
+  - 文档规定要变的东西写成回调里现读的 ref。
+
+### 3. session 在 `onMounted` 里还是 null，`ExplorerTree` 迁移要改，计划没写　[重要]
+- **位置**：plan.md 第 76 行；`ExplorerTree.vue:301-326`。
+- **实测**：`onMounted` 里是 null，`mount()` 返回时也是 null，下一个 flush 才有。
+- **ExplorerTree 要改**：它现在在 `onMounted` 里写 `watch(gesture.value.state, …, {flush:"sync"})`。迁移后要改成 `watch(() => gesture.value?.state.value, …, {flush:"sync"})`。注释里“边缘滚动中松手，发布与放下在同一调用栈”的先后要重新核对。
+- **验证清单**：依赖 mount 后同步派发 pointerdown 的 dom 测试要补 `await nextTick`。验证清单没有列 `ExplorerTree.dom.test.ts`。
+
+### 4. 计划自相矛盾，“两者并存”迁移后没有使用者　[重要，上游选择]
+- **位置**：plan.md 第 57 行对第 61 到 63 行。
+- **矛盾**：
+  - 第 57 行说先把尺寸交给 store 的工作台“照旧直接用 `useGridLayout`”。
+  - 第 61 行说工作台改用 `useGridHost`。
+  - 第 63 行验收写“工作台以外不再出现 `useLayoutExtent`”，第 62 行又说 Surface 不再自己量。
+- **后果**：迁移完应用里没有任何宿主直接用 `useGridLayout` 或 `useLayoutExtent`，只剩 `NestedGrid` 内部和测试。使用者无从判断该用哪层。`useGridHost` 不接受外部 extent，所以要先于挂载算布局、离屏或服务端的宿主做不到。
+- **改法**：二选一写死。
+  - 方案 a：`useGridHost` 只是包装，并写明用 `useGridLayout` 的唯一理由是尺寸来自 `NestedGrid` 之外。
+  - 方案 b：没有这种宿主，就把 `useGridLayout` 降为内部，给 `useGridHost` 加可选 extent 来源。
+- 工作台一栏也要改成与第 61 行一致。
+
+### 5. bindings 与宿主自己传的同名属性合并时静默覆盖　[重要]
+- **位置**：plan.md 的 `GridHostBindings`，以及“`disabled` 是 `options.disabled?.() === true || extent === null`”。
+- **实测编译产物**：`<C v-bind="b" :disabled="x">` 编成 `mergeProps(b, {disabled:x})`，后写的赢。反过来则 `b` 赢。
+- **后果**：宿主在 `v-bind` 之后再写 `:disabled`，会盖掉“没量到尺寸时停用”。写在之前则宿主自己的被盖。两种都不报错。`contextKey` 同理。
+- **判据不一致**：`disabled` 只判 `extent === null`，而 `useGridLayout` 把 0 和非有限也当无布局。承载盒 `display:none` 时尺寸是 `{0,0}`，`disabled` 为 false 而 layout 为空。
+- **改法**：
+  - Spec 和文档写明 `disabled`、`contextKey` 只经 `useGridHost` 选项传，不在模板里重复写。
+  - “没尺寸”的判据与 `useGridLayout` 共用同一个就绪判断。
+
+### 6. 工作台迁移：同步链、初始 null、验收都没覆盖　[重要]
+- **位置**：plan.md 第 62 行；`WorkbenchSurface.vue:97`。
+- **丢了 `immediate`**：今天 Surface 对自己量的尺寸是 `watch(extent, emit, {immediate:true, flush:"sync"})`，setup 时立即发 null，重挂载时重置 store。计划写“同步转发 `host.extent`”没写 `immediate`。`NestedGrid` 的新事件按计划不是 immediate，首次要等挂载后。
+- **同步性本身成立**：每一跳都同步，链条是：
+  - `NestedGrid` 的 sync watch；
+  - Surface 的 `onExtent` 写 shallowRef；
+  - Surface 的 sync watch；
+  - Shell 的 `onExtent`；
+  - `store.acceptExtent`。
+- 首次挂载与今天落在同一个 flush 链里，不多一帧。但这条三跳链没有验收行，只有 e2e 间接覆盖。
+- **“只量一次”**：验收是 grep 加代码审查，不是行为判据。可以桩 `ResizeObserver`，断言挂载后只有一个实例在 observe。
+- **改法**：计划注明转发 watch 保留 `immediate:true`。验收补一行：触发 RO 回调，同一调用栈内 `store.extent` 已更新。
+
+### 7. 类型错误：`DragSession<S, D, R>`　[建议]
+`plan.md` 第 68 到 70 行。`drag-session.ts:68` 的 `interface DragSession<S, D>` 只有两个类型参数，应写 `DragSession<S, D>`。
+
+### 8. `useDragSession` 没消掉三个调用方都写的 state 样板　[建议]
+- `ExplorerTree`、`DragSessionScene`、`useSortable` 都有 `computed(() => session.value?.state.value ?? null)`。接入草稿 `drag-list.draft.vue` 也得写一遍。
+- 建议返回 `{session, state}`，或直接给 state ref。
+- 另外 `onApplied`、`onIssues` 的签名在计划里写成“…”，没写完。
+
+### 9. SDK 没提　[建议]
+`sdk/components.ts:44` 导出了 `NestedGrid`，但 `createGrid`、`useGridLayout`、`useLayoutExtent` 都不在 SDK。`sdk.test.ts` 只核对单文件组件名单。插件今天拿到 `NestedGrid` 却没有任何宿主工具。计划应写明新增两个“不进 SDK，原因……”，或者“进，放哪个子路径”。SDK 的每一项都是兼容承诺，不能默认遗漏。
+
+### 10. “风险”一节方向反了，且漏写承载盒前提　[建议]
+- **五个宿主**：核对 Surface 根和 Lab 四个容器，被量容器都没有 padding 或 border，`NestedGrid` 根（100%×100%）与它同大。`#nb-lab-target`、`data-structure-host`、`data-panels-host` 只要保留 div，e2e 不受影响。
+- **方向反了**：不同大时，`NestedGrid` 的摆放和会话用的本来就是它自己的盒。宿主量的盒不同大，每次提交都会落 `stale-size`。所以“不同大的宿主保留自己量”是在保留旧缺陷，应以 `NestedGrid` 的盒为准。
+- **漏写的前提**：`NestedGrid` 根是 `height:100%`，容器高度不确定时量到 0 高，什么都不画，也没有诊断。要写进 Spec 和 `NestedGrid.md`。
+- **死锁**：尺寸现在只来自 `NestedGrid`。任何把 `NestedGrid` 挂在 `v-if="host.extent…"` 之后的宿主会死锁。文档也要写。
+
+### 11. `useSortable` 迁移描述自相矛盾　[建议]
+- 第 76 行说它自己的 `watch(root)` 换成 `useDragSession`，又说 `pointerdown` 的挂卸照旧跟着根。实际还要保留一个 `watch(root)`，或在选项函数里做副作用。
+- 先后不是问题：`notePointer` 是根上的捕获监听，会话的 `onPointerDown` 是冒泡监听，按阶段先后，与注册顺序无关。
+- `cleanup` 里的 `finishLanding` 和 `session.value = null` 要有归属。
+
+### 12. 验收映射缺 Spec 编号　[建议]
+判据没有对应 `nested-grid.md`、`layout-drag.md` 的输出或验收编号，`governance:check` 的晋升按编号走，实施前要补。
+
+### 未发现问题的方面
+- **首次挂载时序**：`mount()` 返回时 `disabled=true`、布局空。同一 flush 链内 extent 和 layout 都就位，不多一帧（实测）。
+- **会话销毁**：作用域结束时销毁成立。换根时进行中的拖动先发 `onActiveChange(false)`，再以 `cancelled:disposed` 收尾，然后重读选项（实测）。
+- **e2e 容器标记**：只要保留 div，依赖的标记不变。
+- **接入草稿**：第三方宿主那份 `third-party-host.draft.vue` 里标了 7 处卡住、要猜、要回头读源码的地方，其中 `:disabled` 合并顺序是第 5 条，两层 API 分不清是第 4 条。
+
+实验与草稿都在 `reports/design-review/exp/` 下，没有改动仓库文件；完整报告在同目录的 `report-draft.txt`。
+
+有效发现：1 2 3 4 5 6 7 8 9 10 11 12
+t39-design-review exit=0

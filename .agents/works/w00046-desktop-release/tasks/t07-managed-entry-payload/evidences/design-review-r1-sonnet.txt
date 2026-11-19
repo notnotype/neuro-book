@@ -35,7 +35,7 @@
 位置：验收映射表、切片 2、“不做与风险”第一条风险
 现象与问题：
 (a) server-host.md“托管宿主”第二条要求“标准输入的一行 stop 与标准输入结束都走有序停止”，desktop-shell.md 输出里壳崩溃时靠的正是后一条；计划的场景只写“写 stop 后退出”，没有“关闭标准输入后退出”和“退出码为 0”之外的退出码场景（例如状态根被占用时以 1 退出）。
-(b) pack-app 的核对是在“把仓库根 node_modules 符号链接到包旁边”的目录里跑的，用的是 Linux 的 OMP 原生包和仓库里的包；release:smoke 里只有 `bun add -g` 装出来的 `nbook` 被跑，从没有人在安装后的布局里起 `server/main.js`。即“同一个 tarball 装出来的 server/main.js”在本机和 CI 的 ubuntu 作业里都没有真实运行，只剩 pc-notype 手工一次和 t11 的 Windows 冒烟。建议在 pack-smoke 的 `smokeAppAndPlugin` 里加几行：对 `bun add -g` 装好的包用 `bun <全局包目录>/server/main.js --stop-stdin` 起一次（复用 checkManagedEntry），成本很小，而且正好验“依赖由 bun add 按 dependencies 装全”。
+(b) pack-app 的核对是在“把仓库根 node_modules 符号链接到包旁边”的目录里跑的，用的是 Linux 的 OMP 原生包和仓库里的包；release:smoke 里只有 `bun add -g` 装出来的 `nbook` 被跑，从没有人在安装后的布局里起 `server/main.js`。即“同一个 tarball 装出来的 server/main.js”在本机和 CI 的 ubuntu 作业里都没有真实运行，只剩 Windows 开发机 手工一次和 t11 的 Windows 冒烟。建议在 pack-smoke 的 `smokeAppAndPlugin` 里加几行：对 `bun add -g` 装好的包用 `bun <全局包目录>/server/main.js --stop-stdin` 起一次（复用 checkManagedEntry），成本很小，而且正好验“依赖由 bun add 按 dependencies 装全”。
 (c) 打开作品时才会 spawn `project.js`（server/projects/manager.ts 用 `process.execPath` 起它，start.ts:113 按 `import.meta.dir/project.js` 找）。“起来、health 200、stop”不经过 project.js，载荷里 project.js 与 OMP 的解析从未被运行；桌面壳的 Bun 是 `process.execPath` 这件事也没覆盖。切片 2 的“本机用 linux 组装并运行一遍”要写出判据：至少起服务端、登记并打开一部最小作品、再 stop。
 (d) 计划把“载荷与 npm 包同一份”只映射到清单摘要等于输入 tarball；没有映射 desktop-shell 输出 4 的“用随包 Bun 以 --stop-stdin 运行、NBOOK_WEB_ROOT 指向 app/web”这一组合在载荷目录里的运行。
 如何核实：读 server-host.md 第 100 到 107 行、desktop-shell.md 输出 4 与 5、pack-smoke.ts 第 311 到 352 行。
@@ -85,7 +85,7 @@
 现象与建议：
 (a) `clearPreviousApp` 认的标记是 `.nbook-app-package` 里的 `@notnotype/neuro-book`；载荷目录若共用，应用包目录与载荷目录会互相清掉。要共用就把标记内容作参数（载荷用 `desktop-payload`），不要“照写一份”留给实现者决定。
 (b) 实测 hoisted 安装在 Linux 上缺省 `--backend hardlink`：node_modules 里的文件与 ~/.bun/install/cache 是同一个 inode（`ls -l` 链接数 22、4）。后续如果在载荷目录里原地改文件（例如脱掉不需要的文件、写许可），会改到全局缓存。组装时加 `--backend copyfile`，成本是多复制 139 MB。
-(c) 载荷里的原生模块只有 `pi_natives.win32-x64-baseline.node`（119 MB）；Linux 包有 baseline 与 modern 两份。pi-natives 在 Windows 上按 CPU 能力选变体的逻辑未读，pc-notype 的手工运行是唯一验证，计划已承认；另外组装机的 Bun（本机 1.4.4）与壳随包的 Bun 不同，`engines.bun` 是 `>=1.3.14`，载荷清单应记下组装用的 Bun 版本，壳随包的 Bun 版本由 t08 对照。
+(c) 载荷里的原生模块只有 `pi_natives.win32-x64-baseline.node`（119 MB）；Linux 包有 baseline 与 modern 两份。pi-natives 在 Windows 上按 CPU 能力选变体的逻辑未读，Windows 开发机 的手工运行是唯一验证，计划已承认；另外组装机的 Bun（本机 1.4.4）与壳随包的 Bun 不同，`engines.bun` 是 `>=1.3.14`，载荷清单应记下组装用的 Bun 版本，壳随包的 Bun 版本由 t08 对照。
 
 ## 未发现问题的方面（均做过实验）
 - Bun 1.4.4 两入口共用 chunk：`root: src`、`[dir]-[name]` 得到 `cli-main.js`、`server-main.js`；48 个文件里没有任何 chunk 引用这两个入口名，改名不影响相对导入；shebang 只在 `cli-main.js`（保留）；`root` 不改变 metafile 的路径，`packageDirectories` 照样可用。

@@ -1,6 +1,6 @@
 t09 计划（应用内浮动）设计审查报告
 审查对象：.agents/works/w00026-layout-package/tasks/t09-in-app-float/plan.md（还没有实现）
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree（含 t08）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree（含 t08）
 方法：读实现与 Spec；两处用 bun 脚本在真实代码上复现（/tmp/review-t09-design/probe1.ts）。没有跑 e2e 与开发服务。
 下面按核实顺序追加，末尾有“按影响排序的索引”。
 

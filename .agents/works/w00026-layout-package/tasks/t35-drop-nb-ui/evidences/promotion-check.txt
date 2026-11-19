@@ -1,0 +1,86 @@
+核对结果如下：大部分句子有断言守着，但有三句没有断言，另有几句断言区分不了。我跑了 `theme-vars`、`boundary`、`theme-bridge`、`host-text` 四份 bun 测试，全部通过（13 条）。dom 测试和 e2e 没跑，判断只来自读代码。
+
+## 一、没有断言守着的句子
+
+1. **输出 142「宿主设在子树元素上的时长不受这条约束」**
+   - 现有的两个测试都碰不到这句。dom 测试（`NestedGrid.dom.test.ts:1212` 等）在元素上设时长，但 happy-dom 不处理 `@media`，也不加载 `global.css`。
+   - e2e（`lab-layout-theme-bridge.e2e.ts:216-224`）只在 `documentElement` 上行内设 999ms。
+   - 如果有人把 `global.css` 的选择器从 `:root` 改成 `*`，没有任何测试会失败。
+   - 建议：在 e2e 的 reduce 用例里加一段，在页面内某个子元素上行内设 `--nb-layout-motion-layout: 999ms`，读该元素的计算值应为 `999ms`。加不了就把这半句留 planned。
+
+2. **system.md 桥接第 1 点「与其余令牌同在 `layer(base)`」和「一行一个」**
+   - `theme-bridge.test.ts:87` 的 `declarations` 不看选择器，也不看 layer，只取名字第一次出现时的值。
+   - 分层来自 `tailwind.css:40` 的 `@import "./tokens.css" layer(base)`，没有测试读它。
+   - 建议：把「同在 `layer(base)`」改写成「`tokens.css` 经 `tailwind.css` 的 `layer(base)` 导入」，再加一条测试断言这行导入。也可以去掉这半句，保留「`:root` 上接旧名」。
+
+3. **system.md 桥接第 2 点「旧名只在根上改才传得到；只在子树里改旧名，nb-layout 看不到」「配色放进子树的界面里，nb-layout 拿到的是根上的颜色」**
+   - 所有读取都在 `documentElement` 上。
+   - 如果把桥接的选择器从 `:root` 改成 `*`，e2e 照样通过。
+   - 建议：在 e2e 里给子树元素行内设旧名（例如 `--sash-line-color: red`），断言该元素上 `--nb-layout-sash-line-color` 还是根上的值。配色那句同法验证，或并入这条。
+
+## 二、断言区分不了的句子
+
+1. **输出 141「每处带回退」**
+   - `theme-vars.test.ts:56` 对 `kind === "inline"` 且没有回退的项直接放行，目前是 `--nb-layout-grid-inset`。
+   - 断言能区分的是「除组件自己行内写的几何外，每处 `var()` 都带清单里的回退」。
+   - 建议：改写成这个说法，不用补断言。
+
+2. **输出 141「宿主旋钮（`--nb-layout-sash-line-inset` 这类主题不写的）」，同一句里有两处问题**
+   - 事实矛盾：`--nb-layout-sash-line-inset` 在 `theme-vars.ts:43` 是 bridged 加 themed，`tokens.css:286` 也桥接了它。清单里的宿主旋钮只有 `sector-radius`、`splitter-seam`、`splitter-seam-inset`、`sortable-first-line`、`sortable-held-shadow`。这个例子要换成其中之一，清单里的 `host` 项只有这五个。
+   - 「可以设在子树上」没有断言。`splitter.dom.test.ts:1020` 只是注释提到 `splitter-seam-inset`。
+   - 建议：先改例子。要保留「可以设在子树上」这半句，就补一条 dom 测试，在子树元素上设旋钮并断言样式取到该值。补不了就改成「直接设新名」。
+
+3. **输出 142「CSS 过渡与库里等过渡收尾的计时用同一个值」「`none` 不过渡」**
+   - 同值只是同源：CSS 回退和 JS 缺省都取自清单，`theme-vars.test.ts:65` 查 CSS，`layout-vars.dom.test.ts:145` 查 JS 函数。没有测试在不设时长的情况下挂载组件，看真实计时用的缺省值。
+   - `vitest.setup.ts` 还给每个元素设了 0ms。
+   - 建议：把句子改成「宿主没给时，CSS 回退与 JS 缺省都取清单里的值」，这样断言能区分。要保留原句，需要补一条不设时长的组件级用例。
+   - 「`none` 不过渡」是浏览器行为。`layout-vars.dom.test.ts:156` 只断言 JS 当 0。建议删掉这半句，或限定为「库的计时当 0」。
+   - `useGridMotion.ts:264` 直接用 `getComputedStyle` 读 `left` 和 `top`，不涉及变量，没有问题。
+
+4. **输出 143「分隔条」的文案注入**
+   - 只有 `SortableList.dom.test.ts:45` 测了经 `LAYOUT_TEXT_KEY` 注入、换语言后跟着变。
+   - 分隔条和浮动窗把手只测了缺省中文，例如 `splitter.dom.test.ts:783` 的「2 像素」「已收起」。
+   - 三者共用 `useLayoutText`，机制相同，但断言只覆盖了可排序列表那一路。
+   - 建议：可以接受，或在 splitter 用例里加一次注入。
+
+5. **输出 8 末尾「nb-layout 放进别的共享包的子树、上面又没有宿主时，它的文字是 `zh-CN`，不跟那个包的 `locale`（已知限制）」**
+   - 没有断言守着：没有测试用 `locale="en-US"` 的共享包根嵌 nb-layout 组件。
+   - 有人修好这个限制，也没有测试失败。
+   - 建议：已知限制可以不要断言，在句首标明「现状」即可。如果要保留断言，就补一条 `nb-agent-ui` 里嵌可排序列表的用例。
+
+6. **system.md 桥接第 3 点「颜色是系统色」**
+   - `theme-bridge.test.ts:110` 的 `SYSTEM_COLOR` 只用来跳过比较，没有任何断言要求颜色类的回退必须是系统色。
+   - 实际上 `--nb-layout-shadow-color` 的回退是 `#000`（`theme-vars.ts:76`），`scrim` 里也含 `#000`。
+   - 「尺寸、时长、圆角与 nb-ui 缺省相同」有断言（`theme-bridge.test.ts:132`），但 `scalarDefault` 对复合值返回 undefined 并跳过，复合值（阴影、`color-mix`）不在比较范围内。
+   - 建议：把「颜色是系统色」改成「颜色用系统色（阴影色等少数用 `#000`）」，或补一条断言：`kind === "bridged"` 且 `from` 指向颜色的项，回退要么命中 `SYSTEM_COLOR`、要么在一份显式例外名单里。
+
+## 三、核过没问题的
+
+- **输出 141**
+  - 「Vue 层读的变量都是 `--nb-layout-*`」：`theme-vars.test.ts:65` 扫 `vue/` 下所有源码，任何不在清单里的 `--名字` 或回退对不上都会失败，第 86 行的自检用例也能拦住。
+  - 「装了 nb-ui 经桥接取主题值，外观与过渡同今天」：`theme-bridge.test.ts:113`、`:121`、`:126` 加 e2e `:198-205` 在三套主题下断言新名等于旧名，且不为空。
+  - 「不装时用回退」：由回退与清单一致的断言守着。
+  - 「旧名是主题写的旧名」：由 `from` 映射和扫描守着。
+- **输出 142**
+  - `ms`、`s` 字面值与 `none`、`calc()` 当 0：`layout-vars.dom.test.ts:152-158`。
+  - 宿主没给时缺省 470ms：同文件第 145 行。
+  - 「系统减少动态效果时根上四个时长归零，宿主在根上设的也压不过」：e2e `:208-225`，reduce 与 no-preference 两面都有，能区分有无 `!important`。
+- **输出 143、i18n 输出 8 的例外**
+  - 注入、换语言、缺省 `zh-CN` 目录、参数代入：`SortableList.dom.test.ts:45` 和 `:90`。
+  - 「应用的根经帮手同时提供两个键，语言跟着宿主走」：`host-text.test.ts:17-26`，zh 到 en 的切换能区分，加上 `:48` 对 `TEXT_PORT_KEY` 直接提供的扫描。应用里提供 `TEXT_PORT_KEY` 的只有 `host-text.ts`。
+  - 「不依赖 nb-ui，导入时不登记目录」：由 `boundary.test.ts:116` 间接保证，因为 nb-layout 够不到 nb-ui 的登记表。
+- **「边界与兼容」里「CSS 变量：」一句**
+  - 清单覆盖库读的全部变量：`theme-vars.test.ts:65`。
+  - 根入口导出 `NB_LAYOUT_THEME_VARS`：`theme-bridge.test.ts:79` 与 e2e 都从根入口导入，导出缺失会失败。
+  - README 表只列主题级那批：`theme-vars.test.ts:79`。
+  - 「其余可以改名」是承诺，不需要断言。
+- **「实现合同」里 owner 与依赖方向的 Vue 层半句**
+  - 「Vue 层只依赖 `vue`、`tabbable` 与本包文件，不依赖 nb-ui」：`boundary.test.ts:116`。扫描器按文字扫 `import` 和 `import()`，去掉注释。
+  - 「核心入口」比实际检查宽：`within` 是整个 `src`，允许 Vue 层导入核心的任何文件。这个差别可以接受，或改写为「核心」。
+  - 动态拼接的导入说明符和 CSS 里的 `@import` 扫不到，是该扫描器已写明的取舍。
+- **system.md 桥接**
+  - 第 1 点前半：`tokens.css` 里每个旧名对应一行新名，且没有清单之外的 `--nb-layout-*`（`theme-bridge.test.ts:113`）。
+  - 第 1 点两个层级：数值等于登记表（`z-index.test.ts:26`），也等于清单回退（`theme-bridge.test.ts:126`），e2e 另验 59 和 60。
+  - 第 3 点标量：`theme-bridge.test.ts:132`，带「至少比了这几项」的防空过检查。
+  - 第 4 点：`pack.test.ts:218`。`pack.ts:302` 过滤 `--nb-layout-`，去掉过滤后 `tokens.md` 会列出来，测试就会失败。
+t35-promotion exit=0

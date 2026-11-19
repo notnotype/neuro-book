@@ -19,5 +19,5 @@ C production rich 1 组：冷开与两种热切换各 10 次完成
 C production rich 2 组：冷开与两种热切换各 10 次完成
 C production source 1 组：冷开与两种热切换各 10 次完成
 C production source 2 组：冷开与两种热切换各 10 次完成
-报告：/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t42-accept/accept-300.json；有效 140/140；完整完成=true
+报告：/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t42-accept/accept-300.json；有效 140/140；完整完成=true
 exit 0

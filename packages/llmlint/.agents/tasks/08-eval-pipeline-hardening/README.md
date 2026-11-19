@@ -26,7 +26,7 @@
 |---|---|
 | 本轮规模 | **小验证轮**：2–3 个新题组 × 4–6 模型（先验证工具链，避免未验证就上量翻车重跑） |
 | mobi 处理 | calibre 已装 `C:\Program Files\Calibre2\ebook-convert.exe`，批转 epub 后走现有 epub 摄入 |
-| catalog 位置 | **数据旁**：`C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\datasets\aigc-detection\catalog.json`（llmlint evals 通过配置 `datasetsRoot` 跨仓读） |
+| catalog 位置 | **数据旁**：`C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book\datasets\aigc-detection\catalog.json`（llmlint evals 通过配置 `datasetsRoot` 跨仓读） |
 | CLI 模型用途 | 默认只进 **render 面板**（造 AI 样本）；brief 抽取器仍用 HTTP 模型（CLI 慢、无 usage） |
 | detector 本轮角色 | **eval 侧批量打分 + 报告对照**（reference 应低分 / render 应高分 = 外部效度）；web 端接入后置 |
 | prompt 配置化 × I8 | prompt 做成**带版本 key 的 preset 注册表**（如 `brief-v2`、`render-v1`）；每个 render sample 记自己的 `promptVersion`，缺失或跨版本时 score 硬失败，不产混合报告 |
@@ -41,7 +41,7 @@
   - **域偏移警示**：真人类轻小说章节整篇被判 AI 0.537（前 500 字判人类 0.647）——该检测器在中文网文域噪声不小，恰是 M3 外部对照节要量化的东西；也再证 D5"检测器是仪表不是真值"。
   - 实测 2–7 秒/次（本轮无冷启动）；免费实例仍需重试 + 限速 + 可换。
 - **LLM HTTP**：neuro-book `workspace/.nbook/config.json` 已有 10 个 provider（bailian/deepseek/doubao/elysiver×4/lyclaude/siliconflow/xiaomi）；qwen3.7-plus、kimi-k2.6、MiniMax-M2.5 等新 id 靠现有"发现放行"机制直接可用。
-- **LLM CLI**：anyrouter（key 见 llmlint `.agent/llm_api.txt`，**已 gitignore，严禁进 git/文档**）——claude 系走 `claude -p`、gpt-5.5 走 `codex exec`（env：`ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`、`CODEX_API_KEY`）。
+- **LLM CLI**：经本机配置的中转网关访问（密钥只放环境变量或 gitignored 的本地配置，严禁进 git/文档）——claude 系走 `claude -p`、gpt-5.5 走 `codex exec`（env：`ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`、`CODEX_API_KEY`）。
 
 ## 现有底子（不要重建）
 
@@ -104,7 +104,7 @@
 1. `bun test` 过（budget/限流/transport/分块聚合的纯函数部分按需加测，勿过度测试）。
 2. 小轮 `report.json`：新题组进 lift、detector 对照节有数、≥1 个 CLI 模型 render 成功。
 3. 断点续跑实测：kill 后重跑，已完成 brief/render/detector 分全部跳过。
-4. 密钥合规：`.agent/llm_api.txt` 的 key 未出现在任何进 git 的文件里；`eval.config.json` 已 gitignore，`eval.config.example.json` 无密钥。
+4. 密钥合规：本地 gitignored 密钥文件里的 key 未出现在任何进 git 的文件里；`eval.config.json` 已 gitignore，`eval.config.example.json` 无密钥。
 5. CLI 模型的 render 输入与 HTTP 模型等价（同 prompt 版本 + 同合并契约），byModel 可比。
 6. 任一 render 缺样本级 `promptVersion` 或 corpus 内存在多个 render prompt 版本时，`score.ts` 必须失败且不覆盖报告。
 7. holdout 门槛与 train/test 数量只统计存在有效 reference/render 映射的题组。
@@ -129,7 +129,7 @@
 ### M2 generator 硬化（2026-07-03 完成）
 - **配置双文件**：`eval.config.example.json`（进 git，无密钥）+ `eval.config.json`（gitignore，注入真 key）；`eval-config.ts` loader（json>example>内置默认）。相对 `modelsConfig`/`datasetsRoot` 按 llmlint 仓根解析（I10，跨仓读 NeuroBook config）。
 - **prompts.ts 版本化注册表**（I8）：brief-v2 / render-v1 迁入，未知版本直接抛；meta.json 每题组写 `promptVersion {brief,render}`；`corpus.ts` 消费侧发现跨题组 render 版本混用→告警。
-- **CLI transport**（`cli-transport.ts`）：spawn（Win 下 `cmd /c`）、prompt 走 stdin、system+user 合并契约 `system\n\n---\n\nuser`、claude `--output-format json` 拿真实 usage；接入同一 classifyOutcome/callWithRetry/gate。**⚠ 未端到端验证**：测试环境 anyrouter 的 `claude -p` 网络挂起（90s 无输出）、`codex exec` 反复 "Reconnecting… 1/5"——上游不可达，非 transport 代码问题（deepseek HTTP smoke 1s 正常）。已把 CLI timeout 降到 120s 快退、默认 render 面板不含 CLI 模型（需要时 `--models` 显式加）。
+- **CLI transport**（`cli-transport.ts`）：spawn（Win 下 `cmd /c`）、prompt 走 stdin、system+user 合并契约 `system\n\n---\n\nuser`、claude `--output-format json` 拿真实 usage；接入同一 classifyOutcome/callWithRetry/gate。**⚠ 未端到端验证**：测试环境中转网关的 `claude -p` 网络挂起（90s 无输出）、`codex exec` 反复 "Reconnecting… 1/5"——上游不可达，非 transport 代码问题（deepseek HTTP smoke 1s 正常）。已把 CLI timeout 降到 120s 快退、默认 render 面板不含 CLI 模型（需要时 `--models` 显式加）。
 - **限流**（`rate-limit.ts`）：per-provider 并发信号量 + minIntervalMs；`model-client` 两通道汇合于 `callModelDetailed`（经 gate + 统一重试）。
 - **重试配置化**：`retry {maxAttempts, backoffBaseMs}` 从代码常量提进 eval.config，注入 model-client。
 - **token 预算**（`budget.ts`）：`--estimate` 干跑分模型汇总（brief 已抽则实读、否则按目标字 0.5 估）；真跑实报 usage（CLI text 通道无 usage 标"估算"）；自校准（预估 vs 实报 output 修正 charsPerToken 写回 `report/budget-calibration.json`）。
@@ -169,7 +169,7 @@
 
 ## 补充轮：proxy + CLI 端到端 + provider 可用性排查（2026-07-03）
 
-**根因：所有 provider 访问要走 http proxy（`127.0.0.1:7890`）。** 上一轮"CLI 挂起/Reconnecting"全是**没走代理**导致——anyrouter TLS 握手在 schannel 阶段就断（curl exit 35 / http 000）。deepseek/HF 恰好直连能通才造成"只有 CLI 坏"的假象。
+**根因：所有 provider 访问要走 http proxy（本机代理）。** 上一轮"CLI 挂起/Reconnecting"全是**没走代理**导致——中转网关 TLS 握手在 schannel 阶段就断（curl exit 35 / http 000）。deepseek/HF 恰好直连能通才造成"只有 CLI 坏"的假象。
 
 **改动**：`eval.config` 加 `proxy` 字段 → generate.ts/detect.ts 启动时设 `HTTP(S)_PROXY` 进程 env（**Bun fetch（pi-ai HTTP）+ spawn 子进程（CLI）都走代理**）+ `resolveCliModel` 也把 proxy 注入 CLI 子进程 env。codex 输出改用 `--json` JSONL，新增 `parseCodexJson`（取末条 `item.completed` 且 `item.type=agent_message` 的 text + turn.completed 的 usage），output 类型扩为 `text|claude-json|codex-json`。
 
@@ -179,8 +179,8 @@
 
 | provider / 模型 | transport | 结论 | 证据 |
 |---|---|---|---|
-| **anyrouter-codex / gpt-5.5** | CLI(codex) | ✅ **可用**（经 proxy） | 端到端产出 render，8s/次 |
-| **anyrouter-claude / claude-\*** | CLI(claude) | ❌ **后端 503**（暂不可用） | 经 proxy 连通但恒 `503 Service Unavailable`（含 opus-4-8/fable-5/sonnet；不带 1m-context header 时是 400"请启用 1m 上下文"，带了 header 转 503） |
+| **relay-codex / gpt-5.5** | CLI(codex) | ✅ **可用**（经 proxy） | 端到端产出 render，8s/次 |
+| **relay-claude / claude-\*** | CLI(claude) | ❌ **后端 503**（暂不可用） | 经 proxy 连通但恒 `503 Service Unavailable`（含 opus-4-8/fable-5/sonnet；不带 1m-context header 时是 400"请启用 1m 上下文"，带了 header 转 503） |
 | **elysiver-glm / glm-5.2** | HTTP | ❌ **无权限**（不可用） | 16/16 终态 `403 无权访问 glm-5.2-shared 分组` |
 | **doubao / seed-2-1-pro** | HTTP | ⚠ **flaky** | 短章可出、长章反复 `240s 超时`（gongdou/light-novel 全出，wuxia 6 中仅 1，wuxianliu 0） |
 | **elysiver-gemini / gemini-3.1-pro** | HTTP | ✅ 可用但**篇幅失控** | 16/16 出，但 36–7361 字乱飘（常大幅超 ref） |
@@ -189,16 +189,16 @@
 
 **补齐后最终面板（82 render / 4 可用模型）**：deepseek+mimo 全 5 组齐；gemini 3 组（gongdou/light-novel/wuxia）；doubao 部分；glm 0（死）。AUC **0.664**、**强判别升到 9**、holdout test 0.778、外部检测器 **AUC 0.944**（ref P(AI) 0.285 / render 0.923）。模型榜 docScore：doubao 16.51 < gemini 21.79 < deepseek 25.60 < mimo 29.19；外部检测器 P(AI)：doubao 0.716 < mimo 0.923 < gemini 0.939 < deepseek 0.945——**两个独立检测器都判 doubao 最不像 AI**（但都受 doubao 只 render 短章混淆，deepseek/mimo 最可比）。
 
-**遗留**：claude 系待 anyrouter 后端恢复再验；doubao 长章超时是模型行为（byModel 显形，不修）；glm-5.2 需账户开通 shared 分组权限；gemini 篇幅失控可加长度约束档。
+**遗留**：claude 系待中转网关后端恢复再验；doubao 长章超时是模型行为（byModel 显形，不修）；glm-5.2 需账户开通 shared 分组权限；gemini 篇幅失控可加长度约束档。
 
-## 补充轮 2：claude/doubao 问题攻克（2026-07-03，调研 anyrouter 项目 + doubao/gemini）
+## 补充轮 2：claude/doubao 问题攻克（2026-07-03，调研中转网关的多账号管理 + doubao/gemini）
 
-参考 `CodeProjects/anyrouter/anyrouter.js`（多账号管理器，30 个 Tomato 账号 + keepalive/preempt）后，**claude 与 doubao 都攻克**：
+参考一个多账号管理器的做法（账号轮换、keepalive/preempt）后，**claude 与 doubao 都攻克**：
 
-- **claude ✅ 端到端跑通**（此前"503"是误判）。两个真因：① 之前那个 key（sk-AL2BT5）是**额度耗尽的账号** → 换 `anyrouter.js apikey` 取有额度账号 key（默认 Tomato90 有 $150 额度）后不再 503。② anyrouter 用**模型名 `[1M]` 后缀**启用 1M 上下文——裸 `claude-sonnet-4-5` 报 400"请启用1m上下文"，`claude-opus-4-8[1M]` 直接成功。线索来自 shell env 里现成的 `ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-8[1M]`。anyrouter.js 调 claude 的方式与我完全一致（`claude -p --model` + 同 env），差别只在 key 和模型名。**`claude-opus-4-8[1M]` 经 pipeline 产出干净 render**（in3.7k/out371）；sonnet[1M] 偏慢易超时（claude timeout 提到 300s）。
+- **claude ✅ 端到端跑通**（此前"503"是误判）。两个真因：① 之前那个 key 属于**额度耗尽的账号** → 换一个有额度账号的 key 后不再 503。② 中转网关用**模型名 `[1M]` 后缀**启用长上下文——裸 `claude-sonnet-4-5` 报 400"请启用1m上下文"，`claude-opus-4-8[1M]` 直接成功。线索来自 shell env 里现成的模型名后缀。中转网关调 claude 的方式与我们的 CLI transport 完全一致（`claude -p --model` + 同 env），差别只在 key 和模型名。**`claude-opus-4-8[1M]` 经 pipeline 产出干净 render**（in3.7k/out371）；sonnet[1M] 偏慢易超时（claude timeout 提到 300s）。
 - **doubao ✅ 换模型解决**。`doubao-seed-2-1-pro` 是**推理模型**，长章（brief 长）时思考烧满 240s 墙钟 → 超时。换**写作模型 `doubao-seed-character-251128`**：同一条 tianlong 长章（4064 字 ref）**13.7 秒**产出 2948 字正规武侠正文（vs 2-1-pro 的 240s×3 全超时）。默认面板已改用 character。
 - **gemini：非损坏，但两个毛病**。① 篇幅偏长（1791–2619 字连贯散文，无 markdown/作者注，只是话多）；② **偶发安全拒答被当 render 写入**——`zhenhuan-zhuan/render-0005` 是 36 字 "我必须绕过该话题…"。**已加拒答/截断守门**（render < min(400, 目标×0.2) 字判伪 render 跳过），并删除该污染样本 + 从 meta 摘除。
-- **bailian（llm_api.txt 的 qwen3.7-plus/qwen3.6-plus/kimi-k2.6/MiniMax-M2.5）：config.json 里 bailian `apiKey` 为空**，且无其它 provider 供这些模型 → **需要一个百炼(dashscope)key 才能用**（待用户提供）。
+- **bailian（本地密钥文件里的 qwen3.7-plus/qwen3.6-plus/kimi-k2.6/MiniMax-M2.5）：config.json 里 bailian `apiKey` 为空**，且无其它 provider 供这些模型 → **需要一个百炼(dashscope)key 才能用**（待用户提供）。
 
 **更新后 provider 结论**：✅ deepseek / mimo / **doubao-seed-character-251128** / gemini(话多+加了拒答守门) / codex-gpt5.5(CLI) / **claude-opus-4-8[1M](CLI，需有额度账号key)**；❌ glm-5.2(403无权限)、bailian(缺key)、doubao-seed-2-1-pro(推理超时,已弃)。默认 render 面板 = deepseek+mimo+doubao-character+gemini（4 稳定），CLI/claude 需要时 `--models` 显式加。
 
@@ -226,9 +226,9 @@
 - **有意思的分歧**：gemini 在 llmlint 上最"像人"（docScore 最低 22.26，话多但规则密度低），在神经检测器上却最"像 AI"（P(AI) 0.969 最高）——**它的啰嗦干净散文躲过了表层规则、却被神经检测器抓住**，正是"漏网新规则矿"的活案例（环③新规则来源）。
 - doubao 之前"双检测器最像人"确认是**混淆假象**（只 render 短章）——移除后该伪结论消失。
 
-## 补充轮 5：加 anyrouter CLI 模型（2026-07-03，用户要求试 gpt-5.5/claude 系）
+## 补充轮 5：加中转网关 CLI 模型（2026-07-03，用户要求试 gpt-5.5/claude 系）
 
-把 anyrouter 5 个模型逐个 smoke（经 proxy + 有额度账号 key）：**gpt-5.5 ✅、claude-opus-4-8[1M] ✅、claude-fable-5[1M] ✅**；**claude-opus-4-6 已下线、claude-opus-4-7 两次 180s 超时无输出**（anyrouter claude 延迟受账号队列/挤占主导，见 anyrouter.js keepalive/preempt）。把 3 个可用的加进面板生成——**全量 26×3 太慢**（claude 队列，~2.5hr），跑到 gongdou 全 + light-novel 部分即停（各模型 n=7–8，宫斗+轻小说 2 体裁；孤儿 render 已补进 meta）。
+把中转网关的 5 个模型逐个 smoke（经 proxy + 有额度账号 key）：**gpt-5.5 ✅、claude-opus-4-8[1M] ✅、claude-fable-5[1M] ✅**；**claude-opus-4-6 已下线、claude-opus-4-7 两次 180s 超时无输出**（claude 延迟受账号队列/挤占主导）。把 3 个可用的加进面板生成——**全量 26×3 太慢**（claude 队列，~2.5hr），跑到 gongdou 全 + light-novel 部分即停（各模型 n=7–8，宫斗+轻小说 2 体裁；孤儿 render 已补进 meta）。
 
 **最重要发现——两检测器交叉对照暴露 claude 的隐身能力**（每模型 llmlint docScore vs 外部神经检测器 P(AI)）：
 

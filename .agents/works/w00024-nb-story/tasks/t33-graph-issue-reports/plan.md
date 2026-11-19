@@ -10,7 +10,7 @@
 
 开发者已确认：范围第 18 到 30 章、每组 2 遍；在草案之外加 B（单独一步）与 P（程序扫描）；金标由 Agent 标、先冻结；模型 gpt-6-luna；预算 ¥5 到 ¥10，超过 ¥20 停下；只做实验。
 
-数据：开发者经 ssh 给的《老师，男生也能报考魔女学院吗？》图（`graph-164.json`，164 章，V9，含原文），拷在 `.local/agent/works/w00024-nb-story/tasks/t33-graph-issue-reports/data/`（不入库）。密钥只经环境变量从仓库根 `.env` 的 `JIJI_LUNA_*` 读。
+数据：开发者经 ssh 给的《老师，男生也能报考魔女学院吗？》图（`graph-164.json`，164 章，V9，含原文），拷在 `.local/agent/works/w00024-nb-story/tasks/t33-graph-issue-reports/data/`（不入库）。密钥只经环境变量从仓库根 `.env` 的 `NBOOK_LLM_*` 读。
 
 要回答的问题：
 

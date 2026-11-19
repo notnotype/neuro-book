@@ -3,7 +3,7 @@
 // 1) 运行以收尾工具 finished 结束（带 result 的会话，例如子会话、任务会话）时，运行中进来的 followup；
 // 2) 只压缩的运行中进来的 steer（bot 视图里用户运行中发的话是 steer；条目也能改成 steer）。
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 const {defineProfile} = await import(`${K}/extension/profile.ts`);
 

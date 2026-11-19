@@ -13,7 +13,7 @@
 
 开发者当场定的（2026-11-16）：
 
-- 窗口按钮三项都选了：和标题栏图标不统一、太大太高、位置偏了。pc-notype 上用 PrintWindow 拍了测试版窗口（只拍这个窗口自己）：几何是对的，按钮贴着客户区右上角，与标题栏中线对齐。偏的感觉来自字形：Windows 图标字体的 10px 细线，窗口不在前台时更淡；旁边布局按钮是 15px 的线条图标、圆角浅灰底。46×36 的直角大块悬停底色也和标题栏里的其它按钮不是一路。
+- 窗口按钮三项都选了：和标题栏图标不统一、太大太高、位置偏了。Windows 开发机上用 PrintWindow 拍了测试版窗口（只拍这个窗口自己）：几何是对的，按钮贴着客户区右上角，与标题栏中线对齐。偏的感觉来自字形：Windows 图标字体的 10px 细线，窗口不在前台时更淡；旁边布局按钮是 15px 的线条图标、圆角浅灰底。46×36 的直角大块悬停底色也和标题栏里的其它按钮不是一路。
 - 最小尺寸 800×560（界面缩放 100% 的 CSS 像素，按窗口所在显示器的 DPI 换算）。
 - 回到书架的入口：标题栏的作品下拉、文件菜单、标题栏左上角的标志，三处都要。
 
@@ -53,7 +53,7 @@
 - C 源 `desktop/src/bun/min-size.c`，随 `build.copy` 进包。只支持 Windows x64（Electrobun 的 Windows 目标只有 x64）：`process.arch !== "x64"` 时不编译，记诊断。
 - **C 里不链接任何库、不 `#include`**：用到的 user32 函数（`CallWindowProcW`、`DefWindowProcW`、`GetPropW`、`RemovePropW`、`GetDpiForWindow`、`GetWindowRect`、`GetClientRect`、`IsZoomed`、`IsIconic`、`MonitorFromWindow`、`GetMonitorInfoW`）由 JS 经 kernel32 的 `LoadLibraryW` + `GetProcAddress` 取地址，经初始化函数一次交给 C 存进函数指针（换过程之前做完，之后只读）。理由：探针第 7 条证明可行；`library: ["user32"]` 在干净机器上怎么找到 user32 没有证据（设计审查第 2 轮 Opus 第 3 条）。结构体用固定宽度的手写类型，`_Static_assert(sizeof(MINMAXINFO) == 40)`。
 - **编译用相对路径**：TinyCC 打不开含中文的路径（探针第 5 条），交给 `cc` 的是源文件相对进程当前目录的路径（壳的当前目录是安装里的 `app\bin`，源文件在同一棵树的 Resources 里，相对路径只有 ASCII；探针第 6 条）。相对路径里仍有非 ASCII 字符（例如不在同一盘）时不编译，报问题。
-- **纯函数可测**：换算写成不调用 user32 的纯函数 `nb_min_track(logical_w, logical_h, dpi, frame_w, frame_h, work_w, work_h, current_w, current_h)`，给出新的最小跟踪尺寸：逻辑值 × DPI / 96 向上取整（DPI 为 0 按 96）加外框差（负值按 0），再夹到工作区（工作区未知时为 0，不夹），与系统给的原值取较大。窗口过程与 user32 声明包在 `#ifndef NB_MIN_SIZE_PURE` 里；Linux 上用 `cc({define: {NB_MIN_SIZE_PURE: "1"}})` 只编纯函数跑单元测试（96、120、144、0 的 DPI，负外框差，工作区比最小值小），这样 DPI 换算不只靠 pc-notype 的 100%。
+- **纯函数可测**：换算写成不调用 user32 的纯函数 `nb_min_track(logical_w, logical_h, dpi, frame_w, frame_h, work_w, work_h, current_w, current_h)`，给出新的最小跟踪尺寸：逻辑值 × DPI / 96 向上取整（DPI 为 0 按 96）加外框差（负值按 0），再夹到工作区（工作区未知时为 0，不夹），与系统给的原值取较大。窗口过程与 user32 声明包在 `#ifndef NB_MIN_SIZE_PURE` 里；Linux 上用 `cc({define: {NB_MIN_SIZE_PURE: "1"}})` 只编纯函数跑单元测试（96、120、144、0 的 DPI，负外框差，工作区比最小值小），这样 DPI 换算不只靠 Windows 开发机 的 100%。
 - 窗口过程：`prev = GetPropW(hwnd, "nbook.wndproc")`，为空时交 `DefWindowProcW`（兜底，正常不会发生）；`r = CallWindowProcW(prev, …)`；`WM_GETMINMAXINFO` 且窗口既不是最大化、也不是最小化时（这两种状态下窗口矩形不是正常外框）：逻辑最小值从属性 `nbook.minsize`（宽高打包）取，为 0 不改；外框差 = 窗口矩形 − 客户区矩形（两个查询都成功才用），工作区取窗口所在显示器的 `rcWork`（失败不夹）；按纯函数写回 `ptMinTrackSize`。`WM_NCDESTROY` 时先交原过程、再删两个属性。返回 `r`。
 - `win32.ts` 新增 `setMinimumSize(hwnd, {width, height}): string[]`（问题列表，同 `adoptCustomFrame`）。模块里存 `{lib, proc}` 或失败原因：`lib` 是 `cc` 返回的对象，**永不 `close()`**（窗口过程的地址装在窗口上，释放即崩；注释写明）；编译失败也缓存，后续窗口直接返回同一原因、只记一次日志。安装序列：`IsWindow` 不成立直接返回（窗口已关，不算问题）；当前过程（`GetWindowLongPtrW(GWLP_WNDPROC)`）已经是我们的就只更新 `nbook.minsize`（“已装好”看过程本身，不看属性）；否则 `SetPropW` 两个属性都成功才继续，失败就删掉已写的再报问题；`old = SetWindowLongPtrW(GWLP_WNDPROC, proc)`：`old` 为 0 时读回当前过程，不是我们的就删属性、报问题；`old` 不等于存的原过程时用 `old` 换回（只在非 0 时）、删属性、报问题。`SetWindowLongPtrW(GWLP_WNDPROC)` 不发消息。
 - `win32.ts` 文件头的线程约定如实改写：`SetWindowLongPtrW(GWL_STYLE)` 会同步发 `WM_STYLECHANGING`、`WM_STYLECHANGED`，现在只在窗口刚创建时调用，接受（设计审查第 2 轮 Opus 第 9 条）。
@@ -74,7 +74,7 @@
 
 1. **窗口按钮**：`DesktopFrame.vue`、`styles.css`、`desktop-frame.ts`（删 `focused`）、启动页、`DesktopFrame.md`、Spec browser-host。验证：`DesktopFrame.dom.test.ts`、`e2e/desktop-frame.e2e.ts`（加 `forcedColors: "active"` 下按钮可见）；本机带能力标记的 Chrome 截图（亮色、深色、高对比度、界面缩放 125%）对照布局按钮。
 2. **回到书架**：projects 插件命令与菜单、欢迎页改走命令（删 `navigateDocument` 选项）、`ShellChrome`、`WorkbenchShell.vue` 与 `WorkbenchTitleBar.vue`（标志按钮与测量层复本）、两个语言目录与 `projects/locales.test.ts`、Lab 的标题栏夹具（新 prop 与事件，加“没有书架”场景）、Spec commands、workbench-shell、bookshelf，组件文档。验证：`WorkbenchTitleBar.dom.test.ts`（命令在：下拉两项、标志是可聚焦按钮、拖动后松开不发事件；命令不在：没有这一项、标志不是按钮；无作品时单个按钮）、外壳的命令可用性测试（命令晚于外壳登记后出现、撤回后消失）、projects 的命令测试（登记、菜单顺序、执行即导航到 `/`）、`WelcomePage.dom.test.ts`、e2e `projects.e2e.ts` 加一条（工作台 → 作品下拉“回到书架” → 书架页；标志同；文件菜单同）与 `workbench-titlebar.e2e.ts`（让位切换点不变）。
-3. **最小尺寸**：`min-size.c`、`win32.ts`、`index.ts`（`openManaged`、`load`、`centered`）、`electrobun.config.ts` 的 `build.copy`、核心常量与 `centered` 的纯计算、Spec desktop-shell、壳 README。验证：类型检查（`win32.ts` 在应用包的类型检查里）、`centered` 的单元测试、`min-size.c` 纯函数在 Linux 上经 `cc` 的单元测试；pc-notype 上的 Windows 验收（下文）。
+3. **最小尺寸**：`min-size.c`、`win32.ts`、`index.ts`（`openManaged`、`load`、`centered`）、`electrobun.config.ts` 的 `build.copy`、核心常量与 `centered` 的纯计算、Spec desktop-shell、壳 README。验证：类型检查（`win32.ts` 在应用包的类型检查里）、`centered` 的单元测试、`min-size.c` 纯函数在 Linux 上经 `cc` 的单元测试；Windows 开发机上的 Windows 验收（下文）。
 
 每片单独提交。
 
@@ -92,7 +92,7 @@
 
 - 单元与 DOM：上面列的文件。
 - e2e（合入前跑一次）：`e2e/desktop-frame.e2e.ts`、`e2e/projects.e2e.ts`。之后改动只重跑覆盖改动的那一个。
-- Windows（pc-notype）：Hutch dev 构建测试标识 t18test，独立状态根；Win32 查询经 `/it` 计划任务在桌面会话里跑，PrintWindow 只拍应用自己的窗口，不截屏幕区域，不动鼠标。验最小尺寸（上表）、按钮的样子（PrintWindow 对照）、启动页按钮（最大化后仍有图标）、关掉自动保存改一个文件后执行“回到书架”时 WebView2 是否弹出离开询问（不弹时记为与“打开项目”同样的既有缺口，另建 Task）。
+- Windows（Windows 开发机）：Hutch dev 构建测试标识 t18test，独立状态根；Win32 查询经 `/it` 计划任务在桌面会话里跑，PrintWindow 只拍应用自己的窗口，不截屏幕区域，不动鼠标。验最小尺寸（上表）、按钮的样子（PrintWindow 对照）、启动页按钮（最大化后仍有图标）、关掉自动保存改一个文件后执行“回到书架”时 WebView2 是否弹出离开询问（不弹时记为与“打开项目”同样的既有缺口，另建 Task）。
 - 未验证、交开发者：真实拖动窗口边缘到最小尺寸时的手感；按钮新样子是否满意。
 
 ## 不做与风险

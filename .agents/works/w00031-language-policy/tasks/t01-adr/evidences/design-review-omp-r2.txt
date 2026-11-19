@@ -109,7 +109,7 @@
 
 ## 实际验证与边界
 
-源码相对路径均相对于审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-lang-gov`；唯一实际加载的主工作区模块是第 6 条已披露的 Profile 依赖，未把它的结果冒充完全隔离依赖测试。
+源码相对路径均相对于审查 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/review-lang-gov`；唯一实际加载的主工作区模块是第 6 条已披露的 Profile 依赖，未把它的结果冒充完全隔离依赖测试。
 
 | 实际动作 | 结果 |
 |---|---|

@@ -1,7 +1,7 @@
-w00046 t03 Windows 验收第 1 轮（2026-11-15，pc-notype：Windows 11 26200 x64，单屏 2560x1440、缩放 100%，任务栏 48px，WebView2 157）
+w00046 t03 Windows 验收第 1 轮（2026-11-15，Windows 开发机：Windows 11 26200 x64，单屏 2560x1440、缩放 100%，任务栏 48px，WebView2 157）
 
 构建：t03 分支 4eef85139（切片 1、2）。worktree 里 release:smoke 出发布清单，desktop/scripts/build.ts 组装 win32-x64 载荷（2069 个文件）；
-desktop 工程打包传到 pc-notype，Hutch 0.29.0 / Electrobun 2.0.6 `hutch electrobun build --env=dev`（可直接运行，不安装），测试标识
+desktop 工程打包传到 Windows 开发机，Hutch 0.29.0 / Electrobun 2.0.6 `hutch electrobun build --env=dev`（可直接运行，不安装），测试标识
 io.github.notnotype.neurobook.t03test。构建日志：embedded Windows icon in launcher.exe / bun.exe；Resources\app\neurobook.ico 在包里。
 启动：.cmd 设 NBOOK_STATE_ROOT=%USERPROFILE%\nb-w00046\t03\state（新建，登记一部测试作品 book）与
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9334，经 /it 计划任务进桌面会话。
@@ -23,4 +23,4 @@ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9334，经 /it 计
 8. 最后一个窗口点关闭：经关闭前询问（没有未保存的修改、没有在跑的工作，直接同意），服务端有序停止，壳与服务端进程都退出。
 
 未验证（要真实操作）：拖动标题栏移动窗口、双击最大化与还原、拖到屏幕边缘贴边、Alt+Space 系统菜单、点标题栏空白处时开着的菜单会不会关。
-合成输入不可靠，也会动开发者的鼠标，请开发者在 pc-notype 上试：双击 %USERPROFILE%\nb-w00046\t03\launch.cmd。
+合成输入不可靠，也会动开发者的鼠标，请开发者在 Windows 开发机上试：双击 %USERPROFILE%\nb-w00046\t03\launch.cmd。

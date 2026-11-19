@@ -79,7 +79,7 @@ defineExpose({
 
 /* 正文在卡片的下半截：卡片主题下下面两个角是圆的，压暗不露到卡片外面。 */
 :global(.workbench-drag-feedback__sectors) {
-    --layout-sector-radius: 0 0 var(--shell-card-radius, 0) var(--shell-card-radius, 0);
+    --nb-layout-sector-radius: 0 0 var(--shell-card-radius, 0) var(--shell-card-radius, 0);
 }
 
 /* 拖影跟着指针，不挡命中：命中按 `elementsFromPoint` 求，`data-drag-feedback` 也会被跳过。 */

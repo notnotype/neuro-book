@@ -1,6 +1,6 @@
 // 中止进行中（运行还没收口）到达的话：缺省 abort 会不会把它一起清掉
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 let n = 0;
 const id = () => `c-${++n}`;

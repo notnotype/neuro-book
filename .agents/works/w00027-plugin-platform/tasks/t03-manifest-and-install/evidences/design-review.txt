@@ -1,6 +1,6 @@
 # w00027 t03 只读设计审查
 
-审查基线：`9c29a02c7..4ada61a9a` 的 docs、t01/t03 计划与当前未提交原型。以下路径以 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/` 为根。仅记录已核实问题；原型尚未追平新规范的普通缺项不逐条列出。
+审查基线：`9c29a02c7..4ada61a9a` 的 docs、t01/t03 计划与当前未提交原型。以下路径以 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/` 为根。仅记录已核实问题；原型尚未追平新规范的普通缺项不逐条列出。
 
 ### 1. 卸载后重装、撤销待升级与覆盖待升级的状态合同不闭合
 
@@ -26,7 +26,7 @@
 - **位置**：`packages/neuro-book/src/server/start.ts:337`；`src/server/testing/test-plugins.ts:222-253`；`src/server/server.test.ts:180-195,320-342,481-509`。
 - **现象**：原型把 `requiredPlugins` 从实际装配的 `plugins` 改为内置描述表。测试注入的 `test.fail-activate`、`test.fail-close` 不在描述表，也没有 `onStartup`，因此不再激活。HTTP/RPC 等待用例中的 `hold` 不再阻止启动，服务器直接 ready，`admission.active` 不会停在 1；失败测试实际上取得 200/101，而不是等待之后的 503。
 - **为什么是问题**：新规则“第三方不是启动必需”正确，但测试注入 API 已无法表达“额外的必需插件”，原来覆盖启动失败和关闭失败的 4 个用例失去前提。增加等待时间解决不了。另 5 个失败只是发布/关闭插件 id 列表漏了新增的 `nbook.plugins`，不是关闭顺序回归。
-- **如何核实**：在 `packages/neuro-book` 执行 `bun test src/server/server.test.ts`：23 个用例，14 pass、9 fail，32.66s。聚焦真实宿主实验 `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/startup.ts`：尚未 resolve hold 就 ready；故障入口为 `registered`、`generation: null`；health=200；停止 exitCode=0。由此确认不是 admission 计数或 I/O 卡住。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun test src/server/server.test.ts`：23 个用例，14 pass、9 fail，32.66s。聚焦真实宿主实验 `bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/startup.ts`：尚未 resolve hold 就 ready；故障入口为 `registered`、`generation: null`；health=200；停止 exitCode=0。由此确认不是 admission 计数或 I/O 卡住。
 - **建议改法**：保留第三方非必需规则，让 `StartServerOptions` 能显式指定额外启动必需项，fixture 与这 4 条测试明确传入；不要仅加 `onStartup`，非必需入口的激活失败按合同不会拖垮应用。发布/关闭测试改为检查依赖先后与失败隔离，不枚举无关插件全集。
 
 ### 4. 删除代理允许清单后，普通服务的提供者可以跨合同读写消费者的 Storage，剩下两项核对不能保住命名空间隔离
@@ -35,7 +35,7 @@
 - **位置**：`docs/adr/0027-builtin-and-third-party-plugins-are-equal.md:28,40-42`；`docs/adr/0024-multi-instance-runtime-topology.md:45`；`docs/specs/storage/persistence.md:107`；`packages/nb-runtime/src/plugins/host.ts:575-618`、`src/services/composition.ts:343-353,585-636`；`packages/neuro-book/src/plugins/storage/backend/owner.ts:28-29,39-49`。
 - **现象**：恶意插件只需提供一个被其它插件依赖的普通按调用方服务，就会收到那个消费者的真实身份对象；它自己声明 `remoteDelegates: [userStorageContract]` 后，可以用同一个身份对象代理 Storage。`issuedTo` 只核对身份是签发给这个提供入口的，不核对消费者究竟委托了哪项合同。Storage 按 `consumer.plugin` 分区，不检查 `via`。
 - **为什么是问题**：伪造一个新对象确实会被拒，但把“调用格式化服务”转换成“读取调用者私有记录”完全通过两项核对。不是任意选一个从未依赖它的插件就能冒名，而是所有曾取得它的按调用方门面的消费者都暴露。ADR 0027 只声明部分取代 ADR 0022，仍声称是防伪造；ADR 0024 的受控代理与 Storage“插件之间同名记录互不可见、无法指定别人命名空间”的无条件合同却没有同步收窄。
-- **如何核实**：运行 `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/delegation.ts`。实验经真实应用实例、服务门面签发、路由和 SQLite Storage；用现有宿主装配参数只给 `evil.proxy` 开放新决定将开放的代理能力，没有改内核或伪造签发。`example.victim` 保存 `victim-private-data` 后，evil 直接读取为 `missing`，复制身份对象得到 `denied`，使用收到的原身份代理读取却返回 victim 的正文。两实例均正常关闭。
+- **如何核实**：运行 `bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/delegation.ts`。实验经真实应用实例、服务门面签发、路由和 SQLite Storage；用现有宿主装配参数只给 `evil.proxy` 开放新决定将开放的代理能力，没有改内核或伪造签发。`example.victim` 保存 `victim-private-data` 后，evil 直接读取为 `missing`，复制身份对象得到 `denied`，使用收到的原身份代理读取却返回 victim 的正文。两实例均正常关闭。
 - **建议改法**：不要求恢复已决定删除的权限系统。若保持完全信任，ADR 0027 必须明确接受“服务提供者可把消费者身份用于任意自声明远程合同”，并显式收窄 ADR 0024、Storage/配置中隔离的承诺；把剩余核对描述为对象来源与寿命检查，而不是通用防冒名保证。若仍要保住按合同隔离，则必须另行决定由消费者授予合同范围；仅让代理自己声明 `remoteDelegates` 无法做到。
 
 ### 5. 安装器只检查末级文件，`files` 可以穿过符号链接目录复制源目录外的文件
@@ -44,7 +44,7 @@
 - **位置**：`packages/neuro-book/src/backend/plugins/registry.ts:167-189,215-235,277-284`；`docs/specs/runtime/plugin-install.md:39,103`。
 - **现象**：源目录的 `linked` 是指向目录外的符号链接，`files: ["linked/payload.txt"]` 安装成功，并复制了目录外的 `payload.txt`。`lstat(source/linked/payload.txt)` 只检查 payload，本身是普通文件；中间组件 `linked` 已被操作系统跟随。清单 `main` 的存在性检查同样用会跟随链接的 `stat`。另一个边界只 realpath 源目录、没有 realpath 安装根，安装根经 symlink 别名进入时不能可靠识别“源位于 plugins 内”。
 - **为什么是问题**：违反已定“复制范围出现符号链接就拒绝”和源目录边界，不是权限沙箱问题。安装器不能保证产物来自用户确认的源目录。静态拒绝末级链接的测试不能覆盖这种路径。
-- **如何核实**：运行 `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/install-runtime.ts`。经真实 WebSocket、内核远程服务 `nbook.plugins/registry.install`，`symlink-parent-install` 为成功，安装目录读回 `outside-boundary`。不是直接调用私有复制函数；实验服务和项目子进程均正常关闭。
+- **如何核实**：运行 `bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/install-runtime.ts`。经真实 WebSocket、内核远程服务 `nbook.plugins/registry.install`，`symlink-parent-install` 为成功，安装目录读回 `outside-boundary`。不是直接调用私有复制函数；实验服务和项目子进程均正常关闭。
 - **建议改法**：规范化安装根；对 `files` 命中的每个相对路径逐段 `lstat`，任何祖先或末级是 symlink 都拒绝，并在复制时维持最终目标位于源根的约束；对源内目录链接、末级链接、安装根别名与 glob 命中链接分别补行为用例。失败码统一用新合同的 `path-rejected`。
 
 ### 6. 声明式插件没有进入项目子进程，项目层配置从本 Task 起就不可用
@@ -71,7 +71,7 @@
 - **位置**：`packages/neuro-book/src/backend/plugins/registry.ts:98-103,127-131,296-325`；`.agents/works/w00027-plugin-platform/tasks/t03-manifest-and-install/plan.md:33-39`；`docs/specs/runtime/plugin-install.md:75-84`。
 - **现象**：原型用 registry 对象内的 Promise 队列排他，注释据此假设跨进程不需要锁；服务端并没有 State Root 独占机制。两个进程使用同一状态根、各自监听随机端口，都能启动并成功处理安装。它们各自读旧 JSON、各自整表 rename，最后一次写覆盖另一次。
 - **为什么是问题**：原子替换只防止半份 JSON，不防止丢更新。即使用户同时安装的是两个不同插件也会丢一个；未来按“未登记目录都是残留”恢复时，还会删除那个已经向用户报告安装成功的插件目录。仅按插件 id 加锁仍然不够，整表读改写必须有共同提交锁。
-- **如何核实**：运行 `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/concurrency.ts`。实验启动两个真实服务端子进程，监听 `36987`、`43777`，经各自真实 WebSocket 管理接口同时安装 alpha/beta；2 次都返回成功，磁盘有 2 个目录，但登记表只剩 `example.alpha`。两个子进程最后都 exitCode=0。
+- **如何核实**：运行 `bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/concurrency.ts`。实验启动两个真实服务端子进程，监听 `36987`、`43777`，经各自真实 WebSocket 管理接口同时安装 alpha/beta；2 次都返回成功，磁盘有 2 个目录，但登记表只剩 `example.alpha`。两个子进程最后都 exitCode=0。
 - **建议改法**：最简单是宿主在任何状态根读写之前取得进程级独占锁，第二个进程明确拒绝启动，锁随异常退出释放；若产品允许共用状态根，则为登记表整次读改写及目录回收定义跨进程事务锁，不能只串行同一 id。计划和 Spec 写明可依赖的 owner 保证，并用两个真实进程验收。
 
 ### 9. 复制抛异常时没有回滚，重启也不清残留；“临时文件后 rename”不足以兑现恢复合同
@@ -80,7 +80,7 @@
 - **位置**：`packages/neuro-book/src/backend/plugins/registry.ts:127-132,307-328,367-430`；`.agents/works/w00027-plugin-platform/tasks/t03-manifest-and-install/plan.md:34-37`；`docs/specs/runtime/plugin-install.md:81-84,105,109-110`。
 - **现象**：只有 `copyRange` 返回失败或入口缺失的分支删 target；`copyFile`、`writeRecord` 直接抛异常时落入 catch，返回失败但不删已复制的目录。`writeRecord` 自身也没有 finally 清临时文件。启动发现只遍历登记项，未登记的版本目录永不扫描或回收。
 - **为什么是问题**：普通权限错误就能留下半份安装，不必等到崩溃。新规范承诺 copy-failed 时已删部分文件、登记写入失败时恢复原状、重启后删除未登记残留；现有控制流三项都做不到。未来加入 pending 升级后，不能把这个 catch 直接复用成事务恢复。
-- **如何核实**：运行 `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/install-failure.ts`。源 `z.txt` 无读取权限，经真实管理 RPC 返回 EACCES；列表为空，但 `example.unreadable/1.0.0/` 已留下 package.json。停止并重启真实服务端后，该残留仍存在，两次停止均 exitCode=0。
+- **如何核实**：运行 `bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/install-failure.ts`。源 `z.txt` 无读取权限，经真实管理 RPC 返回 EACCES；列表为空，但 `example.unreadable/1.0.0/` 已留下 package.json。停止并重启真实服务端后，该残留仍存在，两次停止均 exitCode=0。
 - **建议改法**：以已提交标志区分回滚与残留回收；提交前所有异常都清准备目录，临时登记文件在 finally 收口。启动恢复先读取并保留 current/pending 引用，再回收无引用版本；删除失败保留可重试证据与诊断。把复制抛错、登记 rename 失败、提交前后中断分开验收，不能只测显式返回失败的分支。
 
 ### 10. 引导协议把“构建里没有这个内置 id”也当成第三方，破坏原有构建核对
@@ -89,7 +89,7 @@
 - **位置**：`packages/neuro-book/src/web/host/window.ts:313-330`；`.agents/works/w00027-plugin-platform/tasks/t03-manifest-and-install/plan.md:56-58`；`docs/specs/runtime/browser-host.md:47,49`。
 - **现象**：新代码只在 `builtinLocal !== undefined` 时检查版本；找不到 id 时一律用引导描述合成插件，包含保留的 `nbook.*`。本地还有定义时，连内置描述缺失都照常 ready；真的是旧构建、没有定义时，有 browser 入口的内置插件变成 `startup-failed`，只有声明的内置插件则被静默注入，均不再按既有合同判 `incompatible` 提示刷新。
 - **为什么是问题**：计划明确要求内置 id 与版本核对“不变”，实际只保留了已找到 id 的版本检查。“不在 builtin 表”不等于“第三方”；保留的 nbook 命名空间已经能明确区分这两种情况。协议 v3 没有明确来源字段，更不能据本地是否存在反推来源。
-- **如何核实**：运行 `bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/browser-selection.ts`。经真实服务端、引导、WebSocket 与窗口运行实例，从本地 builtin 描述表移除 `nbook.plugins`，保留定义表以单独观察 id 核对，结果 `missing-builtin-descriptor-state: ready`，不是原合同的 incompatible。完整缺少定义时的分类差异是上述分支直接推导，未另起浏览器验证。
+- **如何核实**：运行 `bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/browser-selection.ts`。经真实服务端、引导、WebSocket 与窗口运行实例，从本地 builtin 描述表移除 `nbook.plugins`，保留定义表以单独观察 id 核对，结果 `missing-builtin-descriptor-state: ready`，不是原合同的 incompatible。完整缺少定义时的分类差异是上述分支直接推导，未另起浏览器验证。
 - **建议改法**：在合成第三方描述前，保留对 `nbook.*` 的缺失 id 拒绝；或者引导显式携带可信来源并按来源分别处理。规范把第三方描述装载作为已实现“只给 id/version、必须在本地构建内”规则的明确例外，验收同时覆盖“新增内置 id + 旧外壳”“内置版本不同”“真正第三方声明式插件”。
 
 ### 11. 移入热插拔的升级流程会激活已禁用插件，和安装规范的用户状态保持规则冲突
@@ -140,12 +140,12 @@
 下面每个实验的完整可重跑命令均为：
 
 ```sh
-bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/startup.ts
-bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/delegation.ts
-bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/install-runtime.ts
-bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/concurrency.ts
-bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/install-failure.ts
-bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/browser-selection.ts
+bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/startup.ts
+bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/delegation.ts
+bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/install-runtime.ts
+bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/concurrency.ts
+bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/install-failure.ts
+bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/packages/neuro-book/tsconfig.json /tmp/neuro-book/review-w00027-t03-design/lab/browser-selection.ts
 ```
 
 六个实验最后均退出 0；主动创建的应用、连接与子进程均走停止流程。`install-runtime.ts` 第一次使用 `^0.1.0` 时被当前原型的 `PRODUCT_VERSION=0.0.0` 拒绝，随后只调整实验清单范围为 `>=0.0.0`，才继续核对路径与声明行为；没有把“已决定将改为 0.1.0”当作当前运行事实。Bun 1.4.2 在使用 tsconfig override 的脚本退出时另外打印 `Internal error: directory mismatch ... tsconfig.json`；这是实测的额外运行器告警，不是产品返回值。

@@ -1,4 +1,4 @@
-w00046 t10 切片 5：Windows 上的自动更新验收，第 1 轮（2026-11-14，pc-notype）
+w00046 t10 切片 5：Windows 上的自动更新验收，第 1 轮（2026-11-14，Windows 开发机）
 
 环境
 - Windows 11，Electrobun 2.0.6、Hutch 0.29.0、随包 Bun 1.4.4。

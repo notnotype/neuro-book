@@ -1,5 +1,5 @@
 # w00026 t22 实现审查报告（Claude Opus 子代理）
-审查范围：worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t22-drag-frame，master...HEAD（merge-base e9e5de814，5 个提交）。
+审查范围：worktree /home/<user>/CodeRepository/neuro-book/.worktree/w00026-t22-drag-frame，master...HEAD（merge-base e9e5de814，5 个提交）。
 注意：master 在变基后又前进了 10 个提交，两点 diff `git diff master..HEAD` 会把那 10 个提交的内容显示为反向删除；本报告按三点 diff `git diff master...HEAD` 审查。
 
 ## 1. 隐藏的侧栏被活动栏的预览展开后，指针一进展开的侧栏，判定按拿起时的几何落到别的面板，侧栏又收回去

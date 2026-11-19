@@ -1,6 +1,6 @@
 # w00024 t15 后端只读实现审查
 
-审查范围：`/home/notnotype/CodeRepository/neuro-book/.worktree/review-t15`，`57bdd0d2c..91d363ac6` 的指定后端文件。规范依据读取主工作区 master 的 `story/qa.md`、`agent/harness.md` 和 t15 的计划、决定 1 到 5。未审网页实现。实验只调用本机假端点与真实的 CLI、harness、OMP provider；没有调用真实模型。
+审查范围：`/home/<user>/CodeRepository/neuro-book/.worktree/review-t15`，`57bdd0d2c..91d363ac6` 的指定后端文件。规范依据读取主工作区 master 的 `story/qa.md`、`agent/harness.md` 和 t15 的计划、决定 1 到 5。未审网页实现。实验只调用本机假端点与真实的 CLI、harness、OMP provider；没有调用真实模型。
 
 ## 发现 1：只选 Responses、未写推理档时，请求没有思考摘要
 
@@ -45,7 +45,7 @@
 
 ## 实际验证与限制
 
-从 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t15` 执行：
+从 `/home/<user>/CodeRepository/neuro-book/.worktree/review-t15` 执行：
 
 - `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun test packages/nb-story/src/cli/ask.test.ts packages/nb-story/src/cli/config.test.ts packages/nb-story/src/qa/config.test.ts packages/nb-story/src/qa/engine.test.ts`：**76 pass、1 fail，77 条，32.45 秒，退出 1**。失败为 `init 的交互 > 贴进来的是密钥而不是变量名：拒绝并说明，改填变量名后通过`，`config.test.ts:252` 等待“推理档” **4000ms** 超时。该用例正文在本提交范围未改变；未重跑以确认，没有将未归因的失败列为 t15 回归。
 - `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun run --cwd packages/nb-story typecheck`：**退出 2，37.55 秒**。前 4 条链式检查通过，最后的 e2e 类型检查报 `e2e/viewer.e2e.ts(244,21): error TS2488: Type 'NodeListOf<HTMLElement>' must have a '[Symbol.iterator]()' method that returns an iterator.`。位置在网页/e2e 另审范围，未展开审查，也未修改；不能报告整包 typecheck 通过。

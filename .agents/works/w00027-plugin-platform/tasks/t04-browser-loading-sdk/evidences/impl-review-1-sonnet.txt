@@ -125,7 +125,7 @@
   1. 入口 id 含 `/`（清单只拒绝空 id 与 `main` 路径不合法，`a/b.js` 合法）时，`writeFile(join(workDir, "a/b.shell.ts"))` 抛 `ENOENT: no such file or directory, open '/tmp/nbook-plugin-build-iZOmzJ/a/b.shell.ts'`（实测），不是 `PluginBuildError`，作者看不出是入口 id 的问题。
   2. 作者目录缺 `package.json` 或 JSON 写错时 `readAuthor` 抛原始的 `ENOENT`/`SyntaxError`（`readFile`、`JSON.parse` 未包），命令行入口只打印 `error.message`，没有文件名。
   3. “未共享”文案：`引用了宿主没有共享的模块 X：该入口未共享（共享的是 …）`。没有说是哪个文件引进来的（常常是间接依赖），没有告诉作者能做什么（换库、让宿主共享需要产品改动）；服务端入口里混进浏览器代码（例如定义模块被两端共用，其中顶层导入了 `@notnotype/nb-ui/components`）时，错误落在 `entries.server`，也没提示“这个模块被服务端入口的模块图引用了”。
-  4. source map 的 `sources` 是相对临时构建目录算的（实测 `../../../home/notnotype/CodeRepository/…/node_modules/typebox/…`、`../browser.shell.ts`），文件移到输出目录后这些相对路径指向不存在的位置，同时把作者机器的绝对目录结构带进发布产物；`sourcesContent` 是有的，所以 DevTools 还能看到内容，只是路径是乱的。
+  4. source map 的 `sources` 是相对临时构建目录算的（实测 `../../../home/<user>/CodeRepository/…/node_modules/typebox/…`、`../browser.shell.ts`），文件移到输出目录后这些相对路径指向不存在的位置，同时把作者机器的绝对目录结构带进发布产物；`sourcesContent` 是有的，所以 DevTools 还能看到内容，只是路径是乱的。
   5. 图标扫描排除 `node_modules`（`:383`）：打进插件的第三方 UI 库里写死的 `i-lucide-*` 类漏掉，且与第 2 条一样无提示。
 - 建议改法：入口 id 在 `manifestOf` 前用与 `main` 同一套规则校验（不含 `/`、`\`，或文件名做转义）；`readAuthor` 包成 `PluginBuildError`；未共享错误记 importer；`output.sourcemapPathTransform` 把路径改成相对作者目录的稳定形式。
 

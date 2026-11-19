@@ -1,12 +1,12 @@
 {
-    "$comment": "eval 配置模板（进 git，无密钥）。复制为 evals/eval.config.json（已 gitignore）后填真实 env/key。字段说明见 generator/eval-config.ts。modelsConfig/datasetsRoot 相对路径按 llmlint 仓根解析。proxy 对所有 provider 生效（anyrouter 必须走代理）。",
+    "$comment": "eval 配置模板（进 git，无密钥）。复制为 evals/eval.config.json（已 gitignore）后填真实 env/key。字段说明见 generator/eval-config.ts。modelsConfig/datasetsRoot 相对路径按 llmlint 仓根解析。proxy 对所有 provider 生效（部分 CLI provider 必须走代理）。",
     "modelsConfig": "../neuro-book/workspace/.nbook/config.json",
-    "proxy": "http://127.0.0.1:7890",
+    "proxy": "http://127.0.0.1:<端口>",
     "providerTimeouts": {
         "doubao": 600000
     },
     "$note_bailian": "bailian(qwen3.7-plus/qwen3.6-plus/kimi-k2.6/MiniMax-M2.5) 暂禁用不测：config.json 里 bailian apiKey 为空，需先补一个百炼(dashscope) key 才能加进 renderModels。",
-    "datasetsRoot": "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/datasets/aigc-detection",
+    "datasetsRoot": "<数据集根绝对路径>",
     "renderModels": [
         "deepseek/deepseek-v4-flash",
         "xiaomi-token-plan-cn/mimo-v2.5-pro",
@@ -27,19 +27,19 @@
             "minIntervalMs": 0
         },
         "perProvider": {
-            "anyrouter-claude": {
+            "relay-claude": {
                 "concurrency": 1,
                 "minIntervalMs": 2000
             },
-            "anyrouter-codex": {
+            "relay-codex": {
                 "concurrency": 1,
                 "minIntervalMs": 2000
             }
         }
     },
     "cliProviders": {
-        "$comment": "CLI transport 经 proxy 已端到端验证（2026-07-03）：codex/gpt-5.5 ✅；claude 需两条件——① 用有额度的 anyrouter 账号 key（30 账号轮换，见 CodeProjects/anyrouter/anyrouter.js apikey）② 模型名带 [1M] 后缀启用 1M 上下文（否则 400 请启用1m上下文；exhausted 账号则 503）。opus-4-8[1M] ✅ 端到端；sonnet[1M] 偏慢易超时。默认 render 面板不含 CLI，需要时显式 --models 加。",
-        "anyrouter-claude": {
+        "$comment": "CLI transport 经 proxy 已端到端验证（2026-07-03）：codex/gpt-5.5 ✅；claude 需两个条件——① 使用有额度的中转账号 key；② 模型名带 [1M] 后缀启用长上下文（否则报错或返回 503）。opus-4-8[1M] ✅ 端到端；sonnet[1M] 偏慢易超时。默认 render 面板不含 CLI，需要时显式 --models 加。",
+        "relay-claude": {
             "transport": "cli",
             "command": [
                 "claude",
@@ -50,8 +50,8 @@
                 "{MODEL}"
             ],
             "env": {
-                "ANTHROPIC_BASE_URL": "https://anyrouter.top",
-                "ANTHROPIC_AUTH_TOKEN": "<有额度账号 key，只填在 gitignored 的 eval.config.json>"
+                "ANTHROPIC_BASE_URL": "<CLI 中转地址，只填在 gitignored 的 eval.config.json>",
+                "ANTHROPIC_AUTH_TOKEN": "<只填在 gitignored 的 eval.config.json>"
             },
             "models": [
                 "claude-opus-4-8[1M]",
@@ -60,7 +60,7 @@
             "timeoutMs": 300000,
             "output": "claude-json"
         },
-        "anyrouter-codex": {
+        "relay-codex": {
             "transport": "cli",
             "command": [
                 "codex",

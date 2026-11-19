@@ -1,6 +1,6 @@
 // 临时诊断：不按键划过时，DOM 上哪些属性在变（按元素选择器与属性名计数）。
 import {createRequire} from "node:module";
-const require = createRequire("/home/notnotype/CodeRepository/neuro-book/package.json");
+const require = createRequire("/home/<user>/CodeRepository/neuro-book/package.json");
 const {chromium} = require("playwright");
 const URL_ = process.env.DIAG_URL ?? "http://127.0.0.1:4417/?project=sample";
 const browser = await chromium.launch({headless: true, channel: "chrome"});

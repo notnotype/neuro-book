@@ -3,7 +3,7 @@
 (a) 点动作后 guarded 会 drop(id)，通知从队列与中心一起移除（notifications.ts 的 guarded/drop；Spec notifications 输出 4）。用户点“下载”后，同一句柄的 update 是空操作（Spec 输出 5“已消失的通知再 update 无效果”）。计划若让下载进度沿用 available 的 id，点了“下载”之后看不到任何进度通知，而 Spec desktop-update 输出 4 要求“另发一条带进度的通知”。
 (b) 用户关掉弹出的那条后队列里没有它了，update 只改中心条目（notifications.ts update：queueId 取不到就 return），不再弹出，也不会重置未读。Spec 输出 3“更高的版本出现时照常提示”若复用同一 id 就弹不出来。
 (c) update 不能移除进度条（progress 只有 undefined=不变、null=不确定条）、不能移除动作（patch.action 只能换）、不能换 onClose（“发出时定下”）。“进度通知改为已下载、没有动作”（输出 6）用 update 做不到，会留下不确定进度条。
-核实：读 /home/notnotype/CodeRepository/neuro-book/.worktree/w00046-desktop-release/packages/neuro-book/src/plugins/workbench/web/notifications.ts 的 guarded、drop、update 与 packages/nb-ui/src/composables/useNotification.ts 的 update（`{...current, ...rest}`，workbench 一侧只传定义了的字段）。
+核实：读 /home/<user>/CodeRepository/neuro-book/.worktree/w00046-desktop-release/packages/neuro-book/src/plugins/workbench/web/notifications.ts 的 guarded、drop、update 与 packages/nb-ui/src/composables/useNotification.ts 的 update（`{...current, ...rest}`，workbench 一侧只传定义了的字段）。
 建议：计划写明 id 的语义。最稳的做法是“一个提示阶段一条通知”：每个新 hint 都是新 id（或由页面把壳 id 映射到新通知），页面在 hint 换阶段时先 dismiss 旧的再 notify 新的；update 只用于同一阶段内的进度/文字微调。同时写明：壳的 id 与通知句柄是两回事，页面按“壳 id → 句柄”记表，表项在动作、用户关闭、dismiss 时清掉，再来同 id 时句柄已失效就重新 notify，而不是 update。
 
 [2] 重要 | 合同冲突 | 计划 update-hint-end 与 later 的关系（未写）；Spec desktop-update 输出 3、场景 7

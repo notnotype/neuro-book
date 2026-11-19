@@ -47,7 +47,7 @@
 现象：计划把 `tsc`、桌面主进程预打包和页面测试列为切片验证，但仓库的应用包 `tsconfig.json` 只纳入 `desktop/scripts`，不纳入 `desktop/src/bun`；Spec 也明确 Electrobun 适配层不在类型检查与自动测试内。新增的 `win32.ts`、`index.ts` FFI 接线因此没有静态类型门禁，页面 DOM/e2e 也不能覆盖 Bun 主进程的窗口事件时序。
 为什么是问题：计划可能在所有 Linux 合同测试和前端测试通过后，把错误的 FFI 声明、`resize` 监听、`shell-ready` 分支或 `window-control` 壳侧分派带进 Windows 构建；只有到 Hutch/人工验收才暴露，且当前计划没有把这些失败定位为门禁。
 如何核实：执行计划中的 `bunx tsc`，检查输出文件集合；再故意让 `desktop/src/bun` 的一个 FFI 参数类型错误，观察该命令是否仍通过。桌面适配层未纳入现有 tsc 的事实可由配置直接核实。
-建议改法：增加专门覆盖 `desktop/src/bun` 与 `desktop/electrobun.config.ts` 的 `tsconfig.desktop.json`/类型检查命令，至少在 Linux 上检查消息分派和 FFI 声明；把 `build.ts` 预打包和 Windows 变体构建列为独立门禁，并在验收映射中标出哪些只能在 pc-notype 验证。
+建议改法：增加专门覆盖 `desktop/src/bun` 与 `desktop/electrobun.config.ts` 的 `tsconfig.desktop.json`/类型检查命令，至少在 Linux 上检查消息分派和 FFI 声明；把 `build.ts` 预打包和 Windows 变体构建列为独立门禁，并在验收映射中标出哪些只能在 Windows 开发机 验证。
 11. 严重程度：重要；类别：失败路径；位置：`plan-r1.md:38,68,92-96`；`docs/specs/runtime/desktop-shell.md:93,203-212`。
 现象：计划规定补样式、设图标失败时只写壳日志并“不影响开窗”。但补样式是最大化不压任务栏、Alt+Space 和系统最小化/还原的前置条件，图标是输出 10 的窗口图标合同；失败继续打开会让产品进入已知不满足合同的半成品状态，且计划没有诊断事件名、错误码、用户可见处理或验收失败条件。
 为什么是问题：这会把可观察的契约违约降级成日志噪声。尤其 `SetWindowLongPtrW` 或 `SWP_FRAMECHANGED` 失败时，页面仍能显示并可操作，人工冒烟若只验证“窗口打开”很容易漏掉客户区压任务栏；图标加载失败也会继续产生缺省图标。

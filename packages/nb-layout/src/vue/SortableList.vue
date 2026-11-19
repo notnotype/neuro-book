@@ -8,7 +8,7 @@ import type {VNodeChild} from "vue";
 
 import type {SortableMove} from "./useSortable";
 import {useSortable} from "./useSortable";
-import {useLayoutText} from "./text";
+import {useLayoutText} from "./layout-text";
 
 const props = withDefaults(defineProps<{
     /** 分区与它们的项（按呈现顺序）。受控：放下后由调用方改了再交回来。 */
@@ -86,7 +86,7 @@ const entries = computed<Entry[]>(() => preview.value.flatMap((section): Entry[]
                     <span class="nb-sortable-list__handle-box">
                         <button
                             type="button"
-                            class="nb-sortable-list__handle nb-ui-focus-ring"
+                            class="nb-sortable-list__handle nb-layout-focus-ring"
                             :aria-label="t('sortable.handle', {name: props.label(entry.itemKey)})"
                             :aria-describedby="headId(entry.section)"
                             :title="t('sortable.hint')"
@@ -124,8 +124,8 @@ const entries = computed<Entry[]>(() => preview.value.flatMap((section): Entry[]
 
 .nb-sortable-list__head {
     padding: 0 4px 2px;
-    color: var(--text-muted);
-    font-size: var(--text-xs);
+    color: var(--nb-layout-text-muted, GrayText);
+    font-size: var(--nb-layout-text-xs, 12px);
     font-weight: 600;
 }
 
@@ -136,9 +136,9 @@ const entries = computed<Entry[]>(() => preview.value.flatMap((section): Entry[]
 
 .nb-sortable-list__placeholder {
     padding: 6px 10px;
-    border-radius: var(--radius-control);
-    color: var(--text-muted);
-    font-size: var(--text-xs);
+    border-radius: var(--nb-layout-radius-control, 6px);
+    color: var(--nb-layout-text-muted, GrayText);
+    font-size: var(--nb-layout-text-xs, 12px);
 }
 
 .nb-sortable-list__row {
@@ -147,14 +147,14 @@ const entries = computed<Entry[]>(() => preview.value.flatMap((section): Entry[]
     align-items: flex-start;
     gap: 8px;
     padding: 4px 6px;
-    border-radius: var(--radius-control);
+    border-radius: var(--nb-layout-radius-control, 6px);
     cursor: grab;
     user-select: none;
-    transition: background-color var(--motion-fast) var(--ease-layout);
+    transition: background-color var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .nb-sortable-list__row:hover {
-    background: var(--bg-hover);
+    background: var(--nb-layout-bg-hover, color-mix(in srgb, CanvasText 6%, transparent));
 }
 
 .nb-sortable-list.is-disabled .nb-sortable-list__row {
@@ -173,21 +173,21 @@ const entries = computed<Entry[]>(() => preview.value.flatMap((section): Entry[]
 
 .nb-sortable-list__row.is-held {
     z-index: 1;
-    background: var(--bg-panel);
-    box-shadow: var(--sortable-held-shadow, 0 0 0 1px var(--divider), 0 4px 12px color-mix(in srgb, var(--shadow-color, #000) 14%, transparent));
+    background: var(--nb-layout-bg-panel, Canvas);
+    box-shadow: var(--nb-layout-sortable-held-shadow, 0 0 0 1px var(--nb-layout-divider, color-mix(in srgb, CanvasText 15%, transparent)), 0 4px 12px color-mix(in srgb, var(--nb-layout-shadow-color, #000) 14%, transparent));
     transform: none !important;
 }
 
 .nb-sortable-list__moving {
-    transition: transform var(--motion-move) var(--ease-layout);
+    transition: transform var(--nb-layout-motion-move, 280ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
-/* 把手对齐行内容的第一行：盒子高 `--sortable-first-line`（缺省是行自己的 1lh），宿主的第一行行高不同时设它。 */
+/* 把手对齐行内容的第一行：盒子高 `--nb-layout-sortable-first-line`（缺省是行自己的 1lh），宿主的第一行行高不同时设它。 */
 .nb-sortable-list__handle-box {
     display: flex;
     flex-shrink: 0;
     align-items: center;
-    height: var(--sortable-first-line, 1lh);
+    height: var(--nb-layout-sortable-first-line, 1lh);
 }
 
 .nb-sortable-list__handle {
@@ -200,7 +200,7 @@ const entries = computed<Entry[]>(() => preview.value.flatMap((section): Entry[]
     border: 0;
     border-radius: 4px;
     background: transparent;
-    color: var(--text-muted);
+    color: var(--nb-layout-text-muted, GrayText);
     fill: currentColor;
     cursor: grab;
     /* 触摸只从把手起拖：行的别处留给页面滚动。 */

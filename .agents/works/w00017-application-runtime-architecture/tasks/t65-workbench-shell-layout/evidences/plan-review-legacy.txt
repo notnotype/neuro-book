@@ -1,6 +1,6 @@
 # t65 计划对抗审查：旧外壳迁移完整性
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t65-workbench-shell-layout/plan.md`。代码依据均来自审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-plan-legacy`，固定 revision `1c146c67`。本报告审查计划与合同；设计稿 accepted、外壳参照旧应用这两个决定作为前提。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t65-workbench-shell-layout/plan.md`。代码依据均来自审查 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t65-plan-legacy`，固定 revision `1c146c67`。本报告审查计划与合同；设计稿 accepted、外壳参照旧应用这两个决定作为前提。
 
 核实方式：逐项阅读计划、设计稿、Spec 与源码。下列缺口是已核实的文档/接口事实；对将来实现的后果明确写为推断。审查期间不启动开发服务或 e2e，不修改仓库。
 
@@ -151,22 +151,22 @@ S0 允许按 v2 改写，不应逐字保留旧业务边界。以下是行为去�
 
 ## 实际验证与边界
 
-以下 Bun 命令的工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-plan-legacy/packages/neuro-book`。测试临时根显式指向本次获准的报告目录；没有启动开发服务或 e2e。
+以下 Bun 命令的工作目录均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t65-plan-legacy/packages/neuro-book`。测试临时根显式指向本次获准的报告目录；没有启动开发服务或 e2e。
 
 ```sh
-env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/shared/store/store.test.ts --test-name-pattern '重放后仍冲突|discard 只移除|首个快照是读取错误|同一客户端的两个窗口'
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/shared/store/store.test.ts --test-name-pattern '重放后仍冲突|discard 只移除|首个快照是读取错误|同一客户端的两个窗口'
 ```
 
 结果：`4 pass`、`15 filtered out`、`0 fail`、`38 expect() calls`。
 
 ```sh
-env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/shared/store/store.test.ts --test-name-pattern '写已落盘、结果没回来|断线期间别处又写了|提供方入口停止而 store 仍活着'
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/shared/store/store.test.ts --test-name-pattern '写已落盘、结果没回来|断线期间别处又写了|提供方入口停止而 store 仍活着'
 ```
 
 结果：`3 pass`、`16 filtered out`、`0 fail`、`31 expect() calls`。
 
 ```sh
-env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/plugins/commands/shared/plugin.test.ts --test-name-pattern '贡献的命令经命令服务执行'
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/legacy bun test ./src/plugins/commands/shared/plugin.test.ts --test-name-pattern '贡献的命令经命令服务执行'
 ```
 
 结果：`2 pass`、`6 filtered out`、`0 fail`、`14 expect() calls`。

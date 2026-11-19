@@ -1,4 +1,4 @@
-t13 切片 6 第 2 轮 Windows 验收（2026-11-18，pc-notype，Windows 11 build 26200，100% 缩放）
+t13 切片 6 第 2 轮 Windows 验收（2026-11-18，Windows 开发机，Windows 11 build 26200，100% 缩放）
 
 对象：master 4b6806d8d 构建的桌面包（0.13.0，正式标识 io.github.notnotype.neurobook，装在默认位置）。运行时设 NBOOK_STATE_ROOT 指向测试状态根（自带一份作品副本，设置 closeLastWindow=tray），所以不碰开发者的默认状态根；
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9338 读页面。没有屏幕截取、没有系统鼠标键盘输入：托盘点击是向壳的托盘窗口发回调消息（WM_USER+100，lParam 为 WM_LBUTTONUP/WM_RBUTTONUP），菜单用 WM_KEYDOWN，

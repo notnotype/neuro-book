@@ -222,7 +222,7 @@
 
 - 审查固定提交核对：`/usr/bin/git rev-parse HEAD` → **6be1259d2bebb908664bea1aa6c097db65bb984d**。
 - 仓库只读核对：`/usr/bin/git status --short --untracked-files=normal` → **空输出**。没有 commit、push、stash、切换分支或删除文件；实验及其夹具保留在指定 scratch 下。
-- 原生运行环境：**Bun 1.4.4 / Linux x64 / pi-natives 18.14.0**。仅原生小实验按授权只读引用 `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-natives/native/index.js`；没有将其它 worktree 依赖接到本仓库。
+- 原生运行环境：**Bun 1.4.4 / Linux x64 / pi-natives 18.14.0**。仅原生小实验按授权只读引用 `/home/<user>/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-natives/native/index.js`；没有将其它 worktree 依赖接到本仓库。
 - 已运行的原生实验：`bun /tmp/review-t12-design/scratch/native-probe.ts edit`、`native-probe.ts shell`、`native-probe.ts search`；`bun /tmp/review-t12-design/scratch/native-boundaries.ts edit`、`native-boundaries.ts search`、`native-boundaries.ts quote`；`bun /tmp/review-t12-design/scratch/edit-preflight.ts`、`edit-raw-access.ts`、`edit-input-boundary.ts`、`edit-seen-lines.ts`。各发现列出对应输出；`native-probe.ts search` 的首轮在“以文件为 glob 根”时以 GenericFailure 退出，未假称整轮通过，遗漏的显式文件 grep/长行/glob 计数由后续有界实验补齐。
 - 真实日志存储 smoke：`bun --no-install --no-env-file /tmp/review-t12-design/scratch/log-image-roundtrip.ts` → **退出 0**；结果 `base64Bytes:43692,jsonlBytes:507,blobs:1,restored:true`。直接使用本提交的 createJsonlStore、真实 flock/磁盘和关闭重开；base64 是人工构造的字符串，不当作图片 decoder/provider 接收证明。
 - 合同测试尝试：`bun test packages/nb-harness/src/kernel/run/tools.test.ts packages/nb-harness/src/kernel/log/store.test.ts packages/nb-harness/src/kernel/model/omp.test.ts` → **0 pass / 3 fail / 3 errors**，加载阶段缺 `@notnotype/neuro-book-test-support/tmp`、`@oh-my-pi/pi-ai`，没有执行到行为断言。

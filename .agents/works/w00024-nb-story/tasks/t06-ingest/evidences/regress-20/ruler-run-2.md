@@ -1,6 +1,6 @@
 # 尺子核对结果
 
-图：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t06-ingest/regress/run-2`
+图：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t06-ingest/regress/run-2`
 
 53 条：对 32、部分 16、错 1、缺 4；依据记录里有标了待核实的：对 0、部分 0、错 0；模型判定费用 0.103 元。
 

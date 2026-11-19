@@ -26,7 +26,7 @@
   输入不可克隆：{"ok":false,"error":{"code":"input-not-cloneable","name":"DataCloneError","message":"The object can not be cloned."}}
   输出不可克隆：{"ok":false,"error":{"code":"output-not-cloneable","name":"DataCloneError","message":"The object can not be cloned.","stack":"<stack>"}}
   插件代码 process.exit(3)：{"ok":false,"error":{"code":"worker-crashed","message":"worker 意外退出，exitCode=3"}}
-  模块缺少 default 导出：{"ok":false,"error":{"code":"load-failed","name":"TypeError","message":"worker 模块缺少 default 导出函数：file:///tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/g2/pool/plugin-broken/no-default.mjs","stack":"<stack>"}}
+  模块缺少 default 导出：{"ok":false,"error":{"code":"load-failed","name":"TypeError","message":"worker 模块缺少 default 导出函数：file:///tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/g2/pool/plugin-broken/no-default.mjs","stack":"<stack>"}}
   模块语法错误：{"ok":false,"error":{"code":"load-failed","name":"BuildMessage","message":"Expected identifier but found end of file"}}
   出错后同插件仍可用：{"ok":true,"value":"ok"}
   流式进度：1000 条进度 + 结果 3.73ms，收到 1000 条，顺序正确=true，结果={"ok":true,"value":1000}

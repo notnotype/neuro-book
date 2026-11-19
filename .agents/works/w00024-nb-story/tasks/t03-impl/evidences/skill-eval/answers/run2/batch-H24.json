@@ -1,7 +1,7 @@
 {
  "id": "H24",
  "prefix": 27,
- "model": "jiji-luna/gpt-6-luna:max",
+ "model": "relay-a/gpt-6-luna:max",
  "ms": 745000,
  "answers": [
   {

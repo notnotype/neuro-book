@@ -37,17 +37,17 @@
     {
       "pid": 3816283,
       "ppid": 3816282,
-      "args": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
+      "args": "node /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
     },
     {
       "pid": 3816444,
       "ppid": 3816283,
-      "args": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+      "args": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
     },
     {
       "pid": 3816946,
       "ppid": 3816283,
-      "args": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+      "args": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
     }
   ],
   "remaining": [],

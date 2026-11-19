@@ -4,7 +4,7 @@
 - 范围：只读；文档模型寿命、Files 事件和保存并发、工作台贡献与停放、插件合同与命令、资源管理器冻结意图和结果未知门禁。
 - 判定：只记录会导致实现错误、无法完成或无法验收的问题；已登记的范围取舍不作为缺陷。
 - 证据：源码和合同推导标记“从代码推断”；运行证据另列具体命令与结果。
-- 路径基准：除实验与报告文件外，所有引用均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-plan-architecture`；`plan.md` 专指本 Task 的实施计划。已核实 HEAD 为 `04317a824b8124179637823ac1e87c901752f3e5`。
+- 路径基准：除实验与报告文件外，所有引用均相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-plan-architecture`；`plan.md` 专指本 Task 的实施计划。已核实 HEAD 为 `04317a824b8124179637823ac1e87c901752f3e5`。
 
 ## 已核实发现
 
@@ -99,8 +99,8 @@
 实际执行的两个命令：
 
 ```sh
-bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/tsconfig-smoke.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/files-smoke.ts
-bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/tsconfig-smoke.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/files-timing-smoke.ts
+bun --tsconfig-override /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/tsconfig-smoke.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/files-smoke.ts
+bun --tsconfig-override /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/tsconfig-smoke.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-plan/architecture/files-timing-smoke.ts
 ```
 
 - `files-smoke.ts`：退出 0；冻结令牌后保存、删除后创建写入、同名编辑器两个窗口的事件来源断言通过。证据为同目录 `files-smoke-result.json`。

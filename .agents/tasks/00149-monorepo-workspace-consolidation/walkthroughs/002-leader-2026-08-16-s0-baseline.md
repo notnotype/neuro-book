@@ -20,7 +20,7 @@ createdAt: 2026-08-16T15:21:00Z
 ## 证据
 
 - Task 摘要：`evidences/s0-baseline-summary.json`
-- 完整工作树清单留在系统临时根：`C:/Users/notnotype/AppData/Local/Temp/neuro-book/runs/00149-s0-20260816T150322Z/s0-worktree-evidence.json`，SHA-256 为 `350a003408aeb18493950b08d689cacc6d609468632fc9deba49014056d06f49`。
+- 完整工作树清单留在系统临时根：`C:/Users/<user>/AppData/Local/Temp/neuro-book/runs/00149-s0-20260816T150322Z/s0-worktree-evidence.json`，SHA-256 为 `350a003408aeb18493950b08d689cacc6d609468632fc9deba49014056d06f49`。
 
 ## 下一步
 

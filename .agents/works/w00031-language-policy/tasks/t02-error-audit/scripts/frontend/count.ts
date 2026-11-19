@@ -2,7 +2,7 @@
 // 用法：bun count.ts <worktree 的 packages 目录> <文件清单>
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
-const require = createRequire("/home/notnotype/CodeRepository/neuro-book/package.json");
+const require = createRequire("/home/<user>/CodeRepository/neuro-book/package.json");
 const ts = require("typescript") as typeof import("typescript");
 const sfc = require("@vue/compiler-sfc") as typeof import("@vue/compiler-sfc");
 

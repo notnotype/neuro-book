@@ -22,7 +22,7 @@
 
 未做：未运行 DeepSeek Harness 本体；未在浏览器或 Nuxt/Nitro 环境加载 cordis；未验证 Koishi 的实际用法；本文实测使用 npm `cordis@4.0.0-rc.10`，而 vendored 副本是 `4.0.0-rc.7`，两者版本不同。
 
-外部仓库 `deepseek-harness` 的本地路径为 `/home/notnotype/CodeRepository/deepseek-harness`，下文引用其中路径时省略该前缀。
+外部仓库 `deepseek-harness` 的本地路径为 `/home/<user>/CodeRepository/deepseek-harness`，下文引用其中路径时省略该前缀。
 
 ## 1. 事实要点
 

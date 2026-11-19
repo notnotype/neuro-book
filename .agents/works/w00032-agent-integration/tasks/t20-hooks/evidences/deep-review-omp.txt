@@ -9,7 +9,7 @@
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/duplicate-key.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/duplicate-key.ts
 ```
 
 经真实 `createTestSession`、JSONL 存储和 `openSession` 运行；输出先显示同一批中两条 `{key: "same"}` 事件，随后重开失败：`log-corrupt {"line":11,"problem":"duplicate idempotency key same for lab.dup"}`。
@@ -26,7 +26,7 @@ bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agen
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/reassembly-failure.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/reassembly-failure.ts
 ```
 
 脚本经真实 `createAgentHost`、`createSession` 和 `published` 路径运行；第二次调用资源工厂时抛出 `Error: resources failed during reassembly`，输出 `Unhandled Rejection`，进程以退出码 `1` 结束，未到达快照和关闭。失败栈落在 `session.ts:522` 的 `refreshContext()`。
@@ -44,7 +44,7 @@ bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agen
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/subscriber-throw.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/subscriber-throw.ts
 ```
 
 经真实 JSONL `createTestSession`、`subscribe`、`send`、关闭和 `openSession` 运行；输出为：
@@ -67,7 +67,7 @@ reopened 10 [ "sessionCreated", "profileChanged", "inputQueued", "runStarted", "
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/blob-size.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/blob-size.ts
 ```
 
 脚本经真实 `createJsonlStore` 写入超过 16 KB 的事件，直接把日志中的 `size` 改大 1 后调用 `open`；输出 `{ opened: true, textLength: 9000 }`，而按 `session.md` 输出 7 应返回 `log-corrupt`。
@@ -84,13 +84,13 @@ bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agen
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/report.md
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/report.md
 ```
 
 上面的命令原样不能运行实验；实际复现命令为：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/shared-abort-order.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/shared-abort-order.ts
 ```
 
 经真实 `createTestSession`、共享并发工具、注入时钟和中止路径运行：`lab.slow` 先占住直到宽限期结束，`lab.quick` 在宽限期内完成，但两条 `toolResult` 都是 `status: "unknown", code: "aborted"`。
@@ -108,13 +108,13 @@ bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agen
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/report.md
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/report.md
 ```
 
 上面的命令是报告路径误写；实际可重跑命令为：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/fork-copy-failure.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/fork-copy-failure.ts
 ```
 
 经真实 `createTestSession`、JSONL 存储和 fork 指令运行，输出：
@@ -140,7 +140,7 @@ copy 1 []
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/reassembly-readonly-failure.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/reassembly-readonly-failure.ts
 ```
 
 真实 `createAgentHost`、插件撤回/补回、JSON 往返内存存储和注入的 `profileChanged` 写失败路径输出：第一次补回前 `readOnly: {code: "dependency-missing"}`；补回写失败后 `head` 仍为 `2`、没有新 `profileChanged`，但 `readOnly: null`。
@@ -157,7 +157,7 @@ bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agen
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/create-failure.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/create-failure.ts
 ```
 
 真实 `createJsonlStore` 和注入文件写失败输出：第一次 `{ok: false, code: "storage-failed"}`，第二次同一 header 返回 `{ok: false, code: "session-exists"}`。
@@ -174,7 +174,7 @@ bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agen
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/open-recovery-failure.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/open-recovery-failure.ts
 ```
 
 真实内存存储先写入未收口的 `runStarted`/`modelStarted`，再用只让 `append` 失败的存储打开；输出：
@@ -196,7 +196,7 @@ retry { ok: false, code: "session-busy", ... }
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/abort-idempotence-waiting.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/abort-idempotence-waiting.ts
 ```
 
 经真实 `createTestSession`、审批等待、中止和同一 `commandId` 重发运行，输出：
@@ -218,7 +218,7 @@ second { ok: true, value: { aborted: false }, replayed: false }
 **如何核实**：
 
 ```text
-bun run /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/readonly-resolve.ts
+bun run /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/deep-review-omp/lab/readonly-resolve.ts
 ```
 
 真实 `openSession`、内存存储和合成待处理提问输出：`before {code: "unknown-profile"}`，`resolve {ok: true, seq: 5}`，日志新增 `interactionResolved` 与 `commandAccepted`，`after` 仍显示未知 Profile。

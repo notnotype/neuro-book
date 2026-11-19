@@ -1,6 +1,6 @@
 # w00025 t02 后端与领域实现审查
 
-审查范围：`0e0126753..13bedd9af`，worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t02-review`。下文位置均相对于这个 worktree。只读审查；未安装依赖、未运行产品测试、e2e 或开发服务。实验仅放在本报告同级 `lab/`，不修改产品文件。
+审查范围：`0e0126753..13bedd9af`，worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t02-review`。下文位置均相对于这个 worktree。只读审查；未安装依赖、未运行产品测试、e2e 或开发服务。实验仅放在本报告同级 `lab/`，不修改产品文件。
 
 报告按核实顺序追加，末尾提供按影响排序的索引与各级数量。代码可直接证明但未跑真实宿主的场景明确标为“从代码推断”；实验不等同于产品端到端验收。
 
@@ -10,7 +10,7 @@
 - **位置**：`packages/neuro-book/src/plugins/html-preview/web/compose.ts:57-64`；`packages/neuro-book/src/plugins/html-preview/compose.test.ts:13-20`。
 - **现象**：输入 `<!doctype html><!-- <head> --><html><head>…` 时，第一个正则命中注释里的 `<head>`，把 CSP meta、no-referrer meta、令牌 base 和锚点脚本全部插在注释里。真实 head 里没有任何一项保护。文档脚本仍会按 iframe 的 `allow-scripts` 执行；它还能从注释文本中取得刚签发的令牌。
 - **为什么是问题**：Spec `workbench/html-preview.md` 输出 5 与信任边界承诺默认不能联网、不能把作品内容发到外网。合法注释就能移除这一层，不需要用户打开“允许联网”。这是本范围新增的拼装函数，base 中没有预览实现。仅测试字符串匹配位置没有验到 HTML 解析语义。
-- **如何核实**：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/compose-probe.ts`，直接调用实际 `composePreview`，输出 `policyInComment: true`、`policyPosition: 26`、`commentEnd: 1409`、`realHeadPosition: 1412`。该实验只验证实际拼装产物，不是浏览器或真实插件宿主验收；浏览器出网结果从 HTML 注释解析规则与现有 iframe 属性推断，未执行。请主 Agent 在现有预览 e2e 中加入“注释含 head、实际页面发外网请求”，断言请求被挡。
+- **如何核实**：已运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/compose-probe.ts`，直接调用实际 `composePreview`，输出 `policyInComment: true`、`policyPosition: 26`、`commentEnd: 1409`、`realHeadPosition: 1412`。该实验只验证实际拼装产物，不是浏览器或真实插件宿主验收；浏览器出网结果从 HTML 注释解析规则与现有 iframe 属性推断，未执行。请主 Agent 在现有预览 e2e 中加入“注释含 head、实际页面发外网请求”，断言请求被挡。
 - **建议改法**：用能识别注释、raw-text 元素和真实标签的 HTML 解析/插入方式，把保护放到真正会执行的文档前部；不要用三个不感知 HTML 上下文的正则作为安全边界。让同一个插入过程处理 base，避免另起一套扫描。
 
 ### 2. 预览跳到另一份 HTML 后不再有禁网 CSP
@@ -37,7 +37,7 @@
 - **位置**：`packages/neuro-book/src/plugins/http/backend/dispatch.ts:75-88`；`packages/neuro-book/src/plugins/http/backend/plugin.ts:80-82`；`packages/neuro-book/src/plugins/http/backend/dispatch.test.ts:61,225-235`。
 - **现象**：分发器在读 Host 之前先 `new URL(request.url)`。本机 Bun 对 `GET /api/runtime/health HTTP/1.0` 且没有 Host 的请求交出相对 `request.url: "/api/runtime/health"`，这里抛 `TypeError`，最后由 Bun 的 `error` 回调变成 500 `internal-error`，不是 Host 不被允许时的 421。
 - **为什么是问题**：本次新增的“分发前核对 Host”没有覆盖缺头输入；每个这样的请求还会进入内部故障诊断。base 原先也不支持这种相对 URL，本条不把旧行为冒称为新安全漏洞，仅指出新增来源核对合同缺了一条输入边界。现有测试用 `new Request("http://"+host+path)` 模拟 Host，永远构造不出 Bun 实际交出的这种请求。
-- **如何核实**：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/host-probe.ts`，用真实 Bun HTTP 监听和 TCP 请求核对：普通 evil Host 与 absolute-form 都进入 evil URL；大写 `LOCALHOST` 被规范化；缺 Host 的结果为 `{"url":"/api/runtime/health","host":null}`。该探针没加载产品分发器；500 由上述实际源码调用链推断。请主 Agent 在 HTTP 合同测试中加真实监听/原始 TCP 场景。
+- **如何核实**：已运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/host-probe.ts`，用真实 Bun HTTP 监听和 TCP 请求核对：普通 evil Host 与 absolute-form 都进入 evil URL；大写 `LOCALHOST` 被规范化；缺 Host 的结果为 `{"url":"/api/runtime/health","host":null}`。该探针没加载产品分发器；500 由上述实际源码调用链推断。请主 Agent 在 HTTP 合同测试中加真实监听/原始 TCP 场景。
 - **建议改法**：把缺失或不可解析 Host 明确作为边界拒绝，在 URL 构造之前完成；保留统一 421 错误响应，不让不合法请求变成内部异常。
 
 ### 5. 文本与字节同时引用时，订阅就绪不会刷新先取到的字节
@@ -144,9 +144,9 @@
 
 1. `git log --oneline 0e0126753..13bedd9af`：列出计划/实现/合同相关的 9 个提交。
 2. `git diff --name-status 0e0126753..13bedd9af` 与文内列出的聚焦 `git diff`/`git show`：核对新增文件、旧调用路径与本次引入的状态变化。
-3. `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/compose-probe.ts`：调用实际拼装函数，确认 CSP 被插入注释、自带 base 排在注入 base 之后；退出码 0。**未在浏览器验证出网。**
-4. `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/host-probe.ts`：真实 Bun/TCP 的 4 种请求，确认 Host/URL 规范化及缺 Host 的相对 URL；监听在 finally 停止，退出码 0。**不是产品服务器 smoke。**
-5. 每次追加后执行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/omp-report.md`，发现条目数单调从 1 增到 12；第 4 条基线归类不删除原条目。
+3. `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/compose-probe.ts`：调用实际拼装函数，确认 CSP 被插入注释、自带 base 排在注入 base 之后；退出码 0。**未在浏览器验证出网。**
+4. `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/host-probe.ts`：真实 Bun/TCP 的 4 种请求，确认 Host/URL 规范化及缺 Host 的相对 URL；监听在 finally 停止，退出码 0。**不是产品服务器 smoke。**
+5. 每次追加后执行 `grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/omp-report.md`，发现条目数单调从 1 增到 12；第 4 条基线归类不删除原条目。
 
 按本次限制，以下**没有运行**：产品 Bun/Vitest 测试、typecheck、生成器、构建、e2e、开发服务、真实 Monaco 分词/组件挂载。各条已写明需要主 Agent 补的场景。主 Agent 在有依赖的实现 worktree 可先运行包内聚焦合同测试（工作目录 `packages/neuro-book`）：
 

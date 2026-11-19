@@ -1,6 +1,6 @@
 # 任务：独立设计 w00039：作者视角的小说世界模型内核
 
-仓库：`/home/notnotype/CodeRepository/neuro-book`（只读）。你是一位没参与讨论的架构师，要独立给出一份设计。另有人写了一份方案，你**不要读**它，也不要读这几个文件，它们记着那份方案与讨论过程：`docs/proposals/world-engine-kernel.md`、`.agents/works/w00039-novel-writing-plugins/README.md`、`.agents/works/w00039-novel-writing-plugins/tasks/t02-story-model/` 下的全部文件、`.agents/works/w00039-novel-writing-plugins/research/2026-11-01-author-domain-analysis.md`。
+仓库：`/home/<user>/CodeRepository/neuro-book`（只读）。你是一位没参与讨论的架构师，要独立给出一份设计。另有人写了一份方案，你**不要读**它，也不要读这几个文件，它们记着那份方案与讨论过程：`docs/proposals/world-engine-kernel.md`、`.agents/works/w00039-novel-writing-plugins/README.md`、`.agents/works/w00039-novel-writing-plugins/tasks/t02-story-model/` 下的全部文件、`.agents/works/w00039-novel-writing-plugins/research/2026-11-01-author-domain-analysis.md`。
 
 ## 目标
 
@@ -27,8 +27,8 @@ NeuroBook 是本地优先的长篇小说写作工作区，作者与产品内置�
 
 ## 例子
 
-- 一位作者的故事种子、加面板的要求与第一章大纲，原样摘录：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/xingxia/seed-and-chapter1-outline.txt`
-- 另一本书（样本书）的前 3 章正文：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/book/chapter-01.txt` 到 `chapter-03.txt`
+- 一位作者的故事种子、加面板的要求与第一章大纲，原样摘录：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/xingxia/seed-and-chapter1-outline.txt`
+- 另一本书（样本书）的前 3 章正文：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/review/book/chapter-01.txt` 到 `chapter-03.txt`
 
 ## 可以读的现状
 

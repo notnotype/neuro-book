@@ -40,7 +40,7 @@
   - `outline-none`：wind3 是 `outline: 2px solid transparent; outline-offset: 2px`，v4 是 `outline-style: none`。nb-ui 里有约 30 处。计划里只改了 neuro-book 自己的 7 处为 `outline-hidden`（保住强制颜色模式下的轮廓），nb-ui 自己的没改，也没有在文档里说明；多数元素带 `.nb-ui-focus-ring`（本来就 `outline: none`），不带的有 `Popover`、`Drawer`、`MenuLevelPanel`、`ContextMenuPanel` 等容器。
   - `font-mono` 的字体栈少了 `"Courier New"`（计划已写“随 nb-ui token 改变”，这条不用管）。
 - **为什么是问题**：计划的验收最后一行“外观只按预期变化……预期内的差异只有两类”，而这几项不在两类之内，截图对照时会被当成“待查明的意外差异”，或更糟：因为量很小被漏掉。
-- **如何核实**：`/tmp/t02/review/scratch/uno-cmp2.mjs`（用 `bun run` 跑，读 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00030-t02-tailwind/node_modules/unocss`）；输出在 `/tmp/t02/review/scratch/uno-cmp2.out`。
+- **如何核实**：`/tmp/t02/review/scratch/uno-cmp2.mjs`（用 `bun run` 跑，读 `/home/<user>/CodeRepository/neuro-book/.worktree/w00030-t02-tailwind/node_modules/unocss`）；输出在 `/tmp/t02/review/scratch/uno-cmp2.out`。
 - **建议改法**：把这几项写进 README 的预期差异；`py-0.2` 在两个组件里改成 `py-[0.05rem]`（或 `py-px`），它本来就是 nb-ui 的死类；`outline-none` 是否换成 `outline-hidden` 请开发者定（强制颜色模式目前没有规范，倾向于记录不改）。
 
 ## 4. 滚动条 token 在 `:root` 上算出后继承下去，套了另一套配色的子树里的原生滚动条取到页面根的颜色（dev-panel 终端块是现成的复现点）

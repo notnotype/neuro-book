@@ -198,7 +198,7 @@
 
 ## 实验位置
 
-所有实验都在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t06-design/` 下：
+所有实验都在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t06-design/` 下：
 
 | 目录或脚本 | 内容 |
 |---|---|

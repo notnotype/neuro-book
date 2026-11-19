@@ -1,6 +1,6 @@
 # w00017 t65 实现审查：测试与验收映射
 
-审查范围：`ecc4a64f..53596fc6`。审查工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-impl-tests`。本报告只记录已核实问题；实验全部置于报告所在的仓库外目录。作者自报结果不计作本次运行证据。
+审查范围：`ecc4a64f..53596fc6`。审查工作区：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t65-impl-tests`。本报告只记录已核实问题；实验全部置于报告所在的仓库外目录。作者自报结果不计作本次运行证据。
 
 发现按影响排序，编号保留核实时的顺序。所有位置均相对于上述审查工作区；`plan.md` 指 `.agents/works/w00017-application-runtime-architecture/tasks/t65-workbench-shell-layout/plan.md`。测试缺口不等同于已复现的产品故障。
 

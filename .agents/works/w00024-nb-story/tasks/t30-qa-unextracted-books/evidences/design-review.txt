@@ -1,6 +1,6 @@
 # t30 设计审查：问答读未抽取章原文
 
-审查对象：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t30-qa-unextracted-books/plan.md
+审查对象：/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t30-qa-unextracted-books/plan.md
 
 ### 1. 尾部原文没有绑定书的一代
 

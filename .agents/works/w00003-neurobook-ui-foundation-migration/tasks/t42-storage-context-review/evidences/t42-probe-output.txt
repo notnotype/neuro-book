@@ -1,6 +1,6 @@
 $ vitest run "app/utils/workbench/t42-review-probe.test.ts" "app/utils/workbench/t42-leader-probe.test.ts"
 
- RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+ RUN  v4.1.10 C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
 
 
  Test Files  2 passed (2)

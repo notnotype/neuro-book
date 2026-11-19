@@ -51,7 +51,7 @@ Electrobun 调研（读 v2.0.6 源码仓库的文档，2026-11-13；源码克隆
 - 卸载：自带的卸载程序提供“只删应用”和“应用和数据”两个选项，后者删 `Utils.paths.userData` 等目录。**要在提案里定状态根放哪**：ADR 0033 的缺省状态根是 `%LOCALAPPDATA%\NeuroBook`，与 npm 包的 `nbook` 共用；Electrobun 管的是 `%LOCALAPPDATA%\<identifier>\<channel>`。放在后者，卸载时选“应用和数据”会连作品登记与设置一起删掉，也和 `nbook` 不通。
 - 官方文档给了 GitHub Actions 的矩阵示例：打标签触发，各平台构建都成功后才建 Release。
 
-Windows 实测（pc-notype：Windows 11 26200 x64、32 GB；独立的 Bun 1.4.4 放在 `C:\Users\notnotype\nb-w00046\`，不动机器上 scoop 装的 Bun；代码是 master `0ac934e53` 打出的产物）：
+Windows 实测（Windows 开发机：Windows 11 26200 x64、32 GB；独立的 Bun 1.4.4 放在 `C:\Users\<user>\nb-w00046\`，不动机器上 scoop 装的 Bun；代码是 master `0ac934e53` 打出的产物）：
 
 - `smoke:server` 十个场景过九个（[evidences/windows-smoke-server-r1.txt](evidences/windows-smoke-server-r1.txt)）：health、标准输入停止、端口占用、Web 外壳、RPC 握手、项目子进程（S7）、SQLite 与 WAL 收回、设置文件、同一状态根第二个实例被命名管道认领拦下（S10）都正常。ADR 0033 担心的“命名管道认领在 Bun 上失败”在 Bun 1.4.4 上没有出现。没过的 S2 是 SIGTERM：Windows 没有这个信号，`kill("SIGTERM")` 直接结束进程。所以**桌面壳要用标准输入让服务端有序停止**（S1 的做法），不能发信号。`nbook start` 目前只认信号，Windows 上只有在同一个控制台里按 Ctrl-C 才能有序停止；提案里要处理这一点。
 - Agent 的内嵌 shell（[evidences/windows-embedded-shell-r1.txt](evidences/windows-embedded-shell-r1.txt)）：echo 与变量、ls、cat 加管道 wc、sort、uniq、head、sed、find、jq、for 循环与 `$(...)`、重定向、mkdir、cp、mv、rm、退出码全部正常，中文文件名与中文内容正常，每条 60 到 100 毫秒；也能调起 Windows 程序（`where.exe`）。git、awk、python 失败，原因是这台机器 scoop 的目录联接在 SSH 会话里解析不了，证实它们走的是外部程序。
@@ -66,10 +66,10 @@ Electrobun 原型在 Windows 上的实测（[evidences/windows-electrobun-proto-
 - 旧应用的经验（[legacy t143](../../../../tasks/143-desktop-envelope-installation-spike/README.md)、[t145](../../../../tasks/145-electron-desktop-productization/README.md)，2026-08）：同一产品的 Windows 便携 zip，Electron 约 230 到 390 MB、Tauri 约 84 到 244 MB（随产品体积变化）；干净 Windows 上踩过三类坑——无 BOM 的 `.ps1` 被按 ANSI 读坏、没装 VC++ 运行库时原生模块加载失败、超过 260 字符的路径删不掉；当时用 Windows Sandbox 做干净环境验收。pi-natives 不依赖 VC++ 运行库：`pi_natives.win32-x64-baseline.node`（18.14.0，124 MB，Windows 包只有 baseline 一份）的 PE 导入表只有系统 DLL（kernel32、user32、bcrypt、ws2_32 等），没有 `vcruntime140.dll`、`msvcp140.dll`。
 - 要另行处理的：Setup 没有界面、静默安装并自动建桌面快捷方式；经计划任务在桌面会话里运行 Setup 的两次没装上，原因未查，双击安装这条路径未验证。便携方式（复制 `app` 目录）能跑，但数据仍写在 `%LOCALAPPDATA%` 下与安装版共用，便携模式要 NeuroBook 自己把状态根放到程序旁边。Hutch 0.29.0 设了 `HTTPS_PROXY` 时下载必失败，只能直连，国内直连 GitHub 偶有中断。
 
-GitHub Actions windows-2025 runner 上的探针（[evidences/windows-runner-probe-r1.txt](evidences/windows-runner-probe-r1.txt)；临时分支 `probe/w00046-windows`，两次运行）：整个工作区 `bun install` 112 秒；`smoke:server` 同样十过九（只有 SIGTERM 不过）；Hutch 构建 82 到 84 秒，产物与本地构建大小一致；静默安装成功（建快捷方式、在 HKCU 登记卸载项）；装完直接运行 `launcher.exe`，2 秒建好窗口、服务端开始监听，4.7 秒页面就绪，`WM_CLOSE` 后服务端 206 毫秒以 0 退出；卸载干净。**Setup 显示“安装完成”后既不打开应用也不退出**（runner 上等 120 秒未退出，pc-notype 经 SSH 运行时同样），开发者 2026-11-13 在 pc-notype 上双击验证：装完自动打开应用、setup 自己退出，只有在没有桌面的会话里运行时才停住。CI 里可以做“安装、启动到页面就绪、有序停止、卸载”的发布前冒烟，但要直接起 `launcher.exe`，不能等 Setup 自己打开。
+GitHub Actions windows-2025 runner 上的探针（[evidences/windows-runner-probe-r1.txt](evidences/windows-runner-probe-r1.txt)；临时分支 `probe/w00046-windows`，两次运行）：整个工作区 `bun install` 112 秒；`smoke:server` 同样十过九（只有 SIGTERM 不过）；Hutch 构建 82 到 84 秒，产物与本地构建大小一致；静默安装成功（建快捷方式、在 HKCU 登记卸载项）；装完直接运行 `launcher.exe`，2 秒建好窗口、服务端开始监听，4.7 秒页面就绪，`WM_CLOSE` 后服务端 206 毫秒以 0 退出；卸载干净。**Setup 显示“安装完成”后既不打开应用也不退出**（runner 上等 120 秒未退出，Windows 开发机 经 SSH 运行时同样），开发者 2026-11-13 在 Windows 开发机上双击验证：装完自动打开应用、setup 自己退出，只有在没有桌面的会话里运行时才停住。CI 里可以做“安装、启动到页面就绪、有序停止、卸载”的发布前冒烟，但要直接起 `launcher.exe`，不能等 Setup 自己打开。
 
 ## 下一步
 
 无（本 Task 已完成）。临时分支 `probe/w00046-windows` 与 worktree `.worktree/w00046-probe` 已删（GitHub 上的两次运行与 7 天内的产物仍在）。
 
-pc-notype 上本 Task 建的、留给 t07、t08 在 Windows 上实测继续用的：`%USERPROFILE%\nb-w00046\`（独立 Bun、Hutch、原型与脚本）、`%USERPROFILE%\nb-w00046-*.ps1`（三个早期脚本）、`%LOCALAPPDATA%\cottontail\cache`（Hutch 建的）、`%TEMP%` 里 Bun 的安装缓存。测试安装已用卸载程序清掉。
+Windows 开发机上本 Task 建的、留给 t07、t08 在 Windows 上实测继续用的：`%USERPROFILE%\nb-w00046\`（独立 Bun、Hutch、原型与脚本）、`%USERPROFILE%\nb-w00046-*.ps1`（三个早期脚本）、`%LOCALAPPDATA%\cottontail\cache`（Hutch 建的）、`%TEMP%` 里 Bun 的安装缓存。测试安装已用卸载程序清掉。

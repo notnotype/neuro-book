@@ -1,6 +1,6 @@
 # w00024/t10-ingest-context-cost 实施计划只读设计审查
 
-审查对象：`.agents/works/w00024-nb-story/tasks/t10-ingest-context-cost/plan.md`（`e80937158`）。位置相对于 `/home/notnotype/CodeRepository/neuro-book`。开发者已定决定不重新讨论；没有修改仓库、调用真实模型或读取真实密钥。
+审查对象：`.agents/works/w00024-nb-story/tasks/t10-ingest-context-cost/plan.md`（`e80937158`）。位置相对于 `/home/<user>/CodeRepository/neuro-book`。开发者已定决定不重新讨论；没有修改仓库、调用真实模型或读取真实密钥。
 
 ### 1. 长书评估指定的前 60 章不是合法的已提交基线，真实管线会在下一章提交前失败
 
@@ -146,7 +146,7 @@
 
 ## 证据口径补充
 
-- 本文省略包前缀的 `src/…`、`testing/…`、`core/…` 均指 `/home/notnotype/CodeRepository/neuro-book/packages/nb-story/` 内路径；其他位置按完整相对路径读取。
+- 本文省略包前缀的 `src/…`、`testing/…`、`core/…` 均指 `/home/<user>/CodeRepository/neuro-book/packages/nb-story/` 内路径；其他位置按完整相对路径读取。
 - 第 1 条底层 `Library.commitExtraction` 可以写入形状合法但语义有错的数据；“不能直接提交”指它不能成为 **真实 Job 合同下的合法已提交基线**。第 61 章停在提交门禁已由真实 Worker 路径验证，非断言底层 Library 会提前拒绝这份输入。
 - 第 3 条字数是对指定章末图调用真实 `renderContext`、拼真实整理 details 得到的 **UTF-16 字符数**，不是实际模型 token 数，也没有声称 98 是 100 章运行里实际发生的整理节点；98 作为末章时会触发整理。它用于证明保留全量路径随历史规模增长。
 - 第 5 条本实验名次按 1 起算，README 给的最大值为 286、本实验为 287；**0/1 起算差异是推断**，未获得原统计脚本，不把它作为错误。确定不受该差异影响的是 16 次中有 8 次超过最近 40 条。
@@ -172,7 +172,7 @@
 | `bun /tmp/review-w00024-t10-plan/scratch/cost-probe.ts` | 按计划参数计算无缓存/良好缓存两种费用代理，约 41.5% / 11.6% 已有记录部分净下降；旧 10 章非整理请求均值 2.8。 |
 | `bun /tmp/review-w00024-t10-plan/scratch/time-probe.ts` | 102 个旧时间点引用，两种末 20 个口径均保留 101 个；没有发现样例上的口径差异。 |
 | `bun /tmp/review-w00024-t10-plan/scratch/recall-output-probe.ts` | 真实 SDK/HTTP JSON 模式接受 60 个 ids、混合/重复元素、ids=null；业务校验必须由 recall 层定义。 |
-| `env NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t10-plan/scratch NBOOK_LLM_TESTS=0 bun test src/ingest/context.test.ts src/ingest/chapter.test.ts src/ingest/runner.test.ts`（工作目录 `/home/notnotype/CodeRepository/neuro-book/packages/nb-story`） | **31 pass、0 fail、238 expect() calls，3 个文件**。仅验证现有真实运行时基线，不宣称尚未实现的 t10 已通过。 |
+| `env NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t10-plan/scratch NBOOK_LLM_TESTS=0 bun test src/ingest/context.test.ts src/ingest/chapter.test.ts src/ingest/runner.test.ts`（工作目录 `/home/<user>/CodeRepository/neuro-book/packages/nb-story`） | **31 pass、0 fail、238 expect() calls，3 个文件**。仅验证现有真实运行时基线，不宣称尚未实现的 t10 已通过。 |
 
 未运行：typecheck、全量测试、e2e、浏览器、开发服务、真实模型回归/长书付费评估；未验证 300 章以上实书。未修改仓库、未切分支、未 commit/push/stash，未删除任何文件；报告全程追加，发现标题计数从 1 单调增加到 14。
 

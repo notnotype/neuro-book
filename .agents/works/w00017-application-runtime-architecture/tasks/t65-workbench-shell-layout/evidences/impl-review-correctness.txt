@@ -1,6 +1,6 @@
 # w00017 t65 实现审查：正确性与不变量
 
-审查范围：`ecc4a64f..53596fc6`；worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-impl-correctness`。
+审查范围：`ecc4a64f..53596fc6`；worktree：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t65-impl-correctness`。
 
 下列发现按影响排序；编号保留确认顺序。代码位置均相对上述 worktree。问题与验证均由本轮独立核实，不采用作者自报结果替代。
 
@@ -37,7 +37,7 @@
 
 ## 本轮验证与执行边界
 
-报告目录：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/correctness`。下表中的 `<报告目录>` 仅为这个绝对路径的缩写，实际执行时用了完整路径。
+报告目录：`/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/correctness`。下表中的 `<报告目录>` 仅为这个绝对路径的缩写，实际执行时用了完整路径。
 
 | 验证 | 实际命令或操作 | 本轮结果 |
 |---|---|---|

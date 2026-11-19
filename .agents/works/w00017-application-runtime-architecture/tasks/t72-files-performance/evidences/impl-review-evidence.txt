@@ -1,6 +1,6 @@
 # t72 Files 性能实现边界审查
 
-审查范围：`47e3b1fc..4660006f`；工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t72-impl-evidence`。只读审查，不修改被审仓库。以下位置均相对该 worktree。
+审查范围：`47e3b1fc..4660006f`；工作区：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t72-impl-evidence`。只读审查，不修改被审仓库。以下位置均相对该 worktree。
 
 ## 已核实发现
 
@@ -19,7 +19,7 @@
 - 位置：`packages/neuro-book/scripts/perf/browser-runner.ts:640-642,659`；`packages/neuro-book/scripts/files-sample.ts:72-94`；Task `README.md:30,45`。
 - 现象：E1 从 `volume-03` 取最多 250 个章节、从宽目录取 250 个文件。正式样本只有 900 个章节，均分到 10 卷，`volume-03` 实际只有 90 个。因此正式 E1 是 90 + 250 = 340 个文件；小样本 1000/2000 档分别为 280/310，而场景名、README 与最终表格都写 500。
 - 为什么是问题：正式后台变化负载比承诺少 32%，不能以这组数据证明“外部改写 500 个文件时连续输入不卡顿”；计划的 E1 也明确要求宽目录 250 + 已展开卷 250。
-- 核实：本次运行仓库外 `prepare-sample.ts`，直接调用实际 `planSample` 复核布局，结果写入 `victim-counts.json`；3000 档确认 `volume3=90, wide=400, E1Victims=340`。命令：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/evidence/prepare-sample.ts`。
+- 核实：本次运行仓库外 `prepare-sample.ts`，直接调用实际 `planSample` 复核布局，结果写入 `victim-counts.json`；3000 档确认 `volume3=90, wide=400, E1Victims=340`。命令：`bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/evidence/prepare-sample.ts`。
 - 建议改法：从多个已展开卷选满 250 个章节并断言实际受害文件数为 500，报告写实际数；然后只重跑 E1 更新对应结论。
 
 ### 3. 重要：E1 的中文输入不产生 key 事件，0 条样本不能推出“键入事件都在 16 ms 以内”
@@ -38,7 +38,7 @@
 - 现象：计划 C1 要求“富文本 / 源码 × 单组 / 双组”各 30 次。runner 只有 `C1-md`、`C1-code`、`C1-md-split`，没有 `C1-code-split`；正式基线和最终 summary 均只有 15 个场景。README 仍写全部 16 个场景通过，最终正文行括号写“富文本与源码、单组与双组”。
 - 为什么是问题：Monaco 双组是单独的性能/焦点/模型组合，富文本双组不能代表它。少一个格子的证据无法支持最终表格所声称的完整组合；runner 也没有核对期望场景集合，所以静默漏测仍整体成功。
 - 核实：解析四份 `summary.json`，基线/最终结果的 id 集合与 runner 的全部 `run` 调用对应，没有源码双组记录。以上为已落盘证据与代码核验；源码双组性能本次未运行。
-- 本次真实运行追加证据：`bun run perf:files -- --count 1000 --iterations 5 --opens 3 --only C1-code-split --skip-build --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/evidence/only-missing-scenario` 退出 0，生成 `results: []`、`problems: []`。请求了计划里的源码双组场景却没有测任何场景，仍报成功；这违反 `docs/testing/README.md:148`“检查没有执行时必须非零退出”。
+- 本次真实运行追加证据：`bun run perf:files -- --count 1000 --iterations 5 --opens 3 --only C1-code-split --skip-build --out /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/evidence/only-missing-scenario` 退出 0，生成 `results: []`、`problems: []`。请求了计划里的源码双组场景却没有测任何场景，仍报成功；这违反 `docs/testing/README.md:148`“检查没有执行时必须非零退出”。
 - 建议改法：补上独立的 `C1-code-split` 并按同样的真实输入、正确正文和请求数规则运行；核对要求执行的场景集合与各格次数。补测前删去最终表格对源码双组的达标断言。
 
 ### 5. 建议：待确认选项②“省 40–50 ms”没有可复核依据，小样本对照也未出现该收益

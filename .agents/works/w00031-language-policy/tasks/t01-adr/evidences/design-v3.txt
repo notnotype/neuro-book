@@ -1,6 +1,6 @@
 # 设计稿第三版：语言政策 ADR 草案与 w00028 t01 的范围（尚未落盘，未建记录）
 
-仓库：`/home/notnotype/CodeRepository/neuro-book`（主工作区，`master`）。前两版：`design.md`、`design-v2.md`；四份审查报告：`report-frontend.md`、`report-backend.md`、`report-frontend-r2.md`、`report-backend-r2.md`，都在 `/tmp/review-lang-governance/`。
+仓库：`/home/<user>/CodeRepository/neuro-book`（主工作区，`master`）。前两版：`design.md`、`design-v2.md`；四份审查报告：`report-frontend.md`、`report-backend.md`、`report-frontend-r2.md`、`report-backend-r2.md`，都在 `/tmp/review-lang-governance/`。
 
 **第三版的变化**：第二版把“保留内联双语、不用消息目录”写成了“已确认的决定”，其实开发者从没确认过；它来自 w00017 t49 的一句“不引入 vue-i18n”，没有记录理由。开发者 2026-10-27 改定为**按插件、按包分的消息目录**。第二版里 nb-text 的类型设计（品牌模板类型、`DisplayText` 三形状、`defineTemplates`）作废。
 

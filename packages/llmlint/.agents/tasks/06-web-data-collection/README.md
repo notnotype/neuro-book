@@ -299,11 +299,11 @@ web/
 - [x] （⚪）右栏报告渲染（轻量摘要 + IssueList/FilterControls）、span 拖选评论、写 API 基础验证。
 - [x] 落地后同步 `PROJECT-STATUS.md` 与本 README。
 
-### 2026-08-14 Task 133 认证切换与 DMIT 前置
+### 2026-08-14 Task 133 认证切换与生产服务器前置
 
 - Web 认证从本地密码/注册切换为 NeuroBook 官方 OAuth Authorization Code + S256 PKCE。生产只接受 host-only `llmlint-session` sealed session；官方短时 access token 只在 callback 内存中使用，userinfo 成功后立即丢弃。
 - 本地 `User.id` 及既有文本、评分、批注外键保持不变；官方用户 ID 写入 nullable `User.neuroBookUserId`。同一官方 ID 重复登录复用原本地行；username 已存在但未映射时返回 `account_mapping_conflict`，不自动合并。
 - 删除本地密码登录、注册、admin seed 入口；生产配置缺失、错误或仍存在旧 `NUXT_ADMIN_USERNAME` / `NUXT_ADMIN_PASSWORD` 时 fail closed。登录关闭只保留本地开发身份，SSO start 返回 503，不降级密码认证。
-- 部署前置已完成：DMIT Ubuntu 24.04.3 / Node `v22.14.0` / Bun `1.3.14`，Linux frozen build 与真实 Node artifact smoke 通过；旧 Arch/ngrok 入口已停止。公网 DNS 已解析到 `64.186.225.48`，但 TLS vhost、443 stream、official provider migration、llmlint secret 和正式 unit 尚未完成，因此尚未回收真实 SSO 人评。
+- 部署前置已完成：生产服务器 Ubuntu 24.04.3 / Node / Bun 版本已核对，Linux frozen build 与真实 Node artifact smoke 通过；旧测试入口已停止。公网 DNS 已解析到 `<公网 IP>`，但 TLS vhost、443 stream、official provider migration、llmlint secret 和正式 unit 尚未完成，因此尚未回收真实 SSO 人评。
 - 计划出入：原计划直接安装正式服务，但实际先发现官方公网仍返回 Nuxt HTML 且线上数据库缺少 `OAuthClient`，因此先把 OAuth client 初始化工具编译进官方生产镜像并补部署 runbook，再进行双仓 PR 与生产切换。PR #1 / PR #3 均已创建且检查通过；不自行合并。
 - 代码门禁和 smoke 证据详见 `PROJECT-STATUS.md` 的 2026-08-14 t133 记录；本 walkthrough 保留流程语义，公网切换结果待后续更新。

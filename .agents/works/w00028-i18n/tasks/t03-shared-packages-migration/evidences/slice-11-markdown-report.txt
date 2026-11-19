@@ -1,6 +1,6 @@
 # w00028 t03 第 11 片：nb-markdown 接入文字值与消息目录：交付报告
 
-工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD 8cbf36165）。没有提交、没有切分支、没有 stash，暂存区为空。中途曾误把 prompt-labels.ts 的删除暂存进去一次，已用 `git restore --staged` 撤回。
+工作区：/home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD 8cbf36165）。没有提交、没有切分支、没有 stash，暂存区为空。中途曾误把 prompt-labels.ts 的删除暂存进去一次，已用 `git restore --staged` 撤回。
 
 ## 进度
 - [x] 1 目录与“文字没变”测试

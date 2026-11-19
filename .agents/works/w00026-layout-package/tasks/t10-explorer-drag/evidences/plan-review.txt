@@ -1,6 +1,6 @@
 # w00026 t10 计划设计审查报告
-审查对象：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00026-layout-package/tasks/t10-explorer-drag/plan.md
-工作树：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree（只读，实验文件在 /tmp/review-t10-design/exp/）
+审查对象：/home/<user>/CodeRepository/neuro-book/.agents/works/w00026-layout-package/tasks/t10-explorer-drag/plan.md
+工作树：/home/<user>/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree（只读，实验文件在 /tmp/review-t10-design/exp/）
 按影响排序。位置里的路径都相对 packages/neuro-book/src/plugins，除非写了包名。
 
 ## 1 阻断：落点合同放在 workbench/shared/contracts.ts，签名里的 DOM 与 Vue 类型过不了服务端 tsc

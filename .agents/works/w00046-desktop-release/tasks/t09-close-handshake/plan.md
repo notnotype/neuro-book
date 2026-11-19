@@ -119,7 +119,7 @@ t08 的壳已经会拦下关窗、按代次问页面、3 秒没接下就弹“�
    验证：编辑区的单元测试与 `e2e/desktop-close.e2e.ts` 中编辑器部分。
 5. **通知 `onClose`**：nb-ui 与工作台。提交。
    验证：nb-ui 通知测试、`notifications.dom.test.ts`、`WorkbenchNotificationsView.dom.test.ts`。
-6. **Spec 与证据；Windows 联合验收**：用新载荷在 pc-notype 上重建安装包，跑 desktop-shell 场景 5、6、7 与 t08 剩下的项。提交。
+6. **Spec 与证据；Windows 联合验收**：用新载荷在 Windows 开发机上重建安装包，跑 desktop-shell 场景 5、6、7 与 t08 剩下的项。提交。
 
 ## 验收映射
 
@@ -135,13 +135,13 @@ t08 的壳已经会拦下关窗、按代次问页面、3 秒没接下就弹“�
 | browser-host 场景 15 | `e2e/desktop-close.e2e.ts`（真实浏览器与服务端，`addInitScript` 装一个记录消息的 `__electrobunSendToHost` 当作壳，派发 `nbook-desktop` 事件） |
 | editor 输出 66、场景 45、46 | `e2e/desktop-close.e2e.ts` 的编辑器部分；`area` 的单元测试：自动保存后重查、失败说明、冲突与写不出时没有“全部保存”、关标签对话框开着时来窗口询问（旧框收掉、文档不被还原）、`dispose` 时未定的询问按 `deny` 结算 |
 | notifications 输出 18、场景 11 | `notifications.dom.test.ts`（弹出的关闭、动作、按时消失、`onClose` 抛错仍移除）与 `WorkbenchNotificationsView.dom.test.ts`（中心的“移除”、“全部清除”、按时消失后再移除、只进中心的那条） |
-| desktop-shell 场景 5、6、7 | pc-notype 上的安装包手工验收，记进证据（UI 自动化读文字，不截屏） |
+| desktop-shell 场景 5、6、7 | Windows 开发机上的安装包手工验收，记进证据（UI 自动化读文字，不截屏） |
 
 ## 验证
 
 - 每片跑上面列的测试；收口跑 `bun run test:affected`。
 - e2e 合入前跑一次：`e2e/desktop-close.e2e.ts`（新增）、`e2e/editor-autosave.e2e.ts`、`e2e/browser-host.e2e.ts`，共 3 个。实施中只重跑改到的那个文件。
-- Windows：pc-notype 恢复后重建安装包，按 desktop-shell 场景 5、6、7 操作；另记两项探针：页面脚本运行时 `typeof window.__electrobunSendToHost`，`allow` 之后窗口关掉时有没有触发 `beforeunload`（第 7、12 条）。
+- Windows：Windows 开发机 恢复后重建安装包，按 desktop-shell 场景 5、6、7 操作；另记两项探针：页面脚本运行时 `typeof window.__electrobunSendToHost`，`allow` 之后窗口关掉时有没有触发 `beforeunload`（第 7、12 条）。
 - 未验证边界：macOS、Linux；WebView2 自己开的弹出窗口（t08 的已知限制）。
 
 ## 不做与风险

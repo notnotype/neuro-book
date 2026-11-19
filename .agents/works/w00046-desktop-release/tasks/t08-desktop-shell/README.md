@@ -27,7 +27,7 @@ updated: 2026-11-14
 - 切片 3：`c705d0e03` Electrobun 适配层（窗口与关窗否决、壳的对话框窗口、导航规则、预加载、桥、WebView2 检查）与 Hutch 配置；`844c0a079` 预打包的主进程改放 `bundle/`，与 Electrobun 自己的 `build/` 输出分开。
 - 切片 4：`runtime/server-host` 的实现合同写进认领档案的 `socketName`、`messageLimit`、`requests`、`unknownReply`、绝对截止与 `sendRequest`。
 
-Windows 实测第 1 轮（[证据](evidences/windows-shell-r1.txt)，只用 UI 自动化读文字，不截屏）：启动与两份认领、第二次启动转交开窗、关窗被否决、3 秒后壳的“没有响应”对话框、对话框开着时转交照常、“取消关闭”。pc-notype 17:05 后离线，剩下的待它恢复后补：强制关闭、关掉最后一个窗口后的停服与退出、服务端意外退出的对话框、外链交系统浏览器、便携 zip、`Alt+F4` 与任务栏关闭。
+Windows 实测第 1 轮（[证据](evidences/windows-shell-r1.txt)，只用 UI 自动化读文字，不截屏）：启动与两份认领、第二次启动转交开窗、关窗被否决、3 秒后壳的“没有响应”对话框、对话框开着时转交照常、“取消关闭”。Windows 开发机 17:05 后离线，剩下的待它恢复后补：强制关闭、关掉最后一个窗口后的停服与退出、服务端意外退出的对话框、外链交系统浏览器、便携 zip、`Alt+F4` 与任务栏关闭。
 
 计划里“用只回答桥协议的测试页面驱动 `ack`、`allow`、`deny`”在 t08 没做：产品页面在 t09 才参与关窗，这几条路径由 `windows.test.ts` 覆盖，Windows 上与 t09 联合验收。
 

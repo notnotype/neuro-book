@@ -13,7 +13,7 @@
 - **位置**：`plan.md:21,55,81`；`packages/neuro-book/scripts/files-sample.ts:52-57,66-91,139-147`。
 - **现象**：计划复用现有生成器，用 `--count 300` 跑通全部场景并做 300/1000/3000 规模扫描。生成器默认 `wide=400`，强制 `count >= wide + 100`；300 文件直接抛错，还未生成样本。
 - **为什么是问题**：S1 自跑验证和规模扫描的第一档都不能按计划执行；300 文件也不可能同时提供 400 个文件子项的宽目录。“每个场景新标签页”不能补上缺少的输入数据。
-- **依据与核实**：在应用包执行 `bun scripts/files-sample.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-plan/product/sample-300 --count 300`，退出码 1，原文 `error: 文件数 300 至少要比宽目录多 100`。未运行正式测量。
+- **依据与核实**：在应用包执行 `bun scripts/files-sample.ts /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-plan/product/sample-300 --count 300`，退出码 1，原文 `error: 文件数 300 至少要比宽目录多 100`。未运行正式测量。
 - **建议改法**：明确小样本宽目录参数，按笔记份额约束 `wide <= count - floor(count*0.3)*2`，通过 API 传入；小样本只做功能 smoke，400 项展开指标只在可容纳该目录的正式样本中判定。更新 S1 命令和规模扫描说明，不能把小样本的较窄目录当作 400 项证据。
 
 ### 2. 重要：内容文件夹的实际列目录成本遗漏了按项 `lstat(index.md)`

@@ -1,5 +1,5 @@
 w00039 t02 第二轮只读设计审查 A2：领域模型与后端设计
-对象：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-A2/docs/proposals/world-engine-kernel.md（用户指定 d11a4fced，reviewing）。
+对象：/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-A2/docs/proposals/world-engine-kernel.md（用户指定 d11a4fced，reviewing）。
 范围：第四部分第 1—7、9、11 节，第五至七部分；第四部分第 8 节仅核对影响领域模型的就地改、还原与出处合同。
 依据：第一轮 33 主题处理表、第一轮 A 报告、Work 决定表及相关模块合同。只报告修订未闭合处与第二版新增机制的问题，不重报已解决的问题。
 方法：逐条静态合同核查与具体输入的手工重放；不运行测试、e2e 或开发服务，不修改仓库。以下“按规则得到”的数值是设计推演，不冒称产品运行结果。

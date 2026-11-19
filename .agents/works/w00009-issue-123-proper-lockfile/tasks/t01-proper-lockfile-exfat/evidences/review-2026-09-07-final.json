@@ -2,7 +2,7 @@
     "schema": "nbook.review-evidence/v2",
     "workId": "w00009-issue-123-proper-lockfile",
     "taskId": "t01-proper-lockfile-exfat",
-    "worktree": "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book",
+    "worktree": "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book",
     "branch": "master",
     "head": "34210f891357c1c316d0868397a133c5d9eb70ec",
     "verdict": "部分完成；真实 exFAT 验收仍未完成",
@@ -20,7 +20,7 @@
             "result": "通过；Bun 1.3.14；3 packages installed"
         },
         {
-            "command": "git worktree add --detach C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-clean-7176da61 7176da61fc4c5dfc8eda2f65e22ae36b744d80af && bun install --frozen-lockfile --ignore-scripts --linker hoisted",
+            "command": "git worktree add --detach C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-123-lock-clean-7176da61 7176da61fc4c5dfc8eda2f65e22ae36b744d80af && bun install --frozen-lockfile --ignore-scripts --linker hoisted",
             "result": "通过；Bun 1.3.14；全新隔离 Temp worktree 安装 1534 packages，使用独立 node_modules"
         },
         {
@@ -149,7 +149,7 @@
         },
         {
             "command": "Node/Chrome Workbench 交互（点击 data-activity-id=world）",
-            "result": "通过；页面显示 World Engine Workbench、已同步、5 个类型和 schema/calendar 文件入口；浏览器实际请求 schema、subjects、slices，页面无控制台错误；截图 C:/Users/NOTNOT~1/AppData/Local/Temp/omp-sshots-15779277f3d2dfa1.webp"
+            "result": "通过；页面显示 World Engine Workbench、已同步、5 个类型和 schema/calendar 文件入口；浏览器实际请求 schema、subjects、slices，页面无控制台错误；截图 C:/Users/USER~1/AppData/Local/Temp/omp-sshots-15779277f3d2dfa1.webp"
         },
         {
             "command": "本地 Product stage 第二个 product-runtime start 竞争运行实例",
@@ -183,14 +183,14 @@
     "acceptanceEvidence": {
         "releaseVersion": "0.10.2-canary.20260908.091411Z.2e86c254",
         "releaseUrl": "https://github.com/notnotype/neuro-book/releases/tag/v0.10.2-canary.20260908.091411Z.2e86c254",
-        "portableRoot": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-225-226/final-portable-0.10.2",
-        "productStageRoot": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-225-226/acceptance/product-runtime/issue123-225-226-final-v0102-correct",
+        "portableRoot": "C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-123-225-226/final-portable-0.10.2",
+        "productStageRoot": "C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-123-225-226/acceptance/product-runtime/issue123-225-226-final-v0102-correct",
         "productServiceUrl": "http://127.0.0.1:43124/",
         "portableRestartUrl": "http://127.0.0.1:39123/",
         "buildId": "sha256:89b16b8841f255ecfa2c63f084ae42a08e1f2af8539b7a21c5199f7551909e1b",
         "portableImageId": "sha256:50fd3d729e0d6e39615dac0fa8e42ae6623ed72e7864e2dca40c7417c3d877d1",
         "localProductImageId": "sha256:3b2091a5035d2abe27761a94d18aaeec7053ce2001d51af5d5c7f3d865f21d55",
-        "worldEngineBrowserScreenshot": "C:/Users/NOTNOT~1/AppData/Local/Temp/omp-sshots-15779277f3d2dfa1.webp",
+        "worldEngineBrowserScreenshot": "C:/Users/USER~1/AppData/Local/Temp/omp-sshots-15779277f3d2dfa1.webp",
         "worldEngineApiSmoke": "open/version/schema/subjects/slices all HTTP 200 after clean managed restart"
     },
     "scopeBoundary": {
@@ -223,18 +223,18 @@
                 "issue123-225-226-stage"
             ],
             "result": "三个 operation 均返回 Product runtime cleanup: cleaned",
-            "acceptanceRoot": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-225-226/acceptance/product-runtime/",
+            "acceptanceRoot": "C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-123-225-226/acceptance/product-runtime/",
             "remainingEntries": 0
         },
         "historicalWorktrees": {
             "removedCleanTargets": [
-                "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-clean-7176da61",
-                "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/i226-product-runtime-builder-import"
+                "C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-123-lock-clean-7176da61",
+                "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/i226-product-runtime-builder-import"
             ],
             "preservedDirtyTargets": [
-                "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-baseline",
-                "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-canonical",
-                "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-generator"
+                "C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-123-lock-baseline",
+                "C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-123-lock-canonical",
+                "C:/Users/<user>/AppData/Local/Temp/neuro-book/issue-123-lock-generator"
             ],
             "reason": "dirty 或包含未提交 patch/test/lockfile/package 改动，未删除"
         }

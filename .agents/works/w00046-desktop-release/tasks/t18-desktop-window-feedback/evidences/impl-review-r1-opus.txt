@@ -19,7 +19,7 @@ w00046 t18 实现审查第 1 轮（后端与原生层），审查者 Claude Opus
 ### 3. 用相对路径编译所针对的场景（中文用户名下的安装）没有进 Windows 验收；探针只证明了一半前提
 - 严重程度：重要；类别：验收充分性、未验证的前提（推断）
 - 位置：win32.ts compileMinSize 的 relative(process.cwd(), source)；plan.md“验收映射”最小尺寸一行；evidences/min-size-probe-r1.txt 第 5、6 条
-- 现象：探针第 6 条的条件是 bun.exe 在 ASCII 路径（nb-w00046\r2-pB\bin\bun.exe）、只有当前目录含中文、相对路径是子目录 src\sub2.c。真实安装在 %LOCALAPPDATA% 下：bun.exe 自己、当前目录 app\bin、源文件都在中文用户名的路径里，相对路径大概率是 ..\Resources\app\min-size.c 这类带 .. 的形式。验收表里列的场景都在 pc-notype 的 ASCII 用户名下。
+- 现象：探针第 6 条的条件是 bun.exe 在 ASCII 路径（nb-w00046\r2-pB\bin\bun.exe）、只有当前目录含中文、相对路径是子目录 src\sub2.c。真实安装在 %LOCALAPPDATA% 下：bun.exe 自己、当前目录 app\bin、源文件都在中文用户名的路径里，相对路径大概率是 ..\Resources\app\min-size.c 这类带 .. 的形式。验收表里列的场景都在 Windows 开发机 的 ASCII 用户名下。
 - 为什么是问题：r3 选相对路径正是为了这种用户；Bun 的 cc 在 Windows 上除了源文件还会不会按 bun.exe 位置或 TEMP 找别的东西（库目录、include 目录），探针没有覆盖，我在本机也无法核实（推断：不 #include、不链接库时多半不需要，但没有证据）。失败的后果是这些用户的窗口静默没有最小尺寸，只留一条日志。
 - 如何核实：读 min-size-probe-r1.txt 与 sub3-probe.ts.txt 的路径条件；plan.md 验收映射里没有非 ASCII 安装路径。
 - 建议改法：Windows 验收加一条：把整份安装（含 bin\bun.exe）放到含中文与空格的目录下启动（或用一个中文名的本地测试账户），确认壳日志没有 desktop.window.min-size-unavailable、WM_GETMINMAXINFO 读回 800×560 加外框；同时记下实际交给 cc 的相对路径形态（带不带 ..）。

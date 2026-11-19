@@ -2,7 +2,7 @@
 
 状态：html-preview 与 image-viewer 已迁完；commands、markdown、files 不建目录（见“没有迁的”）。未提交。验证结果见文末。
 
-## 改动文件（worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n，路径相对 packages/neuro-book，除非写明）
+## 改动文件（worktree /home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n，路径相对 packages/neuro-book，除非写明）
 
 html-preview（命名空间 nbook.html-preview，10 个键，一处一键，无复数键）
 - 新增 src/plugins/html-preview/locales/zh-CN.json、en-US.json、web/text.ts（htmlPreviewCatalogs、htmlPreviewText、HtmlPreviewTextKey）、locales.test.ts（“文字没变”）、web/components/HtmlPreview.dom.test.ts。

@@ -1,0 +1,82 @@
+import {expect, test} from "bun:test";
+import {mkdtemp} from "node:fs/promises";
+import {join} from "node:path";
+import {ManualClock} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/lifecycle/testing/manual-clock.ts";
+import {createAgentHost} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/session/agent-host.ts";
+import {createJsonlStore} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/jsonl-store.ts";
+import {nodeFiles} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/log/files.ts";
+import {createTestClock} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/clock.ts";
+import {createTestModel} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/model.ts";
+import {defaultTestProfile} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/test-session.ts";
+import {SessionTable, IDLE_CLOSE_MS} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kit/sessions/table.ts";
+
+test("创建期间的冷打开失败能摘掉较新的表项，仍有订阅引用却会空闲关锁", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review-r2/hold-create-");
+    const id = "bot-lyra";
+    const log = join(root, id, "session.jsonl");
+    const owner = join(root, id, "session.owner");
+    const headerPublished = Promise.withResolvers<void>();
+    const finishCreate = Promise.withResolvers<void>();
+    const observedBusy = Promise.withResolvers<void>();
+    const finishFailedOpen = Promise.withResolvers<void>();
+    const closed = Promise.withResolvers<void>();
+    let pauseInitialAppend = true;
+    let pauseBusyRead = true;
+    const store = createJsonlStore({root, files: {
+        ...nodeFiles,
+        async openAppend(path) {
+            if (path === log && pauseInitialAppend) {
+                pauseInitialAppend = false;
+                headerPublished.resolve();
+                await finishCreate.promise;
+            }
+            return nodeFiles.openAppend(path);
+        },
+        async read(path) {
+            const result = await nodeFiles.read(path);
+            if (path === owner && pauseBusyRead) {
+                pauseBusyRead = false;
+                observedBusy.resolve();
+                await finishFailedOpen.promise;
+            }
+            return result;
+        },
+    }});
+    const model = createTestModel();
+    const host = createAgentHost({store, profiles: {resolve: (key) => key === defaultTestProfile.id ? defaultTestProfile : undefined}, models: model.port,
+        tools: {declarations: () => [], create: async () => {throw new Error("没有工具");}},
+        resources: () => ({read: async () => undefined, resolve: (uri) => uri}),
+        sessions: {get: async () => {throw new Error("没有子会话");}}, clock: createTestClock()});
+    const clock = new ManualClock();
+    const table = new SessionTable({host, clock, beforeOpen: async () => undefined,
+        closed: () => closed.resolve(), report: (code, message) => {throw new Error(`${code}: ${message}`);}});
+    let release: (() => void) | undefined;
+    try {
+        const creating = table.accept(() => table.create({id, profile: defaultTestProfile.id}));
+        await headerPublished.promise;
+        const competing = table.subscribeOpened(id, {kind: "user"}, () => undefined);
+        await observedBusy.promise;
+        finishCreate.resolve();
+        expect(await creating).toMatchObject({ok: true});
+        const pin = await table.subscribeOpened(id, {kind: "user"}, () => undefined);
+        if (!pin.ok) throw new Error(pin.code);
+        release = pin.release;
+        expect(table.isOpen(id)).toBe(true);
+        finishFailedOpen.resolve();
+        expect(await competing).toMatchObject({ok: false, code: "session-busy"});
+        expect(table.isOpen(id)).toBe(false);
+        await table.view(id).snapshot();
+        clock.advance(IDLE_CLOSE_MS);
+        await closed.promise;
+        const unlocked = await store.open(id);
+        if (!unlocked.ok) throw new Error(unlocked.code);
+        await store.close(unlocked.value);
+        console.log("真文件锁：create 已登记且仍持订阅引用，晚回的 session-busy 摘掉表项，随后的查询使锁在 30 秒后释放");
+    } finally {
+        finishCreate.resolve();
+        finishFailedOpen.resolve();
+        release?.();
+        await table.stop();
+        await host.close(id);
+    }
+});

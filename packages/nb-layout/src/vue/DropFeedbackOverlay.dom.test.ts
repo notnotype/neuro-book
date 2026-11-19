@@ -63,7 +63,7 @@ function labelPosition(): {left: number; top: number} {
 }
 
 function iconElement(): HTMLElement {
-    const element = document.querySelector<HTMLElement>(".nb-ui-drop-indicator-label__icon");
+    const element = document.querySelector<HTMLElement>(".nb-layout-drop-indicator-label__icon");
     expect(element).not.toBeNull();
     return element!;
 }
@@ -236,7 +236,7 @@ describe("DropFeedbackOverlay", () => {
         expect(iconElement().className).toContain("i-lucide-panels-top-left");
         await wrapper.setProps({iconClass: undefined});
         await nextTick();
-        expect(document.querySelector(".nb-ui-drop-indicator-label__icon")).toBeNull();
+        expect(document.querySelector(".nb-layout-drop-indicator-label__icon")).toBeNull();
         expect(labelElement().textContent).toContain("并入 3 个视图");
     });
 

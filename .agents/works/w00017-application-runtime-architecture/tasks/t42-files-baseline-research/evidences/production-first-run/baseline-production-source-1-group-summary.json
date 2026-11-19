@@ -194,12 +194,12 @@
   },
   "artifacts": [
     {
-      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-production-source-1-group.cpuprofile",
+      "path": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-production-source-1-group.cpuprofile",
       "bytes": 149368,
       "retainedInTemp": false
     },
     {
-      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-production-source-1-group.trace.json",
+      "path": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-production-source-1-group.trace.json",
       "bytes": 612265,
       "retainedInTemp": false
     }

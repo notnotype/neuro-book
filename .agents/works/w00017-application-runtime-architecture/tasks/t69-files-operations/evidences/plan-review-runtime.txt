@@ -1,6 +1,6 @@
 # t69 实施计划审查：运行时与边界正确性
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`，固定 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-runtime`（`c8607f7a`）。只读审查；实验仅在本报告所在目录。下文 `plan.md` 指该计划，`src/` 指 `packages/neuro-book/src/`，省略 `docs/specs/` 的 Spec 路径均相对它。t69 尚未实现：运行结果证明现有 OS、传输与运行时的行为；计划按字面实现的产品后果是推断，不是已经复现的 t69 缺陷。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`，固定 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-plan-runtime`（`c8607f7a`）。只读审查；实验仅在本报告所在目录。下文 `plan.md` 指该计划，`src/` 指 `packages/neuro-book/src/`，省略 `docs/specs/` 的 Spec 路径均相对它。t69 尚未实现：运行结果证明现有 OS、传输与运行时的行为；计划按字面实现的产品后果是推断，不是已经复现的 t69 缺陷。
 
 审查完成。发现按影响排序；保留逐条追加时的稳定编号，便于交叉核对。
 
@@ -41,7 +41,7 @@
 - **计划位置**：“关键设计 / 1. 原语”第 17 行；“切片”S1 第 74 行；“验收映射”第 87 行。
 - **现象**：计划直接对文件执行 `unlink`，并以“不改权限、不 force”推导只读子项删不掉；又用“只读子目录”制造复制中途失败。Linux 上这些推导都不成立。
 - **为什么是问题**：POSIX 删除取决于父目录的写入/搜索权限，文件的 `0444` 不阻止 `unlink`；可读、可遍历的 `0555` 源目录可以正常复制。照计划实现会删除界面标为只读的文件，违反 `docs/specs/workspace/files.md:89` 的“显示为只读……仍在服务端拒绝对应操作”，而复制失败验收不会进入失败路径。
-- **依据**：`plan.md:17,74,87`；`docs/specs/workspace/files.md:49,89`；`primitives.ts` 实验命令（worktree 根执行）：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/ bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/primitives.ts`。非 root 用户 uid 1000，在 tmpfs 内新建文件、`chmod 0444`、`unlink`，输出 `readonly-unlink: {exists:false}`；源目录 `chmod 0555` 后复制，输出 `readonly-source-copy: {sourceMode:365,bytes:"payload"}`。另将含文件的父目录设为 `0555`，输出 `partial-delete: {code:"EACCES",deleted:true,remaining:"keep"}`，才真实进入部分失败。
+- **依据**：`plan.md:17,74,87`；`docs/specs/workspace/files.md:49,89`；`primitives.ts` 实验命令（worktree 根执行）：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/ bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/primitives.ts`。非 root 用户 uid 1000，在 tmpfs 内新建文件、`chmod 0444`、`unlink`，输出 `readonly-unlink: {exists:false}`；源目录 `chmod 0555` 后复制，输出 `readonly-source-copy: {sourceMode:365,bytes:"payload"}`。另将含文件的父目录设为 `0555`，输出 `partial-delete: {code:"EACCES",deleted:true,remaining:"keep"}`，才真实进入部分失败。
 - **建议改法**：明确应用层只读拒绝政策，并在拥有删除语义的边界检查，不能依赖 `unlink` 或 `force:false`。递归删除逐个记录已删与失败范围，失败不补 chmod、不强删。复制失败用不可读源文件/无搜索权限目录（例如 `0000`，非 root 运行）或真实提交失败，删除失败用无写权限的父目录；把这些条件写进 S1/S3 验收。
 
 ## R2 · 重要 · 正确性：1000 项不保证批量能装进 RPC，合法请求会直接断开窗口
@@ -98,7 +98,7 @@
 所有命令在上述 worktree 根执行。除安装外，均使用 Bun `1.4.2 (744846f84)`；临时数据根统一为本报告目录：
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/ prox bun install --frozen-lockfile --ignore-scripts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/runtime/ prox bun install --frozen-lockfile --ignore-scripts
 ```
 
 安装成功，1568 packages installed。随后各测试均保留相同 `NBOOK_AGENT_TEMP_ROOT`：
@@ -129,7 +129,7 @@ NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book
 Bun 在带 `--tsconfig-override` 的调用中打印过以下内部诊断，测试与最终探针仍正常结算；不把它记成应用失败，也不隐藏：
 
 ```text
-Internal error: directory mismatch for directory "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-runtime/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.
+Internal error: directory mismatch for directory "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-plan-runtime/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.
 ```
 
 测试调用的 fd 也出现 4、6。探针调试期间出现过屏障未释放/错误前置导致超时，及消费者错误声明 `filesKey` 依赖导致 `blocked:missing-service`；修正探针后才取得文中最终证据，超时不作为产品缺陷依据。

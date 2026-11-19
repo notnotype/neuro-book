@@ -52,4 +52,4 @@ t11 的结论在 t10 三次里都没出现过的：S8（t10 缺/缺/缺 → 错�
 
 模型仍写出、提交前去掉的：没有。
 
-抽取：`scripts/regress-off.sh off-1`，代码是固定提交 6d74fde7d（worktree w00024-t11-eval），gpt-6-luna（jiji），2026-10-20 17:36 到 18:03；一次跑完，没有续跑。结束时核对：书的 `features` 为 `{"ledger":false,"secrets":false}`，数值 0 条、秘密 0 个。尺子：t06 `scripts/ruler/check.ts --only` 上面 29 条，判定费 ¥0.13。t10 三次的数字取自 t10 本地运行目录（`regress/run-1..3`、`ruler/run-1..3`）。
+抽取：`scripts/regress-off.sh off-1`，代码是固定提交 6d74fde7d（worktree w00024-t11-eval），gpt-6-luna（relay），2026-10-20 17:36 到 18:03；一次跑完，没有续跑。结束时核对：书的 `features` 为 `{"ledger":false,"secrets":false}`，数值 0 条、秘密 0 个。尺子：t06 `scripts/ruler/check.ts --only` 上面 29 条，判定费 ¥0.13。t10 三次的数字取自 t10 本地运行目录（`regress/run-1..3`、`ruler/run-1..3`）。

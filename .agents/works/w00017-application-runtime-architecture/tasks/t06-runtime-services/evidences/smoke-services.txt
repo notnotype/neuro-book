@@ -9,7 +9,7 @@
 #       首次运行即全部 PASS，下面是原始输出。
 
 ## stdout
-[+   6ms] scratch=C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\w00017-t06-smoke\run-63692
+[+   6ms] scratch=C:\Users\USER~1\AppData\Local\Temp\neuro-book\w00017-t06-smoke\run-63692
 [+   9ms] PASS 报告 5 个入口全部 usable，且未实例化 (clockCreates=0)
 [+  46ms] PASS 并发首次解析只初始化 clock 一次 (clockCreates=1)
 [+  46ms] PASS clock/logger 均 available
@@ -37,9 +37,9 @@
 ```ts
 import {appendFileSync, existsSync, mkdirSync, readFileSync, rmSync} from "node:fs";
 import {join} from "node:path";
-import {resolveAgentScratchPath} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book-test-support/src/paths.ts";
-import {createRuntimeInstance} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/lifecycle/lifecycle.ts";
-import {createServiceAssembly, defineServiceKey} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/services/services.ts";
+import {resolveAgentScratchPath} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book-test-support/src/paths.ts";
+import {createRuntimeInstance} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/lifecycle/lifecycle.ts";
+import {createServiceAssembly, defineServiceKey} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/services/services.ts";
 
 const started = performance.now();
 let failures = 0;

@@ -12,15 +12,18 @@
         "./llm": "./src/llm.ts",
         "./import-boundary": "./src/import-boundary.ts",
         "./style-tokens": "./src/style-tokens.ts",
-        "./bun-sqlite": "./src/bun-sqlite.ts"
+        "./bun-sqlite": "./src/bun-sqlite.ts",
+        "./module-exports": "./src/module-exports.ts"
     },
     "scripts": {
         "typecheck": "tsc --noEmit -p tsconfig.json",
         "test": "vitest run --config vitest.config.ts"
     },
+    "dependencies": {
+        "typescript": "^5.9.3"
+    },
     "devDependencies": {
         "@types/node": "^25.6.0",
-        "typescript": "^5.9.3",
         "vitest": "^4.1.2"
     }
 }

@@ -27,6 +27,6 @@ $ bun run smoke:runtime-foundation -- --host browser
 [+  571ms] PASS 销毁耗时 202ms，受 200ms 截止约束
 [+  574ms] PASS pagehide 记录为 unload 并进入停止 (phase=stopping)；关闭结果不作保证
 [+  578ms] PASS 页面无未捕获错误
-[+  704ms] scratch 已删除：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\w00017-runtime-foundation-smoke\browser-57216
+[+  704ms] scratch 已删除：C:\Users\USER~1\AppData\Local\Temp\neuro-book\w00017-runtime-foundation-smoke\browser-57216
 [+  704ms] failures=0
 $ node --import tsx scripts/smoke/runtime-foundation.ts --host browser

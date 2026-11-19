@@ -1,6 +1,6 @@
 # t72 实施计划只读审查：测量方法有效性
 
-审查对象：提交 `69828b3c` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t72-files-performance/plan.md`。所有仓库路径相对于 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t72-plan-method`。
+审查对象：提交 `69828b3c` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t72-files-performance/plan.md`。所有仓库路径相对于 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t72-plan-method`。
 
 依据：`docs/specs/workbench/files-explorer.md:125-139,201`、t42 基线方法与结果、t72 Task README，以及 Work `pending-confirmations.md` 的 t68–t71 条目。仅报告影响测量正确性、实现完成或验收成立的问题；不重议已登记取舍。
 

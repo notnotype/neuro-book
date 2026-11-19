@@ -181,7 +181,7 @@
 
 ## 已运行验证与范围
 
-代码均来自 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/`；Spec 与计划均读主工作区文件，未修改仓库、未执行 Git 写操作。
+代码均来自 `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/`；Spec 与计划均读主工作区文件，未修改仓库、未执行 Git 写操作。
 
 1. 从 worktree 根执行：
    `bun /tmp/review-w00024-t12-design/scratch/check-contracts.ts`
@@ -212,7 +212,7 @@
 
 本节替代前面的边查边记记录，以本节的严重程度、建议和数量为准。前 13 个三级标题是过程核实记录；其中原第 2 条已撤回，原第 1 条已收窄。遵守追加写入要求，保留这些记录不覆盖；以下 12 条是最终有效发现。
 
-位置约定：`计划` 是主工作区 `/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t12-consolidation-incremental/plan.md`；代码路径均以 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/` 为根；Spec 均在主工作区 `/home/notnotype/CodeRepository/neuro-book/docs/specs/story/`。
+位置约定：`计划` 是主工作区 `/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t12-consolidation-incremental/plan.md`；代码路径均以 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story/` 为根；Spec 均在主工作区 `/home/<user>/CodeRepository/neuro-book/docs/specs/story/`。
 
 ### 14. 知情与状态变动不能成为有效归纳依据，更新会丢掉旧句子
 

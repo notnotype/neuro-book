@@ -23,7 +23,7 @@ updated: 2026-11-12
 - `writing-proposals`：NeuroBook 没有这个 Skill，按 w00043 t01 的实际做法新写；`docs/README.md` 的流程改为方向 Task 在前（反思第 18 条）。
 - 规范拆进模板：界面规范拆成模板的 `docs/standards/ui/` 六份（设计语言、工程合同、组件合同、状态与视图、踩过的坑 64 条、README），去掉 nb-ui 类名、nbook 取值、Work 编号与日期，只留判据与理由；另补 `languages/typescript.md`、`scripts.md`、`contracts.md`、`data-formats.md`、`prompts.md`，测试规范加“浏览器与界面测试”（UI 验收分档、e2e 写法）；新增通用版 `ui-development` Skill。模板内链接与锚点用脚本解析过，除 Work 模板里本来就是占位的一条外无失效。
 - 反思：[reflection.md](reflection.md)，第 1 层 11 条、第 2 层 5 条、实际使用 1 条、写提案 1 条、规范拆分 4 条，每条带证据、模板的处理与给 NeuroBook 的建议。
-- 实际使用：模板复制到 pc-notype 的 `D:\CodeRepository\manus`（Manus Studio 的笔试作答目录）。那里的 Agent 没建 Work、把调研写进宿主的 `.work/`，据此补了三处规则（反思第 17 条）并同步过去；那里已有的产出没有动。
+- 实际使用：模板复制到 Windows 开发机 的 `D:\CodeRepository\manus`（Manus Studio 的笔试作答目录）。那里的 Agent 没建 Work、把调研写进宿主的 `.work/`，据此补了三处规则（反思第 17 条）并同步过去；那里已有的产出没有动。
 
 ## 决定
 
@@ -34,7 +34,7 @@ updated: 2026-11-12
 - 2026-11-12 开发者：补齐 Spec 规则、加范例，并同步到 manus；“模板做上游”建成 [t02](../t02-template-as-upstream/README.md)。
 - 2026-11-12 开发者：做 `design-review` 通用版，连同 `autonomous-delivery` 同步到 manus。manus 的 `AGENTS.md` 已被那边填写过，只在原处替换了触发表的一格，没有整文件覆盖；`autonomous-delivery` 在第一次复制时已同步，哈希一致。
 - 2026-11-12 开发者：新增 `writing-proposals`、流程改为方向 Task 在前，并同步到 manus。manus 的 `AGENTS.md`、`docs/proposals/README.md` 已被那边改过（项目化、登记了它的提案），只在原处替换改动的句子；`TEMPLATE.md` 同步后被那边改写成“来源与适配说明”，保留了这次的改动。
-- 2026-11-12 开发者：把项目规范去 NeuroBook 化拆进模板（点名 UI 规范），并同步到 pc-notype。同步时 SSH 在认证前被对方重置约 20 分钟，恢复后完成：15 个新文件哈希一致；`docs/standards/README.md` 是上次同步的原样，整份替换；其余 6 个改动文件那边改过，只替换原文恰好出现一次的段落，跳过 2 段（`TEMPLATE.md` 的“怎么用”第 3 步、`code.md` 的路由表，两处都已被那边改写），所以 manus 的路由表还没指向新规范。
+- 2026-11-12 开发者：把项目规范去 NeuroBook 化拆进模板（点名 UI 规范），并同步到 Windows 开发机。同步时 SSH 在认证前被对方重置约 20 分钟，恢复后完成：15 个新文件哈希一致；`docs/standards/README.md` 是上次同步的原样，整份替换；其余 6 个改动文件那边改过，只替换原文恰好出现一次的段落，跳过 2 段（`TEMPLATE.md` 的“怎么用”第 3 步、`code.md` 的路由表，两处都已被那边改写），所以 manus 的路由表还没指向新规范。
 
 ## 待开发者决定
 

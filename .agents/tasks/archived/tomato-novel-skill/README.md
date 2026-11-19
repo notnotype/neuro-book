@@ -6,9 +6,9 @@
 
 已知输入：
 
-- 下载器 exe：`C:\Users\notnotype\Downloads\TomatoNovelDownloader-Win64-v2.4.9.exe`
-- epub 样例：`C:\Users\notnotype\Downloads\退役八年，复出世界级魔法少女.epub`
-- 下载器结果目录：`C:\Users\notnotype\Downloads\7410970999107095577_退役八年，复出世界级魔法少女`
+- 下载器 exe：`C:\Users\<user>\Downloads\TomatoNovelDownloader-Win64-v2.4.9.exe`
+- epub 样例：`C:\Users\<user>\Downloads\退役八年，复出世界级魔法少女.epub`
+- 下载器结果目录：`C:\Users\<user>\Downloads\7410970999107095577_退役八年，复出世界级魔法少女`
 
 ## 当前边界
 
@@ -31,8 +31,8 @@
 ## CLI 用法
 
 ```powershell
-bun assets/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-epub "C:\Users\notnotype\Downloads\退役八年，复出世界级魔法少女.epub" --workspace "workspace/current-novel"
-bun assets/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-download "C:\Users\notnotype\Downloads\7410970999107095577_退役八年，复出世界级魔法少女" --workspace "workspace/current-novel"
+bun assets/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-epub "C:\Users\<user>\Downloads\退役八年，复出世界级魔法少女.epub" --workspace "workspace/current-novel"
+bun assets/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-download "C:\Users\<user>\Downloads\7410970999107095577_退役八年，复出世界级魔法少女" --workspace "workspace/current-novel"
 ```
 
 默认输出结构：

@@ -1,6 +1,6 @@
 # w00017 t75 书架页实施计划审查
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t75-bookshelf/plan.md`。下列路径均相对于审查 worktree `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/wt`；行号来自本次只读检查。代码推断与实际运行结果分开注明。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t75-bookshelf/plan.md`。下列路径均相对于审查 worktree `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/wt`；行号来自本次只读检查。代码推断与实际运行结果分开注明。
 
 结论：计划存在 2 条阻断、16 条重要问题，建议修订后实施。条目先按严重程度、再按用户影响排序；P 编号保留发现时编号，便于回查。
 

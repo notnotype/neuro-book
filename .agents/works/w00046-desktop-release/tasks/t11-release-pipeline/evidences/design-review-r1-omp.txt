@@ -12,7 +12,7 @@
 
 3. 重要：本地更新冒烟的状态根隔离方案会关闭自动更新
 位置：plan-r1.md:253、281-284（更新冒烟也在“三个冒烟”内）。
-问题：计划要求 pc-notype 的全部冒烟用另一个状态根，且脚本收 --state-root。按现有壳入口，指定 NBOOK_STATE_ROOT 就进入只提示模式，不下载、不换上；换测试应用标识也不改变缺省状态根。因而照此隔离无法跑通 A′→B′。t10 已查清并显式取得“使用缺省状态根”的授权，t11 又把这个必要条件删掉。若通过覆盖 LOCALAPPDATA 等方式隔离，还需保证重启的更新器继承该环境，不能默认为已经成立。
+问题：计划要求 Windows 开发机 的全部冒烟用另一个状态根，且脚本收 --state-root。按现有壳入口，指定 NBOOK_STATE_ROOT 就进入只提示模式，不下载、不换上；换测试应用标识也不改变缺省状态根。因而照此隔离无法跑通 A′→B′。t10 已查清并显式取得“使用缺省状态根”的授权，t11 又把这个必要条件删掉。若通过覆盖 LOCALAPPDATA 等方式隔离，还需保证重启的更新器继承该环境，不能默认为已经成立。
 依据：主工作区 docs/specs/runtime/desktop-update.md:35-36、109；desktop/electrobun.config.ts:11-12；src/desktop/state-root.ts:42-63；.agents/works/w00046-desktop-release/tasks/t10-auto-update/plan.md:290；windows-update-r1.txt:12-13、52-53。
 建议：安装版、便携版脚本与更新脚本分别定义隔离方式；更新冒烟用独立 Windows 用户/干净 runner，或沿用开发者对缺省根的明确授权并记录前后状态。不向更新包传 NBOOK_STATE_ROOT；把这个约束写进切片 4 与本地验证命令。
 

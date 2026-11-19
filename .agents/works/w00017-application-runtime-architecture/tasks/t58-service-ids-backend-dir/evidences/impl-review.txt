@@ -12,7 +12,7 @@
 - **位置**：`packages/nb-runtime/src/plugins/host.ts:970`；覆盖缺口在 `src/plugins/delegation.test.ts:57`、`:63`。
 - **现象**：入口在 `dependencies` 与 `delegates` 声明键 A，调用 `context.services.resolveFor(consumer, B)` 时，即使 A、B 的 `name` 都是 `store/data`，B 仍返回 `delegation-denied`，错误为“入口 proxy/main 没有声明可代理 store/data”；使用 A 成功。
 - **为什么是问题**：`delegates.includes(key)` 仍按对象身份判断，违反 ADR 0025 与本次“同 id 键可互换，调用方身份签发仍按对象身份”的合同。插件各自打包而产生等价键时，普通解析与 `require` 可用，委托却失败。现有委托测试始终复用同一个 `storeKey`，不能暴露此遗漏。
-- **如何核实**：运行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/delegation-by-id.ts`。经公开 `createApplication` 创建真实 store、proxy、caller 三个插件；身份由真实按调用方门面签发，未伪造时序。实际输出 `startup: available`、`exact: resolved`、`equivalent: unavailable / delegation-denied`，等价键成功断言失败（退出 1）；`finally` 中 `application.stop()` 完整关闭。
+- **如何核实**：运行 `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/delegation-by-id.ts`。经公开 `createApplication` 创建真实 store、proxy、caller 三个插件；身份由真实按调用方门面签发，未伪造时序。实际输出 `startup: available`、`exact: resolved`、`equivalent: unavailable / delegation-denied`，等价键成功断言失败（退出 1）；`finally` 中 `application.stop()` 完整关闭。
 - **建议改法**：改为 `(record.definition.delegates ?? []).some((declared) => declared.name === key.name)`；在原委托行为用例中让声明与委托调用使用同 id 的不同键对象，同时保留伪造身份和跨入口转交被拒的断言，无需新增抽象。
 
 ### 2. 同 id 的重复激活产出被静默覆盖，清理时还会漏掉释放回调
@@ -69,15 +69,15 @@
 - `bun run --cwd packages/neuro-book test:bun`：276 pass，0 fail，39 个文件。
 - `bun run --cwd packages/neuro-book test:vitest`：57 pass，0 fail，12 个文件。
 - `bun run --cwd packages/neuro-book typecheck`：后端、前端、浏览器测试三份配置均通过（退出 0）。
-- `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/runtime-ids-smoke.ts`：7 组场景通过，包括同 id 的冲突隔离、传递静态失败与两种门禁原因一致、可满足的懒依赖、可选缺失、宿主能力门面缓存与作废、自依赖整体拒绝。首次脚本调用少传 `createPluginHost` 的必填 options 而失败；补 `{}` 后通过，未改仓库代码。
+- `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/runtime-ids-smoke.ts`：7 组场景通过，包括同 id 的冲突隔离、传递静态失败与两种门禁原因一致、可满足的懒依赖、可选缺失、宿主能力门面缓存与作废、自依赖整体拒绝。首次脚本调用少传 `createPluginHost` 的必填 options 而失败；补 `{}` 后通过，未改仓库代码。
 - `duplicate-output.ts` / `baseline-duplicate-output.ts`：经真实运行时验证发现 2，前后差异如上。
 - `bunx --no-install tsc --noEmit -p packages/neuro-book/tsconfig.json --listFilesOnly` / `typecheck-selection.ts`：核实发现 4 的实际漏检文件。
 - 已读取主 Agent 的 `evidences/test-e2e.txt` 与 `evidences/smoke-server.txt`：记录为 e2e 45 passed 与 S1–S8 `ok: true`。本审查未重跑这两项，不能作为本审的独立最新验证。
 - `bun run docs:check --since d49ae4e3`：检查 7578 个文件，failures 0、范围内 warnings 0，范围外警告 163 条。
 - `bun run governance:check --since d49ae4e3`：failures 0、范围内 warnings 0，范围外警告 222 条。
-- `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-stage-smoke.ts`：真实示例宿主验证发现 5，全部实例正常收口。
-- `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-reconnect-smoke.ts`：真实示例宿主验证发现 3，预期断言失败，链路与全部实例正常收口。
-- `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-binding-stop-smoke.ts`：观察到正常停止后窗口仍在线，链路关闭预期断言失败，链路与全部实例正常收口。经合同核对，不将这一观察单列为缺陷：示例明确省略租约回收，场景 6 有意验证有序停止的 `provider-stopped` 与之后的 `target-gone`。
+- `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-stage-smoke.ts`：真实示例宿主验证发现 5，全部实例正常收口。
+- `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-reconnect-smoke.ts`：真实示例宿主验证发现 3，预期断言失败，链路与全部实例正常收口。
+- `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t58/project-binding-stop-smoke.ts`：观察到正常停止后窗口仍在线，链路关闭预期断言失败，链路与全部实例正常收口。经合同核对，不将这一观察单列为缺陷：示例明确省略租约回收，场景 6 有意验证有序停止的 `provider-stopped` 与之后的 `target-gone`。
 
 ## 未发现问题的方面
 

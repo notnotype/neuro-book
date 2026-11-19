@@ -9,10 +9,10 @@
 - [docs/drafts/ui-editorial-refactor.md](../../drafts/ui-editorial-refactor.md) —— 编辑室工作台方向草案（2026-08-10 拍板），D10 / D11 / D13 的来源：主题砍到 5 套、双区制、5 组新 token。
 - [app/utils/theme/README.md](../../../app/utils/theme/README.md) —— Novel IDE 主题变量规范 v2.1，变量总表的事实源。
 - [AGENTS.md](../../../AGENTS.md) —— 仓库级 Agent 约定，含 sibling 仓边界。
-- `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-ui` —— 本任务的主要工作仓。
+- `C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-ui` —— 本任务的主要工作仓。
   其中 `docs/authoring-themes.md` 是主题格式的规范（怎么写、怎么装、装不上看哪里），
   `docs/design-language.md` 是产品默认主题的设计语言与踩坑清单（第四轮产出，写给要动界面的人和 agent）。
-- `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book-ui-framework-exploration` —— UI 框架选型实验仓，`reports/decision-matrix.md`、`reports/interaction-qa.md`、`reports/engineering-cost.md` 为选型证据。
+- `C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book-ui-framework-exploration` —— UI 框架选型实验仓，`reports/decision-matrix.md`、`reports/interaction-qa.md`、`reports/engineering-cost.md` 为选型证据。
 
 ## User Request / Topic
 

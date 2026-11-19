@@ -1,6 +1,6 @@
 # t65 实现审查：界面、组件规范与文档
 
-审查范围：`ecc4a64f..53596fc6`。审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-impl-ui`，实查 HEAD 为 `53596fc60430e135a1eaa13e667ffbafc7a23cbe`、detached、受跟踪与非忽略文件状态干净。只读；自编实验、状态与报告在指定仓库外目录，工具默认截图有一处路径偏差，见末尾。作者自报的测试与截图仅作审查线索，以下按本轮核实的证据报告；源码相对路径均相对该 worktree。
+审查范围：`ecc4a64f..53596fc6`。审查 worktree：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t65-impl-ui`，实查 HEAD 为 `53596fc60430e135a1eaa13e667ffbafc7a23cbe`、detached、受跟踪与非忽略文件状态干净。只读；自编实验、状态与报告在指定仓库外目录，工具默认截图有一处路径偏差，见末尾。作者自报的测试与截图仅作审查线索，以下按本轮核实的证据报告；源码相对路径均相对该 worktree。
 
 ## U1：最大化后的编辑器没有停放，零高内容仍进入读屏与 Tab 顺序
 
@@ -44,7 +44,7 @@
 - **位置**：`docs/archived/specs/ui/workbench-shell.md:12`、`:35`、`:205`、`:224`、`:231`、`:256`、`:305`、`:308`。
 - **现象**：旧 Spec 从 `docs/specs/ui/` 复制到 `docs/archived/specs/ui/` 后沿用了原相对路径；文内 **11** 处本地链接逐一按新文件目录解析，全部目标不存在。例如 nb-ui 规范落到 `docs/packages/nb-ui/...`，批准依据落到 `docs/archived/proposals/workbench-view-host.md`，主题规范落到 `docs/archived/specs/theme/system.md`。正文和 24 条旧验收仍在，但依据无法从归档页打开。
 - **为什么是问题**：当前 Spec 明确要求以后编辑器插件从这份归档取回合同；历史批准、迁移与原语合同是理解旧验收的必要上下文。归档路径是本次 S0 新增，不能把旧路径按历史原文保留后当作有效导航；当前 Spec 的“旧验收去向”表本身没有丢条目。
-- **如何核实**：仓库根执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/check-links.ts`，退出 0；脚本对每处 Markdown 本地链接按文档目录 `resolve`，用真实文件系统 `access` 检查。结果保存在同目录 `links.json`：归档页 11/11 失效，其余九份受查文档共 98 处本地路径均存在。该实验只检查文件目标，不判锚点。
+- **如何核实**：仓库根执行 `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/check-links.ts`，退出 0；脚本对每处 Markdown 本地链接按文档目录 `resolve`，用真实文件系统 `access` 检查。结果保存在同目录 `links.json`：归档页 11/11 失效，其余九份受查文档共 98 处本地路径均存在。该实验只检查文件目标，不判锚点。
 - **建议改法**：归档保留行为与批准原文，按新目录重写链接：仓库根资源用 `../../../../packages/...`，当前规范与提案指向其现存路径；没有现存目标的历史依据标清去向。把归档页纳入这次移动的链接检查，不新增另一份旧 Spec。
 
 ## U5：英文禁用提示仍由零件拼入中文全角冒号
@@ -74,8 +74,8 @@
 | 实际命令或场景 | 结果 |
 |---|---|
 | `prox bun install --frozen-lockfile --ignore-scripts` | Bun v1.4.2，1560 packages installed；生命周期脚本未执行 |
-| `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui bun run --cwd packages/neuro-book test:vitest src/plugins/workbench/web/components/WorkbenchShellLayout.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts` | Vitest v4.1.10：3 files、8 tests passed，2.64s |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/check-links.ts` | 退出 0；输出 109 处本地路径的存在性，归档页 11 处缺失，其余 98 处存在；`links.json` |
+| `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui bun run --cwd packages/neuro-book test:vitest src/plugins/workbench/web/components/WorkbenchShellLayout.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts` | Vitest v4.1.10：3 files、8 tests passed，2.64s |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/check-links.ts` | 退出 0；输出 109 处本地路径的存在性，归档页 11 处缺失，其余 98 处存在；`links.json` |
 | 隔离开发服务 + OMP 内置 Chrome | 实际打开 `/` 与外壳／状态栏 Lab 场景；核实最大化的 Tab/无障碍树、840px 裁切、390×260、语言切换、160px 侧面板、8 项计算样式、场景重挂计数；`runtime-evidence.json` 记录最终页面状态与无页面错误 |
 | `/usr/bin/git rev-parse HEAD`、`/usr/bin/git status --short --branch --untracked-files=normal` | 固定 HEAD 如开头；状态仅输出 `## HEAD (no branch)`，无文件改动；没有 commit、push、stash、切分支或删除文件 |
 | `kill -TERM 1093536` | 开发服务有序停止；监督结果 exit=0，后端 PID 1093610 exit=0，日志含 `backend-stopped`、`page-closed`；两审查 tab 已释放 |
@@ -84,7 +84,7 @@
 开发服务的实际启动命令：
 
 ```bash
-env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/state NBOOK_DEV_PORT=43821 NBOOK_DEV_BACKEND_PORT=0 NBOOK_DEV_RPC_PORT=0 bun run --cwd packages/neuro-book dev
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-impl/ui/state NBOOK_DEV_PORT=43821 NBOOK_DEV_BACKEND_PORT=0 NBOOK_DEV_RPC_PORT=0 bun run --cwd packages/neuro-book dev
 ```
 
 前端 `http://127.0.0.1:43821/`、后端 `http://127.0.0.1:34853/`、RPC `ws://127.0.0.1:45795/`；没有用 3000、3917。截图 `product-840.png`、`product-390x260.png`、几何 `product-840.json`、链接探针与输出均在本报告目录，保留供复核。首个工具默认截图自动写到了 `/tmp/omp-sshots-159e962b2769d4f4.webp`，超出限定实验目录；后续截图显式指定本目录，没有删除该工具产物。

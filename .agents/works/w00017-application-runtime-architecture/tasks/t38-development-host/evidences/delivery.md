@@ -2,7 +2,7 @@
 
 ## 1. 结论与验证
 返工 1 完成；本轮要求的验证通过。最终恢复边界是热重载建立新 worker 与新模块图，不支持同一 worker 内请求重试；未提前改造 Storage/文件索引生命周期。本报告在本轮实现与验证前先落盘，现补实际结果。
-checkout=`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`；branch=`refactor/w00017-runtime-foundation`；HEAD=`653c3a235e40bc583fed283f9fc7336eba44c1ee`。改动未提交，无独立验证 revision；唯一证据位置为本目录。
+checkout=`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`；branch=`refactor/w00017-runtime-foundation`；HEAD=`653c3a235e40bc583fed283f9fc7336eba44c1ee`。改动未提交，无独立验证 revision；唯一证据位置为本目录。
 | 完成标准 | 本轮结果 | 证据文件 |
 |---|---|---|
 | 1. 指定服务端范围 | 43 文件、327 tests passed；1 个既有 Windows 用例 skipped；exit=0 | `rework-1-server-tests.log` |

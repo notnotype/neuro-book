@@ -57,12 +57,12 @@ createdAt: 2026-08-29T12:20:00+08:00
 
 - 启动命令：`node ../../node_modules/nuxt/bin/nuxt.mjs dev playground --port 3110`
 - 服务日志出现 `Local: http://localhost:3110/`；HTTP 探测 `curl -I http://localhost:3110/` 返回 `HTTP/1.1 200 OK`。
-- 临时 Playwright 配置位于系统 Temp：`C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\acceptance\t02-e2e-current\playwright.config.mjs`，仅将 `baseURL` 指向 3110、关闭 webServer 自动启动并将结果输出到系统 Temp。
+- 临时 Playwright 配置位于系统 Temp：`C:\Users\USER~1\AppData\Local\Temp\neuro-book\acceptance\t02-e2e-current\playwright.config.mjs`，仅将 `baseURL` 指向 3110、关闭 webServer 自动启动并将结果输出到系统 Temp。
 
 修正后聚焦命令：
 
 ```text
-node ../../node_modules/@playwright/test/cli.js test e2e/lab.spec.ts --config=C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/acceptance/t02-e2e-current/playwright.config.mjs --workers=1 --grep "复选框|原生作用域|输入框：prefix|数字输入" --reporter=list
+node ../../node_modules/@playwright/test/cli.js test e2e/lab.spec.ts --config=C:/Users/USER~1/AppData/Local/Temp/neuro-book/acceptance/t02-e2e-current/playwright.config.mjs --workers=1 --grep "复选框|原生作用域|输入框：prefix|数字输入" --reporter=list
 ```
 
 结果：`4 passed (5.4s)`，exit code `0`。覆盖：合法数字编辑/步进/边界、prefix + focus 事件、checkbox fallback + focus 事件、marker selector 隔离 + checkbox keyboard focus。
@@ -70,7 +70,7 @@ node ../../node_modules/@playwright/test/cli.js test e2e/lab.spec.ts --config=C:
 随后最新聚焦回归命令：
 
 ```text
-node ../../node_modules/@playwright/test/cli.js test e2e/lab.spec.ts --config=C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/acceptance/t02-e2e-current/playwright.config.mjs --workers=1 --grep "复选框|原生作用域|输入框：prefix|数字输入" --reporter=list
+node ../../node_modules/@playwright/test/cli.js test e2e/lab.spec.ts --config=C:/Users/USER~1/AppData/Local/Temp/neuro-book/acceptance/t02-e2e-current/playwright.config.mjs --workers=1 --grep "复选框|原生作用域|输入框：prefix|数字输入" --reporter=list
 ```
 
 结果：`4 passed (5.4s)`，exit code `0`。
@@ -96,7 +96,7 @@ bun run typecheck
 系统 Temp 目录：
 
 ```text
-C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\acceptance\t02-css-determinism
+C:\Users\USER~1\AppData\Local\Temp\neuro-book\acceptance\t02-css-determinism
 ```
 
 第一次构建：
@@ -119,13 +119,13 @@ bun run build:css
 当前源码 3110 服务上的全量命令（使用系统 Temp 配置）实际执行过：
 
 ```text
-node ../../node_modules/@playwright/test/cli.js test --config=C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/acceptance/t02-e2e-current/playwright.config.mjs --workers=1 --reporter=list
+node ../../node_modules/@playwright/test/cli.js test --config=C:/Users/USER~1/AppData/Local/Temp/neuro-book/acceptance/t02-e2e-current/playwright.config.mjs --workers=1 --reporter=list
 ```
 
 另按包脚本要求实际执行过：
 
 ```text
-bun run test:e2e -- --config=C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/acceptance/t02-e2e-current/playwright.config.mjs --workers=1 --reporter=list
+bun run test:e2e -- --config=C:/Users/USER~1/AppData/Local/Temp/neuro-book/acceptance/t02-e2e-current/playwright.config.mjs --workers=1 --reporter=list
 ```
 
 两次均为 `32 tests`，最终 `15 passed`、`17 failed`、exit code `1`。当前 t02 目标相关四个用例在完整运行中均通过：

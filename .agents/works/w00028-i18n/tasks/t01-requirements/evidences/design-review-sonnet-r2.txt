@@ -61,7 +61,7 @@
   3. `defineTemplates({x: {"zh-CN": "{a}", "en-US": "{b}"}})` 类型上通过，只能靠运行期比对；这一点设计稿已写，但与上面两条合起来，类型层面几乎没有防线。
   4. 品牌用 `declare const templateBrand: unique symbol`：nb-form、nb-agent-ui、nb-markdown 作为独立发布的包依赖 nb-text（ADR 0029），消费者一旦装了两份 nb-text（版本范围不重叠，或两个包各自内联了一份类型），`MessageTemplate` 在两份之间互不可赋值。实测把同一份声明拷成 `a.ts`、`b.ts`：`TS2322 ... [templateBrand] is missing`；改成 `readonly __brand: "MessageTemplate"` 的字符串品牌则通过（`lab-frontend-r2/dup/`）。插件 SDK 的 `.d.ts` 是打平的，不受影响，受影响的是 npm 上的三个包。
 - **为什么是问题**：设计稿的核心承诺是“显式标成模板才解析、其余原样显示”，类型是它唯一的编译期保证；现在只保证一个方向。
-- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend-r2 && /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc --noEmit --strict --target es2022 b1.ts`，只报第 12 行（普通文字当模板）与第 24 行（FormText 当 DisplayText，见第 6 条）两个错；第 10、14、16、19、21 行的反例全部放行。
+- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend-r2 && /home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc --noEmit --strict --target es2022 b1.ts`，只报第 12 行（普通文字当模板）与第 24 行（FormText 当 DisplayText，见第 6 条）两个错；第 10、14、16、19、21 行的反例全部放行。
 - **建议改法**：
   1. 让两类文字不可互相赋值：`MessageTemplate` 不再是 `LocalizedText` 的子类型，例如品牌属性换成会使结构不兼容的形状（`{readonly "zh-CN": string; readonly "en-US": string; readonly [brand]: …}` 做不到，要改成 `{readonly text: LocalizedText; readonly [brand]: true}` 的包装对象），或 `LocalizedText` 一侧加反向品牌；`DisplayText` 的联合里 `MessageTemplate` 本身不是成员，只有 `{template, params}` 是。
   2. 模板的参数表进类型：`defineTemplates` 用 `const` 泛型保留字面量，对简单 `{name}` 占位用模板字面量类型抽取参数名，得到 `MessageTemplate<"count" | "path">`，`message()` 要求 `params` 的键与之相同；ICU 的 `plural`/`select` 参数可只抽取到名字，类别在运行期检查（第 3 条）。
@@ -77,7 +77,7 @@
   3. **多份副本**：消费者的依赖树里出现两份 nb-text（见第 4 条第 4 点的版本范围不重叠）时，宿主在其中一份里注册 reporter，另一份的上报丢失，没有任何提示。
   4. 还有一层：设计稿说 SDK 重新导出 `message`/`textOf`；`setTextErrorReporter` 若也被 SDK 的 `export *` 带出，第三方插件可以替换宿主的 reporter（SDK 根入口的导出面由 `sdk.test.ts:26` 钉住，需要明确排除）。
 - **为什么是问题**：全局单例让“降级加上报”这一核心行为在默认测试配置下不可测，也不可靠地到达使用者。
-- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend-r2/share && bun test`（失败）；`bun test --isolate`（通过）；`grep -n '"test"' /home/notnotype/CodeRepository/neuro-book/packages/{neuro-book,nb-form,nb-agent-ui,nb-markdown,nb-story,dev-panel}/package.json`。
+- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend-r2/share && bun test`（失败）；`bun test --isolate`（通过）；`grep -n '"test"' /home/<user>/CodeRepository/neuro-book/packages/{neuro-book,nb-form,nb-agent-ui,nb-markdown,nb-story,dev-panel}/package.json`。
 - **建议改法**：不靠“注入单个函数”：
   - 做法一（改动最小）：包导出 `onTextProblem(listener): () => void`（多订阅者，返回取消函数），去重状态由订阅者决定而不是包内全局；包内无订阅者时用 `queueMicrotask(() => { throw … })` 或 `reportError`，让浏览器的全局 `error` 事件和测试运行器都能看到，不静默；
   - 做法二：把问题收集放在一个由宿主创建的对象里 `createTextRuntime({report})`，Vue 层经宿主已有的 `provide/inject`（Spec 已有“宿主提供的 i18n”）下发，纯 TS 层的 `textOf` 多收一个可选的 `runtime` 参数；核心库不碰全局。
@@ -93,7 +93,7 @@
   3. **`ViewText` 的 `{key, params}`**：它让 nb-agent-ui 的纯逻辑层只产出键，测试直接断言键与参数（`process-summary.test.ts:12` 的 `parts()` 返回 `[key, params]` 对）。换成 `message(AGENT_TEXT["process.fallback"], …)` 后，测试要比较模板对象的身份或展开成字符串，前者与实现耦合，后者要给 `textOf` 一个语言；这是设计稿“120 余个引用文件改写”之外的测试重写，且 `AgentTextKey` 提供的“键必须在两种语言表里都有”的穷尽检查要换成 `satisfies Record<AgentTextKey, …>`。
   4. 编辑器句柄的 `status` 是 `Ref<LocalizedText | string | null>`（`editor/shared/contracts.ts:305`），与 `DisplayText` 的前两支一致，可以无损换成 `DisplayText`；但 `status-items.ts:140-141` 的 `display()` 只处理字符串与 `LocalizedText`，要改用 `textOf`，Spec `docs/specs/workbench/editor.md:89` 写的 `Ref<LocalizedText | null>` 也要同步。这一项可落地，列在这里是因为清单里没有它。
 - **为什么是问题**：设计稿的前提“五种形状收成一种”不成立：`FormText` 的开放语言集合是被需求支撑的（模型生成、第三方 schema），应当保留；其余形状的替换也比表述的大。
-- **如何核实**：`grep -rn "FormText" /home/notnotype/CodeRepository/neuro-book/packages --include='*.ts' --include='*.vue' -l | grep -v legacy`；读上述行。
+- **如何核实**：`grep -rn "FormText" /home/<user>/CodeRepository/neuro-book/packages --include='*.ts' --include='*.vue' -l | grep -v legacy`；读上述行。
 - **建议改法**：设计稿写明：`FormText` 与 `resolveText` 留在 nb-form 核心，不依赖 nb-text；nb-form 的 Vue 层消息表可以引用 nb-text 的 `message()`，但 `vue/messages.ts` 的函数项按需改成模板，需要 `select` 的先改参数；把 nb-agent-ui 测试写法的改动列入步骤 1；对 `FormText` 的开放形状，如果以后要让应用的 `LocalizedText` 也开放（第一轮第 8 条），再统一。
 
 ### 7. “比对两边的占位符名与参数类型是否一致”按字面做会拒绝最自然的中英配对；“数量”的格式也没定到可检查

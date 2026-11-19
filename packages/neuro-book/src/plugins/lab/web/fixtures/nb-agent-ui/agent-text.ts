@@ -6,13 +6,13 @@
  * `workbench-scene/workbench-text.ts`。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {defineComponent, h, provide, watch} from "vue";
+import {defineComponent, h, watch} from "vue";
 import type {Component} from "vue";
 
 import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 /** 场景输入里的 `locale`：`en-US` 用英文，其余（包括没写）用中文。 */
@@ -29,7 +29,7 @@ export function provideAgentSceneText(locale: () => DisplayLocale): void {
     engine.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
     // `nbook.agent` 登记的渲染器（eval 卡片与它的详情）用自己的目录。
     engine.register("nbook.agent", agentCatalogs.catalogs, agentCatalogs.source);
-    provide(TEXT_PORT_KEY, engine.port);
+    provideHostText(engine.port);
     watch(locale, (next) => engine.setLocale(next));
 }
 

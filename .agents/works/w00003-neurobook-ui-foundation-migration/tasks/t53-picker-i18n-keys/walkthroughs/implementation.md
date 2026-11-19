@@ -50,7 +50,7 @@ ide.bookshelf.deleteBook   → ProjectCard.vue, ProjectPickerClassicCompactView.
 
 ## 验证
 
-- cwd：`C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`
+- cwd：`C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`
 - 服务：复用运行中的 3001（未启停/未重启；未在其中写业务数据）。
 
 | 命令 | 退出码 | 结果 |

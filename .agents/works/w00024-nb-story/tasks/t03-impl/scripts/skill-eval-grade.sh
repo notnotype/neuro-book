@@ -3,7 +3,7 @@
 # 再跑 skill-eval-check.ts 做确定性检查（有出处、不提阅读位置之后）并按 t22 的规则数“答错”。
 # 判分结果按题缓存，重跑只补缺的；跑两遍，补渠道偶发的失败。用法：skill-eval-grade.sh
 set -u
-REPO=/home/notnotype/CodeRepository/neuro-book
+REPO=/home/<user>/CodeRepository/neuro-book
 T34=$REPO/.worktree/w00005-novel-understanding-spike/.agents/works/w00005-novel-understanding-spike/tasks/t34-v9-100ch
 T22=$T34/../t22-eval-v2-grading
 SRC=$T34/../t23-eval-50ch/evidences/source-ch001-100.json

@@ -144,7 +144,7 @@
 
 - 第 6 条进一步实测：`cd /tmp/review-w00024-t11-design/scratch && bun --no-env-file --no-install /tmp/review-w00024-t11-design/scratch/check-qa.ts`，退出 0；真实 `createHarness` 在未发任何模型请求时解析工具。全部共 21 个（20 查询 + answer），移除 3 个后 registry 剩 18 个，静态 Profile 建会话报 `tool_unavailable`，details=`{profile:"story-qa",tool:"story.knows",reason:"unregistered",provider:null}`。结果见 `scratch/check-qa-results.json`。
 - 第 9 条补充工作区：t10 自己的 `scripts/regress-20.sh:9,25-28` 同样不接收开关，而且默认 `PKG` 指向旧评测 worktree `w00024-t10-eval-new`，不能不改参数就拿来评估 t11。必须显式选择本次实现代码与全新运行目录，并在结束时核对 `book.features`；不是只给脚本后面加两个会被忽略的参数。
-- 路径基准：本文 `packages/...` 均相对 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/`；计划、Task、Spec 与评测脚本均读 `/home/notnotype/CodeRepository/neuro-book/` 主工作区。
+- 路径基准：本文 `packages/...` 均相对 `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/`；计划、Task、Spec 与评测脚本均读 `/home/<user>/CodeRepository/neuro-book/` 主工作区。
 
 ### 14. “讲知情的条目保留”会保留要求 `about` 指向秘密的指令，正常 statement 知情没有可执行写法
 - 严重程度：重要

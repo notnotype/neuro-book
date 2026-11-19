@@ -6,7 +6,7 @@
 
 ## 运行环境与命令
 
-- cwd：`C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`
+- cwd：`C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`
 - 服务：**复用开发者已在运行的 3001**（Leader 裁定；Lab 路由只在该实例上，smoke 是只读浏览）。隔离 State/Cache 根与独立端口的自建 server 只在早期试过一次：`bun run dev` + `NEURO_TEST...`（`NEURO_BOOK_STATE_ROOT/CACHE_ROOT` 指向 `Temp/nb-t52-picker/*`、`NUXT_PORT=PORT=4412`、先 `migrate:application-state --apply`），随后 `/lab` 返回 `503 Dev server is unavailable`——同目录两个 dev server 争 `packages/neuro-book/.nuxt` 的典型表现；按 Leader 裁定停掉 4412 并改为复用 3001。**未停止/重启 3001，未在其中创建或修改任何 Project 与业务数据。**
 - 命令（4 次真实运行，日志留在 `Temp/nb-t52-picker/final-*.log`）：
 

@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
-# story.cli 验收 5：外部 Agent 按 nbstory Skill 作答。omp（模型 jiji-luna/gpt-6-luna:max）读 Skill、只经 nbstory 命令了解
+# 渠道名已中性化，运行时按本机 omp 配置替换。
+# story.cli 验收 5：外部 Agent 按 nbstory Skill 作答。omp（模型 relay-a/gpt-6-luna:max）读 Skill、只经 nbstory 命令了解
 # 这本书，把 t34 的 16 道知情、身份题各答 3 次。每题按题目要求的阅读位置提问（requiredPrefix 章结束）。
 # 已有答案的跳过，中断后重跑即续。判分另见 skill-eval-grade.sh。
 # 用法：skill-eval.sh [并发数，默认 4]；EVAL_IDS=H24,B21 只答这几题，EVAL_RUNS="run1" 只答这几遍（试跑用）
 set -u
 CONCURRENCY=${1:-4}
 SCRIPTS=$(cd "$(dirname "$0")" && pwd)
-REPO=/home/notnotype/CodeRepository/neuro-book
+REPO=/home/<user>/CodeRepository/neuro-book
 TASK=$REPO/.agents/works/w00024-nb-story/tasks/t03-impl
 # 作答用的代码固定在评测 worktree（与 feat/w00024-nb-story 的 be274336c 相同），不随打磨中的分支变。
 WT=$REPO/.worktree/w00024-t03-eval/packages/nb-story
 Q=$REPO/.worktree/w00005-novel-understanding-spike/.agents/works/w00005-novel-understanding-spike/tasks/t34-v9-100ch/questions-knowledge16.json
 LOCAL=$REPO/.local/agent/works/w00024-nb-story/tasks/t03-impl/eval
 OUT=$TASK/evidences/skill-eval/answers
-MODEL=jiji-luna/gpt-6-luna:max
+MODEL=relay-a/gpt-6-luna:max
 # omp 的工作目录放在仓库之外：在仓库里会加载开发 Agent 的 AGENTS.md 与仓库 Skill。目录里只有 nbstory Skill。
-WORK=${EVAL_WORK:-/home/notnotype/.claude/jobs/568d0811/tmp/eval-work}
+WORK=${EVAL_WORK:-/home/<user>/.claude/jobs/568d0811/tmp/eval-work}
 
 mkdir -p "$WORK/.claude/skills" "$OUT" "$LOCAL/sessions" "$LOCAL/logs"
 rm -rf "$WORK/.claude/skills/nbstory" && cp -r "$WT/skill" "$WORK/.claude/skills/nbstory"

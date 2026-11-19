@@ -5,7 +5,7 @@
 A–D 实现与改动回归已完成；审查意见 1 接受 Storage 并发读取失败为 t34–t39 已知基线，不阻塞本任务，并接受两处直接受旧入口删除影响的测试改动。返工 1 已撤销产品日志器的位置授予：只保留进程内共享 writer，产品 AppFileLogger 仍不参与位置授予；本轮验证与证据见文末“返工 1”。下面保留初次交付的运行记录，不能把旧 image 的 L1–L10 通过冒充返工后复跑。
 
 - Work/Task：`w00017-application-runtime-architecture/t40-phase1-closing`；授权与不做项依据 [brief.md](../brief.md)。
-- checkout：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`；分支 `refactor/w00017-runtime-foundation`；HEAD `fddef68b15131268fba4e7d3c47f8529ce03e3c1`。改动未提交，无独立实现 revision；未 commit、push、stash 或切分支。
+- checkout：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`；分支 `refactor/w00017-runtime-foundation`；HEAD `fddef68b15131268fba4e7d3c47f8529ce03e3c1`。改动未提交，无独立实现 revision；未 commit、push、stash 或切分支。
 - 初次交付 Git 快照：0 staged、29 tracked unstaged、11 untracked 顶层条目；tracked diff `+430 -594`，包含开发者自己的 `packages/neuro-book/docs/research/README.md` 两行新增，原样保留。返工后的删除与恢复改变该计数，最终范围见文末。本证据目录原本未跟踪，状态中的整目录条目不等于本任务新建或修改其全部正文。
 - 唯一证据位置：本 `evidences/` 目录。所有命令从该 checkout 根执行；日志首行保留实际 Bun 参数、末尾保留 `EXIT {code,signal}`。
 

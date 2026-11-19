@@ -1,5 +1,5 @@
 w00026 t24 切片 1 审查的修正：交付报告（边做边追加）
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（分支 feat/w00026-t24-view-containers，起点 be125d3f7，未提交）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（分支 feat/w00026-t24-view-containers，起点 be125d3f7，未提交）
 
 〇、动手前的基线
 - 审查者的探针 probe1 到 probe7 在改动前各跑一遍，输出在 /tmp/w00026-t24-s1fix/before/。

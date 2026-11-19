@@ -25,7 +25,7 @@
 | Playwright MCP | 无障碍树文本快照；截图只读，README 写明不能根据截图操作 | `[ref=e5]`，快照内有效，页面变了要重取 | 点击、输入、悬停、拖动、选择、按键、上传、对话框；经 Playwright | 自称不是安全边界；只有来源白名单与黑名单 | 文档 |
 | Chrome DevTools MCP | 无障碍树快照（`uid`）、截图 | `uid`，跨快照稳定性未说明 | 点击、填写、悬停、拖动、按键；坐标点击要实验开关 | 无内置审批 | 文档 |
 | Vercel agent-browser | 无障碍树快照；截图可叠加与引用对应的编号标签 | `@e1`，存活元素跨快照保留引用 | 动作最全，含滚动、选择、勾选；经 CDP | 域名白名单、动作策略文件、指定类别要确认、页面输出加边界标记 | 文档 |
-| browser-use | DOM 序列化成一行一个元素的文本，去掉被遮挡、不可见、被包含的元素 | 索引取浏览器节点 id，跨步骤一般不变 | 约 31 个动作；经 CDP | 未查到 | 源码 |
+| browser-use | DOM 序列化成一行一个元素的文本，去掉被遮挡、不可见、被包含的元素（2026-11-19：这是 0.x 的做法，1.0 已改成模型写 Python 加原始 CDP，见 [w00034 调研](../../w00034-browser-use/research/2026-11-19-browser-agents-survey.md)） | 索引取浏览器节点 id，跨步骤一般不变 | 约 31 个动作；经 CDP | 未查到 | 源码 |
 | Stagehand | 裁剪过的无障碍树；自然语言 `observe`、`act` | `observe` 返回 XPath | 经 Playwright；首次动作可缓存，之后不调模型 | 未查到 | 文档 |
 | 阿里 page-agent | 在页面里用脚本把 DOM 压成文本，不截图、不用多模态 | 未查到 | 页面内合成事件（未核实）；模型密钥会打进前端包 | 无 | 文档 |
 | CopilotKit | 应用主动共享状态 | 按名字登记的前端工具 | 应用自己的处理函数，不模拟点击 | 执行前等人批准的钩子 | 文档 |
@@ -88,7 +88,7 @@
 | Cloudflare Code Mode | 只有 `search()`、`execute()` 两个工具，固定约 1,000 token | 在 search 沙箱里读 spec | 否 | 文档 |
 | Anthropic“用代码执行调 MCP” | 工具变成 `./servers/<服务>/<工具>.ts` 文件树，按需列目录、读文件，或 `search_tools` | 文件 | 否 | 文档 |
 | CodeAct 论文（ICML 2024） | Python 函数签名，如 `click_url(url: str) -> str` | 名字、描述、签名 | 不适用 | 文档：M3ToolEval 上代码动作 74.4%、JSON 52.4%，轮数 5.5 对 7.7；API-Bank 上 gpt-4 反而 JSON 更好 |
-| browser-use actor | `page`、`element`、`mouse`，方法名接近 Playwright | 开发者 API，自称“不是 Playwright”，列出差异 | 部分 | 文档 |
+| browser-use actor | `page`、`element`、`mouse`，方法名接近 Playwright（2026-11-19：这是 0.x 的做法，1.0 已改成模型写 Python 加原始 CDP，见 [w00034 调研](../../w00034-browser-use/research/2026-11-19-browser-agents-survey.md)） | 开发者 API，自称“不是 Playwright”，列出差异 | 部分 | 文档 |
 | agent-browser | 自有命令行与 `@e2` 引用 | README | 否 | 文档 |
 
 - 没有找到“同一任务用 Playwright 名字与自造名字比较准确率”的对照实验；“模型熟悉代码”是 CodeAct 论文与 smolagents 的解释，没有单独测量。
@@ -100,7 +100,7 @@
 |---|---|---|---|---|---|
 | Testing Library + user-event v14 | MIT | 在真实浏览器里跑；`pointer()` 按动作序列发 pointer 与 mouse 事件 | 不做命中测试（被遮挡也照发）；不支持 HTML5 原生拖拽；不调 `setPointerCapture`；会替换剪贴板 | 用来测试我们自己的快照与动作层，不作运行时 | 文档、源码 |
 | Playwright 无障碍快照（`packages/injected/src/ariaSnapshot.ts`、`roleUtils.ts`） | Apache-2.0 | ref 缓存在元素上，角色与名字都没变才复用；`ai` 模式下要可见且通过命中测试才给 ref | 依赖 `domUtils`、`@isomorphic` 与缓存，没有独立 npm 包 | 参照规则；名字计算用 `dom-accessibility-api`（MIT） | 源码 |
-| 阿里 page-agent 的 `page-controller` | MIT | 交互元素判定（cursor、标签、角色、可滚动、`elementFromPoint` 遮挡检查）；点击发完整 pointer/mouse 序列再 `click()`；输入用原生 value setter 加一个 `input` 事件；可见光标（`SimulatorMask`，rAF 缓动、点击波纹） | 编号每次重排，没有稳定名字；没有拖拽、触摸、悬停；光标隐藏时 rAF 不停 | 参照判定与事件序列；光标代码可借用（保留版权声明） | 源码 |
+| 阿里 page-agent 的 `page-controller` | MIT | 交互元素判定（cursor、标签、角色、可滚动、`elementFromPoint` 遮挡检查）；点击发完整 pointer/mouse 序列再 `click()`；输入框与文本域用原生 value setter 加一个 `input` 事件，contenteditable 另走一条路径（2026-11-19 修正，见 [w00034 调研](../../w00034-browser-use/research/2026-11-19-browser-agents-survey.md)）；可见光标（`SimulatorMask`，rAF 缓动、点击波纹） | 编号每次重排，没有稳定名字；没有拖拽、触摸、悬停；光标隐藏时 rAF 不停 | 参照判定与事件序列；光标代码可借用（保留版权声明） | 源码 |
 | browser-use、Nanobrowser | MIT、Apache-2.0 | — | 当前 browser-use 已无页面内脚本；Nanobrowser 经 `chrome.debugger` | 不用 | 源码、文档 |
 | `@mcp-b/webmcp-polyfill` | MIT | WebMCP 的 `document.modelContext.registerTool` | 草案未定稿 | 作为长期对齐方向 | 检索 |
 | driver.js v1.10.2 | MIT，gzip 约 8 kB | 遮罩、镂空、说明框，`onPopoverRender` 可改说明框内容，`disableActiveInteraction` | 文档里没有非阻塞模式、没有多元素同时高亮，同一时刻只能一个实例；跟随滚动未核实 | 第一版先试，不行再自建 | 文档 |

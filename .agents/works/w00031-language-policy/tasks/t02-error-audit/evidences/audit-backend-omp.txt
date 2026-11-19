@@ -1,7 +1,7 @@
 # w00031 t02 后端分区：错误与失败文字的通道
 
 - 源码基线：`65d9daea06616b8fc8459bc7ef9cb2132cee25ed`；已用 `/usr/bin/git rev-parse HEAD` 核实。
-- 源码根：`/home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02`。下文源码路径均相对该根。
+- 源码根：`/home/<user>/CodeRepository/neuro-book/.worktree/audit-w00031-t02`。下文源码路径均相对该根。
 - 政策与任务：主工作区 `docs/adr/0034-language-policy.md`、`.agents/works/w00031-language-policy/tasks/t02-error-audit/plan.md`、Work 与 Task README。
 - 只读静态盘点；不安装、不跑测试或开发服务、不修改仓库。报告逐小节只追加。语言描述的是基线现状，不把迁移前的中文诊断直接当作新增违规。
 - 表中“用户”指实际用户/CLI 操作者；“模型”单列。外部错误原文语言不保证。没有直接消费者证据时写“未追到”；没有迁移器时不推断旧数据能读。

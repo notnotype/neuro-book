@@ -194,7 +194,7 @@
 - **实际执行**：静态读取并交叉核对计划、首轮报告、Task 决定、相关 Spec、当前实现与既有测试；每次报告追加后运行以下命令，编号条数依次为 0、1、2、3、4、5、6、7、8、9、10，后续补充节仍为 10，没有减少：
 
   ```sh
-  grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t03-tabs-and-split/reports/design-review/omp-report-r2.md
+  grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t03-tabs-and-split/reports/design-review/omp-report-r2.md
   ```
 
   初次只有报告前言时结果为 0，grep 以 1 退出是无匹配的正常语义；不是测试失败。

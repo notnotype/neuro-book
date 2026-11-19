@@ -23,7 +23,7 @@ createdAt: 2026-09-07T15:45:00Z
 - `bun run product:stage`：通过；受控系统 Temp stage 完成并由 Builder 复验 copied image。
 - 最终隔离 Product migration：catalogVersion 3；app-sqlite、agent-attachment-v1、agent-session-v2 applied；review-repair skipped。
 - `bun run product:start`：通过；最终服务 `http://127.0.0.1:43124/`，版本接口返回 `v0.10.2-canary.20260908.091411Z.2e86c254`。
-- Node 浏览器 smoke：通过；首页 Vue mount、关键资源、`/api/app/version` 和版本身份通过；截图为 `C:/Users/NOTNOT~1/AppData/Local/Temp/omp-sshots-15777a2ed3284dd5.webp`。
+- Node 浏览器 smoke：通过；首页 Vue mount、关键资源、`/api/app/version` 和版本身份通过；截图为 `C:/Users/USER~1/AppData/Local/Temp/omp-sshots-15777a2ed3284dd5.webp`。
 - Product Profile Import：`check profile-compile` 通过，`typeboxVersion: 1.3.6`；`profile preview leader.default --input-json '{}'` 返回 `preview ok: yes`，实际加载 `AGENTS.md`、`reference/**` 和 Profile DSL 资产。
 - Product NTFS lease：9 次采样、15 秒间隔、耗时 120.0 秒；`runtime.lease.lock` 的 9 个 `mtimeMs` 均不同，未观察到 `ECOMPROMISED`。
 - 公开资产：workflow `34208897904` 成功；Release `v0.10.2-canary.20260908.091411Z.2e86c254` 为非 Draft prerelease，公开资产完整；`verify-windows-portable.ts`、`verify-windows-portable-restart.ts` 和 `bun run manager:verify-public` 均通过。
@@ -45,7 +45,7 @@ createdAt: 2026-09-07T15:45:00Z
 - 旧 Product 服务在 `2026-09-08T11:55:39.447Z` 先记录 `process.uncaughtException`：`EPIPE: broken pipe, write`；栈位于 bundle `.output/server/index.mjs:80:907` 的 `_log` 输出路径。随后 esbuild channel 进入 `didClose`，World Engine `schema`/`slices` 被包装为 `The service is no longer running: EPIPE: broken pipe, write`。
 - Product stage 内的 `esbuild.exe`、真实 `xin-xiao-shuo/world-engine/schema/index.ts` 与 `calendar.ts` 独立编译均通过；因此没有把 binary、schema 或 World Engine 业务逻辑认定为根因。
 - 使用正确 `NBOOK_AGENT_TEMP_ROOT`、绝对 `NEURO_BOOK_STATE_ROOT`/`NEURO_BOOK_CACHE_ROOT` 和受管长驻进程重新启动后，`POST /api/projects/open`、`GET /api/app/version`、`GET schema`、`GET subjects`、`GET slices` 全部 HTTP 200；schema 返回 5 个 subject types，slices 返回空数组。
-- Node/Chrome 点击真实活动栏 `data-activity-id=world` 后，Workbench 显示 `已同步`、`5 个类型`、`world-engine/schema/index.ts` 与 `world-engine/calendar.ts`；浏览器实际请求 schema、subjects、slices，页面无控制台错误。最终截图：`C:/Users/NOTNOT~1/AppData/Local/Temp/omp-sshots-15779277f3d2dfa1.webp`。
+- Node/Chrome 点击真实活动栏 `data-activity-id=world` 后，Workbench 显示 `已同步`、`5 个类型`、`world-engine/schema/index.ts` 与 `world-engine/calendar.ts`；浏览器实际请求 schema、subjects、slices，页面无控制台错误。最终截图：`C:/Users/USER~1/AppData/Local/Temp/omp-sshots-15779277f3d2dfa1.webp`。
 - 同一 Product stage 的第二个启动进程得到 `ELOCKED`；SIGINT 后 `43124` 无监听、lease lock 释放，随后同一绝对路径环境重新启动并再次通过 API smoke。wrapper 的 exit code `1` 是信号转发语义，不是 Product 子进程残留。
 
 ## 边界与残余风险

@@ -1,5 +1,5 @@
 w00026 t24 切片 3：活动栏按容器列入口 —— 交付报告（边做边追加）
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 b462eb722，未提交）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 b462eb722，未提交）
 
 == 0. 设计决定（动手前写下，后面按实际修订）==
 - nb-layout 新原语（暂名）setSiblingShares(doc, shares: [{node, share}]) -> LayoutResult：同一分支的若干子节点，主轴意图之和不变、彼此比例换成给定的；不走 finish（finish 不比尺寸意图）。

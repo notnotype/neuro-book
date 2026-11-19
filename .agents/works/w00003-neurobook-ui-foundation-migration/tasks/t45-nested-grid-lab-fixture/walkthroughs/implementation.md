@@ -63,7 +63,7 @@
 ### 1. 端到端测试（Playwright）
 
 - **命令**：`node ../../node_modules/@playwright/test/cli.js test e2e/nested-grid.spec.ts`（支持 `bunx playwright test e2e/nested-grid.spec.ts`）
-- **CWD**：`C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/nb-ui`
+- **CWD**：`C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/nb-ui`
 - **环境变量**：`NB_UI_E2E_REUSE_SERVER=1`
 - **退出码**：`0`
 - **用例总数**：16 passed（0 failed, 0 skipped）

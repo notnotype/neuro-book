@@ -1,7 +1,7 @@
 # Task 110 · Agent Workflow 编排系统
 
 - 状态：**设计定稿（脚本式）；spike 验收全绿；已完成初步接入（2026-07-20）——内核 vendor 进仓，跑在真实 session 层上，preview demo 页可用**
-- Spike 仓：`C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-workflow`（sibling 仓，真相源；`bun run sync:nb-workflow` 镜像到 `server/vendor/nb-workflow/`）
+- Spike 仓：`C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-workflow`（sibling 仓，真相源；`bun run sync:nb-workflow` 镜像到 `server/vendor/nb-workflow/`）
 - 日期：2026-07-19 设计与 spike；2026-07-20 初步接入
 - 相关：`reference/agent/sidecar-profile-pass.md`、`docs/agent/tools.md`、`server/agent/tools/agent-collaboration-tools.ts`、`server/agent/harness/neuro-agent-harness.ts`（invokeCore/runLoop/runSidecarPasses）、`server/agent/session/session-repo.ts`（forkSession/moveLeaf）、`server/world-engine/codeact-sandbox.ts`、`docs/drafts/TODOS.md`（invoke_workflow / 非阻塞 invoke / workflow 三条待办）
 

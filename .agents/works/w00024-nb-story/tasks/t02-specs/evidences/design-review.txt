@@ -1,11 +1,11 @@
 # w00024 t02 三份 planned Spec 只读设计审查
 
-审查根目录：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t02-review`。下文位置均相对此 worktree；数据记录 id 指用户指定的 `run-med-100/dataset-v9.json`。不修改 worktree，不运行开发服务、e2e 或真实模型，不开子审查。
+审查根目录：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t02-review`。下文位置均相对此 worktree；数据记录 id 指用户指定的 `run-med-100/dataset-v9.json`。不修改 worktree，不运行开发服务、e2e 或真实模型，不开子审查。
 
 数据核实命令：
 
 ```sh
-python3 /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t02-specs/reports/design-review/lab/audit.py
+python3 /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t02-specs/reports/design-review/lab/audit.py
 ```
 
 该脚本只读原始数据；以下数据事实来自本次实际输出。接口、竞态与可测性问题来自逐条合同审查，未冒充产品运行结果。
@@ -168,7 +168,7 @@ python3 /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-s
 ## 验证与未运行项
 
 - 实际执行：上文 `python3 .../lab/audit.py`，最终版本退出码 **0**；读取 V9 原始数据、16 题题集与既有编译/查询/评测脚本。数据核对不调用模型、不修改源数据。
-- 每追加一条发现后执行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t02-specs/reports/design-review/report.md`，条数从 **1** 逐次增长到 **15**，没有减少。
+- 每追加一条发现后执行 `grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t02-specs/reports/design-review/report.md`，条数从 **1** 逐次增长到 **15**，没有减少。
 - 未运行：开发服务、e2e、Chromium、真实模型、产品测试、构建、`docs:check`。本次是 planned Spec 只读审查，合同竞态、HTTP 与 UI 场景均为合同推演，不宣称实现失败。
 - worktree 与数据只读；只新增本报告与指定 `lab/` 下的一次性脚本。报告从创建开始仅追加，没有整文件重写。
 

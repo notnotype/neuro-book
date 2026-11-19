@@ -27,7 +27,7 @@ type DropIndicatorSlots = {
 
 ## 状态与边界
 
-组件始终只渲染包裹节点；尺寸、定位、几何动效和拖放状态均由调用方提供，皮肤来自全局样式：`area` 与 `entry` 是 1px `--drop-area-border` 描边、`--drop-area-fill` 底色、`--radius-control` 圆角加 `--elevation-raised`，只带不透明度过渡；`line` 是 `--accent-main` 实色、`--radius-pill` 圆角，带一圈同色光晕，没有任何过渡。减少动效时取消过渡。它不接收也不发出拖放数据，不处理空内容、禁用或错误状态。
+组件始终只渲染包裹节点；尺寸、定位、几何动效和拖放状态均由调用方提供，皮肤来自全局样式：`area` 与 `entry` 是 1px `--nb-layout-drop-area-border` 描边、`--nb-layout-drop-area-fill` 底色、`--nb-layout-radius-control` 圆角加 `--nb-layout-elevation-raised`，只带不透明度过渡；`line` 是 `--nb-layout-accent-main` 实色、`--nb-layout-radius-pill` 圆角，带一圈同色光晕，没有任何过渡。减少动效时取消过渡。它不接收也不发出拖放数据，不处理空内容、禁用或错误状态。
 
 ## 不支持
 

@@ -1,6 +1,6 @@
 w00017 t75 S3 交付报告：项目实例里的作品统计（tracker、记录写入、nbook.projects/stats）
 
-worktree：/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t75-s3/wt
+worktree：/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t75-s3/wt
 分支：t75/s3-stats（基于 be11836a）
 最后提交：4dee116d
 
@@ -169,7 +169,7 @@ C. 首扫耗时归因：把同一份样本的正文单独交给 countWords，共
 - 变异检查：对实现做了 19 处改坏（隐藏过滤、扫描时的隐藏过滤、读不出按 0 计、扫描期间丢事件、目录事件不重扫、忽略 resync、改名不跟随、删除不清空、首扫不核对最近编辑、不换午夜基线、打开时不按日期取基线、停止不等在途重读、扫描没完成也写、旧快照胜出、结果未知当成写成、相同快照不算写成、坏记录不 reset、不节流、停止不写），对应测试全部失败（全部被杀死）。第一轮“事件路径的隐藏过滤”没被杀，为此补了隐藏路径的用例（提交 345fc46d）。
 - 范围外顺带跑了 bun test src/architecture.test.ts src/plugins/files/ src/project/ src/server/ src/plugins/storage/ src/plugins/editor/：323 pass，2 fail，两条都是既有的、与本切片无关：
   - architecture.test.ts 报 plugins/projects/web/shelf-page.ts、plugins/projects/web/plugin.ts 引用 nbook/plugins/workbench/shared/home，plugins/editor/web/plugin.ts 引用 nbook/plugins/workbench/shared/items，都是 S4 与 t74 的前端代码；
-  - src/server/dev/watch.test.ts 失败是环境原因：本 worktree 的 node_modules 是指向主 worktree 的符号链接，nb-runtime 的源码路径解析到了 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-runtime/src。这也说明本 worktree 的测试实际用的是那个 worktree 里的 nb-runtime 源码。
+  - src/server/dev/watch.test.ts 失败是环境原因：本 worktree 的 node_modules 是指向主 worktree 的符号链接，nb-runtime 的源码路径解析到了 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-runtime/src。这也说明本 worktree 的测试实际用的是那个 worktree 里的 nb-runtime 源码。
 - 测试规范扫描（scripts/ci/test-conventions.ts 的 scanTestSource）对三个测试文件都没有命中（没有 mock、spy、固定等待或假计时器）。
 
 六、没做完或没把握的地方

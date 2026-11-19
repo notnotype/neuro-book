@@ -1,7 +1,7 @@
 # Files 性能（3000 个 Markdown、60 个源码文件、宽目录 400 项）
 
 - 时间 2026-10-09T23:40:03.237Z，源码 a4674aec，Chrome 151.0.7922.71（无头，1440×1000）
-- 命令：`bun run perf:files -- --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/baseline-3000`
+- 命令：`bun run perf:files -- --out /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/baseline-3000`
 - 负载（1/5/15 分钟）：运行前 1.69 / 2.05 / 2.01，运行后 1.85 / 2.09 / 2.04
 - 浏览器不支持的观察类型：无；进度条出现 0 次
 - 时长单位毫秒，写作 p50 / p95 / 最大值；committed 是条件第一次成立的帧，presented 是其后一帧（已呈现）。

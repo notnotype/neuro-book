@@ -378,7 +378,7 @@
 
   过渡期间混用新旧两种做法也安全：手工建的号只要落了盘，下一次领号时的扫描就会看到。
 - **M3 现有的 `.local`**：t02 已经搬完 t80、t81 和 `artifacts/`。（现状）用户区里还有 `agent-thinking/`、`fim-completion-spike/`、`temp/`、`AgentThinkingStatusMessages.md`、`ReAct.ts`，看名字像是 Agent 或实验的产物，但用户区的东西 Agent 不碰。
-- **M4 会话临时目录**：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/` 下有 83 个条目，共 3.0 GB。（现状）不整体搬迁；只有 Task 还要用的报告，由所属会话自己搬，例如 t02 下一步写的 t80 的 omp 审查。
+- **M4 会话临时目录**：`/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/` 下有 83 个条目，共 3.0 GB。（现状）不整体搬迁；只有 Task 还要用的报告，由所属会话自己搬，例如 t02 下一步写的 t80 的 omp 审查。
 - **M5 现有的 worktree**：照原样索引，不改名、不移动。导入时按目录名推算 `home`，并标 `source: heuristic`。
 - **M6 正在跑、把原始输出写进仓库路径的任务**：w00005 的 ingest（PID 1991184，已跑 1 小时 26 分）正把结果写到 worktree 里 Task 目录下的 `evidences/run-med-100`。这个 worktree 的 `.agents` 已有 95,901 个未跟踪文件。（现状）它在跑的时候不要动；跑完以后，由所属会话按新规则决定搬不搬。索引不受影响，见 X6。
 - **M7 没有登记的开发服务**：第一版不管理它们。第二版的运行状态里列为“未登记”（按 `/proc/*/cwd` 是否在仓库内来判断），停不停交给人。

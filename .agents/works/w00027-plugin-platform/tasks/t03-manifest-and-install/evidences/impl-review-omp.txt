@@ -1,6 +1,6 @@
 # w00027 t03 后端、内核与宿主实现审查
 
-审查范围：`21f226396..HEAD`；源码路径均相对 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/`。不审 `src/plugins/plugins/web/`。发现按核实顺序追加，末尾提供按影响排序的索引。
+审查范围：`21f226396..HEAD`；源码路径均相对 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/`。不审 `src/plugins/plugins/web/`。发现按核实顺序追加，末尾提供按影响排序的索引。
 
 ### 1. 排除范围中的符号链接仍会使安装失败
 

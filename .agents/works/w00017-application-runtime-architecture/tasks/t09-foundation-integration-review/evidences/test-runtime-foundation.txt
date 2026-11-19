@@ -3,7 +3,7 @@ $ bun run test:runtime-foundation
 # exit: 0  wall: 1.4s
 
 
- RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
+ RUN  v4.1.10 C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
 
  ✓ runtime/services/services.test.ts (20 tests) 74ms
  ✓ runtime/lifecycle/lifecycle.test.ts (28 tests) 105ms

@@ -1,6 +1,6 @@
 # t71 编辑器区实现边界审查
 
-审查对象：`5152002b..e3ea21c7`（S0–S8），工作区 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-impl-ui`，检出 `e3ea21c7`。
+审查对象：`5152002b..e3ea21c7`（S0–S8），工作区 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-impl-ui`，检出 `e3ea21c7`。
 
 审查范围：界面、编辑器集成、主题、键盘焦点、可访问性、原文字节保持、离开确认与终态抢救。按 plan.md、README.md、editor.md 及相关 Spec 和 2026-10-09 的已接受取舍判断；已声明不做的功能不列为缺陷。
 
@@ -79,7 +79,7 @@
 | `node ../../node_modules/vitest/vitest.mjs run src/plugins/editor/web/components/EditorTabBar.dom.test.ts` | 1 文件、3 测试通过。 |
 | `bun test src/plugins/editor/web/markdown/markdown-dialect.test.ts` | 18 pass、0 fail、52 expect() calls。 |
 | `node ../../node_modules/vitest/vitest.mjs run src/plugins/editor/web/markdown/markdown-dialect-fallback.dom.test.ts src/plugins/editor/web/markdown/markdown-empty-document.dom.test.ts` | 2 文件、7 测试通过。 |
-| `node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts e2e/editor-area.e2e.ts e2e/lab-editor.e2e.ts --output=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/ui/playwright-results` | 10 passed (42.0s)。 |
+| `node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts e2e/editor-area.e2e.ts e2e/lab-editor.e2e.ts --output=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t71-impl/ui/playwright-results` | 10 passed (42.0s)。 |
 
 额外使用内置 Chromium 在真实生产产品页与开发 Lab 操作、观察正文/焦点/计算样式/可访问树，并读取报告目录内真实项目的磁盘字节。运行生产产品 HTTP `45199` 与 Lab HTTP `45403`；未用 `3000`、`3917`。实验等待 DOM、文件监视、dirty、终态等可观察状态，没有固定等待、mock、spy 或假计时器。
 

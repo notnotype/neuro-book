@@ -1,6 +1,6 @@
 // 第三轮复现：表里“留着”的话（error 后的 followup、停止并保留后的 steer 与 followup）在之后任何一次运行里会不会被内核取走。
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 const {closeSession} = await import(`${K}/session/session.ts`);
 

@@ -1,4 +1,4 @@
-# w00046 t11 切片 4、5：pc-notype 上的 Windows 冒烟与变体构建（第 1 轮，2026-11-15）
+# w00046 t11 切片 4、5：Windows 开发机上的 Windows 冒烟与变体构建（第 1 轮，2026-11-15）
 # 环境：Windows 11，Hutch 0.29.0（HUTCH_HOME 用本机已有的缓存）、Electrobun 2.0.6、随包 Bun 1.4.4；冒烟脚本用 bun build 打成单文件，
 # 与 @playwright/test 1.62.1 放在 %USERPROFILE%\nb-w00046\t11\smoke\，经计划任务放进登录的桌面会话运行。只读产品自己的窗口
 # （UI 自动化的文字）与 WebView 页面本身的截图，不截屏幕。
@@ -19,7 +19,7 @@
     GET /stable-win-x64-NeuroBook.tar.zst?cache=be0ea6b84929a384d01867d37924786a 200 90240547
   即 Hutch 做补丁要下载上一版的完整包。
 - 环境问题（不是脚本的）：没设 HUTCH_HOME 时 hutch install 在新目录里从 GitHub 直连下载 Hutch、cottontail、Electrobun core，
-  在 pc-notype 上卡住 30 分钟以上，结束后改用本机缓存重跑。GitHub runner 上直连 GitHub，不受影响。
+  在 Windows 开发机上卡住 30 分钟以上，结束后改用本机缓存重跑。GitHub runner 上直连 GitHub，不受影响。
 
 ## 前提 2：从 tar.zst 打便携 zip（成立）
 - portable.ts 从 A′ 的 stable-win-x64-NeuroBook.tar.zst 解压出应用目录，核对 bin\launcher.exe、bin\bun.exe、Resources\version.json、
@@ -33,7 +33,7 @@
   原因：新作品的写作助手跑 shell 不问批准。修正：问了就同意一次，没问就直接等结果（2797782ae）。
   失败路径的收尾：finally 结束了应用进程；测试安装另用卸载命令卸掉。
 第 2 次：通过。
-  ✓ 安装：C:\Users\notnotype\AppData\Local\io.github.notnotype.neurobook.t11test\stable\app
+  ✓ 安装：C:\Users\<user>\AppData\Local\io.github.notnotype.neurobook.t11test\stable\app
   ✓ 启动：经调试端口连上产品页面
   ✓ 作品打开，Agent 跑了一条 shell 命令（退出码 0）
   ✓ 关窗：WM_CLOSE 之后进程都结束
@@ -48,7 +48,7 @@
   但发布流水线里正式便携包的通道根就是正式标识的，原来的整份比较会在 CI 上误报失败。
   修正：按 --identifier 找通道根，比较时略过 WebView2；不存在与只有 WebView2 算同一种（2797782ae）。
 第 2 次（--identifier t11test，跑之前删掉该通道根）：通过。
-  ✓ 解压便携包：C:\Users\notnotype\nb-w00046\t11\work-portable\portable\NeuroBook
+  ✓ 解压便携包：C:\Users\<user>\nb-w00046\t11\work-portable\portable\NeuroBook
   ✓ 启动：经调试端口连上产品页面
   ✓ 作品打开，Agent 跑了一条 shell 命令（退出码 0）
   ✓ 关窗：WM_CLOSE 之后进程都结束
@@ -67,7 +67,7 @@
   UI 自动化改为一个 PowerShell 进程里连续读，读到就记进证据，没赶上不算失败。记进待确认清单。
   失败路径的收尾：finally 结束应用、还原了备份；测试安装另用卸载命令卸掉；缺省状态根与基线相同。
 第 2 次（build-variant 构建的 A′ 与带新诊断的 B′）：通过。
-  ✓ 安装：C:\Users\notnotype\AppData\Local\io.github.notnotype.neurobook.t11test\stable\app
+  ✓ 安装：C:\Users\<user>\AppData\Local\io.github.notnotype.neurobook.t11test\stable\app
   ✓ 场景 1：A′（0.12.1）提示 0.12.2 可以更新，下载完成，取的是补丁
   ✓ 关窗：WM_CLOSE 之后进程都结束
   ✓ 打开A′的启动器：换上 0.12.2，页面显示了“已更新到 NeuroBook 0.12.2”（UI 自动化：已更新到 NeuroBook 0.12.2）

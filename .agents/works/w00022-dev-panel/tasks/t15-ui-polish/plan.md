@@ -56,13 +56,13 @@ omp 的阻断 1 与重要 3 到 9，加上设计审查补的“页面按路由�
 - 面板由集成分支的代码在同一个克隆上起，**必须沿用原来那份环境**，否则接管与按键的审计会写进开发者真实的 `~/.config/nbdev/audit.jsonl`：
 
   ```
-  cd /dev/shm/nbdev-ui-review/repo && exec env -i HOME=$HOME PATH=$PATH TERM=xterm-256color LANG=en_GB.UTF-8 XDG_CONFIG_HOME=/dev/shm/nbdev-ui-review/xdg GH_CONFIG_DIR=$HOME/.config/gh HERDR_SOCKET_PATH=$HOME/.config/herdr/sessions/nbdev-ui-review/herdr.sock NBDEV_HERDR_BIN=/home/notnotype/.local/bin/herdr NBDEV_GH_BIN=/home/notnotype/.local/bin/gh NBDEV_GH_PREFIX=prox /usr/bin/bun <worktree>/packages/dev-panel/src/cli.ts panel serve --port 4490 --artifact-port 4491 > /dev/shm/nbdev-ui-review/logs/panel.log 2>&1
+  cd /dev/shm/nbdev-ui-review/repo && exec env -i HOME=$HOME PATH=$PATH TERM=xterm-256color LANG=en_GB.UTF-8 XDG_CONFIG_HOME=/dev/shm/nbdev-ui-review/xdg GH_CONFIG_DIR=$HOME/.config/gh HERDR_SOCKET_PATH=$HOME/.config/herdr/sessions/nbdev-ui-review/herdr.sock NBDEV_HERDR_BIN=/home/<user>/.local/bin/herdr NBDEV_GH_BIN=/home/<user>/.local/bin/gh NBDEV_GH_PREFIX=prox /usr/bin/bun <worktree>/packages/dev-panel/src/cli.ts panel serve --port 4490 --artifact-port 4491 > /dev/shm/nbdev-ui-review/logs/panel.log 2>&1
   ```
 
   用后台机制运行、记下 PID，验收完 SIGTERM 停掉。不加 `--no-build`，面板把集成分支的前端构建进 worktree 自己的 `dist/web`。登录用 review-env.md 的命令，`cli.ts` 换成 worktree 里的路径。
 - Playwright 驱动本机 Chrome，去掉 `--hide-scrollbars`；同一时间只开一个浏览器，`TMPDIR` 与用户数据放 `/dev/shm`，用完删掉；脚本与截图放本地 `.local/agent/works/w00022-dev-panel/tasks/t15-ui-polish/accept/`。
 - **造历史用路由的 push**（审查重要 3）：会话页选会话用的是 `router.replace`，站内也没有带 `?pane=` 的链接；从 Task 页进编辑页只造出 [Task 页, 编辑页]。所以需要“同一路由、相邻两条历史”的场景，一律经 `document.querySelector('#app').__vue_app__.config.globalProperties.$router.push(...)` 依次 push，每步等页面就绪再继续。这只用于驱动验收。后退之后先断言 URL 与页面仍是预期的那一页，再断言要测的行为。原生确认框的 `page.on('dialog')` 要在 `goBack()` 之前挂上。
-- **对命名会话 `nbdev-ui-review` 的 herdr 写调用已获同意**：再起一格假 Claude、改会话 id、往格里发按键。一律写成 `env -i HOME=$HOME PATH=$PATH TERM=xterm-256color /home/notnotype/.local/bin/herdr --session nbdev-ui-review …`。
+- **对命名会话 `nbdev-ui-review` 的 herdr 写调用已获同意**：再起一格假 Claude、改会话 id、往格里发按键。一律写成 `env -i HOME=$HOME PATH=$PATH TERM=xterm-256color /home/<user>/.local/bin/herdr --session nbdev-ui-review …`。
   - 现有那格假 Claude 是 `w4:p1`，用 `/dev/shm/nbdev-ui-review/fake/`；第二格另建 `/dev/shm/nbdev-ui-review/fake2/`，屏幕上写不同的标记。
   - 让新的一格成为 Claude 会话要用 `pane report-agent … --source herdr:claude --agent claude --agent-session-id <id>`（docs/herdr.md 的“会话身份”一节），单独 `report-agent-session` 不会进 agent.list。
   - 做完把多起的那一格关掉；记录里写明用过哪几条命令。默认 herdr 只做只读调用。

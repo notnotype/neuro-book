@@ -149,7 +149,7 @@ shell 的工作目录是 project://（没有打开书时是 session://）。脚�
 
 `read` 总带行号和标记（`builtin-tools.md` 输出 5），replace 模式下这些内容也在，实验按现状测，这项如果影响结果要记下。
 
-密钥：DeepSeek 经 `llmTestConfig`，Luna 只从仓库根 `.env` 取 `JIJI_LUNA_*` 进子进程环境，不打印值。worktree 里的 `.env` 软链用完删掉。
+密钥：DeepSeek 经 `llmTestConfig`，Luna 只从仓库根 `.env` 取 `NBOOK_LLM_*` 进子进程环境，不打印值。worktree 里的 `.env` 软链用完删掉。
 
 ## 4. Spec 与文档改动
 

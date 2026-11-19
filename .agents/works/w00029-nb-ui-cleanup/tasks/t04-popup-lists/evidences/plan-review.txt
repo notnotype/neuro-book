@@ -1,6 +1,6 @@
 # w00029 t04 计划审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00029-t04-review/.agents/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/plan.md`。以下仓库相对路径均相对此 worktree。只读代码与依赖实现；运行证据另行标明，不把代码推断当浏览器验证。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00029-t04-review/.agents/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/plan.md`。以下仓库相对路径均相对此 worktree。只读代码与依赖实现；运行证据另行标明，不把代码推断当浏览器验证。
 
 ### 1. 普通 button 不会产生高亮属性，右键菜单与手工级联菜单仍无高亮
 

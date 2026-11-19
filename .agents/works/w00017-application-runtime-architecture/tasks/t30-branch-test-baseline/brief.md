@@ -31,7 +31,7 @@
 
 ## 约束
 
-- 只在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation` 中工作。不要改动主工作区 `/home/notnotype/CodeRepository/neuro-book`。
+- 只在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation` 中工作。不要改动主工作区 `/home/<user>/CodeRepository/neuro-book`。
 - 不要 `git commit`、`git push`、`git stash`、切分支、改 git 配置。不要改 `packages/neuro-book/docs/research/README.md`（开发者未提交的改动）。
 - 不要改 Spec、设计稿、ADR 与 Work/Task 文档（本 Task 的 `evidences/` 除外）。
 - 全量测试约 5 分钟；调试时优先跑单个文件（`bunx vitest run <文件>`），最后再跑全量。

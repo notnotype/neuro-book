@@ -19,7 +19,7 @@ release.yml：标签与产品版本一致性、标签提交上调用可复用的
 
 2026-11-13 经 nbdev 新建。
 
-2026-11-14：计划初稿写成，切片 1（CDP 与 WM_CLOSE 探针）在 pc-notype 上做完，选型成立（[cdp-probe-r1.txt](evidences/cdp-probe-r1.txt)）。
+2026-11-14：计划初稿写成，切片 1（CDP 与 WM_CLOSE 探针）在 Windows 开发机上做完，选型成立（[cdp-probe-r1.txt](evidences/cdp-probe-r1.txt)）。
 
 2026-11-14：设计审查第 1 轮（omp）23 条，阻断 4、重要 17、次要 2，都成立，计划改成 r2（[报告](evidences/design-review-r1-omp.txt)、[处理](evidences/design-review-r1-omp-disposition.txt)）。要点：
 - 桌面工程的输入在 ubuntu 上做齐；测试包 B′ 在独立 worktree 里改版本并做本地提交，壳与应用包同一版本；每个变体各自一份工程目录构建，正式产物构建完即另存；
@@ -37,11 +37,11 @@ release.yml：标签与产品版本一致性、标签提交上调用可复用的
 - 更新冒烟各段之间收掉壳；换上后第一次启动用 UI 自动化取证，之后带调试端口重新启动；
 - 加 `desktop.server.stopped` 诊断作服务端有序停止的正向证据；
 - `nb-flock` 首发前要开发者授权 `nb-harness`、`nb-story` 提版。
-- 不再开第 3 轮设计审查：余下的不确定点都排在切片 4 的 pc-notype 先验里。新增待确认 2 行。
+- 不再开第 3 轮设计审查：余下的不确定点都排在切片 4 的 Windows 开发机 先验里。新增待确认 2 行。
 
 2026-11-15：切片 2、3 完成（Work 分支 `d849b332a`、`d806e30f2`、`59759a877`）。标签门禁、发布计划与 CI 发布入口、GitHub Release 草稿与公开、发布完成门禁；壳记下检查更新的结论与自有服务端的就绪、停止、意外退出。验证见 [release-scripts-r1.txt](evidences/release-scripts-r1.txt)：72 条脚本测试（bun 与 vitest）、90 条桌面核心测试，6 处变异核对；照 B′ 的做法在一次性 worktree 里改版本、本地提交、冒烟、写计划都跑通；在没有生成目录的检出上 `--ci` 只列出要发的。
 
-2026-11-15：切片 4、5、6 完成（Work 分支 `90e5c3efb`、`2797782ae`、`f3e7fae72`、`37925670c`）。pc-notype 上的实测见 [windows-smoke-r1.txt](evidences/windows-smoke-r1.txt)：
+2026-11-15：切片 4、5、6 完成（Work 分支 `90e5c3efb`、`2797782ae`、`f3e7fae72`、`37925670c`）。Windows 开发机上的实测见 [windows-smoke-r1.txt](evidences/windows-smoke-r1.txt)：
 - 前提“复制一份 `desktop/` 单独构建”“从 tar.zst 打便携 zip”成立；用流水线同一条路（`build-variant.ts`）构建了正式、A′、B′，B′ 在本机更新源上取 A′ 生成了补丁。
 - 安装版、便携版、更新冒烟都通过；第一次跑各暴露一处脚本问题，已修：shell 不一定要批准；便携版的 WebView2 数据按 Spec 留在通道根下，核对时略过；一次性的“已更新到”只停 3.2 秒，换上后的取证改为壳日志里页面交回的 `desktop.update.notice-shown`（产品多一条 info 诊断），UI 自动化改单进程连续读、读到另记。
 - t10 交下来的复查：相对路径与无盘符的 `NBOOK_STATE_ROOT` 在 Windows 上拒绝，启动页说明。缺省状态根前后不变。
@@ -49,7 +49,7 @@ release.yml：标签与产品版本一致性、标签提交上调用可复用的
 - 没有跑 actionlint：下载它的二进制被本机权限分类器拦下，只做了 YAML 解析与 `needs` 引用核对。
 - 新增待确认 4 行。
 
-2026-11-15：实现审查第 1 轮（omp）有效 7 条（重要 5、建议 2）：6 条成立已改（Work 分支 `e3f4d4277`：冒烟失败时也卸载、先还原用户数据，换上后第一次启动要检查过更新，PowerShell 字面量转义，就绪要带 PID，版本比较用 BigInt），1 条不成立（所指步骤在 ubuntu 作业里，缺省是 bash -e）；pc-notype 上安装版、更新冒烟重跑通过，失败路径的卸载实测成立（[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-omp-disposition.txt)）。合入 master；两份 Spec 的 Smoke 证据改为流水线入口与 pc-notype 的运行。
+2026-11-15：实现审查第 1 轮（omp）有效 7 条（重要 5、建议 2）：6 条成立已改（Work 分支 `e3f4d4277`：冒烟失败时也卸载、先还原用户数据，换上后第一次启动要检查过更新，PowerShell 字面量转义，就绪要带 PID，版本比较用 BigInt），1 条不成立（所指步骤在 ubuntu 作业里，缺省是 bash -e）；Windows 开发机上安装版、更新冒烟重跑通过，失败路径的卸载实测成立（[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-omp-disposition.txt)）。合入 master；两份 Spec 的 Smoke 证据改为流水线入口与 Windows 开发机 的运行。
 
 2026-11-15：一次性准备做完（开发者授权）：push master、actionlint 通过、`nb-harness` 与 `nb-story` 提版后在本机首发 `nb-flock` 0.1.0、标签规则集两条、Environment `release`、9 个包的 npm 信任；在 master 上演练 5 次，第 5 次全绿（[dry-run-r1.txt](evidences/dry-run-r1.txt)）。
 

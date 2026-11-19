@@ -1,7 +1,7 @@
 # 未处理拒绝对照（证明探针7能检出未处理拒绝）
 
 命令：node -e "process.on('unhandledRejection', (r) => { console.log('CONTROL-CAUGHT:', r.message); }); Promise.reject(new Error('control-rejection'));"
-cwd ：C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+cwd ：C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
 
 ```
 CONTROL-CAUGHT: control-rejection

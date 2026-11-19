@@ -1,6 +1,6 @@
 # nb-ui 规范文档审查报告（w00029 t05 输入）
 
-审查对象与范围见 /tmp/w29t05-review/brief.md。只读，数据来自 master 工作区 `/home/notnotype/CodeRepository/neuro-book`。
+审查对象与范围见 /tmp/w29t05-review/brief.md。只读，数据来自 master 工作区 `/home/<user>/CodeRepository/neuro-book`。
 引用格式：`文件:行`。文件缩写：SPEC = `packages/nb-ui/docs/ui-development-spec.md`，DL = `packages/nb-ui/docs/design-language.md`，AT = `packages/nb-ui/docs/authoring-themes.md`，DR = `packages/nb-ui/docs/README.md`，PR = `packages/nb-ui/README.md`，CS = `docs/standards/code/components.md`，SK = `.agents/skills/ui-development/SKILL.md`。
 
 ## 总体情况

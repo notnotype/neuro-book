@@ -1,6 +1,6 @@
 # 拉远看审查：workbench-single-tree-layout.md（w00026 t03）
 
-审查对象：/home/notnotype/CodeRepository/neuro-book/docs/proposals/workbench-single-tree-layout.md
+审查对象：/home/<user>/CodeRepository/neuro-book/docs/proposals/workbench-single-tree-layout.md
 范围：只回答五个宏观问题。开发者 2026-11-05 已确认的 14 条决定不推翻，只指出代价与缺口。
 
 ### 1. 持久化合并成一条记录，但“每次手势结束写一次”对不上被并入的数据（editor.session 的写入节奏与作用域）

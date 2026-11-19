@@ -122,8 +122,8 @@
 - Electrobun 选型为已确认决定；同步原生对话框与 Windows popup 拦截是本轮新核实的上游缺口。先核算受管 helper/上游补丁的真实代价；若固定版本无法满足，按 ADR 0051 明定的 Electron 备选交开发者比较，不能以“已选 Electrobun”否认缺口，也不能由审查者擅自换壳。
 
 本轮实测与边界
-代码基线：/home/notnotype/CodeRepository/neuro-book/.worktree/w00046-desktop-release，HEAD=91addb492d66a698caf08874feae52359b76d70f。合同与治理依据读取主工作区。报告中的 plan-r1.md 指本报告同目录的固定副本；Electrobun 路径均相对用户给定的 research/electrobun-src；其它代码路径均相对上述 worktree。
-下列 5 条命令的 cwd 都是 /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/lab-r1：
+代码基线：/home/<user>/CodeRepository/neuro-book/.worktree/w00046-desktop-release，HEAD=91addb492d66a698caf08874feae52359b76d70f。合同与治理依据读取主工作区。报告中的 plan-r1.md 指本报告同目录的固定副本；Electrobun 路径均相对用户给定的 research/electrobun-src；其它代码路径均相对上述 worktree。
+下列 5 条命令的 cwd 都是 /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t08-desktop-shell/reports/lab-r1：
 1. bun claim-protocol-smoke.ts：退出 0；70030 字节请求、70125 字节应答被接受；慢请求 3602 ms 完成后仍获应答。
 2. bun bridge-smoke.ts：退出 0；同页脚本构造的 close-ack、close-answer 均通过实际桥消息解析器；未跨真实 WebView2。
 3. bun config-smoke.ts：退出 0；有效配置的总截止 2147553647 ms 被 Bun 警告并改为 1 ms，实测 1 ms 触发。

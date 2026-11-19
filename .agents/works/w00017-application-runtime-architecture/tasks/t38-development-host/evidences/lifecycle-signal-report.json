@@ -12,7 +12,7 @@
       "result": "pass",
       "durationMs": 26727,
       "evidence": "L8.sigterm: 已向Node Nuxt dev实际进程pid=3623276发送SIGTERM并在有限时间内完成：code=0 signal=null；leaseLock=released ownerFile=present。",
-      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L8.log",
+      "logPath": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L8.log",
       "observations": [
         {
           "id": "L8.sigterm",

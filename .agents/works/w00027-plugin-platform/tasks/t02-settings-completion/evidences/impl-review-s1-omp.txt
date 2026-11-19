@@ -1,6 +1,6 @@
 # t02 S1 实现审查
 
-审查范围：worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform`，`a06ffd603..99b9ac7cb`。只读审查；发现经基线与调用链核对，实验仅放 `/tmp/neuro-book/review-w00027-r3/lab/`。本报告逐条追加。
+审查范围：worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform`，`a06ffd603..99b9ac7cb`。只读审查；发现经基线与调用链核对，实验仅放 `/tmp/neuro-book/review-w00027-r3/lab/`。本报告逐条追加。
 
 ### 1. 显式传入 signal 的触发每次都永久增加上游监听
 

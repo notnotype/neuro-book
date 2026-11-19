@@ -119,7 +119,7 @@
 
 前面第 1 到第 10 条是追加写入过程中保留的历史记录，不是最终发现清单；撤回或收窄以本节和末尾统计为准。尤其撤回“省略 frontmatter 必然使计划无法验收”“本地 Error.cause 必然破坏远程 cause”“当前合同必须在 t01 立即全部迁移”等推论。第 2 条不再判为阻断，第 3、4 条合并核实影响清单，第 9 条只保留新增基线的具体边界问题。以下编号继续递增，避免覆盖历史记录。
 
-路径基准：源码、Spec、ADR 与规范的相对路径均相对于只读 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00031`；current Work/Task 记录使用 `/home/notnotype/CodeRepository/neuro-book/.agents/works/` 的最新文件。两处 t01 计划本次读取的内容相同。
+路径基准：源码、Spec、ADR 与规范的相对路径均相对于只读 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/review-w00031`；current Work/Task 记录使用 `/home/<user>/CodeRepository/neuro-book/.agents/works/` 的最新文件。两处 t01 计划本次读取的内容相同。
 
 ### 11. 影响清单没有列出最低真相源与包级规则的迁移归属
 

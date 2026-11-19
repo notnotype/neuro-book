@@ -538,11 +538,13 @@ describe("eval", () => {
         const [between] = pidsIn(next.text);
         process.kill(between!, "SIGKILL");
         await waitUntil("内核被外部杀掉了", () => (alive(between!) ? null : true));
-        const revived = await one(session, {code: "1 + 2; 'pid ' + process.pid"});
+        const revived = await one(session, {code: "'pid ' + process.pid"});
         expect(revived.text.split("\n")[0]).toContain("内核已重置（意外退出）");
-        expect(revived.text).toContain("3");
-        // 被外部杀掉之后又到了空闲的点：原因仍是意外退出。
+        // 这次跑在新起的内核里：PID 换了，且活着。
         const [idle] = pidsIn(revived.text);
+        expect(idle).not.toBe(between);
+        expect(alive(idle!)).toBe(true);
+        // 被外部杀掉之后又到了空闲的点：原因仍是意外退出。
         process.kill(idle!, "SIGKILL");
         await waitUntil("内核被外部杀掉了", () => (alive(idle!) ? null : true));
         w.settings.clock.advance(EVAL_IDLE_MS);

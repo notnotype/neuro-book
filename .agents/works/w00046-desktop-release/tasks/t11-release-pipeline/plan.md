@@ -18,7 +18,7 @@
 - 不签名（提案 4.5）。
 - 只升不降，不往回拨“最新”（提案 4.8）。
 
-工作方式：autonomous-delivery。本地能做完的切片（脚本、单测、pc-notype 上的 Windows 实测、工作流文件的静态检查）先做完。到 push 与第一次在 GitHub 上运行时停下，交开发者。
+工作方式：autonomous-delivery。本地能做完的切片（脚本、单测、Windows 开发机上的 Windows 实测、工作流文件的静态检查）先做完。到 push 与第一次在 GitHub 上运行时停下，交开发者。
 
 现有发布链：
 - `release:smoke`：`scripts/release/pack-smoke.ts`。打包前要求会发布的目录干净并记下 HEAD，结束时再核对这些目录没变；打 12 个包，在 `dist/release/` 写 `release-manifest.json`（提交与每个 tarball 的 SHA-256）；
@@ -69,7 +69,7 @@ GitHub windows runner 上已经实测过（t01 [windows-runner-probe-r1.txt](../
 - 三个变体的输入各自上传为产物。Windows 上每个变体复制一份 `desktop/` 工程到 `RUNNER_TEMP` 下各自的目录，放入它的 `bundle/` 与 `payload/`，各自 `hutch install`、`hutch electrobun build`，产物互不覆盖。
 - 正式变体一构建完，就把它的 `artifacts/` 复制到 `release-assets/`，再打便携 zip、写 `SHA256SUMS`，之后上传的只有这个目录。
 - 便携 zip 从 `stable-win-x64-NeuroBook.tar.zst` 解压出真实的应用目录，放入 `NeuroBook.portable` 再打包：Hutch 的 stable 构建在打完内层 tar 后会把 `build/stable-win-x64/NeuroBook/` 清空、重建成解压器外壳（没有 `bun.exe`、`Resources/version.json` 与载荷），那里不能当便携版。打完核对 zip 里有 `bun.exe`、`Resources/version.json` 与载荷。A′ 构建完先把它的产物复制进本机更新源的目录，再构建 B′（Hutch 构建 B′ 时从更新源取 A′ 做补丁）。
-- 复制一份 `desktop/` 单独构建是否成立（`hutch install` 要不要仓库里的别的文件），切片 4 在 pc-notype 上先验；不成立就改成每个变体一个 worktree。
+- 复制一份 `desktop/` 单独构建是否成立（`hutch install` 要不要仓库里的别的文件），切片 4 在 Windows 开发机上先验；不成立就改成每个变体一个 worktree。
 - `verifyBuiltVersions`：每个变体构建前核对 `bundle/version.json`、载荷清单里应用包的版本与预期版本一致（正式与 A′ 等于标签版本，B′ 等于标签版本补丁号加 1）；构建后核对产物里 `update-v2.json` 的版本与标识。
 
 ### `scripts/release/tag.ts`（新增）：标签与版本门禁
@@ -211,7 +211,7 @@ npm 的 dist-tag，一律显式给：
   - 这次启动之后的 `shell.log` 有一条 `desktop.update.checked`，远端版本 A′、结论“更低”；请求记录里这次启动之后没有补丁或完整包的请求；页面没有提示；
   - 关掉 B′，卸载测试安装。
 - 测试包不进 Release。失败时 A′、B′ 的产物与更新源的请求记录随证据上传，保留 14 天。
-- UI 自动化在 runner 上能否读到 WebView 窗口里的文字：pc-notype 上单进程连续读读到了；它不再是门槛，runner 上读不到只少一笔证据。
+- UI 自动化在 runner 上能否读到 WebView 窗口里的文字：Windows 开发机上单进程连续读读到了；它不再是门槛，runner 上读不到只少一笔证据。
 
 为了让“检查过、结论是什么”可观察，`UpdateController` 在检查完成时写一条 info 诊断 `desktop.update.checked`，带远端版本与结论（没有更新、有更新、更低）；页面显示了更新通知、交回壳时写 `desktop.update.notice-shown`（切片 4 加）。适配层把它们写进 shell.log。
 
@@ -325,10 +325,10 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 
 ## 切片
 
-1. **CDP 探针**（pc-notype，不提交产品代码；2026-11-14 已做，选型成立，[cdp-probe-r1.txt](evidences/cdp-probe-r1.txt)）。
+1. **CDP 探针**（Windows 开发机，不提交产品代码；2026-11-14 已做，选型成立，[cdp-probe-r1.txt](evidences/cdp-probe-r1.txt)）。
 2. **门禁与发布脚本**：`tag.ts`、`publish.ts` 的 `--plan` 与 `--ci`、`github-release.ts`、`verify-update-feed.ts`、单测。验证：`bun test scripts/release`、`bunx tsc -p scripts`（按 scripts 的 tsconfig）、`governance:check`。另加一条只读的端到端检查：只有源码检出与下载的 `dist/release/`、没有生成目录时，`publish.ts --ci` 走到“要发哪些”为止不出错（不真的发）。
 3. **两条诊断**：`update.ts` 的 `desktop.update.checked`、`shell.ts` 的 `desktop.server.stopped`。验证：`bun test src/desktop`。
-4. **Windows 冒烟脚本**：`smoke-windows.ts`、`smoke-update.ts`。在 pc-notype 上用本分支做的三个变体跑：
+4. **Windows 冒烟脚本**：`smoke-windows.ts`、`smoke-update.ts`。在 Windows 开发机上用本分支做的三个变体跑：
    - 先验两件前提：复制一份 `desktop/` 单独构建；从 tar.zst 解压出的目录加便携标记能作为便携版运行；
    - 换上后更新器拉起的 B′ 用 UI 自动化读得到“已更新到”，按 PID 关掉后带调试端口重新启动能连上；
    - 安装版、便携版：测试应用标识，`--state-root` 放 `%USERPROFILE%\nb-w00046\t11\` 下，不碰缺省状态根；
@@ -344,7 +344,7 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 | 编号 | 覆盖 |
 |---|---|
 | 提案 4.8 门禁（标签、版本、祖先、新建标签） | `tag.test.ts`；release.yml `gate` |
-| 提案 4.8 构建与冒烟 | `npm-packages` 作业（`release:smoke`）；`desktop` 作业（`smoke-windows.ts`、`smoke-update.ts`）；切片 4 的 pc-notype 运行 |
+| 提案 4.8 构建与冒烟 | `npm-packages` 作业（`release:smoke`）；`desktop` 作业（`smoke-windows.ts`、`smoke-update.ts`）；切片 4 的 Windows 开发机 运行 |
 | 提案 4.8 发布 npm（同一批、摘要、OIDC、latest 不回拨） | `publish.test.ts` 的 `distTagFor`、`planProblems`；切片 2 的只读端到端检查；第一次真实运行 |
 | 发布后 registry 核对 | `registry-smoke` 作业 |
 | 提案 4.8 Release（草稿、只补缺、摘要、最新） | `github-release.test.ts`；第一次真实运行 |
@@ -356,7 +356,7 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 ## 验证
 
 - 本机：`bun test scripts/release`、`bun test src/desktop`、类型检查、`governance:check`、`actionlint`。
-- pc-notype：切片 1 的探针，切片 4 的前提与三个冒烟；只读 UI 自动化的文字与 WebView 页面本身的截图，不按屏幕区域截图。
+- Windows 开发机：切片 1 的探针，切片 4 的前提与三个冒烟；只读 UI 自动化的文字与 WebView 页面本身的截图，不按屏幕区域截图。
 - 不跑 e2e：页面代码只有 `update.ts` 的一条诊断，没有页面改动。
 - 未验证、要等第一次真实运行的：
   - GitHub runner 上 `connectOverCDP` 是否同样可用（t01 证明窗口能起、能关）；
@@ -371,7 +371,7 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 - 不做 macOS、Linux 桌面包；不签名。
 - 不做发布说明的自动生成（`--generate-notes` 列的是提交，对用户没用）；说明用模板。
 - 风险：
-  - runner 上 Setup 不退出、WebView2 的远程调试端口被策略关掉。切片 1 先在 pc-notype 上探；CI 里失败时作业失败、不发布，证据照常上传。
+  - runner 上 Setup 不退出、WebView2 的远程调试端口被策略关掉。切片 1 先在 Windows 开发机上探；CI 里失败时作业失败、不发布，证据照常上传。
   - npm 与 GitHub 不是一个事务：可能出现“npm 已发、Release 没建”。处置见“失败与重跑”。
   - 演练模式与真实发布在门禁上的差别（不核对标签）只在 `gate` 一步，用 `tag.test.ts` 覆盖真实规则。
   - 补发旧版本时，Hutch 从 `latest/download` 取的“上一版”是更高的版本，补丁没用但无害。这样的 Release 不设为最新，已装用户不会从它取更新。

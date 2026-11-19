@@ -1,6 +1,6 @@
 # w00017 t70 实现审查：界面、无障碍与代码结构
 
-审查对象：`cd668399..65ff2649`（S0–S4）。仓库：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t70-impl-ui`。只读审查，实验与报告均在指定目录。
+审查对象：`cd668399..65ff2649`（S0–S4）。仓库：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t70-impl-ui`。只读审查，实验与报告均在指定目录。
 
 依据：t70 `plan.md`、Task `README.md`、待确认清单的 t70 条目、`docs/specs/workbench/files-explorer.md`、`commands.md`、组件规范及 nb-ui 界面开发规范。
 
@@ -110,7 +110,7 @@
 1. worktree 根执行锁定依赖安装：
 
    ```sh
-   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui prox bun install --frozen-lockfile --ignore-scripts
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui prox bun install --frozen-lockfile --ignore-scripts
    ```
 
    成功重装：`402 packages installed [742.00ms]`，退出 0。首次把安装缓存放实验目录遇到 `EDQUOT`，随后复用已有默认缓存成功；这属于实验环境，不计产品缺陷。
@@ -118,7 +118,7 @@
 2. 在 `packages/neuro-book` 执行真实控制器与文件链路合同测试：
 
    ```sh
-   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui bun test src/plugins/explorer/browse.test.ts src/plugins/explorer/actions.test.ts src/plugins/explorer/session.test.ts src/plugins/explorer/transfer.test.ts
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui bun test src/plugins/explorer/browse.test.ts src/plugins/explorer/actions.test.ts src/plugins/explorer/session.test.ts src/plugins/explorer/transfer.test.ts
    ```
 
    `48 pass, 0 fail, 338 expect() calls`；4 文件，2.40s。
@@ -126,7 +126,7 @@
 3. 在 `packages/neuro-book` 执行已有 DOM 测试：
 
    ```sh
-   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui node ../../node_modules/vitest/vitest.mjs run src/plugins/explorer/web/components -c /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/dom.config.mjs --configLoader runner --no-cache
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui node ../../node_modules/vitest/vitest.mjs run src/plugins/explorer/web/components -c /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/dom.config.mjs --configLoader runner --no-cache
    ```
 
    `3 passed` 文件、`19 passed` 测试；4.81s。
@@ -134,7 +134,7 @@
 4. 在 `packages/nb-ui` 执行已有菜单键盘测试：
 
    ```sh
-   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui node ../../node_modules/vitest/vitest.mjs run src/components/feedback/ContextMenu.test.ts -c /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/menu.config.mjs --configLoader runner --no-cache
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui node ../../node_modules/vitest/vitest.mjs run src/components/feedback/ContextMenu.test.ts -c /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/menu.config.mjs --configLoader runner --no-cache
    ```
 
    `1 passed` 文件、`2 passed` 测试；1.30s。
@@ -142,7 +142,7 @@
 5. 从 worktree 根启动隔离真实开发会话：
 
    ```sh
-   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui TMPDIR=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/run-dev.ts
+   NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui TMPDIR=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/ui/run-dev.ts
    ```
 
    Vite 页面 `http://127.0.0.1:38167/`，后端 `http://127.0.0.1:44533/`，RPC `ws://127.0.0.1:41291/`；真实临时项目、文件监视与 SQLite。内置 Chromium 执行各发现的复现路径，几何/ARIA/焦点直接从实际 DOM 取证。浏览器已关闭；`kill -TERM 2054829` 触发有序停止，后端退出 0、`page-closed`、开发会话退出 0（见 `dev-log.txt`）。

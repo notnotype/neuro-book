@@ -1,8 +1,8 @@
 # 任务：把 nb-history 的开发诊断改成英文
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/exp-a-haiku`。只改 `packages/nb-history/` 下的文件。
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/exp-a-haiku`。只改 `packages/nb-history/` 下的文件。
 
-背景：仓库定了语言政策（主工作区 `/home/notnotype/CodeRepository/neuro-book/docs/adr/0034-language-policy.md` 决策 1，以及 `docs/standards/code/common.md` 的“文字用哪种语言”一节）：开发诊断（异常 message、日志、诊断事件 message）用英文；程序只按错误码或错误类型分支；注释仍用中文，不改。
+背景：仓库定了语言政策（主工作区 `/home/<user>/CodeRepository/neuro-book/docs/adr/0034-language-policy.md` 决策 1，以及 `docs/standards/code/common.md` 的“文字用哪种语言”一节）：开发诊断（异常 message、日志、诊断事件 message）用英文；程序只按错误码或错误类型分支；注释仍用中文，不改。
 
 要做的：
 1. 把 `packages/nb-history/src/` 里异常与诊断消息中的中文改成准确、简洁的英文，意思不变；带插值的保留插值。错误码、事件名、字段名不动。给用户看的界面文字、领域内容（如果有）不在本任务，碰到就保留并在报告里列出。

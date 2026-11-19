@@ -15,7 +15,7 @@
 ## 隔离与保护
 
 - 实现分支：`refactor/w00003-nb-ui-adoption`，起点 `5b3b1069`；主工作区未切分支。
-- 验收根：`C:/Users/notnotype/AppData/Local/Temp/neuro-book/acceptance/editor-44caddf6`。
+- 验收根：`C:/Users/<user>/AppData/Local/Temp/neuro-book/acceptance/editor-44caddf6`。
 - 独立 linked worktree：`src`；独立依赖、`.nuxt`、State/Workspace/Cache 与 Chrome profile。服务 `http://127.0.0.1:44322`，Chrome CDP 44323。
 - 仅本次空 State 执行四个 SQLite migrations 和 Application State 初始化，runId `f9106bf1-c473-42d0-9988-a8a811776eac`；不迁移真实数据。Editor Alpha / Editor Beta 均由产品创建入口创建。
 - 3001 保留给开发者。本任务期间收到其无 exit code 退出通知，仅查日志，没有停止、重启或用作验收。收到本次独立服务/Chrome 退出通知后，仅恢复本次资源。
@@ -89,7 +89,7 @@
 - 聚焦门禁：应用 9 文件 / 139 例通过；nb-ui 全量测试、typecheck、`build:css` 通过且保留 `dist/nb-ui.css`；Splitter 浏览器测试 14 例通过。最终 `bun run nuxt:build:raw` 在键盘与场景校验修复后通过，96.29s，日志 `artifact://8164`。
 - 全量限制：应用 `bun run test` 在 600s 超时，已观察到 `project-image-experience.contract.test.ts` 与 `novel-ide-settings-current-project.contract.test.ts` 两个测试失败；两者不在本轮改动范围，不能声称全量通过。应用 typecheck 为 113 条 / 12 文件诊断，本轮修改文件无诊断；`scripts:typecheck` 在 `product-agent-state-root-smoke.ts:318` 报缺少 `colorwayId` / `userColorways`。额外执行的 `bun run build` 未通过，不能以 raw build 通过替代它的结果。
 - 独立审查：`DragParityReview` 复核最新文件后撤回已修复的正文事务 finding，无剩余已确认 Required/Critical；审查为只读，未重复运行验证。
-- 本轮证据根：`C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/acceptance/product-runtime/drag-parity-1790011684506`；包含 `editor-browser-proof.json`、`editor-cancel-themes.json`、`activity-final.json`、`workbench-center.json`、`workbench-keyboard.json`、`workbench-cancel.json` 和四主题截图。
+- 本轮证据根：`C:/Users/USER~1/AppData/Local/Temp/neuro-book/acceptance/product-runtime/drag-parity-1790011684506`；包含 `editor-browser-proof.json`、`editor-cancel-themes.json`、`activity-final.json`、`workbench-center.json`、`workbench-keyboard.json`、`workbench-cancel.json` 和四主题截图。
 - 最终完整 Workbench 冒烟通过：`node --import tsx scripts/smoke/component-lab.ts --url http://127.0.0.1:3001 --browser-executable "C:\Program Files\Google\Chrome\Application\chrome.exe" --suite workbench-shell`，275.08s，日志 `artifact://8166`，包含新增键盘起拖/取消不提交回归。此前源码热更新期间的一轮出现夹具空白，失败日志 `artifact://8158` 与 `workbench-interrupted.png` 保留；重启 3001 并保持源码静止后的完整复跑未再出现。空白与 HMR 的因果关系未单独验证。
 - 用户授权的 3001 重启已完成并保留服务；未执行 commit、push、合并、部署、数据库迁移或删除存储锁。本轮临时 `dev.mjs` / `format.cjs` 已移除，证据保留。
 
@@ -108,6 +108,6 @@
 - 实现保持批准合同：View 投 Switcher 插入位创建 `custom:` 容器；容器源整体移动；非空内容中央禁投且无反馈；边缘命中带 20%，预览与分配使用命中叶 50%；跨轴保留来源比例。
 - 两个独立只读审查最终均无 findings。隐藏成员不进入 `sourceSizes` 是合同语义；window 自建容器进入可移动目标也是合同允许，两条均撤回。
 - 浏览器冒烟脚本修正两处过期断言：纵向目标的非等比并入改为命中叶前缘 10%；连续拖走 Panel 容器时按当前顺序取目标的直接前驱。产品判定未放宽。
-- 最终独立冒烟：`node --import tsx C:/Users/notnotype/AppData/Local/Temp/neuro-book/acceptance/workbench-drop-v2-1790048794054/smoke.ts`，172.97s；结果文件 `smoke-result.json` 为 `{"version":1,"failures":[]}`。截图 `smoke-final.png` 同目录保留。
+- 最终独立冒烟：`node --import tsx C:/Users/<user>/AppData/Local/Temp/neuro-book/acceptance/workbench-drop-v2-1790048794054/smoke.ts`，172.97s；结果文件 `smoke-result.json` 为 `{"version":1,"failures":[]}`。截图 `smoke-final.png` 同目录保留。
 - 最终聚焦测试：`bun run test` 指定 14 个 Workbench/Editor 拖放相关文件，实际 13 files / 341 tests passed，Vitest v4.1.10，28.86s。
 - 未把应用全量 test、全量 typecheck、`scripts:typecheck` 或完整 `bun run build` 记为通过；此前已知失败与诊断仍在范围外。3001 未停止、未重启、未用于验收。

@@ -16,13 +16,13 @@ import {
     type GridBranchInput,
     type GridDroppedRef,
     type GridFailure,
+    type GridGestureCancellation,
+    type GridGestureStart,
     type GridIssue,
     type GridLayoutResult,
     type GridRestoreResult,
     type GridSashRef,
     type GridSnapshot,
-    type SplitterGestureCancelReason,
-    type SplitterGestureSource,
 } from "@notnotype/nb-layout";
 import {NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {Checkbox} from "@notnotype/nb-ui/components";
@@ -175,7 +175,7 @@ function sashLabelOf(sash: {branchId: string; index: number}): string {
     return before !== undefined && after !== undefined ? `${before}~${after}` : `${sash.branchId}:${sash.index}`;
 }
 
-function onGestureStart(info: {source: SplitterGestureSource; sashes: readonly GridSashRef[]}): void {
+function onGestureStart(info: GridGestureStart): void {
     activeSashes = info.sashes;
     lastGestureSource.value = info.source;
     emitLabEvent("gesture-start", info);
@@ -358,7 +358,7 @@ function onGestureUpdate(preview: {layout: GridLayoutResult; changes: readonly G
     emitLabEvent("gesture-update", preview);
 }
 
-function onGestureCancel(info: {reason: SplitterGestureCancelReason; sashes: readonly GridSashRef[]}): void {
+function onGestureCancel(info: GridGestureCancellation): void {
     const label = info.sashes.map(sashLabelOf).join(" + ");
     emitLabEvent("gesture-cancel", info);
     lastGestureState.value = "cancel";

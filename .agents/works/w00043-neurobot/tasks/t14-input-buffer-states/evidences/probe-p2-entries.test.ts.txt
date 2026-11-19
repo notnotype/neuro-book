@@ -1,6 +1,6 @@
 // t14 探针 2：几个入口在空闲或收口前后对缓冲区的处理（真实内核）
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 
 let n = 0;

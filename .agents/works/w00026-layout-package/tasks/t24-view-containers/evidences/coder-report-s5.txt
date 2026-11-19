@@ -1,5 +1,5 @@
 w00026 t24 切片 5：命令接上视图容器 —— 交付报告（边做边追加）
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 c9cb5ceb5，未提交）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 c9cb5ceb5，未提交）
 
 进度 0（开始）：已读 brief、plan 切片 5、Task README、ADR 0046、Spec workbench-layout（输出 11、13、20、23、35、39 到 43、验收 8、14、31）、commands.md move-view、views.md 输出 14、s2 报告第四节与第六节、s4 报告“留给切片 5”。下一步读 store、命令与菜单代码。
 

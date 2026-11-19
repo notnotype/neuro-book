@@ -215,4 +215,4 @@ vscode-docs @ 250ea55：
 - X2 microsoft/vscode-js-debug @ bccbbaf：`package.json` L161-163，`src/ui/companionBrowserLaunch.ts` L75，`src/common/defaultBrowserProvider.ts` L45
 - X3 microsoft/vscode 主分支 `product.json` 的 `builtInExtensions`，L42（`ms-vscode.js-debug-companion`）、L58（`ms-vscode.js-debug`）
 
-说明：NeuroBook 仓库没有任何改动。临时克隆放在草稿目录 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/` 下的 `vscode-src`、`vscode-docs`、`jsdebug-src`。表中标【推断】的两处（跨宿主依赖激活失败不传递；按命令激活充当能力级依赖）只做了源码链路分析，没有实际运行验证。
+说明：NeuroBook 仓库没有任何改动。临时克隆放在草稿目录 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/` 下的 `vscode-src`、`vscode-docs`、`jsdebug-src`。表中标【推断】的两处（跨宿主依赖激活失败不传递；按命令激活充当能力级依赖）只做了源码链路分析，没有实际运行验证。

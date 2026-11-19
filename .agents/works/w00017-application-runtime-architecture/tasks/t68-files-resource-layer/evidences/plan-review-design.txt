@@ -1,6 +1,6 @@
 # w00017 t68 实施计划对抗审查
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t68-files-resource-layer/plan.md`，审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t68-plan-design`；简报指定固定基线 `ab0a3e91`，本轮未另作 Git 核验。计划尚未实现；下述区分合同／代码核对、计划推断与运行实验。保留首次记录的发现编号，按影响排序，便于三份报告交叉核对。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t68-files-resource-layer/plan.md`，审查 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t68-plan-design`；简报指定固定基线 `ab0a3e91`，本轮未另作 Git 核验。计划尚未实现；下述区分合同／代码核对、计划推断与运行实验。保留首次记录的发现编号，按影响排序，便于三份报告交叉核对。
 
 ## 发现
 
@@ -141,7 +141,7 @@
 命令（从审查 worktree 根执行）：
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design bun run --tsconfig-override=./packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/runtime-smoke.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design bun run --tsconfig-override=./packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/runtime-smoke.ts
 ```
 
 实验使用真实 `createApplication`、`createRemoteNode`、`createRemoteRouter`、产品 `startRpcListener` 和 WebSocket，端口由 OS 分配（`port: 0`）。只用最小审查插件提交字符串，未模拟未来 Files 实现。
@@ -165,7 +165,7 @@ NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book
 命令（从审查 worktree 根执行）：
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/filesystem-smoke.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/filesystem-smoke.ts
 ```
 
 ```text
@@ -188,7 +188,7 @@ BOM 解码与重编码: {"text":"a\r\n","originalHash":"ea3948106c12d96eaf84d4bb
 命令（从审查 worktree 根执行）：
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/watch-cache-smoke.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/watch-cache-smoke.ts
 ```
 
 ```text
@@ -204,7 +204,7 @@ NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book
 命令（从审查 worktree 根执行）：
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design strace -f -e trace=openat,read -o /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/list-proof-strace.txt bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/list-proof-smoke.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design strace -f -e trace=openat,read -o /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/list-proof-strace.txt bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-plan/design/list-proof-smoke.ts
 ```
 
 ```text

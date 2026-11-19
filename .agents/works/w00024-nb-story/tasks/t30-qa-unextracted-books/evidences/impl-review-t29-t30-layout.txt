@@ -30,7 +30,7 @@
 - **位置**：`packages/nb-story/src/web/qa/linkable.ts:15-19`、`link-refs.ts:64-78`、`StoryMarkdown.vue:17-20`、`AnswerCard.vue:46-54`；`packages/nb-story/src/web/pages/QaPage.vue:318-327`。
 - **现象**：E=20 时，合法的跨界出处 `20.89—22.2` 仍被当作可点出处；模型显式写的 `[22.1](paragraph://22.1)`、`[第 22 章](chapter://22)` 也没有被降为纯文字。真实 StoryMarkdown 渲染出 3 个链接，点击全部发出 reference；真实 AnswerCard 中同一跨界出处的 3 个按钮均未 disabled，全部发出 `reference.open`。
 - **为什么是问题**：`refChapter` 只返回起点，范围终点跨 E 不检查；`linkRefs` 只改纯文字，已有链接直接保留；QaPage 的 `openTarget` 没有兜底边界检查。用户的尾部 `@` 引用也会走通用 PromptTextView 的引用激活通道。实际 DrawerSource 请求 `20.86—22.5` 后显示“没有第 21 章”，违背 viewer 输出 55 和计划对 `chapter://` 同样不可点的约定。
-- **如何核实**：`bun /home/notnotype/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/review-t29-30-impl/vitest.config.mjs`。真实 Vue 3 + StoryMarkdown/AnswerCard/DrawerSource + nb-markdown，happy-dom 点击（未跑浏览器/e2e）；Markdown 与卡片两条“不可点”断言失败，原文抽屉错误断言通过。普通单点 `22.1` 的自动链接确实被抑制，漏的是跨界范围与显式引用，不是所有尾部判断均无效。
+- **如何核实**：`bun /home/<user>/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/review-t29-30-impl/vitest.config.mjs`。真实 Vue 3 + StoryMarkdown/AnswerCard/DrawerSource + nb-markdown，happy-dom 点击（未跑浏览器/e2e）；Markdown 与卡片两条“不可点”断言失败，原文抽屉错误断言通过。普通单点 `22.1` 的自动链接确实被抑制，漏的是跨界范围与显式引用，不是所有尾部判断均无效。
 - **建议改法**：用 `parseRef` 校验整个范围，起点和终点均在查看器已提交范围内才可链接；把已有 paragraph/chapter 引用和用户引用小块纳入同一可打开策略。渲染层降为纯文字/禁用，统一打开入口再校验，不能只依赖自动改链一层。补跨 E 合法出处、显式 Markdown 和尾部 @ 引用的实际点击用例。
 
 ### 4. “只画最强的线”先排名后应用连线层，隐藏的强线挤掉唯一可见线
@@ -114,7 +114,7 @@
 
 ### 实验证据与固定提交的对应范围
 
-- 实验和单测运行在 `/home/notnotype/CodeRepository/neuro-book/packages/nb-story` 的当前 master；不能把这些命令称作在只读 worktree 上运行。
+- 实验和单测运行在 `/home/<user>/CodeRepository/neuro-book/packages/nb-story` 的当前 master；不能把这些命令称作在只读 worktree 上运行。
 - 已对本报告主要实验涉及的 28 个实现/配置文件执行逐字节 cmp，28 个均与 `/tmp/t29-30-review-wt` 相同；此前还核对了 qa/engine.ts、core/unextracted.ts、server/ingest-service.ts 的 SHA256 一致。该比对支持相关缺陷实验对应固定提交，但不是整个 master 与固定提交一致的证明，也不是在固定提交上跑完测试的证明。
 ### 10. chapter/para 把不在书里的章也报成“只能 read”
 
@@ -174,7 +174,7 @@
 
 ## 验证记录
 
-以下命令 cwd 均为 `/home/notnotype/CodeRepository/neuro-book/packages/nb-story`，运行对象是当时的 master。原始结果已从会话日志提取到 `/tmp/review-t29-30-impl/verification-evidence.txt`；脚本与实验数据保留在同一临时根。
+以下命令 cwd 均为 `/home/<user>/CodeRepository/neuro-book/packages/nb-story`，运行对象是当时的 master。原始结果已从会话日志提取到 `/tmp/review-t29-30-impl/verification-evidence.txt`；脚本与实验数据保留在同一临时根。
 
 1. `bun test src/qa/reach.test.ts src/qa/read-ledger.test.ts src/qa/engine.test.ts src/web/qa/source.test.ts src/web/qa/mentions.test.ts src/web/qa/link-refs.test.ts src/web/qa/ref-line.test.ts`：**89 pass，0 fail，329 expect，2.50 s**（Bun 输出为 6 files）。
 2. `bun test src/server/tools.test.ts src/web/graph/sigma-kit.test.ts src/web/host/relations-view.test.ts src/web/qa/models.test.ts src/web/qa/usage.test.ts src/cli/skill.test.ts src/core/queries/graph.test.ts`：**37 pass，0 fail，181 expect，10.36 s**。
@@ -186,7 +186,7 @@
 8. `bun /tmp/review-t29-30-impl/import-smoke.ts`：复现 5、12；并发同 id 恰有一个成功；gzip 导入成功；临时目录清空；Skill 目标符号链接拒绝且目标 marker 保持 keep。
 9. `bun /tmp/review-t29-30-impl/service-smoke.ts`：脚本化模型经真实 QaService 与网页数据源，复现 6；两次用量是脚本给出的 0.5 与 0.25，没有调用真实 Provider 或产生真实计费。
 10. `bun /tmp/review-t29-30-impl/layout-smoke.ts`：0/1 点与重合起点输出有限坐标；400 点约 7460.6 ms、401 点约 3662.2 ms。只作为 Bun 数值记录，不能替代浏览器性能验收，原发现 8 已撤回。
-11. `bun /home/notnotype/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/review-t29-30-impl/vitest.config.mjs`：**2 failed，1 passed，3 tests**。两条失败来自“尾部引用不可点击”的真实组件断言，实际生成链接并发出 reference.open，证明 3；第三条 DrawerSource 错误断言通过。AnswerCard 缺 ctx/services/locale 的 Vue 警告以及 happy-dom 收尾 AbortError 也出现在结果中，不能当作干净通过的组件套件。
+11. `bun /home/<user>/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/review-t29-30-impl/vitest.config.mjs`：**2 failed，1 passed，3 tests**。两条失败来自“尾部引用不可点击”的真实组件断言，实际生成链接并发出 reference.open，证明 3；第三条 DrawerSource 错误断言通过。AnswerCard 缺 ctx/services/locale 的 Vue 警告以及 happy-dom 收尾 AbortError 也出现在结果中，不能当作干净通过的组件套件。
 
 范围与限制：未跑 e2e、开发服务、真实模型或完整浏览器页面。既有服务单测会启动它自己的测试 serve/本地模拟端点；这不是开发服务。前两组既有单测沿用默认测试临时根 `/tmp/neuro-book/agent/`，后续服务单测统一指定 NBOOK_AGENT_TEMP_ROOT；自定义实验文件与数据均在指定审查临时根。
 

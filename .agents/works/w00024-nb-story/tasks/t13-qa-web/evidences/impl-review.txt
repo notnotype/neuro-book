@@ -218,21 +218,21 @@ omp（默认模型），13 条（重要 10、建议 3）；它又一次整份覆
 - **位置**：`packages/nb-story/src/server/qa-service.ts:185-191,206-228`；`packages/nb-story/src/qa/engine.ts:156-200,260-294`。
 - **现象**：`settle()` 只对 `runs` 里的运行调用 `controller.abort()`，对 `preparing` 里的准备没有取消；它随后无上限地等待 `preparing` 的 Promise。`start()` 把 `controller.signal` 只传给了最终的 harness `turn()`，而 `prepareQuestion` 的 `readQaConfigFile`、`openBook`、`book.info`、全读 `source.read` 和恢复日志都没有消费这个 signal。准备阶段任何一个底层 I/O 卡住，`qa.close()`、`qa.remove()` 和 `book.remove` 的 `qa.exclusive` 都一直等不到收口。
 - **为什么是问题**：停服回调在 `serve.ts:102-116` 要先等 `qa.close()`，所以服务可能既不撤销登记也不停止监听；删除会一直占用删除门。该路径违反“准备中也要取消并等待后再删/停”的不变量，不是普通模型请求超时。
-- **如何核实**：在报告目录运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/prepare-close-probe.ts`。实验走真实 `createQaService`，只把 `StoryApi.openBook` 替换成永不完成的 Promise；输出为 `still_waiting`，表示 `qa.close()` 在 150ms 内没有完成。另行静态核对可见 `settle()` 没有对 `preparing` 的 controller 调用 `abort()`。
+- **如何核实**：在报告目录运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/prepare-close-probe.ts`。实验走真实 `createQaService`，只把 `StoryApi.openBook` 替换成永不完成的 Promise；输出为 `still_waiting`，表示 `qa.close()` 在 150ms 内没有完成。另行静态核对可见 `settle()` 没有对 `preparing` 的 controller 调用 `abort()`。
 - **建议改法**：把准备项存成包含 `controller` 与 Promise 的记录，关门时先 abort 全部准备项；引擎在每个准备边界检查取消，并把底层书库/查询调用扩展为接收 AbortSignal 或用可取消的任务包装。没有可取消的底层调用时不能宣称停服可收口；至少应为这类准备失败定义有界的取消/失败路径，并补真实 `qa.remove` 与停服期间准备卡住的收口测试。
 ### 2. `onProcessTermination` 会抢在同进程的 `onProcessInterrupt` 收口完成前退出
 - **严重程度**：重要；**类别**：不变量；
 - **位置**：`packages/nb-harness/src/interrupt.ts:25-35`；调用方 `packages/nb-story/src/server/serve.ts:120-126`，相邻协议 `packages/nb-story/src/cli/ask.ts:43-57`。
 - **现象**：`postmortem` 会把同一轮登记的清理回调同时启动并等待它们；新 API 的回调却在自身完成后直接 `process.exit(await callback(signal))`。因此同一进程同时登记 `onProcessInterrupt` 与 `onProcessTermination` 时，终止回调一完成就硬退出，其他回调仍可能未完成。该 API 没有把 `onProcessInterrupt` 的 Promise 纳入 `onProcessTermination` 的等待集合。
 - **为什么是问题**：如果宿主进程同时有 ask 的“取消并写记录”和 serve 的“停服务并撤销登记”两种收口，SIGINT 会使其中一个收口被截断；记录、登记、锁和监听可能处于半完成状态。文档注释声称“同一轮里别的登记与它同时开始”，但没有说明它会在别的登记完成前退出，公开 API 的组合语义是不安全的。
-- **如何核实**：报告目录的 `termination-race-probe.ts` 注册一个 `onProcessInterrupt`（200ms 后写 `interrupt-done`）和一个 `onProcessTermination`（20ms 后返回 0），再用 `process.emit("SIGINT")` 触发真实 postmortem 收口。运行命令：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/termination-race-probe.ts`；退出码为 0，`/tmp/nb-story-termination-race.log` 只有 `termination-SIGINT-start`、`interrupt-start`、`termination-done`，没有 `interrupt-done`。
+- **如何核实**：报告目录的 `termination-race-probe.ts` 注册一个 `onProcessInterrupt`（200ms 后写 `interrupt-done`）和一个 `onProcessTermination`（20ms 后返回 0），再用 `process.emit("SIGINT")` 触发真实 postmortem 收口。运行命令：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/termination-race-probe.ts`；退出码为 0，`/tmp/nb-story-termination-race.log` 只有 `termination-SIGINT-start`、`interrupt-start`、`termination-done`，没有 `interrupt-done`。
 - **建议改法**：不要在 postmortem 清理回调内部直接 `process.exit`。让 nb-harness 提供一个“所有清理完成后再以宿主指定码退出”的单一终止协调器，或让 serve/ask 共用一个进程级幂等收口回调；若上游不能表达自定义退出码，至少明确禁止两个 API 在同一进程组合并在入口只登记一个协调器。补 SIGINT 与 SIGTERM 下两个收口同时存在时的真实子进程测试。
 ### 3. 已中止的 SSE 请求不会退订，流和心跳可以永久存活
 - **严重程度**：重要；**类别**：不变量；
 - **位置**：`packages/nb-story/src/server/http.ts:160-196`。
 - **现象**：`finish` 的 abort 监听器在 `qa.subscribe` 之后才注册，且 `start()` 没有先检查 `request.signal.aborted`。请求如果在创建流前已经中止，事件不会回放；代码仍调用 `qa.subscribe`、把订阅登记为 live，再添加一个永远不会触发的监听器并启动心跳。即使补一个最初检查，`subscribe` 与 `addEventListener` 之间仍有中止竞态。
 - **为什么是问题**：刷新、路由切换或客户端主动取消时，服务端可能保留一个订阅者和 `setInterval`；只要该请求的 abort/cancel 回调没有再次到达，问答运行期间每 20 秒继续向已中止连接入队。多个快速重连会把订阅表和定时器泄漏，并削弱积压上限的收口保证。
-- **如何核实**：报告目录运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/aborted-sse-probe.ts`。它调用真实 `createHandler`，给一个已 abort 的 `Request`，只替换 `QaService.subscribe` 以记录 `close()`；输出 `{"aborted":true,"closed":0,"bodyLocked":false}`，且进程因 live body 未关闭在 30 秒命令期限后仍未自然结束。
+- **如何核实**：报告目录运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/aborted-sse-probe.ts`。它调用真实 `createHandler`，给一个已 abort 的 `Request`，只替换 `QaService.subscribe` 以记录 `close()`；输出 `{"aborted":true,"closed":0,"bodyLocked":false}`，且进程因 live body 未关闭在 30 秒命令期限后仍未自然结束。
 - **建议改法**：在订阅前登记 abort 监听，并把 `finish` 设计成能处理 `subscription === null`；订阅完成后立即再次检查 `signal.aborted`，若已中止则关闭刚建立的订阅和流，不启动心跳。补“请求创建前已中止”和“subscribe 后、注册监听前中止”的真实 handler 测试。
 ### 4. 服务登记发布后、终止回调登记前仍有信号窗口
 - **严重程度**：重要；**类别**：不变量；
@@ -246,7 +246,7 @@ omp（默认模型），13 条（重要 10、建议 3）；它又一次整份覆
 - **位置**：`packages/nb-story/src/qa/config.ts:47-55,74-83`。
 - **现象**：`readConfigText()` 用 `readFile(path, "utf8")` 先把字节解码成字符串，`digestOf()` 再对字符串重新编码后计算 SHA-256。非法 UTF-8 字节会被替换成同一个 `�`，不同的原文件因此得到相同摘要；这与计划和合同要求的“文件原字节 sha256”不一致。
 - **为什么是问题**：`config.get` 返回的 `digest` 不再是文件字节的摘要，且 `expect` 不能可靠检测坏文件在读取期间被替换。两个不同的非法字节文件可以共享摘要，随后带这个摘要的 `config.set` 会被接受，破坏配置写入的 CAS 不变量；坏文件正是设置页允许整份覆盖的状态。
-- **如何核实**：报告目录运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/digest-bytes-probe.ts`。它分别写入单字节 `0xff` 与 `0xfe`，当前实现输出 `same:true` 且两次摘要都是 `83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097`。
+- **如何核实**：报告目录运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/digest-bytes-probe.ts`。它分别写入单字节 `0xff` 与 `0xfe`，当前实现输出 `same:true` 且两次摘要都是 `83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097`。
 - **建议改法**：读取配置时保留 `Buffer`，摘要直接对原始 `Buffer` 做 SHA-256；同一份字节再按 UTF-8 解析 JSON。`readQaConfigFile` 与 `currentConfigDigest` 共用这个“原字节 + 解码文本”结果，并补非法 UTF-8 两个不同文件摘要不同、`expect` 冲突的测试。
 
 
@@ -257,7 +257,7 @@ omp（默认模型），13 条（重要 10、建议 3）；它又一次整份覆
 - **位置**：`packages/nb-story/src/qa/config.ts:49-55,80-83`；`packages/nb-story/src/server/qa-service.ts:376-386`。
 - **现象**：`readConfigText()` 只把 `ENOENT` 转成 `null`，但 `currentConfigDigest()` 又对所有异常 `.catch(() => null)`，所以目录、权限错误、I/O 错误都被当成 `ABSENT_CONFIG`。`configGet()` 在读摘要阶段就返回 `state:"absent"`，根本不会进入 `state:"invalid"`。
 - **为什么是问题**：合同明确把“文件读不成”归入 invalid；更严重的是页面拿到 `expect:"absent"` 后会尝试新建/覆盖，而它并不知道路径上已有不可读对象。这样会把“不能读”和“根本不存在”混成两个不同的 CAS 前提，可能覆盖用户无法读取的配置，或在目标是目录时给出误导的起始表单。
-- **如何核实**：报告目录运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/config-read-error-probe.ts`。它把 `config.json` 建成目录，调用真实 `createQaService().call("config.get", {})`，当前输出为 `ok:true`、`state:"absent"`、`digest:"absent"`。
+- **如何核实**：报告目录运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/config-read-error-probe.ts`。它把 `config.json` 建成目录，调用真实 `createQaService().call("config.get", {})`，当前输出为 `ok:true`、`state:"absent"`、`digest:"absent"`。
 - **建议改法**：摘要读取只把明确的 `ENOENT` 视为 absent，其余错误保留为 invalid/不可读状态；为不可读文件定义不等于 `absent` 的 `digest`/expect 语义，不能让 `expect:"absent"` 覆盖未知内容。补目录、权限拒绝和读取错误的 `config.get`/`config.set` 合同测试，并核对响应不回传原文。
 
 ## 审查记录纠正
@@ -275,7 +275,7 @@ omp（默认模型），13 条（重要 10、建议 3）；它又一次整份覆
 - **位置**：审查 worktree `packages/nb-story/src/server/http.ts:136-139`；`packages/nb-story/src/server/qa-service.ts:455-460`。
 - **现象**：HTTP 层只确认 `params.book` 是字符串，就先进入 `qa.exclusive(book, call)`。`exclusive` 先 abort 并等待全部问答，之后 `call()` 才在核心 API 校验 `book.remove` 输入。带额外字段的无效请求 `{book:"fox", unexpected:true}` 因而会停止该书全部运行中的问答，最终却返回 HTTP 400 `invalid_params`，书也没有删除。
 - **为什么是问题**：输入被拒绝不应产生删除的停止副作用；已认证的错误客户端请求足以丢弃用户正在生成的答案并存成中断。原 API 在 schema 校验后才执行删除，此次新增包装把副作用移到了验证边界之前。
-- **如何核实**：运行报告目录的 `http-boundary-probe.ts`（真实 `nbstory serve` 子进程、真实 HTTP、真实书库、本机 OpenAI 端点，不调用真实模型）：`bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/http-boundary-probe.ts`。输出 `scenario:"invalid-remove"`、`removeStatus:400`，随后 `qa.get` 的该轮已为 `status:"interrupted"` 且保存成功；服务最终退出 0。
+- **如何核实**：运行报告目录的 `http-boundary-probe.ts`（真实 `nbstory serve` 子进程、真实 HTTP、真实书库、本机 OpenAI 端点，不调用真实模型）：`bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/http-boundary-probe.ts`。输出 `scenario:"invalid-remove"`、`removeStatus:400`，随后 `qa.get` 的该轮已为 `status:"interrupted"` 且保存成功；服务最终退出 0。
 - **建议改法**：在进入 `qa.exclusive` 前按 `STORY_METHODS["book.remove"].input` 完整校验，失败直接返回 `invalid_params`；验证通过的同一份参数再进入删除门。补“无效删书请求不改变运行状态、模型仍可继续”的真实服务测试。
 
 ### 8. 全读投影靠用户正文猜身份，既截错普通问题，也会漏出合法原文
@@ -291,7 +291,7 @@ omp（默认模型），13 条（重要 10、建议 3）；它又一次整份覆
 - **位置**：审查 worktree `packages/nb-story/src/server/qa-service.ts:71-85,245-270,316-331,345-365,443-447`。
 - **现象**：运行仅存 `book` 字符串而不存开始时的 `generation`；`qa.list` 把磁盘找不到的任意内存运行当作新书的“首轮”，`qa.get` 对新代磁盘的 `qa_record_not_found` 也直接返回旧 run。CLI 的 `remove`/`import` 直接调用核心库，不经过 HTTP 的 `qa.exclusive`，服务里的 ended 表不会清理。
 - **为什么是问题**：违反 qa 输出 16、29 和“时序与寿命”的代际隔离：别的一代记录不能列出或显示。用户把一本书删掉、以同 id 导入另一代后，会在新书看到原书问题与回答；甚至出现 `record:null`、`turns:0`、`saved:true`，却声称“第一轮没有保存”的矛盾状态。运行中跨进程删除/重导入也有同一根因。
-- **如何核实**：运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/generation-probe.ts`。真实服务先完成一问，随后真实 CLI `remove fox --library … --json` 与 `import … --id fox --library … --json` 均退出 0。新代 `qa.list` HTTP 200 仍列“原书独有问题”（`turns:0`、`run.saved:true`）；`qa.get` HTTP 200 返回 `record:null` 和旧书回答，而非 `qa_record_not_found`。服务收口退出 0。
+- **如何核实**：运行 `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/generation-probe.ts`。真实服务先完成一问，随后真实 CLI `remove fox --library … --json` 与 `import … --id fox --library … --json` 均退出 0。新代 `qa.list` HTTP 200 仍列“原书独有问题”（`turns:0`、`run.saved:true`）；`qa.get` HTTP 200 返回 `record:null` 和旧书回答，而非 `qa_record_not_found`。服务收口退出 0。
 - **建议改法**：由 `PreparedQuestion` 交出开始时 canonical book id 与 generation，Run 明确保存它们；list/get/subscribe 与当前代比对，旧代运行不可合并进新代。跨进程删书的旧运行可以继续按既定规则完成且保存失败，但终态必须按原代隔离。补 CLI 删除/重导入期间 active 与 ended 两种真实服务场景。
 
 ### 10. 配置摘要对解码后的文本计算，坏文件的不同原字节得到同一摘要
@@ -299,19 +299,19 @@ omp（默认模型），13 条（重要 10、建议 3）；它又一次整份覆
 - **位置**：审查 worktree `packages/nb-story/src/qa/config.ts:47-55,74-83`。
 - **现象**：先 `readFile(path,"utf8")`，再对字符串做 SHA-256；非法 UTF-8 的不同字节会解码为同一个替换字符。合同明确选了“原字节 SHA-256”，不仅是 JSON 语义摘要。
 - **为什么是问题**：设置页允许对 invalid 配置整份重写，坏文件也需要可靠的 expect。文件由单字节 `0xff` 改成 `0xfe` 后摘要不变，客户端不会得到 `config_conflict`。影响限定于非法 UTF-8 文件，不影响正常 UTF-8 配置，因此列建议级。
-- **如何核实**：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/digest-bytes-probe.ts`，真实文件分别写入 `0xff` 与 `0xfe`，输出 `same:true`；两者均为 `83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097`。
+- **如何核实**：已运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/digest-bytes-probe.ts`，真实文件分别写入 `0xff` 与 `0xfe`，输出 `same:true`；两者均为 `83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097`。
 - **建议改法**：同一次 read 返回 Buffer，摘要直接对 Buffer 计算，再解码和解析 JSON；两种读取入口共用这个结果。补不同非法 UTF-8 字节的摘要与 stale expect 测试。
 
 ## 第 6 条追加核实
 
-`config-http-probe.ts` 已经经真实服务验证数据丢失路径：配置文件存在但 `chmod 000` 后，`config.get` HTTP 200 返回 `state:"absent"`；紧接着 `config.set {expect:"absent", …}` HTTP 200 成功把原文件替换，最终磁盘 `model.id` 为 `overwritten-unread-file`。命令：`bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/config-http-probe.ts`。目录有写权限、文件无读权限是正常 POSIX 权限组合；实验没有替换文件 API 或伪造时序。
+`config-http-probe.ts` 已经经真实服务验证数据丢失路径：配置文件存在但 `chmod 000` 后，`config.get` HTTP 200 返回 `state:"absent"`；紧接着 `config.set {expect:"absent", …}` HTTP 200 成功把原文件替换，最终磁盘 `model.id` 为 `overwritten-unread-file`。命令：`bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/config-http-probe.ts`。目录有写权限、文件无读权限是正常 POSIX 权限组合；实验没有替换文件 API 或伪造时序。
 
 ### 11. 宿主终止回调仍被 postmortem 的 10 秒上限硬截断，早于抽取的 15 秒停止宽限
 - **严重程度**：重要；**类别**：不变量；
 - **位置**：审查 worktree `packages/nb-harness/src/interrupt.ts:30-35`；`packages/nb-story/src/server/serve.ts:102-125`；相邻既有 `packages/nb-story/src/ingest/runner.ts:25,158-163`。
 - **现象**：新 API 把宿主回调登记进 postmortem，但没有改变它的清理期限。postmortem 在约 10 秒后自行退出 `128 + signal`，即使宿主回调尚未完成。serve 先等待 `ingest.close()` 和 `qa.close()`，而抽取任务自身的停止兜底期限是 15 秒：需要进入 15 秒兜底的合法停止路径一定到不了撤销登记、停监听与返回宿主退出码那几步。
 - **为什么是问题**：新增 API 与 agent.harness 输出 20 承诺“回调 Promise 完成后按宿主码退出”不符；也把旧 serve 自主等待的收口截短为上游 10 秒。慢盘保存或抽取线程在不可中止步骤里停留超过 10 秒时，正常终止会留下登记、丢失本轮保存，并以 130/143/129 而非 0 或撤销失败的 1 退出。
-- **如何核实**：已运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/termination-deadline-probe.ts`。真实子进程通过公开 `onProcessTermination` 登记 11 秒收口并应返回 1，父进程在 ready 后实际发送 SIGTERM；实测 `exit:143`、`ms:10057`，证据文件只有 `start:SIGTERM`、没有 `done`。此为公开 API 的真实信号运行，不是伪造内部清理时序；15 秒与 10 秒的服务组合从源码核实，未声称已经让产品抽取线程卡到 15 秒。
+- **如何核实**：已运行 `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/termination-deadline-probe.ts`。真实子进程通过公开 `onProcessTermination` 登记 11 秒收口并应返回 1，父进程在 ready 后实际发送 SIGTERM；实测 `exit:143`、`ms:10057`，证据文件只有 `start:SIGTERM`、没有 `done`。此为公开 API 的真实信号运行，不是伪造内部清理时序；15 秒与 10 秒的服务组合从源码核实，未声称已经让产品抽取线程卡到 15 秒。
 - **建议改法**：让上游终止协调器允许宿主接管期限和最终退出码，或调整服务的整体停止期限使所有已承诺兜底先完成；不要在一个受 10 秒上限约束的 callback 里宣称无条件等完宿主。补大于 10 秒的真实子进程合同测试，并让 serve 的抽取/问答收口期限与进程退出协议一致。
 
 ### 12. 合法的 `__proto__` 环境变量名被 keys 结果静默丢掉

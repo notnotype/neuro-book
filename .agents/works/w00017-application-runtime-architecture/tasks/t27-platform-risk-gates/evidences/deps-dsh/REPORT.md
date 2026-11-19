@@ -1,6 +1,6 @@
 # DSH 插件两端结构与依赖处理调研（只读，以源码为准）
 
-调研对象是 `/home/notnotype/CodeRepository/deepseek-harness`，HEAD 为 `21638c5631`。下文路径都相对该仓库根。证据等级分三种：【源码】【文档】【推断】。本次没有修改任何仓库文件，也没有运行 DSH。
+调研对象是 `/home/<user>/CodeRepository/deepseek-harness`，HEAD 为 `21638c5631`。下文路径都相对该仓库根。证据等级分三种：【源码】【文档】【推断】。本次没有修改任何仓库文件，也没有运行 DSH。
 
 ## 1. 结论
 
@@ -121,7 +121,7 @@
 
 ## 5. 与已有 NeuroBook 调研不一致的地方
 
-对照文件：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/docs/research/cordis-plugin-kernel.md`
+对照文件：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/docs/research/cordis-plugin-kernel.md`
 
 1. **“客户端”小节说外部依赖“只能解析到外壳冻结的共享模块表 PLATFORM_MODULES”，这不准确。** 实际解析顺序是：seed 表、已物化记录、图中的包行、已注册工厂（`manifest.ts:18-21`）。`dsh.client.external` 可以请求另一个动态包行，目前有 5 个包在用。PLATFORM_MODULES 只是隐式基线。
 2. **同一处说“Host 扫描已启用的 Loader entry”，少了一个条件。** 还要求该 entry 已有 fiber，也就是 Node 端 import 成功（`index.ts:984`）。这也说明只有浏览器部分的包必须带一个能导入的 Node 端。

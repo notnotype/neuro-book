@@ -21,28 +21,28 @@
 - **建议改法**：增加真正的最小启动前置入口：先只执行快照和必要的 Bun 启动环境读取，再动态导入清单与 `server/main`、`development-main`、fixture；或把快照实现放进一个不依赖任何产品/OMP模块的进程入口并由所有服务端入口统一使用。明确项目子进程是否需要同一能力，并测试产品、开发 worker、fixture、重启及项目子进程五条路径。
 ### 4. 凭据库读写方案没有锁定公开 API，直接读表会绕过 OMP 的数据合同（阻断）
 - **严重程度**：阻断；**类别**：不变量
-- **位置**：计划第 2、3.3、7、8 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth-storage.ts:102-108,267-275`；`auth/types.ts:821-932`；`auth/sqlite-credential-store.ts:64-72,108,455-486,637-731`
+- **位置**：计划第 2、3.3、7、8 节；`/home/<user>/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth-storage.ts:102-108,267-275`；`auth/types.ts:821-932`；`auth/sqlite-credential-store.ts:64-72,108,455-486,637-731`
 - **现象**：计划只说用 `AuthStorage.create()`，然后“自己读库里的 API Key”，没有说明是调用公开的 `credentials.list/get/set/remove`，还是直接 SQL 读 `auth_credentials`。公开 API 已明确提供按 provider 的活动凭据读写；底层表目前有 `disabled_cause` 软删除、`identity_key`、多条凭据、WAL、`data_version` 和 schema version 8，且打开时会迁移并建立变更追踪。
 - **为什么是问题**：直接 SQL 若漏掉 `disabled_cause IS NULL` 会复活软删除；按 provider 取第一行却不定义多条 API key 的选择；把 `identity_key` 当 API key 逻辑会破坏 OAuth 兼容；不走 OMP 的写入事务、busy timeout、迁移与外部变更轮询会在并发写或 OMP 升级后得到旧数据、`SQLITE_BUSY` 或错误数据。反过来若使用 `credentials.set`，它的 replace 语义会影响同 provider 的其它凭据，计划必须明确接受还是避免。
 - **如何核实**：`AuthStorage.credentials.list(provider)` 返回活动 `StoredAuthCredential[]`，`credentials.get(provider)` 明确“多条时取第一条”，`credentials.set` 调 `replaceAuthCredentials`；该实现按 provider 替换未匹配行并软删除。并行打开两个 `AuthStorage` 实例，或用 OMP 另一进程写后只调用一次本插件的缓存读取，即可观察未轮询时的陈旧状态。
 - **建议改法**：把实现合同写死为只经 `AuthStorage.credentials.list/get/set/remove`，并规定 API key 与 OAuth 混存、多条 API key、活动行顺序、软删除和错误映射；若必须直接 SQL，应把数据库 schema 版本、事务、WAL/busy timeout、迁移兼容和跨进程变更检测写成独立适配层，不要把 OMP 私有表当本插件接口。
 ### 5. `env:` 写进 OMP 凭据行后对其它 OMP 消费者是字面密钥（重要）
 - **严重程度**：重要；**类别**：安全与性能
-- **位置**：计划第 2、3.3、3.4、8 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/cascade.ts:22-29,408-479`；`auth/types.ts:935-951`
+- **位置**：计划第 2、3.3、3.4、8 节；`/home/<user>/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/cascade.ts:22-29,408-479`；`auth/types.ts:935-951`
 - **现象**：计划把 `env:VAR` 原文存入 OMP 凭据库，再绕开 `AuthStorage.keys.get` 自己解析。OMP 公开凭据模型的 API key 只是字符串；它的 config resolver 只把“恰好是环境变量名”的配置值解析为环境值，`env:VAR` 没有原生语义。`keys.get` 也会把环境、OAuth、登录 key 和存储 key 按自身优先级组合。
 - **为什么是问题**：本插件发请求时可正确解析，但 OMP CLI、其它 OMP 实例或未来调用 `credentials`/`keys` 的代码会把 `env:VAR` 当真实 key 或不可用字面量，可能把 `env:VAR` 发到服务商；同一 provider 的凭据在共享库里失去一致语义。计划没有说明这是有意的库级互操作破坏，也没有给 row/source 标记或清理策略。`env:` 变量不存在时还会出现状态显示“已保存”但真实请求无凭据的分裂。
 - **如何核实**：向真凭据库写入 `api_key` 值 `env:FOO`，分别用本插件的解析路径和 `AuthStorage.keys.get(provider)` 读取；后者不会按本计划的 `env:` 规则取 `FOO`。源码中的 `defaultConfigValueResolver` 只对 exact env name 做兜底，且 `keys.get` 的存储 key 是最后一层。
 - **建议改法**：在计划中明确库的所有消费者和互操作边界。优先让 OMP 公开凭据层保存可区分的来源形状，若该 API 不支持则不要假装这是 OMP API key：建立插件拥有的、仍符合“凭据不进设置”的安全存储记录；若开发者坚持同库原文保存，至少记录“不兼容 OMP 原生读取”的合同、避免 OMP 请求路径误用，并在测试中覆盖另一个 OMP reader。
 ### 6. 设置一个 API Key 会软删除同 provider 的 OAuth 和其它凭据（重要）
 - **严重程度**：重要；**类别**：正确性
-- **位置**：计划第 2、3.3、3.4 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/pool.ts:569-575`；`auth/sqlite-credential-store.ts:1334-1383`；`auth/types.ts:888-905`
+- **位置**：计划第 2、3.3、3.4 节；`/home/<user>/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/pool.ts:569-575`；`auth/sqlite-credential-store.ts:1334-1383`；`auth/types.ts:888-905`
 - **现象**：计划选择 `AuthStorage` 作为统一 OMP 凭据库，第一版不做 OAuth 登录但明确保留 OAuth 表。若 `setKey` 通过公开 `credentials.set(provider, {type:"api_key", key:value})` 实现，OMP 的 `replaceAuthCredentials` 会把该 provider 中未匹配的所有活动行以 `replaced by newer credential` 软删除；`clearKey` 的 `remove(provider)` 则删除该 provider 全部凭据。计划没有说明是否允许破坏已有 OAuth 登录或多账户凭据。
 - **为什么是问题**：升级到包含本插件的 NeuroBook 后，用户在设置页填一次 API Key 可能让 OMP 其它功能失去 OAuth/多账户认证；清除界面里的 API Key 也可能清掉用户没有在本页看到的凭据。这违反“统一使用 OMP 凭据库”应保持既有凭据语义的直觉，也使“第一版不做 OAuth 登录”变成“第一版会破坏 OAuth”。
 - **如何核实**：在真库中先写入一个 OAuth 行和一个 API key 行，再调用 `credentials.set`；`list(provider)` 只剩新 key，旧行的 `disabled_cause` 为替换原因。调用 `remove(provider)` 会删除全部活动行。
 - **建议改法**：先明确 API key 与 OAuth 的共存规则。若本插件只管理自己的 API key，采用按 credential id 的删除/更新接口并保留 OAuth；若 OMP 公开 API 不支持“只替换 API key”而 `upsert` 又按类型有特殊语义，就在适配层实现按行 CAS，并把“多条 API key 选择与清理”写入合同；UI 的清除也必须只清掉本页管理的那一行。
 ### 7. 凭据外部修改与多实例同步没有实现合同（重要）
 - **严重程度**：重要；**类别**：不变量
-- **位置**：计划第 2、3.3、3.4、5、6 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/types.ts:821-862`、`auth/sqlite-credential-store.ts:2086-2128`；`docs/specs/settings/configuration.md:135-145`
+- **位置**：计划第 2、3.3、3.4、5、6 节；`/home/<user>/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/types.ts:821-862`、`auth/sqlite-credential-store.ts:2086-2128`；`docs/specs/settings/configuration.md:135-145`
 - **现象**：OMP 的 `CredentialPool` 提供 `reload`、`poll`、`revalidate`、`onGeneration`，SQLite store 以 `PRAGMA data_version` 和 auth revision 检测其它连接的提交。计划的 `CredentialStore` 只有 `status/set/clear/resolve/close`，没有外部变更订阅、轮询周期、失效时机或重读失败状态；切片 2 只验“重开、清除”，切片 3 只验窗口订阅。
 - **为什么是问题**：OMP CLI、另一个 NeuroBook 进程或管理员直接改库后，本插件的内存状态、`keyStatus` 与同步 `ModelPort.resolve` 会继续使用旧值；两个实例分别缓存不同 key 时，设置页和实际请求可观察到不同凭据。设置 Spec 对用户层外部修改要求即时发布，这里却没有对应的凭据合同。
 - **如何核实**：打开两个真实 `AuthStorage`/插件实例，实例 A 写入或删除 provider，实例 B 不调用 `poll` 只读 `credentials.list/status/resolve`；B 的缓存保持旧快照。随后调用 `poll`/`reload` 才能看到变更，证明计划缺少的机制确实是必需的。
@@ -112,7 +112,7 @@
 - **建议改法**：把每条判据拆成可执行验收：真实 server/browser RPC 子进程断线；两个 `AuthStorage`/两个设置窗口；真实入口分别跑 product/dev/fixture；端点回显 header/超大错误；目录副本升级；未绑定/消失凭据与自定义模型边界。若仍不做某一项，在第 8 节写明不做及影响，而不是把它留在“验收”之外。
 ### 17. 凭据路径和权限只写了 POSIX 口径，Windows 与已有目录没有合同（建议）
 - **严重程度**：建议；**类别**：安全与性能
-- **位置**：计划第 3.3、3.4、7 节；`/home/notnotype/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/sqlite-credential-store.ts:587-611`；计划 `plan.md:16,90,168,174`
+- **位置**：计划第 3.3、3.4、7 节；`/home/<user>/.bun/install/cache/@oh-my-pi/pi-ai@18.14.0@@@1/src/auth/sqlite-credential-store.ts:587-611`；计划 `plan.md:16,90,168,174`
 - **现象**：计划把 `<状态根>/agent/credentials.db` 写成目录 0700、文件 0600，并把 Windows 权限列为未验证。OMP `open` 只在目录不存在时以 0700 创建，文件 chmod 失败会被忽略（Windows 等情况）；已存在的目录不会收紧权限，也没有 Windows ACL 等价物、符号链接/重解析点或状态根权限诊断。
 - **为什么是问题**：安全合同声称文件 0600，但 Windows 上实际可能继承父目录 ACL；已有状态根从旧版本或其它工具创建时目录也可能可被同用户组读取。多实例场景还必须区分 NeuroBook 的状态根 claim（防两个服务端）与 OMP/其它进程同时打开同一 SQLite；不能仅以“WAL”推断本插件的直接读取安全。
 - **如何核实**：在 Windows 或模拟已有宽权限目录的真临时根中调用 `AuthStorage.create`，检查目录权限/ACL 和 symlink/reparse 行为；在两个独立进程同时启动、迁移、写入同一 db，记录 busy、schema migration 和最终凭据。计划第 7 节明确没有这些结果。

@@ -1,0 +1,113 @@
+## 发现
+
+我没跑类型检查和测试，下面都是读代码得出的结论（从代码推断）。
+
+### 1. SDK 的 `@deprecated` 别名，照计划写会让 `pack.test.ts` 失败
+**严重程度**：重要　**类别**：兼容与迁移、验收映射
+**位置**：plan“改名”最后一条；`packages/neuro-book/plugin-sdk/pack.test.ts:330-331`；`src/sdk/sdk.test.ts:57-62`
+**现象**：`pack.test.ts:330` 用正则 `export (?:type )?\{([^}]+)\}` 从 `components.ts` 取名单，再与 `components.d.ts` 末尾的 export 列表逐项相等比较。`@deprecated` 只能挂在声明上，挂不到再导出的说明符上。别名有两种写法，都过不了：
+- 写成 `export type SplitterGestureSource = GridGestureSource`：正则看不到它，`.d.ts` 里却有，第 331 行失败。
+- 写成 `export type {GridGestureSource as SplitterGestureSource}`：名单里是 `GridGestureSource as SplitterGestureSource`，对不上声明里的 `SplitterGestureSource`。这样也没有弃用提示。`sdk.test.ts:61` 还会把别名算进差集而失败，因为 `layout` 集合里没有这个名字。
+
+**为什么是问题**：计划的验证只写“`pack.test.ts` 的作者项目类型检查”，没把改 `pack.test.ts` 列为要改的文件。照字面实现，第 1 片的验证会红，要返工。
+**如何核实**：读上面两处行号。写好别名后跑 `pack.test.ts` 的“类型导出的名字”一条。
+**建议改法**：
+- 用声明式别名（`import type` 加带 `@deprecated` 的 `export type`）。
+- 把 `pack.test.ts:330` 的取名逻辑改成读语法树，同时认 `export type X = …`；或在计划里单列“弃用别名”清单，两处测试各比对一次。
+- 第 1 片里确认生成的 `components.d.ts` 保留了 `@deprecated` 注释。别名只是类型，运行时的宿主模块表不受影响。
+
+### 2. `./text` 子路径在范围外，`useLayoutText` 是没人用的泄漏
+**严重程度**：重要　**类别**：公开面划分
+**位置**：plan“两个入口”“子路径”；`packages/nb-layout/src/vue/text.ts`
+**现象**：`./text` 导出 `LayoutTextKey`、`LayoutTextParams`、`LayoutTranslate`、`LAYOUT_TEXT_KEY`、`useLayoutText`。
+- 仓库里只有应用的 `host-text.ts` 和它的测试用 `LAYOUT_TEXT_KEY` 与 `LayoutTranslate`，README 只写 `LAYOUT_TEXT_KEY`。
+- `useLayoutText` 是组件内部取文字的函数，没人导入，也没人写进文档。
+- 盘点和 `exports.test.ts` 都只管 `.` 与 `./vue`，`./text`、`./locales` 不在盘点里，也不受禁用词测试覆盖。
+
+**为什么是问题**：这正是本任务要堵的问题，将来发布后它受版本承诺约束；t35 刚加的子路径一出生就没被清点。
+**如何核实**：`rg "nb-layout/text"` 看使用方；读 `text.ts` 的导出。
+**建议改法**：
+- 把 `./text`、`./locales` 一并清点，`useLayoutText` 不再从 `text.ts` 公开导出，改放内部文件。
+- `exports.test.ts` 对 `package.json` 的 `exports` 里每个非 `lab-sources` 的入口都跑一遍，不要硬编码两个文件。
+
+### 3. 盘点的“文档”判据按字面匹配，`finite` 是误报；脚本没保存
+**严重程度**：重要　**类别**：公开面划分、验收映射
+**位置**：`exports-inventory.txt` 里 `.	finite	文档`；plan“盘点”一行
+**现象**：`finite` 是 `Number.isFinite` 加回退的小工具。它被标成“文档”，原因是 `nested-grid.md:270` 里有错误码 `not-finite`。nb-layout 的 `.md` 和 Spec 里没有这个函数。盘点还写着“脚本见同目录说明”，但 `evidences/` 里只有一个 `.txt`，没有脚本也没有说明。
+**为什么是问题**：计划写“实施时按它照抄”。照抄会把一个内部件留在公开面，而且 t35 合入后盘点基线（`52a97a76a`）就会漂移，没法复算。
+**如何核实**：用词边界在 `docs/specs/ui/*.md` 和 `packages/nb-layout/**/*.md` 里搜 `finite`，只有 `not-finite`。
+**建议改法**：
+- 把脚本提交进 `evidences/`，标“文档”的要求名字出现在代码片段或行内代码里。
+- 实施前在 t35 合入后的代码上重跑一遍。
+- 至少先把 `finite` 改成内部。
+- 我对其余 24 个“文档”项只抽查了一部分（`solveSashCollapse`、`DRAG_GESTURE_DEFAULTS`、Sortable 一组确有出处），其余没逐个核。
+
+### 4. 改名后，独立 Splitter 的载荷类型带上 `Grid` 前缀
+**严重程度**：建议（待确认）　**类别**：别扭与反常
+**位置**：plan“改名”；`splitter-gesture.ts:11-29`；`sash-gesture.ts:27,38,69`
+**现象**：这两个类型挪到 `sash-gesture.ts`，是因为独立 `Splitter` 和 `NestedGrid` 共用。改名后，`SplitterGestureState.source`、`SplitterGestureCancellation.source` 与 `.reason` 的类型名都成了 `GridGesture*`。`Splitter.vue` 的头注释写的是“Grid 不用它”。`sash-gesture.ts` 现有的前缀本来是 `Sash*`（`SashGestureCommit`、`SashGestureSessionCore`、`SashGestureHost`）。同文件里 `"pointer" | "keyboard"` 内联了 3 处（第 27、38、69 行），计划没说要改用别名。
+**为什么是问题**：发布前的最后一次便宜改名，选了一个对一半使用者不贴切的前缀。
+**建议改法**：叫 `SashGestureSource`、`SashGestureCancelReason`，并把内联的字面量换成别名；或在待确认里明说“Splitter 的载荷也用 `GridGesture*`”。
+
+### 5. `useSashGesture` 留下，配套件被划为内部
+**严重程度**：建议　**类别**：公开面划分
+**位置**：盘点 `useSashGesture` 标“文档”；`sash-gesture.ts:19` 的 `sashKey`；`src/vue/SashHandle.vue`
+**现象**：`nested-grid.md:332` 把 `useSashGesture` 列为公开入口。它返回的 scope 里，`hovered`、`revealed`、`active` 和 `keydown(event, key)` 都以 `branchId:index` 为键。算这个键的 `sashKey()` 没从入口导出，渲染分隔条的 `SashHandle.vue` 也不导出。
+**为什么是问题**：第三方照 Spec 想“自己做分隔条”，只靠入口里的名字搭不出来。`SashRegistration` 要的 `element` 要自己渲染，键要自己拼字符串。这个缺口原来就有，计划把它固化成了“公开”。
+**建议改法**：二选一。要么把 `useSashGesture` 一起降为内部（现在没人经包名导入它）；要么补 `sashKey`，并写明第三方要自己渲染 separator。
+
+### 6. 禁用词测试的边界
+**严重程度**：建议　**类别**：测试
+**位置**：plan“导出名测试”；`grid-drop.ts:136,254`；`drag-gesture.ts:53-77`
+**现象**：
+- `region` 和 `container` 在包里有通用用法：公开函数入参里的 `containerRect`、`DragGestureConfig` 键盘部分的 `regions`/`region`、`layout(container)`。测试只扫导出名和 `data-*`，这些成员名不会被拦，现在零误伤。但把 `region` 整词禁掉，将来一个通用的 `DragRegion` 会被误拦。
+- `AGENTS.md:9` 的规则含“编辑组”和“具名面板”，没有词可查；计划又加了规则里没有的 `sidebar`、`explorer`、`terminal`、`workbench`。
+- 我扫了所有非测试源码里的 `data-*`，没有禁用词，首次通过没问题。
+- 计划里“`index.ts` 里一行写多个名字”的现状（`index.ts:7` 一行 7 个）会让“新增导出评审时看得见”打折。
+
+**建议改法**：
+- 把禁用词表和规则的对应关系写进测试头注释，注明成员名不扫。
+- `AGENTS.md` 的措辞限定为“导出名与 `data-*`”。
+- 要求清单一行一个名字，便于评审和合并。
+
+### 7. Spec 改动的落点有两处不存在
+**严重程度**：建议　**类别**：验收映射
+**位置**：plan“Spec 与文档改动”
+**现象**：`layout-drag.md`、`sortable-list.md`、`nested-grid.md` 里一处 `SplitterGesture*` 也没有，“`layout-drag.md` 提到处改新名（实施时搜）”这条是空的。唯一提到旧名的是提案第 345 行。`nested-grid.md` 没有 `gesture-start`、`gesture-cancel` 载荷的输出条目（只在 219 行提到监听），“写进对应的输出条目”要新写内容。
+**建议改法**：删掉空条目，把新写的内容单列，走 `writing-specs`。
+
+### 8. 保留集比提案的基线大，没记为偏离
+**严重程度**：建议　**类别**：与已定设计一致
+**位置**：plan“两个入口”；提案“导出清单的去向”
+**现象**：提案说基线是 L2 实际导入清单，也就是盘点里的 55+18。计划按三条判据留 112+32，其中 33+5 只是因为出现在签名里。计划把“偏离”记了三处，没有这一处。
+**为什么是问题**：留得越多，版本承诺越大；这是比“不做稳定性标注”更实质的差别。
+**建议改法**：把它记成第四处偏离交开发者；也可以先留 55+24，签名可达的类型等第二档的 API 报告再定。
+
+### 9. 验收映射只覆盖判据 (a)
+**严重程度**：建议　**类别**：验收映射
+**位置**：plan“验收映射”
+**现象**：“漏了有人用的名字会报错”只对仓库里有人经包名导入的名字成立。判据 (b) 的文档代码片段没人编译，(c) 靠人工对照。`NestedGrid.md:121` 就是一段从 `@notnotype/nb-layout` 导入的片段。
+**建议改法**：在 `exports.test.ts` 里加一条，读 nb-layout 的 `.md` 和三份 Spec 里 `from "@notnotype/nb-layout…"` 的导入名，都要在入口里。成本很低，补上 (b)。
+
+### 10. 与 `sdk.test.ts` 重复读入口
+**严重程度**：建议　**类别**：别扭与反常
+**位置**：`sdk.test.ts:70-86`
+**现象**：`exportedValues`/`exportedTypes` 已在读这两个入口的语法树。第二份几乎一样的解析会分叉。
+**建议改法**：抽成共用的测试辅助函数，或让 `exports.test.ts` 先于 SDK 测试通过。
+
+## 未发现问题的方面
+- 两个载荷类型的形状与 `NestedGrid.vue:101,104` 的 emits 一致。`GridGestureStart` 的字段是 `sessionId`、`contextKey`、`source`、`revision`、`sashes`，`GridGestureCancellation` 是 `reason` 与 `sashes`，这个形状也正好是 `sash-gesture.ts:64` 的 `onCancel` 入参。
+- 另外两个 `SplitterGestureState` 和 `SplitterGestureCancellation` 确实只是独立 Splitter 的载荷，“改 2 个而不是 4 个”的数量对。
+- 计数自洽：46+24+33=103（根），9+9+5=23（Vue），根 158、Vue 41。
+- 标“内部”的 55 个里，在 nb-layout 之外的包源码里没有真实使用。命中的只是同名局部函数 `axisOf`，以及 nb-ui 冻结副本自己的同名实现。
+- 我没搜到命名空间导入、`import type *`、`require`。唯一的动态导入是 Lab 夹具的 `import("@notnotype/nb-layout/vue")[name]`，名字都在保留集里。插件示例和 SDK 作者文档没有引用 nb-layout。
+- `COMPONENT_BARRELS` 的正则（`export {default as X} from "./X.vue"`）与计划保留的写法一致。
+- 对待确认项的判断：
+  - 偏离 1，“不另放名单”：可以，入口文件就是清单。条件是一行一个名字，并补发现 9 的文档名检查。
+  - 偏离 2，“不做稳定性标注”：可以，提案自己也说映射规则放第二档。
+  - 偏离 3，“改 2 个”：数量对，但前缀见发现 4。
+
+**统计**：阻断 0；重要 3（1、2、3）；建议 7（4 到 10）。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+t36-design-review exit=0

@@ -1,6 +1,6 @@
 # w00002 t21 实现只读审查
 
-审查对象：worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-t21-impl-review`，提交范围 `0eec5d080..e5ee88009`（`f39549f49`、`e8052cc20`、`e5ee88009`）。下文源码位置相对该 worktree。
+审查对象：worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00002-t21-impl-review`，提交范围 `0eec5d080..e5ee88009`（`f39549f49`、`e8052cc20`、`e5ee88009`）。下文源码位置相对该 worktree。
 
 依据：`docs/specs/agent/harness.md`，以及主工作区 `.agents/works/w00002-neuro-agent-harness-redesign/tasks/t21-harness-profile-tools/plan.md`（含“计划审查”）、`evidences/design-review.txt`、`evidences/plan-review.txt`。worktree 中未同步后两份计划修订资料，已从主工作区读到，不按旧计划判断。先读测试再读实现；候选问题对照 base；实验只写指定 lab，不修改源码、分支或提交。
 
@@ -10,7 +10,7 @@
 - **位置**：`packages/nb-harness/src/harness.ts:191-212`（尤其 198 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:1868-1883`。
 - **现象**：工具返回合法 `AgentToolResult`，但 `details` 含循环引用或 BigInt 时，`toJson(message)` 在调用 `enqueue` 之前同步抛错。OMP 的事件派发捕获并记录订阅异常，harness 的 `localError` 没有被设置。收尾工具已经 terminal abort，最终返回 `{stopReason:"stop", finish:null, error:null}`，日志只有 user、assistant 调用和 usage，没有对应 toolResult；关闭也不补结果。
 - **为什么是问题**：工具结构化 details 是公开扩展面；Spec 输出 8、10、16 和计划第 15 行要求不能序列化时以 `local` 失败，不能静默丢。这里把已停止且丢失提交的运行报成成功；恢复后工具调用不成对。base 没有原样消息与 finished 合同，本项是新落盘路径的问题，不重复 base 的文字日志问题。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts`，`nonserializable-finish` 经公开 `createHarness → turn → 真实 OMP Agent`，收尾工具 `details.self = details`；实测模型请求 **1 次**，返回 `stop`、无 error，日志 **4 条**（snapshot、user、assistant、usage），工具结果 **0 条**。对照 `finish-write-failure`：append 真正 reject 会正确返回 `error/local`，说明缺口在入队前的序列化而非磁盘错误处理。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts`，`nonserializable-finish` 经公开 `createHarness → turn → 真实 OMP Agent`，收尾工具 `details.self = details`；实测模型请求 **1 次**，返回 `stop`、无 error，日志 **4 条**（snapshot、user、assistant、usage），工具结果 **0 条**。对照 `finish-write-failure`：append 真正 reject 会正确返回 `error/local`，说明缺口在入队前的序列化而非磁盘错误处理。
 - **建议改法**：把事件消息的 JSON 校验和序列化纳入写入的同一受控失败路径，失败时设置本次 `localError` 并停止继续请求；不要只在 enqueue Promise 上 catch。工具 details 在边界约束为可 JSON 往返的数据，不把 stringify 成功等同于所有扩展字段都保真。覆盖收尾与普通工具的不可序列化 details、日志配对和恢复拒绝；不能通过事件层吞异常把它变成成功。
 
 ### 2. 工具撤回后关闭会话拿不到旧实现，releaseSession 永远不会执行
@@ -19,7 +19,7 @@
 - **位置**：`packages/nb-harness/src/harness.ts:322`；`packages/nb-harness/src/tools/registry.ts:76-86`；`packages/nb-harness/src/tools/builtin.ts:24-35`。
 - **现象**：close 只通过 `tool.handle.resolve()?.releaseSession` 释放资源；revoke 已把该句柄的 impl 置空并删除登记，因此先使用工具、再撤回、最后 close 时跳过释放。内置工具按 sessionId 保留的 EditStore，以及插件以同一合同保存的会话数据不会回收。
 - **为什么是问题**：计划审查第 6 条要求按会话释放；修订计划第 30、38 行承诺关闭及创建失败都释放。执行权限的撤回与已分配资源的释放是两个寿命，不能让失效的执行句柄成为唯一清理入口。每撤回后关闭 **N 个**有工具状态的会话，留下 **N 份**该状态。base 没有 registry 可撤回句柄或 releaseSession；这不是要求本轮修复 base 的 Store 回收问题。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts`，`release-after-revoke` 通过真实 Agent 执行工具，在公开执行上下文里以 sessionId 保存一份状态，随后 `plugin.unregister(); await harness.close()`；实测 `releases:0`，状态集合仍保留 **1 个 sessionId**。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts`，`release-after-revoke` 通过真实 Agent 执行工具，在公开执行上下文里以 sessionId 保存一份状态，随后 `plugin.unregister(); await harness.close()`；实测 `releases:0`，状态集合仍保留 **1 个 sessionId**。
 - **建议改法**：为会话资源设置独立于执行句柄的清理所有权，例如会话绑定时登记 disposer、或 bridge 记录实际获得过的实现并在收口后释放。撤回只禁止后续执行，不切断 cleanup；close 的清理使用 finally，某个 release 抛错也要释放其它工具、撤回订阅并终结状态。覆盖“使用后撤回再 close”和创建失败的清理路径。
 
 ### 3. 旧插件的 unregister 按 id 撤回新登记，跨版本破坏在途会话
@@ -28,7 +28,7 @@
 - **位置**：`packages/nb-harness/src/tools/registry.ts:117-127`。
 - **现象**：`registerPlugin()` 的返回句柄仅保存 id，`unregister()` 每次都对当前登记表执行 `revoke(id)`。旧插件卸载后，同 id 重新登记新版本，再次调用旧句柄的 unregister，会把新版本也撤回；从已验证的 onRevoke 调用链推断，新版本在途调用也会同时被中止。
 - **为什么是问题**：撤回必须属于某次登记的寿命。registry.get 取得的旧 ToolHandle 正确保持 null，不会复活，但插件注销句柄没有同样的代际边界。重复清理或旧异步卸载回调会越权注销后来启用的插件；这破坏设计审查第 4 条提出且已接受的重启/重新启用隔离。base 的 PluginHost 只有显式按 name 的宿主删除，没有这次新增的登记返回句柄。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts`，`old-unregister-after-reregister` 经公开 registry/registerPlugin：登记 v1 → 旧句柄 unregister → 登记 v2 → 再次旧句柄 unregister，实测 v2 从 `before:"2"` 变为 `after:null`；旧 ToolHandle 仍为 null。本实验直接使用该公开 registry 合同，不伪造 OMP 时序。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts`，`old-unregister-after-reregister` 经公开 registry/registerPlugin：登记 v1 → 旧句柄 unregister → 登记 v2 → 再次旧句柄 unregister，实测 v2 从 `before:"2"` 变为 `after:null`；旧 ToolHandle 仍为 null。本实验直接使用该公开 registry 合同，不伪造 OMP 时序。
 - **建议改法**：把注销绑定到登记实例/代次，比较当前 entry 是否仍属该次登记后才 revoke；至少保证返回的 unregister 幂等。部分登记失败时要回滚本次已登记项，避免没有返回清理句柄却留下半个插件。补同 id 重登记后旧注销不影响新工具及其在途调用的行为测试。
 
 ### 4. complete 把 Profile 静态消息混进请求，input 不是唯一用户消息
@@ -37,7 +37,7 @@
 - **位置**：`packages/nb-harness/src/complete.ts:50-59`；`packages/nb-harness/tests/provider.test.ts:155-169`。
 - **现象**：无工具 Profile 含 `Message` 节点时，complete 先保留全部渲染出的用户/助手消息，再追加 input。一个静态用户消息会令请求出现 **2 条**用户消息；静态助手消息也被当成对话历史发送。
 - **为什么是问题**：Spec 输出 17 明确“按 Profile 渲染系统提示词，input 作为唯一一条用户消息”；计划审查第 9 条和修订计划第 98 行再次写明不混入 Profile 静态消息。现有测试名声称验证“唯一一条用户消息”，但端点只记录 URL 和认证头，既不记录请求 body，也不放静态消息，不能检测这条违约。base 没有 complete API。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts`，`complete-static-user` 从公开 complete 进入，Profile 含 `Message("static question")`、input 为 `actual question`；公开 streamFn 实际收到 **2 条**用户消息，依次是 static 与 actual。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts`，`complete-static-user` 从公开 complete 进入，Profile 含 `Message("static question")`、input 为 `actual question`；公开 streamFn 实际收到 **2 条**用户消息，依次是 static 与 actual。
 - **建议改法**：complete 只采用渲染出的 systemPrompt，以 input 构造唯一用户消息；不要把会话型 Profile 的静态 messages 当成单次历史。让 provider 测试记录并断言实际请求 body，使用含静态用户和助手消息的 Profile 验证忽略它们。
 
 ### 5. 运行期日志读取错误被吞成空 entries，未走 local 错误合同
@@ -46,7 +46,7 @@
 - **位置**：`packages/nb-harness/src/harness.ts:227-234`（233 行）。
 - **现象**：结算时 `sessionLog.read({sinceSeq})` reject 被 `.catch(() => [])` 吞掉，仍返回 `stop`、`error:null`、空 entries，绕过运行期错误归类。
 - **为什么是问题**：Spec 输出 10/F10 规定运行期出错返回 `stopReason:"error"`，harness 本地步骤归 `local`；entries 必须包含本轮真实写入条目。返回空数组把“日志不可读”冒充“本轮没写数据”。结算读取吞异常是本次新引入的分支；准备阶段 tail reject 原样抛出在 base 已存在，另列基线、不计入本项回归。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/lifecycle.ts` 的 `settlement-read-failure`，经公开 SessionLog 接口在真实 JSONL 外包一层故障接缝，真实 Agent 完成输出后实测 `stop`、`error:null`、`entries:[]`，底层日志实际 **4 条**。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/lifecycle.ts` 的 `settlement-read-failure`，经公开 SessionLog 接口在真实 JSONL 外包一层故障接缝，真实 Agent 完成输出后实测 `stop`、`error:null`、`entries:[]`，底层日志实际 **4 条**。
 - **建议改法**：统一由完整运行任务捕获本地准备和结算错误，构造 `error/local`；记录已知 seq/本轮成功写入条目，不能在最终 read 失败时静默伪造空结果。保留原始错误诊断，在失败用例中断言 Promise 不 reject 以及已知条目不会被谎报成没有。
 
 ### 6. 一个 releaseSession 抛错会令 close 永久卡在关闭中，并泄漏全部后续清理
@@ -55,7 +55,7 @@
 - **位置**：`packages/nb-harness/src/harness.ts:314-327`。
 - **现象**：释放工具会话资源的 for 循环没有 finally。第一项 `releaseSession` 抛错后，后续工具不释放、`bridged.dispose()` 和 `unsubscribeAgent()` 不执行、listeners 不清、state 不到 closed；缓存的 closing Promise 永远 reject，重试 close 只拿回同一个失败 Promise。
 - **为什么是问题**：close 是宿主的生命周期收口入口，插件 cleanup 的一个异常不能保留其它插件、Agent 订阅和 registry 的 onRevoke 闭包。Spec“状态与转换”要求关闭完成解除订阅；现有代码没有失败后的补偿或可重试通道。releaseSession 和这条清理链都是本轮新增。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/lifecycle.ts`，`release-throws` 用公开插件合同登记 **2 个**工具，第一个 release 抛错；实测 close reject `Error: release failure`，第二个 `released:0`，registry 仍保留 **1 个**桥接撤回订阅，重复 close 仍同一个失败 Promise。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/lifecycle.ts`，`release-throws` 用公开插件合同登记 **2 个**工具，第一个 release 抛错；实测 close reject `Error: release failure`，第二个 `released:0`，registry 仍保留 **1 个**桥接撤回订阅，重复 close 仍同一个失败 Promise。
 - **建议改法**：关闭过程用 try/finally 保证每个资源独立释放与状态终结；逐项收集 cleanup 错误，所有必需收口完成后再按明确的 close 失败语义报告。不能在首个插件异常处中断整条生命周期。为异常 cleanup 补行为测试，验证其余释放、退订和重复 close。
 
 ### 7. buildModel 的目录修正规则覆盖宿主显式价格和限制，自定义端点费用与输出上限失真
@@ -64,7 +64,7 @@
 - **位置**：`packages/nb-harness/src/model.ts:64-81`；`node_modules/@oh-my-pi/pi-catalog/src/build.ts:119-125,281-302`。
 - **现象**：defineModel 把配置直接交给 buildModel 后就返回；builder 会按 provider/id 应用目录的价格、限额、推理和模态修正。以 `deepseek/deepseek-flash` 为例，传入 `contextWindow:10000,maxTokens:100` 变成 **1000000/384000**；显式每百万 input/output **7/11** 被改为目录费率，并附加宿主没有要求的分时价格。
 - **为什么是问题**：Spec“模型”选项是宿主给自定义端点的配置，显式 price 与 maxTokens 不能被同名官方模型的目录数据替换。设计审查第 10 条已要求核实显式单价优先级；OMP builder 自己的注释也明确用户 override 要在构建后重新覆盖。当前给定价格不控制实际 cost，给定 maxTokens 不控制实际请求上限。base 没有 defineModel/configured price API。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/provider.ts`；`model-overrides` 经公开 defineModel 实测上述字段。`configured-price-used` 再经公开 complete、真实 OpenAI provider、公开 fetch 接缝返回 input **12**、output **3**，配置单价费用应为 **0.000117**，实际 **0.0000036**（目录修正及分时费率）。`commandcode/gpt-5.4` 的 maxTokens **100** 同样变成 **65536**。未连接真实模型。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/provider.ts`；`model-overrides` 经公开 defineModel 实测上述字段。`configured-price-used` 再经公开 complete、真实 OpenAI provider、公开 fetch 接缝返回 input **12**、output **3**，配置单价费用应为 **0.000117**，实际 **0.0000036**（目录修正及分时费率）。`commandcode/gpt-5.4` 的 maxTokens **100** 同样变成 **65536**。未连接真实模型。
 - **建议改法**：builder 负责兼容能力解析；构建后以宿主选项恢复本 API 承诺的显式字段和缺省语义，尤其完整替换 cost（清掉额外 timeBased/longContext）、contextWindow/maxTokens/input/reasoning。用会触发真实目录修正规则的 model id 做合同测试，而非只用 test-model；断言实际 provider 请求的 max token 参数和最终费用。
 
 ### 8. 无 HTTP 状态被直接当成 network，明确的内容阻止与模型终态错误被误分类
@@ -73,7 +73,7 @@
 - **位置**：`packages/nb-harness/src/run-result.ts:47-59`（57 行）；`packages/nb-harness/tests/session.test.ts:205-220`。
 - **现象**：`status === null` 足以进入 network，完全不需要网络故障标记。provider 已明确给 `ContentBlocked` 或 `ProviderFinishError`、但错误发生在 HTTP 200 的 SSE 内时，harness 仍返回 network。
 - **为什么是问题**：Spec 输出 12 只把网络中断和网关超时归 network，其余 provider 错误为 provider；缺状态不是网络证据。调用方会把内容阻止、模型输出错误等确定的 provider 故障提示为断网并重试。现有测试以“无状态”为 network 的判据，把错误假设固定成测试；计划审查要求缺少结构化证据时退到 provider，未兑现。base 没有 ErrorKind 分类。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/provider.ts`，从真实 `createHarness → Agent → streamSimple → OpenAI SSE parser` 经公开 fetch seam 返回 `finish_reason:"content_filter"`，请求 **1 次**，OMP `errorId:36864` 且 ContentBlocked 为 true、无 errorStatus，实测 `error.kind:"network"`；`finish_reason:"error"` 也带 ProviderFinishError，仍误报 network。没有直接构造 classifyProviderError 输入冒充运行时证据。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/provider.ts`，从真实 `createHarness → Agent → streamSimple → OpenAI SSE parser` 经公开 fetch seam 返回 `finish_reason:"content_filter"`，请求 **1 次**，OMP `errorId:36864` 且 ContentBlocked 为 true、无 errorStatus，实测 `error.kind:"network"`；`finish_reason:"error"` 也带 ProviderFinishError，仍误报 network。没有直接构造 classifyProviderError 输入冒充运行时证据。
 - **建议改法**：用状态码与能够证明传输/超时的结构化标记归 network；识别非网络 provider 标记，信息不足时退为 provider，不能重新按文字补猜。修改那条把“无状态”固定为网络的测试，增加真实 SSE 内 provider 失败与真实断连的对照。
 
 ### 9. 执行仍引用宿主的可变 initial 和 schema，已写快照不能约束会话
@@ -82,7 +82,7 @@
 - **位置**：`packages/nb-harness/src/harness.ts:85-92,108-110`；`packages/nb-profile/src/define.ts:115-118`；`packages/nb-harness/src/tools/registry.ts:71-86,99-107`；`packages/nb-harness/src/tools/bridge.ts:35-44`。
 - **现象**：新会话把 initial/schema JSON 复制进日志，但运行中的 initial 仍是调用方对象，bridge.parameters 仍与登记时的 schema 共享嵌套引用。创建成功后修改原始对象，无需重新登记、无需更改 Profile/provider 版本，就能改变正在运行的会话数据和模型可用参数。
 - **为什么是问题**：Spec 输出 3 规定整个会话按快照运行，术语与计划要求初始输入/声明可冻结、会话内不变；TS readonly 不能防止宿主持有的原始可变对象修改。快照和实际执行因此分叉，关闭重开又回到快照旧值，无法保真恢复；两个会话如果传入同一个初始对象也会串用后续变化。本轮新增的快照/initial/声明分层未建立所有权边界，base 没有这些合同。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/context.ts` 的 `mutated-initial`：快照 `book:"A"`，创建后将调用方对象改为 B，真实 Agent 的系统提示词和工具上下文均为 **B**。`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/snapshots.ts` 的 `mutated-declaration`：快照要求 `x:string`，创建后原 schema 改成 number，模型实际收到 `x:number`，参数 `{x:42}` 经真实 OMP 校验后成功执行。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/context.ts` 的 `mutated-initial`：快照 `book:"A"`，创建后将调用方对象改为 B，真实 Agent 的系统提示词和工具上下文均为 **B**。`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/snapshots.ts` 的 `mutated-declaration`：快照要求 `x:string`，创建后原 schema 改成 number，模型实际收到 `x:number`，参数 `{x:42}` 经真实 OMP 校验后成功执行。
 - **建议改法**：在创建/登记边界复制并深冻结所拥有的 JSON 数据，会话执行与模型声明引用同一份会话快照值；恢复时也校验并绑定该数据。不要一份用于落盘、另一份继续借用调用方对象。测试修改宿主原始对象后，当前会话及恢复后的系统提示词、工具校验和执行上下文均保持快照值。
 
 ### 10. 结算阶段的取消被提前选定的 stop 覆盖，用量也仍标完整
@@ -91,7 +91,7 @@
 - **位置**：`packages/nb-harness/src/harness.ts:227-234,263-276,290-301,315-320`。
 - **现象**：finishRun 在异步读取本轮 entries 之前已选定 stopReason，且只在读取之前检查 cancelled 并 markIncomplete。运行仍占着锁、turn Promise 仍未结束时，调用方 abort 或 close 发生在该 read 上，最后照样返回 `stop` 和 `usage.complete:true`，日志没有 run_end。
 - **为什么是问题**：修订计划第 38 行明确整次运行包含结算且每个 await 后检查取消；Spec 只有收尾结果已写入才允许后续取消不改变 finished，普通运行没有这个例外。取消标记虽被置 true，返回值却使用旧决定，违反输出 10、11 和关闭在途运行的合同。base 没有运行期取消结果与 complete 标志，本次新状态机存在该遗漏。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/lifecycle.ts` 的 `close-during-settlement`，真实 Agent 已结束、在公开 SessionLog.read 的 Promise 屏障上挂起后 close，实测 `stop/complete:true`。`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/edges.ts` 的 `cancel-during-settlement` 在同一窗口触发 turn signal，结果相同；均仍只有 snapshot、user、assistant、usage **4 条**，无 run_end。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/lifecycle.ts` 的 `close-during-settlement`，真实 Agent 已结束、在公开 SessionLog.read 的 Promise 屏障上挂起后 close，实测 `stop/complete:true`。`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/edges.ts` 的 `cancel-during-settlement` 在同一窗口触发 turn signal，结果相同；均仍只有 snapshot、user、assistant、usage **4 条**，无 run_end。
 - **建议改法**：把运行状态和结果最终决定放在所有异步结算之后的同一提交点；取消标记在提交前可改变 stopReason，并补 run_end、markIncomplete。已完成的 finish 继续按其独立线性化点优先。用日志读取屏障覆盖 signal 与 close，不按固定 sleep 碰运气。
 
 ### 11. complete 没有捕获 provider 流的抛错或 reject，运行期错误直接逃逸
@@ -100,7 +100,7 @@
 - **位置**：`packages/nb-harness/src/complete.ts:56-62`。
 - **现象**：streamSimple/streamFn 在建立流时抛错、或流的 result() reject 时，complete 直接 reject Promise，没有返回 CompleteResult。turn 至少经过 Agent 的外层错误消息通道，complete 则完全漏掉同类路径。
 - **为什么是问题**：Spec 输出 17 要求错误归类与运行结果同输出 10-12；运行期错误应作为结构化结果返回。OMP 的公开自定义 API provider 可以同步抛错；其流包装也会通过 fail/reject 交出异常，不能假设所有失败必然变成 stopReason:error 消息。base 没有 complete。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/edges.ts` 的 `complete-provider-throw`，通过 OMP 公开 `registerCustomApi` 登记一个故障 provider，再用真实 complete 默认 streamSimple 分派；实测 `rejected:true`、`Error: custom provider unavailable`。没有直接调用 complete 内部函数或伪造 TurnResult。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/edges.ts` 的 `complete-provider-throw`，通过 OMP 公开 `registerCustomApi` 登记一个故障 provider，再用真实 complete 默认 streamSimple 分派；实测 `rejected:true`、`Error: custom provider unavailable`。没有直接调用 complete 内部函数或伪造 TurnResult。
 - **建议改法**：围住流建立与 result 等待的完整运行边界，按已保留的结构化异常映射 error/provider 或 local；取消则按 aborted 结算并将 usage 标不完整。不要从错误文字恢复类型。增加公开 provider 故障的合同测试，确保 complete 与 turn 都返回约定形状。
 
 ### 12. run_end 写入失败被静默忽略，调用方收到错误的故障来源
@@ -109,7 +109,7 @@
 - **位置**：`packages/nb-harness/src/harness.ts:227-234`（229 行）。
 - **现象**：助手已返回 provider 错误或取消时，写入 run_end 的 reject 被 `.catch(() => undefined)` 吞掉。之后只 await 已吞错的 writes，不检查 writeError/current.localError，继续返回此前的 provider 错误或 aborted，完全隐藏持久化失败。
 - **为什么是问题**：Spec 输出 12/F10 将会话日志写失败归为 local；副作用合同要求出错与取消有 run_end。普通消息写失败会返回 local，只有结束标记失败被放过，调用方无法知道运行没有完整落盘。base 没有 run_end，本项为新增写入路径的独立遗漏。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/edges.ts` 的 `run-end-write-failure`，真实 Agent 经脚本返回 401，在真实 JSONL 的公开 append 边界仅让 run_end reject `end disk failure`。实测结果仍为 `error.kind:"auth",status:401`，底层只有 snapshot、user、assistant、usage **4 条**，未告知 local 错误。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/edges.ts` 的 `run-end-write-failure`，真实 Agent 经脚本返回 401，在真实 JSONL 的公开 append 边界仅让 run_end reject `end disk failure`。实测结果仍为 `error.kind:"auth",status:401`，底层只有 snapshot、user、assistant、usage **4 条**，未告知 local 错误。
 - **建议改法**：把 run_end 写入纳入统一本地失败结算，写失败时返回 error/local 并保留原始 provider/取消诊断作为上下文；不要在终态写入上静默 catch。最终结果必须在持久化成功或明确失败之后才固定。
 
 ### 13. 工具同步抛错发生在 try/finally 之前，已结束调用仍留在在途表与 signal 上
@@ -118,7 +118,7 @@
 - **位置**：`packages/nb-harness/src/tools/bridge.ts:48-72`（64 行）。
 - **现象**：bridge 已建立 signal 转发监听、把 settle 放入 inflight 后，直接调用 `impl.execute`，直到 67 行才进入 try。实现同步 throw 时，OMP 正确把它变成工具错误，但 bridge 跳过 finally，pending 与外部 signal 的 forward 监听都不移除；稍后撤回会对已经失败结束的调用再发送 abort。
 - **为什么是问题**：返回 Promise 的 TypeScript 方法允许在返回前同步抛错，故障工具不能假定永远使用 async 关键字。调用已经在日志里结算，却仍保有未释放的 controller/settle/监听；同一会话发生 **N 次**此类同步失败就留下 **N 组**调用状态，直到撤回或会话整体回收。违背 bridge 的“每次调用收口”所有权；base 没有这层桥接状态。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/sync-throw.ts`，通过真实 Agent 执行一个在 Promise 返回前 throw 的合法 ToolImpl 方法；Agent 已得到 **1 条**错误工具结果、运行以 stop 完成。此后 `registry.revoke` 仍令该已结束工具的 signal 收到 abort，实测 `abortedAfterFinishedCall:1`。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/sync-throw.ts`，通过真实 Agent 执行一个在 Promise 返回前 throw 的合法 ToolImpl 方法；Agent 已得到 **1 条**错误工具结果、运行以 stop 完成。此后 `registry.revoke` 仍令该已结束工具的 signal 收到 abort，实测 `abortedAfterFinishedCall:1`。
 - **建议改法**：从建立监听/加入在途表开始就进入 try/finally，把 impl.execute 的调用本身放进去；无需给工具再造重试或改写错误。正常完成后删除空 pending 集合，dispose 时清空残余注册。补同步 throw 与异步 reject 两条收口用例。
 
 ### 14. 声明比较把 JSON 对象属性顺序当成合同，等价 schema 会拒绝恢复
@@ -127,7 +127,7 @@
 - **位置**：`packages/nb-harness/src/tools/effective.ts:92-99,114,124`。
 - **现象**：所谓“规范化 JSON”只做 JSON 往返，sameDeclaration 直接比较 JSON.stringify 字符串。`{type,properties,required}` 与 `{required,properties,type}` 的 schema 逐字段和值相同，仍被判为不兼容。
 - **为什么是问题**：JSON 对象属性顺序不改变参数协议。宿主只整理对象字段、换一种合法 JSON 读取方式或构造方式就会使所有已有会话无法续跑；Profile/provider 版本和真实 schema 都没变。Spec 输出 4 是字段合同比较，不是序列化字节比较。本轮新增恢复合同及比较函数，base 无对应路径。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/context.ts` 的 `schema-key-order-resume`，经公开 createHarness 写真实 JSONL 快照并 close，以同版本、同工具、仅重排 schema 属性的 registry 恢复；实测抛 `HarnessError: 工具 p.t 的声明与快照不一致`。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/context.ts` 的 `schema-key-order-resume`，经公开 createHarness 写真实 JSONL 快照并 close，以同版本、同工具、仅重排 schema 属性的 registry 恢复；实测抛 `HarnessError: 工具 p.t 的声明与快照不一致`。
 - **建议改法**：使用 JSON 结构相等比较，或递归排序对象键的稳定规范化；数组次序保持不变。无需引入语义等价 schema 求解器，只需让 JSON 对象键顺序不影响结果。覆盖“同值不同属性顺序可恢复、字段实际变化仍拒绝”。
 
 ### 15. 插件多工具登记失败不回滚，留下没有注销句柄的半个插件
@@ -136,7 +136,7 @@
 - **位置**：`packages/nb-harness/src/tools/registry.ts:117-128`。
 - **现象**：registerPlugin 逐个向共享 registry 登记，后续工具 id 冲突时直接 throw；先前已经登记的工具保留，但调用方没有取得返回的 unregister 句柄。
 - **为什么是问题**：失败的插件仍向后续 Profile 暴露一部分工具；重试加载时又会撞上它自己遗留的 id。宿主无法把“登记失败”当成没有启用，也不能按返回句柄正常清理。base 的 PluginHost 先验证并一次性存整个插件，没有这次新增的逐工具部分提交问题。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/snapshots.ts` 的 `partial-register`，预登记一个 `p.exists`，再登记含新 id `p.leaked` 和冲突 id `p.exists` 的插件；实测 `thrown:true`，失败后 registry 仍能取得 `p.leaked`，provider 为 `failed`。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/snapshots.ts` 的 `partial-register`，预登记一个 `p.exists`，再登记含新 id `p.leaked` 和冲突 id `p.exists` 的插件；实测 `thrown:true`，失败后 registry 仍能取得 `p.leaked`，provider 为 `failed`。
 - **建议改法**：先验证插件全部声明与冲突，再原子登记；或捕获失败并只回滚本次已成功登记的实例。回滚及注销都按登记代次，不能误删其它插件。测试失败前后的公开工具可用集合相同。
 
 ### 16. 密钥只在 turn 开始时受控解析，后续工具轮缺失会被误报 network
@@ -145,7 +145,7 @@
 - **位置**：`packages/nb-harness/src/harness.ts:146,237-242`；`node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:1749-1799`。
 - **现象**：turn 开始时捕获 MissingModelKeyError 并归 auth；每次真正请求前 OMP 又调用 getApiKey，但此处直接执行 model.apiKey()，没有保留错误类型。同一次运行的后续请求里指定变量消失/变空，会经 Agent 外层 catch 变成仅含文字的消息，harness 最终归 network。
 - **为什么是问题**：Spec 输出 18 要求指定密钥缺失始终在请求前以 auth 结束；该 resolver 的生命周期是每次请求，不是只在 turn 开始。计划审查已明确 getApiKey 经 Agent 外层会丢结构化类型，必须在宿主边界捕获。本轮只保护第一次预检查，遗漏实际 resolver 路径。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/profile-auth.ts` 的 `key-missing-second-model-call`，真实 Agent 第一轮调用工具，工具删掉仅用于实验的虚构密钥变量；第二轮取密钥失败。实测只发出 **1 次**脚本模型请求，但结果为 `error.kind:"network"`、`status:null`，message 明确是该密钥变量未设置；没有请求真实模型或打印凭据。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/profile-auth.ts` 的 `key-missing-second-model-call`，真实 Agent 第一轮调用工具，工具删掉仅用于实验的虚构密钥变量；第二轮取密钥失败。实测只发出 **1 次**脚本模型请求，但结果为 `error.kind:"network"`、`status:null`，message 明确是该密钥变量未设置；没有请求真实模型或打印凭据。
 - **建议改法**：每次 resolver 调用都在 harness 自有边界捕获 MissingModelKeyError，把 auth 保存到本次运行后再交回/抛给 OMP 停止；或在一次运行开始时冻结已解析密钥并给该次运行使用。选定一个明确的密钥刷新生命周期，不能两处解析、只有一处有错误保真。
 
 ### 17. Profile 加载守卫只检查三个字段，非法定义进入会话后抛裸 TypeError
@@ -154,7 +154,7 @@
 - **位置**：`packages/nb-profile/src/define.ts:95-126`（尤其 123-126 行）；`packages/nb-profile/src/loader.ts:11-20`；`packages/nb-harness/src/harness.ts:83-91`。
 - **现象**：isProfileDefinition 只看 kind、context 和 tools；模块默认导出带这三个字段但缺 manifest、initialSchema 或 parseInitial 的普通对象，会被 loadProfile 认成 ProfileDefinition。createHarness 随后抛 `TypeError: profile.parseInitial is not a function`，没有 profile_invalid 码。defineProfile 自身也只验证 manifest 字符串与工具 id 重复，没有验证 context/schema 的运行时合法性。
 - **为什么是问题**：Spec F4 给不合法 Profile 明确错误通道；loader 注释承诺校验“defineProfile 的结果”，实际没有相应判定。Profile 是运行时加载的 TS 模块，TypeScript 的静态形状不能替代此边界验证；缺字段应在定义/加载时拒绝，而不是把伪造类型交到后续生命周期。base 的 loader 只处理 ProfileNode，本轮切换为 ProfileDefinition 后新增了更完整的必需字段合同。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/profile-auth.ts` 的 `invalid-profile-load`，在指定 lab 写一份真实 `.profile.ts`，默认导出 `{kind:"profile-definition",tools:[],context:...}`，经公开 loadProfile 动态加载；实测 `loaded:true`，随后 createHarness 抛上述裸 TypeError。未使用类型强转把不合法对象直接塞入 createHarness。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/profile-auth.ts` 的 `invalid-profile-load`，在指定 lab 写一份真实 `.profile.ts`，默认导出 `{kind:"profile-definition",tools:[],context:...}`，经公开 loadProfile 动态加载；实测 `loaded:true`，随后 createHarness 抛上述裸 TypeError。未使用类型强转把不合法对象直接塞入 createHarness。
 - **建议改法**：把 ProfileDefinition 的运行时合法性收在定义/加载边界，验证 manifest/schema/tools/context/parseInitial 的完整合同，并统一抛 ProfileError(profile_invalid)，harness 按约定包装。可以用 defineProfile 产生的私有品牌验证“确为定义结果”，但仍需让 defineProfile 验证输入。补真实模块缺字段、错误 schema/context、空工具 id 的加载失败用例，按错误码断言。
 
 ### 18. 验收缺少关键时序、保真和调度判据，四项破坏性变异仍全绿
@@ -163,7 +163,7 @@
 - **位置**：`packages/nb-harness/tests/session.test.ts:100-201,283-325`；`packages/nb-harness/tests/acceptance.test.ts:87-111`；`packages/nb-harness/tests/provider.test.ts:155-169`。
 - **现象**：计划要求的收尾落盘前/后取消、结果写入失败、会话资源释放、含 thinking/签名的关闭恢复、同批两个 edit 串行没有实际行为用例。名为“校验失败”的收尾用例只测 execute 返回 isError，未测 schema 拒绝；“input 唯一用户消息”的 provider 用例根本不记录请求 body。验收映射列出的多个测试文件也没有对应文件或等价覆盖。
 - **为什么是问题**：这是已接受计划审查第 9 条和输出 8、15、16、17 的具体判据，不是追加新测试范围。测试全绿无法作为这些合同已实现的证据，且已漏出本报告多条实际问题。把 `customFormat` 断言当成 edit 串行验收，不能保护执行调度。
-- **如何核实**：仅在指定 lab 复制 nb-harness 后做 **5 份**独立变异，命令及改动记录于 `/home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/mutation-evidence.txt`。四份破坏分别为：删除 finish 的取消判定、删除 releaseSession 整条循环、把所有工具 concurrency 强制 shared、渲染时删除全部 thinking 块；每份运行 `bun test` 都是 **50 pass、2 skip、0 fail**。阳性对照删除恢复 schema 比较得到 **49 pass、2 skip、1 fail**，准确失败于 effective-tools.test.ts:99，证明复制件在测实际变异实现。没有修改仓库文件、没有 git checkout 还原。
+- **如何核实**：仅在指定 lab 复制 nb-harness 后做 **5 份**独立变异，命令及改动记录于 `/home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/mutation-evidence.txt`。四份破坏分别为：删除 finish 的取消判定、删除 releaseSession 整条循环、把所有工具 concurrency 强制 shared、渲染时删除全部 thinking 块；每份运行 `bun test` 都是 **50 pass、2 skip、0 fail**。阳性对照删除恢复 schema 比较得到 **49 pass、2 skip、1 fail**，准确失败于 effective-tools.test.ts:99，证明复制件在测实际变异实现。没有修改仓库文件、没有 git checkout 还原。
 - **建议改法**：按计划判据补入公开入口和真实 Agent/provider 的行为用例：真实日志屏障控制取消竞争，带 thinking/签名/provider replay 字段跑两次 turn 再关闭恢复，同批工具通过可观察执行屏障验证互斥，资源释放验证关闭后不再保留会话。端点记录请求 body；schema 不合与 execute 拒绝分别覆盖。复跑对应变异，要求相关测试确实失败，不固定实现调用次序或文案。
 
 ### 19. 关闭与撤回测试依赖固定轮询，且失败时没有关闭在途会话
@@ -216,22 +216,22 @@ bun run --cwd packages/neuro-book-test-support typecheck
 下列实验各执行一次，均退出 **0**；路径统一位于指定 lab：
 
 ```text
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/lifecycle.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/context.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/provider.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/snapshots.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/edges.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/sync-throw.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/usage.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/model.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/profile-auth.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/runtime.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/lifecycle.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/context.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/provider.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/snapshots.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/edges.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/sync-throw.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/usage.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/model.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/profile-auth.ts
 ```
 
 变异命令在 `lab/mutants/{finish-cancel,release-session,wire-concurrency,history-signature,schema-guard}` 各目录执行：
 
 ```text
-NBOOK_LLM_TESTS=0 NBOOK_HOST_SYSTEM_TEMP_ROOT=/home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/test-temp NBOOK_AGENT_TEMP_ROOT=/home/notnotype/.claude/jobs/568d0811/tmp/review-t21-impl/lab/test-temp/neuro-book bun test
+NBOOK_LLM_TESTS=0 NBOOK_HOST_SYSTEM_TEMP_ROOT=/home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/test-temp NBOOK_AGENT_TEMP_ROOT=/home/<user>/.claude/jobs/568d0811/tmp/review-t21-impl/lab/test-temp/neuro-book bun test
 ```
 
 四个存活变异均 **50 pass、2 skip、0 fail**；schema-guard 阳性对照 **49 pass、2 skip、1 fail**。复制件保留，原仓库源码未编辑，无需还原。实验使用公开 createHarness/turn/complete/registry、真实 OMP Agent/provider 或公开 fetch 接缝；日志故障使用 SessionLog 公开接口外包屏障/故障，不直接调用内部函数伪造运行时。Profile 无效模块通过真实 loadProfile 加载。

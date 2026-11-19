@@ -4,7 +4,7 @@
 {"t":73,"who":"holder","ev":"acquired","lockMtime":1024,"pid":1840412}
 {"t":14074,"who":"holder","ev":"block-start","lockMtime":1024}
 {"t":14608,"who":"contender","ev":"first-attempt-failed","lockMtime":1024,"code":"ELOCKED"}
-{"t":31363,"who":"contender","ev":"acquired","lockMtime":33024,"attempts":34,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-notnotype-CodeRe"}
+{"t":31363,"who":"contender","ev":"acquired","lockMtime":33024,"attempts":34,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-<user>-CodeRe"}
 {"t":36074,"who":"holder","ev":"block-end","lockMtime":33024}
 {"t":36075,"who":"holder","ev":"compromised","lockMtime":33024,"cause":"Unable to update lock within the stale threshold"}
 {"t":36078,"who":"holder","ev":"process-exit","code":75,"signal":null}
@@ -19,7 +19,7 @@
 {"t":37667,"who":"holder","ev":"block-end","lockMtime":15067}
 {"t":42066,"who":"holder","ev":"released","lockMtime":null}
 {"t":42068,"who":"holder","ev":"process-exit","code":0,"signal":null}
-{"t":42315,"who":"contender","ev":"acquired","lockMtime":43017,"attempts":53,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-notnotype-CodeRe"}
+{"t":42315,"who":"contender","ev":"acquired","lockMtime":43017,"attempts":53,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-<user>-CodeRe"}
 {"t":44329,"who":"contender","ev":"released","lockMtime":null}
 {"t":44333,"who":"contender","ev":"process-exit","code":0,"signal":null}
 会话写入时间范围：holder 565..41672ms（40 次）；contender 42815..43817ms（3 次）
@@ -41,7 +41,7 @@
 {"t":35697,"who":"holder","ev":"watchdog-kill","lockMtime":15098}
 {"t":35700,"who":"holder","ev":"process-exit","code":null,"signal":"SIGKILL"}
 {"t":35752,"who":"restart","ev":"first-attempt-failed","lockMtime":15098,"code":"ELOCKED"}
-{"t":45303,"who":"restart","ev":"acquired","lockMtime":47015,"attempts":39,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-notnotype-CodeRe"}
+{"t":45303,"who":"restart","ev":"acquired","lockMtime":47015,"attempts":39,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-<user>-CodeRe"}
 {"t":46305,"who":"restart","ev":"released","lockMtime":null}
 {"t":46307,"who":"restart","ev":"process-exit","code":0,"signal":null}
 会话写入时间范围：holder 599..15617ms（31 次）；restart 45804..45804ms（1 次）

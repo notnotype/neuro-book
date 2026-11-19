@@ -6,7 +6,7 @@
   - A2：知识点名字带英文双引号（`男爵说"是我"`），渲染写成 `name="男爵说\"是我\""`，正则 `name="[^"]*" \/>` 对不上，不替换：`<Ref id="e2" name="男爵说\"是我\"" />`。
   - A3（这批引入）：知识点被删后渲染本来写 `name="已删除的条目"`，`maskRefNames` 用 `shownName` 重写：删除的条目 `secrecyOf` 为 null、不是隐秘目标，落到 `nameOf`，读到 `entry.init.name`，结果 `<Ref id="e2" name="勇者是王子" />`。e73905f5d 上这里是“已删除的条目”。
 - 为什么是问题：Spec plot/brief.md 输出 13“带值写法里引到本章不能写名字的条目，名字换成占位”，这条没有限定写法。同一批修的伏笔段（`renderBlockPlain` 的 `references`）已经按表达式引用判，涉及条目这一段用的是文本替换，表达式、任何字段值（`{ref("k").point.某字段 = ...}`）都漏，与上一轮第 5 条是同一类。
-- 如何核实：`cd /tmp/review-w00039-t34-H/opus2 && bun brief2.ts /home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-promote`，看 A1、A1b、A2、A3 行。brief.test.ts 新增用例只有 `<Ref>`、名字不带引号、知识点没删。
+- 如何核实：`cd /tmp/review-w00039-t34-H/opus2 && bun brief2.ts /home/<user>/CodeRepository/neuro-book/.worktree/w00039-t34-promote`，看 A1、A1b、A2、A3 行。brief.test.ts 新增用例只有 `<Ref>`、名字不带引号、知识点没删。
 - 建议改法：不在文字上做替换。给内核的渲染传一个按条目决定能否读的回调，或让 `AgentBlock` 带 `references`（与 `PlainBlock` 同样从 `site.references`、`refs` 收），引到本章不能写名字的条目时整块不给或该处写占位。`shownName` 对删除的条目不要回到 `init.name`。
 ### 2. 本章才出场的隐秘目标：concealedGoal 靠 readGoal，章首读不到，名字与状态变化照写（上一轮第 7 条只修了一半）
 - 严重程度：阻断；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/secrets.ts:50-54（`concealedGoal`），packages/neuro-book/src/plugins/plot/core/goals.ts:43（`!read.appeared` 返回 null），packages/neuro-book/src/plugins/plot/core/brief/parts.ts:51-55、:113-124。

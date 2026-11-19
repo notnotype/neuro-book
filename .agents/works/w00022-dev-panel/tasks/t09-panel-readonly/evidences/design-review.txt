@@ -16,13 +16,13 @@
 - **位置**：服务端的“登录”一条；“需要决定的点”第 1 条；待确认清单 t09“安全分期”一行。那一行写的是 t09 到 t12 都不登录。
 - **现象**：
   - `getent passwd` 里有两个（uid 1001、1002）用 zsh 的账户。
-  - `/home/notnotype` 的权限是 700，`~/.config/herdr/herdr.sock` 是 600，这两个账户既读不到仓库，也连不上 herdr。
+  - `/home/<user>` 的权限是 700，`~/.config/herdr/herdr.sock` 是 600，这两个账户既读不到仓库，也连不上 herdr。
   - TCP 回环不区分用户。面板一跑，他们就能经 `/api/docs/file`、搜索、`/api/sessions`（pane、cwd、运行的命令行）读到 700 目录里的内容。
   - sshd 在运行。wtmp 从 2023-08 起没有这两个账户的登录记录，所以发生的可能性低，但这条边界是真实的。
 - **为什么是问题**：t09 只会泄露数据。但待确认清单把“不登录”一直延续到 t12。到 t10、t12 时，本机另一个账户就能经回环写仓库、往 Agent 会话里打字、接管键盘，等于拿到 notnotype 的 shell。
 - **核实**：
   - `getent passwd | awk -F: '$3>=1000'`
-  - `ls -ld /home/notnotype`
+  - `ls -ld /home/<user>`
   - `ls -l ~/.config/herdr/herdr.sock`
 - **建议**：t09 至少做一个最小的启动令牌，做法如下。这就是 Proposal 第八节第 3 条“本机浏览器用 panel open 拿一次性登录链接”的那一半，t13 再加设备与分级。
   - `panel serve` 生成一个随机值，写进权限 600 的 `panel.json`；

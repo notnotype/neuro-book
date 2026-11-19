@@ -55,7 +55,7 @@ export type RepairConfig = {
 export type EvalConfig = {
     /** LLM HTTP provider 真相源（NeuroBook config.json）路径；相对 llmlint 仓根 */
     modelsConfig: string;
-    /** 所有 provider（HTTP + CLI）走的 http proxy（如 http://127.0.0.1:7890）；空=直连。某些 provider（anyrouter）必须走代理 */
+    /** 所有 provider（HTTP + CLI）走的 http proxy（如 http://127.0.0.1:<端口>）；空=直连。部分 CLI provider 必须走代理 */
     proxy?: string;
     /** per-provider 单次调用墙钟超时覆盖（providerId → ms）；给推理模型（doubao 长章）加长。上限受 model-client HARD_TIMEOUT_CAP_MS(600s) */
     providerTimeouts?: Record<string, number>;

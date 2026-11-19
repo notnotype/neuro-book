@@ -212,4 +212,4 @@
 | M4 | 收件箱不再只放必答题 | cli，10 例 | **存活** |
 | M6 | Task 图片合计去掉 `--cached --others` | write | 被抓住（场景 6 失败，1 例） |
 
-实验脚本都在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t08-impl/scripts/`：`parse-board.ts`、`parse-marked.ts`、`exp-cli.ts`、`exp-include.ts`、`exp-ack-unseen.ts`、`exp-wait-race.ts`、`exp-preload.ts`、`time-answers.ts`。
+实验脚本都在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t08-impl/scripts/`：`parse-board.ts`、`parse-marked.ts`、`exp-cli.ts`、`exp-include.ts`、`exp-ack-unseen.ts`、`exp-wait-race.ts`、`exp-preload.ts`、`time-answers.ts`。

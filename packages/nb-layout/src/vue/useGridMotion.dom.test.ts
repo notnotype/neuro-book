@@ -260,7 +260,7 @@ describe("过渡中内容跟外框的叶", () => {
 
     /** 挂一个带令牌的根，喂第一帧。 */
     function started(duration = "470ms", root = document.createElement("div")) {
-        root.style.setProperty("--motion-layout", duration);
+        root.style.setProperty("--nb-layout-motion-layout", duration);
         document.body.append(root);
         let motion!: ReturnType<typeof useGridMotion>;
         const wrapper = mount(defineComponent({
@@ -374,7 +374,7 @@ describe("过渡中内容跟外框的叶", () => {
         const split = items([200, 200, 150, 150]);
         motion.update(frame({items: split, previous: base}));
         expect(motion.moving.value).toBe(true);
-        root.style.setProperty("--motion-layout", "0ms");
+        root.style.setProperty("--nb-layout-motion-layout", "0ms");
         motion.update(frame({items: items([100, 300, 150, 150]), previous: split}));
         expect(motion.moving.value).toBe(false);
         expect([followingOf(motion), [...motion.keptSize.value], motion.leaving.value]).toEqual([[], [], []]);
