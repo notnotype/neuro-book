@@ -1,5 +1,5 @@
 ---
-标签: [state:inject]
+标签: [state:local, state:inject]
 别名: ["搜索与网页", "网页工具设置", "Search and Web"]
 ---
 
@@ -45,6 +45,7 @@ defineProps<{
 
 ## 隐藏通道理由
 
+- `state:local`：密钥框里有没有待交出的输入（`ApiKeyField` 的 `pending`），决定第一次填写时“检测”能不能点；卸载即丢，草稿本身不在页面上。
 - `state:inject`：文字经宿主注入的翻译端口取。
 
 数据模块、`writable` 与 `reportWriteFailure` 都经属性传入，读写走的是这条明面通道，所以页面没有 `io:*` 与 `state:shared-*` 标签，能在 Lab 里用内存里的远程合同替身摆出来（场景见 `SearchSettingsPageFixture.vue`）。
