@@ -84,6 +84,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-18 | t21 完成：界面、内置 Profile 与真实模型切片合入；代码里调 `read` 交回对象（决定 10）；两份实现审查与 Spec 晋升核对都处理完，`eval.md` 晋升为 `implemented`，留 4 句 planned（[t21](tasks/t21-eval-codeact/README.md)） |
 | 2026-11-19 | t40：eval 不做内存转储（开发者定）；会话关闭不再结束内核，再打开、叶子与 Profile 没变时接着用，内核照样按空闲与上限回收、服务端停止时结束；重置提示的原因写准（关闭期间的空闲与回收、换了 Profile、两次调用之间被外部结束）；实现审查（omp）4 条重要都改了：换走又换回 Profile、空闲期先退出、项目换目录（新原因“工作目录变了”）、起内核期间被登记表丢掉；t40 完成（[t40](tasks/t40-eval-kernel-survives-session-close/README.md)） |
 | 2026-11-19 | t22 重开（开发者：也为 t24 做准备），6 条按推荐：后台任务结束时把结果送回启动它的会话（在跑时作插话，空闲时以宿主身份开运行；上一次是用户停的不唤起）；`shell` 前台过 60 秒自动转后台；不做 Monitor 与 stdin；Agent 的后台任务与后台会话进工作台的“后台任务”清单；任务中心对别的服务端插件开放登记；任务表照旧不存盘（[t22](tasks/t22-background-work/README.md)） |
+| 2026-11-19 | t22 方向调整后写提案[统一后台任务](../../../docs/proposals/unified-background-tasks.md)，两轮 omp 设计审查（28、30 条，方向未被质疑、问题在实现细节）后收到方向与规则这一层、开发者接受，写 [ADR 0056](../../../docs/adr/0056-background-work-providers-and-session-notices.md)：`nbook.tasks` 只汇总、状态归提供方；缓冲区收提示（与插话同处取、排在前面）；唤起的门挂在会话上。拆成 [t41](tasks/t41-session-notices-and-wake/README.md)（内核）、[t42](tasks/t42-task-list-providers/README.md)（清单提供方）与 t22（Agent 的送达、自动转后台、eval 提示、工具登记任务）（[t22](tasks/t22-background-work/README.md)） |
 
 ## 待确认
 
@@ -129,7 +130,9 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t18](tasks/t18-builtin-profiles/README.md) | 内置 Profile、提示词规范与评测 | t05、t12、t15 |
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |
 | [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），完成：`eval.md` 已晋升 | t04、t12 |
-| [t22](tasks/t22-background-work/README.md) | 后台任务与协作：结束通知、自动转后台、活动视图、任务种类开放（为 t24），2026-11-19 重开 | t07、t12、t14 |
+| [t22](tasks/t22-background-work/README.md) | Agent 的结果送达、`shell` 自动转后台、eval 的提示、工具登记任务（统一后台任务提案的第三块） | t41 |
+| [t41](tasks/t41-session-notices-and-wake/README.md) | 内核缓冲区的提示与会话级唤起门 | — |
+| [t42](tasks/t42-task-list-providers/README.md) | 后台任务清单的提供方与分组视图 | — |
 | [t23](tasks/t23-session-history/README.md) | Agent 查询会话历史：分页、搜索、视角，搁置 | t14 |
 | [t24](tasks/t24-workflow-integration/README.md) | Workflow 与 Agent 的对接，搁置 | t14 |
 | [t13](tasks/t13-history/README.md) | nb-history 接入与文件变更感知（优先级不高，排到末尾） | t08、t12 |
@@ -151,7 +154,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 
 - 提示词缓存的保留时长与预热（omp 的 `providers.cacheRetention`、`cacheWarming`）、旧会话与大块内容的清理（`gc.*`）：t27 之后再定（t12，2026-11-04）。
 - nb-story 的 400 请求全文落盘：它经 `createHarness` 自己调 `streamSimple`，不经过内核的适配器，所以 t27 的删除管不到它，进程照写 `~/.omp/logs/http-400-requests/`（t27，2026-11-04）。
-- 网页工具插件（`web_fetch`、`web_search`）与网页搜索：另开 Work（t12，2026-10-28）。
+- 网页工具插件（`web_fetch`、`web_search`）与网页搜索：另开 Work（t12，2026-10-28），2026-11-19 建为 [w00052](../w00052-web-tools/README.md)。
 - MCP 插件：另开 [w00036](../w00036-mcp/README.md)（t19，2026-10-30）。
 - 插件分发与官方网站：另开 [w00038](../w00038-plugin-distribution/README.md)、[w00037](../w00037-official-site/README.md)（t25，2026-10-30）。
 - 外部命令行的检测、下载与“外部工具”设置页：发布时做，策略记在 [t12](tasks/t12-builtin-tools/README.md)（2026-10-28）。

@@ -266,6 +266,60 @@
 }
 
 /*
+ * 布局组件的桥接（docs/specs/theme/system.md 的“布局组件的桥接”）：nb-layout 不依赖 nb-ui，它的组件读 `--nb-layout-*`
+ * （名单是 nb-layout 根入口的 `NB_LAYOUT_THEME_VARS`），这里把主题的名字接过去，主题照旧写旧名。只写变量名，不导入 nb-layout。
+ *
+ * - 在根元素上计算：旧名只在根元素上改才传得过去；子树要改 nb-layout 的外观，直接改 `--nb-layout-*`。
+ * - 两个层级写数值，与 `theme/z-index.ts` 的 `dropSectors`、`dropFeedback` 相同（nb-layout 不能导入登记表）。
+ * - 应用的 `theme-bridge.test.ts` 核对这里与清单一一对应，`theme/z-index.test.ts` 核对层级等于登记表；插件 SDK 的令牌文档
+ *   不列这些名字（`pack.ts`）。
+ */
+:root {
+    --nb-layout-motion-fast: var(--motion-fast);
+    --nb-layout-motion-base: var(--motion-base);
+    --nb-layout-motion-move: var(--motion-move);
+    --nb-layout-motion-layout: var(--motion-layout);
+    --nb-layout-ease-layout: var(--ease-layout);
+    --nb-layout-ease-dialog-leave: var(--ease-dialog-leave);
+    --nb-layout-sash-line-color: var(--sash-line-color);
+    --nb-layout-sash-line-size: var(--sash-line-size);
+    --nb-layout-sash-line-inset: var(--sash-line-inset);
+    --nb-layout-sash-line-radius: var(--sash-line-radius);
+    --nb-layout-sash-line-glow: var(--sash-line-glow);
+    --nb-layout-drop-area-fill: var(--drop-area-fill);
+    --nb-layout-drop-area-border: var(--drop-area-border);
+    --nb-layout-scrim: var(--layout-scrim);
+    --nb-layout-sector-fill: var(--layout-sector-fill);
+    --nb-layout-sector-line: var(--layout-sector-line);
+    --nb-layout-sector-active-fill: var(--layout-sector-active-fill);
+    --nb-layout-sector-active-line: var(--layout-sector-active-line);
+    --nb-layout-card-radius: var(--layout-card-radius);
+    --nb-layout-card-shadow: var(--layout-card-shadow);
+    --nb-layout-focus-ring: var(--focus-ring);
+    --nb-layout-focus-outline: var(--focus-outline);
+    --nb-layout-z-drop-sectors: 59;
+    --nb-layout-z-drop-feedback: 60;
+    --nb-layout-accent-main: var(--accent-main);
+    --nb-layout-accent-text: var(--accent-text);
+    --nb-layout-text-main: var(--text-main);
+    --nb-layout-text-muted: var(--text-muted);
+    --nb-layout-text-secondary: var(--text-secondary);
+    --nb-layout-bg-panel: var(--bg-panel);
+    --nb-layout-bg-hover: var(--bg-hover);
+    --nb-layout-panel-surface: var(--panel-surface);
+    --nb-layout-divider: var(--divider);
+    --nb-layout-shadow-color: var(--shadow-color);
+    --nb-layout-elevation-raised: var(--elevation-raised);
+    --nb-layout-overlay-blur: var(--overlay-blur);
+    --nb-layout-radius-control: var(--radius-control);
+    --nb-layout-radius-pill: var(--radius-pill);
+    --nb-layout-font-ui: var(--font-ui);
+    --nb-layout-text-xs: var(--text-xs);
+    --nb-layout-leading-tight: var(--leading-tight);
+    --nb-layout-weight-medium: var(--weight-medium);
+}
+
+/*
  * 无障碍：用户要求减少动效时全部降为 0。
  *
  * 这里的 `!important` 不是偷懒，是这一段**必须赢**。此处是 `:root`（0,1,0），而任何主题都写在

@@ -47,11 +47,11 @@ NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 3. **主题新增角色**：`--page-surface`（稿面）等由主题包 `manifest.declares` 声明，fallback 兜底层保证「别的主题激活时也成立」。工作台外壳的分隔方式也在这一层：nbook 声明 `--shell-gap`、`--shell-ground`、`--shell-card-radius`、`--shell-card-shadow`、`--shell-chrome-surface`、`--shell-chrome-line`、`--shell-seam`、`--shell-join-divider`、`--shell-pane-divider`、`--shell-pane-divider-inset` 并给卡片的取值，fallback 是平铺；macos 不写，是平铺（[`ui/workbench-shell.md`](../ui/workbench-shell.md) 输出 38）。编辑器标签条的底色 `--editor-tabs-surface` 也在这一层：nbook 取正文面（`--panel-surface`）往正文字色（`--text-main`）混 7%，fallback 相同；主题可以改深浅（[`workbench/editor.md`](../workbench/editor.md) 输出 53）。
 4. **语法变量**（角色变量的一组）：`--syntax-comment`、`--syntax-keyword`、`--syntax-string`、`--syntax-number`、`--syntax-type`、`--syntax-tag`、`--syntax-attribute`、`--syntax-regexp`、`--syntax-variable`、`--syntax-punctuation`，给源码编辑器的语法着色用（[`workbench/editor.md`](../workbench/editor.md) 输出 65）。缺省写在 nb-ui `src/tokens.css`，全部由配色变量推导（状态色、强调文字色与文字色，彩色的往正文字色加深），所以每套配色、只改配色的声明式主题都自动有一套。主题包可以在自己的 `vars.css` 里改判，但只写成配色变量的引用或 `color-mix()`，不写字面色：以它为基底的声明式主题（护眼主题、“我的主题”）会原样拿到这些值。声明式主题这一期不能单独改它们（不在 `vars` 的白名单里）。
 
-布局组件的桥接（planned）：nb-layout 不依赖 nb-ui，它的组件不读上面这些名字，读的是 `--nb-layout-*`（`--nb-layout-sash-line-color`、`--nb-layout-card-radius`……，旧名的 `--layout-` 前缀并进命名空间，名单是 nb-layout 根入口导出的 `NB_LAYOUT_THEME_VARS`）：
+布局组件的桥接：nb-layout 不依赖 nb-ui，它的组件不读上面这些名字，读的是 `--nb-layout-*`（`--nb-layout-sash-line-color`、`--nb-layout-card-radius`……，旧名的 `--layout-` 前缀并进命名空间，名单是 nb-layout 根入口导出的 `NB_LAYOUT_THEME_VARS`）：
 
-- nb-ui 的 `src/tokens.css` 在 `:root` 上把旧名接到新名（`--nb-layout-sash-line-color: var(--sash-line-color);`，一行一个），与其余令牌同在 `layer(base)`。所以主题、声明式主题与配色照旧写旧名，装了 nb-ui 的宿主外观与过渡不变。经桥接的除了第 2 层的交互反馈，还有 nb-layout 用到的通用令牌（面、文字、线、圆角、motion、焦点）与两个落点浮层的层级（数值与 nb-ui 的层级登记表相同）。
-- 桥接在根元素上计算：旧名只在根元素上改才传得到 nb-layout；只在子树里改旧名，nb-layout 看不到，子树要改的直接改 `--nb-layout-*`。配色放进子树的界面里，nb-layout 拿到的是根上的颜色。
-- 不装 nb-ui 的宿主没有桥接，组件用每处 `var()` 的回退：尺寸、时长、圆角与 nb-ui 的缺省相同，颜色是系统色（`Canvas`、`CanvasText`、`Highlight` 一类）。
+- nb-ui 的 `src/tokens.css` 在 `:root` 上把旧名接到新名（`--nb-layout-sash-line-color: var(--sash-line-color);`）。所以主题、声明式主题与配色照旧写旧名，装了 nb-ui 的宿主外观与过渡不变。经桥接的除了第 2 层的交互反馈，还有 nb-layout 用到的通用令牌（面、文字、线、圆角、motion、焦点）与两个落点浮层的层级（数值与 nb-ui 的层级登记表相同）。
+- 已知限制（不是承诺）：桥接在根元素上计算，只保证根元素上改的旧名传得到 nb-layout；子树要改 nb-layout 的外观，直接改 `--nb-layout-*`。配色放进子树的界面里，nb-layout 拿到的是根上的颜色。
+- 不装 nb-ui 的宿主没有桥接，组件用每处 `var()` 的回退：尺寸、时长、圆角与 nb-ui 的缺省相同，颜色用系统色（`Canvas`、`CanvasText`、`Highlight` 一类；投影色用 `#000`）。
 - 插件 SDK 的令牌文档（`docs/tokens.md`）不列 `--nb-layout-*`：插件照旧用旧名。
 
 老体系 6 个领域专用变量的映射（唯一映射表，不允许在组件里另起名字）：

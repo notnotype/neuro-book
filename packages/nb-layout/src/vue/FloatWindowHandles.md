@@ -11,6 +11,7 @@
 - 指针：四边四角 8 个手柄，命中带贴着窗的边往里 6px（上边 3px：下面就是标签条，要留给拖动）。按下捕获指针，拖动中发 `preview`，松手发 `commit`（没动不发），Esc 或失去捕获发 `preview(null)` 取消。负方向（左、上）同时改位置，到了尺寸上下限时对边不动（`resizeFloatRect`）。
 - 键盘：只有两个能聚焦，别的 `tabindex="-1"`，不让 Tab 走八步。右下角手柄用方向键缩放；移动把手平时看不见，聚焦时才露出来，方向键移动。步长 10px，Shift 1px，每次发 `commit` 或 `move`。
 - 不读全局 `window`、`document`。
+- `state:inject`：两个能聚焦的把手的读屏名称经 `LAYOUT_TEXT_KEY` 注入的翻译函数取，同 [Splitter](Splitter.md) 的“文字”。
 
 ## 数据
 
@@ -34,4 +35,4 @@ type Emits = {
 
 ## 外观
 
-手柄透明，只有光标（`ns-resize`、`nwse-resize` 这些）。焦点环走 `nb-ui-focus-ring`。层级由 `float-chrome` 的外层给。
+手柄透明，只有光标（`ns-resize`、`nwse-resize` 这些）。焦点环是本包全局样式里的 `nb-layout-focus-ring`（读 `--nb-layout-focus-ring`、`--nb-layout-focus-outline`，装了 nb-ui 时与它的焦点环一样）。层级由 `float-chrome` 的外层给。

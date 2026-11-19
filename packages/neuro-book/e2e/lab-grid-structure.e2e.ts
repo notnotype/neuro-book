@@ -181,7 +181,7 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
 
     test("连续两次变化：计时从最后一次算", async ({page}) => {
         await open(page, true);
-        await page.evaluate(() => document.querySelector<HTMLElement>("[data-grid-scope]")!.style.setProperty("--motion-layout", "600ms"));
+        await page.evaluate(() => document.querySelector<HTMLElement>("[data-grid-scope]")!.style.setProperty("--nb-layout-motion-layout", "600ms"));
         await act(page, "widen");
         const first = await page.evaluate(() => performance.now());
         await page.waitForFunction((at) => performance.now() > at + 300, first);

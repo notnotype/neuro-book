@@ -142,6 +142,8 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 15. **键盘拖动**：配了 `keyboard` 时，焦点在来源或它的把手上按空格拿起；Tab 与 Shift+Tab 在区域间循环并停在区域的第一个位置，方向键沿区域的轴逐个位置移动，Enter 放下，Escape 取消。判定与放下规则同指针。结束后的焦点：放下（不论有没有提交）在下一帧还，提交引起的重渲染在那之前完成；其余取消立即还；焦点移到根之外造成的取消和会话销毁不还。还到拿起时的元素，它已被换掉时用 `refocus` 找。
 16. **落点登记**：`dropTargetAt(top, kind)` 从 `top` 往上找最近的、登记了这个种类的元素，返回元素与查询这一刻的 `data()`；没有或 `top` 为 `null` 时为 `null`。种类按 `id` 比较，同一个 `id` 定义两次是同一个种类。登记不依赖会话，也不写 DOM 标记。注销（`useDropTarget` 随组件卸载）之后不再命中。
 17. **不画东西**：会话不创建元素，除了只读 `data-drag-feedback`，也不读写 DOM 标记。拖影、插入线、高亮都由宿主按 `state` 与 `onEnd` 画，所以换一种反馈不用改会话。
+18. **组件里的会话**（planned）：`useDragSession(root, createOptions)` 在有根时建会话：调用时根已有值就立即建，模板 ref 的根在组件挂载后的那次刷新里建（挂载回调里还是 null）。根换了先销毁旧的再建新的，根没了或所在的作用域结束时销毁；换根与销毁时进行中的拖动按销毁收尾。返回会话与它的 `state`，没有根时两者都是 null。
+19. **组件里的会话：选项**（planned）：`createOptions(root)` 每在一个根上建会话时调一次，交回这个会话的选项，会话建好后不再读；`autoScroll`、`keyboard`、`scroll`、`config` 在建时定死。`createOptions` 抛错时这个根上没有会话（`session` 为 null），错误交给应用的错误处理。
 
 ## 状态与转换
 

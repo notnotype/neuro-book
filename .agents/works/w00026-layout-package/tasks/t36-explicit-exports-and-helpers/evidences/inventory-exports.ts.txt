@@ -1,0 +1,73 @@
+// 列出入口的导出名（值与类型），再扫各包源码里经包名导入的名字，算出每个导出的使用方。
+import ts from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t36-explicit-exports/node_modules/typescript/lib/typescript.js";
+import {readdirSync, readFileSync, statSync} from "node:fs";
+import {join, relative} from "node:path";
+
+const ROOT = process.argv[2]!;
+const entries: Record<string, string> = {
+    "@notnotype/nb-layout": join(ROOT, "packages/nb-layout/src/index.ts"),
+    "@notnotype/nb-layout/vue": join(ROOT, "packages/nb-layout/src/vue/index.ts"),
+    "@notnotype/nb-layout/text": join(ROOT, "packages/nb-layout/src/vue/text.ts"),
+    "@notnotype/nb-layout/locales": join(ROOT, "packages/nb-layout/src/locales/index.ts"),
+};
+const program = ts.createProgram(Object.values(entries), {allowJs: false, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, skipLibCheck: true, allowArbitraryExtensions: true});
+const checker = program.getTypeChecker();
+const exported: Record<string, Map<string, string>> = {};
+for (const [name, file] of Object.entries(entries)) {
+    const sf = program.getSourceFile(file)!;
+    const sym = checker.getSymbolAtLocation(sf)!;
+    const map = new Map<string, string>();
+    for (const e of checker.getExportsOfModule(sym)) {
+        const target = e.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(e) : e;
+        const decl = target.declarations?.[0];
+        const kind = target.flags & ts.SymbolFlags.Value ? "value" : "type";
+        map.set(e.name, `${kind} ${decl ? relative(join(ROOT, "packages/nb-layout/src"), decl.getSourceFile().fileName) : "?"}`);
+    }
+    exported[name] = map;
+}
+// 扫导入
+const users: Record<string, Map<string, Set<string>>> = {};
+for (const n of Object.keys(entries)) users[n] = new Map();
+function walk(dir: string, out: string[]): void {
+    for (const e of readdirSync(dir)) {
+        if (e === "node_modules" || e === "dist" || e.startsWith(".")) continue;
+        const p = join(dir, e);
+        const st = statSync(p);
+        if (st.isDirectory()) walk(p, out);
+        else if (/\.(ts|vue|tsx)$/.test(e)) out.push(p);
+    }
+}
+const files: string[] = [];
+for (const pkg of readdirSync(join(ROOT, "packages"))) {
+    if (pkg === "neuro-book-legacy" || pkg === "nb-layout" || !statSync(join(ROOT, "packages", pkg)).isDirectory()) continue;
+    walk(join(ROOT, "packages", pkg), files);
+}
+// nb-layout 自己的测试也经包名导入吗？一般走相对路径，不算。
+const IMPORT = /import\s+(type\s+)?\{([^}]*)\}\s+from\s+"(@notnotype\/nb-layout(?:\/vue|\/text|\/locales)?)"/gs;
+const EXPORT_FROM = /export\s+(type\s+)?\{([^}]*)\}\s+from\s+"(@notnotype\/nb-layout(?:\/vue|\/text|\/locales)?)"/gs;
+for (const f of files) {
+    const text = readFileSync(f, "utf8");
+    for (const re of [IMPORT, EXPORT_FROM]) for (const m of text.matchAll(re)) {
+        const mod = m[3]!;
+        for (const raw of m[2]!.split(",")) {
+            const name = raw.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]!.trim();
+            if (!name) continue;
+            const set = users[mod]!.get(name) ?? new Set();
+            set.add(relative(ROOT, f).split("/").slice(0, 2).join("/") + (f.includes("/e2e/") ? "(e2e)" : f.includes(".test.") ? "(test)" : f.includes("/lab/") ? "(lab)" : f.includes("/sdk/") ? "(sdk)" : ""));
+            users[mod]!.set(name, set);
+        }
+    }
+}
+for (const [mod, map] of Object.entries(exported)) {
+    console.log(`\n## ${mod}（${map.size} 个导出）`);
+    const rows = [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+    let unused = 0;
+    for (const [name, info] of rows) {
+        const u = users[mod]!.get(name);
+        if (!u) unused++;
+        console.log(`${name}\t${info}\t${u ? [...u].sort().join(", ") : "—"}`);
+    }
+    console.log(`无人经包名导入：${unused}`);
+    const missing = [...users[mod]!.keys()].filter((n) => !map.has(n));
+    if (missing.length) console.log(`导入了但入口没有：${missing.join(", ")}`);
+}

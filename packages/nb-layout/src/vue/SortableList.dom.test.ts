@@ -1,8 +1,10 @@
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {h} from "vue";
+import {h, ref} from "vue";
 
 import SortableList from "./SortableList.vue";
+import {LAYOUT_TEXT_KEY} from "./text";
+import type {LayoutTranslate} from "./text";
 import type {SortableMove} from "./useSortable";
 
 /**
@@ -22,11 +24,12 @@ afterEach(() => {
 });
 
 /** 挂上并等一拍：会话在列表根挂上之后才建（`useSortable` 看着根）。 */
-async function mountList(onMove: (move: SortableMove) => void | Promise<unknown>, sections = SECTIONS) {
+async function mountList(onMove: (move: SortableMove) => void | Promise<unknown>, sections = SECTIONS, translate?: LayoutTranslate) {
     const wrapper = mount(SortableList, {
         props: {sections, label: (key: string) => TITLES[key] ?? key, onMove},
         slots: {item: ({itemKey}: {itemKey: string}) => h("span", TITLES[itemKey])},
         attachTo: document.body,
+        ...(translate === undefined ? {} : {global: {provide: {[LAYOUT_TEXT_KEY as symbol]: translate}}}),
     });
     await flushPromises();
     return wrapper;
@@ -39,6 +42,18 @@ const order = (wrapper: Mounted) => wrapper.findAll("[data-sortable-key]").map((
 const handleOf = (wrapper: Mounted, key: string) => wrapper.get(`[data-sortable-key="${key}"] [data-sortable-handle]`).element as HTMLElement;
 
 describe("SortableList", () => {
+    it("文字（nested-grid 输出 143）：宿主经 LAYOUT_TEXT_KEY 注入时用宿主的，换语言后跟着变；下一条用例没有注入，用自带的源语言目录", async () => {
+        const locale = ref("en-US");
+        const catalogs: Record<string, Partial<Record<string, string>>> = {"en-US": {"sortable.handle": "Move {{name}}"}, fr: {"sortable.handle": "Déplacer {{name}}"}};
+        // 读 `locale.value`：同真实宿主的端口，渲染期调用时建立依赖。
+        const translate: LayoutTranslate = (key, params) => (catalogs[locale.value]?.[key] ?? key).replace("{{name}}", String(params?.["name"] ?? ""));
+        const wrapper = await mountList(() => undefined, SECTIONS, translate);
+        expect(handleOf(wrapper, "c2").getAttribute("aria-label")).toBe("Move 旧码头");
+        locale.value = "fr";
+        await flushPromises();
+        expect(handleOf(wrapper, "c2").getAttribute("aria-label")).toBe("Déplacer 旧码头");
+    });
+
     it("把手上空格拿起，下键进空的第二卷，回车放下：@move 收到一次移动，焦点回到把手", async () => {
         const moves: SortableMove[] = [];
         const wrapper = await mountList((move) => void moves.push(move));

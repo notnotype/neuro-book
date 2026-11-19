@@ -1209,7 +1209,7 @@ describe("NestedGrid 内容层", () => {
 
     it("拿起的内容项并进已有的叶：那块叶刚才显示着的内容留在落地的卡片下面、不可交互，过渡结束才隐藏", async () => {
         const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: true}]);
-        wrapper.element.style.setProperty("--motion-layout", "30ms");
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "30ms");
         const grid = wrapper.vm as unknown as {placeLifted(rect: {x: number; y: number; width: number; height: number}): void};
         await wrapper.setProps({revision: 1});
         grid.placeLifted({x: 11, y: 22, width: 33, height: 44});
@@ -1245,7 +1245,7 @@ describe("NestedGrid 内容层", () => {
             slots: {leaf: ({node}: {node: {id: string}}) => h("span", {"data-head": node.id}), content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey)},
         });
         wrappers.push(wrapper);
-        wrapper.element.style.setProperty("--motion-layout", "30ms");
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "30ms");
         // 第一次布局回调只记下尺寸、不过渡：先发布一次同样的布局。
         const again = side(false);
         await wrapper.setProps({node: again.root(), layout: again.layout(CONTAINER)});
@@ -1383,7 +1383,7 @@ describe("NestedGrid 浮动窗", () => {
 
     it("只有窗的矩形变了不过渡；窗在移动时不接指针的标记写在外框与内容上", async () => {
         const wrapper = mountFloats({});
-        wrapper.element.style.setProperty("--motion-layout", "470ms");
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "470ms");
         await wrapper.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, x: 400}, gesture: "move"}]});
         await nextTick();
         expect(wrapper.findAll("[data-moving]")).toHaveLength(0);
@@ -1422,7 +1422,7 @@ describe("NestedGrid 交换", () => {
             slots: {content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey), ...extraSlots},
         });
         wrappers.push(wrapper);
-        wrapper.element.style.setProperty("--motion-layout", motion);
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", motion);
         // 第一次布局回调只记下尺寸、不过渡：先发布一次同样的布局。
         const again = column(A);
         await wrapper.setProps({node: again.root(), layout: again.layout(CONTAINER)});

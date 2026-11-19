@@ -23,6 +23,13 @@ describe("层级登记表", () => {
         expect(NB_Z_INDEX.dropSectors).toBeLessThan(NB_Z_INDEX.dropFeedback);
     });
 
+    it("给 nb-layout 两个落点浮层的桥接（tokens.css）写的是登记表里的值：nb-layout 不能导入登记表，经这两个变量取层级", () => {
+        const tokens = readFileSync(join(import.meta.dirname, "../tokens.css"), "utf8");
+        const value = (name: string): number => Number(new RegExp(`${name}:\\s*(\\d+);`, "u").exec(tokens)?.[1]);
+        expect(value("--nb-layout-z-drop-sectors")).toBe(NB_Z_INDEX.dropSectors);
+        expect(value("--nb-layout-z-drop-feedback")).toBe(NB_Z_INDEX.dropFeedback);
+    });
+
     it("各档从低到高：页面浮层 < 拖影 < 浮动窗口各层（含自己的浮层） < 模态各层 < 模态里的浮层 < 通知 < 右键菜单 < 命令面板 < 桌面窗口外框 < 检查框", () => {
         /** 最上面一条车道里第 5 层嵌套的窗口。 */
         const highestWindowLane = NB_Z_INDEX.dialogWindow + (NB_DIALOG_WINDOW_MAX_LANES - 1) * NB_DIALOG_WINDOW_LANE + 4 * NB_DIALOG_WINDOW_Z_STEP;

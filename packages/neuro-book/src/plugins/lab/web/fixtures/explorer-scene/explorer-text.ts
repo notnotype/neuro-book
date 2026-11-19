@@ -4,13 +4,13 @@
  * 中文；这些零件没有 `locale` 属性，语言只由场景决定。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
-import {defineComponent, h, provide} from "vue";
+import {defineComponent, h} from "vue";
 import type {Component, PropType} from "vue";
 
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {LabSceneInput} from "../../lab-subject";
@@ -21,7 +21,7 @@ const sceneLocale = (scene: string): DisplayLocale => (/(?:^|-)english$/u.test(s
 export function provideExplorerText(scene: string): TextPort {
     const engine = createHostTextEngine({locale: sceneLocale(scene)});
     engine.register("nbook.explorer", explorerCatalogs.catalogs, explorerCatalogs.source);
-    provide(TEXT_PORT_KEY, engine.port);
+    provideHostText(engine.port);
     return engine.port;
 }
 

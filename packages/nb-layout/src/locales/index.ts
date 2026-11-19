@@ -1,7 +1,7 @@
 /**
  * nb-layout 自带的目录（docs/specs/ui/i18n.md）。写成 `.ts` 模块而不是 JSON：消费方没开 `resolveJsonModule` 时，从包源码
- * 导入 JSON 会让它们的类型检查失败。注入翻译端口的宿主在引导时按命名空间 `nb-layout`、源语言 `zh-CN` 登记这份目录；没有
- * 宿主注入时，Vue 层用它建缺省端口（`src/vue/text.ts`）。
+ * 导入 JSON 会让它们的类型检查失败。宿主按命名空间 `nb-layout`、源语言 `zh-CN` 把这份目录登记进自己的翻译引擎，再把翻译函数
+ * 交给 `LAYOUT_TEXT_KEY`；没有注入时，`src/vue/text.ts` 直接读这里的源语言目录。
  */
 
 import enUS from "./en-US";

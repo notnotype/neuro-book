@@ -5,13 +5,10 @@
  * 每次远程调用取一份快照，在同一个同步段里算完：快照在中间 `await` 过以后就不能再用（canon 的项目内接口）。
  */
 
-import {createHash} from "node:crypto";
-
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
-import {pageOf} from "@notnotype/nb-canon/node";
 import type {CanonReadView, Mode, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -32,6 +29,10 @@ import {experienceChanges, firstReveal, knowingIndex, readerKnowing} from "../co
 import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
+import {remoteAuthor} from "./author";
+import {digest, fail, fitted, latest, lineViewOf, pagedList} from "./results";
+import type {Failure, Ok} from "./results";
+import {plotAuthorContract} from "../shared/author";
 import {plotWorldContract} from "../shared/contracts";
 import {checkDiagnostics} from "../core/checks/diagnostics";
 import {readerKnown, revealDependencies, secretLedger} from "../core/checks/ledgers";
@@ -44,52 +45,11 @@ import {createChecks, writeBackDependencies} from "./checks";
 import {PlotStore, type ChapterTable} from "./store";
 
 
-type Failure = {readonly ok: false; readonly code: "plot"; readonly detail: {readonly code: string}};
-const fail = (code: string): Failure => ({ok: false, code: "plot", detail: {code}});
-
-type Ok<T> = {readonly ok: true; readonly value: T};
-const digest = (text: string) => createHash("sha256").update(text).digest("hex");
-
-/** 单个结果：编码后超过单次预算回 `too-large`（canon.project 输出 18）。 */
-function fitted<T>(value: T): Ok<T> | Failure {
-    return encodedBytes(value) > CANON_BUDGET_BYTES ? fail("too-large") : {ok: true, value};
-}
-
-/**
- * 列表的一页（canon.project 输出 18，与 canon 的列表同一套游标）：按调用方给的条数（缺省 50）取，编码后超过预算就把条数减半
- * 重取，单条都装不下才回 `too-large`。`extra` 是每页都带的那几项（例如没记参与者的条数）。
- */
-function pagedList<T>(view: CanonReadView, items: readonly T[], input: {readonly cursor?: string; readonly limit?: number}, params: {readonly method: string} & Readonly<Record<string, unknown>>, extra: Readonly<Record<string, unknown>> = {}): Ok<unknown> | Failure {
-    let size = input.limit ?? 50;
-    for (;;) {
-        const page = pageOf(view.stamp, items, input.cursor, size, params, digest);
-        if (page === "cursor-stale") return fail("cursor-stale");
-        const value = {version: view.version, inputDigest: view.stamp.inputDigest, ...extra, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
-        if (encodedBytes(value) <= CANON_BUDGET_BYTES) return {ok: true, value};
-        if (size === 1) return fail("too-large");
-        size = Math.max(1, Math.floor(size / 2));
-    }
-}
-
-/** 缺省的读取位置：最新一章的末尾，没有章时是初值（canon.model 输出 21）。 */
-function latest(view: CanonReadView): ReadPosition {
-    const last = view.chapters.at(-1);
-    return last === undefined ? {kind: "initial"} : {kind: "chapter", chapter: last, edge: "end"};
-}
-
 /** 一个调用方打开的视角：句柄到内核令牌与看的人、上限、用途。 */
 type Viewpoints = Map<string, {readonly token: string; readonly grant: ViewpointGrant; readonly purpose: string; readonly line: string}>;
 /** 最近关掉的句柄的看的人与用途（每个调用方最多留这么多）：之后再用它被拒时，审计里照样写得出是谁。 */
 const CLOSED_KEPT = 100;
 let viewpointSequence = 0;
-
-/** 读取位置那条线的视图（worldlines 输出 12）：位置写了线用写的，不写按活页夹那一章讲的线。线读不到（不存在、实际模式下的计划线、不可建）是 `line-not-found`。 */
-function lineViewOf(view: CanonReadView, position: ReadPosition, mode: Mode): CanonReadView | Failure {
-    const line = view.positionLine(position, mode);
-    if (line === view.line) return view;
-    const found = view.onLine(line, mode);
-    return "code" in found ? fail(found.code) : found;
-}
 
 function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: ChapterTable<InstructionSnapshot> | null): RemoteImplementation<typeof plotWorldContract> {
     const closed = new Map<string, {readonly viewer: string | null; readonly purpose: string}>();
@@ -222,7 +182,7 @@ export const plotProjectPlugin: PluginDefinition = {
         location: "project",
         activationEvents: ["onStartup"],
         dependencies: [{key: canonProjectKey}, {key: storageKey}, {key: diagnosticsKey}],
-        remoteProvides: [plotWorldContract, plotInstructionsContract, plotChecksContract],
+        remoteProvides: [plotWorldContract, plotInstructionsContract, plotChecksContract, plotAuthorContract],
         activate: async (context) => {
             const canon = context.services.require(canonProjectKey);
             const diagnostics = context.services.require(diagnosticsKey);
@@ -347,7 +307,8 @@ export const plotProjectPlugin: PluginDefinition = {
                 },
                 events: {},
             }));
-            return {remote: [remote, instructionsRemote, checksRemote]};
+            const authorRemote = provideRemote(plotAuthorContract, () => remoteAuthor(canon));
+            return {remote: [remote, instructionsRemote, checksRemote, authorRemote]};
         },
     })],
 };

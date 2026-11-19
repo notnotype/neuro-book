@@ -5,13 +5,12 @@
  * 编辑器区没有 `locale` 属性，语言只由场景决定。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
-import {provide} from "vue";
 
 import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 const sceneLocale = (scene: string): DisplayLocale => (scene === "english" ? "en-US" : "zh-CN");
@@ -21,6 +20,6 @@ export function provideEditorText(scene: string): TextPort {
     const engine = createHostTextEngine({locale: sceneLocale(scene)});
     engine.register("nbook.editor", editorCatalogs.catalogs, editorCatalogs.source);
     engine.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
-    provide(TEXT_PORT_KEY, engine.port);
+    provideHostText(engine.port);
     return engine.port;
 }

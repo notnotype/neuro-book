@@ -18,6 +18,9 @@
         },
         "show-revisions": {
             "title": "Show Change History"
+        },
+        "pick-line": {
+            "title": "Pick World Line"
         }
     },
     "views": {
@@ -370,11 +373,20 @@
         "pending-count": {
             "title": "Pending",
             "text": "Pending {{count}}"
+        },
+        "line": {
+            "title": "World line in view",
+            "main": "Viewing: main line",
+            "follow": "Viewing: each chapter's line",
+            "named": "Viewing: {{name}}"
         }
     },
     "state": {
         "hasPending": {
             "reason": "Nothing is pending"
+        },
+        "lineReady": {
+            "reason": "The line table is not read yet"
         }
     },
     "revisions": {
@@ -493,5 +505,14 @@
             "someRevision": "A change",
             "openRoot": "View that change's receipt"
         }
+    },
+    "line": {
+        "pickTitle": "Which line to read",
+        "lostTitle": "The line you were viewing no longer exists",
+        "placeholder": "Pick a line",
+        "follow": "Follow each chapter",
+        "main": "Main line",
+        "followNow": "Follow each chapter (now: {{line}})",
+        "label": "World line"
     }
 }

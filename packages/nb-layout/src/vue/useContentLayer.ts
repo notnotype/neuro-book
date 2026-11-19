@@ -110,7 +110,7 @@ export function useContentLayer(options: {
     }
 
     /**
-     * 过渡中按叶的矩形摆（内容体往下挪一个面板头，`--nb-grid-inset`）：它的叶这一轮内容不跟外框，叶从零长出来、缩到零时外层的上边就是外框的上边，
+     * 过渡中按叶的矩形摆（内容体往下挪一个面板头，`--nb-layout-grid-inset`）：它的叶这一轮内容不跟外框，叶从零长出来、缩到零时外层的上边就是外框的上边，
      * 内容一直紧贴面板头下面（为什么不按内容自己的矩形见 `keptSizeStarts`）。正飞过去的、拿起的、自己跟外框的不算。
      */
     function byLeafRect(item: GridContentPlacement): boolean {
@@ -143,7 +143,7 @@ export function useContentLayer(options: {
         const hidden: Record<string, string> = isParked(item) && !showing ? {visibility: "hidden"} : {};
         if (byLeafRect(item)) {
             const rect = options.growing.value.get(startKey(item)) ?? (item.leafRect as GridRect);
-            return {...gridRectStyle(rect), "--nb-grid-inset": `${item.insetTop}px`, clipPath: byLeafClip(item), ...hidden};
+            return {...gridRectStyle(rect), "--nb-layout-grid-inset": `${item.insetTop}px`, clipPath: byLeafClip(item), ...hidden};
         }
         const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
         const clip = options.swapClip?.(item, rect);

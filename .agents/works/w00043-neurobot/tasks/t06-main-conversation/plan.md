@@ -192,6 +192,32 @@
   - 同一个 `commandId` 先由用户受理，重开会话后换成非用户重发：交回原结果，不写新的结算；
   - 用真实的拦截触发 `input-rejected`、用过期的 `replaces` 触发 `input-stale`：两种情况事项都还在，原等待者之后正常收到一次结算。
 
+### 第 2 片实施中的调整（优先于上面各节）
+
+- **`header(id)` 一律读存储**：会话表与内核宿主都不经打开的句柄，读到的会话头由宿主深冻结后交出。会话头建后不变，开着与否读到的一样；省掉“开着时用句柄”的分支。第 1 片的 `AgentHost.header` 交出的是没冻结的对象，这一片补上。
+- **`refuse` 的签名**：`(header, command: HistoryCommand) => string | null`，`HistoryCommand` 是会话表导出的 `rewind | switchBranch | archive`，只对这三个指令预读会话头；码由宿主给，kit 不认识它。
+- **`owned-session` 不进内核的码表**：内核从不产生它。视图的结果类型沿用打开失败码的做法（会话表交回的失败码本来就不全在内核的结果类型里）；远程合同给这三个指令的失败码表补上 `owned-session`。“码的类型写进结果类型、不强转”不做。
+- **远程不加 `invalid-owner`**：远程 `create` 不收 `owner`，到不了这个码。
+- **计时口加 `now()`**：`SessionTableClock` 加 `now()`，量打开耗时；运行时的 `RuntimeClock` 本来就有。
+- **门面作废之后才交回的 `hold`**：先放掉，再抛 `ServiceRevokedError`（与访问已作废门面的其它方法一致）。
+- **审批预览的上下文**：补 `background`、`owner`，与内核交给工具的上下文同形；预览目前不读这两项，没有专门的测试。
+
+### 第 3 片实施中的调整（优先于上面各节）
+
+- **岗位 Profile 怎样沿用主创**：架构规则只许跨插件在运行时引用对方的 `shared/contracts.ts`，主创的模式扩展在 `nbook.agent` 的 backend 里，计划原写的“导出 `modesExtensions` 给别的插件引用”做不到。改成：
+  - 工具清单是纯数据，`MAIN_PROFILE_TOOLS` 放进 `agent/shared/contracts.ts`，主创与岗位 Profile 共用；
+  - 模式扩展经新的服务键 `agentProfilePartsKey`（`{modes}`）由 `nbook.agent` 提供，`nbook.bots` 激活时取；
+  - `agentProfile`、`PROFILES_POINT` 由 `agent/shared/contracts.ts` 转出，`nbook.bots` 是第一个在别的插件里贡献 Profile 的内置插件。
+- **岗位 Profile 标 `hidden`**：只给 bot 的主对话用，新建会话时不列出。Spec 没写这一条，交开发者知悉。
+- **没有浏览器入口**：描述只写 `server`，不登记 `web/plugins.ts` 与消息目录；界面与失败码的文案归 t15。缺省预设写成描述的顶层贡献，服务端定义另写 `contributionPoints`（描述里的只给没有入口的位置登记）。
+- **后台任务找不到主对话时不改状态**：只有读到会话头之后才进 `opening`，所以没有主对话的 bot 一直是 `none`。
+- **多出的诊断**：`bots.create-failed`（建 bot 没做成：目标目录已在、记录没写下）、`bots.record-failed`（存储读写失败，区别于读不懂的 `record-unreadable`）、`bots.builtin-missing`、`bots.start-failed`。前两条进 Spec 的失败表。
+- **测试的替身**：打开超过 2 秒与“在途的 `hold` 卡在停止信号两边”在真实会话里造不出来，这两条用照门面合同写的替身测 `MainConversations`（`backend/main.test.ts`）；真实的打开耗时与持有由第 2 片的会话表与 `agent.test.ts` 测。
+- **没覆盖的验收**：
+  - bots 验收 2 没有走真实的插件安装：预设核对用真实文件与入口同一个查找测（`backend/presets.test.ts`），`packages.file` 在 `plugins.test.ts` 里走真实安装；
+  - main-conversation 输出 4（Profile 解析不到时持有照样成功）没有专门的用例，依赖内核以只读打开的现有行为；
+  - main-conversation 验收 3 的 `settlePending` 那一半由 `agent/sessions.test.ts` 的远程用例覆盖，`bots.test.ts` 只测主对话的 `rewind` 得 `owned-session`。
+
 ## Spec 与文档改动
 
 - 已写（planned）：见 Context 的列表、注册表两行、提案的决策记录一行。第 2 稿的修订与本计划同一个提交。

@@ -18,8 +18,7 @@ import {acquireSashCursor, sashCursorFor, SASH_HOVER_DELAY_MS, sashHitKey, type 
 import {commitFailure} from "../grid-failure";
 import {createIssueGate} from "../issue-gate";
 import type {GridFailure, GridIssue, GridIssueCode} from "../grid-types";
-import {sashKey, type GridSashRef, type SashGestureBinding, type SashGestureHost} from "../sash-gesture";
-import type {SplitterGestureCancelReason} from "../splitter-gesture";
+import {sashKey, type GridSashRef, type SashGestureBinding, type SashGestureCancelReason, type SashGestureHost} from "../sash-gesture";
 
 export type SashRegistration = {
     readonly branchId: string;
@@ -314,7 +313,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
     }
 
-    function cancel(reason: SplitterGestureCancelReason): void {
+    function cancel(reason: SashGestureCancelReason): void {
         const current = binding;
         if (current === null) {
             return;

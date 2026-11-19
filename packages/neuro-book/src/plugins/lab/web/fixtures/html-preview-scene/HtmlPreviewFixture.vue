@@ -7,13 +7,13 @@
  * `-english` 结尾的用英文界面，其余用中文。
  */
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {computed, provide, ref, shallowRef, watch} from "vue";
+import {computed, ref, shallowRef, watch} from "vue";
 
 import type {TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type {PreviewAccess} from "nbook/plugins/html-preview/web/access";
 import {htmlPreviewCatalogs} from "nbook/plugins/html-preview/web/text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {useLabEventSink} from "../../lab-event-sink";
@@ -25,7 +25,7 @@ const record = useLabEventSink();
 const sceneLocale = (scene: string): string => (/(?:^|-)english$/u.test(scene) ? "en-US" : "zh-CN");
 const textEngine = createHostTextEngine({locale: sceneLocale(props.scene)});
 textEngine.register("nbook.html-preview", htmlPreviewCatalogs.catalogs, htmlPreviewCatalogs.source);
-provide(TEXT_PORT_KEY, textEngine.port);
+provideHostText(textEngine.port);
 watch(() => props.scene, (scene) => textEngine.setLocale(sceneLocale(scene)));
 
 const page = (count: number): string => `<!doctype html><html><head><style>body{font:16px/1.6 sans-serif;margin:32px;color:#1f2937}h1{color:#7c3aed}button{font:inherit;padding:4px 12px}</style></head><body><h1>预览里的页面</h1><p>第 ${String(count)} 版。下面的按钮由页面自己的脚本处理：</p><button id="b">点了 0 次</button><p><a href="#end">跳到末尾</a></p><div style="height:900px"></div><p id="end">末尾</p><script>var n=0;document.getElementById("b").onclick=function(){n+=1;this.textContent="点了 "+n+" 次";};<\/script></body></html>`;

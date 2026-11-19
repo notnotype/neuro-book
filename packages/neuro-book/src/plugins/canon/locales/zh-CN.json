@@ -18,6 +18,9 @@
         },
         "show-revisions": {
             "title": "显示改动记录"
+        },
+        "pick-line": {
+            "title": "选看哪条线"
         }
     },
     "views": {
@@ -370,11 +373,20 @@
         "pending-count": {
             "title": "待处理",
             "text": "待处理 {{count}}"
+        },
+        "line": {
+            "title": "在看的线",
+            "main": "在看：主线",
+            "follow": "在看：跟着章",
+            "named": "在看：{{name}}"
         }
     },
     "state": {
         "hasPending": {
             "reason": "没有待处理的问题"
+        },
+        "lineReady": {
+            "reason": "还没读到线表"
         }
     },
     "revisions": {
@@ -493,5 +505,14 @@
             "someRevision": "一次改动",
             "openRoot": "看那次改动的回执"
         }
+    },
+    "line": {
+        "pickTitle": "看哪条线",
+        "lostTitle": "原来看的那条线已经不在了",
+        "placeholder": "选一条线",
+        "follow": "跟着章",
+        "main": "主线",
+        "followNow": "跟着章（此刻：{{line}}）",
+        "label": "看哪条线"
     }
 }

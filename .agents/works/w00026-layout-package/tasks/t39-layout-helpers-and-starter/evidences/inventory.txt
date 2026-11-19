@@ -1,0 +1,155 @@
+## 盘点结果（w00026 t39，只读）
+
+没有改文件、没有跑测试、没有开子代理。下面引用的行号都是我当前读到的；t26 证据文件里的行号已经漂移，我在第 3 节和第 7 节单列了。
+
+**三条最影响方案的事实**
+
+1. 提案点名的 `useGridHost`、`useDragSession`、`applyGestureCommit`、`rebaseForOperation` 在仓库任何包里都搜不到。`useGridLayout` 已经返回 `node`、`layout`、`revision`、`invalidate`、`onGestureCommit`，接近提案里的 `useGridHost`。
+2. `NestedGrid` 没有 `extent` 事件，所以“`@extent` 回灌”的前提不成立。`extent` 事件只有工作台的 `WorkbenchSurface` 自己发出。`NestedGrid` 内部还会再量一次容器。
+3. 应用里没有任何地方接收 `NestedGrid` 的 `issues`。`WorkbenchShell.vue` 没有 `@issues`，工作台所有拖动诊断发出后都没有消费者。
+
+---
+
+## 1. `NestedGrid` 宿主的接线
+
+`NestedGrid` 的直接宿主共 5 个，都在 `packages/neuro-book/src/plugins/`：工作台 1 个，Lab 夹具 4 个。另有两个 Lab 夹具渲染 `WorkbenchSurface`，属于间接宿主：`lab/web/fixtures/WorkbenchSurfaceFixture.vue:271`、`lab/web/fixtures/editor-scene/EditorAreaFixture.vue:365`。
+
+SDK 只做再导出（`src/sdk/components.ts:42`），`plugin-sdk/examples` 和模板里没有 nb-layout 的引用。dev-panel 与 nb-story 用的是 nb-ui 的 `Splitter`，不是 nb-layout。
+
+| 宿主 | 尺寸 | 版本与提交 | contextKey | disabled | 接线（约） |
+|---|---|---|---|---|---|
+| 工作台 `workbench/web/components/WorkbenchSurface.vue` | `useLayoutExtent(rootEl)`（:92） | `useGridLayout`（:131-137） | prop（:32），Shell 写死 `"workbench"`（`WorkbenchShell.vue:948`） | `disabled \|\| extent === null`（:564） | Surface 约 18 行，Shell 约 6 行（`WorkbenchShell.vue:944-953`） |
+| Lab `lab/web/fixtures/nb-layout/NestedGridAcceptanceFixture.vue` | `useLayoutExtent(containerRef)`（:75） | `useGridLayout`（:124-146） | 函数 `gestureContextKey()`，在 :127 和 :515 各调一次 | `disabled` | 接线约 10 行，另有 onApplied 的记录约 15 行 |
+| Lab `GridSwapScene.vue` | :34 | `useGridLayout`（:38） | 字面量 `"swap"`，在 :38 与 :78 各写一次 | 无 | 约 8 行 |
+| Lab `GridPanelsScene.vue` | :88 | `useGridLayout`（:89-103），onApplied 写回意图（:93-102） | `"panels"`，在 :92 与 :161 | 无 | 接线约 8 行，写回约 8 行 |
+| Lab `GridStructureScene.vue` | :39 | `useGridLayout`（:41） | `"structure"`，在 :41 与 :70 | 无 | 约 8 行；结构操作后 `host.invalidate()`（:57-60） |
+
+**怎样量尺寸**
+
+- 5 个宿主全部用 `useLayoutExtent`，没有人用 `NestedGrid` 的 `@extent`，因为 `NestedGrid` 的 emits（`src/vue/NestedGrid.vue:100-109`）里根本没有它。
+- 工作台的 `extent` 事件是 `WorkbenchSurface.vue:53`、`:97` 自己发的，经 `WorkbenchShell.vue:949` 的 `onExtent`（:734）进 store 的 `acceptExtent`。
+- `NestedGrid` 自己仍量一次：`NestedGrid.vue:132`，`rootExtent()`（:445-446）优先用它。宿主量外层容器，`NestedGrid` 量自己的根，同一个容器量了两遍。t26 api-11 要求的“`NestedGrid` 不再量”没有做。
+
+**重复的行**
+
+- `:node`、`:layout`、`:revision="host.revision.value"`、`:on-gesture-commit="host.onGestureCommit"` 在 5 个宿主里一字不差。
+- `useLayoutExtent(ref)` 加 `useGridLayout({grid, extent, contextKey})` 这两段在 5 处结构相同。
+- `contextKey` 同一个值要写两遍的有 4 处（Swap、Panels、Structure 是字面量，Acceptance 是函数）。工作台要写三遍：`WorkbenchShell.vue:948`、`WorkbenchSurface.vue:32`、`:134`、`:565`（实际是 Surface 内两处加一个 prop）。
+- `extent === null` 守卫只有工作台有（`WorkbenchSurface.vue:564`）。
+- `contextKey` 在 `NestedGrid` 的缺省值是 `""`（`NestedGrid.vue:85`），忘传就会落到第 5 节的 `stale-context`。
+
+---
+
+## 2. `createDragSession` 的生命周期
+
+4 个调用方，两种写法。
+
+- **工作台**：`createLayoutDrag`（`workbench/web/layout-drag.ts`）在 `:980` 调 `createDragSession`，`:1123-1132` 包装 `dispose`。`WorkbenchShell.vue` 用 `shallowRef` 持有（:738），`onMounted` 里用 `hostEl.value!` 创建（:739-770），`onBeforeUnmount` 里销毁（:771）。不处理换根。
+- **Explorer** `explorer/web/components/ExplorerTree.vue`：`gesture` 是 `shallowRef`（:256）。`onMounted` 里 root 为空就返回，否则创建（:301-326）；同一个 `onMounted` 里还有一个 `watch(gesture.value.state, …, {flush: "sync"})`，没有显式停止。`onBeforeUnmount(() => gesture.value?.dispose())`（:327）。
+- **Lab** `lab/web/fixtures/nb-layout/DragSessionScene.vue`：`session` 是 `shallowRef`（:45），`onMounted` 创建（:46-50），`computed` 读 `state`（:85），`onBeforeUnmount(dispose)`（:83）。
+- **nb-layout** `src/vue/useSortable.ts`：`watch(options.root, (root, _prev, onCleanup) => …, {immediate: true})`（:214），创建（:221），`onCleanup` 里 dispose、移除 pointerdown、清空 session（:316-321）。这是唯一处理换根的调用方。
+
+重复的样板：前三处同形，都是“ref 持有、挂载时建、卸载时 dispose、root 为空守卫”，每处 4 到 5 行；有两处再包一层 `state`（computed 或 watch）。`onScopeDispose` 没有在这里用过。`createDragSession` 要求 `root` 在建的时候就给（`src/vue/drag-session.ts:89`，`options` 是只读的一次性输入）。
+
+推断（未核实）：`useSortable` 在组件卸载时靠 `watch` 的 `onCleanup` 销毁，这依赖 Vue 在卸载时停止 watcher 并执行清理。我没有在运行时验证。
+
+---
+
+## 3. 手势落账后、结构操作前的意图回写（t26 api-03）
+
+应用里对应的代码是 `packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:424-444` 的 `commitGesture`，正好 20 行。它做的事：
+
+1. `frozen = untouchedFixed(sizes)`（:426；helper 在 :216-219，容差 0.5px）：找出呈现尺寸与手势结果几乎相同的固定节点。
+2. `presented.value = sizes`（:427）：记下呈现尺寸。
+3. 收起与隐藏（:429-441）：对 `collapsed` 里的每个 id，先用 `regionAnchors` 换成区域的锚，再 `setPanelCollapsed`；锚原来是隐藏、这次被拉开的，`setPanelHidden(anchor, false)`。
+4. `local.value = rebaseIntents(next, sizes, collapsedTo, frozen)`（:442）：把呈现尺寸写回意图。`rebaseIntents` 本身在 `nb-workbench-layout/src/layout-doc.ts:497`。
+5. `schedule(true)`（:443）：立即存盘。
+
+上游接线：`WorkbenchSurface.vue:131-137` 的 `onApplied` 发出 `gesture-commit`（带 `host.layout.value.sizes` 与 `result.collapsed`），`WorkbenchShell.vue:953` 接到 `layout.actions.commitGesture`。
+
+结构操作前的写回：`layout-doc-store.ts:226` 的 `apply` 默认调 `rebased()`（:213，即 `rebaseIntents(doc, presented, collapsedTo, fixedNodesOf(input))`）。
+
+Lab 里的复制：
+- `GridPanelsScene.vue:89-108`：onApplied 只写收起并 rebase，没有 `frozen`，没有区域锚，没有隐藏清理；`commit()`（:104-108）在结构操作前 rebase。两份逻辑不一致。
+- `WorkbenchSurfaceFixture.vue:90`、`:110`，`EditorAreaFixture.vue:296`。
+
+---
+
+## 4. 收起与展开
+
+**存法**
+
+- 文档里：`PanelRecord.collapsed` 是布尔值。`setPanelCollapsed`（`nb-workbench-layout/src/layout-doc.ts:1175-1187`）收起时写 `collapsed: true`，展开时删掉字段。没有单独的 `restoreSize` 存进文档。
+- grid 里：`SashCollapseState`（`nb-layout/src/grid-types.ts:30-55`，`restoreSize` 在 :38）由投影每次现算。`nb-workbench-layout/src/layout-project.ts:106-115` 的 `collapseOf` 取 `restoreSize = max(child.size[main], child.minimumSize[main])`，weight 面板加 `restoreToShare: true`（:114）。所以 `restoreSize` 是从尺寸意图推出来的，不是收起那一刻记下的。
+
+**今天的调用链**
+
+- 用户点收起或展开：`WorkbenchShell.vue:386`（`toggleFold` 发 `SET_PANEL_COLLAPSED_COMMAND`），`:374-378`（点活动分节收起），进入 `workbench/web/commands/panel-commands.ts:96-104`，再进 `layout-doc-store.ts:456-460` 的 `setCollapsed`（apply，并退出最大化），最后到 `setPanelCollapsed`。
+
+**宿主自己算的**
+
+- 切换值（`panel-commands.ts:100-101`）、能不能收（`sectionCollapseBlock`）、区域锚映射（`layout-doc-store.ts:432-441`）、容器迁移时保留收起的成员（`workbench/web/state/containers.ts:173-185`）、谁吸收余量（`layout-project.ts:97` 的 `isFixedChild`，:125 的 `fillers`）。
+- 基线和兄弟吸收差额：宿主不算。吸收在求解器里完成（`nb-layout/src/grid.ts:155-164`，同分支兄弟让出与吸收）。
+
+**应用里几处**
+
+- 工作台 4 处：`WorkbenchShell.vue:374-386`、`panel-commands.ts:96-104`、`layout-doc-store.ts:456-460` 加收起循环 `:433-441`、`containers.ts:173-185`。
+- Lab 1 处：`GridPanelsScene.vue:125`（`collapse-d`，直接 `setPanelCollapsed`）。
+- nb-ui `Splitter` 的 3 处，不是 nb-layout：`dev-panel/src/web/App.vue:140`、`ArtifactPage.vue:180-185`、`nb-story/src/web/shell/BookFrame.vue:105-107`。它们自己保存 `restoreSize`（`navWidth`、`answerWidth`、`drawerWidth`）并切换 `collapsed` 标记，模式相同。
+
+---
+
+## 5. “拖不动”的四种配置错误
+
+| 错误 | 用户看到 | 代码里的检测点 | 诊断是否到达应用 |
+|---|---|---|---|
+| `sashSize` 为 0 | 分隔线没有宽度、拖不动，静默 | 没有。`createGrid` 缺省 0（`grid.ts:94`）；零长分隔线被置为 disabled（`NestedGrid.vue:323`、`:358`），不发 issue。`NestedGrid.md:59` 明写“没有任何诊断” | 无 |
+| 没接 `onGestureCommit` | 松手后预览回弹，无提示 | `NestedGrid.vue:525-531` 返回 `handler-missing`；拒绝经 `useSashGesture.ts` 提交分支（约 :305-315）的 `onIssues` 发出 | 只有宿主接了 `@issues` 才看得到。工作台总接了回调，不走这个码 |
+| contextKey 两处不一致 | 松手回弹，无提示 | `useGridLayout.ts:135-140` 返回 `stale-context`，`message` 写明两边的值 | 同上 |
+| revision 没转交 | 同上，每次提交都失败 | `useGridLayout.ts:141-146` 返回 `stale-revision`。`NestedGrid` 的 revision 缺省 `0`（`NestedGrid.vue:86`），而 `useGridLayout` 首次发布后 revision 已 ≥ 1 | 同上 |
+
+补充：
+
+- 工作台的 `WorkbenchSurface.vue:581` 把 `issues` 再 emit，但 `WorkbenchShell.vue`（:944-953 一带）没有 `@issues`，所以应用里这些诊断没有消费者，用户和开发者都看不到。
+- 没有 `console` 输出，也没有开发模式判断：`packages/nb-layout/src` 里搜不到 `import.meta.env` 与 `NODE_ENV`。
+- 现成的检测点只有上面这些提交码（`handler-missing`、`stale-context`、`stale-revision`、`stale-size`、`not-ready`、`not-published`）。sashSize 为 0 和其他配置错误没有检测点。
+
+---
+
+## 6. 起步材料
+
+`packages/nb-layout/README.md` 只有 51 行，内容是“主题”和“文字”两节，第 3 行一句定位，没有“接入”一节。`src/vue/NestedGrid.md` 的“接入”在 :57-90，有一个 Vue 例子（:59 起）。
+
+| 提案要补的约定 | 现在在哪里 | 写没写 |
+|---|---|---|
+| 第一句定位，“不是现成的标签停靠布局” | README.md:3 写的是“布局工具：布局树、尺寸求解、落点与拖动” | 没写 |
+| “五件事”的最小可运行例子 | README 没有；`NestedGrid.md:57-90` 有一个 SFC 例子 | README 没搬 |
+| “我要做 X 用哪个导出”的表 | 无 | 没写 |
+| `restore` 可对 `createGrid(null)` 用 | `grid.ts:91` 接受 null，`restore` 在 `grid.ts:693-702`；测试 `grid.test.ts:687-688` 已覆盖 | 文档没写（`grid.md` 里没有 null） |
+| 读取失败保留原件；`dropped` 的流程 | `grid-types.ts:261-267` 注释要求宿主保留原始记录；`grid-snapshot.ts:221-224`，`dropped` 非空时仍 `ok: true`，根解析不了才是 `unresolved-root` 失败；工作台的做法在 `layout-doc-store.ts:82-96`（回落默认树、原件不覆盖） | `grid.md:46` 写了一句“宿主保留原件并禁止自动保存默认布局覆盖它”；README 没有 |
+| 16 层深度上限及对拖拽拆分的影响 | `grid-types.ts:297` 的 `GRID_MAX_DEPTH = 16`；`grid.ts:184-205` 计深 | `grid.md:30` 写了上限和“计法差一层”的已知问题；对拖拽拆分的实际影响没写 |
+| 窄窗口降级、`issues`、想不压缩就读根节点的 `constraints` | `grid.md:11` 写了 `issues` 形状（`{code, message, params?}`）和“不可满足的窄容器已经降级” | 根节点 `constraints` 没写，`grid.md` 只说 `constraints` 是有效交互约束 |
+| 键盘：叶里要有可聚焦元素，标签条左右键与 roving tabindex 是宿主的事 | 分隔线键位在 `NestedGrid.md:47`、`Splitter.md:15`；焦点在 `NestedGrid.md:55`；roving 实际在 `nb-workbench-layout/src/vue/TabStrip.vue:6、185、235` | 宿主职责一句没写 |
+| 矩形两种坐标 | `GridRect` 相对网格根（`grid-rects.ts:12`，`NestedGrid.md:51` 写了“相对网格根”）；`GridDropRect` 是左上右下（`grid-drop.ts:15`，`DropSectorsOverlay.md:21` 写了“视口坐标”） | 两者并存、何时用哪个，没有一处写 |
+| 自己画的反馈元素要带 `data-drag-feedback`；`sourceAt` 要自己排除可交互元素 | 代码在 `drag-session.ts:79`、`:84`（`FEEDBACK_SELECTOR`，`topElementAt` 跳过）；`DropSectorsOverlay.md:31` 写了根带这个属性 | 第二条没写（`drag-session.ts:40` 的注释不含；`useSortable.ts:221-233` 自己排了 `INTERACTIVE`） |
+
+另外：`src/vue` 下没有 `useGridLayout.md`、`useLayoutExtent.md`、`drag-session.md`，提案要求各补一份短 `.md`，现在三份都没有。
+
+---
+
+## 7. 提案里写的与代码不符的地方
+
+1. **`@extent` 回灌**：`NestedGrid` 没有 `extent` 事件（`NestedGrid.vue:100-109`）。提案的说法只对 `WorkbenchSurface` 成立，它的 `extent` 是自己发的（`WorkbenchSurface.vue:53`、`:97`）。
+2. **`onGestureCommit` 的返回类型“`{ok:false; reason: string}`”**：代码里已经是 `GridFailure<GridCommitFailureCode>`，有 `code` 和 `message`（`grid-types.ts:236`）。
+3. **`GridRestoreResult.dropped` 的 `reason` 改成码**：代码里 `dropped` 项是 `{ref, code: "unknown-ref"}`（`grid-types.ts:261-267`，测试 `grid.test.ts:802`），字段已经是 `code`。
+4. **`GridLayoutResult.issues` 改成 `{code, message}[]`**：已经是 `GridIssue`，带 `code`、`message`、`params`（`grid.md:11`）。
+5. **“`NestedGrid.vue` 里写死的中文 `emit("issues", [...])`”**：`NestedGrid.vue` 的诊断文案现在都是英文（:145、:544），没有找到中文。
+6. **“`issues` 事件只发新增的”**：已经实现，`useGridLayout.ts:64` 的 gate，`useSashGesture.ts:248` 的 `gate.take`。提案把它列为待做。
+7. **“`stale-context` 等在代码与 Spec 里没有对应的失败”**（提案“错误与诊断”一节的码列表处，约 :199-240）：与同一文档 :460 的 t34 记录矛盾。代码里有 `stale-context`、`stale-revision`、`stale-size`、`not-ready`（`useGridLayout.ts:128-148`）、`handler-missing`（`NestedGrid.vue:529`）、`not-published`（`NestedGrid.vue:544`）。
+8. **“`dropped` 非空算失败”**（体验 8）：库的 `restore` 在 `dropped` 非空时仍返回 `ok: true`（`grid-snapshot.ts:224`），库不把它当失败，判定要由宿主做。提案把它写成推荐流程，README 里要写明这一点，否则与库的语义不一致。
+9. **“`useGridHost`”**：`useGridLayout` 已经返回 `node`、`layout`、`revision`、`invalidate`、`onGestureCommit`（`useGridLayout.ts:168`）。还缺的是 `disabled` 和 `@extent` 回灌，并不是从零开始。
+10. **“`applyGestureCommit`、`rebaseForOperation`”、`useDragSession`**：不存在，这是待做项，不是代码与提案冲突。
+11. **行号漂移**：t26 证据写 store 的 `commitGesture` 在 `layout-doc-store.ts:420-440`、`rebaseIntents` 在 `layout-doc.ts:466-495`、`NestedGrid.vue:105`；现在分别是 :424-444、:497、`NestedGrid.vue:132`。
+12. **“开发模式判据”**：提案说 nb-layout 现在没有开发与生产的判断，代码与此一致（`nb-layout/src` 里搜不到 `import.meta.env` 与 `NODE_ENV`）。
+13. **nb-ui 的副本**（提案里“去掉 nb-ui 依赖”的背景）：nb-ui 仍有自己的 `components/layout/`（`sash-drag.ts`、`grid-geometry.ts`、`grid-types.ts`）和 `composables/useLayoutExtent.ts`，与 nb-layout 并存。这是现状，不是提案与代码的冲突，但它是重复实现。
+t39-inventory exit=0

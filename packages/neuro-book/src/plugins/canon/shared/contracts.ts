@@ -17,7 +17,17 @@ import type {CanonReadView, ChapterItem, ComponentType, DecisionView, EditRoute,
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT} from "./components";
+import type {CanonReads} from "./reads";
+
+export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, PERSON_COMPONENT} from "./components";
+// 作者界面的两个贡献点（author-ui.md 输出 12、36）：别的插件交界面时从这里取 id（跨插件只引对方的 shared/contracts.ts）。
+export {CANON_COMPONENT_VIEWS_POINT} from "./component-views";
+export type {ComponentViewDeclaration} from "./component-views";
+export {CANON_ENTRY_TABS_POINT} from "./entry-tabs";
+
+/** 打开一个条目的条目页（canon/author-ui.md 的命令表）；别的插件的界面点名字时执行它。 */
+export const OPEN_ENTRY_COMMAND = "nbook.canon.open-entry";
+export type {EntryTabDeclaration} from "./entry-tabs";
 export type {ComponentContribution} from "./components";
 
 /** 请求与读取结果经 JSON 编码后的上限：远程消息上限减 64 KiB，留给帧包络（输出 18）。 */
@@ -403,6 +413,12 @@ export interface CanonClient {
 }
 
 export const canonClientKey: ServiceKey<CanonClient> = defineServiceKey<CanonClient>("nbook.canon/client");
+
+/**
+ * 窗口的读取层（docs/specs/canon/author-ui.md 输出 35）：canon 的浏览器入口按调用方提供，别的浏览器入口经它读世界、把自己的远程
+ * 读取挂进同一份读取层。接口与状态的形状在 `./reads`。
+ */
+export const canonReadsKey: ServiceKey<CanonReads> = defineServiceKey<CanonReads>("nbook.canon/reads");
 
 /**
  * canon 给项目里别的插件的项目内服务（docs/specs/canon/model.md “诊断的计算”、project.md 输出 24）：按调用方提供。

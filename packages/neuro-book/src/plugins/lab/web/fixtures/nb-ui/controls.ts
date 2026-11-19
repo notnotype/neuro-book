@@ -158,6 +158,8 @@ export const controlsFixtures: LabFixture[] = [
             {id: "readonly", label: "只读（可聚焦，不改值）", input: {props: {options: APPEARANCES, ariaLabel: "外观", size: "sm", readonly: true}, model: {modelValue: "system"}}},
             {id: "disabled", label: "整组停用", input: {props: {options: APPEARANCES, ariaLabel: "外观", size: "sm", disabled: true}, model: {modelValue: "system"}}},
             {id: "invalid", label: "出错", input: {props: {options: APPEARANCES, ariaLabel: "外观", size: "sm", invalid: true}, model: {modelValue: "system"}}},
+            // 换行：拖窄画布（或选手机尺寸）看整段换到下一行；选中第二行的那一段，它自己画实底。
+            {id: "wrap", label: "换行（选中第二行的一段）", input: {props: {options: [{value: "all", label: "全部", count: 5}, {value: "readerOnly", label: "只有读者知道", count: 0}, {value: "readerUnaware", label: "读者还不知道", count: 2}, {value: "noPlan", label: "没打算怎么揭", count: 1}], ariaLabel: "分段", size: "sm", wrap: true}, model: {modelValue: "noPlan"}}},
         ],
         subject: nbUiSubject("SegmentedControl"),
     }),

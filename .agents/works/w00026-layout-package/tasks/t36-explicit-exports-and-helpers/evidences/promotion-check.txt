@@ -1,0 +1,57 @@
+没有一句是完全没人守的。有两处守不住：一句是"别的导出是内部的"，另一处是"`useSashGesture` 是内部的"以及"公开面里有哪些名字"。我跑过 `exports.test.ts`，6 条通过。另一个文件里的断言我只读了代码，没有逐条变异验证，所以下面各项是读代码得出的判断。
+
+## 没有守着的句子
+
+1. **"公开面：……文件里别的导出是内部的，随时可以改。"**（spec 第 310 行）
+   - 这一分句是约定，没有可观察行为，没有断言能对它失败。
+   - `package.json` 的 `exports` 字段会拦深导入，`exports.test.ts:87` 也固定了子路径集合。这两处管的是"能不能导入"，不管"能不能改"。
+   - 另外两句"入口是一行一个名字的清单""入口里的名字就是公开面"有测试，所以这一句不挡它们晋升。这一分句要么单列为约定，要么保留 planned。
+
+2. **实现合同里的"分隔线的输入层 `useSashGesture` 是内部的"。**
+   - `exports.test.ts` 里没有"某名字不在入口里"的断言。
+   - 把 `useSashGesture` 加进 `vue/index.ts`，所有测试照样通过，只靠评审看清单。
+   - `useSashGesture` 在 neuro-book 的 `src` 和 `nb-workbench-layout` 里也没有被导入，所以没有别处的类型检查能间接拦住它。
+
+## 守不住的句子
+
+1. **"入口里写出的名字"，以及实现合同里列出的常用名字（`createGrid`、`NestedGrid`、`useLayoutExtent`、`useGridLayout`、`moveGridFocus`）。**
+   - `exports.test.ts` 只守形式：没有 `export *`、没有默认导出（`:86`），一行一个名字（`:94`），子路径恰好四个（`:87`），文档代码块里导入的名字都在入口里（`:98`），没有工作台概念（`:105`）。
+   - 它不固定入口里有哪些名字。删掉一个没人引用的导出，测试仍然通过。
+   - 句子里点名的名字目前各有别处的引用，删了会失败，但那是顺带的：
+     - `createGrid`、`NestedGrid`、`useGridLayout`、`useLayoutExtent` 在 `NestedGrid.md:64-65` 导入，由 `exports.test.ts:98` 守着。它们在夹具和 `WorkbenchSurface.vue` 里也被导入，由类型检查守着。
+     - `moveGridFocus` 不在任何文档代码块里，只靠 `GridStructureScene.vue:10` 和 `WorkbenchSurface.vue:9` 的导入，由 `vue-tsc -p tsconfig.web.json` 守着。
+   - 入口的"清单"是靠评审看 diff 守住的，`exports.test.ts` 文件头注释也是这么写的。我认为这是有意的设计，不是遗漏。
+   - `splitLeaf`、`resizeBranches` 是 `Grid` 的方法（`grid.ts:67`、`:82`），不是入口名字。它们由 `GridStructureScene.vue:44` 和 `NestedGridAcceptanceFixture.vue:385` 的调用做类型检查。
+
+2. **"`gesture-start`、`gesture-cancel` 的载荷类型是……"后面括号里的字段列表。**
+   - `GridGestureStart` 的五个字段能守住。`NestedGrid.vue:518` 用对象字面量发 `gesture-start`，类型加减改任一字段都会报缺属性或多余属性。字段类型不被守：把 `source` 改成 `string` 能通过。
+   - `GridGestureCancellation` 的 `reason`、`sashes` 守得较弱。`NestedGrid.vue:550` 透传 `onCancel` 的参数，不是字面量，所以只拦"类型新增必填字段"。删字段或改名只由 `NestedGridAcceptanceFixture.vue:361-365` 读 `info.reason`、`info.sashes` 拦住。
+   - 运行时断言更弱。`NestedGrid.dom.test.ts:216-221` 只用 `toMatchObject` 查 `source` 和 `sashes`，没有查 `sessionId`、`contextKey`、`revision` 的值，也没有测过 `gesture-cancel` 的载荷内容。
+   - "载荷类型是 `GridGestureStart` 这个名字"只在 `NestedGrid.vue:100`、`:103` 的 `defineEmits`，以及夹具 `:178`、`:361` 的处理函数参数上做赋值检查。事件改用结构相同的别的类型，这些检查不会失败。
+
+3. **"手势来源与取消原因是 `SashGestureSource`、`SashGestureCancelReason`（独立 `Splitter` 也用这两个）"。**
+   - 这两个类型在 `sash-gesture.ts:11`、`:14`，被 `grid-gesture.ts` 和 `splitter-gesture.ts:7,11,25,27` 引用。入口导出在 `index.ts:93,96`。
+   - 入口里这两个名字没有文档代码块导入，只被 `neuro-book/src/sdk/components.ts:11,49-50` 的类型导入守着。
+   - 取值集合没有断言，spec 本身也没列。`splitter.dom.test.ts:284,330,358,470,590` 只验证了运行时的几个取值。
+   - "Splitter 也用这两个"是别名同一性，TypeScript 不区分。Splitter 改成结构相同的自有联合类型不会失败；改成更窄的类型才会在赋值处失败。
+   - 如果这句只要求取值相同，大体算守住；如果要求同一个类型名，没有断言区分。
+
+## 核过没问题的
+
+1. **"每个子路径的入口是一行一个名字的显式清单"。**
+   - 四个子路径各自没有 `export *`、没有默认导出，由 `exports.test.ts:86-92` 守着。
+   - 一行一个名字由 `:94-96` 守着，按语法树取名字所在的行，多行的 `export {` 也查得到。
+   - `:115-131` 用变异样例证明这两个检查拦得下违规写法。
+   - 子路径集合固定为恰好四个（`:87`）。`./lab-sources` 被有意排除，注释写明不进发布包。spec 说的是"每个子路径"，严格说要加一句例外。
+
+2. **实现合同"公开入口"的前半句"`@notnotype/nb-layout`、`./vue`、`./text`、`./locales` 四个入口……（`exports.test.ts` 守着）"。**
+   - 四个入口恰好是这四个，由 `exports.test.ts:87` 对着 `package.json` 的 `exports` 守着。
+   - 一行一个名字由 `:94` 守着。
+   - 文档里教人导入的名字都在入口里由 `:98` 守着，范围包括包内文档、nb-workbench-layout 的文档和三份 spec 的代码块。
+   - `boundary.test.ts` 与这两句无关，它守的是依赖方向，属于实现合同的下一条。
+
+3. **`GridGestureStart` 与 `GridGestureCancellation` 在 `@notnotype/nb-layout` 入口里。**
+   - `NestedGrid.md:121` 的代码块从该入口导入这两个名字，`exports.test.ts:98` 会拦。
+   - `NestedGridAcceptanceFixture.vue:19-20` 的类型导入和 `sdk/components.ts:49` 的再导出也会在类型检查时拦。
+   - `sdk.test.ts` 和 `pack.test.ts` 与这一句无关：它们守的是弃用别名和 SDK 声明文件的名单，两个文件都没有断言这几个类型名在 SDK 里。
+t36-promotion exit=0

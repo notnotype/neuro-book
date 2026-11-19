@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00033-page-agent
 issueId: null
 status: active
-updated: 2026-10-30
+updated: 2026-11-19
 ---
 
 # Agent 操作 NeuroBook 界面：nb-page-agent 核心包与自操作插件
@@ -35,6 +35,7 @@ t16 讨论过、开发者还没表态的推荐（详见 t16 README 的同名小�
 
 ## 调研
 
+- [浏览器 Agent 调研与实测](../w00034-browser-use/research/2026-11-19-browser-agents-survey.md)（2026-11-19）：外部网站上的注入与快照探针（严格 CSP 下 `<script>` 标签被拦、经 CDP 的主世界与隔离世界可用、shadow DOM、自己注入的快照与无障碍树的大小）；page-agent 当前源码的走查；browser-use 用 `backendNodeId` 作跨快照稳定的编号。
 - [Agent 操作宿主应用与网页界面](../w00032-agent-integration/research/2026-10-30-host-control-survey.md)：页面内可复用的库（第 7 节）、omp 的浏览器与 eval（第 5 节）、CodeAct 的文档形式（第 6 节）、截图与高亮（第 3、4 节）。
 
 ## Task
@@ -45,4 +46,4 @@ t16 讨论过、开发者还没表态的推荐（详见 t16 README 的同名小�
 
 ## 前置
 
-[w00032 t21](../w00032-agent-integration/tasks/t21-eval-codeact/README.md)（eval 与它的贡献点，目前搁置）；w00032 t20 的内核。
+[w00032 t21](../w00032-agent-integration/tasks/t21-eval-codeact/README.md)（eval 与它的贡献点，2026-11-18 完成）；w00032 t20 的内核。

@@ -3,12 +3,12 @@
  * 场景里的零件（做法同 `projects-scene/projects-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面。
  */
 
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
-import {defineComponent, h, provide} from "vue";
+import {defineComponent, h} from "vue";
 import type {Component, PropType} from "vue";
 
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {LabSceneInput} from "../../lab-subject";
@@ -18,7 +18,7 @@ const sceneLocale = (scene: string): DisplayLocale => (/(?:^|-)english$/u.test(s
 export function provideModelsText(scene: string): void {
     const engine = createHostTextEngine({locale: sceneLocale(scene)});
     engine.register("nbook.models", modelsCatalogs.catalogs, modelsCatalogs.source);
-    provide(TEXT_PORT_KEY, engine.port);
+    provideHostText(engine.port);
 }
 
 /** 给一个接 `scene` 与 `input` 的夹具组件套上本插件的翻译端口。 */

@@ -8,6 +8,8 @@
  * `plugin-sdk/pack.test.ts` 核对生成的声明文件与名单一致。
  */
 
+import type {SashGestureCancelReason as CancelReason, SashGestureSource as Source} from "@notnotype/nb-layout";
+
 export {
     AlertDialog, AnchoredPopover, Badge, Banner, Breadcrumb, Button, Checkbox,
     CheckboxGroup, CodeBlock, Collapsible, CollapsibleCard, CollapsibleRow, ColorSwatches,
@@ -44,6 +46,16 @@ export {TabStrip} from "@notnotype/nb-workbench-layout/vue";
 export type {DropFeedbackPreview, SplitterPanelConfig} from "@notnotype/nb-layout/vue";
 export type {TabStripItem, TabStripPartition} from "@notnotype/nb-workbench-layout/vue";
 export type {
-    GridBranchChange, GridCommitFailureCode, GridFailure, GridGestureCommit, GridGesturePreview, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridParamValue,
-    SplitterGestureCancelReason, SplitterGestureCancellation, SplitterGestureSource, SplitterGestureState,
+    GridBranchChange, GridCommitFailureCode, GridFailure, GridGestureCancellation, GridGestureCommit, GridGesturePreview, GridGestureStart, GridHostIssueCode, GridIssue, GridIssueCode,
+    GridLayoutCommitResult, GridParamValue, SashGestureCancelReason, SashGestureSource, SplitterGestureCancellation, SplitterGestureState,
 } from "@notnotype/nb-layout";
+
+/**
+ * 改名前的两个名字，留作弃用别名（w00026 t36）：它们描述的是 `NestedGrid` 与独立 `Splitter` 共用的手势来源与取消原因，不只属于
+ * `Splitter`。写成就地的类型声明而不是改名再导出，`@deprecated` 才挂得上、作者的编辑器才会划线。弃用期多长在下一档发布前定。
+ * `sdk.test.ts` 的 `DEPRECATED_ALIASES` 表登记这两个别名；去掉别名时两处一起改。
+ */
+/** @deprecated 改用 `SashGestureSource`。 */
+export type SplitterGestureSource = Source;
+/** @deprecated 改用 `SashGestureCancelReason`。 */
+export type SplitterGestureCancelReason = CancelReason;

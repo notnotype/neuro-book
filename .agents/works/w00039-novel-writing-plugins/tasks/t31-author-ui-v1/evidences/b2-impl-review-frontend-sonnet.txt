@@ -1,0 +1,167 @@
+# w00039 t31 B2-1 前端实现审查报告（Sonnet 审查，固定在 626b256d4）
+
+### 1. 页面与分页的“重试”对外部读取失败不起作用
+严重程度：重要
+类别：正确性
+位置：packages/neuro-book/src/plugins/plot/web/components/SecretsPage.vue:71-72、LedgerPage.vue、GoalsPage.vue 的 Banner 的“重试”按钮；canon/web/reads-service.ts:`retry: () => world.retry()`；canon/web/world.ts:`retry`（只在 `connection === "ended"` 时才做事）
+现象：外部读取失败（剧情实例没启动、`external-failed`、`line-not-found` 等）时，页面显示 Banner 与“重试”，点“重试”调用 `reads.retry()`，它就是 `world.retry()`。`world.retry()` 第一行是 `if (connection.value !== "ended" || disposed) return;`，连接是 online 时什么也不做。失败的 slot 已经把 `slot.generation` 写成当前代，没有任何路径会再取它，直到世界下一次变化。
+为什么是问题：Spec plot/author-ui.md“失败与恢复”表写 `external-failed` 的处理是“界面按输出 4，‘重试’再取”，输出 4 要求“剧情的数据读不出来”并有“重试”。现在按钮可以点、点了没有任何反应，用户会一直卡在错误页上（直到有人发布新修订）。CanonReads 的接口注释也只写“订阅被提供方结束以后重新订阅”，与页面的用法不符。
+如何核实：从代码推断，未跑。读 world.ts 的 `retry`（约 L486）与 reads-service.ts 的 `retry`；测试里 grep 不到任何“重试”或 `external-failed` 的页面级用例（plot/web 三个 dom 测试都没有失败路径）。
+建议改法：读取层加一个“重读这个键”的入口（例如 `ReadState` 的句柄上给 `reload()`，或 `retry()` 在 online 时把有 error 的 slot 的 generation 置 -1 后 `run()`），页面的“重试”改调它；补一条真实世界上“取数先抛错、再恢复，点重试后换上”的测试。
+
+### 2. 三张表读取失败时整页换成错误条，丢掉已读到的旧内容
+严重程度：重要
+类别：正确性
+位置：plot/web/components/SecretsPage.vue（`<Banner v-else-if="failure !== null"` 在 `loading` 与正文之前）、LedgerPage.vue、GoalsPage.vue 同样的写法
+现象：读取层的失败不清 `data`（`state.value = {...state.value, error, loading:false}`），页面却先判 `failure !== null` 就只画错误条。已经显示着表的页面，只要某一轮重读失败（`external-failed`、`line-not-found`、`chapter-not-found`），整张表立刻消失。
+为什么是问题：canon/author-ui.md 输出 26 与输出 34 都写了“读到过以后的失败留着旧内容”“回到跟着章之前的那一轮读取可能得到 `line-not-found`：有旧内容的页面留着旧内容，没有的写原因”。条目页（EntryPageHost 的 `status`）是照这个写的：`entry.value === undefined` 才算 failed。剧情三张表反过来。具体场景是 Spec 验收 5 的反面：选着的子线被撤销时，那一轮 secrets 读取得到 `line-not-found`，页面先闪一下“这条线读不到”，而且 `useSwitching` 在新键读到之前继续显示旧句柄（它带着 error），错误条要到新线读到才消失。
+如何核实：从代码推断，未跑。可在 plot/web/tables-pages.dom.test.ts 的风格上加：世界里分叉被撤销，断言页面一直有表的行、没有 `role=alert`。
+建议改法：判断改成“有 data 时留着旧内容，错误只在没有 data 时整页写；有 data 又有 error 时可在表上方放一条不挤掉内容的提示”。三张表共用一个小函数更好，免得第四处再漏。
+### 3. 人物与秘密条目页的四个分页吞掉失败，把“读不出来”画成“还没有……”
+严重程度：重要
+类别：正确性
+位置：plot/web/components/KnowingView.vue（`read === null || read.loading` 之后直接画 `groups`）、AttitudeView.vue（`v-else-if="(data?.goals.length ?? 0) === 0 && ..."` 写“还没有目标与态度”）、PointView.vue（`data !== undefined` 才画，失败时整块空白）、ExperienceTab.vue（失败时 `sections` 空，写“还没有经历”）
+现象：这四个界面都没有读 `read.error`。剧情实例没启动或取数抛 `external-failed` 时：知道什么写“还没有知情”，目标与态度写“还没有目标与态度”，经历写“还没有经历”，谁知道什么除了“字段”一节什么也没有，也没有重试。
+为什么是问题：作者会把读取故障当成“这个人确实没有知情/目标”。Spec plot/author-ui.md 输出 4 与“失败与恢复”表要求界面按输出 4 写“剧情的数据读不出来”与说明。三张表有错误条（虽有第 1、2 条的问题），分页没有，两处处理不一致。
+如何核实：从代码推断，未跑。让 `client.call` 对 `person` 返回失败后挂 KnowingView，观察文字。
+建议改法：四个分页与三张表共用一个“失败就写原因并给重试”的小组件，没有 data 且有 error 时画它，有 data 时留旧内容。
+### 4. “谁知道什么”的分段筛选用例等不到筛选结果，断言恒真
+严重程度：重要
+类别：测试
+位置：plot/web/secrets-page.dom.test.ts 约 L95-98（“选读者还不知道只剩那几行”）
+现象：点了“读者还不知道”之后等的是 `rows.length === 3 && !text.includes("读取中")`。换分段时读取层按设计继续显示上一份结果（`useSwitching` 的 previous），所以点之前就是 3 行、也没有“读取中”，等待立刻通过；样本里三个秘密读者都不知道，筛选前后行数本来就一样。最后只断言了 `state.segment` 和面包屑。用例名写“只剩那几行”，实际一个关于筛选结果的判据都没测。
+为什么是问题：筛选的输入没传给服务、或传错了分段，这条用例照样绿。Spec 验收 1 的“选没打算怎么揭，只剩没有揭示计划与决策的那几行，条数与分段上写的相同”只由 e2e 覆盖（e2e 我没跑），dom 层没有。伏笔账本的分段、目标表的 `finished` 开关同样要看是否测到“结果真的变了”：目标表那条用例 `waitUntil("多出达成的")` 是对的，账本没有分段用例。
+如何核实：我在实现 worktree 跑了 `bunx vitest run src/plugins/plot/web`：5 个文件 11 条全绿（含这条）。把样本改成让读者知道其中一个秘密，筛选前后行数才会不同。
+建议改法：样本里让读者知道一个秘密，点“读者还不知道”后等行数从 3 变成 2 再断言留下的是哪几行；账本补一条“已放弃”分段用例。
+
+### 5. 选着的章被删掉时，剧情的三张表不写“原来选的那一章已经不在了”，也不把标签状态改回缺省
+严重程度：建议
+类别：正确性
+位置：canon/web/reads-service.ts `usePosition`；canon/web/components/PageHead.vue（`chosen` 只是计算值）；plot/web/components/*Page.vue 里 `state.position` 不动
+现象：条目页在章被删时把 `state.position = null` 并写 `positionGone` 的一句说明（EntryPageHost 的 watch）。别的插件用 `PageHead` 与 `usePosition` 时，位置只在计算里回到缺省，页面状态里的旧值留着，页头没有那一句，也没有给页面通知的回调。
+为什么是问题：plot/author-ui.md 输出 4 写 `chapter-not-found` “按第一批输出 7 回到缺省位置”，canon 输出 7 的内容是“位置回到缺省位置，并写一句‘原来选的那一章已经不在了’”。剧情页面只做到前一半的显示效果，没有那一句；旧值留在标签状态里，章若又出现（撤销）位置会悄悄跳回去。
+如何核实：从代码推断，未跑。
+建议改法：PageHead 加 `positionGone` 的发出（或自己在 `update:position` 里发一个空串并显示那一句），三张表用同一处。若认为剧情页不需要这句话，在 Spec 输出 4 里写明。
+
+### 6. 界面文字里写死了中文标点与分隔，英文目录下拼出来是中英混杂
+严重程度：建议
+类别：UI（文字机制）
+位置：plot/web/components/SecretsMatrix.vue:49、55、65、70、72、93-96；GoalGroup.vue:44、47；PointView.vue:53、56、57、87-94；NodeBand.vue:36；LedgerPage.vue:86、115；ExperienceTab.vue:46
+现象：作品里的程度、章号、名字经文字机制取，但拼它们的“、”“，”“：”“（）”“；”和图例里的“■”“□”、全角空格是代码里的字面量，例如 `${name}（${degree}）` 用“、”连接，`${degree}，${text("secrets.readerFrom")}`，`ledger.legendWritten：■　`。en-US 目录有（键与 zh-CN 完全对齐），英文界面会出现 “Ming（Knows）、Hui（Knows）” “Knows，Since …” 这类中英混杂的串。
+为什么是问题：plot/author-ui.md 输出 22 写“界面文字都经界面文字机制给出”；拼接用的标点属于界面文字，英文目录没法改。`ledger.legendWritten：■` 的冒号还在目录之外。
+如何核实：en-US 下挂账本页或“谁知道什么”页看文字；或 grep 这些文件里的全角标点。
+建议改法：把“名字（程度）”“程度，从某处起”“决策：结论”“某某：某某”等做成带插值的目录键（`secrets.otherPerson`、`secrets.degreeFrom` 等），列表连接符放进目录（`list.separator`）。图例的 ■□ 若要保留也放进目录。
+
+### 7. “谁知道什么”的表头在纵向滚动时不固定
+严重程度：建议
+类别：正确性（对照 Spec）
+位置：plot/web/components/SecretsMatrix.vue:104-111（`thead th` 没有 `sticky top-0`）；SecretsMatrix.md“布局与交互”只写了“秘密一列与组名在横向滚动时固定”
+现象：Spec 输出 8 写“表头是表头语义，行头（秘密）是行头语义，秘密一列与表头在滚动时固定”。实现只固定了左列与组名，表头行没有固定；表外还套了 `overflow-x-auto` 的容器，它会把后代的 `sticky top-0` 限在这个不纵向滚动的容器里，所以简单加 `top-0` 也不会生效。一页 200 行时往下读，看不到各列是哪个人。
+为什么是问题：Spec 项缺失；`.md` 把它改窄了而没有在 Spec 里说明。
+如何核实：从代码推断，未跑。e2e 验收 6 只量横向滚动，没有量表头固定。
+建议改法：要么让表容器自己做纵向滚动（给最大高度）再对 thead 加 sticky，要么在 Spec 里把“表头固定”收窄成“秘密一列固定”并记决定。
+
+### 8. 伏笔节点带的 key 会重复；章表里找不到的章画成“0”并带当前章标记
+严重程度：建议
+类别：正确性
+位置：plot/web/components/NodeBand.vue:21-34（`key` 是 `${index}-${role}-${written}`；`props.chapters.get(node.chapter) ?? 0`）
+现象：同一章有两个同角色同状态的节点（例如一章里两处呼应都写了）时两格的 key 相同，Vue 开发构建报重复 key，生产里更新会错位。节点指向的章已不在章表里（章被删或改名）时序号取 0，格子写“0”、排在最前，初值位置（`now = 0`）下还会带“当前章”的圈。
+为什么是问题：Spec 输出 12 只写“每格写章号与一个字”，没写这两种情形；两种都能在真实作品里出现（Spec 输出 11 的节点来自变更里的标记，章可以被删）。
+如何核实：从代码推断。喂给 NodeBand 两个相同节点，或节点的章不在章表里，看控制台与渲染。
+建议改法：key 里加下标；找不到的章用原 id 或省略并另画一格“?”，且 `cell.index === props.now` 要排除 0 以外才比较。
+
+### 9. Component Lab 覆盖门禁在本分支上失败：7 个新的可挂载组件没有登记场景
+严重程度：重要（合入前必须处理，门禁红）
+类别：测试 / 文档（登记）
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts（没有对应登记）；缺的组件：canon 的 LineSelect、PageHead，plot 的 GoalGroup、NodeBand、PeoplePicker、PlotSidebar、SecretsMatrix
+现象：我在实现 worktree（626b256d4）跑 `bunx vitest run src/plugins/lab/web/fixtures/index.dom.test.ts`：9 条里 1 条失败，“索引里每个可挂载组件都登记了至少一个场景”，报 “这些组件可以挂载却没有场景登记：LineSelect、PageHead、GoalGroup、NodeBand、PeoplePicker、PlotSidebar、SecretsMatrix”。本批 diff 里没有任何 lab 目录的改动。base（41e798b57）上没有这些组件，所以是本批引入的。
+为什么是问题：docs/standards/code/components.md 的完成标准写“应用侧可挂载组件在 Component Lab 有场景登记”；这几个都是受控零件，状态（窄版式、选中、停滞、虚线节点、候选超上限、线很多）正适合用场景摆出来，计划四节也列了“Lab 的文字夹具”但没做场景。这条失败会在 `test:affected` 里出现。
+如何核实：上面的命令；输出存在 /tmp/w31-review-b2/sonnet-scratch/vitest2.out。
+建议改法：为这 7 个登记场景（含文字夹具：plot 的目录要进 Lab 的文字端口），其中 PageHead 依赖 `world` 与 `windowLine`，可用 FieldTable 夹具那样的假世界读取；确实只能在页面上验的按规范补阻断标签并写理由。
+### 10. 失败的说法与 Spec 不符：只写失败码，不写服务给的说明；`not-found`、`chapter-not-found` 没有对应处理
+严重程度：建议
+类别：正确性（对照 Spec）
+位置：plot/web/page-shell.ts:31-34 `failureText`；locales/zh-CN.json `page.failed`；canon/web/world.ts `thrown`（`detail` 里放了错误文本）
+现象：`failureText` 只区分 `line-not-found`，其余都写 `剧情的数据读不出来：{{reason}}`，`reason` 填的是 `failure.code`（例如 `external-failed`）。取数抛错时读取层把错误消息放在 `failure.detail`，界面不显示，也没有任何地方记一条诊断，作者与开发者都看不到为什么读不出来。
+为什么是问题：Spec 输出 4 写“页面写‘剧情的数据读不出来’与服务给的说明”，失败表里 `not-found` 要写“找不到”、`chapter-not-found` 回到缺省位置。当前用户看到的是内部码，`not-found` 没有文字（目录里没有“找不到”），`chapter-not-found` 没有分支。`world.ts` 的 `settled` 把异常换成失败值后不留诊断，也与仓库“不用静默的 catch 吞掉错误，至少写一条诊断”的要求有出入（它没有丢失，状态里带着 detail，但界面不用它）。
+如何核实：从代码推断，未跑；grep `找不到` 在 plot 目录里没有命中。
+建议改法：`failureText` 用 `failure.detail`（字符串时）作说明，加 `not-found` 的键；`settled` 里用读取层已有的诊断出口（或 console.error）记一条。
+### 11. SegmentedControl 的 `wrap` 改动：没有场景与测试，行尾分隔线悬着，`.md` 的“不截断”不严格
+严重程度：建议
+类别：UI / 测试 / 文档
+位置：packages/nb-ui/src/components/controls/SegmentedControl.vue:104-110、187-192、214-218；SegmentedControl.md；lab/web/fixtures/nb-ui/controls.ts:150-162（场景表里没有 wrap）
+现象：
+(a) `wrap` 在整个仓库里只有 plot 的两处用（我 grep 了所有 `.vue`，旧应用只写了 `:wrap="false"`），所以对非 wrap 用法的影响限于“类数组里多了空串”，我没有发现回归。但 `wrap` 本身现在是被重写过的行为（`flex-auto`、选中项自己画底色、行距 2px），nb-ui 的测试（components.test.ts）与 Lab 场景（controls.ts 的 SegmentedControl 八个场景）都没有它，只有 plot 的 e2e 验收 6 的 `segmentsReadable` 在 390 与 600 宽量了“标签没截断、选中项底色不透明”。
+(b) 分隔线是每个按钮右边缘的 `absolute right-0`，换行后行尾那一条悬在行末（见 b2-1-screens/10-secrets-390.webp 的第一行右端，“只有读者知道 0”后面有一条竖线），看着像多出来的。
+(c) `.md` 写“一行放不下就整段换到下一行（不收窄、不截断标签）”。按钮仍是 `min-w-0` 且标签是 `truncate`：单项宽过容器时仍会收窄截断；另外选中项是 `font-semibold`，比未选中的 `medium` 宽，换选中项时同一行的宽度会变，行的换法可能随之变（从代码推断，未量）。
+为什么是问题：被改的是 nb-ui 的公共零件；组件规范要求状态由场景摆出，“窄屏下行为”只由下游 e2e 兜底。
+如何核实：(a) grep；(b) 看上面那张截图；(c) 从代码推断。
+建议改法：Lab 加“换行”场景（窄宽度、选中第二行的项）与 nb-ui 的一条 DOM 测试（选中项有实底、没有指示块）；换行时隐藏行尾的分隔线（用 `:last-child` 不够，需要按行判断，可以干脆在 wrap 下去掉分隔线，靠间距分开）；`.md` 把“不截断”改成“尽量不截断，单项比容器宽时仍截断”。
+
+### 12. 目标表的“看谁”留着已不在列表里的人时，整页写“还没有主要角色”
+严重程度：建议
+类别：正确性
+位置：plot/web/components/GoalsPage.vue:`groups`（`state.holder === null || group.holder === state.holder`）、`holders`
+现象：`state.holder` 存在标签状态里，换位置或换线以后那个人可能不再是主要角色（不在这次读到的组里）。`groups` 过滤后是空，页面写 `goals.empty`“还没有主要角色”，下拉的值在选项里找不到、显示空白，作者要想到把它选回“所有主要角色”。
+为什么是问题：写的话与事实不符（有主要角色，只是被一个失效的筛选藏起来了）。Spec 输出 15 只写“顶上按人筛：所有主要角色（缺省）或其中一个”，没有写失效处理，但同样的情况在 canon 条目页里（章被删回到缺省）是有处理的。
+如何核实：从代码推断。目标表选一个人，再把位置换到他还不是主要角色的章。
+建议改法：`holder` 不在这次的组里时按 null 处理（不改标签状态，换回来还能用），或在空状态下写“这个人在所选位置上不是主要角色”。
+
+### 13. 读取服务的形状与 Spec、计划的写法不一致（null 与对象、缺 `chapters`、命令的暴露方式）
+严重程度：建议
+类别：文档
+位置：canon/shared/reads.ts、canon/web/reads-service.ts:`createCanonReads`；docs/specs/canon/author-ui.md 输出 35；plan-b2.md“三、1”；plot/web/plugin.ts:COMMAND_DECLARATIONS；docs/specs/plot/author-ui.md“命令”表
+现象：
+(a) Spec 与计划写“窗口没有绑定项目时 `canonReadsKey` 为 null，调用方写‘打开作品后可用’”；实现总是给一个对象，没有项目时 `connection` 是 `no-project`、各组合函数给 null，页面据此写“打开作品后可用”（reads.ts 的注释也是这样写的）。调用方按 Spec 写 `if (reads === null)` 的话永远走不到。
+(b) Spec 35 列“窗口的线（只读）与改它的入口、可选的线、章表”；`CanonReads` 里没有 `chapters`，调用方（plot 的每个页面与分页）各自再 `useRead("chapters", ...)` 一次，共四处重复，`usePosition` 内部又读一次。能合并成同一个读取，没有功能影响。
+(c) plot Spec 的命令表写“暴露方式按缺省”，实现四条都写 `expose: {agent: "never"}`（与 canon 的两个视图命令同理由）。
+为什么是问题：Spec 是跨插件接口的合同，应该与实现是同一件事；这是第一个被别的插件用的读取服务，第二个调用方会照 Spec 写。
+如何核实：读 reads.ts、reads-service.ts 与 Spec 35 对照。
+建议改法：订正 Spec 35（“没有项目时 `connection` 为 `no-project`”）；`chapters` 要么进 `CanonReads`、要么从 Spec 里去掉；命令的暴露方式二选一订正（写 never 并说明理由，更贴近现状）。
+### 14. 几个 Spec 判据没有任何测试覆盖
+严重程度：建议
+类别：测试
+位置：canon/web/window-line.dom.test.ts、entry-tabs.dom.test.ts、world.dom.test.ts；plot/web/*.dom.test.ts；e2e/plot-author.e2e.ts
+现象：我对照 Spec 逐项找了断言，下面这些没有（dom 与 e2e 都没有；e2e 我没跑，按文件内容判断）：
+- `nbook.canon.pick-line` 命令本身：快速选择的项（第一项“跟着章”、按树缩进）、选了以后改公开状态、选着的线刚不在了时标题写“原来看的那条线已经不在了”并只说一次（`lost` 与 `acknowledge`）。commands.test.ts 只给它传了个空实现，e2e 的 `pickLine` 走过“选线”这条路，但没测“丢了”那句。
+- 条目页附加分页：`order` 排序与按贡献 id 的次序、换到没启用 `requires` 的位置时分页消失且选着它的标签回到第一个、贡献方停止后分页消失（输出 36 的三句）。现有用例只测了“启用才出、排在数据分页之后与情节之前、组件拿到条目与位置”。
+- `context.FieldTable`：嵌进专门界面的字段表能不能点开来历、点“改”出确认条、`state.open` 与专门界面自己的状态不冲突。entry-views 只断言页面文字里有“字段”和“听过的说法”，e2e 只断言“改”按钮可见（`toBeVisible`），没点它。
+- 读取层：外部读取换输入时旧的接着显示、新的读到才换（`useExternalRead` 的 `useSwitching`）、组件卸载后句柄释放（`users` 归零）；外部列表读失败后的重试；`behind` 只有普通外部读取有用例，外部列表没有。
+- Spec plot 输出 5、7、10、21：点名字打开条目页、“再显示（还有 N 项）”并进已有的组、选要看的人（上限 12、缺省前 3 个）、分段筛选的方向键与 Tab 顺序，都没有用例（NARROW 版式只有 e2e 的秘密页断言了 `[data-secrets-list]`，账本窄版式只量了无横向滚动，没断言换成了列表）。jsdom 里没有 ResizeObserver，`useContainerWidth` 在 dom 测试里恒为“很宽”，窄版式在 dom 层根本进不去。
+- e2e 验收 5 的“没有出现加载占位”是否真量得到：这是否定断言，按仓库做法需要先做变异检查（例如临时让 `useSwitching` 不留 previous，看 `watchBusy` 会不会变真）。t31 的 evidences 目录里没有关于 plot-author e2e 的变异检查记录（只有设计审查、规模与 B1 的审查证据）。
+为什么是问题：这几项正是本批新加的合同；缺了其中任何一个行为，现有测试都不会变红。
+建议改法：按上面清单补，优先 pick-line（含 lost）、附加分页的消失与回退、FieldTable 的展开与改；读取层的换输入与释放可以在 world.dom.test.ts 里用真实世界补。
+
+### 15. 重复的小段代码与魔法字符串
+严重程度：建议
+类别：代码质量
+位置：
+- plot/web/components/KnowingView.vue 与 PointView.vue：`lineName`、`HOW`、`detail`、`origin` 四段逐字相同；LedgerPage.vue 与 PointView.vue 各有一份 `STAGES`；SecretsMatrix.vue 与 PointView.vue 各有一份 `SECRECY`。
+- “main”这个主线 id：canon/web/window-line.ts 的 `MAIN_LINE`、positions.ts 的 `MAIN`（注释说“免得成环”）、entry-page.ts 的 `FOLLOW_ONLY` 里的 `id: "main"`、plot 的 KnowingView/PointView 里的 `id === "main"`，共 5 处。
+- plot/web/plugin.ts 里 `OPEN_ENTRY_COMMAND = "nbook.canon.open-entry"` 与 `PERSON_TYPE = "nbook.canon.person"` 是 canon 的 id 在 plot 里再写一遍；canon 的 `shared/contracts.ts` 这次导出了 `CANON_COMPONENT_VIEWS_POINT` 等，却没有导出这两个。
+为什么是问题：同一件事各写一份，改一处漏一处；主线 id 的 5 处里有两处是为了绕开循环引用才复制的。
+建议改法：把 `labels.ts` 扩成放“怎么知道、来处、阶段、保密档”的文字函数，三处共用；主线 id 放进 `canon/shared/`（没有 Vue 依赖，各端都能引），命令 id 与人物类型 id 也从 canon 的 shared 导出。
+
+### 16. 窄屏第一帧先画宽版式再换成列表
+严重程度：建议
+类别：UI
+位置：plot/web/page-shell.ts:`useContainerWidth`（`shallowRef(Number.POSITIVE_INFINITY)`，到 ResizeObserver 第一次回调才有值）
+现象：容器宽度在挂载后异步才量到，在那之前 `width` 是无穷大，“谁知道什么”与“伏笔账本”先按宽屏画一个表格（带 `overflow-x-auto`），下一帧才换成列表。390 宽的手机上会闪一下表格；数据在读取中时看不到（先是占位），所以主要出现在切回已读过的标签、或读取很快的时候。
+为什么是问题：Spec 输出 6 要求容器宽度不足 640 时只渲染列表；闪一下的表格与验收 6“都没有横向滚动”在时间上矛盾（e2e 在量之前等了 `[data-secrets-list]` 可见才量，所以量不到这一帧）。
+如何核实：从代码推断，未跑。可在 e2e 里把视口设成 390 后立刻 `page.goto` 并用 MutationObserver 记 `[data-secrets-table]` 是否出现过。
+建议改法：`onMounted` 里同步读一次 `root.value.clientWidth` 作初值（不用等观察者），观察者只负责之后的变化。
+
+## 未发现问题的方面
+- 外部读取与世界读取的同一代失效、同一轮换上：`rounds` 里 `due` 同时含外部与世界的 slot，换上在同一同步段内完成，没有找到一边新一边旧的窗口。
+- 取数抛错只让自己失败：`settled` 同时接住同步抛出与 reject；`rounds` 的 `try/finally` 复位 `busy`，不会卡住一轮。`behind()` 与 `slot.retried` 每代至多补读一次，不会空转；world 的读取结果也带世界版本（`ReadStamp`），不会被它误伤。
+- `useSwitching` 的句柄：换输入时旧的在新的读到（或读失败）后释放，没读到又换了释放没读到的，输入变 null 与作用域结束时两个都释放；没有看到泄漏路径。
+- 选着的线不在了回到跟着章、标签标题不带线、条目页读取带线、状态栏文字的三种说法、公开状态 `line` 与 `lineReady`、`behind` 等，实现与 Spec 输出 34 一致。
+- 附加分页的 `requires` 过滤、排序、标签状态（`state.extras` 对旧的已恢复标签用了 `??=` 兜底）。
+- SegmentedControl 对非 `wrap` 用法没有回归（只在 `wrap` 分支里改了类，非 wrap 的类数组多一个空串）；`wrap` 在仓库里只有 plot 两处用。
+- zh-CN 与 en-US 两份目录（canon、plot）键与占位符一一对应；`bun run typecheck`（tsc 与两份 vue-tsc）在实现 worktree 上通过；`bunx vitest run src/plugins/plot/web src/plugins/canon/web/entry-tabs.dom.test.ts src/plugins/canon/web/window-line.dom.test.ts` 5 个文件 11 条全绿。
+- 没有跑 e2e 与开发服务（按规则）；e2e 的结论都是读文件得出的。
+
+## 数量
+阻断 0；重要 5（第 1、2、3、4、9 条）；建议 11（第 5 到 8、10 到 16 条）。按影响排序的话：9（门禁红，合入前必须处理）、1、2、3（读取失败的三处，建议一起改）、4，其余建议。
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16

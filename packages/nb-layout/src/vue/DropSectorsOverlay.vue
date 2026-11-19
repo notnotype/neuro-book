@@ -1,6 +1,5 @@
 <script setup lang="ts">
 /** 落点分区（同名 .md）：拖动经过面板正文时画出这块面板能往哪放。形状由宿主算（工作台用 `layoutDropSectors`），这里只画。 */
-import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {computed} from "vue";
 
 import type {GridDropRect} from "../grid-drop";
@@ -25,8 +24,7 @@ const LABEL_MIN_HEIGHT = 28;
 const box = computed(() => {
     const {rect} = props;
     if (rect === null) return null;
-    const placed = {left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px`};
-    return {...placed, zIndex: NB_Z_INDEX.dropSectors};
+    return {left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px`};
 });
 
 const shapes = computed(() => {
@@ -74,12 +72,14 @@ const shapes = computed(() => {
 /* 压暗走不透明度加调暗，不用模糊：底下的内容还要认得出。 */
 .nb-drop-sectors {
     position: fixed;
+    /* 整页层级：nb-ui 的桥接给出层级登记表里的值，低于 `DropFeedbackOverlay`（同名 .md）。 */
+    z-index: var(--nb-layout-z-drop-sectors, 59);
     overflow: hidden;
     /* 圆角是宿主的事：外壳给卡片下面两个角。 */
-    border-radius: var(--layout-sector-radius, 0);
-    background: var(--layout-scrim);
+    border-radius: var(--nb-layout-sector-radius, 0);
+    background: var(--nb-layout-scrim, color-mix(in srgb, color-mix(in srgb, #000 30%, Canvas) 60%, transparent));
     pointer-events: none;
-    animation: nb-drop-sectors-in var(--motion-fast) var(--ease-layout);
+    animation: nb-drop-sectors-in var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 @keyframes nb-drop-sectors-in {
@@ -96,27 +96,29 @@ const shapes = computed(() => {
 }
 
 .nb-drop-sectors__sector {
-    fill: var(--layout-sector-fill);
-    stroke: var(--layout-sector-line);
+    fill: var(--nb-layout-sector-fill, color-mix(in srgb, Highlight 5%, transparent));
+    stroke: var(--nb-layout-sector-line, color-mix(in srgb, Highlight 65%, transparent));
     stroke-width: 1px;
     vector-effect: non-scaling-stroke;
-    transition: fill var(--motion-fast) var(--ease-layout), stroke var(--motion-fast) var(--ease-layout);
+    transition:
+        fill var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        stroke var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 .nb-drop-sectors__sector--active {
-    fill: var(--layout-sector-active-fill);
-    stroke: var(--layout-sector-active-line);
+    fill: var(--nb-layout-sector-active-fill, color-mix(in srgb, Highlight 12%, transparent));
+    stroke: var(--nb-layout-sector-active-line, color-mix(in srgb, Highlight 70%, transparent));
     stroke-width: 1.5px;
 }
 
 .nb-drop-sectors__label {
     position: absolute;
     padding: 3px 12px;
-    border-radius: var(--radius-pill);
-    background: var(--panel-surface);
-    box-shadow: 0 0 0 1px var(--layout-sector-line);
-    color: var(--text-main);
-    font-size: var(--text-xs);
+    border-radius: var(--nb-layout-radius-pill, 999px);
+    background: var(--nb-layout-panel-surface, Canvas);
+    box-shadow: 0 0 0 1px var(--nb-layout-sector-line, color-mix(in srgb, Highlight 65%, transparent));
+    color: var(--nb-layout-text-main, CanvasText);
+    font-size: var(--nb-layout-text-xs, 12px);
     transform: translate(-50%, -50%);
     white-space: nowrap;
 }
@@ -140,7 +142,7 @@ const shapes = computed(() => {
 
 @media (prefers-contrast: more) {
     .nb-drop-sectors__sector {
-        stroke: var(--layout-sector-active-line);
+        stroke: var(--nb-layout-sector-active-line, color-mix(in srgb, Highlight 70%, transparent));
     }
 }
 </style>

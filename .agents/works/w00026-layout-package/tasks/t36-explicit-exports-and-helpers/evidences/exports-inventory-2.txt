@@ -1,0 +1,502 @@
+# t36 第 2 片的盘点重跑（t35 合入后的 master 加第 1 片改名，2026-11-19；判据收紧，覆盖四个子路径；脚本见同目录 inventory-*.ts.txt）
+
+
+## @notnotype/nb-layout（160 个导出）
+allocateAxis	value grid-geometry.ts	—
+allocateSashPanels	value grid-geometry.ts	—
+axisOf	value grid-geometry.ts	—
+clampAxis	value grid-geometry.ts	—
+clampFloatRect	value grid-rects.ts	packages/neuro-book
+collapsePolicyProblem	value grid-geometry.ts	—
+collectSashHits	value sash-hit-area.ts	—
+constraintsOf	value grid-geometry.ts	—
+createGrid	value grid.ts	packages/nb-workbench-layout, packages/nb-workbench-layout(test), packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(test)
+createGridGestureSession	value grid-gesture.ts	packages/nb-workbench-layout(test)
+createSplitterSession	value splitter-session.ts	—
+crossAxisOf	value grid-geometry.ts	—
+defineDropKind	value drag-gesture.ts	packages/neuro-book, packages/neuro-book(lab)
+DRAG_GESTURE_DEFAULTS	value drag-gesture.ts	—
+DragCancelReason	type drag-gesture.ts	—
+DragEnd	type drag-gesture.ts	packages/neuro-book(lab)
+DragGestureConfig	type drag-gesture.ts	—
+DropKind	type drag-gesture.ts	—
+EPSILON	value grid-geometry.ts	—
+extentOf	value grid-geometry.ts	—
+finite	value grid-geometry.ts	—
+Grid	type grid.ts	packages/neuro-book, packages/neuro-book(lab)
+GRID_DROP_INDICATOR_PX	value grid-drop.ts	—
+GRID_EDGE_RATIO_DEFAULT	value grid-drop.ts	—
+GRID_LEGACY_SNAPSHOT_VERSION	value grid-types.ts	—
+GRID_MAX_DEPTH	value grid-types.ts	packages/nb-workbench-layout
+GRID_MAX_NODES	value grid-types.ts	packages/nb-workbench-layout
+GRID_SNAPSHOT_VERSION	value grid-types.ts	packages/nb-workbench-layout, packages/neuro-book, packages/neuro-book(e2e), packages/neuro-book(lab), packages/neuro-book(test)
+GRID_UNBOUNDED	value grid-geometry.ts	packages/nb-workbench-layout, packages/neuro-book
+GridAxis	type grid-types.ts	packages/nb-workbench-layout(test), packages/neuro-book(lab)
+GridBranch	type grid-types.ts	—
+GridBranchChange	type grid-gesture.ts	packages/neuro-book(lab), packages/neuro-book(sdk)
+GridBranchesResizeResult	type grid-types.ts	—
+GridBranchInput	type grid-types.ts	packages/neuro-book, packages/neuro-book(lab)
+GridBranchResize	type grid-types.ts	—
+GridBranchResizeResult	type grid-types.ts	—
+GridCommitFailureCode	type grid-types.ts	packages/neuro-book(sdk)
+GridConstraint	type grid-types.ts	—
+GridContentInput	type grid-rects.ts	packages/neuro-book, packages/neuro-book(lab)
+GridDropMember	type grid-drop.ts	—
+GridDroppedRef	type grid-types.ts	packages/neuro-book(lab)
+GridDropPoint	type grid-drop.ts	packages/nb-workbench-layout, packages/neuro-book
+GridDropRect	type grid-drop.ts	packages/nb-workbench-layout, packages/nb-workbench-layout(test), packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(test)
+GridEdgeDrop	type grid-drop.ts	—
+GridExtent	type grid-types.ts	packages/nb-workbench-layout, packages/nb-workbench-layout(test), packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(test)
+GridFailure	type grid-types.ts	packages/nb-workbench-layout, packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(sdk)
+GridFailureCode	type grid-types.ts	—
+GridFloatInput	type grid-rects.ts	packages/neuro-book
+GridGestureBaseline	type grid-gesture.ts	—
+GridGestureCancellation	type grid-gesture.ts	packages/neuro-book(lab), packages/neuro-book(sdk)
+GridGestureCommit	type grid-gesture.ts	packages/neuro-book(sdk)
+GridGesturePreview	type grid-gesture.ts	packages/neuro-book, packages/neuro-book(sdk)
+GridGestureSession	type grid-gesture.ts	—
+GridGestureSessionInput	type grid-gesture.ts	—
+GridGestureStart	type grid-gesture.ts	packages/neuro-book(lab), packages/neuro-book(sdk)
+GridHostIssueCode	type grid-types.ts	packages/neuro-book, packages/neuro-book(sdk)
+GridInsertion	type grid-drop.ts	—
+GridIssue	type grid-types.ts	packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(sdk)
+GridIssueCode	type grid-types.ts	packages/neuro-book, packages/neuro-book(sdk)
+GridLayoutCommitResult	type grid-types.ts	packages/neuro-book(sdk)
+GridLayoutResult	type grid-types.ts	packages/neuro-book(lab)
+GridLeaf	type grid-types.ts	—
+GridLeafInput	type grid-types.ts	—
+GridLeafShape	type grid-rects.ts	packages/neuro-book
+GridListInsertion	type grid-drop.ts	—
+GridNode	type grid-types.ts	—
+GridNodeInput	type grid-types.ts	packages/nb-workbench-layout, packages/nb-workbench-layout(test), packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(test)
+GridOptions	type grid-types.ts	—
+GridOrientation	type grid-types.ts	packages/nb-workbench-layout, packages/neuro-book
+GridParamValue	type grid-types.ts	packages/neuro-book(sdk)
+GridRect	type grid-rects.ts	packages/nb-workbench-layout, packages/neuro-book, packages/neuro-book(test)
+GridRefEncoder	type grid-types.ts	—
+GridRefResolution	type grid-types.ts	—
+GridRefResolver	type grid-types.ts	—
+GridResizeResult	type grid-types.ts	—
+GridRestoreFailureCode	type grid-types.ts	—
+GridRestoreResult	type grid-types.ts	packages/neuro-book(lab)
+GridResult	type grid-types.ts	—
+GridSashRef	type sash-gesture.ts	packages/neuro-book(lab)
+GridSashResolver	type grid-geometry.ts	—
+GridSizing	type grid-types.ts	packages/nb-workbench-layout
+GridSnapshot	type grid-types.ts	packages/nb-workbench-layout, packages/neuro-book(lab)
+GridSnapshotBranch	type grid-types.ts	packages/nb-workbench-layout, packages/nb-workbench-layout(test)
+GridSnapshotLeaf	type grid-types.ts	packages/nb-workbench-layout
+GridSnapshotNode	type grid-types.ts	packages/nb-workbench-layout, packages/nb-workbench-layout(test), packages/neuro-book(e2e), packages/neuro-book(test)
+GridSplitInput	type grid-types.ts	—
+GridSplitSide	type grid-types.ts	—
+GridSwap	type grid-swap.ts	packages/neuro-book, packages/neuro-book(lab)
+GridSwapWindow	type grid-swap.ts	—
+hitTestSashBand	value sash-hit-area.ts	—
+initialLiveDrop	value live-drop.ts	packages/neuro-book
+insideShownSlot	value live-drop.ts	packages/neuro-book
+isGridDropRect	value grid-drop.ts	—
+LayoutFloatResize	type grid-rects.ts	—
+layoutOf	value grid-geometry.ts	—
+LIVE_SETTLE_MS	value live-drop.ts	—
+LIVE_STICKY_PX	value live-drop.ts	—
+LiveDropCandidate	type live-drop.ts	packages/neuro-book
+LiveDropState	type live-drop.ts	packages/neuro-book
+LivePreview	type live-drop.ts	—
+moveInSections	value sortable.ts	—
+NB_LAYOUT_THEME_VARS	value theme-vars.ts	packages/neuro-book(e2e), packages/neuro-book(test)
+NbLayoutThemeVar	type theme-vars.ts	—
+NbLayoutVarName	type theme-vars.ts	—
+normCollapse	value grid-geometry.ts	—
+normConstraint	value grid-geometry.ts	—
+normExtent	value grid-geometry.ts	—
+placeGrid	value grid-rects.ts	packages/nb-workbench-layout
+projectGridGesture	value grid-gesture.ts	—
+readExtent	value grid-geometry.ts	—
+resizeFloatRect	value grid-rects.ts	—
+resolveGridEdgeDrop	value grid-drop.ts	—
+resolveGridInsertion	value grid-drop.ts	—
+resolveListInsertion	value grid-drop.ts	packages/nb-workbench-layout
+round	value grid-geometry.ts	—
+SASH_COLLAPSE_THRESHOLD	value sash-drag.ts	—
+SASH_HIT_MARGIN	value sash-hit-area.ts	—
+sashCollapsePolicy	value sash-drag.ts	—
+SashCollapsePolicy	type grid-types.ts	—
+SashCollapseState	type grid-types.ts	packages/nb-workbench-layout
+sashDistance	value sash-hit-area.ts	—
+SashDragInput	type sash-drag.ts	—
+SashDragResult	type sash-drag.ts	—
+SashDragSnapState	type sash-drag.ts	—
+sashEdgeDelta	value sash-drag.ts	—
+SashGestureBinding	type sash-gesture.ts	—
+SashGestureCancelReason	type sash-gesture.ts	packages/neuro-book(sdk)
+SashGestureCommit	type sash-gesture.ts	—
+SashGestureHost	type sash-gesture.ts	—
+SashGestureSessionCore	type sash-gesture.ts	—
+SashGestureSource	type sash-gesture.ts	packages/neuro-book(sdk)
+sashHitMargin	value sash-hit-area.ts	—
+SashHitTarget	type sash-hit-area.ts	—
+sashLineOffset	value sash-drag.ts	—
+SashPanel	type grid-geometry.ts	—
+sashPanelBounds	value grid-geometry.ts	—
+SashPoint	type sash-hit-area.ts	—
+SashPointerKind	type sash-hit-area.ts	—
+SashRect	type sash-hit-area.ts	—
+shareAxis	value grid-geometry.ts	—
+slotOfKey	value sortable.ts	—
+solveSashCollapse	value sash-drag.ts	—
+solveSashDrag	value sash-drag.ts	—
+SORTABLE_STICKY_PX	value sortable.ts	—
+SortableAxis	type sortable.ts	—
+SortableLayout	type sortable.ts	—
+SortableSection	type sortable.ts	—
+SortableSlot	type sortable.ts	—
+sortableSlotIn	value sortable.ts	—
+sortableSlots	value sortable.ts	—
+SortableSpan	type sortable.ts	—
+SortableSwitch	type sortable.ts	—
+SplitterGestureCancellation	type splitter-gesture.ts	packages/neuro-book(sdk)
+SplitterGestureChange	type splitter-session.ts	—
+SplitterGestureSession	type splitter-session.ts	—
+SplitterGestureState	type splitter-gesture.ts	packages/neuro-book(sdk)
+stepLiveDrop	value live-drop.ts	packages/neuro-book
+UNBOUNDED_EXTENT	value grid-geometry.ts	packages/nb-workbench-layout
+withCollapseOverrides	value sash-drag.ts	—
+ZERO_EXTENT	value grid-geometry.ts	—
+无人经包名导入：103
+
+## @notnotype/nb-layout/vue（41 个导出）
+acquireSashCursor	value vue/sash-feedback.ts	—
+createDragSession	value vue/drag-session.ts	packages/neuro-book, packages/neuro-book(lab)
+DragKeyboardOptions	type vue/drag-session.ts	—
+DragQuery	type vue/drag-session.ts	—
+DragSession	type vue/drag-session.ts	packages/neuro-book, packages/neuro-book(lab)
+DragSessionOptions	type vue/drag-session.ts	—
+DragState	type drag-gesture.ts	—
+DropFeedbackOverlay	value ?	packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(sdk)
+DropFeedbackPreview	value ?	packages/neuro-book, packages/neuro-book(sdk)
+DropIndicatorLabel	value ?	packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(sdk)
+DropSectorsOverlay	value ?	packages/nb-workbench-layout(test), packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(sdk)
+dropTargetAt	value vue/drop-targets.ts	packages/neuro-book, packages/neuro-book(lab)
+EMPTY_GRID_LAYOUT	value vue/useGridLayout.ts	—
+FloatWindowHandles	value ?	packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(sdk)
+GridLayoutCommitResult	type grid-types.ts	—
+GridLayoutHost	type vue/useGridLayout.ts	—
+layoutMotionMs	value vue/layout-motion.ts	packages/neuro-book
+moveGridFocus	value vue/grid-focus.ts	packages/neuro-book, packages/neuro-book(lab)
+NestedGrid	value ?	packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(sdk)
+registerDropTarget	value vue/drop-targets.ts	—
+SASH_GESTURE_SCOPE_KEY	value vue/sash-scope.ts	—
+SASH_HOVER_DELAY_MS	value vue/sash-feedback.ts	—
+SashCursor	type vue/sash-feedback.ts	—
+sashCursorFor	value vue/sash-feedback.ts	—
+SashCursorOwner	type vue/sash-feedback.ts	—
+SashGestureOptions	type vue/useSashGesture.ts	—
+SashGestureScope	type vue/useSashGesture.ts	—
+sashHitKey	value vue/sash-feedback.ts	—
+SashRegistration	type vue/useSashGesture.ts	—
+SortableHandle	type vue/useSortable.ts	—
+SortableList	value ?	packages/neuro-book, packages/neuro-book(lab), packages/neuro-book(sdk)
+SortableMove	type vue/useSortable.ts	packages/neuro-book, packages/neuro-book(lab)
+Splitter	value ?	packages/neuro-book(lab), packages/neuro-book(sdk)
+SplitterPanelConfig	type vue/grid-splitter.ts	packages/neuro-book(sdk)
+useDropTarget	value vue/drop-targets.ts	packages/neuro-book, packages/neuro-book(lab)
+useGridLayout	value vue/useGridLayout.ts	packages/neuro-book, packages/neuro-book(lab)
+useLayoutExtent	value vue/useLayoutExtent.ts	packages/neuro-book, packages/neuro-book(lab)
+useSashGesture	value vue/useSashGesture.ts	—
+useSashScope	value vue/sash-scope.ts	—
+useSortable	value vue/useSortable.ts	—
+UseSortableOptions	type vue/useSortable.ts	—
+无人经包名导入：23
+
+## @notnotype/nb-layout/text（5 个导出）
+LAYOUT_TEXT_KEY	value vue/text.ts	packages/neuro-book, packages/neuro-book(test)
+LayoutTextKey	type vue/text.ts	—
+LayoutTextParams	type vue/text.ts	—
+LayoutTranslate	type vue/text.ts	packages/neuro-book, packages/neuro-book(test)
+useLayoutText	value vue/text.ts	—
+无人经包名导入：3
+
+## @notnotype/nb-layout/locales（3 个导出）
+NB_LAYOUT_CATALOGS	value locales/index.ts	packages/neuro-book
+NB_LAYOUT_NAMESPACE	value locales/index.ts	packages/neuro-book
+NB_LAYOUT_SOURCE_LOCALE	value locales/index.ts	—
+无人经包名导入：1
+
+## 分类与保留清单
+.	allocateAxis	内部
+.	allocateSashPanels	内部
+.	axisOf	内部
+.	clampAxis	内部
+.	collapsePolicyProblem	内部
+.	collectSashHits	内部
+.	constraintsOf	内部
+.	createSplitterSession	内部
+.	crossAxisOf	内部
+.	DRAG_GESTURE_DEFAULTS	文档
+.	DragCancelReason	文档
+.	DragGestureConfig	签名可达（DragSessionOptions）
+.	DropKind	签名可达（useDropTarget）
+.	EPSILON	内部
+.	extentOf	内部
+.	finite	内部
+.	GRID_DROP_INDICATOR_PX	内部
+.	GRID_EDGE_RATIO_DEFAULT	内部
+.	GRID_LEGACY_SNAPSHOT_VERSION	内部
+.	GridBranch	签名可达（GridNode）
+.	GridBranchesResizeResult	签名可达（useGridLayout）
+.	GridBranchResize	签名可达（GridBranchChange）
+.	GridBranchResizeResult	签名可达（Grid）
+.	GridConstraint	签名可达（GridLayoutResult）
+.	GridDropMember	签名可达（resolveListInsertion）
+.	GridEdgeDrop	签名可达（resolveGridEdgeDrop）
+.	GridFailureCode	签名可达（GridBranchesResizeResult）
+.	GridGestureBaseline	签名可达（GridGestureSessionInput）
+.	GridGestureSession	签名可达（createGridGestureSession）
+.	GridGestureSessionInput	签名可达（createGridGestureSession）
+.	GridInsertion	签名可达（resolveGridInsertion）
+.	GridLeaf	文档
+.	GridLeafInput	文档
+.	GridListInsertion	签名可达（resolveListInsertion）
+.	GridNode	文档
+.	GridOptions	签名可达（createGrid）
+.	GridRefEncoder	签名可达（createGrid）
+.	GridRefResolution	签名可达（GridRefResolver）
+.	GridRefResolver	签名可达（Grid）
+.	GridResizeResult	签名可达（Grid）
+.	GridRestoreFailureCode	签名可达（GridRestoreResult）
+.	GridResult	签名可达（Grid）
+.	GridSashResolver	签名可达（GridGestureBaseline）
+.	GridSplitInput	文档
+.	GridSplitSide	签名可达（GridSplitInput）
+.	GridSwapWindow	签名可达（GridSwap）
+.	hitTestSashBand	内部
+.	isGridDropRect	内部
+.	LayoutFloatResize	签名可达（resizeFloatRect）
+.	layoutOf	内部
+.	LIVE_SETTLE_MS	内部
+.	LIVE_STICKY_PX	内部
+.	LivePreview	签名可达（LiveDropState）
+.	moveInSections	文档
+.	NbLayoutThemeVar	签名可达（NB_LAYOUT_THEME_VARS）
+.	NbLayoutVarName	签名可达（NbLayoutThemeVar）
+.	normCollapse	内部
+.	normConstraint	内部
+.	normExtent	内部
+.	projectGridGesture	内部
+.	readExtent	内部
+.	resizeFloatRect	文档
+.	resolveGridEdgeDrop	文档
+.	resolveGridInsertion	文档
+.	round	内部
+.	SASH_COLLAPSE_THRESHOLD	内部
+.	SASH_HIT_MARGIN	内部
+.	sashCollapsePolicy	内部
+.	SashCollapsePolicy	签名可达（SashCollapseState）
+.	sashDistance	内部
+.	SashDragInput	内部
+.	SashDragResult	内部
+.	SashDragSnapState	内部
+.	sashEdgeDelta	内部
+.	SashGestureBinding	内部
+.	SashGestureCommit	签名可达（SashGestureSessionCore）
+.	SashGestureHost	内部
+.	SashGestureSessionCore	签名可达（GridGestureSession）
+.	sashHitMargin	内部
+.	SashHitTarget	内部
+.	sashLineOffset	内部
+.	SashPanel	签名可达（solveSashCollapse）
+.	sashPanelBounds	内部
+.	SashPoint	内部
+.	SashPointerKind	内部
+.	SashRect	内部
+.	shareAxis	内部
+.	slotOfKey	文档
+.	solveSashCollapse	文档
+.	solveSashDrag	内部
+.	SORTABLE_STICKY_PX	文档
+.	SortableAxis	签名可达（UseSortableOptions）
+.	SortableLayout	文档
+.	SortableSection	文档
+.	SortableSlot	文档
+.	sortableSlotIn	文档
+.	sortableSlots	文档
+.	SortableSpan	文档
+.	SortableSwitch	文档
+.	SplitterGestureChange	内部
+.	SplitterGestureSession	内部
+.	withCollapseOverrides	内部
+.	ZERO_EXTENT	内部
+/vue	acquireSashCursor	内部
+/vue	DragKeyboardOptions	文档
+/vue	DragQuery	文档
+/vue	DragSessionOptions	文档
+/vue	DragState	文档
+/vue	EMPTY_GRID_LAYOUT	内部
+/vue	GridLayoutCommitResult	签名可达（GridLayoutHost）
+/vue	GridLayoutHost	签名可达（useGridLayout）
+/vue	registerDropTarget	文档
+/vue	SASH_GESTURE_SCOPE_KEY	内部
+/vue	SASH_HOVER_DELAY_MS	内部
+/vue	SashCursor	内部
+/vue	sashCursorFor	内部
+/vue	SashCursorOwner	内部
+/vue	SashGestureOptions	内部
+/vue	SashGestureScope	内部
+/vue	sashHitKey	内部
+/vue	SashRegistration	内部
+/vue	SortableHandle	文档
+/vue	useSashGesture	内部
+/vue	useSashScope	内部
+/vue	useSortable	文档
+/vue	UseSortableOptions	文档
+/text	LayoutTextKey	签名可达（LayoutTranslate）
+/text	LayoutTextParams	签名可达（LayoutTranslate）
+/text	useLayoutText	内部
+/locales	NB_LAYOUT_SOURCE_LOCALE	内部
+
+## 保留清单
+KEEP	@notnotype/nb-layout	clampFloatRect	有人用
+KEEP	@notnotype/nb-layout	createGrid	有人用
+KEEP	@notnotype/nb-layout	createGridGestureSession	有人用
+KEEP	@notnotype/nb-layout	defineDropKind	有人用
+KEEP	@notnotype/nb-layout	DRAG_GESTURE_DEFAULTS	文档
+KEEP	@notnotype/nb-layout	DragCancelReason	文档
+KEEP	@notnotype/nb-layout	DragEnd	有人用
+KEEP	@notnotype/nb-layout	DragGestureConfig	签名可达
+KEEP	@notnotype/nb-layout	DropKind	签名可达
+KEEP	@notnotype/nb-layout	Grid	有人用
+KEEP	@notnotype/nb-layout	GRID_MAX_DEPTH	有人用
+KEEP	@notnotype/nb-layout	GRID_MAX_NODES	有人用
+KEEP	@notnotype/nb-layout	GRID_SNAPSHOT_VERSION	有人用
+KEEP	@notnotype/nb-layout	GRID_UNBOUNDED	有人用
+KEEP	@notnotype/nb-layout	GridAxis	有人用
+KEEP	@notnotype/nb-layout	GridBranch	签名可达
+KEEP	@notnotype/nb-layout	GridBranchChange	有人用
+KEEP	@notnotype/nb-layout	GridBranchesResizeResult	签名可达
+KEEP	@notnotype/nb-layout	GridBranchInput	有人用
+KEEP	@notnotype/nb-layout	GridBranchResize	签名可达
+KEEP	@notnotype/nb-layout	GridBranchResizeResult	签名可达
+KEEP	@notnotype/nb-layout	GridCommitFailureCode	有人用
+KEEP	@notnotype/nb-layout	GridConstraint	签名可达
+KEEP	@notnotype/nb-layout	GridContentInput	有人用
+KEEP	@notnotype/nb-layout	GridDropMember	签名可达
+KEEP	@notnotype/nb-layout	GridDroppedRef	有人用
+KEEP	@notnotype/nb-layout	GridDropPoint	有人用
+KEEP	@notnotype/nb-layout	GridDropRect	有人用
+KEEP	@notnotype/nb-layout	GridEdgeDrop	签名可达
+KEEP	@notnotype/nb-layout	GridExtent	有人用
+KEEP	@notnotype/nb-layout	GridFailure	有人用
+KEEP	@notnotype/nb-layout	GridFailureCode	签名可达
+KEEP	@notnotype/nb-layout	GridFloatInput	有人用
+KEEP	@notnotype/nb-layout	GridGestureBaseline	签名可达
+KEEP	@notnotype/nb-layout	GridGestureCancellation	有人用
+KEEP	@notnotype/nb-layout	GridGestureCommit	有人用
+KEEP	@notnotype/nb-layout	GridGesturePreview	有人用
+KEEP	@notnotype/nb-layout	GridGestureSession	签名可达
+KEEP	@notnotype/nb-layout	GridGestureSessionInput	签名可达
+KEEP	@notnotype/nb-layout	GridGestureStart	有人用
+KEEP	@notnotype/nb-layout	GridHostIssueCode	有人用
+KEEP	@notnotype/nb-layout	GridInsertion	签名可达
+KEEP	@notnotype/nb-layout	GridIssue	有人用
+KEEP	@notnotype/nb-layout	GridIssueCode	有人用
+KEEP	@notnotype/nb-layout	GridLayoutCommitResult	有人用
+KEEP	@notnotype/nb-layout	GridLayoutResult	有人用
+KEEP	@notnotype/nb-layout	GridLeaf	文档
+KEEP	@notnotype/nb-layout	GridLeafInput	文档
+KEEP	@notnotype/nb-layout	GridLeafShape	有人用
+KEEP	@notnotype/nb-layout	GridListInsertion	签名可达
+KEEP	@notnotype/nb-layout	GridNode	文档
+KEEP	@notnotype/nb-layout	GridNodeInput	有人用
+KEEP	@notnotype/nb-layout	GridOptions	签名可达
+KEEP	@notnotype/nb-layout	GridOrientation	有人用
+KEEP	@notnotype/nb-layout	GridParamValue	有人用
+KEEP	@notnotype/nb-layout	GridRect	有人用
+KEEP	@notnotype/nb-layout	GridRefEncoder	签名可达
+KEEP	@notnotype/nb-layout	GridRefResolution	签名可达
+KEEP	@notnotype/nb-layout	GridRefResolver	签名可达
+KEEP	@notnotype/nb-layout	GridResizeResult	签名可达
+KEEP	@notnotype/nb-layout	GridRestoreFailureCode	签名可达
+KEEP	@notnotype/nb-layout	GridRestoreResult	有人用
+KEEP	@notnotype/nb-layout	GridResult	签名可达
+KEEP	@notnotype/nb-layout	GridSashRef	有人用
+KEEP	@notnotype/nb-layout	GridSashResolver	签名可达
+KEEP	@notnotype/nb-layout	GridSizing	有人用
+KEEP	@notnotype/nb-layout	GridSnapshot	有人用
+KEEP	@notnotype/nb-layout	GridSnapshotBranch	有人用
+KEEP	@notnotype/nb-layout	GridSnapshotLeaf	有人用
+KEEP	@notnotype/nb-layout	GridSnapshotNode	有人用
+KEEP	@notnotype/nb-layout	GridSplitInput	文档
+KEEP	@notnotype/nb-layout	GridSplitSide	签名可达
+KEEP	@notnotype/nb-layout	GridSwap	有人用
+KEEP	@notnotype/nb-layout	GridSwapWindow	签名可达
+KEEP	@notnotype/nb-layout	initialLiveDrop	有人用
+KEEP	@notnotype/nb-layout	insideShownSlot	有人用
+KEEP	@notnotype/nb-layout	LayoutFloatResize	签名可达
+KEEP	@notnotype/nb-layout	LiveDropCandidate	有人用
+KEEP	@notnotype/nb-layout	LiveDropState	有人用
+KEEP	@notnotype/nb-layout	LivePreview	签名可达
+KEEP	@notnotype/nb-layout	moveInSections	文档
+KEEP	@notnotype/nb-layout	NB_LAYOUT_THEME_VARS	有人用
+KEEP	@notnotype/nb-layout	NbLayoutThemeVar	签名可达
+KEEP	@notnotype/nb-layout	NbLayoutVarName	签名可达
+KEEP	@notnotype/nb-layout	placeGrid	有人用
+KEEP	@notnotype/nb-layout	resizeFloatRect	文档
+KEEP	@notnotype/nb-layout	resolveGridEdgeDrop	文档
+KEEP	@notnotype/nb-layout	resolveGridInsertion	文档
+KEEP	@notnotype/nb-layout	resolveListInsertion	有人用
+KEEP	@notnotype/nb-layout	SashCollapsePolicy	签名可达
+KEEP	@notnotype/nb-layout	SashCollapseState	有人用
+KEEP	@notnotype/nb-layout	SashGestureCancelReason	有人用
+KEEP	@notnotype/nb-layout	SashGestureCommit	签名可达
+KEEP	@notnotype/nb-layout	SashGestureSessionCore	签名可达
+KEEP	@notnotype/nb-layout	SashGestureSource	有人用
+KEEP	@notnotype/nb-layout	SashPanel	签名可达
+KEEP	@notnotype/nb-layout	slotOfKey	文档
+KEEP	@notnotype/nb-layout	solveSashCollapse	文档
+KEEP	@notnotype/nb-layout	SORTABLE_STICKY_PX	文档
+KEEP	@notnotype/nb-layout	SortableAxis	签名可达
+KEEP	@notnotype/nb-layout	SortableLayout	文档
+KEEP	@notnotype/nb-layout	SortableSection	文档
+KEEP	@notnotype/nb-layout	SortableSlot	文档
+KEEP	@notnotype/nb-layout	sortableSlotIn	文档
+KEEP	@notnotype/nb-layout	sortableSlots	文档
+KEEP	@notnotype/nb-layout	SortableSpan	文档
+KEEP	@notnotype/nb-layout	SortableSwitch	文档
+KEEP	@notnotype/nb-layout	SplitterGestureCancellation	有人用
+KEEP	@notnotype/nb-layout	SplitterGestureState	有人用
+KEEP	@notnotype/nb-layout	stepLiveDrop	有人用
+KEEP	@notnotype/nb-layout	UNBOUNDED_EXTENT	有人用
+KEEP	@notnotype/nb-layout/vue	createDragSession	有人用
+KEEP	@notnotype/nb-layout/vue	DragKeyboardOptions	文档
+KEEP	@notnotype/nb-layout/vue	DragQuery	文档
+KEEP	@notnotype/nb-layout/vue	DragSession	有人用
+KEEP	@notnotype/nb-layout/vue	DragSessionOptions	文档
+KEEP	@notnotype/nb-layout/vue	DragState	文档
+KEEP	@notnotype/nb-layout/vue	DropFeedbackOverlay	有人用
+KEEP	@notnotype/nb-layout/vue	DropFeedbackPreview	有人用
+KEEP	@notnotype/nb-layout/vue	DropIndicatorLabel	有人用
+KEEP	@notnotype/nb-layout/vue	DropSectorsOverlay	有人用
+KEEP	@notnotype/nb-layout/vue	dropTargetAt	有人用
+KEEP	@notnotype/nb-layout/vue	FloatWindowHandles	有人用
+KEEP	@notnotype/nb-layout/vue	GridLayoutCommitResult	签名可达
+KEEP	@notnotype/nb-layout/vue	GridLayoutHost	签名可达
+KEEP	@notnotype/nb-layout/vue	layoutMotionMs	有人用
+KEEP	@notnotype/nb-layout/vue	moveGridFocus	有人用
+KEEP	@notnotype/nb-layout/vue	NestedGrid	有人用
+KEEP	@notnotype/nb-layout/vue	registerDropTarget	文档
+KEEP	@notnotype/nb-layout/vue	SortableHandle	文档
+KEEP	@notnotype/nb-layout/vue	SortableList	有人用
+KEEP	@notnotype/nb-layout/vue	SortableMove	有人用
+KEEP	@notnotype/nb-layout/vue	Splitter	有人用
+KEEP	@notnotype/nb-layout/vue	SplitterPanelConfig	有人用
+KEEP	@notnotype/nb-layout/vue	useDropTarget	有人用
+KEEP	@notnotype/nb-layout/vue	useGridLayout	有人用
+KEEP	@notnotype/nb-layout/vue	useLayoutExtent	有人用
+KEEP	@notnotype/nb-layout/vue	useSortable	文档
+KEEP	@notnotype/nb-layout/vue	UseSortableOptions	文档
+KEEP	@notnotype/nb-layout/text	LAYOUT_TEXT_KEY	有人用
+KEEP	@notnotype/nb-layout/text	LayoutTextKey	签名可达
+KEEP	@notnotype/nb-layout/text	LayoutTextParams	签名可达
+KEEP	@notnotype/nb-layout/text	LayoutTranslate	有人用
+KEEP	@notnotype/nb-layout/locales	NB_LAYOUT_CATALOGS	有人用
+KEEP	@notnotype/nb-layout/locales	NB_LAYOUT_NAMESPACE	有人用

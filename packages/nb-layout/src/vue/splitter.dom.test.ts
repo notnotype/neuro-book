@@ -1017,7 +1017,7 @@ describe("静止接缝（常驻的 1px 分界线）", () => {
         // 线盒 [400, 401] 本来就落在整像素边界上：接缝原地不动，厚度 1px
         expect(seam.style.left).toBe("0px");
         expect(seam.style.width).toBe("1px");
-        // 交叉轴不写内联：两端由样式按 data-axis 取 `--nb-splitter-seam-inset`（缺省 0，铺满；开放式分割线时缩进）
+        // 交叉轴不写内联：两端由样式按 data-axis 取 `--nb-layout-splitter-seam-inset`（缺省 0，铺满；开放式分割线时缩进）
         expect(seam.dataset.axis).toBe("width");
         expect(seam.style.top).toBe("");
         expect(seam.style.bottom).toBe("");

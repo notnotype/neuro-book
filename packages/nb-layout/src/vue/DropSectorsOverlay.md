@@ -12,7 +12,7 @@ Teleport 到 `body`，固定定位在 `rect` 上，不接指针。整块压暗�
 
 每块可以写一个字样：写在这块外接盒的中心，外接盒小于 96×28px 时不写，当前块不写（`DropFeedbackOverlay` 的提示在说它）。
 
-出现时淡入（`--motion-fast`），换面板时复用节点，不重放也不过渡位置。减少动效时直接出现。整层 `aria-hidden`：播报由 `DropFeedbackOverlay` 负责。
+出现时淡入（`--nb-layout-motion-fast`），换面板时复用节点，不重放也不过渡位置。减少动效时直接出现。整层 `aria-hidden`：播报由 `DropFeedbackOverlay` 负责。
 
 ## 数据
 
@@ -32,14 +32,16 @@ type Props = {
 
 ## 布局与状态
 
+装了 nb-ui 时，前三行经它的桥接取主题的 `--layout-scrim`、`--layout-sector-*`。
+
 | 变量 | 作用 |
 |---|---|
-| `--layout-scrim` | 压暗的颜色 |
-| `--layout-sector-fill`、`--layout-sector-line` | 每块的底色与线 |
-| `--layout-sector-active-fill`、`--layout-sector-active-line` | 当前块的底色与线 |
-| `--layout-sector-radius` | 整层的圆角；缺省 0。不是主题令牌：宿主写在 attrs 落到的根上（工作台给卡片下面两个角） |
+| `--nb-layout-scrim` | 压暗的颜色 |
+| `--nb-layout-sector-fill`、`--nb-layout-sector-line` | 每块的底色与线 |
+| `--nb-layout-sector-active-fill`、`--nb-layout-sector-active-line` | 当前块的底色与线 |
+| `--nb-layout-sector-radius` | 整层的圆角；缺省 0。不是主题令牌：宿主写在 attrs 落到的根上（工作台给卡片下面两个角） |
 
-层级取 `NB_Z_INDEX.dropSectors`，低于 `DropFeedbackOverlay`：提交后的矩形要压在分区上面。
+层级取 `--nb-layout-z-drop-sectors`（nb-ui 的桥接给层级登记表里的 `dropSectors`，缺省 59），低于 `DropFeedbackOverlay` 的 `--nb-layout-z-drop-feedback`（缺省 60）：提交后的矩形要压在分区上面。
 
 `forced-colors` 下去掉压暗（系统色会把它变成不透明的底），线用 `CanvasText`，当前块用 `Highlight` 且更粗；`prefers-contrast: more` 时线用当前块那条。
 

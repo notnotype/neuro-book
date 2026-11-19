@@ -52,7 +52,6 @@ export type DropFeedbackPreview = Readonly<{
  */
 import {computed, onBeforeUnmount, ref, useAttrs, watch} from "vue";
 import DropIndicator from "./DropIndicator.vue";
-import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import DropIndicatorLabel from "./DropIndicatorLabel.vue";
 import {isGridDropRect} from "../grid-drop";
 
@@ -310,8 +309,7 @@ watch(
         <div
             v-if="hasVisibleFeedback"
             ref="overlayRef"
-            class="nb-ui-drop-feedback"
-            :style="{zIndex: NB_Z_INDEX.dropFeedback}"
+            class="nb-layout-drop-feedback"
             data-drop-feedback
             v-bind="attrs"
         >
@@ -319,8 +317,8 @@ watch(
             <DropIndicator
                 v-if="areaBoxStyle !== null"
                 variant="area"
-                class="nb-ui-drop-feedback__area"
-                :class="{'nb-ui-drop-feedback__area--standby': props.preview?.armed === false}"
+                class="nb-layout-drop-feedback__area"
+                :class="{'nb-layout-drop-feedback__area--standby': props.preview?.armed === false}"
                 data-drop-feedback-area
                 :data-drop-armed="props.preview?.armed === false ? 'false' : 'true'"
                 :style="areaBoxStyle"
@@ -330,7 +328,7 @@ watch(
             <DropIndicator
                 v-if="lineBoxStyle !== null"
                 variant="line"
-                class="nb-ui-drop-feedback__line"
+                class="nb-layout-drop-feedback__line"
                 data-drop-feedback-line
                 :style="lineBoxStyle"
             />
@@ -339,7 +337,7 @@ watch(
             <DropIndicator
                 v-if="entryBoxStyle !== null"
                 variant="entry"
-                class="nb-ui-drop-feedback__entry"
+                class="nb-layout-drop-feedback__entry"
                 data-drop-feedback-entry
                 :style="entryBoxStyle"
             />
@@ -349,8 +347,8 @@ watch(
                 v-if="labelVisible"
                 :key="areaBoxStyle !== null ? 'area' : 'anchor'"
                 ref="labelRef"
-                class="nb-ui-drop-feedback__label"
-                :class="{'nb-ui-drop-feedback__label--area': areaBoxStyle !== null}"
+                class="nb-layout-drop-feedback__label"
+                :class="{'nb-layout-drop-feedback__label--area': areaBoxStyle !== null}"
                 data-drop-feedback-label
                 :style="labelStyle"
             >
@@ -359,7 +357,7 @@ watch(
 
             <!-- 独立无障碍播报：仅随传入 label 语义变化更新，不逐像素播报 -->
             <div
-                class="nb-ui-drop-feedback__live"
+                class="nb-layout-drop-feedback__live"
                 data-drop-feedback-live
                 aria-live="polite"
                 aria-atomic="true"
@@ -371,16 +369,18 @@ watch(
 </template>
 
 <style scoped>
-.nb-ui-drop-feedback {
+.nb-layout-drop-feedback {
     position: fixed;
     inset: 0;
+    /* 整页层级：nb-ui 的桥接给出层级登记表里的值（同名 .md）。 */
+    z-index: var(--nb-layout-z-drop-feedback, 60);
     pointer-events: none;
 }
 
 /* 皮肤在公共 DropIndicator 上，这里只给三个形状做 fixed 定位 */
-.nb-ui-drop-feedback__area,
-.nb-ui-drop-feedback__line,
-.nb-ui-drop-feedback__entry {
+.nb-layout-drop-feedback__area,
+.nb-layout-drop-feedback__line,
+.nb-layout-drop-feedback__entry {
     position: fixed;
 }
 
@@ -391,44 +391,46 @@ watch(
     }
 }
 
-.nb-ui-drop-feedback__area,
-.nb-ui-drop-feedback__label--area {
-    animation: nb-drop-feedback-fade-in var(--motion-fast) var(--ease-layout);
+.nb-layout-drop-feedback__area,
+.nb-layout-drop-feedback__label--area {
+    animation: nb-drop-feedback-fade-in var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
-.nb-ui-drop-feedback__area {
+.nb-layout-drop-feedback__area {
     opacity: 1;
-    transition: left var(--motion-base) var(--ease-layout),
-        top var(--motion-base) var(--ease-layout),
-        width var(--motion-base) var(--ease-layout),
-        height var(--motion-base) var(--ease-layout),
-        opacity var(--motion-fast) var(--ease-layout);
+    transition: left var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        top var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        width var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        height var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        opacity var(--nb-layout-motion-fast, 120ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
-.nb-ui-drop-feedback__area--standby {
+.nb-layout-drop-feedback__area--standby {
     opacity: 0.35;
 }
 
-.nb-ui-drop-feedback__label--area {
-    transition: left var(--motion-base) var(--ease-layout), top var(--motion-base) var(--ease-layout);
+.nb-layout-drop-feedback__label--area {
+    transition:
+        left var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
+        top var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .nb-ui-drop-feedback__area,
-    .nb-ui-drop-feedback__label--area {
+    .nb-layout-drop-feedback__area,
+    .nb-layout-drop-feedback__label--area {
         animation: none;
         transition: none;
     }
 }
 
 /* 标签：独立 fixed 包装，宽度上限给视口 8px 夹紧留余量；药丸自身由 DropIndicatorLabel 负责 */
-.nb-ui-drop-feedback__label {
+.nb-layout-drop-feedback__label {
     position: fixed;
     max-width: max(0px, calc(100vw - 16px));
 }
 
 /* 独立 live region：屏幕阅读器专用 */
-.nb-ui-drop-feedback__live {
+.nb-layout-drop-feedback__live {
     position: absolute;
     width: 1px;
     height: 1px;

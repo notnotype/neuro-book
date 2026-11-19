@@ -107,7 +107,7 @@ export function fieldValue(
     field: FieldDeclaration | undefined,
     raw: unknown,
     reductions: ReductionLookup,
-): {value: unknown; notReduced?: true; unreduced?: {anchor: string | null; events: number}} {
+): {value: unknown; notReduced?: true; notReducedElements?: readonly string[]; unreduced?: {anchor: string | null; events: number}} {
     if (field?.kind === "list" && Array.isArray(raw) && (field.item ?? []).some((sub) => sub.precision === "semantic")) return listValue(fold, namespace, type, field, raw as Array<Record<string, unknown>>, reductions);
     // 精确档的值只读共用：折叠结果是冻结的，读取视图交出去之前也会冻结。
     if (field?.precision !== "semantic") return {value: raw};
@@ -125,10 +125,10 @@ function semanticValue(events: readonly string[], type: string, field: FieldDecl
 
 /**
  * 带语义档子字段的列表（components.md 输出 20）：每个元素的语义档子字段按它自己的地址取事件与归纳。有一个还没归纳，
- * 整个字段标“未归纳”（列表的值里那个子字段是“起点；之后：……”的写法）。
+ * 整个字段标“未归纳”（列表的值里那个子字段是“起点；之后：……”的写法），另列出是哪几个元素。
  */
-function listValue(fold: Pick<EntryFold, "events">, namespace: string, type: string, field: FieldDeclaration, raw: readonly Record<string, unknown>[], reductions: ReductionLookup): {value: unknown; notReduced?: true} {
-    let notReduced = false;
+function listValue(fold: Pick<EntryFold, "events">, namespace: string, type: string, field: FieldDeclaration, raw: readonly Record<string, unknown>[], reductions: ReductionLookup): {value: unknown; notReduced?: true; notReducedElements?: readonly string[]} {
+    const notReducedElements: string[] = [];
     const value = raw.map((element) => {
         const next: Record<string, unknown> = structuredClone(element);
         for (const sub of field.item ?? []) {
@@ -138,11 +138,11 @@ function listValue(fold: Pick<EntryFold, "events">, namespace: string, type: str
             if (!(sub.id in element) && events.length === 0) continue;
             const result = semanticValue(events, type, sub, `${field.id}.${sub.id}`, element[sub.id] ?? null, reductions);
             next[sub.id] = result.value;
-            if (result.notReduced === true) notReduced = true;
+            if (result.notReduced === true && !notReducedElements.includes(String(element.id))) notReducedElements.push(String(element.id));
         }
         return next;
     });
-    return notReduced ? {value, notReduced: true} : {value};
+    return notReducedElements.length > 0 ? {value, notReduced: true, notReducedElements} : {value};
 }
 
 /** 一个条目折叠状态里某个地址的值；不存在时为 undefined。 */

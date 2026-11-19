@@ -101,11 +101,12 @@ const tabStopKey = computed(() => {
  * 网格的 `1fr` 列在组宽度随内容时取各段里最大的自然宽度，给了宽度（`fullWidth` 或宿主定宽）时平分那个宽度；
  * 列的下限写 0：宽度不够时各段一起收窄、截断标签，组不撑出父级。
  * 指示块是绝对定位，不占网格单元；网格里绝对定位子元素的静态位置在内边距外沿（flex 里在内容框），所以它的
- * `left` 显式写成与内边距相同的 2px。`wrap` 要换行，网格做不到，仍用 flex。
+ * `left` 显式写成与内边距相同的 2px。`wrap` 要换行，网格做不到，仍用 flex：各段按自己标签的宽度排（`flex-auto`，
+ * 放不下就整段换到下一行，不收窄截断），没有滑动指示块，选中项自己画同样的实底。
  */
 const segmentLayoutClass = computed(() => {
     if (props.wrap) {
-        return [props.fullWidth ? "flex w-full" : "inline-flex", "flex-wrap"];
+        return [props.fullWidth ? "flex w-full" : "inline-flex", "flex-wrap gap-[2px]"];
     }
     return [props.fullWidth ? "grid w-full" : "inline-grid", "grid-flow-col auto-cols-[minmax(0,1fr)]"];
 });
@@ -183,12 +184,12 @@ function handleKeydown(event: KeyboardEvent): void {
             :data-testid="option.testId"
             class="nb-ui-focus-ring relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] disabled:cursor-not-allowed disabled:hover:bg-transparent"
             :class="[
-                props.wrap ? 'flex-1' : '',
+                props.wrap ? 'flex-auto' : '',
                 props.size === 'xs'
                     ? (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[length:var(--text-xs)]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-1.5 text-[length:var(--text-xs)]')
                     : (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs' : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-2 text-xs'),
                 isSelected(option)
-                    ? 'text-[var(--text-inverse)] font-semibold'
+                    ? ['text-[var(--text-inverse)] font-semibold', props.wrap ? 'bg-[var(--accent-main)]' : '']
                     : props.readonly ? 'text-[var(--text-secondary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]',
                 // 整组停用时只在根上降一次透明度（同单选组的 45%），各项不再各自变淡：两层叠起来选中块上的字读不出来。
                 option.disabled === true && !props.disabled ? 'opacity-35' : '',
@@ -213,8 +214,9 @@ function handleKeydown(event: KeyboardEvent): void {
             </span>
 
             <!-- 智能竖向分隔线：在未选中相邻项之间优雅显隐 -->
+            <!-- 换行时不画：行尾那一条会悬在行末，段与段之间靠 2px 的间距分开 -->
             <span
-                v-if="idx < props.options.length - 1"
+                v-if="idx < props.options.length - 1 && !props.wrap"
                 class="absolute right-0 top-1.5 bottom-1.5 w-[1px] bg-[color-mix(in_srgb,var(--text-main)_14%,transparent)] pointer-events-none transition-opacity [transition-duration:var(--motion-fast)]"
                 :class="isSelected(option) || idx === selectedIndex - 1 ? 'opacity-0' : 'opacity-100'"
             />

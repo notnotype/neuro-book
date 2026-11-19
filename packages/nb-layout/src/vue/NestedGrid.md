@@ -48,7 +48,7 @@
 
 与主轴同向的方向键每次调整 10px，Shift 调整 1px；Home / End 跳到可行范围端点，Enter 切换相邻可收起面板。键盘按键抬起时结束该手势。取消的情形见输出 9：Escape、pointercancel、窗口失焦、上下文变化和卸载都不结算旧基线；分隔线失去焦点时结束键盘会话。禁用时不启动手势。沿自己长度方向为零的分隔线（输出 136）按不可交互处理。数据、约束、上下文或 revision 变化会使现有手势失效。点击非分隔区域不由渲染器处理；焦点不被组件搬移。
 
-`dragging` 为真时宿主的拖动在进行（不论内容拿没拿起），离开的叶不留着缩回去。`lifted`（`{key}`）拿起一个内容项（实时布局，输出 89 到 91）：不接指针，外层是一列（`lifted-head` 加内层）。落进已有的叶时，那块叶上一帧显示着的内容留在卡片下面（`inert`、不接指针），过渡结束才停放，卡片长的一路叶不空；落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框和窗的手柄也从卡片的矩形一起长到终点。矩形（相对网格根）由 expose 的 `placeLifted(rect)` 直接写在元素上，不走属性：跟手的东西每帧都变，走属性的话这个组件和每块叶的插槽都要跟着重跑。整窗拖动同样：expose 的 `placeFloat(id, offset)` 把窗的外框、内容、手柄一起挪（写 `translate`），`null` 回到原处（输出 115），`floats` 属性整场不变。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针，输出 87）。暴露 `settleMotion()`：进行中的过渡直接到终点，宿主马上要量矩形时用。卡片的圆角与投影走 `--layout-card-radius`、`--layout-card-shadow`（输出 112）。
+`dragging` 为真时宿主的拖动在进行（不论内容拿没拿起），离开的叶不留着缩回去。`lifted`（`{key}`）拿起一个内容项（实时布局，输出 89 到 91）：不接指针，外层是一列（`lifted-head` 加内层）。落进已有的叶时，那块叶上一帧显示着的内容留在卡片下面（`inert`、不接指针），过渡结束才停放，卡片长的一路叶不空；落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框和窗的手柄也从卡片的矩形一起长到终点。矩形（相对网格根）由 expose 的 `placeLifted(rect)` 直接写在元素上，不走属性：跟手的东西每帧都变，走属性的话这个组件和每块叶的插槽都要跟着重跑。整窗拖动同样：expose 的 `placeFloat(id, offset)` 把窗的外框、内容、手柄一起挪（写 `translate`），`null` 回到原处（输出 115），`floats` 属性整场不变。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针，输出 87）。暴露 `settleMotion()`：进行中的过渡直接到终点，宿主马上要量矩形时用。卡片的圆角与投影走 `--nb-layout-card-radius`、`--nb-layout-card-shadow`（输出 112）。
 
 `floats`（`{id, rect, gesture?}`）是浮动窗（输出 101 到 115）。窗回到树里时叶的 id 不变，外框就从窗的位置过渡回去；摘掉 `data-float` 的那一刻外框还带着 `data-moving`，窗的投影、底色与圆角跟着过渡掉（输出 109、110）。插槽 `float-chrome` 放手柄（[`FloatWindowHandles`](FloatWindowHandles.md)，输出 113）。
 
@@ -102,7 +102,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 | `data-float` | 外框与内容外层 | 这块叶是浮动窗 |
 | `data-float-gesture` | 浮动窗的外框、内容外层与手柄层 | 手势进行中，值是 `move` 或 `resize`：跟手、不过渡；`move` 时外框与内容不接指针（输出 114） |
 | `data-float-chrome` | 浮动窗的手柄层（`float-chrome` 插槽的外层） | 值是浮动窗的 id |
-| `data-sash-kind` | 分隔线 | 值是宿主 `sashKind` 给的种类，没给时没有这个属性；宿主据此设 `--nb-splitter-seam` |
+| `data-sash-kind` | 分隔线 | 值是宿主 `sashKind` 给的种类，没给时没有这个属性；宿主据此设 `--nb-layout-splitter-seam` |
 | `data-leaf-content` | 叶的内容容器 | 值是节点 id；宿主 Teleport 内容用它。过渡中的尺寸见“过渡”；要最终尺寸读宿主自己的布局结果。`node` 变化后的同一次渲染里新叶的它已经存在 |
 | `data-moving` | 外框与分隔线 | 过渡进行中 |
 | `data-anchor-right` | 外框与内容外层 | 过渡中里面那层（`data-leaf-content` 与内容体）贴右边；没有时贴左上（输出 39） |
@@ -111,14 +111,14 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 | `data-leaving` | 外框、内容外层与分隔线 | 离开了、在过渡里留着（缩回去，或交换里滑出去），不接指针；降到零但还在树里的叶不带它 |
 | `data-swap-backdrop` | 静止的底（`swap-backdrop` 插槽的外层） | 交换进行中、宿主给了这个插槽时才有 |
 | `data-sash` | 分隔线 | 值是 `分支 id:序号`；`data-sash-hover`、`-active`、`-revealed`、`-cross` 是它的状态 |
-| `--motion-layout`、`--ease-layout` | 继承来的 CSS 变量 | 过渡的时长与曲线，由 nb-ui 的 `tokens.css` 提供，减少动态效果时为 0；宿主没给就没有过渡 |
-| `--nb-splitter-seam`、`--nb-splitter-seam-inset` | 继承来的 CSS 变量 | 分隔线静止接缝的颜色与两端缩进 |
-| `--sash-line-*` | 继承来的 CSS 变量 | 悬停线的颜色、粗细、圆角、发光与缩进，见 [Splitter](Splitter.md) |
+| `--nb-layout-motion-layout`、`--nb-layout-ease-layout` | 继承来的 CSS 变量 | 过渡的时长与曲线：装了 nb-ui 时经它的桥接取主题的 `--motion-layout`、`--ease-layout`；减少动态效果时为 0；宿主没给时按缺省（470ms，输出 142） |
+| `--nb-layout-splitter-seam`、`--nb-layout-splitter-seam-inset` | 继承来的 CSS 变量 | 宿主旋钮，主题不写：分隔线静止接缝的颜色与两端缩进，可以设在子树上 |
+| `--nb-layout-sash-line-*` | 继承来的 CSS 变量 | 悬停线的颜色、粗细、圆角、发光与缩进，装了 nb-ui 时经桥接取主题的 `--sash-line-*`，见 [Splitter](Splitter.md)。全部变量与回退见包的 README |
 
 ## 数据
 
 ```ts
-import type {GridFailure, GridGestureCommit, GridGesturePreview, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode, GridSashRef, SplitterGestureCancelReason, SplitterGestureSource} from "@notnotype/nb-layout";
+import type {GridFailure, GridGestureCommit, GridGesturePreview, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode, GridGestureCancellation, GridGestureStart} from "@notnotype/nb-layout";
 
 type NestedGridProps = {
     /** 当前树；null 时呈现 empty 插槽。必填。 */
@@ -170,13 +170,13 @@ type GridLeafShape = {inset: [string, string, string, string]; radius: [string, 
 
 type NestedGridEmits = {
     /** 手势建立并冻结上下文时发出。 */
-    (event: "gesture-start", info: {sessionId: string; contextKey: string; source: SplitterGestureSource; revision: number; sashes: readonly GridSashRef[]}): void;
+    (event: "gesture-start", info: GridGestureStart): void;
     /** 每次产生新几何预览时发出；预览撤回、画面回到已发布的布局时（拖回基线、无变化松手、取消、提交被拒）也发一次，`changes` 为空、`layout` 是已发布的布局。 */
     (event: "gesture-update", preview: GridGesturePreview<unknown>): void;
     /** 手势正常结束时发出最终提交；无变化时没有提交。 */
     (event: "gesture-end", commit: GridGestureCommit): void;
     /** 手势被取消时发出原因和参与分隔线。 */
-    (event: "gesture-cancel", info: {reason: SplitterGestureCancelReason; sashes: readonly GridSashRef[]}): void;
+    (event: "gesture-cancel", info: GridGestureCancellation): void;
     /**
      * 诊断与被拒的提交（Spec 输出 139、140）：带 `ok` 的（`"ok" in issue`）是被拒的提交，已经回滚；其余是诊断。
      * 只发新出现的：一场手势里同一个诊断只发一次；要知道现在有哪些问题，读 `layout.issues` 与 `gesture-update` 载荷的 `issues`。
@@ -225,7 +225,7 @@ expose 的读数：
 ## 隐藏通道理由
 
 - `state:local`：保存拖动预览、布局盒测量和手势 scope 生命周期状态，仅在本实例的交互期间存在。
-- `state:inject`：向后代的分隔线（`SashHandle`）提供共享 sash gesture scope，使整个 Grid 共用一次会话；这让交叉处的两根轴能一起预览和一次提交，避免每个分支各自提交半场手势。叶槽里再嵌一个公开 `NestedGrid` 或独立 `Splitter` 会得到自己的 scope（输出 24）。
+- `state:inject`：分隔线的读屏名称与取值文字经 `LAYOUT_TEXT_KEY` 注入的翻译函数取，同 [Splitter](Splitter.md) 的“文字”。另向后代的分隔线（`SashHandle`）提供共享 sash gesture scope，使整个 Grid 共用一次会话；这让交叉处的两根轴能一起预览和一次提交，避免每个分支各自提交半场手势。叶槽里再嵌一个公开 `NestedGrid` 或独立 `Splitter` 会得到自己的 scope（输出 24）。
 - `env:global`：`useSashGesture` 在手势根、`window` 和 `document` 上监听指针捕获/释放、窗口失焦与 Escape，并按 viewport pointer 坐标命中分隔线；组件卸载或会话结束时移除监听。该通道为手势生命周期服务，不是常驻快捷键。分隔线的设备像素对齐（`useSashSnap`）在 `window` 上常驻 `resize` 与捕获阶段 `scroll` 监听，页面上任何滚动（包括叶里编辑器的）都排一帧、读一遍所有分隔线的位置；`useDevicePixelRatio` 监听 `resize` 与 `matchMedia`。模块级的焦点注册表（`grid-focus.ts` 的两个 `WeakMap`）是同一页面上所有 grid 共享的：同一页面只能有一份 nb-layout。
 
 ## 上游边界

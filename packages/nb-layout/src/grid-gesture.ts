@@ -11,9 +11,8 @@
 import {axisOf, branchSashPanels, layoutOf, type GridSashResolver, type SashPanel} from "./grid-geometry";
 import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragSnapState} from "./sash-drag";
 import {issueKey} from "./issue-gate";
-import type {GridSashRef, SashGestureSessionCore} from "./sash-gesture";
+import type {GridSashRef, SashGestureCancelReason, SashGestureSessionCore, SashGestureSource} from "./sash-gesture";
 import type {GridAxis, GridBranch, GridBranchResize, GridExtent, GridIssue, GridIssueCode, GridLayoutResult, GridNode} from "./grid-types";
-import type {SplitterGestureCancelReason} from "./splitter-gesture";
 
 /** 手势开始时冻结的外部事实：整场手势只对它求解，不重读活动树或产品策略。 */
 export type GridGestureBaseline<T> = {
@@ -29,7 +28,7 @@ export type GridGestureBaseline<T> = {
 
 export type GridGestureSessionInput<T> = GridGestureBaseline<T> & {
     readonly sessionId: string;
-    readonly source: "pointer" | "keyboard";
+    readonly source: SashGestureSource;
     readonly sashes: readonly GridSashRef[];
 };
 
@@ -42,11 +41,26 @@ export type GridBranchChange = GridBranchResize & {
     readonly collapsed: Readonly<Record<string, boolean>>;
 };
 
+/** `NestedGrid` 的 `gesture-start` 载荷：一场手势开始，宿主据此记下它对应的上下文与版本。 */
+export type GridGestureStart = {
+    readonly sessionId: string;
+    readonly contextKey: string;
+    readonly source: SashGestureSource;
+    readonly revision: number;
+    readonly sashes: readonly GridSashRef[];
+};
+
+/** `NestedGrid` 的 `gesture-cancel` 载荷：手势取消，预览已经撤回。 */
+export type GridGestureCancellation = {
+    readonly reason: SashGestureCancelReason;
+    readonly sashes: readonly GridSashRef[];
+};
+
 /** 一次手势的最终提交：宿主用它一次性落账（`resizeBranches` 或映射到自己的意图）。 */
 export type GridGestureCommit = {
     readonly sessionId: string;
     readonly contextKey: string;
-    readonly source: "pointer" | "keyboard";
+    readonly source: SashGestureSource;
     readonly revision: number;
     readonly extent: GridExtent;
     readonly changes: readonly GridBranchChange[];
@@ -63,7 +77,7 @@ export type GridGesturePreview<T> = {
 
 export interface GridGestureSession<T = unknown> extends SashGestureSessionCore<GridGesturePreview<T>, GridBranchChange> {
     readonly sessionId: string;
-    readonly source: "pointer" | "keyboard";
+    readonly source: SashGestureSource;
     /** 主轴位移（正 = 分隔条向右/向下移动）。 */
     update(delta: {x: number; y: number}): GridGesturePreview<T> | null;
     /** 键盘 Home / End：把分隔条移到可行两端。 */
@@ -169,7 +183,7 @@ export function projectGridGesture<T>(
  */
 export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): GridGestureSession<T> {
     let delta = {x: 0, y: 0};
-    let reason: SplitterGestureCancelReason | null = null;
+    let reason: SashGestureCancelReason | null = null;
     let changed = false;
     /** 下一次求解要执行的显式折叠：只对发起它的那根轴（`owner`），交叉处另一根轴照常按位移求解。 */
     let pending: {owner: Owner; index: number; collapsed: boolean} | null = null;

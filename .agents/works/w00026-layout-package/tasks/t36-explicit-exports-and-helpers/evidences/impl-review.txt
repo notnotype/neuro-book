@@ -1,0 +1,65 @@
+## 审查报告:w00026 t36(范围 `1e96e855c..d42059e6e`)
+
+我没找到阻断级问题。找到 2 条重要、4 条建议,都是测试和助手的盲区,不是产品行为错误。
+
+### 1. “一行一个名字”检查对多行 `export {` 空转
+**严重程度**:重要 **类别**:测试(错的分支上也通过)
+**位置**:`packages/nb-layout/src/exports.test.ts:117-120`
+**现象**:检查用的是 `/^export (?:type )?\{[^}]*,[^}]*\}/`,逐行匹配,要求同一行里出现完整的 `{…,…}`。入口自己用的多行写法 `export {\n    a, b,\n} from` 里,`export {` 这一行没有闭合花括号,`a, b,` 那一行不以 `export` 开头,所以都匹配不上。
+**为什么是问题**:这条检查要拦的是评审时看不出加了哪个名字。它拦不住最常见的违规,也就是在多行清单里把两个名字写在同一行。同一行两条语句 `export {a} from "x"; export {b} from "y";` 同样漏过。
+**如何核实**:`exp/me.ts` 里对 `export {\n    a, b,\n    c,\n} from "./x";` 跑这条正则,检出行数为 0。同文件里单行的 `export {c as d, e} from "./z"` 能检出,说明只有单行写法有效。
+**建议改法**:改用语法树。用 `ts.createSourceFile` 遍历每个 `ExportDeclaration`,按每个 `element` 的起始行号判重,同一行出现两个 element 就报告。顺带可以要求每条 `export` 声明只含一个来源。
+
+### 2. `hasDefaultExport` 漏掉 `export default function/class`
+**严重程度**:重要 **类别**:测试(判据不全)
+**位置**:`packages/neuro-book-test-support/src/module-exports.ts:1026-1030`
+**现象**:判据只看 `ExportAssignment` 和名字为 `default` 的具名再导出。`export default function foo() {}` 和 `export default class Foo {}` 是声明语句,`moduleExports` 把它们记成名字 `foo`、`Foo`,不是 `default`;匿名的 `export default function () {}` 则什么都不返回。
+**为什么是问题**:入口的“没有默认导出”断言在这三种写法下都会通过。自检里只测了 `export default 1`,正好是能被识别的那一种。
+**如何核实**:`exp/me.ts` 的输出里,`defaultFn`、`defaultAnonFn`、`defaultClass` 三个用例都是 `default= false`,而 `defaultExpr`、`defaultAs`、`defaultFrom` 是 `true`。
+**建议改法**:在 `hasDefaultExport` 里再检查带 `export` 与 `default` 两个修饰符的声明。自检补上 `export default function`、`export default class` 两条违规样例。
+
+### 3. `moduleExports` 对几种写法静默漏报,重载还会重复计数
+**严重程度**:建议 **类别**:正确性(助手的合同)
+**位置**:`module-exports.ts:1004-1018`
+**现象**:`export const {p, q} = obj`、`export namespace N {}`、`export import A = B.C` 都返回空数组。重载函数 `export function f(...)` 写三次会返回三个 `f`。
+**为什么是问题**:头注释说它“只认得写在这个文件里的导出”,但漏报是静默的。`exports.test.ts` 的禁用词检查和文档导入检查依赖它的结果。`./text` 与 `./locales` 的入口文件本身就是声明文件,漏掉的名字既不会被检查,也不会出现在清单里。
+**如何核实**:`exp/me.ts` 里 `destructure`、`namespace`、`importEq` 都输出 `[]`,`overload` 输出 `["f","f","f"]`。
+**建议改法**:要么补上这三种写法,要么让它遇到不认识的带 `export` 修饰的语句时抛错。结果按名字去重。
+
+### 4. 禁用词切分漏掉 `SideBar`,也不认复数
+**严重程度**:建议 **类别**:测试(漏)
+**位置**:`exports.test.ts:69-75`
+**现象**:`words()` 只把 `status` 后接 `bar` 合并成 `statusbar`。`SideBar`、`sideBar` 会切成 `side`、`bar`,不命中禁用词 `sidebar`。`Regions`、`Containers`、`Editors` 这类复数也不命中。
+**为什么是问题**:`AGENTS.md` 的规则写的是活动栏、状态栏、侧栏等概念,而不只是这几个固定拼写。
+**如何核实**:从代码推断,我没有单独跑。按 `words()` 的两步正则,`SideBar` 先变成 `Side Bar`,再按空白切开,得到 `side`、`bar`。
+**建议改法**:合并规则改成通用一点,例如对相邻两词拼接后也查一次禁用表。再对词尾 `s` 做一次去复数后比较。自检补一条 `SideBar`。
+
+### 5. 文档导入检查的覆盖面偏窄
+**严重程度**:建议 **类别**:测试(漏)
+**位置**:`exports.test.ts:93-98`
+**现象**:`documentedImports` 的正则只认双引号的 `import {…} from "@notnotype/nb-layout…"`。以下几种都扫不到:`export {…} from`、单引号、`import X, {…} from`。扫描范围只有 nb-layout 包内的 `.md` 和三份 Spec。
+**为什么是问题**:判据里“文档里教人导入的名字都在入口里”,实际只对一种写法生效。我跑了自己写的全仓扫描(含 `.vue`、e2e、`.md`、动态 `import()`),结果没有缺名,所以现在没有实际漏项。风险在以后新写的文档。
+**如何核实**:`exp/check-imports.ts` 的输出只有 `lab-sources` 一处 NOENTRY(它本来就不算公开面),此外没有缺名。
+**建议改法**:正则放宽引号与默认导入。有余力时把 `packages/neuro-book/plugin-sdk` 的文档和 `nb-workbench-layout` 的 `.md` 也纳入。
+
+### 6. SDK 弃用别名的测试覆盖靠 nb-ui 冻结的 Splitter“碰巧”导出同名
+**严重程度**:建议 **类别**:测试(耦合)
+**位置**:`packages/neuro-book/src/sdk/sdk.test.ts:57-64`,`src/sdk/components.ts:41-61`
+**现象**:`layout` 集合已不含 `SplitterGestureSource`、`SplitterGestureCancelReason`(nb-layout 入口改名后去掉了)。别名删掉时测试能失败,是因为 `nbUi` 列表里仍有这两个名字(nb-ui 冻结的旧 Splitter 导出了它们)。
+**为什么是问题**:t14 迁移完成、旧 Splitter 退役后,`nbUi` 不再含这两个名字,而 SDK 里的别名仍在,测试会因为“SDK 多一个”而失败。失败时没有任何提示说明原因,只有 `components.ts` 的注释提过一句。
+**如何核实**:读代码推断。另外,`pack.test.ts` 里 `@deprecated` 出现在 `components.d.ts` 里的断言,我没有跑,因为它要构建 SDK。所以“作者项目里旧名仍可用、划线保留”这一条我没核实。
+**建议改法**:在 `sdk.test.ts` 里单列一张带理由的“弃用别名”表,比对时从两边都剔除。
+
+### 未发现问题的方面
+- **入口清单**:四个入口的名字与盘点保留清单逐名对照,111、28、4 都一致,`./locales` 多出 `NB_LAYOUT_SOURCE_LOCALE`,计划里已说明。
+- **仓库里的用法**:我扫了 7227 个文件(`.ts`、`.vue`、`.md`、e2e 等,含动态 `import()`)。经包名从 nb-layout 导入的名字全部在入口里,没有深导入。
+- **改名与导入方向**:`sash-gesture` 只依赖 `grid-types`,`splitter-gesture`、`splitter-session`、`grid-gesture` 单向依赖它,没有环。`NestedGrid.vue` 实际发出的 `gesture-start`、`gesture-cancel` 对象与 `GridGestureStart`、`GridGestureCancellation` 同形。第 1 片的 diff 没有值的改动。
+- **`./text` 拆分**:`text.ts` 只剩 `import type` 自 `vue`,运行时不依赖 `vue`,后端读它不受影响。`useLayoutText` 的调用方都已改到 `layout-text`。
+- **测试**:`boundary.test.ts`、`exports.test.ts`、`theme-vars.test.ts`、`grid.test.ts` 共 101 条通过。
+- **没跑的**:`tsc`、`vue-tsc`(命令被拒,没有批准)、`pack.test.ts`(要构建)。
+
+### 数量与有效发现
+阻断 0、重要 2、建议 4。
+
+有效发现:1、2、3、4、5、6
+t36-impl-review exit=0

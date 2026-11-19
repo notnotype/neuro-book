@@ -40,15 +40,23 @@ updated: 2026-11-05
 
 2026-11-18：[t33](tasks/t33-workbench-layer-split/README.md) 完成：工作台层拆进新包 nb-workbench-layout，合入 master（`f0f1a3bdd`），实现审查 7 条处理完（修正 `246ac1cb8`）。[t34](tasks/t34-unified-errors/README.md) 停下等开发者：计划三轮设计审查后仍有 6 条重要问题，推荐拆成“失败的形状”与“诊断”两个 Task、L2 拆码延后；开发者定之前不推进 t35 及以后。
 
-2026-11-19：开发者同意 t34 的推荐：t34 只做失败的形状，诊断拆到 [t38 诊断的形状、码与只发新增](tasks/t38-grid-diagnostics/README.md)，L2 拆码延后（[待确认清单](pending-confirmations.md)）。第一档的顺序改为 t34 → t38 → t35 → t36 → t37 → t32 → t14。
+2026-11-19：开发者同意 t34 的推荐：t34 只做失败的形状，诊断拆到 [t38 诊断的形状、码与只发新增](tasks/t38-grid-diagnostics/README.md)，L2 拆码延后（[待确认清单](pending-confirmations.md)）。第一档的顺序改为 t34 → t38 → t35 → t36 → t37 → t32 → t14。2026-11-19：t36 拆成 t36（显式入口与导出名测试）与 [t39](tasks/t39-layout-helpers-and-starter/README.md)（小组合函数与起步材料），顺序 t35 → t36 → t39 → t37 → t32 → t14（[待确认清单](pending-confirmations.md)）。同日 t39 再拆成 t39（宿主接线）、[t40](tasks/t40-collapse-and-intent-writeback/README.md)（收起展开与意图回写）、[t41](tasks/t41-config-error-reporting/README.md)（拖不动时报错）、[t42](tasks/t42-readme-starter/README.md)（README 起步），顺序 t39 → t40 → t41 → t42 → t37 → t32 → t14。
+
+2026-11-19：[t35](tasks/t35-drop-nb-ui/README.md) 完成：nb-layout 不再依赖 nb-ui，读 `--nb-layout-*` 变量（nb-ui 的 `tokens.css` 桥接主题旧名）、文字经自己的注入点 `@notnotype/nb-layout/text`；合入 master（`fa44828b3`），两轮设计审查与一次实现审查处理完，Spec 晋升前换模型逐句核过。开发服务要重启才读得到新子路径。
+
+2026-11-19：[t36](tasks/t36-explicit-exports-and-helpers/README.md) 完成：nb-layout 四个入口改成一行一个名字的显式清单（根 111、`./vue` 28、`./text` 4、`./locales` 3），内部件不再导出；共用的手势类型改名 `SashGesture*`，SDK 留两个弃用别名；合入 master（`adf6779dd`），设计审查与实现审查处理完，Spec 晋升前换模型核过。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。
 
-- 发版前（t34、t38 起）：插件 SDK 里 `NestedGrid` 的 `onGestureCommit` 返回类型变了（`reason` 改成 `code`、`message`），`issues` 事件与 `gesture-update` 载荷的诊断从字符串改成对象（t38），下次发布按 [发版手册](../../../docs/standards/releasing.md)第 2 步把 `PLUGIN_API_SINCE` 提到那次发布的版本（变更记录里“不兼容的改动”的两条已写在 `[Unreleased]`）。
+- 发版前（t34、t38 起）：插件 SDK 里 `NestedGrid` 的 `onGestureCommit` 返回类型变了（`reason` 改成 `code`、`message`），`issues` 事件与 `gesture-update` 载荷的诊断从字符串改成对象（t38），下次发布按 [发版手册](../../../docs/standards/releasing.md)第 2 步把 `PLUGIN_API_SINCE` 提到那次发布的版本（变更记录里“不兼容的改动”已写在 `[Unreleased]`：t34、t38 的两条，加 t35 的布局组件 CSS 变量改名一条）。
 
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06；t14 于 2026-11-16 排到 t26 之后）。
 - 已知问题（2026-11-18，t26 片 5 验证时发现，master 的 `ba3de16c6` 上同样有）：负载 9 到 10 时，编辑器标签实时布局快速拖到正文右边缘停下，预览有时停在“来源收起”，不换成拆分，松手也没拆（`editor-area.e2e.ts:2171`、`2207`，各重复 6 次约失败 1 次）。从代码推断与“来源收起后指针再动才重判”有关：指针在收起之前就停了。没有排 Task，要修时另建。
 - 已知问题（2026-11-18，t30 实现审查第 10 条，分支之前就有）：nb-layout 的结构操作与快照恢复对 16 层深度的计法差一层：结构操作把根算第 1 层，恢复从 0 数起，17 层的快照能恢复、恢复后连拆分都被拒，18 层才被恢复拒绝。改恢复的阈值前要先定已能读到的 17 层快照怎么办。没有排 Task。
+
+## 后续
+
+- 插件 SDK 只导出 `NestedGrid` 组件，不导出 `createGrid` 与宿主工具，插件建不出网格（t39 设计审查第 9 条）。要不要给插件开放网格宿主（`createGrid`、`useGridHost` 一起，放哪个子路径、兼容承诺多大）另行决定。
