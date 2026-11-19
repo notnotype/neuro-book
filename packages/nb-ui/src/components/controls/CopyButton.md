@@ -9,7 +9,7 @@
 
 ## 布局
 
-一个 `Button`（`ghost`、`sm`）带图标与文字，宽度随文字；状态变化只换图标与文字，按钮高度不变。窄屏同一结构。旁边有一个视觉上隐藏的 `role="status"` 区域，状态变化时读屏会播报“已复制”或“复制失败”。
+一个 `Button`（`ghost`、`sm`）带图标与文字，宽度随文字；状态变化只换图标与文字，按钮高度不变。`iconOnly` 时是一个 `IconButton`（32px），只有图标，文字（“复制”或 `label`、“已复制”、“复制失败，请手动选择文字”）改作悬停提示与可访问名称，按钮不变宽；用在放不下文字的头部（例如 [`ImagePreviewDialog`](../feedback/ImagePreviewDialog.md)）。窄屏同一结构。旁边有一个视觉上隐藏的 `role="status"` 区域，状态变化时读屏会播报“已复制”或“复制失败”。
 
 ## 交互
 
@@ -30,6 +30,8 @@ type CopyButtonProps = {
     resetAfter?: number;
     /** 按钮文字；默认取文字端口的“复制”。 */
     label?: string;
+    /** 只画图标，文字改作悬停提示与可访问名称；默认 false。 */
+    iconOnly?: boolean;
 };
 ```
 

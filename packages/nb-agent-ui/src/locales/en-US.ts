@@ -304,12 +304,7 @@ export default {
         clear: "Clear the session view and return to empty history",
     },
     imagePreview: {
-        close: "Close",
-        downloadOriginal: "Download Original",
-        loadFailed: "Original image failed to load",
-        retry: "Retry",
         image: "Image #{{number}}",
-        loading: "Loading the original image",
     },
     harness: {
         error: {

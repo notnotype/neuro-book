@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
-import {Button, Dialog, IconButton, OverlayScrollbar, Spinner} from "@notnotype/nb-ui/components";
+import {Button, Dialog, IconButton, ImagePreviewDialog, OverlayScrollbar, Spinner} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
     ContextInspectionView,
@@ -29,7 +29,6 @@ import AgentSessionTree from "./panels/AgentSessionTree.vue";
 import AgentWizard from "./wizard/AgentWizard.vue";
 import AgentDock from "./wizard/AgentDock.vue";
 import {isDocked, isApproval, isModeSwitch} from "../wizard";
-import OriginalImagePreviewDialog from "./parts/OriginalImagePreviewDialog.vue";
 import {provideAgentView} from "./host";
 import type {AgentViewRenderers} from "./host";
 import type {PreviewImageRequest, ViewAction} from "./view-action";
@@ -575,9 +574,9 @@ defineExpose({focusComposer, scrollToLatest});
                 @copy="emit('action', {type: 'tree.copyId', entryId: $event})"
             />
         </Dialog>
-        <OriginalImagePreviewDialog
+        <ImagePreviewDialog
             v-if="preview !== null"
-            v-model="previewOpen"
+            v-model:open="previewOpen"
             :src="preview.src"
             :alt="preview.name"
             :teleport-target="props.teleportTarget"

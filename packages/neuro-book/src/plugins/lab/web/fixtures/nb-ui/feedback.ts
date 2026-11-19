@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, DetailDialog, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, DetailDialog, Dialog, Drawer, FloatingWindow, ImagePreviewDialog, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -12,6 +12,12 @@ import {nbUiSubject} from "./shared";
 
 const trigger = (label: string) => () => h(NbButton, {variant: "secondary", size: "sm"}, () => label);
 const paragraph = (text: string) => () => h("p", {class: "max-w-[280px] text-sm leading-relaxed"}, text);
+
+/** 预览用的占位图（SVG），宽高写在图里，浏览器读得到原始尺寸。 */
+function placeholderImage(width: number, height: number, color: string, label: string): string {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(height)}"><rect width="100%" height="100%" rx="12" fill="${color}"/><text x="50%" y="55%" font-size="${String(Math.round(height / 6))}" text-anchor="middle" fill="white">${label}</text></svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
 
 const CONTEXT_ITEMS = [
     {label: "打开", iconClass: "i-lucide-file-text", shortcut: "Enter"},
@@ -97,6 +103,17 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "untitled", label: "通知没有标题时", input: {props: {title: "详情", detail: "SyntaxError: Unexpected token '}' in settings.json at line 12"}, model: {open: true}}},
         ],
         subject: nbUiSubject("DetailDialog"),
+    }),
+    defineSubjectFixture<typeof ImagePreviewDialog>({
+        component: "ImagePreviewDialog",
+        writeBack: {"update:open": {layer: "model", key: "open"}},
+        scenes: [
+            {id: "default", label: "一张大图：按原尺寸，放不下就缩小", input: {props: {src: placeholderImage(1600, 1000, "#1e66f5", "1600 × 1000"), alt: "第十七章 雪线 · 插图.png", downloadName: "插图.png"}, model: {open: true}}},
+            {id: "small-enlarged", label: "128 像素的表情放大到 320，带复制写法", input: {props: {src: placeholderImage(128, 128, "#40a02b", "开心"), alt: "开心 · 星璃", minSize: 320, copyText: ":lyra/开心:", copyLabel: "复制写法"}, model: {open: true}}},
+            {id: "failed", label: "读不出来：原因与重试", input: {props: {src: "data:image/png;base64,AAAA", alt: "坏掉的图片.png"}, model: {open: true}}},
+            {id: "long-english", label: "长英文标题与复制按钮，标题截断", input: {props: {src: placeholderImage(96, 96, "#ea76cb", "Shy"), alt: "Shy · A very long sticker pack display name that has to be truncated", minSize: 320, copyText: ":lyra-long/shy:", copyLabel: "Copy code"}, model: {open: true}}},
+        ],
+        subject: nbUiSubject("ImagePreviewDialog"),
     }),
     defineLabFixture<typeof FloatingWindow>({
         component: "FloatingWindow",
