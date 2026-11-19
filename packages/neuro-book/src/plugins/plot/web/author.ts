@@ -40,8 +40,10 @@ export interface AuthorOutputs {
         readonly rest: {readonly count: number; readonly unaware: boolean};
         readonly reader: {readonly degree: "knows" | "suspects" | "unaware"; readonly suspects: {readonly chapter: string | null; readonly paragraph: number | null; readonly excerpt: string} | null; readonly knows: {readonly chapter: string | null; readonly paragraph: number | null; readonly excerpt: string} | null};
         readonly related: PointRelated;
+        /** “和它有关的”各列表截之前的条数（每个列表至多列 50 条）。 */
+        readonly relatedTotals: Readonly<Record<keyof PointRelated, number>>;
     };
-    readonly secrets: AuthorPage<SecretRow> & {readonly counts: Readonly<Record<SecretSegment, number>>; readonly candidates: readonly string[]; readonly main: readonly string[]; readonly people: readonly string[]};
+    readonly secrets: AuthorPage<SecretRow & {readonly plansMore: number}> & {readonly counts: Readonly<Record<SecretSegment, number>>; readonly candidates: readonly string[]; readonly main: readonly string[]; readonly people: readonly string[]};
     readonly plotLines: AuthorStamp & {readonly items: readonly string[]};
     readonly goals: AuthorPage<AuthorHolder>;
     readonly ledger: AuthorPage<AuthorLedgerRow> & {readonly counts: Readonly<Record<LedgerSegment, number>>};

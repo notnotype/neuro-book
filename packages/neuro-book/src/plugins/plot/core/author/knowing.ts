@@ -21,7 +21,8 @@ import {firstReveal, knowingIndex, readerKnowing} from "../knowledge";
 import {perViewCache} from "../view-cache";
 import type {KnowingIndex, KnowingWinner} from "../knowledge";
 
-export type AuthorDegree = Degree | "none";
+/** 程度：有效知情行的程度；`none` 是没有行，`unset` 是有行但还没填程度（与没有行分开，输出 13、15）。 */
+export type AuthorDegree = Degree | "none" | "unset";
 
 /** 一处“在哪”：章（前史为 null）与段（没有讲述时为 null）。 */
 export interface AuthorPlace {
@@ -48,6 +49,8 @@ export interface AuthorKnowing {
 export interface AuthorName {
     readonly name: string;
     readonly type: string;
+    /** 条目已删除（引用照常保留，界面写“已删除的条目”，plot/knowledge.md 输出 1）。 */
+    readonly deleted?: true;
 }
 
 /** 收集结果里引用到的条目，最后按同一份视图读出名字（作者读取的 `names`）。 */
@@ -69,8 +72,10 @@ export class NameTable {
         for (const id of this.#ids) {
             const read = this.view.entry(id, this.position, this.mode);
             const stored = this.view.object({kind: "entry", id}) as Entry | undefined;
-            const name = read !== null && read !== "chapter-not-found" ? read.name : stored?.init.name;
-            if (name !== undefined) names[id] = {name, type: stored?.type ?? ""};
+            const readable = read !== null && read !== "chapter-not-found";
+            const name = readable ? read.name : stored?.init.name;
+            const deleted = stored?.deleted === true || (readable && read.deleted);
+            if (name !== undefined) names[id] = {name, type: stored?.type ?? "", ...(deleted ? {deleted: true as const} : {})};
         }
         return names;
     }
@@ -125,16 +130,18 @@ export function pointsAt(view: CanonReadView, position: ReadPosition, mode: Mode
 }
 
 /**
- * 一条变更在它安放的那一章里第一处生效讲述的段；前史、没有讲述时为 null。一次读取里同一章只取一次讲述（`cache`）。
+ * 一条变更在它安放的那一章里第一处生效讲述的段；前史、没有讲述时为 null。`view` 要是这条变更所在那条线的视图（子线的视图看不到
+ * 父线在切口之后的讲述）。一次读取里同一条线的同一章只取一次讲述（`cache`，键带线）。
  */
 function placeOfChange(view: CanonReadView, change: string, cache: Map<string, ReturnType<CanonReadView["tellings"]>>): AuthorPlace {
     const stored = view.object({kind: "change", id: change}) as StoryChange | undefined;
     if (stored === undefined || stored.at.kind !== "chapter") return {chapter: null, paragraph: null};
     const chapter = stored.at.chapter;
-    let tellings = cache.get(chapter);
+    const key = `${view.line}|${chapter}`;
+    let tellings = cache.get(key);
     if (tellings === undefined) {
         tellings = view.tellings({from: chapter, to: chapter, effective: true});
-        cache.set(chapter, tellings);
+        cache.set(key, tellings);
     }
     let paragraph: number | null = null;
     for (const item of tellings) {
@@ -145,26 +152,27 @@ function placeOfChange(view: CanonReadView, change: string, cache: Map<string, R
 }
 
 /** 胜出的候选写成来处（输出 11）。 */
-export function originOf(view: CanonReadView, winner: KnowingWinner, cache: Map<string, ReturnType<CanonReadView["tellings"]>>): KnowingOrigin {
+export function originOf(view: CanonReadView, mode: Mode, winner: KnowingWinner, cache: Map<string, ReturnType<CanonReadView["tellings"]>>): KnowingOrigin {
     if (winner.goal !== undefined) {
         const goal = view.object({kind: "entry", id: winner.goal}) as Entry | undefined;
         return {kind: "goal", goal: winner.goal, chapter: goal?.appears?.kind === "chapter" ? goal.appears.chapter : null};
     }
     if (winner.fork !== undefined) {
         const fork = view.object({kind: "change", id: winner.fork.id}) as StoryChange | undefined;
-        // 带过去的行原样取自父线：它的 `change` 是父线上的原证据（推出的行也带着那条变更）。
-        const evidence = winner.row.change === undefined ? null : {change: winner.row.change, ...placeOfChange(view, winner.row.change, cache)};
+        // 带过去的行原样取自父线：它的 `change` 是父线上的原证据（推出的行也带着那条变更），段号按父线的视图定。
+        const parent = view.onLine(winner.fork.parent, mode);
+        const evidence = winner.row.change === undefined ? null : {change: winner.row.change, ...placeOfChange("code" in parent ? view : parent, winner.row.change, cache)};
         return {kind: "carried", fork: winner.fork.id, chapter: fork?.at.kind === "chapter" ? fork.at.chapter : null, line: winner.fork.parent, evidence};
     }
     if (winner.change !== undefined) return {kind: "event", change: winner.change, ...placeOfChange(view, winner.change, cache)};
     return {kind: "initial"};
 }
 
-function authorRow(view: CanonReadView, index: KnowingIndex, person: string, point: string, cache: Map<string, ReturnType<CanonReadView["tellings"]>>): AuthorKnowing {
+function authorRow(view: CanonReadView, mode: Mode, index: KnowingIndex, person: string, point: string, cache: Map<string, ReturnType<CanonReadView["tellings"]>>): AuthorKnowing {
     const winner = index.winner(person, point);
     if (winner === null) return {point, degree: "none", belief: null, how: null, from: null, origin: null};
     const row = winner.row;
-    return {point, degree: row.程度 ?? "none", belief: row.他以为的 ?? null, how: row.怎么知道 ?? null, from: row.谁告诉的 ?? null, origin: originOf(view, winner, cache)};
+    return {point, degree: row.程度 ?? "unset", belief: row.他以为的 ?? null, how: row.怎么知道 ?? null, from: row.谁告诉的 ?? null, origin: originOf(view, mode, winner, cache)};
 }
 
 /** 读者在一个读取位置上的程度（输出 12）：初值是什么都没读；章首是读完上一章，章末是读完这一章。 */
@@ -199,10 +207,14 @@ function buildPersonKnowing(view: CanonReadView, mode: Mode, position: ReadPosit
     const secrets: AuthorKnowing[] = [];
     const others: AuthorKnowing[] = [];
     const withRows = new Set(index.all(body).map((row) => row.point));
-    for (const point of pointsAt(view, position, mode)) {
-        const secret = isSecret(secrecyOf(view, point.id, position, mode));
-        if (!secret && !withRows.has(point.id)) continue;
-        (secret ? secrets : others).push(authorRow(view, index, body, point.id, cache));
+    // 已出场的秘密都列；有有效行的知识点也列，包括已删除或还没出场的（引用照常保留，输出 1、16）。
+    const listed = pointsAt(view, position, mode).map((point) => point.id);
+    const seen = new Set(listed);
+    for (const point of [...withRows].sort()) if (!seen.has(point)) listed.push(point);
+    for (const point of listed) {
+        const secret = isSecret(secrecyOf(view, point, position, mode));
+        if (!secret && !withRows.has(point)) continue;
+        (secret ? secrets : others).push(authorRow(view, mode, index, body, point, cache));
     }
     return {secrets, others};
 }
@@ -229,16 +241,6 @@ export interface AuthorDecision {
     readonly due: string | null;
 }
 
-/**
- * 拆出的计划（`splitFrom`）只在拆出它的那条兑现变更（`by`）还生效、补丁套上时才算数（canon.model 输出 13；同引擎计入计划的
- * 规则）：兑现被撤销以后，拆出的计划不再是打算（plot/knowledge.md 输出 14 的“失效拆出的不列”）。不是拆出的计划总算数。
- */
-export function splitStillHolds(view: CanonReadView, plan: StoryChange): boolean {
-    const split = plan.links.find((link) => link.kind === "splitFrom");
-    if (split === undefined || split.kind !== "splitFrom") return true;
-    const by = view.object({kind: "change", id: split.by}) as StoryChange | undefined;
-    return by !== undefined && by.status === "active" && view.outcome(split.by)?.applied === true;
-}
 
 /** 直接挂在它上面（挂点是它或它的地址）；只经读者守卫指向它的另算。 */
 const hangsDirectly = (decision: Decision, point: string): boolean => decision.about.some((about) => (about.kind === "entry" && about.id === point) || (about.kind === "address" && about.at.entry === point));
@@ -296,7 +298,7 @@ function buildPointKnowing(view: CanonReadView, mode: Mode, position: ReadPositi
     const rows: (AuthorKnowing & {readonly person: string})[] = [];
     let rest = 0;
     for (const person of authorPeople(view, position)) {
-        const row = authorRow(view, index, person, point, cache);
+        const row = authorRow(view, mode, index, person, point, cache);
         if (row.degree === "none") rest += 1;
         else rows.push({...row, person});
     }

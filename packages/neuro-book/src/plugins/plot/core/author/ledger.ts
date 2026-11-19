@@ -12,7 +12,7 @@ import type {CanonReadView, Mode, ReadPosition, StoryChange} from "@notnotype/nb
 
 import {foreshadowIndex, silenceOf, tellingPositionOf} from "../foreshadowing";
 import {perViewCache} from "../view-cache";
-import {splitStillHolds} from "./knowing";
+import {splitStillHolds} from "../plans";
 import type {Role} from "../foreshadowing";
 
 export const LEDGER_SEGMENTS = ["unpaid", "silent", "unplanned", "dropped", "all"] as const;

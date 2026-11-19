@@ -24,7 +24,12 @@ const read = props.reads.useExternal("person", () => ({person: props.context.ent
 const data = computed(() => read.value?.data);
 const chaptersRead = props.reads.useRead("chapters", () => ({}));
 const chapters = computed(() => chapterIndex(chaptersRead.value?.data?.items));
-const nameOf = (id: string | null): string => (id === null ? "" : (data.value?.names[id]?.name ?? id));
+/** 名字取读取结果的名字表；删了的条目写“已删除的条目”（knowledge.md 输出 1：引用照常保留）。 */
+const nameOf = (id: string | null): string => {
+    if (id === null) return "";
+    const named = data.value?.names[id];
+    return named?.deleted === true ? text("page.deletedEntry") : (named?.name ?? id);
+};
 const lineName = (id: string): string => lineNameOf(id, props.reads.lineOptions.value, text);
 const groups = computed(() => [
     {key: "secrets", title: text("knowing.secrets"), rows: data.value?.secrets ?? [], secret: true},

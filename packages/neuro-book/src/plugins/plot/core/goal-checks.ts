@@ -7,6 +7,7 @@ import type {CanonReadView, DiagnosticCompute, EventKey, Finding, Mode, ReadPosi
 
 import {GOAL_DIAGNOSTIC_IDS} from "../shared/declarations";
 import {changeIndex} from "./change-index";
+import {planStillIntended} from "./plans";
 import {readGoal, type GoalRead} from "./goals";
 import {perViewCache} from "./view-cache";
 import {knowingIndex} from "./knowledge";
@@ -40,12 +41,16 @@ function liveGoals(view: CanonReadView, at: ReadPosition, mode: Mode): GoalRead[
     return goalsAtPosition(view, at, mode).filter((goal) => goal.状态 === "active" || goal.状态 === "blocked");
 }
 
-/** 改过目标 `goal` 命名空间的、在这条线这个模式里生效、不晚于读取位置的剧情变更，按先后。 */
+/**
+ * 改过目标 `goal` 命名空间的、在这条线这个模式里生效、不晚于读取位置的剧情变更，按先后。计划只在读取位置上还是打算时算
+ * （`planStillIntended`：已兑现的由兑现它的已写变更代表，被取代、取消、失效拆出的不算），同引擎计入计划的规则。
+ */
 function touchesOf(view: CanonReadView, goal: string, mode: Mode, at: ReadPosition): {readonly change: StoryChange; readonly key: EventKey}[] {
     const touches: {change: StoryChange; key: EventKey}[] = [];
     // 只算读取位置为止的改动：读较早的位置时，之后才写的改动不能让该报的不报。
     const limit = view.positionKey(at);
     for (const change of changeIndex(view).goalTouches.get(goal) ?? []) {
+        if (change.kind === "plan" && !planStillIntended(view, change, at)) continue;
         const key = view.eventKey(change.id, mode);
         if (key !== null && (limit === null || view.compareKeys(key, limit) <= 0)) touches.push({change, key});
     }
@@ -86,8 +91,11 @@ function chapterIndexOf(view: CanonReadView, position: ReadPosition): number {
 
 /**
  * 目标最近一次动过与没动过的章数（goals.md 输出 6，停滞与作者的目标表共用）：动过只算改到 `goal` 命名空间、在这个位置与模式下计入、
- * 补丁套上的剧情变更（按计划模式计入的计划没有套没套上的结论，算动过）；`last` 是最近一次那条变更安放的章（前史为 null），从没动过
- * 为 null；没动过的章数从最近一次（没有时从出场）算到读取位置所在的章。
+ * 补丁套上的剧情变更；`last` 是最近一次那条变更安放的章（前史为 null），从没动过为 null；没动过的章数从最近一次（没有时从出场）
+ * 算到读取位置所在的章。
+ *
+ * 已知的近似（读取视图只给实际模式的套用结论）：按计划模式计入的计划算动过（套不上的也算）；已写变更按实际模式套没套上算，只在按计划
+ * 模式下才套得上的（前提由计划补上）不算。
  */
 export function goalQuiet(view: CanonReadView, goal: string, mode: Mode, at: ReadPosition): {readonly last: {readonly chapter: string | null} | null; readonly quiet: number} {
     const moved = touchesOf(view, goal, mode, at).filter((touch) => view.outcome(touch.change.id)?.applied !== false).at(-1)?.change;

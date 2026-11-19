@@ -6,13 +6,15 @@
  * 同一个人只做投影（plot/author-ui.md 输出 20 的“再读与下一页 100 毫秒”）。返回的对象共用，调用方不改它。
  */
 
+import {compareIds} from "@notnotype/nb-canon";
 import type {CanonReadView, Entry, Mode, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_TYPES, MARK_IDS} from "../../shared/declarations";
 import type {Secrecy} from "../../shared/declarations";
 import {knowingIndex} from "../knowledge";
 import {perViewCache} from "../view-cache";
-import {authorDecision, authorPeople, bodyOf, firstReveals, isSecret, pointsAt, readerAt, secrecyOf, splitStillHolds} from "./knowing";
+import {authorDecision, authorPeople, bodyOf, firstReveals, isSecret, pointsAt, readerAt, secrecyOf} from "./knowing";
+import {splitStillHolds} from "../plans";
 import type {AuthorDecision, AuthorDegree, AuthorPlace} from "./knowing";
 
 export const SECRET_SEGMENTS = ["all", "readerOnly", "readerUnaware", "noPlan"] as const;
@@ -78,15 +80,20 @@ export function defaultPeople(view: CanonReadView, position: ReadPosition, mode:
     return [...table.candidates].sort((a, b) => (table.appearances.get(b) ?? 0) - (table.appearances.get(a) ?? 0) || byName(a, b)).slice(0, DEFAULT_PEOPLE);
 }
 
-/** 主要角色（goals.md 输出 6）：读取位置上持有进行或受挫目标的人或组织（本体），按 id 排。 */
+/**
+ * 主要角色（goals.md 输出 6）：读取位置上持有进行或受挫目标的人或组织（本体），按 id 排。持有者要在作者用的人群里（knowledge.md
+ * 输出 13：已出场、未删除）：目标可以早于持有者出场，删了持有者也不删它的目标。
+ */
 export function mainCharacters(view: CanonReadView, position: ReadPosition, mode: Mode): string[] {
+    const people = new Set(authorPeople(view, position));
     const holders = new Set<string>();
     for (const entry of view.entries()) {
         if (entry.type !== ENTRY_TYPES.goal || entry.deleted === true || entry.parent === null) continue;
         const read = view.entry(entry.id, position, mode);
         if (read === null || read === "chapter-not-found" || read.deleted || !read.appeared) continue;
         const status = read.namespaces.goal?.fields.状态?.value;
-        if (status === "active" || status === "blocked") holders.add(bodyOf(view, entry.parent));
+        const holder = bodyOf(view, entry.parent);
+        if ((status === "active" || status === "blocked") && people.has(holder)) holders.add(holder);
     }
     return [...holders].sort();
 }
@@ -106,12 +113,13 @@ export function treeKey(view: CanonReadView, id: string | null): readonly (strin
     return chain;
 }
 
+/** 两个树路径键的先后：每层先比顺序，同顺序再按 canon 的 id 比（`compareIds`：同前缀的编号按数值，e9 在 e10 前），同 canon 的条目树。 */
 export function compareKeys(a: readonly (string | number)[], b: readonly (string | number)[]): number {
     for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
         const x = a[index]!;
         const y = b[index]!;
         if (x === y) continue;
-        return typeof x === "number" && typeof y === "number" ? x - y : String(x) < String(y) ? -1 : 1;
+        return typeof x === "number" && typeof y === "number" ? x - y : compareIds(String(x), String(y));
     }
     return a.length - b.length;
 }
@@ -164,7 +172,7 @@ function buildSecretsTable(view: CanonReadView, mode: Mode, position: ReadPositi
         let aware = false;
         for (const person of everyone) {
             const row = index.effective(person, point.id);
-            const degree: AuthorDegree = row?.程度 ?? "none";
+            const degree: AuthorDegree = row === null ? "none" : (row.程度 ?? "unset");
             if (KNOWING_DEGREES.has(degree)) {
                 candidates.add(person);
                 appearances.set(person, (appearances.get(person) ?? 0) + 1);

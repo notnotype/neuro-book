@@ -26,7 +26,12 @@ const read = props.reads.useExternal("point", () => ({point: props.context.entry
 const data = computed(() => read.value?.data);
 const chaptersRead = props.reads.useRead("chapters", () => ({}));
 const chapters = computed(() => chapterIndex(chaptersRead.value?.data?.items));
-const nameOf = (id: string | null): string => (id === null ? "" : (data.value?.names[id]?.name ?? id));
+/** 名字取读取结果的名字表；删了的条目写“已删除的条目”（knowledge.md 输出 1：引用照常保留）。 */
+const nameOf = (id: string | null): string => {
+    if (id === null) return "";
+    const named = data.value?.names[id];
+    return named?.deleted === true ? text("page.deletedEntry") : (named?.name ?? id);
+};
 const lineName = (id: string): string => lineNameOf(id, props.reads.lineOptions.value, text);
 const secret = computed(() => data.value?.secrecy === "secret" || data.value?.secrecy === "topSecret");
 const reader = computed(() => {
@@ -37,6 +42,13 @@ const reader = computed(() => {
     return from === null ? degree : text("point.readerFrom", {degree, place: placeLabel(from, chapters.value, text), excerpt: from.excerpt});
 });
 const labeled = (label: string, value: string): string => text("fmt.labeled", {label, value});
+/** “和它有关的”截掉的条数（每个列表至多列 50 条，输出 19 的“列表多了写还有 N 项”）。 */
+const relatedMore = computed(() => {
+    const value = data.value;
+    if (value === undefined) return 0;
+    const lists = value.related;
+    return (Object.keys(lists) as (keyof typeof lists)[]).reduce((sum, key) => sum + Math.max(0, value.relatedTotals[key] - lists[key].length), 0);
+});
 </script>
 
 <template>
@@ -77,6 +89,7 @@ const labeled = (label: string, value: string): string => text("fmt.labeled", {l
                         {{ text("fmt.labelPrefix", {label: text("point.goal")}) }}<button type="button" class="text-[var(--accent-main)] hover:underline" @click="props.context.open({kind: 'entry', id: goal})">{{ nameOf(goal) }}</button>
                     </li>
                 </ul>
+                <p v-if="relatedMore > 0" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ text("point.moreRows", {count: relatedMore}) }}</p>
             </section>
         </template>
         <section>

@@ -72,7 +72,9 @@ export function attitudesOf(view: CanonReadView, person: string, position: ReadP
     if (read === null || read === "chapter-not-found") return [];
     const field = read.namespaces.att?.fields.态度;
     const rows = Array.isArray(field?.value) ? (field.value as Array<Record<string, unknown>>) : [];
-    return rows.map((row) => ({object: String(row.id), 态度: text(row.态度), notReduced: field?.notReduced === true, 起因: ref(row.起因), 称呼: text(row.称呼)}));
+    // 没归纳的只是内核列出的那几行（components.md 输出 20），不是整张表。
+    const unreduced = new Set(field?.notReducedElements ?? []);
+    return rows.map((row) => ({object: String(row.id), 态度: text(row.态度), notReduced: unreduced.has(String(row.id)), 起因: ref(row.起因), 称呼: text(row.称呼)}));
 }
 
 /** 人物页“目标与态度”：他的目标（各状态）与态度。 */

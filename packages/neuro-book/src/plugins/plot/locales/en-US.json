@@ -60,7 +60,8 @@
         "plot": "Plot",
         "more": "Show more ({{count}} left)",
         "moreUnknown": "Show more",
-        "notFound": "This entry was not found"
+        "notFound": "This entry was not found",
+        "deletedEntry": "Deleted entry"
     },
     "fmt": {
         "list": ", ",
@@ -78,7 +79,8 @@
         "suspects": "Suspects",
         "forgot": "Forgot",
         "unaware": "Doesn't know",
-        "noRecord": "No record"
+        "noRecord": "No record",
+        "unset": "Degree not set"
     },
     "secrecy": {
         "common": "Common",

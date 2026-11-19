@@ -5,6 +5,8 @@
 
 import {describe, expect, test} from "bun:test";
 
+import {compareIds} from "@notnotype/nb-canon";
+
 import {MARK_IDS} from "../../shared/declarations";
 import {addRow, chapter, end, PlotWorld, setSub} from "../../testing/world";
 import {mainCharacters, secretsTable} from "./secrets";
@@ -101,5 +103,30 @@ describe("主要角色（goals.md 输出 6）", () => {
         expect(mainCharacters(w.view(), end("ch2"), "actual")).toEqual([xia, committee].sort());
         const table = secretsTable(w.view(), "actual", end("ch2"), []);
         expect(table.main).toEqual([xia, committee].sort());
+    });
+
+    test("持有者要在作者用的人群里：还没出场、删了的人持有的目标不让他成为主要角色", () => {
+        const {w, xia} = world();
+        const late = w.person("第 3 章才出场的", {appears: chapter("ch3")});
+        const gone = w.person("删了的人");
+        w.goal("不让妹妹发现", xia);
+        w.goal("先有的目标", late);
+        w.goal("留下的目标", gone);
+        const stored = structuredClone(w.world.data.entries.get(gone)!);
+        w.publish([{ref: {kind: "entry", id: gone}, after: {...stored, deleted: true}}]);
+        expect(mainCharacters(w.view(), end("ch2"), "actual")).toEqual([xia]);
+        expect(mainCharacters(w.view(), end("ch3"), "actual")).toEqual([xia, late].sort());
+    });
+});
+
+describe("条目树的顺序", () => {
+    test("同顺序的按 canon 的 id 比（e9 在 e10 前），同 canon 的条目树", () => {
+        const w = new PlotWorld(["ch1"]);
+        const subjects = Array.from({length: 12}, (_, index) => w.person(`主体 ${String(index + 1)}`));
+        for (const subject of subjects) w.point("秘密", subject);
+        const order = secretsTable(w.view(), "actual", end("ch1"), []).rows.map((row) => row.subject);
+        const canonOrder = (ids: readonly (string | null)[]) => [...ids].sort((a, b) => compareIds(a!, b!));
+        expect(subjects.some((id) => /^e\d{2,}$/u.test(id))).toBe(true);
+        expect(order).toEqual(canonOrder(subjects));
     });
 });

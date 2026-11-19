@@ -235,45 +235,6 @@ for (const [name, read] of Object.entries(authorReads)) {
     console.log(`作者读取 ${name}：输入变了以后第一次中位 ${ms(median(cold))} 毫秒、最大 ${ms(Math.max(...cold))}；同一份输入再读中位 ${ms(median(warm))}、最大 ${ms(Math.max(...warm))}；结果 ${ms(bytes / 1024)} KiB`);
 }
 
-// 经项目入口的方法（`remoteAuthor`，不含远程编码），plot/author-ui.md 输出 20 的口径：整张表按视图缓存以后，再读与下一页只剩
-// 分页、这一页的名字表与结果大小的核对。下一页用第一页给的游标；页长取得让每张表都有第二页。
-const authorMethods = remoteAuthor({snapshot: async () => service.snapshot()}).methods as unknown as Record<string, (input: unknown) => Promise<{readonly ok: boolean; readonly value?: {readonly cursor?: string}}>>;
-const methodInputs: Record<string, Record<string, unknown>> = {
-    secrets: {position: until, people: [person(0), person(1), person(2)], limit: 200},
-    person: {position: until, person: person(1)},
-    point: {position: until, point: point(0)},
-    goals: {position: until, limit: 10},
-    ledger: {position: until, segment: "all", limit: 5},
-    experience: {position: until, person: person(1), limit: 50},
-};
-for (const [name, input] of Object.entries(methodInputs)) {
-    const cold: number[] = [];
-    const warm: number[] = [];
-    const next: number[] = [];
-    for (let round = 0; round < 3; round += 1) {
-        const written = await plot.change({kind: "chapter", chapter: last, key: authorKey++}, {text: "作者读取"});
-        service.snapshot().view.outcome(written);
-        let begin = performance.now();
-        const first = await authorMethods[name]!(input);
-        cold.push(performance.now() - begin);
-        if (!first.ok) throw new Error(`${name} 读取失败：${JSON.stringify(first)}`);
-        for (let again = 0; again < 3; again += 1) {
-            begin = performance.now();
-            await authorMethods[name]!(input);
-            warm.push(performance.now() - begin);
-        }
-        const cursor = first.value?.cursor;
-        if (cursor !== undefined) {
-            begin = performance.now();
-            const page = await authorMethods[name]!({...input, cursor});
-            next.push(performance.now() - begin);
-            if (!page.ok) throw new Error(`${name} 下一页失败：${JSON.stringify(page)}`);
-        }
-    }
-    const nextText = next.length === 0 ? "没有第二页" : `下一页中位 ${ms(median(next))}、最大 ${ms(Math.max(...next))}`;
-    console.log(`作者方法 ${name}：输入变了以后第一次中位 ${ms(median(cold))} 毫秒、最大 ${ms(Math.max(...cold))}；同一份输入再读中位 ${ms(median(warm))}、最大 ${ms(Math.max(...warm))}；${nextText}（预算 1000 与 100）`);
-}
-
 // ---------- 别的读取（只记录，不设预算） ----------
 const snapshot = service.snapshot();
 started = performance.now();
@@ -303,6 +264,55 @@ const thingIds = await plot.publish(Array.from({length: THINGS}, (_, index) => (
 const thing = (index: number) => thingIds[`tmp:thing${String(index % THINGS)}`]!;
 const mysteryIds = await plot.publish(Array.from({length: THINGS}, (_, index) => ({ref: {kind: "entry" as const, id: `tmp:mystery${String(index)}`}, after: drafts.foreshadow(`tmp:mystery${String(index)}`, `悬念${String(index)}`, {种类: "mystery", 答案: {ref: point(index)}, 物件: [{id: thing(index)}]})})));
 const mystery = (index: number) => mysteryIds[`tmp:mystery${String(index % THINGS)}`]!;
+
+// 经项目入口的方法（`remoteAuthor`，不含远程编码），plot/author-ui.md 输出 20 的口径：七个方法，保密表另量一遍没点名（服务按缺省
+// 选人，要算两遍表）。放在悬念补上以后量（伏笔 30 个，同 Spec 的形状）。第一次从发布以后算起，取快照、引擎追上新版本都算在里面；
+// 再读与下一页只剩分页、这一页的名字表与结果大小的核对。有分页的方法页长取得让它一定有第二页，没有就是脚本错了。
+const authorMethods = remoteAuthor({snapshot: async () => service.snapshot()}).methods as unknown as Record<string, (input: unknown) => Promise<{readonly ok: boolean; readonly value?: {readonly cursor?: string}}>>;
+const methodCases: readonly {readonly label: string; readonly method: string; readonly input: Record<string, unknown>; readonly paged: boolean}[] = [
+    {label: "secrets（点名三人）", method: "secrets", input: {position: until, people: [person(0), person(1), person(2)], limit: 200}, paged: true},
+    {label: "secrets（缺省选人）", method: "secrets", input: {position: until, limit: 200}, paged: true},
+    {label: "person", method: "person", input: {position: until, person: person(1)}, paged: false},
+    {label: "point", method: "point", input: {position: until, point: point(0)}, paged: false},
+    {label: "goals", method: "goals", input: {position: until, limit: 10}, paged: true},
+    {label: "ledger", method: "ledger", input: {position: until, segment: "all", limit: 5}, paged: true},
+    {label: "experience", method: "experience", input: {position: until, person: person(1), limit: 50}, paged: true},
+    {label: "plotLines", method: "plotLines", input: {position: until}, paged: false},
+];
+const succeeded = async (label: string, reply: Promise<{readonly ok: boolean; readonly value?: {readonly cursor?: string}}>) => {
+    const value = await reply;
+    if (!value.ok) throw new Error(`${label} 读取失败：${JSON.stringify(value)}`);
+    return value;
+};
+const methodReports: string[] = [];
+for (const {label, method, input, paged} of methodCases) {
+    const cold: number[] = [];
+    const warm: number[] = [];
+    const next: number[] = [];
+    for (let round = 0; round < 3; round += 1) {
+        await plot.change({kind: "chapter", chapter: last, key: authorKey++}, {text: "作者读取"});
+        let begin = performance.now();
+        const first = await succeeded(label, authorMethods[method]!(input));
+        cold.push(performance.now() - begin);
+        for (let again = 0; again < 3; again += 1) {
+            begin = performance.now();
+            await succeeded(label, authorMethods[method]!(input));
+            warm.push(performance.now() - begin);
+        }
+        const cursor = first.value?.cursor;
+        if (paged && cursor === undefined) throw new Error(`${label} 没有第二页：页长要取得让它有`);
+        if (cursor !== undefined) {
+            begin = performance.now();
+            await succeeded(label, authorMethods[method]!({...input, cursor}));
+            next.push(performance.now() - begin);
+        }
+    }
+    const nextText = next.length === 0 ? "不分页" : `下一页中位 ${ms(median(next))}、最大 ${ms(Math.max(...next))}`;
+    const line = `作者方法 ${label}：输入变了以后第一次中位 ${ms(median(cold))} 毫秒、最大 ${ms(Math.max(...cold))}；同一份输入再读中位 ${ms(median(warm))}、最大 ${ms(Math.max(...warm))}；${nextText}（预算 1000 与 100）`;
+    // 立刻打印：后面阶段慢到被打断时，这几行不丢。
+    console.log(line);
+    methodReports.push(line);
+}
 const richPuts: WriteRequest["puts"] = [];
 for (let n = 1; n <= chapters; n += 1) {
     const chapter = chapterIds[n - 1]!;

@@ -50,6 +50,30 @@ describe("作者用的目标表（goals.md 输出 6）", () => {
         expect(read("ch32")).toMatchObject({last: {chapter: "ch20"}, quiet: 12, stalled: false});
     });
 
+    test("按计划读：已兑现的计划不算动过（兑现它的已写变更没碰目标），停滞照报", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const xia = w.person("星瑕");
+        const goal = w.goal("修复和妹妹的关系", xia, {}, {appears: chapter("ch1")});
+        const plan = w.change(chapter("ch10", 20), {kind: "plan", patches: [setGoal(goal, "goal.轻重", "minor")]});
+        expect(personGoals(w.view(), "planned", end("ch35"), xia).goals[0]).toMatchObject({last: {chapter: "ch10"}, quiet: 25, stalled: false});
+        w.change(chapter("ch10", 10), {text: "照计划写了，没碰目标", links: [{kind: "fulfills", plan}]});
+        expect(personGoals(w.view(), "planned", end("ch35"), xia).goals[0]).toMatchObject({last: null, quiet: 34, stalled: true});
+    });
+
+    test("态度表：没归纳的只是记了事件的那一行，别的行照常", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const xia = w.person("星瑕");
+        const hui = w.person("彗");
+        const jin = w.entry({...drafts.person("x", "星瑾"), init: {...drafts.person("x", "星瑾").init, data: {
+            know: {type: "nbook.plot.knowing", version: 1, enabled: true, fields: {知情: [], 听过的说法: null}},
+            att: {type: "nbook.plot.attitude", version: 1, enabled: true, fields: {态度: [{id: xia, 态度: "还在生气", 起因: null, 称呼: "哥哥"}, {id: hui, 态度: "信得过", 起因: null, 称呼: "彗姐"}]}},
+        }}});
+        w.change(chapter("ch2"), {patches: [{op: "note", at: {entry: jin, path: `att.态度[${xia}].态度`}, value: "软了一点"}]});
+        const attitudes = personGoals(w.view(), "actual", end("ch3"), jin).attitudes;
+        expect(attitudes.map((row) => [row.object, row.notReduced])).toEqual([[xia, true], [hui, false]]);
+        expect(attitudes.find((row) => row.object === hui)?.态度).toBe("信得过");
+    });
+
     test("人物页：没有目标、只有态度的人照样给态度", () => {
         const w = new PlotWorld(CHAPTERS, [{id: "nbook.plot.attitude-test", label: "测试", namespace: "unused", version: 1, fields: []}]);
         const xia = w.person("星瑕");

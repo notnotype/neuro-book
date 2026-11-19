@@ -73,19 +73,32 @@ describe("人物的知情与来处（输出 11、16）", () => {
         expect(personKnowing(w2.view(), "actual", end("ch2"), a).secrets[0]).toMatchObject({degree: "none", origin: null});
     });
 
-    test("回溯带过去的：来处是分叉（带它所在的章与父线），另给父线上的原证据", () => {
+    test("知识点删了，指向它的有效知情行照样列（引用保留）；还没出场的知识点有行也列", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const xia = w.person("星瑕");
+        const gone = w.point("删掉的秘密", xia);
+        const later = w.entry({...drafts.point("tmp:later", "第 3 章才出场的", xia), appears: chapter("ch3")});
+        w.change(chapter("ch1"), {patches: [addRow(xia, gone, {程度: "forgot"}), addRow(xia, later, {程度: "knows"})]});
+        const stored = structuredClone(w.world.data.entries.get(gone)!);
+        w.publish([{ref: {kind: "entry", id: gone}, after: {...stored, deleted: true}}]);
+        const rows = personKnowing(w.view(), "actual", end("ch2"), xia).secrets.map((row) => [row.point, row.degree]);
+        expect(rows).toEqual(expect.arrayContaining([[gone, "forgot"], [later, "knows"]]));
+    });
+
+    test("回溯带过去的：来处是分叉（带它所在的章与父线），另给父线上的原证据（段号按父线的讲述，子线看不到切口之后的父线讲述）", () => {
         const w = new PlotWorld(CHAPTERS);
         const xia = w.person("星瑕");
         const k = w.point("K", xia);
         const cut = w.change(chapter("ch3"));
-        const learned = w.change(chapter("ch8", 10), {cast: [present(xia)], marks: [learns(k)]});
+        w.texts.set("ch8", "第一段。\n她终于看见了。");
+        const learned = w.change(chapter("ch8", 10), {cast: [present(xia)], marks: [learns(k)], told: [{source: "chapter", chapter: "ch8", quote: "她终于看见了"}]});
         const trigger = w.change(chapter("ch8", 50));
         const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch8", 60)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, trigger, type: "rollback", who: xia}}}]);
         const onLine = w.view().onLine(ids["tmp:r1"]!);
         if ("code" in onLine) throw new Error(onLine.code);
         const row = personKnowing(onLine, "actual", end("ch9"), xia).secrets.find((item) => item.point === k)!;
         expect(row.degree).toBe("knows");
-        expect(row.origin).toEqual({kind: "carried", fork: ids["tmp:f"], chapter: "ch8", line: "main", evidence: {change: learned, chapter: "ch8", paragraph: null}});
+        expect(row.origin).toEqual({kind: "carried", fork: ids["tmp:f"], chapter: "ch8", line: "main", evidence: {change: learned, chapter: "ch8", paragraph: 2}});
     });
 });
 
@@ -124,6 +137,17 @@ describe("一个知识点谁知道（输出 15）", () => {
         expect(s.people.map((row) => [row.person, row.degree])).toEqual([[xia, "knows"]]);
         expect(s.rest).toEqual({count: 2, unaware: true});
         expect(pointKnowing(view, "actual", end("ch2"), common).rest).toEqual({count: 2, unaware: false});
+    });
+
+    test("有行但还没填程度的人照样列（程度写 unset），不算进没有行的人数", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const xia = w.person("星瑕");
+        const jin = w.person("星瑾");
+        const secret = w.point("S", xia);
+        w.change(chapter("ch1"), {patches: [addRow(jin, secret, {他以为的: "哥哥在外地"})]});
+        const s = pointKnowing(w.view(), "actual", end("ch2"), secret);
+        expect(s.people.map((row) => [row.person, row.degree, row.belief])).toEqual([[jin, "unset", "哥哥在外地"]]);
+        expect(s.rest).toEqual({count: 1, unaware: true});
     });
 
     test("和它有关的：直接挂的决策（已定写结论、待定不写旧结论、放弃的不列）、只经读者守卫的另列、以它为答案的伏笔、起因是它的态度、隐秘是它的目标", () => {

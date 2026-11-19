@@ -18,6 +18,7 @@ import {BUILTIN_COMPONENTS} from "../src/plugins/canon/shared/components";
 import {serverPlugins, until, windowOf} from "../src/plugins/canon/testing/harness";
 import {plotAuthorContract} from "../src/plugins/plot/shared/author";
 import {killSpawnedProjects, leaseOf, projectHarness} from "../src/server/testing/projects";
+import type {ProjectHarness} from "../src/server/testing/projects";
 import {writeCanonSample} from "./canon-sample";
 import type {CanonSampleResult} from "./canon-sample";
 
@@ -87,8 +88,14 @@ describe("星瑕样本项目", () => {
 });
 
 describe("带剧情数据的星瑕样本（--plot）", () => {
-    afterEach(() => {
-        killSpawnedProjects();
+    /** 用例起的场地：结束时停服务端实例（连同项目子进程）并核对正常关闭；强杀只兜底（测试起的资源要收口）。 */
+    const harnesses: ProjectHarness[] = [];
+    afterEach(async () => {
+        try {
+            for (const harness of harnesses.splice(0)) expect(await harness.parent.stop()).toMatchObject({status: "closed"});
+        } finally {
+            killSpawnedProjects();
+        }
     });
 
     it("项目子进程打开它：秘密、读者从哪一段起、伏笔各阶段、目标的受挫与冲突、待定决策都读得出来；换到回溯线上星瑾的知情不同", async () => {
@@ -99,6 +106,7 @@ describe("带剧情数据的星瑕样本（--plot）", () => {
             await cp(join(generated, "manuscripts.binder"), join(paths.project.path, "manuscripts.binder"), {recursive: true});
             await cp(join(generated, ".nbook", "world"), join(paths.project.path, ".nbook", "world"), {recursive: true});
         }});
+        harnesses.push(h);
         const keep = leaseOf(await h.manager.acquire("book", "test"));
         await h.ready(1);
         let use: RemoteUse<typeof plotAuthorContract> | null = null;
@@ -175,8 +183,8 @@ describe("带剧情数据的星瑕样本（--plot）", () => {
             const remembered = ok<Experience>(await author.experience({person: idOf(secrets, "星瑕"), position: {kind: "chapter", chapter: "3", edge: "end", line: rollback}}));
             expect(remembered.items.filter((item) => item.remembered).map((item) => item.text)).toEqual(["星瑾没碰那张卡，说“你走的那几年，一个电话都没有”，回了房间"]);
         } finally {
-            await window.close();
             keep.release();
+            await window.close();
         }
     }, 60_000);
 });

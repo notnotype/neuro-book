@@ -15,7 +15,8 @@ import type {ChapterIndex} from "../labels";
 import {usePlotText} from "../text";
 
 const props = withDefaults(defineProps<{
-    rows: readonly SecretRow[];
+    /** `plansMore` 是服务截掉的计划与决策条数（一行至多各列 10 条）。 */
+    rows: readonly (SecretRow & {readonly plansMore?: number})[];
     /** 选中的人（表的列），按显示的先后。 */
     people: readonly string[];
     names: Readonly<Record<string, AuthorName>>;
@@ -56,7 +57,7 @@ interface PlanLine {
     readonly text: string;
     readonly warning: boolean;
 }
-const plan = (row: SecretRow): PlanLine[] => {
+const plan = (row: SecretRow & {readonly plansMore?: number}): PlanLine[] => {
     const lines: PlanLine[] = row.reveals.map((reveal) => {
         const chapter = reveal.chapter === null ? text("chapter.unscheduled") : chapterLabel(reveal.chapter, props.chapters, text);
         const said = text(reveal.mode === "explicit" ? "secrets.revealExplicit" : "secrets.revealHint", {chapter});
@@ -70,6 +71,7 @@ const plan = (row: SecretRow): PlanLine[] => {
             lines.push({text: decisionLabel(decision, props.chapters, text), warning: index !== undefined && index <= props.now});
         }
     }
+    if ((row.plansMore ?? 0) > 0) lines.push({text: text("point.moreRows", {count: row.plansMore ?? 0}), warning: false});
     return lines.length === 0 ? [{text: text("secrets.noPlan"), warning: false}] : lines;
 };
 const cell = (row: SecretRow, person: string): {readonly degree: string; readonly belief: string | null} => {

@@ -38,6 +38,7 @@ const DEGREES = {knows: "degree.knows", misbelieves: "degree.misbelieves", suspe
 
 export function degreeLabel(degree: AuthorDegree, secret: boolean, text: PlotText): string {
     if (degree === "none") return text(secret ? "degree.unaware" : "degree.noRecord");
+    if (degree === "unset") return text("degree.unset");
     return text(DEGREES[degree]);
 }
 

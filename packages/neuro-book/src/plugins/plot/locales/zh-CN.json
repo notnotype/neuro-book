@@ -60,7 +60,8 @@
         "plot": "剧情",
         "more": "再显示（还有 {{count}} 项）",
         "moreUnknown": "再显示",
-        "notFound": "找不到这个条目"
+        "notFound": "找不到这个条目",
+        "deletedEntry": "已删除的条目"
     },
     "fmt": {
         "list": "、",
@@ -78,7 +79,8 @@
         "suspects": "怀疑",
         "forgot": "忘了",
         "unaware": "不知道",
-        "noRecord": "没有记录"
+        "noRecord": "没有记录",
+        "unset": "没填程度"
     },
     "secrecy": {
         "common": "常识",
