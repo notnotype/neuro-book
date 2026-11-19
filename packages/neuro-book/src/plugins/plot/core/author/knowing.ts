@@ -229,6 +229,17 @@ export interface AuthorDecision {
     readonly due: string | null;
 }
 
+/**
+ * 拆出的计划（`splitFrom`）只在拆出它的那条兑现变更（`by`）还生效、补丁套上时才算数（canon.model 输出 13；同引擎计入计划的
+ * 规则）：兑现被撤销以后，拆出的计划不再是打算（plot/knowledge.md 输出 14 的“失效拆出的不列”）。不是拆出的计划总算数。
+ */
+export function splitStillHolds(view: CanonReadView, plan: StoryChange): boolean {
+    const split = plan.links.find((link) => link.kind === "splitFrom");
+    if (split === undefined || split.kind !== "splitFrom") return true;
+    const by = view.object({kind: "change", id: split.by}) as StoryChange | undefined;
+    return by !== undefined && by.status === "active" && view.outcome(split.by)?.applied === true;
+}
+
 /** 直接挂在它上面（挂点是它或它的地址）；只经读者守卫指向它的另算。 */
 const hangsDirectly = (decision: Decision, point: string): boolean => decision.about.some((about) => (about.kind === "entry" && about.id === point) || (about.kind === "address" && about.at.entry === point));
 const guardsReader = (decision: Decision, point: string): boolean => (decision.marks ?? []).some((mark) => mark.kind === MARK_IDS.guardReader && (mark as {point?: unknown}).point === point);

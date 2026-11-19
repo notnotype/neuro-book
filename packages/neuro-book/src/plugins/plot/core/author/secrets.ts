@@ -12,7 +12,7 @@ import {ENTRY_TYPES, MARK_IDS} from "../../shared/declarations";
 import type {Secrecy} from "../../shared/declarations";
 import {knowingIndex} from "../knowledge";
 import {perViewCache} from "../view-cache";
-import {authorDecision, authorPeople, bodyOf, firstReveals, isSecret, pointsAt, readerAt, secrecyOf} from "./knowing";
+import {authorDecision, authorPeople, bodyOf, firstReveals, isSecret, pointsAt, readerAt, secrecyOf, splitStillHolds} from "./knowing";
 import type {AuthorDecision, AuthorDegree, AuthorPlace} from "./knowing";
 
 export const SECRET_SEGMENTS = ["all", "readerOnly", "readerUnaware", "noPlan"] as const;
@@ -116,12 +116,12 @@ export function compareKeys(a: readonly (string | number)[], b: readonly (string
     return a.length - b.length;
 }
 
-/** 所选线上看得到、生效的揭示计划（未来的也列；取消、被取代的不列），按知识点分组。 */
+/** 所选线上看得到、生效的揭示计划（未来的也列；取消、被取代、失效拆出的不列），按知识点分组。 */
 function revealsByPoint(view: CanonReadView, position: ReadPosition): Map<string, SecretReveal[]> {
     const found = new Map<string, SecretReveal[]>();
     for (const plan of view.changes({kind: "plan", status: "active", inView: view.line}) as readonly StoryChange[]) {
         const progress = view.progress(plan.id, position);
-        if (progress === "cancelled" || progress === "replaced" || progress === "chapter-not-found") continue;
+        if (progress === "cancelled" || progress === "replaced" || progress === "chapter-not-found" || !splitStillHolds(view, plan)) continue;
         for (const telling of plan.told) {
             for (const mark of telling.marks ?? []) {
                 if (mark.kind !== MARK_IDS.reveal || mark.version !== 1 || typeof mark.point !== "string") continue;

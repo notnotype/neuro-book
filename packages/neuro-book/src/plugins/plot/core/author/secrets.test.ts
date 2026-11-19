@@ -64,6 +64,22 @@ describe("保密表（输出 14）", () => {
         expect(all.rows.find((row) => row.point === brother)!.reader).toEqual({degree: "knows", suspects: {chapter: "ch2", paragraph: 1}, knows: {chapter: "ch2", paragraph: 1}});
     });
 
+    test("失效拆出的揭示计划不列：拆出它的那条兑现撤销以后，这一行没有打算", () => {
+        const w = new PlotWorld(["ch1", "ch2", "ch3", "ch4", "ch5"]);
+        const xia = w.person("星瑕");
+        const point = w.point("那几年是被软禁", xia);
+        const reveal = {kind: MARK_IDS.reveal, version: 1, point, mode: "explicit"};
+        const original = w.change(chapter("ch2", 20), {kind: "plan", text: "原来的计划"});
+        const fulfilled = w.change(chapter("ch2", 10), {text: "兑现了一半", links: [{kind: "fulfills", plan: original}]});
+        const split = w.change(chapter("ch4"), {kind: "plan", text: "拆出来的后一半", links: [{kind: "splitFrom", plan: original, by: fulfilled}], told: [{source: "outline", chapter: "ch4", anchor: "揭开", marks: [reveal]}]});
+        const reveals = () => secretsTable(w.view(), "actual", end("ch3"), []).rows[0]!.reveals;
+        expect(reveals()).toEqual([{plan: split, chapter: "ch4", mode: "explicit", done: false}]);
+
+        const stored = structuredClone(w.world.data.changes.get(fulfilled)!);
+        w.publish([{ref: {kind: "change", id: fulfilled}, after: {...stored, status: "undone" as const}}]);
+        expect(reveals()).toEqual([]);
+    });
+
     test("挂在它上面的决策：已定的带结论，放弃的不列；有决策的不算没打算怎么揭", () => {
         const {w, alive} = world();
         const decided = w.decision("第 2 卷揭晓", {about: [{kind: "entry", id: alive}], conclusion: "第 2 卷"});

@@ -81,18 +81,43 @@ describe("作者用的伏笔账本（foreshadowing.md 输出 9）", () => {
         expect(byId[gone]).toMatchObject({dropped: true});
         expect(authorLedger(w.view(), "actual", end("ch12")).rows.map((row) => row.id)).toEqual([doll, egg]);
     });
+
+    test("失效拆出的计划不是打算：拆出它的那条兑现撤销以后，不算下一步、不画进节点带、算没打算怎么收", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const egg = w.foreshadow("星瑾不吃煎蛋");
+        w.change(chapter("ch1"), {told: [inText(w, "ch1", "她不吃煎蛋", [node(egg, "plant")])]});
+        const original = w.change(chapter("ch3", 20), {kind: "plan", text: "原来的计划"});
+        const fulfilled = w.change(chapter("ch3", 10), {text: "兑现了一半", links: [{kind: "fulfills", plan: original}]});
+        w.change(chapter("ch8"), {kind: "plan", text: "拆出来的后一半", links: [{kind: "splitFrom", plan: original, by: fulfilled}], told: [{source: "outline", chapter: "ch8", anchor: "回收煎蛋", marks: [node(egg, "payoff")]}]});
+        const row = () => authorLedger(w.view(), "actual", end("ch4"), "all").rows[0]!;
+        expect(row()).toMatchObject({next: {role: "payoff", chapter: "ch8"}, unplanned: false});
+        expect(row().nodes).toHaveLength(2);
+
+        const stored = structuredClone(w.world.data.changes.get(fulfilled)!);
+        w.publish([{ref: {kind: "change", id: fulfilled}, after: {...stored, status: "undone" as const}}]);
+        expect(row()).toMatchObject({next: null, unplanned: true, nodes: [{role: "plant", chapter: "ch1", written: true}]});
+    });
 });
 
 describe("作者用的经历（knowledge.md 输出 17）", () => {
-    test("从新到旧；同时在场的人不含自己；没记参与者的条数", () => {
+    test("从新到旧；同时在场的人只算在场的、不含自己、用了马甲写马甲；没记参与者的条数", () => {
         const w = new PlotWorld(CHAPTERS);
         const xia = w.person("星瑕");
         const jin = w.person("星瑾");
+        const hui = w.person("彗");
+        const brother = w.person("哥哥", {sameAs: xia});
+        // 星瑾这一场在场，彗只是被提到；星瑕以哥哥的样子在场（从星瑾的经历看）。
+        const breakfast = w.change(chapter("ch2"), {text: "又一顿早餐", cast: [{who: xia, role: "present", as: brother}, present(jin), {who: hui, role: "mentioned"}]});
+        expect(authorExperience(w.view(), "actual", end("ch2"), jin).items.map((item) => [item.change, item.cast])).toEqual([[breakfast, [{who: brother}]]]);
         const first = w.change(chapter("ch1"), {text: "早餐", cast: [present(xia), present(jin)]});
         const second = w.change(chapter("ch3"), {text: "阳台打电话", cast: [present(xia), {label: "电话那头的人", role: "present"}]});
         w.change(chapter("ch4"), {text: "没记谁在场"});
         const read = authorExperience(w.view(), "actual", end("ch4"), xia);
-        expect(read.items.map((item) => [item.change, item.chapter, item.text, item.cast])).toEqual([[second, "ch3", "阳台打电话", [{label: "电话那头的人"}]], [first, "ch1", "早餐", [{who: jin}]]]);
+        expect(read.items.map((item) => [item.change, item.chapter, item.text, item.cast])).toEqual([
+            [second, "ch3", "阳台打电话", [{label: "电话那头的人"}]],
+            [breakfast, "ch2", "又一顿早餐", [{who: jin}]],
+            [first, "ch1", "早餐", [{who: jin}]],
+        ]);
         expect(read.uncast).toBe(1);
     });
 });

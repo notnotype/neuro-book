@@ -16,7 +16,10 @@ export interface AuthorExperienceItem {
     readonly change: string;
     readonly chapter: string | null;
     readonly text: string;
-    /** 同时在场的人：有条目的给 id（马甲照写），只有称呼的给 label；不含这个人自己。 */
+    /**
+     * 同时在场的人（只算 `present`，只被提到的不算，同输出 8）：有条目的给 id，这场里用的是马甲（`as`）时给马甲的 id；只有称呼的
+     * 给 label；不含这个人自己。
+     */
     readonly cast: readonly ({readonly who: string} | {readonly label: string})[];
     readonly remembered: boolean;
 }
@@ -33,7 +36,9 @@ function buildAuthorExperience(view: CanonReadView, mode: Mode, position: ReadPo
         change: change.id,
         chapter: change.at.kind === "chapter" ? change.at.chapter : null,
         text: change.text,
-        cast: (change.cast ?? []).filter((member) => member.who === undefined || bodyOf(view, member.who) !== body).map((member) => (member.who !== undefined ? {who: member.who} : {label: member.label ?? ""})),
+        cast: (change.cast ?? [])
+            .filter((member) => member.role === "present" && (member.who === undefined || bodyOf(view, member.who) !== body))
+            .map((member) => (member.who !== undefined ? {who: member.as ?? member.who} : {label: member.label ?? ""})),
         remembered: read.remembered.has(change.id),
     }));
     return {items: items.reverse(), uncast: read.uncast};

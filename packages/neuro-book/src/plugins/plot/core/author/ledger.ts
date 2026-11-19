@@ -1,16 +1,18 @@
 /**
  * 作者用的伏笔账本（docs/specs/plot/foreshadowing.md 输出 9）：每个伏笔的阶段、意图、上次提到、间隔与“久没提”（与诊断 longSilence
- * 同一个算法，`silenceOf`）、下一步计划、没打算怎么收（与诊断 noPayoffPlanned 同一个判断）、节点带要的节点；分段与全表条数。
+ * 同一个算法，`silenceOf`）、下一步计划、没打算怎么收（只算生效未兑现的回收计划，比诊断 noPayoffPlanned 严，见行里的说明）、
+ * 节点带要的节点；分段与全表条数。计划都只算还作数的：未兑现、未取消，拆出的要拆出它的兑现还在（`splitStillHolds`）。
  * 旧的 `ledger`（输出 8）给 Agent 用，口径不变。
  *
  * 导出的读取按视图、模式、位置与参数缓存整张结果（`../view-cache.ts`，同知情索引）：同一份读取输入上的再读、下一页与几个分页读
  * 同一个人只做投影（plot/author-ui.md 输出 20 的“再读与下一页 100 毫秒”）。返回的对象共用，调用方不改它。
  */
 
-import type {CanonReadView, Mode, ReadPosition} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, Mode, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
-import {foreshadowIndex, payoffUnplanned, silenceOf, tellingPositionOf} from "../foreshadowing";
+import {foreshadowIndex, silenceOf, tellingPositionOf} from "../foreshadowing";
 import {perViewCache} from "../view-cache";
+import {splitStillHolds} from "./knowing";
 import type {Role} from "../foreshadowing";
 
 export const LEDGER_SEGMENTS = ["unpaid", "silent", "unplanned", "dropped", "all"] as const;
@@ -48,10 +50,15 @@ function buildAuthorLedger(view: CanonReadView, mode: Mode, position: ReadPositi
         const at = order.get(chapter) ?? -1;
         return position.kind === "chapter" && position.edge === "end" ? at > now : at >= now;
     };
+    /** 失效拆出的计划不是打算（`splitStillHolds`）：不算下一步，也不画进节点带。 */
+    const planHolds = (id: string): boolean => {
+        const plan = view.object({kind: "change", id}) as StoryChange | undefined;
+        return plan !== undefined && splitStillHolds(view, plan);
+    };
     const rows = index.foreshadows.map((foreshadow): AuthorLedgerRow => {
         const stage = index.stage(foreshadow.id, until);
         const written = index.nodesRead(foreshadow.id, until);
-        const planned = index.planned.filter((node) => node.foreshadow === foreshadow.id && view.progress(node.plan, position) === "unfulfilled");
+        const planned = index.planned.filter((node) => node.foreshadow === foreshadow.id && view.progress(node.plan, position) === "unfulfilled" && planHolds(node.plan));
         const silence = silenceOf(view, index, foreshadow, until);
         const next = planned.filter((node) => after(node.chapter)).sort((a, b) => (order.get(a.chapter) ?? 0) - (order.get(b.chapter) ?? 0))[0];
         return {
@@ -63,7 +70,9 @@ function buildAuthorLedger(view: CanonReadView, mode: Mode, position: ReadPositi
             lastMentioned: written.at(-1)?.occurrence.chapter ?? null,
             silence: silence === null ? null : {chapters: silence.chapters, long: silence.long},
             next: next === undefined ? null : {role: next.role, chapter: next.chapter, plan: next.plan},
-            unplanned: payoffUnplanned(index, foreshadow.id, until),
+            // 没打算怎么收（foreshadowing.md 输出 9）：没回收，也没有还作数的回收计划。诊断 noPayoffPlanned 按“带回收节点的计划”算
+            // （输出 7，已取消、失效拆出的也算），这里只算上面筛过的、生效未兑现的。
+            unplanned: !["unplanted", "paidOff"].includes(index.lineStage(foreshadow.id, until)) && !planned.some((node) => node.role === "payoff"),
             nodes: [...written.map((node) => ({role: node.role, chapter: node.occurrence.chapter, written: true})), ...planned.map((node) => ({role: node.role, chapter: node.chapter, written: false}))],
         };
     });
