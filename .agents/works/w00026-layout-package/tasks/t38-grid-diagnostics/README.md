@@ -39,9 +39,13 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 
 ## 当前状态
 
-2026-11-19 经 nbdev 新建，尚未开工。排在 t34 之后、t35 之前（[Work README](../../README.md)）。
+2026-11-19 经 nbdev 新建。t34 的实现审查在后台时开工写计划：[`plan.md`](plan.md)（第 1 稿）。
+
+第 1 稿把 t34 第 3 稿的“同键合成”整个拿掉：每条诊断带它所在的节点 `id`，键是码、`cause`、轴与 `id`，同一次求解里同键最多一条，参数只有标量；结果是快照，两个通知出口只发新出现的键；宿主的诊断回调抛出时库照常收尾、`console.error` 报出来。和提案不同的三处见计划“和第 3 稿、提案不同的地方”，提案追加了决策记录，记入[待确认清单](../../pending-confirmations.md)。
+
+设计审查（前端包，Claude Sonnet）的说明固定在 t34 分支的提交上（master 还没有 t34 的代码）。
 
 ## 下一步
 
-1. t34 合入后开工：先写“结果是状态快照、通知只发边沿”的合同（Spec 条目草稿），再写计划。
-2. 计划与设计审查按 autonomous-delivery。
+1. 设计审查，阻塞；处理完在 master 上写 `ui/nested-grid` 输出 139、140（planned）。
+2. t34 合入 master 之后开 worktree，按计划四片实施。
