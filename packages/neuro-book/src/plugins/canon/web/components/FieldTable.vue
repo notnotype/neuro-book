@@ -35,10 +35,11 @@ const text = useCanonText();
         <div v-for="row in props.rows" :key="row.path" class="border-b border-[var(--divider)] py-2" :data-field="row.path">
             <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
                 <span class="w-28 shrink-0 text-[var(--text-secondary)]">{{ row.label }}</span>
-                <span class="min-w-0 flex-1">
+                <!-- 值不到 8rem 宽时换到标签下面一行（窄的编辑区里不挤成一列字），长的英文词也断开。 -->
+                <span class="min-w-0 flex-1 basis-32">
                     <button
                         type="button"
-                        class="canon-value max-w-full text-left"
+                        class="canon-value max-w-full break-words text-left"
                         :class="[row.unknown || row.incomplete ? 'text-[var(--status-warning)]' : 'text-[var(--text-main)]', props.open === row.path ? 'canon-value-open' : '']"
                         :aria-expanded="props.open === row.path"
                         :aria-label="text('value.label', {label: row.label, value: row.items !== undefined ? row.items.join(text('value.listSeparator')) : row.display})"

@@ -1,0 +1,128 @@
+// w00032 t41 探针：提示要走的路径在现有内核上的样子（真实内核、假模型；只读，不提交）。
+import {test} from "bun:test";
+
+import {conv, defineExtension} from "./extension/define.js";
+import {createTestSession} from "./testing/test-session.js";
+
+let n = 0;
+const id = () => `t41-${++n}`;
+const gate = () => {
+    let open!: () => void;
+    const p = new Promise<void>((resolve) => (open = resolve));
+    return {p, open};
+};
+
+/** 一个在 mount 里拿到写外部事实的口子的扩展：`note` 是对话事件，渲染成 system-reminder。 */
+function noter() {
+    let say: ((text: string) => void) | null = null;
+    const extension = defineExtension({
+        id: "lab.noter",
+        events: {note: conv<{text: string}>()},
+        render: {note: (event) => `<system-reminder>${event.data.text}</system-reminder>`},
+        mount: (ctx) => {
+            say = ctx.callback((text: string) => ctx.emit("note", {text}));
+        },
+    });
+    return {extension, say: (text: string) => say!(text)};
+}
+
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("E1 空闲时写的外部事实：下一次请求里排在新话前面（同一条用户消息）", async () => {
+    const note = noter();
+    await using s = await createTestSession({extensions: [note.extension]});
+    s.model.script("答一", "答二");
+    await s.say("第一问");
+    note.say("空闲时的提示");
+    await settle();
+    const position = (await s.eventsOf("lab.noter/note")).map((event) => event.position);
+    const report = await s.say("第二问");
+    console.log("E1 position:", JSON.stringify(position));
+    console.log("E1 request:", JSON.stringify(report.requests[0]!.outline()));
+});
+
+test("E2 运行中写的外部事实与同一时刻的插话：下一次请求里事实在插话前面", async () => {
+    const note = noter();
+    const inTool = gate();
+    const release = gate();
+    await using s = await createTestSession({extensions: [note.extension], tools: [{id: "wait", execute: async () => {
+        inTool.open();
+        await release.p;
+        return {text: "工具完成"};
+    }}]});
+    s.model.script({tools: [{tool: "wait", args: {}}]}, "答完");
+    const sent = await s.raw.send({commandId: id(), input: {text: "开始"}});
+    if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+    await inTool.p;
+    await s.raw.send({commandId: id(), input: {text: "用户的插话"}, mode: "steer"});
+    note.say("运行中的提示");
+    release.open();
+    await s.raw.waitRun(sent.value.runId);
+    const requests = s.requests;
+    console.log("E2 second request:", JSON.stringify(requests[1]!.outline()));
+});
+
+test("E3 空闲时写的外部事实写在当前叶子上：回退到它之前再发，请求里没有它", async () => {
+    const note = noter();
+    await using s = await createTestSession({extensions: [note.extension]});
+    s.model.script("答一", "答二", "答三");
+    await s.say("第一问");
+    await s.say("第二问");
+    note.say("空闲时的提示");
+    await settle();
+    const targets = await s.raw.rewindTargets();
+    const before = targets.find((target) => target.kind === "after-turn");
+    const moved = await s.raw.rewind({commandId: id(), to: before!.id});
+    const report = await s.say("回退后的问");
+    console.log("E3 rewind:", JSON.stringify(moved.ok ? "ok" : moved), "request:", JSON.stringify(report.requests[0]!.outline()));
+});
+
+test("E4 宿主的 send：用户停止已受理、还没收口时到达，收口后开一次宿主的运行（现在没有门）", async () => {
+    const inTool = gate();
+    const release = gate();
+    await using s = await createTestSession({tools: [{id: "wait", execute: async (_args: unknown, call: {signal: AbortSignal}) => {
+        inTool.open();
+        await Promise.race([release.p, new Promise((resolve) => call.signal.addEventListener("abort", resolve, {once: true}))]);
+        return {text: "工具完成"};
+    }}]});
+    s.model.script({tools: [{tool: "wait", args: {}}]}, "宿主那次的回复");
+    const sent = await s.raw.send({commandId: id(), input: {text: "开始"}});
+    if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+    await inTool.p;
+    const stop = s.raw.abort({commandId: id(), keepQueue: true});
+    const host = s.raw.as({kind: "host", source: {plugin: "lab", label: "后台任务"}});
+    const late = await host.send({commandId: id(), input: {text: "后台结果"}});
+    console.log("E4 stop:", JSON.stringify(await stop), "host send:", JSON.stringify(late));
+    await s.raw.waitRun(sent.value.runId);
+    await settle();
+    const log = (await s.raw.log({afterSeq: 0, limit: 500})).events.filter((event) => ["runStarted", "runEnded", "inputHeld", "inputReleased"].includes(event.type));
+    console.log("E4 events:", log.map((event) => `${event.type}${event.type === "runEnded" ? `(${(event.data as {reason: string}).reason})` : ""}${(event.data as {by?: {kind: string}}).by === undefined ? "" : `[by ${(event.data as {by: {kind: string}}).by.kind}]`}`).join(" "));
+    console.log("E4 model requests:", s.model.requests.length);
+});
+
+test("E5 只压缩的运行里，用户与宿主都发了话：收口批只开一次后继运行，记成用户的", async () => {
+    const entered = gate();
+    const hold = gate();
+    const slow = async (job: {cuts: {kind: string; entryId: string}[]}) => {
+        entered.open();
+        await hold.p;
+        const cut = job.cuts.filter((c) => c.kind === "turn").at(-1);
+        return {method: "slow", firstKeptEntryId: cut?.entryId ?? null, replacement: "摘要", omitted: [], tokensBefore: 10, tokensAfter: 5};
+    };
+    const {defineProfile} = await import("./extension/profile.js");
+    const profile = defineProfile({id: "lab.c", version: "1", name: "c", description: "c", system: "s", compaction: {onThreshold: ["slow"]}});
+    await using s = await createTestSession({profile, compaction: {methods: {slow}} as never});
+    s.model.script("答一", "答二");
+    await s.say("第一问");
+    const compacting = await s.raw.compact({commandId: id()});
+    await entered.p;
+    const host = s.raw.as({kind: "host", source: {plugin: "lab", label: "后台任务"}});
+    const fromHost = await host.send({commandId: id(), input: {text: "宿主的话"}});
+    const fromUser = await s.raw.send({commandId: id(), input: {text: "用户的话"}});
+    hold.open();
+    if (compacting.ok && compacting.value.runId) await s.raw.waitRun(compacting.value.runId);
+    await settle();
+    const log = (await s.raw.log({afterSeq: 0, limit: 500})).events.filter((event) => ["runStarted", "runEnded", "inputReleased", "input"].includes(event.type));
+    console.log("E5 sends:", JSON.stringify([fromHost, fromUser]));
+    console.log("E5 events:", log.map((event) => `${event.type}${(event.data as {by?: {kind: string}}).by === undefined ? "" : `[by ${(event.data as {by: {kind: string}}).by.kind}]`}${event.type === "input" ? `(${(event.data as {text: string}).text})` : ""}`).join(" "));
+});

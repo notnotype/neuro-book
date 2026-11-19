@@ -8,7 +8,9 @@ import {computed, effectScope, onScopeDispose, shallowRef, watch} from "vue";
 import type {ComputedRef, EffectScope} from "vue";
 
 import type {CanonInput, CanonMethod, CanonOutputs} from "../shared/contracts";
-import type {CanonWorld, ListHandle, ListMethod, ListState, ReadHandle, ReadState, WriteMethod} from "./world";
+import type {ExternalFetch, ExternalPage, ExternalPageFetch, PagedState} from "../shared/reads";
+import {externalKey} from "./world";
+import type {CanonWorld, ExternalListHandle, ListHandle, ListMethod, ListState, ReadHandle, ReadState, WriteMethod} from "./world";
 
 type ReadMethod = Exclude<CanonMethod, WriteMethod | ListMethod>;
 
@@ -74,6 +76,31 @@ export function useWorldList<M extends ListMethod>(world: CanonWorld, method: M,
     const {current, shown} = useSwitching<ListHandle<M>>(() => {
         const given = input();
         return given === null ? null : {key: JSON.stringify(given), open: () => world.list(method, given, pageSize)};
+    });
+    return {
+        state: computed(() => shown.value?.handle.state.value ?? null),
+        more: () => void current.value?.handle.more(),
+    };
+}
+
+/** 外部读取（docs/specs/canon/author-ui.md 输出 35），换输入时同 `useWorldRead`。键里有调用方插件的 id 与方法名。 */
+export function useExternalRead<I, T>(world: CanonWorld, plugin: string, method: string, input: () => I | null, fetch: ExternalFetch<I, T>): ComputedRef<ReadState<T> | null> {
+    const {shown} = useSwitching<ReadHandle<T>>(() => {
+        const given = input();
+        if (given === null) return null;
+        const key = externalKey(plugin, method, given);
+        return {key, open: () => world.external(key, () => fetch(given))};
+    });
+    return computed(() => shown.value?.handle.state.value ?? null);
+}
+
+/** 外部列表，换输入时同 `useWorldList`。 */
+export function useExternalList<I, P extends ExternalPage<unknown>>(world: CanonWorld, plugin: string, method: string, input: () => I | null, fetch: ExternalPageFetch<I, P>, pageSize = 50): {readonly state: ComputedRef<PagedState<P, P["items"][number]> | null>; more(): void} {
+    const {current, shown} = useSwitching<ExternalListHandle<P>>(() => {
+        const given = input();
+        if (given === null) return null;
+        const key = externalKey(plugin, method, {input: given, pageSize});
+        return {key, open: () => world.externalList(key, (cursor, limit) => fetch(given, cursor, limit), pageSize)};
     });
     return {
         state: computed(() => shown.value?.handle.state.value ?? null),

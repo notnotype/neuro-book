@@ -286,6 +286,12 @@ export type KernelEvent<N extends KernelEventName> = LogEvent<N, EventData<Kerne
 
 export const LOG_FORMAT = 1;
 
+/** 会话的归属（session.md 输出 25）。两段都是 1–128 个 `[A-Za-z0-9._-]`。 */
+export interface SessionOwner {
+    readonly plugin: string;
+    readonly id: string;
+}
+
 /** 会话文件的第一行。`result` 由建会话时传入（Profile 声明的也在建会话时抄进来），动态的 `yield` 收尾工具由它生成。 */
 export interface SessionHeader {
     readonly format: typeof LOG_FORMAT;
@@ -303,6 +309,8 @@ export interface SessionHeader {
     readonly questions: "caller" | "user";
     /** 后台会话（`agent.startTask` 的 `background`）：会话列表缺省不列。fork 不继承。 */
     readonly background?: true;
+    /** 归属：哪个插件的哪个对象常驻持有这个会话（session.md 输出 25）。只由建会话的选项给，内核不解释；fork、子会话不继承。 */
+    readonly owner?: SessionOwner;
     readonly result?: {readonly mode: "optional" | "required"; readonly schema: JsonValue};
 }
 

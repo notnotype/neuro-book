@@ -1,0 +1,178 @@
+### 1. 转交放在通用宿主 `open(id)` 里太晚：没有读会话头的远程方法，`focus-session` 又先 `reveal()`，副作用已经发生
+
+- 严重程度：重要
+- 类别：依赖的机制不存在 / 时序
+- 位置：计划“有归属的会话转交”；`agent/web/session-host.ts:958-980`（`open`）、`agent/web/plugin.ts:695-700`（`FOCUS_SESSION_COMMAND`）、`agent/shared/remote.ts`
+- 现象：
+  - 计划写“通用宿主 `open(id)` 读到会话头带 `owner` ……交给它打开”。浏览器侧的远程合同（`shared/remote.ts`）没有 `header` 方法；`agentKey.header` 只在服务端。浏览器能拿到会话头只有 `snapshot().header`，而 `open` 要先订阅帧、再取快照，才读得到。
+  - `open` 的前几行已经改了状态：`generation += 1`、`keepUiState`、`closeCurrent()`、`sessionId.value = id`、`deps.recent.write(id)`（第 980 行）。在快照之后才转交，就要回滚这些；在之前转交，就得先多一次往返。
+  - 活动条与请求页走 `FOCUS_SESSION_COMMAND`：先 `await reveal()`（把右栏对话视图或编辑区页面揭示出来），再 `host.open(id)`。转交发生在 `open` 里时，通用对话视图已经被打开，转交后留下一个空视图。
+- 为什么是问题：用户从状态栏“等你批准”点进 bot，会先看到右栏对话视图弹出来，再看到左栏 bot 视图；`recent.write` 若在转交前执行，通用视图的“最近的会话”会写成 `bot-lyra`，之后每次开窗 `restore()` 都会去打开它并触发转交。
+- 如何核实：读上述三处；`grep -n header shared/remote.ts` 无结果。
+- 建议改法：
+  - 服务端已有 `agentKey.header`（sessions.md 输出 28），在 `nbook.agent/sessions` 加只读方法 `header`（这是切片 2 之外的服务端改动，要写进切片）；或者在活动项里带 `owner`（`ActivityItem` 加一个字段，状态栏点击不用再读头）。
+  - 判断放在命令层 `focusSession(id)` 里、`reveal()` 之前：先问归属，有贡献就交给贡献，没有才走 `reveal` 加 `open`。宿主内部的 `open`（面包屑回父会话、`session.select`）再加一道前置检查，检查通过之后才动 `generation`、`recent`。
+  - 活动项的 `root` 已经是所在树的根：等待的是 bot 的子代理时，按 `root` 判归属，转到 bot 视图的停靠区（提案“会话加 bot 档”写的就是子会话的事项出现在 bot 视图的停靠区），而不是在通用视图里打开子会话。
+
+### 2. 转交的异步竞态与“最近的会话”恢复没有写：用户在读头期间又点了别的、恢复到有归属的会话
+
+- 严重程度：重要
+- 类别：并发 / 失败路径
+- 位置：计划“有归属的会话转交”；`session-host.ts:958`（`generation` 令牌）、`session-host.ts:1083-1095`（`restore`）、`borrow()`
+- 现象：现有 `open` 用 `generation` 令牌挡过期的异步结果，但令牌在 `open` 开头才加一。把“读头、再决定”放在令牌之前，期间用户点了另一个会话，晚到的转交会照样揭示 bot 视图，或晚到的 `open(owned)` 盖掉用户后点的会话。计划没有写令牌。
+- 其他入口：
+  - `restore()`：记录里的 id 在窗口启动时打开；如果这个 id 之后成了有归属的（别的插件先建的会话，当时 bots 的贡献还没装，通用视图打开过并写了 recent），启动时就会揭示 bot 视图、抢走工作台布局，而通用视图什么也没有。
+  - 贡献晚到：`agent.sessionOwners` 的贡献来自 bots 的浏览器入口，它的激活可能晚于用户的第一次点击，此时按计划“没有贡献时照常在通用视图里打开”，会话进了通用视图并写入 recent，之后行为不一致。
+- 为什么是问题：转交是“一处拦住”的单点，任何一条没覆盖的入口都会让同一个会话两处都能打开，且 `failedToOpen` 的清理逻辑（recent 记录里的会话不在了就清）不认“被转交”这种结局。
+- 建议改法：
+  - 给转交一个返回值：`open(id)` 返回 `"opened" | "handed-off" | "failed"`；`restore()` 遇到 `handed-off` 静默清掉 recent、不揭示任何视图（恢复不应该抢布局）；只有用户主动的打开才揭示。
+  - 读头与 `generation` 用同一个令牌：先 `generation += 1` 再读，读回来 `token !== generation` 就丢弃。
+  - 在 Spec 里写明没有贡献时的回退，以及“贡献晚到”只影响那一次点击。
+
+### 3. “运行中按插话入队、有挂着的事项时 `send` 带 `settlePending`”：现有宿主的插话走 `enqueue`，没有这个选项，重发与结果未知也会丢掉它
+
+- 严重程度：重要
+- 类别：依赖的机制不存在 / 合同 / 失败路径
+- 位置：计划“固定会话模式：发送”；`session-host.ts:1140-1170`（`submit`）、`session-host.ts:1562-1567`（`message.resend`）、`session-host.ts:58-66`（`PendingSend`）、`nb-agent-ui/src/composer-actions.ts:27-43`
+- 现象：
+  - 输入框在运行中按回车已经是 `steer`（`canSteer` 为真），按 Ctrl/⌘+回车是 `followup`。宿主对这两种都走 `remote.enqueue({mode})`（第 1165 行）；`enqueue` 的参数里没有 `settlePending`（`shared/remote.ts` 的 `commandArgs.enqueue` 只有 `input`、`mode`）。只有 `delivery === "prompt"`（空闲时）才用 `send`。所以计划这一行要求把运行中的发送改走 `send({mode: "steer", settlePending})`，这是新写的路径，不是“照现有”。提案第 245 行写“现有宿主运行中发的是 followup”，与代码不符（回车是 steer），计划沿用了这个说法的上下文。
+  - `PendingSend`（用于“结果未知，重发”）没有 `mode`、`settlePending` 两个字段。`message.resend` 用同一个 `commandId` 重发时，若第一次其实没到服务端，重发的这条不带结算：话进了缓冲区，审批却还挂着。现有 `enqueue` 路径在结果未知时什么也不提示、草稿已清空（`setDraft("")` 在函数开头），用户的话悄悄丢了；换成会拒绝审批的 `send` 之后，这个沉默的丢失更严重。
+  - Ctrl/⌘+回车的 `followup`：bot 没有等用户的期限（t06 决定 4），有审批挂着时 `followup` 排在运行之后，运行永远在等审批，这条话永远发不出，也不提示。
+- 建议改法：
+  - 固定模式下运行中的发送统一走 `send({input, mode: "steer", settlePending: "deny"})`；乐观消息与 `PendingSend` 加 `mode`、`settlePending`，`message.resend` 原样重放。
+  - 总是带 `settlePending: "deny"`：内核规定没有同步事项时等于不带（runtime.md 输出 111），这样不用依赖浏览器本地的 `pending()`（它可能比服务端旧，竞态时话进了缓冲区而审批还挂着）。
+  - 固定模式 `canQueue: false`，不提供 `followup`。
+  - 在 Spec 里写这些，别让切片 2 的实现者自己推。
+
+### 4. 发话会拒绝审批，但计划没有写“发出会拒绝 N 项”的提示与向导作废
+
+- 严重程度：重要
+- 类别：与已定设计一致
+- 位置：提案第七节第 1 条（“向导里已经选了一半的，一并作废；输入框旁提示‘发出会拒绝 N 项’”）；计划“nb-agent-ui：两项视图选项”
+- 现象：计划的 nb-agent-ui 一节只加 `avatar` 与 `pendingPlacement`，没有任何输入框旁提示，也没有说 `dockState` 里写了一半的答案怎么处理。已定设计里这两项是和 `settlePending` 绑在一起的。
+- 为什么是问题：停靠区不替换输入框，用户可以边看着审批边打字。回车一发，审批被拒绝，而界面上没有任何预告；模型收到的拒绝说明是固定的一句“用户发了新消息”。不可逆程度不高，但会让用户误以为“我只是补一句话”。
+- 细节要求（写 Spec 时容易漏）：
+  - N 只数自己会话里同步的事项（审批、同步提问、模式切换），不含 `async` 提问，也不含 `source` 非空的后代事项（提案第七节写“子代理停在主对话里的事项不随这条消息结算”）。`pendingInputs` 里这三类混在一起，要按 `source`、`async` 过滤。
+  - 提示放在哪：`ctx.composer` 加一个只读数字，或 `ctx.interaction` 加字段；这是 nb-agent-ui 的合同改动，属于切片 1。
+- 建议改法：把“提示 N 项”列进切片 1，Lab 的 bot 档场景里画出来；host 在受理后清掉被结算事项的 `wizardState`、`dockState` 条目。若阶段 ① 要先不做，要在计划的“不做”里写明并让开发者知道。
+
+### 5. 没有模型时的引导卡与“不建主对话”被丢了
+
+- 严重程度：重要
+- 类别：与已定设计一致
+- 位置：提案第十一节“首次运行：没有模型时显示引导卡、不建主对话；有模型时 `ensureMain` 后打开”与固定会话档“没有会话时”一行；计划“bot 视图内容：调 `ensureMain` 取会话”“取会话失败时只显示失败原因与重试”
+- 现象：计划的视图一打开就调 `ensureMain`，失败才显示“失败原因与重试”。`ensureMain` 在没有模型时照样建出 `bot-lyra` 并持有（main-conversation.md 的 `ensureMain` 不看模型）。没有模型是配置问题，不会以 `ensureMain` 失败的形式出现。
+- 为什么是问题：全新用户装好应用点开 bot 视图，会话已经建好并写进会话库；之后每次开窗都有一个空主对话。已定设计要的是“引导卡、不建”。现有宿主有 `modelNotice` 提示卡（`profile-unavailable`），但它在有会话之后才出现，且是“设置里去绑定模型”的卡，不是“还没建”的状态。
+- 判断模型是否可用的数据在 `nbook.agent` 的浏览器入口里（`modelsSnapshot`、`ensureModels`），bots 的浏览器入口拿不到，所以计划里 `session: () => Promise<...>` 这个回调自己无法判断，要么由 `fixedConversation` 在调回调之前先看模型，要么回调返回一个“没有模型”的码。
+- 建议改法：`options.session` 的失败码里加 `no-model`（或让 `fixedConversation` 在调用前检查 `modelsSnapshot`），宿主为它显示现有的 `modelNotice` 引导卡、打字发送不可用、不建会话；在 Spec 里写这个分支，e2e 加“没有模型时不建 `bot-lyra`”的断言（会话库里查不到）。
+
+### 6. 固定宿主的接口前后不一致，宿主缺“取会话中、失败、重试”这一层，组件接线没有列全
+
+- 严重程度：重要
+- 类别：接口与合同 / 遗漏
+- 位置：计划“固定会话模式”（`createSessionHost` 选项 `fixed: {sessionId}`）与“服务”（`fixedConversation(options)`，`session: () => Promise<...>`）；`web/ConversationHost.vue`、`web/plugin.ts:456-560`（`conversationComponent`）
+- 现象：
+  - 宿主选项是已知的 `sessionId`，组件选项是异步的 `session()`；会话 id 要等 `ensureMain` 才有。计划没有说谁来调 `session()`、在哪里放“取会话中、失败原因、重试”的状态。现有宿主的失败只存在于“已有 `current` 的会话打开失败”（`target.failed`，`availability: load-error`、动作 `retry` 调 `open(target.id)`）；没有会话时 `availability` 是 `ready`，输入框可用且 `submit` 会隐式建会话。固定宿主要新增一个“没有会话 id 时的失败态”，并让 `retry` 重新调 `session()` 而不是 `open`。
+  - `borrow()` 在归零后回来时 `if (current === null && sessionId.value !== null) open(sessionId.value)`：取会话失败过、`sessionId` 为空时不会重试。
+  - `SessionHost` 的接口里没有“启动”：通用宿主靠 `ConversationHost.vue` 的 `onMounted` 调 `restore()`；固定宿主要由谁调、调几次（视图卸载后重新挂载）没写。
+  - 计划只改 `session-host.ts`，但对话视图实际是 `ConversationHost.vue` 加 `plugin.ts` 的 `conversationComponent` 拼出来的：`registry`（含状态栏条目）、`renderers`、`services`（`@`、`:`、`$` 菜单与技能白名单，按 `hostAt(position).profileKey()` 算）、`skillInit` 对话框、`statusLine`、`SubagentsEntry`（`head-trailing`，`seenErrors`、`runResults` 是插件级单例）、`provide(subagentStoreKey)`。固定组件要复用这一整套，新增的 `#sessions` 槽、`new-session`、`welcome`、`restore` 又要去掉。这些都是切片 2 的真实工作量，不在计划里。
+  - 头部：现有视图声明了 `[VIEW_HEAD]: true`，对话头被送进工作台面板头的标题区。bot 视图（左侧栏、标题“bot”）要不要接管标题区，计划没有写；不接管就是面板头“bot”加对话头“星璃”两层，接管则 bots 的视图实现要拿 `context` 并透传。
+- 建议改法：把宿主选项改成 `fixed: {resolve: () => Promise<{ok; sessionId} | {ok: false; code}>}`；宿主新增 `start()`（等价于 `restore()` 的位置），`resolve` 失败时 `availability` 为 `load-error`、`retry` 重新 `start()`；`canSend` 在没有会话时为假（比靠 `submit` 里的 `create()` 返回 null 更可靠）。在计划里把 `ConversationHost.vue`、`conversationComponent` 的复用方式与标题区的决定写出来（建议复用同一个 `ConversationHost.vue`，加 `fixed` 属性，免得写两份）。
+
+### 7. 固定模式的守卫点没有列全：隐式建会话有三条路，换会话不是只有计划列的三个动作
+
+- 严重程度：重要
+- 类别：遗漏
+- 位置：计划“不受理换会话的动作（`session.create`、`/new`、`/fork`）”；`session-host.ts:547`、`:1144`、`:1287`、`:1307`、`:1688`、`:1892`
+- 现象：落在宿主里的“会建、会换”的路径有这些：
+  - 隐式建会话：`submit`（第 1144 行 `current === null && create()`）、`startUpload`（第 547 行 `createOnce()`，第一次加附件就建会话）。计划写了“打字与附件不隐式建会话”，但这两个是在宿主内部的调用点，不是动作。
+  - 动作：`session.create`、`session.select`、`command.run` 的 `new`、`fork`（`fork` 成功后 `open(新会话)`，第 1307 行）。
+  - 重放：`availability.act` 的 `retry`（`open(target.id)`）、`borrow()` 归零重开（第 1892 行）、`restore()`。这些在固定模式下应分别是“重新取会话”、“重新打开固定 id”、“不存在”。
+  - 视图自己的入口：`headerActions`、`message.branchFrom`（`rewriteHistory("branch")`）靠 `canMutateHistory` 关；`canArchive`、`canRestore` 在 `nb-agent-ui` 里没有任何消费者（只在 `types.ts`），计划列了它们但它们什么也关不掉。
+- 为什么是问题：只在 UI 标志上关入口、`act` 层不拦，哪个入口漏关（例如以后注册表里有人加了一个 `session.select` 的头部动作）都会换掉固定会话。
+- 建议改法：两个窄点守卫，而不是逐个动作：固定模式下 `create()` 一律返回 `null`（`submit`、`startUpload`、`/new`、`/fork` 都经过它，`create` 失败时 `submit` 已经会还原草稿）；`open(id)` 的前置检查 `id !== fixed.sessionId` 就转 `focus-session`，`run()` 的 switch 里 `session.create`、`session.archive`、`session.restore`、`session.rename` 直接丢弃并记诊断。Spec 的取值表只列真正起作用的标志。
+
+### 8. bots 的模式：companion Profile 装了模式扩展，但宿主按“是不是主创 Profile”决定显示模式
+
+- 严重程度：重要
+- 类别：依赖的机制与计划不符
+- 位置：计划“命令白名单只有 `compact`、`plan`、`mode`”；`session-host.ts:1840`；`bots/backend/profile.ts:37-38`、bots.md 输出 3
+- 现象：宿主在 `composer.modes` 里写 `meta.profile !== MAIN_PROFILE ? [] : MODE_OPTIONS`，即只有主创 Profile 才有模式。`nbook.bots.companion` 是另一个 Profile，装了同一套模式扩展（`extensions: [...parts.modes]`），所以：模式下拉与 Shift+Tab 循环不出现，但白名单里的 `/plan`、`/mode` 照样能改设置，而且 bot 自己能调 `nbook.agent.switch-mode`，发出“模式切换请求”，用户批准了却看不到当前模式。
+- 建议改法：把判据改成“会话的 Profile 装了模式扩展”（快照的 `extensions` 里有 `AGENT_MODES_EXTENSION`），不比较 key；这是通用宿主里的一处行为改动，要写进切片 2 并补一条“bot 的会话里模式下拉出现”的测试。或者明说 bot 档不做模式，把 `plan`、`mode` 也拿出白名单，二者选一，别半开。
+
+### 9. “看到”规则：现成的可见性信号有，但不含窗口焦点；还缺“内容已显示”的条件，`badge()` 需要入口启动时就订阅
+
+- 严重程度：重要
+- 类别：依赖的机制 / 遗漏
+- 位置：计划“看到：视图可见、窗口有焦点时，按 `latestSeq` 调 `markSeen`”“视图 `badge()`”；`nbook/ui/foreground-visibility.ts`、`workbench/web/contracts.ts:152`（`ViewContext.visible`）、views.md 输出 9、17
+- 核实结果：
+  - 现成信号：视图组件经 `context` 属性拿 `ViewContext.visible`（有效可见，停放、收起、加载中都为假）；`useForegroundVisibility(visible, report)`（`tasks`、`notifications` 视图在用）把它与 `document.visibilityState` 合成“前台看得见”。
+  - 它不含“窗口有焦点”：`visibilityState` 在双屏、窗口失焦时仍是 `visible`。提案写的是“对用户可见、窗口有焦点”。要么在 Spec 里说明这里取“前台可见”（与后台任务、通知视图一致），要么给 helper 加 `document.hasFocus()` 与 `focus`、`blur` 监听。
+  - helper 只在“真/假”变化时报告；已读要随新消息前进，还要在 `latestSeq` 变化时再调 `markSeen`（可以合并，只在“看得见”期间监听）。
+- 计划漏掉的条件：
+  - “看到”的是会话里已经显示出来的内容。视图可见但主对话还在加载、`load-error`、`ensureMain` 失败时，只按 `latestSeq` 标已读，会把没显示过的消息算成看过。条件应加上 `availability.status === "ready"` 且消息已载入到不小于 `latestSeq`。
+  - 往上翻着历史时新到的消息算不算看到，计划没写；建议按“跟随着最新”算（`AgentConversationView` 内部有 `following`），或者明说不算、只看可见。
+  - 在看着的时候每来一条助手消息，服务端 `unread` 先加一再被 `markSeen` 清零，`botsChanged` 推两次；可以接受，但 e2e 的计数断言要等稳定值。
+- `badge()`：views.md 输出 17 说“视图还没加载时照样读，计数不依赖视图实例”，而按需激活（`onView`）第一版没有（views.md 第 19 行附近）。所以 bots 的浏览器入口必须 `activationEvents: ["onStartup"]`（`tasks`、`agent` 就是这样），在入口里自己订阅 `botsChanged` 并取 `list`，不能放在视图组件里；计划没有写这一条，写在视图里 `badge()` 会一直是空。
+- 建议改法：Spec 里写明“看到”的三个条件（前台可见、内容已显示到 `latestSeq`、跟随最新），入口层持有计数状态，视图层只负责上报。
+
+### 10. 文案覆盖没有机制：提案已定“经文案覆盖”，计划里只有一个 `emptyTitle`，而会出现“开一个新会话”的地方在适配器里
+
+- 严重程度：建议
+- 类别：与已定设计一致
+- 位置：提案固定会话档最后一行“文案：bot 档的变体，不出现‘新会话’……经文案覆盖，不复制语言包”；计划 `identity`、`emptyTitle`；`nb-agent-ui/src/locales/zh-CN.ts`、`kernel-transcript.ts:169`
+- 现象：
+  - 在 bot 视图里会出现的、带“新会话”意思的文案：`kernel.error.compactionFailed`（“……或者开一个新会话”，由转录器按错误码映射，属于消息内容，不在视图选项里）；顶栏标题 `header.untitled`（“未命名会话”）与 `header.newConversation`；`sessions.*`。计划的 nb-agent-ui 一节没有任何覆盖入口。
+  - `emptyTitle` 落到哪里没写。视图里有 `AgentWelcomeView.title`，没有会话列表时只显示标题，应该是它，但要在计划里写出对应；`identity.name` 要映射成 `ctx.session.title`（否则主对话的标题为空时顶栏写“未命名会话”）。
+- 为什么是问题：文案覆盖若留到后面，每次加一个文案就要回头改一遍；适配器里的那句不在视图的控制下，要覆盖只能在宿主的 `deps.text` 包一层。
+- 建议改法：宿主侧包一层文字解析：固定模式下对一小张键表（`kernel.error.compactionFailed`、`header.untitled` 等）换成 bot 档的键，不复制语言包；在 Spec 的 bot 档取值表里列出键。阶段 ① 可以只覆盖这三五个，剩下的在 Lab 的 bot 档场景里逐屏检查。
+
+### 11. 阶段 ② 把 bot 视图并进“消息”视图时，`fixedConversation(options)` 的形状要返工
+
+- 严重程度：建议
+- 类别：接口与合同
+- 位置：计划“服务”一节；与 `markdownKey` 先例对照（`markdown/shared/contracts.ts`）
+- 差异：`markdownKey` 交的是一组静态组件，属性与事件由使用方每次传；`fixedConversation(options)` 是函数，每次调用交出一个新组件类型，`options` 在调用时定死。到了阶段 ②：
+  - 消息视图的聊天区随选中的 bot 换：每换一次就是一个新组件类型，Vue 会整体卸载重挂，滚动位置、停靠区状态、订阅都重来；做 `keep-alive` 又要自己管每个 bot 一个宿主的生命周期。
+  - `identity: {name, avatar}` 是值，bot 的名字与头像之后会变（`botsChanged`），固定的值不会跟着变。
+  - `agent.sessionOwners.open(sessionId)` 只收会话 id，丢掉了 `owner.id`（哪个 bot）；阶段 ① 只有一个 bot 看不出来，阶段 ② 要选中对应的 bot 就得再按会话 id 反推。
+- 建议改法：服务交出一个静态组件 `FixedConversation`，属性是 `{session, identity, emptyTitle}`（`identity` 用对象，改了就响应），消息视图换 bot 时给它加 `key`；`agent.sessionOwners` 的 `open` 收 `{sessionId, owner}`，把头部的 `owner` 整个交给贡献方。这两处现在改的成本几乎为零，阶段 ② 才改要动两个包的合同。
+
+### 12. 停靠区变成唯一的审批入口后，两处原来能容忍的交互缺口会常驻：答完后焦点掉到页面上，并行审批要逐个批
+
+- 严重程度：建议
+- 类别：交互
+- 位置：计划“`pendingPlacement: "dock"`”；`nb-agent-ui/src/vue/wizard/AgentDock.vue`（`submit`、`keepFocus`）、`wizard.ts:choose`、`AgentConversationView.vue:321`
+- 核实结果：
+  - 答完一个事项：`AgentDock.submit` 只发 `input.submit`；`keepFocus` 只在翻页、收起、展开时调用。向导按事项 `:key` 重建（`:key="item.id"`），点“批准”的按钮随之销毁，焦点掉到 `body`。同步向导全部答完时有 `watch(waitingForUser)` 把焦点交给输入框，停靠区没有对应的逻辑（`dock` 的规格写“出现与事项变化时不移动焦点”，只覆盖了“不抢”，没覆盖“答完后不丢”）。在原来的用法里停靠区只放子代理与异步提问，偶发；bot 档里每个审批都走它，键盘用户每批一次就丢一次焦点。
+  - 下一个事项何时出现：答完当前这个，`index` 留在原位置，下一个立刻显示在同一位置，没有间隔；一次发起多个并行调用时，要连续点 N 次。同步向导里“本会话都批准”（`choose`）会把记忆键相同、还没选的调用一起选上，停靠区的 `:items="[item]"` 单项，这个传播不生效；用户点了“本会话都批准”后后面同类的还要各问一次，除非服务端在 `allow-session` 之后自动放行已挂着的同类事项（没有核实，从代码推断不会）。
+- 建议改法：在 `submit` 里仿 `keepFocus`：焦点原本在停靠区里时，答完后落到下一个事项的第一个控件，没有下一个时交给输入框（`focusComposer`）；Spec 的停靠区一节补这一句。批量传播要不要做，列为阶段 ① 的已知限制，在 Lab bot 档里放“三个并行审批”场景让开发者看一下再决定。
+
+### 13. 验收映射：转交与固定模式的守卫没有真实运行时的用例，计划里的两条验证命令测不到
+
+- 严重程度：重要
+- 类别：验收映射
+- 位置：计划“切片”“验证”
+- 现象：
+  - 切片 2 的验证是 `session-host.test.ts`（它起真实服务端、通用宿主），可以覆盖固定模式的宿主行为；但“转交”在 `plugin.ts` 的命令与贡献里，不在 `createSessionHost` 里，单测不到。
+  - “验证”写跑 `agent-conversation.e2e.ts` 作为转交的回归：它没有 bot 会话，转交的新分支一行都进不去，只能证明没有破坏旧路径。
+  - 新的 `bots-chat.e2e.ts` 列了“打开视图、发话、等审批时发话一并结算、计数”，缺：从状态栏“等你批准”点击进入 bot（右栏对话视图不被揭示）、请求页的“打开会话”、子代理会话在通用视图里打开、没有 bot 贡献时回退、取会话失败后重试、没有模型时不建会话、“看到”规则（失焦与隐藏时计数不清零）、固定模式下 `/new`、会话列表、`session.select` 都不换会话。
+- 建议改法：
+  - 切片 2 补两类测试：宿主层（`fixed` 的各守卫点，真实服务端）；`plugin.ts` 层加一个 dom 测试，用假的 `agent.sessionOwners` 贡献，验证 `focus-session` 的判断顺序（先问归属、后 `reveal`）。
+  - 切片 4 的 e2e 清单按上面补齐，每条写成断言：“右栏对话视图的 `data-agent-head` 数量为 0”“`bot-lyra` 不在会话列表里”“计数在窗口失焦时保持”等。否定断言先做变异检查（仓库已有这条教训）。
+  - 计数与审批用脚本化模型（`agent-conversation.e2e.ts` 已有 `script(...)` 控制），bot 视图用的是 companion Profile，e2e 的模型绑定要在 probe 服务端里给它配好，写进切片。
+
+## 未发现问题的方面
+
+- 键盘快捷键与命令面板入口：`nbook.agent.open`、`nbook.agent.new-session`、`nbook.agent.open-in-editor` 都只经 `hostAt("view" | "page")` 操作通用宿主，固定宿主不是这两个位置之一，不会被它们换会话；这一块不需要改。
+- 空状态的“最近对话”：固定组件不传 `welcome`，视图的 `showWelcome` 为假；服务端 `list` 已不列有归属的会话（`agent/backend/agent.ts:484`），所以即使通用视图的最近对话也不会出现主对话。
+- 子代理卡片与停靠区里的“打开子会话”最终都落在 `session.select`（`AgentDock.vue` 的 `open`、`ConversationHost.vue` 的 `SubagentsEntry`），一个点覆盖，计划“交给 `focus-session`”的做法成立。
+- `pendingPlacement` 的状态栏：`AgentStatusBar` 单独调 `isDocked` 判断“等你批准”，在停靠模式下自己的审批仍算阻塞项，文字“等你批准”正确，不需要给它也传选项。
+- `settlePending` 的远程合同已有：`shared/remote.ts` 的 `commandArgs.send.settlePending` 已存在，不依赖未做的服务端工作。
+- 一致性：t03 第 1、13、20、21 项（注意力顺序、停靠区、排队区、停止并清空排队）在计划里没有被改动。
+
+## 数量
+
+- 阻断 0；重要 10（1、2、3、4、5、6、7、8、9、13）；建议 3（10、11、12）；共 13 条。
+
+有效发现：1 2 3 4 5 6 7 8 9 10 11 12 13

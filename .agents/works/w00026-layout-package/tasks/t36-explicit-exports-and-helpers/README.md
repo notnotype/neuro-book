@@ -73,4 +73,4 @@ Spec 晋升（`ui/nested-grid` 的“公开面”一句与实现合同的公开�
 
 ## 下一步
 
-1. 欠着：本 Task 改了入口、没构建、没跑 e2e（不改运行时行为，计划里定的）；t39 开 worktree 后先构建并跑探针与一个 Lab 网格 e2e，作为 t36 的补验与 t39 的基线。
+补验（2026-11-19，t39 的 worktree，基于 t36 合入后的 master）：构建通过；`lab-layout-theme-bridge`、`lab-grid-structure`、`lab-sortable-list` 28 条里 27 条直接通过，`lab-grid-structure:61` 在负载 15 到 17 时等 Lab 冷启动就绪超时，单独重跑通过。无欠项。

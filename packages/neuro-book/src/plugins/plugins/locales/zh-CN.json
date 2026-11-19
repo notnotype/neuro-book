@@ -152,6 +152,10 @@
             "name": "Agent",
             "description": "写作助手的会话与运行：接收插件给的扩展、工具与 Profile。"
         },
+        "nbook-bots": {
+            "name": "bot",
+            "description": "常驻的 bot：按插件交出的预设建出来，有自己的目录与一条长期的主对话。"
+        },
         "nbook-canon": {
             "name": "世界引擎",
             "description": "作品的设定与剧情：条目、剧情变更、核对点与改动记录，按章算出每个位置上的样子。"
@@ -215,6 +219,10 @@
         "nbook-state": {
             "name": "公开状态",
             "description": "插件之间共享的界面状态。"
+        },
+        "nbook-stickers": {
+            "name": "表情包",
+            "description": "表情包的目录与管理：你自己的、插件带来的与内置的表情包；Agent 回复里的表情按它找图。"
         },
         "nbook-storage": {
             "name": "存储",

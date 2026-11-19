@@ -12,12 +12,14 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createJsonlStore, defineExtension, defineProfile} from "@notnotype/nb-harness/kernel";
-import type {LogEvent, SessionApi, ToolImplementation} from "@notnotype/nb-harness/kernel/contracts";
+import type {Frame, LogEvent, SessionApi, ToolImplementation} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {IDLE_CLOSE_MS} from "@notnotype/nb-harness/kit/sessions";
 import {REVOKE_GRACE_MS} from "./backend/tools";
+import {agentKey} from "./shared/contracts";
+import type {AgentService} from "./shared/contracts";
 import {agentExtension, agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
@@ -410,6 +412,100 @@ describe("会话", () => {
         const ended = opened.value.events.filter((event) => event.type === "runEnded").map((event) => (event.data as {reason: string}).reason);
         await store.close(opened.value);
         expect(ended).toEqual(["interrupted"]);
+    });
+});
+
+describe("持有与门面作废（sessions.md 输出 24、28）", () => {
+    async function locked(w: AgentWorld, id: string): Promise<boolean> {
+        const store = createJsonlStore({root: join(w.stateRoot, "agent", "sessions")});
+        const opened = await store.open(id);
+        if (!opened.ok) return opened.code === "session-busy";
+        await store.close(opened.value);
+        return false;
+    }
+
+    test("输出 24、28：header 读冷会话不打开；持有期间推过 30 秒不关、release 之后关；锁在别处时交回 session-busy", async () => {
+        const w = await world([profilesPlugin({count: 0})]);
+        const session = await createSession(w);
+        w.settings.clock.advance(IDLE_CLOSE_MS);
+        await waitUntil("空闲后关闭", async () => !(await locked(w, session.id)));
+        expect(await w.service.header(session.id)).toMatchObject({ok: true, value: {id: session.id, profile: WRITER}});
+        expect(await locked(w, session.id)).toBe(false);
+        expect(await w.service.header("nope")).toMatchObject({ok: false, code: "session-not-found"});
+
+        const held = await w.service.hold(session.id);
+        if (!held.ok) throw new Error(held.code);
+        expect(typeof held.value.opened).toBe("number");
+        w.settings.clock.advance(IDLE_CLOSE_MS * 2);
+        expect(await locked(w, session.id)).toBe(true);
+        held.value.release();
+        w.settings.clock.advance(IDLE_CLOSE_MS);
+        await waitUntil("放掉之后空闲关闭", async () => !(await locked(w, session.id)));
+
+        const store = createJsonlStore({root: join(w.stateRoot, "agent", "sessions")});
+        const other = await store.open(session.id);
+        if (!other.ok) throw new Error(other.code);
+        expect(await w.service.hold(session.id)).toMatchObject({ok: false, code: "session-busy"});
+        await store.close(other.value);
+    });
+
+    test("输出 24：只停调用方插件：持有放掉，旧视图与 as 派生的视图抛 ServiceRevokedError，已建立与还在打开的订阅不再回调，打开挂住时的持有交回后立即放掉；会话之后照常空闲关闭", async () => {
+        const SLOW = "test.slowmount.profile";
+        let entered = 0;
+        let gate = Promise.resolve();
+        const declared = agentProfile(SLOW, {name: "慢", description: "测试用", tools: {required: [], optional: []}});
+        const slow: PluginDefinition = {id: "test.slowmount", entries: [defineEntry({id: "server", location: "server", activationEvents: [declared.activationEvent], contributions: [declared.contribution], activate: () => ({contributions: {"agent.profiles": {[SLOW]: defineProfile({id: SLOW, version: "1", name: "慢", description: "测试用", system: "你是写手。", mount: async () => {
+            entered += 1;
+            await gate;
+        }})}}})})]};
+        const w = await world([slow]);
+        let captured: AgentService | null = null;
+        const caller = await w.register({id: "test.caller", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: agentKey}], activate: (context) => {
+            captured = context.services.require(agentKey);
+            return {};
+        }})]});
+        await w.settings.hub.plugins.activate({plugin: "test.caller", entry: "server"});
+        if (captured === null) throw new Error("the caller did not get the agent service");
+        const facade: AgentService = captured;
+        const create = async (): Promise<SessionApi> => {
+            const created = await facade.create({profile: SLOW});
+            if (!created.ok) throw new Error(created.code);
+            return created.value;
+        };
+        const [a, b, c] = [await create(), await create(), await create()];
+        // b、c 先空闲关掉，之后的打开是冷打开、会停在挂住的 mount 上。
+        w.settings.clock.advance(IDLE_CLOSE_MS);
+        await waitUntil("b、c 空闲关闭", async () => !(await locked(w, b.id)) && !(await locked(w, c.id)));
+        const derived = a.as({kind: "user"});
+        const held = await facade.hold(a.id);
+        if (!held.ok) throw new Error(held.code);
+        const framesA: Frame[] = [];
+        a.subscribe((frame) => framesA.push(frame));
+        // 订阅取会话是异步的；之后再来的一次调用结算时，排在它前面的订阅已经接上。
+        await a.snapshot();
+
+        let open!: () => void;
+        gate = new Promise<void>((resolve) => {
+            open = resolve;
+        });
+        const before = entered;
+        const holdingB = facade.hold(b.id);
+        const framesC: Frame[] = [];
+        c.subscribe((frame) => framesC.push(frame));
+        await waitUntil("b、c 都停在打开上", () => entered === before + 2);
+        await caller.stop();
+        open();
+        expect(revoked(await holdingB.then(() => null, (error: unknown) => error))).toBe(true);
+        for (const call of [() => a.snapshot(), () => derived.snapshot(), () => a.as({kind: "user"}), () => a.subscribe(() => undefined)]) expect(revoked(thrownBy(call))).toBe(true);
+        // 调用方作废之后再放掉、再取消都不抛。
+        held.value.release();
+
+        const seenA = framesA.length;
+        for (const id of [a.id, c.id]) expect((await w.service.session(id).setTitle({commandId: cid(), title: "改了"})).ok).toBe(true);
+        expect(framesA.length).toBe(seenA);
+        expect(framesC).toEqual([]);
+        w.settings.clock.advance(IDLE_CLOSE_MS);
+        await waitUntil("三个会话都空闲关闭", async () => !(await locked(w, a.id)) && !(await locked(w, b.id)) && !(await locked(w, c.id)));
     });
 });
 

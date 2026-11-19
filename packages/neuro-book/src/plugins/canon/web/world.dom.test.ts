@@ -70,7 +70,7 @@ async function create(other: CanonNodeWindow, name: string): Promise<string> {
     return Object.values(result.value.ids)[0]!;
 }
 
-async function setup(): Promise<{world: CanonWorld; calls: string[]; other: CanonNodeWindow}> {
+async function setup(): Promise<{world: CanonWorld; calls: string[]; other: CanonNodeWindow; client: CanonClient}> {
     venue = await canonNodeWorld(tmp);
     const mine = await venue.window("mine");
     const other = await venue.window("other");
@@ -78,7 +78,7 @@ async function setup(): Promise<{world: CanonWorld; calls: string[]; other: Cano
     const world = createCanonWorld(client);
     worlds.push(world);
     await waitUntil("订阅建好、读到状态", () => world.connection.value === "online" && world.status.value.data !== undefined, {timeoutMs: 10_000});
-    return {world, calls, other};
+    return {world, calls, other, client};
 }
 
 /** 等这一轮重读做完：新读一个没读过的键，它回来时同一轮里别的到期读取也读完了。 */
@@ -217,5 +217,108 @@ describe("读取层", () => {
         worlds.push(world);
         await waitUntil("连接状态", () => world.connection.value !== "connecting");
         expect(world.connection.value).toBe("no-project");
+    });
+});
+
+// 外部读取（输出 35）：别的插件的远程读取挂进同一份读取层。这里用同一个世界客户端的读取充当“别的插件的远程读取”：取数是调用方
+// 给的函数，读取层只管它什么时候读、读到的什么时候换上。
+describe("外部读取", () => {
+    it("与世界读取同一代失效、同一轮换上：一次发布以后，不会一边已是新的、另一边还是旧的", async () => {
+        const {world, other, client} = await setup();
+        const star = await create(other, "星瑾");
+        const entry = world.read("entry", {id: star, position: INITIAL, mode: "actual"});
+        const names = world.external("external:test:names", () => client.call("lookup", {names: ["星瑾（妹妹）"]}));
+        await waitUntil("两边都读到", () => entry.state.value.data !== undefined && names.state.value.data !== undefined);
+
+        const pairs: [string | undefined, number | undefined][] = [];
+        const stop = watch([entry.state, names.state], ([read, found]) => pairs.push([read.data?.view?.name, found.data?.version]));
+        const renamed = await other.canon.publish(put(person("星瑾（妹妹）", star), await versionOf(other.canon)));
+        if (!renamed.ok) throw new Error(JSON.stringify(renamed.failure));
+        await waitUntil("换上新名字", () => entry.state.value.data?.view?.name === "星瑾（妹妹）" && names.state.value.data?.version === renamed.value.version);
+        stop();
+        expect(pairs.filter(([name, version]) => (name === "星瑾（妹妹）") !== (version === renamed.value.version))).toEqual([]);
+        entry.release();
+        names.release();
+    });
+
+    it("取数抛错：这个读取得到 external-failed，同一轮别的读取照常换上，之后的发布照常重读", async () => {
+        const {world, other} = await setup();
+        const star = await create(other, "星瑾");
+        const entry = world.read("entry", {id: star, position: INITIAL, mode: "actual"});
+        const broken = world.external<never>("external:test:broken", () => Promise.reject(new Error("剧情的读取坏了")));
+        await waitUntil("两个都读过一次", () => entry.state.value.data !== undefined && !broken.state.value.loading);
+        expect(broken.state.value.error).toEqual({code: "external-failed", detail: "剧情的读取坏了"});
+
+        const renamed = await other.canon.publish(put(person("星瑾 2", star), await versionOf(other.canon)));
+        expect(renamed.ok).toBe(true);
+        await waitUntil("照常重读", () => entry.state.value.data?.view?.name === "星瑾 2");
+        entry.release();
+        broken.release();
+    });
+
+    it("重试：在线时把读失败了的再读一次，不等世界变化；读成功的不重读", async () => {
+        const {world, client} = await setup();
+        let attempts = 0;
+        const flaky = world.external("external:test:flaky", () => {
+            attempts += 1;
+            return attempts === 1 ? Promise.reject(new Error("剧情还没启动")) : client.call("lookup", {names: ["星瑾"]});
+        });
+        let healthyReads = 0;
+        const healthy = world.external("external:test:healthy", () => {
+            healthyReads += 1;
+            return client.call("lookup", {names: ["星瑕"]});
+        });
+        await waitUntil("都读过一次", () => !flaky.state.value.loading && healthy.state.value.data !== undefined);
+        expect(flaky.state.value.error?.code).toBe("external-failed");
+
+        await world.retry();
+        await waitUntil("重试以后读到", () => flaky.state.value.data !== undefined);
+        expect(flaky.state.value.error).toBeNull();
+        expect([attempts, healthyReads]).toEqual([2, 1]);
+        flaky.release();
+        healthy.release();
+    });
+
+    it("结果的世界版本比已知的旧：这一代补读一次，不一直重读", async () => {
+        const {world, client} = await setup();
+        let fetched = 0;
+        const lagging = world.external("external:test:lagging", async () => {
+            fetched += 1;
+            const version = await versionOf(client);
+            // 第一次装作对方的快照还没追上本窗口已知的版本。
+            return {ok: true as const, value: {version: fetched === 1 ? version - 1 : version}};
+        });
+        await waitUntil("补读完", () => fetched >= 2 && !lagging.state.value.stale);
+        await settled(world);
+        expect(fetched).toBe(2);
+        expect(lagging.state.value.data?.version).toBe(world.status.value.data?.version);
+        lagging.release();
+    });
+
+    it("外部列表翻过页以后世界变了：按真实页长从头翻到已读的条数，翻到的位置还在；已读的各页都留着（每页随带的东西要合起来用）", async () => {
+        const {world, other, client} = await setup();
+        for (const name of ["甲", "乙", "丙", "丁"]) await create(other, name);
+        const asked: (string | undefined)[] = [];
+        const tree = world.externalList("external:test:tree", (cursor, limit) => {
+            asked.push(cursor);
+            return client.call("tree", {parent: null, limit, ...(cursor === undefined ? {} : {cursor})});
+        }, 1);
+        await waitUntil("第一页", () => tree.state.value.items.length === 1);
+        await tree.more();
+        await tree.more();
+        expect(tree.state.value.items).toHaveLength(3);
+        expect(tree.state.value.pages?.map((page) => page.items.length)).toEqual([1, 1, 1]);
+
+        asked.length = 0;
+        await create(other, "戊");
+        await waitUntil("按新版本重读", () => tree.state.value.data?.version === world.status.value.data?.version && world.status.value.data?.version !== undefined);
+        await settled(world);
+        // 一页一条，翻回三条要从头取三页。
+        expect(asked).toHaveLength(3);
+        expect(asked[0]).toBeUndefined();
+        expect(tree.state.value.items).toHaveLength(3);
+        expect(tree.state.value.pages?.flatMap((page) => page.items)).toEqual(tree.state.value.items);
+        expect(tree.state.value.more).toBe(true);
+        tree.release();
     });
 });

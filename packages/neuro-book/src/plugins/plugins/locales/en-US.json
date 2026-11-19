@@ -155,6 +155,10 @@
             "name": "Agent",
             "description": "Writing assistant sessions and runs; takes the extensions, tools and profiles plugins provide."
         },
+        "nbook-bots": {
+            "name": "Bots",
+            "description": "Resident bots: created from presets that plugins provide, each with its own folder and one long-running main conversation."
+        },
         "nbook-canon": {
             "name": "World engine",
             "description": "The book's setting and story: entries, story changes, checks and the change history, worked out for every point in the book."
@@ -218,6 +222,10 @@
         "nbook-state": {
             "name": "Public State",
             "description": "UI state shared between plugins."
+        },
+        "nbook-stickers": {
+            "name": "Stickers",
+            "description": "Sticker packs: your own, those from plugins and the built-in ones; stickers in Agent replies are looked up here."
         },
         "nbook-storage": {
             "name": "Storage",

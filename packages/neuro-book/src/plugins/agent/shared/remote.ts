@@ -88,6 +88,8 @@ const commandArgs = {
         mode: Type.Optional(Mode),
         release: Type.Optional(ReleaseMode),
         replaces: Type.Optional(Type.Array(Type.Object({id: Type.String(), edits: Type.Integer({minimum: 0})}, {additionalProperties: false}))),
+        /** 发话时一并以 `deny` 结算挂着的审批与提问（harness/runtime.md 输出 111；sessions.md 输出 27）。 */
+        settlePending: Type.Optional(Type.Literal("deny")),
     },
     enqueue: {input: Input, mode: Mode},
     edit: {inputId: Type.String(), input: Input},
@@ -115,12 +117,20 @@ const commandArgs = {
 /** 暴露给远程的指令：只给宿主的不进合同（harness/runtime.md 输出 72）。 */
 export type RemoteCommandName = Exclude<CommandName, HostOnlyCommand>;
 
+/**
+ * 有归属的会话不改写历史（sessions.md 输出 26）：`nbook.agent` 在进内核之前按会话头拒绝，码不在内核的表里，在这里补上。与句柄表的
+ * `HISTORY_COMMANDS` 同一组；这里是浏览器也加载的合同，不引句柄表。
+ */
+const OWNED_REFUSED = new Set<RemoteCommandName>(["rewind", "switchBranch", "archive"]);
+type OwnedRefused = "rewind" | "switchBranch" | "archive";
+type RemoteErrorsOf<K extends RemoteCommandName> = K extends OwnedRefused ? readonly [...(typeof commandErrors)[K], "owned-session"] : (typeof commandErrors)[K];
+
 type CommandMethods = {
     readonly [K in RemoteCommandName]: {
         readonly input: TSchema;
         readonly output: ReturnType<typeof object<{value: CommandMap[K]["value"]; seq: number; replayed: boolean}>>;
         readonly effect: "write";
-        readonly errors: ReturnType<typeof commandErrorsOf<(typeof commandErrors)[K]>>;
+        readonly errors: ReturnType<typeof commandErrorsOf<RemoteErrorsOf<K>>>;
     };
 };
 
@@ -128,7 +138,7 @@ const commandMethods = Object.fromEntries((Object.keys(commandArgs) as RemoteCom
     input: Type.Object({sessionId: SessionId, commandId: CommandId, ...commandArgs[name]}, {additionalProperties: false}),
     output: object<unknown>(),
     effect: "write",
-    errors: commandErrorsOf(commandErrors[name]),
+    errors: commandErrorsOf(OWNED_REFUSED.has(name) ? [...commandErrors[name], "owned-session"] : commandErrors[name]),
 }])) as unknown as CommandMethods;
 
 const BySession = {sessionId: SessionId};

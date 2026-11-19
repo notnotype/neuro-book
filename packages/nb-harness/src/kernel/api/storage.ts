@@ -27,6 +27,8 @@ export interface SessionIndexEntry {
     readonly background: boolean;
     /** 会话头的调用方（子会话）；没有调用方的会话没有（session.md 输出 22）。 */
     readonly caller?: SessionHeader["caller"];
+    /** 会话头的归属（session.md 输出 25）；加这一项之前写的索引读作没有。 */
+    readonly owner?: SessionHeader["owner"];
     /** fork 出来的会话：来源会话的 id。 */
     readonly origin?: string;
     /** 累计花费，与快照的 `spend` 同口径；没有这一项的旧索引读作 0。 */
@@ -60,6 +62,11 @@ export interface LogStore {
     create(header: SessionHeader): Promise<StorageResult<LogHandle>>;
     /** 取锁 → 截掉不完整的尾部 → 校验 → 读回大块内容。 */
     open(id: string): Promise<StorageResult<LogHandle>>;
+    /**
+     * 只读会话头（session.md 输出 26）：不取锁、不修复、不写，别的进程持有时也能读。会话头建后不变，读到的就是权威值。
+     * 不在得 `session-not-found`，第一行读不懂得 `log-corrupt`，`format` 不认识得 `needs-migration`。
+     */
+    header(id: string): Promise<StorageResult<SessionHeader>>;
     /** 一个写入批：一次写入后同步到盘。失败时句柄进损坏状态，结果对调用方不确定，重开以文件为准。 */
     append(handle: LogHandle, batch: readonly LogEvent[]): Promise<StorageResult<void>>;
     list(filter?: {readonly project?: string; readonly archived?: boolean; readonly background?: boolean}): Promise<StorageResult<readonly SessionIndexEntry[]>>;

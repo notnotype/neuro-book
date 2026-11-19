@@ -58,6 +58,15 @@ describe("runtime.md 输出 78：工具上下文", () => {
         await using foreground = await createTestSession();
         expect(foreground.hostContexts.at(-1)).not.toHaveProperty("background");
     });
+
+    test("会话头有 owner 时工具拿到它，fork 出来的会话没有；上下文改不动", async () => {
+        await using owned = await createTestSession({owner: {plugin: "nbook.bots", id: "lyra"}});
+        const context = owned.hostContexts.at(-1)!;
+        expect(context.owner).toEqual({plugin: "nbook.bots", id: "lyra"});
+        expect(() => Object.assign(context, {owner: {plugin: "nbook.other", id: "x"}})).toThrow(TypeError);
+        await using plain = await createTestSession();
+        expect(plain.hostContexts.at(-1)).not.toHaveProperty("owner");
+    });
 });
 
 describe.each([["内存存储", false], ["JSONL 存储", true]] as const)("一轮对话（%s）", (_name, jsonl) => {
@@ -229,6 +238,32 @@ describe("打开、恢复与只读", () => {
         expect(changes.map((event) => (event.data as {reason: string}).reason)).toEqual(["created", "code-updated"]);
         expect((changes[1]!.data as {from: string}).from).toBe((changes[0]!.data as {hash: string}).hash);
         await closeSession(updated.value);
+    });
+
+    test("session 输出 25：建会话期间调用方改了自己的参数，写下的仍是校验过的那份，重开读得懂", async () => {
+        const store = createJsonlStore({root});
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const base = env(store, defaultTestProfile);
+        const slow: SessionEnv = {...base, profiles: {resolve: async (key) => {
+            await gate;
+            return base.profiles.resolve(key);
+        }}};
+        const owner = {plugin: "nbook.bots", id: "good"};
+        const creating = createSession(slow, {profile: defaultTestProfile.id, id: "mutated-owner", owner});
+        // Profile 还在解析：这时改成会话头校验不过的值。
+        owner.id = "with/slash";
+        release();
+        const created = await creating;
+        if (!created.ok) throw new Error(created.code);
+        expect((await created.value.snapshot()).header.owner).toEqual({plugin: "nbook.bots", id: "good"});
+        await closeSession(created.value);
+        const reopened = await openSession(env(store, defaultTestProfile), "mutated-owner");
+        if (!reopened.ok) throw new Error(reopened.code);
+        expect((await reopened.value.snapshot()).header.owner).toEqual({plugin: "nbook.bots", id: "good"});
+        await closeSession(reopened.value);
     });
 
     test("会话头里的 Profile 解析不到：以只读打开，能查询，发送与应答得 read-only", async () => {

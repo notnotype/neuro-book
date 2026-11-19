@@ -1,0 +1,258 @@
+{
+    "commands": {
+        "category": "Plot",
+        "open-secrets": {
+            "title": "Open Who Knows What"
+        },
+        "open-ledger": {
+            "title": "Open Foreshadowing Ledger"
+        },
+        "open-goals": {
+            "title": "Open Goals"
+        },
+        "show-sidebar": {
+            "title": "Show Plot"
+        }
+    },
+    "views": {
+        "sidebar": {
+            "title": "Plot"
+        }
+    },
+    "editorPages": {
+        "secrets": {
+            "title": "Who Knows What"
+        },
+        "ledger": {
+            "title": "Foreshadowing Ledger"
+        },
+        "goals": {
+            "title": "Goals"
+        }
+    },
+    "componentViews": {
+        "knowing": {
+            "title": "Knows"
+        },
+        "attitude": {
+            "title": "Goals and Attitudes"
+        },
+        "point": {
+            "title": "Who Knows"
+        }
+    },
+    "entryTabs": {
+        "experience": {
+            "title": "Experience"
+        }
+    },
+    "sidebar": {
+        "tables": "Tables",
+        "lines": "Plot lines",
+        "noLines": "No plot lines yet"
+    },
+    "page": {
+        "unbound": "Available after opening a work",
+        "loading": "Loading…",
+        "failed": "The plot data could not be read: {{reason}}",
+        "retry": "Retry",
+        "lineMissing": "This line cannot be read",
+        "plot": "Plot",
+        "more": "Show more ({{count}} left)",
+        "moreUnknown": "Show more",
+        "notFound": "This entry was not found",
+        "deletedEntry": "Deleted entry"
+    },
+    "fmt": {
+        "list": ", ",
+        "listSemi": "; ",
+        "labeled": "{{label}}: {{value}}",
+        "labelPrefix": "{{label}}: ",
+        "note": " ({{text}})",
+        "withNote": "{{text}} ({{note}})",
+        "dot": " · ",
+        "none": "—"
+    },
+    "degree": {
+        "knows": "Knows",
+        "misbelieves": "Believes wrongly",
+        "suspects": "Suspects",
+        "forgot": "Forgot",
+        "unaware": "Doesn't know",
+        "noRecord": "No record",
+        "unset": "Degree not set"
+    },
+    "secrecy": {
+        "common": "Common",
+        "trade": "Trade",
+        "secret": "Secret",
+        "topSecret": "Top secret"
+    },
+    "chapter": {
+        "of": "Chapter {{index}}",
+        "paragraph": "Chapter {{index}}, paragraph {{paragraph}}",
+        "prehistory": "Backstory",
+        "unscheduled": "Not scheduled"
+    },
+    "secrets": {
+        "segments": {
+            "label": "Filter",
+            "all": "All",
+            "readerOnly": "Only the reader knows",
+            "readerUnaware": "Reader doesn't know yet",
+            "noPlan": "No reveal planned"
+        },
+        "columns": {
+            "secret": "Secret",
+            "others": "Others",
+            "reader": "Reader",
+            "plan": "How it is revealed"
+        },
+        "about": "About {{name}}",
+        "other": "Other",
+        "noOne": "Nobody knows",
+        "andMore": "{{list}} and {{count}} more",
+        "readerFrom": "{{degree}}, since {{place}}",
+        "revealExplicit": "{{chapter}}: stated",
+        "revealHint": "{{chapter}}: hinted",
+        "written": "written",
+        "noPlan": "No plan",
+        "pick": "People to show ({{chosen}} / {{total}})",
+        "pickTitle": "People to show",
+        "pickLimit": "At most {{count}}",
+        "empty": "No secrets yet",
+        "tableLabel": "Who knows what",
+        "decision": {
+            "decided": "{{text}}: {{conclusion}}",
+            "pending": "{{text}}: undecided",
+            "pendingDue": "{{text}}: undecided, due {{chapter}}"
+        }
+    },
+    "ledger": {
+        "segments": {
+            "label": "Filter",
+            "unpaid": "Not paid off",
+            "silent": "Silent too long",
+            "unplanned": "No payoff planned",
+            "dropped": "Dropped",
+            "all": "All"
+        },
+        "columns": {
+            "name": "Foreshadowing",
+            "stage": "Stage",
+            "last": "Last mentioned",
+            "next": "Next",
+            "band": "Nodes"
+        },
+        "stage": {
+            "unplanted": "Not planted",
+            "planted": "Planted",
+            "echoing": "Echoing",
+            "partial": "Partly paid off",
+            "paidOff": "Paid off",
+            "dropped": "Dropped"
+        },
+        "importance": {
+            "main": "Main",
+            "side": "Side",
+            "minor": "Minor"
+        },
+        "role": {
+            "plant": " plant",
+            "echo": " echo",
+            "mislead": " mislead",
+            "partial": " partial payoff",
+            "payoff": " payoff"
+        },
+        "roleShort": {
+            "plant": "P",
+            "echo": "E",
+            "mislead": "M",
+            "partial": "R",
+            "payoff": "O"
+        },
+        "silent": "silent for {{count}} chapters",
+        "next": "{{role}} in {{chapter}}",
+        "none": "No plan",
+        "unplannedNote": "No payoff planned yet",
+        "legendWritten": "written",
+        "legendPlanned": "planned",
+        "legendRoles": "plant, echo, mislead, partial payoff, payoff",
+        "here": "Selected position",
+        "empty": "No foreshadowing",
+        "tableLabel": "Foreshadowing ledger",
+        "legend": "{{written}}: ■  {{planned}}: □  {{roles}}",
+        "nodeLabel": "{{chapter}}: {{role}}, {{state}}"
+    },
+    "goals": {
+        "all": "All main characters",
+        "holderLabel": "Whose",
+        "finished": "Also show achieved and abandoned",
+        "status": {
+            "active": "Active",
+            "blocked": "Blocked",
+            "achieved": "Achieved",
+            "abandoned": "Abandoned"
+        },
+        "attitude": "Toward {{object}}: {{attitude}}",
+        "notReduced": "not summarized yet",
+        "hidden": "Hidden from others",
+        "conflicts": "Conflicts with: ",
+        "basedOn": "Because: ",
+        "moved": "moved in {{chapter}}",
+        "neverMoved": "not moved since appearing",
+        "quiet": "{{count}} chapters without progress",
+        "collapse": "Collapse {{name}}",
+        "expand": "Expand {{name}}",
+        "empty": "No main characters yet",
+        "noGoals": "No goals or attitudes yet"
+    },
+    "attitudes": {
+        "title": "Attitudes",
+        "object": "Toward",
+        "attitude": "Attitude",
+        "cause": "Because of",
+        "address": "Calls them"
+    },
+    "knowing": {
+        "secrets": "Secrets",
+        "others": "Other things",
+        "fields": "Fields",
+        "how": {
+            "witnessed": "Was there",
+            "read": "Read it",
+            "inferred": "Inferred",
+            "other": "Other means"
+        },
+        "toldBy": "Told by {{name}}",
+        "origin": {
+            "initial": "Initial value",
+            "goal": "When the goal appeared",
+            "carried": "Carried over from {{line}}"
+        },
+        "mainLine": "the main line",
+        "empty": "Knows nothing recorded yet"
+    },
+    "point": {
+        "roles": "Characters",
+        "reader": "Reader",
+        "related": "Related",
+        "restUnaware": "The other {{count}} people don't know",
+        "restNoRecord": "No record for the other {{count}} people",
+        "moreRows": "{{count}} more",
+        "readerFrom": "{{degree}}, since {{place}}: {{excerpt}}",
+        "decision": "Decision",
+        "guard": "Reader guard",
+        "foreshadow": "Foreshadowing",
+        "attitude": "Attitude",
+        "goal": "Goal",
+        "attitudeFrom": "{{holder}}'s attitude toward {{object}} comes from it"
+    },
+    "experience": {
+        "remembered": "Remembered from the original line",
+        "uncast": "{{count}} more without a recorded cast",
+        "with": "Also present: {{names}}",
+        "earlier": "Show earlier",
+        "empty": "No experience yet"
+    }
+}

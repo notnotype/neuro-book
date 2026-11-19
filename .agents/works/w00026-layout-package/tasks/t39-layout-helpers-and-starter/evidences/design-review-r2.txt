@@ -1,0 +1,127 @@
+# t39 计划第 2 稿设计审查（第二轮）
+
+计划里有 1 条重要问题、6 条建议，没有阻断。第一轮 12 条的处理基本到位。
+
+实验在 `exp/` 下，仓库文件没有改。`NestedGrid.vue` 不能改，所以实验里的 `NestedGrid` 用同构替身，替身的 `useLayoutExtent`、同步 `watch` 和 `onBeforeUnmount` 发 `null` 都照计划写。
+
+## 按影响排序的发现
+
+### 1. 验收映射有三处用真实运行时写不出来，或指向不存在的测试
+**严重程度**：重要　**类别**：验收　**位置**：plan.md 验收映射第 1、3、4 行与切片 2
+
+- **输出 146（承载盒没有确定高度时量到 0、什么都不画）是 CSS 布局事实**
+  - happy-dom 没有布局引擎，现有 dom 测试都靠 `spyOn` 桩 `clientWidth`/`clientHeight`（`useGridLayout.dom.test.ts:45`、`NestedGrid.dom.test.ts:84`）。
+  - 映射写“`NestedGrid.dom.test.ts`：承载盒高 0 时布局为空”，桩出来的 0 只测了宿主那一半，即 `extent` 高为 0 时布局为空。
+  - “不给高度就量到 0”测不到。同一行的“Lab e2e 照常渲染”是正面用例，守不住反面。
+- **输出 144 的用例描述不可执行**
+  - “行内设根的宽高”在 happy-dom 里不改变 `clientWidth`，它恒为 0。
+  - “改尺寸再发”需要桩 `ResizeObserver`，两份相关 dom 测试里没有先例。
+- **“工作台同步链”行与切片 2 都写“`WorkbenchSurface` 的 dom 测试”，仓库里没有这种测试**
+  - 只有 `component-index-model.test.ts` 提到了这个名字。
+  - 直接覆盖 Surface 的是 `e2e/lab-workbench-surface.e2e.ts` 和 `workbench-shell.e2e.ts`，切片 2 的 e2e 清单一个都没列。
+- **如何核实**：Grep `WorkbenchSurface` 在 `*.test.ts` 与 `e2e/` 里的命中。
+- **建议改法**
+  - 146 在 Lab 加一个容器 `height:auto` 的夹具，用 e2e 断言量到高 0 且没有叶。要么把 146 改成只写可判定的“量到 0 则布局为空”，CSS 前提放进 `NestedGrid.md`。
+  - 144 的用例写明桩 `clientWidth` 加桩 `ResizeObserver`。
+  - 同步链用 `NestedGrid` 加同构的转发 `watch` 做组合测试，集成靠 e2e。把 `lab-workbench-surface`、`workbench-shell` 补进切片 2。
+
+### 2. Spec 输出 145 “模板里再写同名属性会覆盖包里的值”与实测不符
+**严重程度**：建议　**类别**：合同　**位置**：`nested-grid.md` 输出 145；plan.md `bindings` 一节
+
+- **`on*` 键不是覆盖，是追加成数组**：`mergeProps({onGestureCommit:a}, {onGestureCommit:b})` 得到 `[a, b]`。
+  - `NestedGrid` 把 `onGestureCommit` 声明成了 prop，拿到数组后 Vue 报 `Invalid prop`，提交时抛 `props.onGestureCommit is not a function`。
+  - 这条路径是 `h()` 或 JSX 里写 `onGestureCommit`。
+- **模板里的写法**：`:on-gesture-commit` 编译成另一个键 `"on-gesture-commit"`，后写的赢，会把整包里的提交处理换掉。`@extent` 则与 `bindings` 里的 `onExtent` 两个都调。
+- 只有 `disabled`、`contextKey` 是“后写的赢”。
+- **如何核实**：`exp/r2.exp.test.ts` 的 B 组，以及 `compile()` 的输出。
+- **建议改法**：145 只写 `disabled`、`contextKey` 会被覆盖，并注明提交处理不要二次传入。
+
+### 3. layout-drag 输出 18、19 有两句不准或不可判定
+**严重程度**：建议　**类别**：合同　**位置**：`layout-drag.md` 输出 18、19
+
+- **18 的“挂载回调里还是 null”只对模板 ref 的根成立**
+  - 根在建 hook 时已有值（手建元素、父组件传下来的 ref）时，`immediate` 的 watch 在 setup 里同步建会话。
+  - 第一轮 `exp` 里的 effectScope 用例就是这种情况。
+  - 应写成“根出现后的下一次刷新；根已有值则立即”。
+- **19 后半句“要随状态变的东西写成回调里现读的值”是做法，不是可判定的行为**
+  - 建时定死的字段（`autoScroll`、`keyboard`、`scroll`、`config`）没有逐个列出。
+  - `autoScroll` 取自 `v-if` 或 `v-for` 后面的模板 ref 时，会静默没有边缘滚动。
+  - `createOptions` 抛错会进 Vue 的 watch 错误处理，会话停在 null，没有诊断。
+- **建议改法**：19 改成“选项里这几个字段建时定死”的清单，并说明 `createOptions` 抛错时会话为 null。
+
+### 4. Spec `nested-grid.md:223`，输出 144 与 143 写在同一行
+**严重程度**：建议　**类别**：文档
+
+- 145、146 各占一行，144 前少一个换行。渲染后 144 成了 143 的尾巴，按行首编号解析的检查与晋升会漏掉它。
+- 我没有跑 `governance:check` 核对检查器的解析方式，这一点未验证。
+- **建议改法**：补一个换行。
+
+### 5. “卸载前发 null”的可见范围没写
+**严重程度**：建议　**类别**：合同与验收　**位置**：输出 144；plan.md 工作台一节
+
+实测（`r2.exp.test.ts` A 组）：
+
+| 场景 | 宿主模板上的 `onExtent` 监听 | 宿主里 `flush:sync` 的 `watch(host.extent)` |
+|---|---|---|
+| `v-if` 摘掉 | 收到 null | 收到 null |
+| 整体卸载 | 收到 null | 收不到 |
+
+- 整体卸载时，子组件卸载前宿主的作用域已经停了。
+- Surface 的转发 `watch` 因此不会在卸载时把 null 交给 store，行为与今天一致，没有回归。
+- 但“卸载前发 null”加“重挂载时重置 store”的写法，容易让读者以为卸载时 store 会被清空。
+- **建议改法**：验收行“卸载都收到 null”写成“父组件的 `onExtent` 监听”，并在 144 或 `NestedGrid.md` 加一句。
+
+### 6. 接入草稿里剩下的卡点；“组合式函数加整包绑定”的上游选择没有记录理由
+**严重程度**：建议　**类别**：API 形状　**位置**：`useGridHost` 签名；草稿 `minimal-host.draft.vue`、`drag-list.draft.vue`
+
+按第 2 稿签名重写后，两份草稿 vue-tsc 通过。仍卡住或要猜的地方：
+
+- **可响应输入有三种形状**：`grid` 是 `Ref`，`contextKey`、`disabled` 是 getter，`createOptions` 是建造函数。Vue 惯例是 `MaybeRefOrGetter`（VueUse 的 `toValue`）。
+- **`contextKey` 必填**：单上下文宿主也要写常量函数。
+- **`ref` 还是 `shallowRef`**：用 `ref(createGrid())` vue-tsc 放行（`NestedGrid.md` 的示例就这么写），计划没说该用哪个。
+- **诊断仍有两个出口**
+  - 一个是 `useGridHost` 的 `onIssues`，一个是 `NestedGrid` 的 `@issues`。`NestedGrid.md:89` 明说两边收不到对方。
+  - `bindings` 只自动接了尺寸与提交。Surface 自己把两路合并了。
+- **提交前没有出口**：`useGridLayout` 降为内部后，要在提交前看一眼或包一层的宿主没有出口，`onApplied` 在提交之后才调。
+- **`.value`**：漏写 `.value`（`v-bind="host.bindings"`）会被 vue-tsc 拦下（`wrong-bind.draft.vue` 实测），不是静默的。
+
+**上游选择**：提案和 ADR 0054 只写了形状，没有记录“组合式函数加整包绑定而不是自带宿主的包装组件”的理由。
+
+- 包装组件能消掉第 2 条的合并、`.value`、`v-if` 死锁和两个诊断出口。
+- 代价是 `NestedGrid` 约二十个属性、九个插槽都要透传，这可能正是否决它的理由。
+- 请交开发者在两者之间定，并把理由记进提案。
+
+### 7. 迁移与文档清单漏项；“可用尺寸”判据仍有三份
+**严重程度**：建议　**类别**：遗漏
+
+- **文档与注释**
+  - `WorkbenchSurface.md:63`“根的布局尺寸”，迁移后量的是网格根。
+  - `grid.md:22`、`grid-types.ts:233` 向使用者提 `useGridLayout`，而它不再导出。
+  - `issue-gate.ts:5` 的注释同样提到它。
+- **夹具读数**：`NestedGridAcceptanceFixture.vue:76`、`:567` 有“容器几何”读数，要改读 `host.extent`，不是“删掉测量”。
+- **Spec 证据行**：`useGridLayout.dom.test.ts` 的去向没写。Spec 证据行把它列为失败 6 的合同测试。
+- **判据三份**
+  - `useGridLayout.publish`：有限且大于 0。
+  - `NestedGrid.vue:269`：只判大于 0。
+  - `rootExtent()`：非 null 就用，含 0。
+  - 计划只合并了第一份与 `bindings.disabled`。
+
+## 未发现问题的方面
+
+- **第一轮 12 条处理到位**
+  - 第 4 条取“`useGridHost` 唯一”后，`exports.test.ts` 的清单要跟着改，计划已列。
+  - 第 1 条（卸载发 null）的实测见第 5 条：监听能收到，宿主自己卸载时的 `watch` 收不到。
+  - 第 5 条的 `disabled` 与空布局判据共用，机制成立。
+  - 第 8 条 `useDragSession` 返回 `state`，我在 `useDragSession.proto.ts` 里写成了 `computed`。用它做同步 `watch`，拖动开始时回调与派发事件在同一个同步段里到达，所以 `ExplorerTree` 改成 `watch(drag.state, …, {flush: "sync"})` 可行。
+- **同一个盒**
+  - 工作台 Surface 根（宽高 100%、无边框与内边距）与四个 Lab 夹具容器和 `NestedGrid` 根同大。
+  - `NestedGrid` 根无条件渲染，没有布局时也已挂载并有尺寸。
+- **销毁时序**：进行中的拖动随组件卸载时，宿主 `watch(state)` 读到 null，`onEnd` 以 `cancelled:disposed` 收尾。我只测到了 watch 清理这条路径：原型把 `onScopeDispose` 写进了 watch 回调，Vue 警告，没有测到有效的 `onScopeDispose`。
+- **类型**：`v-bind` 展开 `bindings` 的类型没有问题。
+
+阻断 0、重要 1、建议 6。
+
+有效发现：1 2 3 4 5 6 7
+
+完整草稿在 `reports/design-review-r2/report-draft.txt`。
+t39-design-review-r2 exit=0

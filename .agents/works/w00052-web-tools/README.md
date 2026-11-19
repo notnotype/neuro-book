@@ -22,6 +22,8 @@ updated: 2026-11-19
 - omp（MIT）有约 30 个搜索服务的实现（含 deepseek、exa、tavily）与一个读取工具，在 `@oh-my-pi/pi-coding-agent` 的 `web/search`；应用没有依赖这个包（它带 25 个依赖），作参照移植。
 - 两个插件分开装、互不依赖（w00034 t01 决定 3）。
 
+实施位置：worktree `.worktree/w00052-web-tools`，分支 `feat/w00052-web-tools`；插件 id `nbook.web-tools`。
+
 ## 已定的事
 
 - 开发者 2026-11-19：先做本插件，再做 w00034 的浏览器插件；`web_search` 要支持各大搜索 API（Exa、Tavily 等），优先用 DeepSeek 的搜索接口。

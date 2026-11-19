@@ -1,0 +1,14 @@
+bun test v1.4.4 (38afee6c8)
+src/kernel/t41-probe.test.ts:
+E1 position: [{"kind":"next-turn"}]
+E1 request: ["system: fixed:profile","user: event:input","assistant: event:assistant","user: event:lab.noter/note | event:input"]
+E2 second request: ["system: fixed:profile","user: event:input","assistant: call:wait","tool: event:toolResult","user: event:lab.noter/note | event:steer"]
+E3 rewind: "ok" request: ["system: fixed:profile","user: event:input","assistant: event:assistant","user: event:input"]
+E4 stop: {"ok":true,"value":{"aborted":true},"seq":19,"replayed":false} host send: {"ok":true,"value":{"inputId":"523a31ca9ea2","runId":null,"currentRunId":"89e6425e0910","placement":"later"},"seq":14,"replayed":false}
+E4 events: runStarted runEnded(aborted) inputHeld inputReleased[by host] runStarted[by host] runEnded(completed)
+E4 model requests: 2
+E5 sends: [{"ok":true,"value":{"inputId":"863855378c5b","runId":null,"currentRunId":"3f8f5c93ff38","placement":"later"},"seq":17,"replayed":false},{"ok":true,"value":{"inputId":"c83026a5f768","runId":null,"currentRunId":"3f8f5c93ff38","placement":"later"},"seq":19,"replayed":false}]
+E5 events: runStarted input(第一问) runEnded runStarted runEnded inputReleased[by host] inputReleased runStarted input[by host](宿主的话) input(用户的话) runEnded
+ 5 pass
+ 0 fail
+Ran 5 tests across 1 file. [619.00ms]

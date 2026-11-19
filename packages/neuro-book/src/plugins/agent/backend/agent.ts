@@ -7,11 +7,12 @@ import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import {ServiceRevokedError} from "@notnotype/nb-runtime/services";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, Clock, CompactionRestoreArgs, Issuer, CompactionRestored, ModelPort, RunResult, SessionApi, SessionIndexEntry, StorageResult, ToolDeclaration, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, CompactionRestoreArgs, CreateSessionOptions, Issuer, CompactionRestored, ModelPort, RunResult, SessionApi, SessionIndexEntry, StorageResult, ToolDeclaration, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
 import {RequestRecorder, RequestTraceUnavailable, traceModelPort} from "@notnotype/nb-harness/kit/requests";
@@ -26,8 +27,8 @@ import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {RunningWorkItem} from "nbook/shared/host";
 import type {SettingsService} from "nbook/shared/settings";
 
-import {SESSION_TITLE_PROFILE, TASK_ID, taskSessionId} from "../shared/contracts";
-import type {AgentRuntimeService, AgentService, ProfileAdmin, SessionViewOptions, StartTaskOptions, StartTaskResult} from "../shared/contracts";
+import {agentKey, SESSION_TITLE_PROFILE, TASK_ID, taskSessionId} from "../shared/contracts";
+import type {AgentRuntimeService, AgentService, CreateResult, ProfileAdmin, SessionViewOptions, StartTaskOptions, StartTaskResult} from "../shared/contracts";
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
@@ -286,11 +287,11 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => {
         restore.forget(id);
         internal.delete(id);
-    }, forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), report: options.report});
+    }, forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), refuse: (header) => (header.owner === undefined ? null : "owned-session"), report: options.report});
     const table = sessions;
     titles.follow(table);
 
-    const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
+    const createSession = async (createOptions: CreateSessionOptions): Promise<CreateResult> => {
         const created = await table.create(createOptions);
         if (!created.ok) return created;
         if (createOptions.caller !== undefined) relations.register({id: created.value.id, caller: createOptions.caller});
@@ -343,9 +344,18 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             table.gate();
             return table.view(id, issuer);
         },
-        list: (filter = {}) => {
+        hold: (id) => table.hold(id),
+        header: (id) => table.header(id),
+        list: async (filter = {}) => {
             table.gate();
-            return store.list({archived: false, background: false, ...filter});
+            const all = await store.list();
+            if (!all.ok) return all;
+            const wanted = {archived: false, background: false, ...filter};
+            const owned = ownedTrees(all.value);
+            return {ok: true, value: all.value.filter((entry) => !owned.has(entry.id)
+                && (wanted.project === undefined || entry.project === wanted.project)
+                && (wanted.archived === undefined || entry.archived === wanted.archived)
+                && (wanted.background === undefined || entry.background === wanted.background))};
         },
         profiles: () => {
             table.gate();
@@ -458,6 +468,26 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     };
 }
 
+/**
+ * 有归属的会话与它们的后代（sessions.md 输出 25）：父链取自同一次读到的全部索引（`caller`），不看会话关系表，所以刚 fork 或刚派出、
+ * 关系表还没登记的子会话也算得到。中间的祖先没有索引时，断开处以下的不算（已知限制）。
+ */
+function ownedTrees(entries: readonly SessionIndexEntry[]): Set<string> {
+    const byId = new Map(entries.map((entry) => [entry.id, entry]));
+    const known = new Map<string, boolean>();
+    const owned = (id: string, seen: Set<string>): boolean => {
+        const memo = known.get(id);
+        if (memo !== undefined) return memo;
+        const entry = byId.get(id);
+        if (entry === undefined || seen.has(id)) return false;
+        seen.add(id);
+        const result = entry.owner !== undefined || (entry.caller?.kind === "session" && owned(entry.caller.id, seen));
+        known.set(id, result);
+        return result;
+    };
+    return new Set(entries.filter((entry) => owned(entry.id, new Set())).map((entry) => entry.id));
+}
+
 /** 一个会话的工具集交给内核之前：eval 的说明按这个会话里的全局对象算（eval.md 输出 16）。 */
 function sessionDeclarations(declarations: ToolDeclaration[], objects: ReadonlyMap<string, EvalObject>): ToolDeclaration[] {
     const index = declarations.findIndex((declaration) => declaration.id === EVAL_TOOL);
@@ -472,32 +502,96 @@ function sessionDeclarations(declarations: ToolDeclaration[], objects: ReadonlyM
     return next;
 }
 
+/** 门面作废（调用方这次激活结束）时调：放掉它的持有、取消它建立的订阅，之后经它的视图调用抛错（sessions.md 输出 24）。 */
+const revokers = new WeakMap<AgentService, () => void>();
+export function revokeAgentFacade(facade: AgentService): void {
+    revokers.get(facade)?.();
+}
+
+const USER: Issuer = Object.freeze({kind: "user"});
+
 /**
- * 交给别的插件的门面（sessions.md 输出 21）：视图的发出者按调用方盖章，缺省是它的插件的宿主身份，`asUser` 时代替用户。
- * 宿主自己（没有插件身份的调用方）按实例 id 记。交出的视图的 `as` 同样经这里盖章：换成用户照准（本来就能 `asUser`），换成宿主时
- * `plugin` 仍是调用方，换成会话身份抛错；建会话时不能指定会话的 `caller`（子代理关系只由 `nbook.agent` 自己建）。
+ * 交给别的插件的门面（sessions.md 输出 21、23、24）：视图的发出者按调用方盖章，缺省是它的插件的宿主身份，`asUser` 时代替用户；
+ * 盖章的发出者冻结，调用方改不动。宿主自己（没有插件身份的调用方）按实例 id 记。交出的视图的 `as` 同样经这里盖章：换成用户照准
+ * （本来就能 `asUser`），换成宿主时 `plugin` 仍是调用方，换成会话身份抛错；建会话时不能指定会话的 `caller`（子代理关系只由
+ * `nbook.agent` 自己建），`owner` 的 `plugin` 由这里填成调用方。
+ *
+ * 运行时的作废代理只挡门面本身；门面交出的视图、持有与订阅由这里登记，作废时（`revokeAgentFacade`）一起收掉。
  */
 export function agentFacade(service: AgentRuntimeService, consumer: ConsumerIdentity): AgentService {
     const plugin = consumer.plugin ?? consumer.instanceId;
+    let revoked = false;
+    /** 还没放掉的持有与订阅：各自的收口函数，放掉或取消时从这里摘掉。 */
+    const holds = new Set<() => void>();
+    const subscriptions = new Set<() => void>();
+    const check = (): void => {
+        if (revoked) throw new ServiceRevokedError(agentKey.name, consumer, "released");
+    };
     const hostIssuer = (source: SessionViewOptions["source"]): Issuer =>
-        ({kind: "host", source: {plugin, label: source?.label ?? plugin, ...(source?.ref === undefined ? {} : {ref: source.ref}), ...(source?.at === undefined ? {} : {at: source.at})}});
-    const issuerOf = (view: SessionViewOptions | undefined): Issuer => (view?.asUser === true ? {kind: "user"} : hostIssuer(view?.source));
+        Object.freeze({kind: "host", source: Object.freeze({plugin, label: source?.label ?? plugin, ...(source?.ref === undefined ? {} : {ref: source.ref}), ...(source?.at === undefined ? {} : {at: source.at})})});
+    const issuerOf = (view: SessionViewOptions | undefined): Issuer => (view?.asUser === true ? USER : hostIssuer(view?.source));
     const restamp = (next: Issuer): Issuer => {
-        if (next.kind === "user") return next;
+        if (next.kind === "user") return USER;
         if (next.kind === "host") return hostIssuer(next.source);
         throw new TypeError(`plugin ${plugin} cannot act as session ${next.id} (sessions.md output 21)`);
     };
-    const guarded = (view: SessionApi): SessionApi => ({...view, as: (next: Issuer) => guarded(view.as(restamp(next)))});
-    return {
+    const guarded = (view: SessionApi): SessionApi => {
+        const wrapped: Record<string, unknown> = {};
+        for (const [name, value] of Object.entries(view)) {
+            wrapped[name] = typeof value !== "function" ? value : (...args: unknown[]): unknown => {
+                check();
+                return (value as (...args: unknown[]) => unknown)(...args);
+            };
+        }
+        wrapped.as = (next: Issuer) => {
+            check();
+            return guarded(view.as(restamp(next)));
+        };
+        // 取消不过作废的门：作废时正是靠它收掉订阅，调用方作废之后再取消也不该抛错。
+        wrapped.subscribe = (listener: Parameters<SessionApi["subscribe"]>[0]) => {
+            check();
+            const unsubscribe = view.subscribe(listener);
+            const cancel = (): void => {
+                if (subscriptions.delete(cancel)) unsubscribe();
+            };
+            subscriptions.add(cancel);
+            return cancel;
+        };
+        return wrapped as unknown as SessionApi;
+    };
+    const facade: AgentService = {
         create: async (options, view) => {
             if (options.caller?.kind === "session") return {ok: false, code: "not-allowed", detail: "only nbook.agent creates sub-agent sessions"};
-            const created = await service.create(options, issuerOf(view));
+            const {owner, ...rest} = options;
+            const created = await service.create({...rest, ...(owner === undefined ? {} : {owner: {plugin, id: owner.id}})}, issuerOf(view));
             return created.ok ? {ok: true, value: guarded(created.value)} : created;
         },
         session: (id, view) => guarded(service.session(id, issuerOf(view))),
         startTask: (task, view) => service.startTask(task, issuerOf(view)),
+        hold: async (id) => {
+            check();
+            const held = await service.hold(id);
+            if (!held.ok) return held;
+            // 打开期间门面作废了：没有人会放掉它，立即放掉。
+            if (revoked) {
+                held.value.release();
+                check();
+            }
+            const release = (): void => {
+                if (holds.delete(release)) held.value.release();
+            };
+            holds.add(release);
+            return {ok: true, value: {opened: held.value.opened, release}};
+        },
+        header: (id) => service.header(id),
         list: (filter) => service.list(filter),
         profiles: () => service.profiles(),
         running: () => service.running(),
     };
+    revokers.set(facade, () => {
+        revoked = true;
+        for (const release of [...holds]) release();
+        for (const cancel of [...subscriptions]) cancel();
+    });
+    return facade;
 }

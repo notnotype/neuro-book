@@ -3,7 +3,7 @@
  * （docs/specs/agent/builtin-profiles.md）。标题 Profile、扩展 id 与给标题模型的材料由宿主给。
  */
 
-export {IDLE_CLOSE_MS, SessionTable, SessionTableStopping, SessionUnavailable} from "./table.js";
-export type {SessionTableClock, SessionTableOptions} from "./table.js";
+export {HISTORY_COMMANDS, IDLE_CLOSE_MS, SessionTable, SessionTableStopping, SessionUnavailable} from "./table.js";
+export type {HistoryCommand, SessionHold, SessionTableClock, SessionTableOptions} from "./table.js";
 export {isTitleSessionId, SessionMeta, sessionMetaExtension, titleSessionId} from "./meta.js";
 export type {MetaTrigger, SessionMetaOptions} from "./meta.js";

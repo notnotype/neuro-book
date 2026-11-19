@@ -130,6 +130,24 @@ describe("拥有者贡献点合同", () => {
         expect(state(host, "sourcex").validation).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id source 加“.”开头：sourcex"});
     });
 
+    it("idPrefix 为 plugin 时，前缀不合的一条不算重复者：别的插件占用同一个 id 只拒它自己，合法的那一条照常接受，与登记顺序无关", async () => {
+        for (const order of [["rightful", "squatter"], ["squatter", "rightful"]] as const) {
+            const {host, root} = fixture();
+            register(host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), root);
+            for (const id of order) register(host, source(id, [declaration("rightful.run")]), root);
+            expect(host.contribution("commands", "rightful.run")).toMatchObject([
+                {plugin: "rightful", validation: {status: "accepted"}},
+                {plugin: "squatter", validation: {status: "rejected", reason: "invalid-declaration"}},
+            ]);
+        }
+        // 前缀合格的两条彼此重复时都按重复拒；占用者照旧只因前缀被拒。
+        const {host, root} = fixture();
+        register(host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), root);
+        for (const id of ["rightful", "rightful.sub", "squatter"]) register(host, source(id, [declaration("rightful.sub.run")]), root);
+        const reasons = Object.fromEntries(host.contribution("commands", "rightful.sub.run").map((item) => [item.plugin, item.validation.status === "rejected" ? item.validation.reason : item.validation.status]));
+        expect(reasons).toEqual({"rightful": "duplicate-contribution", "rightful.sub": "duplicate-contribution", "squatter": "invalid-declaration"});
+    });
+
     it("idPrefix 为 plugin 时，平台保留发布者的插件也可以只以发布者加“.”开头；内核的 runtime 总是保留；不给平台档案时按严格前缀", async () => {
         const reserved = fixture({reservedPublishers: ["acme"]});
         register(reserved.host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), reserved.root);

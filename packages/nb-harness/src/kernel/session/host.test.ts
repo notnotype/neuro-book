@@ -1324,6 +1324,41 @@ describe("插件宿主", () => {
         await host.close(created.value.id);
     });
 
+    test("session 输出 25、26：owner 写进会话头与索引；不合规则得 invalid-owner、不落盘；fork 不继承；会话头改不动；header 不打开会话", async () => {
+        const env = hostEnv();
+        const host = createAgentHost(env);
+        for (const owner of [{plugin: "", id: "lyra"}, {plugin: "nbook.bots", id: "x".repeat(129)}, {plugin: "nbook.bots", id: "a/b"}]) {
+            expect(await host.create({profile: defaultProfile.id, id: "bot-bad", owner})).toMatchObject({ok: false, code: "invalid-owner"});
+        }
+        expect(await env.store.header("bot-bad")).toMatchObject({ok: false, code: "session-not-found"});
+        const owner = {plugin: "nbook.bots", id: "x".repeat(128)};
+        const result = {mode: "optional" as const, schema: {type: "object", properties: {answer: {type: "string"}}}};
+        const created = await host.create({profile: defaultProfile.id, id: "bot-lyra", owner, result});
+        if (!created.ok) throw new Error(created.code);
+        // 调用方之后改自己的参数、改快照里交出的会话头，都影响不到会话。
+        owner.id = "changed";
+        result.schema.properties.answer.type = "number";
+        const header = (await created.value.snapshot()).header;
+        expect(header.owner).toEqual({plugin: "nbook.bots", id: "x".repeat(128)});
+        expect(() => Object.assign(header.owner!, {id: "forged"})).toThrow(TypeError);
+        expect(() => Object.assign((header.result!.schema as {properties: {answer: object}}).properties.answer, {type: "number"})).toThrow(TypeError);
+        expect((header.result!.schema as {properties: {answer: {type: string}}}).properties.answer.type).toBe("string");
+        const forked = await created.value.fork({commandId: id()});
+        if (!forked.ok) throw new Error(forked.code);
+        const listed = await env.store.list();
+        if (!listed.ok) throw new Error(listed.code);
+        expect(Object.fromEntries(listed.value.map((entry) => [entry.id, entry.owner ?? null]))).toEqual({"bot-lyra": {plugin: "nbook.bots", id: "x".repeat(128)}, [forked.value.sessionId]: null});
+        await host.close(created.value.id);
+        // header 不打开会话：读完之后照样能打开（没人拿着锁），读到的与打开后的会话头相同。
+        const read = await host.header("bot-lyra");
+        expect(read).toEqual({ok: true, value: header});
+        expect(() => Object.assign((read as {value: typeof header}).value.owner!, {id: "forged"})).toThrow(TypeError);
+        const reopened = await host.open("bot-lyra");
+        if (!reopened.ok) throw new Error(reopened.code);
+        expect((await reopened.value.snapshot()).header).toEqual(header);
+        await host.close("bot-lyra");
+    });
+
     const defaultProfile = defineProfile({id: "test.host", version: "1", name: "h", description: "h", system: "系统"}) as AnyProfile;
     const dependent = defineProfile({id: "test.dependent", version: "1", name: "d", description: "d", dependsOn: [counter]}) as AnyProfile;
 });
