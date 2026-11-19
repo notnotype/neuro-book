@@ -27,6 +27,7 @@ export type {
     GridBranchInput,
     GridBranchResize,
     GridBranchResizeResult,
+    GridCollapseResult,
     GridCommitFailureCode,
     GridConstraint,
     GridDroppedRef,

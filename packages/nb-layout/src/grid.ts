@@ -19,6 +19,7 @@ import type {
     GridBranchResize,
     GridBranchesResizeResult,
     GridBranchResizeResult,
+    GridCollapseResult,
     GridExtent,
     GridFailure,
     GridFailureCode,
@@ -36,6 +37,7 @@ import type {
     GridSizing,
     GridSnapshot,
     GridSplitInput,
+    SashCollapseState,
 } from "./grid-types";
 import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
 import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, shareAxis, type GridSashResolver} from "./grid-geometry";
@@ -80,6 +82,12 @@ export type Grid<T> = {
      * 任何一项不通过就整批不落账；通过后一次写回尺寸意图与收起状态。
      */
     resizeBranches(changes: readonly GridBranchResize[]): GridBranchesResizeResult;
+    /**
+     * 收起或展开一块面板（Spec 输出 147）：只翻它的收起标记，尺寸意图不动，下一次 `layout()` 按分配规则重排，
+     * 和宿主改了自己的记录、重新建树相同。和分隔条上的 Enter（邻居让位、恢复到 `restoreSize`）是两种结果。
+     * 改的是活树：用 `useGridHost` 时经它的 `setCollapsed`，直接调的宿主之后要自己 `invalidate()`。
+     */
+    setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
     serialize(): GridSnapshot;
     restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;
     /** 当前位置下的呈现尺寸；不改变意图，可由宿主在视口变化时反复调用。 */
@@ -427,7 +435,8 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             return null;
         };
         const plans: {branchId: string; axis: GridAxis; sizes: Record<string, number>}[] = [];
-        const collapseChanges: {branchId: string; id: string; value: boolean}[] = [];
+        /** `presented` 是这次变化的基线：收起时按比例分的面板记它（输出 148）。 */
+        const collapseChanges: {branchId: string; axis: GridAxis; id: string; value: boolean; presented: number | undefined}[] = [];
         for (const change of changes) {
             const hit = candidateFind(change.branchId);
             if (!hit) {
@@ -448,7 +457,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
                 }
             });
             for (const [id, value] of Object.entries(planned.collapsed)) {
-                collapseChanges.push({branchId: branch.id, id, value});
+                collapseChanges.push({branchId: branch.id, axis: change.axis, id, value, presented: change.baseline[id]});
             }
             plans.push({branchId: branch.id, axis: change.axis, sizes: planned.sizes});
         }
@@ -469,12 +478,45 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             if (holder?.node.kind === "branch") {
                 const target = holder.node.children.find((item) => item.id === entry.id);
                 if (target?.collapse) {
-                    target.collapse = {...target.collapse, collapsed: entry.value};
+                    target.collapse = entry.value ? collapsedRemembering(target, entry.axis, entry.presented) : {...target.collapse, collapsed: false};
                 }
             }
             collapsed[entry.id] = entry.value;
         }
         return {ok: true, intents, collapsed};
+    }
+
+    /**
+     * 收起那一刻记下恢复尺寸（Spec 输出 148）。保留像素的面板记意图：它就是像素记忆，被压缩时也不变；收起的落账不写它的意图，
+     * 所以这时读到的还是收起前的。按比例分的面板意图是权重，只能记收起前呈现的像素（`presented`），没有时（`setCollapsed` 不读布局）不改。
+     */
+    function collapsedRemembering(node: GridNode<T>, axis: GridAxis, presented: number | undefined): SashCollapseState {
+        const collapse = node.collapse!;
+        const remembered = node.sizing === "fixed" ? node.size[axis] : presented;
+        if (remembered === undefined || !Number.isFinite(remembered)) {
+            return {...collapse, collapsed: true};
+        }
+        return {...collapse, collapsed: true, restoreSize: Math.max(collapse.collapsedSize, remembered)};
+    }
+
+    function setCollapsed(id: string, collapsed: boolean): GridCollapseResult {
+        const hit = find(id);
+        if (!hit) {
+            return gridFailure("not-found", `Unknown node id: ${id}`, {id});
+        }
+        if (!hit.parent) {
+            return gridFailure("invalid-argument", `The root has no parent branch to collapse in: ${id}`, {field: "root", id});
+        }
+        const node = hit.node;
+        if (node.collapse === undefined) {
+            return gridFailure("not-collapsible", `${id} in branch ${hit.parent.id} has no collapse policy`, {id, branch: hit.parent.id});
+        }
+        if (node.collapse.collapsed === collapsed) {
+            return {ok: true, changed: false, collapse: {...node.collapse}};
+        }
+        // 只翻标记、不动意图：下一次布局按分配规则重排（输出 147），按比例分的兄弟吸收，保留像素的不变，总量自然守恒。
+        node.collapse = collapsed ? collapsedRemembering(node, axisOf(hit.parent.orientation), undefined) : {...node.collapse, collapsed: false};
+        return {ok: true, changed: true, collapse: {...node.collapse}};
     }
 
     function resizeBranch(
@@ -685,6 +727,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         resize,
         resizeBranch,
         resizeBranches,
+        setCollapsed,
 
         serialize() {
             return serializeTree(tree, encodeRef);

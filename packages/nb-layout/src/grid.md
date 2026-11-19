@@ -16,6 +16,10 @@
 
 原语按未触界节点的呈现比例反解尺寸意图。当前 min/max 约束呈现像素，不能直接夹取反解后的比例权重；仍能呈现目标的兄弟保留原意图。无变化的手势保持快照逐值不变。所有节点都触界或权重为零时以现有总量选择权重单位，再重新布局验证目标后一次发布。
 
+`setCollapsed(id, collapsed)` 收起或展开一块有收起策略的面板：只翻它的收起标记，尺寸意图不动，下一次 `layout` 按分配规则重排（按比例分的兄弟吸收，保留像素的不变，展开回到意图），和宿主改了自己的记录、重新建树相同。分隔条上的 Enter 是另一种结果：隔着那条分隔条的邻居由近到远让位，恢复到 `restoreSize`；另一侧吸收不了时不收，给 `no-room-to-collapse`。`setCollapsed` 改的是活树，用 `useGridHost` 的宿主经 `host.setCollapsed`（会重发布局），直接调的宿主之后要自己 `invalidate()`（[Spec](../../../docs/specs/ui/nested-grid.md) 输出 147、149）。
+
+`restoreSize` 由网格在收起的那一刻记下，宿主只给初值：保留像素的面板记它的意图（被压缩时也是意图）；按比例分的面板在 `resizeBranches`（拖动收起、Enter）里记收起前呈现的宽度，经 `setCollapsed` 时不改，要“恢复到合适的那一份”就给它 `restoreToShare`。收起策略不写快照：宿主要跨会话保存，从 `setCollapsed` 的结果或 `find(id)` 读（输出 148）。
+
 `resize(id, axis, delta)` 保留为意图单位的单节点入口，兄弟共同吸收可用增量。用户手势携带的是当前呈现 px，应使用 `resizeBranch`，不能逐个面板调用 `resize`。
 恢复的意图可能超出当前约束；旧单节点 `resize` 会向当前范围归一，意图总量可能下调，不能把它用于需要保留越界偏好的呈现手势。`resizeBranch` 的 no-op 则保留原意图。
 
