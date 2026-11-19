@@ -12,7 +12,7 @@ import {RPC_MAX_MESSAGE_BYTES} from "@notnotype/nb-host/socket";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
-import {ActorSchema, AddressSchema, AuthorizationSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
+import {ActorSchema, AddressSchema, AuthorizationSchema, EntryEditsSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
 import type {CanonReadView, ChapterItem, ComponentType, DecisionView, EditRoute, FieldDeclaration, OriginStep, Placement, TreeItem, TreeItemAt, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
@@ -92,6 +92,16 @@ const methods = {
     /** 一个地址的来历的一页，从最近一步往前（canon.model 输出 37）；带视图令牌拒。 */
     origins: {input: Type.Object({at: AddressSchema, position: Type.Optional(ReadPositionSchema), mode: Mode, cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
     lookup: {input: Type.Object({names: Type.Array(Type.String(), {maxItems: 200}), position: Type.Optional(ReadPositionSchema), view: View}), output: Out, effect: "read", errors},
+    /**
+     * 按名字或别名的片段找条目（project.md 的 `findEntries`）：引用的选择器与 Agent 查名字的兜底用。带视图令牌一律拒（防剧透的
+     * 视图下不让枚举名字）。
+     */
+    findEntries: {
+        input: Type.Object({query: Type.String({maxLength: 200}), kinds: Type.Optional(Type.Array(Type.String(), {maxItems: 50})), types: Type.Optional(Type.Array(Type.String(), {maxItems: 50})), position: Type.Optional(ReadPositionSchema), cursor: Cursor, limit: Limit, view: View}),
+        output: Out,
+        effect: "read",
+        errors,
+    },
     changes: {
         input: Type.Object({
             filter: Type.Optional(Type.Object({
@@ -187,6 +197,12 @@ const methods = {
     outcome: {input: Type.Object({requestId: Type.String()}), output: Out, effect: "read", errors},
     publish: {input: Type.Object({request: WriteRequestSchema, token: Token, view: View}), output: Out, effect: "write", errors},
     editInPlace: {input: Type.Object({...EditFields, token: Token, view: View}), output: Out, effect: "write", errors},
+    /**
+     * 一次改几处（revisions.md 输出 25）与它的预览。合同只加了方法、版本不升：老页签只调老方法照常能用，新页面与服务端出自同一份
+     * 构建（升了版本老页签只显示“世界已断开”，没有刷新的出路）。
+     */
+    editEntries: {input: Type.Object({input: EntryEditsSchema, token: Token, view: View}), output: Out, effect: "write", errors},
+    previewEntries: {input: Type.Object({input: EntryEditsSchema, view: View}), output: Out, effect: "read", errors},
     recordDelta: {input: Type.Object({...DeltaFields, token: Token, view: View}), output: Out, effect: "write", errors},
     /** 语义档的记一笔（revisions.md 输出 23）：`text` 是这条变更的文字，也是给这个字段的事件。 */
     recordNote: {
@@ -313,6 +329,17 @@ export type OriginItem = Exclude<OriginStep, {kind: "init"} | {kind: "reduce"}> 
 /** 一次修订能不能还原（revisions.md 输出 14）：章序调整不能；有后面的修订依赖它时列出它们。 */
 export type Revertable = {readonly ok: true} | {readonly ok: false; readonly reason: "not-revertable"} | {readonly ok: false; readonly reason: "has-dependents"; readonly dependents: readonly string[]};
 
+/** `findEntries` 找到的一个条目：名字按读取位置；只按别名命中时给出是哪个别名。 */
+export interface FoundEntry {
+    readonly id: string;
+    readonly name: string;
+    readonly kind: string;
+    readonly parent: string | null;
+    /** 读取位置上已经出场。 */
+    readonly appeared: boolean;
+    readonly matchedAlias?: string;
+}
+
 export interface Page<T> {
     readonly version: number;
     readonly items: readonly T[];
@@ -329,6 +356,7 @@ export interface CanonOutputs {
     /** 来历的一页：`items` 从最近一步往前；`initial` 与 `reduced` 是页外的初值与归纳两步。 */
     readonly origins: Page<OriginItem> & {readonly total: number; readonly initial: Extract<OriginStep, {kind: "init"}> | null; readonly reduced: Extract<OriginStep, {kind: "reduce"}> | null};
     readonly lookup: {readonly version: number; readonly found: Readonly<Record<string, readonly string[]>>};
+    readonly findEntries: Page<FoundEntry> & {readonly total: number};
     /** `total` 是符合筛选的总条数（输出 31）。 */
     readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown; readonly placedOn: string}> & {readonly total: number};
     readonly tellings: Page<TellingItem>;
@@ -365,6 +393,8 @@ export interface CanonOutputs {
     readonly editInPlace: Published;
     readonly recordDelta: Published;
     readonly recordNote: Published;
+    readonly editEntries: Published & {readonly routes: readonly EditRoute[]};
+    readonly previewEntries: {readonly routes: readonly EditRoute[]; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly laterRecords: readonly string[]};
     /** 预览：这次会写回哪里、预览的修订（操作与带来的变化）、后面改过同一地址的记录。 */
     readonly previewEdit: {readonly route: EditRoute; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly laterRecords: readonly string[]};
     readonly writeBack: Published;

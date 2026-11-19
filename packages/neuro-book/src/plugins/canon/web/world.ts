@@ -83,6 +83,12 @@ export interface CanonWorld {
      * 页面上的“重试”就是它（plot/author-ui.md 的失败与恢复）。
      */
     retry(): Promise<void>;
+    /**
+     * 每一次发布（`changed` 事件）交给监听：按修订 id 去重，在“版本不大于已知版本就不重读”的判断之前交出。本窗口写入的回复可能
+     * 先于别人的事件回来、把已知版本抬过它，那条事件仍然要交出（Agent 改了东西的提示靠它，author-ui.md）。重连后漏掉的事件不补。
+     * 返回取消监听的函数。
+     */
+    onRevision(listener: (revision: PublishedRevision) => void): () => void;
     dispose(): void;
 }
 
@@ -137,9 +143,15 @@ function stableKey(value: unknown): string {
 }
 
 const requestIdOf = (method: WriteMethod, input: unknown): string => {
-    const holder = (method === "publish" ? (input as {request: unknown}).request : input) as {requestId: string};
+    const holder = (method === "publish" ? (input as {request: unknown}).request : method === "editEntries" ? (input as {input: unknown}).input : input) as {requestId: string};
     return holder.requestId;
 };
+
+/** 一次发布（`changed` 事件的内容）。 */
+export type PublishedRevision = Extract<CanonEvent, {kind: "changed"}>;
+
+/** 记住最近这么多个修订 id，用来去重；更早的不会再来（事件按版本递增）。 */
+const SEEN_REVISIONS = 200;
 
 export function createCanonWorld(client: CanonClient): CanonWorld {
     const connection = shallowRef<WorldConnection>("connecting");
@@ -162,9 +174,16 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
         void run();
     };
 
+    const revisionListeners = new Set<(revision: PublishedRevision) => void>();
+    const seenRevisions: string[] = [];
     const onEvent = (event: CanonEvent): void => {
         switch (event.kind) {
             case "changed":
+                if (!seenRevisions.includes(event.revision)) {
+                    seenRevisions.push(event.revision);
+                    if (seenRevisions.length > SEEN_REVISIONS) seenRevisions.shift();
+                    for (const listener of [...revisionListeners]) listener(event);
+                }
                 if (event.version > known) {
                     known = event.version;
                     invalidate();
@@ -493,6 +512,10 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
         external,
         externalList,
         write,
+        onRevision: (listener) => {
+            revisionListeners.add(listener);
+            return () => revisionListeners.delete(listener);
+        },
         breakExclusive: () => client.call("breakExclusive", {}),
         retry: async () => {
             if (disposed) return;
@@ -512,6 +535,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             subscription?.release();
             subscription = null;
             slots.clear();
+            revisionListeners.clear();
         },
     };
 }

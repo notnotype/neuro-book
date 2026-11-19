@@ -7,7 +7,7 @@
 import {computed, defineComponent, h, nextTick, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
-import type {Entry, FieldDeclaration, Placement, ReadPosition} from "@notnotype/nb-canon";
+import type {FieldDeclaration, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {Dialog} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
@@ -272,7 +272,8 @@ const record = async (path: string, input: {readonly text: string; readonly delt
 };
 
 /**
- * 删除条目（输出 19）：读出存下的条目，发布加了墓碑的版本。对话框在结果回来前不关、按钮不可用；失败时原因写在对话框里。
+ * 删除条目（输出 19）：一次改几处里的一项 `delete`（加墓碑，canon.revisions 输出 25）。对话框在结果回来前不关、按钮不可用；失败时原因
+ * 写在对话框里。
  * 成功后标签留着，按输出 8 显示已删除。
  */
 const deleteOpen = shallowRef(false);
@@ -283,16 +284,14 @@ const confirmDelete = async (): Promise<void> => {
     deleting.value = true;
     deleteError.value = "";
     const name = view.value?.name ?? "";
-    const stored = await props.client.call("object", {ref: {kind: "entry", id: props.id}});
-    const entryNow = stored.ok ? (stored.value.object as Entry | null) : null;
     const baseVersion = world.status.value.data?.version;
-    if (entryNow === null || baseVersion === undefined) {
+    if (baseVersion === undefined) {
         deleting.value = false;
-        deleteError.value = port.t(failureText(stored.ok ? {code: "version-conflict"} : stored.failure).text);
+        deleteError.value = port.t(failureText({code: "version-conflict"}).text);
         return;
     }
     const title = text("entry.deleteSaved", {name});
-    const result = await world.write("publish", {request: {requestId: `delete-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", title, baseVersion, puts: [{ref: {kind: "entry", id: props.id}, after: {...entryNow, deleted: true}}]}});
+    const result = await world.write("editEntries", {input: {requestId: `delete-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", title, baseVersion, ops: [{op: "delete", entry: props.id}]}});
     deleting.value = false;
     if (!result.ok) {
         deleteError.value = port.t(failureText(result.failure).text);

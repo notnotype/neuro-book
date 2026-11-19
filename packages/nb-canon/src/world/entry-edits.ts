@@ -18,7 +18,7 @@ import {addExact, exactProblem, subtractExact} from "../core/decimal";
 import {chapterEnd, compareRanks, positionRank} from "../core/position";
 import {sameJson, stableStringify} from "../core/stable-json";
 import {valueAt, type ViewValue} from "../core/view-value";
-import type {Actor, Address, Entry, FieldDeclaration, NamespaceData, Patch, Placement, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
+import type {Actor, Address, Entry, EntryEdits, EntryOp, FieldDeclaration, NamespaceData, NewEntry, Patch, Placement, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
 import {generateFieldId} from "../components/registry";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
@@ -52,52 +52,7 @@ export type StaleRead = {readonly code: "stale-read"; readonly revisions: readon
 
 export type EntryEditFailure = EditFailure | StaleRead;
 
-/** 新建一个条目：名字、种类以外都可以不写。启用的类型的字段没给的都是未知。 */
-export interface NewEntry {
-    readonly name: string;
-    readonly kind: string;
-    /** 缺省跟着种类。 */
-    readonly folder?: string;
-    readonly parent?: string | null;
-    readonly sameAs?: string | null;
-    readonly appears?: Placement | null;
-    readonly aliases?: readonly string[];
-    readonly summary?: string;
-    readonly components?: readonly {readonly type: string; readonly fields?: Readonly<Record<string, unknown>>}[];
-    /** 主文字的各块的源文字。 */
-    readonly text?: readonly string[];
-}
-
-export type EntryOp =
-    | {readonly op: "create"; readonly id: string; readonly entry: NewEntry}
-    | {readonly op: "set"; readonly at: Address; readonly value: unknown; readonly read?: unknown}
-    | {readonly op: "replace"; readonly at: Address; readonly find: string; readonly with: string}
-    | {readonly op: "listAdd"; readonly at: Address; readonly element: unknown}
-    | {readonly op: "listRemove"; readonly at: Address}
-    | {readonly op: "aliases"; readonly entry: string; readonly add?: readonly string[]; readonly remove?: readonly string[]}
-    | {readonly op: "addBlock"; readonly entry: string; readonly source: string; readonly after?: string}
-    | {readonly op: "removeBlock"; readonly at: Address}
-    | {readonly op: "component"; readonly entry: string; readonly type: string; readonly action: "add" | "remove"; readonly fields?: Readonly<Record<string, unknown>>}
-    | {readonly op: "place"; readonly entry: string; readonly parent?: string | null; readonly folder?: string; readonly kind?: string; readonly after?: string | null; readonly appears?: Placement | null; readonly sameAs?: string | null}
-    | {readonly op: "delete" | "restore"; readonly entry: string}
-    | {readonly op: "add"; readonly at: Address; readonly delta: number; readonly read?: unknown}
-    | {readonly op: "note"; readonly at: Address; readonly text: string; readonly read?: unknown};
-
-export interface EntryEdits {
-    readonly requestId: string;
-    readonly by: Actor;
-    readonly what: "edit" | "creative";
-    /** 读到的世界版本；只在全部是新建时可以不给（按当前版本）。 */
-    readonly baseVersion?: number;
-    /** 给了就要求世界版本与读取输入摘要（前缀）都没变，否则 `stale-read`。由世界服务在写队列里比（`editEntries` 的 `stamp`）。 */
-    readonly readStamp?: {readonly version: number; readonly input: string};
-    readonly title: string;
-    readonly why?: string;
-    readonly intent?: "creative" | "story";
-    /** creative：从哪个位置看当前值；story：落点，不能是初值。缺省是最后一章末尾（没有章时是初值）。 */
-    readonly position?: ReadPosition;
-    readonly ops: readonly EntryOp[];
-}
+export type {EntryEdits, EntryOp, NewEntry} from "../core/schema";
 
 export const ENTRY_EDITS_MAX = 50;
 /** 剧情变化合成的那条变更在请求里的临时 id；就地改沿用它，修订的 `idMap` 里看得到。 */

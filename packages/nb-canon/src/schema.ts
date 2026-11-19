@@ -16,6 +16,7 @@ export type {CanonReadView, ReadStamp} from "./service/reads";
 export type {PlainBlock, PlainProblem} from "./render/render";
 export type {PlainOptions} from "./render/entry";
 export type {NeededAuthorization} from "./world/authorization";
+export type {EntryEditFailure, EntryEdits, EntryOp, NewEntry, StaleRead} from "./world/entry-edits";
 export type {TellingHint, TellingItem} from "./service/reads";
 export type {ChapterItem, TreeItem, TreeItemAt, TreePage, ViewDenial, ViewedPage, ViewedReads, ViewGrant} from "./service/views";
 export type {EditRoute} from "./world/edits";

@@ -16,7 +16,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 import type {CanonClient} from "../shared/contracts";
 import type {EntryTreeItem, EntryTreeLayer} from "./components/entry-tree";
 import {failureText} from "./failures";
-import {buildNewEntry, emptyDraft} from "./new-entry";
+import {emptyDraft, newEntryOp} from "./new-entry";
 import type {NewEntryDraft} from "./new-entry";
 import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
@@ -137,22 +137,22 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
             const known = computed(() => [...handles.value.values()].flatMap((held) => held.list.state.value.items).filter((item) => !item.deleted));
             const confirm = async (): Promise<void> => {
                 const draft = state.creating.value;
-                const baseVersion = world.status.value.data?.version;
-                if (create === undefined || draft === null || saving.value || baseVersion === undefined) return;
+                if (create === undefined || draft === null || saving.value) return;
                 saving.value = true;
                 error.value = "";
-                const entry = await buildNewEntry(create.call, draft, components.value);
-                const title = text("newEntry.saved", {name: entry.init.name});
-                const result = await world.write("publish", {request: {requestId: `new-entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", title, baseVersion, puts: [{ref: {kind: "entry", id: entry.id}, after: entry}]}});
+                const op = newEntryOp(draft);
+                const title = text("newEntry.saved", {name: op.entry.name});
+                // 全是新建的一批不用读到的版本（canon.revisions 输出 25）；顺序由内核排在同层最后。
+                const result = await world.write("editEntries", {input: {requestId: `new-entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", title, ops: [op]}});
                 saving.value = false;
                 if (!result.ok) {
                     error.value = port.t(failureText(result.failure).text);
                     return;
                 }
-                const id = result.value.ids[entry.id] ?? entry.id;
+                const id = result.value.ids[op.id] ?? op.id;
                 state.creating.value = null;
                 // 树里看得见它：展开它的上级（根下是它的分组）。
-                const opened = entry.parent === null ? `folder:${entry.folder}` : entry.parent;
+                const opened = op.entry.parent === null || op.entry.parent === undefined ? `folder:${op.entry.folder ?? op.entry.kind}` : op.entry.parent;
                 if (!state.expanded.value.includes(opened)) state.expanded.value = [...state.expanded.value, opened];
                 state.selected.value = id;
                 // 条目页随后才挂上（命令、页面按需加载）：提示直接交给它，不按“现在有没有页面挂着”走工作台通知。

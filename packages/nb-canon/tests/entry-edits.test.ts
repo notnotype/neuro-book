@@ -54,7 +54,7 @@ function world(): World {
 const end = (chapter: string) => ({kind: "chapter" as const, chapter, edge: "end" as const});
 const start = (chapter: string) => ({kind: "chapter" as const, chapter, edge: "start" as const});
 
-function batch(ops: readonly EntryOp[], extra: Partial<EntryEdits> = {}): EntryEdits {
+function batch(ops: EntryOp[], extra: Partial<EntryEdits> = {}): EntryEdits {
     return {requestId: id(), by: author, what: "edit", baseVersion: 2, title: "改几处", position: end("ch50"), ops, ...extra};
 }
 
