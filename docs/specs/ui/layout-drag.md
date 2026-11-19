@@ -16,7 +16,7 @@ owners:
 不承诺：
 
 - 落点的几何与规则：工作台布局的在 [ui.workbench-layout](workbench-layout.md)，标签的在 [workbench.editor](../workbench/editor.md)，树的在 [workbench.files-explorer](../workbench/files-explorer.md)。[布局提案](../../proposals/workbench-single-tree-layout.md#3-拖动) 第 3 节的有序规则随一棵树写进本 Spec。
-- 实时布局的让位、粘滞与稳定时长：见 [ui.workbench-layout](workbench-layout.md) 输出 38，这里只有放下规则的开关（`commitsUnderPointer`）。
+- 实时布局的让位、粘滞与稳定时长：见 [ui.workbench-layout](workbench-layout.md) 输出 38。这里只有放下规则的开关（`commitsUnderPointer`），和两样跟手的零件：拖动卡片的逐帧步进与按需排帧的帧循环（输出 20、21）；卡片缩到多大、什么时候要卡片由宿主定。
 - 分隔线手势：见 [ui.nested-grid](nested-grid.md)。
 - 跨窗口拖动。
 
@@ -113,6 +113,38 @@ export interface DragKeyboardOptions<S, R> {
     refocus(source: S): HTMLElement | null;
 }
 
+// 跟手的零件（planned，@notnotype/nb-layout：纯 TS，时钟与排帧由调用方给）
+export interface DragCardSize { readonly width: number; readonly height: number }
+export interface DragCard {
+    readonly size: DragCardSize;       // 此刻的尺寸，未取整
+    readonly grab: GridDropPoint;      // 抓住的点占卡片的比例
+    readonly chase: GridDropPoint;     // 离跟手的位置还差多少（px）
+    readonly written: GridRect | null; // 上一次交回的矩形
+    readonly sizeDue: number;          // 尺寸下一次该写的时刻
+}
+export interface DragCardOptions {
+    readonly tauMs?: number;          // 缺省 90
+    readonly stillPx?: number;        // 缺省 0.1
+    readonly refreshMs?: number;      // 缺省 0：每帧都可以写尺寸
+    readonly refreshSlackMs?: number; // 缺省 2
+}
+export function liftDragCard(from: GridDropRect | null, pointer: GridDropPoint, fallback: DragCardSize): DragCard;
+export function stepDragCard(card: DragCard, input: {readonly now: number; readonly elapsed: number; readonly pointer: GridDropPoint; readonly origin: GridDropPoint; readonly target: DragCardSize}, options?: DragCardOptions): {readonly card: DragCard; readonly rect: GridRect | null; readonly settling: boolean};
+
+export interface FrameLoopOptions {
+    requestFrame(run: (now: number) => void): number;
+    cancelFrame(frame: number): void;
+    frame(now: number, elapsed: number): boolean;
+    readonly nominalMs?: number; // 缺省 1000 / 60
+}
+export interface FrameLoop {
+    start(): void;
+    wake(): void;
+    stop(): void;
+    readonly running: boolean;
+}
+export function createFrameLoop(options: FrameLoopOptions): FrameLoop;
+
 // 落点登记
 export function registerDropTarget<T>(element: Element, kinds: ReadonlyArray<DropKind<T>>, data: () => T): () => void;
 export function useDropTarget<T>(element: Readonly<Ref<Element | null>>, kinds: ReadonlyArray<DropKind<T>>, data: () => T): void;
@@ -144,6 +176,16 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 17. **不画东西**：会话不创建元素，除了只读 `data-drag-feedback`，也不读写 DOM 标记。拖影、插入线、高亮都由宿主按 `state` 与 `onEnd` 画，所以换一种反馈不用改会话。
 18. **组件里的会话**：`useDragSession(root, createOptions)` 在有根时建会话：调用时根已有值就立即建，模板 ref 的根在组件挂载后的那次刷新里建（挂载回调里还是 null）。根换了先销毁旧的再建新的，根没了或所在的作用域结束时销毁；换根与销毁时进行中的拖动按销毁收尾。返回会话与它的 `state`，没有根时两者都是 null。
 19. **组件里的会话：选项**：`createOptions(root)` 每在一个根上建会话时调一次，交回这个会话的选项，会话建好后不再读（选项里读到的响应式值之后变了，会话不重建）。`createOptions` 抛错时这个根上没有会话（`session` 为 null），错误交给应用的错误处理。
+20. **拖动卡片**（planned）：拖动中跟手的那张卡片，逐帧缩放并追到指针下。
+    - **拿起**：`liftDragCard(from, pointer, fallback)` 从内容此刻所在的矩形（视口坐标）拿起：尺寸是这个矩形的；抓住的点是指针在它上面的比例，夹在 0 到 1；追赶量是这个矩形与“抓住的点在指针下”的位置之差。`from` 为 null 时尺寸是 `fallback`，抓在上沿中点，不追赶。
+    - **一帧**：`stepDragCard` 把尺寸按 `1 - e^(-elapsed / tauMs)` 的比例向 `target` 逼近，追赶量同样向 0 逼近；离终点不到 `stillPx` 就取终点，逼近才有尽头。第一次交回矩形之前不算时间：拿起那一帧不缩、不追。
+    - **交回的矩形**：相对 `origin`（网格根左上角的视口坐标），宿主直接写在内容层上，不用自己换算。尺寸取整到像素；位置按画出来的尺寸算，抓住的点一直在指针下（缩放中也是），再加上追赶量。
+    - **写的频率**：位置每帧跟手。尺寸至多每 `refreshMs` 变一次，帧的时间戳差 `refreshSlackMs` 以内算到了；尺寸到了终点那一帧马上写。和上一次交回的矩形相同时交回 `null`。
+    - `settling` 为真是尺寸或追赶还没到终点，宿主要再排一帧。
+21. **帧循环**（planned）：`createFrameLoop` 按需排帧，没有要做的事就停，按住不动时不空转。
+    - `start()` 撤掉排着的帧并排第一帧。`frame` 返回真才排下一帧，返回假就停；停着时 `wake()` 排一帧。没有 `start` 或 `stop()` 之后，`wake` 不排。
+    - `elapsed` 是离上一帧的毫秒数；`start` 之后与停过之后的第一帧是 `nominalMs`：真实间隔可能是好几秒，按它算，缩放一步就到了终点。
+    - 跑一帧的过程中调 `wake` 不另排，由这一帧的返回值决定。帧里调了 `stop`，返回真也不再排；帧里 `stop` 之后又 `start`，只排 `start` 的那一帧。
 
 ## 状态与转换
 
