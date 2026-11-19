@@ -56,41 +56,15 @@
 
 ## 接入
 
-宿主要做五件事：建树（`createGrid`，**`sashSize` 要传**：缺省是 0，分隔线没有宽度、不可交互，也没有任何诊断）、量容器、算布局、接纳手势提交、结构变了通知。后四件由 `useGridHost` 接好，整包绑到组件上（输出 144、145）：
+宿主要做五件事：建树（`createGrid`，**`sashSize` 要传正数**：缺省是 0，分隔线没有宽度、拖不动）、量容器、算布局、接纳手势提交、结构变了通知。后四件由 [`useGridHost`](useGridHost.md) 接好，整包绑到组件上：`<NestedGrid v-bind="host.bindings.value">`。能直接用的例子见包的 [README](../../README.md) 的“起步”。
 
-```vue
-<script setup lang="ts">
-import {shallowRef} from "vue";
-import {createGrid} from "@notnotype/nb-layout";
-import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
+不经 `useGridHost`、自己接组件时，要知道组件这一侧的几条：
 
-const grid = shallowRef(createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
-    {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}},
-    {kind: "leaf", id: "b", ref: "b", size: {width: 300, height: 0}},
-]}, {sashSize: 4}));
-const host = useGridHost({grid, onIssues: (issues) => console.warn(issues)});
-// 树被原地改了（拆分、关闭、换位）之后调一次，宿主才看得到新结构：`grid.value.splitLeaf(...); host.invalidate();`
-</script>
-
-<template>
-    <!-- 承载盒要有确定的高度：组件的根铺满它，量到 0 高时布局为空、手势停用（叶照常挂着，只是没有尺寸）。 -->
-    <div style="height: 100%">
-        <NestedGrid v-bind="host.bindings.value">
-            <template #leaf="{node}">{{ node.id }}</template>
-        </NestedGrid>
-    </div>
-</template>
-```
-
-- 尺寸来自组件自己量的根盒（`extent` 事件，读 `clientWidth`、`clientHeight`，不随祖先的变换缩放），宿主不另量；没量到可用尺寸（null，或宽、高任一为 0）时布局为空、`disabled` 为真。尺寸只来自组件，不要把它挂在“有了尺寸才渲染”的条件后面，那样永远等不到尺寸。
-- `disabled`、`contextKey`、提交处理只经 `useGridHost` 的选项给，模板里不要再写同名属性：`disabled`、`contextKey` 后写的会静默覆盖包里的值，提交处理会被换掉或合成数组。
-- 诊断只有一个出口：选项里的 `onIssues` 收布局重算的诊断、`notify-failed`，也收组件的 `issues` 事件（包里带着接它的处理）。
-- 提交：同步核对上下文、版本与尺寸，一次 `resizeBranches` 成功之后才调选项里的 `onApplied(commit, result, before)`。`before` 是提交之前发布的布局（手势开始时呈现的那份），此时 `host.layout` 已经是之后的；要比较提交前后时用它。`onApplied` 是“已经落账”的通知，不是第二道拒绝门：它抛错报成 `notify-failed`，不反悔已提交的几何；自身提交不造成预览自取消。
-- 收起与展开一块有收起策略的面板（按钮、快捷键）：`host.setCollapsed(id, collapsed)`。它只翻收起标记、按分配规则重排（见 [grid API](../grid.md)），标记变了才重发布局；不触发 `onApplied`，要存盘就用它返回的 `collapse`。分隔条上的 Enter 是另一种结果（邻居让位、恢复到记下的尺寸）。
-- 组件卸载前发 `extent` 为 null：组件被条件渲染摘掉时宿主的 `host.extent` 回到 null；宿主自己整个卸载时，宿主的侦听已经停了。
+- 组件自己量根盒（读 `clientWidth`、`clientHeight`，不随祖先的变换缩放），挂载后量到就发 `extent` 事件，两轴变了才再发，同步发；卸载前发 `null`。承载盒要有确定的高度，组件的根铺满它。
 - 提交处理 `onGestureCommit` 是属性，要返回 `{ok: true}` 或失败对象。写成 `@gesture-commit` 时处理函数会被当作这个属性调用，返回 void 就回滚；整包绑定之后再写它，会和包里的合成数组，提交时出错。
-- 开发构建里、网格挂载之前调一次根入口的 `setLayoutDevChecks(true)`：接线错了（能拖的边界全是 0 宽、没接或接错提交处理、模板里另写了 `context-key` 或 `:revision`）时控制台警告，每个网格每种一次（[Spec](../../../../docs/specs/ui/nested-grid.md) 输出 151）。库不读 `import.meta.env`，开不开由宿主决定。
-- 不经 `NestedGrid` 量尺寸的地方（例如量别的盒子做别的事）用 `useLayoutExtent(ref)`：它共享 `clientWidth`、`clientHeight` 与 `ResizeObserver`，`null` 表示还没挂载，0 是真实的零。
+- `contextKey` 与 `revision` 要和宿主核对提交用的值一致：手势开始时组件把它们冻结进这场手势，提交时宿主拿此刻的值比，对不上就拒绝（拖不动）。
+
+开发构建里、网格挂载之前调一次根入口的 `setLayoutDevChecks(true)`：接线错了（能拖的边界全是 0 宽、没接或接错提交处理、整包绑定后模板里另写了 `context-key` 或 `:revision`）时控制台警告，每个网格每种一次。库不读 `import.meta.env`，开不开由宿主决定。
 
 ## 公开的标记与变量
 
