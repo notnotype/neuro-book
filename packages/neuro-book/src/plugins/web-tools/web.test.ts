@@ -9,13 +9,16 @@ import {dirname, join} from "node:path";
 
 import type {LogEvent, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {fakeEndpoint} from "nbook/plugins/agent/testing/endpoint";
 import type {FakeEndpoint} from "nbook/plugins/agent/testing/endpoint";
 
+import type {KeyStoreFactory} from "./backend/plugin";
 import {MAX_KEY_LENGTH} from "./backend/settings-remote";
-import {ARCHIVE_LINE_LIMIT, FETCH_TEXT_LIMIT, HINT} from "./backend/tools";
+import {ARCHIVE_LINE_LIMIT, FETCH_TEXT_LIMIT, HINT, SEARCH_DEADLINE_MS} from "./backend/tools";
 import {fakeDeepSeek, sampleHit} from "./testing/fake-deepseek";
+import {memoryKeyStore} from "./testing/memory-keys";
 import type {FakeDeepSeek} from "./testing/fake-deepseek";
 import {webWorld} from "./testing/world";
 import type {WebSettingsClient, WebWorld} from "./testing/world";
@@ -45,10 +48,28 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-async function open(userSettings: Record<string, unknown> = {}): Promise<WebWorld> {
+async function open(userSettings: Record<string, unknown> = {}, keyStore?: KeyStoreFactory): Promise<WebWorld> {
     counter += 1;
-    world = await webWorld(join(tmp, `w${String(counter)}`), {deepseekBaseUrl: deepseek.baseUrl, modelBaseUrl: model.baseUrl, userSettings});
+    world = await webWorld(join(tmp, `w${String(counter)}`), {deepseekBaseUrl: deepseek.baseUrl, modelBaseUrl: model.baseUrl, userSettings, ...(keyStore === undefined ? {} : {keyStore})});
     return world;
+}
+
+/** 读密钥停在 `release` 之前的密钥来源（内存里，带一把假密钥）；`reads` 是已经开始的读的次数。 */
+function gatedKeys(): {readonly factory: KeyStoreFactory; readonly reads: () => number; release(): void} {
+    const gate = Promise.withResolvers<void>();
+    let reads = 0;
+    return {
+        factory: (path, record) => {
+            const inner = memoryKeyStore({deepseek: KEY})(path, record);
+            return {...inner, read: async (provider) => {
+                reads += 1;
+                await gate.promise;
+                return inner.read(provider);
+            }};
+        },
+        reads: () => reads,
+        release: () => gate.resolve(),
+    };
 }
 
 interface ToolResultData {
@@ -198,6 +219,44 @@ describe("工具（输出 1 到 14）", () => {
         expect(top.text).toContain(`${long.slice(0, FETCH_TEXT_LIMIT - 1)}\n</web-content>`);
         expect(/[\uD800-\uDFFF]/u.test(top.text)).toBe(false);
         expect(top.details).toBeUndefined();
+    });
+
+    it("截止从调用开始算：请求挂着到了截止得 timeout；读密钥时到了截止，读完也不再发请求（输出 9）", async () => {
+        const hung = await open();
+        await setKey(await hung.settings("w"));
+        deepseek.script("/v1/tools/search", {hang: true});
+        const session = await hung.open();
+        const waiting = callTool(session, "web_search", {query: "挂着"});
+        await waitUntil("the search reached the endpoint", () => deepseek.requests.length > 0 || undefined);
+        hung.agent.settings.clock.advance(SEARCH_DEADLINE_MS);
+        expect(await waiting).toMatchObject({status: "error", code: "timeout"});
+        await hung.close();
+        world = null;
+        deepseek.reset();
+
+        const keys = gatedKeys();
+        const slow = await open({}, keys.factory);
+        const reading = callTool(await slow.open(), "web_search", {query: "读密钥慢"});
+        await waitUntil("the key is being read", () => keys.reads() > 0 || undefined);
+        slow.agent.settings.clock.advance(SEARCH_DEADLINE_MS);
+        keys.release();
+        expect(await reading).toMatchObject({status: "error", code: "timeout"});
+        expect(deepseek.requests).toHaveLength(0);
+    });
+
+    it("检测在读密钥时被取消：读完也不再发出计费的搜索（输出 19、“状态与转换”）", async () => {
+        const keys = gatedKeys();
+        const w = await open({}, keys.factory);
+        const client = await w.settings("w");
+        const cancel = new AbortController();
+        const cancelled = client.check({provider: "deepseek"}, {signal: cancel.signal});
+        await waitUntil("the key is being read", () => keys.reads() > 0 || undefined);
+        cancel.abort();
+        await cancelled;
+        keys.release();
+        // 再检测一次：它结束时前一次的处理早已走完，端点只收到这一次。
+        expect(ok(await client.check({provider: "deepseek"}))).toEqual({ok: true});
+        expect(deepseek.requests).toHaveLength(1);
     });
 
     it("场景 3：密钥文件坏了，应用照常起来；两个工具与 status 得 credentials-unavailable；写入后恢复", async () => {

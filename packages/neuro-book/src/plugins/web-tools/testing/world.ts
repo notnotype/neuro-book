@@ -16,7 +16,8 @@ import {localModelSettings} from "nbook/plugins/agent/testing/endpoint";
 import {agentWorld} from "nbook/plugins/agent/testing/world";
 import type {AgentWorld} from "nbook/plugins/agent/testing/world";
 
-import {webBackendPlugin} from "../backend/plugin";
+import {createWebBackendPlugin, webBackendPlugin} from "../backend/plugin";
+import type {KeyStoreFactory} from "../backend/plugin";
 import {descriptor} from "../plugin";
 import {webSettingsContract} from "../shared/contracts";
 
@@ -47,9 +48,16 @@ function profilePlugin(): PluginDefinition {
     })]};
 }
 
-export async function webWorld(root: string, options: {readonly deepseekBaseUrl: string; readonly modelBaseUrl: string; readonly userSettings?: Readonly<Record<string, unknown>>}): Promise<WebWorld> {
+export async function webWorld(root: string, options: {
+    readonly deepseekBaseUrl: string;
+    readonly modelBaseUrl: string;
+    readonly userSettings?: Readonly<Record<string, unknown>>;
+    /** 换掉密钥文件（例如让读密钥停在测试控制的地方）；缺省用产品的插件定义。 */
+    readonly keyStore?: KeyStoreFactory;
+}): Promise<WebWorld> {
+    const plugin = options.keyStore === undefined ? webBackendPlugin : createWebBackendPlugin(options.keyStore);
     const agent = await agentWorld(root, {
-        plugins: [definitionAt("server", descriptor, webBackendPlugin), profilePlugin()],
+        plugins: [definitionAt("server", descriptor, plugin), profilePlugin()],
         userSettings: {
             ...localModelSettings(options.modelBaseUrl),
             "nbook.web-tools/deepseekBaseUrl": options.deepseekBaseUrl,
