@@ -4,21 +4,21 @@ kind: behavior
 status: planned
 capability: web.settings-page
 owners:
-  - nbook.web
+  - nbook.web-tools
 ---
 
 # 搜索与网页的设置页
 
 ## 目标与非目标
 
-设置窗口 AI 分组下的“搜索与网页”页：填写网页工具（[`web/tools.md`](tools.md)）用的搜索服务密钥并检测。第一版只有 DeepSeek 一节。数据与写入全部经远程合同 `nbook.web/settings`（[`web/tools.md`](tools.md) 输出 16 到 19），改了就写，没有“未保存”状态。
+设置窗口 AI 分组下的“搜索与网页”页：填写网页工具（[`web/tools.md`](tools.md)）用的搜索服务密钥并检测。第一版只有 DeepSeek 一节。数据与写入全部经远程合同 `nbook.web-tools/settings`（[`web/tools.md`](tools.md) 输出 16 到 19），改了就写，没有“未保存”状态。
 
 不承诺：
 
 - 环境变量引用（`env:` 写法）；从模型设置里带过来 DeepSeek 的密钥。
 - 本作品标签下编辑（只有用户层）。
 - 从别处按 `focus` 定位到某家的密钥框。
-- DeepSeek 地址的编辑（`nbook.web.deepseekBaseUrl` 只能改设置文件）。
+- DeepSeek 地址的编辑（`nbook.web-tools/deepseekBaseUrl` 只能改设置文件）。
 
 ## 术语与参与者
 
@@ -26,7 +26,7 @@ owners:
 
 ## 输入与前置条件
 
-- 页面是 `nbook.web` 浏览器入口贡献的 page 分区（贡献点 `settings.pages`）：分类 `ai`，`order` 22，`layout: "column"`，`layers: ["user"]`，图标 `i-lucide-globe`，标题“搜索与网页”，说明“让 Agent 搜索与读取网页”，关键词“联网”“网页”“搜索”“DeepSeek”。窗口第一次显示这页时激活浏览器入口。
+- 页面是 `nbook.web-tools` 浏览器入口贡献的 page 分区（贡献点 `settings.pages`）：分类 `ai`，`order` 22，`layout: "column"`，`layers: ["user"]`，图标 `i-lucide-globe`，标题“搜索与网页”，说明“让 Agent 搜索与读取网页”，关键词“联网”“网页”“搜索”“DeepSeek”。窗口第一次显示这页时激活浏览器入口。
 - 远程合同不可用（服务端入口没激活或已停止）时页面只读。
 
 ## 输出与可观察行为

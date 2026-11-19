@@ -4,14 +4,14 @@ kind: behavior
 status: planned
 capability: web.tools
 owners:
-  - nbook.web
+  - nbook.web-tools
 ---
 
 # 网页工具：搜索与读取
 
 ## 目标与非目标
 
-内置插件 `nbook.web` 给 Agent 两个工具：`web_search` 经搜索服务搜网页，`web_fetch` 经同一个服务读一个网页、交回 Markdown 正文。第一版的服务只有 DeepSeek（它的搜索接口与读取接口），密钥由用户在设置窗口的“搜索与网页”页单独填（[`web/settings-page.md`](settings-page.md)），与模型设置里的密钥分开。
+内置插件 `nbook.web-tools` 给 Agent 两个工具：`web_search` 经搜索服务搜网页，`web_fetch` 经同一个服务读一个网页、交回 Markdown 正文。第一版的服务只有 DeepSeek（它的搜索接口与读取接口），密钥由用户在设置窗口的“搜索与网页”页单独填（[`web/settings-page.md`](settings-page.md)），与模型设置里的密钥分开。
 
 不承诺：
 
@@ -30,16 +30,16 @@ owners:
 
 ## 输入与前置条件
 
-两个工具由 `nbook.web` 的服务端入口经 `agent.tools` 贡献（[`agent/contributions.md`](../agent/contributions.md)），等级 `read`，`concurrency: "shared"`，`defaultForAll: true`，参数严格校验：
+两个工具由 `nbook.web-tools` 的服务端入口经 `agent.tools` 贡献（[`agent/contributions.md`](../agent/contributions.md)），等级 `read`，`concurrency: "shared"`，`defaultForAll: true`，参数严格校验：
 
 | 工具 id | 交给模型的名字 | 参数 |
 |---|---|---|
-| `nbook.web.search` | `web_search` | `query`：string，必填；`count`：整数，1 到 20，缺省 8；`sites`：string 数组，站点域名；`after`、`before`：`YYYY-MM-DD` |
-| `nbook.web.fetch` | `web_fetch` | `url`：string，必填，http 或 https |
+| `nbook.web-tools.search` | `web_search` | `query`：string，必填；`count`：整数，1 到 20，缺省 8；`sites`：string 数组，站点域名；`after`、`before`：`YYYY-MM-DD` |
+| `nbook.web-tools.fetch` | `web_fetch` | `url`：string，必填，http 或 https |
 
-配置项 `nbook.web.deepseekBaseUrl`：用户层，string，缺省 `https://api.deepseek.com`，DeepSeek 两个接口的地址前缀。
+配置项 `nbook.web-tools/deepseekBaseUrl`：用户层，string，缺省 `https://api.deepseek.com`，DeepSeek 两个接口的地址前缀。
 
-远程合同 `nbook.web/settings`，版本 1，服务端提供，浏览器调用：
+远程合同 `nbook.web-tools/settings`，版本 1，服务端提供，浏览器调用：
 
 | 方法 | 读写 | 参数 | 返回 |
 |---|---|---|---|
@@ -83,8 +83,9 @@ owners:
 
 ### 插件与工具集
 
-20. `nbook.web` 是内置插件，不能在插件管理里停用（[`runtime/plugin-hot-plug.md`](../runtime/plugin-hot-plug.md)）。两个工具缺省加进没写 `defaultTools: false` 的 Profile（[`agent/contributions.md`](../agent/contributions.md) 输出 4）；不想要时在 Profile 的工具绑定里去掉，或用权限规则拒绝。
+20. `nbook.web-tools` 是内置插件，不能在插件管理里停用（[`runtime/plugin-hot-plug.md`](../runtime/plugin-hot-plug.md)）。两个工具缺省加进没写 `defaultTools: false` 的 Profile（[`agent/contributions.md`](../agent/contributions.md) 输出 4）；不想要时在 Profile 的工具绑定里去掉，或用权限规则拒绝。
 21. 服务端入口激活时不读写密钥文件；密钥文件坏了不影响应用启动，只影响这两个工具与设置页。
+22. **判定对象**：`web_fetch` 交出 `{kind: "host", value: <主机名>}`（[`agent/permissions.md`](../agent/permissions.md) 的“判定对象”），权限规则可以按主机拒绝或询问。
 
 ## 状态与转换
 
@@ -121,7 +122,7 @@ owners:
 
 ## 边界与兼容
 
-- 公开接口：两个工具的 id、交给模型的名字、参数与结构值形状；配置项 `nbook.web.deepseekBaseUrl`；远程合同 `nbook.web/settings` 版本 1；密钥文件格式版本 1。以后加服务时只加不改：新服务的 id、`provider` 的取值与 `status` 里的条目。
+- 公开接口：两个工具的 id、交给模型的名字、参数与结构值形状；配置项 `nbook.web-tools/deepseekBaseUrl`；远程合同 `nbook.web-tools/settings` 版本 1；密钥文件格式版本 1。以后加服务时只加不改：新服务的 id、`provider` 的取值与 `status` 里的条目。
 - 信任边界：浏览器只拿到“有没有密钥”；密钥明文在状态根下，与模型服务的凭据库同一个信任级别。
 
 ## 验收与 Smoke

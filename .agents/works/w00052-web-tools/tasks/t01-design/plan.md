@@ -2,6 +2,8 @@
 
 第 3 稿处理了设置页的设计审查（Claude Sonnet）；第 4 稿处理后端与计划整体的设计审查（omp，[报告](evidences/design-review-omp.txt)，16 条），两份的处理表在 Task README“设计审查”。
 
+实施中改动（2026-11-19）：插件 id 由 `nbook.web` 改为 `nbook.web-tools`、目录 `src/plugins/web-tools/`：目录名 `web` 撞上应用的“`web/` 是浏览器一侧”约定，`architecture.test.ts` 把整个插件当成前端。下文仍写 `nbook.web` 的地方按新 id 读；工具 id 为 `nbook.web-tools.search`、`nbook.web-tools.fetch`，合同为 `nbook.web-tools/settings`。`web_fetch` 另交出主机作判定对象（Spec 输出 22），规则可以按主机拒绝。
+
 ## Context
 
 - 来源：w00032 t12（2026-10-28）定网页工具不进 Agent 插件、单独做插件；开发者 2026-11-19 定先做本插件、再做浏览器插件（w00034）。
