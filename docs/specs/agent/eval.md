@@ -70,8 +70,8 @@ owners:
 ### 内核的寿命与重置
 
 10. 内核在本会话第一次调 `eval` 时起，工作目录与布局变量同 `shell`（[`builtin-tools.md`](builtin-tools.md) 输出 18、20），环境继承服务端，不读工作目录里的 `.env`。
-11. 内核在这些时候重置（之前的变量没了）：内核意外退出（包括代码里 `process.exit`）；上次调用之后叶子被移动过（回退、切分支）；`reset: true`；单元超时或被停止；30 分钟没有调用；整个服务端的内核超过 8 个时最久没用的那个；服务端重启；分叉出的会话从新内核开始；会话换了 Profile（工具实现按新 Profile 重建，[`harness/runtime.md`](../harness/runtime.md) 输出 38）。
-12. 新内核第一次执行时，若当前路径上已经有过 `eval` 的结果，结果第一行写明内核已重置、之前的变量没了，并写原因（回退或切分支、主动重置、超时、停止、意外退出、空闲、被回收；重启、分叉与换 Profile 写成同一个原因，新内核分不出是哪一种）。每个单元开始时工作目录是会话的工作目录，代码里改过的不带到下一个单元。
+11. 内核在这些时候重置（之前的变量没了）：内核意外退出（包括代码里 `process.exit`，以及两次调用之间被外部结束）；上次调用之后叶子被移动过（回退、切分支）；`reset: true`；单元超时或被停止；30 分钟没有调用；整个服务端的内核超过 8 个时最久没用的那个；服务端重启；分叉出的会话从新内核开始；会话换了 Profile。会话关闭不重置：内核留着，照样按 30 分钟空闲与 8 个的上限回收；会话再打开后叶子没移动、Profile 没换时接着用，变量还在。
+12. 新内核第一次执行时，若当前路径上已经有过 `eval` 的结果，结果第一行写明内核已重置、之前的变量没了，并写原因（回退或切分支、主动重置、超时、被停止、意外退出、空闲、被回收、换了 Profile；会话关闭期间到点的空闲与回收照样写这两个原因；服务重启与分叉写成同一个原因，新内核分不出是哪一种）。每个单元开始时工作目录是会话的工作目录，代码里改过的不带到下一个单元。
 13. 重置时连同内核起的子进程一起结束，结束了才交结果；服务端异常退出时内核自己结束它与它起的子进程。
 
 ### 时限与停止
@@ -100,7 +100,8 @@ owners:
 | 执行中 | 超时、停止 | 没有 |
 | 空闲 | 调用 `eval`（叶子没移动、没 `reset`） | 执行中 |
 | 空闲 | 叶子移动后调用、`reset: true` | 执行中（先重置） |
-| 空闲 | 30 分钟没调用、被回收、会话关闭、服务端停止 | 没有 |
+| 空闲 | 会话关闭 | 空闲（内核留着，空闲计时照旧） |
+| 空闲 | 30 分钟没调用、被回收、服务端停止 | 没有 |
 | 任意 | 进程意外退出 | 没有（下一次调用起新内核并提示） |
 
 时序与寿命：
@@ -108,12 +109,13 @@ owners:
 - `eval` 是 `exclusive`：同一个会话同一时刻只有一个单元在执行；同一条回复里的几个 `eval` 依次执行，后一个读得到前一个留下的变量。
 - 叶子有没有移动按 [`harness/runtime.md`](../harness/runtime.md) 输出 102 的计数判断：同一条回复里的几次调用看到同一个值，不会互相判成重置。
 - 单元的结果在它的嵌套调用都结算之后才交回（输出 5、14）。
-- 会话关闭时结束内核；内核与它起的子进程在会话关闭之后不再运行。会话关闭之后再来的调用直接失败，不再起内核；关闭时正在起的内核起来就结束（planned）。
+- 会话关闭不结束内核，会话再打开后的调用接着用留着的内核（输出 11）。关闭前那次打开的工具实现上再来的调用直接失败，不起内核（planned：公开接口里关闭的会话不再有运行，没有测试）。
+- 服务端停止时，会话都关完之后结束全部内核与它们起的子进程，会话关闭之后留着的也一样。
 - 服务端异常退出（包括内核正卡在同步死循环里）时，内核与它起的子进程随之结束。
 
 ## 副作用与数据
 
-- 每个有内核的会话多一个子进程（连同代码起的子进程）；内核里的变量不落盘，重置之后就没了（输出 11）。
+- 每个有内核的会话多一个子进程（连同代码起的子进程），会话关闭之后至多再留 30 分钟；内核里的变量不落盘，重置之后就没了（输出 11）。
 - 日志里：父调用照常写 `toolStarted` 与 `toolResult`，嵌套调用写 [`harness/runtime.md`](../harness/runtime.md) 输出 96 的事件（结果只有 2 KB 预览）。
 - 结果全文超出窗口时同 `shell` 存全文。
 - 代码经 `tool.*` 写的文件，来源与分组见 [`resources.md`](resources.md) 输出 17。
@@ -149,17 +151,18 @@ Smoke：`packages/neuro-book/src/plugins/agent/eval.llm.test.ts`（`test:llm`，
 ## 实现合同
 
 - **公开入口**：工具 `nbook.agent.eval`（`nbook.agent` 经 `agent.tools` 贡献）；`agent.tools` 声明的 `invokes`、`codeCallable`、`global`、`returns` 与贡献点 `agent.evalObjects`（SDK `@notnotype/nb-plugin-sdk/agent` 的 `evalObject`）；`docs://eval`。代码里调工具经 nb-harness 的 `ToolContext.invoke`（[`harness/runtime.md`](../harness/runtime.md) 输出 90 起）。
-- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有每个会话的内核与全服务端的内核登记表；内核是 `bun` 子进程，入口 `eval-kernel.js` 随 `build:server` 与应用包产出；依赖 nb-harness 的嵌套调用通道与输出暂存（`kit/tools` 的 `OutputCapture`），不反向依赖。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有全服务端的内核登记表，每个会话的内核按会话 id 存在里面；内核是 `bun` 子进程，入口 `eval-kernel.js` 随 `build:server` 与应用包产出；依赖 nb-harness 的嵌套调用通道与输出暂存（`kit/tools` 的 `OutputCapture`），不反向依赖。
 - **关键不变量**：
-  - 内核进程是自己进程组的组长：重置、会话关闭与意外退出时整组结束，服务端异常退出时由内核里的看门狗线程收组（输出 13，`eval.test.ts`“死循环到时限”“process.exit”“会话关闭”，`backend/eval/kernel.test.ts`“服务端被杀”）。
+  - 内核进程是自己进程组的组长：重置、回收、意外退出与服务端停止时整组结束，服务端异常退出时由内核里的看门狗线程收组（输出 13，`eval.test.ts`“死循环到时限”“process.exit”“会话关闭不结束内核”“服务端停止时结束全部内核”，`backend/eval/kernel.test.ts`“服务端被杀”）。
+  - 内核与重置原因按会话 id 存在登记表里，不挂在会话的工具实现上：会话关闭时工具实现释放，内核留着，再打开后新的工具实现接着用；叶子移动按日志里的计数比，关闭前后可比（输出 11、12，`eval.test.ts`“会话关闭不结束内核”“会话关闭之后回退”“换了 Profile 之后再调”，`backend/eval/kernel.test.ts`“内核登记表”）。
   - 输出按单元归属：经 IPC 的消息带单元号，直接写到标准输出与错误的靠两条管道上的结束标记分界（输出 2、5，`backend/eval/kernel.test.ts`）。
-  - 重置提示看当前路径上的 eval 结果数（扩展 `nbook.agent.eval-state`），同一条回复里还没写进日志的，看这个实例在叶子没动过时跑过的单元（输出 12，`eval.test.ts`“reset: true”）。
-  - 单元时限与空闲回收都在宿主注入的时钟上，握手按真实时间（输出 11、14，`eval.test.ts`“等审批的时间不算进时限”“30 分钟没有调用”）。
+  - 重置提示看当前路径上的 eval 结果数（扩展 `nbook.agent.eval-state`），同一条回复里还没写进日志的，看这个会话在叶子没动过时跑过的单元（输出 12，`eval.test.ts`“reset: true”）。
+  - 单元时限与空闲回收都在宿主注入的时钟上，握手按真实时间；每次调用的每个出口都重新计空闲，提前交回的（语法错误）也算（输出 11、14，`eval.test.ts`“等审批的时间不算进时限”“30 分钟没有调用”）。
   - 代码里调工具一律经 `ctx.invoke`，宿主不另走执行路径：准入、审批、拦截与日志都同模型调工具（输出 6，`eval.test.ts`“询问模式下 eval 的审批不能记”）。
 
 ## 证据
 
-- 批准依据：[w00032 t21](../../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/README.md) 的决定 1 到 7 与[计划](../../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/plan.md)第 3 稿（开发者 2026-11-18 确认）
+- 批准依据：[w00032 t21](../../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/README.md) 的决定 1 到 7 与[计划](../../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/plan.md)第 3 稿（开发者 2026-11-18 确认）；会话关闭后保留内核：[w00032 t40](../../../.agents/works/w00032-agent-integration/tasks/t40-eval-kernel-survives-session-close/README.md)（开发者 2026-11-19 确认）
 - 实现入口：[`backend/eval/tool.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/tool.ts)、[`kernels.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernels.ts)、[`kernel-entry.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernel-entry.ts)、[`rewrite.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/rewrite.ts)、[`objects.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/objects.ts)
 - 合同测试：[`eval.test.ts`](../../../packages/neuro-book/src/plugins/agent/eval.test.ts)（真实服务端内核、真实内核子进程、本机的 OpenAI 兼容端点）、[`backend/eval/kernel.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernel.test.ts)、[`rewrite.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/rewrite.test.ts)、[`objects.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/objects.test.ts)、示例场景 [`10-eval-object.test.ts`](../../../packages/neuro-book/plugin-sdk/examples/scenarios/10-eval-object.test.ts)
 - Smoke：[`eval.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/eval.llm.test.ts)（`test:llm`，真实模型）
