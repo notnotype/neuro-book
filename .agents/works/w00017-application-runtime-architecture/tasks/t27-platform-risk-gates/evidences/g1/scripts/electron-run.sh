@@ -4,7 +4,7 @@
 # 用法：electron-run.sh <url> <label>
 set -u
 URL="$1"; LABEL="$2"
-SP=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad
+SP=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad
 RUNTIME=/tmp/claude-1000/g1x
 OUT="$SP/g1-out"
 mkdir -p "$RUNTIME" "$SP/g1-kwin-config" "$OUT/results" "$OUT/heap"

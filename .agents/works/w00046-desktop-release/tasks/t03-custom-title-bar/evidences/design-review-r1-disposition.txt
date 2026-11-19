@@ -24,7 +24,7 @@ omp
 
 Sonnet
 1 重要 关闭层让按钮失效（inert、body pointer-events、按键拦截） —— 成立（读 close-ui.ts 核实），三处都开例外，Spec 输出 10 写明。
-2 重要 浮层压在标题栏上变成拖动 —— 成立，pc-notype 实测（frame-probe-r1 第 7 条）。改为一条规则：body 下除 #app 与外框根以外的子节点
+2 重要 浮层压在标题栏上变成拖动 —— 成立，Windows 开发机 实测（frame-probe-r1 第 7 条）。改为一条规则：body 下除 #app 与外框根以外的子节点
    一律 no-drag（Portal 浮层都在其中），不逐个改 nb-ui 组件。
 3 重要 scoped 样式命不中 Menubar 触发器 —— 成立，no-drag 写在非 scoped 块里，范围扩到“有点击或悬停行为的一切”。
 4 重要 留位放根上使搜索偏左、窄窗口裁切 —— 成立，留位放右栏末尾并计入测量；窄到放不下时的裁切记为已知限制（Electrobun 无最小尺寸接口）。

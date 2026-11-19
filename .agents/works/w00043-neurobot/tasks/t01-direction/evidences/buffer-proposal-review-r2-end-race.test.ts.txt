@@ -1,6 +1,6 @@
 // 运行最后一条回复写下、runEnded 还没写时到达的 send：control 仍认为在跑，只入队；随后 runEnded，话留在空闲会话里
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 const {defineExtension} = await import(`${K}/extension/define.ts`);
 let n = 0;

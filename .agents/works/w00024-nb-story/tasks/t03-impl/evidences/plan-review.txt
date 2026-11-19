@@ -1,6 +1,6 @@
 # w00024 t03 实施计划只读审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t03-review/.agents/works/w00024-nb-story/tasks/t03-impl/plan.md`。以下 `plan.md`、Spec 与源码路径均相对此 worktree；其它 worktree 与实验路径写绝对路径。未修改 worktree，未启动 e2e 或开发服务。实验只验证计划所列算法依赖的真实机制，不冒充尚不存在的 nb-story 实现。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t03-review/.agents/works/w00024-nb-story/tasks/t03-impl/plan.md`。以下 `plan.md`、Spec 与源码路径均相对此 worktree；其它 worktree 与实验路径写绝对路径。未修改 worktree，未启动 e2e 或开发服务。实验只验证计划所列算法依赖的真实机制，不冒充尚不存在的 nb-story 实现。
 
 ### 1. 先读代号再按书 id 读图，不能固定查询所属的一代
 
@@ -8,7 +8,7 @@
 - **位置**：plan.md“`src/core/book-index.ts`”第 70 行、“`src/core/library.ts`”第 64 行；`story.queries` 时序第 2 条、验收 9。
 - **现象**：缓存未命中时，`openBook` 先读 `<id>/book.json` 得到 A 的代号，再读 `<id>/graph.json`。两次读取之间，另一进程可以把 A 改名删除并用同 id 导入 B。第一次查询会把 B 的图建在 A 的缓存键下；没有重导入时则会读到 `ENOENT`。持有索引只保护已经加载完成的查询，不保护加载过程。
 - **为什么是问题**：Spec 要求删除前已开始的查询仍用 A 完成，而不是失败或读取 B。错误索引还会让后续 A 的在途查询与游标使用 B 的数据。随机代号和 4 项 LRU 均不能把两个路径读取变成快照。
-- **如何核实**：运行 `node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/fs-races.mjs`。实验用两个真实 Node 子进程按计划顺序读取与改名，输出 `{"scenario":"generation","cacheKey":"A","graph":"B"}`。未运行产品服务。
+- **如何核实**：运行 `node /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/fs-races.mjs`。实验用两个真实 Node 子进程按计划顺序读取与改名，输出 `{"scenario":"generation","cacheKey":"A","graph":"B"}`。未运行产品服务。
 - **建议改法**：把“选中一代并取得该代可继续读取的资源”设计成跨进程原子步骤；例如以书库锁保护选代与打开数据文件，查询持有固定文件句柄或不可变代目录，删除与回收遵守持有者寿命。仅事后重读代号并重试会切换到 B，不满足已开始查询仍返回 A。S1 与 S2 共同确定这一协议；验收 9 必须覆盖冷缓存加载中发生删除及同 id 重导入，而不只测索引已经在内存时的情况。
 
 ### 2. 登记文件的排他创建没有保护“判旧后替换”，两个启动者都能成功
@@ -44,7 +44,7 @@
 - **位置**：plan.md“`src/core/dataset.ts`、`src/core/position.ts`”第 46-47 行；S1。
 - **现象**：计划的导入 schema 要求“各数组存在且元素有 id/at”，真实编译结构并不统一：100 条 `sources` 都没有 `id` 和 `at`；9615 条 `mentions` 都没有 `id`；455 条 `summaries` 都没有 `id`。照这条约束写，唯一指定的样例书就会得到 `unsupported_format`。
 - **为什么是问题**：不是脏数据或版本差异。旧 `schema.ts:257,266,314,319-338` 明确定义了这三种不同形状。只搬类型再手写一个统一的运行期约束，会把合法 V9 拒绝掉；反过来，只检查少数 id/at 又不足以证明 `names`、`source.evidence`、`who` 等下游必读结构可用。`docs/standards/code/languages/typescript.md:7-8` 不允许用类型声明代替 JSON 边界校验。
-- **如何核实**：运行 `node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/data-probe.mjs`，`shape` 输出上述缺字段数量；原文件 5472354 字节，只读。另对照 w00005 t27 的编译后接口，不使用草稿 zod schema 推断成品格式。
+- **如何核实**：运行 `node /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/data-probe.mjs`，`shape` 输出上述缺字段数量；原文件 5472354 字节，只读。另对照 w00005 t27 的编译后接口，不使用草稿 zod schema 推断成品格式。
 - **建议改法**：按编译后各类结构分别定义 schema，并至少校验核心查询实际解引用的字段与嵌套结构。S1 第一条真实导入 smoke 就用这本书；另用缺少必读字段的输入确认在导入边界得到 `unsupported_format`，不让坏数据入库后才在查询中崩溃。不需要搬入草稿 schema，也不能靠给原始数据补假 id/at 解决。
 
 ### 6. 顶层 at 过滤和 ref(id) 不能成为计划声称的统一防剧透出口
@@ -62,7 +62,7 @@
 - **位置**：plan.md“`src/core/identity.ts`”第 80 行；`story.queries` 术语“身份连接”、输出 3、5。
 - **现象**：计划给出的确定连接条件只有 `family === "identity"`、`certainty === "certain"`、`kind` 为 `fact` 或 `belief`，随后连接 `about` 中两个对象。编译后 `Statement` 还有 `neg`；确定的否定身份说法同样通过这三个条件。
 - **为什么是问题**：否定同一性不是“把两个对象说成同一人”的连接，不能进入并查集。旧 `query.ts:73` 在其它条件之前就排除了 `item.neg`，搬运时不能丢掉。指定 100 章样例中否定身份记录为 0，只跑真实样例和 Spec 的几个正向身份场景抓不到这个错误。
-- **如何核实**：运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/mechanism-probe.ts`。用一条合法形状的 `identity/fact/certain/neg:true` 说法，计划筛选命中 1 条，旧真实 `identityGroups` 返回 0 组合并；同时确认真实样例 `realSampleNegativeRows: 0`。这是对计划条件和旧实现的核实，不是对尚未实现的产品作通过声明。
+- **如何核实**：运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/mechanism-probe.ts`。用一条合法形状的 `identity/fact/certain/neg:true` 说法，计划筛选命中 1 条，旧真实 `identityGroups` 返回 0 组合并；同时确认真实样例 `realSampleNegativeRows: 0`。这是对计划条件和旧实现的核实，不是对尚未实现的产品作通过声明。
 - **建议改法**：在唯一的确定身份连接判定中要求 `neg === false`、恰好两个不同的有效对象；读者合并、角色合并、秘密读者格与图边复用这一判定。小书里至少覆盖确定否定与确定肯定不能混淆的场景。
 
 ### 8. relative 用 op 是否为 set 判断，误把已有原文余额的首笔当作起始金额未知
@@ -116,7 +116,7 @@
 - **位置**：plan.md“图”第 148 行、“验收映射”第 203-204 行；`story.viewer` 输出 25。
 - **现象**：计划用“id 哈希初始位置、固定迭代次数加 noverlap”推出同一数据同一排版。实际 `graphology-layout-noverlap@0.4.2` 在两点坐标完全相同时调用 `Math.random()` 打散；达到迭代上限时也直接返回坐标，不保证已收敛。草稿 `layoutForce` 只把圆半径传给 noverlap，未对最终屏幕上的全部节点标签矩形做重叠验证；同心、环形是另两条手排路径。
 - **为什么是问题**：确定初始种子不等于整个流水线确定，也不等于点和名字不会重叠。哈希碰撞、Float32 坐标重合、密集图或很长的名字都需要明确处理；现有 8 个 viewer 验收场景只测交互、平滑移动与可见性，不测重复布局坐标相同或节点/标签无重叠。
-- **如何核实**：已读依赖 `iterate.js:27-28,148-164` 与 `index.js:48-62`、草稿 `sigma-kit.ts:218-239,258-298`。运行 `node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/graph-probe.mjs`：同一对重合点连续排两次，`equal:false`。另一项 64 点、300 轮实验剩余重叠为 0，不据此声称真实 100 章图已经失败或已证明永不重叠。
+- **如何核实**：已读依赖 `iterate.js:27-28,148-164` 与 `index.js:48-62`、草稿 `sigma-kit.ts:218-239,258-298`。运行 `node /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/graph-probe.mjs`：同一对重合点连续排两次，`equal:false`。另一项 64 点、300 轮实验剩余重叠为 0，不据此声称真实 100 章图已经失败或已证明永不重叠。
 - **建议改法**：把坐标重合的确定性处理、迭代上限后的有效性检查写进排版设计；分别验证三种排版在重复调用、切层后切回、重置拖动后的稳定性。真实浏览器按实际字体与视口检查点和标签矩形，不能只对图坐标中的圆做检查。若只承诺某些缩放档位无重叠，先明确合同边界，不把 noverlap 的名字当作保证。
 
 ### 14. 递归核对出处与 id，测不出提前合并、后文计数和未来章标题
@@ -169,15 +169,15 @@
 以下 4 个一次性探针均已运行，退出码均为 0；脚本与运行生成的数据全部留在指定 `lab/`，没有删除文件。文件系统探针的子进程已正常退出。
 
 ```sh
-node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/fs-races.mjs
-node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/data-probe.mjs
-bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/mechanism-probe.ts
-node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/graph-probe.mjs
+node /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/fs-races.mjs
+node /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/data-probe.mjs
+bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/mechanism-probe.ts
+node /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/graph-probe.mjs
 ```
 
 文件系统实验验证的是计划算法允许的真实跨进程交错，不是已经实现的 nb-story；否定身份与首笔余额是边界构造，真实数据对应的存在性/数量在各条里单独说明。图实验只运行实际依赖库，不代表完整浏览器排版。
 
-未运行：e2e、开发服务、产品构建、类型检查、现有产品测试、外部 Agent/真实模型评测。没有执行 `bun install`，没有修改 worktree、Git 状态或分支。LSP 查询结果是 `No language servers configured for this project`，现有机制由源码与探针核实。每追加一条发现后均运行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/report.md`，条数从 1 单调增加到 18。
+未运行：e2e、开发服务、产品构建、类型检查、现有产品测试、外部 Agent/真实模型评测。没有执行 `bun install`，没有修改 worktree、Git 状态或分支。LSP 查询结果是 `No language servers configured for this project`，现有机制由源码与探针核实。每追加一条发现后均运行 `grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/report.md`，条数从 1 单调增加到 18。
 
 ## 未发现问题的方面
 

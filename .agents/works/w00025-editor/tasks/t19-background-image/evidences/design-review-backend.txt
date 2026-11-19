@@ -1,7 +1,7 @@
 w00025 t19 后端设计审查：写字节的文件路由
 
 审查范围：主工作区 .agents/works/w00025-editor/tasks/t19-background-image/plan.md 第 1 节、第 4 节；附核对计划末尾三项已确认事项的事实。
-代码读取位置：/home/notnotype/CodeRepository/neuro-book/.worktree/review-t19-design（detached worktree）。Spec、提案与 Work/Task 依据读取主工作区 /home/notnotype/CodeRepository/neuro-book 的现行文件。
+代码读取位置：/home/<user>/CodeRepository/neuro-book/.worktree/review-t19-design（detached worktree）。Spec、提案与 Work/Task 依据读取主工作区 /home/<user>/CodeRepository/neuro-book 的现行文件。
 审查方式：只读、自己顺序核实；仅本报告可写，所有后续内容只追加。不跑 e2e、开发服务、真实模型；不进行 Git 写操作。
 证据口径：区分代码/合同核实与实际运行；运行结果在末尾逐条列出，不将未执行场景写成已验证。
 
@@ -142,7 +142,7 @@ closeStatuses ["closed","closed","closed"]
 
 合同测试运行证据
 
-实际命令（cwd=/home/notnotype/CodeRepository/neuro-book/.worktree/review-t19-design/packages/neuro-book）：
+实际命令（cwd=/home/<user>/CodeRepository/neuro-book/.worktree/review-t19-design/packages/neuro-book）：
 bun run test:bun src/plugins/files/raw-route.test.ts src/plugins/files/staging.test.ts src/plugins/files/ledger.test.ts src/plugins/files/workspace-files.test.ts src/plugins/http/backend/dispatch.test.ts src/plugins/projects/backend/cover-routes.test.ts src/shared/settings.test.ts src/plugins/settings/settings.test.ts
 
 实际结果：bun test v1.4.4 (38afee6c8)；8 个文件共 86 项，85 pass、1 fail、580 expect() calls；测试耗时 24.46s，命令退出 1。

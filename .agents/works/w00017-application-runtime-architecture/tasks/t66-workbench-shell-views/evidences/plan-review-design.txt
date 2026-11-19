@@ -1,6 +1,6 @@
 # w00017 t66 实施计划对抗审查：设计稿与旧应用
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-plan-design/.agents/works/w00017-application-runtime-architecture/tasks/t66-workbench-shell-views/plan.md`，按用户指定的固定快照 `bacae9fd` 审查。设计稿 accepted、开发者决定参照旧应用，均不重新争论。视图合同提前按推荐方案评价、仍待追认，不因未追认判阻断。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-plan-design/.agents/works/w00017-application-runtime-architecture/tasks/t66-workbench-shell-views/plan.md`，按用户指定的固定快照 `bacae9fd` 审查。设计稿 accepted、开发者决定参照旧应用，均不重新争论。视图合同提前按推荐方案评价、仍待追认，不因未追认判阻断。
 
 本报告核对计划与合同及源码，不把旧应用的既有验证当成本轮运行证据。每条发现注明直接文本证据与推断；核实后立即追加，现已按影响排序。仓库源码与计划未修改；依照审查说明安装依赖，报告与实验文件均在指定仓库外目录。
 
@@ -152,7 +152,7 @@
 ### 实际运行证据与未运行范围
 
 - 中断前已执行：`NBOOK_AGENT_TEMP_ROOT=<本报告所在目录>/ bun <本报告所在目录>/contribution-smoke.ts`，在指定 worktree 根运行，退出码 0，耗时 0.06 秒。真实内核输出四个场景：声明存在但 `receiverEvents: []`（未激活/受阻/激活失败）；纯容器被 required 点以 `implementation-required` 拒绝；普通视图正常 `prepare/published`；根关闭后 `receiver-closed`、旧句柄失效。此为中断前证据，续跑没有重复执行。
-- 续跑实际命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/design/ bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/design/stop-recovery-smoke.ts`，在指定 worktree 根运行，退出码 0，耗时 0.11 秒。三个输出为 `stopped-entry`、`fresh-registration`、`root-closeout`，验证结果见 D04 补证。
+- 续跑实际命令：`NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/design/ bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/design/stop-recovery-smoke.ts`，在指定 worktree 根运行，退出码 0，耗时 0.11 秒。三个输出为 `stopped-entry`、`fresh-registration`、`root-closeout`，验证结果见 D04 补证。
 - 上述 smoke 都经公开包入口运行真实 browser 位置的内核，没有 mock、spy、假计时器、固定等待或私有函数调用；它们验证插件贡献机制，**没有浏览器 DOM、t66 Vue 实例或产品 Storage 验证**。
 - 未运行 e2e、开发服务、浏览器截图、产品两窗口保存、全量测试、typecheck、`smoke:server`、`docs:check`、`governance:check`。审查对象仍为实施前的计划；计划中的 S1–S8 不是已完成证据，旧应用人工验证也未作为本轮实测。
 - 按审查说明中断前安装过依赖；本轮没有再次安装。仓库源码、计划、Spec 与旧应用均未修改，未 commit、push、stash 或切换分支；新增实验与报告只在授权的仓库外目录。

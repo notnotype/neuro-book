@@ -1,7 +1,7 @@
 ### 1. 兜底标题在折叠空白之前截断材料，合法首句话被截成错误标题
 
 - **严重程度**：重要；**类别**：正确性。
-- **位置**：`packages/neuro-book/src/plugins/agent/backend/session-meta.ts:113-115,132-137`（本报告源码路径均相对于 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t18-builtin-profiles`）。
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/session-meta.ts:113-115,132-137`（本报告源码路径均相对于 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00032-t18-builtin-profiles`）。
 - **现象**：tiny 未绑定时，输入 `a + 2000 个空格 + b`，实际标题为 `a`，合同要求先把空白折叠再取前 30 个字符，应该得到 `a b`。`#material` 先把原始输入截成 2000 个字符，`#generate` 再折叠空白，后半段已丢失。
 - **为什么是问题**：违反 `agent/builtin-profiles.md` 输出 11；长空行、缩进或粘贴文本会让本应进入 30 字兜底标题的有效文字丢失。模型材料的 2000 字上限不应该限制另一个用途的兜底标题。
 - **如何核实**：真实 `agentWorld`、真实设置/文件服务与内核，本机端点，不调用真实模型。命令：`bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t18-impl/runtime-smoke.ts fallback`。输出：`{"scenario":"fallback","meta":{"title":"a","description":null},"expected":"a b"}`。

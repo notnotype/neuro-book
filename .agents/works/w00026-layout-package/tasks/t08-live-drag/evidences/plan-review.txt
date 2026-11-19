@@ -1,6 +1,6 @@
 w00026 t08 实时布局：计划只读设计审查
-审查对象：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00026-layout-package/tasks/t08-live-drag/plan.md（110 行）
-代码基线：worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree，分支 feat/w00026-t07-single-tree，HEAD 41b789bfa（含 t19、t17）
+审查对象：/home/<user>/CodeRepository/neuro-book/.agents/works/w00026-layout-package/tasks/t08-live-drag/plan.md（110 行）
+代码基线：worktree /home/<user>/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree，分支 feat/w00026-t07-single-tree，HEAD 41b789bfa（含 t19、t17）
 说明：下面"实验"指 /tmp/review-t08-design/exp/ 里的静态 HTML 加 Chrome 的实测，没有改仓库；其余结论来自读代码，已逐条对照实现。没有跑 e2e 与开发服务。
 
 ======================================================================

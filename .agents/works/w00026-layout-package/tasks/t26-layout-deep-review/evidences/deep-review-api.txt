@@ -751,12 +751,12 @@ void ref;
 // 审查实验（api 角度）：数核心入口导出的运行时名字，并在工作台、nb-story、dev-panel 里数每个名字有没有外部使用。运行：bun run api-exp-exports.ts
 import {readdirSync, readFileSync, statSync} from "node:fs";
 import {join} from "node:path";
-import * as core from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+import * as core from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
 
 const names = Object.keys(core).sort();
 console.log("核心入口运行时导出个数:", names.length);
 
-const root = "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages";
+const root = "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages";
 const users = ["neuro-book", "nb-story", "dev-panel", "nb-agent-ui", "nb-markdown", "nb-form"];
 const files: string[] = [];
 const walk = (dir: string): void => {
@@ -782,8 +782,8 @@ console.log(unused.join(", "));
 
 ```ts
 // 审查实验（api 角度）：不带容器的文档里 hidden 与 collapsed 的呈现差别。运行：bun run api-exp-hidden.ts
-import {H, V, docOf} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
-import {projectLayoutDoc, setPanelCollapsed, setPanelHidden, treeLeaves, UNBOUNDED_EXTENT} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+import {H, V, docOf} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {projectLayoutDoc, setPanelCollapsed, setPanelHidden, treeLeaves, UNBOUNDED_EXTENT} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
 
 const doc = docOf(H(["activitybar", "sidebar", V(["e1", "panel"]), "statusbar"]));
 const options = {constraints: () => ({minimumSize: {width: 100, height: 60}, maximumSize: UNBOUNDED_EXTENT}), barThickness: () => 40, headHeight: 32, collapseThreshold: 40, sashSize: 4};
@@ -812,8 +812,8 @@ void treeLeaves;
 
 ```ts
 // 审查实验（api 角度）：policy.newId 返回已存在的 id 时，moveTabToEdge 会怎样。运行：bun run api-exp-newid.ts
-import {H, V, docOf, tab, view, testPolicy} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
-import {moveTabToEdge, validateLayoutDoc, treeLeaves, findTab, tabKey} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+import {H, V, docOf, tab, view, testPolicy} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {moveTabToEdge, validateLayoutDoc, treeLeaves, findTab, tabKey} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
 
 // e1 有两个标签，p1 是树里已有的工具面板（模拟“重新载入文档后计数器又从 1 开始”）。
 const doc = docOf(H(["activitybar", V(["e1", "p1"]), "statusbar"]), {e1: {tabs: [tab("a"), tab("b")], active: "tab:a"}, p1: {tabs: [view("files")], active: "view:files"}});
@@ -838,8 +838,8 @@ void tabKey;
 
 ```ts
 // 审查实验（api 角度）：LayoutPolicy.edgeTarget 限制的方向，提交时有没有被守住。运行：bun run api-exp-policy.ts
-import {H, V, docOf, testPolicy} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
-import {applyLayoutDrop, moveTabToEdge, resolveLayoutDrop, layoutDropPanelAt, validateLayoutDoc} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+import {H, V, docOf, testPolicy} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {applyLayoutDrop, moveTabToEdge, resolveLayoutDrop, layoutDropPanelAt, validateLayoutDoc} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
 
 const doc = docOf(H(["activitybar", "sidebar", V(["e1", "panel"]), "statusbar"]));
 // 策略：工具标签只能上下拆（左右边没有窄带），和 docs 里 `edgeTarget` 的注释同一用法。
@@ -865,9 +865,9 @@ void resolveLayoutDrop; void layoutDropPanelAt; void tab;
 
 ```ts
 // 审查实验（api 角度）：第三方把 LayoutDoc 放进 Vue 的 `ref`（最自然的写法）再调库的操作会怎样。运行：bun run api-exp-ref.ts
-import {ref, shallowRef} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t25-container-feedback/node_modules/vue/index.mjs";
-import {H, V, docOf, tab, testPolicy} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
-import {activateTab, moveTabToEdge, validateLayoutDoc} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+import {ref, shallowRef} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00026-t25-container-feedback/node_modules/vue/index.mjs";
+import {H, V, docOf, tab, testPolicy} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {activateTab, moveTabToEdge, validateLayoutDoc} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
 
 const doc = docOf(H(["activitybar", V(["e1", "panel"]), "statusbar"]), {e1: {tabs: [tab("a"), tab("b")], active: "tab:a"}});
 const policy = testPolicy();
@@ -895,8 +895,8 @@ console.log("validate:", validateLayoutDoc(doc).ok);
 
 ```ts
 // 审查实验（api 角度）：TabRef 的身份只看 tabId，`type` 不参与。运行：bun run api-exp-tabkey.ts
-import {H, V, docOf} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
-import {tabKey, validateLayoutDoc, findTab} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+import {H, V, docOf} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/layout-doc-fixtures.ts";
+import {tabKey, validateLayoutDoc, findTab} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
 
 const first = {kind: "tab" as const, type: "markdown", tabId: "1"};
 const second = {kind: "tab" as const, type: "image", tabId: "1"};
@@ -912,7 +912,7 @@ console.log("findTab 只能按 key 找，找到的是:", JSON.stringify(findTab(
 
 ```ts
 // 审查实验脚本（api 角度）：第三方能不能用不带活动栏、状态栏的树构造 LayoutDoc。运行：bun run api-exp-validate.ts
-import {validateLayoutDoc, GRID_SNAPSHOT_VERSION, panelRef} from "/home/notnotype/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
+import {validateLayoutDoc, GRID_SNAPSHOT_VERSION, panelRef} from "/home/<user>/CodeRepository/neuro-book/.worktree/t26-review/packages/nb-layout/src/index.ts";
 
 const mk = (extra: any = {}) => ({
   version: 1,

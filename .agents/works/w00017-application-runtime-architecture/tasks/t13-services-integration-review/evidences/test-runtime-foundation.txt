@@ -2,7 +2,7 @@ cwd: packages/neuro-book（HEAD eeeec16b + 本 Task 未提交改动）
 $ bun run test:runtime-foundation
 exit: 0
 
-RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
+RUN  v4.1.10 C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
 
  ✓ app/features/runtime-diagnostics/console-exporter.test.ts (2 tests) 6ms
  ✓ runtime/services/services.test.ts (20 tests) 71ms

@@ -8,10 +8,10 @@ node --import tsx scripts/smoke/storage-project-adapter.ts --browser-executable 
 
 stderr：
 ```text
-Project Storage smoke 隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\nb-t43\140eaac9
+Project Storage smoke 隔离根：C:\Users\USER~1\AppData\Local\Temp\neuro-book\nb-t43\140eaac9
 Project Storage smoke HTTP：http://storage.test:51083/
-Project Storage smoke profile(main)：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\nb-t43\140eaac9\profiles\main
-Project Storage smoke profile(other)：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\nb-t43\140eaac9\profiles\other
+Project Storage smoke profile(main)：C:\Users\USER~1\AppData\Local\Temp\neuro-book\nb-t43\140eaac9\profiles\main
+Project Storage smoke profile(other)：C:\Users\USER~1\AppData\Local\Temp\neuro-book\nb-t43\140eaac9\profiles\other
 ```
 
 最终 JSON（findings 非空即失败）：

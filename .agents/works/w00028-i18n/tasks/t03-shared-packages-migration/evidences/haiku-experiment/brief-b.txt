@@ -1,6 +1,6 @@
 # 任务：补齐工作台状态栏的存储原因码表
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/exp-b-haiku`。只改 `packages/neuro-book/src/plugins/workbench/web/components/` 下的 `WorkbenchStatusBar.vue`、`WorkbenchStatusBar.dom.test.ts`、`WorkbenchStatusBar.md`。
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/exp-b-haiku`。只改 `packages/neuro-book/src/plugins/workbench/web/components/` 下的 `WorkbenchStatusBar.vue`、`WorkbenchStatusBar.dom.test.ts`、`WorkbenchStatusBar.md`。
 
 背景：`WorkbenchStatusBar.vue` 的 `REASONS` 给状态栏的存储问题配可读原因，现在只写了 7 个码，不认识的码原样显示。存储的失败码在 `packages/neuro-book/src/shared/storage.ts` 的 `STORAGE_FAILURES`（14 个）。`REASONS` 里还有 `corrupt`、`unsupported-version`、`provider-stopped`，它们不是 `STORAGE_FAILURES` 里的码，先查清它们从哪来（读 `src/shared/store/problem.ts`、`src/shared/store/persisted.ts` 等），再决定怎么处理。
 

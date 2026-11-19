@@ -1,5 +1,5 @@
-import {createKernelTranscript} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-agent-ui/src/kernel-transcript";
-import {splitIntoTurnGroups} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-agent-ui/src/conversation-turns";
+import {createKernelTranscript} from "/home/<user>/CodeRepository/neuro-book/packages/nb-agent-ui/src/kernel-transcript";
+import {splitIntoTurnGroups} from "/home/<user>/CodeRepository/neuro-book/packages/nb-agent-ui/src/conversation-turns";
 
 const t = createKernelTranscript();
 t.applyPath([

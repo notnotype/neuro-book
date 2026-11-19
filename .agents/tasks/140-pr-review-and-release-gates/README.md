@@ -119,7 +119,7 @@
 ### 2026-08-05：图片缓存路径专项浏览器审查
 
 - **确认行为：当前 Source Dev 会把图片变体写入仓库根 `cache`。** 现场存在两个新生成的 WebP：
-  `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\cache\image-variants\`，文件时间为 2026-08-05 15:50 左右；该目录由 `.gitignore:75` 忽略，但仍污染 checkout 的 Application Root。
+  `C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book\cache\image-variants\`，文件时间为 2026-08-05 15:50 左右；该目录由 `.gitignore:75` 忽略，但仍污染 checkout 的 Application Root。
 - **根因调用链：** `server/runtime/paths/runtime-paths.ts:64-82` 在未设置 `NEURO_BOOK_APPLICATION_ROOT`、`NEURO_BOOK_STATE_ROOT`、`NEURO_BOOK_CACHE_ROOT` 时依次取 `process.cwd()`、Application Root 和 `State Root/cache`，当前 checkout 因而解析为 `neuro-book/cache`；`server/media/image-variant-runtime.ts:13-17` 再把 `paths.imageVariantRoot` 交给 `ImageVariantModule`。图片模块没有另行拼接仓库路径。
 - **启动链缺口：** `scripts/cli/source-dev.ts:23-30` 只注入 host 和 shutdown token，没有注入 State/Cache Root；当前 `.env` 也没有这两个变量。`package.json` 的 `dev:runtime` 直接启动 Nuxt，未建立仓库外 Source Dev State/Cache owner。
 - **合同对照：** `reference/media/image-variants.md:54`、`docs/adr/0006-image-variant-and-original-ownership.md:20` 和 `docs/adr/0010-desktop-storage-loopback-shutdown.md:40` 要求变体位于 `Cache Root/image-variants`；受管 Product 必须显式注入 Cache Root，Source Dev 未配置时才回退到 `State Root/cache`。因此“仓库根 cache 是否错误”取决于 Source Dev 的 State Root 是否本应在仓库外，但当前启动行为和用户观察已确认一致。

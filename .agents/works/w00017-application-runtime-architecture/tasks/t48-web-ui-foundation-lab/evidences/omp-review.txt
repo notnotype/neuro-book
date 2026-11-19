@@ -26,4 +26,4 @@
 - `bun run docs:check`：`failures: []`、`warnings: []`。
 - `bun run governance:check`：`failures: []`、`warnings: []`。
 - 真实开发服务已停止；`proc://t48-review-dev` 状态为 `exited`，无残留服务。收口时 harness 发送了第二次停止信号，dev wrapper 以 1 退出，这是强制清理结果，不是产品验收失败。
-- 逐条发现已追加至外部临时文件：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t48-review/findings.md`。
+- 逐条发现已追加至外部临时文件：`/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t48-review/findings.md`。

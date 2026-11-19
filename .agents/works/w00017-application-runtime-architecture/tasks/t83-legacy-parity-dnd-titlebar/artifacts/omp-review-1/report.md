@@ -26,7 +26,7 @@
 
 **为什么是问题**：新插入分支给 expand:true，但 sourceRatios 和 mergeContainer 的 expandedMovers 仍只认提交前展开的成员。混合来源让拖入成员合计份额超过 A 的另一半；全收起来源完全跳过分配。违反新增插入位挨着展开窗格时平分的合同。base 的半区并入不展开收起来源，因而旧的过滤在旧语义下正确；S3 将 expand 和 split 合用后失配。
 
-**如何核实**：已运行：在 wt/packages/neuro-book 下执行 bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/drop-smoke.ts，退出 0，真实 resolveDrop→applyIntent→applyPatch→buildPresentation 得到上述数值。未在浏览器中复现；浏览器将同样的两容器合组后拖到 B 前，量 A 与 C+D 的展开尺寸。
+**如何核实**：已运行：在 wt/packages/neuro-book 下执行 bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/drop-smoke.ts，退出 0，真实 resolveDrop→applyIntent→applyPatch→buildPresentation 得到上述数值。未在浏览器中复现；浏览器将同样的两容器合组后拖到 B 前，量 A 与 C+D 的展开尺寸。
 
 **建议改法**：插入位 expand:true 时，用放下后要展开的可见来源成员参与分配；已收起来源取保存的展开意图作比例，隐藏成员仍排除。普通展开叶的半区路径继续保留来源收起状态。
 
@@ -42,7 +42,7 @@
 
 **为什么是问题**：S3 为指针新增了多个插入位，却沿用旧的“全收起只接剩余区”键盘分支，违反输出 23 的与指针同一判定及输出 20 的前后插入。已经对照 base：这行代码原样存在，但 base 当时的合同只有一个剩余区；这里是新增行为没有迁移键盘入口，不是把旧缺陷冒充代码回归。
 
-**如何核实**：已运行：在 wt/packages/nb-ui 下，bunx vitest run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/review-vitest.config.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/keyboard.review.test.ts；1 例通过，实际 reader 输出 {axis:null,points:[{x:230,y:200}]}。未在浏览器中复现；按空格拿起、Tab 到全收起目标、上下方向键和 Enter 核对是否能插到两标题之间。
+**如何核实**：已运行：在 wt/packages/nb-ui 下，bunx vitest run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/review-vitest.config.ts /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/keyboard.review.test.ts；1 例通过，实际 reader 输出 {axis:null,points:[{x:230,y:200}]}。未在浏览器中复现；按空格拿起、Tab 到全收起目标、上下方向键和 Enter 核对是否能插到两标题之间。
 
 **建议改法**：除空内容之外，不因全收起而把轴和成员停靠点清掉；给每条标题前后及末尾提供能被新 resolveDrop 解析的停靠点，按用户可观察插入位置补键盘用例。
 
@@ -58,7 +58,7 @@
 
 **为什么是问题**：opensPanel 在发起时冻结为 true；重放拿到 outcome.problem 后只记诊断、不停止额外展开写入。破坏“整条不写、unchanged、不增加 revision”的既有保存合同，也让无效拖放展开了没有接到东西的面板。base 在此处直接返回 outcome.value，因此这次意图原来会整体不写；S3 是回归。
 
-**如何核实**：已运行：在 wt/packages/neuro-book 下，bun run /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/store-smoke.ts；退出 0，真实两个窗口、nbook.storage 与 SQLite 条件保存，revision 3→4、collapsed true→false、视图 A 无归属改动，patchProblems 说明并入没有保存；3 个内核实例均 closed。既有冲突测试没有先收起面板，所以 74 个合同测试全过仍漏掉此回归。
+**如何核实**：已运行：在 wt/packages/neuro-book 下，bun run /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/store-smoke.ts；退出 0，真实两个窗口、nbook.storage 与 SQLite 条件保存，revision 3→4、collapsed true→false、视图 A 无归属改动，patchProblems 说明并入没有保存；3 个内核实例均 closed。既有冲突测试没有先收起面板，所以 74 个合同测试全过仍漏掉此回归。
 
 **建议改法**：把展开/显示补丁与归属补丁放进同一个可拒绝的应用边界；outcome.problem 非空时返回原值，不再追加展开或 reveal。补在现有“前提不成立整条不写”的双窗口用例中。
 
@@ -74,7 +74,7 @@
 
 **为什么是问题**：Dropdown 的手工级联只画普通按钮，不接 Reka 的菜单上下文；useMenuCascade 不搬焦点，MenuNodes 只处理父项的 ArrowRight。违反外壳输出 31 的菜单键盘漫游。base 的 compactItems 是平面叶子项，受 Reka 键盘导航保护；虽级联原语的限制本来存在，S7 首次把产品所有紧凑菜单项迁入这个不满足合同的入口，是本次消费方回归。
 
-**如何核实**：已运行：在 wt/packages/nb-ui 下，bunx vitest run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/review-vitest.config.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/submenu.review.test.ts；1 例通过，真实 Dropdown 的 ArrowRight 展开后 activeElement 仍为父组，子项的 Down/Left 不响应。未在浏览器中复现；F10→打开 ≡→视图→Right→Down→Enter，核对面板命令能否执行，Left/Escape 是否逐级退回。新 e2e 只 hover 子菜单、检查可见，没有走其宣称的方向键路径。
+**如何核实**：已运行：在 wt/packages/nb-ui 下，bunx vitest run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/review-vitest.config.ts /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/submenu.review.test.ts；1 例通过，真实 Dropdown 的 ArrowRight 展开后 activeElement 仍为父组，子项的 Down/Left 不响应。未在浏览器中复现；F10→打开 ≡→视图→Right→Down→Enter，核对面板命令能否执行，Left/Escape 是否逐级退回。新 e2e 只 hover 子菜单、检查可见，没有走其宣称的方向键路径。
 
 **建议改法**：不撤回已决定的分组设计；让共享级联接完整的键盘与焦点模型，或改用 Reka 的 submenu 原语：进入首项、上下/Home/End 漫游、Left 返回、Escape 收起并归还焦点。通过实际菜单命令执行覆盖验收。
 
@@ -87,7 +87,7 @@
 C1 上文的相对配置路径书写有误，不是实际执行命令。实际成功执行的是以下绝对路径命令，运行目录为 `wt/packages/nb-ui`：
 
 ```sh
-bunx vitest run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/review-vitest.config.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/hover.review.test.ts
+bunx vitest run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/review-vitest.config.ts /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/hover.review.test.ts
 ```
 
 此补正是 C1 的核实记录，不是新增问题。
@@ -105,7 +105,7 @@ bun test ./src/plugins/workbench/web/views/drop.test.ts ./src/plugins/workbench/
 在 `wt/packages/nb-ui`：
 
 ```sh
-bunx vitest run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/contracts-vitest.config.ts src/components/controls/tabs-adapt.test.ts src/components/layout/DropFeedbackOverlay.test.ts src/components/layout/GridRenderer.test.ts src/components/layout/splitter.test.ts ../neuro-book/src/plugins/workbench/web/components/WorkbenchShellParts.dom.test.ts ../neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.dom.test.ts
+bunx vitest run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/contracts-vitest.config.ts src/components/controls/tabs-adapt.test.ts src/components/layout/DropFeedbackOverlay.test.ts src/components/layout/GridRenderer.test.ts src/components/layout/splitter.test.ts ../neuro-book/src/plugins/workbench/web/components/WorkbenchShellParts.dom.test.ts ../neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.dom.test.ts
 ```
 
 结果：6 个文件，112 passed。使用本报告目录的 `cacheDir`；配置把符号链接依赖与 `nbook` 别名定向到当前审查 worktree，组件源码不是另一个 worktree 的副本。
@@ -145,7 +145,7 @@ bunx vitest run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-b
 实际执行：
 
 ```sh
-grep -c '^### C' /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/report.md
+grep -c '^### C' /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t83/report.md
 ```
 
 结果为 `6`：五个问题标题（C1–C5），另一个是验证记录中的“C1 命令补正”，不是第六个问题。该补正标题误用了 C 前缀；遵守报告只追加的限制，没有回改已写内容。严重程度统计按五个唯一问题计算：阻断 0、重要 5、建议 0。

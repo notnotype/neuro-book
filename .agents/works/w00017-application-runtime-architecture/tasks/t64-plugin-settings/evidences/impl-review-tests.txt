@@ -1,6 +1,6 @@
 # t64 实现审查：测试与验收映射
 
-审查范围：`1d68afea..325bbe33`。工作树：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-tests`。
+审查范围：`1d68afea..325bbe33`。工作树：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-impl-tests`。
 
 审查已完成。核实 9 条：重要 6、建议 3、阻断 0。当前实现问题与存活变异证明的测试缺口分开陈述；不把变异后的故障算作当前产品故障。
 
@@ -193,7 +193,7 @@ bun test ./src/remote/routing.test.ts -t '提供方在接受订阅时立即推�
 
 其它实验：`experiments` 目录执行 `bun console-check.ts`，派发两个错误后被断言的数组仍是空，退出 0，仅验证 JS 收集逻辑；`experiments/timeout-writers/packages/neuro-book` 执行 `bun review-timeout.ts`，用例超时后运行器退出 1，两个写入 PID 最终均不存在，输出 `killed 2 dangling processes`。初轮仅看到超时消息时检查进程太早，终态不支持资源泄漏，不纳入发现。
 
-一次环境绕路：外部副本执行组件测试时无法解析 `/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-impl-tests/packages/neuro-book-test-support/src/vitest.ts`，2 套件都未运行任何测试。随后同命令在原工作树成功；这个失败不是产品失败，也没有通过修改源码/依赖配置掩盖。
+一次环境绕路：外部副本执行组件测试时无法解析 `/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-impl-tests/packages/neuro-book-test-support/src/vitest.ts`，2 套件都未运行任何测试。随后同命令在原工作树成功；这个失败不是产品失败，也没有通过修改源码/依赖配置掩盖。
 
 未运行：全量应用、内核与组件套件，e2e、本机 Chrome、开发服务、`smoke:server`（含 S9）、本轮生产构建、lint/formatter、docs:check、governance:check。没有复用作者自报的 301/399/60/52 例与 S1–S9 全绿作为本轮证据。没有 commit/push/stash/切换分支或改仓库规范。真实 Provider/Model 和人工评测没有调用。
 

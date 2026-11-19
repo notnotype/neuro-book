@@ -1,7 +1,7 @@
 # t71 实施计划参考实现审查
 
 - 审查对象：提交 `04317a82` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t71-editor-area/plan.md`。
-- 工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t71-plan-reference`。下文仓库路径均相对于此工作区。
+- 工作区：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t71-plan-reference`。下文仓库路径均相对于此工作区。
 - 只读审查；仅在本报告目录创建审查产物。已记录的“不做”与待确认取舍仅在破坏既定合同或内容完整性时列为发现。
 - 核实等级逐条注明；代码阅读不冒充运行证据。
 

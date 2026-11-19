@@ -48,7 +48,7 @@
 
 ## 真实浏览器证据
 
-环境：隔离验收副本 `C:/Users/notnotype/AppData/Local/Temp/neuro-book/acceptance/editor-44caddf6`（独立源码 linked worktree、独立依赖与 `.nuxt`、端口 44322），独立 headless Chrome（CDP 44323）。3001 未参与。
+环境：隔离验收副本 `C:/Users/<user>/AppData/Local/Temp/neuro-book/acceptance/editor-44caddf6`（独立源码 linked worktree、独立依赖与 `.nuxt`、端口 44322），独立 headless Chrome（CDP 44323）。3001 未参与。
 
 - 组件树显示 `54 / 54`，9 个组件均在 `editor-workbench`（及 `novel-ide` / `workbench`）分组下可选。
 - 逐个组件、逐个场景真实点击切换：41 个场景全部挂载出内容，`data-lab-subject` 有正尺寸（如 CodeEditorView 388×750、EditorWelcome 388×809、SettingsLoadState 370×318），页面横向溢出 0，控制台 `error` / `pageerror` 为空。

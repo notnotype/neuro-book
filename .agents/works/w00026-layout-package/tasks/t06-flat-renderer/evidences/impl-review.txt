@@ -1,5 +1,5 @@
 # w00026 t06 实现审查（前端）报告
-范围：master..HEAD，worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t06-flat-renderer
+范围：master..HEAD，worktree /home/<user>/CodeRepository/neuro-book/.worktree/w00026-t06-flat-renderer
 实验目录：/tmp/review-w00026-t06-impl/exp/（exp/pkg 是 nb-layout 的副本，exp1/exp2.dom.test.ts 是实验，ro-order.* 是真 Chrome 小实验）
 已跑：nb-layout 的 bun test（238 过）、vitest（128 过）、typecheck（过）。未跑 e2e 与开发服务。
 

@@ -20,7 +20,7 @@
 - 位置：`packages/neuro-book/src/plugins/commands/shared/registry.ts:196-218`、`:176-181`、`:221-228`。
 - 现象：先登记 `nbook.app.original`，再把 `nbook.app.alias` 登记为它的别名；随后登记 id 为 `nbook.app.alias` 的另一条 canonical 命令仍成功，没有诊断。经该 id 执行由原实现变成新实现；释放新 canonical 后又自动恢复成旧别名实现。
 - 为什么是问题：`docs/specs/workbench/commands.md:35,38` 定义“id 全局唯一且稳定”及“别名只做解析，不产生第二份实现”；实现自己在 `registry.ts:82` 也声明“别名与 canonical 共用名字表”。反方向的 `registerAlias` 已拒绝 canonical 重名，而 `register` 只检查 `entries`，使同一身份能同时存在两条映射。调用者无法根据登记成功与释放判断自己究竟会触发哪个动作。这一漏洞旧 `commands.ts:278-290` 也存在，本次迁移没有修正；别名机制是本批交付范围，非桌面别名接线要求。
-- 如何核实：读新旧登记与解析代码；运行仓库外 `core-review.test.ts`：`bun test /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t49-review/core-review.test.ts`（cwd 为 `packages/neuro-book`），2 例通过，其中本例观察到 `alias collision registration: true reports: []`，执行结果依次为 `original → newcomer → original`。此测试断言实际缺陷，不表示合同通过。
+- 如何核实：读新旧登记与解析代码；运行仓库外 `core-review.test.ts`：`bun test /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t49-review/core-review.test.ts`（cwd 为 `packages/neuro-book`），2 例通过，其中本例观察到 `alias collision registration: true reports: []`，执行结果依次为 `original → newcomer → original`。此测试断言实际缺陷，不表示合同通过。
 - 建议改法：`register` 在插入 canonical 前检查 `aliases.has(id)`，按现有拒绝与单次报告路径拒绝后来者，保留原别名；在既有别名行为测试里补齐两个登记方向，断言失败后原目标仍可执行。
 
 ### 2. [建议] 确认等待期间切换只读模式的验收失败码与实现、测试不一致
@@ -82,7 +82,7 @@ Ran 173 tests across 27 files. [6.06s]
 ==> neuro-book：bun run test:vitest
 $ vitest run
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
 
  Test Files  11 passed (11)

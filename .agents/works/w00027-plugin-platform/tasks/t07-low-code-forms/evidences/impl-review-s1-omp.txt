@@ -2,7 +2,7 @@
 
 范围：`git diff 2d2ee4016..HEAD`（`8d4f12cb1`、`b03e9f9a8`）。依据：开发者已确认的主工作区 `plan.md`、两份设计审查及 worktree `docs/specs/ui/forms.md`。不审查尚未实现的 Vue 层与 nb-ui。
 
-所有源码位置相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验命令的工作目录均为该 worktree 的 `packages/nb-form`；实验文件仅在 `/tmp/neuro-book/review-w00027-t07-s1/lab/`。本报告逐条追加，不修改仓库文件。
+所有源码位置相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验命令的工作目录均为该 worktree 的 `packages/nb-form`；实验文件仅在 `/tmp/neuro-book/review-w00027-t07-s1/lab/`。本报告逐条追加，不修改仓库文件。
 
 ### 1. nullable 字段拆包丢掉外层 writeOnly，密钥被选成普通文本输入
 
@@ -37,7 +37,7 @@
 - **位置**：`packages/nb-form/src/validate.ts:95-99`；`packages/nb-form/src/model.ts:133-139`。
 - **现象**：在 switch 进入 JSON 校验前，所有 null 都要求 `node.nullable` 为 true；而该标志只认两个分支、且恰有 `{type:"null"}` 的 anyOf。`Type.Null()`、`{}`、`Type.Union([Type.String(),Type.Number(),Type.Null()])`、`{type:["string","null"]}` 对 null 的真实 `Value.Check` 都是 true，`validateForm` 却都返回一条 `type` 错误。
 - **为什么是问题**：输出 1 的不支持写法是“改用 JSON 编辑”，不是改变其数据 schema。这里 JSON 编辑也无法提交原本合法的 null；问题不限于 nullable 的结构控件。两分支 nullable 对象与 nullable 列表的 null 已实测通过，不将它们误报为问题。
-- **如何核实**：在 `packages/nb-form` 执行 `bun -e 'import {Type} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/typebox/build/index.mjs"; import {Value} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/typebox/build/value/index.mjs"; import {resolveForm,validateForm} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form/src/index.ts"; for(const s of [Type.Null(),{},Type.Union([Type.String(),Type.Number(),Type.Null()]),{type:["string","null"]}])console.log(Value.Check(s,null),validateForm(resolveForm(s),null));'`，4 组均为 `true` 加 `type` 问题。
+- **如何核实**：在 `packages/nb-form` 执行 `bun -e 'import {Type} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/typebox/build/index.mjs"; import {Value} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/typebox/build/value/index.mjs"; import {resolveForm,validateForm} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form/src/index.ts"; for(const s of [Type.Null(),{},Type.Union([Type.String(),Type.Number(),Type.Null()]),{type:["string","null"]}])console.log(Value.Check(s,null),validateForm(resolveForm(s),null));'`，4 组均为 `true` 加 `type` 问题。
 - **建议改法**：JSON 字段将 null 同其他值一起交给原 schema 校验；结构化控件也应以 schema 的合法性为准，不让用于 UI 的 nullable 快捷标志成为完整校验规则。
 
 ### 5. 一个后代的引用会把整个表单降为 JSON，且普通数据里的 $ref 也被当成引用
@@ -46,7 +46,7 @@
 - **位置**：`packages/nb-form/src/model.ts:142-157`。
 - **现象**：`kindOf` 在判断当前节点前扫描整个子树；根有 `name` 普通字段、`extra` 引用字段时，根直接变成 `kind:"json"`、`children:[]`，不是只让 `extra` 用 JSON 编辑。`$defs` 即使只在根提供定义，也触发同样结果。扫描不区分 schema、properties 的键表、default 等数据位置，业务属性名 `"$ref"` 也会令整个根降级。
 - **为什么是问题**：输出 1 将表外写法降级为 JSON 的单位是字段/超深的部分；不能因一个复杂字段让普通字段的只读、密钥与选型信息都从字段树消失。全子树扫描还在每个后代重复进行，且绕过了本应限制展开的深度门禁：对 `schema.default = schema` 的自引用 JS 输入，`resolveForm` 会在任何展开前抛 `RangeError`，与包约束“处理描述的函数不因描述写坏抛异常”不符。
-- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `nested-ref`；`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `legal-field-name $ref`。另在 `packages/nb-form` 执行 `bun -e 'import {resolveForm} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form/src/index.ts"; const s:Record<string,unknown>={type:"string"};s.default=s;try{resolveForm(s)}catch(e){console.log(String(e))}'`，得到 `RangeError: Maximum call stack size exceeded.`。`checkDescription` 本身对循环输入会返回 invalid，不将它混同为该异常。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `nested-ref`；`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `legal-field-name $ref`。另在 `packages/nb-form` 执行 `bun -e 'import {resolveForm} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form/src/index.ts"; const s:Record<string,unknown>={type:"string"};s.default=s;try{resolveForm(s)}catch(e){console.log(String(e))}'`，得到 `RangeError: Maximum call stack size exceeded.`。`checkDescription` 本身对循环输入会返回 invalid，不将它混同为该异常。
 - **建议改法**：按当前 schema 节点决定是否可展开，只遍历已知 schema 子位置；引用字段在该节点降级，不向祖先传播。必要的全局预检只做一次，带已访问集合与界限，不扫描 default/const/enum 等值数据。
 
 ### 6. Agent 的深度与大小限制存在未计入的入口
@@ -176,7 +176,7 @@
 
 ## 本轮验证
 
-下表命令均在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form` 执行。
+下表命令均在 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form` 执行。
 
 | 实际命令 | 结果 |
 |---|---|

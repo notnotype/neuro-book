@@ -79,7 +79,7 @@
 
 ## 3. Claude Code
 
-源码：闭源。本机版本 2.1.314，二进制 `/home/notnotype/.local/share/claude/versions/2.1.314`（Bun 编译的 ELF，约 298 MB，JS 被压缩在内）。依据只有文档与对二进制的字符串搜索。
+源码：闭源。本机版本 2.1.314，二进制 `/home/<user>/.local/share/claude/versions/2.1.314`（Bun 编译的 ELF，约 298 MB，JS 被压缩在内）。依据只有文档与对二进制的字符串搜索。
 
 **存放位置与格式**：`~/.claude/projects/<项目目录名>/<session-id>.jsonl`，JSONL（官方文档 https://code.claude.com/docs/en/sessions ，“Where transcripts are stored”一节）。本机 435 个 `.jsonl`，`projects` 下未见任何 `*.lock` 文件。
 

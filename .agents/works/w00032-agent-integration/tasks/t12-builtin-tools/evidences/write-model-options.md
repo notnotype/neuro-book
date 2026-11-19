@@ -2,7 +2,7 @@
 
 ## 背景
 
-NeuroBook 是本地优先的长篇写作工作区（Bun 1.4、TypeScript；仓库 `/home/notnotype/CodeRepository/neuro-book`，只读参照）。一本书是用户磁盘上的一个目录（项目目录）。进程：
+NeuroBook 是本地优先的长篇写作工作区（Bun 1.4、TypeScript；仓库 `/home/<user>/CodeRepository/neuro-book`，只读参照）。一本书是用户磁盘上的一个目录（项目目录）。进程：
 
 - **服务端进程**：Agent（AI 写作助手）在这里运行，它的工具要读写书里的文件；以后的插件（例如图生文插件存图片）也在这里。
 - **项目子进程**：每本打开的书一个。现在由它执行浏览器编辑器的保存与文件树的文件操作，也由它监视项目目录（`node:fs.watch` 递归监视、批合并、回声过滤，见 `packages/neuro-book/src/plugins/files/backend/changes.ts`），把变更事件推给浏览器的文件树与编辑器（要实时）。

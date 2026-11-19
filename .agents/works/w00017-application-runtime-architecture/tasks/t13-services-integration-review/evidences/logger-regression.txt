@@ -2,7 +2,7 @@ cwd: packages/neuro-book（HEAD eeeec16b + 本 Task 未提交改动）
 $ bunx vitest run server/app-logs server/agent/observability server/backup
 exit: 0
 
-RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
+RUN  v4.1.10 C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
 
  ✓ server/agent/observability/unified-entry-guard.test.ts (1 test) 264ms
  ✓ server/agent/observability/harness-trace-segments.test.tsx (2 tests) 135ms

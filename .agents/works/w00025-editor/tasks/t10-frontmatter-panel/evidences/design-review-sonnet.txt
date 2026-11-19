@@ -1,7 +1,7 @@
 ## 1. [阻断] 属性模型：Document.toString() 会改写没动过的字段，“没动的字段与写法原样保留”做不到
 - 类别：不变量 / 依赖的机制不存在
 - 位置：plan.md 技术选型第 1 行（`yaml` 的 parseDocument 与 Document API）、关键设计“属性模型”第 2 条（“都走 Document API”）、Spec 改动里方言输出 22 新写法（“没改的字段、注释与写法原样”）
-- 现象：用仓库里装的 yaml 2.9.0（/home/notnotype/CodeRepository/neuro-book/node_modules/yaml）对一份普通 frontmatter 只做一次 `doc.set("title","New")` 再 `toString()`，没动的字段也变了：
+- 现象：用仓库里装的 yaml 2.9.0（/home/<user>/CodeRepository/neuro-book/node_modules/yaml）对一份普通 frontmatter 只做一次 `doc.set("title","New")` 再 `toString()`，没动的字段也变了：
   - 不带缩进的块序列 `tags:\n- a\n- b` 变成 `tags:\n  - a\n  - b`；
   - 一行 100 多字符的普通字符串被折成两行（lineWidth 默认 80）；
   - `list: [x,   y]` 变成 `list: [ x, y ]`；

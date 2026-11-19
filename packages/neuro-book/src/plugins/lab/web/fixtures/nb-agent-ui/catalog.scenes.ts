@@ -11,7 +11,7 @@ const MANY = Array.from({length: 240}, (_, index) => model(`vendor-${index % 12}
 
 /** 样例目录：自定义服务商、密钥有值与没值的、要登录的、云凭据链的。数字取自 OMP 18.2.5 的目录。 */
 export const LAB_CATALOG: CatalogProviderView[] = [
-    {id: "jiji", name: "jiji 网关", source: "custom", access: "key", keyEnvs: ["JIJI_API_KEY"], keySet: true, models: [model("gpt-5.6-sol", "gpt-5.6-sol", {api: "openai-responses", contextWindow: 1_050_000, reasoning: true, images: true})]},
+    {id: "relay", name: "中转网关", source: "custom", access: "key", keyEnvs: ["RELAY_KEY"], keySet: true, models: [model("gpt-5.6-sol", "gpt-5.6-sol", {api: "openai-responses", contextWindow: 1_050_000, reasoning: true, images: true})]},
     {id: "deepseek", name: "DeepSeek", source: "catalog", access: "key", keyEnvs: ["DEEPSEEK_API_KEY"], keySet: true, models: [model("deepseek-flash", "DeepSeek Flash", {contextWindow: 1_000_000, reasoning: true, price: {input: 0.14, output: 0.56, currency: "USD"}}), model("deepseek-pro", "DeepSeek Pro", {contextWindow: 1_000_000, reasoning: true, price: {input: 0.55, output: 2.19, currency: "USD"}})]},
     {
         id: "openai", name: "OpenAI", source: "catalog", access: "key", keyEnvs: ["OPENAI_API_KEY"], keySet: false,
@@ -25,7 +25,7 @@ export const LAB_CATALOG: CatalogProviderView[] = [
 ];
 
 export const agentModelCatalogScenes: Scene[] = [
-    {id: "default", label: "目录（自定义、有值、没值、要登录、云凭据链）", input: {props: {providers: LAB_CATALOG, chosen: ["jiji/gpt-5.6-sol"], locale: "zh-CN"}, model: {open: true}}},
+    {id: "default", label: "目录（自定义、有值、没值、要登录、云凭据链）", input: {props: {providers: LAB_CATALOG, chosen: ["relay/gpt-5.6-sol"], locale: "zh-CN"}, model: {open: true}}},
     {id: "empty", label: "空目录", input: {props: {providers: [], chosen: [], locale: "zh-CN"}, model: {open: true}}},
     {id: "english", label: "英文界面", input: {props: {providers: LAB_CATALOG, chosen: [], locale: "en-US"}, model: {open: true}}},
 ];

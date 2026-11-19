@@ -2,7 +2,7 @@
 
 ## 0. 头部
 
-- 源码基线：`65d9daea06616b8fc8459bc7ef9cb2132cee25ed`（detached worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02`），两份报告同一基线。
+- 源码基线：`65d9daea06616b8fc8459bc7ef9cb2132cee25ed`（detached worktree `/home/<user>/CodeRepository/neuro-book/.worktree/audit-w00031-t02`），两份报告同一基线。
 - 出处：后端分区报告 `/tmp/w00031-review/t02-audit/report-backend.md`（omp，下称“后端报告”，通道 ID 前缀 `B-`，错误域 ID 无前缀）；前端分区报告 `/tmp/w00031-review/t02-audit/report-frontend.md`（Sonnet，下称“前端报告”，通道 ID 前缀 `FC-`，错误域 ID 前缀 `fe.` 或 `x.`）。
 - 另有“主会话补查”两处（两份报告都没盘），在第 3 节末尾以 `MC-01`、`MC-02` 补入通道总表。
 - 合并日期：2026-10-27。

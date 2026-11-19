@@ -131,7 +131,7 @@
 
 ## 实际使用（2026-11-12）
 
-模板复制到 pc-notype 的 `D:\CodeRepository\manus` 后，那里的 Agent（Manus Studio）做 MCP 终端调研时没有建任何 Work，调研笔记写进了宿主自带的 `.work/mcp-terminal-research/`，题目抄进了 `.local/manus/README.md`。
+模板复制到 Windows 开发机 的 `D:\CodeRepository\manus` 后，那里的 Agent（Manus Studio）做 MCP 终端调研时没有建任何 Work，调研笔记写进了宿主自带的 `.work/mcp-terminal-research/`，题目抄进了 `.local/manus/README.md`。
 
 ### 17. 没有“动手前先建 Work”这条硬规则
 
@@ -141,7 +141,7 @@
 - 调研笔记放哪没有写：NeuroBook 有 7 个 Work 在 Work 层用了 `research/`，`.agents/works/README.md` 没有登记这个约定；
 - 模板的领号命令只有 bash 写法，Windows 的 PowerShell 跑不了。
 
-- 模板：根 `AGENTS.md` 的核心规则加“除只读问答外，动手前先找到或新建 Work 与 Task；调研、过程产物与证据写进 Task 或 Work 目录，不写进宿主自带的工作目录；宿主约定与本仓库冲突时以本仓库为准”；`.agents/works/README.md` 加 Work 层 `research/` 与“宿主工作目录不是记录”；领号补 PowerShell 写法（在 pc-notype 的临时仓库实测，能取到只在另一条分支上的编号）。
+- 模板：根 `AGENTS.md` 的核心规则加“除只读问答外，动手前先找到或新建 Work 与 Task；调研、过程产物与证据写进 Task 或 Work 目录，不写进宿主自带的工作目录；宿主约定与本仓库冲突时以本仓库为准”；`.agents/works/README.md` 加 Work 层 `research/` 与“宿主工作目录不是记录”；领号补 PowerShell 写法（在 Windows 开发机 的临时仓库实测，能取到只在另一条分支上的编号）。
 - 建议：NeuroBook 根 `AGENTS.md` 的核心规则补同样一条；`.agents/works/README.md` 的目录树补 `research/`。
 
 ### 18. 没有写提案的 Skill，流程顺序与实际做法不符

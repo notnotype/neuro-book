@@ -205,7 +205,7 @@ window.PANEL2 = {
    "",
    "● 现成的横排标志组件 NeuroBookLockup 正合用于标题栏，宽高比约5.7:1，可按文字色或品牌色上色。我会出两版：墨色（随文字色）和品牌色（浅色赤红、深色金），布局顺序统一为标志、项目切换、菜单。",
    "",
-   "● Bash(S=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t79; python3 - $S/round9.mjs $S/ro",
+   "● Bash(S=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t79; python3 - $S/round9.mjs $S/ro",
    "  ⎿  settings-restored",
    "     ok",
    "  ⎿  1 file changed (binary, mode only or too large to show)",

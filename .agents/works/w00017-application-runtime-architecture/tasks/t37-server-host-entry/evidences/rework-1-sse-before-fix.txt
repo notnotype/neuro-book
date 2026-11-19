@@ -1,6 +1,6 @@
 $ vitest run server/api/workspace-files/events.get.test.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
  ❯ server/api/workspace-files/events.get.test.ts (7 tests | 2 failed) 2980ms
      × 客户端断开导致 push closed-stream 错误时会清理订阅 6ms

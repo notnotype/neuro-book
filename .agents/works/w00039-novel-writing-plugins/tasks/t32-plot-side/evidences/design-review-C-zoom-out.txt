@@ -1,6 +1,6 @@
 审查 C（拉远看）：docs/proposals/world-engine-plot-side.md
 审查者视角：刚加入、没参与讨论的架构师。只读。外部做法（Aeon Timeline、World Anvil、Graphiti 等）是凭记忆写的，没有联网核实，已逐处标明。
-下文 P:行号 指提案文件行号；code 指 /home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/。
+下文 P:行号 指提案文件行号；code 指 /home/<user>/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/nb-canon/。
 
 结论先行：问题是真问题，方向（时间做约束、知情记在人物身上、读者按讲述算）站得住。
 最该在合并前补的不是细节，而是四处架构取舍没讲清或讲得不成立：

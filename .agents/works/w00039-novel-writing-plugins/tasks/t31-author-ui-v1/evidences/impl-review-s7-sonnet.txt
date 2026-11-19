@@ -1,5 +1,5 @@
 # w00039 t31 S7 前端实现审查报告（e5ca8e1da、4d3790881、75b465e17、8d2582682，不含 packages/nb-canon）
-# 工作树 /home/notnotype/CodeRepository/neuro-book/.worktree/w00039-novel-writing-plugins
+# 工作树 /home/<user>/CodeRepository/neuro-book/.worktree/w00039-novel-writing-plugins
 # 背景：既有的 6 个相关测试文件 27 条在 base 之上全过；vue-tsc -p tsconfig.web.json 退出码 0。
 
 ### 1. show-pending 与第一次打开选“第一条”时用的是读取层留着的旧结果，之后新结果到了不再补选

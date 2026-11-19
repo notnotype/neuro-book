@@ -1,6 +1,6 @@
 # w00002 t21 只读设计审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-t21-review/docs/proposals/nb-harness-profile-and-tools.md`。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00002-t21-review/docs/proposals/nb-harness-profile-and-tools.md`。
 
 审查方式：本会话顺序自审；源码以指定 worktree 为准，OMP 以主工作区安装的 18.2.5 为准。下文仓库相对路径均相对该 worktree；`node_modules/` 路径相对主工作区。没有修改源码、Task 记录或 Git 状态。报告按核实进度追加。
 
@@ -19,7 +19,7 @@
 - **位置**：提案“4. 收尾工具”（第 120-125 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:160-165,1593-1597,3194-3229,3336-3387`。
 - **现象**：`afterToolCall` 只支持覆盖工具结果，没有“停止循环”的返回值。直接 `agent.abort()` 会走用户取消路径；使用 OMP 的专用 `TERMINAL_TOOL_RESULT_ABORT_REASON` 可以避免下一次模型调用并保留成对历史，但仍会向同批正在执行的工具传播 abort。同批两个 finish 都已完成时，两个 post-hook 都会执行，提案的单个 `finish` 没有唯一结果规则。
 - **为什么是问题**：模型允许在一条 assistant 消息里发出多个调用，OMP 默认 `concurrency: "shared"`。问答的“提交答案”可以在另一项资料校验完成前被接受，随后另一项被中止；两个答案也可以同时成功，结果取哪个将取决于实现里的覆盖顺序。改成 exclusive 只改变调度，不等于规定一个批次中只允许一个终结提交。外部取消先于或晚于提交成功时，`finished` 与 `aborted` 的优先级同样没有合同。
-- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/runtime-probes.ts`，经真实 `Agent.prompt()` 和 OMP 调度器，未调用模型。实测普通 abort 调用 streamFn **2 次**、消息尾多出 `assistant:aborted`；专用 terminal reason 调用 **1 次**、保留 `assistant:toolUse → toolResult:false`。finish 加兄弟工具得到 `[{tool:"finish",isError:false},{tool:"sibling",isError:true}]`；两个 finish 得到 `accepted:["f3a","f3b"]` 和 **2 条成功结果**。源码确认完成的工具在信号已中止时仍会进入 post-hook。首次探针把普通 abort 也预期为 1 次，因此断言失败；改为记录实际次数后完成其余实验，没有修改产品代码。
+- **如何核实**：运行 `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-design/lab/runtime-probes.ts`，经真实 `Agent.prompt()` 和 OMP 调度器，未调用模型。实测普通 abort 调用 streamFn **2 次**、消息尾多出 `assistant:aborted`；专用 terminal reason 调用 **1 次**、保留 `assistant:toolUse → toolResult:false`。finish 加兄弟工具得到 `[{tool:"finish",isError:false},{tool:"sibling",isError:true}]`；两个 finish 得到 `accepted:["f3a","f3b"]` 和 **2 条成功结果**。源码确认完成的工具在信号已中止时仍会进入 post-hook。首次探针把普通 abort 也预期为 1 次，因此断言失败；改为记录实际次数后完成其余实验，没有修改产品代码。
 - **建议改法**：明确 finish 的批次仲裁、与普通工具的执行次序、多个 finish 的拒绝规则、外部取消和提交的线性化点，以及日志提交失败是否还能返回 `finished`。实现使用已存在的 terminal reason，不靠普通 abort 再把结果改名。必须覆盖“同批普通工具”“两个 finish”“用户取消竞争”“校验失败后重新提交”。第 125 行回退为“再问一次模型”会改变收尾合同，不能由实现者自行启用。
 
 ### 3. 并发 turn 的排他点没有定义，失败请求已经污染会话和另一次运行的结果
@@ -64,7 +64,7 @@
 - **位置**：提案“3. 一次运行的结果”（第 109、115-116 行）；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:1545-1554`；`node_modules/@oh-my-pi/pi-ai/src/utils/empty-completion-retry.ts:103-188`。
 - **现象**：OMP provider 层会在输出提交前重试空 completion 或瞬时故障；被丢弃 attempt 的终态和 usage 不会发给 Agent。harness 对 `message_end` 求和只能得到最终可见消息的用量，不是实际请求总用量。取消路径还会立即以最近 partial 结算，不等待 provider 最终 usage。
 - **为什么是问题**：费用可被系统性低报，且这不是 provider 没有报告，而是 OMP 已收到的计量被内部重试丢弃。若取消早于 usage 尾帧，OMP 可能只有初始化的 0；现有结果只有 token 数字，`cost: null` 又仅解释为“没有单价”，无法表达“已有单价但计量未知/不完整”。调用方会把未计出的费用当成实际 0。
-- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/usage-probe.ts`；经真实 `Agent.prompt → streamOpenAICompletions → SSE 解析 → provider 重试`，只在公开 fetch seam 注入协议帧，没有调用内部重试函数或真实模型。**2 次 HTTP 传输返回**分别报告 input **100**、**200**，只产生 **1 条** assistant `message_end`，可见 usage.input **200**，实际已报告总量 **300**，漏 **100**；按每百万 input/output 各 1 的测试单价，返回 cost **0.000205**，已报告合计应为 **0.000305**。取消相关结论另据 `agent-loop.ts:1932-1976,2497-2517`，没有冒充取消计费实测。
+- **如何核实**：运行 `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-design/lab/usage-probe.ts`；经真实 `Agent.prompt → streamOpenAICompletions → SSE 解析 → provider 重试`，只在公开 fetch seam 注入协议帧，没有调用内部重试函数或真实模型。**2 次 HTTP 传输返回**分别报告 input **100**、**200**，只产生 **1 条** assistant `message_end`，可见 usage.input **200**，实际已报告总量 **300**，漏 **100**；按每百万 input/output 各 1 的测试单价，返回 cost **0.000205**，已报告合计应为 **0.000305**。取消相关结论另据 `agent-loop.ts:1932-1976,2497-2517`，没有冒充取消计费实测。
 - **建议改法**：先定义统计口径：若只保证可见 assistant 消息的 usage，明确它不是账单总额并交出完整性状态；若保证一次运行所有 attempt 的已报告消耗，必须从 provider attempt 层收集，确认公开接口是否足够，不在 harness 增加第二套重试。记录 request/attempt 归属，终态只计一次；单价缺失与计量缺失分别表达，取消时保留已知部分并标记不完整。验收真实 provider 包装下的空响应重试，不能只让 scriptedStreamFn 返回两条普通消息。
 
 ### 8. apiKeyEnv 缺失时必须阻止 OMP 回退，否则会把另一份凭据发往自定义端点
@@ -72,8 +72,8 @@
 - **严重程度**：重要；**类别**：安全与性能。
 - **位置**：提案“6. 模型与缓存”“影响：安全”（第 133、146 行）；`packages/nb-harness/src/model.ts:56-65`；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:720-721`。
 - **现象**：提案只写“按 apiKeyEnv 从环境变量读”，没有规定指定键缺失或空白时 fail closed。OMP 的客户端会在传入 apiKey 为空时继续按 provider 找默认凭据；自定义 baseUrl 并不禁止该回退。沿用当前 resolver 则更是直接按 provider 选 key，完全没有 apiKeyEnv 的维度。
-- **为什么是问题**：`provider:"openai", baseUrl:第三方地址, apiKeyEnv:"JIJI_KEY"` 在 JIJI_KEY 没配或拼错时，不应悄悄发送 OPENAI_API_KEY。OMP 的 pi-utils 还在导入时从项目、agent、config、HOME 四处 `.env` 补进缺失变量；故“宿主没有显式设置默认 key”不能证明默认凭据不存在。相同 provider/id 配两个端点、两个 apiKeyEnv 时也不能用 provider/id 作为 resolver 的唯一关联键。
-- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/credential-probe.ts`，使用真实 `Agent → streamSimple → openai-completions`，经公开 fetch seam 截取请求。`getApiKey: () => undefined`、自定义 baseUrl、仅设置一个虚构 OPENAI_API_KEY，实测 `unintendedCredentialSent:true`、运行正常 `stop`；没有发出外部网络请求、没有打印真实密钥。导入期来源及优先级据 `node_modules/@oh-my-pi/pi-utils/src/env.ts:287-305`；首次脚本把 MissingApiKeyError 导入了错误模块，修正为 error/index.ts 后运行成功。
+- **为什么是问题**：`provider:"openai", baseUrl:第三方地址, apiKeyEnv:"RELAY_KEY"` 在 RELAY_KEY 没配或拼错时，不应悄悄发送 OPENAI_API_KEY。OMP 的 pi-utils 还在导入时从项目、agent、config、HOME 四处 `.env` 补进缺失变量；故“宿主没有显式设置默认 key”不能证明默认凭据不存在。相同 provider/id 配两个端点、两个 apiKeyEnv 时也不能用 provider/id 作为 resolver 的唯一关联键。
+- **如何核实**：运行 `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-design/lab/credential-probe.ts`，使用真实 `Agent → streamSimple → openai-completions`，经公开 fetch seam 截取请求。`getApiKey: () => undefined`、自定义 baseUrl、仅设置一个虚构 OPENAI_API_KEY，实测 `unintendedCredentialSent:true`、运行正常 `stop`；没有发出外部网络请求、没有打印真实密钥。导入期来源及优先级据 `node_modules/@oh-my-pi/pi-utils/src/env.ts:287-305`；首次脚本把 MissingApiKeyError 导入了错误模块，修正为 error/index.ts 后运行成功。
 - **建议改法**：自定义模型的描述和凭据绑定保留在同一对象或显式 resolver 中，按模型配置实例关联，不按 provider/id 全局复用。指定 apiKeyEnv 缺失、空白或不合法时，在进入 provider 前以结构化 auth/config 错误终止，不返回 undefined/空串触发默认回退；明确是否允许无认证端点，不用缺 key 暗示匿名。文档说明 OMP 导入期环境来源，不能宣称只读取了宿主白名单。
 
 ### 9. 五类错误不是 OMP 的直接枚举，且 Agent 的外层 catch 会丢掉已有结构化错误
@@ -136,10 +136,10 @@
 本次没有运行仓库 `bun test`、typecheck、e2e、开发服务或真实模型，也没有安装依赖。运行的是下列仓库外探针，四个最终命令均退出 0：
 
 ```text
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/runtime-probes.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/usage-probe.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/credential-probe.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/context-probe.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-design/lab/runtime-probes.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-design/lab/usage-probe.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-design/lab/credential-probe.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-design/lab/context-probe.ts
 ```
 
 前两次探针调试失败已分别记在发现 2、8，不计为产品测试失败或通过。涉及真实 provider 的探针都注入公开 fetch，未连接远端；没有以内部函数实验代替真实循环复现。实验文件及 JSONL 仅位于用户指定的 lab。

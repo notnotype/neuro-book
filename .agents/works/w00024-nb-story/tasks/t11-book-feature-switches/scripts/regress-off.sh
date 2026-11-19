@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# t11 的评测抽取（plan.md 的“验证”）：用真实模型（.env 的 JIJI_LUNA_*，gpt-6-luna）把样例书前 20 章抽一遍，新建时关掉
+# t11 的评测抽取（plan.md 的“验证”）：用真实模型（.env 的 NBOOK_LLM_*，gpt-6-luna）把样例书前 20 章抽一遍，新建时关掉
 # 数值与秘密（--no-ledger --no-secrets）。跑的是 PKG（默认 t11 评测用的固定提交 worktree，w00024-t11-eval）里的 nbstory。
 # 渠道失败重试用完时 nbstory 以 4 停下，这里接着跑同一本书（不再传开关，沿用新建时的），至多 8 次。结束时核对书的开关。
 # 书库、日志与导出的图放在不进 Git 的本地目录；尺子另跑（t06 的 scripts/ruler/check.ts，--only 固定的 29 条）。
 # 用法：regress-off.sh <运行名>，例如 regress-off.sh off-1
 set -u
 name="${1:?用法：regress-off.sh <运行名>}"
-REPO=/home/notnotype/CodeRepository/neuro-book
+REPO=/home/<user>/CodeRepository/neuro-book
 PKG=${PKG:-$REPO/.worktree/w00024-t11-eval/packages/nb-story}
 OUT=$REPO/.local/agent/works/w00024-nb-story/tasks/t11-book-feature-switches/regress/$name
 mkdir -p "$OUT"
@@ -15,7 +15,7 @@ echo "$(date -Is) PKG=$PKG commit=$(git -C "$PKG" rev-parse --short HEAD)" >> "$
 # 配置里只写端点地址与密钥环境变量名；价格按 deepseek-flash 低谷价（费用口径统一用它）。
 bun --env-file=$REPO/.env -e '
 const [config] = process.argv.slice(1);
-await Bun.write(config, JSON.stringify({model: {baseUrl: process.env.JIJI_LUNA_BASE_URL, id: "gpt-6-luna", apiKeyEnv: "JIJI_LUNA_API_KEY", price: {input: 1, output: 4, cacheRead: 0.02, currency: "CNY"}}}, null, 2));
+await Bun.write(config, JSON.stringify({model: {baseUrl: process.env.NBOOK_LLM_BASE_URL, id: "gpt-6-luna", apiKeyEnv: "NBOOK_LLM_API_KEY", price: {input: 1, output: 4, cacheRead: 0.02, currency: "CNY"}}}, null, 2));
 ' "$OUT/config.json"
 bun -e "
 import {sampleSourceText} from '$PKG/testing/sample.ts';

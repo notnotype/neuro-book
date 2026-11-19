@@ -1,5 +1,5 @@
 # G0 开发模式实验环境（source 使用）。端口 3311；不触碰开发者 3001 服务。
-SCR=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad
+SCR=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad
 WT=$SCR/g0-wt
 export NEURO_BOOK_REPOSITORY_ROOT=$WT
 export NEURO_BOOK_APPLICATION_ROOT=$WT/packages/neuro-book

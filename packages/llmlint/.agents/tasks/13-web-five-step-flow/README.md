@@ -732,17 +732,17 @@ edit 屏（当前草稿 = 工作对象）
 35. **F3 外部 LLM 三动作**：改文屏「外部 LLM」下拉（返回报告与 AI 改写之间，永不禁用）三项——「复制优化指令」/「复制指令+正文」→ 剪贴板得到 prompt（含命中清单与批注，后者含当前草稿正文）；「用剪贴板替换全文」→ 确认弹窗 → 确认后全文变单条 llm diff + 审阅横幅打开并激活该处，撤销可整批回退；内置通道 503 时该菜单照常可用（唯一 AI 路径）。
 
 ## 2026-07-11 三维机器通道与持久化 Agent 换代
-## 2026-08-14 t133 NeuroBook SSO 与 DMIT 切换准备
+## 2026-08-14 t133 NeuroBook SSO 与生产服务器切换准备
 
 ### 已完成
 
 - llmlint 已切换为 NeuroBook 官方 OAuth 2.0 Authorization Code + PKCE `S256`，生产唯一浏览器登录入口；删除本地 password login/register/admin seed。官方用户 ID 只写 `User.neuroBookUserId`，本地 `User.id` 与历史外键保持不变。
 - 真实 provider 与 llmlint 侧 typecheck、OAuth 聚焦回归和 Nuxt `node-server` build 已通过。Windows Nitro/Prisma 生成客户端的虚拟 `file:///_entry.js` 启动崩溃已通过构建期兜底修复；`node .output/server/index.mjs` + 隔离 SQLite smoke 已通过 health `200`、SSO disabled `503`、未认证 style-review `401`。
-- DMIT 已确认 Ubuntu `24.04.3`、Node `v22.14.0`、Bun `1.3.14`、目标端口 `127.0.0.1:3020/31445` 空闲和磁盘可用 `7290753024` bytes。已创建 `/srv/llmlint`、`llmlint` service user、systemd/Nginx/ACME/发布脚本模板，并留存入口配置 hash 备份。
+- 生产服务器已确认 Ubuntu `24.04.3`、Node / Bun 版本、目标回环端口空闲和磁盘可用。已创建 `/srv/llmlint`、`llmlint` service user、systemd/Nginx/ACME/发布脚本模板，并留存入口配置 hash 备份。
 
-- `llmlint.notnotype.com` 当前 DNS 为 NXDOMAIN，Let's Encrypt webroot 签发因此失败；未写入 443 stream map、未安装正式 TLS vhost、未启动 llmlint unit。计划要求 DNS/证书完成后才进入生产切换，当前未停 Arch/ngrok、未复制或改写生产库。
-- 计划原拟将 Node 构建放到上传源包后执行；当前已将 Linux release 脚本改为根目录 `bun install --frozen-lockfile` 后进入 `web/` 再 frozen install、migration、Prisma generate、build，避免只安装 `web/` 而遗漏 evals/根依赖。首次 Linux build 受 DMIT 1.9 GiB 宿主内存 OOM，被 kernel 杀死；启用临时 4 GiB swap、外部化 Nitro 模型运行时依赖、构建堆默认限制为 1536 MiB 后重跑成功。
-- 产物运行时依赖已在 DMIT Node v22.14.0 下解析通过（含 `@libsql/isomorphic-ws`、`@earendil-works/pi-ai`、OAuth 与模型 SDK）；使用独立临时 SQLite 启动 `/srv/llmlint/releases/t133-style-eval/web/.output/server/index.mjs` 的 Node smoke 通过 health 200 与 `auth/me` 合同。上述 smoke 不写生产库，也未启动 systemd unit。
+- `llmlint.notnotype.com` 当前 DNS 为 NXDOMAIN，Let's Encrypt webroot 签发因此失败；未写入 443 stream map、未安装正式 TLS vhost、未启动 llmlint unit。计划要求 DNS/证书完成后才进入生产切换，当前未停旧测试入口、未复制或改写生产库。
+- 计划原拟将 Node 构建放到上传源包后执行；当前已将 Linux release 脚本改为根目录 `bun install --frozen-lockfile` 后进入 `web/` 再 frozen install、migration、Prisma generate、build，避免只安装 `web/` 而遗漏 evals/根依赖。首次 Linux build 因生产服务器宿主内存不足 OOM，被 kernel 杀死；启用临时 swap、外部化 Nitro 模型运行时依赖、构建堆默认限制为 1536 MiB 后重跑成功。
+- 产物运行时依赖已在生产服务器 Node 下解析通过（含 `@libsql/isomorphic-ws`、`@earendil-works/pi-ai`、OAuth 与模型 SDK）；使用独立临时 SQLite 启动 `/srv/llmlint/releases/t133-style-eval/web/.output/server/index.mjs` 的 Node smoke 通过 health 200 与 `auth/me` 合同。上述 smoke 不写生产库，也未启动 systemd unit。
 - 前置构建告警保持真实记录：缺少 `evals/report/report.json` 时 verdict 烘焙降级；Vue 报 `[Vue] Load plugin failed: vue-router/volar/sfc-route-blocks`，但 typecheck/build exit 0。不能把这些 warning 写成生产评测报告已完成。
 
 ### 验证记录
@@ -750,7 +750,7 @@ edit 屏（当前草稿 = 工作对象）
 ```text
 cd web && bun run typecheck:server && bun run typecheck && bun run build  -> exit 0
 node .agent/tmp/t133-sso-isolated-verify-20260814/smoke.mjs                    -> health ok / me authEnabled=true,ssoEnabled=false,user=null / 503 / 401
-ssh dmit: node v22.14.0; bun 1.3.14; nginx -t successful; nbook loopback ready
+ssh <生产服务器>: node v22.14.0; bun 1.3.14; nginx -t successful; nbook loopback ready
 ```
 
 Task 13 的机器断言 DTO 现统一增加 `analysis`：规则引擎、外部检测、LLM Agent 各自携带 status/score/error/runId 或 sessionId，并由服务端计算 30%/45%/25% 综合参考分。D2 不变：未 reveal 的 revision 仍不暴露任何机器报告；owner 校验覆盖新增 Agent session 与 detector run 路由。

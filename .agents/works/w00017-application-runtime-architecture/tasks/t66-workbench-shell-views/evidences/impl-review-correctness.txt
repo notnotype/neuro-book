@@ -1,12 +1,12 @@
 # w00017 t66 实现审查：正确性与不变量
 
-审查范围：`cc4b39e3..ed0f12be`，固定 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness`。
+审查范围：`cc4b39e3..ed0f12be`，固定 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness`。
 
 审查完成。下文只列已用真实运行路径核实的 3 项问题；任务队列饿死的后果单独标为推断。实验目录为本报告所在目录；Spec 等仓库相对路径均基于上述 worktree。
 
 ## C01｜重要｜正确性：目标序号重排会覆盖另一窗口已经保存的成员归属
 
-- **文件:行**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/views/intents.ts:91`（重排把每个被动成员写成完整 `placement`）；同文件 `:173`（重放重新写入 `container`、`order`、`fingerprint`）。
+- **文件:行**：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/views/intents.ts:91`（重排把每个被动成员写成完整 `placement`）；同文件 `:173`（重放重新写入 `container`、`order`、`fingerprint`）。
 - **现象**：目标 `view:test.c` 中 B 的序号为 `1_000_000`。同客户端两个窗口读到它后，窗口 A 把 B 移入 `view:test.d` 并保存；窗口 B 的显示仍保留旧布局，把另一个视图 A 追加到 `view:test.c` 时触发重排。保存冲突重放把 B 从 `view:test.d` 搬回 `view:test.c`，并把其序号从 `1` 改成 `2`，尽管本次主动移动的是 A。
 - **为什么是问题**：Spec `docs/specs/ui/workbench-shell.md:157,160` 要求冲突只重放本次主动修改的字段、保留另一窗口修改的其它字段。这里的重排只需要修目标成员的顺序，却把被动成员的归属也写进固定补丁；一个视图的移动可以撤销其它视图已经保存的跨容器移动。序号上限的分支触发后，目标容器的所有旧成员都受影响。
 - **核实命令或实验**：在 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=<实验目录> bun run <实验目录>/storage-command-smoke.ts`，真实 `StorageWorld`、两个同客户端窗口、产品 `layoutStoreFor` 与真实 SQLite；exit 0。输出：`beforeB={container:"view:test.d",order:1,fingerprint:"sidebar#0",height:88}`，`afterB={container:"view:test.c",order:2,fingerprint:"sidebar#0",height:88}`，`afterA={container:"view:test.c",order:3,fingerprint:"sidebar#0"}`；五个实例均正常 `closed`。实验目录是本报告所在目录。
@@ -14,7 +14,7 @@
 
 ## C03｜重要｜不变量：停止后、撤回前仍报 available，作废的加载结果触发连续重试
 
-- **文件:行**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/views/registry.ts:76`（只查句柄是否在表中）；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue:134`（stale 退回 waiting）及 `:165`（available + waiting 又发起加载）。
+- **文件:行**：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/views/registry.ts:76`（只查句柄是否在表中）；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue:134`（stale 退回 waiting）及 `:165`（available + waiting 又发起加载）。
 - **现象**：真实插件入口有一个已接纳、尚未结束的业务操作，通过公共 `context.scope.parent.close()` 开始停止，再放行正在进行的组件加载。内核状态为 `stopping`、交付句柄 `published:false`，但 `registry.delivery()` 仍为 `available`。真实 `WorkbenchViewInstances` 在结果作废后连续重试。实验第 25 次 `source.load` 调用时解除业务操作的等待，以保证收口；最终观测 26 次调用、26 个 `stale` 结果、组件挂载 0 次。入口正常 `closed`、显示 `entry-stopped/scope-closed` 后循环才结束。
 - **为什么是问题**：加载结果的门禁本身正确，但“表里有句柄”不等于“句柄仍 published”。停止先关闭句柄门禁，资源撤回还会等待在途工作或接收者串行锁。这个真实窗口中 `waiting→loading→stale→waiting` 持续产生 Promise/Vue 微任务，停止越久重试越多，外壳会空转；若解除等待依赖后续浏览器任务，存在任务队列被持续微任务饿死的风险（后者为推断）。已有 registry 测试先等停止完成才放行 load，错过了该窗口。
 - **核实命令或实验**：`bun x --no-install vite --config <实验目录>/vite.lifecycle.config.ts`，内置真实 Chromium 打开 `/lifecycle.html` 并点击“停止真实入口”。`lifecycle.ts` 经公开包入口创建真实 `createApplication`、产品 `ViewRegistry`、产品 `createWindowPlugins` 和真实 `WorkbenchViewInstances.vue`；没有直接调用 receiver 模拟撤回，没有伪造句柄或 load 的返回值。调用计数包装仅在第 25 次放行 `scope.accept()` 中的真实业务任务。输出 `gate={published:false,delivery:{kind:"available"},entry:"stopping",inFlight:2}`、`loads:26,stale:26,mounts:0,warnings:[],errors:[]`；随后真实入口 closed。
@@ -22,7 +22,7 @@
 
 ## C02｜重要｜正确性：产品外壳没有上报焦点 Part，公开状态一直是 editor
 
-- **文件:行**：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:173`（外壳根没有 `focusin` 处理）；`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:184`（唯一修改 action）；`packages/neuro-book/src/plugins/workbench/web/state/public-state.ts:51`（直接发布该值）。
+- **文件:行**：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-impl-correctness/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:173`（外壳根没有 `focusin` 处理）；`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:184`（唯一修改 action）；`packages/neuro-book/src/plugins/workbench/web/state/public-state.ts:51`（直接发布该值）。
 - **现象**：真实产品页分别聚焦侧栏 `test.sample-views.alpha` 和面板 `test.sample-views.omega` 的输入。`document.activeElement` 分别属于这两个样例视图，但公开状态两次均为 `{status:"ready",value:"editor"}`。源码中 `focusPart` 的调用者只有 store 测试，产品组件没有调用。
 - **为什么是问题**：Spec `docs/specs/ui/workbench-shell.md:94,110` 已承诺 `focusedPart` 是最近获得焦点的 Part，焦点离开外壳时保留最近值。当前公开键虽已声明并处于 ready，实际上永远是初始值；消费它的插件无法分辨用户正在侧栏、右栏或面板中操作。
 - **核实命令或实验**：在实验目录的 Vite 配置中只替换测试插件 `test.remote-probe`，经真实内核公开的 `publicStateKey` 读取状态，产品 store、外壳、视图、命令和状态插件均未修改。生产构建 `bun x --no-install vite build -c <实验目录>/vite.probe.config.ts --outDir <实验目录>/web-probe` 成功；真实 fixture 服务以临时 State Root、随机端口启动，内置浏览器 `focus()` 后读取上述 activeElement 和公开值。探针源码为同目录 `browser-public-probe.ts`。

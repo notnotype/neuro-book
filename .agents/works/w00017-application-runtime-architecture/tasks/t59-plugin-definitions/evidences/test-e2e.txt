@@ -105,8 +105,8 @@ Running 45 tests using 1 worker
       46 | }
       47 |
       48 | /** 命令面板的输入框；Lab 外壳的下拉框也是 combobox，按面板输入框的名字区分。 */
-        at openScene (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/e2e/lab-commands.e2e.ts:45:45)
-        at /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/e2e/lab-commands.e2e.ts:62:5
+        at openScene (/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/e2e/lab-commands.e2e.ts:45:45)
+        at /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/e2e/lab-commands.e2e.ts:62:5
 
     Error Context: ../../../../../../../../tmp/neuro-book/playwright/neuro-book/lab-commands.e2e.ts-命令场景：快-5d3af-后快捷键不再响应（场景-16、commands-10）/error-context.md
 

@@ -71,7 +71,7 @@ t47 的[接线约定](../../t47-legacy-state-migration/walkthroughs/implementati
 ## 真实宿主浏览器验收（R2）
 
 命令与隔离：`bun run migrate:application-state -- --apply`（exit 0）→ `hub start` `bun run dev`（= `scripts/cli/source-dev.ts`），env
-`NEURO_BOOK_STATE_ROOT=C:\Users\NOTNOT~1\AppData\Local\Temp\nb-t48-ece09483\state`、
+`NEURO_BOOK_STATE_ROOT=C:\Users\USER~1\AppData\Local\Temp\nb-t48-ece09483\state`、
 `NEURO_BOOK_CACHE_ROOT=...\cache`、`NUXT_PORT=4371`、`PORT=4371`。
 核对：日志 `➜ Local: http://127.0.0.1:4371/`；`netstat` 里 `127.0.0.1:4371 LISTENING`，**3001 从未出现在监听表**；隔离根内新建 `workspace/.nbook/neuro-book.sqlite`；`GET /` 200。
 所有断言优先读隔离根记录文件（`*.nbook/storage/<identity>/<subject>/local/<client>/<owner>/records/*.json`），并用页面 `data-*` 取证。

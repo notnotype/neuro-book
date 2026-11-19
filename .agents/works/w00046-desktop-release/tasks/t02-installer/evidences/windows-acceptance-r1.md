@@ -1,4 +1,4 @@
-# w00046 t02 Windows 验收第 1 轮（2026-11-18，pc-notype，Windows 11，分支 feat/w00046-t02-t02-first-run）
+# w00046 t02 Windows 验收第 1 轮（2026-11-18，Windows 开发机，Windows 11，分支 feat/w00046-t02-t02-first-run）
 
 ## 第一部分：桌面快捷方式的 Windows 端口（desktop/src/bun/desktop-shortcut.ts，单独运行）
 
@@ -30,7 +30,7 @@ step 2: settings.json theme=macos appearance=dark; page appearance=dark
 step 3 rows (state root from NBOOK_STATE_ROOT, so only the tray row): ["tray"]
 step 4: state root shown matches=true; library shown=true
 finished: wizard closed, record in user storage
-shell.log: install-facts {"installed":true,"defaultStateRoot":false,"stateRoot":"C:\\Users\\notnotype\\nb-w00046\\t02\\state"}
+shell.log: install-facts {"installed":true,"defaultStateRoot":false,"stateRoot":"C:\\Users\\<user>\\nb-w00046\\t02\\state"}
 reopened: wizard present=false
 RESULT ok
 ```

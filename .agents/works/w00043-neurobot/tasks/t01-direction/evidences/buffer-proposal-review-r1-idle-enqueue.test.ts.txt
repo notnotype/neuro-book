@@ -1,6 +1,6 @@
 // 空闲时 enqueue 的话：不开运行、一直就绪；之后会话身份开的运行在一轮结束时把它取走
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 let n = 0;
 const id = () => `c-${++n}`;

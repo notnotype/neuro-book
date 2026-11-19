@@ -51,14 +51,14 @@
 
 本轮独立运行；不采用作者自报作为最新通过证据。Bun `v1.4.2 (744846f84)`；Chrome `151.0.7922.71`。工作区快照实读为 `ed0f12be969754ed72fb746fade6f0acddfbb3ce`；`git status --short --untracked-files=normal` 输出为空。未修改仓库文件，未 commit、push、stash、切分支或删除文件。
 
-下面三条验证命令的工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-impl-ui/packages/neuro-book`：
+下面三条验证命令的工作目录均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-impl-ui/packages/neuro-book`：
 
 ```bash
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run build && NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run build:e2e
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run build && NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run build:e2e
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run test:vitest src/plugins/workbench/web/components/WorkbenchShellParts.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui bun run test:vitest src/plugins/workbench/web/components/WorkbenchShellParts.dom.test.ts src/plugins/workbench/web/components/WorkbenchPanelSurface.dom.test.ts
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts workbench-views.e2e.ts --output=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/playwright-views
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui node ../../node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts workbench-views.e2e.ts --output=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/playwright-views
 ```
 
 - 构建成功：产品 Web `4.64s`，e2e Web `3.80s`，完整命令 `10.44s`；`check:dist` 输出 `[check:dist] 产物不含开发插件与本机路径`。
@@ -68,11 +68,11 @@ NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book
 本次服务的实际启动命令（同一包工作目录）：
 
 ```bash
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/lab-state NBOOK_DEV_PORT=42166 NBOOK_DEV_BACKEND_PORT=42167 bun run dev
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/lab-state NBOOK_DEV_PORT=42166 NBOOK_DEV_BACKEND_PORT=42167 bun run dev
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/product-state NBOOK_PORT=42168 NBOOK_WEB_ROOT=dist/e2e/web NBOOK_TEST_PLUGINS=test.sample-views bun src/server/testing/fixture-entry.ts --stop-stdin
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui NBOOK_STATE_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/product-state NBOOK_PORT=42168 NBOOK_WEB_ROOT=dist/e2e/web NBOOK_TEST_PLUGINS=test.sample-views bun src/server/testing/fixture-entry.ts --stop-stdin
 
-node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/chrome-driver.mjs
+node /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-impl/ui/chrome-driver.mjs
 ```
 
 浏览器驱动从标准输入逐行接收 `{id,code}`，`code` 是 Playwright async 函数体。`chrome-transcript.jsonl` 保留每条完整的代码、结果与错误，按对应实验 id 可复核；页面 Map 的建立见 `open-pages`，合并乙进甲见 `scroll-menu-focus`。复跑需要从无定制的隔离产品状态开始，本次 `product-state` 已保留审查后的定制。截图均位于本报告同目录。

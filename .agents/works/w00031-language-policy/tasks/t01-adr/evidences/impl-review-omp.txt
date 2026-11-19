@@ -2,7 +2,7 @@
 
 ### 1. 重要：ADR 把待追认的提示词解释写成 accepted 决策，并把追认挂到已搁置 Task
 
-- **严重程度**：重要；**类别**：文档；**位置**：`docs/adr/0034-language-policy.md:67-73`、`docs/adr/0034-language-policy.md:110`、`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00031-language-policy/pending-confirmations.md:5-7`
+- **严重程度**：重要；**类别**：文档；**位置**：`docs/adr/0034-language-policy.md:67-73`、`docs/adr/0034-language-policy.md:110`、`/home/<user>/CodeRepository/neuro-book/.agents/works/w00031-language-policy/pending-confirmations.md:5-7`
 - **现象**：ADR 的“决策 4”已经用确定语气规定“契约规定为英文的字段（命令 `description`）和现有英文说明保持原样，等 t05 的评测再定；t05 现在搁置”。但当前唯一待确认项明确把“现有英文说明先不动”解释为“命令 `description` 连新写的也保持英文”并标为“待追认”；`t05` 的 Task README 又明确状态为 `shelved`，下一步是“开发者安排时再开工”。因此 ADR 的 `accepted` 状态包含了尚未追认的解释，并且没有一个当前会执行的追认出口。
 - **为什么是问题**：Work README 已确认的是“现有英文说明先不动、等 t05 对照评测”，不是“新写的所有 command description 也必须等评测”。这两个范围不同：现行 `docs/specs/workbench/commands.md:60` 已明确 command `description` 是稳定英文语义说明，新增声明应继续遵守现行合同；真正未定的是是否改动既有英文说明，以及 t05 搁置后何时重新评估。把它们合并成 accepted ADR 规则，会让作者把“待追认的自主解释”当成长期架构决定，也让“等 t05”变成无期限的死依赖。
 - **如何核实**：对照 `docs/adr/0034-language-policy.md:71`、`docs/specs/workbench/commands.md:60`、`pending-confirmations.md:7` 与 `tasks/t05-prompt-language-eval/README.md:22-28`；无需运行产品即可看到 ADR 状态、待确认结果和 Task 状态不一致。

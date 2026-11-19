@@ -100,7 +100,7 @@
 
 ## 验证记录与执行边界
 
-审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t65-plan-impl`。以下脚本、配置与测量 JSON 均保留在本报告同目录；没有新建永久测试。验证的是现有设施及计划假设，不代表尚未实现的 t65 行为已经验收。
+审查 worktree：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t65-plan-impl`。以下脚本、配置与测量 JSON 均保留在本报告同目录；没有新建永久测试。验证的是现有设施及计划假设，不代表尚未实现的 t65 行为已经验收。
 
 | 验证 | 实际命令或探针 | 结果与边界 |
 |---|---|---|
@@ -108,8 +108,8 @@
 | Bun 纯几何入口 | worktree 根：`bun -e 'import {createGrid} from "./packages/nb-ui/src/components/layout/index.ts"; console.log(typeof createGrid);'`；另运行本目录 `layout-import.test.ts` | 导入输出 `function`；真实 Grid 100×50 几何断言：1 pass、0 fail、1 expect() call。排除桶入口重导出 `.vue` 必然使 Bun 纯模型测试失败的假设。 |
 | 真实内核、Storage、store 与命令装配 | cwd `packages/neuro-book`：`bun test src/shared/store/store.test.ts src/plugins/commands/shared/plugin.test.ts` | 27 pass、0 fail、217 expect() calls，450ms。证明已有真实设施可用，不证明 t65 action/命令已实现。 |
 | happy-dom 布局能力 | Bun 内联探针：创建真实 `Window({width:1440,height:900})`，给 div 设置 1440×900 样式并加入 body，读取 client 与 rect 后关闭 Window | `{"clientWidth":0,"clientHeight":0,"rectWidth":0,"rectHeight":0}`。未保存该内联命令为独立文件；不据此推断 Chrome 几何。 |
-| 真实命令面板参数路径 | worktree 根：`node node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/impl/vitest.config.ts` | Vitest v4.1.10：1 file / 1 test passed，2.61s。真实 DOM Enter → 真实命令表审计：空参数、invalid-args、处理器执行 0 次。探针在 `palette-contract.dom.test.ts`，无 mock/spy/假时钟/固定等待。 |
-| 浏览器构建图与体积 | worktree 根：`node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/impl/bundle-probe.ts` | 两次真实 Vite 内存构建通过，write:false，无 repo dist 写入；数字见下表及 `bundle-probe.json`。未运行完整 check:dist、后端构建或浏览器性能测量。 |
+| 真实命令面板参数路径 | worktree 根：`node node_modules/vitest/vitest.mjs run --config /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/impl/vitest.config.ts` | Vitest v4.1.10：1 file / 1 test passed，2.61s。真实 DOM Enter → 真实命令表审计：空参数、invalid-args、处理器执行 0 次。探针在 `palette-contract.dom.test.ts`，无 mock/spy/假时钟/固定等待。 |
+| 浏览器构建图与体积 | worktree 根：`node /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t65-plan/impl/bundle-probe.ts` | 两次真实 Vite 内存构建通过，write:false，无 repo dist 写入；数字见下表及 `bundle-probe.json`。未运行完整 check:dist、后端构建或浏览器性能测量。 |
 | 仓库边界 | worktree 根：`/usr/bin/git status --short --untracked-files=normal`；`/usr/bin/git check-ignore packages/neuro-agent-harness/dist/index.js` | 收尾 status 无输出；check-ignore 命中该 harness 产物。status 不包含忽略文件，不能当作安装只写 node_modules 的证明。 |
 
 内存构建测量：

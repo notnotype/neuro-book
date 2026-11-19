@@ -37,7 +37,7 @@
 ## 5. 桌面端拖放是否到达网页，留到最后一片才验证
 - 位置：计划“切片 5”；Work README“桌面端体验的决定”。
 - 问题：整套设计的前提是 Electrobun 2.0.6 在 Windows 上把外部拖放交给 WebView2 的 HTML5 事件。Electrobun 是否给窗口注册了自己的 IDropTarget、WebView2 的 AllowExternalDrop 是否保持缺省 true、桌面壳的子类化窗口过程（desktop-shell 输出 10 的最小尺寸）会不会吃掉 WM_DROPFILES/OLE 拖放，仓库里没有搜到验证记录（在 packages/neuro-book/src 与 desktop-shell spec 里搜 drop/DragDrop/AllowExternalDrop 无结果）。切片 2 到 4 全部做完才在切片 5 发现桌面上收不到 drop，返工面大；t15 有同样的前提。
-- 改法：把一个最小探针（一页 HTML 监听 dragover/drop、打印 webkitGetAsEntry 的结果与 readEntries 分批）提前到切片 0，在 pc-notype 的桌面壳里跑一次，同时为 t15 采证。拿不到时的退路（壳的原生拖放事件给路径、走现有路径安装）在计划里写一句。
+- 改法：把一个最小探针（一页 HTML 监听 dragover/drop、打印 webkitGetAsEntry 的结果与 readEntries 分批）提前到切片 0，在 Windows 开发机 的桌面壳里跑一次，同时为 t15 采证。拿不到时的退路（壳的原生拖放事件给路径、走现有路径安装）在计划里写一句。
 - 严重程度：中。
 
 ## 6. “选择文件夹”用 <input webkitdirectory> 时 node_modules 无法跳过，开发中的插件目录会很慢

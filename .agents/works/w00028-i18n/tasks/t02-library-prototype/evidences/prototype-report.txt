@@ -9,7 +9,7 @@ i18next 在 NeuroBook 里成立。运行期登记注销、Vue 随语言切换更
 5) 默认分隔符下码里的 `:` 会被静默改写成 `.`，两个码互相撞车；
 6) 未登记的第三方目录在编译期无法检查，JSON 导入也推不出参数。
 
-所有原型文件在 /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-t02/packages/neuro-book/src/__i18n-spike__/（未提交）。worktree 里另有 package.json 加了 "i18next": "^26.5.11" 与 bun.lock 变化（root 先 prox bun install，再在 packages/neuro-book 里 prox bun add i18next）。
+所有原型文件在 /home/<user>/CodeRepository/neuro-book/.worktree/w00028-t02/packages/neuro-book/src/__i18n-spike__/（未提交）。worktree 里另有 package.json 加了 "i18next": "^26.5.11" 与 bun.lock 变化（root 先 prox bun install，再在 packages/neuro-book 里 prox bun add i18next）。
 
 通用复现命令（在 packages/neuro-book 下）：
   bun test src/__i18n-spike__                    # 24 条，全过

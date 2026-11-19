@@ -15,7 +15,7 @@ updated: 2026-10-27
 
 ## 结果（2026-10-27）
 
-模型 gpt-6-luna（密钥来自仓库根 `.env` 的 `JIJI_LUNA_*`，脚本经环境变量读，没有写进任何文件），样例书前 20 章，427 条（对象 54、说法 323、情节 50），两遍独立标注，每遍 20 批。费用：两遍合计输入 47.5K、输出 17.1K token，按 deepseek-flash 低谷价折算约 ¥0.12。原始标注见 [第一遍](evidences/tiers-run-1.json)、[第二遍](evidences/tiers-run-2.json)。
+模型 gpt-6-luna（密钥来自仓库根 `.env` 的 `NBOOK_LLM_*`，脚本经环境变量读，没有写进任何文件），样例书前 20 章，427 条（对象 54、说法 323、情节 50），两遍独立标注，每遍 20 批。费用：两遍合计输入 47.5K、输出 17.1K token，按 deepseek-flash 低谷价折算约 ¥0.12。原始标注见 [第一遍](evidences/tiers-run-1.json)、[第二遍](evidences/tiers-run-2.json)。
 
 | 指标 | 结果 |
 |---|---|

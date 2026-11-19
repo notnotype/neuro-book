@@ -6,10 +6,10 @@
     审查者把这两步当成了 pwsh。补上哪条依据能避免：说明里写明各作业的 runner 与缺省 shell。
     顺手：工作流加 defaults.run.shell: bash，让 ubuntu 作业显式用 bash -eo pipefail（多了 pipefail）。
 
-[2] Windows 冒烟失败时不卸载（重要）。成立：pc-notype 上第一次安装版、更新冒烟失败后就是手工卸的。
+[2] Windows 冒烟失败时不卸载（重要）。成立：Windows 开发机上第一次安装版、更新冒烟失败后就是手工卸的。
     改：smoke/app.ts 加 cleanUp（逐项收尾，一项失败不挡后面、写 stderr、不遮掉原错误）与 uninstallLeftover（卸载项还在才卸）；
     安装版与更新冒烟的 finally 都按“结束进程 → 还原 → 存证据 → 卸载残留”做。
-    实测：pc-notype 上用相对路径的 --state-root 让安装后的启动失败，输出“（收尾）✓ 卸载：安装目录、卸载项与快捷方式都不在”，
+    实测：Windows 开发机上用相对路径的 --state-root 让安装后的启动失败，输出“（收尾）✓ 卸载：安装目录、卸载项与快捷方式都不在”，
     原错误“等待超时：产品页面出现”照常报出，退出码 1，卸载项与安装目录都不在，没有残留进程。
 
 [3] 更新冒烟的备份还原不是无条件收口（重要）。成立。改：还原排在存证据之前，每项单独收尾（同 [2] 的 cleanUp）。
@@ -19,11 +19,11 @@
     收益小于代价。
 
 [5] 换上后的第一次启动没有要求检查过更新（重要）。成立。改：等这次启动的 desktop.update.checked，结论按路线核对
-    （测试包：远端 A′、更低；上一版模式：远端本次、相同）。pc-notype 上更新冒烟重跑通过。
+    （测试包：远端 A′、更低；上一版模式：远端本次、相同）。Windows 开发机上更新冒烟重跑通过。
 
 [6] 标识可注入 PowerShell（建议）。成立，改法便宜：windows.ts 的 psLiteral 统一转义，uninstallEntry 与 UI 自动化的路径、文字都经它。
 
 [7] 有序停止允许缺少 PID 的 ready（建议）。成立。改：ready 必须带正整数 PID；facts.test.ts 加用例。
 
 验证（e3f4d4277）：bun test scripts/release 74 pass；vitest scripts/release 74 pass；bun test src/desktop desktop/scripts 97 pass；
-packages/neuro-book 与 scripts 的类型检查通过。pc-notype 上安装版冒烟、更新冒烟重跑通过，失败路径的收尾实测如 [2]；缺省状态根前后不变。
+packages/neuro-book 与 scripts 的类型检查通过。Windows 开发机上安装版冒烟、更新冒烟重跑通过，失败路径的收尾实测如 [2]；缺省状态根前后不变。

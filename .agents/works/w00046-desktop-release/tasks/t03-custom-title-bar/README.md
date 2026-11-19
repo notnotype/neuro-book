@@ -16,7 +16,7 @@ updated: 2026-11-15
 ## 当前状态
 
 2026-11-15：
-- pc-notype 上的探针（[frame-probe-r1.txt](evidences/frame-probe-r1.txt)）确认，沙箱页面里的 `app-region: drag` 走 WebView2 的原生非客户区（`HTCAPTION`）。
+- Windows 开发机上的探针（[frame-probe-r1.txt](evidences/frame-probe-r1.txt)）确认，沙箱页面里的 `app-region: drag` 走 WebView2 的原生非客户区（`HTCAPTION`）。
 - 发现 Electrobun 的 `hiddenInset` 窗口最大化会压住任务栏，用 `bun:ffi` 补三位窗口样式可修。
 - 应用图标按开发者的两次决定做完（分支 `be074783f`、`39276fe1e`）：每个尺寸都从同一份不带边框的 SVG 渲染，不再用像素专用版，品牌规范随之改写；[对比图](artifacts/icon-variants/index.html)。
 - 设计审查第 1 轮：omp 14 条、Sonnet 17 条，处理见 [disposition](evidences/design-review-r1-disposition.txt)，计划改为 r2。不开第 2 轮。
@@ -43,5 +43,5 @@ updated: 2026-11-15
 
 ## 下一步
 
-- 请开发者在 pc-notype 上真实操作一次：拖动、双击、贴边、Alt+Space，以及点标题栏空白处时开着的菜单会不会关。启动方法：双击 `%USERPROFILE%\nb-w00046\t03\launch.cmd`（测试状态根，带调试端口）。结果记进证据。
+- 请开发者在 Windows 开发机上真实操作一次：拖动、双击、贴边、Alt+Space，以及点标题栏空白处时开着的菜单会不会关。启动方法：双击 `%USERPROFILE%\nb-w00046\t03\launch.cmd`（测试状态根，带调试端口）。结果记进证据。
 - 待确认清单里 t03 的几行（图标的取舍、书架首屏的后备标题栏、模态时不能拖等）等开发者追认。

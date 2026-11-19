@@ -1,6 +1,6 @@
 # w00017 t69 实施计划审查：可实现性、切片与测试
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-tests/.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`。已核对 HEAD 为 `c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`、detached，`git status --short --branch` 只有 `## HEAD (no branch)`。代码尚未实现；本报告区分合同的静态缺口、现有真实运行时/文件系统的实验事实，以及对将来实现的推断。已接受的 2026-10-09 t68 取舍作为前提。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-plan-tests/.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`。已核对 HEAD 为 `c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`、detached，`git status --short --branch` 只有 `## HEAD (no branch)`。代码尚未实现；本报告区分合同的静态缺口、现有真实运行时/文件系统的实验事实，以及对将来实现的推断。已接受的 2026-10-09 t68 取舍作为前提。
 
 结论：计划的原语 → 单项/清单 → 批量 → 真实项目/传输顺序可行，但当前验收映射不足以阻止关键回归。实施前应补齐绑定失效停止、消息字节预算、源身份前置条件与部分完成合同，并纠正竞争/权限故障夹具。没有证据要求新增操作框架、持久身份库或通用取消总线。
 
@@ -143,19 +143,19 @@
 所有实验在指定 worktree 根执行，`NBOOK_AGENT_TEMP_ROOT` 均设为本报告目录。下列脚本路径记录已执行命令；脚本、二进制与 JSON 中间结果在交付前删除，关键步骤与结果已写入本报告。重做时按上面的夹具/屏障重建仓库外脚本，不能把历史命令当成仍存在的入口。
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests prox bun install --frozen-lockfile --ignore-scripts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests prox bun install --frozen-lockfile --ignore-scripts
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/permission-probe.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/permission-probe.ts
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/runtime-probe.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/runtime-probe.ts
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/directory-probe.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/directory-probe.ts
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/copy-limit-probe.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/copy-limit-probe.ts
 
-cc -Wall -Wextra -O2 -o /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-supervisor /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-supervisor.c
+cc -Wall -Wextra -O2 -o /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-supervisor /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-supervisor.c
 
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-probe.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/tests/race-probe.ts
 
 git rev-parse HEAD && git status --short --branch
 ```
@@ -171,7 +171,7 @@ git rev-parse HEAD && git status --short --branch
 | race-probe | 初次退出 1：ordinary 分支用异步 fs.rename，实际在未被跟踪的 I/O 线程执行，supervisor 报 `no matching real syscall observed`。只将仓库外对照分支改为主线程 FFI 后退出 0，四个子进程均退出 0：file/directory 的 exclusive=-1 且源/外部目标保留，ordinary=0 且外部目标被覆盖。失败实验产物也已收口，不把第一次当通过。 |
 | Git 只读核对 | HEAD=`c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`，状态仅 `## HEAD (no branch)`；没有 tracked 或非忽略 untracked 变化。 |
 
-runtime/directory 命令成功后 Bun 另输出：`Internal error: directory mismatch for directory "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-tests/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.` 本次未诊断这一 Bun 提示，未归为 t69 产品问题。
+runtime/directory 命令成功后 Bun 另输出：`Internal error: directory mismatch for directory "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-plan-tests/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.` 本次未诊断这一 Bun 提示，未归为 t69 产品问题。
 
 未运行：未来 t69 切片、产品批量/取消/清单结算、产品代码变异、全量 `bun test`、`test:affected --typecheck`、e2e、`smoke:server`、`docs:check`、`governance:check`；macOS、Windows、大小写不敏感卷、跨设备与生产性能。没有把 t68 README 中的历史通过记录当作本次验证。
 

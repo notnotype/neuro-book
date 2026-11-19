@@ -7,7 +7,7 @@
 - **位置**：提案第四节第 7 小节、第五节“接口”、第六节；开发者 2026-11-10 “第一版先把框架搭起来就行”
 - **现象**：缓存过期前压缩与空闲压缩要求：内核压缩指令带原因与方法顺序、`CompactionJob` 加两个原因、nb-harness kit 加判断式与截止时刻计算、nb-models 加“服务商 × 模型能力 × 凭据类型”的缓存寿命查表、模型适配器显式传缓存档位并屏蔽 `PI_CACHE_RETENTION`、压缩进行中来消息时“已发出的等、未发出的中止”。提案第三节、调研（research/ 四份）和 t08 记录里都没有节省的估算：没有“上下文多大、停顿多久、哪种服务商”下省多少。检索 research/*.md 与 t01 记录，只有“B15 什么时候才省钱没写成条件”这一条审查意见，没有数字。
 - **为什么是问题**：提案自己写了适用条件极窄：只对“寿命确定的显式缓存”做，订阅凭据不做，单价未知不做，空闲压缩要压缩模型更便宜。也就是说多数国内与自建网关的模型（开发者日常用 deepseek、gpt 中转）可能一律不触发；真正受益的只有直连带显式 TTL 的服务商。开发者 2026-11-09 定的是“这两种压缩是为了省钱”（目的），没有定“第一版就做”；2026-11-10 又定“第一版以搭起框架为准”。提案对压缩说“跑一段后按真实数据调数值”，但没有数据时连要不要做都没法判断。这一块还牵出提案里最重的跨包改动，且“压缩中来消息”的竞态语义（第 7 小节末段）是全文最复杂的并发约束之一。
-- **如何核实**：读提案第 7 小节；`grep -rn "节省\|省多少" /home/notnotype/CodeRepository/neuro-book/.agents/works/w00043-neurobot/research` 无估算；提案第五节接口清单里压缩相关占 nb-harness 内核、kit、nb-models 三处。
+- **如何核实**：读提案第 7 小节；`grep -rn "节省\|省多少" /home/<user>/CodeRepository/neuro-book/.agents/works/w00043-neurobot/research` 无估算；提案第五节接口清单里压缩相关占 nb-harness 内核、kit、nb-models 三处。
 - **建议改法**：第一版只做“记录”：每次对话请求写下缓存读写 token、与上一请求的间隔、上下文大小（用量日志已有大半），跑两周得出“停顿分布 × 上下文大小 × 单价”后再决定要不要做、阈值多少。内核的“压缩指令带原因与方法”可以留作第一版的一个小口子（成本低），查表与适配器改动推迟。这样 nb-models、kit 这两块第一版不动。若开发者仍要第一版做，至少在提案里写一个量级估算（例：200k 上下文、Anthropic 5 分钟档、停顿 6 分钟，压缩一次与不压缩的差价），让“值得”有依据。
 
 ### 2. 提案悄悄放弃了原始需求的起因（AI 运营官），问题陈述与方案不对口
@@ -15,7 +15,7 @@
 - **位置**：提案第一节；w00043 README“需求”第 4 条与“起因”
 - **现象**：README 写的起因是“看板娘要有一台电脑和社交媒体账号，充当 NeuroBook 的 AI 运营官”，目标段写“第一个用户是看板娘，充当 AI 运营官”。提案第一节把问题改写成“用户面对一个有名字人设的 bot、管日程、周期任务、提醒”，全文 `grep 运营|社交|电脑` 只在第 13 小节“bot 与电脑的对应”与决策表里各出现一次，没有说“运营官这个起因本版不满足、为什么推迟”。
 - **为什么是问题**：①这是需求偏移，读者（包括以后的自己）会以为第一版在解决运营官；实际第一版没有电脑、没有社媒工具，只有 `fetch` 只读抓取。②剩下的“日程与提醒”有一个先天限制，提案没有写进问题陈述：bot 住在 NeuroBook 服务端进程里，而 NeuroBook 的形态是开着才有服务端（[desktop-distribution.md](../docs/proposals/desktop-distribution.md) 明确“后台常驻（`nbook service`）划给别的提案”）；第 5 小节写了“错过的（服务端没在运行）”，但没有把“bot 只在 NeuroBook 开着时活着”作为一条架构前提写出来。关掉应用后到点提醒不会响，对“像真人员工”的预期是个落差。非目标里写了“页面关掉时的提醒触达”，却没写“应用关掉”。
-- **如何核实**：`sed -n 1,30p /home/notnotype/CodeRepository/neuro-book/.agents/works/w00043-neurobot/README.md` 对照提案第一节；`grep -n "后台常驻" /home/notnotype/CodeRepository/neuro-book/docs/proposals/desktop-distribution.md`（第 37 行）。
+- **如何核实**：`sed -n 1,30p /home/<user>/CodeRepository/neuro-book/.agents/works/w00043-neurobot/README.md` 对照提案第一节；`grep -n "后台常驻" /home/<user>/CodeRepository/neuro-book/docs/proposals/desktop-distribution.md`（第 37 行）。
 - **建议改法**：第一节加一句“起因是 AI 运营官；运营官需要的电脑与社媒账号第一版不做，原因与恢复条件见第 13 小节”；第 2 节“非目标”与第 4 节“主对话”加“bot 的存活期等于 NeuroBook 服务端的存活期”，并把 `nbook service` 的常驻形态作为第 13 小节的一条前置依赖。这样“bot 先做成内置插件”这个决定的真实代价（寿命绑在应用上）是明说的，不是读者推出来的。
 
 ### 3. ADR 0045 与本提案的前提已经相反，却没有新 ADR 或标注
@@ -23,7 +23,7 @@
 - **位置**：提案 frontmatter `adrs` 与第三节、第 14 小节“NeuroBot 独立应用”；`docs/adr/0045-shared-host-packages-for-second-app.md` 背景、备选 (d)、决策 5、决策 6
 - **现象**：ADR 0045 的存在理由是“NeuroBot 是第二个应用”，它明确列过备选 (d)“做成 NeuroBook 的一组插件”并以“NeuroBook 是按作品打开的写作工作台，NeuroBot 是常驻的多渠道服务，产品与发布会绑在一起”为由否决（ADR 说“开发者按推荐选定，没有另外说明理由，以后不要把这些当作开发者的理由引用”）。2026-11-18 的决定恰好选了 (d)。提案第 14 小节只说“主 Agent 当时给的理由是 NeuroBook 不需要多渠道与网关……这是主 Agent 的理由，不是开发者的”，没有回应 ADR 0045 对 (d) 的否决理由哪一条被推翻、哪一条仍成立（“产品与发布会绑在一起”“常驻服务 vs 按作品打开的工作台”这两条没人处理）。第六节“对 Spec 的预期改动”和全文也没有“改 ADR 0045 / 新 ADR”这一项。
 - **为什么是问题**：ADR 0045 决策 5 改了 ADR 0030 的搬包条件，理由写的是“NeuroBot 照字面是第二个应用”；决策 6 写“网页一侧的对话宿主由各应用自己写”；这两条现在都和本提案相反（提案要求 `nbook.agent` 把对话宿主做成对外服务）。三个包（nb-host、nb-models、nb-file-lock）本身仍有价值，但 ADR 的“背景”和“后果”读起来是错的，下一个读者会据此推出“还有个 NeuroBot 应用在路上”。这正是 AGENTS 里“替现状解释理由时先查 ADR”所警惕的情形：ADR 里写着旧理由，新决定没有更新它。
-- **如何核实**：`sed -n 1,80p /home/notnotype/CodeRepository/neuro-book/docs/adr/0045-shared-host-packages-for-second-app.md`；`grep -n "ADR" /tmp/review-bot-proposal-r1/proposal-78bafe8de.md`。
+- **如何核实**：`sed -n 1,80p /home/<user>/CodeRepository/neuro-book/docs/adr/0045-shared-host-packages-for-second-app.md`；`grep -n "ADR" /tmp/review-bot-proposal-r1/proposal-78bafe8de.md`。
 - **建议改法**：加一条短 ADR（或在 0045 的状态里标“部分取代”）：①bot 先做成 NeuroBook 的内置插件，覆盖 0045 备选 (d) 的否决；②写清 (d) 当年的两条理由现在为什么不成立（没有多渠道；“发布绑定”被接受，因为……）；③三个包照留，改写“第二个应用”为“可能的第二个应用”，决策 5 的搬包条件注明现无触发者。提案第六节补这一项。
 
 ### 4. “一个 Profile 多个 bot”的整套间接层在只有一个 bot 的第一版里没有第二个使用者
@@ -31,7 +31,7 @@
 - **位置**：提案第四节第 1、3 小节、第 11 小节；开发者 2026-11-18 对 (1) 回答“同意”
 - **现象**：第一版“只有一个 bot，没有新建、删除 bot 的界面”，缺省预设由 `nbook.bots` 自带。但方案为多 bot 备了：预设贡献点 `{id, name, avatar, profile, persona, memorySeed?}`（插件交出的公开接口）、bot 记录与预设引用、建 bot 的四步流程（分配 id、写记录、复制人设、复制种子）、`bots://<bot id>/` 按 id 分根、会话头 `owner: {plugin, id}` 的通用字段、`profile://` 与 `bot://` 两套共存的笔记地址。
 - **为什么是问题**：“一个 Profile 多个 bot”是开发者同意的概念，但开发者没有要求第一版就交出可被别的插件使用的贡献点。仓库里已有同构物：`profiles://<key>/` 加按会话改写的单数 `profile://`（agent/resources.md 第 40、48 行）。第一版只有星璃一个 bot 时，`bot://` 与 `profile://` 在内容和用法上完全等价，区别只在“记忆属于谁”；而 w00050 目前做的就是 `profile://memory/`。用一个贡献点、一个新方案、一个会话头字段和一份复制流程换来的是“以后可能多个 bot”。贡献点一旦有第三方插件使用，就成了要长期兼容的公开接口（预设里的字段、`memorySeed` 目录布局、复制规则）。第 3 小节还写了“预设更新不覆盖 bot 自己演进的内容”，即预设与已建 bot 永久分叉，第 13 小节 2 才有“从预设重置记忆”，等于第一版已经引入了一条以后要补的迁移通路。
-- **如何核实**：`grep -n "profiles://\|profile://" /home/notnotype/CodeRepository/neuro-book/docs/specs/agent/resources.md`；提案第 3 小节与第 13 小节第 3 条。
+- **如何核实**：`grep -n "profiles://\|profile://" /home/<user>/CodeRepository/neuro-book/docs/specs/agent/resources.md`；提案第 3 小节与第 13 小节第 3 条。
 - **建议改法**：保留数据形状（`bots://<id>/` 目录、bot 记录里有 id 与 Profile 引用，这点便宜且难回头所以值得先定），但第一版不做“插件贡献预设”的公开贡献点，缺省预设写成 `nbook.bots` 内部常量。贡献点在有第二个预设（第三方或第二个 bot）时再开，那时才知道预设该有哪些字段。`owner` 字段保留，但写明“第一版唯一使用者是 `nbook.bots`，不承诺给别的插件”，Spec 里不写“通用字段”，免得被当成对外合同。
 
 ### 5. 联网抓取工具的范围超出 bot 的需要，与“无人值守 + 记忆可写”叠成同一条泄露路径
@@ -39,7 +39,7 @@
 - **位置**：提案第四节第 9 小节“抓取工具”、第 12 小节
 - **现象**：`fetch` 是 `nbook.agent` 的内置工具，“等级算读，任何审批模式下都不问”，“普通会话同样能用”。提案自己写了代价：模型可以把数据拼进网址带出去。bot 同时具备：长期私人记忆（含用户画像，w00050 的目标）、读外部网页的能力、写自己记忆的能力、无人值守的周期任务。第 12 小节承认“被注入的内容可能经它变成长期记忆”，靠“用户能随时打开记忆文件查看”缓解。
 - **为什么是问题**：这三样（读私人数据、读不受信内容、能对外发出请求）凑在一个无人值守的主体上，是提示注入里最典型的泄露配置，而 `fetch` 免审批让“发出请求”这一环没有任何关卡（`shell` 路径至少还有审批模型）。开发者 2026-11-10 定的是“第一版加只读联网抓取”，没有定它对所有会话免问、对所有会话可用。普通会话开放它没有 bot 需求支撑，却把改动面扩到所有现有用户，并且“读级免问”一旦写进 Spec 就是对外合同（以后收紧是破坏性变更）。
-- **如何核实**：提案第 9 小节与第 12 小节；`grep -n -i "fetch\|抓取" /home/notnotype/CodeRepository/neuro-book/docs/specs/agent/builtin-tools.md` 当前没有此工具。
+- **如何核实**：提案第 9 小节与第 12 小节；`grep -n -i "fetch\|抓取" /home/<user>/CodeRepository/neuro-book/docs/specs/agent/builtin-tools.md` 当前没有此工具。
 - **建议改法**：第一版只给“资料员”Profile（提案本来就让重活派给它）装 `fetch`，主对话自己不装：这样“读不受信内容”的是没有写 `bot://` 权限的子代理（第 9 小节已规定子代理只能读），“读私人记忆”与“对外发请求”分开到两个会话，三要素不同时出现在同一个主体上。等级仍可定为读，但“免问”的范围限定在资料员。成本很小：本来就需要这个 Profile。这样同时让第 12 小节“被注入的内容可能变成长期记忆”这条风险从“已知限制”降为“主对话读到的是子代理的摘要”。
 
 ### 6. 前端“往前取历史、只应用后缀、断线只补增量”是没有测量的提前优化，且与同一问题的后端处理自相矛盾
@@ -55,7 +55,7 @@
 - **位置**：提案第四节第 5 小节“日程”
 - **现象**：“周期用 cron 表达式写……每条有触发时间、时区……周期条目错过几次合成一次补发；一次性条目过期超过一个时限就不发，时限在 Spec 里定。”仓库里没有任何 cron 解析库（对 `packages/*/package.json` 与 `packages/neuro-book/src` 搜 `croner|cron-parser|node-cron|cron` 无命中）。提案没有列出选型，也没有写夏令时（本机时区是 Europe/London）下“01:30 每天”在跳时与回拨日如何触发。
 - **为什么是问题**：全局规则要求先做技术选型（有稳定库就不手写，命令行解析的教训）。cron 的下一次触发时刻、时区、夏令时、闰日是典型的“手写必出错”的东西；而“错过合成一次”规则与幂等键“条目 id 加计划时刻”绑在一起，夏令时回拨日同一个本地时刻会出现两次，计划时刻怎么定义直接决定幂等键会不会重复或漏发。这是该在提案里定的取舍，现在留给 Spec 草稿，容易被当成实现细节处理。
-- **如何核实**：`grep -rli cron /home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src`、`packages/*/package.json` 均无；提案第 5 小节。
+- **如何核实**：`grep -rli cron /home/<user>/CodeRepository/neuro-book/packages/neuro-book/src`、`packages/*/package.json` 均无；提案第 5 小节。
 - **建议改法**：提案里加一行“用某个维护活跃、带时区的 cron 库（候选如 croner，需在 t10 前选型并查许可证与体积）”，并规定“计划时刻按 UTC 瞬间记录，幂等键用 UTC 瞬间，不用本地钟面时间”，把夏令时与重复触发的口径一次说清。
 
 ### 8. 提案把实现细节写满了，而最影响用户的两条架构取舍没有成段讲清

@@ -1,6 +1,6 @@
 # 任务：只读设计审查 w00039 t02 第三轮（A3）：作者视角的世界引擎内核提案第三版的数据合同
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-A3`（detached，提交 a95e7930c，只读）。审查对象：`docs/proposals/world-engine-kernel.md`（第三版，状态 reviewing）。
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-A3`（detached，提交 a95e7930c，只读）。审查对象：`docs/proposals/world-engine-kernel.md`（第三版，状态 reviewing）。
 
 这是同一份提案的第三轮，也是最后一轮。前两轮的处理：第一轮 `.agents/works/w00039-novel-writing-plugins/tasks/t02-story-model/evidences/design-review-round1-resolution.txt`，第二轮同目录的 `design-review-r2-resolution.txt`（R1 到 R35）；第二轮领域审查的报告是 `evidences/design-review-A2.txt`。不要重报已经处理好的问题。
 

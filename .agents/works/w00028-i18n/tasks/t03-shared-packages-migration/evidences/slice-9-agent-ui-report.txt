@@ -1,6 +1,6 @@
 # w00028 t03 第 9 片：nb-agent-ui 接入消息目录 —— 交付报告
 
-工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD 5343894f2），未提交、未切分支、未 stash。
+工作区：/home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD 5343894f2），未提交、未切分支、未 stash。
 说明里写的 9abce2e58 是 master 上的记录提交（docs: t03 取文字样板收敛记录），不是本分支的祖先；按 HEAD 5343894f2 做。
 messages.ts 的删除在工作区里（未暂存，git status 显示 D）。
 

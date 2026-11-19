@@ -45,7 +45,7 @@
 - 旧部署CLI的模式收敛为`ghcr`和`source`：默认GHCR镜像部署，source模式挂载宿主机源码到容器`/app`，不再提供`build`模式。
 - 部署私有配置收敛为根目录 `.env` 和 `config.yaml`，两者不进 Git；`.deploy/` 只保留 `docker-compose.generated.yml` 和本地说明文档，避免后续 `git pull` 与部署私有文件冲突。
 - GHCR runner 镜像改为保留完整项目源码和运行所需文件，使容器内 `bun run auth:create-admin` 可用。
-- `scripts/deploy.mjs` 改为开发服务器 source 模式快速同步入口：默认 SSH 到 `arch` 的 `/home/notnotype/composes/neuro-book`，检查 tracked worktree 干净后执行 `git pull --ff-only`、迁移旧 `.deploy/.env.docker` / `.deploy/config.yaml` 到根目录 `.env` / `config.yaml`、`bun install --frozen-lockfile`、加载 `.env`、Prisma generate、Nuxt build，并通过本地隐藏输入的 sudo 密码在远端做一次 `sudo -v` 校验后重启 `app` 容器。
+- `scripts/deploy.mjs` 改为开发服务器 source 模式快速同步入口：默认 SSH 到 `arch` 的 `/home/<user>/composes/neuro-book`，检查 tracked worktree 干净后执行 `git pull --ff-only`、迁移旧 `.deploy/.env.docker` / `.deploy/config.yaml` 到根目录 `.env` / `config.yaml`、`bun install --frozen-lockfile`、加载 `.env`、Prisma generate、Nuxt build，并通过本地隐藏输入的 sudo 密码在远端做一次 `sudo -v` 校验后重启 `app` 容器。
 - release-only GitHub Actions 改用 `docker/metadata-action` 生成 GHCR tag / OCI labels，并启用 GitHub Actions buildx cache。
 - README增加当时常用部署入口说明，区分旧部署CLI、`bun scripts/deploy.mjs`和`node scripts/publish-ghcr-image.mjs`的职责，并补充source模式常见故障排查。
 - `Dockerfile` 增加 `runtime-base` stage，基于 `oven/bun:1-debian` 安装 Bun、Node.js、Python 3、ripgrep、git、bash 和常见 coreutils；GHCR app 镜像基于该 stage，确保开箱即用容器内 agent 工具齐全。

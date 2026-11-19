@@ -134,7 +134,7 @@
 下面命令中的变量是实际路径，运行器在 `source/packages/neuro-book` 执行命令，日志写到 `logs`，每轮编号只区分重复运行。
 
 ```sh
-REVIEW_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/tests
+REVIEW_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/tests
 ```
 
 | 实际命令 / cwd | 实际结果与证据 |

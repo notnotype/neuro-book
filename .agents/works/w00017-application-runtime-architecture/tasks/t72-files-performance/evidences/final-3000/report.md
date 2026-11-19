@@ -1,7 +1,7 @@
 # Files 性能（3000 个 Markdown、60 个源码文件、宽目录 400 项）
 
 - 时间 2026-10-10T01:42:59.594Z，源码 bd222423，Chrome 151.0.7922.71（无头，1440×1000）
-- 命令：`bun run perf:files -- --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/final3-3000`
+- 命令：`bun run perf:files -- --out /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72/final3-3000`
 - 负载（1/5/15 分钟）：运行前 1 / 0.97 / 0.91，运行后 0.96 / 1.05 / 0.98
 - 浏览器不支持的观察类型：无；进度条出现 0 次
 - 时长单位毫秒，写作 p50 / p95 / 最大值；起点是点击的 pointerdown。committed 是条件第一次成立的那一帧的 rAF（DOM 已改，这一帧画出它），presented 是其后一帧的 rAF（上一帧已经呈现，是呈现时刻的上界）。

@@ -1,4 +1,4 @@
-# Windows 上试 pi-natives 的内嵌 shell（2026-11-13，pc-notype，Bun 1.4.4，@oh-my-pi/pi-natives 18.14.0）；脚本 shell-probe.ts 见同目录说明
+# Windows 上试 pi-natives 的内嵌 shell（2026-11-13，Windows 开发机，Bun 1.4.4，@oh-my-pi/pi-natives 18.14.0）；脚本 shell-probe.ts 见同目录说明
 # git、awk、python 失败的原因是这台机器 scoop 的 current 目录联接在 SSH 会话里解析不了（与 pi-natives 无关），证明它们走外部程序。
 ## echo 与变量
 $ X=世界; echo "你好 $X"
@@ -57,17 +57,17 @@ ok
 ## git（系统的）
 $ git --version
 exit=1 timedOut=false 95ms
-Could not create process with command '"C:\Users\notnotype\scoop\apps\git\current\cmd\git.exe"  --version'.
+Could not create process with command '"C:\Users\<user>\scoop\apps\git\current\cmd\git.exe"  --version'.
 
 ## awk（不内置）
 $ echo a b | awk '{print $2}'
 exit=1 timedOut=false 136ms
-Could not create process with command '"C:\Users\notnotype\scoop\apps\busybox\current\busybox.exe" awk "{print $2}"'.
+Could not create process with command '"C:\Users\<user>\scoop\apps\busybox\current\busybox.exe" awk "{print $2}"'.
 
 ## python（不内置）
 $ python --version
 exit=103 timedOut=false 197ms
-No Python at '"C:\Users\notnotype\scoop\apps\python\current\python.exe'
+No Python at '"C:\Users\<user>\scoop\apps\python\current\python.exe'
 
 ## Windows 程序 where
 $ where.exe cmd

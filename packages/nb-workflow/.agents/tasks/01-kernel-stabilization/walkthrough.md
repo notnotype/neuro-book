@@ -17,7 +17,7 @@
 
 ```text
 repository:
-C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-workflow
+C:\Users\<user>\Documents\CodeRepository\GithubProjects\nb-workflow
 
 master:
 cf34d1567181f77b49f12721648f8f73c3385120
@@ -31,7 +31,7 @@ test/kernel.test.ts
 test/scenario-rp.test.ts
 
 external worktree:
-C:\Users\notnotype\Documents\CodeRepository\GithubProjects\
+C:\Users\<user>\Documents\CodeRepository\GithubProjects\
   neuro-book\.agent\workspace\wt\nb-workflow-contract
 
 external branch:

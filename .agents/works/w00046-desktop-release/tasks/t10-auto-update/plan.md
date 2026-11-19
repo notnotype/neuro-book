@@ -8,7 +8,7 @@
 
 依据提案 [desktop-distribution](../../../../../docs/proposals/desktop-distribution.md) 4.6、ADR 0051 决定 6；开发者 2026-11-13 定了只升不降、不签名。t06 的待确认条目：提示只有一个动作“下载”、关闭即“以后”、已下载至多一份、`NBOOK_STATE_ROOT` 与便携只提示。
 
-工作方式：autonomous-delivery，代码在 Work 分支 `feat/w00046-desktop-release`。Windows 验收要 pc-notype（11 月 13 日 17:05 起离线），核心逻辑在 Linux 上用测试把关。
+工作方式：autonomous-delivery，代码在 Work 分支 `feat/w00046-desktop-release`。Windows 验收要 Windows 开发机（11 月 13 日 17:05 起离线），核心逻辑在 Linux 上用测试把关。
 
 更新器的真实行为见 [调研](evidences/electrobun-updater-research.txt)，计划依赖其中几条：
 - 只比哈希；
@@ -211,7 +211,7 @@
   - 发起换上后、对账出终态前不检查更新，运行中每 30 秒重判；
   - 手动重装（本地哈希既不是原来的也不是目标）时清掉 `attempt` 与 `downloaded`，不提示；
   - 停止中还没下完的下载不等，下一次重新提示；
-  - 测试包用另一个应用标识；自动更新验收与正式安装共用缺省状态根（pc-notype 上已有这个目录，开发者定直接用）。
+  - 测试包用另一个应用标识；自动更新验收与正式安装共用缺省状态根（Windows 开发机上已有这个目录，开发者定直接用）。
 
 ## 切片
 
@@ -223,7 +223,7 @@
    验证：`desktop-bridge.test.ts`、`window.test.ts`、`desktop-updates` 的测试、`e2e/desktop-update.e2e.ts`。
 4. **适配与构建**：`index.ts`、`electrobun.config.ts`、`scripts/build.ts` 传覆盖地址。提交。
    验证：打包主进程。
-5. **Windows 验收**：pc-notype 上起固定端口的本地更新源，同一地址构建 A、B、C，跑 desktop-update 场景 1 到 7。证据按“验证”一节的 Windows 部分（界面用 UI 自动化读文字，不按区域截屏；更新的不变量看状态文件、结果文件、请求日志与进程）。提交 Spec 与证据。
+5. **Windows 验收**：Windows 开发机上起固定端口的本地更新源，同一地址构建 A、B、C，跑 desktop-update 场景 1 到 7。证据按“验证”一节的 Windows 部分（界面用 UI 自动化读文字，不按区域截屏；更新的不变量看状态文件、结果文件、请求日志与进程）。提交 Spec 与证据。
 
 ## 验收映射
 
@@ -233,7 +233,7 @@
 | desktop-update 输出 8、9、场景 4 的锁、状态与对账 | `update.test.ts` 的 `applyAtStartup` 与 `reconcileAtStartup`（要点 2）；`shell.test.ts`：换上在取桌面锁之前，取锁之后到就绪之前的退出请求被否决并有序停止 |
 | desktop-update 输出 3、4 的重发 | `windows.test.ts`（要点 3） |
 | browser-host 输出 11 | 窗口测试与 `e2e/desktop-update.e2e.ts`（要点 4） |
-| desktop-update 场景 1 到 7 | pc-notype 上的真实安装与本地更新源 |
+| desktop-update 场景 1 到 7 | Windows 开发机上的真实安装与本地更新源 |
 
 测试要点：
 
@@ -282,12 +282,12 @@
 
 - 每片跑上面列的测试；收口跑 `bun run test:affected` 与 `governance:check`。
 - e2e：合入前跑 `e2e/desktop-update.e2e.ts` 与 `e2e/desktop-close.e2e.ts`。
-- Windows：pc-notype 恢复后做（第 13、15 条）：
+- Windows：Windows 开发机 恢复后做（第 13、15 条）：
   - 在三个独立检出副本里把版本改成 `0.90.1`、`0.90.2`、`0.90.3`；
   - 测试应用标识、固定端口的 `http://127.0.0.1:<端口>`（先探测空闲）作 `release.baseUrl`；
   - 交替构建与发布：构建 A、发布 A、构建 B（生成补丁）、发布 B、构建 C；发布时先传 tar.zst 与 patch，最后传清单；
   - 经 Setup 装进受管目录；
-  - 数据隔离（第三轮第 2 条）：自动更新只在不设 `NBOOK_STATE_ROOT` 时生效，测试包因此用缺省状态根 `%LOCALAPPDATA%\NeuroBook`，与正式安装共用。pc-notype 上这个目录已经存在，开发者 2026-11-14 定直接用它（选项 C：里面没有要保护的真实数据）。开始前仍核对没有别的 NeuroBook 在跑；验收中记下每个 UI 所属进程的路径与版本，结束后列出这个目录里测试建出的内容，交开发者决定是否删；
+  - 数据隔离（第三轮第 2 条）：自动更新只在不设 `NBOOK_STATE_ROOT` 时生效，测试包因此用缺省状态根 `%LOCALAPPDATA%\NeuroBook`，与正式安装共用。Windows 开发机上这个目录已经存在，开发者 2026-11-14 定直接用它（选项 C：里面没有要保护的真实数据）。开始前仍核对没有别的 NeuroBook 在跑；验收中记下每个 UI 所属进程的路径与版本，结束后列出这个目录里测试建出的内容，交开发者决定是否删；
   - 证据除 UI 自动化读的文字外，另记：状态文件、更新器的结果文件、`version.json`、壳日志、更新源的请求日志（走了补丁还是完整包）。
 - 未验证边界：
   - GitHub `latest/download` 的重定向与更新器取清单时追加的查询串要等第一次真实发布。交给 t11 作发布完成的门禁（第 16 条、第二轮第 10 条），t11 的计划照抄：

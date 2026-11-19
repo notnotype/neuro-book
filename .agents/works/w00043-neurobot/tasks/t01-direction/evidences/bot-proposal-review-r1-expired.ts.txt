@@ -1,4 +1,4 @@
-import {createKernelTranscript} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-agent-ui/src/kernel-transcript";
+import {createKernelTranscript} from "/home/<user>/CodeRepository/neuro-book/packages/nb-agent-ui/src/kernel-transcript";
 
 const mk = (code: string, by: string) => {
     const t = createKernelTranscript();

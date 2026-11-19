@@ -17,8 +17,8 @@ const endpoints: Endpoint[] = [
     {label: "deepseek chat", kind: "chat", base: "https://api.deepseek.com/v1", key: process.env.DEEPSEEK_API_KEY, model: "deepseek-flash"},
     // DeepSeek 的 Anthropic 兼容接口：校验是 DeepSeek 自己做的，不等于 Anthropic 官方的行为。
     {label: "deepseek anthropic-compat messages", kind: "anthropic", base: "https://api.deepseek.com/anthropic/v1", key: process.env.DEEPSEEK_API_KEY, model: "deepseek-flash"},
-    {label: "luna chat", kind: "chat", base: process.env.JIJI_LUNA_BASE_URL ?? "", key: process.env.JIJI_LUNA_API_KEY, model: "gpt-6-luna"},
-    {label: "luna responses", kind: "responses", base: process.env.JIJI_LUNA_BASE_URL ?? "", key: process.env.JIJI_LUNA_API_KEY, model: "gpt-6-luna"},
+    {label: "luna chat", kind: "chat", base: process.env.NBOOK_LLM_BASE_URL ?? "", key: process.env.NBOOK_LLM_API_KEY, model: "gpt-6-luna"},
+    {label: "luna responses", kind: "responses", base: process.env.NBOOK_LLM_BASE_URL ?? "", key: process.env.NBOOK_LLM_API_KEY, model: "gpt-6-luna"},
     {label: "gemini openai-compat chat", kind: "chat", base: "https://generativelanguage.googleapis.com/v1beta/openai", key: process.env.GOOGLE_API_KEY, model: "gemini-3.5-flash-lite"},
     {label: "openrouter openai chat", kind: "chat", base: or, key: process.env.OPENROUTER_API_KEY, model: "openai/gpt-5.4-nano"},
     {label: "openrouter openai responses", kind: "responses", base: or, key: process.env.OPENROUTER_API_KEY, model: "openai/gpt-5.4-nano"},

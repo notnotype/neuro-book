@@ -1,9 +1,9 @@
-w00046 t03 标题栏探针第 1 轮（2026-11-15，pc-notype：Windows 11 26200 x64，单屏 2560x1440、缩放 100%，任务栏 48px）
+w00046 t03 标题栏探针第 1 轮（2026-11-15，Windows 开发机：Windows 11 26200 x64，单屏 2560x1440、缩放 100%，任务栏 48px）
 
 探针：最小的 Electrobun 2.0.6 应用（Hutch 0.29.0，`hutch electrobun build --env=dev`），主进程用 Bun.serve 在 127.0.0.1:47123
 出一页（模拟服务端来源），窗口 `titleBarStyle: "hiddenInset"`、`sandbox: true`，不加自己的预加载。页面顶上 36px 一条
 `app-region: drag`（同时写 `-webkit-app-region`），右边三个 `app-region: no-drag` 的按钮经 `__electrobunSendToHost` 发消息；
-另开一个 `views://` 页面的同样窗口作对照。源码在本机 /tmp/frame-probe（一次性）；pc-notype 上在 %USERPROFILE%\nb-w00046\frame-probe。
+另开一个 `views://` 页面的同样窗口作对照。源码在本机 /tmp/frame-probe（一次性）；Windows 开发机上在 %USERPROFILE%\nb-w00046\frame-probe。
 取证：Win32 查询（WindowFromPoint、WM_NCHITTEST、GetWindowRect、GetClientRect、IsZoomed、WM_GETICON）经 /it 计划任务在桌面会话里
 运行；壳日志记 Electrobun 的窗口事件与页面发来的消息。不截屏、不动鼠标。
 

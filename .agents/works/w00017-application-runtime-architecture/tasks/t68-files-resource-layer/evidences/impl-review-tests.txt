@@ -9,7 +9,7 @@
 - **位置**：`packages/neuro-book/src/plugins/files/project-child.test.ts:31-42`；`packages/neuro-book/src/server/testing/projects.ts:92-176`
 - **现象**：`project-child.test.ts` 的 `afterEach` 只调用 `killSpawnedProjects()`，而 `projectHarness()` 返回的 `h.parent`、`h.manager` 没有被记录或停止。测试体只释放租约、窗口和部分链接；没有在失败路径及正常路径调用已存在的 `await h.parent.stop()`。
 - **为什么是问题**：每个用例创建一个真实服务端 `Application`、项目路由和管理器。只杀项目子进程不能结算父应用的入口、路由和监听；后续用例在同一个 Bun 进程中继续叠加这些对象，不能证明“测试起的资源在失败时也收口”，并可能使跨用例状态、事件监听或句柄泄漏。`server/projects/manager.test.ts:171` 已把 `h.parent.stop()`作为正常收口路径，说明该测试场地具备且需要这个边界。
-- **依据**：测试规范 `docs/testing/README.md:20,91-96` 要求测试起的应用实例和子进程在 `afterEach` 失败时也收口；`projectHarness` 明确返回 `parent`（`projects.ts:92-103`），但 t68 测试的 `afterEach` 不接收每个 harness。实际命令 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test src/plugins/files` 在 `packages/neuro-book` 目录连跑 5 次均为 `40 pass, 0 fail`，只能证明当前运行未暴露泄漏，不能替代关闭调用。
+- **依据**：测试规范 `docs/testing/README.md:20,91-96` 要求测试起的应用实例和子进程在 `afterEach` 失败时也收口；`projectHarness` 明确返回 `parent`（`projects.ts:92-103`），但 t68 测试的 `afterEach` 不接收每个 harness。实际命令 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test src/plugins/files` 在 `packages/neuro-book` 目录连跑 5 次均为 `40 pass, 0 fail`，只能证明当前运行未暴露泄漏，不能替代关闭调用。
 - **建议改法**：让 `project-child.test.ts` 登记每个 `ProjectHarness`，在 `afterEach` 的 `finally` 中先关闭所有窗口/释放租约，再对每个 harness 调用 `await h.parent.stop()`并断言 `{status: "closed"}`；保留 `killSpawnedProjects()`作为失败兜底，且把 harness 自己的收口封装进测试支持，避免新增用例漏收口。
 
 ### 2. 重要｜测试｜内容清单“目录/读不出”失败分支没有被验收测试覆盖
@@ -49,7 +49,7 @@
 - **位置**：`packages/neuro-book/scripts/files-list-trace.ts:23-30,71-75`
 - **现象**：判定只要求没有样本文件违规访问且至少打开过一次 `content.xml`；没有校验子进程真的对 `LISTED` 中的每个路径完成列出，也没有校验输出的项数。把副本中的 `createFilesService.list` 变异为“每次只读 `lorebook.content/content.xml`，返回空 `entries`”后，脚本输出七个路径均为 `0 项`，`manifestAccesses: 21`、`violationCount: 0`，仍以退出码 0 结束。
 - **为什么是问题**：S4 的脚本证据可能被误读为“3000 个文件的根与各层已按合同列出且没有预读”。实际它只证明观测到的样本文件访问集合没有违规；空结果、漏调用某些层或列出数量退化都能通过，验收完成条件因此不可靠。
-- **依据**：`plan.md:114,127`要求以样本上的真实列出和访问记录验收；正常实现命令 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun scripts/files-list-trace.ts` 在 `packages/neuro-book` 目录输出根 `3` 项、宽目录 `400` 项、内容根 `4` 项等并退出 0。仓库外副本的上述变异输出七个路径均为 `0`、仍退出 0，说明存在已复现的漏判，不是推断。
+- **依据**：`plan.md:114,127`要求以样本上的真实列出和访问记录验收；正常实现命令 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun scripts/files-list-trace.ts` 在 `packages/neuro-book` 目录输出根 `3` 项、宽目录 `400` 项、内容根 `4` 项等并退出 0。仓库外副本的上述变异输出七个路径均为 `0`、仍退出 0，说明存在已复现的漏判，不是推断。
 - **建议改法**：让 child 输出结构化的每个路径及数量，主进程用同一 `SamplePlan` 推导的最小/精确期望校验路径集合与数量后再检查访问记录；至少拒绝缺失路径、全零结果和与样本描述不符的数量，并在异常时非零退出。
 
 ### 7. 建议｜测试｜样本测试没有触及 `writeSample` 的真实落盘路径
@@ -86,7 +86,7 @@
 ## 验证记录
 
 - 依赖：`prox bun install --frozen-lockfile --ignore-scripts`，成功安装 1568 个包。
-- **稳定性**：在 `packages/neuro-book` 执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test src/plugins/files` 连续 5 次，每次 `40 pass, 0 fail`；执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test scripts/files-sample.test.ts` 为 `2 pass, 0 fail`。
+- **稳定性**：在 `packages/neuro-book` 执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test src/plugins/files` 连续 5 次，每次 `40 pass, 0 fail`；执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/tests bun test scripts/files-sample.test.ts` 为 `2 pass, 0 fail`。
 - 真实脚本：执行完整 `files-list-trace.ts` 退出 0，输出 `manifestAccesses: 9`、`violations: []`、`violationCount: 0`；脚本空列出变异仍退出 0，已列为发现 6。
 - 本轮没有运行全量 `test:affected --typecheck`、全量 e2e、`smoke:server`、`docs:check`、`governance:check`；它们不作为本报告通过依据。
 

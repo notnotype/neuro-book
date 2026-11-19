@@ -1,6 +1,6 @@
 # w00032 t20 深入审查：新内核的出站帧与日志分页，能否撑起对话视图
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-agent-integration`（HEAD `7ec9baa42`）里 `packages/nb-harness/src/kernel/`，对照 `packages/nb-agent-ui/src/harness.ts` 的需求。路径均相对 `packages/nb-harness/src/kernel/`，除非写明包名。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00032-agent-integration`（HEAD `7ec9baa42`）里 `packages/nb-harness/src/kernel/`，对照 `packages/nb-agent-ui/src/harness.ts` 的需求。路径均相对 `packages/nb-harness/src/kernel/`，除非写明包名。
 
 证据口径：标“已验证”的是在临时目录 `/tmp/review-scratch-ui/` 里写了一次性的 bun 测试、对真实 `createTestSession` 跑出来的（不在仓库内，仓库未改）；标“从代码推断”的没跑过。
 

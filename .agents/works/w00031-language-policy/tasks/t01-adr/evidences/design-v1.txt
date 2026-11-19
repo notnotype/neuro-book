@@ -1,6 +1,6 @@
 # 设计稿：语言与 i18n 治理（尚未落盘，未建 Work）
 
-仓库：`/home/notnotype/CodeRepository/neuro-book`（主工作区，`master`）。本稿是主 Agent 与开发者讨论后的方案，待审查后再写成 ADR 与 Task。
+仓库：`/home/<user>/CodeRepository/neuro-book`（主工作区，`master`）。本稿是主 Agent 与开发者讨论后的方案，待审查后再写成 ADR 与 Task。
 
 ## 开发者已确认的决定（不必再议）
 

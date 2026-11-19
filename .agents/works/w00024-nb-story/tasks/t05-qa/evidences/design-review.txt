@@ -1,6 +1,6 @@
 # w00024 t05：nb-story 内置问答设计审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t05-review` 中的问答 Spec、查询与 CLI 连带合同、实施计划。仓库只读；实验仅放在指定 probes 目录；不调用真实模型。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t05-review` 中的问答 Spec、查询与 CLI 连带合同、实施计划。仓库只读；实验仅放在指定 probes 目录；不调用真实模型。
 
 ## 发现
 
@@ -13,7 +13,7 @@
 - **如何核实**：已逐行核对 `packages/nb-story/src/core/library.ts:11-18,214-226`、`packages/nb-session/src/jsonl-log.ts:48,73-84`、`packages/nb-harness/src/harness.ts:123-142,190-197,231-240,288-299`。后续使用真实 `createHarness` 与 `createJsonlSessionLog` 的无模型探针核对实际结果；实验结果追加在报告后文。
 - **建议改法**：为在途日志选择不随书目录 rename/rm 消失的寿命边界，例如运行时放在书库级独立会话区，结束时在代际检查下归档到 `qa/`；删除书时在途问可完成但不重新创造书目录。若坚持书目录内逐条追加，则必须先改日志存储与删除协议，不能仅补 `write(record)` 的 catch。补“删除后不重新导入”“删除后重新导入且新代无 qa/”“新代有另一个 ask”三个真实运行时场景。
 
-补充实测（发现 1）：执行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-design/probes/runtime.ts`。使用真实 `Library.removeBook/importBook`、`createHarness`、`createJsonlSessionLog`，只替换模型输出，在模型请求进行中删除书：不重新导入、重新导入但无 `qa/` 两种情况均为 `stopReason: "error", errorKind: "local", finish: null`；重新导入且创建新代 `qa/` 时为 `finished`，但新目录里的旧问日志 seq 只有 `[3,4,5]`，缺 seq 1 的快照与 seq 2 的用户问题。不是绕过运行时直接调用内部函数的推演。
+补充实测（发现 1）：执行 `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-design/probes/runtime.ts`。使用真实 `Library.removeBook/importBook`、`createHarness`、`createJsonlSessionLog`，只替换模型输出，在模型请求进行中删除书：不重新导入、重新导入但无 `qa/` 两种情况均为 `stopReason: "error", errorKind: "local", finish: null`；重新导入且创建新代 `qa/` 时为 `finished`，但新目录里的旧问日志 seq 只有 `[3,4,5]`，缺 seq 1 的快照与 seq 2 的用户问题。不是绕过运行时直接调用内部函数的推演。
 
 ### 2. `admit → await 查询 → record` 在默认并行工具调度下会读出第 21 章
 
@@ -48,7 +48,7 @@
 - **位置**：`docs/specs/story/qa.md:131,163`；`.agents/works/w00024-nb-story/tasks/t05-qa/plan.md:90-94,148-150`。
 - **现象**：计划只验证成功请求时假密钥没被输出，没有处理 provider 错误正文回显密钥的情况。现有 harness 原样保留 provider 的 `errorMessage`，既进 `TurnResult.error.message`，也进 `agent_message` 和 `run_end` 日志；引擎再把错误存进问答记录与 CLI JSON。HTTP 401 正文只要含发送的密钥，就会落盘。
 - **为什么是问题**：提案 `docs/proposals/novel-story-app.md:254` 和 qa 输出 17 明确连错误正文都不能含密钥。密钥只传给 HTTP 客户端，不等于响应与错误通道会自动脱敏；这是依赖机制的真实缺口，不是要求隐藏错误归类。
-- **如何核实**：执行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-design/probes/provider.ts`。真实本机 OpenAI 兼容端点从 Authorization 取假密钥、回 401 错误正文；真实 OMP provider + harness + JSONL 得到 `stopReason: "error", kind: "auth", keyInResult: true, keyInSession: true`。不调用真实模型，不直接伪造 harness 的内部错误。
+- **如何核实**：执行 `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-design/probes/provider.ts`。真实本机 OpenAI 兼容端点从 Authorization 取假密钥、回 401 错误正文；真实 OMP provider + harness + JSONL 得到 `stopReason: "error", kind: "auth", keyInResult: true, keyInSession: true`。不调用真实模型，不直接伪造 harness 的内部错误。
 - **建议改法**：在模型错误进入 harness 日志前对本次使用的密钥做精确脱敏，并确保返回错误与记录复用同一份已脱敏值；可以在 harness 提供统一的敏感值边界，不能只在 CLI 最后打印时遮盖。补 401／provider 5xx 回显假密钥的端到端验收，同时保留原错误 kind/status。
 
 ### 6. 新增 qa 写入口没有接入“不认识的书库版本只读”门禁
@@ -78,7 +78,7 @@
 - **如何核实**：已实际用 Python 按 `questions-ch21-100-fixed.json` 的 56 个 id，读取 `evidences/judge-v2-fixed/graph-v9-chapters2-nox-run{1,2,3}/<id>.json`，按 t22 的 `core=="错"` 或命中 kind=error 的 forbidden 计数：`total=168, wrong=33, missing=0`，全部来自 nox 目录，无回退；`int(168*19.6/100)=32`。计数规则对照 `skill-eval-check.ts:39-45`。
 - **建议改法**：把验收的整数判据写明并由开发者确认原百分数的解释；若保持“不劣于该基线”，应明确为至多 33/168，百分数只作展示。脚本用整数比较，不靠格式化百分数碰巧过关，不改已定 11/48。
 
-发现 8 的可重跑命令：`python3 /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-design/probes/baseline.py`；输出 `{"total":168,"wrong":33,"raw_percent":19.642857142857142,"rounded_percent":19.6,"literal_max_wrong":32}`。
+发现 8 的可重跑命令：`python3 /home/<user>/.claude/jobs/568d0811/tmp/review-t05-design/probes/baseline.py`；输出 `{"total":168,"wrong":33,"raw_percent":19.642857142857142,"rounded_percent":19.6,"literal_max_wrong":32}`。
 
 ### 9. 沿用的评测检查器不是验收门禁，216 份新回归也不能直接套它
 
@@ -86,7 +86,7 @@
 - **位置**：`.agents/works/w00024-nb-story/tasks/t05-qa/plan.md:157`。
 - **现象**：计划说“确定性检查与计数照 skill-eval-check.ts”，但该脚本固定三遍、门槛固定 11/48，只有打印报告，没有失败退出码；未答、未判、无出处、越过阅读位置乃至答错超门槛都不会使进程失败。新评测还包含 168 份大题集、48 份知情题、16 份单遍全读，共 232 份，不能共用其硬编码。
 - **为什么是问题**：渠道失败后的续跑容易把“脚本执行成功”当成“验收成功”，漏题可能产生 0 错题的假绿结果。仓库 `docs/testing/README.md:153` 要求未执行的验收非零退出；全读不设正确率门槛，也不等于允许少跑或未判。
-- **如何核实**：实际运行 `bun .agents/works/w00024-nb-story/tasks/t03-impl/scripts/skill-eval-check.ts /home/notnotype/CodeRepository/neuro-book/.worktree/w00005-novel-understanding-spike/.agents/works/w00005-novel-understanding-spike/tasks/t34-v9-100ch/questions-knowledge16.json /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-design/probes/empty-eval`：48 份全部未答，打印 `0/48`、“暂不下结论”，仍以 0 退出。实现见该脚本 `10,16-21,48-68`。
+- **如何核实**：实际运行 `bun .agents/works/w00024-nb-story/tasks/t03-impl/scripts/skill-eval-check.ts /home/<user>/CodeRepository/neuro-book/.worktree/w00005-novel-understanding-spike/.agents/works/w00005-novel-understanding-spike/tasks/t34-v9-100ch/questions-knowledge16.json /home/<user>/.claude/jobs/568d0811/tmp/review-t05-design/probes/empty-eval`：48 份全部未答，打印 `0/48`、“暂不下结论”，仍以 0 退出。实现见该脚本 `10,16-21,48-68`。
 - **建议改法**：新脚本按三个独立评测批次显式声明题 id、重复次数、所需份数、门槛和完整性检查；任何缺答、缺判、确定性不通过、图模式错题数超标都非零退出。全读只要求 16 份完整作答与结果记录，不对其正确率加门槛。续跑只能复用同模型、Profile 版本、题集、原文和判分配置的完成结果。
 
 ### 10. 核心组合不变量没有对应的组合验收，单段与顺序测试抓不到账本错误
@@ -147,13 +147,13 @@
 
 ## 实际验证与未运行项
 
-所有命令从审查 worktree 执行，实验数据只写在 `/home/notnotype/.claude/jobs/568d0811/tmp/review-t05-design/probes/`。
+所有命令从审查 worktree 执行，实验数据只写在 `/home/<user>/.claude/jobs/568d0811/tmp/review-t05-design/probes/`。
 
 | 命令 | 实际结果 |
 |---|---|
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-design/probes/runtime.ts` | 退出 0；复现删除后的 local 错误、新代残缺日志 seq `[3,4,5]`、并行读取 21 章；验证收尾退回／混批／成功及 read schema 差异。 |
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-design/probes/provider.ts` | 退出 0；真实本机 HTTP + OMP provider，核对 thinking 请求参数，复现 provider 回显假密钥进入结果和 JSONL。 |
-| `python3 /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-design/probes/baseline.py` | 退出 0；基线 33/168，未舍入为 19.642857142857142%，按 19.6% 字面最多 32 份。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-design/probes/runtime.ts` | 退出 0；复现删除后的 local 错误、新代残缺日志 seq `[3,4,5]`、并行读取 21 章；验证收尾退回／混批／成功及 read schema 差异。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-design/probes/provider.ts` | 退出 0；真实本机 HTTP + OMP provider，核对 thinking 请求参数，复现 provider 回显假密钥进入结果和 JSONL。 |
+| `python3 /home/<user>/.claude/jobs/568d0811/tmp/review-t05-design/probes/baseline.py` | 退出 0；基线 33/168，未舍入为 19.642857142857142%，按 19.6% 字面最多 32 份。 |
 | 发现 9 列出的 `bun .../skill-eval-check.ts <真实 16 题集> <probes/empty-eval>` 完整命令 | 退出 0；48 份未答，报告“暂不下结论”，证明不是可直接复用的失败门禁。 |
 | `bun run --cwd packages/nb-harness test` | 69 pass、2 skip、0 fail，189 expect() calls；共 71 tests、8 files；两个真实模型测试跳过。 |
 
@@ -166,4 +166,4 @@
 - 建议：2 条（发现 11、12）。
 - 合计：12 条。
 
-条数自查：执行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t05-qa/reports/design-review.md`，实际输出 `12`，与上述合计一致。
+条数自查：执行 `grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t05-qa/reports/design-review.md`，实际输出 `12`，与上述合计一致。

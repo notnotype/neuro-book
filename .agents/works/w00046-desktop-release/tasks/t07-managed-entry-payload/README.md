@@ -23,4 +23,4 @@ updated: 2026-11-13
 - 验证：包内 `bun test scripts/pack-app.test.ts scripts/desktop-payload.test.ts` 13 通过（合并 master 之后重跑）；`prox bun run release:smoke` 在 `dd78597a1` 上通过；包内与 `scripts` 的 `tsc --noEmit` 通过。
 - Spec：`runtime/server-host` 的“托管宿主”与 `runtime/cli` 的托管入口去掉 planned，cli 加场景 8，证据补齐。
 
-Windows：链路恢复后把本机组装的 Windows 载荷传到 pc-notype 运行（[证据](evidences/windows-payload-r1.txt)）：托管入口 1.4 秒就绪、首页可取；同一状态根第二个实例以 1 退出、诊断 `runtime.state-root.busy`；写 `stop` 与关闭标准输入都以 0 退出。
+Windows：链路恢复后把本机组装的 Windows 载荷传到 Windows 开发机 运行（[证据](evidences/windows-payload-r1.txt)）：托管入口 1.4 秒就绪、首页可取；同一状态根第二个实例以 1 退出、诊断 `runtime.state-root.busy`；写 `stop` 与关闭标准输入都以 0 退出。

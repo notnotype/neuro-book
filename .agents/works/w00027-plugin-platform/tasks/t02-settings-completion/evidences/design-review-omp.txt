@@ -180,7 +180,7 @@
 
 ## 实际验证与边界
 
-所有 Bun 命令工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book`。
+所有 Bun 命令工作目录均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book`。
 
 1. 依赖只读探测：
 

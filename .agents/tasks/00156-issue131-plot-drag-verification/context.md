@@ -13,7 +13,7 @@
 
 | 参数 | 值 |
 | --- | --- |
-| 系统临时根 | `C:/Users/NOTNOT~1/AppData/Local/Temp/nbook-i131-OathtPSy` |
+| 系统临时根 | `C:/Users/USER~1/AppData/Local/Temp/nbook-i131-OathtPSy` |
 | State Root | `<临时根>/state` |
 | Cache Root | `<临时根>/cache`（含 vite cacheDir 隔离） |
 | 端口 | 3157（占用则顺延 3167/3177） |

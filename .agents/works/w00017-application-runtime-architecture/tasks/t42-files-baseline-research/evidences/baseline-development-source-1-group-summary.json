@@ -179,12 +179,12 @@
   },
   "artifacts": [
     {
-      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-development-source-1-group.cpuprofile",
+      "path": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-development-source-1-group.cpuprofile",
       "bytes": 300236,
       "retainedInTemp": false
     },
     {
-      "path": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-development-source-1-group.trace.json",
+      "path": "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t42-files-baseline-research/evidences/baseline-development-source-1-group.trace.json",
       "bytes": 702215,
       "retainedInTemp": false
     }
@@ -206,7 +206,7 @@
     "topFunctions": [
       {
         "functionName": "traverse",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 1897,
         "columnNumber": 17,
         "scriptId": "585",
@@ -214,7 +214,7 @@
       },
       {
         "functionName": "traverse",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 1897,
         "columnNumber": 17,
         "scriptId": "585",
@@ -222,7 +222,7 @@
       },
       {
         "functionName": "traverse",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 1897,
         "columnNumber": 17,
         "scriptId": "585",
@@ -230,7 +230,7 @@
       },
       {
         "functionName": "get",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 948,
         "columnNumber": 5,
         "scriptId": "585",
@@ -246,7 +246,7 @@
       },
       {
         "functionName": "get",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 948,
         "columnNumber": 5,
         "scriptId": "585",
@@ -254,7 +254,7 @@
       },
       {
         "functionName": "get",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 948,
         "columnNumber": 5,
         "scriptId": "585",
@@ -262,7 +262,7 @@
       },
       {
         "functionName": "cleanupEffect",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 480,
         "columnNumber": 22,
         "scriptId": "585",
@@ -278,7 +278,7 @@
       },
       {
         "functionName": "ownKeys",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 1062,
         "columnNumber": 9,
         "scriptId": "585",
@@ -286,7 +286,7 @@
       },
       {
         "functionName": "ownKeys",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 1062,
         "columnNumber": 9,
         "scriptId": "585",
@@ -294,7 +294,7 @@
       },
       {
         "functionName": "ownKeys",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 1062,
         "columnNumber": 9,
         "scriptId": "585",
@@ -310,7 +310,7 @@
       },
       {
         "functionName": "traverse",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 1897,
         "columnNumber": 17,
         "scriptId": "585",
@@ -326,7 +326,7 @@
       },
       {
         "functionName": "get",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 948,
         "columnNumber": 5,
         "scriptId": "585",
@@ -334,7 +334,7 @@
       },
       {
         "functionName": "measureReferenceDomElement",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/browser/config/elementSizeObserver.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/browser/config/elementSizeObserver.js?v=69467a67",
         "lineNumber": 83,
         "columnNumber": 30,
         "scriptId": "1731",
@@ -350,7 +350,7 @@
       },
       {
         "functionName": "_myTokenize",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/standalone/common/monarch/monarchLexer.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/standalone/common/monarch/monarchLexer.js?v=69467a67",
         "lineNumber": 452,
         "columnNumber": 15,
         "scriptId": "1705",
@@ -358,7 +358,7 @@
       },
       {
         "functionName": "createLineBreaksFromPreviousLineBreaks",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/common/viewModel/monospaceLineBreaksComputer.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/monaco-editor/esm/vs/editor/common/viewModel/monospaceLineBreaksComputer.js?v=69467a67",
         "lineNumber": 78,
         "columnNumber": 47,
         "scriptId": "1456",
@@ -374,7 +374,7 @@
       },
       {
         "functionName": "run",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 217,
         "columnNumber": 5,
         "scriptId": "585",
@@ -382,7 +382,7 @@
       },
       {
         "functionName": "traverse",
-        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+        "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
         "lineNumber": 1897,
         "columnNumber": 17,
         "scriptId": "585",
@@ -416,7 +416,7 @@
     {
       "sourceSymbol": "Vue traverse",
       "compiledName": "traverse",
-      "url": "http://127.0.0.1:33125/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
+      "url": "http://127.0.0.1:33125/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js?v=69467a67",
       "lineNumber": 1897,
       "columnNumber": 0,
       "endLineNumber": 1928,

@@ -1,7 +1,7 @@
 $ bun run test:runtime-foundation
 $ vitest run --config vitest.runtime-foundation.config.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
 
  Test Files  22 passed (22)
@@ -13,7 +13,7 @@ exit=0
 $ bun run test -- server/plugins server/features server/runtime server/host server/middleware server/routes server/app-logs server/storage server/config server/utils scripts/db scripts/smoke
 $ vitest run server/plugins server/features server/runtime server/host server/middleware server/routes server/app-logs server/storage server/config server/utils scripts/db scripts/smoke
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
  ❯ server/storage/storage-service.test.ts (36 tests | 1 failed) 1030ms
      × 并发写入期间读取只会看到完整旧记录或完整新记录 94ms
@@ -57,7 +57,7 @@ error: script "test" exited with code 1
 exit=1
 $ bash -c cd ../.. && bun x vitest run --config scripts/vitest.config.ts scripts/build/product-command-graph.test.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
 
 
  Test Files  1 passed (1)

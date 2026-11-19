@@ -35,7 +35,7 @@ createdAt: 2026-09-02T00:00:00Z
 
 3000 端口进程命令行为目标工作树：
 
-`C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.worktree\w00003-neurobook-ui-foundation-migration\node_modules\@nuxt\cli\bin\nuxi.mjs dev --no-fork`
+`C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book\.worktree\w00003-neurobook-ui-foundation-migration\node_modules\@nuxt\cli\bin\nuxi.mjs dev --no-fork`
 
 真实页面 `http://localhost:3000/lab` 已观察到：
 

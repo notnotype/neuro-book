@@ -53,7 +53,7 @@ Ran 276 tests across 39 files. [13.63s]
 ==> neuro-book：bun run test:vitest
 $ vitest run
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
 
  Test Files  12 passed (12)

@@ -30,7 +30,7 @@
 
 6. 重要：本机更新冒烟会把共用设置留在已停止的假模型端点上
 计划位置：plan-r2.md:155-161、187-201、313-315；pending-confirmations.md:49。
-问题：smoke-windows 准备步骤把 settings.json 整份写成 localModelSettings；smoke-update 在 pc-notype 上又必须使用已有缺省状态根。计划复用场景 1 的准备、创建作品，结束只移出书架并比较 projects.json，没有设置的原字节备份、恢复或冲突处理。假端点退出后，其配置仍指向随机本机端口，并且原 providers/roles 及其它设置可能已被整份覆盖。t10 的“目录里无要保护数据、允许在它上面验收”不能证明 t11 执行时该文件仍可覆盖。
+问题：smoke-windows 准备步骤把 settings.json 整份写成 localModelSettings；smoke-update 在 Windows 开发机上又必须使用已有缺省状态根。计划复用场景 1 的准备、创建作品，结束只移出书架并比较 projects.json，没有设置的原字节备份、恢复或冲突处理。假端点退出后，其配置仍指向随机本机端口，并且原 providers/roles 及其它设置可能已被整份覆盖。t10 的“目录里无要保护数据、允许在它上面验收”不能证明 t11 执行时该文件仍可覆盖。
 依据：主工作区 src/plugins/agent/testing/endpoint.ts:139-144 返回的只是模型 providers/roles，不是原设置的无损修改；ADR 0033 决定 3、ADR 0051 决定 4 定义桌面版与 nbook 共用此根。t10 plan.md:290 的授权限定当时验收，windows-update-r1.txt:12-13 记录当时的前后对照；r2 新待确认行也只承诺顶层清单与 projects.json。
 建议：本机运行前确认没有其它实例，记录完整设置基线；仅临时替换必须的模型键，在 finally 先停实例、再按无并发变动条件恢复原设置，失败留证据并明确报告。若改用独立 Windows 用户做更新冒烟，可直接避免已有根的覆盖；CI 干净 runner 的逻辑不必承担本机数据假设。此项是新验收准备与旧授权范围的耦合，未运行本机验收。
 

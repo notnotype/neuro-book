@@ -4,9 +4,9 @@
 
 ## 位置
 
-- 审查用的 checkout：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t80-review`（固定在提交 `28d4e3de`，依赖已装好）。只在这里读代码、跑测试。
+- 审查用的 checkout：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t80-review`（固定在提交 `28d4e3de`，依赖已装好）。只在这里读代码、跑测试。
 - 审查范围：`git diff a64f9d9b 28d4e3de`（t80 分支相对主线的全部改动；中间的 merge 提交 `850f0871` 带进来的是主线自己的改动，不在范围内）。
-- 报告文件：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/t80-review/report.md`。
+- 报告文件：`/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/t80-review/report.md`。
 
 ## 报告的写法（重要）
 

@@ -1,6 +1,6 @@
 # w00017 t74 实施计划只读审查
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t74-workbench-titlebar/plan.md`。证据路径相对审查 worktree：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/wt`。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t74-workbench-titlebar/plan.md`。证据路径相对审查 worktree：`/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t73-impl/wt`。
 
 证据口径：文档与代码结论注明“已核实（合同与代码）”；执行结果单独记录。计划中的未来行为只判断合同是否足够，不把未实现行为写成已发生的运行缺陷。开发者已定的桌面入口裁剪、作品列表随 t75、同名 `.md` 与 Lab 场景不再讨论。
 

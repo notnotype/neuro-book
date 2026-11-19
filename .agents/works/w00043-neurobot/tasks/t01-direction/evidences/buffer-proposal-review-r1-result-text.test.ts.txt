@@ -1,6 +1,6 @@
 // 带 result 的会话（子会话、任务会话）以文字收口（optional：completed；required：result-missing）时，运行中进来的 followup 是否被取走
 import {test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 
 let n = 0;

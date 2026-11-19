@@ -13,8 +13,8 @@
 - **现象**：`settings → quickPick → commands → settings` 的环不会因 `quickPickKey` 标记可选、推迟到执行命令时解析而消失。命令和工作台的必需入口激活失败，窗口无法就绪，切换语言命令更没有机会执行。
 - **为什么是问题**：插件层受阻推导只看必需边，但底层服务装配把所有已满足的依赖（含可选边）加入静态环图；每个入口的每项服务提供者又复制了该入口全部依赖。方案在两层检查之间漏了一层，且失败发生在执行 `nbook.settings.activate` 之前。
 - **依据**：`docs/specs/runtime/services.md:126` 明确“静态环（可选依赖的边也算）在装配阶段拒绝”，不允许用惰性解析隐藏环。实现为 `packages/nb-runtime/src/services/assembly.ts:104–141`（`edges.push(provider.id)` 不看 `required`）；`src/plugins/host.ts:389–402`（入口依赖复制给每个提供项）、`1002–1019`（必需依赖解析失败即激活失败）；`src/services/composition.ts:416–429`（`provider-rejected`）；`packages/neuro-book/src/web/host/window.ts:80–84,193–219`（命令与工作台为窗口启动必需）。对照实验中另一个无环入口在激活结束后 `resolve` 可选服务成功，说明问题是这张静态环图，并非上下文不能在激活后使用。
-- **实验**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/runtime-review.ts`。只用公开 `createApplication`、服务和插件 API，重现计划的三个插件与依赖；`optional-cycle` 的 startup 为 `failed`，命令、工作台均为 `dependencies/dependency-unavailable`，`settingsActivated: false`；`optional-later` 返回 `resolved`、`en-US`。实例停止均 `closed`。
-- **改法实验证据**：`bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/recovery-review.ts` 的 `split-settings-entries` 把 settings 核心与语言选择功能分为同插件两个入口，命令、工作台仍为必需插件；startup、core、command 均为 `available`，选择功能取得 `zh-CN -> en-US`。实例停止为 `closed`。
+- **实验**：`bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/runtime-review.ts`。只用公开 `createApplication`、服务和插件 API，重现计划的三个插件与依赖；`optional-cycle` 的 startup 为 `failed`，命令、工作台均为 `dependencies/dependency-unavailable`，`settingsActivated: false`；`optional-later` 返回 `resolved`、`en-US`。实例停止均 `closed`。
+- **改法实验证据**：`bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/recovery-review.ts` 的 `split-settings-entries` 把 settings 核心与语言选择功能分为同插件两个入口，命令、工作台仍为必需插件；startup、core、command 均为 `available`，选择功能取得 `zh-CN -> en-US`。实例停止为 `closed`。
 - **建议改法**：把配置核心与语言选择命令拆成同插件的两个浏览器入口。核心入口只提供 `settingsKey`，不依赖工作台；命令入口依赖配置核心和 `quickPickKey`，启动后贡献命令。由已有入口机制表达单向依赖，避免为一个 UI 命令改内核静态环语义。若坚持修改可选边语义，必须另行明确静态检查、动态等待环和关闭借用环的一整套合同；本片最小改法是拆入口。
 
 ### A2：首快照订阅没有激活期截止，计划的超时降级不会发生
@@ -108,13 +108,13 @@
 
 ## 实际验证与边界
 
-运行目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review-arch`。以下是本次已观察的执行结果，没有重复运行通过的检查：
+运行目录均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review-arch`。以下是本次已观察的执行结果，没有重复运行通过的检查：
 
 | 实际命令 | 结果 | 保存的输出 |
 |---|---|---|
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/runtime-review.ts` | 退出 0，0.17 秒；可选环、无环延迟解析、订阅无截止、失败订阅不重建四组断言通过，全部实例正常 closed | 同目录 `runtime-review.txt` |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/authorization-review.ts` | 退出 0，0.18 秒；真实签发、委托、伪造拒绝与 caller 种类拒绝断言通过，全部实例正常 closed | 同目录 `authorization-review.txt` |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/recovery-review.ts` | 退出 0，0.17 秒；拆入口修法及首次断线后重连场景断言通过，全部实例正常 closed | 同目录 `recovery-review.txt` |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/runtime-review.ts` | 退出 0，0.17 秒；可选环、无环延迟解析、订阅无截止、失败订阅不重建四组断言通过，全部实例正常 closed | 同目录 `runtime-review.txt` |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/authorization-review.ts` | 退出 0，0.18 秒；真实签发、委托、伪造拒绝与 caller 种类拒绝断言通过，全部实例正常 closed | 同目录 `authorization-review.txt` |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t64/omp-arch/recovery-review.ts` | 退出 0，0.17 秒；拆入口修法及首次断线后重连场景断言通过，全部实例正常 closed | 同目录 `recovery-review.txt` |
 
 依赖预备命令 `prox bun install --frozen-lockfile --ignore-scripts` 成功（1559 packages installed），只安装被忽略的 node_modules，未运行 postinstall。LSP 返回 `No language servers configured for this project`，代码定位随后使用只读查找。实验使用真实公开运行时与 JSON 编码链路，ManualClock 仅通过公开接口控制远程方法截止；不是产品配置实现验收。
 

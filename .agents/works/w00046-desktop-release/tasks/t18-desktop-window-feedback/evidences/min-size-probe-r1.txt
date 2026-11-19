@@ -1,4 +1,4 @@
-w00046 t18 最小尺寸探针（2026-11-16，pc-notype：Windows 11 26200 x64，2560x1440、100%）
+w00046 t18 最小尺寸探针（2026-11-16，Windows 开发机：Windows 11 26200 x64，2560x1440、100%）
 
 用安装包自带的 Bun（nb-w00046\r2-pB\bin\bun.exe，1.4.4），bun:ffi 的 cc（内嵌 TinyCC）编译 C；探针窗口是两个 STATIC 类、
 WS_OVERLAPPEDWINDOW 的顶层窗口，同一线程。窗口相关的一步经 /it 计划任务在登录的桌面会话里跑（SSH 会话的桌面是虚拟的 1024x768，

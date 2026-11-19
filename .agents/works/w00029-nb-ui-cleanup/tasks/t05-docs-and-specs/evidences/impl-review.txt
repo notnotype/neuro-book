@@ -1,5 +1,5 @@
 w00029 t05 文档审查报告（只读；追加式，最后附汇总）
-worktree: /home/notnotype/CodeRepository/neuro-book/.worktree/w00029-t05-docs
+worktree: /home/<user>/CodeRepository/neuro-book/.worktree/w00029-t05-docs
 行号均指该分支当前文件。
 
 ====================================================================

@@ -144,7 +144,7 @@ Lab 是另一实际 Adapter：在相同明确 seam 注入客户端/宿主能力�
 | `git status --porcelain=v1 --untracked-files=all` | 无输出，仓库没有已跟踪或未跟踪改动 |
 | `git rev-parse --short=8 HEAD` | `93ca7453` |
 
-其中 `<scratch>` 的实际值为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-plan/tests`。初始配置的 filesScene 导入失败和最终组件配置的成功是不同场景，不以成功组件实验覆盖前一失败。
+其中 `<scratch>` 的实际值为 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-plan/tests`。初始配置的 filesScene 导入失败和最终组件配置的成功是不同场景，不以成功组件实验覆盖前一失败。
 
 实验配置有两次本地装配绕路：用 runner 加 Vue plugin 时得到 `Vite module runner has been closed`；改为 native 后，scratch 中过宽的 typebox alias 误匹配 `typebox/value`，改精确匹配后两个用例通过。这两次只说明隔离探针配置的问题，不列为仓库计划缺陷。Bun 脚本断言通过后均输出 `Internal error: directory mismatch for directory ".../packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.`；记录此运行器诊断，不把它算业务失败或静默省略。
 

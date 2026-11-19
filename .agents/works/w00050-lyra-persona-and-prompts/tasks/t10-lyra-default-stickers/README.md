@@ -15,7 +15,7 @@ updated: 2026-11-18
 
 ## 做法
 
-- 服务：image-gen 的 `jiji` profile（OpenAI Images 协议，`gpt-image-2.6-sunburst`），`edit` 接口上传母版作参考。
+- 服务：image-gen 的 `relay` profile（OpenAI Images 协议，`gpt-image-2.6-sunburst`），`edit` 接口上传母版作参考。
 - 提示词：Q 版贴纸、白色模切边、整张纯绿幕底（`#00FF00`），每张只换表情与动作一句。
 - 抠图：本地脚本去掉绿幕（与四边连通的、或面积至少 30 像素的绿块；人物的青色宝石绿度低不受影响），边缘按绿度渐变透明并去绿溢色，裁到内容加 4% 边距，缩到 512×512 存 WebP。
 - 原图、抠图脚本、批量脚本与对照图在本地 `.local/brand/mascot/stickers/`，不入库。

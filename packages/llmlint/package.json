@@ -24,7 +24,7 @@
         "web:start": "cd web && bun run start",
         "web:generate": "cd web && bun run generate",
         "agent:migrate-neuro": "cd web && bun scripts/migrate-neuro.ts",
-        "deploy:dmit": "powershell -NoProfile -ExecutionPolicy Bypass -File deploy/dmit/package-and-upload.ps1"
+        "deploy:server": "powershell -NoProfile -ExecutionPolicy Bypass -File deploy/server/package-and-upload.ps1"
     },
     "dependencies": {
         "@earendil-works/pi-ai": "^0.75.4",

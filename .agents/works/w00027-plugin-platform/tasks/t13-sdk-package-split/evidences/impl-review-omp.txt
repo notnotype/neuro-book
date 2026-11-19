@@ -5,7 +5,7 @@
 ## 1. JSON 比较把带不同校验函数的代码合同当作相同，静默替换了产出的合同
 
 - **严重程度：重要；类别：正确性。**
-- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/nb-runtime/src/plugins/contract-content.ts:20-26`、`packages/nb-runtime/src/plugins/host.ts:1152-1156`。
+- **位置：** `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/nb-runtime/src/plugins/contract-content.ts:20-26`、`packages/nb-runtime/src/plugins/host.ts:1152-1156`。
 - **现象：** `sameContractContent` 只遍历可枚举字段，TypeBox 的 `Refine`、`Codec` 等不可枚举元数据完全不参加比较。声明的输入是普通严格对象、产出的同 id 合同给它加 `Type.Refine(..., value > 0)` 时，两份合同被当成相同，入口激活成功，提供项被换回无 Refine 的声明合同；实际调用 `{value: -1}` 成功进入实现。
 - **为什么是问题：** 这次把只供第三方清单适配器使用的 JSON 比较提升为全部代码定义入口的合同核对，却没有保留原来对非 JSON Schema 代码合同的约束。`defineRemoteService` 接受 Refine，代码定义也不经过清单的 `portabilityProblems`；两份校验语义不同的合同应按 `runtime.plugins` 输出 22 拒绝为 `remote-contract-mismatch`，而不是静默丢掉产出合同的校验。base 的 `host.ts` 只接受同一对象，以上两个不同对象会被拒；base 的应用补丁只作用于第三方清单路径，不能解释新的内核行为。
 - **如何核实：** 执行 `bun /tmp/claude-1000/review-t13-impl/scratch/contract-content-smoke.ts`，通过真实 `createApplication`、`createRemoteNode({validateLocal: true})`、两个插件与 `provideRemote` 激活并调用。结果：`declaredAcceptsNegative=true`、`producedAcceptsNegative=false`、`equalJson=true`，启动 `failures=[]`、入口 `available`，负数调用 `{ok:true,value:true}`、实现调用次数 `1`；停止为 `closed`。不是只直接调用比较函数的实验。
@@ -14,7 +14,7 @@
 ## 2. 显式的 definitions 写错类型时退回自动发现，构建成功却漏掉全部入口
 
 - **严重程度：重要；类别：正确性。**
-- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/neuro-book/src/plugin-platform/build/build-plugin.ts:174-178,462`。
+- **位置：** `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/neuro-book/src/plugin-platform/build/build-plugin.ts:174-178,462`。
 - **现象：** 新的 `definitionsField` 把“没写设置”和“写了不合格设置”都变成 `undefined`。例如作者明确写 `nbook.definitions: ["src/server.ts", 42]`、实际服务端定义在 `src/server.ts`，预设没有指出第二项不是字符串，而是改找缺省的 `backend/plugin.ts`、`web/plugin.ts`；两者都没有时仍成功，只有 `package.json`，其中 `entries: {}`，没有任何警告。
 - **为什么是问题：** 错误设置不能等同于未配置，否则这次新增的“忘记导出定义要报错”检查也被绕过：配置指向的模块根本没有加载。作者得到成功退出的产物，安装后功能全部消失。base 直接对显式的 `author.nbook.definitions` 执行 `.map(file => join(root, file))`；该输入会在第二项失败，不会静默生成少入口的包。新的降级行为来自本次抽出的设置读取函数。
 - **如何核实：** 执行 `bun /tmp/claude-1000/review-t13-impl/scratch/definitions-smoke.ts`，调用真实绑定 NeuroBook 档案的 `plugin-sdk/build.ts`。作者描述声明 `locations: ["server"]`，`src/server.ts` 有有效的服务端定义；输出为 `files=["package.json"]`、`warnings=[]`、清单 `entries={}`，命令退出码 `0`。base 对照见合并 diff 中 `author.nbook?.definitions` 被替换为 `definitionsField(...)` 的部分。
@@ -23,7 +23,7 @@
 ## 3. 新增边界与闭包机检会漏掉同一行的第二条导入或导出语句
 
 - **严重程度：建议；类别：测试。**
-- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/neuro-book/src/sdk/surface.test.ts:14-15,34-37`、`packages/neuro-book/src/architecture.test.ts:48-56,171-187`。
+- **位置：** `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/neuro-book/src/sdk/surface.test.ts:14-15,34-37`、`packages/neuro-book/src/architecture.test.ts:48-56,171-187`。
 - **现象：** 静态导入/再导出扫描强制语句位于行首；`export const local = 1; export {target} from "./target";` 中的第二条导出完全不进 SDK 闭包，平台代码同样写法的跨层再导出也不进违规列表。动态导入的无插值模板字面量也不被扫描。新规则的反例直接手造 `ImportUse`，没有覆盖“源码解析成功才会走到规则”这一段。
 - **为什么是问题：** 本 Task 没有真实的第二个应用，边界机检与公开面闭包是设计列出的替代证据。只因排版或引号形式变化就漏掉依赖，无法守住该证据；这不是要求支持任意动态计算路径。`architecture.test.ts` 的正则本身在 base 已存在，不把它整体算成本次回归；这里报告的是本次新增的平台边界对该解析器的依赖，以及全新的闭包测试也复制了缺口。plan.md 第 10 节记录允许按导入语句扫描，但不等于允许合法的导入语句不进入扫描。
 - **如何核实：** `bun /tmp/claude-1000/review-t13-impl/scratch/guard-smoke.ts` 只读取审查 worktree 的两个真实测试文件，在仓库外编译并调用其原有解析与判定函数，没有编辑仓库。静态导入、再导出、侧效应导入与换行动态导入均被拦；同一行第二条再导出、无插值模板字面量动态导入都得到 `imports=[]`、`violations=[]`。同一个真实 `target.ts`，单独一行再导出时闭包包含它，放到第二条语句后闭包只剩入口文件。

@@ -74,7 +74,7 @@ function tryLockPosix(path: string, shared: boolean): FileLock | null {
 }
 
 // Win32 常量。访问权限要按无符号数传：JS 的 `|` 得到有符号 32 位整数，`0x80000000 | 0x40000000` 是负数，
-// 传进 u32 参数后 CreateFileW 拿到的权限不对，之后 LockFileEx 报 ERROR_ACCESS_DENIED（在 pc-notype 上实测）。
+// 传进 u32 参数后 CreateFileW 拿到的权限不对，之后 LockFileEx 报 ERROR_ACCESS_DENIED（在 Windows 开发机上实测）。
 const GENERIC_READ_WRITE = (0x80000000 | 0x40000000) >>> 0;
 const FILE_SHARE_READ_WRITE_DELETE = 0x1 | 0x2 | 0x4;
 const OPEN_ALWAYS = 4;

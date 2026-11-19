@@ -1,7 +1,7 @@
 $ bun run test server/runtime server/features scripts/smoke/product-lifecycle/plugin-order.test.ts
 $ vitest run server/runtime server/features scripts/smoke/product-lifecycle/plugin-order.test.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
 {"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
 {"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
@@ -22,7 +22,7 @@ $ vitest run server/runtime server/features scripts/smoke/product-lifecycle/plug
 
 $ bun run test server/runtime/product-startup.test.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
  ❯ server/runtime/product-startup.test.ts (24 tests | 1 failed) 3579ms
      × Project child释放失败时保留Session lease，显式恢复完成后才释放 54ms
@@ -74,7 +74,7 @@ error: script "test" exited with code 1
 
 $ bun run test server/runtime/product-startup.test.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
 
  Test Files  1 passed (1)
@@ -97,7 +97,7 @@ $ vitest run server/runtime/product-startup.test.ts
 最终改动验证：
 $ bun run test server/runtime server/features scripts/smoke/product-lifecycle/plugin-order.test.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
 
  Test Files  16 passed (16)

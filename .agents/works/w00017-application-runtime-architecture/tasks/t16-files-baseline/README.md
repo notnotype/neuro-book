@@ -11,7 +11,7 @@ taskId: t16-files-baseline
 
 ## 当前状态
 
-基线已闭合。执行 checkout 为 `.worktree/w00017-application-runtime-architecture`，分支 `refactor/w00017-runtime-foundation`，起始 revision `026ed9b2f9e6bfc6de81c1fd45320c68f9b7fe1f`；`governance:context` 匹配且 `failures: []`。已有 t15 未提交设计文档未清理。固定样本与测量脚本、逐次原始数据在本次 Temp 根 `C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/agent/files-v1-OfeVX1/`，owner marker 的 runId 为 `8d1a53ed-f872-4c68-84f6-20bff8fb5723`。隔离 Source Dev 实际运行 `http://127.0.0.1:42257`，Chromium 151.0.7922.34、1440×1000，开发构建；没有接现有服务或用户项目。
+基线已闭合。执行 checkout 为 `.worktree/w00017-application-runtime-architecture`，分支 `refactor/w00017-runtime-foundation`，起始 revision `026ed9b2f9e6bfc6de81c1fd45320c68f9b7fe1f`；`governance:context` 匹配且 `failures: []`。已有 t15 未提交设计文档未清理。固定样本与测量脚本、逐次原始数据在本次 Temp 根 `C:/Users/USER~1/AppData/Local/Temp/neuro-book/agent/files-v1-OfeVX1/`，owner marker 的 runId 为 `8d1a53ed-f872-4c68-84f6-20bff8fb5723`。隔离 Source Dev 实际运行 `http://127.0.0.1:42257`，Chromium 151.0.7922.34、1440×1000，开发构建；没有接现有服务或用户项目。
 
 ## 授权与边界
 

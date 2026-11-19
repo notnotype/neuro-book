@@ -62,7 +62,7 @@ createdAt: 2026-08-18T11:05:00Z
 
 Monorepo 边界唯一正文继续是 [`docs/modules/monorepo-boundaries.md`](../../../../docs/modules/monorepo-boundaries.md)，`docs/specs/README.md` 已登记该路径并明确不创建 `docs/specs/architecture/monorepo-boundaries.md` 副本。
 
-实际验证：`bun x vitest run --config scripts/vitest.config.ts scripts/ci/agent-governance.test.ts` 为 `1 file / 8 tests passed`；`bun x tsc --noEmit -p scripts/tsconfig.json` 退出 0；`bun run governance:check` 返回 `failures=[]`、`warnings=[]`；`bun run governance:worktree` 按合同返回退出码 1，并报告 `C:/t145-wt-cdb48aa930bf4b4bba2f542c965907c1`、`C:/Users/notnotype/.codex/worktrees/7076/neuro-book` 和 `C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.agent/workspace/wt/session-recovery-gaps` 三个 canonical 根外 registered worktree。未执行 worktree prune/remove；位置违规保留为当前环境阻塞证据。
+实际验证：`bun x vitest run --config scripts/vitest.config.ts scripts/ci/agent-governance.test.ts` 为 `1 file / 8 tests passed`；`bun x tsc --noEmit -p scripts/tsconfig.json` 退出 0；`bun run governance:check` 返回 `failures=[]`、`warnings=[]`；`bun run governance:worktree` 按合同返回退出码 1，并报告 `C:/t145-wt-cdb48aa930bf4b4bba2f542c965907c1`、`C:/Users/<user>/.codex/worktrees/7076/neuro-book` 和 `C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.agent/workspace/wt/session-recovery-gaps` 三个 canonical 根外 registered worktree。未执行 worktree prune/remove；位置违规保留为当前环境阻塞证据。
 
 ## S7：Docker、CI、部署与发布入口
 

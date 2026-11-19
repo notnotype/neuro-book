@@ -77,7 +77,7 @@ export const CustomModelSchema = Type.Object(
 
 export const ProviderSchema = Type.Object(
     {
-        name: Type.Optional(Type.String({minLength: 1, "x-form": {label: "名称", help: "只用来显示与区分，例如 jiji、公司网关"}})),
+        name: Type.Optional(Type.String({minLength: 1, "x-form": {label: "名称", help: "只用来显示与区分，例如公司网关、本机端点"}})),
         api: Type.Union([Type.Literal("openai-completions"), Type.Literal("openai-responses"), Type.Literal("anthropic-messages"), Type.Literal("google-generative-ai")], {"x-form": {label: "接口"}}),
         baseUrl: baseUrl(),
         apiKeyEnv: apiKeyEnv(),

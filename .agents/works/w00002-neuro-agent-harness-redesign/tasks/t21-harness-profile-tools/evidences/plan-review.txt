@@ -1,6 +1,6 @@
 # w00002 t21 实施计划只读审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-t21-plan-review/.agents/works/w00002-neuro-agent-harness-redesign/tasks/t21-harness-profile-tools/plan.md`。下文计划及包内相对路径均相对该 worktree；`node_modules/` 相对主工作区 `/home/notnotype/CodeRepository/neuro-book`。只读审查，实验只写入指定的仓库外 lab；本报告按发现追加。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00002-t21-plan-review/.agents/works/w00002-neuro-agent-harness-redesign/tasks/t21-harness-profile-tools/plan.md`。下文计划及包内相对路径均相对该 worktree；`node_modules/` 相对主工作区 `/home/<user>/CodeRepository/neuro-book`。只读审查，实验只写入指定的仓库外 lab；本报告按发现追加。
 
 ### 1. `syncContextBeforeModelCall` 不是 `Agent` 的公开配置，按计划装配不会执行上下文覆盖
 
@@ -8,7 +8,7 @@
 - **位置**：计划“harness.ts”（35 行）、“不做与风险”（106 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:104-120,1583-1590`；`src/types.ts:334-338`。
 - **现象**：计划要求配置 OMP `Agent` 的 `syncContextBeforeModelCall`，但它只属于底层 `AgentLoopConfig`；`AgentOptions` 没有这个字段，构造函数也不读取它。`Agent` 为自己的循环硬编码此钩子，仅运行注册的 before-model hooks，再同步内部的 systemPrompt 与 tools，不同步 messages。用户传入同名属性在运行时被忽略，直接传对象字面量还会触发 TypeScript excess-property 检查。
 - **为什么是问题**：实现无法通过该装配达到 Spec 输出 7、8；关闭重开后依然可能发 Agent 内存历史而不是日志渲染历史。计划引用的旧 `context-probe.ts:14-20` 实际测的是 `transformContext`，没有测 `syncContextBeforeModelCall`，不能作为这项机制的证据。直接改为裸 `agentLoop` 又会丢失计划所依赖的 Agent 生命周期接口，不是无成本换名字。
-- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/runtime.ts`，真实 `Agent.prompt()` 收到同名配置后 `syncCalls: 0`，模型收到 `receivedSystem:["old-system"]`，而非钩子内的 `rendered`。源码同时确认低层钩子存在、上层入口不转发。未调用真实模型。
+- **如何核实**：运行 `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-plan/lab/runtime.ts`，真实 `Agent.prompt()` 收到同名配置后 `syncCalls: 0`，模型收到 `receivedSystem:["old-system"]`，而非钩子内的 `rendered`。源码同时确认低层钩子存在、上层入口不转发。未调用真实模型。
 - **建议改法**：保留 `Agent`，明确使用它确实提供的 `transformContext` / `transformProviderContext`；在实际 provider-context 变换中等待已排队的写入、渲染并替换本次请求，不替换工具调度历史。若用 `addBeforeModelCallHook`，说明它只给 signal，系统提示词要经 `setSystemPrompt` 同步、messages 仍须走变换接口；不要把它写成可直接修改 AgentContext 的同名钩子。新增测试断言模型收到的系统提示词和消息确实来自渲染，不能只断言日志已 flush。
 
 ### 2. `afterToolCall` 早于结果事件，当前收尾步骤没有实现合同要求的落盘线性化
@@ -26,7 +26,7 @@
 - **位置**：计划“usage.ts”（40 行）、“验收映射”（90 行）；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:807-828`；`src/utils/openai-http.ts:92-118`。
 - **现象**：计数只在 `postOpenAIStream` 成功返回之后触发。该函数内部的 `fetchWithRetry` 已经重试过 408、429、5xx 与网络故障；非成功最终响应和 fetch 抛错也没有 `onResponse`。因此它不是“一次 provider 尝试一次回调”。计划只测空回复重试，恰好绕过这一层盲区。
 - **为什么是问题**：真实 `503 → 200`、`fetch failed → 200` 都发了 2 次请求，却只有 1 次回调、1 条助手消息；计划公式返回 `complete:true`。Spec 输出 11 的“发生过重试而计量不足时应视为下界”不能靠这个回调全面判断。这里不是上一轮“可见消息不等于账单”的产品口径争议，而是选定实现把实际存在的 retry 错当成没有 retry。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/provider.ts`，真实 `Agent → streamOpenAICompletions → HTTP transport`，仅用公开 fetch 接缝返回协议响应。`transport-503` 与 `socket-before-response` 均为 `requests:2,responses:1,assistants:1,plannedComplete:true`；对照空回复为 `2,2,1,false`；401 为 `1,0,1`。没有调用内部 retry 函数或真实端点。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-plan/lab/provider.ts`，真实 `Agent → streamOpenAICompletions → HTTP transport`，仅用公开 fetch 接缝返回协议响应。`transport-503` 与 `socket-before-response` 均为 `requests:2,responses:1,assistants:1,plannedComplete:true`；对照空回复为 `2,2,1,false`；401 为 `1,0,1`。没有调用内部 retry 函数或真实端点。
 - **建议改法**：把 `onResponse` 降为能够发现一部分重试的证据，不宣称逐 attempt 计数。对本次支持的 HTTP provider 在公开 fetch 接缝按运行观察实际传输尝试，或者对没有充分观测的路径保守返回不完整；不另造重试层。补传输 503、响应前网络断开，以及已提交部分输出后流断开的用例，区分“已知零”与“不可确认完整”。保持 Spec 已定的可见消息求和口径。
 
 ### 4. 只从 `message_end` 落盘再渲染，首个请求会缺本轮用户输入
@@ -35,7 +35,7 @@
 - **位置**：计划“harness.ts”（34-36 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:1253-1287,1337-1340`；现有 `packages/nb-harness/src/harness.ts:174-185`。
 - **现象**：新计划只规定 `message_end` 驱动原样消息落盘，没有保留或替换当前“先写用户输入，再 prompt”的入口步骤。OMP 会先完成上下文准备，再发本轮输入的 `message_start/message_end`。即使修正发现 1，渲染钩子等待写队列时，本轮用户消息也尚未入队。
 - **为什么是问题**：新建会话第一次请求的日志渲染结果没有用户问题；恢复会话的新问题同样晚一轮。若在钩子里等用户的后续事件，会死锁；若照旧手工 append 并同时订阅所有 `message_end`，则会把同一输入写 2 次，破坏输出 7、8、9。旧探针之所以成功，是它在调用 Agent 前就手工写了 user，不是订阅屏障自动包含了新输入。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/lifecycle.ts`，真实 `Agent.prompt → transformProviderContext`，事件通过真实 nb-session JSONL 排队写入。渲染时 `providerRoles:[user], logEntries:0`；用日志替换后实际 streamFn 收到 `receivedRoles:[]`；运行结束日志才有 user 与 assistant 共 2 条。没有内部函数调用或假造事件时序。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-plan/lab/lifecycle.ts`，真实 `Agent.prompt → transformProviderContext`，事件通过真实 nb-session JSONL 排队写入。渲染时 `providerRoles:[user], logEntries:0`；用日志替换后实际 streamFn 收到 `receivedRoles:[]`；运行结束日志才有 user 与 assistant 共 2 条。没有内部函数调用或假造事件时序。
 - **建议改法**：在 `turn` 获得运行所有权后显式构造并持久化本轮 UserMessage，再把同一个消息交给 `agent.prompt(message)`；规定如何跳过对应输入事件，确保恰写一次，并保留相同 timestamp 等字段。写入失败返回 `local` 且不发请求；预先取消的输入处理按既有状态合同收口。验收应断言第一次、第二次和恢复后的第一次请求都恰好含 1 条本轮输入，而不只是“写队列已完成”。
 
 ### 5. `close()` 只等待 Agent idle，不能等待尚在准备或正在结算的 harness 运行
@@ -116,11 +116,11 @@
 本次运行以下 5 个命令，均退出 0，共输出 19 条 JSON 观察记录；均使用真实 OMP Agent 循环或 provider 的公开 fetch 接缝，没有连接真实模型：
 
 ```text
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/runtime.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/provider.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/lifecycle.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/compatibility.ts
-bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/stream-edges.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-plan/lab/runtime.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-plan/lab/provider.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-plan/lab/lifecycle.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-plan/lab/compatibility.ts
+bun /home/<user>/.claude/jobs/568d0811/tmp/review-t21-plan/lab/stream-edges.ts
 ```
 
 - 未运行仓库 bun test、typecheck、e2e、开发服务或真实模型；未安装依赖；未修改仓库文件、提交或操作分支。只新增本报告及指定 lab 中的实验文件和实验 JSONL。

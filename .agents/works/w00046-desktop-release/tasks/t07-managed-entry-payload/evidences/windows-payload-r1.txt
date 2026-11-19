@@ -1,4 +1,4 @@
-# w00046 t07：Windows 上运行组装出的桌面载荷（2026-11-13，pc-notype，Windows 11，独立的 Bun 1.4.4）
+# w00046 t07：Windows 上运行组装出的桌面载荷（2026-11-13，Windows 开发机，Windows 11，独立的 Bun 1.4.4）
 # 载荷：本机在 dd78597a1 的发布清单上 --os win32 --cpu x64 组装（158 MB、2064 个文件），tar 后分 7 块经 scp 传过去拼回，SHA-256 与本机相同。
 # 脚本：check-payload.js（下面附上）以 --stop-stdin 运行 app/server/main.js，NBOOK_STATE_ROOT 为临时目录，端口 4517/4518，NBOOK_WEB_ROOT 指向 app/web。
 

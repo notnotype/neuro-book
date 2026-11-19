@@ -1,6 +1,6 @@
 # w00017 t60 实施计划只读审查
 
-审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md` 与同目录 `README.md`，固定提交 `8aa26b09`。审查根为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review`；完整仓库相对路径以该根解析，省略包前缀的源码引用承接同段的包。只读取此 worktree，实验与报告仅写入指定 scratch；除安装依赖外，未修改仓库源码、计划或规范文件，未提交或操作其他工作树。
+审查对象：`.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md` 与同目录 `README.md`，固定提交 `8aa26b09`。审查根为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review`；完整仓库相对路径以该根解析，省略包前缀的源码引用承接同段的包。只读取此 worktree，实验与报告仅写入指定 scratch；除安装依赖外，未修改仓库源码、计划或规范文件，未提交或操作其他工作树。
 
 结论：已批准的精简方向可以保留；计划需要补齐签发收口、整批补交屏障、接收者删除面、类型保证边界、命令诊断与作者文档，才能按字面实施和验收。发现按影响排序：设计与遗漏在前、写法与验收建议在后。阻断 0 条、重要 8 条、建议 4 条，共 12 条；重要表示实施前需要修订的具体合同或步骤，未把尚未存在的实现判为故障。
 
@@ -142,11 +142,11 @@
 临时实验保留在本报告同目录。以下为可原样重跑的命令：
 
 ```sh
-bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/real-delivery.ts
-bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/when-issues.ts
-bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/result-shape.ts
-packages/nb-runtime/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution bundler --typeRoots /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review/node_modules/@types --types bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/entry-types.ts
-packages/nb-runtime/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution bundler --typeRoots /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review/node_modules/@types --types bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/result-shape.ts
+bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/real-delivery.ts
+bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/when-issues.ts
+bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/result-shape.ts
+packages/nb-runtime/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution bundler --typeRoots /home/<user>/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review/node_modules/@types --types bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/entry-types.ts
+packages/nb-runtime/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target ES2022 --module ESNext --moduleResolution bundler --typeRoots /home/<user>/CodeRepository/neuro-book/.worktree/w00017-t60-plan-review/node_modules/@types --types bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-plan/result-shape.ts
 ```
 
 - `real-delivery.ts` 退出 0。三个真实宿主场景分别证明：重复 HTTP 贡献在准备前被拒；补交第二项 prepare 失败时仅撤回第一项、双方仍 available、无 published；挂起 prepare 时关闭贡献方，迟到完成只撤回，事件为 `prepare:start, prepare:end, revoke:activation-stopped`，激活结果 stopped，无 published。

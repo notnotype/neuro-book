@@ -1,6 +1,6 @@
 # 任务：只读审查 w00017 t84 的设计稿与实施计划（菜单贡献点）
 
-你在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-plan/wt`（detached，实现开始前的代码，分支 `refactor/w00017-runtime-foundation` 的 `01722510f`）。这是 NeuroBook v2 新应用（`packages/neuro-book`：前端 Vue，后端 Bun，插件化工作台，内核在 `packages/nb-runtime`）与共享组件库（`packages/nb-ui`）；旧应用 `packages/neuro-book-legacy` 只作参照。
+你在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-plan/wt`（detached，实现开始前的代码，分支 `refactor/w00017-runtime-foundation` 的 `01722510f`）。这是 NeuroBook v2 新应用（`packages/neuro-book`：前端 Vue，后端 Bun，插件化工作台，内核在 `packages/nb-runtime`）与共享组件库（`packages/nb-ui`）；旧应用 `packages/neuro-book-legacy` 只作参照。
 
 审查对象是同目录上一级的三份文件：
 
@@ -41,12 +41,12 @@
 
 ## 规则
 
-- 只读：不修改检出里任何文件，不 commit、push、stash、切分支，不删除文件。实验文件只放在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-plan/`。
+- 只读：不修改检出里任何文件，不 commit、push、stash、切分支，不删除文件。实验文件只放在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-plan/`。
 - 报告文件**只追加**：每核实一条就用追加方式写入（例如 `cat >> report.md <<'EOF'`），不要整文件重写，不要等到最后。结束前用 `grep -c '^### P' report.md` 自查条数与正文一致。
 - 用中文写。
 
 ## 报告
 
-写到 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-plan/report.md`。
+写到 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t84-plan/report.md`。
 
 每条问题用三级标题 `### P<编号> <一句话>`，按发现顺序编号。每条写：**严重程度**（阻断、重要、建议）、**类别**、**依据**（文件:行）、**问题**、**为什么是问题**、**建议改法**。最后追加一节“各级数量”。

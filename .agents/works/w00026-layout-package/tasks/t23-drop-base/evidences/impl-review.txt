@@ -1,5 +1,5 @@
 # w00026 t23 实现审查报告（Claude Opus 子代理）
-审查范围：worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t23-drop-base，git diff 116e1b514..HEAD（6 个提交）。只读；未跑 e2e 与开发服务。
+审查范围：worktree /home/<user>/CodeRepository/neuro-book/.worktree/w00026-t23-drop-base，git diff 116e1b514..HEAD（6 个提交）。只读；未跑 e2e 与开发服务。
 
 ## 1. 来源收起后，“摆不出预览”的候选（原位、编辑器会合并）回退到已提交的文档，来源在画面上又展开，判定却按收起后的几何
 - 严重程度：重要；类别：正确性（从代码推断，未在运行时复现）

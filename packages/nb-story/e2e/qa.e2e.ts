@@ -524,7 +524,7 @@ test.describe("设置页", () => {
         await endpoint.models({kind: "models", ids: ["m-a", "m-b"]});
         await page.goto(`${server.base}/settings`);
         await page.locator("[data-settings-add-provider]").click();
-        await dialog(page).getByLabel("名称").fill("jiji");
+        await dialog(page).getByLabel("名称").fill("relay");
         await dialog(page).getByLabel("服务地址").fill(endpoint.url);
         await dialog(page).getByLabel("密钥环境变量").fill(KEY_ENV);
         await page.locator("[data-provider-discover]").click();
@@ -532,19 +532,19 @@ test.describe("设置页", () => {
         await page.locator("[data-provider-found]").getByText("m-a").click();
         await page.locator("[data-provider-add-found]").click();
         await page.locator("[data-provider-save]").click();
-        await expect(page.locator("[data-settings-provider='jiji']")).toBeVisible();
+        await expect(page.locator("[data-settings-provider='relay']")).toBeVisible();
 
         await page.locator("[data-settings-add-model]").click();
-        await page.locator("[data-catalog-model='jiji/m-a']").click();
+        await page.locator("[data-catalog-model='relay/m-a']").click();
         await page.locator("[data-catalog-confirm]").click();
         await page.locator("[data-settings-candidate='custom/qa-model'] [data-settings-remove-candidate]").click();
-        await expect(page.locator("[data-settings-candidate='jiji/m-a']")).toContainText("默认");
+        await expect(page.locator("[data-settings-candidate='relay/m-a']")).toContainText("默认");
 
         await page.locator("[data-settings-provider='custom'] [data-settings-remove-provider]").click();
         await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
         await expect(page.locator("[data-settings-provider='custom']")).toHaveCount(0);
         await page.getByTestId("settings-save").click();
         await expect(page.getByTestId("settings-notice")).toContainText("已保存");
-        expect(JSON.parse(await readFile(configFile, "utf8"))).toMatchObject({providers: {jiji: {api: "openai-completions", baseUrl: endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "m-a"}]}}, models: ["jiji/m-a"], model: {use: "jiji/m-a"}});
+        expect(JSON.parse(await readFile(configFile, "utf8"))).toMatchObject({providers: {relay: {api: "openai-completions", baseUrl: endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "m-a"}]}}, models: ["relay/m-a"], model: {use: "relay/m-a"}});
     });
 });

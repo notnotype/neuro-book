@@ -1,4 +1,4 @@
-// viewer Smoke 的场景 9（docs/specs/story/viewer.md 的“验收与 Smoke”）：真实模型（.env 的 JIJI_LUNA_*，gpt-6-luna）、
+// viewer Smoke 的场景 9（docs/specs/story/viewer.md 的“验收与 Smoke”）：真实模型（.env 的 NBOOK_LLM_*，gpt-6-luna）、
 // 真实 `nbstory serve`（Work 分支 worktree）与本机 Chrome，在导入页导入样例书前 3 章，第 1 章提交后停一次再继续，抽完后
 // 打开书。截图与小结写进不进 Git 的本地目录。由 Node 运行（Bun 下启动浏览器时 CDP 握手会超时）：
 //   node .agents/works/w00024-nb-story/tasks/t06-ingest/scripts/smoke-web.mjs
@@ -8,7 +8,7 @@ import {join} from "node:path";
 
 import {chromium} from "playwright";
 
-const REPO = "/home/notnotype/CodeRepository/neuro-book";
+const REPO = "/home/<user>/CodeRepository/neuro-book";
 const PKG = `${REPO}/.worktree/w00024-nb-story/packages/nb-story`;
 const OUT = `${REPO}/.local/agent/works/w00024-nb-story/tasks/t06-ingest/smoke-web`;
 rmSync(OUT, {recursive: true, force: true});
@@ -17,7 +17,7 @@ mkdirSync(join(configHome, "nbstory"), {recursive: true});
 mkdirSync(join(OUT, "shots"), {recursive: true});
 
 // 配置只写端点地址与密钥环境变量名，由 Bun 读 .env 写出；密钥不经过这个脚本。
-execFileSync("bun", ["--env-file", `${REPO}/.env`, "-e", `await Bun.write(process.argv[1], JSON.stringify({model: {baseUrl: process.env.JIJI_LUNA_BASE_URL, id: "gpt-6-luna", apiKeyEnv: "JIJI_LUNA_API_KEY", price: {input: 1, output: 4, cacheRead: 0.02, currency: "CNY"}}}))`, join(configHome, "nbstory", "config.json")]);
+execFileSync("bun", ["--env-file", `${REPO}/.env`, "-e", `await Bun.write(process.argv[1], JSON.stringify({model: {baseUrl: process.env.NBOOK_LLM_BASE_URL, id: "gpt-6-luna", apiKeyEnv: "NBOOK_LLM_API_KEY", price: {input: 1, output: 4, cacheRead: 0.02, currency: "CNY"}}}))`, join(configHome, "nbstory", "config.json")]);
 const file = join(OUT, "样例前3章.txt");
 execFileSync("bun", ["-e", `import {sampleSourceText} from "${PKG}/testing/sample.ts"; await Bun.write(process.argv[1], await sampleSourceText(3));`, file]);
 

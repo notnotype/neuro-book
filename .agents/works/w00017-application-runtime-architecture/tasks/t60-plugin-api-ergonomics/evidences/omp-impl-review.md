@@ -1,6 +1,6 @@
 # w00017 t60 实现只读审查
 
-审查对象：`8aa26b09..3b01a401`，共 8 个提交。审查 checkout：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-impl-review`。
+审查对象：`8aa26b09..3b01a401`，共 8 个提交。审查 checkout：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t60-impl-review`。
 
 依据：t60 的 `plan.md`（包含实施中的调整）、`evidences/omp-plan-review.md`、受影响 Spec、实现与测试。既有计划审查已处理的问题不重复报告，只有调整未落实时才重新列出。
 
@@ -20,7 +20,7 @@
 - **现象**：同一接收者服务两个并发激活的贡献方 A、B，B 的异步 `prepare` 尚未完成时，A 的 `published` 已进入该接收者。删除 `commit` 后，命令登记、路由挂载、页面挂载都迁入这个不受串行锁保护的回调。
 - **为什么是问题**：`runtime.plugins` 输出第 17 条、验收 20 与实现合同明确承诺同一接收者的补交、事务交付与撤回回调不交错。`#deliverPlans` 在锁内完成准备后释放锁，激活路径的通知随后由 `#run` 直接调用；下一批已经占有该锁并挂起时，上一批仍可修改接收者业务表。这破坏接收者可以依赖的事务串行边界。迁移后的场景 11 把 `published` 移入另一个数组、最后排序比较，只验证 `prepare` 顺序，原有“整批回调不交错”的断言被缩窄，掩盖了缺口。
 - **与基线的关系**：锁外调用 `published` 的位置在 `8aa26b09` 已存在；本次删除锁内的 `commit` 后，把命令、HTTP 和页面的实际生效操作移到了该通知，因此原有通知的串行缺口现在直接覆盖业务表修改。报告针对本次收敛未兑现的回调合同，不把锁外调用本身描述成新引入代码。
-- **依据**：真实 `createRuntimeInstance` + `createServiceAssembly` + `createPluginHost` 实验，无私有方法调用或伪造句柄。执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/delivery-smoke.ts`，退出码 0；B 准备门闩未放行时事件为 `prepare:start:a.item`、`prepare:end:a.item`、`prepare:start:b.item`、`published:a.item`，检测结果为 `a.item published during b.item prepare`。A 已返回 `activated`，B 仍在 `prepare`；放行后两者正常关闭。补交通知在 `#deliverPlans` 锁内，激活通知在 `#run` 锁外，代码与观察一致。
+- **依据**：真实 `createRuntimeInstance` + `createServiceAssembly` + `createPluginHost` 实验，无私有方法调用或伪造句柄。执行 `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/delivery-smoke.ts`，退出码 0；B 准备门闩未放行时事件为 `prepare:start:a.item`、`prepare:end:a.item`、`prepare:start:b.item`、`published:a.item`，检测结果为 `a.item published during b.item prepare`。A 已返回 `activated`，B 仍在 `prepare`；放行后两者正常关闭。补交通知在 `#deliverPlans` 锁内，激活通知在 `#run` 锁外，代码与观察一致。
 - **建议改法**：统一把接收者的 `published` 通知也纳入现有连接锁，保留贡献方发布前的存活检查与新接收者补交检查；不要增加第二套锁或恢复 `commit`。在现有场景 11 的同一个事件数组记录三类回调，增加“第二批 `prepare` 挂起时第一批 `published` 不得插入”的真实运行时场景。
 
 ## 2. defineEntry 把数值属性排除在多余键核对之外
@@ -29,7 +29,7 @@
 - **位置**：`packages/nb-runtime/src/plugins/define.ts:56`、`:59`、`:60`；`packages/nb-runtime/src/plugins/define.test.ts:94`。
 - **现象**：有合法非空声明时，`receivers: {[point]: receiver, 2: receiver}`、`contributions: {[point]: {one: 1, 2: 2}}`、`contributions: {[point]: {one: 1}, 2: {extra: 2}}` 三种字面量都通过 TypeScript 6.0.3 的 `strict` 检查，不需要类型断言、宽类型辅助函数或条件分支。第一种直到真实激活时才以 `output / undeclared-receiver` 失败；另两种多余项在运行时被忽略，激活成功。
 - **为什么是问题**：`ExtraKeys` 显式排除了 `number`，贡献点又只遍历 `keyof Actual & string`。JavaScript 的数值对象属性在运行时是字符串键，内核 `Object.keys(receivers)` 也把 `2` 看作未声明的接收者。`runtime.plugins` 验收 28 和实施调整承诺非空声明下多写的接收者、贡献实现与贡献点都是类型错误，此处属于类型本来能够区分的字面量键，不在已说明的同形 id、宽类型与运行位置相关性限制内。数值键不常见，所以按建议级处理。
-- **依据**：`packages/nb-runtime/node_modules/typescript/bin/tsc --noEmit -p /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/tsconfig-types.json` 退出码 0。随后执行 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/type-numeric.ts`，三个入口均经真实宿主登记，输出依次为 `extra-receiver {"status":"failed","reason":"undeclared-receiver"}`、`extra-implementation {"status":"activated"}`、`extra-point {"status":"activated"}`；每个实例都正常关闭。
+- **依据**：`packages/nb-runtime/node_modules/typescript/bin/tsc --noEmit -p /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/tsconfig-types.json` 退出码 0。随后执行 `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/type-numeric.ts`，三个入口均经真实宿主登记，输出依次为 `extra-receiver {"status":"failed","reason":"undeclared-receiver"}`、`extra-implementation {"status":"activated"}`、`extra-point {"status":"activated"}`；每个实例都正常关闭。
 - **建议改法**：沿用现有 `ExtraKeys`，把参与核对的 `string | number` 属性统一投影为运行时字符串键，只排除 `symbol`；让多余接收者、贡献 id 与贡献点共用这个键转换规则。在现有类型反例里补数值键，避免新增另一套运行时校验。
 
 ## 本次实际验证
@@ -37,7 +37,7 @@
 测试临时数据全部指向指定 scratch 内的 `test-tmp/`。以下 Bash 块从审查 worktree 根执行可原样重跑：
 
 ```bash
-export TMPDIR=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/test-tmp
+export TMPDIR=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/test-tmp
 export NBOOK_HOST_SYSTEM_TEMP_ROOT="$TMPDIR"
 export NBOOK_AGENT_TEMP_ROOT="$TMPDIR"
 bun run --cwd packages/nb-runtime test
@@ -62,11 +62,11 @@ bun test src/plugins/commands/shared/context-keys.test.ts src/plugins/commands/s
 真实运行时实验：
 
 ```bash
-bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/delivery-smoke.ts
-bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/routes-smoke.ts
-bun --tsconfig-override /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t60-impl-review/packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/commands-smoke.ts
-packages/nb-runtime/node_modules/typescript/bin/tsc --noEmit -p /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/tsconfig-types.json
-bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/type-numeric.ts
+bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/delivery-smoke.ts
+bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/routes-smoke.ts
+bun --tsconfig-override /home/<user>/CodeRepository/neuro-book/.worktree/w00017-t60-impl-review/packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/commands-smoke.ts
+packages/nb-runtime/node_modules/typescript/bin/tsc --noEmit -p /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/tsconfig-types.json
+bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t60-impl/type-numeric.ts
 ```
 
 - `delivery-smoke.ts`：退出码 0，复现发现 1 的交错；实例正常关闭。这里退出码 0 表示实验完成，不表示串行合同通过。

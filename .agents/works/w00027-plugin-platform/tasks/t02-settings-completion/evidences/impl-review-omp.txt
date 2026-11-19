@@ -48,10 +48,10 @@
 - **第 3 条补充真实证据**：真实内核注册并交付 page 后，窗口模型依次收到 `search(" ")`、`search(" x")`；输出 `{"query":" x","current":"search","leaving":null,"unsaved":false}`，未保存标记已随离开被清掉。当前调用与组件 `@update:model-value` 到模型的入口相同，未绕过私有实现。
 - **第 6 条补充真实证据**：使用真实插件宿主关闭第一次登记作用域，再在新作用域登记同 id 且带 `onSettingsChoices` 的入口；输出 `state:"registered"`、源 `status:"unavailable"`、激活次数 **0**。显式激活新入口后源恢复 ready，排除了新登记失败或新实现错误。该问题限于入口在注册表存活期间换代的路径；普通首次激活和显式交付没有故障。
 
-复现文件全部在 `/tmp/review-t02-impl/`。从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book` 运行：
+复现文件全部在 `/tmp/review-t02-impl/`。从 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book` 运行：
 
 ```sh
-NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
+NODE_PATH=/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
 bun /tmp/review-t02-impl/bundle/probes.js all
 bun /tmp/review-t02-impl/bundle/probes.js choices
 ```
@@ -76,7 +76,7 @@ bun /tmp/review-t02-impl/bundle/probes.js choices
 组件验证命令（从执行 worktree 的 `packages/neuro-book` 运行；配置与缓存都落 `/tmp/review-t02-impl/`）：
 
 ```sh
-node /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/vitest/vitest.mjs run --config /tmp/review-t02-impl/vitest.config.ts
+node /home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/vitest/vitest.mjs run --config /tmp/review-t02-impl/vitest.config.ts
 ```
 
 结果：**1 个文件、2 例通过**，耗时 **7.97s**；两例断言的是缺陷行为存在，不是修复后通过。没有跑 e2e 或开发服务。
@@ -97,7 +97,7 @@ node /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/
 - **如何核实**：运行下列命令，把相同输入交给固定提交的内存层与真实内核/v2 远程合同/真实拥有者。实际输出：初始文本 `{"nbook.settings/locale":"en-US"}` 的内存值为 `{}`，真实值为 `en-US`；真实存在空文件的内存 `exists:false`、真实 `exists:true`；空文本 revision 为 `811c9dc5-0` 对 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`；写入 `{"nbook.settings/locale":17}` 后，内存 `problems:[]`，真实为 `[{key:"nbook.settings/locale",reason:"invalid-value"}]`；随后只加注释，内存 seq 从 **1 → 2**，真实保持 **2 → 2**。
 
   ```sh
-  NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
+  NODE_PATH=/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
   bun /tmp/review-t02-impl/bundle/memory-probes.js
   ```
 
@@ -106,7 +106,7 @@ node /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/
 
 ## 最终有效结论与基线归因
 
-审查范围为 `582f543f6..e4d6061a4` 的 `packages/` 差异，加 `6e7616438` 的解析错误修正；`e06a63bb0` 的合并内容不计。以下结论针对固定审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t02-impl`。按只追加要求保留原编号、标题与早期判断，**本节及上述复核更正优先于早期描述**。
+审查范围为 `582f543f6..e4d6061a4` 的 `packages/` 差异，加 `6e7616438` 的解析错误修正；`e06a63bb0` 的合并内容不计。以下结论针对固定审查 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/review-t02-impl`。按只追加要求保留原编号、标题与早期判断，**本节及上述复核更正优先于早期描述**。
 
 按实际影响排序：
 
@@ -125,7 +125,7 @@ node /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/
 
 ## 验证命令、结果与限制
 
-以下命令均从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book` 执行。没有改该 worktree 的文件，没有安装依赖。
+以下命令均从 `/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book` 执行。没有改该 worktree 的文件，没有安装依赖。
 
 ```sh
 bun test src/plugins/settings/web/choices.test.ts src/plugins/settings/window.test.ts src/plugins/settings/backend/layer-owner.test.ts src/plugins/settings/shared/layer-text.test.ts src/plugins/settings/web/sections.test.ts
@@ -134,12 +134,12 @@ bun test src/plugins/settings/web/choices.test.ts src/plugins/settings/window.te
 结果：**95 pass，0 fail，514 expect() calls，5 个文件，5.76s**。执行 worktree 比固定审查提交新，且有其它会话的未提交修改；这组通过结果只作辅助证据，不能表示固定提交已通过同一套测试。
 
 ```sh
-NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
+NODE_PATH=/home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
 bun /tmp/review-t02-impl/bundle/probes.js all
 bun /tmp/review-t02-impl/bundle/probes.js choices
 bun /tmp/review-t02-impl/bundle/probes.js reopen
 bun /tmp/review-t02-impl/bundle/memory-probes.js
-node /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/vitest/vitest.mjs run --config /tmp/review-t02-impl/vitest.config.ts
+node /home/<user>/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/vitest/vitest.mjs run --config /tmp/review-t02-impl/vitest.config.ts
 ```
 
 探针通过别名将 `nbook/*` 固定到审查源码，依赖复用执行 worktree；Vue 与 `@vue/*` 解析到同一份实例。它们验证了上表的具体缺陷与内存层差异，正常关闭了创建的运行时。最新组件运行 **2 例通过，6.13s**：一例证明第 4 条缺陷存在，一例证明有序帧场景能自动跟进文本。此前 **7.97s** 的旧组件运行包含无效重排实验，不作为第 5 条问题证据。

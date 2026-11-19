@@ -1,6 +1,6 @@
 # w00017 t56 实施计划只读审查
 
-审查对象：worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md` 与同目录 `README.md`。
+审查对象：worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation` 的 `.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md` 与同目录 `README.md`。
 
 按影响排序，共 **12 项：阻断 2、重要 10、建议 0**。持久化结果未知的重试和无值记录 revision 的模型应先修正，再固定队列、公开绑定和响应式失效合同；六项待确认的逐项判断见后文。
 
@@ -145,14 +145,14 @@
 
 ## 实际验证与边界
 
-以下命令从 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation` 运行，包内命令的 cwd 另列。它们验证现有依赖与审查依据，不代表尚未实现的 K5 通过验收。
+以下命令从 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation` 运行，包内命令的 cwd 另列。它们验证现有依赖与审查依据，不代表尚未实现的 K5 通过验收。
 
 | 实际命令 | 结果 |
 |---|---|
 | `bun run --cwd packages/neuro-book test:bun src/plugins/commands/shared/plugin.test.ts src/plugins/storage/storage.test.ts src/plugins/storage/server/partition.test.ts` | 37 pass、0 fail、258 expect() calls，3 文件，661.00 ms |
 | `bun test src/plugins/owner-contribution-points.test.ts`，cwd 为 worktree 的 `packages/nb-runtime` | 18 pass、0 fail、152 expect() calls，1 文件，51.00 ms |
-| `bun --tsconfig-override /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/storage-runtime-smoke.ts` | 最终 0.16 s，真实内核/传输/SQLite 的 unknown-outcome、删除 revision、provider 停止寿命三个场景完成；两个应用均 closed |
-| `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/reactivity-smoke.ts` | 0.08 s；独立响应式模块 computed 未刷新，共用模块正常刷新 |
+| `bun --tsconfig-override /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/storage-runtime-smoke.ts` | 最终 0.16 s，真实内核/传输/SQLite 的 unknown-outcome、删除 revision、provider 停止寿命三个场景完成；两个应用均 closed |
+| `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/omp-t56-plan/reactivity-smoke.ts` | 0.08 s；独立响应式模块 computed 未刷新，共用模块正常刷新 |
 | `git status --short` | 与审查开始一致，只有 `?? .agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/` |
 
 真实链路实验的关键结果：

@@ -1,4 +1,4 @@
-t18 Windows 验收（pc-notype，2026-11-17）：Hutch 0.29.0 构建的测试版（标识 io.github.notnotype.neurobook.t18test，含 master 上的 t13、t16 与本分支 t18），脚本 t18/check.ts 用 CDP 与 user32 查询，没有截屏与输入模拟。
+t18 Windows 验收（Windows 开发机，2026-11-17）：Hutch 0.29.0 构建的测试版（标识 io.github.notnotype.neurobook.t18test，含 master 上的 t13、t16 与本分支 t18），脚本 t18/check.ts 用 CDP 与 user32 查询，没有截屏与输入模拟。
 窗口尺寸是外框；ptMinTrackSize 816x568 = 客户区 800x560 加上 8 像素的左右、顶底边框（96 DPI）。
 
 startup phase (product pages=0): window 1280x800 client 1264x792 minTrack 0x0 dpi 96 zoomed=false iconic=false

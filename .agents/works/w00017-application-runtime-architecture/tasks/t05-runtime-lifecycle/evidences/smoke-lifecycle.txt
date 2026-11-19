@@ -12,7 +12,7 @@
 #       下面是修正预期后的第二次运行原始输出。
 
 ## stdout
-[+   2ms] scratch=C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\w00017-t05-smoke\run-50676
+[+   2ms] scratch=C:\Users\USER~1\AppData\Local\Temp\neuro-book\w00017-t05-smoke\run-50676
 [+   3ms]   phase scope-1: creating -> available
 [+   3ms] PASS 订阅在 available 阶段交付事件并写入 scratch 日志
 [+   3ms]   phase scope-5: creating -> available
@@ -57,9 +57,9 @@
 ```ts
 import {appendFileSync, existsSync, mkdirSync, rmSync} from "node:fs";
 import {join} from "node:path";
-import {resolveAgentScratchPath} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book-test-support/src/paths.ts";
-import {createRuntimeInstance} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/lifecycle/lifecycle.ts";
-import type {ReleaseResource} from "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/lifecycle/lifecycle.ts";
+import {resolveAgentScratchPath} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book-test-support/src/paths.ts";
+import {createRuntimeInstance} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/lifecycle/lifecycle.ts";
+import type {ReleaseResource} from "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book/runtime/lifecycle/lifecycle.ts";
 
 const started = performance.now();
 let failures = 0;

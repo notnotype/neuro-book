@@ -1,6 +1,6 @@
 # w00025 t06 第 3 轮实现审查（OMP）
 
-审查范围：`git diff cdad39eac b74d6611a`。只读实现审查；实验目录为审查 worktree 的 `packages/neuro-book/zz-review-lab/omp/`。下列命令均在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book` 执行，除非另行说明。发现按核实顺序追加，最终附影响优先级与统计。
+审查范围：`git diff cdad39eac b74d6611a`。只读实现审查；实验目录为审查 worktree 的 `packages/neuro-book/zz-review-lab/omp/`。下列命令均在 `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book` 执行，除非另行说明。发现按核实顺序追加，最终附影响优先级与统计。
 
 ### 1. 第二轮的跨行代码修正只看当前行，代码中间行仍被宽容写法拆成真实批注
 
@@ -131,7 +131,7 @@
 - `bun test src/plugins/editor/documents.test.ts src/plugins/editor/area.test.ts src/plugins/explorer/documents.test.ts`：87 pass、0 fail，3 文件，529 次 expect，3.08 s。
 - `bun test src/shared/word-count.test.ts src/plugins/editor/web/code/source-merge.test.ts`：14 pass、0 fail，2 文件，55 次 expect，40 ms。
 - `bunx vitest run --config zz-review-lab/omp/vitest.config.ts src/plugins/editor/web/components/MarkdownControl.dom.test.ts src/plugins/editor/web/markdown/syntax/comment/comment.dom.test.ts zz-review-lab/omp/r3-control.dom.test.ts`：3 文件、16 tests 通过，2.43 s；其中 1 条是本次复现实验，15 条是现有测试。
-- 公共 codec、真实 Tiptap / ProseMirror 历史、字数与性能实验：`r3-codec.ts`、`r3-runtime.ts`、`r3-words.ts`、`r3-perf.ts`、`r3-cold.ts`。完整路径前缀为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book/zz-review-lab/omp/`。
+- 公共 codec、真实 Tiptap / ProseMirror 历史、字数与性能实验：`r3-codec.ts`、`r3-runtime.ts`、`r3-words.ts`、`r3-perf.ts`、`r3-cold.ts`。完整路径前缀为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book/zz-review-lab/omp/`。
 - Vitest 最初两次未进入测试：符号链接依赖把 setupFiles 解析到实施 worktree 的 `/@fs/.../neuro-book-test-support/src/vitest.ts`，报 `Cannot find module`；隔离配置第一次改绝对路径时多退了一层，报 `ERR_LOAD_URL`。只修了授权实验目录内的 runner，显式使用审查 worktree 的同一支持文件；之后上面的 16 条实际执行通过。未改仓库 Vitest 配置或依赖。
 - 只读检查新增 e2e 三例、Spec 的证据链接与删除文件引用；没有起开发服务、没有跑 e2e、没有 bun install、没有全量测试 / typecheck / 构建 / docs:check。DOM 验证为 happy-dom，不把它冒充真实浏览器的选区、布局或性能证据。未运行真实模型。
 - 产品源码、正式测试、Spec、主工作区 Task 均未修改；只在授权实验目录新增脚本和 runner，并只追加本报告。未 commit、push、stash、切分支或删除仓库文件；未开子审查。

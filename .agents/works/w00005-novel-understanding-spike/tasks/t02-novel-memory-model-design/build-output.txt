@@ -1,5 +1,5 @@
-memory   C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.agents\works\w00005-novel-understanding-spike\tasks\t02-novel-memory-model-design\chapter-01.json
-beats    C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.agents\works\w00005-novel-understanding-spike\tasks\t02-novel-memory-model-design\evidences\chapter-01-beats.json
+memory   C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book\.agents\works\w00005-novel-understanding-spike\tasks\t02-novel-memory-model-design\chapter-01.json
+beats    C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book\.agents\works\w00005-novel-understanding-spike\tasks\t02-novel-memory-model-design\evidences\chapter-01-beats.json
 counts   kind=9 entity=10 predicate=32 slot=50 disclosure=66 beat=24 scene=3 moment=5 momentRelation=4
 channel  author=1 speech=30 narrator=25 reader_inference=2 thought=5 system=3
 hedge    plain=63 其它=3

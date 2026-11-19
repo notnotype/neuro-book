@@ -156,7 +156,7 @@
 
 ## 证据补充与定位约定
 
-- 上述源码位置均相对于固定被审 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00041-t08-review/`；不是主工作区，也不是后来被修改的实现 checkout。
+- 上述源码位置均相对于固定被审 worktree：`/home/<user>/CodeRepository/neuro-book/.worktree/w00041-t08-review/`；不是主工作区，也不是后来被修改的实现 checkout。
 - 首次实验时实现 checkout 的 HEAD 为 `781979146c89bc2fc189456ac195b72c12a0e28e`，与被审提交相同。之后另一个会话改了它的模型构造参数，实验出现 `env.currentAppearance is not a function`。未把它记为产品发现；所有脚本随后改为绝对导入固定只读被审源码，相关运行证据重新取得。
 - 第 2 条在固定源码上再次运行：`compressedBytes:262938`、`actualDeflateBytes:268435456`、`totalDeclared:223`、`filterExternalDelta:0`、`filterMs:0.658728`、`readPackageMs:12948.276983`、`ok:true`。前一次 8,595.60 ms 是首次测量值，不是浏览器实测；两次均为 Bun 执行真实 fflate 浏览器构建。浏览器冻结是该同步代码位于浏览器主线程的代码推断，未运行浏览器页面量时。
 - 第 4 条额外通过真实模型和 Storage 核实语义不合格但结构合法的条目：1 条正常 + 1 条 `url()` 配色，`mine:2 / catalog:1`，模型当前仍选中不合格条目。这条路径没有向网络发请求，只有诊断过滤。
@@ -177,7 +177,7 @@
 
 ## 实际运行的验证
 
-下列仓库相对命令的 cwd 均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00041-t08-review/packages/neuro-book`：
+下列仓库相对命令的 cwd 均为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00041-t08-review/packages/neuro-book`：
 
 ```text
 bun test src/plugins/workbench/package-io.test.ts

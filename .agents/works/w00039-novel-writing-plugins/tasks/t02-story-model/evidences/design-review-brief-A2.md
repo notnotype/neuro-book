@@ -1,6 +1,6 @@
 # 任务：只读设计审查 w00039 t02 第二轮（A2）：作者视角的世界引擎内核提案第二版
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-A2`（detached，提交 d11a4fced）。审查对象：`docs/proposals/world-engine-kernel.md`（第二版，状态 reviewing）。
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-A2`（detached，提交 d11a4fced）。审查对象：`docs/proposals/world-engine-kernel.md`（第二版，状态 reviewing）。
 
 这是同一份提案的第二轮审查。第一轮八份报告归并成 33 个主题（`.agents/works/w00039-novel-writing-plugins/tasks/t02-story-model/evidences/design-review-consolidated.txt`），作者的逐条处理在同目录的 `design-review-round1-resolution.txt`，你第一轮的报告是 `evidences/design-review-A.txt`。不要重报已经处理好的问题。只看两件事：
 
@@ -39,7 +39,7 @@
   “主会话提出，开发者未反对”的几条，按开发者的规则视为追认。提案里没有标“开发者”的推荐与前提（包括“七、待定项”的推荐）是作者自己的，你可以质疑。
 - 相关模块（读源码或 README 核实，不按名字推断）：nb-memory（`packages/nb-memory/README.md`）、nb-history（`packages/nb-history/README.md`）、harness 的提醒（`packages/nb-harness/src/kernel/helpers/reminder.ts`、`docs/specs/harness/extensions.md`）、活页夹（`docs/specs/workspace/folder-kinds.md`）、Markdown 方言（`docs/specs/workspace/markdown-dialect.md`）、编辑器（`docs/specs/workbench/editor.md`）、ADR 0027。
 - MDX 实测：`evidences/mdx-probe-2026-11-02.txt`。
-- 可执行夹具（可选）：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/A2/data` 里有一个按第二版规则折叠状态的小夹具，`./we <lookup|read|changes|search|tree|write> '<JSON>'`，说明见 `/tmp/review-w00039-t02-design-r2/brief-F3.md` 的“工具”一节。它只实现了审查用得到的部分，可以拿来试某条规则照字面做会怎样；但发现要以提案正文为准，夹具和提案不一致的地方记成“夹具问题”，不算提案的发现。这份数据是你自己的副本，可以随便写。
+- 可执行夹具（可选）：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/A2/data` 里有一个按第二版规则折叠状态的小夹具，`./we <lookup|read|changes|search|tree|write> '<JSON>'`，说明见 `/tmp/review-w00039-t02-design-r2/brief-F3.md` 的“工具”一节。它只实现了审查用得到的部分，可以拿来试某条规则照字面做会怎样；但发现要以提案正文为准，夹具和提案不一致的地方记成“夹具问题”，不算提案的发现。这份数据是你自己的副本，可以随便写。
 
 ## 重点
 
@@ -73,4 +73,4 @@
 
 撤回或收窄的条目，在原标题后追加“（撤回）”或“（收窄，见第 N 条）”；报告最后一行列出有效发现的编号。最后写“未发现问题的方面”与各级数量，并对提案“七、待定项”的每一项各给一句判断。
 
-报告文件：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/A2/report-A2.txt`（只追加）。
+报告文件：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t02-story-model/reports/A2/report-A2.txt`（只追加）。

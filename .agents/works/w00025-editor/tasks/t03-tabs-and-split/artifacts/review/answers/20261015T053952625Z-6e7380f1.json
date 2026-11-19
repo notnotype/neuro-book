@@ -13,7 +13,7 @@
     },
     "values": {
         "r1-emphasis": "underline",
-        "r1-notes": "1. 固定标签：多行模式下固定标签要单独一行\n2. /home/notnotype/CodeRepository/neuro-book/.local/image.png vscode 的做法可以学习一下\n3. 面包屑组件也可以做一个"
+        "r1-notes": "1. 固定标签：多行模式下固定标签要单独一行\n2. /home/<user>/CodeRepository/neuro-book/.local/image.png vscode 的做法可以学习一下\n3. 面包屑组件也可以做一个"
     },
     "comments": {
         "r1-emphasis": "目前两种都不行。"

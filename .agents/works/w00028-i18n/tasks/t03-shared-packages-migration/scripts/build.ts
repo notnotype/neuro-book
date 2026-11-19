@@ -75,7 +75,7 @@ for (const locale of ["zh-CN", "en-US"] as const) {
         if (PLURAL.has(key)) for (const category of plurals[locale]!) set(catalog, `${key}_${category}`, value);
         else set(catalog, key, value);
     }
-    writeFileSync(`/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n/packages/neuro-book/src/plugins/plugins/locales/${locale}.json`, `${JSON.stringify(catalog, null, 4)}\n`);
+    writeFileSync(`/home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n/packages/neuro-book/src/plugins/plugins/locales/${locale}.json`, `${JSON.stringify(catalog, null, 4)}\n`);
 }
 // 对照表常量（旧写法 {name}，未转换）
 const lines = map.map(([o, key]) => `    ${JSON.stringify(key)}: {"zh-CN": ${JSON.stringify(old[o]!["zh-CN"])}, "en-US": ${JSON.stringify(old[o]!["en-US"])}},`);

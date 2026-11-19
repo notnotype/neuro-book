@@ -208,7 +208,7 @@ sequenceDiagram
 | release 发布时间 | `2026-08-12T09:41:17Z`（按执行计划固定记录） |
 | 本地复核 | `git rev-parse refs/tags/1.133.0^{commit}` 与固定 SHA 相等；`git cat-file -e <sha>^{commit}` 成功 |
 | remote | `https://github.com/microsoft/vscode.git` |
-| 源码目录 | `C:/Users/notnotype/Documents/CodeRepository/GithubProjects/vscode`；detached HEAD 固定 SHA |
+| 源码目录 | `C:/Users/<user>/Documents/CodeRepository/GithubProjects/vscode`；detached HEAD 固定 SHA |
 | 源码链接规则 | 一律使用 `https://github.com/microsoft/vscode/blob/a5b500951314efd502d07465bd138dfbd714a960/<path>`，不使用 `main` |
 | 官方文档入口 | [Architecture](https://code.visualstudio.com/docs/getstarted/architecture)、[Extension Host](https://code.visualstudio.com/api/advanced-topics/extension-host)、[Extension Manifest](https://code.visualstudio.com/api/references/extension-manifest)、[Contribution Points](https://code.visualstudio.com/api/references/contribution-points)、[Remote Development](https://code.visualstudio.com/docs/remote/remote-overview)、[VS Code Server](https://code.visualstudio.com/docs/remote/vscode-server) |
 | 第三方 code server 边界 | 不读取 `coder/code-server` 源码；本报告的“Server”只指微软 VS Code Server/Remote Development |

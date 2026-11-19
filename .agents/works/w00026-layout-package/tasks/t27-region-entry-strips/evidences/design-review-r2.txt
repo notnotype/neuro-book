@@ -1,6 +1,6 @@
 **第 3 稿设计审查（第二轮）：交换接口与胶片、入口条叶、同组分隔线的底**
 
-读了计划、Task 记录、上一轮审查、t24 的 R3，以及上面列的 nb-layout 与工作台代码；对照了评审页的 `regionScroller`、`sidePage`、`panelPage`。没改仓库，没跑 e2e。实验都在 `/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t27-design3/exp/`，下面写明哪些绕过了真实运行时。
+读了计划、Task 记录、上一轮审查、t24 的 R3，以及上面列的 nb-layout 与工作台代码；对照了评审页的 `regionScroller`、`sidePage`、`panelPage`。没改仓库，没跑 e2e。实验都在 `/home/<user>/.claude/jobs/03f32b6c/tmp/review-t27-design3/exp/`，下面写明哪些绕过了真实运行时。
 
 ## 阻断
 

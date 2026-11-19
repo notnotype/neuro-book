@@ -4,7 +4,7 @@
 
 ## 第一次
 bun install --frozen-lockfile（整个工作区）：112 s
-smoke:server：S1、S3 到 S10 通过，S2（SIGTERM）不过，与 pc-notype 相同；该步 continue-on-error
+smoke:server：S1、S3 到 S10 通过，S2（SIGTERM）不过，与 Windows 开发机 相同；该步 continue-on-error
 hutch electrobun build：82 s；win-x64-NeuroBookProto-Setup.zip 90,785,202 B，stable-win-x64-NeuroBookProto.tar.zst 90,015,512 B
 Setup 的标准错误（末尾）：
 setup: D:\a\neuro-book\neuro-book\.github\probe\w00046\build\stable-win-x64\NeuroBook Proto-Setup.exe

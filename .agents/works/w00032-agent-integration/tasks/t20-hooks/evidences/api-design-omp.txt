@@ -221,7 +221,7 @@
 
 命令：
 
-    /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/omp/tsconfig.json
+    /home/<user>/CodeRepository/neuro-book/node_modules/.bin/tsc -p /tmp/t20-api-design/omp/tsconfig.json
 
 结果：退出码 0，标准输出为空。typetest.ts 中有 12 处 @ts-expect-error，均被该命令接受，说明这些错误确实由类型系统发现而不是运行时约定。例子文件是 leader.default.tsx，接口声明是 api.ts，配置是 tsconfig.json。
 

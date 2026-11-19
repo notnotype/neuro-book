@@ -52,14 +52,14 @@
 ## 切片
 
 1. pack-app 的托管入口：改打包、加打包后的核对；`pack-app.test.ts` 改白名单并加托管入口的场景（标准输入 `stop`、标准输入结束、状态根已被占用时以 1 退出）；`release:smoke` 的应用闭环在 `bun add -g` 装好的包里另起一次 `server/main.js`（安装布局下的托管入口）。提交。
-2. 桌面载荷组装：新脚本；快速测试只覆盖不联网的部分（清单与 tarball 摘要不符、锁文件的完整性对照、文件清单），用测试自己打的小 tarball 与锁文件；联网的整段组装作为 `release:smoke` 的一步（用它刚打的应用包与清单，组装本机平台的载荷并运行 `app/server/main.js`）。在本机组装 `--os win32 --cpu x64` 的载荷，到 pc-notype 上运行一遍（证据进 `evidences/`）。提交。
+2. 桌面载荷组装：新脚本；快速测试只覆盖不联网的部分（清单与 tarball 摘要不符、锁文件的完整性对照、文件清单），用测试自己打的小 tarball 与锁文件；联网的整段组装作为 `release:smoke` 的一步（用它刚打的应用包与清单，组装本机平台的载荷并运行 `app/server/main.js`）。在本机组装 `--os win32 --cpu x64` 的载荷，到 Windows 开发机上运行一遍（证据进 `evidences/`）。提交。
 3. Spec：去掉已验证条目的 planned、补实现合同与证据（代码合入 master 之后）。
 
 ## 验收映射
 
 | Spec | 覆盖 |
 |---|---|
-| server-host “托管宿主”：`--stop-stdin` 的 `stop` 与标准输入结束、认领应答的就绪与地址、退出码 0 与 1（状态根被占用） | `pack-app.test.ts` 托管入口场景（真实子进程）；`release:smoke` 安装布局下的一次；pc-notype 上的 Windows 载荷手工运行 |
+| server-host “托管宿主”：`--stop-stdin` 的 `stop` 与标准输入结束、认领应答的就绪与地址、退出码 0 与 1（状态根被占用） | `pack-app.test.ts` 托管入口场景（真实子进程）；`release:smoke` 安装布局下的一次；Windows 开发机上的 Windows 载荷手工运行 |
 | cli 场景 8（新增） | 同上 |
 | 载荷与 npm 包同一份（ADR 0051 决定 3） | `desktop-payload.test.ts`：摘要与清单不符时失败、锁文件对照失败时失败、文件清单覆盖 `app/`；`release:smoke` 的组装步骤：`app/` 由 tarball 内容加 `node_modules` 与锁文件组成，托管入口能起 |
 
@@ -68,10 +68,10 @@
 - 包内 `bun test scripts/pack-app.test.ts scripts/desktop-payload.test.ts`。
 - `prox bun run release:smoke` 一次（应用包结构变了，闭环要照样过；组装步骤从 registry 装依赖，直连冷缓存约 4 到 5 分钟，走 `prox` 约 6 秒）。
 - 不跑 e2e：没有界面改动；`e2e/app-package.e2e.ts` 用 `bun add -g` 装的是同一个包，`release:smoke` 已覆盖它的启动场景。
-- 未验证边界：Windows 上的载荷只在 pc-notype 手工跑；进 CI 在 t11。
+- 未验证边界：Windows 上的载荷只在 Windows 开发机 手工跑；进 CI 在 t11。
 
 ## 不做与风险
 
 - 不做 macOS、Linux 的载荷（目标参数已留）。
-- 风险：`bun install --os win32` 在 Linux 上装的平台包与 Windows 上原生装的不同（例如可选依赖的过滤规则）。兜底：pc-notype 上用 Linux 组装出的载荷实际运行一遍，并与 Windows 上原生组装的文件清单对比。
+- 风险：`bun install --os win32` 在 Linux 上装的平台包与 Windows 上原生装的不同（例如可选依赖的过滤规则）。兜底：Windows 开发机上用 Linux 组装出的载荷实际运行一遍，并与 Windows 上原生组装的文件清单对比。
 - 风险：共用 chunk 改变了两个入口的模块求值顺序（`startup-env` 与 `omp-process` 要在 OMP 的静态导入之前）。审查已实验确认共用后顺序成立；兜底是托管入口场景、`--version` 与 `release:smoke` 这几个真实进程，不另做文本核对。

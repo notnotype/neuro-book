@@ -48,7 +48,7 @@
 
 ## 实验环境
 
-- 实验脚本与原始输出在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t12-design/`（`scripts/e*.ts`、`e*.out`）。
+- 实验脚本与原始输出在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t12-design/`（`scripts/e*.ts`、`e*.out`）。
 - 只在自建的命名会话 `nbdev-review-t12` 里起流；pane 里只跑 `/bin/sh` 的循环（每 0.1 秒把 `stty size` 写进文件，作为“真实尺寸”）、`seq` 与 `base64` 刷屏，没有起真实的 `claude`、`omp`。
 - 对默认 server 只做了一件事：读 `/proc/65642/exe`（默认 server 进程的可执行文件，磁盘上已被 0.9.3 替换，显示为 `(deleted)`），复制出 0.9.1 的二进制，在命名会话里当 server 跑（E16）。没有连默认 server 的 socket，没有对它起 observe 或 control。
 - herdr 客户端 0.9.3；Bun 1.4.2。

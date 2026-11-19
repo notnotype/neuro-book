@@ -1,7 +1,7 @@
 # 命令（仓库根，HEAD 6c3614dd）：bun x vitest run scripts/ci/check-documentation.test.ts
 
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
 
  ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 合法目录、ADR 和相对链接通过 159ms
  ✓ scripts/ci/check-documentation.test.ts > documentation governance gate > 坏相对链接报告来源和解析目标 17ms

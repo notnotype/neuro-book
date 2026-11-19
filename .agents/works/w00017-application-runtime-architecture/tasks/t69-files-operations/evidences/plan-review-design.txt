@@ -1,6 +1,6 @@
 # w00017 t69 实施计划审查：Spec、提案与旧行为
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-design/.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-plan-design/.agents/works/w00017-application-runtime-architecture/tasks/t69-files-operations/plan.md`。
 
 本报告审查计划合同；t69 尚无实现。核对的 HEAD 为 `c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`。没有修改仓库源码、规范、计划或锁文件；按审查说明安装依赖，报告与实验均写于指定实验目录。逐条对照当前 Spec、accepted 提案、t68 底座与旧应用实现；设计后果未经运行验证时明确标为推断。t68 的 2026-10-09 已选取舍作为前置，不重新讨论。
 
@@ -132,12 +132,12 @@
 
 ## 本轮运行证据
 
-所有命令工作目录均为审查 worktree 根：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-plan-design`。实验目录记为 `design` 的下列命令均使用完整绝对路径，未使用 3000 或 3917 端口。
+所有命令工作目录均为审查 worktree 根：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-plan-design`。实验目录记为 `design` 的下列命令均使用完整绝对路径，未使用 3000 或 3917 端口。
 
 ### 依赖与版本
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design prox bun install --frozen-lockfile --ignore-scripts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design prox bun install --frozen-lockfile --ignore-scripts
 ```
 
 成功：`bun install v1.4.2 (744846f84)`；`1568 packages installed [1460.00ms]`，工具 wall time **1.49 s**。`id` 为 `uid=1000(notnotype)`。`/usr/bin/git rev-parse --verify HEAD` 返回 `c8607f7a4b20911df5b5f8d271ae8fe1cf0c9a99`。
@@ -145,7 +145,7 @@ NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book
 ### 源替换与真实权限前提（R2、R8）
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design/probe.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design/probe.ts
 ```
 
 真实 `filesScene` 中通过公开 Files 门面取得条目和正文后，保留原文件并在原地址新建同字节文件；真实 `lstat` 核对身份不同。权限实验在同一隔离目录中以普通用户 `unlink` 一个 `0444` 子文件。退出码 0，wall time **0.23 s**，完整业务输出如下：
@@ -162,7 +162,7 @@ NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book
 ### 保留错误码与真实 WebSocket 上限（R7、R10）
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design/transport-probe.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-plan/design/transport-probe.ts
 ```
 
 实验经 `@notnotype/nb-runtime/remote` 公开合同入口复现保留码拒绝，再启动真实 server／browser 位置内核、生产 `startRpcListener({host:"127.0.0.1",port:0,...})` 与 Bun WebSocket。实验写合同采用计划的 `{operation,items:[{source,target}]}` 与 1000 项上限，提供方法只记录到达次数；未伪造 t69 文件副作用。最终输入路径总长 1003–1005 字节、单段至多 250 字节，排除“文件名本身超过 OS 单段限制”这个替代解释。退出码 0，wall time **0.15 s**：

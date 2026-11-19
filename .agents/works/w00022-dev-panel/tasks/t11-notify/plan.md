@@ -378,15 +378,15 @@
 
 ```ini
 [Unit]
-Description=nbdev 开发者项目面板（/home/notnotype/CodeRepository/neuro-book）
+Description=nbdev 开发者项目面板（/home/<user>/CodeRepository/neuro-book）
 After=default.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
 [Service]
 Type=simple
-WorkingDirectory=/home/notnotype/CodeRepository/neuro-book
-ExecStart=/home/notnotype/.local/bin/nbdev panel serve --port 4400 --artifact-port 4401
+WorkingDirectory=/home/<user>/CodeRepository/neuro-book
+ExecStart=/home/<user>/.local/bin/nbdev panel serve --port 4400 --artifact-port 4401
 Restart=on-failure
 RestartSec=5
 # 用法错误与冲突（unsafe_host、port_in_use、panel_running）重启也不会好，不要重启风暴。

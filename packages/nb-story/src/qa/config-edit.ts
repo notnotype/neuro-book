@@ -28,7 +28,7 @@ interface FieldSpec {
 
 const PRICE_EXAMPLE = `'{"input":1,"output":4,"currency":"USD"}'`;
 const INGEST_MODEL_EXAMPLE = `'{"baseUrl":"https://api.example.com/v1","id":"some-model","apiKeyEnv":"OPENAI_API_KEY"}'`;
-const MODELS_EXAMPLE = `'["deepseek/deepseek-flash","jiji/gpt-5.6-sol"]'`;
+const MODELS_EXAMPLE = `'["deepseek/deepseek-flash","relay/gpt-5.6-sol"]'`;
 const PROVIDER_EXAMPLE = `'{"api":"openai-completions","baseUrl":"https://api.example.com/v1","apiKeyEnv":"MY_API_KEY","models":[{"id":"some-model"}]}'`;
 const PROVIDER_MODELS_EXAMPLE = `'[{"id":"some-model","contextWindow":128000}]'`;
 

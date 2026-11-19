@@ -1,6 +1,6 @@
 # w00017 t66 实施计划对抗审查：内核合同、生命周期与数据
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t66-plan-lifecycle/.agents/works/w00017-application-runtime-architecture/tasks/t66-workbench-shell-views/plan.md`。审查时 HEAD 为 `bacae9fd24328dd699e4da52d98311e8cb204254`、detached，`git status --short --branch` 仅输出 `## HEAD (no branch)`。本报告仅审查计划，未修改仓库文件。外壳设计稿 accepted、旧应用作为参照是已定前提；视图合同提前到外壳二按推荐评价，不以待追认为阻断。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t66-plan-lifecycle/.agents/works/w00017-application-runtime-architecture/tasks/t66-workbench-shell-views/plan.md`。审查时 HEAD 为 `bacae9fd24328dd699e4da52d98311e8cb204254`、detached，`git status --short --branch` 仅输出 `## HEAD (no branch)`。本报告仅审查计划，未修改仓库文件。外壳设计稿 accepted、旧应用作为参照是已定前提；视图合同提前到外壳二按推荐评价，不以待追认为阻断。
 
 证据状态：以下区分代码／合同核实、真实运行机制实验与推断；尚未实施的产品行为不作为已运行事实。下文源码相对路径均相对此审查 worktree，`plan.md` 指上述完整路径，实验文件均位于本报告同目录。发现编号保留核实顺序，正文按影响排序。
 
@@ -106,7 +106,7 @@
 
 ## 实际验证与边界
 
-以下路径中的 `<实验目录>` 均为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/lifecycle`。依赖安装与三个 Bun 探针命令均显式设置 `NBOOK_AGENT_TEMP_ROOT=<实验目录>`；类型检查从实验目录运行，浏览器只打开该目录下的本地页面。
+以下路径中的 `<实验目录>` 均为 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t66-plan/lifecycle`。依赖安装与三个 Bun 探针命令均显式设置 `NBOOK_AGENT_TEMP_ROOT=<实验目录>`；类型检查从实验目录运行，浏览器只打开该目录下的本地页面。
 
 | 命令／操作 | 实际结果 |
 |---|---|

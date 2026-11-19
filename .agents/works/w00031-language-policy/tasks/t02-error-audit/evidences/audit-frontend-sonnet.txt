@@ -1,6 +1,6 @@
 # w00031 t02 前端分区盘点报告
 
-- 基线提交：`65d9daea06616b8fc8459bc7ef9cb2132cee25ed`（detached worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02`）
+- 基线提交：`65d9daea06616b8fc8459bc7ef9cb2132cee25ed`（detached worktree `/home/<user>/CodeRepository/neuro-book/.worktree/audit-w00031-t02`）
 - 范围：计划“盘点范围”的前端分区（`packages/neuro-book` 的 `src/web`、`src/ui`、`src/sdk`、各插件 `web/`、`plugin-sdk/examples/`；`nb-agent-ui`、`nb-form`、`nb-markdown`、`nb-ui`；`dev-panel/src/web`；`nb-story/src/web`）
 - 路径约定：除特别说明，路径相对 worktree 的 `packages/`；`nbook/…` 是 `packages/neuro-book/src/…` 的包内别名。
 - 本报告第 0 节是过程中逐条追加的核实笔记，第 1 到 5 节是按计划格式整理的正文，两者冲突以第 1 到 5 节为准。
@@ -230,7 +230,7 @@ C4 的结果是“前端没有订阅 Storage 的结束事件”，不等于规�
 
 ### 4.1 基线、文件清单与计数单位
 
-- 基线：提交 `65d9daea06616b8fc8459bc7ef9cb2132cee25ed`，worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02`，目录均相对其 `packages/`。
+- 基线：提交 `65d9daea06616b8fc8459bc7ef9cb2132cee25ed`，worktree `/home/<user>/CodeRepository/neuro-book/.worktree/audit-w00031-t02`，目录均相对其 `packages/`。
 - 文件清单：`/tmp/w00031-review/t02-audit/lab-frontend/files.txt`（1125 个 `.ts`、`.vue`、`.tsx` 文件，由同目录 `front-files.sh` 生成；不含 `.md`、`.css`、`.json`）。其中 888 个是非测试文件（清单 `nontest-final.txt`，排除 `*.test.ts`、`*/testing/*`、`*.typecheck.ts`），237 个是测试、测试辅助与类型检查文件。
 - 范围对应计划的前端分区：`neuro-book/src/web`、`src/ui`、`src/sdk`、各插件 `web/`、`plugin-sdk/examples/`，`nb-agent-ui`、`nb-form`、`nb-markdown`、`nb-ui`（含 `nb-ui/playground` 14 个文件，演示应用）、`dev-panel/src/web`、`nb-story/src/web`。
 
@@ -276,7 +276,7 @@ C4 的结果是“前端没有订阅 Storage 的结束事件”，不等于规�
 
 ### 4.3 AST 汇点数与分类
 
-命令：`cd /tmp/w00031-review/t02-audit/lab-frontend && bun count.ts /home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02/packages files.txt`（输出 `count-out.txt`，逐汇点明细 `rows.tsv`），再 `python3 classify.py`（输出 `classify-out.md`）。`count.ts` 借用主工作区 `node_modules` 里的 `typescript` 与 `@vue/compiler-sfc`，不在 worktree 里安装任何东西。
+命令：`cd /tmp/w00031-review/t02-audit/lab-frontend && bun count.ts /home/<user>/CodeRepository/neuro-book/.worktree/audit-w00031-t02/packages files.txt`（输出 `count-out.txt`，逐汇点明细 `rows.tsv`），再 `python3 classify.py`（输出 `classify-out.md`）。`count.ts` 借用主工作区 `node_modules` 里的 `typescript` 与 `@vue/compiler-sfc`，不在 worktree 里安装任何东西。
 
 汇点总数：678（其中 `catch` 144，模板显示汇点 94，其余 440 个是文字汇点）。
 

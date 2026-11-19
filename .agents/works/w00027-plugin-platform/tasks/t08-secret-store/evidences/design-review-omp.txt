@@ -199,7 +199,7 @@
 3. 每次追加问题后运行：
 
    ```sh
-   grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00027-plugin-platform/tasks/t08-secret-store/reports/design-review-omp.md
+   grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00027-plugin-platform/tasks/t08-secret-store/reports/design-review-omp.md
    ```
 
    问题数依次为 1 到 15，单调不减；尾部追加不增加问题标题。报告从首次创建起仅追加，未整文件重写。

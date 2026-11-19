@@ -3,13 +3,13 @@
 执行：worktree/packages/neuro-book 下运行内联校验（不创建、不删除任何目录）
 
 ```text
-REFUSE | 历史临时根 product-runtime | 拒绝删除本次运行之外的隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\acceptance\product-runtime\storage-browser-MxfyHy
-REFUSE | 历史临时根 scratch | 拒绝删除本次运行之外的隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\storage-browser-MxfyHy
-REFUSE | 旧命名服务目录 | 拒绝删除本次运行之外的隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\storage-project-adapter\deadbeef
-REFUSE | 系统 Temp 根 | 拒绝删除本次运行之外的隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book
-REFUSE | 仓库根 | 拒绝删除本次运行之外的隔离根：C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.worktree\w00003-neurobook-ui-foundation-migration\packages\neuro-book
+REFUSE | 历史临时根 product-runtime | 拒绝删除本次运行之外的隔离根：C:\Users\USER~1\AppData\Local\Temp\neuro-book\acceptance\product-runtime\storage-browser-MxfyHy
+REFUSE | 历史临时根 scratch | 拒绝删除本次运行之外的隔离根：C:\Users\USER~1\AppData\Local\Temp\neuro-book\storage-browser-MxfyHy
+REFUSE | 旧命名服务目录 | 拒绝删除本次运行之外的隔离根：C:\Users\USER~1\AppData\Local\Temp\neuro-book\storage-project-adapter\deadbeef
+REFUSE | 系统 Temp 根 | 拒绝删除本次运行之外的隔离根：C:\Users\USER~1\AppData\Local\Temp\neuro-book
+REFUSE | 仓库根 | 拒绝删除本次运行之外的隔离根：C:\Users\<user>\Documents\CodeRepository\GithubProjects\neuro-book\.worktree\w00003-neurobook-ui-foundation-migration\packages\neuro-book
 REFUSE | 相对路径 | 拒绝删除非绝对或未规范化的隔离根：nb-t43/deadbeef
-ACCEPT | 本次形状(应接受) | C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\nb-t43\cf11fb22
+ACCEPT | 本次形状(应接受) | C:\Users\USER~1\AppData\Local\Temp\neuro-book\nb-t43\cf11fb22
 退出码：0
 ```
 

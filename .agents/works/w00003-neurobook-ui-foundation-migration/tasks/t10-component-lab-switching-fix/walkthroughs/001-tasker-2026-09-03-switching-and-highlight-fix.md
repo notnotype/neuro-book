@@ -46,7 +46,7 @@ createdAt: 2026-09-03T00:00:00Z
 
 执行：
 
-`bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`
+`bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable C:/Users/<user>/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`
 
 结果：`Component Lab smoke passed: http://127.0.0.1:3000/`。真实 NeuroBook 页面完成 Tree 初始 `data-selected`、无左边框、检查器选中仅标签、`ViewportCanvas` 自由尺寸切换后画布高度、窄屏、reduced-motion、主题与画布偏好 reload、恢复默认清键以及 console/pageerror 汇总检查。
 

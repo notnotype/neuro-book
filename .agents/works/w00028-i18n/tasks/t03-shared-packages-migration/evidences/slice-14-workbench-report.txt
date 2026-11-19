@@ -10,7 +10,7 @@
 - 没有 commit。
 
 == 改动文件 ==
-路径都在 /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n 下，共 47 个文件。
+路径都在 /home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n 下，共 47 个文件。
 
 Spec：
 - docs/specs/workbench/commands.md

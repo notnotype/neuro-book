@@ -6,7 +6,7 @@
 
 ## Goal
 
-- `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\llmlint` 成为 llmlint 真相源。
+- `C:\Users\<user>\Documents\CodeRepository\GithubProjects\llmlint` 成为 llmlint 真相源。
 - llmlint 仓库根是开发工作区；真正可安装 / 可同步的 Agent Skill package 固定为 `skill/`。
 - NeuroBook `assets/workspace/.nbook/agent/skills/llmlint/` 只作为 `../llmlint/skill` 的 vendored runtime snapshot。
 - `evals/` 进入 llmlint 仓 git，作为评测 harness 与基线语料；不进入 `skill/`，不随 user-assets 同步到用户 runtime。

@@ -49,7 +49,7 @@
 
 ## 2. 所审文件 SHA256 与 git revision
 
-- worktree：`C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration`
+- worktree：`C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration`
 - 分支：`refactor/w00003-nb-ui-adoption`
 - revision：`5fcdf8b89cd311ac0b87479e905dcec7682596c0`（`feat(storage): persist grid layouts with original-record composition`）；被审两个文件在该提交中**新增**（`git show --stat 5fcdf8b8` 显示 974/891 行新增）。审查期间工作树对被审文件无未提交改动。
 

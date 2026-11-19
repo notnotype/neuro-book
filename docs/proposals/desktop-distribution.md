@@ -38,7 +38,7 @@ adrs:
 
 ## 三、当前行为与证据
 
-Windows 上的实测（开发机 pc-notype 与 GitHub 的 windows-2025 runner）结论：
+Windows 上的实测（开发机 Windows 开发机 与 GitHub 的 windows-2025 runner）结论：
 
 - **新应用在 Windows 上能跑。** `smoke:server` 十个场景过九个，项目子进程、命名管道的实例认领、SQLite、标准输入停止都正常；没过的是 SIGTERM 停止，Windows 没有这个信号，标准输入是唯一的有序停止渠道。
 - **Agent 的命令工具在 Windows 上能用。** 它跑在 pi-natives 内嵌的 bash 兼容 shell 里，自带常用命令，不需要 Git Bash；git、awk、python 走系统程序。

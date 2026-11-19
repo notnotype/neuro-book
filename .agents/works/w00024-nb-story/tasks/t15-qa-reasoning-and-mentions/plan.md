@@ -60,7 +60,7 @@
 
 1. **Responses 接口**：配置、`harness-model`、测试端点、单测（请求路径与 `reasoning.summary`、思考摘要写进日志、`config.test` 走同一接口），Spec。提交。
 2. **`@` 引用**：`mentions.ts` 与单测（分组、数字与文字查询、晚于 P 不能选、过期请求丢弃）、`QaPage` 接线、`chapter://`、首问显示名称、问答规则，Spec。e2e 一条：输入 `@` 选人物与段落，发出后模型收到的问题里有 `entity://` 与 `paragraph://`，点问题里的小块开抽屉。提交。
-3. **真实模型冒烟**（开发者已同意走 Responses 时真调一次）：jiji 余额恢复后，在设置页把接口改成 Responses、测试连接，再问一题看过程里有没有思考。jiji 不支持 `/v1/responses` 时如实报告，接口选项照样保留。
+3. **真实模型冒烟**（开发者已同意走 Responses 时真调一次）：中转渠道余额恢复后，在设置页把接口改成 Responses、测试连接，再问一题看过程里有没有思考。relay 不支持 `/v1/responses` 时如实报告，接口选项照样保留。
 
 ## 验收映射
 

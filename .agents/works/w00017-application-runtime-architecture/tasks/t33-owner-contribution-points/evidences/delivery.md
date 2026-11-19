@@ -4,7 +4,7 @@
 
 审查意见 1 的四项修改已完成，核心实现与 13 个场景、5 条补充回归保留。设计与主要实现由主会话完成；先前误委派的核心实现任务已停止，该子代理没有代码改动。
 
-- checkout：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`。
+- checkout：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`。
 - branch：`refactor/w00017-runtime-foundation`。HEAD 基线：`a2836a53681eca2207dcb904bb5d4a7104174432`。
 - 验证覆盖未提交的工作区修改，没有独立交付 revision；未 commit、push、stash 或切换分支。
 - 唯一证据目录：`.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/evidences/`。

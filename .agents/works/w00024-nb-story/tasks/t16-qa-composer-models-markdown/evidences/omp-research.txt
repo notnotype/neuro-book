@@ -1,6 +1,6 @@
 # t16 OMP 调研报告（追加式）
 版本说明：仓库 node_modules 里 @oh-my-pi/pi-ai、pi-catalog 为 18.2.5；本机全局 omp（含 pi-coding-agent 源码）为 18.12.3。
-仓库里没有 pi-coding-agent，它的源码只能参照（路径 /home/notnotype/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src）。
+仓库里没有 pi-coding-agent，它的源码只能参照（路径 /home/<user>/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src）。
 下文路径简写：REPO-AI=仓库 node_modules/@oh-my-pi/pi-ai/src，REPO-CAT=仓库 .../pi-catalog/src，GAI=全局 pi-ai/src，CA=全局 pi-coding-agent/src。
 
 ## 1. 认证方式（API key / OAuth / 其它）与环境变量
@@ -177,7 +177,7 @@ OMP 本体（coding-agent ModelRegistry）：
 - 把“能不能用”和“为什么不能用”放在同一屏：OMP 的 locked 视图就是这个做法。
 
 ## 附：证据位置速查
-- 仓库版本（18.2.5）：/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/stream.ts:807-893（env 合成）、registry/hooks/env.ts、auth-storage.ts:2961-3066,6020-6068；pi-catalog/src/compat/{auth,providers,types}.ts、compat/rules/auth/*.kdl、compat/rules/providers/*.kdl、discovery/openai-compatible.ts、identity/reference.ts。
-- 全局版本（18.12.3）：/home/notnotype/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/config/{models-config.ts,models-config-schema-bundle.ts,custom-models.ts,model-registry.ts,model-discovery.ts,resolve-config-value.ts,api-key-resolver.ts}；pi-tui/src/overlays/{model-hub.ts,model-browser.ts,model-picker.ts,thinking-selector.ts}；pi-ai/src/env-api-key.ts。
+- 仓库版本（18.2.5）：/home/<user>/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/stream.ts:807-893（env 合成）、registry/hooks/env.ts、auth-storage.ts:2961-3066,6020-6068；pi-catalog/src/compat/{auth,providers,types}.ts、compat/rules/auth/*.kdl、compat/rules/providers/*.kdl、discovery/openai-compatible.ts、identity/reference.ts。
+- 全局版本（18.12.3）：/home/<user>/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/config/{models-config.ts,models-config-schema-bundle.ts,custom-models.ts,model-registry.ts,model-discovery.ts,resolve-config-value.ts,api-key-resolver.ts}；pi-tui/src/overlays/{model-hub.ts,model-browser.ts,model-picker.ts,thinking-selector.ts}；pi-ai/src/env-api-key.ts。
 - 说明：行号为核对时读到的位置，带“~”的是区间估计；全局版与仓库版的 pi-ai/pi-catalog 内部文件布置略有不同（例如 env 合成在仓库版是 stream.ts，全局版挪到 env-api-key.ts）。
 - 未运行 omp，未读取 ~/.omp 下任何文件；探测脚本只读取 node_modules 内的规则表，未调用会读环境变量取值的函数。

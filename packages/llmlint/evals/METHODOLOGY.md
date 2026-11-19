@@ -279,7 +279,7 @@ meta.json: { genre, plotId, author?,
 - **外部检测器对照**：HF yuchuantian AUC **0.968** ≫ llmlint 0.727（同口径同语料）；ref P(AI) 0.285 / render 0.943。检测器是强 oracle 地基，gap = 漏网新规则矿。
 - 模型榜（均衡面板可比）：docScore gemini 22.26 < deepseek 25.60 < mimo 29.19；⚠ gemini 在 llmlint 最像人、在神经检测器最像 AI（啰嗦干净散文躲表层规则）= 漏网活案例。
 
-**CLI 模型探针扩展**（2026-07-03 追加，当前 report.json 即此口径：100 render / 6 模型，AUC 0.743 / 外部 0.870）：anyrouter 的 gpt-5.5、claude-opus-4-8[1M]、claude-fable-5[1M] 各 n=7–8（仅宫斗+轻小说 2 体裁，**混面板、模型榜不可比**）。**关键发现——claude 隐身**：外部神经检测器判 claude 近乎人类（P(AI) 0.07–0.13），但 llmlint 规则仍抓住（docScore 27–28 ≫ 人类 19.48）；与 gemini 恰好互补（llmlint 漏 / 神经抓）→ **两检测器各有盲区，规则 + 神经联用才完整；机器判定永不当真值，人类判定（采集线 B）是终审**。
+**CLI 模型探针扩展**（2026-07-03 追加，当前 report.json 即此口径：100 render / 6 模型，AUC 0.743 / 外部 0.870）：中转网关的 gpt-5.5、claude-opus-4-8[1M]、claude-fable-5[1M] 各 n=7–8（仅宫斗+轻小说 2 体裁，**混面板、模型榜不可比**）。**关键发现——claude 隐身**：外部神经检测器判 claude 近乎人类（P(AI) 0.07–0.13），但 llmlint 规则仍抓住（docScore 27–28 ≫ 人类 19.48）；与 gemini 恰好互补（llmlint 漏 / 神经抓）→ **两检测器各有盲区，规则 + 神经联用才完整；机器判定永不当真值，人类判定（采集线 B）是终审**。
 
 完整每轮变更与出入见 [编年 walkthrough](../.agents/tasks/03-llmlint-eval-harness/README.md) 与 [Task 08](../.agents/tasks/08-eval-pipeline-hardening/README.md)。
 

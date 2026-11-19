@@ -15,7 +15,7 @@
 - **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:23-24,43-47,64-65`；`packages/nb-story/src/server/registry.ts:43-65`。
 - **现象**：计划把持锁者从独立进程换成 Worker，却继续用“运行者死了内核放锁”的进程保证。真实 Worker 打开锁后，主线程 `await worker.terminate()`，主线程再次调用真实 `acquireServeLock` 返回 null；锁没有释放。只有整个 serve 进程退出才会由内核兜底。
 - **为什么是问题**：Worker 异常退出、被强制终止或退出路径漏 finally 后，serve 仍活着；status 会一直报 running，续抽和删除一直报 `ingest_running`。仅监听 Worker error/close 不能关闭主线程不知道的 fd，`terminate()` 也不是释放资源的代用品。
-- **如何核实**：运行隔离脚本 `env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts stream`。真实 harness/provider 在 Worker 中接收 SSE 并取消后强制结束 Worker，输出 `lockAfterWorkerTerminated:false`。使用真实 registry 的 `openSync`+flock，无 mock、真实密钥或外网。
+- **如何核实**：运行隔离脚本 `env -i PATH=/usr/bin:/bin:/home/<user>/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts stream`。真实 harness/provider 在 Worker 中接收 SSE 并取消后强制结束 Worker，输出 `lockAfterWorkerTerminated:false`。使用真实 registry 的 `openSync`+flock，无 mock、真实密钥或外网。
 - **建议改法**：由主线程 Runner 持有任务锁、直到 Worker 确认不再写并退出才 release；异常/error/close 全部进入同一个幂等收口路径。若选 Worker 持锁，至少须有主线程可收回的明确 fd 所有权和双重关闭防护；不能继续依赖进程死亡语义。补“Worker 崩溃但 serve 继续存活后能判 stopped、能继续与删除”的真实运行时验收。
 
 ### 3. 把锁文件和抽取记录一起删掉会制造两个互不排他的锁
@@ -51,7 +51,7 @@
 - **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:24,44-45,63-64,104,106`；`docs/specs/story/ingest.md:120-121`。
 - **现象**：计划让主线程发停止、Worker 收消息，但编译仍是不可分割的同步调用。真实 100 章 compile 时，主线程已发 stop，Worker 直到 9512 ms 后才收到；编译完成时 `stopped:false`。若编译返回后直接提交，停止请求超过 5 秒仍可发布新章。
 - **为什么是问题**：Worker 只解决主线程不被编译堵塞，不自动解决 Worker 自己不能处理停止消息。CLI 的 onProcessInterrupt 最多等 10 秒，长书同步阶段超过该上限还会来不及正常收口；强制 terminate 又触发第 2 条的 fd 泄漏。计划的服务响应测试只写 1 秒返回，不能证明任务 5 秒后不再请求/提交。
-- **如何核实**：运行 `env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/compile-stop.ts`。真实 Bun Worker 读录制的 100 章草稿/整理稿，调用未改动实验 compile；主线程收到 compiling 消息即 post stop，无固定等待、忙循环替代或模型调用。输出 compile=9512 ms、stopDeliveryMs=9512、编译结束尚未收到 stop。实验只验证消息送达边界，未声称未实现的 ingest 已实际提交。
+- **如何核实**：运行 `env -i PATH=/usr/bin:/bin:/home/<user>/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/compile-stop.ts`。真实 Bun Worker 读录制的 100 章草稿/整理稿，调用未改动实验 compile；主线程收到 compiling 消息即 post stop，无固定等待、忙循环替代或模型调用。输出 compile=9512 ms、stopDeliveryMs=9512、编译结束尚未收到 stop。实验只验证消息送达边界，未声称未实现的 ingest 已实际提交。
 - **建议改法**：明确非消息队列的停止标志（如 SharedArrayBuffer/Atomics），模型调用前和原子提交前同步检查；或定义 5 秒内强制结束 Worker 的策略并先解决锁/fd 所有权。书库发布必须接受停止门禁，不能只在外层循环开头看 signal。补真实同步编译中停止、预发布停止与 Ctrl-C 的组合验收，并明确 stop 返回与 Worker 退出两个不同边界。
 
 ### 7. serve 先等当前 Runner 停完再停监听，关服期间仍能接纳新任务
@@ -169,15 +169,15 @@
 1. `/usr/bin/git show 2443d81ae:.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md | sha256sum`；`sha256sum .agents/works/w00024-nb-story/tasks/t06-ingest/plan.md`：结果一致。只读，没有切分支或读写暂存区。
 2. 以下三条均以真实 Bun Worker、真实 harness/provider、只监听回环地址的最小协议端点运行；不是 nbstory serve 或开发服务：
    ```sh
-   env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts stream
-   env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts retry
-   env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts effort
+   env -i PATH=/usr/bin:/bin:/home/<user>/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts stream
+   env -i PATH=/usr/bin:/bin:/home/<user>/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts retry
+   env -i PATH=/usr/bin:/bin:/home/<user>/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts effort
    ```
    stream：1 次 HTTP、delta=2101、aborted、complete=false；retry：单次 turn 内收到 3 次 HTTP 后成功；effort：收到 minimal、low 两次请求后成功。三次均观察到 Worker 终止后主线程拿不到其未释放锁；同路径换 inode 的两把 flock 都成功。stream 在修正 scratch 类型后又跑一次，结果一致。
-3. `env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/compile-stop.ts`：真实 100 章编译 9512 ms，stop 消息延迟 9512 ms，编译结束时 stopped=false；全图 1 个 time error。
-4. `env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/edges.ts`：跨章时间环经现有 dropOffending 后仍在；后建秘密/知情编译 0 个 error，但第 1 章查询可见第 2 章写下的 k2-1。
+3. `env -i PATH=/usr/bin:/bin:/home/<user>/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/compile-stop.ts`：真实 100 章编译 9512 ms，stop 消息延迟 9512 ms，编译结束时 stopped=false；全图 1 个 time error。
+4. `env -i PATH=/usr/bin:/bin:/home/<user>/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/edges.ts`：跨章时间环经现有 dropOffending 后仍在；后建秘密/知情编译 0 个 error，但第 1 章查询可见第 2 章写下的 k2-1。
 5. 内存 UTF-8/JSON 大小计算：原文 33554432，JSON 67108866，超出计划请求体上限 25165826 字节；没有发送超大 HTTP 请求。
-6. 每次新增发现立即以追加模式写本报告，并执行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t06-ingest/reports/plan-review.md` 核对，累计由 1 增至 16，没有覆盖已有报告内容。
+6. 每次新增发现立即以追加模式写本报告，并执行 `grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t06-ingest/reports/plan-review.md` 核对，累计由 1 增至 16，没有覆盖已有报告内容。
 
 未运行：nb-story 单元测试、e2e、开发服务、浏览器、真实模型、真实评分与真实密钥读取。没有修改主工作区或 W5 worktree 的产品、Spec、计划、Task 文件；唯一仓库内写入为授权的本地报告，实验及隔离书库都在指定 scratch 内。没有 commit、push、stash、切换分支或开启子审查。最小实验资源随执行进程结束；初版锁身份实验仅 unlink 了 scratch 自建 inode-lock，最终可复现脚本已改用 rename 保留该文件。未删除仓库文件或他人的文件。
 

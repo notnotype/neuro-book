@@ -1,6 +1,6 @@
 # t08 计划设计审查报告
 
-审查对象是 `.agents/works/w00022-dev-panel/tasks/t08-artifacts-answers/plan.md`，代码看的是 worktree `.worktree/w00022-dev-panel` 的 HEAD `3e086d8e1`。全程只读，没有改任何仓库文件。实验脚本放在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t08-design/`。为了测耗时，在真实仓库里只读跑了 4 次 `nbdev status --json`，它不取锁、不写文件，只调 herdr 的只读方法。
+审查对象是 `.agents/works/w00022-dev-panel/tasks/t08-artifacts-answers/plan.md`，代码看的是 worktree `.worktree/w00022-dev-panel` 的 HEAD `3e086d8e1`。全程只读，没有改任何仓库文件。实验脚本放在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/d02974de-3474-4f89-a563-45b5c8d8b06d/scratchpad/review-t08-design/`。为了测耗时，在真实仓库里只读跑了 4 次 `nbdev status --json`，它不取锁、不写文件，只调 herdr 的只读方法。
 
 结论：没有阻断项。重要 7 条，建议 13 条，按影响排序如下。
 

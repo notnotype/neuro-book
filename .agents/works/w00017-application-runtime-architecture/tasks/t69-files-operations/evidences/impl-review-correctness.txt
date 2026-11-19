@@ -1,6 +1,6 @@
 # w00017 t69 实现审查：正确性与边界
 
-审查对象：`06d78a55`。工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-impl-correctness`。
+审查对象：`06d78a55`。工作区：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-impl-correctness`。
 
 只读审查已完成；按影响排序，共 9 项：阻断 2、重要 7、建议 0。实验均在报告所在目录；发现编号保留核实顺序，方便与其它审查报告交叉核对。
 
@@ -82,14 +82,14 @@
 所有命令从上述 worktree 根执行，Bun 为 `v1.4.2 (744846f84)`。依赖安装按审查任务授权执行：
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness prox bun install --frozen-lockfile --ignore-scripts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness prox bun install --frozen-lockfile --ignore-scripts
 ```
 
 结果：1568 packages installed。两组定向测试实际命令：
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun test ./packages/neuro-book/src/plugins/files/operations.test.ts ./packages/neuro-book/src/plugins/files/batch.test.ts ./packages/neuro-book/src/plugins/files/backend/entry-ops.test.ts ./packages/neuro-book/src/plugins/files/backend/exclusive.test.ts ./packages/neuro-book/src/plugins/files/backend/manifest-edit.test.ts ./packages/neuro-book/src/plugins/files/project-child.test.ts ./packages/neuro-book/src/plugins/files/transport.test.ts
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun test ./packages/neuro-book/src/plugins/files/backend/rooted.test.ts ./packages/neuro-book/src/plugins/files/shared/resource.test.ts ./packages/neuro-book/src/plugins/files/changes.test.ts ./packages/neuro-book/src/plugins/files/files.test.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun test ./packages/neuro-book/src/plugins/files/operations.test.ts ./packages/neuro-book/src/plugins/files/batch.test.ts ./packages/neuro-book/src/plugins/files/backend/entry-ops.test.ts ./packages/neuro-book/src/plugins/files/backend/exclusive.test.ts ./packages/neuro-book/src/plugins/files/backend/manifest-edit.test.ts ./packages/neuro-book/src/plugins/files/project-child.test.ts ./packages/neuro-book/src/plugins/files/transport.test.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun test ./packages/neuro-book/src/plugins/files/backend/rooted.test.ts ./packages/neuro-book/src/plugins/files/shared/resource.test.ts ./packages/neuro-book/src/plugins/files/changes.test.ts ./packages/neuro-book/src/plugins/files/files.test.ts
 ```
 
 - 第一组：`51 pass / 0 fail / 377 expect() calls`，6 个文件，10.06 s。命令中的 `backend/manifest-edit.test.ts` 不存在，没有计入已运行测试；清单行为由 `operations.test.ts` 与 `batch.test.ts` 覆盖。
@@ -99,9 +99,9 @@ NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book
 真实运行复现命令；`edges.ts` 的单项参数为 `identity`、`root-rename`、`readonly-source`、`copy-capture`、`echo-duplicate`、`echo-swallow`、`target-parent`、`caller-stop`、`copy-special-bits`、`echo-expiry`、`moved-limit`、`lock-loss`，均已分别执行。下列列出根越界、真实 WebSocket 与跨设备三条实际命令，其余参数使用同一单项调用形式：
 
 ```sh
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/edges.ts target-parent
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/budget-ws.ts
-NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness unshare -Ur -m bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/cross-device.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/edges.ts target-parent
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/budget-ws.ts
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness unshare -Ur -m bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/correctness/cross-device.ts
 ```
 
 复现通过真实应用内核与文件门面执行，锁、文件系统、递归 fs.watch、子进程与 WebSocket 都使用真实实现；事件批处理及过期实验使用测试世界的手动时钟，并用外部文件事件作屏障。WebSocket 服务使用端口 `0`。每次世界关闭均为 `closed`，真实后端退出码 `0`；跨设备实验已卸载 tmpfs，第二持锁进程正常退出。实验数据目录均在各脚本 `finally` 中删除。
@@ -125,7 +125,7 @@ import {join} from "node:path";
 import {filesScene, files, extraWindow} from "nbook/plugins/files/testing/scene";
 import {holdLock} from "nbook/backend/locked-replace";
 import {BATCH_DELAY_MS} from "nbook/plugins/files/backend/changes";
-import {waitUntil} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-impl-correctness/packages/neuro-book-test-support/src/wait";
+import {waitUntil} from "/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-impl-correctness/packages/neuro-book-test-support/src/wait";
 import type {WatchMessage} from "nbook/plugins/files/shared/contracts";
 const base = process.env.NBOOK_AGENT_TEMP_ROOT!;
 const kind = process.argv[2];

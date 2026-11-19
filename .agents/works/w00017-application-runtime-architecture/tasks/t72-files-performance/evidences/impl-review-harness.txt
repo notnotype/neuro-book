@@ -1,7 +1,7 @@
 # t72 实现只读审查：测量脚本与测量有效性
 
 - 审查范围：`47e3b1fc..4660006f`。
-- 工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t72-impl-harness`。
+- 工作区：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t72-impl-harness`。
 - 依据：t72 计划与三份计划审查、Task README 和测量证据；files-explorer“打开与切换”及验收 12；editor；runtime.plugins 输出 23；Work 待确认项；测试规范。
 - 只读边界：不修改仓库源码与登记文件、不执行 Git 写操作；实验与产物放在本报告目录。只做小样本或单场景，不运行完整正式测量。
 
@@ -46,7 +46,7 @@
 - **为什么是问题**：A4 专门补足计划审查指出的“恢复多目录、完整行数组投影”增长路径，当前数字只表示父目录先到，后续展开与投影不在测量窗口内。正式报告用 A4 360/376 ms 代表恢复多个展开目录不能支撑该结论。A4 也没有采集请求数、长动画帧或每轮恢复状态，因此不能区分成功恢复、仍加载、偏好未落盘。
 - **同一终点的操作核验缺口**：A1/A2的ArrowDown核验只等待 `document.activeElement.closest("[data-explorer-tree]") !== null`（`browser-runner.ts:403-406`），点击目录行已经把焦点放在树上；没有比较按键前后的aria-activedescendant/目标行，故按键不生效也通过。A3/A4甚至没有该核验。页面存在代理但树不接受方向键的情况仍可被记为“可操作”（**从代码推断**）。
 - **依据**：t72 `plan.md:54,65,107`；采纳的 `plan-review-product.txt:74-81`；`docs/specs/workbench/files-explorer.md:135,139,201`。
-- **如何核实**：真实生产构建与 1000 文件隔离项目，执行 `node /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/runtime-probe.mjs`。证据 `runtime-probe.json` 的 `restoredReady`、`restoredAfterLoading` 与 `restored-after.png`；没有伪造 RPC 或替换产品逻辑。
+- **如何核实**：真实生产构建与 1000 文件隔离项目，执行 `node /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/runtime-probe.mjs`。证据 `runtime-probe.json` 的 `restoredReady`、`restoredAfterLoading` 与 `restored-after.png`；没有伪造 RPC 或替换产品逻辑。
 - **建议改法**：保留根 listing ready 为独立指标；A4另等预置展开集合真正恢复、相应目录listing完成及完整行数/树高度稳定，再结束窗口。准备阶段等待展开记录落盘；每轮核对恢复集合与最终规模，并保存期间LoAF、请求与实际行数。可操作核验须比较ArrowDown前后活动后代/焦点行确实移动，不能只核对焦点容器仍为树。
 
 ### 5. 重要：E1 用中文 `keyboard.type` 却只统计 key 事件，输入再慢也会被漏掉
@@ -66,7 +66,7 @@
 - **现象**：`--only` 只解析字符串，不校验场景名；wanted 不匹配时直接返回，results 没有 not-run 项。实际 `--only not-a-scenario` 执行后退出 0，`summary.json` 为 `results: []`、`problems: []`，Markdown 只有空结果表。使用计划中的 A1/A2/C1 等概念名而不是脚本内部组合 id 也有同类风险。
 - **为什么是问题**：用户/自动化想运行的目标没有执行，却得到成功退出与报告，违背“任一未执行或缺样本非零”的验收合同。当前 `some(status !== ok)` 对空数组为 false，也没有核对请求场景集合与实际结果集合。TypeScript 的 not-run 联合分支从未被构造。
 - **依据**：`docs/testing/README.md:148`；t72 `plan.md:26`；采纳的 `plan-review-feasibility.txt:36-43`。
-- **如何核实**：真实命令 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --iterations 5 --opens 1 --skip-build --only not-a-scenario --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/invalid-only`，退出 0；证据 `invalid-only/summary.json`、`report.md`。
+- **如何核实**：真实命令 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --iterations 5 --opens 1 --skip-build --only not-a-scenario --out /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/invalid-only`，退出 0；证据 `invalid-only/summary.json`、`report.md`。
 - **建议改法**：解析阶段按场景注册表拒绝未知 id；为本次要求的全部场景预建 not-run 结果，并在结束时核对每个目标存在、状态与成功样本数齐全，空运行必须非零。省略 `--only` 时也用同一完整性检查。
 
 ### 7. 重要：逐次样本、操作起点和点击事件没有落盘，正式分位数与时间窗无法复核
@@ -86,7 +86,7 @@
 - **现象**：源码热切换的前置只双击 data 下的文件，却不展开 data；data 的展开放在 B2 的测量 body 中。`--only C1-code`、`--only C2-code` 时 B2 被跳过，reveal 扫描树后找不到源码行。同样，D3 对 notes 的展开依赖 D1，而 D3 只展开 notes/wide；单跑 D3 的父目录仍折叠。
 - **为什么是问题**：用户需要在共享机器上只跑单场景复测，合法场景仍因前一个场景未执行而失败；全场景跑通掩盖了这种依赖。场景前置与“是否计入测量”必须分离，否则 --only 的入口不具备承诺的可复现性。
 - **依据**：t72 `files-perf.ts:7` 的 `--only` 接口；计划场景矩阵与按单场景复测的 S3 流程。不是要求产品支持额外行为。
-- **如何核实**：真实运行原始 Node runner：`node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/single-code-config.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/single-code-result.json`，仅 C1-code、iterations=5；退出 1，错误 `树里找不到 [data-explorer-row="project://data/source-059.json"]`。C2-code/D3 同类路径为**从代码推断**。
+- **如何核实**：真实运行原始 Node runner：`node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/single-code-config.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/single-code-result.json`，仅 C1-code、iterations=5；退出 1，错误 `树里找不到 [data-explorer-row="project://data/source-059.json"]`。C2-code/D3 同类路径为**从代码推断**。
 - **建议改法**：每个场景显式建立自己依赖的展开、控件与文档预热状态；共享 helper 可以复用，但必须由本场景无条件调用。--only 只选择要统计的场景，不应该跳过它的必需前置。
 
 ### 9. 重要：E1 正式样本实际只改写 340 个文件，却按 500 文件压力给结论
@@ -106,7 +106,7 @@
 - **现象**：summary.json/report.md 都在 try 成功路径内生成；构建失败、生成样本失败或 runner-result 不存在时只写 stderr、删除临时根，finally 仍打印“结果：<out>”。真实 count1000/wide401 的生成失败退出1，out目录为空，没有任何 failed/not-run 状态。若指定已有out，之前成功文件也不会被覆盖为本次失败，调用方可能读到旧结果。
 - **为什么是问题**：虽退出码非零，但报告缺失/旧报告无法说明本次哪些目标未执行和原因，原始现场又默认删除；计划采纳的失败报告合同没有实现。任务要求“无未判定项”的收尾工具不能仅靠先前summary判定当前运行。
 - **依据**：t72 `plan.md:26` 明确“报告在 finally 里总是写出”；`plan-review-feasibility.txt:36-43`；`docs/testing/README.md:148`。
-- **如何核实**：真实命令 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --wide 401 --iterations 5 --opens 1 --skip-build --only A1+A2 --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/sample-failure`，退出1；read该目录确认空。构建/runner结果读取同路径为**从代码推断**。
+- **如何核实**：真实命令 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --wide 401 --iterations 5 --opens 1 --skip-build --only A1+A2 --out /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/sample-failure`，退出1；read该目录确认空。构建/runner结果读取同路径为**从代码推断**。
 - **建议改法**：外壳从开始就建立本次运行清单，捕获准备失败并写入 problems 与所需场景的 not-run；在 finally 原子生成/覆盖本次 summary/report，再清临时根。结果路径应指向确实存在且与本次runId关联的文件。
 
 
@@ -128,7 +128,7 @@
 - **现象**：F1 选 `volume1.slice(iterations, iterations+20)`，不核对20个文件；1000文件只有30个volume-01章节，默认iterations=30后切片为空。真实原始runner使用1000样本、iterations30、onlyF1，仍退出0、status=ok、samples=5并报告5个GC堆样本，没有打开任何文件。计划600文件/iterations3的小smoke只有15个候选，却也用“20文件×5轮”标题。
 - **为什么是问题**：缺工作量不会被失败/样本数门禁抓住，零文件场景的堆平台能被误当作资源释放证明。正式3000候选有20个，不据此否定那一轮实际工作量；问题在合法小样本与单场景参数的验收输出可以造假成功。
 - **依据**：t72 `plan.md:26,63`；`docs/testing/README.md:148`；参数支持count/iterations与single场景的现有接口。
-- **如何核实**：`workload-counts.json`直接计算候选数；真实执行 `node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/f1-empty-config.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/f1-empty-result.json`，退出0。没有改源码，探针仅提供脚本本来支持的参数组合。
+- **如何核实**：`workload-counts.json`直接计算候选数；真实执行 `node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/f1-empty-config.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/f1-empty-result.json`，退出0。没有改源码，探针仅提供脚本本来支持的参数组合。
 - **建议改法**：场景启动前校验实际20个独立目标，或从多个卷取够候选；结果保存每轮实际打开/关闭数，缺样本直接failed/not-run。堆读取与循环轮数不能替代真实文件操作次数。
 
 ### 13. 重要：A1/A2 失败后旧页面与服务留到整个runner结束，污染后续场景
@@ -148,7 +148,7 @@
 - **现象**：启动服务与外壳run都只监听exit，没有error监听；Node进程无法spawn bun时，发出error/close而没有exit。真实原始runner在隔离PATH下启动服务失败，直接抛 `Unhandled 'error' event`、`spawn bun ENOENT` 并退出1，没有生成resultPath，顶层catch/finally没有执行。
 - **为什么是问题**：部署/运行环境里的可执行文件缺失、权限拒绝等创建失败不能进入脚本的failed/not-run模型；如果已有资源在运行，异常退出会跳过显式收口。标准非零退出不等于受控报告与清理完成。正常可执行环境下的本次smoke不触发此路径。
 - **依据**：t72 `plan.md:24,26-27`；采纳的服务启动失败收口要求；`docs/testing/README.md:20,148`。
-- **如何核实**：真实执行 `env PATH=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/empty-bin /usr/bin/node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/spawn-failure-config.json /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/spawn-failure-result.json`，退出1，原始Node错误如上，result文件不存在。PATH仅对该命令生效，没有更改全局环境。Bun外壳同类事件边界为**从代码推断**；该探针结束后进程列表未见本次残留Chrome或服务。
+- **如何核实**：真实执行 `env PATH=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/empty-bin /usr/bin/node scripts/perf/browser-runner.ts /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/spawn-failure-config.json /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/spawn-failure-result.json`，退出1，原始Node错误如上，result文件不存在。PATH仅对该命令生效，没有更改全局环境。Bun外壳同类事件边界为**从代码推断**；该探针结束后进程列表未见本次残留Chrome或服务。
 - **建议改法**：每个spawn用一次结算同时处理error与exit/close，把创建失败转换为可await的失败结果；启动器error路径也必须结算等待、记录错误并走finally。避免error与后续close重复结算。
 
 ## 本次验证
@@ -157,22 +157,22 @@
 
 ```text
 bun run build
-env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test scripts/perf/stats.test.ts scripts/files-sample.test.ts
-env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test src/plugins/commands/shared/registry.test.ts
-env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test src/plugins/editor/area.test.ts src/plugins/explorer/session.test.ts
-env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --iterations 5 --opens 3 --skip-build --out /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/smoke-1000
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test scripts/perf/stats.test.ts scripts/files-sample.test.ts
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test src/plugins/commands/shared/registry.test.ts
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun test src/plugins/editor/area.test.ts src/plugins/explorer/session.test.ts
+env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness bun run perf:files -- --count 1000 --iterations 5 --opens 3 --skip-build --out /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/smoke-1000
 ```
 
 - 构建通过，check:dist通过；有Vite大块警告，未作为发现。
 - 纯函数与样本测试8通过、命令声明测试27通过、编辑器区与Explorer会话测试23通过，合计58通过、0失败。
 - 小样本退出0，15个实际已实现场景均ok、problems为空；不把这个结果当作完整16格矩阵已覆盖。
-- `runtime-probe.mjs`、无效only、单场景C1-code、F1空负载、样本准备失败与spawn创建失败的完整命令及结果见相应发现；工作量核实可重跑 `bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/workload-probe.ts`。探针只改变隔离浏览器页面，没有替换产品源码。
+- `runtime-probe.mjs`、无效only、单场景C1-code、F1空负载、样本准备失败与spawn创建失败的完整命令及结果见相应发现；工作量核实可重跑 `bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/workload-probe.ts`。探针只改变隔离浏览器页面，没有替换产品源码。
 - 未运行全应用typecheck、全量Bun/Vitest、e2e、正式3000×30测量、有头显示器/桌面/跨机器路径。
 - 内置browser.open启动超时，已尝试close(all,kill)收口；备用使用仓库已装的Node Playwright，无安装动作。此工具失败没有作为产品发现。
 - 测量外壳本次分配的临时根结束后为空；Node探针finally关闭Chrome，独立服务 `t72-review-runtime`（PID2611910，HTTP33301/RPC41789）经stdin停止并以0退出，ps确认该PID不存在。未碰3000或3917端口。
 - 工作区首尾`git status --short`均为空，没有在仓库放探针或产生修改，没有Git写操作。
 
-runtime-probe重跑前可在报告目录建立新样本，并从 `packages/neuro-book` 启动隔离生产服务；实际本次启动命令为 `env NBOOK_STATE_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/runtime/state NBOOK_WEB_ROOT=dist/web NBOOK_PORT=0 bun dist/server/main.js --stop-stdin`。探针URL改为当次监听地址后执行；服务监听曾为HTTP33301，结束已经停止。`create-runtime-sample.ts`要求新空样本目录，已有样本可直接复用。
+runtime-probe重跑前可在报告目录建立新样本，并从 `packages/neuro-book` 启动隔离生产服务；实际本次启动命令为 `env NBOOK_STATE_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t72-impl/harness/runtime/state NBOOK_WEB_ROOT=dist/web NBOOK_PORT=0 bun dist/server/main.js --stop-stdin`。探针URL改为当次监听地址后执行；服务监听曾为HTTP33301，结束已经停止。`create-runtime-sample.ts`要求新空样本目录，已有样本可直接复用。
 
 ## 采纳意见核对与审查限制
 

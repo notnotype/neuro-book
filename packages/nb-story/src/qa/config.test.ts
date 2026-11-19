@@ -121,13 +121,13 @@ describe("问答配置", () => {
     });
 
     test("自定义模型没写的参数按模型名从目录补，写了的照用；认不得的模型名不补", () => {
-        const config = parseQaConfig({providers: {jiji: {...custom, api: "openai-responses", models: [{id: "gpt-5.6-sol"}, {id: "gpt-5.6-sol-short", contextWindow: 1000}, {id: "m"}]}}, models: ["jiji/gpt-5.6-sol", "jiji/m"], model: {use: "jiji/gpt-5.6-sol", thinking: "xhigh"}}, "");
+        const config = parseQaConfig({providers: {relay: {...custom, api: "openai-responses", models: [{id: "gpt-5.6-sol"}, {id: "gpt-5.6-sol-short", contextWindow: 1000}, {id: "m"}]}}, models: ["relay/gpt-5.6-sol", "relay/m"], model: {use: "relay/gpt-5.6-sol", thinking: "xhigh"}}, "");
         const known = resolveQaModel(config);
-        expect([known.contextWindow, known.thinking, known.resolved.model.api, known.resolved.model.provider]).toEqual([1_050_000, "xhigh", "openai-responses", "jiji"]);
+        expect([known.contextWindow, known.thinking, known.resolved.model.api, known.resolved.model.provider]).toEqual([1_050_000, "xhigh", "openai-responses", "relay"]);
         expect(known.efforts).toContain("max");
         // 单价不补：未知就是未知。
         expect(known.resolved.priceKnown).toBe(false);
-        const unknown = resolveQaModel(config, {model: "jiji/m", thinking: "high"});
+        const unknown = resolveQaModel(config, {model: "relay/m", thinking: "high"});
         expect([unknown.contextWindow, unknown.efforts, unknown.thinking]).toEqual([null, [], undefined]);
     });
 
@@ -209,16 +209,16 @@ describe("写配置（config 命令）", () => {
         for (const [name, text] of Object.entries(values)) config = setConfigField(config, name, text, "", catalog);
         // 自定义服务商按 id 动态取：整组写入后逐项改。
         const provider: Record<string, string> = {
-            "providers.jiji": '{"api":"openai-completions","baseUrl":"http://j/v1","apiKeyEnv":"J_ENV","models":[]}',
-            "providers.jiji.name": "jiji",
-            "providers.jiji.api": "openai-responses",
-            "providers.jiji.baseUrl": "http://k/v1",
-            "providers.jiji.apiKeyEnv": "K_ENV",
-            "providers.jiji.models": '[{"id":"gpt-5.6-sol","contextWindow":200000}]',
+            "providers.relay": '{"api":"openai-completions","baseUrl":"http://j/v1","apiKeyEnv":"J_ENV","models":[]}',
+            "providers.relay.name": "relay",
+            "providers.relay.api": "openai-responses",
+            "providers.relay.baseUrl": "http://k/v1",
+            "providers.relay.apiKeyEnv": "K_ENV",
+            "providers.relay.models": '[{"id":"gpt-5.6-sol","contextWindow":200000}]',
         };
         for (const [name, text] of Object.entries(provider)) config = setConfigField(config, name, text, "", catalog);
         expect(config).toEqual({
-            providers: {custom, jiji: {name: "jiji", api: "openai-responses", baseUrl: "http://k/v1", apiKeyEnv: "K_ENV", models: [{id: "gpt-5.6-sol", contextWindow: 200000}]}},
+            providers: {custom, relay: {name: "relay", api: "openai-responses", baseUrl: "http://k/v1", apiKeyEnv: "K_ENV", models: [{id: "gpt-5.6-sol", contextWindow: 200000}]}},
             models: ["custom/m", "deepseek/deepseek-flash"],
             model: {use: "deepseek/deepseek-flash", thinking: "max"},
             ingest: {
@@ -238,13 +238,13 @@ describe("写配置（config 命令）", () => {
             ["model.thinking", "ultra"],
             ["models", "{"],
             ["providers.A_B.baseUrl", "x"],
-            ["providers.jiji.nope", "x"],
+            ["providers.relay.nope", "x"],
             // 默认模型不在候选里、候选指向没有的模型、服务商 id 与目录重名。
             ["model.use", "custom/other"],
             ["models", '["custom/m","deepseek/not-a-model"]'],
             ["providers.deepseek", '{"api":"openai-completions","baseUrl":"http://j/v1","apiKeyEnv":"J_ENV","models":[]}'],
             // 还没整组写入的服务商不能逐项改。
-            ["providers.jiji.baseUrl", "http://j/v1"],
+            ["providers.relay.baseUrl", "http://j/v1"],
         ] as const) {
             expect(thrown(() => setConfigField(base, name, text, "", catalog))).toBeInstanceOf(ConfigEditError);
         }

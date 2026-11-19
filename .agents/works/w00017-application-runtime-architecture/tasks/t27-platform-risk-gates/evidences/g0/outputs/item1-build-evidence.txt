@@ -33,5 +33,5 @@ handleUpgrade              6
 == build log key lines
 25:●  Nitro preset: node-server
 175:[nitro] ℹ Building Nuxt Nitro server (preset: node-server, compatibility date: 2026-03-02)
-586:Product Runtime Image published: /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/g0-wt/.output imageId=sha256:171cdafe701b06dc4e38b8b0bc3635a008f66c0b0163e42fd2e0428b2f237452 files=3394 bytes=138919383
+586:Product Runtime Image published: /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/g0-wt/.output imageId=sha256:171cdafe701b06dc4e38b8b0bc3635a008f66c0b0163e42fd2e0428b2f237452 files=3394 bytes=138919383
 588:EXIT=0

@@ -1,6 +1,6 @@
 # 任务：只读实现审查 w00017 t82（面板的拖动手势）
 
-你在 worktree `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/wt`（detached）。这是 NeuroBook v2 新应用（`packages/neuro-book`，前端 Vue，后端 Bun，插件化工作台）与共享组件库（`packages/nb-ui`）；旧应用 `packages/neuro-book-legacy` 只作参照。各级 `node_modules` 是指向另一个 worktree 的符号链接，可以在 `packages/neuro-book` 下运行 `bun test ./<文件>`（路径带 `./`）与 `bun run typecheck`，在 `packages/nb-ui` 下运行 `bunx vitest run <文件>` 与 `bun run typecheck`。
+你在 worktree `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/wt`（detached）。这是 NeuroBook v2 新应用（`packages/neuro-book`，前端 Vue，后端 Bun，插件化工作台）与共享组件库（`packages/nb-ui`）；旧应用 `packages/neuro-book-legacy` 只作参照。各级 `node_modules` 是指向另一个 worktree 的符号链接，可以在 `packages/neuro-book` 下运行 `bun test ./<文件>`（路径带 `./`）与 `bun run typecheck`，在 `packages/nb-ui` 下运行 `bunx vitest run <文件>` 与 `bun run typecheck`。
 
 审查对象：`f0ae4278a..HEAD` 的五个提交（`git log --oneline f0ae4278a..HEAD`）。**先读完整的 diff**（`git diff f0ae4278a..HEAD -- <路径>`），再做系统性审查。
 
@@ -10,7 +10,7 @@
 
 ## 依据
 
-- 计划：`/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/plan.md`（最新版；worktree 里的那份是旧版）。开发者 2026-10-13 已确认：去掉面板高与宽的固定 600 上限、凡是能最大化的位置都适用、阈值 24px，这三点不必再议。
+- 计划：`/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/plan.md`（最新版；worktree 里的那份是旧版）。开发者 2026-10-13 已确认：去掉面板高与宽的固定 600 上限、凡是能最大化的位置都适用、阈值 24px，这三点不必再议。
 - Spec：`docs/specs/ui/workbench-shell.md` 外壳一输出 3、4、5、7、8、10，验收 3、4、5、6；`docs/specs/ui/nested-grid.md`。
 - 组件文档：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.md`；nb-ui `packages/nb-ui/src/components/layout/grid.md`、`Splitter.md`、`GridRenderer.md`。
 - 测试规范：`docs/testing/README.md`。
@@ -25,13 +25,13 @@
 
 ## 规则
 
-- 只读：不修改 worktree 里任何被跟踪的文件，不 commit、push、stash、切换分支，不删除文件。实验文件只放在 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/`。
-- 可以跑 `bun test ./<文件>`、`bun run typecheck`、nb-ui 的 `bunx vitest run <文件>`；要跑 vitest 时如需配置，写到 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/`，`cacheDir` 指向那里。不要跑 e2e、开发服务、构建与 `bun install`。需要真实浏览器才能确认的，写清楚如何核实，标“未在浏览器中复现”。
+- 只读：不修改 worktree 里任何被跟踪的文件，不 commit、push、stash、切换分支，不删除文件。实验文件只放在 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/`。
+- 可以跑 `bun test ./<文件>`、`bun run typecheck`、nb-ui 的 `bunx vitest run <文件>`；要跑 vitest 时如需配置，写到 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/`，`cacheDir` 指向那里。不要跑 e2e、开发服务、构建与 `bun install`。需要真实浏览器才能确认的，写清楚如何核实，标“未在浏览器中复现”。
 - 报告文件**只追加**：每核实一条就用追加方式写入（例如 `cat >> report.md`），不要整文件重写，不要等到最后。结束前用 `grep -c '^### C' report.md` 自查条数与正文一致。
 - 用中文写。
 
 ## 报告
 
-写到 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/report.md`。
+写到 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t82/report.md`。
 
 每条问题用三级标题 `### C<编号> <一句话>`，按发现顺序编号。每条写：**严重程度**（阻断、重要、建议）、**类别**、**位置**（文件:行）、**现象**、**为什么是问题**、**如何核实**（命令或实验，以及你是否已经跑过、结果）、**建议改法**。最后追加一节“各级数量”。

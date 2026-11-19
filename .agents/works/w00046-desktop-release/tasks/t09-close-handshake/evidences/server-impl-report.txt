@@ -1,5 +1,5 @@
 w00046 t09 切片 1、2 交付报告（服务端“在跑的工作”与登记方）
-worktree: /home/notnotype/CodeRepository/neuro-book/.worktree/w00046-t09-server（分支 feat/w00046-t09-server）
+worktree: /home/<user>/CodeRepository/neuro-book/.worktree/w00046-t09-server（分支 feat/w00046-t09-server）
 
 == 切片 1：服务端在跑的工作（提交 17c6091c3） ==
 

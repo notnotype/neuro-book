@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import cp from 'node:child_process';
 import {createRequire} from 'node:module';
-const root='/home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02';
+const root='/home/<user>/CodeRepository/neuro-book/.worktree/audit-w00031-t02';
 const out='/tmp/w00031-review/t02-audit/lab-backend';
 const require=createRequire(root+'/package.json');
 const ts=require('typescript');

@@ -1,6 +1,6 @@
 # w00017 t68 实现审查：正确性与合同
 
-审查对象：`ab0a3e91..5b07cb0e`，审查 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t68-impl-correctness`。
+审查对象：`ab0a3e91..5b07cb0e`，审查 worktree：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t68-impl-correctness`。
 
 依据：t68 `plan.md`、2026-10-09 t68 待确认清单、`workspace/resources.md`、`workspace/folder-kinds.md`、`workspace/files.md`、`runtime/plugin-channel.md`、`runtime/projects.md`，以及引用的 `platform/files.md`。接受待确认清单中的既定取舍，不把推迟能力当作遗漏。
 
@@ -13,7 +13,7 @@
 - **现象**：受根约束原语没有自行拒绝 `..`（也没有拒绝绝对路径、空段、`.`、反斜杠、NUL 等非根内路径）。`resolve()` 直接把每个 segment 交给 `join()`；`..` 会先把当前路径退到根外，再由 `stat()` 返回成功。
 - **为什么是问题**：`RootedRoot` 是实际文件服务使用的受根约束边界；它的公开方法 `resolve/list/read/replace` 可以被后端消费者直接调用。只要有调用方绕过上层 `files-service` 的 `pathProblem()`，就能读、列出或替换方案根外文件，违反 `workspace.files` “根内相对路径”与 `platform.files` “任何路径形态经包含校验拒绝”的合同，且不是 `outside-root`/`invalid-address` 失败。
 - **依据与核实**：`workspace/resources.md` 输入与前置条件第 35 行、`workspace/files.md` 读取与保存第 61-63 行、`platform/files.md` 输入与前置条件第 43-46 行要求边界在文件能力处拒绝；运行命令（从 worktree 根执行）：
-  `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness bun -e '... openRoot(...).read("../outside/secret.md", 1024) ...'`
+  `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness bun -e '... openRoot(...).read("../outside/secret.md", 1024) ...'`
   实际结果为 `{ok: true, bytes: Uint8Array(...SECRET...), resolved.realPath: "../outside/secret.md"}`；不是推断。
 - **建议改法**：在 `rooted.ts` 的原语入口统一调用与资源地址同等严格的相对路径校验（至少拒绝绝对路径、`..`、`.`、空段、反斜杠、NUL、盘符形式，并以字节上限拒绝过长路径），再进入逐段解析；上层保留合同映射，但不能承担唯一安全边界。加入直接调用 `RootedRoot` 的越界读、列出、保存均被拒绝且根外数据不变的行为测试。
 ### 2. 阻断｜安全与竞态边界
@@ -60,7 +60,7 @@
 - **位置**：`packages/neuro-book/src/plugins/files/web/client.ts:168-173`（`SchemeWatch.#end`）
 - **现象**：`#end()` 先快照全部监听者并清空 `#listeners`，再逐个发送 `ended`。第一个监听者在自己的 `ended` 回调中释放第二个监听者时，第二个释放函数已无法改变待广播的快照，仍会收到一次回调。
 - **为什么是问题**：`shared/contracts.ts:167` 和计划第 86 行承诺释放后不再有回调。合法的消费者收口时序会违反此合同，例如一个结束回调卸载另一个视图并释放其监听后，已卸载视图仍被调用。普通 `#broadcast()` 已检查监听者是否仍活跃，但结束广播绕过了这条约束。
-- **依据与核实**：从 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness/probe.ts ended`，使用真实应用实例、远程路由和 `fs.watch`；移走根触发真实 `root-gone`。第一个 `ended` 回调先调用第二个监听者的释放函数，实际 `releasedSecond` 仍为 `[{"kind":"ready"},{"kind":"ended","reason":"root-gone"}]`。
+- **依据与核实**：从 worktree 根执行 `NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness bun /tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t68-impl/correctness/probe.ts ended`，使用真实应用实例、远程路由和 `fs.watch`；移走根触发真实 `root-gone`。第一个 `ended` 回调先调用第二个监听者的释放函数，实际 `releasedSecond` 仍为 `[{"kind":"ready"},{"kind":"ended","reason":"root-gone"}]`。
 - **建议改法**：每个监听句柄保留独立的活跃标志，释放时先清除，再从集合移除；包括结束快照在内的所有投递都核对此标志。补真实结束回调中交叉释放的用例，同时保持新订阅不被旧订阅的结束清理抹掉。
 
 ## 未发现问题的方面

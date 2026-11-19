@@ -1,5 +1,5 @@
 w00046 t08 实现审查第 1 轮：修复报告
-worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00046-t08-fix（分支 fix/w00046-t08-impl-r1，基于 d7de9fc33）
+worktree：/home/<user>/CodeRepository/neuro-book/.worktree/w00046-t08-fix（分支 fix/w00046-t08-impl-r1，基于 d7de9fc33）
 
 提交
 - d62fc9a6a  第 7 条（nb-host claim.ts）

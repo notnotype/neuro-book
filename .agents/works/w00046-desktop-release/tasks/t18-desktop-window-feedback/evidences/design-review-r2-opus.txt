@@ -1,4 +1,4 @@
-w00046 t18 设计审查第 2 轮（Claude Opus），审查对象：plan.md r2 的“最小尺寸”一片。只读；Linux 上用 Bun 1.4.4（与 pc-notype 安装包同版本）在 /tmp 做了 bun:ffi cc 的小实验，Windows 侧的结论标“从代码或文档推断”。
+w00046 t18 设计审查第 2 轮（Claude Opus），审查对象：plan.md r2 的“最小尺寸”一片。只读；Linux 上用 Bun 1.4.4（与 Windows 开发机 安装包同版本）在 /tmp 做了 bun:ffi cc 的小实验，Windows 侧的结论标“从代码或文档推断”。
 
 ### 1. 初始尺寸拿外框和“客户区最小值”比，r1 第 10 条只解决了一半；对话框也走 centered()
 - 严重程度：重要；类别：初始化几何、Spec 合同
@@ -18,10 +18,10 @@ w00046 t18 设计审查第 2 轮（Claude Opus），审查对象：plan.md r2 �
 
 ### 3. 运行时编译在用户机器上的可靠性只在一台开发机、ASCII 路径上证明过（源文件路径、头文件、user32 解析）
 - 严重程度：重要；类别：打包与部署、未验证的前提
-- 位置：plan.md 技术选型“最小尺寸”、关键设计“C 源 … 随 build.copy 进包（cc 读文件路径；包里的路径按 ICO 的做法解析）”“C 里用固定宽度类型”；验证的 Windows 部分只在 pc-notype 上；min-size-probe-r1.txt 第 1 条。
-- 现象：cc 只收源文件路径（Linux 实测：路径不存在时报 “tcc: error: file … not found”）。安装版在 %LOCALAPPDATA%\<identifier>\ 下，路径含 Windows 用户名；中文用户名在这个产品的用户里很常见。TinyCC 打开文件用的是窄字符 API，Bun 把 UTF-8 路径交给它，在代码页为 936 的系统上能否打开没有证据（推断有风险，未验证）。另外两点同样只在 pc-notype 上成立过：一是 `library: ["user32"]` 在干净机器上怎么解析到 user32（TinyCC 的库搜索路径不含 System32 时靠什么找到，探针没说明，不能排除依赖开发机上的文件）；二是计划写“固定宽度类型”，若实现时写 `#include <stdint.h>`，用户机器上没有头文件，探针那份源码是手写 typedef、没有 include。
-- 为什么是问题：失败时计划会降级（Linux 实测 cc 编译、找库、找符号失败都抛可捕获的 Error，不会崩），所以不是崩溃问题；但后果是相当一部分用户静默没有最小尺寸，只有壳日志一行，而验收在 pc-notype 的 ASCII 路径上全部通过，发现不了。
-- 如何核实：pc-notype 上把测试包装进含中文的目录（或建一个中文名的 Windows 账户）跑一次；在 Windows Sandbox（干净系统，无 SDK）里用安装包自带的 bun.exe 跑 sub-probe.ts。
+- 位置：plan.md 技术选型“最小尺寸”、关键设计“C 源 … 随 build.copy 进包（cc 读文件路径；包里的路径按 ICO 的做法解析）”“C 里用固定宽度类型”；验证的 Windows 部分只在 Windows 开发机上；min-size-probe-r1.txt 第 1 条。
+- 现象：cc 只收源文件路径（Linux 实测：路径不存在时报 “tcc: error: file … not found”）。安装版在 %LOCALAPPDATA%\<identifier>\ 下，路径含 Windows 用户名；中文用户名在这个产品的用户里很常见。TinyCC 打开文件用的是窄字符 API，Bun 把 UTF-8 路径交给它，在代码页为 936 的系统上能否打开没有证据（推断有风险，未验证）。另外两点同样只在 Windows 开发机上成立过：一是 `library: ["user32"]` 在干净机器上怎么解析到 user32（TinyCC 的库搜索路径不含 System32 时靠什么找到，探针没说明，不能排除依赖开发机上的文件）；二是计划写“固定宽度类型”，若实现时写 `#include <stdint.h>`，用户机器上没有头文件，探针那份源码是手写 typedef、没有 include。
+- 为什么是问题：失败时计划会降级（Linux 实测 cc 编译、找库、找符号失败都抛可捕获的 Error，不会崩），所以不是崩溃问题；但后果是相当一部分用户静默没有最小尺寸，只有壳日志一行，而验收在 Windows 开发机 的 ASCII 路径上全部通过，发现不了。
+- 如何核实：Windows 开发机上把测试包装进含中文的目录（或建一个中文名的 Windows 账户）跑一次；在 Windows Sandbox（干净系统，无 SDK）里用安装包自带的 bun.exe 跑 sub-probe.ts。
 - 建议改法：(1) 验收加这两项；(2) C 源不写任何 #include，全部手写声明（与探针一致），在计划里写明；(3) 路径问题若坐实，可用 GetShortPathNameW 取 8.3 短路径再交给 cc（8.3 关闭的卷上仍会失败，要降级记日志），或把源文件写到 ASCII 路径的目录。(4) 候选、交开发者权衡：不在运行时编译，构建时用 zig cc 或 mingw 交叉编译一个只含这个窗口过程的小 DLL（Linux 上能产出 x86_64-windows），运行时 dlopen 它。代价是构建链多一个编译器、包里多一个要签名的二进制；收益是没有 TinyCC、路径、头文件、库搜索这几类运行时前提。计划否决的是“重建 Electrobun 原生层”，这个独立小 DLL 的做法没有被比较过。
 
 ### 4. 最小化（IsIconic）时外框差同样不可信，计划只排除了最大化
@@ -56,7 +56,7 @@ w00046 t18 设计审查第 2 轮（Claude Opus），审查对象：plan.md r2 �
 - 如何核实：读计划这一条与探针 sub.c.txt（探针同样没有判空）。
 - 建议改法：prev 为 NULL 时 `return DefWindowProcW(hwnd, msg, w, l);`（多声明一个 DefWindowProcW）。读 nbook.minsize 为 0 时不改（计划的 max 写法已经满足，实现时保持）。
 
-### 8. 验收覆盖不到 DPI 换算：pc-notype 是 100%，换算与向上取整只在 C 里、没有测试
+### 8. 验收覆盖不到 DPI 换算：Windows 开发机 是 100%，换算与向上取整只在 C 里、没有测试
 - 严重程度：建议；类别：验收充分性
 - 位置：plan.md 验收映射 desktop-shell 一行；切片 3 的验证（只有类型检查、centered 单元测试与 Windows 验收）；min-size-probe-r1.txt 开头“2560x1440、100%”。
 - 现象：Spec 承诺“按窗口所在显示器的 DPI 换算”，实现是 C 里的“逻辑值 × DPI / 96 向上取整”“DPI 为 0 按 96”“差值为负不改”。在 100% 的机器上 DPI 恒为 96，这几条分支一条都走不到；Windows 验收也只在这台机器上跑。

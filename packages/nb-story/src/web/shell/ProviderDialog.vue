@@ -212,7 +212,7 @@ function save(): void {
         <div class="pd" data-provider-dialog>
             <div class="pd-grid">
                 <Field label="名称" :description="props.provider === null ? `id：${id}（由名称生成，建好后不能改）` : `id：${id}`">
-                    <Input v-model="name" placeholder="例如 jiji、公司网关" data-provider-name />
+                    <Input v-model="name" placeholder="例如公司网关、本机端点" data-provider-name />
                 </Field>
                 <Field label="接口">
                     <Select v-model="api" :options="APIS" data-provider-api />

@@ -2,13 +2,13 @@
 
 ## Relative documents refs
 
-- [WorldPreviewSchemaAttr 类型](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/utils/world-engine-preview.ts#L23-L32)
-- [WorldPreviewSchemaType 类型](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/utils/world-engine-preview.ts#L34-L38)
-- [SubjectStateDto 类型](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/world-engine/world-engine-workbench.types.ts#L42-L46)
-- [Zod Schema 定义](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/world-engine/schema/index.ts)
-- [现有 WorldEngineStateSummary 组件](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/world-engine/WorldEngineStateSummary.vue)
-- [现有 JsonViewer 组件](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/common/JsonViewer.vue)
-- [Inspector 中原有的快照区域](file:///c:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewInspector.vue#L554)
+- [WorldPreviewSchemaAttr 类型](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/utils/world-engine-preview.ts#L23-L32)
+- [WorldPreviewSchemaType 类型](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/utils/world-engine-preview.ts#L34-L38)
+- [SubjectStateDto 类型](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/world-engine/world-engine-workbench.types.ts#L42-L46)
+- [Zod Schema 定义](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/world-engine/schema/index.ts)
+- [现有 WorldEngineStateSummary 组件](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/world-engine/WorldEngineStateSummary.vue)
+- [现有 JsonViewer 组件](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/common/JsonViewer.vue)
+- [Inspector 中原有的快照区域](file:///c:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewInspector.vue#L554)
 
 ## User Request / Topic
 

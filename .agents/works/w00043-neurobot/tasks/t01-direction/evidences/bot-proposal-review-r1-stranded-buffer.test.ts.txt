@@ -1,6 +1,6 @@
 // 复现：运行中 send 进缓冲区的 followup，在运行以 error 收口、或只压缩的运行收口后，留在缓冲区里没人取。
 import {expect, test} from "bun:test";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 const {defineProfile} = await import(`${K}/extension/profile.ts`);
 

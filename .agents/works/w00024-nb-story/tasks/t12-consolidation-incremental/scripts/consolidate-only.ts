@@ -9,7 +9,7 @@
 //
 // --fake：不调用真实模型，起本机端点，每次回一份空的整理稿，核对只发出了整理请求、19 次都能跑完。
 //
-// 用法（仓库根执行，真实模型要 --env-file=.env 带上 JIJI_LUNA_*）：
+// 用法（仓库根执行，真实模型要 --env-file=.env 带上 NBOOK_LLM_*）：
 //   bun --env-file=.env <本文件> --pkg <nb-story 包目录> --out <输出目录> [--budget-dir <目录> --budget 3] [--fake]
 import {mkdir, readdir, readFile, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
@@ -74,9 +74,9 @@ if (values.fake) {
     stopFake = () => server.stop();
     endpoint = {baseUrl: server.url, model: "fake", apiKey: "fake", maxTokens: 32_000};
 } else {
-    const baseUrl = process.env.JIJI_LUNA_BASE_URL;
-    const apiKey = process.env.JIJI_LUNA_API_KEY;
-    if (!baseUrl || !apiKey) throw new Error("没有 JIJI_LUNA_BASE_URL 或 JIJI_LUNA_API_KEY（用 bun --env-file=.env 运行）");
+    const baseUrl = process.env.NBOOK_LLM_BASE_URL;
+    const apiKey = process.env.NBOOK_LLM_API_KEY;
+    if (!baseUrl || !apiKey) throw new Error("没有 NBOOK_LLM_BASE_URL 或 NBOOK_LLM_API_KEY（用 bun --env-file=.env 运行）");
     endpoint = {baseUrl, model: "gpt-6-luna", apiKey, maxTokens: 32_000};
 }
 

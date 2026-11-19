@@ -1,6 +1,6 @@
 # w00024 t03 S1 到 S5 与 Skill 只读审查
 
-审查对象：`138a1c60a` 的 `packages/nb-story` 及指定的包登记改动。以下源码位置均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t03-code-review/`。实验脚本保存在本报告同目录的 `lab/`；实验只操作临时书库。采用主工作区 `plan.md` 的“计划审查”已定决定，不把 worktree 中旧版计划的差异当成实现问题。
+审查对象：`138a1c60a` 的 `packages/nb-story` 及指定的包登记改动。以下源码位置均相对于 `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t03-code-review/`。实验脚本保存在本报告同目录的 `lab/`；实验只操作临时书库。采用主工作区 `plan.md` 的“计划审查”已定决定，不把 worktree 中旧版计划的差异当成实现问题。
 
 ### 1. 角色视角中按独立身份打开人物卡，实际返回另一身份的人物卡
 
@@ -8,7 +8,7 @@
 - **位置**：`packages/nb-story/src/core/api.ts:93-96`、`packages/nb-story/src/core/queries/entities.ts:38-40`。
 - **现象**：第 38 章以苏天晴为视角，关系图与名册将南嘉鱼 `e8-2`、地狱猫 `e33-1` 分成两个点，但 `entity.card(entity="e33-1")` 和 `entity.card(entity="地狱猫")` 都返回 `id="e8-2"`、`label="南嘉鱼"`、`entities=["e8-2"]`。人物卡的知情、说法、情节三个分页入口也共用这个错误的解析。
 - **为什么是问题**：`resolveEntity` 先按读者分组把输入 id 不可逆地折叠为 `e8-2`，`nodeFor` 再映射到角色分组，已经无法找回输入的 `e33-1`。查询角色尚未合并的两个身份，本应分别读取，实际交叉读取，破坏输出 5 的身份隔离。点击角色关系图中的地狱猫也会打开南嘉鱼。
-- **如何核实**：运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/queries.ts`。输出三次 `card`（输入分别为 `e8-2`、`e33-1`、`地狱猫`），三次结果均为 `{"id":"e8-2","label":"南嘉鱼","entities":["e8-2"],"identities":[]}`。
+- **如何核实**：运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/queries.ts`。输出三次 `card`（输入分别为 `e8-2`、`e33-1`、`地狱猫`），三次结果均为 `{"id":"e8-2","label":"南嘉鱼","entities":["e8-2"],"identities":[]}`。
 - **建议改法**：对象参数在当前查询分组中解析；原始对象 id 必须先保留再映射到该分组，名字匹配也在该分组中去重。视角人物自身的解析与普通查询对象的解析分开，不复用只返回读者代表 id 的接口。
 
 ### 2. 秘密矩阵把历史上的“知道”永久保留，忽略最新知情状态
@@ -44,7 +44,7 @@
 - **位置**：`packages/nb-story/src/cli/commands.ts:41-49`。
 - **现象**：`read 38.1-2-999 --at 38` 被当成 `38.1-2` 执行，退出码为 0，并返回 2 段原文。
 - **为什么是问题**：声明的范围语法只允许一个终点，错误输入应得到用法错误。`const [start, end] = value.split("-")` 没有检查剩余项，用户写错范围会得到被悄悄截断的成功结果。
-- **如何核实**：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/boundaries.ts` 输出 `decode ["read","38.1-2-999","--at","38"] {"code":0,"stdout":"38.1  第38章 猫咪营养挺高的\n38.2  【任务：猫咪营养高吗，已完成】  〔2 条记录〕\n","stderr":""}`。
+- **如何核实**：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/boundaries.ts` 输出 `decode ["read","38.1-2-999","--at","38"] {"code":0,"stdout":"38.1  第38章 猫咪营养挺高的\n38.2  【任务：猫咪营养高吗，已完成】  〔2 条记录〕\n","stderr":""}`。
 - **建议改法**：完整匹配输入语法，或显式要求分隔后的项数为 1 或 2；多余分隔符返回 `UsageError`，退出码 2。
 
 ### 6. 文件系统阶段的 serve 启动失败绕过退出码 3
@@ -107,7 +107,7 @@
 - **位置**：`packages/nb-story/package.json:12-14`、`packages/nb-story/src/core/index.ts:5-9`。
 - **现象**：包只导出核心库入口，既没有计划承诺的 `./contract` 子路径，核心库入口也没有导出 `storyContract`、`STORY_METHODS` 或公开结果 schema。
 - **为什么是问题**：queries 方法清单要求 schema 随包公开；已定计划明确通过 `exports["./contract"]` 提供。包外调用方无法经公开入口读取方法 schema 与查询类型，只能违反包边界深导入源码。
-- **如何核实**：运行 `node -e 'const r=require("node:module").createRequire("/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t03-code-review/packages/nb-story/package.json"); console.log("core",r.resolve("@notnotype/nb-story"));try{console.log(r.resolve("@notnotype/nb-story/contract"));}catch(e){console.log(e.code,e.message);}'`。核心入口解析成功，合同子路径返回 `ERR_PACKAGE_PATH_NOT_EXPORTED Package subpath './contract' is not defined by "exports"`。
+- **如何核实**：运行 `node -e 'const r=require("node:module").createRequire("/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t03-code-review/packages/nb-story/package.json"); console.log("core",r.resolve("@notnotype/nb-story"));try{console.log(r.resolve("@notnotype/nb-story/contract"));}catch(e){console.log(e.code,e.message);}'`。核心入口解析成功，合同子路径返回 `ERR_PACKAGE_PATH_NOT_EXPORTED Package subpath './contract' is not defined by "exports"`。
 - **建议改法**：按计划增加 `./contract` 的公开导出，并经包名做真实消费检查，确认消费者不必跨包深导入即可获得方法 schema 与类型。
 
 ### 13. Skill 把所有 unaware 记录解释为原文明确写明，忽略推断标记
@@ -125,7 +125,7 @@
 - **位置**：`packages/nb-story/src/core/queries/timeline.ts:27-41`；覆盖缺口见 `packages/nb-story/src/core/queries/timeline.test.ts:20-27`。
 - **现象**：样例书的默认故事时间线先给 `t64-2`（`day=21`、`part="evening"`），紧接着给 `t64-3`（`day=20`、`part="night"`）；后者的相对时间还明确写为前者“之前 1 天”。第 64 章与第 100 章的位置都能看到这个次序。
 - **为什么是问题**：queries 输出 12 要求按第几天、时段、同一天内的先后排序。实现只信任数据中的 `order`（这两点分别是 115、116），没有让已知日子参与排序；真实样例的结果与其自己的日子、相对时间矛盾。现有测试名称写“按故事时间排”，实际只检查存在补叙、补叙字段与章号相同，以及另一个 `order=source` 分支的章号有序，完全未断言默认排序。
-- **如何核实**：运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/timeline-order.ts`，经公开 API 得到 `backwardsKnownDays` 中恰有上述一组逆序；`timelineAt64` 仍是先 21 后 20。对原始样例的 `lab/sample-invariants.ts` 检查同时显示这两个 `order` 值。包内 128 条测试全部通过，不能检出这个问题。
+- **如何核实**：运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/timeline-order.ts`，经公开 API 得到 `backwardsKnownDays` 中恰有上述一组逆序；`timelineAt64` 仍是先 21 后 20。对原始样例的 `lab/sample-invariants.ts` 检查同时显示这两个 `order` 值。包内 128 条测试全部通过，不能检出这个问题。
 - **建议改法**：已知日子的故事顺序首先按日子和时段决定，数据中的 `order` 仅用于同一天内仍需区分的先后；未知日子保留独立组。补叙判定使用同一套故事时间比较，避免排序与标记各用一套含义。用真实样例这两点断言结果顺序与相对时间一致。
 
 ### 15. 停止时撤销登记失败会让服务继续监听，之后的中断也不能完成清理
@@ -134,7 +134,7 @@
 - **位置**：`packages/nb-story/src/server/serve.ts:81-92`、`packages/nb-story/src/server/registry.ts:58-60`。
 - **现象**：服务启动后，将临时书库目录权限改为 `0500` 再发 SIGTERM，撤销 `.serve.json` 报权限错误。等待 2 秒后进程仍未退出，登记仍在，HTTP 仍返回 401。恢复权限后再发 SIGINT 也无法完成停止，实验最后用 SIGKILL 才结束。
 - **为什么是问题**：`stop` 在第一步就把 `stopping` 置为 true，但 `await lock.withdraw()` 没有异常收口；失败后 `server.stop(true)`、`lock.release()` 和 `resolve(0)` 均不会执行，后续信号又被 `stopping` 拦住。一个登记文件的删除失败不应让服务无法关闭并永久持锁。权限变化、只读文件系统与 I/O 失败都是文件系统边界可发生的失败。
-- **如何核实**：运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/shutdown-failure.ts`，真实 CLI 服务 PID 为 `3657946`；输出 `shutdown.result="still-running"`、`registration=true`、`stillListening 401`，错误日志指向 `withdraw` 的 `rm`，最终 `finalExit 137`。脚本在 finally 恢复临时目录权限并等待该 PID 退出，未留下服务。
+- **如何核实**：运行 `bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/shutdown-failure.ts`，真实 CLI 服务 PID 为 `3657946`；输出 `shutdown.result="still-running"`、`registration=true`、`stillListening 401`，错误日志指向 `withdraw` 的 `rm`，最终 `finalExit 137`。脚本在 finally 恢复临时目录权限并等待该 PID 退出，未留下服务。
 - **建议改法**：保留撤销登记先于停止监听的正常顺序，但停止流程使用 finally 保证关闭监听与释放锁，登记失败保留诊断并返回适当的失败退出码；重复中断不应把失败的停止流程锁死。用真实服务测试文件系统失败后的监听、锁与退出状态。
 
 ### 16. 服务测试的通用收尾全部强杀，无法发现正常停止失败
@@ -183,7 +183,7 @@
 独立实验均经真实临时书库、公开 API 或真实 CLI/HTTP 边界执行；不修改产品实现。脚本的可重跑命令如下，`REVIEW_LAB` 是本报告的实验目录：
 
 ```bash
-REVIEW_LAB=/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab
+REVIEW_LAB=/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab
 bun "$REVIEW_LAB/queries.ts"
 bun "$REVIEW_LAB/boundaries.ts"
 bun "$REVIEW_LAB/provenance.ts"

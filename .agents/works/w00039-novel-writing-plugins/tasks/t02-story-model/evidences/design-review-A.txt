@@ -1,5 +1,5 @@
 w00039 t02 只读设计审查 A：领域模型与后端设计
-审查对象：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t02-review-A/docs/proposals/world-engine-kernel.md（reviewing，用户指定提交 cee1e1915）。
+审查对象：/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t02-review-A/docs/proposals/world-engine-kernel.md（reviewing，用户指定提交 cee1e1915）。
 范围：第四节 1—6、8、10 小节，第五至七节；界面仅审影响模型的合同。
 证据方式：逐条对照提案、开发者决定、相关 Spec 与实现；不运行测试、e2e 或开发服务，不修改仓库。
 

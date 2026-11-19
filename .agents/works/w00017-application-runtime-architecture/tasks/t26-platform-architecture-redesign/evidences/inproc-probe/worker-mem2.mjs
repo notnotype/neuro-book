@@ -1,7 +1,7 @@
 import {Worker} from "node:worker_threads";
 import {createRequire} from "node:module";
 import {pathToFileURL} from "node:url";
-const req = createRequire("/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/package.json");
+const req = createRequire("/home/<user>/CodeRepository/neuro-book/packages/neuro-book/package.json");
 const mode = process.argv[2]; const n = 10;
 const libs = mode === "empty" ? [] : ["zod", "yaml", "marked", "dayjs", "vue"].map((m) => pathToFileURL(req.resolve(m)).href);
 const rss = () => process.memoryUsage().rss / 1048576;

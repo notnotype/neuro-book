@@ -17,7 +17,7 @@ updated: 2026-11-16
 
 2026-11-15 经 nbdev 新建。2026-11-16 做了桌面调研（[research-r1](evidences/research-r1.md)）：Electrobun 2.0.6 缺省时用英文消息框问通知权限，可在构建配置里自动授予；不处理 `NotificationReceived`，所以显示的是 WebView2 的缺省通知界面，它在 Windows 上的样子与点击行为要实测才知道，这决定只写页面一侧还是要壳自己发 Toast。
 
-## 探针结果（2026-11-17，pc-notype，缺省构建）
+## 探针结果（2026-11-17，Windows 开发机，缺省构建）
 
 证据见 [probe-r1.txt](evidences/probe-r1.txt)。结论：**页面一侧的 `Notification` 在这个壳里不进系统通知**，要壳自己发。
 

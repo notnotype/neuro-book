@@ -87,7 +87,7 @@ bun evals/generator/repair.ts --check
 bun evals/generator/repair.ts --genre gongdou --plot zhenhuan-zhuan --model deepseek/deepseek-v4-flash --limit 1
 bun evals/generator/repair.ts --genre gongdou --plot zhenhuan-zhuan --model elysiver-gemini/gemini-3.1-pro --limit 1
 bun evals/generator/repair.ts --genre light-novel --plot villain-loli --model xiaomi-token-plan-cn/mimo-v2.5-pro --limit 1
-bun evals/generator/repair.ts --genre light-novel --plot villain-loli --model anyrouter-codex/gpt-5.5 --limit 1
+bun evals/generator/repair.ts --genre light-novel --plot villain-loli --model relay-codex/gpt-5.5 --limit 1
 bun evals/detector/detect.ts        # 旧样本走 sidecar 缓存，只对 repair 新打分
 bun evals/score.ts --min-support 3  # report.repair 出数
 ```

@@ -103,7 +103,7 @@
 - **位置**：计划第 44、65–66、78、98 行；`packages/nb-session/src/memory-log.ts:55-77`、`packages/nb-agent-ui/src/harness.ts:114-130,279-303`
 - **现象**：同一份第一轮日志末尾为 seq 4 时，网页与 CLI 各自恢复内存日志，两个第二轮都会写 seq 5、6、7，但内容不同。CLI 先保存、网页后保存得到 `conflict` 是允许的。此时页面若 `qa.get` 先取到 CLI 的日志，再补发网页运行中的条目，网页第二问/答全被当作重复 seq 丢掉；反向先看网页分支，再把磁盘权威日志增量喂入，则 CLI 的第二问/答全被丢掉。
 - **为什么是问题**：输出 25 的保存冲突只防覆盖，不提供分支共享序列。`createHarnessTranscript` 去重的前提是同一条 append-only 日志，而不是“同一对话 id 下的任意版本”。最终结果、没核实出处的附注和下一轮历史会分别来自不同分支；仅在 `turn_end` 写“没保存”并不能恢复一致性。
-- **如何核实**：已运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/sequence-probe.ts`，cwd 为主工作区 `packages/nb-story`。真实 `createHarness` 分别从同一份日志恢复，两个后缀均为 seq 5–7；真实适配器的“GET 后补发”仅显示 CLI 第二答，“直播后重读磁盘”仅显示网页第二答。另一个 `runtime-probe.ts` 经真实 `askQuestion` 同时续问，先完成者 `recordSaved: true`、后完成者 `recordSaved: false/conflict`。未伪造模型调度或条目顺序。
+- **如何核实**：已运行 `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/sequence-probe.ts`，cwd 为主工作区 `packages/nb-story`。真实 `createHarness` 分别从同一份日志恢复，两个后缀均为 seq 5–7；真实适配器的“GET 后补发”仅显示 CLI 第二答，“直播后重读磁盘”仅显示网页第二答。另一个 `runtime-probe.ts` 经真实 `askQuestion` 同时续问，先完成者 `recordSaved: true`、后完成者 `recordSaved: false/conflict`。未伪造模型调度或条目顺序。
 - **建议改法**：保留已定的 CLI 并行保存冲突取舍；为每次运行增加不可复用的 `runId` 和基础日志摘要/末尾 seq，`qa.get` 与 SSE 握手返回相同身份。客户端发现基础版本或已保存分支改变时整体重建 transcript，不把另一分支按 seq 增量合并；未保存的本地结果作为独立临时轮展示并说明下一次续问基于哪份已保存历史。测试覆盖 CLI 先保存与网页先保存，以及 GET 在并行保存之前/之后两种顺序。
 
 ### 7. 第 N 轮不等于日志里第 N 个用户提问
@@ -127,7 +127,7 @@
 - **位置**：计划第 37–38、60、86–87、117 行；`packages/nb-harness/src/harness.ts:244-248`、`packages/nb-harness/src/redact.ts:19-21`、`packages/nb-harness/src/sse.ts:56-59`
 - **现象**：harness 只在 `message_end` 遮盖当前助手消息的 `errorMessage`；订阅者仍可收到未遮盖的其他消息快照。真实 OpenAI 兼容端点 401 回显认证头时，原样 `serializeAgentEvent()` 的第二个 `message_start`、`turn_end`、`agent_end` 都包含假密钥。结果与日志不包含密钥，不意味着事件安全。
 - **为什么是问题**：计划把所有 `Harness.subscribe` 事件原样推给网页，同时承诺任何响应不含密钥，两者不相容。浏览器是否渲染该字段无关：完整密钥已进入 SSE 网络响应，且多标签页订阅都会收到。现有只扫描落盘/CLI 输出的 qa 输出 17 测试挡不住这条新增泄漏路径。
-- **如何核实**：已运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/event-probe.ts`（cwd 主工作区 `packages/nb-story`）。真实 harness、真实 OMP provider 与 `testing/openai-endpoint.ts` 的本机 401 协议端点，1 次请求；8 个事件全部能序列化，其中 3 个 `leaked: true`，`resultLeaked: false`、`logLeaked: false`。只使用脚本内假密钥，不读取真实凭据；端点已停止。
+- **如何核实**：已运行 `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/event-probe.ts`（cwd 主工作区 `packages/nb-story`）。真实 harness、真实 OMP provider 与 `testing/openai-endpoint.ts` 的本机 401 协议端点，1 次请求；8 个事件全部能序列化，其中 3 个 `leaked: true`，`resultLeaked: false`、`logLeaked: false`。只使用脚本内假密钥，不读取真实凭据；端点已停止。
 - **建议改法**：不要把“原样 AgentEvent”当成已脱敏的传输合同。优先在 nb-harness 的公开事件出口统一处理所有错误快照及嵌套消息，保证事件、结果与日志相同的脱敏不变量；或定义网页所需最小事件 DTO，在服务端丢弃原始 provider 错误字段。测试必须扫描每一条真实序列化 SSE 数据，不只扫描 DOM、最终结果和文件；覆盖 HTTP 错误及流中途错误。
 
 ### 10. 整份 config.set 绕开了 CLI 的密钥变量名拒绝规则
@@ -175,7 +175,7 @@
 - **位置**：计划第 37–43、48、53–54、86 行；`packages/nb-harness/src/harness.ts:141-160,244-248,294-305`
 - **现象**：计划把 `onLogEntries` 放进 SessionLog.append 的包装中，append 返回编号条目后通知；没有定义通知回调的异常隔离。若 SSE listener 对已取消/关闭的流 enqueue 抛错，包装 append 在内存日志已经写入后 reject；harness 将其判为真实日志写失败，置会话 broken。`onAgentEvent` 同样在 harness 写 `message_end` 之前执行，某个 listener 抛错会阻断后面的写日志分支，并使其他订阅者漏通知。
 - **为什么是问题**：页面断开本应只退订、不影响后台问答。观察者异常不应改变模型结果或持久化语义；仅保证连接断开时调用 off，仍需处理已排队通知与取消的竞争。多标签页时，一个慢/已关的消费者也不能影响其他消费者。
-- **如何核实**：已运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/log-observer-probe.ts`（cwd 主工作区 `packages/nb-story`）。使用真实 createHarness、真实内存日志、正常脚本模型回答；仅在包装 append 已成功写入助手消息之后让通知抛错。观察到运行由正常回答变为 `stopReason:error/local`；结果 entries 只有 seq 2，而底层日志已含 seq 1–4（含助手消息与 usage），且 run_end 无法追加。这是所依赖机制的真实运行证据，不把假设的 SSE 断开时序冒充已实现 HTTP 缺陷。
+- **如何核实**：已运行 `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/log-observer-probe.ts`（cwd 主工作区 `packages/nb-story`）。使用真实 createHarness、真实内存日志、正常脚本模型回答；仅在包装 append 已成功写入助手消息之后让通知抛错。观察到运行由正常回答变为 `stopReason:error/local`；结果 entries 只有 seq 2，而底层日志已含 seq 1–4（含助手消息与 usage），且 run_end 无法追加。这是所依赖机制的真实运行证据，不把假设的 SSE 断开时序冒充已实现 HTTP 缺陷。
 - **建议改法**：将通知作为与日志写入结果隔离的旁路；逐订阅者捕获传输失败并退订/清理心跳，不使 append reject，也不阻断其他 listener 或 harness 的持久化路径。通知队列必须保序，回调仅接收只读条目。合同测试覆盖已连接的两个标签页中一个先关闭、另一个仍完整收到结果，以及 listener 抛错但结果与保存不变。
 
 ## 第 12 条的证据修正
@@ -216,14 +216,14 @@ OpenAI completions 的真实线格式（当前 qa 固定走此 provider）在 `n
 
 ## 已执行验证与限制
 
-代码定位均相对 detached 审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t13-design`。计划、Task 决定与 Spec 读主工作区；前段误读主工作区代码后，已用审查 worktree 的同文件内容重新核对关键依据。实验按授权在主工作区 `packages/nb-story` 运行，脚本、隔离书库与配置均写在本报告目录下；没有改产品代码、测试、Spec、计划或 Task。
+代码定位均相对 detached 审查 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/review-t13-design`。计划、Task 决定与 Spec 读主工作区；前段误读主工作区代码后，已用审查 worktree 的同文件内容重新核对关键依据。实验按授权在主工作区 `packages/nb-story` 运行，脚本、隔离书库与配置均写在本报告目录下；没有改产品代码、测试、Spec、计划或 Task。
 
-| 实际命令（cwd 均为 `/home/notnotype/CodeRepository/neuro-book/packages/nb-story`） | 结果 |
+| 实际命令（cwd 均为 `/home/<user>/CodeRepository/neuro-book/packages/nb-story`） | 结果 |
 |---|---|
-| `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/runtime-probe.ts` | 退出 0，1.34 秒；真实引擎缺密钥首轮与成功续问仅 1 条用户日志；并行续问先保存成功、后保存 conflict；整份配置接受并落盘假密钥形状变量名。 |
-| `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/sequence-probe.ts` | 退出 0，1.05 秒；真实 harness 两分支均用 seq 5–7，适配器无法按 seq 合并；10 组真实配置并发写有 9 次拒绝、10 组成功返回/磁盘不一致。 |
-| `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/event-probe.ts` | 退出 0；真实 provider 与本机协议端点 1 次 HTTP 401；8 个事件全部可序列化、3 个含假密钥；结果和日志不含，端点已关闭。 |
-| `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/log-observer-probe.ts` | 退出 0；真实 harness 在日志已 append 后通知异常，运行改为 local error，返回条目与已存内存条目不同。 |
+| `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/runtime-probe.ts` | 退出 0，1.34 秒；真实引擎缺密钥首轮与成功续问仅 1 条用户日志；并行续问先保存成功、后保存 conflict；整份配置接受并落盘假密钥形状变量名。 |
+| `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/sequence-probe.ts` | 退出 0，1.05 秒；真实 harness 两分支均用 seq 5–7，适配器无法按 seq 合并；10 组真实配置并发写有 9 次拒绝、10 组成功返回/磁盘不一致。 |
+| `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/event-probe.ts` | 退出 0；真实 provider 与本机协议端点 1 次 HTTP 401；8 个事件全部可序列化、3 个含假密钥；结果和日志不含，端点已关闭。 |
+| `bun --no-env-file /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/log-observer-probe.ts` | 退出 0；真实 harness 在日志已 append 后通知异常，运行改为 local error，返回条目与已存内存条目不同。 |
 
 实验是对计划依赖的实际机制进行验证，不是不存在的 QaService/网页实现测试。没有调用真实模型，没有使用真实凭据；没有 bun install、e2e、开发服务、全包测试、类型检查、Git 写操作或子代理。实验中的脚本模型只替换模型输出，Agent 调度、harness 与会话日志均真实；事件脱敏探针还经过真实 provider/本机 HTTP。早期 runtime-probe 中的合成分支演示在运行前已移除；seq 分支结论来自之后实际运行的两个 harness。日志通知抛错是对拟议扩展点的故障注入，不声称已观察到尚未实现的 SSE 路由断开竞态。
 
@@ -248,7 +248,7 @@ OpenAI completions 的真实线格式（当前 qa 固定走此 provider）在 `n
 ---- Sonnet 报告原文 ----
 # t13 网页部分设计审查（Sonnet）
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t13-qa-web/plan.md` 的“网页”一节、切片 2 到 4、已定的取舍 2、3，与 viewer.md 改动。代码依据：审查 worktree（提交 ed349f819）。凡标“从代码推断”的没有在浏览器里复现。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t13-qa-web/plan.md` 的“网页”一节、切片 2 到 4、已定的取舍 2、3，与 viewer.md 改动。代码依据：审查 worktree（提交 ed349f819）。凡标“从代码推断”的没有在浏览器里复现。
 
 ### 1. 新对话的第一轮在落盘前根本不存在：列表、刷新、页头元数据都没有来源
 

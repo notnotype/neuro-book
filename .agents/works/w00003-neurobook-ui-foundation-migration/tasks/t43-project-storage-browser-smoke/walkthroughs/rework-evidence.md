@@ -11,7 +11,7 @@
 
 ## 1. 命令、cwd 与退出码
 
-cwd 一律为 worktree 内绝对路径 `C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`。
+cwd 一律为 worktree 内绝对路径 `C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book`。
 
 | # | 命令 | 退出码 | 结果 |
 |---|------|--------|------|
@@ -147,7 +147,7 @@ stdout 前面会混入生产模块的 `workspace-history` info 日志，最终 J
 
 ## 4. 隔离根、端口与关闭结果（最终运行）
 
-- 隔离根：`C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\nb-t43\c4cd5038`（scratch 根 `…\Temp\neuro-book` 之下）
+- 隔离根：`C:\Users\USER~1\AppData\Local\Temp\neuro-book\nb-t43\c4cd5038`（scratch 根 `…\Temp\neuro-book` 之下）
 - HTTP：`http://storage.test:2091/`，`listen(0, "127.0.0.1")`；未访问、复用或停止 `localhost:3001`
 - data 存储根：`…\c4cd5038\state\workspace\.nbook\storage`
 - Project 存储根：`…\state\workspace\alpha\.nbook\storage`、`…\state\workspace\beta\.nbook\storage`
@@ -163,5 +163,5 @@ stdout 前面会混入生产模块的 `workspace-history` info 日志，最终 J
   脚本的形态校验对它两种拼写都拒绝，并把实际位置补进拒删名单。
 - 偏差 2：负面对照（§1 表 A）暴露的是**脚本自身**的覆盖语义问题（失败的 `open` 会先销毁可用槽，导致后续重建的 `replaced` 期望不成立），
   已改为「先签发成功再释放旧槽」；不是产品适配器缺陷，也未被改写成通过。
-- 偏差 3：`isolated.root`/`cleanup`/stderr 打印使用系统 Temp 的 8.3 短名（`NOTNOT~1`），
+- 偏差 3：`isolated.root`/`cleanup`/stderr 打印使用系统 Temp 的 8.3 短名（`USER~1`），
   而 `ready.workspace.root` 经 Project Lifecycle realpath 后是长名；两者是同一目录的两种拼写。

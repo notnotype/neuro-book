@@ -5,7 +5,7 @@
 - 位置：`packages/nb-harness/src/kernel/session/session.ts:292`、`:295`、`:300`；`packages/nb-harness/src/kernel/dispatch/core.ts:362`。
 - 现象：有 `outbound` 时每个订阅建立 Promise 队列，但返回的取消函数只移除 core listener。队列没有取消标记，已经排入的工作仍调用用户 listener；`core.close()` 清空集合也不能使这些工作失效。
 - 为什么是问题：违反 runtime 输出 53 的“清空订阅”与订阅释放语义。慢过滤返回后会向已经卸载的界面或断开的远程连接继续发送历史帧，队列保留期间也继续持有回调及整段帧。
-- 如何核实：在真实 `createTestSession` 中让 `outbound.event` 等待手动 gate，运行结束后取消订阅并 `await closeSession`，再释放 gate。命令：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/host-probes.ts`。实测释放前 0 帧，取消并关闭之后收到 14 帧（10 个 log、4 个 status；实际类型列表见实验输出）。该脚本后一个关闭竞态实验另产生 `SessionClosedError`，不影响本条已完成的观测。
+- 如何核实：在真实 `createTestSession` 中让 `outbound.event` 等待手动 gate，运行结束后取消订阅并 `await closeSession`，再释放 gate。命令：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/host-probes.ts`。实测释放前 0 帧，取消并关闭之后收到 14 帧（10 个 log、4 个 status；实际类型列表见实验输出）。该脚本后一个关闭竞态实验另产生 `SessionClosedError`，不影响本条已完成的观测。
 - 建议改法：订阅持有可取消的生命周期状态；取消或会话关闭时同步使排队工作失效，过滤返回后交帧前再次检查。为 Promise 队列定义回调失败后的收口，避免一次 listener 抛错导致全部后续帧静默停掉。
 
 ### 2. 重要｜正确性：消息仅浅冻结时，内容变化仍命中旧请求摘要
@@ -13,7 +13,7 @@
 - 位置：`packages/nb-harness/src/kernel/run/model-call.ts:52`、`:56`，关联 `:38`；`packages/nb-harness/src/kernel/state/freeze.ts:3`。
 - 现象：新增 WeakMap 仅凭 `Object.isFrozen(message)` 缓存摘要。JS 的浅冻结不保证 content、toolCalls、参数或 provider 元数据不可变；`freezeRequest` 遇到已冻结的顶层请求直接返回，`deepFreeze` 遇到浅冻结消息也不遍历子树。
 - 为什么是问题：同一次拦截调用先后向模型发出内容不同的请求，会写出完全相同的 `modelStarted.hash`，破坏 runtime 输出 22 的请求审计。拦截返回新对象是公开支持的写法，第三方返回 `Object.freeze({...request, messages})` 即可触发；不能把“对象冻结”当成“对象图不可变”。父提交每次序列化整个请求，没有缓存过时的这一后果。
-- 如何核实：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/preview-hash-probes.ts`，经真实 `createTestSession` 的模型拦截链，两次 `next` 分别发出“原内容”“内容已改”，两个 hash 均为 `73cf034c4d0331e6fdfadca16ed329c212aa7144e9c5a76b60bd2c0fad694991`。store 包装仅在真实 modelStarted 写入时观察消息，不直接调用哈希内部函数。
+- 如何核实：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/preview-hash-probes.ts`，经真实 `createTestSession` 的模型拦截链，两次 `next` 分别发出“原内容”“内容已改”，两个 hash 均为 `73cf034c4d0331e6fdfadca16ed329c212aa7144e9c5a76b60bd2c0fad694991`。store 包装仅在真实 modelStarted 写入时观察消息，不直接调用哈希内部函数。
 - 建议改法：仅缓存由内核确实递归冻结过的消息（例如以单独 WeakSet 标记已验证对象图）；对外部浅冻结对象仍遍历子树，或不按身份缓存它。补同一消息对象的嵌套内容变化用例，现有测试只测换一个消息对象。
 
 ### 3. 重要｜不变量：预览的未冻结消息可污染提交缓存，改变下一次真实请求
@@ -37,7 +37,7 @@
 - 位置：`packages/nb-harness/src/kernel/run/chain.ts:67`、`:79`、`:107`；`packages/nb-harness/src/kernel/dispatch/reactions.ts:55`、`:66`；`packages/nb-harness/src/kernel/session/session.ts:430`。
 - 现象：撤回只给 core.revoked 加 id；chainLayers 创建快照后，runChain 真正进入每层及 next 时不再检查，反应完成、提交输出之前也不检查撤回状态，已有 ctx.signal 不会被撤回触发。
 - 为什么是问题：runtime 输出 57、extensions 输出 26 承诺撤回后本次运行跳过入口，但外层慢拦截先挂起时，撤回的里层尚未执行，恢复后仍执行；正在等待的反应也能在撤回后继续往日志追加扩展事实。卸载后的旧插件仍可改请求、写状态或执行副作用。
-- 如何核实：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/plugin-probes.ts`，均通过真实 createAgentHost.create / SessionApi.send。外层模型拦截等待 gate 时撤回里层，再放行，实测被撤回里层调用次数 1。assistant 反应等待 gate 时撤回，再放行 emit，日志仍多出 1 条 `lab.reaction/leak`。
+- 如何核实：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/plugin-probes.ts`，均通过真实 createAgentHost.create / SessionApi.send。外层模型拦截等待 gate 时撤回里层，再放行，实测被撤回里层调用次数 1。assistant 反应等待 gate 时撤回，再放行 emit，日志仍多出 1 条 `lab.reaction/leak`。
 - 建议改法：派发入口和每次 next 动态检查 inactive；以扩展为 owner 持有调用的取消信号，撤回时使在途调用失效；反应收集结果写入之前重新核验，丢弃撤回后的输出并诊断。归约仍按合同继续。
 
 ### 6. 重要｜不变量：自动重新装配没有生命周期屏障，mount 未完成即可运行和关闭
@@ -61,7 +61,7 @@
 - 位置：`packages/nb-harness/src/kernel/session/session.ts:268`、`:270`；`packages/nb-harness/src/kernel/api/host.ts:169`。
 - 现象：先取原日志的 limit 条再过滤，more 按原日志计算；响应只给过滤后的 events 和整个会话 head，没有“已扫描到的 seq”。连续 limit 条被隐藏时响应为 events 空、more true。
 - 为什么是问题：消费者无法知道下一次 afterSeq 应填什么；用最后可见 seq 会永远取同一空页，用 head 跳过则漏掉后面的可见事件。运行结束前任意一页被完全过滤即可触发，破坏断线补日志的公开用途。
-- 如何核实：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/outbound-preview-probes.ts`。真实会话入队 260 次，过滤 inputQueued 与 commandAccepted，再写可见标题；`log({afterSeq:2})` 实测 `{events:[],head:524,more:true}`，实际后面还有 seq 523 的 titleChanged；把 limit 增至 1000 才看到它。
+- 如何核实：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/outbound-preview-probes.ts`。真实会话入队 260 次，过滤 inputQueued 与 commandAccepted，再写可见标题；`log({afterSeq:2})` 实测 `{events:[],head:524,more:true}`，实际后面还有 seq 523 的 titleChanged；把 limit 增至 1000 才看到它。
 - 建议改法：响应增加已扫描到的 nextAfterSeq（不能用 head 替代）；或扫描直到收集 limit 个可见事件/到达固定读取边界，并让消费者可明确推进。补整页隐藏、尾页隐藏、过滤异步期间新日志到达的分页场景。
 
 ### 9. 重要｜正确性：预览把模型拦截抛错和超时全部静默隐藏
@@ -79,7 +79,7 @@
 - 位置：`packages/nb-story/tests/kernel-acceptance/story-qa.test.ts:150`、`:169`、`:178`、`:188`；`packages/nb-harness/src/kernel/testing/model.ts:63`。
 - 现象：场景 5 只实现 outbound.event，没有 delta 过滤；订阅观察也只收 log 帧。脚本模型从不调用 onDelta，整条真实模型最早输出的路径完全没被测到。
 - 为什么是问题：第 10 片门声称“给人看的日志与帧搜不到夏桃桃”，真实 OMP 会推 thinking_delta 和 toolcall_delta（model/omp.ts:219–223），会话把它们原样转成 delta。该门无法保护 story.qa 输出 43 的过程防剧透，迁移照抄测试过滤就会直接泄漏被隐藏的思考和搜索词。
-- 如何核实：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/gate-mutations.ts`。Bun.build 在内存中把同一脚本 ModelPort 改成按协议发 thinking/toolArgs 增量，产品代码和原有 18 个断言不改；只追加观察原始 delta 的打印。真实 createTestSession 输出 `LEAKED_DELTA thinking 想想夏桃桃`、`LEAKED_DELTA toolArgs {"query":"夏桃桃"}`，仍 **4 pass、0 fail、18 次断言**。负对照撤掉 event 的用户过滤后 **3 pass、1 fail**，证明门对日志过滤确有作用、对 delta 无作用。初次打包依赖错误未计证据；正确实验产物 `gate-streaming-r2.txt`、`gate-no-filter-r2.txt` 位于同一 lab。
+- 如何核实：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/gate-mutations.ts`。Bun.build 在内存中把同一脚本 ModelPort 改成按协议发 thinking/toolArgs 增量，产品代码和原有 18 个断言不改；只追加观察原始 delta 的打印。真实 createTestSession 输出 `LEAKED_DELTA thinking 想想夏桃桃`、`LEAKED_DELTA toolArgs {"query":"夏桃桃"}`，仍 **4 pass、0 fail、18 次断言**。负对照撤掉 event 的用户过滤后 **3 pass、1 fail**，证明门对日志过滤确有作用、对 delta 无作用。初次打包依赖错误未计证据；正确实验产物 `gate-streaming-r2.txt`、`gate-no-filter-r2.txt` 位于同一 lab。
 - 建议改法：给测试模型加入与真实适配器一致的流式场景；收集全部出站帧并逐项断言，过滤或抑制 thinking/toolArgs 增量（不能仅按单个 chunk 搜完整敏感词，需处理分片）。日志路径、流式路径都应有会失败的反例。
 
 ### 11. 重要｜正确性：进程中断把尚未开始的工具也结算成 unknown
@@ -87,7 +87,7 @@
 - 位置：`packages/nb-harness/src/kernel/run/tools.ts:196`、`:317`、`:346`；`packages/nb-harness/src/kernel/session/session.ts:492`。
 - 现象：ProcessInterrupt 只把 unfinished 的 code 改成 interrupted，未区分写过 toolStarted 的调用与还在后续段、尚未审批/建实现的调用。未开始的同样得到 `status: unknown, code: interrupted`。
 - 为什么是问题：runtime 输出 53 要求与打开恢复同样结算，输出 34 和 session 输出 15 明确还没开始的调用为 denied/interrupted-before-approval。当前主动停服和崩溃后恢复对同一条调用给出不同结果，宿主无法分清“执行结果未知”与“根本没执行”。普通 abort 的既有 unknown 语义不在本条修改范围。
-- 如何核实：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/interrupt-preview-boundaries.ts`。真实会话模型同批请求两个 exclusive 工具；第一个开始后不返回，第二个始终没调用（secondStarted false）。`closeSession(...,{reason:"interrupted"})` 并推进注入时钟 2,000 ms 后，2 个 toolResult 都为 unknown/interrupted，仅第一个有 toolStarted。
+- 如何核实：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/interrupt-preview-boundaries.ts`。真实会话模型同批请求两个 exclusive 工具；第一个开始后不返回，第二个始终没调用（secondStarted false）。`closeSession(...,{reason:"interrupted"})` 并推进注入时钟 2,000 ms 后，2 个 toolResult 都为 unknown/interrupted，仅第一个有 toolStarted。
 - 建议改法：进程收尾复用恢复的判定，按每个 callId 是否已有 toolStarted 区分；没开始的 denied/interrupted-before-approval，开始没结果的 unknown/interrupted。保留宽限期内实际完成结果优先的约定。
 
 ### 12. 建议｜正确性：预览 token 估算漏算工具调用参数和消息元数据
@@ -105,7 +105,7 @@
 - 位置：`packages/nb-harness/src/kernel/session/session.ts:269`、`:270`。
 - 现象：log 先从 core.events 截出一份数组，再 await visibleAll；返回时 head 和 more 却读取过滤结束时的 live core。事件快照与返回边界不是同一时刻。
 - 为什么是问题：用于首次加载或重连的分页可以声称 more false/head 已到最新，但新增事件未包含在结果；消费者以返回 head 建立后续游标会直接跳过这些事件。同步版本没有 await 出让点，此回归由 0952de6d8 的异步过滤引入，与第 8 条“整页隐藏没有游标”是不同触发方式。
-- 如何核实：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/log-head-race.ts`。真实会话 head 2 时开始 log，过滤第一条用 gate 挂起；期间 setTitle 写 seq 3、4；放开后首次响应 seqs `[1,2]`、head **4**、more **false**；再以 afterSeq 4 查询为空，实际日志 seq 3 的 titleChanged 已被跳过。
+- 如何核实：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/log-head-race.ts`。真实会话 head 2 时开始 log，过滤第一条用 gate 挂起；期间 setTitle 写 seq 3、4；放开后首次响应 seqs `[1,2]`、head **4**、more **false**；再以 afterSeq 4 查询为空，实际日志 seq 3 的 titleChanged 已被跳过。
 - 建议改法：进入读取时固定扫描上限与 head，返回同一快照的分页元数据；同时提供第 8 条建议的已扫描游标。增量订阅接续点必须明确对应这一次快照，而不是异步结束后的实时末端。
 
 ### 14. 重要｜正确性：缓冲区已有输入时，next 预览漏掉下一次真正发送的用户消息
@@ -113,10 +113,10 @@
 - 位置：`packages/nb-harness/src/kernel/session/preview.ts:74`、`:75`；关联 `packages/nb-harness/src/kernel/run/commands.ts:119`。
 - 现象：preview 直接拿当前叶子的已提交历史和 current 计算请求，不投影 start 将取走的缓冲区输入；当前 idle 且输入已 enqueue 时没有 current，所以只返回旧历史。
 - 为什么是问题：runtime 输出 55 明确 fidelity next 是下一次请求，而不只“现在的视图”。已排队、已经落盘的用户输入是确定可知的，不需要发模型或写日志就能投影。漏掉它还使这一轮 token 为 0，宿主检查器显示的内容与马上 start 的实际请求不同。
-- 如何核实：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/close-order-preview-next.ts`。真实会话先完成“首问/首答”，enqueue“下一问”后 preview，再 start。预览只有旧的 **2 条消息**，实际模型请求为 **3 条**、最后一条就是“下一问”，preview.tokens.byArea.turn 为 **0**。
+- 如何核实：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/close-order-preview-next.ts`。真实会话先完成“首问/首答”，enqueue“下一问”后 preview，再 start。预览只有旧的 **2 条消息**，实际模型请求为 **3 条**、最后一条就是“下一问”，preview.tokens.byArea.turn 为 **0**。
 - 建议改法：在不落盘的投影上应用下一边界确定会取走的输入，并据此运行视图/拦截；对运行中 steer、待压缩、未完成工具等无法保证的阶段明确限制保真度或可预览状态，不能无条件标 next。
 
-第 5 条外部回调补证：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/revoked-mount.ts`。真实 createAgentHost 会话运行在模型拦截 gate 上时撤回 mount 扩展；撤回后直接 ctx.emit 和 ctx.callback 各调用一次，wrapped callback 仍实际执行 **1 次**，下一运行边界把收件箱里的 **2 条 lab.watch/late** 写进日志。mount 的外部写入口只检查 controller.signal.aborted/core.closed，不检查 core.revoked；撤回并未使旧 mount 信号失效（dispatch/mount.ts:77）。本补证与原第 5 条共用“撤回不使在途入口失效”的根因，不另计条数。
+第 5 条外部回调补证：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/revoked-mount.ts`。真实 createAgentHost 会话运行在模型拦截 gate 上时撤回 mount 扩展；撤回后直接 ctx.emit 和 ctx.callback 各调用一次，wrapped callback 仍实际执行 **1 次**，下一运行边界把收件箱里的 **2 条 lab.watch/late** 写进日志。mount 的外部写入口只检查 controller.signal.aborted/core.closed，不检查 core.revoked；撤回并未使旧 mount 信号失效（dispatch/mount.ts:77）。本补证与原第 5 条共用“撤回不使在途入口失效”的根因，不另计条数。
 
 ### 15. 建议｜测试：性能样本没有工具历史或中断恢复，测量证据却包含这些声明
 
@@ -131,7 +131,7 @@
 - 位置：`packages/nb-harness/src/kernel/session/agent-host.ts:69`、`:70`、`:71`。
 - 现象：revoke 只按 handle.id 从 prepared/published 删除，不检查表中保存的是不是传入的句柄。旧代次已撤回、新代次同 id 发布后，再次 revoke 旧句柄会删除新代次并通知全部会话重新装配。
 - 为什么是问题：runtime 输出 57 和平台 runtime/plugins 输出 24 明确 revoke 必须幂等；平台并发语义还要求只撤回本次激活拥有的贡献。旧清理回调重复到达不能卸载已经恢复的新插件。
-- 如何核实：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/revoke-generation.ts`。先发布 lab.same v1、撤回，再发布另一个句柄的 lab.same v2 并实际创建会话；第二次 revoke(v1) 之前 host.list 为 v2 active，之后 host.list 和会话 extensions 都变成 `[]`。
+- 如何核实：`bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/revoke-generation.ts`。先发布 lab.same v1、撤回，再发布另一个句柄的 lab.same v2 并实际创建会话；第二次 revoke(v1) 之前 host.list 为 v2 active，之后 host.list 和会话 extensions 都变成 `[]`。
 - 建议改法：每个 id 保存当前贡献句柄或代次，prepared/published 的删除只对同一句柄生效；旧代次的重复撤回直接返回，不产生通知。补“旧句柄重复撤回不能影响新代次”的公开宿主场景。
 
 ## 范围与影响次序
@@ -160,12 +160,12 @@
 
 ## 实际验证与未运行项
 
-在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-review-s9/packages/nb-harness`：
+在 `/home/<user>/CodeRepository/neuro-book/.worktree/w00032-review-s9/packages/nb-harness`：
 
 - `bun test src/kernel`：**191 pass、0 fail、3,121 次断言、12 个文件、6.40 s**。
 - `bun run typecheck`：实际执行 `tsc --noEmit`，**退出码 0、6.87 s**。
 
-在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-review-s9/packages/nb-story`：
+在 `/home/<user>/CodeRepository/neuro-book/.worktree/w00032-review-s9/packages/nb-story`：
 
 - `bun test tests/kernel-acceptance`：**4 pass、0 fail、18 次断言、1 个文件、637 ms**。
 
@@ -182,7 +182,7 @@
 | 压缩 / 压缩后首次请求 | **123.9 / 5.1 ms**；实际调用 manual、压缩前 4,002 条消息 |
 | 独立进程打开同份 22,003 事件日志 | **167.3 ms**；RSS **108.17 → 172.52 MB**，增量 **64.35 MB** |
 
-独立打开命令：`NODE_ENV=production bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/complete-memory-probes.ts /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/measure-open-1793439479550`。
+独立打开命令：`NODE_ENV=production bun /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/complete-memory-probes.ts /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t20-hooks/reports/slice9-11-impl-review/lab/measure-open-1793439479550`。
 
 负载未与父提交做同轮对照，**不声称新增哈希导致冷请求回归**。原证据自己报告冷请求约 75 ms 已超 50 ms；将它并入打开预算并把“算一次请求”改成稳态，是已有证据中的额外验收口径，不等于已获开发者决定；本报告没有重新争论是否允许，仅保留冷/热实际数字。已读取的 pending-confirmations 表中仍是 3 条压缩相关记录，未找到 README 所称已登记的冷请求口径条目。该记录不一致不另计实现缺陷。
 

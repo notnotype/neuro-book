@@ -1,6 +1,6 @@
 # w00017 t70 实现审查：正确性与边界
 
-审查对象：`cd668399..65ff2649`，S0–S4。所有仓库位置相对于审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t70-impl-correctness`。只读核对；S5 尚未完成的 Lab 集成场景、截图与 Spec 实现标注，以及已说明的 `DocumentCoordinator` 端口偏离不计缺陷。
+审查对象：`cd668399..65ff2649`，S0–S4。所有仓库位置相对于审查 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t70-impl-correctness`。只读核对；S5 尚未完成的 Lab 集成场景、截图与 Spec 实现标注，以及已说明的 `DocumentCoordinator` 端口偏离不计缺陷。
 
 依据：t70 `plan.md`、`README.md`、w00017 `pending-confirmations.md` 的 t70 条目，以及 `docs/specs/workbench/files-explorer.md`、`workbench/commands.md`、`workspace/files.md`、`workspace/folder-kinds.md`、`state/store.md`。推荐取舍按已接受处理。
 
@@ -121,7 +121,7 @@ prox bun install --frozen-lockfile --ignore-scripts
 下面的命令均在 worktree 的 `packages/neuro-book` 执行，使用：
 
 ```sh
-export NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/correctness
+export NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t70-impl/correctness
 ```
 
 | 实际命令 | 结果 |

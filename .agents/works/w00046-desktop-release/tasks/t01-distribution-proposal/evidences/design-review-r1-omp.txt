@@ -122,7 +122,7 @@
 - **严重程度**：重要；**类别**：正确性。
 - **位置**：提案 4.2（68、71 行）、4.3（79-81 行）、4.5、第六节（139 行）。
 - **现象**：方案依赖系统 WebView2，但没有最低 Windows/架构/运行库支持范围，也没有运行库缺失或不可用时的检测、安装指引。失败处理全放在 WebView 启动页；WebView2 自己缺失时这个页面也不能显示。
-- **为什么是问题**：带上 Bun 不等于整套运行前提已满足。GitHub runner 和 pc-notype 都预装 WebView2，无法证明普通干净机器“解压即用”。Electrobun 此分支仅写日志并标记创建失败，不会替 NeuroBook 自动装运行库；没有控制台的用户会得到空窗口而不是能操作的恢复入口。便携版还需要明确离线且缺运行库时怎么处理。
+- **为什么是问题**：带上 Bun 不等于整套运行前提已满足。GitHub runner 和 Windows 开发机 都预装 WebView2，无法证明普通干净机器“解压即用”。Electrobun 此分支仅写日志并标记创建失败，不会替 NeuroBook 自动装运行库；没有控制台的用户会得到空窗口而不是能操作的恢复入口。便携版还需要明确离线且缺运行库时怎么处理。
 - **如何核实**：原型证据首行注明 WebView2 157.0.4341.46；Electrobun nativeWrapper.cpp:7436-7446 调 GetAvailableCoreWebView2BrowserVersionString，失败只记“Please install Microsoft Edge WebView2 Runtime”、setCreationFailed(true) 后返回。launcher 范围未查到安装 bootstrap 的路径；旧 t145:50-68、86-91 的干净 Sandbox 验收曾抓出开发机/runner 掩盖的系统依赖。
 - **建议改法**：声明第一版支持 Windows x64 的最低系统范围；启动 WebView 前用不依赖 WebView 的原生错误框/安装器检测并指向官方 Evergreen Runtime 安装方式，明确离线路径。是否捆绑 bootstrapper 可单独取舍，不要求改成 Electron。干净系统分别验运行库有/无、安装版/便携版，不以打开书架的 runner 数字代替。
 

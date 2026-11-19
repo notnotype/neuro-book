@@ -4,7 +4,7 @@
   "capturedAt": "2026-08-16T15:24:29.218Z",
   "manifests": {
     "index": {
-      "path": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/runs/00149-s0-import-manifests/index.json",
+      "path": "C:/Users/<user>/AppData/Local/Temp/neuro-book/runs/00149-s0-import-manifests/index.json",
       "sha256": "sha256:f8ae3f8f0e72cda652c17d8a997f18c692608ced3202a2b4b9f6faa897519d66"
     },
     "files": [
@@ -17,7 +17,7 @@
     ]
   },
   "snapshots": {
-    "indexPath": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/runs/00149-s0-import-snapshots/index.json",
+    "indexPath": "C:/Users/<user>/AppData/Local/Temp/neuro-book/runs/00149-s0-import-snapshots/index.json",
     "indexSha256": "sha256:4d6c261a52f9ccd5777903c8a6bb01236c1856480fddc499f4974d2301ce90e1",
     "rule": "source files copied by manifest path/hash; .git and excluded runtime/secret/corpus/build paths were not copied"
   },

@@ -18,10 +18,10 @@ import {unzipSync} from "fflate";
  * 隐私边界：原文只在宿主内存中用于扫描，不发送给模型；密钥从本机配置读取，
  * 不持久化 header、响应封套或候选正文。
  */
-const root = "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book";
-const temp = "C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/runs/00161-novel-understanding-spike/summary-v7-brief-only";
+const root = "C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book";
+const temp = "C:/Users/USER~1/AppData/Local/Temp/neuro-book/runs/00161-novel-understanding-spike/summary-v7-brief-only";
 const paths = {
-    config: "C:/Users/notnotype/AppData/Local/NeuroBook/data/workspace/.nbook/config.json",
+    config: "C:/Users/<user>/AppData/Local/NeuroBook/data/workspace/.nbook/config.json",
     epub: `${root}/.local/novels/转生反派萝莉，找茬魔法少女.epub`,
     prompt: `${root}/.agents/works/w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike/evidences/chapter-001-summary-level-2-brief-only-prompt-v7-repaired-v4.md`,
     referenceBrief: `${root}/.agents/works/w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike/evidences/chapter-001-summary-level-2-ingest-v4.md`,

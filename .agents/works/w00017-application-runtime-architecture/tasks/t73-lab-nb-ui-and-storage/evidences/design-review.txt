@@ -1,6 +1,6 @@
 # w00017 t73–t75 只读设计审查
 
-审查快照：`/home/notnotype/CodeRepository/neuro-book/.worktree/review-t73-design`，提交 `249e01c5`。仅读取仓库；未修改仓库、未提交、未运行产品测试、构建、开发服务或浏览器 E2E。
+审查快照：`/home/<user>/CodeRepository/neuro-book/.worktree/review-t73-design`，提交 `249e01c5`。仅读取仓库；未修改仓库、未提交、未运行产品测试、构建、开发服务或浏览器 E2E。
 
 证据标识：**已核实（合同与代码）**指逐行对照已有规范、类型或实现；**已验证（运行）**仅用于实际执行过的命令。本报告没有“已验证（运行）”结论；“如何核实”给出应补的真实测试或现有合同测试入口。
 

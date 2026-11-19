@@ -67,7 +67,7 @@
 
 ## 本次实际验证
 
-以下命令的包工作目录为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story`；报告正文中的 `packages/nb-story/...` 路径基准为其 worktree 根目录。
+以下命令的包工作目录为 `/home/<user>/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story`；报告正文中的 `packages/nb-story/...` 路径基准为其 worktree 根目录。
 
 1. `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-w00024-t11-impl/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t11-impl/scratch/agent-temp bun --no-env-file --no-install test src/ingest/chapter.test.ts src/ingest/context.test.ts src/cli/ingest.test.ts src/server/ingest.test.ts src/core/api.test.ts src/qa/engine.test.ts`：**77 pass、0 fail、831 expect，6 个文件，38.01s**。
 2. `./node_modules/.bin/tsc --noEmit && ./node_modules/.bin/tsc --noEmit -p tsconfig.core.json`：退出 **0**，无诊断，14.14s。未运行包含前端/e2e 的包级全链 typecheck。

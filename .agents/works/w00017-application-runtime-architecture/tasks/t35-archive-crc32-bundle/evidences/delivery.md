@@ -1,7 +1,7 @@
 **1. 结论**
 已完成生产归档 crc32 修复。要求的完成标准 1–3 已满足；lifecycle 命令退出 1 仅因预期保留的 L3 `drain-new-request` 失败。
 
-全部证据位于 [t35 证据目录](/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t35-archive-crc32-bundle/evidences)。
+全部证据位于 [t35 证据目录](/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t35-archive-crc32-bundle/evidences)。
 
 | 完成标准 | 已验证结果 | 完整输出 |
 |---|---|---|

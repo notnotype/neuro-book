@@ -1,7 +1,7 @@
 // t14 探针 1：会话回到空闲的几条路径上，缓冲区里的话落到哪里（真实内核，只读仓库）
 import {test} from "bun:test";
 import {mkdtempSync} from "node:fs";
-const K = "/home/notnotype/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
+const K = "/home/<user>/CodeRepository/neuro-book/packages/nb-harness/src/kernel";
 const {createTestSession} = await import(`${K}/testing/test-session.ts`);
 const {defineExtension} = await import(`${K}/extension/define.ts`);
 const {defineProfile} = await import(`${K}/extension/profile.ts`);

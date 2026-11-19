@@ -2,7 +2,7 @@
 // JS 循环用 SharedArrayBuffer 计数器直接观察；两种循环都同时看渲染进程 CPU。
 import {spawn} from "node:child_process";
 import {createRequire} from "node:module";
-const require = createRequire("/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/package.json");
+const require = createRequire("/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/package.json");
 const {chromium} = require("playwright-core");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const server = spawn("bun", [new URL("./server.mjs", import.meta.url).pathname], {stdio: ["ignore", "pipe", "inherit"]});

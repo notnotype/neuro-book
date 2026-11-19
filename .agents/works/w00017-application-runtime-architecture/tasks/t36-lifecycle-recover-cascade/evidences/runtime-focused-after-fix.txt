@@ -1,6 +1,6 @@
 $ vitest run --config vitest.runtime-foundation.config.ts runtime/lifecycle runtime/plugins
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
 
  Test Files  6 passed (6)

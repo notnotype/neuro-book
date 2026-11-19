@@ -3,7 +3,7 @@ $ git rev-parse HEAD
 $ bun run test:runtime-foundation
 $ vitest run --config vitest.runtime-foundation.config.ts
 
- RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+ RUN  v4.1.10 /home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
 
 
  Test Files  13 passed (13)

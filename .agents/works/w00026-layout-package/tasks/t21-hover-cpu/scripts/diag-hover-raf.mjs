@@ -1,6 +1,6 @@
 // 临时诊断：不按键划过时，谁排了分隔线对齐那一帧。RequestAnimationFrame 事件带排它的调用栈。
 import {createRequire} from "node:module";
-const require = createRequire("/home/notnotype/CodeRepository/neuro-book/package.json");
+const require = createRequire("/home/<user>/CodeRepository/neuro-book/package.json");
 const {chromium} = require("playwright");
 const URL_ = process.env.DIAG_URL ?? "http://127.0.0.1:4217/?project=sample";
 const browser = await chromium.launch({headless: true, channel: "chrome"});

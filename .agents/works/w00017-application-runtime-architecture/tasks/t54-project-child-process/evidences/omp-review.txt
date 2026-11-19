@@ -2,7 +2,7 @@
 
 # t54（K3：项目子进程、项目管理与客户端绑定）只读审查报告
 
-审查范围：`784c309a..HEAD`（S0–S9，108 个文件，+5244/−346）。工作区在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`。
+审查范围：`784c309a..HEAD`（S0–S9，108 个文件，+5244/−346）。工作区在 `/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation`。
 核实方式：通读内核 `packages/nb-runtime/src/{remote,application,plugins}/` 与宿主 `packages/neuro-book/src/{server,project,web,shared,plugins/projects,plugins/workbench}/`、`e2e/`、`scripts/` 的改动；对照 7 份 Spec 与 t52/t53 审查；实跑 `bun run test`（内核 264 例）、`bun run test:bun`（237 例）、`bun run test:vitest`（57 例）、内核 `typecheck`；做 4 处变异实验（改坏判据看测试是否失败，随后恢复，`git status`/`git diff` 确认工作区干净）；另在 scratchpad 写了一个伪造绑定的真实路由实验。
 
 ---

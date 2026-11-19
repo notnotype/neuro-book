@@ -1,6 +1,6 @@
 # 任务：只读核对 w00039 的 Spec 与实现（晋升 implemented 之前）
 
-仓库（只读）：/home/notnotype/CodeRepository/neuro-book，分支 master。
+仓库（只读）：/home/<user>/CodeRepository/neuro-book，分支 master。
 代码在 packages/nb-canon、packages/nb-time、packages/neuro-book/src/plugins/canon、packages/neuro-book/src/plugins/plot。
 这几份 Spec 现在是 planned，开发者已同意晋升为 implemented。晋升后 Spec 就是“当前产品行为”的合同，所以先要查清它和代码有没有对不上。
 规则：docs/specs/README.md 的“两种成熟度，一个文件”“实现合同与证据”“完成条件”三节，先读。

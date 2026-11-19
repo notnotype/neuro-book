@@ -9,7 +9,7 @@
 - 建议改法：`case "commander.help"` 里先判 `error.exitCode === 0` 返回 null（正常结束），再处理命令组缺子命令；补一条 `help` 子命令以 0 退出的断言（并入“用法”那条用例）。
 
 ### 重要 / 正确性 / packages/neuro-book/src/cli/state-root.ts:33
-- 现象：`--state-root ""`（空串或全空白）被当作没给，静默落到平台缺省状态根。实测 `nbook --state-root "" plugin list` 读的是 `/home/notnotype/.local/share/neuro-book`。
+- 现象：`--state-root ""`（空串或全空白）被当作没给，静默落到平台缺省状态根。实测 `nbook --state-root "" plugin list` 读的是 `/home/<user>/.local/share/neuro-book`。
 - 为什么是问题：cli.md 只规定环境变量 `NBOOK_STATE_ROOT` 空串算没给；`--state-root` 是用户显式写的值。脚本和 Agent 常写 `--state-root "$ROOT"`，变量没设时命令会悄悄对用户真实的状态根做 `plugin install/uninstall`，甚至 `start` 去认领真实状态根。这是破坏性默认。
 - 如何核实：见上；`state-root.ts` 的 `input.option?.trim() || input.env…` 对两者一视同仁，state-root.test.ts 只测了环境变量的空串。
 - 建议改法：`option !== undefined` 时空串报 `usage`（“--state-root 不能为空”），只有环境变量保留“空串算没给”。

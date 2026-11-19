@@ -1,6 +1,6 @@
 # w00017 t64 场景、文件层与可测试性审查
 
-审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review-scenarios/.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md`。代码基线：开发者提供的 `854121f8`；计划尚未实施。只读审查，实验仅在本报告同目录进行，不运行开发服务与 e2e。
+审查对象：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review-scenarios/.agents/works/w00017-application-runtime-architecture/tasks/t64-plugin-settings/plan.md`。代码基线：开发者提供的 `854121f8`；计划尚未实施。只读审查，实验仅在本报告同目录进行，不运行开发服务与 e2e。
 
 计划 Context 中六条已确认决定作为约束。完成 7 组实验，发现 3 条阻断、8 条重要、1 条建议；实验结果与计划/代码推断分别标明。实验能证明依赖原语和现有内核行为，不能冒充尚未实现的 nbook.settings 产品验收。VS Code 对照基于提供的 main `38d9885c` 源码。
 
@@ -33,7 +33,7 @@
 
 ### 实验四：真实内核首次订阅失败与重连（已完成）
 
-- 在实验目录 `prox bun add typebox@1.3.6`、`prox bun add /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review-scenarios/packages/nb-runtime`，本地包副本与依赖只落实验目录。运行 `bun reconnect-experiment.ts`，退出 0。
+- 在实验目录 `prox bun add typebox@1.3.6`、`prox bun add /home/<user>/CodeRepository/neuro-book/.worktree/w00017-t64-plan-review-scenarios/packages/nb-runtime`，本地包副本与依赖只落实验目录。运行 `bun reconnect-experiment.ts`，退出 0。
 - 脚本：[reconnect-experiment.ts](./reconnect-experiment.ts)；输出：[reconnect-output.json](./reconnect-output.json)。使用真实 application/remote 公开入口、真实插件与 createLinkPair（JSON 编解码、异步派发），没有直接调用私有方法。
 - 先真实握手成功，再切链路，首次层订阅返回 `unavailable/disconnected`；恢复同一节点连接并再重连，真实提供方 barrier 返回订阅数一直为 `0`，原监听没有快照。在线时显式建立订阅后，重连返回两次快照 `snapshot-1`、`snapshot-2`。关闭结果均为 closed。
 

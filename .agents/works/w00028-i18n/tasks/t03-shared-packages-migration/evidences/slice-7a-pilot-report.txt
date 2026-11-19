@@ -2,7 +2,7 @@
 
 状态：已完成，未提交。要求的验证都通过（见文末）。
 
-## 改动文件（worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n）
+## 改动文件（worktree /home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n）
 
 新增
 - packages/neuro-book/src/plugins/plugins/locales/zh-CN.json、en-US.json：插件目录，82 个键（迁移前 82 处双语字面量，一处一键；三个数量键在 en-US 各有 _one、_other）。

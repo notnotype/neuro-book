@@ -1,6 +1,6 @@
 # w00028 t03 共享包片：nb-ui 组件写死的中文默认文案迁入 nb-ui 目录 —— 交付报告
 
-工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD e1cc7b22b），未提交、未切分支、未 stash。
+工作区：/home/<user>/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD e1cc7b22b），未提交、未切分支、未 stash。
 
 ## 改动
 

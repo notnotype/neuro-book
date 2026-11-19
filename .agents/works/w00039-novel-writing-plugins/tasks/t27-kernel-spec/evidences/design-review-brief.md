@@ -1,6 +1,6 @@
 # 任务：只读设计审查 w00039 t27：世界引擎内核的五份 planned Spec
 
-你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t27-review`（detached，提交 f8aeaeaef）。审查对象是 `docs/specs/canon/` 下五份 Spec：
+你在 worktree `/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t27-review`（detached，提交 f8aeaeaef）。审查对象是 `docs/specs/canon/` 下五份 Spec：
 
 - `components.md`（canon.components：Component 类型与字段声明）
 - `model.md`（canon.model：条目、剧情变更与状态）
@@ -14,9 +14,9 @@
 
 - 已接受的提案：`docs/proposals/world-engine-kernel.md`（第四版；第四部分第 1 到 9 节是行为来源）。
 - ADR：`docs/adr/0037-world-engine-story-change-log.md`、`docs/adr/0038-world-engine-entry-text-is-whitelisted-mdx.md`、`docs/adr/0039-world-engine-segmented-revision-log.md`。
-- 提案第三轮审查推到 Spec 的 24 条细节与处理：主工作区 `/home/notnotype/CodeRepository/neuro-book/.agents/works/w00039-novel-writing-plugins/tasks/t02-story-model/evidences/design-review-r3-resolution.txt`。
+- 提案第三轮审查推到 Spec 的 24 条细节与处理：主工作区 `/home/<user>/CodeRepository/neuro-book/.agents/works/w00039-novel-writing-plugins/tasks/t02-story-model/evidences/design-review-r3-resolution.txt`。
 - 存储方案与测量：主工作区 `.agents/works/w00039-novel-writing-plugins/tasks/t09-storage/storage-draft.md` 与同目录 `evidences/`。
-- 作者界面原型的类型与计算（行为参照，不是合同）：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t16-drafts/packages/neuro-book/src/plugins/drafts/web/components/world-engine/` 下的 `model.ts`、`engine.ts`。
+- 作者界面原型的类型与计算（行为参照，不是合同）：`/home/<user>/CodeRepository/neuro-book/.worktree/w00039-t16-drafts/packages/neuro-book/src/plugins/drafts/web/components/world-engine/` 下的 `model.ts`、`engine.ts`。
 - Spec 的写法规则：`docs/specs/README.md`（九节、两条判据、编号、planned 只写黑盒）。
 - 开发者已确认的决定（都在主工作区 `.agents/works/w00039-novel-writing-plugins/README.md` 的决定表，日期 2026-11-01 到 11-02，出处是 w00039 的会话）：
   - 骨架用事件溯源，剧情变更日志统一设定、剧情与情节，计划是还没写的变更；条目由主 MDX 加按 Component 分块的状态组成（11-01）。
@@ -54,7 +54,7 @@
 
 ## 规则
 
-- 只读：不修改任何仓库文件，不 commit、push、stash、切换分支，不删除文件。实验文件只放在 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t27-kernel-spec/reports/design-review/tmp/`。
+- 只读：不修改任何仓库文件，不 commit、push、stash、切换分支，不删除文件。实验文件只放在 `/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t27-kernel-spec/reports/design-review/tmp/`。
 - 不 `bun install`；需要跑脚本时用主工作区或 t16 草稿 worktree 已有的 node_modules。不跑开发服务与 e2e。
 - **不开子审查、不派子代理**：自己按顺序读，读完一份就写这一份的发现。
 - **每核实一条就追加写入报告文件，不要等到最后**；报告文件只追加，不整份重写、不覆盖已写的条目。运行可能到时间上限被直接截停。
@@ -63,7 +63,7 @@
 
 ## 报告
 
-报告文件：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t27-kernel-spec/reports/design-review/report.txt`（只追加）。
+报告文件：`/home/<user>/CodeRepository/neuro-book/.local/agent/works/w00039-novel-writing-plugins/tasks/t27-kernel-spec/reports/design-review/report.txt`（只追加）。
 
 按影响排序写不了时按发现顺序写，最后补一个按影响排序的编号列表。每条发现用 `### N. 标题` 开头，写：
 

@@ -1,4 +1,4 @@
-w00046 t03 Windows 验收第 2 轮（2026-11-15，pc-notype，同第 1 轮的机器与做法；见 windows-frame-r1.txt）
+w00046 t03 Windows 验收第 2 轮（2026-11-15，Windows 开发机，同第 1 轮的机器与做法；见 windows-frame-r1.txt）
 
 构建：t03 分支 b40a4b902（实现审查第 1 轮的修正之后），重新 release:smoke 与组装载荷，Hutch dev 构建，测试标识 t03test；
 测试状态根 settings.json 关掉自动保存（{"nbook.editor/autoSave": "off"}），供“关闭询问期间”一项。脚本 windows-frame-check.ts.txt。

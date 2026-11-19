@@ -1,6 +1,6 @@
 # w00017 t69 实现审查：代码质量与架构
 
-审查 checkout：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-t69-impl-quality`，固定提交 `06d78a55`。
+审查 checkout：`/home/<user>/CodeRepository/neuro-book/.worktree/w00017-t69-impl-quality`，固定提交 `06d78a55`。
 
 审查范围：S0–S4 与 `fitBudget` 改名；结构、依赖、类型、错误处理、注释与合同演进。t68 的已有行为只核对兼容与被影响的边界；2026-10-09 pending-confirmations 中推荐先做的决定视为既定取舍。
 
@@ -82,7 +82,7 @@
 
 ## 本轮验证与限制
 
-所有命令在审查 worktree 根运行。执行代码时 `NBOOK_AGENT_TEMP_ROOT` 均为 `/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/quality/`；生产服务实验的 HTTP／RPC 端口均为 `0`，由系统分配。未修改产品源码，未提交、推送、暂存或切换分支；依赖安装按任务授权执行。
+所有命令在审查 worktree 根运行。执行代码时 `NBOOK_AGENT_TEMP_ROOT` 均为 `/tmp/claude-1000/-home-<user>-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t69-impl/quality/`；生产服务实验的 HTTP／RPC 端口均为 `0`，由系统分配。未修改产品源码，未提交、推送、暂存或切换分支；依赖安装按任务授权执行。
 
 | 实际命令 | 本轮结果 |
 |---|---|

@@ -13,7 +13,7 @@
       "ts": 1790927052231.975,
       "type": "pageerror",
       "level": "error",
-      "text": "TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:42879/_nuxt/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nuxt/dist/app/entry.js?v=c6faf669",
+      "text": "TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:42879/_nuxt/@fs/home/<user>/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nuxt/dist/app/entry.js?v=c6faf669",
       "location": "http://127.0.0.1:42879/:0:0"
     },
     {

@@ -1,6 +1,6 @@
 # t66 实施记录：主页面多组编辑、底部面板、状态栏与工具移动
 
-日期：2026-09-19。worktree `.worktree/w00003-neurobook-ui-foundation-migration`，分支 `refactor/w00003-nb-ui-adoption`。本轮不提交、不推远端、不合并；不碰开发者 3001 服务与真实状态根。浏览器验证走自建隔离服务（44777 / 44778，后续复用 44778）与系统 Temp 状态根 `C:/Users/notnotype/AppData/Local/Temp/neuro-book/acceptance/w00003-multigroup-panels`（`NEURO_BOOK_STATE_ROOT` / `NEURO_BOOK_CACHE_ROOT`）。
+日期：2026-09-19。worktree `.worktree/w00003-neurobook-ui-foundation-migration`，分支 `refactor/w00003-nb-ui-adoption`。本轮不提交、不推远端、不合并；不碰开发者 3001 服务与真实状态根。浏览器验证走自建隔离服务（44777 / 44778，后续复用 44778）与系统 Temp 状态根 `C:/Users/<user>/AppData/Local/Temp/neuro-book/acceptance/w00003-multigroup-panels`（`NEURO_BOOK_STATE_ROOT` / `NEURO_BOOK_CACHE_ROOT`）。
 
 计划：`local://main-workbench-multigroup-panels-plan.md`。切片甲–庚的实现记录见任务 README 交付面表；本文件记录**验收过程、发现的缺陷、修复证据与命令结果**。
 

@@ -31,7 +31,7 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 
 ## 三、隔离根与端口
 
-- State Root：`C:\Users\notnotype\AppData\Local\Temp\nbook-t50-accept\state`；Cache Root：`...\nbook-t50-accept\cache`；截图：`...\nbook-t50-accept\shots\`。
+- State Root：`C:\Users\<user>\AppData\Local\Temp\nbook-t50-accept\state`；Cache Root：`...\nbook-t50-accept\cache`；截图：`...\nbook-t50-accept\shots\`。
 - 端口 `NUXT_PORT=PORT=3511`、`HOST=127.0.0.1`（已核空闲）；浏览器 = omp 托管 headless Chromium（独立 profile 与 origin）。**未访问/未占用/未重启 3001。**
 
 ## 四、真实浏览器验收

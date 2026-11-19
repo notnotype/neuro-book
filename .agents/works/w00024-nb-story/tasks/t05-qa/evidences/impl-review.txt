@@ -4,7 +4,7 @@
 
 ## 发现
 
-审查工作区：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t05-impl-review`。下列源文件位置以此工作区为根；以下按影响排序，保留原发现编号。
+审查工作区：`/home/<user>/CodeRepository/neuro-book/.worktree/w00024-t05-impl-review`。下列源文件位置以此工作区为根；以下按影响排序，保留原发现编号。
 
 ### 3. 工具结果序列化失败后，下一轮 turn 永久等待；取消与 close 都无法结束
 
@@ -12,7 +12,7 @@
 - **位置**：`.worktree/w00024-t05-impl-review/packages/nb-harness/src/harness.ts:197-201,259-267,360-378,388-396`。
 - **现象**：普通查询工具返回循环引用的 `details` 时，第一轮按 `error/local` 返回，但该工具结果已进 OMP 的内部消息、没有进 harness 的 `history`。同一会话第二次 `turn()` 把这条旧结果列为 expected；它不会再收到 `message_end`，新一轮又清空了 `hostError`，于是永远等 `historyChanged`。随后 abort 与 `close()` 也不唤醒等待，二者都挂住。
 - **为什么是问题**：等待把“当前尚未投递的结果”和“上一轮已明确无法持久化的结果”混为一类；只检查当前 run.hostError 不够。破坏 harness 输出 10 的运行期失败可返回、关闭必须完成的寿命合同。这条无限等待由本次新增循环引入，base 没有这段等待。现有循环引用测试只覆盖收尾工具的第一轮，不覆盖普通工具出错后再次运行。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/harness-wait.ts`，真实 `createHarness`、工具执行、OMP 调度与 memory session log；第一轮 `error/local`，第二轮 300 ms 后 `settled:false`，发 abort 并调 close 后再 300 ms 仍 `settled:false, closed:false`，请求数不再增长。超时仅用于观测死等，没有伪造 message_end 的顺序。代码同时证明该历史结果没有后续唤醒来源。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/harness-wait.ts`，真实 `createHarness`、工具执行、OMP 调度与 memory session log；第一轮 `error/local`，第二轮 300 ms 后 `settled:false`，发 abort 并调 close 后再 300 ms 仍 `settled:false, closed:false`，请求数不再增长。超时仅用于观测死等，没有伪造 message_end 的顺序。代码同时证明该历史结果没有后续唤醒来源。
 - **建议改法**：持久化失败必须成为会话级不可恢复状态，后续 turn 立即返回明确 local 错误，或在失败当轮就把 OMP 调度历史恢复到可持久化的完整历史；不要永久等上一轮的旧结果。等待只跟踪本轮已登记的在途提交，并接入取消/关闭唤醒。补“普通工具序列化失败 → 再次 turn → abort/close”的真实运行时用例。
 
 
@@ -22,7 +22,7 @@
 - **位置**：`.worktree/w00024-t05-impl-review/packages/nb-story/src/qa/read-ledger.ts:20-24`；`.worktree/w00024-t05-impl-review/packages/nb-story/src/qa/answer.ts:42-46`。
 - **现象**：P=`38.57`、只读 `1.1` 时，`explanation: "参考 39.1"` 会被退回，改成 `"参考 39.1."` 则直接交卷，记录保留这条晚于 P、没有读过的引用。全角数字 `"参考 ３９.１"` 同样通过。
 - **为什么是问题**：正文抽取正则把引用后面的所有点号都当作小数或版本号的一部分，连正常句末句点也排除。qa 输出 8 要求正文里的出处与结构化 refs 同样校验；给出处加标点不应改变防剧透边界。小数 `3.5 倍` 被退回符合已定合同，不是本条问题。
-- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/runtime.ts`；真实书库、`askQuestion`、真实 harness 与脚本化模型调度。上述四种正文的退回次数依次为 `1、0、0、1`；第二种的已答记录原样保存 `参考 39.1.`。没有直接调用校验内部函数代替真实运行。
+- **如何核实**：运行 `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/runtime.ts`；真实书库、`askQuestion`、真实 harness 与脚本化模型调度。上述四种正文的退回次数依次为 `1、0、0、1`；第二种的已答记录原样保存 `参考 39.1.`。没有直接调用校验内部函数代替真实运行。
 - **建议改法**：明确正文引用的词法边界，区分 `39.1.` 的句末标点与 `3.5.0` 的第三段数字；识别全角数字时先归一化再校验。抽取后的全部引用统一走账本，补正文句末标点与全角写法的真实工具退回用例。
 
 
@@ -32,7 +32,7 @@
 - **位置**：`.worktree/w00024-t05-impl-review/packages/nb-story/src/core/library.ts:98-108`；`.worktree/w00024-t05-impl-review/packages/nb-story/src/core/qa-records.ts:124-143`。
 - **现象**：writableBook 核对旧代成功后、save 创建 qa/ 之前，同 id 的书被删除再导入；save 随后在新书里创建 qa/，写下旧代的记录和日志，并返回 `saved:true`。列表按 generation 隐藏了这条记录，却没有阻止新代被旧问写入；ask 因而给用户一个列表中永远找不到的“已保存”记录 id。
 - **为什么是问题**：裸路径不固定目录身份。qa 输出“时序与寿命”明确要求换代后不保存、不会出现在新代；模块注释所说“删除后按路径写必然失败”只在没有同 id 重导入时成立。与 Library 模块头依赖的整目录 rename 约定不一致。计划和实现注释都接受了“按代过滤”，但它不能满足 recordSaved 的公开语义，也会让旧日志留在新代。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/records.ts` 的 `generation-race`；真实 askQuestion、真实 harness、Library.removeBook/importBook 与实际文件系统。仅在 Library.writableBook 的公开方法返回处加可控屏障，保证删除/重导入落在代码本来存在的 await 窗口，没有替换查询或保存结果。实际输出 `recordSaved:true`、两个不同 generation、新代列表 0 条、新目录里却有旧问的 .json 与 .session.jsonl。现有删除测试都在进入 save 前换代，没覆盖已通过门禁后的窗口。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/records.ts` 的 `generation-race`；真实 askQuestion、真实 harness、Library.removeBook/importBook 与实际文件系统。仅在 Library.writableBook 的公开方法返回处加可控屏障，保证删除/重导入落在代码本来存在的 await 窗口，没有替换查询或保存结果。实际输出 `recordSaved:true`、两个不同 generation、新代列表 0 条、新目录里却有旧问的 .json 与 .session.jsonl。现有删除测试都在进入 save 前换代，没覆盖已通过门禁后的窗口。
 - **建议改法**：不要把“已检查可写”表达为一个可随时指向另一代的裸路径。让 Library 拥有绑定目录身份的一次提交操作，并与删除/导入使用同一原子性协议：用可固定目录身份的相对句柄操作，或同 id 跨进程互斥覆盖检查到最终发布。换代返回 `saved:false/book_not_found`。仅在最后再读一遍 generation 仍有检查与写入间的竞态，不能作为完整修复。
 
 
@@ -42,7 +42,7 @@
 - **位置**：`.worktree/w00024-t05-impl-review/packages/nb-harness/src/harness.ts:197-211,228-241`。
 - **现象**：Profile 按 history 生成系统提示词时，真实请求能同时带 `systemPrompt: results=3` 和 4 条 toolResult。本次修正等到迟到结果落日志后仅替换 messages，系统提示词是在更早的 before-model hook 中设置的，来自另一份历史。
 - **为什么是问题**：harness 输出 7 规定系统提示词和消息正是同一 Profile 按会话日志渲染的结果；新代码有意放弃了这一合同。Profile 用工具结果决定下一步指令或上下文状态时，模型会看到完整事实却收到过期指令。story-qa 当前提示词只依赖 initial，暂不受这条影响，但这是通用 harness 的公开行为回归；不能靠注释把可用 Profile 限制为静态系统提示词。base 原先可能遗漏整条结果，本条指出的是此次补齐后新增的两份渲染结果混用。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/context.ts`，公开 Profile/context、真实 harness 与 4 个并行查询工具，无手工投递事件。16 次独立会话中 5 次（round 1、4、7、10、13）实测 system=results=3、请求消息中的结果数=4。现有新增测试只数 toolResult，不检查同一请求的系统提示词与消息一致。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/context.ts`，公开 Profile/context、真实 harness 与 4 个并行查询工具，无手工投递事件。16 次独立会话中 5 次（round 1、4、7、10、13）实测 system=results=3、请求消息中的结果数=4。现有新增测试只数 toolResult，不检查同一请求的系统提示词与消息一致。
 - **建议改法**：把“等待本轮历史完整提交”和“渲染整个上下文”合并为一个明确边界，系统提示词和消息只生成一次。可在 before-model hook 等齐当前内部消息对应的提交后再统一 setSystemPrompt，或使用能同时改 provider context 两部分的公开接缝；不要只在 transformContext 修补 messages。
 
 
@@ -52,7 +52,7 @@
 - **位置**：`.worktree/w00024-t05-impl-review/packages/nb-story/src/qa/engine.ts:120-164,181-183`；`.worktree/w00024-t05-impl-review/packages/nb-story/src/cli/ask.ts:81-87`。
 - **现象**：qa/ 没有写权限时，模型已经成功调用 answer 并输出“已交卷”，随后 save 抛 EACCES。真实 `ask --json` 最终退出 1，stdout 为空，stderr 是 OMP 的 Uncaught Exception 与堆栈，既没有结果对象，也没有 `model_failed/local`。引擎同样没有将 createHarness/turn/close 的抛出转换为本机失败；finally 只关 harness，记录构造与保存都在 finally 之后。
 - **为什么是问题**：qa 把本机错误列为失败状态，输出 12、14 要求失败的 JSON 与退出码 4；只有查询类失败才是 1。磁盘权限变化、磁盘满等不是罕见的非法模型输入，也不应进入进程级未捕获异常通道。无法写盘时当然不能保证落下失败记录，但至少必须按合同报告本机故障，不能假装是查询失败或给空 stdout。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/local-error.ts`。真书库 qa/ 设为 0555、真实 nbstory 子进程、真实本机 HTTP 与 OMP provider，模型提交合法“无法确定”答案；实际 `code:1, stdout:""`，stderr 含“已交卷”和 `EACCES: permission denied`。探针 finally 恢复实验目录权限，不修改产品源码。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/local-error.ts`。真书库 qa/ 设为 0555、真实 nbstory 子进程、真实本机 HTTP 与 OMP provider，模型提交合法“无法确定”答案；实际 `code:1, stdout:""`，stderr 含“已交卷”和 `EACCES: permission denied`。探针 finally 恢复实验目录权限，不修改产品源码。
 - **建议改法**：引擎用一个拥有 outcome、资源关闭与记录归档的错误边界收口本机异常，统一为 `model_failed/local`；CLI 不让预期本机错误逃到进程级。保存失败时返回结构化错误并明确记录未保存，保留原 cause；若保存介质本身不可写，不承诺伪造一条已落盘记录。补实际文件系统写失败的 CLI 合同用例。
 
 
@@ -82,7 +82,7 @@
 - **位置**：`.worktree/w00024-t05-impl-review/packages/nb-story/src/qa/tools.ts:129-135`；`.worktree/w00024-t05-impl-review/packages/nb-story/src/qa/engine.ts:131-136,175`。
 - **现象**：模型第一次调用 answer 缺少 conclusion，OMP 先按工具 schema 退回；模型改对后交卷。进度实际发出一次 rejected，最终记录和给人读的结果却是 `rejections:0`、“作答被退回 0 次”。
 - **为什么是问题**：计数只由 answer.execute 维护，而 schema 不合法的调用在它之前就被拒绝。qa 验收 9 与计划要求每题记录“被退回的次数”，不是只记自定义账本校验的次数；S5 对退回频率的统计会系统性漏计格式错误。
-- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/rejections.ts`，真实 askQuestion 与 harness 调度；2 次模型请求，progress 有 1 次 rejected，最终 `status:answered, rejections:0`。既有测试的退回均通过了外层 schema，因而抓不到这一种。
+- **如何核实**：`bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/rejections.ts`，真实 askQuestion 与 harness 调度；2 次模型请求，progress 有 1 次 rejected，最终 `status:answered, rejections:0`。既有测试的退回均通过了外层 schema，因而抓不到这一种。
 - **建议改法**：由引擎在同一个 answer 的工具结束错误事件中统一记进度和计数；删除工具实现里的第二份计数职责，避免 schema/混批/业务校验三条路径口径不同。
 
 
@@ -92,7 +92,7 @@
 - **位置**：`.worktree/w00024-t05-impl-review/packages/nb-story/src/cli/qa.ts:20-35`。
 - **现象**：在空书库执行 `nbstory qa rm --json`，实际退出 1，输出 book_not_found；只有书库恰有一本书时，才执行缺 id 的检查并退出 2。多书库同样会先报 book_ambiguous。
 - **为什么是问题**：同一非法命令的用法判定取决于书库内容，违反 CLI 用法错误固定退出 2 的约定。新增两个 optional 位置参数后，decodeArguments 只检查数量区间，qaCommand 必须先完成子命令组合解析，不能推迟到读书库之后。既有命令的位置参数校验没有被此次放宽改变；问题仅在新 qa 分派。
-- **如何核实**：`bun packages/nb-story/src/cli.ts qa rm --library /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/empty-library --json`，实际 stdout 为 `{"ok":false,"error":{"code":"book_not_found","message":"书库里还没有书"}}`，退出 1。
+- **如何核实**：`bun packages/nb-story/src/cli.ts qa rm --library /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/empty-library --json`，实际 stdout 为 `{"ok":false,"error":{"code":"book_not_found","message":"书库里还没有书"}}`，退出 1。
 - **建议改法**：先把 first/second 解析成 list/get/remove 三种动作，完整校验参数组合后，再统一解析书并执行动作；比交叉检查两个可选字符串更简单。补空书库与多书库的缺参场景。
 
 ### 9. transformContext 对每个历史结果重新扫描全部 history，整轮工具会话变成立方级扫描
@@ -126,13 +126,13 @@
 | `bun run --cwd packages/nb-story test src/cli/cli.test.ts` | 30 pass、0 fail，104 expect() calls；1 个文件。 |
 | `bun run --cwd packages/nb-harness test` | 71 pass、2 skip、0 fail，204 expect() calls；8 个文件。两个真实模型用例跳过。 |
 | `bun run --cwd packages/nb-story typecheck` | 退出 0，四条 tsc/vue-tsc 命令完成；包含类型检查 e2e/tsconfig，不等于运行 e2e。 |
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/runtime.ts` | 退出 0；复现句点/全角出处绕过、7 字符假密钥泄露。 |
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/harness-wait.ts` | 退出 0；复现第二轮 turn 与 close 不完成。探针末尾主动退出，不遗留挂起进程。 |
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/records.ts` | 退出 0；复现门禁后换代误存、坏记录导致列表/删除空 stdout。未知格式删除不存在 id 返回 qa_record_not_found 的顺序也已观察，但不另提升为重要问题。 |
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/context.ts` | 退出 0；16 个真实会话中 5 个请求系统提示词落后一条结果。 |
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/local-error.ts` | 探针退出 0；被测 ask 退出 1、stdout 空，复现 EACCES 未捕获。 |
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/rejections.ts` | 退出 0；有 1 次 rejected 进度但 rejections 为 0。 |
-| `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/read-boundaries.ts` | 退出 0；5 组真实引擎范围边界通过，具体范围见上。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/runtime.ts` | 退出 0；复现句点/全角出处绕过、7 字符假密钥泄露。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/harness-wait.ts` | 退出 0；复现第二轮 turn 与 close 不完成。探针末尾主动退出，不遗留挂起进程。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/records.ts` | 退出 0；复现门禁后换代误存、坏记录导致列表/删除空 stdout。未知格式删除不存在 id 返回 qa_record_not_found 的顺序也已观察，但不另提升为重要问题。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/context.ts` | 退出 0；16 个真实会话中 5 个请求系统提示词落后一条结果。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/local-error.ts` | 探针退出 0；被测 ask 退出 1、stdout 空，复现 EACCES 未捕获。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/rejections.ts` | 退出 0；有 1 次 rejected 进度但 rejections 为 0。 |
+| `bun /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/read-boundaries.ts` | 退出 0；5 组真实引擎范围边界通过，具体范围见上。 |
 
 未运行：nb-story 全包测试、nb-harness typecheck、e2e、开发服务、真实模型 Smoke/S5 回归、仓库 docs/governance 检查、源码变异测试。没有改仓库文件，没有 commit、push、stash、切分支、删除文件或开子审查。已由代码与真实运行时反例核实的发现，不因现有测试全部通过而降低严重程度。
 
@@ -146,6 +146,6 @@
 
 ## 排版勘误
 
-写入前两条发现时误把反引号分隔符编码为 U+0000 后接 60，导致部分文本读取工具把报告识别为二进制；本节以上的后续追加若有相同分隔符也同样处理。遵守“只追加”要求，未删除或覆盖已写字节。去掉这些误写控制字符并按影响排序的纯文本副本位于 `/home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/impl-review-readable.md`；内容与本报告相同，保留发现原编号。本次没有可泛化且未被现有规范覆盖的规范回写建议。
+写入前两条发现时误把反引号分隔符编码为 U+0000 后接 60，导致部分文本读取工具把报告识别为二进制；本节以上的后续追加若有相同分隔符也同样处理。遵守“只追加”要求，未删除或覆盖已写字节。去掉这些误写控制字符并按影响排序的纯文本副本位于 `/home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/impl-review-readable.md`；内容与本报告相同，保留发现原编号。本次没有可泛化且未被现有规范覆盖的规范回写建议。
 
-条数自查：实际运行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t05-qa/reports/impl-review.md /home/notnotype/.claude/jobs/568d0811/tmp/review-t05-impl/probes/impl-review-readable.md`，两份报告均输出 `10`，与合计一致。
+条数自查：实际运行 `grep -c '^### ' /home/<user>/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t05-qa/reports/impl-review.md /home/<user>/.claude/jobs/568d0811/tmp/review-t05-impl/probes/impl-review-readable.md`，两份报告均输出 `10`，与合计一致。

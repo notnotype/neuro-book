@@ -5,7 +5,7 @@
 
 $ vitest run --config vitest.runtime-foundation.config.ts
 
- RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
+ RUN  v4.1.10 C:/Users/<user>/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00017-application-runtime-architecture/packages/neuro-book
 
 
  Test Files  1 passed (1)
