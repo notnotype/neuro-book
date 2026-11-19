@@ -192,6 +192,8 @@ export type SessionView = {
      * 的段写“未知会话”（祖先读不到），空字符串写“未命名会话”（读到了、还没有标题）。
      */
     path?: Array<{id: string; title: string | null; icon?: string}>;
+    /** 头像图片的地址（例如 bot 的主对话）；给了时顶栏画它，不画 Profile 图标。 */
+    avatar?: string;
 };
 
 export type AvailabilityStatus = "ready" | "loading" | "empty" | "unselected" | "archived" | "profile-unavailable" | "load-error";

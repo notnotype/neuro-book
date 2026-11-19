@@ -33,6 +33,7 @@ import {createBotsBackendPlugin} from "./backend/plugin";
 import type {BotStore} from "./backend/store";
 import {descriptor} from "./plugin";
 import {botsContract, COMPANION_PROFILE, DEFAULT_PRESET} from "./shared/contracts";
+import {createBotsStore} from "./web/store";
 
 let root = "";
 let counter = 0;
@@ -108,7 +109,7 @@ describe("bot 与主对话", () => {
         const path = fresh();
         const first = await open(path);
         await waitUntil("建出 lyra", async () => ok(await first.client.list({})).length === 1);
-        expect(ok(await first.client.list({}))).toEqual([{id: "lyra", name: "星璃", main: {state: "none"}}]);
+        expect(ok(await first.client.list({}))).toEqual([{id: "lyra", name: "星璃", main: {state: "none"}, unread: null, latestSeq: 0, seenSeq: 0}]);
         expect((await readdir(join(first.bots, "lyra"))).sort()).toEqual([".created.json", "avatar.webp", "persona.md"]);
         expect(events(first.w, "bots.main-opened")).toEqual([]);
         // 建 bot 不需要模型；记录只有这五个字段（模型、推理档、审批模式不另存）。
@@ -377,6 +378,43 @@ describe("bot 与主对话", () => {
         expect(spawned[0]?.code).toBeUndefined();
     });
 
+    test("主对话的未读：持有后数出计数消息，调工具的中间回复不算；markSeen 截到最新、只进不退；重启后照样数出来", async () => {
+        const path = fresh();
+        const first = await open(path);
+        await waitUntil("建出 lyra", async () => ok(await first.client.list({})).length === 1);
+        ok(await first.client.ensureMain({botId: "lyra"}));
+        const item = async (w = first) => ok(await w.client.list({}))[0];
+        await waitUntil("数完", async () => (await item())?.unread === 0);
+        const main = first.w.service.session("bot-lyra");
+        const say = async (text: string): Promise<void> => {
+            const sent = await main.send({commandId: crypto.randomUUID(), input: {text}});
+            if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+            await main.waitRun(sent.value.runId);
+        };
+        endpoint.script({tool: "switch_mode", args: {mode: "normal"}}, "第一句回复");
+        await say("你好");
+        await waitUntil("一条未读", async () => (await item())?.unread === 1);
+        endpoint.script("第二句回复");
+        await say("再说一句");
+        await waitUntil("两条未读", async () => (await item())?.unread === 2);
+        const before = (await item())!;
+        expect(before.latestSeq).toBeGreaterThan(before.seenSeq);
+
+        // 交得比最新还大：截到最新的计数消息；交小的不退回去。
+        expect(ok(await first.client.markSeen({botId: "lyra", through: 1_000_000}))).toEqual({seenSeq: before.latestSeq});
+        expect(await item()).toMatchObject({unread: 0, seenSeq: before.latestSeq, latestSeq: before.latestSeq});
+        expect(ok(await first.client.markSeen({botId: "lyra", through: 0}))).toEqual({seenSeq: before.latestSeq});
+        endpoint.script("第三句回复");
+        await say("还有");
+        await waitUntil("新的一条未读", async () => (await item())?.unread === 1);
+        expect(await first.client.markSeen({botId: "nope", through: 1})).toMatchObject({ok: false, code: "unknown-bot"});
+
+        await close(first.w);
+        const second = await open(path);
+        await waitUntil("重启后数出来", async () => (await item(second))?.unread === 1);
+        expect((await item(second))?.seenSeq).toBe(before.latestSeq);
+    });
+
     test("bot 输出 7：botsChanged 推出持有状态的变化", async () => {
         const {client} = await open(fresh());
         await waitUntil("建出 lyra", async () => ok(await client.list({})).length === 1);
@@ -385,7 +423,70 @@ describe("bot 与主对话", () => {
         if (!subscribed.ok) throw new Error(subscribed.code);
         ok(await client.ensureMain({botId: "lyra"}));
         await waitUntil("推到 held", () => pushed.some((payload) => JSON.stringify(payload).includes("\"held\"")));
-        expect(pushed.at(-1)).toEqual([{id: "lyra", name: "星璃", main: {state: "held"}}]);
+        expect(pushed.at(-1)).toEqual([expect.objectContaining({id: "lyra", name: "星璃", main: {state: "held"}})]);
         subscribed.value.release();
+    });
+});
+
+describe("bot 视图的数据（bots/view.md 输出 1、4，失败与恢复）", () => {
+    /** 在 `path` 上造出两条未读，关掉世界；交回最新一条计数消息的 seq。 */
+    async function twoUnread(path: string): Promise<number> {
+        const first = await open(path);
+        await waitUntil("建出 lyra", async () => ok(await first.client.list({})).length === 1);
+        ok(await first.client.ensureMain({botId: "lyra"}));
+        const main = first.w.service.session("bot-lyra");
+        for (const [text, reply] of [["你好", "一"], ["再说", "二"]] as const) {
+            endpoint.script(reply);
+            const sent = await main.send({commandId: crypto.randomUUID(), input: {text}});
+            if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+            await main.waitRun(sent.value.runId);
+        }
+        await waitUntil("两条未读", async () => ok(await first.client.list({}))[0]?.unread === 2);
+        const latest = ok(await first.client.list({}))[0]!.latestSeq;
+        await close(first.w);
+        return latest;
+    }
+
+    const storeOf = (client: BotsClient, reported: string[] = []) => {
+        const controller = new AbortController();
+        const store = createBotsStore({bots: client, models: null, openProviders: () => undefined, report: (code) => void reported.push(code), signal: controller.signal});
+        return {store, stop: () => controller.abort()};
+    };
+
+    test("看到报得比列表早（列表还没到、重启后还在补数）：列表到了、数完了再交，计数清零", async () => {
+        const path = fresh();
+        const latest = await twoUnread(path);
+        const second = await open(path);
+        const {store, stop} = storeOf(second.client);
+        store.markSeen("lyra", latest);
+        await waitUntil("计数清零", () => store.items.value[0]?.unread === 0);
+        expect(store.items.value[0]?.seenSeq).toBe(latest);
+        stop();
+    });
+
+    test("交“看到”失败：不提示、计数照旧；同一个位置再报一次（窗口重新拿到焦点）时再交", async () => {
+        const path = fresh();
+        const latest = await twoUnread(path);
+        const second = await open(path);
+        let fail = true;
+        const flaky = new Proxy(second.client, {get(target, key, receiver) {
+            if (key !== "markSeen") return Reflect.get(target, key, receiver);
+            return async (input: {botId: string; through: number}) => {
+                if (fail) {
+                    fail = false;
+                    return {ok: false, code: "storage-failed"};
+                }
+                return target.markSeen(input);
+            };
+        }}) as BotsClient;
+        const reported: string[] = [];
+        const {store, stop} = storeOf(flaky, reported);
+        await waitUntil("数完", () => store.items.value[0]?.unread === 2);
+        store.markSeen("lyra", latest);
+        await waitUntil("失败记了诊断", () => reported.includes("seen-failed"));
+        expect(store.items.value[0]?.unread).toBe(2);
+        store.markSeen("lyra", latest);
+        await waitUntil("计数清零", () => store.items.value[0]?.unread === 0);
+        stop();
     });
 });

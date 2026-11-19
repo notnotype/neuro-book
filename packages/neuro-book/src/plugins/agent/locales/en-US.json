@@ -274,6 +274,7 @@
                 "autoEscalated": "The approval model passed this to you: {{reason}}"
             }
         },
+        "settleNotice": "Declined when you send: {{count}} pending",
         "createFailed": "Couldn't create a session ({{code}}).",
         "openFailed": "This session can't be opened ({{code}}).",
         "retry": "Retry",

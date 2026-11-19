@@ -36,6 +36,14 @@ updated: 2026-11-19
 2. 过期的说法与占位不做：t06 决定 4 不设等用户的期限。
 3. 阶段 ① 的 bot 视图（开发者 2026-11-19 答“可以”，两处都按推荐）：只有一个 bot，视图里直接是聊天、不画联系人列表（列表在阶段 ②）；放左侧栏，有自己的活动栏图标。
 
+阶段 ① 已完成并合入 master（`0fcdedc83`）：
+
+- 切片：`7c722c34c`（nb-agent-ui 的头像与停靠档）、`f2fcffa3f`（agent 浏览器入口的固定会话宿主与转交）、`957280a0f`（主对话的未读、看到与头像路由）、`56cd96691`（bot 视图与归属路由、e2e 验收 1、2）、`07928d3b9`（e2e 未读计数：失焦时记未读、拿回焦点清零，变异检查过）。
+- 实现审查：前端 Sonnet 9 条、后端 omp 3 条，全部成立，处理见 [evidences/impl-review-disposition.md](evidences/impl-review-disposition.md)；修正 `bcecfc7dc`、`ac9d48971`、`7f919f147`、`2aa01c20b`，Spec 改动 master `3b5530516`（`bots/view.md`、`agent/conversation.md` 输出 31、53）。
+- 验证：nb-agent-ui 192 条；neuro-book 的 bots 与 agent 576 条、bot 视图 dom 5 条；合并 master 后 e2e `bots-chat`、`agent-subagents`、`agent-conversation` 31 条全过。合并后的全量 bun 测试有 3 条确定失败（依赖方向、SDK 导出面、活动栏重复 id），分支没有改动这几处，失败的写法在 master 上也存在。
+- 后续：`agent-conversation.e2e.ts:687`（附件）在 master 上也时常失败；产品那一半（新建期间加附件另建会话）已修，测试那一半（`newSession` 在会话加载完之前返回）没修。
+
 ## 下一步
 
-阶段 ① 的计划（[plan.md](plan.md)）开发者已确认要点，在做设计审查：前端、后端各一个 Sonnet。
+- 待开发者答：活动栏的 bot 图标要不要也显示未读数（要改 `workbench/views.md` 输出 17）；t06 那批 Spec 能否晋升。
+- 阶段 ②：把 bot 视图与会话面板合成两个标签的“消息”视图。

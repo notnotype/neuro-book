@@ -1294,6 +1294,39 @@ describe("附件（输出 31）", () => {
     const FILE = new File(["x"], "图.png", {type: "image/png"});
     const uploaded = (name: string) => ({uri: `sessions://s/home/attachments/${name}.png`, kind: "image" as const, name: `${name}.png`, mime: "image/png", width: 800, height: 600});
 
+    test("新建还没建好就加附件：等这次新建、传到它建出的会话里，不另建一个", async () => {
+        const w = await world();
+        const base = await harness(w);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let creates = 0;
+        const slow = new Proxy(base.client, {get(target, key, receiver) {
+            if (key !== "create") return Reflect.get(target, key, receiver);
+            return async (input: unknown) => {
+                creates += 1;
+                await gate;
+                return target.create(input as never);
+            };
+        }}) as SessionsClient;
+        const sessions: string[] = [];
+        const h = await harness(w, {remote: slow, attachments: {upload: async (session, file) => {
+            sessions.push(session);
+            return {ok: true, value: uploaded(file.name)};
+        }}});
+        const created = h.host.create(PROFILE);
+        h.host.act({type: "composer.attachmentAdded", localId: "l1", kind: "image", file: FILE});
+        await until("新建已发出", () => creates === 1);
+        release();
+        const id = await created;
+        if (id === null) throw new Error("新建失败");
+        await until("附件就绪", () => h.ctx().composer.attachments.find((item) => item.localId === "l1")?.state === "ready");
+        expect(creates).toBe(1);
+        expect(sessions).toEqual([id]);
+        expect(h.host.sessionId.value).toBe(id);
+    });
+
     test("第一次加附件就建会话，几个一起加只建一个；就绪后发送带上范围；迟到的结果不算；移除的不带", async () => {
         const w = await world();
         const gates: (() => void)[] = [];
@@ -2286,5 +2319,173 @@ describe("Skill（skills.md 输出 26–28）", () => {
         h.host.act({type: "skill.open", name: "gone"});
         await until("提示", () => h.ctx().composer.notice !== undefined);
         expect(h.ctx().composer.notice).toMatchObject({key: "skills.open.missing", params: {name: "gone"}});
+    });
+});
+
+describe("固定会话与转交（conversation.md 的固定会话、转交）", () => {
+    test("固定会话：只开给定的会话、不读写最近的会话；不新建；别的会话交给通用视图；不能改写历史，命令只有白名单", async () => {
+        const w = await world();
+        const fixedId = (await started(w)).host.sessionId.value!;
+        const otherId = (await started(w)).host.sessionId.value!;
+        const elsewhere: string[] = [];
+        const h = await harness(w, {fixed: {sessionId: fixedId, openElsewhere: (id) => void elsewhere.push(id)}});
+        h.recent.value = otherId;
+        await h.host.restore();
+        await until("打开固定的会话", () => h.ctx().session?.id === fixedId);
+        expect(h.recent.value).toBe(otherId);
+        expect(h.ctx().interaction).toMatchObject({canMutateHistory: false, canOpenTree: false, canArchive: false, commands: ["compact", "plan", "mode"]});
+        expect(await h.host.create(PROFILE)).toBeNull();
+        h.host.act({type: "session.select", sessionId: otherId});
+        h.host.act({type: "command.run", name: "new", argsText: ""});
+        await until("交给通用视图", () => elsewhere.length === 1);
+        expect(elsewhere).toEqual([otherId]);
+        expect(h.host.sessionId.value).toBe(fixedId);
+        expect(h.host.shownSeq.value).toBeGreaterThan(0);
+    });
+
+    test("固定会话：等审批时输入框上方写会拒绝几项；这时发话一并以拒绝结算，运行接着处理这句话", async () => {
+        const w = await world();
+        const fixedId = (await started(w)).host.sessionId.value!;
+        const h = await harness(w, {fixed: {sessionId: fixedId, openElsewhere: () => undefined}});
+        await h.host.restore();
+        await until("打开", () => h.ctx().session?.id === fixedId && h.ctx().availability.status === "ready");
+        endpoint.script({tool: "write", args: {path: "session://一.md", content: "内容"}}, "好的，不写了", "收到");
+        h.host.act({type: "composer.submit", text: "写个文件", delivery: "prompt"});
+        await until("等审批", () => approvals(h.ctx()).length === 1);
+        expect(h.ctx().composer.notice).toMatchObject({key: expect.stringContaining("conversation.settleNotice"), params: {count: 1}});
+        h.host.act({type: "composer.submit", text: "算了，别写了", delivery: "prompt"});
+        await until("审批结算", () => h.ctx().pendingInputs.length === 0);
+        await idle(h);
+        const page = await h.client.log({sessionId: fixedId, afterSeq: 0});
+        if (!page.ok) throw new Error(page.code);
+        const resolved = page.value.items.flatMap((item) => (item.kind === "event" && item.event.type === "interactionResolved" ? [item.event.data] : []));
+        expect(resolved).toEqual([expect.objectContaining({decision: "deny", note: "用户发了新消息"})]);
+        expect(h.ctx().composer.notice).toBeUndefined();
+    });
+
+    test("固定会话：运行中插话（steer）带投递方式与 settlePending，结果未知后的重发带同样的两项；/rename、/fork 不受理", async () => {
+        const w = await world();
+        const fixedId = (await started(w)).host.sessionId.value!;
+        const base = await harness(w);
+        const sends: {commandId: string; mode?: unknown; settlePending?: unknown}[] = [];
+        const rewrites: string[] = [];
+        let lose = false;
+        const flaky = new Proxy(base.client, {get(target, key, receiver) {
+            if (key === "setTitle" || key === "fork") return async () => {
+                rewrites.push(key);
+                return {ok: false, code: "not-used"};
+            };
+            if (key !== "send") return Reflect.get(target, key, receiver);
+            return async (input: {commandId: string; mode?: unknown; settlePending?: unknown}) => {
+                sends.push(input);
+                if (lose) {
+                    lose = false;
+                    return {ok: false, code: "unknown-outcome"};
+                }
+                return target.send(input as never);
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: flaky, fixed: {sessionId: fixedId, openElsewhere: () => undefined}});
+        await h.host.restore();
+        await until("打开", () => h.ctx().session?.id === fixedId && h.ctx().availability.status === "ready");
+        h.host.act({type: "command.run", name: "rename", argsText: "改名"});
+        h.host.act({type: "command.run", name: "fork", argsText: ""});
+        endpoint.script({tool: "write", args: {path: "session://二.md", content: "内容"}}, "好的，不写了");
+        h.host.act({type: "composer.submit", text: "写个文件", delivery: "prompt"});
+        await until("等审批", () => approvals(h.ctx()).length === 1);
+        lose = true;
+        h.host.act({type: "composer.submit", text: "算了", delivery: "steer"});
+        await until("结果未知", () => h.ctx().messages.some((message) => (message as {delivery?: string}).delivery === "unknown"));
+        h.host.act({type: "message.resend", messageId: h.ctx().messages.find((message) => (message as {delivery?: string}).delivery === "unknown")!.id});
+        await until("审批结算、接着回复", () => h.ctx().pendingInputs.length === 0 && assistants(h.ctx().messages).at(-1)?.text === "好的，不写了");
+        await idle(h);
+        expect(sends.slice(-2).map((input) => [input.mode, input.settlePending])).toEqual([["steer", "deny"], ["steer", "deny"]]);
+        expect(sends.at(-1)!.commandId).toBe(sends.at(-2)!.commandId);
+        expect(rewrites).toEqual([]);
+    });
+
+    test("转交：有归属、归属插件接手了就不在通用视图里开、不写最近的会话；没有归属照常开；读会话头期间又开了别的，晚到的转交作废；最近的会话有归属时不恢复", async () => {
+        const w = await world();
+        const owned = await w.service.create({profile: PROFILE, owner: {id: "lyra"}});
+        if (!owned.ok) throw new Error(owned.code);
+        const plainId = (await started(w)).host.sessionId.value!;
+        const handed: string[] = [];
+        let hold: Promise<void> | null = null;
+        let headers = 0;
+        const {client} = await w.window("owners");
+        const owners: NonNullable<SessionHostDeps["owners"]> = {
+            ownerOf: async (id) => {
+                headers += 1;
+                await hold;
+                const read = await client.header({sessionId: id});
+                return read.ok ? read.value.owner ?? null : null;
+            },
+            open: async (id, owner) => {
+                handed.push(`${id}:${owner.plugin}/${owner.id}`);
+                return accept;
+            },
+        };
+        let accept = true;
+        const h = await harness(w, {owners});
+        await h.host.open(owned.value.id);
+        expect(handed).toEqual([`${owned.value.id}:test.agent-probe/lyra`]);
+        expect(h.host.sessionId.value).toBeNull();
+        expect(h.recent.value).toBeNull();
+
+        await h.host.open(plainId);
+        expect(h.host.sessionId.value).toBe(plainId);
+
+        let release!: () => void;
+        hold = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const late = h.host.open(owned.value.id);
+        hold = null;
+        await h.host.open(plainId);
+        release();
+        await late;
+        expect(handed).toHaveLength(1);
+        expect(h.host.sessionId.value).toBe(plainId);
+
+        const fresh = await harness(w, {owners});
+        fresh.recent.value = owned.value.id;
+        await fresh.host.restore();
+        expect(fresh.host.sessionId.value).toBeNull();
+        expect(fresh.recent.value).toBeNull();
+        expect(handed).toHaveLength(1);
+
+        // 恢复在读会话头时用户点开了别的：让给用户点的，恢复不把它盖掉（恢复的会话头先回来也一样）。
+        const otherId = (await started(w)).host.sessionId.value!;
+        const racing = await harness(w, {owners});
+        racing.recent.value = plainId;
+        let releaseBoth!: () => void;
+        hold = new Promise<void>((resolve) => {
+            releaseBoth = resolve;
+        });
+        const asked = headers;
+        const restoring = racing.host.restore();
+        await until("恢复在读会话头", () => headers === asked + 1);
+        const clicked = racing.host.open(otherId);
+        releaseBoth();
+        await Promise.all([restoring, clicked]);
+        hold = null;
+        expect(racing.host.sessionId.value).toBe(otherId);
+
+        // 归属插件揭示不成：照常在通用视图里开，用户点了不会没反应。
+        accept = false;
+        await h.host.open(owned.value.id);
+        expect(handed).toHaveLength(2);
+        expect(h.host.sessionId.value).toBe(owned.value.id);
+    });
+
+    test("模式选择器看 Profile 的工具里有没有切换模式：有就显示，没有就不显示", async () => {
+        const w = await world();
+        const entry = {key: PROFILE, name: "测试", description: "", source: "test", status: "ok" as const, icon: "i-lucide-feather"};
+        const without = await started(w, {profiles: () => [{...entry, tools: {required: TOOLS, optional: []}}]});
+        await until("打开", () => without.ctx().session !== null && without.ctx().availability.status === "ready");
+        expect(without.ctx().composer.modes).toEqual([]);
+        const withModes = await started(w, {profiles: () => [{...entry, tools: {required: [...TOOLS, "nbook.agent.switch-mode"], optional: []}}]});
+        await until("打开", () => withModes.ctx().session !== null && withModes.ctx().availability.status === "ready");
+        expect(withModes.ctx().composer.modes.length).toBeGreaterThan(0);
     });
 });

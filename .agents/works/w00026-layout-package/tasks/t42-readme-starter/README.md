@@ -25,7 +25,7 @@ worktree `w00026-t42-readme`（分支 `w00026/t42-readme`）：
 |---|---|---|
 | 1 | `34df7c4e0` | README：定位、起步例子（与 Lab 的 `starter` 场景同一份，`readme.test.ts` 核对）、导出对照表、约定；`lab-grid-structure.e2e.ts` 加“起步例子” |
 | 2 | `c6800919e` | `useGridHost.md`、`useLayoutExtent.md`、`drag-session.md`；`NestedGrid.md` 的“接入”改成链接，只留组件这一侧的几条 |
-| 3 | 进行中 | `NestedGrid.md`、`grid.md` 去掉“输出 N”（派 Claude Sonnet 做文案迁移，我审 diff） |
+| 3 | `751b86669` | 包内文档不引输出编号：`NestedGrid.md`、`grid.md` 由 Claude Sonnet 做文案迁移（逐处清单 [`evidences/citations.txt`](evidences/citations.txt)），我审 diff；指向仓库别处的链接改成 GitHub 绝对地址；`readme.test.ts` 加一条扫描 |
 
 验证：
 
@@ -40,6 +40,17 @@ worktree `w00026-t42-readme`（分支 `w00026/t42-readme`）：
 - 焦点只停在叶里能聚焦的元素上：`vue/grid-focus.ts` 的 `focusablesIn`；
 - 拖动会话跳过反馈元素：`vue/drag-session.ts:79` 的 `FEEDBACK_SELECTOR`。
 
+收口：
+
+- 并入 master（合并提交 `5ee713aa2`）。
+- `readme.test.ts` 两条通过：扫描那条在文档里加回一个编号或相对链接会红。
+- `docs:check` 没有本 Task 的失败。
+- `test:affected` 只有那五条原有失败。
+
+## 实现审查
+
+待处理：Claude Sonnet（按文档审准确、可用、可读），审查 worktree `review-t42-impl`。
+
 ## 下一步
 
-1. 开 worktree，按三片实施。
+1. 处理实现审查；合入。

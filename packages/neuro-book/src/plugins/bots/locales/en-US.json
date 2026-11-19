@@ -1,0 +1,19 @@
+{
+    "views": {
+        "chat": {
+            "title": "Bots"
+        }
+    },
+    "chat": {
+        "loading": "Opening the conversation…",
+        "failed": "Couldn't open the conversation ({{code}}).",
+        "listFailed": "Couldn't load the bots ({{code}}).",
+        "noBot": "There's no bot to chat with yet.",
+        "retry": "Retry",
+        "noModel": {
+            "title": "Add a model provider first",
+            "body": "Bots need a model to reply. Add a provider, then come back here to chat.",
+            "action": "Add provider"
+        }
+    }
+}
