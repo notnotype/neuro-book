@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t35-drop-nb-ui
-status: planned
-updated: 2026-11-18
+status: active
+updated: 2026-11-19
 ---
 
 # nb-layout 去掉 nb-ui 依赖与 CSS 变量迁移
