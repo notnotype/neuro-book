@@ -2178,9 +2178,11 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
         const plainId = (await started(w)).host.sessionId.value!;
         const handed: string[] = [];
         let hold: Promise<void> | null = null;
+        let headers = 0;
         const {client} = await w.window("owners");
         const owners: NonNullable<SessionHostDeps["owners"]> = {
             ownerOf: async (id) => {
+                headers += 1;
                 await hold;
                 const read = await client.header({sessionId: id});
                 return read.ok ? read.value.owner ?? null : null;
@@ -2219,7 +2221,7 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
         expect(fresh.recent.value).toBeNull();
         expect(handed).toHaveLength(1);
 
-        // 恢复在读会话头时用户点开了别的：让给用户点的，恢复不把它盖掉。
+        // 恢复在读会话头时用户点开了别的：让给用户点的，恢复不把它盖掉（恢复的会话头先回来也一样）。
         const otherId = (await started(w)).host.sessionId.value!;
         const racing = await harness(w, {owners});
         racing.recent.value = plainId;
@@ -2227,7 +2229,9 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
         hold = new Promise<void>((resolve) => {
             releaseBoth = resolve;
         });
+        const asked = headers;
         const restoring = racing.host.restore();
+        await until("恢复在读会话头", () => headers === asked + 1);
         const clicked = racing.host.open(otherId);
         releaseBoth();
         await Promise.all([restoring, clicked]);
