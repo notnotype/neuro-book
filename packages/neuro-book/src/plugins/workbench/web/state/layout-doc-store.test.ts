@@ -706,7 +706,7 @@ describe("呈现事实", () => {
         // 侧栏只显示一个分节时，呈现树里代表区域的就是这个分节：尺寸写给区域；右栏顶上有入口条（输出 47），代表区域的是包装分支（id 是区域节点的）。
         // 拖到零都记在锚上，分节自己不变成标题行（输出 11）。
         const auxRegion = regionNodeOf(store.state.doc as LayoutDoc, "auxiliarybar")!.node.id;
-        store.actions.commitGesture({[side]: {width: 222, height: 878}}, {[auxRegion]: true});
+        store.actions.commitGesture(store.state.presented, {[side]: {width: 222, height: 878}}, {[auxRegion]: true});
         await settled(store);
         const saved = await savedDoc(storage, USER);
         expect(regionSize(saved, "sidebar").width).toBe(222);
@@ -724,14 +724,14 @@ describe("呈现事实", () => {
         expect(JSON.stringify(store.state.projection.input)).toContain(side);
 
         // 隐藏着拖编辑区与右栏之间的边界：侧栏呈现为零，不写回意图。
-        store.actions.commitGesture({[side]: {width: 0, height: 878}, g0: {width: 700, height: 600}}, {});
+        store.actions.commitGesture(store.state.presented, {[side]: {width: 0, height: 878}, g0: {width: 700, height: 600}}, {});
         expect(store.state.doc.panels.sidebar?.hidden).toBe(true);
         store.actions.setPartHidden("sidebar", false);
         expect(regionSize(store.state.doc, "sidebar").width).toBe(width);
 
         store.actions.setPartHidden("sidebar", true);
         // 从零拉开：手势报代表区域的节点展开。
-        store.actions.commitGesture({[side]: {width: 260, height: 878}}, {[side]: false});
+        store.actions.commitGesture(store.state.presented, {[side]: {width: 260, height: 878}}, {[side]: false});
         await settled(store);
         const saved = await savedDoc(storage, USER);
         expect(saved.panels.sidebar?.hidden).toBeUndefined();
@@ -769,14 +769,14 @@ describe("呈现事实", () => {
         expect(store.actions.moveView("test.panel", {container: "view:test.side"}).ok).toBe(true);
         const lower = sectionOf(store, "test.panel");
         const before = sizeIn(store.actions.document(), lower).height;
-        store.actions.commitGesture({[side]: {width: 260, height: 800 - PANEL_HEAD_HEIGHT}, [lower]: {width: 260, height: PANEL_HEAD_HEIGHT}}, {[lower]: true});
+        store.actions.commitGesture(store.state.presented, {[side]: {width: 260, height: 800 - PANEL_HEAD_HEIGHT}, [lower]: {width: 260, height: PANEL_HEAD_HEIGHT}}, {[lower]: true});
         await settled(store);
         const saved = await savedDoc(storage, USER);
         expect(saved.panels[lower]?.collapsed).toBe(true);
         expect(saved.panels.sidebar?.collapsed).toBeUndefined();
         expect(sizeIn(saved, lower).height).toBe(before);
         // 拉回时呈现的高度才是新的意图。
-        store.actions.commitGesture({[side]: {width: 260, height: 500}, [lower]: {width: 260, height: 300}}, {[lower]: false});
+        store.actions.commitGesture(store.state.presented, {[side]: {width: 260, height: 500}, [lower]: {width: 260, height: 300}}, {[lower]: false});
         const doc = store.actions.document();
         expect(doc.panels[lower]?.collapsed).toBeUndefined();
         expect(sizeIn(doc, lower).height / sizeIn(doc, side).height).toBeCloseTo(300 / 500, 5);
@@ -794,11 +794,11 @@ describe("呈现事实", () => {
         expect(widths()).toEqual(before);
         // 拖面板的高度：侧栏、右栏这次没动，还是压缩的结果。底部面板顶上有入口条，代表区域的是包装分支（输出 47）。
         const panelRegion = regionNodeOf(store.actions.document(), "panel")!.node.id;
-        store.actions.commitGesture({...squeezed, g0: {width: 300, height: 400}, [lower]: {width: 300, height: 268}, [panelRegion]: {width: 300, height: 300}}, {});
+        store.actions.commitGesture(store.state.presented, {...squeezed, g0: {width: 300, height: 400}, [lower]: {width: 300, height: 268}, [panelRegion]: {width: 300, height: 300}}, {});
         expect(widths()).toEqual(before);
         expect(regionSize(store.actions.document(), "panel").height).toBe(300);
         // 拖侧栏的边界：写。
-        store.actions.commitGesture({...squeezed, [side]: {width: 200, height: 700}, g0: {width: 260, height: 400}, [lower]: {width: 260, height: 268}, [panelRegion]: {width: 260, height: 300}}, {});
+        store.actions.commitGesture(store.state.presented, {...squeezed, [side]: {width: 200, height: 700}, g0: {width: 260, height: 400}, [lower]: {width: 260, height: 268}, [panelRegion]: {width: 260, height: 300}}, {});
         expect(regionSize(store.actions.document(), "sidebar").width).toBe(200);
     });
 

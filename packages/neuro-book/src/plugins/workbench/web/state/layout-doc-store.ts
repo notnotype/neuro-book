@@ -8,7 +8,7 @@
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
 import {clampFloatRect} from "@notnotype/nb-layout";
-import {activateTab, applyLayoutDrop, carryDynamicTabs, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import {activateTab, applyGestureCommit, applyLayoutDrop, carryDynamicTabs, findTab, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseForOperation, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridFloatInput} from "@notnotype/nb-layout";
 import type {LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
 
@@ -209,14 +209,8 @@ function defineLayoutDocStore(bound: boolean) {
             if (timer !== null) clearTimeout(timer);
         });
 
-        /** 结构操作之前把呈现尺寸写回意图（输出 8）。保留像素的节点不写：它们的呈现尺寸只可能是被压缩了，窗口变大要回到原样。 */
-        const rebased = (): LayoutDoc => rebaseIntents(doc.value, presented.value, projection.value.collapsedTo, fixedNodesOf(projection.value.input));
-
-        /** 这次手势没动的保留像素的节点：呈现尺寸还是压缩的结果。 */
-        function untouchedFixed(sizes: Readonly<Record<string, GridExtent>>): ReadonlySet<string> {
-            const same = (left: GridExtent | undefined, right: GridExtent | undefined): boolean => left !== undefined && right !== undefined && Math.abs(left.width - right.width) < 0.5 && Math.abs(left.height - right.height) < 0.5;
-            return new Set([...fixedNodesOf(projection.value.input)].filter((id) => same(presented.value[id], sizes[id])));
-        }
+        /** 结构操作之前把呈现尺寸写回意图（输出 8、49）。 */
+        const rebased = (): LayoutDoc => rebaseForOperation(doc.value, projection.value, presented.value);
 
         /**
          * `rebase: false` 给不动树的操作（切换容器、让视图看得见）：切换不改任何尺寸意图（输出 42）。写回意图时有收起兄弟的分支按比例换算，
@@ -421,25 +415,14 @@ function defineLayoutDocStore(bound: boolean) {
                 acceptPreview: (next: Readonly<Record<string, GridExtent>> | null): void => {
                     preview.value = next;
                 },
-                /** 手势落账：意图从呈现尺寸写回，收起状态来自这次手势，立刻存。 */
-                commitGesture: (sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void => {
-                    const frozen = untouchedFixed(sizes);
-                    presented.value = sizes;
-                    // 先改收起状态再写回意图：这次手势收起的面板，呈现尺寸是标题行或零，不是意图（`rebaseIntents` 跳过收起的面板）。
-                    let next = doc.value;
-                    // grid 报的是呈现树的节点 id。区域拖到零报的是代表区域的那个节点（那一列的分支，或只显示一个分节时这个分节），状态要记在锚上（输出 11）：
-                    // 对那个 id 记的话，单分节时会把分节自己标成收成标题行。
-                    const anchors = projection.value.regionAnchors;
-                    for (const [id, value] of Object.entries(collapsed)) {
-                        const anchor = anchors.get(id);
-                        const updated = setPanelCollapsed(next, anchor ?? id, value);
-                        if (updated.ok) next = updated.doc;
-                        // 隐藏的区域按拖到零画（`hiddenRegionsAtZero`）：从那条边界拉开就是显示，隐藏一起清掉，同“显示”（输出 11、12）。
-                        if (anchor === undefined || value || next.panels[anchor]?.hidden !== true) continue;
-                        const shown = setPanelHidden(next, anchor, false);
-                        if (shown.ok) next = shown.doc;
-                    }
-                    local.value = rebaseIntents(next, sizes, projection.value.collapsedTo, frozen);
+                /**
+                 * 手势落账（输出 49）：收起状态来自这次手势，意图从呈现尺寸写回，立刻存。`before` 是手势开始时呈现的布局（`onApplied` 交出），
+                 * 不用 `presented`：实时预览期间 `presented` 不更新，可能和手势开始时的不同。
+                 */
+                commitGesture: (before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void => {
+                    // `rejected` 在这里不会有：投影只给文档收得起的节点配收起策略（`assignByParent`），区域的节点已经换成了锚，所以不另报。
+                    local.value = applyGestureCommit(doc.value, projection.value, {before, after, collapsed}).doc;
+                    presented.value = after;
                     schedule(true);
                 },
                 /** 显隐（输出 11）：隐藏的是整个区域，记在锚上。“显示”同时清掉隐藏与拖到零；区域空着时打开成一块空面板（ADR 0050）。隐藏最大化着的面板所在的区域时退出最大化（输出 13）。 */

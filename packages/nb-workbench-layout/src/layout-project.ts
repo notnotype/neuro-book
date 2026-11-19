@@ -2,7 +2,7 @@
  * 呈现树（docs/specs/ui/workbench-layout.md 的“尺寸”）：由文档和呈现事实算出这一刻交给 `createGrid` 的树。
  *
  * 放不下被收走的面板、不用容器的文档里隐藏的具名面板不进呈现树：它们的零宽缝如果夹在两个可见面板之间，拖那条缝改的是它们，不是两边。文档树不动，
- * 单子分支在呈现里塌陷时用 `collapsedTo` 记下它由谁代表，`rebaseIntents` 据此把尺寸写回文档树。
+ * 单子分支在呈现里塌陷时用 `collapsedTo` 记下它由谁代表，意图回写（`intent-writeback.ts`）据此把尺寸写回文档树。
  *
  * 带容器的区域（ADR 0046）：锚和不在当前容器里的分节不进呈现树（`isPanelShown`）；整个区域拖到零的收起策略配在区域在呈现树里的那个节点上，
  * 状态记在锚上（`regionAnchors`）。区域隐藏着时按拖到零画（`hiddenRegionsAtZero`）：区域挨着条或窗口边，零宽缝只有一个可见邻居，上面那条理由不成立；
@@ -152,20 +152,6 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
         }
         child.collapse = collapseOf(child, isSectionCollapsed(doc, child.id), node.orientation === "vertical" ? options.headHeight : 0);
     }
-}
-
-/** 呈现树里保留像素的节点：它们的呈现尺寸小于意图，只可能是放不下被压缩了（输出 7、8）。 */
-export function fixedNodesOf(root: GridNodeInput<string>): ReadonlySet<string> {
-    const fixed = new Set<string>();
-    const visit = (node: GridNodeInput<string>): void => {
-        if (node.kind === "leaf") return;
-        for (const child of node.children) {
-            if (child.sizing === "fixed") fixed.add(child.id);
-            visit(child);
-        }
-    };
-    visit(root);
-    return fixed;
 }
 
 export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionOptions): LayoutProjection {

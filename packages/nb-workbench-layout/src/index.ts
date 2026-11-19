@@ -5,3 +5,6 @@
 export * from "./layout-doc";
 export * from "./layout-project";
 export * from "./layout-drop";
+// 意图回写只导出两个说清时机的入口，底下的 `rebaseIntents`、`fixedNodesOf` 不导出（模块头注释）。
+export {applyGestureCommit, rebaseForOperation} from "./intent-writeback";
+export type {IntentWritebackRejection} from "./intent-writeback";

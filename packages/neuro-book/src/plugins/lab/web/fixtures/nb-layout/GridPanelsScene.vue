@@ -12,6 +12,7 @@ import {
 } from "@notnotype/nb-layout";
 import {
     activateTab,
+    applyGestureCommit,
     edgeTargetOf,
     movePanelToEdge,
     moveTabToEdge,
@@ -20,7 +21,7 @@ import {
     panelRef,
     barRef,
     projectLayoutDoc,
-    rebaseIntents,
+    rebaseForOperation,
     setPanelCollapsed,
     tabKey,
 } from "@notnotype/nb-workbench-layout";
@@ -89,20 +90,15 @@ const containerEl = useTemplateRef<HTMLElement>("containerEl");
 const host = useGridHost({
     grid,
     contextKey: "panels",
-    onApplied: (_commit, result) => {
-        // 意图只从呈现尺寸写回（workbench-layout 输出 8）；收起状态来自这次手势，先改它：收起的面板呈现尺寸不是意图。
-        let next = doc.value;
-        for (const [id, collapsed] of Object.entries(result.collapsed)) {
-            const updated = setPanelCollapsed(next, id, collapsed);
-            if (updated.ok) next = updated.doc;
-        }
-        doc.value = rebaseIntents(next, host.layout.value.sizes, projection.value.collapsedTo);
+    // 意图只从呈现尺寸写回（workbench-layout 输出 8、49）：落账前后的布局都交给库，它挑出这次没动的保留像素节点。
+    onApplied: (_commit, result, before) => {
+        doc.value = applyGestureCommit(doc.value, projection.value, {before: before.sizes, after: host.layout.value.sizes, collapsed: result.collapsed}).doc;
     },
 });
 
-/** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8）。 */
+/** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8、49）。 */
 function commit(operation: (current: LayoutDoc) => LayoutResult): void {
-    const result = operation(rebaseIntents(doc.value, host.layout.value.sizes, projection.value.collapsedTo));
+    const result = operation(rebaseForOperation(doc.value, projection.value, host.layout.value.sizes));
     if (result.ok) doc.value = result.doc;
 }
 
