@@ -96,15 +96,43 @@ updated: 2026-11-19
 | 2 提醒的发与取 | 分支 b503994e9 | nb-harness 新增 `run/notice.test.ts` 11 条过；内核全部测试除 `log/store.test.ts` 的“截在任何一个字节处”（master 上同样在负载下 5 秒超时）都过；neuro-book `src/plugins/agent` 530 过、5 失败：`builtin-tools-project.test.ts` 3 条 master 上同样失败（负载），`compaction.test.ts`、`builtin-profiles.test.ts` 各 1 条单独重跑都过；变异 4 处（取走挪回压缩之前、插话排在提醒前、来源行不清洗、用户能发）各有用例失败；三个包 typecheck 过 |
 | 3 门与唤起 | 分支 d0e93e0b1、f9b297986 | 新增 `run/wake.test.ts` 15 条过；`session/session.test.ts` 一条断言改成只看路径事件（出错收口批多了一条关门事件）；nb-harness 内核 450 条全过（负载 4）；neuro-book `src/plugins/agent` 535 条全过；变异 6 处（停止与出错不关门、用户不开门、收口唤起不看门、`runResumed` 不改恢复标记、取消的推迟指令照样放行、最终回复不看唤起）各有用例失败，其中“收口唤起不看门”起初没有用例抓到，补了 f9b297986 |
 | 4 `queue.order` 与 `mergeSteers` | 分支 e15c52f18 | `run/notice.test.ts` 增至 14 条过；插件 SDK 导出 `mergeSteers`，`sdk/sdk.test.ts` 的导出清单随之加一项（同文件“组件子路径”一条 master 上同样失败）；变异 2 处各有用例失败 |
+| 5 NeuroBook：远程版本 2、转录、对话宿主 | 分支 be838ba9b、e2b73d996，审查修正 22bbee478、1cb256181；Spec master 9c799919c | `kernel-transcript.test.ts` 37 条过；`sessions.test.ts` 与 `session-host.test.ts` 100 条全过（负载 10–23）；nb-agent-ui、neuro-book typecheck 过；变异 7 处（运行中也按留着画、取消不分流、继续不走 `resume`、排队区显示全文、远程快照带全文、转录的门恒开、提醒排在话前面）各有用例失败 |
 
 负载记录：跑测试时 1 分钟负载 25–108（别的会话的 typecheck 与 e2e、一个 t21 测试留下的孤儿 eval 内核，后者开发者已手动结束）。
 
+切片 5 定下、已写进 Spec 的两处：提醒在排队区用已有的 `author`、`editable: false`、`held` 表达，视图不加 `notice` 字段（agent-conversation-view.md 验收 40 删去）；门关着但有运行时（例如宿主开的运行）提醒不算留着，下一次请求就带上（conversation.md 输出 51）。排队区与快照一样只显示摘要（前 200 个字符）。
+
 实施中定下、已写进 Spec 的两处：推迟到收口的指令送进来的话都被取消时整条不生效（不放行别的话、不算谁开的；runtime.md 输出 104）；没有进行中的一轮时先取就绪的话，再看提醒（输出 114）。最终回复时有带唤起的待发提醒，这一轮接着请求（输出 28）。
+
+## 实现审查
+
+切片 2–4（`68a4ef233..e15c52f18`）交 omp（默认模型），90 分钟跑完：6 条，全是重要，报告存为 [`evidences/impl-review.txt`](evidences/impl-review.txt)。处理：
+
+| 条 | 归类 | 处理 |
+|---|---|---|
+| 1（`hostNotice` 的字段叫 `queued` 不叫 `id`） | 说明没写清 | 审查 worktree 固定在被审提交，里面的 Spec 是开分支时的副本；主工作区的 runtime.md 输出 113 与 session.md 输出 27 早已改成 `queued`。说明里“worktree 里是同一版”写错了，以后审查说明给主工作区 Spec 的绝对路径 |
+| 2（合计上限没算留在待发记录里的 `commandId`） | 成立，要改 | 记录与上限都算上 `commandId`，`notice.test.ts` 的上限用例补一条很长的指令 id（252ecd090） |
+| 3（没有进行中的一轮时应先看带唤起的提醒） | 说明没写清 | 同第 1 条：主工作区的输出 114 已改为先取就绪的话（开发者知悉的设计审查细化） |
+| 4（远程合同没升版本）、5（远程快照带全文） | 成立 | 切片 5 做了：版本 2、快照只带摘要（be838ba9b）；合计上限见第 2 条 |
+| 6（`mergeSteers` 丢掉后一条插话的 `payload`） | 成立，要改 | 带 `payload` 的插话不合，profile.md 输出 21 写明（d5878462a） |
+
+切片 5（`e15c52f18..e2b73d996`）交 Sonnet 前端审查：重要 4、建议 2，报告存为 [`evidences/s5-review.txt`](evidences/s5-review.txt)。处理（22bbee478、1cb256181）：
+
+| 条 | 归类 | 处理 |
+|---|---|---|
+| F1（会话发的提醒，来源名写成会话 id 或“另一个会话”，排队时与取走后不一致） | 成立，要改 | 两处都用宿主的 `authorOf`（同会话发的话的作者）；conversation.md 输出 51 改成“会话写那个会话的 Profile 名，同输出 35” |
+| F2（只有提醒时的继续丢掉失败、不标在继续） | 成立，要改 | 有留着的话或待发的提醒都走 `continueRun`；只有提醒时落到它已有的 `resume{keep}`，失败说明原因、进行中标出在继续 |
+| F3（转录里提醒的 `text` 从快照来是摘要、从帧来是全文） | 成立，要改 | 转录只存开头（`summary`，`NOTICE_SUMMARY_CHARS` 与远程快照同长），宿主不再自己截；一致性用例在待发时比较 |
+| F4（缺门开着空闲、继续的几种组合、来源名、取消话的分流、停止清空条数的用例） | 成立，要改 | 宿主测试补齐（5 条）；文本口带上参数断言来源名 |
+| F5（只有提醒时占位文字仍说“排队的话”） | 不改 | 视图按“留着的条目”写，字面成立；措辞小事 |
+| F6（按“转录里有没有”分流取消、`bytes` 复制正文等） | 部分改 | 宿主的二次截断随 F3 删掉、文件头注释补上；分流的竞态无害、`bytes` 的分配在 64 条以内，不改 |
+
+变异（切片 5 审查之后，6 处）：门开着那半个条件、继续不收提醒、转录不截、来源名不走 `authorOf`、`mergeSteers` 合带 `payload` 的，各有用例失败；“只有提醒时直接 `resume`”的分支变异后用例照过，查明合并路径本来就落到 `resume{keep}`，删掉了这个分支（1cb256181）。
 
 ## 当前状态
 
-切片 2–4 完成，交 omp 实现审查（后台）；开始切片 5（NeuroBook：远程版本 2、转录、对话视图）。
+切片 2–5 完成，两份实现审查已处理。
 
 ## 下一步
 
-切片 5 → 前端 Sonnet 审查；处理两份实现审查。
+Spec 晋升核对（Opus 子代理逐条核对）；t22 按提案改写计划。
