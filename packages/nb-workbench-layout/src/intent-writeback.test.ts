@@ -85,8 +85,8 @@ describe("applyGestureCommit", () => {
         const doc = shellDoc();
         const gesture = drag(doc, WIDE, 1, 40);
         // 网格不会对编辑组报收起；这里直接给一个，看被拒时的去向（`setPanelCollapsed`：编辑组不收）。
-        const {doc: written, rejected} = applyGestureCommit(doc, gesture.projection, {...gesture, collapsed: {ea: true}});
-        expect(rejected.map((item) => [item.id, item.failure.code])).toEqual([["ea", "rejected"]]);
+        const {doc: written, rejected} = applyGestureCommit(doc, gesture.projection, {...gesture, collapsed: {ea: true, eb: true}});
+        expect(rejected.map((item) => [item.id, item.failure.code])).toEqual([["ea", "rejected"], ["eb", "rejected"]]);
         expect(written.panels.ea?.collapsed).toBeUndefined();
         expect(widthsAt(written, WIDE, ["left"])).toEqual([320]);
     });
@@ -108,6 +108,12 @@ describe("applyGestureCommit", () => {
         const collapsed = applyGestureCommit(doc, projection, {before: {}, after: {}, collapsed: {s1: true}});
         expect(collapsed.doc.panels.sidebar?.collapsed).toBe(true);
         expect(collapsed.doc.panels.s1?.collapsed).toBeUndefined();
+
+        // 从零拉开：锚上记着的收起清掉，分节自己不变。
+        const zero = regions({collapsed: true});
+        const opened = applyGestureCommit(zero, projectLayoutDoc(zero, OPTIONS), {before: {}, after: {}, collapsed: {s1: false}});
+        expect(opened.doc.panels.sidebar?.collapsed).toBeUndefined();
+        expect(opened.doc.panels.s1?.collapsed).toBeUndefined();
 
         const hidden = regions({hidden: true});
         const hiddenProjection = projectLayoutDoc(hidden, OPTIONS);

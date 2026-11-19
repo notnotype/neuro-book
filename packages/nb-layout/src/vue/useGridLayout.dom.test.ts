@@ -95,6 +95,8 @@ type Harness = {
     readonly applied: GridGestureCommit[];
     /** `onApplied` 每次收到的第三个参数：提交之前发布的布局。 */
     readonly befores: GridLayoutResult[];
+    /** `onApplied` 被调的那一刻宿主发布着的布局。 */
+    readonly duringApplied: GridLayoutResult[];
     readonly commits: GridGestureCommit[];
     readonly issues: GridIssue[];
     readonly host: GridLayoutHost<string>;
@@ -111,6 +113,7 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean;
     const context = ref("workbench-a");
     const applied: GridGestureCommit[] = [];
     const befores: GridLayoutResult[] = [];
+    const duringApplied: GridLayoutResult[] = [];
     const commits: GridGestureCommit[] = [];
     const issues: GridIssue[] = [];
 
@@ -121,6 +124,7 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean;
         onApplied: (commit, _result, before) => {
             applied.push(commit);
             befores.push(before);
+            duringApplied.push(host!.layout.value);
             if (options.throwOnApplied === true) {
                 throw new Error("host onApplied threw");
             }
@@ -164,6 +168,7 @@ function mountHost(options: {grid?: Grid<string>; throwOnIssues?: () => boolean;
         context,
         applied,
         befores,
+        duringApplied,
         commits,
         issues,
         host,
@@ -227,6 +232,8 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         expect(harness.befores[0]).toBe(published);
         expect(harness.host.layout.value).not.toBe(published);
         expect(harness.host.layout.value.sizes.left!.width - harness.befores[0]!.sizes.left!.width).toBeCloseTo(10, 6);
+        // `onApplied` 被调时宿主已经发布了提交之后的布局。
+        expect(harness.duringApplied[0]).toBe(harness.host.layout.value);
     });
 
     it("上下文已切换的提交整次拒绝，几何与版本不动", async () => {

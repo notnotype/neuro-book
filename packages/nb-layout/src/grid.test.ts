@@ -1350,6 +1350,45 @@ describe("拆分树原语：收起与展开的入口", () => {
         expect(grid.find("a")?.collapse?.collapsed).toBe(true);
     });
 
+    it("只动收起标记：变了之后意图（快照）不变；已收起再收起 `changed` 为假、策略不变；`toggleable: false` 照样收（输出 147）", () => {
+        const ROW: GridExtent = {width: 1208, height: 400};
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), collapse: {...POLICY, restoreSize: 300, collapsed: false, toggleable: false}},
+            leaf("b", "width", 300, 100),
+            leaf("c", "width", 600, 100),
+        ]), {sashSize: 4});
+        const intents = grid.serialize();
+        expect(grid.setCollapsed("a", true)).toMatchObject({ok: true, changed: true});
+        expect(grid.serialize()).toEqual(intents);
+        expect(widths(grid, ROW, ["a", "b", "c"])).toEqual([0, 400, 800]);
+
+        const policy = {...grid.find("a")!.collapse!};
+        expect(grid.setCollapsed("a", true)).toMatchObject({ok: true, changed: false});
+        expect(grid.find("a")?.collapse).toEqual(policy);
+    });
+
+    it("竖直分支里保留像素的面板，记的是它的高度意图；收起策略不写快照（输出 148）", () => {
+        const grid = createGrid(branch("root", "height", "vertical", 0, [
+            leaf("top", "height", 400, 100),
+            {...leaf("bottom", "height", 180, 100), ...fixed, ...collapsible(50)},
+        ]), {sashSize: 4});
+        expect(grid.setCollapsed("bottom", true)).toMatchObject({ok: true, collapse: {collapsed: true, restoreSize: 180}});
+        const snapshot = JSON.stringify(grid.serialize());
+        expect(snapshot).not.toContain("collapse");
+        expect(snapshot).not.toContain("restoreSize");
+    });
+
+    it("分隔条上的 Enter：唯一的兄弟已经收起时也吸收不了，不收（输出 20）", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 300, 100), ...collapsible(300)},
+            {...leaf("b", "width", 300, 100), ...collapsible(300, true)},
+        ]), {sashSize: 4});
+        const enter = session(grid, {width: 604, height: 400}, 0, "keyboard");
+        enter.toggleCollapsed();
+        expect(enter.issues.map((issue) => issue.code)).toContain("no-room-to-collapse");
+        expect(enter.finish()).toBeNull();
+    });
+
     it("失败：`id` 不存在、是根、没有收起策略（输出 147）", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [leaf("a", "width", 500), leaf("b", "width", 499)]), {sashSize: SASH});
         expect(codeOf(grid.setCollapsed("missing", true))).toEqual({code: "not-found", params: {id: "missing"}});
