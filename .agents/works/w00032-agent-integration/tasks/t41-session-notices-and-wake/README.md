@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t41-session-notices-and-wake
-status: planned
+status: active
 updated: 2026-11-19
 ---
 
