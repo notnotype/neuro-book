@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t07-agent-ui-for-bot
-status: planned
-updated: 2026-11-18
+status: shelved
+updated: 2026-11-19
 ---
 
 # nb-agent-ui 的 bot 档
@@ -23,4 +23,4 @@ updated: 2026-11-18
 
 ## 下一步
 
-等 t03 定稿。
+无。2026-11-19 并入 [t15](../t15-messages-view/README.md)（开发者把 t06 拆成两个时，界面合到 t15）。
