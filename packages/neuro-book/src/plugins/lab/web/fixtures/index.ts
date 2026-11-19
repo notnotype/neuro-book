@@ -1031,6 +1031,9 @@ export const labFixtures: LabFixture[] = [
                 {id: "loading-layer", label: "展开了还没读到的一层", input: {props: {layers: {"": root}}, model: {expanded: ["folder:人物", "xingxia"]}}},
                 {id: "loading", label: "根这一层还没读到", input: {props: {layers: {} as Record<string, ReturnType<typeof layer>>}, model: {expanded: []}}},
                 {id: "empty", label: "还没有条目", input: {props: {layers: {"": layer([])}}, model: {expanded: []}}},
+                {id: "empty-creatable", label: "空着、可以新建：新建人物与新建条目", input: {props: {layers: {"": layer([])}, creatable: true}, model: {expanded: []}}},
+                {id: "empty-blocked", label: "空着、世界只读：按钮禁用", input: {props: {layers: {"": layer([])}, creatable: true, blockedReason: "世界只读：日志损坏"}, model: {expanded: []}}},
+                {id: "empty-creatable-english", label: "空状态（英文界面）", input: {props: {layers: {"": layer([])}, creatable: true}, model: {expanded: []}}},
                 {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, disconnected: true}, model: sample.model}},
                 {id: "sample-english", label: "英文界面", input: sample},
             ];

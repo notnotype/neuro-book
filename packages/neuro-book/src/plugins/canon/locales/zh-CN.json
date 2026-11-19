@@ -56,7 +56,11 @@
         "deleted": "已删除",
         "more": "再显示（还有 {{count}} 项）",
         "loading": "读取中…",
-        "createUnder": "在它下面新建"
+        "createUnder": "在它下面新建",
+        "emptyTitle": "还没有设定",
+        "emptyHint": "人物、地点、物品、规矩，都可以建成设定。",
+        "createPerson": "新建人物",
+        "createEntry": "新建条目"
     },
     "editorPages": {
         "entry": {

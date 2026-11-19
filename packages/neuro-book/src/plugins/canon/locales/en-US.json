@@ -56,7 +56,11 @@
         "deleted": "deleted",
         "more": "Show more ({{count}} left)",
         "loading": "Reading…",
-        "createUnder": "New entry under it"
+        "createUnder": "New entry under it",
+        "emptyTitle": "No settings yet",
+        "emptyHint": "People, places, items, rules: each can be a setting entry.",
+        "createPerson": "New person",
+        "createEntry": "New entry"
     },
     "editorPages": {
         "entry": {

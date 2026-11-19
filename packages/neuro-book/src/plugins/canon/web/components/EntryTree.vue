@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, shallowRef} from "vue";
 
-import {Banner, Button, ContextMenu, Tree} from "@notnotype/nb-ui/components";
+import {Banner, Button, ContextMenu, EmptyState, Tree} from "@notnotype/nb-ui/components";
 import type {GenericTreeNode} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
@@ -12,8 +12,10 @@ const props = defineProps<{
     expanded: readonly string[];
     selected?: string;
     disconnected?: boolean;
-    /** 有右键菜单“在它下面新建”；默认 false。 */
+    /** 有右键菜单“在它下面新建”，空着时是带新建按钮的空状态；默认 false。 */
     creatable?: boolean;
+    /** 现在不能写：空状态的按钮禁用，悬停提示是它。 */
+    blockedReason?: string;
 }>();
 
 const emit = defineEmits<{
@@ -23,6 +25,8 @@ const emit = defineEmits<{
     (event: "retry"): void;
     /** 右键菜单里的“在它下面新建”；`parent` 为 null 是在根这一层（空白处右键）。只在宿主接了它时有菜单。 */
     (event: "create", parent: string | null): void;
+    /** 空状态的“新建人物”。 */
+    (event: "create-person"): void;
 }>();
 
 const text = useCanonText();
@@ -127,6 +131,20 @@ const menuItems = computed(() => [{label: text("entries.createUnder"), iconClass
             <template #actions><Button size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
         </Banner>
         <p v-if="rootState === 'loading'" class="px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
+        <EmptyState
+            v-else-if="rootState === 'empty' && props.creatable"
+            icon-class="i-lucide-book-open"
+            :title="text('entries.emptyTitle')"
+            :description="text('entries.emptyHint')"
+            data-entries-empty
+        >
+            <template #action>
+                <div class="flex flex-wrap justify-center gap-[var(--space-2)]">
+                    <Button variant="primary" :disabled="props.blockedReason !== undefined && props.blockedReason !== ''" :title="props.blockedReason || undefined" @click="emit('create-person')">{{ text("entries.createPerson") }}</Button>
+                    <Button variant="secondary" :disabled="props.blockedReason !== undefined && props.blockedReason !== ''" :title="props.blockedReason || undefined" @click="emit('create', null)">{{ text("entries.createEntry") }}</Button>
+                </div>
+            </template>
+        </EmptyState>
         <p v-else-if="rootState === 'empty'" class="px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.empty") }}</p>
         <Tree
             v-else

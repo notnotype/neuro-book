@@ -20,7 +20,9 @@ import {emptyDraft, newEntryOp} from "./new-entry";
 import type {NewEntryDraft} from "./new-entry";
 import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
+import {PERSON_COMPONENT} from "../shared/components";
 import {useCanonText} from "./text";
+import {writeBlocked} from "./writable";
 import {useWorldRead} from "./use-reads";
 import {unboundView, viewContextProp, viewVisible} from "./view-visible";
 import type {CanonWorld, ListHandle} from "./world";
@@ -59,6 +61,11 @@ export interface EntriesViewHostOptions {
 /** 打开新建条目的对话框（命令与右键菜单用）。 */
 export function startNewEntry(state: EntriesViewState, parent: string | null): void {
     state.creating.value = emptyDraft(parent);
+}
+
+/** 空状态的“新建人物”：种类预填“人物”、分组跟着种类、勾上人物设定组（author-ui.md 的空状态）。 */
+export function startNewPerson(state: EntriesViewState, person: string): void {
+    state.creating.value = {...emptyDraft(null), kind: "人物", folder: "人物", types: [person]};
 }
 
 export function createEntriesViewHost(tree: Component, options: EntriesViewHostOptions): Component {
@@ -175,7 +182,15 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                         state.selected.value = id;
                         options.open(id);
                     },
-                    ...(create === undefined ? {} : {creatable: true, onCreate: (parent: string | null) => startNewEntry(state, parent)}),
+                    ...(create === undefined ? {} : {
+                        creatable: true,
+                        blockedReason: (() => {
+                            const blocked = writeBlocked(world);
+                            return blocked === null ? "" : port.t(blocked);
+                        })(),
+                        onCreate: (parent: string | null) => startNewEntry(state, parent),
+                        onCreatePerson: () => startNewPerson(state, PERSON_COMPONENT),
+                    }),
                 }),
                 create === undefined || state.creating.value === null ? null : h(create.dialog, {
                     open: true,
