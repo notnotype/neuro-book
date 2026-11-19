@@ -25,10 +25,10 @@ owners:
 
 ## 术语与参与者
 
-- **输入缓冲区**：提交了还没取走的话，session 作用域；每条带 `steer` 或 `followup` 模式、发出者与状态。（planned）缓冲区另有提醒，见下一条。
-- **提醒**：（planned）会话或宿主交给会话、下一次对话请求带上的一段文字（输出 112–118）。它不是用户的话，也不进输入的就绪与留着；会话作用域，取走之前一直待发。
-- **唤起**：（planned）带唤起的提醒让空闲的会话开一次运行（输出 116）。
-- **门**：（planned）会话级的开关，决定提醒能不能唤起这个会话（输出 117）。
+- **输入缓冲区**：提交了还没取走的话，session 作用域；每条带 `steer` 或 `followup` 模式、发出者与状态。缓冲区另有提醒，见下一条。
+- **提醒**：会话或宿主交给会话、下一次对话请求带上的一段文字（输出 112–118）。它不是用户的话，也不进输入的就绪与留着；会话作用域，取走之前一直待发。
+- **唤起**：带唤起的提醒让空闲的会话开一次运行（输出 116）。
+- **门**：会话级的开关，决定提醒能不能唤起这个会话（输出 117）。
 - **就绪**、**留着**：缓冲区条目的两种状态。运行只取就绪的；留着的带原因（`cause`），停止时留下的另带停的人（`heldBy`），要经放行才再变成就绪（输出 103–109）。
 - **发出者**：指令的身份，三种：用户、会话 `{kind: "session", id}`、宿主 `{kind: "host", source: {plugin, label, ref?, at?}}`（输出 45）。判等按种类与身份：会话按 `id`，宿主按 `source.plugin`。
 - **放行**：把留着的话转回就绪，写 `inputReleased`（输出 105）。
@@ -84,7 +84,7 @@ owners:
 
 缓冲区、设置与恢复：
 
-28. 运行中，每个边界把缓冲区里全部就绪的 `steer` 按入队顺序取走：每条一个 `inputConsumed` 加一条 `steer`，同一个写入批，进当前这一轮（还没有回复时是附带内容，有了是最后一步之后）。（planned）取走在这个边界的压缩之后、组请求之前，与待发的提醒同一个写入批（输出 113），所以边界上的压缩不会把这一次刚取的插话压掉；服务商报溢出后的压缩（输出 50）照旧可能压进摘要。模型给出最终回复时缓冲区里还有就绪的 `steer`，这一轮不结束，接着请求；同时有扩展要 `continue` 时先写 `continued`，两者都进下一次请求。（planned）有带唤起的待发提醒时同样不结束这一轮；不带唤起的不延长这一轮，等下一次对话请求。
+28. 运行中，每个边界把缓冲区里全部就绪的 `steer` 按入队顺序取走：每条一个 `inputConsumed` 加一条 `steer`，同一个写入批，进当前这一轮（还没有回复时是附带内容，有了是最后一步之后）。（planned）取走在这个边界的压缩之后、组请求之前，与待发的提醒同一个写入批（输出 113），所以边界上的压缩不会把这一次刚取的插话压掉；服务商报溢出后的压缩（输出 50）照旧可能压进摘要。模型给出最终回复时缓冲区里还有就绪的 `steer`，这一轮不结束，接着请求；同时有扩展要 `continue` 时先写 `continued`，两者都进下一次请求。有带唤起的待发提醒时同样不结束这一轮；不带唤起的不延长这一轮，等下一次对话请求。
 29. `edit`、`remove` 只对还在缓冲区里的输入（就绪或留着都行，状态不变），按发出者（输出 108）：`edit` 只能改自己排的，经输入拦截链（同输出 24）写 `inputEdited`，条目的发出者不变；`remove` 用户能取消任何一条，会话、宿主只能取消自己排的，写 `inputRemoved{by, reason: "cancelled"}`；不允许时得 `not-allowed`。不在缓冲区里时，入过队的（已取走或已删）得 `input-consumed`，从没入过队的得 `input-not-found`。
 30. `abort` 只停发出者能停的运行（输出 108）：权限在触发信号之前同步判定，不允许时得 `not-allowed`，运行不受影响。允许时在同一个同步步骤里触发信号、读下范围、把受理排进队列，受理绑定这次运行；这一步早于这次运行的收口那一项时，收口批不论以什么方式收口（包括宽限期内交出结果的 `finished`）都按停止的范围处理，晚于它时交回 `{aborted: false}`、不动缓冲区，之后开的运行不受它影响。范围是这个同步步骤那一刻已在缓冲区里的话（就绪与留着的都算）：缺省清空其中停的人能取消的（用户能取消全部，会话、宿主只有自己排的，同输出 29），每条写 `inputRemoved{by: 停的人, reason: "aborted"}`；范围里其余就绪的话，以及 `keepQueue: true` 时全部就绪的话，写 `inputHeld{cause: {end: "aborted"}, heldBy: 停的人}`；已经留着的不改（输出 109）。这些与 `runEnded{aborted}`、`commandAccepted{name: "abort"}` 同一个写入批：重发同一个 `commandId`（中止进行中、运行收口后、重开之后）交回第一次的结果。停止受理之后才到的话不在范围里，按各自的发出者照输出 104 处理。两个发出者先后停同一次运行，以先受理的为准：清空与否、`heldBy`、`runEnded.stoppedBy` 都按它；后到的 `abort` 不改变它们，它的 `commandAccepted` 同样写进收口批，交回与第一个相同的 `{aborted: true}`。没有运行时缓冲区不动、不写日志。轮以 `error` 或 `aborted` 结束时不取 `followup`。
 31. `changeSettings` 的补丁按扩展 id 分组（核心设置组是 `core`：`model`、`effort`、`approvalMode`、`readOnly`），整体校验：组不是装配里的扩展得 `unknown-extension`，键不在它的设置 schema 里得 `unknown-key{extension, key}`，值不合 schema 得 `invalid-value{extension, key, message}`，有一项不合法就都不改。受理时给每个值有变化的组写一条 `settingsChanged`（按生效值比：扩展的项先合并 schema 的缺省值，与缺省相同的不算变化；值没变的项不写），运行中受理的同样立刻写，下一次请求前生效（`scheduled: "next-boundary"`，空闲时 `"now"`）。`settingsChanged` 只派发给设置所属的扩展的处理函数。
@@ -211,10 +211,10 @@ owners:
 
 缓冲区的提醒与唤起（planned，[提案：统一后台任务](../../proposals/unified-background-tasks.md)、[ADR 0056](../../adr/0056-background-work-providers-and-session-notices.md)）：
 
-112. **发提醒。** `notice({text, key?, wake?})` 只给会话与宿主：它在 `hostOnlyCommands` 里，宿主应用的远程合同不把它交给用户；用户身份发得 `not-allowed`。受理批写 `noticeQueued{id, by, key?, text, wake, commandId}`，成功值 `{noticeId, replaced?}`。正文按 UTF-8 至多 32 KiB，否则 `notice-too-large`；`key` 至多 200 个字符；一个会话待发的提醒至多 64 条、按编码后的整条记录（含发出者）合计至多 128 KiB，否则 `notice-budget`。同一个发出者带同一个 `key` 的新提醒替换还没取走的那条：同一个受理批里先写 `noticeRemoved{ids, by, reason: "replaced"}`，上限按扣掉旧的那条之后算。任何一项不合格都什么都不写。`removeNotice({noticeId})`：用户能取消任何一条（`reason: "cancelled"`），会话与宿主只能撤回自己发的（`reason: "withdrawn"`，别人的得 `not-allowed`）；不在待发里得 `notice-not-found`，已经取走的得 `notice-taken`。提醒不过期，过时的由发出者自己撤回。
+112. **发提醒。** `notice({text, key?, wake?})` 只给会话与宿主：它在 `hostOnlyCommands` 里，宿主应用的远程合同不把它交给用户；用户身份发得 `not-allowed`。受理批写 `noticeQueued{id, by, key?, text, wake, commandId}`，成功值 `{noticeId, replaced?}`。正文按 UTF-8 至多 32 KiB，否则 `notice-too-large`；`key` 至多 200 个字符，否则同样 `notice-too-large`；一个会话待发的提醒至多 64 条、按编码后的整条记录（含发出者）合计至多 128 KiB，否则 `notice-budget`。同一个发出者带同一个 `key` 的新提醒替换还没取走的那条：同一个受理批里先写 `noticeRemoved{ids, by, reason: "replaced"}`，上限按扣掉旧的那条之后算。任何一项不合格都什么都不写。`removeNotice({noticeId})`：用户能取消任何一条（`reason: "cancelled"`），会话与宿主只能撤回自己发的（`reason: "withdrawn"`，别人的得 `not-allowed`）；不在待发里得 `notice-not-found`，已经取走的得 `notice-taken`。提醒不过期，过时的由发出者自己撤回。
 113. **取走。** 对话运行的每个边界，在压缩之后、组请求之前，把全部待发的提醒按发出的先后取走，与取插话（输出 28）在同一个队列项、同一个写入批：写一条 `noticeTaken{ids, runId}`，每条提醒一个路径事件 `hostNotice{queued, by, text, boundary}`（`queued` 是 `noticeQueued` 的 id），同一边界一起取走的提醒与插话带同一个 `boundary`；两种的先后按 Profile 的 `queue.order`（[`harness/profile.md`](profile.md)，缺省提醒在前）。于是一轮还没回复时它们是附带内容、请求里排在这一轮的新话前面，有回复之后在最后一步之后。停止受理之后到这一项的不取（同输出 30）；只压缩的运行不取；回退、换分支不改变待发的提醒。已写下的块之后不再重排。
 114. **没有进行中的一轮时开什么样的一轮。** 运行进入循环时叶子上没有进行中的一轮（唤起开的运行、在两轮之间接着跑的运行），在一个队列项里依次看：有就绪的话，取第一条开一轮（同输出 4），待发的提醒在第一个边界随它带上、排在它前面；否则有带唤起的待发提醒，或这次运行是用户开或接着跑的、又有待发的提醒，开一轮没有输入的（`turnStarted{inputId: null}`），这一轮的第一个边界取走提醒；都没有就以 `completed` 收口、不发模型请求，不带唤起的提醒留着。唤起开的运行受理时只写 `runStarted`，不先写 `turnStarted`。用户的 `resume`（输出 106）没有能放行的话、也没有可接着跑的运行，但有待发的提醒时，不得 `nothing-to-resume`，开一次运行、按本条开一轮没有输入的（门按输出 117 打开）。
-115. **样子。** `hostNotice` 缺省渲染成 `<system-reminder>` 包着的一行来源说明加正文：会话发的写 `[会话 <id>]`，宿主发的写 `[系统 · <label>]`（`label` 去掉换行、控制字符、`[` 与 `]`，截到 40 个字符，空的写插件 id），正文里的 `<system-reminder>`、`</system-reminder>` 转义。Profile 的 `render` 能换它的文字（[`harness/profile.md`](profile.md) 输出 7）。提醒不是用户的话：不算授权依据，不解除运行守卫的停止（[`agent/run-guards.md`](../agent/run-guards.md)）。
+115. **样子。** `hostNotice` 缺省渲染成 `<system-reminder>` 包着的一行来源说明加正文：会话发的写 `[会话 <id>]`，宿主发的写 `[系统 · <label>]`（`label` 里的换行、控制字符、`[` 与 `]` 换成空格、连续的空白合成一个，截到 40 个字符，空的写插件 id），正文里的 `<system-reminder>`、`</system-reminder>` 转义。Profile 的 `render` 能换它的文字（[`harness/profile.md`](profile.md) 输出 7）。提醒不是用户的话：不算授权依据，不解除运行守卫的停止（[`agent/run-guards.md`](../agent/run-guards.md)）。
 116. **唤起。** 会话空闲、门开着（输出 117）、叶子上没有暂停的运行、开得起运行（不是只读、没有待做的重新装配、没在关闭、模型解析得到），并且有带唤起的待发提醒时，开一次运行：`runStarted{by: 最早那条带唤起的提醒的发出者, wake: true}`，按输出 114 开一轮。判定在三处：带唤起的提醒受理时；每个收口批在推迟的指令之后——推迟的指令开了运行，提醒随它的第一次请求带上，不另开；重新装配做完、会话回到能开运行时。一次至多开一次。暂时开不起时提醒照样待发、保留唤起，等下一个判定点；模型设置的变化本身不触发判定。
 117. **门。** 会话级事件 `wakeGate{open, cause}` 记门的开关，回退、换分支、压缩都不改它。关：对话运行的收口批里，有停止的受理、或以 `aborted`、`error`、`interrupted` 收口、或会话正在关闭或进程正在收尾（这时以 `finished` 收口也算）；打开会话时的恢复补写 `runEnded{interrupted}` 时；回退之后已受理接着跑那次暂停的运行（`runResumed`）、又在第一条路径事件写下之前中断的，重开时按中断恢复并关门。开：用户发起、并且这一批真的开起或接着跑了一次对话运行（空闲时的 `send` 与用户的 `enqueue`、在暂停的叶子上接着跑、`start`、`resume`（含只有待发提醒时的，输出 114）、`release`、用户的异步回答、`rewind{resend}`，以及收口批里按输出 104 记成用户开的后继）。被拒、开不起、去向是 `held` 或 `later` 的不开；只压缩的运行不论怎样收口都不改门。初值：新建的会话与 `fork` 出来的会话在建会话那一批写 `wakeGate{open: true, cause: "created"}`；没有门事件的旧日志按关着算。`fork` 不带来源会话的待发提醒。
 118. **预览与快照。** 预览（输出 55）把当前叶子上待发的提醒按输出 113、114 的位置投影进去，不写事件、不改门；叶子上没有进行中的一轮、只有提醒时投影成一轮没有输入的；预览历史叶子时不叠当前的待发。快照带 `notices`（待发的全部提醒，含正文）与 `wakeGate`；快照里的提醒同缓冲区的输入，不经出站过滤。`noticeQueued.text` 与 `hostNotice.text` 是内容字段，日志与帧经出站过滤（输出 54）。
@@ -236,7 +236,7 @@ owners:
 - `abort` 的权限判定、触发信号与排进受理在同一个同步步骤里（输出 30）。
 - `waitRun` 完成时这次运行已经收口：没有推迟到收口的指令时会话已经空闲，紧接着 `start` 不会得到 `already-running`；收口批按输出 104 开了下一次运行时，会话已在那次运行里，它另有自己的 `runId`。
 - `invoke` 从父调用开始执行起可用，到父调用的执行交回为止；嵌套调用的结果都写在父调用的 `toolResult` 之前（输出 100）。
-- （planned）门只在单写者的受理批与收口批里改（输出 117）：停止受理到收口之间到达的带唤起的提醒，由收口批先关门再判唤起，不会开运行；用户的话在收口批里真的开起运行才开门。
+- （planned）门只在单写者的受理批、收口批、建会话的那一批与打开会话时的恢复批里改（输出 117）：停止受理到收口之间到达的带唤起的提醒，由收口批先关门再判唤起，不会开运行；用户的话在收口批里真的开起运行才开门。
 - （planned）提醒从受理到取走一直待发，取走与这一边界的插话同一批；`removeNotice` 与取走在同一个队列里排，先到的生效。
 
 ## 副作用与数据
@@ -261,10 +261,10 @@ owners:
 | `held-by-user` | 要放行的是用户停止时留下的，只有用户能放行 | 等用户继续；或告诉用户有话被暂停 |
 | `nothing-to-release` | 指定的条目不在缓冲区或不是留着的；`detail` 带这些 id | 重新读快照 |
 | `input-stale` | `replaces` 里的条目已不在或被改过 | 重新读快照、重新拼再发 |
-| `notice-too-large` | （planned）提醒正文超过上限 | 正文存成文件，提醒里写地址 |
-| `notice-budget` | （planned）会话待发的提醒到了条数或合计上限 | 自己留着内容（例如交给 `wait`），或撤回过时的 |
-| `notice-not-found` | （planned）要撤回或取消的提醒不在待发里 | 重新读快照 |
-| `notice-taken` | （planned）这条提醒已经随一次请求取走 | 不用再撤 |
+| `notice-too-large` | 提醒正文或 `key` 超过上限 | 正文存成文件，提醒里写地址 |
+| `notice-budget` | 会话待发的提醒到了条数或合计上限 | 自己留着内容（例如交给 `wait`），或撤回过时的 |
+| `notice-not-found` | 要撤回或取消的提醒不在待发里 | 重新读快照 |
+| `notice-taken` | 这条提醒已经随一次请求取走 | 不用再撤 |
 
 运行以 `error` 结束时 `runEnded.error.code` 的内核码见 `runErrorCodes`（`profile-failed`、`tools-missing`、`result-missing`、`no-model`、`empty-reply`、`internal` 等）；内核造的工具结果的码见 `toolResultCodes`。
 

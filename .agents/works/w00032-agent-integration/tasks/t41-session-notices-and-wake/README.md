@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t41-session-notices-and-wake
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -97,6 +97,7 @@ updated: 2026-11-19
 | 3 门与唤起 | 分支 d0e93e0b1、f9b297986 | 新增 `run/wake.test.ts` 15 条过；`session/session.test.ts` 一条断言改成只看路径事件（出错收口批多了一条关门事件）；nb-harness 内核 450 条全过（负载 4）；neuro-book `src/plugins/agent` 535 条全过；变异 6 处（停止与出错不关门、用户不开门、收口唤起不看门、`runResumed` 不改恢复标记、取消的推迟指令照样放行、最终回复不看唤起）各有用例失败，其中“收口唤起不看门”起初没有用例抓到，补了 f9b297986 |
 | 4 `queue.order` 与 `mergeSteers` | 分支 e15c52f18 | `run/notice.test.ts` 增至 14 条过；插件 SDK 导出 `mergeSteers`，`sdk/sdk.test.ts` 的导出清单随之加一项（同文件“组件子路径”一条 master 上同样失败）；变异 2 处各有用例失败 |
 | 5 NeuroBook：远程版本 2、转录、对话宿主 | 分支 be838ba9b、e2b73d996，审查修正 22bbee478、1cb256181；Spec master 9c799919c | `kernel-transcript.test.ts` 37 条过；`sessions.test.ts` 与 `session-host.test.ts` 100 条全过（负载 10–23）；nb-agent-ui、neuro-book typecheck 过；变异 7 处（运行中也按留着画、取消不分流、继续不走 `resume`、排队区显示全文、远程快照带全文、转录的门恒开、提醒排在话前面）各有用例失败 |
+| 6 晋升核对补的用例 | 分支 0c8feb845、4878e68f4 | 见“Spec 晋升” |
 
 负载记录：跑测试时 1 分钟负载 25–108（别的会话的 typecheck 与 e2e、一个 t21 测试留下的孤儿 eval 内核，后者开发者已手动结束）。
 
@@ -129,10 +130,15 @@ updated: 2026-11-19
 
 变异（切片 5 审查之后，6 处）：门开着那半个条件、继续不收提醒、转录不截、来源名不走 `authorOf`、`mergeSteers` 合带 `payload` 的，各有用例失败；“只有提醒时直接 `resume`”的分支变异后用例照过，查明合并路径本来就落到 `resume{keep}`，删掉了这个分支（1cb256181）。
 
+## Spec 晋升
+
+逐句核对交 Opus 子代理，只读合并 master 之后的 Work 分支（67abce8f3），报告存为 [`evidences/promotion-check.txt`](evidences/promotion-check.txt)：36 句没有断言守着、3 处字面与实现不符。处理：
+
+- 补用例（0c8feb845、4878e68f4）：唤起开的运行在第一个队列项之前来了用户的话时取这句话开一轮（输出 114）；用户继续时只有不带唤起的提醒也开一轮没有输入的（114）；收口批里没有推迟的话时唤起，记成最早那条的发出者（116）；收口时有待做的重新装配不唤起、装好之后由 `wakeIfDue` 唤起（116，`session/host.test.ts`）；用户的 `enqueue` 与 `release` 开门、宿主开的运行不开门、宿主的停止关门（117）；条数到上限时替换照样成（112）；`mergeSteers` 合成的一条发出者是第一条的（profile 21）；插件视图撤回自己的提醒得 `withdrawn`、摘要长度是 200（sessions 29）。变异 6 处（循环先看唤起、用户开的运行不看不带唤起的提醒、收口不唤起、唤起记成最后一条的发出者、`wakeIfDue` 不做、替换不扣旧的）各有用例失败；nb-harness 内核 460 条全过。
+- 字面改成贴实现：输出 112 写明 `key` 超长同样得 `notice-too-large`，失败码表同改；输出 115 的来源行清洗写成“换成空格、合并连续空白”；“状态与转换”里门的写入点加上建会话的那一批与恢复批。
+- 去掉标记（守着的）：runtime.md 术语表四条、输出 28 第二处、四个失败码；profile.md 输入表 `queue`；sessions.md 输出 29；conversation.md 输出 51（只有“会话发的提醒，来源名写 Profile 名”一句留 planned：排队区没有会话身份发提醒的用例）。
+- 留着标记：runtime.md 输出 28 第一处（与提醒同一个写入批）、“状态与转换”两条、验收 17；session.md 输出 27；profile.md 输出 21（附带内容区的合并没测）。runtime.md、session.md、profile.md 整份仍是 planned（nb-harness 内核的 Spec 整体晋升另算），112–118 里核对报告列的其余没守着的句子（例如来源行的截短、预览历史叶子、开门的其余入口）随整份晋升时再补。
+
 ## 当前状态
 
-切片 2–5 完成，两份实现审查已处理。
-
-## 下一步
-
-Spec 晋升核对（Opus 子代理逐条核对）；t22 按提案改写计划。
+完成（2026-11-19）：切片 1–6 合入 master（fc16e8f05、4b6f843ca）；两份实现审查已处理，Spec 按逐句核对晋升。

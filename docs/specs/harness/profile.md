@@ -43,7 +43,7 @@ Profile 上与视图有关的字段（类型以 `/kernel/contracts` 导出的定
 | `turn` | `(turn, format) => 消息[]`；不写就是 `format.turn(turn)`；会变的内容用槽或 `reminder()` | 否 |
 | `commit` | `(turn, format) => 消息[]`；不写与 `turn` 相同 | 否 |
 | `render` | 事件名 → `(event) => 文字 \| null` | 否 |
-| `queue` | （planned）`{order?: ["notice", "steer"] \| ["steer", "notice"]}`，缺省提醒在前：同一个边界里提醒与插话写进日志的先后（[`runtime.md`](runtime.md) 输出 113） | 否 |
+| `queue` | `{order?: ["notice", "steer"] \| ["steer", "notice"]}`，缺省提醒在前：同一个边界里提醒与插话写进日志的先后（[`runtime.md`](runtime.md) 输出 113） | 否 |
 
 扩展的 `contribute`：槽名 → `{value: (view) => 文字 | null | undefined, volatile?, shared?}`。`value` 是纯函数。
 
