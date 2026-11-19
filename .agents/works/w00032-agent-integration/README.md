@@ -160,3 +160,5 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - Agent 与命令系统的对接（搁置）：另开 [w00049](../w00049-agent-command-bridge/README.md)（t16，2026-11-16）。
 - `read` 加一个参数让模型自己选要不要带地址头与行号：只读长篇正文、不打算按行改时省 token（开发者在 t21 提出，代码里调的已经交回原文对象，2026-11-18）。
 - 编辑组顶上的提示条（`EditorGroup` 里的 nb-ui `Banner`）重新设计：开发者认为现在的写法没做好，以后改；对话面板的模型提示用浮层提示卡，不跟它（[t29](tasks/t29-ui-polish-after-t15/README.md) 决定 10，2026-11-16）。
+- eval 跨 Profile 保留变量：先不做，换 Profile 照旧重置内核；要做时去掉 `SessionKernel` 里比 Profile 的那一个判断（[t40](tasks/t40-eval-kernel-survives-session-close/README.md) 决定 4，2026-11-19）。
+- eval 重置原因被挤掉时的提示：先不做；一句话的改法是把服务重启、分叉与原因被挤掉共用的兜底提示改成“服务重启、分叉或原因没记下”（[t40](tasks/t40-eval-kernel-survives-session-close/README.md) 决定 5，2026-11-19）。
