@@ -159,7 +159,7 @@ describe("场景 10：eval 的全局对象", () => {
 
         const changed = await session.changeProfile({commandId: `s10-${String((commands += 1))}`, profile: WITHOUT});
         expect(changed.ok).toBe(true);
-        // 换了 Profile，eval 的内核也重新开始（工作目录与布局变量按 Profile 取），之前的变量没了，结果第一行写明原因（eval.md 输出 11、12）。
+        // 换了 Profile，eval 的内核也重新开始，之前的变量没了，结果第一行写明原因（eval.md 输出 11、12）。
         const after = await evalOnce(session, "typeof stats");
         expect(after.split("\n")).toEqual(["内核已重置（换了 Profile），之前的变量没了。", "undefined"]);
 

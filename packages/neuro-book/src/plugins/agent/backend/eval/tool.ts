@@ -152,7 +152,10 @@ class EvalSession implements ToolImplementation {
  */
 class SessionKernel implements KernelHolder {
     #kernel: Kernel | null = null;
-    /** 起内核时会话的 Profile：工作目录与布局变量按 Profile 的资源取（输出 10），换了 Profile 就重置。 */
+    /**
+     * 起内核时会话的 Profile，换了就重置（eval.md 输出 11）。内核本身不依赖 Profile（工具集与全局对象每个单元重新给）：这是原先
+     * 换 Profile 时工具实现整体重建、内核跟着结束的行为，搬到登记表之后保留下来；要让变量跨 Profile 留着，去掉这个判断即可。
+     */
     #profile: string | null = null;
     /** 上一次调用时的 `ctx.leafMoves`：变了说明中间回退或切过分支。这个计数来自日志，会话关闭再打开之后照样能比。 */
     #leafMoves: number | null = null;
