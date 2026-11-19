@@ -220,7 +220,10 @@ owners:
 
 141. **主题变量**：Vue 层读的 CSS 变量都是 `--nb-layout-*`；除组件自己写在行内的几何外，每处 `var()` 都带清单（`NB_LAYOUT_THEME_VARS`）里的回退；装了 nb-ui 的宿主经它的桥接取主题的值（[`theme/system`](../theme/system.md) 的“变量体系”），外观与过渡同今天；不装时用回退。输出 35、112 与组件文档里写的 `--motion-layout`、`--layout-card-*` 这类名字是主题写的旧名，库读的是对应的 `--nb-layout-*`。宿主旋钮（`--nb-layout-splitter-seam` 这类主题不写的）由宿主直接设新名，不经桥接。
 142. **过渡：缺省时长**：宿主没给 `--nb-layout-motion-layout` 时（不装 nb-ui、也没自己设），布局过渡按缺省时长走：CSS 的回退与库里等过渡收尾时读到的缺省取清单里的同一个值。时长要写成 `ms` 或 `s` 的字面值；写成别的（`none`、`calc()`）时库的计时当 0。系统减少动态效果时 nb-layout 读的时长在根上全部归零，宿主在根上设的时长也压不过（输出 59）；设在子树元素上的时长不在这个保证之内。
-143. **文案**：组件的读屏名称与提示（分隔条、可排序列表）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取；没有注入时用库自带的 `zh-CN` 目录，参数照旧代入（[`ui/i18n`](i18n.md) 输出 8 的例外）。
+143. **文案**：组件的读屏名称与提示（分隔条、可排序列表）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取；没有注入时用库自带的 `zh-CN` 目录，参数照旧代入（[`ui/i18n`](i18n.md) 输出 8 的例外）。144. **承载盒的尺寸**（planned）：`NestedGrid` 量自己的根盒（布局盒，不含边框与内边距），挂载后量到就发 `extent` 事件，两轴变了才再发，卸载前发 `null`；同步发，宿主在同一个调用栈里拿到。
+145. **宿主接线**（planned）：`useGridHost` 交回一包 `bindings`（树、布局、版本、上下文键、停用、提交处理、接 `extent` 的处理），整包绑到 `NestedGrid` 上就能接手势；尺寸取自 `NestedGrid` 发的 `extent`，没量到可用尺寸（null、零或非有限）时布局为空、`disabled` 为真。`disabled`、`contextKey` 只经 `useGridHost` 的选项给，模板里再写同名属性会覆盖包里的值。
+146. **承载盒的前提**（planned）：`NestedGrid` 的根铺满承载盒，承载盒没有确定的高度时量到 0、布局为空、什么都不画。尺寸只来自 `NestedGrid`，把它挂在“有了尺寸才渲染”的条件后面会永远等不到尺寸。
+
 ## 状态与转换
 
 | 状态 | 事件 | 结果 |
@@ -330,7 +333,7 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-layout`、`./vue`、`./text`、`./locales` 四个入口里写出的名字（一行一个名字的显式清单，[`exports.test.ts`](../../../packages/nb-layout/src/exports.test.ts) 守着）。网格这一面常用的是 `createGrid` 与结构操作（含 `splitLeaf`）、快照与 `resizeBranches`，`./vue` 的 `NestedGrid`、`useLayoutExtent`、`useGridLayout`、`moveGridFocus`。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)。
+- 公开入口：`@notnotype/nb-layout`、`./vue`、`./text`、`./locales` 四个入口里写出的名字（一行一个名字的显式清单，[`exports.test.ts`](../../../packages/nb-layout/src/exports.test.ts) 守着）。网格这一面常用的是 `createGrid` 与结构操作（含 `splitLeaf`）、快照与 `resizeBranches`，`./vue` 的 `NestedGrid`、`useLayoutExtent`、`useGridLayout`（planned：换成 `useGridHost`，`useGridLayout` 降为内部，输出 145）、`moveGridFocus`。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)。
 - owner 与依赖方向：owner 是 `ui`；`nb-layout` 的核心入口（含落点几何）不依赖 Vue、DOM 与 dnd-kit，Vue 层只依赖核心入口、`vue` 与 `tabbable`，不依赖 nb-ui（主题经 `--nb-layout-*` 变量、由 nb-ui 的 `tokens.css` 桥接，文字经 `./text` 的注入点；ADR 0054 第 3 条）；工作台与插件只经包入口消费，不跨包深导入；工作台的布局文档、落点规则与标签条在 `nb-workbench-layout`，它同样只经这两个入口用本包，本包不依赖它（[ADR 0054](../../adr/0054-nb-layout-general-library.md)）。
 - 失败与诊断的构造：每层一张“码 → `params` 形状”的映射（[`grid-failure.ts`](../../../packages/nb-layout/src/grid-failure.ts)、[`grid-issue.ts`](../../../packages/nb-layout/src/grid-issue.ts)，不从入口导出），构造时按映射检查参数，导出的类型只有通用的 `GridFailure`、`GridIssue`（失败 5 到 7、输出 139）。
 - 只发新增：键与闸门在 [`issue-gate.ts`](../../../packages/nb-layout/src/issue-gate.ts)（不从入口导出），`useGridLayout` 按重算、`useSashGesture` 按手势各用一个（输出 140）。
