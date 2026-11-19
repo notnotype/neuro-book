@@ -4,9 +4,19 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ## [Unreleased]
 
+### 不兼容的改动
+
+- 插件 SDK 的 `NestedGrid`：`onGestureCommit` 拒绝一次调整时返回 `{ok: false, code, message, params?}`，原来的 `reason` 去掉了。`code` 给程序判断（网格没就绪是 `not-ready`，工作面、版本、容器尺寸过期是 `stale-context`、`stale-revision`、`stale-size`，落账时结构操作拒绝就是它的码），`message` 是英文、只给日志看；插件自己拒绝时可以用自己的码。按旧写法返回 `{ok: false, reason}` 的插件要改成新形状、重新构建：重新编译时类型检查会报错，没重新构建的插件被拒时诊断里的原因是 `undefined`。
+
+- 插件 SDK 的 `NestedGrid`：`issues` 事件的元素从中文句子改成 `{code, message, params?}`，`gesture-update` 载荷的 `issues` 与 `layout.issues` 也是。`code` 给程序判断（例如 `over-constrained` 加 `params.cause` 说清是最小值合计超出、固定尺寸装不下还是交叉轴不够，`params.id` 是出问题的分支或面板），`message` 是英文、只给日志看；带 `ok` 的元素是被拒的提交。`issues` 事件改成只发新出现的：一场拖动里同一个诊断只发一次，要知道现在有哪些问题读 `gesture-update` 载荷的 `issues`。按字符串读诊断的插件不会报错，只是读到错的值（`join` 得到 `[object Object]`、`includes` 永远是假），要改成读 `code`；重新编译时类型检查会报错。
+
 ### 新增
 
+- 插件 SDK 导出 `GridIssue`、`GridIssueCode`、`GridHostIssueCode`，给 `@issues` 与 `gesture-update` 写类型用。
+- 插件 SDK 导出 `GridLayoutCommitResult`、`GridFailure`、`GridCommitFailureCode`、`GridParamValue` 几个类型，给 `onGestureCommit` 写类型用。
 - 应用自带两套星璃表情包：“星璃”（15 个）与“星璃 · 半身”（12 个），只读，在表情包页里可以“复制到我的”再改；内置的主创默认能用“星璃”，在对话里发 `:lyra/开心:` 这样的表情。我的表情包与内置的同名时，按包名写的表情显示我的那一份，内置的那份要写 `:builtin.lyra/…:`。
+- 点表情看大图：对话里的回复与自己发的消息、Markdown 编辑器里单击表情，表情选择器底部点“查看大图”，打开和原图预览一样的对话框，能复制写法、下载原图，小图放大到 320 像素。
+- 表情包可以设成“按贴纸显示”（表情包页的属性栏里，内置与插件的包也能设）：这个包的表情夹在文字里也显示成大图，切换立刻生效，各个窗口与客户端里都一样。
 
 ## [0.14.1] - 2026-11-18
 

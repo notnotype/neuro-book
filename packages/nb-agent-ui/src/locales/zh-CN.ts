@@ -294,13 +294,12 @@ export default {
         fork: "以同一个 Profile 另开一条会话",
         clear: "清空当前会话视图，回到空历史",
     },
+    stickerPreview: {
+        title: "{{name}} · {{pack}}",
+        copy: "复制写法",
+    },
     imagePreview: {
-        close: "关闭",
-        downloadOriginal: "下载原图",
-        loadFailed: "原图加载失败",
-        retry: "重试",
         image: "图片 #{{number}}",
-        loading: "正在加载原图",
     },
     harness: {
         error: {

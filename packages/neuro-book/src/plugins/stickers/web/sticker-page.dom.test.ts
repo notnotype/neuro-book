@@ -14,6 +14,7 @@ import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {StickerPackDetail, StickerPackSummary} from "../shared/contracts";
 import StickerPacksPage from "./components/StickerPacksPage.vue";
+import {memoryDisplay} from "./display";
 import {stickersCatalogs} from "./text";
 
 const cleanup: Array<() => void> = [];
@@ -563,6 +564,25 @@ describe("拖放与只读的包", () => {
         await wrapper.get("[data-sticker-copy]").trigger("click");
         await flushPromises();
         expect(calls.copy).toEqual([["builtin.lyra"]]);
+    });
+
+    it("按贴纸显示（输出 47）：没选表情时属性栏有开关，内置的只读包也有；点了写进偏好、开关跟着变；没有偏好服务时不画", async () => {
+        const builtin = summary("builtin.lyra", {source: "builtin", title: "星璃", writing: "lyra"});
+        const detail = {summary: builtin, listed: true, token: null, stickers: [sticker("开心", true)], extras: []};
+        const display = memoryDisplay(() => null);
+        const {wrapper, root} = show({packs: [builtin], selected: "builtin.lyra", detail, display});
+        const toggle = root.querySelector<HTMLElement>("[data-pack-sticker-display]");
+        expect(toggle?.getAttribute("aria-checked")).toBe("false");
+        expect(toggle?.getAttribute("aria-label")).toBe("按贴纸显示");
+        await wrapper.get("[data-pack-sticker-display]").trigger("click");
+        await flushPromises();
+        expect(display.packs()).toEqual(["builtin.lyra"]);
+        expect(root.querySelector("[data-pack-sticker-display]")?.getAttribute("aria-checked")).toBe("true");
+        await wrapper.get("[data-pack-sticker-display]").trigger("click");
+        await flushPromises();
+        expect(display.packs()).toEqual([]);
+        const without = show({packs: [builtin], selected: "builtin.lyra", detail});
+        expect(without.root.querySelector("[data-pack-sticker-display]")).toBeNull();
     });
 
     it("无效的表情包（带服务端真实会给的详情）：右边写原因与该怎么办，不是插件的“只能看”，没有“导出”", () => {

@@ -3,6 +3,8 @@
  * 组件与组合式函数在 `@notnotype/nb-layout/vue`。
  */
 export * from "./grid";
+/** 插件 SDK 导出的失败与诊断类型（Spec `ui/nested-grid` 失败 5、6，输出 139）：`./grid` 里也有，`sdk.test.ts` 按入口文件里写出的名字核对 SDK 的导出面，所以在这里写出名字。 */
+export type {GridCommitFailureCode, GridFailure, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridParamValue} from "./grid-types";
 export * from "./live-drop";
 export {clampFloatRect, placeGrid, resizeFloatRect} from "./grid-rects";
 export type {GridContentInput, GridFloatInput, GridLeafShape, GridRect, LayoutFloatResize} from "./grid-rects";

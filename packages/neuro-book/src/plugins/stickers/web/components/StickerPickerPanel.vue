@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {Button, Input} from "@notnotype/nb-ui/components";
+import {STICKER_PREVIEW_MIN_SIZE} from "@notnotype/nb-markdown";
+import {Button, IconButton, ImagePreviewDialog, Input} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onMounted, ref, shallowRef, useId, watch} from "vue";
 
 import type {StickerPicker, StickerPickerItem} from "../../shared/contracts";
@@ -136,7 +137,19 @@ function onKeydown(event: KeyboardEvent): void {
     emit("close", "escape");
 }
 
+/**
+ * 底部那一行的表情的大图（docs/specs/agent/stickers.md 输出 46）。对话框是模态的、传送到面板之外：打开时焦点被它锁走，面板的
+ * focusout 会看到焦点离开，所以开着时不收起面板；关上后焦点由 Dialog 还给打开前的元素（按钮按下时不抢焦点，通常是搜索框或格子）。
+ */
+const preview = shallowRef<StickerPickerItem | null>(null);
+const previewOpen = ref(false);
+function openPreview(item: StickerPickerItem): void {
+    preview.value = item;
+    previewOpen.value = true;
+}
+
 function onFocusout(event: FocusEvent): void {
+    if (previewOpen.value) return;
     const next = event.relatedTarget;
     if (next instanceof Node && root.value?.contains(next) === true) return;
     emit("close", "blur");
@@ -208,11 +221,27 @@ const indexOf = (groupIndex: number, itemIndex: number): number => groups.value.
                 </div>
             </section>
         </div>
-        <footer v-if="footer !== null" class="sticker-picker__foot" aria-hidden="true">
-            <img :src="footer.url" alt="" class="sticker-picker__foot-image" draggable="false">
-            <span class="sticker-picker__foot-name">{{ footer.name }}</span>
-            <code class="sticker-picker__foot-raw">{{ footer.raw }}</code>
+        <footer v-if="footer !== null" class="sticker-picker__foot">
+            <!-- 名字与写法重复格子的内容，读屏不再念；“查看大图”按钮在它之外，带名字。 -->
+            <span class="sticker-picker__foot-info" aria-hidden="true">
+                <img :src="footer.url" alt="" class="sticker-picker__foot-image" draggable="false">
+                <span class="sticker-picker__foot-name">{{ footer.name }}</span>
+                <code class="sticker-picker__foot-raw">{{ footer.raw }}</code>
+            </span>
+            <IconButton
+                size="sm" icon-class="i-lucide-maximize-2" :title="text('picker.preview', {name: footer.name})" data-sticker-picker-preview
+                @mousedown.prevent @click="openPreview(footer)"
+            />
         </footer>
+        <ImagePreviewDialog
+            v-if="preview !== null"
+            v-model:open="previewOpen"
+            :src="preview.url"
+            :alt="text('picker.previewTitle', {name: preview.name, pack: preview.packTitle})"
+            :copy-text="preview.raw"
+            :copy-label="text('picker.copy')"
+            :min-size="STICKER_PREVIEW_MIN_SIZE"
+        />
     </div>
 </template>
 
@@ -361,8 +390,16 @@ const indexOf = (groupIndex: number, itemIndex: number): number => groups.value.
     min-width: 0;
     align-items: center;
     gap: var(--space-2);
-    padding: 6px var(--space-3);
+    padding: 6px var(--space-2) 6px var(--space-3);
     border-top: var(--border-w, 1px) solid var(--divider);
+}
+
+.sticker-picker__foot-info {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-2);
 }
 
 .sticker-picker__foot-image {

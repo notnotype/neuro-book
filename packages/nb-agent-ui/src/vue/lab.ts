@@ -27,7 +27,6 @@ export {default as AgentModeSwitchWizard} from "./wizard/AgentModeSwitchWizard.v
 export {default as AgentCompactionDetail} from "./stream/AgentCompactionDetail.vue";
 export {default as PlainForm} from "./fallback/PlainForm.vue";
 export {default as AgentMarkdown} from "./parts/AgentMarkdown.vue";
-export {default as OriginalImagePreviewDialog} from "./parts/OriginalImagePreviewDialog.vue";
 export {default as AgentChainSummary} from "./stream/AgentChainSummary.vue";
 export {default as AgentConversationTurn} from "./stream/AgentConversationTurn.vue";
 export {default as AgentDeliveryNotice} from "./stream/AgentDeliveryNotice.vue";

@@ -12,12 +12,15 @@ import type {
     GridBranch,
     GridConstraint,
     GridExtent,
+    GridIssue,
+    GridIssueCode,
     GridLayoutResult,
     GridNode,
     GridOrientation,
     GridSizing,
     SashCollapseState,
 } from "./grid-types";
+import {gridIssue} from "./grid-issue";
 
 export const EPSILON = 1e-6;
 
@@ -132,12 +135,19 @@ export function collapsePolicyProblem(policy: SashCollapseState, expandedMinimum
  * 再把剩余预算给 fixed；预算不足时先按 fixed 的可缩量同比缩到 min，仍不可满足才按全体最小值比例降级。
  * 没有 weight 节点时多余空间留白，不越权填满（fixed 面板不因容器变大而变大）。
  */
-export function allocateSashPanels(
-    panels: readonly SashPanel[],
-    available: number,
-    issues?: string[],
-    context = "分隔面板",
-): number[] {
+export function allocateSashPanels(panels: readonly SashPanel[], available: number): number[] {
+    return allocatePanels(panels, available);
+}
+
+/** 分配降级的原因：`allocateAxis` 把它包成带分支与轴的诊断（Spec `ui/nested-grid` 输出 139）。 */
+type AllocationProblem = {readonly cause: "min-total" | "fixed-overflow"; readonly available: number; readonly required: number};
+
+/** 一块面板在分配里是不是“按比例分”的：有可分的范围、不是固定尺寸。`allocatePanels` 与 `measure` 判 `no-weight` 共用这一条。 */
+function sharesByWeight(panel: SashPanel, bounds: {low: number; high: number}): boolean {
+    return bounds.high - bounds.low > EPSILON && panel.sizing !== "fixed";
+}
+
+function allocatePanels(panels: readonly SashPanel[], available: number, report?: (problem: AllocationProblem) => void): number[] {
     const count = panels.length;
     if (count === 0) {
         return [];
@@ -146,7 +156,7 @@ export function allocateSashPanels(
     const bounds = panels.map((panel) => sashPanelBounds(panel));
     const lowTotal = bounds.reduce((sum, value) => sum + value.low, 0);
     if (lowTotal > space + EPSILON) {
-        issues?.push(`${context}：约束不可满足（最小尺寸合计 ${round(lowTotal)} 超过可用 ${round(space)}），已按最小值比例降级`);
+        report?.({cause: "min-total", available: space, required: lowTotal});
         const ratio = lowTotal > 0 ? space / lowTotal : 0;
         return bounds.map((value) => value.low * ratio);
     }
@@ -157,13 +167,13 @@ export function allocateSashPanels(
     const weighted: number[] = [];
     panels.forEach((panel, index) => {
         const value = bounds[index]!;
-        if (value.high - value.low <= EPSILON) {
+        if (sharesByWeight(panel, value)) {
+            weighted.push(index);
+        } else if (value.high - value.low <= EPSILON) {
             rigid.push(index);
             assigned[index] = value.low;
-        } else if (panel.sizing === "fixed") {
-            fixed.push(index);
         } else {
-            weighted.push(index);
+            fixed.push(index);
         }
     });
 
@@ -173,6 +183,7 @@ export function allocateSashPanels(
     const targets = fixed.map((index) => clampAxis(panels[index]!.size, bounds[index]!.low, bounds[index]!.high));
     let fixedTotal = targets.reduce((sum, value) => sum + value, 0);
     if (fixedTotal > budgetForFixed + EPSILON) {
+        report?.({cause: "fixed-overflow", available: budgetForFixed, required: fixedTotal});
         const shrinkable = fixed.reduce((sum, index, position) => sum + Math.max(0, targets[position]! - bounds[index]!.low), 0);
         const excess = fixedTotal - budgetForFixed;
         const factor = shrinkable > EPSILON ? Math.min(1, excess / shrinkable) : 1;
@@ -182,7 +193,6 @@ export function allocateSashPanels(
             targets[position] = Math.max(low, target - (target - low) * factor);
         });
         fixedTotal = targets.reduce((sum, value) => sum + value, 0);
-        issues?.push(`${context}：可用空间 ${round(space)} 装不下固定尺寸，已按最小尺寸压缩呈现（不写回意图）`);
     }
     fixed.forEach((index, position) => {
         assigned[index] = targets[position]!;
@@ -190,10 +200,7 @@ export function allocateSashPanels(
 
     const rest = Math.max(0, space - rigidTotal - fixedTotal);
     if (weighted.length === 0) {
-        // 全部收起时留空是有意的（同一条理由见 `measure` 里的收起）。
-        if (rest > EPSILON && !panels.every((panel) => panel.collapse?.collapsed === true)) {
-            issues?.push(`${context}：没有按比例分配的节点，剩余 ${round(rest)} 未被吸收`);
-        }
+        // 剩余留空的诊断由 `measure` 发（`unabsorbed-space`，`no-weight`），它知道分支与祖先的收起。
         return assigned;
     }
     const weights = panels.map((panel) => Math.max(0, finite(panel.size, 0)));
@@ -253,7 +260,7 @@ export function constraintsOf<T>(
     node: GridNode<T>,
     axis: GridAxis,
     sashSize: number | GridSashResolver,
-    issues?: string[],
+    issues?: GridIssue<GridIssueCode>[],
     reported?: Set<string>,
 ): {low: number; high: number} {
     return collapsedRigid(node.collapse) ?? constraintOnAxis(node, axis, sashSize, issues, reported);
@@ -299,7 +306,7 @@ function constraintOnAxis<T>(
     node: GridNode<T>,
     axis: GridAxis,
     sashSize: number | GridSashResolver,
-    issues?: string[],
+    issues?: GridIssue<GridIssueCode>[],
     reported?: Set<string>,
 ): {low: number; high: number} {
     const declaredLow = Math.max(0, finite(node.minimumSize[axis], 0));
@@ -350,7 +357,7 @@ function reportConstraintConflict(
     axis: GridAxis,
     low: number,
     high: number,
-    issues?: string[],
+    issues?: GridIssue<GridIssueCode>[],
     reported?: Set<string>,
 ): void {
     const key = `${id}\u0000${axis}`;
@@ -358,7 +365,12 @@ function reportConstraintConflict(
         return;
     }
     reported?.add(key);
-    issues.push(`节点 ${id} 的 ${axis} 约束不相容：下限 ${round(low)} 高于上限 ${round(high)}，已以下限优先降级`);
+    issues.push(gridIssue("conflicting-bounds", `The ${axis} bounds of ${id} conflict: minimum ${round(low)} is above maximum ${round(high)}; the minimum wins`, {
+        id,
+        axis,
+        min: low,
+        max: high,
+    }));
 }
 
 function sashValues<T>(branch: GridBranch<T>, sashSize: number | GridSashResolver): number[] {
@@ -409,15 +421,25 @@ export function shareAxis<T>(children: GridNode<T>[], axis: GridAxis, available:
 }
 
 /**
- * 布局分配：与独立 Splitter 共用 `allocateSashPanels`（`fixed` 像素目标、`weight` 余量、
+ * 布局分配：与独立 Splitter 共用同一份分配（`allocatePanels`：`fixed` 像素目标、`weight` 余量、
  * 收起刚性、最小尺寸不可满足时按比例降级），诊断带分支与轴上下文。
  */
-export function allocateAxis<T>(branch: GridBranch<T>, axis: GridAxis, available: number, sashSize: number | GridSashResolver, issues: string[]): number[] {
+export function allocateAxis<T>(branch: GridBranch<T>, axis: GridAxis, available: number, sashSize: number | GridSashResolver, issues: GridIssue<GridIssueCode>[]): number[] {
     const children = branch.children;
     if (children.length === 0) {
         return [];
     }
-    return allocateSashPanels(sashPanelsOf(children, axis, sashSize), available, issues, `分支 ${branch.id} 的 ${axis}`);
+    return allocatePanels(sashPanelsOf(children, axis, sashSize), available, ({cause, available: space, required}) => {
+        const message = cause === "min-total"
+            ? `Branch ${branch.id} cannot fit its minimum ${axis} (${round(required)} > ${round(space)}); scaled down from the minimums`
+            : `Branch ${branch.id} cannot fit its fixed ${axis} sizes (${round(required)} > ${round(space)}); compressed toward the minimums`;
+        issues.push(gridIssue("over-constrained", message, {cause, id: branch.id, axis, available: space, required}));
+    });
+}
+
+/** 分支沿主轴有没有按比例分的子节点：没有时剩余空间留空的原因是 `no-weight`，有但都到了上限是 `capped`。 */
+function hasWeightedChild<T>(branch: GridBranch<T>, axis: GridAxis, sashSize: number | GridSashResolver): boolean {
+    return sashPanelsOf(branch.children, axis, sashSize).some((panel) => sharesByWeight(panel, sashPanelBounds(panel)));
 }
 
 /** 分支直接子节点沿主轴的分配面板（含收起策略）：拖动会话与视图共用同一份输入。 */
@@ -437,7 +459,7 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
     const sizes: Record<string, GridExtent> = Object.create(null) as Record<string, GridExtent>;
     const constraints: Record<string, GridConstraint> = Object.create(null) as Record<string, GridConstraint>;
     const sashSizes: Record<string, number[]> = Object.create(null) as Record<string, number[]>;
-    const issues: string[] = [];
+    const issues: GridIssue<GridIssueCode>[] = [];
     const reportedConstraints = new Set<string>();
     if (!root) {
         return {sizes, constraints, sashSizes, issues};
@@ -483,7 +505,13 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
                     continue;
                 }
                 if (space[axis] < nodeBounds.minimumSize[axis] - EPSILON) {
-                    issues.push(`节点 ${node.id} 的 ${axis} 可用空间 ${round(space[axis])} 小于约束下限 ${round(nodeBounds.minimumSize[axis])}，已按可用空间降级`);
+                    issues.push(gridIssue("over-constrained", `Leaf ${node.id} gets ${round(space[axis])} on ${axis}, below its minimum ${round(nodeBounds.minimumSize[axis])}`, {
+                        cause: "leaf-min",
+                        id: node.id,
+                        axis,
+                        available: space[axis],
+                        required: nodeBounds.minimumSize[axis],
+                    }));
                 }
             }
             sizes[node.id] = extent;
@@ -499,12 +527,24 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
         const effectiveGap = effectiveSashes.reduce((sum, value) => sum + value, 0);
         sashSizes[node.id] = effectiveSashes;
         if (configuredGap > target + EPSILON && !quiet.has(main)) {
-            issues.push(`分支 ${node.id} 的 sash 占用 ${round(configuredGap)} 超过可用 ${round(target)}，已压缩分隔条与子节点`);
+            issues.push(gridIssue("over-constrained", `The sashes of branch ${node.id} need ${round(configuredGap)} but only ${round(target)} is available; sashes and children are compressed`, {
+                cause: "sash-overflow",
+                id: node.id,
+                axis: main,
+                available: target,
+                required: configuredGap,
+            }));
         }
         const crossBounds = constraintOnAxis(node, cross, sashSize, issues, reportedConstraints);
         const crossSize = Math.min(space[cross], clampAxis(space[cross], crossBounds.low, crossBounds.high));
         if (crossSize < crossBounds.low - EPSILON && !quiet.has(cross)) {
-            issues.push(`分支 ${node.id} 的交叉轴可用空间 ${round(space[cross])} 小于约束下限 ${round(crossBounds.low)}，已按可用空间降级`);
+            issues.push(gridIssue("over-constrained", `Branch ${node.id} gets ${round(space[cross])} on its cross axis, below its minimum ${round(crossBounds.low)}`, {
+                cause: "cross-min",
+                id: node.id,
+                axis: cross,
+                available: space[cross],
+                required: crossBounds.low,
+            }));
         }
         // 主轴被祖先收起时，这里分不够是有意的：分配照做，诊断不收。
         const assigned = allocateAxis(node, main, Math.max(0, target - effectiveGap), sashSize, quiet.has(main) ? [] : issues);
@@ -529,8 +569,15 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
                 maximumSize: {...childConstraint.maximumSize, [main]: Math.max(0, high)},
             };
         }
-        if (total < target - EPSILON && !node.children.every((child) => child.collapse?.collapsed === true)) {
-            issues.push(`分支 ${node.id} 的可用空间 ${round(target)} 有 ${round(target - total)} 未被任何子节点吸收`);
+        // 祖先沿主轴收起时留空是有意的（同上面分配的 `quiet`）；全部子节点收起时留空也是有意的。
+        if (total < target - EPSILON && !quiet.has(main) && !node.children.every((child) => child.collapse?.collapsed === true)) {
+            const cause = hasWeightedChild(node, main, sashSize) ? "capped" : "no-weight";
+            issues.push(gridIssue("unabsorbed-space", `Branch ${node.id} leaves ${round(target - total)} of ${round(target)} unabsorbed on ${main}`, {
+                cause,
+                id: node.id,
+                axis: main,
+                rest: target - total,
+            }));
         }
         const extent = extentOf(main, total, crossSize);
         sizes[node.id] = extent;

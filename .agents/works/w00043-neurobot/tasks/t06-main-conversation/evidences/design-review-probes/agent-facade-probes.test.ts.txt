@@ -1,0 +1,42 @@
+import {expect, test} from "bun:test";
+import {mkdtemp} from "node:fs/promises";
+import {defineEntry, type PluginDefinition} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-runtime/src/plugins/plugins.ts";
+import {agentKey, MAIN_PROFILE, type AgentService} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/neuro-book/src/plugins/agent/shared/contracts.ts";
+import {agentWorld} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/neuro-book/src/plugins/agent/testing/world.ts";
+
+test("实际 Agent：门面和已取出的门面方法失效，但返回的会话视图仍写入日志并保留旧宿主身份", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review/agent-world-");
+    const w = await agentWorld(root, {withoutModels: true});
+    const consumer: PluginDefinition = {id: "test.old-agent-caller", entries: [defineEntry({id: "server", location: "server", dependencies: [{key: agentKey}], activate: (context) => {
+        service = context.services.require(agentKey);
+        return {};
+    }})]};
+    let service: AgentService | null = null;
+    try {
+        const registered = await w.register(consumer);
+        expect(await w.settings.hub.plugins.activate({plugin: consumer.id, entry: "server"})).toMatchObject({status: "activated"});
+        const facade = service as AgentService | null;
+        if (facade === null) throw new Error("未取得门面");
+        const create = facade.create;
+        const created = await create({profile: MAIN_PROFILE}, {source: {label: "旧代次"}});
+        if (!created.ok) throw new Error(JSON.stringify(created));
+        const view = created.value;
+        await registered.stop();
+        for (const call of [() => facade.session(view.id), () => create({profile: MAIN_PROFILE})]) {
+            try { await call(); throw new Error("门面未作废"); }
+            catch (error) { expect(error).toMatchObject({name: "ServiceRevokedError"}); }
+        }
+        const stale = view.as({kind: "host", source: {plugin: "fake.fixture", label: "换名字"}});
+        expect(stale.issuer).toMatchObject({kind: "host", source: {plugin: consumer.id}});
+        // 用 enqueue 不解析模型；空闲宿主输入持久化为 held。
+        expect(await stale.enqueue({commandId: "stale-host", input: {text: "旧门面的输入"}})).toMatchObject({ok: true});
+        const current = w.service.session(view.id);
+        expect((await current.snapshot()).buffer).toEqual(expect.arrayContaining([expect.objectContaining({by: {kind: "host", source: {plugin: consumer.id, label: "换名字"}}, state: "held"})]));
+        const {client} = await w.window("review");
+        const bad = await client.create({profile: MAIN_PROFILE, owner: {id: "fake"}} as never);
+        expect(bad).toMatchObject({ok: false, code: "invalid-input"});
+        console.log("真实 Agent：作废门面拒绝调用，已返回视图仍可盖原插件章入队；真实远程 create 拒绝额外 owner 参数");
+    } finally {
+        await w.close();
+    }
+});

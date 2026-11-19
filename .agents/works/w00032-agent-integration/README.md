@@ -82,7 +82,8 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-18 | t21 重开并推进：范围、计划（三份设计审查与 omp 对照，3.1 稿）与 Spec（planned）已定；切片 2 内核的嵌套调用通道先合入（不等审批简化提案，开发者定），eval 内核的子进程部分随之合入、还没接进应用（[t21](tasks/t21-eval-codeact/README.md)） |
 | 2026-11-18 | t21 切片 3、4 合入：eval 工具接进应用（每会话的内核、重置提示、累计时限、嵌套写入成组，还没进内置 Profile）；插件给 eval 代码登记全局对象（`agent.evalObjects`、`docs://eval/`、eval 的说明按会话列出对象），示例插件 `word-stats`。换 Profile 会重置内核，记进待确认清单（[t21](tasks/t21-eval-codeact/README.md)） |
 | 2026-11-18 | t21 完成：界面、内置 Profile 与真实模型切片合入；代码里调 `read` 交回对象（决定 10）；两份实现审查与 Spec 晋升核对都处理完，`eval.md` 晋升为 `implemented`，留 4 句 planned（[t21](tasks/t21-eval-codeact/README.md)） |
-| 2026-11-19 | t40：eval 不做内存转储（开发者定）；会话关闭不再结束内核，再打开、叶子与 Profile 没变时接着用，内核照样按空闲与上限回收、服务端停止时结束；重置提示的原因写准（关闭期间的空闲与回收、换了 Profile、两次调用之间被外部结束）（[t40](tasks/t40-eval-kernel-survives-session-close/README.md)） |
+| 2026-11-19 | t40：eval 不做内存转储（开发者定）；会话关闭不再结束内核，再打开、叶子与 Profile 没变时接着用，内核照样按空闲与上限回收、服务端停止时结束；重置提示的原因写准（关闭期间的空闲与回收、换了 Profile、两次调用之间被外部结束）；实现审查（omp）4 条重要都改了：换走又换回 Profile、空闲期先退出、项目换目录（新原因“工作目录变了”）、起内核期间被登记表丢掉；t40 完成（[t40](tasks/t40-eval-kernel-survives-session-close/README.md)） |
+| 2026-11-19 | t22 重开（开发者：也为 t24 做准备），6 条按推荐：后台任务结束时把结果送回启动它的会话（在跑时作插话，空闲时以宿主身份开运行；上一次是用户停的不唤起）；`shell` 前台过 60 秒自动转后台；不做 Monitor 与 stdin；Agent 的后台任务与后台会话进工作台的“后台任务”清单；任务中心对别的服务端插件开放登记；任务表照旧不存盘（[t22](tasks/t22-background-work/README.md)） |
 
 ## 待确认
 
@@ -128,7 +129,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t18](tasks/t18-builtin-profiles/README.md) | 内置 Profile、提示词规范与评测 | t05、t12、t15 |
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |
 | [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），完成：`eval.md` 已晋升 | t04、t12 |
-| [t22](tasks/t22-background-work/README.md) | 后台任务与协作：shell 后台、Agent 后台调用、Monitor、活动面板，搁置 | t07、t12、t14 |
+| [t22](tasks/t22-background-work/README.md) | 后台任务与协作：结束通知、自动转后台、活动视图、任务种类开放（为 t24），2026-11-19 重开 | t07、t12、t14 |
 | [t23](tasks/t23-session-history/README.md) | Agent 查询会话历史：分页、搜索、视角，搁置 | t14 |
 | [t24](tasks/t24-workflow-integration/README.md) | Workflow 与 Agent 的对接，搁置 | t14 |
 | [t13](tasks/t13-history/README.md) | nb-history 接入与文件变更感知（优先级不高，排到末尾） | t08、t12 |
@@ -160,3 +161,5 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - Agent 与命令系统的对接（搁置）：另开 [w00049](../w00049-agent-command-bridge/README.md)（t16，2026-11-16）。
 - `read` 加一个参数让模型自己选要不要带地址头与行号：只读长篇正文、不打算按行改时省 token（开发者在 t21 提出，代码里调的已经交回原文对象，2026-11-18）。
 - 编辑组顶上的提示条（`EditorGroup` 里的 nb-ui `Banner`）重新设计：开发者认为现在的写法没做好，以后改；对话面板的模型提示用浮层提示卡，不跟它（[t29](tasks/t29-ui-polish-after-t15/README.md) 决定 10，2026-11-16）。
+- eval 跨 Profile 保留变量：先不做，换 Profile 照旧重置内核；要做时去掉 `SessionKernel` 里比 Profile 的那一个判断（[t40](tasks/t40-eval-kernel-survives-session-close/README.md) 决定 4，2026-11-19）。
+- eval 重置原因被挤掉时的提示：先不做；一句话的改法是把服务重启、分叉与原因被挤掉共用的兜底提示改成“服务重启、分叉或原因没记下”（[t40](tasks/t40-eval-kernel-survives-session-close/README.md) 决定 5，2026-11-19）。

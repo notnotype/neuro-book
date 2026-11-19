@@ -20,6 +20,8 @@ import type {
     GridBranchesResizeResult,
     GridBranchResizeResult,
     GridExtent,
+    GridFailure,
+    GridFailureCode,
     GridLayoutResult,
     GridLeaf,
     GridLeafInput,
@@ -37,11 +39,20 @@ import type {
 } from "./grid-types";
 import {GRID_MAX_DEPTH, GRID_MAX_NODES} from "./grid-types";
 import {EPSILON, UNBOUNDED_EXTENT, ZERO_EXTENT, allocateAxis, axisOf, clampAxis, constraintsOf, extentOf, finite, layoutOf, normCollapse, normExtent, shareAxis, type GridSashResolver} from "./grid-geometry";
+import {gridFailure} from "./grid-failure";
 import {parseSnapshot, serializeTree} from "./grid-snapshot";
 
 export * from "./grid-types";
 /** 分支主轴与交叉轴的取轴规则只此一处；宿主按父分支方向取轴时用它，别自己写 if。 */
 export {axisOf} from "./grid-geometry";
+
+/** 手势里一侧尺寸的问题：先判非有限数，再判负数（Spec `ui/nested-grid` 失败 5）。 */
+function sizeProblem(side: "baseline" | "target", value: number | undefined): {kind: "not-finite" | "negative"; side: "baseline" | "target"} | null {
+    if (value === undefined || !Number.isFinite(value)) {
+        return {kind: "not-finite", side};
+    }
+    return value < 0 ? {kind: "negative", side} : null;
+}
 
 export type Grid<T> = {
     /** 当前布局树；结构变化后重新取。节点 `size` 是意图，不是呈现尺寸。 */
@@ -189,10 +200,10 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
 
     function scaleIssue(nodes: number, depth: number): GridResult | null {
         if (nodes > GRID_MAX_NODES) {
-            return {ok: false, reason: `节点数超出上限：${nodes} > ${GRID_MAX_NODES}`};
+            return gridFailure("limit-exceeded", `Too many nodes: ${nodes} > ${GRID_MAX_NODES}`, {limit: "nodes", max: GRID_MAX_NODES});
         }
         if (depth > GRID_MAX_DEPTH) {
-            return {ok: false, reason: `嵌套深度超出上限：${depth} > ${GRID_MAX_DEPTH}`};
+            return gridFailure("limit-exceeded", `Nesting too deep: ${depth} > ${GRID_MAX_DEPTH}`, {limit: "depth", max: GRID_MAX_DEPTH});
         }
         return null;
     }
@@ -223,16 +234,20 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
     function resize(id: string, axis: GridAxis, delta: number): GridResizeResult {
         const hit = find(id);
         if (!hit) {
-            return {ok: false, reason: `未知节点 id：${id}`};
+            return gridFailure("not-found", `Unknown node id: ${id}`, {id});
         }
         if (!hit.parent) {
-            return {ok: false, reason: `根节点没有可调整的父分支：${id}`};
+            return gridFailure("invalid-argument", `The root has no parent branch to resize along: ${id}`, {field: "root", id});
         }
         if (axisOf(hit.parent.orientation) !== axis) {
-            return {ok: false, reason: `只能沿父分支主轴调整：${id} 的父分支是 ${hit.parent.orientation}`};
+            return gridFailure("wrong-axis", `${id} can only be resized along its parent's main axis (${hit.parent.orientation})`, {
+                id,
+                parent: hit.parent.id,
+                orientation: hit.parent.orientation,
+            });
         }
         if (!Number.isFinite(delta)) {
-            return {ok: false, reason: `调整量不是有限数：${String(delta)}`};
+            return gridFailure("not-finite", `The resize delta is not finite: ${String(delta)}`, {field: "delta", value: String(delta)});
         }
         if (delta === 0) {
             return {ok: true, applied: 0};
@@ -257,11 +272,14 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
     function planBranchResize(
         branch: GridBranch<T>,
         change: GridBranchResize,
-    ): {ok: true; sizes: Record<string, number>; collapsed: Record<string, boolean>} | {ok: false; reason: string} {
+    ): {ok: true; sizes: Record<string, number>; collapsed: Record<string, boolean>} | GridFailure<GridFailureCode> {
         const branchId = branch.id;
         const axis = change.axis;
         if (axisOf(branch.orientation) !== axis) {
-            return {ok: false, reason: `只能沿分支主轴调整：${branchId} 是 ${branch.orientation}`};
+            return gridFailure("wrong-axis", `Branch ${branchId} can only be resized along its main axis (${branch.orientation})`, {
+                id: branchId,
+                orientation: branch.orientation,
+            });
         }
         const children = branch.children;
         const childIds = new Set(children.map((child) => child.id));
@@ -269,33 +287,48 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         const targetIds = Object.keys(change.target);
         if (baselineIds.length !== childIds.size || targetIds.length !== childIds.size
             || baselineIds.some((id) => !childIds.has(id)) || targetIds.some((id) => !childIds.has(id))) {
-            return {ok: false, reason: `分支 ${branchId} 的手势尺寸必须覆盖全部直接子节点`};
+            return gridFailure("invalid-argument", `The gesture sizes of branch ${branchId} must cover every direct child`, {field: "sizes-cover", id: branchId});
         }
         let baselineTotal = 0;
         let targetTotal = 0;
         for (const child of children) {
             const before = change.baseline[child.id];
             const after = change.target[child.id];
-            if (!Number.isFinite(before) || !Number.isFinite(after) || before! < 0 || after! < 0) {
-                return {ok: false, reason: `分支 ${branchId} 的手势尺寸必须是有限非负数：${child.id}`};
+            // 同一个子节点两侧都不合法时报基线那一侧（Spec 失败 5）。
+            const invalid = sizeProblem("baseline", before) ?? sizeProblem("target", after);
+            if (invalid !== null) {
+                return invalid.kind === "not-finite"
+                    ? gridFailure("not-finite", `The ${invalid.side} size of ${child.id} in branch ${branchId} is not finite`, {field: "size", side: invalid.side, id: child.id})
+                    : gridFailure("invalid-argument", `The ${invalid.side} size of ${child.id} in branch ${branchId} is negative`, {
+                        field: "size-negative",
+                        side: invalid.side,
+                        id: child.id,
+                    });
             }
             baselineTotal += before!;
             targetTotal += after!;
         }
         if (Math.abs(targetTotal - baselineTotal) > EPSILON) {
-            return {ok: false, reason: `分支 ${branchId} 的手势目标不守恒：${targetTotal} != ${baselineTotal}`};
+            return gridFailure("not-conserved", `The gesture target of branch ${branchId} is not conserved: ${targetTotal} != ${baselineTotal}`, {
+                id: branchId,
+                target: targetTotal,
+                baseline: baselineTotal,
+            });
         }
 
         // 基线与本场手势的收起状态无关：先按**按下时**的树核对，再应用这一场的收起变化。
         const presented = allocateAxis(branch, axis, baselineTotal, sashSize, []);
         if (children.some((child, index) => Math.abs(presented[index]! - change.baseline[child.id]!) > EPSILON)) {
-            return {ok: false, reason: `分支 ${branchId} 的手势基线已失效`};
+            return gridFailure("stale-baseline", `The gesture baseline of branch ${branchId} is stale`, {id: branchId});
         }
         const collapsed: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
         for (const [id, value] of Object.entries(change.collapsed ?? {})) {
             const child = children.find((item) => item.id === id);
-            if (!child || child.collapse === undefined) {
-                return {ok: false, reason: `分支 ${branchId} 的面板不可收起或不存在：${id}`};
+            if (!child) {
+                return gridFailure("not-found", `Branch ${branchId} has no child ${id} to collapse`, {id});
+            }
+            if (child.collapse === undefined) {
+                return gridFailure("not-collapsible", `${id} in branch ${branchId} has no collapse policy`, {id, branch: branchId});
             }
             if (child.collapse.collapsed !== value) {
                 child.collapse = {...child.collapse, collapsed: value};
@@ -345,7 +378,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         const checked = allocateAxis(candidate, axis, targetTotal, sashSize, []);
         if (assigned.some((size) => !Number.isFinite(size))
             || children.some((child, index) => Math.abs(checked[index]! - change.target[child.id]!) > EPSILON)) {
-            return {ok: false, reason: `分支 ${branchId} 的手势目标无法转换为有限尺寸意图`};
+            return gridFailure("not-finite", `The gesture target of branch ${branchId} cannot be turned into finite size intents`, {field: "intent", id: branchId});
         }
         children.forEach((child, index) => {
             sizes[child.id] = assigned[index]!;
@@ -397,8 +430,11 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         const collapseChanges: {branchId: string; id: string; value: boolean}[] = [];
         for (const change of changes) {
             const hit = candidateFind(change.branchId);
-            if (!hit || hit.node.kind !== "branch") {
-                return {ok: false, reason: `未知分支 id：${change.branchId}`};
+            if (!hit) {
+                return gridFailure("not-found", `Unknown branch id: ${change.branchId}`, {id: change.branchId});
+            }
+            if (hit.node.kind !== "branch") {
+                return gridFailure("wrong-node-kind", `${change.branchId} is not a branch`, {id: change.branchId, expected: "branch"});
             }
             const branch = hit.node;
             const planned = planBranchResize(branch, change);
@@ -448,8 +484,11 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         target: Readonly<Record<string, number>>,
     ): GridBranchResizeResult {
         const hit = find(branchId);
-        if (!hit || hit.node.kind !== "branch") {
-            return {ok: false, reason: `未知分支 id：${branchId}`};
+        if (!hit) {
+            return gridFailure("not-found", `Unknown branch id: ${branchId}`, {id: branchId});
+        }
+        if (hit.node.kind !== "branch") {
+            return gridFailure("wrong-node-kind", `${branchId} is not a branch`, {id: branchId, expected: "branch"});
         }
         const planned = planBranchResize(hit.node, {branchId, axis, baseline, target});
         if (!planned.ok) {
@@ -469,13 +508,13 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         addLeaf(parentId, index, leaf) {
             const parent = find(parentId);
             if (!parent) {
-                return {ok: false, reason: `未知父节点 id：${parentId}`};
+                return gridFailure("not-found", `Unknown parent id: ${parentId}`, {id: parentId});
             }
             if (parent.node.kind !== "branch") {
-                return {ok: false, reason: `父节点不是分支：${parentId}`};
+                return gridFailure("wrong-node-kind", `The parent ${parentId} is not a branch`, {id: parentId, expected: "branch"});
             }
             if (find(leaf.id)) {
-                return {ok: false, reason: `节点 id 已存在：${leaf.id}`};
+                return gridFailure("duplicate-id", `Node id already exists: ${leaf.id}`, {id: leaf.id, with: "existing"});
             }
             const scale = treeScale(tree);
             const guard = scaleIssue(scale.nodes + 1, Math.max(scale.depth, (depthOf(parentId) ?? 1) + 1));
@@ -494,28 +533,31 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         splitLeaf(targetId, split) {
             const hit = find(targetId);
             if (!hit) {
-                return {ok: false, reason: `未知节点 id：${targetId}`};
+                return gridFailure("not-found", `Unknown node id: ${targetId}`, {id: targetId});
             }
             if (hit.node.kind !== "leaf") {
-                return {ok: false, reason: `只支持拆分叶子节点：${targetId}`};
+                return gridFailure("wrong-node-kind", `Only leaves can be split: ${targetId}`, {id: targetId, expected: "leaf"});
             }
             if (split.orientation !== "horizontal" && split.orientation !== "vertical") {
-                return {ok: false, reason: `未知分支方向：${String(split.orientation)}`};
+                return gridFailure("invalid-argument", `Unknown branch orientation: ${String(split.orientation)}`, {field: "orientation", value: String(split.orientation)});
             }
             if (split.side !== "before" && split.side !== "after") {
-                return {ok: false, reason: `未知插入侧：${String(split.side)}`};
+                return gridFailure("invalid-argument", `Unknown insertion side: ${String(split.side)}`, {field: "side", value: String(split.side)});
             }
             if (split.branchId === split.leaf.id) {
-                return {ok: false, reason: `新分支与新叶不能共用 id：${split.branchId}`};
+                return gridFailure("duplicate-id", `The new branch and the new leaf cannot share an id: ${split.branchId}`, {id: split.branchId, with: "new-leaf"});
             }
             for (const id of [split.branchId, split.leaf.id]) {
                 if (find(id)) {
-                    return {ok: false, reason: `节点 id 已存在：${id}`};
+                    return gridFailure("duplicate-id", `Node id already exists: ${id}`, {id, with: "existing"});
                 }
             }
             const ratio = split.ratio ?? 0.5;
-            if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) {
-                return {ok: false, reason: `拆分比例必须有限且严格介于 0 与 1：${String(ratio)}`};
+            if (!Number.isFinite(ratio)) {
+                return gridFailure("not-finite", `The split ratio is not finite: ${String(ratio)}`, {field: "ratio", value: String(ratio)});
+            }
+            if (ratio <= 0 || ratio >= 1) {
+                return gridFailure("invalid-argument", `The split ratio must be strictly between 0 and 1: ${String(ratio)}`, {field: "ratio-range", value: String(ratio)});
             }
             const scale = treeScale(tree);
             const guard = scaleIssue(scale.nodes + 2, Math.max(scale.depth, (depthOf(targetId) ?? 1) + 1));
@@ -551,10 +593,10 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         removeLeaf(id) {
             const hit = find(id);
             if (!hit) {
-                return {ok: false, reason: `未知节点 id：${id}`};
+                return gridFailure("not-found", `Unknown node id: ${id}`, {id});
             }
             if (hit.node.kind !== "leaf") {
-                return {ok: false, reason: `只支持移除叶子节点：${id}`};
+                return gridFailure("wrong-node-kind", `Only leaves can be removed: ${id}`, {id, expected: "leaf"});
             }
             if (!hit.parent) {
                 tree = null;
@@ -578,20 +620,20 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
         moveLeaf(id, parentId, index) {
             const hit = find(id);
             if (!hit) {
-                return {ok: false, reason: `未知节点 id：${id}`};
+                return gridFailure("not-found", `Unknown node id: ${id}`, {id});
             }
             if (hit.node.kind !== "leaf") {
-                return {ok: false, reason: `只支持移动叶子节点：${id}`};
+                return gridFailure("wrong-node-kind", `Only leaves can be moved: ${id}`, {id, expected: "leaf"});
             }
             if (id === parentId) {
-                return {ok: false, reason: `不能移动到自身子树：${id} → ${parentId}`};
+                return gridFailure("into-own-subtree", `Cannot move a node into itself: ${id} -> ${parentId}`, {id, parent: parentId});
             }
             const target = find(parentId);
             if (!target) {
-                return {ok: false, reason: `未知父节点 id：${parentId}`};
+                return gridFailure("not-found", `Unknown parent id: ${parentId}`, {id: parentId});
             }
             if (target.node.kind !== "branch") {
-                return {ok: false, reason: `父节点不是分支：${parentId}`};
+                return gridFailure("wrong-node-kind", `The parent ${parentId} is not a branch`, {id: parentId, expected: "branch"});
             }
 
             // 同一分支内只改顺序，不能走移除/塌陷路径；目标身份和树必须在失败前保持不变。
@@ -612,9 +654,11 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             tree = nextTree;
             const stagedHit = find(id);
             const stagedTarget = find(parentId);
+            // 防御分支，按今天的结构不可达：上面已经在原树里找到了来源与目标分支，克隆树里它们都在；
+            // 同一分支内的移动走了上面那条路。下面那一处同理：塌陷的只有来源，目标分支不会因此消失。
             if (!stagedHit?.parent || !stagedTarget || stagedTarget.node.kind !== "branch") {
                 tree = originalTree;
-                return {ok: false, reason: `目标父节点已不存在：${parentId}`};
+                return gridFailure("not-found", `The target parent no longer exists: ${parentId}`, {id: parentId});
             }
             const source = stagedHit.parent;
             const leaf = stagedHit.node as GridLeaf<T>;
@@ -629,7 +673,7 @@ export function createGrid<T>(root: GridNodeInput<T> | null, options: GridOption
             const destination = find(parentId);
             if (!destination || destination.node.kind !== "branch") {
                 tree = originalTree;
-                return {ok: false, reason: `目标父节点已不存在：${parentId}`};
+                return gridFailure("not-found", `The target parent no longer exists: ${parentId}`, {id: parentId});
             }
             const main = axisOf(destination.node.orientation);
             const at = Math.min(Math.max(0, index), destination.node.children.length);

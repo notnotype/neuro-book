@@ -288,7 +288,7 @@ type TabRef =
 
 ## 失败与恢复
 
-结构操作失败时返回 `{ok: false, code}`，文档不变（失败里另带英文的 `message`，只给日志看，和 [`ui/nested-grid`](nested-grid.md) 失败 5 同一个形状；planned）；不合骨架的结果在提交前被拒绝（`rejected`），不管来自哪个入口：
+结构操作失败时返回 `{ok: false, code, message}`，文档不变（`message` 是英文，只给日志看，和 [`ui/nested-grid`](nested-grid.md) 失败 5 同一个形状）；不合骨架的结果在提交前被拒绝（`rejected`），不管来自哪个入口：
 
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|

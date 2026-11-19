@@ -186,7 +186,7 @@ describe("decideMotion 与交换（docs/specs/ui/nested-grid.md 的“交换”�
 
     it("离开的叶还在别的过渡里：不交换，交回原因，照常过渡；拖动中不交换也不报", () => {
         const busy = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"]), busy: new Set(["a1"])}), warmedColumn());
-        expect(busy.kind === "move" && busy.swap === undefined && busy.swapSkipped?.includes("a1")).toBe(true);
+        expect(busy.kind === "move" && busy.swap === undefined ? busy.swapSkipped?.params : null).toEqual({cause: "busy", id: "a1"});
         const holding = decideMotion(frame({items: column(["b1"]), previous: column(["a1", "a2"]), swap: swap(["a1", "a2"], ["b1"]), holding: true}), warmedColumn());
         expect(holding.kind === "move" && holding.swap === undefined && holding.swapSkipped === undefined).toBe(true);
     });

@@ -8,7 +8,7 @@
 
 ## 布局
 
-自上而下：显示名、说明（多行，随内容长高）、一行“包名 xxx”加“改…”、写法与个数两行小字、底部固定高度的状态行（保存失败的原因）。插件的包：名字（粗）、说明、包名、小字，没有输入框与“改…”。
+自上而下：显示名、说明（多行，随内容长高）、一行“包名 xxx”加“改…”、写法与个数两行小字、“按贴纸显示”一行（名字带问号说明在左、开关在右，同 StickerFields 的“常用”；只读的包也有，它是偏好、不是包的内容；`stickerDisplay` 为 null 时不画）、底部固定高度的状态行（保存失败的原因）。插件的包：名字（粗）、说明、包名、小字，没有输入框与“改…”。
 
 ## 数据
 
@@ -20,10 +20,14 @@ type PackFieldsProps = {
     readonly?: boolean;
     /** 保存一个改动，交回失败原因，成功交回 null */
     commit: (change: {title?: string | null; description?: string | null}) => Promise<string | null>;
+    /** 这个包按不按贴纸显示（agent/stickers.md 输出 47）；null（缺省）时不画这个开关。 */
+    stickerDisplay?: boolean | null;
 };
 
 type PackFieldsEmits = {
     (e: "rename"): void;
+    /** 点了开关：受控，由页面写进偏好。 */
+    (e: "update:stickerDisplay", on: boolean): void;
 };
 ```
 

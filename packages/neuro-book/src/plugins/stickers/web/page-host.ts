@@ -9,11 +9,13 @@ import type {Component, PropType} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 
+import type {StickerDisplayService} from "../shared/contracts";
 import {createPacksModel} from "./packs-page";
 import type {PacksModelDeps} from "./packs-page";
 import {previewZip} from "./zip-preview";
 
-export function stickersPage(component: Component, deps: PacksModelDeps): Component {
+/** `display` 是按贴纸显示的偏好（输出 47）；没有时属性栏不画那个开关。 */
+export function stickersPage(component: Component, deps: PacksModelDeps, display: StickerDisplayService | null = null): Component {
     return defineComponent({
         name: "StickerPacksHost",
         props: {context: {type: Object as PropType<SettingsPageContext>, required: false}},
@@ -39,6 +41,7 @@ export function stickersPage(component: Component, deps: PacksModelDeps): Compon
                 listFiles: model.listFiles,
                 allowlistUsage: model.allowlistUsage,
                 previewZip,
+                display,
                 onSelect: (id: string) => model.select(id),
                 onAddImages: (id: string, files: File[], folders: string[]) => void model.addImages(id, files, folders),
                 onExport: (id: string) => void model.exportPack(id),

@@ -141,11 +141,11 @@ describe("意图只从呈现尺寸写回", () => {
         expect(sizeOf(written.tree.root, "a").height).toBeCloseTo(base.a + 100);
 
         const collapsed = setPanelCollapsed(written, "a", true);
-        if (!collapsed.ok) throw new Error(collapsed.detail);
+        if (!collapsed.ok) throw new Error(collapsed.message);
         const whileCollapsed = rebaseIntents(collapsed.doc, solve(collapsed.doc, {width: 1000, height: 900}).layout.sizes);
         expect(sizeOf(whileCollapsed.tree.root, "a").height).toBeCloseTo(base.a + 100);
         const expanded = setPanelCollapsed(whileCollapsed, "a", false);
-        if (!expanded.ok) throw new Error(expanded.detail);
+        if (!expanded.ok) throw new Error(expanded.message);
         expect(solve(expanded.doc, {width: 1000, height: 900}).layout.sizes.a?.height).toBeCloseTo(base.a + 100);
     });
 
@@ -155,7 +155,7 @@ describe("意图只从呈现尺寸写回", () => {
         const written = rebaseIntents(doc, layout.sizes, projection.collapsedTo);
         expect(sizeOf(written.tree.root, "column").width).toBeCloseTo(layout.sizes.ea?.width ?? 0);
         const result = moveTabToEdge(written, {tab: "view:s", target: {kind: "between", branch: "root", before: "column", after: "c"}}, testPolicy());
-        if (!result.ok) throw new Error(result.detail);
+        if (!result.ok) throw new Error(result.message);
         expect(sizeOf(result.doc.tree.root, "s").width).toBeCloseTo(((layout.sizes.ea?.width ?? 0) + (layout.sizes.c?.width ?? 0)) / 3);
     });
 
@@ -226,7 +226,7 @@ describe("带容器的区域", () => {
     });
     const EXTENT: GridExtent = {width: 1200, height: 800};
     const okDoc = (result: ReturnType<typeof setActiveContainer>): LayoutDoc => {
-        if (!result.ok) throw new Error(result.detail);
+        if (!result.ok) throw new Error(result.message);
         return result.doc;
     };
     const childOf = (node: GridNodeInput<string>, id: string): GridNodeInput<string> | undefined => {
@@ -310,7 +310,7 @@ describe("带容器的区域", () => {
         const {projection, grid, layout} = solve(doc, EXTENT);
         const base = {activitybar: layout.sizes.activitybar?.width ?? 0, side: layout.sizes.side?.width ?? 0, center: layout.sizes.center?.width ?? 0, auxiliarybar: 0};
         const result = grid.resizeBranches([{branchId: "body", axis: "width", baseline: base, target: {...base, side: 0, center: base.center + base.side}, collapsed: {side: true}}]);
-        if (!result.ok) throw new Error(result.reason);
+        if (!result.ok) throw new Error(result.message);
         expect(result.collapsed).toEqual({side: true});
         expect(projection.regionAnchors.get("side")).toBe("sidebar");
 
@@ -417,7 +417,7 @@ describe("带容器的区域", () => {
             const commit = session.finish();
             if (commit === null) throw new Error("Enter 没有产生提交");
             const applied = grid.resizeBranches(commit.changes);
-            if (!applied.ok) throw new Error(applied.reason);
+            if (!applied.ok) throw new Error(applied.message);
             let next = doc;
             for (const [id, collapsed] of Object.entries(applied.collapsed)) next = okDoc(setPanelCollapsed(next, projection.regionAnchors.get(id) ?? id, collapsed));
             return rebaseIntents(next, grid.layout(EXTENT).sizes, projection.collapsedTo, fixedNodesOf(projection.input));

@@ -198,7 +198,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 });
                 // 记录读不了时回落默认树，原件不覆盖（输出见“失败与恢复”）：同一条只记一次。
                 const recorded = new Set<string>();
-                const stop = watch(() => store.state.problems.map((problem) => `${problem.kind}:${problem.code}`), (lines) => {
+                const stop = watch(() => store.state.problems.map((problem) => `${problem.kind}:${problem.code}${problem.kind === "unread" && problem.detail !== undefined ? ` (${problem.detail})` : ""}`), (lines) => {
                     for (const line of lines) {
                         if (recorded.has(line)) continue;
                         recorded.add(line);

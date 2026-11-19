@@ -1,0 +1,70 @@
+# w00032 t40 实现审查：会话关闭后保留 eval 内核与重置原因
+
+## 正确性与不变量
+
+### 1. 切换 Profile 没有当场重置，切走再切回会继续使用旧变量
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/eval/tool.ts:137`、`:159`、`:195-199`；`packages/nb-harness/src/kernel/session/session.ts:323-328`。
+- **现象与影响：** 已有内核时 `changeProfile(A→B)` 成功，旧进程仍存活；尚未在 B 调 eval 就切回 A，下一次 eval 仍用原 PID、读到 `kept = 41`，没有重置提示。比较两次调用的 Profile id 只能看到端点相同，违反 `eval.md` 输出 11、12 与 Task 的“换 Profile 照旧重置”；base 的 `retire([])` 会等待 `EvalSession.dispose` 杀掉旧内核，不需要在 B 调一次 eval。现有用例与示例都只覆盖 A→B→eval。
+- **核实：** 在 `packages/neuro-book` 用 `bun --no-env-file --tsconfig-override "$PWD/tsconfig.json" /tmp/review-t40-impl/profile-exit.ts profile`，经真实 `agentWorld`、两次成功的 `SessionApi.changeProfile` 和真实 Bun 内核复现。两次 eval 的 PID 都为 `1646888`；切到 B 后 `oldAlive:true`；切回后的结果是 `pid 1646888 number 41`。
+- **建议：** 在 Profile 变更提交后显式让该会话的登记项重置，并等待旧进程收口；普通关闭、工具卸载不要借用该事件。至少也要用已提交的 Profile 变更代次，而不是最后见到的 id；补 A→B→A 不调用中间 eval 的用例。
+
+### 2. 内核在空闲期意外退出，后来到点会把原因误记为空闲
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/eval/tool.ts:195-199`、`:336-349`；`packages/neuro-book/src/plugins/agent/backend/eval/kernels.ts:89-97`。
+- **现象与影响：** 两次调用之间内核先被外部结束，登记项没有接收退出事件，仍留着非 null 的 `#kernel` 与空闲计时。30 分钟到点后 `#reset("空闲")` 把已经退出的进程记成空闲回收；下次调用时存活检查已经看不到旧进程。`eval.md` 输出 11、12 规定写实际原因。base 对两次调用间的退出也只给默认兜底；本次声称补齐，仍漏了“退出先于空闲回调”的分支。
+- **核实：** 在 `packages/neuro-book` 用 `bun --no-env-file --tsconfig-override "$PWD/tsconfig.json" /tmp/review-t40-impl/profile-exit.ts exit`。等会话的探针释放，确认内核还活着；外部发 `SIGKILL` 并确认 PID 已退出，再推注入时钟 30 分钟。重开第一行实得 `内核已重置（空闲），之前的变量没了。`，应为 `意外退出`。现有测试在杀掉进程后直接调用，没有经过仍挂着的计时。
+- **建议：** 让持有者在注册的同一进程 `exited` 时解除持有并取消空闲计时，忽略已被替换或主动结束的进程通知；或至少在到点回调区分已经退出的进程。补按上述先后推进时钟的测试。
+
+### 3. 登记表会裁掉还在启动的持有者，内核超出上限且服务停止漏收
+
+- **严重程度：重要；类别：不变量。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/eval/kernels.ts:281-310`；`packages/neuro-book/src/plugins/agent/backend/eval/tool.ts:170-172`、`:210-221`、`:237-246`。
+- **现象与影响：** eval 正在等工作目录时尚无进程，`holding` 为假，但调用仍持有这个对象。其它会话触及 256 条记录后，`take` 把这项误当成只记原因的历史记录裁掉。原调用随后成功启动内核，`admit` 不会检查或补回这个持有者，故上限、后续调用与 `stop` 都看不到它。违反 `eval.md` 输出 11、13；base 没有裁掉待启动持有者这条路径，启动后的内核会入活跃表，实例释放也会结束它。
+- **核实：** 在 `packages/neuro-book` 用 `bun test --no-env-file --tsconfig-override "$PWD/tsconfig.json" /tmp/review-t40-impl/projects.ts`。真实 Agent 工具拦截器让项目在审批后正常停止，下一代真实项目子进程在 `readPath` 所需的项目启动中等信号；此时让另外 256 个会话各提交一段语法错误的 eval，再放行项目启动。原调用 PID 为 `1742489`；再启动 8 个会话的内核后共 9 个 PID 存活；原会话下一次 eval 报“服务重启或分叉”、变量为 `undefined`、PID 变为 `1742763`。宿主报告 `closed` 时 `1742489` 仍活着，实验随后清理了它。
+- **建议：** 只裁切确实没有进程、也没有正在执行或启动的持有者。把占用、执行中与只记原因的状态分开；`admit` 应拒绝已脱离登记表或已停止的持有者并收掉该次启动，不产生游离进程。补冷启动跨记账裁切的合同用例。
+
+### 4. 项目迁址后重开会话，单元仍使用旧的工作目录与布局变量
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/eval/tool.ts:210-218`、`:236-247`；`packages/neuro-book/src/plugins/agent/backend/eval/kernel-entry.ts:67`、`:215`、`:236`；`packages/neuro-book/src/server/projects/registry.ts:144-152`。
+- **现象与影响：** 正常停止项目子进程、移动目录并按原项目 id 重新登记后，会话的叶子与 Profile 没变，继续用旧 PID。宿主只在新起内核时解析布局；旧内核的 `process.cwd()` 与 `NBOOK_PROJECT` 继续给出已经不存在的旧路径。按这两个值读写文件或解析相对导入会用错地址（旧路径后来被占用时还会碰到另一个目录）。`eval.md` 输出 10、12 要求使用会话工作目录与布局变量；`runtime/projects.md` 输出 1 允许同 id 迁址、新路径从下一代生效。base 的会话关闭结束旧内核，重开走 `#launch` 时会解析新地址。
+- **核实：** 在 `packages/neuro-book` 用 `bun test --no-env-file --tsconfig-override "$PWD/tsconfig.json" /tmp/review-t40-impl/project-move.test.ts`。用真实项目子进程、会话释放探针和 `projectsKey.register` 迁址。原目录 `Book` 移到 `MovedBook` 后，重新登记返回同一项目 id 和新路径；重开的会话结果仍是 `ok`、同一 PID `1860933`，`process.cwd()` 与 `NBOOK_PROJECT` 都仍以 `/Book` 结尾。
+- **建议：** 让内核的布局随项目代次或解析后的根变化更新，同时更新 `require` 的解析基准；如果目录这类启动上下文不支持就地更新，就把这个变化列为显式重置条件并写明原因。不要让模型在变量保留的同时继续拿到旧目录。
+
+### 5. 只记原因的登记项被裁掉后，会把已知回收误说成服务重启或分叉
+
+- **严重程度：建议；类别：正确性。**
+- **位置：** `packages/neuro-book/src/plugins/agent/backend/eval/kernels.ts:271-289`；`packages/neuro-book/src/plugins/agent/backend/eval/tool.ts:222-227`；`docs/specs/agent/eval.md:74`（主工作区）。
+- **现象与影响：** 会话关闭后确实因空闲结束内核；其后有 256 个别的会话提交语法错误的 eval，即使没有再启动一个进程，也足以挤掉真实原因。再打开时写“服务重启或分叉”，但没有发生这两件事。Task 改动记录明列 256 上限，并无批准把原因改报为其它事件的记录；当前 Spec 要求关闭期间到点照样写“空闲”或“被回收”。这是只记账号不记进程的独立情形，不是第 3 条的游离内核。base 在会话本身关闭时就失去原因，没有承诺关闭期间准确归因；这里是新合同的缺口。
+- **核实：** 在 `packages/neuro-book` 用 `bun --no-env-file --tsconfig-override "$PWD/tsconfig.json" /tmp/review-t40-impl/retention.ts trim-reason`。经真实会话及 Bun 内核，确认关闭会话时 PID `1860027` 还活着、推进空闲时间后确实退出；让另外 256 个会话逐个得到 `code-error`，原会话重开实得 `内核已重置（服务重启或分叉），之前的变量没了。`。
+- **建议：** 不为从没启动过且没有原因的调用留下历史记录；需要有界裁切时，保留轻量的真实原因直到会话下一次执行，或经开发者确认修合同，允许被裁掉后明确写“原因未知”，不要把未知说成重启或分叉。
+
+## 测试
+
+### 6. 关闭会话后的空闲用例没有检查计时是否沿用
+
+- **严重程度：建议；类别：测试。**
+- **位置：** `packages/neuro-book/src/plugins/agent/eval.test.ts:161-173`、`:441-457`。
+- **现象与影响：** 用例先用同一个注入时钟推进到会话关闭，再从关闭时刻额外推进一整段 `EVAL_IDLE_MS`。无论实现保留原截止还是关闭时重新计满 30 分钟，最后的 PID 和提示断言都成立；也没查原截止前是否提前回收。漏验 `eval.md` 状态表的“空闲计时照旧”。这是本次新增用例的判据缺口，不是当前实现计时错误。
+- **核实：** 在 `packages/neuro-book` 用 `bun --no-env-file --tsconfig-override "$PWD/tsconfig.json" /tmp/review-t40-impl/retention.ts idle-boundary`，从最后一次单元计时。实测会话关闭已过 `30000` 毫秒；原截止前 1 毫秒 PID 仍在，推进到 `1800000` 毫秒后确实退出；重开报“空闲”。没有改动产品源码做变异。
+- **建议：** 记录最后一次 eval 执行结束时的时钟值，等待会话关闭后只推进到原截止前 1 毫秒及截止点，分别验 PID 还在、随后退出。用 Spec 的 30 分钟作为边界，不从实现常量反推预期。
+
+## 基线已有，不计入本次发现
+
+- 容量回收可以结束正在执行单元的内核，当前单元报 `kernel-exited` / `内核意外退出（信号 SIGKILL）`，下一次才报“被回收”。用 `retention.ts evict-running` 经真实会话观察到：一个单元正在运行，另外 8 个会话启动内核后得到上述两种提示。base `717b787cb` 的 `backend/eval/kernels.ts:271-285` 同样不排除在跑的内核，`backend/eval/tool.ts:136-138`、`:228-240`、`:263-266` 也走同一退出文案；这是从 base 源码核对的既有问题，没有运行 base。
+
+## 未发现问题的方面
+
+- 未改变布局、叶子与 Profile 时，普通关闭及重开复用：真实合同用例读回原变量，且关闭期间内核与其子进程仍存活。关闭后再回退会结束原 PID 并写“回退或切分支”；分叉从新内核开始且不继承变量。
+- 未遇到第 3 条的在途裁切时，已关闭会话参与最久未用回收。`retention.ts closed-lru` 确认旧 PID `1865282` 退出，重开给“被回收”。关闭不会推迟空闲截止，真实时钟边界实验见第 6 条。
+- 常规服务端停止会结束仍在登记表里的内核与其子进程，包括会话已关闭的；信号与 `onStop` 共用同一次停止，无常规二次释放。停止中项目冷启动场景返回 `closed`；新激活重新建表、无跨激活复用为源码结论，未做热重载实验（产品不支持单独重载内置插件）。
+- 所审差异没有发现按错误文案分支、跨包深导入、跳过测试或放宽既有断言。示例场景 10 的换 Profile 后工具说明与全局对象可见性合同通过。
+
+## 核实范围与计数
+
+- 审查提交 `717b787cb..f78eb4e46`。在 `packages/neuro-book` 跑 `bun test --no-env-file src/plugins/agent/eval.test.ts src/plugins/agent/backend/eval/kernel.test.ts plugin-sdk/examples/scenarios/10-eval-object.test.ts`：49 通过、0 失败。`bun x --no-install tsc --noEmit` 退出 0；完整 `bun run typecheck` 在 120 秒截止被 SIGTERM，未取得应用全量类型检查结论。`git diff --check 717b787cb..f78eb4e46` 退出 0。未跑 e2e、开发服务或真实模型。工作树干净，未改被审源码。
+- 阻断 0，重要 4，建议 2。基线已有 1 条，不计入。
+- 有效发现：1、2、3、4、5、6。

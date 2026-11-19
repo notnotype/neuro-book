@@ -2,7 +2,7 @@ import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
 import NestedGrid from "./NestedGrid.vue";
-import {createGrid, type Grid, type GridLayoutResult, type GridNode} from "../grid";
+import {createGrid, type Grid, type GridFailure, type GridIssue, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
 
 /**
@@ -112,7 +112,9 @@ function frameRect(wrapper: VueWrapper, id: string): {x: number; y: number; widt
 
 type RendererOptions = {
     disabled?: boolean;
-    onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
+    onGestureCommit?: (commit: GridGestureCommit) => {readonly ok: true} | GridFailure;
+    /** 事件监听（`onGestureUpdate`、`onGestureCancel`、`onIssues`），测宿主回调抛出时的收尾。 */
+    listeners?: Readonly<Record<string, (...args: never[]) => void>>;
 };
 
 function mountRenderer(node: GridNode<string> | null, layout: GridLayoutResult, options: RendererOptions = {}): VueWrapper {
@@ -123,6 +125,7 @@ function mountRenderer(node: GridNode<string> | null, layout: GridLayoutResult, 
             layout,
             disabled: options.disabled ?? false,
             ...(options.onGestureCommit === undefined ? {} : {onGestureCommit: options.onGestureCommit}),
+            ...options.listeners,
         },
         slots: {
             leaf: (scope: {node: {id: string}}) => h("div", {class: "leaf-body"}, scope.node.id),
@@ -494,7 +497,7 @@ describe("拖动期间的预览布局", () => {
                 commits.push(commit);
                 const applied = grid.resizeBranches(commit.changes);
                 if (!applied.ok) {
-                    return {ok: false, reason: applied.reason};
+                    return applied;
                 }
                 // 宿主接纳后按当前容器重新求值再发布
                 published = grid.layout(PUBLISH_CONTAINER);
@@ -532,6 +535,274 @@ describe("拖动期间的预览布局", () => {
         expect(frameRect(wrapper, "left").width).toBe(Math.round(published.sizes.left!.width));
         expect(frameRect(wrapper, "top").width).toBe(Math.round(published.sizes.top!.width));
         expect(wrapper.emitted("gesture-cancel")).toBeUndefined();
+    });
+});
+
+/** 这一场发出的诊断：只比码与参数，带 `ok` 的是被拒的提交（Spec 输出 139）。 */
+function emittedIssues(wrapper: VueWrapper): Record<string, unknown>[] {
+    return ((wrapper.emitted("issues") ?? []).flat(2) as (GridIssue | GridFailure)[])
+        .map((issue) => ({code: issue.code, ...("ok" in issue ? {ok: issue.ok} : {}), ...issue.params}));
+}
+
+describe("提交被拒的码（Spec ui/nested-grid 失败 6、输出 139）", () => {
+    /** 拖一下外层竖线再松手；返回这次发出的诊断。 */
+    async function dragOnce(wrapper: VueWrapper): Promise<Record<string, unknown>[]> {
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+        rootSash.dispatchEvent(pointerEvent("pointermove", 420, 80));
+        await settleFrame();
+        rootSash.dispatchEvent(pointerEvent("pointerup", 420, 80));
+        await nextTick();
+        return emittedIssues(wrapper);
+    }
+
+    it("宿主没接 onGestureCommit：只发一条 handler-missing（带 ok: false），预览回到已发布的布局", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        expect(await dragOnce(wrapper)).toEqual([{code: "handler-missing", ok: false}]);
+        expect(frameRect(wrapper, "left").width).toBe(300);
+    });
+
+    it("宿主用自己的码拒绝：码集合开放，码原样进诊断，预览回到已发布的布局", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            onGestureCommit: () => ({ok: false, code: "layout-locked", message: "The layout is locked"}),
+        });
+        expect(await dragOnce(wrapper)).toEqual([{code: "layout-locked", ok: false}]);
+        expect(frameRect(wrapper, "left").width).toBe(300);
+    });
+
+    it("宿主的提交回调抛出：handler-threw，预览回到已发布的布局", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            onGestureCommit: () => {
+                throw new Error("boom");
+            },
+        });
+        expect(await dragOnce(wrapper)).toEqual([{code: "handler-threw", ok: false}]);
+        expect(frameRect(wrapper, "left").width).toBe(300);
+    });
+
+    it("宿主接纳了但没有发布匹配的布局：下一个 tick 发 not-published，回到已发布的布局", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        await dragOnce(wrapper);
+        await nextTick();
+        expect(emittedIssues(wrapper)).toEqual([{code: "not-published"}]);
+        expect(frameRect(wrapper, "left").width).toBe(300);
+    });
+});
+
+describe("手势的诊断只发新增（Spec 输出 140）", () => {
+    it("一场拖动里同一条诊断只发一次，下一场再发", async () => {
+        // 两侧的最小宽度合计超过容器：窄容器已降级，拖外层竖线时每一帧都是 range-overflow。
+        const wide = {width: 600, height: 0};
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, minimumSize: wide},
+                {
+                    kind: "branch",
+                    id: "right",
+                    orientation: "vertical",
+                    size: {width: 699, height: 0},
+                    children: [
+                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 100}, minimumSize: wide},
+                        {kind: "leaf", id: "bottom", ref: "bottom", size: {width: 0, height: 100}, minimumSize: wide},
+                    ],
+                },
+            ],
+        }, {sashSize: SASH});
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        const ranges = (): number => emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow").length;
+        const drag = async (): Promise<void> => {
+            rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+            for (const x of [320, 340, 360]) {
+                rootSash.dispatchEvent(pointerEvent("pointermove", x, 80));
+                await settleFrame();
+            }
+            rootSash.dispatchEvent(pointerEvent("pointerup", 360, 80));
+            await nextTick();
+        };
+
+        await drag();
+        expect(emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow")).toEqual([{code: "over-constrained", cause: "range-overflow", id: "root", axis: "width", total: 999, min: 1200}]);
+        await drag();
+        expect(ranges()).toBe(2);
+    });
+
+    it("被拒的提交每次都发；键盘每按一次键是一场手势", async () => {
+        const wide = {width: 600, height: 0};
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}},
+                {
+                    kind: "branch",
+                    id: "right",
+                    orientation: "vertical",
+                    size: {width: 699, height: 0},
+                    children: [
+                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 100}},
+                        {kind: "leaf", id: "bottom", ref: "bottom", size: {width: 0, height: 100}},
+                    ],
+                },
+            ],
+        }, {sashSize: SASH});
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        for (let round = 0; round < 2; round += 1) {
+            rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+            rootSash.dispatchEvent(pointerEvent("pointermove", 340, 80));
+            await settleFrame();
+            rootSash.dispatchEvent(pointerEvent("pointerup", 340, 80));
+            await nextTick();
+        }
+        expect(emittedIssues(wrapper).filter((issue) => issue.code === "handler-missing")).toHaveLength(2);
+
+        // 两侧的最小宽度合计超过容器：每按一次方向键都是一场新手势，range-overflow 各发一次。
+        const degraded = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}, minimumSize: wide},
+                {
+                    kind: "branch",
+                    id: "right",
+                    orientation: "vertical",
+                    size: {width: 699, height: 0},
+                    children: [
+                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 100}, minimumSize: wide},
+                        {kind: "leaf", id: "bottom", ref: "bottom", size: {width: 0, height: 100}, minimumSize: wide},
+                    ],
+                },
+            ],
+        }, {sashSize: SASH});
+        const keyboard = mountRenderer(degraded.root(), degraded.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});
+        stubLayout(keyboard);
+        await nextTick();
+        const sash = keyboard.get<HTMLElement>('[data-sash="root:0"]').element;
+        for (let press = 0; press < 2; press += 1) {
+            sash.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+            sash.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowRight", bubbles: true, cancelable: true}));
+            await nextTick();
+        }
+        expect(emittedIssues(keyboard).filter((issue) => issue.cause === "range-overflow")).toHaveLength(2);
+    });
+});
+
+describe("键盘的诊断（Spec 输出 139）", () => {
+    it("Enter 恢复空间不够：没有预览，照样发 no-room-to-restore", async () => {
+        const grid = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {kind: "leaf", id: "a", ref: "a", size: {width: 950, height: 0}, minimumSize: {width: 900, height: 0}, collapse: {collapsed: true, collapsedSize: 0, restoreSize: 950, collapseThreshold: 24, expandThreshold: 24}},
+                {kind: "leaf", id: "b", ref: "b", size: {width: 500, height: 0}, minimumSize: {width: 150, height: 0}},
+            ],
+        }, {sashSize: SASH});
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        // 键盘不经命中判定，只要根盒的尺寸（会话按它冻结）。
+        const root = wrapper.get<HTMLElement>("[data-grid-scope]").element;
+        stubRect(root, {left: 0, top: 0, right: CONTAINER.width, bottom: CONTAINER.height});
+        Object.defineProperty(root, "clientWidth", {value: CONTAINER.width, configurable: true});
+        Object.defineProperty(root, "clientHeight", {value: CONTAINER.height, configurable: true});
+        await nextTick();
+        const sash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        sash.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        sash.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(emittedIssues(wrapper)).toContainEqual({code: "no-room-to-restore", id: "a", available: 849, required: 900});
+    });
+});
+
+describe("宿主回调抛出时手势照样收尾（Spec 输出 140）", () => {
+    const sashActive = (wrapper: VueWrapper): boolean => wrapper.find("[data-sash-active]").exists();
+
+    async function pressAndMove(wrapper: VueWrapper, toX: number): Promise<HTMLElement> {
+        stubLayout(wrapper);
+        await nextTick();
+        const rootSash = wrapper.get<HTMLElement>('[data-sash="root:0"]').element;
+        rootSash.dispatchEvent(pointerEvent("pointerdown", 300, 80));
+        rootSash.dispatchEvent(pointerEvent("pointermove", toX, 80));
+        return rootSash;
+    }
+
+    it("gesture-update 的监听在松手补的最后一帧里抛出：手势结束、提交照常", async () => {
+        const grid = nestedGrid();
+        const commits: GridGestureCommit[] = [];
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            onGestureCommit: (commit) => {
+                commits.push(commit);
+                return {ok: true};
+            },
+            listeners: {onGestureUpdate: () => {
+                throw new Error("gesture-update listener threw");
+            }},
+        });
+        const rootSash = await pressAndMove(wrapper, 420);
+        // 不等 rAF 就松手：最后一帧在 pointerup 里补，宿主的监听在那里抛出；异常照常冒出去，手势照样收尾。
+        expect(() => rootSash.dispatchEvent(pointerEvent("pointerup", 420, 80))).toThrow("gesture-update listener threw");
+        await nextTick();
+        expect(commits).toHaveLength(1);
+        expect(sashActive(wrapper)).toBe(false);
+    });
+
+    it("issues 的监听在被拒的提交那里抛出：手势已经结束", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            onGestureCommit: () => ({ok: false, code: "layout-locked", message: "The layout is locked"}),
+            listeners: {onIssues: () => {
+                throw new Error("issues listener threw");
+            }},
+        });
+        const rootSash = await pressAndMove(wrapper, 420);
+        await settleFrame();
+        expect(() => rootSash.dispatchEvent(pointerEvent("pointerup", 420, 80))).toThrow("issues listener threw");
+        await nextTick();
+        expect(sashActive(wrapper)).toBe(false);
+        expect(frameRect(wrapper, "left").width).toBe(300);
+    });
+
+    it("gesture-cancel 的监听在没有变化的松手里抛出：手势已经结束", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            listeners: {onGestureCancel: () => {
+                throw new Error("gesture-cancel listener threw");
+            }},
+        });
+        const rootSash = await pressAndMove(wrapper, 300);
+        await settleFrame();
+        expect(() => rootSash.dispatchEvent(pointerEvent("pointerup", 300, 80))).toThrow("gesture-cancel listener threw");
+        await nextTick();
+        expect(sashActive(wrapper)).toBe(false);
+    });
+
+    it("卸载时 gesture-cancel 的监听抛出：取消先收尾、后调回调，光标照样释放（不然整页的分隔线光标失效到刷新）", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {
+            listeners: {onGestureCancel: () => {
+                throw new Error("gesture-cancel listener threw");
+            }},
+        });
+        await pressAndMove(wrapper, 420);
+        await settleFrame();
+        expect(document.documentElement.hasAttribute("data-nb-sash-cursor")).toBe(true);
+        expect(() => wrapper.unmount()).toThrow("gesture-cancel listener threw");
+        expect(document.documentElement.hasAttribute("data-nb-sash-cursor")).toBe(false);
     });
 });
 
@@ -1235,7 +1506,7 @@ describe("NestedGrid 交换", () => {
         const wrapper = await mountColumn();
         await wrapper.setProps({swap: swap(1, ["hidden"], B), ...toB()});
         expect(wrapper.find("[data-swap]").exists()).toBe(false);
-        expect(wrapper.emitted("issues")?.flat().some((issue) => String(issue).includes("hidden"))).toBe(true);
+        expect(emittedIssues(wrapper)).toEqual([{code: "swap-skipped", cause: "no-leaving"}]);
     });
 
     it("滑到一半点回去：同一分支同一序号的线一条滑出去、一条回来，回来的那条照样能拖；滑出去的线对读屏隐藏", async () => {

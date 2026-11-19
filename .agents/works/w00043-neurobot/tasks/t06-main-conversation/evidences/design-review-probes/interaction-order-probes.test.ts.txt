@@ -1,0 +1,96 @@
+import {expect, test} from "bun:test";
+import {closeSession} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/session/session.ts";
+import {createTestSession, type TestSession} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/test-session.ts";
+import {defineExtension} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/extension/define.ts";
+import type {CommandResult, InteractionSummary, JsonValue, LogEvent} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/api/index.ts";
+import {mkdtemp} from "node:fs/promises";
+
+const data = (e: LogEvent) => e.data as Record<string, JsonValue>;
+const log = (s: TestSession) => s.raw.log({afterSeq: 0}).then(p => p.events);
+function waitingFor(s: TestSession) {
+    const result = Promise.withResolvers<readonly InteractionSummary[]>();
+    const off = s.raw.subscribe(frame => {
+        if (frame.type === "status" && frame.status.state === "waiting") result.resolve(frame.status.pending);
+    });
+    return result.promise.finally(off);
+}
+
+test("正常提问，resolve 开始认领后立刻发进程关闭：命令不受理，待办也未写 interrupted", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review/claim-close-");
+    const received = Promise.withResolvers<string>();
+    await using s = await createTestSession({store: {root}, tools: [{id: "lab.ask", async execute(_args, ctx) {
+        const answer = await ctx.ask!({question: "要继续吗？"});
+        received.resolve(answer.kind === "unavailable" ? answer.code : answer.kind);
+        return "提问结束";
+    }}]});
+    const waiting = waitingFor(s);
+    s.model.script({tools: [{tool: "lab.ask"}]});
+    expect(await s.raw.send({commandId: "first", input: {text: "问一下"}})).toMatchObject({ok: true});
+    const [{id}] = await waiting;
+    const resolving = s.raw.resolve({commandId: "deny", id, decision: "deny"});
+    const closing = Promise.resolve().then(() => closeSession(s.raw, {reason: "interrupted"}));
+    expect(await resolving).toEqual({ok: false, code: "session-closed"});
+    await closing;
+    expect(await received.promise).toBe("aborted");
+    await s.reopen();
+    const events = await log(s);
+    expect(events.filter(e => e.type === "runEnded").map(e => data(e).reason)).toEqual(["interrupted"]);
+    expect(events.filter(e => e.type === "interactionResolved" && data(e).id === id)).toEqual([]);
+    expect(events.filter(e => e.type === "commandAccepted" && data(e).commandId === "deny")).toEqual([]);
+    expect(await s.raw.resolve({commandId: "after-reopen", id, decision: "deny"})).toEqual({ok: false, code: "already-answered", detail: {by: "kernel", decision: "aborted"}});
+    console.log("微任务发起真实 closeSession(interrupted)：resolve 未受理、工具得 aborted、重开看得到请求与 runEnded 但没有结算事件");
+});
+
+test("在 interactionRequested 日志帧内中止，再发晚到的普通输入；已发出同步事项只结算一次", async () => {
+    const controlled = Promise.withResolvers<void>();
+    const intercepting = Promise.withResolvers<void>();
+    const ext = defineExtension({id: "lab.input-gate", intercept: {async input(input, next) {
+        if (input.text === "晚到") {
+            intercepting.resolve();
+            await controlled.promise;
+        }
+        if (input.text === "拒收") return {reject: {code: "gated"}};
+        return next(input);
+    }}});
+    await using s = await createTestSession({extensions: [ext], tools: [{id: "lab.async", async execute(_args, ctx) {
+        await ctx.ask!({question: "之后回答"}, {async: true});
+        return "异步";
+    }}, {id: "lab.sync", async execute(_args, ctx) {
+        await ctx.ask!({question: "现在回答"});
+        return "同步";
+    }}]});
+    s.model.script({tools: [{tool: "lab.async"}, {tool: "lab.sync"}]}, "晚到已处理");
+    const got = Promise.withResolvers<{id: string; stop: Promise<CommandResult<"abort">>; late: Promise<CommandResult<"send">>; answer: Promise<CommandResult<"resolve">>}>();
+    const off = s.raw.subscribe(frame => {
+        if (frame.type !== "log" || frame.event.type !== "interactionRequested" || data(frame.event).async === true) return;
+        const id = data(frame.event).id as string;
+        const stop = s.raw.abort({commandId: "stop", keepQueue: true});
+        const late = s.raw.send({commandId: "late", input: {text: "晚到"}, mode: "steer"});
+        const answer = s.raw.resolve({commandId: "deny", id, decision: "deny"});
+        got.resolve({id, stop, late, answer});
+    });
+    try {
+        const sent = await s.raw.send({commandId: "first", input: {text: "开始"}});
+        const rejected = s.raw.send({commandId: "reject", input: {text: "拒收"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        const {id, stop, late, answer} = await got.promise;
+        await intercepting.promise;
+        controlled.resolve();
+        expect(await answer).toEqual({ok: false, code: "already-answered", detail: {by: "kernel", decision: "aborted"}});
+        const deferred = await late;
+        expect(deferred).toMatchObject({ok: true, value: {placement: "later", currentRunId: sent.value.runId}});
+        expect(await stop).toMatchObject({ok: true, value: {aborted: true}});
+        if (!deferred.ok) throw new Error(JSON.stringify(deferred));
+        const fate = await s.raw.inputFate({inputId: deferred.value.inputId});
+        expect(fate).toHaveProperty("taken");
+        const events = await log(s);
+        expect(events.filter(e => e.type === "interactionResolved").map(e => [data(e).id, data(e).decision])).toEqual([[id, "aborted"]]);
+        expect(await rejected).toMatchObject({ok: false, code: "input-rejected"});
+        expect(events.find(e => e.type === "commandAccepted" && data(e).commandId === "reject")).toBeUndefined();
+        expect(events.filter(e => e.type === "interactionRequested" && data(e).async === true)).toHaveLength(1);
+        console.log("在请求写入帧中中止：晚话 placement=later，由下一运行消费；同步事项只写 aborted 一次，异步问题未结算");
+    } finally {
+        off();
+        controlled.resolve();
+    }
+});

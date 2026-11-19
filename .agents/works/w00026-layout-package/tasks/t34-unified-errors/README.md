@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t34-unified-errors
-status: active
+status: done
 updated: 2026-11-19
 ---
 
@@ -24,6 +24,28 @@ updated: 2026-11-19
 3. 待确认清单里 t34 的两行与 t33 的一行按推荐追认（第二行的合成规则转 t38，见清单）。
 
 第 4 稿按这个范围收窄，并吸收第三轮里属于失败形状的几条：第 3 条（401、452 拆成 `not-found` 与 `wrong-node-kind`）、第 4 条（失败的 `params` 值只用字符串与数字，对齐 `ui/i18n`；数组归 t38）、第 6 条（`validateLayoutDoc` 的 32 条问题文字一起改英文）、第 7 条（`invalid-argument` 的映射按 `field` 判别；导出判别联合不采纳，理由见计划）、第 10 条（第 1 片跑 `lab-nested-grid` 的 e2e）、第 11 条（280 的 baseline 先于 target）。第三轮其余各条归 t38。
+
+**实施**（worktree `w00026-t34-unified-errors`，分支 `refactor/w00026-t34-unified-errors`）：
+
+- 第 1 片 `38b8aa2fa`：nb-layout 的 `GridFailure`、库内按码检查 `params` 的构造函数（`grid-failure.ts`）、`grid.ts` 34 处、快照恢复、提交的码；Lab 夹具与 `lab-nested-grid` 两条恢复用例按码断言。`grid.test.ts` 补一组逐码用例（可达的每处一条，断言码与完整 `params`），`useGridLayout.dom.test.ts` 补落账失败原样转交，`NestedGrid.dom.test.ts` 补 `handler-missing`、`handler-threw`。变异检查：280 的两侧先后与 452 的拆分改回去，逐码用例红；诊断字符串里去掉码，两条提交用例红。
+- 第 2 片 `f3d105aef`：L2 与应用 110 处 `detail` 改名 `message`、文字改英文（先空跑匹配检查、再统一写入）；测试里 23 行读 `detail` 的改读 `message`；SDK 导出四个类型；变更记录两条；nb-workbench-layout 的 README。
+- 并 master `45350dd1c`（只带进别的 Work 的两个文档提交）。
+- 和计划不同的三处：
+  - `GridLayoutCommitResult` 定义在根入口的 `grid-types.ts`（`SashGestureBinding.onCommit` 在根入口也要用），`./vue` 照旧导出这个名字。
+  - `sdk.test.ts` 按入口文件里写出的名字核对 SDK 的类型，nb-layout 根入口靠 `export *` 带出的类型它读不到：根入口显式写出失败的几个类型名。
+  - 第 1 片之后没有单独跑 `lab-nested-grid`，并进收口那一轮（构建三份产物要十几分钟，两片之间没有别的改动会动到夹具的属性）。
+- 验证：三个包的类型检查（应用三份配置：`tsc`、`vue-tsc` 的 web 与 browser-test）、nb-layout（bun 339、vitest 216）与 nb-workbench-layout（bun 261、vitest 48）的测试、`sdk.test`、`docs:check` 都过。`test:affected`（在第 2 片提交前）有 9 条失败，都不在本分支的改动里：7 条是同一个原因，`nbook.stickers` 在内置插件清单与产品清单里对不上（`server.test.ts` 后端宿主的 6 条，断言插件激活与关闭顺序的 152、176、204 等行；`builtin-names.test.ts:45` 一条），来自 master 上别的 Work，本分支没改这两个目录；另外 `architecture.test.ts` 一条超时、示例插件 `SnippetsPage.dom.test.ts` 一条，单独重跑都过。
+- e2e（负载 8 到 14）：`lab-nested-grid` 17、`lab-grid-panels` 17、`lab-workbench-surface` 17、`workbench-views` 34、`workbench-dnd` 38 全过；`workbench-shell` 16 过 2 失败（547 等不到外框过渡、792 等不到 Lab 场景，跑到它时负载 14 以上），负载 6 到 8 时两条各单独重跑 2 次都过，归为负载（547 是主线程忙时过渡直接到终点，792 是 Lab 冷启动）。`build:sdk` 的产物里四个类型都在导出清单上，`onGestureCommit` 的类型是 `GridLayoutCommitResult`；没有另建基点 worktree 做前后整份比对，SDK 源码只改了 `components.ts` 一行类型导出。
+
+**实现审查**（Claude Sonnet，审查 worktree 固定在 `45350dd1c`，[`evidences/impl-review.txt`](evidences/impl-review.txt)）：5 条，重要 2、建议 3，都成立，修正单独提交：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 宿主自己写 `onGestureCommit` 时只能用库的码拒绝（返回类型的码是闭联合），和“码集合开放”矛盾 | 宿主返回的类型放宽成 `{ok: true} \| GridFailure`（任意码），`useGridLayout` 的结果仍是窄的 `GridLayoutCommitResult`、可以赋过去；补一条宿主用自己的码拒绝的用例；Spec 失败 6 补一句 |
+| 2 | 校验不过的布局记录把 `code: message` 当原因显示在状态栏，现在是英文句子（改动前是中文原文，同样是把诊断文字当界面文案） | 状态栏的问题码改成已有本地化文字的 `corrupt` 或 `unsupported-version`，校验的码与 message 放进 `detail`，只进诊断日志；用例断言码与 `detail` |
+| 3 | 变更记录“已经构建的照常运行，只是诊断里没有原因”不准：原因是 `undefined`，提兼容起点后旧插件也装不上 | 改成事实陈述：要改成新形状、重新构建 |
+| 4 | `invalid-snapshot` 的 `id?` 让 `params` 可以有值为 `undefined` 的键 | 拆成两支：外壳、非对象节点、缺 id 不带 `id`，其余必须带 |
+| 5 | 注释写了推测的后续计划；根入口只列了一部分类型名 | 删掉那句；根入口只列 SDK 导出的四个，注释写明 `sdk.test.ts` 按入口里写出的名字核对 |
 
 下面是第 1 到 3 稿三轮设计审查的历程；表里说的诊断、L2 拆码与切片，在第 4 稿里已转 t38 或延后，以计划第 4 稿为准。
 
@@ -79,5 +101,4 @@ updated: 2026-11-19
 
 ## 下一步
 
-1. master 上写两份 Spec 的 planned 条目，提交第 4 稿与记录。
-2. 从 master 开 worktree `w00026-t34-unified-errors`，按计划三片实施。
+无。t34 完成：合入 master（并 master `6faf07664`，实现审查修正 `063828e6d`，守护测试 `8a8407189`）；`ui/nested-grid` 失败 5 到 7 与“码集合开放”、`ui/workbench-layout` 失败形状去掉 planned（每句都有断言：逐码用例、提交码用例、宿主用自己的码拒绝、码的写法列全并按开放错误域核对、`message` 是可打印 ASCII），实现合同补“失败的构造”与合同测试。下次发版按 Work README“发版前”一行提兼容起点。

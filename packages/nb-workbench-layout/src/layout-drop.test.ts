@@ -577,7 +577,7 @@ describe("分节的落点", () => {
         expect(of("ea")).toHaveLength(4);
         // 收成标题行的分节只有前一个位置：指针那边它整块都是前半。
         const folded = setPanelCollapsed(sections(), "s2", true);
-        if (!folded.ok) throw new Error(folded.detail);
+        if (!folded.ok) throw new Error(folded.message);
         const foldedCandidates = enumerateDropCandidates({doc: folded.doc, source: {kind: "tab", tab: "view:p1"}, policy: anyEdge, stripIndexes: () => [0, 1]});
         expect(foldedCandidates.filter((candidate) => candidate.region === "s2").map((candidate) => candidate.action)).toEqual([split("s2", "top")]);
     });
@@ -614,7 +614,7 @@ describe("空区域的落点（ADR 0050）", () => {
         const candidates = enumerateDropCandidates({doc: opened(), source: SOURCE, policy: testPolicy(), stripIndexes: () => [], newContainer: "custom:n"}).filter((candidate) => candidate.region === "auxiliarybar");
         expect(candidates.map((candidate) => candidate.action)).toEqual([INTO]);
         const result = applyLayoutDrop(opened(), SOURCE, INTO, testPolicy());
-        if (!result.ok) throw new Error(result.detail);
+        if (!result.ok) throw new Error(result.message);
         expect(regionOf(result.doc, "s1")).toBe("auxiliarybar");
         expect(result.doc.panels.auxiliarybar).toMatchObject({entries: ["custom:n"], activeContainer: "custom:n"});
         expect([isPanelShown(result.doc, "s1"), isPanelShown(result.doc, "auxiliarybar")]).toEqual([true, false]);

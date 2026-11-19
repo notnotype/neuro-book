@@ -113,7 +113,7 @@ function onGestureCommit(sizes: Readonly<Record<string, GridExtent>>, collapsed:
 /** 把视图放成 `region` 里 `container` 的最后一个分节，区域显示并切到这个容器（输出 23 的“移进一个容器”）。 */
 const intoContainer = (viewId: string, region: PanelName, container: string) => (current: LayoutDoc): LayoutResult => {
     const target = sectionLanding(current, region, container);
-    if (target === null) return {ok: false, code: "not-found", detail: region};
+    if (target === null) return {ok: false, code: "not-found", message: `No section landing in region ${region}`};
     const moved = moveTabToEdge(current, {tab: `view:${viewId}`, target, container}, POLICY);
     return moved.ok ? showContainer(moved.doc, region, container) : moved;
 };

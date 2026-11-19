@@ -165,7 +165,7 @@ export function canResetContainer(doc: LayoutDoc, container: string, views: View
  */
 export function moveContainerTo(doc: LayoutDoc, container: string, to: PanelName, policy: LayoutPolicy): LayoutResult {
     const from = containerRegion(doc, container);
-    if (from === null) return {ok: false, code: "not-found", detail: `容器 ${container}`};
+    if (from === null) return {ok: false, code: "not-found", message: `Container ${container}`};
     if (from === to) return {ok: true, doc};
     const members = regionSections(doc, from).filter((section) => section.container === container).map((section) => section.panel);
     const sameAxis = REGION_ORIENTATION[from] === REGION_ORIENTATION[to];
@@ -177,7 +177,7 @@ export function moveContainerTo(doc: LayoutDoc, container: string, to: PanelName
     let next = doc;
     for (const panel of members) {
         const target = sectionLanding(next, to, container);
-        if (target === null) return {ok: false, code: "not-found", detail: `区域 ${to}`};
+        if (target === null) return {ok: false, code: "not-found", message: `Region ${to}`};
         const moved = movePanelToEdge(next, {panel, target, container}, policy);
         if (!moved.ok) return moved;
         next = moved.doc;
@@ -197,7 +197,7 @@ export function moveContainerTo(doc: LayoutDoc, container: string, to: PanelName
     // 先归整，入口顺序里才有它；声明的容器与隐式容器以前来过这个区域时 id 还留在原来的位置，这里挪到最后。
     next = settleContainers(next);
     const anchor = regionAnchor(next, to);
-    if (anchor === null) return {ok: false, code: "not-found", detail: `区域 ${to}`};
+    if (anchor === null) return {ok: false, code: "not-found", message: `Region ${to}`};
     const entries = next.panels[anchor]?.entries ?? [];
     const steps = [
         (current: LayoutDoc) => setContainerEntries(current, anchor, [...entries.filter((id) => id !== container), container]),

@@ -121,7 +121,7 @@ owners:
 65. **交换：离开的一组**：离开的一组提交那一刻就停放（不可交互、不接指针，焦点在里面时的处理见“时序与寿命”），过渡结束前还画着。
 66. **交换：离开的一组的分隔线**：离开的一组里的分隔线留着、跟着滑、不能拖。
 67. **交换：认哪些叶**：离开的叶只认上一帧呈现着、有尺寸、这一帧不在的，换上来的只认这一帧在、上一帧不在的，其余的 id 忽略。
-68. **交换：不成立时**：忽略之后有一边为空，或离开的叶还在别的过渡里（长出来、缩回去），这次照常过渡，并经 `issues` 交回原因。
+68. **交换：不成立时**：忽略之后有一边为空，或离开的叶还在别的过渡里（长出来、缩回去），这次照常过渡，并经 `issues` 交回原因（`swap-skipped`，输出 139）。
 69. **交换：不交换的时候**：拖动中、系统减少动态效果时不交换。
 70. **交换：进行中又来一次**：交换还在进行时又来一次（滑到一半又点）：从每一组此刻的位置接着走，所有组同向平移同一段、要换上的那组落到终点，各组不穿过彼此、不跳，每次重新开始都是完整的过渡时长。
 71. **交换：要换上的那组已在带上**：要换上的那组已经在带上（正在滑出去又被点回来）时从它此刻的位置往回走，否则接在方向那头最外面那组的后面。
@@ -192,7 +192,35 @@ owners:
 136. **分支的收起：长度为零的分隔线**：收起为零的分支里，叶之间的分隔线长度为零：不可聚焦、不进指针命中、不能拖，展开后恢复。
 137. **分支的收起：最小尺寸**：收起为零的节点（叶或分支）在两根轴上的最小尺寸都按零算，窗口放不下时不把它和它里面的叶算作要收走的。
 138. **分支的收起：阈值与恢复**：收起的阈值、从零拉回、Enter 与显式恢复同叶（输出 18、20）。
+139. **诊断：形状与码**：诊断是 `{code, message, params?}`，和失败 5 同形少一个 `ok`：`code` 给程序分支，`message` 是英文、只给日志看，`params` 的值只有字符串与数字（planned）。`params` 里 `cause`（为什么）、`axis`、`id`（诊断所在的分支、叶或面板）三个名字在所有诊断里意思相同，其余是度量（取两位小数）。码集合开放，`cause` 是码之下的细分，宿主不认识的 `cause` 按码处理。诊断码与失败 5 到 7 的码不相交。
 
+    | 码 | `cause` | 什么时候 | 度量 |
+    |---|---|---|---|
+    | `over-constrained` | `min-total` | 分支的最小值合计超过主轴空间，按最小值比例降级 | `available`、`required` |
+    | | `fixed-overflow` | 固定尺寸面板装不下留给它们的预算，压到最小值 | `available`、`required` |
+    | | `leaf-min` | 叶在某根轴上的空间小于它的最小值 | `available`、`required` |
+    | | `sash-overflow` | 分隔条合计超过主轴空间，分隔条与子节点一起压缩 | `available`、`required` |
+    | | `cross-min` | 分支在交叉轴上的空间小于它的最小值 | `available`、`required` |
+    | | `range-overflow` | 拖动时这根轴的有效范围装不下分支总量，这次不改几何 | `total`、`min`；所有面板都有上限时还有 `max` |
+    | `unabsorbed-space` | `no-weight`、`capped` | 分支的空间有剩余没被子节点吸收：没有按比例分的面板，或它们都到了上限 | `rest` |
+    | `conflicting-bounds` | | 节点的下限高于上限，以下限优先 | `min`、`max` |
+    | `no-room-to-collapse` | | 拖到阈值以下但收起后没有边界吸收这块空间，保持展开 | |
+    | `no-room-to-restore` | | 恢复空间不够，保持收起 | `available`、`required` |
+    | `no-collapse-policy`（planned） | | 要折叠的面板没有收起策略；只出现在直接求解收起的结果里，手势不会发 | |
+    | `swap-skipped` | `no-leaving`、`no-entering`（planned）、`busy` | 交换不成立（输出 68） | |
+    | `not-published` | | 宿主接纳了提交但没有发布匹配的布局 | |
+    | `notify-failed` | | 已经落账，通知宿主时它抛出 | |
+
+    出口有两个：`NestedGrid` 的 `issues` 事件（手势的诊断、被拒的提交、`not-published`、`swap-skipped`）与 `useGridLayout` 的 `onIssues`（布局重算的诊断、`notify-failed`）。事件里带 `ok` 的元素（`"ok" in issue`）是被拒的提交，就是失败 6 的那个失败，已经回滚；它的码可能是宿主自己的。
+140. **诊断：结果是快照，通知只发新出现的**：
+    - 求解与预览的结果（`layout().issues`；`gesture-update` 载荷的 `issues` 与 `layout.issues`，planned）是这一次求解的全部诊断，逐条、参数完整。要知道现在有哪些问题、数是多少，读它们；通知不说诊断什么时候消失。
+    - 两个出口只发新出现的：键是码、`cause`、`axis`、`id`，同一次求解里同一个键最多一条。布局重算这一路，这次有、上一次重算没有的才发，消失再出现会再发；`contextKey` 变了算重新开始；发布空布局（承载盒隐藏、没有网格）不算消失，再显示时持续的诊断不重发；`grid` 换实例不算重新开始。手势这一路，一场手势里同一个键只发一次，下一场重新算；键盘每按一次键是一场手势，按住不放算一场（planned）。预览布局自己的诊断不经通知，松手落账后的布局重算照常发（planned）。
+    - 被拒的提交、`not-published`、`swap-skipped`、`notify-failed` 每发生一次发一条。一个失败只发一条。
+    - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行（planned）。只有落账之后的通知抛出时库接住它（交 `reportError`（planned），没有时 `console.error`），提交照样算落账。
+
+141. **主题变量**（planned）：Vue 层读的 CSS 变量都是 `--nb-layout-*`，每处带回退；装了 nb-ui 的宿主经它的桥接取主题的值（[`theme/system`](../theme/system.md) 的“变量体系”），外观与过渡同今天；不装时用回退。输出 35、112 与组件文档里写的 `--motion-layout`、`--layout-card-*` 这类名字是主题写的旧名，库读的是对应的 `--nb-layout-*`。宿主旋钮（`--nb-layout-sash-line-inset` 这类主题不写的）直接设新名，可以设在子树上。
+142. **过渡：缺省时长**（planned）：宿主没给 `--nb-layout-motion-layout` 时（不装 nb-ui、也没自己设），布局过渡按缺省时长走，CSS 过渡与库里等过渡收尾的计时用同一个值；给了解析不出的值（`none`、`calc()`）时当 0，不过渡。系统减少动态效果时 nb-layout 读的时长全部归零，宿主在根上设的时长也压不过（输出 59）。
+143. **文案**（planned）：组件的读屏名称与提示（分隔条、可排序列表）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取；没有注入时用库自带的 `zh-CN` 目录，参数照旧代入（[`ui/i18n`](i18n.md) 输出 8 的例外）。
 ## 状态与转换
 
 | 状态 | 事件 | 结果 |
@@ -210,7 +238,7 @@ owners:
 时序与寿命（宿主可以依赖）：
 
 - 手势：一次按下命中的最多两根轴属于同一场手势；拖动中发布预览布局，松手把一次提交交给宿主，由宿主一次原子落账，同步验证手势、成功之后才通知（输出 7、26）。提交与预览的数据形状见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md)。
-- 手势中途 scale、容器尺寸、结构、context 变化取消手势（输出 9）；通知异常只报 `issues`、不反悔几何，自身提交不造成预览自取消；缺 grid 或容器尺寸时不接受提交。
+- 手势中途 scale、容器尺寸、结构、context 变化取消手势（输出 9）；通知异常只报 `issues`、不反悔几何（宿主的回调抛出时手势照样收尾，见输出 140），自身提交不造成预览自取消；缺 grid 或容器尺寸时不接受提交。
 - `content-parked`：内容项要被停放而焦点还在里面时发出，焦点去哪由宿主决定。交换里离开的一组在提交那一刻停放，焦点在里面时同样在这一刻发出。
 - `swap`：和那次布局变化（新的 `node`、`layout`）在同一个同步段里给；`token` 变了才算一次新的交换。它被这之后的第一次布局变化用掉，不管那次按不按交换走（拖动中、手势预览中、减少动态效果、矩形没变时静默放弃）；这一轮刷新里没有布局变化就作废。
 - `moving`、`shapedLeaves`、`swappingLeaves`：在插槽渲染时读到的都是这一轮的。
@@ -232,7 +260,7 @@ owners:
 2. 未知高版本拒绝恢复并保留原布局或安全默认；宿主禁止普通保存覆盖原件。
 3. 暂时缺少引用时可过滤当前呈现，但宿主保留原始记录，后续调整已知节点不能抹掉未知部分。
 4. 部分引用过滤与整体格式非法分别报告；重复身份无法可靠定位时整体拒绝，不任意覆盖同名节点。
-5. **结构操作的失败形状**（planned）：建树、改尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
+5. **结构操作的失败形状**：改尺寸、按分支调整、插入、拆分、移除、移动失败时返回 `{ok: false, code, message, params?}`，树不变；失败 1 说的“返回诊断”在结构操作上就是这个形状。`code` 给程序分支；`message` 是英文，只给日志看，宿主不按它分支；`params` 的值只有字符串与数字，宿主可以直接交给 [`ui/i18n`](i18n.md) 的翻译端口拼自己的文字。
 
     | 码 | 什么时候 | `params` |
     |---|---|---|
@@ -249,7 +277,7 @@ owners:
     | `not-collapsible` | 要收起的面板没有收起策略 | `id`、`branch` |
 
     同一个子节点基线与目标都不合法时报基线那一侧。传进来的非法值在 `value` 里写成字符串（`NaN` 写作 `"NaN"`）。
-6. **提交的返回**（planned）：`onGestureCommit` 返回 `{ok: true}` 或失败 5 的形状；拒绝时回滚预览并给诊断（“状态与转换”）。落账时结构操作的失败原样转交失败 5 的码，提交自己的码是：
+6. **提交的返回**：`onGestureCommit` 返回 `{ok: true}` 或失败 5 的形状；拒绝时回滚预览并给诊断（“状态与转换”）。宿主自己写这个回调时可以用自己的码拒绝（写法见“边界与兼容”）。`useGridLayout` 接提交时，落账时结构操作的失败原样转交失败 5 的码，提交自己的码是：
 
     | 码 | 什么时候 | `params` |
     |---|---|---|
@@ -258,8 +286,8 @@ owners:
     | `stale-revision` | 提交带来的版本与宿主此刻的不同 | `expected`、`actual` |
     | `stale-size` | 容器尺寸在手势里变了 | 无 |
     | `handler-missing` | 宿主没有接 `onGestureCommit` | 无 |
-    | `handler-threw` | 宿主的提交回调抛出 | 无（`message` 带异常的文字） |
-7. **恢复的结果**（planned）：快照恢复返回 `{ok: true, dropped, clamped}`，或失败 5 的形状加 `dropped`、`clamped`。`dropped` 每项是 `{ref, code: "unknown-ref"}`（失败 3）。恢复的码：
+    | `handler-threw` | 宿主的提交回调抛出 | 无（`message` 带异常的文字，planned） |
+7. **恢复的结果**：快照恢复返回 `{ok: true, dropped, clamped}`，或失败 5 的形状加 `dropped`、`clamped`。`dropped` 每项是 `{ref, code: "unknown-ref"}`（失败 3）。恢复的码：
 
     | 码 | 什么时候 | `params` |
     |---|---|---|
@@ -279,8 +307,9 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用与插�
 嵌套 sash 的旧限制由本能力覆盖的场景逐项解除；其它未覆盖结构操作继续保留已有限制，不能据一个样例宣称任意布局均已支持。
 外框、内容与浮动窗手柄是里面 `position: fixed` 元素的包含块（输出 28）：要盖住整个窗口的东西（对话框、拖影、菜单）宿主要 Teleport 到 `body`。
 公开的标记：`data-swap`（输出 75）、`data-leaf`、`data-grid-scope` 等的取值与含义见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 的“公开的标记与变量”。
+CSS 变量（planned）：`NB_LAYOUT_THEME_VARS`（根入口）列出库读的全部 `--nb-layout-*` 与各自的回退；README 的变量表只承诺其中主题级的一小批（颜色、圆角、阴影、时长、焦点），其余是内部名字，可以改名（输出 141）。
 工作台的用法：用分支的收起表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）；把 `moveGridFocus` 登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
-失败的码集合开放（planned）：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。
+失败的码集合开放：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。
 
 ## 验收与 Smoke
 
@@ -302,6 +331,8 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 - 公开入口：`@notnotype/nb-layout` 的 `createGrid` 与结构操作（含 `splitLeaf`）、快照与 `resizeBranches`；`@notnotype/nb-layout/vue` 的 `NestedGrid`、`useLayoutExtent`、`useGridLayout`、`useSashGesture`、`moveGridFocus`。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)。
 - owner 与依赖方向：owner 是 `ui`；`nb-layout` 的核心入口（含落点几何）不依赖 Vue、DOM 与 dnd-kit，Vue 层依赖核心入口与 nb-ui；工作台与插件只经包入口消费，不跨包深导入；工作台的布局文档、落点规则与标签条在 `nb-workbench-layout`，它同样只经这两个入口用本包，本包不依赖它（[ADR 0054](../../adr/0054-nb-layout-general-library.md)）。
+- 失败与诊断的构造：每层一张“码 → `params` 形状”的映射（[`grid-failure.ts`](../../../packages/nb-layout/src/grid-failure.ts)、[`grid-issue.ts`](../../../packages/nb-layout/src/grid-issue.ts)，不从入口导出），构造时按映射检查参数，导出的类型只有通用的 `GridFailure`、`GridIssue`（失败 5 到 7、输出 139）。
+- 只发新增：键与闸门在 [`issue-gate.ts`](../../../packages/nb-layout/src/issue-gate.ts)（不从入口导出），`useGridLayout` 按重算、`useSashGesture` 按手势各用一个（输出 140）。
 - 不变量：
   - 几何只有 CSS px 一种口径，矩形由布局结果一处算出，渲染层不再换算（输出 27、33）。
   - 手势只提交一次完整的原子意图，由宿主用 `resizeBranches` 一次落账；拒绝时回滚预览并给诊断（输出 7，“时序与寿命”的同步接纳）。
@@ -313,5 +344,5 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 - 批准依据：2026-09-16 开发者同意纳入最小嵌套验证及必要原语修复；2026-09-20 开发者批准共享测量、宿主与落点几何、scope 仲裁与无重锚 pointer 路径；2026-11-10 开发者接受[视图容器提案](../../proposals/workbench-view-containers.md)第 1 节（分支的收起）；2026-11-15 开发者决定拖动中兄弟之间的分配接着上一帧（输出 21）；2026-11-16 开发者选定过渡里形状伸出外框（输出 53）与交换（输出 61 到 77）的做法；2026-11-17 开发者定静止的底（输出 77）与分隔线的宿主样式（输出 78）。[ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - 实现入口：[`nb-layout/src/grid.ts`](../../../packages/nb-layout/src/grid.ts)、[`nb-layout/src/grid-rects.ts`](../../../packages/nb-layout/src/grid-rects.ts)、[`nb-layout/src/grid-motion.ts`](../../../packages/nb-layout/src/grid-motion.ts)、[`nb-layout/src/grid-swap.ts`](../../../packages/nb-layout/src/grid-swap.ts)、[`nb-layout/src/vue/NestedGrid.vue`](../../../packages/nb-layout/src/vue/NestedGrid.vue)
-- 合同测试：[`grid.test.ts`](../../../packages/nb-layout/src/grid.test.ts)、[`sash-drag.test.ts`](../../../packages/nb-layout/src/sash-drag.test.ts)、[`grid-rects.test.ts`](../../../packages/nb-layout/src/grid-rects.test.ts)、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts)、[`grid-swap.test.ts`](../../../packages/nb-layout/src/grid-swap.test.ts)、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts)、[`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)、[`vue/useLeafParking.dom.test.ts`](../../../packages/nb-layout/src/vue/useLeafParking.dom.test.ts)、[`vue/useRenderOrder.dom.test.ts`](../../../packages/nb-layout/src/vue/useRenderOrder.dom.test.ts)、[`vue/grid-focus.dom.test.ts`](../../../packages/nb-layout/src/vue/grid-focus.dom.test.ts)
+- 合同测试：[`grid.test.ts`](../../../packages/nb-layout/src/grid.test.ts)（失败 5、7 与码的写法逐码，诊断的码与参数、会话的诊断）、[`issue-gate.test.ts`](../../../packages/nb-layout/src/issue-gate.test.ts)（输出 140 的闸门）、[`vue/useGridLayout.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridLayout.dom.test.ts)（失败 6 的提交码）、[`sash-drag.test.ts`](../../../packages/nb-layout/src/sash-drag.test.ts)、[`grid-rects.test.ts`](../../../packages/nb-layout/src/grid-rects.test.ts)、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts)、[`grid-swap.test.ts`](../../../packages/nb-layout/src/grid-swap.test.ts)、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts)、[`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)、[`vue/useLeafParking.dom.test.ts`](../../../packages/nb-layout/src/vue/useLeafParking.dom.test.ts)、[`vue/useRenderOrder.dom.test.ts`](../../../packages/nb-layout/src/vue/useRenderOrder.dom.test.ts)、[`vue/grid-focus.dom.test.ts`](../../../packages/nb-layout/src/vue/grid-focus.dom.test.ts)
 - Smoke：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/lab-nested-grid.e2e.ts)、[`e2e/lab-grid-structure.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-structure.e2e.ts)、[`e2e/lab-grid-panels.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-panels.e2e.ts)、[`e2e/lab-grid-swap.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-swap.e2e.ts)

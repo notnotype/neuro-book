@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * MarkdownDisplay 的场景（docs/specs/ui/markdown-display.md 验收场景 1、2、3）：`streaming` 场景按定时把场景的原文一段段追加，
- * 播完去掉光标；`conversation` 场景把场景的原文摆成 100 条消息，拖 Lab 画布改宽度，用来看长对话改宽度时的卡顿。表情两个场景用
- * Lab 的表情目录（`lab-stickers.ts`），`stickers-late` 的目录 1.5 秒后才给结果。
+ * 播完去掉光标；`conversation` 场景把场景的原文摆成 100 条消息，拖 Lab 画布改宽度，用来看长对话改宽度时的卡顿。表情三个场景用
+ * Lab 的表情目录（`lab-stickers.ts`），`stickers-late` 的目录 1.5 秒后才给结果，`stickers-display` 把这个包设成按贴纸显示。
  */
 import {Button} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
@@ -14,7 +14,9 @@ import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
 import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 
 import {useLabEventSink} from "../lab-event-sink";
-import {labStickers} from "./lab-stickers";
+import {mountStickerDisplayStyle} from "nbook/plugins/stickers/web/display-style";
+
+import {LAB_STICKER_PACK, labStickers} from "./lab-stickers";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
@@ -24,6 +26,13 @@ const events = useLabEventSink();
 
 // nbook 的宿主，只有内置方言：外来方言的组成由 `late-dialect.dom.test.ts` 验。
 provideMarkdownHost(nbookMarkdownHost({stickers: labStickers(props.scene === "stickers-late" ? 1500 : 0)}));
+
+// `stickers-display` 场景：Lab 的表情包按贴纸显示（stickers.md 输出 47），夹在文字里的也是大图。换场景、卸载时撤掉样式。
+watch(() => props.scene, (scene, _previous, onCleanup) => {
+    if (scene !== "stickers-display") return;
+    // 自己的一份（owner `lab`）：不覆盖、不删掉 `nbook.stickers` 入口按真实偏好挂的那份。
+    onCleanup(mountStickerDisplayStyle([LAB_STICKER_PACK], "lab"));
+}, {immediate: true});
 
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#7287fd"/><text x="320" y="132" font-size="32" text-anchor="middle" fill="white">示意图</text></svg>')}`;
 const resolveAsset: ResolveAsset = () => Promise.resolve({url: PICTURE, release: () => undefined});

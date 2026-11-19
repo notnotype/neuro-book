@@ -25,6 +25,7 @@
 - 导入 zip：“导入 zip”选一个文件；同名冲突时开 [`ImportConflictDialog`](ImportConflictDialog.md)，要导入那一侧的缩略图由本地的 zip 读出（`previewZip`，读不出就只写名字与个数）；选了“另存”或“替换”后用同一个文件再传一次。第一次选的 zip 就失败（不合格、太大、忙、断线、文件读不到）时由模型发通知；选了处理方式之后的失败写在对话框里。预览图的对象地址在预览换掉、对话框关掉、页面卸载时释放。已有的包拿不到令牌时“替换”停用；选择期间已有的包又被别处改过，对话框写“请重新选择”并换成新的信息。
 - 复制到我的：复制期间按钮停用，失败由模型通知。
 - 改包名对话框打开时去查用到这个包的 Profile（`allowlistUsage`），不挡提交。
+- 没选表情时属性栏（[`PackFields`](PackFields.md)）的“按贴纸显示”开关读写 `display`：所有来源的包都能设，开关随偏好变化（别的窗口改了也跟着变）。
 
 ## 数据
 
@@ -61,6 +62,8 @@ type StickerPacksPageProps = {
     allowlistUsage?: (id: string) => Promise<readonly string[] | null>;
     /** 读本地 zip 的前几个表情画预览 */
     previewZip?: (file: File) => Promise<{title: string | null; count: number | null; items: {url: string; label: string}[]; dispose?: () => void}>;
+    /** 按贴纸显示的偏好（agent/stickers.md 输出 47，`picker` 入口交出的服务）；缺省 null，属性栏不画那个开关。 */
+    display?: StickerDisplayService | null;
     /** 一开始选中的格子（键见 `pack-view` 的 `stickerKey`、`extraKey`）；给 Lab 场景摆出选中的样子，产品里不传 */
     initialSticker?: string | null;
 };

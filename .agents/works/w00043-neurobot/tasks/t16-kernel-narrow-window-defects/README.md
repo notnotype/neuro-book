@@ -1,0 +1,30 @@
+---
+schema: nbook.task/v2
+taskId: t16-kernel-narrow-window-defects
+status: planned
+updated: 2026-11-19
+---
+
+# 内核三个窄窗口缺陷：反应批失败时的等待者、只读打开不恢复、只有会话头的半成品日志
+
+## 目标与范围
+
+[t06 设计审查](../t06-main-conversation/evidences/design-review-omp.txt)查出的三个内核原有缺陷，t06 之前就有、所有会话都受影响，t06 只把它们写成 Spec 的已知限制（[处理](../t06-main-conversation/evidences/design-review-disposition.md)）：
+
+1. 第 2 条：应答（`resolve`、`settlePending`）的受理批写下、它引起的反应批写失败时，指令交回 `log-broken`，等待者被以 `aborted` 叫醒，与日志里的结算不一致。改法要让受理路径分开回报主批与反应批。
+2. 第 6 条：Profile 解析不到、以只读打开的会话不做中断恢复；换回能用的 Profile 之后，上次没收口的运行被当成暂停的运行接着跑。
+3. 第 7 条：建会话时会话头与第一个写入批分两次写，两次之间被杀留下只有会话头的日志；再建同一个 id 得 `session-exists`，打开得到一个没有初始事件的会话。改法牵连 fork 的补写。
+
+审查者的探针在 [t06 的证据](../t06-main-conversation/evidences/design-review-probes/)（`kernel-probes`、`kernel-crash-fixture`）。
+
+合同：[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md) 与 [`harness/session.md`](../../../../../docs/specs/harness/session.md) 的“目标与非目标”里对应的已知限制，修好后去掉。
+
+不阻塞第一版（开发者 2026-11-19 同意按推荐：建跟进、放 w00043、不阻塞）。
+
+## 当前状态
+
+2026-11-19 经 nbdev 新建，尚未开工。
+
+## 下一步
+
+t06 合入之后排期；每条先用真实内核把探针改成正式测试、看它失败，再改。

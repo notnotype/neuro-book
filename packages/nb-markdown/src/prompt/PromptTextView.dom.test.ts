@@ -137,4 +137,15 @@ describe("PromptTextView 表情（docs/specs/agent/stickers.md 输出 44、45）
         await nextTick();
         expect((wrapper.element as HTMLElement).querySelector<HTMLElement>("[data-sticker]")?.dataset.sticker).toBe(":lyra/困:");
     });
+
+    it("点表情的图或聚焦后回车发出 sticker-activate（输出 46）；可访问名称是“查看大图：名字”", async () => {
+        const wrapper = mountHosted("写完啦:lyra/开心:");
+        await flushPromises();
+        const sticker = (wrapper.element as HTMLElement).querySelector<HTMLElement>(".nb-sticker.has-image")!;
+        expect(sticker.getAttribute("aria-label")).toBe("查看大图：开心");
+        sticker.querySelector("img")!.dispatchEvent(new MouseEvent("click", {bubbles: true, button: 0, detail: 1}));
+        sticker.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        const preview = {raw: ":lyra/开心:", url: "/img/:lyra/开心:.png", name: "开心", width: 64, height: 64};
+        expect(wrapper.emitted("sticker-activate")).toEqual([[preview], [preview]]);
+    });
 });

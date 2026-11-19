@@ -72,7 +72,7 @@ describe("卡片的边", () => {
     it("侧栏一列几节：一个容器一张卡片，两节之间相连，整列和活动栏相连", () => {
         const start = doc();
         const moved = movePanelToEdge(start, {panel: OUT, target: {kind: "split", panel: SIDE, edge: "bottom"}}, createLayoutPolicy());
-        if (!moved.ok) throw new Error(moved.detail);
+        if (!moved.ok) throw new Error(moved.message);
         const result = cards(moved.doc);
         expect(result.activitybar?.right).toEqual(barJoined);
         expect(result[SIDE]).toEqual({top: outer, right: inner(1), bottom: joined, left: barJoined});
@@ -81,7 +81,7 @@ describe("卡片的边", () => {
 
     it("底部面板两节左右并排：两节之间相连，但不是和活动栏相连（“角接过去”只认活动栏，输出 19）", () => {
         const moved = movePanelToEdge(doc(), {panel: AUX, target: {kind: "split", panel: OUT, edge: "right"}}, createLayoutPolicy());
-        if (!moved.ok) throw new Error(moved.detail);
+        if (!moved.ok) throw new Error(moved.message);
         const result = cards(moved.doc);
         expect(result[OUT]?.right).toEqual(joined);
         expect(result[AUX]?.left).toEqual(joined);
@@ -106,7 +106,7 @@ describe("卡片的边", () => {
         const start = doc();
         const sidebar = regionNodeOf(start, "sidebar")?.node.id ?? "";
         const moved = movePanelToEdge(start, {panel: AUX, target: {kind: "between", branch: "body", before: sidebar, after: "center"}}, createLayoutPolicy());
-        if (!moved.ok) throw new Error(moved.detail);
+        if (!moved.ok) throw new Error(moved.message);
         const result = cards(moved.doc);
         expect(result[AUX]).toEqual({top: outer, right: inner(1), bottom: outer, left: inner(1)});
         // 右栏搬空了、自动隐藏，按拖到零画：编辑组右边贴着窗体，中间夹着它留着的 1px 边界。

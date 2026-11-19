@@ -1,0 +1,72 @@
+## 审查报告：w00026 t38 实现
+
+我复核了几何、码表、会话、收尾顺序和闸门，找到 1 条重要、5 条建议。没有阻断。
+
+已跑：nb-layout 的 `bun test`（350 通过）、`typecheck`（通过），以及 4 个 dom 测试文件（125 通过）。应用侧的 `vue-tsc` 被命令审批拦住，没跑成。`neuro-book` 的 `sdk.test` 失败一条（`ImagePreviewDialog` 漏列），原因在 nb-ui 的组件列表，与本次改动无关。
+
+### 1. “宿主回调抛出时手势已经结束”只对松手和取消成立
+**严重程度**：重要。**类别**：合同与实现不符。
+**位置**：`useSashGesture.ts:60`（`onIssues` 的 JSDoc）、`:250`（`notifyGesture`）、`:335-337`（`flush`）；`NestedGrid.md:221`；Spec 输出 140 第 5 点。
+
+- **现象**：`settle` 先于宿主回调，只在 `finish` 和 `cancel` 里。拖动途中 rAF 里的 `flush` 调 `onPreview`，再调 `notifyGesture`，键盘每步求解同理。这两处里 `gesture-update` 或 `issues` 的监听一抛，手势仍然在进行，`binding` 和 `dragging` 都没动。
+- **后果之一**：`take()` 在调宿主回调之前就记下了键。`onIssues` 抛出时，这一批诊断在本场手势里不会再发。
+- **为什么是问题**：三处都写成无条件的“手势已经结束”。测试只覆盖松手和卸载路径，所以通过了。
+- **如何核实**：读 `flush` 与 `onPointerUp`。想验证可以在 dom 测试里让 `onGestureUpdate` 在 rAF 帧里抛出，再断言 `[data-sash-active]` 还在。
+- **建议改法**：改文档与 Spec 的措辞为“松手与取消路径里，回调抛出时手势已经结束”。拖动中抛出的行为与 base 相同，不用改，但要写明。
+
+### 2. `range-overflow` 的 `max` 把“无上限”哨兵求和交给了宿主
+**严重程度**：建议。**类别**：正确性与合同。
+**位置**：`sash-drag.ts:238-263`。
+
+- **现象**：`highs` 是各面板上限直接相加，默认面板的上限是 `GRID_UNBOUNDED = MAX_SAFE_INTEGER`。
+- **核实结果**：我造了两个最小宽度 600、容器 800 的叶，拖动后得到 `params.max = 18014398509481982`，message 是 “The effective range (1200 to 18014398509481982)…”。这个数已经超出安全整数，精度也丢了。
+- **为什么是问题**：Spec 139 要求参数是有意义的度量。任何带无上限面板的窄窗口都会走到这一步。NestedGrid 用例只断言 `max: expect.any(Number)`，没抓到。
+- **建议改法**：`max` 在达到哨兵时不给，或统一钳到哨兵再给；`message` 同样处理。
+
+### 3. 两轴交叉的会话里 `no-collapse-policy` 会被手势发出
+**严重程度**：建议。**类别**：合同。
+**位置**：`grid-gesture.ts:196-232`；Spec 139 的 `no-collapse-policy` 行。
+
+- **现象**：`solve()` 把同一个 `collapseAction`（`index` 来自第一个有收起策略的 owner）用到所有 owner。第二个 owner 的该位置没有收起策略时，`applyCollapse` 现在把 `no-collapse-policy` 交回，并并入快照。base 用 `owner.issues = result.issues` 之后被拖动求解盖掉，所以这个诊断从没露出来过。
+- **核实结果**：造一个横向根加竖向子分支、两根线同时命中的指针会话，调 `toggleCollapsed()`，得到 `preview.issues = [["no-collapse-policy", {id: "top"}]]`。
+- **为什么是问题**：计划和 Spec 都说“两个会话都先挑有收起策略的面板，挑不到就什么都不做，手势不会发”，这不成立。当前 UI 只开单线的键盘会话，所以只在直接用会话 API 时碰到；根因是“动作索引应用到所有 owner”这个旧缺陷，这次的合并让它露了出来。
+- **建议改法**：`applyCollapse` 只对发起动作的那个 owner 求解，或者在 `solve` 里过滤 `no-collapse-policy`。
+
+### 4. 会话快照里同键诊断可以重复
+**严重程度**：建议。**类别**：与 Spec 不一致。
+**位置**：`grid-gesture.ts:230-231`（`owner.issues = [...collapseIssues, ...result.issues]`）。
+
+- **现象**：折叠没变化时，折叠的诊断和后面拖动求解的诊断拼在一起，计划里说“这个输入上两处不会同键”。实测：折叠状态的 `a` 先拖过展开阈值（拖动求解发 `no-room-to-restore`），再 `setCollapsed(false)`（折叠也发同一条），`session.issues` 里有两条，键只有一个。
+- **为什么是问题**：Spec 140 写“同一次求解里同一个键最多一条”。通知经闸门去重，不受影响；快照被说成逐条、不去重，所以这是快照里的重复。
+- **建议改法**：合并时按 `issueKey` 去重，或者改 Spec 的措辞。
+
+### 5. 几处测试没有区分对错
+**严重程度**：建议。**类别**：测试。
+**位置**：`NestedGrid.dom.test.ts`（卸载抛出一条）；`useSashGesture.ts:663-668`；`grid.test.ts`（“先拖再折叠没有变化”）。
+
+- **卸载用例**：`cancel("unmount")` 现在先 `settle`，里面的 `resetHover()` 已经释放了光标，然后才调抛出的回调。用例只断言光标属性被清掉，去掉 `teardown` 的 `finally` 后它照样过。`disposed = true` 和 `detach()` 没有任何断言；计划要求的“监听照样摘掉”没验。
+- **`invalidate` 的 `try/finally`**：`cancel("context-changed")` 的 `settle` 里已经 `resetHover()`，`binding === null` 时不会抛。这个 `finally` 是死代码，可以删。
+- **“先拖再折叠没有变化：前面的位移照常提交”**：从代码推断，base 里 no-op 之后拖动求解用同一个位移和 `snapState` 重算，结果也是 `{a: 170, b: 230}`。这个用例很可能在改前逻辑上也过。我没能在 base 上实跑（受限于权限），所以是推断。如果推断成立，“会话状态不动”的重排除了让诊断并得进来之外没有别的观察到的效果。
+- **建议改法**：卸载用例加一条断言，抛出之后 `wrapper.unmount()` 之后窗口里按指针不再触发任何手势，或者直接断言监听数。
+
+### 6. 代码质量
+**严重程度**：建议。**类别**：注释与代码风格。
+
+- `useSashGesture.ts:274`：`settle` 的 `hover` 参数有 `"keep"` 这个值，没有任何调用方传它。
+- `grid-geometry.ts:203`：注释“这里不再发一条同义的”描述的是被删的代码，违反“不保留中间尝试”。
+- `grid-geometry.ts:424`：`allocateAxis` 的注释仍写“与独立 Splitter 共用 `allocateSashPanels`”，现在走的是 `allocatePanels`。
+- `WorkbenchSurface.vue:11`：`type SurfaceIssue` 夹在两条 `import` 中间。
+
+### 逐项对照后没有发现问题的方面
+
+- **码表与参数**：对照计划“每一处的码与参数”表，`grid-geometry.ts`、`sash-drag.ts`、`grid-swap.ts`、`NestedGrid.vue`、`useGridLayout.ts` 的码、`cause`、`id`、`axis` 都对得上。`fixed-overflow` 的 `required` 是压缩前的合计（`report` 在 `fixedTotal` 重新赋值之前调用）；度量全部经 `gridIssue` 的 `metric()` 取两位小数。
+- **分区重排**：`rigid`/`fixed`/`weighted` 改成先判 `sharesByWeight`，我按“上下限相等、固定尺寸、收起”逐类推演，与 base 逐项相同，几何不变。`no-weight` 判据和 base 的 195 一致。
+- **533 新加的 `quiet.has(main)`**：只收掉祖先沿主轴收起时的留空，我没找到该报而漏报的情形。
+- **`splitter-session.ts` 的 `collapseOn`**：base 在 no-op 时把 `snapState` 写成当前尺寸，新代码不写；`previousSizes` 在 `null` 时用 `baseline`，两者等价。
+- **`useSashGesture`**：`finish`、`cancel`、`onPointerUp` 的收尾顺序，悬停刷新、`onPreview(null)` 与 `active` 清空的先后，我没找到宿主或 `NestedGrid` 依赖旧顺序的地方；`dragging` 在 base 里就先于回调清掉。
+- **闸门与作用域**：`begin` 成功之后换闸门、`useGridLayout` 的 `gatedContext` 与空布局不经闸门、`notifyAfterCommit` 只包通知，没有发现漏发、重发或永远不发的时序。
+- **残留**：没有 `join`、`includes`、`String(issue)` 这类按字符串读诊断的残留；Lab 夹具与 e2e 里除 `lab-grid-swap.e2e.ts:240` 的空断言外没有消费者。
+
+**数量**：阻断 0，重要 1，建议 5。
+
+有效发现：1、2、3、4、5、6

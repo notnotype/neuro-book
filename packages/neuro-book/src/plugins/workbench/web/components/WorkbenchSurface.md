@@ -70,7 +70,8 @@ type Emits = {
     (event: "preview", sizes: Readonly<Record<string, GridExtent>> | null): void;
     /** 手势落账。`collapsed` 只含这次手势改了收起状态的面板。 */
     (event: "gesture-commit", sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
-    (event: "issues", issues: readonly string[]): void;
+    /** 网格两路诊断的并集（`ui/nested-grid` 输出 139、140）：带 `ok` 的是被拒的提交。只发新出现的。 */
+    (event: "issues", issues: readonly (GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure)[]): void;
     (event: "content-parked", key: string): void;
     /** 焦点现在在哪块面板；离开所有面板时是 null。 */
     (event: "focus-panel", panel: string | null): void;

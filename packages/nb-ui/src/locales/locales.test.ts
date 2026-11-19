@@ -58,6 +58,11 @@ const LEGACY: readonly Legacy[] = [
     {key: "floatingWindow.resizeWidth", zh: "调整窗口宽度"}, // composables/useFloatingWindow.ts 右边手柄的 label
     {key: "floatingWindow.resizeHeight", zh: "调整窗口高度"}, // 同上，下边手柄
     {key: "floatingWindow.resize", zh: "调整窗口大小"}, // 同上，四个角
+    {key: "imagePreviewDialog.close", zh: "关闭"}, // 自 nb-agent-ui 的 imagePreview.close 搬来（w00050 t11），feedback/ImagePreviewDialog.vue 的关闭按钮
+    {key: "imagePreviewDialog.downloadOriginal", zh: "下载原图"}, // 同上，imagePreview.downloadOriginal
+    {key: "imagePreviewDialog.loading", zh: "正在加载原图"}, // 同上，imagePreview.loading
+    {key: "imagePreviewDialog.loadFailed", zh: "原图加载失败"}, // 同上，imagePreview.loadFailed
+    {key: "imagePreviewDialog.retry", zh: "重试"}, // 同上，imagePreview.retry
     {key: "infoTip.label", zh: "说明"}, // feedback/InfoTip.vue 的 label 缺省
     {key: "input.clear", zh: "清空输入"}, // form/Input.vue 的 clearLabel 缺省
     {key: "notification.close", zh: "关闭通知"}, // feedback/Notification.vue 与 NotificationStack.vue 的 closeLabel 缺省

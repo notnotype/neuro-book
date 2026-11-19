@@ -782,6 +782,7 @@ export const labFixtures: LabFixture[] = [
             {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
             {id: "stickers", label: "表情：夹在文字里、一段只有表情的大图、认不出的原文", input: {props: {text: LAB_STICKER_TEXT, locale: "zh-CN"}}},
             {id: "stickers-late", label: "表情：目录晚到，先显示原文占位", input: {props: {text: LAB_STICKER_TEXT, locale: "zh-CN"}}},
+            {id: "stickers-display", label: "表情包按贴纸显示：夹在文字里的也是大图，点图发出 sticker", input: {props: {text: LAB_STICKER_TEXT, locale: "zh-CN"}}},
         ],
         load: async () => withMarkdownSceneText((await import("./MarkdownDisplayFixture.vue")).default),
     }),
@@ -1415,11 +1416,12 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof PackFields>({
             component: "PackFields",
             scenes: [
-                {id: "user", label: "用户的包：显示名、说明、包名", input: {props: {detail: detailOf(sampleById("user.lyra")!)}}},
-                {id: "plugin", label: "插件的包：只读", input: {props: {detail: detailOf(sampleById("acme.cute.mochi")!), readonly: true}}},
-                {id: "english", label: "英文界面", input: {props: {detail: detailOf(sampleById("user.lyra")!)}}},
+                {id: "user", label: "用户的包：显示名、说明、包名、按贴纸显示", input: {props: {detail: detailOf(sampleById("user.lyra")!)}, model: {stickerDisplay: false}}},
+                {id: "plugin", label: "插件的包：只读，按贴纸显示照样能设", input: {props: {detail: detailOf(sampleById("acme.cute.mochi")!), readonly: true}, model: {stickerDisplay: true}}},
+                {id: "english", label: "英文界面", input: {props: {detail: detailOf(sampleById("user.lyra")!)}, model: {stickerDisplay: false}}},
             ],
-            load: async () => withStickersPageText(createSubjectFixture<typeof PackFields>((await import("nbook/plugins/stickers/web/components/PackFields.vue")).default, {runtimeProps: {commit: async () => null}})),
+            // 按贴纸显示的开关（stickers.md 输出 47）是受控的：点了写回模型，场景里看得到开关跟着变。
+            load: async () => withStickersPageText(createSubjectFixture<typeof PackFields>((await import("nbook/plugins/stickers/web/components/PackFields.vue")).default, {runtimeProps: {commit: async () => null}, writeBack: {"update:stickerDisplay": {layer: "model", key: "stickerDisplay"}}})),
         }),
         defineLabFixture<typeof StickerPackNameDialog>({
             component: "StickerPackNameDialog",

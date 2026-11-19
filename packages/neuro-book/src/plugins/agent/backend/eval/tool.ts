@@ -2,8 +2,9 @@
  * eval 工具（docs/specs/agent/eval.md）：每个会话一个常驻内核（`kernels.ts`），一次调用执行一个单元，代码里的 `tool.<名>` 与全局对象
  * 经内核的 `ctx.invoke` 照常审批、拦截、记日志（harness/runtime.md 输出 90 起）。
  *
- * 所有权：工具实现每个会话建一次（内核按会话缓存实现），内核进程的寿命挂在它上面：`dispose` 时结束。全服务端的内核总数由
- * `KernelRegistry` 管，超了回收最久没用的会话的内核，那个会话下一次调用时提示重置。
+ * 所有权：内核进程与重置原因这些跨调用的记账在 `SessionKernel` 上，按会话 id 存在 `KernelRegistry` 里，不挂在工具实现上：工具实现
+ * 每次打开会话建一个，会话关闭时释放，内核留着（eval.md 输出 11），会话再打开后新的实现接着用。内核由空闲计时、全服务端的
+ * 总数上限与服务端停止（`evalTool` 交回的 `stop`）结束。
  */
 
 import {join} from "node:path";
@@ -23,7 +24,7 @@ import type {CallReply, CallTarget, GlobalObjects} from "./protocol";
 import {IMPORT_HELPER} from "./constants";
 import {objectsSection, type EvalObject} from "./objects";
 import {rewriteCell} from "./rewrite";
-import {describeExit, Kernel, KernelRegistry, type CellEnd, type KernelLaunch, type KernelOwner} from "./kernels";
+import {describeExit, Kernel, KernelRegistry, type CellEnd, type KernelHolder} from "./kernels";
 
 export const EVAL_TOOL = "nbook.agent.eval";
 const DEFAULT_TIMEOUT_SECONDS = 30;
@@ -84,7 +85,6 @@ export interface CodeTool {
 }
 
 export interface EvalToolDeps {
-    readonly registry: KernelRegistry;
     /** 内核入口文件的绝对路径（`kernelEntry()`）。 */
     readonly entry: string;
     /** 这个会话此刻的工具集（与内核的生效工具集同一份来源）。 */
@@ -100,104 +100,181 @@ export function kernelEntry(): string {
     return import.meta.path.endsWith(".js") ? join(import.meta.dir, "eval-kernel.js") : join(import.meta.dir, "kernel-entry.ts");
 }
 
-// ─── 路径上跑过几次 eval（重置提示用，eval.md 输出 12） ─────────────────
+// ─── 重置用的两个计数（eval.md 输出 11、12） ─────────────────
 
 export const EVAL_STATE_EXTENSION = "nbook.agent.eval-state";
-/** 当前路径上 eval 的结果数。只看工具 id：结果被脱敏时 `details` 不写日志，工具 id 还在。 */
-export const evalStateContract = defineContract(EVAL_STATE_EXTENSION, {exports: shape<{cells: number}>()});
+/**
+ * `cells`：当前路径上 eval 的结果数，重置提示用。只看工具 id：结果被脱敏时 `details` 不写日志，工具 id 还在。
+ * `profiles`：会话里 `profileChanged` 的条数，换没换过 Profile 用。只比 Profile 的 id 看不出换走又换回来；计数来自日志，
+ * 会话关闭再打开之后照样能比。
+ */
+export const evalStateContract = defineContract(EVAL_STATE_EXTENSION, {exports: shape<{cells: number; profiles: number}>()});
 export const evalStateExtension = implement(evalStateContract, {
-    state: {cells: slice.path(0)},
-    reduce: {toolResult: (event, state) => ((event.data as {tool: string}).tool === EVAL_TOOL ? {cells: state.cells + 1} : undefined)},
-    exports: {cells: (state) => state.cells},
+    state: {cells: slice.path(0), profiles: slice.session(0)},
+    reduce: {
+        toolResult: (event, state) => ((event.data as {tool: string}).tool === EVAL_TOOL ? {cells: state.cells + 1} : undefined),
+        profileChanged: (_event, state) => ({profiles: state.profiles + 1}),
+    },
+    exports: {cells: (state) => state.cells, profiles: (state) => state.profiles},
 });
 
 // ─── 实现 ─────────────────────────────────────────────
 
-export function evalTool(deps: EvalToolDeps): AgentToolImplementation {
-    return {create: (context, services) => new EvalSession(context, services, deps)};
+/** eval 的工具实现与它的内核登记表。会话关闭不结束内核（eval.md 输出 11）：服务端停止时，会话都关完之后调 `stop` 全部结束。 */
+export function evalTool(deps: EvalToolDeps): {readonly implementation: AgentToolImplementation; stop(): Promise<void>} {
+    const registry = new KernelRegistry<SessionKernel>();
+    return {
+        implementation: {create: (context, services) => new EvalSession(context, services, deps, registry)},
+        stop: () => registry.stop(),
+    };
 }
 
 /** 内核重置的原因，写进下一次结果的第一行（eval.md 输出 12）。 */
-type ResetReason = "回退或切分支" | "主动重置" | "超时" | "被停止" | "意外退出" | "空闲" | "被回收";
+type ResetReason = "回退或切分支" | "主动重置" | "超时" | "被停止" | "意外退出" | "空闲" | "被回收" | "换了 Profile" | "工作目录变了";
 
-class EvalSession implements ToolImplementation, KernelOwner {
-    #kernel: Kernel | null = null;
+/**
+ * 一个会话打开期间的 eval 工具实现：会话关闭、换 Profile 或工具被卸载时 `dispose`，之后这个实例不再执行。内核在登记表里这个
+ * 会话的 `SessionKernel` 上，不随它结束。
+ */
+class EvalSession implements ToolImplementation {
     #closed = false;
-    /** 上一次调用时的 `ctx.leafMoves`：变了说明中间回退或切过分支。 */
+
+    constructor(private readonly context: ToolSessionContext, private readonly services: AgentToolServices, private readonly deps: EvalToolDeps, private readonly registry: KernelRegistry<SessionKernel>) {}
+
+    dispose(): void {
+        this.#closed = true;
+    }
+
+    async execute(args: Readonly<Record<string, unknown>>, ctx: ToolContext): Promise<ToolResult> {
+        if (this.#closed) return failure("kernel-unavailable", "会话已关闭，内核不再可用。");
+        const kernel = this.registry.take(this.context.sessionId, () => new SessionKernel(this.deps, this.registry));
+        if (kernel === null) return failure("kernel-unavailable", "服务端正在停止，内核不再可用。");
+        return kernel.execute(args, ctx, this.context, this.services);
+    }
+}
+
+/**
+ * 一个会话的内核与跨调用的记账，按会话 id 存在登记表里，比会话的工具实现活得久。同一时刻至多一个调用在这里执行：eval 是
+ * exclusive，一个会话同时只打开一份，关闭在它的运行都结束之后。
+ */
+class SessionKernel implements KernelHolder {
+    #kernel: Kernel | null = null;
+    /**
+     * 起内核时会话的 Profile（id 加换过几次），换了就重置（eval.md 输出 11）。内核本身不依赖 Profile（工具集与全局对象每个单元
+     * 重新给）：这是原先换 Profile 时工具实现整体重建、内核跟着结束的行为，搬到登记表之后保留下来；要让变量跨 Profile 留着，
+     * 去掉这个判断即可。
+     */
+    #profile: string | null = null;
+    /**
+     * 起内核时的工作目录与布局变量。内核起来之后它们就定了，每次调用都按会话现在的布局重新解析、对不上就重置：项目同一个 id
+     * 换了目录（runtime/projects.md 输出 1）之后，留着的内核还在旧目录里。
+     */
+    #place: string | null = null;
+    /** 正有调用在这里执行（包括还在起内核）：登记表不丢它、不回收它。 */
+    #busy = false;
+    /** 上一次调用时的 `ctx.leafMoves`：变了说明中间回退或切过分支。这个计数来自日志，会话关闭再打开之后照样能比。 */
     #leafMoves: number | null = null;
     #reason: ResetReason | null = null;
     #cells = 0;
-    /** 这个实例上一次执行单元时的 `ctx.leafMoves`：与这次相同，说明那个单元的结果在当前路径上（可能就在同一条回复里、还没写进日志）。 */
+    /** 上一次执行单元时的 `ctx.leafMoves`：与这次相同，说明那个单元的结果在当前路径上（可能就在同一条回复里、还没写进日志）。 */
     #ranAt: number | null = null;
     #idle: (() => void) | null = null;
 
-    constructor(private readonly context: ToolSessionContext, private readonly services: AgentToolServices, private readonly deps: EvalToolDeps) {}
+    constructor(private readonly deps: EvalToolDeps, private readonly registry: KernelRegistry<SessionKernel>) {}
+
+    get holding(): boolean {
+        return this.#kernel?.alive === true;
+    }
+
+    get busy(): boolean {
+        return this.#busy;
+    }
 
     evict(): void {
         void this.#reset("被回收");
     }
 
-    async dispose(): Promise<void> {
-        this.#closed = true;
+    async close(): Promise<void> {
         this.#clearIdle();
         const kernel = this.#kernel;
         this.#kernel = null;
-        this.deps.registry.release(this);
         await kernel?.kill();
     }
 
-    async execute(args: Readonly<Record<string, unknown>>, ctx: ToolContext): Promise<ToolResult> {
-        if (this.#closed) return failure("kernel-unavailable", "会话已关闭，内核不再可用。");
+    async execute(args: Readonly<Record<string, unknown>>, ctx: ToolContext, context: ToolSessionContext, services: AgentToolServices): Promise<ToolResult> {
         this.#clearIdle();
+        this.#busy = true;
+        try {
+            return await this.#execute(args, ctx, context, services);
+        } finally {
+            this.#busy = false;
+            // 每个出口都重新计空闲，语法错误这类提前交回的也算：内核不随会话关闭结束，漏排一次就只剩总数上限能回收它。
+            if (this.holding) this.#scheduleIdle();
+        }
+    }
+
+    async #execute(args: Readonly<Record<string, unknown>>, ctx: ToolContext, context: ToolSessionContext, services: AgentToolServices): Promise<ToolResult> {
+        // 两次调用之间内核自己没了（被外部杀掉、崩溃）：单元里的退出由 `#run` 处理，这里补上单元之外的。
+        if (this.#kernel !== null && !this.#kernel.alive) await this.#reset("意外退出");
         if (this.#leafMoves !== null && ctx.leafMoves !== this.#leafMoves && this.#kernel !== null) await this.#reset("回退或切分支");
+        const profile = `${context.profile}#${String(ctx.read(evalStateContract)?.profiles ?? 0)}`;
+        if (this.#kernel !== null && this.#profile !== profile) await this.#reset("换了 Profile");
         this.#leafMoves = ctx.leafMoves;
         if (args.reset === true) await this.#reset("主动重置");
         const code = args.code as string;
         if (code.trim() === "" && args.reset === true) return {text: "内核已重置。", details: {reset: true}};
 
-        const tools = this.deps.toolsOf(this.context);
+        const tools = this.deps.toolsOf(context);
         const globals = globalObjects(tools);
         const rewritten = rewriteCell(code, new Set([...KERNEL_NAMES, ...globals.map((object) => object.name)]));
         if (!rewritten.ok) return failure("code-error", rewritten.failure.message);
 
+        const place = await this.#locate(context, services, ctx.signal);
+        if ("failure" in place) return place.failure;
+        const where = JSON.stringify([place.cwd, place.layout]);
+        if (this.#kernel !== null && this.#place !== where) await this.#reset("工作目录变了");
+
         let fresh = false;
         if (this.#kernel === null || !this.#kernel.alive) {
-            const launch = await this.#launch(ctx.signal);
-            if ("failure" in launch) return launch.failure;
-            const started = await Kernel.start(launch, {signal: ctx.signal, ...(this.deps.handshakeMs === undefined ? {} : {handshakeMs: this.deps.handshakeMs})});
+            const env: Record<string, string> = {};
+            for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
+            const started = await Kernel.start({entry: this.deps.entry, cwd: place.cwd, env: {...env, ...place.layout}}, {signal: ctx.signal, ...(this.deps.handshakeMs === undefined ? {} : {handshakeMs: this.deps.handshakeMs})});
             if (!started.ok) return failure("kernel-unavailable", started.reason);
             this.#kernel = started.kernel;
+            this.#profile = profile;
+            this.#place = where;
             fresh = true;
         }
-        this.deps.registry.touch(this);
+        this.registry.admit(this);
         const kernel = this.#kernel;
         // 新内核、而这条路径上跑过 eval：之前的变量没了，结果第一行说明（eval.md 输出 12）。路径上的计数只含已经写进日志的结果，
-        // 同一条回复里前面几个 eval 的还不在里面，所以另看这个实例在叶子没动过时有没有跑过单元。没有 `#reason` 的是这个实例新建的：
-        // 服务重启、分叉出的会话，或换了 Profile（内核换 Profile 时释放全部工具实现、按新上下文重建）；新实例分不出是哪一种。
+        // 同一条回复里前面几个 eval 的还不在里面，所以另看叶子没动过时这里有没有跑过单元。没有 `#reason` 的是登记表里新建的：
+        // 服务重启或分叉出的会话（登记表丢掉的、只记着原因的持有者也落到这里），分不出是哪一种。
         const ranOnPath = this.#ranAt === ctx.leafMoves || (ctx.read(evalStateContract)?.cells ?? 0) > 0;
-        const notice = fresh && ranOnPath ? `内核已重置（${this.#reason ?? "服务重启、分叉或换了 Profile"}），之前的变量没了。` : null;
+        const notice = fresh && ranOnPath ? `内核已重置（${this.#reason ?? "服务重启或分叉"}），之前的变量没了。` : null;
         this.#reason = null;
 
         const cell = ++this.#cells;
         this.#ranAt = ctx.leafMoves;
         const outcome = await this.#run(kernel, cell, rewritten.source, code, tools, globals, ctx, args.timeout as number | undefined);
         if (outcome.reset !== null) await this.#reset(outcome.reset);
-        else this.#scheduleIdle();
-        return this.#result(outcome, notice, cell);
+        return this.#result(outcome, notice, cell, services);
     }
 
-    /** 工作目录与环境同 `shell`（builtin-tools.md 输出 18、20）：服务端环境加布局变量，不读工作目录的 `.env`（入口带 `--no-env-file`）。 */
-    async #launch(signal: AbortSignal): Promise<KernelLaunch | {failure: ToolResult}> {
-        const files = sessionFiles(this.services.resources, this.context);
+    /**
+     * 会话现在的工作目录与布局变量，同 `shell`（builtin-tools.md 输出 18、20）。内核的环境是服务端的环境加这些布局变量，不读
+     * 工作目录的 `.env`（入口带 `--no-env-file`）。
+     */
+    async #locate(context: ToolSessionContext, services: AgentToolServices, signal: AbortSignal): Promise<{cwd: string; layout: Record<string, string>} | {failure: ToolResult}> {
+        const files = sessionFiles(services.resources, context);
         const cwd = await files.readPath(files.layout.working, {signal});
         if (!cwd.ok) return {failure: failure("kernel-unavailable", `工作目录取不到：${cwd.detail}`)};
-        const env: Record<string, string> = {};
-        for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
+        const layout: Record<string, string> = {};
         for (const [name, address] of Object.entries(files.layout.shellEnv)) {
             const located = await files.readPath(address, {signal});
-            if (located.ok) env[name] = located.value.path;
+            if (located.ok) layout[name] = located.value.path;
         }
-        return {entry: this.deps.entry, cwd: cwd.value.path, env};
+        return {cwd: cwd.value.path, layout};
     }
 
     async #run(kernel: Kernel, cell: number, source: string, code: string, tools: readonly CodeTool[], globals: GlobalObjects, ctx: ToolContext, timeoutSeconds: number | undefined): Promise<CellOutcome> {
@@ -240,7 +317,7 @@ class EvalSession implements ToolImplementation, KernelOwner {
         return {end, capture, images, dropped, code, why, reset: end.kind === "exited" ? (why === "timeout" ? "超时" : why === "aborted" ? "被停止" : "意外退出") : null, timeoutSeconds: timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS};
     }
 
-    async #result(outcome: CellOutcome, notice: string | null, cell: number): Promise<ToolResult> {
+    async #result(outcome: CellOutcome, notice: string | null, cell: number, services: AgentToolServices): Promise<ToolResult> {
         const {end, capture} = outcome;
         let status: ToolResult["status"] = "ok";
         let errorCode: string | undefined;
@@ -266,7 +343,7 @@ class EvalSession implements ToolImplementation, KernelOwner {
             tail.push(`内核意外退出（${describeExit(end.exit)}），已重置，之前的变量没了。${stderr === "" ? "" : `\n内核的错误输出最后一段：\n${stderr}`}`);
         }
         const {text, clipped} = capture.window();
-        const full = capture.overflowed ? await saveFullOutput(this.services.artifacts, capture, "eval") : {};
+        const full = capture.overflowed ? await saveFullOutput(services.artifacts, capture, "eval") : {};
         capture.dispose();
         const lines = [
             ...(notice === null ? [] : [notice]),
@@ -290,7 +367,6 @@ class EvalSession implements ToolImplementation, KernelOwner {
         this.#clearIdle();
         const kernel = this.#kernel;
         this.#kernel = null;
-        this.deps.registry.release(this);
         if (kernel !== null) {
             this.#reason = reason;
             await kernel.kill();
@@ -298,7 +374,9 @@ class EvalSession implements ToolImplementation, KernelOwner {
     }
 
     #scheduleIdle(): void {
-        this.#idle = this.deps.clock.schedule(() => void this.#reset("空闲"), this.deps.idleMs ?? EVAL_IDLE_MS);
+        this.#clearIdle();
+        // 到点时内核已经自己没了（两次调用之间被外部结束），原因是意外退出，不是空闲。
+        this.#idle = this.deps.clock.schedule(() => void this.#reset(this.#kernel?.alive === false ? "意外退出" : "空闲"), this.deps.idleMs ?? EVAL_IDLE_MS);
     }
 
     #clearIdle(): void {

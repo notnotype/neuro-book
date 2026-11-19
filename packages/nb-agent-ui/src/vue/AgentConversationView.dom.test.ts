@@ -176,6 +176,20 @@ describe("AgentConversationView", () => {
         expect(document.querySelector("[role='dialog']")).toBeNull();
         view.unmount();
     });
+
+    it("还没确认的消息：前面有别的话先跑时写“前面还有 N 条”，没有时写“发送中”", async () => {
+        const ctx = context();
+        const pending = (ahead?: number) => ({kind: "user" as const, id: "o1", timestamp: 3, intent: "normal" as const, blocks: [{kind: "text" as const, text: "合并的"}], contentOmitted: false, delivery: "pending" as const, ...(ahead === undefined ? {} : {ahead})});
+        ctx.messages = [...ctx.messages, pending(2)];
+        const view = mountView("zh-CN", {}, {ctx});
+        await flushPromises();
+        expect(view.get("[data-user-pending]").text()).toBe("前面还有 2 条");
+        await view.setProps({ctx: {...ctx, messages: [...context().messages, pending(0)]}});
+        expect(view.get("[data-user-pending]").text()).toBe("发送中");
+        await view.setProps({ctx: {...ctx, messages: [...context().messages, pending()]}});
+        expect(view.get("[data-user-pending]").text()).toBe("发送中");
+        view.unmount();
+    });
 });
 
 describe("宿主组件（验收 21）", () => {

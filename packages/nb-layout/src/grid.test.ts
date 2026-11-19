@@ -6,10 +6,16 @@ import {
     createGrid,
     type GridAxis,
     type GridBranchInput,
+    type GridCommitFailureCode,
     type GridExtent,
+    type GridFailureCode,
+    type GridHostIssueCode,
+    type GridIssue,
+    type GridIssueCode,
     type GridLeafInput,
     type GridNodeInput,
     type GridOrientation,
+    type GridRestoreFailureCode,
     type GridSnapshot,
 } from "./grid";
 import {createGridGestureSession, type GridGestureSession} from "./grid-gesture";
@@ -190,6 +196,11 @@ describe("拆分树原语：两轴几何", () => {
     });
 });
 
+/** 诊断只比码与参数（Spec 输出 139）：`message` 是给日志看的英文，不断言文字。 */
+function facts(issues: readonly GridIssue[]): Record<string, unknown>[] {
+    return issues.map((issue) => ({code: issue.code, ...issue.params}));
+}
+
 describe("拆分树原语：不可满足与窄容器", () => {
     it("子节点最小尺寸合计超过可用空间：给诊断，尺寸有限非负且总量不溢出", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [
@@ -198,7 +209,7 @@ describe("拆分树原语：不可满足与窄容器", () => {
         ]), {sashSize: SASH});
         const result = grid.layout({width: 500, height: 600});
 
-        expect(result.issues.join()).toContain("约束不可满足");
+        expect(facts(result.issues)).toContainEqual({code: "over-constrained", cause: "min-total", id: "root", axis: "width", available: 499, required: 600});
         expect(extent(result.sizes, "a").width).toBeCloseTo(249.5, 6);
         expect(extent(result.sizes, "b").width).toBeCloseTo(249.5, 6);
         // 总量守恒且留在容器内：1px sash + 2 × 249.5
@@ -211,6 +222,15 @@ describe("拆分树原语：不可满足与窄容器", () => {
         }
     });
 
+    it("度量取两位小数，和 message 里的数一致（Spec 输出 139）", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("a", "width", 300, 300),
+            leaf("b", "width", 300, 300),
+        ]), {sashSize: SASH});
+        const result = grid.layout({width: 500.3333, height: 600});
+        expect(facts(result.issues)).toContainEqual({code: "over-constrained", cause: "min-total", id: "root", axis: "width", available: 499.33, required: 600});
+    });
+
     it("容器比 sash 总量还小：压缩分隔条与子节点，几何不超容器", () => {
         const grid = createGrid(branch("root", "width", "horizontal", 0, [
             leaf("a", "width", 100, 50),
@@ -218,7 +238,7 @@ describe("拆分树原语：不可满足与窄容器", () => {
         ]), {sashSize: SASH});
         const result = grid.layout({width: 0.5, height: 10});
 
-        expect(result.issues.join()).toContain("sash");
+        expect(facts(result.issues)).toContainEqual({code: "over-constrained", cause: "sash-overflow", id: "root", axis: "width", available: 0.5, required: 1});
         expect(extent(result.sizes, "root").width).toBe(0.5);
         expect(extent(result.sizes, "a").width).toBe(0);
         expect(extent(result.sizes, "b").width).toBe(0);
@@ -260,7 +280,7 @@ describe("拆分树原语：不可满足与窄容器", () => {
             maximumSize: {width: 300, height: 100},
         }).layout({width: 50, height: 100});
 
-        expect(result.issues.join()).toContain("约束下限");
+        expect(facts(result.issues)).toEqual([{code: "over-constrained", cause: "leaf-min", id: "only", axis: "width", available: 50, required: 200}]);
         expect(extent(result.sizes, "only")).toEqual({width: 50, height: 100});
     });
 
@@ -272,7 +292,7 @@ describe("拆分树原语：不可满足与窄容器", () => {
         root.maximumSize = {width: 150, height: UNBOUNDED};
         const result = createGrid(root, {sashSize: SASH}).layout({width: 500, height: 100});
 
-        expect(result.issues.join()).toContain("约束不相容");
+        expect(facts(result.issues)).toContainEqual({code: "conflicting-bounds", id: "root", axis: "width", min: 201, max: 150});
         expect(result.constraints.root).toEqual({
             minimumSize: {width: 201, height: 0},
             maximumSize: {width: 201, height: UNBOUNDED},
@@ -287,7 +307,7 @@ describe("拆分树原语：不可满足与窄容器", () => {
         ]), {sashSize: SASH});
         const result = grid.layout({width: 201, height: 600});
 
-        expect(result.issues.join()).toContain("交叉轴");
+        expect(facts(result.issues)).toContainEqual({code: "over-constrained", cause: "cross-min", id: "root", axis: "height", available: 600, required: 700});
         expect(extent(result.sizes, "root").height).toBe(600);
         expect(extent(result.sizes, "a").height).toBe(600);
         expect(extent(result.sizes, "a").width).toBe(100);
@@ -300,8 +320,98 @@ describe("拆分树原语：不可满足与窄容器", () => {
         ]), {sashSize: SASH});
         const result = grid.layout({width: 1000, height: 600});
 
-        expect(result.issues.join()).toContain("未被任何子节点吸收");
+        expect(facts(result.issues)).toEqual([{code: "unabsorbed-space", cause: "capped", id: "root", axis: "width", rest: 399}]);
         expect(extent(result.sizes, "root").width).toBe(601);
+    });
+
+    it("没有按比例分的子节点：一个分支只有一条 unabsorbed-space（no-weight），下限等于上限的按比例叶不算按比例分", () => {
+        const fixed = (id: string, size: number): GridLeafInput<string> => ({...leaf(id, "width", size), sizing: "fixed"});
+        const twoFixed = createGrid(branch("root", "width", "horizontal", 0, [fixed("a", 100), fixed("b", 100)]), {sashSize: SASH}).layout({width: 600, height: 100});
+        expect(facts(twoFixed.issues)).toEqual([{code: "unabsorbed-space", cause: "no-weight", id: "root", axis: "width", rest: 399}]);
+        const rigidWeight = createGrid(branch("root", "width", "horizontal", 0, [fixed("a", 200), leaf("b", "width", 100, 100, 100)]), {sashSize: SASH}).layout({width: 600, height: 100});
+        expect(facts(rigidWeight.issues)).toEqual([{code: "unabsorbed-space", cause: "no-weight", id: "root", axis: "width", rest: 299}]);
+    });
+
+    it("固定尺寸装不下留给它们的预算：available 是预算，required 是压缩前的合计", () => {
+        const result = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 200, 100, 400), sizing: "fixed"},
+            leaf("b", "width", 100, 150),
+            {...leaf("c", "width", 200, 100, 400), sizing: "fixed"},
+        ]), {sashSize: 0}).layout({width: 500, height: 100});
+        expect(facts(result.issues)).toContainEqual({code: "over-constrained", cause: "fixed-overflow", id: "root", axis: "width", available: 350, required: 400});
+    });
+
+    it("祖先沿主轴收起为零时，里面的分支留空不报 unabsorbed-space", () => {
+        const side: GridBranchInput<string> = {
+            ...branch("side", "width", "vertical", 300, [{...leaf("x", "height", 50), sizing: "fixed"}, {...leaf("y", "height", 50), sizing: "fixed"}]),
+            collapse: {collapsed: true, collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24},
+        };
+        const result = createGrid(branch("root", "width", "horizontal", 0, [side, leaf("editor", "width", 699)]), {sashSize: SASH}).layout(CONTAINER);
+        expect(facts(result.issues).filter((issue) => issue.code === "unabsorbed-space")).toEqual([]);
+    });
+});
+
+describe("拆分树原语：手势会话的诊断（Spec 输出 139、140）", () => {
+    const session = (grid: ReturnType<typeof createGrid<string>>, extentOf: GridExtent, source: "pointer" | "keyboard", sashes: {branchId: string; index: number; axis: GridAxis}[]) =>
+        createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: extentOf, layout: grid.layout(extentOf), sashSize: SASH, sessionId: "issues", source, sashes});
+
+    it("Enter 恢复空间不够：会话的诊断里有 no-room-to-restore，不被拖动求解盖掉", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 250, 200), collapse: {collapsed: true, collapsedSize: 0, restoreSize: 250, collapseThreshold: 24, expandThreshold: 24}},
+            leaf("b", "width", 300, 150),
+        ]), {sashSize: SASH});
+        const keyboard = session(grid, {width: 301, height: 100}, "keyboard", [{branchId: "root", index: 0, axis: "width"}]);
+        expect(keyboard.toggleCollapsed()).toBeNull();
+        expect(facts(keyboard.issues)).toContainEqual({code: "no-room-to-restore", id: "a", available: 150, required: 200});
+    });
+
+    it("先拖再折叠没有变化：前面的位移照常提交", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 200, 50), collapse: {collapsed: false, collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24}},
+            leaf("b", "width", 200, 100),
+        ]), {sashSize: SASH});
+        const pointer = session(grid, {width: 401, height: 100}, "pointer", [{branchId: "root", index: 0, axis: "width"}]);
+        expect(pointer.update({x: -30, y: 0})).not.toBeNull();
+        pointer.setCollapsed(false);
+        expect(pointer.finish()?.changes[0]?.target).toMatchObject({a: 170, b: 230});
+    });
+
+    it("交叉处的会话里折叠只作用于发起它的那根轴：另一根轴没有收起策略也不报 no-collapse-policy", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("left", "width", 300, 100), collapse: {collapsed: false, collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24}},
+            branch("right", "width", "vertical", 699, [leaf("top", "height", 400, 100), leaf("bottom", "height", 199, 100)]),
+        ]), {sashSize: SASH});
+        const cross = createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: CONTAINER, layout: grid.layout(CONTAINER), sashSize: SASH, sessionId: "cross-collapse", source: "pointer", sashes: [{branchId: "root", index: 0, axis: "width"}, {branchId: "right", index: 0, axis: "height"}]});
+        const preview = cross.toggleCollapsed();
+        expect(preview?.changes.find((change) => change.branchId === "root")?.collapsed).toEqual({left: true});
+        expect(facts(cross.issues).filter((issue) => issue.code === "no-collapse-policy")).toEqual([]);
+    });
+
+    it("折叠没有变化、拖动求解又报了同一条：会话的快照里同一个键只有一条", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 250, 200), collapse: {collapsed: true, collapsedSize: 0, restoreSize: 250, collapseThreshold: 24, expandThreshold: 24}},
+            leaf("b", "width", 300, 150),
+        ]), {sashSize: SASH});
+        const pointer = session(grid, {width: 301, height: 100}, "pointer", [{branchId: "root", index: 0, axis: "width"}]);
+        // 拖过展开阈值（下限 200），能给的只有 150：拖动求解报 no-room-to-restore；折叠也报同一条。
+        pointer.update({x: 250, y: 0});
+        expect(facts(pointer.issues).filter((issue) => issue.code === "no-room-to-restore")).toHaveLength(1);
+        pointer.setCollapsed(false);
+        expect(facts(pointer.issues).filter((issue) => issue.code === "no-room-to-restore")).toHaveLength(1);
+    });
+
+    it("交叉处两根轴都装不下：各有一条 range-overflow，id 与轴不同", () => {
+        // 两根轴的最小值合计都超过容器：窄容器已降级，拖动不改几何，两根轴各说一次。
+        const wide = (id: string, axis: GridAxis): GridLeafInput<string> => ({...leaf(id, axis, 300), minimumSize: {width: 500, height: 300}});
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            wide("left", "width"),
+            branch("right", "width", "vertical", 500, [wide("top", "height"), wide("bottom", "height")]),
+        ]), {sashSize: SASH});
+        const layout = grid.layout({width: 900, height: 500});
+        const cross = createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: {width: 900, height: 500}, layout, sashSize: SASH, sessionId: "cross", source: "pointer", sashes: [{branchId: "root", index: 0, axis: "width"}, {branchId: "right", index: 0, axis: "height"}]});
+        cross.update({x: 10, y: 10});
+        const ranges = facts(cross.issues).filter((issue) => issue.cause === "range-overflow");
+        expect(ranges.map((issue) => [issue.id, issue.axis])).toEqual([["root", "width"], ["right", "height"]]);
     });
 });
 
@@ -421,8 +531,7 @@ describe("拆分树原语：结构", () => {
         const grid = createGrid(fixture(), {sashSize: SASH});
         const result = grid.addLeaf("nope", 0, leaf("extra", "width", 50, 10, 100));
 
-        expect(result.ok).toBe(false);
-        expect(result.ok === false && result.reason).toContain("未知父节点");
+        expect(result).toMatchObject({ok: false, code: "not-found", params: {id: "nope"}});
     });
 
     it("moveLeaf 到自身（或自身子树）返回失败", () => {
@@ -447,7 +556,7 @@ describe("拆分树原语：结构", () => {
         const grid = createGrid(fixture(), {sashSize: SASH});
         const before = grid.serialize();
 
-        expect(grid.removeLeaf("root")).toEqual({ok: false, reason: "只支持移除叶子节点：root"});
+        expect(grid.removeLeaf("root")).toMatchObject({ok: false, code: "wrong-node-kind", params: {id: "root", expected: "leaf"}});
         expect(grid.serialize()).toEqual(before);
     });
 
@@ -587,16 +696,14 @@ describe("拆分树原语：拆分叶", () => {
         expect(many.addLeaf("root", 0, leaf("extra", "width", 1)).ok).toBe(true);
         expect(many.addLeaf("root", 0, leaf("extra2", "width", 1)).ok).toBe(false);
         const crowded = many.splitLeaf("n0", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}});
-        expect(crowded.ok).toBe(false);
-        expect(crowded.ok === false && crowded.reason).toContain("节点数");
+        expect(crowded).toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "nodes", max: GRID_MAX_NODES}});
 
         let deep: GridNodeInput<string> = leaf("deep-end", "width", 1);
         for (let index = GRID_MAX_DEPTH - 1; index >= 1; index -= 1) {
             deep = branch(`d${index}`, "width", "horizontal", 0, [deep]);
         }
         const nested = createGrid(deep).splitLeaf("deep-end", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}});
-        expect(nested.ok).toBe(false);
-        expect(nested.ok === false && nested.reason).toContain("嵌套深度");
+        expect(nested).toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}});
     });
 });
 
@@ -607,8 +714,7 @@ describe("拆分树原语：快照", () => {
         const grid = createGrid(fixture(), {sashSize: SASH});
         const result = grid.restore({version: 1, root: {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 600}}}, resolvable);
 
-        expect(result.ok).toBe(false);
-        expect(result.reason).toContain("版本 1");
+        expect(result).toMatchObject({ok: false, code: "unsupported-version", params: {version: "1"}});
         expect(extent(grid.layout(CONTAINER).sizes, "left").width).toBe(300);
     });
 
@@ -616,8 +722,7 @@ describe("拆分树原语：快照", () => {
         const grid = createGrid(fixture(), {sashSize: SASH});
         const result = grid.restore({version: 99, root: {}}, resolvable);
 
-        expect(result.ok).toBe(false);
-        expect(result.reason).toContain("版本 99");
+        expect(result).toMatchObject({ok: false, code: "unsupported-version", params: {version: "99"}});
         expect(extent(grid.layout(CONTAINER).sizes, "bottom").height).toBe(199);
     });
 
@@ -633,20 +738,20 @@ describe("拆分树原语：快照", () => {
 
         const result = grid.restore(duplicate, resolvable);
 
-        expect(result.ok).toBe(false);
-        expect(result.reason).toContain("重复节点 id");
+        expect(result).toMatchObject({ok: false, code: "duplicate-id", params: {id: "same", with: "existing"}});
     });
 
     it("非法方向、非法 children、非有限尺寸与缺分支尺寸整体拒绝", () => {
         const grid = createGrid<string>(null);
         const root = {kind: "branch", id: "root", orientation: "horizontal", size: {width: 0, height: 0}, children: []};
 
-        expect(grid.restore({version: GRID_SNAPSHOT_VERSION, root: {...root, orientation: "diagonal"}}, resolvable).ok).toBe(false);
-        expect(grid.restore({version: GRID_SNAPSHOT_VERSION, root: {...root, children: "nope"}}, resolvable).ok).toBe(false);
-        expect(grid.restore({version: GRID_SNAPSHOT_VERSION, root: {...root, size: {width: 0}}}, resolvable).ok).toBe(false);
-        expect(grid.restore({version: GRID_SNAPSHOT_VERSION, root: {...root, children: [leaf("a", "width", Number.NaN, 10, 100)]}}, resolvable).ok).toBe(false);
-        expect(grid.restore({version: GRID_SNAPSHOT_VERSION, root: {...root, children: [leaf("a", "width", -5, 10, 100)]}}, resolvable).ok).toBe(false);
-        expect(grid.restore({version: GRID_SNAPSHOT_VERSION, root: {...root, children: [{kind: "branch", id: "b", orientation: "vertical", children: []}]}}, resolvable).ok).toBe(false);
+        const invalid = (snapshotRoot: unknown) => grid.restore({version: GRID_SNAPSHOT_VERSION, root: snapshotRoot}, resolvable);
+        expect(invalid({...root, orientation: "diagonal"})).toMatchObject({ok: false, code: "invalid-snapshot", params: {field: "orientation", id: "root"}});
+        expect(invalid({...root, children: "nope"})).toMatchObject({ok: false, code: "invalid-snapshot", params: {field: "children", id: "root"}});
+        expect(invalid({...root, size: {width: 0}})).toMatchObject({ok: false, code: "invalid-snapshot", params: {field: "size", id: "root"}});
+        expect(invalid({...root, children: [leaf("a", "width", Number.NaN, 10, 100)]})).toMatchObject({ok: false, code: "invalid-snapshot", params: {field: "size", id: "a"}});
+        expect(invalid({...root, children: [leaf("a", "width", -5, 10, 100)]})).toMatchObject({ok: false, code: "invalid-snapshot", params: {field: "size", id: "a"}});
+        expect(invalid({...root, children: [{kind: "branch", id: "b", orientation: "vertical", children: []}]})).toMatchObject({ok: false, code: "invalid-snapshot", params: {field: "size", id: "b"}});
     });
 
     it("深度超过上限整体拒绝", () => {
@@ -657,8 +762,7 @@ describe("拆分树原语：快照", () => {
         const grid = createGrid<string>(null);
         const result = grid.restore({version: GRID_SNAPSHOT_VERSION, root: JSON.parse(JSON.stringify(nested))}, resolvable);
 
-        expect(result.ok).toBe(false);
-        expect(result.reason).toContain("深度");
+        expect(result).toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "depth", max: GRID_MAX_DEPTH}});
     });
 
     it("节点数超过上限整体拒绝，且不进入超限子树解析引用", () => {
@@ -674,8 +778,7 @@ describe("拆分树原语：快照", () => {
             return {ref};
         });
 
-        expect(result.ok).toBe(false);
-        expect(result.reason).toContain(`超过 ${GRID_MAX_NODES}`);
+        expect(result).toMatchObject({ok: false, code: "limit-exceeded", params: {limit: "nodes", max: GRID_MAX_NODES}});
         // 规模判定在递归之前：超限快照不会先把每个节点的引用都解析一遍
         expect(resolverCalls).toBe(0);
     });
@@ -696,7 +799,7 @@ describe("拆分树原语：快照", () => {
         }, (ref) => (ref === "ghost" ? null : {ref}));
 
         expect(result.ok).toBe(true);
-        expect(result.dropped).toEqual([{ref: "ghost", reason: "未知 ref"}]);
+        expect(result.dropped).toEqual([{ref: "ghost", code: "unknown-ref"}]);
         const snapshot = grid.serialize();
         const right = snapshot.root.kind === "branch" ? snapshot.root.children[1] : null;
         expect(right?.kind === "branch" ? right.size.width : null).toBe(699);
@@ -717,7 +820,7 @@ describe("拆分树原语：快照", () => {
         // 意图不被夹取改写，只有呈现被当前约束限制
         const layout = grid.layout({width: 5000, height: 600});
         expect(extent(layout.sizes, "left").width).toBe(320);
-        expect(layout.issues.join()).toContain("未被任何子节点吸收");
+        expect(facts(layout.issues)).toContainEqual(expect.objectContaining({code: "unabsorbed-space", id: "root", axis: "width"}));
     });
 
     it("恢复失败时不留下半棵树，原意图不变", () => {
@@ -978,21 +1081,22 @@ describe("拆分树原语：分支的收起", () => {
         expect(zero.constraints.root?.minimumSize.height).toBe(90);
         expect(zero.issues).toEqual([]);
         const tooShort = createGrid(withTallEditor(true), {sashSize: SASH}).layout({width: 1000, height: 60});
-        expect(tooShort.issues.some((issue) => issue.includes("editor"))).toBe(true);
-        expect(tooShort.issues.some((issue) => /side|top|pair/u.test(issue))).toBe(false);
+        const ids = facts(tooShort.issues).map((issue) => issue.id);
+        expect(ids).toContain("editor");
+        expect(ids.filter((id) => id === "side" || id === "top" || id === "pair")).toEqual([]);
     });
 
     it("拖过阈值收起、从零拉回：都随批量落账，意图保留展开宽度，里面各块回到收起前的尺寸", () => {
         const grid = createGrid(column(false), {sashSize: SASH});
         const open = grid.layout(CONTAINER).sizes;
         const closed = grid.resizeBranches([{branchId: "root", axis: "width", baseline: {side: 300, editor: 699}, target: {side: 0, editor: 999}, collapsed: {side: true}}]);
-        if (!closed.ok) throw new Error(closed.reason);
+        if (!closed.ok) throw new Error(closed.message);
         expect(closed.collapsed).toEqual({side: true});
         expect(extent(closed.intents, "side").width).toBe(300);
         expect(extent(grid.layout(CONTAINER).sizes, "side").width).toBe(0);
 
         const back = grid.resizeBranches([{branchId: "root", axis: "width", baseline: {side: 0, editor: 999}, target: {side: 260, editor: 739}, collapsed: {side: false}}]);
-        if (!back.ok) throw new Error(back.reason);
+        if (!back.ok) throw new Error(back.message);
         expect(back.collapsed).toEqual({side: false});
         const reopened = grid.layout(CONTAINER);
         expect(reopened.issues).toEqual([]);
@@ -1052,7 +1156,7 @@ describe("拆分树原语：手势会话里被推开的兄弟", () => {
         if (commit === null) throw new Error("拖动没有产生提交");
         expect(commit.changes[0]).toMatchObject({target: {a: 250, b: 200, c: 450}, active: ["b", "c"], compensated: ["a"]});
         const applied = grid.resizeBranches(commit.changes);
-        if (!applied.ok) throw new Error(applied.reason);
+        if (!applied.ok) throw new Error(applied.message);
         expect(widths(grid.layout(ROW).sizes)).toEqual([250, 200, 450]);
     });
 });
@@ -1072,7 +1176,7 @@ describe("拆分树原语：手势会话里按比例分的叶的显式恢复", (
         const commit = session.finish();
         if (commit === null) throw new Error("Enter 没有产生提交");
         const applied = grid.resizeBranches(commit.changes);
-        if (!applied.ok) throw new Error(applied.reason);
+        if (!applied.ok) throw new Error(applied.message);
         const sizes = grid.layout(WIDE).sizes;
         return ["a", "b", "c"].map((id) => Math.round(extent(sizes, id).width));
     };
@@ -1091,5 +1195,132 @@ describe("拆分树原语：手势会话里按比例分的叶的显式恢复", (
         expect(enter(grid)).toEqual([400, 800, 0]);
         // `resizeBranches` 落账后三块的权重是 300、600、300：c 的份额是 1200 的四分之一。
         expect(enter(grid)).toEqual([400, 500, 300]);
+    });
+});
+
+/** 失败只比码与参数；`message` 是给日志看的英文（Spec 失败 5），只核对它是可打印的 ASCII，不断言文字。 */
+function codeOf(result: {ok: boolean; code?: string; message?: string; params?: unknown}): {code: string | undefined; params: unknown} | null {
+    if (!result.ok) expect(result.message).toMatch(/^[\x20-\x7e]+$/u);
+    return result.ok ? null : {code: result.code, params: result.params};
+}
+
+/** 三层失败码的全集：新增码不列进来时下面的类型检查不过。 */
+const FAILURE_CODES = [
+    "not-found", "wrong-node-kind", "wrong-axis", "not-finite", "invalid-argument", "limit-exceeded", "duplicate-id", "into-own-subtree", "not-conserved", "stale-baseline", "not-collapsible",
+    "invalid-snapshot", "unsupported-version", "unresolved-root",
+    "not-ready", "stale-context", "stale-revision", "stale-size", "handler-missing", "handler-threw",
+] as const satisfies readonly (GridFailureCode | GridRestoreFailureCode | GridCommitFailureCode)[];
+type UnlistedCode = Exclude<GridFailureCode | GridRestoreFailureCode | GridCommitFailureCode, (typeof FAILURE_CODES)[number]>;
+const everyCodeListed: [UnlistedCode] extends [never] ? true : UnlistedCode = true;
+
+/** 诊断码的全集（Spec 输出 139）：新增码不列进来时类型检查不过。 */
+const ISSUE_CODES = [
+    "over-constrained", "unabsorbed-space", "conflicting-bounds", "no-collapse-policy", "no-room-to-collapse", "no-room-to-restore", "swap-skipped",
+    "not-published", "notify-failed",
+] as const satisfies readonly (GridIssueCode | GridHostIssueCode)[];
+type UnlistedIssueCode = Exclude<GridIssueCode | GridHostIssueCode, (typeof ISSUE_CODES)[number]>;
+const everyIssueCodeListed: [UnlistedIssueCode] extends [never] ? true : UnlistedIssueCode = true;
+/** 诊断码与失败码不相交：同一个码不会一会儿是“已回滚的失败”、一会儿是“已降级的诊断”。 */
+type SharedCode = Extract<GridFailureCode | GridRestoreFailureCode | GridCommitFailureCode, GridIssueCode | GridHostIssueCode>;
+const codesDisjoint: [SharedCode] extends [never] ? true : SharedCode = true;
+
+describe("失败码与诊断码的写法（Spec ui/nested-grid 边界与兼容、输出 139）", () => {
+    it("同 ui/i18n 的开放错误域：小写短横线，不含冒号、点与空白，不超过 64 个字符", () => {
+        expect(everyCodeListed).toBe(true);
+        expect(everyIssueCodeListed).toBe(true);
+        for (const code of [...FAILURE_CODES, ...ISSUE_CODES]) {
+            expect(code).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
+            expect(code.length).toBeLessThanOrEqual(64);
+        }
+    });
+
+    it("诊断码与失败码不相交", () => {
+        expect(codesDisjoint).toBe(true);
+        expect(FAILURE_CODES.filter((code) => (ISSUE_CODES as readonly string[]).includes(code))).toEqual([]);
+    });
+});
+
+describe("拆分树原语：失败的码（Spec ui/nested-grid 失败 5、7）", () => {
+    const split = (over: Record<string, unknown> = {}) => ({branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}, ...over}) as Parameters<ReturnType<typeof createGrid<string>>["splitLeaf"]>[1];
+
+    it("单节点调整：不在、根节点、错轴、非有限的调整量", () => {
+        const grid = createGrid(fixture(), {sashSize: SASH});
+        expect(codeOf(grid.resize("ghost", "width", 10))).toEqual({code: "not-found", params: {id: "ghost"}});
+        expect(codeOf(grid.resize("root", "width", 10))).toEqual({code: "invalid-argument", params: {field: "root", id: "root"}});
+        expect(codeOf(grid.resize("left", "height", 10))).toEqual({code: "wrong-axis", params: {id: "left", parent: "root", orientation: "horizontal"}});
+        expect(codeOf(grid.resize("left", "width", Number.NaN))).toEqual({code: "not-finite", params: {field: "delta", value: "NaN"}});
+    });
+
+    it("按分支调整：不在与不是分支分开报，错轴、尺寸没覆盖、尺寸不合法、不守恒、基线失效、目标换不成意图", () => {
+        const grid = createGrid(fixture(), {sashSize: SASH});
+        const before = grid.serialize();
+        const base = {left: 300, right: 699};
+        expect(codeOf(grid.resizeBranch("ghost", "width", base, base))).toEqual({code: "not-found", params: {id: "ghost"}});
+        expect(codeOf(grid.resizeBranch("left", "width", base, base))).toEqual({code: "wrong-node-kind", params: {id: "left", expected: "branch"}});
+        expect(codeOf(grid.resizeBranch("root", "height", base, base))).toEqual({code: "wrong-axis", params: {id: "root", orientation: "horizontal"}});
+        expect(codeOf(grid.resizeBranch("root", "width", {left: 300}, {left: 300}))).toEqual({code: "invalid-argument", params: {field: "sizes-cover", id: "root"}});
+        expect(codeOf(grid.resizeBranch("root", "width", {left: Number.NaN, right: 699}, base)))
+            .toEqual({code: "not-finite", params: {field: "size", side: "baseline", id: "left"}});
+        expect(codeOf(grid.resizeBranch("root", "width", base, {left: -1, right: 1000})))
+            .toEqual({code: "invalid-argument", params: {field: "size-negative", side: "target", id: "left"}});
+        // 同一个子节点两侧都不合法时报基线那一侧。
+        expect(codeOf(grid.resizeBranch("root", "width", {left: -1, right: 1000}, {left: Number.NaN, right: 699})))
+            .toEqual({code: "invalid-argument", params: {field: "size-negative", side: "baseline", id: "left"}});
+        expect(codeOf(grid.resizeBranch("root", "width", base, {left: 400, right: 699}))).toEqual({code: "not-conserved", params: {id: "root", target: 1099, baseline: 999}});
+        expect(codeOf(grid.resizeBranch("root", "width", {left: 1, right: 998}, {left: 2, right: 997}))).toEqual({code: "stale-baseline", params: {id: "root"}});
+        // left 最大 800：目标 900 呈现不出来，换不成能复现目标的意图。
+        expect(codeOf(grid.resizeBranch("root", "width", base, {left: 900, right: 99}))).toEqual({code: "not-finite", params: {field: "intent", id: "root"}});
+        expect(grid.serialize()).toEqual(before);
+    });
+
+    it("批量调整：不在与不是分支分开报，收起的子节点不在与不可收起分开报", () => {
+        const grid = createGrid(fixture(), {sashSize: SASH});
+        const base = {left: 300, right: 699};
+        expect(codeOf(grid.resizeBranches([{branchId: "ghost", axis: "width", baseline: base, target: base}]))).toEqual({code: "not-found", params: {id: "ghost"}});
+        expect(codeOf(grid.resizeBranches([{branchId: "left", axis: "width", baseline: base, target: base}])))
+            .toEqual({code: "wrong-node-kind", params: {id: "left", expected: "branch"}});
+        expect(codeOf(grid.resizeBranches([{branchId: "root", axis: "width", baseline: base, target: base, collapsed: {ghost: true}}])))
+            .toEqual({code: "not-found", params: {id: "ghost"}});
+        expect(codeOf(grid.resizeBranches([{branchId: "root", axis: "width", baseline: base, target: base, collapsed: {left: true}}])))
+            .toEqual({code: "not-collapsible", params: {id: "left", branch: "root"}});
+    });
+
+    it("插入、拆分、移除、移动", () => {
+        const grid = createGrid(fixture(), {sashSize: SASH});
+        const before = grid.serialize();
+        expect(codeOf(grid.addLeaf("left", 0, leaf("x", "width", 10)))).toEqual({code: "wrong-node-kind", params: {id: "left", expected: "branch"}});
+        expect(codeOf(grid.addLeaf("root", 0, leaf("top", "width", 10)))).toEqual({code: "duplicate-id", params: {id: "top", with: "existing"}});
+
+        expect(codeOf(grid.splitLeaf("ghost", split()))).toEqual({code: "not-found", params: {id: "ghost"}});
+        expect(codeOf(grid.splitLeaf("right", split()))).toEqual({code: "wrong-node-kind", params: {id: "right", expected: "leaf"}});
+        expect(codeOf(grid.splitLeaf("left", split({orientation: "diagonal"})))).toEqual({code: "invalid-argument", params: {field: "orientation", value: "diagonal"}});
+        expect(codeOf(grid.splitLeaf("left", split({side: "middle"})))).toEqual({code: "invalid-argument", params: {field: "side", value: "middle"}});
+        expect(codeOf(grid.splitLeaf("left", split({branchId: "added"})))).toEqual({code: "duplicate-id", params: {id: "added", with: "new-leaf"}});
+        expect(codeOf(grid.splitLeaf("left", split({branchId: "top"})))).toEqual({code: "duplicate-id", params: {id: "top", with: "existing"}});
+        expect(codeOf(grid.splitLeaf("left", split({ratio: Number.NaN})))).toEqual({code: "not-finite", params: {field: "ratio", value: "NaN"}});
+        expect(codeOf(grid.splitLeaf("left", split({ratio: 1})))).toEqual({code: "invalid-argument", params: {field: "ratio-range", value: "1"}});
+
+        expect(codeOf(grid.removeLeaf("ghost"))).toEqual({code: "not-found", params: {id: "ghost"}});
+
+        expect(codeOf(grid.moveLeaf("ghost", "root", 0))).toEqual({code: "not-found", params: {id: "ghost"}});
+        expect(codeOf(grid.moveLeaf("right", "root", 0))).toEqual({code: "wrong-node-kind", params: {id: "right", expected: "leaf"}});
+        expect(codeOf(grid.moveLeaf("top", "top", 0))).toEqual({code: "into-own-subtree", params: {id: "top", parent: "top"}});
+        expect(codeOf(grid.moveLeaf("top", "ghost", 0))).toEqual({code: "not-found", params: {id: "ghost"}});
+        expect(codeOf(grid.moveLeaf("top", "left", 0))).toEqual({code: "wrong-node-kind", params: {id: "left", expected: "branch"}});
+        expect(grid.serialize()).toEqual(before);
+    });
+
+    it("快照恢复：外壳、缺 id、ref 不是字符串、kind 不认识各报 invalid-snapshot；根引用解析不了报 unresolved-root 并带 dropped", () => {
+        const grid = createGrid<string>(null);
+        const restore = (root: unknown, resolve: (ref: string) => {ref: string} | null = (ref) => ({ref})) => grid.restore({version: GRID_SNAPSHOT_VERSION, root}, resolve);
+        expect(codeOf(grid.restore(null, (ref) => ({ref})))).toEqual({code: "invalid-snapshot", params: {field: "envelope"}});
+        expect(codeOf(restore("leaf"))).toEqual({code: "invalid-snapshot", params: {field: "node"}});
+        expect(codeOf(restore({kind: "leaf", ref: "a", size: {width: 1, height: 1}}))).toEqual({code: "invalid-snapshot", params: {field: "id"}});
+        expect(codeOf(restore({kind: "leaf", id: "a", ref: 5, size: {width: 1, height: 1}}))).toEqual({code: "invalid-snapshot", params: {field: "ref", id: "a"}});
+        expect(codeOf(restore({kind: "pane", id: "a"}))).toEqual({code: "invalid-snapshot", params: {field: "kind", id: "a"}});
+
+        const unresolved = restore({kind: "leaf", id: "a", ref: "ghost", size: {width: 1, height: 1}}, () => null);
+        expect(codeOf(unresolved)).toEqual({code: "unresolved-root", params: undefined});
+        expect(unresolved.dropped).toEqual([{ref: "ghost", code: "unknown-ref"}]);
     });
 });

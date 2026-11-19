@@ -14,6 +14,9 @@ import type {
     GridOrientation,
     GridRefEncoder,
     GridRefResolver,
+    GridDroppedRef,
+    GridFailure,
+    GridRestoreFailureCode,
     GridRestoreResult,
     GridSizing,
     GridSnapshot,
@@ -22,6 +25,7 @@ import type {
 } from "./grid-types";
 import {GRID_LEGACY_SNAPSHOT_VERSION, GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "./grid-types";
 import {UNBOUNDED_EXTENT, ZERO_EXTENT, axisOf, normCollapse, normExtent, readExtent} from "./grid-geometry";
+import {restoreFailure} from "./grid-failure";
 
 type RuntimeRecord = {minimumSize: GridExtent; maximumSize: GridExtent; sizing?: GridSizing; collapse?: SashCollapseState};
 
@@ -34,7 +38,7 @@ export function serializeTree<T>(root: GridNode<T> | null, encodeRef?: GridRefEn
         }
         const ref = encodeRef ? encodeRef(node.ref) : node.ref;
         if (typeof ref !== "string" || ref.length === 0) {
-            throw new TypeError(`节点 ${node.id} 的 ref 不是稳定字符串；非字符串引用必须提供 encodeRef`);
+            throw new TypeError(`The ref of node ${node.id} is not a stable string; pass encodeRef for non-string refs`);
         }
         return {kind: "leaf", id: node.id, ref, size: {...node.size}};
     };
@@ -79,24 +83,32 @@ export function parseSnapshot<T>(
     resolveRef: GridRefResolver<T>,
     current: GridNode<T> | null,
 ): {result: GridRestoreResult; tree: GridNode<T> | null} {
-    const dropped: {ref: string; reason: string}[] = [];
+    const dropped: GridDroppedRef[] = [];
     const clamped: string[] = [];
-    const failed = (reason: string): {result: GridRestoreResult; tree: null} => ({result: {ok: false, dropped, clamped: [], reason}, tree: null});
+    const failed = (failure: GridFailure<GridRestoreFailureCode>): {result: GridRestoreResult; tree: null} => ({result: {...failure, dropped, clamped: []}, tree: null});
     if (!raw || typeof raw !== "object") {
-        return failed("快照不是对象");
+        return failed(restoreFailure("invalid-snapshot", "The snapshot is not an object", {field: "envelope"}));
     }
     const envelope = raw as {version?: unknown; root?: unknown};
     if (envelope.version === GRID_LEGACY_SNAPSHOT_VERSION) {
-        return failed(`布局快照版本 ${GRID_LEGACY_SNAPSHOT_VERSION} 只记录单轴尺寸，无法可靠推导宽高；请由宿主保留原件并回退默认布局`);
+        return failed(restoreFailure(
+            "unsupported-version",
+            `Snapshot version ${GRID_LEGACY_SNAPSHOT_VERSION} only records one axis per node and cannot be restored; keep the original and fall back to the default layout`,
+            {version: String(GRID_LEGACY_SNAPSHOT_VERSION)},
+        ));
     }
     if (envelope.version !== GRID_SNAPSHOT_VERSION) {
-        return failed(`布局快照版本 ${String(envelope.version)} 不受支持（当前 ${GRID_SNAPSHOT_VERSION}）`);
+        return failed(restoreFailure(
+            "unsupported-version",
+            `Snapshot version ${String(envelope.version)} is not supported (current: ${GRID_SNAPSHOT_VERSION})`,
+            {version: String(envelope.version)},
+        ));
     }
 
     const constraints = currentConstraints(current);
     const seen = new Set<string>();
     let count = 0;
-    let failure = "";
+    let failure: GridFailure<GridRestoreFailureCode> | null = null;
 
     /** `parentAxis` 是父分支主轴（根为 null）：叶只有这根轴上的意图值需要按当前约束体检。 */
     const convert = (node: unknown, depth: number, parentAxis: GridAxis | null): GridNode<T> | null => {
@@ -104,41 +116,41 @@ export function parseSnapshot<T>(
             return null;
         }
         if (depth > GRID_MAX_DEPTH) {
-            failure = `布局快照深度超过 ${GRID_MAX_DEPTH}`;
+            failure = restoreFailure("limit-exceeded", `The snapshot is nested deeper than ${GRID_MAX_DEPTH}`, {limit: "depth", max: GRID_MAX_DEPTH});
             return null;
         }
         if (!node || typeof node !== "object") {
-            failure = "布局快照包含非法节点";
+            failure = restoreFailure("invalid-snapshot", "The snapshot contains a node that is not an object", {field: "node"});
             return null;
         }
         const candidate = node as {kind?: unknown; id?: unknown; orientation?: unknown; ref?: unknown; size?: unknown; children?: unknown};
         if (typeof candidate.id !== "string" || candidate.id.length === 0) {
-            failure = "布局快照节点缺少合法 id";
+            failure = restoreFailure("invalid-snapshot", "A snapshot node has no valid id", {field: "id"});
             return null;
         }
         if (seen.has(candidate.id)) {
-            failure = `布局快照存在重复节点 id：${candidate.id}`;
+            failure = restoreFailure("duplicate-id", `The snapshot repeats node id ${candidate.id}`, {id: candidate.id, with: "existing"});
             return null;
         }
         seen.add(candidate.id);
         count += 1;
         if (count > GRID_MAX_NODES) {
-            failure = `布局快照节点数超过 ${GRID_MAX_NODES}`;
+            failure = restoreFailure("limit-exceeded", `The snapshot has more than ${GRID_MAX_NODES} nodes`, {limit: "nodes", max: GRID_MAX_NODES});
             return null;
         }
         if (candidate.kind === "leaf") {
             if (typeof candidate.ref !== "string") {
-                failure = `布局快照叶子的 ref 不是字符串：${candidate.id}`;
+                failure = restoreFailure("invalid-snapshot", `The ref of leaf ${candidate.id} is not a string`, {field: "ref", id: candidate.id});
                 return null;
             }
             const size = readExtent(candidate.size);
             if (!size) {
-                failure = `布局快照叶子的尺寸非法：${candidate.id}`;
+                failure = restoreFailure("invalid-snapshot", `The size of leaf ${candidate.id} is invalid`, {field: "size", id: candidate.id});
                 return null;
             }
             const resolved = resolveRef(candidate.ref);
             if (!resolved) {
-                dropped.push({ref: candidate.ref, reason: "未知 ref"});
+                dropped.push({ref: candidate.ref, code: "unknown-ref"});
                 return null;
             }
             const minimumSize = normExtent(resolved.minimumSize, constraints.leaves.get(candidate.id)?.minimumSize ?? ZERO_EXTENT);
@@ -161,20 +173,20 @@ export function parseSnapshot<T>(
         }
         if (candidate.kind === "branch") {
             if (candidate.orientation !== "horizontal" && candidate.orientation !== "vertical") {
-                failure = `布局快照分支方向非法：${candidate.id}`;
+                failure = restoreFailure("invalid-snapshot", `The orientation of branch ${candidate.id} is invalid`, {field: "orientation", id: candidate.id});
                 return null;
             }
             if (!Array.isArray(candidate.children)) {
-                failure = `布局快照分支的 children 不是数组：${candidate.id}`;
+                failure = restoreFailure("invalid-snapshot", `The children of branch ${candidate.id} are not an array`, {field: "children", id: candidate.id});
                 return null;
             }
             const size = readExtent(candidate.size);
             if (!size) {
-                failure = `布局快照分支尺寸非法：${candidate.id}`;
+                failure = restoreFailure("invalid-snapshot", `The size of branch ${candidate.id} is invalid`, {field: "size", id: candidate.id});
                 return null;
             }
             if (count + candidate.children.length > GRID_MAX_NODES) {
-                failure = `布局快照节点数超过 ${GRID_MAX_NODES}`;
+                failure = restoreFailure("limit-exceeded", `The snapshot has more than ${GRID_MAX_NODES} nodes`, {limit: "nodes", max: GRID_MAX_NODES});
                 return null;
             }
             const declared = constraints.branches.get(candidate.id);
@@ -197,7 +209,7 @@ export function parseSnapshot<T>(
                 children,
             };
         }
-        failure = `布局快照节点 kind 非法：${candidate.id}`;
+        failure = restoreFailure("invalid-snapshot", `The kind of node ${candidate.id} is invalid`, {field: "kind", id: candidate.id});
         return null;
     };
 
@@ -206,7 +218,8 @@ export function parseSnapshot<T>(
         return failed(failure);
     }
     if (!tree) {
-        return failed("布局快照的根节点无法恢复");
+        // 格式没问题，只是根叶的引用解析不了：`dropped` 里有它，宿主据此等引用回来，而不是当原件坏了（失败 3）。
+        return failed(restoreFailure("unresolved-root", "The root of the snapshot could not be resolved"));
     }
     return {result: {ok: true, dropped, clamped}, tree};
 }

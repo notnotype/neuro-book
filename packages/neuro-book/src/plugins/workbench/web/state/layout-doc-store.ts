@@ -36,7 +36,8 @@ import type {LayoutDocRecord} from "./records";
 export const LAYOUT_SAVE_COALESCE_MS = 150;
 
 export type LayoutDocProblem =
-    | {readonly kind: "unread"; readonly code: string}
+    /** `detail` 只进诊断日志：状态栏按 `code` 显示本地化的原因。 */
+    | {readonly kind: "unread"; readonly code: string; readonly detail?: string}
     | {readonly kind: "unsaved"; readonly code: string};
 
 export type LayoutPart = "sidebar" | "auxiliarybar" | "panel" | LayoutBar;
@@ -47,7 +48,7 @@ export type MoveViewTarget = {readonly container: string} | {readonly newContain
 /** 存盘之前的关卡（`EditorSaveGate`）：编辑器先写 `editor.tabs`，它失败时布局不写，不留下引用不存在的标签。 */
 export type LayoutSaveGate = EditorSaveGate;
 
-const notFound = (detail: string): LayoutResult => ({ok: false, code: "not-found", detail});
+const notFound = (id: string): LayoutResult => ({ok: false, code: "not-found", message: `Not found: ${id}`});
 
 /** 记录与模板里的文档能不能用：过校验，还要合骨架（输出 1）。 */
 function usableDoc(value: unknown): LayoutDoc | null {
@@ -80,12 +81,13 @@ function defineLayoutDocStore(bound: boolean) {
         let saveGate: LayoutSaveGate | null = null;
         let timer: ReturnType<typeof setTimeout> | null = null;
 
-        /** 记录里的文档通不过校验：和损坏一样，回落默认树，原件不覆盖。 */
-        const recordProblem = computed<string | null>(() => {
+        /** 记录里的文档通不过校验：和损坏一样，回落默认树，原件不覆盖；校验的码与英文 message 放进 `detail`。 */
+        const recordProblem = computed<LayoutDocProblem | null>(() => {
             const base = field.base;
             if (base === null || base.status !== "ok") return null;
             const checked = validateLayoutDoc(base.value.doc);
-            return checked.ok ? null : `${checked.code}: ${checked.detail}`;
+            if (checked.ok) return null;
+            return {kind: "unread", code: checked.code === "unsupported-version" ? "unsupported-version" : "corrupt", detail: `${checked.code}: ${checked.message}`};
         });
         const guarded = computed(() => recordProblem.value !== null || field.base?.status === "corrupt" || field.base?.status === "unsupported-version");
 
@@ -130,7 +132,7 @@ function defineLayoutDocStore(bound: boolean) {
             if (field.save.state === "failed" || field.save.state === "unknown") return [{kind: "unsaved", code: field.save.code}];
             if (saveBlocked.value) return [{kind: "unsaved", code: "save-gate"}];
             if (field.failure !== null) return [{kind: "unread", code: field.failure}];
-            if (recordProblem.value !== null) return [{kind: "unread", code: recordProblem.value}];
+            if (recordProblem.value !== null) return [recordProblem.value];
             const status = field.base?.status;
             return status === "corrupt" || status === "unsupported-version" ? [{kind: "unread", code: status}] : [];
         });
@@ -170,10 +172,10 @@ function defineLayoutDocStore(bound: boolean) {
         /** 编辑器标签的拖动（区级组件交出来）：动它们要走编辑器区，先结算输入、合并同一文件。 */
         const editorDrag = shallowRef<EditorTabDrag | null>(null);
         /** 走编辑器区的动作：编辑器没有交出来、或它拒绝了（提示由它给），都是失败。 */
-        async function viaEditor(detail: string, run: (drag: EditorTabDrag) => Promise<boolean>): Promise<LayoutResult> {
+        async function viaEditor(target: string, run: (drag: EditorTabDrag) => Promise<boolean>): Promise<LayoutResult> {
             const drag = editorDrag.value;
-            if (drag === null) return {ok: false, code: "not-found", detail};
-            return (await run(drag)) ? {ok: true, doc: doc.value} : {ok: false, code: "rejected", detail};
+            if (drag === null) return {ok: false, code: "not-found", message: `The editor area has not handed over its drag: ${target}`};
+            return (await run(drag)) ? {ok: true, doc: doc.value} : {ok: false, code: "rejected", message: `Refused by the editor area: ${target}`};
         }
 
         /** 有效可见的标签键（输出 17）。 */
@@ -224,12 +226,12 @@ function defineLayoutDocStore(bound: boolean) {
             const base = options.rebase === false ? doc.value : rebased();
             const result = operation(base);
             if (!result.ok) {
-                if (result.code === "limit-exceeded") structureFailure.value = result.detail;
+                if (result.code === "limit-exceeded") structureFailure.value = result.message;
                 return result;
             }
             if (result.doc === base) return {ok: true, doc: doc.value};
             // 落点只给合骨架的目标，但服务（`EditorPanels.tabs.moveToEdge`）能传任意目标：写入的出口再守一次。
-            if (!fitsSkeleton(result.doc)) return {ok: false, code: "rejected", detail: "不合骨架"};
+            if (!fitsSkeleton(result.doc)) return {ok: false, code: "rejected", message: "The result does not fit the skeleton"};
             if (!sameTreeShape(base, result.doc)) maximized.value = null;
             // 库的结构操作只写分节的归属：入口顺序、当前容器空了换谁、区域空了隐藏在这里归整（输出 41、43）。预览不过这里，预览里不切容器（输出 38）。
             const settled = settleContainers(result.doc);
@@ -357,7 +359,7 @@ function defineLayoutDocStore(bound: boolean) {
                     const found = findTab(doc.value, key);
                     const record = found === null ? undefined : doc.value.panels[found.panel];
                     if (found === null || record === undefined) return notFound(key);
-                    if (doc.value.floats.length >= LAYOUT_MAX_FLOATS) return {ok: false, code: "limit-exceeded", detail: "浮动窗太多"};
+                    if (doc.value.floats.length >= LAYOUT_MAX_FLOATS) return {ok: false, code: "limit-exceeded", message: "Too many floating windows"};
                     const rect = defaultFloatRect(extent.value, panelConstraints({role: record.role, tabs: [found.tab], active: key}, null, catalog.value, extent.value?.width ?? 0).minimumSize, doc.value.floats.length);
                     const editorTab = editorTabIdOf(key);
                     if (editorTab !== null) return viaEditor(key, (drag) => drag.drop(editorTab, {kind: "float", rect}, undefined, false));
@@ -508,7 +510,7 @@ function defineLayoutDocStore(bound: boolean) {
                  * 视图已经是目标容器最后一个分节时不搬：放到它自己后面不是一个落点，这就是点它的入口（`revealContainer`），已经看得见时零写入。
                  */
                 moveView: (viewId: string, target: MoveViewTarget): LayoutResult => {
-                    if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
+                    if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", message: `The view cannot be moved: ${viewId}`};
                     if ("container" in target) {
                         const region = containerRegion(doc.value, target.container);
                         const last = region === null ? undefined : regionSections(doc.value, region).filter((section) => section.container === target.container).at(-1);

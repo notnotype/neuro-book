@@ -7,7 +7,7 @@ import type {AppContext} from "vue";
 
 import type {ChipEnv} from "../chip/chip";
 import type {MarkdownText} from "../locale";
-import type {StickerResolver} from "../stickers";
+import type {StickerPreview, StickerResolver} from "../stickers";
 
 /** 图片地址服务：宿主按所在文件解析地址，并告诉编辑器磁盘上的图片变了（重新取 URL）。 */
 export interface MarkdownViewAssets {
@@ -63,6 +63,8 @@ export interface MarkdownViewHost {
     readonly images?: MarkdownViewImages | undefined;
     /** 表情目录（docs/specs/agent/stickers.md 输出 10）；没有时表情写法显示原文。节点视图建立时读。 */
     readonly stickers?: StickerResolver | undefined;
+    /** 单击表情的图时调用，宿主打开大图预览（stickers.md 输出 46）。没有时表情点了不做什么。点击时才读，换挂载不重建扩展。 */
+    readonly previewSticker?: ((sticker: StickerPreview) => void) | undefined;
     /** 节点视图里的失败（例如表情目录查询失败）记诊断的出口；没有时丢掉。 */
     readonly report?: ((message: string, error: unknown) => void) | undefined;
 }

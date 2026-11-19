@@ -1,0 +1,29 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t31-author-ui-v1",
+    "artifactId": "b2-1-screens",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "作者界面第二批第一期（剧情侧的读）：截图",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "c513b0280468486106e0fa46cd1ece307c46d592ea77300c2fdca4e460072221",
+    "files": [
+        "01-secrets.webp",
+        "02-ledger.webp",
+        "03-goals.webp",
+        "04-knowing.webp",
+        "05-attitude.webp",
+        "06-point.webp",
+        "07-experience-rollback.webp",
+        "08-secrets-rollback.webp",
+        "10-secrets-390.webp",
+        "12-knowing-600.webp",
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-11-19T07:05:14.998Z"
+}

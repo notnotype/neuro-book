@@ -15,6 +15,9 @@
 import {onBeforeUnmount, ref, shallowRef, watch, type Ref} from "vue";
 import {collectSashHits, type SashHitTarget, type SashPoint, type SashPointerKind} from "../sash-hit-area";
 import {acquireSashCursor, sashCursorFor, SASH_HOVER_DELAY_MS, sashHitKey, type SashCursorOwner} from "./sash-feedback";
+import {commitFailure} from "../grid-failure";
+import {createIssueGate} from "../issue-gate";
+import type {GridFailure, GridIssue, GridIssueCode} from "../grid-types";
 import {sashKey, type GridSashRef, type SashGestureBinding, type SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancelReason} from "../splitter-gesture";
 
@@ -36,8 +39,6 @@ export type SashGestureScope = {
     /** 当前正在手势中的分隔线键。 */
     readonly active: ReadonlySet<string>;
     readonly dragging: boolean;
-    /** 手势诊断（恢复空间不足、提交被拒绝、宿主合同错误）。 */
-    readonly issues: readonly string[];
     /** separator 的键盘输入；`key` 是 `branchId:index`。 */
     keydown(event: KeyboardEvent, key: string): void;
     keyup(event: KeyboardEvent): void;
@@ -55,6 +56,11 @@ export type SashGestureOptions<S, C> = {
     root: Ref<HTMLElement | null>;
     /** 禁用（宿主声明不可调整）时不开始新手势。 */
     disabled?: () => boolean;
+    /**
+     * 手势的诊断与被拒的提交（Spec `ui/nested-grid` 输出 139、140）：每批同步交出，被拒的提交是失败本身（带 `ok: false`）。
+     * 松手、取消与卸载时它抛出，手势已经收尾；拖动途中某一帧里抛出，手势照常进行，这一批的键已经记下、这一场不再发。异常都照常冒出去。
+     */
+    onIssues?: (batch: readonly (GridIssue<GridIssueCode> | GridFailure)[]) => void;
 };
 
 /**
@@ -103,7 +109,6 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
     const hovered = shallowRef<ReadonlySet<string>>(new Set());
     const revealed = shallowRef<ReadonlySet<string>>(new Set());
     const active = shallowRef<ReadonlySet<string>>(new Set());
-    const issues = ref<readonly string[]>([]);
     const dragging = ref(false);
 
     let binding: SashGestureBinding<S, C> | null = null;
@@ -235,11 +240,15 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         applyHover(hits);
     }
 
-    function pushIssues(messages: readonly string[]): void {
-        if (messages.length === 0) {
-            return;
+    /** 一场手势里同一个键只发一次（Spec 输出 140）；新手势在 `begin` 成功之后换一个。 */
+    let gate = createIssueGate();
+
+    /** 手势里求解的诊断：会话每帧给的是全部（快照），这里只交这一场没发过的。 */
+    function notifyGesture(batch: readonly GridIssue<GridIssueCode>[]): void {
+        const fresh = gate.take(batch);
+        if (fresh.length > 0) {
+            options.onIssues?.(fresh);
         }
-        issues.value = [...issues.value, ...messages].slice(-8);
     }
 
     function begin(input: {source: "pointer" | "keyboard"; sashes: readonly GridSashRef[]}): boolean {
@@ -251,9 +260,29 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             return false;
         }
         binding = started;
+        // 在开始成功之后换：键盘会话进行中按下指针被拒时，不清掉进行中那场已经发过的键。
+        gate = createIssueGate();
         active.value = new Set(started.session.sashes.map((sash) => sashKey(sash)));
         dragging.value = true;
         return true;
+    }
+
+    /**
+     * 手势的状态收尾：会话、拖动标记、高亮、悬停与光标。`finish`、`cancel` 都先做完它才调宿主的回调，
+     * 所以宿主的回调抛出时手势已经结束（Spec `ui/nested-grid` 输出 140）。
+     */
+    function settle(source: "pointer" | "keyboard", hover: "refresh" | "reset"): void {
+        binding = null;
+        dragging.value = false;
+        pointerId = null;
+        keyboardMode = "none";
+        keyboardDelta = {x: 0, y: 0};
+        active.value = new Set();
+        if (hover === "reset") {
+            resetHover();
+        } else if (source === "pointer") {
+            refreshHoverAfterGesture();
+        }
     }
 
     /** 结束手势：有变化就提交，宿主拒绝时回滚并诊断。 */
@@ -264,35 +293,24 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         const source = current.session.source;
         const commit = current.session.finish();
-        binding = null;
-        dragging.value = false;
-        pointerId = null;
-        keyboardMode = "none";
-        keyboardDelta = {x: 0, y: 0};
         if (commit === null) {
             // 没有真实变化：走同一取消口径（`no-change`），宿主据此知道「这次按下没有提交」。
             current.session.cancel("no-change");
+            settle(source, "refresh");
             current.onPreview(null);
             current.onCancel?.({reason: "no-change", sashes: current.session.sashes});
-            active.value = new Set();
-            if (source === "pointer") {
-                refreshHoverAfterGesture();
-            }
             return;
         }
-        let accepted: {ok: true} | {ok: false; reason: string};
+        settle(source, "refresh");
+        let accepted: {readonly ok: true} | GridFailure;
         try {
             accepted = current.onCommit(commit);
         } catch (error) {
-            accepted = {ok: false, reason: `提交处理器抛出异常：${String(error)}`};
+            accepted = commitFailure("handler-threw", `The commit handler threw: ${String(error)}`);
         }
         if (!accepted.ok) {
             current.onPreview(null);
-            pushIssues([`本次调整没有落账：${accepted.reason}`]);
-        }
-        active.value = new Set();
-        if (source === "pointer") {
-            refreshHoverAfterGesture();
+            options.onIssues?.([accepted]);
         }
     }
 
@@ -302,20 +320,10 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             return;
         }
         const source = current.session.source;
-        binding = null;
-        dragging.value = false;
-        pointerId = null;
-        keyboardMode = "none";
-        keyboardDelta = {x: 0, y: 0};
         current.session.cancel(reason);
+        settle(source, source !== "pointer" || reason === "unmount" || reason === "context-changed" || disposed ? "reset" : "refresh");
         current.onPreview(null);
         current.onCancel?.({reason, sashes: current.session.sashes});
-        active.value = new Set();
-        if (source !== "pointer" || reason === "unmount" || reason === "context-changed" || disposed) {
-            resetHover();
-            return;
-        }
-        refreshHoverAfterGesture();
     }
 
     function flush(): void {
@@ -326,7 +334,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         const preview = current.session.update(pendingDelta);
         current.onPreview(preview);
-        pushIssues(current.session.issues);
+        notifyGesture(current.session.issues);
     }
 
     function onPointerDown(event: PointerEvent): void {
@@ -406,13 +414,17 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         if (binding === null || pointerId !== event.pointerId) {
             return;
         }
-        if (frame !== 0) {
-            view().cancelAnimationFrame(frame);
-            frame = 0;
-            flush();
+        try {
+            if (frame !== 0) {
+                view().cancelAnimationFrame(frame);
+                frame = 0;
+                flush();
+            }
+        } finally {
+            // 最后一帧里宿主的回调抛出时照样松手收尾，不留一场卡住的手势。
+            options.root.value?.releasePointerCapture?.(event.pointerId);
+            finish();
         }
-        options.root.value?.releasePointerCapture?.(event.pointerId);
-        finish();
     }
 
     function onPointerLeave(): void {
@@ -479,6 +491,8 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             if (preview !== null) {
                 session.onPreview(preview);
             }
+            // 不管有没有预览都交：Enter 恢复空间不够时没有预览，诊断照样要发。
+            notifyGesture(session.session.issues);
             return;
         }
         // Home / End 与方向键一样属于调整键：都进入（或复用）同一场**方向**会话。
@@ -496,6 +510,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             if (preview !== null) {
                 current.onPreview(preview);
             }
+            notifyGesture(current.session.issues);
             return;
         }
         const axisStep = keyboardStep(event, registration.axis)!;
@@ -505,6 +520,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         };
         const preview = current.session.update(keyboardDelta);
         current.onPreview(preview);
+        notifyGesture(current.session.issues);
     }
 
     /**
@@ -598,14 +614,20 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
     }, {immediate: true});
 
-    onBeforeUnmount(() => {
-        if (binding !== null) {
-            cancel("unmount");
+    /** 卸载：宿主的取消回调抛出时，监听照样摘掉、光标令牌照样释放（不然整页的分隔线光标失效到刷新）。 */
+    function teardown(): void {
+        try {
+            if (binding !== null) {
+                cancel("unmount");
+            }
+        } finally {
+            disposed = true;
+            resetHover();
+            detach();
         }
-        disposed = true;
-        resetHover();
-        detach();
-    });
+    }
+
+    onBeforeUnmount(teardown);
 
     return {
         registerSash(target) {
@@ -631,9 +653,6 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         get dragging() {
             return dragging.value;
         },
-        get issues() {
-            return issues.value;
-        },
         keydown,
         keyup,
         blur() {
@@ -647,14 +666,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             }
             resetHover();
         },
-        dispose() {
-            if (binding !== null) {
-                cancel("unmount");
-            }
-            disposed = true;
-            resetHover();
-            detach();
-        },
+        dispose: teardown,
     };
 }
 

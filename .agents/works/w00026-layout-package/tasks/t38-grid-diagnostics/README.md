@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t38-grid-diagnostics
-status: planned
+status: done
 updated: 2026-11-19
 ---
 
@@ -39,9 +39,69 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 
 ## 当前状态
 
-2026-11-19 经 nbdev 新建，尚未开工。排在 t34 之后、t35 之前（[Work README](../../README.md)）。
+2026-11-19 经 nbdev 新建、开工。计划见 [`plan.md`](plan.md)（第 3 稿）。
+
+第 1 稿把 t34 第 3 稿的“同键合成”整个拿掉：每条诊断带它所在的节点 `id`，键是码、`cause`、轴与 `id`，参数只有标量；结果是快照，两个通知出口只发新出现的键。
+
+第 1 稿的设计审查（第一轮，Claude Sonnet；代码按 t34 分支 `45350dd1c`）：
+
+- 常规（[`evidences/design-review.txt`](evidences/design-review.txt)）：6 条，重要 4、建议 2，都成立，改成第 2 稿：
+
+  | 条 | 内容 | 处理 |
+  |---|---|---|
+  | 1 | 键盘的 `no-collapse-policy` 与 Enter 的恢复空间不足从会话里拿不到：会话先挑有收起策略的面板，Enter 失败时诊断被 `solveSashDrag` 覆盖 | 会话不覆盖 `applyCollapse` 的诊断；`no-collapse-policy` 写明只在直接调用 `solveSashCollapse` 的结果里；键盘不管有没有预览都交通知；会话加 Bun 用例 |
+  | 2 | 195 与 533 同一个分支同时发；`range-overflow` 本可以有 `id` | 195 不再单独发，533 按有没有展开的按比例分的子节点给 `cause`、受 `quiet` 约束；`SashDragInput` 加 `scope`，调用方给 `id` 与轴 |
+  | 3 | 只保护了 `onIssues`，`@gesture-update`、`@gesture-cancel` 抛出照样卡住手势；`console.error` 绕过全局错误处理 | 改成控制流：先清状态后调回调、`onPointerUp` 用 `try`/`finally`，异常照常冒出；只有落账后重算的通知接住交 `reportError`；三种回调抛出各一条用例 |
+  | 4 | 度量口径不自洽（`fixed-overflow` 的 `available` 比 `required` 大）、浮点尾巴、`required` 一词几义 | 每个 `cause` 写明 `available`、`required` 是什么；`fixed-overflow` 取预算；`range-overflow` 改成 `total`、`min`、`max`；参数过 `round` |
+  | 5 | 键与去重在两个 Vue 文件里各写一份，没有 DOM 测不了 | L0 的 `issueKey` 与 `createIssueGate`，两个出口共用，Bun 里测 |
+  | 6 | `GridLayoutResult.issues` 也经 `gesture-update` 到插件；“运行时会出错”夸大；事件元素缺判别；判据要写两半 | 公开面清单补上；变更记录写“读到错的值”；被拒的提交原样带 `ok: false`；判据两半、每个新行为变异；`swap-skipped` 的叶列表不进参数（标量放不下，`cause` 已够） |
+
+- 拉远看（[`evidences/zoom-out.txt`](evidences/zoom-out.txt)）：5 条。
+  - 第 1、3 条质疑“通知只发边沿”本身：今天没有消费者，建议只留快照与事件型通知、每帧原样交本批，键怎么取由宿主定。这碰到开发者同意过的方向（“结果是快照、通知只发边沿”）与已接受提案的两句原文（“每次布局都发的诊断合并成一条”“`issues` 只发新增”），作者不替开发者驳回，记入[待确认清单](../../pending-confirmations.md)；第 2 稿把去重放在独立的第 3 片，拿掉时整片不做。
+  - 第 2 条（保留的参数名、`cause` 的默认分支、`field` 与 `cause` 两个名字、上界）：计划写明保留的三个名字、不认识的 `cause` 按码处理、`field` 与 `cause` 意思不同各用各的、上界 O(节点数)。
+  - 第 4 条（回调抛出是在补“同步通知放在状态机中间”）：同常规第 3 条，改成控制流。
+  - 第 5 条（缺谁消费、取舍、数值口径）：Context 补“谁消费”与待定的一处；数值过 `round`。
+
+**实施**（worktree `w00026-t38-grid-diagnostics`，分支 `refactor/w00026-t38-grid-diagnostics`）：
+
+- 第 1 片 `520ab0258`：`GridIssue` 与诊断码、库内的构造（`grid-issue.ts`）、每一处的码与参数；`allocateSashPanels` 去掉两个参数，内部 `allocatePanels` 带回调；195 并进 533；`range-overflow` 由会话给 `id` 与轴；Enter 折叠没有变化时会话状态不动、诊断不被盖掉。L0 测试按码与参数断言，补求解与会话用例、诊断码与失败码不相交与码的写法测试。变异检查：会话里丢掉折叠的诊断、195 照旧单独发，各有用例红。
+- 第 2 片 `d8493c029`：`SashGestureScope.issues` 删掉、`onIssues` 加上，事件发对象，被拒的提交是失败本身；没接回调只发一条；键盘求解后交诊断；收尾先于宿主回调，松手与卸载用 `try`/`finally`；`useGridLayout` 拆成发布与通知、落账后的通知接住。`WorkbenchSurface` 与两个 Lab 夹具的读法一起改。用例：`not-published`、键盘 Enter、三种回调抛出与卸载、落账后抛出两条。变异检查：没有变化时先调回调再收尾、取消时先调回调、Enter 不交通知、落账后不接住，各有用例红。
+- 第 3 片 `119fbe575`：`issueKey` 与闸门；两个出口接上。用例：闸门（Bun）、窄窗口逐像素重算（消失再出现、隐藏再显示、换上下文、换实例）、一场拖动一次与下一场。变异检查：去掉两个闸门、`begin` 不换闸门，各有用例红。落账后抛出那条用例在闸门下会空过（持续的诊断不再通知），改成先换上下文再提交。
+- 第 4 片 `252dc1ef9`：SDK 导出三个类型、变更记录、包文档。
+- 并 master `a9df56ba5`（别的 Work 的表情包改动，没有冲突）。
+- 和计划不同的：第 1 片里 Lab 夹具也先读 `message`（它直接读 `layout.issues`），否则那一片应用的类型检查是红的；`GridLayoutResult.issues` 等列表收窄成 `GridIssue<GridIssueCode>`，省掉一处类型断言。
+- 未验证：`reportError` 那一支（happy-dom 没有，dom 测试走 `console.error`）。
+- 收口验证（并 master 之后）：应用三份类型配置、`docs:check` 都过；`test:affected --since master` 只有 `neuro-book` 的 bun 测试有失败，都不在本分支的改动里：`nbook.stickers` 清单不一致的 7 条（同 t34 记下的）、`sdk.test.ts` 组件子路径漏列 `ImagePreviewDialog`（主工作区 master 上同样失败，来自表情包那次合入）、agent 的 `eval.test.ts` 一条（内核重置后的输出）；nb-layout 与 nb-workbench-layout 的测试全过。e2e：`lab-nested-grid` 17、`workbench-shell` 18 全过；`lab-grid-swap`、`lab-grid-panels`、`lab-workbench-surface` 在负载 17 到 21 时各有 2、3、4 条失败，都是 Lab 15 秒内没就绪，负载 3 到 7 时整份重跑 5、17、17 全过。
+
+**实现审查**（Claude Sonnet，审查 worktree 固定在 `a9df56ba5`，[`evidences/impl-review.txt`](evidences/impl-review.txt)）：6 条，重要 1、建议 5，都成立，修正 `c12043db5`：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | “宿主回调抛出时手势已经结束”只对松手、取消与卸载成立，拖动途中某一帧里抛出手势照常进行 | 文档、JSDoc 与 Spec 输出 140 改成按路径说清；拖动途中的行为同改动前 |
+| 2 | 有面板不设上限时 `range-overflow` 的 `max` 是哨兵值的和 | 这时不给 `max`，`message` 写“至少多少”；构造时跳过值为 undefined 的键 |
+| 3 | 交叉处的会话里折叠动作套到每一根轴上，另一根轴报出 `no-collapse-policy` | 折叠只作用于发起它的那根轴（改动前就是这样套的，诊断被盖住才没露出来）；补用例 |
+| 4 | 折叠与拖动求解的诊断合并后同键两条 | 合并时同键只留一条；补用例（先拖过展开阈值再折叠） |
+| 5 | 卸载用例守的其实是取消的收尾顺序；`invalidate` 的 `try`/`finally` 是死代码；“先拖再折叠”用例改动前也过 | 用例名改成它守的东西；删掉死代码；`teardown` 的 `finally` 留着（防宿主回调抛出时监听留着，测试看不到）；“先拖再折叠”留作防另一种实现的回归 |
+| 6 | 没人用的参数值、过时的注释、类型夹在导入中间 | 照改 |
+
+去掉 planned 前补了三条用例（`7d7656755`）：度量取两位小数、被拒的提交每次都发、键盘每按一次是一场手势。晋升后换模型逐句核了一遍（Claude Sonnet，[`evidences/promotion-check.txt`](evidences/promotion-check.txt)，连同 t34 的失败 5 到 7）：5 句没有断言、8 处断言区分不了。照改：失败 5 删掉“建树”（`createGrid` 没有失败路径）；“和 `message` 里的数一致”删掉；“窄窗口下一次最多节点数那么多条”删掉（按代码不成立：一片叶两根轴可以各一条）；“`cause` 只细分一个码”改成“`cause` 是码之下的细分”；`handler-threw` 的 `message`、载荷的 `issues` 是快照、拖动途中抛出、`params` 只有字符串与数字、`no-collapse-policy` 一行标回 planned；其余几处它判为优先级低（原有行为或只缺重复发生的断言），不动。此前自己核时留着 planned 的：预览布局的诊断不经通知、`reportError` 那一支、按住不放算一场、`swap-skipped` 的 `no-entering`、直接求解收起时的 `no-collapse-policy`。
+
+收口的 e2e 跑在审查修正之前。修正没有重跑 e2e：改的是交叉处会话的折叠只作用于一根轴（界面里只有键盘 Enter 会折叠，它开的是一根线的会话，走不到）、合并时同键去重、`range-overflow` 不给哨兵 `max`、文档与死代码，都由单元测试覆盖；e2e 里没有读这些诊断的地方。
+
+第 2 稿的设计审查（第二轮，Claude Sonnet；代码按 master `5ee62b05a`，[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)）：9 条，阻断 0、重要 2、建议 7，都成立，改成第 3 稿。第一轮各条它逐条核过，大多到位，没到位的就是下表的几条。都是给了改法的细化、没有方向问题，第 3 稿不再送审，实现审查兜底：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | 落账之后的通知有两处（重算那一批、`notify-failed`）；接住的范围若是整个 `recompute`，`grid.layout()` 自己抛出也被吞、提交却报成功 | `recompute` 拆成发布与通知两步；两处都经 `notifyAfterCommit`，只包通知 |
+| 2 | 533 的 `cause` 判据在 `measure` 里没有来源，和 195 的 `weighted.length === 0` 不是同一个集合；收紧到 `quiet` 是没列的行为变化 | 判据由 `allocatePanels` 交回，与 195 相同；补刚性按比例叶、祖先收起两条用例 |
+| 3 | 第 4 片的 Lab 夹具依赖第 3 片的 `issueKey`；第 2、3 片应用的类型检查是红的 | 夹具自己写键；`WorkbenchSurface` 的类型与夹具读法放第 2 片，第 2 片加应用的类型检查 |
+| 4 | `fixed-overflow` 的 `required` 在 185 行已被改写；`range-overflow` 的合计要改 `boundsFit` | 表里写明取值时机与“按此刻的收起覆盖算” |
+| 5 | 悬停与光标的处理还在回调之后；`invalidate`、`dispose`、卸载先 `cancel` 后拆，回调抛出时监听与光标令牌留着 | 悬停与光标也放到回调之前；三处写成 `try`/`finally`；补卸载时抛出的用例 |
+| 6 | “不再落到 `solveSashDrag`”有一种读法会清掉会话状态 | 改写状态的几句挪到“有没有变化”之后，照旧落下去、合并两处诊断；补“先拖再折叠失败、位移照常提交”的用例 |
+| 7 | happy-dom 没有 `reportError`，真实派发测不到 | dom 测试只断言提交仍成功（走 `console.error`），不桩；`reportError` 那一支记为未验证 |
+| 8 | 空发布清空会让隐藏再显示时全量重发；键集更新与通知的先后、`begin` 里清空的位置没定；键盘每按一次是一场手势 | 空发布不经闸门；键集在通知前更新；`begin` 成功后才清；键盘的行为写进 Spec；三个操作缩成 `take`、`replace` |
+| 9 | `GridIssue` 与 `GridFailure` 的联合上不能直接读 `ok` | 合同写 `"ok" in issue`，按码收窄只对诊断那一支成立 |
 
 ## 下一步
 
-1. t34 合入后开工：先写“结果是状态快照、通知只发边沿”的合同（Spec 条目草稿），再写计划。
-2. 计划与设计审查按 autonomous-delivery。
+无。t38 完成：合入 master（`b2a45d357`，审查修正 `c12043db5`，守护测试 `7d7656755`）；`ui/nested-grid` 输出 139、140 去掉 planned，只剩“预览布局的诊断不经通知”一句没有测试、留着标记；实现合同补“失败与诊断的构造”“只发新增”与合同测试。拉远看对“通知只发边沿”的质疑在待确认清单里等开发者定。

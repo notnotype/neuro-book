@@ -70,6 +70,13 @@ export default {
         resizeHeight: "调整窗口高度",
         resize: "调整窗口大小",
     },
+    imagePreviewDialog: {
+        close: "关闭",
+        downloadOriginal: "下载原图",
+        loading: "正在加载原图",
+        loadFailed: "原图加载失败",
+        retry: "重试",
+    },
     infoTip: {
         label: "说明",
     },

@@ -43,10 +43,10 @@ describe("内容项", () => {
     test("工具视图一个标签一项，只有活动标签是 active；锚没有内容项；编辑组一块面板一项", () => {
         // 区域里一个分节一个标签；几个标签的工具面板只有浮动窗。
         const floated = floatTab(doc(), {tab: "view:files", rect: {x: 0, y: 0, width: 300, height: 200}}, createLayoutPolicy());
-        if (!floated.ok) throw new Error(floated.detail);
+        if (!floated.ok) throw new Error(floated.message);
         const float = sectionOf(floated.doc, "files");
         const joined = moveTabToStrip(floated.doc, {tab: "view:outline", panel: float, index: 1, activate: false}, createLayoutPolicy());
-        if (!joined.ok) throw new Error(joined.detail);
+        if (!joined.ok) throw new Error(joined.message);
         const contents = layoutContents(joined.doc);
         expect(contents.filter((item) => item.leaf === float).map((item) => [item.key, item.active, item.insetTop])).toEqual([
             ["view:files", true, PANEL_HEAD_HEIGHT],
@@ -79,7 +79,7 @@ describe("面板写给人看的名字", () => {
     test("一块编辑组写“编辑区”；几块时按树序写序号，不然“移动到”的目标分不出来", () => {
         expect(panelTitle(doc(), CATALOG, "g0")).toEqual(workbenchText("viewCommands.parts.editor"));
         const split = openPanelAtEdge(doc(), {id: "g1", panel: {role: "editor", tabs: [], active: null}, target: {kind: "split", panel: "g0", edge: "left"}}, createLayoutPolicy());
-        if (!split.ok) throw new Error(split.detail);
+        if (!split.ok) throw new Error(split.message);
         expect(panelTitle(split.doc, CATALOG, "g1")).toEqual(workbenchText("viewCommands.parts.editorAt", {index: 1}));
         expect(panelTitle(split.doc, CATALOG, "g0")).toEqual(workbenchText("viewCommands.parts.editorAt", {index: 2}));
     });
@@ -88,7 +88,7 @@ describe("面板写给人看的名字", () => {
 describe("浮动窗", () => {
     const floated = (): LayoutDoc => {
         const result = floatTab(doc(), {tab: "view:output", rect: {x: 0, y: 0, width: 300, height: 200}}, createLayoutPolicy());
-        if (!result.ok) throw new Error(result.detail);
+        if (!result.ok) throw new Error(result.message);
         return result.doc;
     };
     const panelOf = (current: LayoutDoc): string => current.floats[0]?.panel ?? "";
@@ -121,7 +121,7 @@ describe("浮动窗", () => {
         const base = doc();
         const withTabs: LayoutDoc = {...base, panels: {...base.panels, g0: {role: "editor", tabs: [{kind: "tab", type: "editor", tabId: "x"}, {kind: "tab", type: "editor", tabId: "y"}], active: "tab:x"}}};
         const result = floatTab(withTabs, {tab: "tab:y", rect: {x: 0, y: 0, width: 300, height: 200}}, createLayoutPolicy());
-        if (!result.ok) throw new Error(result.detail);
+        if (!result.ok) throw new Error(result.message);
         expect(panelTitle(result.doc, CATALOG, panelOf(result.doc))).toEqual(workbenchText("viewCommands.parts.editorFloat"));
         expect(panelTitle(result.doc, CATALOG, "g0")).toEqual(workbenchText("viewCommands.parts.editor"));
     });
@@ -134,7 +134,7 @@ describe("有效可见", () => {
         expect(visible.has("view:outline")).toBe(false);
         expect(visible.has("view:chat")).toBe(true);
         const switched = setActiveContainer(doc(), "sidebar", "view:outline");
-        if (!switched.ok) throw new Error(switched.detail);
+        if (!switched.ok) throw new Error(switched.message);
         const after = effectiveVisibleTabs(switched.doc, FACTS);
         expect(after.has("view:files")).toBe(false);
         expect(after.has("view:outline")).toBe(true);
@@ -202,7 +202,7 @@ describe("有效可见", () => {
 describe("活动栏的入口（输出 22、41）", () => {
     const POLICY = createLayoutPolicy();
     const must = (result: ReturnType<typeof setPanelHidden>): LayoutDoc => {
-        if (!result.ok) throw new Error(`${result.code}: ${result.detail}`);
+        if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
         return result.doc;
     };
     const GROUP = "acme.group";
@@ -309,10 +309,10 @@ describe("头只写标题的面板（输出 20）", () => {
         const barHidden: LayoutDoc = {...base, hiddenBars: ["activitybar"]};
         expect([FILES, OUTLINE].every((id) => titleOnlyPanels(barHidden).has(id))).toBe(true);
         const floated = floatTab(base, {tab: "view:files", rect: {x: 0, y: 0, width: 300, height: 200}}, createLayoutPolicy());
-        if (!floated.ok) throw new Error(floated.detail);
+        if (!floated.ok) throw new Error(floated.message);
         const float = floated.doc.floats[0]?.panel ?? "";
         const merged = moveTabToStrip(floated.doc, {tab: "view:outline", panel: float, index: 1}, createLayoutPolicy());
-        if (!merged.ok) throw new Error(merged.detail);
+        if (!merged.ok) throw new Error(merged.message);
         expect(titleOnlyPanels(floated.doc).has(float)).toBe(true);
         expect(titleOnlyPanels(merged.doc).has(float)).toBe(false);
     });
@@ -320,7 +320,7 @@ describe("头只写标题的面板（输出 20）", () => {
 
 describe("焦点所在的面板看不见之后的落点（输出 16、42）", () => {
     const must = (result: ReturnType<typeof setPanelHidden>): LayoutDoc => {
-        if (!result.ok) throw new Error(`${result.code}: ${result.detail}`);
+        if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
         return result.doc;
     };
 
@@ -368,7 +368,7 @@ describe("移动到的目标（输出 23、41）", () => {
 
     test("不在声明的容器里：另有“重置位置”，回到那个容器；没有成员的容器不是目标；声明的容器写声明的标题", () => {
         const moved = moveTabToEdge(doc(), {tab: "view:outline", target: sectionLanding(doc(), "auxiliarybar", "view:chat")!, container: "view:chat"}, policy);
-        if (!moved.ok) throw new Error(moved.detail);
+        if (!moved.ok) throw new Error(moved.message);
         const settled = settleContainers(moved.doc);
         expect(rows(moveTargetsOf(settled, "outline", CATALOG))).toEqual([
             ["container", "view:files", "sidebar", {"zh-CN": "文件", "en-US": "Files"}],

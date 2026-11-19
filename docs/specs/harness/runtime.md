@@ -20,6 +20,8 @@ owners:
 - 运行中途换模型：模型按每次请求时的核心设置解析。
 - 换模型回退、等额度恢复：可重发的失败只在同一个模型上重发（输出 62–69）。
 - 费用门：内核只累计（输出 70），告警与上限由扩展做（[`agent.run-guards`](../agent/run-guards.md)）。
+- 等用户的事项没有期限：没人应答就一直等，直到应答、`settlePending`（输出 111）、中止或进程退出。
+- 已知限制：应答（`resolve`、`settlePending`）的受理批写下了、它引起的反应批写失败时，指令交回 `log-broken`，等这个事项的调用却被以 `aborted` 叫醒，与日志里的结算不一致；同一个 `commandId` 重发得到成功。
 
 ## 术语与参与者
 
@@ -147,7 +149,7 @@ owners:
 75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。
 76. 帧 `{type: "tool", callId, status}`：工具调用执行完时推，不进日志；权威仍是这批调用的 `toolResult`。中止宽限期过后才完成的调用不推（输出 25）。`toolArgs` 增量的第一块带 `tool`（工具 id），同一 `callId` 的片段按 `n` 连接就是参数的 JSON 文本。
 77. 快照带 `model`：`{ok: true, id, contextWindow, efforts}` 或 `{ok: false, code}`，由 `models.resolve` 按当前设置算；失败时端口给了的 `role`、`provider` 原样带上（[`models.md`](models.md) 的 `ModelResolution`）；`usage` 除费用外累计 `input`、`output`、`cacheRead`、`cacheWrite`，口径同输出 70。
-78. `ToolSessionContext` 带 `background`。
+78. `ToolSessionContext` 带 `background`；会话头有 `owner` 时也带 `owner`（同会话头，[`session.md`](session.md) 输出 25）。
 79. 同一条回复的调用先过审批阶段再执行：切段之前按调用顺序逐个判定，判定 `ask` 的都写 `interactionRequested`（运行状态 `waiting{pending}` 列出全部），等全部应答；之后才执行，这条回复里不用审批的调用也等这个阶段结束，执行顺序不变。应答 `deny` 的调用轮到时得 `denied`，别的调用照常。拦截层改了工具或参数、和判定时不同时，这个调用按现在的重新判定，要问就按输出 39 再问一次。放行之后、轮到它之前只读或审批模式变了，也按现在的设置重新判定；已经拒绝的不重新判定。
 80. `treeNodes({afterSeq?, limit?})` 按 seq 分页读所有 path 事件的结构 `{id, parent, type, seq, label?}`，不读全文，所以再大的事件也不会让树断开；一页至多 2,000 个。`label` 是用户的话、回复文字或工具名的前 80 字，经出站过滤，过滤掉的节点还在，只是没有 `label`。
 81. `branchPoints()` 交回有多于一个孩子的节点 `{parent, children: [{node, latestLeaf}]}`，一次查询就能知道所有分叉。
@@ -201,6 +203,7 @@ owners:
     表里没有的指令不按发出者区分。应答审批与提问的规则不变（输出 41）。
 109. 已经留着的话，之后再有运行收口或停止时不改它的 `cause` 与 `heldBy`；放行后再留着时按那一次重新记。
 110. `send` 的成功值带这条话的去向 `placement`：`taken`（交给这次开的、接着跑的或正在取输入的运行）、`later`（运行不再取输入，收口后随放行开的下一次运行跑，输出 104）、`held`（留着：不能接着跑叶子上暂停的运行，输出 36）。这是受理时的去向：`taken` 的话在那次运行以任何方式收口而还没取走时，`later` 的话在收口批没开起运行时，都转成留着。调用方要知道最后的去向，看这条话的 `inputConsumed`（带取走它的运行 `runId`）或 `inputHeld`，或用会话视图的查询 `inputFate(inputId)`：交回 `{taken: runId}`、`{held: cause}`、`{removed: reason}`、`{pending}`（还在缓冲区里、就绪），不是这个会话里入过队的交回 null；不经出站过滤（同 `runResult`）。
+111. `send` 带 `settlePending: "deny"` 时，同一个受理批里先把当前路径上全部待处理的同步事项（审批、同步提问，含嵌套调用里的；不含异步提问）以 `deny` 结算（`interactionResolved{decision: "deny", by: 用户, note: "用户发了新消息"}`，等它们的调用照输出 39、40 得 `denied`、`unavailable{declined}`），再照常受理这条话（运行中按它的模式进缓冲区，空闲时照输出 2）。只收用户发的，别的发出者得 `not-allowed`；没有待处理的同步事项时等于不带这个选项。结算与这条话同批写下，指令失败（例如 `empty-input`、`input-rejected`）时事项都不结算。重发同一个 `commandId` 照 [`session.md`](session.md) 输出 17 交回第一次的结果、不再结算（重放不比较发出者：用户受理过的，换了发出者重发也交回原来的结果）。
 
 ## 状态与转换
 
@@ -268,6 +271,7 @@ owners:
 13. 停止的范围：宿主停自己开的运行（缺省清空）只删自己排的，用户排的转成留着、`heldBy` 是宿主；用户随后 `abort{keepQueue}` 同一次运行不改变它；之后再收口时已留着的 `cause` 不变；`closeSession` 两种关闭下就绪的话都转成留着。
 14. 推迟的指令：只压缩的运行期间，插件撤回触发重新装配，同时用户 `send` 一条：收口批不开运行，这条话留着、`cause.code` 是 `reassembly-pending`，重新装配做完之后才受理别的指令；只压缩期间 `send` 后立刻 `closeSession{interrupted}`，重开后话留着，没有多出来的运行。
 15. 停止与接着跑：用户停掉父会话开的子会话运行后，父会话身份的 `start` 得 `not-allowed`，`resume` 只放行它自己的话；用户 `abort` 后运行在宽限期内以 `finished` 收口，停止的范围照样执行；`runEnded` 批的反应期间到达的 `send` 遇上待做的重新装配，等重新装配做完才受理；受理批的反应期间开始关闭，不开运行、不留下未处理的错误。
+16. 发话一并结算：一条回复里两个调用都在等审批、一个嵌套调用在等同步提问，用户带 `settlePending: "deny"` 发一条插话：同一个受理批里三个事项都以 `deny` 结算、插话进缓冲区；两个调用得 `denied{user-denied}`、嵌套提问得 `unavailable{declined}`，这一轮在边界取走插话接着请求；同一个 `commandId` 重发得到第一次的结果、日志不变。
 
 Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:llm`）：一轮对话、重开、再一轮；带工具调用；流式中途中止；回退后重发。
 

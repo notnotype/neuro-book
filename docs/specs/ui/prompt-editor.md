@@ -69,7 +69,7 @@ owners:
 11. **只读**：不能编辑（包括粘贴块的内容）、粘贴、拖入，不开菜单、不翻看输入历史；可以选中与复制；附件条与粘贴块的按钮只剩“展开”。
 12. **界面语言**：按钮、提示与说明按界面语言显示：宿主注入了翻译端口时按端口的语言，没有注入时按 `locale`（见“边界与兼容”）；语言变了随即换成新的文字，正文不变。
 13. **可访问性**：正文区是 `role="textbox"`、`aria-multiline="true"`，可访问名称取 `ariaLabel`，为空时取 `placeholder`；菜单开着时正文区带 `aria-expanded`、`aria-controls`、`aria-activedescendant`；菜单是 `role="listbox"`，每项 `role="option"`，禁用项带 `aria-disabled`、没有选项 id；`aria-activedescendant` 指向的就是高亮的那一项（id 由 nb-ui 的 `suggestionOptionId` 按可选项的顺序给出）。输入历史开着时，搜索框是 `role="combobox"`，带同样的 `aria-controls`、`aria-activedescendant`；附件卡片与粘贴块的按钮都有可访问名称，失败原因写在卡片的可访问描述里。
-14. **静态显示**：`PromptTextView` 按同一套文字写法显示已发送的文字：小块与编辑组件里的一样，粘贴块默认折叠，附件进附件条；小块可聚焦，回车或空格发出 `token-activate`。表情在一段（空行分段）里只有表情与空白、且不超过 3 个时显示成大图，规则同 Markdown 展示器（[`agent/stickers.md`](../agent/stickers.md) 输出 11）。
+14. **静态显示**：`PromptTextView` 按同一套文字写法显示已发送的文字：小块与编辑组件里的一样，粘贴块默认折叠，附件进附件条；小块可聚焦，回车或空格发出 `token-activate`。表情在一段（空行分段）里只有表情与空白、且不超过 3 个时显示成大图，规则同 Markdown 展示器（[`agent/stickers.md`](../agent/stickers.md) 输出 11）。点表情的图、或聚焦表情后按回车、空格，发出 `sticker-activate`，带写法、地址、名字、表情包的显示名与宽高，由宿主打开大图（[`agent/stickers.md`](../agent/stickers.md) 输出 46）。
 
 ## 状态与转换
 

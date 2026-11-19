@@ -12,7 +12,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {CallReply, CallTarget} from "./protocol";
 import {rewriteCell} from "./rewrite";
-import {Kernel, KernelRegistry, type CellEnd, type KernelOwner} from "./kernels";
+import {Kernel, KernelRegistry, type CellEnd} from "./kernels";
 
 const ENTRY = join(import.meta.dir, "kernel-entry.ts");
 const RESERVED = new Set(["tool", "display", "console", "require"]);
@@ -197,18 +197,87 @@ describe("内核的寿命（eval.md 输出 13、15 与时序）", () => {
     });
 });
 
-describe("内核总数（eval.md 输出 11）", () => {
-    test("超过上限时回收最久没用的那个", () => {
-        const registry = new KernelRegistry(2);
-        const evicted: string[] = [];
-        const owner = (name: string): KernelOwner => ({evict: () => evicted.push(name)});
-        const [a, b, c] = [owner("a"), owner("b"), owner("c")];
-        registry.touch(a);
-        registry.touch(b);
-        registry.touch(a);
-        registry.touch(c);
-        expect(evicted).toEqual(["b"]);
-        expect(registry.size).toBe(2);
+describe("内核登记表（eval.md 输出 11）", () => {
+    /** 只记账的持有者：回收与停止都把它的内核记成没了，并记下发生了什么。 */
+    const holder = (name: string, log: string[]) => {
+        const self = {
+            holding: true,
+            busy: false,
+            evict: () => {
+                self.holding = false;
+                log.push(`evict ${name}`);
+            },
+            close: async () => {
+                self.holding = false;
+                log.push(`close ${name}`);
+            },
+        };
+        return self;
+    };
+    type Holder = ReturnType<typeof holder>;
+
+    test("同一个会话交回同一个持有者；活着的内核超过上限时回收最久没用的那个", () => {
+        const registry = new KernelRegistry<Holder>(2);
+        const log: string[] = [];
+        const take = (id: string): Holder => {
+            const taken = registry.take(id, () => holder(id, log))!;
+            registry.admit(taken);
+            return taken;
+        };
+        const a = take("a");
+        take("b");
+        expect(take("a")).toBe(a);
+        take("c");
+        expect(log).toEqual(["evict b"]);
+    });
+
+    test("没有内核的持有者至多留 remembered 个，多了丢最久没用的；有内核的不丢", () => {
+        const registry = new KernelRegistry<Holder>(8, 2);
+        const log: string[] = [];
+        const created: string[] = [];
+        const take = (id: string, holding: boolean): Holder => {
+            const taken = registry.take(id, () => {
+                created.push(id);
+                return holder(id, log);
+            })!;
+            taken.holding = holding;
+            return taken;
+        };
+        const a = take("a", true);
+        take("b", false);
+        take("c", false);
+        take("d", false);
+        expect(take("a", true)).toBe(a);
+        take("b", false);
+        expect(created).toEqual(["a", "b", "c", "d", "b"]);
+    });
+
+    test("正在执行的持有者不丢、不回收：超过上限时暂时多一个", () => {
+        const registry = new KernelRegistry<Holder>(1, 1);
+        const log: string[] = [];
+        const created: string[] = [];
+        const take = (id: string): Holder => registry.take(id, () => {
+            created.push(id);
+            return holder(id, log);
+        })!;
+        const a = take("a");
+        a.busy = true;
+        registry.admit(take("b"));
+        expect(log).toEqual([]);
+        a.holding = false;
+        take("c");
+        expect(take("a")).toBe(a);
+        expect(created).toEqual(["a", "b", "c"]);
+    });
+
+    test("停止时结束全部内核，之后不再交回持有者", async () => {
+        const registry = new KernelRegistry<Holder>();
+        const log: string[] = [];
+        registry.take("a", () => holder("a", log));
+        registry.take("b", () => holder("b", log));
+        await registry.stop();
+        expect(log.toSorted()).toEqual(["close a", "close b"]);
+        expect(registry.take("c", () => holder("c", log))).toBeNull();
     });
 });
 

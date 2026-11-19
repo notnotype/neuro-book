@@ -13,7 +13,7 @@ import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSiz
 import type {GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
 import {planSwap, swapTouchesBand} from "../grid-swap";
 import type {GridSwap, GridSwapBand} from "../grid-swap";
-import type {GridExtent} from "../grid-types";
+import type {GridExtent, GridIssue} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
 
 /** 计时比过渡长一点：过渡要到下一次样式计算才开始，定时器先到的话最后一帧会跳到终点。 */
@@ -74,7 +74,7 @@ export interface GridMotionMove {
     /** 这一轮开始的交换（`planSwap`）：带上的几组。没有时进行中的交换照旧。 */
     readonly swap?: GridSwapBand;
     /** 给了交换但没用上的原因（这一轮照常过渡）。 */
-    readonly swapSkipped?: string;
+    readonly swapSkipped?: GridIssue<"swap-skipped">;
     /**
      * 这一轮开始前先把进行中的过渡全部送到终点（`stop`）：新的交换和进行中的带不相交（`swapTouchesBand`）。这一轮按空带规划，
      * 上一轮留着滑出去的项不在 `leaving` 里。
@@ -139,7 +139,7 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const plan = settle
         ? planSwap({swap: input.swap, items: frame.items, previous: frame.previous, band: null, now: [], busy: new Set()})
         : planSwap({swap: input.swap, items: frame.items, previous: frame.previous, band: input.band ?? null, now: input.bandNow ?? [], busy: input.busy ?? new Set()});
-    if (plan.kind === "skip") return {...move, swapSkipped: plan.reason};
+    if (plan.kind === "skip") return {...move, swapSkipped: plan.issue};
     // 带上的项整块平移，不按别的规则长、缩、跟外框；进行中的交换里留着的项换成这一轮的终点，被摘掉的组一起去掉。
     const banded = new Set([...plan.starts.keys(), ...(settle ? [] : input.band?.groups ?? []).flatMap((group) => group.home.map((item) => item.key))]);
     const without = (keys: ReadonlySet<string>): ReadonlySet<string> => new Set([...keys].filter((key) => !banded.has(key)));
@@ -160,7 +160,7 @@ export function useGridMotion(options: {
     readonly root: Readonly<Ref<HTMLElement | null>>;
     readonly onSettled: () => void;
     /** 给了交换但没用上（这一轮照常过渡）：原因交给宿主记诊断。 */
-    readonly onSwapSkipped?: (reason: string) => void;
+    readonly onSwapSkipped?: (issue: GridIssue<"swap-skipped">) => void;
 }) {
     const moving = ref(false);
     /** 新项第一帧的矩形；下一轮写终点，过渡才启动。 */

@@ -303,13 +303,12 @@ export default {
         fork: "Start another session with the same Profile",
         clear: "Clear the session view and return to empty history",
     },
+    stickerPreview: {
+        title: "{{name}} · {{pack}}",
+        copy: "Copy code",
+    },
     imagePreview: {
-        close: "Close",
-        downloadOriginal: "Download Original",
-        loadFailed: "Original image failed to load",
-        retry: "Retry",
         image: "Image #{{number}}",
-        loading: "Loading the original image",
     },
     harness: {
         error: {

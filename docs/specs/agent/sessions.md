@@ -40,7 +40,7 @@ owners:
 |---|---|---|
 | `list({project?, archived?, background?})` | 读 | 会话列表（缺省不列后台会话） |
 | `create({profile, initial?, project?})` | 写 | 建会话 |
-| `send`、`enqueue`、`edit`、`remove`、`resolve`、`start`、`abort`、`rewind`、`switchBranch`、`fork`、`compact`、`changeSettings`、`changeProfile`、`setTitle`、`archive`；`resume`、`release`（planned） | 写 | 内核的指令，各带 `sessionId` 与 `commandId` |
+| `send`、`enqueue`、`edit`、`remove`、`resolve`、`start`、`abort`、`rewind`、`switchBranch`、`fork`、`compact`、`changeSettings`、`changeProfile`、`setTitle`、`archive`、`resume`、`release` | 写 | 内核的指令，各带 `sessionId` 与 `commandId` |
 | `snapshot`、`log`、`rewindTargets`、`path`、`treeNodes`、`branchPoints`、`siblings`、`runResult`、`preview`、`diagnostics` | 读 | 内核的查询，各带 `sessionId` |
 | `eventChunk({sessionId, seq, index})`、`previewChunk({token, index})` | 读 | 分段读回大的事件与预览 |
 | `profiles()` | 读 | Profile 目录（[`agent/contributions.md`](contributions.md) 输出 7） |
@@ -49,7 +49,7 @@ owners:
 | `startTask({taskId, profile, initial?, input, project?, background?})` | 写 | 发起任务 |
 
 - 事件 `frames`，过滤 `{sessionId}`：内核的帧（`log`、`delta`、`status`、`diagnostic`、`progress`）。
-- 服务键 `agentKey`（服务端同进程）：`create(options)` → 视图或失败码；`session(id, issuer?)` → 视图（planned：改为按调用方盖章，见输出 21）；`list(filter?)`；`profiles()`；`running()` → 正在运行的会话 id（不含后台会话）；`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`。服务停止后调用抛出码为 `unavailable` 的错误。
+- 服务键 `agentKey`（服务端同进程）：`create(options)` → 视图或失败码；`session(id, options?)` → 按调用方盖章的视图（输出 21）；`list(filter?)`；`profiles()`；`running()` → 正在运行的会话 id（不含后台会话）；（planned）`hold(sessionId)` → 持有或失败码（输出 24）；（planned）`header(sessionId)` → 会话头或失败码（输出 28）；`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`。服务停止后调用抛出码为 `unavailable` 的错误。
 - 依赖：设置与状态根是必需的；模型服务可选。
 
 ## 输出与可观察行为
@@ -68,13 +68,13 @@ owners:
    - `preview` 的结果是 `{kind: "inline", preview}` 或 `{kind: "oversized", token, bytes}`，大的经 `previewChunk` 同样分段读，令牌 5 分钟有效；两种都是 JSON 编码后的样子，工具声明里按参数算的 `effect`（函数）不在里面；
    - `path` 按页读（`from` 是从根数起的下标，交回 `next`），`diagnostics` 按页读（`after` 是上一页最后一条诊断的 id，交回 `next`），按 `afterSeq`、`extension`、`level` 筛；诊断里的长文字截到 4 KiB；
    - 快照、运行结果、回退目标、兄弟节点不分页，编码后超过 512 KiB 时得 `result-too-large`。
-10. **发起任务。** `startTask` 用 `task-<taskId>` 作会话 id 建会话，再以 `taskId` 作 `commandId` 发一次 `send`（空闲时同时开始运行；发出者是调用方，经远程是用户，经 `agentKey` 是调用方插件的宿主身份（planned，输出 21）），返回 `{sessionId, runId}`，不等运行结束；结果从 `runResult` 取，运行结束时 `frames` 里有 `runEnded`。`taskId` 是调用方生成的 UUID。
+10. **发起任务。** `startTask` 用 `task-<taskId>` 作会话 id 建会话，再以 `taskId` 作 `commandId` 发一次 `send`（空闲时同时开始运行；发出者是调用方，经远程是用户，经 `agentKey` 按调用方盖章（输出 21）），返回 `{sessionId, runId}`，不等运行结束；结果从 `runResult` 取，运行结束时 `frames` 里有 `runEnded`。`taskId` 是调用方生成的 UUID。
 11. **任务的幂等。** 同一个 `taskId` 重发得到同一个 `{sessionId, runId}`，服务端重启后也一样；会话已建、`send` 前失败的，重发补上 `send`。会话已存在但 Profile、项目或 `background` 与这次的参数不同，或同一个 `commandId` 带了不同的输入，得 `task-conflict`。
 12. **后台。** `background: true` 写进会话头，`list` 缺省不列；从它 fork 的会话是前台。
 13. **模型服务不在。** 会话照常打开、能读；发出模型请求时以 `no-model` 失败。
 14. **停止。** `nbook.agent` 停止时：先拒绝新的调用（远程与 `agentKey` 都得 `unavailable`，新订阅以同样的原因结束）；停 Profile 的监听，等进行中的打包结束、丢掉结果；等已接纳的打开、建会话与指令登记完，把所有打开着的会话按 `interrupted` 关闭（运行写 `interrupted`，重新打开后显示“上次运行被中断”，不自动续跑）。某个会话关闭失败写诊断，其余照常关闭。
 
-15. 远程 `activity` 与事件 `activityChanged`：快照与事件，列出运行中与等用户的前台会话（`{id, state: "running" | "waiting"}`），只看打开着的句柄；先订阅后取快照，`onResync` 重取。异步提问不在内。（planned）空闲的前台会话里有只有用户能放行的留着的话（`heldBy` 是用户，或用户自己的话留着，[`harness/runtime.md`](../harness/runtime.md) 输出 105）时也列出，`state: "held"`。
+15. 远程 `activity` 与事件 `activityChanged`：快照与事件，列出运行中与等用户的前台会话（`{id, state: "running" | "waiting"}`），只看打开着的句柄；先订阅后取快照，`onResync` 重取。异步提问不在内。空闲的前台会话里有只有用户能放行的留着的话（`heldBy` 是用户，或用户自己的话留着，[`harness/runtime.md`](../harness/runtime.md) 输出 105）时也列出，`state: "held"`。
 16. 远程 `approvalPreview`，见 [`builtin-tools.md`](builtin-tools.md)。
 17. 事件 `profileCatalogChanged`，没有过滤、没有载荷：只说目录变了（[`contributions.md`](contributions.md) 输出 16）。先订阅后取 `profiles`、`toolCatalog`，`onResync` 重取。
 15. **附件。** 存在 `sessions://<会话 id>/home/attachments/<SHA-256>.<扩展名>`，写全局地址：`fork` 只复制日志，不用复制文件；原会话被删后按缺失处理。扩展名按 MIME 白名单定，图片按文件头认，声明是图片、文件头不是的（包括 SVG）按普通文件存。上传 `POST /api/nbook.agent/sessions/<id>/attachments`，体是文件字节，原名按百分号编码放 `X-Attachment-Name`；别的网页发起的拒绝；会话不存在 404；单个 25 MB，边读边数，超了 413，不信 `Content-Length`；同一内容已有算成功；交回 `{uri, kind, name, mime, bytes, width?, height?}`。读取 `GET`、`HEAD` 同前缀加文件名，文件名只接受哈希加扩展名；别的网页发起的拒绝；会话不存在 404（归档的还读得到）；所有响应带 `Content-Security-Policy: sandbox` 与 `nosniff`，位图内联，别的下载，`ETag` 用哈希。不做缩略图。发给模型前由内核的读取端口缩放（最长边 1,568，目标 500 KB，同 `read` 工具），原图不动；解不了的（损坏、格式不支持、像素超限）换一行字，不发原图。
@@ -82,8 +82,14 @@ owners:
 18. 列表带父会话：`list` 的条目有 `parent?`，是会话头 `caller` 的会话 id（只在调用方是会话时）（[`harness/session.md`](../harness/session.md) 输出 22）；没有调用方的会话没有这一项。
 19. 子代理与任务的远程：查询 `tree({sessionId})` 与事件 `treeChanged`（[`subagents.md`](subagents.md) 输出 21、22）、`ancestors({sessionId})`（同上输出 25）；`activity` 的条目加 `root`（根会话 id）；查询 `jobs({sessionId})`、`jobTail({sessionId, jobId, lines?})`、`jobStatuses({sessionId, jobIds})`、事件 `jobsChanged`、指令 `killJob({sessionId, jobId})`（[`jobs.md`](jobs.md) 输出 9–11）。都以用户的身份；这几项不为取数打开会话（读关系表、会话索引与任务中心），不存在的会话交回空（`tree`、`ancestors`、`jobs` 是空列表，`jobStatuses` 全是 null，`jobTail`、`killJob` 得 `job-unknown`）。`activity` 的 `waiting` 只算停在等用户的事项上（审批、交给用户的提问、模式切换请求，同 [`subagents.md`](subagents.md) 输出 21 的 `waiting`）；子会话停在交给派它的 Agent 的提问上算 `running`。
 20. （planned）在跑的工作：`nbook.agent` 向宿主的 `runningWorkKey` 登记（[`runtime.server-host`](../runtime/server-host.md) 的“在跑的工作”），报出停止服务会中断的：有运行在跑或在等用户的会话，后台会话（`background: true`）也算，每个根会话一项“Agent 会话「<标题>」正在运行”或“…在等你处理”；任务中心里在跑的任务（[`jobs.md`](jobs.md)，含会话已空闲时还在跑的后台命令与子代理运行），每件一项，写命令或子代理名。
-21. （planned）**按调用方盖章。** `agentKey` 按调用方门面提供（[`runtime/services.md`](../runtime/services.md) 输出 12）：插件拿到的会话视图（`session(id, options?)` 与 `create` 交回的）缺省的发出者是宿主 `{kind: "host", source: {plugin: 调用方插件, label, ref?, at?}}`，`plugin` 由门面填，`label`、`ref`、`at` 由调用方给，调用方冒充不了别的插件；插件可以明说代替用户发（`{asUser: true}`），这时发出者是用户。门面随调用方停止或 `nbook.agent` 的服务实例释放而作废，之后的访问抛 `ServiceRevokedError`（[`runtime/services.md`](../runtime/services.md) 输出 12）；门面还在、服务正在停止时得 `unavailable`（输出 14）。只有 `nbook.agent` 自己的门面能指定会话的身份（子代理）：插件拿到的视图上 `as(issuer)` 同样经门面盖章，换成用户照准，换成宿主时 `plugin` 仍是调用方，换成会话身份抛错；插件建会话时给 `caller` 是会话的得 `not-allowed`。经远程合同来的都是用户。内核按发出者定权限（[`harness/runtime.md`](../harness/runtime.md) 输出 108），以这条为前提。
-22. （planned）**缓冲区条目。** 快照与远程合同里缓冲区的每条带 `by`、`state`（`ready`、`held`）、留着的 `cause` 与 `heldBy`、`edits` 与完整的输入（含附件），按 [`harness/runtime.md`](../harness/runtime.md) 输出 103；`send` 的成功值带去向 `placement`（同上输出 110），`send` 的 `replaces` 与 `release` 选项、`resume`、`release` 照内核原样暴露，失败码 `not-allowed`、`nothing-to-resume`、`held-by-user`、`nothing-to-release`、`input-stale` 照输出 3 交回。
+21. **按调用方盖章。** `agentKey` 按调用方门面提供（[`runtime/services.md`](../runtime/services.md) 输出 12）：插件拿到的会话视图（`session(id, options?)` 与 `create` 交回的）缺省的发出者是宿主 `{kind: "host", source: {plugin: 调用方插件, label, ref?, at?}}`，`plugin` 由门面填，`label`、`ref`、`at` 由调用方给，门面不接受调用方自填的插件身份；插件可以明说代替用户发（`{asUser: true}`），这时发出者是用户。门面随调用方停止或 `nbook.agent` 的服务实例释放而作废，之后的访问抛 `ServiceRevokedError`（[`runtime/services.md`](../runtime/services.md) 输出 12）；（planned）门面还在、服务正在停止时得 `unavailable`（输出 14）。会话的身份只给 `nbook.agent` 自己（子代理在内部按会话身份取句柄，不经 `agentKey`）：插件拿到的视图上 `as(issuer)` 同样经门面盖章，换成用户照准，换成宿主时 `plugin` 仍是调用方，换成会话身份抛错；插件建会话时给 `caller` 是会话的得 `not-allowed`。经远程合同来的都是用户。内核按发出者定权限（[`harness/runtime.md`](../harness/runtime.md) 输出 108），以这条为前提。
+22. **缓冲区条目。** 快照与远程合同里缓冲区的每条带 `state`（`ready`、`held`），不是用户发的带 `by`（用户的不带），留着的带 `cause`、因停止留着的另带 `heldBy`，以及 `edits` 与完整的输入（含附件），按 [`harness/runtime.md`](../harness/runtime.md) 输出 103；`send` 的成功值带去向 `placement`（同上输出 110），`send` 的 `replaces` 与 `release` 选项、`resume`、`release` 照内核原样暴露，失败码 `not-allowed`、`nothing-to-resume`、`held-by-user`、`nothing-to-release`、`input-stale` 照输出 3 交回。
+23. （planned）**归属。** `agentKey` 的 `create` 收可选的 `owner: {id}`，会话头的 `owner` 写成 `{plugin: 调用方插件, id}`（[`harness/session.md`](../harness/session.md) 输出 25）：`plugin` 由门面按调用方盖章，调用方只给 `id`，所以一个插件建不出归属别的插件的会话。`owner.id` 照会话头的规则校验，不合得 `invalid-owner`、不建会话。远程的 `create` 不收 `owner`（多出的字段得 `invalid-input`）。`fork` 出来的会话与子会话没有归属。门面盖章的发出者与交出的会话头是不能改的值，改了也不影响会话。
+24. （planned）**持有。** `hold(sessionId)` 打开会话并持有一份引用，交回 `{ok: true, value: {release()}}`；打开失败时交回打开的码（`session-not-found`、`session-busy`、`log-broken`、`log-corrupt`、`needs-migration`、`storage-failed`、`open-failed`），调用方据此重试或报告，不只写诊断。持有期间会话不因空闲关闭（输出 6），`release()` 之后照常；同一个调用方可以持有几次，各自释放。门面作废时（调用方停止，输出 21）它的持有一并放掉，经它取得的会话视图（含 `as` 派生的）之后的调用抛 `ServiceRevokedError`；作废之后才交回的持有立即放掉。`nbook.agent` 停止时会话照输出 14 关闭，之后 `release()` 什么都不做。Profile 解析不到时会话以只读打开，持有照样成功（快照里看得到只读）。持有中日志写失败（`log-broken`）的会话，要等全部引用放掉、重新打开才能恢复（已知限制）。
+25. （planned）**列表不列有归属的。** `list` 的结果不含有归属的会话，也不含它们的后代（按会话关系表，子会话、孙会话都算），远程与 `agentKey` 一样；有归属的根取自全部会话（含后台与归档的），不受这次列表的筛选条件影响。关系表断链（中间的祖先没有索引）时，断开处以下的会话照常列出（已知限制）。在跑的工作（输出 20）、活动（输出 15）与 `running()` 照样算它们。按 id 仍然读得到。
+26. （planned）**有归属的会话不改写历史。** 对有归属的会话，`rewind`（含编辑重发、重试与 swipe）、`switchBranch`、`archive` 得 `owned-session`，不进内核、不写日志，没打开的会话也不先打开（按会话头判断）；远程与 `agentKey` 的视图（含归属插件自己的）都一样。子会话不受这条限制。
+27. （planned）**发话一并结算。** 远程与 `agentKey` 视图的 `send` 收 `settlePending: "deny"`，照内核原样（[`harness/runtime.md`](../harness/runtime.md) 输出 111）。
+28. （planned）**读会话头。** `agentKey` 的 `header(sessionId)` 只读会话头、不打开会话（[`harness/session.md`](../harness/session.md) 输出 26）：会话不在得 `session-not-found`，读不懂得 `log-corrupt` 或 `needs-migration`。
 
 ## 状态与转换
 
@@ -116,6 +122,8 @@ owners:
 |---|---|---|
 | `task-conflict` | `taskId` 对应的会话参数不同，或输入不同 | 换一个 `taskId` |
 | `result-too-large` | 不分页的结果放不进一条消息 | 改用分页的查询（`log`、`path`）读 |
+| `owned-session` | （planned）会话有归属，不能改写历史或归档（输出 26） | 不做；有归属的会话只能往后写 |
+| `invalid-owner` | （planned）建会话时 `owner.id` 不合（输出 23） | 改正后再建 |
 | `session-not-found`、`session-busy`、`log-broken`、`read-only` 等 | 内核与存储的码，见 [`harness/session.md`](../harness/session.md)、[`harness/runtime.md`](../harness/runtime.md) | 按各自的说明 |
 | `unavailable`（通道） | 服务正在停止或没激活 | 稍后重试；写操作带同一个 `commandId` 或 `taskId` 重发 |
 | `unknown-outcome`（通道） | 写请求发出后断线 | 带同一个 `commandId` 或 `taskId` 重发，得到同一个结果 |
@@ -124,7 +132,7 @@ owners:
 
 - 公开接口：远程合同 `nbook.agent/sessions` 版本 1、服务键 `agentKey`、会话目录的位置。
 - 远程合同的输入输出与内核的类型一一对应（大小一节的投影除外），内核类型改了合同跟着改版本。
-- 信任边界：浏览器是用户本人；同进程的插件经 `agentKey` 可以用任何身份（planned：缺省是自己插件名的宿主，可以明说代替用户，不能冒充别的插件或会话，输出 21）。
+- 信任边界：浏览器是用户本人；同进程的插件经 `agentKey` 缺省以自己插件的宿主身份发话，可以明说代替用户，门面不接受自填的插件或会话身份（输出 21）。
 
 ## 验收与 Smoke
 
@@ -133,6 +141,7 @@ owners:
 3. `startTask` 写请求发出后断线得 `unknown-outcome`，带同一个 `taskId` 重发得到同一个 `{sessionId, runId}`；运行结束后 `runResult` 给出收尾工具的参数。
 4. 一个工具结果超过 1 MiB：`log` 与帧里是占位，经 `eventChunk` 读回完整的事件。
 5. 停止 `nbook.agent` 时一个运行在跑、一个会话正在打开：两者都按 `interrupted` 关闭，之后的调用得 `unavailable`。
+6. （planned）一个插件建有归属的会话并持有：`list` 不列它和它派的子会话，空闲 30 秒后它仍开着；远程的 `rewind`、`archive` 与归属插件自己视图上的 `switchBranch` 都得 `owned-session`、日志不变；插件停止后会话照常空闲关闭；远程 `create` 带 `owner` 得 `invalid-input`。
 
 Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试与 `agent.llm.test.ts`。
 
@@ -149,7 +158,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试与 `agent.llm.t
 
 ## 证据
 
-- 批准依据：w00032 t10 决定 1–8 与实施阶段的决定 9–15（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/README.md)）；t03 决定 4、5，t07 决定 7；开发者 2026-11-01 批准晋升为 `implemented`。
+- 批准依据：w00032 t10 决定 1–8 与实施阶段的决定 9–15（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/README.md)）；t03 决定 4、5，t07 决定 7；开发者 2026-11-01 批准晋升为 `implemented`；缓冲区条目的就绪与留着、放行、继续与停止的两个选项（本 Task 加的条目）依据 [提案：输入缓冲区](../../proposals/agent-input-buffer-states.md)（2026-11-18 接受）与 [w00043 t14](../../../.agents/works/w00043-neurobot/tasks/t14-input-buffer-states/README.md)，逐句核对后晋升（[核对处理](../../../.agents/works/w00043-neurobot/tasks/t14-input-buffer-states/evidences/promotion-check-disposition.md)）。
 - 实现入口：nb-harness 的 [`kit/sessions/table.ts`](../../../packages/nb-harness/src/kit/sessions/table.ts)（句柄表）、[`backend/agent.ts`](../../../packages/neuro-book/src/plugins/agent/backend/agent.ts)（装配、`agentKey`、`startTask`）、[`backend/remote.ts`](../../../packages/neuro-book/src/plugins/agent/backend/remote.ts)、[`backend/frames.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.ts)、[`shared/remote.ts`](../../../packages/neuro-book/src/plugins/agent/shared/remote.ts)
-- 合同测试：[`sessions.test.ts`](../../../packages/neuro-book/src/plugins/agent/sessions.test.ts)（真实远程链路、断线重连）、[`tasks.test.ts`](../../../packages/neuro-book/src/plugins/agent/tasks.test.ts)（`startTask` 与 `unknown-outcome` 重发）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（句柄表与停止）、nb-harness 的 [`kit/sessions/table.test.ts`](../../../packages/nb-harness/src/kit/sessions/table.test.ts)（空闲关闭的时序）、[`backend/frames.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.test.ts)
+- 合同测试：[`sessions.test.ts`](../../../packages/neuro-book/src/plugins/agent/sessions.test.ts)（真实远程链路、断线重连）、[`tasks.test.ts`](../../../packages/neuro-book/src/plugins/agent/tasks.test.ts)（`startTask` 与 `unknown-outcome` 重发）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（句柄表与停止）、nb-harness 的 [`kit/sessions/table.test.ts`](../../../packages/nb-harness/src/kit/sessions/table.test.ts)（空闲关闭的时序）、[`backend/frames.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.test.ts)；输出 15、21、22：`sessions.test.ts`（“缓冲区条目经远程”）、`tasks.test.ts`（“按调用方盖章”）
 - Smoke：[`agent.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.llm.test.ts)（`test:llm`，DeepSeek 经远程合同跑一轮）

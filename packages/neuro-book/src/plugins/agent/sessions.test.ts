@@ -207,6 +207,62 @@ describe("远程合同", () => {
         expect(ok(await client.profiles({})).map((profile) => profile.key)).toContain(WRITER);
     });
 
+    test("输出 22、15：缓冲区条目经远程带发出者、状态、原因与输入；send 交回去向；resume、release 照内核暴露，失败码照原样；用户停止留下的话让活动列为 held", async () => {
+        const w = await world();
+        const {client} = await w.window("a");
+        const sessionId = ok(await client.create({profile: WRITER})).sessionId;
+        const changes: (readonly {readonly id: string; readonly state: string}[])[] = [];
+        const watching = ok(await client.events.activityChanged.subscribe({}, (items) => void changes.push(items)));
+        expect(await client.resume({sessionId, commandId: cid()})).toMatchObject({ok: false, code: "nothing-to-resume"});
+        expect(await client.release({sessionId, commandId: cid(), inputIds: ["nope"]})).toMatchObject({ok: false, code: "nothing-to-release", detail: {ids: ["nope"]}});
+
+        const hold = endpoint.hold();
+        endpoint.script("第一条回复");
+        const started = ok(await client.send({sessionId, commandId: cid(), input: {text: "开始"}}));
+        expect(started.value).toMatchObject({placement: "taken"});
+        await hold.arrived;
+        ok(await client.enqueue({sessionId, commandId: cid(), input: {text: "插一句"}, mode: "steer"}));
+        ok(await client.enqueue({sessionId, commandId: cid(), input: {text: "排一条"}, mode: "followup"}));
+        const host = w.service.session(sessionId, {asUser: false, source: {label: "日程", ref: "r-1"}});
+        expect((await host.enqueue({commandId: cid(), input: {text: "日程的"}, mode: "followup"})).ok).toBe(true);
+        const ready = ok(await client.snapshot({sessionId})).buffer;
+        expect(ready.map((item) => [item.input, item.mode, item.state, item.by ?? null])).toEqual([
+            [{text: "插一句"}, "steer", "ready", null],
+            [{text: "排一条"}, "followup", "ready", null],
+            [{text: "日程的"}, "followup", "ready", expect.objectContaining({kind: "host", source: expect.objectContaining({label: "日程", ref: "r-1"})})],
+        ]);
+
+        ok(await client.abort({sessionId, commandId: cid(), keepQueue: true}));
+        hold.release();
+        await waitUntil("停下", async () => ok(await client.runResult({sessionId, runId: started.value.runId!})) !== null);
+        const held = ok(await client.snapshot({sessionId})).buffer;
+        expect(held.map((item) => [item.state, item.cause, item.heldBy])).toEqual(held.map(() => ["held", {end: "aborted"}, {kind: "user"}]));
+        expect(ok(await client.activity({}))).toEqual([expect.objectContaining({id: sessionId, state: "held"})]);
+        await waitUntil("推送了 held", () => changes.at(-1)?.some((item) => item.id === sessionId && item.state === "held") === true);
+
+        // 按条放行宿主那条：开一次运行跑它，另两条还留着。
+        endpoint.script("处理了日程的");
+        const released = ok(await client.release({sessionId, commandId: cid(), inputIds: [held[2]!.id]}));
+        expect(released.value).toMatchObject({released: [held[2]!.id]});
+        await waitUntil("跑完", async () => ok(await client.runResult({sessionId, runId: (released.value as {runId: string}).runId})) !== null);
+        expect(ok(await client.snapshot({sessionId})).buffer.map((item) => [item.input.text, item.state])).toEqual([["插一句", "held"], ["排一条", "held"]]);
+
+        // 其余按排队顺序放行：插话也改成排队，各自一轮。
+        endpoint.script("处理了插一句", "处理了排一条");
+        const resumed = ok(await client.resume({sessionId, commandId: cid(), mode: "followups"}));
+        expect(resumed.value).toMatchObject({released: [held[0]!.id, held[1]!.id]});
+        await waitUntil("都跑完", async () => ok(await client.runResult({sessionId, runId: (resumed.value as {runId: string}).runId})) !== null);
+        expect(ok(await client.snapshot({sessionId})).buffer).toEqual([]);
+        const path = await w.service.session(sessionId).path();
+        expect(path.filter((event) => event.type === "input" || event.type === "steer").map((event) => [event.type, (event.data as {text: string}).text]).slice(-2)).toEqual([["input", "插一句"], ["input", "排一条"]]);
+        await waitUntil("活动里没有了", () => changes.at(-1)?.some((item) => item.id === sessionId) === false);
+        // 宿主空闲时排的话留着，它自己能放行：不算等用户处理。
+        expect((await host.enqueue({commandId: cid(), input: {text: "日程又排的"}, mode: "followup"})).ok).toBe(true);
+        expect(ok(await client.snapshot({sessionId})).buffer.map((item) => item.state)).toEqual(["held"]);
+        expect(ok(await client.activity({}))).toEqual([]);
+        watching.release();
+    });
+
     test("输出 3：从浏览器来的输入按结构校验：缺字段、类型不对、多出字段都是 invalid-input，不进日志", async () => {
         const w = await world();
         const {client} = await w.window("a");

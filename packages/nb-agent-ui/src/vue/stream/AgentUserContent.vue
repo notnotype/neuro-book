@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import type {PromptToken} from "../../ports";
+import type {PromptToken, StickerPreviewRequest} from "../../ports";
 import type {ContentBlockView, UserMessageView} from "../../types";
 import {useAgentRenderers, useAgentText} from "../host";
-import {tokenAction, type ViewAction} from "../view-action";
+import {stickerPreviewAction, tokenAction, type ViewAction} from "../view-action";
 
 type Attachment = Extract<ContentBlockView, {kind: "attachment"}>;
 
@@ -47,6 +47,10 @@ function activateToken(token: PromptToken): void {
     if (action !== null) emit("action", action);
 }
 
+function activateSticker(sticker: StickerPreviewRequest): void {
+    emit("action", stickerPreviewAction(sticker, (name, pack) => t("stickerPreview.title", {name, pack})));
+}
+
 function isImage(file: Attachment): boolean {
     return file.mimeType.startsWith("image/");
 }
@@ -70,6 +74,7 @@ function formatBytes(bytes: number): string {
                 :locale="locale"
                 :resolve-thumbnail="thumbnail"
                 @token-activate="activateToken"
+                @sticker-activate="activateSticker"
             />
             <div v-else class="acv-user-content__files">
                 <template v-for="file in segment.items" :key="file.locator">

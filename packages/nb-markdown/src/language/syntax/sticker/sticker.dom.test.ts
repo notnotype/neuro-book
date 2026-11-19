@@ -13,7 +13,8 @@ import {defaultChipEnv} from "../../../chip/chip";
 import MarkdownDisplay from "../../../display/MarkdownDisplay.vue";
 import {createMarkdownEditorExtensions} from "../../../editor/markdown-editor-extensions";
 import {provideMarkdownHost} from "../../../host";
-import type {ResolvedSticker, StickerRef, StickerResolver} from "../../../stickers";
+import type {DisplayActivation} from "../../../display/static-views";
+import type {ResolvedSticker, StickerPreview, StickerRef, StickerResolver} from "../../../stickers";
 import {codecFor} from "../../codec/codec";
 import {defaultMarkdownLanguage} from "..";
 
@@ -31,17 +32,17 @@ function catalog(known: readonly string[]) {
         queries.push({
             ref,
             signal,
-            answer: () => resolve(known.includes(ref.raw) ? {url: `/stickers/${encodeURIComponent(ref.name)}.webp`, width: 64, height: 48, release: () => (released += 1)} : null),
+            answer: () => resolve(known.includes(ref.raw) ? {url: `/stickers/${encodeURIComponent(ref.name)}.webp`, width: 64, height: 48, pack: "user.lyra", packTitle: "星璃", release: () => (released += 1)} : null),
         });
     });
     return {resolver, queries, released: () => released, answerAll: () => queries.splice(0).forEach((query) => query.answer())};
 }
 
-function display(text: string, stickers: StickerResolver | undefined) {
+function display(text: string, stickers: StickerResolver | undefined, onActivate?: (activation: DisplayActivation) => void) {
     const Outer = defineComponent({
         setup: () => {
             provideMarkdownHost({...(stickers === undefined ? {} : {stickers})});
-            return () => h(MarkdownDisplay, {locale: "zh-CN", text});
+            return () => h(MarkdownDisplay, {locale: "zh-CN", text, ...(onActivate === undefined ? {} : {onActivate})});
         },
     });
     const wrapper = mount(Outer, {attachTo: document.body});
@@ -53,10 +54,10 @@ function display(text: string, stickers: StickerResolver | undefined) {
 /** `root` 是展示器的根元素（外层组件没有自己的元素）。 */
 const settledDisplay = (root: HTMLElement) => waitUntil("展示器画完", () => root.childElementCount > 0 || null);
 
-function editor(markdown: string, stickers: StickerResolver | undefined): Editor {
+function editor(markdown: string, stickers: StickerResolver | undefined, previewSticker?: (sticker: StickerPreview) => void): Editor {
     const element = document.createElement("div");
     document.body.append(element);
-    const instance = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", commentMarkerLabel: null, host: {base: () => null, assets: null, chips: defaultChipEnv, stickers}})});
+    const instance = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", commentMarkerLabel: null, host: {base: () => null, assets: null, chips: defaultChipEnv, stickers, previewSticker}})});
     cleanups.push(() => instance.destroy());
     instance.commands.setContent(codecFor(instance.schema, language).read(markdown).doc.toJSON());
     return instance;
@@ -142,7 +143,8 @@ describe("展示器", () => {
 describe("编辑器", () => {
     it("元素结构与类名同展示器", async () => {
         const stickers = catalog([":a:"]);
-        const instance = editor("x :a:\n", stickers.resolver);
+        // 编辑器的宿主也给预览（展示器总能发 activate）：两边的表情都能点开，都带 `is-previewable`。
+        const instance = editor("x :a:\n", stickers.resolver, () => undefined);
         const {root} = display("x :a:\n", stickers.resolver);
         await settledDisplay(root);
         stickers.answerAll();
@@ -223,5 +225,104 @@ describe("编辑器", () => {
         instance.commands.setTextSelection({from: 1, to: instance.state.doc.content.size - 1});
         const text = instance.view.someProp("clipboardTextSerializer", (serialize) => serialize(instance.state.selection.content(), instance.view));
         expect(text).toBe("前:a:后");
+    });
+});
+
+/** 点一下图：缺省是不带修饰键的左键单击。 */
+function click(target: Element, init: MouseEventInit = {}): void {
+    target.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, button: 0, detail: 1, ...init}));
+}
+
+const HAPPY: StickerPreview = {raw: ":lyra/开心:", url: "/stickers/%E5%BC%80%E5%BF%83.webp", name: "开心", packTitle: "星璃", width: 64, height: 48};
+
+describe("大图预览（stickers.md 输出 46）", () => {
+    it("展示器：单击表情的图发出 sticker，带写法、地址、名字与包的显示名；查到图时写上表情包 id", async () => {
+        const stickers = catalog([":lyra/开心:"]);
+        const activations: DisplayActivation[] = [];
+        const {root} = display("今天:lyra/开心:\n", stickers.resolver, (activation) => activations.push(activation));
+        await settledDisplay(root);
+        // 还在查（占位）时没有图，点了没反应。
+        click(root.querySelector(".nb-sticker")!);
+        expect(activations).toEqual([]);
+        stickers.answerAll();
+        const image = await waitUntil("换成图", () => root.querySelector<HTMLImageElement>(".nb-sticker img"));
+        expect(root.querySelector<HTMLElement>(".nb-sticker")?.dataset.stickerPack).toBe("user.lyra");
+        click(image);
+        expect(activations).toEqual([{kind: "sticker", sticker: HAPPY}]);
+    });
+
+    it("展示器：带修饰键、右键、双击的第二下不打开", async () => {
+        const stickers = catalog([":lyra/开心:"]);
+        const activations: DisplayActivation[] = [];
+        const {root} = display(":lyra/开心: 句子\n", stickers.resolver, (activation) => activations.push(activation));
+        await settledDisplay(root);
+        stickers.answerAll();
+        const image = await waitUntil("换成图", () => root.querySelector<HTMLImageElement>(".nb-sticker img"));
+        for (const init of [{shiftKey: true}, {ctrlKey: true}, {metaKey: true}, {altKey: true}, {button: 2}, {detail: 2}]) click(image, init);
+        expect(activations).toEqual([]);
+    });
+
+    it("展示器：链接里的表情只发出 link，点击与键盘都不打开大图", async () => {
+        const stickers = catalog([":lyra/开心:"]);
+        const activations: DisplayActivation[] = [];
+        const {root} = display("[:lyra/开心: 点这里](https://example.com)\n", stickers.resolver, (activation) => activations.push(activation));
+        await settledDisplay(root);
+        stickers.answerAll();
+        const image = await waitUntil("换成图", () => root.querySelector<HTMLImageElement>("a .nb-sticker img"));
+        click(image);
+        expect(activations).toEqual([{kind: "link", href: "https://example.com"}]);
+        // 键盘也不打开：链接里的表情不是按钮、不在 Tab 序里，回车不发 sticker。
+        const element = root.querySelector<HTMLElement>("a .nb-sticker")!;
+        expect(element.getAttribute("role")).toBeNull();
+        expect(element.getAttribute("tabindex")).toBeNull();
+        element.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        expect(activations.filter((activation) => activation.kind === "sticker")).toEqual([]);
+    });
+
+    it("展示器：表情可以用键盘打开，名字是“查看大图：名字”；图读不出来回到原文时不再能打开，也不带表情包 id", async () => {
+        const stickers = catalog([":lyra/开心:"]);
+        const activations: DisplayActivation[] = [];
+        const {root} = display(":lyra/开心: 句子\n", stickers.resolver, (activation) => activations.push(activation));
+        await settledDisplay(root);
+        stickers.answerAll();
+        const image = await waitUntil("换成图", () => root.querySelector<HTMLImageElement>(".nb-sticker img"));
+        const element = root.querySelector<HTMLElement>(".nb-sticker")!;
+        expect(element.getAttribute("role")).toBe("button");
+        expect(element.getAttribute("aria-label")).toBe("查看大图：开心");
+        element.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        element.dispatchEvent(new KeyboardEvent("keydown", {key: " ", bubbles: true, cancelable: true}));
+        expect(activations).toHaveLength(2);
+        image.dispatchEvent(new Event("error"));
+        expect(element.getAttribute("role")).toBeNull();
+        expect(element.hasAttribute("data-sticker-pack")).toBe(false);
+        element.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        expect(activations).toHaveLength(2);
+    });
+
+    it("编辑器：单击表情的图把光标放到它后面、交给宿主的 previewSticker；节点不可聚焦；输入法组字时不打开", async () => {
+        const stickers = catalog([":lyra/开心:"]);
+        const previews: StickerPreview[] = [];
+        const instance = editor("前:lyra/开心:后\n", stickers.resolver, (sticker) => previews.push(sticker));
+        stickers.answerAll();
+        const image = await waitUntil("换成图", () => instance.view.dom.querySelector<HTMLImageElement>(".nb-sticker img"));
+        expect(instance.view.dom.querySelector(".nb-sticker")?.getAttribute("tabindex")).toBeNull();
+        click(image);
+        expect(previews).toEqual([HAPPY]);
+        // 光标放到表情后面（“前”在 1，表情在 2）：预览关上后接着打字落在这里。
+        expect(instance.state.selection.from).toBe(3);
+        instance.view.dom.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
+        expect(instance.view.composing).toBe(true);
+        click(image);
+        expect(previews).toHaveLength(1);
+    });
+
+    it("编辑器：没有 previewSticker 时点了不做什么", async () => {
+        const stickers = catalog([":lyra/开心:"]);
+        const instance = editor("前:lyra/开心:后\n", stickers.resolver);
+        stickers.answerAll();
+        const image = await waitUntil("换成图", () => instance.view.dom.querySelector<HTMLImageElement>(".nb-sticker img"));
+        expect(() => click(image)).not.toThrow();
+        // 没有预览就没有放大镜指针。
+        expect(instance.view.dom.querySelector(".nb-sticker")?.classList.contains("is-previewable")).toBe(false);
     });
 });

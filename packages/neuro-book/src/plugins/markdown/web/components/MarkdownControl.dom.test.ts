@@ -15,6 +15,7 @@ import type {Ref} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
+import type {StickerResolver} from "@notnotype/nb-markdown";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
 import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
@@ -33,6 +34,7 @@ import type {EditorArea} from "nbook/plugins/editor/web/area";
 import type {WindowText} from "nbook/shared/window-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 import {createAssetUrls, markdownAssetsKey} from "../parts/asset-urls";
+import {markdownStickersKey} from "../parts/stickers";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
 import {memoryPropertiesOpen, markdownPropertiesOpenKey} from "../properties-open";
 import type {PropertiesOpen} from "../properties-open";
@@ -69,7 +71,7 @@ interface Opened {
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
-async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean; readonly media?: MarkdownMedia; readonly wrapMenus?: (menus: EditorMenus) => EditorMenus; readonly paper?: Ref<MarkdownEditorOptions>} = {}): Promise<Opened> {
+async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean; readonly media?: MarkdownMedia; readonly wrapMenus?: (menus: EditorMenus) => EditorMenus; readonly paper?: Ref<MarkdownEditorOptions>; readonly stickers?: StickerResolver} = {}): Promise<Opened> {
     const memory = area?.memory ?? createMemoryFiles({project: [["a.md", text]], user: []});
     const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
@@ -96,7 +98,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerTabHandle(tabId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, [markdownPropertiesOpenKey as symbol]: propertiesOpen, ...(options.menus === true ? {[editorMenusKey as symbol]: ((menus) => (options.wrapMenus === undefined ? menus : options.wrapMenus(menus)))(options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port))} : {}), ...(options.media === undefined ? {} : {[markdownMediaKey as symbol]: options.media}), ...(options.paper === undefined ? {} : {[markdownEditorOptionsKey as symbol]: options.paper})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, [markdownPropertiesOpenKey as symbol]: propertiesOpen, ...(options.menus === true ? {[editorMenusKey as symbol]: ((menus) => (options.wrapMenus === undefined ? menus : options.wrapMenus(menus)))(options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port))} : {}), ...(options.media === undefined ? {} : {[markdownMediaKey as symbol]: options.media}), ...(options.paper === undefined ? {} : {[markdownEditorOptionsKey as symbol]: options.paper}), ...(options.stickers === undefined ? {} : {[markdownStickersKey as symbol]: options.stickers})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
     return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper, propertiesOpen};
@@ -1180,5 +1182,18 @@ describe("链接与图片的宿主（markdown-editing.md 输出 53、55、58）"
         expect(executed).toEqual([]);
         expect(clicked).toEqual([]);
         expect(notices).toEqual([]);
+    });
+});
+
+describe("表情的大图预览（docs/specs/agent/stickers.md 输出 46）", () => {
+    it("单击正文里表情的图打开预览：标题“名字 · 包名”、复制写法、图的地址（光标落在点击处在 e2e 里看）", async () => {
+        const stickers: StickerResolver = async (ref) => (ref.name === "开心" ? {url: "/img/开心.webp", width: 128, height: 128, pack: "user.lyra", packTitle: "星璃", release: () => undefined} : null);
+        const {editor} = await opened("前:lyra/开心:后\n", undefined, undefined, {stickers});
+        const image = await waitUntil("换成图", () => editor.view.dom.querySelector<HTMLImageElement>(".nb-sticker img"));
+        image.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, button: 0, detail: 1}));
+        const dialog = await waitUntil("预览打开", () => document.body.querySelector<HTMLElement>("[role=dialog]"));
+        expect(dialog.textContent).toContain("开心 · 星璃");
+        expect(dialog.querySelector("img")?.getAttribute("src")).toBe("/img/开心.webp");
+        expect(dialog.querySelector("[data-image-preview-copy] button")?.getAttribute("aria-label")).toBe("复制写法");
     });
 });

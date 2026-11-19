@@ -67,7 +67,7 @@ function rightEditor(doc: LayoutDoc, id: string): string | null {
     return null;
 }
 
-const notFound = (detail: string): LayoutResult => ({ok: false, code: "not-found", detail});
+const notFound = (id: string): LayoutResult => ({ok: false, code: "not-found", message: `Not found: ${id}`});
 
 export function createEditorPanels(host: EditorLayoutHost): EditorPanels {
     const panels = computed(() => editorEntries(host.document()));

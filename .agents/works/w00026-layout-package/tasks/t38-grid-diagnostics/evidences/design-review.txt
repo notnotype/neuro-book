@@ -1,0 +1,134 @@
+### 1. 键盘诊断 `no-collapse-policy` 和 Enter 的 `no-room-to-restore` 在 Grid 会话里取不到，计划的键盘用例写不出来
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“键盘调整分隔线不发诊断”、测试“键盘：Enter 收起一块没有收起策略的面板，发 `no-collapse-policy`”、切片 2；`sash-drag.ts:178、194`，`grid-gesture.ts:203-224、250-276、279-287`，`splitter-session.ts:102-110`
+- **现象**：
+  - `no-collapse-policy`（178）只在 `solveSashCollapse` 收到没有 `collapse` 的面板时产生。两个会话都先用 `collapsibleIndex` 挑“有 `collapse` 的面板”，没有就直接返回 `null`，所以这个码从会话里发不出来。
+  - `no-room-to-restore`（194）在 Grid 会话里被覆盖：
+    - `applyCollapse` 在“没有真实变化”时返回 false（`grid-gesture.ts:270`）。
+    - `solve()` 随后落到 `solveSashDrag`（delta 为 0），`owner.issues = result.issues`（224 行）把刚设的 issues 改成 `[]`。
+    - `solve()` 自己那份 `issues` 数组也从不收 `applyCollapse` 的诊断。
+  - Splitter 会话的 `collapseOn` 没有这个覆盖，但 `Splitter.vue` 没有 issues 出口。
+- **如何核实**（exp/e1.test.ts，在 t34 worktree 里跑）：
+  - `a` 收起（min 200）、`b` 的 min 150、总 301，键盘 Enter 恢复：`toggleCollapsed()` 返回 `null`，`session.issues` 是 `[]`。
+  - 同一输入直接调 `solveSashCollapse`：`issues` 是 `["面板 a 的恢复空间不足（可用 150px），保持收起"]`。
+  - 两块都没有收起策略时按 Enter：`null`，`session.issues` 是 `[]`。
+- **为什么是问题**：这正是 t34 第三轮第 9 条要补的两个死码。计划只在 `useSashGesture` 加“预览之后通知”，没有改会话。按字面实现，这条用例会一直红，实现者要么改产品代码迁就测试，要么悄悄删用例。通知也不能挂在“有预览”之后：Enter 恢复失败时 `preview` 为 `null`。
+- **建议改法**：
+  - 在 `grid-gesture.ts` 的 `solve()` 里，`applyCollapse` 返回 false 后不要落到 `solveSashDrag` 去覆盖它的诊断，而是合并或提前返回。
+  - `no-collapse-policy` 要么让 `toggleCollapsed` / `setCollapsed` 在没有可折叠面板时产生这条诊断（`collapsibleIndex` 为 `null` 处），要么承认只有直接调 `solveSashCollapse` 才有，把码从“会话诊断”里拿掉。
+  - 键盘通知无论预览是否为 `null` 都调用一次。
+  - 把 `grid-gesture.ts` 写进切片 1，并加两条会话级用例（上面的输入原样可用）。
+
+### 2. “同一次求解里同一个键最多一条”有名不副实的重复，`range-overflow` 的缺口本可以补上
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“关键设计”表（195、533）与关键设计第一条列表末尾的论证；`grid-geometry.ts:191-196、510、532-534`，`grid-gesture.ts:209`，`sash-drag.ts:247`
+- **现象**：
+  - 195（`no-weight`）和 533（`capped`）在同一分支里会同时发。exp/e2：两个 fixed 叶、容器 600，得到“…没有按比例分配的节点，剩余 399 未被吸收”和“…可用空间 600 有 399 未被任何子节点吸收”两条。码相同、`cause` 不同、`rest` 相同，说的是同一件事。
+  - 533 对“根本没有 weight 节点”和“weight 节点封顶”都报，所以 `capped` 在 fixed-only 的分支上没有任何东西被封顶。
+  - 195 受 `quiet` 约束（510 行传 `[]`），533 不受，两条在祖先收起时的行为不一致（代码推断，我没构造出能触发的场景）。
+  - `range-overflow` 没有 `id`、没有 `axis`，计划因此承认交叉处两根轴同时装不下时有一条被吞。
+  - `solveSashDrag` 确实不认识分支，但调用方 `grid-gesture.ts:209` 有 `owner.sash.branchId` 和 `axis`，`splitter-session.ts` 有 `input.branchId`，加进 `params` 只要几行。
+- **其余路径的核对**（这些成立）：
+  - `measure` 每个节点一次，`allocateAxis` 每个分支一次。
+  - 361 有 `reportedConstraints` 去重。
+  - 149、185、502、507 的 `cause` 或轴互不相同。
+  - `leaf-min` 按轴各一条。
+  - `no-room-*` 的面板 id 在树里唯一，不会同时出现在两个 owner 里。
+- **建议改法**：
+  - 一个分支一条 `unabsorbed-space`，`cause` 在 `no-weight` 和 `capped` 之间二选一：从 `allocatePanels` 的 `weighted.length === 0` 推出，195 不再单独发，或者 533 在 195 已发时不发。
+  - `range-overflow` 由调用方补 `id`（分支）和 `axis` 进 `params`。键就唯一，计划里“风险”最后一条和“只发第一条”的例外可以删。
+
+### 3. 回调抛出：只保护了 `onIssues` 一个出口，`console.error` 又绕过宿主的全局错误处理
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“回调抛出”、“风险”第二条、“和第 3 稿、提案不同的地方”第 3 条；`useSashGesture.ts:262-332、301-321、407-418`，`NestedGrid.vue:484-495、548-550`
+- **现象**：
+  - `flush` 是 `current.onPreview(preview); pushIssues(...)`。`onPreview` 在 `NestedGrid` 里是 `emit("gesture-update")`，宿主监听抛出时，Vue 开发构建会重新抛出（r3 第 2 条已核实）。`onPointerUp` 里 `flush()` 抛出，`finish()` 同样不跑，手势卡死，高亮留着。
+  - `cancel` 和 `finish` 的无变化分支里，`onCancel`（`emit("gesture-cancel")`）在 `active.value = new Set()` 之前，抛出会让 `active` 留着。
+  - 只把 `onIssues` 包进 `notify` 后，“收尾在所有路径上成立”只对 `@issues` 成立。计划里的用例用 `@issues` 抛错，会绿，而 `@gesture-update` 抛错仍然卡死。
+  - `console.error` 到不了 `window.onerror`、Sentry 一类全局处理，也到不了 Vue 的 `app.config.errorHandler`。计划自己的“风险”也承认这点。计划说“和 Vue 生产构建一样”，只在应用没设 `errorHandler` 时成立：有 `errorHandler` 时 Vue 把异常交给它，开发构建里也不抛。
+  - 通知异常在 `onApplied` 一条上走 `notify-failed`，在 `onIssues` 自己一条上是 `console.error`，同一个出口两种处理。
+- **为什么是问题**：问题的根在“宿主回调抛出时库的收尾不成立”，不在 `onIssues` 这一个回调上。`useSashGesture` 是 `nb-layout/vue` 公开的，第三方照样会遇到。
+- **如何核实**：给 `NestedGrid` 挂抛错的 `@gesture-update`，pointermove 之后立刻 pointerup，断言 `dragging` 为假、`active` 为空：现状和计划实施后都会红。
+- **建议改法**：
+  - 收尾的保证不靠包回调，改成控制流：`onPointerUp` 用 `try { flush() } finally { release; finish() }`，`cancel` 和 `finish` 里先清状态、最后才调宿主回调。这样异常照常冒出去，不吞，所有出口一起受保护。
+  - 唯一必须吞的是 `onGestureCommit` 里 `recompute()` 的通知：它发生在 `grid.resizeBranches` 已落账之后。这一处用 `reportError(error)`（DOM 标准，派发 `error` 事件、不抛，全局处理能看到），不支持时再退回 `console.error`；测试环境里要确认 happy-dom 有 `reportError`。
+  - 用例分别覆盖 `@issues`、`@gesture-update`、`@gesture-cancel` 抛出。
+  - 对第 3 条的判断：方向（不让诊断回调破坏提交）对，做法过窄；不建议原样接受。
+
+### 4. 度量参数口径不自洽：`fixed-overflow` 的 `available`/`required` 不可比，浮点尾巴原样进 `params`，`required` 一词六义
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“每一处的码与参数”表与“度量是数字（四舍五入到 0.01 前的原值）”；`grid-geometry.ts:44、175-186、502、507`，`sash-drag.ts:247`
+- **现象**：
+  - `fixed-overflow`：条件是 `fixedTotal > budgetForFixed`（预算 = 空间 − 刚性 − weight 的最小值），旧文案报的是 `space`。计划写 `available`、`required`（压缩前固定尺寸合计）。exp/e3：两个 fixed 面板各 200、一个 weight 面板 min 150、`space` 500，预算 350：`available = 500`、`required = 400`，`required` 比 `available` 小，却被报为装不下。宿主拼“需要 400，可用 500”会得到一句自相矛盾的话。
+  - 各 `cause` 的 `available`、`required` 口径不同：
+    - `min-total` 的 `available` 是扣掉分隔条之后的空间。
+    - `sash-overflow` 的 `available` 是 `target`（没扣），`required` 是 `configuredGap`。
+    - `cross-min` 是交叉轴的。
+    - `range-overflow` 的 `required` 是“分支总量”，它既不是最小需求（`boundsFit` 失败也可能是 `total > Σhigh`），也不是能装下的量。
+  - “原值”会带浮点尾巴：exp/e3 里 `0.1+0.2+150` 的 `available` 经 `round` 才显示 150.3，原值是 150.30000000000001。`round` 存在的理由就是“不暴露浮点尾巴”，而 `params` 要直接交给 i18n 的参数插值。
+- **建议改法**：
+  - 每个 `cause` 写一行定义：`available` 是什么、`required` 是什么，谁和谁可比。`fixed-overflow` 的 `available` 取 `budgetForFixed`。
+  - `params` 里的数字过 `round`，和 `message` 一致。
+  - `range-overflow` 要么拆成 `min-total` 和 `max-total` 两个 `cause`，要么把参数换成 `low`、`high`、`total`。
+
+### 5. 去重和键放在 Vue 输入层、两处各写一份，没放进纯 TS 的会话与 L0
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：计划“结果是快照，通知只发边沿”的“布局重算”“手势”两条；`useSashGesture.ts`、`useGridLayout.ts`
+- **现象**：键（码、`cause`、`axis`、`id`）的计算、同批同键取第一条、“消失再出现再发”分别写在 `useGridLayout.recompute` 和 `useSashGesture` 里，计划没有说键函数放哪。
+- **为什么是问题**：
+  - 键是诊断合同的一部分，却在两个 Vue 文件里各有一份，没有 DOM 就测不了。
+  - 第 1 条的覆盖问题也是同一个根因：会话（纯 TS）才知道哪些 issues 是这一场新增的，输入层只能看到被覆盖后的结果。
+- **建议改法**：
+  - L0 加纯函数 `issueKey(issue)` 和 `newIssues(seen, batch)`，`useGridLayout` 与会话都用它。
+  - 手势这一份做成会话核心的一个成员（例如 `takeNewIssues()`，Grid 会话与 Splitter 会话都实现），`useSashGesture` 只转发。
+  - 这样“一场手势只发一次”可以不挂 DOM 直接单测，`useSashGesture.dom.test.ts` 里不用造手势。
+
+### 6. 公开面清单、事件元素的判别、`swap-skipped` 的参数、测试判据
+
+- **严重程度**：建议；**类别**：文档/测试
+- **位置**：计划“公开面变更清单”、`swap-skipped` 一行、“测试迁移规则”
+- **现象**：
+  - **`GridLayoutResult.issues` 记成“否/不写”不准确。** 它经 SDK 已导出的 `GridGesturePreview.layout`（`gesture-update` 载荷）到达插件。应与 `GridGesturePreview.issues` 同归“不兼容的改动”。
+  - **“已经构建的插件运行时会出错”夸大了。** 读字符串的插件拿到的是对象：`issues.join()` 得 `[object Object]`，`includes("…")` 恒假，不抛异常。归为不兼容仍对，措辞应写“静默读到错值”。
+  - **事件元素缺判别。** `issues` 事件元素是 `GridIssue<…>` 的联合，里面同时有“已回滚的失败”（`stale-revision` 等）和“已降级的诊断”。计划没写失败派生的元素是否保留 `ok: false`，宿主只能查码表区分。建议元素类型写 `GridIssue | GridFailure`，让 `ok === false` 成为判别。
+  - **`swap-skipped` 的 `no-leaving`/`no-entering` 没有任何参数。** 离开的叶列表只在 `message` 里，宿主拼不出文字。`swap.token` 或叶数量这类标量可以放进 `params`。
+  - **“只通知一次”的判据要写两半。**
+    - 先断言一次通知确实发出（数量恰为 1，且快照里确有这条）。否则“通知从来没发”和“只发一次”分不开。
+    - 每个新行为做一次变异（去掉键集比较、不清键集），确认用例变红。计划只对 `not-published` 要求变异。
+  - **这个 `not-published` 用例能写。** `useGridLayout.dom.test.ts:208` 的空断言可改，用接纳但不发布的宿主即可。
+  - **窄容器里的 `range-overflow` 要自建网格。** `twoColumns()` 没有 `minimumSize`，harness 的 `clientWidth` 又固定为 1000，要给叶设大的最小宽度。r3 已确认 harness 能写，细节在此补一句。
+- **参照**（凭记忆，未核实）：react-resizable-panels 的约束冲突是在开发模式下 `console.warn` 一次，VS Code `SplitView` 静默夹取，两者都没有“状态加边沿”的结构化通知。本计划的“快照加边沿”比同类库细，没有现成做法可对照，合同写清楚比借鉴更重要。
+
+## 未发现问题的方面
+
+- **t34 第三轮转来的条目**，核对后第 1、4、8、10、11、12 条确实处理了：
+  - 第 1 条：合成已拿掉，`id` 进键。
+  - 第 4 条：数组已拿掉，`params` 只有标量。
+  - 第 8 条：`allocateSashPanels` 去掉两个参数，内部另写 `allocatePanels`。
+  - 第 10 条：快照和边沿分开，快照里逐条。
+  - 第 11 条：`contextKey` 变化清空、换 `grid` 实例不清空已写明，实现方式（`recompute` 记上一次的 `contextKey`）也对得上现有的 `watch`。
+  - 第 12 条：`GridHostIssueCode` 与类型级测试已写。
+  - 第 2、9 条见本报告第 3、1 条，没有处理到位。
+- **码表位置**与代码逐处对上。诊断码与失败码不相交：已列出的码两边没有同名。
+- **删 `NestedGrid.vue:526`、由 `useSashGesture` 统一发一条**成立：`handler-missing` 经 `finish` 的拒绝分支发出。
+- **“一场手势一次”的作用域**：新手势开始时清空，取消、失效、卸载不用单独清，成立（`begin` 是所有手势的入口）。
+- **WorkbenchSurface、Lab 夹具与 e2e**：应用里读 `issues` 的只有 `WorkbenchSurface`、两个 Lab 夹具；e2e 只有 `lab-grid-swap.e2e.ts:240` 读 `data-swap-issues`（断言为空）；L2 只在测试里 `toEqual([])`。
+- **SDK 导出名单**，`src/sdk/components.ts` 加三个类型名，与 `sdk.test.ts` 的核对方式一致。
+- **预览布局的诊断不经通知**：松手落账后的重算会发，设计自洽；取消的手势没有通知，正确。
+
+## 对“和第 3 稿、提案不同的地方”的判断
+
+1. **不合成**：方向对，且比第 3 稿的合成更好。但“同键最多一条”的论证有漏洞（第 2 条），且与提案“窄窗口诊断合并成一条一个码（体验 10）”的原意不同。窄窗口下一次通知最多带 O(节点数) 条。计划应写明这个上界，并在决策记录里说明放弃体验 10 的“一条”这一点，只保证“每个键只通知一次”。
+2. **参数只有标量**：同意，与 `ui/i18n` 的 `TextRef.params` 对得上。代价是 `swap-skipped` 丢了叶 id，见第 6 条。
+3. **回调抛出只 `console.error`**：不建议原样接受。保护应放在控制流（`finally`），异常照常冒出；必须吞的那一处用 `reportError`（第 3 条）。
+
+## 各级数量
+
+阻断 0；重要 4（1 到 4）；建议 2（5、6）。
+
+有效发现的编号：1, 2, 3, 4, 5, 6

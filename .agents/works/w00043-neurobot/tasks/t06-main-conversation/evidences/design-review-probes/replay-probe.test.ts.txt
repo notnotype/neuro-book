@@ -1,0 +1,29 @@
+import {expect, test} from "bun:test";
+import {mkdtemp} from "node:fs/promises";
+import {createTestSession} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot/packages/nb-harness/src/kernel/testing/test-session.ts";
+
+test("现有受理键只比指令和参数：宿主可以重放用户拒绝的结果，但不能用新键拒绝", async () => {
+    const root = await mkdtemp("/tmp/t06-design-review/replay-");
+    const seen = Promise.withResolvers<string>();
+    await using session = await createTestSession({store: {root}, tools: [{id: "lab.ask", async execute(_args, ctx) {
+        await ctx.ask!({question: "要继续吗？"});
+        return "结束";
+    }}]});
+    const off = session.raw.subscribe(frame => {if (frame.type === "status" && frame.status.state === "waiting") seen.resolve(frame.status.pending[0]!.id);});
+    try {
+        session.model.script({tools: [{tool: "lab.ask"}]}, "完成");
+        const sent = await session.raw.send({commandId: "first", input: {text: "提问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        const args = {commandId: "user-denial", id: await seen.promise, decision: "deny" as const};
+        const actor = {kind: "host", source: {plugin: "lab.caller", label: "宿主"}} as const;
+        expect(await session.raw.as(actor).resolve(args)).toEqual({ok: false, code: "not-allowed"});
+        const answered = await session.raw.resolve(args);
+        expect(answered).toMatchObject({ok: true, replayed: false});
+        await session.raw.waitRun(sent.value.runId);
+        await session.reopen();
+        const before = (await session.raw.snapshot()).head;
+        expect(await session.raw.as(actor).resolve(args)).toEqual({...answered, replayed: true});
+        expect((await session.raw.snapshot()).head).toBe(before);
+        console.log("真实 JSONL 重开：非用户新拒绝得 not-allowed；带用户原键只重放受理回执，日志不变");
+    } finally {off();}
+});

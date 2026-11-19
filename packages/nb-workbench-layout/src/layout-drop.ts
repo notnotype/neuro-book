@@ -390,7 +390,7 @@ export function applyLayoutDrop(doc: LayoutDoc, source: LayoutDropSource, action
             return movePanelToStrip(doc, {panel: source.panel, target: action.panel, index: action.index}, policy);
         case "center": {
             const panel = doc.panels[action.panel];
-            if (panel === undefined) return {ok: false, code: "not-found", detail: `面板 ${action.panel}`};
+            if (panel === undefined) return {ok: false, code: "not-found", message: `Panel ${action.panel}`};
             // 放回自己所在面板的中央：它成为活动标签，本来就是时原样（放回原处）。
             if (source.kind === "tab" && findTab(doc, source.tab)?.panel === action.panel) return panel.active === source.tab ? {ok: true, doc} : activateTab(doc, source.tab);
             if (source.kind === "panel" && source.panel === action.panel) return {ok: true, doc};

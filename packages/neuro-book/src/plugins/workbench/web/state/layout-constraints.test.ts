@@ -65,7 +65,7 @@ describe("约束", () => {
         expect(widths(doc)[panelOf(doc, "c")]).toBeUndefined();
         // 切到丙：按丙的上限夹到 200，意图没动，切回来还是 400。
         const switched = setActiveContainer(doc, "sidebar", "view:c");
-        if (!switched.ok) throw new Error(switched.detail);
+        if (!switched.ok) throw new Error(switched.message);
         expect(widths(switched.doc)).toMatchObject({[panelOf(doc, "c")]: 200});
         expect(switched.doc.tree).toEqual(doc.tree);
     });
@@ -168,7 +168,7 @@ describe("哪条边是落点（输出 25、26）", () => {
         const doc = defaultLayoutDoc(new Map());
         expect(target(doc, "g0", "bottom")).toEqual({kind: "split", panel: "g0", edge: "bottom"});
         const shown = setPanelHidden(doc, "panel", false);
-        if (!shown.ok) throw new Error(shown.detail);
+        if (!shown.ok) throw new Error(shown.message);
         expect(target(shown.doc, "g0", "bottom")).toEqual({kind: "split", panel: "g0", edge: "bottom"});
     });
 

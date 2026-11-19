@@ -66,6 +66,13 @@ export default {
         resizeHeight: "Resize window height",
         resize: "Resize window",
     },
+    imagePreviewDialog: {
+        close: "Close",
+        downloadOriginal: "Download Original",
+        loading: "Loading the original image",
+        loadFailed: "Original image failed to load",
+        retry: "Retry",
+    },
     infoTip: {
         label: "Info",
     },

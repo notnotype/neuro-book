@@ -19,6 +19,11 @@ export default {
         none: "{{name}} (not shown)",
         failed: "Cannot read {{name}}",
     },
+    sticker: {
+        preview: "View larger: {{name}}",
+        previewTitle: "{{name}} · {{pack}}",
+        copy: "Copy code",
+    },
     htmlEmbed: {
         render: "Render",
         viewSource: "View Source",
