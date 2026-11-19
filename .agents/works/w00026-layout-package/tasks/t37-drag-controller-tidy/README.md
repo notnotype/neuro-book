@@ -58,7 +58,14 @@ worktree `w00026-t37-drag-tidy`（分支 `w00026/t37-drag-tidy`）：
 | 4 | `1f51d1904` | nb-layout 加 `createDragCard`、`createFrameLoop` 与短文档 `src/drag-card.md`，入口与 README 的对照表各加一行；`live-drag.ts` 改用它们，闭包里的 `let` 从 20 个到 12 个 | `drag-card.test.ts` 8 条、`frame-loop.test.ts` 7 条、`exports.test.ts`、`readme.test.ts` 通过；变异 4 处（拿起那帧也逼近、不按间隔写尺寸、帧循环不 `finally`、零尺寸当可用）都变红；`live-drag.test.ts` 不改断言 24 条通过；e2e（实时布局、拖放、每帧开销）67 条里 66 条过，挂的那条见下一行；性能对照与基线一致（[`evidences/perf.txt`](evidences/perf.txt)） |
 | 测试修正 | `7a7a4b071` | `workbench-drag-cost.e2e.ts:157`（按住不动不排动画帧）先等预览换成来源收起，再等过渡结束 | 这条在分支起点 `b28277e7b` 上 3 次挂 2 次、第 3 片上 3 次挂 2 次，不是本 Task 引入的。探针抓到多出来的那一帧是布局过渡收尾时分隔线对齐排的（`useGridMotion` 的 `onSettled`）：原来的等待在候选还没稳定时就过了，预览后来才换、布局才动。改后 5 次全过 |
 
+## 收口验证
+
+master（`ac4d9f6ee`）已并进分支（`e4571be6d`，没有冲突；master 的 27 个提交没碰本 Task 的代码与依赖）。在合并后的分支上：
+
+- nb-layout、应用的类型检查通过；nb-layout 单元测试 392 条全过。
+- 工作台插件的单元测试 563 条过、3 条挂：活动栏底部条目、页面浮层、条目注册表的“同 id 的两条一起被拒”，是 master 上已知的原有失败（别的 Work 带进来的），与本 Task 无关。
+- e2e 8 个文件 194 条全过（13.8 分钟，负载 3.1）：`workbench-live-drag`、`workbench-dnd`、`workbench-float`、`workbench-drag-cost`、`editor-area`、`workbench-containers`、`lab-drag-session`、`files-explorer.e2e.ts:550`、`:876`。
+
 ## 下一步
 
-- master（`ac4d9f6ee`）已并进分支（`e4571be6d`，没有冲突；master 的 27 个提交没碰本 Task 的代码与依赖）。收口验证在跑：两个包的类型检查、nb-layout 全部单元测试、工作台插件的单元测试、8 个 e2e 文件（实时布局、拖放、浮动窗、每帧开销、编辑区、容器、Lab 的拖动会话、资源树拖文件两条）。
-- 收口通过后启动实现审查（Claude Sonnet），不等它，开始 t32 的计划；审查回来处理完再合入 master，再晋升 `ui/layout-drag` 输出 20、21。
+实现审查待处理（Claude Sonnet，2026-11-19 启动，不阻塞）。处理完合入 master，再晋升 `ui/layout-drag` 输出 20、21。
