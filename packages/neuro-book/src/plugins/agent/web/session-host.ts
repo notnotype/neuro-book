@@ -226,10 +226,10 @@ export interface SessionHostDeps {
      */
     readonly fixed?: {readonly sessionId: string; openElsewhere(id: string): void};
     /**
-     * 有归属的会话交给归属插件打开（agent/conversation.md 的转交）：`open` 交回 true 表示接手了；没有那个插件的贡献时交回 false，照常在
-     * 这里打开。不给时不查归属。
+     * 有归属的会话交给归属插件打开（agent/conversation.md 的转交）：`open` 交回 true 表示接手了；没有那个插件的贡献、或它揭示不成时交回
+     * false，照常在这里打开。不给时不查归属。
      */
-    readonly owners?: {ownerOf(id: string): Promise<SessionOwner | null>; open(id: string, owner: SessionOwner): boolean};
+    readonly owners?: {ownerOf(id: string): Promise<SessionOwner | null>; open(id: string, owner: SessionOwner): Promise<boolean>};
     /** 视图要换新的会话面板（点标题）；打开列表的动作归面板。 */
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
@@ -541,9 +541,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const pending = target.transcript.pending();
         for (const item of pending) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id, target.id);
         for (const child of target.tree) for (const item of child.pending ?? []) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id, child.id);
-        // 这一批答完了：下一批从头来，不沿用“收起”和第几步。只看阻塞的：异步提问与后代的事项在停靠区，状态另存。
+        // 这一批答完了：下一批从头来，不沿用“收起”和第几步。只看阻塞的：异步提问与后代的事项在停靠区，状态另存；固定会话（停靠档）
+        // 自己的同步事项也在停靠区。
         if (!pending.some((item) => item.async !== true)) wizardState = undefined;
-        if (!pending.some((item) => item.async === true) && !target.tree.some((child) => (child.pending?.length ?? 0) > 0)) dockState = undefined;
+        const docked = (item: {readonly async?: boolean}): boolean => deps.fixed !== undefined || item.async === true;
+        if (!pending.some(docked) && !target.tree.some((child) => (child.pending?.length ?? 0) > 0)) dockState = undefined;
         syncTicker(target);
         bump();
     }
@@ -997,7 +999,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const asked = (routing += 1);
         const owner = await deps.owners.ownerOf(id);
         if (asked !== routing || disposed) return;
-        if (owner !== null && deps.owners.open(id, owner)) return;
+        if (owner !== null && await deps.owners.open(id, owner)) return;
+        if (asked !== routing || disposed) return;
         await openHere(id, options);
     }
 
@@ -1137,14 +1140,16 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             if (current === null) await openHere(deps.fixed.sessionId);
             return;
         }
+        // 恢复期间用户又打开了别的会话（`open` 记了号，还在读会话头）：让给它，不恢复。
+        const asked = routing;
         const id = await deps.recent.read();
-        if (id === null || current !== null) return;
+        if (id === null || current !== null || asked !== routing) return;
         // 记录里是有归属的会话（以前在通用视图里开过）：不恢复它，也不转交（启动时不抢别的视图）。
         if (deps.owners !== undefined && (await deps.owners.ownerOf(id)) !== null) {
             deps.recent.write(null);
             return;
         }
-        if (current !== null) return;
+        if (current !== null || asked !== routing || disposed) return;
         await openHere(id);
         // 记录里的会话不在了：显示未选择，不留一个打不开的。
         if (failedToOpen(id)) {

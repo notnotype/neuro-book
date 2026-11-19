@@ -49,10 +49,10 @@ export const botsBrowserPlugin: PluginDefinition = {
             const report = (code: string, message: string): void => {
                 diagnostics.record({level: "warn", event: `bots.${code}`, message, source: {plugin: descriptor.id}});
             };
-            const reveal = (): void => {
-                void commands.execute(OPEN_VIEW_COMMAND, {viewId: BOT_VIEW}).then((opened) => {
-                    if (!opened.ok) report("reveal-failed", opened.code);
-                });
+            const reveal = async (): Promise<boolean> => {
+                const opened = await commands.execute(OPEN_VIEW_COMMAND, {viewId: BOT_VIEW});
+                if (!opened.ok) report("reveal-failed", opened.code);
+                return opened.ok;
             };
             const store = createBotsStore({
                 bots: context.remote.use(botsContract),
@@ -68,6 +68,7 @@ export const botsBrowserPlugin: PluginDefinition = {
                 badge: () => store.items.value[0]?.unread ?? null,
             };
             // 第一版只有一个 bot：不论哪个 bot 的主对话，都揭示这个视图。
+            // 揭示不成时交回 false，`nbook.agent` 照常在通用视图里打开（agent/conversation.md 输出 53）。
             const opener: SessionOwnerOpener = {open: () => reveal()};
             return {contributions: {
                 [WORKBENCH_VIEWS_POINT]: {[BOT_VIEW]: view},

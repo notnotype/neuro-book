@@ -3,11 +3,12 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {copyFile, mkdir, rm, symlink, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {AVATAR_MAX_BYTES} from "../shared/contracts";
 import {createAvatarRoutes} from "./avatar";
 import {locateBuiltinBots} from "./builtin-root";
 
@@ -20,15 +21,20 @@ afterAll(async () => {
 });
 
 describe("头像路由", () => {
-    test("只给记录里有的 bot：按字节判类型、带 ETag 与 no-cache，同一个 ETag 回 304；没有、不合规则、链接、不是图片、跨站的都不给", async () => {
+    test("只给记录里有的 bot：按字节判类型、带 ETag 与 no-cache，同一个 ETag 回 304；没有、不合规则、链接、不是图片、超过上限、跨站的都不给", async () => {
         const root = join(tmp, "bots");
-        for (const id of ["lyra", "nova", "vega", "ghost"]) await mkdir(join(root, id), {recursive: true});
+        for (const id of ["lyra", "nova", "vega", "ghost", "huge"]) await mkdir(join(root, id), {recursive: true});
         await copyFile(join(locateBuiltinBots()!, "lyra", "avatar.webp"), join(root, "lyra", "avatar.webp"));
+        // 开头是真的 WebP，补到比上限多一个字节。
+        const webp = await readFile(join(root, "lyra", "avatar.webp"));
+        const huge = new Uint8Array(AVATAR_MAX_BYTES + 1);
+        huge.set(webp.subarray(0, Math.min(webp.byteLength, huge.byteLength)));
+        await writeFile(join(root, "huge", "avatar.webp"), huge);
         await writeFile(join(tmp, "outside.webp"), "外面的文件");
         await symlink(join(tmp, "outside.webp"), join(root, "nova", "avatar.webp"));
         await writeFile(join(root, "vega", "avatar.png"), "不是图片");
         await copyFile(join(locateBuiltinBots()!, "lyra", "avatar.webp"), join(root, "ghost", "avatar.webp"));
-        const app = createAvatarRoutes({root, known: (id) => ["lyra", "nova", "vega"].includes(id)});
+        const app = createAvatarRoutes({root, known: (id) => ["lyra", "nova", "vega", "huge"].includes(id)});
 
         const ok = await app.request("/avatar/lyra");
         expect(ok.status).toBe(200);
@@ -36,11 +42,11 @@ describe("头像路由", () => {
         expect(ok.headers.get("cache-control")).toBe("no-cache");
         expect(ok.headers.get("x-content-type-options")).toBe("nosniff");
         const etag = ok.headers.get("etag")!;
-        expect((await ok.arrayBuffer()).byteLength).toBeGreaterThan(0);
+        expect(new Uint8Array(await ok.arrayBuffer())).toEqual(new Uint8Array(webp));
         expect((await app.request("/avatar/lyra", {headers: {"if-none-match": etag}})).status).toBe(304);
 
         // ghost 有头像文件，但记录里没有它（目录在、记录不在的不登记）。
-        for (const id of ["ghost", "nope", "LYRA", "nova", "vega"]) expect([id, (await app.request(`/avatar/${id}`)).status]).toEqual([id, 404]);
+        for (const id of ["ghost", "nope", "LYRA", "nova", "vega", "huge"]) expect([id, (await app.request(`/avatar/${id}`)).status]).toEqual([id, 404]);
         expect((await app.request("/avatar/lyra", {headers: {"sec-fetch-site": "cross-site"}})).status).toBe(403);
     });
 });

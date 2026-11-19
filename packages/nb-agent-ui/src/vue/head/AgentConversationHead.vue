@@ -46,7 +46,12 @@ const session = computed(() => props.ctx.session);
 /** 直接的父会话：`path` 从根排到父会话，不含本会话。 */
 const parent = computed(() => session.value?.path?.at(-1) ?? null);
 const icon = computed(() => session.value?.profileIcon ?? props.draftProfile?.icon ?? null);
-const avatar = computed(() => session.value?.avatar ?? null);
+/** 头像读不出来（404、坏图）时换回 Profile 图标，不留一个破图；记的是失败的地址，换了地址再试。 */
+const brokenAvatar = shallowRef<string | null>(null);
+const avatar = computed(() => {
+    const src = session.value?.avatar ?? null;
+    return src === brokenAvatar.value ? null : src;
+});
 const title = computed(() => (session.value === null ? t("header.newConversation") : session.value.title || t("header.untitled")));
 const summary = computed(() => session.value?.summary || undefined);
 
@@ -91,7 +96,7 @@ const placed = computed(() => props.targets !== null);
             @click="emit('update:sessionsOpen', !props.sessionsOpen)"
         >
             <Teleport :to="props.targets?.title ?? null" :disabled="!placed">
-                <img v-if="avatar !== null" :src="avatar" alt="" class="acv-head__avatar" data-header-avatar>
+                <img v-if="avatar !== null" :src="avatar" alt="" class="acv-head__avatar" data-header-avatar @error="brokenAvatar = avatar">
                 <span v-else-if="icon !== null" :class="[icon, 'acv-head__icon']" aria-hidden="true" />
                 <span class="acv-head__name" :title="summary" data-header-title>{{ title }}</span>
                 <span class="i-lucide-chevron-down acv-head__chevron" aria-hidden="true" />
@@ -99,7 +104,7 @@ const placed = computed(() => props.targets !== null);
         </button>
         <div v-else class="acv-head__title">
             <Teleport :to="props.targets?.title ?? null" :disabled="!placed">
-                <img v-if="avatar !== null" :src="avatar" alt="" class="acv-head__avatar" data-header-avatar>
+                <img v-if="avatar !== null" :src="avatar" alt="" class="acv-head__avatar" data-header-avatar @error="brokenAvatar = avatar">
                 <span v-else-if="icon !== null" :class="[icon, 'acv-head__icon']" aria-hidden="true" />
                 <span class="acv-head__name" :title="summary" data-header-title>{{ title }}</span>
             </Teleport>

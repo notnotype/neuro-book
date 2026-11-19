@@ -773,24 +773,27 @@ describe("宿主每秒换 now", () => {
         view.unmount();
     });
 
-    it("pendingPlacement 为 dock：答完一个，焦点到停靠区里的下一个；都答完回到输入框", async () => {
+    it("pendingPlacement 为 dock：答完一个，焦点到停靠区的容器（不落到按钮上）；都答完回到输入框", async () => {
         const question = (id: string, text: string) => ({kind: "question" as const, id, toolCallId: `c-${id}`, questions: [{question: text, options: [{label: "是"}, {label: "否"}]}]});
         const view = mountView("zh-CN", {}, {ctx: {...context(), pendingInputs: [question("q1", "第一问"), question("q2", "第二问")]}, pendingPlacement: "dock"});
         view.get<HTMLElement>("[data-agent-dock] button:not(:disabled)").element.focus();
         expect(view.get("[data-agent-dock]").element.contains(document.activeElement)).toBe(true);
         await view.setProps({ctx: {...context(), pendingInputs: [question("q2", "第二问")]}});
         await flushPromises();
-        expect(view.get("[data-agent-dock]").element.contains(document.activeElement)).toBe(true);
+        expect(document.activeElement).toBe(view.get("[data-agent-dock]").element);
         await view.setProps({ctx: {...context(), pendingInputs: []}});
         await flushPromises();
         expect(view.get(".acv-composer").element.contains(document.activeElement)).toBe(true);
         view.unmount();
     });
 
-    it("会话给了头像：顶栏画头像图片，不画 Profile 图标；不给时照旧画图标", () => {
+    it("会话给了头像：顶栏画头像图片，不画 Profile 图标；头像读不出来时换回图标；不给时照旧画图标", async () => {
         const withAvatar = mountHeadView({ctx: {...context(), session: {...context().session!, title: "星璃", avatar: "/api/nbook.bots/avatar/lyra"}}});
         expect(withAvatar.get<HTMLImageElement>("[data-header-avatar]").attributes("src")).toBe("/api/nbook.bots/avatar/lyra");
         expect(withAvatar.find(".acv-head__icon").exists()).toBe(false);
+        await withAvatar.get("[data-header-avatar]").trigger("error");
+        expect(withAvatar.find("[data-header-avatar]").exists()).toBe(false);
+        expect(withAvatar.find(".acv-head__icon").exists()).toBe(true);
         withAvatar.unmount();
         const plain = mountHeadView();
         expect(plain.find("[data-header-avatar]").exists()).toBe(false);

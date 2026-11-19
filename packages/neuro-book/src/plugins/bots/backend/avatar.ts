@@ -5,7 +5,7 @@
  */
 
 import {createHash} from "node:crypto";
-import {readFile} from "node:fs/promises";
+import {open} from "node:fs/promises";
 
 import {Hono} from "hono";
 
@@ -27,6 +27,24 @@ function crossSite(request: Request): boolean {
 
 const notFound = (): Response => Response.json({error: {code: "not-found", message: "没有这个头像"}}, {status: 404, headers: SAFE_HEADERS});
 
+/** 超过上限的不读进内存：先看打开的句柄有多大，读的时候也只读到上限多一个字节（读的过程中变大了照样判超限）。 */
+async function readBounded(path: string): Promise<Uint8Array | null> {
+    const handle = await open(path, "r");
+    try {
+        if ((await handle.stat()).size > AVATAR_MAX_BYTES) return null;
+        const buffer = new Uint8Array(AVATAR_MAX_BYTES + 1);
+        let length = 0;
+        while (length < buffer.byteLength) {
+            const {bytesRead} = await handle.read(buffer, length, buffer.byteLength - length, length);
+            if (bytesRead === 0) break;
+            length += bytesRead;
+        }
+        return length > AVATAR_MAX_BYTES ? null : buffer.subarray(0, length);
+    } finally {
+        await handle.close();
+    }
+}
+
 export interface AvatarRoutesOptions {
     /** `<状态根>/user/bots`。 */
     readonly root: string;
@@ -44,9 +62,9 @@ export function createAvatarRoutes(options: AvatarRoutesOptions): Hono<{Bindings
             const found = await entryInside(options.root, [botId, `avatar.${extension}`], "file");
             if (found === "missing") continue;
             if (!("path" in found)) throw found.error;
-            const bytes = new Uint8Array(await readFile(found.path));
-            const type = bytes.byteLength <= AVATAR_MAX_BYTES ? sniffImageType(bytes) : null;
-            if (type === null || type === "image/gif") return notFound();
+            const bytes = await readBounded(found.path);
+            const type = bytes === null ? null : sniffImageType(bytes);
+            if (bytes === null || type === null || type === "image/gif") return notFound();
             const etag = `"${createHash("sha256").update(bytes).digest("hex").slice(0, 32)}"`;
             if (c.req.header("if-none-match") === etag) return new Response(null, {status: 304, headers: {...SAFE_HEADERS, etag, "cache-control": "no-cache"}});
             return new Response(bytes, {headers: {...SAFE_HEADERS, "content-type": type, etag, "cache-control": "no-cache"}});

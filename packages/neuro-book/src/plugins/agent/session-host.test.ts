@@ -2130,6 +2130,47 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
         expect(h.ctx().composer.notice).toBeUndefined();
     });
 
+    test("固定会话：运行中插话（steer）带投递方式与 settlePending，结果未知后的重发带同样的两项；/rename、/fork 不受理", async () => {
+        const w = await world();
+        const fixedId = (await started(w)).host.sessionId.value!;
+        const base = await harness(w);
+        const sends: {commandId: string; mode?: unknown; settlePending?: unknown}[] = [];
+        const rewrites: string[] = [];
+        let lose = false;
+        const flaky = new Proxy(base.client, {get(target, key, receiver) {
+            if (key === "setTitle" || key === "fork") return async () => {
+                rewrites.push(key);
+                return {ok: false, code: "not-used"};
+            };
+            if (key !== "send") return Reflect.get(target, key, receiver);
+            return async (input: {commandId: string; mode?: unknown; settlePending?: unknown}) => {
+                sends.push(input);
+                if (lose) {
+                    lose = false;
+                    return {ok: false, code: "unknown-outcome"};
+                }
+                return target.send(input as never);
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: flaky, fixed: {sessionId: fixedId, openElsewhere: () => undefined}});
+        await h.host.restore();
+        await until("打开", () => h.ctx().session?.id === fixedId && h.ctx().availability.status === "ready");
+        h.host.act({type: "command.run", name: "rename", argsText: "改名"});
+        h.host.act({type: "command.run", name: "fork", argsText: ""});
+        endpoint.script({tool: "write", args: {path: "session://二.md", content: "内容"}}, "好的，不写了");
+        h.host.act({type: "composer.submit", text: "写个文件", delivery: "prompt"});
+        await until("等审批", () => approvals(h.ctx()).length === 1);
+        lose = true;
+        h.host.act({type: "composer.submit", text: "算了", delivery: "steer"});
+        await until("结果未知", () => h.ctx().messages.some((message) => (message as {delivery?: string}).delivery === "unknown"));
+        h.host.act({type: "message.resend", messageId: h.ctx().messages.find((message) => (message as {delivery?: string}).delivery === "unknown")!.id});
+        await until("审批结算、接着回复", () => h.ctx().pendingInputs.length === 0 && assistants(h.ctx().messages).at(-1)?.text === "好的，不写了");
+        await idle(h);
+        expect(sends.slice(-2).map((input) => [input.mode, input.settlePending])).toEqual([["steer", "deny"], ["steer", "deny"]]);
+        expect(sends.at(-1)!.commandId).toBe(sends.at(-2)!.commandId);
+        expect(rewrites).toEqual([]);
+    });
+
     test("转交：有归属、归属插件接手了就不在通用视图里开、不写最近的会话；没有归属照常开；读会话头期间又开了别的，晚到的转交作废；最近的会话有归属时不恢复", async () => {
         const w = await world();
         const owned = await w.service.create({profile: PROFILE, owner: {id: "lyra"}});
@@ -2144,11 +2185,12 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
                 const read = await client.header({sessionId: id});
                 return read.ok ? read.value.owner ?? null : null;
             },
-            open: (id, owner) => {
+            open: async (id, owner) => {
                 handed.push(`${id}:${owner.plugin}/${owner.id}`);
-                return true;
+                return accept;
             },
         };
+        let accept = true;
         const h = await harness(w, {owners});
         await h.host.open(owned.value.id);
         expect(handed).toEqual([`${owned.value.id}:test.agent-probe/lyra`]);
@@ -2176,6 +2218,27 @@ describe("固定会话与转交（conversation.md 的固定会话、转交）", 
         expect(fresh.host.sessionId.value).toBeNull();
         expect(fresh.recent.value).toBeNull();
         expect(handed).toHaveLength(1);
+
+        // 恢复在读会话头时用户点开了别的：让给用户点的，恢复不把它盖掉。
+        const otherId = (await started(w)).host.sessionId.value!;
+        const racing = await harness(w, {owners});
+        racing.recent.value = plainId;
+        let releaseBoth!: () => void;
+        hold = new Promise<void>((resolve) => {
+            releaseBoth = resolve;
+        });
+        const restoring = racing.host.restore();
+        const clicked = racing.host.open(otherId);
+        releaseBoth();
+        await Promise.all([restoring, clicked]);
+        hold = null;
+        expect(racing.host.sessionId.value).toBe(otherId);
+
+        // 归属插件揭示不成：照常在通用视图里开，用户点了不会没反应。
+        accept = false;
+        await h.host.open(owned.value.id);
+        expect(handed).toHaveLength(2);
+        expect(h.host.sessionId.value).toBe(owned.value.id);
     });
 
     test("模式选择器看 Profile 的工具里有没有切换模式：有就显示，没有就不显示", async () => {

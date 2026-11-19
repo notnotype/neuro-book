@@ -316,16 +316,16 @@ export const agentBrowserPlugin: PluginDefinition = {
             /** 最近用过的位置：命令优先用它。 */
             let lastPosition = "view";
             /**
-             * 有归属的会话交给归属插件（conversation.md 的转交）：贡献按插件记，会话头的 `owner.plugin` 找到谁就交给谁；读不到会话头或没有那个
-             * 插件的贡献时照常在通用视图里打开。
+             * 有归属的会话交给归属插件（conversation.md 的转交）：会话头的 `owner.plugin` 找到那个插件的贡献就交给它；读不到会话头、没有那个
+             * 插件的贡献或它揭示不成时照常在通用视图里打开。贡献按贡献 id 记，一个插件有几条时用最先登记的那条，撤掉一条不影响别的。
              */
-            const openers = new Map<string, SessionOwnerOpener>();
+            const openers = new Map<string, {readonly plugin: string; readonly opener: SessionOwnerOpener}>();
             const ownersReceiver: ContributionReceiver<unknown, SessionOwnerOpener> = {
                 published: (handle) => {
-                    openers.set(handle.plugin, handle.implementation());
+                    openers.set(handle.id, {plugin: handle.plugin, opener: handle.implementation()});
                 },
                 revoke: (handle) => {
-                    openers.delete(handle.plugin);
+                    openers.delete(handle.id);
                 },
             };
             const sessionOwners: NonNullable<SessionHostDeps["owners"]> = {
@@ -333,11 +333,9 @@ export const agentBrowserPlugin: PluginDefinition = {
                     const read = await remote.header({sessionId: id});
                     return read.ok ? read.value.owner ?? null : null;
                 },
-                open: (id, owner) => {
-                    const opener = openers.get(owner.plugin);
-                    if (opener === undefined) return false;
-                    opener.open(id, {plugin: owner.plugin, id: owner.id});
-                    return true;
+                open: async (id, owner) => {
+                    const found = [...openers.values()].find((entry) => entry.plugin === owner.plugin);
+                    return found === undefined ? false : found.opener.open(id, {plugin: owner.plugin, id: owner.id});
                 },
             };
             /** 两个通用位置（右栏、编辑区页面）与固定会话共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
@@ -424,11 +422,16 @@ export const agentBrowserPlugin: PluginDefinition = {
                     },
                     report,
             });
-            const watchSeen = (host: SessionHost): void => {
+            /** 交回的函数停掉监视并摘掉插件关闭时的监听：随组件挂卸的宿主（固定会话）卸载时调用，不让插件级的 `signal` 留着它。 */
+            const watchSeen = (host: SessionHost): (() => void) => {
                 const stopSeen = watch(host.sessionId, (id) => {
                     if (id !== null) seenErrors.markSession(id, clock.now());
                 }, {immediate: true});
                 context.signal.addEventListener("abort", stopSeen, {once: true});
+                return () => {
+                    stopSeen();
+                    context.signal.removeEventListener("abort", stopSeen);
+                };
             };
             const hostAt = (position: "view" | "page"): SessionHost => {
                 let host = hosts.get(position);
@@ -565,7 +568,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                     // 目录、最近用过的或 Profile（白名单由它求出，启动时可能比目录晚到）变了：换一个新函数，开着的菜单按当前查询重取。
                     const stopWatching = watch([skills.entries, skills.recent, profiles], refreshServices);
                     context.signal.addEventListener("abort", stopWatching, {once: true});
-                    return {services, stop: stopWatching};
+                    return {services, stop: () => {
+                        stopWatching();
+                        context.signal.removeEventListener("abort", stopWatching);
+                    }};
                 };
                 return {createAgentViewRegistry, baseContributions, renderers, servicesFor};
             };
@@ -615,10 +621,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                     emits: {seen: (seq: number) => typeof seq === "number"},
                     setup(props, {emit}) {
                         const host = createSessionHost({...hostDeps(`fixed:${props.sessionId}`), fixed: {sessionId: props.sessionId, openElsewhere: (id) => void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: id})}});
-                        watchSeen(host);
+                        const stopSeen = watchSeen(host);
                         const {services, stop} = servicesFor(() => host.profileKey());
                         const registry = computed(() => createAgentViewRegistry([...baseContributions, {source: "agent.statusItems", statusItems: statusItems.entries.value}]));
                         onBeforeUnmount(() => {
+                            stopSeen();
                             stop();
                             host.dispose();
                         });
@@ -772,7 +779,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     // 有归属的会话交给归属插件，不揭示通用的对话视图、不写它的“最近的会话”（conversation.md 的转交）。
                     if (sessionId !== null) {
                         const owner = await sessionOwners.ownerOf(sessionId);
-                        if (owner !== null && sessionOwners.open(sessionId, owner)) return done;
+                        if (owner !== null && await sessionOwners.open(sessionId, owner)) return done;
                     }
                     const host = await reveal();
                     if (sessionId !== null) await host.open(sessionId);

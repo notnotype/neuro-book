@@ -315,15 +315,15 @@ const dockRef = ref<InstanceType<typeof AgentDock> | null>(null);
 
 /**
  * 停靠档里停靠区是唯一的应答处，答完一个时照向导的规则放焦点（docs/specs/agent/conversation.md 输出 11）：宿主去掉答过的事项、
- * 它的按钮随之卸载，这时焦点原本在停靠区里的，放到下一个事项，都答完了回输入框。`flush: "pre"` 在界面更新之前看焦点还在不在里面。
+ * 它的按钮随之卸载，这时焦点原本在停靠区里的，放到停靠区的容器上（不落到某个按钮上，免得接着按回车收起或替用户作答），都答完了回
+ * 输入框。`flush: "pre"` 在界面更新之前看焦点还在不在里面。
  */
 watch(() => dockedInputs.value.map((item) => item.id), (now, before) => {
     if (props.pendingPlacement !== "dock" || !before.some((id) => !now.includes(id))) return;
     const root = dockRef.value?.$el as HTMLElement | undefined;
     if (root?.contains(document.activeElement) !== true) return;
     void nextTick(() => {
-        const next = (dockRef.value?.$el as HTMLElement | undefined)?.querySelector<HTMLElement>("button:not(:disabled)");
-        if (next !== undefined && next !== null) next.focus();
+        if (dockRef.value !== null && dockedInputs.value.length > 0) dockRef.value.focusRoot();
         else focusComposer();
     });
 }, {flush: "pre"});

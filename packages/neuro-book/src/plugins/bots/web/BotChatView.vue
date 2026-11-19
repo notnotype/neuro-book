@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * bot 视图（docs/specs/bots/view.md）：第一版只有一个 bot，视图里直接是它的聊天。没有模型时只显示引导、不取主对话；取到主对话之后画
+ * bot 视图（docs/specs/bots/view.md）：第一版只有一个 bot，视图里直接是它的聊天。没有模型时只显示引导、不取主对话；bot 列表读不到
+ * 或是空的时写原因与重试，不一直转圈；取到主对话之后画
  * `nbook.agent` 交出的固定会话组件。可见且窗口有焦点时把组件报来的 seq 记成“看到”。
  */
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
@@ -23,7 +24,16 @@ const props = defineProps<{
 
 const t = useBotsText();
 
-type ChatState = {readonly kind: "no-model"} | {readonly kind: "loading"} | {readonly kind: "failed"; readonly code: string} | {readonly kind: "ready"; readonly sessionId: string};
+/**
+ * `loading` 是还在等模型与 bot 列表，`opening` 是在取主对话（期间列表再变不重取）。`failed` 分两种：bot 列表读不到或是空的（`list`，重试重读列表，列表到了自动取主对话），取主对话失败（`open`，重试再取一次）。
+ */
+type ChatState =
+    | {readonly kind: "no-model"}
+    | {readonly kind: "loading"}
+    | {readonly kind: "opening"}
+    | {readonly kind: "failed"; readonly step: "list"; readonly code: string | null}
+    | {readonly kind: "failed"; readonly step: "open"; readonly code: string}
+    | {readonly kind: "ready"; readonly sessionId: string};
 
 const bot = computed(() => props.store.items.value[0] ?? null);
 const state = shallowRef<ChatState>({kind: "loading"});
@@ -52,21 +62,32 @@ async function open(): Promise<void> {
     const target = bot.value;
     if (target === null) return;
     const asked = (asking += 1);
-    state.value = {kind: "loading"};
+    state.value = {kind: "opening"};
     const ensured = await props.store.ensureMain(target.id);
     if (asked !== asking) return;
-    state.value = ensured.ok ? {kind: "ready", sessionId: ensured.sessionId} : {kind: "failed", code: ensured.code};
+    state.value = ensured.ok ? {kind: "ready", sessionId: ensured.sessionId} : {kind: "failed", step: "open", code: ensured.code};
 }
 
-// 没有模型时不取主对话（bots/view.md 输出 2）；模型配好了、bot 记录到了才去取。模型服务不在（null）时照常取，对话里有它自己的提示。
-watch([props.store.noModel, bot], ([noModel, current]) => {
+// 没有模型时不取主对话（bots/view.md 输出 2）；还没读到有没有模型时先等，免得读到“没有”之前已经建了会话。模型配好了、bot 记录到了
+// 才去取。取主对话失败停在原因与重试，列表再变也不自动重取。
+watch([props.store.noModel, props.store.listState, bot], ([noModel, list, current]) => {
     if (noModel === true) {
         asking += 1;
         state.value = {kind: "no-model"};
         return;
     }
-    if (current !== null && (state.value.kind === "no-model" || state.value.kind === "loading")) void open();
+    const waiting = state.value.kind === "no-model" || state.value.kind === "loading" || (state.value.kind === "failed" && state.value.step === "list");
+    if (!waiting) return;
+    if (noModel === null || list.kind === "loading") state.value = {kind: "loading"};
+    else if (list.kind === "failed") state.value = {kind: "failed", step: "list", code: list.code};
+    else if (current === null) state.value = {kind: "failed", step: "list", code: null};
+    else void open();
 }, {immediate: true});
+
+function retry(): void {
+    if (state.value.kind === "failed" && state.value.step === "list") props.store.reload();
+    else void open();
+}
 
 function seen(seq: number): void {
     if (bot.value !== null) props.store.markSeen(bot.value.id, seq);
@@ -81,13 +102,13 @@ function seen(seq: number): void {
             <p class="bot-chat__body">{{ t("chat.noModel.body") }}</p>
             <Button size="sm" variant="primary" data-bot-chat-add-provider @click="props.store.openProviders()">{{ t("chat.noModel.action") }}</Button>
         </div>
-        <div v-else-if="state.kind === 'loading'" class="bot-chat__notice" data-bot-chat-loading>
+        <div v-else-if="state.kind === 'loading' || state.kind === 'opening'" class="bot-chat__notice" data-bot-chat-loading>
             <Spinner />
             <p class="bot-chat__body">{{ t("chat.loading") }}</p>
         </div>
         <div v-else-if="state.kind === 'failed'" class="bot-chat__notice" data-bot-chat-failed>
-            <p class="bot-chat__body">{{ t("chat.failed", {code: state.code}) }}</p>
-            <Button size="sm" data-bot-chat-retry @click="open()">{{ t("chat.retry") }}</Button>
+            <p class="bot-chat__body">{{ state.step === "open" ? t("chat.failed", {code: state.code}) : state.code === null ? t("chat.noBot") : t("chat.listFailed", {code: state.code}) }}</p>
+            <Button size="sm" data-bot-chat-retry @click="retry()">{{ t("chat.retry") }}</Button>
         </div>
         <component
             :is="props.conversation"

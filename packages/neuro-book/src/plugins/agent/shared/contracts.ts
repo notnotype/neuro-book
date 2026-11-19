@@ -185,8 +185,11 @@ export const agentKey: ServiceKey<AgentService> = defineServiceKey<AgentService>
  */
 export const SESSION_OWNERS_POINT = "agent.sessionOwners";
 export interface SessionOwnerOpener {
-    /** 打开（揭示）这个会话；`owner` 是会话头的归属，多个对象（例如几个 bot）时据此找。 */
-    open(sessionId: string, owner: {readonly plugin: string; readonly id: string}): void;
+    /**
+     * 打开（揭示）这个会话；`owner` 是会话头的归属，多个对象（例如几个 bot）时据此找。交回 true 表示用户看到了它；揭示不成（例如视图
+     * 被禁用）交回 false，`nbook.agent` 照常在通用视图里打开，免得用户点了没反应。
+     */
+    open(sessionId: string, owner: {readonly plugin: string; readonly id: string}): Promise<boolean>;
 }
 export const sessionOwnersPoint: ContributionPointDefinition<Record<string, never>> = {
     id: SESSION_OWNERS_POINT,
