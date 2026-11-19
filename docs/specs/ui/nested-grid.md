@@ -233,6 +233,10 @@ owners:
 148. **恢复尺寸谁收起谁记**：子节点的收起标记从展开翻成收起时，记下 `restoreSize`：保留像素的面板记它在父分支主轴上的意图（被压缩时也是意图）；按比例分的面板在 `resizeBranches`（拖动收起、Enter）里记这次变化的基线，经 `setCollapsed` 时不改。之后的显式恢复回到记下的值（输出 20）。收起策略不写快照：`restore()` 的解析结果没给 `collapse` 时沿用当前树的，记下的值保留；宿主要跨会话保存，从 `setCollapsed` 的结果或 `find(id)` 读。
 149. **宿主的收起入口**：`useGridHost` 的 `setCollapsed(id, collapsed)` 调 `grid.setCollapsed`，标记变了时版本递增、布局重发（诊断照常经 `onIssues`），没变时版本不变；没有网格时返回 `not-ready`（`missing: "grid"`）、版本不变。
 150. **提交前的布局**：`onApplied(commit, result, before)` 的 `before` 是这次提交之前发布的布局，也就是手势开始时呈现的那份；`onApplied` 被调时宿主的 `layout` 已经是提交之后的。
+151. **开发模式的配置检查**（planned）：`setLayoutDevChecks(true)` 打开之后（缺省关），下面几种接线错误在浏览器控制台警告；同一个 `NestedGrid`（或同一个 `useGridHost` 宿主）的同一种只警告一次，警告里带 `contextKey`。开关关着时都不警告。警告不改变失败与 `issues` 事件。
+    - `NestedGrid` 接了提交处理、没有停用，布局里至少有一条分隔条，而所有分隔条的占用都是 0（`createGrid` 的 `sashSize` 缺省 0）；
+    - 要提交时没有提交处理；提交处理返回了 `undefined`（两种警告）；
+    - 整包绑定的宿主：手势开始时 `NestedGrid` 用的 `contextKey` 与宿主此刻的不同（模板里另写了 `context-key`）；`revision` 与宿主此刻的不同（模板里另写了 `:revision`）。
 
 ## 状态与转换
 
@@ -321,6 +325,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用与插�
 外框、内容与浮动窗手柄是里面 `position: fixed` 元素的包含块（输出 28）：要盖住整个窗口的东西（对话框、拖影、菜单）宿主要 Teleport 到 `body`。
 公开的标记：`data-swap`（输出 75）、`data-leaf`、`data-grid-scope` 等的取值与含义见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 的“公开的标记与变量”。
 公开面：`package.json` 里每个子路径的入口（`./lab-sources` 只给应用的 Component Lab，不算）是一行一个名字的显式清单，入口里的名字就是公开面；文件里别的导出不是公开面，不承诺。`gesture-start`、`gesture-cancel` 的载荷类型是 `GridGestureStart` 与 `GridGestureCancellation`，字段见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md)；手势来源与取消原因的类型是 `SashGestureSource`、`SashGestureCancelReason`。
+开发模式：根入口的 `setLayoutDevChecks` 打开配置检查（输出 151）；它不读 `import.meta.env`，宿主在自己的开发构建里调。
 CSS 变量：`NB_LAYOUT_THEME_VARS`（根入口）列出库读的全部 `--nb-layout-*` 与各自的回退；README 的变量表只承诺其中主题级的一小批（颜色、圆角、阴影、时长、焦点），其余是内部名字，可以改名（输出 141）。
 工作台的用法：用分支的收起表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）；把 `moveGridFocus` 登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
 失败的码集合开放：新增码不算破坏，调用方按码分支时要有默认分支；码的写法同 [`ui/i18n`](i18n.md) 输出 13 的开放错误域（小写短横线，不含 `:`、`.`、空白，不超过 64 个字符），宿主可以拿码查自己目录里的文字。
