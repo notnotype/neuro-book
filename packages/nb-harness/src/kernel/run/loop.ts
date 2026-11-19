@@ -93,13 +93,17 @@ function takeNoticeDrafts(core: SessionCore, runId: string, boundary: string): E
 }
 
 /**
- * 一个边界取走的东西：待发的提醒与就绪的插话，同一个写入批、带同一个 `boundary`，提醒在前（runtime.md 输出 113）。
+ * 一个边界取走的东西：待发的提醒与就绪的插话，同一个写入批、带同一个 `boundary`（runtime.md 输出 113）。
  * 写入的先后就是请求里的先后：位置章让一轮还没回复时它们排在新话前面，之后排在最后一步之后；已写下的块不再重排。
  * `taken`：同一批里已经取走、开了这一轮的话（预览两轮之间时的第一条），不再当插话取。
  */
 export function takeBoundaryDrafts(core: SessionCore, runId: string, taken: ReadonlySet<string> = new Set()): EventDraft[] {
     const boundary = core.newId();
-    return [...takeNoticeDrafts(core, runId, boundary), ...takeSteerDrafts(core, runId, boundary, taken)];
+    const notices = takeNoticeDrafts(core, runId, boundary);
+    const steers = takeSteerDrafts(core, runId, boundary, taken);
+    // Profile 的 `queue.order` 定两者的先后（输出 113），缺省提醒在前；只定写入的先后，渲染按路径先后，不重排。
+    const order = (core.assembly.profile as {queue?: {order?: readonly string[]}}).queue?.order;
+    return order?.[0] === "steer" ? [...steers, ...notices] : [...notices, ...steers];
 }
 
 /** 这一轮里这个扩展已经写过几条 continued（按路径事实计数，压缩切掉早先的步也不变）。 */

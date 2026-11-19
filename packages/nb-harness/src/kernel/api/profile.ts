@@ -66,6 +66,8 @@ export interface ProfileFields<Id extends string, S extends StateDecl, E extends
     render?: ProfileRender<NoInfer<E>, NoInfer<Deps>>;
     /** 压缩（t11）：给方法的要求、两种情况的方法顺序；false 表示不压缩（单轮模板）。 */
     compaction?: {require?: string; onThreshold?: CompactionMethod[]; onOverflow?: CompactionMethod[]} | false;
+    /** 同一个边界里提醒与插话写进日志的先后（docs/specs/harness/runtime.md 输出 113）；缺省提醒在前。 */
+    queue?: {order?: readonly ["notice", "steer"] | readonly ["steer", "notice"]};
 }
 
 declare const ProfileBrand: unique symbol;
@@ -112,5 +114,6 @@ export type DeriveProfile = <const Id extends string, B extends Profile>(
         tools?: {required?: string[]; optional?: string[]};
         extensions?: readonly AnyExtension[];
         compaction?: B extends {compaction?: infer Co} ? Co : never;
+        queue?: B extends {queue?: infer Q} ? Q : never;
     },
 ) => Omit<B, "id"> & {id: Id};

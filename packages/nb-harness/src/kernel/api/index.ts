@@ -16,7 +16,7 @@ export type {
 export type {
     AnyExtension, CompactionCut, CompactionJob, CompactionMethod, CompactionMethodImpl, CompactionResult, ContributedExtension, DefineExtension, Extension, ExtensionFields, Implement, Interceptors, SettingsSchema, StateOfExtension,
 } from "./extension.js";
-export type {FinalOnlyHelper, OpeningHelper, ReminderHelper, ReminderOptions, StandardLayoutHelper, StandardLayoutOptions, WithoutEventsHelper} from "./helpers.js";
+export type {FinalOnlyHelper, MergeSteersHelper, OpeningHelper, ReminderHelper, ReminderOptions, StandardLayoutHelper, StandardLayoutOptions, WithoutEventsHelper} from "./helpers.js";
 export type {CompactionRestored, CompactionRestoreArgs} from "./host.js";
 export type {
     AgentHost, ApprovalCtx, ApprovalInfo, ApproveHook, BufferedInput, CommandErrorCode, CommandErrorDetails, CommandFailure, CommandMap, CommandName, CommandOk, CommandResult, Complete,

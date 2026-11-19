@@ -10,6 +10,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {AnyProfile, CompactionMethodImpl, Issuer, LogEvent} from "../api/index.js";
 import {defineProfile} from "../extension/profile.js";
 import {mapEventContent} from "../helpers/content.js";
+import {mergeSteers} from "../helpers/turns.js";
+import type {ConversationTurn} from "../api/index.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 import {NOTICE_MAX_PENDING, NOTICE_TEXT_MAX_BYTES, NOTICE_TOTAL_MAX_BYTES} from "./commands.js";
 
@@ -248,5 +250,50 @@ describe("输出 115：样子", () => {
         const events = (await session.raw.log({afterSeq: 0, limit: 500})).events.filter((event) => event.type === "noticeQueued" || event.type === "hostNotice");
         const mapped = await Promise.all(events.map((event) => mapEventContent(event, {text: (text) => text.replace("sk-abc", "***")})));
         expect(mapped.map((event) => (event.data as {text: string}).text)).toEqual(["秘密 ***", "秘密 ***"]);
+    });
+});
+
+describe("Profile 的 queue 与 mergeSteers（profile.md 输入表、输出 21）", () => {
+    test("queue.order 把插话排在提醒前：同一个边界里先写插话", async () => {
+        const profile = defineProfile({id: "lab.notice-order", version: "1", name: "顺序", description: "插话在前", system: "系统", queue: {order: ["steer", "notice"]}}) as AnyProfile;
+        const block = blockingTool();
+        await using session = await createTestSession({profile, tools: [block.tool]});
+        session.model.script({tools: [{tool: "lab.block"}]}, "收到");
+        const sent = await session.raw.send({commandId: id(), input: {text: "开始"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        await block.started;
+        await session.raw.send({commandId: id(), input: {text: "用户的插话"}, mode: "steer"});
+        await notice(session, "运行中的提醒");
+        block.release();
+        await session.raw.waitRun(sent.value.runId);
+        expect(session.requests[1]!.outline().at(-1)).toBe("user: event:steer | event:hostNotice");
+    });
+
+    test("mergeSteers：同一个边界的相邻插话合成一块，来源是第一条的", async () => {
+        const profile = defineProfile({id: "lab.notice-merge", version: "1", name: "合并", description: "合插话", system: "系统", turn: (turn, format) => format.turn(mergeSteers(turn))}) as AnyProfile;
+        const block = blockingTool();
+        await using session = await createTestSession({profile, tools: [block.tool]});
+        session.model.script({tools: [{tool: "lab.block"}]}, "收到");
+        const sent = await session.raw.send({commandId: id(), input: {text: "开始"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        await block.started;
+        await session.raw.send({commandId: id(), input: {text: "插话一"}, mode: "steer"});
+        await session.raw.send({commandId: id(), input: {text: "插话二"}, mode: "steer"});
+        block.release();
+        await session.raw.waitRun(sent.value.runId);
+        const last = session.requests[1]!.raw.messages.at(-1)!;
+        expect(session.requests[1]!.outline().at(-1)).toBe("user: event:steer");
+        expect(last.content.flatMap((item) => (item.kind === "text" ? [item.text] : []))).toEqual(["插话一\n\n插话二"]);
+    });
+
+    test("mergeSteers：不同边界与没有 boundary 的旧插话不合；后一条附件的位置随文字后移", () => {
+        const steer = (id: string, text: string, boundary?: string, attachments?: unknown[]): LogEvent => ({id, seq: 1, at: 0, parent: null, scope: "path", kind: "conv", type: "steer", version: 1, source: "kernel", data: {text, queued: id, ...(boundary === undefined ? {} : {boundary}), ...(attachments === undefined ? {} : {attachments})}});
+        const image = {kind: "image", uri: "user://a.png", from: 0, to: 12};
+        const turn = {id: "t", input: null, status: "running", attachments: [], steps: [{reply: {} as never, results: [], after: [
+            steer("a", "甲", "b1"), steer("b", "user://a.png", "b1", [image]), steer("c", "丙", "b2"), steer("d", "旧一"), steer("e", "旧二"),
+        ]}]} as unknown as ConversationTurn<unknown>;
+        const after = mergeSteers(turn).steps[0]!.after;
+        expect(after.map((event) => event.id)).toEqual(["a", "c", "d", "e"]);
+        expect(after[0]!.data).toMatchObject({text: "甲\n\nuser://a.png", attachments: [{...image, from: 3, to: 15}]});
     });
 });
