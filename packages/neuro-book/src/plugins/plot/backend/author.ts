@@ -9,9 +9,11 @@ import type {CanonReadView, Mode, ReadPosition} from "@notnotype/nb-canon/schema
 import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
 import {NameTable, personKnowing, pointKnowing} from "../core/author/knowing";
+import {secretsTable} from "../core/author/secrets";
+import type {SecretRow} from "../core/author/secrets";
 import type {plotAuthorContract} from "../shared/author";
 import {ENTRY_TYPES} from "../shared/declarations";
-import {fail, fitted, latest, lineViewOf} from "./results";
+import {fail, fitted, latest, lineViewOf, pagedList} from "./results";
 import type {Failure, Ok} from "./results";
 
 /** “谁知道”里有行的人至多列这么多，其余只给总数（一行一个人，几百个人的作品也装得下一次调用）。 */
@@ -72,6 +74,30 @@ export function remoteAuthor(canon: CanonProject): RemoteImplementation<typeof p
                 for (const goal of detail.related.goals) names.add(goal);
                 return {...detail, people, peopleTotal: detail.people.length};
             }),
+            secrets: async (input) => {
+                const snapshot = await canon.snapshot();
+                if ("code" in snapshot) return fail(snapshot.code);
+                const position = input.position ?? latest(snapshot.view);
+                const mode = input.mode ?? "actual";
+                const view = lineViewOf(snapshot.view, position, mode);
+                if ("ok" in view) return view;
+                if (view.positionKey(position) === null) return fail("chapter-not-found");
+                const people = input.people ?? [];
+                const segment = input.segment ?? "all";
+                const table = secretsTable(view, mode, position, people, segment);
+                const page = pagedList(view, table.rows, input, {method: "author.secrets", position, mode, people, segment}, {line: view.line, counts: table.counts, candidates: table.candidates, main: table.main});
+                if (!page.ok) return page;
+                // 名字表只给这一页用到的条目、候选的人与主要角色：整张表的名字可能上千个。
+                const value = page.value as {readonly items: readonly SecretRow[]};
+                const names = new NameTable(view, position, mode);
+                for (const id of [...people, ...table.candidates, ...table.main]) names.add(id);
+                for (const row of value.items) {
+                    names.add(row.point);
+                    names.add(row.subject);
+                    for (const other of row.others) names.add(other.person);
+                }
+                return fitted({...value, names: names.build()});
+            },
         },
         events: {},
     };

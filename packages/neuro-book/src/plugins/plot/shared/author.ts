@@ -15,12 +15,26 @@ const Mode = Type.Union([Type.Literal("actual"), Type.Literal("planned")]);
 const Out = Type.Unknown();
 const errors = {plot: Type.Object({code: Type.String()})};
 const At = {position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)};
+/** 列表的一页（同 canon.project 输出 18）：一页至多 200 条。 */
+const Page = {cursor: Type.Optional(Type.String()), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 200}))};
 
 const methods = {
     /** 人物页：他的知情（plot/knowledge.md 输出 16）。 */
     person: {input: Type.Object({person: Type.String(), ...At}), output: Out, effect: "read", errors},
     /** 秘密的“谁知道”（plot/knowledge.md 输出 15）。 */
     point: {input: Type.Object({point: Type.String(), ...At}), output: Out, effect: "read", errors},
+    /** 保密表的一页、全表的分段条数、候选的人与主要角色（plot/knowledge.md 输出 14）；`people` 是表的列。 */
+    secrets: {
+        input: Type.Object({
+            ...At,
+            segment: Type.Optional(Type.Union([Type.Literal("all"), Type.Literal("readerOnly"), Type.Literal("readerUnaware"), Type.Literal("noPlan")])),
+            people: Type.Optional(Type.Array(Type.String(), {maxItems: 12})),
+            ...Page,
+        }),
+        output: Out,
+        effect: "read",
+        errors,
+    },
 } as const;
 
 export const plotAuthorContract = defineRemoteService({id: "nbook.plot/author", version: 1, provider: "project", callers: ["browser"], methods, events: {}});
