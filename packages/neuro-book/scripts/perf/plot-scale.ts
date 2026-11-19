@@ -31,6 +31,11 @@ import {goalDiagnostics} from "nbook/plugins/plot/core/goal-checks";
 import {goalTable} from "nbook/plugins/plot/core/goals";
 import {experienceChanges, knowingIndex} from "nbook/plugins/plot/core/knowledge";
 import {secretLedger} from "nbook/plugins/plot/core/checks/ledgers";
+import {authorExperience} from "nbook/plugins/plot/core/author/experience";
+import {authorGoals, personGoals} from "nbook/plugins/plot/core/author/goals";
+import {personKnowing, pointKnowing} from "nbook/plugins/plot/core/author/knowing";
+import {authorLedger} from "nbook/plugins/plot/core/author/ledger";
+import {secretsTable} from "nbook/plugins/plot/core/author/secrets";
 import {guardDiagnostics} from "nbook/plugins/plot/core/guards";
 import {instructionDiagnostics} from "nbook/plugins/plot/core/instruction-checks";
 import {knowingDiagnostics} from "nbook/plugins/plot/core/knowledge-checks";
@@ -200,6 +205,13 @@ const authorReads: Record<string, () => unknown> = {
     goalTable: () => goalTable(service.snapshot().view, until, "actual"),
     ledger: () => ledger(service.snapshot().view, until, "actual"),
     experience: () => experienceChanges(service.snapshot().view, "actual", until, person(1)).changes,
+    // 作者界面实际用的六个读取（nbook.plot/author）：上面五个是它们取代的旧读取，留着对照。
+    "author.secrets": () => secretsTable(service.snapshot().view, "actual", until, [person(0), person(1), person(2)]),
+    "author.person": () => ({...personKnowing(service.snapshot().view, "actual", until, person(1)), ...personGoals(service.snapshot().view, "actual", until, person(1))}),
+    "author.point": () => pointKnowing(service.snapshot().view, "actual", until, point(0)),
+    "author.goals": () => authorGoals(service.snapshot().view, "actual", until),
+    "author.ledger": () => authorLedger(service.snapshot().view, "actual", until, "all"),
+    "author.experience": () => authorExperience(service.snapshot().view, "actual", until, person(1)),
 };
 let authorKey = 3_000;
 for (const [name, read] of Object.entries(authorReads)) {
