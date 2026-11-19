@@ -1,21 +1,27 @@
-# t40 收起与展开入口、L2 的意图回写：实施计划（第 1 稿）
+# t40 收起与展开入口、L2 的意图回写：实施计划（第 2 稿）
+
+第 2 稿按第一轮设计审查（Claude Sonnet，[`evidences/design-review.txt`](evidences/design-review.txt)，11 条，阻断 0、重要 5、建议 6，都成立）改，逐条处理见 Task README。最大的改动：
+
+- `setCollapsed` 不再走分隔条 Enter 的“邻居吸收”，改成只翻收起标记、按分配规则重排（第 1、2 条）。
+- `resizeBranches` 不再把压缩值写进没动的保留像素节点（第 3 条）。
+- `rebaseIntents` 不再从入口导出，四个手写回写的地方都迁移（第 4 条）。
+- 工作台也改用 `before`（第 10 条）。
 
 ## Context
 
 - 依据：[提案](../../../../../docs/proposals/nb-layout-general-library.md)第一档“库里补的小东西”的第 3、4 条；开发者 2026-11-18 对 t31“都按推荐”。2026-11-19 从 t39 拆出（[待确认清单](../../pending-confirmations.md)）。
-- 两件事各在一个包、各有一份 Spec，彼此不依赖，可以分开审、分开合入：
+- 两件事各在一个包、各有一份 Spec，彼此不依赖：
   - **L1 收起与展开的入口**（体验审查第 5、6 条，[`t31 evidences/experience-review.txt`](../t31-general-layout-library/evidences/experience-review.txt)）：
-    - 今天第三方想让一块面板收起或展开，只能自己调 `resizeBranches`：从布局里读出父分支每个子节点此刻的像素当基线，自己算守恒的目标，再把 `collapsed` 带上。体验审查者写了 22 行。
-    - `SashCollapsePolicy.restoreSize`（显式恢复回到的尺寸）库里没有任何地方更新它。用户把左栏拖宽、再收起，按 Enter 恢复时回到建树时给的值。
+    - 今天第三方想收起或展开一块面板，只能自己读布局、算守恒的目标，再调 `resizeBranches`。
+    - `SashCollapsePolicy.restoreSize`（显式恢复回到的尺寸）库里没人更新：用户拖宽左栏、再收起，按 Enter 恢复时回到建树时给的值。
   - **L2 意图回写**（t26 深度审查 api-03，[`t26 evidences/deep-review-api.txt`](../t26-layout-deep-review/evidences/deep-review-api.txt)）：
-    - 手势落账后，宿主要手写约 20 行把结果写回布局文档（工作台 `layout-doc-store.ts` 的 `commitGesture`）：
-      - 收起状态写到区域的锚上；
-      - 拉开隐藏的区域时清掉隐藏；
-      - 挑出“这次没动的保留像素节点”（容差 0.5px）；
-      - 再 `rebaseIntents`。
-    - 结构操作之前要先 `rebaseIntents(…, collapsedTo, fixedNodesOf(…))`。
-    - 漏任何一个输入都不报错，只是过一会儿布局不对。Lab 的 `GridPanelsScene` 就漏了：它不传 `frozen`，也不按锚记收起。
-- 开发者已确认的决定：上面两条照提案做；形状在 Spec 里定（提案原话“形状在 Spec 里定”“推荐谁收起谁记”）。
+    - 手势落账后、结构操作之前，宿主要手写一段回写：收起记到区域的锚上，拉开隐藏的区域时清掉隐藏，挑出没动的保留像素节点，再 `rebaseIntents`。
+    - 漏一个输入不报错，只是过一会儿布局不对。仓库里现成有三处漏参的副本：Lab 的 `GridPanelsScene`、`WorkbenchSurfaceFixture` 不传 `frozen`；`EditorAreaFixture` 把所有保留像素节点都冻结、不比较前后。
+    - 审查实验（`exp/api03.test.ts`，真实 `projectLayoutDoc`）：窗口 700 时拖编辑区的边界、再放宽到 1400，Lab 的写法让左栏从 280 变成 160、回不去；store 的写法回到 280。
+  - **审查新发现的 L1 缺陷**（第 1、3 条，都已用真实函数复现）：
+    - 分隔条上 Enter 收起时没人能吸收（兄弟都到上限、都已收起），预览照出，落账以 `not-conserved` 失败。
+    - `resizeBranches` 把这次没动、但被压缩的保留像素节点的意图写成压缩值：窄窗口里收起一块面板，放宽后旁边那块保留像素的面板永久少一截（`exp/compress.test.ts`：c 从 300 变 100）。
+- 开发者已确认的决定：上面两件照提案做；提案原话是收起入口“形状在 Spec 里定”，`restoreSize`“推荐谁收起谁记”。
 
 ## 技术选型
 
@@ -25,154 +31,172 @@
 
 ### L1 收起与展开的入口：`packages/nb-layout/src/grid.ts`
 
-`Grid` 加一个方法：
-
 ```ts
-setCollapsed(id: string, collapsed: boolean, container: GridExtent): GridCollapseResult;
+setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
 
 type GridCollapseResult =
-    | {ok: true; intents: Readonly<Record<string, GridExtent>>; collapsed: Readonly<Record<string, boolean>>; issues: readonly GridIssue<GridIssueCode>[]}
+    | {ok: true; changed: boolean; collapse: SashCollapseState}
     | GridFailure<GridFailureCode>;
 ```
 
-- 走和分隔条 Enter 同一条路，不另写求解：
-  1. 用 `layout(container)` 取父分支直接子节点此刻的主轴像素当基线；
-  2. `branchSashPanels(父分支, sashSize)` 给出面板，交给 `solveSashCollapse`，算出守恒的目标；
-  3. 把基线、目标与 `collapsed` 交给 `resizeBranches`，原子落账。
-- 哪一侧让位：面板后面有兄弟时用它后面那条分隔条（后面的兄弟按“由近到远”让位，与 Enter 相同），它是最后一个时用前面那条。这个规则写进 Spec。
-- 容器尺寸由调用方给：`Grid` 不记上一次布局，基线必须和宿主看到的布局同一个容器算。
-- `toggleable: false` 不过滤：`toggleable` 只决定分隔条上的 Enter 挑哪一侧；按 id 调用的调用方已经选定了对象，和直接调 `solveSashCollapse` 一样（`grid-types.ts` 的注释已经这样写）。
+- 语义：只翻 `id` 的收起标记，尺寸意图不动，下一次 `layout()` 按分配规则重排。这和宿主改了自己的记录、重新建树得到的布局相同。
+  - 谁吸收：按比例分的兄弟吸收差额，保留像素的兄弟不变（`grid-geometry.ts` 的分配约定）。
+  - 展开回到它的意图：保留像素的面板回到意图的像素；按比例分的面板回到按权重此刻该得的那一份。拖动收起时意图本来就留在展开值（`planBranchResize` 对收起的子节点不写意图）。
+  - 总量天然守恒，所以没有“没人能吸收”的失败。放不下时由 `layout()` 照常压缩并给诊断。
+- 和分隔条上的 Enter 不同：Enter 是隔着那条分隔条的邻居由近到远让位，恢复到 `restoreSize`。Spec 分开写两条。
+  - 为什么不让两者一样：Enter 发生在一条具体的分隔条上，用户看着那条边界，邻居让位符合直觉；按 id 收起没有分隔条，让分配规则决定，结果才和宿主改记录后重排一致。
+  - VS Code 的 `SplitView.setViewVisible` 也是按优先级而不是按邻近决定谁吸收（审查者凭记忆，未核对；不作依据）。
+- 不要容器尺寸：不读布局，`Grid` 也不记上一次布局。
+- `toggleable: false` 不过滤：它只决定分隔条上的 Enter 挑哪一侧。
 - 结果：
-  - 已经是那个状态：`{ok: true}`，`intents`、`collapsed` 为空，树不变。
-  - 恢复时空间不够：`{ok: true}`，`collapsed` 为空，`issues` 带 `no-room-to-restore`，树不变。这和 Enter 一致：这种情况不是失败，是保持收起。
-  - 失败都沿用现有的码与参数，只加一个 `field` 值：
+  - `changed` 是收起标记有没有变；`collapse` 是调用之后这个节点的收起策略（含记下的 `restoreSize`），宿主要存盘时从这里取。
+  - 已经是那个状态：`changed: false`，树不变。
+  - 失败沿用现有的码与参数，不加新码：
     - `id` 不存在：`not-found`；
     - `id` 是根：`invalid-argument`，`field: "root"`（同 `resize`）；
-    - 没有收起策略：`not-collapsible`，参数 `id`、`branch`；
-    - 容器尺寸不可用（非有限或不大于 0）：`invalid-argument`，`field: "container"`，`value` 写成字符串。这是新加的 `field` 值，失败 5 的表要补。
-  - 不发 `no-collapse-policy` 诊断：按 id 调用时“没有策略”是调用方的错，用失败表达。手势路径照旧发这个诊断。
+    - 没有收起策略：`not-collapsible`，参数 `id`、`branch`。
 
-### L1 `restoreSize` 由谁维护：同一文件的 `resizeBranches`
+### L1 `restoreSize` 谁维护：同一文件
 
-- 谁收起谁记：`resizeBranches` 落账时，一个子节点的收起状态从展开翻成收起，就把它的 `collapse.restoreSize` 改成这次变化的基线（收起前呈现的主轴像素），下限是 `collapsedSize`。
-- 拖动收起、分隔条上的 Enter、`setCollapsed` 都经 `resizeBranches`，所以只有这一处写。
-- 记的是呈现的像素，不是意图：
-  - 对按比例分的面板，意图是权重，给不出像素，所以只能记呈现的像素。
-  - 已知限制：面板收起时正被压缩（放不下），记下的是压缩后的尺寸，恢复回到这个较小的值。保留像素的面板意图里还留着原值，下一次布局按意图给，影响只在 Enter 那一下。写进 Spec 的“不承诺”。
+- 谁收起谁记：一个子节点的收起标记从展开翻成收起时，记下它的恢复尺寸。
+  - 记什么：
+    - 保留像素的面板记它在父分支主轴上的意图。意图本来就是它的像素记忆，被压缩时也不变。
+    - 按比例分的面板，意图是权重，给不出像素，只能记收起前呈现的像素。
+  - 下限是 `collapsedSize`。
+  - 在哪记：
+    - `resizeBranches`（拖动收起、分隔条上的 Enter）：按比例分的面板取这次变化的基线；
+    - `setCollapsed`：没有布局，按比例分的面板不改 `restoreSize`。按比例分的面板想要“恢复到合适的那一份”，用 `restoreToShare`（这是它的正路）。写进 Spec 的“不承诺”。
 - 带 `restoreToShare` 的面板照样记，只是不读。
-- 收起策略不写快照（不变）：
-  - `restore()` 的解析结果没给 `collapse` 时沿用当前树的，记下的值保留；
-  - 宿主自己记收起策略、要跨会话保存的，从 `find(id)` 读 `collapse.restoreSize`。这一句写进 Spec。
-- 工作台不受影响：它每次从投影重建网格，收起策略的 `restoreSize` 每次由投影按意图给（`layout-project.ts:111`）。
-- 为什么不废掉 `restoreSize`、改成“显式恢复回到意图”：
-  - 对保留像素的面板，意图本来就是记忆。
-  - 但按比例分的面板的意图是权重，没有像素记忆；不带 `restoreToShare` 时只能靠 `restoreSize`。
-  - 所以保留字段、补上维护者，改动最小。
+- 收起策略不写快照（不变）。`restore()` 的解析结果没给 `collapse` 时沿用当前树的，记下的值保留（审查已核对 `grid-snapshot.ts:159、208`）。
+- 工作台不受影响：它每次从投影重建网格，`restoreSize` 每次由投影按意图给（`layout-project.ts:111`）。
+
+### L1 落账不写坏保留像素节点：`grid.ts` 的 `planBranchResize`
+
+- 保留像素的子节点，这次目标与基线相差不超过 `EPSILON` 时保留原意图，不写成目标（被压缩时目标就是压缩值）。
+- 和 L2 的 `frozen` 是同一条规则，只是在 L1 自己的落账路径上也守住。
+- 用审查的 `exp/compress.test.ts` 作回归：窄窗口里收起 a，c 的意图仍是 300，放宽后 c 回到 300。
+
+### L1 分隔条上的 Enter：没人能吸收时保持展开：`sash-drag.ts` 的 `solveSashCollapse`
+
+- 收起分支算出的尺寸和不守恒（另一侧到上限吸收不了）时，不改，保持展开，给 `no-room-to-collapse` 诊断（拖动路径已有这个码，`sash-drag.ts:285、330`）。
+- 这样手势会话不发布不守恒的预览，落账不再以 `not-conserved` 失败。
 
 ### L1 Vue：`packages/nb-layout/src/vue/useGridHost.ts`、`useGridLayout.ts`
 
 - `GridHost` 加 `setCollapsed(id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready">`：
-  - 用宿主此刻的尺寸（`extent`）调 `grid.setCollapsed`；
-  - 树有变化（`intents` 非空或 `collapsed` 非空）时 `invalidate()`，版本递增、布局重发；
-  - 没有可用尺寸或没有网格时返回 `not-ready`（`missing: "host-size"` 或 `"grid"`，同失败 6 的码），不改树。
-- 这样 Vue 宿主收起一块面板只写一行。不经它、直接调 `grid.setCollapsed` 的宿主要自己 `invalidate()`：和别的结构操作一样，Spec 写明。
-- 进行中的手势：`invalidate()` 让版本递增，那场手势的提交按 `stale-revision` 被拒、预览回滚（失败 6 已有的行为）。Spec 写明。
-- `onApplied` 不为 `setCollapsed` 触发：`onApplied` 是手势提交的落账通知，带 `GridGestureCommit`；`setCollapsed` 的结果直接交回调用方。Spec 写明，免得在 `onApplied` 里存盘的宿主以为两条路都会到。
-- `onApplied` 加第三个参数 `before: GridLayoutResult`：这次提交之前发布的布局，也就是手势开始时宿主呈现的布局。
-  - 理由：L2 的 `applyGestureCommit` 要比较提交前后的尺寸，才能挑出没动的保留像素节点。
-  - 今天工作台靠 store 里记的 `presented`：它由 Surface 的 `watch(host.layout)` 更新，`onApplied` 同步跑在这个侦听之前，所以读到的还是旧值。这是靠侦听先后碰巧成立的。
-  - 第三方照抄时读不到这个先后，所以由库直接交出。
-  - 工作台的 store 继续用自己的 `presented`：它本来就要记呈现尺寸（可见标签的计算要用），两者是同一个值。`commitGesture` 的签名不变，store 的测试不用改。
+  - 调 `grid.setCollapsed`；`changed` 为真时 `invalidate()`，版本递增、布局重发；没变化不 `invalidate`，不打断进行中的手势。
+  - 没有网格时返回 `not-ready`（`missing: "grid"`，同失败 6）。不需要尺寸。
+  - 重发布局时的诊断照常经 `onIssues`（输出 145 的一个出口不变）；`setCollapsed` 自己没有诊断。
+  - 进行中的手势：`invalidate()` 让版本递增，那场手势的提交按 `stale-revision` 被拒、预览回滚（失败 6 已有的行为）。
+  - `onApplied` 不为它触发：`onApplied` 是手势提交的落账通知；程序收起的结果直接交回调用方，`collapse` 里有要存的值。Spec 写进“不承诺”。
+- `onApplied` 加第三个参数 `before: GridLayoutResult`：这次提交之前发布的布局。
+  - 审查已核对：提交前先核对版本，期间任何发布都会递增版本，所以落账时的上一份布局就是手势开始时呈现的那份。
+  - 理由：L2 的 `applyGestureCommit` 要比较提交前后的尺寸，才能挑出没动的保留像素节点。今天工作台靠 store 里记的 `presented`，它在实时预览期间不更新（`layout-doc-store.ts:408-412`），和手势开始时的布局可能不同，只是碰巧没出事。
 
-### L2 意图回写：`packages/nb-workbench-layout/src/layout-doc.ts`（从入口导出）
+### L2 意图回写：`packages/nb-workbench-layout/src/intent-writeback.ts`（新增）
 
 ```ts
-/** 手势落账后写回文档：收起记到锚上、拉开隐藏的区域时清隐藏、没动的保留像素节点不写，再写回意图。 */
 export function applyGestureCommit(doc: LayoutDoc, projection: LayoutProjection, gesture: {
     readonly before: Readonly<Record<string, GridExtent>>;
     readonly after: Readonly<Record<string, GridExtent>>;
     readonly collapsed: Readonly<Record<string, boolean>>;
 }): {readonly doc: LayoutDoc; readonly rejected: ReadonlyArray<{readonly id: string; readonly failure: GridFailure<LayoutFailureCode>}>};
 
-/** 结构操作之前把呈现尺寸写回意图；保留像素的节点不写（它们的呈现只可能是被压缩了）。 */
 export function rebaseForOperation(doc: LayoutDoc, projection: LayoutProjection, presented: Readonly<Record<string, GridExtent>>): LayoutDoc;
 ```
 
-- 两个函数都是把工作台现有代码原样搬进库：
-  - `applyGestureCommit` 是 `commitGesture` 去掉 `presented` 赋值与 `schedule` 的部分，加上 `untouchedFixed`；容差 0.5px 成为库里的常量，不导出。
-  - `rebaseForOperation` 是 `rebased()`。
-- 被拒的收起与显隐写入跳过、其余照常写回（同今天），但不再吞掉：逐项交回 `rejected`。
-  - 今天 `commitGesture` 对 `setPanelCollapsed`、`setPanelHidden` 失败时静默跳过。它们有合法的拒绝：底部面板的分节不收、区域只剩一节时那一节不收、编辑组不收、浮动窗不收（`layout-doc.ts` 的 `setPanelCollapsed`）。
-  - 投影只给文档收得起的节点配收起策略（`layout-project.ts` 的 `assignByParent`：底部面板一排不配，区域只剩一节时状态记在锚上），所以工作台里出现拒绝说明投影与文档的规则对不上。
-  - 不改成“整次失败”：那样一项被拒会连带丢掉这次手势的尺寸写回，比今天更糟。
-- 工作台的 store 拿到非空的 `rejected` 时：
-  - 文档照常更新；
-  - 记一条诊断：store 加 `state.writebackRejected`（最后一次的被拒项），`plugin.ts` 照 `structureFailure` 的做法侦听它，记 `workbench.layout.writeback` 警告；
-  - 不回滚网格：它下一次按文档重投影，回到文档的样子。
-- 不经 `fitsSkeleton`、`settleContainers`：收起与隐藏不改树的形状，也不改入口顺序；这两步留在工作台的 `apply` 里（今天 `commitGesture` 也不经它们）。
+- 两个函数是工作台现有代码原样搬进库：`applyGestureCommit` 是 `commitGesture` 去掉 `schedule` 的部分加上 `untouchedFixed`（容差 0.5px 成为库里的常量），`rebaseForOperation` 是 `rebased()`。审查逐项对照过等价。
+- `rebaseIntents` 不再从入口导出：它的 `collapsedTo`、`frozen` 漏传不报错，正是 api-03 说的陷阱。
+  - 入口是 `export *`，所以把 `rebaseIntents`（今在 `layout-doc.ts`）、`fixedNodesOf`（今在 `layout-project.ts`，只有回写用它）挪进新模块 `intent-writeback.ts`，和两个新函数放在一起；
+  - `index.ts` 只显式转出 `applyGestureCommit`、`rebaseForOperation`；
+  - 测试从模块直接导入。
+- 被拒的收起与显隐写入跳过、其余照常写回（同今天），逐项交回 `rejected`，不吞。
+  - 审查核对：从投影出发，工作台里这条路不可达（投影只给能收起的节点配收起策略，区域节点已换成锚）。
+  - 所以工作台的 store 不加状态与诊断，在调用处注释写明不可达及理由；第三方从返回值拿到。
 - 迁移：
-  - 工作台 `layout-doc-store.ts`：`commitGesture` 改调 `applyGestureCommit`，`rebased` 改调 `rebaseForOperation`；删掉 `untouchedFixed`。
-  - Lab `GridPanelsScene.vue`（以 t39 分支上的版本为准，它已经用 `useGridHost`）：
-    - `onApplied` 改调 `applyGestureCommit`，`before` 取 `onApplied` 的第三个参数；
-    - `commit` 改调 `rebaseForOperation`。
-    - 这是行为修正，不只是换名：它今天不传 `frozen`、不按锚记收起，`lab-grid-panels.e2e.ts` 要跑。
+  - 工作台：
+    - `WorkbenchSurface.vue` 的 `onApplied` 把 `before.sizes` 一起发出（`gesture-commit` 事件加一个参数）；
+    - store 的 `commitGesture(before, after, collapsed)` 改调 `applyGestureCommit`，`rebased` 改调 `rebaseForOperation`，删掉 `untouchedFixed`；`presented` 只留给可见标签的计算；
+    - `layout-doc-store.test.ts` 的五处调用补上 `before`。
+  - Lab 四个夹具：
+    - `nb-layout/GridPanelsScene.vue`：`onApplied` 用第三个参数；
+    - `WorkbenchSurfaceFixture.vue`、`editor-scene/EditorAreaFixture.vue`：接 Surface 的新事件；
+    - 三处都改调这两个函数，删掉手写的回写。
+    - 这是行为修正：三处今天都会写坏意图（见 Context）。
 
 ## Spec 与文档改动
 
 - [`ui/nested-grid`](../../../../../docs/specs/ui/nested-grid.md)：
-  - 新输出 147“收起与展开的入口”（planned）：`setCollapsed` 的语义、哪侧让位、不过滤 `toggleable`、三种结果。
-  - 新输出 148“恢复尺寸谁收起谁记”（planned）：记什么、何时记、压缩时的已知限制、快照与 `find`。
-  - 新输出 149“宿主的收起入口与提交前的布局”（planned）：`host.setCollapsed`、`invalidate` 与进行中的手势、`onApplied` 不为它触发、`onApplied` 的 `before`。
-  - 输出 20 的“记忆的恢复尺寸”链到 148。
-  - 失败 5 的 `invalid-argument` 加 `field: "container"`。
+  - 新输出（都标 planned）：
+    - 147“收起与展开的入口”：`setCollapsed` 的语义、和 Enter 的区别、结果与失败；
+    - 148“恢复尺寸谁收起谁记”：记什么、在哪记、按比例分的面板经 `setCollapsed` 不记；
+    - 149“宿主的收起入口”：`host.setCollapsed`、没变化不 `invalidate`、进行中的手势、`onApplied` 不为它触发；
+    - 150“提交前的布局”：`onApplied` 的 `before`；
+    - 151“落账不写坏保留像素节点”。
+  - 输出 20 加：没人能吸收时 Enter 保持展开，给 `no-room-to-collapse`；“记忆的恢复尺寸”链到 148。
 - [`ui/workbench-layout`](../../../../../docs/specs/ui/workbench-layout.md)：
   - 新输出 49“意图回写的两个入口”（planned）：`applyGestureCommit` 的四步、被拒的项跳过并交回；`rebaseForOperation` 不写保留像素的节点。
-  - 输出 8 链到 49。
-  - 实现合同的“公开入口”加这两个名字。
+  - 输出 8 链到 49；实现合同的“公开入口”写上这两个名字，并写明 `rebaseIntents`、`fixedNodesOf` 不导出。
 - 包内文档：
-  - `grid.md` 加 `setCollapsed` 与 `restoreSize` 的维护者；
-  - `NestedGrid.md` 的“接入”加一段收起与展开的写法（`host.setCollapsed`）；
-  - `grid-types.ts` 里 `restoreSize` 的注释改成“收起时由 `resizeBranches` 记下”。
+  - `grid.md`：`setCollapsed`、`restoreSize` 的维护者、落账不写坏保留像素节点；
+  - `NestedGrid.md` 的“接入”：收起与展开写 `host.setCollapsed`；
+  - `grid-types.ts` 里 `restoreSize` 的注释；
+  - `nb-workbench-layout/README.md` 与 `layout-doc.ts` 头注释里“只有一条写入路径：`rebaseIntents`”改成两个入口；`layout-project.ts` 头注释里提到 `rebaseIntents` 的地方跟着改。
 
 ## 切片
 
-1. **L1 核心**：`setCollapsed`、`restoreSize` 的记录、失败的 `field`；`grid.test.ts`。改 `grid.test.ts:1184`“连按几轮不漂”的期望：现在恢复回到收起前的 400，不再是建树时的 200；用例名改成说明这一点。提交 `feat(nb-layout)`。
-2. **L1 Vue**：`host.setCollapsed`、`onApplied` 的 `before`；`useGridHost.dom.test.ts`、`useGridLayout.dom.test.ts`；`NestedGrid.md`。提交 `feat(nb-layout)`。
-3. **L2 与迁移**：两个函数与测试；工作台 store、Lab `GridPanelsScene`。提交 `feat(nb-workbench-layout)`。
+1. **L1 核心**：
+   - `setCollapsed`、`restoreSize` 的记录、落账不写坏保留像素节点、Enter 没人能吸收时保持展开；
+   - `grid.test.ts`、`sash-drag.test.ts`；
+   - `grid.test.ts:1184`“连按几轮不漂”改成记录后的行为（恢复到收起前的 400），另留一条从收起状态建树、恢复读 `restoreSize`（200）的用例。
+   - 提交 `feat(nb-layout)`。
+2. **L1 Vue**：
+   - `host.setCollapsed`、`onApplied` 的 `before`；
+   - `useGridHost.dom.test.ts`、`useGridLayout.dom.test.ts`、`NestedGrid.md`。
+   - 提交 `feat(nb-layout)`。
+3. **L2 与迁移**：
+   - 两个函数与测试、入口不再导出 `rebaseIntents`、`fixedNodesOf`；
+   - 工作台 Surface 与 store、四个 Lab 夹具。
+   - `lab-grid-panels.e2e.ts` 加一条（先在迁移前跑，确认红）。
+   - 提交 `feat(nb-workbench-layout)`。
 
-每片自跑：nb-layout（或 nb-workbench-layout）的 `bun test` 与 `bunx vitest run`、应用 `bun run typecheck`；第 3 片另跑工作台 store 测试与下面的 e2e。
+每片自跑：nb-layout（或 nb-workbench-layout）的 `bun test` 与 `bunx vitest run`、应用 `bun run typecheck`；第 3 片另跑 store 测试与下面的 e2e。
 
 ## 验收映射
 
 | Spec | 测试 |
 |---|---|
-| `ui/nested-grid` 输出 147 | `grid.test.ts`：收起与展开（后面的兄弟让位、最后一个时前面的让位、守恒）；已是那个状态；恢复空间不够给 `no-room-to-restore`；`toggleable: false` 照样收；失败四种（`not-found`、根、`not-collapsible`、`container`）。 |
-| 输出 148 | `grid.test.ts`：拖宽后经拖动收起、经 Enter 收起、经 `setCollapsed` 收起，三条路的 Enter 恢复都回到收起前的尺寸；`restore()` 不给 `collapse` 时记下的值保留；被压缩时记的是压缩后的值。 |
-| 输出 149 | `useGridHost.dom.test.ts`：`host.setCollapsed` 后版本递增、布局重发；没有尺寸时 `not-ready`、树不变；`onApplied` 不触发。`useGridLayout.dom.test.ts`：`onApplied` 的 `before` 是提交前发布的布局（与 `after` 不同）。 |
-| 失败 5 的 `container` | 同 147。 |
-| `ui/workbench-layout` 输出 49 | `nb-workbench-layout` 的 `layout-doc.test.ts`（真实 `projectLayoutDoc`）：<br>- api-03 的复现：窗口窄到侧栏被压缩，拖编辑区与面板之间的边界，再放宽，侧栏回到原宽；把容差判定去掉会红。<br>- 单分节区域拖到零，记在锚上，不记在分节上。<br>- 隐藏的区域从边界拉开，隐藏清掉。<br>- 被拒的收起（例如底部面板的分节）跳过并出现在 `rejected` 里，尺寸照常写回。<br>- `rebaseForOperation` 不写保留像素的节点。 |
-| 工作台的行为不变 | `layout-doc-store.test.ts` 原样通过；e2e `workbench-shell`、`workbench-containers`、`workbench-views`、`editor-area`、`lab-workbench-surface`。 |
-| Lab 的修正 | `lab-grid-panels.e2e.ts`。 |
+| `ui/nested-grid` 输出 147 | `grid.test.ts`：<br>- 收起后布局与“同一棵树把标记翻了再建”相同；保留像素的兄弟不变、按比例分的吸收（审查 `exp/semantics.test.ts` 的那棵树）。<br>- 展开回到意图。<br>- 兄弟都到上限、都已收起时照样成功、守恒。<br>- 已是那个状态 `changed: false`。<br>- 失败三种：`not-found`、根、`not-collapsible`。 |
+| 输出 148 | `grid.test.ts`：<br>- 拖宽后经拖动收起、经 Enter 收起，恢复回到收起前的尺寸；<br>- 保留像素的面板被压缩时记的是意图；<br>- 经 `setCollapsed` 收起保留像素的面板记意图，按比例分的面板不改；<br>- `restore()` 不给 `collapse` 时记下的值保留。 |
+| 输出 149 | `useGridHost.dom.test.ts`：<br>- `host.setCollapsed` 后版本递增、布局重发、诊断经 `onIssues`；<br>- 没变化时版本不变；<br>- 没有网格时 `not-ready`；<br>- `onApplied` 不触发。 |
+| 输出 150 | `useGridLayout.dom.test.ts`：`onApplied` 的 `before` 是提交前发布的布局，与之后的不同。 |
+| 输出 151 | `grid.test.ts`：审查 `exp/compress.test.ts` 的复现，放宽后 c 回到 300；去掉这条规则会红。 |
+| 输出 20 的补充 | `sash-drag.test.ts` 与 `grid.test.ts` 的手势会话：没人能吸收时 Enter 不改、给 `no-room-to-collapse`，`finish()` 没有提交。 |
+| `ui/workbench-layout` 输出 49 | `nb-workbench-layout` 的 `layout-doc.test.ts`（真实 `projectLayoutDoc`）：<br>- api-03 的复现（审查 `exp/api03.test.ts`），去掉容差判定会红；<br>- 单分节区域拖到零记在锚上；<br>- 隐藏的区域拉开时清掉隐藏；<br>- 被拒的收起跳过、出现在 `rejected` 里，尺寸照常写回；<br>- `rebaseForOperation` 不写保留像素的节点。<br>`boundary.test.ts`：入口有两个新函数，没有 `rebaseIntents`、`fixedNodesOf`。 |
+| 工作台的行为不变 | `layout-doc-store.test.ts`（补上 `before` 后原样通过）；e2e `workbench-shell`、`workbench-containers`、`workbench-views`、`editor-area`、`lab-workbench-surface`。 |
+| Lab 的修正 | `lab-grid-panels.e2e.ts` 新加一条：窄视口拖编辑区之间的边界、放宽，左栏回到原宽；迁移前跑一次确认红。 |
 
 ## 验证
 
 - 每片的单元测试与类型检查（见切片）。
 - e2e：第 3 片之后跑上表六个文件（不到 8 个）；先看负载。
 - 收口：`bun run test:affected --since master`。
-- 未验证的边界：第三方在 `useGridHost` 之外自己调 `grid.setCollapsed` 又忘了 `invalidate()`，没有机检；只在 Spec 与 `grid.md` 写明。
+- 未验证的边界：第三方在 `useGridHost` 之外直接调 `grid.setCollapsed` 又忘了 `invalidate()`，没有机检；只在 Spec 与 `grid.md` 写明。
 
 ## 不做与风险
 
-- 不做 `toggleCollapse`：有 `setCollapsed` 加 `find(id).collapse.collapsed` 就够了。
-- 不给 `onApplied` 之外的通知。
-- 不改工作台 `commitGesture` 的签名：它的 `presented` 与 `before` 是同一个值。改了要动 store 的测试，换不来什么。
-- 风险：`restoreSize` 的记录改变了不带 `restoreToShare` 的面板的 Enter 恢复结果。
-  - 仓库里只有 Lab 的 `GridStructureScene` 与 `grid.test.ts` 用这条路。
-  - 搜过 e2e，没有断言 Enter 恢复的像素值；切片 1 再用 `git grep restoreSize` 核一遍。
-- 风险：工作台多一条诊断路径，只在投影与文档的收起规则对不上时走到。
+- 不做 `toggleCollapse`：有 `setCollapsed` 加结果里的 `collapse` 就够了。
+- 不给统一的“树变了”通知（审查第 7 条的另一种做法）：程序收起的调用方自己拿到结果。
+- 不做分隔条双击重置（VS Code 有，`useSashGesture` 没有）：不在本 Task 范围。
+- 行为变化：
+  - 不带 `restoreToShare` 的面板，Enter 恢复回到收起前的尺寸，原来回到建树时给的值；
+  - 被压缩、这次没动的保留像素节点的意图不再被写成压缩值；
+  - 没人能吸收时 Enter 不再收起，原来预览收起、落账失败。
+  - 仓库里只有 Lab 的网格夹具与 nb-layout 自己的测试走这几条路，工作台每次从投影重建网格。切片 1 用 `git grep restoreSize` 与 e2e 再核一遍。
+- `rebaseIntents`、`fixedNodesOf` 从 nb-workbench-layout 的入口拿掉是不兼容的改动。这个包不在插件 SDK 里，仓库里的调用方本 Task 都迁移。
 
 ## 待确认
 
-1. `setCollapsed` 放在 `Grid` 上，同时在 `useGridHost` 上给一个用宿主尺寸的版本（推荐）。另一种做法是只放在 `Grid` 上，宿主自己传尺寸、自己 `invalidate()`：库的接口少一个，但每个宿主多两步、多一个会忘的。
-2. `restoreSize` 记呈现的像素，不记意图；压缩时的结果作为已知限制（推荐）。
-3. `onApplied` 加 `before`（推荐）。另一种做法是让第三方照工作台那样自己记呈现尺寸：靠侦听的先后碰巧成立。
+1. `setCollapsed` 只翻标记、按分配规则重排，和分隔条上 Enter 的“邻居让位、恢复到 `restoreSize`”分开写（推荐）。另一种做法是让它和 Enter 一样，但那样保留像素的邻居会被撑大，没人能吸收时还要另给一种结果。
+2. `restoreSize`：保留像素的面板记意图，按比例分的面板记收起前的像素；经 `setCollapsed` 收起的按比例分的面板不记，要“恢复到合适的那一份”用 `restoreToShare`（推荐）。
+3. `rebaseIntents`、`fixedNodesOf` 不再从 nb-workbench-layout 的入口导出，只留 `applyGestureCommit`、`rebaseForOperation`（推荐）。另一种做法是保留导出、把参数改成必填：调用方仍要懂“没动的保留像素节点”是什么。
