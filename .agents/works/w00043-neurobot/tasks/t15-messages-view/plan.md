@@ -1,4 +1,4 @@
-# t15 计划：阶段 ① 能和 bot 聊（草稿 1）
+# t15 计划：阶段 ① 能和 bot 聊（草稿 2）
 
 ## Context
 
@@ -57,6 +57,47 @@ t06 做完了服务端：缺省 bot 星璃、主对话 `bot-lyra`、远程服务
   - 看到：视图可见、窗口有焦点时，按 `latestSeq` 调 `markSeen`；
   - 贡献 `agent.sessionOwners` 的 `nbook.bots`：打开时揭示 `nbook.bots.chat`。
 - 登记：描述加 `browser` 位置；`web/plugins.ts` 与消息目录；locales。
+
+### 设计审查的修订（优先于上面各节）
+
+两个 Sonnet 审查者，前端 13 条、服务端 10 条，没有阻断（[处理](evidences/design-review-disposition.md)）。改动：
+
+- **固定会话的组件改成静态组件加属性**（前端 6、11）：
+  - `agentConversationKey` 交出一个组件 `FixedConversation`，属性 `sessionId`（已取得的会话 id）、`identity`（`{name, avatar}`，可变）、`active`（视图可见且窗口有焦点）；事件 `seen(seq)`：`active` 时把已画出的最后一条计数消息的 seq 交出来。
+  - 取会话、失败、重试、没有模型的引导都在 bot 视图里做，组件只管已有 id 的会话。
+  - 顶栏用对话视图自己的头部画名字与头像，不接管面板头（`VIEW_HEAD`）。
+- **没有模型时不建主对话**（前端 5）：bot 视图先看模型服务有没有可用的模型，没有就显示引导卡（照对话视图现有的引导），不调 `ensureMain`。
+- **固定模式的守卫收在两个窄点**（前端 7）：宿主的 `create()` 与 `open()`：固定模式下 `create` 一律不受理，`open` 只开固定的 id，别的 id 交给通用视图。这样上传附件、`fork` 之后的打开这些隐式的路径都被拦住。`canArchive`、`canRestore` 在视图里没人读，不靠它们。
+- **发送一律走 `send`**（前端 3）：
+  - 固定模式下，运行中发话、Ctrl/⌘+回车的排队、空闲时发话都调 `send`，带 `mode`（运行中缺省插话）；有挂着的同步事项时带 `settlePending: "deny"`。不走 `enqueue`，因为它不收 `settlePending`。
+  - 结果未知时的重发（`PendingSend`）带上 `mode` 与 `settlePending`。
+- **“发出会拒绝 N 项”与向导作废**（前端 4，提案第四节第 7 小节已定）：
+  - 有挂着的同步事项时，输入框上方提示“发出会拒绝 N 项”，N 不含异步提问与后代会话的事项（带来源的）；
+  - 发出后停靠区里选了一半的作废。
+- **停靠区放阻塞事项时与向导同样的规则**（前端 12）：答完一个，焦点到下一个事项，没有了回输入框；“本会话都批准”对其余同工具的并行审批照向导的现有规则生效。
+- **模式选择器**（前端 8）：显不显示改看 Profile 的工具集里有没有 `nbook.agent.switch-mode`，不再写死主创。
+- **转交提到命令层**（前端 1、2、11）：
+  - `nbook.agent/sessions` 加只读方法 `header({sessionId})`（服务端的 `agentKey.header`），浏览器在打开会话的唯一入口（`focus-session` 与 `session.select`，经同一个函数）先读会话头；有归属、有贡献时交给 `agent.sessionOwners`，不揭示对话视图、不写“最近的会话”；
+  - 每次打开记一个号，读完会话头号不是最新的就作废，晚到的转交不抢；
+  - `restore()` 恢复到有归属的会话时不打开（当成没有最近的会话）；
+  - 贡献的实现收 `open(sessionId, owner)`，带上 `owner.id`（多个 bot 时据此找 bot）。
+- **未读的定义与计数**（服务端 1–4、6–10）：
+  - 一条“计数消息”是一次模型回复的最终那一条：`assistant` 事件里不带工具调用的；在线计数与补数共用同一个判定函数；
+  - 服务端只存“看到”的 seq（`bots-seen` 记录）。内存里每个 bot 留“看到之后的计数消息 seq”升序列表，`unread` 是它的长度，`latestSeq` 是最后一个（没有为“看到”的值）；
+  - 持有之后另起补数，不挂在 `ensure` 链上：先订阅、攒帧，再从“看到”之后按页读日志，按 seq 去重；补完之前 `unread` 为 null。补数失败写诊断，下一次持有再补；
+  - 订阅的取消函数与持有放在一起，放掉持有时一起取消；
+  - `markSeen({botId, through})`：`through` 截到 `latestSeq`，小于已存的值时不动；失败码 `unknown-bot`、`storage-failed`；记录读不懂时用 `reset` 重写；
+  - `list()` 的项加 `unread: number | null`、`latestSeq`、`seenSeq`（阶段 ④ 的未读分隔线用）。最后一句话的字段在阶段 ②。
+  - 按 seq 算，不按提案写的“最新消息时间”：有归属的会话不改写历史（sessions.md 输出 26），seq 在当前路径上只增不减，比时间可靠。提案决策记录补一行。
+- **看到**（前端 9、服务端 10）：`active` 取工作台的视图可见信号（`ViewContext.visible`）与窗口焦点；`through` 是组件已画出的最后一条计数消息的 seq，不用 `list` 里的 `latestSeq`。`badge()` 不依赖视图实例：浏览器入口 `onStartup` 激活、自己订阅 `botsChanged`。
+- **头像路由**（服务端 5，照 `nbook.stickers` 的取图路由）：
+  - 只认 bot 记录里有的 bot；在 bot 目录里按 `avatar.png`、`.jpg`、`.jpeg`、`.webp` 找，用 `entryInside` 逐段 `lstat`、不跟链接；
+  - `content-type` 按文件头的字节判定，判不出得 404；
+  - 安全头同取图路由，`cache-control: no-cache` 加 ETag；
+  - 入口声明 `HTTP_ROUTES_POINT` 贡献。
+- **测试映射**（前端 13）：转交在 `plugin.ts` 的打开函数里，用新 e2e 走真实路径：从状态栏活动条目点到主对话，断言揭示的是 bot 视图。
+
+接受取舍：适配器里的错误文案“开一个新会话”（压缩失败）在 bot 视图里照旧显示（前端 10）。阶段 ① 不做文案覆盖机制，阶段 ④ 再定。
 
 ## Spec 与文档改动
 
