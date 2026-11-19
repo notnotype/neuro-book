@@ -73,6 +73,19 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 - 未验证：`reportError` 那一支（happy-dom 没有，dom 测试走 `console.error`）。
 - 收口验证（并 master 之后）：应用三份类型配置、`docs:check` 都过；`test:affected --since master` 只有 `neuro-book` 的 bun 测试有失败，都不在本分支的改动里：`nbook.stickers` 清单不一致的 7 条（同 t34 记下的）、`sdk.test.ts` 组件子路径漏列 `ImagePreviewDialog`（主工作区 master 上同样失败，来自表情包那次合入）、agent 的 `eval.test.ts` 一条（内核重置后的输出）；nb-layout 与 nb-workbench-layout 的测试全过。e2e：`lab-nested-grid` 17、`workbench-shell` 18 全过；`lab-grid-swap`、`lab-grid-panels`、`lab-workbench-surface` 在负载 17 到 21 时各有 2、3、4 条失败，都是 Lab 15 秒内没就绪，负载 3 到 7 时整份重跑 5、17、17 全过。
 
+**实现审查**（Claude Sonnet，审查 worktree 固定在 `a9df56ba5`，[`evidences/impl-review.txt`](evidences/impl-review.txt)）：6 条，重要 1、建议 5，都成立，修正 `c12043db5`：
+
+| 条 | 内容 | 处理 |
+|---|---|---|
+| 1 | “宿主回调抛出时手势已经结束”只对松手、取消与卸载成立，拖动途中某一帧里抛出手势照常进行 | 文档、JSDoc 与 Spec 输出 140 改成按路径说清；拖动途中的行为同改动前 |
+| 2 | 有面板不设上限时 `range-overflow` 的 `max` 是哨兵值的和 | 这时不给 `max`，`message` 写“至少多少”；构造时跳过值为 undefined 的键 |
+| 3 | 交叉处的会话里折叠动作套到每一根轴上，另一根轴报出 `no-collapse-policy` | 折叠只作用于发起它的那根轴（改动前就是这样套的，诊断被盖住才没露出来）；补用例 |
+| 4 | 折叠与拖动求解的诊断合并后同键两条 | 合并时同键只留一条；补用例（先拖过展开阈值再折叠） |
+| 5 | 卸载用例守的其实是取消的收尾顺序；`invalidate` 的 `try`/`finally` 是死代码；“先拖再折叠”用例改动前也过 | 用例名改成它守的东西；删掉死代码；`teardown` 的 `finally` 留着（防宿主回调抛出时监听留着，测试看不到）；“先拖再折叠”留作防另一种实现的回归 |
+| 6 | 没人用的参数值、过时的注释、类型夹在导入中间 | 照改 |
+
+去掉 planned 前补了三条用例（`7d7656755`）：度量取两位小数、被拒的提交每次都发、键盘每按一次是一场手势。
+
 第 2 稿的设计审查（第二轮，Claude Sonnet；代码按 master `5ee62b05a`，[`evidences/design-review-r2.txt`](evidences/design-review-r2.txt)）：9 条，阻断 0、重要 2、建议 7，都成立，改成第 3 稿。第一轮各条它逐条核过，大多到位，没到位的就是下表的几条。都是给了改法的细化、没有方向问题，第 3 稿不再送审，实现审查兜底：
 
 | 条 | 内容 | 处理 |
@@ -89,4 +102,4 @@ t34 计划第 3 稿（`bd652653e` 的 [`plan.md`](../t34-unified-errors/plan.md)
 
 ## 下一步
 
-1. 实现审查（前端包，Claude Sonnet，审查 worktree `review-t38-impl` 固定在 `a9df56ba5`）在后台；处理完合入 master，`ui/nested-grid` 输出 139、140 去掉 planned、补实现合同。
+无。t38 完成：合入 master（`b2a45d357`，审查修正 `c12043db5`，守护测试 `7d7656755`）；`ui/nested-grid` 输出 139、140 去掉 planned，只剩“预览布局的诊断不经通知”一句没有测试、留着标记；实现合同补“失败与诊断的构造”“只发新增”与合同测试。拉远看对“通知只发边沿”的质疑在待确认清单里等开发者定。
