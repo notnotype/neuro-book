@@ -15,7 +15,7 @@ import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {createSplitterSession, type SplitterGestureChange} from "../splitter-session";
 import {useLayoutExtent} from "./useLayoutExtent";
-import {useLayoutText} from "./text";
+import {useLayoutText} from "./layout-text";
 import {useSashSnap} from "./useSashSnap";
 import {useSashGesture} from "./useSashGesture";
 import type {SashGestureBinding, SashGestureHost} from "../sash-gesture";

@@ -807,9 +807,11 @@
     "packages/neuro-book-test-support": {
       "name": "@notnotype/neuro-book-test-support",
       "version": "0.1.0",
+      "dependencies": {
+        "typescript": "^5.9.3",
+      },
       "devDependencies": {
         "@types/node": "^25.6.0",
-        "typescript": "^5.9.3",
         "vitest": "^4.1.2",
       },
     },

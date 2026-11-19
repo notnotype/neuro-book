@@ -22,7 +22,7 @@ import type {SortableAxis, SortableLayout, SortableSection, SortableSlot, Sortab
 import {createDragSession} from "./drag-session";
 import type {DragSession} from "./drag-session";
 import {layoutDurationMs} from "./layout-vars";
-import {useLayoutText} from "./text";
+import {useLayoutText} from "./layout-text";
 
 export interface SortableMove {
     readonly key: string;

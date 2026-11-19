@@ -5,7 +5,7 @@ import {computed, shallowRef} from "vue";
 import type {GridExtent} from "../grid-types";
 import {resizeFloatRect} from "../grid-rects";
 import type {GridRect, LayoutFloatResize} from "../grid-rects";
-import {useLayoutText} from "./text";
+import {useLayoutText} from "./layout-text";
 
 defineOptions({name: "FloatWindowHandles"});
 

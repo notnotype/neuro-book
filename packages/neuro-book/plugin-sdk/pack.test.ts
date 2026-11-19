@@ -12,6 +12,7 @@ import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {moduleExports} from "@notnotype/neuro-book-test-support/module-exports";
 
 import {manifestFormat} from "../src/plugin-platform-profile";
 
@@ -327,12 +328,8 @@ export const noProvides = plugin.entry({location: "server", activate: async () =
         const actual = Object.fromEntries(await Promise.all(Object.keys(DECLARED).map(async (file) => [file, declaredExports(await readFile(join(installed, `${file}.d.ts`), "utf8"))] as const)));
         expect(actual).toEqual(Object.fromEntries(Object.entries(DECLARED).map(([file, names]) => [file, [...names].sort()])));
         // 组件子路径的声明与源码里逐个列出的名单一致：nb-ui 入口里别的导出不会混进来。
-        const componentsSource = await readFile(fileURLToPath(new URL("../src/sdk/components.ts", import.meta.url)), "utf8");
-        // 再导出的名字，加上就地声明的弃用别名（`export type 旧名 = 新名`，见 components.ts）。
-        const listed = [
-            ...[...componentsSource.matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== "")),
-            ...[...componentsSource.matchAll(/^export type (\w+)\s*=/gmu)].map((match) => match[1]!),
-        ];
+        // 读语法树：再导出的名字与就地声明的弃用别名（`export type 旧名 = 新名`，见 components.ts）都算。
+        const listed = moduleExports(await readFile(fileURLToPath(new URL("../src/sdk/components.ts", import.meta.url)), "utf8")).map((item) => item.name);
         expect(declaredExports(await readFile(join(installed, "components.d.ts"), "utf8"))).toEqual([...listed].sort());
         // nb-ui 的模板类型补充（任何组件都接受 ARIA 属性与 role）随组件声明一起交给作者，打开模板严格检查的作者才不会被误报。
         const components = await readFile(join(installed, "components.d.ts"), "utf8");

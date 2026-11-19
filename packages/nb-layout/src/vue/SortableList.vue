@@ -8,7 +8,7 @@ import type {VNodeChild} from "vue";
 
 import type {SortableMove} from "./useSortable";
 import {useSortable} from "./useSortable";
-import {useLayoutText} from "./text";
+import {useLayoutText} from "./layout-text";
 
 const props = withDefaults(defineProps<{
     /** 分区与它们的项（按呈现顺序）。受控：放下后由调用方改了再交回来。 */

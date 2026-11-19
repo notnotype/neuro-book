@@ -18,7 +18,7 @@ import {swapSides, swapWindowClip, type GridSwap} from "../grid-swap";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
-import {useLayoutText} from "./text";
+import {useLayoutText} from "./layout-text";
 import {gridRectStyle, leafShapeClip, liftedRectStyle, useContentLayer} from "./useContentLayer";
 import {useDevicePixelRatio} from "./useDevicePixelRatio";
 import {useGridMotion} from "./useGridMotion";

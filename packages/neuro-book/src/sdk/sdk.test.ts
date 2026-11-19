@@ -8,7 +8,7 @@ import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import ts from "typescript";
+import {moduleExports} from "@notnotype/neuro-book-test-support/module-exports";
 
 import {SDK_ENTRIES} from "./entries";
 
@@ -55,9 +55,8 @@ describe("SDK 的导出面", () => {
     });
 
     it("组件子路径的类型与 nb-ui 组件入口的公共类型逐个对上：nb-ui 新增或改名的类型漏列时这里失败", () => {
-        const source = readFileSync(join(import.meta.dir, "components.ts"), "utf8");
-        // 就地声明的弃用别名（`export type 旧名 = 新名`）也是 SDK 导出的类型。
-        const sdk = [...exportedTypes(source), ...[...source.matchAll(/^export type (\w+)\s*=/gmu)].map((match) => match[1]!)].sort();
+        // 就地声明的弃用别名（`export type 旧名 = 新名`）也算 SDK 导出的类型。
+        const sdk = exportedTypes(readFileSync(join(import.meta.dir, "components.ts"), "utf8")).sort();
         const nbUi = exportedTypes(readFileSync(fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components")), "utf8")).sort();
         // 布局的类型由 nb-layout 与 nb-workbench-layout 提供，SDK 只挑给插件用的那些，不要求逐个对上。
         const layout = new Set(["@notnotype/nb-layout", "@notnotype/nb-layout/vue", "@notnotype/nb-workbench-layout", "@notnotype/nb-workbench-layout/vue"].flatMap((name) => exportedTypes(readFileSync(fileURLToPath(import.meta.resolve(name)), "utf8"))));
@@ -68,24 +67,11 @@ describe("SDK 的导出面", () => {
 /** nb-ui 组件入口里不给插件用的单文件组件，与理由。现在没有。 */
 const NOT_FOR_PLUGINS: Readonly<Record<string, string>> = {};
 
-/** 模块里非 `type` 的具名再导出：导出名与来源。读语法树，不执行（单文件组件 Bun 加载不了）。 */
-function exportedValues(text: string): Array<{readonly name: string; readonly from: string}> {
-    const source = ts.createSourceFile("module.ts", text, ts.ScriptTarget.Latest);
-    return source.statements.flatMap((statement) => {
-        if (!ts.isExportDeclaration(statement) || statement.isTypeOnly || statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) return [];
-        const from = statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : "";
-        return statement.exportClause.elements.filter((element) => !element.isTypeOnly).map((element) => ({name: element.name.text, from}));
-    });
-}
+/** 模块里非 `type` 的导出：导出名与来源（读语法树，不执行：单文件组件 Bun 加载不了）。 */
+const exportedValues = (text: string): Array<{readonly name: string; readonly from: string}> => moduleExports(text).filter((item) => item.kind === "value");
 
-/** 模块里 `type` 的具名再导出（整条 `export type {…}` 或单个 `type` 修饰的名字）。 */
-function exportedTypes(text: string): string[] {
-    const source = ts.createSourceFile("module.ts", text, ts.ScriptTarget.Latest);
-    return source.statements.flatMap((statement) => {
-        if (!ts.isExportDeclaration(statement) || statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) return [];
-        return statement.exportClause.elements.filter((element) => statement.isTypeOnly || element.isTypeOnly).map((element) => element.name.text);
-    });
-}
+/** 模块里的类型导出：`type` 的再导出与就地声明的类型。 */
+const exportedTypes = (text: string): string[] => moduleExports(text).filter((item) => item.kind === "type").map((item) => item.name);
 
 describe("SDK 的子路径表", () => {
     it("两份 tsconfig 的 SDK 别名与子路径表一致：新增子路径漏改一处时这里失败", () => {
