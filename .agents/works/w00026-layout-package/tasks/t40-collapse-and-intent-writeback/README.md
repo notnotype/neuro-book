@@ -78,8 +78,15 @@ updated: 2026-11-19
     - `workbench-views` 从 227 行起 34 条连不上服务端：`nbook.bots` 依赖被排除的 `nbook.agent`，服务端起不来。master 上用同样的环境起服务端同样失败，所以是原有问题。排除列表补 `nbook.bots` 后，同类的四个文件都能跑。
     - Lab 意图回写那条有一句断言写错了：拖完断言侧栏宽度不变，可右栏意图变小后，窄盒子里侧栏会多分到空间。删掉这句。
     - 重跑：`workbench-views` 全文件与 Lab 那条共 35 条全过；`workbench-dnd`、`workbench-float`、`workbench-live-drag` 共 76 条全过。
-- 收口：把 master（`f56d70939`）并进分支，合并提交 `5e25c2819`，没有冲突，与本 Task 不相交；`test:affected` 在跑。
+- 收口：把 master（`f56d70939`）并进分支，合并提交 `5e25c2819`，没有冲突，与本 Task 不相交。
+  - `test:affected --since master`（负载 6 到 7）：bun 一项失败，五条。
+  - 五条都是原有失败，与本 Task 无关：SDK 组件清单缺 `ImagePreviewDialog`；`architecture`（`plot/web/labels.ts` 跨插件导入 canon）；活动栏条目、页面浮层、条目注册表三处“同 id 的两条一起被拒”。后四条在 master `223622859` 上同样失败。
+  - 其余全过。
+
+## 实现审查
+
+待处理：Claude Sonnet，审查 worktree `review-t40-impl` 固定在 `5e25c2819`，diff 是相对 master `f56d70939` 的净改动（36 个文件）。
 
 ## 下一步
 
-1. 第 3 片的 e2e 跑完后提交；收口验证（`test:affected`）；实现审查（Claude Sonnet，不阻塞）；合入；晋升。
+1. 处理实现审查；合入；删 worktree；晋升（换模型逐句核对）。
