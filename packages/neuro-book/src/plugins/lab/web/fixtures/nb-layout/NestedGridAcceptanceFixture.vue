@@ -30,6 +30,7 @@ import {Checkbox} from "@notnotype/nb-ui/components";
 import GridPanelsScene from "./GridPanelsScene.vue";
 import GridStructureScene from "./GridStructureScene.vue";
 import GridSwapScene from "./GridSwapScene.vue";
+import StarterScene from "./StarterScene.vue";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {useLabEventSink} from "../../lab-event-sink";
 import type {LabFixtureProps} from "../../lab-subject";
@@ -433,6 +434,10 @@ function formatPx(val?: number): string {
     <GridStructureScene v-if="scene === 'structure'" />
     <GridPanelsScene v-else-if="scene === 'panels'" />
     <GridSwapScene v-else-if="scene === 'swap'" />
+    <!-- README 的起步例子原样搬来（nb-layout 的 readme.test.ts 核对两边一字不差），Lab 要的标记包在外面。 -->
+    <div v-else-if="scene === 'starter'" data-lab-subject style="height: 100%; padding: 8px">
+        <StarterScene />
+    </div>
     <div v-else class="flex w-full min-w-0 flex-col gap-4">
         <!-- 主工作区卡片容器 -->
         <div class="nested-grid-card mx-auto flex h-[520px] w-full min-w-0 max-w-[880px] flex-col overflow-hidden p-0">

@@ -1,24 +1,24 @@
 # 嵌套 grid
 
-`createGrid` 管理领域无关的两轴布局树。节点 `size` 是分配意图，分支的外部分配与内部子布局各自独立；`layout({width, height})` 只计算呈现，不回写快照。
+`createGrid` 管理领域无关的两轴布局树。节点 `size` 是分配意图，分支的外部分配与内部子布局各自独立；`layout({width, height})` 只计算呈现，不回写快照。完整的行为合同在仓库的 [`docs/specs/ui/nested-grid.md`](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md)。
 
 ## 建树
 
-`createGrid(root, {sashSize})`：`sashSize` 是每条分隔线的主轴占用（CSS px），可以是数，或 `(branchId, sashIndex) => number` 的函数。**缺省是 0**：分隔线没有宽度、不可交互（`data-disabled`），也没有诊断；要可拖的分隔线必须传一个正数。
+`createGrid(root, {sashSize})`：`sashSize` 是每条分隔线的主轴占用（CSS px），可以是数，或 `(branchId, sashIndex) => number` 的函数。**缺省是 0**：分隔线没有宽度、不可交互（`data-disabled`），也没有诊断；要可拖的分隔线必须传一个正数。接了提交处理又没停用的 `NestedGrid` 遇到全是 0 的分隔线时，开发模式下会警告（`setLayoutDevChecks`）。
 
 ## 几何与手势
 
-`layout` 返回每个节点的 `sizes`、有效交互 `constraints`、每条分隔条的 `sashSizes` 和 `issues`（这一次求解的全部诊断，`{code, message, params?}`，码与参数见 [Spec](../../../docs/specs/ui/nested-grid.md) 输出 139）。Renderer 同时消费这三份几何数据；不可满足的窄容器已经降级，不能再用原始 min/max 把面板夹回溢出。
+`layout` 返回每个节点的 `sizes`、有效交互 `constraints`、每条分隔条的 `sashSizes` 和 `issues`（这一次求解的全部诊断，`{code, message, params?}`，码与参数见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“诊断：形状与码”一条）。Renderer 同时消费这三份几何数据；不可满足的窄容器已经降级，不能再用原始 min/max 把面板夹回溢出。
 
-收起且 `collapsedSize` 为 0 的节点看不见：它在两根轴上都不占最小尺寸，不抬高父分支另一根轴的下限，另一根轴放不下它里面的叶时也不报诊断（[Spec](../../../docs/specs/ui/nested-grid.md) 输出 137，“分支的收起”见输出 133 到 138）。`collapsedSize` 大于 0 的（标题行）只在父分支主轴上换成 `collapsedSize`，另一根轴照常约束、照常诊断。
+收起且 `collapsedSize` 为 0 的节点看不见：它在两根轴上都不占最小尺寸，不抬高父分支另一根轴的下限，另一根轴放不下它里面的叶时也不报诊断（完整规则见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“分支的收起”几条）。`collapsedSize` 大于 0 的（标题行）只在父分支主轴上换成 `collapsedSize`，另一根轴照常约束、照常诊断。
 
 `resizeBranch(branchId, axis, baseline, target)` 一次提交同一分支全部直接子节点的当前呈现 px。基线和目标均不包含 sash；两者必须覆盖相同子节点、有限非负、总量相等，基线必须符合当前树，目标必须符合当前约束。过期基线、越界目标或无法反解时返回失败且树不变。
 
 原语按未触界节点的呈现比例反解尺寸意图。当前 min/max 约束呈现像素，不能直接夹取反解后的比例权重；仍能呈现目标的兄弟保留原意图。无变化的手势保持快照逐值不变。所有节点都触界或权重为零时以现有总量选择权重单位，再重新布局验证目标后一次发布。
 
-`setCollapsed(id, collapsed)` 收起或展开一块有收起策略的面板：只翻它的收起标记，尺寸意图不动，下一次 `layout` 按分配规则重排（按比例分的兄弟吸收，保留像素的不变，展开回到意图），和宿主改了自己的记录、重新建树相同。分隔条上的 Enter 是另一种结果：隔着那条分隔条的邻居由近到远让位，恢复到 `restoreSize`；另一侧吸收不了时不收，给 `no-room-to-collapse`。`setCollapsed` 改的是活树，用 `useGridHost` 的宿主经 `host.setCollapsed`（会重发布局），直接调的宿主之后要自己 `invalidate()`（[Spec](../../../docs/specs/ui/nested-grid.md) 输出 147、149）。
+`setCollapsed(id, collapsed)` 收起或展开一块有收起策略的面板：只翻它的收起标记，尺寸意图不动，下一次 `layout` 按分配规则重排（按比例分的兄弟吸收，保留像素的不变，展开回到意图），和宿主改了自己的记录、重新建树相同。分隔条上的 Enter 是另一种结果：隔着那条分隔条的邻居由近到远让位，恢复到 `restoreSize`；另一侧吸收不了时不收，给 `no-room-to-collapse`。`setCollapsed` 改的是活树，用 `useGridHost` 的宿主经 `host.setCollapsed`（会重发布局），直接调的宿主之后要自己 `invalidate()`（见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“收起与展开的入口”“宿主的收起入口”两条）。
 
-`restoreSize` 由网格在收起的那一刻记下，宿主只给初值：保留像素的面板记它的意图（被压缩时也是意图）；按比例分的面板在 `resizeBranches`（拖动收起、Enter）里记收起前呈现的宽度，经 `setCollapsed` 时不改，要“恢复到合适的那一份”就给它 `restoreToShare`。收起策略不写快照：宿主要跨会话保存，从 `setCollapsed` 的结果或 `find(id)` 读（输出 148）。
+`restoreSize` 由网格在收起的那一刻记下，宿主只给初值：保留像素的面板记它的意图（被压缩时也是意图）；按比例分的面板在 `resizeBranches`（拖动收起、Enter）里记收起前呈现的宽度，经 `setCollapsed` 时不改，要“恢复到合适的那一份”就给它 `restoreToShare`。收起策略不写快照：宿主要跨会话保存，从 `setCollapsed` 的结果或 `find(id)` 读。
 
 `resize(id, axis, delta)` 保留为意图单位的单节点入口，兄弟共同吸收可用增量。用户手势携带的是当前呈现 px，应使用 `resizeBranch`，不能逐个面板调用 `resize`。
 恢复的意图可能超出当前约束；旧单节点 `resize` 会向当前范围归一，意图总量可能下调，不能把它用于需要保留越界偏好的呈现手势。`resizeBranch` 的 no-op 则保留原意图。
@@ -39,7 +39,7 @@
 
 ## 布局文档
 
-工作台的布局文档（用户的布局、到呈现树的投影、落点规则）不在本包，在 [`@notnotype/nb-workbench-layout`](../../nb-workbench-layout/README.md#布局文档)：它只经本包的公开入口建在 `createGrid` 之上（[ADR 0054](../../../docs/adr/0054-nb-layout-general-library.md)）。
+工作台的布局文档（用户的布局、到呈现树的投影、落点规则）不在本包，在 [`@notnotype/nb-workbench-layout`](https://github.com/notnotype/neuro-book/blob/master/packages/nb-workbench-layout/README.md#布局文档)：它只经本包的公开入口建在 `createGrid` 之上（[ADR 0054](https://github.com/notnotype/neuro-book/blob/master/docs/adr/0054-nb-layout-general-library.md)）。
 
 ## 快照与引用
 
@@ -53,4 +53,4 @@ v1 无法可靠推导两轴意图，明确拒绝；未知高版本、重复 id�
 
 `find(id)` 是只读查找（宿主读身份与意图用）；改动仍走结构操作，直接改写节点会绕过守恒与规模判定。
 
-行为见 [ui.nested-grid](../../../docs/specs/ui/nested-grid.md)，能力仍为 planned：宿主一侧的持久化（Storage 宿主、同名叶的恢复地址隔离、双标签订阅，验收 3、6）还没有闭合。
+行为见 [`docs/specs/ui/nested-grid.md`](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md)，能力仍为 planned：宿主一侧的持久化（Storage 宿主、同名叶的恢复地址隔离、双标签订阅）还没有闭合。

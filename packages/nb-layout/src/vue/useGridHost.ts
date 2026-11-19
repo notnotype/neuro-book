@@ -17,7 +17,8 @@ import type {ComputedRef, MaybeRefOrGetter, Ref} from "vue";
 import type {Grid} from "../grid";
 import {commitFailure} from "../grid-failure";
 import {usableExtent} from "../grid-geometry";
-import type {GridGestureCommit} from "../grid-gesture";
+import type {GridGestureCommit, GridGestureStart} from "../grid-gesture";
+import {layoutDevWarning} from "../dev-checks";
 import type {GridBranchesResizeResult, GridCollapseResult, GridExtent, GridFailure, GridHostIssueCode, GridIssue, GridIssueCode, GridLayoutCommitResult, GridLayoutResult, GridNode} from "../grid-types";
 import {useGridLayout} from "./useGridLayout";
 
@@ -34,6 +35,11 @@ export type GridHostBindings<T> = {
     readonly onGestureCommit: (commit: GridGestureCommit) => GridLayoutCommitResult;
     readonly onExtent: (extent: GridExtent | null) => void;
     readonly onIssues: (issues: readonly GridHostIssue[]) => void;
+    /**
+     * 开发模式的接线检查（Spec 输出 151）：手势开始时核对 `NestedGrid` 用的上下文与版本是不是包里的。模板里另写 `@gesture-start`
+     * 会和它合成数组、两个都调；渲染函数里展开 `bindings` 时不要用同名的键覆盖它，也不要放在它前面被它覆盖。
+     */
+    readonly onGestureStart: (start: GridGestureStart) => void;
 };
 
 export type GridHost<T> = {
@@ -83,6 +89,21 @@ export function useGridHost<T>(options: GridHostOptions<T>): GridHost<T> {
         extent.value = next;
     };
     const onIssues = (issues: readonly GridHostIssue[]): void => options.onIssues?.(issues);
+    /**
+     * `gesture-start` 在按下时同步发出，那时宿主已经刷新：上下文或版本不等，只能是模板里另写的值盖住了包里的。
+     * 不在提交处判：手势期间换了上下文或重发布局时，`NestedGrid` 自己把手势取消，到不了提交（t41 设计审查第 1 条）。
+     */
+    const devOwner = {};
+    const onGestureStart = (start: GridGestureStart): void => {
+        const context = contextKey();
+        const grid = context === "" ? "the grid without a contextKey" : `grid "${context}"`;
+        if (start.contextKey !== context) {
+            layoutDevWarning(devOwner, "context-mismatch", `[nb-layout/useGridHost] NestedGrid started a gesture with contextKey "${start.contextKey}", but the host's is "${context}", so the resize will be rejected. Do not override context-key in the template; pass contextKey to useGridHost.`);
+        }
+        if (start.revision !== layoutHost.revision.value) {
+            layoutDevWarning(devOwner, "revision-mismatch", `[nb-layout/useGridHost] NestedGrid of ${grid} started a gesture at revision ${String(start.revision)}, but the host is at ${String(layoutHost.revision.value)}, so the resize will be rejected. Do not override revision in the template; bind host.bindings.value.`);
+        }
+    };
     const bindings = computed<GridHostBindings<T>>(() => ({
         node: layoutHost.node.value,
         layout: layoutHost.layout.value,
@@ -92,6 +113,7 @@ export function useGridHost<T>(options: GridHostOptions<T>): GridHost<T> {
         onGestureCommit: layoutHost.onGestureCommit,
         onExtent,
         onIssues,
+        onGestureStart,
     }));
     const setCollapsed = (id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready"> => {
         const grid = toValue(options.grid);

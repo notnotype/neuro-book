@@ -37,7 +37,8 @@ export const isApproval = (item: PendingInputView): item is PendingApprovalView 
 export const isQuestions = (item: PendingInputView): item is PendingQuestionsView => item.kind === "question";
 export const isModeSwitch = (item: PendingInputView): item is PendingModeSwitchView => item.kind === "mode-switch";
 
-const rememberKey = (item: PendingApprovalView): string | null => (item.remember === false ? null : `${item.tool}\n${item.remember?.label ?? ""}`);
+/** “本会话都批准”覆盖的范围：同一个工具、同一条记住的规则。不能记住的为 null。 */
+export const rememberKey = (item: PendingApprovalView): string | null => (item.remember === false ? null : `${item.tool}\n${item.remember?.label ?? ""}`);
 
 /** 选了一个决定。“本会话都批准”“以后都允许”同时选中这批里记的东西相同、还没选的调用：已经选了的（尤其是拒绝）是用户的决定，不改。 */
 export function choose(state: WizardState, items: readonly PendingApprovalView[], id: string, decision: ApprovalDecision, note?: string): WizardState {

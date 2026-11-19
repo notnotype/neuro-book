@@ -70,10 +70,11 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; promptBareness?: (texts: readonly string[]) => boolean; port?: TextPort; viewMode?: "turns" | "raw"} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; promptBareness?: (texts: readonly string[]) => boolean; port?: TextPort; viewMode?: "turns" | "raw"; pendingPlacement?: "wizard" | "dock"} = {}) {
     return mount(AgentConversationView, {
         ...(options.port === undefined ? {} : {global: {provide: {[TEXT_PORT_KEY as symbol]: options.port}}}),
         props: {
+            ...(options.pendingPlacement === undefined ? {} : {pendingPlacement: options.pendingPlacement}),
             ...(options.header === undefined ? {} : {header: options.header}),
             ...(options.processDisclosure === undefined ? {} : {processDisclosure: options.processDisclosure}),
             ...(options.viewMode === undefined ? {} : {viewMode: options.viewMode}),
@@ -743,6 +744,61 @@ describe("宿主每秒换 now", () => {
         expect(view.get("[data-agent-wizard]").text()).not.toContain("核对员");
         expect(view.find("[data-dock-collapsed]").exists()).toBe(true);
         view.unmount();
+    });
+
+    it("pendingPlacement 为 dock：阻塞的提问与审批也进停靠区，输入框不隐藏、照常可用；不传时照旧进向导", async () => {
+        const blocking = {kind: "question" as const, id: "q1", toolCallId: "c-q1", questions: [{question: "视角？", options: [{label: "第一人称"}, {label: "第三人称"}]}]};
+        const docked = mountView("zh-CN", {}, {ctx: {...context(), pendingInputs: [blocking]}, pendingPlacement: "dock"});
+        expect(docked.get("[data-agent-dock]").text()).toContain("视角？");
+        expect(docked.find("[data-agent-wizard]").exists()).toBe(false);
+        expect(docked.get(".acv-composer").isVisible()).toBe(true);
+        docked.unmount();
+        const wizard = mountView("zh-CN", {}, {ctx: {...context(), pendingInputs: [blocking]}});
+        expect(wizard.find("[data-agent-wizard]").exists()).toBe(true);
+        expect(wizard.find("[data-agent-dock]").exists()).toBe(false);
+        wizard.unmount();
+    });
+
+    it("pendingPlacement 为 dock：“本会话都批准”一并提交同一会话里同一记住范围的其余审批，别的工具、别的会话的不动", async () => {
+        const approval = (id: string, tool: string, source?: {sessionId: string; name: string; icon: string}) => ({kind: "approval" as const, id, toolCallId: `c-${id}`, tool, args: {}, preview: {state: "ready" as const, files: []}, ...(source === undefined ? {} : {source})});
+        const child = {sessionId: "child-1", name: "核对员", icon: "i-lucide-bot"};
+        const ctx = {...context(), pendingInputs: [approval("a1", "write"), approval("a2", "shell"), approval("a3", "write"), approval("a4", "write", child)]};
+        const view = mountView("zh-CN", {}, {ctx, pendingPlacement: "dock"});
+        await view.get("[data-approval-decision='allow-session']").trigger("click");
+        const submitted = (view.emitted("action") ?? []).map(([action]) => action as AgentViewAction).filter((action) => action.type === "input.submit");
+        expect(submitted.map((action) => action.type === "input.submit" ? [action.batchKey, action.resolutions, action.sessionId ?? null] : null)).toEqual([
+            ["a1", {kind: "approval", decision: "allow-session"}, null],
+            ["a3", {kind: "approval", decision: "allow-session"}, null],
+        ]);
+        view.unmount();
+    });
+
+    it("pendingPlacement 为 dock：答完一个，焦点到停靠区的容器（不落到按钮上）；都答完回到输入框", async () => {
+        const question = (id: string, text: string) => ({kind: "question" as const, id, toolCallId: `c-${id}`, questions: [{question: text, options: [{label: "是"}, {label: "否"}]}]});
+        const view = mountView("zh-CN", {}, {ctx: {...context(), pendingInputs: [question("q1", "第一问"), question("q2", "第二问")]}, pendingPlacement: "dock"});
+        view.get<HTMLElement>("[data-agent-dock] button:not(:disabled)").element.focus();
+        expect(view.get("[data-agent-dock]").element.contains(document.activeElement)).toBe(true);
+        await view.setProps({ctx: {...context(), pendingInputs: [question("q2", "第二问")]}});
+        await flushPromises();
+        expect(document.activeElement).toBe(view.get("[data-agent-dock]").element);
+        await view.setProps({ctx: {...context(), pendingInputs: []}});
+        await flushPromises();
+        expect(view.get(".acv-composer").element.contains(document.activeElement)).toBe(true);
+        view.unmount();
+    });
+
+    it("会话给了头像：顶栏画头像图片，不画 Profile 图标；头像读不出来时换回图标；不给时照旧画图标", async () => {
+        const withAvatar = mountHeadView({ctx: {...context(), session: {...context().session!, title: "星璃", avatar: "/api/nbook.bots/avatar/lyra"}}});
+        expect(withAvatar.get<HTMLImageElement>("[data-header-avatar]").attributes("src")).toBe("/api/nbook.bots/avatar/lyra");
+        expect(withAvatar.find(".acv-head__icon").exists()).toBe(false);
+        await withAvatar.get("[data-header-avatar]").trigger("error");
+        expect(withAvatar.find("[data-header-avatar]").exists()).toBe(false);
+        expect(withAvatar.find(".acv-head__icon").exists()).toBe(true);
+        withAvatar.unmount();
+        const plain = mountHeadView();
+        expect(plain.find("[data-header-avatar]").exists()).toBe(false);
+        expect(plain.find(".acv-head__icon").exists()).toBe(true);
+        plain.unmount();
     });
 
     it("含进行中调用的轮次不自动收起：后台命令转了后台、这一轮回复完了，节点还在眼前", () => {

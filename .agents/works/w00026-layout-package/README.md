@@ -61,6 +61,24 @@ updated: 2026-11-05
 
 下一个是 [t41](tasks/t41-config-error-reporting/README.md)。
 
+2026-11-19：[t41](tasks/t41-config-error-reporting/README.md) 完成：
+- nb-layout 加了开发模式开关 `setLayoutDevChecks`（缺省关），应用在只于开发模式加载的模块里打开。
+- 打开后检查这些接线错误，每个网格每种警告一次：能拖的边界全是 0 宽；没接或接错提交处理；整包绑定后模板里另写了 `context-key` 或 `:revision`（在手势开始时核对）。
+- 合入 master（`5bb0dca27`，审查修正 `e3f183d36`，晋升补测 `3f52c9923`）。设计审查一轮（第 2 稿把检查挪到手势开始处）与实现审查都处理完，Spec 晋升前换模型逐句核过。
+- 开发服务里用临时探针走了工作台与 Lab 的网格，零警告。
+
+下一个是 [t42](tasks/t42-readme-starter/README.md)。
+
+2026-11-19：[t42](tasks/t42-readme-starter/README.md) 完成：
+- nb-layout 的 README 写成起步：安装、能直接用的例子（与 Lab 的 `starter` 场景同一份，测试核对一字不差）、导出对照表（测试核对名字与入口）、约定七条。
+- 新增 `useGridHost`、`useLayoutExtent`、拖动会话三份短文档。
+- 随包文档不再引 Spec 的编号，指向仓库别处的链接改成 GitHub 绝对地址。
+- 合入 master（`4afd9dcd4`，审查修正 `08ae058d1`）。随包源码注释里的输出编号没清，要清另起 Task。
+
+第一档剩下 [t37](tasks/t37-drag-controller-tidy/README.md) → [t32](tasks/t32-entry-menu-move-to/README.md) → [t14](tasks/t14-splitter-migration/README.md)。
+
+2026-11-19：[t37](tasks/t37-drag-controller-tidy/README.md) 写计划第 1 稿：应用里每场拖动的状态收进一个对象、判定几何与键盘停靠点拆成纯函数并补单元测试；卡片的逐帧步进与帧循环抽进 nb-layout（Spec `ui/layout-drag` 输出 20、21，planned）。设计审查（Claude Sonnet）一轮 8 条都成立，改成第 2 稿：每场的对象不可空、收场换成空闲的一份；卡片做成一张一个对象（`createDragCard`）；帧循环补抛错、时间戳回退与监听次序的合同。
+
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
 2026-11-19：[t38](tasks/t38-grid-diagnostics/README.md) 完成，合入 master（`b2a45d357`，审查修正 `c12043db5`、`7d7656755`）。下一个是 t35。
