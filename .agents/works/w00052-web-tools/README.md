@@ -32,12 +32,13 @@ updated: 2026-11-19
 
 | Task | 内容 | 状态 |
 |---|---|---|
-| [t01](tasks/t01-design/README.md) | 设计：搜索后端、读取的引擎与正文抽取、与浏览器插件的关系 | 进行中：计划第 1 稿待开发者确认 |
+| [t01](tasks/t01-design/README.md) | 设计与实现：`nbook.web-tools`（`web_search`、`web_fetch`、“搜索与网页”设置页），只接 DeepSeek | 完成：`4c0c25023` 合入 master，两份 Spec 晋升 |
 
 ## 后续
 
 - 密钥框：`ApiKeyField`（本插件）与模型页 `ProviderDetail.vue` 的 `draftField` 合并，并与 `forms.md` 输出 31 的 `SecretInput` 对齐（t01 设计审查 Sonnet 第 5 条）。
 - 更多服务：Exa、Tavily 等（t01 决定 3）。
+- 测试缺口：存档失败的文字、在途时改密钥、设置页分区声明与核对报告里“无测试的边角”（t01 当前状态末两条）。
 - 另记（t01 设计审查 omp 第 16 条，Agent 插件原有）：同一个交给模型的名字有两个工具时，eval 与内核选中的不是同一个。
 - 另记（omp 第 7 条，影响 `nbook.models`）：OMP 凭据库的清除在锁竞争下报成功、重启后旧密钥回来，清除只是软删除。
 

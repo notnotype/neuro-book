@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: web.settings-page
 owners:
   - nbook.web-tools
@@ -32,7 +32,7 @@ owners:
 ## 输出与可观察行为
 
 1. **版式**：单列，每家服务一节；第一版只有“DeepSeek”一节：API 密钥、检测、说明。
-2. **读取中**：第一次拿到 `status` 之前，密钥处显示“读取中”、控件停用，不显示“未设置”。`status` 得 `credentials-unavailable` 时按未设置画（在这里写入会覆盖坏文件）；因别的原因失败（远程合同不可用、请求途中服务端入口停了、超时）时按只读画（输出 7），不停在没有文字的“读取中”。
+2. **读取中**：第一次拿到 `status` 之前，密钥处显示“读取中”、控件停用，不显示“未设置”。`status` 得 `credentials-unavailable` 时按未设置画（在这里写入会覆盖坏文件）；因别的原因失败（远程合同不可用、请求途中服务端入口停了、超时）时按只读画（输出 7）：顶上写原因，密钥框仍写“读取中”、停用，不显示“未设置”。
 3. **API 密钥**：密码框，`autocomplete="new-password"`；已设置时不回显值，显示“已设置”与“清除”；失焦或回车时写（`setKey`），发出时清空输入框，所以回车后紧接着失焦不重复写（已存的密钥不在浏览器里，不比较与写前是否相同）。页面的任何地方（输入框的值、文字、属性）都不出现已存的密钥。
 4. **不支持的写法**：输入以 `env:` 开头时原位提示“这里不支持环境变量引用”，不写入。
 5. **清除**：点“清除”直接写（`clearKey`），不确认。
@@ -48,7 +48,7 @@ owners:
 |---|---|---|
 | 读取中 | 拿到 `status` | 就绪 |
 | 读取中、就绪 | 远程合同不可用，或取 `status` 没连上服务端 | 只读 |
-| 只读 | 下一次显示这页且远程合同可用 | 读取中 |
+| 只读 | 下一次显示这页，重取到 `status` | 就绪（重取期间仍按只读画） |
 
 检测：空闲 → 进行中 → 通过或失败或没检成；写入、清除成功回到空闲（已经发出的检测随之取消）。
 
@@ -77,8 +77,21 @@ owners:
 1. 打开设置窗口的“搜索与网页”页，填密钥后出现“已设置”且输入框为空；检测通过（本机假端点）；清除后回到未设置，检测停用。
 2. 填完密钥直接点“检测”（第一次填写、还没有密钥时也一样）：检测用到刚填的密钥。
 
-Smoke：`packages/neuro-book/e2e/web-settings.e2e.ts`（planned）。
+Smoke：生产构建的服务端、真实浏览器、本机假 DeepSeek 端点（`e2e/web-settings.e2e.ts`）。
+
+## 实现合同
+
+- 公开入口：`nbook.web-tools` 浏览器入口贡献的 page 分区 `nbook.web-tools.search`（`SEARCH_SECTION`）；组件 `SearchSettingsPage`、`ApiKeyField` 只在本插件内用。
+- owner 与依赖方向：`nbook.web-tools` 的浏览器入口依赖设置窗口的 `settings.pages` 贡献点与自己服务端的远程合同（[`web/tools.md`](tools.md) 输出 16 到 19）。
+- 不变量：
+  1. 状态都在数据模块里，随浏览器入口建、停用时释放；页面卸载不丢（`search-store.test.ts`、DOM 测试）。
+  2. 同一家的检测排在在途的写入后面；写入成功时已经发出的检测作废（`search-store.test.ts`）。
+  3. 密钥只进不出：密钥框交出后清空，页面任何地方不出现密钥原文（DOM 测试、e2e）。
+  4. 第一次填写时，框里有输入或写入在途时“检测”可点，点击不会落在停用的按钮上（e2e）。
 
 ## 证据
 
 - 批准依据：开发者在 [w00052 t01](../../../.agents/works/w00052-web-tools/tasks/t01-design/README.md) 的决定 1 到 6 与[实施计划](../../../.agents/works/w00052-web-tools/tasks/t01-design/plan.md)第 4 稿。
+- 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/web-tools/web/plugin.ts)
+- 合同测试：[`search-store.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/search-store.test.ts)、[`SearchSettingsPage.dom.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/web/components/SearchSettingsPage.dom.test.ts)
+- Smoke：[`web-settings.e2e.ts`](../../../packages/neuro-book/e2e/web-settings.e2e.ts)
