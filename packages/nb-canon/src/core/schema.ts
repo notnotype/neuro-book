@@ -372,7 +372,54 @@ export const WriteRequestSchema = Type.Object({
     authorizations: Type.Optional(Type.Array(AuthorizationSchema)),
 });
 
+/** 一次改几处的输入（revisions.md 输出 25）：远程合同在边界上照它校验；操作的语义见 `world/entry-edits.ts`。 */
+export const NewEntrySchema = Type.Object({
+    name: Text,
+    kind: Text,
+    folder: Type.Optional(Text),
+    parent: Type.Optional(Type.Union([Id, Type.Null()])),
+    sameAs: Type.Optional(Type.Union([Id, Type.Null()])),
+    appears: Type.Optional(Type.Union([PlacementSchema, Type.Null()])),
+    aliases: Type.Optional(Type.Array(Text)),
+    summary: Type.Optional(Text),
+    components: Type.Optional(Type.Array(Type.Object({type: Id, fields: Type.Optional(Type.Record(Type.String(), Type.Unknown()))}, {additionalProperties: false}))),
+    text: Type.Optional(Type.Array(Text)),
+}, {additionalProperties: false});
+
+export const EntryOpSchema = Type.Union([
+    Type.Object({op: Type.Literal("create"), id: Type.String({pattern: "^tmp:"}), entry: NewEntrySchema}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("set"), at: AddressSchema, value: Type.Unknown(), read: Type.Optional(Type.Unknown())}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("replace"), at: AddressSchema, find: Type.String(), with: Type.String()}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("listAdd"), at: AddressSchema, element: Type.Record(Type.String(), Type.Unknown())}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("listRemove"), at: AddressSchema}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("aliases"), entry: Id, add: Type.Optional(Type.Array(Text)), remove: Type.Optional(Type.Array(Text))}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("addBlock"), entry: Id, source: Text, after: Type.Optional(Id)}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("removeBlock"), at: AddressSchema}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("component"), entry: Id, type: Id, action: Type.Union([Type.Literal("add"), Type.Literal("remove")]), fields: Type.Optional(Type.Record(Type.String(), Type.Unknown()))}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("place"), entry: Id, parent: Type.Optional(Type.Union([Id, Type.Null()])), folder: Type.Optional(Text), kind: Type.Optional(Text), after: Type.Optional(Type.Union([Id, Type.Null()])), appears: Type.Optional(Type.Union([PlacementSchema, Type.Null()])), sameAs: Type.Optional(Type.Union([Id, Type.Null()]))}, {additionalProperties: false}),
+    Type.Object({op: Type.Union([Type.Literal("delete"), Type.Literal("restore")]), entry: Id}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("add"), at: AddressSchema, delta: Type.Number(), read: Type.Optional(Type.Unknown())}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("note"), at: AddressSchema, text: Text, read: Type.Optional(Type.Unknown())}, {additionalProperties: false}),
+]);
+
+export const EntryEditsSchema = Type.Object({
+    requestId: Type.String({minLength: 1}),
+    by: ActorSchema,
+    what: Type.Union([Type.Literal("edit"), Type.Literal("creative")]),
+    baseVersion: Type.Optional(Type.Integer({minimum: 0})),
+    readStamp: Type.Optional(Type.Object({version: Type.Integer({minimum: 0}), input: Type.String({minLength: 1})}, {additionalProperties: false})),
+    title: Text,
+    why: Type.Optional(Text),
+    intent: Type.Optional(Type.Union([Type.Literal("creative"), Type.Literal("story")])),
+    position: Type.Optional(ReadPositionSchema),
+    ops: Type.Array(EntryOpSchema, {minItems: 1, maxItems: 50}),
+}, {additionalProperties: false});
+
 export type Placement = Static<typeof PlacementSchema>;
+/** 一次改几处（revisions.md 输出 25）的输入与操作；只此一份，远程合同与内核共用。 */
+export type NewEntry = Static<typeof NewEntrySchema>;
+export type EntryOp = Static<typeof EntryOpSchema>;
+export type EntryEdits = Static<typeof EntryEditsSchema>;
 export type ReadPosition = Static<typeof ReadPositionSchema>;
 export type Address = Static<typeof AddressSchema>;
 export type Actor = Static<typeof ActorSchema>;

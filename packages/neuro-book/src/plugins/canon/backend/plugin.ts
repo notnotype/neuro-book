@@ -2,9 +2,7 @@
  * `nbook.canon` 的项目入口：拥有这部作品的世界（docs/specs/canon/project.md 输出 1），经远程服务给浏览器、TUI 与
  * 服务端用。启动即激活，在后台打开世界；接收 `canon.components`、`canon.marks`、`canon.diagnostics` 的登记，变化时换上
  * 新登记；给项目里别的插件提供项目内接口（`canonProjectKey`，按调用方：诊断的登记、快照、视图；调用方的入口停止时，
- * 它的登记失效、它开的视图关掉）。
- *
- * 第一版不建服务端入口：Agent 工具与后台任务还不做，没有服务端调用方（w00039 t29 计划）。
+ * 它的登记失效、它开的视图关掉）。服务端入口（Agent 工具）在 `agent-tools.ts`。
  */
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";

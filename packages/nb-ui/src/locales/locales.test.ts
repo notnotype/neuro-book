@@ -75,6 +75,7 @@ const LEGACY: readonly Legacy[] = [
     {key: "numberInput.increase", zh: "增加"}, // form/NumberInput.vue 的 incrementLabel 缺省
     {key: "numberInput.decrease", zh: "减少"}, // 同上，decrementLabel 缺省
     {key: "searchSelect.empty", zh: "没有匹配的选项"}, // form/SearchSelect.vue 的 emptyText 缺省
+    {key: "searchSelect.clear", zh: "清除选择"}, // 同上，清空按钮的 aria-label（w00039 t37 新增）
     {key: "slider.thumb", params: {index: 2}, zh: "滑块 2"}, // form/Slider.vue 的 `滑块 ${index}`
     {key: "spinner.loading", zh: "加载中"}, // display/Spinner.vue 的 label 缺省
     {key: "splitter.resizeWidth", params: {before: "outline", after: "editor"}, zh: "调整 outline 与 editor 的宽度"}, // layout/Splitter.vue 分隔线 aria-label，主轴为宽度

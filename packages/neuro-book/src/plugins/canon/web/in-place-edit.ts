@@ -28,7 +28,8 @@ import type {CanonWorld} from "./world";
 export interface EditDraft {
     /** `<命名空间>.<字段>`。 */
     path: string;
-    value: string | boolean;
+    /** 填的值：数、文字、选项是字符串，是否是布尔，引用是条目 id（没选是 null），图片是 `{图片, 说明}`（未知是 null）。 */
+    value: unknown;
     intent: EditIntent;
     read: {value: unknown; version: number};
     requestId: string;
@@ -40,7 +41,9 @@ export interface ConfirmBarModel {
     readonly kind: ConfirmBarKind;
     readonly options: readonly string[];
     readonly unit: string;
-    readonly value: string | boolean;
+    readonly value: unknown;
+    /** 引用字段可以指向的种类（`targets`）；别的字段为空。 */
+    readonly targets: readonly string[];
     readonly intents: readonly EditIntent[];
     readonly intent: EditIntent;
     readonly preview: {readonly route: string; readonly impact: readonly string[]} | null;
@@ -77,7 +80,7 @@ export interface InPlaceEditOptions {
 export interface InPlaceEdit {
     readonly bar: ComputedRef<ConfirmBarModel | null>;
     open(path: string): void;
-    update(value: string | boolean): void;
+    update(value: unknown): void;
     setIntent(intent: EditIntent): void;
     save(): void;
     recheck(): void;
@@ -86,20 +89,26 @@ export interface InPlaceEdit {
 
 const PREVIEW_DELAY_MS = 300;
 
-const kindOf = (declaration: FieldDeclaration | undefined): ConfirmBarKind => {
+export const kindOf = (declaration: FieldDeclaration | undefined): ConfirmBarKind => {
     const kind = declaration?.kind;
-    return kind === "number" || kind === "enum" || kind === "boolean" ? kind : "text";
+    return kind === "number" || kind === "enum" || kind === "boolean" || kind === "ref" || kind === "image" ? kind : "text";
 };
 
-/** 填的值换成字段的值；填得不成形（数里有字母）时为 undefined，不预览。 */
-function parsed(value: string | boolean, kind: ConfirmBarKind): unknown {
+/** 填的值换成字段的值；填得不成形（数里有字母）时为 undefined，不预览。引用写成 `{ref: id}`，清空是未知（null）。 */
+export function parsed(value: unknown, kind: ConfirmBarKind): unknown {
     if (kind === "boolean") return value === true;
+    if (kind === "ref") return typeof value === "string" && value !== "" ? {ref: value} : null;
+    if (kind === "image") return value ?? null;
     if (kind !== "number") return String(value);
     return parseDecimal(String(value));
 }
 
-const draftText = (value: unknown, kind: ConfirmBarKind): string | boolean => {
+/** 字段的值换成填的值；语义档用起点（`unreduced.anchor`），不用显示的归纳文字：照着显示的改会把“起点；之后：……”写成新起点。 */
+export const draftText = (state: Pick<FieldState, "value" | "unreduced"> | undefined, kind: ConfirmBarKind): unknown => {
+    const value = state?.unreduced?.anchor ?? state?.value;
     if (kind === "boolean") return value === true;
+    if (kind === "ref") return typeof value === "object" && value !== null && typeof (value as {ref?: unknown}).ref === "string" ? (value as {ref: string}).ref : null;
+    if (kind === "image") return value ?? null;
     return value === null || value === undefined ? "" : String(value);
 };
 
@@ -144,7 +153,9 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             const read = await options.call("object", {ref: {kind: "change", id: route.change}});
             const change = read.ok ? (read.value.object as {readonly text?: string; readonly at?: Placement} | null) : null;
             routeText = text("edit.routePatch", {place: change?.at === undefined ? "" : options.place(change.at), text: change?.text ?? ""});
-        } else routeText = text("edit.routeChange", {position: options.place(route.at)});
+        } else if (route.kind === "change") routeText = text("edit.routeChange", {position: options.place(route.at)});
+        // 就地改不会给出这一种（它改的是一个字段）；路由是会再加种类的联合，不认识的也要有一句话。
+        else routeText = text("edit.routeEntry");
         const draft = options.draft();
         const impact = impactLines(result.revision.impact, {
             values: "follows",
@@ -263,6 +274,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
                 options: declaration?.options ?? [],
                 unit: declaration?.unit ?? "",
                 value: draft.value,
+                targets: declaration?.kind === "ref" ? declaration.targets ?? [] : [],
                 intents: intentsOf(draft.path),
                 intent: draft.intent,
                 preview: preview.value,
@@ -277,7 +289,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             const state = options.field(path).state;
             const kind = kindOf(options.field(path).declaration);
             resetFeedback();
-            options.setDraft({path, value: draftText(state?.value, kind), intent: intentsOf(path)[0]!, read: {value: state?.value ?? null, version: options.version()}, requestId: newRequestId()});
+            options.setDraft({path, value: draftText(state, kind), intent: intentsOf(path)[0]!, read: {value: state?.value ?? null, version: options.version()}, requestId: newRequestId()});
         },
         update: (value) => {
             const draft = options.draft();

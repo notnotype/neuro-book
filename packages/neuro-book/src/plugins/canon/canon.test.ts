@@ -213,6 +213,58 @@ describe("canon.project：世界服务在项目子进程里", () => {
         keep.release();
     }, 30_000);
 
+    it("canon.revisions 输出 25 与 findEntries：经链路一次改几处（预览与写入相同、读取戳过期整批拒收）、按名字片段找条目；带视图令牌都被拒；老方法照常", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const author = await windowOf(h, "browser-1", "profile-1");
+        await binder(h, `<binder><chapter id="1"/></binder>`);
+        await until(async () => {
+            const read = await author.canon.call("chapters", {});
+            return read.ok && read.value.items.length === 1;
+        });
+        const by = {kind: "author"} as const;
+        // 全是新建的一批不用读到的版本；新建的条目可以在同一批里当上级。
+        const created = await author.canon.call("editEntries", {input: {requestId: "batch-1", by, what: "edit", title: "建两个", ops: [
+            {op: "create", id: "tmp:group", entry: {name: "学院", kind: "组织"}},
+            {op: "create", id: "tmp:star", entry: {name: "星瑾", kind: "人物", parent: "tmp:group", aliases: ["小瑾"], components: [{type: "nbook.canon.person"}]}},
+        ]}});
+        if (!created.ok) throw new Error(JSON.stringify(created.failure));
+        expect(created.value.routes).toEqual([{kind: "entry"}, {kind: "entry"}]);
+        const star = created.value.ids["tmp:star"]!;
+
+        const status = await author.canon.call("status", {});
+        if (!status.ok) throw new Error("status");
+        const input = {requestId: "batch-2", by, what: "edit" as const, baseVersion: created.value.version, title: "填外观", ops: [{op: "set" as const, at: {entry: star, path: "character.外观"}, value: "银白长发"}, {op: "aliases" as const, entry: star, add: ["瑾"]}]};
+        const preview = await author.canon.call("previewEntries", {input});
+        if (!preview.ok) throw new Error(JSON.stringify(preview.failure));
+        const written = await author.canon.call("editEntries", {input});
+        if (!written.ok) throw new Error(JSON.stringify(written.failure));
+        const stored = await author.canon.call("revision", {id: written.value.revision});
+        expect(stored.ok && stored.value.revision?.ops).toEqual(preview.value.revision.ops);
+
+        // 读取戳过期：之间有新修订，整批拒收，版本不动。
+        const stale = await author.canon.call("editEntries", {input: {requestId: "batch-3", by: {kind: "agent", session: "s1"}, what: "creative", baseVersion: created.value.version, readStamp: {version: created.value.version, input: "0"}, title: "Agent 改", ops: [{op: "set", at: {entry: star, path: "character.状态"}, value: "受伤"}]}});
+        expect(stale).toMatchObject({ok: false, failure: {code: "stale-read", revisions: [{id: written.value.revision, title: "填外观"}]}});
+        expect(await version(author.canon)).toBe(written.value.version);
+
+        const found = await author.canon.call("findEntries", {query: "小瑾"});
+        expect(found).toMatchObject({ok: true, value: {total: 1, items: [{id: star, name: "星瑾", kind: "人物", matchedAlias: "小瑾"}]}});
+
+        // 老方法照常：合同只加了方法、版本没升。
+        const renamed = await author.canon.call("editInPlace", {requestId: "rename-1", by, position: {kind: "initial"}, at: {entry: star, path: "entry.name"}, value: "星瑾（妹妹）", read: {value: "星瑾", version: written.value.version}});
+        expect(renamed.ok).toBe(true);
+
+        const view = await author.canon.call("openView", {viewer: null, line: "main", until: {kind: "chapter", chapter: "1", edge: "end"}, purpose: "writer"});
+        if (!view.ok) throw new Error(view.failure.code);
+        expect(await author.canon.call("findEntries", {query: "星", view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        expect(await author.canon.call("previewEntries", {input, view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        expect(await author.canon.call("editEntries", {input: {...input, requestId: "batch-4"}, view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+
+        await author.close();
+        keep.release();
+    }, 30_000);
+
     it("输出 10：独占期间别的窗口写入得到 busy；持有窗口的链路断开，独占随租约订阅结束", async () => {
         const h = await projectHarness(tmp, {plugins: serverPlugins()});
         const keep = leaseOf(await h.manager.acquire("book", "test"));

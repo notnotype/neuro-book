@@ -5,7 +5,7 @@
 
 # EntryText
 
-条目页的文字分页（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 10）：显示世界服务给作者的渲染（[`canon/rendering.md`](../../../../../../../docs/specs/canon/rendering.md) 输出 7）。文字里的每个值是一个按钮，点了在它所在的块后面展开来历（插槽）。受控。
+条目页的文字分页（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 9、10）：显示世界服务给作者的渲染（[`canon/rendering.md`](../../../../../../../docs/specs/canon/rendering.md) 输出 7）。文字里的每个值是一个按钮，点了在它所在的块后面展开来历（插槽）。能改时每一块旁边有“改这一段”“删掉这一段”，文末“加一段”；改什么、怎样写进世界由宿主定。受控。
 
 ## 布局与交互
 
@@ -16,6 +16,7 @@
 - 条目引用：到那个条目的链接，单击发 `entry`；已删除的写原来的名字，次级色，不可点。
 - 占位、图片：次级色的一句。
 - 出错的块：它的纯文本与一句原因（危险色），别的块照常。
+- 能改（`editable`）：每一块右上一行“改这一段”“删掉这一段”（可读名写第几段），平时淡、悬停或焦点在块里时清楚；文末“＋ 加一段”。单击各发 `edit-block`（块 id）、`remove-block`（块 id）、`add-block`。`editReason` 非空时这几个按钮不可用，悬停写原因。
 
 ## 数据
 
@@ -37,11 +38,18 @@ type EntryTextProps = {
     marks?: Readonly<Record<string, string>>;
     /** 展开着来历的值（`addressKey(address)`，即“条目 id|路径”）；默认没有。 */
     open?: string;
+    /** 出块的改、删与文末的加一段；默认 false。 */
+    editable?: boolean;
+    /** 不能写的原因；非空时那几个按钮不可用。默认空串。 */
+    editReason?: string;
 };
 
 type EntryTextEmits = {
     (event: "value", address: TextAddress): void;
     (event: "entry", id: string): void;
+    (event: "edit-block", id: string): void;
+    (event: "remove-block", id: string): void;
+    (event: "add-block"): void;
 };
 
 type EntryTextSlots = {
@@ -53,11 +61,12 @@ type EntryTextSlots = {
 
 ## 状态
 
-- 默认：如上。空数据：没有块时什么也不画（条目没有主文字时条目页不出这个分页）。加载中、禁用、只读：没有。
+- 默认：如上。空数据：没有块时写“还没有主文字”；能改时下面是“加一段”。禁用：`editReason` 非空时块的按钮不可用。加载中、只读：没有。
 
 ## 不支持
 
-- 文字分页里没有“改”（要改到数据分页，输出 10）。
+- 改文字里的值：值的“改”在数据分页（输出 10）；这里改的是一整块的源文字。
+- 所见即所得：改一段是改它的源文字（Markdown 加表达式），渲染错误保存后才看得到。
 
 ## 隐藏通道理由
 

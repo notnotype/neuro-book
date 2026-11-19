@@ -37,8 +37,8 @@ export interface PagedState<T, Item> extends ReadState<T> {
     readonly pages?: readonly T[];
 }
 
-/** 写入方法：输入都带请求 id（`publish` 的在 `request` 里）。 */
-export type WriteMethod = "publish" | "editInPlace" | "recordDelta" | "recordNote" | "revert";
+/** 写入方法：输入都带请求 id（`publish` 的在 `request` 里，`editEntries` 的在 `input` 里）。 */
+export type WriteMethod = "publish" | "editInPlace" | "recordDelta" | "recordNote" | "revert" | "editEntries";
 /** 分页的读取方法：输入有 `cursor`、`limit`，结果有 `items` 与下一页的 `cursor`。 */
 export type ListMethod = "tree" | "origins" | "changes" | "tellings" | "presence" | "pending" | "decisions" | "suggestions" | "revisions";
 export type ReadMethod = Exclude<CanonMethod, WriteMethod | ListMethod>;

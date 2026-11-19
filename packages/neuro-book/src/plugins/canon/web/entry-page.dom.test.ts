@@ -13,6 +13,7 @@ import {reactive} from "vue";
 import type {Component} from "vue";
 
 import type {Entry, StoryChangeDraft} from "@notnotype/nb-canon";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -25,6 +26,7 @@ import {pageStandIn} from "../testing/page-stand-in";
 import {change, nextId, person, publish} from "../testing/world-fixtures";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
+import {CANON_COMPONENTS_POINT} from "../shared/contracts";
 import {ENTRY_PAGE} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import EntryPage from "./components/EntryPage.vue";
@@ -65,8 +67,8 @@ interface Opened {
     remount(): ReturnType<typeof mount>;
 }
 
-async function setup(): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
-    venue = await canonNodeWorld(tmp);
+async function setup(project: readonly PluginDefinition[] = []): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
+    venue = await canonNodeWorld(tmp, {project});
     const editor = pageStandIn();
     await venue.window("mine", [editor.plugin]);
     const other = await venue.window("other");
@@ -445,6 +447,291 @@ describe("写入", () => {
         state.planned = true;
         await waitUntil("按计划时不可用", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") !== undefined);
         expect(wrapper.get("[data-edit='character.外观']").attributes("title")).toBe("先关掉按计划");
+    });
+
+    it("页头改名、改简介：确认条在页头之下，文字分页上也能改；保存后页头换了名字、顶上有提示", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper} = await open(id);
+        const bar = await startEdit(wrapper, "entry.name");
+        await bar.get("textarea").setValue("夜王");
+        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("名字变了", () => wrapper.get("h1").text() === "夜王");
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("改名字");
+        const summary = await startEdit(wrapper, "entry.summary");
+        await summary.get("textarea").setValue("第三魔法学院一年级");
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("简介", () => wrapper.text().includes("第三魔法学院一年级"));
+    });
+
+    it("页头的别名、加去一组设定、删除后恢复：都是一次改几处，结果在页上看得到", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("别名一行", () => wrapper.find("[data-entry-aliases]").exists());
+        await buttonByText(wrapper, "＋别名")!.trigger("click");
+        const input = wrapper.get("[data-entry-aliases] input");
+        await input.setValue("小瑕");
+        await input.trigger("keydown", {key: "Enter"});
+        await waitUntil("加上别名", () => wrapper.get("[data-entry-aliases]").text().includes("小瑕"));
+        await wrapper.get("[data-entry-aliases] button[aria-label='去掉别名 小瑕']").trigger("click");
+        await waitUntil("去掉别名", () => !wrapper.get("[data-entry-aliases]").text().includes("小瑕"));
+
+        // 去掉人物这组设定：分页没了；再从“添加一组设定”加回来，标“恢复”，原来的数据还在。
+        state.tab = "data:character";
+        await waitUntil("人物分页", () => wrapper.find("[data-field='character.外观']").exists());
+        // “更多”菜单是弹出层，这里直接发它选中后的事件；菜单本身的项在 EntryPage 的组件测试里。
+        wrapper.findComponent(EntryPage).vm.$emit("remove-component");
+        await waitUntil("确认对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("数据会保留") === true);
+        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "去掉")!.click();
+        await waitUntil("人物分页没了", () => !wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
+        wrapper.findComponent(EntryPage).vm.$emit("add-component");
+        await waitUntil("添加对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("恢复“人物”") === true);
+        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "添加")!.click();
+        await waitUntil("人物分页回来", () => wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
+
+        // 删除以后的页面有“恢复”。
+        wrapper.findComponent(EntryPage).vm.$emit("delete");
+        await waitUntil("删除对话框", () => document.body.querySelector("[role='dialog']") !== null);
+        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "删除")!.click();
+        await waitUntil("已删除", () => wrapper.find("[data-entry-restore]").exists());
+        await wrapper.get("[data-entry-restore]").trigger("click");
+        await waitUntil("恢复了", () => wrapper.find("[data-entry-aliases]").exists());
+    });
+
+    it("移动到……：上级用条目选择器按名字找，确认后条目挂到它下面（一次改几处的 place）", async () => {
+        const {other, open} = await setup();
+        const group = person("学院");
+        const star = person("星瑕");
+        const ids = await publish(other.canon, [group, star]);
+        const {wrapper} = await open(ids[star.id]!);
+        await waitUntil("页头", () => wrapper.find("h1").exists());
+        wrapper.findComponent(EntryPage).vm.$emit("move");
+        await waitUntil("移动对话框", () => document.body.querySelector("[data-move-dialog]") !== null);
+        const picker = document.body.querySelector<HTMLInputElement>("[data-move-dialog] input[role='combobox']")!;
+        picker.focus();
+        picker.click();
+        picker.value = "学院";
+        picker.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("找到学院", () => [...document.body.querySelectorAll("[role='option']")].some((option) => option.textContent?.includes("学院")));
+        await waitUntil("高亮落在学院", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("学院") === true);
+        picker.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("选上了", () => picker.value === "学院");
+        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "移动")!.click();
+        await waitUntil("挂到学院下面", async () => {
+            const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
+            return stored.ok && (stored.value.object as Entry).parent === ids[group.id];
+        });
+    });
+
+    it("引用与图片字段也能就地改：引用用条目选择器（按 targets 筛），图片填路径与说明", async () => {
+        // 项目里另装一个只贡献一种类型的插件：一个引用字段（只能指向人物）、一个图片字段。
+        const rival: PluginDefinition = {id: "test.rival", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "test.rival.card", declaration: {label: "对头", namespace: "rival", version: 1, fields: [{id: "对头", label: "对头", kind: "ref", targets: ["人物"]}, {id: "画像", label: "画像", kind: "image"}]}}]};
+        const {other, open} = await setup([rival]);
+        const star = {...person("星瑕"), type: "人物"};
+        star.init.data.rival = {type: "test.rival.card", version: 1, enabled: true, fields: {对头: null, 画像: null}};
+        const enemy = {...person("雾崎"), type: "人物"};
+        const place = {...person("学院"), type: "地点"};
+        const ids = await publish(other.canon, [star, enemy, place]);
+        const {wrapper, state} = await open(ids[star.id]!);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists() || wrapper.find("[data-edit]").exists());
+        state.tab = "data:rival";
+        const bar = await startEdit(wrapper, "rival.对头");
+        const input = bar.get("input[role='combobox']");
+        await input.trigger("click");
+        await waitUntil("只列人物", () => [...document.body.querySelectorAll("[role='option']")].map((option) => option.textContent ?? "").join("|").includes("雾崎"));
+        expect([...document.body.querySelectorAll("[role='option']")].some((option) => option.textContent?.includes("学院"))).toBe(false);
+        (input.element as HTMLInputElement).value = "雾崎";
+        await input.trigger("input");
+        await waitUntil("高亮雾崎", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("雾崎") === true);
+        await input.trigger("keydown", {key: "Enter"});
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("写进去了", async () => {
+            const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
+            return stored.ok && JSON.stringify((stored.value.object as Entry).init.data.rival?.fields.对头) === JSON.stringify({ref: ids[enemy.id]});
+        });
+
+        const image = await startEdit(wrapper, "rival.画像");
+        const [path, caption] = image.findAll("[data-image-input] input");
+        await path!.setValue("图片/雾崎.png");
+        await caption!.setValue("黑衣");
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("图片写进去了", async () => {
+            const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
+            return stored.ok && JSON.stringify((stored.value.object as Entry).init.data.rival?.fields.画像) === JSON.stringify({图片: "图片/雾崎.png", 说明: "黑衣"});
+        });
+    });
+
+    it("列表的元素：加一项（名字与子字段）、改一项的子字段、去掉一项；以条目为键的列表加一项时选指向的条目", async () => {
+        // 项目里另装一个插件：一个普通列表（元素要有名字）、一个以条目为键的列表（键只能指向人物）。
+        const bag: PluginDefinition = {id: "test.bag", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "test.bag.card", declaration: {label: "随身", namespace: "bag", version: 1, fields: [
+            {id: "物品", label: "物品", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}]},
+            {id: "关系", label: "关系", kind: "list", keyedBy: "ref", targets: ["人物"], item: [{id: "态度", label: "态度", kind: "enum", options: ["友好", "敌对"]}]},
+        ]}}]};
+        const {other, open} = await setup([bag]);
+        const star = {...person("星瑕"), type: "人物"};
+        star.init.data.bag = {type: "test.bag.card", version: 1, enabled: true, fields: {物品: [{id: "i1", label: "长剑", 数量: 1}], 关系: []}};
+        const enemy = {...person("雾崎"), type: "人物"};
+        const ids = await publish(other.canon, [star, enemy]);
+        const stored = async () => {
+            const read = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
+            if (!read.ok) throw new Error(JSON.stringify(read.failure));
+            return (read.value.object as Entry).init.data.bag!.fields as Record<string, Array<Record<string, unknown>>>;
+        };
+        const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === label)!;
+        const typeInto = (input: HTMLInputElement, value: string) => {
+            input.value = value;
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+        const {wrapper, state} = await open(ids[star.id]!);
+        await waitUntil("页头", () => wrapper.find("h1").exists());
+        state.tab = "data:bag";
+        await waitUntil("物品的“添加”", () => wrapper.find("[data-add-element='bag.物品']").exists());
+
+        await wrapper.get("[data-add-element='bag.物品']").trigger("click");
+        await waitUntil("元素对话框", () => document.body.querySelector("[data-element-dialog]") !== null);
+        // 先不起名字就保存：对话框里写原因，不关。
+        dialogButton("保存").click();
+        await waitUntil("要名字", () => document.body.querySelector("[data-element-dialog] [role='alert']")?.textContent?.includes("给这一项起个名字") === true);
+        const [name, count] = [...document.body.querySelectorAll<HTMLInputElement>("[data-element-dialog] input")];
+        typeInto(name!, "盾");
+        typeInto(count!, "2");
+        await waitUntil("填进去了", () => count!.value === "2");
+        dialogButton("保存").click();
+        await waitUntil("加上了", async () => (await stored()).物品!.some((item) => item.label === "盾" && item.数量 === 2));
+        await waitUntil("对话框关了", () => document.body.querySelector("[data-element-dialog]") === null || document.body.querySelector("[role='dialog']") === null);
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("给星瑕的物品加一项");
+
+        await waitUntil("长剑的“改”", () => wrapper.find("[aria-label='改 长剑']").exists());
+        await wrapper.get("[aria-label='改 长剑']").trigger("click");
+        await waitUntil("对话框带着原值", () => document.body.querySelectorAll<HTMLInputElement>("[data-element-dialog] input")[1]?.value === "1");
+        typeInto(document.body.querySelectorAll<HTMLInputElement>("[data-element-dialog] input")[1]!, "3");
+        dialogButton("保存").click();
+        await waitUntil("改了数量", async () => (await stored()).物品!.find((item) => item.id === "i1")?.数量 === 3);
+
+        await waitUntil("盾的“去掉”", () => wrapper.find("[aria-label='去掉 盾']").exists());
+        await wrapper.get("[aria-label='去掉 盾']").trigger("click");
+        await waitUntil("去掉的确认", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("去掉“盾”") === true);
+        dialogButton("去掉").click();
+        await waitUntil("去掉了", async () => !(await stored()).物品!.some((item) => item.label === "盾"));
+
+        // 以条目为键：选指向的条目（只列人物），再给态度。
+        await wrapper.get("[data-add-element='bag.关系']").trigger("click");
+        await waitUntil("元素对话框", () => document.body.querySelector("[data-element-dialog] input[role='combobox']") !== null);
+        const picker = document.body.querySelector<HTMLInputElement>("[data-element-dialog] input[role='combobox']")!;
+        picker.focus();
+        picker.click();
+        typeInto(picker, "雾崎");
+        await waitUntil("高亮雾崎", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("雾崎") === true);
+        picker.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("选上了", () => picker.value === "雾崎");
+        dialogButton("保存").click();
+        await waitUntil("关系加上了", async () => (await stored()).关系!.some((item) => item.id === ids[enemy.id]));
+    });
+
+    it("主文字：没有时文字分页写“还没有主文字”（缺省先看设定）；加一段、改这一段（源文字预填）、删掉这一段", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        star.init.text = [];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const storedText = async () => {
+            const read = await other.canon.call("object", {ref: {kind: "entry", id}});
+            if (!read.ok) throw new Error(JSON.stringify(read.failure));
+            return (read.value.object as Entry).init.text;
+        };
+        const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === label)!;
+        const typeSource = (value: string) => {
+            const area = document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")!;
+            area.value = value;
+            area.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+        const {wrapper, state} = await open(id);
+        await waitUntil("文字分页也在", () => wrapper.findAll("[role='tab']").some((tab) => tab.text() === "文字"));
+        // 没有主文字时缺省先看第一组设定。
+        await waitUntil("缺省是一组设定", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() !== "文字");
+        expect(wrapper.find("[data-text-empty]").exists()).toBe(false);
+        state.tab = "text";
+        await waitUntil("还没有主文字", () => wrapper.find("[data-text-empty]").exists());
+
+        await wrapper.get("[data-add-block]").trigger("click");
+        await waitUntil("对话框", () => document.body.querySelector("[data-block-dialog] textarea") !== null);
+        typeSource("星瑕是第三魔法学院的学生。");
+        dialogButton("保存").click();
+        await waitUntil("加上了", async () => (await storedText()).some((block) => block.source === "星瑕是第三魔法学院的学生。"));
+        await waitUntil("页上有这一段", () => wrapper.find("[data-entry-text]").text().includes("第三魔法学院的学生"));
+        await waitUntil("提示", () => wrapper.find("[data-notice-bar]").exists() && wrapper.get("[data-notice-bar]").text().includes("给星瑕加一段主文字"));
+
+        await wrapper.get("[aria-label='改第 1 段']").trigger("click");
+        await waitUntil("源文字预填", () => document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")?.value === "星瑕是第三魔法学院的学生。");
+        typeSource("星瑕是第三魔法学院的一年级学生。");
+        dialogButton("保存").click();
+        await waitUntil("改了", async () => (await storedText()).map((block) => block.source).join("|") === "星瑕是第三魔法学院的一年级学生。");
+
+        await wrapper.get("[aria-label='删掉第 1 段']").trigger("click");
+        await waitUntil("删掉的确认", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("删掉这一段主文字？") === true);
+        dialogButton("删掉").click();
+        await waitUntil("删掉了", async () => (await storedText()).length === 0);
+        await waitUntil("又是空的", () => wrapper.find("[data-text-empty]").exists());
+    });
+
+    it("对话框开着时别处改了这个条目：保存不盖掉别人的改动，原因写在对话框里、页头没有；再保存一次以对话框里填的为准", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const storedText = async () => {
+            const read = await other.canon.call("object", {ref: {kind: "entry", id}});
+            if (!read.ok) throw new Error(JSON.stringify(read.failure));
+            return (read.value.object as Entry).init.text.map((block) => block.source).join("|");
+        };
+        const dialogButton = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === label)!;
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await waitUntil("有一段", () => wrapper.find("[aria-label='改第 1 段']").exists());
+        await wrapper.get("[aria-label='改第 1 段']").trigger("click");
+        await waitUntil("对话框", () => document.body.querySelector("[data-block-dialog] textarea") !== null);
+        const area = document.body.querySelector<HTMLTextAreaElement>("[data-block-dialog] textarea")!;
+        area.value = "作者的改法";
+        area.dispatchEvent(new Event("input", {bubbles: true}));
+
+        const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
+        const status = await other.canon.call("status", {});
+        if (!stored.ok || !status.ok) throw new Error("读不到");
+        const block = (stored.value.object as Entry).init.text[0]!.id;
+        const elsewhere = await other.canon.call("editEntries", {input: {requestId: "elsewhere", by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "别处改", ops: [{op: "set", at: {entry: id, path: `text[${block}]`}, value: "别处改过的内容"}]}});
+        expect(elsewhere.ok).toBe(true);
+        await waitUntil("页上读到别处的改动", () => wrapper.find("[data-entry-text]").text().includes("别处改过的内容"));
+
+        dialogButton("保存").click();
+        await waitUntil("对话框里写明", () => document.body.querySelector("[role='dialog'] [role='alert']")?.textContent?.includes("被别处改过") === true);
+        expect(await storedText()).toBe("别处改过的内容");
+        expect(wrapper.find("[data-entry-action-error]").exists()).toBe(false);
+
+        dialogButton("保存").click();
+        await waitUntil("以对话框里的为准", async () => (await storedText()) === "作者的改法");
+    });
+
+    it("人物分页展开语义档的字段：来历下面能记一句，落在所选位置，值后面多一句", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("页头", () => wrapper.find("h1").exists());
+        state.tab = "data:character";
+        await waitUntil("态度", () => wrapper.find("[data-field='character.态度'] [data-value]").exists() || wrapper.find("[data-field='character.态度'] button").exists());
+        await wrapper.get("[data-field='character.态度'] button").trigger("click");
+        await waitUntil("记一句的表单", () => wrapper.find("[data-record-form]").exists());
+        expect(wrapper.findAll("[data-record-form] input")).toHaveLength(1);
+        const form = wrapper.get("[data-record-form]");
+        await form.get("input").setValue("对校长起了疑心");
+        await form.trigger("submit");
+        await waitUntil("记进去了", () => wrapper.find("[data-notice-bar]").exists() && wrapper.get("[data-notice-bar]").text().includes("对校长起了疑心"));
+        await waitUntil("值后面多一句", () => wrapper.get("[data-field='character.态度']").text().includes("对校长起了疑心"));
     });
 
     it("累出来的数：写“这个数是几笔累出来的”、保存不可用；记一笔精确档以后值卡少了、流水多了一行", async () => {

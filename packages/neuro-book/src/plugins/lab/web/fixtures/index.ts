@@ -14,8 +14,14 @@ import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
 import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
 import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
 import type LineSelect from "nbook/plugins/canon/web/components/LineSelect.vue";
+import type EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue";
+import type ImageInput from "nbook/plugins/canon/web/components/ImageInput.vue";
+import type MoveDialog from "nbook/plugins/canon/web/components/MoveDialog.vue";
+import type ElementDialog from "nbook/plugins/canon/web/components/ElementDialog.vue";
+import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
+import type AgentNotice from "nbook/plugins/canon/web/components/AgentNotice.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
@@ -1032,6 +1038,9 @@ export const labFixtures: LabFixture[] = [
                 {id: "loading-layer", label: "展开了还没读到的一层", input: {props: {layers: {"": root}}, model: {expanded: ["folder:人物", "xingxia"]}}},
                 {id: "loading", label: "根这一层还没读到", input: {props: {layers: {} as Record<string, ReturnType<typeof layer>>}, model: {expanded: []}}},
                 {id: "empty", label: "还没有条目", input: {props: {layers: {"": layer([])}}, model: {expanded: []}}},
+                {id: "empty-creatable", label: "空着、可以新建：新建人物与新建条目", input: {props: {layers: {"": layer([])}, creatable: true}, model: {expanded: []}}},
+                {id: "empty-blocked", label: "空着、世界只读：按钮禁用", input: {props: {layers: {"": layer([])}, creatable: true, blockedReason: "世界只读：日志损坏"}, model: {expanded: []}}},
+                {id: "empty-creatable-english", label: "空状态（英文界面）", input: {props: {layers: {"": layer([])}, creatable: true}, model: {expanded: []}}},
                 {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, disconnected: true}, model: sample.model}},
                 {id: "sample-english", label: "英文界面", input: sample},
             ];
@@ -1823,7 +1832,7 @@ function canonEntryPageFixtures() {
         row("character.外观", "外观", "黑发，左眼下有颗痣", {mark: "前史改过"}),
         row("character.状态", "状态", "未知", {unknown: true}),
         row("character.态度", "现在的态度", "对学院长提防，对白灵信任", {mark: "第 2 章改过", notes: [{where: "第 1 章", text: "起点：谁也不信"}, {where: "第 2 章", text: "白灵替她挡了一次"}], notReduced: true}),
-        row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本", "半块面包"]}),
+        row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本", "半块面包"], elementIds: ["i1", "i2", "i3"]}),
     ];
     const t = (value: string) => ({type: "text", value});
     const value = (path: string, label: string, display: string, extra: Record<string, unknown> = {}) => ({type: "canonValue", path, entry: null, label, display, ...extra});
@@ -1847,6 +1856,8 @@ function canonEntryPageFixtures() {
     const positions = [{value: "initial", label: "初值"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}, {value: "2:start", label: "第 2 章开头"}, {value: "2:end", label: "第 2 章末尾"}];
     const tabs = [{value: "text", label: "文字"}, {value: "data:character", label: "人物"}, {value: "data:panel", label: "面板"}, {value: "plot", label: "情节", count: 4}];
     const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, positions, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
+    /** 条目选择器的场景只给占位的查找状态：夹具自己当宿主，按真实的去抖查找换掉它（`EntryPickerFixture.vue`）。 */
+    const IDLE = {kind: "idle"} as const;
     const lineOptions = [{id: "main", name: null, depth: 0}, {id: "l1", name: "重来的那个晚上", depth: 1}, {id: "l2", name: "梦里的那一天", depth: 2}];
     return [
         defineLabFixture<typeof LineSelect>({
@@ -1857,6 +1868,62 @@ function canonEntryPageFixtures() {
                 {id: "follow-english", label: "英文界面", input: {props: {options: lineOptions, resolved: "l2"}, model: {line: ""}}},
             ],
             load: async () => (await import("./LineSelectFixture.vue")).default,
+        }),
+        defineLabFixture<typeof EntryPicker>({
+            component: "EntryPicker",
+            scenes: [
+                {id: "empty", label: "没选：点开列出条目，打“小瑕”按别名找到星瑕", input: {props: {results: IDLE}, model: {modelValue: null}}},
+                {id: "picked", label: "选了一个（当前值不在这一批结果里时显示给的名字）", input: {props: {results: IDLE, selectedName: "星瑕"}, model: {modelValue: "e1"}}},
+                {id: "exclude", label: "已在列表里的灰掉", input: {props: {results: IDLE, exclude: ["e1", "e2"], excludeReason: "已在列表里"}, model: {modelValue: null}}},
+                {id: "create", label: "可以就地新建知识点：打一个没有的名字", input: {props: {results: IDLE, createKind: "知识点"}, model: {modelValue: null}}},
+                {id: "failed", label: "查找失败", input: {props: {results: IDLE}, model: {modelValue: null}}},
+                {id: "picked-english", label: "英文界面", input: {props: {results: IDLE, selectedName: "星瑕", createKind: "知识点"}, model: {modelValue: "e1"}}},
+            ],
+            load: async () => (await import("./EntryPickerFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ImageInput>({
+            component: "ImageInput",
+            scenes: [
+                {id: "empty", label: "未知", input: {props: {}, model: {modelValue: null}}},
+                {id: "filled", label: "填了路径与说明", input: {props: {}, model: {modelValue: {图片: "图片/星瑕.png", 说明: "银白长发"}}}},
+                {id: "bad-path", label: "路径不合规则", input: {props: {}, model: {modelValue: {图片: "../外面/星瑕.png", 说明: ""}}}},
+                {id: "problem", label: "服务退回的原因", input: {props: {problem: "这个作品里没有这个文件"}, model: {modelValue: {图片: "图片/没有.png", 说明: ""}}}},
+                {id: "bad-path-english", label: "英文界面", input: {props: {}, model: {modelValue: {图片: "/abs/star.png", 说明: "silver hair"}}}},
+            ],
+            load: async () => (await import("./ImageInputFixture.vue")).default,
+        }),
+        defineLabFixture<typeof MoveDialog>({
+            component: "MoveDialog",
+            scenes: [
+                {id: "sample", label: "挂在学院下面、第 2 章出场", input: {props: {entry: {id: "e1", name: "星瑕"}, parentResults: IDLE, sameAsResults: IDLE, chapters: [{id: "1", index: 1}, {id: "2", index: 2}]}, model: {open: true, draft: {parent: "e2", parentName: "学院", folder: "人物", kind: "人物", order: "keep" as const, appears: "2", sameAs: null, sameAsName: ""}}}},
+                {id: "failed", label: "内核拒收：成环", input: {props: {entry: {id: "e1", name: "星瑕"}, parentResults: IDLE, sameAsResults: IDLE, error: "不能挂到自己的下层条目下面"}, model: {open: true, draft: {parent: null, parentName: "", folder: "人物", kind: "人物", order: "first" as const, appears: null, sameAs: null, sameAsName: ""}}}},
+                {id: "sample-english", label: "英文界面", input: {props: {entry: {id: "e1", name: "Xia"}, parentResults: IDLE, sameAsResults: IDLE}, model: {open: true, draft: {parent: null, parentName: "", folder: "People", kind: "Person", order: "keep" as const, appears: null, sameAs: null, sameAsName: ""}}}},
+            ],
+            load: async () => (await import("./MoveDialogFixture.vue")).default,
+        }),
+        defineLabFixture<typeof FieldInput>({
+            component: "FieldInput",
+            scenes: [
+                {id: "number", label: "数，带单位", input: {props: {kind: "number" as const, label: "存款", unit: "元"}, model: {value: "1200"}}},
+                {id: "enum", label: "选项", input: {props: {kind: "enum" as const, label: "态度", options: ["友好", "敌对", "中立"]}, model: {value: "敌对"}}},
+                {id: "boolean", label: "是否", input: {props: {kind: "boolean" as const, label: "在场"}, model: {value: true}}},
+                {id: "ref", label: "引用（条目选择器）", input: {props: {kind: "ref" as const, label: "对头", refName: "雾崎"}, model: {value: "e2"}}},
+                {id: "image", label: "图片", input: {props: {kind: "image" as const, label: "画像"}, model: {value: {图片: "图片/星瑕.png", 说明: "入学那天"}}}},
+                {id: "text", label: "文字", input: {props: {kind: "text" as const, label: "外观", rows: 3}, model: {value: "黑发，左眼下有一颗痣"}}},
+                {id: "text-english", label: "英文界面", input: {props: {kind: "text" as const, label: "Looks"}, model: {value: "Black hair"}}},
+            ],
+            load: async () => (await import("./FieldInputFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ElementDialog>({
+            component: "ElementDialog",
+            scenes: [
+                {id: "add", label: "加一项：名字与数量", input: {props: {title: "给“物品”加一项", keyed: false, editing: false, keyResults: IDLE, fields: [{id: "数量", label: "数量", kind: "number" as const, unit: "把"}, {id: "来历", label: "来历", kind: "text" as const}], values: {数量: "", 来历: ""}, refResults: IDLE, intents: ["creative" as const, "story" as const]}, model: {open: true, label: "", keyValue: null, intent: "creative" as const}}},
+                {id: "keyed", label: "以条目为键：选指向的知识点", input: {props: {title: "给“知情”加一项", keyed: true, editing: false, keyResults: IDLE, fields: [{id: "程度", label: "程度", kind: "enum" as const, options: ["知道", "怀疑", "不知道"]}], values: {程度: "怀疑"}, refResults: IDLE, intents: ["creative" as const]}, model: {open: true, label: "", keyValue: null, intent: "creative" as const}}},
+                {id: "edit-semantic", label: "改一项：语义档只读，键不能换", input: {props: {title: "改“知情”的一项", keyed: true, editing: true, keyName: "学院的秘密", keyResults: IDLE, fields: [{id: "程度", label: "程度", kind: "enum" as const, options: ["知道", "怀疑", "不知道"]}, {id: "想法", label: "想法", kind: "text" as const, semantic: true}], values: {程度: "知道", 想法: "觉得校长在隐瞒什么"}, refResults: IDLE, intents: ["creative" as const, "story" as const]}, model: {open: true, label: "", keyValue: "k1", intent: "story" as const}}},
+                {id: "failed", label: "内核拒收", input: {props: {title: "给“物品”加一项", keyed: false, editing: false, keyResults: IDLE, fields: [{id: "数量", label: "数量", kind: "number" as const}], values: {数量: "abc"}, refResults: IDLE, intents: ["creative" as const], error: "“数量”填得不对"}, model: {open: true, label: "盾", keyValue: null, intent: "creative" as const}}},
+                {id: "add-english", label: "英文界面", input: {props: {title: "Add an item to “Items”", keyed: false, editing: false, keyResults: IDLE, fields: [{id: "count", label: "Count", kind: "number" as const}], values: {count: "2"}, refResults: IDLE, intents: ["creative" as const, "story" as const]}, model: {open: true, label: "Shield", keyValue: null, intent: "creative" as const}}},
+            ],
+            load: async () => (await import("./ElementDialogFixture.vue")).default,
         }),
         defineLabFixture<typeof OriginList>({
             component: "OriginList",
@@ -1874,6 +1941,7 @@ function canonEntryPageFixtures() {
             scenes: [
                 {id: "sample", label: "人物：改过、未知、语义档的各句、列表", input: {props: {rows: fields}}},
                 {id: "open", label: "展开着一个字段", input: {props: {rows: fields, open: "character.外观"}}},
+                {id: "editing", label: "能改：可改的行有“改”，列表的各项有改、去掉与添加", input: {props: {rows: fields, editing: true}}},
                 {id: "empty", label: "没有字段", input: {props: {rows: []}}},
                 {id: "sample-english", label: "英文界面", input: {props: {rows: fields}}},
             ],
@@ -1884,7 +1952,10 @@ function canonEntryPageFixtures() {
             scenes: [
                 {id: "sample", label: "值、改过、未知、引用、出错的块", input: {props: {blocks, self: "xingxia", marks}}},
                 {id: "open", label: "展开着存款", input: {props: {blocks, self: "xingxia", marks, open: "xingxia|panel.存款"}}},
-                {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks}}},
+                {id: "editable", label: "能改：每一块旁边改、删，文末加一段", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
+                {id: "empty", label: "还没有主文字", input: {props: {blocks: [], self: "xingxia", editable: true}}},
+                {id: "blocked", label: "写不了：按钮不可用、悬停写原因", input: {props: {blocks, self: "xingxia", editable: true, editReason: "先关掉按计划"}}},
+                {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
             ],
             load: async () => (await import("./EntryTextFixture.vue")).default,
         }),
@@ -1919,6 +1990,10 @@ function canonEntryPageFixtures() {
                 {id: "failed", label: "读取失败", input: {props: {status: "failed" as const}, model: {position: "", planned: false, tab: ""}}},
                 {id: "missing", label: "找不到", input: {props: {status: "missing" as const}, model: {position: "", planned: false, tab: ""}}},
                 {id: "deleted", label: "已删除", input: {props: {status: "deleted" as const, name: "旧设定"}, model: {position: "", planned: false, tab: ""}}},
+                {id: "editable", label: "页头可编辑：改名字、简介、别名，更多里有移动与加去设定组", input: {props: {...page.props, editable: true, aliases: ["小瑕", "夜王"], removableGroup: "人物"}, model: {...page.model, tab: "data:character"}}},
+                {id: "editable-blocked", label: "页头可编辑但按计划开着：入口禁用", input: {props: {...page.props, editable: true, editReason: "先关掉按计划", aliases: ["小瑕"]}, model: {...page.model, planned: true}}},
+                {id: "deleted-restorable", label: "已删除、可以恢复，恢复失败的原因", input: {props: {status: "deleted" as const, name: "旧设定", editable: true, actionError: "版本冲突：重读再试"}, model: {position: "", planned: false, tab: ""}}},
+                {id: "editable-english", label: "页头可编辑（英文界面）", input: {props: {...page.props, editable: true, aliases: ["Xia"], removableGroup: "Person"}, model: page.model}},
                 {id: "sample-english", label: "英文界面", input: page},
             ],
             load: async () => (await import("./EntryPageFixture.vue")).default,
@@ -1954,6 +2029,15 @@ function canonEntryPageFixtures() {
                 {id: "sample-english", label: "英文界面", input: {props: {title: "Edit Appearance"}}},
             ],
             load: async () => (await import("./NoticeBarFixture.vue")).default,
+        }),
+        defineLabFixture<typeof AgentNotice>({
+            component: "AgentNotice",
+            scenes: [
+                {id: "sample", label: "Agent 刚改了一次", input: {props: {title: "给星瑕加别名小瑕"}}},
+                {id: "earlier", label: "之前还改过两次、标题很长", input: {props: {title: "把星瑕的性格改成沉默，外观改成黑色短发，并把她移到学院下面", earlier: 2}}},
+                {id: "earlier-english", label: "英文界面", input: {props: {title: "Add alias", earlier: 1}}},
+            ],
+            load: async () => (await import("./AgentNoticeFixture.vue")).default,
         }),
         defineLabFixture<typeof NewEntryDialog>({
             component: "NewEntryDialog",

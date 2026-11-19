@@ -5,7 +5,7 @@
 
 # RecordForm
 
-面板流水上面的“记一笔”（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 17）：精确档填一句发生了什么与变化量（可正可负），语义档只填一句。受控：填的内容、原因与保存中由宿主给（`PanelDataView`）。
+面板流水上面、通用字段表展开着的数或语义档字段的来历下面的“记一笔”（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 17）：精确档填一句发生了什么与变化量（可正可负），语义档只填一句。受控：填的内容、原因与保存中由宿主给（`PanelDataView`、`FieldsDataView`）。
 
 ## 布局与交互
 
