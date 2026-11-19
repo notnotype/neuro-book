@@ -173,8 +173,13 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 - C3（`7f515f357`）：页头的线选择（跟着章时写“此刻：线名”，只有主线时不画）；读取服务交出页头组件 `PageHead` 与 `usePosition`。
 - C4（`68b95e0e8`）：附加分页 `canon.entry-tabs`；`ComponentViewContext.FieldTable`（专门界面嵌一节通用字段，W3 用剧情的界面测）。变异检查抓到 `requires` 的过滤。
 - canon 组件测试 132 条全过、类型检查与 `architecture.test.ts` 过。
+- A1（`19935cd9e`）：`nbook.plot/author` 的 `person`、`point`：人群（人物与组织、已出场、未删除，马甲归本体）、程度（含忘了、显式不知道、没有行）、来处（初值、事件带章与段、目标出场、从别的线带过来带原证据）、读者按读取位置的程度与整书第一次（带那一段的开头）、和它有关的（直接挂与只经读者守卫的决策分开，只取待定与已定，重新打开的不写旧结论）。知情索引加 `winner()`。项目入口几个合同共用的结果写法挪到 `backend/results.ts`。
+- A2（`311fa0486`）：`secrets`：行按主体在条目树里的顺序与名字、点名的人各自的程度、别的人（至多 12）、生效的揭示计划与挂着的决策、全表的分段条数、候选与主要角色。
+- A3（`51510c4ee`）：`goals`、`ledger`、`experience`，`person` 加目标与态度；目标动过与停滞共用 `goalQuiet`（只算改到 `goal` 命名空间、套上的变更），久没提与没打算怎么收由诊断与账本共用。
+- A 片的包测试 16 条（真实 `World`），每片做了四处变异检查都抓到；剧情插件 341 条全过；远程用例经进程内场地调了六个方法。
+- M 第二轮（`050eb5c45`，规模脚本加六个作者读取）：30 章、负载 16 到 24 的冒烟里，`secrets` 同一份输入再读 156 毫秒、`goals` 80 毫秒，作者读取没有缓存、每次整张重算；1000 章的数等低负载时量，细设计按“同一份视图与位置缓存整张表，请求只做投影”写，再派 omp 审。
 
 ## 下一步
 
-1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：S0、F、C 已做；下一步 A（`nbook.plot/author` 的六个作者读取）与 M（低负载时按高密度形状量剧情诊断与作者读取，写索引的细设计并派 omp 审），再 U、W1 到 W3、D。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
+1. 第二批 B2-1（[`plan-b2.md`](plan-b2.md) 第二版）：S0、F、C、A 已做；下一步 M（负载低于 3 时在 1000 章上量六个作者读取与高密度的读待处理，写缓存与索引的细设计并派 omp 审），同时做 U（nb-ui 的矩阵表、多选弹层与节点带），再 W1 到 W3、D。B2-1 的 Spec 草稿：新写 `docs/specs/plot/author-ui.md`，`canon/author-ui.md` 输出 34 到 36，`plot/checks.md` 输出 9、`knowledge.md` 输出 3 与 11、`goals.md` 输出 5 的 planned 句。剧情读取的实际形状整理在 [`evidences/b2-plot-read-shapes.txt`](evidences/b2-plot-read-shapes.txt)。
 2. Spec 里留着的句子级 planned：[`spec-promotion-omp.txt`](evidences/spec-promotion-omp.txt) 每行写了缺什么断言，后续碰到相关代码时照着补测试再去掉标记。
