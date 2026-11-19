@@ -1,7 +1,7 @@
 # 浏览器 Agent 调研与实测（2026-11-19）
 
 - 问题：[w00034](../README.md) 开工前，开发者给了五个仓库（browser-use、Agent-Reach、jina reader、bilibili-cli、opencli），要求勤于实践；并问 opencli 操作 B 站为什么要打开浏览器、和 browser-use 有什么区别。顺带看 [w00033](../../w00033-page-agent/README.md) 的前提（把页面内核心包注入外部网页）在真实网站上站不站得住。
-- 做法：七个仓库浅克隆到 `.local/github/`（另加 browser-harness、alibaba/page-agent），主会话读 browser-use、browser-harness、opencli、bilibili-cli 的源码；Agent-Reach 与 reader、page-agent 各派一个 Haiku 子代理走查（主会话没有逐条核对，表里标“子代理”）。实测在本机无头 Chrome 156 上做，脚本在 [t01 的 `experiments/`](../tasks/t01-design/experiments/)，原始输出留在本地。
+- 做法：这五个仓库加上 browser-harness、alibaba/page-agent，共七个，浅克隆到 `.local/github/`；主会话读 browser-use、browser-harness、opencli、bilibili-cli 的源码；Agent-Reach 与 reader、page-agent 各派一个 Haiku 子代理走查（主会话没有逐条核对，表里标“子代理”）。实测在本机无头 Chrome 156 上做，脚本在 [t01 的 `experiments/`](../tasks/t01-design/experiments/)，原始输出留在本地。
 - 证据等级：**源码** 主会话读过；**子代理** 子代理读源码后的报告；**实测** 本次跑过；**文档** 官方 README 或文档；**检索** 搜索摘要或二手报道；**推断** 没有直接证据。
 - 版本：browser-use 1.0.6（`ccbdb80`，2026-11-17）、browser-harness `fe4a2cd`、opencli 仓库 2.0.3（本机装的是 2.0.1）、bilibili-cli `dbe2855`、Agent-Reach 1.6.1、reader `1574bfd`、page-agent 1.12.4、omp 18.14.1。
 
@@ -12,7 +12,7 @@
 3. **opencli 打开浏览器是为了借登录态，不是为了让模型看页面**：B 站的适配器没写策略时默认是 COOKIE，先打开 bilibili.com，再在页面里 `fetch(…, {credentials: 'include'})` 调 B 站接口；中间没有模型。详见下一节。
 4. **登录态是外部网站这件事的核心难题**：本机无头 Chrome 上，起点给出“安全检测中”的验证页，Reddit 直接拦截（实测）；jina reader 用 curl-impersonate 拿到了起点的榜单，但月票数是自定义字体（私用区字符），文字层读不出来（实测）。要在中文小说网站上做事，最稳的是用户自己有界面、已登录的浏览器。
 5. **页面内注入在严格 CSP 下要走 CDP**：MDN 的 CSP 拦下了 `<script>` 标签注入，同一段快照代码经 CDP 在主世界与隔离世界都能执行，也能走进 shadow DOM（MDN 上 327 个可交互元素里 33 个在 shadow root 里）（实测）。w00033 的前提成立，条件是注入走 CDP（`Runtime.evaluate`、隔离世界、`Page.addScriptToEvaluateOnNewDocument`），不走页面脚本。
-6. **审批粒度在 CodeAct 下是新问题**：模型可以用页面脚本 `el.click()` 点“确认发布”，宿主从方法名分不出这次是读还是写。browser-use 只有域名限制、没有逐个动作的确认；omp 按执行档整体审批、缺省 yolo；Gemini 的 computer use 由模型在每个动作上给 `require_confirmation`（文档）。要开发者定（见“要开发者定的事”）。
+6. **审批粒度在 CodeAct 下是新问题**：模型可以用页面脚本 `el.click()` 点“确认发布”，宿主从方法名分不出这次是读还是写。browser-use 只有域名限制、没有逐个动作的确认；omp 按执行档整体审批、缺省 yolo；Gemini 的 computer use 由模型在每个动作上给 `require_confirmation`（文档）。要开发者定（见“对设计的含义”第 4 条）。
 
 ## opencli 为什么要打开浏览器
 
