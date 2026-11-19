@@ -1,0 +1,87 @@
+### 1. 停靠档里答完一个事项，焦点落到“收起”按钮，不是向导容器
+- **严重程度**：重要；**类别**：正确性（可访问性，与 Spec 不符）
+- **位置**：`packages/nb-agent-ui/src/vue/AgentConversationView.vue:320-329`（`watch` 里 `querySelector("button:not(:disabled)")`）
+- **现象**：停靠档（bot 的主对话）里答完一个审批或提问，焦点原本在停靠区里时，代码取停靠区里第一个可用的 `button` 并 focus。DOM 顺序里第一个按钮在标题行：多于一项时是“下一个”（“上一个”到头是禁用的），只剩一项时是（带 `source` 的有“打开会话”，其余是）“收起”（`data-wizard-collapse`）。实测（在实现 worktree 的 nb-agent-ui 里挂两个提问、停靠档，焦点放在停靠区后把 `pendingInputs` 换成只剩第二个）：`document.activeElement` 是 `aria-label="收起"` 的 BUTTON。键盘用户答完第一个后按 Enter 或空格，收起的是停靠区，不是作答。
+- **为什么是问题**：`agent/conversation.md` 输出 11 写“出现时焦点到向导容器（不落到批准按钮）……Esc 只收起”，同步向导用 `tabindex=-1` 的根容器（`AgentWizard.vue` 的 `focusRoot`）。`AgentConversationView.md` 新增的说明写“焦点……放到下一个事项”，没写落点。新增的 dom 测试只断言 `dock.contains(document.activeElement)`，焦点落在哪个控件上都过，所以没抓到。
+- **如何核实**：`/tmp/w43-t15/scratch/focus.dom.test.ts` 加 `/tmp/w43-t15/scratch/vitest.scratch.config.ts`，在实现 worktree 的 `packages/nb-agent-ui` 里 `bunx vitest run --config /tmp/w43-t15/scratch/vitest.scratch.config.ts --silent=false`，输出 `PROBE [ '2' ] BUTTON null 收起`。
+- **建议改法**：给 `AgentDock` 根加 `tabindex="-1"`、暴露 `focusRoot()`，这里改成聚焦它（与向导一致）；dom 测试断言 `document.activeElement` 就是停靠区根元素，不是其中任意后代。
+
+### 2. bot 视图：bot 列表取不到或为空时永远转圈，没有失败态也没有重试
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/bots/web/BotChatView.vue` 的 `state` 初值 `{kind: "loading"}` 与 `watch([noModel, bot])`；`bots/web/store.ts` 的 `refresh`、订阅失败分支
+- **现象**：`state` 初值是 `loading`，只有 `bot` 非 null（`items[0]`）才会调 `open()`。`store` 里 `list` 失败只 `report("list-failed")`；`botsChanged` 订阅失败时直接 `return`，连 `refresh()` 都不跑；服务端没有任何 bot（缺省预设不可用，`bots.ts` 里 `default-preset-missing` 的分支）时 `items` 一直是空。三种情况下视图都停在“正在打开对话…”加转圈，用户没有任何提示，也没有重试按钮；诊断里有一条 warn。
+- **为什么是问题**：`bots/view.md` “状态与转换”写了“没有模型 / 取会话中 / 取会话失败（原因与重试）/ 已取到”四态，加载中应当有出口。bot 列表这一步没有出口，`ensureMain` 失败才有。对照通用视图：会话列表读失败有 `load-error` 卡片。
+- **如何核实**：从代码推断；e2e 可在 `list` 返回 `ok:false` 时看视图，需要主 Agent 跑或写单测（`createBotsStore` 配假远程）。
+- **建议改法**：store 暴露 `listState: "loading" | "ready" | "failed"`（`list` 完成后才算 ready，订阅失败也走 failed），视图在 `failed` 画“原因与重试”（重试调 `refresh`），在 ready 且 `items` 为空时写“还没有 bot”，不再转圈。
+
+### 3. restore() 在读归属期间没比对 routing，会盖掉同时发起的显式 open()
+- **严重程度**：建议；**类别**：正确性（竞态，从代码推断）
+- **位置**：`packages/neuro-book/src/plugins/agent/web/session-host.ts:1139-1148`（`restore`）、`:990-1002`（`open`）、`:1004-1005`（`openHere` 里 `routing += 1`）
+- **现象**：`restore()` 现在在 `await deps.owners.ownerOf(id)` 之后只检查 `current !== null`，不检查 `routing`。同时有一次显式 `open(X)`（命令面板、状态栏活动条目 focus-session、会话列表点击）：`open(X)` 记 `asked = routing += 1` 后也在等自己的 `header`。两个 `header` 请求按发出顺序返回，`restore` 的先发，先回来：此时 `current` 仍为 null，`restore` 走 `openHere(recent)`，里面 `routing += 1`；随后 `open(X)` 回来发现 `asked !== routing`，直接返回，用户明确打开的 X 被丢掉，界面停在“最近的会话”。基线（ae6d9781d）里 `restore` 同步 `open(id)`，`current` 马上有了，显式的 `open(X)` 后到、照常覆盖，没有这个窗口。
+- **为什么是问题**：Spec 输出 53 只要求“读会话头期间又打开了别的会话时，这次作废”，作废的应当是较早的那次，不是较晚的显式操作；窗口只有一次 header 往返（启动时），但丢掉的是用户动作，且没有任何提示。
+- **如何核实**：在 `session-host.test.ts` 的转交用例里，给 `owners.ownerOf` 加可控的 `hold`，先 `restore()`、再 `open(X)`，先放行 restore 的那次，断言 `sessionId === X`。
+- **建议改法**：`restore` 进入时记 `const asked = routing`（或同样 `routing += 1`），`await ownerOf` 之后 `if (asked !== routing || current !== null || disposed) return`，与 `open` 同一套判断；补上面的测试。
+
+### 4. “没有模型”判断把“还没读到”和“模型服务不在”都当成 null，启动时可能先调了 ensureMain
+- **严重程度**：建议；**类别**：正确性（从代码推断）
+- **位置**：`bots/web/BotChatView.vue` 的 `watch([props.store.noModel, bot])`；`bots/web/store.ts` 的 `noModel` 初值与订阅
+- **现象**：`noModel` 为 null 同时表示“模型服务不在”和“还没读到”，视图在 null 时照常 `open()`（注释：“模型服务不在（null）时照常取”）。入口启动即开始读 bot 列表和模型快照，两个请求并行、先后不定；视图在启动时就已挂载（侧栏恢复上次显示的是 bot 视图）而 bot 列表先到时，会在读到“没有服务商”之前调 `ensureMain`，随后 `noModel` 变 true 才把界面改成引导卡，`asking += 1` 只丢弃结果，服务端的主对话已经建出来了。
+- **为什么是问题**：`bots/view.md` 输出 2.1 “没有可用的模型：显示引导卡，不调 `ensureMain`”。
+- **建议改法**：store 区分“不在”（`models === null`，视为有模型）与“读取中”：读取中不 `open()`，等快照到了再定；或让 `noModel` 在模型服务存在时初值为 `undefined`，视图只在不为 `undefined` 时判断。
+- 另外 `noModel` 取 `providers.length === 0`，Spec 写的是“没有可用的模型”：有服务商但没有可用模型时进入聊天，靠对话内的模型提示卡兜底，可以接受，但注释应写明与 Spec 字面的差别。
+
+### 5. markSeen 是边沿触发，三处会把应发的“看到”吞掉且不再补发
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`bots/web/store.ts` 的 `markSeen`（`asked` 在发出之前写入、失败不回滚）；`agent/web/FixedConversationHost.vue` 的 `watch([active, shownSeq])`
+- **现象**：(a) `markSeen` 失败（`seen-failed`）时 `asked` 里已经记了 `through`，同一个 `through` 之后永远 `through <= asked`，window 重新拿到焦点（`active` 重新为真、`shownSeq` 没变）也不重发，只有来了更新的消息才会前进；Spec“失败与恢复”写的是“下一次看到时再交”。(b) `item === undefined`（bot 列表还没到）、`item.unread === 0`（本地 `items` 还没收到最新的 `botsChanged`）、`unread === null`（服务端补数没完，服务端按 `latestSeq = seenSeq` 钳成不动）时，要么直接 return、要么发了也不生效，而 `asked` 在后两种之一里已经写了值；`items` 之后更新时没有任何人用已经看到的 `shownSeq` 重新判断。这几种在正常顺序下很少遇到（服务端启动时已经 `track` 并补完），但一旦遇到，计数会一直写着，直到下一条消息。
+- **如何核实**：单测 `createBotsStore`：让 `bots.markSeen` 先返回 `ok:false`，再用同一个 `through` 调一次，断言第二次又发出请求（现在不会）。
+- **建议改法**：store 记 `shown[botId] = through`，`items` 变化时（`watch`）对“`unread > 0` 且 `shown > seenSeq`”的 bot 重新判断；`asked` 在 `markSeen` 返回 `ok:true` 后才写，失败时清掉。e2e 补一条“窗口有焦点时到的回复，计数保持为 0”的用例，并按“否定断言要先变异”做一次变异检查（现在只有失焦时记未读那条）。
+
+### 6. 停靠档的“本会话都批准”会覆盖用户已选好、还没提交的拒绝（撤回）
+- **严重程度**：建议；**类别**：不变量
+- **位置**：`packages/nb-agent-ui/src/vue/AgentConversationView.vue:365-378`（`rememberAlongside`）；对照 `packages/nb-agent-ui/src/wizard.ts` 的 `choose`
+- **现象**：向导的 `choose` 只给“还没选”的同类审批顺带选上，注释写“已经选了的（尤其是拒绝）是用户的决定，不改”。`rememberAlongside` 不看这一点：停靠区里每个审批各自有“选了决定、再提交”两步，用户在 a3 上选了“拒绝”（带附言，还没点提交）、翻到 a1 点“本会话都批准”时，a3 照样被以 `allow-session` 提交。选择状态在 `ctx.dockState` 里（`readDockState(ctx.dockState).wizard.approvals`），视图拿得到。
+- **为什么是问题**：同一件事在两档里规则不同，且是权限相关；`AgentConversationView.md` 写的是“向导里这一步是顺带选上，停靠区一次一个，所以在这里补”，没写这个例外。
+- **建议改法**：跳过 `dockState.wizard.approvals[item.id] !== undefined` 的审批，dom 测试补一条（a3 先选 deny 再对 a1 点 allow-session，断言 a3 没被提交）。此外现在没有测 `allow-always` 与 `deny`（`deny` 不应并入）。
+- **撤回原因**：核对 `AgentApprovalWizard.vue` 的 `pick`：停靠区里一次一个事项（`batch` 为假），选了决定就是提交（`emit("submit")`），不存在“已选、未提交”的拒绝；只有没提交的附言，不是决定。所以覆盖已选拒绝的前提不成立。保留的小点：`allow-always`、`deny` 没有测试（`deny` 不应并入）。
+
+### 7. 转交成功只代表“交出去了”，揭示视图失败时用户什么都看不到
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`bots/web/plugin.ts` 的 `reveal` 与 `opener`；`agent/web/plugin.ts` 的 `sessionOwners.open`、`FOCUS_SESSION_COMMAND`
+- **现象**：`opener.open` 返回 void，`reveal()` 里 `OPEN_VIEW_COMMAND` 失败只写一条 warn 诊断；`sessionOwners.open` 在找到贡献时无条件返回 true，`nbook.agent.focus-session` 因此直接 `return done`（命令成功），也没有回退到通用视图。用户点了状态栏活动条目、请求页里的会话，什么都没有发生，没有提示。贡献被撤掉时（`revoke`）`open` 返回 false，会话照常落到通用视图里开（与 Spec 一致）。
+- **为什么是问题**：计划重点 2 要求说明转交失败时用户看到什么：答案是“什么都没有”。揭示视图失败很少见（视图被禁用、布局里没有位置），但失败时静默比回退到通用视图更糟。
+- **建议改法**：`SessionOwnerOpener.open` 改成返回 `Promise<boolean>`（揭示成功才算接手），`ownerOf` 之后失败就回退到通用视图打开；或至少用 `notifications` 报一条用户可见的失败。
+
+### 8. 固定会话组件每挂载一次，往插件级 `context.signal` 上多挂两个不摘的监听
+- **严重程度**：建议；**类别**：不变量（资源释放）
+- **位置**：`agent/web/plugin.ts` 的 `watchSeen`（`context.signal.addEventListener("abort", stopSeen, {once: true})`）与 `servicesFor`（`context.signal.addEventListener("abort", stopWatching, ...)`），在 `fixedConversation` 的 `setup` 里每个实例各调一次
+- **现象**：两个 `watch` 是在组件 `setup` 里建的，卸载时 Vue 会自动停；但 `abort` 监听留在插件级的 signal 上，直到插件关闭才释放。`servicesFor` 的 `refreshServices` 闭包经 `profileOf = () => host.profileKey()` 持有整个 `SessionHost`（含会话的 transcript）。bot 视图每次卸载再挂载（切别的侧栏视图再回来、`sessionId` 换 key）就多留一个宿主。基线里宿主是按位置单例（`hostAt`），监听只加固定的次数；这是新增的随挂载次数增长的泄漏。
+- **如何核实**：反复切换侧栏视图再回来，对 `context.signal` 的监听数计数（或堆快照看 `SessionHost` 数量）；从代码推断。
+- **建议改法**：固定实例不要挂在插件级 signal 上：给 `watchSeen`、`servicesFor` 增加“返回清理函数”的形式，`onBeforeUnmount` 里调用并 `removeEventListener`；或为每个实例建一个 `AbortController`，让插件级 signal abort 时再去 abort 它。
+
+### 9. 测试缺口：固定会话的命令守卫、结果未知的重发、followup 投递都没有断言
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/agent/session-host.test.ts` 新增的“固定会话与转交”四个用例（跑过：`bun test … -t "固定会话与转交"` 4 pass）
+- **现象**：(a) 命令守卫 `FIXED_COMMANDS.includes(action.name)` 删掉，用例照过：用例里 `command.run new` 之后 `until(elsewhere.length === 1)` 在 `session.select` 那一次就已满足，`new` 的后果（固定模式下 `create()` 本来就返回 null）本身观察不到；守卫去掉后真正多出来的副作用是 `setDraft("")` 与 `uploads = new Map()`（`newCommand`）、`/rename` 改名、`/fork` 起一个分叉并交给通用视图，用例都没断言；(b) Spec 输出 52 “结果未知后的重发带上同样的两项”：`PendingSend.mode/settlePending` 与 `act("message.resend")` 里的 `...(sent.mode …)` 没有测试，去掉这两个展开也过；(c) 单测里发送用的是 `delivery: "prompt"`，而真实输入框在 `run.status !== "idle"` 时给的是 `steer`（`AgentConversationComposer.vue` 的 `running`），所以 `mode: delivery` 与 `settlePending` 同时出现只有 e2e 验收 1 覆盖；(d) 停靠档 dom 测试没有 `allow-always`、`deny` 的断言。
+- **建议改法**：(a) 在固定用例里先写草稿，再 `act(command.run new)`，断言草稿没被清、`/fork` 没调 `remote.fork`（用调用计数）；(b) 用 `UNKNOWN_OUTCOME` 的码让 `remote.send` 第一次返回未知，再 `message.resend`，断言第二次带 `mode`、`settlePending`；(c) 给一条 `delivery: "steer"` 加等审批的用例。做变异检查：分别删守卫、删重发的两个展开，确认用例会失败。
+
+### 10. 小项（代码质量）
+- **严重程度**：建议；**类别**：代码质量
+1. `session-host.ts` 的 `afterChange`：`dockState = undefined` 的条件只看异步提问与后代的事项（注释“只看阻塞的……状态另存”），固定会话里自己的同步事项也在停靠区、状态存在 `dockState` 里，条件对它不成立（有自己的同步事项而没有异步与后代事项时，每次 `afterChange` 都把 `dockState` 清掉）。目前没有可观察后果，因为 `AgentDock` 只在挂载时读一次 `state`，固定宿主又是每次挂载一份，但这条清理是为通用宿主写的，固定宿主要么单独处理、要么注释写明。
+2. `agent/web/plugin.ts` 的 `ownersReceiver` 按 `handle.plugin` 存 `openers`：同一个插件有两条贡献时，后一条覆盖前一条，撤掉其中一条会把另一条也删了。合同写“贡献 id 以贡献方插件 id 开头”，没写一个插件只能有一条；要么在 `published` 里检测重复并写诊断，要么注释写明约束。
+3. `AgentConversationHead.vue` 的头像 `<img>` 没有 `@error` 回退：头像地址 404 或图片损坏时顶栏是个破图，Profile 图标也不画。
+4. `AgentDock.md` 里还写着“出现与事项变化时不移动焦点”，没有说明停靠档答完换焦点的例外（只更新了 `AgentConversationView.md`）。
+
+## 未发现问题的方面
+- 固定模式守卫：`create()`（含上传附件的 `createOnce`、`submit` 的隐式新建、`/new`）与 `open()`（`session.select`、fork 之后、availability 的 retry）确实收口；`restore()`、`borrow()` 重新打开、`recent.write` 在固定模式下都绕开了；没有找到固定宿主里还能新建或换会话的入口（`session.rename/archive/restore` 动作视图不给入口，固定模式 `canArchive/canRestore` 为假）。
+- 发送：`settleCount` 只数自己的同步事项（`transcript.pending()` 不含后代，`async` 被排除），`PendingSend` 重发带 `mode` 与 `settlePending`（实现正确，缺测试见第 9 条）；`session-host.test.ts` 的“固定会话与转交”4 个用例在实现 worktree（HEAD 07928d3b9）跑过，全部通过。
+- 停靠档的“本会话都批准”：只并入同会话（`source.sessionId` 一致）、同 `rememberKey` 的审批，别的工具与别的会话的不动；停靠档里单项审批选了就是提交，所以与向导的“已选的不改”规则不冲突（第 6 条已撤回）。状态栏“等你批准”只看非停靠的审批，在停靠档里仍对自己这一轮成立。
+- 转交：`header` 先读、每次打开记号并在 await 之后比对、晚到的作废这一条在通用 `open` 里是对的（缺陷只在 `restore`，见第 3 条）；贡献撤掉时回退到通用视图符合 Spec。
+- `badge()` 不依赖视图实例（读 `store.items`），工作台只显示正整数，活动栏入口不接计数，符合 `workbench/views.md` 输出 17。
+- zh-CN 与 en-US 两份目录的键一致（bots 与 agent 的 `settleNotice`）。
+- 没有做的：390 宽与明暗两态、英文文案在固定尺寸里的截断（`bot-chat__notice` 的 `max-width: 32ch` 居中，从代码看没有问题）需要截图，由主 Agent 做；e2e 与开发服务没有跑。
+
+## 数量
+- 阻断 0；重要 2（第 1、2 条）；建议 7（第 3、4、5、7、8、9、10 条）；撤回 1（第 6 条）。
+
+有效发现的编号：1, 2, 3, 4, 5, 7, 8, 9, 10

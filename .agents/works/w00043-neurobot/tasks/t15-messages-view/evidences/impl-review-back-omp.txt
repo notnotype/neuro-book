@@ -1,0 +1,40 @@
+### 1. 补数期间的已读请求被吞掉，补数完成后未读仍挂着
+严重程度：重要
+类别：正确性 / 补数与 markSeen 竞态
+位置：`packages/neuro-book/src/plugins/bots/backend/unread.ts:74-77,110-115`；`packages/neuro-book/src/plugins/bots/web/store.ts:39-45,80-86`
+现象：冷启动后主对话正在补数时，`item.latestSeq` 仍等于旧 `seenSeq`。此时 `markSeen(through)` 被后端截成旧值并以成功返回；浏览器同时把 `through` 记入 `asked`。补数完成后，列表已有未读，但同一 `through` 被 `asked` 去重，已读位置不前进。
+为什么是问题：视图已显示到的回复仍计未读，计数/徽标可一直不清，直到视图重建或出现更大的新 seq；这是补数与页面正常启动并存时的可见错误。
+如何核实：真实 `agentWorld` 会话与存储上运行生产 `UnreadTracker`、`createBotsStore`，只用门闩延迟真实 `SessionApi.log`。补数期间状态为 `{unread: null, latestSeq: 0, seenSeq: 0}`；store 发出 `through: 15` 后放行补数，最终为 `{unread: 1, latestSeq: 13, seenSeq: 0}`，再次提交同一 seq 未发请求。输出同时记录已显示 seq 为 15。
+建议改法：补数未完成时暂存待提交的 `through`，在补数结果可用后再按最新计数消息截断并保存；不要把后端尚未接受的进度永久记作已询问。
+### 2. markSeen 持久化失败后相同 seq 不会重试
+严重程度：建议
+类别：失败恢复 / 存储
+位置：`packages/neuro-book/src/plugins/bots/web/store.ts:80-86`
+现象：store 在请求返回前先把 `through` 写进 `asked`。若远程 `markSeen` 返回 `storage-failed`，只记录诊断；之后同一个 `through` 因去重条件直接返回，不再调用服务。组件在未读未变时也不会自然产生更大的 seq。
+为什么是问题：一次暂时性存储错误会让“看到”状态停留在旧值，未读计数不能靠用户再次聚焦同一内容恢复；需要新的计数消息或视图/store 重建才可能再试。
+如何核实：检查生产 `createBotsStore.markSeen` 的实际执行顺序，以及 `UnreadTracker.markSeen` 对存储失败的返回通道；没有运行时注入失败的实验，故失败后的用户可观察持续时间未核实。
+建议改法：仅在成功接受后记入去重水位；失败时允许同一 seq 重试，并保持诊断。
+
+### 3. 头像超限检查发生在整文件读入之后
+严重程度：建议
+类别：资源上界 / HTTP 路由
+位置：`packages/neuro-book/src/plugins/bots/backend/avatar.ts:43-49`
+现象：路由对目录项做 `lstat` 后调用 `readFile(found.path)`，将整个文件读入内存，再以 `AVATAR_MAX_BYTES` 判超限并返回 404。头像合同规定超过 1 MiB 得 404，但实现没有在读取前限制字节数。
+为什么是问题：bot 目录属于本机用户数据；超大头像请求仍会按文件大小分配并读取内存，多个请求可放大资源消耗。文件在 `lstat` 与 `readFile` 间被替换时也没有基于已打开句柄核对大小与 inode。
+如何核实：代码路径直接确认读取顺序；没有执行超大文件运行时测试，实际内存峰值与并发影响未核实。现有头像测试覆盖非图片链接、合法图片与头部/ETag，不覆盖超限文件。
+建议改法：打开文件后先对同一句柄 `stat` 并检查大小，再有界读取；超过上限直接 404，并核对打开文件与已检查目录项一致。
+
+## 未发现问题的方面
+- 补数成功路径先订阅后分页读取，期间帧按 seq 合并去重；停止时取消订阅，生命周期与主对话持有配合。现有实现与修订决定一致。
+- `countsAsMessage` 对在线帧与补数共用同一谓词，按不带工具调用的 `assistant` 事件计数，符合已批准的计数定义。
+- 远程 `header` 冷读会话头，不打开会话；它的返回内容与已有 `snapshot` 可见的头一致。未确认扩大既有浏览器可读会话范围。
+- 头像路由对目录段执行 `lstat`、拒绝链接，按文件字节识别类型并设置 CSP、nosniff、ETag 与 no-cache；未确认其它已测路径上的安全问题。
+- 已跑 `bun test src/plugins/bots/bots.test.ts src/plugins/bots/backend/avatar.test.ts src/plugins/agent/session-host.test.ts`：101 pass，0 fail。已跑 `bun run typecheck`，命令完成，无报错输出。
+
+## 未核实候选
+- 补数 `session.log` 抛错后，追踪项仍保留且 `seqs` 仍为 null；再次 `track` 会因已有项直接返回。代码表现已定位，但未找到并复现“主对话保持 held 时，真实 `SessionApi.log` 可失败且服务仍继续运行”的触发路径，因此不列为发现。还需真实运行时故障注入证明可达性与恢复行为。
+- `markSeen` 并发调用的写入次序与内存 seq 列表过滤竞态未做真实运行时复现，不列为发现。还需两次并发调用以不同 `through` 交错完成并检查最终存储与 `unread`。
+
+## 数量
+重要：1 条。建议：2 条。阻断：0 条。
+有效发现编号：1、2、3
