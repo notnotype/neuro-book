@@ -90,6 +90,8 @@ type AgentConversationViewProps = {
     draftProfile?: {name: string; icon: string} | null;
     /** 没有消息时的第一屏（见“消息”的空状态）；不给时写“还没有消息”。 */
     welcome?: {title?: string; recent: {id: string; title: string; at: number}[]; total: number; starters: {text: string; icon?: string}[]};
+    /** （planned）阻塞的待处理事项放在哪：缺省 "wizard"，替换输入框；"dock" 也进停靠区（见“用法档”）。 */
+    pendingPlacement?: "wizard" | "dock";
 };
 
 type AgentConversationViewEmits = {
@@ -231,7 +233,7 @@ Markdown 扩展在本规范中只预留，不要求实现。
 
 - 三列，高 32px，标题按整行的宽度居中；两侧至少放得下自己的内容，放不下时标题先截断。
 - 左列：子会话（`session.path` 不空）是返回，只有图标，发出 `session.select`，带父会话（`path` 的最后一项）；顶层会话且 `newSession` 为真是新建，发出 `session.create`；没选会话时空着。不画祖先的路径。
-- 中列：Profile 图标（子会话是子代理的）与会话标题，标题为空写“未命名会话”；没选会话时写“新对话”，图标是 `draftProfile` 的。悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开会话列表（`sessionsOpen`）。
+- 中列：Profile 图标（子会话是子代理的；（planned）`session.avatar` 给了时换成圆形的头像图片）与会话标题，标题为空写“未命名会话”；没选会话时写“新对话”，图标是 `draftProfile` 的。悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开会话列表（`sessionsOpen`）。
 - 右列：`head-trailing` 插槽、常驻的顶栏动作（不超过两个）、溢出菜单。溢出菜单固定包含“原始视图”切换项；没选会话时没有溢出菜单。
 - 登记的顶栏动作：允许常驻（`pinnable`）的按 `order` 取前两个放在顶栏，其余与不允许常驻的收进溢出菜单，排在内置项之后、“原始视图”之前；`when` 为假的不显示；角标写在名字后。点了发出它的 action。目标是面板的顶栏动作在面板实现之前构造注册表即失败。
 - 送到视图之外：给了 `headTargets` 时三列分别送进 `start`、`title`、`end`，内容顶上不画顶栏；`title` 在宿主的按钮里，只放图标与文字，会话列表锚在 `anchor` 上，按下由宿主经 `sessionsOpen` 转来。`headTargets` 来了又走时顶栏不重建，开着的会话列表与菜单不丢。
@@ -333,9 +335,23 @@ Markdown 扩展在本规范中只预留，不要求实现。
 - 提示卡：`availability` 为 `profile-unavailable` 时，上一条的横幅画成一张提示卡：图标（`icon`，没给时是提示图标）、标题（`title`，没给时只有说明）、说明（`message`）与恢复动作，第一个动作是主按钮。卡用浮层的表面与阴影，占原来那行横幅的位置（停靠区之下、输入框之上），不叠在消息上，消息区随之变矮，贴底滚动不受影响。别的状态（`archived`、`load-error`，以及 `ready` 时不拦发送的模型能力提示）保留一行：图标、说明与动作。
 - 输入框的占位文字按顺序取第一个：`availability` 不是 `ready` 且有说明时写原因（有 `title` 写 `title`，否则写 `message`）；`composer.resume` 为真时写中断后回车继续（同时有留着的条目时写两者合起来的那句）；空闲且有留着的条目时写继续排队的话；运行中按能怎样发送写；其余是普通的占位。
 - 待处理区依次显示已登记条目；内置条目为 Workflow 待回答、工作区变更、排队消息。
-- 停靠区：消息流与输入框之间的一块，放 `async: true` 的提问与带 `source` 的事项（后代会话的审批、提问、模式切换请求）。内容与同步向导相同（`AgentWizardFrame` 的 `docked` 变体），不替换输入框；是单独的组件，出现与事项变化时不移动焦点（焦点已在停靠区里时，翻页、收起、展开之后放回对应的按钮），播报经视图层常驻、视觉隐藏的 `role="status"` 区（文字带来源）。一次一个事项：标题行有“第 n / m 个”与上一个、下一个（提问事项另接“第 k / j 题”，换事项时从第一题开始），每个单独提交（`input.submit` 带 `sessionId`），没有“全部拒绝”“终止本轮”。能收起成一条，写有几个与第一个的前半句。最高为对话视图高度的 40%（视图根节点是尺寸容器），内容区内滚动；在排队消息与可用性提示的上面。带 `source` 的标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（`session.select {sessionId}`）；后代会话的模式切换请求不带 `approval`（宿主不知道那个会话的审批模式），向导不问审批模式、批准不改它。标题放不下时省略号截断，计数与按钮固定在右边（同步向导同样）。同步向导出现时停靠区收成一条，排在向导下面；同步向导消失后回到用户原来的展开或收起。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”），收起与展开相同。元素钩子 `data-agent-dock`，与同步向导的 `data-agent-wizard` 分开。
+- 停靠区：消息流与输入框之间的一块，放 `async: true` 的提问与带 `source` 的事项（后代会话的审批、提问、模式切换请求）。内容与同步向导相同（`AgentWizardFrame` 的 `docked` 变体），不替换输入框；是单独的组件，出现与事项变化时不移动焦点（焦点已在停靠区里时，翻页、收起、展开之后放回对应的按钮），播报经视图层常驻、视觉隐藏的 `role="status"` 区（文字带来源）。（planned）`pendingPlacement` 为 `dock` 时阻塞的事项也进停靠区、没有同步向导：答完一个时焦点在停靠区里的，放到下一个事项，都答完回输入框；“本会话都批准”或“一直批准”一并提交同一会话里同一记住范围的其余审批（向导里是顺带选上，停靠区一次一个，所以由视图补）。一次一个事项：标题行有“第 n / m 个”与上一个、下一个（提问事项另接“第 k / j 题”，换事项时从第一题开始），每个单独提交（`input.submit` 带 `sessionId`），没有“全部拒绝”“终止本轮”。能收起成一条，写有几个与第一个的前半句。最高为对话视图高度的 40%（视图根节点是尺寸容器），内容区内滚动；在排队消息与可用性提示的上面。带 `source` 的标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（`session.select {sessionId}`）；后代会话的模式切换请求不带 `approval`（宿主不知道那个会话的审批模式），向导不问审批模式、批准不改它。标题放不下时省略号截断，计数与按钮固定在右边（同步向导同样）。同步向导出现时停靠区收成一条，排在向导下面；同步向导消失后回到用户原来的展开或收起。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”），收起与展开相同。元素钩子 `data-agent-dock`，与同步向导的 `data-agent-wizard` 分开。
 - `user` 消息带 `author` 时，头像与名称用它，不用“用户”角色。harness 适配器的选项 `authorOf(by)` 由宿主给，把路径事件上的 `by` 换成 `author`；不给时都是用户。
 - harness 适配器的乐观消息按受理它的 `commandId` 确认（`input`、`steer` 事件带 `commandId`），不按到达的先后：留着的话先跑时，先到的是旧话。排队消息从快照与缓冲区事件读，每条带发出者、状态与原因（[`harness/runtime.md`](../harness/runtime.md) 输出 103）。宿主合并留着的话发出的那一条，乐观显示在消息流末尾；`user` 消息可带 `ahead?: number`，由适配器按“这条消息受理时放行出来、还没被取走的条数”现算，取走一条少一条，视图写“前面还有 N 条”；乐观消息在实时事件与按路径重建时都按 `commandId` 清掉。合并的那一条结果未知时，“重新发送”沿用原来的 `commandId` 与参数（含 `replaces`）；空着按继续发出的合并被明确拒绝时，不把合并的文字放回输入框，只说明原因。路径上宿主发出的 `input`、`steer` 同样经 `authorOf(by)` 换成 `author`（宿主取 `source.label`）。
+
+### 用法档
+
+（planned）宿主用同一个视图组件画两种对话；差别只在选项与 `ctx` 的取值，不传新选项时就是会话档，渲染与改动之前一致。会话加 bot 档（bot 视图与通用视图并排）在 bot 视图并进“消息”视图时写。
+
+| 项 | 会话档（通用的对话视图） | bot 档（bot 的主对话，[`bots/view.md`](../bots/view.md)） |
+|---|---|---|
+| 顶栏 | Profile 图标与会话标题；顶层会话可以有新建（`newSession`）与会话列表（`sessions` 插槽） | bot 的名字与头像（`session.title`、`session.avatar`）；没有新建与会话列表 |
+| 待处理事项 | `pendingPlacement` 缺省：阻塞的由向导替换输入框 | `pendingPlacement: "dock"`：都在停靠区，输入框照常可用 |
+| 改写历史 | 宿主按 `interaction.canMutateHistory` 给 | `canMutateHistory`、`canOpenTree` 为假：编辑、重试、从此处分支、分支树都不显示 |
+| 命令 | 宿主做了的都列 | `interaction.commands` 只有 `compact`、`plan`、`mode` |
+| 发送 | 运行中回车是补充说明、Ctrl/⌘+回车排队 | 同左；宿主照 [`agent/conversation.md`](../agent/conversation.md) 的固定会话处理（带 `settlePending`） |
+
+Lab 两档各一个场景（`AgentConversationView` 的 `bot` 场景是 bot 档）。
 
 ### 状态栏
 
@@ -498,6 +514,8 @@ type AgentSessionListItem = {
 38. Given 排队区有两条留着、一条就绪的条目（留着的原因不同），When 显示，Then 头行写“已暂停 2 条”与第一条的原因加“等”，留着的两行不受 3 条限制；点头行的“继续”与空着回车都发出 `run.continue`，写了字回车发出 `composer.submit`；`availability` 不是 `ready` 时“继续”不可用；中断与留着同时成立时占位文字是合起来的那句；390 宽的英文场景里原因先截断、“继续”完整。
 39. Given 运行中、`interaction.stopClearing` 为 `{count: 3}`，When 用 Tab 到下拉箭头、回车、选“停止并清空排队（3 条）”，Then 发出 `composer.stop {clearQueue: true}`、焦点回到编辑器；点停止按钮本身发出不带 `clearQueue` 的 `composer.stop`；停止进行中箭头 `aria-disabled`；输入框里有字时箭头与停止按钮一起不出现。
 40. （planned）Given 排队区有一条用户的话与两条提醒（一条 `held`），When 显示，Then 提醒排在话后面、标签是“提醒”加来源名、没有编辑只有取消，留着的那条计进头行的“已暂停 N 条”；取消发出 `queued.remove {id}`；系统消息 `source: "reminder"` 显示标签、正文折叠、展开看全文。
+41. （planned）Given `pendingPlacement` 为 `dock`、一个阻塞的提问，When 显示，Then 提问在停靠区、没有同步向导、输入框可见可用；不传时提问由向导替换输入框。Given 停靠区里同一会话的两个 `write` 审批、一个 `shell` 审批与一个后代会话的 `write` 审批，When 第一个选“本会话都批准”，Then 发出两条 `input.submit`：第一个与另一个同会话的 `write`。Given 焦点在停靠区里、答完的事项被宿主去掉，Then 焦点到停靠区里的下一个，都答完回到输入框。
+42. （planned）Given `session.avatar`，When 显示顶栏，Then 中列是头像图片、没有 Profile 图标；不给时照旧是图标。
 
 Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31、34 条的搜索）；第 21、22、24、26 到 29、32 到 35 条另有挂载测试（`*.dom.test.ts`）与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。第 18 条没有单独的自动检查：颜色都取 nb-ui 的文字与背景 token，对比度由 token 保证。
 
