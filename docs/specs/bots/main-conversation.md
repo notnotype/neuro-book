@@ -62,7 +62,7 @@ owners:
 时序与寿命：
 
 - `ensureMain` 交回时主对话已持有；之后浏览器订阅它的帧与发指令走 `nbook.agent/sessions`。
-- `nbook.bots` 停止时先放掉全部持有（[`bots.md`](bots.md) 的“时序与寿命”），再由 `nbook.agent` 的停止关闭会话（[`agent/sessions.md`](../agent/sessions.md) 输出 14）；停止期间到的 `ensureMain` 得通道的 `unavailable`。
+- `nbook.bots` 停止时放掉全部持有（[`bots.md`](bots.md) 的“时序与寿命”）。服务端停止时 `nbook.agent` 同时在停，照 [`agent/sessions.md`](../agent/sessions.md) 输出 14 按 `interrupted` 关闭会话，持有不推迟关闭，之后的 `release()` 什么都不做（输出 24）。停止期间到的 `ensureMain` 得通道的 `unavailable`；已经在途的，封住之后得 `provider-error`。
 - 服务端重启后，被中断的运行在打开主对话时照会话的恢复以 `interrupted` 收口，不自动接着跑。
 
 ## 副作用与数据
