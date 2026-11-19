@@ -38,6 +38,15 @@ Claude Sonnet（`claude -p`），一轮，7 条：重要 2、建议 5（[`eviden
 | 6 | 删除清单漏项；nb-ui 是已发布的包 | 清单补全（e2e、playground、文案键、几处测试、Lab 源）；写迁移说明，版本号记进待确认清单 |
 | 7 | 发布门禁不盯 nb-layout 的目录 | 原有缺口（应用包早就如此），不在本 Task 修，记进待确认清单 |
 
+## 实施记录
+
+worktree `w00026-t14-splitter`（分支 `w00026/t14-splitter`）。基线（起点 `caed94657`）：开发者面板类型检查通过、测试 490 条、网页产物 1,489,299 字节；nb-story 类型检查通过、单元测试 669 条、e2e 56 条、网页产物 2,767,354 字节；`release:check` 通过；探针一组。
+
+| 片 | 提交 | 内容 | 验证 |
+|---|---|---|---|
+| 1 | `a423e8cc8` | 开发者面板改用 nb-layout 的 `Splitter`；编进网页的工作区包收成 `build.ts` 的 `PANEL_SOURCE_PACKAGES`（nb-ui、nb-layout），构建哈希与“代码已更新”的 `CODE_PATHS` 都从它生成；补测试；`panel.md` 四处 | 类型检查；测试 491 条；构建通过，产物 1,503,144 字节（多 0.9%） |
+| 2 | 见 git log | nb-story 改用 nb-layout 的 `Splitter`，nb-layout 是 devDependency（`workspace:*`） | 类型检查；单元测试 669 条；e2e 56 条；网页产物 2,785,455 字节（多 0.7%）；`release:check` 通过；探针改前改后对照（[`evidences/probe.txt`](evidences/probe.txt)）：只有收到 0 的一侧不画接缝；打包安装冒烟在跑 |
+
 ## 下一步
 
 基线在跑（第 1 稿时启动，审查不改基线的内容）；跑完先单独跑一遍探针的基线，再按第 2 稿的切片实施。
