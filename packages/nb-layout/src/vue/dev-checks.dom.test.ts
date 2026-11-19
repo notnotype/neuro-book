@@ -138,6 +138,12 @@ describe("开发模式的配置检查（Spec 输出 151）", () => {
         mountBare({node: zero.root(), layout: zero.layout(box), onGestureCommit: ACCEPT, disabled: true});
         const sized = twoColumns(1);
         mountBare({node: sized.root(), layout: sized.layout(box), onGestureCommit: ACCEPT});
+        // 0 宽的缝挨着固定尺寸的节点（工作台的条）：那条边界本来就拖不动，不算。
+        const barred = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "bar", ref: "bar", size: {width: 48, height: 0}, minimumSize: {width: 48, height: 0}, maximumSize: {width: 48, height: Number.MAX_SAFE_INTEGER}},
+            {kind: "leaf", id: "editor", ref: "editor", size: {width: 900, height: 0}},
+        ]});
+        mountBare({node: barred.root(), layout: barred.layout(box), onGestureCommit: ACCEPT});
         // 只有一片叶：没有分隔条，谈不上拖不动。
         const single = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [{kind: "leaf", id: "only", ref: "only", size: {width: 1, height: 0}}]});
         mountBare({node: single.root(), layout: single.layout(box), onGestureCommit: ACCEPT});

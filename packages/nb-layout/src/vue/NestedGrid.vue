@@ -29,7 +29,7 @@ import {useRenderOrder} from "./useRenderOrder";
 import {useSashGesture} from "./useSashGesture";
 import {useSashSnap} from "./useSashSnap";
 import {commitFailure} from "../grid-failure";
-import {layoutDevChecksEnabled, layoutDevWarning} from "../dev-checks";
+import {layoutDevChecksEnabled, layoutDevWarning, onlyZeroWidthBoundaries} from "../dev-checks";
 import {usableExtent} from "../grid-geometry";
 import {gridIssue} from "../grid-issue";
 import type {GridExtent, GridFailure, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
@@ -593,10 +593,9 @@ watch(() => scope.active.size > 0, (active) => {
  * `sashSize` 为 0 合法，不报。
  */
 const devOwner = {};
-watch(() => [props.layout, props.disabled, props.onGestureCommit] as const, ([layout, disabled, onCommit]) => {
+watch(() => [props.node, props.layout, props.disabled, props.onGestureCommit] as const, ([node, layout, disabled, onCommit]) => {
     if (!layoutDevChecksEnabled() || disabled || onCommit === undefined) return;
-    const sashes = Object.values(layout.sashSizes).flat();
-    if (sashes.length > 0 && sashes.every((size) => size === 0)) {
+    if (onlyZeroWidthBoundaries(node, layout)) {
         layoutDevWarning(devOwner, "sash-size-zero", `[nb-layout/NestedGrid] Every sash in grid "${props.contextKey}" is 0px wide, so nothing can be dragged. createGrid's sashSize defaults to 0; pass a positive sashSize.`);
     }
 }, {immediate: true});

@@ -8,6 +8,8 @@
  * - 只 `console.warn`，不走 `onIssues`：这是给写宿主的人看的接线错误，不是运行时诊断；被拒的提交照旧经 `issues` 事件交出。
  */
 
+import type {GridLayoutResult, GridNode} from "./grid-types";
+
 type DevCheckState = {enabled: boolean; reported: WeakMap<object, Set<string>>};
 
 const STATE_KEY = Symbol.for("nb-layout.devChecks");
@@ -40,4 +42,33 @@ export function layoutDevWarning(owner: object, kind: string, message: string): 
 /** 开关关着时不必算检查的条件。不从入口导出。 */
 export function layoutDevChecksEnabled(): boolean {
     return state().enabled;
+}
+
+/**
+ * 有两侧都能调的边界、而它们全是 0 宽（`createGrid` 的 `sashSize` 缺省 0 时就是这样）：这种网格拖不动。
+ * 只看两侧都能调的边界：挨着固定尺寸节点（工作台的条、收起成 0 的面板）的缝 0 宽本来就拖不动、也无害，
+ * 工作台窄窗口里区域被收走、只剩编辑区与条时，剩下的缝全是这种。不从入口导出。
+ */
+export function onlyZeroWidthBoundaries(root: GridNode<unknown> | null, layout: GridLayoutResult): boolean {
+    let adjustable = 0;
+    let visible = 0;
+    const resizable = (id: string, axis: "width" | "height"): boolean => {
+        const bounds = layout.constraints[id];
+        return bounds !== undefined && bounds.maximumSize[axis] - bounds.minimumSize[axis] > 0.5;
+    };
+    const visit = (node: GridNode<unknown>): void => {
+        if (node.kind === "leaf") return;
+        const axis = node.orientation === "horizontal" ? "width" : "height";
+        const sashes = layout.sashSizes[node.id] ?? [];
+        node.children.forEach((child, index) => {
+            const next = node.children[index + 1];
+            if (next !== undefined && resizable(child.id, axis) && resizable(next.id, axis)) {
+                adjustable += 1;
+                if ((sashes[index] ?? 0) > 0) visible += 1;
+            }
+            visit(child);
+        });
+    };
+    if (root !== null) visit(root);
+    return adjustable > 0 && visible === 0;
 }
