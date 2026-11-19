@@ -36,6 +36,8 @@ updated: 2026-11-19
 
 - 密钥框：`ApiKeyField`（本插件）与模型页 `ProviderDetail.vue` 的 `draftField` 合并，并与 `forms.md` 输出 31 的 `SecretInput` 对齐（t01 设计审查 Sonnet 第 5 条）。
 - 更多服务：Exa、Tavily 等（t01 决定 3）。
+- 另记（t01 设计审查 omp 第 16 条，Agent 插件原有）：同一个交给模型的名字有两个工具时，eval 与内核选中的不是同一个。
+- 另记（omp 第 7 条，影响 `nbook.models`）：OMP 凭据库的清除在锁竞争下报成功、重启后旧密钥回来，清除只是软删除。
 
 ## 相关
 
