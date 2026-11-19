@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import {Input} from "@notnotype/nb-ui/components";
-import {computed, ref, useId} from "vue";
+import {computed, ref, useId, watch} from "vue";
 
 import {useWebText} from "../text";
 
 /** 一家服务的 API 密钥框（docs/specs/web/settings-page.md 输出 2 到 5、10）。只进不出：已存的密钥不回到浏览器，交出后清空。 */
 const props = withDefaults(defineProps<{
     state: "loading" | "set" | "unset";
+    /** 服务名，进“清除”按钮的可访问名称。 */
+    service: string;
     disabled?: boolean;
     describedBy?: string;
 }>(), {disabled: false, describedBy: undefined});
@@ -14,6 +16,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "set", value: string): void;
     (e: "clear"): void;
+    /** 框里有没有失焦就会交出的输入；页面据此让“检测”在第一次填写时就能点（点下去先失焦写入）。 */
+    (e: "pending", value: boolean): void;
 }>();
 
 const text = useWebText();
@@ -29,7 +33,9 @@ const placeholder = computed(() => {
         default: return text("key.empty");
     }
 });
-const describedBy = computed(() => [envProblem.value ? `${id}-problem` : null, props.describedBy ?? null].filter((item) => item !== null).join(" ") || undefined);
+const describedIds = computed(() => [envProblem.value ? `${id}-problem` : null, props.describedBy ?? null].filter((item) => item !== null).join(" ") || undefined);
+const pending = computed(() => !off.value && !envProblem.value && draft.value.trim() !== "");
+watch(pending, (value) => emit("pending", value));
 
 /** 交出后清空：回车之后紧接着的失焦读到空框，不会再交一次。 */
 function commit(): void {
@@ -44,7 +50,15 @@ function commit(): void {
     <div class="api-key-field">
         <div class="api-key-field__head">
             <label :for="`${id}-input`">{{ text("key.label") }}</label>
-            <button v-if="state === 'set'" type="button" class="api-key-field__clear nb-ui-focus-ring" :disabled="off" data-key-clear @click="emit('clear')">{{ text("key.clear") }}</button>
+            <button
+                v-if="state === 'set'"
+                type="button"
+                class="api-key-field__clear nb-ui-focus-ring"
+                :disabled="off"
+                :aria-label="text('key.clearFor', {provider: service})"
+                data-key-clear
+                @click="emit('clear')"
+            >{{ text("key.clear") }}</button>
         </div>
         <Input
             :id="`${id}-input`"
@@ -55,7 +69,7 @@ function commit(): void {
             :placeholder="placeholder"
             :disabled="off"
             :invalid="envProblem"
-            :aria-describedby="describedBy"
+            :aria-describedby="describedIds"
             data-key-input
             @keydown.enter="commit"
             @focusout="commit"

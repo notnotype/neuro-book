@@ -29,7 +29,7 @@ const fake = createFakeWebRemote({
     check: scene === "checking" ? "hang" : scene === "not-run" ? "unknown" : scene === "failed" ? {ok: false, code: "auth", detail: "Authentication Fails, Your api key: ****0000 is invalid"} : {ok: true},
 });
 const failing = ref(scene === "write-failed");
-fake.failWrites(failing.value);
+fake.failWrites(failing.value ? "credentials-unavailable" : null);
 const store = createSearchStore(fake.remote, () => Date.UTC(2026, 10, 19, 8, 30, 0));
 onBeforeUnmount(() => store.dispose());
 onMounted(async () => {
@@ -41,7 +41,7 @@ onMounted(async () => {
 
 function toggleFailing(): void {
     failing.value = !failing.value;
-    fake.failWrites(failing.value);
+    fake.failWrites(failing.value ? "credentials-unavailable" : null);
 }
 
 const reportWriteFailure: SettingsPageContext["reportWriteFailure"] = (subject, failure) => record("reportWriteFailure", {subject, ...failure});

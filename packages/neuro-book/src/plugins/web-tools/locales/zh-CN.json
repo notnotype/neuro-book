@@ -19,6 +19,7 @@
     },
     "readOnly": "网页工具没有运行，这一页暂时不能修改。",
     "keysUnreadable": "密钥文件读不了。在下面重新填写密钥会覆盖它。",
+    "writeFailed": "{{reason}}；请重新输入",
     "deepseek": {
         "title": "DeepSeek",
         "note": "这把密钥只给搜索与读网页用，与模型设置里的 DeepSeek 密钥分开存放；同一把密钥可以在这里再填一次。"
@@ -29,6 +30,7 @@
         "stored": "已设置",
         "empty": "还没有填写",
         "clear": "清除",
+        "clearFor": "清除 {{provider}} 的密钥",
         "envUnsupported": "这里不支持环境变量引用，请直接填写密钥。"
     },
     "check": {
@@ -38,7 +40,8 @@
         "cost": "会发一次搜索，按次计费。",
         "passed": "检测通过（{{time}}）",
         "failed": "检测没通过：{{reason}}",
-        "notRun": "没检成：{{reason}}"
+        "notRun": "没检成：{{reason}}",
+        "unknown": "没检成：连接断了，不确定检测有没有发出去"
     },
     "subject": {
         "key": "{{provider}} 的 API 密钥"
@@ -60,7 +63,6 @@
         "failed": "DeepSeek 出错了",
         "unavailable": "网页工具没有运行",
         "unknown-outcome": "可能没有保存，以页面上显示的为准",
-        "retry": "请重新输入",
         "other": "失败了（{{code}}）"
     }
 }

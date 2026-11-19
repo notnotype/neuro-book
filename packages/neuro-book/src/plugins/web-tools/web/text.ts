@@ -24,6 +24,6 @@ const FAILURE_CODES = new Set(Object.keys(zhCN.failure));
 
 /** 失败码（远程调用的，或检测结果里的）写成原因；目录里没有的码写“失败了（码）”。 */
 export function failureReason(text: WebText, failure: WebFailure): string {
-    if (!FAILURE_CODES.has(failure.code) || failure.code === "other" || failure.code === "retry") return text("failure.other", {code: failure.code});
+    if (!FAILURE_CODES.has(failure.code) || failure.code === "other") return text("failure.other", {code: failure.code});
     return text(`failure.${failure.code}` as "failure.other", {detail: detailText(failure.detail), code: failure.code});
 }

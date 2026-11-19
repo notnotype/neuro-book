@@ -1566,11 +1566,11 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof ApiKeyField>({
             component: "ApiKeyField",
             scenes: [
-                {id: "unset", label: "还没有填写", input: {props: {state: "unset"}}},
-                {id: "set", label: "已设置（有“清除”）", input: {props: {state: "set"}}},
-                {id: "loading", label: "读取中（停用）", input: {props: {state: "loading"}}},
-                {id: "disabled", label: "停用", input: {props: {state: "set", disabled: true}}},
-                {id: "english", label: "英文界面", input: {props: {state: "set"}}},
+                {id: "unset", label: "还没有填写", input: {props: {state: "unset", service: "DeepSeek"}}},
+                {id: "set", label: "已设置（有“清除”）", input: {props: {state: "set", service: "DeepSeek"}}},
+                {id: "loading", label: "读取中（停用）", input: {props: {state: "loading", service: "DeepSeek"}}},
+                {id: "disabled", label: "停用", input: {props: {state: "set", service: "DeepSeek", disabled: true}}},
+                {id: "english", label: "英文界面", input: {props: {state: "set", service: "DeepSeek"}}},
             ],
             load: async () => withWebText(createSubjectFixture<typeof ApiKeyField>((await import("nbook/plugins/web-tools/web/components/ApiKeyField.vue")).default)),
         }),

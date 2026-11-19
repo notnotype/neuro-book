@@ -72,28 +72,31 @@ async function openSearchPage(page: Page): Promise<void> {
     await expect(page.locator("[data-search-settings]")).toBeVisible();
 }
 
-test("验收 1、2：填密钥后“已设置”且框为空、检测通过；换一把直接点检测用到新的；清除后检测停用", async ({page}) => {
+test("验收 1、2：第一次填完直接点检测，用到刚填的密钥；已设置时框为空；回车换一把后检测用新的；清除后检测停用", async ({page}) => {
     await openSearchPage(page);
     const key = page.locator("[data-search-settings] [data-key-input]");
     const check = page.locator("[data-search-check]");
     const result = page.locator("[data-search-check-result]");
+    const keysFile = async (): Promise<unknown> => JSON.parse(await readFile(join(stateRoot, "web", "keys.json"), "utf8"));
     await expect(key).toHaveAttribute("placeholder", "还没有填写");
     await expect(check).toBeDisabled();
 
+    // 验收 2：还没有密钥，只填不按回车，直接点“检测”：框里有输入时按钮可点，按下时框先失焦写入，检测等写入结束再发。
     await key.fill(FIRST);
-    await key.press("Enter");
+    await check.click();
+    await expect(result).toContainText("检测通过");
+    expect(seen).toEqual([`Bearer ${FIRST}`]);
     await expect(page.locator("[data-search-settings] [data-key-clear]")).toBeVisible();
     await expect(key).toHaveValue("");
     await expect(key).toHaveAttribute("placeholder", "已设置");
     expect(await page.content()).not.toContain(FIRST);
-    expect(JSON.parse(await readFile(join(stateRoot, "web", "keys.json"), "utf8"))).toEqual({version: 1, keys: {deepseek: FIRST}});
+    expect(await keysFile()).toEqual({version: 1, keys: {deepseek: FIRST}});
 
-    await check.click();
-    await expect(result).toContainText("检测通过");
-    expect(seen).toEqual([`Bearer ${FIRST}`]);
-
-    // 验收 2：新密钥只填不按回车，直接点“检测”：按下按钮先让框失焦写入，检测等写入结束再发。
+    // 验收 1：回车写入；写入成功后旧的检测结果清掉，再检测用到新的。
     await key.fill(SECOND);
+    await key.press("Enter");
+    await expect(result).toHaveText("");
+    await expect.poll(keysFile).toEqual({version: 1, keys: {deepseek: SECOND}});
     await check.click();
     await expect.poll(() => seen.length).toBe(2);
     expect(seen.at(-1)).toBe(`Bearer ${SECOND}`);

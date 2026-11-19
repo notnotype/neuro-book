@@ -1,6 +1,7 @@
 /**
  * 设置页的数据模块（`web/search-store.ts`）接真实的服务端：场地里起 `nbook.web-tools`，窗口经真实的远程合同调用，检测打到本机的
- * 假 DeepSeek 接口（docs/specs/web/settings-page.md 输出 2、6、7、8）。这里的密钥是假的，只发往本机。
+ * 假 DeepSeek 接口（docs/specs/web/settings-page.md 输出 2、6、7、8 与“状态与转换”）。这里的密钥是假的，只发往本机。链路中断、
+ * 入口停用这类取决于运行时码与时机的结局用远程合同替身造，在第二组。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -57,12 +58,15 @@ async function storeOf(prepare?: (root: string) => Promise<void>): Promise<Searc
 }
 
 describe("数据模块接真实服务端", () => {
-    it("start 之前是读取中，取到之后是未设置；写入后已设置，清除后未设置（输出 2、3、5）", async () => {
+    it("start 之前是读取中，取到之后是未设置；写入在途时记着这一家，写入后已设置，清除后未设置（输出 2、3、5、8）", async () => {
         const store = await storeOf();
         expect(store.status.value).toBeNull();
         await store.start();
         expect(store.status.value).toEqual({providers: {deepseek: {hasKey: false}}});
-        expect(await store.setKey("deepseek", KEY)).toEqual({ok: true});
+        const writing = store.setKey("deepseek", KEY);
+        expect(store.writing.has("deepseek")).toBe(true);
+        expect(await writing).toEqual({ok: true});
+        expect(store.writing.has("deepseek")).toBe(false);
         expect(store.status.value).toEqual({providers: {deepseek: {hasKey: true}}});
         expect(await store.clearKey("deepseek")).toEqual({ok: true});
         expect(store.status.value).toEqual({providers: {deepseek: {hasKey: false}}});
@@ -102,6 +106,36 @@ describe("数据模块接真实服务端", () => {
         expect(store.checks.get("deepseek")?.status).toBe("done");
     });
 
+    it("检测已经发出、之后写入成功：旧密钥的检测取消，回到空闲，不显示它的结果；再检测用新密钥（输出 8）", async () => {
+        const store = await storeOf();
+        await store.start();
+        await store.setKey("deepseek", KEY);
+        deepseek.script("/v1/tools/search", {hang: true});
+        const stale = store.check("deepseek");
+        await waitUntil("the check reached the endpoint", () => deepseek.requests.length >= 1 || undefined);
+        expect(await store.setKey("deepseek", `${KEY}-new`)).toEqual({ok: true});
+        expect(store.checks.has("deepseek")).toBe(false);
+        // 假端点一直不答：这次检测只有被取消才会结束。
+        await stale;
+        expect(store.checks.has("deepseek")).toBe(false);
+
+        await store.check("deepseek");
+        expect(store.checks.get("deepseek")).toEqual({status: "done", result: {ok: true}, at: 1000});
+        expect(deepseek.requests.at(-1)?.authorization).toBe(`Bearer ${KEY}-new`);
+    });
+
+    it("入口停用：已经发出的检测被取消，迟到的结局不写进状态（时序与寿命）", async () => {
+        const store = await storeOf();
+        await store.start();
+        await store.setKey("deepseek", KEY);
+        deepseek.script("/v1/tools/search", {hang: true});
+        const checking = store.check("deepseek");
+        await waitUntil("the check reached the endpoint", () => deepseek.requests.length >= 1 || undefined);
+        store.dispose();
+        await checking;
+        expect(store.checks.get("deepseek")).toEqual({status: "running"});
+    });
+
     it("密钥文件读不了：取状态失败带 credentials-unavailable，状态仍是 null；写入后恢复（输出 7）", async () => {
         const store = await storeOf(async (root) => {
             const path = join(root, "state", "web", "keys.json");
@@ -118,39 +152,89 @@ describe("数据模块接真实服务端", () => {
     });
 });
 
-describe("结果未知与不可用（远程合同替身）", () => {
-    /** 只有这两条要造链路中断的结局：它们取决于运行时的码，与服务端无关。 */
-    function remoteWith(first: {readonly ok: false; readonly code: string}): {readonly remote: WebSettingsRemote; readonly statusCalls: () => number} {
-        let calls = 0;
+describe("链路的结局（远程合同替身）", () => {
+    type Failure = {readonly ok: false; readonly code: string};
+    const KEYED = {ok: true as const, value: {providers: {deepseek: {hasKey: true}}}};
+
+    /** 这几条要造链路中断、入口停用的结局：它们取决于运行时的码与时机，与服务端无关。`calls` 依次记下被调用的方法。 */
+    function scriptedRemote(script: {
+        /** 依次作为 status 的结局；用完以后照常答。 */
+        readonly status?: readonly Failure[];
+        /** 写方法的结局；缺省照常答。 */
+        readonly write?: () => Promise<Failure | typeof KEYED>;
+        /** check 的结局；缺省通过。 */
+        readonly check?: Failure;
+    }): {readonly remote: WebSettingsRemote; readonly calls: string[]} {
+        const calls: string[] = [];
+        const statusOutcomes = [...(script.status ?? [])];
+        const write = async (method: string) => {
+            calls.push(method);
+            return script.write === undefined ? KEYED : script.write();
+        };
         const remote = {
             status: async () => {
-                calls += 1;
-                return {ok: true, value: {providers: {deepseek: {hasKey: true}}}};
+                calls.push("status");
+                return statusOutcomes.shift() ?? KEYED;
             },
-            setKey: async () => first,
-            clearKey: async () => first,
-            check: async () => first,
+            setKey: async () => write("setKey"),
+            clearKey: async () => write("clearKey"),
+            check: async () => {
+                calls.push("check");
+                return script.check ?? {ok: true, value: {ok: true}};
+            },
             events: {},
         };
-        return {remote: remote as unknown as WebSettingsRemote, statusCalls: () => calls};
+        return {remote: remote as unknown as WebSettingsRemote, calls};
+    }
+
+    function storeOn(remote: WebSettingsRemote): SearchStore {
+        const store = createSearchStore(remote);
+        stores.push(store);
+        return store;
     }
 
     it("写入结果未知：交回 unknown-outcome，并重取状态（输出 6）", async () => {
-        const {remote, statusCalls} = remoteWith({ok: false, code: "unknown-outcome"});
-        const store = createSearchStore(remote);
-        stores.push(store);
+        const {remote, calls} = scriptedRemote({write: async () => ({ok: false, code: "unknown-outcome"})});
+        const store = storeOn(remote);
         await store.start();
         expect(await store.setKey("deepseek", KEY)).toMatchObject({ok: false, failure: {code: "unknown-outcome"}});
-        await waitUntil("the status was fetched again", () => statusCalls() >= 2 || undefined);
+        await waitUntil("the status was fetched again", () => calls.filter((call) => call === "status").length >= 2 || undefined);
     });
 
     it("unavailable 让页面只读；检测的远程失败记为没检成（输出 7、8）", async () => {
-        const {remote} = remoteWith({ok: false, code: "unavailable"});
-        const store = createSearchStore(remote);
-        stores.push(store);
+        const {remote} = scriptedRemote({check: {ok: false, code: "unavailable"}});
+        const store = storeOn(remote);
         await store.start();
         await store.check("deepseek");
         expect(store.checks.get("deepseek")).toMatchObject({status: "error", failure: {code: "unavailable"}});
         expect(store.available.value).toBe(false);
+    });
+
+    it("取状态没连上（unavailable、target-gone）：只读；下一次 start 重取，取到后可用；已取到且可用时 start 不再取（状态与转换）", async () => {
+        for (const code of ["unavailable", "target-gone"]) {
+            const {remote, calls} = scriptedRemote({status: [{ok: false, code}]});
+            const store = storeOn(remote);
+            await store.start();
+            expect(store.available.value).toBe(false);
+            expect(store.statusFailure.value?.code).toBe(code);
+            await store.start();
+            expect(store.available.value).toBe(true);
+            expect(store.status.value).toEqual(KEYED.value);
+            await store.start();
+            expect(calls).toEqual(["status", "status"]);
+        }
+    });
+
+    it("检测排在在途的写入后面时入口停用：写入结束后不再发检测（时序与寿命）", async () => {
+        const gate = Promise.withResolvers<typeof KEYED>();
+        const {remote, calls} = scriptedRemote({write: () => gate.promise});
+        const store = storeOn(remote);
+        await store.start();
+        const writing = store.setKey("deepseek", KEY);
+        const checking = store.check("deepseek");
+        store.dispose();
+        gate.resolve(KEYED);
+        await Promise.all([writing, checking]);
+        expect(calls).toEqual(["status", "setKey"]);
     });
 });

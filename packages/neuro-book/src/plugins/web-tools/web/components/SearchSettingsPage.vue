@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Button} from "@notnotype/nb-ui/components";
-import {computed, onMounted, useId} from "vue";
+import {computed, onMounted, ref, useId} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 
@@ -35,12 +35,16 @@ const keyState = computed(() => {
 const keysUnreadable = computed(() => props.store.statusFailure.value?.code === "credentials-unavailable");
 const check = computed(() => props.store.checks.get(provider));
 const checking = computed(() => check.value?.status === "running");
+/** 框里有失焦就会交出的输入。第一次填写时还没有密钥，点“检测”先让框失焦写入，数据模块让检测排在这次写入后面（输出 8）。 */
+const draftPending = ref(false);
+const canCheck = computed(() => !disabled.value && !checking.value && (keyState.value === "set" || draftPending.value || props.store.writing.has(provider)));
 
 const formatTime = (at: number): string => new Date(at).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false});
 const checkLine = computed(() => {
     const state = check.value;
     if (state === undefined || state.status === "running") return "";
-    if (state.status === "error") return text("check.notRun", {reason: failureReason(text, state.failure)});
+    // 检测不保存东西：结果未知时不借写入的说法（“可能没有保存”），只说不确定发没发出去（发出去了就计过一次费）。
+    if (state.status === "error") return state.failure.code === "unknown-outcome" ? text("check.unknown") : text("check.notRun", {reason: failureReason(text, state.failure)});
     if (state.result.ok) return text("check.passed", {time: formatTime(state.at)});
     return text("check.failed", {reason: failureReason(text, {code: state.result.code, detail: state.result.detail})});
 });
@@ -49,7 +53,7 @@ const checkFailed = computed(() => check.value !== undefined && check.value.stat
 async function written(result: Promise<{readonly ok: true} | {readonly ok: false; readonly failure: WebFailure}>): Promise<void> {
     const outcome = await result;
     if (outcome.ok) return;
-    const reason = `${failureReason(text, outcome.failure)}；${text("failure.retry")}`;
+    const reason = text("writeFailed", {reason: failureReason(text, outcome.failure)});
     props.reportWriteFailure(text("subject.key", {provider: label.value}), {reason, uncertain: outcome.failure.code === "unknown-outcome"});
 }
 </script>
@@ -63,16 +67,18 @@ async function written(result: Promise<{readonly ok: true} | {readonly ok: false
             <div class="search-settings__form">
                 <ApiKeyField
                     :state="keyState"
+                    :service="label"
                     :disabled="disabled"
                     :described-by="`${id}-note`"
                     @set="(value) => written(store.setKey(provider, value))"
                     @clear="written(store.clearKey(provider))"
+                    @pending="(value) => (draftPending = value)"
                 />
                 <div class="search-settings__check">
                     <Button
                         size="sm"
                         variant="secondary"
-                        :disabled="disabled || keyState !== 'set' || checking"
+                        :disabled="!canCheck"
                         :aria-label="text('check.actionFor', {provider: label})"
                         data-search-check
                         @click="store.check(provider)"
@@ -84,7 +90,7 @@ async function written(result: Promise<{readonly ok: true} | {readonly ok: false
                     :class="{'search-settings__result--error': checkFailed}"
                     role="status"
                     data-search-check-result
-                >{{ checkLine }}</p>
+                >{{ checkLine }}<span v-if="checking" class="sr-only">{{ text("check.running") }}</span></p>
                 <p :id="`${id}-note`" class="search-settings__muted">{{ text("deepseek.note") }}</p>
             </div>
         </section>

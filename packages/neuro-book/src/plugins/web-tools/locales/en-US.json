@@ -19,6 +19,7 @@
     },
     "readOnly": "Web tools are not running, so this page can't be changed right now.",
     "keysUnreadable": "The key file can't be read. Entering a key below replaces it.",
+    "writeFailed": "{{reason}}. Please enter it again.",
     "deepseek": {
         "title": "DeepSeek",
         "note": "This key is only used to search and read web pages, and is stored apart from the DeepSeek key in model settings. You can enter the same key here again."
@@ -29,6 +30,7 @@
         "stored": "Saved",
         "empty": "Not entered yet",
         "clear": "Clear",
+        "clearFor": "Clear the {{provider}} key",
         "envUnsupported": "Environment variable references aren't supported here. Enter the key itself."
     },
     "check": {
@@ -38,7 +40,8 @@
         "cost": "Sends one search, billed per request.",
         "passed": "Check passed ({{time}})",
         "failed": "Check failed: {{reason}}",
-        "notRun": "Couldn't check: {{reason}}"
+        "notRun": "Couldn't check: {{reason}}",
+        "unknown": "Couldn't check: the connection dropped, so it's unclear whether the check was sent"
     },
     "subject": {
         "key": "{{provider}} API key"
@@ -60,7 +63,6 @@
         "failed": "DeepSeek returned an error",
         "unavailable": "Web tools are not running",
         "unknown-outcome": "May not have been saved; the page shows the actual state",
-        "retry": "Please enter it again",
         "other": "Failed ({{code}})"
     }
 }

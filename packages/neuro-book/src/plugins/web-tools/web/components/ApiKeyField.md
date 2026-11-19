@@ -15,7 +15,8 @@
 
 - 失焦或回车时交出：去掉首尾空白后为空不交；交出后清空框，所以回车之后紧接着失焦不会再交一次。已存的值不在浏览器里，没法比较“与写前相同”。
 - 以 `env:` 开头的输入不交，框下原位写“这里不支持环境变量引用”（`role="alert"`），框标为无效，直到输入改掉。
-- “清除”直接发 `clear`，不确认。
+- “清除”直接发 `clear`，不确认；它的可访问名称带服务名（“清除 DeepSeek 的密钥”）。
+- 框里有失焦就会交出的输入（非空、不是 `env:` 写法、没停用）时发 `pending(true)`，没有了发 `pending(false)`。页面据此让“检测”在第一次填写时就能点。
 - 停用时（`disabled`，或 `state` 为读取中）框与“清除”都不可用。
 
 ## 数据
@@ -23,12 +24,14 @@
 ```ts
 defineProps<{
     state: "loading" | "set" | "unset";  // 读取中、已设置、还没有填写；决定占位文字与“清除”是否出现
+    service: string;                     // 服务名，进“清除”的可访问名称
     disabled?: boolean;                  // 缺省 false
     describedBy?: string;                // 额外关联到框上的说明的元素 id（节里的说明）
 }>();
 defineEmits<{
     (e: "set", value: string): void;     // 交出一个新值（已去掉首尾空白，不是 env: 写法）
     (e: "clear"): void;
+    (e: "pending", value: boolean): void; // 框里有没有失焦就会交出的输入；只在变化时发
 }>();
 ```
 

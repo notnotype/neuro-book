@@ -6,7 +6,8 @@
  * 返回值。检测结果放在这里，离开页面再回来还在（输出 8）。
  *
  * 先后（输出 8）：同一家的写入与检测排队，检测等这一家在途的写入结束再发。用户填完密钥直接点“检测”时，按下按钮先让输入框失焦、
- * 发出写入，紧接着的点击发检测；不排队的话检测读到的是写之前的文件，得 `no-key`。
+ * 发出写入，紧接着的点击发检测；不排队的话检测读到的是写之前的文件，得 `no-key`。反过来，检测已经发出、之后又有写入成功，
+ * 那次检测用的是旧密钥：写入成功时取消它、清掉状态，不让旧密钥的结果显示在新密钥下面。
  */
 
 import {reactive, shallowRef} from "vue";
@@ -38,10 +39,12 @@ export interface SearchStore {
     readonly status: Readonly<Ref<WebKeyStatus | null>>;
     /** 取状态失败的原因（例如 `credentials-unavailable`）；没有为 null。 */
     readonly statusFailure: Readonly<Ref<WebFailure | null>>;
-    /** 远程合同可用；某次调用得 `unavailable` 后为假，页面只读，下一次 `start` 重试。 */
+    /** 远程合同可用；某次调用得 `unavailable`，或取状态因密钥文件以外的原因失败后为假，页面只读，下一次 `start` 重试。 */
     readonly available: Readonly<Ref<boolean>>;
     /** 各家的检测状态；没检过的不在里面。 */
     readonly checks: ReadonlyMap<WebProviderId, CheckState>;
+    /** 有写入在途的各家。页面在这时也让“检测”可点：按下按钮让框失焦交出密钥、框随即清空，紧接着的点击要落在可点的按钮上。 */
+    readonly writing: ReadonlySet<WebProviderId>;
     /** 取状态；已经取到且合同可用时不重复取。 */
     start(): Promise<void>;
     setKey(provider: WebProviderId, key: string): Promise<WebResult>;
@@ -56,9 +59,11 @@ export function createSearchStore(remote: WebSettingsRemote, now: () => number =
     const statusFailure = shallowRef<WebFailure | null>(null);
     const available = shallowRef(true);
     const checks = reactive(new Map<WebProviderId, CheckState>());
+    const writing = reactive(new Set<WebProviderId>());
     /** 每家在途的写入；检测先等它。 */
     const pendingWrites = new Map<WebProviderId, Promise<unknown>>();
-    const controllers = new Set<AbortController>();
+    /** 每家已经发出、还没回来的检测；同一家同时只有一个（进行中不重复发）。 */
+    const sentChecks = new Map<WebProviderId, AbortController>();
     let loaded = false;
     let disposed = false;
 
@@ -78,6 +83,9 @@ export function createSearchStore(remote: WebSettingsRemote, now: () => number =
             return;
         }
         statusFailure.value = failed(result);
+        // 密钥文件读不了时页面照常可写（写入会覆盖它）；其余失败（入口在请求途中停了得 target-gone、超时等）都说明这次没连上
+        // 服务端，按只读画并写原因，下一次 start 重试，不停在没有文字的“读取中”。
+        if (result.code !== "credentials-unavailable") available.value = false;
     };
 
     const write = (provider: WebProviderId, send: () => Promise<RemoteResultFor<Contract["methods"]["setKey"]>>): Promise<WebResult> => {
@@ -87,8 +95,16 @@ export function createSearchStore(remote: WebSettingsRemote, now: () => number =
             if (result.ok) {
                 status.value = result.value;
                 statusFailure.value = null;
-                // 只清掉旧的结果：排在这次写入后面的检测已经标成进行中，它结束时自己写结果。
-                if (checks.get(provider)?.status !== "running") checks.delete(provider);
+                const sent = sentChecks.get(provider);
+                if (sent !== undefined) {
+                    // 已经发出的检测用的是旧密钥：取消，回到空闲。
+                    sentChecks.delete(provider);
+                    sent.abort();
+                    checks.delete(provider);
+                } else if (checks.get(provider)?.status !== "running") {
+                    // 进行中而还没发出的，是排在这次写入后面的检测，发出时读到的就是新密钥，留着。
+                    checks.delete(provider);
+                }
                 return {ok: true};
             }
             // 写请求发出后结果未知：可能已经写了，重取状态，界面以服务端为准。
@@ -96,8 +112,11 @@ export function createSearchStore(remote: WebSettingsRemote, now: () => number =
             return {ok: false, failure: failed(result)};
         })();
         pendingWrites.set(provider, run);
+        writing.add(provider);
         void run.finally(() => {
-            if (pendingWrites.get(provider) === run) pendingWrites.delete(provider);
+            if (pendingWrites.get(provider) !== run) return;
+            pendingWrites.delete(provider);
+            writing.delete(provider);
         });
         return run;
     };
@@ -107,6 +126,7 @@ export function createSearchStore(remote: WebSettingsRemote, now: () => number =
         statusFailure,
         available,
         checks,
+        writing,
         start: async () => {
             if (disposed || (loaded && available.value)) return;
             await refresh();
@@ -114,21 +134,24 @@ export function createSearchStore(remote: WebSettingsRemote, now: () => number =
         setKey: (provider, key) => write(provider, () => remote.setKey({provider, key})),
         clearKey: (provider) => write(provider, () => remote.clearKey({provider})),
         check: async (provider) => {
-            if (checks.get(provider)?.status === "running") return;
+            if (disposed || checks.get(provider)?.status === "running") return;
             checks.set(provider, {status: "running"});
             await pendingWrites.get(provider);
+            // 等写入的时候入口停用了：不再发（检测按次计费，停用之后没人能取消它）。
+            if (disposed) return;
             const controller = new AbortController();
-            controllers.add(controller);
+            sentChecks.set(provider, controller);
             const result = await remote.check({provider}, {signal: controller.signal});
-            controllers.delete(controller);
-            if (disposed || controller.signal.aborted) return;
+            // 被取消的（入口停用、密钥改了）不写结果；取消它的一方已经从表里拿掉它，表里可能已是下一次检测。
+            if (controller.signal.aborted || disposed) return;
+            sentChecks.delete(provider);
             checks.set(provider, result.ok ? {status: "done", result: result.value, at: now()} : {status: "error", failure: failed(result)});
         },
         dispose: () => {
             disposed = true;
             available.value = false;
-            for (const controller of controllers) controller.abort();
-            controllers.clear();
+            for (const controller of sentChecks.values()) controller.abort();
+            sentChecks.clear();
         },
     };
 }

@@ -18,10 +18,13 @@ export interface FakeWebRemoteOptions {
     readonly check?: WebCheckResult | "hang" | "unknown";
 }
 
+/** 写方法失败的方式：密钥文件写不进去，或链路断了、结果未知；`null` 照常写。 */
+export type FakeWriteFailure = "credentials-unavailable" | "unknown-outcome" | null;
+
 export interface FakeWebRemote {
     readonly remote: WebSettingsRemote;
-    /** 写方法都以 `credentials-unavailable` 失败（看窗口通知）。 */
-    failWrites(on: boolean): void;
+    /** 让写方法都以给定的码失败（看窗口通知）。 */
+    failWrites(code: FakeWriteFailure): void;
     /** 各方法被调用的次数与写入的密钥（只给测试断言先后与次数）。 */
     readonly calls: Array<{readonly method: string; readonly key?: string}>;
 }
@@ -30,11 +33,13 @@ const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
 
 export function createFakeWebRemote(options: FakeWebRemoteOptions = {}): FakeWebRemote {
     let key: string | null = options.hasKey === true ? "sk-lab-not-real" : null;
-    let failing = false;
+    let failing: FakeWriteFailure = null;
     const calls: Array<{readonly method: string; readonly key?: string}> = [];
     const status = (): WebKeyStatus => ({providers: {deepseek: {hasKey: key !== null}}});
     const unavailable = {ok: false as const, code: "unavailable" as const, detail: "Lab 场景：网页工具没有运行"};
-    const writeFailure = {ok: false as const, code: "credentials-unavailable" as const, detail: {detail: "Lab 场景：写不进去"}};
+    const writeFailure = (code: Exclude<FakeWriteFailure, null>) => code === "unknown-outcome"
+        ? {ok: false as const, code, detail: "Lab 场景：连接断了"}
+        : {ok: false as const, code, detail: {detail: "Lab 场景：写不进去"}};
     const invalid = (detail: string) => ({ok: false as const, code: "invalid-value" as const, detail: {detail}});
 
     const remote = {
@@ -48,7 +53,7 @@ export function createFakeWebRemote(options: FakeWebRemoteOptions = {}): FakeWeb
         setKey: async (input: {readonly provider: string; readonly key: string}) => {
             calls.push({method: "setKey", key: input.key});
             if (options.unavailable === true) return unavailable;
-            if (failing) return writeFailure;
+            if (failing !== null) return writeFailure(failing);
             const value = input.key.trim();
             if (value === "" || value.startsWith("env:")) return invalid("the key is empty or an environment variable reference");
             key = value;
@@ -57,7 +62,7 @@ export function createFakeWebRemote(options: FakeWebRemoteOptions = {}): FakeWeb
         clearKey: async () => {
             calls.push({method: "clearKey"});
             if (options.unavailable === true) return unavailable;
-            if (failing) return writeFailure;
+            if (failing !== null) return writeFailure(failing);
             key = null;
             return {ok: true as const, value: status()};
         },
@@ -74,8 +79,8 @@ export function createFakeWebRemote(options: FakeWebRemoteOptions = {}): FakeWeb
     return {
         // 方法的形状照合同写，结果按合同的码表给；运行时码（unavailable 等）在合同的结果类型里，类型推不到这么细。
         remote: remote as unknown as WebSettingsRemote,
-        failWrites: (on) => {
-            failing = on;
+        failWrites: (code) => {
+            failing = code;
         },
         calls,
     };
