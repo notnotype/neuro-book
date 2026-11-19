@@ -4,7 +4,7 @@
 
 # FloatWindowHandles
 
-浮动窗的手柄（[`ui/workbench-layout.md`](../../../../docs/specs/ui/workbench-layout.md)“应用内浮动”）：缩放，和键盘移动。放在 `NestedGrid` 的 `float-chrome` 插槽里，盖在窗的内容上面。只算矩形，不写文档，宿主决定写到哪。
+浮动窗的手柄（[`ui/workbench-layout.md`](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/workbench-layout.md)“应用内浮动”）：缩放，和键盘移动。放在 `NestedGrid` 的 `float-chrome` 插槽里，盖在窗的内容上面。只算矩形，不写文档，宿主决定写到哪。
 
 ## 布局与交互
 
