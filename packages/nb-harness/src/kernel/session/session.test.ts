@@ -58,6 +58,15 @@ describe("runtime.md 输出 78：工具上下文", () => {
         await using foreground = await createTestSession();
         expect(foreground.hostContexts.at(-1)).not.toHaveProperty("background");
     });
+
+    test("会话头有 owner 时工具拿到它，fork 出来的会话没有；上下文改不动", async () => {
+        await using owned = await createTestSession({owner: {plugin: "nbook.bots", id: "lyra"}});
+        const context = owned.hostContexts.at(-1)!;
+        expect(context.owner).toEqual({plugin: "nbook.bots", id: "lyra"});
+        expect(() => Object.assign(context, {owner: {plugin: "nbook.other", id: "x"}})).toThrow(TypeError);
+        await using plain = await createTestSession();
+        expect(plain.hostContexts.at(-1)).not.toHaveProperty("owner");
+    });
 });
 
 describe.each([["内存存储", false], ["JSONL 存储", true]] as const)("一轮对话（%s）", (_name, jsonl) => {

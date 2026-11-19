@@ -24,21 +24,49 @@ export interface Resolution {
     readonly note?: string;
 }
 
+/** 认领到的一个同步事项：`wake` 以应答叫醒等它的调用；`giveBack` 在应答没写下时把这次等待交还（只调一次）。 */
+export interface Claim {
+    wake(resolution: Resolution): void;
+    giveBack(): void;
+}
+
+interface Waiter {
+    readonly signal: AbortSignal;
+    answer(resolution: Resolution): void;
+    /** 走中止的那一支：由发起它的调用写 `aborted` 或 `interrupted`。 */
+    abort(): void;
+}
+
 /** 一次运行里正在等的同步事项。属于 `RunControl`：运行状态的 `waiting` 由它报出。 */
 export class Interactions {
-    readonly #waiters = new Map<string, (resolution: Resolution) => void>();
+    readonly #waiters = new Map<string, Waiter>();
 
     /** `report` 在待处理的同步事项变化时调用（null 表示没有了，回到运行）。 */
     constructor(private readonly report: (pending: readonly InteractionSummary[] | null) => void) {}
 
     /**
-     * `resolve` 在它的队列项里认领等待者：从表里摘下并交回叫醒它的函数；没人等了（运行中途被中止）交回 undefined。
-     * 认领之后中止就不再写 `aborted`，等 `resolve` 叫醒：同一事项只会有一条结算。
+     * 应答（`resolve`、`send` 的 `settlePending`）在它的队列项里认领等待者：从表里摘下；没人等了（运行中途被中止）交回
+     * undefined。认领之后中止就不再写 `aborted`，等认领方叫醒或交还：同一事项只会有一条结算。
      */
-    claim(id: string): ((resolution: Resolution) => void) | undefined {
-        const wake = this.#waiters.get(id);
+    take(id: string): Claim | undefined {
+        const waiter = this.#waiters.get(id);
+        if (waiter === undefined) return undefined;
         this.#waiters.delete(id);
-        return wake;
+        let done = false;
+        return {
+            wake: (resolution) => {
+                if (done) return;
+                done = true;
+                waiter.answer(resolution);
+            },
+            // 应答没写下：认领期间运行可能已被中止（中止那一方摘不到它，没写结算），这时直接走中止那一支；否则放回去接着等。
+            giveBack: () => {
+                if (done) return;
+                done = true;
+                if (waiter.signal.aborted) waiter.abort();
+                else this.#waiters.set(id, waiter);
+            },
+        };
     }
 
     #reportFrom(core: SessionCore): void {
@@ -53,25 +81,28 @@ export class Interactions {
     async request(core: SessionCore, write: (drafts: EventDraft[]) => Promise<unknown>, item: Omit<PendingInteraction, "id">, signal: AbortSignal): Promise<Resolution | null> {
         const id = core.newId();
         if (!item.async && signal.aborted) throw new RunStoppedError(`asking the user about ${item.callId}`);
-        const answered = item.async ? null : new Promise<Resolution>((resolve) => this.#waiters.set(id, resolve));
+        let answer: (resolution: Resolution) => void = () => undefined;
+        let abort: () => void = () => undefined;
+        const answered = new Promise<Resolution | "aborted">((resolve) => {
+            answer = resolve;
+            abort = () => resolve("aborted");
+        });
+        if (!item.async) this.#waiters.set(id, {signal, answer, abort});
         try {
             await write([ctrl("interactionRequested", {id, ...item})]);
         } catch (error) {
             this.#waiters.delete(id);
             throw error;
         }
-        if (answered === null) return null;
+        if (item.async) return null;
         this.#reportFrom(core);
-        let onAbort: () => void = () => undefined;
-        const aborted = new Promise<"aborted">((resolve) => {
-            // 中止触发时同步摘掉等待：之后才排进队列的 resolve 就知道没人等了，不会与这里的 aborted 各写一条结算。
-            onAbort = () => {
-                if (this.#waiters.delete(id)) resolve("aborted");
-            };
-            if (signal.aborted) onAbort();
-            else signal.addEventListener("abort", onAbort, {once: true});
-        });
-        const result = await Promise.race([answered, aborted]);
+        // 中止触发时同步摘掉等待：之后才排进队列的应答就知道没人等了，不会与这里的 aborted 各写一条结算。
+        const onAbort = () => {
+            if (this.#waiters.delete(id)) abort();
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, {once: true});
+        const result = await answered;
         signal.removeEventListener("abort", onAbort);
         if (result !== "aborted") {
             this.#reportFrom(core);
@@ -91,6 +122,18 @@ export class Interactions {
 
 }
 
+/**
+ * 受理没走完（会话关闭、写失败）时收尾认领到的事项：事项还在待处理里，说明应答没写下，交还给等它的调用；已经不在了，
+ * 说明受理批写下了、之后的反应批才失败，以 `aborted` 叫醒（与日志不一致，runtime.md 的已知限制），不让它挂住。
+ */
+export function releaseClaims(core: SessionCore, claims: ReadonlyMap<string, Claim>): void {
+    const pending = new Set(core.leafState.kernel.pending.map((item) => item.id));
+    for (const [id, claim] of claims) {
+        if (pending.has(id)) claim.giveBack();
+        else claim.wake({decision: "aborted", by: {kind: "kernel"}, code: "aborted"});
+    }
+}
+
 const actorLabel = (actor: Actor): string => (actor.kind === "session" ? `session:${actor.id}` : actor.kind === "host" ? `host:${actor.source.plugin}` : actor.kind);
 
 /** 谁能应答：审批只收用户；提问用户都能答，会话头 `questions: "caller"` 时也收派这个会话的父会话。 */
@@ -100,7 +143,8 @@ function allowed(core: SessionCore, item: PendingInteraction, issuer: Issuer): b
 }
 
 export async function resolveCommand(host: CommandHost & {interactions: Interactions}, issuer: Issuer, args: CommandMap["resolve"]["args"] & {commandId: string}): Promise<CommandResult<"resolve">> {
-    let claimed: ((resolution: Resolution) => void) | undefined;
+    let claimed: Claim | undefined;
+    let claimedId = "";
     const result = await accept(host, "resolve", args, async () => {
         const {core, control} = host;
         const item = core.leafState.kernel.pending.find((pending) => pending.id === args.id);
@@ -165,7 +209,8 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
         // 同步事项：认领等它的调用（最后一步再认领，前面任何一处失败都不占着它）。没人等了：运行在等它的时候被中止，
         // 结算已经交给中止那一方。
         if (!item.async) {
-            claimed = host.interactions.claim(item.id);
+            claimed = host.interactions.take(item.id);
+            claimedId = item.id;
             if (claimed === undefined) return {fail: "already-answered", detail: {by: "kernel", decision: "aborted"}};
         }
         const wake = claimed;
@@ -175,11 +220,11 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
         const answerId = deferred ? (drafts.at(-1)!.data as {id: string}).id : null;
         return {value: runId === undefined ? {} : {runId}, drafts, ...(launch === undefined ? {} : {launch}), written: async () => {
             claimed = undefined;
-            wake?.(resolution);
+            wake?.wake(resolution);
             if (answerId !== null) control.defer({issuer, mode: "keep", inputIds: [answerId]});
         }};
     });
-    // 认领了却没写下（写日志失败）：以 aborted 叫醒等它的调用，不让它一直挂着。
-    claimed?.({decision: "aborted", by: {kind: "kernel"}, code: "aborted"});
+    // 认领了却没走完受理（会话关闭、写日志失败）：按事项的去向交还或叫醒（`releaseClaims`）。
+    if (claimed !== undefined) releaseClaims(host.core, new Map([[claimedId, claimed]]));
     return result;
 }

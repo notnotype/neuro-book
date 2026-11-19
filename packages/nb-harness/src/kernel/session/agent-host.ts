@@ -123,6 +123,8 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
             if (existing !== undefined) return {ok: true, value: existing};
             return register(() => openSession(env, sessionId), (opened) => (opened.ok ? opened.value : null));
         },
+        // 会话头建后不变，所以开着的会话也按存储里的读：不必经过打开的句柄（session.md 输出 26）。
+        header: (sessionId: string) => env.store.header(sessionId),
         async close(sessionId, options) {
             const session = sessions.get(sessionId);
             if (session === undefined) return;

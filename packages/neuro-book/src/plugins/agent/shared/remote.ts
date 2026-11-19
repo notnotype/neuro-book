@@ -88,6 +88,8 @@ const commandArgs = {
         mode: Type.Optional(Mode),
         release: Type.Optional(ReleaseMode),
         replaces: Type.Optional(Type.Array(Type.Object({id: Type.String(), edits: Type.Integer({minimum: 0})}, {additionalProperties: false}))),
+        /** 发话时一并以 `deny` 结算挂着的审批与提问（harness/runtime.md 输出 111；sessions.md 输出 27）。 */
+        settlePending: Type.Optional(Type.Literal("deny")),
     },
     enqueue: {input: Input, mode: Mode},
     edit: {inputId: Type.String(), input: Input},

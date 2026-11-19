@@ -9,7 +9,7 @@
 import type {Attributed, Clock, Issuer, JsonValue, UserInput} from "./basics.js";
 import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.js";
 import type {Resources} from "./ctx.js";
-import type {EntryPoint, HeldCause, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
+import type {EntryPoint, HeldCause, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, SessionOwner, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
 import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionChoice, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
@@ -33,7 +33,8 @@ export interface CommandMap {
      * `release` 是放行出来的话怎么跑（缺省 `keep`），`replaces` 是条件替换的留着的话（runtime.md 输出 105、107）；
      * `placement` 是这条话受理时的去向（输出 110）。
      */
-    send: {args: {input: UserInput; mode?: InputMode; release?: ReleaseMode; replaces?: readonly {id: string; edits: number}[]}; value: {inputId: string; runId: string | null; currentRunId?: string; placement: Placement}};
+    /** `settlePending: "deny"`：同一个受理批里先以 `deny` 结算路径上待处理的同步事项，只收用户（runtime.md 输出 111）。 */
+    send: {args: {input: UserInput; mode?: InputMode; release?: ReleaseMode; replaces?: readonly {id: string; edits: number}[]; settlePending?: "deny"}; value: {inputId: string; runId: string | null; currentRunId?: string; placement: Placement}};
     /**
      * 入队。有运行在取输入时只入队；空闲时用户的入队等同 `send`（交回开的运行），会话、宿主的写成留着（输出 3）。
      * 会话有在跑或暂停的运行时 `currentRunId` 是它。
@@ -403,6 +404,8 @@ export interface ToolSessionContext {
     readonly project?: string;
     /** 后台会话：没有人在看，工具不要等用户回答。 */
     readonly background?: true;
+    /** 会话头的归属（session.md 输出 25）；fork 出来的与子会话没有。 */
+    readonly owner?: SessionOwner;
 }
 
 /** 审批钩子看到的信息：工具声明、按参数求得的等级、核心设置、批准记忆。 */
@@ -539,8 +542,10 @@ export interface CreateSessionOptions {
     readonly id?: string;
     /** 后台会话：写进会话头，列表缺省不列（`agent.startTask`）。 */
     readonly background?: boolean;
+    /** 归属（session.md 输出 25）：照写进会话头；不合规则得 `invalid-owner`，不落盘。宿主负责按调用方盖章。 */
+    readonly owner?: SessionOwner;
 }
-export type CreateSession = (env: SessionEnv, options: CreateSessionOptions) => Promise<StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial"}>;
+export type CreateSession = (env: SessionEnv, options: CreateSessionOptions) => Promise<StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial" | "invalid-owner"}>;
 export type OpenSession = (env: SessionEnv, id: string) => Promise<StorageResult<SessionApi>>;
 
 /** 不带工具的单次请求：不读写会话日志；只接受不声明工具的 Profile。 */
@@ -581,8 +586,10 @@ export interface ExtensionReceiver {
 export interface AgentHost {
     readonly extensions: ExtensionReceiver;
     list(): ExtensionInfo[];
-    create(options: CreateSessionOptions): Promise<StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial"}>;
+    create(options: CreateSessionOptions): Promise<StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial" | "invalid-owner"}>;
     open(sessionId: string): Promise<StorageResult<SessionApi>>;
+    /** 只读会话头（session.md 输出 26）：不打开会话、不取锁；会话开着时用它的会话头。 */
+    header(sessionId: string): Promise<StorageResult<SessionHeader>>;
     /** `reason: "interrupted"`：进程或插件停止时的收口，运行写 `interrupted`（runtime.md 输出 53）。 */
     close(sessionId: string, options?: {readonly reason?: "interrupted"}): Promise<void>;
     /**

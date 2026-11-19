@@ -19,6 +19,7 @@ import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import {defaultSettings, type ViewEnvironment} from "../extension/ctx.js";
 import {byField, interceptInput, queuedData} from "./input.js";
 import {settingsProblem} from "./settings.js";
+import {releaseClaims, type Claim} from "./interaction.js";
 
 export interface CommandHost {
     readonly core: SessionCore;
@@ -182,11 +183,38 @@ async function deliverIntercepted(host: CommandHost, issuer: Issuer, args: Deliv
     return {value: {inputId, runId: opened.runId, placement: "taken"}, drafts: [...drafts, ...opened.drafts], launch: opened.runId};
 }
 
-export function sendCommand(host: CommandHost, issuer: Issuer, args: CommandMap["send"]["args"] & {commandId: string}): Promise<CommandResult<"send">> {
-    return accept(host, "send", args, async () => {
+/** `settlePending` 结算时写的应答：用户的话只进对话一次，拒绝只带这句固定的说明（runtime.md 输出 111）。 */
+const SETTLED_BY_MESSAGE = {decision: "deny", note: "用户发了新消息"} as const;
+
+export async function sendCommand(host: CommandHost, issuer: Issuer, args: CommandMap["send"]["args"] & {commandId: string}): Promise<CommandResult<"send">> {
+    // 认领到、但受理没走完的事项：受理之后交还或叫醒（`releaseClaims`），不留悬空的等待。
+    let claims: Map<string, Claim> | null = null;
+    const result = await accept(host, "send", args, async (): Promise<Outcome<"send">> => {
         if (isEmpty(args.input)) return {fail: "empty-input"};
-        return deliver(host, issuer, {...args, mode: args.mode ?? "followup"});
+        // 重发在 `decide` 之前按 commandId 交回原结果，不比较发出者（runtime.md 输出 111）。
+        if (args.settlePending !== undefined && issuer.kind !== "user") return {fail: "not-allowed"};
+        const delivered = await deliver(host, issuer, {...args, mode: args.mode ?? "followup"});
+        if ("fail" in delivered || args.settlePending === undefined) return delivered;
+        // 前面的检查都过了才认领：认领之后中止那一方就不再结算这些事项。中止已经摘走的（取不到）由它结算，这里跳过。
+        const taken = new Map<string, Claim>();
+        const settled: EventDraft[] = [];
+        for (const item of host.core.leafState.kernel.pending) {
+            if (item.async) continue;
+            const claim = host.control.interactions.take(item.id);
+            if (claim === undefined) continue;
+            taken.set(item.id, claim);
+            settled.push(ctrl("interactionResolved", {id: item.id, ...SETTLED_BY_MESSAGE, by: issuer}));
+        }
+        claims = taken;
+        const resolution = {...SETTLED_BY_MESSAGE, by: issuer};
+        return {...delivered, drafts: [...settled, ...delivered.drafts], written: async () => {
+            claims = null;
+            for (const claim of taken.values()) claim.wake(resolution);
+            await delivered.written?.();
+        }};
     });
+    if (claims !== null) releaseClaims(host.core, claims);
+    return result;
 }
 
 export function enqueueCommand(host: CommandHost, issuer: Issuer, args: CommandMap["enqueue"]["args"] & {commandId: string}): Promise<CommandResult<"enqueue">> {

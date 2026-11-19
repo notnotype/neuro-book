@@ -31,8 +31,10 @@ import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
 import {runResultOf} from "../run/results.js";
 import {ToolBox, toolInfo} from "../run/tools.js";
+import {isSessionOwner} from "../log/validate.js";
+import {deepFreeze} from "../state/freeze.js";
 
-type CreateResult = StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial"; detail?: Record<string, JsonValue>};
+type CreateResult = StorageResult<SessionApi> | {ok: false; code: "profile-invalid" | "invalid-initial" | "invalid-owner"; detail?: Record<string, JsonValue>};
 
 interface Internals {
     readonly core: SessionCore;
@@ -120,7 +122,13 @@ const UNKNOWN_MODEL: ModelInfo = {id: "unknown/unknown", contextWindow: 0, capab
 function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | null): Internals {
     const control = new RunControl(core);
     // 交给宿主的上下文按当前装配取 Profile：换过 Profile（或重开时按最后一条 profileChanged 装配）后不是会话头里最初的。
-    const context = (): ToolSessionContext => ({sessionId: core.header.id, profile: core.assembly.profile.id, ...(core.header.project === undefined ? {} : {project: core.header.project}), ...(core.header.background === true ? {background: true as const} : {})});
+    const context = (): ToolSessionContext => Object.freeze({
+        sessionId: core.header.id,
+        profile: core.assembly.profile.id,
+        ...(core.header.project === undefined ? {} : {project: core.header.project}),
+        ...(core.header.background === true ? {background: true as const} : {}),
+        ...(core.header.owner === undefined ? {} : {owner: core.header.owner}),
+    });
     const box = new ToolBox(core, env, context);
     const tools = () => box.current().map(toolInfo);
     // 初始输入在 sessionCreated 里；新建会话时它在这个对象建好之后才写下，所以用到时再找（找到一次就记住）。
@@ -474,6 +482,8 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
 }
 
 export async function createSession(env: SessionEnv, options: CreateSessionOptions): Promise<CreateResult> {
+    // 与读日志同一个校验：建时写得下的，重开时一定读得懂（session.md 输出 25）。
+    if (options.owner !== undefined && !isSessionOwner(options.owner)) return {ok: false, code: "invalid-owner"};
     const profile = await env.profiles.resolve(options.profile);
     if (profile === undefined) return {ok: false, code: "unknown-profile"};
     const assembled = assemble(profile, env.extensions?.() ?? []);
@@ -484,7 +494,9 @@ export async function createSession(env: SessionEnv, options: CreateSessionOptio
     const now = env.clock.now();
     const declaredResult = (profile as {result?: {mode: "optional" | "required"; schema: JsonValue}}).result;
     const result = options.result ?? declaredResult;
-    const header: SessionHeader = {
+    // 会话头是不能改的值（session.md 输出 25）：嵌套的部分先复制成自己的再深冻结，调用方之后改自己的参数、或改快照里交出的
+    // 会话头，都影响不到会话（`result.schema` 直接成为 `yield` 的参数）。
+    const header: SessionHeader = deepFreeze(structuredClone({
         format: LOG_FORMAT,
         id: options.id ?? newSessionId(now),
         createdAt: now,
@@ -494,7 +506,8 @@ export async function createSession(env: SessionEnv, options: CreateSessionOptio
         questions: options.questions ?? "user",
         ...(result === undefined ? {} : {result}),
         ...(options.background === true ? {background: true as const} : {}),
-    };
+        ...(options.owner === undefined ? {} : {owner: {plugin: options.owner.plugin, id: options.owner.id}}),
+    }) as SessionHeader);
     const created = await env.store.create(header);
     if (!created.ok) return created;
     const core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header, store: env.store, handle: created.value, assembly: assembled.assembly, clock: env.clock, dev: DEV});
@@ -539,7 +552,8 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     const lastChange = [...handle.events].reverse().find((event) => event.type === "profileChanged");
     const profileId = (lastChange?.data as {profile?: string} | undefined)?.profile ?? handle.header.profile;
     const {assembly, readOnly} = assembleOrPlaceholder(env, await env.profiles.resolve(profileId), profileId);
-    const core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header: handle.header, store: env.store, handle, assembly, clock: env.clock, dev: DEV});
+    // 会话头是不能改的值（session.md 输出 25）：读回的这一份归会话所有，冻结后快照与工具上下文交出的都改不动。
+    const core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header: deepFreeze(handle.header), store: env.store, handle, assembly, clock: env.clock, dev: DEV});
     core.load(handle.events);
     core.reportOpenNotices();
     reportAssemblyWarnings(core);

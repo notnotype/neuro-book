@@ -13,6 +13,12 @@ const SESSION_ID = /^[A-Za-z0-9._-]{1,128}$/u;
 
 export const isSessionId = (id: string): boolean => SESSION_ID.test(id);
 
+/** 会话头 `owner` 的校验（session.md 输出 25）：建会话与读日志用同一个，建时能写下的读时一定读得懂。 */
+export function isSessionOwner(value: unknown): boolean {
+    if (!isObject(value) || Object.keys(value).some((key) => key !== "plugin" && key !== "id")) return false;
+    return typeof value.plugin === "string" && SESSION_ID.test(value.plugin) && typeof value.id === "string" && SESSION_ID.test(value.id);
+}
+
 export type ParsedLog =
     | {readonly ok: true; readonly header: SessionHeader; readonly records: readonly LogRecord[]; readonly keepBytes: number; readonly tailBytes: number}
     | {readonly ok: false; readonly code: "log-corrupt" | "needs-migration"; readonly detail: {readonly line?: number; readonly problem: string}};
@@ -31,6 +37,7 @@ function headerProblem(value: Record<string, unknown>): string | null {
     if (typeof value.profile !== "string" || value.profile === "") return "profile";
     if (value.questions !== "caller" && value.questions !== "user") return "questions";
     if (value.background !== undefined && value.background !== true) return "background";
+    if (value.owner !== undefined && !isSessionOwner(value.owner)) return "owner";
     return null;
 }
 
@@ -91,19 +98,10 @@ export class LogReader {
     }
 
     #readHeader(value: unknown, end: number): void {
-        if (!isObject(value)) {
-            this.#failure = corrupt("missing or unreadable session header", 1);
-            return;
-        }
-        if (value.format !== LOG_FORMAT) {
-            this.#failure = {ok: false, code: "needs-migration", detail: {line: 1, problem: `unknown log format ${String(value.format)}`}};
-            return;
-        }
-        const issue = headerProblem(value);
-        if (issue !== null) this.#failure = corrupt(`invalid session header field ${issue}`, 1);
-        else if (value.id !== this.expectedId) this.#failure = corrupt(`session header id ${String(value.id)} does not match ${this.expectedId}`, 1);
+        const header = checkHeader(value, this.expectedId);
+        if (!header.ok) this.#failure = header;
         else {
-            this.#header = value as unknown as SessionHeader;
+            this.#header = header.header;
             this.#keepBytes = end;
         }
     }
@@ -116,6 +114,27 @@ export class LogReader {
         if (problem !== null) return corrupt(problem.problem, problem.index + 2);
         return {ok: true, header: this.#header, records: this.#kept, keepBytes: this.#keepBytes, tailBytes: totalBytes - this.#keepBytes};
     }
+}
+
+/** 第一行解析出来的会话头：读日志与只读会话头（session.md 输出 26）共用。 */
+export function checkHeader(value: unknown, expectedId: string): {readonly ok: true; readonly header: SessionHeader} | Failure {
+    if (!isObject(value)) return corrupt("missing or unreadable session header", 1);
+    if (value.format !== LOG_FORMAT) return {ok: false, code: "needs-migration", detail: {line: 1, problem: `unknown log format ${String(value.format)}`}};
+    const issue = headerProblem(value);
+    if (issue !== null) return corrupt(`invalid session header field ${issue}`, 1);
+    if (value.id !== expectedId) return corrupt(`session header id ${String(value.id)} does not match ${expectedId}`, 1);
+    return {ok: true, header: value as unknown as SessionHeader};
+}
+
+/** 只读第一行（`header(id)`）：第一行不完整或不是 JSON 都是读不懂。 */
+export function parseHeaderLine(bytes: Uint8Array, expectedId: string): {readonly ok: true; readonly header: SessionHeader} | Failure {
+    let value: unknown;
+    try {
+        value = JSON.parse(strictUtf8.decode(bytes));
+    } catch {
+        return corrupt("missing or unreadable session header", 1);
+    }
+    return checkHeader(value, expectedId);
 }
 
 /** 整份文件已在内存里时的便利写法（测试与小文件）。 */

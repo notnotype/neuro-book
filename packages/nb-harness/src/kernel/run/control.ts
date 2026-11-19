@@ -251,7 +251,8 @@ export class RunControl {
 
     /** 等运行结束：正在跑的等循环结束；已经结束的从日志取；句柄坏了又查不到结果的以 `log-broken` 完成。 */
     waitRun(runId: string): Promise<RunResult> {
-        if (this.#active?.runId !== runId) {
+        // 句柄坏了：还在跑的运行也写不下结果了，`onBroken` 只结算当时已在等的调用方，之后来的在这里直接交回，不登记等待。
+        if (this.#active?.runId !== runId || this.#core.broken) {
             const settled = runResultOf(this.#core.events, runId, this.#core.byId);
             if (settled !== null) return Promise.resolve(settled);
             if (this.#core.broken) return Promise.resolve(BROKEN_RESULT(runId, this.#core.head));

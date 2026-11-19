@@ -83,6 +83,19 @@ describe.each(stores)("%s 存储", (_name, makeStore) => {
         await store.close(opened.value);
     });
 
+    test("输出 25、26：会话头的 owner 照写进索引；header 只读会话头，会话开着时也读得到；不在的得 session-not-found", async () => {
+        const store = makeStore();
+        const id = nextId();
+        const owned: SessionHeader = {...header(id), owner: {plugin: "nbook.bots", id: "lyra"}};
+        const created = await store.create(owned);
+        if (!created.ok) throw new Error(created.code);
+        expect(await store.header(id)).toEqual({ok: true, value: owned});
+        const entry = await store.entry(id);
+        expect(entry.ok && entry.value.owner).toEqual({plugin: "nbook.bots", id: "lyra"});
+        await store.close(created.value);
+        expect(await store.header(nextId())).toMatchObject({ok: false, code: "session-not-found"});
+    });
+
     test("输出 11：同一会话不能同时打开两次；关闭后能再打开", async () => {
         const store = makeStore();
         const id = nextId();
@@ -359,6 +372,59 @@ describe("JSONL 存储的文件", () => {
         if (!created.ok) throw new Error(created.code);
         await store.close(created.value);
         expect(await store.create(header(id))).toMatchObject({ok: false, code: "session-exists"});
+    });
+
+    test("输出 26：header 只读第一行：不截尾部、不改文件；第一行读不懂得 log-corrupt，格式不认识得 needs-migration", async () => {
+        const id = nextId();
+        await writeSession(store(), id, threeBatches());
+        const path = join(root, id, "session.jsonl");
+        const text = `${await readFile(path, "utf8")}{"half":`;
+        await writeFile(path, text);
+        expect(await store().header(id)).toEqual({ok: true, value: header(id)});
+        expect(await readFile(path, "utf8")).toBe(text);
+        const lines = text.split("\n");
+        await writeFile(path, [JSON.stringify({...JSON.parse(lines[0]!), format: 2}), ...lines.slice(1)].join("\n"));
+        expect(await store().header(id)).toMatchObject({ok: false, code: "needs-migration"});
+        await writeFile(path, ["{not json", ...lines.slice(1)].join("\n"));
+        expect(await store().header(id)).toMatchObject({ok: false, code: "log-corrupt"});
+        await writeFile(path, JSON.stringify({...JSON.parse(lines[0]!), owner: {plugin: "nbook.bots", id: "a/b"}}));
+        expect(await store().header(id)).toMatchObject({ok: false, code: "log-corrupt"});
+    });
+
+    test("输出 1：建会话在拿到锁之后再查一次日志：先查时还没有、拿锁前别人已经建好又关了，得 session-exists，不覆盖", async () => {
+        const id = nextId();
+        await writeSession(store(), id, threeBatches());
+        const path = join(root, id, "session.jsonl");
+        const before = await readFile(path, "utf8");
+        let raced = false;
+        const files: FilePort = {
+            ...nodeFiles,
+            // 第一次查日志在不在时，别人还没写下：等于“查过之后、拿锁之前别人建好又关了”。
+            async openRead(target) {
+                if (!raced && target === path) {
+                    raced = true;
+                    return null;
+                }
+                return nodeFiles.openRead(target);
+            },
+        };
+        expect(await createJsonlStore({root, files}).create(header(id))).toMatchObject({ok: false, code: "session-exists"});
+        expect(raced).toBe(true);
+        expect(await readFile(path, "utf8")).toBe(before);
+    });
+
+    test("场景 3、输出 26：别的进程持有会话时 header 照样读得到", async () => {
+        const id = nextId();
+        await writeSession(store(), id, []);
+        const child = Bun.spawn(["bun", join(import.meta.dir, "../../../tests/kernel/fixtures/hold-session.ts"), root, id], {stdout: "pipe", stderr: "inherit"});
+        try {
+            const {value} = await child.stdout.getReader().read();
+            expect(new TextDecoder().decode(value).trim()).toBe("held");
+            expect(await store().header(id)).toEqual({ok: true, value: header(id)});
+        } finally {
+            child.kill(9);
+            await child.exited;
+        }
     });
 
     test("输出 12：同步到盘失败时这一批的结果不确定，重开以文件为准", async () => {

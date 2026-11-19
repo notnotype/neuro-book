@@ -9,6 +9,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ApproveHook, InteractionSummary, LogEvent, QuestionAnswer} from "../api/index.js";
 import {defineExtension} from "../extension/define.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
+import {closeSession} from "../session/session.js";
 
 let root = "";
 beforeAll(async () => {
@@ -359,6 +360,34 @@ describe("结算", () => {
         expect(dataOf(await session.events(), "interactionResolved")).toHaveLength(1);
     });
 
+    test("输出 43：应答认领之后、受理批写下之前会话被关闭：这次等待交还给提问的调用，由它写 interrupted，日志里恰好一条结算", async () => {
+        const dir = join(root, "claim-close");
+        let received = "";
+        const asked = gate();
+        await using session = await createTestSession({store: {root: dir}, tools: [{id: "lab.ask", execute: async (_args, ctx) => {
+            const answer = await ctx.ask!({question: "要继续吗？"});
+            received = answer.kind === "unavailable" ? answer.code : answer.kind;
+            asked.open();
+            return "提问结束";
+        }}]});
+        const waiting = waitingFor(session, 1);
+        session.model.script({tools: [{tool: "lab.ask"}]});
+        await sendRaw(session, "问一下");
+        const [pending] = await waiting;
+        const resolving = session.raw.resolve({commandId: id(), id: pending!.id, decision: "deny"});
+        // 认领在 resolve 的队列项里同步完成；紧接着的微任务里关闭，正好落在“认领了、还没写下”之间。
+        const closing = Promise.resolve().then(() => closeSession(session.raw, {reason: "interrupted"}));
+        expect(await resolving).toEqual({ok: false, code: "session-closed"});
+        await closing;
+        await asked.promise;
+        // 交还之后由提问那一方结算（ctx.ask 把 interrupted 交成 unavailable）；旧做法以 aborted 叫醒、日志里没有结算。
+        expect(received).not.toBe("aborted");
+        await session.reopen();
+        const events = await session.events();
+        expect(dataOf(events, "interactionResolved").filter((data) => data.id === pending!.id)).toEqual([expect.objectContaining({decision: "interrupted", by: {kind: "kernel"}})]);
+        expect(types(events).indexOf("interactionResolved")).toBeLessThan(types(events).indexOf("runEnded"));
+    });
+
     test("场景 6、输出 43：等审批时被 kill -9，重开后审批 interrupted；先提的异步提问还在，应答后开新的运行", async () => {
         const dir = join(root, "waiting-approval");
         const fixture = join(import.meta.dir, "../../../tests/kernel/fixtures/crash-session.ts");
@@ -389,6 +418,137 @@ describe("结算", () => {
         expect(await session.raw.resolve({commandId: id(), id: asked.id, decision: "answer", answer: {text: "林舟"}})).toMatchObject({ok: true});
         const last = (await session.events()).filter((event) => event.type === "runStarted").at(-1)!;
         expect((await session.raw.waitRun((last.data as {runId: string}).runId)).text).toBe("知道主角了");
+    });
+});
+
+describe("发话一并结算（runtime.md 输出 111）", () => {
+    const SETTLED = {decision: "deny", by: {kind: "user"}, note: "用户发了新消息"};
+    const filter = defineExtension({id: "lab.filter", intercept: {input: async (input, next) => (input.text.includes("禁词") ? {reject: {code: "banned-word"}} : next(input))}});
+
+    /**
+     * 同一条回复里两个写调用（拦截层改了参数，放行之后按改过的参数再问一次）加一个父调用里嵌套的同步提问：三个事项同时待处理。
+     * 第一次审批阶段挡住所有调用开始（输出 79），所以第三个事项只能在复审时出现。
+     */
+    async function threePending(extra: {store?: {root: string}} = {}) {
+        const nested = gate();
+        let nestedReply = "";
+        const rewrite = defineExtension({id: "lab.rewrite", intercept: {tool: (call, next) => next(call.tool.startsWith("lab.write") ? {...call, args: {changed: true}} : call)}});
+        const session = await createTestSession({...extra, extensions: [rewrite, filter], approve: askForWrites, tools: [
+            writer("lab.write1", {concurrency: "shared"}),
+            writer("lab.write2", {concurrency: "shared"}),
+            {id: "lab.parent", concurrency: "shared", invokes: true, execute: async (_args, ctx) => (await ctx.invoke!("lab.ask", {})).text},
+            {id: "lab.ask", execute: async (_args, ctx) => {
+                const reply = await ctx.ask!({question: "还继续吗？"});
+                nestedReply = reply.kind === "unavailable" ? reply.code : "answer";
+                nested.open();
+                return "问过了";
+            }},
+        ]});
+        session.model.script({tools: [{tool: "lab.write1"}, {tool: "lab.write2"}, {tool: "lab.parent"}]}, "知道了，不改了");
+        const initial = waitingFor(session, 2);
+        const runId = await sendRaw(session, "改两处");
+        for (const item of await initial) expect(await session.raw.resolve({commandId: id(), id: item.id, decision: "allow"})).toMatchObject({ok: true});
+        const pending = await waitingForThree(session, new Set((await initial).map((item) => item.id)));
+        return {session, runId, pending, nested: nested.promise.then(() => nestedReply)};
+    }
+
+    /** 等三个、且都不是 `exclude` 里的待处理事项（复审的事项是新的 id）。 */
+    function waitingForThree(session: TestSession, exclude: ReadonlySet<string>): Promise<InteractionSummary[]> {
+        return new Promise((resolve) => {
+            const check = (status: {state: string; pending?: InteractionSummary[]}) => {
+                if (status.state !== "waiting" || status.pending!.length !== 3 || status.pending!.some((item) => exclude.has(item.id))) return;
+                stop();
+                resolve(status.pending!);
+            };
+            const stop = session.raw.subscribe((frame) => {
+                if (frame.type === "status") check(frame.status);
+            });
+            void session.raw.snapshot().then((snapshot) => check(snapshot.status));
+        });
+    }
+
+    test("验收 16：两个复审与一个嵌套提问同时待处理，用户带 settlePending 发一句：同一个受理批里三个都以 deny 结算，插话接着进这一轮", async () => {
+        const {session, runId, pending, nested} = await threePending();
+        await using _ = session;
+        const commandId = id();
+        const sent = await session.raw.send({commandId, input: {text: "别改了"}, mode: "steer", settlePending: "deny"});
+        expect(sent).toMatchObject({ok: true, value: {placement: "taken"}});
+        expect(await nested).toBe("declined");
+        const result = await session.raw.waitRun(runId);
+        expect(result.text).toBe("知道了，不改了");
+        const events = await session.events();
+        const log = (await session.raw.log({afterSeq: 0})).events;
+        const accepted = log.findIndex((event) => event.type === "commandAccepted" && (event.data as {commandId: string}).commandId === commandId);
+        // 受理批：三条结算、插话入队、commandAccepted，seq 连续。
+        const batch = log.slice(accepted - 4, accepted + 1);
+        expect(types(batch)).toEqual(["interactionResolved", "interactionResolved", "interactionResolved", "inputQueued", "commandAccepted"]);
+        expect(batch.slice(0, 3).map((event) => event.data)).toEqual(pending.map(() => expect.objectContaining(SETTLED)));
+        expect(new Set(batch.slice(0, 3).map((event) => (event.data as {id: string}).id))).toEqual(new Set(pending.map((item) => item.id)));
+        expect(dataOf(events, "toolResult").filter((data) => String(data.tool).startsWith("lab.write")).map((data) => [data.status, data.code])).toEqual([["denied", "user-denied"], ["denied", "user-denied"]]);
+        expect(types(events)).toContain("steer");
+        const resolvedCount = dataOf(events, "interactionResolved").length;
+        expect(await session.raw.send({commandId, input: {text: "别改了"}, mode: "steer", settlePending: "deny"})).toMatchObject({ok: true, replayed: true});
+        expect(dataOf(await session.events(), "interactionResolved")).toHaveLength(resolvedCount);
+    });
+
+    test("第一次审批阶段的两个事项一并结算；没有待处理的事项时等于普通的 send", async () => {
+        await using session = await createTestSession({approve: askForWrites, tools: [writer("lab.write1"), writer("lab.write2")]});
+        session.model.script({tools: [{tool: "lab.write1"}, {tool: "lab.write2"}]}, "好，不写了", "第二句也收到了");
+        const pending = waitingFor(session, 2);
+        const runId = await sendRaw(session, "写两处");
+        await pending;
+        expect(await session.raw.send({commandId: id(), input: {text: "先别写"}, mode: "steer", settlePending: "deny"})).toMatchObject({ok: true});
+        await session.raw.waitRun(runId);
+        expect(dataOf(await session.events(), "interactionResolved").map((data) => data.decision)).toEqual(["deny", "deny"]);
+        const sent = await session.raw.send({commandId: id(), input: {text: "没事了"}, settlePending: "deny"});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        expect((await session.raw.waitRun(sent.value.runId)).text).toBe("第二句也收到了");
+    });
+
+    test("只收用户：别的发出者得 not-allowed；空话、被拦截拒绝、replaces 过期时也不结算，事项照常等，之后应答一次就叫醒", async () => {
+        const {session, runId, pending, nested} = await threePending();
+        await using _ = session;
+        const host = session.raw.as({kind: "host", source: {plugin: "lab.host", label: "日程"}});
+        expect(await host.send({commandId: id(), input: {text: "我替用户说"}, settlePending: "deny"})).toMatchObject({ok: false, code: "not-allowed"});
+        expect(await session.raw.send({commandId: id(), input: {text: "  "}, settlePending: "deny"})).toMatchObject({ok: false, code: "empty-input"});
+        expect(await session.raw.send({commandId: id(), input: {text: "有禁词"}, settlePending: "deny"})).toMatchObject({ok: false, code: "input-rejected"});
+        expect(await session.raw.send({commandId: id(), input: {text: "换掉"}, settlePending: "deny", replaces: [{id: "nope", edits: 0}]})).toMatchObject({ok: false, code: "input-stale"});
+        expect(dataOf(await session.events(), "interactionResolved").filter((data) => pending.some((item) => item.id === data.id))).toEqual([]);
+        for (const item of pending) expect(await session.raw.resolve({commandId: id(), id: item.id, decision: "deny"})).toMatchObject({ok: true});
+        expect(await nested).toBe("declined");
+        await session.raw.waitRun(runId);
+        expect(dataOf(await session.events(), "interactionResolved").filter((data) => pending.some((item) => item.id === data.id))).toHaveLength(3);
+    });
+
+    test("同一个 commandId 用户受理过，重开会话后换成别的发出者重发：交回原来的结果，不再结算", async () => {
+        const dir = join(root, "settle-replay");
+        const {session, runId} = await threePending({store: {root: dir}});
+        await using _ = session;
+        const args = {commandId: id(), input: {text: "别改了"}, mode: "steer" as const, settlePending: "deny" as const};
+        const first = await session.raw.send(args);
+        expect(first).toMatchObject({ok: true});
+        await session.raw.waitRun(runId);
+        await session.reopen();
+        const before = await session.events();
+        const again = await session.raw.as({kind: "host", source: {plugin: "lab.host", label: "日程"}}).send(args);
+        expect(again).toMatchObject({ok: true, replayed: true, value: first.ok ? first.value : {}});
+        expect(await session.events()).toEqual(before);
+    });
+
+    test("带 settlePending 发话时会话被关闭：重开后每个同步事项恰好一条结算，没有悬空的", async () => {
+        const dir = join(root, "settle-close");
+        const {session} = await threePending({store: {root: dir}});
+        await using _ = session;
+        const sending = session.raw.send({commandId: id(), input: {text: "别改了"}, mode: "steer", settlePending: "deny"});
+        await Promise.resolve();
+        await session.close();
+        await sending;
+        await session.reopen();
+        const events = await session.events();
+        const requested = dataOf<{id: string; async: boolean}>(events, "interactionRequested").filter((data) => !data.async).map((data) => data.id);
+        const resolved = dataOf<{id: string}>(events, "interactionResolved").map((data) => data.id);
+        expect(new Set(resolved)).toEqual(new Set(requested));
+        expect(resolved).toHaveLength(requested.length);
     });
 });
 

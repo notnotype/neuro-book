@@ -15,7 +15,7 @@ import {blobRefsOf, encodeBatch, toEventInPlace} from "./codec.js";
 import {nodeFiles, type AppendFile, type FilePort} from "./files.js";
 import {advanceIndex, emptyIndex, parseIndex, predatesRunIndex} from "./index-file.js";
 import {sha256, utf8} from "./json.js";
-import {isSessionId, LogReader, NEWLINE, type ParsedLog} from "./validate.js";
+import {isSessionId, LogReader, NEWLINE, parseHeaderLine, type ParsedLog} from "./validate.js";
 
 const LOG = "session.jsonl";
 const LOCK = "session.lock";
@@ -134,6 +134,29 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
     /**
      * 按块读整份日志交给 `LogReader`：内存里只留解析好的记录、一块缓冲与跨块的半行（session.md 输出 6 的截断判定同样成立）。
      */
+    /** 只读第一行（`header(id)`）：会话头一行写下，读到换行为止；没有换行（只写了一半，或不是日志）都是读不懂。 */
+    async function readHeader(path: string, id: string): Promise<StorageResult<SessionHeader> | null> {
+        const file = await files.openRead(path);
+        if (file === null) return null;
+        const chunk = new Uint8Array(options.readChunkBytes ?? READ_CHUNK);
+        let line: Uint8Array = new Uint8Array(0);
+        let position = 0;
+        try {
+            for (;;) {
+                const read = await file.read(chunk, position);
+                if (read === 0) return fail("log-corrupt", {line: 1, problem: "missing or unreadable session header"});
+                const end = chunk.subarray(0, read).indexOf(NEWLINE);
+                line = concat(line, chunk.subarray(0, end < 0 ? read : end));
+                if (end >= 0) break;
+                position += read;
+            }
+        } finally {
+            await file.close();
+        }
+        const parsed = parseHeaderLine(line, id);
+        return parsed.ok ? {ok: true, value: parsed.header} : {ok: false, code: parsed.code, detail: {...parsed.detail}};
+    }
+
     async function readLog(path: string, id: string): Promise<ParsedLog | null> {
         const file = await files.openRead(path);
         if (file === null) return null;
@@ -193,6 +216,13 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                 const taken = takeLock(directory);
                 if (taken === null || taken === "missing") return taken === null ? busy(directory) : fail("storage-failed", {message: "session directory vanished"});
                 lock = taken;
+                // 拿到锁之后再查一次：上面的检查与取锁之间，别人可能建好了会话又关了（放了锁），这时不能覆盖它的日志。
+                const raced = await files.openRead(join(directory, LOG));
+                if (raced !== null) {
+                    await raced.close();
+                    lock.release();
+                    return fail("session-exists");
+                }
                 await writeOwner(directory);
                 await files.makeDirectory(join(directory, BLOBS));
                 const headerBytes = utf8(`${JSON.stringify(header)}\n`);
@@ -203,6 +233,15 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                 return {ok: true, value: handle};
             } catch (error) {
                 lock?.release();
+                return fail("storage-failed", {message: message(error)});
+            }
+        },
+
+        async header(id) {
+            if (!isSessionId(id)) return fail("session-not-found");
+            try {
+                return (await readHeader(join(directoryOf(id), LOG), id)) ?? fail("session-not-found");
+            } catch (error) {
                 return fail("storage-failed", {message: message(error)});
             }
         },
