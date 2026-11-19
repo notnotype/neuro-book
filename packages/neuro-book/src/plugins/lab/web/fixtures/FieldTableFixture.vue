@@ -10,7 +10,7 @@ import {provideCanonText} from "./canon-text";
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);
 
-const subject = useLabSubject<typeof FieldTable>(() => props.input, ["value"]);
+const subject = useLabSubject<typeof FieldTable>(() => props.input, ["value", "edit", "edit-element", "remove-element", "add-element"]);
 </script>
 
 <template>

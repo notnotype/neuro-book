@@ -10,7 +10,7 @@ import {provideCanonText} from "./canon-text";
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);
 
-const subject = useLabSubject<typeof EntryPage>(() => props.input, ["open-entry", "retry"]);
+const subject = useLabSubject<typeof EntryPage>(() => props.input, ["open-entry", "retry", "delete", "edit-name", "edit-summary", "aliases", "move", "add-component", "remove-component", "restore"]);
 </script>
 
 <template>

@@ -1,0 +1,229 @@
+只读盘点：createLayoutDrag（packages/neuro-book/src/plugins/workbench/web/layout-drag.ts）的可变状态、复位点、候选纯函数与 live-drag 往返状态
+
+行号均指 layout-drag.ts，除非另注明（drag-session.ts、drag-gesture.ts 在 packages/nb-layout/src/ 与 packages/nb-layout/src/vue/ 下，live-drag.ts 在 packages/neuro-book/src/plugins/workbench/web/ 下）。
+
+一、可变绑定清单
+
+createLayoutDrag 闭包内共 14 个 let。下面每条：声明行、类型，然后写的行（标出所在函数或回调），然后读的行（同样标出）。
+
+1. previewsOf，声明 214，类型 LayoutDoc | null
+- 写：743（dropOrigin，`previewsOf = doc`）。dropOrigin 在 741 定义，被 755（windowDrop）与 782（dropAt）调用。
+- 读：742（dropOrigin 里与 doc 比较）。
+
+2. frozen，声明 216，类型 FrozenGeometry | null
+- 写：282（collapseSource 回调）、291（expandSource 回调）、587（freeze）、991（activate）、1055（onActiveChange(false)）。
+- 读：280（collapseSource，`frozen === null`）、281（collapseSource，赋给 beforeCollapse）、282（collapseSource，作为 collapsed 的参数）、308（panelRect 回调，`frozen?.geometry`）、434（geometry）、438（stripSnapshot，`frozen?.strips.get`）、549（stripDrop，`frozen?.heldTab`）、777（dropAt，`frozen === null`）、965（containerDrop，`frozen?.geometry.bands`）。
+
+3. newContainer，声明 218，类型 string
+- 写：995（activate，`newContainer = ...crypto.randomUUID()`）。
+- 读：226、227（emptyRegionContainer，它被 786 的 dropAt 与 1087 的键盘 regions 调用，属于间接读）；487（entryDrop，直接作为 entryDropAt 的参数）。
+
+4. sourceCollapsed，声明 230，类型 boolean
+- 写：283（collapseSource 回调，true）、293（expandSource 回调，false）、993（activate，false）。
+- 读：265（candidateDoc 回调，`!sourceCollapsed`）。
+
+5. beforeCollapse，声明 232，类型 FrozenGeometry | null
+- 写：281（collapseSource 回调，`beforeCollapse = frozen`）、292（expandSource 回调，null）、992（activate，null）、1056（onActiveChange(false)，null）。
+- 读：290（expandSource，`beforeCollapse === null` 判空）、291（expandSource，`frozen = beforeCollapse`）。
+
+6. pressedAt，声明 234，类型 GridDropPoint | null
+- 写：986（activate）。
+- 读：599（heldTabOf，判空）、602（heldTabOf，contains）、603（heldTabOf，取按下点的 x）。
+
+7. windowDrag，声明 236，类型 {panel, grab, origin, from, shown, size} | null
+- 写：994（activate，null）、1006（activate，整窗记录）、1058（onActiveChange(false)，null）。
+- 读：424（measureGeometry，`windowDrag?.panel`）、953（resolveDrop，判空）、954（resolveDrop，传给 windowDrop）、1032（resolve 回调，判空）、1033（resolve 回调，传给 windowRect）、1034（resolve 回调，`.panel`、`.from`）、1038（commitsUnderPointer，判空）、1057（onActiveChange(false)，判空并取 `.panel` 撤窗的预览）。716、750 的 `typeof windowDrag` 只是类型，不是运行时读。
+
+8. overRejected，声明 242，类型 boolean
+- 写：769（dropAt，从 held 恢复）、794 与 804（dropAt，置 true）、1025（resolve 回调开头，置 false）。
+- 读：287（collapseSource，写入 held 的 rejected）、296（expandSource，同上）、1029（resolve 回调，作为 setRejected 的参数）。
+
+9. editorRefusal，声明 244，类型 EditorRefusal | null
+- 写：770（dropAt，从 held 恢复）、806（dropAt，`tab === null ? null : {tab, drop}`）、988（activate，null）、1026（resolve 回调开头，null）、1044（onEnd，null）。
+- 读：287（collapseSource，写入 held 的 refusal）、296（expandSource，同上）、1043（onEnd，`const refusal = editorRefusal`）。
+
+10. sorting，声明 338，类型 HTMLElement | null
+- 写：370（measureSorted 返回的第一个写函数，null）、393（measureSorted 返回的第二个写函数，`sorting = frame`）。
+- 读：369（第一个写函数，`if (sorting !== null) releaseSorted(sorting)`）、389（第二个写函数，判断是否要释放上一个元素）。
+
+11. sortGrab，声明 340，类型 number | null
+- 写：381（measureSorted 本体，`sortGrab ??=`）、589（freeze，`sortGrab = heldTab.grab`）、985（activate，null）。
+- 读：381（`??=` 的判空）、383（measureSorted，计算 wanted）。
+
+12. held，声明 764，类型 {point, drop, rejected, refusal} | null
+- 写：287（collapseSource 回调）、296（expandSource 回调）、773（dropAt，`held = null`）、987（activate，null）。
+- 读：767、768、769、770、771（dropAt，都在 `if (held !== null)` 之内）。
+- 备注：声明行 764 在 287 与 767 之后；运行时这些读写都在构造完成后执行，因此不会触发暂时性死区（推断，依据是 createLayoutDrag 构造时不调用这些回调）。
+
+13. shownDrop，声明 970，类型 LayoutDragDrop | null
+- 写：975（stableDrop，`shownDrop = next`）、989（activate，null）。
+- 读：974（stableDrop，key 相同时返回它）。
+
+14. shownDropKey，声明 971，类型 string
+- 写：976（stableDrop）、990（activate，""）。
+- 读：974（stableDrop，`key === shownDropKey`）。
+
+（另有几个 let 在 createLayoutDrag 之外：184 的 homeStays 是模块级函数，不含 let；live-drag.ts 的状态都在它自己的闭包里，不算本文件的绑定。）
+
+二、复位点与结束顺序
+
+1. 一场的调用顺序（行号）
+- 拿起：`activate` 回调在 983 起。它由 drag-session.ts 的 `activate` 选项（238 行转给手势）调用；手势何时调用未读，不确定。
+- 每次判定：drag-session.ts 241 行的 resolve 调 layout-drag.ts 1024 行的 resolve 回调。
+- 第一次落到别处：live-drag.ts 234-238 调 collapseSource（layout-drag 278-288）。
+- 回到原处：live-drag.ts 240-243 调 expandSource（layout-drag 289-297）。
+- 结束：drag-gesture.ts 253-275 的 finish。它的调用顺序是：
+  (a) drag-gesture.ts 260：host.released()，对应 drag-session.ts 260-265，拆指针与会话监听、释放捕获；
+  (b) drag-gesture.ts 261：host.publish(null)，对应 drag-session.ts 244-246，state.value 置 null；
+  (c) drag-gesture.ts 262：host.activeChanged?.(false)，对应 drag-session.ts 248，即 layout-drag.ts 1049-1060 的 onActiveChange(false)；
+  (d) drag-gesture.ts 263：host.ended?.(end, current.last)，对应 drag-session.ts 247，即 layout-drag.ts 1042-1047 的 onEnd；
+  (e) drag-gesture.ts 264：host.commit(dropped, current.source, keyboard)，对应 drag-session.ts 243，即 layout-drag.ts 1040 的 commit；
+  (f) drag-gesture.ts 265-274：焦点恢复（经 requestFrame 或直接调 restoreFocus）。
+- 要点：onEnd 在 commit 之前，不在之后。onActiveChange(false) 先于两者。`dropped` 从哪里来（释放路径里调 finish 的地方）没有读，不确定。
+
+2. 各复位点清了什么
+- activate（983-1021）清：sortGrab（985）、pressedAt（986，改为按下点或 null）、held（987）、editorRefusal（988）、shownDrop（989）、shownDropKey（990）、frozen（991）、beforeCollapse（992）、sourceCollapsed（993）、windowDrag（994）；newContainer 重新生成（995）；previews 缓存（Map，984）清空。
+  不清：previewsOf（214）、overRejected（242）、sorting（338）。sorting 只在 live.end 里经 placeSorted(null) 释放。
+- resolve 回调（1024-1037）：每次判定开头清 overRejected（1025）、editorRefusal（1026）。
+- onActiveChange(false)（1049-1060）：setRejected(false)（1052）、live.end()（1054）、frozen（1055）、beforeCollapse（1056）、windowDrag（1057 先撤窗的 placeFloat，1058 再置 null）、markFloatMove(null)（1059）。
+  不清：editorRefusal、held、sorting、sortGrab、pressedAt、shownDrop、shownDropKey、newContainer、sourceCollapsed、previewsOf。
+  live.end() 内部（live-drag.ts 364-380）先调 host.placeSorted(null)()（378），由它读 sorting（layout-drag 369）并置 null（370）；再调 host.show(null)（379）。
+- onEnd（1042-1047）：读 editorRefusal（1043）后置 null（1044）。
+- collapseSource（278-288）与 expandSource（289-297）：写 frozen、beforeCollapse、sourceCollapsed、held，清 previews。
+
+3. onActiveChange(false) 之后仍被读的绑定
+- editorRefusal：onEnd 在 1043 读它。它不被 onActiveChange(false) 清，这是 onEnd 能拿到值的前提。
+- sorting：onActiveChange(false) 经 live.end 间接读它（369）。这依赖 live.end 在 1054 行先于 frozen 清空（1055），但 sorting 本身不依赖 frozen。
+- windowDrag：1057 行在 onActiveChange 内仍读 `.panel`，之后才在 1058 置 null。
+- commit（1040）只读参数 drop、source、keyboard，以及 options.commit；本文件的 let 一个都不读。
+- held、overRejected、shownDrop、shownDropKey、newContainer：onActiveChange(false) 之后没有读者（在本文件内；options.commit 的实现不在本文件，不确定它是否读）。
+
+4. 时序注意
+- freeze 在 1017 行经 nextTick 异步调用，以 live.active.value 为条件。它可能晚于一场的结束；读 live.active 那一判定是挡住这种情况的唯一条件（推断，未在更细的时序上验证）。
+
+三、候选纯函数（15 个）
+
+“闭包绑定”指 createLayoutDrag 内的 let、const 与函数；“DOM”指 root.querySelector、getBoundingClientRect、元素 style 等。
+
+1. collapsed（611-657）
+- 参数：kept: FrozenGeometry；doc: LayoutDoc（收起前）；base: LayoutDoc（收起后）；source: LayoutTabSource（函数体内未使用）。
+- 读闭包：options.extent()（612）、options.projection()（617、618）、dpr()（617、618，dpr 读 root.ownerDocument.defaultView 的 devicePixelRatio）、bandsAfterCollapse（627）。
+- 读 DOM：否。dpr 读的是窗口的像素比，不是元素。
+- 写状态：否，返回新对象。
+- 提到模块级的条件：把 extent、projection、dpr 的值作为参数传入即可。
+
+2. bandsAfterCollapse（664-683）
+- 参数：kept、base、moves、mergedAfter。
+- 读闭包：没有 let。只读导入的 regionContainers、entryStripOf。
+- 读 DOM：否。写状态：否。
+- 已是纯函数，可直接提到模块级（推断：依据是函数体内无闭包引用，导入符号需在模块级可见）。
+
+3. heldTabOf（598-604）
+- 参数：strips: ReadonlyMap<string, TabStripSnapshot>；source: LayoutTabSource（只用于 600 行的 source.tab）。
+- 读闭包：pressedAt（599、602、603）、root（600）、rectOf、contains（模块级）。
+- 读 DOM：是。600 行 `root.querySelector('[data-panel-tab=…]')`，并经 rectOf 调 getBoundingClientRect；仅当 strips 里没有 excludedRect 时 `??` 右侧才执行。
+- 写状态：否。
+
+4. freeze（581-590）
+- 参数：doc: LayoutDoc；source: LayoutTabSource。
+- 读闭包：stripOf（582-583，DOM）、measureTabStrip（导入，读 DOM）、measureGeometry（586，见下）、heldTabOf（586，读 pressedAt）。
+- 读 DOM：是（经 stripOf 与 measureGeometry）。
+- 写状态：是。写 frozen（587）、sortGrab（589）。
+- 结论：不是纯函数。
+
+5. pointOfCandidate（869-898）
+- 参数：candidate: LayoutDropCandidate；doc: LayoutDoc；panels: ReadonlyArray<LayoutDropPanelGeometry>。
+- 读闭包：stripStopsOf（884，strip 分支）、centerOf（模块级）、layoutSeamsOf（导入）。
+- 读 DOM：本函数不直接读；strip 分支经 stripStopsOf 间接读（573 的 stripOf 是 root.querySelector，tabStripStops 与 resolveTabStripInsertion 量标签条）。
+- 写状态：否。
+- 依赖 options.titleOnly（经 stripStopsOf 的 574 行）。
+
+6. stopsOf（901-917）
+- 参数：region: KeyboardRegion。
+- 读闭包：regionOfEntryStrip（导入）、bandOfRegion（903）、barStops（904，闭包内函数，只读参数）、surface()（907）、options.doc()（910）、geometry（911）、pointOfCandidate（913）、centerOf。
+- 读 DOM：是。907 行 surface() 与 rectOf；911 行经 geometry 读 frozen 或 DOM（见第 4 节 host 之外的 geometry：434 行）。
+- 写状态：否。
+
+7. sortTargetOf（341-356）
+- 参数：at: {point, panel}；tab: string。
+- 读闭包：bandAt（342）、geometry（342）、options.doc()（350）、options.titleOnly（349）、bandElement（346）、root（351）、rectOf（354）。
+- 读 DOM：是。346、351、354 行的 querySelector 与 getBoundingClientRect。
+- 写状态：否。
+
+8. measureSorted（363-395）
+- 参数：at: {point, panel} | null。
+- 读闭包：session.state.value（364，session 是 980 行的 const）、sourceOf 的 source（364）、sortTargetOf（365）、sorting（369、389）、sortGrab（381、383）、releaseSorted（369、389）。
+- 读 DOM：是。366 行 target.frame.getBoundingClientRect；375 行读 frame.style.translate。
+- 写状态：是。381 行写 sortGrab（`??=`）；sorting 在返回的写函数里写（370、393）；返回的写函数写 frame.style（388-392：translate、visibility、zIndex）。
+- 结论：不是纯函数。它读 DOM 与状态，返回一个延后执行的写函数，读写分两步是有意设计（见 live-drag.ts 的帧循环注释）。
+
+9. releaseSorted（357-361）
+- 参数：frame: HTMLElement。
+- 读闭包：没有。
+- 读 DOM：否。写 DOM：是，三次 style.removeProperty（translate、visibility、z-index）。
+- 写闭包状态：否。
+- 提到模块级：不依赖闭包，直接可以提。
+
+10. stripIndex（539-543）
+- 参数：doc: LayoutDoc；panel: string；measured: {before, after}。
+- 读闭包：没有（tabKey 为导入）。
+- 读 DOM：否。写状态：否。
+- 纯函数，可直接提到模块级。
+
+11. stripStopsOf（572-579）
+- 参数：doc: LayoutDoc；panel: string。
+- 读闭包：stripOf（573）、options.titleOnly（574）、stripIndex（577，模块级）。
+- 读 DOM：是。573 行 root.querySelector；tabStripStops 与 resolveTabStripInsertion 量标签条。
+- 写状态：否。
+
+12. keepVisible（694-697）
+- 参数：rect: LayoutFloatRect。
+- 读闭包：options.extent()（695）。clampFloatRect、FLOAT_KEEP_WIDTH、PANEL_HEAD_HEIGHT 为导入。
+- 读 DOM：否。写状态：否。
+- 提到模块级的条件：把 extent 作为参数传入。
+
+13. wholeInTree（700-703）
+- 参数：rect: LayoutFloatRect。
+- 读闭包：options.extent()（701）。
+- 读 DOM：否。写状态：否。
+- 提到模块级的条件：同 keepVisible。
+
+14. windowRect（716-720）
+- 参数：drag（整窗记录，类型为 `NonNullable<typeof windowDrag>`，参数名遮住了闭包里的 windowDrag）；point: GridDropPoint。
+- 读闭包：keepVisible（718，间接读 options.extent）。
+- 读 DOM：否。写状态：否。
+- 提到模块级的条件：同 keepVisible。
+
+15. toGrid（693）
+- 参数：point: GridDropPoint；{origin}: DragGeometry。
+- 读闭包：没有。
+- 读 DOM：否。写状态：否。
+- 纯函数，可直接提到模块级。
+
+四、live-drag.ts 与 layout-drag.ts 之间往返的状态
+
+createLiveDrag(host) 的 host 在 layout-drag.ts 251-326 行传入。逐个回调列出它读或写的 layout-drag 闭包绑定（行号指 layout-drag.ts）。
+
+- requestFrame（252）、cancelFrame（253）：只读 view（239 行的 const）。不读 let。
+- candidateDoc（254-273）：读 sourceCollapsed（265）。其余读 options.doc（256）、options.policy（260、271）。不写。
+- sourceRemovedDoc（274-277）：只读 options.doc。不读 let。
+- collapseSource（278-288）：读 frozen（280、281、282）、读 options.doc（279）、读 session.state（287）、读 overRejected（287）、读 editorRefusal（287）。写 beforeCollapse（281）、frozen（282）、sourceCollapsed（283）、previews（Map，285）、held（287）。
+- expandSource（289-297）：读 beforeCollapse（290、291）、读 session.state（296）、读 overRejected（296）、读 editorRefusal（296）。写 frozen（291）、beforeCollapse（292）、sourceCollapsed（293）、previews（294）、held（296）。
+- homeOf（298）：读 options.doc。不读 let。
+- homeStays（299）：调用模块级函数 homeStays（184），它读 options.doc 的结果，不读 let。
+- isHomeStrip（301-305）：读 options.doc，调用模块级的 findTab、regionOfEntryStrip、soleRegionContainer。不读 let。
+- show（306）：调用 options.showPreview，不读 let。
+- panelRect（307-310）：读 frozen（308）。不读 DOM。
+- gridOrigin（311-314）：读 DOM（root.querySelector 与 getBoundingClientRect）。不读 let。
+- settleDrop（315）：调用 session.flush，不读 let。
+- pointer（316）：读 session.state.value。不读 let。
+- placeCard（317）：调用 options.placeCard。不读 let。
+- placeSorted（318）：调用 measureSorted(at)，因此读写 sorting（369、389、393）与 sortGrab（381），并读 session.state（364）、DOM（366、375）。
+- placeSortedAfterRender（319-323）：读 live.active.value（321，live 是 const），然后立即调用 measureSorted(at)()，效果同 placeSorted。
+- cardShrink（324）、cardRefresh（325）：调用 options 上的函数，不读 let。
+
+额外的一条往返：live-drag.ts 的 end()（364-380）调用 host.placeSorted(null)()（378），这会执行 layout-drag 的 measureSorted(null) 返回的写函数，读写 sorting（369、370）。它在 onActiveChange(false) 里被调用（1054）。
+
+汇总：host 回调读写的 layout-drag 绑定有 frozen、beforeCollapse、sourceCollapsed、held、overRejected、editorRefusal、sorting、sortGrab，以及 previews 缓存（Map）与 session.state。没有读写 previewsOf、newContainer、pressedAt、windowDrag、shownDrop、shownDropKey。
+
+不确定：host 回调里的 session.state 读取，依赖 session 是 980 行创建的 const，在 host 首次调用前已存在（推断：live 的回调都在拿起之后才跑）。

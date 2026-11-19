@@ -98,6 +98,7 @@ export default {
     },
     searchSelect: {
         empty: "没有匹配的选项",
+        clear: "清除选择",
     },
     slider: {
         thumb: "滑块 {{index}}",

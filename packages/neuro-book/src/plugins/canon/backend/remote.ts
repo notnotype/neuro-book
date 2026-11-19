@@ -39,6 +39,13 @@ function edited(result: Parameters<typeof published>[0]): ReturnType<typeof publ
     return result.ok ? published(result) : editFailure(result.failure as CanonFailure);
 }
 
+/** 一次改几处的写入结果（revisions.md 输出 25）：同 `edited`，另带各项的路由。 */
+function entriesEdited(result: Parameters<typeof published>[0] & {readonly routes?: readonly unknown[]}): {readonly ok: true; readonly value: Published & {readonly routes: readonly unknown[]}} | Failure {
+    if (!result.ok) return editFailure(result.failure as CanonFailure);
+    const done = published(result);
+    return done.ok ? {ok: true, value: {...done.value, routes: result.routes ?? []}} : done;
+}
+
 /** 写入结果去掉内存里的世界。 */
 function published(result: {readonly ok: boolean; readonly failure?: unknown; readonly revision?: {readonly id: string; readonly version: number}; readonly ids?: Readonly<Record<string, string>>; readonly repeated?: boolean; readonly laterRecords?: readonly string[]}): {readonly ok: true; readonly value: Published} | Failure {
     if (!result.ok) return fail(result.failure as CanonFailure);
@@ -102,6 +109,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             }),
             tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => (input.position === undefined ? service.tree(input.parent, input.cursor, limit) : service.tree(input.parent, input.cursor, limit, {position: input.position, mode: input.mode ?? "actual"})))),
             origins: (input) => withWorld((service) => denied(service, input.view, "origins") ?? paged(input.limit, (limit) => service.origins(input.at, position(service, input.position), input.mode, input.cursor, limit), 20)),
+            findEntries: (input) => withWorld((service) => denied(service, input.view, "findEntries") ?? paged(input.limit, (limit) => service.findEntries({query: input.query, ...(input.kinds === undefined ? {} : {kinds: input.kinds}), ...(input.types === undefined ? {} : {types: input.types}), position: position(service, input.position)}, input.cursor, limit))),
             lookup: (input) => withWorld((service) => read(input.view === undefined ? service.lookup(input.names, position(service, input.position)) : service.viewed(own(input.view)).lookup(input.names, input.position))),
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.changes(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).changes(input.filter ?? {}, input.cursor, limit)))),
             time: (input) => withWorld((service) => {
@@ -142,6 +150,13 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             editInPlace: ({token, view, ...edit}) => withWorld(async (service) => denied(service, view, "editInPlace") ?? edited(await service.editInPlace(edit, token))),
             recordDelta: ({token, view, ...delta}) => withWorld(async (service) => denied(service, view, "recordDelta") ?? edited(await service.recordDelta(delta, token))),
             recordNote: ({token, view, ...note}) => withWorld(async (service) => denied(service, view, "recordNote") ?? edited(await service.recordNote(note, token))),
+            editEntries: ({token, view, input}) => withWorld(async (service) => denied(service, view, "editEntries") ?? entriesEdited(await service.editEntries(input, token))),
+            previewEntries: (input) => withWorld((service) => {
+                const refused = denied(service, input.view, "previewEntries");
+                if (refused !== null) return refused;
+                const result = service.previewEntries(input.input);
+                return result.ok ? within({routes: result.routes, revision: result.revision, ids: result.ids, laterRecords: result.laterRecords}) : editFailure(result.failure as CanonFailure);
+            }),
             previewEdit: (input) => withWorld((service) => {
                 const refused = denied(service, input.view, "previewEdit");
                 if (refused !== null) return refused;

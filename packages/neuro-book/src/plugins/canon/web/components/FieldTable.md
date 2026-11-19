@@ -13,6 +13,7 @@
 
 - 单击值按钮（或 Enter、空格）：发 `value`，参数是这个字段的路径；展开着的那一行 `aria-expanded` 为 true，下面是 `origin` 插槽。值按钮的可读名是“显示名：值”。
 - `editing` 时可改的行在值后面有一个常显的“改”（可读名“改某某”，`data-edit` 是字段路径）：发 `edit`；不可用时禁用，悬停提示是原因。值按钮与“改”各是一个 Tab 停靠点，值在前。
+- `editing` 时列表字段（带 `elementIds`）在这一行下面另列各元素，小缩进、不跟值那一列对齐（专门分页把字段表嵌在很窄的格子里）：每个元素一行写它的文字与“改”“去掉”（可读名“改某某”“去掉某某”），发 `edit-element`、`remove-element`（字段路径与元素 id）；末尾“＋ 添加一项”（`data-add-element` 是字段路径）发 `add-element`。不可用时同“改”。
 - 一个字段也没有时写“这个分页还没有字段”。
 
 ## 数据
@@ -28,7 +29,9 @@ interface FieldRow {
     readonly mark: string | null;
     /** 列表字段的各元素。 */
     readonly items?: readonly string[];
-    /** 可以就地改（数、文字、选项、是否）。 */
+    /** 列表字段的元素 id，与 `items` 一一对应。 */
+    readonly elementIds?: readonly string[];
+    /** 可以就地改（数、文字、选项、是否、引用、图片）。 */
     readonly editable?: boolean;
     /** 语义档的各句（人物的界面）。 */
     readonly notes?: readonly {readonly where: string; readonly text: string}[];
@@ -51,6 +54,9 @@ type FieldTableProps = {
 type FieldTableEmits = {
     (event: "value", path: string): void;
     (event: "edit", path: string): void;
+    (event: "edit-element", path: string, element: string): void;
+    (event: "remove-element", path: string, element: string): void;
+    (event: "add-element", path: string): void;
 };
 
 type FieldTableSlots = {

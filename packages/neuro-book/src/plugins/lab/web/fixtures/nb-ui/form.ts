@@ -178,6 +178,12 @@ export const formFixtures: LabFixture[] = [
             {id: "readonly", label: "只读", input: {props: {options: MODEL_OPTIONS, readonly: true}, model: {modelValue: "gpt"}}},
             {id: "disabled", label: "禁用", input: {props: {options: MODEL_OPTIONS, disabled: true}, model: {modelValue: "gpt"}}},
             {id: "invalid", label: "出错", input: {props: {options: MODEL_OPTIONS, invalid: true, placeholder: "选择模型"}, model: {modelValue: ""}}},
+            {id: "clearable", label: "可清空", input: {props: {options: MODEL_OPTIONS, clearable: true}, model: {modelValue: "claude-opus"}}},
+            {
+                id: "remote",
+                label: "远程模式：当前值不在这一批结果里",
+                input: {props: {filter: false, options: [{value: "e2", label: "星瑾", description: "人物"}, {value: "e3", label: "星辰议会", description: "组织"}], selectedLabel: "星瑕", clearable: true, placeholder: "找一个条目"}, model: {modelValue: "e1"}},
+            },
         ],
         subject: nbUiSubject("SearchSelect"),
     }),

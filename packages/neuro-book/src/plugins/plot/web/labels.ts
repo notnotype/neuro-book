@@ -3,8 +3,8 @@
  * 前史写“前史”，程度、怎么知道、来处、保密档、阶段、决策写文字。几张表与几个分页共用，拼接用的标点也来自目录（输出 22）。
  */
 
-import {MAIN_LINE} from "nbook/plugins/canon/shared/reads";
-import type {LineOption} from "nbook/plugins/canon/shared/reads";
+import {MAIN_LINE} from "nbook/plugins/canon/shared/contracts";
+import type {LineOption} from "nbook/plugins/canon/shared/contracts";
 
 import type {AuthorDecision, AuthorDegree, AuthorKnowing, KnowingOrigin} from "../core/author/knowing";
 import type {usePlotText} from "./text";

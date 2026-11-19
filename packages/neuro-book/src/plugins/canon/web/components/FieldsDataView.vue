@@ -3,7 +3,7 @@
  * 数据分页的字段表界面（docs/specs/canon/author-ui.md 输出 12、13）：通用字段表，以及 canon 给人物交的界面（多列语义档的各句）。
  * 经 `context` 读字段与来历；展开着哪个字段记在 `context.state.open`，切走再回来还在。
  */
-import {computed} from "vue";
+import {computed, shallowRef} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -13,6 +13,7 @@ import {fieldRows, isSemantic, originRows, semanticNotes} from "../rows";
 import {useCanonText} from "../text";
 import FieldTable from "./FieldTable.vue";
 import OriginList from "./OriginList.vue";
+import RecordForm from "./RecordForm.vue";
 
 const props = withDefaults(defineProps<{
     context: ComponentViewContext;
@@ -55,11 +56,56 @@ const editReason = computed(() => (context.blocked === null ? "" : port.t(contex
 
 const toggle = (path: string): void => {
     open.value = open.value === path ? null : path;
+    recordErrors.value = {};
+};
+
+/*
+ * 记一句、记一笔（输出 17）：展开着的字段是语义档或数时，来历下面一行表单，落在所选位置。别的种类在剧情里变了走“改”。
+ * 填了一半的输入按字段存在分页状态里，切走再回来还在。
+ */
+interface RecordDraft {
+    readonly delta: string;
+    readonly text: string;
+}
+const recordable = (path: string): boolean => {
+    const declaration = declarationOf(path);
+    return isSemantic(declaration) || declaration?.kind === "number";
+};
+const drafts = computed(() => (context.state.records ?? {}) as Readonly<Record<string, RecordDraft>>);
+const draftOf = (path: string): RecordDraft => drafts.value[path] ?? {delta: "", text: ""};
+const setDraft = (path: string, patch: Partial<RecordDraft>): void => {
+    context.state.records = {...drafts.value, [path]: {...draftOf(path), ...patch}};
+    if (recordErrors.value[path] !== undefined) recordErrors.value = {...recordErrors.value, [path]: ""};
+};
+const recordReason = computed(() => (editReason.value !== "" ? editReason.value : context.position.kind === "initial" ? text("blocked.initial") : ""));
+/** 失败的原因按字段记：保存中作者展开了别的字段，回来的原因仍写在记的那个字段下面。改了输入就清掉那个字段的。 */
+const recordErrors = shallowRef<Readonly<Record<string, string>>>({});
+/** 正在保存的字段。一次只记一笔：保存中展开别的字段，它的表单也是保存中。 */
+const savingPath = shallowRef<string | null>(null);
+const submit = async (path: string): Promise<void> => {
+    if (savingPath.value !== null) return;
+    savingPath.value = path;
+    const draft = draftOf(path);
+    const delta = Number(draft.delta.trim().replace(/,/gu, ""));
+    const result = await context.record(fieldOf(path), {text: draft.text.trim(), ...(isSemantic(declarationOf(path)) ? {} : {delta})});
+    savingPath.value = null;
+    if (result.ok) setDraft(path, {delta: "", text: ""});
+    recordErrors.value = {...recordErrors.value, [path]: result.ok ? "" : port.t(result.reason)};
 };
 </script>
 
 <template>
-    <FieldTable :rows="rows" :open="open ?? undefined" editing :edit-reason="editReason" @value="toggle" @edit="(path: string) => context.edit(fieldOf(path))">
+    <FieldTable
+        :rows="rows"
+        :open="open ?? undefined"
+        editing
+        :edit-reason="editReason"
+        @value="toggle"
+        @edit="(path: string) => context.edit(fieldOf(path))"
+        @add-element="(path: string) => context.listAdd?.(fieldOf(path))"
+        @edit-element="(path: string, element: string) => context.listEdit?.(fieldOf(path), element)"
+        @remove-element="(path: string, element: string) => context.listRemove?.(fieldOf(path), element)"
+    >
         <template #origin="{path}">
             <OriginList
                 v-if="openPages !== undefined"
@@ -72,6 +118,19 @@ const toggle = (path: string): void => {
                 @more="openPages.more()"
                 @retry="openPages.retry()"
                 @change="(id: string) => context.open({kind: 'change', id})"
+            />
+            <RecordForm
+                v-if="recordable(path)"
+                class="mt-2"
+                :semantic="isSemantic(declarationOf(path))"
+                :delta="draftOf(path).delta"
+                :text="draftOf(path).text"
+                :blocked-reason="recordReason"
+                :error="recordErrors[path] ?? ''"
+                :saving="savingPath !== null"
+                @update:delta="(value: string) => setDraft(path, {delta: value})"
+                @update:text="(value: string) => setDraft(path, {text: value})"
+                @submit="submit(path)"
             />
         </template>
     </FieldTable>

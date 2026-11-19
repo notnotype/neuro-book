@@ -6,6 +6,9 @@ import type {HTMLAttributes} from "vue";
  * nb-ui 的其它弹出列表一致。
  *
  * 焦点一直在输入框里：`SuggestionMenu` 按下时不夺焦点，所以点选项不会先触发失焦；高亮经 `aria-activedescendant` 交给读屏。
+ *
+ * 远程模式（`filter: false`）：选项由宿主按 `search` 事件换，组件不再按名字筛一遍（宿主可能按别名匹配，名字里不含搜索词）；
+ * 当前值不在这一批结果里时，输入框显示宿主给的 `selectedLabel`。
  */
 import {computed, ref, useAttrs, useId, watch} from "vue";
 
@@ -45,6 +48,14 @@ const props = withDefaults(defineProps<{
     /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
     invalid?: boolean;
     required?: boolean;
+    /** 按名字在本地筛选；false 时选项由宿主按 `search` 事件换（远程模式）。缺省 true。 */
+    filter?: boolean;
+    /** 当前值不在 `options` 里时输入框显示的名字（远程模式）。 */
+    selectedLabel?: string;
+    /** 已选时外框里有一个清空按钮，点了发出空串。缺省 false。 */
+    clearable?: boolean;
+    /** 清空按钮的可读名；缺省按显示语言取“清除选择”。 */
+    clearLabel?: string;
 } & /* @vue-ignore */ HTMLAttributes>(), {
     modelValue: "",
     id: "",
@@ -56,11 +67,17 @@ const props = withDefaults(defineProps<{
     readonly: false,
     invalid: false,
     required: false,
+    filter: true,
+    selectedLabel: undefined,
+    clearable: false,
+    clearLabel: undefined,
 });
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
     (e: "focus", event: FocusEvent): void;
+    /** 列表打开时发出空串，之后每次打字发出搜索词（组字结束后）；远程模式的宿主据此换选项。 */
+    (e: "search", query: string): void;
 }>();
 
 /**
@@ -78,6 +95,7 @@ const field = useFieldContext();
 const generatedId = useId();
 const text = useUiText();
 const emptyLabel = computed(() => props.emptyText ?? text("searchSelect.empty"));
+const clearText = computed(() => props.clearLabel ?? text("searchSelect.clear"));
 const controlId = computed(() => props.id || field?.inputId.value || `nb-search-select-${generatedId}`);
 const menuId = computed(() => `${controlId.value}-listbox`);
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
@@ -92,9 +110,12 @@ const query = ref<string | null>(null);
 const activeId = ref<string | null>(null);
 
 const selected = computed(() => props.options.find((option) => option.value === props.modelValue));
-const display = computed(() => query.value ?? selected.value?.label ?? "");
+const display = computed(() => query.value ?? selected.value?.label ?? (props.modelValue === "" ? "" : props.selectedLabel ?? ""));
+const clearButton = ref<HTMLElement | null>(null);
+const showClear = computed(() => props.clearable && props.modelValue !== "" && !props.disabled && !props.readonly);
 
 const filtered = computed(() => {
+    if (!props.filter) return props.options;
     const needle = (query.value ?? "").trim().toLocaleLowerCase();
     if (needle === "") return props.options;
     return props.options.filter((option) => option.label.toLocaleLowerCase().includes(needle));
@@ -125,6 +146,7 @@ function openMenu(selectText = true): void {
     if (selectText) inputElement.value?.select();
     open.value = true;
     activeId.value = selected.value !== undefined && selected.value.disabled !== true ? selected.value.value : choosable.value[0]?.id ?? null;
+    emit("search", query.value ?? "");
 }
 
 /** 关掉列表、丢掉搜索词：输入框回到显示已选项。 */
@@ -150,6 +172,14 @@ function onInput(event: Event): void {
     if (props.readonly || props.disabled || composing.value) return;
     query.value = (event.target as HTMLInputElement).value;
     if (!open.value) openMenu(false);
+    else emit("search", query.value);
+}
+
+/** 清空：发出空串，焦点留在输入框里。 */
+function clear(): void {
+    closeMenu();
+    emit("update:modelValue", "");
+    inputElement.value?.focus();
 }
 
 function onCompositionEnd(event: CompositionEvent): void {
@@ -180,7 +210,8 @@ function onKeydown(event: KeyboardEvent): void {
 function onFrameMousedown(event: MouseEvent): void {
     if (event.target === inputElement.value) return;
     event.preventDefault();
-    if (props.disabled) return;
+    // 清空按钮自己处理点击；这里只拦住失焦，不开合列表。
+    if (props.disabled || event.target === clearButton.value) return;
     inputElement.value?.focus();
     if (open.value) closeMenu();
     else openMenu();
@@ -232,6 +263,17 @@ const controlSizeClass = computed(() => isSmall.value
             @keydown="onKeydown"
             @blur="closeMenu"
         >
+        <!-- 图标放在按钮里面：图标是遮罩画的，焦点光晕画在按钮自己身上会被遮罩一起裁掉。 -->
+        <button
+            v-if="showClear"
+            ref="clearButton"
+            type="button"
+            class="nb-ui-focus-ring inline-flex shrink-0 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
+            :aria-label="clearText"
+            @click="clear"
+        >
+            <span class="i-lucide-x h-3.5 w-3.5" aria-hidden="true"></span>
+        </button>
         <span
             class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)]"
             :class="[isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4', open ? 'rotate-180' : '']"

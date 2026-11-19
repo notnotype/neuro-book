@@ -12,11 +12,13 @@
 - 最上面是世界横幅（`WorldBanners`）：断开时“世界已断开”与“重试”，世界只读时写原因（输出 28）；内容留着。
 - 页头：名字（马甲条目后面是“是谁：某某”，某某是链接）、一句话简介；右边是线选择（`LineSelect`，输出 34：只有主线时不画）、位置选择与“按计划”开关；下面是分页条（左右方向键切换，每个分页项有 id，内容区 `role="tabpanel"` 用 `aria-labelledby` 指向当前分页）。页头与内容列都封顶 760 像素；宽度不够时位置选择换到下一行。视口宽于 480 像素时页头吸顶；更窄时页头换成几行，吸顶会占掉大半个视口，不吸顶。
 - 内容区上方按需有两行说明：“原来选的那一章已经不在了”（`role="status"`）、“在某位置还没出场”。
-- 状态 `loading` 只有一行“读取中…”（`aria-busy`）；`failed`（第一次读取就失败了，例如连不上项目）只有“没有读出来”（`role="alert"`）；`missing` 只有“找不到这个条目”；`deleted` 只有原来的名字与“这个条目已删除”。这四种都没有页头控件与分页。
+- 状态 `loading` 只有一行“读取中…”（`aria-busy`）；`failed`（第一次读取就失败了，例如连不上项目）只有“没有读出来”（`role="alert"`）；`missing` 只有“找不到这个条目”；`deleted` 只有原来的名字与“这个条目已删除”，`editable` 时另有“恢复这个条目”（`editReason` 非空时禁用）与写入失败的原因。这四种都没有页头控件与分页。
 
-- 位置与开关后面是“更多”（只有图标的按钮，可读名“更多”），里面有“删除条目”（危险色；`deletable` 为 false 时不可用）。
+- 位置与开关后面是“更多”（只有图标的按钮，可读名“更多”）。`editable` 时里面先有“移动到……”“添加一组设定……”，给了 `removableGroup` 时再有“去掉‘某某’这组设定”（`editReason` 非空时这几项不可用）；最后是“删除条目”（危险色；`deletable` 为 false 时不可用）。
+- `editable` 时名字后面有“改”（`data-edit="entry.name"`），简介后面有“改”（没有简介时写“写简介”，`data-edit="entry.summary"`）；下面一行别名标签，各带“×”（可读名“去掉别名 某某”），末尾“＋别名”：点了出一个输入框，回车加上（已有的不再加），Escape 或失焦收起。`editReason` 非空时这些按钮禁用、悬停提示是它。
+- 页头写入失败的原因（`actionError`）写在页头下面一行（`role="alert"`）；确认条的插槽 `bar` 在它下面、分页内容上面，各分页共用这一处。
 
-事件：选线发 `update:line`（空串是跟着章），选位置发 `update:position`，拨开关发 `update:planned`，切分页发 `update:tab`，点“是谁”的链接发 `open-entry`，点“重试”发 `retry`，选“删除条目”发 `delete`（确认对话框在宿主里）。
+事件：选线发 `update:line`（空串是跟着章），选位置发 `update:position`，拨开关发 `update:planned`，切分页发 `update:tab`，点“是谁”的链接发 `open-entry`，点“重试”发 `retry`，选“删除条目”发 `delete`（确认对话框在宿主里）；名字、简介的“改”发 `edit-name`、`edit-summary`，别名发 `aliases`（`{add}` 或 `{remove}`），“更多”的三项发 `move`、`add-component`、`remove-component`，已删除页的“恢复”发 `restore`。对话框与写入都在宿主里。
 
 ## 数据
 
@@ -49,10 +51,37 @@ type EntryPageProps = {
     tab?: string;
     /** “删除条目”可用；默认 false。 */
     deletable?: boolean;
+    /** 页头的写入入口都出；默认 false。 */
+    editable?: boolean;
+    /** 写入入口不可用的原因：入口禁用、悬停提示是它；默认空（可用）。 */
+    editReason?: string;
+    /** 读取位置上的别名；默认空。 */
+    aliases?: readonly string[];
+    /** 当前是数据分页时这组设定的名字：“更多”里多一项“去掉这组设定”；默认空。 */
+    removableGroup?: string;
+    /** 页头写入失败的原因；默认空。 */
+    actionError?: string;
+};
+
+type EntryPageEmits = {
+    "update:position": [value: string];
+    "update:planned": [value: boolean];
+    "update:tab": [value: string];
+    "update:line": [value: string];
+    "open-entry": [id: string];
+    retry: [];
+    delete: [];
+    "edit-name": [];
+    "edit-summary": [];
+    aliases: [change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}];
+    move: [];
+    "add-component": [];
+    "remove-component": [];
+    restore: [];
 };
 ```
 
-默认插槽是当前分页的内容，放在 `role="tabpanel"` 里。
+默认插槽是当前分页的内容，放在 `role="tabpanel"` 里；`bar` 插槽在页头之下、分页内容之上，放确认条。
 
 ## 状态
 

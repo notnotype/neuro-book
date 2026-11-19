@@ -177,7 +177,7 @@ describeIssues(schema, value, issues, text: FormTextApi, hints?): string[]   // 
 | 密钥 | 只显示状态，没有替换与清除 |
 
 29. **单选组横排**：`RadioGroup` 有横排，作为表单里 3 项以内、带说明或名字长的单选；其余 3 项以内的单选用分段控件（输出 2）。
-30. **可搜索的下拉**（`SearchSelect`）：输入的文字只是搜索词，只有选中选项才改值，失焦恢复显示已选项；列表项的样子、截断与滚动与 nb-ui 的其它弹出列表相同。
+30. **可搜索的下拉**（`SearchSelect`）：输入的文字只是搜索词，只有选中选项才改值，失焦恢复显示已选项；列表项的样子、截断与滚动与 nb-ui 的其它弹出列表相同。远程模式：`filter: false` 时不在本地按输入筛选项，输入变了发 `search`（搜索词），选项由调用方按它给；已选的值不在当前选项里时显示 `selectedLabel`。`clearable` 时有一个清除按钮（可读名“清除选择”），点了把值改成 `null`。
 31. **密钥输入**（`SecretInput`，planned：凭据存储搁置，见下文“边界与兼容”；在此之前 `writeOnly` 与 `secret` 的字段按文字画）：`state` 为 `set`、`unset`、`unreadable`；`modelValue` 是新输入的值；“清除”发出 `clear` 事件；从不显示已有的值；`autocomplete="new-password"`。
 
 ## 状态与转换

@@ -77,6 +77,22 @@ describe("EntryTree", () => {
         expect(wrapper.text()).toBe("还没有条目");
     });
 
+    it("可以新建时，空着是带两个新建按钮的空状态：新建人物发 create-person，新建条目发 create(null)；不能写时按钮禁用、写原因", async () => {
+        const {wrapper} = tree({"": layer([])});
+        await wrapper.setProps({creatable: true});
+        const empty = wrapper.get("[data-entries-empty]");
+        expect(empty.text()).toContain("还没有设定");
+        const buttons = empty.findAll("button");
+        expect(buttons.map((button) => button.text())).toEqual(["新建人物", "新建条目"]);
+        await buttons[0]!.trigger("click");
+        await buttons[1]!.trigger("click");
+        expect(wrapper.emitted("create-person")).toHaveLength(1);
+        expect(wrapper.emitted("create")).toEqual([[null]]);
+        await wrapper.setProps({blockedReason: "世界只读"});
+        const blocked = wrapper.get("[data-entries-empty]").findAll("button");
+        expect(blocked.every((button) => (button.element as HTMLButtonElement).disabled && button.attributes("title") === "世界只读")).toBe(true);
+    });
+
     it("世界断开时树上面一条横幅与“重试”，树照常显示；点“重试”发 retry", async () => {
         const wrapper = mount(EntryTree, {props: {layers: {"": layer([item("a", "星瑕")])}, expanded: [], disconnected: true}, global: {provide: provideText(port)}, attachTo: document.body});
         mounted.push(wrapper);

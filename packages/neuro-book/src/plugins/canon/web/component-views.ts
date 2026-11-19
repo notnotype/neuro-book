@@ -45,6 +45,13 @@ export interface ComponentViewContext {
     edit(path: string): void;
     /** 对这个地址记一笔；语义档只给 `text`。 */
     record(path: string, input: {readonly text: string; readonly delta?: number}): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: Text}>;
+    /**
+     * 列表（canon.revisions 输出 25 的 `listAdd`、`listRemove`、元素子字段的 `set`）：让条目页打开加一项、改一项的对话框，或去掉一项的
+     * 确认。`path` 是这个命名空间里的列表字段名。条目页以外的宿主可以不给。
+     */
+    listAdd?(path: string): void;
+    listEdit?(path: string, element: string): void;
+    listRemove?(path: string, element: string): void;
     /** 打开一个条目、一条剧情变更的页面。 */
     open(ref: {readonly kind: "entry" | "change"; readonly id: string}): void;
     /**

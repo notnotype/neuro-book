@@ -94,6 +94,7 @@ export default {
     },
     searchSelect: {
         empty: "No matching options",
+        clear: "Clear selection",
     },
     slider: {
         thumb: "Slider {{index}}",

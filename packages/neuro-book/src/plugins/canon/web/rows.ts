@@ -40,7 +40,9 @@ export interface FieldRow {
     readonly mark: string | null;
     /** 列表字段：每个元素一行。 */
     readonly items?: readonly string[];
-    /** 可以就地改：数、文字、选项、是否这几种字段（输出 16）；列表、图片、引用第一批不就地改。 */
+    /** 列表字段的元素 id，与 `items` 一一对应：元素的“改”“去掉”用它（列表元素的对话框）。 */
+    readonly elementIds?: readonly string[];
+    /** 可以就地改：数、文字、选项、是否、引用、图片这几种字段（输出 16）；列表的元素另有对话框。 */
     readonly editable?: boolean;
     /** 语义档：起点与之后记下的每一句（带位置），未归纳时最后写“还没归纳”（输出 13）。 */
     readonly notes?: readonly {readonly where: string; readonly text: string}[];
@@ -137,7 +139,7 @@ export function originRows(page: Pick<CanonOutputs["origins"], "items" | "initia
 }
 
 /** 能就地改的字段种类：确认条里有对应的输入控件。 */
-const EDITABLE_KINDS: ReadonlySet<string> = new Set(["number", "text", "enum", "boolean"]);
+const EDITABLE_KINDS: ReadonlySet<string> = new Set(["number", "text", "enum", "boolean", "ref", "image"]);
 
 /** 字段的声明：类型固定的在前，实例声明的在后（canon.components 输出 21）；按 id 查。 */
 function declarationOf(declarations: readonly FieldDeclaration[], field: string): FieldDeclaration | undefined {
@@ -155,6 +157,7 @@ export function fieldRows(namespace: string, fields: Readonly<Record<string, Fie
         const unknown = state.value === null || state.value === undefined;
         const list = declaration?.kind === "list";
         const items = list && Array.isArray(state.value) ? state.value.map((item) => displayText([item])) : undefined;
+        const elementIds = list && Array.isArray(state.value) ? state.value.map((item) => String((item as {id?: unknown}).id ?? "")) : undefined;
         return {
             path: `${namespace}.${field}`,
             label: declaration?.label ?? state.label ?? field,
@@ -163,6 +166,7 @@ export function fieldRows(namespace: string, fields: Readonly<Record<string, Fie
             incomplete: state.incomplete !== undefined,
             mark: changedMark(state.changedAt, place, text),
             ...(items === undefined ? {} : {items}),
+            ...(elementIds === undefined ? {} : {elementIds}),
             ...(declaration !== undefined && EDITABLE_KINDS.has(declaration.kind) ? {editable: true} : {}),
             ...(state.notReduced === true ? {notReduced: true} : {}),
         };

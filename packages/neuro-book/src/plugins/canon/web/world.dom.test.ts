@@ -150,6 +150,43 @@ describe("读取层", () => {
         handle.release();
     });
 
+    it("每次发布都交给 onRevision，只交一次：事件晚于本窗口写入的结果到达（已知版本已经抬过它）时也交出（author-ui.md 的 Agent 提示）", async () => {
+        venue = await canonNodeWorld(tmp);
+        const mine = await venue.window("mine");
+        const other = await venue.window("other");
+        // 只转发的包装，另外能先压住事件：模拟别的窗口的事件比本窗口写入的回复晚到。
+        let holding = false;
+        const held: CanonEvent[] = [];
+        let deliver: ((event: CanonEvent) => void) | null = null;
+        const client: CanonClient = {
+            call: (method, input) => mine.canon.call(method, input),
+            publish: (request, token) => mine.canon.publish(request, token),
+            subscribe: (listener) => {
+                deliver = listener;
+                return mine.canon.subscribe((event) => (holding ? held.push(event) : listener(event)));
+            },
+            hold: (label, onEnded) => mine.canon.hold(label, onEnded),
+        };
+        const world = createCanonWorld(client);
+        worlds.push(world);
+        await waitUntil("订阅建好", () => world.connection.value === "online" && world.status.value.data !== undefined, {timeoutMs: 10_000});
+        const seen: Array<{revision: string; by: string}> = [];
+        world.onRevision((revision) => seen.push({revision: revision.revision, by: revision.by.kind}));
+
+        holding = true;
+        const agentWrite = await other.canon.call("editEntries", {input: {requestId: `agent-${String(++sequence)}`, by: {kind: "agent", session: "s1"}, what: "creative", title: "Agent 建人物", ops: [{op: "create", id: "tmp:a", entry: {name: "雾崎", kind: "人物"}}]}});
+        if (!agentWrite.ok) throw new Error(JSON.stringify(agentWrite.failure));
+        const mineWrite = await world.write("editEntries", {input: {requestId: `mine-${String(++sequence)}`, by: {kind: "author"}, what: "edit", title: "作者建人物", ops: [{op: "create", id: "tmp:b", entry: {name: "星瑾", kind: "人物"}}]}});
+        if (!mineWrite.ok) throw new Error(JSON.stringify(mineWrite.failure));
+        expect(seen).toEqual([]);
+        holding = false;
+        for (const event of held.splice(0)) deliver!(event);
+        expect(seen).toEqual([{revision: agentWrite.value.revision, by: "agent"}, {revision: mineWrite.value.revision, by: "author"}]);
+        // 同一条事件再来（重连时重复送达）：不再交出。
+        deliver!({kind: "changed", version: agentWrite.value.version, revision: agentWrite.value.revision, by: {kind: "agent", session: "s1"}, what: "creative", title: "Agent 建人物"});
+        expect(seen).toHaveLength(2);
+    });
+
     it(`没人用的读取留最近 ${String(KEEP_UNUSED)} 个，多了丢最久没用的；留着的再用时先给旧结果`, async () => {
         const {world} = await setup();
         for (let index = 0; index <= KEEP_UNUSED; index += 1) {

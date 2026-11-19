@@ -6,10 +6,12 @@
  */
 import {computed, nextTick, onMounted, ref} from "vue";
 
-import {Button, NumberInput, SegmentedControl, Select, Switch, Textarea} from "@notnotype/nb-ui/components";
+import {Button, SegmentedControl} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
 import type {ConfirmBarKind, EditIntent} from "./confirm-bar";
+import type {EntryResults} from "./entry-picker";
+import FieldInput from "./FieldInput.vue";
 
 const props = withDefaults(defineProps<{
     label: string;
@@ -17,8 +19,11 @@ const props = withDefaults(defineProps<{
     /** 选项字段的选项。 */
     options?: readonly string[];
     unit?: string;
-    /** 填的值：数、文字、选项是字符串，是否是布尔。 */
-    value: string | boolean;
+    /** 填的值：数、文字、选项是字符串，是否是布尔，引用是条目 id 或 null，图片是 `{图片, 说明}` 或 null。 */
+    value: unknown;
+    /** 引用：条目选择器这一次的查找结果（宿主用 `useEntryFind`）与当前值的名字。 */
+    refResults?: EntryResults;
+    refName?: string;
     /** 可选的意图；只有一项时不显示选择。 */
     intents: readonly EditIntent[];
     intent: EditIntent;
@@ -33,10 +38,12 @@ const props = withDefaults(defineProps<{
     saving?: boolean;
     /** 保存不可用（例如累出来的数，输出 16）。“这个值刚刚变了”这类原因不锁：作者再点一次保存就行（输出 29）。 */
     locked?: boolean;
-}>(), {options: () => [], unit: "", preview: null, previewing: false, error: "", recheck: false, saving: false, locked: false});
+}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, preview: null, previewing: false, error: "", recheck: false, saving: false, locked: false});
 
 const emit = defineEmits<{
-    (event: "update:value", value: string | boolean): void;
+    (event: "update:value", value: unknown): void;
+    /** 引用的条目选择器打开或打字：宿主按字段的 `targets` 查。 */
+    (event: "search-ref", query: string): void;
     (event: "update:intent", value: EditIntent): void;
     (event: "save"): void;
     (event: "cancel"): void;
@@ -67,13 +74,7 @@ const onKeydown = (event: KeyboardEvent): void => {
         @keydown="onKeydown"
     >
         <h3 class="mb-2 font-semibold text-[var(--text-main)]">{{ text("edit.heading", {label: props.label}) }}</h3>
-        <div class="flex flex-wrap items-center gap-2">
-            <NumberInput v-if="props.kind === 'number'" class="w-40" size="sm" :aria-label="props.label" :model-value="String(props.value)" @update:model-value="(value: string) => emit('update:value', value)" />
-            <Select v-else-if="props.kind === 'enum'" class="w-48" size="sm" :aria-label="props.label" :options="props.options.map((option) => ({value: option, label: option}))" :model-value="String(props.value)" @update:model-value="(value: string) => emit('update:value', value)" />
-            <Switch v-else-if="props.kind === 'boolean'" size="sm" :aria-label="props.label" :model-value="props.value === true" @update:model-value="(value: boolean) => emit('update:value', value)" />
-            <Textarea v-else class="w-full" :rows="2" :aria-label="props.label" :model-value="String(props.value)" @update:model-value="(value: string) => emit('update:value', value)" />
-            <span v-if="props.unit !== '' && props.kind === 'number'" class="text-[var(--text-muted)]">{{ props.unit }}</span>
-        </div>
+        <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
         <div v-if="props.intents.length > 1" class="mt-2 flex items-center gap-2">
             <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
             <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="props.intent" :options="props.intents.map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />

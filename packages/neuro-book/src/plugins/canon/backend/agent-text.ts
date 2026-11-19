@@ -1,0 +1,179 @@
+/**
+ * Agent 工具（docs/specs/canon/agent-tools.md）给模型看的文字：读取位置与版本、条目、字段、修订与失败怎么写成中文。纯函数，
+ * 不碰世界；字数上限在这里截。
+ */
+
+import {displayText} from "@notnotype/nb-canon/schema";
+import type {ComponentType, EntryView, FieldDeclaration, ReadPosition, Revision} from "@notnotype/nb-canon/schema";
+
+/** 读取结果第一行的版本串：世界版本加读取输入摘要的前 12 位。`canon_write` 原样带回，解析成读取戳（输出 3）。 */
+export const STAMP_INPUT_LENGTH = 12;
+
+export function stampText(version: number, inputDigest: string): string {
+    return `${String(version)}·${inputDigest.slice(0, STAMP_INPUT_LENGTH)}`;
+}
+
+/** 解析版本串；不合写法为 null。只写版本号（没有摘要）也认，这时只比版本。 */
+export function parseStamp(text: string): {readonly version: number; readonly input: string | null} | null {
+    const match = /^\s*(\d+)(?:\s*[·.:]\s*([0-9a-f]{4,}))?\s*$/u.exec(text);
+    if (match === null) return null;
+    return {version: Number(match[1]), input: match[2] ?? null};
+}
+
+/** 读取位置写成一句话：“初值”“第 3 章（ch3）末尾”。章的序号与标题由调用方查好给。 */
+export function positionText(position: ReadPosition, chapter?: {readonly index: number; readonly title: string | null}): string {
+    if (position.kind === "initial") return "初值";
+    // 章表的 `index` 从 1 数。
+    const label = chapter === undefined ? position.chapter : `第 ${String(chapter.index)} 章${chapter.title === null ? "" : `「${chapter.title}」`}（${position.chapter}）`;
+    const line = position.line === undefined || position.line === "main" ? "" : `，线 ${position.line}`;
+    return `${label}${position.edge === "start" ? "开头" : "末尾"}${line}`;
+}
+
+/** 截到上限：超了写明截掉了多少字，怎么读全。 */
+export function clip(text: string, limit: number, more: string): string {
+    if (text.length <= limit) return text;
+    return `${text.slice(0, limit)}\n……（已截断，共 ${String(text.length)} 字；${more}）`;
+}
+
+const VALUE_LIMIT = 300;
+
+function valueText(value: unknown): string {
+    if (value === null || value === undefined) return "未知";
+    const text = displayText(value);
+    return text.length > VALUE_LIMIT ? `${text.slice(0, VALUE_LIMIT)}……（截断）` : text;
+}
+
+/** 一个字段的种类与可取的值：选项、范围、单位、可以指向的种类、语义档。 */
+function kindText(field: FieldDeclaration): string {
+    const parts: string[] = [];
+    switch (field.kind) {
+        case "number":
+            parts.push(field.precision === "semantic" ? "数（语义档：改起点或记一句）" : "数");
+            if (field.min !== undefined) parts.push(`最小 ${String(field.min)}`);
+            if (field.max !== undefined) parts.push(`最大 ${String(field.max)}`);
+            if (field.unit !== undefined) parts.push(`单位 ${field.unit}`);
+            break;
+        case "text":
+            parts.push(field.precision === "semantic" ? "文字（语义档：改起点或记一句）" : "文字");
+            break;
+        case "enum":
+            parts.push(`选项：${(field.options ?? []).join("、")}`);
+            break;
+        case "boolean":
+            parts.push("是否");
+            break;
+        case "ref":
+            parts.push(`引用${field.targets === undefined ? "" : `（可指向：${field.targets.join("、")}）`}`);
+            break;
+        case "list":
+            parts.push(field.keyedBy === "ref" ? `以条目为键的列表${field.targets === undefined ? "" : `（键可指向：${field.targets.join("、")}）`}` : "列表（元素要有名字 label）");
+            if (field.item !== undefined && field.item.length > 0) parts.push(`元素的字段：${field.item.map((item) => `${item.label === item.id ? item.id : `${item.label}（${item.id}）`}`).join("、")}`);
+            break;
+        case "image":
+            parts.push("图片 {图片: 作品内路径, 说明}");
+            break;
+        default:
+            parts.push(field.kind);
+    }
+    return parts.join("；");
+}
+
+export const LIST_ROWS = 20;
+
+/** 一个条目的字段：每个设定组一节，每个字段一行；列表每个元素一行，最多 `LIST_ROWS` 行。 */
+export function fieldsText(view: EntryView, declarations: Readonly<Record<string, readonly FieldDeclaration[]>>, components: readonly ComponentType[], field?: string): string {
+    const lines: string[] = [];
+    for (const [namespace, data] of Object.entries(view.namespaces)) {
+        const type = components.find((candidate) => candidate.namespace === namespace);
+        const fields = declarations[namespace] ?? [];
+        lines.push(`【${type?.label ?? namespace}】（设定组 ${namespace}${data.readOnly === undefined ? "" : "，只读"}）`);
+        for (const declaration of fields) {
+            const path = `${namespace}.${declaration.id}`;
+            if (field !== undefined && field !== path) continue;
+            const state = data.fields[declaration.id];
+            const name = declaration.label === declaration.id ? declaration.id : `${declaration.label}（${declaration.id}）`;
+            if (declaration.kind === "list") {
+                const items = Array.isArray(state?.value) ? (state.value as Array<Record<string, unknown>>) : [];
+                lines.push(`- ${name}｜${kindText(declaration)}｜${String(items.length)} 项`);
+                const limit = field === undefined ? LIST_ROWS : Number.POSITIVE_INFINITY;
+                for (const item of items.slice(0, limit)) {
+                    const subs = (declaration.item ?? []).map((sub) => `${sub.label}=${valueText(item[sub.id])}`).join("，");
+                    lines.push(`  - [${String(item.id)}] ${typeof item.label === "string" ? item.label : ""}${subs === "" ? "" : `｜${subs}`}`);
+                }
+                if (items.length > limit) lines.push(`  - 还有 ${String(items.length - limit)} 项（用 field: "${path}" 读全）`);
+                continue;
+            }
+            const incomplete = state?.incomplete === undefined ? "" : "（不完整）";
+            lines.push(`- ${name} = ${valueText(state?.value)}${incomplete}｜${kindText(declaration)}`);
+        }
+    }
+    if (view.upcoming.length > 0) lines.push(`以后才启用的设定组：${view.upcoming.map((item) => item.namespace).join("、")}`);
+    if (view.removedComponents !== undefined && view.removedComponents.length > 0) lines.push(`去掉过的设定组（可以再加回来）：${view.removedComponents.map((item) => components.find((candidate) => candidate.id === item.type)?.label ?? item.type).join("、")}`);
+    return lines.join("\n");
+}
+
+/** 修订带来的变化：前 20 处值的改前改后，加套不上的变更数与待处理的增减。 */
+export function impactText(impact: Revision["impact"], names: (entry: string) => string): string {
+    const lines = impact.values.slice(0, 20).map((value) => `- ${names(value.at.entry)} ${value.at.path}：${valueText(value.before)} → ${valueText(value.after)}`);
+    if (impact.values.length > 20) lines.push(`- 另有 ${String(impact.values.length - 20)} 处`);
+    if (impact.broken.length > 0) lines.push(`- 这次让后面 ${String(impact.broken.length)} 条剧情变更套不上（进了待处理）`);
+    if (impact.pendingAdded.length > 0) lines.push(`- 新出现 ${String(impact.pendingAdded.length)} 项待处理`);
+    if (impact.pendingResolved.length > 0) lines.push(`- 消掉 ${String(impact.pendingResolved.length)} 项待处理`);
+    return lines.join("\n");
+}
+
+/** 一条失败写成“码、为什么、该怎么改”。`op` 是第几项（从 1 数，给模型看）。 */
+export function failureText(failure: {readonly code: string} & Record<string, unknown>): string {
+    const at = typeof failure.op === "number" ? `第 ${String(failure.op + 1)} 项：` : "";
+    switch (failure.code) {
+        case "stale-read": {
+            const revisions = (failure.revisions as Array<{title: string; by: {kind: string}}> | undefined) ?? [];
+            const between = revisions.length === 0 ? "" : `之间的修订：${revisions.slice(0, 5).map((revision) => `“${revision.title}”（${revision.by.kind === "author" ? "作者" : revision.by.kind === "agent" ? "Agent" : revision.by.kind}）`).join("、")}。`;
+            return `stale-read：你读过之后世界变了${failure.inputChanged === true ? "（读取的输入变了，例如一章讲哪条线）" : ""}。${between}用 canon_read 重读，再带新的 version 写。`;
+        }
+        case "version-conflict":
+            return "version-conflict：要改的条目在你读过之后被改过。用 canon_read 重读再写。";
+        case "value-conflict":
+            return `${at}value-conflict：读到的值已经不是现在的值（现在是 ${valueText(failure.current)}）。重读再写。`;
+        case "accumulated-value":
+            return `${at}accumulated-value：这个值是几笔累出来的，或是有事件的语义档，不能按“改设定”直接改。改用 intent: "story" 记一笔（op: "add" 或 "note"），或用 canon_read 的 show: ["origins"] 找到那一笔再改。`;
+        case "incomplete-field":
+            return `${at}incomplete-field：这个字段在这个位置不完整，不能按“改设定”改。改用 intent: "story" 赋一个值。`;
+        case "field-unavailable":
+            return `${at}field-unavailable：这个字段在这个位置不可用（设定组没启用、去掉了、只读或类型不在）。先 addComponent，或换个位置。`;
+        case "intent-not-allowed":
+            return "intent-not-allowed：初值上不能记剧情变化。给 at 一个章，或改用 intent: \"setting\"。";
+        case "result-mismatch":
+            return `${at}result-mismatch：写进去以后读到的不是你要的值（读到 ${valueText(failure.got)}）。看一下这个字段的来历再改。`;
+        case "validation-failed": {
+            const problems = ((failure.problems as Array<{code: string; path?: string; message: string; reason?: string}> | undefined) ?? []).slice(0, 5);
+            return `validation-failed：${problems.map((problem) => `${problemAt(problem.path)}${problem.code}（${PROBLEM_HINTS[problem.code] ?? problem.message}）`).join("；")}`;
+        }
+        case "busy":
+            return "busy：有人正在独占写入。稍后再试，不要重复发。";
+        case "world-read-only":
+        case "write-unknown":
+            return `${failure.code}：世界现在只读。告诉作者。`;
+        default:
+            return `${failure.code}：${typeof failure.detail === "string" ? failure.detail : "写入没有成功"}`;
+    }
+}
+
+function problemAt(path: string | undefined): string {
+    const match = path === undefined ? null : /^ops\[(\d+)\]$/u.exec(path);
+    return match === null ? "" : `第 ${String(Number(match[1]) + 1)} 项 `;
+}
+
+const PROBLEM_HINTS: Readonly<Record<string, string>> = {
+    "element-from-change": "这一项是某章的剧情变更加的或改过的，不能按“改设定”改或去掉；改用 intent: \"story\"",
+    "created-in-batch": "这一批新建的东西，初值要写在建它的那一项里",
+    "duplicate-address": "同一批里两项改了同一处，合成一项",
+    "op-not-in-intent": "add、note 只能在 intent: \"story\" 里用",
+    "order-exhausted": "两个兄弟之间放不下了，先把别的兄弟挪开",
+    "replace-not-found": "要替换的文字在当前值里没找到",
+    "replace-not-unique": "要替换的文字出现了不止一次，给更长、唯一的一段",
+    "type-mismatch": "值的类型不对",
+    "constraint-violated": "超出了字段的范围",
+    "ref-invalid": "引用的条目不存在、已删除或种类不对",
+    "unknown-field": "没有这个字段",
+};

@@ -11,16 +11,9 @@
 import type {DelegatedRemoteAccess} from "@notnotype/nb-runtime/plugins";
 import type {RemoteResult, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
-import {CANON_BUDGET_BYTES, canonWorldContract, encodedBytes} from "../shared/contracts";
-import type {CanonClient, CanonEvent, CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult} from "../shared/contracts";
+import {CANON_BUDGET_BYTES, canonWorldContract, encodedBytes, fromRemote, type RemoteRaw} from "../shared/contracts";
+import type {CanonClient, CanonEvent, CanonInput, CanonMethod, CanonOutputs, CanonResult} from "../shared/contracts";
 
-type Raw = {readonly ok: true; readonly value: unknown} | {readonly ok: false; readonly code: string; readonly detail?: unknown; readonly cause?: unknown};
-
-function fromRemote<T>(result: Raw): CanonResult<T> {
-    if (result.ok) return {ok: true, value: result.value as T};
-    if (result.code === "canon") return {ok: false, failure: result.detail as CanonFailure};
-    return {ok: false, failure: {code: result.code, ...(result.detail === undefined ? {} : {detail: result.detail}), ...(result.cause === undefined ? {} : {cause: result.cause})}};
-}
 
 /**
  * `access` 在每次调用时取：调用方身份要等按调用方的门面签发完才能用来委托（工厂里直接用得到 `denied`）。没有绑定项目时
@@ -33,7 +26,7 @@ export function createCanonClient(access: (() => DelegatedRemoteAccess) | null):
     const call = async <M extends CanonMethod>(method: M, input: CanonInput<M>): Promise<CanonResult<CanonOutputs[M]>> => {
         if (access === null) return unbound;
         if (encodedBytes(input) > CANON_BUDGET_BYTES) return {ok: false, failure: {code: "too-large"}};
-        const invoke = remote()[method] as (input: CanonInput<M>) => Promise<Raw>;
+        const invoke = remote()[method] as (input: CanonInput<M>) => Promise<RemoteRaw>;
         return fromRemote<CanonOutputs[M]>(await invoke(input));
     };
 
