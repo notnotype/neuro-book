@@ -64,6 +64,11 @@ export type {
     SashCollapseState,
 } from "./grid-types";
 
+/* 开发模式的配置检查（Spec `ui/nested-grid` 输出 151） */
+export {
+    setLayoutDevChecks,
+} from "./dev-checks";
+
 /* 尺寸求解对外的常数与类型 */
 export {
     GRID_UNBOUNDED,
