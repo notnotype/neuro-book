@@ -31,6 +31,7 @@
 - 长连接（事件流）在处理器里经 `env.registerEventStream(close)` 登记，否则会拖住排空。
 - 记录诊断用 `@notnotype/nb-runtime/diagnostics` 的 `diagnosticsKey` 服务，不直接写文件或另建日志器。
 - 测试需要额外插件时经 `startServer({plugins})` 注入（见 `src/server/testing/`），产品代码不加测试分支。
+- 产品清单里的插件新增服务端入口时（`src/server/plugins.ts` 的定义表），同步改 `src/server/server.test.ts`：发布与关闭的断言逐个列出插件。服务端把内置插件都列为必需，入口随启动激活，`activationEvents` 不推迟它；只依赖宿主能力、不依赖诊断的入口会先于诊断发布（w00039 t37 的 canon 工具入口，切片里只跑了插件自己的测试，到收口才发现）。
 - 必须最先运行的代码（拍下启动环境、接管进程级处理）与外部包（打包时 `--external` 的包）的导入在同一个 bundle 里时，打包器会把外部包的导入提到文件最前、先于它求值。这类代码放在入口里，其余代码用 `await import` 加载并开代码分割（例子见 `src/server/main.ts`，原因见 [ADR 0036](../../docs/adr/0036-app-package-installs-omp.md)）。
 
 ## 前端
@@ -39,6 +40,7 @@
 - 样式：Tailwind v4（`@tailwindcss/vite`）一份引擎，入口 `src/web/tailwind.css` 同时编译应用与 nb-ui 源码里的原子类，分层与 reset 的原因见该文件头注释；主题变量来自 nb-ui 主题包。
 - 浏览器基线：Chrome、Edge 119，Firefox 124，Safari 17.4（`vite.config.ts` 的 `BROWSER_TARGETS`）；不使用基线之外的浏览器 API。
 - 测试分两个运行器：纯 TS 模块、后端与窗口合同用 `bun test`；Vue 组件测试命名 `*.dom.test.ts`，由 Vitest 在 happy-dom 里运行（`vitest.config.ts` 沿用 Vite 配置，包内 `bunfig.toml` 让 `bun test` 跳过它们）。需要真实布局的交互（尺寸、拖放、滚动）走 Playwright（`e2e/`）。
+- 改了浏览器代码的导入（引别的插件、引包的入口或子路径）就跑一次 `bun test src/architecture.test.ts`，它也查 `.vue`：前端改动常只跑 dom 测试与类型检查，这两样都查不出导入方向；从 nb-canon 根入口取东西这类问题要到 Vite 开发服务（Lab、e2e）才暴露成模块加载失败（w00039 t37 的图片输入；t31 剧情页从 canon 的 `shared/reads` 取常量，到 t37 收口才被拦下）。
 - `bun test` 不能导入 `.vue`：Bun 测试会导入的模块（例如工作台交出的根界面）用 `defineComponent` 与渲染函数写。
 - 插件的浏览器入口（含它在后端类型检查范围内的引用链）引前端包时，只引不带 DOM、不带编辑内核的入口；带 DOM 的部分放进按需加载的 `.vue`：后端类型检查对 `.vue` 只看通配声明（`src/types/vue-sfc.d.ts`），入口里静态或动态 `import()` 引到的包源码都会被展开检查。例子见 `nbook.markdown` 的 `web/components/MarkdownHosted.vue`。
 - `vite.config.ts` 关闭了依赖发现、预构建清单写死（依赖发现进行中时 Vite 的 `close()` 不结算，开发命令停止时会卡住）；页面直接或经 nb-ui 用到新的第三方包，或已列入包的新子路径（例如 `typebox/compile`）时加进 `optimizeDeps.include`：漏列的 CommonJS 模块在开发模式加载失败，漏列的子路径不进预构建、首次加载按需打包，e2e 曾因此间歇失败。
