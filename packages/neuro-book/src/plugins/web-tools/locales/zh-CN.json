@@ -49,7 +49,7 @@
     "failure": {
         "no-key": "还没有密钥",
         "credentials-unavailable": "密钥文件读写失败",
-        "invalid-value": "填写的值不合要求：{{detail}}",
+        "invalid-value": "这不像一把 API 密钥：中间不能有空格、换行、引号或中文，也不能超过 512 个字符",
         "invalid-request": "请求不合要求",
         "auth": "DeepSeek 不认这把密钥",
         "quota": "DeepSeek 账户余额不足",

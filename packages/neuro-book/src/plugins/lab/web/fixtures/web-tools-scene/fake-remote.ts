@@ -15,7 +15,8 @@ export interface FakeWebRemoteOptions {
     readonly unreadable?: boolean;
     /** `status` 一直不答（看“读取中”）。 */
     readonly neverLoads?: boolean;
-    readonly check?: WebCheckResult | "hang" | "unknown";
+    /** 检测的结局：给定的结果，`"hang"` 一直挂着，`"unknown"` 结果未知，`"unavailable"` 只有检测时入口没在运行。 */
+    readonly check?: WebCheckResult | "hang" | "unknown" | "unavailable";
 }
 
 /** 写方法失败的方式：密钥文件写不进去，或链路断了、结果未知；`null` 照常写。 */
@@ -71,6 +72,7 @@ export function createFakeWebRemote(options: FakeWebRemoteOptions = {}): FakeWeb
             if (options.unavailable === true) return unavailable;
             if (options.check === "hang") return never();
             if (options.check === "unknown") return {ok: false as const, code: "unknown-outcome" as const, detail: "Lab 场景：连接断了"};
+            if (options.check === "unavailable") return unavailable;
             if (key === null) return {ok: true as const, value: {ok: false, code: "no-key"} satisfies WebCheckResult};
             return {ok: true as const, value: options.check ?? ({ok: true} satisfies WebCheckResult)};
         },

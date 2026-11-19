@@ -134,6 +134,15 @@ describe("失败的归类与详情（输出 10、12）", () => {
         expect(await search("小说")).toEqual({ok: false, code: "bad-response", status: 200});
     });
 
+    it("连不上服务：unreachable", async () => {
+        // 先占一个端口再关掉，这个地址上就没有人听。
+        const closed = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: () => new Response("")});
+        const address = `http://127.0.0.1:${String(closed.port)}`;
+        closed.stop(true);
+        const offline = createDeepSeekProvider(() => address, {fetch, now: () => clock, sleep: async () => undefined});
+        expect(await offline.search({query: "小说", count: 1}, KEY, scope())).toMatchObject({ok: false, code: "unreachable"});
+    });
+
     it("不跟随重定向：307 只发一次，按失败交回（输出 10）", async () => {
         fake.script("/v1/tools/search", {status: 307, json: {}, headers: {location: "/v1/tools/search"}});
         expect(await search("小说")).toMatchObject({ok: false, code: "failed", status: 307});

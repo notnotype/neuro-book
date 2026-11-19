@@ -128,17 +128,17 @@ export function wrapLongLines(markdown: string, limit: number = ARCHIVE_LINE_LIM
 const MESSAGES: Readonly<Record<WebFailureCode, string>> = {
     "no-key": "没有 DeepSeek 的 API 密钥：到设置窗口的“搜索与网页”页填写。",
     "credentials-unavailable": "读不了网页工具的密钥文件：到设置窗口的“搜索与网页”页重新填写密钥会覆盖它。",
-    "invalid-request": "请求不合要求。",
+    "invalid-request": "请求不合要求：按详情改参数再试。",
     "auth": "DeepSeek 不认这把密钥：检查设置窗口“搜索与网页”页的密钥。",
-    "quota": "DeepSeek 账户余额不足。",
+    "quota": "DeepSeek 账户余额不足：充值后再试。",
     "rate-limited": "DeepSeek 限流了，稍后再试。",
-    "rejected": "DeepSeek 拒绝了这个请求。",
-    "not-found": "读不到这个网页。",
+    "rejected": "DeepSeek 拒绝了这个请求：换个网址或查询再试。",
+    "not-found": "读不到这个网页：换个网址再试。",
     "unreachable": "连不上 DeepSeek，检查网络。",
     "timeout": "没在时限内完成（搜索 20 秒、读取 45 秒）。在 eval 里批量读时，用 eval 的 timeout 参数把单元时限调大。",
-    "too-large": "响应太大，超过了读取上限。",
+    "too-large": "响应太大，超过了读取上限：换个网址再试。",
     "bad-response": "DeepSeek 的响应解析不了，稍后再试。",
-    "failed": "DeepSeek 出错了。",
+    "failed": "DeepSeek 出错了：稍后再试，原因看详情。",
 };
 
 export function failureText(code: WebFailureCode, detail?: string, status?: number): string {

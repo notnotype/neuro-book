@@ -137,19 +137,23 @@ describe("SearchSettingsPage", () => {
     it("只读：网页工具没运行时写一句说明、控件停用；writable 为假时控件停用（输出 7）", async () => {
         const readonly = render({unavailable: true});
         await waitUntil("只读", () => readonly.wrapper.find("[data-search-readonly]").exists() || undefined, {timeoutMs: 10_000});
+        expect(readonly.wrapper.get("[data-search-readonly]").text()).toBe("网页工具没有运行，这一页暂时不能修改。");
         expect(readonly.input().element.disabled).toBe(true);
-        // 没取到状态：不说“未设置”（输出 2）。
+        expect(readonly.checkButton().element.disabled).toBe(true);
+        // 没取到状态：不说“未设置”（输出 2）；原因写在顶上。
         expect(readonly.input().attributes("placeholder")).toBe("读取中");
 
         const locked = render({hasKey: true}, {writable: false});
         await waitUntil("已设置", () => locked.input().attributes("placeholder") === "已设置" || undefined, {timeoutMs: 10_000});
         expect(locked.input().element.disabled).toBe(true);
         expect(locked.checkButton().element.disabled).toBe(true);
+        expect(locked.wrapper.get<HTMLButtonElement>("[data-key-clear]").element.disabled).toBe(true);
     });
 
     it("密钥文件读不了：顶上写一句，密钥框按未设置画、照常可写（输出 2、7）", async () => {
         const {wrapper, input} = render({unreadable: true});
         await waitUntil("提示", () => wrapper.find("[data-search-keys-unreadable]").exists() || undefined, {timeoutMs: 10_000});
+        expect(wrapper.get("[data-search-keys-unreadable]").text()).toBe("密钥文件读不了。在下面重新填写密钥会覆盖它。");
         expect(input().element.disabled).toBe(false);
         expect(input().attributes("placeholder")).toBe("还没有填写");
     });
@@ -173,8 +177,11 @@ describe("SearchSettingsPage", () => {
 
         const failed = render({hasKey: true, check: {ok: false, code: "auth", detail: "bad"}});
         await waitUntil("已设置", () => !failed.checkButton().element.disabled || undefined, {timeoutMs: 10_000});
+        expect(failed.wrapper.text()).toContain("会发一次搜索，按次计费。");
         await failed.checkButton().trigger("click");
         await waitUntil("失败", () => failed.wrapper.get("[data-search-check-result]").text() === "检测没通过：DeepSeek 不认这把密钥" || undefined);
+        // 失败了可以再点。
+        expect(failed.checkButton().element.disabled).toBe(false);
 
         const notRun = render({hasKey: true, check: "unknown"});
         await waitUntil("已设置", () => !notRun.checkButton().element.disabled || undefined, {timeoutMs: 10_000});
@@ -182,6 +189,12 @@ describe("SearchSettingsPage", () => {
         await waitUntil("没检成", () => notRun.result().text() !== "" || undefined);
         // 检测不保存东西，结果未知时不借写入的说法。
         expect(notRun.result().text()).toBe("没检成：连接断了，不确定检测有没有发出去");
+
+        const gone = render({hasKey: true, check: "unavailable"});
+        await waitUntil("已设置", () => !gone.checkButton().element.disabled || undefined, {timeoutMs: 10_000});
+        await gone.checkButton().trigger("click");
+        await waitUntil("没检成", () => gone.result().text() !== "" || undefined);
+        expect(gone.result().text()).toBe("没检成：网页工具没有运行");
     });
 
     it("第一次填写：框里有输入时“检测”就能点；失焦写入后紧接着点，检测排在写入后面（输出 8）", async () => {

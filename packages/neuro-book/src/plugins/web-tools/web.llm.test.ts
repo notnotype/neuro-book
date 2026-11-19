@@ -30,7 +30,10 @@ describe.skipIf(config === null)("真实 DeepSeek 接口", () => {
             expect(hit.title.length).toBeGreaterThan(0);
             expect(hit.summary.length).toBeGreaterThan(0);
             expect(typeof hit.score).toBe("number");
+            // 日期取 `date`、站点取 `site_name`：有的话是非空文字。
+            for (const value of [hit.date, hit.site]) if (value !== undefined) expect(value.length).toBeGreaterThan(0);
         }
+        expect(result.value.some((hit) => hit.date !== undefined || hit.site !== undefined)).toBe(true);
     }, 40_000);
 
     it("读取：交回标题与 Markdown 正文", async () => {

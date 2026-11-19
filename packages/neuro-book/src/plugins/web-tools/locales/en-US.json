@@ -49,7 +49,7 @@
     "failure": {
         "no-key": "No key yet",
         "credentials-unavailable": "The key file couldn't be read or written",
-        "invalid-value": "The value isn't valid: {{detail}}",
+        "invalid-value": "This doesn't look like an API key: it can't contain spaces, line breaks, quotes or non-ASCII characters, or be longer than 512 characters",
         "invalid-request": "The request isn't valid",
         "auth": "DeepSeek rejected this key",
         "quota": "The DeepSeek account is out of balance",
