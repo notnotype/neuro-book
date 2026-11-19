@@ -554,12 +554,27 @@
         "empty": "No matching entries",
         "failed": "Search failed: {{reason}}",
         "create": "New “{{name}}”",
-        "excluded": "Not available"
+        "excluded": "Not available",
+        "alias": "alias: {{alias}}"
     },
     "imageInput": {
         "path": "Image path",
         "pathPlaceholder": "Path inside the project, e.g. images/star.png",
         "caption": "Caption",
         "badPath": "Use a path relative to the project: no scheme, no leading /, no .., not under .nbook"
+    },
+    "move": {
+        "title": "Move “{{name}}”",
+        "confirm": "Move",
+        "parent": "Parent",
+        "top": "Top level",
+        "self": "This entry itself",
+        "folder": "Group",
+        "kind": "Kind",
+        "order": "Order",
+        "keep": "Keep position",
+        "first": "First in this level",
+        "notSameAs": "None",
+        "saved": "Move {{name}}"
     }
 }

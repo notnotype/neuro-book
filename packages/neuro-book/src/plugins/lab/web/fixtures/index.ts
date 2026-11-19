@@ -16,6 +16,7 @@ import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
 import type LineSelect from "nbook/plugins/canon/web/components/LineSelect.vue";
 import type EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue";
 import type ImageInput from "nbook/plugins/canon/web/components/ImageInput.vue";
+import type MoveDialog from "nbook/plugins/canon/web/components/MoveDialog.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
 import type AgentNotice from "nbook/plugins/canon/web/components/AgentNotice.vue";
@@ -1856,6 +1857,15 @@ function canonEntryPageFixtures() {
                 {id: "bad-path-english", label: "英文界面", input: {props: {}, model: {modelValue: {图片: "/abs/star.png", 说明: "silver hair"}}}},
             ],
             load: async () => (await import("./ImageInputFixture.vue")).default,
+        }),
+        defineLabFixture<typeof MoveDialog>({
+            component: "MoveDialog",
+            scenes: [
+                {id: "sample", label: "挂在学院下面、第 2 章出场", input: {props: {entry: {id: "e1", name: "星瑕"}, parentResults: IDLE, sameAsResults: IDLE, chapters: [{id: "1", index: 1}, {id: "2", index: 2}]}, model: {open: true, draft: {parent: "e2", parentName: "学院", folder: "人物", kind: "人物", order: "keep" as const, appears: "2", sameAs: null, sameAsName: ""}}}},
+                {id: "failed", label: "内核拒收：成环", input: {props: {entry: {id: "e1", name: "星瑕"}, parentResults: IDLE, sameAsResults: IDLE, error: "不能挂到自己的下层条目下面"}, model: {open: true, draft: {parent: null, parentName: "", folder: "人物", kind: "人物", order: "first" as const, appears: null, sameAs: null, sameAsName: ""}}}},
+                {id: "sample-english", label: "英文界面", input: {props: {entry: {id: "e1", name: "Xia"}, parentResults: IDLE, sameAsResults: IDLE}, model: {open: true, draft: {parent: null, parentName: "", folder: "People", kind: "Person", order: "keep" as const, appears: null, sameAs: null, sameAsName: ""}}}},
+            ],
+            load: async () => (await import("./MoveDialogFixture.vue")).default,
         }),
         defineLabFixture<typeof OriginList>({
             component: "OriginList",

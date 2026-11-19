@@ -554,12 +554,27 @@
         "empty": "没有匹配的条目",
         "failed": "查找失败：{{reason}}",
         "create": "新建“{{name}}”",
-        "excluded": "不能选"
+        "excluded": "不能选",
+        "alias": "别名：{{alias}}"
     },
     "imageInput": {
         "path": "图片的路径",
         "pathPlaceholder": "作品里的路径，例如 图片/星瑕.png",
         "caption": "说明",
         "badPath": "路径要写作品里的相对路径：不带协议、不以 / 开头、没有 ..、不在 .nbook 下"
+    },
+    "move": {
+        "title": "移动“{{name}}”",
+        "confirm": "移动",
+        "parent": "放在谁下面",
+        "top": "最上面一层",
+        "self": "就是它自己",
+        "folder": "分组",
+        "kind": "种类",
+        "order": "顺序",
+        "keep": "保持原位",
+        "first": "放在这一层最前",
+        "notSameAs": "不是",
+        "saved": "移动{{name}}"
     }
 }

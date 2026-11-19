@@ -501,6 +501,31 @@ describe("写入", () => {
         await waitUntil("恢复了", () => wrapper.find("[data-entry-aliases]").exists());
     });
 
+    it("移动到……：上级用条目选择器按名字找，确认后条目挂到它下面（一次改几处的 place）", async () => {
+        const {other, open} = await setup();
+        const group = person("学院");
+        const star = person("星瑕");
+        const ids = await publish(other.canon, [group, star]);
+        const {wrapper} = await open(ids[star.id]!);
+        await waitUntil("页头", () => wrapper.find("h1").exists());
+        wrapper.findComponent(EntryPage).vm.$emit("move");
+        await waitUntil("移动对话框", () => document.body.querySelector("[data-move-dialog]") !== null);
+        const picker = document.body.querySelector<HTMLInputElement>("[data-move-dialog] input[role='combobox']")!;
+        picker.focus();
+        picker.click();
+        picker.value = "学院";
+        picker.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("找到学院", () => [...document.body.querySelectorAll("[role='option']")].some((option) => option.textContent?.includes("学院")));
+        await waitUntil("高亮落在学院", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("学院") === true);
+        picker.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("选上了", () => picker.value === "学院");
+        [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "移动")!.click();
+        await waitUntil("挂到学院下面", async () => {
+            const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
+            return stored.ok && (stored.value.object as Entry).parent === ids[group.id];
+        });
+    });
+
     it("累出来的数：写“这个数是几笔累出来的”、保存不可用；记一笔精确档以后值卡少了、流水多了一行", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

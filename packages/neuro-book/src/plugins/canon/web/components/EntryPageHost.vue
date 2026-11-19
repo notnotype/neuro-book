@@ -7,7 +7,7 @@
 import {computed, defineComponent, h, nextTick, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
-import type {EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
+import type {Entry, EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {Dialog, Select} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
@@ -40,6 +40,9 @@ import {addressKey} from "./entry-text";
 import FieldsDataView from "./FieldsDataView.vue";
 import AgentNotice from "./AgentNotice.vue";
 import NoticeBar from "./NoticeBar.vue";
+import MoveDialog from "./MoveDialog.vue";
+import type {MoveDraft} from "./move-dialog";
+import {useEntryFind} from "./entry-picker";
 import OriginList from "./OriginList.vue";
 import PlotList from "./PlotList.vue";
 
@@ -358,6 +361,46 @@ const confirmAdd = async (): Promise<void> => {
         state.tab = `${DATA}${componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? ""}`;
     }
 };
+// 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
+const finder = (query: string) => props.client.call("findEntries", {query, position: position.value, limit: 20}).then((found) => (found.ok ? {ok: true as const, items: found.value.items.map((item) => ({id: item.id, name: item.name, kind: item.kind, ...(item.appeared ? {} : {note: port.t(text("entries.unappeared"))}), ...(item.matchedAlias === undefined ? {} : {note: port.t(text("entryPicker.alias", {alias: item.matchedAlias}))})}))} : {ok: false as const, reason: port.t(failureText(found.failure).text)}));
+const parentFind = useEntryFind(() => finder);
+const sameAsFind = useEntryFind(() => finder);
+const moveOpen = shallowRef(false);
+const moveDraft = shallowRef<MoveDraft | null>(null);
+let moveFrom: MoveDraft | null = null;
+const openMove = async (): Promise<void> => {
+    actionError.value = "";
+    const stored = await props.client.call("object", {ref: {kind: "entry", id: props.id}});
+    const raw = stored.ok ? (stored.value.object as Entry | null) : null;
+    if (raw === null) {
+        actionError.value = port.t(failureText(stored.ok ? {code: "version-conflict"} : stored.failure).text);
+        return;
+    }
+    moveFrom = {parent: raw.parent, parentName: entry.value?.ancestors?.at(-1)?.name ?? "", folder: raw.folder, kind: raw.type, order: "keep", appears: raw.appears?.kind === "chapter" ? raw.appears.chapter : null, sameAs: raw.sameAs ?? null, sameAsName: entry.value?.sameAs?.name ?? ""};
+    moveDraft.value = moveFrom;
+    moveOpen.value = true;
+};
+const confirmMove = async (): Promise<void> => {
+    const draft = moveDraft.value;
+    const from = moveFrom;
+    if (draft === null || from === null) return;
+    const op: Extract<EntryOp, {op: "place"}> = {
+        op: "place",
+        entry: props.id,
+        ...(draft.parent === from.parent ? {} : {parent: draft.parent}),
+        ...(draft.folder === from.folder ? {} : {folder: draft.folder}),
+        ...(draft.kind === from.kind ? {} : {kind: draft.kind}),
+        ...(draft.order === "first" ? {after: null} : {}),
+        ...(draft.appears === from.appears ? {} : {appears: draft.appears === null ? null : {kind: "chapter" as const, chapter: draft.appears, key: 0}}),
+        ...(draft.sameAs === from.sameAs ? {} : {sameAs: draft.sameAs}),
+    };
+    if (Object.keys(op).length === 2) {
+        moveOpen.value = false;
+        return;
+    }
+    if (await runEntries([op], port.t(text("move.saved", {name: view.value?.name ?? ""})))) moveOpen.value = false;
+};
+
 // 去掉当前数据分页这组设定：先确认，数据留着。
 const removeOpen = shallowRef(false);
 const removableGroup = computed(() => (dataNamespace.value === null ? "" : typeLabel(view.value?.namespaces[dataNamespace.value]?.type ?? "")));
@@ -495,6 +538,7 @@ const setPosition = (value: string): void => {
             @restore="restore()"
             @add-component="addType = addableTypes[0]?.value ?? ''; addOpen = true; actionError = ''"
             @remove-component="removeOpen = true; actionError = ''"
+            @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"
             @update:position="setPosition"
             @update:planned="(value: boolean) => (state.planned = value)"
@@ -574,6 +618,22 @@ const setPosition = (value: string): void => {
             <Select v-else :aria-label="text('entry.addComponentTitle')" :options="addableTypes" :model-value="addType" @update:model-value="(value: string) => (addType = value)" />
             <p v-if="actionError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ actionError }}</p>
         </Dialog>
+        <MoveDialog
+            v-if="moveDraft !== null"
+            :open="moveOpen"
+            :entry="{id: props.id, name: view?.name ?? ''}"
+            :draft="moveDraft"
+            :parent-results="parentFind.results.value"
+            :same-as-results="sameAsFind.results.value"
+            :chapters="chapters"
+            :saving="acting"
+            :error="actionError"
+            @update:open="(value: boolean) => (moveOpen = value)"
+            @update:draft="(value: MoveDraft) => (moveDraft = value)"
+            @search-parent="parentFind.search"
+            @search-same-as="sameAsFind.search"
+            @confirm="confirmMove()"
+        />
         <Dialog
             :open="removeOpen"
             size="sm"
