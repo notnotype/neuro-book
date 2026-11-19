@@ -1,5 +1,5 @@
 // 对没人经包名导入的导出：(b) 是否在 nb-layout 文档或相关 Spec 里出现；(c) 是否出现在“有人用或有文档”的导出的签名里（类型可达）。
-import ts from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t35-drop-nb-ui/node_modules/typescript/lib/typescript.js";
+import ts from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t36-explicit-exports/node_modules/typescript/lib/typescript.js";
 import {readFileSync, readdirSync} from "node:fs";
 import {join} from "node:path";
 
@@ -19,9 +19,15 @@ const walk = (d: string): void => { for (const e of readdirSync(d, {withFileType
 walk(join(ROOT, "packages/nb-layout"));
 for (const s of ["docs/specs/ui/nested-grid.md", "docs/specs/ui/layout-drag.md", "docs/specs/ui/sortable-list.md"]) { try { docs.push(readFileSync(join(ROOT, s), "utf8")); } catch {} }
 const docText = docs.join("\n");
-const documented = (n: string): boolean => new RegExp(`\`[^\`]*\\b${n}\\b[^\`]*\``).test(docText);
+// 文档判据：名字是一段行内代码的开头（`name`、`name(…)`、`name<…>`、`name.x`），或代码块里从包名导入的名字。
+const spans = [...docText.matchAll(/`([^`\n]+)`/g)].map((m) => m[1]!.trim());
+const imported = new Set([...docText.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+"@notnotype\/nb-layout[^"]*"/gs)].flatMap((m) => m[1]!.split(",").map((x) => x.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]!.trim())));
+const declaredInDocs = new Set([...docText.matchAll(/^\s*export\s+(?:declare\s+)?(?:function|const|type|interface|class)\s+([A-Za-z_]\w*)/gm)].map((m) => m[1]!));
+// 计划里定为内部的（t36 第 2 稿）：不当种子。
+const DEMOTED = new Set(["useSashGesture", "useLayoutText"]);
+const documented = (n: string): boolean => !DEMOTED.has(n) && (imported.has(n) || declaredInDocs.has(n) || spans.some((span) => new RegExp(`^${n}(?![A-Za-z0-9_-])`).test(span)));
 
-const entries = {"@notnotype/nb-layout": join(ROOT, "packages/nb-layout/src/index.ts"), "@notnotype/nb-layout/vue": join(ROOT, "packages/nb-layout/src/vue/index.ts")};
+const entries = {"@notnotype/nb-layout": join(ROOT, "packages/nb-layout/src/index.ts"), "@notnotype/nb-layout/vue": join(ROOT, "packages/nb-layout/src/vue/index.ts"), "@notnotype/nb-layout/text": join(ROOT, "packages/nb-layout/src/vue/text.ts"), "@notnotype/nb-layout/locales": join(ROOT, "packages/nb-layout/src/locales/index.ts")};
 const program = ts.createProgram(Object.values(entries), {module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ES2022, skipLibCheck: true});
 const checker = program.getTypeChecker();
 const symbolOf = new Map<string, ts.Symbol>();
@@ -32,7 +38,7 @@ for (const [m, file] of Object.entries(entries)) {
 const exportedBySymbol = new Map<ts.Symbol, string>();
 for (const [k, s] of symbolOf) exportedBySymbol.set(s, k);
 // 从种子出发，收集声明里引用到的类型名（只看导出过的符号）
-const kept = new Set(rows.filter((r) => r.users || documented(r.name)).map((r) => `${r.mod} ${r.name}`));
+const kept = new Set(rows.filter((r) => (r.users && !DEMOTED.has(r.name)) || documented(r.name)).map((r) => `${r.mod} ${r.name}`));
 const queue = [...kept];
 const reachedBy = new Map<string, string>();
 while (queue.length) {
@@ -57,5 +63,11 @@ while (queue.length) {
 for (const r of rows.filter((x) => !x.users)) {
     const k = `${r.mod} ${r.name}`;
     const why = documented(r.name) ? "文档" : reachedBy.has(k) ? `签名可达（${reachedBy.get(k)!.split(" ")[1]}）` : "内部";
-    console.log(`${r.mod === "@notnotype/nb-layout" ? "." : "./vue"}\t${r.name}\t${why}`);
+    console.log(`${r.mod === "@notnotype/nb-layout" ? "." : r.mod.replace("@notnotype/nb-layout", "")}\t${r.name}\t${why}`);
+}
+
+console.log("\n## 保留清单");
+for (const r of rows) {
+    const k = `${r.mod} ${r.name}`;
+    if (kept.has(k)) console.log(`KEEP\t${r.mod}\t${r.name}\t${r.users ? "有人用" : documented(r.name) ? "文档" : "签名可达"}`);
 }
