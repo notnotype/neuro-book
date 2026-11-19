@@ -219,7 +219,7 @@ owners:
     - 松手、取消与卸载时宿主的回调（`issues`、`gesture-update`、`gesture-cancel` 的监听，`onIssues`）抛出，手势已经结束、高亮与光标已经复原，异常照常冒出去；拖动途中某一帧里抛出，手势照常进行（planned）。只有落账之后的通知抛出时库接住它（交 `reportError`（planned），没有时 `console.error`），提交照样算落账。
 
 141. **主题变量**（planned）：Vue 层读的 CSS 变量都是 `--nb-layout-*`，每处带回退；装了 nb-ui 的宿主经它的桥接取主题的值（[`theme/system`](../theme/system.md) 的“变量体系”），外观与过渡同今天；不装时用回退。输出 35、112 与组件文档里写的 `--motion-layout`、`--layout-card-*` 这类名字是主题写的旧名，库读的是对应的 `--nb-layout-*`。宿主旋钮（`--nb-layout-sash-line-inset` 这类主题不写的）直接设新名，可以设在子树上。
-142. **过渡：缺省时长**（planned）：宿主没给 `--nb-layout-motion-layout` 时（不装 nb-ui、也没自己设），布局过渡按缺省时长走，CSS 过渡与库里等过渡收尾的计时用同一个值；给了解析不出的值（`none`、`calc()`）时当 0，不过渡。系统减少动态效果时 nb-layout 读的时长全部归零，宿主在根上设的时长也压不过（输出 59）。
+142. **过渡：缺省时长**（planned）：宿主没给 `--nb-layout-motion-layout` 时（不装 nb-ui、也没自己设），布局过渡按缺省时长走，CSS 过渡与库里等过渡收尾的计时用同一个值；时长要写成 `ms` 或 `s` 的字面值；写成别的（`none`、`calc()`）时库的计时当 0，`none` 不过渡。系统减少动态效果时 nb-layout 读的时长全部归零，宿主在根上设的时长也压不过（输出 59）。
 143. **文案**（planned）：组件的读屏名称与提示（分隔条、可排序列表）经 `LAYOUT_TEXT_KEY` 注入的翻译函数取；没有注入时用库自带的 `zh-CN` 目录，参数照旧代入（[`ui/i18n`](i18n.md) 输出 8 的例外）。
 ## 状态与转换
 

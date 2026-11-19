@@ -38,6 +38,8 @@
   - 焦点环 `nb-layout-focus-ring`（见下）。
 - **宿主旋钮与 JS 写的变量**同样改名为 `--nb-layout-*`，不经桥接：应用设它们的地方（`WorkbenchDragFeedback.vue`、`WorkbenchSurface.vue` 的 `--sash-line-inset` 子树覆盖与 seam 两个）直接改设新名；`SortableList.md`、`NestedGrid.md` 的说明同改。JS 写在行内的（`--nb-layout-grid-inset`、`--nb-layout-sash-core-*`）读时不要求回退（行内一定先写）。
 - `--radius-sm`：今天是无效值、圆角 0；改成不写这一句（同样是 0），外观不变，记进 Task README。
+- 根上没定义的旧名（开工前核过）：经桥接的旧名今天没定义时整条声明失效、不画，改名后桥接成无效值、落到回退会画出来。静态核对：nb-layout 读的 46 个名字里，经桥接的都在 nb-ui 的 `tokens.css`、`theme.css`（`--font-ui`、`--text-xs`、`--leading-tight`）或配色合同里有定义，只有 `--radius-sm` 没有；配色在运行时写到 `<html>` 上，由真实浏览器探针确认，探针先在改名之前对现状跑一遍。
+- e2e 调样式的写法（开工前核过）：调时长的都先 `emulateMedia({reducedMotion: "no-preference"})`，再往根上加不分层的 `!important`（压过 `layer(base)` 里的普通声明），桥接在根上取到；`lab-drop-sectors.e2e.ts:44`、`workbench-views.e2e.ts:1106` 在 `documentElement` 的行内设旧名，桥接同样取到。只有 `lab-grid-structure.e2e.ts:184` 设在子树上，要改设新名。
 - 自己的样式类 `nb-ui-drop-indicator*`（`DropIndicator.vue`、`DropIndicatorLabel.vue`）与 `nb-ui-drop-feedback*`（`DropFeedbackOverlay.vue` 12 处）改名 `nb-layout-*`；测试、e2e（`editor-area.e2e.ts:908` 的 `.nb-ui-drop-feedback__line` 等）与应用里的选择器一起改，先搜一遍。
 
 ### 变量清单：`packages/nb-layout/src/theme-vars.ts`（第二轮第 5 条）
@@ -53,7 +55,7 @@
 - 主题作者照旧写旧名（`--layout-card-radius` 等），经桥接生效；主题合同（`theme/system.md` 第 2 层）的名字不变。
 - 桥接在根元素上计算：旧名只在根元素上声明时才跟得过去。主题、用户主题、配色、Lab 覆盖都满足；应用与测试里在子树设旧名的几处改设新名（见 Context）。配色放进子树（例如开发者面板的终端）里的 nb-layout 拿到的是根的颜色，写成已知限制。
 - **一致性测试**（放 neuro-book，它同时看得到两个包）：从 `@notnotype/nb-layout` 导入变量清单，用 `import.meta.resolve("@notnotype/nb-ui/tokens.css")` 读桥接（同 `pack.ts` 的先例）：`bridged` 类的每一项在桥接里有一行、映射到清单写的旧名；桥接里没有清单外的 `--nb-layout-*`；回退值只比标量类（时长、圆角、尺寸，`--sash-line-size` 比 `tokens.css` 的 3px），颜色与阴影不比。反向（桥接引用的旧名有定义）由 nb-ui 现有的 `token-consumption.test.ts` 管着。
-- **真实浏览器探针**：一条 e2e（Lab 的 NestedGrid 场景），在 nbook 亮色、nbook 暗色、macos 与减少动效下，逐个读 `bridged` 类新名在根上的计算值：非空，且等于旧名的计算值。它真正查的是“没有别的声明盖过桥接”（桥接按构造相等）。e2e 默认减少动效（`browser-host.e2e.ts:154`），不减少的那组显式 `emulateMedia({reducedMotion: "no-preference"})`。
+- **真实浏览器探针**：一条 e2e（Lab 的 NestedGrid 场景），在 nbook 亮色、nbook 暗色、macos 与减少动效下，逐个读 `bridged` 类新名在根上的计算值：非空，且等于旧名的计算值。它真正查的是“没有别的声明盖过桥接”（桥接按构造相等）。e2e 默认减少动效（`playwright.config.ts:27`），不减少的那组显式 `emulateMedia({reducedMotion: "no-preference"})`。
 
 ### 层级：CSS 变量（ADR 0054 第 3 条）
 
@@ -80,6 +82,7 @@
   缺省实现把目录里的 `{{名字}}` 换成参数，不处理复数。键、目录、`./locales` 子路径都不变；`text.ts` 不再在导入时 `registerDefaultCatalog`（应用的窗口引擎已在 `text-engine.ts:166` 自己登记）。
 - `LAYOUT_TEXT_KEY`、`LayoutTranslate`、`LayoutTextParams`、`useLayoutText` 从 `vue/index.ts` 导出（应用不能深导入），写进 README 的公开面。
 - 应用侧一个帮手（放 `packages/neuro-book/src/web/host/`），两种形式：`provideHostText(provide, port)` 与返回记录的 `hostTextProvides(port)`，同时提供 `TEXT_PORT_KEY` 与 `LAYOUT_TEXT_KEY`（把 nb-layout 的键交给 nb-ui 端口，命名空间 `nb-layout`，每次调用都读端口的当前语言）。改用它的地方：`mount.ts`（三个根共用一处）、`boot.ts` 两个根、Lab 夹具里 `provide(TEXT_PORT_KEY` 的 18 个文件、`shared/testing/text-port.ts` 返回的记录。
+- 端口来源（开工前核过）：`packages/neuro-book/src` 里提供 `TEXT_PORT_KEY` 的 21 处（`mount.ts`、`boot.ts`、Lab 夹具、`shared/testing/text-port.ts`）都来自 `createHostTextEngine`，它登记了 `nb-layout` 的目录（`text-engine.ts:166`），所以帮手把键交给这些端口不会退化成键名。帮手的测试断言经帮手拿到的是文字、不是键。
 - 检查（第二轮第 3 条）：限定 `packages/neuro-book/src` 的非测试源码，认三种写法（`provide(TEXT_PORT_KEY`、`.provide(TEXT_PORT_KEY`、`[TEXT_PORT_KEY`），豁免帮手本身与 `shared/testing`；别的包（nb-ui、nb-form、nb-markdown、nb-agent-ui）的直接提供是合法的，不查。测试文件里直接提供的不改：它们多数不挂 nb-layout 组件，挂了的拿到 zh-CN 缺省目录，和今天的源语言一样。
 - `docs/specs/ui/i18n.md` 输出 8（共享包在导入时登记进 nb-ui）写明 nb-layout 是例外与理由。
 - 别的共享包（nb-form、nb-agent-ui、nb-markdown）各有 `provideDefaultText(locale)`；nb-layout 第一档不加对应的入口，放进它们的子树而宿主没提供适配器时文字是 zh-CN，写成已知限制（第二档换默认英文时一起定）。
@@ -106,8 +109,8 @@
 ## 切片
 
 1. **文案**：`text.ts` 的注入点与缺省实现、应用的 `provideHostText` 与全部调用点、`TEXT_PORT_KEY` 直接提供的检查、`.md` 声明。验证：三个包的类型检查，nb-layout 测试，应用里受影响的测试。
-2. **焦点环与类名**：`global.css` 的焦点环；`nb-ui-drop-indicator*`、`nb-ui-drop-feedback*` 改名与选择器。验证同上。
-3. **变量**：变量清单、改名、回退、层级、JS 读的三处、`global.css` 的减少动效、宿主旋钮与子树覆盖、nb-ui 的桥接与 `pack.ts` 跳过新名；nb-layout 的 dom 测试公共准备设 `0ms`、6 处设旧名的改设新名、`lab-grid-structure.e2e.ts:184` 改设新名；变量扫描、桥接一致性测试；真实浏览器探针。验证：nb-layout、nb-ui、应用的测试与类型检查；Lab 截图对照改前改后（亮色）。
+2. **类名**：`nb-ui-drop-indicator*`、`nb-ui-drop-feedback*` 改名与选择器。验证同上。
+3. **变量与焦点环**：先对现状跑探针的第一版（旧名在根上非空）；变量清单、改名、回退、层级、JS 读的三处、`global.css` 的减少动效与焦点环（焦点环读的四个变量要桥接，所以与桥接同片）、宿主旋钮与子树覆盖、nb-ui 的桥接与 `pack.ts` 跳过新名；nb-layout 的 dom 测试公共准备设 `0ms`、6 处设旧名的改设新名、`lab-grid-structure.e2e.ts:184` 改设新名；变量扫描、桥接一致性测试；真实浏览器探针。验证：nb-layout、nb-ui、应用的测试与类型检查；Lab 截图对照改前改后（亮色）。
 4. **依赖与机检**：`package.json`、收紧 `boundary.test.ts`；文档、Spec、变更记录。
 5. **收口**：并 master、e2e、实现审查、合入。
 
@@ -122,12 +125,14 @@
 | 桥接与回退和 nb-ui 一致 | 桥接一致性测试（标量回退、映射的旧名） |
 | 文案照旧跟语言走 | Splitter、SortableList 的 dom 测试（无注入时用源语言目录；注入时用注入的）；`TEXT_PORT_KEY` 直接提供的检查 |
 | 层级与 nb-ui 一致 | 一致性测试核对桥接与回退等于 `NB_Z_INDEX` |
+| `global.css` 进了构建产物 | 探针里用键盘聚焦可排序列表的把手，读计算样式的外圈阴影不是 `none`（装了 nb-ui 时减少动效那段有没有都一样，证明不了） |
 
 ## 验证
 
 - 每片三个包（nb-layout、nb-ui、应用）的类型检查与受影响的测试。
 - e2e：`workbench-dnd`、`workbench-live-drag`、`workbench-containers`、`editor-area`、`lab-grid-swap`、`lab-grid-panels`、`lab-grid-structure`、`lab-drop-sectors`、`workbench-views`，加新写的探针，共 10 个文件；超过 8 个，`NB_E2E_WIDE` 写明“改了 nb-layout 读的全部变量名，按旧名调样式的文件都要证明经桥接还生效”。开跑前看负载。
 - Lab 截图对照：`NestedGrid` 的交换与落点、`Splitter`、`SortableList`、落点浮层、浮动窗把手的键盘焦点，亮色。
+- 未验证：不装 nb-ui 时减少动效归零（应用与 Lab 都装着 nb-ui，没有不装的真实浏览器宿主）；happy-dom 不认媒体查询。
 
 ## 不做与风险
 
