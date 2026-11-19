@@ -200,7 +200,7 @@ function allocatePanels(panels: readonly SashPanel[], available: number, report?
 
     const rest = Math.max(0, space - rigidTotal - fixedTotal);
     if (weighted.length === 0) {
-        // 剩余留空：`measure` 发 `unabsorbed-space`（`no-weight`），这里不再发一条同义的。
+        // 剩余留空的诊断由 `measure` 发（`unabsorbed-space`，`no-weight`），它知道分支与祖先的收起。
         return assigned;
     }
     const weights = panels.map((panel) => Math.max(0, finite(panel.size, 0)));
@@ -421,7 +421,7 @@ export function shareAxis<T>(children: GridNode<T>[], axis: GridAxis, available:
 }
 
 /**
- * 布局分配：与独立 Splitter 共用 `allocateSashPanels`（`fixed` 像素目标、`weight` 余量、
+ * 布局分配：与独立 Splitter 共用同一份分配（`allocatePanels`：`fixed` 像素目标、`weight` 余量、
  * 收起刚性、最小尺寸不可满足时按比例降级），诊断带分支与轴上下文。
  */
 export function allocateAxis<T>(branch: GridBranch<T>, axis: GridAxis, available: number, sashSize: number | GridSashResolver, issues: GridIssue<GridIssueCode>[]): number[] {

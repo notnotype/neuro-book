@@ -367,6 +367,30 @@ describe("拆分树原语：手势会话的诊断（Spec 输出 139、140）", (
         expect(pointer.finish()?.changes[0]?.target).toMatchObject({a: 170, b: 230});
     });
 
+    it("交叉处的会话里折叠只作用于发起它的那根轴：另一根轴没有收起策略也不报 no-collapse-policy", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("left", "width", 300, 100), collapse: {collapsed: false, collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24}},
+            branch("right", "width", "vertical", 699, [leaf("top", "height", 400, 100), leaf("bottom", "height", 199, 100)]),
+        ]), {sashSize: SASH});
+        const cross = createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: CONTAINER, layout: grid.layout(CONTAINER), sashSize: SASH, sessionId: "cross-collapse", source: "pointer", sashes: [{branchId: "root", index: 0, axis: "width"}, {branchId: "right", index: 0, axis: "height"}]});
+        const preview = cross.toggleCollapsed();
+        expect(preview?.changes.find((change) => change.branchId === "root")?.collapsed).toEqual({left: true});
+        expect(facts(cross.issues).filter((issue) => issue.code === "no-collapse-policy")).toEqual([]);
+    });
+
+    it("折叠没有变化、拖动求解又报了同一条：会话的快照里同一个键只有一条", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            {...leaf("a", "width", 250, 200), collapse: {collapsed: true, collapsedSize: 0, restoreSize: 250, collapseThreshold: 24, expandThreshold: 24}},
+            leaf("b", "width", 300, 150),
+        ]), {sashSize: SASH});
+        const pointer = session(grid, {width: 301, height: 100}, "pointer", [{branchId: "root", index: 0, axis: "width"}]);
+        // 拖过展开阈值（下限 200），能给的只有 150：拖动求解报 no-room-to-restore；折叠也报同一条。
+        pointer.update({x: 250, y: 0});
+        expect(facts(pointer.issues).filter((issue) => issue.code === "no-room-to-restore")).toHaveLength(1);
+        pointer.setCollapsed(false);
+        expect(facts(pointer.issues).filter((issue) => issue.code === "no-room-to-restore")).toHaveLength(1);
+    });
+
     it("交叉处两根轴都装不下：各有一条 range-overflow，id 与轴不同", () => {
         // 两根轴的最小值合计都超过容器：窄容器已降级，拖动不改几何，两根轴各说一次。
         const wide = (id: string, axis: GridAxis): GridLeafInput<string> => ({...leaf(id, axis, 300), minimumSize: {width: 500, height: 300}});

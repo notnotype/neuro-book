@@ -6,9 +6,6 @@ import {createGrid} from "@notnotype/nb-layout";
 import {hiddenRegionsAtZero, isContainerAnchor, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, regionOfStripLeaf, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {Grid, GridBranchInput, GridExtent, GridFailure, GridFloatInput, GridGesturePreview, GridHostIssueCode, GridIssue, GridIssueCode, GridLeafShape, GridNodeInput, GridRect, GridSwap} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-workbench-layout";
-
-/** 网格两路诊断的并集：带 `ok` 的是被拒的提交。 */
-type SurfaceIssue = GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure;
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
@@ -17,6 +14,9 @@ import {cardInset, cardInsetPx, joinedToBar, layoutCardEdges, leafIdsOf, maximiz
 import type {CardEdges, CardSide} from "../shell/adjacency";
 import {layoutContents, panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
 import "./hover-actions.css";
+
+/** 网格两路诊断的并集：带 `ok` 的是被拒的提交。 */
+type SurfaceIssue = GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure;
 
 const ACTIVITY_BAR = "activitybar";
 const STATUS_BAR = "statusbar";

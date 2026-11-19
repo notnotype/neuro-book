@@ -10,6 +10,7 @@
  */
 import {axisOf, branchSashPanels, layoutOf, type GridSashResolver, type SashPanel} from "./grid-geometry";
 import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragSnapState} from "./sash-drag";
+import {issueKey} from "./issue-gate";
 import type {GridSashRef, SashGestureSessionCore} from "./sash-gesture";
 import type {GridAxis, GridBranch, GridBranchResize, GridExtent, GridIssue, GridIssueCode, GridLayoutResult, GridNode} from "./grid-types";
 import type {SplitterGestureCancelReason} from "./splitter-gesture";
@@ -170,7 +171,8 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
     let delta = {x: 0, y: 0};
     let reason: SplitterGestureCancelReason | null = null;
     let changed = false;
-    let pending: {index: number; collapsed: boolean} | null = null;
+    /** 下一次求解要执行的显式折叠：只对发起它的那根轴（`owner`），交叉处另一根轴照常按位移求解。 */
+    let pending: {owner: Owner; index: number; collapsed: boolean} | null = null;
     const owners: Owner[] = [];
     for (const sash of input.sashes) {
         const branch = findBranch(input.root, sash.branchId);
@@ -202,7 +204,7 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
         for (const owner of owners) {
             const current = owner.sizes ?? owner.baseline;
             let collapseIssues: readonly GridIssue<GridIssueCode>[] = [];
-            if (collapseAction !== null) {
+            if (collapseAction !== null && collapseAction.owner === owner) {
                 const collapse = applyCollapse(owner, current, collapseAction);
                 issues.push(...collapse.issues);
                 if (collapse.applied) {
@@ -227,8 +229,10 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
             owner.active = result.active;
             owner.compensated = result.compensated;
             owner.collapsed = {...result.collapsed};
-            owner.issues = [...collapseIssues, ...result.issues];
-            issues.push(...result.issues);
+            // 两处诊断合在一起，同键的只留折叠那一条：快照里同一个键最多一条（Spec 输出 140）。
+            const collapseKeys = new Set(collapseIssues.map(issueKey));
+            owner.issues = [...collapseIssues, ...result.issues.filter((issue) => !collapseKeys.has(issueKey(issue)))];
+            issues.push(...result.issues.filter((issue) => !collapseKeys.has(issueKey(issue))));
         }
         for (const owner of owners) {
             const sizes = owner.sizes ?? owner.baseline;
@@ -308,7 +312,7 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
 
     /** 对某个轴执行一次显式折叠；成功返回预览。 */
     function applyOn(owner: Owner, action: {index: number; collapsed: boolean}): GridGesturePreview<T> | null {
-        pending = action;
+        pending = {owner, ...action};
         const preview = solve().preview;
         if (preview !== null) {
             return preview;

@@ -16,7 +16,7 @@
  *
  * `Grid` 与独立 `Splitter` 共用这一份实现；阈值与记忆尺寸由宿主的收起策略给出。
  */
-import {EPSILON, allocateSashPanels, clampAxis, finite, round, sashPanelBounds, type SashPanel} from "./grid-geometry";
+import {EPSILON, GRID_UNBOUNDED, allocateSashPanels, clampAxis, finite, round, sashPanelBounds, type SashPanel} from "./grid-geometry";
 import {gridIssue} from "./grid-issue";
 import type {GridAxis, GridIssue, GridIssueCode} from "./grid-types";
 
@@ -258,8 +258,11 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
     const usable = total > 0 && boundsFit();
     if (total > 0 && !usable) {
         const {lows, highs} = boundsTotals();
-        const measured = {total, min: lows, max: highs};
-        issues.push(gridIssue("over-constrained", `The effective range (${round(lows)} to ${round(highs)}) cannot hold the branch total ${round(total)}; this drag leaves the geometry unchanged`,
+        // 有面板不设上限时上限合计是哨兵值的和，不是度量：不给 `max`。
+        const bounded = highs < GRID_UNBOUNDED;
+        const measured = {total, min: lows, ...(bounded ? {max: highs} : {})};
+        const range = bounded ? `${round(lows)} to ${round(highs)}` : `at least ${round(lows)}`;
+        issues.push(gridIssue("over-constrained", `The effective range (${range}) cannot hold the branch total ${round(total)}; this drag leaves the geometry unchanged`,
             input.scope === undefined ? {cause: "range-overflow", ...measured} : {cause: "range-overflow", id: input.scope.id, axis: input.scope.axis, ...measured}));
     }
 

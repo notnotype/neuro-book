@@ -57,8 +57,8 @@ export type SashGestureOptions<S, C> = {
     /** 禁用（宿主声明不可调整）时不开始新手势。 */
     disabled?: () => boolean;
     /**
-     * 手势的诊断与被拒的提交（Spec `ui/nested-grid` 输出 139、140）：每批同步交出。它抛出时手势已经结束，异常照常冒出去。
-     * 被拒的提交是失败本身（带 `ok: false`）。
+     * 手势的诊断与被拒的提交（Spec `ui/nested-grid` 输出 139、140）：每批同步交出，被拒的提交是失败本身（带 `ok: false`）。
+     * 松手、取消与卸载时它抛出，手势已经收尾；拖动途中某一帧里抛出，手势照常进行，这一批的键已经记下、这一场不再发。异常都照常冒出去。
      */
     onIssues?: (batch: readonly (GridIssue<GridIssueCode> | GridFailure)[]) => void;
 };
@@ -271,7 +271,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
      * 手势的状态收尾：会话、拖动标记、高亮、悬停与光标。`finish`、`cancel` 都先做完它才调宿主的回调，
      * 所以宿主的回调抛出时手势已经结束（Spec `ui/nested-grid` 输出 140）。
      */
-    function settle(source: "pointer" | "keyboard", hover: "refresh" | "reset" | "keep"): void {
+    function settle(source: "pointer" | "keyboard", hover: "refresh" | "reset"): void {
         binding = null;
         dragging.value = false;
         pointerId = null;
@@ -280,7 +280,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         active.value = new Set();
         if (hover === "reset") {
             resetHover();
-        } else if (hover === "refresh" && source === "pointer") {
+        } else if (source === "pointer") {
             refreshHoverAfterGesture();
         }
     }
@@ -661,13 +661,10 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
             }
         },
         invalidate() {
-            try {
-                if (binding !== null) {
-                    cancel("context-changed");
-                }
-            } finally {
-                resetHover();
+            if (binding !== null) {
+                cancel("context-changed");
             }
+            resetHover();
         },
         dispose: teardown,
     };

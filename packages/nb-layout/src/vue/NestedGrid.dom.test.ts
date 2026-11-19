@@ -633,7 +633,7 @@ describe("手势的诊断只发新增（Spec 输出 140）", () => {
         };
 
         await drag();
-        expect(emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow")).toEqual([{code: "over-constrained", cause: "range-overflow", id: "root", axis: "width", total: 999, min: 1200, max: expect.any(Number)}]);
+        expect(emittedIssues(wrapper).filter((issue) => issue.cause === "range-overflow")).toEqual([{code: "over-constrained", cause: "range-overflow", id: "root", axis: "width", total: 999, min: 1200}]);
         await drag();
         expect(ranges()).toBe(2);
     });

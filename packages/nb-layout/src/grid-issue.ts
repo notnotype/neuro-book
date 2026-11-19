@@ -13,8 +13,9 @@ export type GridIssueParams = {
     "over-constrained":
         | ({cause: "min-total" | "fixed-overflow" | "leaf-min" | "sash-overflow" | "cross-min"} & Measured)
         // 拖动的有效范围装不下分支总量：独立的 `Splitter` 不知道自己在哪个分支，`id` 与 `axis` 由会话给。
-        | {cause: "range-overflow"; id: string; axis: GridAxis; total: number; min: number; max: number}
-        | {cause: "range-overflow"; total: number; min: number; max: number};
+        // `max` 只在所有面板都有上限时给（不设上限的上限是哨兵值，合计没有意义）。
+        | {cause: "range-overflow"; id: string; axis: GridAxis; total: number; min: number; max?: number}
+        | {cause: "range-overflow"; total: number; min: number; max?: number};
     "unabsorbed-space": {cause: "no-weight" | "capped"; id: string; axis: GridAxis; rest: number};
     "conflicting-bounds": {id: string; axis: GridAxis; min: number; max: number};
     "no-collapse-policy": {id: string};
@@ -36,8 +37,11 @@ export function gridIssue<C extends IssueCode>(code: C, message: string, ...para
         return {code, message};
     }
     const rounded: Record<string, GridParamValue> = {};
-    for (const [key, value] of Object.entries(params[0] as Readonly<Record<string, GridParamValue>>)) {
-        rounded[key] = metric(value);
+    for (const [key, value] of Object.entries(params[0] as Readonly<Record<string, GridParamValue | undefined>>)) {
+        // 可选的度量不给时就没有这个键，不留值为 undefined 的键（日志与翻译端口都只认字符串与数字）。
+        if (value !== undefined) {
+            rounded[key] = metric(value);
+        }
     }
     return {code, message, params: rounded};
 }
