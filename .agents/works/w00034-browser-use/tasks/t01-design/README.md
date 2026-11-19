@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-design
-status: planned
-updated: 2026-10-30
+status: active
+updated: 2026-11-19
 ---
 
 # 设计：引擎、浏览器配置与登录态、对外操作的确认、域名范围
