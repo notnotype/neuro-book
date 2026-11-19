@@ -195,4 +195,44 @@ describe("SearchSelect", () => {
         await input(wrapper).trigger("keydown", {key: "Enter"});
         expect(wrapper.emitted("update:modelValue")).toBeUndefined();
     });
+
+    it("远程模式：打开与打字发出搜索词；宿主换来的选项不再按名字筛，名字里不含搜索词的也列出", async () => {
+        const wrapper = await mountSelect({filter: false, options: [], modelValue: ""});
+        await input(wrapper).trigger("click");
+        await flushPromises();
+        expect(wrapper.emitted("search")).toEqual([[""]]);
+        await type(wrapper, "小瑕");
+        expect(wrapper.emitted("search")).toEqual([[""], ["小瑕"]]);
+        // 宿主按别名找到了“星瑕”：名字里没有“小瑕”，照样列出、可以选中。
+        await wrapper.setProps({options: [{value: "e1", label: "星瑕", description: "人物"}]});
+        expect(optionTexts()).toEqual(["星瑕人物"]);
+        await input(wrapper).trigger("keydown", {key: "Enter"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["e1"]]);
+    });
+
+    it("当前值不在选项里时显示 selectedLabel；在选项里时以选项的名字为准", async () => {
+        const wrapper = await mountSelect({filter: false, options: [], modelValue: "e1", selectedLabel: "星瑕"});
+        expect(value(wrapper)).toBe("星瑕");
+        await wrapper.setProps({options: [{value: "e1", label: "星瑕（人物）"}]});
+        expect(value(wrapper)).toBe("星瑕（人物）");
+        await wrapper.setProps({modelValue: ""});
+        expect(value(wrapper)).toBe("");
+    });
+
+    it("清空：已选时有清空按钮，点了发出空串、焦点留在输入框、不打开列表；未选、只读、停用时没有它", async () => {
+        const wrapper = await mountSelect({clearable: true});
+        const button = wrapper.get("button[aria-label='清除选择']");
+        await button.trigger("mousedown");
+        await button.trigger("click");
+        await flushPromises();
+        expect(wrapper.emitted("update:modelValue")).toEqual([[""]]);
+        expect(document.activeElement).toBe(input(wrapper).element);
+        expect(input(wrapper).attributes("aria-expanded")).toBe("false");
+        await wrapper.setProps({modelValue: ""});
+        expect(wrapper.find("button[aria-label='清除选择']").exists()).toBe(false);
+        await wrapper.setProps({modelValue: "gpt", readonly: true});
+        expect(wrapper.find("button[aria-label='清除选择']").exists()).toBe(false);
+        await wrapper.setProps({readonly: false, disabled: true});
+        expect(wrapper.find("button[aria-label='清除选择']").exists()).toBe(false);
+    });
 });
