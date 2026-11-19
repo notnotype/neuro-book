@@ -7,7 +7,8 @@
  */
 
 import type {GridLayerItem, GridPlacementItem, GridRect} from "./grid-rects";
-import type {GridAxis} from "./grid-types";
+import {gridIssue} from "./grid-issue";
+import type {GridAxis, GridIssue} from "./grid-types";
 
 /** 裁切窗：两组外接矩形的四边内缩（px：上、右、下、左）与四个角（CSS 长度：左上、右上、右下、左下）。 */
 export interface GridSwapWindow {
@@ -57,7 +58,7 @@ export interface GridSwapBand {
 export type GridSwapLeavingItem = GridPlacementItem<unknown> & {readonly leaving: true};
 
 export type GridSwapPlan =
-    | {readonly kind: "skip"; readonly reason: string}
+    | {readonly kind: "skip"; readonly issue: GridIssue<"swap-skipped">}
     | {
         readonly kind: "swap";
         readonly band: GridSwapBand;
@@ -129,10 +130,14 @@ export function planSwap(input: {
     // 只认真的离开、真的换上来的：宿主按文档列，被放不下收走的、没呈现出来的分节不在呈现里。
     const leaving = new Set(swap.leaving.filter((id) => sized.has(id) && !present.has(id)));
     const entering = new Set(swap.entering.filter((id) => present.has(id) && !before.has(id)));
-    if (leaving.size === 0) return {kind: "skip", reason: `交换没用上：离开的叶 ${swap.leaving.join("、") || "（空）"} 都不是上一帧有尺寸、这一帧离开的`};
-    if (entering.size === 0) return {kind: "skip", reason: `交换没用上：换上来的叶 ${swap.entering.join("、") || "（空）"} 都不是这一帧新出现的`};
+    if (leaving.size === 0) {
+        return {kind: "skip", issue: gridIssue("swap-skipped", `Swap skipped: none of the leaving leaves (${swap.leaving.join(", ") || "none"}) had a size last frame and left this frame`, {cause: "no-leaving"})};
+    }
+    if (entering.size === 0) {
+        return {kind: "skip", issue: gridIssue("swap-skipped", `Swap skipped: none of the entering leaves (${swap.entering.join(", ") || "none"}) is new this frame`, {cause: "no-entering"})};
+    }
     const busy = [...leaving].find((id) => input.busy.has(id));
-    if (busy !== undefined) return {kind: "skip", reason: `交换没用上：离开的叶 ${busy} 还在别的过渡里`};
+    if (busy !== undefined) return {kind: "skip", issue: gridIssue("swap-skipped", `Swap skipped: leaving leaf ${busy} is still in another transition`, {cause: "busy", id: busy})};
 
     const leavingHome = groupItems(previous, leaving);
     const enteringHome = groupItems(items, entering);

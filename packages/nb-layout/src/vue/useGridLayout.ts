@@ -76,7 +76,7 @@ export function useGridLayout<T>(options: {
         publishedExtent = frozen;
         revision.value += 1;
         if (next.issues.length > 0) {
-            options.onIssues?.(next.issues);
+            options.onIssues?.(next.issues.map((issue) => issue.message));
         }
     }
 

@@ -44,41 +44,36 @@ describe("唯一空间分配：fixed 与 weight", () => {
         expect(sizes).toEqual([340, 740, 400]);
     });
 
+    // 分配降级的诊断由 `allocateAxis` 带上分支与轴发出，见 grid.test.ts 的“诊断”一组。
     it("预算不足时 fixed 先按可缩量压到最小，weight 仍拿到自己的下限", () => {
-        const issues: string[] = [];
         const sizes = allocateSashPanels([
             panel("left", 340, 280, 560, "fixed"),
             panel("editor", 1, 200),
             panel("right", 400, 320, 700, "fixed"),
-        ], 900, issues);
+        ], 900);
         expect(sizes[0]! + sizes[2]!).toBeCloseTo(700, 6);
         expect(sizes[0]!).toBeLessThan(340);
         expect(sizes[0]!).toBeGreaterThanOrEqual(280);
         expect(sizes[2]!).toBeGreaterThanOrEqual(320);
         expect(sizes[1]).toBeCloseTo(200, 6);
-        expect(issues.join()).toContain("装不下固定尺寸");
     });
 
     it("最小尺寸合计超过可用量时按最小值比例降级", () => {
-        const issues: string[] = [];
         const sizes = allocateSashPanels([
             panel("left", 340, 280, 560, "fixed"),
             panel("editor", 1, 200),
             panel("right", 400, 320, 700, "fixed"),
-        ], 700, issues);
+        ], 700);
         expect(sizes.reduce((sum, value) => sum + value, 0)).toBeCloseTo(700, 6);
         expect(sizes[1]).toBeCloseTo(200 * 700 / 800, 6);
-        expect(issues.join()).toContain("约束不可满足");
     });
 
     it("没有 weight 面板时余量留白，不越权填满 fixed", () => {
-        const issues: string[] = [];
         const sizes = allocateSashPanels([
             panel("left", 300, 100, 500, "fixed"),
             panel("right", 400, 100, 500, "fixed"),
-        ], 1000, issues);
+        ], 1000);
         expect(sizes).toEqual([300, 400]);
-        expect(issues.join()).toContain("剩余");
     });
 
     it("超过 fixed 上限的可用空间同样留白", () => {

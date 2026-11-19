@@ -34,7 +34,7 @@ const swap = (leaving: string[], entering: string[], direction: 1 | -1 = 1, extr
 
 function planned(input: Parameters<typeof planSwap>[0]) {
     const plan = planSwap(input);
-    if (plan.kind !== "swap") throw new Error(plan.reason);
+    if (plan.kind !== "swap") throw new Error(plan.issue.message);
     return plan;
 }
 
@@ -108,7 +108,7 @@ describe("宿主列的叶对不上呈现", () => {
         // a1 上一帧就在：不是换上来的。
         expect(planSwap({swap: swap(["a2"], ["a1"]), items: frame("a1"), previous, band: null, now: [], busy: new Set()})).toMatchObject({kind: "skip"});
         const busy = planSwap({swap: swap(["a1", "a2"], ["b1"]), items, previous, band: null, now: [], busy: new Set(["a2"])});
-        expect(busy.kind === "skip" && busy.reason.includes("a2")).toBe(true);
+        expect(busy.kind === "skip" ? busy.issue.params : null).toEqual({cause: "busy", id: "a2"});
     });
 });
 

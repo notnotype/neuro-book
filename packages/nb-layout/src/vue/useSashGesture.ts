@@ -328,7 +328,7 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         }
         const preview = current.session.update(pendingDelta);
         current.onPreview(preview);
-        pushIssues(current.session.issues);
+        pushIssues(current.session.issues.map((issue) => issue.message));
     }
 
     function onPointerDown(event: PointerEvent): void {

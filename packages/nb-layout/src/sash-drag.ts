@@ -16,7 +16,9 @@
  *
  * `Grid` 与独立 `Splitter` 共用这一份实现；阈值与记忆尺寸由宿主的收起策略给出。
  */
-import {EPSILON, allocateSashPanels, clampAxis, finite, sashPanelBounds, type SashPanel} from "./grid-geometry";
+import {EPSILON, allocateSashPanels, clampAxis, finite, round, sashPanelBounds, type SashPanel} from "./grid-geometry";
+import {gridIssue} from "./grid-issue";
+import type {GridAxis, GridIssue} from "./grid-types";
 
 /** 主轴位移的正方向 = 分隔条向右（水平分支）或向下（竖直分支）移动。 */
 
@@ -42,6 +44,8 @@ export type SashDragInput = {
     deltaPx: number;
     /** 上一次求解返回的吸附状态；首帧缺省。 */
     snapState?: SashDragSnapState | null;
+    /** 这根轴所在的分支：只用来给 `range-overflow` 诊断带上 `id` 与 `axis`（Spec `ui/nested-grid` 输出 139）。 */
+    scope?: {readonly id: string; readonly axis: GridAxis};
 };
 
 export type SashDragResult = {
@@ -52,7 +56,7 @@ export type SashDragResult = {
     readonly active: readonly string[];
     /** 相对按下基线真正改变的其它面板（被推着让出空间）。 */
     readonly compensated: readonly string[];
-    readonly issues: readonly string[];
+    readonly issues: readonly GridIssue[];
     /** 下一次求解要带上它的状态（同一场手势内串起来）。 */
     readonly snapState: SashDragSnapState;
 };
@@ -162,7 +166,7 @@ export function solveSashCollapse(input: {
     sashIndex: number;
     index: number;
     collapsed: boolean;
-}): {sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>; issues: readonly string[]} | null {
+}): {sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>; issues: readonly GridIssue[]} | null {
     const panels = input.panels;
     const count = panels.length;
     const sizes = input.sizesPx;
@@ -173,9 +177,9 @@ export function solveSashCollapse(input: {
         return null;
     }
     const panel = panels[input.index]!;
-    const issues: string[] = [];
+    const issues: GridIssue[] = [];
     if (!panel.collapse) {
-        issues.push(`面板 ${panel.id} 没有收起策略，不能折叠`);
+        issues.push(gridIssue("no-collapse-policy", `Panel ${panel.id} has no collapse policy and cannot collapse`, {id: panel.id}));
         return {sizesPx: [...sizes], collapsed: {}, issues};
     }
     const total = sizes.reduce((sum, size) => sum + size, 0);
@@ -191,7 +195,11 @@ export function solveSashCollapse(input: {
     }
     const capacity = capacityFor(sizes, total, input.index, boundsOf);
     if (capacity < targetBounds.low - EPSILON) {
-        issues.push(`面板 ${panel.id} 的恢复空间不足（可用 ${Math.round(capacity)}px），保持收起`);
+        issues.push(gridIssue("no-room-to-restore", `Panel ${panel.id} has ${round(capacity)}px to restore into, below its minimum ${round(targetBounds.low)}; it stays collapsed`, {
+            id: panel.id,
+            available: capacity,
+            required: targetBounds.low,
+        }));
         return {sizesPx: [...sizes], collapsed: {}, issues};
     }
     const remembered = panel.collapse.restoreToShare === true
@@ -216,7 +224,7 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
     if (!Number.isFinite(input.deltaPx)) {
         return null;
     }
-    const issues: string[] = [];
+    const issues: GridIssue[] = [];
     const total = baseline.reduce((sum, size) => sum + size, 0);
     const sashIndex = input.sashIndex;
     const overrides: Record<string, boolean> = {...(input.snapState?.collapsed ?? {})};
@@ -226,11 +234,8 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
     const baselineBoundary = sumSide(sliceIndices(count, sashIndex).left, baseline);
     /** 直接相邻面板在理想边界下的尺寸：正位移让左侧面板变大、右侧面板变小。 */
     const idealSizeOf = (index: number): number => baseline[index]! + (index === sashIndex ? input.deltaPx : -input.deltaPx);
-    /**
-     * 全部面板的有效范围能否装下这个分支的总量（`flip` 是尚未写入的收起覆盖）。
-     * 两侧总量都有可落位的边界时结果才可能逐叶合法且守恒；装不下时按计划拒绝，不产出半更新。
-     */
-    const boundsFit = (flip?: {index: number; collapsed: boolean}): boolean => {
+    /** 全部面板有效范围的下限、上限合计（`flip` 是尚未写入的收起覆盖；其余按此刻的收起覆盖算）。 */
+    const boundsTotals = (flip?: {index: number; collapsed: boolean}): {lows: number; highs: number} => {
         let lows = 0;
         let highs = 0;
         for (let index = 0; index < count; index += 1) {
@@ -239,12 +244,23 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
             lows += bounds.low;
             highs += bounds.high;
         }
+        return {lows, highs};
+    };
+    /**
+     * 全部面板的有效范围能否装下这个分支的总量。
+     * 两侧总量都有可落位的边界时结果才可能逐叶合法且守恒；装不下时按计划拒绝，不产出半更新。
+     */
+    const boundsFit = (flip?: {index: number; collapsed: boolean}): boolean => {
+        const {lows, highs} = boundsTotals(flip);
         return lows <= total + EPSILON && total <= highs + EPSILON;
     };
     // 输入本身装不下总量（窄容器已降级）：不猜几何，保持基线并说明原因。
     const usable = total > 0 && boundsFit();
     if (total > 0 && !usable) {
-        issues.push(`当前有效范围装不下分支总量 ${Math.round(total)}px，本次调整不改变几何`);
+        const {lows, highs} = boundsTotals();
+        const measured = {total, min: lows, max: highs};
+        issues.push(gridIssue("over-constrained", `The effective range (${round(lows)} to ${round(highs)}) cannot hold the branch total ${round(total)}; this drag leaves the geometry unchanged`,
+            input.scope === undefined ? {cause: "range-overflow", ...measured} : {cause: "range-overflow", id: input.scope.id, axis: input.scope.axis, ...measured}));
     }
 
     if (usable) {
@@ -308,12 +324,17 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
                 continue;
             }
             if (!isCollapsed(index) && idealSizeOf(index) < boundsOf(index).low - policy.collapseThreshold - EPSILON) {
-                issues.push(`面板 ${panel.id} 收起后没有可吸收的边界，保持展开`);
+                issues.push(gridIssue("no-room-to-collapse", `Panel ${panel.id} has no boundary to absorb its space once collapsed; it stays expanded`, {id: panel.id}));
             } else if (isCollapsed(index)) {
                 const expandedBounds = boundsWith(panel, false);
                 const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));
                 if (idealSizeOf(index) >= Math.max(expandedBounds.low, collapsedSize + policy.expandThreshold) - EPSILON) {
-                    issues.push(`面板 ${panel.id} 的恢复空间不足（可用 ${Math.round(capacityFor(baseline, total, index, boundsOf))}px），保持收起`);
+                    const capacity = capacityFor(baseline, total, index, boundsOf);
+                    issues.push(gridIssue("no-room-to-restore", `Panel ${panel.id} has ${round(capacity)}px to restore into, below its minimum ${round(expandedBounds.low)}; it stays collapsed`, {
+                        id: panel.id,
+                        available: capacity,
+                        required: expandedBounds.low,
+                    }));
                 }
             }
         }

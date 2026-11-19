@@ -86,7 +86,7 @@ const lastGestureText = ref("尚无用户调整提交");
 /** Renderer 的手势诊断（容量不足、提交被拒绝）：与布局诊断一起显示，不冒充布局降级。 */
 const gestureIssues = ref<readonly string[]>([]);
 const visibleIssues = computed(() => {
-    const merged = [...layout.value.issues];
+    const merged = layout.value.issues.map((issue) => issue.message);
     for (const issue of gestureIssues.value) {
         if (!merged.includes(issue)) {
             merged.push(issue);

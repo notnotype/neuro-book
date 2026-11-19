@@ -7,7 +7,7 @@
  */
 import type {SashPanel} from "./grid-geometry";
 import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragResult, type SashDragSnapState} from "./sash-drag";
-import type {GridAxis, GridExtent} from "./grid-types";
+import type {GridAxis, GridExtent, GridIssue} from "./grid-types";
 import type {SplitterGestureCancelReason, SplitterGestureSource, SplitterGestureState} from "./splitter-gesture";
 import type {SashGestureSessionCore} from "./sash-gesture";
 
@@ -52,7 +52,7 @@ export function createSplitterSession(input: SplitterSessionInput): SplitterGest
     let collapsed: Readonly<Record<string, boolean>> = {};
     let active: readonly string[] = [];
     let compensated: readonly string[] = [];
-    let issues: readonly string[] = [];
+    let issues: readonly GridIssue[] = [];
     let state: SplitterGestureState | null = null;
     let cancelReason: SplitterGestureCancelReason | null = null;
 
@@ -95,6 +95,7 @@ export function createSplitterSession(input: SplitterSessionInput): SplitterGest
             sashIndex: input.sashIndex,
             deltaPx,
             snapState,
+            scope: {id: input.branchId, axis},
         }));
     }
 
@@ -121,17 +122,17 @@ export function createSplitterSession(input: SplitterSessionInput): SplitterGest
         if (result === null) {
             return null;
         }
+        issues = result.issues;
+        if (Object.keys(result.collapsed).length === 0) {
+            // 没有真实变化：会话状态不动、保留上一次预览——no-op 不能把已经发布的几何降级成「无变化」，前面的位移照常提交；只记下折叠的诊断。
+            return null;
+        }
         sizes = result.sizesPx;
         collapsed = {...collapsed, ...result.collapsed};
         active = Object.keys(result.collapsed);
         compensated = [];
-        issues = result.issues;
         // 累积收起覆盖，边界锚点仍是按下基线；下一帧的分配从折叠后的尺寸接着走。
         snapState = {collapsed: {...(snapState?.collapsed ?? {}), ...result.collapsed}, sizesPx: result.sizesPx};
-        if (Object.keys(result.collapsed).length === 0) {
-            // 没有真实变化：保留上一次预览——no-op 不能把已经发布的几何降级成「无变化」。
-            return null;
-        }
         state = {
             source: input.source,
             sash: sashId(),

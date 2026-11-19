@@ -186,7 +186,7 @@ describe("拖动求解：收起与恢复", () => {
         ];
         const result = solveSashDrag({panels, baselinePx: [0, 320], sashIndex: 0, deltaPx: 300});
         expect(result?.sizesPx).toEqual([0, 320]);
-        expect(result?.issues.join()).toContain("恢复空间不足");
+        expect(result?.issues.map((issue) => [issue.code, issue.params])).toEqual([["no-room-to-restore", {id: "left", available: 0, required: 280}]]);
         expect(result?.collapsed).toEqual({});
     });
 
@@ -199,7 +199,7 @@ describe("拖动求解：收起与恢复", () => {
         // 兄弟刚性地只占 32：收起 a 释放的 268 无处可去，整组拒绝而不是产出不守恒几何。
         expect(result.sizesPx).toEqual([300, 32]);
         expect(result.collapsed).toEqual({});
-        expect(result.issues.join()).toContain("没有可吸收的边界");
+        expect(result.issues.map((issue) => [issue.code, issue.params])).toEqual([["no-room-to-collapse", {id: "a"}]]);
     });
 
     it("有效范围装不下总量（窄容器已降级）时保持基线并说明原因", () => {
@@ -208,7 +208,8 @@ describe("拖动求解：收起与恢复", () => {
         // 两个面板的下限合计 600 > 总量 500：任何结果都不可能在满足 bounds 的同时守恒。
         expect(result?.sizesPx).toEqual([250, 250]);
         expect(result?.active).toEqual([]);
-        expect(result?.issues.join()).toContain("装不下分支总量");
+        // 没给 `scope`（独立的 Splitter 就是这样）：诊断里没有 id 与轴。
+        expect(result?.issues.map((issue) => [issue.code, issue.params])).toEqual([["over-constrained", {cause: "range-overflow", total: 500, min: 600, max: 1000}]]);
     });
 
     it("收起的 Section 保留 32px 标题行，展开用理想边界而不是记忆高度", () => {

@@ -175,15 +175,32 @@ export type GridRefEncoder<T> = (ref: T) => string;
 export type GridParamValue = string | number;
 
 /**
- * 失败（Spec `ui/nested-grid` 失败 5 到 7）。`code` 给程序分支；`message` 是库内的英文，只给日志看，
- * 调用方不按它分支；`params` 给宿主拼自己的界面文字。码集合开放：新增码不算破坏，按码分支要有默认分支。
+ * 诊断（Spec `ui/nested-grid` 输出 139）。`code` 给程序分支；`message` 是库内的英文，只给日志看，调用方不按它分支；
+ * `params` 给宿主拼自己的界面文字，其中 `cause`、`axis`、`id` 三个名字在所有诊断里意思相同。码集合开放：新增码不算破坏，按码分支要有默认分支。
  */
-export interface GridFailure<C extends string = string> {
-    readonly ok: false;
+export interface GridIssue<C extends string = string> {
     readonly code: C;
     readonly message: string;
     readonly params?: Readonly<Record<string, GridParamValue>>;
 }
+
+/** 失败（Spec `ui/nested-grid` 失败 5 到 7）：诊断加 `ok: false`。 */
+export interface GridFailure<C extends string = string> extends GridIssue<C> {
+    readonly ok: false;
+}
+
+/** 求解与手势产生的诊断码（Spec 输出 139）；与失败码不相交。 */
+export type GridIssueCode =
+    | "over-constrained"
+    | "unabsorbed-space"
+    | "conflicting-bounds"
+    | "no-collapse-policy"
+    | "no-room-to-collapse"
+    | "no-room-to-restore"
+    | "swap-skipped";
+
+/** 只由组件与组合式函数发出、求解不会产生的诊断码。 */
+export type GridHostIssueCode = "not-published" | "notify-failed";
 
 /** 结构操作的失败码（Spec `ui/nested-grid` 失败 5）。 */
 export type GridFailureCode =
@@ -263,7 +280,7 @@ export type GridLayoutResult = {
     constraints: Record<string, GridConstraint>;
     /** 每个分支各条 sash 的实际尺寸，顺序对应相邻 children；窄容器可能按比例压缩。 */
     sashSizes: Record<string, number[]>;
-    issues: string[];
+    issues: GridIssue[];
 };
 
 export type GridOptions<T> = {

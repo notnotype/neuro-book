@@ -140,7 +140,7 @@ const snapHost = useSashSnap(rootEl);
 
 const parking = useLeafParking();
 const {parked} = parking;
-const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule(), onSwapSkipped: (reason) => emit("issues", [reason])});
+const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule(), onSwapSkipped: (issue) => emit("issues", [issue.message])});
 const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 输出 48）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
