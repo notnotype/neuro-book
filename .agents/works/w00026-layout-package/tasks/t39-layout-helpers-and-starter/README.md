@@ -5,17 +5,19 @@ status: planned
 updated: 2026-11-19
 ---
 
-# useDragSession、useGridHost、收起展开入口与起步材料
+# 宿主接线：useGridHost 与 useDragSession
 
 ## 目标与范围
 
-按提案第一档第 5 项（从 t36 拆出）：补 useDragSession、useGridHost、L2 的意图回写、收起与展开入口、拖不动时报错，README 起步与三份短 .md；新 API 的形状先写 Spec
+按提案第一档第 5 项“库里补的小东西”的前两条：`useGridHost`（把 `NestedGrid` 要的几样打成一包，`NestedGrid` 量一次容器交给宿主，宿主不再另量）与 `useDragSession`（根出现时建会话，换根或作用域结束时销毁）；迁移工作台与 Lab 的五个宿主、三个拖动会话的调用方，验收就是盘点里列出的重复接线消失。新 API 的形状先写 Spec。
+
+2026-11-19 拆分：收起与展开入口、L2 的意图回写拆到 [t40](../t40-collapse-and-intent-writeback/README.md)，拖不动时报错拆到 [t41](../t41-config-error-reporting/README.md)，README 起步与三份短文档拆到 [t42](../t42-readme-starter/README.md)：几块的形状互相独立，合在一份计划里送审会一轮轮互相牵扯（t34 的教训）。
 
 合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
 
 ## 当前状态
 
-2026-11-19 经 nbdev 新建，尚未开工。
+2026-11-19 经 nbdev 新建。盘点（Claude Haiku）见 [`evidences/inventory.txt`](evidences/inventory.txt)：五个宿主里 `:node`、`:layout`、`:revision`、`:on-gesture-commit` 一字不差，`contextKey` 同一个值写两到三遍；`NestedGrid` 没有 `extent` 事件，宿主量外层、`NestedGrid` 再量自己的根；`useGridLayout` 已返回 `node`、`layout`、`revision`、`invalidate`、`onGestureCommit`，接近提案说的 `useGridHost`；`createDragSession` 三处调用方是同一段挂载建、卸载销毁的样板，只有 `useSortable` 处理换根。
 
 ## 下一步
 

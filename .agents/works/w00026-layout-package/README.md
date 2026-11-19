@@ -40,7 +40,7 @@ updated: 2026-11-05
 
 2026-11-18：[t33](tasks/t33-workbench-layer-split/README.md) 完成：工作台层拆进新包 nb-workbench-layout，合入 master（`f0f1a3bdd`），实现审查 7 条处理完（修正 `246ac1cb8`）。[t34](tasks/t34-unified-errors/README.md) 停下等开发者：计划三轮设计审查后仍有 6 条重要问题，推荐拆成“失败的形状”与“诊断”两个 Task、L2 拆码延后；开发者定之前不推进 t35 及以后。
 
-2026-11-19：开发者同意 t34 的推荐：t34 只做失败的形状，诊断拆到 [t38 诊断的形状、码与只发新增](tasks/t38-grid-diagnostics/README.md)，L2 拆码延后（[待确认清单](pending-confirmations.md)）。第一档的顺序改为 t34 → t38 → t35 → t36 → t37 → t32 → t14。2026-11-19：t36 拆成 t36（显式入口与导出名测试）与 [t39](tasks/t39-layout-helpers-and-starter/README.md)（小组合函数与起步材料），顺序 t35 → t36 → t39 → t37 → t32 → t14（[待确认清单](pending-confirmations.md)）。
+2026-11-19：开发者同意 t34 的推荐：t34 只做失败的形状，诊断拆到 [t38 诊断的形状、码与只发新增](tasks/t38-grid-diagnostics/README.md)，L2 拆码延后（[待确认清单](pending-confirmations.md)）。第一档的顺序改为 t34 → t38 → t35 → t36 → t37 → t32 → t14。2026-11-19：t36 拆成 t36（显式入口与导出名测试）与 [t39](tasks/t39-layout-helpers-and-starter/README.md)（小组合函数与起步材料），顺序 t35 → t36 → t39 → t37 → t32 → t14（[待确认清单](pending-confirmations.md)）。同日 t39 再拆成 t39（宿主接线）、[t40](tasks/t40-collapse-and-intent-writeback/README.md)（收起展开与意图回写）、[t41](tasks/t41-config-error-reporting/README.md)（拖不动时报错）、[t42](tasks/t42-readme-starter/README.md)（README 起步），顺序 t39 → t40 → t41 → t42 → t37 → t32 → t14。
 
 2026-11-19：[t35](tasks/t35-drop-nb-ui/README.md) 完成：nb-layout 不再依赖 nb-ui，读 `--nb-layout-*` 变量（nb-ui 的 `tokens.css` 桥接主题旧名）、文字经自己的注入点 `@notnotype/nb-layout/text`；合入 master（`fa44828b3`），两轮设计审查与一次实现审查处理完，Spec 晋升前换模型逐句核过。开发服务要重启才读得到新子路径。
 
