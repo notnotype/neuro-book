@@ -1,0 +1,158 @@
+# 晋升前核对 B（会话服务与内核里 t06 加的句子）
+代码与测试路径相对实现 worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00043-neurobot（HEAD 4e1ddaab7）；Spec 读主工作区。下文 nbh = packages/nb-harness/src，nba = packages/neuro-book/src/plugins/agent。
+
+### agent/sessions.md 输出 23
+- 句：`create` 收可选 `owner: {id}`，会话头写成 `{plugin: 调用方插件, id}` → 代码 nba/backend/agent.ts:563-567 → 测试 nba/tasks.test.ts:240-245，断言 `header.value.owner` 等于 `{plugin: "test.keeper", id: "lyra"}` → 守住
+- 句：`plugin` 由门面盖章，调用方只给 id，建不出归属别的插件的会话 → 代码 agent.ts:565-566（丢掉调用方给的 plugin）→ 测试 tasks.test.ts:240（传了 `plugin: "nbook.other"`）、244 → 守住
+- 句：`owner.id` 照会话头规则校验，不合得 `invalid-owner`、不建会话 → 代码 nbh/kernel/session/session.ts:488、nbh/kernel/log/validate.ts:16-20 → 测试 tasks.test.ts:247-250，断言空串、含空格、129 个字符都得 invalid-owner 且 `header` 得 session-not-found → 守住
+- 句：远程 `create` 不收 `owner`，多出的字段得 `invalid-input` → 代码 nba/shared/remote.ts:208（additionalProperties: false）→ 测试 nba/sessions.test.ts:377 → 守住
+- 句：`fork` 出来的会话没有归属 → 代码 session.ts:597-611（fork 的会话头不带 owner）→ 测试 nbh/kernel/session/host.test.ts:1346-1350、sessions.test.ts:447 → 守住
+- 句：子会话没有归属 → 代码 nba/backend/subagents/tools.ts:350-356（建子会话不传 owner）→ 测试 sessions.test.ts:449 只断言子会话的 `caller`，没有断言 `header.owner` 为空 → 缺断言（若派子代理时误把父会话的 owner 带上，列表用例照样过，因为子会话本来就按父链被排除）
+- 句：门面盖章的发出者与交出的会话头不能改，改了也不影响会话 → 代码 agent.ts:532-533（Object.freeze）、nbh/kernel/session/agent-host.ts:129-130（deepFreeze）→ 测试 tasks.test.ts:245、253-259（改 issuer 抛 TypeError，之后入队的 by 仍是盖章值）→ 守住
+
+### agent/sessions.md 输出 24
+- 句：`hold` 打开并持有引用，交回 `{ok: true, value: {release(), opened}}` → 代码 nbh/kit/sessions/table.ts:253-275、nba/backend/agent.ts:571-585 → 测试 nba/agent.test.ts:436-438、sessions.test.ts:364-365 → 守住
+- 句：`opened` 是这次实际打开的耗时（毫秒），复用已开的为 null → 代码 table.ts:361、389-392（在实际打开的一侧计时）→ 测试 nbh/kit/sessions/table.test.ts:201-212，断言注入时钟推 2500 时 `[2500, null]`、第三次 null；table.test.ts:186、289 → 守住
+- 句：打开失败交回打开的码（七个）→ 代码 table.ts:262（原样交回 #acquire 的失败）、393-396（抛错时 open-failed）→ 测试 table.test.ts:213（session-not-found）、agent.test.ts:445-447（session-busy）→ 部分守住；log-broken、log-corrupt、needs-migration、storage-failed 与走另一分支的 open-failed 经 hold 没有断言 → 缺断言（前四个与已测的同一条透传路径，open-failed 不同）
+- 句：持有期间不因空闲关闭，`release()` 之后照常 → 代码 table.ts:438-449 → 测试 agent.test.ts:439-443、table.test.ts:187-197 → 守住
+- 句：同一调用方可持有几次、各自释放 → 代码 table.ts:268-274、agent.ts:580-583 → 测试 table.test.ts:182-197（两份持有，a 放两次仍不关，b 放后才关）→ 守住
+- 句：门面作废时持有一并放掉 → 代码 agent.ts:591-595 → 测试 sessions.test.ts:382-392（停插件后不手动放，推过空闲时长后锁放掉）→ 守住（agent.test.ts:501 手动调了 release，不能单独证明这句）
+- 句：经它取得的视图（含 `as` 派生）之后抛 ServiceRevokedError、订阅一并取消；作废之后才交回的持有与订阅立即放掉 → 代码 agent.ts:527-560、571-579 → 测试 agent.test.ts:490-507（holdingB 抛 revoked；a、derived、as、subscribe 抛 revoked；framesA 不再增长、framesC 为空；三个会话最终空闲关闭）→ 守住
+- 句：`nbook.agent` 停止时会话照输出 14 关闭，之后 `release()` 什么都不做 → 代码 table.ts:438-445（#maybeIdle 在 stopping 时直接返回）→ 测试 table.test.ts:217-239 只测停止期间到的 hold，没有一份成功的持有在 stop 之后被 release → 缺断言
+- 句：Profile 解析不到时以只读打开，持有照样成功（快照看得到只读）→ 代码 nbh/kernel/session/session.ts:556、564-575，table.ts 不区分只读 → 测试 只有内核层 nbh/kernel/session/session.test.ts:269（openSession 只读），hold 层没有 → 缺断言（计划第 3 片已承认没有专门用例）
+- 句：持有中 log-broken 的会话要等引用全放掉、重开才恢复（已知限制）→ 代码 table.ts:414（broken 算空闲）、444 → 测试 无 → 缺断言（已知限制，补不补由调用方定）
+
+### agent/sessions.md 输出 25
+- 句：`list` 不含有归属的会话 → 代码 nba/backend/agent.ts:349-359、475-489 → 测试 sessions.test.ts:367、423-446（三种筛选下都不含 owned.id）→ 守住
+- 句：也不含它们的后代（按会话关系表，子会话、孙会话都算）→ 代码 agent.ts:484 递归沿索引的 `caller` 上溯（注释 471-473 明说不看关系表；关系表 subagents/relations.ts:45-50 的父也取自 `caller.kind === "session"`，两者对 fork 与子会话的判定相同，没有可观察差别，只是措辞）→ 测试 sessions.test.ts:442-446 只断言了一层子会话 → 子会话守住；孙会话缺断言（把递归改成只看直接父，现有用例照过）
+- 句：远程与 `agentKey` 一样 → 代码 nba/backend/remote.ts:182-183 与门面 agent.ts:588 都走 service.list → 测试 远程 sessions.test.ts:442；agentKey 的 list 对有归属的会话没有断言 → 守住（同一实现，分层）
+- 句：有归属的根与父链取自同一次读到的全部索引（含后台与归档），不受筛选条件影响 → 代码 agent.ts:351-355（先 store.list 全量算 owned，再筛）→ 测试 sessions.test.ts:440-446：根是后台会话，筛 `{archived: false, background: false}` 时根本不在结果里，子会话仍被排除 → 守住（后台这一半；归档的祖先没有用例，同一机制）
+- 句：中间祖先没有索引时断开处以下照常列出（已知限制）→ 代码 agent.ts:483 → 测试 无 → 缺断言（已知限制）
+- 句：在跑的工作（输出 20）、活动（输出 15）与 `running()` 照样算它们 → 代码 agent.ts:433（agentRunningWork）、table.ts:185、221 都不看 owner → 测试 无：sessions.test.ts:423 的根是 `background: true`，`running()` 本来就不列后台会话；计划“验收映射”写的“activity、running() 照样有”在用例里找不到 → 缺断言
+- 句：按 id 仍读得到 → 测试 sessions.test.ts:368（远程 snapshot 读到有归属的根）、449（读到子会话）→ 守住
+
+### agent/sessions.md 输出 26
+- 句：有归属的会话 `rewind`、`switchBranch`、`archive` 得 `owned-session` → 代码 nbh/kit/sessions/table.ts:54-57、169、307-312；nba/backend/agent.ts:290（refuse 按 header.owner）；nba/shared/remote.ts:124-126（合同补码）→ 测试 table.test.ts:310-327；sessions.test.ts:372-375 → 守住
+- 句：含编辑重发、重试与 swipe → 代码 nba/web/session-host.ts:667-696：重试与编辑重发都经远程 `rewind`（692）；“swipe”在代码里没有这个名字，切换同级回复走 `switchBranch` → 测试 只测了 rewind 与 switchBranch 本身 → 守住（分层：三条入口都落在已测的指令上）。附注：重试在“从此处分支留下的暂停”分支（session-host.ts:687）不调 rewind 而直接 `start`，不改写历史，不违背这句
+- 句：不进内核、不写日志 → 测试 sessions.test.ts:370-376（日志字节不变）→ 守住
+- 句：没打开的会话也不先打开（按会话头判断）→ 代码 table.ts:307-310 先 `header` 再决定 → 测试 sessions.test.ts:394-421（冷会话带未收口运行：拒绝后锁未被取、日志字节不变；对照打开后日志变长）、table.test.ts:322 → 守住
+- 句：读会话头失败时交回那个码，不打开、不执行 → 代码 table.ts:308-309 → 测试 table.test.ts:323-324（nope 得 session-not-found 且未打开）、329-347（读到“不在”后建出有归属的同 id 会话：交回 session-not-found、head 不变）→ 守住
+- 句：远程与 `agentKey` 视图（含归属插件自己的）都一样 → 测试 远程 sessions.test.ts:372-373；归属插件门面视图 375；服务视图 414 → 守住
+- 句：子会话不受这条限制 → 代码 refuse 只看自己的 header.owner（agent.ts:290），子会话没有 owner → 测试 无：没有对有归属会话的子会话做 rewind/archive 并断言成功的用例（table.test.ts:325 只测了无关会话 s-1）→ 缺断言（若有人把 refuse 改成“归属树内都拒”，现有用例照过）
+
+### agent/sessions.md 输出 27
+- 句：远程与 `agentKey` 视图的 `send` 收 `settlePending: "deny"`，照内核原样 → 代码 nba/shared/remote.ts:91-92（合同字段）；table.ts:168 与门面 agent.ts:543-549 原样转发参数；内核 nbh/kernel/run/commands.ts:188-216 → 测试 sessions.test.ts:452-468（远程：结算的 interactionResolved 带 deny、note、by user，话被同一运行取走）；门面视图没有专门用例，参数透传、内核另测（interaction.test.ts:472-538）→ 守住（分层）
+
+### agent/sessions.md 输出 28
+- 句：`header(sessionId)` 只读会话头、不打开会话 → 代码 table.ts:277-280 → host.header（nbh/kernel/session/agent-host.ts:127-131）→ store.header（nbh/kernel/log/jsonl-store.ts:240-246）→ 测试 agent.test.ts:431-433（冷会话读完锁仍未被取）、table.test.ts:300-307（读后 isOpen 为 false）→ 守住
+- 句：不在得 `session-not-found` → 测试 agent.test.ts:434、table.test.ts:306 → 守住
+- 句：读不懂得 `log-corrupt` 或 `needs-migration` → 代码 nbh/kernel/log/validate.ts:115-133 → 测试 nbh/kernel/log/store.test.ts:385-391（format 2 得 needs-migration；第一行坏、owner 不合得 log-corrupt）；服务层原样透传 → 守住（分层）
+
+### agent/sessions.md 失败表 owned-session
+- 句：会话有归属，不能改写历史或归档（输出 26）→ 同输出 26 → 守住
+
+### agent/sessions.md 失败表 invalid-owner
+- 句：建会话时 `owner.id` 不合（输出 23）→ 同输出 23 → 守住
+
+### agent/sessions.md 验收 6
+- 步：插件建有归属的会话并持有 → 测试 sessions.test.ts:362-365 → 守住
+- 步：`list` 不列它和它派的子会话 → 测试 本用例 367 只断言根；子会话由 sessions.test.ts:442-446 另测 → 守住（分层）
+- 步：空闲 30 秒后它仍开着 → 测试 366-367（推 2 倍空闲时长后锁仍被持有）→ 守住
+- 步：远程 `rewind`、`archive` 与归属插件自己视图上的 `switchBranch` 都得 `owned-session`、日志不变 → 测试 371-376 → 守住
+- 步：插件停止后会话照常空闲关闭 → 测试 379-391（未手动 release，停插件后推空闲时长，锁放掉）→ 守住
+- 步：远程 `create` 带 `owner` 得 `invalid-input` → 测试 377 → 守住
+
+### harness/session.md 会话头 `owner` 字段与说明表
+- 句：`owner?: {plugin, id}` 归属；fork 不继承 → 代码 nbh/kernel/api（SessionHeader）、session.ts:595-611 → 测试 host.test.ts:1346-1350（fork 的索引条目 owner 为空）→ 守住
+- 句：会话头 `owner` 与记锁持有者的 `session.owner` 文件无关 → 说明性，不同文件（jsonl-store.ts:111 读的是锁文件）→ 守住（无须测试）
+- 句：`owner` 由宿主按调用方盖章 → 同 sessions 输出 23 → 守住
+- 句：工具与扩展拿得到它 → 代码 session.ts:125-131 的 context() 同时交给工具（ToolBox）与扩展（session.ts:170、210 的 environment.session，扩展 ctx.session 来自它）→ 测试 nbh/kernel/session/session.test.ts:62-68 只断言工具的 hostContexts → 工具守住；扩展缺断言
+- 句：宿主据此决定列表、能不能改写历史 → 同 sessions 输出 25、26 → 守住
+- 句：宿主据此决定“打开到哪里” → 在 nbook.agent 与 nbook.bots 的后端没找到按 owner 决定打开位置的代码；计划第 3 片写明 bots 没有浏览器入口、界面归 t15 → 没实现（这是“管什么”一栏的用途说明，晋升时建议去掉这半句或标 planned）
+
+### harness/session.md 输出 25
+- 句：只由建会话的选项给（`{plugin, id}`，各 1–128 个字符、`[A-Za-z0-9._-]`）→ 代码 nbh/kernel/log/validate.ts:12、16-20；session.ts:488、511 → 测试 host.test.ts:1330-1336（plugin 空、id 129 个字符、id 含斜杠得 invalid-owner；128 个字符通过）→ 守住
+- 句：内核照写、不解释 → session.ts:511 → 测试 host.test.ts:1342 → 守住
+- 句：建会话与读日志用同一个校验，建时不合得 `invalid-owner`、不落盘 → 代码 validate.ts:40（headerProblem 调同一个 isSessionOwner）→ 测试 host.test.ts:1331-1333（不落盘：header 得 session-not-found）；store.test.ts:390-391（日志里 owner 不合读作 log-corrupt）→ 守住
+- 句：会话头是不能改的值（含嵌套的 `caller`、`result`）：快照与 `header(id)` 交出的改不动 → 代码 session.ts:501（建时 deepFreeze(structuredClone)）、558（读回 deepFreeze）、agent-host.ts:130 → 测试 host.test.ts:1343-1345（owner、result.schema 嵌套属性改不动）、1355（header(id) 交出的改不动）→ owner、result 守住；嵌套 `caller` 没有断言、重开后快照里的会话头冻结也没有断言 → 缺断言（机制是同一个递归 deepFreeze，风险低）
+- 句：建会话的调用方之后改自己的参数也不影响会话 → 代码 session.ts:486（第一个 await 前 structuredClone）→ 测试 session.test.ts:243-266（Profile 解析期间改 owner.id，写下与重开都是原值）、host.test.ts:1339-1345 → 守住
+- 句：索引条目照抄 → 代码 nbh/kernel/log/index-file.ts:18 → 测试 store.test.ts:93-94、host.test.ts:1350 → 守住
+- 句：fork 出来的会话没有 `owner` → 测试 host.test.ts:1346-1350 → 守住（session.test.ts:62 标题写了 fork，正文没有 fork，不算）
+- 句：子会话也不从调用方继承 → 内核不做继承，子会话由宿主建（subagents/tools.ts:350-356 不传 owner）→ 测试 无 → 缺断言（同 sessions 输出 23 的同一缺口）
+- 句：没有这一项的旧会话头读作没有归属 → 代码 validate.ts:40 允许缺省；index-file.ts:18 → 测试 store.test.ts 各用例的 header() 不带 owner、照常读通；host.test.ts:1350 fork 条目 owner 为空 → 守住
+
+### harness/session.md 输出 26
+- 句：`header(id)` 只读会话头：不取锁、不修复、不写 → 代码 jsonl-store.ts:137-157（只读到第一个换行）、240-246 → 测试 store.test.ts:377-384（尾部有半批，读后文件内容逐字节不变）；host.test.ts:1352-1358（读完照样能打开）→ 守住
+- 句：会话正被别的进程持有时也能读 → 代码 header 不碰锁 → 测试 store.test.ts:86-92（建会话的句柄还持有锁时读到会话头）；持锁的是同进程的句柄，但 header 根本不取锁，断言能区分“取锁”与“不取锁” → 守住
+- 句：会话不在得 `session-not-found`，第一行读不懂得 `log-corrupt`，`format` 不认识得 `needs-migration` → 测试 store.test.ts:96、385-391 → 守住
+- 句：会话头建后不变，读到的就是这个会话的会话头 → 测试 host.test.ts:1353-1357（header 读到的与快照、重开后的会话头相等）→ 守住
+
+### harness/session.md 失败表 invalid-owner
+- 句：建会话的 `owner` 不合（输出 25）→ 同输出 25 → 守住
+
+### harness/session.md 目标与非目标（t06 加的两条已知限制）
+- 句：建会话时会话头与第一个写入批分两次写，中间被杀留下只有会话头的日志；再建同一 id 得 `session-exists`，打开得到没有初始事件的会话 → 代码 session.ts:514（store.create 写会话头）与 520-523（再写 sessionCreated 批）分两步；store.create 已有则 session-exists → 测试 无 → 缺断言（已知限制；字面与代码一致，从代码推断）
+- 句：Profile 解析不到、以只读打开的会话不做恢复；换回能用的 Profile 后上次没收口的运行被当成暂停的运行接着跑 → 代码 session.ts:564-575（只读分支跳过 recoveryDrafts）、335 附近（Profile 恢复后只清 readOnly，不补恢复）→ 测试 无（session.test.ts:269 只测只读打开）→ 缺断言（已知限制；后半句“当成暂停接着跑”只从代码推断，未运行验证）
+
+### harness/runtime.md 输出 78（owner 那一句）
+- 句：会话头有 `owner` 时 `ToolSessionContext` 也带 `owner`（同会话头）→ 代码 nbh/kernel/session/session.ts:125-131 → 测试 session.test.ts:62-68，断言有 owner 的会话工具上下文 owner 等于会话头的值、上下文冻结；无 owner 的会话没有这个键 → 守住
+
+### harness/runtime.md 输出 111
+- 句：同一受理批里先把当前路径上全部待处理的同步事项（审批、同步提问，含嵌套调用里的）以 deny 结算（interactionResolved{decision deny, by 用户, note “用户发了新消息”}）→ 代码 nbh/kernel/run/commands.ts:186-216 → 测试 nbh/kernel/run/interaction.test.ts:472-490，断言受理批是三条 interactionResolved + inputQueued + commandAccepted、数据含 SETTLED（427 行：deny、by user、note）、id 集合等于三个待处理事项（含嵌套提问）→ 守住
+- 句：不含异步提问 → 代码 commands.ts:202（item.async 跳过）→ 测试 无：threePending 夹具里没有异步提问，删掉这行跳过现有用例照过 → 缺断言
+- 句：等它们的调用得 `denied`、`unavailable{declined}` → 测试 interaction.test.ts:478、487（nested 得 declined；两个写调用 denied/user-denied）→ 守住
+- 句：再照常受理这条话（运行中按模式进缓冲区，空闲时照输出 2）→ 测试 482、488（steer 被同一轮取走）；497-507（空闲时发话开新运行）→ 守住
+- 句：只收用户，别的发出者得 `not-allowed` → 测试 513-514 → 守住
+- 句：没有待处理的同步事项时等于不带这个选项 → 测试 505-507 → 守住
+- 句：结算与这条话同批写下，指令失败（empty-input、input-rejected）时事项都不结算 → 测试 483-485（同批）；515-523（empty-input、input-rejected、input-stale 后无结算，之后 resolve 照常叫醒）→ 守住
+- 句：重发同一 `commandId` 交回第一次的结果、不再结算；重放不比较发出者 → 代码 commands.ts:50-60（replay 在 decide 之前）→ 测试 492-493；526-538（重开后换成 host 发出者重发：replayed 且事件不变）→ 守住
+- 注：上面“不含异步提问”一句的“删掉照过”是读夹具得出的推断（threePending 只有同步 ask，带 async: true 的用例 292、322、654 都不发 settlePending），没有做变异运行（只读任务）。
+
+### harness/runtime.md 验收 16
+- 步：一条回复里两个调用在等审批、一个嵌套调用在等同步提问 → 夹具 interaction.test.ts:436-454（两次改参复审 + lab.parent 嵌套 lab.ask）→ 守住
+- 步：用户带 settlePending 发插话：同一受理批三个事项都以 deny 结算、插话进缓冲区 → 测试 476-485 → 守住
+- 步：两个调用得 denied{user-denied}、嵌套提问得 unavailable{declined} → 测试 478、487 → 守住
+- 步：这一轮在边界取走插话接着请求 → 测试 479-480（同一 runId 收尾文本是脚本第二句）、488（有 steer）→ 守住
+- 步：同一 commandId 重发得到第一次的结果、日志不变 → 测试 489-493 只比 interactionResolved 条数；526-538 比整份事件相等 → 守住（分层）
+
+### harness/runtime.md 目标与非目标（t06 加的）
+- 句：等用户的事项没有期限，直到应答、settlePending、中止或进程退出 → 代码 没有期限机制（从代码推断）→ 测试 无（否定性的非目标说明）→ 缺断言（不建议补）
+- 句（已知限制）：应答的受理批写下、反应批写失败时指令交回 log-broken，等待者却以 aborted 叫醒 → 代码 commands.ts:67-73（writeAndReact 抛 LogBrokenError 时直接交回 log-broken，不调 outcome.written）→ interaction.ts:130-136（句柄已坏时 releaseClaims 一律以 aborted 叫醒）→ 测试 无（interaction.test.ts:556 注入的是同步失败，不是反应批失败）→ 缺断言（已知限制，与代码一致）
+- 句（已知限制）：同一 commandId 重发得到成功 → 代码 受理批已写下，core.commands 有记录，replay 成功 → 测试 无 → 缺断言（已知限制）
+- 句（已知限制）：之后状态帧与快照报 running、idle，不再是 broken → 测试 无；实现审查第 2 条已确认、推迟到 t16 → 缺断言（已知限制，未运行验证）
+- 句（已知限制）：受理批写入结果不确定（写进文件、同步失败）时，等待者同样以 aborted 叫醒，不交还 → 代码 interaction.ts:133-134 → 测试 interaction.test.ts:556-590（真实 JSONL 注入一次 sync 失败：send 得 log-broken，提问收到 aborted，重开只有一条 deny 结算）→ 守住
+
+### runtime/plugins.md 输出 15（783396fc0 加的“不算重复者”一句）
+- 句：贡献点 `idPrefix: "plugin"` 时，前缀不合的那一条是 `invalid-declaration`、原因写明前缀，而且不算重复者：只拒它自己，同 id 前缀合格的那一条照常判定 → 代码 packages/nb-runtime/src/plugins/host.ts:897-912（算重复时只数前缀合格的记录）→ 测试 packages/nb-runtime/src/plugins/owner-contribution-points.test.ts:133-143，两种登记顺序下 rightful 为 accepted、squatter 为 rejected/invalid-declaration（已单独跑过，1 pass）→ 守住（主场景）
+- 句（同上，窄场景）：同 id 有两条以上前缀合格的记录时，前缀不合的那一条在 host.ts:900 先被判成 `duplicate-contribution`，不是这句说的 `invalid-declaration`；它“不算重复者”只对前缀合格者成立，自己的原因码仍报重复 → 字面不符（实现比字面宽：前缀不合者的原因码在这种场景下是 duplicate-contribution）。能触发的组合：插件 `a` 与 `a.b` 都能合法声明 `a.b.x`，或保留发布者下两个插件都以发布者前缀声明同一 id，再加一个第三方占用者。从代码推断，未运行验证；影响只在诊断原因码，接受/拒绝的结果不变（三条都被拒）。另：顺序上 implementation-required / implementation-not-accepted 也排在前缀核对之前（host.ts:903-908），前缀不合且投错位置的那条报的是这两个码，这一点是 t06 之前就有的顺序，不属本句
+
+### runtime/plugins.md 验收 16（同一句）
+- 步：贡献点要求 id 前缀时，前缀不合的那一条以 invalid-declaration 被拒、不算重复，前缀合格的那一条照常接受 → 测试 owner-contribution-points.test.ts:133-143 → 守住
+
+## 总结
+共核 87 句（另有 1 条注）：守住 66、缺断言 19、没实现 1、字面不符 1。一句里部分守住、部分缺断言的按缺断言计（sessions 24 打开失败码、sessions 25 孙会话、session.md 扩展拿得到 owner、session 25 嵌套 caller 冻结）。19 条缺断言里 8 条是已知限制或非目标说明（sessions 24 log-broken 恢复、sessions 25 祖先断链、session.md 两条已知限制、runtime 的“没有期限”与已知限制前三句），补不补由调用方定。
+
+没实现：
+1. harness/session.md 会话头说明表 `owner` 一行“宿主据此决定……打开到哪里”：后端与前端都没有按 owner 决定打开位置的代码（界面归 t15）。建议晋升时删去“打开到哪里”或单独标 planned。
+
+字面不符：
+1. runtime/plugins.md 输出 15：同 id 有两条以上前缀合格的贡献时，前缀不合的那条报 `duplicate-contribution`，不是 `invalid-declaration`（host.ts:899-901 的重复判断在前缀核对之前）。实现比字面宽，只影响诊断原因码，三条都被拒的结果不变；从代码推断，未运行。可二选一：把前缀核对挪到重复判断之前，或在 Spec 里写明这种情况报重复。
+
+建议补的用例（按价值排序）：
+1. nbh/kernel/run/interaction.test.ts：同时挂一个异步提问（ask 带 async: true）和一个同步审批，带 settlePending 发话后，断言只有同步那条有 interactionResolved，异步提问仍在 pending、之后能被 resolve（runtime 输出 111“不含异步提问”）。
+2. nba/sessions.test.ts 输出 25 那条用例里：断言子会话 `snapshot.header.owner` 为 undefined（sessions 23、session 25“子会话没有归属/不继承”）；再对子会话做 `rewind` 或 `archive`，断言不是 owned-session（sessions 26“子会话不受限”）。
+3. 同一用例让子会话再派一个孙会话（或在 agent.test 里直接造三层 caller 链的索引），断言孙会话也不在 `list` 里（sessions 25 孙会话）。
+4. nba/sessions.test.ts 或 running-work.test.ts：一个前台、有归属、正在运行的会话，断言 `running()` 含它、runningWork 有它一项、活动里有它（sessions 25“照样算它们”）。现有用例的根是后台会话，区分不了。
+5. nbh/kit/sessions/table.test.ts：持有成功后 `table.stop()`，再调 release()，断言不抛、不再触发打开或关闭（sessions 24 停止后 release 无作用）。
+6. nba/agent.test.ts：会话头里的 Profile 解析不到时 `hold` 交回 ok，快照里 readOnly 有值（sessions 24）。
+7. table.test.ts：host.open 抛错时 hold 得 open-failed；可选再补 log-corrupt（sessions 24 失败码）。
+8. nbh/kernel/session/session.test.ts：给扩展的 ctx.session 带 owner（扩展的 mount 或反应里读到）；以及带 caller 的会话头嵌套 caller 改不动（低风险，可不补）。
+
+## 补充与更正（交回前复核）
+- 更正“没实现”一条的范围：在 packages/neuro-book/src、packages/nb-agent-ui/src、packages/nb-ui/src 的非测试代码里不加过滤再搜 `owner`：会话头 owner 只在 agent.ts（列表、refuse、门面盖章）、remote.ts:279（审批预览上下文）与 bots/backend/main.ts:92-93（核对主对话归属）被读，没有搜到按 owner 决定“打开到哪里”的代码。结论不变，措辞改为“在上述范围内没搜到”；这半句是会话头说明表“管什么”一栏的用途说明。
+- 复核 session.md 第二条已知限制：nbh/kernel/session/session.ts:712 注释写明打开时就解析不到 Profile 的会话“没装扩展、没跑恢复，重新装配补不回来，要重开”；而 `changeProfile` 在只读时不拒（session.ts:314-340，没有 readOnly 检查），写下后 335 行把 readOnly 清成 null、不跑 recoveryDrafts，所以上次没收口的运行留着、按暂停接着跑。与字面一致，结论仍是缺断言（已知限制，从代码推断，未运行）。
+- 复核 plugins 字面不符的触发组合：packages/nb-runtime/src/plugins/host.ts:839-846 的 #idPrefixProblem 只看 `contributionId.startsWith(插件id + ".")`，或保留发布者的 `发布者 + "."`。所以“插件 a 与 a.b 都能合法声明 a.b.x”成立，保留发布者下两个插件以发布者前缀声明同一 id 也成立。结论不变。
+- 措辞提醒（sessions 输出 25）：Spec 写后代“按会话关系表”，代码注释（agent.ts:471-473）写“不看会话关系表”，父链取自同一次读到的索引的 caller。两者对 fork、子会话的判定等价，没有可观察差别，但晋升时建议把“按会话关系表”改成“按会话索引里的 caller 链”，免得与下一句和代码注释打架。
+- 计划“验收映射”有两处在用例里找不到：sessions 输出 25 的“activity、running() 照样有”；sessions 输出 26 的“子会话不受限”。
+- 行号更正（结论不变）：sessions.test.ts 验收 6 那条用例里，hold 在 366-367，列表不含在 372，快照读到 owner 在 373，日志读取与比较在 374、378，三个指令被拒在 375-377，远程 create 带 owner 在 379，停插件在 381；冷会话用例里服务视图的 switchBranch 在 415。table.test.ts 里有归属的会话未打开在 320，nope 得 session-not-found 且未打开在 321-322。interaction.test.ts 里两个写调用 denied/user-denied 在 489，steer 在 490。agent.test.ts 里 session-busy 在 448。
+- 只从代码推断、没运行验证的结论：plugins 字面不符的窄场景；runtime 输出 111“不含异步提问”的缺断言判断；session.md 两条已知限制；runtime.md 已知限制的前三句。
