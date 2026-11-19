@@ -19,26 +19,32 @@ const props = defineProps<{
 const text = usePlotText();
 const SHORT = {plant: "ledger.roleShort.plant", echo: "ledger.roleShort.echo", mislead: "ledger.roleShort.mislead", partial: "ledger.roleShort.partial", payoff: "ledger.roleShort.payoff"} as const;
 const ROLE = {plant: "ledger.role.plant", echo: "ledger.role.echo", mislead: "ledger.role.mislead", partial: "ledger.role.partial", payoff: "ledger.role.payoff"} as const;
-type Cell = {readonly kind: "node"; readonly index: number; readonly role: Role; readonly written: boolean} | {readonly kind: "gap"; readonly key: string};
-/** 同一章有几个节点时各占一格，写了的在前；相邻的两格章号差 1 以上时中间插一个省略格。 */
+type Cell = {readonly kind: "node"; readonly key: string; readonly index: number; readonly role: Role; readonly written: boolean} | {readonly kind: "gap"; readonly key: string};
+/**
+ * 同一章有几个节点时各占一格，写了的在前；相邻的两格章号差 1 以上时中间插一个省略格。章表里没有的章（读取与章表之间章被删了）
+ * 排不进章序，不画。同一章同一角色可以有几格，键带上排序后的下标。
+ */
 const cells = computed<Cell[]>(() => {
     const nodes = props.nodes
-        .map((node) => ({index: props.chapters.get(node.chapter) ?? 0, role: node.role, written: node.written}))
+        .flatMap((node) => {
+            const index = props.chapters.get(node.chapter);
+            return index === undefined ? [] : [{index, role: node.role, written: node.written}];
+        })
         .sort((a, b) => a.index - b.index || Number(b.written) - Number(a.written));
     const result: Cell[] = [];
     for (const [at, node] of nodes.entries()) {
         const before = nodes[at - 1];
         if (before !== undefined && node.index - before.index > 1) result.push({kind: "gap", key: `gap-${String(at)}`});
-        result.push({kind: "node", ...node});
+        result.push({kind: "node", key: `node-${String(at)}`, ...node});
     }
     return result;
 });
-const label = (cell: Extract<Cell, {kind: "node"}>): string => `${text("chapter.of", {index: cell.index})}${text(ROLE[cell.role])}，${text(cell.written ? "ledger.legendWritten" : "ledger.legendPlanned")}`;
+const label = (cell: Extract<Cell, {kind: "node"}>): string => text("ledger.nodeLabel", {chapter: text("chapter.of", {index: cell.index}), role: text(ROLE[cell.role]), state: text(cell.written ? "ledger.legendWritten" : "ledger.legendPlanned")});
 </script>
 
 <template>
     <ol class="flex flex-wrap items-center gap-1" :aria-label="text('ledger.columns.band')" data-node-band>
-        <li v-for="cell in cells" :key="cell.kind === 'gap' ? cell.key : `${cell.index}-${cell.role}-${cell.written}`" class="flex items-center">
+        <li v-for="cell in cells" :key="cell.key" class="flex items-center">
             <span v-if="cell.kind === 'gap'" class="px-0.5 text-[var(--text-muted)]" aria-hidden="true">…</span>
             <span
                 v-else

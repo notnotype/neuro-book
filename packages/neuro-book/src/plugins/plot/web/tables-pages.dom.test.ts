@@ -69,11 +69,12 @@ async function setup() {
 }
 
 describe("伏笔账本", () => {
-    it("接下来写下一步计划（第 2 章埋下），没有打算的用警告色；节点带画打算写的节点", async () => {
+    it("接下来写下一步计划（第 2 章埋下），没有打算的用警告色；节点带画打算写的节点；选“已放弃”只剩放弃的那一条", async () => {
         const {other, open} = await setup();
         const ids = await publish(other.canon, [
             {ref: {kind: "entry", id: "tmp:doll"}, after: drafts.foreshadow("tmp:doll", "彗的魔偶")},
             {ref: {kind: "entry", id: "tmp:egg"}, after: drafts.foreshadow("tmp:egg", "星瑾不吃煎蛋")},
+            {ref: {kind: "entry", id: "tmp:gone"}, after: drafts.foreshadow("tmp:gone", "放弃的线", {意图: "dropped"})},
         ]);
         const node = {kind: MARK_IDS.node, version: 1, foreshadow: ids["tmp:doll"]!, role: "plant"};
         await publish(other.canon, [{ref: {kind: "change", id: "tmp:plan"}, after: drafts.change("tmp:plan", {kind: "chapter", chapter: "2", key: 1}, {kind: "plan", told: [{source: "outline", chapter: "2", anchor: "埋下魔偶", marks: [node]}]})}]);
@@ -89,6 +90,11 @@ describe("伏笔账本", () => {
         expect(doll.find("[data-node]").attributes("aria-label")).toBe("第 2 章埋下，打算写");
         expect(egg.find('[data-cell="next"]').text()).toBe("没有打算");
         expect(egg.find('[data-cell="next"]').classes().join(" ")).toContain("status-warning");
+
+        await wrapper.findAll('[role="radio"]').find((radio) => radio.text().startsWith("已放弃"))!.trigger("click");
+        expect(state.segment).toBe("dropped");
+        await waitUntil("筛过", () => wrapper.findAll("[data-ledger-row]").length === 1);
+        expect(wrapper.find("[data-ledger-row]").text()).toContain("放弃的线");
     });
 });
 

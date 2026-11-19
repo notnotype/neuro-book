@@ -8,6 +8,7 @@ import type {ChangedAt, Placement, ReadPosition} from "@notnotype/nb-canon";
 import type {BoundText} from "nbook/shared/use-plugin-text";
 
 import type zhCN from "../locales/zh-CN.json";
+import {MAIN_LINE} from "../shared/reads";
 
 export type CanonBoundText = BoundText<typeof zhCN>;
 
@@ -19,8 +20,6 @@ export interface ChapterRef {
     readonly lines?: readonly {readonly from: number; readonly line: string}[];
 }
 
-/** 主线的 id（同 `window-line.ts` 的 `MAIN_LINE`，这里不引它免得成环）。 */
-const MAIN = "main";
 
 /**
  * 一个读取位置实际读的线（canon.worldlines 输出 12）：写了线就是它；没写时初值读主线，章的开头读第一段讲的线，末尾读最后一段的。
@@ -28,10 +27,10 @@ const MAIN = "main";
  */
 export function chapterLine(position: ReadPosition, chapters: readonly ChapterRef[]): string {
     if (position.line !== undefined) return position.line;
-    if (position.kind === "initial") return MAIN;
+    if (position.kind === "initial") return MAIN_LINE;
     const lines = chapters.find((chapter) => chapter.id === position.chapter)?.lines ?? [];
     const segment = position.edge === "start" ? lines[0] : lines.at(-1);
-    return segment?.line ?? MAIN;
+    return segment?.line ?? MAIN_LINE;
 }
 
 /** 把一次安放写成“第 N 章”“前史”；条目页按章表给，数据分页界面经 context 拿到同一个。 */

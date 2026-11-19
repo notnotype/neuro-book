@@ -5,16 +5,16 @@
  */
 import {computed} from "vue";
 
-import {Banner, Button, Select, Switch} from "@notnotype/nb-ui/components";
+import {Button, Select, Switch} from "@notnotype/nb-ui/components";
 
 import type {CanonReads} from "nbook/plugins/canon/shared/reads";
 
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
 import {chapterIndex} from "../labels";
-import {failureText} from "../page-shell";
 import type {GoalsPageState} from "../pages";
 import {usePlotText} from "../text";
 import GoalGroup from "./GoalGroup.vue";
+import ReadFailure from "./ReadFailure.vue";
 
 const props = defineProps<{
     reads: CanonReads;
@@ -41,7 +41,12 @@ const names = computed(() => data.value?.names ?? {});
 const nameOf = (id: string): string => names.value[id]?.name ?? id;
 const ALL = "all";
 const holders = computed(() => [{value: ALL, label: text("goals.all")}, ...(list.state.value?.items ?? []).map((group) => ({value: group.holder, label: nameOf(group.holder)}))]);
-const groups = computed(() => (list.state.value?.items ?? []).filter((group) => state.holder === null || group.holder === state.holder));
+/**
+ * 选的人在这次读到的组里才筛：换位置或换线以后他可能不再是主要角色，这时按“所有主要角色”画（不说“还没有主要角色”）；标签状态
+ * 不改，换回来还按他筛。
+ */
+const holder = computed(() => (state.holder !== null && (list.state.value?.items ?? []).some((group) => group.holder === state.holder) ? state.holder : null));
+const groups = computed(() => (list.state.value?.items ?? []).filter((group) => holder.value === null || group.holder === holder.value));
 const collapsed = (holder: string): boolean => state.collapsed.includes(holder);
 const toggle = (holder: string): void => {
     state.collapsed = collapsed(holder) ? state.collapsed.filter((id) => id !== holder) : [...state.collapsed, holder];
@@ -54,13 +59,13 @@ const failure = computed(() => list.state.value?.error ?? null);
         <PageHead :title="text('editorPages.goals.title')" :position="state.position" :planned="state.planned" @update:position="(value: string) => (state.position = value)" @update:planned="(value: boolean) => (state.planned = value)" />
         <div class="mx-auto max-w-[760px] px-8 py-5 max-[480px]:px-4">
             <p v-if="props.reads.connection.value === 'no-project'" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.unbound") }}</p>
-            <Banner v-else-if="failure !== null" tone="danger" role="alert" :message="failureText(failure, text)">
-                <template #actions><Button size="sm" @click="props.reads.retry()">{{ text("page.retry") }}</Button></template>
-            </Banner>
-            <p v-else-if="list.state.value === null || list.state.value.loading" role="status" aria-busy="true" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.loading") }}</p>
             <template v-else>
+                <!-- 读到过的留着旧内容，失败的那一条放在上面；没读到过时只有它（canon/author-ui.md 输出 26）。 -->
+                <ReadFailure v-if="failure !== null" class="mb-4" :failure="failure" @retry="props.reads.retry()" />
+                <p v-if="list.state.value === null || list.state.value.loading" role="status" aria-busy="true" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.loading") }}</p>
+                <template v-else-if="list.state.value.data !== undefined">
                 <div class="mb-4 flex flex-wrap items-center gap-3">
-                    <Select class="w-48" size="sm" :aria-label="text('goals.holderLabel')" :options="holders" :model-value="state.holder ?? ALL" @update:model-value="(value: string) => (state.holder = value === ALL ? null : value)" />
+                    <Select class="w-48" size="sm" :aria-label="text('goals.holderLabel')" :options="holders" :model-value="holder ?? ALL" @update:model-value="(value: string) => (state.holder = value === ALL ? null : value)" />
                     <label class="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
                         <Switch size="sm" :model-value="state.finished" :aria-label="text('goals.finished')" @update:model-value="(value: boolean) => (state.finished = value)" />{{ text("goals.finished") }}
                     </label>
@@ -74,6 +79,7 @@ const failure = computed(() => list.state.value?.error ?? null);
                     <GoalGroup v-if="!collapsed(group.holder)" class="mt-2" :goals="group.goals" :attitudes="group.attitudes" :names="names" :chapters="chapters" @open="props.open" />
                 </section>
                 <Button v-if="list.state.value.more" size="sm" variant="ghost" @click="list.more()">{{ text("page.moreUnknown") }}</Button>
+                </template>
             </template>
         </div>
     </div>

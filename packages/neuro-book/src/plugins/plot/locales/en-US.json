@@ -59,7 +59,18 @@
         "lineMissing": "This line cannot be read",
         "plot": "Plot",
         "more": "Show more ({{count}} left)",
-        "moreUnknown": "Show more"
+        "moreUnknown": "Show more",
+        "notFound": "This entry was not found"
+    },
+    "fmt": {
+        "list": ", ",
+        "listSemi": "; ",
+        "labeled": "{{label}}: {{value}}",
+        "labelPrefix": "{{label}}: ",
+        "note": " ({{text}})",
+        "withNote": "{{text}} ({{note}})",
+        "dot": " · ",
+        "none": "—"
     },
     "degree": {
         "knows": "Knows",
@@ -98,19 +109,22 @@
         "about": "About {{name}}",
         "other": "Other",
         "noOne": "Nobody knows",
-        "andMore": "and {{count}} more",
-        "readerFrom": "since {{place}}",
+        "andMore": "{{list}} and {{count}} more",
+        "readerFrom": "{{degree}}, since {{place}}",
         "revealExplicit": "{{chapter}}: stated",
         "revealHint": "{{chapter}}: hinted",
         "written": "written",
-        "undecided": "Undecided",
-        "due": "due {{chapter}}",
         "noPlan": "No plan",
         "pick": "People to show ({{chosen}} / {{total}})",
         "pickTitle": "People to show",
         "pickLimit": "At most {{count}}",
         "empty": "No secrets yet",
-        "tableLabel": "Who knows what"
+        "tableLabel": "Who knows what",
+        "decision": {
+            "decided": "{{text}}: {{conclusion}}",
+            "pending": "{{text}}: undecided",
+            "pendingDue": "{{text}}: undecided, due {{chapter}}"
+        }
     },
     "ledger": {
         "segments": {
@@ -156,7 +170,7 @@
             "payoff": "O"
         },
         "silent": "silent for {{count}} chapters",
-        "next": "{{chapter}}{{role}}",
+        "next": "{{role}} in {{chapter}}",
         "none": "No plan",
         "unplannedNote": "No payoff planned yet",
         "legendWritten": "written",
@@ -164,7 +178,9 @@
         "legendRoles": "plant, echo, mislead, partial payoff, payoff",
         "here": "Selected position",
         "empty": "No foreshadowing",
-        "tableLabel": "Foreshadowing ledger"
+        "tableLabel": "Foreshadowing ledger",
+        "legend": "{{written}}: ■  {{planned}}: □  {{roles}}",
+        "nodeLabel": "{{chapter}}: {{role}}, {{state}}"
     },
     "goals": {
         "all": "All main characters",
@@ -222,7 +238,7 @@
         "restUnaware": "The other {{count}} people don't know",
         "restNoRecord": "No record for the other {{count}} people",
         "moreRows": "{{count}} more",
-        "readerFrom": "Since {{place}}: {{excerpt}}",
+        "readerFrom": "{{degree}}, since {{place}}: {{excerpt}}",
         "decision": "Decision",
         "guard": "Reader guard",
         "foreshadow": "Foreshadowing",

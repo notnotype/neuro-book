@@ -106,7 +106,7 @@ const tabStopKey = computed(() => {
  */
 const segmentLayoutClass = computed(() => {
     if (props.wrap) {
-        return [props.fullWidth ? "flex w-full" : "inline-flex", "flex-wrap gap-y-[2px]"];
+        return [props.fullWidth ? "flex w-full" : "inline-flex", "flex-wrap gap-[2px]"];
     }
     return [props.fullWidth ? "grid w-full" : "inline-grid", "grid-flow-col auto-cols-[minmax(0,1fr)]"];
 });
@@ -214,8 +214,9 @@ function handleKeydown(event: KeyboardEvent): void {
             </span>
 
             <!-- 智能竖向分隔线：在未选中相邻项之间优雅显隐 -->
+            <!-- 换行时不画：行尾那一条会悬在行末，段与段之间靠 2px 的间距分开 -->
             <span
-                v-if="idx < props.options.length - 1"
+                v-if="idx < props.options.length - 1 && !props.wrap"
                 class="absolute right-0 top-1.5 bottom-1.5 w-[1px] bg-[color-mix(in_srgb,var(--text-main)_14%,transparent)] pointer-events-none transition-opacity [transition-duration:var(--motion-fast)]"
                 :class="isSelected(option) || idx === selectedIndex - 1 ? 'opacity-0' : 'opacity-100'"
             />

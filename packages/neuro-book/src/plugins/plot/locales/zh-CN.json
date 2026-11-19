@@ -59,7 +59,18 @@
         "lineMissing": "这条线读不到",
         "plot": "剧情",
         "more": "再显示（还有 {{count}} 项）",
-        "moreUnknown": "再显示"
+        "moreUnknown": "再显示",
+        "notFound": "找不到这个条目"
+    },
+    "fmt": {
+        "list": "、",
+        "listSemi": "；",
+        "labeled": "{{label}}：{{value}}",
+        "labelPrefix": "{{label}}：",
+        "note": "（{{text}}）",
+        "withNote": "{{text}}（{{note}}）",
+        "dot": " · ",
+        "none": "—"
     },
     "degree": {
         "knows": "知道",
@@ -98,19 +109,22 @@
         "about": "关于{{name}}",
         "other": "别的",
         "noOne": "没有人知道",
-        "andMore": "等 {{count}} 人",
-        "readerFrom": "{{place}}起",
+        "andMore": "{{list}} 等 {{count}} 人",
+        "readerFrom": "{{degree}}，{{place}}起",
         "revealExplicit": "{{chapter}}明说",
         "revealHint": "{{chapter}}暗示",
         "written": "已写",
-        "undecided": "还没定",
-        "due": "{{chapter}}到期",
         "noPlan": "没有打算",
         "pick": "选要看的人（{{chosen}} / {{total}}）",
         "pickTitle": "要看的人",
         "pickLimit": "最多选 {{count}} 个",
         "empty": "还没有秘密",
-        "tableLabel": "谁知道什么"
+        "tableLabel": "谁知道什么",
+        "decision": {
+            "decided": "{{text}}：{{conclusion}}",
+            "pending": "{{text}}：还没定",
+            "pendingDue": "{{text}}：还没定，{{chapter}}到期"
+        }
     },
     "ledger": {
         "segments": {
@@ -164,7 +178,9 @@
         "legendRoles": "埋下、呼应、误导、收一部分、收",
         "here": "所选位置",
         "empty": "没有伏笔",
-        "tableLabel": "伏笔账本"
+        "tableLabel": "伏笔账本",
+        "legend": "{{written}}：■　{{planned}}：□　{{roles}}",
+        "nodeLabel": "{{chapter}}{{role}}，{{state}}"
     },
     "goals": {
         "all": "所有主要角色",
@@ -222,7 +238,7 @@
         "restUnaware": "别的 {{count}} 个人都不知道",
         "restNoRecord": "别的 {{count}} 个人没有记录",
         "moreRows": "还有 {{count}} 项",
-        "readerFrom": "从{{place}}起：{{excerpt}}",
+        "readerFrom": "{{degree}}，从{{place}}起：{{excerpt}}",
         "decision": "决定",
         "guard": "读者守卫",
         "foreshadow": "伏笔",

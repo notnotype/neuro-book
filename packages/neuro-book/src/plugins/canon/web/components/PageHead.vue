@@ -46,10 +46,14 @@ const port = useText();
 const chaptersRead = useWorldRead(props.world, "chapters", () => ({}));
 const chapters = computed<readonly ChapterRef[]>(() => chaptersRead.value?.data?.items ?? []);
 const options = computed(() => positionOptions(chapters.value, text));
-const chosen = computed<ReadPosition>(() => {
-    const read = props.position === "" ? null : positionFromValue(props.position);
-    return read !== null && positionExists(read, chapters.value) ? read : defaultPosition(chapters.value);
-});
+const picked = computed(() => (props.position === "" ? null : positionFromValue(props.position)));
+const exists = computed(() => picked.value !== null && positionExists(picked.value, chapters.value));
+const chosen = computed<ReadPosition>(() => (picked.value !== null && exists.value ? picked.value : defaultPosition(chapters.value)));
+/**
+ * 页面选过的章不在了（删了）：读取回到缺省位置（输出 7），这里写那一句。页面状态里的旧值不改：页头只拿到值，不替页面改它，
+ * 作者另选一个位置时这一句就没了。
+ */
+const gone = computed(() => props.position !== "" && chaptersRead.value?.data !== undefined && !exists.value);
 const resolved = computed(() => chapterLine(props.windowLine.line.value === "" ? chosen.value : {...chosen.value, line: props.windowLine.line.value}, chapters.value));
 const readOnly = computed(() => readOnlyBanner(props.world));
 </script>
@@ -69,6 +73,7 @@ const readOnly = computed(() => readOnlyBanner(props.world));
                     <Switch size="sm" :model-value="props.planned" :aria-label="text('entry.planned')" @update:model-value="(value: boolean) => emit('update:planned', value)" />{{ text("entry.planned") }}
                 </label>
             </div>
+            <p v-if="gone" role="status" class="basis-full text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.positionGone") }}</p>
         </div>
     </header>
 </template>

@@ -16,6 +16,7 @@ import type {EditorPageContext, EditorPageCrumb, EditorPageImplementation} from 
 import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/contracts";
 
 import type {CanonClient, CanonOutputs, EntryName} from "../shared/contracts";
+import {MAIN_LINE} from "../shared/reads";
 import type {LineOption} from "../shared/reads";
 import {canonText} from "../shared/text";
 import {OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND} from "./commands";
@@ -70,7 +71,7 @@ export interface PageLine {
 const NO_TABS = new ComponentViewRegistry<EntryTabDeclaration>();
 
 /** 没有窗口的线时（测试窗口）：总是跟着章，只有主线。 */
-const FOLLOW_ONLY: PageLine = {line: ref(""), options: ref([{id: "main", name: null, depth: 0}]), set: () => undefined};
+const FOLLOW_ONLY: PageLine = {line: ref(""), options: ref([{id: MAIN_LINE, name: null, depth: 0}]), set: () => undefined};
 
 export interface EntryPageOptions {
     /** 窗口没有绑定项目时为 null。 */

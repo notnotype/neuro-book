@@ -256,6 +256,29 @@ describe("外部读取", () => {
         broken.release();
     });
 
+    it("重试：在线时把读失败了的再读一次，不等世界变化；读成功的不重读", async () => {
+        const {world, client} = await setup();
+        let attempts = 0;
+        const flaky = world.external("external:test:flaky", () => {
+            attempts += 1;
+            return attempts === 1 ? Promise.reject(new Error("剧情还没启动")) : client.call("lookup", {names: ["星瑾"]});
+        });
+        let healthyReads = 0;
+        const healthy = world.external("external:test:healthy", () => {
+            healthyReads += 1;
+            return client.call("lookup", {names: ["星瑕"]});
+        });
+        await waitUntil("都读过一次", () => !flaky.state.value.loading && healthy.state.value.data !== undefined);
+        expect(flaky.state.value.error?.code).toBe("external-failed");
+
+        await world.retry();
+        await waitUntil("重试以后读到", () => flaky.state.value.data !== undefined);
+        expect(flaky.state.value.error).toBeNull();
+        expect([attempts, healthyReads]).toEqual([2, 1]);
+        flaky.release();
+        healthy.release();
+    });
+
     it("结果的世界版本比已知的旧：这一代补读一次，不一直重读", async () => {
         const {world, client} = await setup();
         let fetched = 0;

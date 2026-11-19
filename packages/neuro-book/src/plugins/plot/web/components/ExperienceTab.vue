@@ -12,8 +12,9 @@ import type {EntryTabContext} from "nbook/plugins/canon/web/component-views";
 
 import type {AuthorExperienceItem} from "../../core/author/experience";
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
-import {chapterIndex, chapterLabel} from "../labels";
+import {chapterIndex, chapterLabel, listOf} from "../labels";
 import {usePlotText} from "../text";
+import ReadFailure from "./ReadFailure.vue";
 
 const props = defineProps<{
     context: EntryTabContext;
@@ -43,13 +44,15 @@ const sections = computed(() => {
     }
     return result;
 });
-const cast = (item: AuthorExperienceItem): string => item.cast.map((member) => ("who" in member ? nameOf(member.who) : member.label)).join("、");
+const cast = (item: AuthorExperienceItem): string => listOf(item.cast.map((member) => ("who" in member ? nameOf(member.who) : member.label)), text);
 </script>
 
 <template>
     <div class="flex flex-col gap-4 text-[length:var(--text-sm)]" data-experience>
+        <!-- 读到过的留着旧内容，失败的那一条放在上面；没读到过时只有它（canon/author-ui.md 输出 26）。 -->
+        <ReadFailure v-if="list.state.value?.error" :failure="list.state.value.error" @retry="props.reads.retry()" />
         <p v-if="list.state.value === null || list.state.value.loading" role="status" aria-busy="true" class="text-[var(--text-muted)]">{{ text("page.loading") }}</p>
-        <template v-else>
+        <template v-else-if="list.state.value.data !== undefined">
             <p v-if="sections.length === 0" class="text-[var(--text-muted)]">{{ text("experience.empty") }}</p>
             <section v-for="(section, index) in sections" :key="`${section.chapter ?? 'prehistory'}-${index}`">
                 <h3 class="mb-1 text-[length:var(--text-xs)] font-semibold text-[var(--text-muted)]">{{ chapterLabel(section.chapter, chapters, text) }}</h3>

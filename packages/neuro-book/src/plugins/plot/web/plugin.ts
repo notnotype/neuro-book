@@ -12,7 +12,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {computed, defineComponent, h, onMounted, shallowRef} from "vue";
 import type {PropType} from "vue";
 
-import {CANON_COMPONENT_VIEWS_POINT, CANON_ENTRY_TABS_POINT, canonReadsKey} from "nbook/plugins/canon/shared/contracts";
+import {CANON_COMPONENT_VIEWS_POINT, CANON_ENTRY_TABS_POINT, canonReadsKey, OPEN_ENTRY_COMMAND, PERSON_COMPONENT} from "nbook/plugins/canon/shared/contracts";
 import type {ComponentViewDeclaration, EntryTabDeclaration} from "nbook/plugins/canon/shared/contracts";
 import type {CanonReads} from "nbook/plugins/canon/shared/reads";
 import type {ComponentViewContext, ComponentViewImplementation, EntryTabContext} from "nbook/plugins/canon/web/component-views";
@@ -43,10 +43,6 @@ export const OPEN_GOALS_COMMAND = "nbook.plot.open-goals";
 export const SHOW_SIDEBAR_COMMAND = "nbook.plot.show-sidebar";
 /** 人物页的附加分页“经历”（输出 18）。 */
 export const EXPERIENCE_TAB = "nbook.plot.experience";
-/** 打开条目页：canon 的命令（canon/author-ui.md 的命令表）。 */
-const OPEN_ENTRY_COMMAND = "nbook.canon.open-entry";
-/** canon 的人物类型：条目启用了它才出“经历”。 */
-const PERSON_TYPE = "nbook.canon.person";
 
 /** 侧栏，排在“设定”（`order: 10`）之后；标题由约定键补（`views.sidebar.title`）。 */
 const SIDEBAR_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-git-branch", location: "sidebar", order: 20, layout: "fill"};
@@ -55,7 +51,8 @@ const TABLE_PAGE: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-table-
 
 /** 专门界面的标题由约定键补（`componentViews.<本地 id>.title`）。 */
 const COMPONENT_VIEW: ComponentViewDeclaration = {};
-const EXPERIENCE_DECLARATION: EntryTabDeclaration = {requires: PERSON_TYPE};
+/** 条目启用了 canon 的人物类型才出“经历”。 */
+const EXPERIENCE_DECLARATION: EntryTabDeclaration = {requires: PERSON_COMPONENT};
 
 const NO_ARGS = Type.Object({}, {additionalProperties: false});
 /** 都只改这个窗口的布局（打开页面、显示视图），不改作品；Agent 读剧情走 `nbook.plot/world`。 */

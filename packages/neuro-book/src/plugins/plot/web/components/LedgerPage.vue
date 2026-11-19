@@ -5,17 +5,18 @@
  */
 import {computed, shallowRef} from "vue";
 
-import {Banner, Button, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Button, SegmentedControl} from "@notnotype/nb-ui/components";
 
 import type {CanonReads} from "nbook/plugins/canon/shared/reads";
 
 import type {AuthorLedgerRow, LedgerSegment} from "../../core/author/ledger";
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
-import {chapterIndex, chapterLabel} from "../labels";
-import {failureText, NARROW_WIDTH, useContainerWidth} from "../page-shell";
+import {chapterIndex, chapterLabel, stageLabel} from "../labels";
+import {NARROW_WIDTH, useContainerWidth} from "../page-shell";
 import type {LedgerPageState} from "../pages";
 import {usePlotText} from "../text";
 import NodeBand from "./NodeBand.vue";
+import ReadFailure from "./ReadFailure.vue";
 
 const props = defineProps<{
     reads: CanonReads;
@@ -44,15 +45,14 @@ const list = props.reads.useExternalList<{readonly position: NonNullable<typeof 
 const data = computed(() => list.state.value?.data);
 const SEGMENTS = {unpaid: "ledger.segments.unpaid", silent: "ledger.segments.silent", unplanned: "ledger.segments.unplanned", dropped: "ledger.segments.dropped", all: "ledger.segments.all"} as const;
 const segments = computed(() => (["unpaid", "silent", "unplanned", "dropped", "all"] as const).map((value) => ({value, label: text(SEGMENTS[value]), count: data.value?.counts[value] ?? 0})));
-const STAGES = {unplanted: "ledger.stage.unplanted", planted: "ledger.stage.planted", echoing: "ledger.stage.echoing", partial: "ledger.stage.partial", paidOff: "ledger.stage.paidOff"} as const;
 const IMPORTANCE = {main: "ledger.importance.main", side: "ledger.importance.side", minor: "ledger.importance.minor"} as const;
 const ROLES = {plant: "ledger.role.plant", echo: "ledger.role.echo", mislead: "ledger.role.mislead", partial: "ledger.role.partial", payoff: "ledger.role.payoff"} as const;
-const stage = (row: AuthorLedgerRow): string => (row.dropped ? text("ledger.stage.dropped") : text(STAGES[row.stage as keyof typeof STAGES] ?? "ledger.stage.planted"));
+const stage = (row: AuthorLedgerRow): string => stageLabel(row.stage, row.dropped, text);
 const importance = (row: AuthorLedgerRow): string => (row.importance !== null && row.importance in IMPORTANCE ? text(IMPORTANCE[row.importance as keyof typeof IMPORTANCE]) : "");
-const last = (row: AuthorLedgerRow): string => (row.lastMentioned === null ? "—" : chapterLabel(row.lastMentioned, chapters.value, text));
+const last = (row: AuthorLedgerRow): string => (row.lastMentioned === null ? text("fmt.none") : chapterLabel(row.lastMentioned, chapters.value, text));
 const next = (row: AuthorLedgerRow): {readonly text: string; readonly warning: boolean} => {
     if (row.next !== null) return {text: text("ledger.next", {chapter: chapterLabel(row.next.chapter, chapters.value, text), role: text(ROLES[row.next.role])}), warning: false};
-    return row.stage === "paidOff" || row.dropped ? {text: "—", warning: false} : {text: text("ledger.none"), warning: true};
+    return row.stage === "paidOff" || row.dropped ? {text: text("fmt.none"), warning: false} : {text: text("ledger.none"), warning: true};
 };
 const nameOf = (id: string): string => data.value?.names[id]?.name ?? id;
 const failure = computed(() => list.state.value?.error ?? null);
@@ -69,11 +69,11 @@ const width = useContainerWidth(root);
         <PageHead :title="text('editorPages.ledger.title')" :position="state.position" :planned="state.planned" wide @update:position="(value: string) => (state.position = value)" @update:planned="(value: boolean) => (state.planned = value)" />
         <div class="mx-auto max-w-[1100px] px-8 py-5 max-[480px]:px-4">
             <p v-if="props.reads.connection.value === 'no-project'" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.unbound") }}</p>
-            <Banner v-else-if="failure !== null" tone="danger" role="alert" :message="failureText(failure, text)">
-                <template #actions><Button size="sm" @click="props.reads.retry()">{{ text("page.retry") }}</Button></template>
-            </Banner>
-            <p v-else-if="list.state.value === null || list.state.value.loading" role="status" aria-busy="true" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.loading") }}</p>
             <template v-else>
+                <!-- 读到过的留着旧内容，失败的那一条放在上面；没读到过时只有它（canon/author-ui.md 输出 26）。 -->
+                <ReadFailure v-if="failure !== null" class="mb-4" :failure="failure" @retry="props.reads.retry()" />
+                <p v-if="list.state.value === null || list.state.value.loading" role="status" aria-busy="true" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.loading") }}</p>
+                <template v-else-if="list.state.value.data !== undefined">
                 <SegmentedControl class="mb-4" size="sm" wrap :aria-label="text('ledger.segments.label')" :options="segments" :model-value="state.segment" @update:model-value="(value) => (state.segment = value as LedgerSegment)" />
                 <p v-if="list.state.value.items.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("ledger.empty") }}</p>
                 <div v-else-if="width < NARROW_WIDTH" class="flex flex-col gap-3" data-ledger-list>
@@ -83,7 +83,7 @@ const width = useContainerWidth(root);
                             <span class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ importance(row) }}</span>
                         </div>
                         <p v-if="row.unplanned && !row.dropped" class="text-[length:var(--text-xs)] text-[var(--text-secondary)]">{{ text("ledger.unplannedNote") }}</p>
-                        <p class="text-[var(--text-secondary)]">{{ stage(row) }} · {{ last(row) }}<span v-if="row.silence?.long" class="text-[var(--status-warning)]">（{{ text("ledger.silent", {count: row.silence.chapters}) }}）</span> · <span :class="next(row).warning ? 'text-[var(--status-warning)]' : ''">{{ next(row).text }}</span></p>
+                        <p class="text-[var(--text-secondary)]">{{ stage(row) }}{{ text("fmt.dot") }}{{ last(row) }}<span v-if="row.silence?.long" class="text-[var(--status-warning)]">{{ text("fmt.note", {text: text("ledger.silent", {count: row.silence.chapters})}) }}</span>{{ text("fmt.dot") }}<span :class="next(row).warning ? 'text-[var(--status-warning)]' : ''">{{ next(row).text }}</span></p>
                         <NodeBand class="mt-2" :nodes="row.nodes" :chapters="chapters" :now="now" />
                     </article>
                 </div>
@@ -112,9 +112,10 @@ const width = useContainerWidth(root);
                             </tr>
                         </tbody>
                     </table>
-                    <p class="mt-2 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ text("ledger.legendWritten") }}：■　{{ text("ledger.legendPlanned") }}：□　{{ text("ledger.legendRoles") }}</p>
+                    <p class="mt-2 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ text("ledger.legend", {written: text("ledger.legendWritten"), planned: text("ledger.legendPlanned"), roles: text("ledger.legendRoles")}) }}</p>
                 </div>
                 <Button v-if="list.state.value.more" class="mt-3" size="sm" variant="ghost" @click="list.more()">{{ remaining === null ? text("page.moreUnknown") : text("page.more", {count: remaining}) }}</Button>
+                </template>
             </template>
         </div>
     </div>

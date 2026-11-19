@@ -9,9 +9,10 @@ import type {CommandImplementation, CommandResult, CommandService, WrittenComman
 import {OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
 import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/contracts";
 
+import {OPEN_ENTRY_COMMAND} from "../shared/contracts";
 import {canonText} from "../shared/text";
 
-export const OPEN_ENTRY_COMMAND = "nbook.canon.open-entry";
+export {OPEN_ENTRY_COMMAND};
 export const OPEN_RECEIPT_COMMAND = "nbook.canon.open-receipt";
 export const OPEN_CHANGE_COMMAND = "nbook.canon.open-change";
 export const NEW_ENTRY_COMMAND = "nbook.canon.new-entry";

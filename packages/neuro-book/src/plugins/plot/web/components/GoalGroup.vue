@@ -41,10 +41,10 @@ const moved = (goal: AuthorGoal): {readonly text: string; readonly warning: bool
                     <button type="button" class="text-left text-[var(--accent-main)] hover:underline" @click="emit('open', goal.id)">{{ goal.name }}</button>
                     <span v-if="goal.隐秘 !== null" class="ml-2 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ text("goals.hidden") }}</span>
                     <p v-if="goal.conflicts.length > 0" class="text-[length:var(--text-xs)] text-[var(--text-secondary)]">
-                        {{ text("goals.conflicts") }}<template v-for="(conflict, index) in goal.conflicts" :key="conflict.id"><span v-if="index > 0">；</span>{{ nameOf(conflict.holder) }}：<button type="button" class="text-[var(--accent-main)] hover:underline" @click="emit('open', conflict.id)">{{ nameOf(conflict.id) }}</button></template>
+                        {{ text("goals.conflicts") }}<template v-for="(conflict, index) in goal.conflicts" :key="conflict.id"><span v-if="index > 0">{{ text("fmt.listSemi") }}</span>{{ text("fmt.labelPrefix", {label: nameOf(conflict.holder)}) }}<button type="button" class="text-[var(--accent-main)] hover:underline" @click="emit('open', conflict.id)">{{ nameOf(conflict.id) }}</button></template>
                     </p>
                     <p v-if="goal.基于.length > 0" class="text-[length:var(--text-xs)] text-[var(--text-secondary)]">
-                        {{ text("goals.basedOn") }}<template v-for="(point, index) in goal.基于" :key="point"><span v-if="index > 0">、</span><button type="button" class="text-[var(--accent-main)] hover:underline" @click="emit('open', point)">{{ nameOf(point) }}</button></template>
+                        {{ text("goals.basedOn") }}<template v-for="(point, index) in goal.基于" :key="point"><span v-if="index > 0">{{ text("fmt.list") }}</span><button type="button" class="text-[var(--accent-main)] hover:underline" @click="emit('open', point)">{{ nameOf(point) }}</button></template>
                     </p>
                 </div>
                 <span class="shrink-0 text-[length:var(--text-xs)]" :class="moved(goal).warning ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'" data-moved>{{ moved(goal).text }}</span>

@@ -13,6 +13,7 @@ import type {PlotAuthorClient} from "../author";
 import {chapterIndex} from "../labels";
 import {usePlotText} from "../text";
 import GoalGroup from "./GoalGroup.vue";
+import ReadFailure from "./ReadFailure.vue";
 
 const props = defineProps<{
     context: ComponentViewContext;
@@ -31,8 +32,10 @@ const nameOf = (id: string | null): string => (id === null ? "" : (data.value?.n
 
 <template>
     <div class="flex flex-col gap-5 text-[length:var(--text-sm)]" data-attitude-view>
+        <!-- 读到过的留着旧内容，失败的那一条放在上面；没读到过时只有它（canon/author-ui.md 输出 26）。 -->
+        <ReadFailure v-if="read?.error" :failure="read.error" @retry="props.reads.retry()" />
         <p v-if="read === null || read.loading" role="status" aria-busy="true" class="text-[var(--text-muted)]">{{ text("page.loading") }}</p>
-        <p v-else-if="(data?.goals.length ?? 0) === 0 && (data?.attitudes.length ?? 0) === 0" class="text-[var(--text-muted)]">{{ text("goals.noGoals") }}</p>
+        <p v-else-if="data !== undefined && data.goals.length === 0 && data.attitudes.length === 0" class="text-[var(--text-muted)]">{{ text("goals.noGoals") }}</p>
         <template v-else-if="data !== undefined">
             <GoalGroup v-if="data.goals.length > 0" :goals="data.goals" :attitudes="[]" :names="data.names" :chapters="chapters" @open="open" />
             <section v-if="data.attitudes.length > 0">

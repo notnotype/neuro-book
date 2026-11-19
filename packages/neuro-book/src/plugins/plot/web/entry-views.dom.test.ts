@@ -120,8 +120,13 @@ describe("人物页", () => {
         // 一行依次是程度、秘密、怎么知道、来处。保密的事列出所有秘密：没有行的写“不知道”。
         const cells = wrapper.findAll("[data-knowing-row]").map((row) => cellsOf(row, ["degree", "name", "detail", "origin"]));
         expect(cells).toEqual(expect.arrayContaining([["知道", "哥哥就是星瑕", "当时在场", "第 1 章"], ["不知道", "父母没有死", "", ""]]));
-        expect(wrapper.find("[data-knowing-view]").text()).toContain("字段");
-        expect(wrapper.find("[data-knowing-view]").text()).toContain("听过的说法");
+        // 下面一节是这一页的通用字段：同通用字段表，点值看来历、点“改”出确认条。
+        const fields = wrapper.find("[data-knowing-view] [data-field-table]");
+        expect(fields.text()).toContain("听过的说法");
+        await fields.find('[data-field="know.知情"] .canon-value').trigger("click");
+        await waitUntil("来历出来", () => wrapper.find("[data-knowing-view] [data-origin-list]").exists(), {timeoutMs: 10_000});
+        await fields.find('[data-edit="know.听过的说法"]').trigger("click");
+        await waitUntil("确认条出来", () => wrapper.find("[data-confirm-bar]").exists());
     });
 
     it("目标与态度：他的目标与态度表；经历按章、写同时在场的人", async () => {

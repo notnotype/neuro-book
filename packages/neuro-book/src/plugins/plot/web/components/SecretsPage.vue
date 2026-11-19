@@ -6,18 +6,19 @@
  */
 import {computed, shallowRef} from "vue";
 
-import {Banner, Button, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Button, SegmentedControl} from "@notnotype/nb-ui/components";
 
 import type {CanonReads} from "nbook/plugins/canon/shared/reads";
 
 import type {SecretSegment} from "../../core/author/secrets";
 import type {AuthorOutputs, PlotAuthorClient} from "../author";
 import {chapterIndex} from "../labels";
-import {failureText, NARROW_WIDTH, useContainerWidth} from "../page-shell";
+import {NARROW_WIDTH, useContainerWidth} from "../page-shell";
 import type {SecretsPageState} from "../pages";
 import {usePlotText} from "../text";
 import PeoplePicker from "./PeoplePicker.vue";
 import SecretsMatrix from "./SecretsMatrix.vue";
+import ReadFailure from "./ReadFailure.vue";
 
 const props = defineProps<{
     reads: CanonReads;
@@ -66,11 +67,11 @@ const width = useContainerWidth(root);
         <PageHead :title="text('editorPages.secrets.title')" :position="state.position" :planned="state.planned" wide @update:position="(value: string) => (state.position = value)" @update:planned="(value: boolean) => (state.planned = value)" />
         <div class="mx-auto max-w-[1100px] px-8 py-5 max-[480px]:px-4">
             <p v-if="props.reads.connection.value === 'no-project'" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.unbound") }}</p>
-            <Banner v-else-if="failure !== null" tone="danger" role="alert" :message="failureText(failure, text)">
-                <template #actions><Button size="sm" @click="props.reads.retry()">{{ text("page.retry") }}</Button></template>
-            </Banner>
-            <p v-else-if="list.state.value === null || list.state.value.loading" role="status" aria-busy="true" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.loading") }}</p>
             <template v-else>
+                <!-- 读到过的留着旧内容，失败的那一条放在上面；没读到过时只有它（canon/author-ui.md 输出 26）。 -->
+                <ReadFailure v-if="failure !== null" class="mb-4" :failure="failure" @retry="props.reads.retry()" />
+                <p v-if="list.state.value === null || list.state.value.loading" role="status" aria-busy="true" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("page.loading") }}</p>
+                <template v-else-if="list.state.value.data !== undefined">
                 <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <SegmentedControl size="sm" wrap :aria-label="text('secrets.segments.label')" :options="segments" :model-value="state.segment" @update:model-value="(value) => (state.segment = value as SecretSegment)" />
                     <PeoplePicker :candidates="candidates" :model-value="people" @update:model-value="(value: string[]) => (state.people = value)" />
@@ -78,6 +79,7 @@ const width = useContainerWidth(root);
                 <p v-if="list.state.value.items.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("secrets.empty") }}</p>
                 <SecretsMatrix v-else :rows="list.state.value.items" :people="people" :names="names" :chapters="chapters" :now="now" :compact="width < NARROW_WIDTH" @open="props.open" />
                 <Button v-if="list.state.value.more" class="mt-3" size="sm" variant="ghost" @click="list.more()">{{ remaining === null ? text("page.moreUnknown") : text("page.more", {count: remaining}) }}</Button>
+                </template>
             </template>
         </div>
     </div>

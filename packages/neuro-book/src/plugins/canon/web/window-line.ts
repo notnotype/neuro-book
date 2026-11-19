@@ -9,13 +9,12 @@ import {computed, shallowRef, watch} from "vue";
 import type {ComputedRef, ShallowRef} from "vue";
 
 import type {CanonOutputs} from "../shared/contracts";
+import {MAIN_LINE} from "../shared/reads";
 import type {LineOption} from "../shared/reads";
 import type {CanonWorld} from "./world";
 
 export type {LineOption} from "../shared/reads";
-
-/** 主线的 id（nb-canon `lines/table.ts` 的 `MAIN_LINE`；浏览器代码不引 nb-canon 的主入口，这里写字面量）。 */
-export const MAIN_LINE = "main";
+export {MAIN_LINE};
 
 export interface WindowLine {
     /** 窗口在看的线的 id；空串是跟着章。 */

@@ -52,7 +52,10 @@ afterEach(async () => {
     document.body.innerHTML = "";
 });
 
-/** 星瑕（持有进行的目标，主要角色）、星瑾、彗；星瑕名下两个秘密，“父母”名下一个；星瑾信错了一个，彗知道一个。一条剧情线。 */
+/**
+ * 星瑕（持有进行的目标，主要角色）、星瑾、彗；星瑕名下两个秘密，“父母”名下一个；星瑾信错了一个，彗知道一个；“父母没有死”挂着一条
+ * 待定决策（所以它不在“没打算怎么揭”里）。一条剧情线。
+ */
 async function setup() {
     venue = await canonNodeWorld(tmp, {project: [definitionAt("project", storageDescriptor, storageBackendPlugin), definitionAt("project", descriptor, plotProjectPlugin)]});
     const standIn = pageStandIn();
@@ -74,11 +77,12 @@ async function setup() {
         addRow(ids["tmp:hui"]!, ids["tmp:brother"]!, {程度: "knows"}),
         addRow(ids["tmp:jin"]!, ids["tmp:prisoned"]!, {程度: "misbelieves", 他以为的: "哥哥不想回家"}),
     ]})}]);
+    await publish(other.canon, [{ref: {kind: "decision", id: "tmp:d"}, after: {id: "tmp:d", text: "父母什么时候回来", status: "pending", about: [{kind: "entry", id: ids["tmp:alive"]!}], hints: []}}]);
     return {standIn, ids};
 }
 
 describe("谁知道什么", () => {
-    it("按主体分组、缺省点名主要角色、程度写文字；选“读者还不知道”只剩那几行", async () => {
+    it("按主体分组、缺省点名主要角色、程度写文字；选“没打算怎么揭”只剩没有计划与决策的那几行", async () => {
         const {standIn, ids} = await setup();
         const page = standIn.page<SecretsPageState>(SECRETS_PAGE);
         const component: Component = await page.load();
@@ -99,9 +103,13 @@ describe("谁知道什么", () => {
         expect(prisoned.text()).toContain("没有打算");
         expect(context.state.people).toBeNull();
 
-        await wrapper.findAll('[role="radio"]').find((radio) => radio.text().startsWith("读者还不知道"))!.trigger("click");
-        expect(context.state.segment).toBe("readerUnaware");
-        await waitUntil("筛过", () => wrapper.findAll("[data-secret-row]").length === 3 && !wrapper.text().includes("读取中"));
+        const noPlan = wrapper.findAll('[role="radio"]').find((radio) => radio.text().startsWith("没打算怎么揭"))!;
+        expect(noPlan.text()).toBe("没打算怎么揭2");
+        await noPlan.trigger("click");
+        expect(context.state.segment).toBe("noPlan");
+        // 换分段时读取层先接着显示上一份结果，等行数变了再看留下的是哪几行。
+        await waitUntil("筛过", () => wrapper.findAll("[data-secret-row]").length === 2);
+        expect(wrapper.findAll("[data-secret-row] th").map((th) => th.text().replace(/保密|绝密/gu, ""))).toEqual(["哥哥就是星瑕", "那几年是被软禁"]);
         expect(page.breadcrumbs!(undefined)?.map((crumb) => port.t(crumb.label))).toEqual(["剧情", "谁知道什么"]);
     });
 

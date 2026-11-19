@@ -73,13 +73,16 @@ export interface PageHeadProps {
     readonly wide?: boolean;
 }
 
+/** 主线的 id（nb-canon `lines/table.ts` 的 `MAIN_LINE`；浏览器代码不引 nb-canon 的主入口，这里写字面量）。 */
+export const MAIN_LINE = "main";
+
 /**
  * 组合函数只在组件的 `setup` 或别的效果作用域里调：输入（一个返回输入的函数）变了换一个读取，旧的在新的读到（或读失败）之前
  * 接着显示；输入为 null 时不读；作用域结束时释放。窗口没有绑定项目时 `connection` 是 `no-project`，组合函数都给 null。
  */
 export interface CanonReads {
     readonly connection: Readonly<Ref<WorldConnection>>;
-    /** 订阅被提供方结束以后重新订阅；成功后内容按当前版本重读（输出 27）。 */
+    /** 重试：订阅被提供方结束以后重新订阅、按当前版本重读（输出 27）；连接在线时把读失败了的读取（世界的与外部的）再读一次。 */
     retry(): Promise<void>;
     useRead<M extends ReadMethod>(method: M, input: () => CanonInput<M> | null): ComputedRef<ReadState<CanonOutputs[M]> | null>;
     useList<M extends ListMethod>(method: M, input: () => Omit<CanonInput<M>, "cursor" | "limit"> | null, pageSize?: number): {readonly state: ComputedRef<PagedState<CanonOutputs[M], ListItem<M>> | null>; more(): void};

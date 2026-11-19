@@ -78,7 +78,10 @@ export interface CanonWorld {
      * 跟着 `exclusive` 事件重读。
      */
     breakExclusive(): Promise<CanonResult<CanonOutputs["breakExclusive"]>>;
-    /** 订阅被结束以后重新订阅；成功后内容按当前版本重读。 */
+    /**
+     * 重试：订阅被结束以后重新订阅，成功后内容按当前版本重读；连接在线时把上一次读失败了的读取（世界的与外部的）再读一次，
+     * 页面上的“重试”就是它（plot/author-ui.md 的失败与恢复）。
+     */
     retry(): Promise<void>;
     dispose(): void;
 }
@@ -96,6 +99,8 @@ interface Slot {
     load(): Promise<() => void>;
     /** 世界变了：结果标成过期（`ReadState.stale`），重读读完再清掉。 */
     markStale(): void;
+    /** 上一次读失败了（`retry` 在线时只重读这些）。 */
+    failed(): boolean;
     /** 外部读取的结果版本旧了、已经在哪一代补读过一次（同一代至多补读一次，免得对方一直落后时空转）。 */
     retried?: number;
 }
@@ -283,6 +288,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             busy: false,
             released: 0,
             state,
+            failed: () => state.value.error !== null,
             // 换上结果时 `run` 已经把这一轮的代写进 `slot.generation`：读的期间世界又变了，结果仍算过期，下一轮再读。
             load: async () => {
                 const result = await settled(fetch);
@@ -343,6 +349,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             busy: false,
             released: 0,
             list: state,
+            failed: () => state.value.error !== null,
             load: fromStart,
             markStale: () => {
                 if (!state.value.stale) state.value = {...state.value, stale: true};
@@ -424,6 +431,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             busy: false,
             released: 0,
             list: state,
+            failed: () => state.value.error !== null,
             load: fromStart,
             markStale: () => {
                 if (!state.value.stale) state.value = {...state.value, stale: true};
@@ -485,7 +493,14 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
         write,
         breakExclusive: () => client.call("breakExclusive", {}),
         retry: async () => {
-            if (connection.value !== "ended" || disposed) return;
+            if (disposed) return;
+            if (connection.value === "online") {
+                // 失败的读取已经把这一代写进 `generation`，不等世界下一次变化就不会再读：拨回去，`run` 这一圈就读它。
+                for (const slot of slots.values()) if (slot.users > 0 && slot.failed()) slot.generation = -1;
+                await run();
+                return;
+            }
+            if (connection.value !== "ended") return;
             connection.value = "connecting";
             await subscribe();
             await run();

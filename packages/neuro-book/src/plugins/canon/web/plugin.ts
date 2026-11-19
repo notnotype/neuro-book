@@ -34,7 +34,7 @@ import {CANON_COMPONENT_VIEWS_POINT, componentViewsPoint} from "../shared/compon
 import {CANON_ENTRY_TABS_POINT, entryTabsPoint} from "../shared/entry-tabs";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import type {ComponentViewDeclaration} from "../shared/component-views";
-import {componentsPoint} from "../shared/components";
+import {componentsPoint, PERSON_COMPONENT} from "../shared/components";
 import {canonClientKey, canonReadsKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import {canonText} from "../shared/text";
@@ -111,7 +111,6 @@ const RECEIPT_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i
 const CHANGE_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-milestone", instances: true, restore: true};
 
 /** canon 自己的两个内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`）。 */
-const PERSON_TYPE = "nbook.canon.person";
 const PANEL_TYPE = "nbook.canon.panel";
 const BUILTIN_VIEW: ComponentViewDeclaration = {};
 
@@ -155,7 +154,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: RECEIPT_PAGE, declaration: RECEIPT_PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: CHANGE_PAGE, declaration: CHANGE_PAGE_DECLARATION},
             {capability: WORKBENCH_OVERLAYS_POINT, id: REVERT_OVERLAY, declaration: REVERT_OVERLAY_DECLARATION},
-            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_TYPE, declaration: BUILTIN_VIEW},
+            {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: BUILTIN_VIEW},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: BUILTIN_VIEW},
             ...Object.entries(CANON_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
         ],
@@ -299,7 +298,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                     [EDITOR_PAGES_POINT]: {[ENTRY_PAGE]: page, [RECEIPT_PAGE]: receiptPage, [CHANGE_PAGE]: changePage},
                     [WORKBENCH_OVERLAYS_POINT]: {[REVERT_OVERLAY]: overlay},
                     [CANON_COMPONENT_VIEWS_POINT]: {
-                        [PERSON_TYPE]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),
+                        [PERSON_COMPONENT]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),
                         [PANEL_TYPE]: componentView(() => import("./components/PanelDataView.vue")),
                     },
                     [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent), pendingShown: () => pickFirstPending(pendingState), pickLine}),

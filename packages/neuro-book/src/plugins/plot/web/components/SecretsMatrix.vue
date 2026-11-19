@@ -10,7 +10,7 @@ import {Badge} from "@notnotype/nb-ui/components";
 
 import type {SecretRow} from "../../core/author/secrets";
 import type {AuthorName} from "../../core/author/knowing";
-import {chapterLabel, degreeLabel, placeLabel} from "../labels";
+import {chapterLabel, decisionLabel, degreeLabel, listOf, placeLabel, secrecyLabel} from "../labels";
 import type {ChapterIndex} from "../labels";
 import {usePlotText} from "../text";
 
@@ -41,18 +41,16 @@ const groups = computed(() => {
     return result;
 });
 const groupLabel = (subject: string | null): string => (subject === null ? text("secrets.other") : text("secrets.about", {name: nameOf(subject)}));
-const SECRECY = {common: "secrecy.common", trade: "secrecy.trade", secret: "secrecy.secret", topSecret: "secrecy.topSecret"} as const;
-const secrecyLabel = (row: SecretRow): string => text(SECRECY[row.secrecy]);
 const isSecret = (row: SecretRow): boolean => row.secrecy === "secret" || row.secrecy === "topSecret";
 const others = (row: SecretRow): string => {
     if (row.others.length === 0) return text("secrets.noOne");
-    const listed = row.others.map((other) => `${nameOf(other.person)}（${degreeLabel(other.degree, isSecret(row), text)}）`).join("、");
-    return row.othersTotal > row.others.length ? `${listed} ${text("secrets.andMore", {count: row.othersTotal - row.others.length})}` : listed;
+    const listed = listOf(row.others.map((other) => text("fmt.withNote", {text: nameOf(other.person), note: degreeLabel(other.degree, isSecret(row), text)})), text);
+    return row.othersTotal > row.others.length ? text("secrets.andMore", {list: listed, count: row.othersTotal - row.others.length}) : listed;
 };
 const reader = (row: SecretRow): string => {
     const degree = degreeLabel(row.reader.degree === "unaware" ? "unaware" : row.reader.degree, true, text);
     const from = row.reader.degree === "knows" ? row.reader.knows : row.reader.degree === "suspects" ? row.reader.suspects : null;
-    return from === null ? degree : `${degree}，${text("secrets.readerFrom", {place: placeLabel(from, props.chapters, text)})}`;
+    return from === null ? degree : text("secrets.readerFrom", {degree, place: placeLabel(from, props.chapters, text)});
 };
 interface PlanLine {
     readonly text: string;
@@ -62,14 +60,14 @@ const plan = (row: SecretRow): PlanLine[] => {
     const lines: PlanLine[] = row.reveals.map((reveal) => {
         const chapter = reveal.chapter === null ? text("chapter.unscheduled") : chapterLabel(reveal.chapter, props.chapters, text);
         const said = text(reveal.mode === "explicit" ? "secrets.revealExplicit" : "secrets.revealHint", {chapter});
-        return {text: reveal.done ? `${said}（${text("secrets.written")}）` : said, warning: false};
+        return {text: reveal.done ? text("fmt.withNote", {text: said, note: text("secrets.written")}) : said, warning: false};
     });
     for (const decision of row.decisions) {
+        // 已定的只写结论（输出 8）；待定的写决策、“还没定”与到期章，到期章不晚于所选位置时用警告色。
         if (decision.status === "decided") lines.push({text: decision.conclusion ?? decision.text, warning: false});
         else {
-            const due = decision.due === null ? "" : `，${text("secrets.due", {chapter: chapterLabel(decision.due, props.chapters, text)})}`;
             const index = decision.due === null ? undefined : props.chapters.get(decision.due);
-            lines.push({text: `${decision.text}：${text("secrets.undecided")}${due}`, warning: index !== undefined && index <= props.now});
+            lines.push({text: decisionLabel(decision, props.chapters, text), warning: index !== undefined && index <= props.now});
         }
     }
     return lines.length === 0 ? [{text: text("secrets.noPlan"), warning: false}] : lines;
@@ -87,28 +85,29 @@ const cell = (row: SecretRow, person: string): {readonly degree: string; readonl
             <article v-for="row in group.rows" :key="row.point" class="rounded-[var(--radius-control)] border border-[var(--divider)] px-3 py-2 text-[length:var(--text-sm)]" data-secret-row>
                 <div class="flex flex-wrap items-center gap-2">
                     <button type="button" class="font-medium text-[var(--accent-main)] hover:underline" @click="emit('open', row.point)">{{ nameOf(row.point) }}</button>
-                    <Badge size="sm">{{ secrecyLabel(row) }}</Badge>
+                    <Badge size="sm">{{ secrecyLabel(row.secrecy, text) }}</Badge>
                 </div>
                 <p class="mt-1 text-[var(--text-secondary)]">
-                    <span v-for="person in props.people" :key="person" class="mr-3">{{ nameOf(person) }}：{{ cell(row, person).degree }}</span>
+                    <span v-for="person in props.people" :key="person" class="mr-3">{{ text("fmt.labeled", {label: nameOf(person), value: cell(row, person).degree}) }}</span>
                 </p>
-                <p class="text-[var(--text-secondary)]">{{ text("secrets.columns.others") }}：{{ others(row) }}</p>
-                <p class="text-[var(--text-secondary)]">{{ text("secrets.columns.reader") }}：{{ reader(row) }}</p>
+                <p class="text-[var(--text-secondary)]">{{ text("fmt.labeled", {label: text("secrets.columns.others"), value: others(row)}) }}</p>
+                <p class="text-[var(--text-secondary)]">{{ text("fmt.labeled", {label: text("secrets.columns.reader"), value: reader(row)}) }}</p>
                 <p v-for="(line, index) in plan(row)" :key="index" :class="line.warning ? 'text-[var(--status-warning)]' : 'text-[var(--text-secondary)]'">{{ line.text }}</p>
             </article>
         </section>
     </div>
-    <div v-else class="overflow-x-auto" data-secrets-table>
+    <!-- 表格自己不做滚动容器：外面的编辑区滚动，表头（纵向）与秘密一列（横向）才都固定得住（overflow 会把 sticky 关在它里面）。 -->
+    <div v-else data-secrets-table>
         <table class="w-full border-collapse text-left text-[length:var(--text-sm)]" :aria-label="text('secrets.tableLabel')">
             <thead>
                 <tr class="border-b border-[var(--divider)] text-[length:var(--text-xs)] text-[var(--text-muted)]">
-                    <th scope="col" class="sticky left-0 z-[1] bg-[var(--panel-surface)] py-2 pr-4 font-normal">{{ text("secrets.columns.secret") }}</th>
-                    <th v-for="person in props.people" :key="person" scope="col" class="py-2 pr-4 font-normal">
+                    <th scope="col" class="sticky left-0 top-0 z-[2] bg-[var(--panel-surface)] py-2 pr-4 font-normal">{{ text("secrets.columns.secret") }}</th>
+                    <th v-for="person in props.people" :key="person" scope="col" class="sticky top-0 z-[1] bg-[var(--panel-surface)] py-2 pr-4 font-normal">
                         <button type="button" class="text-[var(--accent-main)] hover:underline" @click="emit('open', person)">{{ nameOf(person) }}</button>
                     </th>
-                    <th scope="col" class="py-2 pr-4 font-normal">{{ text("secrets.columns.others") }}</th>
-                    <th scope="col" class="py-2 pr-4 font-normal">{{ text("secrets.columns.reader") }}</th>
-                    <th scope="col" class="py-2 font-normal">{{ text("secrets.columns.plan") }}</th>
+                    <th scope="col" class="sticky top-0 z-[1] bg-[var(--panel-surface)] py-2 pr-4 font-normal">{{ text("secrets.columns.others") }}</th>
+                    <th scope="col" class="sticky top-0 z-[1] bg-[var(--panel-surface)] py-2 pr-4 font-normal">{{ text("secrets.columns.reader") }}</th>
+                    <th scope="col" class="sticky top-0 z-[1] bg-[var(--panel-surface)] py-2 font-normal">{{ text("secrets.columns.plan") }}</th>
                 </tr>
             </thead>
             <tbody v-for="group in groups" :key="group.subject ?? ''">
@@ -118,7 +117,7 @@ const cell = (row: SecretRow, person: string): {readonly degree: string; readonl
                 <tr v-for="row in group.rows" :key="row.point" class="border-b border-[var(--divider)] align-top" data-secret-row>
                     <th scope="row" class="sticky left-0 bg-[var(--panel-surface)] py-2 pr-4 font-normal">
                         <button type="button" class="text-[var(--accent-main)] hover:underline" @click="emit('open', row.point)">{{ nameOf(row.point) }}</button>
-                        <Badge class="ml-2" size="sm">{{ secrecyLabel(row) }}</Badge>
+                        <Badge class="ml-2" size="sm">{{ secrecyLabel(row.secrecy, text) }}</Badge>
                     </th>
                     <td v-for="person in props.people" :key="person" class="py-2 pr-4" :data-cell="person">
                         <!-- 程度至多三个字，不断开：列宽因此至少放得下它，表头的名字也不竖着排。 -->
