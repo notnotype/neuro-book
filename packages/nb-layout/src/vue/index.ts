@@ -23,13 +23,16 @@ export type {
     SplitterPanelConfig,
 } from "./grid-splitter";
 
-/* 宿主接 `NestedGrid`：量容器、算布局、接纳手势的提交 */
+/* 宿主接 `NestedGrid`：尺寸从它量的根盒来、算布局、接纳手势的提交，整包绑上去 */
 export {
-    useGridLayout,
-} from "./useGridLayout";
+    useGridHost,
+} from "./useGridHost";
 export type {
-    GridLayoutHost,
-} from "./useGridLayout";
+    GridHost,
+    GridHostBindings,
+    GridHostIssue,
+    GridHostOptions,
+} from "./useGridHost";
 export {
     useLayoutExtent,
 } from "./useLayoutExtent";

@@ -71,6 +71,14 @@ export function clampAxis(value: number, low: number, high: number): number {
 }
 
 /** 只接受有限、非负的宽高；快照与宿主引用解析共用这一条外部输入口径。 */
+/**
+ * 承载盒的尺寸能不能用来算布局（Spec `ui/nested-grid` 输出 145、146）：量到了、两轴有限且都大于 0。宿主发布空布局、`useGridHost`
+ * 停用手势、`NestedGrid` 判定“量好了”都用这一个判据，免得一处把 `{0, 0}` 当可用、另一处当没有。
+ */
+export function usableExtent(extent: GridExtent | null): extent is GridExtent {
+    return extent !== null && Number.isFinite(extent.width) && Number.isFinite(extent.height) && extent.width > 0 && extent.height > 0;
+}
+
 export function readExtent(value: unknown): GridExtent | null {
     if (!value || typeof value !== "object") {
         return null;

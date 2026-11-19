@@ -29,6 +29,7 @@ import {useRenderOrder} from "./useRenderOrder";
 import {useSashGesture} from "./useSashGesture";
 import {useSashSnap} from "./useSashSnap";
 import {commitFailure} from "../grid-failure";
+import {usableExtent} from "../grid-geometry";
 import {gridIssue} from "../grid-issue";
 import type {GridExtent, GridFailure, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
 import type {GridSashRef, SashGestureBinding, SashGestureHost} from "../sash-gesture";
@@ -105,6 +106,11 @@ const emit = defineEmits<{
     (e: "issues", issues: readonly (GridIssue<GridIssueCode | "not-published"> | GridFailure)[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：宿主决定焦点去哪。 */
     (e: "content-parked", key: string): void;
+    /**
+     * 量到的根盒（Spec 输出 144）：挂载后量到就发、两轴变了才再发，同步发；卸载前发 null。宿主据此算布局（`useGridHost` 接它），
+     * 所以宿主不用自己再量一遍承载盒。
+     */
+    (e: "extent", extent: GridExtent | null): void;
 }>();
 
 defineSlots<{
@@ -129,6 +135,8 @@ const rootEl = ref<HTMLElement | null>(null);
 const preview = shallowRef<GridGesturePreview<unknown> | null>(null);
 /** 会话根盒来自共享的布局盒测量：未挂载是 `null`，与「真实零尺寸」区分。 */
 const measuredExtent = useLayoutExtent(rootEl);
+// 同步发：工作台的 store 用尺寸算投影，晚一拍就会用旧树算新尺寸的布局。
+watch(measuredExtent, (next) => emit("extent", next), {flush: "sync"});
 let sessionCounter = 0;
 
 /** 手势期间渲染预览；提交被拒绝、取消或宿主发布新布局后回到受控事实。 */
@@ -266,7 +274,7 @@ const contentLayer = useContentLayer({
     keptSize,
     shape: shapeOf,
     previewing: () => preview.value !== null,
-    measured: () => placementExtent.value.width > 0 && placementExtent.value.height > 0,
+    measured: () => usableExtent(placementExtent.value),
     obscuredLeaves: () => obscuredLeaves.value,
     outgoingLeaves: () => outgoingLeaves.value,
     held: () => held.value,
@@ -579,6 +587,8 @@ watch(() => scope.active.size > 0, (active) => {
 });
 
 onBeforeUnmount(() => {
+    // 卸载时侦听先停、模板 ref 后置空，`useLayoutExtent` 来不及发 null：这里显式告诉宿主尺寸没了（Spec 输出 144）。
+    emit("extent", null);
     scope.dispose();
 });
 

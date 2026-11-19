@@ -56,37 +56,37 @@
 
 ## 接入
 
-宿主要做五件事：建树（`createGrid`，**`sashSize` 要传**：缺省是 0，分隔线没有宽度、不可交互，也没有任何诊断）、量容器、算布局、接纳手势提交、结构变了通知。最小的宿主：
+宿主要做五件事：建树（`createGrid`，**`sashSize` 要传**：缺省是 0，分隔线没有宽度、不可交互，也没有任何诊断）、量容器、算布局、接纳手势提交、结构变了通知。后四件由 `useGridHost` 接好，整包绑到组件上（输出 144、145）：
 
 ```vue
 <script setup lang="ts">
-import {ref, useTemplateRef} from "vue";
+import {shallowRef} from "vue";
 import {createGrid} from "@notnotype/nb-layout";
-import {NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
-const grid = ref(createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+const grid = shallowRef(createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
     {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}},
     {kind: "leaf", id: "b", ref: "b", size: {width: 300, height: 0}},
 ]}, {sashSize: 4}));
-// 量的是 NestedGrid 的父元素：无 padding、border，里面只有这个 grid。
-const container = useTemplateRef<HTMLElement>("container");
-const extent = useLayoutExtent(container);
-const host = useGridLayout({grid, extent, contextKey: () => "demo"});
+const host = useGridHost({grid, onIssues: (issues) => console.warn(issues)});
 // 树被原地改了（拆分、关闭、换位）之后调一次，宿主才看得到新结构：`grid.value.splitLeaf(...); host.invalidate();`
 </script>
 
 <template>
-    <div ref="container" style="height: 100%">
-        <NestedGrid :node="host.node.value" :layout="host.layout.value" context-key="demo" :revision="host.revision.value" :on-gesture-commit="host.onGestureCommit">
+    <!-- 承载盒要有确定的高度：组件的根铺满它，量到 0 高时布局为空、什么都不画。 -->
+    <div style="height: 100%">
+        <NestedGrid v-bind="host.bindings.value">
             <template #leaf="{node}">{{ node.id }}</template>
         </NestedGrid>
     </div>
 </template>
 ```
 
-`contextKey` 在 `useGridLayout` 与 `NestedGrid` 里要写成同一个值，`revision` 要从 `host` 转给组件：对不上时提交被拒绝，界面表现为拖不动，只有接了 `@issues` 才看得到原因。
-
-`useGridLayout` 消费 `grid`、`extent`、`contextKey`，发布 `node`、`layout`、`revision`；它同步验证手势、一次 `resizeBranches` 成功之后才调选项里的 `onApplied(commit, result)`。`onApplied` 是“已经落账”的通知，不是第二道拒绝门：它抛错经 `useGridLayout` 选项里的 `onIssues` 报出（组件的 `@issues` 收不到这一条），不反悔已提交的几何；自身提交不造成预览自取消；缺 `grid` 或 `extent` 不接受提交。`useLayoutExtent` 共享 `clientWidth`、`clientHeight` 与 `ResizeObserver`：`null` 表示未挂载，0 是真实零。
+- 尺寸来自组件自己量的根盒（`extent` 事件，布局盒、不含边框与内边距），宿主不另量；没量到可用尺寸（null、零或非有限）时布局为空、`disabled` 为真。尺寸只来自组件，不要把它挂在“有了尺寸才渲染”的条件后面，那样永远等不到尺寸。
+- `disabled`、`contextKey`、提交处理只经 `useGridHost` 的选项给，模板里不要再写同名属性：`disabled`、`contextKey` 后写的会静默覆盖包里的值，提交处理会被换掉或合成数组。
+- 诊断只有一个出口：选项里的 `onIssues` 收布局重算的诊断、`notify-failed`，也收组件的 `issues` 事件（包里带着接它的处理）。
+- 提交：同步核对上下文、版本与尺寸，一次 `resizeBranches` 成功之后才调选项里的 `onApplied(commit, result)`。`onApplied` 是“已经落账”的通知，不是第二道拒绝门：它抛错报成 `notify-failed`，不反悔已提交的几何；自身提交不造成预览自取消。
+- 组件卸载前发 `extent` 为 null：组件被条件渲染摘掉时宿主的 `host.extent` 回到 null；宿主自己整个卸载时，宿主的侦听已经停了。
 
 ## 公开的标记与变量
 
@@ -118,7 +118,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 ## 数据
 
 ```ts
-import type {GridFailure, GridGestureCommit, GridGesturePreview, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode, GridGestureCancellation, GridGestureStart} from "@notnotype/nb-layout";
+import type {GridFailure, GridGestureCommit, GridGesturePreview, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridNode, GridGestureCancellation, GridGestureStart, GridExtent} from "@notnotype/nb-layout";
 
 type NestedGridProps = {
     /** 当前树；null 时呈现 empty 插槽。必填。 */
@@ -184,6 +184,8 @@ type NestedGridEmits = {
     (event: "issues", issues: readonly (GridIssue<GridIssueCode | "not-published"> | GridFailure)[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：焦点去哪由宿主定。 */
     (event: "content-parked", key: string): void;
+    /** 量到的根盒（输出 144）：挂载后量到就同步发、两轴变了才再发；卸载前发 null。`useGridHost` 的整包里带着接它的处理。 */
+    (event: "extent", extent: GridExtent | null): void;
 };
 
 type NestedGridSlots = {

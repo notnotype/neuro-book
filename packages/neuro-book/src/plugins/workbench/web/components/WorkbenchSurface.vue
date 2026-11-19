@@ -6,7 +6,7 @@ import {createGrid} from "@notnotype/nb-layout";
 import {hiddenRegionsAtZero, isContainerAnchor, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, regionOfStripLeaf, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {Grid, GridBranchInput, GridExtent, GridFailure, GridFloatInput, GridGesturePreview, GridHostIssueCode, GridIssue, GridIssueCode, GridLeafShape, GridNodeInput, GridRect, GridSwap} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-workbench-layout";
-import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {moveGridFocus, NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
 
@@ -89,12 +89,9 @@ defineSlots<{
 
 const rootEl = ref<HTMLElement | null>(null);
 const gridEl = useTemplateRef<InstanceType<typeof NestedGrid>>("grid");
-const extent = useLayoutExtent(rootEl);
 const idPrefix = useId();
 const preview = shallowRef<Readonly<Record<string, GridExtent>> | null>(null);
 
-// 同步发：store 的投影依赖尺寸，晚一拍就会用旧树算一次新尺寸的布局。
-watch(extent, (next) => emit("extent", next), {immediate: true, flush: "sync"});
 
 /** 主题写在文档根上，换主题或明暗时文档根的属性与内联变量会变，这时重读。 */
 let themeObserver: MutationObserver | null = null;
@@ -128,13 +125,17 @@ onMounted(() => {
 onBeforeUnmount(() => themeObserver?.disconnect());
 
 const grid = computed<Grid<string>>(() => createGrid<string>(props.projection.input, {sashSize: props.projection.sashSize}));
-const host = useGridLayout<string>({
+/** 网格宿主：尺寸取自 `NestedGrid` 量的根盒（与本组件的根同大，都铺满），诊断与被拒的提交经 `onIssues` 一个出口交出去。 */
+const host = useGridHost<string>({
     grid,
-    extent,
     contextKey: () => props.contextKey,
+    disabled: () => props.disabled,
     onApplied: (_commit, result) => emit("gesture-commit", host.layout.value.sizes, result.collapsed),
     onIssues: (issues) => emit("issues", issues),
 });
+
+// 同步发：store 的投影依赖尺寸，晚一拍就会用旧树算一次新尺寸的布局。`immediate`：挂载前先发 null，重挂载时重置 store。
+watch(host.extent, (next) => emit("extent", next), {immediate: true, flush: "sync"});
 
 watch(() => host.layout.value, (layout) => emit("presented", layout.sizes), {immediate: true});
 
@@ -559,12 +560,7 @@ defineExpose({
     >
         <NestedGrid
             ref="grid"
-            :node="host.node.value"
-            :layout="host.layout.value"
-            :disabled="disabled || extent === null"
-            :context-key="contextKey"
-            :revision="host.revision.value"
-            :on-gesture-commit="host.onGestureCommit"
+            v-bind="host.bindings.value"
             :contents="contents"
             :lifted="lifted"
             :dragging="dragging"
@@ -578,7 +574,6 @@ defineExpose({
             @gesture-update="onGesturePreview"
             @gesture-end="onGestureSettled"
             @gesture-cancel="onGestureSettled"
-            @issues="(issues: readonly SurfaceIssue[]) => emit('issues', issues)"
             @content-parked="(key: string) => emit('content-parked', key)"
         >
             <template #leaf="{node}">

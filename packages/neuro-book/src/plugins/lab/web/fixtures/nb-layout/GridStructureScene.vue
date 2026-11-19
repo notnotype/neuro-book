@@ -7,7 +7,7 @@ import {shallowRef, useTemplateRef} from "vue";
 
 import {createGrid} from "@notnotype/nb-layout";
 import type {Grid} from "@notnotype/nb-layout";
-import {NestedGrid, moveGridFocus, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {NestedGrid, moveGridFocus, useGridHost} from "@notnotype/nb-layout/vue";
 
 import GridStructureLeaf from "./GridStructureLeaf.vue";
 
@@ -35,10 +35,10 @@ const createInstance = (): number => {
     return instances;
 };
 
+/** F6 移动焦点的范围；尺寸由 `NestedGrid` 自己量。 */
 const containerEl = useTemplateRef<HTMLElement>("containerEl");
-const extent = useLayoutExtent(containerEl);
 const grid = shallowRef<Grid<string>>(createInitial());
-const host = useGridLayout<string>({grid, extent, contextKey: () => "structure"});
+const host = useGridHost<string>({grid, contextKey: "structure"});
 
 const ACTIONS: Readonly<Record<string, () => void>> = {
     "split-before": () => grid.value.splitLeaf("a", {branchId: "a-split", orientation: "horizontal", side: "before", ratio: 0.5, leaf: {kind: "leaf", id: "n", ref: "n", minimumSize: {width: 40, height: 0}}}),
@@ -67,7 +67,7 @@ function run(name: string): void {
             <input data-structure-outside aria-label="grid 外面的输入框" />
         </div>
         <div ref="containerEl" class="grid-structure-scene__grid" data-structure-host>
-            <NestedGrid data-lab-subject :node="host.node.value" :layout="host.layout.value" context-key="structure" :revision="host.revision.value" :on-gesture-commit="host.onGestureCommit">
+            <NestedGrid data-lab-subject v-bind="host.bindings.value">
                 <template #leaf="{node}">
                     <GridStructureLeaf :id="node.id" :create-instance="createInstance" />
                 </template>
