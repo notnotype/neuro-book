@@ -34,9 +34,13 @@ updated: 2026-11-19
 
 - F2（`e95c7a346`）：远程合同只加方法（`editEntries`、`previewEntries`、`findEntries`，版本不升）；批量编辑的输入只留一份 TypeBox 结构（`nb-canon` 的 `core/schema.ts`），内核与合同共用；浏览器的新建与删除改走 `editEntries`（去掉 `lastOrder` 与拼整份条目）；读取层加 `onRevision`，在“版本不新就不重读”之前按修订 id 去重交出每次发布。测试：`canon.test.ts` 经链路一条（预览与写入相同、读取戳过期、findEntries、视图令牌拒、老方法照常），`world.dom.test.ts` 一条（事件晚于本窗口写入的结果也交出，做了变异检查）；canon 插件 bun 40 条、vitest 141 条都过。Spec `canon/project.md` 的方法表与“只加方法不升版本”写在主工作区，合入时提交。
 
+- F1 补（`edf0a5983`）：新加的元素与块按 `i`、`b` 加序号生成 id（内核的 `LOCAL_ID_PREFIX`），避开同一批里刚分配的。
+- F3（`51e48bd71`）：canon 的服务端入口（`backend/agent-tools.ts`、文字在 `agent-text.ts`）贡献 `canon_lookup`、`canon_tree`、`canon_read`、`canon_write`，都给所有会话；每次调用按会话的作品取项目租约、经 `{project}` 目标调世界；名字、`$代号`、“设定组.字段[元素].子字段”在工具层解析成 id；读取结果第一行的“版本 12·摘要前 12 位”带回写入当读取戳；写入者 `{agent, session}`、请求 id 用 `invocation`。测试 `canon/agent-tools.test.ts` 6 条（真实服务端与项目子进程：建查读改、作者中间改了被拒、写错参数的回话、两条回复同一个 callId、看树与还原、会话不属于作品），请求 id 与读取戳两处做了变异检查；插件表、贡献前缀、Agent 的工具表与 Profile 测试都过。Spec `canon/agent-tools.md`（planned）与注册表写在主工作区，合入时提交。
+- 计划里 F3 的那条真实模型测试没做：现有的真实模型场地 `agentWorld` 只有服务端、没有项目子进程，canon 的工具要调项目里的世界，得先把两套场地拼起来；挪到人物闭环，那时的验收本来就要跑真实对话。
+
 ## 下一步
 
-1. F3：canon 的服务端入口与四个 Agent 工具；Spec `canon/agent-tools.md`。
-2. 之后 F5 到 F7（F4 已做）。
+1. F5：界面的草稿与确认条上移、空状态、新建对话框、页头（名字、简介、别名、更多）、移动对话框、加或去一组设定、已删除页头与恢复、Agent 提示。
+2. 之后 F6、F7，再做实现审查（前端 Sonnet、后端 omp）与合入。
 2. 第二轮处理完后照切片 F1 到 F7 实施。
 3. 底座合入后，和开发者定人物 Component 闭环的范围。
