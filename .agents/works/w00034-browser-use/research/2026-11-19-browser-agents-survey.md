@@ -33,7 +33,7 @@
 | omp `browser` | 模型，写 JS 或 Python | 缺省托管 Chromium（共享一个无头实例）；`app.cdp_url` 接已有 CDP；`app.relay` 经扩展驱动用户的 Chrome，新开自己的后台标签页，不碰用户的 | `tab.observe()` 只列可交互元素，编号每次重排；`ariaSnapshot()` 用 Playwright 的注入脚本；截图可标编号 | 约 100 个方法（点击、填写、选择、拖动、上传、网络拦截、录屏、WebMCP），`tab.id(n)` 等返回元素句柄；`tab.run(fn)` 里给原始 Puppeteer `page` | 每次宿主操作按执行档审批，缺省 yolo；`allowed_domains` 连子资源也拦 | 源码 |
 | opencli | 适配器：人写的代码；`opencli browser`：模型 | 用户的 Chrome，经 Browser Bridge 扩展（`chrome.debugger`）与本地守护进程；自动化在专用窗口与标签组里 | `state` 给可交互元素与引用，`--source ax` 用无障碍树 | 适配器流水线（`navigate`、`evaluate`、`map`）；`browser` 子命令 | 每个命令必须声明 `access: read/write`（B 站 4 个 write）；没有逐次确认 | 源码 |
 | bilibili-cli | 人写的代码 | 不用浏览器：读本机浏览器的 Cookie 库，或扫码登录 | 接口返回的 JSON | 命令 | 写操作（点赞、投币、三连）直接执行 | 源码、实测 |
-| Agent-Reach | 人写的代码（包装别家命令行） | 自己的专用浏览器（优先 CloakBrowser，退回系统 Chrome，缺省无头，空闲 600 秒关）；第一次用某站时经 OpenCLI 的扩展从用户 Chrome 复制这一个站的 Cookie；也可 `agent-reach login` 让用户在它的浏览器里登录 | 各渠道的 JSON | 只读：搜索、读取、字幕、评论 | 设计上只读；每站并发 2、全局 4；同平台搜索间隔 10 秒，被限流冷却 1 小时；报 `NEED_LOGIN` 时让用户自己登录，Agent 不碰密码 | 子代理 |
+| Agent-Reach | 人写的代码（包装别家命令行） | 自己的专用浏览器（优先 CloakBrowser，退回系统 Chrome，缺省无头，空闲 600 秒关）；第一次用某站时经 OpenCLI 的扩展从用户 Chrome 复制这一个站的 Cookie；也可 `agent-reach login` 让用户在它的浏览器里登录 | 各渠道的 JSON | 只读：搜索、读取、字幕、评论 | 设计上只读；每站并发 2、全局 4；同平台搜索间隔 10 秒，被限流冷却 1 小时；报 `NEED_LOGIN` 时让用户自己登录，Agent 不碰密码 | 登录部分源码，其余子代理 |
 | jina reader | 固定流程 | 先用 curl-impersonate（伪装 Chrome 指纹），正文太少（少于 42 个 token）或要选择器、截图、注入脚本时才开 Puppeteer | readability 抽正文，加自家的 markify 转 Markdown | 只有注入脚本；没有点击、输入的接口 | — | 子代理、实测 |
 | page-agent | 模型，每步强制调用一个“输出”工具，只执行其中第一个动作 | 跑在页面自己里（脚本标签、扩展内容脚本，或经 MCP 连扩展） | 把 DOM 压成一行一个元素 `[n]<tag 属性/>`，编号每次重排 | 点击（完整的 pointer、mouse 序列后 `click()`）、输入（input、textarea 用原生 setter 加 `input` 事件；contenteditable 另一条路径）、选择、滚动；`execute_javascript` 缺省关 | 没有确认、没有域名限制；模型密钥在前端 | 子代理 |
 | Gemini computer use | 模型，按截图给坐标 | 客户端自己的浏览器（参考实现用 Playwright） | 截图加当前网址 | `click`、`type`、`navigate`、`scroll`、`drag_and_drop` 等，坐标是 1000×1000 归一化的 | 每个动作可能带 `safety_decision`：允许、要确认、拦下；可选的提示注入检测会扫描截图 | 文档（被重定向到 aistudio.google.com 的文档；后半页是抓取工具的摘要） |
@@ -51,6 +51,21 @@ page-agent 与 [2026-10-30 的调研](../../w00032-agent-integration/research/20
 | 用户配置的临时副本 | browser-use `Browser('chrome', profile=…)` | 无 | 登录态是复制当时的；Windows 上要先关 Chrome（Cookie 被锁） |
 | 按站点复制 Cookie 到专用配置 | Agent-Reach（经 opencli 的扩展读） | 无 | 只复制要用的站 |
 | 直接读浏览器的 Cookie 库 | bilibili-cli（`browser_cookie3`） | 无 | 不开浏览器；要解系统钥匙串，只够调接口，不够操作页面 |
+
+### Agent-Reach 怎样“复制登录”（主会话读源码核实，2026-11-19 追加）
+
+开发者看好它的这句说明：“要登录的平台用 Agent Reach 自己的专用浏览器，在后台运行、不弹窗。第一次用某个网站时，会把你 Chrome 里这个网站的登录复制一份过去，原浏览器不变，不读密码库。复制过来的通常是主账号，建议换成小号。”实际做法（`agent_reach/runtime/session_reuse.py`、`backends/opencli.py`、`runtime/browser.py`）：
+
+- **前提是用户的 Chrome 装了 OpenCLI 的 Browser Bridge 扩展并且开着**：`connected_contexts()` 列的是此刻连上 OpenCLI 守护进程的浏览器配置；Cookie 经 OpenCLI 的 `Page.getCookies({domain})` 读出，走的是扩展的 `cookies` 权限，不是解密磁盘上的 Cookie 库（“不读密码库”指这个）。没装扩展时退回它以前存下的会话，再不行就让用户 `agent-reach login <渠道>`，在它的专用浏览器里有界面地登录。
+- **只复制这一个站的 Cookie**：按渠道登记的域名过滤，丢掉已过期的；用 CDP `Storage.setCookies` 写进专用浏览器，专用浏览器里这个站原有、来源里没有的 Cookie 一律置为过期（整站换成来源的快照，不叠加两个账号），写失败就回滚。只有 Cookie，不带 localStorage。
+- **复制一次就一直用**：记一份 `cookie_snapshot`，之后不再自动重复复制，用户要求刷新（`force`）才重新复制；找不到登录时明确报“没有复制任何东西”。
+- **有歧义就问**：几个本机浏览器配置里都有这个站的 Cookie 时不猜，报 `NEED_SETUP` 让用户选用哪个账号；用户也可以指定来源配置（`browser use <ID>`）。
+- **专用浏览器**：一个 Agent-Reach 自己的配置目录（`~/.agent-reach/browser/profile`），缺省无头，空闲 600 秒关；优先用 CloakBrowser（反检测的 Chromium），失败退回系统 Chrome；经 `--remote-debugging-pipe` 加载 OpenCLI 扩展，让 OpenCLI 的适配器驱动它；调试端口只绑 127.0.0.1。
+- **只读**：它的渠道只有搜索、读取类动作；建议用小号，因为复制过来的通常是主账号，平台可能限制被自动访问的账号。
+
+### 直接读磁盘上的 Cookie 库行不通（Windows）
+
+Chrome 127 起在 Windows 上用 App-Bound Encryption 加密 Cookie：解密要经一个系统服务核验调用方是不是 Chrome 本身，别的程序拿不到明文（检索：[Google 安全博客 2024-07-30](https://security.googleblog.com/2024/07/improving-security-of-chrome-cookies-on.html)、[Elcomsoft 2026-01](https://blog.elcomsoft.com/2026/01/browser-forensics-in-2026-app-bound-encryption-and-live-triage/)）。公开的绕过办法都属于攻击手法，不考虑。所以 bilibili-cli 那种 `browser_cookie3` 读库的做法在 Windows 的新版 Chrome 上不成立（macOS 要过钥匙串授权，Linux 走 libsecret 或 KWallet）。要导入本机登录，只能经正在运行的浏览器本身：扩展的 `cookies` 权限（Agent-Reach 经 OpenCLI），或经 CDP 连上用户的 Chrome（144 以上的远程调试开关，每次连接要用户点“允许”）后 `Storage.getCookies`。
 
 ## 实测
 
@@ -97,7 +112,7 @@ page-agent 与 [2026-10-30 的调研](../../w00032-agent-integration/research/20
 
 ## 对设计的含义
 
-按 Work README“要讨论的问题”与本次新冒出来的问题排列；“推荐”是主会话的意见，等开发者定。
+按 Work README“要讨论的问题”与本次新冒出来的问题排列；“推荐”是主会话的意见。开发者 2026-11-19 已定的几条（审批只做执行档、computer use 另开 Work、导入并管理本机登录、网页工具另做插件）记在 [t01](../tasks/t01-design/README.md) 的“决定”，以那里为准。
 
 1. **引擎**：browser-use 1.0 去掉了 Playwright，直接说 CDP；opencli 经扩展说 CDP；Agent-Reach 自己写了只连本机的 CDP 客户端；omp 用 puppeteer-core。接用户浏览器的三条路（自己启动、144 以上的开关、扩展转发）说的都是 CDP。推荐：服务端用一个薄的 CDP 客户端加自己的辅助函数，不把 Playwright 或 Puppeteer 的对象模型暴露给模型；Playwright 的无障碍快照与选择器规则当参照。
 2. **给模型的接口**：我们的 eval 只支持“对象.方法({…})”的宿主调用，不支持内核里的句柄（[`eval.md`](../../../../docs/specs/agent/eval.md) 的非目标）。薄接口（`browser.evaluate`、`browser.cdp`、`browser.click({ref})`、`browser.state()` 这一级）正好装得下，句柄改成编号；厚接口（omp 那样的上百个方法与元素句柄）要么拍平成很多方法，要么改上游、让插件往内核里放代码。实测里薄接口在表单任务上请求数与 token 都少一半以上。推荐先做薄接口，快照与 w00033 共用，编号用 `backendNodeId`。
@@ -116,7 +131,7 @@ page-agent 与 [2026-10-30 的调研](../../w00032-agent-integration/research/20
 
 - Gemini 经 `.env` 的中转超时，只经 omp 的渠道跑了 T2 一次；没有试 Gemini 自带的 computer use 工具。Terra 的官方说明没读到原文。
 - opencli 的扩展没有在本机装起来跑（这台机器没有图形界面；Chrome 品牌版不认 `--load-extension`），窗口与标签组的说法来自源码。
-- Agent-Reach、reader、page-agent 的条目来自子代理，主会话只抽查了 Agent-Reach 用 OpenCLI 复制 Cookie 这一条的方向。
+- reader、page-agent 的条目与 Agent-Reach 登录以外的部分来自子代理，主会话没有逐条核对。
 - 实测每个组合只跑了一次，没有重复与方差；提示注入只有一个样本。
 - browser-harness 的对照评测由 browser-use 自己做，只用了 Codex 加 GPT-6 Luna，云浏览器。
 - 网络层拦写请求只量了“打开页面不操作”时的噪声，没有试过真拦截。
