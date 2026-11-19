@@ -48,7 +48,7 @@ owners:
    | `{state: "none"}` | 还没建 |
    | `{state: "opening"}` | 正在建或打开 |
    | `{state: "held"}` | 已持有 |
-   | `{state: "failed", code}` | 没能持有，码同 `hold`，或 `owner-mismatch` |
+   | `{state: "failed", code}` | 没能持有：`header`、`create`、`hold` 交回的码，或 `owner-mismatch` |
 
    `held` 只说明会话开着、被持有；会话是不是只读（例如 Profile 解析不到）、日志有没有损坏，看会话的快照与状态帧（[`agent/sessions.md`](../agent/sessions.md)）。
 4. Profile 解析不到：主对话照会话的规则以只读打开（[`harness/session.md`](../harness/session.md) 的 `unknown-profile`），持有照样成功。用户经会话的 `changeProfile`（远程合同带 `commandId`）换成能用的 Profile。
