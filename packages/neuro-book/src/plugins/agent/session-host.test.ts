@@ -818,7 +818,7 @@ describe("提醒（conversation.md 输出 51）", () => {
         expect(JSON.stringify(endpoint.requests.map((request) => request.messages))).not.toContain("内核重置了");
     });
 
-    test("门关着又没有运行时按留着画；空着继续开一次运行把提醒送出去，消息流里是一条提醒、正文是全文", async () => {
+    test("门关着又没有运行时按留着画、宿主开的运行里不算留着；空着继续开一次运行把提醒送出去，消息流里是提醒、正文是全文", async () => {
         const w = await world();
         const h = await started(w);
         const id = h.host.sessionId.value!;
@@ -831,13 +831,27 @@ describe("提醒（conversation.md 输出 51）", () => {
         h.host.act({type: "composer.stop"});
         hold.release();
         await idle(h);
-        // 用户的停止关了门：带唤起的提醒也不开运行，排队区按留着画，只显示开头。
+
+        // 用户的停止关了门；宿主开的运行不开门，但运行里排的提醒下一次请求就会带上，不算留着。
+        const second = endpoint.hold();
+        endpoint.script("日程的回复");
+        expect((await hosted.send({commandId: crypto.randomUUID(), input: {text: "日程的话"}})).ok).toBe(true);
+        await second.arrived;
+        await until("宿主的运行在跑", () => h.ctx().run.status === "running");
+        const first = await hosted.notice({commandId: crypto.randomUUID(), text: "第一条提醒"});
+        if (!first.ok) throw new Error(`notice failed: ${JSON.stringify(first)}`);
+        await until("提醒排上", () => h.ctx().composer.queued.length === 1);
+        expect(h.ctx().composer.queued[0]!.held).toBeUndefined();
+        second.release();
+        await idle(h);
+        await until("运行收口后按留着", () => h.ctx().composer.queued[0]?.held?.reason === "conversation.held.notice");
+
+        // 带唤起的也不开运行；排队区只显示开头。
         const text = `内核重置了${"。".repeat(300)}`;
-        const queued = await hosted.notice({commandId: crypto.randomUUID(), text, wake: true});
-        if (!queued.ok) throw new Error(`notice failed: ${JSON.stringify(queued)}`);
-        await until("留着", () => h.ctx().composer.queued[0]?.held?.reason === "conversation.held.notice");
-        expect(h.ctx().composer.queued[0]!.text).toBe(noticeSummary(text));
-        expect(h.ctx().run.status).toBe("idle");
+        const woken = await hosted.notice({commandId: crypto.randomUUID(), text, wake: true});
+        if (!woken.ok) throw new Error(`notice failed: ${JSON.stringify(woken)}`);
+        await until("两条都留着", () => h.ctx().composer.queued.length === 2 && h.ctx().composer.queued.every((item) => item.held !== undefined));
+        expect(h.ctx().composer.queued[1]!.text).toBe(noticeSummary(text));
         expect((await w.service.session(id).snapshot()).status.state).toBe("idle");
 
         endpoint.script("知道了");
@@ -845,9 +859,10 @@ describe("提醒（conversation.md 输出 51）", () => {
         await until("跑完", () => assistants(h.ctx().messages).at(-1)?.text === "知道了");
         await idle(h);
         expect(h.ctx().composer.queued).toEqual([]);
-        expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("内核重置了");
+        const sent = JSON.stringify(endpoint.requests.at(-1)!.messages);
+        expect([sent.includes("第一条提醒"), sent.includes("内核重置了")]).toEqual([true, true]);
         const reminders = h.ctx().messages.filter((message) => message.kind === "system" && message.source === "reminder");
-        expect(reminders.map((message) => (message as {text: string}).text)).toContain(text);
+        expect(reminders.map((message) => (message as {text: string}).text)).toEqual(expect.arrayContaining(["第一条提醒", text]));
     });
 });
 
