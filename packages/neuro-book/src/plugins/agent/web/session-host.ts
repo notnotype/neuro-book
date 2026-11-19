@@ -1218,11 +1218,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             const mode = deps.resumeMode();
             const idle = target.transcript.run().status === "idle";
             const input = typed === null ? null : typed.attachments.length === 0 ? {text: typed.text} : {text: typed.text, attachments: [...typed.attachments]};
-            // 空着继续、没有留着的话（只有待发的提醒，也许还有中断的运行）：没有要合并的，`resume` 接着跑中断的那一轮或开一次运行，
-            // 提醒随第一次请求带上（harness/runtime.md 输出 114）。
-            const onlyNotices = input === null && !target.transcript.queue().some((item) => item.state === "held");
-            if ((mode !== "merge" || onlyNotices) && input === null) {
-                const done = await remote.resume({sessionId: target.id, commandId: commandId(), mode: onlyNotices ? "keep" : mode});
+            if (mode !== "merge" && input === null) {
+                const done = await remote.resume({sessionId: target.id, commandId: commandId(), mode});
                 if (!done.ok && done.code !== "nothing-to-resume") fail(done.code);
                 return;
             }
@@ -1552,7 +1549,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 return;
             case "run.continue":
                 if (target === null) return;
-                // 有留着的话或待发的提醒：按恢复方式继续（输出 50、51）。只有中断的运行：照旧接着跑（输出 9）。
+                // 有留着的话或待发的提醒：按恢复方式继续（输出 50、51）；只有提醒时最后都落到 `resume`，内核接着跑中断的那一轮或开一次运行，
+                // 提醒随第一次请求带上（harness/runtime.md 输出 114）。只有中断的运行：照旧接着跑（输出 9）。
                 if (target.transcript.queue().some((item) => item.state === "held") || target.transcript.notices().length > 0) await continueRun(target, null);
                 else await remote.start({sessionId: target.id, commandId: commandId()});
                 return;
