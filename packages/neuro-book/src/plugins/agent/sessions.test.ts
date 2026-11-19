@@ -216,6 +216,7 @@ describe("远程合同", () => {
         const {client, remote} = await w.window("a");
         const sessionId = ok(await client.create({profile: WRITER})).sessionId;
         const host = w.service.session(sessionId, {asUser: false, source: {label: "日程", ref: "r-1"}});
+        expect(NOTICE_SUMMARY_CHARS).toBe(200);
         // 超过摘要长度、含代理对：摘要按字符截，不切开它。
         const text = `${"提".repeat(NOTICE_SUMMARY_CHARS - 1)}😀${"醒".repeat(50)}`;
         const queued = await host.notice({commandId: cid(), text, key: "daily"});
