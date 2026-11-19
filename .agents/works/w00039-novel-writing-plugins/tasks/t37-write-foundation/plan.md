@@ -61,7 +61,7 @@
 
 | 问题 | 选用 | 理由；否决了什么 |
 |---|---|---|
-| 列表元素的表单 | `@notnotype/nb-form` 的 `SchemaForm`（仓库已有，设置页在用），加 canon 登记的自定义控件（条目选择、图片、数），字段声明经一个纯函数转成它的描述 | 列表的增删与焦点、问题显示、受控提交它已做；否决手写。它的选项源是静态清单（forms.md 输出 11），条目选择要远程搜，所以做成自定义控件；数用 canon 的 `parseDecimal`，与确认条一致 |
+| 列表元素的表单 | 确认条按种类画输入的那段抽成 `FieldInput`，元素对话框每个子字段一个（实施时改，原定 nb-form 的 `SchemaForm`） | 元素的子字段只有确认条已支持的六种，一个元素一层、没有嵌套列表，`SchemaForm` 的增删与焦点用不上；条目选择要远程搜，进 `SchemaForm` 得另登记自定义控件，填的值还要再经它的编码转一次。共用 `FieldInput` 后确认条与对话框的值只有一种编码（`draftText`、`parsed`），数也走同一个 `parseDecimal` |
 | 条目选择器 | 给 nb-ui 的 `SearchSelect` 加远程模式（宿主收搜索词、不在本地过滤、已选项的显示名由宿主给），canon 的 `EntryPicker` 建在它上面 | 远程搜索选择是通用需要，放进 nb-ui；否决在 canon 里另搭一套弹层，也否决一次读全部条目进下拉 |
 | Agent 工具的参数 | TypeBox 写 schema，扁平对象，`strict: false`，各操作的必填项由工具层校验并用中文回话 | 大的 `anyOf` 在严格模式下受提供商限制，模型也容易写错；否决每种操作一个工具（失去原子性，多占声明的 token） |
 | 跨进程调世界 | 工具实现先 `projects.acquire(会话的项目)` 取租约，再经插件信道的 `{project}` 目标调 `nbook.canon/world`，调完释放 | 同 `projects://` 文件方案（`plugins/files/backend/projects-scheme.ts`）；否决无租约访问：项目在 `idle-grace` 时会被拒，作者关了窗口后 Agent 会随机失败 |
@@ -272,7 +272,7 @@ type EntryOp =
   - **图片**：`ImageInput`，作品内路径与说明两个输入，路径不合规则时显示服务给的原因；
   - **语义档**：“改起点”走确认条，用起点预填，不用显示的归纳文字；每个数据分页都能“记一句”（现在只有面板分页能记一笔）；
   - **列表**：每个元素一行，带“改”与“去掉”，列表末尾“添加”。
-- **元素对话框**（nb-form 的 `SchemaForm`）：
+- **元素对话框**（`FieldInput`，见技术选型；下面几条里 `SchemaForm` 的写法按它落地）：
   - 描述由一个纯函数从元素的子字段声明生成：
     - 引用写成可空，`targets` 用闭包按字段路径查给 `EntryPicker` 控件；
     - 数用 canon 的数字控件（`parseDecimal`）；
