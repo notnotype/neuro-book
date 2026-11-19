@@ -44,7 +44,7 @@ updated: 2026-11-05
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
-- 发版前（t34 起）：插件 SDK 里 `NestedGrid` 的 `onGestureCommit` 返回类型变了（`reason` 改成 `code`、`message`），下次发布按 [发版手册](../../../docs/standards/releasing.md)第 2 步把 `PLUGIN_API_SINCE` 提到那次发布的版本（变更记录里“不兼容的改动”那一条 t34 已写在 `[Unreleased]`）。
+- 发版前（t34、t38 起）：插件 SDK 里 `NestedGrid` 的 `onGestureCommit` 返回类型变了（`reason` 改成 `code`、`message`），`issues` 事件与 `gesture-update` 载荷的诊断从字符串改成对象（t38），下次发布按 [发版手册](../../../docs/standards/releasing.md)第 2 步把 `PLUGIN_API_SINCE` 提到那次发布的版本（变更记录里“不兼容的改动”的两条已写在 `[Unreleased]`）。
 
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06；t14 于 2026-11-16 排到 t26 之后）。
