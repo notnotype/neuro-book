@@ -57,7 +57,8 @@ updated: 2026-11-19
 |---|---|---|
 | 1 | `ad94cb1a3` | `Grid.setCollapsed`、`GridCollapseResult`；收起时记 `restoreSize`；Enter 另一侧吸收不了时不收；`grid.md` |
 | 2 | `70a5c25c0` | `host.setCollapsed`；`onApplied` 的 `before`；`NestedGrid.md`；Lab 结构场景的收起按钮与 e2e |
-| 3 | 待提交 | `intent-writeback.ts`（两个入口，`rebaseIntents`、`fixedNodesOf` 不再导出）；工作台 Surface、Shell、store；三个 Lab 夹具 |
+| e2e 修复 | `0ba2d68e7` | 排除 `nbook.agent` 的四个工作台 e2e 一并排除 `nbook.bots`（w00043 t06 之后服务端起不来，master 上同样） |
+| 3 | `30cda1e7d` | `intent-writeback.ts`（两个入口，`rebaseIntents`、`fixedNodesOf` 不再导出）；工作台 Surface、Shell、store；三个 Lab 夹具 |
 
 验证：
 
@@ -72,8 +73,20 @@ updated: 2026-11-19
 - 第 3 片：
   - `lab-grid-panels.e2e.ts` 新加的意图回写用例，迁移前跑是红的（放宽后侧栏停在 209，回不到 280）；
   - 开始时把视口放大不管用（Lab 盒子的宽由地址的 `vp` 定），改用 `vp=1400x800` 打开、键盘调盒子的宽；
-  - L2 新测试 6 条，两个变异（手势路径不冻结、结构操作路径不冻结）都会红；L2 267 条、store 49 条、应用类型检查通过；e2e 六个文件在跑。
+  - L2 新测试 6 条，两个变异（手势路径不冻结、结构操作路径不冻结）都会红；L2 267 条、store 49 条、应用类型检查通过。
+  - e2e 六个文件 177 条：
+    - `workbench-views` 从 227 行起 34 条连不上服务端：`nbook.bots` 依赖被排除的 `nbook.agent`，服务端起不来。master 上用同样的环境起服务端同样失败，所以是原有问题。排除列表补 `nbook.bots` 后，同类的四个文件都能跑。
+    - Lab 意图回写那条有一句断言写错了：拖完断言侧栏宽度不变，可右栏意图变小后，窄盒子里侧栏会多分到空间。删掉这句。
+    - 重跑：`workbench-views` 全文件与 Lab 那条共 35 条全过；`workbench-dnd`、`workbench-float`、`workbench-live-drag` 共 76 条全过。
+- 收口：把 master（`f56d70939`）并进分支，合并提交 `5e25c2819`，没有冲突，与本 Task 不相交。
+  - `test:affected --since master`（负载 6 到 7）：bun 一项失败，五条。
+  - 五条都是原有失败，与本 Task 无关：SDK 组件清单缺 `ImagePreviewDialog`；`architecture`（`plot/web/labels.ts` 跨插件导入 canon）；活动栏条目、页面浮层、条目注册表三处“同 id 的两条一起被拒”。后四条在 master `223622859` 上同样失败。
+  - 其余全过。
+
+## 实现审查
+
+待处理：Claude Sonnet，审查 worktree `review-t40-impl` 固定在 `5e25c2819`，diff 是相对 master `f56d70939` 的净改动（36 个文件）。
 
 ## 下一步
 
-1. 第 3 片的 e2e 跑完后提交；收口验证（`test:affected`）；实现审查（Claude Sonnet，不阻塞）；合入；晋升。
+1. 处理实现审查；合入；删 worktree；晋升（换模型逐句核对）。
