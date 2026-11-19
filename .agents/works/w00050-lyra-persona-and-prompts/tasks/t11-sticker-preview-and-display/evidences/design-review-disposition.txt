@@ -1,0 +1,18 @@
+w00050 t11 设计审查（Claude Sonnet，审 plan.md 第一稿 7ae7b8551，报告 design-review.txt）的处理
+15 条：重要 8、建议 7。主 Agent 核对了第 1、2、3、5 条的代码位置，都属实。
+
+1. 选择器面板 focusout 必然关面板（重要）：成立，要改。对话框放在面板里，面板持有 previewOpen，打开期间 onFocusout 直接返回；e2e 断言面板仍在，并做变异。
+2. previewSticker 要进 indirectHost（重要）：成立，要改。接口、viewHost、indirectHost 三处同改，dom 测试走标签重挂。
+3. nb-agent-ui 的 ports.ts 自己声明 MarkdownActivation 与 PromptTextViewPortProps（重要）：成立，要改。按结构加 sticker 与 onStickerActivate，并改公开导出、测试与 Lab。
+4. 单击没有区分手势、链接里的表情双发（重要）：成立，要改。非左键、修饰键、detail>1、在 a[href] 里、编辑器组字时不触发；展示器根的 onClick 在点到可预览表情时不再找链接。写进输出 46。
+5. 样式挂载（重要）：成立，要改。nb-markdown 导出 mountStickerDisplayStyle，规则只写一份、选择器带够特异性，不加 is-sticker-display 类；挂在 picker 入口（已有可选 storage），不放进 browser 入口；Lab 场景自己调；首帧先按小图写进 Spec。
+6. 小图预览不放大（重要，需开发者定）：开发者定为决定 7，长边不到 320 像素的放大到 320。对话框加 minSize，缺省 0，原图预览不变。
+7. 输入框 120 像素贴纸没有量（重要）：成立，要改。e2e 量输入框高度、内部滚动与光标高度；光标变高时回到开发者重议待确认 3。
+8. 焦点判据只靠 happy-dom（重要）：成立，要改。dom 测试只断言形状；编辑器单击、选择器按钮、输入框进 e2e。
+9. 复制按钮三处各写、头部撑宽（建议）：成立，要改。对话框自己带 copyText，用图标按钮，失败发通知不变宽，不要 actions 插槽。
+10. footer 是 aria-hidden、触屏无入口（建议）：成立，要改。按钮放在 footer 之外，aria-label 带名字，mousedown.prevent；触屏无入口写进不承诺。
+11. 公开接口兼容（建议）：成立，要改。新字段可选、不加 name（用 ref.name）；buildSticker 后面的参数并成选项对象；调用点实为四处。
+12. 记录的 locality、失效 id（建议）：locality 交开发者，定为决定 8（跟着用户，shared）；写入时按目录剪掉失效 id；保存暂停只改显示，同 recent；改包名丢偏好写进不承诺；没有 storage 时只在本次运行里记。
+13. 没有指针样式与键盘路径（建议）：成立，要改。is-previewable 用 zoom-in 光标；展示器与 PromptTextView 里可聚焦，回车与空格打开；编辑器只用鼠标。
+14. 文案没有列键表（建议）：成立，计划里补了键表。
+15. 名字与位置和代码对不上（建议）：成立，计划按 DisplayActivation、static-views.ts 的表情工厂、四处调用点改写。
