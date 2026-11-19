@@ -147,7 +147,7 @@ const openChapter = async (chapter: string): Promise<void> => {
                 <ConfirmBar
                     v-if="bar !== null"
                     v-bind="bar"
-                    @update:value="(value: string | boolean) => write.update(String(value))"
+                    @update:value="(value: unknown) => write.update(String(value))"
                     @save="write.save()"
                     @recheck="write.save()"
                     @cancel="write.cancel()"

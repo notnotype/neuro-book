@@ -28,7 +28,7 @@ interface FieldRow {
     readonly mark: string | null;
     /** 列表字段的各元素。 */
     readonly items?: readonly string[];
-    /** 可以就地改（数、文字、选项、是否）。 */
+    /** 可以就地改（数、文字、选项、是否、引用、图片）。 */
     readonly editable?: boolean;
     /** 语义档的各句（人物的界面）。 */
     readonly notes?: readonly {readonly where: string; readonly text: string}[];

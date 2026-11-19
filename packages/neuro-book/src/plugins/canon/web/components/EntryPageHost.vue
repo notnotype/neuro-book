@@ -362,9 +362,16 @@ const confirmAdd = async (): Promise<void> => {
     }
 };
 // 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
-const finder = (query: string) => props.client.call("findEntries", {query, position: position.value, limit: 20}).then((found) => (found.ok ? {ok: true as const, items: found.value.items.map((item) => ({id: item.id, name: item.name, kind: item.kind, ...(item.appeared ? {} : {note: port.t(text("entries.unappeared"))}), ...(item.matchedAlias === undefined ? {} : {note: port.t(text("entryPicker.alias", {alias: item.matchedAlias}))})}))} : {ok: false as const, reason: port.t(failureText(found.failure).text)}));
+/** 条目选择器的查找（`findEntries`）；`kinds` 是引用字段声明的 `targets`，空的不筛。 */
+const finderFor = (kinds: readonly string[]) => (query: string) => props.client.call("findEntries", {query, position: position.value, limit: 20, ...(kinds.length === 0 ? {} : {kinds: [...kinds]})}).then((found) => (found.ok ? {ok: true as const, items: found.value.items.map((item) => ({id: item.id, name: item.name, kind: item.kind, ...(item.appeared ? {} : {note: port.t(text("entries.unappeared"))}), ...(item.matchedAlias === undefined ? {} : {note: port.t(text("entryPicker.alias", {alias: item.matchedAlias}))})}))} : {ok: false as const, reason: port.t(failureText(found.failure).text)}));
+const finder = finderFor([]);
 const parentFind = useEntryFind(() => finder);
 const sameAsFind = useEntryFind(() => finder);
+// 确认条里引用字段的选择器：按字段声明的 `targets` 筛；当前值的名字按 id 读一次条目。
+const refFind = useEntryFind(() => finderFor(edit.bar.value?.targets ?? []));
+const refId = computed(() => (edit.bar.value?.kind === "ref" && typeof edit.bar.value.value === "string" ? edit.bar.value.value : null));
+const refRead = useWorldRead(world, "entry", () => (refId.value === null ? null : {id: refId.value, position: position.value, mode: "actual" as const}));
+const refName = computed(() => refRead.value?.data?.view?.name);
 const moveOpen = shallowRef(false);
 const moveDraft = shallowRef<MoveDraft | null>(null);
 let moveFrom: MoveDraft | null = null;
@@ -551,6 +558,9 @@ const setPosition = (value: string): void => {
                 <ConfirmBar
                     v-if="editHere && edit.bar.value !== null"
                     v-bind="edit.bar.value"
+                    :ref-results="refFind.results.value"
+                    :ref-name="refName"
+                    @search-ref="refFind.search"
                     @update:value="edit.update"
                     @update:intent="edit.setIntent"
                     @save="edit.save()"

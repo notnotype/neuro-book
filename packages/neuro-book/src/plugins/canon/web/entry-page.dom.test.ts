@@ -13,6 +13,7 @@ import {reactive} from "vue";
 import type {Component} from "vue";
 
 import type {Entry, StoryChangeDraft} from "@notnotype/nb-canon";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -25,6 +26,7 @@ import {pageStandIn} from "../testing/page-stand-in";
 import {change, nextId, person, publish} from "../testing/world-fixtures";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
+import {CANON_COMPONENTS_POINT} from "../shared/contracts";
 import {ENTRY_PAGE} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import EntryPage from "./components/EntryPage.vue";
@@ -65,8 +67,8 @@ interface Opened {
     remount(): ReturnType<typeof mount>;
 }
 
-async function setup(): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
-    venue = await canonNodeWorld(tmp);
+async function setup(project: readonly PluginDefinition[] = []): Promise<{other: CanonNodeWindow; page: EditorPageImplementation<EntryPageState>; open: (id: string, state?: EntryPageState) => Promise<Opened>; tree: () => Promise<ReturnType<typeof mount>>}> {
+    venue = await canonNodeWorld(tmp, {project});
     const editor = pageStandIn();
     await venue.window("mine", [editor.plugin]);
     const other = await venue.window("other");
@@ -523,6 +525,46 @@ describe("写入", () => {
         await waitUntil("挂到学院下面", async () => {
             const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
             return stored.ok && (stored.value.object as Entry).parent === ids[group.id];
+        });
+    });
+
+    it("引用与图片字段也能就地改：引用用条目选择器（按 targets 筛），图片填路径与说明", async () => {
+        // 项目里另装一个只贡献一种类型的插件：一个引用字段（只能指向人物）、一个图片字段。
+        const rival: PluginDefinition = {id: "test.rival", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "test.rival.card", declaration: {label: "对头", namespace: "rival", version: 1, fields: [{id: "对头", label: "对头", kind: "ref", targets: ["人物"]}, {id: "画像", label: "画像", kind: "image"}]}}]};
+        const {other, open} = await setup([rival]);
+        const star = {...person("星瑕"), type: "人物"};
+        star.init.data.rival = {type: "test.rival.card", version: 1, enabled: true, fields: {对头: null, 画像: null}};
+        const enemy = {...person("雾崎"), type: "人物"};
+        const place = {...person("学院"), type: "地点"};
+        const ids = await publish(other.canon, [star, enemy, place]);
+        const {wrapper, state} = await open(ids[star.id]!);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists() || wrapper.find("[data-edit]").exists());
+        state.tab = "data:rival";
+        const bar = await startEdit(wrapper, "rival.对头");
+        const input = bar.get("input[role='combobox']");
+        await input.trigger("click");
+        await waitUntil("只列人物", () => [...document.body.querySelectorAll("[role='option']")].map((option) => option.textContent ?? "").join("|").includes("雾崎"));
+        expect([...document.body.querySelectorAll("[role='option']")].some((option) => option.textContent?.includes("学院"))).toBe(false);
+        (input.element as HTMLInputElement).value = "雾崎";
+        await input.trigger("input");
+        await waitUntil("高亮雾崎", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("雾崎") === true);
+        await input.trigger("keydown", {key: "Enter"});
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("写进去了", async () => {
+            const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
+            return stored.ok && JSON.stringify((stored.value.object as Entry).init.data.rival?.fields.对头) === JSON.stringify({ref: ids[enemy.id]});
+        });
+
+        const image = await startEdit(wrapper, "rival.画像");
+        const [path, caption] = image.findAll("[data-image-input] input");
+        await path!.setValue("图片/雾崎.png");
+        await caption!.setValue("黑衣");
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("图片写进去了", async () => {
+            const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
+            return stored.ok && JSON.stringify((stored.value.object as Entry).init.data.rival?.fields.画像) === JSON.stringify({图片: "图片/雾崎.png", 说明: "黑衣"});
         });
     });
 
