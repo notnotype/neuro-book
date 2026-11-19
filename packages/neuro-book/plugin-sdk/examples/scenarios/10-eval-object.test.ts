@@ -159,9 +159,9 @@ describe("场景 10：eval 的全局对象", () => {
 
         const changed = await session.changeProfile({commandId: `s10-${String((commands += 1))}`, profile: WITHOUT});
         expect(changed.ok).toBe(true);
-        // 换 Profile 时工具按新 Profile 重建，eval 的内核也重新开始，之前的变量没了，结果第一行写明（eval.md 输出 11、12）。
+        // 换了 Profile，eval 的内核也重新开始（工作目录与布局变量按 Profile 取），之前的变量没了，结果第一行写明原因（eval.md 输出 11、12）。
         const after = await evalOnce(session, "typeof stats");
-        expect(after.split("\n")).toEqual(["内核已重置（服务重启、分叉或换了 Profile），之前的变量没了。", "undefined"]);
+        expect(after.split("\n")).toEqual(["内核已重置（换了 Profile），之前的变量没了。", "undefined"]);
 
         // 内核比对前后两次告诉模型的工具集（id 加版本），eval 的版本带着对象列表的哈希，所以对象没了 eval 就算“更新了”。
         // 提醒在下一次请求之前写进对话（docs/specs/agent/eval.md 输出 16）。
