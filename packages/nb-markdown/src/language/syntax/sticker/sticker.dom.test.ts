@@ -292,7 +292,7 @@ describe("大图预览（stickers.md 输出 46）", () => {
         expect(activations).toHaveLength(2);
     });
 
-    it("编辑器：单击表情的图交给宿主的 previewSticker；节点不可聚焦；输入法组字时不打开", async () => {
+    it("编辑器：单击表情的图把光标放到它后面、交给宿主的 previewSticker；节点不可聚焦；输入法组字时不打开", async () => {
         const stickers = catalog([":lyra/开心:"]);
         const previews: StickerPreview[] = [];
         const instance = editor("前:lyra/开心:后\n", stickers.resolver, (sticker) => previews.push(sticker));
@@ -301,6 +301,8 @@ describe("大图预览（stickers.md 输出 46）", () => {
         expect(instance.view.dom.querySelector(".nb-sticker")?.getAttribute("tabindex")).toBeNull();
         click(image);
         expect(previews).toEqual([HAPPY]);
+        // 光标放到表情后面（“前”在 1，表情在 2）：预览关上后接着打字落在这里。
+        expect(instance.state.selection.from).toBe(3);
         instance.view.dom.dispatchEvent(new CompositionEvent("compositionstart", {bubbles: true}));
         expect(instance.view.composing).toBe(true);
         click(image);

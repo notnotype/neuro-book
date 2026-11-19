@@ -139,7 +139,7 @@ function onKeydown(event: KeyboardEvent): void {
 
 /**
  * 底部那一行的表情的大图（docs/specs/agent/stickers.md 输出 46）。对话框是模态的、传送到面板之外：打开时焦点被它锁走，面板的
- * focusout 会看到焦点离开，所以开着时不收起面板；关上后焦点由 Dialog 还给“查看大图”按钮。
+ * focusout 会看到焦点离开，所以开着时不收起面板；关上后焦点由 Dialog 还给打开前的元素（按钮按下时不抢焦点，通常是搜索框或格子）。
  */
 const preview = shallowRef<StickerPickerItem | null>(null);
 const previewOpen = ref(false);

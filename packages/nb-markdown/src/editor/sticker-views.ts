@@ -7,7 +7,7 @@
 
 import {Extension} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
-import {Plugin, PluginKey} from "@tiptap/pm/state";
+import {Plugin, PluginKey, TextSelection} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 import type {EditorView, NodeView} from "@tiptap/pm/view";
 
@@ -15,13 +15,23 @@ import {isLargeStickerBlock, LARGE_STICKER_CLASS, rawOf, STICKER_NODE, stickerGa
 import {buildSticker} from "../language/syntax/sticker/view";
 import type {MarkdownViewHost} from "./view-host";
 
-function stickerView(node: PMNode, view: EditorView, host: MarkdownViewHost | null): NodeView {
+function stickerView(node: PMNode, view: EditorView, getPos: () => number | undefined, host: MarkdownViewHost | null): NodeView {
     const element = buildSticker(view.dom.ownerDocument, rawOf(node), host?.stickers ?? undefined, {
         report: (error) => host?.report?.("编辑器查不到表情，显示原文", error),
-        // 单击打开大图（输出 46），点击时才读宿主的端口：换挂载不重建扩展。不拦按下，光标照旧落在点击处；输入法组字时不打开。
+        // 单击打开大图（输出 46），点击时才读宿主的端口：换挂载不重建扩展。输入法组字时不打开。
+        // 节点不可选、图在不可编辑的元素里，点它浏览器不移动光标：先把光标放到这个表情后面、聚焦正文，预览关上时焦点（由对话框
+        // 还给打开前的元素）回到这里，接着打字落在表情后面。
         onActivate: (sticker) => {
             if (view.composing) return;
-            host?.previewSticker?.(sticker);
+            const preview = host?.previewSticker;
+            if (preview === undefined) return;
+            const pos = getPos();
+            if (pos !== undefined) {
+                const after = Math.min(pos + node.nodeSize, view.state.doc.content.size);
+                view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, after)));
+            }
+            view.focus();
+            preview(sticker);
         },
     });
     element.dom.contentEditable = "false";
@@ -65,7 +75,7 @@ export const MarkdownStickerViews = Extension.create<{host: MarkdownViewHost | n
     addProseMirrorPlugins() {
         const host = this.options.host;
         return [
-            new Plugin({props: {nodeViews: {[STICKER_NODE]: (node, view) => stickerView(node, view, host)}}}),
+            new Plugin({props: {nodeViews: {[STICKER_NODE]: (node, view, getPos) => stickerView(node, view, getPos, host)}}}),
             new Plugin<DecorationSet>({
                 key: blocksKey,
                 state: {
