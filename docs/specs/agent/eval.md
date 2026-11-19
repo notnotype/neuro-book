@@ -70,8 +70,8 @@ owners:
 ### 内核的寿命与重置
 
 10. 内核在本会话第一次调 `eval` 时起，工作目录与布局变量同 `shell`（[`builtin-tools.md`](builtin-tools.md) 输出 18、20），环境继承服务端，不读工作目录里的 `.env`。
-11. 内核在这些时候重置（之前的变量没了）：内核意外退出（包括代码里 `process.exit`，以及两次调用之间被外部结束）；上次调用之后叶子被移动过（回退、切分支）；`reset: true`；单元超时或被停止；30 分钟没有调用；整个服务端的内核超过 8 个时最久没用的那个；服务端重启；分叉出的会话从新内核开始；会话换了 Profile。会话关闭不重置：内核留着，照样按 30 分钟空闲与 8 个的上限回收；会话再打开后叶子没移动、Profile 没换时接着用，变量还在。
-12. 新内核第一次执行时，若当前路径上已经有过 `eval` 的结果，结果第一行写明内核已重置、之前的变量没了，并写原因（回退或切分支、主动重置、超时、被停止、意外退出、空闲、被回收、换了 Profile；会话关闭期间到点的空闲与回收照样写这两个原因；服务重启与分叉写成同一个原因，新内核分不出是哪一种）。每个单元开始时工作目录是会话的工作目录，代码里改过的不带到下一个单元。
+11. 内核在这些时候重置（之前的变量没了）：内核意外退出（包括代码里 `process.exit`，以及两次调用之间被外部结束）；上次调用之后叶子被移动过（回退、切分支）；`reset: true`；单元超时或被停止；30 分钟没有调用；整个服务端的内核超过 8 个时最久没用的那个；服务端重启；分叉出的会话从新内核开始；会话换了 Profile（换走又换回来也算）；工作目录或布局变量与起内核时不同（例如项目同一个 id 换了目录）。会话关闭不重置：内核留着，照样按 30 分钟空闲与 8 个的上限回收；会话再打开后叶子没移动、Profile 没换时接着用，变量还在。
+12. 新内核第一次执行时，若当前路径上已经有过 `eval` 的结果，结果第一行写明内核已重置、之前的变量没了，并写原因（回退或切分支、主动重置、超时、被停止、意外退出、空闲、被回收、换了 Profile、工作目录变了；会话关闭期间到点的空闲与回收照样写这两个原因；服务重启与分叉写成同一个原因，新内核分不出是哪一种；服务端只为最近用过的 256 个会话记着原因，更早的也写成这个）。每个单元开始时工作目录是会话的工作目录，代码里改过的不带到下一个单元。
 13. 重置时连同内核起的子进程一起结束，结束了才交结果；服务端异常退出时内核自己结束它与它起的子进程。
 
 ### 时限与停止
@@ -154,7 +154,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/eval.llm.test.ts`（`test:llm`，
 - **owner 与依赖方向**：`nbook.agent` 的服务端入口持有全服务端的内核登记表，每个会话的内核按会话 id 存在里面；内核是 `bun` 子进程，入口 `eval-kernel.js` 随 `build:server` 与应用包产出；依赖 nb-harness 的嵌套调用通道与输出暂存（`kit/tools` 的 `OutputCapture`），不反向依赖。
 - **关键不变量**：
   - 内核进程是自己进程组的组长：重置、回收、意外退出与服务端停止时整组结束，服务端异常退出时由内核里的看门狗线程收组（输出 13，`eval.test.ts`“死循环到时限”“process.exit”“会话关闭不结束内核”“服务端停止时结束全部内核”，`backend/eval/kernel.test.ts`“服务端被杀”）。
-  - 内核与重置原因按会话 id 存在登记表里，不挂在会话的工具实现上：会话关闭时工具实现释放，内核留着，再打开后新的工具实现接着用；叶子移动按日志里的计数比，关闭前后可比（输出 11、12，`eval.test.ts`“会话关闭不结束内核”“会话关闭之后回退”“换了 Profile 之后再调”，`backend/eval/kernel.test.ts`“内核登记表”）。
+  - 内核与重置原因按会话 id 存在登记表里，不挂在会话的工具实现上：会话关闭时工具实现释放，内核留着，再打开后新的工具实现接着用；叶子移动与换 Profile 都按日志里的计数比（后者是扩展 `nbook.agent.eval-state` 数的 `profileChanged`），关闭前后可比；工作目录与布局变量每次调用重新解析，与起内核时比；正在执行的（包括还在起内核的）不被登记表丢掉或回收（输出 11、12，`eval.test.ts`“会话关闭不结束内核”“会话关闭之后回退”“换了 Profile 之后再调”，`eval-projects.test.ts`，`backend/eval/kernel.test.ts`“内核登记表”）。
   - 输出按单元归属：经 IPC 的消息带单元号，直接写到标准输出与错误的靠两条管道上的结束标记分界（输出 2、5，`backend/eval/kernel.test.ts`）。
   - 重置提示看当前路径上的 eval 结果数（扩展 `nbook.agent.eval-state`），同一条回复里还没写进日志的，看这个会话在叶子没动过时跑过的单元（输出 12，`eval.test.ts`“reset: true”）。
   - 单元时限与空闲回收都在宿主注入的时钟上，握手按真实时间；每次调用的每个出口都重新计空闲，提前交回的（语法错误）也算（输出 11、14，`eval.test.ts`“等审批的时间不算进时限”“30 分钟没有调用”）。
@@ -164,5 +164,5 @@ Smoke：`packages/neuro-book/src/plugins/agent/eval.llm.test.ts`（`test:llm`，
 
 - 批准依据：[w00032 t21](../../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/README.md) 的决定 1 到 7 与[计划](../../../.agents/works/w00032-agent-integration/tasks/t21-eval-codeact/plan.md)第 3 稿（开发者 2026-11-18 确认）；会话关闭后保留内核：[w00032 t40](../../../.agents/works/w00032-agent-integration/tasks/t40-eval-kernel-survives-session-close/README.md)（开发者 2026-11-19 确认）
 - 实现入口：[`backend/eval/tool.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/tool.ts)、[`kernels.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernels.ts)、[`kernel-entry.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernel-entry.ts)、[`rewrite.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/rewrite.ts)、[`objects.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/objects.ts)
-- 合同测试：[`eval.test.ts`](../../../packages/neuro-book/src/plugins/agent/eval.test.ts)（真实服务端内核、真实内核子进程、本机的 OpenAI 兼容端点）、[`backend/eval/kernel.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernel.test.ts)、[`rewrite.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/rewrite.test.ts)、[`objects.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/objects.test.ts)、示例场景 [`10-eval-object.test.ts`](../../../packages/neuro-book/plugin-sdk/examples/scenarios/10-eval-object.test.ts)
+- 合同测试：[`eval.test.ts`](../../../packages/neuro-book/src/plugins/agent/eval.test.ts)（真实服务端内核、真实内核子进程、本机的 OpenAI 兼容端点）、[`eval-projects.test.ts`](../../../packages/neuro-book/src/plugins/agent/eval-projects.test.ts)（另加真实项目子进程）、[`backend/eval/kernel.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/kernel.test.ts)、[`rewrite.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/rewrite.test.ts)、[`objects.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/eval/objects.test.ts)、示例场景 [`10-eval-object.test.ts`](../../../packages/neuro-book/plugin-sdk/examples/scenarios/10-eval-object.test.ts)
 - Smoke：[`eval.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/eval.llm.test.ts)（`test:llm`，真实模型）
