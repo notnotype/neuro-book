@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {randomBytes, randomUUID} from "node:crypto";
-import {appendFile, mkdir, rm, symlink, utimes, writeFile} from "node:fs/promises";
+import {appendFile, mkdir, readdir, readFile, rm, symlink, utimes, writeFile} from "node:fs/promises";
 import {once} from "node:events";
 import {connect} from "node:net";
 import {join} from "node:path";
@@ -9,7 +9,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {locateRepository} from "../src/core/repo.js";
 import {createHerdrClient, HERDR_PANEL_READ_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
-import {computeBuildHash, ensureWebBuild} from "../src/server/build.js";
+import {computeBuildHash, ensureWebBuild, PANEL_SOURCE_PACKAGES} from "../src/server/build.js";
 import {readCodeKey} from "../src/server/state.js";
 import {backoffDelay, HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
@@ -756,6 +756,17 @@ describe("前端构建", () => {
         expect(await Bun.file(join(distDir, "index.html")).text()).toBe("<html></html>\n");
         await writeFile(join(distDir, ".build-hash"), `${await computeBuildHash(packageRoot, fixture.root)}\n`);
         expect(await ensureWebBuild(options)).toEqual({built: false, failed: null});
+    });
+
+    test("网页导入的工作区包都在 PANEL_SOURCE_PACKAGES 里：网页多依赖一个包而清单没加时，改那个包不会重建、不会提示", async () => {
+        const webRoot = join(import.meta.dir, "..", "src", "web");
+        const imported = new Set<string>();
+        for (const file of await readdir(webRoot, {recursive: true})) {
+            if (!/\.(ts|vue)$/u.test(file)) continue;
+            for (const match of (await readFile(join(webRoot, file), "utf8")).matchAll(/from\s+["']@notnotype\/([a-z0-9-]+)/gu)) imported.add(match[1] as string);
+        }
+        expect(imported.size).toBeGreaterThan(0);
+        expect([...imported].filter((name) => !(PANEL_SOURCE_PACKAGES as readonly string[]).includes(name)).sort()).toEqual([]);
     });
 
     test("编进网页的工作区包（nb-ui、nb-layout）改了：构建要重做，“代码已更新”比较的代码键也变", async () => {

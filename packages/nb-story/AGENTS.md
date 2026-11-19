@@ -7,7 +7,7 @@
 ## 边界
 
 - Owner：w00024（nb-story）。公开合同是核心库入口 `src/core/index.ts`（`.`）、查询接口合同 `src/contract/` 与 `nbstory` 的命令行合同。
-- 依赖方向：只依赖 `@notnotype/nb-runtime` 的 `./remote`（合同写法）、`@notnotype/nb-ui`（网页），内置问答用的 `@notnotype/nb-harness`、`@notnotype/nb-profile`、`@notnotype/nb-session`，以及网页问答页与设置页用的 `@notnotype/nb-agent-ui`、`@notnotype/nb-markdown`、`@notnotype/nb-form` 与 `eventsource-parser`（只进前端构建）；不依赖 `@notnotype/neuro-book` 与 `packages/nb-memory`，不导入根 `scripts/`。
+- 依赖方向：只依赖 `@notnotype/nb-runtime` 的 `./remote`（合同写法）、`@notnotype/nb-ui`（网页）、`@notnotype/nb-layout`（网页的分栏，只进前端构建，devDependencies），内置问答用的 `@notnotype/nb-harness`、`@notnotype/nb-profile`、`@notnotype/nb-session`，以及网页问答页与设置页用的 `@notnotype/nb-agent-ui`、`@notnotype/nb-markdown`、`@notnotype/nb-form` 与 `eventsource-parser`（只进前端构建）；不依赖 `@notnotype/neuro-book` 与 `packages/nb-memory`，不导入根 `scripts/`。
 - 内置问答（`src/qa/`，[`story/qa.md`](../../docs/specs/story/qa.md)）经 nb-harness 用 OMP，只能跑在 Bun 上，也只有它依赖那三个包；`src/core/` 不导入 `src/qa/`。命令行只在 `ask` 与 `serve` 时加载它，其余命令不加载 OMP。OMP 一被导入就接管 SIGINT、SIGTERM、SIGHUP：`ask` 经 nb-harness 的 `onProcessInterrupt`、`serve` 经 `onProcessTermination` 收口，不要另装 `process.on(信号)`（拦不住它的退出）。
 - 命令行：`src/cli/commands.ts` 的命令表是命令、位置参数、选项与解码器的唯一来源，`src/cli/program.ts` 用 commander 切词并生成按命令的 `--help`（位置参数个数与取值仍由 `decodeArguments` 检查，用法错误的中文提示留在那里）。`nbstory config init` 的交互用 `@clack/prompts`，只在交互路径里动态导入（`src/cli/config-init.ts`）。
 - 网页（`src/web/`）只引本包的 `src/contract/`（不碰 node 的合同、问答记录与配置的 schema、出处的认法），不引 `src/core/`、`src/qa/`、`src/server/`；网页要的纯逻辑放进 `src/contract/` 或 `src/web/` 自己的模块。

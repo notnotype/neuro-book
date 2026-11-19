@@ -240,7 +240,7 @@
 
     /* 交互反馈：拖动边界的悬停线与拖放的落点高亮。缺省就是一条 3px 的强调色实线、一层 12% 的淡底加 70% 的框。
        --sash-line-size 是线芯厚度（装饰带最多 3px，超过按装饰带算）；--sash-line-inset 只作用在自由端，
-       碰到另一条同时亮着的边界的一端照旧连着（nb-layout 的 `src/vue/Splitter.md`）。 */
+       碰到另一条同时亮着的边界的一端照旧连着（nb-layout 的 `src/vue/NestedGrid.md`）。 */
     --sash-line-color: var(--accent-main);
     --sash-line-size: 3px;
     --sash-line-inset: 0px;

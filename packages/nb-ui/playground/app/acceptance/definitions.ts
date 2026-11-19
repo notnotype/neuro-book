@@ -1,7 +1,6 @@
 /**
  * 手势验收页的组件定义：场景、场景属性控件与事件日志收录的事件。原来在 playground 的组件 Lab 注册表里；组件实验
- * 改到新应用的 Component Lab 登记之后，只有需要真实指针与布局引擎的验收留在 playground：一个
- * 勾选框聚焦滚动验收与弹出列表的尺寸与高亮验收（见 e2e/ 下同名的 spec）。
+ * 改到新应用的 Component Lab 登记之后，只有需要真实指针与布局引擎的验收留在 playground（见 e2e/ 下同名的 spec）。
  */
 
 export type LabControlType = "boolean" | "text" | "select";

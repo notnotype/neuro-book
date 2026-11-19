@@ -25,7 +25,7 @@
 
 ## 面板前端
 
-- 前端在 `src/web/`（Vue 3 加 Vite，组件来自 nb-ui），合同见 [`docs/panel.md`](docs/panel.md#前端)。`tsconfig.json` 排除 `src/web`，前端的类型检查走 `tsconfig.web.json`（`vue-tsc`，已并进 `typecheck`）；构建 `bun run --cwd packages/dev-panel build:web`，产物 `dist/web/` 不入库。
+- 前端在 `src/web/`（Vue 3 加 Vite，组件来自 nb-ui，分栏来自 nb-layout），合同见 [`docs/panel.md`](docs/panel.md#前端)。`tsconfig.json` 排除 `src/web`，前端的类型检查走 `tsconfig.web.json`（`vue-tsc`，已并进 `typecheck`）；构建 `bun run --cwd packages/dev-panel build:web`，产物 `dist/web/` 不入库。
 - 零件（`src/web/parts/`）遵守 [组件规范](../../docs/standards/code/components.md)：同名 `.md`、能力标签、只经 props、emits、slots 连接；页面与外壳是宿主，写请求、定时器、`beforeunload`、剪贴板都在页面里。偏好只经 `src/web/host/prefs.ts` 读写浏览器存储。
 - 前端的字段校验直接导入核心的纯模块（`src/core/text-rules.ts`、`questions.ts`、`ids.ts`），不复制规则；这几份模块不能加 `node:` 依赖，否则 `vue-tsc` 与前端构建会失败。
 - 服务端测试不依赖 `dist/web`：`startPanelServer` 之后用 `setStatic` 注入桩页面（见 `tests/panel-server.test.ts`）。
