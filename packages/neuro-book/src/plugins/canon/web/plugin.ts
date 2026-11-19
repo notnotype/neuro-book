@@ -41,7 +41,7 @@ import {canonText} from "../shared/text";
 import {createCanonClient} from "./client";
 import {BINDER_DIR, chapterFileName} from "../shared/binder-files";
 import {createChangePage} from "./change-page";
-import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, PENDING_VIEW, PICK_LINE_COMMAND, RECEIPT_PAGE, REVISIONS_VIEW, SHOW_PENDING_COMMAND} from "./commands";
+import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, PENDING_VIEW, PICK_LINE_COMMAND, RECEIPT_PAGE, REVISIONS_VIEW, SHOW_PENDING_COMMAND, SHOW_REVISIONS_COMMAND} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
@@ -212,7 +212,13 @@ export const canonBrowserPlugin: PluginDefinition = {
             const notices = createNotices({
                 workbench: notifications.status === "resolved" ? notifications.instance : null,
                 receipt: (revision) => execute(OPEN_RECEIPT_COMMAND, {revision}),
+                revisions: () => execute(SHOW_REVISIONS_COMMAND, {}),
             });
+            // Agent 改了设定：交给提示的 Agent 那一格（author-ui.md 的 Agent 提示）。作者自己的写入不在这里提示（保存后的提示另有）。
+            const stopAgentNotices = worldOf()?.onRevision((revision) => {
+                if (revision.by.kind === "agent") notices.agentRevised({revision: revision.revision, title: revision.title});
+            });
+            context.signal.addEventListener("abort", () => stopAgentNotices?.(), {once: true});
             const revert = createRevertRequests();
             const state = entriesViewState();
             const page = createEntryPage({

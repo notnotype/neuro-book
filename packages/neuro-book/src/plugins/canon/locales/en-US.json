@@ -220,7 +220,11 @@
         "receipt": "View receipt",
         "close": "Close",
         "label": "Change just saved",
-        "undo": "Undo"
+        "undo": "Undo",
+        "agentLabel": "The agent changed settings",
+        "agentChanged": "The agent changed settings: {{title}}",
+        "agentEarlier": " ({{count}} earlier changes)",
+        "revisions": "Change history"
     },
     "newEntry": {
         "title": "New entry",

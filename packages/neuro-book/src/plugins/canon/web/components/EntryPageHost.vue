@@ -38,6 +38,7 @@ import EntryText from "./EntryText.vue";
 import type {EntryTextBlock, TextAddress} from "./entry-text";
 import {addressKey} from "./entry-text";
 import FieldsDataView from "./FieldsDataView.vue";
+import AgentNotice from "./AgentNotice.vue";
 import NoticeBar from "./NoticeBar.vue";
 import OriginList from "./OriginList.vue";
 import PlotList from "./PlotList.vue";
@@ -399,6 +400,7 @@ const setPosition = (value: string): void => {
 <template>
     <div class="min-h-full">
         <NoticeBar v-if="props.notices.current.value !== null" :title="props.notices.current.value.title" @receipt="props.receipt(props.notices.current.value.revision)" @undo="pageNotice.undo(props.notices.current.value)" @close="pageNotice.close()" />
+        <AgentNotice v-if="props.notices.agent.value !== null" :title="props.notices.agent.value.title" :earlier="props.notices.agent.value.earlier" @receipt="props.receipt(props.notices.agent.value.revision)" @undo="pageNotice.undo(props.notices.agent.value)" @revisions="props.notices.openRevisions()" @close="props.notices.dismissAgent()" />
         <EntryPage
             :status="status"
             :name="view?.name ?? ''"

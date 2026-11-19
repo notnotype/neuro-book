@@ -220,7 +220,11 @@
         "receipt": "看回执",
         "close": "关闭",
         "label": "刚保存的改动",
-        "undo": "撤销"
+        "undo": "撤销",
+        "agentLabel": "Agent 改了设定",
+        "agentChanged": "Agent 改了设定：{{title}}",
+        "agentEarlier": "（之前还改了 {{count}} 次）",
+        "revisions": "看改动记录"
     },
     "newEntry": {
         "title": "新建条目",

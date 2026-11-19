@@ -18,6 +18,7 @@ import type EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue
 import type ImageInput from "nbook/plugins/canon/web/components/ImageInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
+import type AgentNotice from "nbook/plugins/canon/web/components/AgentNotice.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
@@ -1952,6 +1953,15 @@ function canonEntryPageFixtures() {
                 {id: "sample-english", label: "英文界面", input: {props: {title: "Edit Appearance"}}},
             ],
             load: async () => (await import("./NoticeBarFixture.vue")).default,
+        }),
+        defineLabFixture<typeof AgentNotice>({
+            component: "AgentNotice",
+            scenes: [
+                {id: "sample", label: "Agent 刚改了一次", input: {props: {title: "给星瑕加别名小瑕"}}},
+                {id: "earlier", label: "之前还改过两次、标题很长", input: {props: {title: "把星瑕的性格改成沉默，外观改成黑色短发，并把她移到学院下面", earlier: 2}}},
+                {id: "earlier-english", label: "英文界面", input: {props: {title: "Add alias", earlier: 1}}},
+            ],
+            load: async () => (await import("./AgentNoticeFixture.vue")).default,
         }),
         defineLabFixture<typeof NewEntryDialog>({
             component: "NewEntryDialog",

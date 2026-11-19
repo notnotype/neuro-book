@@ -65,3 +65,29 @@ describe("保存后的提示", () => {
         expect(notices.current.value).toBeNull();
     });
 });
+
+describe("Agent 改了设定的提示（author-ui.md 的 Agent 提示）", () => {
+    it("另占一格：不顶掉作者自己的提示、不发工作台通知；再来的接着计数，指最近一次；关掉以后从头算；看改动记录交给路由", () => {
+        const sent: NotificationInput[] = [];
+        let revisions = 0;
+        const notices = createNotices({workbench: {notify: (input) => {
+            sent.push(input);
+            return {id: String(sent.length), update: () => undefined, dismiss: () => undefined};
+        }}, receipt: () => undefined, revisions: () => void (revisions += 1)});
+        const detach = notices.attach();
+        notices.show({revision: "r1", title: "作者改了名字"});
+        notices.agentRevised({revision: "r2", title: "Agent 改外观"});
+        notices.agentRevised({revision: "r3", title: "Agent 加别名"});
+        expect(notices.current.value).toEqual({revision: "r1", title: "作者改了名字"});
+        expect(notices.agent.value).toEqual({revision: "r3", title: "Agent 加别名", earlier: 1});
+        detach();
+        notices.agentRevised({revision: "r4", title: "Agent 又改"});
+        expect(sent).toHaveLength(0);
+        expect(notices.agent.value?.earlier).toBe(2);
+        notices.dismissAgent();
+        notices.agentRevised({revision: "r5", title: "Agent 再改"});
+        expect(notices.agent.value).toEqual({revision: "r5", title: "Agent 再改", earlier: 0});
+        notices.openRevisions();
+        expect(revisions).toBe(1);
+    });
+});
