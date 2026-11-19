@@ -52,6 +52,7 @@ import {createPartition} from "nbook/plugins/storage/backend/partition";
 import {createStorageFacade} from "nbook/plugins/storage/shared/facade";
 import {Type} from "typebox";
 import {PlotService} from "nbook/plugins/plot/testing/service";
+import {remoteAuthor} from "nbook/plugins/plot/backend/author";
 import {addRow, drafts, learns, present} from "nbook/plugins/plot/testing/world";
 
 const chapters = Number(process.argv.find((arg) => /^\d+$/u.test(arg)) ?? 1000);
@@ -232,6 +233,45 @@ for (const [name, read] of Object.entries(authorReads)) {
     }
     // 立刻打印：一项慢到被打断时，前面量到的不丢。
     console.log(`作者读取 ${name}：输入变了以后第一次中位 ${ms(median(cold))} 毫秒、最大 ${ms(Math.max(...cold))}；同一份输入再读中位 ${ms(median(warm))}、最大 ${ms(Math.max(...warm))}；结果 ${ms(bytes / 1024)} KiB`);
+}
+
+// 经项目入口的方法（`remoteAuthor`，不含远程编码），plot/author-ui.md 输出 20 的口径：整张表按视图缓存以后，再读与下一页只剩
+// 分页、这一页的名字表与结果大小的核对。下一页用第一页给的游标；页长取得让每张表都有第二页。
+const authorMethods = remoteAuthor({snapshot: async () => service.snapshot()}).methods as unknown as Record<string, (input: unknown) => Promise<{readonly ok: boolean; readonly value?: {readonly cursor?: string}}>>;
+const methodInputs: Record<string, Record<string, unknown>> = {
+    secrets: {position: until, people: [person(0), person(1), person(2)], limit: 200},
+    person: {position: until, person: person(1)},
+    point: {position: until, point: point(0)},
+    goals: {position: until, limit: 10},
+    ledger: {position: until, segment: "all", limit: 5},
+    experience: {position: until, person: person(1), limit: 50},
+};
+for (const [name, input] of Object.entries(methodInputs)) {
+    const cold: number[] = [];
+    const warm: number[] = [];
+    const next: number[] = [];
+    for (let round = 0; round < 3; round += 1) {
+        const written = await plot.change({kind: "chapter", chapter: last, key: authorKey++}, {text: "作者读取"});
+        service.snapshot().view.outcome(written);
+        let begin = performance.now();
+        const first = await authorMethods[name]!(input);
+        cold.push(performance.now() - begin);
+        if (!first.ok) throw new Error(`${name} 读取失败：${JSON.stringify(first)}`);
+        for (let again = 0; again < 3; again += 1) {
+            begin = performance.now();
+            await authorMethods[name]!(input);
+            warm.push(performance.now() - begin);
+        }
+        const cursor = first.value?.cursor;
+        if (cursor !== undefined) {
+            begin = performance.now();
+            const page = await authorMethods[name]!({...input, cursor});
+            next.push(performance.now() - begin);
+            if (!page.ok) throw new Error(`${name} 下一页失败：${JSON.stringify(page)}`);
+        }
+    }
+    const nextText = next.length === 0 ? "没有第二页" : `下一页中位 ${ms(median(next))}、最大 ${ms(Math.max(...next))}`;
+    console.log(`作者方法 ${name}：输入变了以后第一次中位 ${ms(median(cold))} 毫秒、最大 ${ms(Math.max(...cold))}；同一份输入再读中位 ${ms(median(warm))}、最大 ${ms(Math.max(...warm))}；${nextText}（预算 1000 与 100）`);
 }
 
 // ---------- 别的读取（只记录，不设预算） ----------

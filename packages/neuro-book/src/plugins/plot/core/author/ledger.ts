@@ -2,11 +2,15 @@
  * 作者用的伏笔账本（docs/specs/plot/foreshadowing.md 输出 9）：每个伏笔的阶段、意图、上次提到、间隔与“久没提”（与诊断 longSilence
  * 同一个算法，`silenceOf`）、下一步计划、没打算怎么收（与诊断 noPayoffPlanned 同一个判断）、节点带要的节点；分段与全表条数。
  * 旧的 `ledger`（输出 8）给 Agent 用，口径不变。
+ *
+ * 导出的读取按视图、模式、位置与参数缓存整张结果（`../view-cache.ts`，同知情索引）：同一份读取输入上的再读、下一页与几个分页读
+ * 同一个人只做投影（plot/author-ui.md 输出 20 的“再读与下一页 100 毫秒”）。返回的对象共用，调用方不改它。
  */
 
 import type {CanonReadView, Mode, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {foreshadowIndex, payoffUnplanned, silenceOf, tellingPositionOf} from "../foreshadowing";
+import {perViewCache} from "../view-cache";
 import type {Role} from "../foreshadowing";
 
 export const LEDGER_SEGMENTS = ["unpaid", "silent", "unplanned", "dropped", "all"] as const;
@@ -30,6 +34,11 @@ export interface AuthorLedgerRow {
 }
 
 export function authorLedger(view: CanonReadView, mode: Mode, position: ReadPosition, segment: LedgerSegment = "unpaid"): {readonly rows: readonly AuthorLedgerRow[]; readonly counts: Readonly<Record<LedgerSegment, number>>} {
+    return tableCache(view, JSON.stringify([mode, position, segment]), () => buildAuthorLedger(view, mode, position, segment));
+}
+const tableCache = perViewCache<{readonly rows: readonly AuthorLedgerRow[]; readonly counts: Readonly<Record<LedgerSegment, number>>}>();
+
+function buildAuthorLedger(view: CanonReadView, mode: Mode, position: ReadPosition, segment: LedgerSegment): {readonly rows: readonly AuthorLedgerRow[]; readonly counts: Readonly<Record<LedgerSegment, number>>} {
     const index = foreshadowIndex(view, position, mode);
     const until = tellingPositionOf(position);
     const order = new Map(view.chapters.map((chapter, at) => [chapter, at]));

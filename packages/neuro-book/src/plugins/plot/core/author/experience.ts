@@ -1,11 +1,15 @@
 /**
  * 作者用的经历（docs/specs/plot/knowledge.md 输出 17）：同输出 8 的在场变更，从新到旧；每条带安放的章（前史为 null）、文字、同时在场的人、
  * 是不是“记得原线上的”。旧的 `experience`（正序、整条变更）给 Agent 用，口径不变。
+ *
+ * 导出的读取按视图、模式、位置与参数缓存整张结果（`../view-cache.ts`，同知情索引）：同一份读取输入上的再读、下一页与几个分页读
+ * 同一个人只做投影（plot/author-ui.md 输出 20 的“再读与下一页 100 毫秒”）。返回的对象共用，调用方不改它。
  */
 
 import type {CanonReadView, Mode, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {experienceChanges} from "../knowledge";
+import {perViewCache} from "../view-cache";
 import {bodyOf} from "./knowing";
 
 export interface AuthorExperienceItem {
@@ -18,6 +22,11 @@ export interface AuthorExperienceItem {
 }
 
 export function authorExperience(view: CanonReadView, mode: Mode, position: ReadPosition, person: string): {readonly items: readonly AuthorExperienceItem[]; readonly uncast: number} {
+    return cache(view, JSON.stringify([mode, position, person]), () => buildAuthorExperience(view, mode, position, person));
+}
+const cache = perViewCache<{readonly items: readonly AuthorExperienceItem[]; readonly uncast: number}>();
+
+function buildAuthorExperience(view: CanonReadView, mode: Mode, position: ReadPosition, person: string): {readonly items: readonly AuthorExperienceItem[]; readonly uncast: number} {
     const body = bodyOf(view, person);
     const read = experienceChanges(view, mode, position, body);
     const items = read.changes.map((change): AuthorExperienceItem => ({

@@ -1,6 +1,9 @@
 /**
  * 作者用的保密表（docs/specs/plot/knowledge.md 输出 14）与主要角色（docs/specs/plot/goals.md 输出 6）：“谁知道什么”一页要的全部
  * 东西，用同一份读取视图算。整张表算完再分页：分段条数、候选的人要按全表算，行要按主体在条目树里的顺序排。
+ *
+ * 导出的读取按视图、模式、位置与参数缓存整张结果（`../view-cache.ts`，同知情索引）：同一份读取输入上的再读、下一页与几个分页读
+ * 同一个人只做投影（plot/author-ui.md 输出 20 的“再读与下一页 100 毫秒”）。返回的对象共用，调用方不改它。
  */
 
 import type {CanonReadView, Entry, Mode, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
@@ -8,6 +11,7 @@ import type {CanonReadView, Entry, Mode, ReadPosition, StoryChange} from "@notno
 import {ENTRY_TYPES, MARK_IDS} from "../../shared/declarations";
 import type {Secrecy} from "../../shared/declarations";
 import {knowingIndex} from "../knowledge";
+import {perViewCache} from "../view-cache";
 import {authorDecision, authorPeople, bodyOf, firstReveals, isSecret, pointsAt, readerAt, secrecyOf} from "./knowing";
 import type {AuthorDecision, AuthorDegree, AuthorPlace} from "./knowing";
 
@@ -135,6 +139,11 @@ function revealsByPoint(view: CanonReadView, position: ReadPosition): Map<string
  * 条数与候选按全表算。
  */
 export function secretsTable(view: CanonReadView, mode: Mode, position: ReadPosition, people: readonly string[], segment: SecretSegment = "all"): SecretsTable {
+    return tableCache(view, JSON.stringify([mode, position, people, segment]), () => buildSecretsTable(view, mode, position, people, segment));
+}
+const tableCache = perViewCache<SecretsTable>();
+
+function buildSecretsTable(view: CanonReadView, mode: Mode, position: ReadPosition, people: readonly string[], segment: SecretSegment): SecretsTable {
     const index = knowingIndex(view, mode, position);
     const everyone = authorPeople(view, position);
     const named = new Set(people.map((person) => bodyOf(view, person)));

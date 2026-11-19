@@ -49,7 +49,8 @@ function nameGoals(names: NameTable, group: Pick<AuthorHolder, "holder" | "goals
     }
 }
 
-export function remoteAuthor(canon: CanonProject): RemoteImplementation<typeof plotAuthorContract> {
+/** 只用到世界的快照（规模脚本因此能在进程内的世界服务上直接量这些方法）。 */
+export function remoteAuthor(canon: Pick<CanonProject, "snapshot">): RemoteImplementation<typeof plotAuthorContract> {
     /** 取一份快照，换到读取位置那条线的视图，同步算完；结果带戳、线与名字表。 */
     const read = async (input: {readonly position?: ReadPosition; readonly mode?: Mode}, run: (read: Read, names: NameTable) => Record<string, unknown> | Failure): Promise<Ok<unknown> | Failure> => {
         const snapshot = await canon.snapshot();

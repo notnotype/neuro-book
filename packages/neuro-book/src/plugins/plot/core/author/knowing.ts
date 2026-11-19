@@ -6,7 +6,9 @@
  * - 来处（输出 11）：胜出的那个候选（`KnowingIndex.winner`）是初值、一条变更、隐秘目标的出场，还是回溯带过去的。
  * - 读者在读取位置上的程度（输出 12）：读取位置换成讲述的截止，与线和模式无关。
  *
- * 只读世界引擎给的只读视图，不存东西；结果随读取输入变，调用方（项目入口）按视图缓存。
+ * 只读世界引擎给的只读视图。
+ * 导出的读取按视图、模式、位置与参数缓存整张结果（`../view-cache.ts`，同知情索引）：同一份读取输入上的再读、下一页与几个分页读
+ * 同一个人只做投影（plot/author-ui.md 输出 20 的“再读与下一页 100 毫秒”）。返回的对象共用，调用方不改它。
  */
 
 import {paragraphsOf} from "@notnotype/nb-canon/schema";
@@ -16,6 +18,7 @@ import {ENTRY_TYPES, DEFAULT_SECRECY, MARK_IDS} from "../../shared/declarations"
 import type {Degree, How, Secrecy} from "../../shared/declarations";
 import {foreshadowIndex, tellingPositionOf} from "../foreshadowing";
 import {firstReveal, knowingIndex, readerKnowing} from "../knowledge";
+import {perViewCache} from "../view-cache";
 import type {KnowingIndex, KnowingWinner} from "../knowledge";
 
 export type AuthorDegree = Degree | "none";
@@ -184,7 +187,12 @@ export function firstReveals(view: CanonReadView, point: string): {readonly susp
 }
 
 /** 人物页“知道什么”（输出 16）：所有保密以上的知识点（没有行的也列）与有行的别的知识点。 */
+const personCache = perViewCache<{readonly secrets: AuthorKnowing[]; readonly others: AuthorKnowing[]}>();
 export function personKnowing(view: CanonReadView, mode: Mode, position: ReadPosition, person: string): {readonly secrets: AuthorKnowing[]; readonly others: AuthorKnowing[]} {
+    return personCache(view, JSON.stringify([mode, position, person]), () => buildPersonKnowing(view, mode, position, person));
+}
+
+function buildPersonKnowing(view: CanonReadView, mode: Mode, position: ReadPosition, person: string): {readonly secrets: AuthorKnowing[]; readonly others: AuthorKnowing[]} {
     const index = knowingIndex(view, mode, position);
     const cache = new Map<string, ReturnType<CanonReadView["tellings"]>>();
     const body = bodyOf(view, person);
@@ -265,7 +273,12 @@ export function pointRelated(view: CanonReadView, mode: Mode, position: ReadPosi
 }
 
 /** 一个知识点谁知道（输出 15）。子列表的上限由调用方截（远程单次预算）。 */
-export function pointKnowing(view: CanonReadView, mode: Mode, position: ReadPosition, point: string) {
+export function pointKnowing(view: CanonReadView, mode: Mode, position: ReadPosition, point: string): ReturnType<typeof buildPointKnowing> {
+    return pointCache(view, JSON.stringify([mode, position, point]), () => buildPointKnowing(view, mode, position, point));
+}
+const pointCache = perViewCache<ReturnType<typeof buildPointKnowing>>();
+
+function buildPointKnowing(view: CanonReadView, mode: Mode, position: ReadPosition, point: string) {
     const index = knowingIndex(view, mode, position);
     const cache = new Map<string, ReturnType<CanonReadView["tellings"]>>();
     const secrecy = secrecyOf(view, point, position, mode);

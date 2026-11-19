@@ -1,6 +1,9 @@
 /**
  * 作者用的目标表与人物页的“目标与态度”（docs/specs/plot/goals.md 输出 6）：主要角色一组一组，目标带冲突、最近一次动过与没动过的
  * 章数（与停滞同一个算法，`goalQuiet`），组带态度（语义档未归纳的写明）。旧的 `goalTable`（输出 5）给 Agent 用，口径不变。
+ *
+ * 导出的读取按视图、模式、位置与参数缓存整张结果（`../view-cache.ts`，同知情索引）：同一份读取输入上的再读、下一页与几个分页读
+ * 同一个人只做投影（plot/author-ui.md 输出 20 的“再读与下一页 100 毫秒”）。返回的对象共用，调用方不改它。
  */
 
 import type {CanonReadView, Mode, ReadPosition} from "@notnotype/nb-canon/schema";
@@ -11,6 +14,7 @@ import {conflictsOf, readGoal} from "../goals";
 import type {GoalConflict, GoalRead} from "../goals";
 import {bodyOf} from "./knowing";
 import {mainCharacters} from "./secrets";
+import {perViewCache} from "../view-cache";
 
 export interface AuthorGoal extends GoalRead {
     /** 冲突的目标，另带它的持有者（本体）。 */
@@ -73,6 +77,11 @@ export function attitudesOf(view: CanonReadView, person: string, position: ReadP
 
 /** 人物页“目标与态度”：他的目标（各状态）与态度。 */
 export function personGoals(view: CanonReadView, mode: Mode, position: ReadPosition, person: string): {readonly goals: readonly AuthorGoal[]; readonly attitudes: readonly AuthorAttitude[]} {
+    return personCache(view, JSON.stringify([mode, position, person]), () => buildPersonGoals(view, mode, position, person));
+}
+const personCache = perViewCache<{readonly goals: readonly AuthorGoal[]; readonly attitudes: readonly AuthorAttitude[]}>();
+
+function buildPersonGoals(view: CanonReadView, mode: Mode, position: ReadPosition, person: string): {readonly goals: readonly AuthorGoal[]; readonly attitudes: readonly AuthorAttitude[]} {
     const holder = bodyOf(view, person);
     return {goals: goalsOfHolder(view, holder, position, mode).map((goal) => authorGoal(view, goal, position, mode)), attitudes: attitudesOf(view, holder, position, mode)};
 }
@@ -83,6 +92,11 @@ const ORDER: Readonly<Record<string, number>> = {active: 0, blocked: 1, achieved
  * 目标表：主要角色（或筛出的那一个）各一组；缺省只列进行与受挫的目标，`finished` 时达成与放弃的另列在后面。
  */
 export function authorGoals(view: CanonReadView, mode: Mode, position: ReadPosition, filter: {readonly holder?: string; readonly finished?: boolean} = {}): AuthorHolder[] {
+    return tableCache(view, JSON.stringify([mode, position, filter.holder ?? null, filter.finished ?? false]), () => buildAuthorGoals(view, mode, position, filter));
+}
+const tableCache = perViewCache<AuthorHolder[]>();
+
+function buildAuthorGoals(view: CanonReadView, mode: Mode, position: ReadPosition, filter: {readonly holder?: string; readonly finished?: boolean}): AuthorHolder[] {
     const holders = mainCharacters(view, position, mode).filter((holder) => filter.holder === undefined || holder === bodyOf(view, filter.holder));
     return holders.map((holder) => {
         const goals = goalsOfHolder(view, holder, position, mode)
