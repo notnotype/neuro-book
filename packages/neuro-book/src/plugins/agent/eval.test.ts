@@ -35,6 +35,8 @@ let endpoint: FakeEndpoint;
 const worlds: AgentWorld[] = [];
 /** 测试插件的远程入口：订阅 `user://` 的变更用。 */
 let remote: ActivationContext["remote"] | null = null;
+/** 关闭过的会话（`PROBE` 的实现被释放时记下）。 */
+const closedSessions: string[] = [];
 const cid = () => `e-${String((commands += 1))}`;
 
 beforeAll(async () => {
@@ -46,6 +48,7 @@ beforeAll(async () => {
 afterEach(async () => {
     endpoint.reset();
     for (const world of worlds.splice(0)) await world.close();
+    closedSessions.splice(0);
 });
 afterAll(async () => {
     endpoint.stop();
@@ -59,7 +62,9 @@ const ASK = "test.eval.ask";
 const WIDE = "test.eval.wide";
 /** 声明了 `returns`、却交回不符的结构的工具（eval.md 输出 7）。 */
 const SHAPE = "test.eval.shape";
-const TOOLS = ["nbook.agent.eval", "nbook.agent.read", "nbook.agent.write", "nbook.agent.shell", SHAPE];
+/** 代码里调一次它，这个会话打开期间就有它的实现；会话关闭时实现被释放，记下会话 id（看会话真的关了）。 */
+const PROBE = "test.eval.probe";
+const TOOLS = ["nbook.agent.eval", "nbook.agent.read", "nbook.agent.write", "nbook.agent.shell", SHAPE, PROBE];
 const WIDE_TOOLS = [...TOOLS, "nbook.agent.spawn", "nbook.agent.send", "nbook.agent.answer", "nbook.agent.switch-mode"];
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -68,16 +73,18 @@ function testPlugin(): PluginDefinition {
     const profiles = [YOLO, ASK, WIDE].map((key) => agentProfile(key, {name: key, description: "测试用", tools: {required: toolsOf(key), optional: []}}));
     const shape = agentTool(SHAPE, {description: "交回一个数", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "shape", returns: {type: "object", properties: {n: {type: "number"}}, required: ["n"]}});
     const shapeTool: AgentToolImplementation = {create: () => ({execute: async () => ({text: "数好了", details: {n: "不是数"}})})};
+    const probe = agentTool(PROBE, {description: "什么也不做", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "probe"});
+    const probeTool: AgentToolImplementation = {create: (context) => ({execute: async () => "在", dispose: () => void closedSessions.push(context.sessionId)})};
     return {id: "test.eval", entries: [defineEntry({
         id: "server",
         location: "server",
-        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent],
-        contributions: [...profiles.map((item) => item.contribution), shape.contribution],
+        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent, probe.activationEvent],
+        contributions: [...profiles.map((item) => item.contribution), shape.contribution, probe.contribution],
         activate: (context) => {
             remote = context.remote;
             return {contributions: {
                 "agent.profiles": Object.fromEntries([YOLO, ASK, WIDE].map((key) => [key, defineProfile({id: key, version: "1", name: key, description: "测试用", system: "测试。", tools: {required: toolsOf(key)}})])),
-                "agent.tools": {[SHAPE]: shapeTool},
+                "agent.tools": {[SHAPE]: shapeTool, [PROBE]: probeTool},
             }};
         },
     })]};
@@ -149,6 +156,22 @@ function alive(pid: number): boolean {
 const reached = (path: string) => waitUntil(`代码写了 ${path}`, async () => ((await stat(path).catch(() => null)) === null ? null : true), {timeoutMs: 20_000});
 
 const pidsIn = (text: string): number[] => [...text.matchAll(/pid (\d+)/gu)].map((match) => Number(match[1]));
+
+/**
+ * 等会话因空闲关闭（这次打开期间代码里要调过 `tool.probe`）。会话在运行结束、状态变成空闲之后才排关闭的计时，所以先等状态
+ * 变成空闲，再边推时钟边等。推的时间也算进内核的空闲计时，推满 30 分钟就不再是“关闭期间内核还在”的场景，这时直接失败。
+ */
+async function closeIdle(w: AgentWorld, session: SessionApi): Promise<void> {
+    await waitUntil("会话的运行结束了", async () => ((await session.snapshot()).status as {state: string}).state === "idle" ? true : null);
+    let advanced = 0;
+    await waitUntil("会话关闭了", () => {
+        if (closedSessions.includes(session.id)) return true;
+        if (advanced + IDLE_CLOSE_MS >= EVAL_IDLE_MS) throw new Error("推了快 30 分钟会话还没关");
+        w.settings.clock.advance(IDLE_CLOSE_MS);
+        advanced += IDLE_CLOSE_MS;
+        return null;
+    }, {intervalMs: 50});
+}
 
 describe("eval", () => {
     test("输出 1、12、验收 1：同一条回复里两个 eval：第一个读三章统计、定义函数，第二个接着算；回退之后内核重置，结果第一行写明", async () => {
@@ -376,16 +399,14 @@ describe("eval", () => {
         }
     });
 
-    test("输出 11、12、13：30 分钟没有调用时内核结束；下一次提示空闲", async () => {
+    test("输出 11、12、13：30 分钟没有调用时内核结束，最后一次是没执行的语法错误也一样；下一次提示空闲", async () => {
         const w = await world();
         const {session} = await open(w);
-        // 订阅着会话，免得它先因空闲而关闭（那样内核随会话结束，提示的原因就不是空闲）。
-        const unsubscribe = session.subscribe(() => undefined);
         const [pid] = pidsIn((await one(session, {code: "globalThis.k = 1; 'pid ' + process.pid"})).text);
+        expect((await one(session, {code: "const = 1"})).code).toBe("code-error");
         w.settings.clock.advance(EVAL_IDLE_MS);
         await waitUntil("空闲的内核结束了", () => (alive(pid!) ? null : true));
         const next = await one(session, {code: "typeof k"});
-        unsubscribe();
         expect(next.text.split("\n")[0]).toContain("内核已重置（空闲）");
         expect(next.text).toContain("undefined");
     });
@@ -413,20 +434,64 @@ describe("eval", () => {
         if (!forked.ok) throw new Error(forked.code);
         const copy = w.service.session(forked.value.sessionId);
         const next = await one(copy, {code: "typeof f"});
-        expect(next.text.split("\n")[0]).toContain("内核已重置（服务重启、分叉或换了 Profile）");
+        expect(next.text.split("\n")[0]).toContain("内核已重置（服务重启或分叉）");
         expect(next.text).toContain("undefined");
     });
 
-    test("输出 13、时序与寿命：会话关闭时内核与它起的子进程都结束", async () => {
+    test("输出 11、12、时序与寿命：会话关闭不结束内核，再打开、叶子没动时接着用；关闭期间空闲到点，内核与它起的子进程结束，再打开时提示空闲", async () => {
         const w = await world();
         const {session} = await open(w);
-        const pids = pidsIn((await one(session, {code: "const child = Bun.spawn(['sleep', '300']); 'pid ' + process.pid + ' pid ' + child.pid"})).text);
+        const pids = pidsIn((await one(session, {code: "await tool.probe({}); globalThis.kept = 41; const child = Bun.spawn(['sleep', '300']); 'pid ' + process.pid + ' pid ' + child.pid"})).text);
         expect(pids).toHaveLength(2);
-        // 会话在运行结束、状态变成空闲之后才排关闭的计时：边推时钟边等，不赶在它排上之前推。
-        await waitUntil("内核与子进程都结束了", () => {
-            w.settings.clock.advance(IDLE_CLOSE_MS);
-            return pids.some(alive) ? null : true;
-        }, {intervalMs: 50});
+        await closeIdle(w, session);
+        expect(pids.every(alive)).toBe(true);
+        const reopened = w.service.session(session.id);
+        const again = await one(reopened, {code: "await tool.probe({}); kept + 1"});
+        expect(again.text).toBe("42");
+        closedSessions.splice(0);
+        await closeIdle(w, reopened);
+        w.settings.clock.advance(EVAL_IDLE_MS);
+        await waitUntil("关闭期间空闲的内核与子进程结束了", () => (pids.some(alive) ? null : true));
+        const after = await one(w.service.session(session.id), {code: "typeof kept"});
+        expect(after.text.split("\n")[0]).toContain("内核已重置（空闲）");
+        expect(after.text).toContain("undefined");
+    });
+
+    test("输出 11、12：会话关闭之后回退，再调时内核重置并提示回退", async () => {
+        const w = await world();
+        const {session} = await open(w);
+        const [pid] = pidsIn((await one(session, {code: "await tool.probe({}); globalThis.kept = 1; 'pid ' + process.pid"})).text);
+        await one(session, {code: "kept += 1"});
+        await closeIdle(w, session);
+        const reopened = w.service.session(session.id);
+        const target = (await reopened.rewindTargets()).find((item) => item.kind === "after-turn");
+        await reopened.rewind({commandId: cid(), to: target!.id});
+        const after = await one(reopened, {code: "typeof kept"});
+        expect(after.text.split("\n")[0]).toContain("内核已重置（回退或切分支）");
+        expect(alive(pid!)).toBe(false);
+    });
+
+    test("输出 11、12：换了 Profile 之后再调，内核重置并提示", async () => {
+        const w = await world();
+        const {session} = await open(w);
+        const [pid] = pidsIn((await one(session, {code: "globalThis.p = 1; 'pid ' + process.pid"})).text);
+        const changed = await session.changeProfile({commandId: cid(), profile: WIDE});
+        expect(changed.ok).toBe(true);
+        const next = await one(session, {code: "typeof p"});
+        expect(next.text.split("\n")[0]).toContain("内核已重置（换了 Profile）");
+        expect(next.text).toContain("undefined");
+        expect(alive(pid!)).toBe(false);
+    });
+
+    test("输出 13、时序与寿命：服务端停止时结束全部内核与它们起的子进程，会话关闭之后留着的也一样", async () => {
+        const w = await world();
+        const {session} = await open(w);
+        const pids = pidsIn((await one(session, {code: "await tool.probe({}); const child = Bun.spawn(['sleep', '300']); 'pid ' + process.pid + ' pid ' + child.pid"})).text);
+        await closeIdle(w, session);
+        expect(pids.every(alive)).toBe(true);
+        worlds.splice(worlds.indexOf(w), 1);
+        await w.close();
+        await waitUntil("内核与子进程都结束了", () => (pids.some(alive) ? null : true));
     });
 
     test("输出 10、验收 4：工作目录与布局变量同 shell，继承服务端的环境，不读工作目录里的 .env", async () => {
@@ -460,9 +525,15 @@ describe("eval", () => {
         expect(killed!.code).toBe("kernel-exited");
         expect(killed!.text).toContain("信号 SIGKILL");
         expect(killed!.text.split("内核的错误输出最后一段：\n")[1]).toContain("错误流的尾巴");
-        const next = await one(session, {code: "1 + 1"});
+        const next = await one(session, {code: "1 + 1; 'pid ' + process.pid"});
         expect(next.text.split("\n")[0]).toContain("内核已重置（意外退出）");
-        expect(next.text).toContain("2");
+        // 两次调用之间内核被外部杀掉：同样提示意外退出。
+        const [between] = pidsIn(next.text);
+        process.kill(between!, "SIGKILL");
+        await waitUntil("内核被外部杀掉了", () => (alive(between!) ? null : true));
+        const revived = await one(session, {code: "1 + 2"});
+        expect(revived.text.split("\n")[0]).toContain("内核已重置（意外退出）");
+        expect(revived.text).toContain("3");
     });
 
     test("副作用与数据：结果超出窗口时全文另存，结果里写着全文的地址", async () => {

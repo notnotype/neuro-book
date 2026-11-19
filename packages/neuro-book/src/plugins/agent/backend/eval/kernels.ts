@@ -1,7 +1,8 @@
 /**
- * eval 内核在宿主这一侧（docs/specs/agent/eval.md）：`Kernel` 是一个内核进程，`KernelRegistry` 管全服务端内核的总数。
+ * eval 内核在宿主这一侧（docs/specs/agent/eval.md）：`Kernel` 是一个内核进程，`KernelRegistry` 按会话存全服务端的内核。
  *
- * 所有权：`Kernel` 由会话的 eval 实现持有（一个会话至多一个），它负责起进程、握手、按单元收发消息、结束进程组。进程是自己
+ * 所有权：`Kernel` 由会话的内核持有者（`tool.ts` 的 `SessionKernel`，一个会话至多一个内核）持有，持有者在 `KernelRegistry` 里，
+ * 比会话的工具实现活得久。`Kernel` 负责起进程、握手、按单元收发消息、结束进程组。进程是自己
  * 进程组的组长，结束时整组 SIGKILL，代码起的子进程一起收掉；服务端异常退出时由内核自己的看门狗线程收组（`kernel-entry.ts`）。
  *
  * 进程的标准输出与错误一直有人读：没人读的管道写满后内核里的子进程会卡住。单元期间直接写到 fd 1、2 的（`Bun.$` 不取 `.text()`、
@@ -252,45 +253,60 @@ export function describeExit(exit: KernelExit): string {
     return exit.signal !== null ? `信号 ${exit.signal}` : `退出码 ${String(exit.code)}`;
 }
 
-/** 一个会话的内核在登记表里的条目：超过上限时被选中回收，`evict` 由持有者结束内核并记下原因。 */
-export interface KernelOwner {
+/**
+ * 登记表里一个会话的内核持有者（`tool.ts` 的 `SessionKernel`）。`holding` 为真（有活着的内核）时占一个名额；`evict` 由持有者
+ * 结束内核并记下原因；`close` 在服务端停止时结束内核。
+ */
+export interface KernelHolder {
+    readonly holding: boolean;
     evict(): void;
+    close(): Promise<void>;
 }
 
 /**
- * 全服务端的内核总数（eval.md 输出 11）：每个有内核的会话占一个进程，超过上限时回收最久没用的那个。上限是内存的兜底，
- * 30 分钟的空闲回收由各会话自己计时。
+ * 全服务端的 eval 内核（eval.md 输出 11）：按会话 id 存持有者，不挂在会话的工具实现上。会话关闭时工具实现被释放，内核与重置
+ * 原因留在这里，会话再打开后新的工具实现接着用；内核照样按持有者自己计时的 30 分钟空闲与这里的总数上限回收，服务端停止时
+ * 全部结束（`stop`）。上限是内存的兜底。
+ *
+ * 表按最近用过的顺序排（Map 的插入顺序，用一次就挪到末尾），回收从最久没用的开始。没有内核的持有者只为那个会话的下一次调用
+ * 记着重置原因，表里至多留 `remembered` 个持有者，多了丢最久没用的、没有内核的：丢了的那个会话下一次的提示写不出具体原因。
  */
-export class KernelRegistry {
-    readonly #owners = new Map<KernelOwner, number>();
-    #tick = 0;
+export class KernelRegistry<H extends KernelHolder> {
+    readonly #holders = new Map<string, H>();
+    #stopped = false;
 
-    constructor(readonly limit: number = 8) {}
+    constructor(readonly limit: number = 8, readonly remembered: number = 256) {}
 
-    /** 会话起了内核或用了一次：记为最近用过；超过上限时回收别的会话里最久没用的。 */
-    touch(owner: KernelOwner): void {
-        this.#owners.set(owner, ++this.#tick);
-        while (this.#owners.size > this.limit) {
-            let oldest: KernelOwner | null = null;
-            let oldestTick = Infinity;
-            for (const [candidate, tick] of this.#owners) {
-                if (candidate !== owner && tick < oldestTick) {
-                    oldest = candidate;
-                    oldestTick = tick;
-                }
-            }
-            if (oldest === null) return;
-            this.#owners.delete(oldest);
-            oldest.evict();
+    /** 这个会话的持有者，没有就用 `create` 建；记为最近用过。服务端停止之后交回 null。 */
+    take(sessionId: string, create: () => H): H | null {
+        if (this.#stopped) return null;
+        const holder = this.#holders.get(sessionId) ?? create();
+        this.#holders.delete(sessionId);
+        this.#holders.set(sessionId, holder);
+        for (const [id, candidate] of this.#holders) {
+            if (this.#holders.size <= this.remembered) break;
+            if (!candidate.holding && candidate !== holder) this.#holders.delete(id);
+        }
+        return holder;
+    }
+
+    /** `holder` 有了内核之后调：活着的内核超过上限时，从最久没用的起回收别的会话的。 */
+    admit(holder: H): void {
+        let live = 0;
+        for (const candidate of this.#holders.values()) if (candidate.holding) live += 1;
+        for (const candidate of this.#holders.values()) {
+            if (live <= this.limit) return;
+            if (candidate === holder || !candidate.holding) continue;
+            candidate.evict();
+            live -= 1;
         }
     }
 
-    /** 会话的内核结束了（重置、空闲、关闭）：不再占名额。 */
-    release(owner: KernelOwner): void {
-        this.#owners.delete(owner);
-    }
-
-    get size(): number {
-        return this.#owners.size;
+    /** 服务端停止：结束全部内核，之后的 `take` 交回 null。在会话都关完之后调（不然关闭途中的调用可能又起内核）。 */
+    async stop(): Promise<void> {
+        this.#stopped = true;
+        const holders = [...this.#holders.values()];
+        this.#holders.clear();
+        await Promise.all(holders.map((holder) => holder.close()));
     }
 }
