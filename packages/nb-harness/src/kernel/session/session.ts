@@ -481,7 +481,9 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
     return api;
 }
 
-export async function createSession(env: SessionEnv, options: CreateSessionOptions): Promise<CreateResult> {
+export async function createSession(env: SessionEnv, given: CreateSessionOptions): Promise<CreateResult> {
+    // 第一个 await 之前先复制一份：之后的校验与会话头都用这份，调用方在建会话期间改自己的参数，写下的仍是校验过的值（session.md 输出 25）。
+    const options = structuredClone(given);
     // 与读日志同一个校验：建时写得下的，重开时一定读得懂（session.md 输出 25）。
     if (options.owner !== undefined && !isSessionOwner(options.owner)) return {ok: false, code: "invalid-owner"};
     const profile = await env.profiles.resolve(options.profile);

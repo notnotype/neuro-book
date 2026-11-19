@@ -240,6 +240,32 @@ describe("打开、恢复与只读", () => {
         await closeSession(updated.value);
     });
 
+    test("session 输出 25：建会话期间调用方改了自己的参数，写下的仍是校验过的那份，重开读得懂", async () => {
+        const store = createJsonlStore({root});
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const base = env(store, defaultTestProfile);
+        const slow: SessionEnv = {...base, profiles: {resolve: async (key) => {
+            await gate;
+            return base.profiles.resolve(key);
+        }}};
+        const owner = {plugin: "nbook.bots", id: "good"};
+        const creating = createSession(slow, {profile: defaultTestProfile.id, id: "mutated-owner", owner});
+        // Profile 还在解析：这时改成会话头校验不过的值。
+        owner.id = "with/slash";
+        release();
+        const created = await creating;
+        if (!created.ok) throw new Error(created.code);
+        expect((await created.value.snapshot()).header.owner).toEqual({plugin: "nbook.bots", id: "good"});
+        await closeSession(created.value);
+        const reopened = await openSession(env(store, defaultTestProfile), "mutated-owner");
+        if (!reopened.ok) throw new Error(reopened.code);
+        expect((await reopened.value.snapshot()).header.owner).toEqual({plugin: "nbook.bots", id: "good"});
+        await closeSession(reopened.value);
+    });
+
     test("会话头里的 Profile 解析不到：以只读打开，能查询，发送与应答得 read-only", async () => {
         const store = createJsonlStore({root});
         const created = await createSession(env(store, defaultTestProfile), {profile: defaultTestProfile.id, id: "orphan"});

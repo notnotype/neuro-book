@@ -10,6 +10,8 @@ import type {ApproveHook, InteractionSummary, LogEvent, QuestionAnswer} from "..
 import {defineExtension} from "../extension/define.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 import {closeSession} from "../session/session.js";
+import {createJsonlStore} from "../log/jsonl-store.js";
+import {nodeFiles} from "../log/files.js";
 
 let root = "";
 beforeAll(async () => {
@@ -549,6 +551,48 @@ describe("发话一并结算（runtime.md 输出 111）", () => {
         const resolved = dataOf<{id: string}>(events, "interactionResolved").map((data) => data.id);
         expect(new Set(resolved)).toEqual(new Set(requested));
         expect(resolved).toHaveLength(requested.length);
+    });
+
+    test("受理批写下了、同步到盘失败（结果不确定）：发话得 log-broken，等着的提问以 aborted 收到、不再往坏了的句柄上写，重开只有一条结算", async () => {
+        const dir = join(root, "settle-sync-fault");
+        let failSync = false;
+        const files = {...nodeFiles, async openAppend(path: string) {
+            const file = await nodeFiles.openAppend(path);
+            return {...file, async sync() {
+                if (failSync) {
+                    failSync = false;
+                    throw Object.assign(new Error("injected sync fault"), {code: "EIO"});
+                }
+                await file.sync();
+            }};
+        }};
+        let received = "";
+        const answered = gate();
+        const session = await createTestSession({wrapStore: () => createJsonlStore({root: dir, files}), tools: [{id: "lab.ask", execute: async (_args, ctx) => {
+            try {
+                const reply = await ctx.ask!({question: "继续吗？"});
+                received = reply.kind === "unavailable" ? reply.code : reply.kind;
+            } catch (error) {
+                received = `threw ${(error as Error).name}`;
+            }
+            answered.open();
+            return "问过了";
+        }}]});
+        await using _ = session;
+        session.model.script({tools: [{tool: "lab.ask"}]}, "好");
+        const waiting = waitingFor(session, 1);
+        const runId = await sendRaw(session, "问一下");
+        await waiting;
+        failSync = true;
+        expect(await session.raw.send({commandId: "settle-sync", input: {text: "不用了"}, settlePending: "deny"})).toMatchObject({ok: false, code: "log-broken"});
+        await answered.promise;
+        expect(received).toBe("aborted");
+        // 句柄坏了的运行自己收不了口：等它交回 log-broken 再关，关之后它不再写。
+        expect(await session.raw.waitRun(runId)).toMatchObject({reason: "error"});
+        await session.close();
+        const reopened = await createJsonlStore({root: dir}).open(session.id);
+        if (!reopened.ok) throw new Error(reopened.code);
+        expect(dataOf<{decision: string}>(reopened.value.events, "interactionResolved").map((data) => data.decision)).toEqual(["deny"]);
     });
 });
 

@@ -72,8 +72,11 @@ interface Entry {
     questions: "caller" | "user";
     /** `userOnly` 认出的提问的 id。 */
     userOnly: Set<string>;
-    /** 打开的结果：同时到达的请求等同一个。`openMs` 只在实际执行了打开的表项上有（建会话登记的没有）。 */
-    ready: Promise<{readonly ok: true; readonly openMs?: number} | OpenFailure>;
+    /**
+     * 打开的结果：同时到达的请求等同一个。`openMs` 只在实际执行了打开的表项上有（建会话登记的没有）；`superseded`：打开期间建会话
+     * 登记了同 id 的新表项，宿主交回的是它那个句柄，等这次打开的调用改去取新表项。
+     */
+    ready: Promise<{readonly ok: true; readonly openMs?: number; readonly superseded?: true} | OpenFailure>;
     refs: number;
     idle: boolean;
     cancelIdle: (() => void) | null;
@@ -345,6 +348,10 @@ export class SessionTable {
                 entry.refs -= 1;
                 return ready;
             }
+            if (ready.superseded === true) {
+                entry.refs -= 1;
+                continue;
+            }
             if (entry.state !== "open" || entry.session === null) {
                 // 打开成功后、轮到这里之前它已被停止关掉。
                 entry.refs -= 1;
@@ -359,7 +366,7 @@ export class SessionTable {
      * 失败时只摘自己这个表项：打开期间建会话可能已经登记了同 id 的新表项（它持着锁），按 id 删会把它丢掉。耗时只量宿主的打开与读快照
      * （回放日志的部分），不含 `beforeOpen` 的扩展激活。
      */
-    async #open(entry: Entry): Promise<{readonly ok: true; readonly openMs: number} | OpenFailure> {
+    async #open(entry: Entry): Promise<{readonly ok: true; readonly openMs?: number; readonly superseded?: true} | OpenFailure> {
         try {
             await this.options.beforeOpen();
             const started = this.options.clock.now();
@@ -368,6 +375,8 @@ export class SessionTable {
                 this.#forget(entry);
                 return {ok: false, code: opened.code, ...(opened.detail === undefined ? {} : {detail: opened.detail})};
             }
+            // 建会话在这期间登记了同 id 的表项（它持着锁，宿主交回的是同一个句柄）：这个表项不接管句柄，不跟状态、不计空闲。
+            if (this.#entries.get(entry.id) !== entry) return {ok: true, superseded: true};
             const {header, buffer} = await opened.value.snapshot();
             entry.background = header.background === true;
             entry.questions = header.questions;

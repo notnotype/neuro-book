@@ -185,6 +185,29 @@ describe("bot 与主对话", () => {
         expect(await readdir(join(path, "state", "user", "bots"))).toEqual(["lyra"]);
     });
 
+    test("bot 输出 5、6：记录里的 bot id 不合规则（合法的 JSON）：整份按读不懂处理，不登记、不建主对话，原数据不改写", async () => {
+        const path = fresh();
+        const first = await open(path);
+        await waitUntil("建出 lyra", async () => ok(await first.client.list({})).length === 1);
+        await close(first.w);
+        const file = join(path, "state", "storage", "user.sqlite");
+        const database = new Database(file);
+        const row = database.query("SELECT value FROM records WHERE owner = 'nbook.bots' AND key = 'bots'").get() as {value: string};
+        const changed = row.value.replace('"id":"lyra"', '"id":"LYRA"');
+        expect(changed).not.toBe(row.value);
+        database.query("UPDATE records SET value = ?1 WHERE owner = 'nbook.bots' AND key = 'bots'").run(changed);
+        database.close();
+        const {w, client} = await open(path);
+        await waitUntil("有诊断", () => events(w, "bots.record-unreadable").length === 1);
+        expect(ok(await client.list({}))).toEqual([]);
+        expect(await client.ensureMain({botId: "LYRA"})).toMatchObject({ok: false, code: "unknown-bot"});
+        expect(await w.service.header("bot-LYRA")).toMatchObject({ok: false, code: "session-not-found"});
+        await close(w);
+        const after = new Database(file);
+        expect((after.query("SELECT value FROM records WHERE owner = 'nbook.bots' AND key = 'bots'").get() as {value: string}).value).toBe(changed);
+        after.close();
+    });
+
     test("bot 输出 4、验收 1：缺省预设的头像不在了：已有的 bot 照常持有主对话；没有 bot 时不建、写 bots.default-preset-missing", async () => {
         const path = fresh();
         const first = await open(path);
@@ -247,7 +270,7 @@ describe("bot 与主对话", () => {
         await waitUntil("重试后持有", async () => ok(await second.client.list({}))[0]?.main.state === "held");
     });
 
-    test("bot 输出 3：岗位 Profile 有主创的工具与 Agent 模式：在主对话里真调 switch_mode 得合法结果", async () => {
+    test("bot 输出 3：岗位 Profile 有主创的工具、Agent 模式与可派的子代理：在主对话里真调 switch_mode 与 agent_spawn 都得合法结果；提示词不把没有主项目的对话引向 project://", async () => {
         const {w, client} = await open(fresh());
         await waitUntil("建出 lyra", async () => ok(await client.list({})).length === 1);
         ok(await client.ensureMain({botId: "lyra"}));
@@ -259,6 +282,18 @@ describe("bot 与主对话", () => {
         const results = (await main.path()).filter((event) => event.type === "toolResult").map((event) => event.data as {text: string; code?: string});
         expect(results).toEqual([expect.objectContaining({text: "已经是 normal 模式。"})]);
         expect(w.service.profiles().find((profile) => profile.key === COMPANION_PROFILE)).toMatchObject({status: "ok", hidden: true});
+        const system = endpoint.requests.at(-1)?.system ?? "";
+        expect(system).toContain("projects://<短名>/");
+        expect(system).not.toContain("书的文件在 project://");
+
+        endpoint.scriptFor("先读一遍", "读完了");
+        endpoint.script({tool: "agent_spawn", args: {profile: "nbook.agent.adhoc", prompt: "先读一遍", initial: {role: "设定核对员"}}}, "好");
+        const spawning = await main.send({commandId: "m-2", input: {text: "派一个去读"}});
+        if (!spawning.ok || spawning.value.runId === null) throw new Error(JSON.stringify(spawning));
+        await main.waitRun(spawning.value.runId);
+        const spawned = (await main.path()).filter((event) => event.type === "toolResult").map((event) => event.data as {tool: string; code?: string; status: string}).filter((data) => data.tool === "nbook.agent.spawn");
+        expect(spawned).toEqual([expect.objectContaining({status: "ok"})]);
+        expect(spawned[0]?.code).toBeUndefined();
     });
 
     test("bot 输出 7：botsChanged 推出持有状态的变化", async () => {

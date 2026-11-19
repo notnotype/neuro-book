@@ -123,13 +123,14 @@ export class Interactions {
 }
 
 /**
- * 受理没走完（会话关闭、写失败）时收尾认领到的事项：事项还在待处理里，说明应答没写下，交还给等它的调用；已经不在了，
- * 说明受理批写下了、之后的反应批才失败，以 `aborted` 叫醒（与日志不一致，runtime.md 的已知限制），不让它挂住。
+ * 受理没走完（会话关闭、写失败）时收尾认领到的事项。句柄好好的、事项还在待处理里，说明应答确定没写下，交还给等它的调用。
+ * 别的情况以 `aborted` 叫醒，不让它挂住（与日志可能不一致，runtime.md 的已知限制）：事项已经不在了，是受理批写下了、之后的反应批
+ * 才失败；句柄坏了，是写入结果不确定（写进文件、同步失败时内存里的待处理不变），交还的话等它的调用会再往坏了的句柄上写。
  */
 export function releaseClaims(core: SessionCore, claims: ReadonlyMap<string, Claim>): void {
     const pending = new Set(core.leafState.kernel.pending.map((item) => item.id));
     for (const [id, claim] of claims) {
-        if (pending.has(id)) claim.giveBack();
+        if (pending.has(id) && !core.broken) claim.giveBack();
         else claim.wake({decision: "aborted", by: {kind: "kernel"}, code: "aborted"});
     }
 }

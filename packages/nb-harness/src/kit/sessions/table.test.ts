@@ -268,6 +268,35 @@ describe("持有、会话头与按会话拒绝", () => {
         await table.stop();
     });
 
+    test("输出 24：打开期间建会话登记了同 id 的表项、打开随后成功：持有记在现行的表项上，放掉之前不空闲关闭，不算这次打开", async () => {
+        const creating = gate();
+        const opening = gate();
+        const context = await setup({wrapHost: (host) => ({...host, create: async (options) => {
+            if (options.id === "s-3") await creating.promise;
+            return host.create(options);
+        }, open: async (id) => {
+            if (id === "s-3") await opening.promise;
+            return host.open(id);
+        }})});
+        const {table, clock, closed} = context;
+        const created = table.accept(() => table.create({profile: defaultTestProfile.id, id: "s-3"}));
+        const holding = table.hold("s-3");
+        creating.open();
+        expect(await created).toMatchObject({ok: true});
+        opening.open();
+        const held = await holding;
+        if (!held.ok) throw new Error(held.code);
+        expect(held.value.opened).toBeNull();
+        clock.advance(IDLE_CLOSE_MS * 2);
+        await settle();
+        expect(closed).not.toContain("s-3");
+        expect(table.isOpen("s-3")).toBe(true);
+        held.value.release();
+        clock.advance(IDLE_CLOSE_MS);
+        await waitUntil("放掉之后关闭", () => closed.includes("s-3"));
+        await table.stop();
+    });
+
     test("输出 28：header 只读会话头，不打开会话；不在得 session-not-found", async () => {
         const context = await setup();
         await closeIdle(context);

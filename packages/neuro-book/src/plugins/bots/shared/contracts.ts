@@ -17,8 +17,9 @@ export const COMPANION_PROFILE = "nbook.bots.companion";
 export const DEFAULT_PRESET = "nbook.bots.lyra";
 export const DEFAULT_BOT = "lyra";
 
-/** bot id（bots.md 输出 5）。 */
-export const BOT_ID = /^[a-z0-9-]{1,40}$/u;
+/** bot id（bots.md 输出 5）：记录、创建凭据与目录名都按它核对。 */
+export const BOT_ID_PATTERN = "^[a-z0-9-]{1,40}$";
+export const BOT_ID = new RegExp(BOT_ID_PATTERN, "u");
 /** 主对话的 id 由 bot id 定（main-conversation.md 输出 1）。 */
 export const mainSessionId = (botId: string): string => `bot-${botId}`;
 

@@ -18,6 +18,7 @@ import {Value} from "typebox/value";
 
 import {BOT_ID} from "../shared/contracts";
 import type {AvailablePreset} from "./presets";
+import {BotRecordSchema} from "./store";
 import type {BotRecord, BotStore, ReadBots} from "./store";
 
 export const STAGING_PREFIX = ".staging-";
@@ -27,7 +28,7 @@ const RECEIPT_FORMAT = 1;
 const ReceiptSchema = Type.Object({
     format: Type.Literal(RECEIPT_FORMAT),
     botId: Type.String(),
-    record: Type.Object({id: Type.String(), name: Type.String(), preset: Type.String(), profile: Type.String(), createdAt: Type.Integer()}, {additionalProperties: false}),
+    record: BotRecordSchema,
 }, {additionalProperties: false});
 
 export interface BotFilesOptions {

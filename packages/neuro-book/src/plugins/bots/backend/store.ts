@@ -9,8 +9,11 @@ import type {Static} from "typebox";
 import {defineRecord} from "nbook/shared/storage";
 import type {RecordHandle, StorageService} from "nbook/shared/storage";
 
-const BotRecordSchema = Type.Object({
-    id: Type.String(),
+import {BOT_ID_PATTERN} from "../shared/contracts";
+
+/** 一个 bot 的记录。id 不合规则的整条记录按读不懂处理（存储交回 `corrupt`），不当成没有 bot。创建凭据里的记录用同一个 schema。 */
+export const BotRecordSchema = Type.Object({
+    id: Type.String({pattern: BOT_ID_PATTERN}),
     name: Type.String(),
     preset: Type.String(),
     profile: Type.String(),
