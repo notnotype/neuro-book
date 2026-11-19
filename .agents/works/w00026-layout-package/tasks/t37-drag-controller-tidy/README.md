@@ -17,7 +17,7 @@ updated: 2026-11-19
 
 ## 当前状态
 
-2026-11-19 写计划第 1 稿（[`plan.md`](plan.md)），先按 advisor 的意见补了几处：
+2026-11-19 计划第 2 稿（[`plan.md`](plan.md)）：设计审查一轮处理完（见下文“设计审查”），开始实施。第 1 稿先按 advisor 的意见补了几处：
 - 每片要跑的 e2e；
 - `run` 的寿命写成“下一次拿起前一定换掉”；
 - `collapseSource` 返回假时的完整分支；
@@ -29,6 +29,23 @@ worktree `.worktree/w00026-t37-drag-tidy`（分支 `w00026/t37-drag-tidy`）已�
 
 只读盘点：[`evidences/inventory.txt`](evidences/inventory.txt)。基线：master 上 `workbench-live-drag`、`workbench-dnd`、`workbench-float` 共 76 条全过。
 
+## 设计审查
+
+Claude Sonnet（`claude -p`），一轮，8 条：重要 5、建议 3、阻断 0（[`evidences/design-review.txt`](evidences/design-review.txt)）。都成立，按审查改成计划第 2 稿：
+
+| # | 发现 | 处理 |
+|---|---|---|
+| 1 | 每场对象收场后置 `null`，逼出 `refusalAtEnd` 这条新交接，落在没有 e2e 的路径上 | 成立。`run` 不再可空：收场时换成空闲的一份，只带着最后一次判定给 `onEnd`。`refusalAtEnd`、键盘的例外、`nextTick` 比对、`dropFor` 多传的缓存参数都去掉 |
+| 2 | `collapseSource` 返回 `boolean` 的论证不成立：返回假时预览按候选摆、几何没收起，仍不一致 | 成立。接口不改，早退留着、写注释。审查说早退走不到，我核对后认为 `removeTab` 那一支走得到（拖动中用快捷键关掉来源、指针不动、帧还在跑，从代码推断），所以不改成抛错 |
+| 3 | 第 2、3 片改到 `fileDrop` 读的几何，选的 e2e 不含资源树拖文件 | 成立。第 2、3 片与收口加 `files-explorer.e2e.ts:550`、`:876` |
+| 4 | 帧循环的合同缺：`frame` 抛错后、`running` 的语义、`elapsed` 夹 0、`wake` 监听的次序 | 成立。四处都写进计划与 Spec 输出 21，`running` 删掉 |
+| 5 | 卡片对退化输入没有定义，零尺寸的 `from` 会让帧循环永不停；“拿起那一帧不缩”不准 | 成立。宽或高不是正数当 `null`，`elapsed` 不是有限数或为负按 0，补测试；Spec 改成“第一次 `step` 不按时间逼近” |
+| 6 | `DragCard` 把内部记账做成公开字段；README 一行不够用 | 成立。改成一张卡片一个对象（`createDragCard(...).step`），另写 `drag-card.md` 带例子 |
+| 7 | `strip-sort.ts` 搬的是读写 DOM 的代码，与“量 DOM 的不拆”矛盾 | 成立。不开这个文件，只把位移的算术 `sortedOffset` 放进 `drag-geometry.ts` |
+| 8 | `held` 里的 `Judgement` 是两个来源拼的，读者会误会 | 成立。`held` 平铺（今天的形状），注释写明 `drop` 取宿主传来的 |
+
+对待确认两条：审查同意按 `origin` 参数做卡片的换算，要求写明空位的换算第三方仍要自己写一行（已补进清单）；新增导出的形状等这一轮改完再算定下（已按第 2 稿改名）。
+
 ## 下一步
 
-设计审查（前端：应用的 `web/` 与 nb-layout，派 Claude Sonnet），阻塞等结论；处理完按切片实施。
+按第 2 稿的切片实施：第 1 片删冗余，第 2 片每场一个对象。

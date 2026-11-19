@@ -1,0 +1,197 @@
+# t37 设计审查（Claude Sonnet 5.5，claude -p，2026-11-19）：计划第 1 稿与 ui/layout-drag 输出 20、21
+# 说明：.local/agent/works/w00026-layout-package/tasks/t37-drag-controller-tidy/reports/design-review/brief.md（本地）；报告即审查者的最终回复，原样保存。
+
+t37 计划第 1 稿设计审查完成。只读，没有跑 e2e，也没有跑实验：以下结论都是读代码得出，标了“从代码推断”的没有运行验证。
+
+### 1. 每场对象收场后置 null，逼出 refusalAtEnd 这条新交接；保留到下一次拿起前更简单、风险更小
+**严重程度**：重要；**类别**：不变量
+**位置**：plan.md 76-79、61、83-84；`layout-drag.ts:1042-1060`（`onEnd`、`onActiveChange`）
+
+**现象**：
+- 计划让 `onActiveChange(false)` 把 `run` 置 null，而 `onEnd` 在它之后才调，读不到 `run.judged.refusal`。所以计划加了一个 `let refusalAtEnd`，还要写“abort 不调 onEnd、下一次收场覆盖”的时序注释。
+- 同一个选择还带来这些副作用：
+  - 键盘拿起却不收场时 `run` 不为 null，寿命只能写成“下一次拿起前一定换掉”。
+  - 两个 `nextTick` 要比对“发起时的 run”。
+  - `dropFor` 要多传一个 `previews` 参数，`fileDrop` 传 null。
+  - 每个读者都要处理 null。
+
+**为什么是问题**：
+- 今天的代码不需要这些。`onActiveChange(false)` 只清 `frozen`、`beforeCollapse`、`windowDrag` 三项（1055-1058），`editorRefusal`、`held`、排序状态等原样留到下一次 `activate`。
+- 计划把“收场后别的读者读到旧值”的担心扩成了对整个对象置 null，再用新的 `let` 补回来，等于把 14 个 `let` 里的一个换成两个。
+- `refusalAtEnd` 这条路径又恰好是计划自己说没有 e2e 的那条，新增交接就落在零覆盖处。
+- 我核对过 `finish` 的顺序（`drag-gesture.ts:260-264`：`released`、`publish(null)`、`activeChanged(false)`、`ended`、`commit`）。交接本身写得对，问题是它不必存在。
+
+**如何核实**：读 `drag-gesture.ts:253-275`，逐个对照 `run` 置 null 后的读者：
+- `onEnd`：需要交接。
+- `live.end()` 经 `placeSorted(null)`：发生在置 null 之前，没问题。
+- 两个 `nextTick`：`live.active` 为假时已经不做事，与今天等价。
+- `fileDrop`：只读 `geometry`、`stripSnapshot`、`dropFor` 的缓存，`frozen` 为 null 即可。
+- `panelRectIn`：不读每场状态。
+- 键盘的 `regions`、`stops`、`start`、`refocus`：都在 `activate` 之后。
+- `commitsUnderPointer`：在 `drop()` 里，早于 `finish`。
+
+除 `onEnd` 外都等价。
+
+**建议改法**：
+- `let run: DragRun = idleRun()`，类型里没有 null。`activate` 里 `run = freshRun(...)`。
+- `onActiveChange(false)` 里照今天只把 `run.frozen`、`run.beforeCollapse`、`run.windowDrag` 置空，这三项是 `fileDrop`、`geometry` 的读者要看的。
+- `onEnd` 直接读 `run.judged.refusal`。
+- 这样下面几项都不要了：`refusalAtEnd`、键盘例外、`nextTick` 的 run 比对、`dropFor` 的 `previews` 参数。最后一项本来就不需要，因为 `source.kind === "new"` 时 key 就是 null、不进缓存（`layout-drag.ts:728`）。
+- “漏一处就是运行时 null”的风险（plan.md 259）也一起消失。
+- 若仍要置 null，必须给 `refusalAtEnd` 这条路径一条真实运行时的测试：
+  - `area.test.ts:1339-1344` 展示了怎么在编辑区造出“未裁决输入”：两个视图同一修订各自提交，`leftView.unresolved()` 为真，`moveOutcome` 即返回 refuse。
+  - e2e 里能否取到这两个视图的句柄我没有核对（未验证）。
+  - happy-dom 里测 `createLayoutDrag` 不可行：没有布局、没有指针捕获，`elementsFromPoint` 未必有。design-10 也这么说。
+
+### 2. `collapseSource` 返回 boolean：计划写的“返回假时两边一致”不成立，重试也不是“最多几帧”，而返回假的分支今天并不存在
+**严重程度**：重要；**类别**：正确性（计划里的论证）
+**位置**：plan.md 28-35；`live-drag.ts:224-243、269-283`；`layout-drag.ts:278-288、611-613`
+
+**现象**：
+- a. `stepPreview` 里返回假时，计划让 `collapsed` 留假并“照常按候选摆预览”，说判定几何也没收起所以一致。
+  - 但预览会显示候选文档（来源已挪走，`host.show(doc)`），判定用的仍是拿起时的几何。
+  - 这正是“来源收起”要避免的“预览变了、判定几何没跟着变”（`live-drag.ts` 头注释、输出 38）。
+  - 它换掉了今天的另一种不一致（`collapsed` 为真、几何未收起），没有消除不一致。
+- b. 重试不是“最多几帧”：
+  - `stepPreview` 的收起分支在“preview 换了”之内（224-243），之后只有再换一次预览才会再试。
+  - `tearOff` 每帧试，每次都先过 `stays ??= homeStays` 再调宿主，会一直试到成功。
+  - 有界只靠失败不会持续。
+- c. 返回假的两个原因今天都走不到：
+  - `removeTab` 只在“不在文档里”时失败（`layout-doc.ts:750-757`）。`tearOff` 已经先用 `homeStays`（里面就是 `removeTab(...).ok`）判过，结构变化会整场取消（structure 键）。
+  - `frozen` 为 null 只发生在拿起到 `nextTick` 之间。第一次判定在 `start()` 里同步发布并冻结（`dropAt:777`），帧在它之后才跑。
+  - 计划自己也写了“今天走不到”。
+- d. 还有第三条“成功但没收起”的路：`collapsed()`（611-613）在 `extent` 为 null 时原样返回 `kept`，宿主仍记 `beforeCollapse`、`sourceCollapsed`。返回值覆盖不到它，所以“两份不会对不上”（plan.md 31）不是由这个返回值保证的。（`extent` 变化会让 structure 键变、整场取消，所以也走不到。）
+- e. 两条新单测要用一个返回假的假宿主，真实运行时造不出来。现有 `live-drag.test.ts:49-50` 的假宿主返回的是 `collapses.push(...)`（number），改成 boolean 要动这些桩。这与“全部原有用例不改断言”不冲突，但不是零改动。
+
+**为什么是问题**：为走不到的分支新增接口形状、两条只能靠伪造宿主的测试，并且论证有误。这与“窄场景选简单改法”相悖。
+
+**建议改法**：
+- 接口不改（保持 void），把不变量做成断言：`collapseSource` 里 `frozen === null` 或 `removeTab` 失败时抛带说明的错误（或写诊断），因为那表示 freeze 的顺序被破坏。`sourceCollapsed` 照计划删。
+- 若坚持要返回值，plan.md 30-34 的说明要改成：返回假时预览与判定几何会不一致，所以返回假等于整场取消。
+
+### 3. 第 2、3 片改到 `fileDrop`、`geometry`、`stripSnapshot` 的读法，选的 e2e 没有覆盖资源树拖文件
+**严重程度**：重要；**类别**：测试
+**位置**：plan.md 16、226-231、238；`layout-drag.ts:830-842、434-442`；`e2e/files-explorer.e2e.ts:550、876`
+
+**现象**：
+- 计划自己把“run 为 null 时的读者”当第 2 片最大的风险，列了资源树 `fileDrop`。但每片只跑 `workbench-live-drag`、`workbench-dnd`（加 float）。
+- 文件拖进编辑组、标签条插入、浮动打开的用例在 `files-explorer.e2e.ts:550、876`（“文件拖出树走工作台的落点”），收口表（238）里也没有这个文件。
+- 没有任何用例是“先做一场工作台实时布局拖动，再在同一页面做一场资源树拖文件”。而那恰好是“run 收场后 `fileDrop` 读到旧值”的路径。
+
+**为什么是问题**：第 2 片风险最高、又没有新增单测（单测在第 3 片，且测的是纯函数），能兜住它的只有 e2e，选的文件却漏了会读到 `run` 的那个调用方。
+
+**如何核实**：`grep -n fileDrop packages/neuro-book/src -r`；读 `files-explorer.e2e.ts:876` 起的用例。
+
+**建议改法**：
+- 第 2、3 片与收口加跑 files-explorer 里这两条（按文件:行号选，不超过 8 个文件）。
+- 在 876 那条之前加一步“先做一次实时布局拖动并放下”的前置，或者在 `workbench-live-drag` 里放下后紧接着做一次文件拖动。
+- 采纳第 1 条后这个风险本身也小了很多。
+
+### 4. `createFrameLoop` 的合同缺几处，会让第三方或本应用的帧循环行为与今天不同
+**严重程度**：重要；**类别**：正确性
+**位置**：plan.md 169-193、204；`live-drag.ts:298-329`；`docs/specs/ui/layout-drag.md` 输出 21
+
+**现象**：
+- a. 今天 `tick` 用 `try/finally` 复位 `ticking`（326-328）。判定里抛错（宿主回调抛出的异常不被会话吞掉，Spec 失败与恢复）后循环不死，下一次 `wake` 还能排帧。计划的循环没写“`frame` 抛错后怎样”，测试清单（204）也没有。实现时若把“正在跑”标志放在 `frame()` 调用之外或不用 `finally`，一次抛错之后 `wake` 永远不排，整场卡死。
+- b. `FrameLoop.running` 只出现在接口里（187、145），Spec 输出 21 和测试清单都没有它的语义：是“已 start 未 stop”，还是“此刻排着帧”？`live-drag` 也不用。它是没有读者的公开字段。
+- c. 今天 `elapsed` 是 `Math.max(0, now - lastFrame)`（`live-drag.ts:200`），帧时间戳可能回退。计划把 `elapsed` 交给循环算，没写循环要不要夹 0。
+- d. 时序前提：整套手感依赖 `wakeLive` 的 `pointermove` 监听比会话在按下时挂的监听先挂（`layout-drag.ts:327-332`；会话的 `attachPointer` 在 `drag-session.ts:115-118`，按下时挂在同一个 view 的捕获阶段）。这样帧循环的帧才排在手势发布的帧前面，`flush` 之前先读后写。
+  - 我核对了，换成 `loop.wake()` 后这条仍成立，因为挂监听的那一行不变，`begin` 时 `start()` 也在 `activate` 里、早于手势的任何 rAF。
+  - 但这条现在成了库使用者的义务：第三方照 README 在自己的 `pointermove` 里 `wake`、监听挂在会话之后时，只是多一次强制重算，没有任何报错。
+  - 计划把它记成“本 Task 不动”（263），Spec 输出 21、README 都没有写。
+- e. 我核对过没有问题的：
+  - 把第一帧 `elapsed` 从“离 0 的毫秒数”改成 `nominalMs`：唯一读者是 `updateCard` 的 `blend`，而第一次画卡片时 `lifting` 为真，`blend` 恒为 0，`lastFrame` 初值 0 再没有别的读者。
+  - `wake` 在 `tick` 里重入：`ticking` 为真时不排，`offer` 的结果由返回值里的 `!settled()` 接上。
+  - 帧里结束一场：`settleDrop` → `finish` → `live.end`，`source` 置 null，`tick` 提前返回，不再排。
+
+**建议改法**：
+- Spec 输出 21 与测试清单补：`frame` 抛错后 `wake` 仍能排（循环用 `try/finally`）。
+- 删掉 `running`，或写明语义并补测试。
+- 写明 `elapsed` 夹到 0。
+- 输出 21 或 README 写一句“`wake` 的监听必须先于会话的 `pointermove` 监听挂上，否则帧的读写次序反了、每帧多一次强制重算”。
+
+### 5. `stepDragCard` / `liftDragCard` 对退化输入没有定义；零尺寸的 `from` 会让追赶永远不收敛，帧循环永不停
+**严重程度**：重要；**类别**：正确性（从代码推断，未运行）
+**位置**：plan.md 151-157；`live-drag.ts:188-193、201、214`
+
+**现象**：
+- 今天的 `grab` 是 `clampUnit((pointer.x - rect.left) / width)`。`liftDragCard` 是公开函数，`from` 宽或高为 0 时：
+  - 除零得 Infinity 或 NaN（0/0），`clampUnit(NaN)` 仍是 NaN。
+  - NaN 进入 `chase`，`approach` 里 `Math.abs(to - from) < stillPx` 对 NaN 为假，一直是 NaN。
+  - `settling` 的 `chase.x !== 0` 恒真，`written` 里有 NaN 时相等比较恒假。于是每帧都写、每帧都排下一帧。
+- 应用里不会发生，因为 `rectOf` 只返回宽高为正的矩形（`layout-drag.ts:165-169`）。第三方传一个隐藏元素的矩形就会发生。`elapsed` 为负或 NaN、`target` 为 0 同类。Spec 输出 20 与测试清单都没有写。
+- Spec 输出 20 写“拿起那一帧不缩、不追”：今天的 `approach` 在离目标不到 `stillPx` 时无论 `blend` 是否为 0 都取终点，所以拿起时尺寸已在目标 0.1 以内，那一帧会直接到终点。
+- “第一次交回矩形之前不算时间”与今天的 `lifting = cardSize === null` 等价。我核对了 `written` 与 `cardSize` 总是同处清零：`begin` 里重置，`end` 里只清 `cardSize`，但 `begin` 会再清 `written`。所以这一句写成“不按时间缩”更准。
+
+**建议改法**：
+- 定下规则并补测试：`from` 宽或高不为正就当 null（用 `fallback`、抓上沿中点）；`elapsed` 非有限或为负按 0。
+- Spec 输出 20 把“不缩、不追”改成“这一帧不按时间逼近”。
+
+### 6. `DragCard` 把 `written`、`sizeDue` 做成公开字段，第三方得自己带着内部记账；README 只加一行表格不够用
+**严重程度**：建议；**类别**：代码质量
+**位置**：plan.md 139-157、206-209
+
+**现象**：
+- `DragCard` 的 `written`、`sizeDue` 是“上一次交回的矩形”“尺寸下一次该写的时刻”，纯属 `stepDragCard` 的内部记账，却是 readonly 公开字段。第三方可以伪造它们，也被迫理解它们；每帧返回新对象也是一次分配。
+- 一个第三方要接出跟手的卡片，至少要知道这几件事：
+  - 什么时候 lift。
+  - 每帧传什么 `elapsed` 与 `target`。
+  - 返回 `rect` 为 null 表示不用写。
+  - 卡片不要了就丢掉 `DragCard` 重新 lift。
+  - `wake` 的监听次序（第 4 条 d）。
+- 这些在计划里只有一行“我要做 X 用哪个导出”的表格。
+
+**建议改法**：
+- 做成闭包式的 `createDragCard(from, pointer, fallback, options)`，返回 `{step(input): {rect, settling}, readonly size}`。应用今天的 `updateCard` 本来就是闭包状态，抽出来更直接。
+- 把 `written`、`sizeDue`、`chase` 藏起来；README 给一段 15 行左右的完整例子：建循环、拿起、`frame` 里 `step` 并写 `rect`、卡片不要了的处理、`wake` 的监听。
+- 公开面少两个字段，也少一类误用。
+
+### 7. `strip-sort.ts` 的边界与“量 DOM 的部分不拆”自相矛盾，第 3 片写成“只搬与改参数”不够
+**严重程度**：建议；**类别**：代码质量（兼测试）
+**位置**：plan.md 105-109、116、230；`layout-drag.ts:338-395`
+
+**现象**：
+- 计划把 `sortTargetOf`、`releaseSorted`、`measureSorted` 搬进 `strip-sort.ts`。但它们读 DOM（`querySelector`、`getBoundingClientRect`、`style.translate`）、`options.doc`/`titleOnly`、`geometry()`（要读 `run.frozen`）、`bandAt`、`bandElement`、`session.state`，并且写 DOM。这正是计划在 116 行说“不拆”的那一类。
+- 搬过去需要一份 deps 接口或工厂（`createStripSort(deps)`），计划没有定形状。`freeze` 里写 `sortGrab`（589）还要跨模块写 `run.sort.grab`。
+- 真正纯的只有 `sortedOffset` 那十几行算术。测试清单里“元素上的位移被 Vue 换掉后按元素上的值算”测的是 DOM 读取（`translate` 解析），不在纯函数里。纯函数只能测 `resting = rect - written` 的算术，这条测试名说多了。
+
+**建议改法**：
+- 只把 `sortedOffset` 作为纯函数放进 `drag-geometry.ts`（不另开 `strip-sort.ts`），`measureSorted`、`sortTargetOf` 留在 `layout-drag.ts`。
+- “被 Vue 换掉”那条要么删，要么改成 happy-dom 里对元素 style 的小测（那里 `style.translate` 可读写，不需要布局）。
+
+### 8. `held` 存的 Judgement 是两个来源拼出来的
+**严重程度**：建议；**类别**：代码质量
+**位置**：plan.md 52、74-75；`layout-drag.ts:287、296`
+
+**现象**：
+- `held` 里的 `drop` 是宿主传来的（live 的 `offered`，来源收起的预览时是 null），`rejected`、`refusal` 取自 `run.judged`。
+- 计划写成 `held: {point, judged: Judgement}`，但这个 Judgement 的 `drop` 与 `run.judged.drop` 可以不同（预览是 `source-removed` 时宿主传 null，而 `judged.drop` 仍是最后一次判定）。读者会以为 `held.judged` 就是某一次判定。
+- 与今天逐帧等价。我核对了：宿主回调只在 `tick` 里 `stepPreview` 调用，那时 `resolve` 已经返回并写入 `judged`；`offer` 在 `resolveDrop` 里被调用时只是 `wake`，不会同步进 `collapseSource`。
+
+**建议改法**：`held` 写成 `{point, drop, rejected, refusal}` 平铺（今天的形状），或在构造处 `{...run.judged, drop}` 并写注释说明 `drop` 取宿主传来的。
+
+### 未发现问题的方面
+- **第 1 片删 `sourceCollapsed`**：它与 `beforeCollapse !== null` 总是同写同清（`expandSource` 在 `beforeCollapse` 为 null 时早退，而 `sourceCollapsed` 为真必有 `beforeCollapse`）。唯一读者 `candidateDoc` 在拿起期间读，收场后 `sourceCollapsed` 不清也无人读。等价。
+- **第 1 片删 `LiveDrag.origin()`**：packages 下 grep 只有接口声明一处，没有调用方。
+- **第 2 片 Judgement 逐帧等价**：
+  - `resolve` 开头清两个 `let` 等于每次判定新建 Judgement。
+  - `held` 路径从 `held` 恢复等于返回 `held.judged`。
+  - `onEnd` 读到的是 `drop()` 里最后一次 `evaluate` 的结果，和今天读 `editorRefusal` 一致。
+  - `cancel`（structure-changed）走 `cancelled`，`onEnd` 忽略 `refusal`，同今天。
+- **`abort` 之后 `refusalAtEnd` 残留**：不会被下一场误读，每场收场一定先写 `refusalAtEnd` 再 `onEnd`。
+- **`nextTick` 回调**：“同一个微任务里换场”走不到，计划的结论成立。
+- **`stepDragCard` 与 `updateCard` 的 `lifting` 等价、第一帧 `elapsed` 改 `nominalMs`、`wake` 重入、帧里收场**：见第 4、5 条的核对。
+- **提案与计划的偏差**：只有 `origin` 一处，计划已记入待确认。
+
+### 数量与对两条待确认的判断
+重要 5 条（1、2、3、4、5），建议 3 条（6、7、8），阻断 0 条。
+
+- **待确认“卡片位置的换算按 `origin` 参数做、不另出互转函数”**：可接受。
+  - 提案“先不做”里的互转是通用的 `GridRect` 与 `GridDropRect` 互转，卡片这一处在库里换算后第三方确实不用再写。
+  - 但要写明局限：`live-drag.ts:260` 空位（`slot`）的同一种换算仍留在应用里，第三方还得自己写这一行。
+  - 若以后加互转函数，`stepDragCard` 不动，代价小，同意。
+- **待确认“新增公开导出”**：形状先别追认。
+  - 第 6 条建议把 `DragCard` 改成闭包式、藏起 `written` 与 `sizeDue`，第 4、5 条要补合同。
+  - 这些都是改名与收窄，第一档未发布，改的代价低，但等形状定下来再算“已确认”。
+
+有效发现的编号：1、2、3、4、5、6、7、8

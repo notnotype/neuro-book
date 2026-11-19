@@ -77,7 +77,7 @@ updated: 2026-11-05
 
 第一档剩下 [t37](tasks/t37-drag-controller-tidy/README.md) → [t32](tasks/t32-entry-menu-move-to/README.md) → [t14](tasks/t14-splitter-migration/README.md)。
 
-2026-11-19：[t37](tasks/t37-drag-controller-tidy/README.md) 写计划第 1 稿：应用里每场拖动的状态收进一个对象、判定几何与键盘停靠点拆成纯函数并补单元测试；卡片的逐帧步进与帧循环抽进 nb-layout（Spec `ui/layout-drag` 输出 20、21，planned）。设计审查（Claude Sonnet）中。
+2026-11-19：[t37](tasks/t37-drag-controller-tidy/README.md) 写计划第 1 稿：应用里每场拖动的状态收进一个对象、判定几何与键盘停靠点拆成纯函数并补单元测试；卡片的逐帧步进与帧循环抽进 nb-layout（Spec `ui/layout-drag` 输出 20、21，planned）。设计审查（Claude Sonnet）一轮 8 条都成立，改成第 2 稿：每场的对象不可空、收场换成空闲的一份；卡片做成一张一个对象（`createDragCard`）；帧循环补抛错、时间戳回退与监听次序的合同。
 
 2026-11-19：[t34](tasks/t34-unified-errors/README.md) 完成，合入 master（`6faf07664`，审查修正 `063828e6d`、`8a8407189`）。[t38](tasks/t38-grid-diagnostics/README.md) 计划第 1 稿的设计审查回来了（常规 6 条、拉远看 5 条）。
 
