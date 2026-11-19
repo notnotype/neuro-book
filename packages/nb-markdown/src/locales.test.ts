@@ -36,6 +36,8 @@ const LEGACY: Readonly<Record<string, Legacy>> = {
     "image.none": {"zh-CN": "{name}（不显示）", "en-US": "{name} (not shown)"},
     "image.failed": {"zh-CN": "{name} 读不出", "en-US": "Cannot read {name}"},
     "sticker.preview": {"zh-CN": "查看大图：{name}", "en-US": "View larger: {name}"},
+    "sticker.previewTitle": {"zh-CN": "{name} · {pack}", "en-US": "{name} · {pack}"},
+    "sticker.copy": {"zh-CN": "复制写法", "en-US": "Copy code"},
     // display/static-views.ts 的 HTML_LABELS
     "htmlEmbed.render": {"zh-CN": "渲染", "en-US": "Render"},
     "htmlEmbed.viewSource": {"zh-CN": "查看源码", "en-US": "View Source"},

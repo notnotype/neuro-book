@@ -87,6 +87,9 @@ export interface ResolvedSticker {
     release(): void;
 }
 
+/** 表情预览里长边不到它的图放大到它（docs/specs/agent/stickers.md 输出 46，ImagePreviewDialog 的 `minSize`）。 */
+export const STICKER_PREVIEW_MIN_SIZE = 320;
+
 /** 点开大图预览时交给宿主的（docs/specs/agent/stickers.md 输出 46）。 */
 export interface StickerPreview {
     /** 写法的原文，“复制写法”复制它。 */

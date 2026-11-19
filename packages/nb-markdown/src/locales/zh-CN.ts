@@ -27,9 +27,11 @@ export default {
         none: "{{name}}（不显示）",
         failed: "{{name}} 读不出",
     },
-    /** 表情（`language/syntax/sticker/view.ts`）：可点开大图时的可访问名称（docs/specs/agent/stickers.md 输出 46）。 */
+    /** 表情的大图预览（docs/specs/agent/stickers.md 输出 46）：可访问名称（`language/syntax/sticker/view.ts`）、宿主的预览对话框的标题与复制按钮。 */
     sticker: {
         preview: "查看大图：{{name}}",
+        previewTitle: "{{name}} · {{pack}}",
+        copy: "复制写法",
     },
     /** 展示器里可渲染 HTML 的源码卡片（`display/static-views.ts`）。 */
     htmlEmbed: {

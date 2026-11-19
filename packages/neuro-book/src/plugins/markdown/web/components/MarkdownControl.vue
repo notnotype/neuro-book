@@ -10,6 +10,9 @@ import "@notnotype/nb-markdown/markdown.css";
 import {createMarkdownEditorExtensions, FRONTMATTER_REQUEST, listComments, markdownEditingActions, MarkdownProperties, markShownComment, REFRESH_REFERENCE_LINKS, releaseSelection, setFrontmatterEol} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
+import {STICKER_PREVIEW_MIN_SIZE} from "@notnotype/nb-markdown";
+import type {StickerPreview} from "@notnotype/nb-markdown";
+import {ImagePreviewDialog} from "@notnotype/nb-ui/components";
 import {codecFor, frontmatterOf, isWholeFrontmatter} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
@@ -109,11 +112,23 @@ function openLink(href: string): void {
  * 方言外观（引用小块、图片）要的宿主信息：地址按函数取，换文档不重建扩展；`context` 带着注入的翻译端口，节点视图挂的图片
  * 跟着端口换语言。引用小块的悬停提示是算装饰时取的字符串，不跟着端口，换语言时由下面的 `watch` 重算。
  */
+/**
+ * 单击正文里表情的图打开的大图（docs/specs/agent/stickers.md 输出 46）。对话框关上时保留 `stickerPreview`，关闭动画期间图不消失；
+ * 焦点由 Dialog 还给打开前的正文。
+ */
+const stickerPreview = shallowRef<StickerPreview | null>(null);
+const stickerPreviewOpen = ref(false);
+function previewSticker(sticker: StickerPreview): void {
+    stickerPreview.value = sticker;
+    stickerPreviewOpen.value = true;
+}
+
 const viewHost: MarkdownViewHost = {
     base: () => bound?.address.value ?? null,
     context: markdownViewContext(text),
     assets: inject(markdownAssetsKey, null),
     stickers: inject(markdownStickersKey, null) ?? undefined,
+    previewSticker,
     report: (message, error) => report?.("markdown.view.failed", message, error),
     chips: nbookChips,
     imageMissing: NBOOK_IMAGE_MISSING,
@@ -124,7 +139,7 @@ const viewHost: MarkdownViewHost = {
 /**
  * 扩展里放的宿主：读“当前这次挂载”的 `viewHost`。编辑器实例存在标签的实例槽里，控件卸载（拆分、移动标签）后在新位置重挂
  * 时复用它，扩展不重建，所以扩展里不能直接放某一次挂载的 `viewHost`（它的 `base()` 读的 `bound` 在那次卸载后是 null）。
- * 事件发生时才读：粘贴与点链接的处理都在事件里取 `host.images`、`host.openLink`。
+ * 事件发生时才读：粘贴、点链接与点表情的处理都在事件里取 `host.images`、`host.openLink`、`host.previewSticker`。
  */
 interface HostTarget {
     current: MarkdownViewHost | null;
@@ -151,6 +166,9 @@ const indirectHost = (target: HostTarget): MarkdownViewHost => ({
     },
     get stickers(): MarkdownViewHost["stickers"] {
         return target.current?.stickers;
+    },
+    get previewSticker(): MarkdownViewHost["previewSticker"] {
+        return target.current?.previewSticker;
     },
     get report(): MarkdownViewHost["report"] {
         return target.current?.report;
@@ -704,6 +722,15 @@ onBeforeUnmount(() => {
             </div>
         </div>
         <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" :margin-drawn="marginDrawn" :base="viewHost.base" :media="media" />
+        <ImagePreviewDialog
+            v-if="stickerPreview !== null"
+            v-model:open="stickerPreviewOpen"
+            :src="stickerPreview.url"
+            :alt="stickerPreview.packTitle === undefined ? stickerPreview.name : text.t('sticker.previewTitle', {name: stickerPreview.name, pack: stickerPreview.packTitle})"
+            :copy-text="stickerPreview.raw"
+            :copy-label="text.t('sticker.copy')"
+            :min-size="STICKER_PREVIEW_MIN_SIZE"
+        />
     </div>
 </template>
 

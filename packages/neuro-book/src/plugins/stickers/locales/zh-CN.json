@@ -190,6 +190,9 @@
         "results": "搜索结果",
         "empty": "还没有表情包",
         "create": "在设置里新建",
-        "noResult": "没有叫“{{query}}”的表情"
+        "noResult": "没有叫“{{query}}”的表情",
+        "preview": "查看大图：{{name}}",
+        "previewTitle": "{{name}} · {{pack}}",
+        "copy": "复制写法"
     }
 }

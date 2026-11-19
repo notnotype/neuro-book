@@ -190,6 +190,9 @@
         "results": "Results",
         "empty": "No sticker packs yet",
         "create": "Create one in Settings",
-        "noResult": "No sticker named “{{query}}”"
+        "noResult": "No sticker named “{{query}}”",
+        "preview": "View larger: {{name}}",
+        "previewTitle": "{{name}} · {{pack}}",
+        "copy": "Copy code"
     }
 }

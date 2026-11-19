@@ -21,6 +21,8 @@ export default {
     },
     sticker: {
         preview: "View larger: {{name}}",
+        previewTitle: "{{name}} · {{pack}}",
+        copy: "Copy code",
     },
     htmlEmbed: {
         render: "Render",
